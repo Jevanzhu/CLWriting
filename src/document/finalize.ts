@@ -10,7 +10,7 @@
 import { join } from 'node:path'
 import { existsSync, readFileSync } from 'node:fs'
 import { readChapter } from '../format/chapters.js'
-import { readManifest, writeManifest } from './manifest.js'
+import { readManifest, writeManifest, withManifestLock } from './manifest.js'
 import { invalidateTreeIndex } from './tree.js'
 import { computeRevision } from './revision.js'
 import { writeVersion, VERSIONS_DIR_NAME } from './version.js'
@@ -49,84 +49,90 @@ export function finalizeRevision(bookRoot: string, docId: string): FinalizeOutco
   if (!existsSync(absPath)) return { ok: false, code: 'NOT_FOUND', error: '文档不存在' }
   const currentRev = computeRevision(absPath)
 
-  // 幂等：当前指纹 == 已记录的定稿基线 → skipped，不重复写版本
-  const manifest = readManifest(manifestPath)
-  const entry = manifest.entries.get(docId)
-  if (entry?.finalizedRevision === currentRev) {
-    return { ok: true, status: 'final', skipped: true }
-  }
-
-  // 章号 + 标题（版本元信息用）；解析失败从文件名推断
-  const rd = readChapter(absPath)
-  const chapterNo = rd.ok ? rd.chapter.章号 : inferChapterFromName(relPath)
-  const title = rd.ok && rd.chapter.标题 ? rd.chapter.标题 : basenameNoExt(relPath)
-
-  // 定稿正文章（长篇有布线）判定——ee-P1-3 防吃书闸与 ee-P1-4 账本回写共用同一条件，
-  // 保持两处口径一致（任一单独漂移都会让闸门拦了不回写、或回写了不拦）。
-  const isChapter = relPath.startsWith('写作/正文/')
-  const hasWiring = existsSync(join(bookRoot, '布线'))
-  const isWiredChapter = isChapter && hasWiring && chapterNo > 0
-
-  // ee-P1-3：手工/批量定稿防吃书闸——正文章跑账本「两端闭合」两条结构红
-  // （声明了没做 / 做了没声明），非空则阻断定稿。此前红项只在 AI 自愈循环（retry）拦截，
-  // 作者手工定稿主路径失守（README「账实不符阻断定稿」失效）。只拦这两条：复读/文风/
-  // 禁词等其余红项不拦定稿，定稿前树红点/机检面板仍可见。
-  if (isWiredChapter) {
-    const blockers = finalGateBlockers(bookRoot, absPath, chapterNo)
-    if (blockers.length > 0) {
-      return { ok: false, code: 'LEAD_GATE', error: blockers.join('\n') }
+  // X-5：清单 RMW（读基线 → 幂等判定 → 写版本/回写账本 → 写基线）全程持清单锁——
+  // CLI 与 GUI 并发定稿/保存同书时，后写者整文件重写会吞掉先写者的更新；ee-P1-4 的
+  // 「回写成功才落基线」顺序在锁内原样保持（applyLeadUpdates/写版本为毫秒级文件 IO，
+  // 远小于锁超时）。持锁段内的 return 即本函数返回值。
+  return withManifestLock(manifestPath, (): FinalizeOutcome => {
+    // 幂等：当前指纹 == 已记录的定稿基线 → skipped，不重复写版本
+    const manifest = readManifest(manifestPath)
+    const entry = manifest.entries.get(docId)
+    if (entry?.finalizedRevision === currentRev) {
+      return { ok: true, status: 'final', skipped: true }
     }
-  }
 
-  // ① 写定稿版本（永久保留，pinned）
-  try {
-    const content = readFileSync(absPath, 'utf-8')
-    const versionsDir = join(bookRoot, '工作区', VERSIONS_DIR_NAME)
-    const split = splitFrontMatter(content)
-    writeVersion(versionsDir, docId, content, {
-      origin: 'finalize',
-      reason: `定稿 ch:${String(chapterNo).padStart(4, '0')} ${title}`,
-      baseRevision: currentRev,
-      words: countWords(split ? split.body : content),
-      pinned: true,
-    })
-  } catch (e) {
-    return { ok: false, code: 'WRITE_ERROR', error: `写版本失败：${e instanceof Error ? e.message : String(e)}` }
-  }
+    // 章号 + 标题（版本元信息用）；解析失败从文件名推断
+    const rd = readChapter(absPath)
+    const chapterNo = rd.ok ? rd.chapter.章号 : inferChapterFromName(relPath)
+    const title = rd.ok && rd.chapter.标题 ? rd.chapter.标题 : basenameNoExt(relPath)
 
-  // W-P1-3 右端闭环（决策 2）：定稿正文章（长篇有布线）→ 已确认的 账本推进.md 回写布线履历并清空。
-  // 非正文文档（设定/章纲等）/ 无布线的独立短篇 → 跳过（账本推进仅对长篇正文有意义）。
-  // ee-P1-4：回写提前到 manifest 基线落盘**之前**，失败 → LEAD_WRITE_ERROR（manifest 不落盘，
-  // 重试必然重新回写）。这推翻了 X-P2-5 的 best-effort 决策：叠加上面「指纹==基线 → skipped」
-  // 幂等短路，原顺序下回写中途失败（如磁盘满）后基线已落盘、账本推进.md 未清空，下次定稿
-  // skipped 永不再回写——账本履历**永久丢失**。skipped 造成的永久丢失 > 误导作者重试的害处
-  // （X-P2-5 当初担心的「实际已生效，报失败误导重试」不再成立：现在报失败后重试是真实
-  // 需要的，且重试安全——版本追加无害，回写自带同章号+动词+证据去重）。
-  if (isWiredChapter) {
-    try {
-      applyLeadUpdates(bookRoot, chapterNo)
-    } catch (e) {
-      return {
-        ok: false,
-        code: 'LEAD_WRITE_ERROR',
-        error: `账本履历回写失败（定稿未生效，修复后可重试）：${e instanceof Error ? e.message : String(e)}`,
+    // 定稿正文章（长篇有布线）判定——ee-P1-3 防吃书闸与 ee-P1-4 账本回写共用同一条件，
+    // 保持两处口径一致（任一单独漂移都会让闸门拦了不回写、或回写了不拦）。
+    const isChapter = relPath.startsWith('写作/正文/')
+    const hasWiring = existsSync(join(bookRoot, '布线'))
+    const isWiredChapter = isChapter && hasWiring && chapterNo > 0
+
+    // ee-P1-3：手工/批量定稿防吃书闸——正文章跑账本「两端闭合」两条结构红
+    // （声明了没做 / 做了没声明），非空则阻断定稿。此前红项只在 AI 自愈循环（retry）拦截，
+    // 作者手工定稿主路径失守（README「账实不符阻断定稿」失效）。只拦这两条：复读/文风/
+    // 禁词等其余红项不拦定稿，定稿前树红点/机检面板仍可见。
+    if (isWiredChapter) {
+      const blockers = finalGateBlockers(bookRoot, absPath, chapterNo)
+      if (blockers.length > 0) {
+        return { ok: false, code: 'LEAD_GATE', error: blockers.join('\n') }
       }
     }
-  }
 
-  // ② manifest 更新定稿基线（entry 无则补建——旧书未登记首次定稿时落盘）。
-  // ee-P1-4：必须等账本回写成功后才写——基线在位即触发上方 skipped 幂等，先写基线会把
-  // 回写失败变成「下次定稿永不再回写」的永久丢失窗口。
-  if (!entry) {
-    manifest.entries.set(docId, { id: docId, nodeType: 'document', path: relPath, parentId: null })
-  }
-  const next = manifest.entries.get(docId)!
-  next.finalizedRevision = currentRev
-  next.finalizedAt = new Date().toISOString()
-  writeManifest(manifestPath, manifest)
+    // ① 写定稿版本（永久保留，pinned）
+    try {
+      const content = readFileSync(absPath, 'utf-8')
+      const versionsDir = join(bookRoot, '工作区', VERSIONS_DIR_NAME)
+      const split = splitFrontMatter(content)
+      writeVersion(versionsDir, docId, content, {
+        origin: 'finalize',
+        reason: `定稿 ch:${String(chapterNo).padStart(4, '0')} ${title}`,
+        baseRevision: currentRev,
+        words: countWords(split ? split.body : content),
+        pinned: true,
+      })
+    } catch (e) {
+      return { ok: false, code: 'WRITE_ERROR', error: `写版本失败：${e instanceof Error ? e.message : String(e)}` }
+    }
 
-  invalidateTreeIndex(bookRoot)
-  return { ok: true, status: 'final', skipped: false }
+    // W-P1-3 右端闭环（决策 2）：定稿正文章（长篇有布线）→ 已确认的 账本推进.md 回写布线履历并清空。
+    // 非正文文档（设定/章纲等）/ 无布线的独立短篇 → 跳过（账本推进仅对长篇正文有意义）。
+    // ee-P1-4：回写提前到 manifest 基线落盘**之前**，失败 → LEAD_WRITE_ERROR（manifest 不落盘，
+    // 重试必然重新回写）。这推翻了 X-P2-5 的 best-effort 决策：叠加上面「指纹==基线 → skipped」
+    // 幂等短路，原顺序下回写中途失败（如磁盘满）后基线已落盘、账本推进.md 未清空，下次定稿
+    // skipped 永不再回写——账本履历**永久丢失**。skipped 造成的永久丢失 > 误导作者重试的害处
+    // （X-P2-5 当初担心的「实际已生效，报失败误导重试」不再成立：现在报失败后重试是真实
+    // 需要的，且重试安全——版本追加无害，回写自带同章号+动词+证据去重）。
+    if (isWiredChapter) {
+      try {
+        applyLeadUpdates(bookRoot, chapterNo)
+      } catch (e) {
+        return {
+          ok: false,
+          code: 'LEAD_WRITE_ERROR',
+          error: `账本履历回写失败（定稿未生效，修复后可重试）：${e instanceof Error ? e.message : String(e)}`,
+        }
+      }
+    }
+
+    // ② manifest 更新定稿基线（entry 无则补建——旧书未登记首次定稿时落盘）。
+    // ee-P1-4：必须等账本回写成功后才写——基线在位即触发上方 skipped 幂等，先写基线会把
+    // 回写失败变成「下次定稿永不再回写」的永久丢失窗口。
+    if (!entry) {
+      manifest.entries.set(docId, { id: docId, nodeType: 'document', path: relPath, parentId: null })
+    }
+    const next = manifest.entries.get(docId)!
+    next.finalizedRevision = currentRev
+    next.finalizedAt = new Date().toISOString()
+    writeManifest(manifestPath, manifest)
+
+    invalidateTreeIndex(bookRoot)
+    return { ok: true, status: 'final', skipped: false }
+  })
 }
 
 /**

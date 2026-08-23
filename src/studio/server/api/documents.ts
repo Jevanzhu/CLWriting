@@ -30,6 +30,10 @@ interface DocumentCtx {
   userDataPath: string | null
 }
 
+/** X-23（第五十六轮）：批量定稿单次条数上限——每条全量读改写 manifest，超大批量
+ *  同步循环会长时间阻塞事件循环；400 为长篇全书待定稿章数的量级上界。 */
+const BATCH_FINALIZE_MAX_DOCS = 400
+
 /** per-bookRoot DocumentService 缓存（跨请求共享串行队列）。 */
 const services = new Map<string, DocumentService>()
 
@@ -198,6 +202,9 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
   // ── 批量定稿（P2-PROD-2：一键定稿 ≤目标章号 的全部 revision/draft 章）────────
   // body { docIds: string[] }；逐个 finalizeRevision（同步串行，天然无 SQLite 写锁冲突）。
   // 单条失败不中断：返回逐条结果，前端汇总 toast。
+  // X-23（第五十六轮）：条数上限——每条 finalizeRevision 各自全量读改写 manifest，
+  // 无上限的大批量同步循环会阻塞事件循环数秒（SSE/心跳全停）。400 为长篇全书待定稿
+  // 章数的量级上界，超出 fail-fast 提示分批。
   defineRoute('books.documents.batch-finalize', {
     method: 'POST',
     path: '/api/books/:name/documents/batch-finalize',
@@ -217,6 +224,9 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
         const docIds = Array.isArray(body?.docIds) ? body.docIds : null
         if (!docIds || docIds.length === 0 || docIds.some((d) => typeof d !== 'string')) {
           return replyError(res, 400, 'BAD_INPUT', 'docIds 必须为非空字符串数组')
+        }
+        if (docIds.length > BATCH_FINALIZE_MAX_DOCS) {
+          return replyError(res, 400, 'BAD_INPUT', `批量定稿一次最多 ${BATCH_FINALIZE_MAX_DOCS} 章（本次 ${docIds.length} 章），请分批提交`)
         }
         const summarized: string[] = []
         const results = docIds.map((docId) => {

@@ -87,6 +87,11 @@ vi.mock('electron', () => {
     reload(): void {
       this.reloaded++
     }
+    // X-26：render-process-gone 封顶路径经 webContents.loadURL 载提示页——委托 win 层
+    // 记录（win.loaded 断言 data: URL 用），与 BrowserWindow.loadURL 同构
+    loadURL(u: string): Promise<void> {
+      return this.win.loadURL(u)
+    }
     session = { setProxy: async () => undefined }
   }
   class FakeWin {
@@ -808,5 +813,28 @@ describe('kk-P2-8：退出与边界分支', () => {
     expect(M.windows.length).toBe(windows0) // 启动失败不开窗
     expect(M.quitCalls).toBeGreaterThan(quit0) // onError → app.quit
     M.forkBehavior = 'ready'
+  })
+
+  // X-26（第五十六轮）：裸 reload 无退避——崩溃风暴下无限 reload 打转（每次 reload 起
+  // 一新渲染进程旋即又崩）；对齐 server child 退避协议轻量版：连续 3 次自愈后再崩 →
+  // 停 reload 改载 data: 提示页。fresh module 保崩溃计数从零起（不受首 describe 用例
+  // 对首窗崩溃次数的残留影响；置于文件尾——resetModules 会重绑 ipcHandle，其后无
+  // 依赖原模块 handler 的用例）。
+  it('X-26：连续 3 次自愈后仍崩 → 停止 reload，改载 data: 提示页（退避封顶）', async () => {
+    const windows0 = M.windows.length
+    vi.resetModules()
+    await import('../../src/desktop/main.js')
+    await new Promise((r) => setImmediate(r))
+    await new Promise((r) => setImmediate(r))
+    const win = M.windows[windows0]!
+    expect(win, 'fresh 模块应已开主窗').toBeTruthy()
+    const h = win.webContents.handlers['render-process-gone']![0]! as (e: unknown, d: { reason: string; exitCode: number }) => void
+    for (let i = 0; i < 3; i++) h({}, { reason: 'oom', exitCode: 5 })
+    expect(win.webContents.reloaded).toBe(3) // 封顶前逐次自愈 reload
+    const loaded0 = win.loaded.length
+    h({}, { reason: 'oom', exitCode: 5 }) // 第 4 次崩溃：封顶
+    expect(win.webContents.reloaded).toBe(3) // 不再 reload（无限循环止步）
+    expect(win.loaded.length).toBe(loaded0 + 1) // 改载静态提示页
+    expect(String(win.loaded[win.loaded.length - 1])).toMatch(/^data:text\/html/)
   })
 })

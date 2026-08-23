@@ -86,6 +86,9 @@ export const useRewriteStore = defineStore('rewrite', () => {
     reqGen++ // M-11：在途 run 的结果/错误回填全部作废
     result.value = null
     error.value = null
+    // R-1 第十六轮修复族（learn/check/review 均有，rewrite 漏网，X-2 补齐）：
+    // 切书在途改写被作废后 loading 不复位 → 改写面板按钮永久禁用
+    loading.value = false
   }
 
   return { result, loading, error, run, accept, reject, clear }

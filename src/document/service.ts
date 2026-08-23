@@ -29,7 +29,7 @@ import { computeRevision, type Revision } from './revision.js'
 import { layoutOf, roleOf } from './layout.js'
 import { appendAborted, appendMovePending, appendPending, appendSettled, findUnsettled, type JournalAnyPending } from './journal.js'
 import { writeSnapshot, DEFAULT_SNAPSHOT_POLICY, readGlobalSnapshotPolicy, type SnapshotPolicy } from './snapshot.js'
-import { readManifest, writeManifest, upsertEntry, type ManifestEntry } from './manifest.js'
+import { readManifest, writeManifest, upsertEntry, withManifestLock, type ManifestEntry } from './manifest.js'
 import { SaveQueue } from './queue.js'
 import { generateDocId, legacyId } from './stable-id.js'
 import { invalidateTreeIndex, scanBookTree, type TreeNode } from './tree.js'
@@ -379,14 +379,17 @@ export class DocumentService {
     }
   }
 
-  /** 条件性更新清单：书已有清单 + 条目已存在 → 刷新 path；否则 no-op（保存不建清单）。 */
+  /** 条件性更新清单：书已有清单 + 条目已存在 → 刷新 path；否则 no-op（保存不建清单）。
+   *  X-5：RMW 全程持清单锁（跨进程互斥）。 */
   private maybeUpdateManifest(docId: string, relPath: string): void {
     if (!existsSync(this.manifestPath)) return
-    const m = readManifest(this.manifestPath)
-    const entry = m.entries.get(docId)
-    if (!entry || entry.path === relPath) return
-    entry.path = relPath
-    writeManifest(this.manifestPath, m)
+    withManifestLock(this.manifestPath, () => {
+      const m = readManifest(this.manifestPath)
+      const entry = m.entries.get(docId)
+      if (!entry || entry.path === relPath) return
+      entry.path = relPath
+      writeManifest(this.manifestPath, m)
+    })
   }
 
   /** 路径安全：批 6 统一委托 resolveWithinRoot（symlink 防越出 + fail-closed，
@@ -680,22 +683,26 @@ export class DocumentService {
     return hit
   }
 
-  /** 清单登记/upsert（无清单则建——结构性操作触发，W0-1 §4.2）。 */
+  /** 清单登记/upsert（无清单则建——结构性操作触发，W0-1 §4.2）。X-5：RMW 持清单锁。 */
   private upsertManifestEntry(docId: string, relPath: string): void {
-    const m = existsSync(this.manifestPath) ? readManifest(this.manifestPath) : { version: 1, entries: new Map<string, ManifestEntry>() }
-    upsertEntry(m, { id: docId, nodeType: 'document', path: relPath, parentId: null })
-    mkdirSync(dirname(this.manifestPath), { recursive: true })
-    writeManifest(this.manifestPath, m)
+    withManifestLock(this.manifestPath, () => {
+      const m = existsSync(this.manifestPath) ? readManifest(this.manifestPath) : { version: 1, entries: new Map<string, ManifestEntry>() }
+      upsertEntry(m, { id: docId, nodeType: 'document', path: relPath, parentId: null })
+      mkdirSync(dirname(this.manifestPath), { recursive: true })
+      writeManifest(this.manifestPath, m)
+    })
   }
 
-  /** 清单 path 更新（move/rename 用，docId 不变）。 */
+  /** 清单 path 更新（move/rename 用，docId 不变）。X-5：RMW 持清单锁。 */
   private updateManifestPath(docId: string, newPath: string): void {
     if (!existsSync(this.manifestPath)) return
-    const m = readManifest(this.manifestPath)
-    const entry = m.entries.get(docId)
-    if (!entry) return
-    entry.path = newPath
-    writeManifest(this.manifestPath, m)
+    withManifestLock(this.manifestPath, () => {
+      const m = readManifest(this.manifestPath)
+      const entry = m.entries.get(docId)
+      if (!entry) return
+      entry.path = newPath
+      writeManifest(this.manifestPath, m)
+    })
   }
 
   /** 新建文档的默认内容（最小 frontmatter；具体字段由作者编辑或 batch 流程填）。 */
@@ -807,9 +814,12 @@ export class DocumentService {
       // 回收站 manifest / 主清单不一致不影响数据安全，下次操作自然修复）
       try {
         if (existsSync(this.manifestPath)) {
-          const m = readManifest(this.manifestPath)
-          m.entries.delete(docId)
-          writeManifest(this.manifestPath, m)
+          // X-5：RMW 持清单锁（跨进程互斥）
+          withManifestLock(this.manifestPath, () => {
+            const m = readManifest(this.manifestPath)
+            m.entries.delete(docId)
+            writeManifest(this.manifestPath, m)
+          })
         }
       } catch { /* 主清单更新失败：树重建时会发现文件不存在自动清理 */
       }

@@ -12,6 +12,16 @@ import {
   createDoc,
   deleteDoc,
   finalizeDoc,
+  getContentRevisioned,
+  copyDoc,
+  renameDoc,
+  moveDoc,
+  updateChapterMetaDoc,
+  updateDocMeta,
+  batchFinalizeDocs,
+  listTrash,
+  restoreTrash,
+  purgeTrash,
 } from '../../../src/studio/web-next/src/api/documents'
 import { boot, ApiError } from '../../../src/studio/web-next/src/api/client'
 
@@ -130,5 +140,74 @@ describe('documents api · 写', () => {
     await finalizeDoc('书A', 'd1')
     expect(calls[0]!.init?.method).toBe('POST')
     expect(calls[0]!.url).toBe('/api/books/%E4%B9%A6A/documents/d1/finalize')
+  })
+})
+
+describe('documents api · 树 CRUD 与批量定稿（X-6 补缺）', () => {
+  it('getContentRevisioned：与 getContent 同 URL，返回 content + revision 指纹', async () => {
+    stubFetch(() => ok({ content: '正文', revision: 'sha256:1' }))
+    const r = await getContentRevisioned('书A', 'a.md')
+    expect(r).toEqual({ content: '正文', revision: 'sha256:1' })
+    expect(calls[0]!.url).toBe(`/api/books/${encodeURIComponent('书A')}/file?file=a.md`)
+  })
+
+  it('copyDoc：POST /copy，body 只带 relPath（源 docId 走 URL）', async () => {
+    stubFetch(() => ok({ ok: true, docId: 'n2', path: '卷1/第1章 副本.md', revision: 'sha256:2' }))
+    await copyDoc('书A', 'd1', '卷1/第1章 副本.md')
+    expect(calls[0]!.init?.method).toBe('POST')
+    expect(calls[0]!.url).toBe(`/api/books/${encodeURIComponent('书A')}/documents/d1/copy`)
+    expect(JSON.parse(String(calls[0]!.init?.body))).toEqual({ relPath: '卷1/第1章 副本.md' })
+  })
+
+  it('renameDoc / moveDoc：PATCH op 口径（rename→newName / move→toDir）', async () => {
+    stubFetch(() => ok({ ok: true }))
+    await renameDoc('书A', 'd1', '新章名')
+    expect(calls[0]!.init?.method).toBe('PATCH')
+    expect(JSON.parse(String(calls[0]!.init?.body))).toEqual({ op: 'rename', newName: '新章名' })
+
+    await moveDoc('书A', 'd1', '卷2')
+    expect(calls[1]!.init?.method).toBe('PATCH')
+    expect(JSON.parse(String(calls[1]!.init?.body))).toEqual({ op: 'move', toDir: '卷2' })
+  })
+
+  it('updateChapterMetaDoc / updateDocMeta：meta 展开 vs fm 嵌套两种负载形态', async () => {
+    stubFetch(() => ok({ ok: true }))
+    await updateChapterMetaDoc('书A', 'd1', { 标题: '新标题', 章号: 3 })
+    expect(JSON.parse(String(calls[0]!.init?.body))).toEqual({ op: 'meta', 标题: '新标题', 章号: 3 })
+
+    await updateDocMeta('书A', 'd1', { 标签: ['伏笔'] })
+    expect(JSON.parse(String(calls[1]!.init?.body))).toEqual({ op: 'fm', meta: { 标签: ['伏笔'] } })
+  })
+
+  it('batchFinalizeDocs：POST batch-finalize，body 只带 docIds 数组', async () => {
+    stubFetch(() => ok({ ok: true, results: [{ docId: 'd1', ok: true }, { docId: 'd2', ok: false, error: 'x' }] }))
+    const r = await batchFinalizeDocs('书A', ['d1', 'd2'])
+    expect(calls[0]!.url).toBe(`/api/books/${encodeURIComponent('书A')}/documents/batch-finalize`)
+    expect(JSON.parse(String(calls[0]!.init?.body))).toEqual({ docIds: ['d1', 'd2'] })
+    expect(r.results).toHaveLength(2)
+  })
+})
+
+describe('documents api · 回收站（X-6 补缺）', () => {
+  it('listTrash：GET /trash 取 entries；服务端无 entries 字段 → 空数组兜底', async () => {
+    stubFetch(() => ok({ entries: [{ id: 't1', path: 'a.md' }] }))
+    const r = await listTrash('书A')
+    expect(calls[0]!.init?.method).toBe('GET')
+    expect(calls[0]!.url).toBe(`/api/books/${encodeURIComponent('书A')}/trash`)
+    expect(r).toEqual([{ id: 't1', path: 'a.md' }])
+
+    stubFetch(() => ok({}))
+    expect(await listTrash('书A')).toEqual([])
+  })
+
+  it('restoreTrash / purgeTrash：POST restore 与 DELETE 口径', async () => {
+    stubFetch(() => ok({ ok: true }))
+    await restoreTrash('书A', 't1')
+    expect(calls[0]!.init?.method).toBe('POST')
+    expect(calls[0]!.url).toBe(`/api/books/${encodeURIComponent('书A')}/trash/t1/restore`)
+
+    await purgeTrash('书A', 't1')
+    expect(calls[1]!.init?.method).toBe('DELETE')
+    expect(calls[1]!.url).toBe(`/api/books/${encodeURIComponent('书A')}/trash/t1`)
   })
 })

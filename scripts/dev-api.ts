@@ -53,6 +53,20 @@ process.env['CLW_DEV_CORS'] = '1'
 
 const server = startServer({ port: PORT, workDir, userDataPath })
 
+// X-22（第五十六轮）：listen 失败（端口被占等）此前无 'error' 监听——EventEmitter
+// 无监听的 error 事件直接裸抛整段栈，开发者看到的是崩溃而非原因。补人话报错：
+// EADDRINUSE 点名端口占用（最常见：已有一个 dev-api 在跑），其余如实透传后退出。
+server.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`  ❌  端口 ${PORT} 已被占用（EADDRINUSE）——可能已有一个 dev-api 在跑。`)
+    console.error(`     请先停掉占用进程，或修改 scripts/dev-api.ts 顶部 PORT 后重试。`)
+  } else {
+    console.error(`  ❌  API server 启动失败：${err.message}`)
+    console.error(err)
+  }
+  process.exit(1)
+})
+
 server.on('listening', () => {
   console.log()
   console.log(`  🚀  API server ready  →  http://127.0.0.1:${PORT}`)

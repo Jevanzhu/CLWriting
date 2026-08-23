@@ -17,7 +17,7 @@ import { existsSync, readFileSync, renameSync, rmSync, mkdirSync } from 'node:fs
 import { join, dirname } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { resolveWithinRoot } from '../fs/safe-path.js'
-import { readManifest, writeManifest, upsertEntry, type ManifestEntry } from './manifest.js'
+import { readManifest, writeManifest, upsertEntry, withManifestLock, type ManifestEntry } from './manifest.js'
 import { type DocumentRole } from './layout.js'
 import { invalidateTreeIndex } from './tree.js'
 
@@ -142,21 +142,24 @@ export function restoreTrash(bookRoot: string, id: string): RestoreResult {
   // P2-BE-4：rename 成功后 manifest 更新改 best-effort（与 doTrash 一致——失败不致文件失踪）
   try {
     const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
-    const m = existsSync(manifestPath)
-      ? readManifest(manifestPath)
-      : { version: 1, entries: new Map<string, ManifestEntry>() }
-    upsertEntry(m, {
-      id: entry.id,
-      nodeType: 'document',
-      path: entry.originalPath,
-      parentId: null,
-      // W-P2-1：恢复时带回定稿基线，还原定稿态（防线/状态机/手改检测都依赖它）
-      ...(entry.finalizedRevision
-        ? { finalizedRevision: entry.finalizedRevision, ...(entry.finalizedAt ? { finalizedAt: entry.finalizedAt } : {}) }
-        : {}),
+    // X-5：RMW 持清单锁（跨进程互斥，与 service/finalize 同锁）
+    withManifestLock(manifestPath, () => {
+      const m = existsSync(manifestPath)
+        ? readManifest(manifestPath)
+        : { version: 1, entries: new Map<string, ManifestEntry>() }
+      upsertEntry(m, {
+        id: entry.id,
+        nodeType: 'document',
+        path: entry.originalPath,
+        parentId: null,
+        // W-P2-1：恢复时带回定稿基线，还原定稿态（防线/状态机/手改检测都依赖它）
+        ...(entry.finalizedRevision
+          ? { finalizedRevision: entry.finalizedRevision, ...(entry.finalizedAt ? { finalizedAt: entry.finalizedAt } : {}) }
+          : {}),
+      })
+      mkdirSync(dirname(manifestPath), { recursive: true })
+      writeManifest(manifestPath, m)
     })
-    mkdirSync(dirname(manifestPath), { recursive: true })
-    writeManifest(manifestPath, m)
   } catch { /* 主清单写失败不阻断恢复——树重建时自动补录 */
   }
 

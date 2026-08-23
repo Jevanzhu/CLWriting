@@ -9,6 +9,8 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
+import { acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
+import { log } from '../log/index.js'
 
 /** 清单条目：身份 + 排序投影。folder 无 status。 */
 export interface ManifestEntry {
@@ -164,4 +166,51 @@ export function writeManifest(filePath: string, manifest: Manifest): void {
     lines.push(JSON.stringify(e))
   }
   atomicWriteFile(filePath, lines.join('\n') + '\n', { fsync: true })
+}
+
+// ── X-5（第五十六轮）：清单 RMW 跨进程互斥 ────────────────────────
+
+/** 清单锁等待超时（毫秒）——J7 journal 锁同量级；测试注入缩短保快。 */
+export let MANIFEST_LOCK_TIMEOUT_MS = 2_000
+
+/** 测试注入钩子（生产零调用）。 */
+export function __setManifestLockTimeoutForTest(ms: number): void {
+  MANIFEST_LOCK_TIMEOUT_MS = ms
+}
+
+/** 进程内已持锁登记（manifestPath → 重入计数 + release）——计数式可重入防自锁：
+ *  嵌套获取（如持锁段内再触发清单登记的调用链）只加深计数不再抢锁，最外层返回时释放。 */
+const heldManifestLocks = new Map<string, { depth: number; release: () => void }>()
+
+/**
+ * 清单 RMW 互斥段（X-5）：J7 已锁 journal/账本/task-gate，清单的 read→mutate→write
+ * 此前全程无互斥——CLI 与 GUI 双进程同书并发时后写者整文件重写吞掉先写者的更新。
+ * 锁文件 `<manifestPath>.lock`（复用 fs/cross-process-lock）。
+ *
+ * 语义对齐 J7 journal 先例：锁超时**降级裸写** + log.warn 留痕（清单是自愈型元数据——
+ * 树重建按磁盘现状收口，锁饿死时宁裸写不阻断保存/定稿主流程）。
+ * 进程内重入走计数（同进程嵌套获取不死锁）；跨进程嵌套（他进程持锁）正常等待。
+ */
+export function withManifestLock<T>(manifestPath: string, fn: () => T): T {
+  const held = heldManifestLocks.get(manifestPath)
+  if (held) {
+    held.depth++
+    try {
+      return fn()
+    } finally {
+      held.depth--
+    }
+  }
+  const release = acquireCrossProcessLockWithTimeout(`${manifestPath}.lock`, MANIFEST_LOCK_TIMEOUT_MS)
+  if (!release) {
+    log.warn('manifest', `清单锁超时，降级裸写（${manifestPath}）——并发互斥窗口回到无锁口径`)
+    return fn()
+  }
+  heldManifestLocks.set(manifestPath, { depth: 1, release })
+  try {
+    return fn()
+  } finally {
+    heldManifestLocks.delete(manifestPath)
+    release()
+  }
 }

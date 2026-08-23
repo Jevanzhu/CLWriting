@@ -3,8 +3,14 @@
  *
  * /api/boot 注入 token;写端点(POST/PUT/DELETE/PATCH)无 token / 错 token → 403;对 token 放行进 dispatch。
  * 与 CORS Origin 校验叠加(双重防跨站)。
+ *
+ * 约定(X-35)：断言 token 闸本身的请求必须走 node:http rawRequest——vitest setup
+ * (helpers/studio-token-setup.ts)全局包装了 fetch,会给 GET /api/* 自动注入 token,
+ * 用 fetch 断「无凭据→403」会被包装层救活造成假绿。唯一例外：beforeAll 探 /api/boot
+ * 取 token 走包装 fetch 也安全(包装层对 /api/boot 豁免不注入)。
  */
 import http from 'node:http'
+import net from 'node:net'
 import type { AddressInfo } from 'node:net'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -22,16 +28,41 @@ function rawRequest(
   path: string,
   headers: Record<string, string> = {},
   body = '',
-): Promise<{ status: number }> {
+): Promise<{ status: number; text: string }> {
   return new Promise((resolve) => {
     const u = new URL(baseUrl)
     const req = http.request({ host: u.hostname, port: u.port, path, method, headers }, (res) => {
-      res.resume()
-      res.on('end', () => resolve({ status: res.statusCode ?? 0 }))
+      let data = ''
+      res.on('data', (c) => (data += c.toString('utf8')))
+      res.on('end', () => resolve({ status: res.statusCode ?? 0, text: data }))
     })
-    req.on('error', () => resolve({ status: 0 }))
+    req.on('error', () => resolve({ status: 0, text: '' }))
     if (body) req.write(body)
     req.end()
+  })
+}
+
+/** X-20：raw socket 直发请求行——构造 absolute-form 等不经 http.request 归一化的形态 */
+function rawSocketRequestLine(requestLine: string): Promise<{ status: number; text: string }> {
+  return new Promise((resolve, reject) => {
+    const address = server!.address() as AddressInfo
+    const sock = net.connect(address.port, '127.0.0.1')
+    const timer = setTimeout(() => reject(new Error('2s 内无响应')), 2_000)
+    sock.on('connect', () => {
+      sock.write(`${requestLine}\r\nHost: 127.0.0.1:${address.port}\r\n\r\n`)
+    })
+    sock.on('data', (d) => {
+      clearTimeout(timer)
+      const raw = d.toString('utf8')
+      const statusLine = raw.split('\r\n')[0] ?? ''
+      const bodyStart = raw.indexOf('\r\n\r\n')
+      sock.destroy()
+      resolve({ status: Number(statusLine.split(' ')[1] ?? 0), text: bodyStart === -1 ? '' : raw.slice(bodyStart + 4) })
+    })
+    sock.on('error', (e) => {
+      clearTimeout(timer)
+      reject(e)
+    })
   })
 }
 
@@ -55,7 +86,6 @@ afterAll(async () => {
 
 describe('P0 session token(写端点 defense-in-depth)', () => {
   it('GET /api/boot 返非空 token', () => {
-    expect(token.length).toBeGreaterThan(10)
     expect(token.length).toBeGreaterThan(10)
   })
 
@@ -147,5 +177,49 @@ describe('P0 session token(写端点 defense-in-depth)', () => {
       body,
     )
     expect(r.status).toBe(413)
+  })
+})
+
+// X-19（第五十六轮）：GET 闸豁免改显式路径表——原 endsWith('/stream') 后缀匹配下任何
+// 尾段撞 /stream 的路径都静默失闸；豁免面收敛为 /api/boot + /api/books/:name/stream。
+describe('X-19: GET token 闸豁免显式路径表', () => {
+  it('SSE 端点 /api/books/:name/stream 仍豁免——过 index 闸后被 stream.ts 自身凭据闸拦截（error=forbidden）', async () => {
+    const r = await rawRequest('GET', '/api/books/t/stream', {})
+    expect(r.status).toBe(403)
+    // index 闸文案是「无效或缺失的 studio token」，stream.ts 自身闸是 'forbidden'——
+    // 拿到后者即证明请求穿过了 index 闸豁免（而非被 index 闸拦截）
+    expect(JSON.parse(r.text)).toEqual({ code: 'FORBIDDEN', error: 'forbidden' })
+  })
+
+  it('尾段撞车的非 SSE 路径不再豁免：无 token → 403；对 token 过闸后走 dispatch 404', async () => {
+    // 修复前：endsWith('/stream') 命中 → 豁免放行 → dispatch 无此路由回 404（失闸）
+    const no = await rawRequest('GET', '/api/notexist/stream', {})
+    expect(no.status).toBe(403)
+    expect((JSON.parse(no.text) as { error: string }).error).toContain('studio token')
+    const yes = await rawRequest('GET', '/api/notexist/stream', { 'x-studio-token': token })
+    expect(yes.status).toBe(404)
+  })
+
+  it('/api/boot 豁免不受影响；深一级的 boot 路径不误豁免', async () => {
+    expect((await rawRequest('GET', '/api/boot', {})).status).toBe(200)
+    expect((await rawRequest('GET', '/api/boot/x', {})).status).toBe(403)
+  })
+})
+
+// X-20（第五十六轮）：absolute-form 请求行——origin-form（以 / 起始）是 node http 服务端
+// 唯一合法形态；absolute-form 此前绕过 /api 前缀判断落静态分支回 200 HTML。
+describe('X-20: absolute-form 请求行入口拒绝', () => {
+  it('GET http://…/api/* → 400（非 200 HTML、非 404）', async () => {
+    const address = server!.address() as AddressInfo
+    const r = await rawSocketRequestLine(`GET http://127.0.0.1:${address.port}/api/books HTTP/1.1`)
+    expect(r.status).toBe(400)
+    // raw socket 侧 body 是 chunked 编码（带块长前缀），断言子串而非 JSON.parse
+    expect(r.text).toContain('"code":"BAD_INPUT"')
+    expect(r.text).not.toContain('<!doctype') // 不是静态分支的 200 HTML
+  })
+
+  it('对照：origin-form 同路径行为不变（无 token → 403 过闸校验）', async () => {
+    const r = await rawSocketRequestLine('GET /api/books HTTP/1.1')
+    expect(r.status).toBe(403)
   })
 })

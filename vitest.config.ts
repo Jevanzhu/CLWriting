@@ -68,8 +68,11 @@ export default defineConfig({
         'src/{!(studio),studio/!(web-next)}/**': { statements: 82, branches: 78, functions: 93, lines: 82 },
         // M-7（第十轮）：api 层单列覆盖桶——此前十余 api 文件落进聚合桶被 stores 高覆盖
         // 均值掩盖（单文件回退对阈值门不可见，参数/响应映射逻辑零守护）；阈值 = 实测基线
-        // −2pp 向下取整（2026-08-22 实测：lines 8.66 / branches 69.35），只防回退不追高
-        'src/studio/web-next/src/api/**': { lines: 6, branches: 67 },
+        // −2pp 向下取整，只防回退不追高。X-6（第五十六轮批 D）：批 A 补 api 直测后
+        // 2026-08-24 实测 lines 25.17 / branches 88.77——lines 门随本轮基线提到 23
+        // （防回退下限，批 A 覆盖只会更高不会更低）；branches 门暂留 67（2026-08-22
+        // 基线 69.35 −2pp），主评审收口时可按新基线同步收紧
+        'src/studio/web-next/src/api/**': { lines: 23, branches: 67 },
         'src/studio/web-next/src/{composables,shared,stores}/**': { lines: 43, branches: 81 },
       },
     },

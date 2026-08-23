@@ -62,6 +62,17 @@ const CLW_CSP = [
   "connect-src 'self'", // 只连本地 server（SSE + fetch）
 ].join('; ')
 
+/** X-26（第五十六轮）：渲染进程崩溃自动重载上限（对齐 server child 退避协议的轻量版：
+ *  封顶次数与 serverManager 的 RESTART_MAX_ATTEMPTS=3 同值）——崩溃风暴下无限 reload
+ *  只会打转（每次 reload 即一新渲染进程起又崩），封顶后停 reload 改载下方静态提示页。 */
+const RENDERER_CRASH_MAX_RELOADS = 3
+/** 崩溃封顶后的白屏提示页（data URL 自包含——渲染层/本地 server 均不可信时仍可展示） */
+const RENDERER_CRASH_NOTICE_HTML =
+  '<!doctype html><meta charset="utf-8"><body style="font-family:system-ui;padding:40px;line-height:1.8;color:#333">' +
+  '<h2>页面连续崩溃，自动恢复已停止</h2>' +
+  '<p>渲染进程短时间内多次异常退出，已停止自动重载。</p>' +
+  '<p>请重启 CLWriting；未保存的内容在重启后仍可从自动保存找回。</p></body>'
+
 // userData 强制统一到定值（大写 CLWriting）。
 // Electron 默认目录名跟随 app.name——dev（package.json name=clwriting）与打包
 // （electron-builder productName=CLWriting）大小写不一致，macOS/Windows 大小写不敏感
@@ -454,10 +465,22 @@ async function bootstrap(): Promise<void> {
   mainWindow.webContents.on('preload-error', (_e, p, err) => {
     log.error('desktop', `preload 加载失败：${p}`, err)
   })
-  // dd-P3（C-P3-15）：渲染进程崩溃兜底——GPU/内存崩了不能停在白屏，重载窗口自愈
+  // dd-P3（C-P3-15）：渲染进程崩溃兜底——GPU/内存崩了不能停在白屏，重载窗口自愈。
+  // X-26（第五十六轮）：裸 reload 无退避——崩溃风暴下无限 reload 打转（每次 reload 起
+  // 一新渲染进程旋即又崩）；对齐 server child 退避协议的轻量版：连续崩溃计数封顶后
+  // 停 reload，改载静态提示页留白屏说明（计数随窗口闭包走，新窗口/重 bootstrap 归零）
+  let rendererCrashes = 0
   const win = mainWindow
   win.webContents.on('render-process-gone', (_e, details) => {
-    log.error('desktop', `渲染进程崩溃（${details.reason}，exit=${details.exitCode}），重载窗口自愈`)
+    rendererCrashes++
+    if (rendererCrashes > RENDERER_CRASH_MAX_RELOADS) {
+      log.error('desktop', `渲染进程连续崩溃 ${RENDERER_CRASH_MAX_RELOADS} 次自愈后仍异常（${details.reason}），停止自动重载——载提示页等待人工处理`)
+      if (!win.isDestroyed()) {
+        void win.webContents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(RENDERER_CRASH_NOTICE_HTML)}`)
+      }
+      return
+    }
+    log.error('desktop', `渲染进程崩溃（${details.reason}，exit=${details.exitCode}），重载窗口自愈（第 ${rendererCrashes}/${RENDERER_CRASH_MAX_RELOADS} 次）`)
     if (!win.isDestroyed()) win.webContents.reload()
   })
   // 纵深防御监听与 dev 代理已由 createSecureWindow 统一挂载；此处 await 一次保证

@@ -13,6 +13,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
 import { readJson, reply, HttpError, replyError } from '../http.js'
+import { revisionError } from './revision-guard.js' // X-25：三处拷贝收敛单源（原 P4 本地实现）
 import {
   loadProviders,
   saveProviders,
@@ -52,15 +53,6 @@ function parseRagInput(
   if (!/^https?:\/\//i.test(endpoint)) return { ok: false, error: '嵌入服务地址须以 http(s):// 开头' }
   if (!model) return { ok: false, error: '嵌入模型必填' }
   return { ok: true, name, endpoint, model, apiKey }
-}
-
-/** P4：写端点并发守卫——expectedRevision 缺失放行（旧客户端/脚本）；存在且不匹配 → 409（与 /api/providers 同口径） */
-function revisionError(expected: unknown, current: number): string | null {
-  if (expected === undefined || expected === null) return null
-  if (typeof expected !== 'number' || expected !== current) {
-    return '配置已在其他窗口被修改，请刷新'
-  }
-  return null
 }
 
 export function registerRagProviderRoutes(ctx: RagProvidersCtx): void {

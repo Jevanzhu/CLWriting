@@ -84,16 +84,21 @@ function selectStep(step: OnboardStep): void {
 
 async function gen(): Promise<void> {
   if (!active.value) return
+  // M-4（X-27 补齐）：同 save——入口捕获 + await 后复检，生成在途切书后死实例的
+  // 迟到 toast/面板状态不再落到新书界面（旧书结果本就该作废）
+  const book = props.bookName
   phase.value = 'loading'
   err.value = null
   content.value = ''
   try {
-    const r = await onboardAi(props.bookName, { step: active.value, premise: storyPremise.value })
+    const r = await onboardAi(book, { step: active.value, premise: storyPremise.value })
+    if (!stillOn(book)) return
     content.value = r.content
     lastWords.value = r.words
     phase.value = 'result'
     ui.toast(`${STEP_LABEL[active.value]} 生成（${r.words} 字）`, 'success')
   } catch (e) {
+    if (!stillOn(book)) return
     err.value = friendlyError(e)
     ui.toast(err.value, 'error')
     phase.value = 'detail'

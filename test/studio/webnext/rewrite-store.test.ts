@@ -114,4 +114,22 @@ describe('rewrite: clear', () => {
     expect(s.result).toBeNull()
     expect(s.error).toBeNull()
   })
+
+  it('X-2：clear 于 loading=true（run 在途）时调用 → loading 复位 false（改写面板不永久禁用）', async () => {
+    let resolveRun: (v: unknown) => void = () => {}
+    rewriteMock.mockReturnValue(
+      new Promise((r) => {
+        resolveRun = r
+      }),
+    )
+    const s = useRewriteStore()
+    const p = s.run('book1', 'doc_1', '改写', '')
+    expect(s.loading).toBe(true) // 前置：run 在途
+    s.clear() // 切书：作废在途改写
+    expect(s.loading).toBe(false)
+    resolveRun({ ok: true, mode: 'whole', original: '', rewritten: 'x', diff: [] })
+    await p // 迟到结果不回填（代守卫），loading 仍 false
+    expect(s.loading).toBe(false)
+    expect(s.result).toBeNull()
+  })
 })

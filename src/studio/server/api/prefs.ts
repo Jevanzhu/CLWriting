@@ -22,6 +22,7 @@ import { readFileSync, mkdirSync, existsSync } from 'node:fs'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
+import { revisionError } from './revision-guard.js' // X-25：三处拷贝收敛单源（原 GG-P2-7 本地实现）
 import { resolveBook } from '../book-context.js'
 import { log } from '../../../log/index.js'
 
@@ -162,7 +163,7 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
         } catch { /* 文件损坏视作空：revision 0，本次整体重写（与原直写行为一致） */ }
       }
       const current = typeof disk.revision === 'number' ? disk.revision : 0
-      const revErr = revisionError(body['expectedRevision'], current)
+      const revErr = revisionError(body['expectedRevision'], current, '全局偏好')
       if (revErr) return replyError(res, 409, 'REVISION_CONFLICT', revErr)
       const next = current + 1
       mkdirSync(dirname(r.path), { recursive: true })
@@ -179,14 +180,4 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
     }
   },
   })
-}
-
-/** GG-P2-7：写端点并发守卫（照 providers.ts P4 同款结构）——expectedRevision 缺失放行
- *  （旧客户端/脚本向后兼容）；存在且与盘上 revision 不匹配 → 409 文案 */
-function revisionError(expected: unknown, current: number): string | null {
-  if (expected === undefined || expected === null) return null
-  if (typeof expected !== 'number' || expected !== current) {
-    return '全局偏好已在其他窗口被修改，请刷新'
-  }
-  return null
 }

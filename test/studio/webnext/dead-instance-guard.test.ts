@@ -175,4 +175,56 @@ describe('M-4（第十轮）：OnboardView 死实例守卫', () => {
     expect(loadSpy).toHaveBeenLastCalledWith('书A')
     expect(ui.toasts.some((t) => t.msg === '已保存')).toBe(true)
   })
+
+  // ── X-27：gen() 对齐 stillOn 模式 ──
+
+  it('gen：生成在途切书 → 死实例不 toast（成功/失败路径均守卫）', async () => {
+    const ui = useUiStore()
+    booksMocks.getConfig.mockResolvedValue({ kind: 'long' })
+    const tree = useTreeStore()
+    vi.spyOn(tree, 'load').mockResolvedValue(undefined)
+
+    const wrapper = mount(OnboardView, { props: { bookName: '书A' } })
+    await flushPromises()
+
+    // 成功路径：切书后迟到结果不 toast
+    const req = pending<{ content: string; words: number }>()
+    onboardMocks.onboardAi.mockReturnValue(req.promise)
+    wrapper.findComponent(OnboardStepPanel).vm.$emit('gen')
+    expect(onboardMocks.onboardAi).toHaveBeenCalledWith('书A', { step: 'synopsis', premise: '' })
+
+    mockRoute.params.name = '书B' // 生成在途切书
+    req.resolve({ content: 'A 书的梗概', words: 100 })
+    await flushPromises()
+    expect(ui.toasts.some((t) => t.msg.includes('生成'))).toBe(false)
+
+    // 失败路径：切书后迟到错误同样不 toast（pending 助手只有 resolve，这里需 reject）
+    let rejectErr!: (e: Error) => void
+    onboardMocks.onboardAi.mockReturnValueOnce(
+      new Promise<never>((_, rej) => {
+        rejectErr = rej
+      }),
+    )
+    wrapper.findComponent(OnboardStepPanel).vm.$emit('gen')
+    mockRoute.params.name = '书C'
+    rejectErr(new Error('AI 超时'))
+    await flushPromises()
+    expect(ui.toasts.length).toBe(0)
+  })
+
+  it('gen：未切书 → 守卫不误伤：结果落面板 + 生成 toast', async () => {
+    const ui = useUiStore()
+    booksMocks.getConfig.mockResolvedValue({ kind: 'long' })
+    const tree = useTreeStore()
+    vi.spyOn(tree, 'load').mockResolvedValue(undefined)
+
+    const wrapper = mount(OnboardView, { props: { bookName: '书A' } })
+    await flushPromises()
+
+    onboardMocks.onboardAi.mockResolvedValue({ content: '梗概内容', words: 88 })
+    wrapper.findComponent(OnboardStepPanel).vm.$emit('gen')
+    await flushPromises()
+
+    expect(ui.toasts.some((t) => t.msg.includes('生成（88 字）'))).toBe(true)
+  })
 })

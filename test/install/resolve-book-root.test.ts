@@ -32,7 +32,10 @@ beforeAll(() => {
   process.env.TMPDIR = isoTmp
 })
 afterAll(() => {
-  process.env.TMPDIR = ORIG_TMPDIR
+  // 原环境无 TMPDIR（部分 Linux）时恢复为「删除变量」而非赋值——直接赋 undefined
+  // 会落成字符串 "undefined"，污染后续 tmpdir() 调用
+  if (ORIG_TMPDIR === undefined) delete process.env.TMPDIR
+  else process.env.TMPDIR = ORIG_TMPDIR
   rmSync(isoTmp, { recursive: true, force: true })
 })
 

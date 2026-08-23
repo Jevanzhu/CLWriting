@@ -12,7 +12,8 @@
  * ready 后稳定 stabilityResetMs 计数清零（U-2/S-9——偶发单次崩溃不累计到 3 误弹）；
  * 重启钉住最近一次成功端口 + 同一内存 token（S-1：前端恢复链只认一次 boot 的同源
  * 端口，token 换代即永久 403）；重启期 EADDRINUSE 等握手失败按退避继续（§3.4 时序
- * 3）；shutdown/stopChild/start 三面取消挂起重启（S-5：退出途中 fork 新 child 成孤儿
+ * 3）；重启全程占 starting 通道（X-3：握手在途窗口内并发 start 复用在途轮不双
+ * fork）；shutdown/stopChild/start 三面取消挂起重启（S-5：退出途中 fork 新 child 成孤儿
  * 直接打挂验收门 4）。
  *
  * fork 以依赖注入暴露（测试换假件，不 mock electron 整模块）；入口路径按本模块
@@ -284,13 +285,23 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
     const opts = lastOpts
     const port = pinnedPort
     if (!opts || port === null) return
+    // X-3（第五十六轮）：重启全程复用 starting 互斥通道——此前 doRestart 直连 launch
+    // 不置 starting，restartTimer 已触发且握手未完成的窗口内 start() 三守卫
+    // （starting/active/hasPendingRestart）皆空 → 再 fork 双 child，后完成者赢得
+    // active、先完成者孤儿无人杀。占位后并发 start 同参数复用在途重启轮（含钉住
+    // 端口语义）、参数不一致沿用 E-9a fail-closed reject；finally 清空归还通道。
+    startingOpts = opts
+    starting = (async () => launch(opts, String(port)))()
     try {
-      const got = await launch(opts, String(port))
+      const got = await starting
       logger.info('server-manager', `studio server 已自动重启（端口 ${got} 钉住）`)
     } catch (e) {
       // 重启期握手失败（EXIT/EADDRINUSE 残留端口等）按退避继续（§3.4 时序 3）
       logger.error('server-manager', '自动重启握手失败，按退避序列继续', e)
       scheduleRestart()
+    } finally {
+      starting = null
+      startingOpts = null
     }
   }
 

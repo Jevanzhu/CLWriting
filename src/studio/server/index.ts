@@ -125,6 +125,18 @@ function buildRoutes(
   return routes
 }
 
+/**
+ * X-19（第五十六轮）：GET token 闸豁免清单——显式路径表（精确模式匹配）。
+ * 原实现用 `path.endsWith('/stream')` 后缀匹配：任何尾段恰为 /stream 的端点（包括
+ * 将来新增的路由命名撞车）都会静默失闸。豁免面收敛为两条精确模式：
+ * - /api/boot：前端无 token 时的 bootstrap 通道，token 本身由它下发；
+ * - /api/books/:name/stream：SSE 端点（EventSource 不能带头），经此处放行后由
+ *   stream.ts 自带的一次性 ticket / query token 双凭据闸校验；:name 为单路径段
+ *   （[^/]+），与 router.ts :param 捕获口径一致。
+ * 健康检查无独立顶层端点（health.ts 为书级业务端点，不豁免）；非 /api/ 静态资源不受影响。
+ */
+const GET_TOKEN_EXEMPT_PATHS: readonly RegExp[] = [/^\/api\/boot$/, /^\/api\/books\/[^/]+\/stream$/]
+
 export interface StudioServerOptions {
   port: number
   host?: string
@@ -266,6 +278,13 @@ export function startServer(opts: StudioServerOptions): http.Server {
   // 实际监听端口（listening 后缓存，供 Host 白名单校验；0 = 未监听）
   let listeningPort = 0
   const server = http.createServer(async (req: IncomingMessage, res: ServerResponse) => {
+    // X-20（第五十六轮）：请求行 URL 只收 origin-form（以 / 起始）。origin-form 是
+    // node http 服务端唯一合法形态；absolute-form（GET http://…/api/*）此前绕过下方
+    // /api 前缀判断落静态分支回 200 HTML——入口直接拒 400，不给绕前缀判断的形态留通道。
+    if (typeof req.url !== 'string' || !req.url.startsWith('/')) {
+      replyError(res, 400, 'BAD_INPUT', 'bad request')
+      return
+    }
     // DNS rebinding 防御（U-P2-6）：Host 头必须精确匹配本机回环地址 + 实际监听端口。
     // GET 端点无 Origin 头可校验——攻击页把域名二次解析到 127.0.0.1 后，同源 GET
     // 即可全量读取书稿/配置；Host 校验切断该路径（写路径已有 Origin+token 双闸）
@@ -310,13 +329,11 @@ export function startServer(opts: StudioServerOptions): http.Server {
     // 页面可无凭据全量读取书稿/配置/对话历史（Host 校验只挡远端网页，挡不住本机进程）。
     // 与写闸同源校验（x-studio-token 头，或 query token——SSE/EventSource 不能带头，
     // 与 stream.ts 既有 query 凭据口径一致）、常量时间比较、失败 403 FORBIDDEN 同口径。
-    // 豁免清单：/api/boot（前端无 token 时的 bootstrap 通道，token 本身由它下发）；
-    // /api/books/:name/stream（SSE 端点自带双凭据闸：一次性 ticket 或 query token，
-    // 见 stream.ts——EventSource 不能带头，经此处放行后由其自身校验）；健康检查无独立
-    // 顶层端点（health.ts 为书级业务端点，不豁免）；非 /api/ 静态资源不受影响。
-    if (req.method === 'GET' && req.url?.startsWith('/api/')) {
+    // 豁免清单 = 上方 GET_TOKEN_EXEMPT_PATHS 显式路径表（X-19：原 endsWith('/stream')
+    // 后缀匹配是路由命名耦合的静默失闸模式）。
+    if (req.method === 'GET' && req.url.startsWith('/api/')) {
       const path = urlPathOnly(req.url)
-      if (path !== '/api/boot' && !path.endsWith('/stream')) {
+      if (!GET_TOKEN_EXEMPT_PATHS.some((re) => re.test(path))) {
         // R-19：畸形请求行（absolute-form 等）由 parseRequestUrl 统一兜为 null——
         // 此处无 query token 可取，直接走 header 校验
         const queryToken = parseRequestUrl(req)?.searchParams.get('token') ?? undefined

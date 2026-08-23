@@ -15,6 +15,13 @@
  * Atomics.wait 同步微睡重试（Node 主线程可用；争用窗口是文件 IO 的微秒~毫秒级，
  * 阻塞时长由调用方超时封顶）。同进程嵌套获取同一锁会自锁——调用方需保证进程内
  * 已有串行化（如 calls.ts 的 writeChains）再进跨进程锁。
+ *
+ * X-4（第五十六轮）：stale 接管的「判定 → rmSync」窗口残余竞态——双 contender
+ * 先后判同一死 pid stale 时，后到者的 rmSync 可能删掉先到者刚创建的新锁（双持锁）。
+ * 缓解：接管前随机 jitter（去相关化并发轮询者）+ rmSync 前二次复核（重判仍 stale
+ * 才删，窗口收窄到 µs 级）。残余窗口如实记档：POSIX 无 inode 级条件删除，二次复核
+ * 与 rmSync 之间锁文件仍可能被换（proper-lockfile 同款已知语义）；彻底闭合需
+ * lease/fencing token，超出文件锁范畴。
  */
 import { mkdirSync, openSync, writeSync, closeSync, rmSync, readFileSync, statSync } from 'node:fs'
 import { dirname } from 'node:path'
@@ -41,6 +48,10 @@ export interface CrossProcessLockOptions {
   /** 不可读锁（创建后 pid 未写完/空文件）视为存活的年龄宽限（毫秒）——
    *  见下方 STALE_GRACE_MS 注释；测试注入 0 可关掉宽限。 */
   staleGraceMs?: number
+  /** X-4：stale 接管前的随机 jitter 上限（毫秒，睡 [0, 上限) 均匀值）——去相关化并发
+   *  轮询者，降低「双 contender 同拍判 stale、后到者删掉先到者新锁」概率；测试注入 0
+   *  关掉。只睡一次（首轮判 stale 后），不叠加 acquireWithTimeout 的轮询间隔。 */
+  staleTakeoverJitterMs?: number
 }
 
 /** open 'wx' 成功 → writeSync(pid) 之间存在微秒级窗口：对手 EEXIST 后读到空锁，
@@ -48,6 +59,34 @@ export interface CrossProcessLockOptions {
  *  不可读锁在创建后 STALE_GRACE_MS 内视为「写 pid 在途」按存活处理；超龄仍不可读
  *  （创建即崩溃的半写）才接管清理。 */
 const STALE_GRACE_MS = 500
+
+/** X-4：stale 接管 jitter 上限缺省值（毫秒）。 */
+const STALE_TAKEOVER_JITTER_MS = 25
+
+/**
+ * 锁状态判定（单次完整评估）：'held' = 活进程持有 / 年轻空锁（写 pid 在途），
+ * 'stale' = 持有进程已死或超龄仍不可读，'gone' = 文件已不在（刚被释放——上层重试创建）。
+ */
+function judgeStaleLock(
+  lockPath: string,
+  isAlive: (pid: number) => boolean,
+  graceMs: number,
+): 'held' | 'stale' | 'gone' {
+  const holder = readHolderPid(lockPath)
+  if (holder !== null && isAlive(holder)) return 'held'
+  if (holder === null) {
+    // 空锁/坏锁：写 pid 在途（年轻）按存活；超龄半写才 stale（见 STALE_GRACE_MS）
+    let mtime = Number.NaN
+    try {
+      mtime = statSync(lockPath).mtimeMs
+    } catch {
+      return 'gone' // 刚被释放/删除——上层重试创建，不在这里删
+    }
+    // mtimeMs 带亚毫秒小数且时钟源独立——floor 对齐后计龄，避免同毫秒内出现负年龄
+    if (Number.isFinite(mtime) && Date.now() - Math.floor(mtime) < graceMs) return 'held'
+  }
+  return 'stale'
+}
 
 /**
  * 非阻塞占锁：成功返回 release（幂等）；锁被活进程持有（或等待超时语义外的调用方
@@ -58,6 +97,8 @@ export function tryAcquireCrossProcessLock(
   opts?: CrossProcessLockOptions,
 ): (() => void) | null {
   const isAlive = opts?.isProcessAlive ?? defaultIsProcessAlive
+  const grace = opts?.staleGraceMs ?? STALE_GRACE_MS
+  const jitterMax = opts?.staleTakeoverJitterMs ?? STALE_TAKEOVER_JITTER_MS
   mkdirSync(dirname(lockPath), { recursive: true })
   for (let attempt = 0; attempt < 2; attempt++) {
     let fd: number | undefined
@@ -73,20 +114,18 @@ export function tryAcquireCrossProcessLock(
     } catch (e) {
       const code = (e as NodeJS.ErrnoException).code
       if (code !== 'EEXIST') throw e // 非冲突类故障（权限/磁盘）上抛，由调用方定语义
-      const holder = readHolderPid(lockPath)
-      if (holder !== null && isAlive(holder)) return null
-      if (holder === null) {
-        // 空锁/坏锁：写 pid 在途（年轻）按存活；超龄半写才 stale（见 STALE_GRACE_MS）
-        const grace = opts?.staleGraceMs ?? STALE_GRACE_MS
-        let mtime = Number.NaN
-        try {
-          mtime = statSync(lockPath).mtimeMs
-        } catch {
-          /* 刚被释放/删除——下轮循环重试创建 */
-        }
-        // mtimeMs 带亚毫秒小数且时钟源独立——floor 对齐后计龄，避免同毫秒内出现负年龄
-        if (Number.isFinite(mtime) && Date.now() - Math.floor(mtime) < grace) return null
+      const first = judgeStaleLock(lockPath, isAlive, grace)
+      if (first === 'held') return null
+      if (first === 'gone') continue // 刚被释放——下轮重试创建
+      // X-4：接管前随机 jitter（去相关化并发轮询者——双 contender 同拍判 stale 时，
+      // 后到者的 rmSync 会删掉先到者刚重建的新锁 → 双持锁）；注入 0 可关。
+      if (jitterMax > 0) {
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Math.floor(Math.random() * jitterMax))
       }
+      // X-4：rmSync 前二次复核——判 stale 与删除之间，锁文件可能已被其他接管者清理并
+      // 重建（新持有者在位 / 年轻空锁）。重判仍 stale 才删；判定翻转 → 放弃本轮重来
+      // （下轮重试创建，按新持有者重新评估）。窗口收窄到 µs 级，残余窗口见模块头注。
+      if (judgeStaleLock(lockPath, isAlive, grace) !== 'stale') continue
       // 持有进程已死（或超龄仍不可读——创建即崩溃的半写兜底）：接管清理重试
       rmSync(lockPath, { force: true })
     } finally {

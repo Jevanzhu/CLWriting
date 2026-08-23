@@ -53,25 +53,37 @@ try {
 }
 const unitTests = JSON.parse(vitestJson).length
 
-// e2e 用例静态计数：只数真实用例声明 test( / test.serial( / test.only(，
-// 排除 hook/describe/skip（test.beforeAll( 等点后缀会虚增——曾把 37 数成 56）
-let e2eCases = 0
-for (const fp of e2eSpecs) {
-  const src = readFileSync(fp, 'utf8')
-  const m = src.match(/(^|[^.\w])(?:test|test\.serial|test\.only)\s*\(/g)
-  e2eCases += m ? m.length : 0
-}
-
-// ── .only 拒绝（二轮复审门禁补强）──────────────────────
-// test.only/it.only/describe.only 会让该文件其余用例静默跳过——门禁照常绿但覆盖面
-// 骤减，vitest list 的枚举数不变、README 对账也发现不了。剥注释后再扫：文档/注释里
-// 提到「it.only(」的说明文字不算（保留 https:// 的协议斜杠不被误剥）
+// ── 剥注释/字符串（X-32：e2e 用例计数与 .only 检查共用同一净化口径）──────────────
+// 背景 A（二轮复审门禁补强）：test.only/it.only/describe.only 会让该文件其余用例
+// 静默跳过——门禁照常绿但覆盖面骤减，vitest list 的枚举数不变、README 对账也发现不了。
+// 背景 B（X-32）：e2e 用例静态计数此前不剥——注释掉的样例用例、字符串里的「test(」
+// 说明文本会被数成真实用例，README 对账口径失真。剥注释时保留 https:// 的协议斜杠
+// 不被误剥。
 function stripComments(src) {
   return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1')
 }
+// 字符串字面量内容清空（保留空串定界符维持词法形态）：标题/说明文本不参与匹配
+function stripStrings(src) {
+  return src.replace(/'(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*"|`(?:[^`\\]|\\.)*`/g, '""')
+}
+
+// e2e 用例静态计数：只数真实用例声明 test( / test.serial( / test.only(，
+// 排除 hook/describe/skip（test.beforeAll( 等点后缀会虚增——曾把 37 数成 56）；
+// 计数前剥注释/字符串（X-32），被注释/写进字符串的声明样例不再计入
+let e2eCases = 0
+for (const fp of e2eSpecs) {
+  const m = stripStrings(stripComments(readFileSync(fp, 'utf8'))).match(
+    /(^|[^.\w])(?:test|test\.serial|test\.only)\s*\(/g,
+  )
+  e2eCases += m ? m.length : 0
+}
+
+// ── .only 拒绝 ──────────────────────────────────────
 const onlyHits = []
 for (const fp of [...unitFiles, ...e2eSpecs]) {
-  const m = stripComments(readFileSync(fp, 'utf8')).match(/(^|[^.\w])(?:it|test|describe)\.only\s*\(/g)
+  const m = stripStrings(stripComments(readFileSync(fp, 'utf8'))).match(
+    /(^|[^.\w])(?:it|test|describe)\.only\s*\(/g,
+  )
   if (m) onlyHits.push(`${fp.replace(root, '')}（${m.length} 处）`)
 }
 if (onlyHits.length > 0) {

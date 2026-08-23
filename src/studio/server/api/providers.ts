@@ -13,6 +13,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
 import { readJson, reply, HttpError, replyError } from '../http.js'
+import { revisionError } from './revision-guard.js' // X-25：三处拷贝收敛单源（原 P4 本地实现）
 import {
   loadProviders,
   saveProviders,
@@ -417,15 +418,6 @@ function maskProvider(conf: ProviderConf, vault: Vault | null): ProviderConf & {
     apiKeyMasked: maskKey(conf.apiKey),
     hasKey: vault?.keys[conf.id] != null,
   }
-}
-
-/** P4：写端点并发守卫——expectedRevision 缺失放行（旧客户端/脚本）；存在且不匹配 → 409 文案 */
-function revisionError(expected: unknown, current: number): string | null {
-  if (expected === undefined || expected === null) return null
-  if (typeof expected !== 'number' || expected !== current) {
-    return '配置已在其他窗口被修改，请刷新'
-  }
-  return null
 }
 
 /** P4：DELETE 无 body 场景的 best-effort 读取（同 POST /providers/:id/test 容错口径） */

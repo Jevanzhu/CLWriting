@@ -23,7 +23,7 @@ test('文风收割：收割 → 候选 → 勾选 → 入库', async ({ page }) 
   // 收割候选（规则打分，POST /learn）
   await page.locator('.head-actions .btn.primary').click()
 
-  // 样章候选渲染（fixture 0001 有 ≥50 字段落，打分 ≥60）
+  // 样章候选渲染（fixture 0004 有 ≥50 字段落，打分 ≥60）
   await expect(page.locator('.cand-card').first()).toBeVisible({ timeout: 10_000 })
 
   // 勾选第一篇样章

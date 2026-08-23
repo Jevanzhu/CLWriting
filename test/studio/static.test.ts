@@ -96,6 +96,39 @@ test('cache-control: assets 下内容 hash 产物 immutable，其余 no-cache（
   expect(spa.headers.get('cache-control')).toBe('no-cache')
 })
 
+// X-21（第五十六轮）：缓存判定用规范化后路径——原用未规范化的 decodedPathname，
+// `/assets/../index.html` 字面前缀命中 /assets/ 但 normalize 后实发 SPA 入口，
+// 修复前错拿一年 immutable 长缓存（发版变更被钉死）。fetch/undici 发送前会把 URL
+// 的 dot segments 归一化，构造字面 `..` 请求行必须走 raw socket。
+test('X-21: /assets/../index.html → 实发 SPA 入口 no-cache（穿越字面不拿 immutable）', async () => {
+  const address = server!.address() as AddressInfo
+  const raw = await new Promise<string>((resolve, reject) => {
+    const sock = net.connect(address.port, '127.0.0.1')
+    const timer = setTimeout(() => reject(new Error('2s 内无响应')), 2_000)
+    sock.on('connect', () => {
+      sock.write(`GET /assets/../index.html HTTP/1.1\r\nHost: 127.0.0.1:${address.port}\r\nConnection: close\r\n\r\n`)
+    })
+    let buf = ''
+    sock.on('data', (d) => {
+      buf += d.toString('utf8')
+    })
+    sock.on('end', () => {
+      clearTimeout(timer)
+      resolve(buf)
+    })
+    sock.on('error', (e) => {
+      clearTimeout(timer)
+      reject(e)
+    })
+  })
+  expect(raw.startsWith('HTTP/1.1 200')).toBe(true)
+  expect(raw).toContain('<title>Studio</title>') // 实发 SPA 入口（穿越落回根）
+  // 头部段只取 CRLF 分隔行——body 里的内容不参与 startsWith 断言
+  const headerLines = raw.slice(0, raw.indexOf('\r\n\r\n'))
+  expect(headerLines).toContain('cache-control: no-cache') // 修复前：immutable
+  expect(headerLines).not.toContain('immutable')
+})
+
 // M-9（第十一轮）：canonical 双侧 realpath 判界——dist 被植入外指 symlink 不得读出
 test('M-9: dist 内 symlink 外指 root 外文件 → 403（canonical 判界，非前缀判界）', async () => {
   const outside = mkdtempSync(join(tmpdir(), 'clwriting-static-out-'))

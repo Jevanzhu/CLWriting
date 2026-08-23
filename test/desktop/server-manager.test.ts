@@ -685,6 +685,29 @@ describe('批 U3：崩溃退避自动重启（U-2/S-1/S-5/S-9）', () => {
     await sleep(200)
     expect(forkRecords.length).toBe(1) // 重启未落地（无孤儿 fork）
   })
+
+  // X-3（第五十六轮）：restartTimer 已触发、重启握手在途的窗口内 start() 三守卫
+  // （starting/active/hasPendingRestart）皆空——修复前会再 fork 双 child，后完成者
+  // 赢得 active、先完成者孤儿无人杀。修复后重启占 starting 通道：同参数 start 复用
+  // 在途轮（含钉住端口），参数不一致沿用 E-9a fail-closed reject。
+  it('X-3：重启在途窗口并发 start（同参数）→ 复用在途轮不双 fork；参数不一致 fail-closed', async () => {
+    const { forkRecords, manager } = mkHarness({ backoffMs: [0, 5000, 15000] })
+    const ud = mkUserData()
+    const p1 = manager.start({ workDir: '/w', userDataPath: ud })
+    forkRecords[0]!.child.emit('message', { type: 'ready', port: 45300 })
+    await p1
+    forkRecords[0]!.child.emit('exit', 1) // 崩溃 → backoff[0]=0 立即排程重启
+    await vi.waitFor(() => expect(forkRecords.length).toBe(2), { timeout: 300 })
+    expect(argValue(forkRecords[1]!.args, '--port')).toBe('45300') // 重启钉住端口
+    // 此刻 ready 未发（握手在途）= 三守卫皆空的窗口；并发 start 同参数必须复用在途轮
+    const p2 = manager.start({ workDir: '/w', userDataPath: ud })
+    await expect(manager.start({ workDir: '/other', userDataPath: ud })).rejects.toThrow(/不一致/)
+    forkRecords[1]!.child.emit('message', { type: 'ready', port: 45300 })
+    await expect(p2).resolves.toBe(45300) // 复用在途重启轮（钉住端口，非 OS 分配）
+    await flushMicrotasks()
+    expect(manager.isRunning()).toBe(true)
+    expect(forkRecords.length).toBe(2) // 全程仅首启 + 重启两次 fork（无双 fork）
+  })
 })
 
 afterAll(() => {

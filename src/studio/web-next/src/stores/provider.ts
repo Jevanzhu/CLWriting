@@ -96,6 +96,9 @@ export const useProviderStore = defineStore('provider', () => {
 
   /** refresh 操作代（N-12，第五十四轮，与 check store 同款）：并发 refresh 慢响应迟到不回填旧数据 */
   let refreshGen = 0
+  /** refreshRag 操作代（X-29，与 refresh 同款但独立计数——refreshAll 并发跑两者，
+   *  共用一个计数会互相作废，先返回的那次响应必被后发者顶掉） */
+  let refreshRagGen = 0
 
   /** 刷新 AI 提供方 + 档位 + revision（RAG 单独 refreshRag）。 */
   async function refresh(): Promise<void> {
@@ -122,15 +125,17 @@ export const useProviderStore = defineStore('provider', () => {
 
   /** 刷新 RAG 提供方（独立端点）。 */
   async function refreshRag(): Promise<void> {
+    const gen = ++refreshRagGen
     ragLoading.value = true
     try {
       const d = await getRagProviders()
+      if (gen !== refreshRagGen) return // 后发 refreshRag 已生效：旧响应不回填
       ragProviders.value = d.ragProviders
       revision.value = d.revision
     } catch {
       /* 静默 */
     } finally {
-      ragLoading.value = false
+      if (gen === refreshRagGen) ragLoading.value = false
     }
   }
 

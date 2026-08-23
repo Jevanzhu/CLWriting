@@ -87,7 +87,8 @@ const editorTheme = EditorView.theme({
 })
 
 const editorSetup: Extension[] = [
-  history(),
+  // history() 不在此裸挂载（X-1 清理）：唯一挂载点是下方 historyConf Compartment，
+  // 双挂载是混淆源（historyKeymap 在 keymap.of 内，不受影响）
   drawSelection(),
   dropCursor(),
   EditorState.allowMultipleSelections.of(true),
@@ -147,9 +148,10 @@ const typewriterConf = new Compartment()
 // P1-9：mode/readonly 用 Compartment 管理，切文档时动态重配（非仅在 mount 时读取）
 const modeConf = new Compartment()
 const readonlyConf = new Compartment()
-// RB-FE-P1-1：history() 放 Compartment——historyKey（docId）变化时重配新实例，
-// 等价重置 historyField（undo/redo 栈清空），旧文档历史不再驻留复用的编辑器实例。
-// （isolateHistory annotation 只防事件合并不清栈，实测 6.10.4 需重配才是硬保证）
+// RB-FE-P1-1（X-1 口径校正）：history() 唯一挂载点在此 Compartment——注意 reconfigure
+// 对已存在的 historyField 携带旧值不重建（CM6 reconfigure 语义），单靠重配并**不**清栈；
+// 真清栈靠切文档时的「卸载 → 重挂」两步（字段重新 init，见下方 watch），全量替换事务
+// 仅丢弃被替换区间覆盖的旧事件（文档边界插入事件存活，不承担清栈）。
 const historyConf = new Compartment()
 
 onMounted(() => {
@@ -191,10 +193,14 @@ watch(
   },
 )
 
-// 外部 modelValue 变（切文档 / doc.refresh / SSE sync）→ 同步；仅当差异时，避免光标跳
+// 外部 modelValue 变（切文档 / doc.refresh / SSE sync）→ 同步；同文档外部同步仅当差异时
+// 替换避免光标跳，切文档则恒替换（见下方 X-1 注释）
 // F-P1-3：addToHistory.of(false) 标记为外部同步，不清空 undo 历史（标题提交后 ⌘Z 仍可回退）
-// RB-FE-P1-1：historyKey（docId）变化 = 切文档——替换事务标 isolateHistory('full') 历史边界，
-// 并重配 historyConf 重建 undo/redo 栈：⌘Z 不再把旧文档历史回灌进新文档（autosave 不落盘污染内容）
+// RB-FE-P1-1 + X-1：historyKey（docId）变化 = 切文档——「卸载 → 重挂」两步真重置 undo/redo
+// 栈 + 恒派发全量替换事务（内容相同也替换为 v，同步文档内容）。旧版仅 reconfigure + 差异
+// 替换：同内容切换时旧 undo 栈完整残留，⌘Z 把旧文档逆编辑回灌进新文档 → dirty → autosave
+// 落盘污染；undo 后切换时 redo 栈的边界插入事件亦残留。isolateHistory('full') 只切断新旧
+// 事件编组，不承担清栈。
 let lastHistoryKey: string | undefined = props.historyKey
 watch(
   [() => props.modelValue, () => props.historyKey],
@@ -203,6 +209,7 @@ watch(
     const docSwitch = key !== lastHistoryKey
     lastHistoryKey = key
     if (!docSwitch) {
+      // 同文档外部同步：仅差异时替换，避免光标跳（此分支不得恒替换）
       if (v !== view.state.doc.toString()) {
         view.dispatch({
           changes: { from: 0, to: view.state.doc.length, insert: v },
@@ -211,12 +218,16 @@ watch(
       }
       return
     }
-    // 切文档：先重置 undo/redo 栈（内容相同也要重置——历史不再属于当前文档）
+    // 切文档：两步真重置历史（X-1）——reconfigure(history()) 对已存在 historyField 携带
+    // 旧值不重建（CM6 reconfigure 语义），实测两条残留路径：同内容切换无替换事务时旧
+    // undo 栈整体残留；切换前 undo 过一次时，redo 栈的文档边界插入事件不被全量替换的
+    // addMapping 丢弃（mapPos 边界存活，redo 仍可回灌）。故先卸载 history 扩展（字段随
+    // compartment 移除、旧值即丢弃），下一事务重挂——字段重新 init，栈必然为空；第二步
+    // 恒派发全量替换（同文亦替换，内容同步 + 二次保险），注解保持原口径。
+    view.dispatch({ effects: historyConf.reconfigure([]) })
     view.dispatch({
       effects: historyConf.reconfigure(history()),
-      ...(v !== view.state.doc.toString()
-        ? { changes: { from: 0, to: view.state.doc.length, insert: v } }
-        : {}),
+      changes: { from: 0, to: view.state.doc.length, insert: v },
       annotations: [Transaction.addToHistory.of(false), isolateHistory.of('full')],
     })
   },

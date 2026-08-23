@@ -169,6 +169,23 @@ describe('POST /documents/batch-finalize（P2-PROD-2）', () => {
     expect((await postBatch([1])).status).toBe(400)
   })
 
+  // X-23（第五十六轮）：无条数上限的大批量同步循环会阻塞事件循环数秒——入口
+  // fail-fast：超 400 条 400 BAD_INPUT（人话提示分批），上限内不受影响
+  it('X-23：超过 400 条 → 400 BAD_INPUT 且提示分批；上限内（含未登记 id）不受影响', async () => {
+    const tooMany = Array.from({ length: 401 }, (_, i) => `doc_${i}`)
+    const r = await postBatch(tooMany)
+    expect(r.status).toBe(400)
+    expect((r.json as { code: string; error: string }).code).toBe('BAD_INPUT')
+    expect((r.json as { error: string }).error).toContain('分批')
+    // 上限边界：恰好 400 条不被拒（走正常逐条循环，未登记 id 各自失败不中断）
+    const atCap = Array.from({ length: 400 }, (_, i) => `doc_missing_${i}`)
+    const ok = await postBatch(atCap)
+    expect(ok.status).toBe(200)
+    const j = ok.json as { ok: boolean; results: unknown[] }
+    expect(j.ok).toBe(true)
+    expect(j.results).toHaveLength(400)
+  })
+
   it('CC-P2-9：定稿进行中后到请求 409 BUSY（防每章双 commit + 双 manifest 写）', async () => {
     // 改脏一章供定稿
     writeFileSync(

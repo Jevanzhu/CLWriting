@@ -80,8 +80,11 @@ export function createStaticHandler(rootDir: string) {
       const data = await readFile(safe.abs)
       // vite 构建产物在 assets/ 下且文件名带内容 hash → 可长缓存 immutable；
       // 其余（index.html 等 SPA 入口）→ no-cache，保证发版后立即生效（Y-P2-7）。
-      // 用 URL 层 decodedPathname 判定（跨平台恒为 / 分隔，且穿越路径天然不命中）。
-      const cacheable = decodedPathname.startsWith('/assets/')
+      // X-21（第五十六轮）：判定改用规范化后 rel——原用未规范化的 decodedPathname，
+      // `/assets/../index.html` 字面前缀命中 /assets/ 却实发 SPA 入口，错拿一年
+      // immutable 长缓存。rel 已 normalize（.. 折叠）；分隔符统一回 /（win32
+      // normalize 产 \，跨平台判定口径恒为 / 分隔）。
+      const cacheable = rel.split(sep).join('/').startsWith('/assets/')
       res.writeHead(200, {
         'content-type': MIME[extname(file)] ?? 'application/octet-stream',
         'cache-control': cacheable

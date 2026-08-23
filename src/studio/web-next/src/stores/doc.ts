@@ -161,30 +161,39 @@ export const useDocStore = defineStore('doc', () => {
   async function reloadFromRemote(docId: string): Promise<void> {
     const e = docs.value.get(docId)
     if (!e || e.saving) return
+    // X-28：书名快照（同 save 的 P5 前置守卫）——重载在途切书（setBook 清缓存）后，
+    // 迟到的成功/失败 toast 不落新书界面；结果写进已脱离缓存的旧 entry，无实害
+    const book = bookName.value!
     try {
-      const content = await getContent(bookName.value!, e.path)
+      const content = await getContent(book, e.path)
       e.content = content
       e.baselineRevision = await sha256Revision(content)
       e.dirty = false
       e.conflict = false
       e.error = null
+      if (bookName.value !== book) return
       useUiStore().toast('已加载最新版本', 'success')
     } catch (err) {
+      if (bookName.value !== book) return
       useUiStore().toast(friendlyError(err), 'error')
     }
   }
 
-  /** 冲突出路②覆盖：以远端当前内容算基线 revision，再把本地内容写上去（覆盖外部修改）。 */
+  /** 冲突出路②覆盖：以远端当前内容算基线 revision，再把本地内容写上面（覆盖外部修改）。 */
   async function overwriteRemote(docId: string): Promise<void> {
     const e = docs.value.get(docId)
     if (!e || e.saving) return
+    // X-28：同 reloadFromRemote 的书名快照——覆盖在途切书后迟到错误 toast 不落新书；
+    // 内部 save 已自带书名快照守卫（切书后 docId 不在新缓存，save 直接 no-op）
+    const book = bookName.value!
     try {
-      const remote = await getContent(bookName.value!, e.path)
+      const remote = await getContent(book, e.path)
       e.baselineRevision = await sha256Revision(remote)
       e.conflict = false
       e.error = null
       await save(docId, 'manual')
     } catch (err) {
+      if (bookName.value !== book) return
       useUiStore().toast(friendlyError(err), 'error')
     }
   }
