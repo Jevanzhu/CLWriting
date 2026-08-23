@@ -12,6 +12,8 @@
  * 依赖），已结算行整段丢弃；原子替换，压缩窗口崩溃则原文件不动，无净损失。
  */
 import { appendFileSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, statSync } from 'node:fs'
+import { tryAcquireCrossProcessLock, acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
+import { log } from '../log/index.js'
 import { dirname } from 'node:path'
 import { ulid } from './stable-id.js'
 import { atomicWriteFile } from '../fs/atomic.js'
@@ -178,9 +180,23 @@ export function findUnsettled(journalPath: string): JournalAnyPending[] {
   return [...pending.values()]
 }
 
-/** 追加一行 jsonl + fsync（防丢字：确保崩溃前已落盘）。 */
+/** 追加一行 jsonl + fsync（防丢字：确保崩溃前已落盘）。
+ *  J7（2026-08-23）：与 compact 共享 `${filePath}.lock` 跨进程锁——append 是
+ *  崩溃恢复唯一依据，锁超时降级裸写（append 本身近似原子，丢数据比等锁更糟），
+ *  log.warn 留痕。 */
 function appendLine(filePath: string, line: string): void {
   mkdirSync(dirname(filePath), { recursive: true })
+  const release = acquireCrossProcessLockWithTimeout(`${filePath}.lock`, JOURNAL_LOCK_TIMEOUT_MS)
+  if (release) {
+    try {
+      appendFileSync(filePath, line + '\n', 'utf-8')
+      fsyncFile(filePath)
+    } finally {
+      release()
+    }
+    return
+  }
+  log.warn('journal', `跨进程锁超时，降级裸写（${filePath}）——与 compact 的互斥窗口回到守卫口径`)
   appendFileSync(filePath, line + '\n', 'utf-8')
   fsyncFile(filePath)
 }
@@ -222,20 +238,38 @@ export const JOURNAL_COMPACT_BYTES = 2 * 1024 * 1024
  * CLI/脚本与 GUI 双进程操作同一书时，compact 的「读→算→整文件替换」窗口可吞掉
  * 对方刚 append 的 pending 行（崩溃恢复唯一依据，丢了恢复链失据）。守卫：读前后
  * 各 stat 一次，size/mtime 任变（= 有他进程追加过）→ 放弃本轮压缩（compact 本就
- * best-effort，下次再试）。剩余「末次 stat → rename」微秒级理论窗口如实记档；
- * 彻底闭合需跨进程文件锁基建，随批次 J（win 适配）统一做跨平台评估。
+ * best-effort，下次再试）。J7（2026-08-23）：跨进程文件锁已落地
+ * （fs/cross-process-lock.ts，含 win 语义评估）——compact 与 append 共享 journal
+ * 锁文件，「末次 stat → rename」理论窗口彻底闭合；stat 守卫保留作双保险。
  */
 function maybeCompactJournal(journalPath: string): void {
   try {
     if (!existsSync(journalPath)) return
     const before = statSync(journalPath)
     if (before.size < JOURNAL_COMPACT_BYTES) return
-    const unsettled = findUnsettled(journalPath)
-    const after = statSync(journalPath)
-    if (after.size !== before.size || after.mtimeMs !== before.mtimeMs) return
-    const text = unsettled.map((p) => JSON.stringify(p)).join('\n')
-    atomicWriteFile(journalPath, unsettled.length > 0 ? text + '\n' : '', { fsync: true })
+    // J7：跨进程锁（append 侧同锁）——持锁期间他进程 append 被阻塞，「末次 stat →
+    // rename」微秒级窗口彻底闭合。非阻塞占锁（best-effort：拿不到直接弃本轮）。
+    const release = tryAcquireCrossProcessLock(`${journalPath}.lock`)
+    if (!release) return
+    try {
+      const unsettled = findUnsettled(journalPath)
+      // KN-H-1 stat 守卫保留（双保险：锁超时降级裸写的 append 路径仍被它兜住）
+      const after = statSync(journalPath)
+      if (after.size !== before.size || after.mtimeMs !== before.mtimeMs) return
+      const text = unsettled.map((p) => JSON.stringify(p)).join('\n')
+      atomicWriteFile(journalPath, unsettled.length > 0 ? text + '\n' : '', { fsync: true })
+    } finally {
+      release()
+    }
   } catch {
     // best-effort：压缩失败不影响保存结果，下次再试
   }
+}
+
+/** J7 锁等待超时（毫秒）——可注入缩短保测试快；争用为文件 IO 级毫秒。 */
+export let JOURNAL_LOCK_TIMEOUT_MS = 2_000
+
+/** 测试注入钩子（生产零调用）。 */
+export function __setJournalLockTimeoutForTest(ms: number): void {
+  JOURNAL_LOCK_TIMEOUT_MS = ms
 }

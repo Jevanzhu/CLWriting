@@ -16,6 +16,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
+import { acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
 import type { BookConfig } from '../format/types.js'
 import { GLOBAL_FALLBACK_DEFAULTS } from '../format/global-defaults.js'
 import type { TokenUsage } from './provider/types.js'
@@ -80,14 +81,21 @@ function readRecord(bookRoot: string): { rec: CallRecord | null; corrupt: boolea
         // N-10（第五十四轮）：写失败时清除标记——此前标记入队即置位，IO 抛错后
         // 迁移永不重试且文件永留旧格式；清除后下次 read 重新入队可重试（排队窗口内
         // 并发 read 仍靠先置位的标记去重，不重复入队）。
-        serializedWrite(bookRoot, () => {
-          try {
-            writeRecord(bookRoot, migrated)
-          } catch (err) {
-            migratedRoots.delete(bookRoot)
-            throw err
-          }
-        })
+        try {
+          serializedWrite(bookRoot, () => {
+            try {
+              writeRecord(bookRoot, migrated)
+            } catch (err) {
+              migratedRoots.delete(bookRoot)
+              throw err
+            }
+          })
+        } catch (err) {
+          // N-10 + J7：快路同步抛（J7 锁文件创建 EACCES 等）同样要清标记——
+          // 锁获取失败与写失败同语义，不清则迁移永不重试
+          migratedRoots.delete(bookRoot)
+          throw err
+        }
       }
       return { rec: migrated, corrupt: false }
     }
@@ -185,31 +193,53 @@ function writeRecord(bookRoot: string, rec: CallRecord): void {
 // 跨 bookRoot 各自独立链互不阻塞；读路径（checkAiCallBudget 等）保持快照语义不变。
 // 队列空闲时同步直行（doWrite 全同步 IO，JS 单线程内该段原子完成）——既有同步调用方
 // 「记完即读」语义保持不变；存在在途段时排队为微任务执行，杜绝交错覆盖。
-// E-7（第五十三轮）：本互斥为进程内语义——多进程（CLI+桌面）同书并发时失效，
-// 跨进程正确性依赖批次 J7 跨进程文件锁（当前未落地，见 AI_CALLS_MUTEX_SCOPE_NOTE）。
+// J7（2026-08-23）：本互斥队列之上叠加跨进程真锁（见下 AI_CALLS_MUTEX_SCOPE_NOTE），
+// 多进程（CLI+桌面）同书并发写已闭合。
 const writeChains = new Map<string, Promise<unknown>>()
 
-/**
- * E-7（第五十三轮，声明性收口）：本互斥为**进程内语义**（依赖 JS 单线程内 IO 原子）——
- * 同进程内成立；多进程（CLI 与桌面）同时操作同一书库时不成立。跨进程同书并发的正确性
- * 依赖批次 J7 跨进程文件锁（当前未落地）——在 J7 落地前，避免 CLI 与桌面同时操作同一书库。
- */
+/** J7（2026-08-23 落地）：跨进程互斥为真锁——serializedWrite 的每次写段在
+ * bookRoot/.cache/ai-calls.lock 上做限时阻塞跨进程文件锁（O_EXCL + pid 存活探测
+ * + 崩溃接管，见 fs/cross-process-lock.ts）。E-7 的「进程内前提」声明就此废止；
+ * 超时（默认 5s，持有进程活着但迟迟不放——理论上是文件 IO 级毫秒争用）上抛由
+ * 调用方降级（runner recordUsageSafe warn 留痕，少记一次由预算闸保守口径兜底）。 */
 export const AI_CALLS_MUTEX_SCOPE_NOTE =
-  'ai-calls.json 互斥为进程内语义：跨进程（CLI+桌面）同书并发依赖 J7 跨进程文件锁（未落地），避免多进程同时操作同一书库'
+  'ai-calls.json 互斥为进程内队列 + 跨进程文件锁（J7 已落地，fs/cross-process-lock.ts）：写段在 bookRoot/.cache/ai-calls.lock 上限时互斥，超时上抛由调用方降级留痕'
 
 function serializedWrite(bookRoot: string, doWrite: () => void): void {
   const prev = writeChains.get(bookRoot)
   if (prev === undefined) {
-    // 空闲快路：同步原子完成
-    doWrite()
+    // 空闲快路：同步原子完成（J7：跨进程锁内执行——load→mutate→write 整段互斥，
+    // 双进程同书记账不再交错覆盖丢账）
+    writeWithCrossProcessLock(bookRoot, doWrite)
     return
   }
-  const next = prev.catch(() => {}).then(doWrite)
+  const next = prev.catch(() => {}).then(() => writeWithCrossProcessLock(bookRoot, doWrite))
   writeChains.set(bookRoot, next)
   const cleanup = (): void => {
     if (writeChains.get(bookRoot) === next) writeChains.delete(bookRoot)
   }
   void next.then(cleanup, cleanup)
+}
+
+/** J7 锁等待超时（毫秒）——可注入缩短保测试快；争用为文件 IO 级毫秒，5s 已极保守。 */
+export let AI_CALLS_LOCK_TIMEOUT_MS = 5_000
+
+/** 测试注入钩子（生产零调用）。 */
+export function __setAiCallsLockTimeoutForTest(ms: number): void {
+  AI_CALLS_LOCK_TIMEOUT_MS = ms
+}
+
+function writeWithCrossProcessLock(bookRoot: string, doWrite: () => void): void {
+  const lockPath = `${budgetPath(bookRoot)}.lock`
+  const release = acquireCrossProcessLockWithTimeout(lockPath, AI_CALLS_LOCK_TIMEOUT_MS)
+  if (!release) {
+    throw new Error(`ai-calls 跨进程锁获取超时（${lockPath}）——本轮账目未记，避免与其他进程交错覆盖丢账`)
+  }
+  try {
+    doWrite()
+  } finally {
+    release()
+  }
 }
 
 /** 预算判定（D3 批 5 起三口径：次数 / tokens / cost）：任一超限 → ok=false + 人话提示

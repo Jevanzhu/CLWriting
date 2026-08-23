@@ -12,12 +12,13 @@
  * 点击零文件 IO）。acquire 失败仍返回 null（调用方回 409，锁不等待，语义同现状）。
  *
  * 边界声明：events/store.ts 的「写互斥」靠 SQLite busy_timeout，本闸不做事件库
- * 账本级互斥——真正的登记口径锁归 J7 轮次；本文件只管 task-gate 层（book+action
- * 粒度的长任务单飞）。
+ * 账本级互斥；账本（ai-calls）/journal 的跨进程真锁已随 J7 落地（fs/cross-process-lock.ts），
+ * 本文件锁原语同源收敛（T2-4 复制版已删）。
  */
-import { mkdirSync, openSync, writeSync, closeSync, rmSync, readFileSync } from 'node:fs'
+import { rmSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
+import { tryAcquireCrossProcessLock } from '../../../fs/cross-process-lock.js'
 
 const running = new Set<string>()
 
@@ -36,23 +37,6 @@ let lockRoot: string | null = null
 /** startServer 注入锁根目录（workDir 缺省 → null，纯内存闸）。 */
 export function configureTaskGateLockRoot(dir: string | null): void {
   lockRoot = dir
-}
-
-/** 本进程启动时刻（epoch ms，由 uptime 反推）——写入锁文件作诊断/未来 pid 复用
- *  判别依据；当前 stale 判定以进程存活探测为主（见 defaultIsProcessAlive）。 */
-function processBootTime(): number {
-  return Date.now() - Math.round(process.uptime() * 1000)
-}
-
-/** 进程存活探测：process.kill(pid, 0) 不发信号只做权限/存在性检查；ESRCH = 不存在
- *  （stale）。EPERM（存在但属他人）按存活处理——保守不接管。 */
-function defaultIsProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (e) {
-    return (e as NodeJS.ErrnoException).code === 'EPERM'
-  }
 }
 
 export interface TaskGateOptions {
@@ -78,11 +62,13 @@ export function acquireTaskGate(bookName: string, action: string, opts?: TaskGat
   const key = keyOf(bookName, action)
   if (running.has(key)) return null
   const dir = opts?.lockDir !== undefined ? opts.lockDir : lockRoot
-  const isAlive = opts?.isProcessAlive ?? defaultIsProcessAlive
+  // isAlive 未注入时传 undefined → 通用锁用缺省 process.kill(pid,0) 探测（同源）
+  const isAlive = opts?.isProcessAlive
   let lockPath: string | null = null
   if (dir) {
     lockPath = join(dir, lockFileName(key))
-    if (!acquireLockFile(lockPath, isAlive)) return null
+    // J7：锁原语收敛到 fs/cross-process-lock.ts 单一实现（本文件原 T2-4 复制版删除）
+    if (!tryAcquireCrossProcessLock(lockPath, { isProcessAlive: isAlive })) return null
   }
   running.add(key)
   let released = false
@@ -92,48 +78,6 @@ export function acquireTaskGate(bookName: string, action: string, opts?: TaskGat
     // 先删锁文件再清 Set：反序会让并发 acquire 在文件已删、Set 未清的窗口读到双闸
     if (lockPath) rmSync(lockPath, { force: true })
     running.delete(key)
-  }
-}
-
-/** O_EXCL 创建锁文件；EEXIST 时做 stale 判定与接管（至多重试一次，防竞态循环）。 */
-function acquireLockFile(lockPath: string, isAlive: (pid: number) => boolean): boolean {
-  mkdirSync(join(lockPath, '..'), { recursive: true })
-  for (let attempt = 0; attempt < 2; attempt++) {
-    let fd: number | undefined
-    try {
-      // 'wx' = O_CREAT|O_EXCL：独占创建，创建与检查之间无 TOCTOU 窗口
-      fd = openSync(lockPath, 'wx')
-      writeSync(fd, JSON.stringify({ pid: process.pid, bootTime: processBootTime() }))
-      return true
-    } catch (e) {
-      const code = (e as NodeJS.ErrnoException).code
-      if (code !== 'EEXIST') throw e // 非冲突类故障（权限/磁盘）上抛，由 dispatch 兜 500
-      // 已被占：读持有者 pid，探测存活
-      const holder = readHolderPid(lockPath)
-      if (holder !== null && isAlive(holder)) return false // 活着 → 占闸失败（409）
-      // 持有进程已死（或文件损坏读不出 pid——视同 stale，崩溃半写兜底）：接管清理重试
-      rmSync(lockPath, { force: true })
-    } finally {
-      if (fd !== undefined) {
-        try {
-          closeSync(fd)
-        } catch {
-          // 重复 close（上面 EEXIST 分支已关）best-effort
-        }
-      }
-    }
-  }
-  // 第二次仍 EEXIST（接管与并发对手竞争输了）→ 占闸失败，同 409 口径
-  return false
-}
-
-/** 读锁文件持有者 pid；损坏/空文件返回 null（视同 stale 可接管）。 */
-function readHolderPid(lockPath: string): number | null {
-  try {
-    const parsed = JSON.parse(readFileSync(lockPath, 'utf-8')) as { pid?: unknown }
-    return typeof parsed.pid === 'number' && Number.isInteger(parsed.pid) && parsed.pid > 0 ? parsed.pid : null
-  } catch {
-    return null
   }
 }
 

@@ -6,6 +6,7 @@
  * - 端点接线：闸被持有时 relations/mine 与 outline 回 409；释放后 outline 走通（mock）
  */
 import http from 'node:http'
+import { utimesSync } from 'node:fs'
 import type { AddressInfo } from 'node:net'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -184,6 +185,8 @@ describe('T2-4 task-gate 跨进程文件锁', () => {
 
   it('锁文件损坏（空文件）→ 视同 stale 可接管', () => {
     writeFileSync(join(lockDir, lockName('autotag', '跨进程书')), '')
+    // J7 年轻锁宽限（500ms）内空锁视为「写 pid 在途」不接管——回拨 mtime 制造超龄半写
+    utimesSync(join(lockDir, lockName('autotag', '跨进程书')), new Date(Date.now() - 60_000), new Date(Date.now() - 60_000))
     const r = acquireTaskGate('跨进程书', 'autotag', { lockDir, isProcessAlive: () => true })
     expect(r).not.toBeNull()
     r!()

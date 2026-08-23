@@ -212,8 +212,8 @@ describe('E-4/E-7：迁移写互斥 + 互斥范围声明', () => {
   })
 
   it('E-7: 互斥范围声明已登记（进程内语义 + J7 依赖）', () => {
-    expect(AI_CALLS_MUTEX_SCOPE_NOTE).toContain('进程内')
     expect(AI_CALLS_MUTEX_SCOPE_NOTE).toContain('J7')
+    expect(AI_CALLS_MUTEX_SCOPE_NOTE).toContain('跨进程文件锁')
   })
 })
 
