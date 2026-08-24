@@ -10,8 +10,18 @@ rmSync('dist/desktop', { recursive: true, force: true })
 export default defineConfig([
   {
     // 阶段 22 批 U1：server-utility 为 utilityProcess 子进程入口（server-manager fork
-    // dist/desktop/server-utility.js；electron-builder files: dist 自动含）
-    entry: ['src/desktop/main.ts', 'src/desktop/server-main.ts', 'src/desktop/server-utility.ts'],
+    // dist/desktop/server-utility.js；electron-builder files: dist 自动含）。
+    // B-24（第六十轮补修）：export-worker 为导出内核 worker 线程独立入口——server
+    // bundle 内联 run-async.ts 后以 import.meta.url 同伴解析 dist/desktop/
+    // export-worker.js，必须与 server bundle 同目录独立成件（不随 bundle 内联）。
+    // 对象形态钉死产物名：数组形态下 entry 公共根从 src/desktop 变 src/，全部产物
+    // 会被挪进 desktop/、export/ 子目录（package.main / fork 路径全断）
+    entry: {
+      main: 'src/desktop/main.ts',
+      'server-main': 'src/desktop/server-main.ts',
+      'server-utility': 'src/desktop/server-utility.ts',
+      'export-worker': 'src/export/export-worker.ts',
+    },
     external: ['electron'], // electron 由 Electron 运行时提供,不 bundle
     format: ['esm'],
     target: 'node24',

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// 导出定稿弹窗（细案 T4.2）：选 format/platform → POST /export（spawn CLI，数秒）。
-// 成功 toast + 关弹窗；失败展示 stderr/stdout。
+// 导出定稿弹窗（细案 T4.2）：选 format/platform → POST /export（服务端 worker 线程执行，数秒）。
+// 成功 toast + 关弹窗；失败（B-23：业务失败回 422 错误信封）经 catch 展示信封诊断文案。
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { X } from 'lucide-vue-next'
 import { exportBook, EXPORT_FORMATS, EXPORT_PLATFORMS, type ExportFormat, type ExportPlatform } from '../../api/io'
@@ -25,17 +25,14 @@ async function run(): Promise<void> {
   if (!ws.bookName || loading.value) return
   loading.value = true
   try {
+    // B-23：业务失败（无定稿正文等）由 apiJson 抛 ApiError（信封 error 即诊断），
+    // 成功恒 ok:true——不再有 2xx {ok:false} 域形状分支
     const r = await exportBook(ws.bookName, {
       format: format.value,
       platform: platform.value,
     })
-    if (r.ok) {
-      ui.toast(`导出完成（${r.chapterCount ?? '?'} ${r.unit ?? '章'}）`, 'success')
-      ui.closeExport()
-    } else {
-      console.error('导出失败:', r.error)
-      ui.toast('导出失败，请重试', 'error')
-    }
+    ui.toast(`导出完成（${r.chapterCount ?? '?'} ${r.unit ?? '章'}）`, 'success')
+    ui.closeExport()
   } catch (e) {
     ui.toast(friendlyError(e), 'error')
   } finally {

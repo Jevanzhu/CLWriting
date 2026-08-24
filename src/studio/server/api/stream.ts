@@ -270,7 +270,14 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       }
       // 低级项（第六轮）：.return() 触发生成器 finally 段，其内部抛错会让该 promise
       // reject——void 丢弃即 unhandledRejection（进程级崩溃），吞掉只留断连现场
-      if (iter) void iter.return(undefined).catch(() => { /* 清理段异常不外抛 */ })
+      if (iter) {
+        // B-19（第六十轮补修）：先唤醒 park 在内部 await 的生成器——iter.return 只能
+        // 在 yield 边界生效，此前断开后生成器悬挂至该书下一 driver 事件才被推进回收
+        // （consumer 闭包滞留，KB 级/个、事件到达即自愈，登记维持项本次补修）。
+        // getDriver() 就地调用：close 可能在下方 driver 赋值前触发（TDZ），此处只取实现无状态
+        getDriver().cancelStream?.(iter)
+        void iter.return(undefined).catch(() => { /* 清理段异常不外抛 */ })
+      }
       // E1c（后台继续，cherry backgroundMode:'continue'）：最后一个客户端断开不再 abort 编排器——
       // 生成后台跑完，重连经 sync 快照 + ring buffer 迟到回放（E1b）恢复现场。
       // 显式停止仍走 POST /interrupt（用户主动取消）。

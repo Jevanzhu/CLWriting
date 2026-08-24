@@ -2,7 +2,7 @@
  * X-6 · api/io.ts 行为级护栏（导出端点，走真实 client + 桩 fetch）：
  * 覆盖 POST /export 负载口径（format 必带、platform 可选省略）、域形状响应透传、
  * 错误封套映射（非 2xx {code,error} → ApiError 原样透出服务端人话/机器码；
- * 2xx {ok:false,error} → 按域形状原样返回，调用方据 error 展示）。
+ * B-23 起业务失败统一 422 信封抛出，2xx {ok:false} 域形状契约已废）。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { exportBook } from '../../../src/studio/web-next/src/api/io'
@@ -51,11 +51,25 @@ describe('io api · 导出', () => {
     expect(r).toEqual({ ok: true, chapterCount: 3, unit: '章', files: ['a.md', 'b.md'] })
   })
 
-  it('exportBook：2xx {ok:false,error} → 按域形状返回 error（调用方据 error 提示，不抛）', async () => {
-    stubFetch(() => ok({ ok: false, error: '无可导出章节' }))
-    const r = await exportBook('书A', { format: 'merged' })
-    expect(r.ok).toBe(false)
-    expect(r.error).toBe('无可导出章节')
+  it('exportBook：业务失败（422 EXPORT_FAILED 信封）→ ApiError 抛出信封诊断（B-23 契约）', async () => {
+    // B-23（第六十轮补修）：服务端业务失败不再回 200 {ok:false} 域形状（全域错误
+    // 信封唯一豁免点收口）——改 422 {code,error}，apiJson 有信封即抛 ApiError 且
+    // body.error 完整保留（dv-01），ExportDialog catch 后原样展示
+    stubFetch(
+      () =>
+        new Response(JSON.stringify({ code: 'EXPORT_FAILED', error: '没有定稿正文可导出。' }), {
+          status: 422,
+          headers: { 'content-type': 'application/json' },
+        }),
+    )
+    const err = await exportBook('书A', { format: 'merged' }).then(
+      () => { throw new Error('应抛出') },
+      (e: unknown) => e,
+    )
+    expect(err).toBeInstanceOf(ApiError)
+    expect((err as ApiError).message).toBe('没有定稿正文可导出。')
+    expect((err as ApiError).code).toBe('EXPORT_FAILED')
+    expect((err as ApiError).status).toBe(422)
   })
 
   it('exportBook：非 2xx 服务端 {code,error} 信封 → ApiError 透出人话 + 机器码', async () => {

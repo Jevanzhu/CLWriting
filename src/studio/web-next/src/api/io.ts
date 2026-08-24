@@ -1,6 +1,6 @@
 import { apiJson } from './client'
 
-// 导入/导出（细案 §2.2 T4.2）：POST /export spawn CLI（确定性，数秒返回）。
+// 导入/导出（细案 §2.2 T4.2）：POST /export（B-24 起服务端 worker 线程执行，数秒返回）。
 // format 三选；platform 五选一可选；带写 token。
 
 export type ExportFormat = 'merged' | 'split' | 'both'
@@ -22,13 +22,15 @@ export const EXPORT_PLATFORMS: { v: ExportPlatform; label: string }[] = [
   { v: 'xiaohongshu', label: '小红书' },
 ]
 
-/** ii 批：域形状负载（与后端 /export 契约同步收敛——旧 CLI 信封 code/stdout/stderr 已废） */
+/** ii 批：域形状负载（与后端 /export 契约同步收敛——旧 CLI 信封 code/stdout/stderr 已废）。
+ *  B-23（第六十轮补修）：业务失败改 422 {code:'EXPORT_FAILED', error} 错误信封——
+ *  失败即由 apiJson 抛 ApiError（信封 error 即诊断文案，dv-01 完整保留），
+ *  本类型只描述成功形状（ok 恒 true） */
 export interface ExportResponse {
-  ok: boolean
+  ok: true
   chapterCount?: number
   unit?: string
   files?: string[]
-  error?: string
 }
 
 export async function exportBook(

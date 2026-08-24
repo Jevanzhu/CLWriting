@@ -70,6 +70,10 @@ export interface StudioDriver {
   startSession(cwd: string, opts?: SessionOptions): Promise<Session>
   /** 流式事件(持续;done 事件表示单次生成完,不断流) */
   stream(session: Session): AsyncIterable<DriverEvent>
+  /** B-19（第六十轮补修）：唤醒 park 在内部等待上的 stream 生成器（SSE 断开即回收，
+   *  不再等该书下一 driver 事件才推进 iter.return）——入参为 stream() 的返回值。
+   *  可选,未实现的 driver 退回 iter.return() 旧语义（等待下一事件） */
+  cancelStream?(iter: AsyncIterable<DriverEvent>): void
   /** 结束会话 */
   dispose(session: Session): void
   /** 中断当前生成(推 interrupted;session 保留可再用)。可选,mock 可不实现 */

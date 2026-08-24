@@ -12,14 +12,19 @@
 import { DatabaseSync } from 'node:sqlite'
 import { createHash } from 'node:crypto'
 import { mkdirSync, existsSync, renameSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { ulid } from '../document/stable-id.js'
 import type { ChatEvent, SurfaceOp } from './types.js'
 import { log } from '../log/index.js'
 
-/** 书 hash：sha256(bookRoot) 前 16 hex——稳定，不落原文路径 */
+/** 书 hash：sha256(bookRoot) 前 16 hex——稳定，不落原文路径。
+ *  B-18（第六十轮补修）：哈希前 resolve 归一化——尾分隔符 / '.'/'..' 段变体不再
+ *  同书分裂两库（原先 sha256 原样入参，路径形态敏感）。存量安全：调用点路径源于
+ *  books.json 单源的绝对无尾斜杠形态，resolve 对其恒等 → 存量库键不变、无孤儿化；
+ *  大小写不做归一（Linux 大小写敏感文件系统上大小写变体是不同路径，且收编会
+ *  重键存量 macOS 库）。 */
 export function bookHash(bookRoot: string): string {
-  return createHash('sha256').update(bookRoot).digest('hex').slice(0, 16)
+  return createHash('sha256').update(resolve(bookRoot)).digest('hex').slice(0, 16)
 }
 
 export interface SessionRow {

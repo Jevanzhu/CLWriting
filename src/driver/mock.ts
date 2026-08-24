@@ -15,10 +15,26 @@ import type {
   StudioDriver,
 } from './types.js'
 
-/** 每 session 一个事件总线（广播到所有消费者） */
+/** 每 session 一个事件总线（广播到所有消费者）。
+ *  B-19（第六十轮补修，与 cc.ts 同构）：cancelled——SSE 断开侧经 cancelStream
+ *  唤醒 park 中的生成器令其自行 return（iter.return 只能在 yield 边界生效） */
 interface Consumer {
   queue: DriverEvent[]
   notify: (() => void) | null
+  cancelled: boolean
+}
+
+/** B-19：stream() 返回的生成器对象 → 其 consumer（cancelStream 据此唤醒） */
+const streamCancels = new WeakMap<AsyncIterable<DriverEvent>, Consumer>()
+
+/** B-19：唤醒 consumer——置 cancelled 并 resolve 挂起等待（幂等） */
+function cancelConsumer(consumer: Consumer): void {
+  consumer.cancelled = true
+  if (consumer.notify) {
+    const n = consumer.notify
+    consumer.notify = null
+    n()
+  }
 }
 interface Channel {
   consumers: Set<Consumer>
@@ -83,31 +99,43 @@ export const mockDriver: StudioDriver = {
     return session
   },
 
-  async *stream(session: Session): AsyncIterable<DriverEvent> {
-    // 低级项（第六轮）：已 dispose 的会话不再建 channel（防复活 Map 残留）
-    if (session.closed) return
-    const ch = channel(session.id)
-    const consumer: Consumer = { queue: [], notify: null }
-    ch.consumers.add(consumer)
-    // 首个消费者接管无消费者期间暂存的事件（emit 在 stream 前的时序）
-    if (!ch.preTaken && ch.pre.length > 0) {
-      consumer.queue.push(...ch.pre)
-      ch.pre.length = 0
-      ch.preTaken = true
-    }
-    try {
-      while (!session.closed) {
-        while (consumer.queue.length) {
-          yield consumer.queue.shift() as DriverEvent
-        }
-        if (session.closed) return
-        await new Promise<void>((resolve) => {
-          consumer.notify = resolve
-        })
+  // B-19：stream 改工厂形态（生成器主体不变）——创建时在 WeakMap 登记取消句柄
+  stream(session: Session): AsyncGenerator<DriverEvent> {
+    const consumer: Consumer = { queue: [], notify: null, cancelled: false }
+    const gen = (async function* (): AsyncGenerator<DriverEvent> {
+      // 低级项（第六轮）：已 dispose 的会话不再建 channel（防复活 Map 残留）
+      if (session.closed) return
+      const ch = channel(session.id)
+      ch.consumers.add(consumer)
+      // 首个消费者接管无消费者期间暂存的事件（emit 在 stream 前的时序）
+      if (!ch.preTaken && ch.pre.length > 0) {
+        consumer.queue.push(...ch.pre)
+        ch.pre.length = 0
+        ch.preTaken = true
       }
-    } finally {
-      ch.consumers.delete(consumer)
-    }
+      try {
+        while (!session.closed) {
+          while (consumer.queue.length) {
+            yield consumer.queue.shift() as DriverEvent
+          }
+          if (session.closed) return
+          // B-19：断开唤醒后的检查点——不再续 park，自行 return（finally 摘除 consumer）
+          if (consumer.cancelled) return
+          await new Promise<void>((resolve) => {
+            consumer.notify = resolve
+          })
+        }
+      } finally {
+        ch.consumers.delete(consumer)
+      }
+    })()
+    streamCancels.set(gen, consumer)
+    return gen
+  },
+
+  cancelStream(iter: AsyncIterable<DriverEvent>): void {
+    const consumer = streamCancels.get(iter)
+    if (consumer) cancelConsumer(consumer)
   },
 
   dispose(session: Session): void {

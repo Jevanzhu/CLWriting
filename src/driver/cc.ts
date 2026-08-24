@@ -17,10 +17,28 @@ import type {
   StudioDriver,
 } from './types.js'
 
-/** 单个 stream 消费者：独立队列 + 挂起等待句柄 */
+/** 单个 stream 消费者：独立队列 + 挂起等待句柄。
+ *  B-19（第六十轮补修）：cancelled——SSE 断开侧经 cancelStream 唤醒 park 中的
+ *  生成器令其自行 return（iter.return 只能在 yield 边界生效，此前断开后生成器
+ *  悬挂在内部 await 直到该书下一 driver 事件才被推进回收） */
 interface Consumer {
   queue: DriverEvent[]
   notify: (() => void) | null
+  cancelled: boolean
+}
+
+/** B-19：stream() 返回的生成器对象 → 其 consumer（cancelStream 据此唤醒） */
+const streamCancels = new WeakMap<AsyncIterable<DriverEvent>, Consumer>()
+
+/** B-19：唤醒 consumer——置 cancelled 并 resolve 挂起等待（幂等；未 park 时仅置标记，
+ *  生成器在下轮检查点自行 return） */
+function cancelConsumer(consumer: Consumer): void {
+  consumer.cancelled = true
+  if (consumer.notify) {
+    const n = consumer.notify
+    consumer.notify = null
+    n()
+  }
 }
 /** E1b：生成执行的边界事件（业务语义：执行开始清空 ring、执行终态停止累积） */
 const EXEC_START = new Set(['chat_start', 'self_heal_batch', 'role_spawn'])
@@ -120,35 +138,50 @@ export const ccDriver: StudioDriver = {
     return session
   },
 
-  async *stream(session: Session): AsyncIterable<DriverEvent> {
-    // 低级项（第六轮）：已 dispose 的会话不再建 channel（原先懒建复活 Map 条目无人清）
-    if (session.closed) return
-    const ch = channel(session.id)
-    const consumer: Consumer = { queue: [], notify: null }
-    ch.consumers.add(consumer)
-    // E1b：迟到回放——pre（无消费者期间完整暂存）优先；已被接管过则回放活跃执行的 execRing
-    // （cap 协议单元，新 listener 加入时顺序重放，看到当前执行已流式内容）
-    if (!ch.preTaken && ch.pre.length > 0) {
-      consumer.queue.push(...ch.pre)
-      ch.pre.length = 0
-      ch.preTaken = true
-    } else if (ch.execActive && ch.execRing.length > 0) {
-      consumer.queue.push(...ch.execRing)
-    }
-    try {
-      while (!session.closed) {
-        while (consumer.queue.length) {
-          yield consumer.queue.shift() as DriverEvent
-        }
-        if (session.closed) return
-        await new Promise<void>((resolve) => {
-          consumer.notify = resolve
-        })
+  // B-19：stream 改工厂形态（生成器主体不变）——创建时在 WeakMap 登记取消句柄，
+  // cancelStream 据此唤醒 park 在内部 await 的生成器（接口签名不变，返回 AsyncGenerator
+  // 仍是 AsyncIterable）
+  stream(session: Session): AsyncGenerator<DriverEvent> {
+    const consumer: Consumer = { queue: [], notify: null, cancelled: false }
+    const gen = (async function* (): AsyncGenerator<DriverEvent> {
+      // 低级项（第六轮）：已 dispose 的会话不再建 channel（原先懒建复活 Map 条目无人清）
+      if (session.closed) return
+      const ch = channel(session.id)
+      ch.consumers.add(consumer)
+      // E1b：迟到回放——pre（无消费者期间完整暂存）优先；已被接管过则回放活跃执行的 execRing
+      // （cap 协议单元，新 listener 加入时顺序重放，看到当前执行已流式内容）
+      if (!ch.preTaken && ch.pre.length > 0) {
+        consumer.queue.push(...ch.pre)
+        ch.pre.length = 0
+        ch.preTaken = true
+      } else if (ch.execActive && ch.execRing.length > 0) {
+        consumer.queue.push(...ch.execRing)
       }
-    } finally {
-      // 消费者断开（iter.return / 异常）即从广播组移除，不影响其他消费者
-      ch.consumers.delete(consumer)
-    }
+      try {
+        while (!session.closed) {
+          while (consumer.queue.length) {
+            yield consumer.queue.shift() as DriverEvent
+          }
+          if (session.closed) return
+          // B-19：断开唤醒后的检查点——不再续 park，自行 return（finally 摘除 consumer）
+          if (consumer.cancelled) return
+          await new Promise<void>((resolve) => {
+            consumer.notify = resolve
+          })
+        }
+      } finally {
+        // 消费者断开（cancelStream 唤醒自行 return / iter.return / 异常）即从广播组移除，
+        // 不影响其他消费者
+        ch.consumers.delete(consumer)
+      }
+    })()
+    streamCancels.set(gen, consumer)
+    return gen
+  },
+
+  cancelStream(iter: AsyncIterable<DriverEvent>): void {
+    const consumer = streamCancels.get(iter)
+    if (consumer) cancelConsumer(consumer)
   },
 
   dispose(session: Session): void {
