@@ -1,0 +1,141 @@
+/**
+ * 知识层更新入口（阶段 23 批 4）：双步 script 的模块语义 + 恒等红线。
+ *
+ * 红线：①update 产草稿不动 manifest；②commit 登记后存量条目逐字节不变
+ * （B-18 bookHash 同款口径——仅 generated_at 与新增条目变化）；③commit 拒绝
+ * 重复登记 / 路径越界 / 文件不在盘；④登记后对账（validateKnowledgeManifest）必须过。
+ */
+import { describe, it, expect } from 'vitest'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import {
+  summarizeFalsePositives,
+  renderFalsePositiveDraft,
+  writeFalsePositiveDraft,
+  commitKnowledgeFile,
+} from '../../src/knowledge/update.js'
+import { hashFileSha256, validateKnowledgeManifest } from '../../src/knowledge/manifest.js'
+
+function fixture(): { root: string; corpusDir: string } {
+  const root = mkdtempSync(join(tmpdir(), 'knowledge-update-'))
+  const corpusDir = join(root, 'corpus')
+  mkdirSync(join(root, '知识层'), { recursive: true })
+  mkdirSync(corpusDir, { recursive: true })
+  writeFileSync(
+    join(corpusDir, 'body-parts.json'),
+    JSON.stringify([
+      { excerpt: '她的眼睛望着他，眼睛里映着火光。', expect: 'fire' },
+      { excerpt: '山门外落了整夜的风雪。', expect: 'silent' },
+      { excerpt: '钟声一声比一声沉。', expect: 'silent' },
+    ]),
+    'utf8',
+  )
+  writeFileSync(join(corpusDir, 'repetition.json'), JSON.stringify([{ excerpt: '重复排比。', expect: 'fire' }]), 'utf8')
+  return { root, corpusDir }
+}
+
+function baseManifest(root: string, withExisting = true): void {
+  writeFileSync(join(root, '知识层', '存量.md'), '---\nsource: 旧来源\nlicense: MIT\n---\n\n# 存量\n', 'utf8')
+  const entries = withExisting
+    ? [{
+        target: '知识层/存量.md', source: '旧来源', license: 'MIT',
+        sha256: hashFileSha256(join(root, '知识层', '存量.md')), category: '索引' as const,
+      }]
+    : []
+  writeFileSync(
+    join(root, '知识层', '_manifest.json'),
+    JSON.stringify({ version: 1, generated_at: '2026-08-15T00:00:00+08:00', summary: { migrated: 1, deferred: 0, review_assets: 0 }, entries }, null, 2) + '\n',
+    'utf8',
+  )
+}
+
+describe('知识层更新：summarize + 草稿', () => {
+  it('扫语料回归域：silent/fire 计数正确，纯 fire 与坏 JSON 文件跳过', () => {
+    const { root, corpusDir } = fixture()
+    try {
+      writeFileSync(join(corpusDir, 'bad.json'), '{oops', 'utf8')
+      const s = summarizeFalsePositives(corpusDir)
+      expect(s).toHaveLength(1)
+      expect(s[0]!.checkId).toBe('body-parts')
+      expect(s[0]!.silent).toBe(2)
+      expect(s[0]!.fire).toBe(1)
+      expect(s[0]!.excerpts).toEqual(['山门外落了整夜的风雪。', '钟声一声比一声沉。'])
+      expect(summarizeFalsePositives(join(root, '不存在'))).toEqual([])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('草稿渲染含 checkId 段与摘录；空语料出说明行', () => {
+    const text = renderFalsePositiveDraft(
+      [{ checkId: 'body-parts', silent: 2, fire: 1, excerpts: ['山门外落了整夜的风雪。'] }],
+      '2026-08-24',
+    )
+    expect(text).toContain('## body-parts')
+    expect(text).toContain('误报 2 条 / 真命中 1 条')
+    expect(text).toContain('山门外落了整夜的风雪。')
+    expect(text).toContain('未经作者审核不得入库')
+    expect(renderFalsePositiveDraft([], '2026-08-24')).toContain('无 expect:"silent" 条目')
+  })
+
+  it('writeFalsePositiveDraft：草稿落 知识层/，manifest 逐字节不动', () => {
+    const { root, corpusDir } = fixture()
+    try {
+      baseManifest(root)
+      const before = readFileSync(join(root, '知识层', '_manifest.json'), 'utf8')
+      const rel = writeFalsePositiveDraft(root, corpusDir, '2026-08-24')
+      expect(rel).toBe('知识层/机检误报-草稿-2026-08-24.md')
+      expect(readFileSync(join(root, rel), 'utf8')).toContain('## body-parts')
+      expect(readFileSync(join(root, '知识层', '_manifest.json'), 'utf8')).toBe(before) // 红线①
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('知识层更新：commit 登记', () => {
+  it('登记新条目：sha256 实算、存量条目恒等、generated_at 更新、对账过', () => {
+    const { root, corpusDir } = fixture()
+    try {
+      baseManifest(root)
+      const finalRel = '知识层/机检误报规律.md'
+      writeFalsePositiveDraft(root, corpusDir, '2026-08-24')
+      writeFileSync(join(root, finalRel), '# 机检误报规律\n## body-parts\n作者归纳……\n', 'utf8')
+
+      const before = JSON.parse(readFileSync(join(root, '知识层', '_manifest.json'), 'utf8'))
+      const report = commitKnowledgeFile(root, { target: finalRel, sourceRef: 'test/corpus/checks/body-parts.json', now: '2026-08-24T12:00:00+08:00' })
+      expect(report.ok, report.issues.map((i) => i.message).join(';')).toBe(true)
+
+      const after = JSON.parse(readFileSync(join(root, '知识层', '_manifest.json'), 'utf8'))
+      expect(after.entries).toHaveLength(2)
+      expect(after.entries[0]).toEqual(before.entries[0]) // 红线②：存量逐字节（对象级）恒等
+      expect(after.generated_at).toBe('2026-08-24T12:00:00+08:00')
+      const added = after.entries[1]!
+      expect(added.target).toBe(finalRel)
+      expect(added.source).toBe('语料回归域')
+      expect(added.sha256).toBe(hashFileSha256(join(root, finalRel)))
+      expect(added.category).toBe('方法论')
+      // 写回形态：2 空格 + 尾换行（与真实 _manifest.json 往返字节恒等口径一致）
+      expect(readFileSync(join(root, '知识层', '_manifest.json'), 'utf8').endsWith('\n')).toBe(true)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('拒绝：重复登记 / target 越出 知识层/ / 定稿文件不在盘', () => {
+    const { root } = fixture()
+    try {
+      baseManifest(root)
+      expect(commitKnowledgeFile(root, { target: '知识层/存量.md' }).ok).toBe(false) // 已登记
+      expect(commitKnowledgeFile(root, { target: 'README.md' }).ok).toBe(false) // 越界
+      expect(commitKnowledgeFile(root, { target: '知识层/不存在.md' }).ok).toBe(false) // 不在盘
+      // 三次拒绝后 manifest 不应被写入任何变化
+      expect(validateKnowledgeManifest(root).ok).toBe(true)
+      const m = JSON.parse(readFileSync(join(root, '知识层', '_manifest.json'), 'utf8'))
+      expect(m.entries).toHaveLength(1)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
