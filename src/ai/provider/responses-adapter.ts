@@ -235,7 +235,9 @@ export function createOpenAIResponsesProvider(
             )
             markStructuredDegrade(plan, attempt, store)
             // Z-12（第五十八轮）：成功建流用的是非首发（降级）参数面 → done 事件带 degraded
-            degraded = attempt !== plan.attempts[0]
+            // A3（五十九轮）：判据并入降级记忆命中——基准改 plan.original（记忆命中时
+            // attempts[0] 已是剥除版，旧判据对首发恒 false，记忆命中路径漏标 degraded）
+            degraded = attempt !== plan.original
 
             // 分块拼装中的 function call：item_id → { callId, name, args }
             // （P2 复审：声明在 attempt 循环内每次新建——mid-stream 400 降级续跑时，

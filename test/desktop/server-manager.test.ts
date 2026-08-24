@@ -710,6 +710,56 @@ describe('批 U3：崩溃退避自动重启（U-2/S-1/S-5/S-9）', () => {
   })
 })
 
+// ── S1（五十九轮）：shutdown/stopChild 对「握手中的在途 fork」的停机竞态 ──
+// 握手窗口内 active===null，原 shutdown 只看 active → before-quit 落在该窗口时新
+// child 收不到 shutdown 指令、不走优雅停机，只能硬杀。修复：先 await starting
+// （catch 握手失败）再判 active；launch fork 后检查 shutdownStarted 即杀。
+describe('S1: 停机对在途 fork 的可见性', () => {
+  it('shutdown 落在 start 握手窗口内 → 等 ready 后对新 child 下发 shutdown 指令（优雅停机，非硬杀）', async () => {
+    const { forkRecords, manager } = mkHarness({ shutdownTotalMs: 200, killWaitMs: 50 })
+    const ud = mkUserData()
+    const starting = manager.start({ workDir: '/w', userDataPath: ud })
+    const child = forkRecords[0]!.child
+    // 握手在途（ready 未发）时 before-quit 触发——原实现此处 if (!current) return 漏停
+    const shuttingDown = manager.shutdown()
+    child.emit('message', { type: 'ready', port: 46000 })
+    await expect(starting).resolves.toBe(46000)
+    // 新 child 被优雅停机链覆盖：收到 shutdown 指令
+    await flushMicrotasks()
+    expect(child.posted).toContainEqual({ type: 'shutdown' })
+    child.emit('message', { type: 'shutdown-done' })
+    child.emit('exit', 0)
+    await shuttingDown
+    expect(child.killed).toBe(0) // 回执路径不 kill（优雅停机语义保留）
+    expect(forkRecords.length).toBe(1)
+  })
+
+  it('stopChild 落在 start 握手窗口内 → 等 ready 后 kill 新 child（不漏杀成孤儿）', async () => {
+    const { forkRecords, manager } = mkHarness()
+    const ud = mkUserData()
+    const starting = manager.start({ workDir: '/w', userDataPath: ud })
+    const child = forkRecords[0]!.child
+    const stopping = manager.stopChild()
+    child.emit('message', { type: 'ready', port: 46001 })
+    await expect(starting).resolves.toBe(46001)
+    await stopping
+    expect(child.killed).toBe(1) // 新 child 被 kill（原实现 active===null 直通漏杀）
+    expect(manager.isRunning()).toBe(false)
+    expect(forkRecords.length).toBe(1)
+  })
+
+  it('shutdown 等待中握手失败（boot-error）→ 吞启动失败继续停机面，不挂死不炸', async () => {
+    const { forkRecords, manager } = mkHarness({ shutdownTotalMs: 200 })
+    const ud = mkUserData()
+    const starting = manager.start({ workDir: '/w', userDataPath: ud })
+    const shuttingDown = manager.shutdown()
+    forkRecords[0]!.child.emit('message', { type: 'boot-error', code: 'EADDRINUSE', message: 'x' })
+    await expect(starting).rejects.toThrow(ServerBootError)
+    await expect(shuttingDown).resolves.toBeUndefined() // catch 握手失败，静默收口
+    expect(forkRecords.length).toBe(1) // 停机门置位后无重启 fork
+  })
+})
+
 afterAll(() => {
   for (const d of tmpDirs) rmSync(d, { recursive: true, force: true })
 })

@@ -69,13 +69,21 @@ function pushSegmentChunks(body: string, segStart: number, segEnd: number, out: 
   const seg = body.slice(segStart, segEnd)
   if (seg.trim().length < 20) return
   if (seg.trim().length <= MAX_CHUNK_CHARS) {
-    out.push({ text: seg.trim(), start: segStart, end: segEnd })
+    // A4（五十九轮）：offset 按 trim 后文本重定位——text 是 trim 后文本而 start/end 原先
+    // 指向未 trim 区间，召回→精准读取契约两头不对齐（首尾空白计入 offset 精度损耗）
+    const lead = seg.length - seg.trimStart().length
+    const trail = seg.length - seg.trimEnd().length
+    out.push({ text: seg.trim(), start: segStart + lead, end: segEnd - trail })
     return
   }
   for (const [s, e] of subdivideSegment(seg, MAX_CHUNK_CHARS)) {
-    const text = seg.slice(s, e).trim()
+    const piece = seg.slice(s, e)
+    const text = piece.trim()
     if (text.length >= 20) {
-      out.push({ text, start: segStart + s, end: segStart + e })
+      // A4（五十九轮）：子块同口径——start/end 收缩到 trim 后文本的实际区间
+      const lead = piece.length - piece.trimStart().length
+      const trail = piece.length - piece.trimEnd().length
+      out.push({ text, start: segStart + s + lead, end: segStart + e - trail })
     }
   }
 }

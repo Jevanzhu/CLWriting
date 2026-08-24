@@ -10,7 +10,7 @@ import type { ChatMsg, ToolDef, TokenUsage } from '../provider/types.js'
 import type { TaskResult } from '../runner.js'
 import { runTask } from '../runner.js'
 import { generate, generateTool, GenError } from '../gen.js'
-import { rulesToPrompt, rulesPromptFiles } from '../rules/index.js'
+import { rulesPromptParts } from '../rules/index.js'
 import { resolveBuiltinSystemPrompt } from '../prompts/resource.js'
 
 /** 任务生成模式 */
@@ -117,10 +117,13 @@ export async function runSpec(
   // C2：内置 prompt 运行期精确匹配——spec.systemPrompt 命中内置（任意历史版本）哈希时
   // 换成 overlay/当前内置（用户覆盖层优先）；rulesToPrompt 拼接段与动态 prompt 不受影响
   const base = resolveBuiltinSystemPrompt(opts.systemPromptOverride ?? spec.systemPrompt, opts.userDataPath ?? undefined) ?? ''
-  const systemPrompt = base + rulesToPrompt(spec.name, opts.bookRoot)
+  // A8（五十九轮）：注入文本与登记清单同一次读盘派生（rulesPromptParts 单源）——此前
+  // rulesToPrompt 与 rulesPromptFiles 各自独立读盘，微观窗口注入与登记可撕裂
+  const parts = rulesPromptParts(spec.name, opts.bookRoot)
+  const systemPrompt = base + parts.prompt
   // Y-2（第五十七轮）：rules 注入段源文件并入 promptFiles（铁律①「模型可见⟺已记录」——
   // AI味词表条目库与 rule-hits.json 为可变文件，仅入哈希不可重建，登记后事件可溯源）
-  const promptFiles = [...new Set([...(opts.promptFiles ?? []), ...rulesPromptFiles(spec.name, opts.bookRoot)])]
+  const promptFiles = [...new Set([...(opts.promptFiles ?? []), ...parts.files])]
   const tool = opts.toolOverride ?? spec.tool
   const mock = opts.mockOverride ?? spec.mock
   const messages: ChatMsg[] = [{ role: 'user', content: opts.userPrompt }]

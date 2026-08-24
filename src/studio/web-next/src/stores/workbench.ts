@@ -47,6 +47,11 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   const textOut = ref('')
   /** 生成中（init/role_spawn→true，done/interrupted/error→false）。 */
   const running = ref(false)
+  /** F4（五十九轮）：textOut 不完整水印——SSE 断连窗口内的 text 事件无补发，重连后
+   *  sync(running=true) 说明生成在途但期间事件已丢，textOut 可能残缺；置位期间阻止
+   *  直接保存残文（最小闭环，不做事件重投影）。本轮事件收尾（done/interrupted/error）
+   *  时清除——终稿落盘前作者本就会过目，且 .版本 快照可兜底找回。 */
+  const textIncomplete = ref(false)
   /** SSE 连接态。 */
   const connected = ref(false)
   /** 全自动写章：当前阶段 / 重写进度 / 终局（null = 未在跑或已清）。 */
@@ -65,6 +70,9 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     // 连接快照（服务端连接建立即发）：校正 running（刷新/新标签错过 init 的补救），不入事件日志
     if (ev.type === 'sync') {
       running.value = ev['running'] === true
+      // F4（五十九轮）：重连快照 running=true ⇔ 断连窗口内有事件丢失（SSE 无补发），
+      // textOut 可能残缺——置不完整水印；running=false 说明生成已收尾，按收尾口径清除
+      textIncomplete.value = running.value
       // Q-4（第十五轮）：sync 只回 running 布尔——断线重连时若批次已在断连窗口内
       // 收尾（self_heal_result 丢失），healPhase/batchProgress 原样残留会让界面永久
       // 卡「正在写稿…」（M-12 只处理了 running 复位）。running=false 且自愈态残留 →
@@ -100,6 +108,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       batchProgress.value = null
     } else if (e.type === 'done' || e.type === 'interrupted' || e.type === 'error') {
       running.value = false
+      textIncomplete.value = false // F4（五十九轮）：本轮生成收尾，水印解除
     }
     if (e.type === 'text' && typeof e.text === 'string') textOut.value += e.text
     // 整章重写 / 流式重试前清正文缓冲，不清会把多轮正文首尾拼接
@@ -153,6 +162,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     // M-12：running 一并复位——切书时不带走旧书在途标志（旧实现残留 true 让新书
     // 工作台无限显示「生成中」；新书 SSE connect 快照会按服务端真实状态校正）
     running.value = false
+    textIncomplete.value = false // F4（五十九轮）：水印随正文一起清
   }
   function setConnected(v: boolean): void {
     connected.value = v
@@ -161,6 +171,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   return {
     log,
     textOut,
+    textIncomplete,
     running,
     connected,
     healPhase,

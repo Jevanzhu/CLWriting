@@ -9,10 +9,10 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { basename } from 'node:path'
-import { readFileSync, existsSync } from 'node:fs'
+import { readFile as readFileAsync } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import { resolveWithinRoot } from '../../../fs/safe-path.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
-import { hashFile } from '../../../fs/hash.js'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError, parseRequestUrl } from '../http.js'
 import { resolveBook } from '../book-context.js'
@@ -36,26 +36,46 @@ const EDIT_DIRS: { dir: string; mode: 'text' | 'md' }[] = [
 /** W-P1-3：作者确认位专用白名单（工作区下仅这两个文件可进编辑器） */
 const WORKDIR_EDITABLE = new Set(['工作区/细纲.md', '工作区/账本推进.md'])
 
+/**
+ * S4（五十九轮）：异步读全文 + 字节指纹单次读取共源——原 readFileSync + hashFile
+ * 各整读一次（PUT 乐观锁路径双份同步整读），数百 KB 设定文件在同步 IO 期间阻塞
+ * 事件循环（SSE 心跳停摆）。哈希口径与 fs/hash 的 hashFile 同构（'sha256:' + 原始
+ * 字节 hex），revision 契约不变；ENOENT 以 null 区分（调用方回 404）。
+ * 注：写侧仍走 atomicWriteFile（同步原子写是既有纪律，src/fs 不动；写面 IO 量级
+ * 与读面同源，后续批次统一异步化时一并收口）。
+ */
+async function readFileHashed(fp: string): Promise<{ content: string; revision: string } | null> {
+  let buf: Buffer
+  try {
+    buf = await readFileAsync(fp)
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null
+    throw e
+  }
+  return { content: buf.toString('utf-8'), revision: 'sha256:' + createHash('sha256').update(buf).digest('hex') }
+}
 
 export function registerFileRoutes(ctx: FileCtx): void {
   // 读 .md 全文
   defineRoute('books.file.get', {
     method: 'GET',
     path: '/api/books/:name/file',
-    handler: ({ params }, req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBook(ctx.workDir, params['name'])
-    if ('error' in r) return replyError(res, r.status, r.code, r.error)
-    // R-19（第十六轮）：畸形 URL → 400 BAD_INPUT（Q-1/N-3 口径）
-    const q = queryParams(req)
-    if (!q) return replyError(res, 400, 'BAD_INPUT', 'bad request')
-    const file = q.get('file') ?? ''
-    const safe = editablePath(r.bookRoot, file)
-    if (!safe) return replyError(res, 400, 'BAD_PATH', '非法路径')
-    if (!existsSync(safe)) return replyError(res, 404, 'NOT_FOUND', '文件不存在')
-    // M-3（第六轮）：附带字节指纹——与 /documents 协议的 revision 同源（hashFile），
-    // 客户端读时取走、存时回传，PUT 侧据此做乐观锁（此前 PUT /file 无任何并发控制）
-    reply(res, 200, { content: readFileSync(safe, 'utf-8'), revision: hashFile(safe) })
-  },
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
+      const r = resolveBook(ctx.workDir, params['name'])
+      if ('error' in r) return replyError(res, r.status, r.code, r.error)
+      // R-19（第十六轮）：畸形 URL → 400 BAD_INPUT（Q-1/N-3 口径）
+      const q = queryParams(req)
+      if (!q) return replyError(res, 400, 'BAD_INPUT', 'bad request')
+      const file = q.get('file') ?? ''
+      const safe = editablePath(r.bookRoot, file)
+      if (!safe) return replyError(res, 400, 'BAD_PATH', '非法路径')
+      // S4：异步读取（原 existsSync + readFileSync + hashFile 三份同步 IO）
+      const read = await readFileHashed(safe)
+      if (!read) return replyError(res, 404, 'NOT_FOUND', '文件不存在')
+      // M-3（第六轮）：附带字节指纹——与 /documents 协议的 revision 同源（hashFile），
+      // 客户端读时取走、存时回传，PUT 侧据此做乐观锁（此前 PUT /file 无任何并发控制）
+      reply(res, 200, { content: read.content, revision: read.revision })
+    },
   })
 
   // 写 .md 全文
@@ -73,7 +93,9 @@ export function registerFileRoutes(ctx: FileCtx): void {
       // （乐观锁 + journal + 快照协议），否则编辑器并发保存被静默覆写、树状态失真
       const safe = writablePath(r.bookRoot, file)
       if (!safe) return replyError(res, 400, 'BAD_PATH', '非法路径（正文请走文档保存协议）')
-      if (!existsSync(safe)) return replyError(res, 404, 'NOT_FOUND', '文件不存在')
+      // S4：异步读取基线（原 existsSync + hashFile 同步整读；ENOENT 统一 404）
+      const baseline = await readFileHashed(safe)
+      if (!baseline) return replyError(res, 404, 'NOT_FOUND', '文件不存在')
       const body = (await readJson(req)) as { content?: unknown; expectedRevision?: unknown }
       if (typeof body.content !== 'string') {
         replyError(res, 400, 'BAD_INPUT', '缺少 content')
@@ -82,7 +104,7 @@ export function registerFileRoutes(ctx: FileCtx): void {
       // M-3（第六轮）：可选乐观锁——expectedRevision 与盘上字节指纹不符 → 409，双窗口
       // 并发保存不再静默后写覆盖先写（正文协议 X-P2-14 已有，此通道对齐）。缺省时保持
       // 旧「后写为准」语义（存量调用方零改动）；成功响应回新指纹供客户端滚动基线。
-      if (typeof body.expectedRevision === 'string' && body.expectedRevision !== hashFile(safe)) {
+      if (typeof body.expectedRevision === 'string' && body.expectedRevision !== baseline.revision) {
         return replyError(
           res,
           409,
@@ -94,10 +116,15 @@ export function registerFileRoutes(ctx: FileCtx): void {
       // U-P2-8：与 DocumentService 写路径同口径——失效树索引缓存（wordCount/status），
       // 否则 PUT 设定/大纲后树字数过期，只能靠前端 refresh=1 自愈
       invalidateTreeIndex(r.bookRoot)
-      reply(res, 200, { ok: true, revision: hashFile(safe) })
+      reply(res, 200, { ok: true, revision: hashContent(body.content) })
     },
   })
 
+}
+
+/** S4：写后回指纹——对写入内容直接哈希（盘上即该内容，语义与 hashFile 相同且免二次读盘）。 */
+function hashContent(content: string): string {
+  return 'sha256:' + createHash('sha256').update(content, 'utf-8').digest('hex')
 }
 
 /** 取 req URL 的 searchParams

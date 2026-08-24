@@ -86,6 +86,37 @@ afterAll(async () => {
   if (workDir) rmSync(workDir, { recursive: true, force: true })
 })
 
+// S2（五十九轮）：原裸数字计数在 chat.clear 直接 delete 后，旧连接 close 回调对新
+// 账目 -1（漂移下限 0）——连接上限可被绕空。现按句柄集合记账：clear 销毁该书全部
+// 在途连接并同步清账，旧连接 close 对新账目零影响。
+describe('S2: SSE 计数按实际存活连接记账（chat.clear 不再 -1 漂移）', () => {
+  it('clear 后旧连接 close 不侵蚀新账目；新连接计数从真实存活数起算', async () => {
+    // 第一轮：1 条旧连接 + clear（旧连接被销毁、账目清空）
+    await openStream(BOOK)
+    const acOld = openStreams[openStreams.length - 1]!
+    await tick()
+    expect(__getSseConnections().get(BOOK)).toBe(1)
+    const r = await req('POST', `/api/books/${encodeURIComponent(BOOK)}/chat/clear`)
+    expect(r.status).toBe(200)
+    expect(__getSseConnections().has(BOOK)).toBe(false)
+    // 第二轮：clear 后再开 2 条新连接——旧连接（acOld）close 时不得对新账目 -1
+    await openStream(BOOK)
+    await openStream(BOOK)
+    await tick()
+    expect(__getSseConnections().get(BOOK)).toBe(2)
+    acOld.abort() // 旧连接（clear 时已被服务端销毁）迟到的 close 事件到达
+    await tick()
+    expect(__getSseConnections().get(BOOK)).toBe(2) // S2：无漂移
+    // 收尾：关闭本轮两条连接，不污染后续 R-18 用例的计数断言
+    const acA = openStreams[openStreams.length - 2]!
+    const acB = openStreams[openStreams.length - 1]!
+    acA.abort()
+    acB.abort()
+    await tick()
+    expect(__getSseConnections().has(BOOK)).toBe(false)
+  })
+})
+
 describe('R-18: per-book SSE 计数随书级生命周期清理', () => {
   it('清空对话成功 → 计数清零（残留计数会顶 429 上限）', async () => {
     await openStream(BOOK)

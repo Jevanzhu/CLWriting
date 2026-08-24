@@ -5,6 +5,7 @@ import { ApiError, getToken } from '../api/client'
 import { sha256Revision, newOperationId } from '../shared/revision'
 import { useUiStore } from './ui'
 import { useTreeStore } from './tree'
+import { useWorkspaceStore } from './workspace'
 import { useWordsStore } from './words'
 import { countWords, stripFrontmatter, mergeFm } from '../shared/words'
 import type { TreeNode } from '../types/tree'
@@ -47,6 +48,25 @@ export interface DocEntry {
 /** 卸载兜底同步落盘的总预算（ms）：串行同步 XHR 超预算即放弃余下文档（尽力而为）。 */
 const FLUSH_SYNC_BUDGET_MS = 2_000
 
+/** F7（五十九轮）：clean 文档 LRU 上限——长会话翻几十章全部常驻内存；超出后从最旧
+ *  开始驱逐非 active、非 dirty 的 entry（dirty/conflict/saving 永不驱逐——未落盘
+ *  编辑/未决冲突不可丢，被驱逐的 clean 文档切回时重读即可）。 */
+const MAX_CACHED_DOCS = 20
+
+/** F3（五十九轮）：卸载窗口内的同步 re-boot——GET /api/boot（免鉴权端点）取新 token。
+ *  同步 XHR（对应异步通道 rebootstrap 的卸载版）：失败/无 token 返 null，由调用方留痕放弃。 */
+function bootTokenSync(): string | null {
+  try {
+    const xhr = new XMLHttpRequest()
+    xhr.open('GET', '/api/boot', false)
+    xhr.send()
+    const data = JSON.parse(xhr.responseText || '{}') as { token?: unknown }
+    return typeof data.token === 'string' && data.token ? data.token : null
+  } catch {
+    return null
+  }
+}
+
 export const useDocStore = defineStore('doc', () => {
   const docs = ref<Map<string, DocEntry>>(new Map())
   /** 加载中文档的防并发锁（同一 docId 不重复发起请求） */
@@ -67,6 +87,18 @@ export const useDocStore = defineStore('doc', () => {
 
   function get(docId: string): DocEntry | undefined {
     return docs.value.get(docId)
+  }
+
+  /** F7（五十九轮）：LRU 驱逐——Map 迭代序 = 插入序 = 打开序（旧→新），超上限后从最旧
+   *  开始跳过 active/dirty/conflict/saving 项驱逐 clean 文档。active 判定走 workspace
+   *  store（延迟取实例，避开与 workspace→doc 的模块环在初始化期互撞）。 */
+  function evictLRU(): void {
+    const active = useWorkspaceStore().activeDocId
+    for (const [id, e] of docs.value) {
+      if (docs.value.size <= MAX_CACHED_DOCS) return
+      if (id === active || e.dirty || e.conflict || e.saving) continue
+      docs.value.delete(id)
+    }
   }
 
   /** 打开文档：读内容 + 算基线 revision + 入 Map。已打开或加载中则不重读。 */
@@ -96,6 +128,7 @@ export const useDocStore = defineStore('doc', () => {
         error: null,
         conflict: false,
       })
+      evictLRU() // F7（五十九轮）：新 entry 落位后裁剪 clean 缓存至 LRU 上限
     } finally {
       loading.delete(node.docId)
     }
@@ -110,12 +143,39 @@ export const useDocStore = defineStore('doc', () => {
     e.error = null
   }
 
-  /** 保存：走乐观锁 PUT。origin 区分手动/自动。 */
+  /** F8（五十九轮）：在途保存的 promise 台账——⌘S 遇在途保存时链式排队用（等在途
+   *  settle 后重存一次，期间新输入不在在途快照内）。 */
+  const inflightSaves = new Map<string, Promise<boolean>>()
+
+  /** 保存：走乐观锁 PUT。origin 区分手动/自动。
+   *  F8（五十九轮）：manual 遇在途保存不再静默 no-op——await 在途 promise 后若仍有
+   *  dirty（在途快照之后的新输入）则链式再存一次；autosave 维持原 no-op（节拍自会重扫）。 */
   async function save(docId: string, origin: 'manual' | 'autosave' = 'manual'): Promise<boolean> {
     const e = docs.value.get(docId)
-    if (!e || e.saving || !e.dirty) return false
+    if (!e) return false
+    if (e.saving) {
+      if (origin !== 'manual') return false
+      const inflight = inflightSaves.get(docId)
+      if (inflight) await inflight.catch(() => {})
+      const cur = docs.value.get(docId)
+      if (!cur || !cur.dirty) return false
+      return save(docId, origin)
+    }
+    if (!e.dirty) return false
     // 冲突未决时 autosave 必再冲突，跳过重试（也避免每 30s 一条错误提示），等用户选重载/覆盖
     if (e.conflict && origin === 'autosave') return false
+    const p = doSave(e, origin)
+    inflightSaves.set(docId, p)
+    try {
+      return await p
+    } finally {
+      inflightSaves.delete(docId)
+    }
+  }
+
+  /** 单次保存执行体（save 的在途守卫/排队解耦后落在这里）。 */
+  async function doSave(e: DocEntry, origin: 'manual' | 'autosave'): Promise<boolean> {
+    const docId = e.docId
     e.saving = true
     e.error = null
     // 快照本次落盘内容：await 期间的新输入不属于本次保存，成功后不得误清其 dirty
@@ -254,14 +314,16 @@ export const useDocStore = defineStore('doc', () => {
    *  Q-3（第十五轮）：改循环冲排——原一次性快照在 await 窗口内定格，保存期间的新键入
    *  （编辑器仍挂载旧书可继续输入）与「保存中收到的新击键」（快照排除 saving 项）都不在
    *  快照内，setBook 清缓存即静默丢失。每轮重扫直至无待存；保存失败（save 返 false 且
-   *  仍 dirty）的文档本轮不再重试防死循环；冲突文档留作者决断。 */
-  async function flushDirty(): Promise<void> {
+   *  仍 dirty）的文档本轮不再重试防死循环；冲突文档留作者决断。
+   *  F1（五十九轮）：返回未落盘（保存失败仍 dirty）的 docId 列表——调用方（Book.vue
+   *  切书守卫 / 卸载留痕）据此决断，不再静默丢编辑。 */
+  async function flushDirty(): Promise<string[]> {
     const failed = new Set<string>()
     for (;;) {
       const dirty = [...docs.value.values()].filter(
         (e) => e.dirty && !e.saving && !e.conflict && !failed.has(e.docId),
       )
-      if (dirty.length === 0) return
+      if (dirty.length === 0) return [...failed]
       await Promise.all(
         dirty.map(async (e) => {
           const ok = await save(e.docId, 'autosave')
@@ -296,7 +358,18 @@ export const useDocStore = defineStore('doc', () => {
    *  中断在途单次请求，只能在请求之间检查；放弃的文档由 autosave 历史快照兜底）。 */
   function flushSyncOnUnload(): void {
     if (!bookName.value) return
-    const token = getToken()
+    let token = getToken()
+    // F3（五十九轮）：boot 失败后 token 为 null，无 token 的同步 PUT 必 401——关窗兜底
+    // 形同虚设。boot 端点免鉴权：先同步 XHR 重新取 token（异步 rebootstrap 的 fetch 在
+    // 卸载窗口不保证送达，此处必须同步），失败 console.warn 留痕后放弃——发必 401 的
+    // 请求只会白阻塞卸载窗口。
+    if (token === null) {
+      token = bootTokenSync()
+      if (token === null) {
+        console.warn('[flushSyncOnUnload] token 缺失且同步 re-boot 失败，卸载兜底落盘未执行（编辑由 .版本 快照兜底）')
+        return
+      }
+    }
     const deadline = Date.now() + FLUSH_SYNC_BUDGET_MS
     for (const e of docs.value.values()) {
       if (!e.dirty || e.saving || e.conflict) continue

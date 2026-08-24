@@ -45,6 +45,13 @@ export async function ensureSession(bookId: string, cwd: string): Promise<Sessio
   return session
 }
 
+/** 只读查某书现存 session（不建不 dispose）——S5（五十九轮）：/interrupt 等入口判
+ *  「会话是否存在」用；无会话时不得经 ensureSession 隐式新建（新 channel 无人 dispose）。 */
+export function getSession(bookId: string): Session | null {
+  const s = sessions.get(bookId)
+  return s && !s.closed ? s : null
+}
+
 /** 清除某书的 session（删书时调用，释放 channel + ctrl 等资源） */
 export function forgetSession(bookId: string): void {
   const session = sessions.get(bookId)

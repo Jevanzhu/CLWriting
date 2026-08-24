@@ -12,7 +12,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError, parseRequestUrl } from '../http.js'
 import { resolveBook } from '../book-context.js'
-import { ensureSession, getDriver } from '../../../driver/index.js'
+import { ensureSession, getDriver, getSession } from '../../../driver/index.js'
 import type { DriverEvent, Session, StudioDriver } from '../../../driver/index.js'
 import { abortSelfHeal, isSelfHealRunning, runSelfHeal } from '../../../ai/orchestrate/self-heal.js'
 import { hasBackgroundTasks } from '../../../ai/orchestrate/background.js'
@@ -40,21 +40,36 @@ interface StreamCtx {
   studioToken: string
 }
 
-// P2-2：per-book SSE 连接计数（防多标签页耗尽 FD）
-const sseConnections = new Map<string, number>()
+// P2-2：per-book SSE 连接记账（防多标签页耗尽 FD）。
+// S2（五十九轮）：计数改按实际存活连接记账（Map<book, Set<句柄>>）——原裸数字计数
+// 在 chat.clear 直接 delete 后，旧连接 close 回调仍会对新账目 -1（漂移为 0 下限），
+// MAX_SSE 限制可被绕空。句柄登记于鉴权通过时、req close 时移除；forgetSseCount
+// 销毁该书全部在途连接并同步清账（close 回调移除幂等）。
+interface SseConnHandle {
+  /** 强制断开该连接（destroy → 触发 req close → 常规清理链） */
+  destroy(): void
+}
+const sseConnections = new Map<string, Set<SseConnHandle>>()
 const MAX_SSE_PER_BOOK = 5
 
 /** R-18（第十六轮）：书级生命周期终态清 per-book SSE 计数——删书（books.delete）与
  *  清空对话（chat.clear）此前不清理，残留计数让同名重建书被旧计数顶到 429 上限
  *  （计数只在 req close 时递减，书删后连接早已散场无从归零）。命名对齐 books.ts
- *  的 forgetSession/forgetService 族。 */
+ *  的 forgetSession/forgetService 族。
+ *  S2（五十九轮）：改销毁该书全部在途连接 + 同步清账——原裸 delete 不断连接，旧连接
+ *  close 时对新账目 -1 造成漂移。 */
 export function forgetSseCount(bookName: string): void {
-  sseConnections.delete(bookName)
+  const conns = sseConnections.get(bookName)
+  if (!conns) return
+  sseConnections.delete(bookName) // 先清账：close 回调的移除幂等（get 不到即跳过）
+  for (const h of conns) h.destroy()
 }
 
-/** R-18：测试观测钩子（对齐 __setSpawnRunning 风格）——只读快照断言计数清理。 */
+/** R-18：测试观测钩子（对齐 __setSpawnRunning 风格）——按句柄集合重算只读快照断言计数。 */
 export function __getSseConnections(): ReadonlyMap<string, number> {
-  return sseConnections
+  const snapshot = new Map<string, number>()
+  for (const [name, conns] of sseConnections) snapshot.set(name, conns.size)
+  return snapshot
 }
 
 /** P-8（第十四轮）：SSE 写背压判死阈值——res.write() 返回 false 起（假死客户端 TCP
@@ -194,9 +209,9 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     method: 'GET',
     path: '/api/books/:name/stream',
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
-    // P2-2：per-book 连接数限制
+    // P2-2：per-book 连接数限制（S2：按句柄集合实际存活数判定）
     const sseName = params['name']!
-    const conns = sseConnections.get(sseName) ?? 0
+    const conns = sseConnections.get(sseName)?.size ?? 0
     if (conns >= MAX_SSE_PER_BOOK) {
       // hh §八-12：SSE 错误路径也走统一 JSON 信封（原裸文本 'too many connections'）——
       // EventSource API 不暴露 body 不受影响，curl/测试可见 code 机器码
@@ -233,8 +248,12 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       replyError(res, 403, 'FORBIDDEN', 'forbidden')
       return
     }
-    // 校验通过后才递增连接计数（P1-1：防 early return 路径泄漏计数器致 DoS）
-    sseConnections.set(sseName, conns + 1)
+    // 校验通过后才登记连接句柄（P1-1：防 early return 路径泄漏计数器致 DoS；
+    // S2：句柄化记账——close 移除与 forgetSseCount 清账幂等互不漂移）
+    const handle: SseConnHandle = { destroy: () => res.destroy() }
+    const bookConns = sseConnections.get(sseName) ?? new Set<SseConnHandle>()
+    bookConns.add(handle)
+    sseConnections.set(sseName, bookConns)
     // close 回调注册前移至 ensureSession 之前：ensureSession 可抛异常，
     // 若 close 回调在其后才注册 → 计数器泄漏（连遭 DoS 上限）
     let heartbeat: ReturnType<typeof setInterval> | undefined
@@ -243,8 +262,12 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     req.on('close', () => {
       clientGone = true
       if (heartbeat) clearInterval(heartbeat)
-      const c = sseConnections.get(sseName)
-      if (c !== undefined) sseConnections.set(sseName, Math.max(0, c - 1))
+      // S2：按句柄移除（forgetSseCount 已清账时 get 不到即跳过——不对新账目 -1）
+      const live = sseConnections.get(sseName)
+      if (live) {
+        live.delete(handle)
+        if (live.size === 0) sseConnections.delete(sseName)
+      }
       // 低级项（第六轮）：.return() 触发生成器 finally 段，其内部抛错会让该 promise
       // reject——void 丢弃即 unhandledRejection（进程级崩溃），吞掉只留断连现场
       if (iter) void iter.return(undefined).catch(() => { /* 清理段异常不外抛 */ })
@@ -381,9 +404,21 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     const bookName = params['name']!
-    // 先停自愈编排 + 对话编排
+    // 先停自愈编排 + 对话编排（幂等：未运行时为 no-op）
     abortSelfHeal(bookName)
     abortChat(bookName)
+    // S5（五十九轮）：无运行直接返回成功 no-op——原实现无条件 ensureSession，对无会话
+    // 的书静默新建 channel（永不 dispose，泄漏）并向零消费者 push 陈旧 interrupted
+    // 事件（重连客户端错认刚被中断）。运行态判定 = 三编排闸任一在途 或 driver 会话
+    // 在途（registerCtrl 登记）；全空闲则不 ensureSession、不 interrupt。
+    const driver0 = getDriver()
+    const session0 = getSession(bookName)
+    const anyRunning =
+      isSelfHealRunning(bookName) ||
+      isChatRunning(bookName) ||
+      isSpawnRunning(bookName) ||
+      (session0 !== null && (driver0.isRunning?.(session0) ?? false))
+    if (!anyRunning) return reply(res, 200, { ok: true })
     const session = await ensureSession(bookName, ctx.workDir!)
     const driver = getDriver()
     if (driver.interrupt) driver.interrupt(session)

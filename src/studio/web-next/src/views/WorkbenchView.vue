@@ -218,6 +218,12 @@ async function onSaveDraft(): Promise<void> {
     ui.toast('无正文可存', 'error')
     return
   }
+  // F4（五十九轮）：不完整水印期间阻止直接保存残文——按钮已禁，此处兜底（键盘/后续
+  // 新入口），断连窗口丢失的 text 事件无法从 textOut 重建，残文落盘会覆盖完整草稿
+  if (wb.textIncomplete) {
+    ui.toast('重连同步中，生成正文可能不完整，暂不能存为草稿', 'error')
+    return
+  }
   // L-F1（第八轮）：await 前捕获书名——存草稿在途切书后 tree.load/openTab/toast 会
   // 落到 B 书界面（legacy docId 可撞 B 书同路径），确认后守卫中止
   const book = props.bookName

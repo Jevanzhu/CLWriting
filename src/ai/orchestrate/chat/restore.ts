@@ -139,7 +139,14 @@ export function prepareChatRun(
     msgSeqs,
     pendingMsgSeqs: [],
     commitPendingMsgSeqs(range) {
-      if (!range) return
+      if (!range) {
+        // A7（五十九轮）：flush 失败/未落库（无 store 的内存模式或空批）——原样 return 不清
+        // pending，陈旧批内序号会跨回合挂到下一次成功区间上错映射全局 seq；失败即清空，
+        // 按上方「尾部对齐」同款「seq 未知」口径补 []（该消息本就无法遮蔽），消息对齐保留
+        this.msgSeqs.push(...this.pendingMsgSeqs.map(() => [] as number[]))
+        this.pendingMsgSeqs = []
+        return
+      }
       for (const idx of this.pendingMsgSeqs) {
         this.msgSeqs.push(typeof idx === 'number' ? [range.first + idx] : idx.map((i) => range.first + i))
       }

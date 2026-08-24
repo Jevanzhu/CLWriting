@@ -24,6 +24,7 @@ import { readLeadDir } from '../format/leads.js'
 import { readBookConfig } from '../format/yaml.js'
 import { readChapter } from '../format/chapters.js'
 import type { ParseError } from '../format/types.js'
+import { walkMdEach } from '../fs/walk-md.js'
 
 /** 基础两类（恒启用，母本第 2.1 节） */
 const BASE_LEAD_TYPES = ['悬念', '感情线'] as const
@@ -67,27 +68,13 @@ function walkSourceStats(bookRoot: string): SourceStats {
     }
   }
   bump(join(bookRoot, 'book.yaml'))
-  const stack: string[] = []
+  // N2（五十九轮）：与 walkChapters 两套 walker 口径对齐——改走 walk-md 共享核心
+  // （Dirent 不跟随 symlink + realpath 剪枝 + 根界）。原实现 Dirent 判型但无 visited
+  // 无根界：SOURCE_SUBDIRS 间互指 symlink 环仍可深递归；多起遍目录共享同一 visited。
+  const visited = new Set<string>()
   for (const d of SOURCE_SUBDIRS) {
     const dir = join(bookRoot, d)
-    if (existsSync(dir)) stack.push(dir)
-  }
-  while (stack.length > 0) {
-    const dir = stack.pop()!
-    let entries: import('node:fs').Dirent[]
-    try {
-      entries = readdirSync(dir, { withFileTypes: true })
-    } catch {
-      continue
-    }
-    for (const e of entries) {
-      if (e.name.startsWith('._')) continue
-      if (e.isDirectory()) {
-        stack.push(join(dir, e.name))
-      } else if (e.isFile() && e.name.endsWith('.md')) {
-        bump(join(dir, e.name))
-      }
-    }
+    if (existsSync(dir)) walkMdEach(dir, (fp) => bump(fp), visited)
   }
   return stats
 }
@@ -220,38 +207,20 @@ export function rebuild(
     }
 
     // #2 扫描章节（写作/正文/，递归含 <卷>/ 子目录）
+    // N2（五十九轮）：裸 statSync（跟随 symlink）+ 无 visited 递归改走 walk-md 共享
+    // 口径（Dirent 不跟随 symlink + realpath 剪枝 + 根界）——正文区循环 symlink 不再
+    // RangeError 崩 rebuild，指向书外的 symlink 章文件不再整读入库。
     const textDir = join(bookRoot, '写作', '正文')
     if (existsSync(textDir)) {
-      const walkChapters = (dir: string): void => {
-        let entries: string[]
-        try {
-          entries = readdirSync(dir)
-        } catch {
-          return
+      walkMdEach(textDir, (fp) => {
+        const r = readChapter(fp)
+        if (r.ok) {
+          syncChapter(db, r.chapter)
+          chapterCount++
+        } else {
+          errors.push(r.error)
         }
-        for (const name of entries) {
-          if (name.startsWith('._')) continue
-          const fp = join(dir, name)
-          let st: ReturnType<typeof statSync>
-          try {
-            st = statSync(fp)
-          } catch {
-            continue
-          }
-          if (st.isDirectory()) {
-            walkChapters(fp) // 递归子目录（卷）
-          } else if (name.endsWith('.md')) {
-            const r = readChapter(fp)
-            if (r.ok) {
-              syncChapter(db, r.chapter)
-              chapterCount++
-            } else {
-              errors.push(r.error)
-            }
-          }
-        }
-      }
-      walkChapters(textDir)
+      })
     }
 
     // #3 扫描摘要（定稿/摘要/章摘要/ + 卷摘要/）

@@ -20,6 +20,9 @@ const props = defineProps<{
   wordCount: number
 }>()
 const title = defineModel<string>('title', { required: true })
+// F2（五十九轮）：标题编辑态上报（聚焦/提交在途=true）——父层 EditorView 的
+// titleModel 回写 watch 据此跳过，防未提交的新标题被正文变化静默覆盖
+const emit = defineEmits<{ 'update:titleEditing': [boolean] }>()
 const doc = useDocStore()
 const tree = useTreeStore()
 const ws = useWorkspaceStore()
@@ -121,14 +124,21 @@ const { aiActions, runAiAssist } = useAiAssist()
 const titleSaving = ref(false)
 async function onTitleCommit(): Promise<void> {
   const e = entry.value
-  if (!e || !ws.activeDocId || titleSaving.value) return
+  if (!e || !ws.activeDocId) {
+    emit('update:titleEditing', false) // 无可提交对象也要脱离编辑态（防守卫永久卡住回写）
+    return
+  }
+  if (titleSaving.value) return
   // dd-P2：入口捕获 docId——await（updateChapterMetaDoc + tree.load 大书较慢）期间
   // 切 tab 后 ws.activeDocId 已指向新文档，届时取 fresh 回填会把新文档的 path/name
   // 写进旧文档缓存条目（标题栏错乱）并对错误文档 refresh
   const id = ws.activeDocId
   const newTitle = title.value.trim() || '未命名'
   const current = parseFmFields(e.content).标题 ?? e.name
-  if (newTitle === current) return
+  if (newTitle === current) {
+    emit('update:titleEditing', false) // 未变化的提交（如 blur 空走）也要脱离编辑态
+    return
+  }
   titleSaving.value = true
   try {
     // 短篇传 章号（占位沿用现有值，仅改标题）；后端按 piece-body 落 fm + 章纲目录 rename
@@ -161,6 +171,7 @@ async function onTitleCommit(): Promise<void> {
     ui.toast(friendlyError(err), 'error')
   } finally {
     titleSaving.value = false
+    emit('update:titleEditing', false) // F2（五十九轮）：提交收尾脱离编辑态（父层恢复回写）
   }
 }
 </script>
@@ -184,6 +195,7 @@ async function onTitleCommit(): Promise<void> {
             v-model="title"
             class="bar-title editable"
             placeholder="未命名"
+            @focus="emit('update:titleEditing', true)"
             @blur="onTitleCommit"
             @keydown.enter.prevent="onTitleCommit"
           />

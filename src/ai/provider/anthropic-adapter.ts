@@ -209,7 +209,9 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
             markStructuredDegrade(plan, attempt, store)
             // Z-12（第五十八轮）：成功建流用的是非首发（降级）参数面 → done 事件带
             // degraded（重放按事件重建会再 400 的口径缺口闭合）
-            degraded = attempt !== plan.attempts[0]
+            // A3（五十九轮）：判据并入降级记忆命中——基准改 plan.original（记忆命中时
+            // attempts[0] 已是剥除版，旧判据对首发恒 false，记忆命中路径漏标 degraded）
+            degraded = attempt !== plan.original
             break
           } catch (e) {
             if (isMidChain400(e, Anthropic.APIError, attempt, plan)) {

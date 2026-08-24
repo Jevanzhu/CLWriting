@@ -196,6 +196,9 @@ export function learnFromBook(bookRoot: string): LearnResult {
     }
   }
   // 取 top 5（场景不再分桶配额）
+  // A5（五十九轮）：候选按章号倒序再取 top5——章节按章号升序遍历，直接 slice 取的是
+  // 章节序最前 5 条，金句候选系统性偏旧；倒序取最新章节的候选（同章内保遍历序，稳定排序）
+  quoteCandidates.sort((a, b) => b.章号 - a.章号)
   const topQuotes: QuoteCandidate[] = quoteCandidates.slice(0, 5)
 
   // 6. 落候选到 工作区/learn候选/

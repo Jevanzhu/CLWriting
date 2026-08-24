@@ -287,7 +287,9 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
             )
             markStructuredDegrade(plan, attempt, store)
             // Z-12（第五十八轮）：成功建流用的是非首发（降级）参数面 → done 事件带 degraded
-            degraded = attempt !== plan.attempts[0]
+            // A3（五十九轮）：判据并入降级记忆命中——基准改 plan.original（记忆命中时
+            // attempts[0] 已是剥除版，旧判据对首发恒 false，记忆命中路径漏标 degraded）
+            degraded = attempt !== plan.original
             // 消费流（tool_calls 增量拼装 / text / reasoning / usage）
             const toolAccum = new Map<number, { id: string; name: string; argsBuf: string }>()
             for await (const chunk of stream) {

@@ -26,6 +26,8 @@ import { acquireTaskGate } from '../../../studio/server/api/task-gate.js'
 // DSH-18：写作技巧包按需加载（read_skill 工具的执行通道）
 import { listSkills, loadSkill } from '../../../process/skills.js'
 import { sanitizeHistory } from '../../prompts/chat.js'
+// A1（五十九轮）：read_chapter 剥 fm 与 prompts/chat.ts 同源（bodyOf 单源导出复用）
+import { bodyOf } from '../../../format/frontmatter-core.js'
 import type { SessionRecorder } from '../../../events/chat-bridge.js'
 import { turnStartEvent, turnEndEvent, assistantMessageEvent, toolCallEvent, toolResultEvent } from '../../../events/chat-bridge.js'
 import { settingsSnapshotEvent, revisionRefEvent, skillsSnapshotEvent } from '../../../events/chain-bridge.js'
@@ -200,7 +202,10 @@ async function executeChatTool(
           return { ok: false, summary: `第${chapter}章草稿不存在。` }
         }
         const raw = readFileSync(draftPath, 'utf-8')
-        const body = raw.replace(/^---[\s\S]*?---\n?/, '')
+        // A1（五十九轮）：剥 front matter 与 prompts/chat.ts 同源走 bodyOf（P-6 口径）——
+        // 旧宽松正则会把「无 fm 但正文含两处 --- 分隔线」的手写稿吞掉中段；且下方 spill
+        // 哈希须与 buildChatContext 的 writeSpillFile（对 bodyOf(raw) 哈希）同源，fullAt 才能命中
+        const body = bodyOf(raw)
         if (!body.trim()) return { ok: false, summary: `第${chapter}章正文为空。` }
         // RB-AI-P2-5：超上限截断到头尾保留 + 注明截断量与正文文件路径（全文在草稿文件，
         // 作者可查）。不外置 spill：read_chapter 是 spill 取回通道，二次外置会 read→spill→read

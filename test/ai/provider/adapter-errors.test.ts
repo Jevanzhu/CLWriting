@@ -251,3 +251,34 @@ describe('markStructuredDegrade 记忆写入', () => {
     expect(persisted).toEqual([])
   })
 })
+
+// ── A3（五十九轮）：DegradePlan.original——降级判据基准并入记忆命中 ──────────────
+// 修复背景：三适配器 degraded = attempt !== attempts[0]，而记忆命中时首发即剥除
+// 参数面（attempts[0] === stripStructured），判据恒 false——Z-12 重放口径缺口在
+// 记忆命中路径（常态）全部漏标。修复：plan 携带首发原始请求 original，适配器改判
+// attempt !== plan.original。
+
+describe('A3（五十九轮）：DegradePlan.original（降级判据基准）', () => {
+  const CONF = { id: 'p1', model: 'm1' }
+  const REQ_ST: GenRequest = {
+    systemPrompt: '',
+    messages: [{ role: 'user', content: 'hi' }],
+    structured: { schema: { type: 'object' } },
+    tools: [{ name: 't', input_schema: {} }],
+  }
+
+  it('无记忆 → original === attempts[0]（首发即原始请求，判据与旧口径等价）', () => {
+    const plan = buildDegradeAttempts(REQ_ST, 'json_schema', CONF, undefined)
+    expect(plan.original).toBe(REQ_ST)
+    expect(plan.attempts[0]).toBe(plan.original)
+  })
+
+  it('记忆命中 → attempts[0] 已是剥除版而 original 仍指原始请求（degraded 判据须用 original）', () => {
+    registerDegradedLookup(() => true)
+    const plan = buildDegradeAttempts(REQ_ST, 'json_schema', CONF, undefined)
+    expect(plan.original).toBe(REQ_ST)
+    expect(plan.attempts[0]).not.toBe(plan.original)
+    // 首发剥除版成功（attempt === attempts[0]）也应判 degraded：attempt !== original
+    expect(plan.attempts[0] !== plan.original).toBe(true)
+  })
+})

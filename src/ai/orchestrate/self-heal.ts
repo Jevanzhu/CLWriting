@@ -34,12 +34,11 @@ import { checkWithDb, type CheckOutcome } from '../../check/run.js'
 import { buildDraftPrompt, saveDraft } from '../../process/draft-pipeline.js'
 import { generateLeadUpdateDraft } from '../../process/lead-update-draft.js'
 import { buildRewritePrompt } from '../../process/rewrite-prompt.js'
-import { tryMockTool } from '../mock-tool.js'
+import { assembleChapter } from '../contract/index.js'
 import { runSpec } from '../tasks/spec.js'
 import { selfHealSpec } from '../tasks/specs.js'
 import { checkAiCallBudget } from '../calls.js'
 import { resolveModelPricing, computeCallCost } from '../pricing.js'
-import { chapterToolName, assembleChapter } from '../contract/index.js'
 import { collectRuleViolations } from '../rules/index.js'
 import { recordRuleHits } from '../rule-hits.js'
 import { recordAuthorSignal } from '../author-signal.js'
@@ -748,24 +747,10 @@ async function runGenerate(
     }
   }
 
-  // mock 快路（审查 §六：六条 AI 路径唯独 self-heal 缺失 → 补齐，e2e 可覆盖全自动写章）。
-  // emit 模拟增量（前端/测试能见推进），终稿走 assembleChapter（与真实同 decode）。
-  const mock = tryMockTool(chapterToolName())
-  if (mock) {
-    state.usage.outputTokens += mock.usage.outputTokens
-    const body = String((mock.input as { 正文?: string })['正文'] ?? '')
-    if (body) {
-      // kk-P2：按码位切片（Array.from）——String.slice 按 UTF-16 code unit 会把 emoji/
-      // 扩展区字符劈成两半，前端逐字渲染出现瞬时不合法字符（turns.ts read_chapter 同做法）
-      const chars = Array.from(body)
-      for (let i = 0; i < chars.length; i += 12) {
-        emit(opts, { type: 'text', text: chars.slice(i, i + 12).join('') })
-      }
-    }
-    const assembled = assembleChapter(mock.input, chapter)
-    if (assembled.ok) return { status: 'ok', text: assembled.content }
-    return { status: 'error', error: 'AI 产出为空' }
-  }
+  // A2（五十九轮）：mock 快路撤销本地短路，改走下方 runSpec——runTask 的 mockTool 快路
+  //（selfHealSpec 已声明 mock.toolName）与真实链路同口径补链路事件（step/start + llm/call
+  //  + step/end，P3-6），mock 回合不再是审计黑洞。流式预览改由成功产出后补发（见
+  //  emitMockPreview），前端观感口径不变（kk-P2 按码位切片）
 
   // 真实 provider + tool_use —— 走 runSpec（统一编排：mock/provider/中断/错误文案）
   const out = await runSpec(selfHealSpec(kind), {
@@ -829,11 +814,29 @@ async function runGenerate(
 
   // tool_use 结构化产出 → 拼装 front matter + 正文
   const assembled = assembleChapter(input, chapter)
-  if (assembled.ok) return { status: 'ok', text: assembled.content }
+  if (assembled.ok) {
+    // A2（五十九轮）：mock 快路（out.model === null）经 runTask 短路返回，onText 未流式——
+    // 成功产出后按码位切片补发预览（与原本地 mock 快路口径一致），前端/测试能见推进
+    if (out.model === null) emitMockPreview(opts, assembled.content)
+    return { status: 'ok', text: assembled.content }
+  }
 
   // 降级：tool_use 未命中（AI 产出自由文本）→ 直接用 text
-  if (text.trim()) return { status: 'ok', text: text.trim() }
+  if (text.trim()) {
+    if (out.model === null) emitMockPreview(opts, text.trim())
+    return { status: 'ok', text: text.trim() }
+  }
   return { status: 'error', error: 'AI 产出为空' }
+}
+
+/** A2（五十九轮）：mock 快路的流式预览补发——12 码位/段逐段 emit。
+ *  kk-P2：按码位切片（Array.from）——String.slice 按 UTF-16 code unit 会把 emoji/
+ *  扩展区字符劈成两半，前端逐字渲染出现瞬时不合法字符（turns.ts read_chapter 同做法） */
+function emitMockPreview(opts: SelfHealOpts, body: string): void {
+  const chars = Array.from(body)
+  for (let i = 0; i < chars.length; i += 12) {
+    emit(opts, { type: 'text', text: chars.slice(i, i + 12).join('') })
+  }
 }
 
 function redMessages(outcome: CheckOutcome & { ok: true }): string[] {

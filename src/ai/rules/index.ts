@@ -52,50 +52,56 @@ export function applicableRules(task: string, bookRoot?: string): WritingRule[] 
  * 无适用规则或全部返回 null 时返回空串（不污染 system prompt）。
  */
 export function rulesToPrompt(task: string, bookRoot?: string): string {
-  const rules = applicableRules(task, bookRoot)
-  const ctx: RuleContext = { bookRoot: bookRoot ?? '' }
-  const lines = rules
-    .map((r) => r.toPrompt(ctx))
-    .filter((t): t is string => t != null)
-  const constraintText = lines.length ? '\n\n## 写作约束\n' + lines.map((l) => `- ${l}`).join('\n') : ''
-
-  // B4：高频违规前置注入（读该书 Top-N 命中生成预防指令；无统计零注入，行为同现状）
-  const preventionText = bookRoot ? buildPreventionText(bookRoot) : ''
-  return constraintText + preventionText
+  return rulesPromptParts(task, bookRoot).prompt
 }
 
 /** B4 前置注入：Top-3 高频违规 → 预防指令（无命中返回空串） */
-function buildPreventionText(bookRoot: string): string {
-  const top = topRuleHits(bookRoot, 3)
-  if (!top.length) return ''
-  const items = top.map((h) => {
+function buildPreventionText(items: ReturnType<typeof topRuleHits>): string {
+  if (!items.length) return ''
+  const lines = items.map((h) => {
     const label = RULE_LABEL[h.ruleId] ?? h.ruleId
     const hint = h.recentMessages[0] ?? '初稿即注意'
     return `- ${label} 已被检出 ${h.hits} 次——${hint}`
   })
-  return '\n\n## 本书近期常见问题（规则命中提示）\n' + items.join('\n')
+  return '\n\n## 本书近期常见问题（规则命中提示）\n' + lines.join('\n')
+}
+
+/**
+ * A8（五十九轮）：rules 注入文本与登记清单的同源单次派生——此前 rulesToPrompt 与
+ * rulesPromptFiles 各自独立读盘（loadAiFlavorRule ×2、topRuleHits ×2），微观窗口内
+ * 文件变更可使「注入文本」与「登记清单」撕裂（违反铁律①「模型可见 ⟺ 已记录」的登记
+ * 完备性）。runSpec 改调本函数一次读盘同时产出两份；旧两个导出保留为薄壳（其他调用方/
+ * 测试口径不变），且同样经本函数派生——任一侧永不脱离单源。
+ */
+export function rulesPromptParts(task: string, bookRoot?: string): { prompt: string; files: string[] } {
+  const rules = applicableRules(task, bookRoot)
+  const ctx: RuleContext = { bookRoot: bookRoot ?? '' }
+  // 单次 toPrompt 派生：注入行与「AI味词表非空」登记判据同源（规则 id ↔ 文本一一对应）
+  const entries = rules.map((r) => ({ id: r.id, text: r.toPrompt(ctx) }))
+  const lines = entries.filter((e): e is { id: string; text: string } => e.text != null)
+  const constraintText = lines.length ? '\n\n## 写作约束\n' + lines.map((l) => `- ${l.text}`).join('\n') : ''
+
+  // B4：高频违规前置注入（读该书 Top-N 命中生成预防指令；无统计零注入，行为同现状）
+  const top = bookRoot ? topRuleHits(bookRoot, 3) : []
+  const preventionText = buildPreventionText(top)
+
+  // Y-2（第五十七轮）：注入段源文件清单——与上方注入同一次读盘派生（A8 单源）：
+  // AI味标签禁词（经 loadAiFlavorRule 注入，空词表不入 prompt 不登记——Q-5「空段不登记」）
+  // 与 .cache/rule-hits.json（Top-N 预防指令，无命中不登记）。内置静态规则内容编译进
+  // 代码本身可考，无需文件登记
+  const files: string[] = []
+  if (lines.some((l) => l.id === 'ai-flavor-words')) files.push('文风/条目/禁词')
+  if (top.length > 0) files.push('.cache/rule-hits.json')
+  return { prompt: constraintText + preventionText, files }
 }
 
 /**
  * Y-2（第五十七轮）：rulesToPrompt 注入段的源文件清单（相对书根）——铁律①
- * 「模型可见⟺已记录」登记通道。动态源两个：条目库 AI味标签禁词（经
- * loadAiFlavorRule 注入，空词表不入 prompt 不登记——Q-5「空段不登记」口径）
- * 与 .cache/rule-hits.json（Top-N 预防指令，无命中不登记）。内置静态规则内容
- * 编译进代码本身可考，无需文件登记。与 rulesToPrompt 同读同判，供 runSpec
- * 并入 promptFiles（与 user prompt 材料同通道落 llm/call 事件）。
+ * 「模型可见⟺已记录」登记通道。A8（五十九轮）：改经 rulesPromptParts 单源派生，
+ * 与注入文本同一批读盘结果，不再独立二次读盘。
  */
 export function rulesPromptFiles(task: string, bookRoot?: string): string[] {
-  if (!bookRoot) return []
-  const files: string[] = []
-  if (applicableRules(task, bookRoot).some((r) => r.id === 'ai-flavor-words')) {
-    if (loadAiFlavorRule(bookRoot).toPrompt({ bookRoot }) != null) {
-      files.push('文风/条目/禁词')
-    }
-  }
-  if (topRuleHits(bookRoot, 3).length > 0) {
-    files.push('.cache/rule-hits.json')
-  }
-  return files
+  return rulesPromptParts(task, bookRoot).files
 }
 
 /**

@@ -591,6 +591,10 @@ export class DocumentService {
     docId: string,
     op: { kind: 'move'; toDir: string } | { kind: 'rename'; newName: string },
   ): MoveResult {
+    // N1（五十九轮）：journal 路径含 docId，入口显式 safeDocId 校验防穿越——executeSave
+    // 已有 P1-SEC-A 守卫，此处同型构造漏校验；manifest 是可篡改数据面，构造
+    // id:"../../evil" 条目后 PATCH move/rename 可把 .jsonl 写出书仓库外。
+    if (!safeDocId(docId)) return { ok: false, code: 'PATH_ESCAPE', reason: '文档 ID 非法' }
     const oldPath = this.lookupPathByDocId(docId)
     if (!oldPath) return { ok: false, code: 'NOT_FOUND', reason: `文档 ${docId} 未在清单登记` }
 

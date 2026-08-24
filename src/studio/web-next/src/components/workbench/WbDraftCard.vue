@@ -21,9 +21,11 @@ const draftWords = computed(() => wb.textOut.length)
     </div>
     <pre class="draft-preview">{{ wb.textOut || '（无正文，点「生成」开始）' }}</pre>
     <div class="draft-actions">
-      <button class="btn primary" :disabled="!wb.textOut.trim()" @click="emit('save')">
+      <!-- F4（五十九轮）：断连重连水印期间禁存——textOut 可能残缺，禁按钮 + 明示原因 -->
+      <button class="btn primary" :disabled="!wb.textOut.trim() || wb.textIncomplete" @click="emit('save')">
         存草稿并编辑
       </button>
+      <span v-if="wb.textIncomplete" class="muted incomplete">重连同步中，正文可能不完整</span>
       <span v-if="draftSaved" class="muted"><CircleCheck :size="12" /> {{ draftSaved.words }} 字已存</span>
     </div>
   </section>
@@ -43,6 +45,10 @@ const draftWords = computed(() => wb.textOut.length)
   font-size: var(--font-size-xs);
   font-weight: 400;
   color: var(--text-faint);
+}
+/* F4（五十九轮）：不完整水印提示（与 muted 区分，用警示色） */
+.incomplete {
+  color: var(--text-warning, #b8860b);
 }
 .btn {
   padding: 0 16px;

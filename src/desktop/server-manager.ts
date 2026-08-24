@@ -238,6 +238,14 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
       stdio: 'pipe',
       env: childEnv,
     })
+    // S1（五十九轮）：fork 后发现停机已置位 → 立即杀掉新 child 并按启动失败收口。
+    // 在途 start/自动重启（X-3 starting 通道）的握手窗口内 shutdown/stopChild 落地时，
+    // shutdown 侧 settleStarting 只能等到 handshake 完成——fork 即杀把窗口收窄到
+    // 「已 fork 未检查」的同步缝隙，新 child 不再漏杀成孤儿（优雅停机面收口）。
+    if (shutdownStarted) {
+      proc.kill()
+      throw new ServerBootError('SHUTDOWN', 'studio server 启动途中收到停机指令，已中止新 child')
+    }
     forwardChildStdio(proc, logger) // 握手前接线——boot 期日志不丢
     const port = await handshake(proc)
     // 稳定窗口计时（unref 不拖退出）：到点仍是他为 active 才清零
@@ -305,6 +313,34 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
     }
   }
 
+  /**
+   * S1（五十九轮）：等在途 start/自动重启（X-3 starting 通道）落定再判 active。
+   * 握手窗口内 active===null，shutdown/stopChild 只看 active 会让刚 fork 的 child
+   * 收不到停机指令只能硬杀（在途编排 abort + session/end 落库丢失）。握手失败
+   * （boot-error/EXIT）catch 吞掉——那是启动失败路径，继续停机面即可。
+   */
+  async function settleStarting(source: string): Promise<void> {
+    const pending = starting
+    if (!pending) return
+    try {
+      await pending
+    } catch (e) {
+      logger.warn('server-manager', `${source}：在途启动握手失败（已忽略，继续停机）`, e)
+    }
+  }
+
+  /** stopChild 核心（kill + 等退出）；start 的换轮路径直接用（此时 starting 是 start
+   *  自身 IIFE 的 promise——公共 stopChild 的 settleStarting 会 await 自己死锁）。 */
+  async function stopActiveChild(): Promise<void> {
+    const current = active
+    cancelPendingRestart()
+    if (!current) return
+    shutdownStarted = true // 主动 kill：随后的 exit 是预期收口，不触发重启（S-5）
+    current.proc.kill()
+    // SIGTERM 被吞的兜底：超时放行（退出事件迟到时 active 已由 exit 监听清空）
+    await Promise.race([current.exited, delay(killWaitMs)])
+  }
+
   return {
     async start(opts: StartStudioServerOptions): Promise<number> {
       if (starting) {
@@ -330,12 +366,18 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
       }
       startingOpts = opts
       starting = (async () => {
+        // S1（五十九轮）：停机门复位移到 IIFE 首行（首个 await 前同步执行）——原在
+        // stopActiveChild 的 await 之后复位，shutdown 恰落在该等待窗内会被静默清掉
+        // （launch 的 fork 后检查随之失守）。显式 start 开新生命周期在占通道瞬间生效。
+        shutdownStarted = false
         cancelPendingRestart() // 显式换轮作废挂起重启（与 stopChild 的取消面互补）
         // 重试/重启前清旧 child：等退出再 fork，避免端口/连接滞留（L-3 语义换轨，S-4）
         if (active) {
           logger.warn('server-manager', 'start 时旧 child 仍在——先停旧再 fork')
-          await this.stopChild()
+          await stopActiveChild()
         }
+        // stopActiveChild 置位的停机门复位（换轮继续 launch）；并发 shutdown 已在
+        // settleStarting 等 starting 落定，不会在此窗漏网
         shutdownStarted = false
         restartCount = 0 // 显式 start 开新周期（bootstrap 语义，非崩溃续期）
         return await launch(opts, '0')
@@ -348,17 +390,17 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
       }
     },
     async stopChild(): Promise<void> {
-      const current = active
-      cancelPendingRestart()
-      if (!current) return
-      shutdownStarted = true // 主动 kill：随后的 exit 是预期收口，不触发重启（S-5）
-      current.proc.kill()
-      // SIGTERM 被吞的兜底：超时放行（退出事件迟到时 active 已由 exit 监听清空）
-      await Promise.race([current.exited, delay(killWaitMs)])
+      // S1（五十九轮）：在途 start/自动重启先落定（catch 握手失败）再判 active——
+      // 握手窗口内 active===null，只看 active 会让刚 fork 的 child 漏杀成孤儿
+      await settleStarting('stopChild')
+      await stopActiveChild()
     },
     async shutdown(): Promise<void> {
       if (shutdownStarted) return // 幂等：before-quit 可能多次触发
       shutdownStarted = true // 先置位后下发：exit 早于 shutdown-done 到达也不误判崩溃（S-5）
+      // S1（五十九轮）：在途 start/自动重启先落定——launch 的 fork 后检查（shutdownStarted
+      // 已置位）会即杀新 child，此处等 handshake 收口拿到 active 走优雅停机链
+      await settleStarting('shutdown')
       cancelPendingRestart() // 退避等待期退出：挂起重启作废（不 fork 孤儿）
       const current = active
       if (!current) return

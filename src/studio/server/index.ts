@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createRouteTable, dispatch, withRouteTable, type RouteTable } from './router.js'
-import { safeTokenCompare, replyError, urlPathOnly, parseRequestUrl } from './http.js'
+import { safeTokenCompare, replyError, urlPathOnly } from './http.js'
 import { readBooks, repairBooks } from '../../install/books.js'
 import { migrateLayoutV2 } from '../../install/migrate-layout-v2.js'
 import { migrateLayoutV3 } from '../../install/migrate-layout-v3.js'
@@ -334,10 +334,12 @@ export function startServer(opts: StudioServerOptions): http.Server {
     if (req.method === 'GET' && req.url.startsWith('/api/')) {
       const path = urlPathOnly(req.url)
       if (!GET_TOKEN_EXEMPT_PATHS.some((re) => re.test(path))) {
-        // R-19：畸形请求行（absolute-form 等）由 parseRequestUrl 统一兜为 null——
-        // 此处无 query token 可取，直接走 header 校验
-        const queryToken = parseRequestUrl(req)?.searchParams.get('token') ?? undefined
-        if (!safeTokenCompare(req.headers['x-studio-token'] ?? queryToken, studioToken)) {
+        // S7（五十九轮）：query token 通道收窄——原 `?token=` 对全部非豁免 GET 通用，
+        // token 进 URL 的暴露面（进程列表/代理/服务器日志）比「EventSource 不能带头」
+        // 的最小必要面大。现在非豁免 GET 只认 x-studio-token 头（前端 client.ts 契约①
+        // 全量 /api/* 已带头）；`?token=`/`?ticket=` 仅在豁免路径（SSE）放行，由
+        // stream.ts 自身凭据闸校验（T2 批 ticket 优先 + token 兼容期通道）。
+        if (!safeTokenCompare(req.headers['x-studio-token'], studioToken)) {
           replyError(res, 403, 'FORBIDDEN', '无效或缺失的 studio token')
           return
         }

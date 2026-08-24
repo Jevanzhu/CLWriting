@@ -83,10 +83,15 @@ export function makeToErrorEvent(ctors: {
 export interface DegradePlan {
   /** 依序尝试的参数面（降级记忆命中时跳过首发原样请求） */
   attempts: GenRequest[]
-  /** 「剥 structured」参数面对象——降级记忆写入判据（建流成功的 attempt === 此对象） */
+  /** 剥 structured 参数面对象——降级记忆写入判据（建流成功的 attempt === 此对象） */
   stripStructured: GenRequest | null
   /** 记忆键（conf.id/model）；未选模型时 null（无处写记忆） */
   degradedKey: string | null
+  /** A3（五十九轮）：首发原始请求——降级判定基准。记忆命中时 attempts[0] 已是剥除版，
+   *  「attempt !== attempts[0]」对首发恒 false 会漏标 degraded（Z-12 重放口径缺口在
+   *  记忆命中路径——常态——全部漏标）；适配器改判 attempt !== original，无论首发是否
+   *  被记忆剥除，成功建流只要非原始参数面即标降级 */
+  original: GenRequest
 }
 
 /**
@@ -132,7 +137,7 @@ export function buildDegradeAttempts(
   } else {
     attempts = [req]
   }
-  return { attempts, stripStructured, degradedKey }
+  return { attempts, stripStructured, degradedKey, original: req }
 }
 
 /**

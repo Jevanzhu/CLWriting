@@ -1257,3 +1257,53 @@ describe('Responses 适配器（R1-R4）', () => {
     expect(evs.find((e) => e.type === 'done')).toMatchObject({ type: 'done', stopReason: 'stop' })
   })
 })
+
+// ── A3（五十九轮）：降级记忆命中首发即剥 structured 成功 → done 带 degraded ─────────
+// 修复背景：degraded 判据原为 attempt !== attempts[0]，记忆命中时首发即剥除参数面，
+// 判据恒 false——Z-12 重放口径缺口在记忆命中路径（常态）全部漏标；改判 attempt !==
+// plan.original 后，记忆命中的首发成功同样标 degraded。
+
+describe('A3（五十九轮）：记忆命中首发剥除成功 → done 带 degraded', () => {
+  it('anthropic：记忆命中 → 首发即剥 structured 且成功 → done.degraded = true', async () => {
+    const client = {
+      messages: {
+        create: async () =>
+          (async function* () {
+            yield { type: 'message_delta', usage: { input_tokens: 1, output_tokens: 1 }, delta: { stop_reason: 'end_turn' } }
+          })(),
+      },
+    } as unknown as Anthropic
+    const store: ProviderStore = {
+      providers: [],
+      currentId: null,
+      currentModel: null,
+      modelCaps: { 't1/claude-sonnet-5': { structured: false } },
+      ragProviders: [],
+      tiers: { creative: { model: '', effort: 'high' }, assistant: null, chat: null },
+      revision: 0,
+      vault: null,
+      dek: null,
+    }
+    const prov = createAnthropicProvider({ ...CONF, model: 'claude-sonnet-5' } as ProviderConf, client, store)
+    const evs = await collect(prov, { ...REQ, structured: { schema: {} } })
+    const done = evs.find((e) => e.type === 'done') as { degraded?: boolean } | undefined
+    expect(done).toBeDefined()
+    expect(done!.degraded).toBe(true)
+  })
+
+  it('无记忆首发原样成功（attempt === original）→ done 不带 degraded（口径不泛化）', async () => {
+    const client = {
+      messages: {
+        create: async () =>
+          (async function* () {
+            yield { type: 'message_delta', usage: { input_tokens: 1, output_tokens: 1 }, delta: { stop_reason: 'end_turn' } }
+          })(),
+      },
+    } as unknown as Anthropic
+    const prov = createAnthropicProvider({ ...CONF, model: 'claude-sonnet-5' } as ProviderConf, client)
+    const evs = await collect(prov, { ...REQ, structured: { schema: {} } })
+    const done = evs.find((e) => e.type === 'done') as { degraded?: boolean } | undefined
+    expect(done).toBeDefined()
+    expect(done!.degraded).toBeUndefined()
+  })
+})

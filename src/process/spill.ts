@@ -53,15 +53,23 @@ export interface SpillMeta {
 
 export function writeSpillFile(bookRoot: string, text: string, meta?: SpillMeta): string | null {
   try {
-    const hash = createHash('sha256').update(text, 'utf8').digest('hex').slice(0, 16)
+    // A6（五十九轮）：locator 哈希并入 meta（章号+基线 sha）——改写 spill 原纯内容寻址，
+    // 两次改写产出相同正文（如同一基线重复改写命中缓存/模型复读）时第二次会顶替同名
+    // sidecar meta，先前确认通道凭空失效（apply_spill fail-closed 拒绝，形成无效工具往返）。
+    // 并入章号+基线后不同基线的同文 spill 各得独立 locator，meta 不再互覆；读侧
+    // （readSpillFile/readSpillMeta）按 locator 直读文件与 sidecar，不重算哈希，天然兼容。
+    // 无 meta（chat 上下文外置）保持纯内容寻址口径不变
+    const hash = createHash('sha256').update(text, 'utf8')
+    if (meta) hash.update(`\n---spill-meta---\n${meta.chapter}\n${meta.baseSha}`, 'utf8')
+    const digest = hash.digest('hex').slice(0, 16)
     const dir = join(bookRoot, '工作区', 'spills')
     // kk-P2-5：原子写（临时文件 + rename）——中断不留半截 spill 文件，取回侧读不到截断内容
-    atomicWriteFile(join(dir, `${hash}.md`), text)
-    if (meta) atomicWriteFile(join(dir, `${hash}.meta.json`), JSON.stringify(meta))
+    atomicWriteFile(join(dir, `${digest}.md`), text)
+    if (meta) atomicWriteFile(join(dir, `${digest}.meta.json`), JSON.stringify(meta))
     // L-P8（第八轮）：顺带清理 30 天前的旧 spill——内容寻址幂等但此前无 GC，长跑书库
     // 无限增长；清理失败不影响本次写入（best-effort）
     pruneOldSpills(dir)
-    return `工作区/spills/${hash}.md`
+    return `工作区/spills/${digest}.md`
   } catch {
     return null
   }

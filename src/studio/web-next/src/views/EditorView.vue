@@ -71,9 +71,15 @@ const wordCount = computed(() => body.value.replace(/\s/g, '').length)
 
 const isChapter = computed(() => isBodyKind(entry.value?.path ?? ''))
 const titleModel = ref('')
+// F2（五十九轮）：标题编辑守卫——标题框聚焦（新标题未提交）或提交在途期间，watch 源
+// entry.content 的任何变化（正文键入/refresh）不得回写 titleModel，否则未提交的新标题
+// 被静默覆盖。切文档时强制脱离编辑态（输入框随文档切换失效，提交通道已不可能）。
+const titleEditing = ref(false)
 watch(
-  () => entry.value?.content,
-  (c) => {
+  [() => entry.value?.content, () => props.docId],
+  ([c, id], old) => {
+    if (old === undefined || old[1] !== id) titleEditing.value = false
+    if (titleEditing.value) return
     const e = entry.value
     titleModel.value = e ? (parseFmFields(c ?? '').标题 ?? e.name) : ''
   },
@@ -199,7 +205,7 @@ onUnmounted(() => {
 <template>
   <EmptyState v-if="!entry" :icon="PenLine" text="选择左侧章节开始写作" class="editor-empty" />
   <div v-else class="editor-view" :class="{ 'editor-focus': ws.focusMode }">
-    <EditorDocHead v-if="!ws.focusMode" v-model:title="titleModel" :doc-id="docId" :book-kind="bookKind" :word-count="wordCount" />
+    <EditorDocHead v-if="!ws.focusMode" v-model:title="titleModel" :doc-id="docId" :book-kind="bookKind" :word-count="wordCount" @update:title-editing="titleEditing = $event" />
     <div class="doc-body">
       <div class="doc-page">
         <!-- 标题居中（只读展示，编辑入口在顶栏）；专注模式下隐藏 -->

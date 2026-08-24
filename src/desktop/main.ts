@@ -66,6 +66,12 @@ const CLW_CSP = [
  *  封顶次数与 serverManager 的 RESTART_MAX_ATTEMPTS=3 同值）——崩溃风暴下无限 reload
  *  只会打转（每次 reload 即一新渲染进程起又崩），封顶后停 reload 改载下方静态提示页。 */
 const RENDERER_CRASH_MAX_RELOADS = 3
+/**
+ * S6（五十九轮）：渲染层稳定窗口——did-finish-load 后存活过此窗口即清零崩溃计数
+ * （对齐 server-manager STABILITY_RESET_MS / U-2 S-9 先例）。原计数只随窗口重建
+ * 归零，长跑偶发 3 次崩溃后第 4 次误触发停摆页。
+ */
+const RENDERER_CRASH_STABILITY_RESET_MS = 5 * 60_000
 /** 崩溃封顶后的白屏提示页（data URL 自包含——渲染层/本地 server 均不可信时仍可展示） */
 const RENDERER_CRASH_NOTICE_HTML =
   '<!doctype html><meta charset="utf-8"><body style="font-family:system-ui;padding:40px;line-height:1.8;color:#333">' +
@@ -487,6 +493,15 @@ async function bootstrap(): Promise<void> {
     }
     log.error('desktop', `渲染进程崩溃（${details.reason}，exit=${details.exitCode}），重载窗口自愈（第 ${rendererCrashes}/${RENDERER_CRASH_MAX_RELOADS} 次）`)
     if (!win.isDestroyed()) win.webContents.reload()
+  })
+  // S6（五十九轮）：did-finish-load 后延迟复位崩溃计数——对齐 server-manager
+  // stabilityResetMs 先例（U-2/S-9）：偶发单次/零星崩溃只要窗口存活过稳定窗口就不
+  // 累计到 3（原只随窗口重建归零，长跑第 4 次偶发崩溃误触发停摆页）。每次 load 都
+  // 重起计时：渲染层真正稳定（存活满窗口）才清零；unref 不拖退出。
+  win.webContents.on('did-finish-load', () => {
+    setTimeout(() => {
+      if (!win.isDestroyed()) rendererCrashes = 0
+    }, RENDERER_CRASH_STABILITY_RESET_MS).unref?.()
   })
   // 纵深防御监听与 dev 代理已由 createSecureWindow 统一挂载；此处 await 一次保证
   // 主窗首载前代理确定生效（工厂内是 fire-and-forget，此处 loadURL 前须确定）

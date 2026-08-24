@@ -153,9 +153,12 @@ describe('P0 session token(写端点 defense-in-depth)', () => {
     expect(r.status).toBe(200)
   })
 
-  it('GET 对 token(query token)→ 非 403(SSE 同款凭据通道)', async () => {
+  // S7（五十九轮）：query token 通道收窄——原 `?token=` 对全部非豁免 GET 通用（token
+  // 进 URL 暴露面大于 SSE 最小必要面），现非豁免 GET 只认 x-studio-token 头；
+  // `?token=` 仅 SSE 豁免路径放行（stream.ts 自身凭据闸校验）。契约变更同步本测试。
+  it('S7: GET query token（非豁免路径）→ 403（通道收窄，只认头鉴权）', async () => {
     const r = await rawRequest('GET', `/api/books?token=${encodeURIComponent(token)}`, {})
-    expect(r.status).not.toBe(403)
+    expect(r.status).toBe(403)
   })
 
   it('GET /api/boot 免鉴权 → 200(bootstrap 通道豁免)', async () => {

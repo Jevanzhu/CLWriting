@@ -241,19 +241,28 @@ export const JOURNAL_COMPACT_BYTES = 2 * 1024 * 1024
  * best-effort，下次再试）。J7（2026-08-23）：跨进程文件锁已落地
  * （fs/cross-process-lock.ts，含 win 语义评估）——compact 与 append 共享 journal
  * 锁文件，「末次 stat → rename」理论窗口彻底闭合；stat 守卫保留作双保险。
+ * N4（五十九轮）：基线 stat 移入锁内——原「锁外 before stat → 等锁 → 锁内 after
+ * stat」对比，等锁期间他进程的合法 append 也会误判为「压缩窗口内有变」白白弃压；
+ * 且 append 锁超时降级裸写时，after-stat 与 rename 之间仍各有 µs 级窗口。现锁内
+ * 先 stat（基线）→ 读算 → rename 前重 stat 对比行数（size 变 = 有新行）→ 变则
+ * 放弃本轮。锁内基线 + rename 前复核把「读算期间被裸写 append 插行」的丢失窗口
+ * 收敛到 stat 与 rename 之间的µs 级（与 J7 锁语义的残余窗口同级，如实记档）。
  */
 function maybeCompactJournal(journalPath: string): void {
   try {
     if (!existsSync(journalPath)) return
-    const before = statSync(journalPath)
-    if (before.size < JOURNAL_COMPACT_BYTES) return
-    // J7：跨进程锁（append 侧同锁）——持锁期间他进程 append 被阻塞，「末次 stat →
-    // rename」微秒级窗口彻底闭合。非阻塞占锁（best-effort：拿不到直接弃本轮）。
+    if (statSync(journalPath).size < JOURNAL_COMPACT_BYTES) return
+    // J7：跨进程锁（append 侧同锁）——持锁期间他进程 append 被阻塞。非阻塞占锁
+    // （best-effort：拿不到直接弃本轮）。
     const release = tryAcquireCrossProcessLock(`${journalPath}.lock`)
     if (!release) return
     try {
+      // N4：锁内基线 stat（行数以 size 折算——任何 append 必改 size，等价且免二次全读）
+      const before = statSync(journalPath)
+      if (before.size < JOURNAL_COMPACT_BYTES) return
       const unsettled = findUnsettled(journalPath)
-      // KN-H-1 stat 守卫保留（双保险：锁超时降级裸写的 append 路径仍被它兜住）
+      // N4：rename 前重 stat 复核——读算期间若被他进程（锁超时降级裸写的 append 路径）
+      // 追加新行（size 变 = 有新行），放弃本轮压缩，新行随原文件完整保留
       const after = statSync(journalPath)
       if (after.size !== before.size || after.mtimeMs !== before.mtimeMs) return
       const text = unsettled.map((p) => JSON.stringify(p)).join('\n')

@@ -53,41 +53,59 @@ const prefs = usePrefsStore()
 const router = useRouter()
 const ui = useUiStore()
 let bookGen = 0
-// Z-8（第五十八轮）：上一本书名（冲突守卫取消时回退路由用）
-let lastBook = ''
-watch(bookName, async (n) => {
-  // 快速连切防乱序：flushDirty 挂起期间又切了书 → 本轮放弃（新轮回处理切换）
-  const gen = ++bookGen
-  // Z-8（第五十八轮）：未决冲突守卫——conflict && dirty 文档的本地修改从未落盘（autosave
-  // 跳过 conflict 项），setBook 清缓存即不可恢复丢失，此前全程静默。确认弹窗：拒绝 → 回退
-  // 路由留在原书（first watch 即时跑，lastBook 初值为空时跳过守卫）
-  if (lastBook !== '' && n !== lastBook) {
-    const conflicted = doc.conflictedDirtyDocs()
-    if (conflicted.length > 0) {
+  // Z-8（第五十八轮）：上一本书名（冲突守卫取消时回退路由用）
+  let lastBook = ''
+  watch(bookName, async (n) => {
+    // 快速连切防乱序：flushDirty 挂起期间又切了书 → 本轮放弃（新轮回处理切换）
+    const gen = ++bookGen
+    // Z-8（第五十八轮）：未决冲突守卫——conflict && dirty 文档的本地修改从未落盘（autosave
+    // 跳过 conflict 项），setBook 清缓存即不可恢复丢失，此前全程静默。确认弹窗：拒绝 → 回退
+    // 路由留在原书（first watch 即时跑，lastBook 初值为空时跳过守卫）
+    const prev = lastBook // F1（五十九轮）：flush 失败守卫拒绝时回退路由用
+    if (lastBook !== '' && n !== lastBook) {
+      const conflicted = doc.conflictedDirtyDocs()
+      if (conflicted.length > 0) {
+        const drop = await ui.ask({
+          title: `有 ${conflicted.length} 个文档存在未处理的修改冲突`,
+          message: '这些文档的本地修改从未保存，切换书将永久丢弃。建议先在编辑器处理（重载/覆盖）。仍要切换吗？',
+          confirmText: '丢弃并切换',
+          cancelText: '留在本书',
+          danger: true,
+        })
+        if (gen !== bookGen) return
+        if (!drop) {
+          void router.replace(`/book/${encodeURIComponent(lastBook)}`)
+          return
+        }
+      }
+    }
+    lastBook = n
+    // 第五轮：workbench.clear() 提前到 flushDirty 之前——旧书有 dirty 文档时 flushDirty
+    // 秒级在途，期间新书 SSE 的 sync(running=true) 已先到，随后才执行的 clear() 会把
+    // running 错误复位（状态卡显示可再「生成」→ 双 spawn 窗）。clear 只清旧书内存态，
+    // 不依赖 doc 缓存，提前无副作用；新月 sync 快照在 await 之后必然重设权威值
+    workbench.clear()
+    // 切书前先保存当前书的 dirty 文档（setBook 会清空缓存，否则 <autosaveInterval 的编辑静默丢失）
+    const failed = await doc.flushDirty()
+    if (gen !== bookGen) return
+    // F1（五十九轮）：守卫拓宽——非冲突保存失败（网络断/5xx）的 dirty 文档同样从未
+    // 落盘，setBook 清缓存即不可恢复丢失，与 Z-8 冲突形态同类灾难；统一走确认弹窗
+    // （文案区分），拒绝 → 回退路由留在原书重试保存
+    if (failed.length > 0 && prev !== '') {
       const drop = await ui.ask({
-        title: `有 ${conflicted.length} 个文档存在未处理的修改冲突`,
-        message: '这些文档的本地修改从未保存，切换书将永久丢弃。建议先在编辑器处理（重载/覆盖）。仍要切换吗？',
+        title: `有 ${failed.length} 个文档保存失败`,
+        message: '这些文档的本地修改因网络/服务异常未能写入磁盘，切换书将永久丢弃。建议留在本书重试保存。仍要切换吗？',
         confirmText: '丢弃并切换',
         cancelText: '留在本书',
         danger: true,
       })
       if (gen !== bookGen) return
       if (!drop) {
-        void router.replace(`/book/${encodeURIComponent(lastBook)}`)
+        void router.replace(`/book/${encodeURIComponent(prev)}`)
         return
       }
     }
-  }
-  lastBook = n
-  // 第五轮：workbench.clear() 提前到 flushDirty 之前——旧书有 dirty 文档时 flushDirty
-  // 秒级在途，期间新书 SSE 的 sync(running=true) 已先到，随后才执行的 clear() 会把
-  // running 错误复位（状态卡显示可再「生成」→ 双 spawn 窗）。clear 只清旧书内存态，
-  // 不依赖 doc 缓存，提前无副作用；新月 sync 快照在 await 之后必然重设权威值
-  workbench.clear()
-  // 切书前先保存当前书的 dirty 文档（setBook 会清空缓存，否则 <autosaveInterval 的编辑静默丢失）
-  await doc.flushDirty()
-  if (gen !== bookGen) return
-  doc.setBook(n)
+    doc.setBook(n)
   ws.setBook(n)
   // 清空各 store 旧书状态（chat 消息常驻 ChatDock，必须清；其余防残留上次操作结果）
   check.clear()
@@ -130,7 +148,15 @@ onUnmounted(() => {
 // RB-FE-P1-2：路由离开 /book（组件卸载，watch(bookName) 不再触发）也 flush 脏文档——
 // 选 onUnmounted 而非 onBeforeRouteLeave：覆盖一切卸载路径（路由跳转/程序化导航）。
 // flushDirty 内部逐文档 try/catch（save 永不 reject），fire-and-forget 安全，不阻塞卸载
-onUnmounted(() => void doc.flushDirty())
+// F1（五十九轮）：flush 失败（仍 dirty 未落盘）时 console.warn 留痕——组件即将销毁，
+// 无处再提示作者，至少留下可回溯的失败证据（.版本 快照是恢复底线）
+onUnmounted(() =>
+  void doc.flushDirty().then((failed) => {
+    if (failed.length > 0) {
+      console.warn(`[Book] 卸载时 ${failed.length} 个文档保存失败（编辑未落盘）: ${failed.join(', ')}`)
+    }
+  }),
+)
 </script>
 
 <template>

@@ -20,7 +20,7 @@
  * 回滚「回到第 N 章」是横切命令（#16 第 5 节），不在顺序判定里——由 version 恢复单独触发。
  */
 
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { scanCloudCopies } from '../git/exec.js'
@@ -36,6 +36,7 @@ import { readManifest, writeManifest, finalizedChapterNumbers, finalizedChapterS
 import { computeRevision } from '../document/revision.js'
 import { probeCachedRevision } from '../document/tree.js'
 import { safeManifestPath } from '../fs/safe-path.js'
+import { walkMdEach } from '../fs/walk-md.js'
 import { readBatchPause } from './batch-pause.js'
 import type { BookConfig, ParseError } from '../format/types.js'
 import { log } from '../log/index.js'
@@ -99,7 +100,7 @@ export function detectState(bookRoot: string, config: BookConfig, manifest?: Man
   const m = manifest ?? readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
 
   // #1 健康检查（journal 崩溃恢复 + 网盘副本扫描）
-  const issues = healthCheck(bookRoot)
+  const issues = healthCheck(bookRoot, m)
   if (issues.length > 0) {
     return { state: 1, issues }
   }
@@ -197,16 +198,16 @@ export function detectState(bookRoot: string, config: BookConfig, manifest?: Man
   return { state: 7, nextChapter: skipFinalizedChapters(currentChapter + 1, finalizedChapterNumbers(m)) }
 }
 
-/** 健康检查异常项（去 git：journal 崩溃恢复 + 网盘副本扫描）。 */
+/** 健康检查异常项（去 git：journal 崩溃恢复 + 网盘副本扫描 + 定稿文件丢失）。 */
 export interface HealthIssue {
-  kind: 'crashedWrite' | 'cloudCopy'
+  kind: 'crashedWrite' | 'cloudCopy' | 'finalizedLost'
   humanMsg: string
   fix: string
   files?: string[]
 }
 
 /** 态 1：journal 崩溃恢复 + 网盘副本扫描（不再依赖 git 半提交/冲突/锁——无 git 即无此类异常）。 */
-function healthCheck(bookRoot: string): HealthIssue[] {
+function healthCheck(bookRoot: string, manifest: Manifest): HealthIssue[] {
   const issues: HealthIssue[] = []
 
   // ① journal 崩溃恢复：扫 工作区/.journal/*.jsonl，找 pending 未 settled 的写操作。
@@ -234,6 +235,24 @@ function healthCheck(bookRoot: string): HealthIssue[] {
       }
     } catch {
       // journal 扫描异常不阻断进门（降级为无 journal 检查）
+    }
+  }
+
+  // ③ N5（五十九轮）：已定稿文件丢失——清单在册有 finalizedRevision 的正文/设定/
+  // 大纲/布线文档文件不在盘（被外部删除/移走），detectHandEdits 的 rev===null 分支
+  // 原先静默跳过，无任何健康出口（静默丢章：章号推算只看盘上文件，缺章无感知）。
+  // 归入态 1 issues 交作者裁决（恢复来源：版本档案/回收站/同步盘备份）。
+  for (const entry of manifest.entries.values()) {
+    if (entry.nodeType !== 'document' || !entry.finalizedRevision) continue
+    if (!HAND_EDIT_PREFIXES.some((p) => entry.path.startsWith(p))) continue
+    const abs = safeManifestPath(bookRoot, entry.path)
+    if (abs === null || !existsSync(abs)) {
+      issues.push({
+        kind: 'finalizedLost',
+        humanMsg: `已定稿文件「${entry.path}」不在盘上（可能被外部删除或移走）。`,
+        fix: '从版本历史（工作区/.版本）或备份找回该文件；确认不需要可重新定稿覆盖基线。',
+        files: [entry.path],
+      })
     }
   }
 
@@ -303,8 +322,11 @@ function journalDir(bookRoot: string): string {
 }
 
 /** 态 3：已定稿文件有未重新定稿的改动（manifest.finalizedRevision vs 当前指纹）。 */
+/** 态 1（N5）与态 3 共用的「参与指纹比对」前缀——正文/设定/大纲/布线。 */
+const HAND_EDIT_PREFIXES = ['写作/正文/', '设定/', '大纲/', '布线/']
+
 function detectHandEdits(bookRoot: string, manifest: Manifest): string[] {
-  const handEditPrefixes = ['写作/正文/', '设定/', '大纲/', '布线/']
+  const handEditPrefixes = HAND_EDIT_PREFIXES
   const out: string[] = []
   for (const entry of manifest.entries.values()) {
     if (entry.nodeType !== 'document') continue
@@ -314,6 +336,8 @@ function detectHandEdits(bookRoot: string, manifest: Manifest): string[] {
     // 对全部定稿文档全量读盘是大书同步阻塞点；null 兼「文件不存在」跳过语义，
     // 与 check/run.ts 树红点聚合（CC-P1-3）同缓存同口径，随 invalidateTreeIndex 失效。
     const rev = probeCachedRevision(bookRoot, entry.path)
+    // N5（五十九轮）：文件不在盘的 rev===null 不在此处吞——healthCheck 的
+    // finalizedLost issue 已把「已定稿文件丢失」归入态 1（先于态 3 判定）
     if (rev === null) continue
     if (rev !== entry.finalizedRevision) out.push(entry.path)
   }
@@ -354,31 +378,17 @@ function findUnfinishedChapter(bookRoot: string, manifest: Manifest): number | n
   }
   const bodyDir = join(bookRoot, '写作', '正文')
   if (!existsSync(bodyDir)) return null
-  const walk = (dir: string): number | null => {
-    let entries: string[]
-    try {
-      entries = readdirSync(dir)
-    } catch {
-      return null
-    }
-    for (const name of entries) {
-      if (name.startsWith('._')) continue
-      const fp = join(dir, name)
-      const st = statSyncSafe(fp)
-      if (st === null) continue
-      if (st.isDirectory()) {
-        const hit = walk(fp)
-        if (hit) return hit
-      } else if (name.endsWith('.md')) {
-        const rel = relativePath(bookRoot, fp)
-        if (finalizedStems.has(rel)) continue // 已定稿，不算未完成
-        const no = chapterFromFile(fp, name)
-        if (no > 0) return no
-      }
-    }
-    return null
-  }
-  return walk(bodyDir)
+  // N2（五十九轮）：裸 statSync（跟随 symlink）+ 无 visited 递归改走 walk-md 共享
+  // 口径（Dirent 不跟随 symlink + realpath 剪枝 + 根界）——循环 symlink 不再进门崩。
+  let found: number | null = null
+  walkMdEach(bodyDir, (fp, name) => {
+    if (found !== null) return
+    const rel = relativePath(bookRoot, fp)
+    if (finalizedStems.has(rel)) return // 已定稿，不算未完成
+    const no = chapterFromFile(fp, name)
+    if (no > 0) found = no
+  })
+  return found
 }
 
 /** 从文件 frontmatter 章号 或 文件名数字提取章号。
@@ -399,14 +409,6 @@ function chapterFromFile(absPath: string, name: string): number {
   // 标题中段的数字（如「第2卷-001-雨夜.md」取 2），章号错位（X-P3a）
   const m = name.match(/^0*(\d+)/)
   return m ? Number(m[1]) : 0
-}
-
-function statSyncSafe(fp: string): import('node:fs').Stats | null {
-  try {
-    return statSync(fp)
-  } catch {
-    return null
-  }
 }
 
 function relativePath(bookRoot: string, absPath: string): string {
@@ -440,26 +442,12 @@ function unfinishedPieceNames(bookRoot: string, manifest: Manifest): Set<string>
   const out = new Set<string>()
   const bodyDir = join(bookRoot, '写作', '正文')
   if (!existsSync(bodyDir)) return out
-  const walk = (dir: string): void => {
-    let names: string[]
-    try {
-      names = readdirSync(dir)
-    } catch {
-      return
-    }
-    for (const name of names) {
-      if (name.startsWith('._')) continue
-      const fp = join(dir, name)
-      const st = statSyncSafe(fp)
-      if (st === null) continue
-      if (st.isDirectory()) walk(fp)
-      else if (name.endsWith('.md') && /^\d+-/.test(name)) {
-        const rel = relativePath(bookRoot, fp)
-        if (!finalized.has(rel)) out.add(rel.slice('写作/正文/'.length))
-      }
-    }
-  }
-  walk(bodyDir)
+  // N2（五十九轮）：同 findUnfinishedChapter——改走 walk-md 共享口径
+  walkMdEach(bodyDir, (fp, name) => {
+    if (!/^\d+-/.test(name)) return
+    const rel = relativePath(bookRoot, fp)
+    if (!finalized.has(rel)) out.add(rel.slice('写作/正文/'.length))
+  })
   return out
 }
 
@@ -469,26 +457,11 @@ function unfinishedPieceNames(bookRoot: string, manifest: Manifest): Set<string>
 function maxFileNameChapter(bodyDir: string): number {
   if (!existsSync(bodyDir)) return 0
   let max = 0
-  const walk = (dir: string): void => {
-    let names: string[]
-    try {
-      names = readdirSync(dir)
-    } catch {
-      return
-    }
-    for (const name of names) {
-      if (name.startsWith('._')) continue
-      const fp = join(dir, name)
-      const st = statSyncSafe(fp)
-      if (st === null) continue
-      if (st.isDirectory()) walk(fp)
-      else if (name.endsWith('.md')) {
-        const parsed = parseChapterFileName(name)
-        if (parsed && parsed.章号 > max) max = parsed.章号
-      }
-    }
-  }
-  walk(bodyDir)
+  // N2（五十九轮）：同 findUnfinishedChapter——改走 walk-md 共享口径
+  walkMdEach(bodyDir, (_fp, name) => {
+    const parsed = parseChapterFileName(name)
+    if (parsed && parsed.章号 > max) max = parsed.章号
+  })
   return max
 }
 

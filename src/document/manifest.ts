@@ -170,8 +170,15 @@ export function writeManifest(filePath: string, manifest: Manifest): void {
 
 // ── X-5（第五十六轮）：清单 RMW 跨进程互斥 ────────────────────────
 
-/** 清单锁等待超时（毫秒）——J7 journal 锁同量级；测试注入缩短保快。 */
-export let MANIFEST_LOCK_TIMEOUT_MS = 2_000
+/**
+ * 清单锁等待超时（毫秒）。
+ * N7（五十九轮）：2s → 5s，对齐 ai-calls 口径（AI_CALLS_LOCK_TIMEOUT_MS=5s）——
+ * 超时降级裸写后，双进程同时降级时后写者会吞掉先写者的清单更新（正是 X-5 要防的
+ * 事故在争用高峰复现）。持锁段为「读清单 + 整写」的文件 IO 级毫秒，但争用可排队
+ * （多 contender），5s 与全仓锁基建的最长等待档一致（busy_timeout 5000 同源）。
+ * 测试注入缩短保快。
+ */
+export let MANIFEST_LOCK_TIMEOUT_MS = 5_000
 
 /** 测试注入钩子（生产零调用）。 */
 export function __setManifestLockTimeoutForTest(ms: number): void {

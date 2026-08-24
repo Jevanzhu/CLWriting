@@ -5,8 +5,8 @@
  * 字数不入 front matter（机检算的派生，#7 第 2 节）。
  */
 
-import { readdirSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import { statSync } from 'node:fs'
+import { walkMdEach } from '../fs/walk-md.js'
 import { readFile, parseFlat } from './frontmatter.js'
 import { countWords, chapterFilePrefix } from './words.js'
 import type { ChapterMeta, ParseError, HookType, HookLevel, Emotion, SceneType } from './types.js'
@@ -115,43 +115,30 @@ export function readChapterDir(
   const chapters: ChapterMeta[] = []
   const errors: ParseError[] = []
   const seen = new Set<string>()
-  const walk = (dir: string): void => {
-    let entries: string[]
+  // N2（五十九轮）：walk 族收口——裸 statSync（跟随 symlink）+ 无 visited 递归改走
+  // walk-md 共享口径（Dirent 不跟随 symlink + realpath 剪枝 + 根界）
+  walkMdEach(dirPath, (fp) => {
+    let st: ReturnType<typeof statSync>
     try {
-      entries = readdirSync(dir)
+      st = statSync(fp)
     } catch {
       return
     }
-    for (const name of entries) {
-      if (name.startsWith('._')) continue
-      const fp = join(dir, name)
-      let st: ReturnType<typeof statSync>
-      try {
-        st = statSync(fp)
-      } catch {
-        continue
-      }
-      if (st.isDirectory()) {
-        walk(fp) // 递归子目录（卷）
-      } else if (name.endsWith('.md')) {
-        const hit = cache.get(fp)
-        if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) {
-          chapters.push(cloneChapter(hit.chapter)) // Z-21：_raw 一并深拷贝——嵌套 mutate 不污染缓存
-        } else {
-          const r = readChapter(fp)
-          if (r.ok) {
-            cache.set(fp, { mtimeMs: st.mtimeMs, size: st.size, chapter: r.chapter })
-            chapters.push(cloneChapter(r.chapter))
-          } else {
-            errors.push(r.error)
-            cache.delete(fp) // 读失败不缓存；稳定坏文件每轮重读（错误文件罕见，可接受）
-          }
-        }
-        seen.add(fp)
+    const hit = cache.get(fp)
+    if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) {
+      chapters.push(cloneChapter(hit.chapter)) // Z-21：_raw 一并深拷贝——嵌套 mutate 不污染缓存
+    } else {
+      const r = readChapter(fp)
+      if (r.ok) {
+        cache.set(fp, { mtimeMs: st.mtimeMs, size: st.size, chapter: r.chapter })
+        chapters.push(cloneChapter(r.chapter))
+      } else {
+        errors.push(r.error)
+        cache.delete(fp) // 读失败不缓存；稳定坏文件每轮重读（错误文件罕见，可接受）
       }
     }
-  }
-  walk(dirPath)
+    seen.add(fp)
+  })
   // 清理已删除文件条目（结构变化自愈：删章/移章下一轮 walk 即失效）
   for (const key of cache.keys()) {
     if (!seen.has(key)) cache.delete(key)
@@ -169,32 +156,12 @@ function readChapterDirUncached(
 ): { chapters: ChapterMeta[]; errors: ParseError[] } {
   const chapters: ChapterMeta[] = []
   const errors: ParseError[] = []
-  const walk = (dir: string): void => {
-    let entries: string[]
-    try {
-      entries = readdirSync(dir)
-    } catch {
-      return
-    }
-    for (const name of entries) {
-      if (name.startsWith('._')) continue
-      const fp = join(dir, name)
-      let st: ReturnType<typeof statSync>
-      try {
-        st = statSync(fp)
-      } catch {
-        continue
-      }
-      if (st.isDirectory()) {
-        walk(fp) // 递归子目录（卷）
-      } else if (name.endsWith('.md')) {
-        const r = readChapter(fp, includeBody)
-        if (r.ok) chapters.push(r.chapter)
-        else errors.push(r.error)
-      }
-    }
-  }
-  walk(dirPath)
+  // N2（五十九轮）：同缓存版——walk 族收口改走 walk-md 共享口径
+  walkMdEach(dirPath, (fp) => {
+    const r = readChapter(fp, includeBody)
+    if (r.ok) chapters.push(r.chapter)
+    else errors.push(r.error)
+  })
   return { chapters, errors }
 }
 

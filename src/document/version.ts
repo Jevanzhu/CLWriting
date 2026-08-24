@@ -24,6 +24,7 @@ import { safeDocId } from '../fs/safe-path.js'
 import { ulid, decodeUlidTime } from './stable-id.js'
 import { readFile, parseFlat } from '../format/frontmatter.js'
 import type { Revision } from './revision.js'
+import { log } from '../log/index.js'
 
 /** 版本目录名（工作区/ 下，treeskip + 迁移用）。 */
 export const VERSIONS_DIR_NAME = '.版本'
@@ -141,7 +142,12 @@ export function writeVersion(
   // 默认 force=true（兼容旧快照调用方行为——编辑器保存每次都留底；需节流的调用方显式传 force:false）
   const force = options.force ?? true
   // docId 防穿越（与 listVersions/readVersion 一致，write 路径也需校验）
-  if (!safeDocId(docId)) return null
+  // N1（五十九轮）：拒绝不再静默——去重/节流的 null 是合法跳过，但「非法 docId 拒写」
+  // 是留底纪律失守（调用方无从区分），至少 warn 留痕供诊断。
+  if (!safeDocId(docId)) {
+    log.warn('version', `版本留底拒绝非法 docId（含路径分隔符或 ..）：${JSON.stringify(docId)}——调用方留底契约失守`)
+    return null
+  }
   const existing = listVersions(versionsDir, docId)
   const latest = existing[0]
   // P3-14：去重指纹缓存 key（含 versionsDir 防跨书碰撞）

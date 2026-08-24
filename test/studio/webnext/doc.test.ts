@@ -118,7 +118,9 @@ describe('doc store · save 前置守卫', () => {
     let resolve!: (v: SaveOk | PromiseLike<SaveOk>) => void
     vi.mocked(saveContent).mockReturnValueOnce(new Promise((r) => (resolve = r)))
     const p = doc.save('d1') // 进行中
-    expect(await doc.save('d1')).toBe(false) // 重入被拒
+    // F8（五十九轮）契约变更：manual 遇在途改为链式排队（见 f8-manual-save-queue.test.ts），
+    // 此处用 autosave 校验原「不重入」语义（autosave 维持 no-op，节拍自会重扫）
+    expect(await doc.save('d1', 'autosave')).toBe(false) // 重入被拒
     resolve({ ok: true, revision: 'sha256:h', superseded: false })
     await p
   })

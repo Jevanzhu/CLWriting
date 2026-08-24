@@ -23,7 +23,7 @@
  * 与 rmSync 之间锁文件仍可能被换（proper-lockfile 同款已知语义）；彻底闭合需
  * lease/fencing token，超出文件锁范畴。
  */
-import { mkdirSync, openSync, writeSync, closeSync, rmSync, readFileSync, statSync } from 'node:fs'
+import { mkdirSync, openSync, writeSync, closeSync, rmSync, readFileSync, statSync, utimesSync } from 'node:fs'
 import { dirname } from 'node:path'
 
 /** 本进程启动时刻（epoch ms，由 uptime 反推）——锁文件诊断字段（未来 pid 复用判别依据） */
@@ -54,6 +54,11 @@ export interface CrossProcessLockOptions {
   staleTakeoverJitterMs?: number
   /** Z-19：活 pid 超龄判 stale 的门槛（毫秒）——pid 复用防护；注入 0 关闭。 */
   maxHeldMs?: number
+  /** N6（五十九轮）：持锁方续期周期（毫秒）——>0 时占锁成功即起定时器定期
+   *  utimes 刷新锁文件 mtime（持锁段超过 maxHeldMs 的长任务借此声明「还活着」，
+   *  防被 SIGSTOP/挂起误接管为 stale → 双持锁）；release 时停表。注入用最小周期
+   *  保测试快（生产调用方按持锁段上界选择是否启用，毫秒级持锁段无需续期）。 */
+  renewIntervalMs?: number
 }
 
 /** open 'wx' 成功 → writeSync(pid) 之间存在微秒级窗口：对手 EEXIST 后读到空锁，
@@ -85,6 +90,10 @@ function judgeStaleLock(
     // 持有段都是文件 IO 级毫秒，超龄（缺省 10min，可注入）仍「活着」只可能是原持有者
     // 已死、pid 被系统复用给长命进程（bootTime 已落盘但无跨进程查询 API，年龄是可用
     // 判据）。残余风险如实记档：持锁进程被 SIGSTOP 挂起超龄的极端形态会被误接管。
+    // N6（五十九轮）：接管条件收紧为「超龄且 mtime 无续期」——长持锁方用
+    // renewIntervalMs 定期 utimes 刷新 mtime，活着且在续期 → age 恒小于门槛，不接管；
+    // 只有「超龄且期间无任何续期 touch」（真死进程 pid 复用 / SIGSTOP 后无人续期）
+    // 才判 stale。判据本身仍是 mtime 年龄（utimes 续期即重置），无需新增状态位。
     if (maxHeldMs !== undefined && maxHeldMs > 0) {
       try {
         const age = Date.now() - Math.floor(statSync(lockPath).mtimeMs)
@@ -128,9 +137,25 @@ export function tryAcquireCrossProcessLock(
       fd = openSync(lockPath, 'wx')
       writeSync(fd, JSON.stringify({ pid: process.pid, bootTime: processBootTime() }))
       let released = false
+      // N6：续期定时器——周期 utimes 刷锁文件 mtime（best-effort：锁文件被外部清理/
+      // 磁盘异常时静默跳过，release 照常删文件）。release 幂等 + 停表。
+      const renewMs = opts?.renewIntervalMs ?? 0
+      let renewTimer: ReturnType<typeof setInterval> | null = null
+      if (renewMs > 0) {
+        renewTimer = setInterval(() => {
+          try {
+            utimesSync(lockPath, new Date(), new Date())
+          } catch {
+            /* best-effort：锁文件已不在（异常态）→ 停止续期，防定时器空转 */
+            if (renewTimer) clearInterval(renewTimer)
+          }
+        }, renewMs)
+        renewTimer.unref()
+      }
       return () => {
         if (released) return
         released = true
+        if (renewTimer) clearInterval(renewTimer)
         rmSync(lockPath, { force: true })
       }
     } catch (e) {

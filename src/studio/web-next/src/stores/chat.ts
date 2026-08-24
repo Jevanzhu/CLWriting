@@ -409,6 +409,11 @@ export const useChatStore = defineStore('chat', () => {
       // POST 前快照本地消息 id：截断只删快照内的旧消息——SSE 抢先开跑追加的新气泡
       // （即使已快速 done）不属于旧视图，不得误删
       const preIds = new Set(messages.value.map((m) => m.id))
+      // F6（五十九轮）：regenBook 前置到 POST 之前——原实现「POST 成功返回后才赋值」的
+      // 窗口内 SSE 可抢跑（服务端收到请求即开跑并回流 chat_done），届时读 null 漏刷
+      // 分支列表。POST 失败由 finally（!handedOff）清；POST 成功则无论后续路径，回合
+      // 结束（chat_done）都能读到书名
+      regenBook = bookName
       try {
         await regenerateChat(bookName, {
           parentSeq,
@@ -446,10 +451,14 @@ export const useChatStore = defineStore('chat', () => {
         }
       }
       activeBranchId.value = branchId
-      regenBook = bookName // chat_done 时 best-effort 刷新分支列表
       handedOff = true
     } finally {
-      if (!handedOff) regenPending = false
+      // F6（五十九轮）：未交接（POST 失败/前置拒绝/期间清空）时连带清前置登记的 regenBook，
+      // 防 POST 失败后残留书名被下一轮无关 chat_done 误刷分支
+      if (!handedOff) {
+        regenPending = false
+        regenBook = null
+      }
     }
   }
 

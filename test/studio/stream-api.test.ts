@@ -21,6 +21,8 @@ import { createRouteTable, withRouteTable, dispatch } from '../../src/studio/ser
 import { resetRouteSchemas } from '../../src/studio/server/api/schema.js'
 
 const BOOK = '对话测试书'
+/** S5（五十九轮）：全书零触碰的书（/interrupt 空闲 no-op 回归用） */
+const IDLE_BOOK = '中断空转书'
 let workDir = ''
 let userDataPath = ''
 let server: http.Server | undefined
@@ -83,9 +85,17 @@ beforeAll(async () => {
   mkdirSync(join(workDir, '.clwriting'), { recursive: true })
   writeFileSync(
     join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
+    // S5（五十九轮）：IDLE_BOOK 专用——全书全程无 session/SSE/编排触碰，验 /interrupt
+    // 空闲 no-op 不隐式建会话
+    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n' +
+      JSON.stringify({ name: IDLE_BOOK, path: IDLE_BOOK, kind: 'long' }) + '\n',
   )
   const bookRoot = join(workDir, BOOK)
+  mkdirSync(join(workDir, IDLE_BOOK), { recursive: true })
+  writeFileSync(
+    join(workDir, IDLE_BOOK, 'book.yaml'),
+    'spec_version: 1\nkind: long\nbook:\n  title: 中断空转书\n  genre: 玄幻\nhost: cc\n',
+  )
   mkdirSync(join(bookRoot, '定稿', '正文', '第一卷'), { recursive: true })
   mkdirSync(join(bookRoot, '工作区'), { recursive: true })
   mkdirSync(join(bookRoot, '大纲'), { recursive: true })
@@ -344,5 +354,38 @@ describe('ee-P2-11 删书/改名查 /spawn 在途闸', () => {
     })
     expect(ok.status).toBe(200)
     expect((ok.json as { ok: boolean }).ok).toBe(true)
+  })
+})
+
+// ── S5（五十九轮）：/interrupt 空闲 no-op ─────────────────
+
+describe('S5: /interrupt 无运行 → 成功 no-op，不隐式建会话', () => {
+  it('无 session / 无编排在途 → 200 ok，且不 ensureSession（getSession 仍为 null）', async () => {
+    const { getSession } = await import('../../src/driver/index.js')
+    // ee-P2-11 段的 registerBook 会整写 books.jsonl（只留 BOOK+NAME）——此处补登记
+    // IDLE_BOOK（幂等；目录/book.yaml beforeAll 已备）
+    writeFileSync(
+      join(workDir, '.clwriting', 'books.jsonl'),
+      JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n' +
+        JSON.stringify({ name: IDLE_BOOK, path: IDLE_BOOK, kind: 'long' }) + '\n',
+    )
+    expect(getSession(IDLE_BOOK)).toBeNull() // 前置：该书确无会话
+    const r = await req({ method: 'POST', path: `/api/books/${encodeURIComponent(IDLE_BOOK)}/interrupt` })
+    expect(r.status).toBe(200)
+    expect((r.json as { ok: boolean }).ok).toBe(true)
+    // 原实现无条件 ensureSession → 静默新建 channel（永不 dispose）；现 no-op 不建
+    expect(getSession(IDLE_BOOK)).toBeNull()
+  })
+
+  it('spawn 在途 → 走真实中断路径（不 no-op）', async () => {
+    __setSpawnRunning(BOOK, true)
+    try {
+      // spawn 闸在途时 isRunning 判真 → ensureSession + driver.interrupt 正常执行（200）
+      const r = await req({ method: 'POST', path: bp('/interrupt') })
+      expect(r.status).toBe(200)
+      expect((r.json as { ok: boolean }).ok).toBe(true)
+    } finally {
+      __setSpawnRunning(BOOK, false)
+    }
   })
 })

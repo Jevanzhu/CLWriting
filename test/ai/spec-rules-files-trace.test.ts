@@ -111,3 +111,61 @@ describe('Y-2（第五十七轮）：rules 注入段源文件登记', () => {
     expect(files).not.toContain('.cache/rule-hits.json')
   })
 })
+
+// ── A8（五十九轮）：rules 注入文本与登记清单同一次读盘派生（单源）────────────────
+// 修复背景：rulesToPrompt 与 rulesPromptFiles 各自独立读盘（loadAiFlavorRule ×2、
+// topRuleHits ×2），微观窗口文件变更可使「注入文本」与「登记清单」撕裂。修复：新增
+// rulesPromptParts 单源派生，runSpec 内一次读出文本+清单；旧两导出为同源薄壳。
+import { rulesToPrompt, rulesPromptFiles, rulesPromptParts } from '../../src/ai/rules/index.js'
+import { topRuleHits } from '../../src/ai/rule-hits.js'
+
+vi.mock('../../src/ai/rule-hits.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/ai/rule-hits.js')>()
+  return { ...actual, topRuleHits: vi.fn(actual.topRuleHits) }
+})
+
+describe('A8（五十九轮）：rules 注入与登记单源派生', () => {
+  afterEach(() => {
+    for (const d of workDirs.splice(0)) rmSync(d, { recursive: true, force: true })
+    vi.mocked(topRuleHits).mockClear()
+  })
+
+  it('rulesPromptParts 单源：prompt === rulesToPrompt、files === rulesPromptFiles（两薄壳不撕裂）', () => {
+    const ud = tempDir('clw-a8-ud-')
+    writeProviders(ud)
+    const bookRoot = tempDir('clw-a8-book-')
+    mkdirSync(join(bookRoot, '文风', '条目', '禁词'), { recursive: true })
+    writeFileSync(
+      join(bookRoot, '文风', '条目', '禁词', 'a.md'),
+      '---\n类型: 禁词\n场景: 通用\n标签: [AI味]\n说明: 删掉\n---\n仿佛命运的齿轮开始转动\n',
+    )
+    mkdirSync(join(bookRoot, '.cache'), { recursive: true })
+    writeFileSync(
+      join(bookRoot, '.cache', 'rule-hits.json'),
+      JSON.stringify({ 'ai-cliche': { ruleId: 'ai-cliche', hits: 4, lastHit: '2026-08-24T00:00:00Z', recentMessages: ['开头雷同'] } }),
+    )
+    const parts = rulesPromptParts('spawn-write', bookRoot)
+    // 两薄壳与单源产物逐字相等——任一侧单独读盘的撕裂窗口不存在
+    expect(parts.prompt).toBe(rulesToPrompt('spawn-write', bookRoot))
+    expect(parts.files).toEqual(rulesPromptFiles('spawn-write', bookRoot))
+    expect(parts.files).toContain('文风/条目/禁词')
+    expect(parts.files).toContain('.cache/rule-hits.json')
+    expect(parts.prompt).toContain('仿佛命运的齿轮开始转动')
+    expect(parts.prompt).toContain('开头雷同')
+  })
+
+  it('runSpec 一次调用只读一次 rule-hits（原两函数各自读盘 = 2 次）', async () => {
+    const ud = tempDir('clw-a8-ud2-')
+    writeProviders(ud)
+    const bookRoot = tempDir('clw-a8-book2-')
+    mkdirSync(join(bookRoot, '.cache'), { recursive: true })
+    writeFileSync(
+      join(bookRoot, '.cache', 'rule-hits.json'),
+      JSON.stringify({ 'ai-cliche': { ruleId: 'ai-cliche', hits: 2, lastHit: '2026-08-24T00:00:00Z', recentMessages: ['开头雷同'] } }),
+    )
+    const out = await runSpec(TEXT_SPEC, { userDataPath: ud, userPrompt: '写第三章', bookRoot })
+    expect(out.ok).toBe(true)
+    // 单源：文本派生与清单登记共用同一次 topRuleHits 读盘
+    expect(topRuleHits).toHaveBeenCalledTimes(1)
+  })
+})

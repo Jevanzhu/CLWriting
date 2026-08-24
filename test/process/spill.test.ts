@@ -11,7 +11,7 @@ import { mkdtempSync, rmSync, readFileSync, existsSync, writeFileSync, utimesSyn
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
-import { spillIfLarge, writeSpillFile, readSpillFile, type SpillThresholds } from '../../src/process/spill.js'
+import { spillIfLarge, writeSpillFile, readSpillFile, readSpillMeta, type SpillThresholds } from '../../src/process/spill.js'
 
 const T: SpillThresholds = { maxInlineChars: 2000, headChars: 1200, tailChars: 400 }
 
@@ -173,6 +173,33 @@ describe('L-P8（第八轮）：spills 过期清理', () => {
       writeSpillFile(root, '又一次新内容')
       expect(existsSync(old)).toBe(false)
       expect(existsSync(join(dir, `${createHash('sha256').update('新内容', 'utf8').digest('hex').slice(0, 16)}.md`))).toBe(true)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+// ── A6（五十九轮）：rewrite spill locator 哈希并入章号+基线 sha ──────────────────
+// 修复背景：spill 原纯内容寻址，两次改写产出相同正文时第二次顶替同名 sidecar meta，
+// 先前确认通道凭空失效（apply_spill fail-closed 拒绝）。并入 meta 后不同基线的同文
+// spill 各得独立 locator；读侧按 locator 直读文件与 sidecar，不重算哈希，天然兼容。
+describe('A6（五十九轮）：writeSpillFile locator 并入 meta（章号+基线 sha）', () => {
+  it('同正文不同基线 → 独立 locator 两份 meta 并存；同 meta 幂等；无 meta 保持纯内容寻址', () => {
+    const root = mkdtempSync(join(tmpdir(), 'spill-a6-'))
+    try {
+      const meta1 = { kind: 'rewrite' as const, chapter: 1, baseSha: 'a'.repeat(64) }
+      const meta2 = { kind: 'rewrite' as const, chapter: 2, baseSha: 'b'.repeat(64) }
+      const l1 = writeSpillFile(root, '同一正文', meta1)!
+      const l1Again = writeSpillFile(root, '同一正文', meta1)!
+      const l2 = writeSpillFile(root, '同一正文', meta2)!
+      const lNoMeta = writeSpillFile(root, '同一正文')!
+      expect(l1).toBe(l1Again) // 同章号+基线 → 幂等
+      expect(l1).not.toBe(l2) // 不同章号/基线 → 独立 locator，sidecar 不互覆
+      expect(l1).not.toBe(lNoMeta) // 无 meta（chat 上下文外置）保持纯内容寻址口径
+      expect(readSpillMeta(root, l1)).toEqual(meta1)
+      expect(readSpillMeta(root, l2)).toEqual(meta2)
+      expect(readSpillFile(root, l1)).toBe('同一正文')
+      expect(readSpillFile(root, l2)).toBe('同一正文')
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

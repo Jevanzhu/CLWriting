@@ -102,3 +102,37 @@ describe('msgSeqs 防御性对齐（prepareChatRun）', () => {
     expect(msgSeqMap.get(book)).toEqual([[10]])
   })
 })
+
+// ── A7（五十九轮）：commitPendingMsgSeqs 对 flush 失败（null）清 pending 补 [] ────────
+// 修复背景：mem 模式（store=null）flush 恒返 null，原实现 return 不清 pending——
+// 陈旧批内序号跨回合挂到下一次成功区间上，错映射全局 seq。修复：失败即清空，按
+// 「seq 未知」口径补 []（与上方尾部对齐同款），消息对齐保留。
+describe('A7（五十九轮）：flush 返回 null → 清 pending 并补 []（不跨回合错映射）', () => {
+  it('mem 模式：null 区间清 pending、补 []；后续成功区间只映射本轮序号', () => {
+    const workDir = makeDualTrackWorkdir()
+    dirs.push(workDir, tempUserData())
+    histories.delete(book)
+    msgSeqMap.delete(book)
+
+    const prepared = prepareChatRun(
+      { driver: makeDriver(), mainSession: { id: 's1', cwd: workDir, closed: false }, userDataPath: dirs[1]!, bookRoot: workDir, bookName: book, message: '新消息' },
+      null, // mem 模式（store=null）——flush 恒 null
+      () => {},
+    )
+    // user push 已进 pending（批内序号 0）
+    expect(prepared.seqs.pendingMsgSeqs.length).toBe(1)
+
+    // flush 失败（null）：清空 + 按「seq 未知」补 []——旧实现保留 pending 不动
+    prepared.seqs.commitPendingMsgSeqs(prepared.recorder.flush())
+    expect(prepared.seqs.pendingMsgSeqs).toEqual([])
+    expect(prepared.seqs.msgSeqs.at(-1)).toEqual([])
+    expect(prepared.seqs.msgSeqs.length).toBe(prepared.history.length) // 对齐不破
+
+    // 下一回合：新批内序号映射到本回合成功区间，不被上一回合陈旧序号挤占/错挂
+    prepared.history.push({ role: 'assistant', content: '答' })
+    prepared.seqs.pendingMsgSeqs.push(0)
+    prepared.seqs.commitPendingMsgSeqs({ first: 100, last: 100 })
+    expect(prepared.seqs.msgSeqs.at(-1)).toEqual([100]) // first(100) + 批内序号 0
+    expect(prepared.seqs.msgSeqs.length).toBe(prepared.history.length)
+  })
+})

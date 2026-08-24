@@ -170,6 +170,20 @@ onMounted(() => {
         if (u.docChanged) emit('update:modelValue', u.state.doc.toString())
         if (u.selectionSet || u.focusChanged) emit('selectionChange')
       }),
+      // F5（五十九轮）：组合态标记 + 组合结束后（延迟一拍让 CM6 先冲排组合文本插入）
+      // 应用挂起的外部全量替换（挂起值在 watch 里登记，最新覆盖旧）
+      EditorView.domEventHandlers({
+        compositionstart: () => {
+          composing = true
+        },
+        compositionend: () => {
+          composing = false
+          if (pendingExternal === null || !view) return
+          const v = pendingExternal
+          pendingExternal = null
+          setTimeout(() => applyExternalReplace(v), 0)
+        },
+      }),
       typewriterConf.of(typewriterExt(props.typewriter ?? false)),
     ],
     parent: el.value,
@@ -203,6 +217,22 @@ watch(
 // 落盘污染；undo 后切换时 redo 栈的边界插入事件亦残留。isolateHistory('full') 只切断新旧
 // 事件编组，不承担清栈。
 let lastHistoryKey: string | undefined = props.historyKey
+// F5（五十九轮）：IME 组合态守卫——外部全量替换（refresh/SSE 同步）落在组合输入中
+// 会吞掉正在组合的中文（组合文本被整段替换打断）。组合标记本地维护
+// （compositionstart/end 事件对）+ view.composing 双判：CM6 的 composing>0 要等组合期
+// 内真实输入事件，只挂 compositionstart（尚无键入）时它仍为 false——本地标记补齐这个
+// 窗口。compositionend 后延迟一拍（setTimeout 0）再应用挂起值：CM6 的 MutationObserver
+// 在微任务里冲排组合文本插入，先于我们的全量替换才不会把组合文本算进替换 diff。
+let composing = false
+let pendingExternal: string | null = null
+/** 同文档外部全量替换的执行体（composing 守卫解耦出）。 */
+function applyExternalReplace(v: string): void {
+  if (!view) return
+  view.dispatch({
+    changes: { from: 0, to: view.state.doc.length, insert: v },
+    annotations: Transaction.addToHistory.of(false),
+  })
+}
 watch(
   [() => props.modelValue, () => props.historyKey],
   ([v, key]) => {
@@ -212,10 +242,12 @@ watch(
     if (!docSwitch) {
       // 同文档外部同步：仅差异时替换，避免光标跳（此分支不得恒替换）
       if (v !== view.state.doc.toString()) {
-        view.dispatch({
-          changes: { from: 0, to: view.state.doc.length, insert: v },
-          annotations: Transaction.addToHistory.of(false),
-        })
+        // F5（五十九轮）：组合输入中不立即替换——挂起到 compositionend 后
+        if (view.composing || composing) {
+          pendingExternal = v
+          return
+        }
+        applyExternalReplace(v)
       }
       return
     }

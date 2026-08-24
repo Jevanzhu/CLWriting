@@ -4,14 +4,15 @@
  * 用 fake-provider 跑真实 HTTP 全链路（非 mock 分支）。
  * 验收：单轮/工具循环/确认闸/取消/中断/触顶/截断保护/回滚。
  */
-import { rmSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { rmSync, writeFileSync, mkdirSync } from 'node:fs'
+import { join, dirname } from 'node:path'
 import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { createFakeProvider, type FakeProvider } from './fake-provider.js'
 import { withFakeProvider, tempUserData, makeDualTrackWorkdir } from '../studio/fixtures.js'
 import { runChat, isChatRunning, abortChat, resolveChatConfirm, getHistory } from '../../src/ai/orchestrate/chat.js'
 import { chatTools } from '../../src/ai/contract/chat.js'
 import { writeSpillFile } from '../../src/process/spill.js'
+import { resolveDraftPath } from '../../src/format/draft.js'
 import { openSessionStore } from '../../src/events/store.js'
 import type { DriverEvent, Session, StudioDriver } from '../../src/driver/types.js'
 
@@ -834,5 +835,79 @@ describe('F1-P4 chat 重新生成（分支）', () => {
     } finally {
       store.close()
     }
+  })
+})
+
+// ─── A1（五十九轮）：read_chapter 剥 fm 与 prompts/chat.ts 同源（bodyOf）──────────
+// 修复背景：read_chapter 仍用旧宽松正则 /^---[\s\S]*?---\n?/ 剥 fm（P-6 已在
+// buildChatContext 改 bodyOf，此处是漏网点）——手写稿正文含非整行 ---（表格分隔行等）
+// 被吞中段喂给模型；且 spill 哈希与 writeSpillFile（对 bodyOf(raw) 哈希）不同源，
+// 超长章截断通知的 fullAt 判定恒 miss。
+
+describe('A1（五十九轮）：read_chapter 剥 fm 走 bodyOf 单源', () => {
+  it('无 fm 但正文含非整行 ---（表格分隔行）→ 不吞中段，全文返回', async () => {
+    const longRoot = join(bookRoot, '长篇', '长篇测试书')
+    const raw = '---\n雨夜开场，主角登场，这段正文足够长也可正常返回。\n\n| 场景 | 人物 |\n|---|---|\n| 破庙 | 主角 |\n\n结尾钩子。'
+    // 无 fm 手写稿不被 readChapterDir 按 fm 章号识别——写到 resolveDraftPath 预测的
+    // 新章路径（与 prompts.test.ts 的 P-6 用例同手法），read_chapter 按此路径读
+    const rel = resolveDraftPath(longRoot, 9).relPath
+    mkdirSync(dirname(join(longRoot, rel)), { recursive: true })
+    writeFileSync(join(longRoot, rel), raw, 'utf8')
+    fake.setScript([
+      { type: 'tool', name: 'read_chapter', input: { chapter: 9 } },
+      { type: 'text', content: '读完了。' },
+    ])
+    const events: DriverEvent[] = []
+    const driver = makeDriver(events)
+    const ud = setup()
+
+    await runChat({
+      driver,
+      mainSession: { id: 's1', cwd: bookRoot, closed: false },
+      userDataPath: ud,
+      bookRoot: longRoot,
+      bookName: 'a1-noFm',
+      message: '读第 9 章',
+    })
+
+    const result = events.find((e) => e.type === 'chat_tool_result') as { summary?: string } | undefined
+    expect(result).toBeTruthy()
+    // 修复前宽松正则从首行 --- 一路吞到表格分隔行的 ---：开场段与表头全丢
+    expect(result!.summary).toContain('雨夜开场')
+    expect(result!.summary).toContain('破庙')
+    expect(result!.summary).toContain('结尾钩子')
+  })
+
+  it('spill 哈希与 buildChatContext/writeSpillFile 同源——截断通知 fullAt 命中 spill 暂存', async () => {
+    const longRoot = join(bookRoot, '长篇', '长篇测试书')
+    // fm 章 + 超长正文（正文含 --- 表格分隔行：旧正则剥出的 body 与 bodyOf 不同 → 哈希必 miss）
+    const tail = '长'.repeat(30_000)
+    const body = '---\n雨夜开场，主角登场。\n\n| 场景 | 人物 |\n|---|---|\n| 破庙 | 主角 |\n\n' + tail
+    writeFileSync(join(longRoot, '写作', '正文', '0001-初入宗门.md'), '---\n章号: 1\n标题: 初入宗门\n---\n' + body, 'utf8')
+    // 模拟 buildChatContext 的上下文外置：对 bodyOf 口径的同一全文落 spill
+    const locator = writeSpillFile(longRoot, body)!
+
+    fake.setScript([
+      { type: 'tool', name: 'read_chapter', input: { chapter: 1 } },
+      { type: 'text', content: '读完了。' },
+    ])
+    const events: DriverEvent[] = []
+    const driver = makeDriver(events)
+    const ud = setup()
+
+    await runChat({
+      driver,
+      mainSession: { id: 's1', cwd: bookRoot, closed: false },
+      userDataPath: ud,
+      bookRoot: longRoot,
+      bookName: 'a1-hash',
+      message: '读第 1 章',
+    })
+
+    const result = events.find((e) => e.type === 'chat_tool_result') as { summary?: string } | undefined
+    expect(result).toBeTruthy()
+    expect(result!.summary).toContain('已截断至')
+    // 修复前哈希口径不同源 → fullAt 恒 miss，只报草稿路径；现同源命中 spill 暂存
+    expect(result!.summary).toContain(locator)
   })
 })

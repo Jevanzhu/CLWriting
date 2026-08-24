@@ -849,4 +849,34 @@ describe('kk-P2-8：退出与边界分支', () => {
     expect(win.loaded.length).toBe(loaded0 + 1) // 改载静态提示页
     expect(String(win.loaded[win.loaded.length - 1])).toMatch(/^data:text\/html/)
   })
+
+  // S6（五十九轮）：rendererCrashes 只随窗口重建归零 → 长跑偶发 3 次崩溃后第 4 次
+  // 误触发停摆页。修复对齐 server-manager STABILITY_RESET_MS 先例：did-finish-load
+  // 后存活过稳定窗口（5 分钟）即清零。fake setTimeout 推进窗口（微任务不 fake，模块
+  // 启动链不受影响）。
+  it('S6: did-finish-load 后存活过稳定窗口 → 崩溃计数清零，后续崩溃回退避第 1 档', async () => {
+    const windows0 = M.windows.length
+    vi.resetModules()
+    vi.useFakeTimers({ toFake: ['setTimeout'] })
+    try {
+      await import('../../src/desktop/main.js')
+      await new Promise((r) => setImmediate(r))
+      await new Promise((r) => setImmediate(r))
+      const win = M.windows[windows0]!
+      expect(win, 'fresh 模块应已开主窗').toBeTruthy()
+      const gone = win.webContents.handlers['render-process-gone']![0]! as (e: unknown, d: { reason: string; exitCode: number }) => void
+      for (let i = 0; i < 3; i++) gone({}, { reason: 'oom', exitCode: 5 })
+      expect(win.webContents.reloaded).toBe(3)
+      // reload 成功 → did-finish-load；存活过 5 分钟稳定窗口 → 计数清零
+      const finishLoad = win.webContents.handlers['did-finish-load']![0]! as () => void
+      finishLoad()
+      vi.advanceTimersByTime(5 * 60_000)
+      const loaded0 = win.loaded.length
+      gone({}, { reason: 'oom', exitCode: 5 }) // 原实现第 4 次误触发停摆页
+      expect(win.webContents.reloaded).toBe(4) // 计数已清零 → 继续 reload 自愈
+      expect(win.loaded.length).toBe(loaded0) // 未载 data: 停摆页
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

@@ -186,8 +186,32 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
   }
   mkdirSync(dir, { recursive: true })
   const db = new DatabaseSync(dbPath)
-  db.exec('PRAGMA journal_mode = WAL')
+  // N3（五十九轮）补：busy_timeout 必须先于 journal_mode=WAL 设置——WAL 切换在
+  // journal_mode 处需拿写锁，若另一进程正持锁而 busy_timeout 未设，会立即抛
+  // SQLITE_BUSY（N3 三进程并发首开回归在全量并发下偶发红的根因）
   db.exec('PRAGMA busy_timeout = 5000')
+  // N3（五十九轮）：WAL 切换需短暂独占——并发首开下其他进程持锁（DDL/首写）时，
+  // 即使 busy_timeout 也可能立即 SQLITE_BUSY 且库仍处 delete 态（幂等 no-op 兜底
+  // 不够）。带退避重试：对方事务必然短（建表/一次 INSERT），数百 ms 内可得手。
+  {
+    let lastErr: unknown
+    for (let i = 0; i < 8; i++) {
+      try {
+        db.exec('PRAGMA journal_mode = WAL')
+        lastErr = null
+        break
+      } catch (err) {
+        lastErr = err
+        const mode = (db.prepare('PRAGMA journal_mode').get() as { journal_mode?: string } | undefined)?.journal_mode
+        if (mode === 'wal') {
+          lastErr = null
+          break
+        }
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50 * (i + 1))
+      }
+    }
+    if (lastErr !== null) throw lastErr
+  }
   db.exec(
     `CREATE TABLE IF NOT EXISTS events (
       seq         INTEGER PRIMARY KEY,
@@ -332,17 +356,33 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
       return rows.map(rowToEvent)
     },
     workspaceSession(book: string): string {
-      const row = db.prepare(
-        `SELECT session_id FROM sessions WHERE book = ? AND session_id LIKE 'ws-%' LIMIT 1`
-      ).get(book) as { session_id: string } | undefined
-      if (row) return row.session_id
-      const sid = `ws-${ulid()}`
-      const now = Date.now()
-      db.prepare(
-        `INSERT INTO sessions (session_id, format_version, book, header, created_at, updated_at)
-         VALUES (?, 1, ?, ?, ?, ?)`
-      ).run(sid, book, JSON.stringify({ kind: 'workspace' }), now, now)
-      return sid
+      // N3（五十九轮）：SELECT→INSERT 包 BEGIN IMMEDIATE——双进程并行首开同书时，原裸
+      // SELECT→INSERT 竞态会分裂两个 ws 会话（链路事件分裂写入两处）。IMMEDIATE 拿写锁
+      // 后 SELECT→INSERT 原子化：后到进程的 BEGIN IMMEDIATE 在 busy_timeout 内等待，
+      // 拿锁后重查必见先到者已 INSERT 的行 → 复用同一 ws 会话。
+      // 未加 (book, ws-) 唯一约束：sessions 表既有库可能已有历史重复 ws 行（先查重再建
+      // 索引会破坏「不动既有库」边界），事务串行化已闭合分裂窗口。
+      db.exec('BEGIN IMMEDIATE')
+      try {
+        const row = db.prepare(
+          `SELECT session_id FROM sessions WHERE book = ? AND session_id LIKE 'ws-%' LIMIT 1`
+        ).get(book) as { session_id: string } | undefined
+        if (row) {
+          db.exec('COMMIT')
+          return row.session_id
+        }
+        const sid = `ws-${ulid()}`
+        const now = Date.now()
+        db.prepare(
+          `INSERT INTO sessions (session_id, format_version, book, header, created_at, updated_at)
+           VALUES (?, 1, ?, ?, ?, ?)`
+        ).run(sid, book, JSON.stringify({ kind: 'workspace' }), now, now)
+        db.exec('COMMIT')
+        return sid
+      } catch (err) {
+        db.exec('ROLLBACK')
+        throw err
+      }
     },
     latestSession(book: string): SessionRow | null {
       // P2：排除 workspace 会话（ws- 前缀）——链路事件不干扰对话恢复选会话
@@ -449,8 +489,19 @@ export function migrateBookSession(
     //    重复释放直接忽略，强制关会静默落空（僵尸条目滞留缓存，旧路径重开
     //    拿到别名已迁走库的句柄，写入分裂到旧路径 -wal）；置 1 走正常递减路径，
     //    真关语义不变
+    //    N8（五十九轮）：强制关库前断言无在途引用——「先中止会话」此前只是头注里的
+    //    调用方纪律，无程序性保障；refs>1 = 仍有 openSessionStore 未 close 的使用方
+    //    （在途对话/自愈/链路记录），此刻强关会把它们的后续写入打到已关句柄上。给
+    //    可读错误并放弃迁移（false，源库原地完整可重试），让调用方先收口再迁。
     const entry = openStores.get(oldDb)
     if (entry && !entry.closed) {
+      if (entry.refs > 1) {
+        log.error(
+          'events',
+          `事件库迁移中止：旧库仍有 ${entry.refs - 1} 个在途引用（${oldDb}）——请先中止该书在途对话/自愈并释放连接后重试`,
+        )
+        return false
+      }
       entry.refs = 1
       entry.store.close()
     }

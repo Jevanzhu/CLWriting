@@ -93,3 +93,30 @@ test('H-1: 全部是草稿 → 没有定稿正文可收割（400 口径的内核
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+// A5（五十九轮）回归：金句候选按章号倒序再取 top5——原 slice 直接取章节序最前 5 条，
+// 候选系统性偏旧（每章一条合格金句时 top5 恒为第 1-5 章，第 6/7 章永不可入池）。
+test('A5: 金句 top5 按章号倒序取最新候选（不再系统性偏旧）', () => {
+  const root = makeBook()
+  try {
+    // makeBook 已有第 1/2 章；补第 3-7 章（每章 1 条合格金句，共 7 条候选）
+    for (let n = 3; n <= 7; n++) {
+      writeFileSync(
+        join(root, '写作', '正文', `000${n}-定稿章${n}.md`),
+        `---\n章号: ${n}\n标题: 定稿章${n}\n---\n${QUALIFYING_BODY}`,
+        'utf-8',
+      )
+    }
+    const r = learnFromBook(root)
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect(r.quoteCount).toBe(5)
+      const nums = (r.quotes ?? []).map((q) => q.章号)
+      // 最新 5 章（3-7）占据名额，第 1/2 章不再凭章节序靠前霸位
+      for (const n of nums) expect(n).toBeGreaterThanOrEqual(3)
+      expect(nums).toContain(7)
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})

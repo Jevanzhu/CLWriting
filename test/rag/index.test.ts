@@ -640,3 +640,20 @@ describe('buildIndex 游标自愈（RB-IF-P1-3）', () => {
     expect(r3.chunkCount).toBe(0)
   })
 })
+
+// A4（五十九轮）回归：分块 offset 按 trim 后文本重定位——text 为 trim 后文本而
+// start/end 原先指向未 trim 区间，召回→精准读取契约两头不对齐（slice(start,end) ≠ text）。
+describe('A4（五十九轮）：分块 offset 指向 trim 后文本区间', () => {
+  it('段首尾空白不入 offset——body.slice(start,end) === text（trim 后区间精确）', () => {
+    const body =
+      '   开头带空白的段落内容足够长，可以通过二十字过滤。   \n\n中间正常段，内容同样足够长以通过二十字过滤。\n\n  结尾段也带首尾空白，长度也足够通过过滤。  '
+    const chunks = chunkBody(body)
+    expect(chunks.length).toBeGreaterThanOrEqual(2)
+    for (const c of chunks) {
+      // 契约不变量：记录的 offset 区间精确指向入块文本本身
+      expect(body.slice(c.start, c.end)).toBe(c.text)
+    }
+    // 首块 text 不含段首空白（原口径 start=0 连 3 个前导空格一起计入 offset）
+    expect(chunks[0]!.text.startsWith('开头带空白')).toBe(true)
+  })
+})
