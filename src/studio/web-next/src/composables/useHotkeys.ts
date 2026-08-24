@@ -11,6 +11,9 @@ export function useHotkeys(): void {
   const ui = useUiStore()
 
   function onKey(e: KeyboardEvent): void {
+    // B-9（第六十轮）：IME 组合期让渡——组合中按 Esc 是收输入法候选框（keyCode 229 为
+    // 组合期按键兼容判据），此时退出专注会打断写作流且 preventDefault 与 IME 相争
+    if (e.isComposing || e.keyCode === 229) return
     // 内嵌层已消费的键让渡：CM 搜索面板等编辑器内 Esc 由 CodeMirror keymap 处理
     //（preventDefault 但事件仍冒泡到 window），不重复消费——关面板的同时不能退出专注
     if (e.defaultPrevented) return

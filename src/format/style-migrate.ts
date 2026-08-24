@@ -17,6 +17,7 @@ import { readSamplesByScene } from './style.js'
 import { writeEntry, readEntries, ENTRIES_DIR } from './style-entry.js'
 import { parseIronRules } from './iron-rules.js'
 import { atomicWriteFile } from '../fs/atomic.js'
+import { sanitizeChapterTitle } from './filename.js'
 import type { StyleEntry, EntryKind, EntrySource, SampleSource } from './types.js'
 
 /** 迁移结果（伏笔迁移同构 + 类型分布供 toast） */
@@ -107,14 +108,21 @@ function makeWriter(bookRoot: string, result: StyleMigrateResult) {
     /* 条目目录不存在（首次迁移）→ 空播种 */
   }
   return (e: StyleEntry): void => {
-    const key = `${e.类型}/${e.场景}`
+    // B-5（第六十轮）：类型/场景来自旧样章目录名与 fm 字段（磁盘可篡改数据面）——
+    // 消毒后再拼文件名（Y-27 同族漂移：style-entry.addEntry 已走 sanitizeChapterTitle
+    // 单源，本迁移写点漏网，`../evil` 类场景可越出条目目录落文件）；空结果兜底防
+    // `NNN.md` 劣化名。seq key 同步用消毒值——续跑播种从文件名取键，键值一致才防覆写
+    const kind = sanitizeChapterTitle(e.类型) || '未分类'
+    const scene = sanitizeChapterTitle(e.场景) || '未命名'
+    const key = `${kind}/${scene}`
     const n = (seq.get(key) ?? 0) + 1
     seq.set(key, n)
-    const dir = join(entriesDir, e.类型)
+    const dir = join(entriesDir, kind)
     mkdirSync(dir, { recursive: true })
-    writeEntry(join(dir, `${e.场景}-${String(n).padStart(3, '0')}.md`), e)
+    writeEntry(join(dir, `${scene}-${String(n).padStart(3, '0')}.md`), e)
     result.migrated++
-    result.byKind[e.类型] = (result.byKind[e.类型] ?? 0) + 1
+    // 合法类型值（金句/样章/…）消毒为恒等映射，as 仅收窄回索引类型
+    result.byKind[kind as EntryKind] = (result.byKind[kind as EntryKind] ?? 0) + 1
   }
 }
 

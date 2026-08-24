@@ -192,6 +192,11 @@ export function sanitizeHistory(history: ChatMsg[]): ChatMsg[] {
   let result: ChatMsg[] = []
   // 已出现的 tool_use id（供后续孤儿 tool_result 判定；时序上 use 先于 result）
   const knownToolUseIds = new Set<string>()
+  // B-13（第六十轮）：病态时序双弃登记——result 先于 use 到达时（外部损坏的历史恢复），
+  // result 被前向集合判孤儿删除，但 use 侧的全局预扫仍命中（result 在历史里存在过）→
+  // 产出必然 400 的悬空 tool_use（比不消毒更糟）。被删 result 的 id 在此登记，
+  // 后续同 id 的 tool_use 一并剔除（病态对双双丢弃）；正常时序（use 先于 result）不进此集合。
+  const droppedToolResultIds = new Set<string>()
 
   for (const m of history) {
     // 空 content 消息 → 剔除（reasoning-only 被过滤后留下的空壳）
@@ -206,7 +211,7 @@ export function sanitizeHistory(history: ChatMsg[]): ChatMsg[] {
     let msg = m
     if (m.role === 'assistant' && typeof m.content !== 'string') {
       const blocks = (m.content as ContentBlock[]).filter(
-        (b) => b.type !== 'tool_use' || answeredToolUseIds.has(b.id),
+        (b) => b.type !== 'tool_use' || (answeredToolUseIds.has(b.id) && !droppedToolResultIds.has(b.id)),
       )
       const hasPayload = blocks.some(
         (b) => b.type === 'tool_use' || (b.type === 'text' && b.text.trim() !== ''),
@@ -226,9 +231,13 @@ export function sanitizeHistory(history: ChatMsg[]): ChatMsg[] {
     if (msg.role === 'user' && typeof msg.content !== 'string') {
       const blocks = msg.content as ContentBlock[]
       if (blocks.some((b) => b.type === 'tool_result')) {
-        const kept = blocks.filter(
-          (b) => b.type !== 'tool_result' || knownToolUseIds.has(b.toolUseId),
-        )
+        const kept = blocks.filter((b) => {
+          if (b.type !== 'tool_result') return true
+          if (knownToolUseIds.has(b.toolUseId)) return true
+          // B-13：前向集合未命中 → 删除并登记，供后续同 id tool_use 双弃
+          droppedToolResultIds.add(b.toolUseId)
+          return false
+        })
         if (kept.length === 0) continue
         result.push({ ...msg, content: kept })
         continue

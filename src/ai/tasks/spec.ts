@@ -86,6 +86,10 @@ export interface SpecOutput {
   usage?: TokenUsage
   /** Q-13（第十五轮）：适配器 resolve 后上线输出上限——runner 提取落 llm/call（铁律②重放口径） */
   resolvedMaxTokens?: number
+  /** B-2（第六十轮）：成功建流用的是降级参数面（GenResult.degraded 透传）——runner
+   *  extractDegraded 落 llm/call。Z-12 只修了适配器→gen 半段，三处 run 回调此前不带
+   *  该字段，降级面成功的事件记录与真实参数面静默分叉（铁律②重放口径） */
+  degraded?: boolean
 }
 
 /**
@@ -158,7 +162,7 @@ export async function runSpec(
             signal,
             opts.onText,
           )
-          return { input: r.input, text: r.text, stopReason: r.stopReason, usage: r.usage, resolvedMaxTokens: r.resolvedMaxTokens }
+          return { input: r.input, text: r.text, stopReason: r.stopReason, usage: r.usage, resolvedMaxTokens: r.resolvedMaxTokens, degraded: r.degraded }
         }
         // 文本型
         const r = await generate(
@@ -168,9 +172,11 @@ export async function runSpec(
           opts.onText,
         )
         if (r.stopReason === 'max_tokens') {
-          throw new GenError('AI 产出达到长度上限被截断，请精简输入提示或稍后重试。', false)
+          // B-12（第六十轮）：截断时网关已返回的 usage 随 GenError 载荷上抛——runner 终态
+          // 失败路径按可得值入账（此前 recordUsageSafe(null) 记 0，成本口径低估）
+          throw new GenError('AI 产出达到长度上限被截断，请精简输入提示或稍后重试。', false, { usage: r.usage })
         }
-        return { input: null, text: r.text, stopReason: r.stopReason, usage: r.usage, resolvedMaxTokens: r.resolvedMaxTokens }
+        return { input: null, text: r.text, stopReason: r.stopReason, usage: r.usage, resolvedMaxTokens: r.resolvedMaxTokens, degraded: r.degraded }
       },
     })
   } finally {

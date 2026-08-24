@@ -65,5 +65,14 @@ export function stripInlineComment(s: string): string {
     }
     if (c === '#' && (i === 0 || /\s/.test(s[i - 1]!))) return s.slice(0, i).trimEnd()
   }
+  // B-17（第六十轮）：值内未配对引号（`备注: "中文 # 注释`）——引号状态机永不闭合，
+  // 引号后的 # 全被吞进引号语境不剥（fail-safe 方向但注释剥除失效）。行末引号未
+  // 闭合 → 回落无引号感知的裸扫；配对引号路径（上方循环自然走完 quote===null）行为不变
+  if (quote !== null) {
+    for (let i = 0; i < s.length; i++) {
+      const c = s[i]!
+      if (c === '#' && (i === 0 || /\s/.test(s[i - 1]!))) return s.slice(0, i).trimEnd()
+    }
+  }
   return s
 }

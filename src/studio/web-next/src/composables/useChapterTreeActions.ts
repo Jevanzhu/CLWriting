@@ -371,6 +371,9 @@ export function useChapterTreeActions(deps: {
     const book = deps.bookName()
     try {
       await renameDoc(book, node.docId, `${name}.md`)
+      // B-10（第六十轮）：await 后活源复检（对齐 doDelete/doCopy 双点守卫）——重命名
+      // 在途切书后 tree.load(旧书) 会把 A 书整树覆盖进 B 书工作台（后调者胜写入）
+      if (deps.bookName() !== book) return
       await tree.load(book)
       // Y-29（第五十七轮）：doc 缓存 path 回填——不回填则后续 doc.refresh 按旧路径
       // 404 被静默吞、save 后的树字数更新成 no-op（onSaveMeta/EditorDocHead 均有回填）
@@ -415,6 +418,8 @@ export function useChapterTreeActions(deps: {
     const book = deps.bookName()
     try {
       await moveDoc(book, docId, toDir)
+      // B-10（第六十轮）：同 onRenameCommit——await 后活源复检，在途切书不再加载旧书树
+      if (deps.bookName() !== book) return
       await tree.load(book)
       // Y-29：同 onRenameCommit——doc 缓存 path 随移动回填
       const entry = doc.get(docId)

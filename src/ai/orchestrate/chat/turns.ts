@@ -432,6 +432,8 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
           usage: r.usage,
           reasoning: r.reasoning,
           resolvedMaxTokens: r.resolvedMaxTokens,
+          // B-2（第六十轮）：降级参数面标记透传（extractDegraded 落 llm/call，铁律②重放口径）
+          degraded: r.degraded,
           reasoningEncrypted: r.reasoningEncrypted,
           reasoningItemId: r.reasoningItemId,
         }

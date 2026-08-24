@@ -4,7 +4,7 @@
  * 验证：readForeshadows fm 解析、scanForeshadowTrails 足迹命中/风险计算/边界。
  */
 import { describe, test, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, symlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { readForeshadows, scanForeshadowTrails, migrateLegacyForeshadows, searchForeshadowTrails } from '../../src/document/foreshadow.js'
@@ -38,6 +38,26 @@ function writeForeshadow(title: string, fm: Record<string, string> = {}, body = 
 describe('readForeshadows', () => {
   test('目录不存在 → 空列表', () => {
     expect(readForeshadows(root)).toEqual([])
+  })
+
+  // B-4（第六十轮）：walkChapters 接入 walk-md 共享口径（N2 漏网第四套）——
+  // 裸 statSync 跟随 symlink 递归无剪枝：循环 symlink 无限递归 RangeError、
+  // 指向书外的 symlink 整树 .md 按章号整读
+  test('B-4: 循环 symlink 不崩溃；书外 symlink 目录整树不进章收集', () => {
+    writeForeshadow('玉佩', { 重要性: '高', 关联词: '玉佩', 埋设章号: '1' })
+    writeChapter(1, '埋', '他摸了摸胸前的玉佩。')
+    // 循环 symlink：正文/loop → 正文（修复前 RangeError 崩进门）
+    symlinkSync(join(root, '写作', '正文'), join(root, '写作', '正文', 'loop'))
+    // 书外 symlink：外部目录带含命中词的章（不应被读——根界 fail-closed）
+    const outside = mkdtempSync(join(tmpdir(), 'clw-fs-out-'))
+    writeFileSync(join(outside, '0002-外章.md'), '---\n章号: 2\n标题: 外\n---\n书外的玉佩\n', 'utf-8')
+    symlinkSync(outside, join(root, '写作', '正文', '外链'))
+
+    const trails = scanForeshadowTrails(root, readForeshadows(root))
+    const t = trails.get('玉佩')!
+    expect(t.firstHit).toBe(1)
+    expect(t.lastHit).toBe(1) // 书外章（含命中词）不进收集
+    rmSync(outside, { recursive: true, force: true })
   })
 
   test('解析 fm 含关联词（逗号分隔 → 数组）', () => {

@@ -1,12 +1,23 @@
 <script setup lang="ts">
 // 通用确认弹窗（命令式）：由 ui.ask() 驱动，替代原生 confirm()。
 // 二选一（确认/取消）+ danger 档（确认钮警示色）；与 ConfirmDialog（dirty-tab 三选一）分工。
-import { ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { useUiStore } from '../../stores/ui'
 import { useFocusTrap } from '../../composables/useFocusTrap'
 const ui = useUiStore()
 const modalRef = ref<HTMLElement | null>(null)
 useFocusTrap(modalRef)
+
+// B-8（第六十轮）：useHotkeys 对 confirmState 让渡「Esc 归自身处理」，但本组件原先
+// 无任何键盘面——让渡契约有让无收，确认框期间 Esc 死键。对齐 SettingsModal（Z-23）：
+// document capture 监听，Esc → preventDefault（全局层 defaultPrevented 让渡链成立）+ 取消。
+function onKeydown(e: KeyboardEvent): void {
+  if (!ui.confirmState || e.key !== 'Escape') return
+  e.preventDefault()
+  ui.resolveConfirm(false)
+}
+onMounted(() => document.addEventListener('keydown', onKeydown, true))
+onUnmounted(() => document.removeEventListener('keydown', onKeydown, true))
 </script>
 
 <template>

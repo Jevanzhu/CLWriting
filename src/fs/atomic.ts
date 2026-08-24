@@ -1,4 +1,4 @@
-import { closeSync, fsyncSync, mkdirSync, openSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { closeSync, fsyncSync, linkSync, mkdirSync, openSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 
@@ -46,6 +46,51 @@ export function atomicWriteFile(
   } catch (e) {
     rmSync(tmpPath, { force: true })
     throw e
+  }
+}
+
+/**
+ * B-6（第六十轮）：独占创建文件（tmp + linkSync）。
+ *
+ * atomicWriteFile 的 rename 语义会静默覆盖已存在的目标——调用方先 existsSync 再落盘
+ * 的模式存在跨进程双建窄窗（检查与落盘之间无互斥）：双进程同路径并发新建时后到者
+ * 覆盖先到者内容且双方返回成功。link 不覆盖：目标已存在时 EEXIST → 返回 'exists'
+ *（调用方判 ALREADY_EXISTS），创建成功返回 'created'。tmp 命名沿用 atomicWriteFile
+ * 模式（Y-24 崩溃残留清扫兼容）；link 成功后 unlink tmp（同一 inode，目标全程无
+ * 半截可见窗口），可见性语义与 rename 同为单步原子。
+ */
+export function createFileExclusive(
+  filePath: string,
+  data: string | Uint8Array,
+  opts?: AtomicWriteOptions,
+): 'created' | 'exists' {
+  const dir = dirname(filePath)
+  mkdirSync(dir, { recursive: true })
+  const tmpPath = join(dir, `.${basename(filePath)}.${process.pid}.${randomUUID()}.tmp`)
+  const doFsync = opts?.fsync !== false
+  try {
+    if (doFsync) {
+      const fd = openSync(tmpPath, 'w', opts?.mode)
+      try {
+        writeFileSync(fd, data)
+        fsyncSync(fd)
+      } finally {
+        closeSync(fd)
+      }
+    } else {
+      writeFileSync(tmpPath, data, opts?.mode !== undefined ? { mode: opts.mode } : undefined)
+    }
+    try {
+      linkSync(tmpPath, filePath)
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'EEXIST') return 'exists'
+      throw e
+    }
+    if (doFsync) fsyncDir(dir)
+    return 'created'
+  } finally {
+    // link 成功：tmp 是目标的硬链接，unlink 后仅剩目标；link 失败/EEXIST：清残留
+    rmSync(tmpPath, { force: true })
   }
 }
 

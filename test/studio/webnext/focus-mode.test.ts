@@ -209,6 +209,23 @@ describe('useHotkeys: Esc 退出专注', () => {
     window.dispatchEvent(e)
     expect(ws.focusMode).toBe(true)
   })
+
+  it('B-9: IME 组合期 Esc（isComposing / keyCode 229）→ 让渡（收候选框不连带退专注）', () => {
+    const ws = useWorkspaceStore()
+    ws.toggleFocus()
+    mount(HotkeyHost)
+    // 组合期按键：isComposing 判据
+    pressKey('Escape', { isComposing: true } as KeyboardEventInit)
+    expect(ws.focusMode).toBe(true)
+    // 组合期兼容判据：keyCode 229（部分输入法不置 isComposing）
+    const e229 = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    Object.defineProperty(e229, 'keyCode', { value: 229 })
+    window.dispatchEvent(e229)
+    expect(ws.focusMode).toBe(true)
+    // 对照：非组合期 Esc 正常退出
+    pressKey('Escape')
+    expect(ws.focusMode).toBe(false)
+  })
 })
 
 describe('workspace: 专注驱动全屏', () => {

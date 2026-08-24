@@ -98,4 +98,22 @@ describe('S4: /file 端点异步化后行为契约不回归', () => {
     expect(j.content).toBe('新总纲内容')
     expect(j.revision).toBe(rev)
   })
+
+  // B-22（第六十轮）：同 expectedRevision 并发双 PUT 的 TOCTOU 残窗——「读基线→比对→写」
+  // 跨两个 await，两请求双双读到同一旧基线先后过检（乐观锁挡基线不符、挡不住双双过检）。
+  // 修复前两请求均 200（后写静默覆盖先写）；per-file 串行链后后到者重读基线即见先写者
+  // 指纹 → 恰一 200 一 409。
+  it('B-22: 同 expectedRevision 并发双 PUT → 恰一 200 一 409（不再双双过检后写覆盖）', async () => {
+    const got = await req('GET', path)
+    const base = (got.json as { revision: string }).revision
+    const [a, b] = await Promise.all([
+      req('PUT', path, { content: '甲的保存', expectedRevision: base }),
+      req('PUT', path, { content: '乙的保存', expectedRevision: base }),
+    ])
+    expect([a.status, b.status].sort()).toEqual([200, 409])
+    // 胜者内容落盘（谁先到不定，但必是二者之一且与胜者响应一致）
+    const after = await req('GET', path)
+    const content = (after.json as { content: string }).content
+    expect(['甲的保存', '乙的保存']).toContain(content)
+  })
 })

@@ -195,6 +195,9 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
   // S-5 互斥门：主动停机（shutdown/stopChild）置位，child exit 属预期不触发重启；
   // start/shutdown/stopChild 均取消挂起重启——退出/换轮途中 fork 新 child 即孤儿。
   let shutdownStarted = false
+  /** B-7（第六十轮）：停机流程生命周期门（shutdown 入口置位 / 收口复位）——与
+   *  shutdownStarted（主动 kill 标记，stopActiveChild 也置位且不随收口复位）分工。 */
+  let shuttingDown = false
   // 批 U3 退避状态：restartCount = 已排程的自动重启次数（ready 后稳定窗口到点清零）；
   // lastOpts/pinnedPort 供内部重启复刻原 fork 面（钉住最近一次成功端口，S-1）。
   let restartCount = 0
@@ -343,6 +346,19 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
 
   return {
     async start(opts: StartStudioServerOptions): Promise<number> {
+      // B-7（第六十轮）：停机流程进行中 start fail-closed 拒绝——S1 的注释与复位只覆盖
+      // 「shutdown 先于 start 开始」的正向时序；反向时序（shutdown 已置位并停驻 kill/exit
+      // 等待点，此时 starting===null）下 start 进入会在 IIFE 首行同步清掉 shutdownStarted，
+      // launch 的 fork 后检查失守 → 新 child 在停机流程中途存活。现状唯一调用链
+      // bootstrapRunner 有 shuttingDown 守卫挡住、不可达——本修复把「靠调用纪律」变成
+      // 机制（与 E-9a 参数不一致拒绝同口径）。注意用独立的 shuttingDown 生命周期门：
+      // shutdownStarted 还承载「主动 kill 标记」语义（stopActiveChild 置位防 exit 触发
+      // 重启），stopChild 之后的 start 换轮必须放行，不能一并拒绝。
+      if (shuttingDown) {
+        const err = new Error('停机流程进行中，拒绝 start（shutdown 已置位）——请等待停机完成')
+        logger.warn('server-manager', '停机中收到 start，fail-closed 拒绝', err)
+        return Promise.reject(err)
+      }
       if (starting) {
         // E-9a（第五十三轮）：并发 start 复用同一轮前校验关键 opts 一致（dir/user-data/
         // book/mirror-console）——不一致 fail-closed reject，不静默拿前者配置吞没后到调用方
@@ -397,14 +413,19 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
     },
     async shutdown(): Promise<void> {
       if (shutdownStarted) return // 幂等：before-quit 可能多次触发
-      shutdownStarted = true // 先置位后下发：exit 早于 shutdown-done 到达也不误判崩溃（S-5）
-      // S1（五十九轮）：在途 start/自动重启先落定——launch 的 fork 后检查（shutdownStarted
-      // 已置位）会即杀新 child，此处等 handshake 收口拿到 active 走优雅停机链
-      await settleStarting('shutdown')
-      cancelPendingRestart() // 退避等待期退出：挂起重启作废（不 fork 孤儿）
-      const current = active
-      if (!current) return
-      current.proc.postMessage({ type: 'shutdown' })
+      // B-7（第六十轮）：停机流程生命周期门——入口置位 / finally 复位，期间 start 入口
+      // fail-closed 拒绝（见 start 首守卫）。与 shutdownStarted 分工：后者是「主动 kill
+      // 标记」（stopActiveChild 也置位），不随 shutdown 收口复位，不能当生命周期门用。
+      shuttingDown = true
+      try {
+        shutdownStarted = true // 先置位后下发：exit 早于 shutdown-done 到达也不误判崩溃（S-5）
+        // S1（五十九轮）：在途 start/自动重启先落定——launch 的 fork 后检查（shutdownStarted
+        // 已置位）会即杀新 child，此处等 handshake 收口拿到 active 走优雅停机链
+        await settleStarting('shutdown')
+        cancelPendingRestart() // 退避等待期退出：挂起重启作废（不 fork 孤儿）
+        const current = active
+        if (!current) return
+        current.proc.postMessage({ type: 'shutdown' })
       // 竞速三路：shutdown-done 回执 / 自然退出 / 总超时。回执后真实 child 立即
       // exit(0)，但 exit 事件与回执之间有异步缝——by 区分：回执到达再让渡一拍等
       // 自然退出（优雅路径不 kill）；超时（child 无响应）直接强杀。（对象属性承载
@@ -437,6 +458,11 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
         // 超时未退 / 回执后滞留：强杀兜底（E-1：总超时已覆盖 child 最坏预算，此处才是真强杀）
         current.proc.kill()
         await Promise.race([current.exited, delay(killWaitMs)])
+      }
+      } finally {
+        // B-7：停机生命周期门复位——收口后允许下一轮 start（新生命周期；幂等 early-return
+        // 的并发 shutdown 不经此处，由首调用方 finally 统一复位）
+        shuttingDown = false
       }
     },
     isRunning(): boolean {

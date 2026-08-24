@@ -760,6 +760,53 @@ describe('S1: 停机对在途 fork 的可见性', () => {
   })
 })
 
+// B-7（第六十轮）：停机中 start fail-closed 拒绝——S1 只覆盖「shutdown 先于 start」
+// 正向时序；反向时序（shutdown 已置位并停驻等待点、starting===null）下 start 进入
+// 此前会在 IIFE 首行同步复位 shutdownStarted → 新 child 在停机流程中途存活。
+// 现状唯一调用链 bootstrapRunner 有守卫挡住（不可达），本修复把调用纪律变成机制。
+// 语义边界：只挡停机「进行中」窗口（独立 shuttingDown 生命周期门）——shutdownStarted
+// 另承载「主动 kill 标记」（stopActiveChild 置位），stopChild 后的 start 换轮仍放行。
+describe('B-7: 停机中 start 反向窗口 fail-closed 拒绝', () => {
+  it('shutdown 停驻等待点时 start → reject 且不 fork；收口后 start 开新生命周期', async () => {
+    const { forkRecords, manager } = mkHarness({ shutdownTotalMs: 5_000 })
+    const ud = mkUserData()
+    const starting = manager.start({ workDir: '/w', userDataPath: ud })
+    forkRecords[0]!.child.emit('message', { type: 'ready', port: 1 })
+    await starting
+    // 发起 shutdown：置位后停驻在 done/exit/timeout 等待点（FakeChild 不自退）
+    const shuttingDownP = manager.shutdown()
+    await flushMicrotasks(2)
+    // 反向时序：停机中 start 进入——修复前 IIFE 首行复位停机门并 fork 第二个 child
+    await expect(manager.start({ workDir: '/w', userDataPath: ud })).rejects.toThrow('停机流程进行中')
+    expect(forkRecords).toHaveLength(1)
+    // 收口停机（回执 + 退出）
+    forkRecords[0]!.child.emit('message', { type: 'shutdown-done' })
+    forkRecords[0]!.child.emit('exit', 0)
+    await shuttingDownP
+    // 停机完成后：start 开新生命周期正常放行（fork 第二个 child；shutdownStarted 的
+    // 主动 kill 标记语义不复位，由新 start 的 IIFE 首行按既有语义处理）
+    const second = manager.start({ workDir: '/w', userDataPath: ud })
+    expect(forkRecords).toHaveLength(2)
+    forkRecords[1]!.child.emit('message', { type: 'ready', port: 2 })
+    await expect(second).resolves.toBe(2)
+    await manager.stopChild()
+  })
+
+  it('对照：stopChild（非停机流程）后的 start 换轮照常放行（kill 标记 ≠ 停机门）', async () => {
+    const { forkRecords, manager } = mkHarness()
+    const ud = mkUserData()
+    const first = manager.start({ workDir: '/w', userDataPath: ud })
+    forkRecords[0]!.child.emit('message', { type: 'ready', port: 1 })
+    await first
+    await manager.stopChild()
+    const second = manager.start({ workDir: '/w', userDataPath: ud })
+    expect(forkRecords).toHaveLength(2)
+    forkRecords[1]!.child.emit('message', { type: 'ready', port: 2 })
+    await expect(second).resolves.toBe(2)
+    await manager.stopChild()
+  })
+})
+
 afterAll(() => {
   for (const d of tmpDirs) rmSync(d, { recursive: true, force: true })
 })

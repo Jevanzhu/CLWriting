@@ -290,18 +290,19 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       connection: 'keep-alive',
       // ACAO 由全局 CORS 白名单统一设置(index.ts);不再覆写为 *,防跨站订阅 driver 流(创作内容泄露)
     })
+    // P-8：写统一走 createSseWriter（覆盖写背压判死——假死客户端不再无界缓冲）；
+    // B-20（第六十轮）：safeWrite 创建前移到初始 sync 快照之前——此前首帧裸 res.write，
+    // 断连边沿对已死连接裸写一次，与全链守卫口径不一致
+    const safeWrite = createSseWriter(res)
 
     // 连接建立即补发运行态快照:刷新/新标签会错过 init 事件(channel 消费即弃),
     // 无快照则前端 running 假空闲 → 生成中误显「可生成」可再触发 spawn
-    res.write(
+    safeWrite(
       `data: ${JSON.stringify({ type: 'sync', running: driver.isRunning?.(session) ?? false, chatRunning: isChatRunning(params['name']!) })}\n\n`,
     )
 
     // driver.stream 实现为 async generator（mock / cc 均从 channel 推事件）
     iter = driver.stream(session) as AsyncGenerator<DriverEvent>
-    // 客户端断开后写已关闭 socket 会抛错——统一守卫（writableEnded / destroyed）；
-    // P-8：换 createSseWriter，另覆盖写背压判死（假死客户端不再无界缓冲）
-    const safeWrite = createSseWriter(res)
     // K5：心跳保活（防代理/浏览器 30-60s 无数据超时断连）
     heartbeat = setInterval(() => safeWrite(': heartbeat\n\n'), 30_000)
     try {

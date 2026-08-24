@@ -58,16 +58,19 @@ const metaMock = updateChapterMetaDoc as ReturnType<typeof vi.fn>
 const renameMock = renameDoc as ReturnType<typeof vi.fn>
 const moveMock = moveDoc as ReturnType<typeof vi.fn>
 
+let currentBook = '书A'
+
 beforeEach(() => {
   setActivePinia(createPinia())
   vi.clearAllMocks()
+  currentBook = '书A'
 })
 
 function setup(openDoc?: { path: string }): ReturnType<typeof useChapterTreeActions> {
   const e = openDoc ? ({ path: openDoc.path, dirty: false } as { path: string; dirty: boolean } | undefined) : (undefined as unknown as { path: string; dirty: boolean } | undefined)
   docMock.get.mockImplementation((id: string) => (id === 'doc_1' ? e : undefined))
   treeMock.byDocId.set('doc_1', { path: '写作/正文/第一卷/0005-新标题.md' })
-  return useChapterTreeActions({ bookName: () => '书A', openError: ref(null) })
+  return useChapterTreeActions({ bookName: () => currentBook, openError: ref(null) })
 }
 
 describe('Y-8: onSaveMeta 后 refresh 打开中文档', () => {
@@ -104,5 +107,38 @@ describe('Y-29: rename / move 后回填 entry.path', () => {
     const actions = setup({ path: '写作/正文/第一卷/0005-标题.md' })
     await actions.doMove('doc_1', '写作/正文/第二卷')
     expect((docMock.get('doc_1') as { path: string }).path).toBe('写作/正文/第一卷/0005-新标题.md')
+  })
+})
+
+describe('B-10: rename / move 在途切书守卫（await 后活源复检，对齐 doDelete/doCopy）', () => {
+  it('onRenameCommit 在途切书 → 不再 tree.load(旧书)，旧书树不覆盖新书树', async () => {
+    renameMock.mockImplementation(async () => {
+      currentBook = '书B' // 重命名请求在途期间用户切书
+    })
+    const actions = setup({ path: '写作/正文/第一卷/0005-旧标题.md' })
+    treeMock.byPath.set('写作/正文/第一卷/0005-旧标题.md', { docId: 'doc_1' })
+    actions.renamePath.value = '写作/正文/第一卷/0005-旧标题.md'
+    await actions.onRenameCommit('写作/正文/第一卷/0005-旧标题.md', '新标题')
+    expect(treeMock.load).not.toHaveBeenCalledWith('书A')
+    // 回填也跳过（树已切到 B 书，byDocId 命中的是 B 书数据）
+    expect((docMock.get('doc_1') as { path: string }).path).toBe('写作/正文/第一卷/0005-旧标题.md')
+  })
+
+  it('doMove 在途切书 → 不再 tree.load(旧书)', async () => {
+    moveMock.mockImplementation(async () => {
+      currentBook = '书B'
+    })
+    const actions = setup({ path: '写作/正文/第一卷/0005-标题.md' })
+    await actions.doMove('doc_1', '写作/正文/第二卷')
+    expect(treeMock.load).not.toHaveBeenCalled()
+  })
+
+  it('未切书 → 正常 tree.load（守卫不误伤）', async () => {
+    renameMock.mockResolvedValue(undefined)
+    const actions = setup({ path: '写作/正文/第一卷/0005-旧标题.md' })
+    treeMock.byPath.set('写作/正文/第一卷/0005-旧标题.md', { docId: 'doc_1' })
+    actions.renamePath.value = '写作/正文/第一卷/0005-旧标题.md'
+    await actions.onRenameCommit('写作/正文/第一卷/0005-旧标题.md', '新标题')
+    expect(treeMock.load).toHaveBeenCalledWith('书A')
   })
 })

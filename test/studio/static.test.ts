@@ -172,3 +172,24 @@ test('N-3: 存在的文件读失败（EACCES）→ 500 IO_ERROR；不存在路�
   expect(spa.status).toBe(200)
   expect(await spa.text()).toContain('<title>Studio</title>')
 })
+
+// B-21（第六十轮）：HEAD 响应补 content-length 且不发 body——此前与 GET 同分支
+// res.end(data)：整文件读入内存后才丢弃、响应缺 RFC 9110 期望元数据
+test('B-21: HEAD 带 content-length 且无 body（命中文件与 SPA fallback 两路）；GET 行为不变', async () => {
+  writeFileSync(join(root, 'app.js'), 'console.log(1)')
+  const head = await fetch(`${baseUrl}/app.js`, { method: 'HEAD' })
+  expect(head.status).toBe(200)
+  expect(Number(head.headers.get('content-length'))).toBe('console.log(1)'.length)
+  expect(await head.text()).toBe('')
+  // GET 同路径不受影响
+  const get = await fetch(`${baseUrl}/app.js`)
+  expect(await get.text()).toBe('console.log(1)')
+
+  // SPA fallback 的 HEAD 同口径：长度与 GET fallback 一致、无 body
+  const spaHead = await fetch(`${baseUrl}/missing-route`, { method: 'HEAD' })
+  const spaGet = await fetch(`${baseUrl}/missing-route`)
+  expect(spaHead.status).toBe(200)
+  expect(spaHead.headers.get('content-length')).toBe(spaGet.headers.get('content-length'))
+  expect(await spaHead.text()).toBe('')
+  expect((await spaGet.text()).length).toBe(Number(spaHead.headers.get('content-length')))
+})

@@ -23,7 +23,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { safeDocId, resolveWithinRoot } from '../fs/safe-path.js'
-import { atomicWriteFile } from '../fs/atomic.js'
+import { atomicWriteFile, createFileExclusive } from '../fs/atomic.js'
 import { computeRevision, type Revision } from './revision.js'
 import { layoutOf, roleOf } from './layout.js'
 import { appendAborted, appendMovePending, appendPending, appendSettled, findUnsettled, type JournalAnyPending } from './journal.js'
@@ -36,6 +36,7 @@ import { readFile as readDoc, parseFlat, stringifyFlat, splitFrontMatter, joinFr
 import { appendTrashEntry, readTrashManifest } from './trash.js'
 import { appendWordsDelta, todayDate } from './words-diary.js'
 import { countWords, chapterFilePrefix } from '../format/words.js'
+import { sanitizeChapterTitle } from '../format/filename.js'
 import { readBookConfig } from '../format/yaml.js'
 
 /** 第五轮：非 UTF-8（GBK 等）文件的元数据写回统一拒绝——utf-8 读入产生 U+FFFD 替换
@@ -410,7 +411,12 @@ export class DocumentService {
     const content = input.content ?? this.defaultContent()
     try {
       mkdirSync(dirname(safe), { recursive: true })
-      atomicWriteFile(safe, content, { fsync: true })
+      // B-6（第六十轮）：tmp + linkSync 独占创建——上方 existsSync 与落盘之间无跨进程
+      // 互斥，双进程同 relPath 并发新建时 atomicWriteFile 的 rename 静默覆盖后到者
+      // 内容且双方返回成功（两个 docId 先后 upsert 成同路径双认领态）；link 遇
+      // EEXIST → ALREADY_EXISTS，双方各自明确
+      const created = createFileExclusive(safe, content, { fsync: true })
+      if (created === 'exists') return { ok: false, code: 'ALREADY_EXISTS', reason: '文件已存在' }
     } catch (e) {
       return { ok: false, code: 'WRITE_ERROR', reason: `新建失败：${errMsg(e)}` }
     }
@@ -476,8 +482,11 @@ export class DocumentService {
           ? chapterFilePrefix(no, 'piece')
           : (basename(path).match(/^(\d+-)/)?.[1] ?? '')
       // X-P3a：标题缺失/空白时兜底「未命名」——否则文件名劣化成 `001-.md`
-      const safeTitle = 标题.trim() || '未命名'
-      const newName = `${numPrefix}${safeTitle.replace(/[\\/]/g, '_')}.md`
+      // B-3（第六十轮）：消毒走 sanitizeChapterTitle 单源（控制字符含 \n / Windows
+      // 非法字符 :*?"<>| / 码位 60/字节 120 双封顶）——此前仅替换 \\ / 两字符，
+      // 「改标题→重命名」路径消毒族口径漂移（同族 draft.ts 新建章、style-entry Y-27 已单源）
+      const safeTitle = sanitizeChapterTitle(标题) || '未命名'
+      const newName = `${numPrefix}${safeTitle}.md`
       if (basename(path) !== newName) {
         const result = this.doMoveOrRename(docId, { kind: 'rename', newName })
         if (result.ok) this.syncRenamePieceList(path, newName)
@@ -487,11 +496,11 @@ export class DocumentService {
       return { ok: true, docId, path }
     }
 
-    // 长篇 chapter：文件名按 章号4位-标题.md
+    // 长篇 chapter：文件名按 章号4位-标题.md（B-3：消毒同 piece 分支单源口径）
     const no = normalizeChapterNo(map.get('章号'))
-    const safeTitle = 标题.trim() || '未命名'
+    const safeTitle = sanitizeChapterTitle(标题) || '未命名'
     const newName =
-      no !== null ? `${chapterFilePrefix(no, 'chapter')}${safeTitle.replace(/[\\/]/g, '_')}.md` : basename(path)
+      no !== null ? `${chapterFilePrefix(no, 'chapter')}${safeTitle}.md` : basename(path)
     if (basename(path) !== newName) {
       const result = this.doMoveOrRename(docId, { kind: 'rename', newName })
       if (!result.ok) this.rollbackMetaOnRenameFail(abs, r)

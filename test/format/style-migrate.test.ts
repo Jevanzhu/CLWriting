@@ -3,7 +3,7 @@
  * 样章搬移 / 金句拆条 / 铁律提取+瘦身 / 幂等 / 词去重 / 空书。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -158,6 +158,37 @@ describe('migrateStyleLibrary', () => {
     expect(resume.byKind['禁词'] ?? 0).toBe(0)
     const { entries } = readEntries(join(root, ENTRIES_DIR), '禁词')
     expect(entries).toHaveLength(3)
+  })
+
+  // B-5（第六十轮）：makeWriter 场景/类型消毒（Y-27 同族漂移）——fm 场景是磁盘可篡改
+  // 数据面，'../../evil' 直接拼 join 可越出条目目录落文件（书外写面）
+  it('B-5: fm 场景含 ../ → 消毒后条目仍落在 条目/样章/ 内，书外/条目根无逃逸文件', () => {
+    const dir = join(root, '文风', '样章库', '正常目录')
+    mkdirSync(dir, { recursive: true })
+    writeSample(join(dir, '正常目录-001.md'), {
+      场景: '../../evil',
+      来源: '作者原作',
+      正文: '正文样章一句。',
+    })
+    const result = migrateStyleLibrary(root)
+    expect(result.migrated).toBeGreaterThan(0)
+    // 修复前 join(条目/样章, '../../evil-001.md') → 落 条目 外两级
+    expect(existsSync(join(root, 'evil-001.md'))).toBe(false)
+    expect(existsSync(join(root, '文风', '条目', 'evil-001.md'))).toBe(false)
+    // 消毒后（'/'→'_'）文件名仍在 条目/样章/ 内
+    const sampleDir = join(root, ENTRIES_DIR, '样章')
+    const files = readdirSync(sampleDir)
+    expect(files).toHaveLength(1)
+    expect(files[0]).toBe('.._.._evil-001.md')
+  })
+
+  it('B-5: fm 场景含 Windows 非法字符 → 消毒为 _（与 addEntry Y-27 单源同口径）', () => {
+    makeSample('雨夜:追杀', '001', '正文')
+    const result = migrateStyleLibrary(root)
+    expect(result.migrated).toBe(1)
+    const files = readdirSync(join(root, ENTRIES_DIR, '样章'))
+    expect(files).toHaveLength(1)
+    expect(files[0]).toBe('雨夜_追杀-001.md')
   })
 
   it('空文风目录：迁移零条但建骨架（幂等闸生效）', () => {

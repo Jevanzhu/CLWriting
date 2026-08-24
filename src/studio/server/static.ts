@@ -77,7 +77,6 @@ export function createStaticHandler(rootDir: string) {
         replyError(res, 403, 'BAD_PATH', 'forbidden')
         return
       }
-      const data = await readFile(safe.abs)
       // vite 构建产物在 assets/ 下且文件名带内容 hash → 可长缓存 immutable；
       // 其余（index.html 等 SPA 入口）→ no-cache，保证发版后立即生效（Y-P2-7）。
       // X-21（第五十六轮）：判定改用规范化后 rel——原用未规范化的 decodedPathname，
@@ -85,13 +84,18 @@ export function createStaticHandler(rootDir: string) {
       // immutable 长缓存。rel 已 normalize（.. 折叠）；分隔符统一回 /（win32
       // normalize 产 \，跨平台判定口径恒为 / 分隔）。
       const cacheable = rel.split(sep).join('/').startsWith('/assets/')
+      // B-21（第六十轮）：补 content-length（RFC 9110 对 HEAD 响应的期望元数据）且
+      // HEAD 不发 body——此前与 GET 同分支 res.end(data)，整文件读入内存后才丢弃
+      const data = await readFile(safe.abs)
       res.writeHead(200, {
         'content-type': MIME[extname(file)] ?? 'application/octet-stream',
         'cache-control': cacheable
           ? 'public, max-age=31536000, immutable'
           : 'no-cache',
+        'content-length': String(data.length),
       })
-      res.end(data)
+      if (req.method === 'HEAD') res.end()
+      else res.end(data)
     } catch (e) {
       // N-3（第十二轮）：errno 分流——只有 ENOENT/ENOTDIR（路径不存在/非目录段）才走
       // SPA fallback；其余 IO 错误（EACCES/EMFILE/盘满等）此前一律混叠成 200 index.html
@@ -101,14 +105,16 @@ export function createStaticHandler(rootDir: string) {
         replyError(res, 500, 'IO_ERROR', `静态文件读取失败：${err.code ?? err.message}`)
         return
       }
-      // SPA fallback：非文件路径回 index.html（前端路由接管）
+      // SPA fallback：非文件路径回 index.html（前端路由接管；B-21：HEAD 同口径补长度不发 body）
       try {
         const data = await readFile(join(root, 'index.html'))
         res.writeHead(200, {
           'content-type': 'text/html; charset=utf-8',
           'cache-control': 'no-cache',
+          'content-length': String(data.length),
         })
-        res.end(data)
+        if (req.method === 'HEAD') res.end()
+        else res.end(data)
       } catch {
         replyError(res, 404, 'NOT_FOUND', '前端尚未构建。请先运行：npm --prefix src/studio/web-next run build')
       }

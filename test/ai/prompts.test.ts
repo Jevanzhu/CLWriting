@@ -253,6 +253,46 @@ describe('chat.ts', () => {
     expect(out.map((m) => m.content)).toEqual(['u0', 'a0', 'u1'])
   })
 
+  // B-13（第六十轮）：病态时序对双弃——result 先于 use 到达（外部损坏的历史恢复）时，
+  // 修复前 use 靠全局预扫命中被保留、result 靠前向集合被判孤儿删除 → 产出必然 400 的
+  // 悬空 tool_use（比不消毒更糟）。修复后被删 result 的 id 同步登记，同 id tool_use 剔除。
+  it('B-13：tool_result 先于 tool_use（病态时序）→ 病态对双双丢弃，不再产出悬空 tool_use', () => {
+    const msgs: ChatMsg[] = [
+      { role: 'user', content: [{ type: 'tool_result', toolUseId: 't1', content: 'r' }] },
+      { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'x', input: {} }] },
+      { role: 'user', content: 'u1' },
+    ]
+    const out = sanitizeHistory(msgs)
+    // 不允许任何 tool_use / tool_result 块残留（悬空 tool_use 是 Anthropic 硬 400）
+    for (const m of out) {
+      if (Array.isArray(m.content)) {
+        for (const b of m.content as ContentBlock[]) {
+          expect(b.type).not.toBe('tool_use')
+          expect(b.type).not.toBe('tool_result')
+        }
+      }
+    }
+    // 前两条病态对双双丢弃，只剩 u1
+    expect(out.map((m) => m.content)).toEqual(['u1'])
+  })
+
+  it('B-13：病态 result 消息混有 text 块 → text 保留，同 id 的迟到 tool_use 仍剔除', () => {
+    const msgs: ChatMsg[] = [
+      { role: 'user', content: [{ type: 'tool_result', toolUseId: 't1', content: 'r' }, { type: 'text', text: '旁白' }] },
+      { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'x', input: {} }, { type: 'text', text: 'a0' }] },
+      { role: 'user', content: 'u1' },
+    ]
+    const out = sanitizeHistory(msgs)
+    // user 消息保 text 块、tool_result 删
+    const u0 = out.find((m) => m.role === 'user' && Array.isArray(m.content))
+    expect(u0).toBeDefined()
+    expect((u0!.content as ContentBlock[]).map((b) => b.type)).toEqual(['text'])
+    // assistant 迟到的 tool_use 剔除（其 result 已被判孤儿删除）、text 保留
+    const a0 = out.find((m) => m.role === 'assistant' && Array.isArray(m.content))
+    expect(a0).toBeDefined()
+    expect((a0!.content as ContentBlock[]).map((b) => b.type)).toEqual(['text'])
+  })
+
   it('sanitizeHistory 保留合法 tool 往返（tool_use → tool_result 配对）', () => {
     const msgs: ChatMsg[] = [
       { role: 'user', content: 'u0' },

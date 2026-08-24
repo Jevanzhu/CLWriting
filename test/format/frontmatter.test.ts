@@ -16,6 +16,7 @@ import {
   stringifyRealmSystems,
 } from '../../src/format/frontmatter.js'
 import { readBookConfig } from '../../src/format/yaml.js'
+import { stripInlineComment } from '../../src/format/frontmatter-core.js'
 
 // ── 值类型推断 ──────────────────────────────────
 
@@ -27,6 +28,26 @@ test('parseValue: int / 数组 / 字符串', () => {
   expect(parseValue('伏笔-031')).toBe('伏笔-031')
   expect(parseValue('"带引号"')).toBe('带引号')
   expect(parseValue('')).toBe('')
+})
+
+// B-16（第六十轮）：单个 `"` 字符值 startsWith/endsWith 命中同一字符，
+// slice(1, -1) 会归一成空串（值被吞）——length >= 2 守卫
+test('B-16: 单字符引号值不归一为空串（length>=2 守卫）', () => {
+  expect(parseValue('"')).toBe('"')
+  expect(parseValue("'")).toBe("'")
+  // 配对引号行为不变
+  expect(parseValue('"ab"')).toBe('ab')
+})
+
+// B-17（第六十轮）：值内未配对引号后 `#` 不剥（引号状态机永不闭合）——
+// 行末引号未闭合回落无引号感知裸扫；配对引号路径行为不变
+test('B-17: 未闭合引号后的 # 仍剥（裸扫回落）；配对引号内 # 保留', () => {
+  expect(stripInlineComment('备注: "未闭合 # 应剥')).toBe('备注: "未闭合')
+  expect(stripInlineComment("备注: '未闭合 # 应剥")).toBe("备注: '未闭合")
+  expect(stripInlineComment('备注: "a # b" # 尾注释')).toBe('备注: "a # b"')
+  expect(stripInlineComment('备注: 无引号 # 注释')).toBe('备注: 无引号')
+  // URL 字面 #（前无空白）保留——既有语义不回归
+  expect(stripInlineComment('endpoint: http://x#y')).toBe('endpoint: http://x#y')
 })
 
 test('stringifyValue: round-trip', () => {

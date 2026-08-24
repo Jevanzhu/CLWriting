@@ -109,9 +109,10 @@ async function summarizeCheckpoint(
         },
         signal,
       )
-      if (r.stopReason === 'max_tokens' || r.toolCalls.length > 0) return { text: null, resolvedMaxTokens: r.resolvedMaxTokens }
+      if (r.stopReason === 'max_tokens' || r.toolCalls.length > 0) return { text: null, resolvedMaxTokens: r.resolvedMaxTokens, degraded: r.degraded }
       const t = r.text.trim()
-      return { text: t === '' ? null : t, resolvedMaxTokens: r.resolvedMaxTokens }
+      // B-2（第六十轮）：degraded 透传（两分支同补——runner extractDegraded 落 llm/call）
+      return { text: t === '' ? null : t, resolvedMaxTokens: r.resolvedMaxTokens, degraded: r.degraded }
     },
   })
   return out.ok ? out.data.text : null

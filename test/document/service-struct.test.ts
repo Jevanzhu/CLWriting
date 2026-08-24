@@ -64,6 +64,41 @@ test('createDocument: 已存在 → ALREADY_EXISTS', async () => {
   rmSync(root, { recursive: true, force: true })
 })
 
+// ── B-3（第六十轮）：updateChapterMeta 标题消毒走 sanitizeChapterTitle 单源 ──
+
+test('B-3: updateChapterMeta 改标题含 Windows 非法字符/控制字符 → 文件名单源消毒（不再仅替换 \\ /）', () => {
+  const { root, svc } = makeBookWithChapter()
+  const r = svc.updateChapterMeta('doc_ch01', { 标题: '新:题*目?\n' })
+  expect(r.ok).toBe(true)
+  if (!r.ok) { rmSync(root, { recursive: true, force: true }); return }
+  // : * ? 各自 → _；\n 剥除（修复前仅替换 \\ /，换行/非法字符直进文件名）
+  expect(r.path).toBe('写作/正文/第一卷/0001-新_题_目_.md')
+  expect(existsSync(join(root, '写作', '正文', '第一卷', '0001-新_题_目_.md'))).toBe(true)
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('B-3: updateChapterMeta 超长标题 → 双封顶截断（80 汉字撞 120 字节上限 = 40 字，R-10 口径）', () => {
+  const { root, svc } = makeBookWithChapter()
+  const longTitle = '长'.repeat(80)
+  const r = svc.updateChapterMeta('doc_ch01', { 标题: longTitle })
+  expect(r.ok).toBe(true)
+  if (!r.ok) { rmSync(root, { recursive: true, force: true }); return }
+  if (r.ok) expect(r.path!.split('/').pop()).toBe(`0001-${'长'.repeat(40)}.md`)
+  rmSync(root, { recursive: true, force: true })
+})
+
+// ── B-6（第六十轮）：doCreate 落盘走 tmp+link 独占创建 ──
+
+test('B-6: createDocument 成功 → 目标目录无 tmp 残留（link 后 tmp 即清）', async () => {
+  const { root, svc } = makeBookWithChapter()
+  const r = await svc.createDocument({ relPath: '写作/正文/第一卷/0002-新章.md', content: '正文' })
+  expect(r.ok).toBe(true)
+  const dir = join(root, '写作', '正文', '第一卷')
+  expect(readdirSync(dir).some((f) => f.endsWith('.tmp'))).toBe(false)
+  expect(readFileSync(join(dir, '0002-新章.md'), 'utf-8')).toBe('正文')
+  rmSync(root, { recursive: true, force: true })
+})
+
 test('createDocument: 只读位置（定稿/摘要）→ CAPABILITY_DENIED', async () => {
   const { root, svc } = makeBookWithChapter()
   mkdirSync(join(root, '定稿', '摘要'), { recursive: true })

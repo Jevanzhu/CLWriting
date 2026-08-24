@@ -39,7 +39,10 @@ function continueWriting(): void {
     ws.openTab(node.docId)
   } else {
     // 树未命中（树未加载/缓存旧）→ 重拉后再打开
-    void tree.load(props.bookName, true).then(() => {
+    // B-10（第六十轮）：在途切书守卫——重拉在途切书后旧闭包不再按 A 书树开 tab
+    const book = props.bookName
+    void tree.load(book, true).then(() => {
+      if (props.bookName !== book) return
       const n = tree.byPath.get(rc.path)
       if (n?.docId) ws.openTab(n.docId)
     })

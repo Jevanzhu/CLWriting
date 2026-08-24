@@ -82,7 +82,9 @@ export function parseValue(raw: string): unknown {
  *  R-11（第十六轮）：反转义改单遍扫描，补 `\\` → `\`——原先链式 replace 不识别 `\\`，
  *  含字面反斜杠的值（如 C:\new\repo）往返渐进腐化（`\\n` 被二次误解成换行）。 */
 function unquote(s: string): string {
-  if (s.startsWith('"') && s.endsWith('"')) {
+  // B-16（第六十轮）：length >= 2 守卫——单个 `"` 字符的值 startsWith 与 endsWith
+  // 命中同一字符，slice(1, -1) 会把值归一成空串（`标题: "` → 标题=空）
+  if (s.length >= 2 && s.startsWith('"') && s.endsWith('"')) {
     const inner = s.slice(1, -1)
     let out = ''
     for (let i = 0; i < inner.length; i++) {
@@ -100,7 +102,8 @@ function unquote(s: string): string {
     }
     return out
   }
-  if (s.startsWith("'") && s.endsWith("'")) {
+  // B-16：单引号分支同守卫（同一字符命中 startsWith/endsWith 同一陷阱）
+  if (s.length >= 2 && s.startsWith("'") && s.endsWith("'")) {
     return s.slice(1, -1)
   }
   return s

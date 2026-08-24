@@ -22,10 +22,14 @@ export class GenError extends Error {
   status?: number
   retryAfterMs?: number
   requestId?: string
+  /** B-12（第六十轮）：失败时网关已返回的 token 用量（如 max_tokens 截断）——runner
+   *  终态失败路径按可得值入账（此前失败恒记 0，成本口径低估；多数失败响应无 usage，
+   *  不携带即 undefined，行为不变） */
+  usage?: TokenUsage
   constructor(
     message: string,
     retryable: boolean,
-    fields?: { code?: GenErrorCode; status?: number; retryAfterMs?: number; requestId?: string },
+    fields?: { code?: GenErrorCode; status?: number; retryAfterMs?: number; requestId?: string; usage?: TokenUsage },
   ) {
     super(message)
     this.name = 'GenError'
@@ -34,6 +38,7 @@ export class GenError extends Error {
     if (fields?.status !== undefined) this.status = fields.status
     if (fields?.retryAfterMs !== undefined) this.retryAfterMs = fields.retryAfterMs
     if (fields?.requestId !== undefined) this.requestId = fields.requestId
+    if (fields?.usage !== undefined) this.usage = fields.usage
   }
 }
 

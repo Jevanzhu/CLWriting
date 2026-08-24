@@ -1,10 +1,10 @@
 /**
  * 打字机模式扩展（专注模式启用）：输入后保持当前行垂直居中。
  *
- * CM6 铁律：updateListener 在「更新进行中」被调用，其中直接 view.dispatch 会抛
- * "Calls to EditorView.update are not allowed while an update is in progress"，
- * 且异常被 CM 的 listener try/catch 吞成控制台日志——首版打字机静默失效的根因。
- * 正确姿势：微任务推迟到本轮 update 完成后再 dispatch，且取当下光标（不映射旧位置）。
+ * B-25（第六十轮）注释如实化：本仓 @codemirror/view 6.43.x 的 updateListeners 在
+ * updateState 回到 Idle 之后才调用（dist 实读），listener 内直接 dispatch 并不抛
+ * "update in progress"——首版静默失效归因于此系误记。微任务推迟保留为防御性写法
+ * （对更早/未来版本语义安全），且取当下光标不映射旧位置的语义不变。
  */
 import { EditorView } from '@codemirror/view'
 import type { Extension } from '@codemirror/state'

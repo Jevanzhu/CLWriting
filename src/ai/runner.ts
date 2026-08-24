@@ -304,6 +304,7 @@ export async function runTask<T>(opts: {
     ok: boolean
     errCode?: string
     maxTokens?: number
+    degraded?: boolean
   }): void => {
     if (!bookRoot || !task) return
     chain?.add(
@@ -325,6 +326,9 @@ export async function runTask<T>(opts: {
         ...(resolvedEffort !== undefined ? { effort: resolvedEffort } : {}),
         ...(resolvedTimeoutMs !== undefined ? { timeoutMs: resolvedTimeoutMs } : {}),
         ...(p.maxTokens !== undefined ? { maxTokens: p.maxTokens } : {}),
+        // B-2（第六十轮）：degraded 落事件最后一跳——此前 trace 入参带了但未转发进
+        // llmCallEvent（spread 绕过类型检查静默丢弃），Z-12 的贯通实际断在此处
+        ...(p.degraded ? { degraded: true } : {}),
         ...(resolvedFirstByteTimeoutMs !== undefined ? { firstByteTimeoutMs: resolvedFirstByteTimeoutMs } : {}),
         // R-8（十五轮登记销账）：进程内参数表版本常量——mock 快路/失败路径同样携带
         //（表版本与调用成败无关，重放漂移检测需要全量覆盖）
@@ -352,9 +356,11 @@ export async function runTask<T>(opts: {
   if (opts.mockTool) {
     const mock = tryMockTool(opts.mockTool)
     if (mock) {
-      trace({ model: 'mock', attempt: 0, stopReason: 'mock', usage: null, ok: true })
+      // B-11（第六十轮）：mock 快路 trace/TaskOk 统一携带 MOCK_USAGE——此前记 null 而
+      // data 内藏 usage（self-heal done 事件自取累计），同一调用事件库 0/0、UI 口径 100/50
+      trace({ model: 'mock', attempt: 0, stopReason: 'mock', usage: mock.usage, ok: true })
       finishMock()
-      return { ok: true, data: mock as unknown as T, ctrl: new AbortController(), usage: null, runId, model: null }
+      return { ok: true, data: mock as unknown as T, ctrl: new AbortController(), usage: mock.usage, runId, model: null }
     }
   }
   // mock 快路（文本型）：CLWRITING_DRIVER=mock 时直接返回预定值（守卫位置与 tryMockTool 对称，P0-1）
@@ -512,13 +518,16 @@ export async function runTask<T>(opts: {
           continue
         }
         // X-P2-10：终态失败的调用同样入账（成功/重试/中断/失败四路同口径，预算闸不再被失败路径绕过）
-        recordUsageSafe(null)
+        // B-12（第六十轮）：网关已返回 usage 的终态失败（max_tokens 截断随 GenError.usage
+        // 载荷上抛）按可得值入账/入 trace——多数失败响应无 usage，保持 null 口径不变
+        const failUsage = e instanceof GenError && e.usage ? e.usage : null
+        recordUsageSafe(failUsage)
         // A5：终态失败 errCode 细化——结构化 code 优先于笼统 GEN_FAIL（trace-stats 口径不变，仍是非空字符串）
         trace({
           model: tier.model,
           attempt,
           stopReason: 'error',
-          usage: null,
+          usage: failUsage,
           ok: false,
           errCode: (e instanceof GenError && e.code) || 'GEN_FAIL',
         })

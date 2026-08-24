@@ -15,6 +15,7 @@ import { join } from 'node:path'
 import { readFile, parseFlat } from '../format/frontmatter.js'
 import { readLead } from '../format/leads.js'
 import { atomicWriteFile } from '../fs/atomic.js'
+import { walkMdEach } from '../fs/walk-md.js'
 
 // ── 伏笔条目（fm 数据）──────────────────────────
 
@@ -373,32 +374,18 @@ function collectChapterTexts(bookRoot: string): Map<number, string> {
   return texts
 }
 
-/** 递归遍历章节目录（含卷子目录，同 rebuild.ts walkChapters 结构） */
+/** 遍历章节目录（含卷子目录）。
+ *  B-4（第六十轮）：N2 walk 族收口漏网第四套——裸 statSync（跟随 symlink）+ 递归
+ *  无 visited 无根界，循环 symlink → 无限递归 RangeError、指向书外的 symlink 整树
+ *  .md 按章号整读。接入 walk-md 共享口径（Dirent 不跟随 + realpath visited 剪枝 +
+ *  根界 = 正文目录，越出即拒），语义与 rebuild walkChapters 对齐。 */
 function walkChapters(dir: string, texts: Map<number, string>): void {
-  let entries: string[]
-  try {
-    entries = readdirSync(dir)
-  } catch {
-    return
-  }
-  for (const name of entries) {
-    if (name.startsWith('._')) continue
-    const fp = join(dir, name)
-    let st: ReturnType<typeof statSync>
-    try {
-      st = statSync(fp)
-    } catch {
-      continue
-    }
-    if (st.isDirectory()) {
-      walkChapters(fp, texts)
-    } else if (name.endsWith('.md')) {
-      const 章号 = parseChapterNoFromName(name)
-      if (章号 === null) continue
-      const r = readFile(fp)
-      texts.set(章号, r.ok ? r.body : '')
-    }
-  }
+  walkMdEach(dir, (abs, name) => {
+    const 章号 = parseChapterNoFromName(name)
+    if (章号 === null) return
+    const r = readFile(abs)
+    texts.set(章号, r.ok ? r.body : '')
+  })
 }
 
 /** 从文件名提取章号（兼容补零与不补零：0001-开篇.md / 1-标题.md → 1） */

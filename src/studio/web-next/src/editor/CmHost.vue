@@ -171,7 +171,7 @@ onMounted(() => {
         if (u.selectionSet || u.focusChanged) emit('selectionChange')
       }),
       // F5（五十九轮）：组合态标记 + 组合结束后（延迟一拍让 CM6 先冲排组合文本插入）
-      // 应用挂起的外部全量替换（挂起值在 watch 里登记，最新覆盖旧）
+      // 应用挂起的外部全量替换（挂起只作「有外部变更待应用」的标记，应用时取最新值——B-1）
       EditorView.domEventHandlers({
         compositionstart: () => {
           composing = true
@@ -179,9 +179,17 @@ onMounted(() => {
         compositionend: () => {
           composing = false
           if (pendingExternal === null || !view) return
-          const v = pendingExternal
           pendingExternal = null
-          setTimeout(() => applyExternalReplace(v), 0)
+          // B-1（第六十轮）：应用「当下最新 modelValue」而非登记时的快照——组合期每次
+          // emit 已把已组文本同步进 store（回写后 v === doc，watch 不再刷新挂起值），
+          // 登记快照冻结在旧时点，应用旧值会抹掉快照点之后续打的整段组合文本（且
+          // addToHistory=false 不可 undo、回写 store 触发 autosave 落盘）。最新值若与
+          // 当前 doc 一致（用户续打已覆盖外部变更，同 dirty 本地优先口径）则不替换。
+          setTimeout(() => {
+            const latest = props.modelValue
+            if (!view || latest === view.state.doc.toString()) return
+            applyExternalReplace(latest)
+          }, 0)
         },
       }),
       typewriterConf.of(typewriterExt(props.typewriter ?? false)),
@@ -243,6 +251,7 @@ watch(
       // 同文档外部同步：仅差异时替换，避免光标跳（此分支不得恒替换）
       if (v !== view.state.doc.toString()) {
         // F5（五十九轮）：组合输入中不立即替换——挂起到 compositionend 后
+        //（B-1：挂起登记仅标记「有待应用的外部变更」，应用时取当下最新 modelValue）
         if (view.composing || composing) {
           pendingExternal = v
           return
@@ -389,7 +398,12 @@ function openSearch(): void {
 }
 defineExpose({ insertText, getSelection, getSelectionRect, hasSelection, clipboardCut, clipboardCopy, clipboardPaste, selectAll, undoAction, redoAction, openSearch })
 
-onUnmounted(() => view?.destroy())
+// B-25（第六十轮）：销毁后置 null——compositionend 已排定的 setTimeout 与挂起的
+// watch 回调靠 `if (!view) return` 短路，不留对 destroyed view 的 dispatch
+onUnmounted(() => {
+  view?.destroy()
+  view = null
+})
 </script>
 
 <template>

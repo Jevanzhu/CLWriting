@@ -81,6 +81,9 @@ describe('runTask mock 快路', () => {
     if (out.ok) {
       // 与 rewrite.ts 同款 decode：input.正文
       expect((out.data.input as { 正文?: string }).正文).toContain('mock 改写')
+      // B-11（第六十轮）：TaskOk.usage 与 trace 统一携带 MOCK_USAGE——此前记 null 而
+      // data 内藏 usage（self-heal done 事件自取累计），同一调用事件库 0/0、UI 口径 100/50
+      expect(out.usage).toEqual({ inputTokens: 100, outputTokens: 50 })
     }
   })
 

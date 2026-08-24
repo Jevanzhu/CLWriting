@@ -93,33 +93,62 @@ export function registerFileRoutes(ctx: FileCtx): void {
       // （乐观锁 + journal + 快照协议），否则编辑器并发保存被静默覆写、树状态失真
       const safe = writablePath(r.bookRoot, file)
       if (!safe) return replyError(res, 400, 'BAD_PATH', '非法路径（正文请走文档保存协议）')
-      // S4：异步读取基线（原 existsSync + hashFile 同步整读；ENOENT 统一 404）
-      const baseline = await readFileHashed(safe)
-      if (!baseline) return replyError(res, 404, 'NOT_FOUND', '文件不存在')
       const body = (await readJson(req)) as { content?: unknown; expectedRevision?: unknown }
       if (typeof body.content !== 'string') {
         replyError(res, 400, 'BAD_INPUT', '缺少 content')
         return
       }
-      // M-3（第六轮）：可选乐观锁——expectedRevision 与盘上字节指纹不符 → 409，双窗口
-      // 并发保存不再静默后写覆盖先写（正文协议 X-P2-14 已有，此通道对齐）。缺省时保持
+      // B-22 串行链闭包内使用——属性窄化不跨闭包，先钉成不可变局部
+      const content: string = body.content
+      // M-3（第六轮）：可选乐观锁——expectedRevision 与盘上字节指纹不符 → 409。缺省时保持
       // 旧「后写为准」语义（存量调用方零改动）；成功响应回新指纹供客户端滚动基线。
-      if (typeof body.expectedRevision === 'string' && body.expectedRevision !== baseline.revision) {
-        return replyError(
-          res,
-          409,
-          'REVISION_CONFLICT',
-          '文件已在其他地方修改（基线不符）——请重载最新内容后再保存',
-        )
-      }
-      atomicWriteFile(safe, body.content)
-      // U-P2-8：与 DocumentService 写路径同口径——失效树索引缓存（wordCount/status），
-      // 否则 PUT 设定/大纲后树字数过期，只能靠前端 refresh=1 自愈
-      invalidateTreeIndex(r.bookRoot)
-      reply(res, 200, { ok: true, revision: hashContent(body.content) })
+      // B-22（第六十轮）：乐观锁挡的是「基线不符」，挡不住两标签页同 expectedRevision
+      // 并发保存时双双读到同一旧基线先后过检的 TOCTOU 残窗（读基线→比对→写跨两个
+      // await）——per-file Promise 链把临界段在进程内串行化，后到者重读基线即见先写者
+      // 指纹 → 409；跨进程双开的残窗如实记档（锁基建可后续收口）。
+      const outcome = await enqueueFilePut(safe, async () => {
+        // S4：异步读取基线（原 existsSync + hashFile 同步整读；ENOENT 统一 404）
+        const baseline = await readFileHashed(safe)
+        if (!baseline) return { status: 404, code: 'NOT_FOUND', error: '文件不存在' } as const
+        if (typeof body.expectedRevision === 'string' && body.expectedRevision !== baseline.revision) {
+          return {
+            status: 409,
+            code: 'REVISION_CONFLICT',
+            error: '文件已在其他地方修改（基线不符）——请重载最新内容后再保存',
+          } as const
+        }
+        atomicWriteFile(safe, content)
+        // U-P2-8：与 DocumentService 写路径同口径——失效树索引缓存（wordCount/status），
+        // 否则 PUT 设定/大纲后树字数过期，只能靠前端 refresh=1 自愈
+        invalidateTreeIndex(r.bookRoot)
+        return { revision: hashContent(content) } as const
+      })
+      if ('status' in outcome) return replyError(res, outcome.status, outcome.code, outcome.error)
+      reply(res, 200, { ok: true, revision: outcome.revision })
     },
   })
 
+}
+
+/** B-22：PUT 临界段产出——错误信封（回 4xx/5xx）或成功新指纹。 */
+type FilePutOutcome =
+  | { readonly status: number; readonly code: string; readonly error: string }
+  | { readonly revision: string }
+
+/** B-22：同文件 PUT 串行链（key = 绝对安全路径）。续链用 settled 副本吞错防断链，
+ *  真实结果经返回的 task 传递（IO 异常照常上抛给路由层，与修复前口径一致）；
+ *  链尾自清理防 Map 无界增长。 */
+const filePutChains = new Map<string, Promise<unknown>>()
+
+function enqueueFilePut(safe: string, critical: () => Promise<FilePutOutcome>): Promise<FilePutOutcome> {
+  const prev = filePutChains.get(safe) ?? Promise.resolve()
+  const task = prev.then(critical, critical)
+  const settled = task.catch(() => { /* 续链副本吞错；真实异常经 task 上抛 */ })
+  filePutChains.set(safe, settled)
+  void settled.then(() => {
+    if (filePutChains.get(safe) === settled) filePutChains.delete(safe)
+  })
+  return task
 }
 
 /** S4：写后回指纹——对写入内容直接哈希（盘上即该内容，语义与 hashFile 相同且免二次读盘）。 */
