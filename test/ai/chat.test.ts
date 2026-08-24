@@ -386,7 +386,11 @@ describe('W2: 轮数触顶', () => {
   })
 
   it('CC-P2-2: deadline 到点在确认闸等待期间强制中止（报「对话超时」并回滚历史）', async () => {
-    // write 风险工具 → 挂起等作者确认；deadline（300ms）先于确认超时（60s）触发
+    // write 风险工具 → 挂起等作者确认；deadline 先于确认超时（60s）触发。
+    // 2026-08-24 CI 复校：原 300ms 窗口过窄——ubuntu·Node 24 共享 runner 高负载时
+    // （同跑 check/scale 500 章规模测试等 CPU 峰），deadline 在 chat_tool_pending
+    // 事件发出前即到点（run 32742346585，「挂起确已发生」断言红）。放宽到 2s：
+    // 工具派发有充足余量，仍 << 60s 确认超时，测试意图（超时落在 await 点上）不变。
     fake.setScript([
       { type: 'tool', name: 'rename_chapter', input: { chapter: 1, title: '新标题' } },
     ])
@@ -401,7 +405,7 @@ describe('W2: 轮数触顶', () => {
       bookRoot,
       bookName: 'test-dl',
       message: '帮我改名',
-      deadlineMs: 300,
+      deadlineMs: 2_000,
       confirmTimeoutMs: 60_000,
     })
 
