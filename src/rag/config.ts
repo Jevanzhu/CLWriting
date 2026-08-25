@@ -29,6 +29,11 @@ export interface RagConfig {
   model?: string
   /** A3（批 7）：召回惰性指纹校验候选章上限（book.yaml rag.candidate_depth，缺省 20） */
   candidate_depth?: number
+  /** R62-27：embedding 单请求超时毫秒（book.yaml rag.embed_timeout_ms，缺省 embed.ts
+   *  内置 30s）。「默认值显式 resolve」守则：此前 30s 只活在 embed.ts 默认参数里，
+   *  调用点重造 config 字面量时无从透传；读侧收口后 build/recall 两侧统一从
+   *  RagConfig resolve，非正整数不收（与 candidate_depth 同口径）。 */
+  embed_timeout_ms?: number
 }
 
 /**
@@ -60,6 +65,11 @@ export function readRagConfig(bookRoot: string, userDataPath?: string | null): R
     candidate_depth:
       typeof rag.candidate_depth === 'number' && Number.isInteger(rag.candidate_depth) && rag.candidate_depth >= 1
         ? rag.candidate_depth
+        : undefined,
+    // R62-27：非正整数不收（0/负数会让 AbortController 立即 abort 恒失败），与缺省同视为未配置
+    embed_timeout_ms:
+      typeof rag.embed_timeout_ms === 'number' && Number.isInteger(rag.embed_timeout_ms) && rag.embed_timeout_ms >= 1
+        ? rag.embed_timeout_ms
         : undefined,
   }
 }
@@ -147,6 +157,8 @@ export function enableRag(
   const provider = prev?.provider
   // 同款保留：candidate_depth（A3 批 7）——整段替换会静默抹掉已配的候选深度
   const candidateDepth = prev?.candidate_depth
+  // 同款保留：embed_timeout_ms（R62-27）
+  const embedTimeoutMs = prev?.embed_timeout_ms
 
   // 2. 写回 book.yaml——V-P2-4：文本级补丁只重写 rag 段，作者的 # 注释、未知段、
   //    未知子键逐字保留（此前 stringifyBookConfig 全量重生成会静默丢掉）。
@@ -159,6 +171,7 @@ export function enableRag(
     ...(endpoint ? [`  endpoint: ${stringifyValue(endpoint)}`] : []),
     ...(model ? [`  model: ${stringifyValue(model)}`] : []),
     ...(candidateDepth !== undefined ? [`  candidate_depth: ${candidateDepth}`] : []),
+    ...(embedTimeoutMs !== undefined ? [`  embed_timeout_ms: ${embedTimeoutMs}`] : []),
   ].join('\n')
   atomicWriteFile(yamlPath, patchTopSection(raw, 'rag', ragBody))
 

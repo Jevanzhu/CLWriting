@@ -8,6 +8,11 @@
 import { describe, it, expect } from 'vitest'
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs'
 import { join, relative } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+// R62-58：仓库根按 import.meta.url 解析——此前 cwd 相对（join('src',...)），非根目录跑即错
+
+const root = fileURLToPath(new URL('../../', import.meta.url)) // R62-58
 
 /** 编辑器/底座模块（禁止 import AI 生成层）。review 归编辑器辅助，同守。 */
 const EDITOR_BASE = [
@@ -45,10 +50,10 @@ function listTs(dir: string): string[] {
 function scanViolations(): string[] {
   const violations: string[] = []
   for (const mod of EDITOR_BASE) {
-    const dir = join('src', mod)
+    const dir = join(root, 'src', mod)
     if (!existsSync(dir)) continue
     for (const file of listTs(dir)) {
-      const rel = relative('.', file).replaceAll('\\', '/')
+      const rel = relative(root, file).replaceAll('\\', '/')
       const lines = readFileSync(file, 'utf-8').split('\n')
       for (const line of lines) {
         const m = line.match(AI_RE)

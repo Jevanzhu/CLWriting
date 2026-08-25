@@ -12,7 +12,7 @@
 import type { ChatMsg, ContentBlock } from '../ai/provider/types.js'
 import type { ChatEvent, SessionEndReason, TurnEndReason } from './types.js'
 import { SURFACE_EVENT_TYPES } from './types.js'
-import { foldSurface, type SurfaceNode } from './projection.js'
+import { foldSurface, assistantMessageVisible, type SurfaceNode } from './projection.js'
 import type { SessionStore, NewEvent } from './store.js'
 import { registerActiveChatSession, unregisterActiveChatSession } from './store.js'
 
@@ -142,6 +142,9 @@ export class SessionRecorder {
   private surfaceSeqs: number[] = []
   /** close 已执行（幂等） */
   private ended = false
+  /** R62-10：close 首 flush 失败（session/end 未落库）——finally 不 dispose，
+   *  保留 store 引用与活跃登记供重试；调用方放弃重试时其 finally 的 dispose() 兜底注销 */
+  private closeFlushFailed = false
 
   constructor(store: SessionStore | null, sessionId: string) {
     this.store = store
@@ -152,7 +155,14 @@ export class SessionRecorder {
 
   /** 记录事件，返回该事件在本批次内的序号（0-based；flush 后 first + idx = seq） */
   add(ev: NewEvent): number {
-    if (SURFACE_EVENT_TYPES.has(ev.type)) this.pendingSurfaceIdx.push(this.pending.length)
+    // R62-11：空载荷 assistant/message（usage 壳）不记遮蔽位——foldSurface 对其
+    // continue（该 seq 永不成为可见节点），计入会让「遮蔽区间只许盖曾可见节点」
+    // 契约在 validateEventStream 侧误报。user/message 与 tool/result 无条件可见不需判。
+    if (SURFACE_EVENT_TYPES.has(ev.type)) {
+      if (ev.type !== 'assistant/message' || assistantMessageVisible(ev.data)) {
+        this.pendingSurfaceIdx.push(this.pending.length)
+      }
+    }
     this.pending.push(ev)
     return this.pending.length - 1
   }
@@ -208,8 +218,20 @@ export class SessionRecorder {
     this.ended = true
     let archiveSeq: number | null = null
     try {
-      this.pending.push(sessionEndEvent(reason))
-      this.flush()
+      const endEv = sessionEndEvent(reason)
+      this.pending.push(endEv)
+      try {
+        this.flush()
+      } catch (e) {
+        // R62-10：session/end 尚未落库——回滚幂等闸保留 close 重试性（瞬态 SQLITE_BUSY
+        // 超时/磁盘满恢复后重试可补 session/end，不再只能依赖孤儿修复事后补 interrupted
+        // 与真实终止原因失真）；同时撤回本侧压入的 end 事件防重试双写。flush 成功后的
+        // 后续步骤失败不回滚——session/end 已在库，重试会写第二个 end。
+        this.ended = false
+        if (this.pending[this.pending.length - 1] === endEv) this.pending.pop()
+        this.closeFlushFailed = true
+        throw e
+      }
       if (!this.store || !shadowSeqs || shadowSeqs.length === 0) return null
       // 遮蔽区间：被裁 seq 应连续（每回合事件连续写）；不连续则逐段遮蔽
       const sorted = [...shadowSeqs].sort((a, b) => a - b)
@@ -249,8 +271,10 @@ export class SessionRecorder {
         if (carry) archiveSeq = seqs[1]! // 批内第 2 个 = compaction/end（存档节点）
       }
     } finally {
-      // Y-P1-1：收尾注销活跃登记（异常路径由调用方 finally 调 dispose 兜底）
-      this.dispose()
+      // Y-P1-1：收尾注销活跃登记（异常路径由调用方 finally 调 dispose 兜底）；
+      // R62-10：首 flush 失败路径不 dispose——保留 store/登记，close 重试才真正可落库
+      if (this.closeFlushFailed) this.closeFlushFailed = false
+      else this.dispose()
     }
     return archiveSeq
   }

@@ -60,7 +60,9 @@ export function syncLead(db: DatabaseSync, lead: Lead): void {
   }
 }
 
-/** 从缓存读回一个 Lead（按 id）—— 用于验证入库一致性 */
+/** 从缓存读回一个 Lead（按 id）—— 用于验证入库一致性。
+ *  R62-32：生产链无调用（rebuild 走 write 路径），仅测试消费——测试资产保留，勿在
+ *  新生产链上依赖。 */
 export function loadLeadFromCache(
   db: DatabaseSync,
   id: string,

@@ -90,8 +90,11 @@ async function loadMoreConvo(): Promise<void> {
     if (conversation.value === null) conversation.value = v.conversation
     const seen = new Set(convoEvents.value.map((e) => e.seq))
     const fresh = (v.conversation?.events ?? []).filter((e) => !seen.has(e.seq))
+    // R62-50：整页撞重复（sync/重复请求混入整页全被去重）→ fresh 空但页非空——offset 若
+    // 仍按已载条数算会原地空转（每轮拉同页）。页非空即按服务端返回条数推进，跳过重复段。
+    const pageLen = v.conversation?.events.length ?? 0
     convoEvents.value.push(...fresh)
-    convoOffset.value = convoEvents.value.length
+    convoOffset.value += fresh.length > 0 ? fresh.length : pageLen
   } catch (e) {
     err.value = friendlyError(e)
   } finally {
@@ -108,8 +111,10 @@ async function loadMoreWorkflow(): Promise<void> {
     const v = await getAudit(props.bookName, { limit: PAGE_LIMIT, offset: workflowOffset.value })
     const seen = new Set(workflowEvents.value.map((e) => e.seq))
     const fresh = (v.workflowEvents ?? []).filter((e) => !seen.has(e.seq))
+    // R62-50：同 convo——整页撞重复时 fresh 空、页非空，按返回条数强制推进防空转。
+    const pageLen = v.workflowEvents?.length ?? 0
     workflowEvents.value.push(...fresh)
-    workflowOffset.value = workflowEvents.value.length
+    workflowOffset.value += fresh.length > 0 ? fresh.length : pageLen
   } catch (e) {
     err.value = friendlyError(e)
   } finally {

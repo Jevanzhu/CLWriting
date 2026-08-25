@@ -33,8 +33,18 @@ export interface SurfaceNode {
   tool?: { callId: string; content: string; isError?: boolean }
 }
 
-/** 按 seq 升序重放事件（prefixSeq 时只处理 seq ≤ prefixSeq 的前缀） */
+/** 按 seq 升序重放事件（prefixSeq 时只处理 seq ≤ prefixSeq 的前缀）。
+ *  B2（2026-08-24 内存闸）：输入已有序（SQL ORDER BY / 上游已排序——投影链常态）时
+ *  O(n) 检测后零拷贝直返，乱序输入回退拷贝排序（纯函数语义不变；调用方只读返回值）。 */
 export function sortEvents(events: ChatEvent[]): ChatEvent[] {
+  let sorted = true
+  for (let i = 1; i < events.length; i++) {
+    if (events[i - 1]!.seq > events[i]!.seq) {
+      sorted = false
+      break
+    }
+  }
+  if (sorted) return events
   return [...events].sort((a, b) => a.seq - b.seq)
 }
 
@@ -43,6 +53,16 @@ function assistantHasPayload(message: string | unknown[]): boolean {
   if (typeof message === 'string') return message.trim() !== ''
   const blocks = message as ContentBlock[]
   return blocks.some((b) => b.type === 'tool_use' || (b.type === 'text' && b.text.trim() !== ''))
+}
+
+/** R62-11：assistant/message 事件是否会投影为可见节点（载荷形别合法 + 非空壳）。
+ *  foldSurface 与 chat-bridge 记遮蔽位共用同口径——「遮蔽区间只许盖曾可见节点」
+ *  契约要求录制侧与投影侧判同一谓词（空 usage 壳录制侧计入遮蔽位会让
+ *  closeMaskingAll 产出的数据流过 validateEventStream 时误报「含未可见 seq」）。 */
+export function assistantMessageVisible(data: Record<string, unknown>): boolean {
+  const msg = data['message']
+  if (typeof msg !== 'string' && !Array.isArray(msg)) return false // 损坏载荷不投影
+  return assistantHasPayload(msg)
 }
 
 /**
@@ -65,14 +85,12 @@ export function foldSurface(events: ChatEvent[], prefixSeq?: number): SurfaceNod
       continue
     }
     if (ev.type === 'assistant/message') {
-      const msg = ev.data['message']
-      if (typeof msg !== 'string' && !Array.isArray(msg)) continue // 损坏载荷不投影
-      if (!assistantHasPayload(msg as string | unknown[])) continue // usage 壳不进抄本
+      if (!assistantMessageVisible(ev.data)) continue // 损坏载荷/usage 壳不进抄本
       visible.push({
         seq: ev.seq,
         kind: 'assistant',
         role: 'assistant',
-        content: msg as string | ContentBlock[],
+        content: ev.data['message'] as string | ContentBlock[],
         shadowed: false,
       })
       continue
@@ -265,9 +283,15 @@ export function validateEventStream(events: ChatEvent[]): ValidationIssue[] {
       } else if (start > end) {
         issues.push({ seq: ev.seq, message: 'shadowStart > shadowEnd' })
       } else {
-        // 被遮蔽节点必须已可见
-        for (let s = start; s <= end; s++) {
-          if (!visibleSeqs.has(s)) issues.push({ seq: ev.seq, message: '遮蔽区间含未可见 seq ' + s })
+        // R62-31：被遮蔽节点必须已可见——改对 visibleSeqs 做区间包含判断 O(visible)。
+        // 此前逐 seq 扫 [start,end]：脏数据 shadowEnd=1e9 会线性扫十亿次挂死校验链。
+        const inRange: number[] = []
+        for (const s of visibleSeqs) if (s >= start && s <= end) inRange.push(s)
+        if (inRange.length !== end - start + 1) {
+          issues.push({
+            seq: ev.seq,
+            message: `遮蔽区间 [${start},${end}] 含未可见 seq（区间 ${end - start + 1} 个，可见仅 ${inRange.length} 个）`,
+          })
         }
       }
       // sourceSeqs 覆盖校验
@@ -278,12 +302,23 @@ export function validateEventStream(events: ChatEvent[]): ValidationIssue[] {
         if (s >= ev.seq) issues.push({ seq: ev.seq, message: 'sourceSeqs 含不小于当前 seq 的 ' + s })
       }
       if (start !== undefined && end !== undefined) {
-        for (let s = start; s <= end; s++) {
-          if (!srcs.includes(s)) issues.push({ seq: ev.seq, message: 'sourceSeqs 未覆盖被遮蔽节点 ' + s })
+        // R62-31 同款 O(visible)：只对区间内实际可见的 seq 报未覆盖（区间内不可见的
+        // 已由上一条「含未可见 seq」报过，脏数据下不重复扫十亿区间）
+        const srcSet = new Set(srcs)
+        for (const s of visibleSeqs) {
+          if (s >= start && s <= end && !srcSet.has(s)) {
+            issues.push({ seq: ev.seq, message: 'sourceSeqs 未覆盖被遮蔽节点 ' + s })
+          }
         }
       }
-      // replace 后 visible 更新：移除被遮蔽节点
-      for (let s = start ?? 0; s <= (end ?? -1); s++) visibleSeqs.delete(s)
+      // replace 后 visible 更新：移除被遮蔽节点（R62-31 同款 O(visible)，不逐 seq 扫区间）
+      {
+        const st = start ?? 0
+        const en = end ?? -1
+        for (const s of [...visibleSeqs]) {
+          if (s >= st && s <= en) visibleSeqs.delete(s)
+        }
+      }
       // Y-P2-2：携带存档的 compaction/end 本身成为可见节点（投影在区间原位插入存档）
       if (typeof ev.data['message'] === 'string' && (ev.data['message'] as string).trim() !== '') {
         visibleSeqs.add(ev.seq)

@@ -236,8 +236,12 @@ let pendingExternal: string | null = null
 /** 同文档外部全量替换的执行体（composing 守卫解耦出）。 */
 function applyExternalReplace(v: string): void {
   if (!view) return
+  // R62-18：全区间替换会把光标映射到文末——阅读中间章节的用户被 SSE sync/refresh
+  // 拽到底部。替换前记 head，替换后 clamp 归位到原位置（越界→文末）。
+  const prevHead = view.state.selection.main.head
   view.dispatch({
     changes: { from: 0, to: view.state.doc.length, insert: v },
+    selection: { anchor: Math.min(prevHead, v.length) },
     annotations: Transaction.addToHistory.of(false),
   })
 }
@@ -350,7 +354,14 @@ async function clipboardCut(): Promise<void> {
   if (!view) return
   const sel = view.state.selection.main
   if (sel.from === sel.to) return
-  try { await navigator.clipboard.writeText(view.state.sliceDoc(sel.from, sel.to)) } catch { useUiStore().toast('剪贴板权限被拒绝，剪切未生效', 'error') /* Z-26：不再静默 */ }
+  try {
+    await navigator.clipboard.writeText(view.state.sliceDoc(sel.from, sel.to))
+  } catch {
+    // R61-4（第六十一轮）：写失败即止并 return——旧实现 catch 后仍无条件 dispatch 删除
+    // 选区，「文档删了、剪贴板没有」，用户信 toast 则文字两处皆无（对齐 copy/paste 失败即止）
+    useUiStore().toast('剪贴板权限被拒绝，剪切未生效', 'error') /* Z-26：不再静默 */
+    return
+  }
   view.dispatch({ changes: { from: sel.from, to: sel.to, insert: '' } })
   view.focus()
 }

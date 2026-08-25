@@ -2,8 +2,8 @@
  * studio 后端 server（Node 原生 http，#12.1 / #12.2）。
  *
  * 单进程 server：/api/* 走 REST 分发器，其余路径静态托管前端 dist。
- * 只监听 127.0.0.1（本地 GUI，不对外）。driver 会话、SSE 等在后续
- * Step 引入。
+ * 只监听 127.0.0.1（本地 GUI，不对外）。driver 会话、SSE 流已在此
+ * 进程内实装（chat/rewrite 等长连接经 SSE 下发；driver 由本进程起子进程/CmHost 桥接）。
  */
 import http from 'node:http'
 import { randomUUID } from 'node:crypto'

@@ -186,7 +186,7 @@ export async function generate(
           usage = ev.usage
           stopReason = ev.stopReason
           if (ev.resolvedMaxTokens !== undefined) resolvedMaxTokens = ev.resolvedMaxTokens
-          if (ev.type === 'done' && ev.degraded) degraded = true
+          if (ev.degraded) degraded = true
           break
         case 'error':
           throw new GenError(ev.message, ev.retryable, {
@@ -217,7 +217,8 @@ export async function generateText(
   const r = await generate(provider, req, signal, onText)
   // P1-3：纯文本端点截断检查（与 generateTool 对称）
   if (r.stopReason === 'max_tokens') {
-    throw new GenError('AI 产出达到长度上限被截断，请精简输入提示或稍后重试。', false, { code: 'MAX_TOKENS' })
+    // R61-6（第六十一轮）：截断调用照样烧 token，usage 随错误上抛记账（此前截断即丢账）
+    throw new GenError('AI 产出达到长度上限被截断，请精简输入提示或稍后重试。', false, { code: 'MAX_TOKENS', usage: r.usage })
   }
   return r.text
 }
@@ -261,7 +262,8 @@ export async function generateTool(
   const tool = r.toolCalls[0]
   // P1-3：输出撞顶且无 tool_use → JSON 被截断；抛明确错误而非静默降级到 text
   if (!tool && r.stopReason === 'max_tokens') {
-    throw new GenError('AI 产出达到长度上限被截断，结构化结果不完整，请精简输入提示或稍后重试。', false, { code: 'MAX_TOKENS' })
+    // R61-6（第六十一轮）：同 generateText——截断调用 usage 随错误上抛记账
+    throw new GenError('AI 产出达到长度上限被截断，结构化结果不完整，请精简输入提示或稍后重试。', false, { code: 'MAX_TOKENS', usage: r.usage })
   }
   return {
     input: tool ? tool.input : null,

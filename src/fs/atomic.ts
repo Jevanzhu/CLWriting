@@ -49,9 +49,44 @@ export function atomicWriteFile(
   }
 }
 
+/** 流式原子写（内存闸 2026-08-24 审计 A1）：大产物（全书导出合并稿）不再整串驻留
+ *  内存——调用方在回调内逐段 append（writeFileSync 直写 fd），落盘语义与 atomicWriteFile
+ *  一致（同目录 tmp + fsync + rename + 目录 fsync，tmp 命名沿用 sweep 兼容模式）。
+ *  回调抛错时清 tmp 不落半截目标。 */
+export function atomicWriteStream(
+  filePath: string,
+  write: (append: (s: string) => void) => void,
+): void {
+  const dir = dirname(filePath)
+  mkdirSync(dir, { recursive: true })
+  const tmpPath = join(dir, `.${basename(filePath)}.${process.pid}.${randomUUID()}.tmp`)
+  const fd = openSync(tmpPath, 'w')
+  try {
+    // R61-9（第六十一轮）：writeSync 允许部分写（RLIMIT_FSIZE/信号中断），丢弃返回
+    // 字节数会静默发布截断文件——改 writeFileSync（内部循环写满，同 atomicWriteFile）
+    write((s) => writeFileSync(fd, s))
+    fsyncSync(fd)
+  } catch (e) {
+    try {
+      closeSync(fd)
+    } catch {
+      /* best-effort */
+    }
+    rmSync(tmpPath, { force: true })
+    throw e
+  }
+  closeSync(fd)
+  try {
+    renameSync(tmpPath, filePath)
+    fsyncDir(dir)
+  } catch (e) {
+    rmSync(tmpPath, { force: true })
+    throw e
+  }
+}
+
 /**
  * B-6（第六十轮）：独占创建文件（tmp + linkSync）。
- *
  * atomicWriteFile 的 rename 语义会静默覆盖已存在的目标——调用方先 existsSync 再落盘
  * 的模式存在跨进程双建窄窗（检查与落盘之间无互斥）：双进程同路径并发新建时后到者
  * 覆盖先到者内容且双方返回成功。link 不覆盖：目标已存在时 EEXIST → 返回 'exists'

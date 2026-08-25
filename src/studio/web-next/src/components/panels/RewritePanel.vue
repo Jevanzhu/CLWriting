@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 改写面板（M12 块2 B2.2/B2.3）：输入指令 → 改写整章 → DiffView → 接受进 buffer / 拒绝。
 // 接受 = patch(docId, rewritten) 写编辑器（dirty，⌘S 保存）；AI 永不直接落盘。
-// 选区改写（local）后置——需 CmHost 暴露 getSelection；当前 whole 整章。
+// 选区改写（local）已接线——runRewrite 经 ws.editorGetSelection 读 CmHost 选区下发（后端按 selection 判模式）。
 import { computed, ref } from 'vue'
 import { Wand2, RefreshCw, Check, X, AlertCircle, Plus, Minus } from 'lucide-vue-next'
 import { useRewriteStore } from '../../stores/rewrite'

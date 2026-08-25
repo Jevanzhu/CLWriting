@@ -111,6 +111,16 @@ export function checkGrowth(
         const realm = extractExactRealmFromEvidence(h.evidence, sequence)
         if (realm) {
           transitions.push({ chapter: h.chapter, realm, evidence: h.evidence })
+        } else {
+          // R62-2：提取失败不再静默跳过——该条对 growth-regress/span-exceed/realm-miss
+          // 整体失明且作者得不到「证据缺境界名」任何信号；与 growth-verb-invalid 推黄同口径
+          items.push({
+            checkId: 'growth-evidence-no-realm',
+            level: 'yellow',
+            message: `${id} 第${h.chapter}章履历证据「${h.evidence}」中提取不到序列内的确切境界名，该条未计入境界跃迁（升阶/跨度检查对其漏检）。`,
+            leadId: id,
+            chapter: h.chapter,
+          })
         }
       }
     }

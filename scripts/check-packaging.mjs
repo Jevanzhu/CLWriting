@@ -41,6 +41,49 @@ export function problemsForPackageFiles(files) {
   return found
 }
 
+// ── 第三层（R62-22）：electron-builder.yml files 断言（asar 实际打包面）────
+// DMG 打包走 electron-builder.yml 的 files（非 package.json）——resources/ 缺席时
+// 用「删掉 resources 仍全绿」的自欺门（CC-P1-7 场景的另一半）。以下两个纯函数导出
+// 供 test/desktop/check-packaging.test.ts 锚定（承 P3「勿正则钉格式」——只做行级
+// 序列解析 + 成员资格断言，不锚定 glob 文本/缩进）。
+/** 解析 electron-builder.yml 顶层 files: 序列（行扫描）。返回 string[]；找不到 files
+ *  键或序列为空 → null（视为配置缺失）。容忍成员缩进/引号/空行/注释变化。 */
+export function parseBuilderFiles(yamlText) {
+  const items = []
+  let inFiles = false
+  for (const raw of String(yamlText || '').split('\n')) {
+    const line = raw.trim()
+    if (line === '' || line.startsWith('#')) continue
+    if (!inFiles) {
+      if (/^files:\s*$/.test(line)) { inFiles = true; continue }
+      continue
+    }
+    if (line.startsWith('- ')) {
+      const v = line.slice(2).trim()
+      if (v) items.push(v)
+      continue
+    }
+    break // files 块结束（下一个顶层键，如 asar/mac）
+  }
+  return items.length > 0 ? items : null
+}
+
+/** 断言 files 序列覆盖 dist 与 resources。files 非数组/空 → 配置缺失必红。 */
+export function problemsForElectronBuilderFiles(files) {
+  const found = []
+  if (!Array.isArray(files) || files.length === 0) {
+    found.push('electron-builder.yml files 不可解析或为空——asar 打包内容清单没了/形状变了')
+    return found
+  }
+  for (const need of ['dist', 'resources']) {
+    const covers = (entry) => entry === need || entry.startsWith(need + '/')
+    if (!files.some((entry) => typeof entry === 'string' && covers(entry))) {
+      found.push(`electron-builder.yml files 未包含 ${need}——asar 打包缺整目录（CC-P1-7 回潮）`)
+    }
+  }
+  return found
+}
+
 function checkPackaging() {
   const pkgPath = join(root, 'package.json')
   let pkg
@@ -50,6 +93,17 @@ function checkPackaging() {
     problems.push(`package.json 不可读/不是合法 JSON：${e.message}`)
   }
   if (pkg) problems.push(...problemsForPackageFiles(pkg.files))
+
+  // ── 1b. （R62-22）第三层：electron-builder.yml files 断言（asar 实际打包面）──
+  // package.json files 只约束 npm pack；DMG 实际打包走 electron-builder.yml——
+  // files 里缺 resources/ 时 CI 仍全绿、打包态 AI 链路全挂（CC-P1-7 另一半）。
+  const ebPath = join(root, 'electron-builder.yml')
+  if (!existsSync(ebPath)) {
+    problems.push('缺 electron-builder.yml——桌面打包配置没了（asar 清单无法校验）')
+  } else {
+    const ebFiles = parseBuilderFiles(readFileSync(ebPath, 'utf8'))
+    problems.push(...problemsForElectronBuilderFiles(ebFiles))
+  }
 
   // ── 2. 捆绑资源自洽：versions.json ↔ 实际 .md 双向对账 ────────────────────
   const promptsDir = join(root, 'resources', 'prompts')

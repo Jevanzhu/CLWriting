@@ -16,13 +16,13 @@
  * 2. 节流：同一文档窗口内只留一个（force 时跳过，如删除/改名前留底）
  * 3. 分层保留：写入后顺带 prune，越近越细越远越粗（pinned 跳过）
  */
-import { existsSync, readdirSync, renameSync, unlinkSync } from 'node:fs'
+import { existsSync, readdirSync, renameSync, unlinkSync, openSync, readSync, closeSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { safeDocId } from '../fs/safe-path.js'
 import { ulid, decodeUlidTime } from './stable-id.js'
-import { readFile, parseFlat } from '../format/frontmatter.js'
+import { readFile, parseFlat, splitFrontMatter } from '../format/frontmatter.js'
 import type { Revision } from './revision.js'
 import { log } from '../log/index.js'
 
@@ -254,6 +254,56 @@ export function readVersion(
   const pinnedRaw = map.get('永久')
   if (pinnedRaw === true || pinnedRaw === 'true') meta.pinned = true
   return { content: r.body, meta }
+}
+
+/**
+ * R62-36：只读版本 front matter（头部），不加载正文——收割判定 origin 用。
+ * readVersion 会连同整篇正文一起读进内存（listAiVersions 对非 git 后端逐版全量
+ * 整读两遍，长文大海捞针只为拿 origin/原因/字数）；本变体用 bounded read 只取
+ * 文件头 4KB（版本 front matter 是文件起始的固定小段，远小于该上界），解析出与
+ * readVersion 相同的 meta（origin/reason/baseRevision/words/pinned），不返回 content。
+ * 文件缺失/损坏返回 null，与 readVersion 口径一致。
+ */
+export function readVersionMeta(
+  versionsDir: string,
+  docId: string,
+  id: string,
+): { meta: VersionMeta & { time: number } } | null {
+  // id 防穿越：ULID 是 26 位 Crockford base32，不含分隔符
+  if (!/^[0-9A-HJKMNP-TV-Z]{26}$/.test(id)) return null
+  // docId 防穿越（manifest 可篡改数据面 defense-in-depth）
+  if (!safeDocId(docId)) return null
+  const file = join(versionsDir, docId, `${id}.md`)
+  let head: string
+  try {
+    // bounded read 只取头部，避免整读大正文入内存
+    const fd = openSync(file, 'r')
+    try {
+      const buf = Buffer.alloc(4096)
+      const n = readSync(fd, buf, 0, 4096, 0)
+      head = buf.toString('utf-8', 0, n)
+    } finally {
+      closeSync(fd)
+    }
+  } catch {
+    return null
+  }
+  const split = splitFrontMatter(head)
+  if (split === null) return null
+  const map = parseFlat(split.fmRaw)
+  const meta: VersionMeta & { time: number } = {
+    origin: String(map.get('来源') ?? ''),
+    time: decodeUlidTime(id),
+  }
+  const reason = map.get('原因')
+  if (reason) meta.reason = String(reason)
+  const base = map.get('基线')
+  if (base) meta.baseRevision = String(base) as Revision
+  const words = map.get('字数')
+  if (typeof words === 'number' && words > 0) meta.words = words
+  const pinnedRaw = map.get('永久')
+  if (pinnedRaw === true || pinnedRaw === 'true') meta.pinned = true
+  return { meta }
 }
 
 /** 列版本（对外：含时间/来源/原因/字数/永久，供 UI 展示）。 */

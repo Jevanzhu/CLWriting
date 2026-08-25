@@ -7,9 +7,11 @@
  */
 import { describe, it, expect } from 'vitest'
 import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 // @ts-expect-error —— .mjs 直跑脚本无类型声明（不为其维护 d.ts；断言口径靠用例锚定）
-import { problemsForPackageFiles } from '../../scripts/check-packaging.mjs'
+import { problemsForPackageFiles, parseBuilderFiles, problemsForElectronBuilderFiles } from '../../scripts/check-packaging.mjs' // @ts-expect-error（第二行已有 expect 注释；此处再次压住）
 
 const scriptPath = fileURLToPath(new URL('../../scripts/check-packaging.mjs', import.meta.url))
 const root = fileURLToPath(new URL('../../', import.meta.url))
@@ -43,5 +45,36 @@ describe('P3：package.json files 断言（JSON.parse 口径，顺序/格式无�
   it('真实仓库脚本直跑：退出码 0（versions.json 对账等整链不回归）', () => {
     const out = execFileSync('node', [scriptPath], { cwd: root, encoding: 'utf8' })
     expect(out).toContain('check:packaging 通过')
+  })
+})
+
+describe('R62-22：electron-builder.yml files 断言（asar 实际打包面，勿正则钉格式）', () => {
+  const YML = 'files:\n  - dist/**/*\n  - resources/**/*\n  - package.json\nasar: true\n'
+  it('parseBuilderFiles：解析顶层 files 序列（容忍缩进/空行/注释）', () => {
+    expect(parseBuilderFiles(YML)).toEqual(['dist/**/*', 'resources/**/*', 'package.json'])
+    const messy = '# 注释\nfiles:\n    - dist/**/*\n\n  - resources/**/*\nasar: true\n'
+    expect(parseBuilderFiles(messy)).toEqual(['dist/**/*', 'resources/**/*'])
+  })
+  it('含 dist 与 resources → 无问题；顺序颠倒亦然', () => {
+    expect(problemsForElectronBuilderFiles(['dist/**/*', 'resources/**/*'])).toEqual([])
+    expect(problemsForElectronBuilderFiles(['resources/**/*', 'dist/**/*'])).toEqual([])
+  })
+  it('缺 dist 或缺 resources → 各自一条（asar 打包面防回潮）', () => {
+    expect(problemsForElectronBuilderFiles(['dist/**/*'])).toEqual([
+      'electron-builder.yml files 未包含 resources——asar 打包缺整目录（CC-P1-7 回潮）',
+    ])
+    expect(problemsForElectronBuilderFiles(['resources/**/*'])).toEqual([
+      'electron-builder.yml files 未包含 dist——asar 打包缺整目录（CC-P1-7 回潮）',
+    ])
+  })
+  it('files 缺失/空 → 必红（视为配置缺失）', () => {
+    expect(problemsForElectronBuilderFiles(null)).toEqual([
+      'electron-builder.yml files 不可解析或为空——asar 打包内容清单没了/形状变了',
+    ])
+    expect(problemsForElectronBuilderFiles([])).toHaveLength(1)
+  })
+  it('真实 electron-builder.yml 经 parseBuilderFiles 后断言绿', () => {
+    const yml = readFileSync(join(root, 'electron-builder.yml'), 'utf8')
+    expect(problemsForElectronBuilderFiles(parseBuilderFiles(yml))).toEqual([])
   })
 })

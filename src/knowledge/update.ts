@@ -15,12 +15,14 @@
  * commit 只登记传入的显式 target，不自动扫描入库。
  */
 
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { atomicWriteFile } from '../fs/atomic.js'
 import {
   KNOWLEDGE_DIR,
   KNOWLEDGE_MANIFEST,
   hashFileSha256,
+  isSafeKnowledgeTarget,
   readKnowledgeManifest,
   validateKnowledgeManifest,
   type KnowledgeManifest,
@@ -100,8 +102,11 @@ export function renderFalsePositiveDraft(summaries: FalsePositiveSummary[], date
 /** 落草稿：`知识层/机检误报-草稿-<date>.md`。返回相对项目根路径。**不动 manifest。** */
 export function writeFalsePositiveDraft(projectRoot: string, corpusDir: string, date: string): string {
   const rel = `${KNOWLEDGE_DIR}/机检误报-草稿-${date}.md`
+  // R62-1：草稿/manifest/定稿注入三处统一走 atomicWriteFile（同目录 tmp+rename）——
+  // 此前 writeFileSync 直写，中断留下半截 _manifest.json 会让下次 readKnowledgeManifest
+  // 整体校验失败（manifest 是知识层对账单源）。字节口径不变（utf8 串原样落盘）。
   mkdirSync(join(projectRoot, KNOWLEDGE_DIR), { recursive: true })
-  writeFileSync(join(projectRoot, rel), renderFalsePositiveDraft(summarizeFalsePositives(corpusDir), date), 'utf8')
+  atomicWriteFile(join(projectRoot, rel), renderFalsePositiveDraft(summarizeFalsePositives(corpusDir), date))
   return rel
 }
 
@@ -129,8 +134,11 @@ export function commitKnowledgeFile(projectRoot: string, opts: CommitKnowledgeOp
   if (!read.ok || read.manifest === undefined) return read
   const manifest: KnowledgeManifest = read.manifest
 
-  if (!opts.target.startsWith(KNOWLEDGE_DIR + '/')) {
-    return { ok: false, issues: [{ path: opts.target, message: `target 必须位于 ${KNOWLEDGE_DIR}/ 内` }] }
+  // R61-2（第六十一轮）：路径闸统一委托 isSafeKnowledgeTarget——此前本处仅
+  // startsWith(KNOWLEDGE_DIR+'/') 前缀判，`知识层/../设定/x.md` 与绝对路径可穿透，
+  // join 落盘/注入 fm/sha256 越界文件（同 manifest 校验器 M-7 四轮口径）。
+  if (!isSafeKnowledgeTarget(projectRoot, opts.target)) {
+    return { ok: false, issues: [{ path: opts.target, message: `target 必须位于 ${KNOWLEDGE_DIR}/ 内（拒绝越界/绝对路径）` }] }
   }
   if (manifest.entries.some((e) => e.target === opts.target)) {
     return { ok: false, issues: [{ path: opts.target, message: 'target 已在 manifest 中（不得重复登记）' }] }
@@ -159,7 +167,7 @@ export function commitKnowledgeFile(projectRoot: string, opts: CommitKnowledgeOp
   manifest.entries = [...manifest.entries, entry]
   manifest.generated_at = opts.now ?? new Date(Date.now() + 8 * 3600_000).toISOString().replace('Z', '+08:00')
 
-  writeFileSync(join(projectRoot, KNOWLEDGE_MANIFEST), JSON.stringify(manifest, null, 2) + '\n', 'utf8')
+  atomicWriteFile(join(projectRoot, KNOWLEDGE_MANIFEST), JSON.stringify(manifest, null, 2) + '\n')
   return validateKnowledgeManifest(projectRoot)
 }
 
@@ -169,7 +177,7 @@ function injectFrontMatterKeys(filePath: string, keys: Record<string, string>): 
   const split = splitFrontMatter(text)
   if (!split) {
     const fm = ['---', ...Object.entries(keys).map(([k, v]) => `${k}: ${v}`), '---', ''].join('\n')
-    writeFileSync(filePath, fm + '\n' + text, 'utf8')
+    atomicWriteFile(filePath, fm + '\n' + text)
     return
   }
   const kept = split.fmRaw.split('\n').filter((raw) => {
@@ -177,5 +185,5 @@ function injectFrontMatterKeys(filePath: string, keys: Record<string, string>): 
     return !Object.keys(keys).some((k) => t.startsWith(`${k}:`))
   })
   const fm = ['---', ...kept, ...Object.entries(keys).map(([k, v]) => `${k}: ${v}`), '---', ''].join('\n')
-  writeFileSync(filePath, fm + '\n' + split.body, 'utf8')
+  atomicWriteFile(filePath, fm + '\n' + split.body)
 }

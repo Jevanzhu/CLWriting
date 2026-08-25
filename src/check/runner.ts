@@ -205,6 +205,20 @@ export function runAllChecks(input: CheckInput): CheckReport {
       if (r.ok) {
         pieceList = r.list
         sections.push(checkPieceListForm(r.list))
+      } else {
+        // R62-9：章纲在盘但读取失败（占用/权限/瞬删竞态）不再静默消失——
+        // manifest-no-reversal/emotion-curve-*/payoff-open 整体跳过且无提示
+        sections.push({
+          name: '清单形式检',
+          items: [
+            {
+              checkId: 'piece-list-unreadable',
+              level: 'yellow',
+              message: `章纲 ${basename(manifestPath)} 读取失败（${r.error.message}），清单形式检本轮未跑，修复后重查。`,
+              chapter: chapter.章号,
+            },
+          ],
+        })
       }
     }
   }

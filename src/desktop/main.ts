@@ -2,9 +2,9 @@
  * Electron 主进程入口（桌面化 #electron；阶段 22 批 U1 起 studio server 拆分至 utilityProcess）。
  *
  * fork server-utility 子进程承载 studio server（127.0.0.1 随机端口，ready 握手回传）
- * → BrowserWindow loadURL。前端 Vue 零改造（fetch /api/...）；driver 复用（与 CLI/Web
- * 同源：cc 驱动 spawn claude，provider 线走 HTTP）。main 瘦身为纯壳层：窗口/菜单/IPC/
- * workDir 管理 + serverManager（fork/握手/停启）。
+ * → BrowserWindow loadURL。前端 Vue 零改造（fetch /api/...）；driver 会话、SSE 由
+ * server-utility 统一承载（main 壳层不直接碰 driver）。main 瘦身为纯壳层：窗口/菜单/IPC/
+ * workDir 管理 + serverManager（fork/握手/停启）+ bootstrapRunner（生命周期收口）。
  *
  * 工作目录（书库）管理（批2 起）：
  * - 启动定位：userData 持久化的 current（合法则用）> findWorkDir(cwd) > 弹原生选择器。
@@ -316,7 +316,7 @@ function createSecureWindow(opts: BrowserWindowConstructorOptions): BrowserWindo
   win.webContents.on('will-navigate', (e) => e.preventDefault())
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   // dev 模式:不经系统代理（防 clash/surge 类 HTTP 代理 buffer SSE 长连接 → driver events 断流）
-  if (process.env.CLW_DEV_UI) {
+  if (process.env['CLW_DEV_UI']) { // R62-45：bracket 统一风格
     void win.webContents.session.setProxy({ proxyRules: 'direct://' })
   }
   return win
@@ -398,7 +398,7 @@ async function bootstrap(): Promise<void> {
 
   // HMR 开发模式：CLW_DEV_UI=1 时加载 Vite dev server（localhost:5173），前端改动实时热更新；
   // 不起 server，API 由独立 dev:api(7878) 提供（Vite proxy 转发）。IPC/preload 照常，桌面能力完整。
-  const devUi = !!process.env.CLW_DEV_UI
+  const devUi = !!process.env['CLW_DEV_UI'] // R62-45：bracket 统一风格
   if (devUi) {
     appUrl = 'http://localhost:5173'
   } else {
@@ -775,7 +775,7 @@ function buildMenu(): void {
 if (gotSingleInstanceLock) {
   app.whenReady().then(() => {
     // 生产模式注入 CSP（开发 HMR 模式跳过——Vite 依赖 unsafe-eval/unsafe-inline）
-    if (!process.env.CLW_DEV_UI) {
+    if (!process.env['CLW_DEV_UI']) { // R62-45：bracket 统一风格
       session.defaultSession.webRequest.onHeadersReceived((_d, cb) => {
         cb({
           responseHeaders: {

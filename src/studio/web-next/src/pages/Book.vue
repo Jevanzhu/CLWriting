@@ -79,6 +79,9 @@ let bookGen = 0
         }
       }
     }
+    // R62-48：时序说明——bookName 走 computed，路由一变新书 SSE/心跳即刻连上；弹窗
+    // 等待与 flushDirty await 期间新书连接已存在（心率先到旧书名/SSE sync 竞态由下方
+    // gen 守卫与 setBook 后重连自愈，无需专门掐断）。
     lastBook = n
     // 第五轮：workbench.clear() 提前到 flushDirty 之前——旧书有 dirty 文档时 flushDirty
     // 秒级在途，期间新书 SSE 的 sync(running=true) 已先到，随后才执行的 clear() 会把
@@ -106,18 +109,18 @@ let bookGen = 0
       }
     }
     doc.setBook(n)
-  ws.setBook(n)
-  // 清空各 store 旧书状态（chat 消息常驻 ChatDock，必须清；其余防残留上次操作结果）
-  check.clear()
-  review.clear()
-  learn.clear()
-  style.clear()
-  rewrite.clear()
-  chat.clear()
-  // Y-P2-5：切书/刷新后从事件库恢复对话历史（store 内自带空判/竞态守卫，失败静默）
-  if (n) void chat.seedHistory(n)
-  // 切书后刷新对话档位（防短暂显示旧书模型列表）
-  void useChatTier().refresh()
+    ws.setBook(n)
+    // 清空各 store 旧书状态（chat 消息常驻 ChatDock，必须清；其余防残留上次操作结果）
+    check.clear()
+    review.clear()
+    learn.clear()
+    style.clear()
+    rewrite.clear()
+    chat.clear()
+    // Y-P2-5：切书/刷新后从事件库恢复对话历史（store 内自带空判/竞态守卫，失败静默）
+    if (n) void chat.seedHistory(n)
+    // 切书后刷新对话档位（防短暂显示旧书模型列表）
+    void useChatTier().refresh()
 }, { immediate: true })
 // tree 加载后校验 tabs（剔除失效 docId）
 watch(

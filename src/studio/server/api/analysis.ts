@@ -20,7 +20,7 @@ import { readManifest } from '../../../document/manifest.js' // analysis-overvie
 import { readDraft } from '../../../format/draft.js'
 import { readChapterDir } from '../../../format/chapters.js'
 import type { ChapterMeta } from '../../../format/types.js'
-import { readIronRules, computeFullStats } from '../../../metrics/style.js'
+import { readIronRules, computeFullStats, type FullStyleStats } from '../../../metrics/style.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
 import { analysisSpec } from '../../../ai/tasks/specs.js'
 import { resolveTier } from '../../../ai/provider/index.js'
@@ -34,6 +34,25 @@ interface AnalysisCtx {
   workDir: string | null
   userDataPath: string | null
 }
+
+// 内存闸（2026-08-24 审计 D3）：analyze-style 每次全书重读正文（allBodies 数组 + join 整书
+// 大串同驻）——采样正文与全文 stats 按书缓存 5s，重跑/续跑不再重扫。口径对齐 overview.ts
+// stateCache：5s TTL + 书键 Map FIFO 上限；overview 无写路径失效挂点（纯 TTL），此处同口径
+// ——保存/定稿后最迟 5s 自愈（envelope.sourceHash 与实际进 prompt 的采样同刻同源，不破 stale 判定）。
+interface StyleCorpusResult {
+  fullStats: FullStyleStats
+  sampleText: string
+}
+const styleCorpusCache = new Map<string, { result: StyleCorpusResult; ts: number }>()
+const STYLE_CORPUS_TTL = 5000
+/** R62-21：与 health.ts __setStyleScanTtlForTest 同族注入点——analyze-style 走独立
+ *  styleCorpusCache，d3-style-ttl 测试两处 TTL 都要压到短档，否则 analyze-style 的
+ *  5s 缓存仍会让「失效」用例真实等待。仅测试用。 */
+let styleCorpusTtlMs: number | null = null
+export function __setStyleCorpusTtlForTest(ms: number | null): void {
+  styleCorpusTtlMs = ms
+}
+const STYLE_CORPUS_MAX = 32
 
 /** 跑一次 analyst 生成（runSpec 统一编排；mock 与真实同走 decode）。 */
 async function runAnalyst(
@@ -356,21 +375,35 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
 
         // 全文 stats（所有正文字符合并扫描）+ 最近 10 章采样正文
         const rules = readIronRules(bookRoot)
-        const allBodies: string[] = []
         const recent = sorted.slice(-10)
-        const recentBodies: string[] = []
-        for (const ch of sorted) {
-          if (!ch._path) continue
-          const draft = readDraft(ch._path)
-          if (!draft.ok) continue
-          allBodies.push(draft.body)
-          if (recent.includes(ch)) {
-            recentBodies.push(`### 第${ch.章号}章 ${ch.标题}\n\n${draft.body}`)
+        // D3：命中短时缓存则跳过全书重读（allBodies+join 的重扫）；章集/正文变化最迟 5s 可见
+        const now = Date.now()
+        const cached = styleCorpusCache.get(bookRoot)
+        let fullStats: FullStyleStats
+        let sampleText: string
+        if (cached && now - cached.ts < (styleCorpusTtlMs ?? STYLE_CORPUS_TTL)) { // R62-21：测试注入优先
+          ;({ fullStats, sampleText } = cached.result)
+        } else {
+          const allBodies: string[] = []
+          const recentBodies: string[] = []
+          for (const ch of sorted) {
+            if (!ch._path) continue
+            const draft = readDraft(ch._path)
+            if (!draft.ok) continue
+            allBodies.push(draft.body)
+            if (recent.includes(ch)) {
+              recentBodies.push(`### 第${ch.章号}章 ${ch.标题}\n\n${draft.body}`)
+            }
           }
+          fullStats = computeFullStats(allBodies.join('\n\n'), rules)
+          sampleText = recentBodies.join('\n\n---\n\n')
+          // 简单 FIFO 淘汰（Map 保插入序）：超上限丢最旧条目，防长期运行的书库累积
+          if (styleCorpusCache.size >= STYLE_CORPUS_MAX) {
+            const oldest = styleCorpusCache.keys().next().value
+            if (oldest !== undefined) styleCorpusCache.delete(oldest)
+          }
+          styleCorpusCache.set(bookRoot, { result: { fullStats, sampleText }, ts: now })
         }
-
-        const fullStats = computeFullStats(allBodies.join('\n\n'), rules)
-        const sampleText = recentBodies.join('\n\n---\n\n')
 
         const prompt = [
           '[kind:style]',

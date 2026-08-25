@@ -67,13 +67,14 @@ function stripStrings(src) {
   return src.replace(/'(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*"|`(?:[^`\\]|\\.)*`/g, '""')
 }
 
-// e2e 用例静态计数：只数真实用例声明 test( / test.serial( / test.only(，
-// 排除 hook/describe/skip（test.beforeAll( 等点后缀会虚增——曾把 37 数成 56）；
+// e2e 用例静态计数：只数真实用例声明 test( / test.serial( / test.only( / test.fail( /
+// test.fixme(，排除 hook/describe/skip（test.beforeAll( 等点后缀会虚增——曾把 37 数成 56）；
 // 计数前剥注释/字符串（X-32），被注释/写进字符串的声明样例不再计入
+// R62-56：test.fail( / test.fixme( 也声明真实用例（期望失败/挂起的测试），此前漏数
 let e2eCases = 0
 for (const fp of e2eSpecs) {
   const m = stripStrings(stripComments(readFileSync(fp, 'utf8'))).match(
-    /(^|[^.\w])(?:test|test\.serial|test\.only)\s*\(/g,
+    /(^|[^.\w])(?:test\.serial|test\.only|test\.fail|test\.fixme|test)\s*\(/g,
   )
   e2eCases += m ? m.length : 0
 }

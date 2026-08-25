@@ -69,7 +69,17 @@ export function doInit(opts: InitOptions): InitResult {
   const registered = existingBooks.some((b) => b.name === bookName)
   // P5-数据层（第七轮）：同名「文件」（非目录）时下方 readdirSync 裸抛 ENOTDIR 破坏
   // {ok:false,reason} 契约——先行判定给出可读原因
-  if (existsSync(bookRoot) && !statSync(bookRoot).isDirectory()) {
+  // R62-39：existsSync/statSync 之间存在窗口——同步盘/并发 init 下目录恰在两次调用
+  // 之间被移走/删除时 statSync 裸抛 ENOENT 破坏 {ok:false,reason} 契约，收编为显式原因
+  let bookRootIsFile = false
+  if (existsSync(bookRoot)) {
+    try {
+      bookRootIsFile = !statSync(bookRoot).isDirectory()
+    } catch (e) {
+      return { ok: false, reason: `路径「${bookName}」判定失败（${e instanceof Error ? e.message : String(e)}），请稍后重试` }
+    }
+  }
+  if (bookRootIsFile) {
     return { ok: false, reason: `路径「${bookName}」被同名文件占用（不是目录），换个书名或先移走它` }
   }
   // L-D2（第八轮）：readdirSync 收编——目录存在但 EACCES（同步盘/备份恢复中的权限

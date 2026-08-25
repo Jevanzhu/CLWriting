@@ -12,7 +12,9 @@ import { summarizeFalsePositives, writeFalsePositiveDraft } from '../src/knowled
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const corpusDir = fileURLToPath(new URL('../test/corpus/checks', import.meta.url))
-const date = new Date().toISOString().slice(0, 10)
+// R62-54：日期取本地时区（东八区）——toISOString 是 UTC，本地 0-8 点产「昨日」文件名
+const _now = new Date()
+const date = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}-${String(_now.getDate()).padStart(2, '0')}`
 
 const summaries = summarizeFalsePositives(corpusDir)
 const draft = writeFalsePositiveDraft(root, corpusDir, date)

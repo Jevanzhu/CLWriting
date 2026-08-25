@@ -184,7 +184,7 @@ export const useDocStore = defineStore('doc', () => {
     // toast 不再落到新书（B 书同路径节点会被写脏字数、错误提示出现在 B 书界面）
     const book = bookName.value!
     try {
-      const r = await saveContent(bookName.value!, docId, {
+      const r = await saveContent(book, docId, {
         content: snapshot,
         expectedRevision: e.baselineRevision,
         operationId: newOperationId(),
@@ -198,7 +198,7 @@ export const useDocStore = defineStore('doc', () => {
         // 局部更新 tree 字数（避免重拉整树）
         useTreeStore().updateWordCount(e.path, countWords(stripFrontmatter(snapshot)))
         // E4：刷新今日字数增量（fire-and-forget 重 GET delta）
-        void useWordsStore().ensureBaseline(bookName.value!)
+        void useWordsStore().ensureBaseline(book)
         if (origin === 'manual') useUiStore().toast('已保存', 'success')
       }
       return true

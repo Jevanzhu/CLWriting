@@ -15,7 +15,7 @@ import { existsSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { makeDualTrackWorkdir } from '../studio/fixtures.js'
 
-const PORT = 19002
+const PORT = 19015 // R62-20：与 auto-write.spec.ts 同用 19002——并行跑一个起的肯定是先到者
 const BASE = `http://127.0.0.1:${PORT}`
 
 test.skip(!process.env['CLWRITING_E2E_RELEASE'], '发布 smoke：用 npm run test:e2e:release 跑')

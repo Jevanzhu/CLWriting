@@ -168,11 +168,14 @@ function fmScalar(text: string, key: string): string | null {
   return null
 }
 
-function isSafeKnowledgeTarget(projectRoot: string, target: string): boolean {
+export function isSafeKnowledgeTarget(projectRoot: string, target: string): boolean {
   if (isAbsolute(target)) return false
   if (!target.startsWith(`${KNOWLEDGE_DIR}/`)) return false
   // 四轮复审（M-7 同款收口）：统一委托 resolveWithinRoot——此前手写 join+relative 往返
   // 校验是全库第六套平行实现，无 symlink 防护，知识层/ 内放指向库外的 symlink 可让
   // 校验器读/哈希库外文件（realpath 抛 → 拒绝，fail-closed）
-  return resolveWithinRoot(projectRoot, target) !== null
+  // R61-2（第六十一轮）：resolveWithinRoot 只保证不越**项目根**，`知识层/../库外.md`
+  // 解析后 rel=库外.md 仍在根内 → 穿透目录边界；追加规范化 rel 前缀判（解析后路径为准）。
+  const resolved = resolveWithinRoot(projectRoot, target)
+  return resolved !== null && resolved.rel.startsWith(`${KNOWLEDGE_DIR}/`)
 }

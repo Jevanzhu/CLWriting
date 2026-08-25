@@ -238,7 +238,12 @@ function serializedWrite(bookRoot: string, doWrite: () => void): void {
   const cleanup = (): void => {
     if (writeChains.get(bookRoot) === next) writeChains.delete(bookRoot)
   }
-  void next.then(cleanup, cleanup)
+  // R61-7（第六十一轮）：排队写段失败此前被 cleanup 静默吞（快路同步抛可见、排队路
+  // 不可见）——补 warn 留痕对齐 runner recordUsageSafe 口径，丢账可从日志发现
+  void next.then(cleanup, (e: unknown) => {
+    log.warn('ai-calls', `排队记账写段失败（本轮账目缺失）：${e instanceof Error ? e.message : String(e)}`)
+    cleanup()
+  })
 }
 
 /** J7 锁等待超时（毫秒）——可注入缩短保测试快；争用为文件 IO 级毫秒，5s 已极保守。 */

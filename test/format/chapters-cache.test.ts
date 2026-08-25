@@ -18,7 +18,7 @@ import { describe, it, expect, afterEach } from 'vitest'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, statSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { readChapterDir, clearChapterDirCache } from '../../src/format/chapters.js'
+import { readChapterDir, clearChapterDirCache, clearChapterDirCacheForBook } from '../../src/format/chapters.js'
 
 describe('readChapterDir stat 级缓存（CC-P1-3）', () => {
   let dir: string
@@ -134,5 +134,64 @@ describe('readChapterDir stat 级缓存（CC-P1-3）', () => {
     // 未变：第二次内容指纹一致（缓存命中）
     const second = readChapterDir(bodyDir)
     expect(second.chapters.map((c) => c._wordCount)).toEqual(first.chapters.map((c) => c._wordCount))
+  })
+})
+
+// ── 内存闸（2026-08-24 审计 C2）：clearChapterDirCacheForBook 按 bookRoot 前缀清理 ────
+// 删书/改名链（books.ts）接线后，该书的外层键（join(bookRoot, '写作', '正文') 等）应全部
+// 归零、他书不受连坐；清后再读走惰性重建，语义无损。返回值 = 清除的外层键数（计数断言用）。
+
+describe('clearChapterDirCacheForBook 按 bookRoot 前缀清理（审计 C2）', () => {
+  let root: string
+  afterEach(() => {
+    if (root) rmSync(root, { recursive: true, force: true })
+    clearChapterDirCache()
+  })
+
+  function makeBook(name: string): string {
+    const bookRoot = join(root, name)
+    mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
+    mkdirSync(join(bookRoot, '大纲', '章纲'), { recursive: true })
+    writeFileSync(
+      join(bookRoot, '写作', '正文', '001-甲.md'),
+      '---\n章号: 1\n标题: 甲\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n甲正文。\n',
+      'utf8',
+    )
+    writeFileSync(
+      join(bookRoot, '大纲', '章纲', '001-甲纲.md'),
+      '---\n章号: 1\n标题: 甲纲\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n纲。\n',
+      'utf8',
+    )
+    return bookRoot
+  }
+
+  it('删书口径：该书全部前缀键归零，他书条目保留，清后再读惰性重建', () => {
+    root = mkdtempSync(join(tmpdir(), 'chapters-bookclear-'))
+    const a = makeBook('bookA')
+    const b = makeBook('bookB')
+    // 预热：bookA 两个目录（正文 + 章纲）各占一个外层键，bookB 一个
+    expect(readChapterDir(join(a, '写作', '正文')).chapters).toHaveLength(1)
+    expect(readChapterDir(join(a, '大纲', '章纲')).chapters).toHaveLength(1)
+    expect(readChapterDir(join(b, '写作', '正文')).chapters).toHaveLength(1)
+
+    // 删书后该书 chapterDirCache 条目归零（含全部子目录键）
+    expect(clearChapterDirCacheForBook(a)).toBe(2)
+    expect(clearChapterDirCacheForBook(a)).toBe(0) // 幂等：重复清理无残留
+    // 他书不受连坐
+    expect(clearChapterDirCacheForBook(b)).toBe(1)
+    // 清后再读：惰性重建，内容不受影响
+    const again = readChapterDir(join(a, '写作', '正文'))
+    expect(again.chapters.map((c) => c.章号)).toEqual([1])
+  })
+
+  it('前缀匹配不误伤同前缀目录（bookA 与 bookA2）', () => {
+    root = mkdtempSync(join(tmpdir(), 'chapters-bookprefix-'))
+    const a = makeBook('bookA')
+    const a2 = makeBook('bookA2')
+    readChapterDir(join(a, '写作', '正文'))
+    readChapterDir(join(a2, '写作', '正文'))
+    // bookRoot + 分隔符 为前缀：清 bookA 不得吞掉 bookA2 的键（裸 startsWith 会误伤）
+    expect(clearChapterDirCacheForBook(a)).toBe(1)
+    expect(clearChapterDirCacheForBook(a2)).toBe(1)
   })
 })

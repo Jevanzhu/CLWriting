@@ -12,6 +12,10 @@ import type { AddressInfo } from 'node:net'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+// R62-58：仓库根按 import.meta.url 解析（此前 execSync 用 cwd 相对脚本路径，非根目录跑即 ENOENT）
+const REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url))
 import { startServer } from '../../src/studio/server/index.js'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
 import { deriveLeakKeywords } from '../../src/check/leak-derive.js'
@@ -203,7 +207,7 @@ describe('B2 自举脚本（幸存者判定）与 corpus:commit', () => {
       `---\n章号: 2\n标题: 第2章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n${kept}`,
     )
 
-    execSync(`npx tsx scripts/harvest-corpus.ts "${root}"`, { stdio: 'pipe' })
+    execSync(`npx tsx "${join(REPO_ROOT, 'scripts', 'harvest-corpus.ts')}" "${root}"`, { stdio: 'pipe' })
     const fp = join(root, '工作区', '语料候选', '误报候选.md')
     const hit = join(root, '工作区', '语料候选', '命中候选.md')
     expect(existsSync(fp)).toBe(true)
@@ -225,14 +229,14 @@ describe('B2 自举脚本（幸存者判定）与 corpus:commit', () => {
     writeFileSync(fp, fpChecked)
     const hitChecked = hitText.replace(/- \[ \] 章号 1/g, '- [x] 章号 1')
     writeFileSync(hit, hitChecked)
-    execSync(`npx tsx scripts/corpus-commit.ts "${root}" "${outDir}"`, { stdio: 'pipe' })
+    execSync(`npx tsx "${join(REPO_ROOT, 'scripts', 'corpus-commit.ts')}" "${root}" "${outDir}"`, { stdio: 'pipe' })
     const jsonPath = join(outDir, 'body-parts.json')
     expect(existsSync(jsonPath)).toBe(true)
     const entries = JSON.parse(readFileSync(jsonPath, 'utf8')) as Array<{ excerpt: string; expect: string }>
     expect(entries.some((e) => e.expect === 'silent' && e.excerpt.includes('眼睛'))).toBe(true)
     expect(entries.some((e) => e.expect === 'fire' && e.excerpt.includes('眼睛'))).toBe(true)
     // 重跑合并去重（不翻倍）
-    execSync(`npx tsx scripts/corpus-commit.ts "${root}" "${outDir}"`, { stdio: 'pipe' })
+    execSync(`npx tsx "${join(REPO_ROOT, 'scripts', 'corpus-commit.ts')}" "${root}" "${outDir}"`, { stdio: 'pipe' })
     const entries2 = JSON.parse(readFileSync(jsonPath, 'utf8')) as unknown[]
     expect(entries2.length).toBe(entries.length)
   })
@@ -253,7 +257,7 @@ describe('B2 自举脚本（幸存者判定）与 corpus:commit', () => {
       join(root, '写作', '正文', '001-第1章.md'),
       '---\n章号: 1\n标题: 第1章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n她望了他一眼，火光在眼底一闪而过。\n',
     )
-    execSync(`npx tsx scripts/harvest-corpus.ts "${root}"`, { stdio: 'pipe' })
+    execSync(`npx tsx "${join(REPO_ROOT, 'scripts', 'harvest-corpus.ts')}" "${root}"`, { stdio: 'pipe' })
     const fpText = readFileSync(join(root, '工作区', '语料候选', '误报候选.md'), 'utf8')
     expect(fpText).toContain('判定：幸存')
     const hitText = readFileSync(join(root, '工作区', '语料候选', '命中候选.md'), 'utf8')

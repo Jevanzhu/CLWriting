@@ -11,12 +11,12 @@
 
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { walkMdFind } from '../fs/walk-md.js'
+import { walkMdEach } from '../fs/walk-md.js'
 import type { DatabaseSync } from 'node:sqlite'
 import type { CheckSectionResult, CheckItem } from './types.js'
 import { readLeadHistory } from '../format/read.js'
 import { LEAD_TYPES, LEAD_VERBS } from '../format/leads.js'
-import { QUOTE_OPEN, QUOTE_CLOSE } from './quotes.js'
+import { QUOTE_OPEN_LENIENT, QUOTE_CLOSE_LENIENT } from './quotes.js'
 
 /**
  * 账本形式三检。
@@ -80,14 +80,25 @@ export function checkLeadsBookItems(
   // Z-P2-12：章文件解析 + 正文读取按章号缓存（本次三检作用域）。
   // 此前每条履历证据都递归扫目录 + 整章重读，O(履历数×章数) IO——大书三检显著变慢；
   // 不做跨调用缓存：定稿间正文会变，过期正文会漏报 lead-evidence-miss。
-  const chapterPathCache = new Map<number, string | null>()
+  // R62-5：章文件定位改一次 walkMdEach 建 章号→路径 查表（首见优先）——此前每新章号
+  // 一次 walkMdFind 全树扫，深履历大书 O(章数²)（500 章书最多 500 次全树 readdir）。
+  // 惰性建表：无履历章号需求时不发生任何目录扫描（与旧路径「无需求不扫」一致）。
+  let chapterPathMap: Map<number, string> | null = null
+  const chapterPathOf = (chapter: number): string | null => {
+    if (chapterPathMap === null) {
+      chapterPathMap = new Map()
+      walkMdEach(正文dir, (abs, name) => {
+        // 前缀数字 == 章号即登记（补零与否不影响判等）；首见优先保 walkMdFind 找到即停语义
+        const n = Number(name.match(/^(\d+)-/)?.[1])
+        if (Number.isInteger(n) && !chapterPathMap!.has(n)) chapterPathMap!.set(n, abs)
+      })
+    }
+    return chapterPathMap.get(chapter) ?? null
+  }
   const chapterTextCache = new Map<number, string | null>()
   const chapterTextOf = (chapter: number): string | null => {
     if (chapterTextCache.has(chapter)) return chapterTextCache.get(chapter) ?? null
-    if (!chapterPathCache.has(chapter)) {
-      chapterPathCache.set(chapter, findChapterFile(正文dir, chapter))
-    }
-    const path = chapterPathCache.get(chapter) ?? null
+    const path = chapterPathOf(chapter)
     // 低级项（第六轮）：章文件存在但读失败（权限/扫描后瞬删竞态）不崩整个三检——
     // 视同缺失走 lead-evidence-unverifiable 黄项提示作者，而非异常上抛拦截全部检查
     let text: string | null = null
@@ -232,34 +243,18 @@ export function leadClosureItems(
   return items
 }
 
-/** 找某章的正文文件（写作/正文/<章号>-*.md，章号补零与否均匹配）。
- *  递归扫描含卷子目录（写作/正文/第一卷/...）—— scaffold 默认即卷布局，
- *  非递归会让引文命中检查在默认布局下整体跳过（防吃书核心环节失效）。 */
-function findChapterFile(正文dir: string, chapter: number): string | null {
-  return findChapterFileRecursive(正文dir, chapter)
-}
-
-/** L-P1（第八轮）：走共享 walkMdFind（环剪枝 + 起遍目录根界），替换手写递归。 */
-function findChapterFileRecursive(dir: string, chapter: number): string | null {
-  return (
-    walkMdFind(dir, (abs, name) => {
-      // 解析文件名前缀数字 == chapter，不受补零（0152 vs 152）影响
-      return Number(name.match(/^(\d+)-/)?.[1]) === chapter ? abs : undefined
-    }) ?? null
-  )
-}
-
 /** 提取证据的核心片段（引号内的内容优先，否则取前 N 字）。export 供 cli/check 当前章引文命中复用同口径。 */
 export function extractEvidenceCore(evidence: string): string {
   // 优先取引号内的内容（V-P2-12：统一走 quotes.ts 双体系引号 + 保留 ASCII 直引号——
   // 此前这里只认 ASCII 直引号，中文弯引号/直角引号包裹的证据全部走 slice 兜底，
-  // 截断片段致 lead-evidence-miss 误报）
-  const quoted = evidence.match(new RegExp(`[${QUOTE_OPEN}"]([^${QUOTE_CLOSE}"]{4,})[${QUOTE_CLOSE}"]`))
+  // 截断片段致 lead-evidence-miss 误报）。R62-8：宽容字符集收编 quotes.ts 单源导出
+  //（证据面宁宽勿漏是设计口径；正文 span 检测不收 ASCII 引号，两口径并存见 quotes.ts）
+  const quoted = evidence.match(new RegExp(`[${QUOTE_OPEN_LENIENT}]([^${QUOTE_CLOSE_LENIENT}]{4,})[${QUOTE_CLOSE_LENIENT}]`))
   if (quoted?.[1]) return quoted[1]
   // 否则取前 8 个字符（够 grep）。Y-22（第五十七轮）：短引号证据（如「雪落」3 字，
   // 不满 {4,}）走此兜底——先剥首尾引号再截，带引号字符去 grep 正文会整组 miss
   // （正文写无引号的「雪落」时误报 lead-evidence-miss）
-  const stripped = evidence.replace(new RegExp(`^[${QUOTE_OPEN}"]|[${QUOTE_CLOSE}"]$`, 'g'), '')
+  const stripped = evidence.replace(new RegExp(`^[${QUOTE_OPEN_LENIENT}]|[${QUOTE_CLOSE_LENIENT}]$`, 'g'), '')
   return (stripped || evidence).slice(0, 8)
 }
 

@@ -19,7 +19,9 @@ import type { IronRules } from '../format/iron-rules.js'
 /**
  * 汉字字符范围（基本区 + 扩展 A 区）。
  * 统一使用，避免不同检查项范围不一导致生僻字人名漏判。
- * 「一-鿿」= \u4e00-\u9fa5（基本区），「㐀-䶿」= \u3400-\u4dbf（扩展 A 区）。
+ * R62-29 注释修正：「一-鿿」中 一=U+4E00、鿿=U+9FFF（基本区顶，非 U+9FA5——
+ * U+9FA5 是「龥」，U+9FFD~U+9FFF 是 CJK 扩充进基本区顶的字，旧注释把区顶码位
+ * 写错一位）；「㐀-䶿」= U+3400-U+4DBF（扩展 A 区）。
  */
 const HANZI = '一-鿿㐀-䶿'
 
@@ -161,9 +163,11 @@ function isAttributionOnly(outside: string): boolean {
 
 /** X-P2-9：对白归属行结构——1-4 汉字（人名/称谓）+ 说话动词 + 可选尾缀（了/着/道）。
  *  说话人名词不在提示语词表（V-P2-13 只挡代词行），「快走。」林晚说。这类
- *  网文最高频对白行式按结构匹配豁免，否则引号内对白被当专名每章批量误报。 */
+ *  网文最高频对白行式按结构匹配豁免，否则引号内对白被当专名每章批量误报。
+ *  R62-29：汉字段改 ${HANZI} 插值（与全文件口径同源）——此前字面 \u4e00-\u9fa5
+ *  漏基本区顶与扩展 A 区，生僻字人名的归属行不匹配、对白被当专名误报。 */
 const SPEECH_ATTRIBUTION_RE =
-  /^[\u4e00-\u9fa5]{1,4}(?:说|道|问|喊|叫|答|叹|笑|骂|吼|喝|斥|呼|唤|念|回|应|嘀咕|嘟囔|喃喃|低语)(?:了|着|道)?$/
+  new RegExp(`^[${HANZI}]{1,4}(?:说|道|问|喊|叫|答|叹|笑|骂|吼|喝|斥|呼|唤|念|回|应|嘀咕|嘟囔|喃喃|低语)(?:了|着|道)?$`)
 
 /**
  * 新专名比对名册（#10 项 10，🟡 黄）。
@@ -180,6 +184,9 @@ export function checkNewNames(
   const candidates = new Set<string>()
   const spanRe = new RegExp(QUOTED_SPAN_RE.source, 'g')
   const punctRe = new RegExp(`[${QUOTE_OPEN}${QUOTE_CLOSE}${SPAN_PUNCT}「」『』]`, 'gu')
+  // R62-28：句读命中判定外提——此前每个候选名 new RegExp 一次（一章数十候选×
+  // 每章重跑，纯浪费；字符类内容循环内不变）
+  const spanPunctRe = new RegExp(`[${SPAN_PUNCT}]`)
   for (const rawLine of body.split(/\n+/)) {
     const line = rawLine.trim()
     const spans = line.match(spanRe)
@@ -194,7 +201,7 @@ export function checkNewNames(
       const name = q.replace(punctRe, '')
       if (name.length < 2 || name.length > 4) continue
       // 含句读的片段是对白内容，不是专名
-      if (new RegExp(`[${SPAN_PUNCT}]`).test(name)) continue
+      if (spanPunctRe.test(name)) continue
       if (!roster.includes(name)) candidates.add(name)
     }
   }

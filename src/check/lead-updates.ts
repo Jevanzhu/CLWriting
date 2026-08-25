@@ -65,6 +65,14 @@ export function parseLeadUpdateLines(text: string): ChapterLeadUpdate[] {
   return out
 }
 
+/** R61-14（第六十一轮）：账本推进主文件是否属于被检章（V-P2-14 声明侧同向收口）——
+ *  带章标签且 ≠ 被检章 → false：批量连写后复检旧章时，他章证据不作本章「已兑现」
+ *  参照；无标签旧文件 → true（宽容沿用，同 readLeadUpdatesAt 兼容口径）。 */
+export function leadUpdatesInScopeForChapter(bookRoot: string, forChapter: number): boolean {
+  const tag = readLeadUpdateChapterTag(join(bookRoot, LEAD_UPDATES_FILE))
+  return tag === null || tag === forChapter
+}
+
 /** 读账本推进文件的章节标签（首行 `# 第N章 …`；无标签/解析失败 → null）。 */
 export function readLeadUpdateChapterTag(absPath: string): number | null {
   if (!existsSync(absPath)) return null

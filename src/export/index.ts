@@ -13,7 +13,7 @@
 
 import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs'
 import { join, relative } from 'node:path'
-import { atomicWriteFile } from '../fs/atomic.js'
+import { atomicWriteFile, atomicWriteStream } from '../fs/atomic.js'
 import { readChapterDir } from '../format/chapters.js'
 import { readBookConfig } from '../format/yaml.js'
 import { finalizedPathSet } from '../document/manifest.js'
@@ -190,18 +190,11 @@ export function exportBook(options: ExportOptions): ExportResult {
   // 2. 按章号数值排序（不依赖文件名字符串序）
   exportable.sort((a, b) => a.num - b.num)
 
-  // 3. 净化正文（W-P2-4：body 已随 readChapterDir(includeBody=true) 一次带出，不再二次 readFile）
-  const purified: Array<{ num: number; title: string; body: string }> = exportable.map((unit) => ({
-    num: unit.num,
-    title: unit.title,
-    body: purifyBody(unit.body!),
-  }))
-
-  // 4. 准备导出目录（母本 6.2 工作区/导出/）
+  // 3. 准备导出目录（母本 6.2 工作区/导出/）
   const exportDir = join(bookRoot, '工作区', '导出')
   mkdirSync(exportDir, { recursive: true })
 
-  // 5. 读书名（用于合并文件名；book.yaml #9 格式）
+  // 4. 读书名（用于合并文件名；book.yaml #9 格式）
   let bookTitle = '未命名'
   if (cfg.ok && cfg.config.book.title) {
     bookTitle = cfg.config.book.title
@@ -211,37 +204,68 @@ export function exportBook(options: ExportOptions): ExportResult {
   const doMerged = format === 'merged' || format === 'both'
   const doSplit = format === 'split' || format === 'both'
 
-  // 6. 单文件合并：全本-<书名>.md
+  // 5. 单文件合并：全本-<书名>.md
+  // 5+6. 单遍流式导出（内存闸 2026-08-24 审计 A1）：不再物化 purified 全书数组与
+  //  `join('\n\n---\n\n')` 整书大串（原峰值 ≈4-6× 全书体积，200 万字书几十 MB
+  //  多份并存）——逐章净化即写即弃，merged 经 atomicWriteStream 追加写、split 逐章
+  //  原子写，峰值降为单章级；产物字节与原实现逐一恒等（同段同序同分隔符）。
+  let mergedFileName = ''
   if (doMerged) {
-    const mergedContent = purified
-      .map((unit) => `# ${unit.title}\n\n${unit.body}`)
-      .join('\n\n---\n\n')
-    const fileName = `全本-${sanitizeFileName(bookTitle, FILENAME_MAX_BYTES - Buffer.byteLength('全本-') - Buffer.byteLength('.md'))}.md`
+    mergedFileName = `全本-${sanitizeFileName(bookTitle, FILENAME_MAX_BYTES - Buffer.byteLength('全本-') - Buffer.byteLength('.md'))}.md`
     // 第五轮：书改名/字节截断形变后，旧「全本-旧书名.md」残留在导出目录里会让作者
     // 拿错稿——同前缀其余文件视为过期产物清掉（清旧失败不阻断导出）
     for (const old of readdirSync(exportDir)) {
-      if (old.startsWith('全本-') && old.endsWith('.md') && old !== fileName) {
+      if (old.startsWith('全本-') && old.endsWith('.md') && old !== mergedFileName) {
         try { rmSync(join(exportDir, old), { force: true }) } catch { /* 单文件清理失败忽略 */ }
       }
     }
-    atomicWriteFile(join(exportDir, fileName), mergedContent)
-    files.push(`工作区/导出/${fileName}`)
   }
 
-  // 7. 分章导出：工作区/导出/分章/<序号>-<标题>.md
+  // 6. 分章导出目录准备：整目录重建（第五轮：纯派生产物，旧残留会让作者上错版本）
   if (doSplit) {
-    const splitName = '分章'
-    const splitDir = join(exportDir, splitName)
-    // 第五轮：分章目录是纯派生产物，整目录重建——改章标题（文件名随 rename）/删章后
-    // 旧导出残留（003-旧标题.md 与 003-新标题.md 并存、已删章文件仍在）会让作者
-    // 从分章目录逐文件取稿时上错版本
+    const splitDir = join(exportDir, '分章')
     rmSync(splitDir, { recursive: true, force: true })
     mkdirSync(splitDir, { recursive: true })
-    for (const unit of purified) {
-      const prefix = `${String(unit.num).padStart(3, '0')}-`
-      const fileName = `${prefix}${sanitizeFileName(unit.title, FILENAME_MAX_BYTES - Buffer.byteLength(prefix) - Buffer.byteLength('.md'))}.md`
-      atomicWriteFile(join(splitDir, fileName), `# ${unit.title}\n\n${unit.body}`)
-      files.push(`工作区/导出/${splitName}/${fileName}`)
+  }
+  const writeSplit = (unit: { num: number; title: string; path: string }, body: string): void => {
+    const prefix = `${String(unit.num).padStart(3, '0')}-`
+    const baseName = sanitizeFileName(unit.title, FILENAME_MAX_BYTES - Buffer.byteLength(prefix) - Buffer.byteLength('.md'))
+    // R62-15：同章号+同标题（手工复制备份 / 网盘同步副本「xxx 2.md」形态）撞名——
+    // 此前 atomicWriteFile 直写同路径幂等替换，chapterCount 与 files 却计两次，两章只
+    // 留一章且无提示；改为追加序号后缀保双份并计入 warnings，作者可手动取舍。
+    let fileName = `${prefix}${baseName}.md`
+    if (splitUsed.has(fileName)) {
+      let n = 2
+      while (splitUsed.has(`${prefix}${baseName}-${n}.md`)) n++
+      const dedupName = `${prefix}${baseName}-${n}.md`
+      splitUsed.add(dedupName)
+      warnings.push(`分章 ${unit.num}「${unit.title}」与已导出产物撞名，已另存为 ${dedupName}——若为同名重复章请手动核对/清理`)
+      atomicWriteFile(join(exportDir, '分章', dedupName), `# ${unit.title}\n\n${body}`)
+      files.push(`工作区/导出/分章/${dedupName}`)
+    } else {
+      splitUsed.add(fileName)
+      atomicWriteFile(join(exportDir, '分章', fileName), `# ${unit.title}\n\n${body}`)
+      files.push(`工作区/导出/分章/${fileName}`)
+    }
+  }
+
+  const splitUsed = new Set<string>() // R62-15：分章产物文件名占用集（撞名序号判定）
+
+  if (doMerged) {
+    let first = true
+    atomicWriteStream(join(exportDir, mergedFileName), (append) => {
+      for (const unit of exportable) {
+        const body = purifyBody(unit.body!)
+        if (!first) append('\n\n---\n\n')
+        first = false
+        append(`# ${unit.title}\n\n${body}`)
+        if (doSplit) writeSplit(unit, body)
+      }
+    })
+    files.unshift(`工作区/导出/${mergedFileName}`)
+  } else if (doSplit) {
+    for (const unit of exportable) {
+      writeSplit(unit, purifyBody(unit.body!))
     }
   }
 

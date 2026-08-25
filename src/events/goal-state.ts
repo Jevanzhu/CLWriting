@@ -88,7 +88,8 @@ export function foldTodos(events: ChatEvent[]): Todo[] {
   return todos
 }
 
-/** 单个 goal 快照的当前状态（无事件 → null） */
+/** 单个 goal 快照的当前状态（无事件 → null）。
+ *  R62-32：生产链消费 foldGoals 整表，单查仅测试用——测试资产保留。 */
 export function getGoal(events: ChatEvent[], goalId: string): GoalSnapshot | null {
   return foldGoals(events).find((g) => g.id === goalId) ?? null
 }

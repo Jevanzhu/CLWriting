@@ -21,6 +21,10 @@ const rootVueShared = fileURLToPath(new URL('./node_modules/@vue/shared', import
 const cmBase = './src/studio/web-next/node_modules/'
 const cmState = fileURLToPath(new URL(`${cmBase}@codemirror/state`, import.meta.url))
 const cmView = fileURLToPath(new URL(`${cmBase}@codemirror/view`, import.meta.url))
+// R61-20（第六十一轮）：vue-router 同嵌套布局——web-next 自带副本，根目录测试对裸名
+// 'vue-router' 的解析与 vi.mock 裸名都钉到该副本；此前测试 mock 钉嵌套路径字符串，
+// 依赖提升布局一变 mock 不命中、连锁挂（alias 让布局变化只在配置处消化一次）。
+const webNextVueRouter = fileURLToPath(new URL(`${cmBase}vue-router`, import.meta.url))
 
 export default defineConfig({
   // vitest 需显式挂 plugin-vue 才能处理 .vue 文件。
@@ -35,11 +39,17 @@ export default defineConfig({
       '@vue/shared': rootVueShared,
       '@codemirror/state': cmState,
       '@codemirror/view': cmView,
+      'vue-router': webNextVueRouter,
     },
     dedupe: ['vue', '@vue/reactivity', '@vue/runtime-core', '@vue/runtime-dom', '@vue/shared'],
   },
   test: {
     include: ['test/**/*.test.ts'],
+    // 内存闸（2026-08-24）：默认按 CPU 数 fork（本机 8-10 worker）× 大负载测试
+    // （rag/scale、check/scale 各自 GB 级峰值）叠加出过 19GB 总占用（机器 16GB 爆内存）；
+    // forks 池限到 4 并发压峰值（CPU 核多时不再全开）。
+    pool: 'forks',
+    poolOptions: { forks: { maxForks: 4, minForks: 1 } },
     // 排除 macOS 外置卷自动生成的 ._ AppleDouble 元数据文件
     exclude: ['**/node_modules/**', '**/._*'],
     environment: 'node',
@@ -73,7 +83,9 @@ export default defineConfig({
         // （防回退下限，批 A 覆盖只会更高不会更低）；branches 门暂留 67（2026-08-22
         // 基线 69.35 −2pp），主评审收口时可按新基线同步收紧
         'src/studio/web-next/src/api/**': { lines: 23, branches: 67 },
-        'src/studio/web-next/src/{composables,shared,stores}/**': { lines: 43, branches: 81 },
+        // R62-23：editor/ 并入——typewriter.ts（运行时逻辑 19 行）此前不落任何桶，
+        // 进报告却是「桶外暗区」；并入三桶后纳入门禁（阈值不变）
+        'src/studio/web-next/src/{composables,editor,shared,stores}/**': { lines: 43, branches: 81 },
       },
     },
   },

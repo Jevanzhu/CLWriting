@@ -25,9 +25,12 @@ const DEV_API_BASE: string = (import.meta.env.VITE_DEV_API_BASE as string | unde
  *  过渡期兼容：服务端 ticket 端点未就绪（404）或请求异常时返回 null——调用方回退
  *  ?token= 旧通道（e2e 依赖 SSE，服务端未上线前靠此回退保绿）。除 404 外的失败
  *  （网络/5xx）同样回退旧通道：尽力而为，不让 ticket 层故障单独打断 SSE。 */
-async function fetchStreamTicket(token: string): Promise<string | null> {
+async function fetchStreamTicket(token: string, base: string): Promise<string | null> {
   try {
-    const r = await fetch('/api/stream-ticket', {
+    // R62-49：dev 下 ticket 与 SSE 统一走 DEV_API_BASE 直连同一实例——此前相对路径走
+    // Vite proxy target，可能与 SSE 直连的 127.0.0.1:7878 指向不同 server（脚本起多实例
+    // / 代理命中旧进程），ticket 对不上 SSRF 断连。生产同源 base='' 回归相对路径。
+    const r = await fetch(`${base}/api/stream-ticket`, {
       method: 'POST',
       headers: { 'x-studio-token': token },
     })
@@ -70,7 +73,7 @@ export function useSse(bookName: WatchSource<string>): void {
     // ticket 一次性短时效：fail-closed 退避重连每轮 doConnect 都重取新 ticket。
     let query = ''
     if (t) {
-      const ticket = await fetchStreamTicket(t)
+      const ticket = await fetchStreamTicket(t, base)
       // 换 ticket 期间被 disconnect/切书重连接管：不再开连（防悬挂旧连接）
       if (gen !== connectGen) return
       query = ticket

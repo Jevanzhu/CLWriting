@@ -13,9 +13,11 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
+import { createHash } from 'node:crypto'
 import { currentProvider } from '../../../ai/provider/index.js'
 import { existsSync, readFileSync, mkdirSync, rmSync } from 'node:fs'
 import { defineRoute } from './schema.js'
+import { acquireTaskGate } from './task-gate.js' // R62-17：三审接跨进程任务闸（删书/改名/他进程可见）
 import { readJson, reply, replyError } from '../http.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { safeManifestPath, safeDocId } from '../../../fs/safe-path.js'
@@ -106,6 +108,15 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
         return replyError(res, 409, 'REVIEW_RUNNING', '该文档三审进行中，请稍候完成后再试')
       }
       reviewRunning.add(runKey)
+      // R62-17：三审此前仅内存 Set（进程内），未接 task-gate 跨进程闸——删书/改名/
+      // 他进程（dev-api/Electron 拆分 server）对在跑三审不可见，闸内删除会在旧路径重建
+      // 孤儿目录并白烧 API 费用。补跨进程任务闸（book:review）：占不上（本书有其他
+      // 长任务在跑）→ 409；持有期间 books.ts busyGate/heldTaskGatesFor 一并拦截。
+      const releaseGate = acquireTaskGate(params['name']!, 'review')
+      if (!releaseGate) {
+        reviewRunning.delete(runKey)
+        return replyError(res, 409, 'REVIEW_BUSY', '本书有其他任务在跑，先等它完成后再发起三审')
+      }
       try {
 
         // CC-P1-2：sourceHash 必须与进 prompt 的正文同源——分钟级三审期间作者保存会让
@@ -127,13 +138,22 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
         const { report, chapter, body } = outcome
   
         // 三审运行时喂值：readBookConfig 结果统一过 applyGlobalDefaults（书级未设回落
-        // global.json → 硬编码；budget.calls_per_chapter 喂 remaining_calls，不能是 undefined）
+        // global.json → 硬编码；budget.calls_per_chapter 喂 remaining_calls，不能是 undefined）。
+        // R62-34 注释固定口径：本层与 runCheckForDocument 内层是同一 book.yaml 的两次独立
+        // 读取——内层损坏时 warn 留诊断并回落 DEFAULT_CONFIG，本层静默回落（.config 永远
+        // 有值）；磁盘同文件两次结果一致，刻意不复用内层 config 避免三审层耦合机检内部实现。
         const config = applyGlobalDefaults(
           readBookConfig(join(bookRoot, 'book.yaml')).config,
           ctx.userDataPath,
         )
         const hasWiring = existsSync(join(bookRoot, '布线'))
         const hasShort = config.kind === 'short'
+
+        // R62-33：draft_hash 接线——collectReviewIssues 的 R61-13 守卫（审阅期间草稿漂移
+        // → 审稿单不成立）此前无生产调用方传 hash（实装死字段）。此处与 CC-P1-2 的
+        // sourceHash 同源同拍：字节级 sha256（与 collect 侧重读文件后 createHash 同口径），
+        // 三审分钟级窗口内作者改稿即被捕获。
+        const draftHash = createHash('sha256').update(readFileSync(absPath)).digest('hex')
   
         // buildReviewPacket（O-a 直读：out_dir 用 .cache 临时目录不污染工作区；sourcePath 不绑草稿）
         const reviewOutDir = join(bookRoot, '.cache', `review-${docId}`)
@@ -143,6 +163,8 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
           checkReport: report,
           body,
           chapter: chapter.章号,
+          draft_path: absPath,
+          draft_hash: draftHash,
           workDir: reviewOutDir,
           capabilities: { parallel_subagents: false, multiple_calls: true },
           // D3（批 5）：三口径（次数/tokens/cost）取最紧折算剩余调用数（未设=次数上限，旧行为）
@@ -196,6 +218,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
       } finally {
         // X-P1-4：并发闸释放（成功/失败/异常路径都解锁）
         reviewRunning.delete(runKey)
+        releaseGate() // R62-17：task-gate 同 finally 释放（幂等）
       }
     },
   })

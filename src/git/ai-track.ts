@@ -25,6 +25,7 @@ import {
   writeVersion,
   listVersions,
   readVersion,
+  readVersionMeta, // R62-36：meta-only 读（不加载正文）
   VERSIONS_DIR_NAME,
 } from '../document/version.js'
 
@@ -136,7 +137,8 @@ export function listAiVersions(bookRoot: string, docId: string): AiVersion[] {
   const dir = versionsDir(bookRoot)
   const out: AiVersion[] = []
   for (const v of listVersions(dir, docId)) {
-    const read = readVersion(dir, docId, v.id)
+    // R62-36：只读头部 front matter 判 origin——不整读正文（此前每版全量读盘两遍大海捞针）
+    const read = readVersionMeta(dir, docId, v.id)
     if (!read || read.meta.origin !== 'ai') continue
     out.push({ ref: v.path, ulid: v.id, sha: v.id })
   }

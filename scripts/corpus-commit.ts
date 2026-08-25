@@ -28,6 +28,7 @@ interface ParsedLine {
 }
 
 /** 解析候选 md：### checkId: <id> 分节 + `- [x] 章号 N ｜ 判定：… ｜ 摘录："…"（…）` */
+let droppedExcerpts = 0
 function parseFile(fp: string, expect: Entry['expect']): ParsedLine[] {
   if (!existsSync(fp)) return []
   const out: ParsedLine[] = []
@@ -39,13 +40,19 @@ function parseFile(fp: string, expect: Entry['expect']): ParsedLine[] {
       continue
     }
     if (!checkId) continue
-    const m = /^- \[x\].*摘录：(".+?")（/.exec(line)
+    // R62-24：非贪婪 `(".+?")（` 遇摘录内转义引号邻接 `（` 会提前收口（截断 →
+    // JSON.parse 失败 → catch 静默丢条，作者勾选条目不入库且无告警）。改贪婪
+    // `(".*")（` 取末个 `"`+`（`（摘录闭合引号后跟的 `（` 必为末个），摘录 JSON
+    // 全文进 m[1]——含内层转义引号也完整进串。
+    const m = /^- \[x\].*摘录：(".*")（/.exec(line)
     if (!m) continue
     try {
       const excerpt = JSON.parse(m[1]!) as string
       if (excerpt.trim()) out.push({ checkId, excerpt, expect })
     } catch {
-      /* 摘录非 JSON 串（手写行）跳过 */
+      // R62-24：手写/畸形摘录行——此前静默跳过；改为显式 warn（不再无告警丢条）
+      droppedExcerpts++
+      console.warn(`[corpus:commit] 摘录行未被解析（JSON 格式异常，已跳过不入库）：${line}`)
     }
   }
   return out
@@ -54,6 +61,9 @@ function parseFile(fp: string, expect: Entry['expect']): ParsedLine[] {
 const falsePos = parseFile(join(bookRoot, '工作区', '语料候选', '误报候选.md'), 'silent')
 const hits = parseFile(join(bookRoot, '工作区', '语料候选', '命中候选.md'), 'fire')
 const all = [...falsePos, ...hits]
+if (droppedExcerpts > 0) {
+  console.warn(`[corpus:commit] ${droppedExcerpts} 行勾选条目未被解析（见上方逐行警告）——修复候选 md 后再提交，否则静默丢条`)
+}
 if (all.length === 0) {
   console.log('[corpus:commit] 无勾选条目（在 工作区/语料候选/*.md 把 `[ ]` 改 `[x]` 后重跑）')
   process.exit(0)
@@ -84,6 +94,6 @@ for (const [checkId, entries] of byCheck) {
   const final = [...merged.values()]
   writeFileSync(fp, JSON.stringify(final, null, 2) + '\n')
   written++
-  console.log(`[corpus:commit] test/corpus/checks/${checkId}.json ← ${final.length} 条`)
+  console.log(`[corpus:commit] ${fp} ← ${final.length} 条`) // R62-55：打实际 fp，自定义 corpusDir 不误导
 }
 console.log(`[corpus:commit] 完成：${all.length} 条入库（${written} 个检查器），CI 回归门（corpus.test.ts）即刻生效`)
