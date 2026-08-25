@@ -7,6 +7,7 @@ import TabBar from './TabBar.vue'
 import ViewHeader from './ViewHeader.vue'
 import StatusBar from './StatusBar.vue'
 import ChatDock from './ChatDock.vue'
+import FocusFormatBar from './FocusFormatBar.vue'
 import ConfirmPrompt from '../ui/ConfirmPrompt.vue'
 import CommandPalette from '../ui/CommandPalette.vue'
 import SettingsModal from '../ui/SettingsModal.vue'
@@ -128,6 +129,9 @@ onUnmounted(() => {
         >
           退出专注
         </button>
+        <!-- 专注排版浮动条：右缘竖状常驻（半透明，hover 加深），字号/行距/纸宽/字体所见即所得；
+             仅编辑器视图渲染（排版只对编辑区有意义，ChatDock 同款条件式先例） -->
+        <FocusFormatBar v-if="ws.focusMode && ws.activeView === 'editor'" />
         <!-- 对话助手 dock B（开关默认关闭，开启时底部可折叠面板；工作台视图有对话 tab，不叠 dock） -->
         <ChatDock
           v-if="prefs.chatEnabled && !ws.focusMode && ws.activeView !== 'workbench'"

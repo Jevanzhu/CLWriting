@@ -308,11 +308,8 @@ onUnmounted(() => {
   overflow: hidden;
   padding: var(--page-pad) 0;
 }
-/* 专注模式：纸张放大——用户页宽 +160px，88vw 封顶防窄窗溢出（修订批：原 720px 收窄
- * 实物太窄，作者要求放大；仍纯 CSS 覆写，不写用户 pageWidth 偏好，退出即恢复） */
-.editor-focus .doc-page {
-  max-width: min(calc(var(--page-width, 1020px) + 160px), 88vw);
-}
+/* 专注模式纸张宽度回归用户设置值（--page-width，见 .doc-page 基础规则）——
+ * 不因专注刻意放大/收窄，调整入口移专注态右侧浮动排版条（FocusFormatBar） */
 .crop {
   position: absolute;
   width: var(--crop-size);

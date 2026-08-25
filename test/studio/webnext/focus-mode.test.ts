@@ -4,7 +4,8 @@
  * - EditorView：focus 态隐藏 EditorDocHead/page-title、editor-focus class、CmHost 打字机 prop
  * - useHotkeys：Esc 退出专注；弹层打开时让渡；非 focus 态 Esc 不触发；已 preventDefault 的键让渡
  * - workspace：focusMode 不进入持久化 watch（不记忆，刷新即失）；进入/退出驱动全屏桥
- * - WorkspaceShell：全屏退出反向同步（系统手势退全屏 → 连带退出专注）
+ * - WorkspaceShell：全屏退出反向同步（系统手势退全屏 → 连带退出专注）；排版浮动条挂载条件
+ * - FocusFormatBar：竖状排版浮动条渲染/交互（字号/行距/纸宽滑杆 + 字体下拉，纸宽保持 scope）
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
@@ -17,6 +18,8 @@ const mocks = vi.hoisted(() => ({
   getConfig: vi.fn(),
   getBookPrefs: vi.fn(),
   putBookPrefs: vi.fn(),
+  getGlobalPrefs: vi.fn(),
+  putGlobalPrefs: vi.fn(),
 }))
 
 vi.mock('../../../src/studio/web-next/src/api/documents', () => ({
@@ -39,6 +42,8 @@ vi.mock('../../../src/studio/web-next/src/api/client', () => ({
 vi.mock('../../../src/studio/web-next/src/api/prefs', () => ({
   getBookPrefs: mocks.getBookPrefs,
   putBookPrefs: mocks.putBookPrefs,
+  getGlobalPrefs: mocks.getGlobalPrefs,
+  putGlobalPrefs: mocks.putGlobalPrefs,
 }))
 // CodeMirror 在 happy-dom 起不来——stub 掉
 vi.mock('../../../src/studio/web-next/src/editor/CmHost.vue', () => ({
@@ -52,11 +57,13 @@ vi.mock('../../../src/studio/web-next/src/editor/CmHost.vue', () => ({
 import { defineComponent, h, nextTick } from 'vue'
 import EditorView from '../../../src/studio/web-next/src/views/EditorView.vue'
 import WorkspaceShell from '../../../src/studio/web-next/src/components/shell/WorkspaceShell.vue'
+import FocusFormatBar from '../../../src/studio/web-next/src/components/shell/FocusFormatBar.vue'
 import { useHotkeys } from '../../../src/studio/web-next/src/composables/useHotkeys'
 import { useWorkspaceStore } from '../../../src/studio/web-next/src/stores/workspace'
 import { useDocStore } from '../../../src/studio/web-next/src/stores/doc'
 import { useTreeStore } from '../../../src/studio/web-next/src/stores/tree'
 import { useUiStore } from '../../../src/studio/web-next/src/stores/ui'
+import { usePrefsStore } from '../../../src/studio/web-next/src/stores/prefs'
 import type { TreeNode } from '../../../src/studio/web-next/src/types/tree'
 
 const BOOK = 'test-book'
@@ -85,13 +92,14 @@ function pressKey(key: string, opts: KeyboardEventInit = {}): void {
   window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, ...opts }))
 }
 
-/** 注入桌面全屏桥 mock（captured = onFullScreenChange 注册的回调）；用完 restoreDesktopBridge 清理 */
+/** 注入桌面全屏桥 mock（captured = onFullScreenChange 注册的回调）；用完 restoreDesktopBridge 清理。
+ *  fonts 传入时桥同时带 getSystemFonts（FocusFormatBar 字体区用例）。 */
 interface FsBridgeMock {
   setFullScreen: ReturnType<typeof vi.fn>
   onFullScreenChange: ReturnType<typeof vi.fn>
   captured: ((fs: boolean) => void) | null
 }
-function mockDesktopBridge(): FsBridgeMock {
+function mockDesktopBridge(fonts?: string[]): FsBridgeMock {
   const m: FsBridgeMock = {
     setFullScreen: vi.fn(() => Promise.resolve()),
     onFullScreenChange: vi.fn((cb: (fs: boolean) => void) => {
@@ -100,7 +108,9 @@ function mockDesktopBridge(): FsBridgeMock {
     }),
     captured: null,
   }
-  ;(window as unknown as Record<string, unknown>).clwritingDesktop = m
+  ;(window as unknown as Record<string, unknown>).clwritingDesktop = fonts
+    ? { ...m, getSystemFonts: vi.fn(async () => fonts) }
+    : m
   return m
 }
 
@@ -116,6 +126,9 @@ beforeEach(() => {
   mocks.getConfig.mockReset().mockResolvedValue({ kind: 'long' })
   mocks.getBookPrefs.mockReset().mockResolvedValue({})
   mocks.putBookPrefs.mockReset().mockResolvedValue(undefined)
+  // FocusFormatBar 的 prefs setter 会 debounce 走全局偏好写回——mock 全局两 API 防未定义调用
+  mocks.getGlobalPrefs.mockReset().mockResolvedValue({ prefs: {}, revision: 0 })
+  mocks.putGlobalPrefs.mockReset().mockResolvedValue({ revision: 0 })
 })
 
 describe('EditorView: 专注模式沉浸态', () => {
@@ -304,5 +317,96 @@ describe('workspace: focusMode 不持久化（不记忆）', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('FocusFormatBar: 专注排版浮动条', () => {
+  afterEach(() => restoreDesktopBridge())
+
+  it('无桥渲染：字号/行距/纸宽三滑杆 + 数值与 prefs 同步，字体区隐藏（无桌面桥无字体列表）', () => {
+    const prefs = usePrefsStore()
+    const w = mount(FocusFormatBar)
+    const ranges = w.findAll('.ffb-range')
+    expect(ranges).toHaveLength(3)
+    // 滑杆初值与 prefs 当前值一致（所见即所设）
+    expect((ranges[0]!.element as HTMLInputElement).value).toBe(String(prefs.proseSize))
+    expect((ranges[1]!.element as HTMLInputElement).value).toBe(String(prefs.proseLh))
+    expect((ranges[2]!.element as HTMLInputElement).value).toBe(String(prefs.effectivePageWidth))
+    expect(w.find('.ffb-val').text()).toBe(`${prefs.proseSize}px`)
+    expect(w.find('.ffb-select').exists()).toBe(false)
+  })
+
+  it('字号滑杆拖动 → store 值 + --prose-size CSS 变量即时更新（所见即所得链路）', async () => {
+    const prefs = usePrefsStore()
+    const w = mount(FocusFormatBar)
+    await w.findAll('.ffb-range')[0]!.setValue(20)
+    expect(prefs.proseSize).toBe(20)
+    expect(document.documentElement.style.getPropertyValue('--prose-size')).toBe('20px')
+  })
+
+  it('纸宽滑杆保持当前 scope：全局态写全局；书级覆盖态只写本书且全局不动', async () => {
+    const prefs = usePrefsStore()
+    const w = mount(FocusFormatBar)
+    const widthRange = () => w.findAll('.ffb-range')[2]!
+
+    // 全局态（bookPageWidth=null）：写全局默认
+    await widthRange().setValue(800)
+    expect(prefs.pageWidth).toBe(800)
+    expect(prefs.bookPageWidth).toBeNull()
+
+    // 书级覆盖态：label 带「本书」标记，只写书级，全局不动
+    prefs.bookPageWidth = 800
+    await widthRange().setValue(900)
+    expect(prefs.bookPageWidth).toBe(900)
+    expect(prefs.pageWidth).toBe(800)
+    expect(w.findAll('.ffb-label')[2]!.text()).toContain('本书')
+  })
+
+  it('有桥字体区：中英下拉渲染系统字体 + 选择中文字体写回 prefs', async () => {
+    mockDesktopBridge(['PingFang SC', 'Arial'])
+    const prefs = usePrefsStore()
+    const w = mount(FocusFormatBar)
+    await flushPromises()
+    const selects = w.findAll('.ffb-select')
+    expect(selects).toHaveLength(2)
+    // 中文字体下拉含桥返回的 PingFang SC（isChineseFont 关键词判据）
+    const cnOptions = selects[0]!.findAll('option').map((o) => o.element.value)
+    expect(cnOptions).toContain('PingFang SC')
+    await selects[0]!.setValue('PingFang SC')
+    expect(prefs.proseFontCn).toBe('PingFang SC')
+  })
+
+  it('浮动条在场按 Esc → 直接退出专注（浮动条非弹层，不进 Esc 让渡名单）', () => {
+    const ws = useWorkspaceStore()
+    ws.setFocus(true)
+    mount(FocusFormatBar)
+    mount(HotkeyHost)
+    pressKey('Escape')
+    expect(ws.focusMode).toBe(false)
+  })
+})
+
+describe('WorkspaceShell: 专注排版浮动条挂载', () => {
+  it('focus + editor 视图渲染；切非 editor 视图 / 退 focus 卸载', async () => {
+    const ws = useWorkspaceStore()
+    const w = mount(WorkspaceShell, { props: { bookName: BOOK }, shallow: true })
+    expect(w.findComponent(FocusFormatBar).exists()).toBe(false)
+
+    ws.setFocus(true)
+    await nextTick()
+    expect(w.findComponent(FocusFormatBar).exists()).toBe(true)
+
+    ws.setActiveView('workbench')
+    await nextTick()
+    expect(w.findComponent(FocusFormatBar).exists()).toBe(false)
+
+    ws.setActiveView('editor')
+    await nextTick()
+    expect(w.findComponent(FocusFormatBar).exists()).toBe(true)
+
+    ws.setFocus(false)
+    await nextTick()
+    expect(w.findComponent(FocusFormatBar).exists()).toBe(false)
+    w.unmount()
   })
 })
