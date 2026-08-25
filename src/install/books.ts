@@ -17,6 +17,8 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node
 import { resolve, join, dirname, basename, isAbsolute } from 'node:path'
 import { readBookConfig } from '../format/yaml.js'
 import { atomicWriteFile } from '../fs/atomic.js'
+import { acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
+import { log } from '../log/index.js'
 
 // ── books.jsonl 登记格式（#32 第 2 节）──────────────
 
@@ -117,7 +119,8 @@ export function readBooks(workDir: string): BookEntry[] {
   return readBooksStrict(workDir) ?? []
 }
 
-/** 全量写 books.jsonl（一行一书）。 */
+/** 全量写 books.jsonl（一行一书）。物理写（无锁）——跨进程互斥由上层 mutator
+ *  持 books.lock（R63-2）后调用；直接调用方需自证单写者。 */
 export function writeBooks(workDir: string, books: BookEntry[]): void {
   mkdirSync(join(workDir, CLWRITING_DIR), { recursive: true })
   const fp = join(workDir, BOOKS_FILE)
@@ -125,23 +128,57 @@ export function writeBooks(workDir: string, books: BookEntry[]): void {
   atomicWriteFile(fp, lines + (lines ? '\n' : ''))
 }
 
+/** R63-2（十一轮）：books.jsonl 锁等待超时（毫秒）——可注入缩短保测试快；
+ *  争用为文件 IO 级毫秒，5s 已极保守（对齐 ai-calls J7 的 AI_CALLS_LOCK_TIMEOUT_MS）。 */
+export let BOOKS_LOCK_TIMEOUT_MS = 5_000
+
+/** 测试注入钩子（生产零调用）。 */
+export function __setBooksLockTimeoutForTest(ms: number): void {
+  BOOKS_LOCK_TIMEOUT_MS = ms
+}
+
+/**
+ * R63-2（十一轮）：books.jsonl 读改写段的跨进程互斥——锁文件 .clwriting/books.lock
+ * （fs/cross-process-lock.ts：O_EXCL + pid 存活探测 + 崩溃接管，J7 同款）。此前四个
+ * 写点（append/remove/repair/rename 端点）只靠进程内同步段天然原子，CLI 与桌面双进程
+ * 并发读改写会交错覆盖丢登记（repairBooks 扫盘可重建兜底，但期间书架丢书/误 missing）。
+ * 进程内无需额外串行化：本模块写段全同步，Node 单线程内不交叉。
+ * 返回 null = 超时——调用方按 DA-3 口径降级（append 拒改写返回 ok:false、remove 跳过
+ * 留痕、repair 跳过本轮、rename 端点跳过整写留痕），不裸抛。
+ * 同进程嵌套获取同一锁会自锁（见 cross-process-lock 模块头注）——doWrite 段内不得
+ * 再调本函数或其它持锁写点。
+ */
+export function tryBooksLock(workDir: string): (() => void) | null {
+  mkdirSync(join(workDir, CLWRITING_DIR), { recursive: true })
+  return acquireCrossProcessLockWithTimeout(join(workDir, CLWRITING_DIR, 'books.lock'), BOOKS_LOCK_TIMEOUT_MS)
+}
+
 /** 追加一本书到 books.jsonl（不改 active）。同名已存在则报冲突。 */
 export function appendBook(
   workDir: string,
   entry: BookEntry,
 ): { ok: true } | { ok: false; reason: string } {
-  // DA-3（第七轮）：读失败（null）拒绝重写——降级空表会让 writeBooks 只写进新书一行，
-  // 其余登记全被清掉（repairBooks 扫盘可重建兜底，但期间书架丢书）
-  const books = readBooksStrict(workDir)
-  if (books === null) {
-    return { ok: false, reason: 'books.jsonl 读取失败（权限或磁盘故障），已拒绝改写以防清空书库登记——请修复后重试' }
+  // R63-2：读改写整段进跨进程锁——CLI 与桌面并发建书不交错覆盖丢登记
+  const release = tryBooksLock(workDir)
+  if (!release) {
+    return { ok: false, reason: '书库登记锁获取超时（另一进程正在改写 books.jsonl），本轮不建书——请稍后重试' }
   }
-  if (books.some((b) => b.name === entry.name)) {
-    return { ok: false, reason: `已有一本叫「${entry.name}」的书，换个名字或先删掉旧的` }
+  try {
+    // DA-3（第七轮）：读失败（null）拒绝重写——降级空表会让 writeBooks 只写进新书一行，
+    // 其余登记全被清掉（repairBooks 扫盘可重建兜底，但期间书架丢书）
+    const books = readBooksStrict(workDir)
+    if (books === null) {
+      return { ok: false, reason: 'books.jsonl 读取失败（权限或磁盘故障），已拒绝改写以防清空书库登记——请修复后重试' }
+    }
+    if (books.some((b) => b.name === entry.name)) {
+      return { ok: false, reason: `已有一本叫「${entry.name}」的书，换个名字或先删掉旧的` }
+    }
+    books.push(entry)
+    writeBooks(workDir, books)
+    return { ok: true }
+  } finally {
+    release()
   }
-  books.push(entry)
-  writeBooks(workDir, books)
-  return { ok: true }
 }
 
 /**
@@ -149,14 +186,25 @@ export function appendBook(
  * 如果删的是活动书，清 active 指针（防野指针）。找不到则 no-op。
  */
 export function removeBookEntry(workDir: string, name: string): void {
-  // DA-3（第七轮）：读失败拒绝重写——降级空表会让 writeBooks 清掉其余登记；
-  // 登记留在盘上由 repairBooks 扫盘兜底（文件系统侧删除照常进行）
-  const books = readBooksStrict(workDir)
-  if (books === null) return
-  writeBooks(workDir, books.filter((b) => b.name !== name))
-  // 活动书被删 → 清指针（下次进书架会提示选书）
-  if (readActive(workDir) === name) {
-    atomicWriteFile(join(workDir, ACTIVE_FILE), '')
+  // R63-2：读改写整段进跨进程锁；超时跳过留痕（与读失败同口径——登记留盘由
+  // repairBooks 扫盘兜底，文件系统侧删除照常进行）
+  const release = tryBooksLock(workDir)
+  if (!release) {
+    log.warn('books', `books.jsonl 登记锁获取超时，跳过移除「${name}」登记（登记留盘，自愈兜底）`)
+    return
+  }
+  try {
+    // DA-3（第七轮）：读失败拒绝重写——降级空表会让 writeBooks 清掉其余登记；
+    // 登记留在盘上由 repairBooks 扫盘兜底（文件系统侧删除照常进行）
+    const books = readBooksStrict(workDir)
+    if (books === null) return
+    writeBooks(workDir, books.filter((b) => b.name !== name))
+    // 活动书被删 → 清指针（下次进书架会提示选书）
+    if (readActive(workDir) === name) {
+      atomicWriteFile(join(workDir, ACTIVE_FILE), '')
+    }
+  } finally {
+    release()
   }
 }
 
@@ -293,8 +341,9 @@ export interface RepairResult {
   /** 是否有变动（重建了或发现缺失） */
   changed: boolean
   /** M-8（第八轮）：books.jsonl 读失败时跳过本轮自愈（防「降级空表 × 扫盘整写」清掉
-   *  非标准深度登记）——此时其余字段为空、changed=false，调用方应告警而非报告自愈 */
-  skipped?: 'read-failed'
+   *  非标准深度登记）——此时其余字段为空、changed=false，调用方应告警而非报告自愈；
+   *  R63-2（十一轮）：登记锁超时同款跳过（另一进程持锁改写中，扫盘整写会与之交错） */
+  skipped?: 'read-failed' | 'lock-timeout'
 }
 
 /**
@@ -305,6 +354,20 @@ export interface RepairResult {
  * 真源是磁盘上的书仓库本身；books.jsonl 是「可从扫描重建的派生登记」（类比 .cache）。
  */
 export function repairBooks(workDir: string): RepairResult {
+  // R63-2：读→扫→写整段进跨进程锁；超时跳过本轮（幂等，下次启动重试）
+  const release = tryBooksLock(workDir)
+  if (!release) {
+    return { rebuilt: [], missing: [], relinked: [], changed: false, skipped: 'lock-timeout' }
+  }
+  try {
+    return repairBooksLocked(workDir)
+  } finally {
+    release()
+  }
+}
+
+/** repairBooks 的持锁主体（R63-2 拆出——锁获取/超时降级在 repairBooks 收口）。 */
+function repairBooksLocked(workDir: string): RepairResult {
   // M-8（第八轮）：读失败（EACCES 等）跳过本轮自愈——DA-3（第七轮）只收口了
   // append/remove/rename 三个写点，本函数自称「兜底」却用降级空表起建：EACCES 挡
   // readFileSync 不挡 atomicWriteFile 的 tmp+rename，扫盘整写会立即落盘；而

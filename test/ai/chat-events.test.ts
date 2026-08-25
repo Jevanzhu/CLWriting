@@ -12,7 +12,7 @@ import { runChat, clearChatHistory, getHistory } from '../../src/ai/orchestrate/
 import { openSessionStore } from '../../src/events/store.js'
 import { deriveMessages, validateEventStream } from '../../src/events/projection.js'
 import { loadHistoryWithSeqs } from '../../src/events/chat-bridge.js'
-import { selectBranch } from '../../src/events/branch-tree.js'
+import { selectBranch, selectBranchTo } from '../../src/events/branch-tree.js'
 import type { ContentBlock } from '../../src/ai/provider/types.js'
 import type { DriverEvent, Session, StudioDriver } from '../../src/driver/types.js'
 
@@ -400,8 +400,17 @@ describe('Z-P1-2 写侧谱系：活跃分支延续（G1 分支投影口径统一
     // regenerate b1 成功 → 激活 b1
     fake.setScript([{ type: 'text', content: '重写版回复。' }])
     await runOne(ud, 'z-lineage', undefined, { regenerate: { parentSeq: userSeq, branchId: 'b1' } })
+    let rewriteSeq: number
+    {
+      const store = openSessionStore(ud, bookRoot)!
+      rewriteSeq = store.listEvents('z-lineage').find(
+        (e) => e.type === 'assistant/message' && e.data['message'] === '重写版回复。',
+      )!.seq
+      store.close()
+    }
 
-    // 普通续聊：事件应带 branchId=b1（进组），且不带 parentSeq（不是变体根）
+    // 普通续聊：事件带 branchId=b1 进组，且带 parentSeq=前驱消息首事件 seq（R63-1 链边
+    // ——续聊不是变体根，但需要链边供 selectBranch/selectBranchTo 祖先链行走）
     fake.setScript([{ type: 'text', content: '续聊回复。' }])
     await runOne(ud, 'z-lineage', '续聊问题')
     {
@@ -412,11 +421,11 @@ describe('Z-P1-2 写侧谱系：活跃分支延续（G1 分支投影口径统一
       const contUser = evs.find((e) => e.type === 'user/message' && e.data['message'] === '续聊问题')
       expect(contUser).toBeDefined()
       expect(contUser!.data['branchId']).toBe('b1')
-      expect(contUser!.data['parentSeq']).toBeUndefined()
+      expect(contUser!.data['parentSeq']).toBe(rewriteSeq)
       const contAsst = evs.find((e) => e.type === 'assistant/message' && e.data['message'] === '续聊回复。')
       expect(contAsst).toBeDefined()
       expect(contAsst!.data['branchId']).toBe('b1')
-      expect(contAsst!.data['parentSeq']).toBeUndefined()
+      expect(contAsst!.data['parentSeq']).toBe(rewriteSeq)
     }
 
     // 再生一个变体 b2（同 parent）：续聊（b1 组成员）不得泄入 b2 视图
@@ -439,6 +448,58 @@ describe('Z-P1-2 写侧谱系：活跃分支延续（G1 分支投影口径统一
     expect(b2).toEqual([
       { role: 'user', content: '第一问' },
       { role: 'assistant', content: '重写二版。' },
+    ])
+  })
+
+  it('R63-1：再生→续聊→再再生（锚定续聊 user）：续聊链边补全，早期分支答案不丢出 b2 视图与再生上下文', async () => {
+    const ud = setup()
+    fake.setScript([{ type: 'text', content: '初版回复。' }])
+    await runOne(ud, 'r63-chain', '第一问')
+    let userSeq: number
+    {
+      const store = openSessionStore(ud, bookRoot)!
+      userSeq = store.listEvents('r63-chain').find((e) => e.type === 'user/message')!.seq
+      store.close()
+    }
+
+    // 再生 b1（锚定第一问）→ 激活 b1
+    fake.setScript([{ type: 'text', content: '重写版回复。' }])
+    await runOne(ud, 'r63-chain', undefined, { regenerate: { parentSeq: userSeq, branchId: 'b1' } })
+    // 续聊（进 b1 组；修复后续聊事件带链边 parentSeq=前驱消息首 seq）
+    fake.setScript([{ type: 'text', content: '续聊回复。' }])
+    await runOne(ud, 'r63-chain', '续聊问题')
+
+    // 对续聊的回复再再生 b2——前端口径：parentSeq=最后一条真实 user（续聊问题）首事件 seq
+    let contUserSeq: number
+    {
+      const store = openSessionStore(ud, bookRoot)!
+      contUserSeq = store.listEvents('r63-chain').find(
+        (e) => e.type === 'user/message' && e.data['message'] === '续聊问题',
+      )!.seq
+      store.close()
+    }
+    fake.setScript([{ type: 'text', content: '重答续聊。' }])
+    await runOne(ud, 'r63-chain', undefined, { regenerate: { parentSeq: contUserSeq, branchId: 'b2' } })
+
+    const store = openSessionStore(ud, bookRoot)!
+    const evs = store.listEvents('r63-chain')
+    store.close()
+    expect(validateEventStream(evs)).toEqual([])
+    // 修复前：续聊事件只带 branchId 无 parentSeq → 祖先链在续聊 user 处断——重写版
+    // （b1 变体根）从 b2 视图与再生上下文双双丢失（十一轮真实模块仿真实证）；
+    // 修复后续聊链边 续聊user→重写版→第一问 连通，两口径视图完整
+    const b2 = loadHistoryWithSeqs(selectBranch(evs, 'b2')).msgs
+    expect(b2).toEqual([
+      { role: 'user', content: '第一问' },
+      { role: 'assistant', content: '重写版回复。' },
+      { role: 'user', content: '续聊问题' },
+      { role: 'assistant', content: '重答续聊。' },
+    ])
+    const ctx = loadHistoryWithSeqs(selectBranchTo(evs, contUserSeq)).msgs
+    expect(ctx).toEqual([
+      { role: 'user', content: '第一问' },
+      { role: 'assistant', content: '重写版回复。' },
+      { role: 'user', content: '续聊问题' },
     ])
   })
 

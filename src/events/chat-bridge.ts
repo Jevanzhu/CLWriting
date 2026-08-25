@@ -55,7 +55,9 @@ export function assistantMessageEvent(
   const data: Record<string, unknown> = { message }
   if (usage) data['usage'] = usage
   if (stopReason) data['stopReason'] = stopReason
-  // F1-P4/Z-P1-2：parentSeq 仅变体根需要（regenerate 首条）；续聊进组只带 branchId
+  // F1-P4/Z-P1-2/R63-1：parentSeq 两种来源——变体根（regenerate 首条，锚定触发 user）
+  // 与续聊链边（活跃分支下的普通回合，前驱消息首 seq——补 selectBranch/selectBranchTo
+  // 祖先链的可达性）；线性回合不传，行为不变
   if (branch?.parentSeq !== undefined) data['parentSeq'] = branch.parentSeq
   if (branch?.branchId) data['branchId'] = branch.branchId
   return { type: 'assistant/message', data, surfaceOp: 'append', ...(sourceSeqs ? { sourceSeqs } : {}) }

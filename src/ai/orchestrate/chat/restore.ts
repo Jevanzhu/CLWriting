@@ -111,13 +111,29 @@ export function prepareChatRun(
     msgSeqMap.set(opts.bookName, msgSeqs)
   }
   // Z-P1-2（G1 写侧谱系）：本回合分支归属——regenerate = parentSeq + 新 branchId；
-  // 普通回合延续本书活跃分支（只带 branchId 进组，不设 parentSeq——不是变体根）；
-  // 无活跃分支（线性书/清空后）→ undefined，行为与旧版完全一致
+  // 无活跃分支（线性书/清空后）→ undefined，行为与旧版完全一致。
+  // R63-1（十一轮）：续聊回合除 branchId 外补 parentSeq（前驱消息首事件 seq，与前端
+  // regenerate 锚定 seqs[i][0] 同口径）：读侧 selectBranch/selectBranchTo 的祖先链只认
+  // parentSeq 边，续聊事件只带 branchId 时链在其处断——「再生→续聊→再再生」的新变体
+  // 视图/重建上下文会丢早期分支答案（真实模块仿真实证）。补边只提供链式可达性：
+  // 非组根成员带 parentSeq 不进 listBranches/supersededSlots 的根判定（两者只读组根），
+  // 分支列表/顶替槽/默认分支语义不变。前驱 seq 不可知（进程重启后 msgSeqs 为空对齐
+  // 占位）则留 undefined——退化口径与旧数据一致，读侧线性兜底照常。
   const activeBranch = activeBranchByBook.get(opts.bookName)
+  let followParentSeq: number | undefined
+  if (!opts.regenerate && activeBranch !== undefined) {
+    for (let i = msgSeqs.length - 1; i >= 0; i--) {
+      const prev = msgSeqs[i]!
+      if (prev.length > 0) {
+        followParentSeq = prev[0]!
+        break
+      }
+    }
+  }
   const turnBranch: { parentSeq?: number; branchId?: string } | undefined = opts.regenerate
     ? { parentSeq: opts.regenerate.parentSeq, branchId: opts.regenerate.branchId }
     : activeBranch !== undefined
-      ? { branchId: activeBranch }
+      ? { parentSeq: followParentSeq, branchId: activeBranch }
       : undefined
   const sessionId = store ? store.createSession(opts.bookName, { book: opts.bookName }) : 'mem'
   const recorder = new SessionRecorder(store, sessionId)

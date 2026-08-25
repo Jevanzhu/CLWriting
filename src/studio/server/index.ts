@@ -190,10 +190,15 @@ export function startServer(opts: StudioServerOptions): http.Server {
   if (opts.workDir) {
     try {
       const r = repairBooks(opts.workDir)
-      if (r.skipped === 'read-failed') {
+      if (r.skipped) {
         // M-8（第八轮）：读失败跳过自愈——告警而非报告自愈，防作者误以为登记刚被重建
-        log.warn('repair-books', 'books.jsonl 读取失败，本轮跳过书库自愈（登记未动）——请检查文件权限后重启')
-        sink.add('repair-books', 'books.jsonl 读取失败，本轮跳过书库自愈（登记未动）——请检查文件权限后重启')
+        // R63-2（十一轮）：登记锁超时同款跳过（另一进程持锁改写中，扫盘整写会与之交错）
+        const why =
+          r.skipped === 'read-failed'
+            ? 'books.jsonl 读取失败（权限或磁盘故障）'
+            : 'books.jsonl 登记锁获取超时（另一进程正在改写书库登记）'
+        log.warn('repair-books', `${why}，本轮跳过书库自愈（登记未动）`)
+        sink.add('repair-books', `${why}，本轮跳过书库自愈（登记未动）`)
       } else if (r.changed) {
         log.warn(
           'repair-books',

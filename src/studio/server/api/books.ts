@@ -23,6 +23,7 @@ import {
   writeActive,
   writeBooks,
   isInvalidBookName,
+  tryBooksLock,
 } from '../../../install/books.js'
 import { resolveBook } from '../book-context.js'
 import { forgetService, drainDocumentSaves } from './documents.js'
@@ -425,12 +426,26 @@ export function registerBookRoutes(ctx: BookCtx): void {
 
       // 更新 books.jsonl 登记（保留 created_at/kind 等未知字段）。
       // DA-3（第七轮）：读失败（null）跳过整写——降级空表会把其余登记清掉；repair 兜底
-      const books = readBooksStrict(ctx.workDir)
-      if (books !== null) {
-        const idx = books.findIndex((b) => b.name === oldName)
-        if (idx >= 0) {
-          books[idx] = { ...books[idx], name: newName, path: newPath, kind: books[idx]!.kind }
-          writeBooks(ctx.workDir, books)
+      // R63-2（十一轮）：读改写进 books.lock 跨进程锁（CLI 与桌面并发改名/建书互斥）；
+      // 超时跳过整写留痕——目录已改名成功，登记暂指旧路径，下次启动 repairBooks 按
+      // book.yaml 重关联（missing 报告可见）
+      {
+        const release = tryBooksLock(ctx.workDir)
+        if (!release) {
+          log.warn('api', `rename: books.jsonl 登记锁获取超时，跳过登记更新（${oldName} → ${newName}）——自愈将重关联兜底`)
+        } else {
+          try {
+            const books = readBooksStrict(ctx.workDir)
+            if (books !== null) {
+              const idx = books.findIndex((b) => b.name === oldName)
+              if (idx >= 0) {
+                books[idx] = { ...books[idx], name: newName, path: newPath, kind: books[idx]!.kind }
+                writeBooks(ctx.workDir, books)
+              }
+            }
+          } finally {
+            release()
+          }
         }
       }
       // active 指针指向旧名 → 换新
