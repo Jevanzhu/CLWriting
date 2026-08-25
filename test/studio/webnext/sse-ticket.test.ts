@@ -73,7 +73,9 @@ async function settle(): Promise<void> {
 describe('契约② · SSE ticket 化', () => {
   it('连接前 POST /api/stream-ticket（带 x-studio-token 头）→ EventSource 用 ?ticket= 连接', async () => {
     const fetchFn = stubTicketFetch((url, init) => {
-      if (url === '/api/stream-ticket') {
+      // R62-49：dev 下 ticket 走 DEV_API_BASE 直连同实例（base 前缀）→ 桩改为 endswith 匹配
+      // 兼容相对与 base 前缀两种形态（生产同源仍为相对路径）
+      if (url.endsWith('/api/stream-ticket')) {
         expect(init?.method).toBe('POST')
         expect(new Headers(init?.headers).get('x-studio-token')).toBe('T0')
         return new Response(JSON.stringify({ ticket: 'K1' }), { status: 200 })
