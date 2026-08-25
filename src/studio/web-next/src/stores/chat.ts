@@ -48,6 +48,51 @@ export interface ChatMessage {
 /** 消息列表上限（防长对话内存膨胀） */
 const MAX_MESSAGES = 200
 
+/** 工具入参落存截断上限（码位）。内存闸（2026-08-24 审计 C3）：工具卡 input 是
+ *  整章正文级文本（如 write_chapter 的正文入参），原样入 store 常驻——列表上限只
+ *  限消息条数不限体积（200 条 × 全文章节 = MB 级驻留）。落存前统一截到 2000 码位
+ *  + … 尾标（方案原文写 ToolCard.summary，以实际字段为准 = input）。 */
+const TOOL_INPUT_MAX = 2000
+
+/** 码位计数（不展开数组；代理对成对计 1，与 Array.from 口径一致） */
+function codePointLength(text: string): number {
+  let n = 0
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i)
+    // 高代理项后随低代理项 → 成对算一个码位，跳过低代理项
+    if (c >= 0xd800 && c <= 0xdbff && i + 1 < text.length) {
+      const d = text.charCodeAt(i + 1)
+      if (d >= 0xdc00 && d <= 0xdfff) i++
+    }
+    n++
+  }
+  return n
+}
+
+/** 码位截断（口径同 src/process/summary.ts clipByCodePoints：Array.from 迭代码点——
+ *  String.slice 按 UTF-16 码元会把增补平面字符切成半个代理对） */
+function clipByCodePoints(text: string, max: number): string {
+  return Array.from(text).slice(0, max).join('')
+}
+
+/** 内存闸（2026-08-24 审计 C3）：工具入参落存前截断——SSE 两条路（chat_tool_pending
+ *  追加 / readonly chat_tool 经 ensureTool 补建）与历史种子化（seedFromHistory 的
+ *  tool_use）三处收口。字符串超限 → 截断 + …；对象序列化后超限才替换为截断串
+ *  （小对象原形落存，不动既有展示与断言口径）；其余类型原样透传。 */
+function clipToolInput(input: unknown): unknown {
+  let text: string
+  if (typeof input === 'string') {
+    text = input
+  } else {
+    try {
+      text = JSON.stringify(input) ?? ''
+    } catch {
+      return input // 循环引用等不可序列化：原样透传（不为此抛错）
+    }
+  }
+  return codePointLength(text) > TOOL_INPUT_MAX ? clipByCodePoints(text, TOOL_INPUT_MAX) + '…' : input
+}
+
 /** 自增序列——生成稳定消息 id（不用 crypto.randomUUID 避免 happy-dom 兼容问题） */
 let _msgSeq = 0
 
@@ -133,10 +178,11 @@ export const useChatStore = defineStore('chat', () => {
         const callId = str(ev['callId'])
         const name = str(ev['name'])
         if (callId && name && currentIdx >= 0) {
+          // C3：入参落存前截断（整章正文级 input 不得原样常驻）
           messages.value[currentIdx]!.tools.push({
             callId,
             name,
-            input: ev['input'],
+            input: clipToolInput(ev['input']),
             status: 'pending',
           })
         }
@@ -220,14 +266,18 @@ export const useChatStore = defineStore('chat', () => {
     if (currentIdx < 0) return
     const tools = messages.value[currentIdx]!.tools
     if (!tools.some((t) => t.callId === callId)) {
-      tools.push({ callId, name, input, status: 'pending' })
+      // C3：readonly 工具补建卡片同样走截断收口
+      tools.push({ callId, name, input: clipToolInput(input), status: 'pending' })
     }
   }
 
   /** 更新工具卡片状态 */
   function updateTool(callId: string, patch: Partial<ToolCard>): void {
-    for (const msg of messages.value) {
-      const tool = msg.tools.find((t) => t.callId === callId)
+    // R62-19：反向遍历取最近的同 callId 卡——SSE 的 updateTool 与种子化 applySeedToolResult
+    // 原先一个正向首个、一个反向最近，callId 跨回合重复时同事件打在两张卡上（状态错乱）。
+    // 统一反向：新回合的事件精确落回本回合卡片（旧回合卡是历史只读呈现）。
+    for (let i = messages.value.length - 1; i >= 0; i--) {
+      const tool = messages.value[i]!.tools.find((t) => t.callId === callId)
       if (tool) {
         Object.assign(tool, patch)
         return
@@ -268,7 +318,8 @@ export const useChatStore = defineStore('chat', () => {
       const tools: ToolCard[] = []
       for (const b of m.content) {
         if (b.type === 'text') text += b.text
-        else if (b.type === 'tool_use') tools.push({ callId: b.id, name: b.name, input: b.input, status: 'running' })
+        // C3：历史种子化路径与 SSE 同口径截断（tool_use 的整章正文级 input）
+        else if (b.type === 'tool_use') tools.push({ callId: b.id, name: b.name, input: clipToolInput(b.input), status: 'running' })
       }
       seeded.push({ id: `m${_msgSeq++}`, role: 'assistant', content: text, done: true, tools, ...(typeof seq === 'number' ? { seq } : {}) })
     }

@@ -11,7 +11,6 @@
  * 纯函数，不依赖 DB——单测直接喂事件数组。
  */
 import type { ChatEvent, EventType } from './types.js'
-import { SURFACE_EVENT_TYPES } from './types.js'
 
 /** 分支树节点（surface 消息事件；非 surface 事件也保留用于重放） */
 export interface BranchNode {

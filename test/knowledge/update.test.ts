@@ -6,7 +6,7 @@
  * 重复登记 / 路径越界 / 文件不在盘；④登记后对账（validateKnowledgeManifest）必须过。
  */
 import { describe, it, expect } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, readdirSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -134,6 +134,48 @@ describe('知识层更新：commit 登记', () => {
       expect(validateKnowledgeManifest(root).ok).toBe(true)
       const m = JSON.parse(readFileSync(join(root, '知识层', '_manifest.json'), 'utf8'))
       expect(m.entries).toHaveLength(1)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('R62-1：写盘走原子通道——草稿+登记后 知识层/ 无 .tmp 残留，manifest 字节口径不变', () => {
+    // 修复前 writeFileSync 直写：中断留下半截 _manifest.json 会让下次读取校验整体失败
+    const { root, corpusDir } = fixture()
+    try {
+      baseManifest(root)
+      writeFalsePositiveDraft(root, corpusDir, '2026-08-25')
+      const finalRel = '知识层/机检误报规律-R62.md'
+      writeFileSync(join(root, finalRel), '# 机检误报规律\n## body-parts\n作者归纳……\n', 'utf8')
+      const report = commitKnowledgeFile(root, { target: finalRel, now: '2026-08-25T10:00:00+08:00' })
+      expect(report.ok, report.issues.map((i) => i.message).join(';')).toBe(true)
+
+      // 同目录 tmp + rename：正常路径不留 .tmp 残留（sweep 兼容命名 `.<name>.<pid>.<uuid>.tmp`）
+      const residue = readdirSync(join(root, '知识层')).filter((n) => n.endsWith('.tmp'))
+      expect(residue).toEqual([])
+      // 字节口径不变：2 空格缩进 JSON.stringify + 尾换行，与现 _manifest.json 往返恒等
+      const raw = readFileSync(join(root, '知识层', '_manifest.json'), 'utf8')
+      expect(raw).toBe(JSON.stringify(JSON.parse(raw), null, 2) + '\n')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('R61-2：前缀穿透变体拒绝（../ 逃逸 / 绝对路径 / symlink 指库外），manifest 零写入', () => {
+    const { root } = fixture()
+    try {
+      baseManifest(root)
+      // `知识层/../` 前缀判穿透变体：解析后落 知识层 外（文件真实在盘也不得登记）
+      writeFileSync(join(root, '库外定稿.md'), '# 库外\n', 'utf8')
+      expect(commitKnowledgeFile(root, { target: '知识层/../库外定稿.md' }).ok).toBe(false)
+      expect(commitKnowledgeFile(root, { target: join(root, '知识层', '存量.md') }).ok).toBe(false) // 绝对路径
+      // symlink 指库外：resolveWithinRoot fail-closed（realpath 逃出 root）
+      symlinkSync(join(root, '库外定稿.md'), join(root, '知识层', '链.md'))
+      expect(commitKnowledgeFile(root, { target: '知识层/链.md' }).ok).toBe(false)
+      // 全部拒绝后 manifest 零变化、库外文件未被注入 fm（仍是原文）
+      const m = JSON.parse(readFileSync(join(root, '知识层', '_manifest.json'), 'utf8'))
+      expect(m.entries).toHaveLength(1)
+      expect(readFileSync(join(root, '库外定稿.md'), 'utf8')).toBe('# 库外\n')
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

@@ -196,3 +196,18 @@ describe('F1-P1 校验链', () => {
   })
 })
 
+
+// R62-31：遮蔽区间校验 O(visible)——脏数据 shadowEnd=1e9 此前逐 seq 线性扫十亿次挂死
+// 校验链；改对 visibleSeqs 做区间包含判断后快速完成并如实报错。
+describe('R62-31：遮蔽区间校验 O(visible)', () => {
+  it('shadowEnd=1e9 的 compaction/end → 校验快速完成并报「含未可见 seq」', () => {
+    const events: ChatEvent[] = [
+      ev(1, 'user/message', { message: 'u' }, { surfaceOp: 'append' }),
+      ev(2, 'compaction/end', { reason: 'completed' }, { surfaceOp: 'replace', shadowStart: 1, shadowEnd: 1_000_000_000, sourceSeqs: [1] }),
+    ]
+    const t0 = Date.now()
+    const issues = validateEventStream(events)
+    expect(Date.now() - t0).toBeLessThan(1000) // 修复前线性扫 1e9 seq 必超时
+    expect(issues.some((i) => i.message.includes('未可见'))).toBe(true)
+  })
+})

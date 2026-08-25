@@ -184,3 +184,92 @@ test('readCharacterCards 缓存：未变命中复用、变更重读、返回引�
     clearCharacterCardCache()
   }
 })
+
+// ── 内存闸（2026-08-24 审计 C1）：cardCache FIFO 上限 64 + 删除自愈 ────────────────────
+// 探测手法（与 chapters-cache.test.ts 的 mtime+size 撞车反证同款）：每次写盘后 utimes
+// 回拨到同一固定 Date——同长改写 + 同一时间戳 → (mtime,size) 恒等：键仍在缓存 → 命中
+// 旧内容；键已被淘汰/清扫 → 现读新内容。以此间接观测键的去留。
+
+test('cardCache FIFO 上限 64：塞超后最旧键失活、活跃键仍命中（命中不续位）', async () => {
+  const { readCharacterCards, clearCharacterCardCache } = await import('../../src/process/settings-context.js')
+  const { mkdtempSync, rmSync, writeFileSync, utimesSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = mkdtempSync(join(tmpdir(), 'cards-fifo-'))
+  const T = new Date(1_700_000_000_000)
+  const write = (name: string, body: string): void => {
+    writeFileSync(join(dir, name), `---\n姓名: ${name.replace('.md', '')}\n---\n\n${body}\n`)
+    utimesSync(join(dir, name), T, T)
+  }
+  try {
+    // 插入序可控的三段（不依赖 readdir 顺序）：Z 最旧 → 63 张 B → C 最新，共 65 次 set > 64。
+    // 探测必须隔离进行：超限目录每轮 readdir 都会让被淘汰键 miss → 重插入引发「淘汰→
+    // 下一键 miss→再淘汰」的连锁，若同一轮里既探最旧键又探活跃键，连锁会把活跃键在
+    // 轮到它之前挤掉。故先删 Z 消除超限（活跃键探测轮 = 64 文件对 64 键，零 miss 确定性
+    // 命中），再重建 Z 单独探其失活。
+    write('Z.md', '旧Z。')
+    expect(readCharacterCards(dir, dir)).toHaveLength(1)
+    for (let i = 1; i <= 63; i++) write(`B${String(i).padStart(2, '0')}.md`, `乙${i}。`)
+    readCharacterCards(dir, dir)
+    write('C.md', '旧C。')
+    expect(readCharacterCards(dir, dir)).toHaveLength(65) // 淘汰只影响缓存驻留，不影响输出
+
+    // 删 Z 落回 64 文件 → 本轮零 miss（缓存恰为在盘 64 键），活跃键探测不受连锁干扰
+    rmSync(join(dir, 'Z.md'))
+    expect(readCharacterCards(dir, dir)).toHaveLength(64)
+    // 同长改写 + 同一 T：C（最新插入、命中不续位仍为最新）→ 命中旧内容
+    write('C.md', '新C。')
+    const mid = readCharacterCards(dir, dir)
+    expect(mid.find((c) => c.姓名 === 'C')!.正文).toBe('旧C。') // 活跃键仍命中
+
+    // 重建 Z（同长 + 同一 T，stat 与被淘汰前恒等）：Z 键在塞入 C 时已被 FIFO 淘汰
+    //（read3 的 seen 含 Z，清扫不会删它）→ miss 现读新内容
+    write('Z.md', '新Z。')
+    const after = readCharacterCards(dir, dir)
+    expect(after.find((c) => c.姓名 === 'Z')!.正文).toBe('新Z。') // 最旧键失活（淘汰后 miss 现读）
+    expect(after).toHaveLength(65)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+    clearCharacterCardCache()
+  }
+})
+
+test('cardCache 删除自愈：删卡后再读，缓存条目被清扫；他目录条目不受连坐', async () => {
+  const { readCharacterCards, clearCharacterCardCache } = await import('../../src/process/settings-context.js')
+  const { mkdtempSync, rmSync, writeFileSync, utimesSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir1 = mkdtempSync(join(tmpdir(), 'cards-heal1-'))
+  const dir2 = mkdtempSync(join(tmpdir(), 'cards-heal2-'))
+  const T = new Date(1_700_000_000_000)
+  const write = (base: string, name: string, body: string): void => {
+    writeFileSync(join(base, name), `---\n姓名: ${name.replace('.md', '')}\n---\n\n${body}\n`)
+    utimesSync(join(base, name), T, T)
+  }
+  try {
+    write(dir1, 'P.md', '旧P。')
+    write(dir1, 'Q.md', '旧Q。')
+    write(dir2, 'R.md', '旧R。')
+    readCharacterCards(dir1, dir1)
+    readCharacterCards(dir2, dir2)
+
+    // 删 P → 下一轮 readdir 后 seen-set 清扫 P 键（输出少一张是 readdir 决定的，键清扫才是断言点）
+    rmSync(join(dir1, 'P.md'))
+    expect(readCharacterCards(dir1, dir1).map((c) => c.姓名)).toEqual(['Q'])
+
+    // 同长改写 + 同一 T：P 键若已被清扫 → miss 现读新内容；若清扫失灵 → 命中旧内容
+    write(dir1, 'P.md', '新P。')
+    const again = readCharacterCards(dir1, dir1)
+    expect(again.find((c) => c.姓名 === 'P')!.正文).toBe('新P。')
+    expect(again.find((c) => c.姓名 === 'Q')!.正文).toBe('旧Q。') // 同目录存活键不受影响
+
+    // dir2 的 R 键不受 dir1 清扫连坐（清扫按目录前缀，非全表）：仍命中旧内容
+    write(dir2, 'R.md', '新R。')
+    const r2 = readCharacterCards(dir2, dir2)
+    expect(r2.find((c) => c.姓名 === 'R')!.正文).toBe('旧R。')
+  } finally {
+    rmSync(dir1, { recursive: true, force: true })
+    rmSync(dir2, { recursive: true, force: true })
+    clearCharacterCardCache()
+  }
+})

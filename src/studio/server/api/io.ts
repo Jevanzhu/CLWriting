@@ -25,6 +25,29 @@ interface IoCtx {
 const EXPORT_FORMATS = new Set(['merged', 'split', 'both'])
 const PLATFORMS = new Set(SUBMISSION_PLATFORMS)
 
+// 内存闸（2026-08-24 审计 A1）：全局导出 worker 并发闸——task-gate 只按书限并发，
+// 跨书同时导出会各自 spawn worker（src 形态每线程还独立挂 tsx loader + 内核模块图），
+// 峰值线性叠加（19GB 事故的乘法项之一）。全局同时在跑 export worker ≤2，超出排队
+//（不 409——跨书导出可等，用户无感；单书并发仍走 task-gate 409 语义不变）。
+// acquireExportSlot 导出仅供测试断言排队/放行。
+const MAX_EXPORT_WORKERS = 2
+let activeExportWorkers = 0
+const exportWaiters: Array<() => void> = []
+
+export async function acquireExportSlot(): Promise<() => void> {
+  if (activeExportWorkers >= MAX_EXPORT_WORKERS) {
+    await new Promise<void>((resolve) => exportWaiters.push(resolve))
+  }
+  // 到这里必有空位：either 上面没到 cap（同步块内 check+increment 无 await，原子），
+  // or 前一个 release 已把名额让给我们（release 先 shift 再 resolve，此处 increment）
+  activeExportWorkers++
+  return () => {
+    activeExportWorkers--
+    const next = exportWaiters.shift()
+    if (next) next()
+  }
+}
+
 export function registerIoRoutes(ctx: IoCtx): void {
   // 导出定稿
   defineRoute('books.export', {
@@ -41,10 +64,12 @@ export function registerIoRoutes(ctx: IoCtx): void {
     // await（worker 执行期间仍占闸，并发语义不变）。
     const release = acquireTaskGate(params['name']!, 'export')
     if (!release) return replyError(res, 409, 'BUSY', '本书已有导出任务在跑，请等待完成后再试')
+    let releaseGlobal: (() => void) | null = null
     try {
       const body = await readJson(req)
       const format: ExportFormat = EXPORT_FORMATS.has(String(body['format'])) ? (String(body['format']) as ExportFormat) : 'both'
       const platform: ExportPlatform = PLATFORMS.has(String(body['platform'])) ? (String(body['platform']) as ExportPlatform) : 'generic'
+      releaseGlobal = await acquireExportSlot()
       const result = await runExportBookAsync({ bookRoot: r.bookRoot, format, platform })
       // B-23（第六十轮补修）：业务失败回 422 错误信封——原 200 {ok:false} 是全域
       // 错误信封唯一豁免点，旧注释「apiJson 当异常抛吞诊断信息」已被 dv-01 错误
@@ -58,6 +83,7 @@ export function registerIoRoutes(ctx: IoCtx): void {
         files: result.files,
       })
     } finally {
+      releaseGlobal?.()
       release()
     }
   },

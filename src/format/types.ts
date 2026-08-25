@@ -312,6 +312,7 @@ export interface BookConfig {
     endpoint?: string // 旧版内联 embedding 端点（存量兼容，resolver 回落用）
     model?: string // 旧版内联 embedding 模型名（存量兼容）
     candidate_depth?: number // A3（批 7）：召回惰性指纹校验的候选章上限（缺省 20；P4 拍板写死可覆盖）
+    embed_timeout_ms?: number // R62-27：embedding 单请求超时毫秒（正整数才收；缺省 embed.ts 内置 30s）
   }
   // Z-16（第五十八轮）注释如实化：此字段全库无生产填充（sectionsToConfig 从不设置）——
   // 未知顶层段的实际保留由 patchBookConfigText 文本补丁路径达成（保形在文本层，

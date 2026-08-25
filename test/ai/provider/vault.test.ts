@@ -9,6 +9,8 @@
  * - 版本守卫 → VaultVersionError（§4.4）
  */
 import { test, expect } from 'vitest'
+import { createHash } from 'node:crypto'
+import { builtinKeyMaterial } from '../../../src/ai/provider/vault-key.js'
 import {
   createVault,
   openVault,
@@ -78,4 +80,14 @@ test('vault: 两次 createVault 产生不同 salt（随机性）', () => {
   const a = createVault(KEY_A)
   const b = createVault(KEY_A)
   expect(a.vault.salt).not.toBe(b.vault.salt)
+})
+
+// ── R61-5（第六十一轮）：IKM 恒定性指纹锚 ──────────────────────────────────────
+
+test('R61-5: builtinKeyMaterial 指纹恒定——IKM 碎片任何静默变更（重排/笔误）即红', () => {
+  // roundtrip 用例用同一 IKM 加解密，SHARD hex 改一位测不出；存量用户 vault.dek
+  // 由当前 IKM 派生 KEK 保护（头注明示无恢复途径）——变更必须连同本指纹显式改。
+  expect(createHash('sha256').update(builtinKeyMaterial()).digest('hex')).toBe(
+    '03bb063e10c12c6143f8dc06e312330f7524b2582a353092445c94377ce6d45e',
+  )
 })

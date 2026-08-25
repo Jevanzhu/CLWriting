@@ -50,7 +50,14 @@ export function runExportBookAsync(
     let settled = false
     const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
     const workerUrl = opts.workerUrl ?? resolveWorkerUrl()
-    const w = new Worker(workerUrl, { execArgv: workerExecArgv(workerUrl) })
+    const w = new Worker(workerUrl, {
+      execArgv: workerExecArgv(workerUrl),
+      // 内存闸（2026-08-24 审计 A1）：worker 堆上限——不设时继承默认（64 位 ≈4GB），
+      // 导出内核的全书中转失控也只会把 worker 顶到 OOM 终止（按既有 error 路径回
+      // 500 信封），不再把主进程 RSS 顶到系统爆内存；1GB 对导出峰值（流式化后单章
+      // 级）+ tsx loader 基线余量充足。
+      resourceLimits: { maxOldGenerationSizeMb: 1024 },
+    })
     // 单作业单 settle：成功/失败/超时任一先到，其余路径幂等跳过并 terminate 收线程
     const settle = (fn: () => void): void => {
       if (settled) return

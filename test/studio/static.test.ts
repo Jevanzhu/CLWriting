@@ -2,10 +2,18 @@ import http from 'node:http'
 import net from 'node:net'
 import type { AddressInfo } from 'node:net'
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, expect, test } from 'vitest'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { createStaticHandler } from '../../src/studio/server/static.js'
+
+// M-P3-09（内存核查 2026-08-25）：透传式 spy——只计数不改行为，断言 HEAD 分支不再 readFile 整读
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return { ...actual, readFile: vi.fn(actual.readFile) }
+})
+const readFileMock = vi.mocked(readFile)
 
 let root = ''
 let server: http.Server | undefined
@@ -192,4 +200,30 @@ test('B-21: HEAD 带 content-length 且无 body（命中文件与 SPA fallback �
   expect(spaHead.headers.get('content-length')).toBe(spaGet.headers.get('content-length'))
   expect(await spaHead.text()).toBe('')
   expect((await spaGet.text()).length).toBe(Number(spaHead.headers.get('content-length')))
+})
+
+// M-P3-09（内存核查 2026-08-25）：HEAD 跳过 readFile 整读——修复前 HEAD 与 GET 同分支
+// readFile(safe.abs)，整文件读入内存仅为取 data.length 作 content-length（body 本就不发送）。
+// 现尺寸直接取 stat（文件分支 s.size；目录→index.html 分支补 stat），readFile 调用次数为 0。
+test('M-P3-09: HEAD 不整读文件（readFile 0 次）且 content-length=字节数、body 空；GET 行为不变', async () => {
+  writeFileSync(join(root, 'app.js'), 'console.log(1)')
+
+  readFileMock.mockClear()
+  const head = await fetch(`${baseUrl}/app.js`, { method: 'HEAD' })
+  expect(head.status).toBe(200)
+  expect(readFileMock).not.toHaveBeenCalled() // 修复前：整读仅为取 data.length
+  expect(Number(head.headers.get('content-length'))).toBe(Buffer.byteLength('console.log(1)'))
+  expect(await head.text()).toBe('')
+
+  // 目录 → index.html 分支：s 为目录 stat（size 无意义）→ 对最终文件补 stat 取尺寸，同样不整读
+  const dirHead = await fetch(`${baseUrl}/`, { method: 'HEAD' })
+  expect(dirHead.status).toBe(200)
+  expect(readFileMock).not.toHaveBeenCalled()
+  expect(Number(dirHead.headers.get('content-length'))).toBe(Buffer.byteLength('<!doctype html><title>Studio</title>'))
+
+  // GET 行为不变：照常 readFile 整读发 body
+  readFileMock.mockClear()
+  const get = await fetch(`${baseUrl}/app.js`)
+  expect(readFileMock).toHaveBeenCalledTimes(1)
+  expect(await get.text()).toBe('console.log(1)')
 })

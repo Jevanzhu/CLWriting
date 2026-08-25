@@ -16,6 +16,9 @@
  * 用法：
  *   npx tsx scripts/verify-responses-relay.ts --base-url <url> --api-key <key> --model <model>
  *   --model 缺省 gpt-5；缺 --base-url / --api-key 时打印用法并以 0 退出。
+ *   R61-15（第六十一轮）：key 支持经 env CLW_RELAY_API_KEY 注入（推荐——argv 明文
+ *   ps 可见 ~90s 窗口，同 E-9b「凭据只走 env」红线）；仍传 --api-key 时打一行
+ *   告警提示改用 env，兼容存量用法。
  *   进程内直连 createOpenAIResponsesProvider 组临时 conf（不落盘、不碰 vault /
  *   providers.json），输出永不回显完整 key。
  *
@@ -45,11 +48,11 @@ const TIMEOUT_MS = 90_000
 const DEFAULT_MODEL = 'gpt-5'
 
 function usage(): void {
-  console.log('用法：npx tsx scripts/verify-responses-relay.ts --base-url <url> --api-key <key> --model <model>')
+  console.log('用法：CLW_RELAY_API_KEY=<key> npx tsx scripts/verify-responses-relay.ts --base-url <url> [--model <model>] [--api-key <key>]')
   console.log('  --base-url  中转网关基地址（OpenAI 兼容根，如 https://relay.example.com/v1）')
-  console.log('  --api-key   中转 API Key（输出只显示掩码，绝不回显全文）')
+  console.log('  --api-key   中转 API Key（兼容保留；推荐 env CLW_RELAY_API_KEY——argv 明文 ps 可见；输出只显示掩码，绝不回显全文）')
   console.log('  --model     模型名，缺省 gpt-5')
-  console.log('缺 --base-url 或 --api-key 时仅打印本用法并以 0 退出，不发任何请求。')
+  console.log('缺 key（env 与 --api-key 均无）或 --base-url 时仅打印本用法并以 0 退出，不发任何请求。')
 }
 
 function argValue(flag: string): string | null {
@@ -61,7 +64,13 @@ function argValue(flag: string): string | null {
 }
 
 const baseUrl = argValue('--base-url')
-const apiKey = argValue('--api-key')
+// R61-15：env 优先，argv 兜底（兼容存量）；argv 传入时告警留痕
+const envKey = process.env.CLW_RELAY_API_KEY && process.env.CLW_RELAY_API_KEY !== '' ? process.env.CLW_RELAY_API_KEY : null
+const argvKey = argValue('--api-key')
+if (argvKey !== null) {
+  console.warn('[warn] --api-key 经 argv 传入（ps 可见）；建议改用 env CLW_RELAY_API_KEY')
+}
+const apiKey = envKey ?? argvKey
 const model = argValue('--model') ?? DEFAULT_MODEL
 
 if (!baseUrl || !apiKey) {

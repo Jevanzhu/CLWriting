@@ -31,6 +31,7 @@ import WbHealCard from '../components/workbench/WbHealCard.vue'
 import WbDraftCard from '../components/workbench/WbDraftCard.vue'
 import WbUsageCard from '../components/workbench/WbUsageCard.vue'
 import { friendlyError } from '../shared/error'
+import { isImeComposing } from '../shared/ime'
 
 const props = defineProps<{ bookName: string }>()
 const wb = useWorkbenchStore()
@@ -138,6 +139,13 @@ watch(
     wb.warning = null
   },
 )
+
+function onPromptEnter(e: KeyboardEvent): void {
+  // R61-17（第六十一轮）：原 @keyup.enter 在 IME compositionend 之后触发（isComposing
+  // 已 false），确认候选词的 Enter 会直接起一轮 AI 生成——改 keydown + 组合期守卫
+  if (isImeComposing(e)) return
+  if (!wb.running) void onSpawn()
+}
 
 async function onSpawn(): Promise<void> {
   err.value = null
@@ -297,7 +305,7 @@ async function onSaveDraft(): Promise<void> {
           class="prompt-input"
           placeholder="写作提示（可选，留空用角色默认）"
           :disabled="wb.running"
-          @keyup.enter="!wb.running && onSpawn()"
+          @keydown.enter="onPromptEnter"
         />
         <button v-if="!wb.running" class="btn primary" :disabled="ui.aiAvailable === false" @click="onSpawn">生成</button>
         <button v-else class="btn danger" @click="onInterrupt">中断</button>

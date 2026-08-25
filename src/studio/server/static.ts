@@ -85,7 +85,23 @@ export function createStaticHandler(rootDir: string) {
       // normalize 产 \，跨平台判定口径恒为 / 分隔）。
       const cacheable = rel.split(sep).join('/').startsWith('/assets/')
       // B-21（第六十轮）：补 content-length（RFC 9110 对 HEAD 响应的期望元数据）且
-      // HEAD 不发 body——此前与 GET 同分支 res.end(data)，整文件读入内存后才丢弃
+      // HEAD 不发 body——此前与 GET 同分支 res.end(data)，整文件读入内存后才丢弃。
+      // 内存核查（2026-08-25 M-P3-09）：HEAD 分支不再 readFile 整读（原整文件读入内存
+      // 仅为取 data.length 作 content-length，body 本就不发送）——尺寸直接取 L68 stat 的
+      // s.size；abs 为目录（实发 index.html）时 s 是目录 stat、size 无意义 → 对最终文件
+      // 补一次 stat 取尺寸。GET 分支行为不变（readFile + data.length）。
+      if (req.method === 'HEAD') {
+        const size = s.isDirectory() ? (await stat(safe.abs)).size : s.size
+        res.writeHead(200, {
+          'content-type': MIME[extname(file)] ?? 'application/octet-stream',
+          'cache-control': cacheable
+            ? 'public, max-age=31536000, immutable'
+            : 'no-cache',
+          'content-length': String(size),
+        })
+        res.end()
+        return
+      }
       const data = await readFile(safe.abs)
       res.writeHead(200, {
         'content-type': MIME[extname(file)] ?? 'application/octet-stream',
@@ -94,8 +110,7 @@ export function createStaticHandler(rootDir: string) {
           : 'no-cache',
         'content-length': String(data.length),
       })
-      if (req.method === 'HEAD') res.end()
-      else res.end(data)
+      res.end(data)
     } catch (e) {
       // N-3（第十二轮）：errno 分流——只有 ENOENT/ENOTDIR（路径不存在/非目录段）才走
       // SPA fallback；其余 IO 错误（EACCES/EMFILE/盘满等）此前一律混叠成 200 index.html

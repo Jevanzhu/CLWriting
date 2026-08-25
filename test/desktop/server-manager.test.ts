@@ -16,6 +16,8 @@
  * - 批 U2 stdio 转发（§3.5 单写者 main 侧半边）：stdout JSON 行按 level/tag/msg 重发、
  *   err 透传重建 Error（F-3）、坏行/字段残缺原文兜底、跨 chunk 半行拼装、stderr 整行
  *   warn 进档
+ * - D1（内存闸 2026-08-24 审计）：splitLines 单行缓冲上限 1MB——超限强制截断出行 +
+ *   计数告警；正常行（带换行）行为不变
  */
 import { describe, it, expect, afterAll, vi } from 'vitest'
 import { EventEmitter } from 'node:events'
@@ -29,6 +31,8 @@ import {
   ServerBootError,
   SHUTDOWN_TOTAL_TIMEOUT_MS,
   STUDIO_SERVICE_NAME,
+  splitLines,
+  MAX_LINE_CHARS,
 } from '../../src/desktop/server-manager.js'
 import type { LogLike, ServerManagerDeps } from '../../src/desktop/server-manager.js'
 
@@ -517,6 +521,64 @@ describe('批 U2：forwardLogLine 解析口径（纯函数直测）', () => {
     const cap = mkLogCapture()
     forwardLogLine(JSON.stringify({ level: 'error', tag: 't', msg: 'm', err: { name: 'X' } }), cap.logger)
     expect(cap.lines[0]!.err).toBeUndefined()
+  })
+})
+
+// ── D1（内存闸 2026-08-24 审计）：splitLines 单行缓冲上限 ──
+// child 持续输出无换行内容（日志巨行 / \r 型进度条）时 buf 原先无界线性增长；
+// 修复：超 1MB 强制截断出行 + 计数告警；带换行的正常行行为不变。
+describe('D1: splitLines 单行缓冲上限（纯函数直测）', () => {
+  it('超 1MB 无换行：强制截断出行（恰好 1MB）+ 计数告警；余量续入下一行', async () => {
+    const out = new PassThrough()
+    const lines: string[] = []
+    const warns: number[] = []
+    splitLines(out, (l) => lines.push(l), (n) => warns.push(n))
+    out.write('a'.repeat(MAX_LINE_CHARS + 50)) // 超 1MB 无换行（\r 型进度条同型）
+    await vi.waitFor(() => expect(lines).toHaveLength(1))
+    expect(lines[0]).toHaveLength(MAX_LINE_CHARS) // 截为恰好 1MB
+    expect(lines[0]!).toBe('a'.repeat(MAX_LINE_CHARS))
+    expect(warns).toEqual([1]) // 计数告警一次
+    // 余量（总写入 - 1MB = 50）留在 buf 续累积：下一换行收口为正常行，不再告警
+    out.write('\n')
+    await vi.waitFor(() => expect(lines).toHaveLength(2))
+    expect(lines[1]).toBe('a'.repeat(50))
+    expect(warns).toEqual([1])
+  })
+
+  it('正常行不变：换行切分/跨 chunk 拼行/空行跳过口径保持，不触发告警', async () => {
+    const out = new PassThrough()
+    const lines: string[] = []
+    const warns: number[] = []
+    splitLines(out, (l) => lines.push(l), (n) => warns.push(n))
+    out.write('hello ')
+    out.write('world\nsecond\n\n')
+    await flushStreams()
+    expect(lines).toEqual(['hello world', 'second']) // 跨 chunk 半行拼装 + 空行跳过不变
+    expect(warns).toEqual([]) // 无超限不告警
+  })
+})
+
+describe('D1: stdio 转发接线（manager 全链路）', () => {
+  it('child stdout 巨量无换行 → 截断行原文兜底进档 + server-manager 计数告警', async () => {
+    const cap = mkLogCapture()
+    const { forkRecords, manager } = mkHarness({ logger: cap.logger })
+    const p = manager.start({ workDir: null, userDataPath: mkUserData() })
+    const child = forkRecords[0]!.child
+    child.emit('message', { type: 'ready', port: 1 })
+    await p
+    child.stdout.write('x'.repeat(MAX_LINE_CHARS + 10)) // 非 JSON 巨行且无换行
+    await vi.waitFor(() => {
+      // 截断行（非 JSON）原文兜底进档：长度封在 1MB
+      const forced = cap.lines.filter((l) => l.level === 'info' && l.tag === 'server-proc')
+      expect(forced).toHaveLength(1)
+      expect(forced[0]!.msg).toHaveLength(MAX_LINE_CHARS)
+    })
+    // 计数告警经注入 logger 落档（stdout 侧口径）
+    const warns = cap.lines.filter((l) => l.level === 'warn' && l.tag === 'server-manager')
+    expect(warns).toHaveLength(1)
+    expect(warns[0]!.msg).toContain('stdout')
+    expect(warns[0]!.msg).toContain('截断')
+    await manager.stopChild()
   })
 })
 

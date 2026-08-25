@@ -412,7 +412,12 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
       await stopActiveChild()
     },
     async shutdown(): Promise<void> {
-      if (shutdownStarted) return // 幂等：before-quit 可能多次触发
+      // R62-16：幂等门改判 shuttingDown（B-7 引入的停机生命周期门）——此前用
+      // shutdownStarted：start 换旧 child 的 kill 等待窗（≈2s）内 stopActiveChild 置位
+      // shutdownStarted，before-quit 触发 shutdown 会误判「已在停机」直接返回，新 child 被
+      // app 退出连带硬杀、在途编排收尾丢失。shuttingDown 只在本进程真正停机流程期间置位，
+      // 是前文 B-7 注释预告的「最后一个调用方向」，此处补上。
+      if (shuttingDown) return // 幂等：before-quit 可能多次触发
       // B-7（第六十轮）：停机流程生命周期门——入口置位 / finally 复位，期间 start 入口
       // fail-closed 拒绝（见 start 首守卫）。与 shutdownStarted 分工：后者是「主动 kill
       // 标记」（stopActiveChild 也置位），不随 shutdown 收口复位，不能当生命周期门用。
@@ -486,12 +491,26 @@ function delay(ms: number): Promise<void> {
  * 非 JSON 行 / 字段不完整：原文整行兜底进档（不吞 boot 报错等裸输出）。
  * stderr（Node 警告/V8 诊断）无 JSON 语义，整行按 warn 进档——崩溃取证主线索。
  */
+/** 内存闸（2026-08-24 审计 D1）：单行缓冲上限（1MB，utf8 解码后按字符计——与字节
+ *  同量级）——child 持续输出无换行内容（日志巨行 / \r 型进度条）时 buf 不再无界
+ *  线性增长；超限强制截断出行（余量留在 buf 继续累积，下一换行/下一轮超限收口） */
+export const MAX_LINE_CHARS = 1 << 20
+
 function forwardChildStdio(proc: UtilityProcessLike, logger: LogLike): void {
-  splitLines(proc.stdout, (line) => forwardLogLine(line, logger))
-  splitLines(proc.stderr, (line) => logger.warn('server-proc', line))
+  // 内存闸（2026-08-24 审计 D1）：单行超限强制截断的计数告警（stdout/stderr 同口径）
+  const warnForced = (side: 'stdout' | 'stderr') => (count: number) =>
+    logger.warn('server-manager', `child ${side} 单行超 ${MAX_LINE_CHARS >> 20}MB 无换行，已强制截断出行（累计 ${count} 次）`)
+  splitLines(proc.stdout, (line) => forwardLogLine(line, logger), warnForced('stdout'))
+  splitLines(proc.stderr, (line) => logger.warn('server-proc', line), warnForced('stderr'))
 }
 
-function splitLines(out: NodeJS.ReadableStream | null | undefined, onLine: (line: string) => void): void {
+/** （导出供测试直测解析口径）child 输出 → 行切分。
+ *  onWarn：每次强制截断出行时回调（入参为累计次数），缺省不告警。 */
+export function splitLines(
+  out: NodeJS.ReadableStream | null | undefined,
+  onLine: (line: string) => void,
+  onWarn?: (forcedCount: number) => void,
+): void {
   if (!out) return
   try {
     out.setEncoding?.('utf8')
@@ -499,6 +518,7 @@ function splitLines(out: NodeJS.ReadableStream | null | undefined, onLine: (line
     /* 假件可能未实现：按原 chunk 处理 */
   }
   let buf = ''
+  let forced = 0
   out.on('data', (chunk: unknown) => {
     buf += String(chunk)
     let nl = buf.indexOf('\n')
@@ -507,6 +527,15 @@ function splitLines(out: NodeJS.ReadableStream | null | undefined, onLine: (line
       buf = buf.slice(nl + 1)
       if (line) onLine(line)
       nl = buf.indexOf('\n')
+    }
+    // 内存闸（2026-08-24 审计 D1）：无换行残余超单行上限——强制截断出行 + 计数告警。
+    // 只作用于无换行残余：带换行的正常行（哪怕超长）行为不变（瞬时大行不无界累积）
+    if (buf.length > MAX_LINE_CHARS) {
+      const line = buf.slice(0, MAX_LINE_CHARS).trim()
+      buf = buf.slice(MAX_LINE_CHARS)
+      forced++
+      onWarn?.(forced)
+      if (line) onLine(line)
     }
   })
   out.on('error', () => {}) // 流异常不反噬 main：转发尽力而为，丢行不丢进程

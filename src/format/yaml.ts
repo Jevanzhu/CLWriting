@@ -368,6 +368,8 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
     const md = rag.children.find((c) => c.key === 'model')
     const cd = rag.children.find((c) => c.key === 'candidate_depth')
     const depth = cd ? Number(parseValue(cd.value)) : NaN
+    const et = rag.children.find((c) => c.key === 'embed_timeout_ms')
+    const embedTimeout = et ? Number(parseValue(et.value)) : NaN
     // 低级项（第六轮）：rag 段存在但缺 enabled 键 → 不再整段静默丢弃——
     // 手写了 provider/endpoint 显然意在启用，enabled 缺省 true（显式写 false 才关）
     if (en || pv || ep || md || (Number.isInteger(depth) && depth > 0)) cfg.rag = {
@@ -377,6 +379,8 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
       ...(md ? { model: String(parseValue(md.value)) } : {}),
       // A3（批 7）：候选深度可覆盖（正整数才收，缺省 20 走 recall 侧兜底）
       ...(Number.isInteger(depth) && depth > 0 ? { candidate_depth: depth } : {}),
+      // R62-27：embedding 超时可覆盖（正整数才收，缺省 30s 走 embed.ts 兜底）
+      ...(Number.isInteger(embedTimeout) && embedTimeout > 0 ? { embed_timeout_ms: embedTimeout } : {}),
     }
   }
 
@@ -568,6 +572,7 @@ export function stringifyBookConfig(cfg: BookConfig): string {
       ...(!cfg.rag.provider && cfg.rag.endpoint ? [`  endpoint: ${stringifyValue(cfg.rag.endpoint)}`] : []),
       ...(!cfg.rag.provider && cfg.rag.model ? [`  model: ${stringifyValue(cfg.rag.model)}`] : []),
       ...(cfg.rag.candidate_depth !== undefined ? [`  candidate_depth: ${cfg.rag.candidate_depth}`] : []),
+      ...(cfg.rag.embed_timeout_ms !== undefined ? [`  embed_timeout_ms: ${cfg.rag.embed_timeout_ms}`] : []),
     )
   }
   // 快照保留策略（缺省不输出——现有仓库零改动红线）
@@ -829,6 +834,7 @@ const CONFIG_PATCH_LEAVES: readonly ConfigPatchLeaf[] = [
   { section: 'rag', key: 'endpoint', get: (c) => (c.rag?.provider ? undefined : c.rag?.endpoint) },
   { section: 'rag', key: 'model', get: (c) => (c.rag?.provider ? undefined : c.rag?.model) },
   { section: 'rag', key: 'candidate_depth', get: (c) => c.rag?.candidate_depth },
+  { section: 'rag', key: 'embed_timeout_ms', get: (c) => c.rag?.embed_timeout_ms },
   { section: 'snapshots', key: 'max_days', get: (c) => c.snapshots?.max_days },
   { section: 'snapshots', key: 'max_count', get: (c) => c.snapshots?.max_count },
 ]

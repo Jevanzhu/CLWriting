@@ -504,10 +504,15 @@ test('copyDocument: 源 docId 未登记 → NOT_FOUND', async () => {
 
 test('copyDocument: 目标已存在 → ALREADY_EXISTS', async () => {
   const { root, svc } = makeBookWithChapter()
+  // R61-11（第六十一轮）：补丢内容可捕性——并发窄窗下 atomicWriteFile 会静默覆盖
+  // 已建目标；独占创建后目标原内容必须原样保留
+  const dstAbs = join(root, '写作/正文/第一卷/0001-开篇.md')
+  const before = readFileSync(dstAbs, 'utf8')
   const r = await svc.copyDocument({ docId: 'doc_ch01', relPath: '写作/正文/第一卷/0001-开篇.md' })
   expect(r.ok).toBe(false)
   if (r.ok) return
   expect(r.code).toBe('ALREADY_EXISTS')
+  expect(readFileSync(dstAbs, 'utf8')).toBe(before)
   rmSync(root, { recursive: true, force: true })
 })
 

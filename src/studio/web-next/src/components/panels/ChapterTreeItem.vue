@@ -3,6 +3,7 @@ import { ref, watch, nextTick } from 'vue'
 import { ChevronDown } from 'lucide-vue-next'
 import type { TreeNode } from '../../types/tree'
 import { useTreeStore } from '../../stores/tree'
+import { isImeComposing } from '../../shared/ime'
 
 defineOptions({ name: 'ChapterTreeItem' })
 
@@ -67,6 +68,27 @@ function forwardRename(path: string, value: string): void {
 const inputVal = ref('')
 const inp = ref<HTMLInputElement | null>(null)
 
+// R61-17（第六十一轮）：原 @keyup.enter 在 IME compositionend 之后触发（isComposing 已
+// false），确认候选词的那次 Enter 与主动提交不可区分——统一改 keydown + 组合期守卫
+// （重命名/新建的 Enter-then-blur 双发由 onRenameCommit/onCreateCommit 的态守卫防重）
+function onRenameEnter(e: KeyboardEvent): void {
+  if (isImeComposing(e)) return
+  emit('rename-commit', props.node.path, inputVal.value)
+}
+function onRenameEsc(e: KeyboardEvent): void {
+  // 组合期 Esc 归输入法（收候选框），不取消重命名（B-9 同判据）
+  if (isImeComposing(e)) return
+  emit('rename-cancel')
+}
+function onCreateEnter(e: KeyboardEvent): void {
+  if (isImeComposing(e)) return
+  emit('create-commit', inputVal.value)
+}
+function onCreateEsc(e: KeyboardEvent): void {
+  if (isImeComposing(e)) return
+  emit('create-cancel')
+}
+
 // 进入新建/重命名态：初始化值 + 聚焦
 watch(
   () => [props.creatingDirPath, props.renamePath],
@@ -94,8 +116,8 @@ watch(
         v-model="inputVal"
         class="inline-input"
         @click.stop
-        @keyup.enter="emit('rename-commit', node.path, inputVal)"
-        @keyup.esc="emit('rename-cancel')"
+        @keydown.enter="onRenameEnter"
+        @keydown.esc="onRenameEsc"
         @blur="emit('rename-commit', node.path, inputVal)"
       />
     </div>
@@ -147,8 +169,8 @@ watch(
           class="inline-input"
           :placeholder="creatingKind === 'volume' ? '卷名' : creatingKind === 'character' ? '姓名' : '名称'"
           @click.stop
-          @keyup.enter="emit('create-commit', inputVal)"
-          @keyup.esc="emit('create-cancel')"
+          @keydown.enter="onCreateEnter"
+          @keydown.esc="onCreateEsc"
           @blur="emit('create-commit', inputVal)"
         />
       </div>

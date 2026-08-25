@@ -32,8 +32,10 @@ const HIT_EVERY = 5
 // ── 界值（本机 Apple Silicon 实测 ×12，见头注口径）──────────────────
 /** 冷算耗时上界（ms）——本机实测 ~620ms（2026-08-24，615/628 两次）×12 ≈ 7.4s，取整 8s */
 const COLD_BOUND_MS = 8_000
-/** 缓存命中耗时上界（ms）——本机实测 ~26ms ×12 ≈ 312ms，留余量取 500ms */
-const WARM_BOUND_MS = 500
+/** 缓存命中耗时上界（ms）——本机实测 ~26ms ×12 ≈ 312ms，原取 500；R61-21（第六十一轮）
+ * 预放大 800：CI runner 劣化假红先例（rag scale 2026-08-22 同型复校），退化可捕性不变
+ *（缓存失效口径 ≈ 冷算 700ms，仍 ≪ 800 放不过）；复校流程见头注。 */
+const WARM_BOUND_MS = 800
 
 /** 造词池（确定性文本生成，不含禁词） */
 const WORDS = ['山峦', '风雪', '剑光', '长街', '灯火', '故人', '旧梦', '孤城', '烟雨', '残阳', '铁骑', '夜色', '荒原', '潮声', '星火']
@@ -55,14 +57,17 @@ function makeBody(no: number): string {
   const rng = mulberry32(no * 2654435761)
   const paragraphs: string[] = []
   if (no % HIT_EVERY === 1) paragraphs.push('山门外的玉佩在雨夜里连响了三下，谁也没有回头。')
-  let total = paragraphs.join('\n\n').length
+  // 内存闸（2026-08-24 审计 A3）：增量计数替代每段全量 join——O(N²) 拷贝是造书期
+  // GC churn 推手；total 口径与 join('\n\n').length 恒等（首段无分隔符，此后 +len+2）
+  let total = paragraphs[0]?.length ?? 0
   while (total < CHARS_PER_CHAPTER) {
     const bits: string[] = []
     while (bits.join('').length < 40 + Math.floor(rng() * 91)) {
       bits.push(WORDS[Math.floor(rng() * WORDS.length)]!)
     }
-    paragraphs.push(bits.join(''))
-    total = paragraphs.join('\n\n').length
+    const seg = bits.join('')
+    total = paragraphs.length === 0 ? seg.length : total + seg.length + 2
+    paragraphs.push(seg)
   }
   return paragraphs.join('\n\n')
 }

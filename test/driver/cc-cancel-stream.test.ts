@@ -6,16 +6,27 @@
  * 到达才被推进回收（consumer 闭包滞留，KB 级/个；六十轮登记维持项，本次补修）。
  * 修复：Consumer 增 cancelled 标记 + cancelStream(iter) 唤醒句柄（WeakMap 登记），
  * stream.ts 断开侧先 cancelStream 再 iter.return。cc / mock 双 driver 同构。
+ *
+ * M-P2-1（内存核查 2026-08-25）回归：已连接消费者队列上限——慢/僵尸 SSE 消费者
+ * （连接未断但生成器不再被拉动）在长流期间队列原先无限积压（pre/execRing 有 cap、
+ * 广播腿漏掉）。修复：MAX_CONSUMER_QUEUE=200，超限丢最旧 + 补发一条 notice
+ * （AA-P3-1：丢弃可感知）。cc / mock 双 driver 同构。
  */
 import { tmpdir } from 'node:os'
 import { describe, it, expect } from 'vitest'
-import { ccDriver } from '../../src/driver/cc.js'
-import { mockDriver } from '../../src/driver/mock.js'
+import { ccDriver, MAX_CONSUMER_QUEUE as CC_MAX_CONSUMER_QUEUE } from '../../src/driver/cc.js'
+import { mockDriver, MAX_CONSUMER_QUEUE as MOCK_MAX_CONSUMER_QUEUE } from '../../src/driver/mock.js'
 import type { StudioDriver, DriverEvent } from '../../src/driver/types.js'
 
 const drivers: [string, StudioDriver][] = [
   ['ccDriver', ccDriver],
   ['mockDriver', mockDriver],
+]
+
+/** M-P2-1：driver + 各自导出的队列上限（cc/mock 各自导出锚定，防两处漂移） */
+const capDrivers: [string, StudioDriver, number][] = [
+  ['ccDriver', ccDriver, CC_MAX_CONSUMER_QUEUE],
+  ['mockDriver', mockDriver, MOCK_MAX_CONSUMER_QUEUE],
 ]
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -27,10 +38,36 @@ async function untilParked(iter: AsyncGenerator<DriverEvent>): Promise<{ parked:
   for (;;) {
     const raced = await Promise.race([
       pending.then((r) => ({ kind: 'value' as const, r })),
-      sleep(30).then(() => ({ kind: 'parked' as const })),
+      // R61-19（第六十一轮）：30ms 判「已 park」在极端慢机可假红（事件到得慢被误判
+      // parked，断言少一条事件）——150ms fail-safe 加余量，语义不变
+      sleep(150).then(() => ({ kind: 'parked' as const })),
     ])
     if (raced.kind === 'parked') return { parked: pending }
     if (raced.r.done) throw new Error('生成器意外提前完成')
+    pending = iter.next()
+  }
+}
+
+/** 从既有的悬置 next() 起收尽队列积压（再次 park 前的全部事件）——M-P2-1 断言
+ *  「收到的 = 积压队列全量」，据此观测封顶/丢最旧/notice 补发。返回收尾时悬置的
+ *  next()（多轮积压用例接力：直接作下一轮的 first，不得另起 next()——async
+ *  generator 的请求按序排队，另起的会排在前一个悬置 next() 之后、漏收首事件） */
+async function collectUntilParked(
+  iter: AsyncGenerator<DriverEvent>,
+  first: Promise<IteratorResult<DriverEvent>>,
+): Promise<{ collected: DriverEvent[]; parked: Promise<IteratorResult<DriverEvent>> }> {
+  const out: DriverEvent[] = []
+  let pending = first
+  for (;;) {
+    const raced = await Promise.race([
+      pending.then((r) => ({ kind: 'value' as const, r })),
+      // R61-19（第六十一轮）：30ms 判「已 park」在极端慢机可假红（事件到得慢被误判
+      // parked，断言少一条事件）——150ms fail-safe 加余量，语义不变
+      sleep(150).then(() => ({ kind: 'parked' as const })),
+    ])
+    if (raced.kind === 'parked') return { collected: out, parked: pending }
+    if (raced.r.done) throw new Error('生成器意外完成（未预期）')
+    out.push(raced.r.value)
     pending = iter.next()
   }
 }
@@ -87,6 +124,63 @@ describe.each(drivers)('B-19: %s stream 断开即醒', (_name, driver) => {
       }
       expect(seen).toContain('interrupted')
       expect(seen[seen.length - 1]).toBe('interrupted')
+    } finally {
+      driver.dispose(session)
+    }
+  })
+})
+
+describe.each(capDrivers)('M-P2-1: %s 已连接消费者队列上限', (_name, driver, maxQueue) => {
+  it('慢消费者（只连不拉）持续 emit 超上限：队列封顶、丢最旧、补发 notice', async () => {
+    const session = await driver.startSession(tmpdir())
+    try {
+      const iter = driver.stream(session) as AsyncGenerator<DriverEvent>
+      // 「只连不拉」：驱动到注册 + park 后不再拉动（模拟网络停滞的 SSE 连接——
+      // 连接未断、cancelStream 不会触发，只能靠队列 cap 兜底）
+      const { parked } = await untilParked(iter)
+      const total = maxQueue + 50
+      for (let i = 0; i < total; i++) {
+        driver.emit!(session, { type: 'text', text: `ev-${i}` })
+      }
+      // 唤醒后一次性收尽积压：收到的 = 队列内容全量（封顶观测面）
+      const { collected } = await collectUntilParked(iter, parked)
+      expect(collected).toHaveLength(maxQueue) // 封顶：超 200 后不再增长
+      const texts = collected
+        .filter((e) => e.type === 'text')
+        .map((e) => (e as { text: string }).text)
+      expect(texts).not.toContain('ev-0') // 最旧已丢（修复前 ev-0 仍在队首）
+      expect(texts).toContain(`ev-${total - 1}`) // 最新事件照常送达
+      // 幸存事件保序（丢的是队头连续一段，不是乱序抽丢）
+      const idx = texts.map((t) => Number(t.slice('ev-'.length)))
+      expect([...idx].sort((a, b) => a - b)).toEqual(idx)
+      // 补发 notice（AA-P3-1：丢弃可感知）——至少一条，消息明言丢弃
+      const notices = collected.filter((e) => e.type === 'notice')
+      expect(notices.length).toBeGreaterThanOrEqual(1)
+      expect((notices[0] as { message: string }).message).toContain('丢弃')
+    } finally {
+      driver.dispose(session)
+    }
+  })
+
+  it('队列拉空后告知标记复位：第二轮积压再超限重新补发 notice', async () => {
+    const session = await driver.startSession(tmpdir())
+    try {
+      const iter = driver.stream(session) as AsyncGenerator<DriverEvent>
+      const { parked } = await untilParked(iter)
+      // 第一轮积压：超限 → 补发 notice
+      for (let i = 0; i < maxQueue + 10; i++) {
+        driver.emit!(session, { type: 'text', text: `r1-${i}` })
+      }
+      const r1 = await collectUntilParked(iter, parked)
+      expect(r1.collected.filter((e) => e.type === 'notice')).toHaveLength(1)
+      // 拉空后第二轮积压：dropNotified 已复位 → 重新补发一条（而非永久沉默）。
+      // 接力上一轮收尾时悬置的 next()（另起 untilParked 会漏收第二轮首事件）
+      for (let i = 0; i < maxQueue + 10; i++) {
+        driver.emit!(session, { type: 'text', text: `r2-${i}` })
+      }
+      const r2 = await collectUntilParked(iter, r1.parked)
+      expect(r2.collected).toHaveLength(maxQueue)
+      expect(r2.collected.filter((e) => e.type === 'notice')).toHaveLength(1)
     } finally {
       driver.dispose(session)
     }

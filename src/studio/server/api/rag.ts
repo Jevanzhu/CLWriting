@@ -91,7 +91,8 @@ function startRagBuild(
     }
 
     ragBuildTasks.set(bookName, { running: true, startedAt: new Date().toISOString() })
-    void buildIndex(bookRoot, { enabled: true, endpoint: resolved.endpoint, model: resolved.model }, resolved.apiKey)
+    // R62-27：embed_timeout_ms 从书级 ragConfig 透传（此前字面量漏带，书里配了超时恒不生效）
+    void buildIndex(bookRoot, { enabled: true, endpoint: resolved.endpoint, model: resolved.model, embed_timeout_ms: config.embed_timeout_ms }, resolved.apiKey)
       .then((result) => {
         ragBuildTasks.set(bookName, { running: false, startedAt: '', lastResult: result })
       })

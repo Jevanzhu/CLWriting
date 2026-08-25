@@ -61,6 +61,35 @@ describe('RAG config（红线 H1：key 不进 git）', () => {
     expect(readRagConfig(bookRoot).candidate_depth).toBe(12)
   })
 
+  it('embed_timeout_ms 非正整数不收（R62-27，0 → undefined），合法值透出', () => {
+    // 0/负数会让 AbortController 立即 abort 恒失败——与缺省（embed.ts 内置 30s）同视为未配置
+    writeFileSync(
+      join(bookRoot, 'book.yaml'),
+      'spec_version: 1\nbook:\n  title: 测试\n  genre: 玄幻\nleads:\n  enabled: [主线]\nrag:\n  enabled: true\n  embed_timeout_ms: 0\n',
+      'utf-8',
+    )
+    expect(readRagConfig(bookRoot).embed_timeout_ms).toBeUndefined()
+    writeFileSync(
+      join(bookRoot, 'book.yaml'),
+      'spec_version: 1\nbook:\n  title: 测试\n  genre: 玄幻\nleads:\n  enabled: [主线]\nrag:\n  enabled: true\n  embed_timeout_ms: 45000\n',
+      'utf-8',
+    )
+    expect(readRagConfig(bookRoot).embed_timeout_ms).toBe(45000)
+  })
+
+  it('enableRag 保留已配 embed_timeout_ms（R62-27，整段替换不抹键）', () => {
+    writeFileSync(
+      join(bookRoot, 'book.yaml'),
+      'spec_version: 1\nbook:\n  title: 测试\n  genre: 玄幻\nleads:\n  enabled: [主线]\nrag:\n  enabled: true\n  endpoint: https://old.example/v1/embeddings\n  model: old-m\n  embed_timeout_ms: 9000\n',
+      'utf-8',
+    )
+    const result = enableRag(bookRoot, workDir, { endpoint: 'https://new.example/v1/embeddings', model: 'new-m' })
+    expect(result.ok).toBe(true)
+    const raw = readFileSync(join(bookRoot, 'book.yaml'), 'utf-8')
+    expect(raw).toContain('embed_timeout_ms: 9000') // 保留
+    expect(raw).toContain('"https://new.example/v1/embeddings"') // 新值照写（URL 被 stringifyValue 加引号）
+  })
+
   it('enableRag：非密入 book.yaml，key 落 .clwriting/rag.secret（H1）', () => {
     const result = enableRag(bookRoot, workDir, {
       endpoint: 'https://api.example.com/v1/embeddings',

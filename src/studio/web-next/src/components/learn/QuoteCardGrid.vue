@@ -80,6 +80,12 @@ const learn = useLearnStore()
   line-height: 1.7;
   color: var(--text-normal);
   font-family: var(--prose-font);
+  /* 内存核查（2026-08-25 M-P3-15）：金句正文默认 4 行截断（纯样式，store 数据
+     形态不动；超长候选正文全量渲染会撑爆网格卡片） */
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .quote-foot {
   display: flex;

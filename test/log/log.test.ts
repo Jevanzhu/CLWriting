@@ -156,6 +156,30 @@ describe('log 模块（A4 批 0）', () => {
     expect(msgs).toContain('after-reinit')
   })
 
+  // D2 实施期回归（startup-notices 全量红根因）：换目录 init 与在途泵交错——
+  // 首个 emit 已把泵排上 tail，随后 initLogging(新目录) 的 mkdir 链排在该泵之后；
+  // 泵排空时 state.logsDir 已指向新目录（dayFile 在写入时取），旧实现 appendFile
+  // 先于新目录 mkdir 执行 → ENOENT 降级丢行。修复 = 泵首幂等 mkdir 兜底。
+  // 全量跑红 / 单跑绿的正是在途泵跨测试换目录的同型时序；此处用同步交错确定性复现。
+  it('D2 实施期回归：泵先于新目录 mkdir 链执行的交错不丢行（泵首幂等 mkdir 兜底）', async () => {
+    const dirA = mkdtempSync(join(tmpdir(), 'clw-log-sw-'))
+    const dirB = join(dirA, 'b') // 不预创建——目录创建是日志链的职责
+    dir = dirA // afterEach 递归清理覆盖 dirB
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    // 全同步序列（微任务未跑）：init(A) → emit → init(B) → emit
+    initLogging({ logsDir: dirA, mirrorConsole: false })
+    log.info('t', 'before-switch') // 泵 P 启动（排在 mkdirA/cleanupA 之后）
+    initLogging({ logsDir: dirB, mirrorConsole: false }) // mkdirB 排在 P 之后
+    log.info('t', 'after-switch') // pumping=true 直接入队，由 P 一并排空
+    await flushLogsForTest()
+    const now = new Date()
+    const name = `app-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}.jsonl`
+    const raw = readFileSync(join(dirB, name), 'utf8')
+    expect(raw).toContain('before-switch') // 旧行为：写向未建目录 ENOENT 降级丢行
+    expect(raw).toContain('after-switch')
+  })
+
   // M-6（第十轮）：第九轮 L-6 回归——dayFile 在 flush 时取日期。入队时取的话，
   // 23:59 入队、跨零点后才 flush 的行会写进前一天的 app-YYYYMMDD.jsonl（轮转
   // 边界错位）；修后行归属 flush 时所在日的文件，不串天

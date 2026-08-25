@@ -25,11 +25,24 @@ const ui = useUiStore()
 
 const scrollRef = ref<HTMLElement | null>(null)
 let scrollRaf = 0
-function scrollToBottom(): void {
+// R62-51：用户上滚离开底部的距离阈值（px）——流式输出自动滚动只在距底阈值内跟随，
+// 上滚读历史时不再被 SSE 流式内容拽回去
+const AUTO_FOLLOW_THRESHOLD = 64
+/** 距底是否在阈值内（rAF 复用：onScroll 高频，同帧只读一次）允许自动跟随 */
+let nearBottom = true
+function onScroll(): void {
+  const el = scrollRef.value
+  if (!el) return
+  nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= AUTO_FOLLOW_THRESHOLD
+}
+/** 滚底。force=false（流式默认）只在用户距底阈值内才滚——上滚读历史不打扰；
+ *  force=true（发送后/显式调用）无条件滚底。 */
+function scrollToBottom(force = false): void {
   if (scrollRaf) return
   scrollRaf = requestAnimationFrame(() => {
     scrollRaf = 0
-    if (scrollRef.value) scrollRef.value.scrollTop = scrollRef.value.scrollHeight
+    if (!scrollRef.value) return
+    if (force || nearBottom) scrollRef.value.scrollTop = scrollRef.value.scrollHeight
   })
 }
 
@@ -131,7 +144,7 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
 
 <template>
   <!-- 消息区：无气泡感，用户消息浅卡片右对齐，AI 消息纯文本全宽 -->
-  <div ref="scrollRef" class="chat-messages">
+  <div ref="scrollRef" class="chat-messages" @scroll="onScroll">
     <div v-if="!chat.hasMessages && !chat.running" class="chat-empty">
       <MessageSquareText :size="32" class="chat-empty-icon" />
       <p class="chat-empty-title">和 AI 聊聊你的故事</p>

@@ -32,6 +32,7 @@ import { clearChatHistory, abortChat, isChatRunning, waitChatSettled } from '../
 import { abortSelfHeal, isSelfHealRunning, waitSelfHealSettled } from '../../../ai/orchestrate/self-heal.js'
 import { waitBackgroundTasks, hasBackgroundTasks } from '../../../ai/orchestrate/background.js'
 import { readBookConfig, setTopSectionKey } from '../../../format/yaml.js'
+import { clearChapterDirCacheForBook } from '../../../format/chapters.js'
 import { stringifyValue } from '../../../format/frontmatter.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { doInit } from '../../../install/init.js'
@@ -68,7 +69,7 @@ let initialBook: string | undefined
 async function awaitOrchestrationsSettled(name: string): Promise<void> {
   await Promise.race([
     Promise.all([waitChatSettled(name), waitSelfHealSettled(name), waitBackgroundTasks(name)]),
-    new Promise<void>((resolve) => setTimeout(resolve, 10_000)),
+    new Promise<void>((resolve) => setTimeout(resolve, 10_000).unref()), // R62-41：兜底定时器 unref——不再因等待中的备选定时器拖延进程退出
   ])
 }
 
@@ -258,6 +259,9 @@ export function registerBookRoutes(ctx: BookCtx): void {
     // R-18（第十六轮）：per-book SSE 计数一并清——残留计数会让同名重建书被顶到 429 上限
     forgetSseCount(name)
     invalidateTreeIndex(bookAbs, true)
+    // 内存闸（2026-08-24 审计 C2）：章节元数据缓存按书前缀一并清——删书后目录已不在，
+    // 每章元数据条目成死重（bookAbs 即各调用方 readChapterDir 键的 join 前缀）
+    clearChapterDirCacheForBook(bookAbs)
     // GG-P2-3：事件库一并清（Y-P2-7 双键：book=书名 + book=bookHash(bookRoot)）——
     // 只清内存时事件库残留，同名重建书会在 audit 重放里继承旧书会话/链路事件。
     // L-S4（第八轮）：删除主流程已完成（登记已移、目录已删），清史收尾若抛（SQLITE_BUSY
@@ -414,6 +418,8 @@ export function registerBookRoutes(ctx: BookCtx): void {
       forgetSession(oldName)
       invalidateTreeIndex(oldRoot, true)
       invalidateBookSummary(oldRoot)
+      // 内存闸（2026-08-24 审计 C2）：旧路径前缀的章节元数据缓存一并清（新路径键惰性重建）
+      clearChapterDirCacheForBook(oldRoot)
       forgetRagBuildTask(oldName) // dd-P3：模块级索引任务表随改名清理（rag-build 已被闸拒绝，不会运行中改名）
       writeTitle(newRoot)
 

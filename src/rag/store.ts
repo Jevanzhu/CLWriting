@@ -170,20 +170,27 @@ export function storeChunk(db: DatabaseSync, chunk: ChunkInput): void {
  */
 export function readAllChunks(db: DatabaseSync): RagChunk[] {
   const stmt = db.prepare('SELECT id, 章号, start_offset, end_offset, embedding, norm, model, indexed_at FROM chunks')
-  const rows = stmt.all() as Array<{
+  // 内存闸（2026-08-24）：改游标逐行读（iterate）——原 stmt.all() 先把全部 embedding
+  // BLOB 物化成数组、再 map 复制出第二份 Float32Array，2 万+ 块 × 1536 维时单次召回
+  // ~260MB 双份驻留（测试反复调 recall 叠加为 GB 级峰值）；逐行读每行 BLOB 用完即可
+  // 回收，峰值约减半。语义不变：产出与原实现逐项一致。
+  const out: RagChunk[] = []
+  for (const r of stmt.iterate() as Iterable<{
     id: number; 章号: number; start_offset: number; end_offset: number
     embedding: Uint8Array; norm: number | null; model: string; indexed_at: string
-  }>
-  return rows.map((r) => ({
-    id: r.id,
-    章号: r.章号,
-    start_offset: r.start_offset,
-    end_offset: r.end_offset,
-    embedding: bufferToFloat32(r.embedding),
-    norm: r.norm,
-    model: r.model,
-    indexed_at: r.indexed_at,
-  }))
+  }>) {
+    out.push({
+      id: r.id,
+      章号: r.章号,
+      start_offset: r.start_offset,
+      end_offset: r.end_offset,
+      embedding: bufferToFloat32(r.embedding),
+      norm: r.norm,
+      model: r.model,
+      indexed_at: r.indexed_at,
+    })
+  }
+  return out
 }
 
 /** A3（批 7）：全部章指纹元数据一次读进内存（章号 → indexed hash）——惰性校验的

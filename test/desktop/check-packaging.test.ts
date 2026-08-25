@@ -11,7 +11,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 // @ts-expect-error —— .mjs 直跑脚本无类型声明（不为其维护 d.ts；断言口径靠用例锚定）
-import { problemsForPackageFiles, parseBuilderFiles, problemsForElectronBuilderFiles } from '../../scripts/check-packaging.mjs' // @ts-expect-error（第二行已有 expect 注释；此处再次压住）
+import { problemsForPackageFiles, parseBuilderFiles, problemsForElectronBuilderFiles } from '../../scripts/check-packaging.mjs'
 
 const scriptPath = fileURLToPath(new URL('../../scripts/check-packaging.mjs', import.meta.url))
 const root = fileURLToPath(new URL('../../', import.meta.url))

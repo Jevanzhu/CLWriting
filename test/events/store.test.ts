@@ -2,7 +2,7 @@
  * F1-P1 事件库存取层单测：建库/写入/读取/清空/启动修复。
  */
 import { describe, expect, it, afterEach, vi } from 'vitest'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -82,6 +82,39 @@ describe('F1-P1 store 存取', () => {
     // 小数向下取整
     expect(store.listEvents('书A', undefined, 2.5)).toHaveLength(2)
     store.close()
+  })
+
+  it('B1（2026-08-24）listEvents type 下推：书/会话两维只返回指定类型行，与 limit 可组合', () => {
+    const ud = tmpRoot()
+    const store = openSessionStore(ud, '/books/a')!;
+    const sid = store.createSession('书A')
+    store.appendEvents(sid, [
+      { type: 'session/start', data: {} },
+      { type: 'user/message', data: { message: 'm1' }, surfaceOp: 'append' },
+      { type: 'llm/call', data: { task: 't' } },
+      { type: 'user/message', data: { message: 'm2' }, surfaceOp: 'append' },
+    ])
+    // 书维度 type 下推（trace/cost 聚合路径）
+    expect(store.listEvents('书A', undefined, undefined, 'llm/call').map((e) => e.type)).toEqual(['llm/call'])
+    expect(store.listEvents('书A', undefined, undefined, 'user/message').map((e) => e.seq)).toEqual([2, 4])
+    // 会话维度同推 + type/limit 组合
+    expect(store.listEvents('书A', sid, undefined, 'user/message')).toHaveLength(2)
+    expect(store.listEvents('书A', undefined, 1, 'user/message').map((e) => e.seq)).toEqual([2])
+    store.close()
+  })
+
+  it('B3（2026-08-24）打开期抛错（库损坏）→ 上抛不滞留；修复后同路径重开可用', () => {
+    const ud = tmpRoot()
+    const store = openSessionStore(ud, '/books/a')!;
+    store.close()
+    const dbPath = join(ud, 'clwriting', 'session', bookHash('/books/a') + '.db')
+    writeFileSync(dbPath, Buffer.from('not a sqlite database at all'.repeat(10)))
+    expect(() => openSessionStore(ud, '/books/a')).toThrow()
+    // 坏库清走后同路径可开可写——openStores 无残留登记/句柄阻塞
+    rmSync(dbPath, { force: true })
+    const store2 = openSessionStore(ud, '/books/a')!;
+    store2.appendEvent(store2.createSession('书A'), { type: 'session/start', data: {} })
+    store2.close()
   })
 
   it('clearBook 清空本书事件与 session', () => {

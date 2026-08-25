@@ -567,3 +567,28 @@ test('checkInfoLeak: 关键词命中 → 候选（黄）；空源 → 静默跳�
   expect(checkInfoLeak('他其实是皇子。', ['皇子']).items.some((i) => i.checkId === 'info-leak-candidate')).toBe(true)
   expect(checkInfoLeak('他其实是皇子。', []).items).toHaveLength(0)
 })
+
+test('checkGrowth: 跃迁证据提取不到境界名 → 黄 growth-evidence-no-realm（R62-2：修复前静默跳过，三项红检查对该条失明）', () => {
+  const dir = mkdtempSync(join(tmpdir(), '北境-'))
+  try {
+    const db = new DatabaseSync(join(dir, 'index.db'))
+    createAllTables(db)
+    syncLead(db, {
+      编号: '成长线-004', 标题: 'x', 类型: '成长线', 状态: '进行中', 开启章: 1,
+      当前境界: '筑基',
+      履历: [
+        { 章号: 5, 动词: '突破', 证据: '一举踏入新境' }, // 无序列内确切境界名
+        { 章号: 20, 动词: '突破', 证据: '突破至筑基' },
+      ], _path: 'p',
+    })
+    const realmDoc: RealmDoc = { 体系: [{ 名称: '修真', 序列: ['炼气', '筑基', '金丹'] }] }
+    const r = checkGrowth(db, realmDoc, ['成长线-004'], 2)
+    const noRealm = r.items.find((i) => i.checkId === 'growth-evidence-no-realm')
+    expect(noRealm).toBeDefined()
+    expect(noRealm!.level).toBe('yellow')
+    expect(noRealm!.chapter).toBe(5)
+    db.close()
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

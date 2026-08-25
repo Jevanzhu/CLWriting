@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { openSessionStore, type SessionStore } from '../../src/events/store.js'
+import { openSessionStore, type SessionStore, type NewEvent } from '../../src/events/store.js'
 import {
   loadHistoryWithSeqs,
   SessionRecorder,
@@ -206,3 +206,45 @@ describe('F1-P1 SessionRecorder', () => {
   })
 })
 
+
+// ── R62-10/R62-11（第六十二轮）──────────────────────────
+
+describe('R62-10/R62-11：close 可重试性 + 空载荷遮蔽过滤', () => {
+  it('R62-10：close 首 flush 失败 → ended 回滚 + end 撤回，重试成功且无双写', () => {
+    let failOnce = true
+    const appended: NewEvent[][] = []
+    const fake = {
+      appendEventsResolveLineage(_sid: string, evs: NewEvent[]): number[] {
+        if (failOnce) {
+          failOnce = false
+          throw new Error('模拟 SQLITE_BUSY')
+        }
+        appended.push(evs)
+        return evs.map((_, i) => 100 + i)
+      },
+    } as unknown as SessionStore
+    const rec = new SessionRecorder(fake, 's1')
+    rec.add(userMessageEvent('hi'))
+    // 修复前：ended=true 先置，flush 抛错后幂等闸挡住重试，session/end 永不落库
+    expect(() => rec.close('completed')).toThrow('模拟 SQLITE_BUSY')
+    expect(rec.close('completed')).toBeNull() // 无遮蔽/存档 → null；session/end 已入库
+    expect(appended).toHaveLength(1) // 重试恰好一批
+    expect(appended[0]!.map((e) => e.type)).toEqual(['user/message', 'session/end']) // 恰一个 end，无双写
+    rec.dispose()
+  })
+
+  it('R62-11：空载荷 assistant/message（usage 壳）不入遮蔽区间——closeMaskingAll 产出的流过 validateEventStream 无「未可见 seq」', () => {
+    const { store } = openTmp()
+    const sid = store.createSession('书A')
+    const rec = new SessionRecorder(store, sid)
+    rec.add(sessionStartEvent('书A'))
+    rec.add(userMessageEvent('hi'))
+    rec.add(assistantMessageEvent('')) // 空文本：foldSurface 跳过（永不成为可见节点）
+    rec.flush()
+    rec.closeMaskingAll('completed')
+    // 修复前：该 seq 进遮蔽区间 → 校验报「遮蔽区间含未可见 seq」（契约与实现不符）
+    const issues = validateEventStream(store.listEvents(sid))
+    expect(issues.filter((i) => i.message.includes('未可见'))).toEqual([])
+    store.close()
+  })
+})

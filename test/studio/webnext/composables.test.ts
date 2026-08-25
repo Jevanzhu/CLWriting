@@ -116,6 +116,21 @@ describe('useChatComposer', () => {
     expect(sendMock).toHaveBeenCalled()
   })
 
+  // R61-3（第六十一轮）：IME 组合期 Enter 让渡——组合期 v-model 尚未同步组合文本，
+  // 放行会把不含刚打中文的旧值消息发出去（触发一轮真实 AI 调用）
+  it('R61-3: 组合期 Enter（isComposing）不发送；组合结束后真实 Enter 正常发送', async () => {
+    sendMock.mockResolvedValue({})
+    const c = useChatComposer(() => '书', () => undefined)
+    c.input.value = '帮我写'
+    c.handleKeydown(new KeyboardEvent('keydown', { key: 'Enter', cancelable: true, isComposing: true }))
+    await Promise.resolve()
+    expect(sendMock).not.toHaveBeenCalled()
+    expect(c.input.value).toBe('帮我写') // 输入不清空
+    c.handleKeydown(new KeyboardEvent('keydown', { key: 'Enter', cancelable: true }))
+    await Promise.resolve()
+    expect(sendMock).toHaveBeenCalledWith('书', { message: '帮我写' })
+  })
+
   it('handleClear 确认后清空历史 + chat.clear（CC-P2-16 起 danger 二次确认）', async () => {
     clearMock.mockResolvedValue({})
     const c = useChatComposer(() => '书', () => undefined)

@@ -14,6 +14,7 @@ import { runAllChecks } from '../../src/check/runner.js'
 import { checkWithDb } from '../../src/check/run.js'
 import { computeStyleMetrics } from '../../src/check/count.js'
 import { readOutlineLeads } from '../../src/check/outline-leads.js'
+import { leadUpdatesInScopeForChapter } from '../../src/check/lead-updates.js'
 import { extractEvidenceCore } from '../../src/check/leads.js'
 import { selectReviewTier, buildReviewTasks } from '../../src/review/contract.js'
 import { writeBookConfig, DEFAULT_CONFIG } from '../../src/format/yaml.js'
@@ -161,4 +162,24 @@ test('V-P2-17: 当前境界为序列枚举的细化（炼气一层）→ 不误�
   const r = checkGrowth(db, realmDoc, ['成长线-001'], 2)
   expect(r.items.some((i) => i.checkId === 'growth-realm-miss')).toBe(false) // 修复前：精确 includes 误报红
   db.close()
+})
+
+// ── R61-14（第六十一轮）：实际侧（账本推进主文件）按被检章过滤 ────────────────────
+
+test('R61-14: 账本推进章标签与被检章不一致 → 实际侧置空；一致/缺省 → 沿用（V-P2-14 声明侧同向）', () => {
+  const root = mkdtempSync(join(tmpdir(), 'clw-r61-14-'))
+  try {
+    mkdirSync(join(root, '工作区'), { recursive: true })
+    writeFileSync(join(root, '工作区', '账本推进.md'), '# 第6章 账本推进\n\n- 悬念-001 推进：密室尽头的青铜灯亮了\n', 'utf-8')
+    expect(leadUpdatesInScopeForChapter(root, 6)).toBe(true) // 一致 → 实际侧可用
+    expect(leadUpdatesInScopeForChapter(root, 2)).toBe(false) // 不一致 → 置空（复检旧章不误判「已兑现」）
+
+    writeFileSync(join(root, '工作区', '账本推进.md'), '- 悬念-001 推进：无标签旧文件\n', 'utf-8')
+    expect(leadUpdatesInScopeForChapter(root, 2)).toBe(true) // 旧书无标签 → 宽容沿用
+
+    rmSync(join(root, '工作区', '账本推进.md'))
+    expect(leadUpdatesInScopeForChapter(root, 2)).toBe(true) // 无文件（无标签同判）→ 沿用（readChapterLeadUpdates 返回 []，空集无害）
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
 })

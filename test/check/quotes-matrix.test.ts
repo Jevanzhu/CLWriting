@@ -10,8 +10,8 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { stripQuotedSpans, QUOTED_SPAN_RE } from '../../src/check/quotes.js'
-import { computeStyleMetrics, checkNewNames } from '../../src/check/count.js'
 import { extractEvidenceCore } from '../../src/check/leads.js'
+import { computeStyleMetrics, checkNewNames } from '../../src/check/count.js'
 import type { IronRules } from '../../src/format/iron-rules.js'
 
 const RULES = { maxDialogueTagRatio: 1 } as IronRules
@@ -23,7 +23,9 @@ describe('引号矩阵 · stripQuotedSpans', () => {
     ['「直角」', ''],
     ['“弯引号”', ''],
     ['『二重直角』', ''],
-    ['‘单弯’外', '‘单弯’外'], // ‘’ 不在 SPAN 集（单弯引号多为强调非对白），契约：原样保留
+    ['‘单弯’外', '外'], // R61-12（第六十一轮）：契约反转——‘’ 并入 SPAN 集。旧契约「多为强调非对白」与
+    // leads.ts 证据提取（QUOTE_OPEN/CLOSE 含 ‘’）口径相悖：同一真相源两套行为，‘…’ 对白
+    // 不计对话行分母而证据面又按引号剥——统一为计入（嵌套单弯同「嵌“套”」单层切文档化现状）
     ['前「一」中“二”后', '前中后'],
     // 嵌套引号按单层切（内层闭引号先终止 span）——文档化现状，非缺陷
     ['「嵌“套”」余', '」余'],
@@ -111,4 +113,12 @@ describe('引号矩阵 · extractEvidenceCore', () => {
   ])('%s → 提取 %j', (evidence, expected) => {
     expect(extractEvidenceCore(evidence)).toBe(expected)
   })
+})
+
+// R62-8：证据提取宽容字符集（双体系 + ASCII 直引号）收编 quotes.ts 单源导出后行为锁
+// ——证据面宁宽勿漏是 V-P2-12 设计口径；正文 span 检测不收 ASCII 引号（两口径并存）。
+it('R62-8：QUOTE_*_LENIENT 单源——三体系引号证据都取内文（行为维持锁）', () => {
+  expect(extractEvidenceCore('"密室尽头的青铜灯很长啊"')).toBe('密室尽头的青铜灯很长啊')
+  expect(extractEvidenceCore('「密室尽头的青铜灯很长啊」')).toBe('密室尽头的青铜灯很长啊')
+  expect(extractEvidenceCore('“密室尽头的青铜灯很长啊”')).toBe('密室尽头的青铜灯很长啊')
 })

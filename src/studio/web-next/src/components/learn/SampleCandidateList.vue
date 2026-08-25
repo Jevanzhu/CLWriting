@@ -292,6 +292,12 @@ function clearAllPicks(): void {
   color: var(--text-normal);
   font-family: var(--prose-font);
   white-space: pre-wrap;
+  /* 内存核查（2026-08-25 M-P3-15）：候选正文默认 6 行截断（纯样式，store 数据
+     形态不动；样章是整章级长文，全量渲染放大卡片高度与排版成本） */
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .cand-tech {
   margin: var(--size-4-2) 0 0;

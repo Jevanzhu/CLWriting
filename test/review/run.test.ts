@@ -1,7 +1,8 @@
 import { test, expect } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { createHash } from 'node:crypto'
 import {
   buildReviewPacket,
   collectReviewIssues,
@@ -229,4 +230,91 @@ test('collectReviewIssues: 合审单文件回收三视角', () => {
   expect(collected.collected_lenses).toEqual(expect.arrayContaining(['reader', 'editor', 'continuity']))
   expect(collected.normalized.warnings.length + collected.normalized.blockers.length).toBe(1)
   rmSync(workDir, { recursive: true, force: true })
+})
+
+// ── R61-13（第六十一轮）：draft_hash 一致性实装 ────────────────────────────────
+
+test('R61-13: collect 校验 draft_hash——不符 → 审稿单不成立带原因；相符 → 正常回收', () => {
+  const workDir = mkdtempSync(join(tmpdir(), 'review-r61-13-'))
+  const draftPath = join(workDir, 'draft.md')
+  writeFileSync(draftPath, '正文。', 'utf-8')
+  const hash = createHash('sha256').update(readFileSync(draftPath)).digest('hex')
+
+  const build = (dh?: string) => {
+    const built = buildReviewPacket({
+      checkReport: reportWithLedger,
+      body: '正文。',
+      chapter: 12,
+      workDir,
+      capabilities: { parallel_subagents: true, multiple_calls: true },
+      remaining_calls: 8,
+      high_risk: false,
+      hasWiring: true,
+      hasShort: false,
+      draft_path: draftPath,
+      ...(dh !== undefined ? { draft_hash: dh } : {}),
+    })
+    if (!built.ok) throw new Error('packet build failed')
+    return built.packet
+  }
+
+  // 相符：三视角齐 → ok
+  const okPacket = build(hash)
+  mkdirSync(okPacket.out_dir, { recursive: true })
+  writeFileSync(join(okPacket.out_dir, lensIssuesFileName('reader')), '[]', 'utf-8')
+  writeFileSync(join(okPacket.out_dir, lensIssuesFileName('editor')), '[]', 'utf-8')
+  writeFileSync(join(okPacket.out_dir, lensIssuesFileName('continuity')), '[]', 'utf-8')
+  expect(collectReviewIssues({ packet: okPacket }).ok).toBe(true)
+
+  // 不符（审阅期间草稿漂移）：即便三视角齐也判不成立
+  const stalePacket = build('deadbeef')
+  mkdirSync(stalePacket.out_dir, { recursive: true })
+  writeFileSync(join(stalePacket.out_dir, lensIssuesFileName('reader')), '[]', 'utf-8')
+  writeFileSync(join(stalePacket.out_dir, lensIssuesFileName('editor')), '[]', 'utf-8')
+  writeFileSync(join(stalePacket.out_dir, lensIssuesFileName('continuity')), '[]', 'utf-8')
+  const stale = collectReviewIssues({ packet: stalePacket })
+  expect(stale.ok).toBe(false)
+  expect(stale.bad_entries[0]!.reason).toContain('draft_hash')
+
+  // 草稿被删（读失败与不符同判）
+  rmSync(draftPath)
+  const gone = collectReviewIssues({ packet: build(hash) })
+  expect(gone.ok).toBe(false)
+  expect(gone.bad_entries[0]!.reason).toContain('draft_hash')
+  rmSync(workDir, { recursive: true, force: true })
+})
+
+// R62-34：ledger_check 如实——分包不带账本核对项 → 跳过（无布线/短篇形态）；
+// 此前恒报「已跑」与实际执行面不符。meta 随 CollectedReview 透出（normalizeReviewResult 不带 meta）。
+test('collectReviewIssues: ledger_check 如实（无账本核对分包 → 跳过；满审带账本 → 已跑）', () => {
+  const workDir = mkdtempSync(join(tmpdir(), 'review-run-'))
+  try {
+    const packet: ReviewExecutionPacket = {
+      chapter: 12,
+      tier: 'sequential',
+      requested_tier: 'full',
+      fallback: '',
+      lenses_run: ['reader'],
+      planned_calls: 1,
+      packets: [
+        { lens: 'reader', title: '读者审', focus: ['沉浸感'], ledger_checks: [], output_contract: { json_only: true, evidence_required: true, no_score: true }, body: '正文。', chapter: 12 },
+      ],
+      out_dir: workDir,
+    }
+    mkdirSync(workDir, { recursive: true })
+    writeFileSync(join(workDir, lensIssuesFileName('reader')), '[]', 'utf-8')
+    const noLedger = collectReviewIssues({ packet })
+    expect(noLedger.ok).toBe(true)
+    expect(noLedger.meta.ledger_check).toBe('跳过')
+
+    const full = makeFullPacket(workDir)
+    mkdirSync(full.out_dir, { recursive: true })
+    for (const lens of full.lenses_run) {
+      writeFileSync(join(full.out_dir, lensIssuesFileName(lens)), '[]', 'utf-8')
+    }
+    const withLedger = collectReviewIssues({ packet: full })
+    expect(withLedger.meta.ledger_check).toBe('已跑')
+  } finally {
+    rmSync(workDir, { recursive: true, force: true })
+  }
 })

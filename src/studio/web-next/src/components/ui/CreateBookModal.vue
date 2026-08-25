@@ -1,6 +1,8 @@
 <script setup lang="ts">
 // 新建书弹窗（Shelf/ShelfModal 共享）：长篇/短篇 kind 选择 + 书名输入 + 创建。
 // 状态由壳（useShelf composable）持有，本组件只做表单渲染与事件上抛。
+import { isImeComposing } from '../../shared/ime'
+
 const props = defineProps<{
   name: string
   kind: 'long' | 'short'
@@ -13,6 +15,13 @@ const emit = defineEmits<{
   (e: 'create'): void
   (e: 'cancel'): void
 }>()
+
+function onNameEnter(e: KeyboardEvent): void {
+  // R61-17（第六十一轮）：原 @keyup.enter 在 IME compositionend 后触发（isComposing 已
+  // false），确认候选词的 Enter 会直接建书——改 keydown + 组合期守卫
+  if (isImeComposing(e)) return
+  emit('create')
+}
 </script>
 
 <template>
@@ -32,7 +41,7 @@ const emit = defineEmits<{
         class="input"
         placeholder="书名"
         @input="emit('update:name', ($event.target as HTMLInputElement).value)"
-        @keyup.enter="emit('create')"
+        @keydown.enter="onNameEnter"
       />
       <div v-if="props.error" class="err">{{ props.error }}</div>
       <div class="create-actions">

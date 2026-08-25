@@ -10,6 +10,7 @@ import { useDocStore } from '../../stores/doc'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useAppActions } from '../../composables/useAppActions'
 import { useFocusTrap } from '../../composables/useFocusTrap'
+import { isImeComposing } from '../../shared/ime'
 import type { TreeNode } from '../../types/tree'
 
 const ui = useUiStore()
@@ -55,16 +56,41 @@ const filtered = computed(() => {
   const k = q.value.trim().toLowerCase()
   return k ? cmds.value.filter((c) => c.label.toLowerCase().includes(k)) : cmds.value
 })
+// 内存核查（2026-08-25 M-P3-13）：渲染上限——空查询时全书每章一条全量渲染为 DOM
+// （千章级千行节点，原仅靠 max-height 视觉滚动裁剪不减节点）；cmds 数据生成不动，
+// 只裁每节渲染条数（≤100）+ 尾部省略提示行。有查询词（过滤）时同样上限防长匹配。
+const RENDER_CAP = 100
 // 分段视图：章节/动作各带标题；sel 仍走扁平索引，保证 ↑↓ 键盘导航跨组连续
 const sections = computed(() => {
   const indexed = filtered.value.map((c, i) => ({ c, i }))
   return [
     { title: '章节', items: indexed.filter((x) => x.c.group === 'chapter') },
     { title: '动作', items: indexed.filter((x) => x.c.group === 'action') },
-  ].filter((s) => s.items.length)
+  ]
+    .filter((s) => s.items.length)
+    .map((s) => ({
+      ...s,
+      items: s.items.slice(0, RENDER_CAP),
+      omitted: Math.max(0, s.items.length - RENDER_CAP), // 未渲染条数（提示行展示）
+    }))
+})
+// R61-16（第六十一轮）：键盘导航上限收到已渲染区间——每节 slice(RENDER_CAP) 后未渲染
+// 条目无 DOM，旧上限（filtered.length-1）会让 ↓ 走进不可见区，Enter 执行看不见的命令。
+// 上限 = 末个非空节末项的扁平索引（sections 按渲染顺序排列，i 即 filtered 全量索引）。
+const maxSelIndex = computed(() => {
+  const secs = sections.value
+  for (let s = secs.length - 1; s >= 0; s--) {
+    const items = secs[s]!.items
+    if (items.length > 0) return items[items.length - 1]!.i
+  }
+  return -1
 })
 watch(filtered, () => {
   sel.value = 0
+})
+// sel 变化滚动跟随（键盘移动后高亮项保持可见；鼠标 hover 路径同受益）
+watch(sel, () => {
+  paletteRef.value?.querySelector('.palette-item.sel')?.scrollIntoView?.({ block: 'nearest' })
 })
 
 async function openDoc(node: TreeNode): Promise<void> {
@@ -92,9 +118,11 @@ watch(
 
 function onKey(e: KeyboardEvent): void {
   if (!ui.paletteOpen) return
+  // R61-3（第六十一轮）：IME 组合期让渡——Enter/方向键正在收输入法候选框
+  if (isImeComposing(e)) return
   if (e.key === 'ArrowDown') {
     e.preventDefault()
-    sel.value = Math.min(sel.value + 1, filtered.value.length - 1)
+    sel.value = Math.min(sel.value + 1, Math.max(maxSelIndex.value, 0))
   } else if (e.key === 'ArrowUp') {
     e.preventDefault()
     sel.value = Math.max(sel.value - 1, 0)
@@ -144,6 +172,8 @@ function run(c: Cmd): void {
               </span>
               <CornerDownLeft v-if="i === sel" :size="13" class="pi-enter" />
             </div>
+            <!-- M-P3-13：每节渲染上限外的省略提示（继续输入缩小范围后可见） -->
+            <div v-if="sec.omitted > 0" class="pg-more">已省略 {{ sec.omitted }} 项，继续输入以缩小范围</div>
           </div>
           <div v-if="!filtered.length" class="palette-empty">无匹配</div>
         </div>
@@ -216,6 +246,13 @@ function run(c: Cmd): void {
   color: var(--text-faint);
   text-transform: uppercase;
   letter-spacing: 0.06em;
+}
+/* M-P3-13：渲染上限省略提示行 */
+.pg-more {
+  padding: var(--size-4-1) var(--size-4-3);
+  font-size: var(--font-size-xxs);
+  color: var(--text-faint);
+  font-style: italic;
 }
 .pi-label {
   display: inline-flex;

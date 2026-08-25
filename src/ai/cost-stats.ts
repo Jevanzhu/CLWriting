@@ -58,10 +58,10 @@ function readLlmCalls(userDataPath: string | null | undefined, bookRoot: string)
     const store = openSessionStore(userDataPath, bookRoot)
     if (!store) return []
     try {
-      const events = store.listEvents(bookHash(bookRoot))
+      // B1（2026-08-24 内存闸）：type SQL 下推（同 trace-stats——只取 llm/call 行）
+      const events = store.listEvents(bookHash(bookRoot), undefined, undefined, 'llm/call')
       const out: CallEntry[] = []
       for (const e of events) {
-        if (e.type !== 'llm/call') continue
         const d = e.data as unknown as LlmCallData
         // Q-12（第十五轮）：判跳改看 usage 而非 ok——失败调用可携真实 usage（O-5 边界中断
         // 入账等），按 ok 剔除会让报表系统性低于预算闸口径/真实账单；失败且无 usage（多数

@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, statSync, re
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { rebuild } from '../../src/cache/rebuild.js'
-import { loadLeadFromCache } from '../../src/cache/sync.js'
+import { loadLeadFromCache, setMeta, getMeta } from '../../src/cache/sync.js'
 import { writeLead } from '../../src/format/leads.js'
 import { writeBookConfig } from '../../src/format/yaml.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
@@ -349,4 +349,54 @@ test('R-13: 源未变（含正常 mtime 前进被 min 覆盖）→ 仍走增量�
   db2.close()
   expect(t.title).toBe('TAMPERED')
   rmSync(root, { recursive: true, force: true })
+})
+
+// R62-30：errors 元数据失联（坏 JSON / 条数不符）→ 不再静默当「无错」绕过 REBUILD_FAIL 闸，
+// return null 走全量重建自愈（重扫重记，error_count 覆写归零）。
+test('R62-30：errors 元数据失联 → 全量重建自愈（error_count 覆写归零）', () => {
+  const root = makeBookFixture()
+  const cachePath = join(root, '.cache', 'index.db')
+  rebuild(root, cachePath) // 基准（源无错）
+  const db = new DatabaseSync(cachePath)
+  try {
+    setMeta(db, 'error_count', '1')
+    setMeta(db, 'errors', '{oops') // 坏 JSON
+  } finally {
+    db.close()
+  }
+  const r = rebuild(root, cachePath)
+  expect(r.errors).toHaveLength(0) // 源无错 → 重扫后如实
+  const db2 = new DatabaseSync(cachePath)
+  try {
+    expect(getMeta(db2, 'error_count')).toBe('0') // 全量重扫已覆写失联元数据（修复前恒 '1'）
+    // 变体：条数与 error_count 不符同样失联
+    setMeta(db2, 'error_count', '2')
+    setMeta(db2, 'errors', '[]')
+  } finally {
+    db2.close()
+  }
+  const r2 = rebuild(root, cachePath)
+  expect(r2.errors).toHaveLength(0)
+  const db3 = new DatabaseSync(cachePath)
+  try {
+    expect(getMeta(db3, 'error_count')).toBe('0')
+  } finally {
+    db3.close()
+  }
+  rmSync(root, { recursive: true, force: true })
+})
+
+// R62-32：scanSummaries 补实装——不合命名形式的摘要文件计入 errors（健康报告可见），
+// 此前 _errors 死参数、坏文件静默 continue。
+test('R62-32：摘要目录坏命名文件 → 计入 errors（不再静默跳过）', () => {
+  const root = makeBookFixture()
+  try {
+    writeFileSync(join(root, '定稿', '摘要', '章摘要', '草稿笔记.md'), '误落摘要目录的手写文件', 'utf-8')
+    const cachePath = join(root, '.cache', 'index.db')
+    const r = rebuild(root, cachePath)
+    expect(r.errors.some((e) => e.message.includes('摘要文件名') && e.message.includes('草稿笔记'))).toBe(true)
+    expect(r.summaryCount).toBe(1) // 合法摘要照常入库
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
 })

@@ -32,7 +32,7 @@ describe('M-7: SearchPanel 切书清残留', () => {
     })
     const w = mount(SearchPanel, { props: { bookName: '书A' } })
     await w.find('input').setValue('焦痕')
-    await w.find('input').trigger('keyup.enter') // 搜索由回车触发
+    await w.find('input').trigger('keydown.enter') // 搜索由回车触发（R61-17：keyup → keydown + IME 守卫）
     await flushPromises()
     expect(mocks.search).toHaveBeenCalledWith('书A', '焦痕', 'all')
     expect((w.vm as unknown as { results: unknown[] }).results.length).toBe(1)
@@ -49,7 +49,7 @@ describe('M-7: SearchPanel 切书清残留', () => {
     mocks.search.mockImplementation(() => new Promise((res) => { release = res }))
     const w = mount(SearchPanel, { props: { bookName: '书A' } })
     await w.find('input').setValue('关键词')
-    await w.find('input').trigger('keyup.enter')
+    await w.find('input').trigger('keydown.enter')
     await w.setProps({ bookName: '书B' })
     release!({ results: [{ path: 'x', matches: [] }], truncated: false })
     await flushPromises()
@@ -63,7 +63,7 @@ describe('M-7: SearchPanel 切书清残留', () => {
     mocks.search.mockImplementation(() => new Promise((res) => { release = res }))
     const w = mount(SearchPanel, { props: { bookName: '书A' } })
     await w.find('input').setValue('关键词')
-    await w.find('input').trigger('keyup.enter')
+    await w.find('input').trigger('keydown.enter')
     expect(w.find('.hint').text()).toContain('搜索中')
 
     await w.setProps({ bookName: '书B' })

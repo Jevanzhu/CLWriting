@@ -114,15 +114,19 @@ function tryIncrementalRebuild(bookRoot: string, cachePath: string): RebuildResu
     const chapterCount = Number(getMeta(db, 'chapter_count') ?? '0')
     const summaryCount = Number(getMeta(db, 'summary_count') ?? '0')
     const errCount = Number(getMeta(db, 'error_count') ?? '0')
-    let errors: ParseError[] = []
+    let errors: ParseError[] | null = errCount === 0 ? [] : null
     if (errCount > 0) {
       try {
         const parsed = JSON.parse(getMeta(db, 'errors') ?? '[]')
         if (Array.isArray(parsed)) errors = parsed as ParseError[]
       } catch {
-        errors = []
+        errors = null
       }
     }
+    // R62-30：errors 元数据失联（坏 JSON/非数组/条数与 error_count 不符）不再静默当
+    // 「无错」返回——那会绕过 REBUILD_FAIL 闸让坏文件红点消失；return null 走全量
+    // 重建自愈（重扫重记 errors，下轮恢复增量）
+    if (errors === null || errors.length !== errCount) return null
     return { leadCount, chapterCount, summaryCount, errors }
   } catch {
     return null
@@ -245,8 +249,16 @@ export function rebuild(
 
     db.exec('COMMIT')
   } catch (e) {
-    db.exec('ROLLBACK')
-    db.close()
+    // 内存闸（2026-08-24 审计 C4）：ROLLBACK 自身抛错（事务已自动回亡/busy）也不能跳过
+    // close——finally 嵌套保证连接必关；ROLLBACK 失败吞掉、原始异常 e 原样上抛（未显式
+    // 回滚的事务由 close 强制回滚兜底，语义不变）
+    try {
+      db.exec('ROLLBACK')
+    } catch {
+      /* ROLLBACK 失败忽略：close 强制回滚未决事务 */
+    } finally {
+      db.close()
+    }
     throw e
   }
   db.close()
@@ -254,12 +266,14 @@ export function rebuild(
   return { leadCount, chapterCount, summaryCount, errors }
 }
 
-/** 扫描摘要目录，文件名 <数字>.md → scope/ref/path 入库 */
+/** 扫描摘要目录，文件名 <数字>.md → scope/ref/path 入库。
+ *  R62-32：不合命名形式的 .md（如手写草稿误落摘要目录）计入 errors 进健康报告
+ *  ——此前静默 continue，坏文件既不入库也无任何可见性（_errors 死参数即为此欠账）。 */
 function scanSummaries(
   db: DatabaseSync,
   dir: string,
   scope: 'chapter' | 'volume',
-  _errors: ParseError[],
+  errors: ParseError[],
 ): number {
   if (!existsSync(dir)) return 0
   let count = 0
@@ -272,7 +286,10 @@ function scanSummaries(
     if (!st || !st.isFile()) continue
     // 文件名：<章号或卷号>.md
     const ref = Number(f.replace(/\.md$/, ''))
-    if (!Number.isFinite(ref)) continue
+    if (!Number.isFinite(ref)) {
+      errors.push({ file: fp, line: 0, message: `摘要文件名「${f}」不是 <章号或卷号>.md 形式，未入库` })
+      continue
+    }
     syncSummary(db, scope, ref, fp)
     count++
   }

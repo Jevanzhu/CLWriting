@@ -18,6 +18,7 @@ import { resolveBook, resolveDocEntry } from '../book-context.js'
 import { safeManifestPath } from '../../../fs/safe-path.js'
 import { readAnalysis } from '../../../document/analysis.js'
 import { openSessionStore, bookHash } from '../../../events/store.js'
+import { QUOTE_OPEN, QUOTE_CLOSE } from '../../../check/quotes.js'
 import { checkFalsePositiveEvent } from '../../../events/chain-bridge.js'
 import {
   runCheckForDocument,
@@ -139,7 +140,7 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
 
       const bookRoot = r.bookRoot
       // 聚合逻辑已下沉内核（P1-8）：扫正文 + 机检 + verdict 驳回，返回只有 issue 的 docId
-      const { issues, rebuildFailed } = collectTreeIssues(bookRoot, (docId) => {
+      const { issues, rebuildFailed, leadsBookDegraded } = collectTreeIssues(bookRoot, (docId) => {
         const reviewEnv = readAnalysis(bookRoot, docId, 'review')
         const v = (reviewEnv?.payload as { verdict?: { approved: boolean } } | undefined)?.verdict
         return v ?? undefined
@@ -147,22 +148,29 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
       reply(res, 200, {
         ok: true,
         issues,
+        // R62-7：账本全书性红项计算失败随响应 warning（与 rebuildFailed 同口径——
+        // 此前静默降级为「无红」，持续性失败期间漏红不可见）
         ...(rebuildFailed ? { warning: '机检索引构建失败，仅显示审稿驳回红点' } : {}),
+        ...(leadsBookDegraded ? { warning: '账本全书性红项本轮计算失败，账本红点可能缺失' } : {}),
       })
     },
   })
 }
 
+/** R61-12（第六十一轮）：命中词正则从引号常量派生（收编单源）——此前手写字符类，
+ * quotes.ts 补字符时此处漏同步即漂移（本次 ‘’ 即实测漂移点）。 */
+const EXCERPT_QUOTED_RE = new RegExp(`[${QUOTE_OPEN}]([^${QUOTE_CLOSE}]{1,40})[${QUOTE_CLOSE}]`, 'g')
+
 /**
  * B1（批 6）：从正文切命中区间 ±50 字摘录（上限 200）。
- * 命中词取机检 message 里的「」/『』/“”引号片段（禁词/意象/复读项均带），
- * 在正文里定位首个出现；定位不到（如字数类无具体词）回落正文开头——
- * 摘录仍可作为该章该检查的上下文语料。
+ * 命中词取机检 message 里的引号片段（禁词/意象/复读项均带，字符集由
+ * check/quotes.ts 单源派生），在正文里定位首个出现；定位不到（如字数类
+ * 无具体词）回落正文开头——摘录仍可作为该章该检查的上下文语料。
  */
 function cutExcerpt(body: string, messages: string[]): string {
   const quoted: string[] = []
   for (const msg of messages) {
-    for (const m of msg.matchAll(/[「『“]([^」』”]{1,40})[」』”]/g)) {
+    for (const m of msg.matchAll(EXCERPT_QUOTED_RE)) {
       if (m[1]!) quoted.push(m[1]!)
     }
     // 堆砌类 message 形态：`眼睛×6`（词×次数）——锚点取 × 前的词

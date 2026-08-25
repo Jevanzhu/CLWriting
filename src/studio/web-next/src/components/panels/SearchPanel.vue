@@ -5,6 +5,7 @@ import { useDocStore } from '../../stores/doc'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { search, type SearchHit } from '../../api/search'
 import { friendlyError } from '../../shared/error'
+import { isImeComposing } from '../../shared/ime'
 
 // 全书搜索面板（细案 T1.7）：q + scope 下拉 → 结果列表（path + 命中行）→ 点击开 tab。
 const props = defineProps<{ bookName: string }>()
@@ -69,6 +70,14 @@ watch(
   },
 )
 
+// R61-17（第六十一轮）同族：原 @keyup.enter 在 IME compositionend 之后触发
+//（isComposing 已复位），组词确认键会误触全书搜索；keydown + 组合态守卫同 B-9 家族。
+function onEnterKey(e: KeyboardEvent): void {
+  if (isImeComposing(e)) return
+  e.preventDefault()
+  void run()
+}
+
 async function open(path: string): Promise<void> {
   const node = tree.byPath.get(path)
   if (!node?.docId) return // 非树内可编辑文件忽略
@@ -90,7 +99,7 @@ async function open(path: string): Promise<void> {
       <input
         v-model="q"
         placeholder="全书搜索…"
-        @keyup.enter="run"
+        @keydown.enter="onEnterKey"
       />
       <select v-model="scope" @change="run">
         <option v-for="s in SCOPES" :key="s.v" :value="s.v">{{ s.label }}</option>

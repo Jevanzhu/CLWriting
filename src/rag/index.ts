@@ -3,7 +3,9 @@
  *
  * 分块 → 外部 embed → 存 .cache/rag.db（增量）→ 召回（query embed → 全表余弦 topK）。
  *
- * 复用：readChapterDir 遍历定稿正文；召回返回位置（章号+偏移），原文交精准读取。
+ * 复用：readChapterDir 遍历 写作/正文 全量（含未定稿草稿——召回服务写作连续性检索，
+ * 最近未定稿章恰是高价值检索面；召回侧 chapterFingerprintFresh 惰性校验丢弃过期章，
+ * buildIndex 增量自愈覆盖新指纹）；召回返回位置（章号+偏移），原文交精准读取。
  * 红线：账本永走精准读取不走 RAG；端点挂/未配 key → 召回空（降级回落，不崩）。
  */
 
@@ -13,17 +15,39 @@ import { createHash } from 'node:crypto'
 import { readChapterDir } from '../format/chapters.js'
 import { readFile } from '../format/frontmatter.js'
 import { openRagDb, storeChunk, readAllChunks, readAllChapterFingerprints, getRagMeta, setRagMeta, deleteRagMeta, deleteChunksByChapter, getIndexedChapterNumbers, l2Norm, type RagChunk } from './store.js'
-import { embed } from './embed.js'
+import { embed, type EmbedOptions } from './embed.js'
 import type { RagConfig } from './config.js'
 import type { DatabaseSync } from 'node:sqlite'
 import type { ChapterMeta } from '../format/types.js'
 import { log } from '../log/index.js'
+import { recordTaskUsage } from '../ai/calls.js'
 
 /** O-3（第十三轮）：召回块数告警阈值——超出 store.ts readAllChunks 量化注释的已知
  *  可用区间（十万块）时 log.warn 留痕。
  *  T2 批：同时是硬截断上限——超区间全表余弦线性扫描延迟已超交互预期，截到上限
  *  并告警（截断取读出序前缀，非按相似度——排序发生在截断之后）。 */
 export const RAG_CHUNK_WARN_THRESHOLD = 100_000
+
+/** R62-4：embedding 用量记账——端点随响应下发 usage.prompt_tokens 时经 onUsage
+ *  回调汇入本书 .cache/ai-calls.json 的 rag-embed 任务位（与生成链 recordTaskUsage
+ *  同一落点/同一串行队列）。记账失败只留痕不阻断（镜像 runner recordUsageSafe
+ *  口径：账目缺失可容忍，召回/索引不能因账本 IO 抖动降级）。 */
+function recordEmbedUsage(bookRoot: string, promptTokens: number): void {
+  try {
+    recordTaskUsage(bookRoot, 'rag-embed', { inputTokens: promptTokens, outputTokens: 0 })
+  } catch (e) {
+    log.warn('rag', `embedding 用量记账失败（本轮 rag-embed 账目缺失）：${errStr(e)}`)
+  }
+}
+
+/** build/recall 共用的 embed 调用选项：超时显式 resolve 自 RagConfig（R62-27），
+ *  用量走 rag-embed 记账（R62-4）。 */
+function embedOptionsFor(bookRoot: string, config: RagConfig): EmbedOptions {
+  return {
+    timeoutMs: config.embed_timeout_ms,
+    onUsage: (pt) => recordEmbedUsage(bookRoot, pt),
+  }
+}
 
 /** 一个分块（文本 + 在该章正文的偏移） */
 export interface TextChunk {
@@ -242,8 +266,13 @@ export async function buildIndex(
     const indexedChStr = getRagMeta(db, 'indexed_max_chapter')
     const indexedMax = indexedChStr ? Number(indexedChStr) : 0
     // RB-IF-P1-3：<=indexedMax 但无指纹的章（低章号补写/历史中断残留）不再要求删库
-    // 重建——并入本轮重索引集合自愈闭环；指纹不符（正文已变更）仍报错不变
+    // 重建——并入本轮重索引集合自愈闭环。
+    // R61-1（第六十一轮）：指纹不符（正文已变更）同款并入自愈——旧口径硬错要求手工删
+    // .cache/rag.db 全书重嵌（200 万字 ≈3.5 万块费用），而「回改草稿/定稿后修错字」是
+    // 写作常态操作，一次编辑即让 build 永久报错。重索引走既有外科路径（commitIndexBatch
+    // 事务内 deleteChunksByChapter 清旧块 + 重 embed + 覆盖指纹，偏移漂移残留同 missing 场景）。
     const missingFingerprint = new Set<number>()
+    const staleFingerprint = new Set<number>()
     for (const ch of chapters) {
       if (ch.章号 > indexedMax) continue
       const currentHash = readChapterFingerprint(ch)
@@ -253,13 +282,11 @@ export async function buildIndex(
         missingFingerprint.add(ch.章号)
         continue
       }
-      if (indexedHash !== currentHash) {
-        return { ok: false, chunkCount: 0, chapterCount: 0, error: `第 ${ch.章号} 章定稿正文已变更，RAG 索引可能过时，请删除 .cache/rag.db 后重建索引。` }
-      }
+      if (indexedHash !== currentHash) staleFingerprint.add(ch.章号)
     }
 
     const toIndex = chapters
-      .filter((ch) => ch.章号 > indexedMax || missingFingerprint.has(ch.章号))
+      .filter((ch) => ch.章号 > indexedMax || missingFingerprint.has(ch.章号) || staleFingerprint.has(ch.章号))
       .sort((a, b) => a.章号 - b.章号)
     if (toIndex.length === 0) {
       return { ok: true, chunkCount: 0, chapterCount: 0 }
@@ -300,7 +327,7 @@ export async function buildIndex(
     // 低章号时不回退（更高章仍已索引），读失败时不越过失败章
     const cursorTarget = Math.max(indexedMax, chapterHashes.size > 0 ? Math.max(...chapterHashes.keys()) : 0)
 
-    const committed = await commitIndexBatch(db, config, allChunks, chapterHashes, cursorTarget, embedFn, apiKey)
+    const committed = await commitIndexBatch(db, config, allChunks, chapterHashes, cursorTarget, embedFn, apiKey, embedOptionsFor(bookRoot, config))
     if (!committed.ok && readFailAt !== null) {
       return committed
     }
@@ -330,19 +357,25 @@ async function commitIndexBatch(
   cursorTarget: number,
   embedFn: typeof embed,
   apiKey: string,
+  embedOptions: EmbedOptions = {},
 ): Promise<BuildIndexResult> {
   // 批量 embed——P1-9：分批防端点上限。修复前全量一次性单 POST：200 万字 ≈3.5 万块
   // 必超常见 embedding 端点的单请求上限（静默失败/截断）。分批按块数封顶
   //（100 块/批 ≈ 10 万字量级，对 8k~32k token 输入模型都留足余量），任一批失败即整体失败。
   const EMBED_BATCH_SIZE = 100
-  const vectors: number[][] = []
+  // 内存闸（2026-08-24 审计 A2）：批结果即转 Float32Array 驻留——原实现以 number[][]
+  // 全量累积（8B/维，200 万字书 ≈ 430MB）到 COMMIT 才逐条 BLOB 化；即转后峰值减半
+  //（≈215MB，与召回侧 readAllChunks 单份口径一致）。刻意不做「事务内逐批 embed 逐批
+  // 写库」：BEGIN IMMEDIATE 跨 embed 网络往返会把同书 rag.db 写锁窗从 DB 写时长拉长
+  // 到分钟级网络时长，阻塞并发 recall 读——锁窗与峰值二取其一，保锁窗。
+  const vectors: Float32Array[] = []
   for (let i = 0; i < allChunks.length; i += EMBED_BATCH_SIZE) {
     const batchTexts = allChunks.slice(i, i + EMBED_BATCH_SIZE).map((c) => c.chunk.text)
-    const batchVec = await embedFn(config.endpoint!, config.model!, apiKey, batchTexts)
+    const batchVec = await embedFn(config.endpoint!, config.model!, apiKey, batchTexts, embedOptions)
     if (batchVec === null) {
       return { ok: false, chunkCount: 0, chapterCount: 0, error: 'embedding 端点调用失败（已降级，未阻断主路径）' }
     }
-    vectors.push(...batchVec)
+    for (const v of batchVec) vectors.push(Float32Array.from(v))
   }
   const indexedDim = getRagMeta(db, 'embedding_dim')
   if (allChunks.length > 0) {
@@ -371,7 +404,7 @@ async function commitIndexBatch(
         章号,
         start_offset: chunk.start,
         end_offset: chunk.end,
-        embedding: Float32Array.from(vectors[i]!),
+        embedding: vectors[i]!,
         model: config.model!,
       })
     }
@@ -473,7 +506,7 @@ export async function recall(
   }
 
   // 网络段（无 db 句柄）
-  const qVec = await embedFn(config.endpoint, config.model, apiKey, [query])
+  const qVec = await embedFn(config.endpoint, config.model, apiKey, [query], embedOptionsFor(bookRoot, config))
   if (qVec === null || qVec.length === 0) return []
   const queryVec = Float32Array.from(qVec[0]!)
 

@@ -116,6 +116,31 @@ describe('generateText / generateTool 简化路径', () => {
     ).rejects.toMatchObject({ name: 'GenError', retryable: false })
   })
 
+  // R61-6（第六十一轮）：截断调用照样烧 token——GenError 载荷须带 usage 供记账
+  it('generateText/generateTool 截断抛错时 usage 随 GenError 上抛（丢账可捕）', async () => {
+    const p: ModelProvider = {
+      conf: CONF,
+      async *stream() {
+        yield { type: 'text', delta: '不完整的大纲' }
+        yield { type: 'done', usage: USAGE, stopReason: 'max_tokens' }
+      },
+    }
+    await expect(
+      generateText(p, { systemPrompt: '', messages: [] }, signal()),
+    ).rejects.toMatchObject({ usage: USAGE })
+
+    const p2: ModelProvider = {
+      conf: CONF,
+      async *stream() {
+        yield { type: 'text', delta: '被截断的 JSON 前半' }
+        yield { type: 'done', usage: USAGE, stopReason: 'max_tokens' }
+      },
+    }
+    await expect(
+      generateTool(p2, { systemPrompt: '', messages: [] }, signal()),
+    ).rejects.toMatchObject({ usage: USAGE })
+  })
+
   it('generateTool 取第一个 tool 的 input；无 tool 时 input=null 回退 text', async () => {
     const a = await generateTool(
       provider([{ type: 'tool', id: 't2', name: 'submit_chapter', input: { 正文: 'y' } }, { type: 'done', usage: USAGE, stopReason: 'tool_use' }]),

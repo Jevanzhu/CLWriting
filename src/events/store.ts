@@ -14,7 +14,7 @@ import { createHash } from 'node:crypto'
 import { mkdirSync, existsSync, renameSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { ulid } from '../document/stable-id.js'
-import type { ChatEvent, SurfaceOp } from './types.js'
+import type { ChatEvent, EventType, SurfaceOp } from './types.js'
 import { log } from '../log/index.js'
 
 /** 书 hash：sha256(bookRoot) 前 16 hex——稳定，不落原文路径。
@@ -52,7 +52,7 @@ export interface SessionStore {
   appendEvent(sessionId: string, ev: NewEvent): number
   /** O-2（第十三轮）：可选 limit 限量通道（seq 升序取前 N）——现有调用方均为全量投影
    *  （折叠需要完整事件流，限流会破坏投影正确性，故不默认启用）；分页/审计渐进读取用。 */
-  listEvents(book: string, sessionId?: string, limit?: number): ChatEvent[]
+  listEvents(book: string, sessionId?: string, limit?: number, type?: EventType): ChatEvent[]
   /** P2：每书一个 workspace 会话（ws- 前缀）承载非对话链路事件（step/llm/retry/check）；惰性创建复用 */
   workspaceSession(book: string): string
   latestSession(book: string): SessionRow | null
@@ -136,7 +136,13 @@ export function repairOrphanSessions(db: DatabaseSync, skip: ReadonlySet<string>
         touch.run(now, o.session_id)
         db.exec('COMMIT')
       } catch (err) {
-        db.exec('ROLLBACK')
+        // R61-10（第六十一轮）：C4 同款加固——裸 ROLLBACK 在事务已自动回亡时抛
+        // "no transaction is active"，会冲出本循环使本轮其余孤儿不被修复
+        try {
+          db.exec('ROLLBACK')
+        } catch {
+          /* 已自动回亡 */
+        }
         // P3：收集后继续修其余孤儿——单会话故障不中断整轮修复
         errors.push({ session_id: o.session_id, err })
       }
@@ -191,61 +197,73 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
   }
   mkdirSync(dir, { recursive: true })
   const db = new DatabaseSync(dbPath)
-  // N3（五十九轮）补：busy_timeout 必须先于 journal_mode=WAL 设置——WAL 切换在
-  // journal_mode 处需拿写锁，若另一进程正持锁而 busy_timeout 未设，会立即抛
-  // SQLITE_BUSY（N3 三进程并发首开回归在全量并发下偶发红的根因）
-  db.exec('PRAGMA busy_timeout = 5000')
-  // N3（五十九轮）：WAL 切换需短暂独占——并发首开下其他进程持锁（DDL/首写）时，
-  // 即使 busy_timeout 也可能立即 SQLITE_BUSY 且库仍处 delete 态（幂等 no-op 兜底
-  // 不够）。带退避重试：对方事务必然短（建表/一次 INSERT），数百 ms 内可得手。
-  {
-    let lastErr: unknown
-    for (let i = 0; i < 8; i++) {
-      try {
-        db.exec('PRAGMA journal_mode = WAL')
-        lastErr = null
-        break
-      } catch (err) {
-        lastErr = err
-        const mode = (db.prepare('PRAGMA journal_mode').get() as { journal_mode?: string } | undefined)?.journal_mode
-        if (mode === 'wal') {
+  // 内存闸（2026-08-24 审计 B3）：打开期（PRAGMA/DDL/孤儿修复）抛错时句柄不滞留——
+  // 此刻尚未登记 openStores，引用计数的 close 回收路径接不到它；调用方 catch 后降级
+  // null 继续跑，句柄滞留进程积累（「损坏库重试」类测试反复触发尤甚）
+  try {
+    // N3（五十九轮）补：busy_timeout 必须先于 journal_mode=WAL 设置——WAL 切换在
+    // journal_mode 处需拿写锁，若另一进程正持锁而 busy_timeout 未设，会立即抛
+    // SQLITE_BUSY（N3 三进程并发首开回归在全量并发下偶发红的根因）
+    db.exec('PRAGMA busy_timeout = 5000')
+    // N3（五十九轮）：WAL 切换需短暂独占——并发首开下其他进程持锁（DDL/首写）时，
+    // 即使 busy_timeout 也可能立即 SQLITE_BUSY 且库仍处 delete 态（幂等 no-op 兜底
+    // 不够）。带退避重试：对方事务必然短（建表/一次 INSERT），数百 ms 内可得手。
+    {
+      let lastErr: unknown
+      for (let i = 0; i < 8; i++) {
+        try {
+          db.exec('PRAGMA journal_mode = WAL')
           lastErr = null
           break
+        } catch (err) {
+          lastErr = err
+          const mode = (db.prepare('PRAGMA journal_mode').get() as { journal_mode?: string } | undefined)?.journal_mode
+          if (mode === 'wal') {
+            lastErr = null
+            break
+          }
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50 * (i + 1))
         }
-        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50 * (i + 1))
       }
+      if (lastErr !== null) throw lastErr
     }
-    if (lastErr !== null) throw lastErr
-  }
-  db.exec(
-    `CREATE TABLE IF NOT EXISTS events (
-      seq         INTEGER PRIMARY KEY,
-      session_id  TEXT NOT NULL,
-      turn        INTEGER,
-      step        INTEGER,
-      type        TEXT NOT NULL,
-      data        TEXT NOT NULL,
-      surface_op  TEXT,
-      shadow_start INTEGER,
-      shadow_end   INTEGER,
-      source_seqs  TEXT,
-      replace_generation INTEGER NOT NULL DEFAULT 0,
-      created_at   INTEGER NOT NULL
-    )`
-  );
-  db.exec('CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id, seq)')
-  db.exec(
-    `CREATE TABLE IF NOT EXISTS sessions (
-      session_id TEXT PRIMARY KEY,
-      format_version INTEGER NOT NULL DEFAULT 1,
-      book        TEXT NOT NULL,
-      header      TEXT NOT NULL,
-      created_at  INTEGER NOT NULL,
-      updated_at  INTEGER NOT NULL
-    )`
-  );
+    db.exec(
+      `CREATE TABLE IF NOT EXISTS events (
+        seq         INTEGER PRIMARY KEY,
+        session_id  TEXT NOT NULL,
+        turn        INTEGER,
+        step        INTEGER,
+        type        TEXT NOT NULL,
+        data        TEXT NOT NULL,
+        surface_op  TEXT,
+        shadow_start INTEGER,
+        shadow_end   INTEGER,
+        source_seqs  TEXT,
+        replace_generation INTEGER NOT NULL DEFAULT 0,
+        created_at   INTEGER NOT NULL
+      )`
+    );
+    db.exec('CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id, seq)')
+    db.exec(
+      `CREATE TABLE IF NOT EXISTS sessions (
+        session_id TEXT PRIMARY KEY,
+        format_version INTEGER NOT NULL DEFAULT 1,
+        book        TEXT NOT NULL,
+        header      TEXT NOT NULL,
+        created_at   INTEGER NOT NULL,
+        updated_at   INTEGER NOT NULL
+      )`
+    );
 
-  repairOrphanSessions(db, activeChatSessions)
+    repairOrphanSessions(db, activeChatSessions)
+  } catch (e) {
+    try {
+      db.close()
+    } catch {
+      /* best-effort：close 自身失败不再遮蔽原始错误 */
+    }
+    throw e
+  }
 
   const entry: StoreEntry = { store: null!, refs: 1, closed: false, lastOrphanRepairAt: Date.now() }
   /** 写路径惰性孤儿修复（TTL = ORPHAN_GRACE_MS，至多每 10 分钟一次）：打开时仍在
@@ -292,7 +310,14 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
         db.exec('COMMIT')
         return seqs
       } catch (err) {
-        db.exec('ROLLBACK')
+        // R61-10（第六十一轮）：C4 同款加固（见 cache/rebuild.ts）——SQLite 部分
+        // 错误（如 SQLITE_FULL/IOERR）会自动回亡事务，再 ROLLBACK 抛
+        // "no transaction is active" 掩蔽原始写错误；吞 ROLLBACK 自身异常、原样上抛
+        try {
+          db.exec('ROLLBACK')
+        } catch {
+          /* 已自动回亡 */
+        }
         throw err
       }
     },
@@ -337,28 +362,48 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
         db.exec('COMMIT')
         return seqs
       } catch (err) {
-        db.exec('ROLLBACK')
+        // R61-10（第六十一轮）：C4 同款加固（见 cache/rebuild.ts）——SQLite 部分
+        // 错误（如 SQLITE_FULL/IOERR）会自动回亡事务，再 ROLLBACK 抛
+        // "no transaction is active" 掩蔽原始写错误；吞 ROLLBACK 自身异常、原样上抛
+        try {
+          db.exec('ROLLBACK')
+        } catch {
+          /* 已自动回亡 */
+        }
         throw err
       }
     },
     appendEvent(sessionId: string, ev: NewEvent): number {
       return this.appendEvents(sessionId, [ev])[0]!
     },
-    listEvents(book: string, sessionId?: string, limit?: number): ChatEvent[] {
+    listEvents(book: string, sessionId?: string, limit?: number, type?: EventType): ChatEvent[] {
       // O-2（第十三轮）：limit 可选限量（seq 升序前 N）；投影折叠调用方不传（全量语义不变）
       const cap = typeof limit === 'number' && Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : undefined
+      // 内存闸（2026-08-24 审计 B1）双降：①type 可选 SQL 下推——trace/cost 聚合只取
+      // llm/call 小字段行，不再把全部对话正文一起载入解析；②游标 iterate 逐行 parse
+      // ——原 stmt.all() 先物化全部行（data JSON 串一份）再 map JSON.parse 出第二份，
+      // 双份共存峰值 ≈2× 表字节，与 rag readAllChunks 同修法
+      const out: ChatEvent[] = []
       if (sessionId) {
+        const args: Array<string | number> = [sessionId]
+        if (type !== undefined) args.push(type)
+        if (cap !== undefined) args.push(cap)
         const rows = db.prepare(
-          `SELECT * FROM events WHERE session_id = ? ORDER BY seq ASC ${cap ? 'LIMIT ?' : ''}`
-        ).all(...(cap ? [sessionId, cap] : [sessionId])) as unknown as Row[]
-        return rows.map(rowToEvent)
+          `SELECT * FROM events WHERE session_id = ? ${type !== undefined ? 'AND type = ?' : ''} ORDER BY seq ASC ${cap !== undefined ? 'LIMIT ?' : ''}`
+        ).iterate(...args) as unknown as Iterable<Row>
+        for (const r of rows) out.push(rowToEvent(r))
+        return out
       }
+      const args: Array<string | number> = [book]
+      if (type !== undefined) args.push(type)
+      if (cap !== undefined) args.push(cap)
       const rows = db.prepare(
         `SELECT * FROM events
-         WHERE session_id IN (SELECT session_id FROM sessions WHERE book = ?)
-         ORDER BY seq ASC ${cap ? 'LIMIT ?' : ''}`
-      ).all(...(cap ? [book, cap] : [book])) as unknown as Row[];
-      return rows.map(rowToEvent)
+         WHERE session_id IN (SELECT session_id FROM sessions WHERE book = ?) ${type !== undefined ? 'AND type = ?' : ''}
+         ORDER BY seq ASC ${cap !== undefined ? 'LIMIT ?' : ''}`
+      ).iterate(...args) as unknown as Iterable<Row>
+      for (const r of rows) out.push(rowToEvent(r))
+      return out
     },
     workspaceSession(book: string): string {
       // N3（五十九轮）：SELECT→INSERT 包 BEGIN IMMEDIATE——双进程并行首开同书时，原裸
@@ -385,7 +430,14 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
         db.exec('COMMIT')
         return sid
       } catch (err) {
-        db.exec('ROLLBACK')
+        // R61-10（第六十一轮）：C4 同款加固（见 cache/rebuild.ts）——SQLite 部分
+        // 错误（如 SQLITE_FULL/IOERR）会自动回亡事务，再 ROLLBACK 抛
+        // "no transaction is active" 掩蔽原始写错误；吞 ROLLBACK 自身异常、原样上抛
+        try {
+          db.exec('ROLLBACK')
+        } catch {
+          /* 已自动回亡 */
+        }
         throw err
       }
     },
@@ -414,7 +466,14 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
         db.prepare('DELETE FROM sessions WHERE book = ?').run(book)
         db.exec('COMMIT')
       } catch (err) {
-        db.exec('ROLLBACK')
+        // R61-10（第六十一轮）：C4 同款加固（见 cache/rebuild.ts）——SQLite 部分
+        // 错误（如 SQLITE_FULL/IOERR）会自动回亡事务，再 ROLLBACK 抛
+        // "no transaction is active" 掩蔽原始写错误；吞 ROLLBACK 自身异常、原样上抛
+        try {
+          db.exec('ROLLBACK')
+        } catch {
+          /* 已自动回亡 */
+        }
         throw err
       }
     },
@@ -432,7 +491,14 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
         }
         db.exec('COMMIT')
       } catch (err) {
-        db.exec('ROLLBACK')
+        // R61-10（第六十一轮）：C4 同款加固（见 cache/rebuild.ts）——SQLite 部分
+        // 错误（如 SQLITE_FULL/IOERR）会自动回亡事务，再 ROLLBACK 抛
+        // "no transaction is active" 掩蔽原始写错误；吞 ROLLBACK 自身异常、原样上抛
+        try {
+          db.exec('ROLLBACK')
+        } catch {
+          /* 已自动回亡 */
+        }
         throw err
       }
     },

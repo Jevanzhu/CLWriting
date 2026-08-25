@@ -178,5 +178,22 @@ describe('F1-P4 selectBranchTo（重新生成入口：恢复到指定 seq）', (
     // 对照：selectBranch 默认视图同口径（A0 剔除、变体与续聊保留）
     expect(selectBranch(evs).map((e) => e.seq)).toEqual([1, 3, 4, 5])
   })
+  // B2（2026-08-24 内存闸）：sortEvents 有序零拷贝直返改造的行为锁——乱序输入回退
+  // 排序拷贝，selectBranch/selectBranchTo 对乱序/有序输入产出逐一恒等（上游
+  // listEvents 恒按 seq 升序到达，乱序仅测试/历史数据防御路径）
+  it('B2: 乱序输入与有序输入的 selectBranch/selectBranchTo 产出恒等', () => {
+    const ordered = seqEvents([
+      userMessageEvent('q'), // 1
+      assistantMessageEvent('旧答案A0', undefined, undefined, undefined, { parentSeq: 1 }), // 2
+      assistantMessageEvent('新变体b1', undefined, undefined, undefined, { parentSeq: 1, branchId: 'v1' }), // 3
+      userMessageEvent('续聊U2', undefined, { parentSeq: 3 }), // 4
+      assistantMessageEvent('A2'), // 5
+    ])
+    const shuffled = [ordered[2]!, ordered[0]!, ordered[4]!, ordered[1]!, ordered[3]!]
+    expect(selectBranch(shuffled).map((e) => e.seq)).toEqual(selectBranch(ordered).map((e) => e.seq))
+    expect(selectBranchTo(shuffled, 4).map((e) => e.seq)).toEqual(selectBranchTo(ordered, 4).map((e) => e.seq))
+    // 有序输入直返原数组引用（零拷贝），调用方 filter 不改原序
+    const linear = seqEvents([userMessageEvent('q'), assistantMessageEvent('a')])
+    expect(selectBranch(linear)).toBe(linear)
+  })
 })
-

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /**
  * 总览 ③ 字数曲线面板（hh §八-16 自 OverviewView.vue 拆出，纯搬家）。
- * 面积图 SVG：实线 hairline 网格 + 均章参考线 + 折线端点 + X 轴降采样标签。
+ * 面积图 SVG：实线 hairline 网格 + 均章参考线 + 折线端点（M-P3-14 按 tickStep
+ * 降采样，与 X 轴标签同口径）+ X 轴降采样标签。
  */
 import { computed } from 'vue'
 import { TrendingUp } from 'lucide-vue-next'
@@ -108,17 +109,14 @@ const wordLineD = computed(() => {
       <text :x="CHART_W - 6" :y="avgY - 5" class="avg-text" text-anchor="end">均章 {{ fmtWords(curveAvg) }}</text>
       <!-- 折线 -->
       <path :d="wordLineD" class="word-line" />
-      <!-- 端点 -->
-      <circle
-        v-for="(p, i) in curve"
-        :key="p.no"
-        :cx="ptX(i, curve.length)"
-        :cy="barY(p.字数)"
-        r="2.5"
-        class="word-dot"
-      >
-        <title>第{{ p.no }}章 {{ p.标题 }} · {{ p.字数.toLocaleString() }} 字</title>
-      </circle>
+      <!-- 端点（内存核查 2026-08-25 M-P3-14：按 tickStep 降采样——2000 章全量
+           circle+title ≈4000 节点只靠视觉裁剪不减 DOM；现仅每隔 step 章画点，
+           与 X 轴标签同口径，title 悬浮语义保留在画出的点上；折线路径不动） -->
+      <template v-for="(p, i) in curve" :key="'dot'+p.no">
+        <circle v-if="i % tickStep === 0" :cx="ptX(i, curve.length)" :cy="barY(p.字数)" r="2.5" class="word-dot">
+          <title>第{{ p.no }}章 {{ p.标题 }} · {{ p.字数.toLocaleString() }} 字</title>
+        </circle>
+      </template>
       <!-- X 轴编号（按 tickStep 降采样，长篇也保留横轴参照）-->
       <template v-for="(p, i) in curve" :key="'wl'+p.no">
         <text

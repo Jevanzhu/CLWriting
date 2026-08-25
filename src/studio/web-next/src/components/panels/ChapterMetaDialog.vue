@@ -2,6 +2,7 @@
 // 篇章信息弹窗（块2.2）：编辑 章号 / 标题，落 frontmatter + 路径同步 rename。
 // 长/短篇统一用「章号」作正文编号字段（无「篇号」概念）。
 import { ref, watch } from 'vue'
+import { isImeComposing } from '../../shared/ime'
 
 const props = defineProps<{
   modelValue: boolean
@@ -39,6 +40,13 @@ function onSave(): void {
 }
 const numLabel = () => '章号'
 const dlgTitle = () => (props.isPiece ? '篇章信息' : '章节信息')
+
+function onKeySave(e: KeyboardEvent): void {
+  // R61-3（第六十一轮）：IME 组合期确认候选的 Enter 让渡（组合期 v-model 是旧值，
+  // 放行会以缺字标题保存并触发 rename）
+  if (isImeComposing(e)) return
+  onSave()
+}
 </script>
 
 <template>
@@ -46,7 +54,7 @@ const dlgTitle = () => (props.isPiece ? '篇章信息' : '章节信息')
     <div v-if="modelValue" class="meta-mask" @click.self="emit('update:modelValue', false)">
       <div
         class="meta-dialog"
-        @keydown.enter="onSave"
+        @keydown.enter="onKeySave"
         @keydown.esc="emit('update:modelValue', false)"
       >
         <div class="side-title">{{ dlgTitle() }}</div>

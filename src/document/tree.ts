@@ -314,6 +314,11 @@ function matchVolumeName(path: string): string | null {
 let globalRevision = 0
 const indexes = new Map<string, BookTreeIndex>()
 
+/** 内存闸（2026-08-24）：树索引按 bookRoot 缓存整树、无上限——长跑桌面/服务进程
+ *  多书切换逐书累积无界（单书 MB 级）；FIFO 上限对齐 probeCache 口径，取多书同开
+ *  常态（8）的 2 倍余量；淘汰后下次 get 重建即可，无正确性影响。 */
+const INDEXES_CACHE_MAX = 16
+
 /** 读树缓存；无则重建并缓存。revision 进程级递增（即使跨 invalidate 也单调）。
  *  force=true 丢弃缓存重扫——外部编辑器/CLI 直接改盘不经 invalidateTreeIndex，
  *  前端显式刷新需要这条通路，否则外部改动永远刷不出来。 */
@@ -325,6 +330,11 @@ export function getBookTreeIndex(bookRoot: string, force = false): BookTreeIndex
     nodes: buildTree(bookRoot),
     revision: ++globalRevision,
     validatedAt: new Date().toISOString(),
+  }
+  // FIFO 淘汰最旧（Map 保插入序，与 probeCache 同口径）
+  if (indexes.size >= INDEXES_CACHE_MAX) {
+    const oldest = indexes.keys().next().value
+    if (oldest !== undefined) indexes.delete(oldest)
   }
   indexes.set(bookRoot, index)
   return index

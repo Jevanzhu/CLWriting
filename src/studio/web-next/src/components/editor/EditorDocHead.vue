@@ -13,6 +13,7 @@ import { updateChapterMetaDoc } from '../../api/documents'
 import { parseFmFields, formKindOf, isBodyKind } from '../../shared/words'
 import { useAiAssist } from '../../composables/useAiAssist'
 import { friendlyError } from '../../shared/error'
+import { isImeComposing } from '../../shared/ime'
 
 const props = defineProps<{
   docId: string | null
@@ -122,6 +123,13 @@ async function onFinalize(): Promise<void> {
 const { aiActions, runAiAssist } = useAiAssist()
 
 const titleSaving = ref(false)
+function onTitleKeydown(e: KeyboardEvent): void {
+  // R61-3（第六十一轮）：IME 组合期 Enter 让渡——组合期 v-model 是旧标题，放行会以
+  // 缺字标题触发 rename 落盘；守卫通过才 preventDefault（组合期 Enter 归输入法）
+  if (isImeComposing(e)) return
+  e.preventDefault()
+  void onTitleCommit()
+}
 async function onTitleCommit(): Promise<void> {
   const e = entry.value
   if (!e || !ws.activeDocId) {
@@ -197,7 +205,7 @@ async function onTitleCommit(): Promise<void> {
             placeholder="未命名"
             @focus="emit('update:titleEditing', true)"
             @blur="onTitleCommit"
-            @keydown.enter.prevent="onTitleCommit"
+            @keydown.enter="onTitleKeydown"
           />
           <span v-else class="bar-title">{{ entry?.name }}</span>
         </div>

@@ -6,6 +6,7 @@
  */
 
 import { statSync } from 'node:fs'
+import { sep } from 'node:path'
 import { walkMdEach } from '../fs/walk-md.js'
 import { readFile, parseFlat } from './frontmatter.js'
 import { countWords, chapterFilePrefix } from './words.js'
@@ -30,10 +31,22 @@ export function readChapter(
   if (!r.ok) return r
 
   const map = parseFlat(r.fmRaw)
-  const 章号 = map.get('章号')
-
-  if (typeof 章号 !== 'number') {
-    return { ok: false, error: { file: filePath, line: 0, message: '缺少必填字段：章号（int）' } }
+  const 章号Raw = map.get('章号')
+  // R62-13：章号门槛收敛到 number——front matter 由 AI 产出/作者手改，`章号: 5`（int）
+  // 与 `章号: "5"`（parseValue 对带引号值 unquote 后回落字符串）都该认；缺字段与
+  // 非数字格式（`章号: 五`、`章号: 5.0`）维持错误，但文案区分「缺少」与「格式不符」，
+  // 便于 AI 自愈/作者改对（此前带引号整章对本系统隐形——导出 warnings、近况组装、
+  // 前章结尾段、场景水源、draft-pipeline 全部消费方读不到）。
+  let 章号: number
+  if (章号Raw === undefined || 章号Raw === null || 章号Raw === '') {
+    return { ok: false, error: { file: filePath, line: 0, message: '缺少必填字段：章号' } }
+  } else if (typeof 章号Raw === 'number') {
+    章号 = 章号Raw
+  } else if (typeof 章号Raw === 'string' && /^[+-]?\d+$/.test(章号Raw.trim())) {
+    // 纯数字字符串收敛为 number（含前导/尾随空白；合法 range 由调用方/机检把关）
+    章号 = Number(章号Raw.trim())
+  } else {
+    return { ok: false, error: { file: filePath, line: 0, message: '章号格式不符（预期整数，实际为「' + String(章号Raw) + '」）' } }
   }
 
   // 收集未知字段
@@ -106,9 +119,10 @@ export function readChapterDir(
   if (includeBody) return readChapterDirUncached(dirPath, includeBody)
 
   // CC-P1-3：stat 级章节元数据缓存——热路径（GET /books、GET /overview、机检、树红点聚合等）
-  // 对数百章大书每轮全量 readFile+parse+countWords 会秒级阻塞事件循环。此处按 (mtimeMs,size)
+  // 对数百章大书每轮全量 readFile+parse+countWords 会秒级阻塞事件循环。此处按 (mtimeNs,size)
   // 判定：文件未变（绝大多数）→ 跳过整读，只 stat；变化/新增/删除由每轮 walk 自愈。
-  // 与 document/tree.ts probeCache 同口径（含 mtime+size 撞车理论窗口）。
+  // R62-35：bigint stat 取 mtimeNs——与 document/tree.ts probeCache 同口径（同 ms 内改回
+  // 同长内容的撞车窗口收窄到 ns 级，注释同步）。
   // 返回数组与章对象均为新引用（防调用方 sort/mutate 污染缓存）。
   const cache = chapterDirCache.get(dirPath) ?? new Map<string, ChapterDirEntry>()
   chapterDirCache.set(dirPath, cache)
@@ -120,17 +134,17 @@ export function readChapterDir(
   walkMdEach(dirPath, (fp) => {
     let st: ReturnType<typeof statSync>
     try {
-      st = statSync(fp)
+      st = statSync(fp, { bigint: true })
     } catch {
       return
     }
     const hit = cache.get(fp)
-    if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) {
+    if (hit && hit.mtimeNs === st.mtimeNs && hit.size === st.size) {
       chapters.push(cloneChapter(hit.chapter)) // Z-21：_raw 一并深拷贝——嵌套 mutate 不污染缓存
     } else {
       const r = readChapter(fp)
       if (r.ok) {
-        cache.set(fp, { mtimeMs: st.mtimeMs, size: st.size, chapter: r.chapter })
+        cache.set(fp, { mtimeNs: st.mtimeNs, size: st.size, chapter: r.chapter })
         chapters.push(cloneChapter(r.chapter))
       } else {
         errors.push(r.error)
@@ -173,8 +187,8 @@ function cloneChapter(c: ChapterMeta): ChapterMeta {
 }
 
 interface ChapterDirEntry {
-  mtimeMs: number
-  size: number
+  mtimeNs: bigint
+  size: bigint
   chapter: ChapterMeta
 }
 
@@ -185,6 +199,26 @@ const chapterDirCache = new Map<string, Map<string, ChapterDirEntry>>()
 /** 清空章节元数据缓存（结构性 mutation 后防御性调用；正常由每轮 walk 自愈，测试用）。 */
 export function clearChapterDirCache(): void {
   chapterDirCache.clear()
+}
+
+/**
+ * 内存闸（2026-08-24 审计 C2）：按 bookRoot 前缀清理章节元数据缓存——删书/改名时由
+ * books.ts 接线调用（clearChapterDirCache 全清会误伤其他书的活跃条目）。外层键是
+ * readChapterDir 的 dirPath 实参，全部调用方均以 join(bookRoot, …) 构造（未 resolve），
+ * 故前缀匹配用 bookRoot + 平台分隔符（sep）即可字节对齐、不引入 realpath 归一（两侧
+ * 同源口径，与 tree.ts invalidateTreeIndex 的 probeCache 前缀清理同款）。清后键惰性
+ * 重建，无正确性影响。返回清除的外层键数（测试断言用）。
+ */
+export function clearChapterDirCacheForBook(bookRoot: string): number {
+  const prefix = bookRoot + sep
+  let removed = 0
+  for (const key of chapterDirCache.keys()) {
+    if (key.startsWith(prefix)) {
+      chapterDirCache.delete(key)
+      removed++
+    }
+  }
+  return removed
 }
 
 // re-export 抽离到 words.ts 的纯函数（保本模块 API 不变，T2.1）

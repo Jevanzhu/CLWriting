@@ -685,3 +685,78 @@ describe('Q-8：clear 后遇 running 登记 pending，回合收尾自动补种',
     expect(fetchMock).not.toHaveBeenCalled() // 不再自动种书B
   })
 })
+
+// ── C3（内存闸 2026-08-24 审计）：工具入参落存截断 ─────────────────
+// 整章正文级 tool input 原样常驻 store（只限消息条数不限体积）→ 落存前统一截到
+// 2000 码位 + … 尾标；SSE 与历史种子化两条路径同口径。
+
+describe('C3: 工具入参超长截断（2000 码位 + … 尾标）', () => {
+  const LONG = '雪'.repeat(2500) // 整章正文级超长入参（BMP 字符）
+  const CLIPPED = '雪'.repeat(2000) + '…'
+
+  // 队列净化：Q-8「对照」用例按设计排了 mockResolvedValueOnce(HISTORY) 却断言不发请求
+  // （Once 队列残留，clearAllMocks 只清调用记录不清实现）——本组先 mockReset 清空
+  // 共享 Once 队列再各自排桩，保证种子化用例拿到本组载荷而非残留 HISTORY。
+  beforeEach(() => {
+    fetchMock.mockReset()
+  })
+
+  it('SSE 路径：chat_tool_pending / readonly chat_tool 的超长 input 落存前截断，短入参原样', () => {
+    const chat = useChatStore()
+    chat.dispatch({ type: 'chat_start' })
+    chat.dispatch({ type: 'chat_turn', turn: 0 })
+    // pending 路径（整章正文字符串入参）
+    chat.dispatch({ type: 'chat_tool_pending', callId: 'c1', name: 'write_chapter', input: LONG })
+    expect(chat.messages[0]!.tools[0]!.input).toBe(CLIPPED)
+    // readonly 路径（对象入参内嵌超长正文 → 序列化超限同样截断为字符串）
+    chat.dispatch({ type: 'chat_tool', callId: 'c2', name: 'check_chapter', input: { chapter: 1, text: LONG } })
+    const obj = chat.messages[0]!.tools[1]!.input as string
+    expect(typeof obj).toBe('string')
+    expect(obj.endsWith('…')).toBe(true)
+    // 短入参不误伤：小对象原形落存（既有展示/断言口径不变）
+    chat.dispatch({ type: 'chat_tool', callId: 'c3', name: 'check_chapter', input: { chapter: 1 } })
+    expect(chat.messages[0]!.tools[2]!.input).toEqual({ chapter: 1 })
+  })
+
+  it('码位安全：增补平面字符（代理对）不被切半——截断点在码位边界', () => {
+    const emoji = '\u{20BB7}' // 佢：增补平面，一个码位 = 高低两个代理项
+    const chat = useChatStore()
+    chat.dispatch({ type: 'chat_start' })
+    chat.dispatch({ type: 'chat_turn', turn: 0 })
+    chat.dispatch({ type: 'chat_tool_pending', callId: 'c1', name: 'write_chapter', input: emoji.repeat(2500) })
+    const clipped = chat.messages[0]!.tools[0]!.input as string
+    // 2000 个完整码位 + …（若按 UTF-16 码元 slice 会得到 1000 对 + 半个高代理项）
+    expect(clipped).toBe(emoji.repeat(2000) + '…')
+    // 落存串无孤立代理项（首尾都不在代理对中间切断）
+    expect(Array.from(clipped)).toHaveLength(2001)
+  })
+
+  it('种子化路径：历史 tool_use 的超长 input 落存前截断（与 SSE 同口径）', async () => {
+    fetchMock.mockResolvedValueOnce({
+      messages: [
+        {
+          role: 'assistant',
+          content: [{ type: 'tool_use', id: 'tu-1', name: 'write_chapter', input: LONG }],
+        },
+        {
+          role: 'user',
+          content: [{ type: 'tool_result', toolUseId: 'tu-1', content: '写好了', isError: false }],
+        },
+      ],
+    })
+    const chat = useChatStore()
+    await chat.seedHistory('书A')
+    const tool = chat.messages[0]!.tools[0]!
+    expect(tool.input).toBe(CLIPPED)
+    expect(tool.status).toBe('ok') // 截断不影响 tool_result 回填状态机
+  })
+
+  it('边界：恰好 2000 码位不截断、不加尾标', () => {
+    const chat = useChatStore()
+    chat.dispatch({ type: 'chat_start' })
+    chat.dispatch({ type: 'chat_turn', turn: 0 })
+    const exact = '风'.repeat(2000)
+    chat.dispatch({ type: 'chat_tool_pending', callId: 'c1', name: 'write_chapter', input: exact })
+    expect(chat.messages[0]!.tools[0]!.input).toBe(exact)
+  })
+})

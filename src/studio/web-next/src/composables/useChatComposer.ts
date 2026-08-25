@@ -9,6 +9,7 @@ import { friendlyError } from '../shared/error'
 import { useUiStore } from '../stores/ui'
 import { sendChat, clearChatHistory } from '../api/chat'
 import { interrupt } from '../api/stream'
+import { isImeComposing } from '../shared/ime'
 
 export function useChatComposer(
   bookName: () => string,
@@ -65,7 +66,9 @@ export function useChatComposer(
   }
 
   function handleKeydown(e: KeyboardEvent): void {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    // R61-3（第六十一轮）：IME 组合期确认候选的 Enter 让渡——此时 v-model 尚未同步
+    // 组合文本，放行会以组合前旧值发送不完整消息
+    if (e.key === 'Enter' && !e.shiftKey && !isImeComposing(e)) {
       e.preventDefault()
       void handleSend()
     }

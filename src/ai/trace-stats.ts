@@ -73,7 +73,9 @@ function readLlmCalls(
     const store = openSessionStore(userDataPath, bookRoot)
     if (!store) return []
     try {
-      const events = store.listEvents(bookHash(bookRoot))
+      // B1（2026-08-24 内存闸）：type SQL 下推——只取 llm/call 行（原全量投影再内存过滤，
+      // 全部对话正文一起 JSON.parse，峰值随书龄线性增长无上限）
+      const events = store.listEvents(bookHash(bookRoot), undefined, undefined, 'llm/call')
       const out: {
         task: string
         ok: boolean
@@ -84,7 +86,6 @@ function readLlmCalls(
         day: string
       }[] = []
       for (const e of events) {
-        if (e.type !== 'llm/call') continue
         const d = e.data as unknown as LlmCallData
         out.push({
           task: d.task,

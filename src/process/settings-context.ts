@@ -7,7 +7,7 @@
  * C3（DSH-17 预算制）：新增 buildSettingsLayers 产出结构化层（角色/境界，均 volume 档），
  * 供 draft-pipeline 组装预算注入；buildSettingsContext 改为按层拼接，渲染格式不变。
  */
-import { join, basename, relative } from 'node:path'
+import { join, basename, relative, sep } from 'node:path'
 import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs'
 import { readFile, parseFlat } from '../format/frontmatter.js'
 import { readRealmDoc } from '../format/realms.js'
@@ -37,6 +37,10 @@ interface CardCacheEntry {
   size: number
   card: CharacterCard
 }
+/** 内存闸（2026-08-24 审计 C1）：FIFO 上限——缓存值含卡片正文全文，模块级跨书长跑
+ *  进程只 set 不 delete 无界增长；口径对齐 document/tree.ts probeCache（Map 保插入序、
+ *  命中不续位），64 = 单书角色卡常见规模（几十张）的余量，淘汰后下轮 readdir 重读即可。 */
+const CARD_CACHE_MAX = 64
 const cardCache = new Map<string, CardCacheEntry>()
 
 /** 清空角色卡缓存（测试用）。 */
@@ -54,6 +58,7 @@ export function readCharacterCards(dirPath: string, bookRoot: string): Character
   } catch {
     return out
   }
+  const seen = new Set<string>()
   for (const f of files) {
     const fp = join(dirPath, f)
     let st: ReturnType<typeof statSync>
@@ -62,6 +67,7 @@ export function readCharacterCards(dirPath: string, bookRoot: string): Character
     } catch {
       continue
     }
+    seen.add(fp)
     const hit = cardCache.get(fp)
     if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) {
       out.push({ ...hit.card }) // 浅拷贝：调用方改字段不污染缓存
@@ -93,8 +99,21 @@ export function readCharacterCards(dirPath: string, bookRoot: string): Character
         正文: text.trim(),
       }
     }
+    // FIFO 淘汰最旧（内存闸 2026-08-24 审计 C1；Map 保插入序，与 tree.ts probeCache 同口径）
+    if (cardCache.size >= CARD_CACHE_MAX) {
+      const oldest = cardCache.keys().next().value
+      if (oldest !== undefined) cardCache.delete(oldest)
+    }
     cardCache.set(fp, { mtimeMs: st.mtimeMs, size: st.size, card })
     out.push({ ...card })
+  }
+  // 删除自愈（内存闸 2026-08-24 审计 C1）：每轮 readdir 遍历后用 seen 集合清扫本目录内
+  // 已不在磁盘的键（对照 chapters.ts readChapterDir 的 seen-set 同款实现）。只匹配
+  // dirPath + 分隔符 前缀——缓存为模块级跨目录共享，按本轮 seen 全表清扫会误删其他
+  // 书/目录的活跃条目（stat 失败跳过的文件不进 seen，同样被清扫，行为正确）。
+  const prefix = dirPath + sep
+  for (const key of cardCache.keys()) {
+    if (key.startsWith(prefix) && !seen.has(key)) cardCache.delete(key)
   }
   return out
 }

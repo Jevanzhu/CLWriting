@@ -18,7 +18,8 @@ import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 
-import { collectTreeIssues } from '../../src/check/run.js'
+import { collectTreeIssues, __setLeadsBookDegradeForTest } from '../../src/check/run.js'
+import { rebuild } from '../../src/cache/rebuild.js'
 import { checkLeadsBookItems } from '../../src/check/leads.js'
 import { readManifest, writeManifest, upsertEntry, type ManifestEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
@@ -205,6 +206,63 @@ describe('collectTreeIssues 账本全书性红项（H-1 跨章陈旧修复）', 
       }
     } finally {
       chmodSync(ch2, 0o644)
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+// ── R62-5/R62-7（第六十二轮）──────────────────────────
+
+describe('R62-5/R62-7：章文件定位单次建表 + 账本降级可见性', () => {
+  it('R62-5：正文按卷子目录 + 章号补零布局，章文件定位照常（walkMdEach 单次建表含递归与补零判等）', () => {
+    const root = mkdtempSync(join(tmpdir(), 'leads-book-map-'))
+    try {
+      mkdirSync(join(root, '布线', '悬念'), { recursive: true })
+      mkdirSync(join(root, '写作', '正文', '第一卷'), { recursive: true })
+      writeFileSync(
+        join(root, 'book.yaml'),
+        'spec_version: 1\nkind: long\nbook:\n  title: 测试书\nhost: cc\nleads:\n  enabled: []\n',
+        'utf-8',
+      )
+      writeFileSync(
+        join(root, '布线', '悬念', '悬念-001-密室之主.md'),
+        '---\n编号: 悬念-001\n标题: 密室之主\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n\n- 第2章 埋下：「密室尽头的青铜灯」\n',
+        'utf-8',
+      )
+      writeFileSync(
+        join(root, '写作', '正文', '第一卷', '002-第2章.md'),
+        '---\n章号: 2\n标题: 第2章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n夜色里，密室尽头的青铜灯忽然亮了一下。\n',
+        'utf-8',
+      )
+      const cachePath = join(root, '.cache', 'index.db')
+      rebuild(root, cachePath)
+      const db = new DatabaseSync(cachePath)
+      try {
+        const items = checkLeadsBookItems(db, root, 2, ['悬念'])
+        expect(items.filter((i) => i.level === 'red')).toEqual([]) // 卷子目录 + 补零章号内引文被找到
+      } finally {
+        db.close()
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('R62-7：账本全书性红项计算失败 → leadsBookDegraded 透出（修复前静默降级为「无红」且响应无 warning）', () => {
+    const { root } = makeBook(true)
+    try {
+      const healthy = collectTreeIssues(root, () => undefined)
+      expect(healthy.leadsBookDegraded).toBe(false)
+
+      // R62-7 触发（定稿）：readLeadsBookRed 对表异常自愈吞错且 collectTreeIssues 每次
+      // 先跑 rebuild 重建表——外部腐蚀（DROP/坏 schema）无法确定性触发 degraded。按库内
+      // 既有 __set...ForTest 注入范型（R62-21 同族）用 __setLeadsBookDegradeForTest 直证透出路径。
+      __setLeadsBookDegradeForTest(true)
+      const degraded = collectTreeIssues(root, () => undefined)
+      __setLeadsBookDegradeForTest(false)
+      expect(degraded.leadsBookDegraded).toBe(true)
+      expect(degraded.rebuildFailed).toBe(false) // 与 rebuildFailed 两口径独立可辨
+    } finally {
       rmSync(root, { recursive: true, force: true })
     }
   })

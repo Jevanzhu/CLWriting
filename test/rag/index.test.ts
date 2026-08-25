@@ -3,13 +3,13 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdirSync, rmSync, existsSync } from 'node:fs'
+import { mkdirSync, rmSync, existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { buildIndex, recall, chunkBody } from '../../src/rag/index.js'
 import { writeChapter } from '../helpers/chapter.js'
 import type { ChapterMeta } from '../../src/format/types.js'
-import type { EmbedResult } from '../../src/rag/embed.js'
+import type { EmbedResult, EmbedOptions } from '../../src/rag/embed.js'
 
 describe('chunkBody', () => {
   it('按双空行分块，记偏移', () => {
@@ -165,7 +165,9 @@ describe('buildIndex + recall（桩 embed）', () => {
     expect(result.error).toContain('模型')
   })
 
-  it('建索引：已索引章节正文变更时拒绝沿用旧索引', async () => {
+  // R61-1（第六十一轮）：口径反转——正文变更从「硬错要求手工删库重建」改为自愈重索引
+  //（回改草稿/修错字是写作常态，一次编辑不应让 build 永久报错；详见 reindex-selfheal.test.ts）
+  it('建索引：已索引章节正文变更时自愈重索引该章（不再硬错）', async () => {
     const config = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
     await buildIndex(bookRoot, config, 'stub-key', stubEmbed)
     const meta: ChapterMeta = {
@@ -180,8 +182,8 @@ describe('buildIndex + recall（桩 embed）', () => {
 
     const result = await buildIndex(bookRoot, config, 'stub-key', stubEmbed)
 
-    expect(result.ok).toBe(false)
-    expect(result.error).toContain('已变更')
+    expect(result.ok).toBe(true)
+    expect(result.chapterCount).toBe(1) // 仅第 1 章重索引
   })
 
   // 第五轮：missingFingerprint 自愈重索引须先清该章旧块——storeChunk 唯一键是
@@ -655,5 +657,90 @@ describe('A4（五十九轮）：分块 offset 指向 trim 后文本区间', () 
     }
     // 首块 text 不含段首空白（原口径 start=0 连 3 个前导空格一起计入 offset）
     expect(chunks[0]!.text.startsWith('开头带空白')).toBe(true)
+  })
+})
+
+// R62-4/R62-27 回归：embed 选项透传 + rag-embed 用量记账。
+// 修复前：embed 第 5 参（options）build/recall 两侧都不传——超时只活在 embed.ts
+// 默认参数里（书级 embed_timeout_ms 恒不生效）；端点下发的 usage.prompt_tokens
+// 无通道汇入 ai-calls.json（embedding 消耗零记账，与「模型可见⟺已记录」守则相悖）。
+describe('R62-4/R62-27：embed 选项透传与 rag-embed 记账', () => {
+  let bookRoot: string
+
+  beforeEach(() => {
+    bookRoot = join(tmpdir(), `rag-opts-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+    mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
+    for (const n of [1, 2]) {
+      const meta: ChapterMeta = {
+        章号: n, 标题: `第${n}章`, 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
+        _path: '', _wordCount: 100,
+      }
+      writeChapter(
+        join(bookRoot, '写作', '正文', `${n}-第${n}章.md`),
+        meta,
+        `第${n}章的正文段落内容，这是一个战斗场景，主角挥剑战斗。`,
+      )
+    }
+  })
+
+  afterEach(() => {
+    rmSync(bookRoot, { recursive: true, force: true })
+  })
+
+  /** 记账桩：每批按块数回调 onUsage，向量确定性 3 维 */
+  function usageEmbed(
+    _e: string, _m: string, _k: string, texts: string[], opts?: EmbedOptions,
+  ): Promise<EmbedResult> {
+    opts?.onUsage?.(texts.length)
+    return Promise.resolve(texts.map(() => [0.2, 0.5, 0.8]))
+  }
+
+  it('R62-4：build/recall 的 embedding 消耗记入 .cache/ai-calls.json 的 rag-embed 任务位', async () => {
+    const config = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
+    const built = await buildIndex(bookRoot, config, 'stub-key', usageEmbed)
+    expect(built.ok).toBe(true)
+    expect(built.chunkCount).toBeGreaterThan(0)
+
+    const callsPath = join(bookRoot, '.cache', 'ai-calls.json')
+    expect(existsSync(callsPath)).toBe(true)
+    // 建：2 块一批 → used 1 / inputTokens = chunkCount（修复前该任务位不存在）
+    const afterBuild = JSON.parse(readFileSync(callsPath, 'utf8'))
+    expect(afterBuild.tasks['rag-embed']).toEqual({ used: 1, inputTokens: built.chunkCount, outputTokens: 0 })
+
+    await recall(bookRoot, config, 'stub-key', '战斗', 5, usageEmbed)
+    // 召回：query 单块一批 → used 2 / inputTokens += 1
+    const afterRecall = JSON.parse(readFileSync(callsPath, 'utf8'))
+    expect(afterRecall.tasks['rag-embed']).toEqual({ used: 2, inputTokens: built.chunkCount + 1, outputTokens: 0 })
+  })
+
+  it('R62-27：embed_timeout_ms 从 RagConfig 透传到 build/recall 桩的 options（未配 → undefined 回落内置 30s）', async () => {
+    let captured: EmbedOptions | undefined
+    const capture = (_e: string, _m: string, _k: string, texts: string[], opts?: EmbedOptions): Promise<EmbedResult> => {
+      captured = opts
+      return Promise.resolve(texts.map(() => [0.2, 0.5, 0.8]))
+    }
+
+    const cfgWith = { enabled: true, endpoint: 'http://stub', model: 'stub-model', embed_timeout_ms: 1234 }
+    await buildIndex(bookRoot, cfgWith, 'stub-key', capture)
+    expect(captured?.timeoutMs).toBe(1234)
+
+    await recall(bookRoot, cfgWith, 'stub-key', '战斗', 5, capture)
+    expect(captured?.timeoutMs).toBe(1234)
+
+    // 未配键 → 显式 undefined（embed.ts 内默认 30s；调用点不再自造超时字面量）。
+    // 同书增量/换模型都会在 embed 前早退，须另起一本全新书才能观测到该次 embed 调用。
+    const bookRoot2 = join(tmpdir(), `rag-opts-plain-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+    try {
+      mkdirSync(join(bookRoot2, '写作', '正文'), { recursive: true })
+      const meta: ChapterMeta = {
+        章号: 1, 标题: '第1章', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
+        _path: '', _wordCount: 100,
+      }
+      writeChapter(join(bookRoot2, '写作', '正文', '1-第1章.md'), meta, '第一章的正文段落内容，这是一个战斗场景，主角挥剑战斗。')
+      await buildIndex(bookRoot2, { enabled: true, endpoint: 'http://stub', model: 'stub-model' }, 'stub-key', capture)
+      expect(captured?.timeoutMs).toBeUndefined()
+    } finally {
+      rmSync(bookRoot2, { recursive: true, force: true })
+    }
   })
 })

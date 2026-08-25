@@ -12,6 +12,7 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import type { CheckReport } from '../check/types.js'
 import {
@@ -22,6 +23,7 @@ import {
   type ReviewHostCapabilities,
   type ReviewIssue,
   type ReviewLens,
+  type ReviewMeta,
   type ReviewResult,
   type ReviewTask,
   type ReviewTier,
@@ -193,6 +195,9 @@ export interface CollectedReview {
   raw_issues: ReviewIssue[]
   /** 归一化结果 */
   normalized: NormalizedReviewResult
+  /** R62-34：审稿单 meta（ledger_check 等）——normalizeReviewResult 不透传 meta，
+   *  此前 ReviewResult.meta 写完即弃（信封/UI 均不可见），随 collected 一并透出 */
+  meta: ReviewMeta
   /** tier（用于审稿单元信息） */
   tier: ReviewTier
   requested_tier: ReviewTier
@@ -204,6 +209,53 @@ export interface CollectedReview {
 export function collectReviewIssues(input: {
   packet: ReviewExecutionPacket
 }): CollectedReview {
+  // R61-13（第六十一轮）：draft_hash 一致性实装——字段自第五轮声明并随包透传，但
+  // collect 从不校验（死字段）：回收期间草稿漂移（作者回改正文）会让 issues 指向
+  // 已不存在的文本。hash 不符/不可读 → 审稿单不成立（同缺视角/坏条目口径）。
+  // R62-34：ledger_check 如实——任一分包带账本核对项才算「已跑」（无布线/账本无变动
+  // 时任务书不带 ledger_checks，此前恒报「已跑」与实际执行面不符）
+  const ledgerCheckRan = input.packet.packets.some((p) => (p.ledger_checks?.length ?? 0) > 0)
+  if (input.packet.draft_path !== undefined && input.packet.draft_hash !== undefined) {
+    let actual: string | null = null
+    try {
+      actual = createHash('sha256').update(readFileSync(input.packet.draft_path)).digest('hex')
+    } catch {
+      actual = null // 读失败（草稿被删/移动）与 hash 不符同判
+    }
+    if (actual !== input.packet.draft_hash) {
+      const stale: ReviewResult = {
+        issues: [],
+        summary: '',
+        meta: {
+          requested_tier: input.packet.requested_tier,
+          effective_tier: input.packet.tier,
+          fallback: input.packet.fallback,
+          lenses_run: input.packet.lenses_run,
+          ledger_check: ledgerCheckRan ? '已跑' : '跳过',
+        },
+      }
+      return {
+        ok: false,
+        collected_lenses: [],
+        missing_lenses: [],
+        bad_entries: [
+          {
+            path: input.packet.draft_path,
+            reason: '草稿在审阅期间已变更或不可读（draft_hash 不符），审稿单不成立，请重跑三审',
+          },
+        ],
+        raw_issues: [],
+        normalized: normalizeReviewResult(stale),
+        meta: stale.meta,
+        tier: input.packet.tier,
+        requested_tier: input.packet.requested_tier,
+        fallback: input.packet.fallback,
+        chapter: input.packet.chapter,
+        lenses_run: input.packet.lenses_run,
+      }
+    }
+  }
+
   const expectedFiles: { lens: ReviewLens; file: string }[] =
     input.packet.tier === 'combined'
       ? [{ lens: input.packet.lenses_run[0] ?? 'continuity', file: COMBINED_ISSUES_FILE }]
@@ -265,7 +317,7 @@ export function collectReviewIssues(input: {
       effective_tier: input.packet.tier,
       fallback: input.packet.fallback,
       lenses_run: input.packet.lenses_run,
-      ledger_check: '已跑',
+      ledger_check: ledgerCheckRan ? '已跑' : '跳过', // R62-34：如实（见函数首注释）
     },
   }
   const normalized = normalizeReviewResult(result)
@@ -278,6 +330,7 @@ export function collectReviewIssues(input: {
     bad_entries: badEntries,
     raw_issues: rawIssues,
     normalized,
+    meta: result.meta,
     tier: input.packet.tier,
     requested_tier: input.packet.requested_tier,
     fallback: input.packet.fallback,

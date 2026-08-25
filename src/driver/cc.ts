@@ -20,11 +20,14 @@ import type {
 /** 单个 stream 消费者：独立队列 + 挂起等待句柄。
  *  B-19（第六十轮补修）：cancelled——SSE 断开侧经 cancelStream 唤醒 park 中的
  *  生成器令其自行 return（iter.return 只能在 yield 边界生效，此前断开后生成器
- *  悬挂在内部 await 直到该书下一 driver 事件才被推进回收） */
+ *  悬挂在内部 await 直到该书下一 driver 事件才被推进回收）。
+ *  M-P2-1（内存核查 2026-08-25）：dropNotified——本轮积压已补发过丢事件 notice，
+ *  队列拉空时复位（每轮积压只告知一次，不逐条刷屏） */
 interface Consumer {
   queue: DriverEvent[]
   notify: (() => void) | null
   cancelled: boolean
+  dropNotified: boolean
 }
 
 /** B-19：stream() 返回的生成器对象 → 其 consumer（cancelStream 据此唤醒） */
@@ -48,6 +51,10 @@ export const MAX_EXEC_RING = 200
 /** AA-P3-2：无消费者期间 pre 暂存上限（同 MAX_EXEC_RING 量级）——首个消费者接入前
  *  长自愈流不再无限增堆内存；超出只留最近 N 个（旧事件进 sync 快照/日志兜底） */
 const MAX_PRE_EVENTS = MAX_EXEC_RING
+/** M-P2-1（内存核查 2026-08-25）：已连接消费者队列上限（pre / execRing 同量级）——
+ *  慢速/僵尸 SSE 消费者（连接未断但网络停滞、生成器不再被拉动）在长连写期间
+ *  队列不再无限积压；超限丢最旧 + 补发 notice（AA-P3-1 口径：丢弃可感知） */
+export const MAX_CONSUMER_QUEUE = 200
 /** 每 session 一个事件总线（广播到所有消费者） */
 interface Channel {
   consumers: Set<Consumer>
@@ -121,6 +128,20 @@ function push(id: string, ev: DriverEvent): void {
   }
   // 广播：复制事件到每个活跃消费者队列，唤醒其挂起等待
   for (const c of ch.consumers) {
+    // 内存核查（2026-08-25 M-P2-1）：消费者队列 cap——广播腿是 pre/execRing 之外的
+    // 一支（原先无上限），超限丢最旧腾位；每轮积压首次超限时再腾一位补发 notice
+    // （notice 自身也占队列位，入队后长度恒 ≤ MAX_CONSUMER_QUEUE）
+    if (c.queue.length >= MAX_CONSUMER_QUEUE) {
+      c.queue.shift()
+      if (!c.dropNotified) {
+        c.queue.shift()
+        c.queue.push({
+          type: 'notice',
+          message: '事件队列已满：消费过慢或连接停滞，最旧的排队事件已被丢弃（运行中的执行可经重连回放最近事件补齐）',
+        })
+        c.dropNotified = true
+      }
+    }
     c.queue.push(ev)
     if (c.notify) {
       const n = c.notify
@@ -142,7 +163,7 @@ export const ccDriver: StudioDriver = {
   // cancelStream 据此唤醒 park 在内部 await 的生成器（接口签名不变，返回 AsyncGenerator
   // 仍是 AsyncIterable）
   stream(session: Session): AsyncGenerator<DriverEvent> {
-    const consumer: Consumer = { queue: [], notify: null, cancelled: false }
+    const consumer: Consumer = { queue: [], notify: null, cancelled: false, dropNotified: false }
     const gen = (async function* (): AsyncGenerator<DriverEvent> {
       // 低级项（第六轮）：已 dispose 的会话不再建 channel（原先懒建复活 Map 条目无人清）
       if (session.closed) return
@@ -162,6 +183,9 @@ export const ccDriver: StudioDriver = {
           while (consumer.queue.length) {
             yield consumer.queue.shift() as DriverEvent
           }
+          // M-P2-1（内存核查 2026-08-25）：队列拉空——复位丢事件告知标记，
+          // 下一轮积压再超限时重新补发一次 notice
+          consumer.dropNotified = false
           if (session.closed) return
           // B-19：断开唤醒后的检查点——不再续 park，自行 return（finally 摘除 consumer）
           if (consumer.cancelled) return

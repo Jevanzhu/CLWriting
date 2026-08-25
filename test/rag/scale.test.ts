@@ -113,14 +113,16 @@ function makeChapterBody(
     plantedText = bits.join('')
     paragraphs.push(plantedText)
   }
-  let total = paragraphs.join('\n\n').length
+  // 内存闸（2026-08-24 审计 A3）：增量计数替代每段全量 join（同 check/scale 口径）
+  let total = paragraphs[0]?.length ?? 0
   while (total < CHARS_PER_CHAPTER) {
     const bits: string[] = []
     while (bits.join('').length < 40 + Math.floor(rng() * 91)) {
       bits.push(WORDS[Math.floor(rng() * WORDS.length)]!)
     }
-    paragraphs.push(bits.join(''))
-    total = paragraphs.join('\n\n').length
+    const seg = bits.join('')
+    total = paragraphs.length === 0 ? seg.length : total + seg.length + 2
+    paragraphs.push(seg)
   }
   return { body: paragraphs.join('\n\n'), plantedText }
 }

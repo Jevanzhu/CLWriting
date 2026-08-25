@@ -14,7 +14,7 @@ import { readDraft } from '../format/draft.js'
 import { rebuild } from '../cache/rebuild.js'
 import { runAllChecks, hasRed, enabledLeadTypes } from './runner.js'
 import { readOutlineLeads } from './outline-leads.js'
-import { leadEvidenceMatchesBody, readChapterLeadUpdates } from './lead-updates.js'
+import { leadEvidenceMatchesBody, leadUpdatesInScopeForChapter, readChapterLeadUpdates } from './lead-updates.js'
 import { readChapterDir } from '../format/chapters.js'
 import { readManifest } from '../document/manifest.js'
 import { deriveStatus } from '../document/status.js'
@@ -62,8 +62,6 @@ export function runCheckForDocument(bookRoot: string, absPath: string, userDataP
         }
       }
       db = new DatabaseSync(cachePath)
-      // 与 rebuild 同款：并发下（树红点聚合 + rebuild 同跑）等锁 5s 而非立即 SQLITE_BUSY
-      db.exec('PRAGMA busy_timeout = 5000')
     } catch (e) {
       return {
         ok: false,
@@ -73,6 +71,22 @@ export function runCheckForDocument(bookRoot: string, absPath: string, userDataP
     }
   }
   try {
+    // 内存闸（2026-08-24 审计 C4）：PRAGMA 段并入大 try——此前在开库 try/catch 内，
+    // exec 抛错（库损坏/锁超时）走 catch 直接 return，db 已开未关（泄漏句柄 + WAL）；
+    // 并入后由本层 finally 收口 close（对照同文件 collectTreeIssues 的大 finally 口径），
+    // REBUILD_FAIL 契约不变
+    if (db) {
+      try {
+        // 与 rebuild 同款：并发下（树红点聚合 + rebuild 同跑）等锁 5s 而非立即 SQLITE_BUSY
+        db.exec('PRAGMA busy_timeout = 5000')
+      } catch (e) {
+        return {
+          ok: false,
+          code: 'REBUILD_FAIL',
+          error: `缓存库不可用：${e instanceof Error ? e.message : String(e)}`,
+        }
+      }
+    }
     return checkWithDb(bookRoot, absPath, db, config)
   } finally {
     if (db) db.close()
@@ -153,8 +167,13 @@ export function checkWithDb(
     const useLeads = hasWiring
     // V-P2-14：细纲声明按被检章过滤（细纲单文件覆盖写，旧草稿复检不得对上新章声明）
     const declaredLeadIds = useLeads ? readOutlineLeads(bookRoot, draft.chapter.章号) : undefined
+    // R61-14（第六十一轮）：实际侧同口径按被检章过滤（V-P2-14 声明侧同向）——
+    // 主文件带章标签且 ≠ 被检章时（批量连写后复检旧章），他章证据不作本章「已兑现」参照
     const actualLeadIds = useLeads
-      ? (batch?.leadUpdates ?? readChapterLeadUpdates(bookRoot))
+      ? (leadUpdatesInScopeForChapter(bookRoot, draft.chapter.章号)
+          ? (batch?.leadUpdates ?? readChapterLeadUpdates(bookRoot))
+          : []
+      )
           .filter((u) => leadEvidenceMatchesBody(draft.body, u.证据))
           .map((u) => u.leadId)
       : undefined
@@ -193,12 +212,19 @@ export function checkOutcomeStatus(code: 'NOT_CHAPTER' | 'REBUILD_FAIL' | 'CHECK
   return 500
 }
 
+/** R62-7 测试注入：强制账本全书性红项计算抛错——验证 leadsBookDegraded 透出路径
+ *  （真实损坏多被 readLeadsBookRed 自愈吞掉,难确定性触发）。生产恒 false。 */
+let __leadsBookDegradeForTest = false
+export function __setLeadsBookDegradeForTest(v: boolean): void {
+  __leadsBookDegradeForTest = v
+}
+
 /** 树红点聚合：扫正文章节，返回 { docId: { hasRed, verdictRejected } }（仅含有 issue 的 docId）。 */
 export function collectTreeIssues(
   bookRoot: string,
   readReviewVerdict: (docId: string) => { approved: boolean } | undefined,
   userDataPath?: string | null,
-): { issues: Record<string, { hasRed: boolean; verdictRejected: boolean }>; rebuildFailed: boolean } {
+): { issues: Record<string, { hasRed: boolean; verdictRejected: boolean }>; rebuildFailed: boolean; leadsBookDegraded: boolean } {
   // B-P2-7：检查 .ok，损坏时 warn 留诊断（config 回落 DEFAULT_CONFIG，不阻断）
   const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
   if (!cfgResult.ok) log.warn('check', `book.yaml 降级: ${cfgResult.error.message}`)
@@ -259,8 +285,13 @@ export function collectTreeIssues(
     const bodyChapters = existsSync(bodyDir) ? readChapterDir(bodyDir).chapters : []
     const maxWritten = maxWrittenChapterOf(bookRoot, bodyChapters)
     let leadsBookRed = false
+    // R62-7：账本全书性红项计算失败的可视标志——此前静默降级为「无红」，持续性失败
+    // 期间全树永不显示账本红项且响应无 warning（fail-open 方向是漏红，与 rebuildFailed
+    // 处理不对称）；随响应透出让前端留痕
+    let leadsBookDegraded = false
     if (db && !rebuildFailed) {
       try {
+        if (__leadsBookDegradeForTest) throw new Error('R62-7 注入：账本全书性红项读取失败')
         const leadsFp = computeLeadsBookFp(bookRoot, userDataPath ?? null)
         const cachedRed = readLeadsBookRed(db, leadsFp)
         if (cachedRed !== null) {
@@ -277,6 +308,7 @@ export function collectTreeIssues(
           writeLeadsBookRed(db, leadsFp, leadsBookRed)
         }
       } catch (e) {
+        leadsBookDegraded = true
         log.warn('check', `账本全书性红项计算失败（本轮降级为无，不落缓存）：${e instanceof Error ? e.message : String(e)}`)
       }
     }
@@ -364,7 +396,7 @@ export function collectTreeIssues(
         if (mergedRed || verdictRejected) issues[docId] = { hasRed: mergedRed, verdictRejected }
       }
     }
-    return { issues, rebuildFailed }
+    return { issues, rebuildFailed, leadsBookDegraded }
   } finally {
     if (db) db.close()
   }

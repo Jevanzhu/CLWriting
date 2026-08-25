@@ -745,14 +745,17 @@ export class DocumentService {
     const dstSafe = this.resolveSafePath(input.relPath)
     if (!srcSafe || !dstSafe) return { ok: false, code: 'PATH_ESCAPE', reason: '路径越出书仓库' }
     if (!existsSync(srcSafe)) return { ok: false, code: 'NOT_FOUND', reason: '源文件不存在' }
+    // R61-11（第六十一轮）：existsSync 预检与 atomicWriteFile 落盘之间无互斥（TOCTOU），
+    // rename 静默覆盖并发建到的目标；改 createFileExclusive（link 不覆盖，EEXIST →
+    // ALREADY_EXISTS，同 doCreate B-6 口径）——预检保留仅作快路
     if (existsSync(dstSafe)) return { ok: false, code: 'ALREADY_EXISTS', reason: '目标已存在' }
 
     try {
       // P5-数据层（第七轮）：按原始字节复制——原 utf-8 文本读写在非 UTF-8 源上会产出
       // 乱码副本（M-5 同族防线未覆盖复制路径；原件无损但副本即损坏）
       const raw = readFileSync(srcSafe)
-      mkdirSync(dirname(dstSafe), { recursive: true })
-      atomicWriteFile(dstSafe, raw, { fsync: true })
+      const created = createFileExclusive(dstSafe, raw, { fsync: true })
+      if (created === 'exists') return { ok: false, code: 'ALREADY_EXISTS', reason: '目标已存在' }
     } catch (e) {
       return { ok: false, code: 'WRITE_ERROR', reason: `复制失败：${errMsg(e)}` }
     }

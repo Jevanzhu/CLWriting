@@ -295,3 +295,20 @@ test('runAllChecks short: book.yaml short 阈值覆盖短篇专属机检', () =>
   expect(items.some((i) => i.checkId === 'section-count')).toBe(false)
   expect(items.some((i) => i.checkId === 'opening-env')).toBe(false)
 })
+
+// R62-9：章纲在盘但读取失败（此处用同名目录占位：existsSync 真、readFileSync EISDIR）
+// ——修复前 else 分支缺失，manifest-no-reversal/emotion-curve-*/payoff-open 整体静默消失。
+test('runAllChecks short: 章纲在盘但读取失败 → 黄 piece-list-unreadable（清单形式检不再静默消失）', () => {
+  const chPath = join(tmp, '写作', '正文', '001-雪夜.md')
+  mkdirSync(join(tmp, '写作', '正文'), { recursive: true })
+  writeFileSync(chPath, '正文内容', 'utf-8')
+  mkdirSync(join(tmp, '大纲', '章纲', '001-雪夜.md'), { recursive: true })
+  const ch: ChapterMeta = {
+    章号: 1, 标题: '雪夜', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
+    _path: chPath, _wordCount: 4,
+  }
+  const r = runAllChecks({ bookRoot: tmp, config: shortConfig(), chapter: ch, body: '正文内容', fileName: '001-雪夜.md' })
+  const sec = r.sections.find((s) => s.name === '清单形式检')
+  expect(sec).toBeDefined()
+  expect(sec!.items.some((i) => i.checkId === 'piece-list-unreadable' && i.level === 'yellow')).toBe(true)
+})

@@ -134,3 +134,17 @@ test('X-P2-22: checkInfoLeak 无关键词 → 零项（不产 source-disabled �
   const r = checkInfoLeak('他知道了血脉的秘密。')
   expect(r.items).toHaveLength(0)
 })
+
+// R62-29：SPEECH_ATTRIBUTION_RE 汉字段与全文件 HANZI（基本区+扩展 A）同源——
+// 此前字面 \u4e00-\u9fa5 漏扩展 A 区，生僻字人名的归属行不豁免、对白被当专名误报。
+test('checkNewNames: 扩展 A 区生僻字人名的对白归属行豁免（䜣 U+4723 + 说）', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'names-'))
+  try {
+    const roster = join(dir, '名册.md')
+    writeFileSync(roster, '已有角色：云澈', 'utf-8')
+    const r = checkNewNames('「快走。」䜣说。', roster)
+    expect(r.items).toHaveLength(0) // 归属行整行是对白，「快走」不进专名候选
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

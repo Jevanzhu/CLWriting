@@ -93,7 +93,10 @@ export function registerChatHistoryRoutes(ctx: ChatHistoryCtx): void {
       const rawLimit = Number(url.searchParams.get('limit'))
       const limit = Number.isInteger(rawLimit) && rawLimit >= 1 ? Math.min(rawLimit, 1000) : undefined
       // userDataPath 非空已确认 → store 必建库（openSessionStore 非惰性）
-      const store = openSessionStore(ctx.userDataPath, bookRoot)!
+      // R62-43：库损坏/权限等极端下 openSessionStore 仍可能返回 null——不再用 ! 断言，
+      // 显式错误信封（此前静默 TypeError 崩路由）
+      const store = openSessionStore(ctx.userDataPath, bookRoot)
+      if (!store) return replyError(res, 500, 'STORE_UNAVAILABLE', '事件库不可用（无法打开会话存储）')
       try {
         reply(res, 200, buildChatHistoryView(store, bookName, branch, limit))
       } finally {
