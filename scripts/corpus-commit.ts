@@ -29,6 +29,7 @@ interface ParsedLine {
 
 /** 解析候选 md：### checkId: <id> 分节 + `- [x] 章号 N ｜ 判定：… ｜ 摘录："…"（…）` */
 let droppedExcerpts = 0
+let rejectedCheckIds = 0
 function parseFile(fp: string, expect: Entry['expect']): ParsedLine[] {
   if (!existsSync(fp)) return []
   const out: ParsedLine[] = []
@@ -36,7 +37,15 @@ function parseFile(fp: string, expect: Entry['expect']): ParsedLine[] {
   for (const line of readFileSync(fp, 'utf8').split('\n')) {
     const h = /^### checkId:\s*(\S+)\s*$/.exec(line)
     if (h) {
-      checkId = h[1]!
+      // R63-13：checkId 直接 join 进写出路径——含路径段（/ \ 或 ..）即路径穿越，
+      // 手编候选 md 的 `### checkId: ../../evil` 会逃出 corpusDir，拒绝入库
+      if (/[\/\\]|\.\./.test(h[1]!)) {
+        console.error(`[corpus:commit] checkId 含路径段（/ \\ 或 ..），拒绝入库：${h[1]}`)
+        rejectedCheckIds++
+        checkId = ''
+      } else {
+        checkId = h[1]!
+      }
       continue
     }
     if (!checkId) continue
@@ -78,6 +87,7 @@ for (const e of all) {
 }
 
 let written = 0
+let failedExisting = 0
 for (const [checkId, entries] of byCheck) {
   const fp = join(corpusDir, `${checkId}.json`)
   let existing: Entry[] = []
@@ -85,7 +95,11 @@ for (const [checkId, entries] of byCheck) {
     try {
       existing = JSON.parse(readFileSync(fp, 'utf8')) as Entry[]
     } catch {
-      existing = []
+      // R63-11：存量解析失败不得按空数组整写覆盖（= 静默清空既有回归门条目）。
+      // 跳过该 checkId 合并、原文件保持原样，作者手工修档后重跑
+      console.error(`[corpus:commit] 存量语料解析失败，跳过合并（原文件保持原样）：${fp}`)
+      failedExisting++
+      continue
     }
   }
   // 按 excerpt 去重合并（后到覆盖先到——重标以最近一次为准）
@@ -97,3 +111,8 @@ for (const [checkId, entries] of byCheck) {
   console.log(`[corpus:commit] ${fp} ← ${final.length} 条`) // R62-55：打实际 fp，自定义 corpusDir 不误导
 }
 console.log(`[corpus:commit] 完成：${all.length} 条入库（${written} 个检查器），CI 回归门（corpus.test.ts）即刻生效`)
+// R63-13/R63-11：拒绝/跳过不静默——有效条目照常入库，但退出码标红让作者看见告警
+if (rejectedCheckIds > 0 || failedExisting > 0) {
+  console.error(`[corpus:commit] 未完全成功：${rejectedCheckIds} 个 checkId 被拒（路径穿越）＋ ${failedExisting} 个存量文件解析失败被跳过——见上方逐条告警`)
+  process.exitCode = 1
+}

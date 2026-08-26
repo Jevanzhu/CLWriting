@@ -284,6 +284,74 @@ test('R61-13: collect 校验 draft_hash——不符 → 审稿单不成立带原
   rmSync(workDir, { recursive: true, force: true })
 })
 
+// ── R63-4（十一轮）：采集失败注入阻断级 issue（假通过双侧防御·脚本侧） ────────────
+// 修复前：stale/缺视角/坏条目路径空 issues 过 normalizeReviewResult 得 passed:true
+//（空判据），端点照落信封、前端渲染「三审通过」——假通过持久化。
+
+test('R63-4: draft_hash 不符（stale）→ 注入阻断「三审未完成」issue，normalized.passed 恒 false', () => {
+  const workDir = mkdtempSync(join(tmpdir(), 'review-r63-4-stale-'))
+  const draftPath = join(workDir, 'draft.md')
+  writeFileSync(draftPath, '正文。', 'utf-8')
+
+  const built = buildReviewPacket({
+    checkReport: reportWithLedger,
+    body: '正文。',
+    chapter: 12,
+    workDir,
+    capabilities: { parallel_subagents: true, multiple_calls: true },
+    remaining_calls: 8,
+    high_risk: false,
+    hasWiring: true,
+    hasShort: false,
+    draft_path: draftPath,
+    draft_hash: 'deadbeef', // 与盘上草稿不符 → stale 路径
+  })
+  if (!built.ok) throw new Error('packet build failed')
+  mkdirSync(built.packet.out_dir, { recursive: true })
+  writeFileSync(join(built.packet.out_dir, lensIssuesFileName('reader')), '[]', 'utf-8')
+  writeFileSync(join(built.packet.out_dir, lensIssuesFileName('editor')), '[]', 'utf-8')
+  writeFileSync(join(built.packet.out_dir, lensIssuesFileName('continuity')), '[]', 'utf-8')
+
+  const collected = collectReviewIssues({ packet: built.packet })
+  expect(collected.ok).toBe(false)
+  // 修复前：空 issues → passed:true（空判据假通过）
+  expect(collected.normalized.passed).toBe(false)
+  expect(collected.normalized.blockers).toHaveLength(1)
+  expect(collected.normalized.blockers[0]!.issue).toContain('三审未完成')
+  expect(collected.normalized.blockers[0]!.evidence.join('')).toContain('draft_hash')
+  expect(collected.normalized.blockers[0]!.blocking).toBe(true)
+  rmSync(workDir, { recursive: true, force: true })
+})
+
+test('R63-4: 缺视角/坏条目 → 注入阻断 issue 带原因清单，passed 恒 false（raw_issues 不混入）', () => {
+  const workDir = mkdtempSync(join(tmpdir(), 'review-r63-4-missing-'))
+  const packet = makeFullPacket(workDir)
+  mkdirSync(packet.out_dir, { recursive: true })
+  // reader 回写一条真实意见；editor 坏 JSON；continuity 缺失
+  writeFileSync(
+    join(packet.out_dir, lensIssuesFileName('reader')),
+    JSON.stringify([{ lens: 'reader', severity: 'S4', category: 'pacing', location: '中段', evidence: ['节奏偏慢'], issue: '拖沓', fix: '压缩' }]),
+    'utf-8',
+  )
+  writeFileSync(join(packet.out_dir, lensIssuesFileName('editor')), '{oops', 'utf-8')
+
+  const collected = collectReviewIssues({ packet: packet })
+  expect(collected.ok).toBe(false)
+  expect(collected.normalized.passed).toBe(false)
+  const injected = collected.normalized.blockers.find((i) => i.issue.includes('三审未完成'))
+  expect(injected).toBeDefined()
+  // 原因清单进 evidence：缺视角 + 坏条目都要可见
+  const evidenceText = injected!.evidence.join('；')
+  expect(evidenceText).toContain('缺视角')
+  expect(evidenceText).toContain('continuity')
+  expect(evidenceText).toContain('issues-editor.json')
+  // raw_issues 保持宿主原产（只含 reader 的 1 条），注入项不混入
+  expect(collected.raw_issues).toHaveLength(1)
+  // 真实意见照常归一化（S4 非阻断 → warnings）
+  expect(collected.normalized.warnings).toHaveLength(1)
+  rmSync(workDir, { recursive: true, force: true })
+})
+
 // R62-34：ledger_check 如实——分包不带账本核对项 → 跳过（无布线/短篇形态）；
 // 此前恒报「已跑」与实际执行面不符。meta 随 CollectedReview 透出（normalizeReviewResult 不带 meta）。
 test('collectReviewIssues: ledger_check 如实（无账本核对分包 → 跳过；满审带账本 → 已跑）', () => {

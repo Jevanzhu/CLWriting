@@ -199,10 +199,15 @@ async function onAutoWrite(): Promise<void> {
 // P1-3：AI 生成本章细纲（工作区/细纲.md）——全自动写章的语境来源，原来端点完整但 UI 不可达
 async function onOutline(): Promise<void> {
   err.value = null
+  // R63-10（十一轮）：书名入口捕获 + await 后复检（FE-9/L-F1 惯例，兄弟函数均已有）——
+  // 生成期间切书后 toast 会落到切换后的书，误导作者
+  const book = props.bookName
   try {
-    await generateOutline(props.bookName, chapter.value)
+    await generateOutline(book, chapter.value)
+    if (props.bookName !== book) return
     ui.toast(`第 ${chapter.value} 章细纲已生成`, 'success')
   } catch (e) {
+    if (props.bookName !== book) return
     err.value = friendlyError(e)
     ui.toast(err.value, 'error')
   }
@@ -211,10 +216,14 @@ async function onOutline(): Promise<void> {
 // W-P1-3：AI 草拟本章账本推进（工作区/账本推进.md）——作者确认/修改后定稿时回写布线履历
 async function onLeadUpdates(): Promise<void> {
   err.value = null
+  // R63-10：书名入口捕获 + await 后复检（同 onOutline）
+  const book = props.bookName
   try {
-    const r = await generateLeadUpdates(props.bookName, chapter.value)
+    const r = await generateLeadUpdates(book, chapter.value)
+    if (props.bookName !== book) return
     ui.toast(r.count > 0 ? `已生成 ${r.count} 条账本推进，请确认` : '本章无账本推进', 'success')
   } catch (e) {
+    if (props.bookName !== book) return
     err.value = friendlyError(e)
     ui.toast(err.value, 'error')
   }

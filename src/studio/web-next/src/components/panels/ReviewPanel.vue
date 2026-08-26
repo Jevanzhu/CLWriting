@@ -38,7 +38,28 @@ watch(
 
 const blockers = computed(() => review.collected?.normalized.blockers ?? [])
 const warnings = computed(() => review.collected?.normalized.warnings ?? [])
-const passed = computed(() => review.collected?.normalized.passed === true && (blockers.value.length + warnings.value.length === 0))
+// R63-4（十一轮）：passed 必须查采集是否成立——此前只看 normalized.passed（空判据），
+// 采集失败（stale/缺视角/坏条目）被渲染成「三审通过，无阻断/警告」，作者按假通过
+// 放行从未真正审校的内容（刷新/重启依旧，已随信封持久化）。后端已同步注入阻断级
+// 「三审未完成」issue（新跑的 collected.blockers 可见原因），此处 ok/bad_entries
+// 复检兜住修复前落盘的旧信封（normalized.passed 仍 true）。
+const passed = computed(
+  () =>
+    review.collected?.ok === true &&
+    (review.collected.bad_entries?.length ?? 0) === 0 &&
+    review.collected.normalized.passed === true &&
+    blockers.value.length + warnings.value.length === 0,
+)
+
+/** R63-4：采集失败的人话原因（横幅展示；后端注入的阻断 issue 走 blockers 分组渲染） */
+const incompleteReason = computed(() => {
+  const c = review.collected
+  if (!c || c.ok) return ''
+  const parts: string[] = []
+  if (c.missing_lenses.length > 0) parts.push(`缺视角：${c.missing_lenses.map(lensLabel).join('、')}`)
+  if ((c.bad_entries?.length ?? 0) > 0) parts.push(`损坏：${c.bad_entries!.map((e) => `${e.path}（${e.reason}）`).join('；')}`)
+  return parts.join('；')
+})
 
 const LENS_LABEL: Record<string, string> = {
   reader: '读者审',
@@ -147,6 +168,12 @@ function severityLabel(s: string): string {
       <div v-if="review.stale" class="rev-stale">
         <Clock :size="13" />
         <span>正文已变更，结果可能过期——重新三审。</span>
+      </div>
+
+      <!-- R63-4：采集失败显式横幅——修复前 ok:false 的信封被渲染成「三审通过」 -->
+      <div v-if="!review.collected.ok" class="rev-stale">
+        <AlertCircle :size="13" />
+        <span>三审未完成{{ incompleteReason ? '——' + incompleteReason : '' }}，结论不成立，请重跑三审。</span>
       </div>
 
       <div v-if="passed" class="rev-clean">

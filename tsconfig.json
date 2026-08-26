@@ -16,6 +16,6 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["src", "test", "*.config.ts"],
+  "include": ["src", "test", "scripts", "*.config.ts"],
   "exclude": ["src/studio/web-next", "test/studio/webnext"]
 }

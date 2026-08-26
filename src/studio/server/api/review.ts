@@ -119,12 +119,19 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
       }
       try {
 
+        // R63-7（十一轮）：单次读取取 buffer——sourceHash/draftHash/机检 body 三源同拍。
+        // 此前三处独立读文件（hash 一读、机检内二读、hash 三读），机检窗口内作者保存
+        // 会让两个 hash 无任何单一文件状态与之对应（isStale 误报 / R61-13 守卫依赖
+        // 读取顺序巧合）。机检经 draftText 吃同一快照（runCheckForDocument 头注）。
+        const draftBuf = readFileSync(absPath)
+        const draftText = draftBuf.toString('utf-8')
+
         // CC-P1-2：sourceHash 必须与进 prompt 的正文同源——分钟级三审期间作者保存会让
         // 任务后重读的 hash 对应新稿，而 payload 审的是旧稿，stale 判定恒 false（错配）。
-        const sourceHash = sourceHashOf(readFileSync(absPath, 'utf-8'))
+        const sourceHash = sourceHashOf(draftText)
 
-        // 机检（runCheckForDocument 内部 readDraft → chapter + body；byproducts.leadChanges 供账本核对）
-        const outcome = runCheckForDocument(bookRoot, absPath, ctx.userDataPath)
+        // 机检（R63-7：draftText 喂预读快照；byproducts.leadChanges 供账本核对）
+        const outcome = runCheckForDocument(bookRoot, absPath, ctx.userDataPath, { draftText })
         if (!outcome.ok) {
           // N-2（第十二轮）：收编 replyError 单一出口——不再手拼 {ok:false,...} 混合信封
           return replyError(
@@ -152,8 +159,8 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
         // R62-33：draft_hash 接线——collectReviewIssues 的 R61-13 守卫（审阅期间草稿漂移
         // → 审稿单不成立）此前无生产调用方传 hash（实装死字段）。此处与 CC-P1-2 的
         // sourceHash 同源同拍：字节级 sha256（与 collect 侧重读文件后 createHash 同口径），
-        // 三审分钟级窗口内作者改稿即被捕获。
-        const draftHash = createHash('sha256').update(readFileSync(absPath)).digest('hex')
+        // 三审分钟级窗口内作者改稿即被捕获。R63-7：从单次读取的 buffer 派生（三读收口为一读）。
+        const draftHash = createHash('sha256').update(draftBuf).digest('hex')
   
         // buildReviewPacket（O-a 直读：out_dir 用 .cache 临时目录不污染工作区；sourcePath 不绑草稿）
         const reviewOutDir = join(bookRoot, '.cache', `review-${docId}`)
@@ -207,7 +214,10 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
             generatedAt: new Date().toISOString(),
             model: prov ? `${prov.name}/${resolveTier(ctx.userDataPath, 'assistant').model}` : 'mock',
             sourceHash, // CC-P1-2：进 prompt 时的稿（见上）——与 payload 同源，不重读
-            payload: { collected, lenses: loopResult.lenses },
+            // R63-4（十一轮）：采集失败（ok:false）打 incomplete 标记——collected.normalized
+            // 已由 run.ts 注入阻断级「三审未完成」issue（passed 恒 false），信封层再加显式
+            // 标记供消费方免查深层结构即可识别「结论不成立」
+            payload: { collected, lenses: loopResult.lenses, ...(collected.ok ? {} : { incomplete: true }) },
           })
   
           reply(res, 200, { ok: true, lenses: loopResult.lenses, collected })

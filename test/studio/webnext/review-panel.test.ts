@@ -210,6 +210,51 @@ describe('ReviewPanel: 意见分组', () => {
     expect(w.find('.group-label--red').exists()).toBe(false)
   })
 
+  // ── R63-4（十一轮）：采集失败（ok:false）不得渲染为「三审通过」 ──────────────
+
+  it('R63-4: 旧信封形态（ok:false + normalized.passed:true 空判据）→ 不显示「三审通过」，显示三审未完成横幅带原因', async () => {
+    const review = useReviewStore()
+    const w = mountPanel()
+    await flushPromises()
+    // 修复前落盘的旧信封形状：ok:false 但 normalized 空判据 passed:true
+    review.collected = collected({
+      ok: false,
+      missing_lenses: ['continuity'],
+      bad_entries: [{ path: 'issues-reader.json', reason: 'issues JSON 损坏' }],
+      normalized: { blockers: [], warnings: [], invalid_issues: [], passed: true },
+    })
+    await nextTick()
+    // 修复前：passed 只看 normalized.passed → 假「三审通过」
+    expect(w.find('.rev-clean').exists()).toBe(false)
+    const banners = w.findAll('.rev-stale')
+    expect(banners).toHaveLength(1) // review.stale=false → 只剩未完成横幅
+    expect(banners[0]!.text()).toContain('三审未完成')
+    expect(banners[0]!.text()).toContain('设定校对') // 缺视角人话
+    expect(banners[0]!.text()).toContain('issues-reader.json') // 坏条目明细
+  })
+
+  it('R63-4: 新跑形态（ok:false + 后端注入阻断 issue）→ 横幅 + 阻断项可见', async () => {
+    const review = useReviewStore()
+    const w = mountPanel()
+    await flushPromises()
+    review.collected = collected({
+      ok: false,
+      missing_lenses: [],
+      bad_entries: [{ path: 'draft.md', reason: '草稿在审阅期间已变更或不可读（draft_hash 不符）' }],
+      normalized: {
+        blockers: [issue({ lens: 'continuity', severity: 'S2', evidence: ['草稿在审阅期间已变更或不可读（draft_hash 不符）'], issue: '三审未完成：审稿单不成立，本次「通过」不可采信', fix: '解决失败原因后重跑三审', blocking: true })],
+        warnings: [],
+        invalid_issues: [],
+        passed: false,
+      },
+    })
+    await nextTick()
+    expect(w.find('.rev-clean').exists()).toBe(false)
+    expect(w.findAll('.rev-stale')[0]!.text()).toContain('三审未完成')
+    expect(w.find('.group-label--red').text()).toContain('阻断项（1）')
+    expect(w.find('.rev-item--red').text()).toContain('三审未完成')
+  })
+
   it('stale → 过期提示条', async () => {
     const review = useReviewStore()
     const w = mountPanel()

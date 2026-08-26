@@ -35,18 +35,20 @@ describe('N6 锁续期', () => {
     expect(statSync(p, { throwIfNoEntry: false })).toBeUndefined() // release 停表 + 删锁文件
   })
 
-  it('活 pid 持锁 + 超龄但 mtime 持续续期 → 不被接管（收紧为「超龄且无续期」）', async () => {
+  it('活 pid 持锁 + 超龄但 mtime 有续期 → 不被接管（收紧为「超龄且无续期」）', async () => {
     const p = lp('held-renewing')
-    // 模拟「另一活进程持锁且在续期」：锁文件写活 pid，mtime 由本测试扮演持锁方周期 touch
+    // R63-16：改确定性口径——原 setInterval 20ms 周期 touch 靠「检查时刻距上次
+    // touch <50ms」判续期，事件循环停顿 >30ms 即 mtime 过龄假红。改为：先越过
+    // maxHeldMs 窗口（无续期形态下此时必判超龄），检查前同步 touch 一次（=持锁
+    // 方刚续期）——mtime 新鲜度与墙钟解耦；sleep 70 只作下界（更慢只会更「超龄」）
     writeFileSync(p, JSON.stringify({ pid: process.pid, bootTime: 0 }))
-    const touch = setInterval(() => utimesSync(p, new Date(), new Date()), 20)
     try {
-      await sleep(70) // 超过 maxHeldMs=50 的窗口，但期间有续期
+      await sleep(70) // > maxHeldMs=50 的超龄窗口，期间无续期
+      utimesSync(p, new Date(), new Date()) // 持锁方续期：mtime 抬新
       // 活 pid + 超龄判定（maxHeldMs=50）→ mtime 刚被续期 → held，不接管
       const r = tryAcquireCrossProcessLock(p, { maxHeldMs: 50, staleTakeoverJitterMs: 0 })
       expect(r).toBeNull()
     } finally {
-      clearInterval(touch)
       rmSync(p, { force: true })
     }
   })

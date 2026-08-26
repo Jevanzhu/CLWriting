@@ -145,8 +145,10 @@ export function checkLeadsBookItems(
       // #2 引文命中：证据须在该章正文 grep 命中
       if (!entry.回填 && entry.证据) {
         const text = chapterTextOf(entry.章号)
-        // 取引号内的核心片段 grep（#3 第 4 节：章内证据尽量是正文原文）
+        // R63-8：匹配走多候选针串任一命中（单针串的内部闭引号会整组 miss，见 evidenceNeedles 头注）；
+        // evidenceCore 仅供红项文案展示
         const evidenceCore = extractEvidenceCore(entry.证据)
+        const needles = evidenceNeedles(entry.证据)
         if (text === null) {
           // 第五轮：章文件缺失（被删/改名失去数字前缀）时不得静默通过——「防吃书」的
           // 核心红项失明且无任何提示，删章后证据永远无法核验。报黄不报红：正文缺失
@@ -158,7 +160,7 @@ export function checkLeadsBookItems(
             leadId: id,
             chapter: entry.章号,
           })
-        } else if (evidenceCore && !text.includes(evidenceCore)) {
+        } else if (needles.length > 0 && !needles.some((n) => text.includes(n))) {
           items.push({
             checkId: 'lead-evidence-miss',
             level: 'red',
@@ -243,7 +245,8 @@ export function leadClosureItems(
   return items
 }
 
-/** 提取证据的核心片段（引号内的内容优先，否则取前 N 字）。export 供 cli/check 当前章引文命中复用同口径。 */
+/** 提取证据的核心片段（引号内的内容优先，否则取前 N 字）。export 供 cli/check 当前章引文命中复用同口径。
+ *  仅用于展示（红项文案）；正文命中匹配走 evidenceNeedles（R63-8 多候选，见下）。 */
 export function extractEvidenceCore(evidence: string): string {
   // 优先取引号内的内容（V-P2-12：统一走 quotes.ts 双体系引号 + 保留 ASCII 直引号——
   // 此前这里只认 ASCII 直引号，中文弯引号/直角引号包裹的证据全部走 slice 兜底，
@@ -256,6 +259,24 @@ export function extractEvidenceCore(evidence: string): string {
   // （正文写无引号的「雪落」时误报 lead-evidence-miss）
   const stripped = evidence.replace(new RegExp(`^[${QUOTE_OPEN_LENIENT}]|[${QUOTE_CLOSE_LENIENT}]$`, 'g'), '')
   return (stripped || evidence).slice(0, 8)
+}
+
+/**
+ * R63-8（十一轮）：证据的多候选针串——正文命中「任一候选命中即算」。
+ * 此前匹配单针串（extractEvidenceCore 的剥边引号原串），混合短引证据（如
+ * 「雪落」无声——引号内 2 字不满 {4,} 走 Y-22 兜底）的内部闭引号留在针串
+ * （雪落」无声），正文以无引号形式写同短语时 grep 整组 miss → 误报
+ * lead-evidence-miss / 误判「声明未兑现」。候选（去重去空，引号字符集与
+ * extractEvidenceCore 同源 quotes.ts 宽容集）：
+ * ① 引号内串（长短皆取——Y-22 短引语义补全，长串即原 {4,} 主路径）
+ * ② 剥边引号原串（正文连引号一起写的形式）
+ * ③ 全剥引号串（混合短引的正身：雪落无声）
+ */
+export function evidenceNeedles(evidence: string): string[] {
+  const inner = new RegExp(`[${QUOTE_OPEN_LENIENT}]([^${QUOTE_CLOSE_LENIENT}]+)[${QUOTE_CLOSE_LENIENT}]`).exec(evidence)?.[1]
+  const edgeStripped = evidence.replace(new RegExp(`^[${QUOTE_OPEN_LENIENT}]+|[${QUOTE_CLOSE_LENIENT}]+$`, 'g'), '')
+  const allStripped = evidence.replace(new RegExp(`[${QUOTE_OPEN_LENIENT}${QUOTE_CLOSE_LENIENT}]`, 'g'), '')
+  return [...new Set([inner, edgeStripped, allStripped].filter((s): s is string => typeof s === 'string' && s.trim().length > 0).map((s) => s.trim()))]
 }
 
 /**

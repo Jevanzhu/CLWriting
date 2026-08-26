@@ -102,10 +102,12 @@ describe('tryAcquireCrossProcessLock', () => {
 
 describe('acquireCrossProcessLockWithTimeout', () => {
   it('空闲 → 立即成功（不等满超时）', () => {
+    // R63-16：超时 200→2000、上界 150→1000——空闲路径首次尝试即成功（零睡眠），
+    // 界值只需低于超时即保判别力「没等满超时」；150ms 墙钟上界在 fork 级停顿下假红
     const t0 = Date.now()
-    const r = acquireCrossProcessLockWithTimeout(lp('free'), 200)
+    const r = acquireCrossProcessLockWithTimeout(lp('free'), 2000)
     expect(r).not.toBeNull()
-    expect(Date.now() - t0).toBeLessThan(150)
+    expect(Date.now() - t0).toBeLessThan(1000)
     r!()
   })
 

@@ -75,6 +75,9 @@ interface Candidate {
 const candidates: Candidate[] = []
 /** imagery 种子误报统计：短语 → {survived, removed} */
 const imageryStats = new Map<string, { survived: number; removed: number }>()
+// R63-14：单版快照失败计数与首错（catch-all 不再零告警——产出段统一告警）
+let failedSnapshots = 0
+let firstSnapshotError: string | null = null
 
 try {
   const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
@@ -139,8 +142,13 @@ try {
             }
           }
         }
-      } catch {
-        /* 单版快照解析失败跳过（不阻断全书） */
+      } catch (e) {
+        // R63-14：单版快照失败不再零告警吞掉——系统性失败（如 db 打不开）会让全书
+        // 版本静默跳过且以成功口径打印「候选 0 条」；此处记首错+计数，产出段统一告警
+        if (firstSnapshotError === null) {
+          firstSnapshotError = e instanceof Error ? `${e.message}\n${e.stack ?? ''}` : String(e)
+        }
+        failedSnapshots++
       }
     }
   }
@@ -193,3 +201,11 @@ writeCandidates('命中候选.md', '命中候选（被作者改写消失）', '�
 console.log(
   `[harvest-corpus] 章快照判定完成：误报候选 ${candidates.filter((c) => c.verdict.startsWith('幸存')).length} 条、命中候选 ${candidates.filter((c) => c.verdict.startsWith('被改')).length} 条 → ${outDir}`,
 )
+
+// R63-14：快照失败不再静默——首错 + 计数随成功口径一并打印（系统性失败时
+// 「候选 0 条」有了排障入口，而不是被当成真的没有候选）
+if (failedSnapshots > 0 && firstSnapshotError !== null) {
+  console.error(`[harvest-corpus] 警告：${failedSnapshots} 个版本快照判定失败被跳过（首错如下，若为系统性失败请先修复再采信候选数）`)
+  console.error(firstSnapshotError)
+  process.exitCode = 1
+}

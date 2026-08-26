@@ -20,14 +20,16 @@ export type ReadDraftResult =
 /**
  * 读正文区文件 → ChapterMeta + body。
  * 统一 readChapter（章节 front matter：章号/标题/钩子/情绪/目标情绪/核心反转）。
+ * R63-7（十一轮）：content 传入时按预读文本解析（不再读文件）——三审端点单次读取
+ * 取 buffer 后，hash 与机检 body 从同一快照派生；existsSync 守卫仅对真读文件生效。
  */
-export function readDraft(draftPath: string): ReadDraftResult {
-  if (!existsSync(draftPath)) {
+export function readDraft(draftPath: string, content?: string): ReadDraftResult {
+  if (content === undefined && !existsSync(draftPath)) {
     return { ok: false, reason: `找不到文件：${draftPath}` }
   }
-  const chapter = readChapter(draftPath)
+  const chapter = readChapter(draftPath, undefined, content)
   if (!chapter.ok) return { ok: false, reason: draftParseReason(chapter.error.message) }
-  const file = readFile(draftPath)
+  const file = readFile(draftPath, content)
   if (!file.ok) return { ok: false, reason: draftParseReason(file.error.message) }
   return { ok: true, chapter: chapter.chapter, body: file.body }
 }

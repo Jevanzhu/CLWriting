@@ -206,6 +206,24 @@ export interface CollectedReview {
   lenses_run: ReviewLens[]
 }
 
+/** R63-4（十一轮）：审稿单不成立时的注入 issue——失败路径（stale/缺视角/坏条目）
+ *  原先空 issues 过 normalizeReviewResult 得 passed:true（空判据），端点把信封照落、
+ *  前端把「采集失败」渲染成「三审通过」——作者按假通过放行从未真正审校的内容。
+ *  注入阻断级 issue：normalized.passed 恒 false 且阻断列表可见（evidence 带具体原因）；
+ *  ok/bad_entries 信封字段照旧，消费方可双口径核验。 */
+function incompleteReviewIssue(reasons: string[], lens: ReviewLens): ReviewIssue {
+  return {
+    lens,
+    severity: 'S2',
+    category: 'consistency',
+    location: '',
+    evidence: reasons,
+    issue: '三审未完成：审稿单不成立，本次「通过」不可采信',
+    fix: '解决失败原因后重跑三审（原因见证据栏）',
+    blocking: true,
+  }
+}
+
 export function collectReviewIssues(input: {
   packet: ReviewExecutionPacket
 }): CollectedReview {
@@ -224,7 +242,13 @@ export function collectReviewIssues(input: {
     }
     if (actual !== input.packet.draft_hash) {
       const stale: ReviewResult = {
-        issues: [],
+        // R63-4：注入阻断级 issue（原空 issues → 空判据假 passed:true，见 incompleteReviewIssue 头注）
+        issues: [
+          incompleteReviewIssue(
+            ['草稿在审阅期间已变更或不可读（draft_hash 不符），审稿单不成立'],
+            input.packet.lenses_run[0] ?? 'continuity',
+          ),
+        ],
         summary: '',
         meta: {
           requested_tier: input.packet.requested_tier,
@@ -309,8 +333,15 @@ export function collectReviewIssues(input: {
     }
   }
 
+  // R63-4：缺视角/坏条目 → 审稿单不成立——normalized 空判据会假 passed:true，
+  // 注入阻断级 issue（见 incompleteReviewIssue 头注）；raw_issues 保持宿主原产不动
+  const ok = missingLenses.length === 0 && badEntries.length === 0
+  const incompleteReasons: string[] = []
+  if (missingLenses.length > 0) incompleteReasons.push(`缺视角：${missingLenses.join('、')}`)
+  if (badEntries.length > 0) incompleteReasons.push(...badEntries.map((b) => `损坏：${b.path}（${b.reason}）`))
+
   const result: ReviewResult = {
-    issues: rawIssues,
+    issues: ok ? rawIssues : [...rawIssues, incompleteReviewIssue(incompleteReasons, input.packet.lenses_run[0] ?? 'continuity')],
     summary: '',
     meta: {
       requested_tier: input.packet.requested_tier,
@@ -324,7 +355,7 @@ export function collectReviewIssues(input: {
 
   return {
     // 缺视角 / 损坏 → 审稿单不成立（作者需补跑或确认降级）
-    ok: missingLenses.length === 0 && badEntries.length === 0,
+    ok,
     collected_lenses: [...collectedLenses],
     missing_lenses: missingLenses,
     bad_entries: badEntries,

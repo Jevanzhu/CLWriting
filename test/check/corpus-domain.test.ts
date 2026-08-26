@@ -7,7 +7,7 @@
  * - B2 corpus:commit：勾选行入库 round-trip（去重合并）
  */
 import { describe, it, expect, afterEach } from 'vitest'
-import { execSync } from 'node:child_process'
+import { execSync, spawnSync } from 'node:child_process'
 import type { AddressInfo } from 'node:net'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -241,8 +241,7 @@ describe('B2 自举脚本（幸存者判定）与 corpus:commit', () => {
     expect(entries2.length).toBe(entries.length)
   })
 
-  it('幸存者基准锚定 pinned finalize 版本——正文文件定稿后再改不改变判定', () => {
-    // 原实现拿现行正文文件当定稿基准：定稿后作者继续起草（命中词又被改掉）会把
+  it('幸存者基准锚定 pinned finalize 版本——正文文件定稿后再改不改变判定', () => {    // 原实现拿现行正文文件当定稿基准：定稿后作者继续起草（命中词又被改掉）会把
     // 「定稿时幸存」误判成「被作者改掉」。基准应是最后一次定稿内容（pinned
     // finalize 版本），从未定稿才退化为现行文件。
     const root = makeBook(1)
@@ -262,5 +261,62 @@ describe('B2 自举脚本（幸存者判定）与 corpus:commit', () => {
     expect(fpText).toContain('判定：幸存')
     const hitText = readFileSync(join(root, '工作区', '语料候选', '命中候选.md'), 'utf8')
     expect(hitText).not.toContain('章号 1')
+  })
+})
+
+// ── R63-13 / R63-11：corpus:commit 加固（拒绝路径穿越 + 存量坏档保护）──────────
+
+describe('R63-13/R63-11：corpus:commit checkId 消毒与存量保护', () => {
+  /** 造一本只含语料候选 md 的书（corpus:commit 只读 工作区/语料候选/*.md） */
+  function makeCandidateBook(mdText: string): string {
+    const root = tmpDir('clw-commit-hard-')
+    mkdirSync(join(root, '工作区', '语料候选'), { recursive: true })
+    writeFileSync(join(root, '工作区', '语料候选', '误报候选.md'), mdText)
+    return root
+  }
+
+  function runCommit(root: string, outDir: string) {
+    return spawnSync('npx', ['tsx', join(REPO_ROOT, 'scripts', 'corpus-commit.ts'), root, outDir], {
+      encoding: 'utf8',
+    })
+  }
+
+  it('R63-13：checkId 含 ../、/、\\ → 拒绝入库（不逃出 corpusDir），合法 checkId 照常入库', () => {
+    const root = makeCandidateBook(
+      [
+        '### checkId: ../../evil',
+        '- [x] 章号 1 ｜ 判定：幸存 ｜ 摘录："穿越正文"（注）',
+        '',
+        '### checkId: sub/dir-check',
+        '- [x] 章号 1 ｜ 判定：幸存 ｜ 摘录："穿越正文"（注）',
+        '',
+        '### checkId: body-parts',
+        '- [x] 章号 2 ｜ 判定：幸存 ｜ 摘录："眼睛正文"（注）',
+        '',
+      ].join('\n'),
+    )
+    const outDir = tmpDir('clw-corpus-hard-out-')
+    const r = runCommit(root, outDir)
+    expect(r.stderr).toContain('拒绝入库')
+    expect(r.status).toBe(1) // 拒绝不静默——退出码标红
+    // 合法 checkId 照常入库
+    expect(existsSync(join(outDir, 'body-parts.json'))).toBe(true)
+    // 穿越目标不落盘：outDir/../../evil.json 与 outDir 下的子目录形态都不存在
+    expect(existsSync(join(outDir, '..', 'evil.json'))).toBe(false)
+    expect(existsSync(join(outDir, 'sub'))).toBe(false)
+  })
+
+  it('R63-11：存量 .json 解析失败 → 跳过合并且原文件保持原样（不静默清空既有回归门）', () => {
+    const root = makeCandidateBook(
+      ['### checkId: body-parts', '- [x] 章号 2 ｜ 判定：幸存 ｜ 摘录："眼睛正文"（注）', ''].join('\n'),
+    )
+    const outDir = tmpDir('clw-corpus-keep-out-')
+    writeFileSync(join(outDir, 'body-parts.json'), 'NOT JSON {{{') // 手工弄坏的存量档
+    const before = readFileSync(join(outDir, 'body-parts.json'), 'utf8')
+    const r = runCommit(root, outDir)
+    expect(r.stderr).toContain('存量语料解析失败')
+    expect(r.status).toBe(1)
+    // 原文件保持原样——不是按空数组整写覆盖（那会静默清掉既有条目）
+    expect(readFileSync(join(outDir, 'body-parts.json'), 'utf8')).toBe(before)
   })
 })

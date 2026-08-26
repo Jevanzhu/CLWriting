@@ -15,6 +15,9 @@ export interface CollectedReviewFE {
   ok: boolean
   collected_lenses: string[]
   missing_lenses: string[]
+  /** R63-4（十一轮）：采集失败明细（stale/坏条目）——passed 判定须查 ok/bad_entries，
+   *  修复前旧信封无此字段（optional 兼容），后端同名字段随 collected 原样透传 */
+  bad_entries?: { path: string; reason: string }[]
   raw_issues: ReviewIssueFE[]
   normalized: {
     blockers: ReviewIssueFE[]
@@ -39,7 +42,8 @@ export interface ReviewEnvelope {
   generatedAt: string
   model: string
   sourceHash: string
-  payload: { collected: CollectedReviewFE; lenses: string[]; verdict?: ReviewVerdict }
+  /** R63-4（十一轮）：采集失败（ok:false）信封打 incomplete 标记——旧信封无此字段 */
+  payload: { collected: CollectedReviewFE; lenses: string[]; verdict?: ReviewVerdict; incomplete?: true }
 }
 interface EnvelopeGet {
   ok: true

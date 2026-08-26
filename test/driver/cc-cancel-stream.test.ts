@@ -39,7 +39,9 @@ async function untilParked(iter: AsyncGenerator<DriverEvent>): Promise<{ parked:
     const raced = await Promise.race([
       pending.then((r) => ({ kind: 'value' as const, r })),
       // R61-19（第六十一轮）：30ms 判「已 park」在极端慢机可假红（事件到得慢被误判
-      // parked，断言少一条事件）——150ms fail-safe 加余量，语义不变
+      // parked，断言少一条事件）——150ms fail-safe 加余量，语义不变。
+      // R63-16：评估后维持——「区分 park 与慢事件」本质靠超时启发式，无确定性替身；
+      // 再加宽按每次 park 线性付运行时代价，150ms 自 R61-19 起零假红，登记维持
       sleep(150).then(() => ({ kind: 'parked' as const })),
     ])
     if (raced.kind === 'parked') return { parked: pending }
@@ -61,8 +63,7 @@ async function collectUntilParked(
   for (;;) {
     const raced = await Promise.race([
       pending.then((r) => ({ kind: 'value' as const, r })),
-      // R61-19（第六十一轮）：30ms 判「已 park」在极端慢机可假红（事件到得慢被误判
-      // parked，断言少一条事件）——150ms fail-safe 加余量，语义不变
+      // R61-19 + R63-16：150ms park fail-safe（同上 untilParked，评估后维持）
       sleep(150).then(() => ({ kind: 'parked' as const })),
     ])
     if (raced.kind === 'parked') return { collected: out, parked: pending }

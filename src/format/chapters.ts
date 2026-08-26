@@ -22,12 +22,15 @@ const KNOWN_FM_KEYS = new Set(['章号', '标题', '钩子类型', '钩子强弱
 
 /** 读取章节 md → ChapterMeta（容错）。
  * @param includeBody W-P2-4：为 true 时把正文原文写入 _body（readChapterDir(includeBody=true) 一次读带出）；
- *                    默认缺省不驻留正文，既有调用方零成本。 */
+ *                    默认缺省不驻留正文，既有调用方零成本。
+ * @param content R63-7（十一轮）：预读文本（调用方单次读取的快照）——传入时不再读文件，
+ *                机检/三审与 hash 从同一快照派生（三审端点三次独立读会来自三个时刻）。 */
 export function readChapter(
   filePath: string,
   includeBody?: boolean,
+  content?: string,
 ): { ok: true; chapter: ChapterMeta } | { ok: false; error: ParseError } {
-  const r = readFile(filePath)
+  const r = readFile(filePath, content)
   if (!r.ok) return r
 
   const map = parseFlat(r.fmRaw)

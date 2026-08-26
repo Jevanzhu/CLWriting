@@ -21,18 +21,27 @@ describe('M-2: 后台任务登记/等待', () => {
     const book = 'bg-book-1'
     expect(hasBackgroundTasks(book)).toBe(false)
     let done = false
-    registerBackgroundTask(book, sleep(150).then(() => {
+    // R63-16：任务改手控 resolve——原 sleep(150) 任务 + 50ms 观察窗是双墙钟赛跑，
+    // 事件循环停顿会让观察窗越过任务时限假红；等待循环纯 promise 驱动（无定时
+    // 器参与），「在途不 resolve」用微任务冲刷即可确定性判定
+    let finish!: () => void
+    const task = new Promise<void>((r) => {
+      finish = r
+    }).then(() => {
       done = true
-    }))
+    })
+    registerBackgroundTask(book, task)
     expect(hasBackgroundTasks(book)).toBe(true)
 
     let settled = false
     void waitBackgroundTasks(book).then(() => {
       settled = true
     })
-    await sleep(50)
-    expect(settled).toBe(false) // 在途：等待不 resolve
+    await Promise.resolve() // 冲一轮微任务：.then 挂稳
+    expect(settled).toBe(false) // 在途：任务未收尾，等待不 resolve（与墙钟无关）
+    expect(done).toBe(false)
 
+    finish()
     await waitBackgroundTasks(book)
     expect(done).toBe(true)
     expect(settled).toBe(true)

@@ -2,7 +2,7 @@
 // 改写面板（M12 块2 B2.2/B2.3）：输入指令 → 改写整章 → DiffView → 接受进 buffer / 拒绝。
 // 接受 = patch(docId, rewritten) 写编辑器（dirty，⌘S 保存）；AI 永不直接落盘。
 // 选区改写（local）已接线——runRewrite 经 ws.editorGetSelection 读 CmHost 选区下发（后端按 selection 判模式）。
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { Wand2, RefreshCw, Check, X, AlertCircle, Plus, Minus } from 'lucide-vue-next'
 import { useRewriteStore } from '../../stores/rewrite'
 import { useWorkspaceStore } from '../../stores/workspace'
@@ -26,6 +26,11 @@ const isReviewable = computed(() => {
 const aiOff = computed(() => ui.aiAvailable === false)
 
 const instruction = ref('')
+
+// R63-9（十一轮）：切文档即清结果（对照 CheckPanel X-P2-15 同款契约）——残留 diff 会
+// 禁用改写按钮阻断新文档；正文相同的文档（复制章/空章）基线校验能过，可跨文档误接受
+// 旧文档的改写结果
+watch(docId, () => rewrite.clear())
 
 const diffStats = computed(() => {
   const d = rewrite.result?.diff ?? []

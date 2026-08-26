@@ -681,16 +681,19 @@ describe('批 U3：崩溃退避自动重启（U-2/S-1/S-5/S-9）', () => {
   })
 
   it('S-9：ready 后稳定过窗口计数清零——后续崩溃回退避第 1 档而非第 2 档', async () => {
-    // backoff[1]=2000ms：若计数未清零，第二次崩溃后的重启要等 2s（用例 300ms 内必超时）
+    // backoff[1]=2000ms：若计数未清零，第二次崩溃后的重启要等 2s（用例 1000ms 内必超时）
     const { forkRecords, manager } = mkHarness({ backoffMs: [10, 2000, 3000], stabilityResetMs: 40 })
     await bootAt(manager, forkRecords, 1)
     forkRecords[0]!.child.emit('exit', 1)
     await vi.waitFor(() => expect(forkRecords.length).toBe(2), { timeout: 300 })
     forkRecords[1]!.child.emit('message', { type: 'ready', port: 1 })
     await flushMicrotasks()
+    // R63-16：80ms 是「越过 40ms 稳定窗口」的下界等待——停顿只会更稳（定时器不早
+    // 触发），无需加宽；判别力在下方 waitFor：预期 10ms 档重启，若误用第 2 档
+    // 2000ms 则 1000ms 内必红（原 300ms 停顿余量薄，放至 1000ms 仍保有判别）
     await sleep(80) // 稳定窗口 40ms 已过（child 存活）
     forkRecords[1]!.child.emit('exit', 1) // 计数已清零 → 仍按第 1 档 10ms 重启
-    await vi.waitFor(() => expect(forkRecords.length).toBe(3), { timeout: 300 })
+    await vi.waitFor(() => expect(forkRecords.length).toBe(3), { timeout: 1000 })
   })
 
   it('退避等待窗口内 shutdown：挂起重启作废（退出途中不 fork 孤儿）', async () => {

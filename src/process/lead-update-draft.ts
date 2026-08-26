@@ -130,7 +130,7 @@ export function archivePendingLeadUpdates(bookRoot: string, forChapter: number):
 
 /**
  * 组账本推进 prompt：正文 + 细纲声明 + 进行中账本 → AI 声明「本章实际写入的履历行」。
- * 关键约束：证据必须是正文原句（readChapterLeadUpdates 用 extractEvidenceCore 命中正文才算兑现），
+ * 关键约束：证据必须是正文原句（readChapterLeadUpdates 用 evidenceNeedles 多候选命中正文才算兑现，R63-8），
  * 动词须匹配该线合法动词表（LEAD_VERBS），编号须为存量进行中账本。
  */
 export function buildLeadUpdatePrompt(bookRoot: string, chapter: number, body: string): string {

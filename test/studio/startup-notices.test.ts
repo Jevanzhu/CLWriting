@@ -98,10 +98,12 @@ describe('GET /api/startup-notices（A4 批 0）', () => {
     const userData = mkdtempSync(join(tmpdir(), 'clw-notices-ud-'))
     dirs.push(userData)
     await bootReady(workDir, userData)
-    // startServer 内 log.error 排队异步落盘；轮询等文件出现（串行队列保证有序）
+    // startServer 内 log.error 排队异步落盘；轮询等文件出现（串行队列保证有序）。
+    // R63-16/O1：轮询窗 5s→10s——首轮全量曾在并行 tsc 争用下假红（单跑两连绿，
+    // log 泵机制亲验无丢行路径）；下界轮询加宽零代价（命中即退，不付全额）
     const { readdirSync, readFileSync: rf } = await import('node:fs')
     let found = false
-    for (let i = 0; i < 50 && !found; i++) {
+    for (let i = 0; i < 100 && !found; i++) {
       await new Promise((r) => setTimeout(r, 100))
       try {
         const files = readdirSync(join(userData, 'logs')).filter((f) => f.endsWith('.jsonl'))

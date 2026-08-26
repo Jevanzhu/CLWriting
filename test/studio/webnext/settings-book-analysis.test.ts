@@ -320,3 +320,122 @@ describe('SettingsBookAnalysis 关系图（本书组）', () => {
     expect(cfg.auto?.relation_mine_threshold).toBe(20)
   })
 })
+
+describe('R63-3（十一轮）：配置加载竞态守卫（代守卫 + await 后双复检）', () => {
+  it('A 书在途 getConfig 迟到、期间已切 B 书 → 不回填（B 面板不被 A 值污染）', async () => {
+    const ui = useUiStore()
+    const ws = useWorkspaceStore()
+    ui.settingsOpen = true
+    ws.bookName = '甲书'
+    // 首次调用（甲书）挂起，后续调用（乙书）立即回最小 config
+    let resolveA!: (c: BookConfig) => void
+    let first = true
+    mocks.getConfig.mockImplementation(() => {
+      if (first) {
+        first = false
+        return new Promise<BookConfig>((r) => {
+          resolveA = r
+        })
+      }
+      return Promise.resolve({ kind: 'long', book: { title: '乙书' } } satisfies BookConfig)
+    })
+    const wrapper = mount(SettingsBookAnalysis, {
+      global: { provide: { [SAVE_CONFIG_KEY as symbol]: mocks.saveConfig } },
+    })
+    await flushPromises() // 甲书在途
+    ws.bookName = '乙书'
+    await flushPromises() // 乙书已加载（全部跟随全局）
+
+    // 甲书迟到响应落地（满覆盖形态——若回填会全部盖到乙书面板）
+    resolveA({
+      kind: 'short',
+      book: { title: '甲书' },
+      short: { strict: true },
+      auto: { relation_auto_mine: true, relation_mine_threshold: 9 },
+      rag: { enabled: true, provider: 'rag-a' },
+    } satisfies BookConfig)
+    await flushPromises()
+
+    // 修复前：甲书值迟到落地 → 组开关全亮（甲覆盖值污染乙书面板）；
+    // 修复后：代守卫丢弃 → 乙书保持「跟随全局」
+    expect((wrapper.find('input[aria-label="知识检索使用独立设定"]').element as HTMLInputElement).checked).toBe(false)
+    expect((wrapper.find('input[aria-label="关系图使用独立设定"]').element as HTMLInputElement).checked).toBe(false)
+    expect(wrapper.find('input[aria-label="AI 机检使用独立设定"]').exists()).toBe(false) // 乙书 long → 短篇组不显示（甲 short 不泄漏）
+  })
+
+  it('污染放大器闭合：迟到不回填后，乙书开组开关写的是乙书生效值（全局默认），非甲书残留值', async () => {
+    const ui = useUiStore()
+    const ws = useWorkspaceStore()
+    const prefs = usePrefsStore()
+    prefs.setRagEnabled(false) // 全局默认关——甲书迟到值是 true
+    ui.settingsOpen = true
+    ws.bookName = '甲书'
+    let resolveA!: (c: BookConfig) => void
+    let first = true
+    mocks.getConfig.mockImplementation(() => {
+      if (first) {
+        first = false
+        return new Promise<BookConfig>((r) => {
+          resolveA = r
+        })
+      }
+      return Promise.resolve({ kind: 'long', book: { title: '乙书' } } satisfies BookConfig)
+    })
+    const wrapper = mount(SettingsBookAnalysis, {
+      global: { provide: { [SAVE_CONFIG_KEY as symbol]: mocks.saveConfig } },
+    })
+    await flushPromises()
+    ws.bookName = '乙书'
+    await flushPromises()
+    resolveA({ kind: 'short', book: { title: '甲书' }, rag: { enabled: true, provider: 'rag-a' } } satisfies BookConfig)
+    await flushPromises()
+
+    // 乙书开知识检索组 → mutator 写入的应是乙书生效值（全局默认 false），而非甲书 true
+    const run = captureMutator()
+    await wrapper.find('input[aria-label="知识检索使用独立设定"]').setValue(true)
+    const cfg = {} as BookConfig
+    run(cfg)
+    expect(cfg.rag?.enabled).toBe(false)
+  })
+
+  it('refreshRagStatus 在途切书 → 旧书状态不落到新书面板（书名复检）', async () => {
+    const ui = useUiStore()
+    const ws = useWorkspaceStore()
+    const prefs = usePrefsStore()
+    prefs.setRagEnabled(true) // 建索引行渲染（.rag-status 可见）
+    ui.settingsOpen = true
+    ws.bookName = '甲书'
+    // 甲书 getConfig 立即回；getRagStatus 首调（甲）挂起、次调（乙）立即回
+    mocks.getConfig.mockResolvedValue({ kind: 'long', book: { title: '甲书' } } satisfies BookConfig)
+    let resolveA!: (s: unknown) => void
+    let first = true
+    mocks.getRagStatus.mockImplementation(() => {
+      if (first) {
+        first = false
+        return new Promise((r) => {
+          resolveA = r
+        })
+      }
+      return Promise.resolve({
+        running: false, indexedChapters: 9, chunkCount: 40, model: null,
+        ragConfig: {}, providerName: null, legacy: false, lastResult: null,
+      })
+    })
+    const wrapper = mount(SettingsBookAnalysis, {
+      global: { provide: { [SAVE_CONFIG_KEY as symbol]: mocks.saveConfig } },
+    })
+    await flushPromises() // 甲书配置已回，状态在途
+    ws.bookName = '乙书'
+    await flushPromises() // 乙书状态已回（已索引 9 章）
+    expect(wrapper.find('.rag-status').text()).toContain('已索引 9 章')
+
+    // 甲书状态迟到（已索引 3 章）——修复前会覆盖乙书面板
+    resolveA({
+      running: false, indexedChapters: 3, chunkCount: 12, model: null,
+      ragConfig: {}, providerName: null, legacy: false, lastResult: null,
+    })
+    await flushPromises()
+    expect(wrapper.find('.rag-status').text()).toContain('已索引 9 章')
+    expect(wrapper.find('.rag-status').text()).not.toContain('3 章')
+  })
+})

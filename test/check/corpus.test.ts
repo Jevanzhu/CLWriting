@@ -34,8 +34,10 @@ export function loadCorpusFrom(dir: string): Map<string, CorpusEntry[]> {
       if (Array.isArray(entries) && entries.length > 0) {
         out.set(f.replace(/\.json$/, ''), entries)
       }
-    } catch {
-      /* 坏文件跳过 */
+    } catch (e) {
+      // R63-11：坏文件不再静默跳过——动态用例数下降会被 check:counts 绊红，但信号
+      // 是数字失配而非语料门坏（排障误导）；此处 warn 指名文件与原因
+      console.warn(`[corpus] 语料文件解析失败，跳过该文件（不入门但不静默）：${f}（${e instanceof Error ? e.message : String(e)}）`)
     }
   }
   return out
@@ -56,8 +58,27 @@ afterAll(() => {
 })
 
 describe('B3 装载器容错', () => {
-  it('缺目录 → 空 Map（skipIf 语义）；坏 json 文件跳过', () => {
+  it('缺目录 → 空 Map（skipIf 语义）', () => {
     expect(loadCorpusFrom(join('test', 'corpus', 'checks-not-exist'))).toEqual(new Map())
+  })
+
+  // R63-11：标题此前宣称「坏 json 文件跳过」但断言只覆盖缺目录分支——补齐坏文件分支：
+  // 坏文件跳过（warn 不炸门）、好文件照常入门、_ 前缀豁免
+  it('坏 json 文件跳过（warn 不炸门）；好文件照常入门；_ 前缀豁免', () => {
+    const d = mkdtempSync(join(tmpdir(), 'clw-corpus-bad-'))
+    try {
+      writeFileSync(join(d, 'bad-check.json'), 'NOT JSON {{{')
+      writeFileSync(join(d, 'empty-check.json'), '[]') // 空数组不入门（与坏文件同不入门，但路径不同）
+      writeFileSync(join(d, 'good-check.json'), JSON.stringify([{ excerpt: '正文。', expect: 'fire' }]))
+      writeFileSync(join(d, '_meta.json'), '[{"x":1}]')
+      const m = loadCorpusFrom(d)
+      expect(m.has('bad-check')).toBe(false)
+      expect(m.has('empty-check')).toBe(false)
+      expect(m.has('_meta')).toBe(false)
+      expect(m.get('good-check')).toEqual([{ excerpt: '正文。', expect: 'fire' }])
+    } finally {
+      rmSync(d, { recursive: true, force: true })
+    }
   })
 })
 

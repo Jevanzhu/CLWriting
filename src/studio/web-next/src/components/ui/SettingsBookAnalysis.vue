@@ -52,10 +52,17 @@ const ragStatusText = ref('')
 let ragPollTimer: ReturnType<typeof setInterval> | undefined
 let ragPolling = false
 
+// R63-3（十一轮）：配置加载代守卫（style store M-2 / AnalysisPanel M-11 的 reqGen 惯例）——
+// 此前 watch 无代守卫、await getConfig 后无书名复检：A 书在途响应迟到落地 B 书面板，
+// 组开关（onShortOverrideToggle 等）以 stale 派生值 eff* 调 saveConfig(name=B) →
+// A 的配置值持久写进 B 的 book.yaml（跨书配置污染）。
+let loadGen = 0
+
 watch(
   () => [ui.settingsOpen, ws.bookName] as const,
   async ([open, name]) => {
     if (!open) return
+    const gen = ++loadGen
     // 无书打开：覆盖复位（父组件此时整页空态，本组不可见，复位只为切书不留旧值）
     if (!name) {
       bookKind.value = 'long'
@@ -69,6 +76,8 @@ watch(
     }
     try {
       const cfg = await getConfig(name)
+      // 双复检：代（期间又切书/重开触发新加载）+ 书名（配置页开着他书未触发 watch 的极端窗口）
+      if (gen !== loadGen || ws.bookName !== name) return
       // raw 形态契约：13 键未设时为 undefined——只认合法类型，脏值按跟随全局展示
       bookKind.value = cfg.kind ?? 'long'
       bookShortStrict.value = typeof cfg.short?.strict === 'boolean' ? cfg.short.strict : null
@@ -213,6 +222,9 @@ async function refreshRagStatus(name?: string): Promise<void> {
   if (!book) return
   try {
     const s = await getRagStatus(book)
+    // R63-3：await 后书名复检——在途响应迟到时 ws.bookName 已切换，不得把旧书状态
+    // 落到新书面板（轮询入口 pollRagStatus 有同款检查，此处覆盖直调入口）
+    if (ws.bookName !== book) return
     ragStatus.value = s
     ragBuilding.value = s.running
     if (s.running) {

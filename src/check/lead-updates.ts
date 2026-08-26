@@ -15,7 +15,7 @@
 
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { extractEvidenceCore } from './leads.js'
+import { evidenceNeedles } from './leads.js'
 
 /** 本章一条账本推进声明（章号在落盘时由定稿章号补齐） */
 export interface ChapterLeadUpdate {
@@ -121,8 +121,9 @@ export function readChapterUpdatesForChapter(bookRoot: string, chapterNo: number
   ]
 }
 
-/** 账本证据核心必须非空且在正文命中，避免 includes('') 把空证据误判为兑现。 */
+/** 账本证据核心必须非空且在正文命中，避免 includes('') 把空证据误判为兑现。
+ *  R63-8（十一轮）：匹配走 evidenceNeedles 多候选任一命中（单针串的内部闭引号会
+ *  整组 miss——混合短引证据「雪落」无声 vs 正文无引号写法，见 leads.ts 头注）。 */
 export function leadEvidenceMatchesBody(body: string, evidence: string): boolean {
-  const core = extractEvidenceCore(evidence).trim()
-  return core.length > 0 && body.includes(core)
+  return evidenceNeedles(evidence).some((needle) => body.includes(needle))
 }

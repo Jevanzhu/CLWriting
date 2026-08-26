@@ -15,15 +15,15 @@
  */
 import { existsSync, readdirSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { validateKnowledgeManifest, KNOWLEDGE_DIR, type KnowledgeManifest } from '../src/knowledge/manifest.js'
 
 // 仓库根（工作区路径可能含 ^ 等特殊字符，fileURLToPath 解码，与 check-packaging 同口径）
 const root = fileURLToPath(new URL('..', import.meta.url))
 
 /** 递归收集 dir 下全部 .md 的绝对路径。 */
-function collectMdFiles(dir) {
-  const out = []
+function collectMdFiles(dir: string): string[] {
+  const out: string[] = []
   for (const en of readdirSync(dir, { withFileTypes: true })) {
     const p = join(dir, en.name)
     if (en.isDirectory()) out.push(...collectMdFiles(p))
@@ -36,7 +36,11 @@ function collectMdFiles(dir) {
  * R62-53 反向扫描：盘上 .md 未登记且非豁免 → 返回相对路径（项目根 → 知识层全树 .md）。
  * 豁免：文件名含「草稿」或为 README.md（草稿不经版本化、README 为导航性文件）。
  */
-export function scanUnregisteredKnowledgeMd(projectRoot, manifestOrEntries, rootDir = KNOWLEDGE_DIR) {
+export function scanUnregisteredKnowledgeMd(
+  projectRoot: string,
+  manifestOrEntries: KnowledgeManifest | KnowledgeManifest['entries'] | undefined,
+  rootDir: string = KNOWLEDGE_DIR
+): string[] {
   const registered = new Set(
     (Array.isArray(manifestOrEntries) ? manifestOrEntries : (manifestOrEntries?.entries ?? [])).map((e) => e.target)
   )
@@ -52,20 +56,26 @@ export function scanUnregisteredKnowledgeMd(projectRoot, manifestOrEntries, root
   return unmatched
 }
 
-const report = validateKnowledgeManifest(root)
-if (!report.ok) {
-  console.error('check:knowledge 失配（知识层 manifest 与磁盘不一致，修复后再提交）：')
-  for (const issue of report.issues) console.error(`  - ${issue.path}: ${issue.message}`)
-  process.exit(1)
+// 门禁主体收进 main() + 直跑守卫：npm run check:knowledge（node 直跑本文件）时执行；
+// 被测试 import（R63-15 直测 scanUnregisteredKnowledgeMd）时不触发校验/exit 副作用
+function main(): void {
+  const report = validateKnowledgeManifest(root)
+  if (!report.ok) {
+    console.error('check:knowledge 失配（知识层 manifest 与磁盘不一致，修复后再提交）：')
+    for (const issue of report.issues) console.error(`  - ${issue.path}: ${issue.message}`)
+    process.exit(1)
+  }
+
+  const manifest = report.manifest
+  const unidentified = scanUnregisteredKnowledgeMd(root, manifest)
+  if (unidentified.length > 0) {
+    console.error('check:knowledge 反向扫描发现盘上未登记的 .md（非草稿/非 README，进 CI 需登记 manifest）：')
+    for (const p of unidentified) console.error(`  - ${p}`)
+    process.exit(1)
+  }
+
+  const count = manifest?.entries?.length ?? 0
+  console.log(`check:knowledge 通过：知识层 ${count} 条 manifest 条目与磁盘一致；反向扫描无未登记 .md。`)
 }
 
-const manifest = report.manifest
-const unidentified = scanUnregisteredKnowledgeMd(root, manifest)
-if (unidentified.length > 0) {
-  console.error('check:knowledge 反向扫描发现盘上未登记的 .md（非草稿/非 README，进 CI 需登记 manifest）：')
-  for (const p of unidentified) console.error(`  - ${p}`)
-  process.exit(1)
-}
-
-const count = manifest?.entries?.length ?? 0
-console.log(`check:knowledge 通过：知识层 ${count} 条 manifest 条目与磁盘一致；反向扫描无未登记 .md。`)
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main()

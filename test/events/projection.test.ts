@@ -207,6 +207,8 @@ describe('R62-31：遮蔽区间校验 O(visible)', () => {
     ]
     const t0 = Date.now()
     const issues = validateEventStream(events)
+    // R63-16：评估后维持 1000ms——判别对象是 O(1e9) 线性扫（分钟级挂死）vs
+    // O(visible) 毫秒级，余量横跨三个数量级，CI 停顿假红风险可忽略
     expect(Date.now() - t0).toBeLessThan(1000) // 修复前线性扫 1e9 seq 必超时
     expect(issues.some((i) => i.message.includes('未可见'))).toBe(true)
   })

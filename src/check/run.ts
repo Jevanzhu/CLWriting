@@ -35,8 +35,16 @@ export type CheckOutcome =
 /**
  * 对单个文档跑机检（absPath → CheckReport）。
  * 三审端点 B0.2 复用：buildReviewPacket 的 checkReport 输入由此产出（byproducts.leadChanges 供账本核对）。
+ * R63-7（十一轮）：opts.draftText 传入时按预读文本解析草稿（不读文件）——三审端点
+ * 单次读取取 buffer，sourceHash/draftHash/机检 body 三源同拍（三次独立读会来自三个时刻，
+ * 机检窗口内保存 → hash 无任何单一文件状态与之对应）。
  */
-export function runCheckForDocument(bookRoot: string, absPath: string, userDataPath?: string | null): CheckOutcome {
+export function runCheckForDocument(
+  bookRoot: string,
+  absPath: string,
+  userDataPath?: string | null,
+  opts?: { draftText?: string },
+): CheckOutcome {
   // B-P2-7：检查 .ok，损坏时 warn 留诊断（config 回落 DEFAULT_CONFIG，不阻断）
   const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
   if (!cfgResult.ok) log.warn('check', `book.yaml 降级: ${cfgResult.error.message}`)
@@ -87,7 +95,7 @@ export function runCheckForDocument(bookRoot: string, absPath: string, userDataP
         }
       }
     }
-    return checkWithDb(bookRoot, absPath, db, config)
+    return checkWithDb(bookRoot, absPath, db, config, undefined, { draftText: opts?.draftText })
   } finally {
     if (db) db.close()
   }
@@ -149,9 +157,10 @@ export function checkWithDb(
   db: DatabaseSync | null,
   config: BookConfig,
   batch?: BatchCheckContext,
-  opts?: { skipLeadsBookChecks?: boolean },
+  opts?: { skipLeadsBookChecks?: boolean; draftText?: string },
 ): CheckOutcome {
-  const draft = readDraft(absPath)
+  // R63-7：draftText（预读快照）传入时按它解析，不读文件——见 runCheckForDocument 头注
+  const draft = readDraft(absPath, opts?.draftText)
   if (!draft.ok) return { ok: false, code: 'NOT_CHAPTER', error: draft.reason }
   try {
     const hasWiring = existsSync(join(bookRoot, '布线'))

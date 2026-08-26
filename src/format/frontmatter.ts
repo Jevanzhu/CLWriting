@@ -244,24 +244,31 @@ export function joinFrontMatter(fmText: string, body: string): string {
 import { readFileSync } from 'node:fs'
 import { atomicWriteFile } from '../fs/atomic.js'
 
-/** 读取文件的 front matter + 正文（容错：坏文件返回错误不崩） */
+/** 读取文件的 front matter + 正文（容错：坏文件返回错误不崩）。
+ *  R63-7（十一轮）：content 传入时跳过读文件、按预读文本解析——三审端点单次读取
+ *  取 buffer 后，hash 与机检 body 从同一快照派生（三次独立读文件会来自三个时刻）。 */
 export function readFile(
   filePath: string,
+  content?: string,
 ): { ok: true; fmRaw: string; body: string } | { ok: false; error: ParseError } {
-  let content: string
-  try {
-    content = readFileSync(filePath, 'utf-8')
-  } catch (e) {
-    return {
-      ok: false,
-      error: {
-        file: filePath,
-        line: 0,
-        message: `无法读取文件：${e instanceof Error ? e.message : String(e)}`,
-      },
+  let text: string
+  if (content !== undefined) {
+    text = content
+  } else {
+    try {
+      text = readFileSync(filePath, 'utf-8')
+    } catch (e) {
+      return {
+        ok: false,
+        error: {
+          file: filePath,
+          line: 0,
+          message: `无法读取文件：${e instanceof Error ? e.message : String(e)}`,
+        },
+      }
     }
   }
-  const split = splitFrontMatter(content)
+  const split = splitFrontMatter(text)
   if (split === null) {
     return {
       ok: false,
