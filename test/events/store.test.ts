@@ -237,9 +237,13 @@ describe('F1-P1 启动修复', () => {
     const store2 = openSessionStore(ud, '/books/a')!;
     const ends = store2.listEvents('书A').filter((e) => e.type === 'session/end')
     expect(ends).toHaveLength(1) // 修复生效
+    // R64-9（十二轮）：补 end 与 touch 解耦——end 事件落修复时刻（≥ t0），
+    // sessions.updated_at 则保持真实最后活动（回拨的 t0-11min）：修复时刻不冒充
+    // 活动时刻，latestSession 排序始终按真实活动（touch=now 会让死会话压过
+    // 期间更活跃的会话）
+    expect(ends[0]!.createdAt).toBeGreaterThanOrEqual(t0)
     const row = store2.latestSession('书A')!
-    // 修复时刻（重开库的 now）≥ t0——修复前该值停在 t0-11min，孤儿会话仍以「最新」身份被恢复选中
-    expect(row.updated_at).toBeGreaterThanOrEqual(t0)
+    expect(row.updated_at).toBeLessThan(t0)
     store2.close()
   })
 

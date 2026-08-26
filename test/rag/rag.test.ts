@@ -551,3 +551,16 @@ describe('enableRag 保真（V-P2-4）', () => {
     expect(readRagConfig(bookRoot)).toMatchObject({ enabled: true, candidate_depth: 7, model: 'm2' })
   })
 })
+
+describe('R64-45（十二轮）：cosineSimilarity 预计算范数与现算一致（召回合流单源）', () => {
+  it('precomputed 最终范数路径与全量现算同值；零范数 → 0', () => {
+    const a = new Float32Array([1, 2, 3])
+    const b = new Float32Array([2, 4, 6])
+    const expected = cosineSimilarity(a, b)
+    const normA = Math.sqrt(a.reduce((s, x) => s + x * x, 0))
+    const normB = Math.sqrt(b.reduce((s, x) => s + x * x, 0))
+    expect(cosineSimilarity(a, b, { normA, normB })).toBeCloseTo(expected, 10)
+    // 召回侧兜底语义：范数为 0 的块 → 0 分（不产生 NaN）
+    expect(cosineSimilarity(a, b, { normA: 0, normB })).toBe(0)
+  })
+})

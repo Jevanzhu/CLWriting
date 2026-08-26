@@ -23,6 +23,8 @@ interface FakeUsage {
 export type FakeResponse =
   | ({ type: 'text'; content: string; usage?: FakeUsage } & { delayMs?: number })
   | ({ type: 'tool'; name: string; input: unknown; id?: string; usage?: FakeUsage } & { delayMs?: number })
+  // R64-5：单响应多 tool_use（index 0..n-1 顺序吐出）——驱动 generateTool 丢弃告警路径
+  | ({ type: 'tools'; calls: Array<{ name: string; input: unknown; id?: string }>; usage?: FakeUsage } & { delayMs?: number })
   | ({ type: 'error'; status: number; message: string; retryAfter?: string } & { delayMs?: number })
   | ({ type: 'max_tokens'; partial: string; usage?: FakeUsage } & { delayMs?: number })
 
@@ -152,6 +154,33 @@ export function createFakeProvider(initialScript: FakeResponse[] = []): Promise<
           choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }],
         })
         // usage 尾包
+        writeChunk({ id: 'fake-chatcmpl', object: 'chat.completion.chunk', choices: [], usage: { prompt_tokens: usage.input, completion_tokens: usage.output } })
+      } else if (resp.type === 'tools') {
+        // R64-5：多 tool_use——每块一个 delta（index 递增），finish 'tool_calls' + usage 尾包
+        for (let i = 0; i < resp.calls.length; i++) {
+          const c = resp.calls[i]!
+          writeChunk({
+            id: 'fake-chatcmpl',
+            object: 'chat.completion.chunk',
+            choices: [{
+              index: 0,
+              delta: {
+                tool_calls: [{
+                  index: i,
+                  id: c.id ?? `call_${callIdx - 1}_${i}`,
+                  type: 'function',
+                  function: { name: c.name, arguments: JSON.stringify(c.input) },
+                }],
+              },
+              finish_reason: null,
+            }],
+          })
+        }
+        writeChunk({
+          id: 'fake-chatcmpl',
+          object: 'chat.completion.chunk',
+          choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }],
+        })
         writeChunk({ id: 'fake-chatcmpl', object: 'chat.completion.chunk', choices: [], usage: { prompt_tokens: usage.input, completion_tokens: usage.output } })
       } else if (resp.type === 'max_tokens') {
         // 部分文本 + finish_reason: length

@@ -23,7 +23,9 @@ export function parseChapterFileName(
   const base = stripMd(fileName)
   const m = base.match(/^(\d+)-(.+)$/)
   if (!m) return null
-  return { 章号: Number(m[1]!), 标题: m[2]! }
+  // R64-20（十二轮）：16+ 位数字超 2^53 精度错位——isSafeInteger 守卫，非法按无章号
+  const no = Number(m[1])
+  return Number.isSafeInteger(no) ? { 章号: no, 标题: m[2]! } : null
 }
 
 /**

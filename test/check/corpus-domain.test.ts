@@ -19,6 +19,7 @@ const REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url))
 import { startServer } from '../../src/studio/server/index.js'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
 import { deriveLeakKeywords } from '../../src/check/leak-derive.js'
+import { cutExcerpt } from '../../src/studio/server/api/check.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
 import { writeVersion, VERSIONS_DIR_NAME } from '../../src/document/version.js'
@@ -318,5 +319,19 @@ describe('R63-13/R63-11：corpus:commit checkId 消毒与存量保护', () => {
     expect(r.status).toBe(1)
     // 原文件保持原样——不是按空数组整写覆盖（那会静默清掉既有条目）
     expect(readFileSync(join(outDir, 'body-parts.json'), 'utf8')).toBe(before)
+  })
+})
+
+describe('R64-11（十二轮）：cutExcerpt 堆砌锚点汉字段收编 HANZI 单源（基本区+扩展 A）', () => {
+  it('扩展 A 区字（㐀=U+3400）锚点 ×N 定位命中（旧硬编码 \\u4e00-\\u9fff 漏判 → 回落开头）', () => {
+    const body = '前'.repeat(120) + '㐀' + '后'.repeat(120)
+    const out = cutExcerpt(body, ['㐀×6'])
+    expect(out).toContain('㐀')
+    expect(out.indexOf('㐀')).toBe(50) // ±50 窗口正中（锚定），而非回落正文开头
+  })
+  it('基本区锚点行为不变：眼睛×6 定位正文中的「眼睛」', () => {
+    const body = '前'.repeat(120) + '眼睛' + '后'.repeat(120)
+    const out = cutExcerpt(body, ['眼睛×6'])
+    expect(out.indexOf('眼睛')).toBe(50)
   })
 })

@@ -11,12 +11,13 @@
  * 另含 retryable 重试 + max_tokens 截断路径验证（stub 脚本复现）。
  */
 import { rmSync } from 'node:fs'
-import { afterAll, beforeAll, afterEach, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, afterEach, describe, expect, it, vi } from 'vitest'
 import { createFakeProvider, type FakeProvider, type FakeResponse } from './fake-provider.js'
 import { withFakeProvider, tempUserData } from '../studio/fixtures.js'
 import { runTask } from '../../src/ai/runner.js'
 import { generateText, generateTool } from '../../src/ai/gen.js'
 import { loadProviders, saveProviders } from '../../src/ai/provider/store.js'
+import { log } from '../../src/log/index.js'
 
 let fake: FakeProvider
 const dirs: string[] = []
@@ -178,5 +179,46 @@ describe('stub 脚本复现重试与截断', () => {
     // max_tokens → generateText 抛 GenError(retryable=false) → GEN_FAIL
     expect(out.ok).toBe(false)
     if (!out.ok) expect(out.code).toBe('GEN_FAIL')
+  })
+})
+
+// ─── R64-5（十二轮）：generateTool 多 tool_use 丢弃可感知（AA-P3-1） ─────────
+
+describe('R64-5：generateTool 收到多个 tool_use → 取首个 + warn 留痕', () => {
+  it('单响应 2 个 tool_use → input 取首个，log.warn 记丢弃条数', async () => {
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
+    try {
+      fake.setScript([
+        { type: 'tools', calls: [
+          { name: 'test_tool', input: { first: true }, id: 'call_1' },
+          { name: 'test_tool', input: { second: true }, id: 'call_2' },
+        ] },
+      ])
+      const ud = setup()
+
+      const out = await runTask<{ input: unknown }>({
+        userDataPath: ud,
+        run: (provider, signal) =>
+          generateTool(
+            provider,
+            {
+              systemPrompt: 'test',
+              messages: [{ role: 'user', content: 'test' }],
+              tools: [{ name: 'test_tool', input_schema: { type: 'object', properties: {} } }],
+              requireTool: true,
+              toolName: 'test_tool',
+            },
+            signal,
+          ),
+      })
+
+      expect(out.ok).toBe(true)
+      if (out.ok) {
+        expect(out.data.input).toEqual({ first: true }) // 仅采用首个，第 2 个丢弃
+      }
+      expect(warn).toHaveBeenCalledWith('gen', expect.stringContaining('2 个 tool_use'))
+    } finally {
+      warn.mockRestore()
+    }
   })
 })

@@ -94,7 +94,12 @@ function parseSections(text: string): RawSection[] {
       continue
     }
     const colonIdx = content.indexOf(':')
-    if (colonIdx === -1) continue
+    if (colonIdx === -1) {
+      // R64-24（十二轮）：无冒号残行此前静默吞掉（Y-26 同款「配置写了但不生效」
+      // 风险面）——手写残句/续行无迹消失。warn 留痕不中断解析。
+      log.warn('yaml', `book.yaml 无冒号行被丢弃：${content.slice(0, 40)}`)
+      continue
+    }
     const key = content.slice(0, colonIdx).trim()
     const value = stripComment(content.slice(colonIdx + 1)).trim()
 

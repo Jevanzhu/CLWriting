@@ -49,7 +49,7 @@ test('选章编辑 → ⌘S 保存 → 字数增加', async ({ page }) => {
   // 键入追加 + ⌘S 保存
   await cm.click()
   await page.keyboard.type('e2e 追加内容')
-  await page.keyboard.press('Meta+s')
+  await page.keyboard.press('ControlOrMeta+s') // R64-35（十二轮）：跨平台——非 mac 上 Meta+s 静默不触发（假红）
 
   // 保存成功反馈（save-state 持久显「已保存」，比 toast 稳）
   await expect(page.locator('.save-group .save-btn')).toContainText('已保存', { timeout: 5_000 })

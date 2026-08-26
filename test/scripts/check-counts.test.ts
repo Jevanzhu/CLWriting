@@ -56,6 +56,9 @@ describe('R63-12：.only / 无条件 .skip 拒绝门', () => {
     expect(findOnlyOrSkipViolations("describe.only('g', () => {})")).toEqual({ only: 1, uncondSkip: 0 })
     // 注释/字符串里的 .only 不误报（X-32 同口径）
     expect(findOnlyOrSkipViolations("// it.only('注释', () => {})")).toEqual({ only: 0, uncondSkip: 0 })
+    // R64-38（十二轮）：.only.each 组合形态——参数化组整组 only 化，此前正则漏放行
+    expect(findOnlyOrSkipViolations("it.only.each([1, 2])('参数化 %d', (n) => {})")).toEqual({ only: 1, uncondSkip: 0 })
+    expect(findOnlyOrSkipViolations('test.only.each([{ a: 1 }])')).toEqual({ only: 1, uncondSkip: 0 })
   })
 
   it('无条件 .skip（首参标题串）检出——调试遗留静默跳过即门禁假绿', () => {

@@ -5,12 +5,13 @@
 import { computed } from 'vue'
 import { CircleCheck } from 'lucide-vue-next'
 import { useWorkbenchStore } from '../../stores/workbench'
+import { countWords } from '../../shared/words' // R64-33：字数与编辑器头/右栏同源（码点+剥标记）
 import BetaBadge from '../ui/BetaBadge.vue'
 
 defineProps<{ draftSaved: { path?: string; words: number } | null }>()
 const emit = defineEmits<{ save: [] }>()
 const wb = useWorkbenchStore()
-const draftWords = computed(() => wb.textOut.length)
+const draftWords = computed(() => countWords(wb.textOut))
 </script>
 
 <template>

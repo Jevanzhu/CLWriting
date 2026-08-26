@@ -142,6 +142,7 @@ async function onTitleCommit(): Promise<void> {
   // 写进旧文档缓存条目（标题栏错乱）并对错误文档 refresh
   const id = ws.activeDocId
   const newTitle = title.value.trim() || '未命名'
+  const book = doc.bookName! // Z-25：入口捕获（await 后 doc 缓存可能已随切书清空）；R64-1 需在 try 外供 catch 复检
   const current = parseFmFields(e.content).标题 ?? e.name
   if (newTitle === current) {
     emit('update:titleEditing', false) // 未变化的提交（如 blur 空走）也要脱离编辑态
@@ -155,11 +156,13 @@ async function onTitleCommit(): Promise<void> {
     const pieceNum = e.role === 'piece-body'
       ? Number(parseFmFields(e.content).章号 || e.path.match(/(\d+)-[^/]*\.md$/)?.[1] || 1)
       : undefined
-    const book = doc.bookName! // Z-25：入口捕获（await 后 doc 缓存可能已随切书清空）
     await updateChapterMetaDoc(book, id, {
       标题: newTitle,
       ...(e.role === 'piece-body' && pieceNum !== undefined ? { 章号: pieceNum } : {}),
     })
+    // R64-1（十二轮）：书名复检——updateChapterMeta 在途切书后，迟到的 load(A) 后发后至
+    // 覆盖 B 书整树（tree.load 的 loadGen 只保「后调者胜」，防不了过期书名的迟到调用）
+    if (doc.bookName !== book) return // 已切书：fm 已落盘，树由切书链自刷，不动 B 书树
     await tree.load(book)
     if (ws.activeDocId !== id) return // 已切文档：fm 已落盘，树已全量刷新，放弃对旧条目的回填
     const fresh = tree.byDocId.get(id)
@@ -176,7 +179,8 @@ async function onTitleCommit(): Promise<void> {
     const refreshed = doc.get(id)
     if (refreshed && !refreshed.dirty) refreshed.conflict = false
   } catch (err) {
-    ui.toast(friendlyError(err), 'error')
+    // R64-1：切书后的错误 toast 不落 B 书界面（fm 操作属 A 书，界面已切走）
+    if (doc.bookName === book) ui.toast(friendlyError(err), 'error')
   } finally {
     titleSaving.value = false
     emit('update:titleEditing', false) // F2（五十九轮）：提交收尾脱离编辑态（父层恢复回写）

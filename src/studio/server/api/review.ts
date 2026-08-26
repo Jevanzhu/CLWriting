@@ -123,7 +123,14 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
         // 此前三处独立读文件（hash 一读、机检内二读、hash 三读），机检窗口内作者保存
         // 会让两个 hash 无任何单一文件状态与之对应（isStale 误报 / R61-13 守卫依赖
         // 读取顺序巧合）。机检经 draftText 吃同一快照（runCheckForDocument 头注）。
-        const draftBuf = readFileSync(absPath)
+        // R64-10（十二轮）：读稿守卫——existsSync 后 µs 级竞态删除（回收站/并发删）
+        // 让 ENOENT 裸穿 dispatch；对齐 review-verdict 的 dd-P3「读不到正文」人话信封
+        let draftBuf: Buffer
+        try {
+          draftBuf = readFileSync(absPath)
+        } catch {
+          return replyError(res, 500, 'IO', '读不到正文文件（可能已被移动或删除），请刷新后再试')
+        }
         const draftText = draftBuf.toString('utf-8')
 
         // CC-P1-2：sourceHash 必须与进 prompt 的正文同源——分钟级三审期间作者保存会让

@@ -89,9 +89,9 @@ export const useDocStore = defineStore('doc', () => {
     return docs.value.get(docId)
   }
 
-  /** F7（五十九轮）：LRU 驱逐——Map 迭代序 = 插入序 = 打开序（旧→新），超上限后从最旧
-   *  开始跳过 active/dirty/conflict/saving 项驱逐 clean 文档。active 判定走 workspace
-   *  store（延迟取实例，避开与 workspace→doc 的模块环在初始化期互撞）。 */
+  /** F7（五十九轮）：LRU 驱逐——Map 迭代序 = 访问序（旧→新，R64-31 起 open 命中会重排），
+   *  超上限后从最久未用开始跳过 active/dirty/conflict/saving 项驱逐 clean 文档。
+   *  active 判定走 workspace store（延迟取实例，避开与 workspace→doc 的模块环在初始化期互撞）。 */
   function evictLRU(): void {
     const active = useWorkspaceStore().activeDocId
     for (const [id, e] of docs.value) {
@@ -104,7 +104,15 @@ export const useDocStore = defineStore('doc', () => {
   /** 打开文档：读内容 + 算基线 revision + 入 Map。已打开或加载中则不重读。 */
   async function open(node: TreeNode): Promise<void> {
     if (!node.docId) throw new Error('节点无 docId')
-    if (docs.value.has(node.docId) || loading.has(node.docId)) return
+    // R64-31（十二轮）：命中重排（Map 迭代序 = LRU 序）——不重排则 evictLRU 实为 FIFO，
+    // 交替使用的文档被误驱逐；重插不新建 entry，仅移动迭代位置
+    const cached = docs.value.get(node.docId)
+    if (cached) {
+      docs.value.delete(node.docId)
+      docs.value.set(node.docId, cached)
+      return
+    }
+    if (loading.has(node.docId)) return
     loading.add(node.docId)
     // RB-FE-P2-1：进入时代数——await 期间切书（setBook bump bookGen）则丢弃结果，
     // 防旧书 doc 注入新书缓存（后续 save 会用新书名写旧书内容）
@@ -292,6 +300,9 @@ export const useDocStore = defineStore('doc', () => {
     try {
       const r = await finalizeDoc(book, docId)
       if (r.ok) {
+        // R64-3（十二轮）：定稿在途切书复检——L-F3 快照只防「重读书名落 B 书」，未防
+        // 过期书名的 load/toast 本身；迟到的 load(A) 会后发后至覆盖 B 书树
+        if (bookName.value !== book) return true // 已切书：定稿已落 A 书盘，树由切书链自刷
         // 定稿后 git 干净 → 树节点 status 变 final；重拉树刷新状态标签
         void useTreeStore().load(book, true)
         const e = docs.value.get(docId)

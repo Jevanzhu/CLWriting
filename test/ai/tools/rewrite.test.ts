@@ -283,3 +283,40 @@ describe('M-3（第十轮）：apply_spill 归属与新鲜度校验', () => {
   })
 })
 
+// ── R64-6（十二轮）：预览切片与字数换码点口径（slice 会劈开增补平面代理对） ──
+
+describe('R64-6：改写预览码点口径（孤立代理对不出现、字数按码位）', () => {
+  it('rewrite_chapter：第 600 码位边界落在增补平面字符上 → 完整保留该字符、计数 619 非 639', async () => {
+    // 599 个 BMP 字符 + 20 个增补平面字符（各 2 码元）：码位 619、码元 639；
+    // 旧 slice(0,600) 恰把第 600 码元劈成孤立高代理
+    const produced = '前'.repeat(599) + '\u{1D11E}'.repeat(20)
+    vi.mocked(runSpec).mockResolvedValue({
+      ok: true,
+      data: { input: { '正文': produced }, text: '', stopReason: 'tool_use' },
+      ctrl: new AbortController(),
+      usage: null,
+      runId: 'r64-6',
+      model: null,
+    })
+    const r = await rewriteChapter(ctx(), { chapter: 1, instruction: '压缩' })
+    expect(r.ok).toBe(true)
+    // 精确锚定预览：599 前 + 1 个完整 𝄞（第 600 码位）接省略行——孤立代理对会在此现形
+    expect(r.summary).toContain('新稿开头：\n\n' + '前'.repeat(599) + '\u{1D11E}\n……（全文共 619 字）')
+    expect(r.summary).toContain('（619 字）') // unsavedNote 同码点口径（非 639）
+  })
+
+  it('rewrite_selection：同款边界 → 预览完整字符、计数按码位', async () => {
+    const produced = '稿'.repeat(599) + '\u{1D11E}'.repeat(20)
+    vi.mocked(runSpec).mockResolvedValue({
+      ok: true,
+      data: { input: { '正文': produced }, text: '', stopReason: 'tool_use' },
+      ctrl: new AbortController(),
+      usage: null,
+      runId: 'r64-6',
+      model: null,
+    })
+    const r = await rewriteSelection(ctx(), { chapter: 1, selection: '玉佩在胸前微微发光', instruction: '改' })
+    expect(r.ok).toBe(true)
+    expect(r.summary).toContain('选段改写完成：\n\n' + '稿'.repeat(599) + '\u{1D11E}\n……（改写稿共 619 字）')
+  })
+})

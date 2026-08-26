@@ -63,7 +63,9 @@ export function countE2eCases(src) {
  */
 export function findOnlyOrSkipViolations(src) {
   const clean = stripStrings(stripComments(src))
-  const only = clean.match(/(^|[^.\w])(?:it|test|describe)\.only\s*\(/g)
+  // R64-38（十二轮）：only 门正则补 `.each` 组合——`it.only.each([...])('t', fn)` 形态
+  // 此前不被 `\s*\(` 匹配（only 后面是 .each），漏放行整个参数化组（其余用例静默跳过）。
+  const only = clean.match(/(^|[^.\w])(?:it|test|describe)\.only(?:\.each)?\s*[({[]/g)
   const uncondSkip = clean.match(/(^|[^.\w])(?:it|test|describe)\.skip\s*\(\s*"/g)
   return { only: only ? only.length : 0, uncondSkip: uncondSkip ? uncondSkip.length : 0 }
 }

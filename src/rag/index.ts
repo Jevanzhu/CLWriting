@@ -14,7 +14,7 @@ import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { readChapterDir } from '../format/chapters.js'
 import { readFile } from '../format/frontmatter.js'
-import { openRagDb, storeChunk, readAllChunks, readAllChapterFingerprints, getRagMeta, setRagMeta, deleteRagMeta, deleteChunksByChapter, getIndexedChapterNumbers, l2Norm, type RagChunk } from './store.js'
+import { openRagDb, storeChunk, readAllChunks, readAllChapterFingerprints, getRagMeta, setRagMeta, deleteRagMeta, deleteChunksByChapter, getIndexedChapterNumbers, l2Norm, cosineSimilarity, type RagChunk } from './store.js'
 import { embed, type EmbedOptions } from './embed.js'
 import type { RagConfig } from './config.js'
 import type { DatabaseSync } from 'node:sqlite'
@@ -516,15 +516,14 @@ export async function recall(
   const hits: RecallHit[] = chunks
     .filter((c) => c.model === config.model && c.embedding.length === queryVec.length)
     .map((c) => {
-      // 预存范数点积（排序序与全量余弦等价）；norm 异常缺失时现算兜底（不因迁移残缺弃块）
+      // R64-45（十二轮）：召回内联余弦合流到 store.ts 单源——预存范数（最终 L2 口径）
+      // 经 precomputed 复用免重算；norm 异常缺失时现算兜底（不因迁移残缺弃块）
       const cNorm = c.norm !== null && c.norm > 0 ? c.norm : l2Norm(c.embedding)
-      let dot = 0
-      for (let i = 0; i < queryVec.length; i++) dot += queryVec[i]! * c.embedding[i]!
       return {
         章号: c.章号,
         start_offset: c.start_offset,
         end_offset: c.end_offset,
-        score: qNorm === 0 || cNorm === 0 ? 0 : dot / (qNorm * cNorm),
+        score: cosineSimilarity(queryVec, c.embedding, { normA: qNorm, normB: cNorm }),
       }
     })
 

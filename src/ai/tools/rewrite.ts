@@ -15,6 +15,7 @@ import { writeSpillFile, readSpillFile, readSpillMeta } from '../../process/spil
 import { createHash } from 'node:crypto'
 import { saveDraft } from '../../process/draft-pipeline.js'
 import { resolveDraftPath } from '../../format/draft.js'
+import { clipByCodePoints, codePointLength } from '../../process/summary.js' // R64-6：预览/字数码点口径单源
 import { readFile, joinFrontMatter } from '../../format/frontmatter.js'
 import { join } from 'node:path'
 import { readChapterBody } from './shared.js'
@@ -145,7 +146,8 @@ export async function rewriteChapter(ctx: ToolContext, input: Record<string, unk
   if (!r.ok) return { ok: false, summary: '改写失败：' + r.error }
   const diff = lineDiff(body, r.produced)
   const changed = diff.filter((d) => d.type !== 'same').length
-  const preview = r.produced.slice(0, 600) + (r.produced.length > 600 ? '\n……（全文共 ' + r.produced.length + ' 字）' : '')
+  // R64-6（十二轮）：slice 按 UTF-16 码元会把增补平面字符劈成孤立代理对——换码点口径
+  const preview = clipByCodePoints(r.produced, 600) + (codePointLength(r.produced) > 600 ? '\n……（全文共 ' + codePointLength(r.produced) + ' 字）' : '')
   // RB-AI-P1-1：全文落 spill（工作区/spills/<内容哈希>.md，幂等）——此前全文不落盘不 spill，
   // 「确认满意后再说一声，我再落盘」物理不可兑现（预览外内容已丢失）；落盘后按路径可取回全文。
   // M-3：meta 记章号 + 基线正文指纹，apply_spill 侧做归属/新鲜度校验
@@ -153,7 +155,7 @@ export async function rewriteChapter(ctx: ToolContext, input: Record<string, unk
   return {
     ok: true,
     summary:
-      '第 ' + chapter + ' 章改写完成（' + changed + ' 行有改动）。新稿开头：\n\n' + preview + '\n\n' + unsavedNote(locator, r.produced.length)
+      '第 ' + chapter + ' 章改写完成（' + changed + ' 行有改动）。新稿开头：\n\n' + preview + '\n\n' + unsavedNote(locator, codePointLength(r.produced))
   }
 }
 
@@ -191,11 +193,12 @@ export async function rewriteSelection(ctx: ToolContext, input: Record<string, u
   return {
     ok: true,
     summary:
+      // R64-6：同 rewrite_chapter——码点口径切片与计数
       '选段改写完成：\n\n' +
-      r.produced.slice(0, 600) +
-      (r.produced.length > 600 ? '\n……（改写稿共 ' + r.produced.length + ' 字）' : '') +
+      clipByCodePoints(r.produced, 600) +
+      (codePointLength(r.produced) > 600 ? '\n……（改写稿共 ' + codePointLength(r.produced) + ' 字）' : '') +
       '\n\n' +
-      unsavedNote(locator, rewritten.length)
+      unsavedNote(locator, codePointLength(rewritten))
   }
 }
 

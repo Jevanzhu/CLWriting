@@ -144,7 +144,13 @@ export function writeLeadsBookRed(db: DatabaseSync, fp: string, hasRed: boolean)
       db.prepare('INSERT OR REPLACE INTO tree_issues_meta (key, value) VALUES (?, ?)').run('leads_book_red', hasRed ? '1' : '0')
       db.exec('COMMIT')
     } catch (e) {
-      db.exec('ROLLBACK')
+      // R64-7（十二轮）：R61-10 同款——裸 ROLLBACK 在事务已自动回亡时抛
+      // "no transaction is active"，次要异常会替代原始病因上抛（吞诊断）
+      try {
+        db.exec('ROLLBACK')
+      } catch {
+        /* 已自动回亡：原始错误优先 */
+      }
       throw e
     }
   } catch {
@@ -169,7 +175,12 @@ export function syncTreeIssuesEpoch(db: DatabaseSync, bookRoot: string, userData
     db.prepare('INSERT OR REPLACE INTO tree_issues_meta (key, value) VALUES (?, ?)').run('global_fp', fp)
     db.exec('COMMIT')
   } catch (e) {
-    db.exec('ROLLBACK')
+    // R64-7（十二轮）：R61-10 同款——吞 ROLLBACK 自身异常，原样上抛原始错误
+    try {
+      db.exec('ROLLBACK')
+    } catch {
+      /* 已自动回亡：原始错误优先 */
+    }
     throw e
   }
   return true

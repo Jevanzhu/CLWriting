@@ -89,6 +89,11 @@ export function parseHistory(body: string): LeadEntry[] {
         证据 = 证据.slice(0, bf.index).trim()
       }
       entries.push({ 章号, 动词, 证据, ...(回填 ? { 回填 } : {}) })
+    } else if (entries.length > 0 && line.trim() !== '') {
+      // R64-17（十二轮）：多行证据续行——手写/编辑器折行的证据第二行不匹配条目正则，
+      // 此前被静默丢弃（下次回写物理丢失）。续行折空格并入上一条证据（换行归一）。
+      const prev = entries[entries.length - 1]!
+      prev.证据 = `${prev.证据} ${line.trim()}`.trim()
     }
   }
   return entries
@@ -152,10 +157,13 @@ export function readLead(
   }
 
   // 收集未知字段（容错保留）
-  const _raw: Record<string, string> = {}
+  // R64-17（十二轮）：数组型未知字段此前 String(v) 落成 "a,b" ——回写 stringifyValue
+  // 按标量引号化，往返后项内逗号错位。数组原样保留（writeLead 的 stringifyValue
+  // 原生支持数组逐项序列化）。
+  const _raw: Record<string, string | string[]> = {}
   for (const [k, v] of map) {
     if (!KNOWN_FM_KEYS.has(k)) {
-      _raw[k] = String(v)
+      _raw[k] = Array.isArray(v) ? v : String(v)
     }
   }
 

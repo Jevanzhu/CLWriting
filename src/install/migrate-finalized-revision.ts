@@ -13,7 +13,7 @@
  */
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { readManifest, writeManifest } from '../document/manifest.js'
+import { readManifest, writeManifest, withManifestLock } from '../document/manifest.js'
 import { computeRevision } from '../document/revision.js'
 import { statusPorcelain } from '../git/exec.js'
 import { log } from '../log/index.js'
@@ -58,17 +58,28 @@ export function migrateFinalizedRevisions(bookRoot: string): number {
 
   let updated = 0
   const nowIso = new Date().toISOString()
-  for (const e of manifest.entries.values()) {
-    if (e.nodeType !== 'document') continue
-    if (e.finalizedRevision) continue // 幂等：已有基线跳过
-    const abs = join(bookRoot, e.path)
-    if (!existsSync(abs)) continue
-    if (dirty.has(e.path)) continue // git dirty/untracked → 不设基线（revision/draft）
-    e.finalizedRevision = computeRevision(abs)
-    e.finalizedAt = nowIso
-    updated++
-  }
-  if (updated > 0) writeManifest(manifestPath, manifest)
+  // R64-23（十二轮）：清单 RMW 持锁（Y-4/X-5 纪律）——此前读改写无锁，双开窗口内
+  // 与 service/其他迁移并发时后写者整文件覆盖先写者（finalizedRevision 丢行）。
+  // 锁内重读复查幂等闸：并发迁移者可能已写入。git 状态在锁外取（与清单无依赖）。
+  updated = withManifestLock(manifestPath, () => {
+    const m = readManifest(manifestPath)
+    for (const e of m.entries.values()) {
+      if (e.nodeType === 'document' && e.finalizedRevision) return 0
+    }
+    let n = 0
+    for (const e of m.entries.values()) {
+      if (e.nodeType !== 'document') continue
+      if (e.finalizedRevision) continue // 幂等：已有基线跳过
+      const abs = join(bookRoot, e.path)
+      if (!existsSync(abs)) continue
+      if (dirty.has(e.path)) continue // git dirty/untracked → 不设基线（revision/draft）
+      e.finalizedRevision = computeRevision(abs)
+      e.finalizedAt = nowIso
+      n++
+    }
+    if (n > 0) writeManifest(manifestPath, m)
+    return n
+  })
   return updated
 }
 

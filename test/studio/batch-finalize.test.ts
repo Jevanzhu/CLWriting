@@ -198,11 +198,25 @@ describe('POST /documents/batch-finalize（P2-PROD-2）', () => {
     // 注：定稿循环全程同步，两个 body 已齐的请求会串行各自持闸——那种双击由
     // finalize 幂等（已定稿 → skipped）兜底，本闸覆盖的是在途窗口。
     const p1 = postBatchDelayed([ch2DocId], 250)
-    await new Promise((r) => setTimeout(r, 80)) // 等 handler1 进入（已占闸、悬在 readJson）
-    const r2 = await postBatch([ch2DocId])
-    expect(r2.status).toBe(409)
-    expect((r2.json as { ok: boolean; code: string }).code).toBe('BUSY')
+    // R64-41（十二轮）：固定 80ms 窗口改轮询确认——慢机/压机下回环延迟超 80ms 时
+    // handler1 尚未占闸，请求 2 先抢闸返回 200（409 假红）。轮询服务器侧闸状态
+    // （请求 2 打 BUSY 前必然已占），最多等 2s；仍不占则按原断言失败暴露。
+    const busy = await pollUntil(
+      async () => (await postBatch([ch2DocId])).status === 409,
+      2000,
+    )
+    expect(busy).toBe(true)
     const r1 = await p1
     expect(r1.status).toBe(200)
   })
 })
+
+/** R64-41：以 25ms 间隔轮询谓词直至真或超时（毫秒） */
+async function pollUntil(pred: () => Promise<boolean>, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    if (await pred()) return true
+    if (Date.now() >= deadline) return false
+    await new Promise((r) => setTimeout(r, 25))
+  }
+}

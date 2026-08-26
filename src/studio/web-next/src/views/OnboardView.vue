@@ -117,6 +117,7 @@ async function save(): Promise<void> {
     ui.toast('已保存', 'success')
     void tree.load(book)
   } catch (e) {
+    if (!stillOn(book)) return // R64-34（十二轮）：切书后错误 toast 不落 B 书界面（对齐 gen() 的 catch）
     err.value = friendlyError(e)
     ui.toast(err.value, 'error')
   } finally {

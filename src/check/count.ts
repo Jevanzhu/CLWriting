@@ -21,9 +21,10 @@ import type { IronRules } from '../format/iron-rules.js'
  * 统一使用，避免不同检查项范围不一导致生僻字人名漏判。
  * R62-29 注释修正：「一-鿿」中 一=U+4E00、鿿=U+9FFF（基本区顶，非 U+9FA5——
  * U+9FA5 是「龥」，U+9FFD~U+9FFF 是 CJK 扩充进基本区顶的字，旧注释把区顶码位
- * 写错一位）；「㐀-䶿」= U+3400-U+4DBF（扩展 A 区）。
+ * 写错一位）；「㐀-䶿」= U+3400-U+4DBF（扩展 A 区）。R64-11（十二轮）导出：
+ * api/check.ts 堆砌锚点正则收编本单源（此前第四处硬编码）。
  */
-const HANZI = '一-鿿㐀-䶿'
+export const HANZI = '一-鿿㐀-䶿'
 
 /**
  * front matter 格式检查（#10 项 3，🔴 红）。
@@ -319,7 +320,7 @@ export function computeStyleMetrics(body: string, rules: IronRules): StyleStats 
     dialogueTagRatio = tagged / dialogueLines.length
   }
 
-  // 最大同构排比连续数（补全统计，不同于 checkStyleMetrics 的”首次越界即 break”）
+  // 最大同构排比连续数（补全统计，不同于 checkStyleMetrics 的「首次越界即 break」）
   let parallelStreakMax = 0
   if (rules.maxParallelStreak !== undefined && rules.maxParallelStreak > 0) {
     let prev = ''

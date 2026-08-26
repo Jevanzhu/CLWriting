@@ -163,6 +163,9 @@ export function useChapterTreeActions(deps: {
     const bookName = deps.bookName()
     try {
       const r = await batchFinalizeDocs(bookName, docIds)
+      // R64-2（十二轮）：批量定稿逐章 git 提交可达数秒——在途切书后不刷 B 书树、
+      // toast 不落 B 书界面（同文件其余 9 个动作均有「已切书」复检，唯独此处漏）
+      if (deps.bookName() !== bookName) return // 已切书：定稿已落 A 书盘，树由切书链自刷
       const done = r.results.filter((x) => x.ok && !x.skipped).length
       const skipped = r.results.filter((x) => x.ok && x.skipped).length
       const failed = r.results.filter((x) => !x.ok).length

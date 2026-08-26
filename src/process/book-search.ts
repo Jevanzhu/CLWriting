@@ -9,6 +9,7 @@
 import { join } from 'node:path'
 import { readdirSync, readFileSync, existsSync, statSync, realpathSync } from 'node:fs'
 import { isWithinRoot } from '../fs/safe-path.js'
+import { clipByCodePoints } from './summary.js'
 
 /** 可搜目录全集（相对 bookRoot） */
 export const SEARCH_ALL_DIRS = ['写作/正文', '设定', '大纲', '布线', '工作区']
@@ -80,7 +81,9 @@ function searchFile(fp: string, lower: string): SearchMatch[] {
   const lines = text.split('\n')
   for (let i = 0; i < lines.length; i++) {
     if (lines[i]!.toLowerCase().includes(lower)) {
-      out.push({ line: i + 1, text: lines[i]!.slice(0, MATCH_LINE_SLICE) })
+      // R64-24（十二轮）：slice(0,200) 按 UTF-16 码元切——emoji/扩展区字被劈成两半
+      // （落单代理对进 JSON/前端渲染均为乱码）。改码位安全截断（单源 summary.ts）。
+      out.push({ line: i + 1, text: clipByCodePoints(lines[i]!, MATCH_LINE_SLICE) })
     }
   }
   return out

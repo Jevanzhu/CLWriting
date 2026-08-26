@@ -170,3 +170,20 @@ describe('POST /documents/:docId/review 三审直读（M12 B0.2）', () => {
     expect(j.code).toBe('NOT_FOUND')
   })
 })
+
+describe('R64-10（十二轮）：读稿守卫——existsSync 后读不到正文给 IO 人话信封', () => {
+  it('清单路径指向目录（existsSync 真、readFileSync 抛 EISDIR）→ 500 IO 不裸穿', async () => {
+    // 用迁移后仍存在的目录作靶（boot 的 migrateFinalizedRevisions 会把非 git 书
+    // 定稿/正文 的未跟踪稿迁去 写作/正文 并清空 定稿——不能拿它当靶子）
+    const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
+    const m = readManifest(manifestPath)
+    const dirDocId = generateDocId()
+    upsertEntry(m, { id: dirDocId, nodeType: 'document', path: '写作/正文', parentId: null }) // 目录：存在但读不了
+    writeManifest(manifestPath, m)
+    const r = await post(`/api/books/${encodeURIComponent(BOOK)}/documents/${dirDocId}/review`, {})
+    expect(r.status).toBe(500)
+    const j = r.json as { code: string; error: string }
+    expect(j.code).toBe('IO')
+    expect(j.error).toContain('读不到正文')
+  })
+})

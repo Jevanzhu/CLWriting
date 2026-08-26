@@ -607,6 +607,13 @@ export class DocumentService {
     const oldPath = this.lookupPathByDocId(docId)
     if (!oldPath) return { ok: false, code: 'NOT_FOUND', reason: `文档 ${docId} 未在清单登记` }
 
+    // R64-16（十二轮）：rename 的 newName 直拼 `${dirname}/${newName}`——含 `/`/`\`
+    // 的名字不越根也会变成跨目录移动（`../x` 越层、`a/b` 进子目录），NNN-标题 文件名
+    // 解析口径随之失效。basename 单源守卫：newName 必须是纯文件名。
+    if (op.kind === 'rename' && basename(op.newName) !== op.newName) {
+      return { ok: false, code: 'PATH_ESCAPE', reason: '新文件名不能包含路径分隔符' }
+    }
+
     const newPath =
       op.kind === 'move'
         ? `${op.toDir.replace(/\/$/, '')}/${basename(oldPath)}`

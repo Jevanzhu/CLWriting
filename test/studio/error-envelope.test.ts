@@ -61,12 +61,15 @@ describe('resolveDocEntry（hh §八-12 docId 样板公共化）', () => {
 })
 
 describe('SSE 错误路径走 JSON 信封（不再裸文本）', () => {
-  it('无工作目录 → 400 {code: NO_WORKDIR}（fetch 可读体判别）', async () => {
-    server = startServer({ port: 0, workDir: null })
+  it('无工作目录 → 400 {code: NO_WORKDIR}（fetch 可读体判别；R64-27 鉴权前移须带 token 到达）', async () => {
+    server = startServer({ port: 0, workDir: null, studioToken: 'envelope-test-token' })
     await new Promise<void>((r) => server!.once('listening', r))
     baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
 
-    const resp = await fetch(`${baseUrl}/api/books/任意书/stream`)
+    // R64-27（十二轮）：SSE 鉴权前移——无凭据先吃 403，带 token 才到达 workDir 判定
+    const unauthed = await fetch(`${baseUrl}/api/books/任意书/stream`)
+    expect(unauthed.status).toBe(403)
+    const resp = await fetch(`${baseUrl}/api/books/任意书/stream?token=envelope-test-token`)
     expect(resp.status).toBe(400)
     expect(resp.headers.get('content-type')).toContain('application/json')
     expect(await resp.json()).toEqual({ code: 'NO_WORKDIR', error: '未定位到工作目录' })

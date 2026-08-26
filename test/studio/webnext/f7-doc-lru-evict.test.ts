@@ -87,3 +87,13 @@ describe('F7: docs Map LRU 驱逐（上限 20）', () => {
     expect(doc.get('d1')).toBeDefined()
   })
 })
+
+describe('R64-32（十二轮）：setBook 复位 treeExpanded', () => {
+  it('切书 → 展开路径复位默认（prefs 拉取失败也不带入 A 书展开态）', () => {
+    const ws = useWorkspaceStore()
+    ws.bookName = '书A'
+    ws.treeExpanded = ['写作/正文/第一卷', '设定']
+    ws.setBook('书B')
+    expect(ws.treeExpanded).toEqual(['写作'])
+  })
+})

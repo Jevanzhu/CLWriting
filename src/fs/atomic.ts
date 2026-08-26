@@ -56,11 +56,15 @@ export function atomicWriteFile(
 export function atomicWriteStream(
   filePath: string,
   write: (append: (s: string) => void) => void,
+  opts?: { mode?: number },
 ): void {
   const dir = dirname(filePath)
   mkdirSync(dir, { recursive: true })
   const tmpPath = join(dir, `.${basename(filePath)}.${process.pid}.${randomUUID()}.tmp`)
-  const fd = openSync(tmpPath, 'w')
+  // R64-22（十二轮）：mode 透传——与 atomicWriteFile 的 opts.mode 对齐（受限权限
+  // 文件流式产出需要；mode 仅在 tmp 创建时生效，rename 沿用）。当前调用方无需求，
+  // 防御性补齐。
+  const fd = openSync(tmpPath, 'w', opts?.mode)
   try {
     // R61-9（第六十一轮）：writeSync 允许部分写（RLIMIT_FSIZE/信号中断），丢弃返回
     // 字节数会静默发布截断文件——改 writeFileSync（内部循环写满，同 atomicWriteFile）

@@ -54,6 +54,9 @@ describe('R62-22：electron-builder.yml files 断言（asar 实际打包面，�
     expect(parseBuilderFiles(YML)).toEqual(['dist/**/*', 'resources/**/*', 'package.json'])
     const messy = '# 注释\nfiles:\n    - dist/**/*\n\n  - resources/**/*\nasar: true\n'
     expect(parseBuilderFiles(messy)).toEqual(['dist/**/*', 'resources/**/*'])
+    // R64-39（十二轮）：引号形态（YAML 合法）——此前原样入列（含引号）致成员资格误报
+    const quoted = 'files:\n  - "dist/**/*"\n  - \'resources/**/*\'\nasar: true\n'
+    expect(parseBuilderFiles(quoted)).toEqual(['dist/**/*', 'resources/**/*'])
   })
   it('含 dist 与 resources → 无问题；顺序颠倒亦然', () => {
     expect(problemsForElectronBuilderFiles(['dist/**/*', 'resources/**/*'])).toEqual([])

@@ -20,7 +20,20 @@ test.beforeAll(async () => {
   process.env['CLWRITING_E2E_AI_DOWN'] = '1'
   const workDir = makeDualTrackWorkdir()
   server = startServer({ port: PORT, workDir, staticDir: join(process.cwd(), 'dist', 'web') })
-  await new Promise<void>((resolve) => server.once('listening', () => resolve()))
+  await new Promise<void>((resolve, reject) => {
+    server.once('listening', () => resolve())
+    // R64-40（十二轮）：固定端口被占给指因人话提示（X-36③ global-setup 同款——
+    // 环境争用时裸 EADDRINUSE 栈难排查）
+    server.once('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EADDRINUSE') {
+        console.error(
+          `[e2e ai-degrade] 端口 ${PORT} 已被占用——通常是上一次 e2e 未退干净或本地 dev 服务抢占。\n` +
+            `排查：lsof -i :${PORT} 查占用进程并 kill 后重跑。`,
+        )
+      }
+      reject(err)
+    })
+  })
 })
 
 test.afterAll(async () => {
@@ -44,7 +57,7 @@ test('AI 不可达：编辑保存照常 + 辅助置灰', async ({ page }) => {
   await expect(cm).toBeVisible()
   await cm.click()
   await page.keyboard.type('降级时仍可编辑')
-  await page.keyboard.press('Meta+s')
+  await page.keyboard.press('ControlOrMeta+s') // R64-35（十二轮）：跨平台——非 mac 上 Meta+s 静默不触发（假红）
   await expect(page.locator('.save-group .save-btn')).toContainText('已保存', { timeout: 5_000 })
 
   // ③ 切工作台 → AI 降级警告条（生成按钮 v-if=!running，running 态不渲染，故以警告条为降级标志）

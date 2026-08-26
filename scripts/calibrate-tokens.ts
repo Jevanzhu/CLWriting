@@ -60,6 +60,10 @@ if (existsSync(sessionDir)) {
           /* 单行损坏跳过 */
         }
       }
+    } catch (e) {
+      // R64-37（十二轮）：.db 能 open 但 schema 异异（events 表缺失/迁移中）时 prepare
+      // 抛错——此前直接崩脚本、后续 .db 全不再扫。计数跳过，末尾汇总提示。
+      console.warn(`[calibrate] 查询失败跳过 ${f}（schema 异异或表缺失）：${e instanceof Error ? e.message : String(e)}`)
     } finally {
       db.close()
     }

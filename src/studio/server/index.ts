@@ -59,6 +59,7 @@ import { registerLeadUpdateRoutes } from './api/lead-updates.js'
 // T2-4：task-gate 跨进程文件锁根目录注入（书库 .clwriting/task-gate/；无 workDir → 纯内存闸）
 import { configureTaskGateLockRoot } from './api/task-gate.js'
 import { resetRouteSchemas } from './api/schema.js'
+import { setInitialBook } from './api/books.js'
 // A4（批 0）：启动通告端点——启动链迁移失败对用户可见（App 级横幅数据源）
 import { createStartupNoticeSink, registerStartupNoticeRoutes, type StartupNoticeSink } from './api/startup-notices.js'
 import { createStaticHandler } from './static.js'
@@ -353,6 +354,12 @@ export function startServer(opts: StudioServerOptions): http.Server {
 
     // API 优先
     if (req.url?.startsWith('/api/')) {
+      // R64-28（十二轮）：finish 后统一排空未消费请求体——无 body POST（heartbeat/
+      // style/rag/chat-branches 等）handler 不读 body 也不 resume，脚本客户端带 body
+      // 时 keep-alive 复用被弃（与 stream-ticket.ts 口径一致，收到 dispatch 层统一兜）
+      res.on('finish', () => {
+        if (!req.readableEnded) req.resume()
+      })
       try {
         const matched = await dispatch(req, res, routes)
         if (matched || res.headersSent) return
@@ -405,6 +412,14 @@ export function startServer(opts: StudioServerOptions): http.Server {
       allowedOrigins.add(`http://[::1]:${addr.port}`)
       listeningPort = addr.port
     }
+  })
+  // R64-30（十二轮）：生命周期复位 initialBook 模块态——同进程二次 startServer（dev/
+  // 测试形态）此前残留上一实例的 --book 初始书（第二次无 --book 启动仍直达旧书）。
+  // 复位点选 close 而非 startServer 入口：调用序铁律是 setInitialBook 先于 startServer
+  //（desktop/server-boot.ts 测试锚定），入口清空会抹掉刚注入的值；boot-token 回归
+  // 还依赖运行中实例的 live-set 语义（set 后即可读），close 清空两头都保住。
+  server.on('close', () => {
+    setInitialBook(undefined)
   })
   return server
 }

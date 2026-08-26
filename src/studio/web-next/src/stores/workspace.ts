@@ -69,6 +69,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     bookName.value = name
     prefsLoaded = false
     activeDocId.value = null
+    // R64-32（十二轮）：A 书展开态不带入 B 书——loadBookPrefs 失败路径（R-6 不置
+    // prefsLoaded）下旧展开路径滞留作用于 B 书树（同名「写作」组直接命中）
+    treeExpanded.value = ['写作']
     // FE-4（第七轮）：滞留插入信号随切书作废——非编辑器视图点「插入」后切书，
     // 新书编辑器 tryConsumeInsert 三口会把 A 书设定名插进 B 书正文
     pendingInsert.value = null

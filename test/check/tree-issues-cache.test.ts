@@ -17,6 +17,8 @@ import {
   readTreeIssuesCache,
   writeTreeIssuesCache,
   clearTreeIssuesCacheForBook,
+  writeLeadsBookRed,
+  readLeadsBookRed,
 } from '../../src/check/tree-issues-cache.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
@@ -211,6 +213,52 @@ describe('tree-issues-cache 模块单元', () => {
         expect(syncTreeIssuesEpoch(db, root, null)).toBe(false)
         utimesSync(join(root, '设定', '境界体系.md'), later, later)
         expect(syncTreeIssuesEpoch(db, root, null)).toBe(true) // 境界体系变 → 清
+      } finally {
+        db.close()
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('R64-7（十二轮）：事务自动回亡 → 吞 ROLLBACK、原始病因优先', () => {
+  it('syncTreeIssuesEpoch：RAISE(ROLLBACK) 自动回亡后 ROLLBACK 抛错不遮蔽原始错误', () => {
+    const root = makeBook(1)
+    try {
+      mkdirSync(join(root, '.cache'), { recursive: true })
+      const db = new DatabaseSync(join(root, '.cache', 'index.db'))
+      try {
+        syncTreeIssuesEpoch(db, root, null) // 建表 + 记纪元
+        writeTreeIssuesCache(db, '写作/正文/001-第1章.md', 1, 1, null, { hasRed: false, verdictRejected: false }) // 种一行：BEFORE DELETE 按行触发，空表不炸
+        // 触发器在事务首句（DELETE）抛 RAISE(ROLLBACK)——事务随之整体回亡，
+        // 随后的 db.exec('ROLLBACK') 会抛 "no transaction is active"
+        db.exec(
+          `CREATE TRIGGER boom_del BEFORE DELETE ON tree_issues_cache BEGIN SELECT RAISE(ROLLBACK, 'boom-original'); END`,
+        )
+        db.exec(`DELETE FROM tree_issues_meta WHERE key = 'global_fp'`) // 迫使下一轮进事务
+        // 修复前：上抛的是 ROLLBACK 的 "no transaction is active"（次要异常替代病因）
+        expect(() => syncTreeIssuesEpoch(db, root, null)).toThrow(/boom-original/)
+      } finally {
+        db.close()
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('writeLeadsBookRed：同款自动回亡 → 静默（缓存只是加速）且指纹不落', () => {
+    const root = makeBook(1)
+    try {
+      mkdirSync(join(root, '.cache'), { recursive: true })
+      const db = new DatabaseSync(join(root, '.cache', 'index.db'))
+      try {
+        syncTreeIssuesEpoch(db, root, null) // 建表（global_fp 也经 tree_issues_meta，须在触发器前）
+        db.exec(
+          `CREATE TRIGGER boom_ins BEFORE INSERT ON tree_issues_meta BEGIN SELECT RAISE(ROLLBACK, 'boom-original'); END`,
+        )
+        expect(() => writeLeadsBookRed(db, 'fp-x', true)).not.toThrow()
+        expect(readLeadsBookRed(db, 'fp-x')).toBeNull() // 回亡：两键都没落
       } finally {
         db.close()
       }

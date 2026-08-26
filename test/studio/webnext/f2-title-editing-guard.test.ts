@@ -117,3 +117,39 @@ describe('F2: 标题编辑期间 content 变化不回写 titleModel', () => {
     w.unmount()
   })
 })
+
+describe('R64-1（十二轮）：标题提交在途切书 → 迟到的 load(旧书) 不覆盖新书树', () => {
+  it('updateChapterMetaDoc 在途切书 → tree.load 不调用（fm 已落盘，树由切书链自刷）', async () => {
+    const doc = useDocStore()
+    const tree = useTreeStore()
+    vi.spyOn(tree, 'load').mockResolvedValue(undefined)
+    doc.setBook(BOOK)
+    await doc.open(NODE)
+    useWorkspaceStore().activeDocId = 'd1'
+
+    const w = mount(EditorView, { props: { docId: 'd1' } })
+    await flushPromises()
+    vi.mocked(tree.load).mockClear() // 挂载期调用不计入断言面
+
+    // 标题提交挂起（updateChapterMetaDoc 在途）
+    let resolveMeta!: (r: unknown) => void
+    mocks.updateChapterMetaDoc.mockImplementation(
+      () => new Promise((r) => {
+        resolveMeta = r
+      }),
+    )
+    const input = w.find('input.bar-title')
+    await input.trigger('focus')
+    await input.setValue('新标题')
+    await input.trigger('blur')
+    await flushPromises()
+    expect(tree.load).not.toHaveBeenCalled() // 在途，尚未到 load
+
+    doc.setBook('书B') // 在途切书（doc 缓存随切书清空，bookName 已指向 B）
+    resolveMeta({ ok: true })
+    await flushPromises()
+    // 修复前：迟到的 load(BOOK) 后发后至覆盖 B 书树；修复后：书名复检直接放弃
+    expect(tree.load).not.toHaveBeenCalled()
+    w.unmount()
+  })
+})

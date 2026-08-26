@@ -19,7 +19,7 @@
  */
 import { existsSync, readdirSync, renameSync, mkdirSync, rmdirSync, statSync } from 'node:fs'
 import { join, dirname } from 'node:path'
-import { readManifest, writeManifest } from '../document/manifest.js'
+import { readManifest, writeManifest, withManifestLock } from '../document/manifest.js'
 
 /** 迁移到布线的 5 类线索（关系线为派生数据，保留原位）。 */
 const LEADS_TO_MOVE = ['悬念', '感情线', '布局线', '设定线', '成长线'] as const
@@ -71,29 +71,26 @@ function migratePath(oldPath: string): string {
 function migrateManifestPaths(bookRoot: string, errors: string[]): number {
   const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
   if (!existsSync(manifestPath)) return 0
-  let m
+  // R64-23（十二轮）：RMW 持 withManifestLock（Y-4/X-5 纪律）——迁移期与 service/
+  // 其他迁移并发时，无锁读改写会后写整文件覆盖先写（entry 丢行）
   try {
-    m = readManifest(manifestPath)
+    return withManifestLock(manifestPath, () => {
+      const m = readManifest(manifestPath)
+      let count = 0
+      for (const entry of m.entries.values()) {
+        const newPath = migratePath(entry.path)
+        if (newPath !== entry.path) {
+          entry.path = newPath
+          count++
+        }
+      }
+      if (count > 0) writeManifest(manifestPath, m)
+      return count
+    })
   } catch (e) {
     errors.push(`清单读取失败: ${errMsg(e)}`)
     return 0
   }
-  let count = 0
-  for (const entry of m.entries.values()) {
-    const newPath = migratePath(entry.path)
-    if (newPath !== entry.path) {
-      entry.path = newPath
-      count++
-    }
-  }
-  if (count > 0) {
-    try {
-      writeManifest(manifestPath, m)
-    } catch (e) {
-      errors.push(`清单写入失败: ${errMsg(e)}`)
-    }
-  }
-  return count
 }
 
 /**

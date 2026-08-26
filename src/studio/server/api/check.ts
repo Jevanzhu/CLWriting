@@ -19,6 +19,7 @@ import { safeManifestPath } from '../../../fs/safe-path.js'
 import { readAnalysis } from '../../../document/analysis.js'
 import { openSessionStore, bookHash } from '../../../events/store.js'
 import { QUOTE_OPEN, QUOTE_CLOSE } from '../../../check/quotes.js'
+import { HANZI } from '../../../check/count.js' // R64-11：堆砌锚点汉字段单源（与 count.ts 口径一致）
 import { checkFalsePositiveEvent } from '../../../events/chain-bridge.js'
 import {
   runCheckForDocument,
@@ -75,7 +76,8 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
   // POST /documents/:docId/check-false-positive  body { checkId }
   // excerpt 服务端从正文切（命中区间 ±50 字、上限 200）——不信客户端传任意长文本。
   // 落 check/false-positive 事件（workspace 会话）；同章同 checkId 重复标记幂等
-  //（append 多条、查询侧按 (chapter, checkId) 取最近一条）。
+  //（append 多条；R64-44 注释对齐：查询侧尚未接线——语料回收消费时按
+  //  (chapter, checkId) 取最近一条，当前全仓无读取方）。
   defineRoute('books.documents.check-false-positive', {
     method: 'POST',
     path: '/api/books/:name/documents/:docId/check-false-positive',
@@ -163,18 +165,21 @@ const EXCERPT_QUOTED_RE = new RegExp(`[${QUOTE_OPEN}]([^${QUOTE_CLOSE}]{1,40})[$
 
 /**
  * B1（批 6）：从正文切命中区间 ±50 字摘录（上限 200）。
+ * R64-11：导出供回归测试直接驱动（同 repairOrphanSessions 先例）。
  * 命中词取机检 message 里的引号片段（禁词/意象/复读项均带，字符集由
  * check/quotes.ts 单源派生），在正文里定位首个出现；定位不到（如字数类
  * 无具体词）回落正文开头——摘录仍可作为该章该检查的上下文语料。
  */
-function cutExcerpt(body: string, messages: string[]): string {
+export function cutExcerpt(body: string, messages: string[]): string {
   const quoted: string[] = []
   for (const msg of messages) {
     for (const m of msg.matchAll(EXCERPT_QUOTED_RE)) {
       if (m[1]!) quoted.push(m[1]!)
     }
     // 堆砌类 message 形态：`眼睛×6`（词×次数）——锚点取 × 前的词
-    for (const m of msg.matchAll(/([\u4e00-\u9fffA-Za-z0-9·]{1,20})×\d+/g)) {
+    // R64-11（十二轮）：R62-29 收编第四处——汉字段由 count.ts HANZI 单源派生
+    //（基本区 + 扩展 A），硬编码 \u4e00-\u9fff 会漏生僻字人名锚点
+    for (const m of msg.matchAll(new RegExp(`([${HANZI}A-Za-z0-9·]{1,20})×\\d+`, 'g'))) {
       if (m[1]!) quoted.push(m[1]!)
     }
   }

@@ -9,7 +9,7 @@
  *   设置页靠 GET /api/books/:name/config 的 raw 结果判断「本书是否覆盖」
  */
 
-import { existsSync, readFileSync } from 'node:fs'
+import { readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { BookConfig } from './types.js'
 
@@ -64,6 +64,11 @@ export interface GlobalBookDefaults {
   costPerChapter?: number
 }
 
+/** R64-25（十二轮）：(mtimeMs,size) 指纹缓存——readGlobalBookDefaults 是高频读侧
+ *  （每次 config apply 全量读盘 + JSON.parse），同指纹直接回缓存（对照 settings-context
+ *  CARD_CACHE 同款）。解析失败不缓存（下次重试）；命中返回浅拷贝防调用方 mutate 污染缓存。 */
+const defaultsCache = new Map<string, { mtimeMs: number; size: number; val: GlobalBookDefaults }>()
+
 /**
  * 读全局书级默认（userData/global.json）。
  *
@@ -74,7 +79,14 @@ export interface GlobalBookDefaults {
 export function readGlobalBookDefaults(userDataPath: string | null): GlobalBookDefaults {
   if (!userDataPath) return {}
   const p = join(userDataPath, 'global.json')
-  if (!existsSync(p)) return {}
+  let st
+  try {
+    st = statSync(p)
+  } catch {
+    return {}
+  }
+  const hit = defaultsCache.get(p)
+  if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return { ...hit.val }
   try {
     const raw = JSON.parse(readFileSync(p, 'utf8')) as Record<string, unknown>
     // 校验器：非法值 → undefined（与「没写」同义，走回落链）
@@ -90,7 +102,7 @@ export function readGlobalBookDefaults(userDataPath: string | null): GlobalBookD
       typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max ? v : undefined
     const injection = (v: unknown): 'light' | 'heavy' | undefined =>
       v === 'light' || v === 'heavy' ? v : undefined
-    return {
+    const val: GlobalBookDefaults = {
       defaultGenre: nonEmptyStr(raw['defaultGenre']),
       defaultVolumeSize: intAtLeast(raw['defaultVolumeSize'], 5, Number.MAX_SAFE_INTEGER),
       defaultTargetWords: posInt(raw['defaultTargetWords']),
@@ -107,6 +119,8 @@ export function readGlobalBookDefaults(userDataPath: string | null): GlobalBookD
       tokensPerChapter: posNum(raw['tokensPerChapter']),
       costPerChapter: posNum(raw['costPerChapter']),
     }
+    defaultsCache.set(p, { mtimeMs: st.mtimeMs, size: st.size, val })
+    return { ...val }
   } catch {
     // JSON 损坏 / 读失败 → 全空（逐项回落第三层），不阻断调用方
     return {}

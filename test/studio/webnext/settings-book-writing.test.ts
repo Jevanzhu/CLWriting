@@ -173,3 +173,37 @@ describe('SettingsBookWriting 写作默认本书覆盖（两层组开关）', ()
     expect(wrapper.find('input[aria-label="题材"]').exists()).toBe(false)
   })
 })
+
+describe('R64-4（十二轮）：配置加载代守卫（R63-3 同款，本组件漏点收口）', () => {
+  it('甲书在途 getConfig 迟到、期间已切乙书 → 覆盖组不被甲书值点亮（防跨书写盘放大器）', async () => {
+    const ui = useUiStore()
+    const ws = useWorkspaceStore()
+    ui.settingsOpen = true
+    ws.bookName = '甲书'
+    let resolveA!: (c: BookConfig) => void
+    let first = true
+    mocks.getConfig.mockImplementation(() => {
+      if (first) {
+        first = false
+        return new Promise<BookConfig>((r) => {
+          resolveA = r
+        })
+      }
+      return Promise.resolve({ kind: 'long', book: { title: '乙书' } } satisfies BookConfig)
+    })
+    const wrapper = mount(SettingsBookWriting, {
+      global: { provide: { [SAVE_CONFIG_KEY as symbol]: mocks.saveConfig } },
+    })
+    await flushPromises() // 甲书在途
+    ws.bookName = '乙书'
+    await flushPromises() // 乙书已回填（全跟随）
+    // 甲书迟到：题材/字数全设——若回填会点亮本书覆盖组，组开关即以甲书值写乙书 book.yaml
+    resolveA({
+      kind: 'long',
+      book: { title: '甲书', genre: '玄幻', volume_size: 9, target_words: 3000000, chapter_target_words: 6666 },
+    } satisfies BookConfig)
+    await flushPromises()
+    expect((wrapper.find('input[aria-label="本书使用独立设定"]').element as HTMLInputElement).checked).toBe(false)
+    wrapper.unmount()
+  })
+})

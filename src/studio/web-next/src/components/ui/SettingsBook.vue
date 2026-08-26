@@ -34,10 +34,16 @@ async function openBookDir(): Promise<void> {
   await window.clwritingDesktop?.openBookDir(ws.bookName)
 }
 
+// R64-4（十二轮）：配置加载代守卫（R63-3 只修了兄弟组件 SettingsBookAnalysis）——本组件
+// 的 titleBaseline 同样会被在途旧响应污染：A 书在途 getConfig 迟到落地 B 书面板后，
+// 书名框显示 A 书标题并污染改名基线（对齐 SettingsBookAnalysis 的 loadGen + 双复检口径）
+let loadGen = 0
+
 watch(
   () => [ui.settingsOpen, ws.bookName] as const,
   async ([open, name]) => {
     if (!open) return
+    const gen = ++loadGen
     // 无书打开：整页空态（banner/书名/覆盖组/存储全部隐藏），基线复位
     if (!name) {
       bookTitle.value = ''
@@ -46,6 +52,7 @@ watch(
     }
     try {
       const cfg = await getConfig(name)
+      if (gen !== loadGen || ws.bookName !== name) return // R64-4 双复检：代 + 书名
       bookTitle.value = cfg.book?.title ?? ''
       titleBaseline.value = bookTitle.value
     } catch {

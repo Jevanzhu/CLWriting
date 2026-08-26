@@ -67,16 +67,17 @@ describe('migrateBookSession', () => {
     expect(existsSync(join(ud, 'clwriting', 'session', bookHash('/books/b') + '.db'))).toBe(false)
   })
 
-  it('旧库缓存连接未关闭时也能强制迁移（引用计数被清零）', () => {
+  it('连接收口后迁移（R64-8：在途引用不再强迁，引用计数被清零后放行）', () => {
     const ud = tmpRoot()
     const oldRoot = '/books/甲'
     const newRoot = '/books/乙'
-    // 不 close：模拟仍有引用在手的场景
     const store = openSessionStore(ud, oldRoot)!
     const sid = store.createSession('甲')
     store.appendEvents(sid, [{ type: 'user/message', data: { message: 'x' }, surfaceOp: 'append' }])
+    // R64-8（十二轮）：refs>0 一律拦截（refs==1 的首个调用方同样是活跃持有者）——收口后再迁
+    store.close()
 
-    migrateBookSession(ud, oldRoot, newRoot, '甲', '乙')
+    expect(migrateBookSession(ud, oldRoot, newRoot, '甲', '乙')).toBe(true)
 
     const migrated = openSessionStore(ud, newRoot)!
     expect(migrated.listEvents('乙').length).toBeGreaterThan(0)
@@ -97,6 +98,8 @@ describe('migrateBookSession', () => {
     const store = openSessionStore(ud, oldRoot)!
     const sid = store.createSession('锁甲')
     store.appendEvents(sid, [{ type: 'user/message', data: { message: '持锁数据' }, surfaceOp: 'append' }])
+    // R64-8（十二轮）：在途引用（refs>0）不再强迁——先收口，持锁路径才可达 checkpoint
+    store.close()
 
     // 另一连接对源库 BEGIN EXCLUSIVE 持锁（模拟跨进程写方/事务未释放）
     const holder = new DatabaseSync(oldDb)
@@ -137,22 +140,29 @@ describe('migrateBookSession', () => {
     const oldDb = join(ud, 'clwriting', 'session', bookHash(oldRoot) + '.db')
     const newDb = join(ud, 'clwriting', 'session', bookHash(newRoot) + '.db')
 
-    // 连接保持打开（缓存未关）→ DDL+数据全部提交进 -wal，主库文件仍是空库：
-    // 把主库单文件拷走以只读打开验证——连 events 表都不存在，证明唯一数据副本
-    // 在侧车里；迁移若不折叠 WAL 就搬文件（或搬丢侧车），数据即全损
+    // R64-8（十二轮）：单例连接收口（refs>0 不再强迁）——未 checkpoint 写入改由
+    // 旁路裸连接制造：建库写数据 → close（折进主库）→ 裸连接追加新行且不 checkpoint，
+    // 新行唯一副本落 -wal；主库单文件拷走只读打开查不到该行，证明副本确在侧车。
+    // 迁移若不折叠 WAL 就搬文件（或搬丢侧车），该行即全损
     const store = openSessionStore(ud, oldRoot)!
     const sid = store.createSession('折甲')
-    store.appendEvents(sid, [{ type: 'user/message', data: { message: '折叠数据' }, surfaceOp: 'append' }])
+    store.appendEvents(sid, [{ type: 'user/message', data: { message: '种子数据' }, surfaceOp: 'append' }])
+    store.close()
+    const writer = new DatabaseSync(oldDb)
+    writer.prepare(
+      `INSERT INTO events (session_id, type, data, replace_generation, created_at)
+       VALUES (?, 'user/message', ?, 0, ?)`,
+    ).run(sid, JSON.stringify({ message: '折叠数据' }), Date.now())
     const mainOnlyCopy = join(ud, 'main-only-copy.db')
     copyFileSync(oldDb, mainOnlyCopy)
     const ro = new DatabaseSync(mainOnlyCopy, { readOnly: true })
-    const schema = ro.prepare('SELECT COUNT(*) AS n FROM sqlite_master').get() as { n: number }
-    expect(schema.n).toBe(0)
+    const inMain = ro.prepare("SELECT COUNT(*) AS n FROM events WHERE data LIKE '%折叠数据%'").get() as { n: number }
+    expect(inMain.n).toBe(0) // 主库查不到：唯一副本在 -wal
     ro.close()
     rmSync(mainOnlyCopy)
 
-    // 迁移成功：WAL 在搬移前被折叠进主库（无论折叠落在强制关连接的 close
-    // checkpoint 还是显式 TRUNCATE，动手搬文件前必已完成——见 store.ts 5.1-3）
+    // 迁移成功：WAL 在搬移前经显式 TRUNCATE 折叠进主库（见 store.ts 5.1-3）——
+    // writer 仍开着（跨进程忘关的连接），已提交无持锁 → checkpoint 可折叠
     expect(migrateBookSession(ud, oldRoot, newRoot, '折甲', '折乙')).toBe(true)
     // 旧位置整体清空（不留孤儿侧车），新位置数据完整、旧钥匙查不到
     expect(existsSync(oldDb)).toBe(false)
@@ -160,9 +170,11 @@ describe('migrateBookSession', () => {
     expect(existsSync(oldDb + '-shm')).toBe(false)
     expect(existsSync(newDb)).toBe(true)
     const migrated = openSessionStore(ud, newRoot)!
-    expect(migrated.listEvents('折乙').map((e) => e.type)).toContain('user/message')
+    // 折叠数据（-wal 唯一副本的那行）在新位置可读
+    expect(migrated.listEvents('折乙').some((e) => (e.data as { message?: string }).message === '折叠数据')).toBe(true)
     expect(migrated.listEvents('折甲')).toEqual([])
     migrated.close()
+    writer.close()
   })
 
   it('第十轮 M-1 回归：未关连接的强制迁移必须真关+清缓存，旧路径重开拿到全新空库而非别名已迁走库的僵尸句柄', () => {
@@ -172,13 +184,13 @@ describe('migrateBookSession', () => {
     const oldDb = join(ud, 'clwriting', 'session', bookHash(oldRoot) + '.db')
     const newDb = join(ud, 'clwriting', 'session', bookHash(newRoot) + '.db')
 
-    // 连接保持打开（缓存条目 refs=1）→ migrate 强制关库路径生效场景。
-    // L-5 守卫缺陷态（refs 置 0 后 close 被 early-return）：条目滞留缓存且
-    // refs=0/closed=false，旧路径重开 openSessionStore 会复用该僵尸条目——
-    // 句柄仍别名已迁走的库，且不落新库文件
+    // R64-8（十二轮）：refs=1 不再强迁（N8+R64-8 判定 refs>0 全拦）——收口后再迁。
+    // L-5/M-1 的「真关+清缓存」语义由正常 close 承接；本例守「迁移后旧路径重开
+    // 必须新建空库，不得经任何残留缓存条目读到已迁走数据」
     const store = openSessionStore(ud, oldRoot)!
     const sid = store.createSession('僵甲')
     store.appendEvents(sid, [{ type: 'user/message', data: { message: '僵尸数据' }, surfaceOp: 'append' }])
+    store.close()
 
     expect(migrateBookSession(ud, oldRoot, newRoot, '僵甲', '僵乙')).toBe(true)
     expect(existsSync(oldDb)).toBe(false)

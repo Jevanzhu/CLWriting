@@ -9,10 +9,10 @@
  * 「类型」以 fm 为真相源（文件即真相）；目录仅组织，扫描时作 fm 缺失的兜底。
  */
 
-import { readdirSync, statSync, mkdirSync, existsSync } from 'node:fs'
+import { readdirSync, statSync, mkdirSync, existsSync, openSync, writeFileSync, closeSync } from 'node:fs'
 import { join } from 'node:path'
 import { sanitizeChapterTitle } from './filename.js'
-import { readFile, writeFile, parseFlat, stringifyFlat } from './frontmatter.js'
+import { readFile, writeFile, parseFlat, stringifyFlat, joinFrontMatter } from './frontmatter.js'
 import { parseSampleFileName } from './style.js'
 import type { StyleEntry, EntryKind, EntrySource, ParseError } from './types.js'
 
@@ -168,15 +168,39 @@ export function nextEntrySeq(entriesDir: string, kind: EntryKind, scene: string)
  */
 export function addEntry(bookRoot: string, e: StyleEntry): string {
   const entriesDir = join(bookRoot, ENTRIES_DIR)
-  const seq = nextEntrySeq(entriesDir, e.类型, e.场景)
   // 场景字段净化：Y-27（第五十七轮）改走 sanitizeChapterTitle 单源（控制字符/非法名
   // + 码位 60/字节 120 双封顶）——此前仅替换路径分隔符，AI 或 fm 提供的超长场景名
   // ENAMETOOLONG 抛穿入库
-  const fileName = `${sanitizeChapterTitle(e.场景)}-${String(seq).padStart(3, '0')}.md`
+  const scene = sanitizeChapterTitle(e.场景)
   const dir = join(entriesDir, e.类型)
   mkdirSync(dir, { recursive: true })
-  writeEntry(join(dir, fileName), e)
-  return `${ENTRIES_DIR}/${e.类型}/${fileName}`
+  // R64-14（十二轮）：nextEntrySeq 扫盘与写入之间无互斥——跨进程并发取同序号后，
+  // writeEntry 的 atomic-rename 语义会静默覆盖同名文件（丢一条）。改 O_EXCL（'wx'）
+  // 排他建文件：EEXIST → 序号 +1 重试；写侧绕开 atomic rename 正是为保排他语义
+  //（创建型写入，无旧内容可失）。上限 32 次防病态环。
+  const text = joinFrontMatter(stringifyFlat(entryToMap(e)), e.正文)
+  let seq = nextEntrySeq(entriesDir, e.类型, e.场景)
+  for (let attempt = 0; attempt < 32; attempt++) {
+    const fileName = `${scene}-${String(seq).padStart(3, '0')}.md`
+    const filePath = join(dir, fileName)
+    let fd: number
+    try {
+      fd = openSync(filePath, 'wx')
+    } catch (en) {
+      if ((en as NodeJS.ErrnoException).code === 'EEXIST') {
+        seq++
+        continue
+      }
+      throw en
+    }
+    try {
+      writeFileSync(fd, text)
+    } finally {
+      closeSync(fd)
+    }
+    return `${ENTRIES_DIR}/${e.类型}/${fileName}`
+  }
+  throw new Error(`条目入库失败：场景「${e.场景}」连续 32 次序号撞名`)
 }
 
 /**

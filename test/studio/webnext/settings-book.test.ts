@@ -155,3 +155,37 @@ describe('SettingsBook 单页结构（IA 重组）', () => {
     expect(wrapper.text()).toContain('请先打开一本书')
   })
 })
+
+describe('R64-4（十二轮）：书名基线加载代守卫（R63-3 同款，本组件漏点收口）', () => {
+  it('甲书在途 getConfig 迟到、期间已切乙书 → 书名/基线不回填', async () => {
+    const ui = useUiStore()
+    const ws = useWorkspaceStore()
+    ui.settingsOpen = true
+    ws.bookName = '甲书'
+    let resolveA!: (c: BookConfig) => void
+    let first = true
+    mocks.getConfig.mockImplementation(() => {
+      if (first) {
+        first = false
+        return new Promise<BookConfig>((r) => {
+          resolveA = r
+        })
+      }
+      return Promise.resolve({ kind: 'long', book: { title: '乙书' } } satisfies BookConfig)
+    })
+    const wrapper = mount(SettingsBook, {
+      global: {
+        provide: { [SAVE_CONFIG_KEY as symbol]: mocks.saveConfig },
+        stubs: { SettingsBookWriting: true, SettingsBookAnalysis: true, SettingsBookRetention: true },
+      },
+    })
+    await flushPromises() // 甲书在途
+    ws.bookName = '乙书'
+    await flushPromises() // 乙书已回填
+    resolveA({ kind: 'long', book: { title: '甲书' } } satisfies BookConfig) // 甲书迟到
+    await flushPromises()
+    // 修复前：甲书标题迟到落地 → 书名框显示「甲书」且 titleBaseline 被污染（后续改名误判）
+    expect((wrapper.find('input[aria-label="书名"]').element as HTMLInputElement).value).toBe('乙书')
+    wrapper.unmount()
+  })
+})

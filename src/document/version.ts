@@ -22,7 +22,7 @@ import { join } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { safeDocId } from '../fs/safe-path.js'
 import { ulid, decodeUlidTime } from './stable-id.js'
-import { readFile, parseFlat, splitFrontMatter } from '../format/frontmatter.js'
+import { readFile, parseFlat, splitFrontMatter, stringifyValue } from '../format/frontmatter.js'
 import type { Revision } from './revision.js'
 import { log } from '../log/index.js'
 
@@ -199,7 +199,7 @@ export function writeVersion(
   const id = ulid()
   const ts = new Date().toISOString()
   const front: string[] = ['---', `版本ID: ${id}`, `时间: ${ts}`, `来源: ${meta.origin}`]
-  if (meta.reason) front.push(`原因: ${meta.reason}`)
+  if (meta.reason) front.push(`原因: ${stringifyValue(sanitizeFmLine(meta.reason))}`)
   if (meta.baseRevision) front.push(`基线: ${meta.baseRevision}`)
   if (meta.words !== undefined) front.push(`字数: ${meta.words}`)
   if (meta.pinned) front.push('永久: true')
@@ -211,6 +211,14 @@ export function writeVersion(
   setVersionCache(cacheKey, { id, fp })
   pruneVersions(versionsDir, docId, policy)
   return id
+}
+
+/** R64-12（十二轮）：fm 值单行化消毒——reason 含章节标题，标题带换行时直拼会把后续
+ *  行伪装成 front matter 键值行，版本元数据失真（readVersionMeta 可能 null → 该版本从
+ *  AI 轨迹消失）。控制字符折空格收一行；` # `/引号由 stringifyValue 按需引号化兜住
+ *  （与解析端 unquote 对称）。 */
+function sanitizeFmLine(s: string): string {
+  return s.replace(/[\r\n\t]+/g, ' ').trim()
 }
 
 /** 列某文档的版本（按 id 降序，新的在前；id 是 ULID 时间排序）。 */

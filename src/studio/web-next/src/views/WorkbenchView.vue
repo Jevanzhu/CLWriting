@@ -32,6 +32,7 @@ import WbDraftCard from '../components/workbench/WbDraftCard.vue'
 import WbUsageCard from '../components/workbench/WbUsageCard.vue'
 import { friendlyError } from '../shared/error'
 import { isImeComposing } from '../shared/ime'
+import { countWords } from '../shared/words' // R64-33：草稿字数与编辑器头/草稿卡同源
 
 const props = defineProps<{ bookName: string }>()
 const wb = useWorkbenchStore()
@@ -250,7 +251,7 @@ async function onSaveDraft(): Promise<void> {
     // 在途切书时 watch(bookName) 已清残留，晚到的赋值又把 A 书「已存 N 字」徽标
     // 留在 B 书工作台（L-F1 同点收尾）
     if (props.bookName !== book) return // 已切书：草稿已落 A 书盘，不再动 B 界面
-    draftSaved.value = { words: wb.textOut.length }
+    draftSaved.value = { words: countWords(wb.textOut) } // R64-33：与草稿卡同源口径
     // 树重拉后新草稿在「写作」组；openTab 切编辑器视图 + 激活文档
     await tree.load(book)
     ws.openTab(r.docId)

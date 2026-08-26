@@ -12,7 +12,7 @@
  */
 
 import { readdirSync, statSync, mkdirSync, rmSync, existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, basename } from 'node:path'
 import { readFile, writeFile, parseFlat, stringifyFlat } from './frontmatter.js'
 import { addEntry, readEntries, ENTRIES_DIR } from './style-entry.js'
 import { ulid } from '../fs/id.js'
@@ -187,7 +187,16 @@ export function confirmCandidate(bookRoot: string, candidateRelPath: string): st
     ...(c.标签 && c.标签.length > 0 ? { 标签: c.标签 } : {}),
     正文: c.正文,
   }
-  const entryPath = addEntry(bookRoot, entry)
+  // R64-15（十二轮）：内容级去重——addEntry 与 rmSync(候选) 非原子，窗口内崩溃重试
+  // 会再入一条（序号不同即文件名不同，此前无内容判重）。同类型同场景同正文已存在 →
+  // 复用既有条目路径（候选照删，幂等重试安全）。
+  const dup = readEntries(join(bookRoot, ENTRIES_DIR), c.类型).entries.find(
+    (x) => x.场景 === entry.场景 && x.正文 === entry.正文,
+  )
+  const entryPath =
+    dup?._path !== undefined
+      ? `${ENTRIES_DIR}/${c.类型}/${basename(dup._path)}`
+      : addEntry(bookRoot, entry)
   rmSync(fp, { force: true })
   return entryPath
 }

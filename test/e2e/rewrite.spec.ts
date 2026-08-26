@@ -88,7 +88,7 @@ test('改写：选章 → 审阅 tab → 改写整章 → diff → 接受 → �
   await expect(cm).toContainText('mock 改写后的正文文本')
 
   // ⌘S 保存 → 落盘
-  await page.keyboard.press('Meta+s')
+  await page.keyboard.press('ControlOrMeta+s') // R64-35（十二轮）：跨平台——非 mac 上 Meta+s 静默不触发（假红）
   await expect(page.locator('.save-group .save-btn')).toContainText('已保存', { timeout: 5_000 })
 
   // 重载验证持久（patch→⌘S 已落盘，重选章正文仍是 mock 产出）

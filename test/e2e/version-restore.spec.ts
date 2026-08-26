@@ -31,7 +31,7 @@ test('版本恢复：改稿保存 → 历史面板 → 恢复旧版 → 内容�
   // 追加内容 + ⌘S 保存 → 编辑区出现新句
   await cm.click()
   await page.keyboard.type('e2e版本恢复测试字串')
-  await page.keyboard.press('Meta+s')
+  await page.keyboard.press('ControlOrMeta+s') // R64-35（十二轮）：跨平台——非 mac 上 Meta+s 静默不触发（假红）
   await expect(page.locator('.save-group .save-btn')).toContainText('已保存', { timeout: 5_000 })
   await expect(cm).toContainText('e2e版本恢复测试字串')
 

@@ -117,6 +117,10 @@ export function repairOrphanSessions(db: DatabaseSync, skip: ReadonlySet<string>
   );
   // O-7（第十三轮）：补 end 后同步 touch sessions.updated_at——否则孤儿会话仍以旧
   // updated_at 被 latestSession 选中恢复（补了 end 却还被视为最新活跃会话）。
+  // R64-9（十二轮）：touch 与补 end 解耦——touch 用会话真实 last_at 而非修复时刻：
+  // 另一进程挂机超宽限的活跃会话被补 end 后，touch=now 会把「修复时刻」冒充「最后
+  // 活动时刻」（审计流时序矛盾 + 恢复排序失真）；last_at 让 updated_at 始终反映
+  // 真实活动，该会话后续真实写入自会再刷。
   const touch = db.prepare('UPDATE sessions SET updated_at = ? WHERE session_id = ?')
   const now = Date.now()
   let attempted = 0
@@ -133,7 +137,7 @@ export function repairOrphanSessions(db: DatabaseSync, skip: ReadonlySet<string>
       db.exec('BEGIN')
       try {
         ins.run(o.session_id, JSON.stringify({ reason: 'interrupted' }), now)
-        touch.run(now, o.session_id)
+        touch.run(o.last_at, o.session_id) // R64-9：真实 last_at（上方头注）
         db.exec('COMMIT')
       } catch (err) {
         // R61-10（第六十一轮）：C4 同款加固——裸 ROLLBACK 在事务已自动回亡时抛
@@ -561,15 +565,17 @@ export function migrateBookSession(
     //    拿到别名已迁走库的句柄，写入分裂到旧路径 -wal）；置 1 走正常递减路径，
     //    真关语义不变
     //    N8（五十九轮）：强制关库前断言无在途引用——「先中止会话」此前只是头注里的
-    //    调用方纪律，无程序性保障；refs>1 = 仍有 openSessionStore 未 close 的使用方
+    //    调用方纪律，无程序性保障；refs>0 = 仍有 openSessionStore 未 close 的使用方
     //    （在途对话/自愈/链路记录），此刻强关会把它们的后续写入打到已关句柄上。给
     //    可读错误并放弃迁移（false，源库原地完整可重试），让调用方先收口再迁。
+    //    R64-8（十二轮）：判定从 refs>1 收紧为 refs>0——refs==1（首个在途调用方）
+    //    同样是活跃持有者，此前会被当「无引用」强关，且错误文案少算一个。
     const entry = openStores.get(oldDb)
     if (entry && !entry.closed) {
-      if (entry.refs > 1) {
+      if (entry.refs > 0) {
         log.error(
           'events',
-          `事件库迁移中止：旧库仍有 ${entry.refs - 1} 个在途引用（${oldDb}）——请先中止该书在途对话/自愈并释放连接后重试`,
+          `事件库迁移中止：旧库仍有 ${entry.refs} 个在途引用（${oldDb}）——请先中止该书在途对话/自愈并释放连接后重试`,
         )
         return false
       }

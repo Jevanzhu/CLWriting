@@ -92,3 +92,32 @@ describe('createSseWriter / P-8 写背压判死', () => {
     expect(res.destroyCount).toBe(0)
   })
 })
+
+describe('createSseWriter / R64-26 连续滞留次数判死（仅心跳存活的假死连接）', () => {
+  it('小包连续 false 超过 stuckLimit → destroy（字节闸需 ~25 天累计，次数闸 2 小时兜位）', () => {
+    const res = fakeRes(false)
+    const w = createSseWriter(res, 1_000_000, 240)
+    for (let i = 0; i < 240; i++) w(': heartbeat\n\n') // 240 次：不过阈
+    expect(res.destroyCount).toBe(0)
+    w(': heartbeat\n\n') // 第 241 次
+    expect(res.destroyCount).toBe(1)
+    expect(res.destroyed).toBe(true)
+  })
+
+  it('drain 复位次数：假死解除后重新计数', () => {
+    const res = fakeRes(false)
+    const w = createSseWriter(res, 1_000_000, 5)
+    for (let i = 0; i < 5; i++) w('x')
+    expect(res.destroyCount).toBe(0) // 5 不超阈
+    res.listeners.get('drain')!()
+    for (let i = 0; i < 5; i++) w('x') // 复位后再 5 次：仍不过阈
+    expect(res.destroyCount).toBe(0)
+  })
+
+  it('成功写复位次数（字节与次数双闸独立）', () => {
+    const res = fakeRes(true)
+    const w = createSseWriter(res, 1_000_000, 3)
+    for (let i = 0; i < 100; i++) w('x')
+    expect(res.destroyCount).toBe(0)
+  })
+})

@@ -65,9 +65,14 @@ describe('P3 repairOrphanSessions 单会话失败不中断', () => {
       expect(() => repairOrphanSessions(db, new Set())).not.toThrow()
       expect(endCount(db, 's-good')).toBe(1)
       expect(endCount(db, 's-bad')).toBe(0)
-      // O-7：补 end 同步 touch updated_at
+      // O-7 + R64-9（十二轮）：补 end 落修复时刻（> OLD），touch 则用会话真实
+      // last_at（= OLD）——两者解耦，updated_at 不冒充「修复时刻」为「活动时刻」
       const row = db.prepare(`SELECT updated_at FROM sessions WHERE session_id = 's-good'`).get() as { updated_at: number }
-      expect(row.updated_at).toBeGreaterThan(OLD)
+      expect(row.updated_at).toBe(OLD)
+      const endRow = db.prepare(
+        `SELECT created_at FROM events WHERE session_id = 's-good' AND type = 'session/end'`,
+      ).get() as { created_at: number }
+      expect(endRow.created_at).toBeGreaterThan(OLD)
     } finally {
       db.close()
     }

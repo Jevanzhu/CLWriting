@@ -9,7 +9,7 @@
 import { existsSync, readdirSync, renameSync, rmdirSync, readFileSync, mkdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { resolveDraftPath } from '../format/draft.js'
-import { readManifest, writeManifest } from '../document/manifest.js'
+import { readManifest, writeManifest, withManifestLock } from '../document/manifest.js'
 import { appendTrashEntry } from '../document/trash.js'
 import { ulid } from '../fs/id.js'
 import { roleOf } from '../document/layout.js'
@@ -108,15 +108,19 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
   }
 
   // 更新文档清单路径（path 变更 → 重建 entries Map，key 不变只改 entry.path）
+  // R64-23（十二轮）：RMW 持 withManifestLock（Y-4/X-5 纪律）——防迁移期与 service/
+  // 其他迁移并发互覆盖丢 entry
   if (pathRemap.size > 0) {
     try {
       const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
-      const manifest = readManifest(manifestPath)
-      for (const entry of manifest.entries.values()) {
-        const newPath = pathRemap.get(entry.path)
-        if (newPath) entry.path = newPath
-      }
-      writeManifest(manifestPath, manifest)
+      withManifestLock(manifestPath, () => {
+        const manifest = readManifest(manifestPath)
+        for (const entry of manifest.entries.values()) {
+          const newPath = pathRemap.get(entry.path)
+          if (newPath) entry.path = newPath
+        }
+        writeManifest(manifestPath, manifest)
+      })
     } catch (e) {
       errors.push(`manifest 更新失败: ${e instanceof Error ? e.message : String(e)}`)
     }

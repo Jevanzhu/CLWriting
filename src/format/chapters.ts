@@ -71,7 +71,12 @@ export function readChapter(
   }
   if (map.has('时间锚点')) chapter.时间锚点 = String(map.get('时间锚点'))
   if (map.has('场景')) chapter.场景 = map.get('场景') as SceneType
-  if (map.has('字数目标')) chapter.字数目标 = Number(map.get('字数目标'))
+  if (map.has('字数目标')) {
+    // R64-19（十二轮）：Number() 无守卫——手写「三千」→ NaN 落进元数据，区间比较
+    // 恒 false 逐步污染预算/统计。非有限数按「未写」处理，走默认回落链。
+    const target = Number(map.get('字数目标'))
+    if (Number.isFinite(target)) chapter.字数目标 = target
+  }
   if (map.has('目标情绪')) chapter.目标情绪 = String(map.get('目标情绪'))
   if (map.has('核心反转')) chapter.核心反转 = String(map.get('核心反转'))
 

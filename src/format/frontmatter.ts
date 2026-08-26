@@ -104,7 +104,9 @@ function unquote(s: string): string {
   }
   // B-16：单引号分支同守卫（同一字符命中 startsWith/endsWith 同一陷阱）
   if (s.length >= 2 && s.startsWith("'") && s.endsWith("'")) {
-    return s.slice(1, -1)
+    // R64-18（十二轮）：还原 '' 转义——YAML 单引号风格以 '' 表示字面单引号，
+    // 此前只剥两端，`'it''s'` 读回 `it''s`，系统回写后字面漂移
+    return s.slice(1, -1).replace(/''/g, "'")
   }
   return s
 }

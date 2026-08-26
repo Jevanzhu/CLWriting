@@ -617,8 +617,11 @@ function registerIpc(): void {
   })
   // ── 原生右键菜单 ──
   ipcMain.on('desktop:context-menu', (event, specs: unknown) => {
+    // R64-29（十二轮）：补 isDestroyed——fromWebContents 命中与 menu.popup 之间存在
+    // 微窗口，窗口关闭后 popup 同步抛「Object has been destroyed」（对齐 663-664 行
+    // set-fullscreen 守卫）
     const win = BrowserWindow.fromWebContents(event.sender)
-    if (!win) return
+    if (!win || win.isDestroyed()) return
     // RB-SV-P2-5：载荷形状校验前置——非数组/无合法项整体忽略（弹不了菜单但不崩主进程）
     const items = parseContextMenuSpecs(specs)
     if (!items || items.length === 0) return

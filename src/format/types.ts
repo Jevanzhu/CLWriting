@@ -50,8 +50,8 @@ export interface Lead {
   欠方?: string // 关系线（#3 第 6.3 节）
   债主?: string // 关系线
 
-  // 容错：未知字段原样保留（#3 第 8 节）
-  _raw?: Record<string, string>
+  // 容错：未知字段原样保留（#3 第 8 节；R64-17 十二轮：数组型按 string[] 原样承载）
+  _raw?: Record<string, string | string[]>
   /** 履历段前的人工说明正文（如人物/设定简介），回写时保留 */
   _bodyBeforeHistory?: string
   /** 履历段之后的人工正文（备注/关联线索等，dd-P2：回写时保留——此前被静默删除） */

@@ -14,6 +14,7 @@ import type {
   GenErrorCode,
 } from './provider/types.js'
 import { quirksFor, responsesQuirksFor } from './provider/model-quirks.js'
+import { log } from '../log/index.js'
 
 /** 生成错误（A5：结构化字段与 GenEvent.error 对齐；code 供 failureAction 决策表分流） */
 export class GenError extends Error {
@@ -260,6 +261,11 @@ export async function generateTool(
   }
   const r = await generate(provider, effective, signal, onText)
   const tool = r.toolCalls[0]
+  // R64-5（十二轮）：AA-P3-1「丢弃必须可感知」——本路径只取首个 tool_use，第 2+ 个
+  // 的 input 此前静默丢弃无留痕。chat agent 轮循环不受影响（走 toolCalls 全量）。
+  if (r.toolCalls.length > 1) {
+    log.warn('gen', `generateTool 收到 ${r.toolCalls.length} 个 tool_use，仅采用首个（${tool?.name ?? 'unnamed'}），其余 ${r.toolCalls.length - 1} 个已丢弃`)
+  }
   // P1-3：输出撞顶且无 tool_use → JSON 被截断；抛明确错误而非静默降级到 text
   if (!tool && r.stopReason === 'max_tokens') {
     // R61-6（第六十一轮）：同 generateText——截断调用 usage 随错误上抛记账

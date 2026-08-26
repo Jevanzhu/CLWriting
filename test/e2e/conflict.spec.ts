@@ -49,7 +49,7 @@ async function provokeConflict(page: import('@playwright/test').Page, chapter: s
   const cm = page.locator('.cm-content')
   await cm.click()
   await page.keyboard.type('本地改动')
-  await page.keyboard.press('Meta+s')
+  await page.keyboard.press('ControlOrMeta+s') // R64-35（十二轮）：跨平台——非 mac 上 Meta+s 静默不触发（假红）
   await expect(page.locator('.conflict-btn').first()).toBeVisible({ timeout: 5_000 })
 }
 

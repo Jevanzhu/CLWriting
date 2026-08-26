@@ -77,6 +77,12 @@ export function __getSseConnections(): ReadonlyMap<string, number> {
  *  数十条章节级事件；受 MAX_SSE_PER_BOOK 与事件量约束，正常客户端远达不到）。 */
 export const SSE_BACKPRESSURE_LIMIT = 1_000_000
 
+/** R64-26（十二轮）：连续滞留写判死阈值——write() 连续返回 false 的次数（drain/成功
+ * 写复位）。字节闸对「仅心跳存活」的假死连接几乎失效（心跳 ~14B/30s，1MB 需约 25
+ * 天累计）；次数闸补位：240 次 × 30s = 2 小时无一次 drain 即判死。数据突发场景由
+ * 字节闸先行（1MB 远早于 240 次到达），本闸只兜心跳型假死。 */
+export const SSE_STUCK_WRITES_LIMIT = 240
+
 /** P-8：背压守卫所需的 res 最小面（结构化收窄——不用 Pick<ServerResponse,...>，
  *  真实 ServerResponse.on 返回 this，假 res/单测桩返回 void 无法满足该签名）。 */
 interface SseWritable {
@@ -94,18 +100,27 @@ interface SseWritable {
  * - 累计超 limit 判死 res.destroy()——假死连接不再让服务端内存无界缓冲（走既有
  *   close 清理链：channel 计数 / 心跳清理 / iter.return）。导出供单测注入假 res。
  */
-export function createSseWriter(res: SseWritable, limit: number = SSE_BACKPRESSURE_LIMIT): (chunk: string) => void {
+export function createSseWriter(
+  res: SseWritable,
+  limit: number = SSE_BACKPRESSURE_LIMIT,
+  stuckLimit: number = SSE_STUCK_WRITES_LIMIT,
+): (chunk: string) => void {
   let pendingBytes = 0
+  let stuckWrites = 0
   res.on('drain', () => {
     pendingBytes = 0
+    stuckWrites = 0
   })
   return (chunk: string): void => {
     if (res.writableEnded || res.destroyed) return
     if (res.write(chunk) === false) {
       pendingBytes += chunk.length
-      if (pendingBytes > limit) res.destroy()
+      stuckWrites += 1
+      // R64-26（十二轮）：字节闸 + 连续次数双判死——次数闸兜「仅心跳存活」的假死连接
+      if (pendingBytes > limit || stuckWrites > stuckLimit) res.destroy()
     } else {
       pendingBytes = 0
+      stuckWrites = 0
     }
   }
 }
@@ -209,24 +224,6 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     method: 'GET',
     path: '/api/books/:name/stream',
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
-    // P2-2：per-book 连接数限制（S2：按句柄集合实际存活数判定）
-    const sseName = params['name']!
-    const conns = sseConnections.get(sseName)?.size ?? 0
-    if (conns >= MAX_SSE_PER_BOOK) {
-      // hh §八-12：SSE 错误路径也走统一 JSON 信封（原裸文本 'too many connections'）——
-      // EventSource API 不暴露 body 不受影响，curl/测试可见 code 机器码
-      replyError(res, 429, 'BUSY', '本书 SSE 连接数已达上限，请关闭多余的标签页/窗口')
-      return
-    }
-    if (!ctx.workDir) {
-      replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
-      return
-    }
-    const bookR = resolveBook(ctx.workDir, params['name'])
-    if ('error' in bookR) {
-      replyError(res, bookR.status, bookR.code, bookR.error)
-      return
-    }
     // GET 端点 token 校验：EventSource 不走 isWrite 拦截，单独校 query token。
     // ee-P2-12 口径修正（2026-08-17 拍板）：本机进程=同信任域——本地进程 GET /boot 即可拿
     // token，此处不承诺防本机进程；token 的实际作用是把 SSE 可订阅面收敛到拿到 boot 的
@@ -244,8 +241,29 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     // 通道（e2e 及未升级客户端），两凭据任一过闸即放行。
     const queryTicket = url.searchParams.get('ticket') ?? undefined
     const queryToken = url.searchParams.get('token') ?? undefined
+    // R64-27（十二轮）：鉴权前移到全部书域判定（连接数闸 429 / resolveBook 404）之前
+    // ——原顺序让未持凭据者借差异响应探测书名存在性。攻击面窄（Host 闸 + 本机同
+    // 信任域），统一 403 消除信道零成本。
     if (!consumeStreamTicket(queryTicket) && !safeTokenCompare(queryToken, ctx.studioToken)) {
       replyError(res, 403, 'FORBIDDEN', 'forbidden')
+      return
+    }
+    // P2-2：per-book 连接数限制（S2：按句柄集合实际存活数判定）
+    const sseName = params['name']!
+    const conns = sseConnections.get(sseName)?.size ?? 0
+    if (conns >= MAX_SSE_PER_BOOK) {
+      // hh §八-12：SSE 错误路径也走统一 JSON 信封（原裸文本 'too many connections'）——
+      // EventSource API 不暴露 body 不受影响，curl/测试可见 code 机器码
+      replyError(res, 429, 'BUSY', '本书 SSE 连接数已达上限，请关闭多余的标签页/窗口')
+      return
+    }
+    if (!ctx.workDir) {
+      replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
+      return
+    }
+    const bookR = resolveBook(ctx.workDir, params['name'])
+    if ('error' in bookR) {
+      replyError(res, bookR.status, bookR.code, bookR.error)
       return
     }
     // 校验通过后才登记连接句柄（P1-1：防 early return 路径泄漏计数器致 DoS；

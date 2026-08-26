@@ -14,6 +14,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { existsSync, readdirSync, readFileSync, mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { runAllChecks } from '../../src/check/runner.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import type { ChapterMeta } from '../../src/format/types.js'
@@ -43,7 +44,9 @@ export function loadCorpusFrom(dir: string): Map<string, CorpusEntry[]> {
   return out
 }
 
-const CORPUS_DIR = join('test', 'corpus', 'checks')
+// R64-42（十二轮）：cwd 相对路径改 import.meta.url 解析根——非仓库根 cwd 直接跑
+// 时 existsSync false → 语料回归门整组静默跳过（不红）。R62-58 同款修法。
+const CORPUS_DIR = join(fileURLToPath(new URL('.', import.meta.url)), '..', 'corpus', 'checks')
 
 /** 最小无布线书（通用检查器确定性运行；checkId 相关输入走内置默认） */
 let bookRoot = ''

@@ -138,3 +138,30 @@ describe('stream-ticket 端点', () => {
     expect(await openStream(`?ticket=${encodeURIComponent(expired)}`)).toBe(403)
   })
 })
+
+describe('R64-27（十二轮）：SSE 鉴权前移——403 与书名存在性无关', () => {
+  it('无凭据：登记书与未登记书同回 403（原 resolveBook 先行 404 可差异探测书名）', async () => {
+    expect(await openStream('')).toBe(403) // 登记在册书
+    // 未登记书：修复前 resolveBook 先回 404，与 403 形成存在性信道
+    const u = new URL(baseUrl)
+    const status = await new Promise<number>((resolve) => {
+      const r = http.request(
+        {
+          host: u.hostname,
+          port: u.port,
+          path: `/api/books/${encodeURIComponent('不存在的书')}/stream`,
+          method: 'GET',
+          headers: { accept: 'text/event-stream' },
+        },
+        (res) => {
+          const st = res.statusCode ?? 0
+          res.destroy()
+          resolve(st)
+        },
+      )
+      r.on('error', () => resolve(0))
+      r.end()
+    })
+    expect(status).toBe(403)
+  })
+})

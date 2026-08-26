@@ -28,7 +28,20 @@ test.beforeAll(async () => {
   workDir = makeDualTrackWorkdir()
   userDataPath = mkdtempSync(join(tmpdir(), 'clwriting-e2e-provider-ud-'))
   server = startServer({ port: PORT, workDir, userDataPath, staticDir: join(process.cwd(), 'dist', 'web') })
-  await new Promise<void>((resolve) => server.once('listening', () => resolve()))
+  await new Promise<void>((resolve, reject) => {
+    server.once('listening', () => resolve())
+    // R64-40（十二轮）：固定端口被占给指因人话提示（X-36③ global-setup 同款——
+    // 环境争用时裸 EADDRINUSE 栈难排查）
+    server.once('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EADDRINUSE') {
+        console.error(
+          `[e2e ai-provider] 端口 ${PORT} 已被占用——通常是上一次 e2e 未退干净或本地 dev 服务抢占。\n` +
+            `排查：lsof -i :${PORT} 查占用进程并 kill 后重跑。`,
+        )
+      }
+      reject(err)
+    })
+  })
 })
 
 test.afterAll(async () => {

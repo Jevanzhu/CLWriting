@@ -239,7 +239,11 @@ export function getIndexedChapterNumbers(db: DatabaseSync): number[] {
  * 纯 JS 余弦相似度（#37 第 5 节，不引向量库）。
  * cos = dot(a,b) / (||a|| * ||b||)
  */
-export function cosineSimilarity(a: Float32Array, b: Float32Array): number {
+export function cosineSimilarity(
+  a: Float32Array,
+  b: Float32Array,
+  precomputed?: { normA?: number; normB?: number },
+): number {
   if (a.length !== b.length) return 0
   // P3-14：长度已判等，Math.min 冗余
   const len = a.length
@@ -251,6 +255,10 @@ export function cosineSimilarity(a: Float32Array, b: Float32Array): number {
     normA += a[i]! * a[i]!
     normB += b[i]! * b[i]!
   }
-  const denom = Math.sqrt(normA) * Math.sqrt(normB)
+  // R64-45（十二轮）：召回侧（index.ts）此前内联同逻辑且按块缓存范数——合流单源。
+  // precomputed 传**最终 L2 范数**（l2Norm 口径，已开方）；缺省现算，语义与全量余弦一致。
+  const na = precomputed?.normA ?? Math.sqrt(normA)
+  const nb = precomputed?.normB ?? Math.sqrt(normB)
+  const denom = na * nb
   return denom === 0 ? 0 : dot / denom
 }

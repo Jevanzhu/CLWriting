@@ -182,3 +182,33 @@ describe('RB-SV-P2-4 boot 回传 initialBook', () => {
     expect(reset.json['initialBook']).toBeUndefined()
   })
 })
+
+describe('R64-30（十二轮）：initialBook 生命周期随 server close 复位（无跨实例残留）', () => {
+  it('实例1 set → boot 回传；close 后实例2（未 set）→ boot initialBook 空', async () => {
+    const workDir2 = mkdtempSync(join(tmpdir(), 'clwriting-r64-30-'))
+    mkdirSync(join(workDir2, '.clwriting'), { recursive: true })
+    writeFileSync(
+      join(workDir2, '.clwriting', 'books.jsonl'),
+      JSON.stringify({ name: '书A', path: '书A', kind: 'long' }) + '\n',
+    )
+    const boot = async (base: string): Promise<{ initialBook?: string }> =>
+      ((await (await fetch(`${base}/api/boot`)).json()) as { initialBook?: string })
+    try {
+      setInitialBook('书A')
+      const s1 = startServer({ port: 0, workDir: workDir2 })
+      await new Promise<void>((r) => s1.once('listening', r))
+      const b1 = await boot(`http://127.0.0.1:${(s1.address() as import('node:net').AddressInfo).port}`)
+      expect(b1.initialBook).toBe('书A')
+      await new Promise<void>((r) => s1.close(() => r()))
+
+      // 第二次无 --book 启动：close 已复位模块态，不得残留上一实例初始书
+      const s2 = startServer({ port: 0, workDir: workDir2 })
+      await new Promise<void>((r) => s2.once('listening', r))
+      const b2 = await boot(`http://127.0.0.1:${(s2.address() as import('node:net').AddressInfo).port}`)
+      expect(b2.initialBook).toBeUndefined()
+      await new Promise<void>((r) => s2.close(() => r()))
+    } finally {
+      rmSync(workDir2, { recursive: true, force: true })
+    }
+  })
+})

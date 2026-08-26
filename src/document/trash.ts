@@ -13,11 +13,12 @@
  * 路径安全（P1 修复）：originalPath/trashedPath 来自 manifest 文件，须经 safePathWithin 校验，
  * 防 manifest 被篡改后 restore/purge 的 rename/rmSync 越出 bookRoot。
  */
-import { existsSync, readFileSync, renameSync, rmSync, mkdirSync } from 'node:fs'
+import { existsSync, readFileSync, renameSync, rmSync, mkdirSync, linkSync, statSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
-import { resolveWithinRoot } from '../fs/safe-path.js'
+import { resolveWithinRoot, safeDocId } from '../fs/safe-path.js'
 import { readManifest, writeManifest, upsertEntry, withManifestLock, type ManifestEntry } from './manifest.js'
+import { VERSIONS_DIR_NAME } from './version.js'
 import { type DocumentRole } from './layout.js'
 import { invalidateTreeIndex } from './tree.js'
 import { log } from '../log/index.js'
@@ -147,7 +148,34 @@ export function restoreTrash(bookRoot: string, id: string): RestoreResult {
 
   try {
     mkdirSync(dirname(origAbs), { recursive: true })
-    renameSync(trashAbs, origAbs)
+    // R64-21（十二轮）：existsSync→renameSync 的 TOCTOU 窗口内原位被跨进程新建 →
+    // POSIX rename 静默覆盖占位文件（不可逆）。文件改 linkSync 原子探测：EEXIST →
+    // OCCUPIED（link 失败即占用，无窗口）；成功 → 内容已借硬链接落位，再删 .trash
+    // 侧（同一 inode，无复制窗口）。目录不支持硬链接，保留 rename 路径（目录 rename
+    // 对非空目标报 ENOTEMPTY，无静默覆盖面）。
+    let origIsDir = false
+    try {
+      origIsDir = statSync(trashAbs).isDirectory()
+    } catch {
+      return { ok: false, code: 'WRITE_ERROR', reason: '恢复失败：回收站文件已丢失' }
+    }
+    if (origIsDir) {
+      renameSync(trashAbs, origAbs)
+    } else {
+      try {
+        linkSync(trashAbs, origAbs)
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === 'EEXIST') {
+          return {
+            ok: false,
+            code: 'OCCUPIED',
+            reason: `原位 ${entry.originalPath} 已被占用，请先重命名或删除现有文件`,
+          }
+        }
+        throw e
+      }
+      rmSync(trashAbs, { force: true })
+    }
   } catch (e) {
     return { ok: false, code: 'WRITE_ERROR', reason: `恢复失败：${errMsg(e)}` }
   }
@@ -205,6 +233,14 @@ export function purgeTrash(bookRoot: string, id: string): PurgeResult {
     const trashAbs = safePathWithin(bookRoot, entry.trashedPath)
     if (!trashAbs) return { ok: false, code: 'NOT_FOUND', reason: '回收站条目路径非法（越出书仓库）' }
     if (existsSync(trashAbs)) rmSync(trashAbs, { force: true })
+    // R64-13（十二轮）：版本目录连删——purge 语义是「永久删（不可逆）」，此前只删
+    // .trash 文件，工作区/.版本/<docId>/ 快照残留（pinned 定稿版永久保留），内容仍可
+    // 经版本 API 读出，与 UI 的不可逆承诺冲突（隐私残留）。docId 走 safeDocId 同守卫
+    // （与 listVersions 一致，防篡改清单借 purge 删版本目录外文件）。
+    if (safeDocId(entry.id)) {
+      const verDir = safePathWithin(bookRoot, `工作区/${VERSIONS_DIR_NAME}/${entry.id}`)
+      if (verDir && existsSync(verDir)) rmSync(verDir, { recursive: true, force: true })
+    }
   } catch (e) {
     return { ok: false, code: 'WRITE_ERROR', reason: `永久删失败：${errMsg(e)}` }
   }

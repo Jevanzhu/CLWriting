@@ -26,13 +26,19 @@ const BOOT_TIMEOUT_MS = 5_000
 const BOOT_RETRIES = 3
 const BOOT_RETRY_BASE_MS = 300
 
+/** R64-43（十二轮）：退避注入点——测试用 vi.stubGlobal('setTimeout', ...) 太脆
+ *  （连带伤及 AbortController 计时）；显式可换睡眠函数，产线默认真实 setTimeout。 */
+export const __testHooks = {
+  sleep: (ms: number) => new Promise<void>((r) => setTimeout(r, ms)),
+}
+
 export async function boot(): Promise<void> {
   for (let attempt = 0; ; attempt++) {
     if (attempt > BOOT_RETRIES) {
       console.warn(`[boot] /api/boot ${BOOT_RETRIES + 1} 次尝试均失败，应用以离线态启动（写请求将持续 401）`)
       return
     }
-    if (attempt > 0) await new Promise((r) => setTimeout(r, BOOT_RETRY_BASE_MS * 2 ** (attempt - 1)))
+    if (attempt > 0) await __testHooks.sleep(BOOT_RETRY_BASE_MS * 2 ** (attempt - 1))
     try {
       const ctrl = new AbortController()
       const timer = setTimeout(() => ctrl.abort(), BOOT_TIMEOUT_MS)

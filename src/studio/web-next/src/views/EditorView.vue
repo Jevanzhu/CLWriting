@@ -10,7 +10,7 @@ import { useTreeStore } from '../stores/tree'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useUiStore } from '../stores/ui'
 import { getConfig } from '../api/books'
-import { stripFrontmatter, mergeFm, parseFmFields, formKindOf, isBodyKind } from '../shared/words'
+import { stripFrontmatter, mergeFm, parseFmFields, formKindOf, isBodyKind, countWords } from '../shared/words'
 import CmHost from '../editor/CmHost.vue'
 import EditorDocHead from '../components/editor/EditorDocHead.vue'
 import ContextMenu from '../components/ui/ContextMenu.vue'
@@ -67,7 +67,9 @@ function onBodyChange(next: string): void {
   if (!e) return
   doc.patch(e.docId, hasForm.value ? mergeFm(e.content, next) : next)
 }
-const wordCount = computed(() => body.value.replace(/\s/g, '').length)
+// R64-33（十二轮）：字数与服务端/右栏同源（countWords：码点计数 + 剥 markdown 标记）——
+// 旧「去空白 UTF-16 计数」与右栏同屏可稳定不一致（markdown 标记/代理对字符）
+const wordCount = computed(() => countWords(body.value))
 
 const isChapter = computed(() => isBodyKind(entry.value?.path ?? ''))
 const titleModel = ref('')

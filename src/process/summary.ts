@@ -50,14 +50,15 @@ export const SUMMARY_VOLUME_MAX_FALLBACK = 500
 /** R-11（十五轮登记销账）：按码位截断（Array.from 迭代码点）——String.slice 按
  *  UTF-16 码元，增补平面字符在边界处被切成半个代理对；章/卷摘要硬截断两处对齐
  *  全库 code point 口径（P-7 estimateTokens / format/filename 同源）。 */
-function clipByCodePoints(text: string, max: number): string {
+// R64-6（十二轮）导出：ai/tools/rewrite.ts 预览切片收编码点口径（第 4 处消费方）
+export function clipByCodePoints(text: string, max: number): string {
   return Array.from(text).slice(0, max).join('')
 }
 
 /** N-14（第五十四轮）：码位计数——自增计数器逐码点数，替代 `[...text].length`
  *  全量展开数组只为取个数的写法（截断路径每次落盘都过这里）；口径严格不变：
  *  代理对（高低各一码元）算一个码位，孤立代理项各算一个，与展开结果一致。 */
-function codePointLength(text: string): number {
+export function codePointLength(text: string): number {
   let n = 0
   for (let i = 0; i < text.length; i++) {
     const c = text.charCodeAt(i)

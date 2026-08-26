@@ -59,7 +59,13 @@ export function parseBuilderFiles(yamlText) {
       continue
     }
     if (line.startsWith('- ')) {
-      const v = line.slice(2).trim()
+      // R64-39（十二轮）：头注称容忍引号但 slice(2).trim() 实不剥——YAML 合法形态
+      // `- "dist"` 此前原样入列（含引号），成员资格断言 mismatch 误报缺目录（fail-closed
+      // 不破绿但注释与实现相悖）。剥成对的引号后入列。
+      let v = line.slice(2).trim()
+      if (v.length >= 2 && ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'")))) {
+        v = v.slice(1, -1)
+      }
       if (v) items.push(v)
       continue
     }

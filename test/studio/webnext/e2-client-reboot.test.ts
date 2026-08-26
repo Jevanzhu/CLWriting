@@ -22,7 +22,11 @@ async function freshClient(): Promise<
   typeof import('../../../src/studio/web-next/src/api/client')
 > {
   vi.resetModules()
-  return import('../../../src/studio/web-next/src/api/client')
+  const c = await import('../../../src/studio/web-next/src/api/client')
+  // R64-43（十二轮）：退避注入——真实退避 300+600+1200ms × 5 用例 ≈10s 纯墙钟等待。
+  // 换 no-op sleep（不 stubGlobal setTimeout，避免伤及 AbortController 计时）。
+  c.__testHooks.sleep = async () => {}
+  return c
 }
 
 afterEach(() => {

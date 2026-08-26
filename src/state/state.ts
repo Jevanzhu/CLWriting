@@ -430,7 +430,11 @@ function isChapterFinalized(_bookRoot: string, chapterNum: number, manifest: Man
 function chapterFromRelPath(relPath: string): number {
   const base = relPath.split('/').pop() ?? ''
   const m = base.match(/^(\d+)-/)
-  return m ? Number(m[1]) : 0
+  if (!m) return 0
+  // R64-20（十二轮）：与 parseChapterFileName 同款 isSafeInteger 守卫——超精度
+  // 数字章号按 0（无章号）处理，不入状态机
+  const no = Number(m[1])
+  return Number.isSafeInteger(no) ? no : 0
 }
 
 /** 正文区未定稿文件名集合（用于排除草稿——未定稿不计入"已写"）。 */
