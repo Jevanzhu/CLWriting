@@ -88,8 +88,13 @@ function rowToEvent(r: Row): ChatEvent {
   }
 }
 
-/** 孤儿会话补 end 的宽限期：最后活动距今不足该值视为「可能仍在进行」，不补（RB-IF-P2-2） */
-const ORPHAN_GRACE_MS = 10 * 60 * 1000
+/** 孤儿会话补 end 的宽限期：最后活动距今不足该值视为「可能仍在进行」，不补（RB-IF-P2-2）。
+ *  R65-19（十三轮）：宽限期对齐对话硬超时——AGENT_DEADLINE_MS = 30 分钟
+ *  （src/ai/orchestrate/chat.ts，含嵌套 self-heal 的长对话最后活动后仍可能在跑），
+ *  原 10 分钟会在对话进行中被跨进程误补 session/end {reason:'interrupted'}（审计流
+ *  虚假中断 + 真实 session/end 后补双写）。取 32 分钟 = deadline + 2 分钟收尾余量；
+ *  不 import 该常量（chat.ts 反向依赖本文件，提常量会成环），改由注释锚定对齐依据。 */
+const ORPHAN_GRACE_MS = 32 * 60 * 1000
 
 /** 启动修复：孤儿 session（有 session/start 无 session/end）补 closers。
  *  Y-P1-1：跳过本进程活跃会话（SessionRecorder 登记中）——修复只面向崩溃残留，
@@ -270,7 +275,7 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
   }
 
   const entry: StoreEntry = { store: null!, refs: 1, closed: false, lastOrphanRepairAt: Date.now() }
-  /** 写路径惰性孤儿修复（TTL = ORPHAN_GRACE_MS，至多每 10 分钟一次）：打开时仍在
+  /** 写路径惰性孤儿修复（TTL = ORPHAN_GRACE_MS，至多每 32 分钟一次）：打开时仍在
    *  宽限期内的崩溃残留，宽限期过后随下一次会话写入补 end——无需等进程重开库。 */
   const maybeRepairOrphans = (): void => {
     if (Date.now() - entry.lastOrphanRepairAt < ORPHAN_GRACE_MS) return
@@ -388,6 +393,18 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
       // ——原 stmt.all() 先物化全部行（data JSON 串一份）再 map JSON.parse 出第二份，
       // 双份共存峰值 ≈2× 表字节，与 rag readAllChunks 同修法
       const out: ChatEvent[] = []
+      // R65-20（十三轮）：坏行降级——单行 data/source_seqs JSON 损坏时 rowToEvent 抛错
+      // 直穿会炸整个 listEvents（chat 恢复/audit/历史端点整体 500）；逐行 try/catch
+      // 跳过坏行 + warn 留行 seq 与病因（log.warn 未 init 时即镜像 console.warn），
+      // 好行完整返回
+      const safeRowToEvent = (r: Row): ChatEvent | null => {
+        try {
+          return rowToEvent(r)
+        } catch (e) {
+          log.warn('events', `listEvents 跳过坏行 seq=${r.seq}（${e instanceof Error ? e.message : String(e)}）`)
+          return null
+        }
+      }
       if (sessionId) {
         const args: Array<string | number> = [sessionId]
         if (type !== undefined) args.push(type)
@@ -395,7 +412,10 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
         const rows = db.prepare(
           `SELECT * FROM events WHERE session_id = ? ${type !== undefined ? 'AND type = ?' : ''} ORDER BY seq ASC ${cap !== undefined ? 'LIMIT ?' : ''}`
         ).iterate(...args) as unknown as Iterable<Row>
-        for (const r of rows) out.push(rowToEvent(r))
+        for (const r of rows) {
+          const ev = safeRowToEvent(r)
+          if (ev) out.push(ev)
+        }
         return out
       }
       const args: Array<string | number> = [book]
@@ -406,7 +426,10 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
          WHERE session_id IN (SELECT session_id FROM sessions WHERE book = ?) ${type !== undefined ? 'AND type = ?' : ''}
          ORDER BY seq ASC ${cap !== undefined ? 'LIMIT ?' : ''}`
       ).iterate(...args) as unknown as Iterable<Row>
-      for (const r of rows) out.push(rowToEvent(r))
+      for (const r of rows) {
+        const ev = safeRowToEvent(r)
+        if (ev) out.push(ev)
+      }
       return out
     },
     workspaceSession(book: string): string {
@@ -558,29 +581,22 @@ export function migrateBookSession(
   const moves: Array<{ from: string; to: string }> = []
   try {
     if (!existsSync(oldDb)) return true
-    // 1) 强制关掉旧库缓存连接（置 refs=1 → close 递减归零即真关+清缓存）。
-    //    必须先于 checkpoint：自家连接不关，其 WAL 归属/折叠时机不受本函数控制。
-    //    第十轮 M-1：不能置 refs=0——第九轮 L-5 守卫把「refs<=0 再 close」当
-    //    重复释放直接忽略，强制关会静默落空（僵尸条目滞留缓存，旧路径重开
-    //    拿到别名已迁走库的句柄，写入分裂到旧路径 -wal）；置 1 走正常递减路径，
-    //    真关语义不变
-    //    N8（五十九轮）：强制关库前断言无在途引用——「先中止会话」此前只是头注里的
-    //    调用方纪律，无程序性保障；refs>0 = 仍有 openSessionStore 未 close 的使用方
-    //    （在途对话/自愈/链路记录），此刻强关会把它们的后续写入打到已关句柄上。给
-    //    可读错误并放弃迁移（false，源库原地完整可重试），让调用方先收口再迁。
+    // 1) 断言旧库缓存无存活连接——有则放弃迁移（false，源库原地完整可重试）。
+    //    R65-25（十三轮）：删除「refs=1 强制关库」死分支——close() 归零即置 closed 并
+    //    从 openStores 删除（见上方 close 实现），Map 中未 closed 条目必 refs≥1，
+    //    强关分支不可达；存活条目按 N8/R64-8 口径一律视为在途引用拦下。
+    //    N8（五十九轮）：refs>0 = 有 openSessionStore 未 close 的使用方（在途对话/
+    //    自愈/链路记录），此刻迁移会把它们的后续写入打到搬走的路径上。给可读错误
+    //    并放弃迁移，让调用方先收口再迁。
     //    R64-8（十二轮）：判定从 refs>1 收紧为 refs>0——refs==1（首个在途调用方）
-    //    同样是活跃持有者，此前会被当「无引用」强关，且错误文案少算一个。
+    //    同样是活跃持有者。
     const entry = openStores.get(oldDb)
     if (entry && !entry.closed) {
-      if (entry.refs > 0) {
-        log.error(
-          'events',
-          `事件库迁移中止：旧库仍有 ${entry.refs} 个在途引用（${oldDb}）——请先中止该书在途对话/自愈并释放连接后重试`,
-        )
-        return false
-      }
-      entry.refs = 1
-      entry.store.close()
+      log.error(
+        'events',
+        `事件库迁移中止：旧库仍有 ${entry.refs} 个在途引用（${oldDb}）——请先中止该书在途对话/自愈并释放连接后重试`,
+      )
+      return false
     }
     // 2) 5.1-3：搬移前折叠 WAL——TRUNCATE 模式把未 checkpoint 事务折进主库并截断
     //    -wal，此后即使只搬走主库文件数据也完整。busy_timeout 与库打开纪律一致

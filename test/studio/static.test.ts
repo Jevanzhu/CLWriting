@@ -227,3 +227,45 @@ test('M-P3-09: HEAD 不整读文件（readFile 0 次）且 content-length=字节
   expect(readFileMock).toHaveBeenCalledTimes(1)
   expect(await get.text()).toBe('console.log(1)')
 })
+
+// R65-47（总六十五轮）：405 分支 finish 后排空未消费请求体——写方法（POST/PUT）打到
+// 非 /api 路径时 handler 不读 body 也不 resume，keep-alive 连接因 body 滞留被弃；
+// 排空后同 socket 可承载下一请求（与 index.ts /api 分支 R64-28 同口径）。
+test('R65-47: 405 后请求体被排空——keep-alive 连接可复用', async () => {
+  const address = server!.address() as AddressInfo
+  const agent = new http.Agent({ keepAlive: true, maxSockets: 1 })
+  const sockets = new Set<net.Socket>()
+  const post = (payload: string): Promise<number> =>
+    new Promise((resolve, reject) => {
+      const r = http.request(
+        {
+          host: '127.0.0.1',
+          port: address.port,
+          path: '/',
+          method: 'POST',
+          agent,
+          headers: { 'content-length': String(Buffer.byteLength(payload)) },
+        },
+        (res) => {
+          res.resume() // 消费响应体（keep-alive 复用的另一半前提）
+          res.on('end', () => resolve(res.statusCode ?? 0))
+        },
+      )
+      r.on('socket', (s) => sockets.add(s))
+      r.on('error', reject)
+      r.end(payload)
+    })
+  try {
+    const s1 = await post('x'.repeat(512))
+    expect(s1).toBe(405)
+    // 修复前：第一个请求的 body 未排空，第二个请求在同 socket 上不被解析（悬挂）
+    const s2 = await Promise.race([
+      post('y'.repeat(512)),
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error('第二个请求悬挂：请求体未排空')), 5000)),
+    ])
+    expect(s2).toBe(405)
+    expect(sockets.size).toBe(1) // 同一 socket 承载两次请求
+  } finally {
+    agent.destroy()
+  }
+})

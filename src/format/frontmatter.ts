@@ -235,6 +235,88 @@ export function stringifyFlat(map: Map<string, unknown>): string {
   return lines.join('\n')
 }
 
+/** R65-1（十三轮）：平铺 fm 文本级补丁——updateDocMeta/updateChapterMeta 的读改写
+ *  此前走 parseFlat→stringifyFlat 整体重排：嵌套段（境界体系的 体系: / - 名称: / 序列:）
+ *  被平铺解析器切成伪平铺键且同名键互相覆盖（多体系仅剩最后一组），回写产物
+ *  `体系: ""` 不再匹配 parseRealmSystems 的 /^体系:\s*$/ → 成长线机检静默失明。
+ *  补丁只替换目标平铺键的键行（或缺失时追加），其余行（嵌套段/块标量/注释/未知键）
+ *  逐字节保留。目标键自身带嵌套子行（非块标量）时拒绝改写（fail-loud，防平铺化）。
+ *  顶层键判定：缩进 0、非注释/列表行、含冒号——与 parseFlat 的顶层口径一致。 */
+export function patchFlatFm(
+  fmRaw: string,
+  updates: Record<string, unknown>,
+): { ok: true; text: string } | { ok: false; reason: string } {
+  const lines = fmRaw === '' ? [] : fmRaw.split('\n')
+  const renderKeyLine = (key: string, val: unknown): string[] => {
+    if (typeof val === 'string' && val.includes('\n')) {
+      // 多行字符串沿用块标量形态（stringifyFlat 同款）
+      const out = [`${key}: |`]
+      for (const bl of val.split('\n')) out.push(bl === '' ? '' : '  ' + bl)
+      return out
+    }
+    return [`${key}: ${stringifyValue(val)}`]
+  }
+  // 顶层行分类：块标量头（可整体重序列化）/ 普通键行 / 属于上一顶层键的子行
+  const isTopKey = (line: string): string | null => {
+    if (line === '' || line.startsWith('#')) return null
+    if (/^\s/.test(line) || line.trimStart().startsWith('- ')) return null
+    const colonIdx = line.indexOf(':')
+    if (colonIdx === -1) return null
+    return line.slice(0, colonIdx).trim()
+  }
+  const done = new Set<string>()
+  const out: string[] = []
+  let i = 0
+  while (i < lines.length) {
+    const line = lines[i]!
+    const key = isTopKey(line)
+    if (key === null) {
+      out.push(line)
+      i++
+      continue
+    }
+    // 收集本顶层键的归属段（到下一个顶层键为止，含空行——块标量内容可跨空行）：
+    // 段内非空且非顶层键的行（缩进行/列表行）才是「嵌套子行」；纯空行只是分隔
+    let j = i + 1
+    const span: string[] = []
+    while (j < lines.length) {
+      const nxt = lines[j]!
+      if (nxt.trim() !== '' && isTopKey(nxt) !== null) break
+      span.push(nxt)
+      j++
+    }
+    const hasNested = span.some((l) => l.trim() !== '')
+    if (!Object.prototype.hasOwnProperty.call(updates, key)) {
+      out.push(line, ...span)
+      i = j
+      continue
+    }
+    if (done.has(key)) {
+      // 重复同名顶层键（手写脏数据）：首个已改写，后续重复及其子行丢弃防解析歧义
+      i = j
+      continue
+    }
+    done.add(key)
+    const val = updates[key]
+    const valRaw = line.slice(line.indexOf(':') + 1).trim()
+    const isBlockScalar = /^([|>])[+-]?$/.test(valRaw)
+    if (!isBlockScalar && hasNested) {
+      return {
+        ok: false,
+        reason: `字段「${key}」带嵌套子结构，平铺改写会破坏该结构，已拒绝（请用结构化编辑入口修改）`,
+      }
+    }
+    // 块标量整体重渲染（含跨空行内容）；普通键只换键行，段内空行原位保留
+    out.push(...renderKeyLine(key, val), ...(isBlockScalar ? [] : span))
+    i = j
+  }
+  // 未命中的键追加到末尾（保持既有行序不变）
+  for (const [key, val] of Object.entries(updates)) {
+    if (!done.has(key)) out.push(...renderKeyLine(key, val))
+  }
+  return { ok: true, text: out.join('\n') }
+}
+
 /** 包裹 front matter + 正文为完整 markdown */
 export function joinFrontMatter(fmText: string, body: string): string {
   if (fmText === '') return body

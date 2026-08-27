@@ -9,16 +9,19 @@
 import { test, expect } from '@playwright/test'
 import http from 'node:http'
 import { join } from 'node:path'
+import { rmSync } from 'node:fs'
 import { startServer } from '../../src/studio/server/index.js'
 import { makeDualTrackWorkdir } from '../studio/fixtures.js'
 
 const PORT = 19000
 const BASE = `http://127.0.0.1:${PORT}`
 let server: http.Server
+// R65-60（F-4）：workDir 提到模块级——此前 afterAll 只清环境变量不清书目录，临时区残留
+let workDir = ''
 
 test.beforeAll(async () => {
   process.env['CLWRITING_E2E_AI_DOWN'] = '1'
-  const workDir = makeDualTrackWorkdir()
+  workDir = makeDualTrackWorkdir()
   server = startServer({ port: PORT, workDir, staticDir: join(process.cwd(), 'dist', 'web') })
   await new Promise<void>((resolve, reject) => {
     server.once('listening', () => resolve())
@@ -39,6 +42,7 @@ test.beforeAll(async () => {
 test.afterAll(async () => {
   delete process.env['CLWRITING_E2E_AI_DOWN']
   await new Promise<void>((resolve) => server.close(() => resolve()))
+  if (workDir) rmSync(workDir, { recursive: true, force: true })
 })
 
 test('AI 不可达：编辑保存照常 + 辅助置灰', async ({ page }) => {

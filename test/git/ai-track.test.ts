@@ -174,3 +174,29 @@ describe('旁路语义', () => {
     expect(decodeRefSegment('doc_A')).toBe('doc_A')
   })
 })
+
+// ── R65-28（第六十五轮）：listTrackedDocs meta 读去重缓存——结果与逐版直读恒等 ──
+
+describe('R65-28: listTrackedDocs 版本档案后端（meta 缓存路径）', () => {
+  it('混合 origin 多文档：只列含 ai 版本的 docId，且与逐 doc 独立 listAiVersions 结果一致', async () => {
+    const plain = mkdtempSync(join(tmpdir(), 'clwriting-r65-28-'))
+    try {
+      const { writeVersion } = await import('../../src/document/version.js')
+      const vdir = join(plain, '工作区', '.版本')
+      // doc_A：ai 两版 + manual 一版（应列出）；doc_B：纯 manual（不应列出）；doc_C：纯 ai（应列出）
+      writeVersion(vdir, 'doc_A', '手编辑', { origin: 'manual' })
+      recordAiVersion(plain, 'doc_A', 'AI 一版')
+      recordAiVersion(plain, 'doc_A', 'AI 二版')
+      writeVersion(vdir, 'doc_B', '纯手写', { origin: 'autosave' })
+      recordAiVersion(plain, 'doc_C', 'AI 轨迹')
+      const tracked = listTrackedDocs(plain).sort()
+      expect(tracked).toEqual(['doc_A', 'doc_C'])
+      // 与逐 doc 独立调用（不共享缓存）口径一致
+      expect(listAiVersions(plain, 'doc_A')).toHaveLength(2)
+      expect(listAiVersions(plain, 'doc_B')).toHaveLength(0)
+      expect(listAiVersions(plain, 'doc_C')).toHaveLength(1)
+    } finally {
+      rmSync(plain, { recursive: true, force: true })
+    }
+  })
+})

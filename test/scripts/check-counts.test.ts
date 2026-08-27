@@ -8,7 +8,7 @@
  */
 import { describe, it, expect } from 'vitest'
 // @ts-expect-error —— .mjs 直跑脚本无类型声明（不为其维护 d.ts；断言口径靠用例锚定）
-import { stripComments, stripStrings, countE2eCases, findOnlyOrSkipViolations } from '../../scripts/check-counts.mjs'
+import { stripComments, stripStrings, countE2eCases, findOnlyOrSkipViolations, sanitizeForCount } from '../../scripts/check-counts.mjs'
 
 describe('R63-12：净化口径（X-32 语义锚定）', () => {
   it('stripComments 剥行注释与块注释，保留 https:// 协议斜杠', () => {
@@ -72,5 +72,34 @@ describe('R63-12：.only / 无条件 .skip 拒绝门', () => {
     expect(findOnlyOrSkipViolations(src)).toEqual({ only: 0, uncondSkip: 0 })
     // skipIf（playwright 条件跳过 API）不在射程——`.skip` 后跟 `If(` 不匹配
     expect(findOnlyOrSkipViolations("test.skipIf(!hasToken, '可选')")).toEqual({ only: 0, uncondSkip: 0 })
+  })
+
+  it('R65-59（F-3）：无条件 .skip.each 参数化组检出——整组静默跳过同是门禁假绿', () => {
+    expect(findOnlyOrSkipViolations("it.skip.each([1, 2])('参数化 %d', (n) => {})")).toEqual({ only: 0, uncondSkip: 1 })
+    expect(findOnlyOrSkipViolations("test.skip.each([{ a: 1 }])('用例 %o', (v) => {})")).toEqual({ only: 0, uncondSkip: 1 })
+    // 与 only 门同口径：注释/字符串里的形态不误报
+    expect(findOnlyOrSkipViolations("// it.skip.each([1])('注释', (n) => {})")).toEqual({ only: 0, uncondSkip: 0 })
+  })
+})
+
+describe('R65-63（F-11）：sanitizeForCount 先清字符串后剥注释', () => {
+  it('字符串内非冒前 // 不再吞行——行尾真实用例声明完整保留', () => {
+    const src = "const t = 'data:aa//bb==';\ntest.serial('真实用例', () => {})"
+    // 反序（旧口径）：字符串内 // 被当注释吃掉，串到行尾连真用例一起消失
+    expect(sanitizeForCount(src)).not.toContain('data:aa')
+    expect(countE2eCases(src)).toBe(1)
+  })
+
+  it('注释里成对反引号模板不污染跨行计数', () => {
+    const src = "// 用法：把 `test(` 写进注释不计数\ntest('真用例', () => {})"
+    expect(countE2eCases(src)).toBe(1)
+  })
+
+  it('.only/.skip 探测与两版净化的兼容锚（标题串占位为 ""）', () => {
+    expect(findOnlyOrSkipViolations("it.skip('挂起的用例', () => {})")).toEqual({ only: 0, uncondSkip: 1 })
+    expect(findOnlyOrSkipViolations("test.only('x', () => {})")).toEqual({ only: 1, uncondSkip: 0 })
+    // 协议双斜杠在旧/新口径下均不被误剥（[^:] 守卫 + 先空串双保险）
+    const src = "const BASE = `http://127.0.0.1:${PORT}`\ntest('x', () => {})"
+    expect(countE2eCases(src)).toBe(1)
   })
 })

@@ -11,7 +11,7 @@
  * - 净化：每章 `# {标题}\n\n{body}`，完全不输出 front matter
  */
 
-import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { atomicWriteFile, atomicWriteStream } from '../fs/atomic.js'
 import { readChapterDir } from '../format/chapters.js'
@@ -115,6 +115,29 @@ function purifyBody(body: string): string {
 const FILENAME_MAX_CP = 80
 const FILENAME_MAX_BYTES = 255 - 52
 
+/** 导出目录内旧版归档子目录（R65-27）。 */
+const OLD_EXPORT_DIR = '.旧版'
+
+/** R65-27（第六十五轮）：旧产物归档而非删除——移入 导出/.旧版/（不存在则创建），
+ *  同名冲突追加序号后缀；任一步失败保留原文件不动（宁可残留不可销毁：作者手改过
+ *  的导出稿（改书名/换平台后再导出）被 rmSync 静默销毁不可挽回）+ warnings 留痕。 */
+function archiveOldExport(exportDir: string, oldName: string, warnings: string[]): void {
+  try {
+    const archiveDir = join(exportDir, OLD_EXPORT_DIR)
+    mkdirSync(archiveDir, { recursive: true })
+    // 同名冲突序号后缀插在扩展名前（全本-x.md → 全本-x-2.md）
+    const dot = oldName.lastIndexOf('.')
+    const stem = dot > 0 ? oldName.slice(0, dot) : oldName
+    const ext = dot > 0 ? oldName.slice(dot) : ''
+    let dstName = oldName
+    let n = 2
+    while (existsSync(join(archiveDir, dstName))) dstName = `${stem}-${n++}${ext}`
+    renameSync(join(exportDir, oldName), join(archiveDir, dstName))
+  } catch {
+    warnings.push(`旧产物 ${oldName} 归档失败（已保留原位，请手动移入 ${OLD_EXPORT_DIR}/）`)
+  }
+}
+
 function sanitizeFileName(name: string, maxBytes: number): string {
   const cleaned = name.replace(/[\\/]/g, '_').trim()
   const cps = Array.from(cleaned)
@@ -213,10 +236,10 @@ export function exportBook(options: ExportOptions): ExportResult {
   if (doMerged) {
     mergedFileName = `全本-${sanitizeFileName(bookTitle, FILENAME_MAX_BYTES - Buffer.byteLength('全本-') - Buffer.byteLength('.md'))}.md`
     // 第五轮：书改名/字节截断形变后，旧「全本-旧书名.md」残留在导出目录里会让作者
-    // 拿错稿——同前缀其余文件视为过期产物清掉（清旧失败不阻断导出）
+    // 拿错稿——同前缀其余文件视为过期产物归档清位（R65-27：归档不删，清旧失败不阻断导出）
     for (const old of readdirSync(exportDir)) {
       if (old.startsWith('全本-') && old.endsWith('.md') && old !== mergedFileName) {
-        try { rmSync(join(exportDir, old), { force: true }) } catch { /* 单文件清理失败忽略 */ }
+        archiveOldExport(exportDir, old, warnings)
       }
     }
   }
@@ -290,7 +313,8 @@ export function exportBook(options: ExportOptions): ExportResult {
     for (const old of readdirSync(exportDir)) {
       if (!old.startsWith('投稿视图-') || !old.endsWith('.md') || old === submissionName) continue
       if (protectedNames.has(old)) continue
-      try { rmSync(join(exportDir, old), { force: true }) } catch { /* 单文件清理失败忽略 */ }
+      // R65-27：旧产物归档不删（作者手改过的投稿稿不可静默销毁）
+      archiveOldExport(exportDir, old, warnings)
     }
     // V-P2-2：投稿视图同口径滤未定稿（entries 按 exportable 章号对齐）
     const exportableNums = new Set(exportable.map((u) => u.num))

@@ -136,8 +136,10 @@ export class SessionRecorder {
   private pending: NewEvent[] = []
   private store: SessionStore | null
   private sessionId: string
-  /** 已落库批次区间（失败回滚时遮蔽本会话全部已写事件用） */
-  private flushedRanges: Array<{ first: number; last: number }> = []
+  /** R65-23（十三轮）：逐批已落库真实 seq 数组（appendEventsResolveLineage 返回值存量）——
+   *  此前存 [first,last] 区间、消费侧用区间算术反推，批内 seq 不连续（未来触发器/第二
+   *  连接插行）时遮蔽整体错位；现 allSessionSeqs/遮蔽区间一律直索引真实 seq */
+  private flushedSeqs: number[][] = []
   /** 本批内 surface 类事件（user/assistant/tool_result）的批次内序号 */
   private pendingSurfaceIdx: number[] = []
   /** 本会话全部 surface 事件的绝对 seq（失败遮蔽唯一合法口径——遮蔽区间只许盖曾可见节点） */
@@ -155,7 +157,7 @@ export class SessionRecorder {
     if (store) registerActiveChatSession(sessionId)
   }
 
-  /** 记录事件，返回该事件在本批次内的序号（0-based；flush 后 first + idx = seq） */
+  /** 记录事件，返回该事件在本批次内的序号（0-based；flush 后 range.seqs[idx] = seq） */
   add(ev: NewEvent): number {
     // R62-11：空载荷 assistant/message（usage 壳）不记遮蔽位——foldSurface 对其
     // continue（该 seq 永不成为可见节点），计入会让「遮蔽区间只许盖曾可见节点」
@@ -169,27 +171,28 @@ export class SessionRecorder {
     return this.pending.length - 1
   }
 
-  /** 落库当前批 → 该批事件 seq 区间 [first, last]；无 store 或空批 → null */
-  flush(): { first: number; last: number } | null {
+  /** 落库当前批 → 首尾区间 + 逐事件真实 seq 数组（与批事件一一对应）；无 store 或空批 → null */
+  flush(): { first: number; last: number; seqs: number[] } | null {
     if (!this.store || this.pending.length === 0) return null
     // AA-P3-7：血缘 seq 不再用 lastSeq()+批内序号推算（多窗口并发写事件库时 lastSeq()
     // 与落库之间无原子性，可能错链到别的窗口）——INSERT RETURNING 取数据库真实分配的
     // seq，sourceSeqs 批内索引在同一事务内回写解析。
+    // R65-23（十三轮）：真实 seqs 数组随返回值透出（range.first + i 区间算术反推在
+    // 批内 seq 不连续时会遮蔽整体错位——遮蔽区间/消息 seq 映射一律直索引真实值）
     const seqs = this.store.appendEventsResolveLineage(this.sessionId, this.pending)
     this.pending = []
-    const range = { first: seqs[0]!, last: seqs[seqs.length - 1]! }
-    this.flushedRanges.push(range)
-    for (const i of this.pendingSurfaceIdx) this.surfaceSeqs.push(range.first + i)
+    const range = { first: seqs[0]!, last: seqs[seqs.length - 1]!, seqs }
+    this.flushedSeqs.push(seqs)
+    for (const i of this.pendingSurfaceIdx) this.surfaceSeqs.push(seqs[i]!)
     this.pendingSurfaceIdx = []
     return range
   }
 
-  /** 本会话已落库事件的全部 seq（失败路径遮蔽用） */
+  /** 本会话已落库事件的全部 seq（失败路径遮蔽用）——R65-23：扁平化逐批真实 seq 存量，
+   *  不再按 [first,last] 区间算术展开（批内不连续时区间会吞入外来 seq 或漏掉本批 seq） */
   allSessionSeqs(): number[] {
     const out: number[] = []
-    for (const r of this.flushedRanges) {
-      for (let s = r.first; s <= r.last; s++) out.push(s)
-    }
+    for (const seqs of this.flushedSeqs) out.push(...seqs)
     return out
   }
 

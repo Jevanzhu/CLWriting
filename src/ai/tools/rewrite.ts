@@ -123,6 +123,18 @@ export async function applySpill(ctx: ToolContext, input: Record<string, unknown
   const { relPath } = resolveDraftPath(ctx.bookRoot, chapter)
   const raw = readFile(join(ctx.bookRoot, relPath))
   if (!raw.ok) return { ok: false, summary: '第 ' + chapter + ' 章正文读取失败：' + relPath }
+  // R65-7（总六十五轮）：saveDraft 前重读正文复验 sha——初次校验（上方 bodyNow 比对）
+  // 与最终落盘之间存在窗口（self-heal 并发写同章时旧基线可静默覆盖新稿）；复验把窗口
+  // 压到毫秒级，失配拒绝 apply 并报明确错误。不打 gate——chat 侧「后写赢」语义已声明，
+  // 此处只收口「绕过显式校验」这一层
+  const bodyRecheck = readChapterBody(ctx.bookRoot, chapter)
+  if (bodyRecheck === null || createHash('sha256').update(bodyRecheck, 'utf8').digest('hex') !== meta.baseSha) {
+    return {
+      ok: false,
+      summary:
+        '落盘前复验失败：第 ' + chapter + ' 章正文在确认窗口内被并发修改（改写/编辑/写稿），暂存稿基于旧正文，已拒绝落盘。请基于当前正文重新发起改写。',
+    }
+  }
   // 改写稿是 body 维度产物——front matter（章号/标题/钩子等）原样保留，只换正文
   const saved = saveDraft(ctx.bookRoot, chapter, joinFrontMatter(raw.fmRaw, produced), { snapshotOrigin: 'chat-rewrite' })
   return {

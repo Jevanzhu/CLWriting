@@ -566,6 +566,7 @@ export const useChatStore = defineStore('chat', () => {
     pushUser,
     popUser,
     clear,
+    updateTool,
     seedHistory,
     switchBranch,
     regenerate,

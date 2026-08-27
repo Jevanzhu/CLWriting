@@ -89,7 +89,8 @@ function dirFp(p: string): string {
  * （applyGlobalDefaults 托底值影响 short.strict 等）。文风/ 含铁律与条目库禁词
  * （readIronRules 合并源）；大纲/章纲 含 targetWords；清单含 maxWritten 基准。
  * 细纲.md 是 declaredLeadIds 的来源（两端闭合左侧）、设定/境界体系.md 是成长线
- * 红项输入（growth-realm-*）——此前两者漏在纪元外，编辑后树红点不失效可陈旧。
+ * 红项输入（growth-realm-*）、设定/名册.md 是新专名候选输入（R65-17）——此前三者
+ * 漏在纪元外（名册为十三轮补），编辑后树红点/黄项不失效可陈旧。
  */
 export function computeTreeIssuesGlobalFp(bookRoot: string, userDataPath: string | null): string {
   const parts = [
@@ -102,6 +103,9 @@ export function computeTreeIssuesGlobalFp(bookRoot: string, userDataPath: string
     dirFp(join(bookRoot, '文风')),
     fileFp(join(bookRoot, '工作区', '细纲.md')),
     fileFp(join(bookRoot, '设定', '境界体系.md')),
+    // R65-17（十三轮）：checkNewNames 的名册输入入纪元——此前漏掉，作者改名册后
+    // 章级缓存不失效，新专名候选黄项陈旧（登记表新名被误报/漏报）
+    fileFp(join(bookRoot, '设定', '名册.md')),
     fileFp(join(bookRoot, '工作区', '账本推进.md')),
     fileFp(join(bookRoot, '项目', '文档清单.jsonl')),
   ]
@@ -119,17 +123,24 @@ export function computeLeadsBookFp(bookRoot: string, userDataPath: string | null
   return `${computeTreeIssuesGlobalFp(bookRoot, userDataPath)}|${dirFp(join(bookRoot, '写作', '正文'))}`
 }
 
-/** 全书性红项缓存读：指纹全中才命中，否则 null（调用方重算）。 */
+/** 全书性红项缓存读：指纹全中才命中，否则 null（调用方重算）。
+ *  R65-21（十三轮）：两键合并单条 SELECT（key IN 两值一次取回）——原两条独立 SELECT
+ *  无事务包裹，跨进程写方（writeLeadsBookRed 同事务提交瞬间）可读到撕裂 fp/red 对
+ *  （新 fp 配旧 red）。单条语句自带隐式读事务，两行必同快照；不选显式
+ *  BEGIN DEFERRED…COMMIT 方案：读侧多持锁徒增 busy 风险，单语句零成本达成同一致性。 */
 export function readLeadsBookRed(db: DatabaseSync, fp: string): boolean | null {
   try {
-    const row = db.prepare('SELECT value FROM tree_issues_meta WHERE key = ?').get('leads_book_fp') as
-      | { value: string }
-      | undefined
-    if (row?.value !== fp) return null
-    const red = db.prepare('SELECT value FROM tree_issues_meta WHERE key = ?').get('leads_book_red') as
-      | { value: string }
-      | undefined
-    return red?.value === '1' ? true : red?.value === '0' ? false : null
+    const rows = db
+      .prepare(`SELECT key, value FROM tree_issues_meta WHERE key IN ('leads_book_fp', 'leads_book_red')`)
+      .all() as Array<{ key: string; value: string }>
+    let fpRow: string | undefined
+    let redRow: string | undefined
+    for (const r of rows) {
+      if (r.key === 'leads_book_fp') fpRow = r.value
+      else if (r.key === 'leads_book_red') redRow = r.value
+    }
+    if (fpRow !== fp) return null
+    return redRow === '1' ? true : redRow === '0' ? false : null
   } catch {
     return null // 表异常/损坏：视为 miss 走重算（自愈）
   }

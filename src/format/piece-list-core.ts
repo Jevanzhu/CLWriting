@@ -8,7 +8,11 @@
  *
  * 服务端 format/manifest.ts 的文件读写（readFileSync/atomicWriteFile）依赖 node:fs，
  * 拆此 core 供浏览器端 MetaFormPanel 直接 import（对齐 words.ts re-export 先例）。
- * 容错（对齐 #3 第 8 节）：缺段/缺字段不崩，未知段进 _raw。
+ * 容错（对齐 #3 第 8 节）：缺段/缺字段不崩。
+ * R65-39（第六十五轮）头注纠偏：本解析器**不**实现「未知段进 _raw」——只提取上述
+ * 三段，其余未知段直接丢弃（PieceList._raw 字段从不填充）；未知段的保形由上层
+ * 文本级补丁路径负责（如 config/migrate-defaults 的补丁式写回，见其「保注释保
+ * 未知段」红线），本模块 stringifyPieceList 是全量重生成，经它往返不保未知段。
  */
 import type { PieceList, ReversalLead, PayoffEntry, SetupPoint, EmotionCurvePoint } from './types.js'
 

@@ -165,3 +165,74 @@ describe('R64-27（十二轮）：SSE 鉴权前移——403 与书名存在性�
     expect(status).toBe(403)
   })
 })
+
+// R65-43（总六十五轮）：ticket 消费移到全部书域校验（429 连接数 / resolveBook 404）
+// 之后——原闸首即烧票，429/404 时一次性 ticket 被白白作废，EventSource 自动重连带
+// 废票反复 403。鉴权顺序语义不变（R64-27 防探测：无凭据仍先 403）。
+describe('R65-43：429/404 不烧一次性 ticket（消费在书域校验之后）', () => {
+  /** 保持打开的 SSE 连接（占连接配额）；返回关闭句柄（收尾必须关——server.close 等） */
+  function openStreamHold(query: string): Promise<() => void> {
+    return new Promise((resolve) => {
+      const u = new URL(baseUrl)
+      const r = http.request(
+        {
+          host: u.hostname,
+          port: u.port,
+          path: `/api/books/${encodeURIComponent(BOOK)}/stream${query}`,
+          method: 'GET',
+          headers: { accept: 'text/event-stream' },
+        },
+        (res) => {
+          res.on('data', () => {}) // 挂后台消费，防背压缓冲（连接活着即可）
+          resolve(() => r.destroy())
+        },
+      )
+      r.on('error', () => {})
+      r.end()
+    })
+  }
+
+  it('连接数满 429 → ticket 未被消费；腾出名额后同票可用', async () => {
+    const closers: Array<() => void> = []
+    try {
+      // 占满 5 条（MAX_SSE_PER_BOOK，凭据走 token 旧通道——与被测 ticket 无关）
+      for (let i = 0; i < 5; i++) closers.push(await openStreamHold(`?token=${encodeURIComponent(token)}`))
+      await new Promise((r) => setTimeout(r, 100)) // 等服务端登记句柄
+      const t = (await postTicket(true)).json.ticket!
+      // 第 6 条：429（BUSY）——修复前此步已把 ticket 烧掉
+      expect(await openStream(`?ticket=${encodeURIComponent(t)}`)).toBe(429)
+      // ticket 未被消费：腾一条名额后同票仍可建流（修复前 → 403）
+      closers[0]!()
+      await new Promise((r) => setTimeout(r, 100))
+      expect(await openStream(`?ticket=${encodeURIComponent(t)}`)).toBe(200)
+    } finally {
+      for (const c of closers) c()
+    }
+  })
+
+  it('未登记书 404 → ticket 未被消费；同票对登记书仍可用', async () => {
+    const t = (await postTicket(true)).json.ticket!
+    const u = new URL(baseUrl)
+    const status404 = await new Promise<number>((resolve) => {
+      const r = http.request(
+        {
+          host: u.hostname,
+          port: u.port,
+          path: `/api/books/${encodeURIComponent('不存在的书')}/stream?ticket=${encodeURIComponent(t)}`,
+          method: 'GET',
+          headers: { accept: 'text/event-stream' },
+        },
+        (res) => {
+          const st = res.statusCode ?? 0
+          res.destroy()
+          resolve(st)
+        },
+      )
+      r.on('error', () => resolve(0))
+      r.end()
+    })
+    expect(status404).toBe(404) // 凭据过闸（peek）→ 书域校验 404
+    // ticket 未被 404 烧掉：对登记书同票 → 200（修复前 → 403）
+    expect(await openStream(`?ticket=${encodeURIComponent(t)}`)).toBe(200)
+  })
+})

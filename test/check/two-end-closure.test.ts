@@ -116,3 +116,25 @@ test('W-P2-11：章纲无 字数目标 → 不检也不提示（决策 3）', ()
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+test('R65-24（批 B）：批量连写归档章——主文件属他章时，本章推进从 .账本推进暂存 认到，不误报红', () => {
+  const root = makeWiringBook()
+  try {
+    // 细纲声明 悬念-001
+    writeFileSync(join(root, '工作区', '细纲.md'), '---\n章号: 1\n推进: [悬念-001]\n---\n\n本章细纲。\n', 'utf-8')
+    // 主文件带 第2章 标签且载有他章内容（批量连写常态：第 1 章定稿后归档、第 2 章在写）
+    writeFileSync(join(root, '工作区', '账本推进.md'), '# 第2章\n- 悬念-002 递进：他章的推进内容。\n', 'utf-8')
+    // 本章推进已归档：.账本推进暂存/第1章.md（证据命中正文「钟声」句）
+    mkdirSync(join(root, '工作区', '.账本推进暂存'), { recursive: true })
+    writeFileSync(join(root, '工作区', '.账本推进暂存', '第1章.md'), '- 悬念-001 递进：山门外的钟声在雨夜里连响了三下。\n', 'utf-8')
+
+    const outcome = runCheckForDocument(root, join(root, '写作', '正文', '001-夜访.md'))
+    expect(outcome.ok).toBe(true)
+    if (!outcome.ok) return
+    const reds = getRedItems(outcome.report)
+    // 修复前 actual 侧只读主文件（他章标签 → 本章实际为空）→ lead-declared-not-done 红误报
+    expect(reds.some((i) => i.checkId === 'lead-declared-not-done')).toBe(false)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})

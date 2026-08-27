@@ -129,3 +129,52 @@ test('formatStatus: 人话输出', () => {
   db.close()
   rmSync(dir, { recursive: true, force: true })
 })
+
+// ── R65-34（第六十五轮）：定稿集章号过滤改全量读 + JS 侧过滤（去 IN 占位符上限）──
+
+test('R65-34: 定稿集只含部分章 → currentChapter 取集中最大；集内章号不在 chapters 表不计', () => {
+  const { db, dir } = makeSeededDb() // 表内章 150/151/152
+  try {
+    const s = assembleStatus(db, DEFAULT_CONFIG, 50, new Set([150]))
+    expect(s.currentChapter).toBe(150)
+    const s2 = assembleStatus(db, DEFAULT_CONFIG, 50, new Set([999999]))
+    expect(s2.currentChapter).toBe(0) // 集内章号不在表 → 无可计章（与 IN 语义一致）
+  } finally {
+    db.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('R65-34: 空定稿集 → currentChapter=0（PL-2 口径不变）', () => {
+  const { db, dir } = makeSeededDb()
+  try {
+    expect(assembleStatus(db, DEFAULT_CONFIG, 50, new Set<number>()).currentChapter).toBe(0)
+  } finally {
+    db.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('R65-34: 极端大定稿集（>999 占位符，旧编译版 SQLite 变量上限）→ 不抛且结果正确', () => {
+  const { db, dir } = makeSeededDb()
+  try {
+    const big = new Set<number>()
+    // 2000 个占位（>999）但只放行表内 151——150/152 排除在外，验证「表内且在集」取 max
+    for (let n = 1; n <= 2000; n++) if (n !== 150 && n !== 152) big.add(n)
+    const s = assembleStatus(db, DEFAULT_CONFIG, 50, big)
+    expect(s.currentChapter).toBe(151)
+  } finally {
+    db.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('R65-34: finalized 缺省（undefined）→ 全量 MAX 口径不变', () => {
+  const { db, dir } = makeSeededDb()
+  try {
+    expect(assembleStatus(db, DEFAULT_CONFIG, 50).currentChapter).toBe(152)
+  } finally {
+    db.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

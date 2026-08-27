@@ -417,6 +417,10 @@ export function registerBookRoutes(ctx: BookCtx): void {
       // 清缓存（service/driver 会话/树索引/书架摘要）
       forgetService(oldRoot)
       forgetSession(oldName)
+      // R65-44（总六十五轮）：rename 清理序列补 forgetSseCount(oldName)——对齐 delete
+      // 路径（R-18）。改名后旧名残留 SSE 计数，随后新建同名书 SSE 配额被旧连接
+      // 顶到 429（计数只在 req close 时递减，改名后旧名再无归零通路）。
+      forgetSseCount(oldName)
       invalidateTreeIndex(oldRoot, true)
       invalidateBookSummary(oldRoot)
       // 内存闸（2026-08-24 审计 C2）：旧路径前缀的章节元数据缓存一并清（新路径键惰性重建）

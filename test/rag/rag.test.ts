@@ -358,16 +358,51 @@ describe('RAG 库迁移（hh §八-11：.rag.db → .cache/rag.db）', () => {
     expect(existsSync(join(bookRoot, '.rag.db'))).toBe(false)
   })
 
-  it('WAL 侧车（崩溃残留的 -wal/-shm）随主库一并迁走，不留旧处', () => {
+  it('R65-4: 损坏侧车（非 WAL 格式）→ 迁移不崩，主库数据完好，旧侧车不滞留旧处', () => {
     seedLegacyDb()
-    writeFileSync(join(bookRoot, '.rag.db-wal'), 'sidecar')
-    writeFileSync(join(bookRoot, '.rag.db-shm'), 'sidecar')
+    writeFileSync(join(bookRoot, '.rag.db-wal'), 'garbage-not-a-wal')
+    writeFileSync(join(bookRoot, '.rag.db-shm'), 'garbage')
 
+    // R65-4 迁移前 checkpoint 打开触发 SQLite 恢复：无效 WAL 被清（假侧车本无数据可丢）
     expect(resolveRagDbPath(bookRoot)).toBe(join(bookRoot, '.cache', 'rag.db'))
-    expect(existsSync(join(bookRoot, '.cache', 'rag.db-wal'))).toBe(true)
-    expect(existsSync(join(bookRoot, '.cache', 'rag.db-shm'))).toBe(true)
+    const db = openRagDb(bookRoot)
+    try {
+      expect(readAllChunks(db)).toHaveLength(1)
+    } finally {
+      db.close()
+    }
     expect(existsSync(join(bookRoot, '.rag.db-wal'))).toBe(false)
     expect(existsSync(join(bookRoot, '.rag.db-shm'))).toBe(false)
+  })
+
+  it('R65-4: 真实 WAL 已提交事务 → 迁移前 checkpoint 并入主库，数据不随侧车丢失', () => {
+    // 造「崩溃残留」现场：连接未关闭（WAL 未 checkpoint）时字节级拷贝主库+侧车
+    const live = new DatabaseSync(join(bookRoot, '.rag.db'))
+    createRagTables(live)
+    live.exec('PRAGMA journal_mode = WAL')
+    storeChunk(live, { 章号: 1, start_offset: 0, end_offset: 42, embedding: new Float32Array([1, 0, 0]), model: 'wal-model' })
+    const root2 = join(tmpdir(), `rag-migrate-wal-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+    mkdirSync(root2, { recursive: true })
+    try {
+      writeFileSync(join(root2, '.rag.db'), readFileSync(join(bookRoot, '.rag.db')))
+      writeFileSync(join(root2, '.rag.db-wal'), readFileSync(join(bookRoot, '.rag.db-wal')))
+    } finally {
+      live.close() // 原库 close 会 checkpoint——拷贝已先行，root2 保留未合并现场
+    }
+    try {
+      // 旧实现纯 rename：主库先行、侧车迁失败时新库读不到 WAL 内数据（整库回退空）；
+      // checkpoint 先行则数据已在主库，侧车迁否不再影响数据面
+      expect(resolveRagDbPath(root2)).toBe(join(root2, '.cache', 'rag.db'))
+      const db = new DatabaseSync(join(root2, '.cache', 'rag.db'))
+      try {
+        expect(readAllChunks(db)).toHaveLength(1)
+        expect(readAllChunks(db)[0]!.model).toBe('wal-model')
+      } finally {
+        db.close()
+      }
+    } finally {
+      rmSync(root2, { recursive: true, force: true })
+    }
   })
 
   it('新路径已存在 → 不迁（旧库残留原样保留，走新库）', () => {

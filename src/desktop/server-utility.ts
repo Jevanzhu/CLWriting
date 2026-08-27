@@ -21,6 +21,7 @@ import process from 'node:process'
 import type http from 'node:http'
 import { parseServerArgs, bootServerFromArgs, describeBootError, deriveStaticDir, type ParsedServerArgs } from './server-boot.js'
 import { shutdownStudio } from './graceful-shutdown.js'
+import { initLogging, log } from '../log/index.js'
 
 /** parentPort 最小契约（Electron ParentPort 的 MessageEvent 包裹：消息在 e.data） */
 export interface ParentPortLike {
@@ -60,6 +61,33 @@ export function runUtilityEntry(parentPort: ParentPortLike, parsed: ParsedServer
   return server
 }
 
+/**
+ * R65-41（总六十五轮）：顶层 fatal 兜底——unhandledRejection / uncaughtException。
+ * 此前无任何 handler：漏 catch 的异步 rejection 直接走 Electron utilityProcess 崩溃
+ * 重启重路径且丢现场（无日志可查）。现经现有 stdout 日志通道（fork 注入
+ * CLW_LOG_STDOUT=1 → src/log stdout-only 直写一行 JSON，main 收行转发落盘）记
+ * error 后主动 process.exit(1)——记日志后主动退出，交给 restart 退避（server-manager
+ * 的 0/5s/15s 三档 + 3 次封顶接管，非静默崩溃），现场可查。
+ * 导出供测试直驱；仅真实 utility 形态（有 parentPort）在模块顶层接线，vitest
+ * import 态不注册（防测试 worker 的无关 rejection 触发 exit 杀掉测试进程）。
+ */
+export function installFatalExitHandlers(): void {
+  // 提前激活日志通道：CLW_LOG_STDOUT=1（fork 注入）时 initLogging 短路为 stdout-only，
+  // boot 前（模块加载/握手期）的 fatal 也走同一 JSON 行通道；startServer 内会再 init
+  // （幂等）。未注入 env 的形态不动日志态（保持缺省 console 镜像）。
+  if (process.env['CLW_LOG_STDOUT'] === '1') {
+    initLogging({ logsDir: null, mirrorConsole: false })
+  }
+  process.on('uncaughtException', (err) => {
+    log.error('server-utility', 'uncaughtException——记日志后主动退出，交给 restart 退避', err)
+    process.exit(1)
+  })
+  process.on('unhandledRejection', (reason) => {
+    log.error('server-utility', 'unhandledRejection——记日志后主动退出，交给 restart 退避', reason)
+    process.exit(1)
+  })
+}
+
 const parentPort = process.parentPort
 if (!parentPort) {
   // 无 parentPort 的两种形态分开留痕（P3：原共用一条消息，测试态 import 的预期探针
@@ -74,5 +102,6 @@ if (!parentPort) {
     process.exit(1)
   }
 } else {
+  installFatalExitHandlers() // R65-41：fatal 兜底（仅真实 utility 形态）
   runUtilityEntry(parentPort, parseServerArgs(process.argv))
 }

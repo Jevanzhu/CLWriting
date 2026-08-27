@@ -406,9 +406,20 @@ function coerceIssue(raw: unknown, fallbackLens: ReviewLens): ReviewIssue | null
   const category = String(o['category'] ?? '')
   if (!isReviewSeverity(severity) || !isReviewCategory(category)) return null
   const location = String(o['location'] ?? '').trim()
-  const evidence = Array.isArray(o['evidence'])
-    ? (o['evidence'] as unknown[]).map((e) => String(e))
-    : typeof o['evidence'] === 'string' ? [String(o['evidence'])] : []
+  // R65-18（十三轮）：evidence 数组项仅接受 string/number（按原语义 String() 收敛）——
+  // 宿主回写 evidence:[{}] 时 String({}) 得非空 "[object Object]"，对象壳穿透
+  // 「空 evidence 的 issue 不成立」硬闸；含其他类型项 → 整条判格式不符走 bad_entries
+  let evidence: string[]
+  if (Array.isArray(o['evidence'])) {
+    for (const e of o['evidence'] as unknown[]) {
+      if (typeof e !== 'string' && typeof e !== 'number') return null
+    }
+    evidence = (o['evidence'] as unknown[]).map((e) => String(e))
+  } else if (typeof o['evidence'] === 'string') {
+    evidence = [String(o['evidence'])]
+  } else {
+    evidence = []
+  }
   const lensRaw = String(o['lens'] ?? fallbackLens)
   const lens: ReviewLens = isReviewLens(lensRaw) ? lensRaw : fallbackLens
   return {

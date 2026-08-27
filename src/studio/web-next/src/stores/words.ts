@@ -27,9 +27,19 @@ export const useWordsStore = defineStore('words', () => {
 
   /** 打开书 / save 后刷新：GET baseline + delta；baseline 缺 → 记当前已写为基线。需 tree.load 后调。 */
   let reqGen = 0
+  let loadedFor: string | null = null
   async function ensureBaseline(name: string): Promise<void> {
     // RB-FE-P2-5：请求代守卫——切书后旧书慢响应不污染今日字数基线（后调者胜）
     const gen = ++reqGen
+    // R65-49（E-1）：切书入口清态——tree.totalWords 已是新书而 baseline/delta 还是旧书时，
+    // 回退式「当前已写 - 基线」拿两本书的数互减出脏值；同书 save 刷新不清，避免闪 0
+    if (loadedFor !== name) {
+      loadedFor = name
+      date.value = null
+      baseline.value = null
+      todayDelta.value = null
+      ready.value = false
+    }
     try {
       const r = await getWordsDiary(name)
       if (gen !== reqGen) return
@@ -46,6 +56,10 @@ export const useWordsStore = defineStore('words', () => {
       }
     } catch {
       if (gen !== reqGen) return
+      // R65-49（E-1）：失败降级须一并清 delta——否则旧书/上次成功的 delta 残留且
+      // 优先级高于 baseline 回退，今日字数显示的是别人（旧书）的增量
+      todayDelta.value = null
+      date.value = null
       baseline.value = tree.totalWords // 失败降级：今日 0
     } finally {
       if (gen === reqGen) ready.value = true

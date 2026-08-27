@@ -88,7 +88,15 @@ export function readCharacterCards(dirPath: string, bookRoot: string): Character
       }
     } else {
       // 降级:无 front matter(旧自由 MD),姓名=文件名,正文=全文
-      const text = readFileSync(fp, 'utf8')
+      // R65-32（第六十五轮）：降级分支的二次裸读此前必然再抛（无 fm 与读盘失败混在
+      // 同一 else——stat 缓存 miss 后重读盘的 EACCES/TOCTOU 直穿整目录读取）——
+      // 包 try/catch 失败跳过该卡，与本函数其余 per-file 容错口径一致
+      let text: string
+      try {
+        text = readFileSync(fp, 'utf8')
+      } catch {
+        continue
+      }
       card = {
         file: normalizeProjectPath(relative(bookRoot, fp)),
         姓名: basename(f, '.md'),

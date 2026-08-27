@@ -121,3 +121,27 @@ describe('createSseWriter / R64-26 连续滞留次数判死（仅心跳存活的
     expect(res.destroyCount).toBe(0)
   })
 })
+
+// R65-42（总六十五轮）：字节闸按 UTF-8 实际字节计——原 chunk.length 是 UTF-16 码元
+// 数，中文事件实际滞留约为计数 3 倍（1MB 阈值实际放行 ~3MB）。
+describe('createSseWriter / R65-42 字节闸按 UTF-8 字节计（中文流不再漏判）', () => {
+  it('中文滞留：码元数不过阈但字节数超阈 → destroy（修复前 chunk.length=1/字 漏判）', () => {
+    const res = fakeRes(false)
+    const w = createSseWriter(res, 200) // 阈值 200 字节
+    const chunk = '中'.repeat(100) // 100 码元（旧口径 ≤ 200 不判死）/ 300 UTF-8 字节
+    expect(Buffer.byteLength(chunk, 'utf8')).toBe(300)
+    w(chunk)
+    expect(res.destroyCount).toBe(1) // 字节口径：300 > 200 → 判死
+    expect(res.destroyed).toBe(true)
+  })
+
+  it('混合内容按真实字节累计（跨调用累加口径不变）', () => {
+    const res = fakeRes(false)
+    const w = createSseWriter(res, 100)
+    w('a'.repeat(40)) // 40 字节
+    w('中'.repeat(20)) // +60 码元 / +60 字节 → 累计 100 字节 = 阈值，不超
+    expect(res.destroyCount).toBe(0)
+    w('中'.repeat(1)) // +3 字节 → 103 > 100
+    expect(res.destroyCount).toBe(1)
+  })
+})

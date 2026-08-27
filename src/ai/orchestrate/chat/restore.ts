@@ -21,7 +21,10 @@ export interface ChatSeqLedger {
   msgSeqs: number[][]
   /** 本回合待换算的批内序号（number=单事件，number[]=合成一条消息的多个事件） */
   pendingMsgSeqs: Array<number | number[]>
-  commitPendingMsgSeqs(range: { first: number; last: number } | null): void
+  /** R65-23（十三轮）：range.seqs 携带 flush 返回的批内逐事件真实 seq——换算直索引
+   *  seqs[idx]，不再 range.first + idx 区间算术反推（批内 seq 不连续（触发器/第二
+   *  连接插行）时遮蔽区间整体错位）；null 语义不变（A7 清 pending 补 []） */
+  commitPendingMsgSeqs(range: { first: number; last: number; seqs: number[] } | null): void
 }
 
 export interface PreparedChatRun {
@@ -163,8 +166,10 @@ export function prepareChatRun(
         this.pendingMsgSeqs = []
         return
       }
+      // R65-23（十三轮）：直索引本批真实 seq（flush 已返回逐事件数组）——
+      // range.first + idx 算术在批内 seq 不连续（触发器/第二连接插行）时错映射遮蔽区间
       for (const idx of this.pendingMsgSeqs) {
-        this.msgSeqs.push(typeof idx === 'number' ? [range.first + idx] : idx.map((i) => range.first + i))
+        this.msgSeqs.push(typeof idx === 'number' ? [range.seqs[idx]!] : idx.map((i) => range.seqs[i]!))
       }
       this.pendingMsgSeqs = []
     },

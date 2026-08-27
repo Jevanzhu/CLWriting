@@ -86,6 +86,10 @@ watch(
     if (old !== undefined && old !== name) actions.resetInlineState()
     if (!name) return
     await tree.load(name, true) // 切书：重扫盘（上次会话期间盘上可能被外部改过）
+    // R65-56（E-8）：load 在途切书守卫——A 书慢 load 落定时书名已换 B，后续 set
+    // treeExpanded（按落定时的 grouped 算默认展开）与 ensureBaseline('A')（words 的
+    // reqGen 后调者胜——A 反客为主覆盖 B 的今日字数）都会打到 B 头上
+    if (props.bookName !== name) return
     // 首次打开（无持久化展开状态）→ 一级目录 + 写作/正文
     if (ws.treeExpanded.length <= 1) {
       ws.treeExpanded = defaultExpandedDirs(tree.grouped)

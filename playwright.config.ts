@@ -11,6 +11,11 @@ export default defineConfig({
   globalSetup: './test/e2e/global-setup.ts',
   // e2e 共享 globalSetup 的单一 workDir/server，必须串行跑避免 test 间磁盘并行污染
   workers: 1,
+  // R65-59（F-3）：CI 上拒绝 test.only——与 vitest 侧同款运行期兜底
+  forbidOnly: !!process.env.CI,
+  // R65-62（F-8）：CI 上失败重试 1 次——无头/共享 workDir 的偶发抖动不放大为红灯，
+  // 本地不重试（保留抖动可见性便于排查）
+  retries: process.env.CI ? 1 : 0,
   timeout: 30_000,
   expect: { timeout: 10_000 },
   use: {

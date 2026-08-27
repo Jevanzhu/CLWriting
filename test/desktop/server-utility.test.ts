@@ -52,7 +52,7 @@ vi.mock('../../src/desktop/graceful-shutdown.js', () => ({
   },
 }))
 
-import { runUtilityEntry } from '../../src/desktop/server-utility.js'
+import { runUtilityEntry, installFatalExitHandlers } from '../../src/desktop/server-utility.js'
 
 /** parentPort 假件：MessageEvent 包裹形状（消息在 e.data） */
 class FakeParentPort {
@@ -184,6 +184,61 @@ describe('P3：无 parentPort 探针区分（vitest 测试态 vs 误用直跑）
     } finally {
       errSpy.mockRestore()
       exitSpy.mockRestore()
+    }
+  })
+})
+
+// R65-41（总六十五轮）：顶层 fatal 兜底——unhandledRejection / uncaughtException 经
+// stdout 日志通道记 error 后 process.exit(1)（记日志后主动退出，交给 restart 退避）。
+// vitest import 态（无 parentPort）不注册：防测试 worker 的无关 rejection 触发 exit。
+describe('R65-41：installFatalExitHandlers（fatal 记日志后 exit(1)）', () => {
+  it('两个 handler 各自：log.error 留痕（tag=server-utility）+ process.exit(1)', () => {
+    const captured: Record<string, (reasonOrErr: unknown) => void> = {}
+    const onSpy = vi
+      .spyOn(process, 'on')
+      .mockImplementation(((evt: string, fn: (a: unknown) => void) => {
+        if (evt === 'uncaughtException' || evt === 'unhandledRejection') captured[evt] = fn
+        return process
+      }) as never)
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never)
+    // log 未 init 时为 console 镜像（emit error 级走 console.error）
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      installFatalExitHandlers()
+      expect(captured['uncaughtException']).toBeTruthy()
+      expect(captured['unhandledRejection']).toBeTruthy()
+
+      const boom = new Error('异步炸了')
+      captured['unhandledRejection']!(boom)
+      expect(exitSpy).toHaveBeenCalledWith(1)
+      // log 未 init 时 console.error 镜像一行 `[tag] msg` + err——断言首参含 tag 与事件名
+      expect(
+        errSpy.mock.calls.some(([line]) => String(line).includes('server-utility') && String(line).includes('unhandledRejection')),
+      ).toBe(true)
+
+      exitSpy.mockClear()
+      errSpy.mockClear()
+      captured['uncaughtException']!(boom)
+      expect(exitSpy).toHaveBeenCalledWith(1)
+      expect(
+        errSpy.mock.calls.some(([line]) => String(line).includes('server-utility') && String(line).includes('uncaughtException')),
+      ).toBe(true)
+    } finally {
+      onSpy.mockRestore()
+      exitSpy.mockRestore()
+      errSpy.mockRestore()
+    }
+  })
+
+  it('vitest import 态不注册 fatal handler（无 parentPort 分支不接线）', async () => {
+    const onSpy = vi.spyOn(process, 'on').mockImplementation((() => process) as never)
+    try {
+      vi.resetModules()
+      await import('../../src/desktop/server-utility.js')
+      const fatalEvents = onSpy.mock.calls.filter(([evt]) => evt === 'uncaughtException' || evt === 'unhandledRejection')
+      expect(fatalEvents).toEqual([]) // 测试态 import 不注册（不杀 worker）
+    } finally {
+      onSpy.mockRestore()
     }
   })
 })

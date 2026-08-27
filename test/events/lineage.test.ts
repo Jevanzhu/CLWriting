@@ -210,7 +210,7 @@ describe('F1-P3 SessionRecorder sourceSeqs 批内 → 全局', () => {
       const revisionIdx = rec.add(revisionRefEvent({ chapter: 2, revision: 'r2', path: '写作/正文/2.md' })) // 批内 2 → 6
       rec.add(assistantMessageEvent('ok', undefined, undefined, [settingsIdx, revisionIdx])) // 批内 3 → 7
       const range = rec.flush()!
-      expect(range).toEqual({ first: 4, last: 7 })
+      expect(range).toEqual({ first: 4, last: 7, seqs: [4, 5, 6, 7] }) // R65-23：flush 透出批内真实 seq
 
       const evs = store.listEvents('l')
       const asst = evs.find((e) => e.type === 'assistant/message')!

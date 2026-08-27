@@ -142,7 +142,7 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
 
       const bookRoot = r.bookRoot
       // 聚合逻辑已下沉内核（P1-8）：扫正文 + 机检 + verdict 驳回，返回只有 issue 的 docId
-      const { issues, rebuildFailed, leadsBookDegraded } = collectTreeIssues(bookRoot, (docId) => {
+      const { issues, rebuildFailed, leadsBookDegraded, chaptersDegraded } = collectTreeIssues(bookRoot, (docId) => {
         const reviewEnv = readAnalysis(bookRoot, docId, 'review')
         const v = (reviewEnv?.payload as { verdict?: { approved: boolean } } | undefined)?.verdict
         return v ?? undefined
@@ -154,6 +154,8 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
         // 此前静默降级为「无红」，持续性失败期间漏红不可见）
         ...(rebuildFailed ? { warning: '机检索引构建失败，仅显示审稿驳回红点' } : {}),
         ...(leadsBookDegraded ? { warning: '账本全书性红项本轮计算失败，账本红点可能缺失' } : {}),
+        // R65-5（十三轮）：单章机检失败随响应 warning（第三种降级形态，此前零提示）
+        ...(chaptersDegraded > 0 ? { warning: `${chaptersDegraded} 个章节本轮机检失败，对应红点可能缺失` } : {}),
       })
     },
   })

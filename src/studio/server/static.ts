@@ -45,6 +45,12 @@ export function createStaticHandler(rootDir: string) {
     // dd-P3：静态面仅放行 GET/HEAD——POST/PUT 到非 /api 路径此前照常回文件/SPA
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       // hh §八-12：错误信封统一 {code,error}（原裸文本 'Method Not Allowed'）
+      // R65-47（总六十五轮）：405 分支同样在 finish 后排空未消费请求体——写方法打到
+      // 非 /api 路径时 handler 不读 body 也不 resume，keep-alive 连接因 body 滞留
+      // 被弃（与 index.ts /api 分支 R64-28 同口径）
+      res.on('finish', () => {
+        if (!req.readableEnded) req.resume()
+      })
       replyError(res, 405, 'BAD_INPUT', 'Method Not Allowed')
       return
     }

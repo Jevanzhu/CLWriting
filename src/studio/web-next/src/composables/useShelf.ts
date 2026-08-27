@@ -51,9 +51,12 @@ export function onCardMove(e: MouseEvent): void {
 /**
  * 书架共享状态：分组 + 视图模式 + 建书表单。
  * onCreated 回调在建书成功后调用，由外壳处理跳转（路由 / IPC / 关浮层）。
+ * onDeleted 回调在删除成功后调用（R65-54/E-6：ShelfModal 内删掉当前打开的书时，
+ * 外壳借它导航离开死路由 /book/:name——留在原地则后续所有 API 全 404）。
  */
 export function useShelf(options?: {
   onCreated?: (name: string) => void
+  onDeleted?: (names: string[]) => void
 }) {
   const shelf = useShelfStore()
 
@@ -202,6 +205,7 @@ export function useShelf(options?: {
       selected.value = new Set()
       batchMode.value = false
       await shelf.load()
+      options?.onDeleted?.(names)
     } catch (e) {
       // 删除失败：保留弹窗 + 显示错误，用户可重试或取消
       deleteError.value = friendlyError(e)

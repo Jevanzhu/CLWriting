@@ -26,6 +26,7 @@ import {
   deleteRagMeta,
   l2Norm,
   float32ToBuffer,
+  ensureNormColumn,
 } from '../../src/rag/store.js'
 import { writeChapter } from '../helpers/chapter.js'
 import type { ChapterMeta } from '../../src/format/types.js'
@@ -233,6 +234,42 @@ describe('A3 预存范数与迁移', () => {
       expect(chunks[0]!.norm).toBeCloseTo(5, 6)
       expect(readAllChapterFingerprints(db).size).toBe(0)
     } finally {
+      db.close()
+    }
+  })
+
+  // R65-13（总六十五轮）：去掉「每次 open 都 COUNT 全表」判存在 + 回填事务改
+  // BEGIN IMMEDIATE（与 commitIndexBatch 口径一致）
+  it('R65-13: norm 齐全 → 零写事务（无 BEGIN，不再 COUNT 全表）；有 NULL 行 → BEGIN IMMEDIATE 回填', () => {
+    const db = new DatabaseSync(':memory:')
+    db.exec(`CREATE TABLE chunks (
+      id INTEGER PRIMARY KEY, 章号 INTEGER NOT NULL, start_offset INTEGER NOT NULL,
+      end_offset INTEGER NOT NULL, embedding BLOB NOT NULL, model TEXT NOT NULL, indexed_at TEXT NOT NULL,
+      norm REAL)`)
+    db.exec(`CREATE TABLE rag_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`)
+    db.prepare('INSERT INTO chunks (章号, start_offset, end_offset, embedding, model, indexed_at, norm) VALUES (1, 0, 10, ?, ?, ?, ?)').run(float32ToBuffer(Float32Array.from([3, 4])), 'm', new Date().toISOString(), 5)
+    const execSpy = vi.spyOn(db, 'exec')
+    const prepareSpy = vi.spyOn(db, 'prepare')
+    const countScans = (): number => prepareSpy.mock.calls.map((c) => String(c[0])).filter((s) => s.includes('COUNT')).length
+    try {
+      // norm 全在位 → 只读自检，不开写事务（旧实现也进 COUNT 全表扫描）
+      ensureNormColumn(db)
+      expect(execSpy.mock.calls.map((c) => String(c[0])).filter((s) => s.includes('BEGIN'))).toHaveLength(0)
+      expect(countScans()).toBe(0) // 不再先 COUNT 判存在（直接 SELECT NULL 行）
+      // 制造 NULL 行 → 回填，且事务形态是 BEGIN IMMEDIATE（非 deferred BEGIN）
+      db.prepare('UPDATE chunks SET norm = NULL').run()
+      execSpy.mockClear()
+      ensureNormColumn(db)
+      expect(execSpy.mock.calls.map((c) => String(c[0])).filter((s) => s.startsWith('BEGIN'))).toEqual(['BEGIN IMMEDIATE'])
+      expect(countScans()).toBe(0)
+      expect((db.prepare('SELECT norm FROM chunks').get() as { norm: number }).norm).toBeCloseTo(5, 6)
+      // 幂等：再跑一次回到零写分支
+      execSpy.mockClear()
+      ensureNormColumn(db)
+      expect(execSpy.mock.calls.map((c) => String(c[0])).filter((s) => s.startsWith('BEGIN'))).toEqual([])
+    } finally {
+      prepareSpy.mockRestore()
+      execSpy.mockRestore()
       db.close()
     }
   })

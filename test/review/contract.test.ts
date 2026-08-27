@@ -18,7 +18,8 @@ test('buildReviewTasks: 三审任务书固定三视角，账本清单只进入�
     },
   }
 
-  const tasks = buildReviewTasks(report)
+  // R65-26：默认 hasWiring:false——长篇三视角须显式传参（此前缺省凭空带 continuity）
+  const tasks = buildReviewTasks(report, { hasWiring: true, hasShort: false })
 
   expect(tasks.map((task) => task.lens)).toEqual(['reader', 'editor', 'continuity'])
   expect(tasks.every((task) => task.must_run)).toBe(true)

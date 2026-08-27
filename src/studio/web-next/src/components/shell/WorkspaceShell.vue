@@ -129,7 +129,8 @@ onUnmounted(() => {
         >
           退出专注
         </button>
-        <!-- 专注排版浮动条：右缘竖状常驻（半透明，hover 加深），字号/行距/纸宽/字体所见即所得；
+        <!-- 专注排版浮动条：贴纸张右缘竖状常驻（半透明，hover 加深；窄窗回落窗口右缘，
+             定位见 FocusFormatBar 样式注释），字号/行距/纸宽/字体所见即所得；
              仅编辑器视图渲染（排版只对编辑区有意义，ChatDock 同款条件式先例） -->
         <FocusFormatBar v-if="ws.focusMode && ws.activeView === 'editor'" />
         <!-- 对话助手 dock B（开关默认关闭，开启时底部可折叠面板；工作台视图有对话 tab，不叠 dock） -->

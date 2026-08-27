@@ -12,9 +12,18 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, utimesSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { spawnSync } from 'node:child_process'
 import { sweepAbandonedTmpFiles } from '../../src/fs/atomic.js'
 import { extractEvidenceCore, evidenceNeedles } from '../../src/check/leads.js'
 import { leadEvidenceMatchesBody } from '../../src/check/lead-updates.js'
+
+/** R65-37：确定性死 pid——起一个立即退出的子进程取其 pid（原先硬编码 12345 在
+ *  pid 恰被占用的机器上会被存活探测判「在途」导致用例随机红）。 */
+function deadPid(): number {
+  const r = spawnSync(process.execPath, ['-e', 'process.exit(0)'])
+  const pid = r.pid ?? 0
+  return pid > 0 ? pid : 999_999 // spawn 失败兜底：极高位 pid 几乎必死
+}
 
 let root: string
 beforeEach(() => {
@@ -71,8 +80,9 @@ describe('R63-8: evidenceNeedles 多候选针串（任一命中即算）', () =>
 describe('Y-24: sweepAbandonedTmpFiles', () => {
   it('超龄 tmp 被清、年轻 tmp 与非 tmp 文件不动', () => {
     mkdirSync(join(root, '写作'), { recursive: true })
-    const old = join(root, '.ai-calls.json.12345.aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.tmp')
-    const young = join(root, '写作', '.manifest.jsonl.12345.aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.tmp')
+    const old = join(root, `.ai-calls.json.${deadPid()}.aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.tmp`)
+    // 年轻 tmp 放子目录：同时覆盖递归扫 + 年龄门（pid 已死，纯靠年轻保护）
+    const young = join(root, '写作', `.manifest.jsonl.${deadPid()}.aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.tmp`)
     const normal = join(root, '正文.md')
     writeFileSync(old, 'x')
     writeFileSync(young, 'x')
@@ -84,5 +94,21 @@ describe('Y-24: sweepAbandonedTmpFiles', () => {
     expect(existsSync(old)).toBe(false)
     expect(existsSync(young)).toBe(true)
     expect(existsSync(normal)).toBe(true)
+  })
+
+  // R65-37（第六十五轮）：tmp 命名自带 pid 段——pid 存活 = 他进程在途写（CLI/GUI
+  // 双进程长时间大文件写会超 5 分钟年龄门），永不清；死 pid 才交年龄门清走。
+  it('R65-37: pid 仍存活的超龄 tmp 不清（双进程在途保护）；死 pid 的超龄 tmp 照清', () => {
+    const alive = join(root, `.大产物.md.${process.pid}.aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.tmp`)
+    const dead = join(root, `.大产物2.md.${deadPid()}.aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.tmp`)
+    writeFileSync(alive, '在途')
+    writeFileSync(dead, '残留')
+    const now = Date.now()
+    utimesSync(alive, new Date(now - 30 * 60_000), new Date(now - 30 * 60_000)) // 远超年龄门
+    utimesSync(dead, new Date(now - 30 * 60_000), new Date(now - 30 * 60_000))
+    const removed = sweepAbandonedTmpFiles(root, { now })
+    expect(removed).toBe(1)
+    expect(existsSync(alive)).toBe(true) // 本进程 pid 存活 → 不清
+    expect(existsSync(dead)).toBe(false) // 死 pid 超龄 → 清
   })
 })

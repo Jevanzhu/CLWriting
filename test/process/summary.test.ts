@@ -7,7 +7,7 @@
  * 失败路径走「无 provider 且非 mock」的真实解析错误。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync, appendFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync, appendFileSync, chmodSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -344,6 +344,33 @@ describe('prepare 注入登记（模型可见 ⟺ 已记录，C1 红线）', () 
       expect(endings!.content).not.toContain('sourceHash:')
     } finally {
       db.close()
+    }
+  })
+})
+
+// ── R65-31（第六十五轮）：摘要文件读失败降级（权限/TOCTOU 不直穿自愈链）────────
+
+describe('R65-31: 摘要读失败降级', () => {
+  it('章摘要不可读（chmod 000 → EACCES）→ chapterSummaryState 按 missing、body 按 null，均不抛', () => {
+    const root = mkdtempSync(join(tmpdir(), 'clw-r65-31-'))
+    dirs.push(root)
+    try {
+      const bodyAbs = join(root, '写作', '正文', '1-第一章.md')
+      mkdirSync(join(root, '写作', '正文'), { recursive: true })
+      writeFileSync(bodyAbs, '---\n章号: 1\n标题: 第一章\n---\n正文。', 'utf-8')
+      const fp = chapterSummaryPath(root, 1)
+      mkdirSync(join(root, '定稿', '摘要', '章摘要'), { recursive: true })
+      writeFileSync(fp, '---\nchapter: 1\nsourceHash: sha256:x\n---\n\n情节推进。\n', 'utf-8')
+      chmodSync(fp, 0o000) // 自然故障注入（非 mock）：读盘 EACCES
+      try {
+        // 修复前：existsSync 通过后裸 readFileSync 直穿抛 EACCES
+        expect(chapterSummaryState(root, 1, bodyAbs)).toBe('missing')
+        expect(readChapterSummaryBody(root, 1)).toBeNull()
+      } finally {
+        chmodSync(fp, 0o644) // 还原权限供 afterEach 清理
+      }
+    } finally {
+      // dirs 清理由 afterEach 统一做
     }
   })
 })

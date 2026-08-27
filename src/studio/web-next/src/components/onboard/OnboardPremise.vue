@@ -25,7 +25,15 @@ watch(storyPremise, (v) => {
   }, 300)
 })
 onBeforeUnmount(() => {
-  if (premiseTimer) { clearTimeout(premiseTimer); premiseTimer = null }
+  if (premiseTimer) {
+    clearTimeout(premiseTimer)
+    premiseTimer = null
+    // R65-51（E-3）：卸载冲刷在途防抖——输入后 300ms 内离开本卡（切步/关页/前进）时
+    // 修复前最后一次编辑随定时器被清而丢弃，重进回退到旧值
+    try {
+      localStorage.setItem(PREMISE_KEY(props.bookName), storyPremise.value)
+    } catch { /* 隐私模式忽略 */ }
+  }
 })
 </script>
 

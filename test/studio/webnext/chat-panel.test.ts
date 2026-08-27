@@ -306,3 +306,52 @@ describe('ChatPanel: 清空（P1-4/P2-K）', () => {
     )
   })
 })
+
+// ── R65-50（E-2）：工具确认 404（调用已超时失效）→ 卡面置失败终态 ──
+
+describe('ChatMessages: 工具确认 404（R65-50）', () => {
+  it('confirmTool 404 → 卡片置 failed + 失效说明，确认按钮消失（修复前静默停留 pending）', async () => {
+    const chat = useChatStore()
+    chat.messages.push({
+      id: 'm1',
+      role: 'assistant',
+      content: '准备写章',
+      done: true,
+      tools: [{ callId: 'c404', name: 'write_chapter', input: {}, status: 'pending' }],
+    })
+    const { ApiError } = await import('../../../src/studio/web-next/src/api/client')
+    mocks.confirmTool.mockRejectedValueOnce(new ApiError('tool call expired', 404))
+    const w = mountPanel()
+    await nextTick()
+    const yes = w.find('.chat-confirm-yes')
+    expect(yes.exists()).toBe(true)
+    await yes.trigger('click')
+    await flushPromises()
+    const tool = (chat.messages[0] as { tools: Array<{ callId: string; status: string; summary?: string }> }).tools[0]!
+    expect(tool.status).toBe('failed')
+    expect(tool.summary).toContain('已失效')
+    // 确认按钮随 pending 终结消失，不再可反复点
+    expect(w.find('.chat-confirm-yes').exists()).toBe(false)
+  })
+
+  it('confirmTool 非 404 错误 → toast 报错，卡片维持 pending 可重试', async () => {
+    const chat = useChatStore()
+    chat.messages.push({
+      id: 'm1',
+      role: 'assistant',
+      content: '准备写章',
+      done: true,
+      tools: [{ callId: 'c500', name: 'write_chapter', input: {}, status: 'pending' }],
+    })
+    const { ApiError } = await import('../../../src/studio/web-next/src/api/client')
+    mocks.confirmTool.mockRejectedValueOnce(new ApiError('boom', 500))
+    const w = mountPanel()
+    await nextTick()
+    await w.find('.chat-confirm-yes').trigger('click')
+    await flushPromises()
+    const tool = (chat.messages[0] as { tools: Array<{ callId: string; status: string }> }).tools[0]!
+    expect(tool.status).toBe('pending')
+    const ui = useUiStore()
+    expect(ui.toasts.at(-1)?.kind).toBe('error')
+  })
+})

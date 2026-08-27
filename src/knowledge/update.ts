@@ -47,6 +47,18 @@ interface CorpusEntry {
   expect: 'fire' | 'silent'
 }
 
+/** R65-14（总六十五轮）：本地时区 ISO 时间戳（保持 `2026-08-27T12:00:00.000+08:00`
+ *  形态）——此前硬编码 +08:00（Date.now()+8h 再贴 +08:00 后缀），宿主机非 UTC+8 时
+ *  时刻与偏移双双错乱。现按 getTimezoneOffset() 实算偏移（该值西正东负，取负得东偏
+ *  分钟）；offsetMinutes 供测试注入（含负偏移形态），缺省取宿主真实偏移。 */
+export function localIsoTimestamp(ms: number = Date.now(), offsetMinutes: number = -new Date(ms).getTimezoneOffset()): string {
+  const sign = offsetMinutes < 0 ? '-' : '+'
+  const abs = Math.abs(offsetMinutes)
+  // 本地墙钟 = UTC 时刻 + 东偏 → ms 加偏移后取 toISOString 的日期时间部分再贴偏移
+  const wall = new Date(ms + offsetMinutes * 60_000).toISOString().replace('Z', '')
+  return `${wall}${sign}${String(Math.floor(abs / 60)).padStart(2, '0')}:${String(abs % 60).padStart(2, '0')}`
+}
+
 /** 扫语料回归域（<corpusDir>/*.json）：汇总各 checkId 的误报规律。无 silent 条目的 checkId 不出段。 */
 export function summarizeFalsePositives(corpusDir: string): FalsePositiveSummary[] {
   if (!existsSync(corpusDir)) return []
@@ -165,7 +177,8 @@ export function commitKnowledgeFile(projectRoot: string, opts: CommitKnowledgeOp
     ...(opts.note ? { note: opts.note } : {}),
   }
   manifest.entries = [...manifest.entries, entry]
-  manifest.generated_at = opts.now ?? new Date(Date.now() + 8 * 3600_000).toISOString().replace('Z', '+08:00')
+  // R65-14：generated_at 用真实本地时区偏移（此前硬编码 +08:00，见 localIsoTimestamp 注释）
+  manifest.generated_at = opts.now ?? localIsoTimestamp()
 
   atomicWriteFile(join(projectRoot, KNOWLEDGE_MANIFEST), JSON.stringify(manifest, null, 2) + '\n')
   return validateKnowledgeManifest(projectRoot)

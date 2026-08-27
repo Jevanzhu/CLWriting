@@ -18,7 +18,7 @@ import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 
-import { collectTreeIssues, __setLeadsBookDegradeForTest } from '../../src/check/run.js'
+import { collectTreeIssues, __setLeadsBookDegradeForTest, __setChapterCheckDegradeForTest } from '../../src/check/run.js'
 import { rebuild } from '../../src/cache/rebuild.js'
 import { checkLeadsBookItems } from '../../src/check/leads.js'
 import { readManifest, writeManifest, upsertEntry, type ManifestEntry } from '../../src/document/manifest.js'
@@ -262,6 +262,25 @@ describe('R62-5/R62-7：章文件定位单次建表 + 账本降级可见性', ()
       __setLeadsBookDegradeForTest(false)
       expect(degraded.leadsBookDegraded).toBe(true)
       expect(degraded.rebuildFailed).toBe(false) // 与 rebuildFailed 两口径独立可辨
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('R65-5：单章机检失败 → chaptersDegraded 计数透出（修复前 checkFailed 仅影响不落缓存，响应零提示）', () => {
+    const { root } = makeBook(true)
+    try {
+      // 先降级跑（冷缓存才走章级机检——失败不落缓存）；后健康跑验证口径复位
+      __setChapterCheckDegradeForTest(true)
+      const degraded = collectTreeIssues(root, () => undefined)
+      __setChapterCheckDegradeForTest(false)
+      // makeBook 造的章全部计入（>0 即透出；精确数由造书章数决定）
+      expect(degraded.chaptersDegraded).toBeGreaterThan(0)
+      expect(degraded.rebuildFailed).toBe(false)
+      expect(degraded.leadsBookDegraded).toBe(false) // 三种降级口径独立可辨
+
+      const healthy = collectTreeIssues(root, () => undefined)
+      expect(healthy.chaptersDegraded).toBe(0)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

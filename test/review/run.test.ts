@@ -386,3 +386,41 @@ test('collectReviewIssues: ledger_check 如实（无账本核对分包 → 跳�
     rmSync(workDir, { recursive: true, force: true })
   }
 })
+
+test('R65-18（批 B）：evidence:[{}] 对象壳穿透判格式不符；字符串证据照常成立', () => {
+  const workDir = mkdtempSync(join(tmpdir(), 'review-run-'))
+  try {
+    const packet = makeFullPacket(workDir)
+    mkdirSync(packet.out_dir, { recursive: true })
+    // continuity：一条 evidence 含对象项（修复前 String({})='[object Object]' 穿透空证据硬闸）、
+    // 一条合法字符串证据；reader/editor 空回收
+    writeFileSync(
+      join(packet.out_dir, lensIssuesFileName('continuity')),
+      JSON.stringify([
+        {
+          lens: 'continuity', severity: 'S2', category: 'logic', location: '第12章',
+          evidence: [{ fake: '字段' }], issue: '对象壳证据', fix: 'x',
+        },
+        {
+          lens: 'continuity', severity: 'S3', category: 'logic', location: '第12章',
+          evidence: ['前文无铺垫的突击反转'], issue: '正常字符串证据', fix: '补铺垫',
+        },
+      ]),
+      'utf-8',
+    )
+    writeFileSync(join(packet.out_dir, lensIssuesFileName('reader')), '[]', 'utf-8')
+    writeFileSync(join(packet.out_dir, lensIssuesFileName('editor')), '[]', 'utf-8')
+
+    const collected = collectReviewIssues({ packet })
+    // 对象壳条目 → bad_entries（非静默通过；reason 截 80 字符，按前缀匹配）
+    expect(collected.bad_entries.some((b) => b.reason.startsWith('issue 格式不符'))).toBe(true)
+    // 双向：合法字符串证据条目 → 正常归一化收录（blockers/warnings 按严重级分桶）；对象壳不出现
+    const allNormalized = [...collected.normalized.blockers, ...collected.normalized.warnings, ...collected.normalized.invalid_issues]
+    expect(allNormalized.some((i) => i.issue === '正常字符串证据')).toBe(true)
+    expect(allNormalized.some((i) => i.issue === '对象壳证据')).toBe(false)
+    // 收录数口径：3 回收、0 缺失
+    expect(collected.missing_lenses).toHaveLength(0)
+  } finally {
+    rmSync(workDir, { recursive: true, force: true })
+  }
+})

@@ -126,12 +126,35 @@ function extractDegraded(data: unknown): boolean {
   return typeof data === 'object' && data !== null && (data as Record<string, unknown>)['degraded'] === true
 }
 
-/** O-6（第十三轮）：降级回调已注册的 userDataPath——同 path 幂等跳过重复注册 */
-let degradedRegisteredPath: string | null = null
+/** R65-6（总六十五轮）：降级回调注册记录由模块级单值改 Map（key=userDataPath）——
+ *  同进程先后以两个 userDataPath 各建 provider 时，后注册者不再覆盖前者的降级
+ *  持久化回调（旧 provider 触发 persistDegraded 会读写另一个配置目录的 providers.json）。
+ *  各 path 的回调闭包常驻 Map、只建一次；store 单槽承载稳定分发器（模块级函数引用，
+ *  重装幂等），按最近 resolve 的 userDataPath 路由——适配器的 persistDegraded/
+ *  lookupDegraded 通道无 path 维度，进程内口径 = 活跃库优先（与 T2 降级标记键
+ *  生命周期同口径）。 */
+const degradedPersistByPath = new Map<string, (key: string) => void>()
+const degradedLookupByPath = new Map<string, (key: string) => boolean | undefined>()
+let degradedActivePath: string | null = null
+
+/** 测试探针：R65-6 各 userDataPath 降级持久化回调注册表只读视图（验证两 path 并存
+ *  互不覆盖；生产零调用，与 degradedPersistedKeysForTest 同款口径） */
+export function degradedPersistCallbacksForTest(): ReadonlyMap<string, (key: string) => void> {
+  return degradedPersistByPath
+}
+
+/** R65-6：store 单槽里的稳定分发器——路由到活跃 path 的回调（重装传同一函数引用） */
+function degradedPersistDispatch(key: string): void {
+  if (degradedActivePath !== null) degradedPersistByPath.get(degradedActivePath)?.(key)
+}
+
+function degradedLookupDispatch(key: string): boolean | undefined {
+  return degradedActivePath !== null ? degradedLookupByPath.get(degradedActivePath)?.(key) : undefined
+}
 
 /** 注册降级记忆双通道回调（persist 落盘 + lookup 新鲜读），见 resolveProvider 注释。 */
 function registerDegradedCallbacks(userDataPath: string): void {
-  registerDegradedPersist((key) => {
+  degradedPersistByPath.set(userDataPath, (key) => {
     // AA-P3-5：W-P2-9 的「只写一次」升为 per-key 内存标记——同 path 同 key 只写一次
     // （load→改→save 的读改写窗口在多书并发 400 时可互相覆盖丢他键；标记命中即跳过，
     //  写频降到每 key 一次）。失败不标记 → 下次 persistDegraded 自动重试。
@@ -149,10 +172,14 @@ function registerDegradedCallbacks(userDataPath: string): void {
   })
   // D2：降级记忆新鲜读——适配器实例缓存（registry settings hash）后不再依赖
   // 创建时捕获的 store 快照；loadProviders 有 mtime 缓存，高频 stream 代价可忽略
-  registerDegradedLookup((key) => {
+  degradedLookupByPath.set(userDataPath, (key) => {
     const s = loadProviders(userDataPath)
     return s.modelCaps[key]?.structured === false ? true : undefined
   })
+  // R65-6：分发器随注册重装（同一模块级函数引用——幂等；resetDegradedChannels 清槽
+  // 后下一次 resolve 也能重新接上，不因「装过即跳过」脱钩）
+  registerDegradedPersist(degradedPersistDispatch)
+  registerDegradedLookup(degradedLookupDispatch)
 }
 
 /**
@@ -166,9 +193,11 @@ export function resolveProvider(
   if (!userDataPath) return { ok: false, code: 'NO_USERDATA', error: NO_USERDATA_MSG }
   // 注册降级记忆落盘回调（适配器只改内存 clone，落盘经 store 模块转发）。
   // O-6（第十三轮）：注册幂等化——同 userDataPath 只注册一次（此前每次 resolveProvider
-  // 都重设槽位换新闭包；单槽无泄漏但属热路径重复功），换 path 才重注册
-  if (degradedRegisteredPath !== userDataPath) {
-    degradedRegisteredPath = userDataPath
+  // 都重设槽位换新闭包；单槽无泄漏但属热路径重复功），换 path 才重注册。
+  // R65-6（总六十五轮）：注册记录单值 → Map——换 path 重注册时旧 path 的回调不再被
+  // 覆盖丢失（Map 常驻两 path 各自的闭包，store 槽只换稳定分发器）
+  if (degradedActivePath !== userDataPath) {
+    degradedActivePath = userDataPath
     pruneDegradedKeys(userDataPath)
     registerDegradedCallbacks(userDataPath)
   }
@@ -278,6 +307,10 @@ export async function runTask<T>(opts: {
 }): Promise<TaskResult<T>> {
   const runId = newRunId()
   const startMs = Date.now()
+  // R65-12（总六十五轮）：llm/call 的 durationMs 只记本 attempt LLM 调用时长——此前为
+  // 跨 attempt 累计值（含此前失败 attempt + 退避 sleep），重试链的时延/计费统计失真；
+  // 每次 attempt 调 run 前重置（trace-stats 百分位 / 计费消费方口径随之校正）
+  let attemptStartMs = startMs
   const tierKind = opts.tierKind ?? 'creative'
   const bookRoot = opts.bookRoot
   const task = opts.task
@@ -316,7 +349,7 @@ export async function runTask<T>(opts: {
         attempt: p.attempt,
         stopReason: p.stopReason,
         usage: p.usage ? toTraceUsage(p.usage) : undefined,
-        durationMs: Date.now() - startMs,
+        durationMs: Date.now() - attemptStartMs, // R65-12：本 attempt 口径（见声明处注释）
         ok: p.ok,
         ...(p.errCode ? { errCode: p.errCode } : {}),
         ...(opts.promptText
@@ -441,6 +474,7 @@ export async function runTask<T>(opts: {
   try {
     for (let attempt = 0; ; attempt++) {
       try {
+        attemptStartMs = Date.now() // R65-12：每次 attempt 的 LLM 调用起点（不含上一轮退避）
         const data = await opts.run(r.provider, ctrl.signal, r.tier)
         // O-5（第十三轮）：run 已 resolve 但 abort 恰在返回边界到达（外部中断 / 总超时
         // 定时器竞态）——按中断/超时口径收口，不把「成功」契约让给可能被截断的流；

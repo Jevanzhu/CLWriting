@@ -243,6 +243,12 @@ export function createOpenAIResponsesProvider(
             // （P2 复审：声明在 attempt 循环内每次新建——mid-stream 400 降级续跑时，
             // 上一 attempt 的半截拼装不得泄入下一 attempt（对齐 openai-adapter 结构））
             const toolAccum = new Map<string, { callId: string; name: string; args: string }>()
+            // R65-10（总六十五轮）：缺 item_id 的 delta 兜底聚合（与 R65-9 同族）——此前
+            // 并入同一空键会把多个调用的参数串调；改自增兜底键 + FIFO 队列：
+            // output_item.done 按流式序认领队头（Responses 流中项的 added→delta→done
+            // 顺序相邻，队头即当前项），续片归并最近兜底键
+            let idxlessSeq = 0
+            const idxlessQueue: string[] = []
 
             // ── R1 事件循环：终止事件契约 ──
             // 流必须以 completed / incomplete / failed 之一收尾；无终止事件 = 传输截断。
@@ -264,9 +270,21 @@ export function createOpenAIResponsesProvider(
                   break
                 }
                 case 'response.function_call_arguments.delta': {
-                  const acc = toolAccum.get(event.item_id) ?? { callId: '', name: '', args: '' }
+                  // R65-10：key 决策——有 item_id 原样；缺失时续片归并最近兜底键
+                  //（其 accum 仍在），否则开新自增兜底键入队（供 done 按序认领）
+                  const lastPending = idxlessQueue.length > 0 ? idxlessQueue[idxlessQueue.length - 1]! : undefined
+                  let key: string
+                  if (typeof event.item_id === 'string' && event.item_id !== '') {
+                    key = event.item_id
+                  } else if (lastPending !== undefined && toolAccum.has(lastPending)) {
+                    key = lastPending
+                  } else {
+                    key = `no-item-id-${++idxlessSeq}`
+                    idxlessQueue.push(key)
+                  }
+                  const acc = toolAccum.get(key) ?? { callId: '', name: '', args: '' }
                   if (event.delta) acc.args += event.delta
-                  toolAccum.set(event.item_id, acc)
+                  toolAccum.set(key, acc)
                   break
                 }
                 case 'response.output_item.done': {
@@ -274,11 +292,19 @@ export function createOpenAIResponsesProvider(
                   if (item.type === 'function_call') {
                     // P1-S5：done 之前直接 yield tool（probe break-on-done 语义）
                     const itemId = item.id ?? item.call_id ?? ''
-                    const acc = toolAccum.get(itemId) ?? { callId: '', name: '', args: '' }
+                    // R65-10：直接键未命中（delta 缺 item_id 走了兜底键）→ FIFO 队列
+                    // 按流式序认领队头
+                    let accKey = itemId
+                    let acc = toolAccum.get(itemId)
+                    if (!acc && idxlessQueue.length > 0) {
+                      accKey = idxlessQueue.shift()!
+                      acc = toolAccum.get(accKey)
+                    }
+                    if (!acc) acc = { callId: '', name: '', args: '' }
                     acc.callId = item.call_id ?? itemId
                     acc.name = item.name
                     acc.args = acc.args || item.arguments || ''
-                    toolAccum.delete(itemId)
+                    toolAccum.delete(accKey)
                     let input: unknown
                     try {
                       input = acc.args ? JSON.parse(acc.args) : {}

@@ -71,8 +71,12 @@ async function handleConfirm(callId: string, ok: boolean): Promise<void> {
   try {
     await confirmTool(props.bookName, { callId, ok })
   } catch (e) {
-    // 404 = 工具调用已超时，静默忽略；其他错误提示作者
-    if (e instanceof ApiError && e.status === 404) return
+    if (e instanceof ApiError && e.status === 404) {
+      // R65-50（E-2）：404 = 工具调用已超时失效——修复前静默 return，卡面停留 pending、
+      // 确认按钮可反复点但服务端早已丢弃，作者无任何反馈。置失败终态给可见交代
+      chat.updateTool(callId, { status: 'failed', summary: '确认已超时：该工具调用已失效' })
+      return
+    }
     ui.toast('确认请求失败，请重试', 'error')
   } finally {
     confirmingCallId.value = null

@@ -14,6 +14,7 @@ import {
   renderFalsePositiveDraft,
   writeFalsePositiveDraft,
   commitKnowledgeFile,
+  localIsoTimestamp,
 } from '../../src/knowledge/update.js'
 import { hashFileSha256, validateKnowledgeManifest } from '../../src/knowledge/manifest.js'
 
@@ -176,6 +177,45 @@ describe('知识层更新：commit 登记', () => {
       const m = JSON.parse(readFileSync(join(root, '知识层', '_manifest.json'), 'utf8'))
       expect(m.entries).toHaveLength(1)
       expect(readFileSync(join(root, '库外定稿.md'), 'utf8')).toBe('# 库外\n')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+// ── R65-14（总六十五轮）：generated_at 真实时区偏移（去硬编码 +08:00） ──
+describe('R65-14：本地时区 ISO 时间戳', () => {
+  const ISO_WITH_OFFSET = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{2}:\d{2}$/
+
+  it('localIsoTimestamp：注入偏移的形态（正/负/半小时）与墙钟换算正确', () => {
+    // UTC+8（旧口径的宿主形态，保持 2026-08-27T12:00:00.000+08:00 形态不变）
+    expect(localIsoTimestamp(Date.UTC(2026, 7, 27, 4, 0, 0, 123), 480)).toBe('2026-08-27T12:00:00.123+08:00')
+    // UTC-5（负偏移形态：-05:00；墙钟 = UTC - 5h）
+    expect(localIsoTimestamp(Date.UTC(2026, 7, 27, 2, 0, 0, 0), -300)).toBe('2026-08-26T21:00:00.000-05:00')
+    // UTC+5:30（半小时偏移：+05:30）
+    expect(localIsoTimestamp(Date.UTC(2026, 7, 27, 0, 0, 0, 0), 330)).toBe('2026-08-27T05:30:00.000+05:30')
+    // UTC+0 → +00:00（不再伪装 Z）
+    expect(localIsoTimestamp(Date.UTC(2026, 7, 27, 0, 0, 0, 0), 0)).toBe('2026-08-27T00:00:00.000+00:00')
+  })
+
+  it('缺省偏移取宿主真实时区且形态合法（含负偏移形态的正则）', () => {
+    const ts = localIsoTimestamp(Date.UTC(2026, 7, 27, 4, 0, 0, 0))
+    expect(ts).toMatch(ISO_WITH_OFFSET)
+    // 与注入宿主偏移的调用一致（缺省 = -getTimezoneOffset()）
+    expect(ts).toBe(localIsoTimestamp(Date.UTC(2026, 7, 27, 4, 0, 0, 0), -new Date(Date.UTC(2026, 7, 27, 4, 0, 0, 0)).getTimezoneOffset()))
+  })
+
+  it('commit 不注入 now → generated_at 带宿主真实偏移的 ISO 形态（非硬编码 +08:00）', () => {
+    const { root, corpusDir } = fixture()
+    try {
+      baseManifest(root)
+      const finalRel = '知识层/机检误报规律2.md'
+      writeFalsePositiveDraft(root, corpusDir, '2026-08-27')
+      writeFileSync(join(root, finalRel), '# 规律\n## body-parts\n作者归纳……\n', 'utf8')
+      const report = commitKnowledgeFile(root, { target: finalRel, sourceRef: 'test/corpus/checks/body-parts.json' })
+      expect(report.ok, report.issues.map((i) => i.message).join(';')).toBe(true)
+      const after = JSON.parse(readFileSync(join(root, '知识层', '_manifest.json'), 'utf8'))
+      expect(after.generated_at).toMatch(ISO_WITH_OFFSET)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

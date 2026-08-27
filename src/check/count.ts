@@ -180,7 +180,23 @@ export function checkNewNames(
 ): CheckSectionResult {
   const items: CheckItem[] = []
   if (!existsSync(rosterPath)) return { name: '新专名候选', items }
-  const roster = readFileSync(rosterPath, 'utf-8')
+  // R65-16（十三轮）：existsSync→readFileSync 间隙名册被瞬删（TOCTOU）时 ENOENT 直穿
+  // 炸整次机检——照 R62-9（runner.ts readPieceList）同款降级：黄项提示本轮未跑，不静默消失
+  let roster: string
+  try {
+    roster = readFileSync(rosterPath, 'utf-8')
+  } catch (e) {
+    return {
+      name: '新专名候选',
+      items: [
+        {
+          checkId: 'roster-unreadable',
+          level: 'yellow',
+          message: `名册读取失败（${e instanceof Error ? e.message : String(e)}），新专名检查本轮未跑，修复后重查。`,
+        },
+      ],
+    }
+  }
   // 粗抽：2-4 字中文专名候选（带引号或书名号的优先）
   const candidates = new Set<string>()
   const spanRe = new RegExp(QUOTED_SPAN_RE.source, 'g')

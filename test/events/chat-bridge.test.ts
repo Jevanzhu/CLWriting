@@ -84,14 +84,14 @@ describe('F1-P1 SessionRecorder', () => {
     rec.add(sessionStartEvent('书A'))
     const uIdx = rec.add(userMessageEvent('hi'))
     const r1 = rec.flush()!;
-    expect(r1).toEqual({ first: 1, last: 2 })
+    expect(r1).toEqual({ first: 1, last: 2, seqs: [1, 2] }) // R65-23：flush 透出批内真实 seq 数组
     expect(rec.allSessionSeqs()).toEqual([1, 2])
-    // uIdx 是批次内 0-based 序号（user/message 是第 2 个事件 → idx=1）
-    expect(r1.first + uIdx).toBe(2)
+    // uIdx 是批次内 0-based 序号（user/message 是第 2 个事件 → idx=1）；真实 seq 直索引
+    expect(r1.seqs[uIdx]).toBe(2)
     const aIdx = rec.add(assistantMessageEvent('reply'))
     const r2 = rec.flush()!;
-    expect(r2).toEqual({ first: 3, last: 3 })
-    expect(r2.first + aIdx).toBe(3)
+    expect(r2).toEqual({ first: 3, last: 3, seqs: [3] })
+    expect(r2.seqs[aIdx]).toBe(3)
     expect(rec.allSessionSeqs()).toEqual([1, 2, 3])
     store.close()
   })
@@ -200,8 +200,8 @@ describe('F1-P1 SessionRecorder', () => {
     const trIdx = rec.add(toolResultEvent('t1', '全绿'))
     rec.add(turnEndEvent(1, 'completed'))
     const r2 = rec.flush()!;
-    expect(r2.first + aIdx).toBe(4)
-    expect(r2.first + trIdx).toBe(6)
+    expect(r2.seqs[aIdx]).toBe(4)
+    expect(r2.seqs[trIdx]).toBe(6)
     store.close()
   })
 })

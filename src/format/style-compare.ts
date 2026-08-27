@@ -46,14 +46,19 @@ export function missingNgrams(aiText: string, authorText: string): string[] {
   return out
 }
 
-/** n-gram Jaccard 相似度（默认 bigram）；两侧皆空视为相同 → 1 */
-export function similarity(a: string, b: string, n = 2): number {
-  const ga = charNgrams(a, n)
-  const gb = charNgrams(b, n)
+/** n-gram Jaccard 相似度的集合版内核（R65-28：compareVersions 段对矩阵 O(P²) 不再
+ *  每对重算 charNgrams O(L)，循环外对每段预计算一次 ngram Set 后走此函数——
+ *  数值与公开 similarity() 逐一恒等）；两侧皆空视为相同 → 1 */
+function similarityFromSets(ga: Set<string>, gb: Set<string>): number {
   if (ga.size === 0 && gb.size === 0) return 1
   let inter = 0
   for (const g of ga) if (gb.has(g)) inter++
   return inter / (ga.size + gb.size - inter)
+}
+
+/** n-gram Jaccard 相似度（默认 bigram）；两侧皆空视为相同 → 1 */
+export function similarity(a: string, b: string, n = 2): number {
+  return similarityFromSets(charNgrams(a, n), charNgrams(b, n))
 }
 
 /** 段级分层：>95% 已对齐 / 70–95% 表层微调 / <70% 文风缺口 */
@@ -93,11 +98,15 @@ export function compareVersions(aiText: string, authorText: string): CompareResu
   const aiParas = splitParas(aiText)
   const auParas = splitParas(authorText)
 
-  // 所有 (作者段, AI段) 对按相似度降序全局贪心
+  // 所有 (作者段, AI段) 对按相似度降序全局贪心。
+  // R65-28：每段 ngram Set 只算一次（原先每对 similarity→charNgrams 重算，O(P²·L)），
+  // 数值与原先逐一恒等（同集合同 Jaccard）
+  const aiGrams = aiParas.map((p) => charNgrams(p, 2))
+  const auGrams = auParas.map((p) => charNgrams(p, 2))
   const pairs: { ai: number; au: number; sim: number }[] = []
   for (let au = 0; au < auParas.length; au++) {
     for (let ai = 0; ai < aiParas.length; ai++) {
-      pairs.push({ ai, au, sim: similarity(aiParas[ai]!, auParas[au]!) })
+      pairs.push({ ai, au, sim: similarityFromSets(aiGrams[ai]!, auGrams[au]!) })
     }
   }
   pairs.sort((x, y) => y.sim - x.sim)

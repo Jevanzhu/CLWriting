@@ -220,6 +220,29 @@ describe('tree-issues-cache 模块单元', () => {
       rmSync(root, { recursive: true, force: true })
     }
   })
+
+  it('R65-17（十三轮）：名册.md 变更 → 纪元清表（checkNewNames 输入此前漏在纪元外）', () => {
+    const root = makeBook(1)
+    try {
+      mkdirSync(join(root, '设定'), { recursive: true })
+      writeFileSync(join(root, '设定', '名册.md'), '已登记：云澈\n', 'utf-8')
+      mkdirSync(join(root, '.cache'), { recursive: true })
+      const db = new DatabaseSync(join(root, '.cache', 'index.db'))
+      try {
+        expect(syncTreeIssuesEpoch(db, root, null)).toBe(true) // 首次：清+记
+        expect(syncTreeIssuesEpoch(db, root, null)).toBe(false) // 稳定：no-op
+        // +5s 防同毫秒写撞车（fileFp 是 mtimeMs 粒度）
+        const later = new Date(Date.now() + 5000)
+        utimesSync(join(root, '设定', '名册.md'), later, later)
+        expect(syncTreeIssuesEpoch(db, root, null)).toBe(true) // 修复前：名册不在纪元 → no-op，章级缓存陈旧
+        expect(syncTreeIssuesEpoch(db, root, null)).toBe(false)
+      } finally {
+        db.close()
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('R64-7（十二轮）：事务自动回亡 → 吞 ROLLBACK、原始病因优先', () => {

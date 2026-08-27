@@ -95,7 +95,15 @@ export type SummaryState = 'fresh' | 'stale' | 'missing'
 export function chapterSummaryState(bookRoot: string, chapter: number, bodyAbsPath: string): SummaryState {
   const fp = chapterSummaryPath(bookRoot, chapter)
   if (!existsSync(fp)) return 'missing'
-  const raw = readFileSync(fp, 'utf8')
+  // R65-31（第六十五轮）：existsSync 后裸 read 直穿自愈链（权限/TOCTOU 读失败抛出）——
+  // 包 try/catch 按缺失降级 + warn（下次自愈按 missing 重新生成）
+  let raw: string
+  try {
+    raw = readFileSync(fp, 'utf8')
+  } catch (e) {
+    log.warn('summary', `章摘要读取失败（第 ${chapter} 章，按缺失降级）：${e instanceof Error ? e.message : String(e)}`)
+    return 'missing'
+  }
   // Q-14（第十五轮）：改走 frontmatter-core 统一提取——手写正则不处理 BOM/CRLF，
   // 带 BOM 的摘要文件 fm 整段丢失 → 过期检测永久失灵
   const split = splitFrontMatter(raw)
@@ -109,7 +117,14 @@ export function chapterSummaryState(bookRoot: string, chapter: number, bodyAbsPa
 export function readChapterSummaryBody(bookRoot: string, chapter: number): string | null {
   const fp = chapterSummaryPath(bookRoot, chapter)
   if (!existsSync(fp)) return null
-  const raw = readFileSync(fp, 'utf8')
+  // R65-31：读失败（权限/TOCTOU）按 null 降级 + warn，不再直穿调用链
+  let raw: string
+  try {
+    raw = readFileSync(fp, 'utf8')
+  } catch (e) {
+    log.warn('summary', `章摘要读取失败（第 ${chapter} 章，按无摘要降级）：${e instanceof Error ? e.message : String(e)}`)
+    return null
+  }
   // Q-14：同上走 frontmatter-core（剥 fm 口径与全库一致，BOM/CRLF 不再漏进注入正文）
   const split = splitFrontMatter(raw)
   return (split ? split.body : raw).trim()
@@ -433,7 +448,15 @@ export async function generateVolumeSummary(opts: {
   const fingerprint = volumeChainFingerprint(chain)
   // 已有且链未变 → skipped
   if (existsSync(fp)) {
-    const m = /^sourceHash:\s*(\S+)/m.exec(readFileSync(fp, 'utf8'))
+    // R65-31：sourceHash 重读包 try/catch——读失败（权限/TOCTOU）按指纹不匹配降级
+    //（视同缺失，落到下方重生成路径）+ warn，不直穿生成链
+    let volRaw: string | null = null
+    try {
+      volRaw = readFileSync(fp, 'utf8')
+    } catch (e) {
+      log.warn('summary', `卷摘要读取失败（第 ${volume} 卷，按缺失降级重生成）：${e instanceof Error ? e.message : String(e)}`)
+    }
+    const m = volRaw !== null ? /^sourceHash:\s*(\S+)/m.exec(volRaw) : null
     if (m && m[1] === fingerprint) return { ok: true, path: fp, skipped: true }
   }
   // P5-管线（第七轮）：卷摘要并发去重（对齐章摘要 inFlight 模式）——定稿钩子与备料
@@ -506,7 +529,15 @@ export async function selfHealVolumeSummary(
     // M-7（第六轮）：区分手写与程序生成——手写（无 sourceHash）作者产物优先，永不动；
     // 程序生成但链指纹已变（章摘要更新过）→ 过期，落到下方重生成（原「存在即跳过」
     // 使过期重生成在本挂点不可达）；链不全时 generateVolumeSummary 同样会拒，保留现状
-    const m = /^sourceHash:\s*(\S+)/m.exec(readFileSync(fp, 'utf8'))
+    // R65-31：读失败（权限/TOCTOU）按手写产物降级（m=null → return null 不动文件）——
+    // 读不出的文件贸然重生成会覆盖不可见内容，宁不动 + warn
+    let volRaw: string | null = null
+    try {
+      volRaw = readFileSync(fp, 'utf8')
+    } catch (e) {
+      log.warn('summary', `卷摘要读取失败（第 ${targetVolume} 卷，按手写产物跳过不动）：${e instanceof Error ? e.message : String(e)}`)
+    }
+    const m = volRaw !== null ? /^sourceHash:\s*(\S+)/m.exec(volRaw) : null
     if (!m) return null
     const { chain } = volumeChainState(bookRoot, targetVolume, volumeSize)
     if (chain === null || m[1] === volumeChainFingerprint(chain)) return null

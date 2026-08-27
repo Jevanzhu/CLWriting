@@ -72,7 +72,8 @@ describe('msgSeqs 防御性对齐（prepareChatRun）', () => {
     expect(prepared.seqs.msgSeqs).toEqual([[11], []])
 
     // 新回合消息经 commit 换算入账后追加对齐（history 4 条 = 3 旧 + 1 新 push）
-    prepared.seqs.commitPendingMsgSeqs({ first: 100, last: 100 })
+    // R65-23：commit 换算直索引批内真实 seq（user 事件批内序号 1——sessionStart 占 0）
+    prepared.seqs.commitPendingMsgSeqs({ first: 100, last: 101, seqs: [100, 101] })
     expect(prepared.seqs.msgSeqs).toEqual([[11], [], [101]])
     expect(history.length).toBe(4)
 
@@ -131,8 +132,9 @@ describe('A7（五十九轮）：flush 返回 null → 清 pending 并补 []（�
     // 下一回合：新批内序号映射到本回合成功区间，不被上一回合陈旧序号挤占/错挂
     prepared.history.push({ role: 'assistant', content: '答' })
     prepared.seqs.pendingMsgSeqs.push(0)
-    prepared.seqs.commitPendingMsgSeqs({ first: 100, last: 100 })
-    expect(prepared.seqs.msgSeqs.at(-1)).toEqual([100]) // first(100) + 批内序号 0
+    // R65-23：直索引批内真实 seq（批内 seq 不连续时 seqs[0] ≠ first）
+    prepared.seqs.commitPendingMsgSeqs({ first: 100, last: 100, seqs: [100] })
+    expect(prepared.seqs.msgSeqs.at(-1)).toEqual([100]) // 批内序号 0 → 真实 seq 100
     expect(prepared.seqs.msgSeqs.length).toBe(prepared.history.length)
   })
 })

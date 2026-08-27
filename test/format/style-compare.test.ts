@@ -109,3 +109,56 @@ describe('compareVersions', () => {
     expect(r.missing).toEqual([])
   })
 })
+
+// ── R65-28（第六十五轮）：段对矩阵 ngram 预计算——产物数值逐一恒等 ──────────
+
+describe('R65-28: compareVersions 预计算优化数值恒等', () => {
+  const AI_P1 = '夜色沉沉，他推开大门走进院子，雪落满了肩头。'
+  const AI_P2 = '他深吸一口气，看向远方的城墙，灯火在雾里明明灭灭。'
+  const AU_P1 = '夜色沉沉，他推开大门走进院子，雪落满了肩头。'
+  const AU_P2 = '他顿了顿，看向远方的城墙，灯火在雾里明明灭灭。'
+  const AU_P3 = '灶上的粥早就凉透了，她却一直没动，只是望着门口出神。'
+
+  it('段配对 sim 与逐对独立调 similarity() 的参考实现逐一恒等（含 gap=0 与 overallSim）', () => {
+    const aiText = [AI_P1, AI_P2].join('\n\n')
+    const auText = [AU_P1, AU_P2, AU_P3].join('\n\n')
+    const r = compareVersions(aiText, auText)
+    // 参考实现：直接用公开 similarity()（未走预计算路径）逐段重算
+    const refSim = (au: string, ai: string | null): number =>
+      ai === null ? 0 : similarity(ai, au)
+    expect(r.paras).toHaveLength(3)
+    expect(r.paras[0]!.sim).toBe(refSim(AU_P1, AI_P1))
+    expect(r.paras[1]!.sim).toBe(refSim(AU_P2, AI_P2))
+    expect(r.paras[2]!.sim).toBe(refSim(AU_P3, null)) // 配不上 → 0
+    expect(r.overallSim).toBe(similarity(aiText, auText))
+  })
+
+  it('多段大矩阵（40×40）贪心配对结果与参考贪心一致——预计算不改变配对选择', () => {
+    const mk = (seed: number, n: number): string[] =>
+      Array.from({ length: n }, (_, i) => `第${seed}版段落${i}的内容：他沿着城墙走了很久，雪越下越大，脚步声被风吞没。`.slice(0, 20 + ((seed * 7 + i * 3) % 20)))
+    const aiParas = mk(1, 40)
+    const auParas = mk(2, 40)
+    const r = compareVersions(aiParas.join('\n\n'), auParas.join('\n\n'))
+    // 参考贪心：与实现同算法，但 sim 全部经公开 similarity() 现算（旧实现路径）
+    const pairs: { ai: number; au: number; sim: number }[] = []
+    for (let au = 0; au < auParas.length; au++) {
+      for (let ai = 0; ai < aiParas.length; ai++) {
+        pairs.push({ ai, au, sim: similarity(aiParas[ai]!, auParas[au]!) })
+      }
+    }
+    pairs.sort((x, y) => y.sim - x.sim)
+    const aiUsed = new Set<number>()
+    const auMatch = new Map<number, { ai: number; sim: number }>()
+    for (const p of pairs) {
+      if (aiUsed.has(p.ai) || auMatch.has(p.au)) continue
+      aiUsed.add(p.ai)
+      auMatch.set(p.au, { ai: p.ai, sim: p.sim })
+    }
+    expect(r.paras.length).toBe(auParas.length)
+    for (let au = 0; au < auParas.length; au++) {
+      const ref = auMatch.get(au)
+      expect(r.paras[au]!.sim).toBe(ref?.sim ?? 0)
+      expect(r.paras[au]!.aiPara).toBe(ref ? aiParas[ref.ai]! : null)
+    }
+  })
+})

@@ -34,18 +34,38 @@ const MAX_EXPORT_WORKERS = 2
 let activeExportWorkers = 0
 const exportWaiters: Array<() => void> = []
 
+/**
+ * 释放函数（R65-45 批注见 acquireExportSlot）：名额转移语义——release 时若有
+ * waiter，不自减计数、直接 shift 队列并 resolve（名额直接转移给 waiter，waiter
+ * 恢复后不再自增）；无 waiter 才自减。released 门防重复释放（二次转移/二次自减
+ * 都会破坏计数不变量）。
+ */
+function makeExportSlotReleaser(): () => void {
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    const next = exportWaiters.shift()
+    if (next) {
+      next() // 名额转移：activeExportWorkers 不变（waiter 恢复后不再自增）
+      return
+    }
+    activeExportWorkers--
+  }
+}
+
 export async function acquireExportSlot(): Promise<() => void> {
   if (activeExportWorkers >= MAX_EXPORT_WORKERS) {
     await new Promise<void>((resolve) => exportWaiters.push(resolve))
+    // R65-45（总六十五轮）：名额已由 release 直接转移（release 未自减、直接 resolve
+    // 本 waiter）——此处不再自增。原「release 先自减再 resolve、waiter 微任务恢复后
+    // 才自增」存在窗口：窗口内新请求查 activeExportWorkers < MAX 即插队直接放行，
+    // 瞬时并发超 MAX=2（违反 A1 全局闸设计意图）。转移语义下 FIFO 不变（shift 保序）。
+    return makeExportSlotReleaser()
   }
-  // 到这里必有空位：either 上面没到 cap（同步块内 check+increment 无 await，原子），
-  // or 前一个 release 已把名额让给我们（release 先 shift 再 resolve，此处 increment）
+  // 到这里必有空位：同步块内 check+increment 无 await，原子
   activeExportWorkers++
-  return () => {
-    activeExportWorkers--
-    const next = exportWaiters.shift()
-    if (next) next()
-  }
+  return makeExportSlotReleaser()
 }
 
 export function registerIoRoutes(ctx: IoCtx): void {

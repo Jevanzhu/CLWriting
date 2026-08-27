@@ -131,8 +131,10 @@ const defs = computed<FieldDef[]>(() => (kind.value ? (FIELD_DEFS[kind.value] ??
 const fields = ref<Record<string, string>>({})
 
 watch(
-  entry,
-  (e) => {
+  // R65-52（E-4）：doc store 对 content 是原位变更（refresh/静默同步改 e.content、对象引用
+  // 不换）——单 watch entry 引用时 AI 写回/refresh 后表单不重解析，停留在旧值。源加 content
+  [entry, () => entry.value?.content],
+  ([e]) => {
     if (!e || !kind.value) {
       fields.value = {}
       return

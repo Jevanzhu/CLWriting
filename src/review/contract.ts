@@ -142,10 +142,14 @@ const SEVERITY_RANK: Record<ReviewSeverity, number> = {
  * - 基础：reader + editor（恒跑）
  * - 有布线：+ continuity（设定校对，账本清单驱动）
  * - 有 config.short：+ hook / emotion_peak / payoff（短篇单章爆破力三视角，清单驱动核对）
+ *
+ * R65-26（十三轮）：默认 hasWiring:false——原 true 是反向兜底（短篇书调用方漏传
+ * opts 时凭空多出 continuity 视角与账本核对）；生产唯一调用方（run.ts buildReviewPacket）
+ * 显式传参，缺省 = 无布线的最小任务书（reader + editor）。
  */
 export function buildReviewTasks(
   report: CheckReport,
-  opts: { hasWiring: boolean; hasShort: boolean } = { hasWiring: true, hasShort: false },
+  opts: { hasWiring: boolean; hasShort: boolean } = { hasWiring: false, hasShort: false },
 ): ReviewTask[] {
   const tasks: ReviewTask[] = [
     {

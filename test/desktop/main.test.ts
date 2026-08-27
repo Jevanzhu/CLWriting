@@ -672,7 +672,7 @@ describe('kk-P2-8：原生菜单与 second-instance', () => {
 })
 
 describe('kk-P2-8：退出与边界分支', () => {
-  it('before-quit：preventDefault 优雅退出（幂等，二次直通）；退出走 shutdown 指令非裸 kill（批 U2）', async () => {
+  it('before-quit：preventDefault 优雅退出（收口后二次直通）；退出走 shutdown 指令非裸 kill（批 U2）', async () => {
     const h = M.appOn['before-quit']![0]!
     const e1 = { preventDefault: vi.fn() }
     const q0 = M.quitCalls
@@ -684,8 +684,76 @@ describe('kk-P2-8：退出与边界分支', () => {
     expect(M.forkChildren[0]!['posted']).toContainEqual({ type: 'shutdown' })
     expect(M.forkChildren[0]!['killed']).toBe(0)
     const e2 = { preventDefault: vi.fn() }
-    h(e2) // shutdownStarted → 不再拦
+    h(e2) // 收口 quit 已置 quitViaShutdown（R65-48）→ 放行直通
     expect(e2.preventDefault).not.toHaveBeenCalled()
+  })
+
+  // R65-40（总六十五轮）：before-quit 的 shutdown() 可能 reject（child 已死时
+  // postMessage/kill 抛错等）——原 `void …finally` 无 catch：rejection 成
+  // unhandledRejection。修复后记日志、finally 仍 quit（退出不挂死）。
+  it('R65-40: shutdown 抛错（child 已死形态）→ 记日志后仍 quit，无未处理拒绝', async () => {
+    const unhandled: unknown[] = []
+    const onUnhandled = (e: unknown): void => {
+      unhandled.push(e)
+    }
+    process.on('unhandledRejection', onUnhandled)
+    try {
+      const quit0 = M.quitCalls
+      const err0 = M.logErrors.length
+      vi.resetModules()
+      await import('../../src/desktop/main.js')
+      await new Promise((r) => setImmediate(r))
+      await new Promise((r) => setImmediate(r))
+      const child = M.forkChildren.at(-1)!
+      // child 已死形态：postMessage 同步抛（async shutdown 内转为 promise reject）
+      child.postMessage = () => {
+        throw new Error('child 已死：Object has been destroyed')
+      }
+      const e = { preventDefault: vi.fn() }
+      M.appOn['before-quit']!.at(-1)!(e)
+      expect(e.preventDefault).toHaveBeenCalledTimes(1)
+      await vi.waitFor(() => expect(M.quitCalls).toBe(quit0 + 1)) // 修复前：quit 悬空
+      expect(M.logErrors.length).toBeGreaterThan(err0) // 记日志留痕（不再裸 unhandledRejection）
+      await new Promise((r) => setImmediate(r))
+      expect(unhandled).toEqual([]) // 无未处理拒绝
+    } finally {
+      process.off('unhandledRejection', onUnhandled)
+    }
+  })
+
+  // R65-48（总六十五轮）：优雅停机窗口内的二次 quit 一律 preventDefault——原
+  // beginShutdown() 二次返回 false 即直通，3.5s 窗口内第二次退出事件强杀 child
+  //（在途 chat/self-heal 的 session/end 落库被打断）；finally 里自己的 quit 放行。
+  it('R65-48: 停机窗口内二次 before-quit 拦下不强杀；finally 的收口 quit 放行直通', async () => {
+    const quit0 = M.quitCalls
+    vi.resetModules()
+    await import('../../src/desktop/main.js')
+    await new Promise((r) => setImmediate(r))
+    await new Promise((r) => setImmediate(r))
+    const child = M.forkChildren.at(-1)!
+    // 停在优雅窗口：收到 shutdown 指令但不自动回执（不 shutdown-done/exit）
+    child.postMessage = (m: unknown) => {
+      child.posted.push(m)
+    }
+    const h = M.appOn['before-quit']!.at(-1)!
+    const e1 = { preventDefault: vi.fn() }
+    h(e1)
+    expect(e1.preventDefault).toHaveBeenCalledTimes(1)
+    await new Promise((r) => setImmediate(r)) // shutdown 微任务链：指令经 postMessage 下发
+    expect(child.posted).toContainEqual({ type: 'shutdown' })
+    // 窗口内第二次退出请求：拦下（修复前直通 → Electron 退出连带强杀 child）
+    const e2 = { preventDefault: vi.fn() }
+    h(e2)
+    expect(e2.preventDefault).toHaveBeenCalledTimes(1) // R65-48 修复锚点
+    expect(child.killed).toBe(0) // child 未被强杀，优雅窗口完整
+    // 回执 → shutdown 收口 → finally 统一 app.quit()
+    child.emit('message', { type: 'shutdown-done' })
+    child.emit('exit', 0)
+    await vi.waitFor(() => expect(M.quitCalls).toBe(quit0 + 1))
+    // finally 里那次 quit 再进 before-quit（Electron 语义）——quitViaShutdown 放行
+    const e3 = { preventDefault: vi.fn() }
+    h(e3)
+    expect(e3.preventDefault).not.toHaveBeenCalled()
   })
 
   // 批 U3：崩溃风暴接线——manager 退避（默认 0/5s/15s，fake timers 快进）+ main 的

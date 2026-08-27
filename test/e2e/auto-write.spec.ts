@@ -47,6 +47,8 @@ test.afterAll(async () => {
   else process.env.CLWRITING_DRIVER = prevDriver
   await new Promise<void>((resolve) => server.close(() => resolve()))
   if (userDataPath) rmSync(userDataPath, { recursive: true, force: true })
+  // R65-60（F-4）：workDir 同清——此前只清 userData，双轨书目录残留 test-results 外的临时区
+  if (workDir) rmSync(workDir, { recursive: true, force: true })
 })
 
 test('全自动写章：mock 快路收工自动转编辑器（P1-1）', async ({ page }) => {

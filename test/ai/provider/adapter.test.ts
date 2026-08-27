@@ -249,6 +249,47 @@ describe('OpenAI 适配器', () => {
     expect(tool).toMatchObject({ type: 'tool', name: 'submit_chapter', input: { 标题: 'x' } })
   })
 
+  // R65-9（总六十五轮）：网关缺省 tc.index——旧实现并入同一 undefined 键，两个
+  // tool_call 的 name/arguments 互相覆盖串拼；改自增兜底键后聚合出两个独立调用
+  it('R65-9: tool_call 分片缺 index → 自增兜底键聚合出两个独立调用', async () => {
+    const client = {
+      chat: {
+        completions: {
+          create: fakeSend([
+            // 两条不带 index 的 tool_call（各一个整块分片，网关缺省 index 的常见形态）
+            { choices: [{ delta: { tool_calls: [{ id: 'call_1', function: { name: 'toolA', arguments: '{"a":1}' } }] }, finish_reason: null }] },
+            { choices: [{ delta: { tool_calls: [{ id: 'call_2', function: { name: 'toolB', arguments: '{"b":2}' } }] }, finish_reason: 'tool_calls' }] },
+          ]),
+        },
+      },
+    } as unknown as OpenAI
+    const evs = await collect(createOpenAIProvider(CONF, client), REQ)
+    const tools = evs.filter((e) => e.type === 'tool')
+    expect(tools).toHaveLength(2) // 旧实现：并入同一键 → 仅 1 个串拼调用
+    expect(tools[0]).toMatchObject({ name: 'toolA', input: { a: 1 } })
+    expect(tools[1]).toMatchObject({ name: 'toolB', input: { b: 2 } })
+  })
+
+  it('R65-9: 缺 index 的续片（无 id/name）归并最近兜底键（同一调用的参数仍拼装完整）', async () => {
+    const client = {
+      chat: {
+        completions: {
+          create: fakeSend([
+            { choices: [{ delta: { tool_calls: [{ id: 'call_1', function: { name: 'toolA', arguments: '{"a":' } }] }, finish_reason: null }] },
+            // 续片不带 index/id/name → 归并 call_1 的兜底键（不得另开键劈碎参数）
+            { choices: [{ delta: { tool_calls: [{ function: { arguments: '1}' } }] }, finish_reason: null }] },
+            { choices: [{ delta: { tool_calls: [{ id: 'call_2', function: { name: 'toolB', arguments: '{}' } }] }, finish_reason: 'tool_calls' }] },
+          ]),
+        },
+      },
+    } as unknown as OpenAI
+    const evs = await collect(createOpenAIProvider(CONF, client), REQ)
+    const tools = evs.filter((e) => e.type === 'tool')
+    expect(tools).toHaveLength(2)
+    expect(tools[0]).toMatchObject({ name: 'toolA', input: { a: 1 } })
+    expect(tools[1]).toMatchObject({ name: 'toolB', input: {} })
+  })
+
   // ii-1：首个 attempt 已消费流（已 yield 文本）后中途 400 —— 不再换参数面重跑（防重复增量），直接终态错误
   it('ii-1 流中 400 不降级重跑（已消费 → 终态错误，无重复增量）', async () => {
     let calls = 0
@@ -1255,6 +1296,34 @@ describe('Responses 适配器（R1-R4）', () => {
     expect(evs.filter((e) => e.type === 'text')).toEqual([{ type: 'text', delta: 'ok' }])
     expect(evs.some((e) => e.type === 'error')).toBe(false)
     expect(evs.find((e) => e.type === 'done')).toMatchObject({ type: 'done', stopReason: 'stop' })
+  })
+
+  // R65-10（总六十五轮）：function_call_arguments.delta 缺 item_id（与 R65-9 同族）——
+  // 旧实现并入同一空键，两调用的参数串拼且 done 认领不到（全丢）；改自增兜底键 +
+  // FIFO 队列后，done 按流式序认领各自的参数
+  it('R65-10: 两条缺 item_id 的 function_call delta → 聚合出两个独立调用（参数不串拼）', async () => {
+    const fcDone = (id: string, callId: string, name: string): unknown => ({
+      type: 'response.output_item.done',
+      item: { type: 'function_call', id, call_id: callId, name, arguments: '' },
+    })
+    const { client } = fakeResponsesClient(() => [
+      // call_1 的参数分两片（缺 item_id）——续片归并最近兜底键
+      { type: 'response.function_call_arguments.delta', delta: '{"a":' },
+      { type: 'response.function_call_arguments.delta', delta: '1}' },
+      fcDone('fc_1', 'call_1', 'toolA'),
+      // call_2 的参数单片（缺 item_id）——done 后另开兜底键
+      { type: 'response.function_call_arguments.delta', delta: '{"b":2}' },
+      fcDone('fc_2', 'call_2', 'toolB'),
+      {
+        type: 'response.completed',
+        response: { output: [{ type: 'function_call' }, { type: 'function_call' }], usage: { input_tokens: 1, output_tokens: 1 } },
+      },
+    ])
+    const evs = await collect(createOpenAIResponsesProvider(RCONF, client), REQ)
+    const tools = evs.filter((e) => e.type === 'tool')
+    expect(tools).toHaveLength(2) // 旧实现：done 认领不到空键累积 → 两调用参数全丢（input={}）
+    expect(tools[0]).toMatchObject({ id: 'call_1', name: 'toolA', input: { a: 1 } })
+    expect(tools[1]).toMatchObject({ id: 'call_2', name: 'toolB', input: { b: 2 } })
   })
 })
 

@@ -49,6 +49,8 @@ test.afterAll(async () => {
   else process.env.CLWRITING_DRIVER = prevDriver
   await new Promise<void>((resolve) => server.close(() => resolve()))
   if (userDataPath) rmSync(userDataPath, { recursive: true, force: true })
+  // R65-60（F-4）：workDir 同清（对齐 auto-write）
+  if (workDir) rmSync(workDir, { recursive: true, force: true })
 })
 
 // T2-3：GET /api/* 读端点要求 token——boot 取一次缓存，直打 API 的断言统一带 x-studio-token

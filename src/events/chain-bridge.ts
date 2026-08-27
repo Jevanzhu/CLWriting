@@ -175,7 +175,14 @@ export class ChainRecorder {
     }
   }
 
+  /** R65-3（十三轮）：一次性闸——重复 close 会把 openSessionStore 引用计数再递减一次，
+   *  refs 提前归零真关库，其他仍持有引用的 recorder 后续写入打到已关句柄（L-5 同族）。
+   *  当前调用方靠 chain = null 自律防双调，本闸把纪律下沉到 API 自身。 */
+  private closed = false
+
   close(): void {
+    if (this.closed) return
+    this.closed = true
     this.flush()
     try {
       this.store?.close()

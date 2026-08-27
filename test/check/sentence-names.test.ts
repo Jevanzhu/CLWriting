@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { checkSentenceLength, checkNewNames, checkImagery, checkInfoLeak } from '../../src/check/count.js'
@@ -79,6 +79,24 @@ test('checkNewNames: 正文含未登记专名 → 报黄', () => {
 test('checkNewNames: 名册文件不存在 → 空结果（不崩）', () => {
   const r = checkNewNames('「任意」内容', join(tmpdir(), '不存在-' + Date.now() + '.md'))
   expect(r.items).toHaveLength(0)
+})
+
+// R65-16（十三轮）：名册在盘但读取失败（existsSync→readFileSync 间隙瞬删/占用——
+// 此处用同名目录占位：existsSync 真、readFileSync EISDIR）→ 不再 ENOENT 直穿炸
+// 整次机检，照 R62-9 同款降级为黄项提示本轮未跑
+test('R65-16: 名册在盘但读取失败 → 黄 roster-unreadable 降级（不炸机检）', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'names-'))
+  mkdirSync(join(dir, '名册.md'), { recursive: true }) // 目录占位触发读失败
+  try {
+    const r = checkNewNames('「云澈」拔剑而出。', join(dir, '名册.md'))
+    expect(r.name).toBe('新专名候选')
+    expect(r.items).toHaveLength(1)
+    expect(r.items[0]!.checkId).toBe('roster-unreadable')
+    expect(r.items[0]!.level).toBe('yellow')
+    expect(r.items[0]!.message).toContain('新专名检查本轮未跑')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test('checkNewNames: 引号内仅 1 字或超 4 字不候选', () => {

@@ -48,6 +48,22 @@ export function consumeStreamTicket(ticket: string | undefined): boolean {
   return true
 }
 
+/**
+ * R65-43（总六十五轮）：ticket 预检（不消费）——SSE 鉴权闸需在书域校验（429/404）
+ * 之前判定凭据有效性（R64-27 防书名探测语义），但一次性消费须等全部校验通过后
+ * （429/404 不烧票）。存在且未过期即 true；过期顺手清理（与 consume 同口径）。
+ */
+export function peekStreamTicket(ticket: string | undefined): boolean {
+  if (!ticket) return false
+  const exp = tickets.get(ticket)
+  if (exp === undefined) return false
+  if (exp <= Date.now()) {
+    tickets.delete(ticket)
+    return false
+  }
+  return true
+}
+
 /** 测试观测钩子（对齐 __setSpawnRunning 风格）：只读快照断言一次性语义 */
 export function __getStreamTickets(): ReadonlyMap<string, number> {
   return tickets

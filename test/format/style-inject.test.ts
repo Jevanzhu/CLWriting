@@ -119,4 +119,16 @@ describe('readIronRules 条目库禁词合并（S5 机检收口）', () => {
     const rules = readIronRules(root)
     expect(rules.bannedWords?.sort()).toEqual(['势不两立', '和好如初'].sort())
   })
+
+  // R65-16（十三轮）：铁律在盘但读取失败（目录占位：existsSync 真、readFileSync
+  // EISDIR，即 existsSync→readFileSync 间隙瞬删的 TOCTOU 形态）→ 按空规则降级
+  // 不炸机检/文风重扫，条目库禁词合并照常
+  it('R65-16: 铁律在盘但读取失败 → 空规则降级不炸，条目库禁词照常并入', () => {
+    mkdirSync(join(root, '文风'), { recursive: true })
+    mkdirSync(join(root, '文风', '文风铁律.md'), { recursive: true }) // 目录占位触发 EISDIR
+    addEntry(root, mk({ 类型: '禁词', 正文: '势不两立' }))
+    const rules = readIronRules(root)
+    expect(rules.maxSentenceLen).toBeUndefined() // 铁律未读成 → 可量化阈值按空
+    expect(rules.bannedWords).toEqual(['势不两立']) // 条目库禁词合并不受影响
+  })
 })

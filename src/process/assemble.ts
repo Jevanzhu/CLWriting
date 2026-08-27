@@ -83,14 +83,16 @@ export function assembleStatus(
   let maxNum: number | null
   if (finalized === undefined) {
     maxNum = (db.prepare('SELECT MAX(number) AS maxNum FROM chapters').get() as { maxNum: number | null }).maxNum
-  } else if (finalized.size === 0) {
-    maxNum = null // PL-2：清单在册但零定稿（新书）——真口径 0，不回落含草稿全量
   } else {
-    maxNum = (
-      db.prepare(
-        `SELECT MAX(number) AS maxNum FROM chapters WHERE number IN (${Array.from(finalized, () => '?').join(',')})`,
-      ).get(...finalized) as { maxNum: number | null }
-    ).maxNum
+    // R65-34（第六十五轮）：原先 IN 子句按定稿集展开占位符——极端章数（>999）触发
+    // SQLite 编译版变量上限直接抛错；改全量读 number 后 JS 侧按定稿集过滤。语义与
+    // 原实现逐一恒等：只数 chapters 表内且章号在定稿集的行（空集 → null，与 PL-2
+    // 「清单在册零定稿 = currentChapter 0」口径一致；定稿集内不在表中的章号同不计）。
+    const rows = db.prepare('SELECT number FROM chapters').all() as { number: number }[]
+    maxNum = null
+    for (const r of rows) {
+      if (finalized.has(r.number) && (maxNum === null || r.number > maxNum)) maxNum = r.number
+    }
   }
   const currentChapter = maxNum ?? 0
 

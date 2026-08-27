@@ -92,3 +92,58 @@ test('A2: mock 快路走 runSpec 统一通道——链路事件（step/llm）落
     for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
   }
 })
+
+// ── R65-8（总六十五轮）：persistFinal 无守卫 → goal 'active' 悬挂 ──
+// 修复背景：exitPass/exitEscalateBlocked 的 persistFinal() 抛错（磁盘满/库锁）时
+// writeTodos/writeGoal 永不执行，事件链上 goal 永远 'active'。修复后失败仍走
+// writeGoal 终态（block/blocked + blockedReason='persist-failed'）再记 failed 出口。
+test('R65-8: persistFinal 抛错 → 链上仍有 goal 终态（blocked/persist-failed），outcome=failed', async () => {
+  const workDir = makeDualTrackWorkdir()
+  const ud = tempUserData()
+  dirs.push(workDir, ud)
+  const bookRoot = join(workDir, '短篇', SHORT_BOOK)
+  const emitted: DriverEvent[] = []
+  // save 注入：首稿落盘成功（第 1 次），exitPass 的 persistFinal（第 2 次）抛错
+  let saveCalls = 0
+  const save: typeof saveDraft = (_root, _ch, content) => {
+    saveCalls++
+    if (saveCalls >= 2) throw new Error('disk full (mock)')
+    return { relPath: '工作区/草稿-1.md', docId: 'doc-短篇-1', words: content.length, snapshotted: false }
+  }
+  const check = (): CheckOutcome => ({ ok: true, report: { sections: [] }, hasRed: false, chapter: META, body: '正文' })
+
+  process.env['CLWRITING_DRIVER'] = 'mock'
+  try {
+    const r = await runSelfHeal({
+      driver: makeEmitDriver(emitted),
+      mainSession: { id: 'main', cwd: bookRoot, closed: false },
+      userDataPath: ud,
+      cwd: bookRoot,
+      bookRoot,
+      bookName: SHORT_BOOK,
+      chapter: 1,
+      check,
+      save,
+    })
+    // 终稿未落盘 → failed 出口（不假报 pass），错误文案带落盘失败语义
+    expect(r.outcome).toBe('failed')
+    if (r.outcome === 'failed') expect(r.error).toContain('终稿落盘失败')
+
+    // 链上终态：最后一个 goal/change 是 block/blocked + blockedReason='persist-failed'
+    //（修复前 persistFinal 裸穿，writeGoal 永不执行 → goal 悬挂 'active'）
+    const store = openSessionStore(ud, bookRoot)!
+    try {
+      const goals = store.listEvents(bookHash(bookRoot)).filter((e) => e.type === 'goal/change')
+      expect(goals.length).toBeGreaterThanOrEqual(2)
+      const last = goals.at(-1)!.data as { operation?: string; goal?: { state?: string; blockedReason?: string } }
+      expect(last.operation).toBe('block')
+      expect(last.goal?.state).toBe('blocked')
+      expect(last.goal?.blockedReason).toBe('persist-failed')
+    } finally {
+      store.close()
+    }
+  } finally {
+    delete process.env['CLWRITING_DRIVER']
+    for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
+  }
+})

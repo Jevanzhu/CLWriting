@@ -25,7 +25,7 @@ afterEach(() => {
 /** 回拨事件时间戳越过孤儿修复宽限期（RB-IF-P2-2 后陈旧孤儿才补 end） */
 function backdateEvents(ud: string, bookRoot: string): void {
   const db = new DatabaseSync(join(ud, 'clwriting', 'session', bookHash(bookRoot) + '.db'))
-  db.prepare('UPDATE events SET created_at = ?').run(Date.now() - 11 * 60 * 1000)
+  db.prepare('UPDATE events SET created_at = ?').run(Date.now() - 33 * 60 * 1000) // R65-19：窗口随宽限期对齐（32min）
   db.close()
 }
 

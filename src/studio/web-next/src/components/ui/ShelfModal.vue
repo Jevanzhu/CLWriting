@@ -28,6 +28,19 @@ const {
     ui.closeShelf()
     router.push(`/book/${encodeURIComponent(name)}`)
   },
+  // R65-54（E-6）：浮层内删掉当前打开的书 → 离开死路由（留在 /book/:name 上后续
+  // API 全 404），并清 clw-last-book（下次启动不再落进已删书）
+  onDeleted: (names) => {
+    const current = router.currentRoute.value.params.name
+    if (typeof current !== 'string') return
+    const currentName = decodeURIComponent(current)
+    if (!names.includes(currentName)) return
+    try {
+      if (localStorage.getItem('clw-last-book') === currentName) localStorage.removeItem('clw-last-book')
+    } catch { /* 忽略 */ }
+    ui.closeShelf()
+    router.replace('/shelf')
+  },
 })
 
 const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop

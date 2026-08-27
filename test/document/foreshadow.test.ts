@@ -411,3 +411,43 @@ describe('searchForeshadowTrails（F1-P3 伏笔足迹 FTS 检索）', () => {
     expect(all.map((h) => h.标题)).toEqual(['晚线', '早线']) // lastHit 10 > 1
   })
 })
+
+// ── R65-33（第六十五轮）：跨卷重复章号 set 覆盖补 warn 可见性 ────────────────
+
+describe('R65-33: 重复章号 warn', () => {
+  test('跨卷重复章号 → 覆盖行为保留 + console.warn 留痕（log 未 init 时镜像 console）', async () => {
+    const { vi } = await import('vitest')
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      // 第一卷 0001 + 第二卷 0001：同号跨卷，后扫覆盖先扫（覆盖行为不变）
+      writeChapter(1, '开篇', '第一卷第一章：玉佩在雨夜里连响了三下。')
+      const vol2 = join(root, '写作', '正文', '第二卷')
+      mkdirSync(vol2, { recursive: true })
+      writeFileSync(join(vol2, '0001-重名章.md'), '---\n章号: 1\n标题: 重名章\n---\n第二卷第一章：剑鸣声起。\n', 'utf-8')
+      writeForeshadow('玉佩', { 关联词: '玉佩', 重要性: '中' }, '伏笔正文。')
+      const trails = scanForeshadowTrails(root, readForeshadows(root))
+      // 覆盖行为保留：足迹按后扫文件（第二卷）计
+      expect(trails.get('玉佩')!.hits.every((h) => h.命中片段.includes('第二卷第一章') || !h.命中片段.includes('玉佩'))).toBe(true)
+      // 可见性：重复章号 warn 已发出（含章号与冲突文件名）
+      const msgs = warnSpy.mock.calls.map((c) => String(c[0])).join('\n')
+      expect(msgs).toContain('重复章号 1')
+      expect(msgs).toContain('0001-重名章.md')
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
+  test('无重复章号（各章唯一）→ 无 warn', async () => {
+    const { vi } = await import('vitest')
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      writeChapter(1, '开篇', '玉佩在雨夜里连响了三下。')
+      writeChapter(2, '入局', '玉佩再次轻响。')
+      writeForeshadow('玉佩', { 关联词: '玉佩' }, '')
+      scanForeshadowTrails(root, readForeshadows(root))
+      expect(warnSpy).not.toHaveBeenCalled()
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+})

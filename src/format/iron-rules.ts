@@ -7,6 +7,7 @@
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { log } from '../log/index.js'
 import { readBannedEntryWords } from './style-entry.js'
 
 /** 文风铁律可量化硬约束（parseIronRules 输出） */
@@ -50,7 +51,17 @@ export function parseIronRules(text: string): IronRules {
  */
 export function readIronRules(bookRoot: string): IronRules {
   const p = join(bookRoot, '文风', '文风铁律.md')
-  const rules = existsSync(p) ? parseIronRules(readFileSync(p, 'utf-8')) : {}
+  // R65-16（十三轮）：existsSync→readFileSync 间隙铁律被瞬删（TOCTOU）时 ENOENT 直穿
+  // 炸机检/文风重扫——读失败按空规则降级 + warn 留痕（对齐 X-P2-5 读失败按无推进降级）
+  let text: string | null = null
+  if (existsSync(p)) {
+    try {
+      text = readFileSync(p, 'utf-8')
+    } catch (e) {
+      log.warn('iron-rules', `文风铁律读取失败，按空规则降级：${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+  const rules = text !== null ? parseIronRules(text) : {}
   const entryWords = readBannedEntryWords(bookRoot)
   if (entryWords.length > 0) {
     rules.bannedWords = [...new Set([...(rules.bannedWords ?? []), ...entryWords])]

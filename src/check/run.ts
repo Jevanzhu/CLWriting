@@ -7,14 +7,21 @@
  */
 import { join, relative, basename } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { existsSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, statSync } from 'node:fs'
 import { readBookConfig } from '../format/yaml.js'
 import { applyGlobalDefaults } from '../format/global-defaults.js'
 import { readDraft } from '../format/draft.js'
 import { rebuild } from '../cache/rebuild.js'
 import { runAllChecks, hasRed, enabledLeadTypes } from './runner.js'
 import { readOutlineLeads } from './outline-leads.js'
-import { leadEvidenceMatchesBody, leadUpdatesInScopeForChapter, readChapterLeadUpdates } from './lead-updates.js'
+import {
+  leadEvidenceMatchesBody,
+  readChapterUpdatesForChapter,
+  readLeadUpdatesAt,
+  readLeadUpdateChapterTag,
+  LEAD_UPDATES_FILE,
+  LEAD_UPDATES_ARCHIVE_DIR,
+} from './lead-updates.js'
 import { readChapterDir } from '../format/chapters.js'
 import { readManifest } from '../document/manifest.js'
 import { deriveStatus } from '../document/status.js'
@@ -140,8 +147,34 @@ export interface BatchCheckContext {
   maxWrittenChapter?: number
   /** 大纲/章纲 章列表（targetWords 查表用；空数组 = 无章纲目录） */
   outlineChapters?: ChapterMeta[]
-  /** 工作区/账本推进.md 解析结果（无文件时为空数组） */
-  leadUpdates?: ChapterLeadUpdate[]
+  /** R65-24（十三轮）：每章账本推进预扫（主文件 + 归档暂存两源一次读齐，闭包按章
+   *  还原 readChapterUpdatesForChapter 拼装口径）；不传则单章路径现读（语义等价） */
+  leadUpdatesForChapter?: (chapterNo: number) => ChapterLeadUpdate[]
+}
+
+/**
+ * R65-24（十三轮）：批量路径的账本推进预扫——主文件标签 + 正文一次读、.账本推进暂存/
+ * 第N章.md 目录一次扫，返回按章取数的闭包（与逐章调 readChapterUpdatesForChapter 逐条
+ * 等价：无标签主文件对每章生效、带章标签主文件只对本章生效、归档按章名配对）。
+ * 单文件读失败按空降级（readLeadUpdatesAt 的 X-P2-5 口径，不阻断批量机检）。
+ */
+function scanChapterUpdatesByChapter(bookRoot: string): (chapterNo: number) => ChapterLeadUpdate[] {
+  const mainPath = join(bookRoot, LEAD_UPDATES_FILE)
+  const mainTag = readLeadUpdateChapterTag(mainPath) // 无文件/读失败 → null（宽容口径）
+  const mainUpdates = readLeadUpdatesAt(mainPath)
+  const archiveByChapter = new Map<number, ChapterLeadUpdate[]>()
+  const archiveDir = join(bookRoot, LEAD_UPDATES_ARCHIVE_DIR)
+  if (existsSync(archiveDir)) {
+    for (const f of readdirSync(archiveDir)) {
+      const m = f.match(/^第(\d+)章\.md$/)
+      if (!m) continue // 非本章归档命名（含 ._ 资源文件）不入预扫
+      archiveByChapter.set(Number(m[1]), readLeadUpdatesAt(join(archiveDir, f)))
+    }
+  }
+  return (chapterNo: number): ChapterLeadUpdate[] => [
+    ...(mainTag === null || mainTag === chapterNo ? mainUpdates : []),
+    ...(archiveByChapter.get(chapterNo) ?? []),
+  ]
 }
 
 /**
@@ -177,12 +210,13 @@ export function checkWithDb(
     // V-P2-14：细纲声明按被检章过滤（细纲单文件覆盖写，旧草稿复检不得对上新章声明）
     const declaredLeadIds = useLeads ? readOutlineLeads(bookRoot, draft.chapter.章号) : undefined
     // R61-14（第六十一轮）：实际侧同口径按被检章过滤（V-P2-14 声明侧同向）——
-    // 主文件带章标签且 ≠ 被检章时（批量连写后复检旧章），他章证据不作本章「已兑现」参照
+    // 他章证据不作本章「已兑现」参照。
+    // R65-24（十三轮）：actual 侧改走 readChapterUpdatesForChapter 单源（主文件（属于
+    // 本章时）+ 工作区/.账本推进暂存/第N章.md，内含 in-scope 判定）——此前只读主文件：
+    // 批量连写书的归档章推进被无视，误报 lead-declared-not-done 红（定稿闸与履历回写
+    // 自 ff-P1-1 已统一本函数，机检是最后缺口）。batch 预扫闭包同口径（CC-P1-3 消每章重读）
     const actualLeadIds = useLeads
-      ? (leadUpdatesInScopeForChapter(bookRoot, draft.chapter.章号)
-          ? (batch?.leadUpdates ?? readChapterLeadUpdates(bookRoot))
-          : []
-      )
+      ? (batch?.leadUpdatesForChapter?.(draft.chapter.章号) ?? readChapterUpdatesForChapter(bookRoot, draft.chapter.章号))
           .filter((u) => leadEvidenceMatchesBody(draft.body, u.证据))
           .map((u) => u.leadId)
       : undefined
@@ -228,12 +262,19 @@ export function __setLeadsBookDegradeForTest(v: boolean): void {
   __leadsBookDegradeForTest = v
 }
 
+/** R65-5（十三轮）测试注入：强制章级机检失败——验证 chaptersDegraded 透出路径
+ *  （真实失败多为瞬态竞态/名册 ENOENT，难确定性触发）。生产恒 false。 */
+let __chapterCheckDegradeForTest = false
+export function __setChapterCheckDegradeForTest(v: boolean): void {
+  __chapterCheckDegradeForTest = v
+}
+
 /** 树红点聚合：扫正文章节，返回 { docId: { hasRed, verdictRejected } }（仅含有 issue 的 docId）。 */
 export function collectTreeIssues(
   bookRoot: string,
   readReviewVerdict: (docId: string) => { approved: boolean } | undefined,
   userDataPath?: string | null,
-): { issues: Record<string, { hasRed: boolean; verdictRejected: boolean }>; rebuildFailed: boolean; leadsBookDegraded: boolean } {
+): { issues: Record<string, { hasRed: boolean; verdictRejected: boolean }>; rebuildFailed: boolean; leadsBookDegraded: boolean; chaptersDegraded: number } {
   // B-P2-7：检查 .ok，损坏时 warn 留诊断（config 回落 DEFAULT_CONFIG，不阻断）
   const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
   if (!cfgResult.ok) log.warn('check', `book.yaml 降级: ${cfgResult.error.message}`)
@@ -243,6 +284,8 @@ export function collectTreeIssues(
   const cachePath = join(bookRoot, '.cache', 'index.db')
   let db: DatabaseSync | null = null
   let rebuildFailed = false
+  // R65-5（十三轮）：单章机检失败章计数（透出 warning，见下方 checkFailed 分支）
+  let chaptersDegraded = 0
   if (hasWiring) {
     // M-9（2026-08-21）：rebuild / 开库 / PRAGMA 的硬异常按 fail-open 降级（warn + 留痕），
     // 不再穿透成 500——与缓存层头注释「读写失败跳过缓存走全量路径」红线对齐。此前只有
@@ -337,7 +380,9 @@ export function collectTreeIssues(
         outlineChapters: existsSync(join(bookRoot, '大纲', '章纲'))
           ? readChapterDir(join(bookRoot, '大纲', '章纲')).chapters
           : [],
-        leadUpdates: readChapterLeadUpdates(bookRoot),
+        // R65-24：批量预扫同口径走「主文件 + 归档暂存」两源（此前 readChapterLeadUpdates
+        // 只读主文件——归档章实际侧失明，与单章端点统一后此处一并统一）
+        leadUpdatesForChapter: scanChapterUpdatesByChapter(bookRoot),
       }
       for (const ch of chapters) {
         if (!ch._path) continue
@@ -390,9 +435,18 @@ export function collectTreeIssues(
         if (!rebuildFailed) {
           // H-1：树红点聚合的章级检查跳过账本全书性条目（独立缓存见上），章级行因此
           // 只依赖「本章 stat + 纪元」，跨章陈旧窗口消除
-          const outcome = checkWithDb(bookRoot, ch._path, db, config, batch, { skipLeadsBookChecks: true })
+          const outcome = __chapterCheckDegradeForTest
+            ? ({ ok: false } as const)
+            : checkWithDb(bookRoot, ch._path, db, config, batch, { skipLeadsBookChecks: true })
           if (outcome.ok) hasRed = outcome.hasRed
           else checkFailed = true
+        }
+        // R65-5（十三轮）：单章机检失败计数透出——与 R62-7 的 leadsBookDegraded 同口径，
+        // 此前 checkFailed 只影响「不落缓存」，持续性失败（名册竞态/账本损坏）期间该章
+        // 红点缺失且响应零提示（fail-open 漏红不可见）
+        if (checkFailed) {
+          chaptersDegraded++
+          log.warn('check', `章机检失败（红点可能缺失）：${relPath}`)
         }
         const verdict = readReviewVerdict(docId)
         const verdictRejected = !!verdict && !verdict.approved
@@ -405,7 +459,7 @@ export function collectTreeIssues(
         if (mergedRed || verdictRejected) issues[docId] = { hasRed: mergedRed, verdictRejected }
       }
     }
-    return { issues, rebuildFailed, leadsBookDegraded }
+    return { issues, rebuildFailed, leadsBookDegraded, chaptersDegraded }
   } finally {
     if (db) db.close()
   }

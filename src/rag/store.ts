@@ -77,6 +77,20 @@ export function resolveRagDbPath(bookRoot: string): string {
   }
   try {
     mkdirSync(join(bookRoot, '.cache'), { recursive: true })
+    // R65-4（十三轮）：迁移前先 checkpoint——把 WAL 已提交事务并入主库文件，从根上消除
+    // 「主库 rename 成功而 -wal 侧车迁走失败（EBUSY/杀软占用）→ 侧车里已提交事务丢失、
+    // 新路径开出空库、全书重嵌入」的窗口。checkpoint 失败不阻断迁移（回落旧行为 +
+    // 下方侧车告警兜底）。TRUNCATE 把 wal 清零后，侧车 rename 即使失败也已无数据可丢。
+    try {
+      const legacy = new DatabaseSync(legacyPath)
+      try {
+        legacy.exec('PRAGMA wal_checkpoint(TRUNCATE)')
+      } finally {
+        legacy.close()
+      }
+    } catch {
+      /* checkpoint 尽力而为：失败回落纯 rename 迁移 */
+    }
     renameSync(legacyPath, dbPath)
   } catch {
     return legacyPath
@@ -88,7 +102,9 @@ export function resolveRagDbPath(bookRoot: string): string {
       try {
         renameSync(legacyPath + ext, dbPath + ext)
       } catch {
-        /* 见上：主库已迁，侧车失败无路可退 */
+        // R65-4：不留静默回退——主库已迁而侧车滞留旧处时记 warn（checkpoint 失败 +
+        // rename 失败双降级才会到这；日志至少能看到「迁移丢失」而非「未建过库」）
+        console.warn(`[rag] 迁移侧车失败（${ext}）：${legacyPath}${ext} 滞留旧处，WAL 内已提交数据可能丢失`)
       }
     }
   }
@@ -118,19 +134,22 @@ export function l2Norm(vec: Float32Array): number {
  * A3（批 7）：chunks.norm 列迁移——旧库无列 → ALTER TABLE 加列；有列但存 NULL
  * （加列后的存量行）→ 逐行算 L2 写回（一次性，打开库时自愈）。幂等：二次打开全
  * 值在位 → 零写。回填失败（锁/IO）上抛给 openRagDb 调用方（RAG 各入口已有降级）。
+ * R65-13（总六十五轮）：去掉「每次 open 都 COUNT 全表」判存在——直接 SELECT NULL 行
+ *（无 NULL 时只读不开写事务，不再多扫一遍 COUNT）；回填事务改 BEGIN IMMEDIATE
+ *（与 commitIndexBatch 口径一致——deferred BEGIN 到首个 UPDATE 才升写锁，并发开库
+ * 仍有 SQLITE_BUSY 窗口；IMMEDIATE 在 busy_timeout 内排队拿写锁）。
  */
 export function ensureNormColumn(db: DatabaseSync): void {
   const cols = db.prepare('PRAGMA table_info(chunks)').all() as Array<{ name: string }>
   if (!cols.some((c) => c.name === 'norm')) {
     db.exec('ALTER TABLE chunks ADD COLUMN norm REAL')
   }
-  const nullCount = (db.prepare('SELECT COUNT(*) AS n FROM chunks WHERE norm IS NULL').get() as { n: number }).n
-  if (nullCount === 0) return
   const rows = db
     .prepare('SELECT id, embedding FROM chunks WHERE norm IS NULL')
     .all() as Array<{ id: number; embedding: Uint8Array }>
+  if (rows.length === 0) return
   const update = db.prepare('UPDATE chunks SET norm = ? WHERE id = ?')
-  db.exec('BEGIN')
+  db.exec('BEGIN IMMEDIATE')
   try {
     for (const r of rows) {
       update.run(l2Norm(bufferToFloat32(r.embedding)), r.id)

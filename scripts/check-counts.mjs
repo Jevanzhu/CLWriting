@@ -42,13 +42,23 @@ export function stripStrings(src) {
 }
 
 /**
+ * R65-63（F-11）：门禁净化统一入口——先清字符串再剥注释。
+ * 反过来（先注释后字符串）时，字符串内容里的非冒前 `//`（如 base64 片段、
+ * URL 路径段）会被当行注释吃掉、吞掉行尾引号污染后续计数；先空串则注释内
+ * 的引号已成对占位，注释剥离不受影响。占位 `""` 保形使 .skip 标题串探测仍命中。
+ */
+export function sanitizeForCount(src) {
+  return stripComments(stripStrings(src))
+}
+
+/**
  * e2e 用例静态计数：只数真实用例声明 test( / test.serial( / test.only( / test.fail( /
  * test.fixme(，排除 hook/describe/skip（test.beforeAll( 等点后缀会虚增——曾把 37 数成 56）；
  * 计数前剥注释/字符串（X-32），被注释/写进字符串的声明样例不再计入
  * R62-56：test.fail( / test.fixme( 也声明真实用例（期望失败/挂起的测试），此前漏数
  */
 export function countE2eCases(src) {
-  const m = stripStrings(stripComments(src)).match(
+  const m = sanitizeForCount(src).match(
     /(^|[^.\w])(?:test\.serial|test\.only|test\.fail|test\.fixme|test)\s*\(/g,
   )
   return m ? m.length : 0
@@ -62,12 +72,15 @@ export function countE2eCases(src) {
  *   `(` 后非 `"`，白名单豁免（release-smoke.spec.ts 的发布门先例）。
  */
 export function findOnlyOrSkipViolations(src) {
-  const clean = stripStrings(stripComments(src))
+  const clean = sanitizeForCount(src)
   // R64-38（十二轮）：only 门正则补 `.each` 组合——`it.only.each([...])('t', fn)` 形态
   // 此前不被 `\s*\(` 匹配（only 后面是 .each），漏放行整个参数化组（其余用例静默跳过）。
   const only = clean.match(/(^|[^.\w])(?:it|test|describe)\.only(?:\.each)?\s*[({[]/g)
-  const uncondSkip = clean.match(/(^|[^.\w])(?:it|test|describe)\.skip\s*\(\s*"/g)
-  return { only: only ? only.length : 0, uncondSkip: uncondSkip ? uncondSkip.length : 0 }
+  // R65-59（F-3）：无条件 skip 同补 `.each` 组合——`it.skip.each([...])('t', fn)` 同样
+  // 静默跳过整组；条件式豁免口径不变（plain 形态首参须标题串，each 形态第二调用首参须标题串）
+  const skipPlain = clean.match(/(^|[^.\w])(?:it|test|describe)\.skip\s*\(\s*"/g)
+  const skipEach = clean.match(/(^|[^.\w])(?:it|test|describe)\.skip\.each\s*\([^)]*\)\s*\(\s*"/g)
+  return { only: only ? only.length : 0, uncondSkip: (skipPlain?.length ?? 0) + (skipEach?.length ?? 0) }
 }
 
 /** 递归收集文件 */

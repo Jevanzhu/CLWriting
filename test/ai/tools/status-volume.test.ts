@@ -108,3 +108,26 @@ describe('T2 批 assembleStatus 第三参显式 resolve（chapter_status 调用�
     expect(r.summary).toContain('第 4 卷')
   })
 })
+
+// ── R65-11（总六十五轮）：readOnly 连接 busy_timeout ──
+// 修复背景：chapter_status 打开书缓存（readOnly）未设 busy_timeout，写尖峰
+// （rebuild/机检并发持 EXCLUSIVE 锁）下即时读抛 SQLITE_BUSY。修复后与域内其他连接
+// 同口径等 5s：本用例持锁不放，观察读取侧确为「等满 busy_timeout 后才失败」
+//（旧实现 <1s 即抛）。同步阻塞期间锁由本线程另一连接持有，无需并发线程。
+describe('R65-11：readOnly 连接 busy_timeout（与域内其他连接口径一致）', () => {
+  it('EXCLUSIVE 锁被持有时读取等满 ~5s 才失败（busy_timeout 生效；旧行为即时 SQLITE_BUSY）', () => {
+    const blocker = new DatabaseSync(join(bookRoot, '.cache', 'index.db'))
+    blocker.exec('BEGIN EXCLUSIVE')
+    try {
+      const t0 = Date.now()
+      const r = chapterStatus({ bookRoot, bookName: LONG_BOOK, userDataPath }, {})
+      const elapsed = Date.now() - t0
+      expect(r.ok).toBe(false)
+      expect(r.summary).toContain('读取章节状态失败')
+      expect(elapsed).toBeGreaterThanOrEqual(4000) // 等满 busy_timeout≈5000ms（旧实现毫秒级即抛）
+    } finally {
+      blocker.exec('ROLLBACK')
+      blocker.close()
+    }
+  }, 15_000)
+})

@@ -222,7 +222,7 @@ function healthCheck(bookRoot: string, manifest: Manifest): HealthIssue[] {
         const pending = findUnsettled(join(journalDir, name))
         const unresolved: JournalAnyPending[] = []
         for (const p of pending) {
-          if (!isMovePending(p) || !healMovePending(bookRoot, docId, p)) unresolved.push(p)
+          if (!isMovePending(p) || !healMovePending(bookRoot, docId, p, manifest)) unresolved.push(p)
         }
         if (unresolved.length > 0) {
           issues.push({
@@ -282,7 +282,12 @@ function healthCheck(bookRoot: string, manifest: Manifest): HealthIssue[] {
  * - 旧路径在、新路径不在 → rename 未发生 → 悬置 pending 标 aborted（无实际效果待恢复）
  * - 两端都在 / 都不在 / 路径越出书仓库 → 不可自动判定，返回 false 交作者
  */
-function healMovePending(bookRoot: string, docId: string, p: JournalMovePending): boolean {
+function healMovePending(
+  bookRoot: string,
+  docId: string,
+  p: JournalMovePending,
+  manifestMirror?: Manifest,
+): boolean {
   const oldAbs = safeManifestPath(bookRoot, p.oldPath)
   const newAbs = safeManifestPath(bookRoot, p.newPath)
   if (!oldAbs || !newAbs) return false
@@ -303,6 +308,13 @@ function healMovePending(bookRoot: string, docId: string, p: JournalMovePending)
             writeManifest(manifestPath, m)
           }
         })
+      }
+      // R65-30（第六十五轮）：盘上清单已对齐新路径，但同次 healthCheck 的
+      // finalizedLost 检查（③）与后续态 3 判定仍用入参旧镜像查旧路径 → 误报
+      // 「已定稿文件不在盘上」；同步改写外层 manifest 内存镜像的 entry.path。
+      if (manifestMirror) {
+        const mirrorEntry = manifestMirror.entries.get(docId)
+        if (mirrorEntry && mirrorEntry.path !== p.newPath) mirrorEntry.path = p.newPath
       }
       appendSettled(join(journalDir(bookRoot), `${docId}.jsonl`), p.opId, computeRevision(newAbs))
       return true

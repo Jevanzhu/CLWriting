@@ -14,6 +14,7 @@ import {
   writeFile,
   parseRealmSystems,
   stringifyRealmSystems,
+  patchFlatFm,
 } from '../../src/format/frontmatter.js'
 import { readBookConfig } from '../../src/format/yaml.js'
 import { stripInlineComment } from '../../src/format/frontmatter-core.js'
@@ -165,6 +166,79 @@ test('stringifyRealmSystems: 往返', () => {
   const text = stringifyRealmSystems(systems)
   const reparsed = parseRealmSystems(text)
   expect(reparsed).toEqual(systems)
+})
+
+// ── R65-1（十三轮）：平铺 fm 文本级补丁 ─────────────────────
+
+const REALM_FM = [
+  '名称: 境界体系',
+  '体系:',
+  '  - 名称: 修真境界',
+  '    序列: [炼气, 筑基, 金丹, 元婴]',
+  '  - 名称: 武者等级',
+  '    序列: [后天, 先天, 宗师]',
+  '备注: 作者手写',
+].join('\n')
+
+test('R65-1: patchFlatFm 补平铺键保留境界体系嵌套结构（旧 parseFlat RMW 会压平）', () => {
+  const r = patchFlatFm(REALM_FM, { 名称: '境界体系v2', 标签: ['修真', '升级流'] })
+  expect(r.ok).toBe(true)
+  if (!r.ok) return
+  // 嵌套段逐字节保留：parseRealmSystems 仍完整解析（旧实现此处返回 [] 或只剩最后一组）
+  expect(parseRealmSystems(r.text)).toEqual([
+    { 名称: '修真境界', 序列: ['炼气', '筑基', '金丹', '元婴'] },
+    { 名称: '武者等级', 序列: ['后天', '先天', '宗师'] },
+  ])
+  // 其余键行为：已存在键换行 / 缺失键追加 / 未知键原样保留
+  const map = parseFlat(r.text)
+  expect(map.get('名称')).toBe('境界体系v2')
+  expect(map.get('标签')).toEqual(['修真', '升级流'])
+  expect(map.get('备注')).toBe('作者手写')
+})
+
+test('R65-1: patchFlatFm 拒绝改写自带嵌套子行的键（fail-loud 防平铺化）', () => {
+  const r = patchFlatFm(REALM_FM, { 体系: 'x' })
+  expect(r.ok).toBe(false)
+  if (r.ok) return
+  expect(r.reason).toContain('体系')
+})
+
+test('R65-1: patchFlatFm 块标量键整体重渲染（含跨空行内容）', () => {
+  const fmRaw = '钩子: |\n  第一段\n\n  第二段\n状态: 进行中'
+  const r = patchFlatFm(fmRaw, { 钩子: '新\n内容' })
+  expect(r.ok).toBe(true)
+  if (!r.ok) return
+  expect(parseFlat(r.text).get('钩子')).toBe('新\n内容')
+  expect(parseFlat(r.text).get('状态')).toBe('进行中')
+})
+
+test('R65-1: patchFlatFm 普通键后随空行不误判嵌套；多行值渲染块标量', () => {
+  const fmRaw = '标题: 旧\n\n状态: 进行中'
+  const r = patchFlatFm(fmRaw, { 标题: '新', 摘要: 'a\nb' })
+  expect(r.ok).toBe(true)
+  if (!r.ok) return
+  const map = parseFlat(r.text)
+  expect(map.get('标题')).toBe('新')
+  expect(map.get('状态')).toBe('进行中')
+  expect(map.get('摘要')).toBe('a\nb')
+})
+
+test('R65-1: patchFlatFm 重复同名顶层键只保留首个改写', () => {
+  const fmRaw = '状态: 旧a\n状态: 旧b'
+  const r = patchFlatFm(fmRaw, { 状态: '新' })
+  expect(r.ok).toBe(true)
+  if (!r.ok) return
+  expect(parseFlat(r.text).get('状态')).toBe('新')
+  expect(r.text.match(/状态:/g)).toHaveLength(1)
+})
+
+test('R65-1: patchFlatFm 空 fm 全量追加 + 注释行保留', () => {
+  const fmRaw = '# 顶部注释\n标题: 旧'
+  const r = patchFlatFm(fmRaw, { 标题: '新', 新键: 42 })
+  expect(r.ok).toBe(true)
+  if (!r.ok) return
+  expect(r.text.startsWith('# 顶部注释\n')).toBe(true)
+  expect(parseFlat(r.text).get('新键')).toBe(42)
 })
 
 test('joinFrontMatter: 包裹完整 markdown', () => {

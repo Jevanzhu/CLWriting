@@ -32,7 +32,7 @@ import { readManifest, writeManifest, upsertEntry, withManifestLock, type Manife
 import { SaveQueue } from './queue.js'
 import { generateDocId, legacyId } from './stable-id.js'
 import { invalidateTreeIndex, scanBookTree, type TreeNode } from './tree.js'
-import { readFile as readDoc, parseFlat, stringifyFlat, splitFrontMatter, joinFrontMatter, bodyOf } from '../format/frontmatter.js'
+import { readFile as readDoc, parseFlat, patchFlatFm, splitFrontMatter, joinFrontMatter, bodyOf } from '../format/frontmatter.js'
 import { appendTrashEntry, readTrashManifest } from './trash.js'
 import { appendWordsDelta, todayDate } from './words-diary.js'
 import { countWords, chapterFilePrefix } from '../format/words.js'
@@ -142,7 +142,7 @@ export type MoveResult =
   | { ok: true; docId: string; path: string }
   | {
       ok: false
-      code: 'PATH_ESCAPE' | 'CAPABILITY_DENIED' | 'NOT_FOUND' | 'ALREADY_EXISTS' | 'WRITE_ERROR'
+      code: 'PATH_ESCAPE' | 'CAPABILITY_DENIED' | 'NOT_FOUND' | 'ALREADY_EXISTS' | 'WRITE_ERROR' | 'BAD_INPUT'
       reason: string
     }
 
@@ -465,9 +465,16 @@ export class DocumentService {
     // 缓存 isPieceBody 结果（一次 readBookConfig，避免同方法内两次磁盘读）
     const isPiece = isPieceBody(path, this.bookRoot)
     if (meta.章号 !== undefined) map.set('章号', meta.章号)
+    // R65-1（十三轮）：写侧改文本级补丁——parseFlat→stringifyFlat 整体重排会把手写
+    // 嵌套段/块标量变体压平（同 updateDocMeta 的境界体系问题），补丁只换目标键行
+    const fmUpdates: Record<string, unknown> = {}
+    if (meta.标题 !== undefined) fmUpdates['标题'] = meta.标题
+    if (meta.章号 !== undefined) fmUpdates['章号'] = meta.章号
+    const patched = patchFlatFm(r.fmRaw, fmUpdates)
+    if (!patched.ok) return { ok: false, code: 'BAD_INPUT', reason: patched.reason }
     try {
       // 元数据写入走原子写（P1-6A：防 writeFileSync 半截损坏不可恢复）
-      atomicWriteFile(abs, joinFrontMatter(stringifyFlat(map), r.body), { fsync: true })
+      atomicWriteFile(abs, joinFrontMatter(patched.text, r.body), { fsync: true })
     } catch (e) {
       return { ok: false, code: 'WRITE_ERROR', reason: `元数据写入失败：${errMsg(e)}` }
     }
@@ -581,13 +588,20 @@ export class DocumentService {
     if (!isUtf8Bytes(readFileSync(abs))) return NON_UTF8_REJECT
     // 容错：裸 md 无 fm（旧书卷纲/总纲）→ 整体当 body，新建 fm
     const split = splitFrontMatter(raw)
-    const map = parseFlat(split ? split.fmRaw : '')
     const body = split ? split.body : raw
+    // R65-1（十三轮）：写侧改文本级补丁——parseFlat→stringifyFlat 整体重排会摧毁
+    // fm 内唯一嵌套结构（设定/境界体系.md 的 体系:/- 名称:/序列: 被压平成伪平铺键
+    // 且同名键互相覆盖，回写后 parseRealmSystems 永远解析失败 → 成长线机检静默失明，
+    // 多体系时仅最后一组内容存活）。补丁只换目标键行，其余行逐字节保留；目标键自带
+    // 嵌套子行时 fail-loud 拒绝。
+    const fmUpdates: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(meta)) {
-      if (v !== undefined) map.set(k, v)
+      if (v !== undefined) fmUpdates[k] = v
     }
+    const patched = patchFlatFm(split ? split.fmRaw : '', fmUpdates)
+    if (!patched.ok) return { ok: false, code: 'BAD_INPUT', reason: patched.reason }
     try {
-      atomicWriteFile(abs, joinFrontMatter(stringifyFlat(map), body), { fsync: true })
+      atomicWriteFile(abs, joinFrontMatter(patched.text, body), { fsync: true })
     } catch (e) {
       return { ok: false, code: 'WRITE_ERROR', reason: `元数据写入失败：${errMsg(e)}` }
     }

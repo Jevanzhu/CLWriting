@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync, writeFileSync, readFileSync, statSync } from 'node
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { runTask, resolveProvider, NO_USERDATA_MSG, NO_PROVIDER_MSG } from '../../src/ai/runner.js'
+import { runTask, resolveProvider, NO_USERDATA_MSG, NO_PROVIDER_MSG, degradedPersistCallbacksForTest } from '../../src/ai/runner.js'
 import { persistDegraded, registerDegradedPersist, resetDegradedChannels } from '../../src/ai/provider/store.js'
 import { checkAiCallBudget } from '../../src/ai/calls.js'
 import type { BookConfig } from '../../src/format/types.js'
@@ -480,6 +480,35 @@ describe('O-6（第十三轮）降级回调注册幂等化', () => {
       spyP.mockRestore()
       spyL.mockRestore()
     }
+  })
+})
+
+describe('R65-6（总六十五轮）降级回调注册 Map 化', () => {
+  it('两个 userDataPath 各注册 → Map 并存互不覆盖；persistDegraded 按活跃 path 路由', async () => {
+    const udA = tempUserData()
+    writeProviders(udA)
+    const udB = tempUserData()
+    writeProviders(udB)
+    expect(resolveProvider(udA).ok).toBe(true)
+    expect(resolveProvider(udB).ok).toBe(true)
+    // 直测 Map 行为：两 path 的回调闭包并存，后注册者不再覆盖前者
+    const registry = degradedPersistCallbacksForTest()
+    const cbA = registry.get(udA)
+    const cbB = registry.get(udB)
+    expect(cbA).toBeDefined()
+    expect(cbB).toBeDefined()
+    expect(cbA).not.toBe(cbB)
+    // 行为：persistDegraded 写活跃 path（udB）的 providers.json，udA 不被误写
+    const key = 'prov-test/gpt-4o'
+    persistDegraded(key)
+    expect(JSON.parse(readFileSync(join(udB, 'providers.json'), 'utf8')).modelCaps?.[key]).toEqual({ structured: false })
+    // resolve 注册时会把文件规范化保存（含空 modelCaps 对象）——按「降级标记键未写入」断言，
+    // 而非「文件无 modelCaps 字段」
+    expect(JSON.parse(readFileSync(join(udA, 'providers.json'), 'utf8')).modelCaps?.[key]).toBeUndefined()
+    // 切回 udA：其回调仍在（未被 udB 的注册覆盖丢失）→ 路由回 udA 落盘
+    expect(resolveProvider(udA).ok).toBe(true)
+    persistDegraded(key)
+    expect(JSON.parse(readFileSync(join(udA, 'providers.json'), 'utf8')).modelCaps?.[key]).toEqual({ structured: false })
   })
 })
 

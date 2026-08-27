@@ -33,6 +33,10 @@ test('编译产物齐备（Electron 壳 bundle + server 入口 + web 静态）',
   expect(existsSync(join('dist', 'desktop', 'preload.cjs'))).toBe(true)
   expect(existsSync(join('dist', 'desktop', 'server-main.js'))).toBe(true)
   expect(existsSync(join('dist', 'web', 'index.html'))).toBe(true)
+  // R65-57（F-1）：子进程入口件不在 server-main bundle 内联，缺件只在运行期 fork 时炸
+  // （utilityProcess/worker_threads）——tsup 入口漏配时本 smoke 此前仍绿。静态断言兜住
+  expect(existsSync(join('dist', 'desktop', 'server-utility.js'))).toBe(true)
+  expect(existsSync(join('dist', 'desktop', 'export-worker.js'))).toBe(true)
 })
 
 test('编译产物 server 起服务：boot/书架/静态前端全链路', async () => {

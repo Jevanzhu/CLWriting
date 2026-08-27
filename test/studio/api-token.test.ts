@@ -12,7 +12,7 @@
 import http from 'node:http'
 import net from 'node:net'
 import type { AddressInfo } from 'node:net'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
@@ -166,6 +166,18 @@ describe('P0 session token(写端点 defense-in-depth)', () => {
     expect(r.status).toBe(200)
   })
 
+  // R65-46（总六十五轮）：HEAD 与 GET 同读语义，一并入闸——原只判 GET，HEAD /api/*
+  // 绕过 token 校验（当前无 HEAD 路由无实害，口径不一致留缺口）
+  it('R65-46: HEAD 无 token → 403（与 GET 同闸，原仅判 GET 可绕过）', async () => {
+    const r = await rawRequest('HEAD', '/api/books', {})
+    expect(r.status).toBe(403)
+  })
+
+  it('R65-46 对照: HEAD 对 token → 非 403（过闸进 dispatch，无匹配路由 404）', async () => {
+    const r = await rawRequest('HEAD', '/api/books', { 'x-studio-token': token })
+    expect(r.status).not.toBe(403)
+  })
+
   it('POST 超过 JSON body 上限 → 413', async () => {
     const body = JSON.stringify({ format: 'x'.repeat(1024 * 1024 + 1) })
     const r = await rawRequest(
@@ -224,5 +236,51 @@ describe('X-20: absolute-form 请求行入口拒绝', () => {
   it('对照：origin-form 同路径行为不变（无 token → 403 过闸校验）', async () => {
     const r = await rawSocketRequestLine('GET /api/books HTTP/1.1')
     expect(r.status).toBe(403)
+  })
+})
+
+// ── R65-64（F-5）：GET 路由 token 闸穷举网 ───────────────────────
+/** 从路由源码静态抽取全部 GET path（新注册的 GET 端点自动入网，不靠手工同步清单）。
+ *  抽取口径与 defineRoute 定义同形：method: 'GET', 换行 path: '...'。 */
+function extractGetRoutePaths(): string[] {
+  const apiDir = join(import.meta.dirname, '../../src/studio/server/api')
+  const files = [
+    ...readdirSync(apiDir).filter((f) => f.endsWith('.ts')).map((f) => join(apiDir, f)),
+    join(import.meta.dirname, '../../src/studio/server/index.ts'),
+  ]
+  const paths = new Set<string>()
+  for (const fp of files) {
+    const m = readFileSync(fp, 'utf8').matchAll(/method: 'GET',\s*\n\s*path: '([^']+)'/g)
+    for (const hit of m) paths.add(hit[1]!)
+  }
+  return [...paths].sort()
+}
+
+describe('R65-64（F-5）：全量 GET /api/* 无 token → 403（豁免表除外）', () => {
+  it('穷举源码中每一条 GET 路由的实例化路径，无凭据一律 403', async () => {
+    const patterns = extractGetRoutePaths()
+    expect(patterns.length, '路由抽取不得为空——defineRoute 结构变更须同步抽取正则').toBeGreaterThan(30)
+
+    // :param 实例化（值进不了 handler——token 闸先于 dispatch；403 与业务态无关）
+    const concrete = (p: string) =>
+      p.replaceAll(':name', 't').replaceAll(':docId', 'doc_x').replaceAll(':id', 'snap1').replaceAll(':kind', 'review')
+    // index.ts 的 GET 豁免表同源（boot 取 token 本身 + SSE 流）
+    const exempt = [/^\/api\/boot$/, /^\/api\/books\/[^/]+\/stream$/]
+
+    const leaks: string[] = []
+    for (const p of patterns) {
+      const path = concrete(p)
+      if (exempt.some((re) => re.test(path))) continue
+      const r = await rawRequest('GET', path)
+      if (r.status !== 403) leaks.push(`${path} → ${r.status}（期望 403）`)
+    }
+    expect(leaks, '以下 GET 路由无凭据未返回 403（token 闸失守）:\n' + leaks.join('\n')).toEqual([])
+  })
+
+  it('抽查带正确 token → 同批路径不再 403（闸只拦无凭据，不误伤读端点）', async () => {
+    for (const p of ['/api/books', '/api/books/t/tree', '/api/books/t/state']) {
+      const r = await rawRequest('GET', p, { 'x-studio-token': token })
+      expect(r.status, `${p}`).not.toBe(403)
+    }
   })
 })

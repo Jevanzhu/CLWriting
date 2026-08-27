@@ -120,3 +120,42 @@ describe('acquireCrossProcessLockWithTimeout', () => {
     hold!()
   })
 })
+
+// ── R65-35（第六十五轮）：writeSync 循环写满 + 释放前校验锁归属 ────────────────
+
+describe('R65-35: 释放校验（不删他人锁）', () => {
+  it('锁内容非自身（被他人换掉）→ release 不删他人锁（X-4 双持锁残余窗口消解）', () => {
+    const p = lp('r65-35-foreign')
+    const acquire = tryAcquireCrossProcessLock(p)
+    expect(acquire).not.toBeNull()
+    // 模拟 X-4 残余窗口：持锁期间锁文件被 stale 接管者删掉并重建为他人（他 pid）的锁
+    const foreign = JSON.stringify({ pid: process.pid + 1, bootTime: 12345 })
+    writeFileSync(p, foreign)
+    acquire!() // 释放：内容与自身写入串不一致 → 不删
+    // 他人锁原样在位（无条件 rmSync 会把它删掉 → 双持锁互斥失效）
+    expect(readFileSync(p, 'utf-8')).toBe(foreign)
+    // 清理（本测试自持的外来锁文件）
+    rmSync(p, { force: true })
+  })
+
+  it('锁内容仍为自身 → release 正常删（回归）', () => {
+    const p = lp('r65-35-own')
+    const acquire = tryAcquireCrossProcessLock(p)
+    expect(acquire).not.toBeNull()
+    acquire!()
+    expect(() => readFileSync(p, 'utf-8')).toThrow() // 已删
+  })
+
+  it('锁文件写入串是完整 JSON（pid+bootTime 可解析）——循环写满不留半写', () => {
+    const p = lp('r65-35-payload')
+    const acquire = tryAcquireCrossProcessLock(p)
+    expect(acquire).not.toBeNull()
+    try {
+      const parsed = JSON.parse(readFileSync(p, 'utf-8')) as { pid: number; bootTime: number }
+      expect(parsed.pid).toBe(process.pid)
+      expect(Number.isFinite(parsed.bootTime)).toBe(true)
+    } finally {
+      acquire!()
+    }
+  })
+})

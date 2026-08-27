@@ -75,3 +75,54 @@ describe('words: R-23 postBaseline 前后代守卫', () => {
     expect(s.ready).toBe(true)
   })
 })
+
+describe('words: R65-49（E-1）切书清态 + 失败降级清 delta', () => {
+  it('切书入口清态：B 书响应在途时旧书的 delta/baseline 不再参与今日字数（不互减）', async () => {
+    // A 书先成功载入（delta=12, baseline=80）
+    diaryMock.mockResolvedValueOnce({ date: '2026-08-23', delta: 12, baseline: 80 })
+    const s = useWordsStore()
+    await s.ensureBaseline('bookA')
+    expect(s.todayWords).toBe(12)
+
+    // 切 B：B 的 diary 挂起——入口清态须同步生效（todayWords 回 0，而非拿 A 的 delta）
+    let releaseB!: (v: { date: string; delta: number | null; baseline: number | null }) => void
+    diaryMock.mockImplementationOnce(
+      () => new Promise((r) => { releaseB = r }),
+    )
+    const pB = s.ensureBaseline('bookB')
+    expect(s.todayDelta).toBe(null)
+    expect(s.baseline).toBe(null)
+    expect(s.ready).toBe(false)
+    expect(s.todayWords).toBe(0)
+
+    releaseB({ date: '2026-08-24', delta: 5, baseline: 60 })
+    await pB
+    expect(s.todayDelta).toBe(5)
+    expect(s.todayWords).toBe(5)
+
+    // 同书 save 刷新（B 重调）不清态：刷新在途仍显示上次结果，不闪 0
+    diaryMock.mockImplementationOnce(
+      () => new Promise((r) => { releaseB = r }),
+    )
+    const pB2 = s.ensureBaseline('bookB')
+    expect(s.todayWords).toBe(5)
+    releaseB({ date: '2026-08-24', delta: 9, baseline: 60 })
+    await pB2
+    expect(s.todayWords).toBe(9)
+  })
+
+  it('同书刷新失败（diary GET 报错）→ delta 一并清空走 baseline 回退，不残留旧 delta', async () => {
+    diaryMock.mockResolvedValueOnce({ date: '2026-08-23', delta: 12, baseline: 80 })
+    const s = useWordsStore()
+    await s.ensureBaseline('bookA')
+    expect(s.todayDelta).toBe(12)
+
+    diaryMock.mockRejectedValueOnce(new Error('net down'))
+    await s.ensureBaseline('bookA')
+    // 修复前：todayDelta=12 残留且优先级高于 baseline 回退 → 今日字数仍是 12（旧值）
+    expect(s.todayDelta).toBe(null)
+    expect(s.date).toBe(null)
+    expect(s.baseline).toBe(100) // 降级：记当前已写为基线 → 今日 0
+    expect(s.todayWords).toBe(0)
+  })
+})

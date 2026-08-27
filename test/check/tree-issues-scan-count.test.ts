@@ -128,7 +128,7 @@ describe('collectTreeIssues 预扫提升（CC-P1-3）', () => {
       // 与 collectTreeIssues 同口径构造 batch 上下文
       const batch: BatchCheckContext = {
         outlineChapters: readChapterDir(join(root, '大纲', '章纲')).chapters,
-        leadUpdates: [],
+        leadUpdatesForChapter: () => [],
       }
       const outcome = checkWithDb(root, join(root, '写作', '正文', '001-第1章.md'), null, config, batch)
       expect(outcome.ok).toBe(true)

@@ -16,6 +16,7 @@ import { readFile, parseFlat } from '../format/frontmatter.js'
 import { readLead } from '../format/leads.js'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { walkMdEach } from '../fs/walk-md.js'
+import { log } from '../log/index.js'
 
 // ── 伏笔条目（fm 数据）──────────────────────────
 
@@ -383,6 +384,11 @@ function walkChapters(dir: string, texts: Map<number, string>): void {
   walkMdEach(dir, (abs, name) => {
     const 章号 = parseChapterNoFromName(name)
     if (章号 === null) return
+    // R65-33（第六十五轮）：跨卷重复章号 set 静默覆盖（后者胜——足迹只按后扫到的
+    // 那章算，前一章的证据整章不可见）；保留现覆盖行为，补 warn 可见性供作者核对
+    if (texts.has(章号)) {
+      log.warn('foreshadow', `正文存在重复章号 ${章号}（${name} 与先前已收集的同号章冲突，伏笔足迹按后扫文件计——请核对卷内章号规划）`)
+    }
     const r = readFile(abs)
     texts.set(章号, r.ok ? r.body : '')
   })

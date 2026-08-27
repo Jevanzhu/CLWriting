@@ -4,7 +4,7 @@
  * 恢复（移回 + 清单恢复）、原位占用 OCCUPIED、永久删、listTrash。
  */
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, linkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execSync } from 'node:child_process'
@@ -168,4 +168,48 @@ test('W-P2-1：软删已定稿章 → 回收站条目带基线；恢复后清单
   const { resolveDraftPath } = await import('../../src/format/draft.js')
   expect(() => resolveDraftPath(root, 1)).toThrow(/已定稿/)
   rmSync(root, { recursive: true, force: true })
+})
+
+// ── R65-36（第六十五轮）：restore 重入幂等——「link 成功 → 删源」间崩溃的续跑 ────
+
+test('R65-36: 目标位与回收站双份（link 后未删源崩溃形态）→ 再还原视为已完成：删源+清单收口，不再 OCCUPIED 卡死', async () => {
+  const { root, svc } = makeBookWithChapter()
+  try {
+    await svc.trashDocument({ docId: 'doc_ch01' })
+    // 手动造双份：模拟上次 restore 在 linkSync 成功后、rmSync 源之前崩溃
+    // （link 的硬链接与 trash 源同 inode，内容天然一致）
+    const trashAbs = join(root, '工作区', '.trash', 'doc_ch01-0001-开篇.md')
+    const origAbs = join(root, '写作', '正文', '第一卷', '0001-开篇.md')
+    linkSync(trashAbs, origAbs)
+    expect(existsSync(origAbs)).toBe(true) // 双份在位
+    // 修复前：此处 OCCUPIED 卡死（每次还原都撞占用，条目永不清）
+    const r = restoreTrash(root, 'doc_ch01')
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    // 源被清、目标保留、清单恢复、条目移除
+    expect(existsSync(trashAbs)).toBe(false)
+    expect(existsSync(origAbs)).toBe(true)
+    expect(readFileSync(origAbs, 'utf-8')).toContain('正文')
+    expect(readFileSync(join(root, '项目', '文档清单.jsonl'), 'utf-8')).toContain('doc_ch01')
+    expect(listTrash(root)).toHaveLength(0)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('R65-36: 目标位是作者另建的不同内容 → 仍 OCCUPIED（内容比对不一致不误吞作者文件）', async () => {
+  const { root, svc } = makeBookWithChapter()
+  try {
+    await svc.trashDocument({ docId: 'doc_ch01' })
+    mkdirSync(join(root, '写作', '正文', '第一卷'), { recursive: true })
+    writeFileSync(join(root, '写作', '正文', '第一卷', '0001-开篇.md'), '作者完全不同的新内容', 'utf-8')
+    const r = restoreTrash(root, 'doc_ch01')
+    expect(r.ok).toBe(false)
+    if (r.ok) return
+    expect(r.code).toBe('OCCUPIED')
+    expect(listTrash(root)).toHaveLength(1) // 条目保留
+    expect(readFileSync(join(root, '写作', '正文', '第一卷', '0001-开篇.md'), 'utf-8')).toBe('作者完全不同的新内容')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
 })

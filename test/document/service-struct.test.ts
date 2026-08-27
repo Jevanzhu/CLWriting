@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execSync } from 'node:child_process'
 import { DocumentService } from '../../src/document/service.js'
+import { parseRealmSystems, splitFrontMatter, parseFlat } from '../../src/format/frontmatter.js'
 import { getBookTreeIndex, type TreeNode } from '../../src/document/tree.js'
 import { legacyId } from '../../src/document/stable-id.js'
 import { findUnsettled } from '../../src/document/journal.js'
@@ -414,6 +415,59 @@ test('updateDocMeta: 未知 docId → NOT_FOUND', () => {
   expect(r.ok).toBe(false)
   if (r.ok) return
   expect(r.code).toBe('NOT_FOUND')
+  rmSync(root, { recursive: true, force: true })
+})
+
+// ── R65-1（十三轮）：fm 读改写不得摧毁嵌套结构 ──
+
+const REALM_FILE = [
+  '---',
+  '名称: 境界体系',
+  '体系:',
+  '  - 名称: 修真境界',
+  '    序列: [炼气, 筑基, 金丹, 元婴]',
+  '  - 名称: 武者等级',
+  '    序列: [后天, 先天, 宗师]',
+  '---',
+  '',
+].join('\n')
+
+test('R65-1: updateDocMeta 补平铺键 → 境界体系嵌套结构完好（成长线机检不失明）', () => {
+  const { root, svc } = makeBookWithChapter()
+  mkdirSync(join(root, '设定'), { recursive: true })
+  writeFileSync(join(root, '设定', '境界体系.md'), REALM_FILE, 'utf-8')
+  appendFileSync(
+    join(root, '项目', '文档清单.jsonl'),
+    '{"id":"doc_realm","nodeType":"document","path":"设定/境界体系.md","parentId":null}\n',
+  )
+  const r = svc.updateDocMeta('doc_realm', { 标签: ['修真', '升级流'] })
+  expect(r.ok).toBe(true)
+  if (!r.ok) return
+  const after = readFileSync(join(root, '设定', '境界体系.md'), 'utf-8')
+  // 旧实现：parseFlat RMW 把体系压平成 `体系: ""` + 伪平铺键互相覆盖 → parseRealmSystems 返回 []
+  const systems = parseRealmSystems(splitFrontMatter(after)!.fmRaw)
+  expect(systems).toEqual([
+    { 名称: '修真境界', 序列: ['炼气', '筑基', '金丹', '元婴'] },
+    { 名称: '武者等级', 序列: ['后天', '先天', '宗师'] },
+  ])
+  expect(parseFlat(splitFrontMatter(after)!.fmRaw).get('标签')).toEqual(['修真', '升级流'])
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('R65-1: updateDocMeta 改嵌套键本体（体系）→ BAD_INPUT 拒绝（fail-loud 防平铺化）', () => {
+  const { root, svc } = makeBookWithChapter()
+  mkdirSync(join(root, '设定'), { recursive: true })
+  writeFileSync(join(root, '设定', '境界体系.md'), REALM_FILE, 'utf-8')
+  appendFileSync(
+    join(root, '项目', '文档清单.jsonl'),
+    '{"id":"doc_realm","nodeType":"document","path":"设定/境界体系.md","parentId":null}\n',
+  )
+  const r = svc.updateDocMeta('doc_realm', { 体系: 'x' })
+  expect(r.ok).toBe(false)
+  if (r.ok) return
+  expect(r.code).toBe('BAD_INPUT')
+  // 文件未被触碰
+  expect(readFileSync(join(root, '设定', '境界体系.md'), 'utf-8')).toBe(REALM_FILE)
   rmSync(root, { recursive: true, force: true })
 })
 

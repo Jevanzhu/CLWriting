@@ -610,7 +610,17 @@ function exitPass(
   term: ChapterTerminal,
   chapterNo: number,
 ): ChapterRun {
-  const final = term.persistFinal()
+  // R65-8（总六十五轮）：persistFinal 无守卫——抛错（磁盘满/库锁）则 writeTodos/writeGoal
+  // 永不执行，事件链上 goal 永远 'active' 悬挂。失败仍走 writeGoal 终态
+  //（block/blocked + blockedReason='persist-failed'）后再记失败出口（终稿未落盘，
+  // 不得假报 pass）
+  let final: { docId: string; relPath: string }
+  try {
+    final = term.persistFinal()
+  } catch (e) {
+    term.writeGoal('block', 'blocked', { blockedReason: 'persist-failed', rounds: loop.attempt })
+    return { chapter: loop.chapter, outcome: 'failed', error: `终稿落盘失败：${e instanceof Error ? e.message : String(e)}`, attempts: loop.attempt }
+  }
   // X-P2-6：批量连写 pass 后同样生成账本推进草稿（与单章口径对称；此前批量整链旁路）。
   // 上一章未定稿确认的草稿由 generateLeadUpdateDraft 内部按章归档，finalize 按章号回收。
   // Z-P1-1：signal 透传——fire-and-forget 也随编排级中断中止（runSelfHeal 返回不等于其结束）；
@@ -626,7 +636,15 @@ function exitPass(
 
 /** 有稿可交的统一出口（ok-escalate / 格式触顶 / 预算超限 / 重写失败四路同构） */
 function exitEscalateBlocked(term: ChapterTerminal, loop: HealLoop, reds: string[], blockedReason: string): ChapterRun {
-  const final = term.persistFinal()
+  // R65-8（总六十五轮）：同 exitPass——persistFinal 抛错仍落 goal 终态（block/blocked，
+  // blockedReason='persist-failed'）后再记失败出口，防链上 'active' 悬挂
+  let final: { docId: string; relPath: string }
+  try {
+    final = term.persistFinal()
+  } catch (e) {
+    term.writeGoal('block', 'blocked', { blockedReason: 'persist-failed', rounds: loop.attempt })
+    return { chapter: loop.chapter, outcome: 'failed', error: `终稿落盘失败：${e instanceof Error ? e.message : String(e)}`, attempts: loop.attempt }
+  }
   term.writeTodos('completed', 'completed', 'in_progress')
   term.writeGoal('block', 'blocked', { blockedReason, rounds: loop.attempt })
   return { chapter: loop.chapter, outcome: 'escalate', reds, docId: final.docId, path: final.relPath, attempts: loop.attempt }

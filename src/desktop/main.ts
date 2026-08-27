@@ -833,12 +833,35 @@ if (gotSingleInstanceLock) {
   // 编排 abort/session/end 落库）落定后 shutdown-done 回执退出；3.5s 总超时（E-1，
   // 见 server-manager SHUTDOWN_TOTAL_TIMEOUT_MS）强杀兜底在
   // manager 内（与拆分前 before-quit 口径一致）。
+  // R65-48（总六十五轮）：优雅停机在途期间的再次 quit 请求一律 preventDefault——原
+  // beginShutdown() 二次返回 false 即放行直通，3.5s 优雅窗口内第二次退出事件直接
+  // 强杀 child（在途 chat/self-heal 的 session/end 落库被打断）；首次流程的 finally
+  // 会统一 app.quit() 收口。beginShutdown 不复位（runner 生命周期语义），为防拦掉
+  // 自己的 quit 成死循环，用本地 quitViaShutdown 区分「finally 里我们自己发起的
+  // quit」放行直通。
+  let quitViaShutdown = false
   app.on('before-quit', (e) => {
-    if (!bootstrapRunner.beginShutdown()) return
+    if (quitViaShutdown) return // 收口 quit 放行直通
     e.preventDefault()
-    void serverManager.shutdown().finally(() => {
+    if (!bootstrapRunner.beginShutdown()) return // 已在优雅停机在途：拦下等 finally 统一收口
+    // R65-40（总六十五轮）：shutdown() 可能 reject（child 已死时 postMessage/kill
+    // 抛错等）——原 `void …finally` 无 catch：rejection 成 unhandledRejection（丢
+    // 现场）；quit 收口也悬空。包 try/catch + .catch 记日志，finally 仍 quit——
+    // 退出收口不因停机失败而挂死。
+    try {
+      void serverManager
+        .shutdown()
+        .catch((err) => log.error('desktop', '优雅停机 shutdown 失败（继续退出）', err))
+        .finally(() => {
+          quitViaShutdown = true
+          app.quit()
+        })
+    } catch (err) {
+      // 防御：shutdown 同步抛（当前为 async fn 不可达，防将来重构回归同型挂死）
+      log.error('desktop', '优雅停机 shutdown 同步抛错（继续退出）', err)
+      quitViaShutdown = true
       app.quit()
-    })
+    }
   })
 
   app.on('activate', () => {

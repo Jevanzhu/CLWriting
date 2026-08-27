@@ -70,6 +70,11 @@ export function decodeRefSegment(seg: string): string {
   return m ? `legacy:${m[1]}` : seg
 }
 
+/** R65-28（第六十五轮）：meta 读单次调用内去重缓存——listTrackedDocs 扫 工作区/.版本/
+ *  逐 doc 逐版 readVersionMeta 的头读盘经此缓存收敛（同一 (dir, docId, versionId)
+ *  单次调用内只读一次）；缓存值即 readVersionMeta 原样返回值，结果与逐版直读恒等。 */
+type VersionMetaCache = Map<string, ReturnType<typeof readVersionMeta>>
+
 /** 列全书有轨迹的 docId（候选收割遍历用；无轨迹 → 空） */
 export function listTrackedDocs(bookRoot: string): string[] {
   if (hasGitBackend(bookRoot)) {
@@ -88,9 +93,10 @@ export function listTrackedDocs(bookRoot: string): string[] {
   const dir = versionsDir(bookRoot)
   if (!existsSync(dir)) return []
   const out: string[] = []
+  const metaCache: VersionMetaCache = new Map() // R65-28：单次调用内去重
   for (const name of readdirSync(dir)) {
     if (name.startsWith('._')) continue
-    if (listAiVersions(bookRoot, name).length > 0) out.push(name)
+    if (listAiVersions(bookRoot, name, metaCache).length > 0) out.push(name)
   }
   return out
 }
@@ -118,8 +124,10 @@ export function recordAiVersion(bookRoot: string, docId: string, content: string
   return updR.ok ? ref : null
 }
 
-/** 列某文档全部 AI 版（ulid 升序 = 时间序，末位最新；无轨迹 → 空） */
-export function listAiVersions(bookRoot: string, docId: string): AiVersion[] {
+/** 列某文档全部 AI 版（ulid 升序 = 时间序，末位最新；无轨迹 → 空）。
+ *  R65-28：可选 metaCache——收割链（listTrackedDocs → 逐 doc 调用）同一 (dir,
+ *  docId, versionId) 的头读盘去重，结果与无缓存恒等。 */
+export function listAiVersions(bookRoot: string, docId: string, metaCache?: VersionMetaCache): AiVersion[] {
   if (hasGitBackend(bookRoot)) {
     const prefix = `${REF_ROOT}/${encodeRefSegment(docId)}/`
     const r = git(['for-each-ref', '--format=%(refname) %(objectname)', prefix], bookRoot)
@@ -138,7 +146,15 @@ export function listAiVersions(bookRoot: string, docId: string): AiVersion[] {
   const out: AiVersion[] = []
   for (const v of listVersions(dir, docId)) {
     // R62-36：只读头部 front matter 判 origin——不整读正文（此前每版全量读盘两遍大海捞针）
-    const read = readVersionMeta(dir, docId, v.id)
+    // R65-28：meta 读经单次调用内去重缓存（命中免重复头读盘）
+    const cacheKey = `${dir}\u0000${docId}\u0000${v.id}`
+    let read: ReturnType<typeof readVersionMeta>
+    if (metaCache?.has(cacheKey)) {
+      read = metaCache.get(cacheKey)!
+    } else {
+      read = readVersionMeta(dir, docId, v.id)
+      metaCache?.set(cacheKey, read)
+    }
     if (!read || read.meta.origin !== 'ai') continue
     out.push({ ref: v.path, ulid: v.id, sha: v.id })
   }

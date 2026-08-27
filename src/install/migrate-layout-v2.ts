@@ -128,10 +128,25 @@ function moveTree(
       const src = join(oldPath, name)
       const dst = join(newPath, name)
       if (existsSync(dst)) {
-        // 同名子目录 → 递归合并内部文件（D5）；同名文件 → 幂等跳过
-        if (statSync(src).isDirectory() && statSync(dst).isDirectory()) {
-          count += moveTree(bookRoot, `${oldRel}/${name}`, `${newRel}/${name}`, errors)
+        // R65-38②（第六十五轮）：statSync 单独 try/catch——原先裸 stat 抛错直穿外层
+        // catch，同目录**剩余条目**整段跳过（一个坏条目拖死全目录迁移）。
+        let srcIsDir = false
+        let dstIsDir = false
+        try {
+          srcIsDir = statSync(src).isDirectory()
+          dstIsDir = statSync(dst).isDirectory()
+        } catch (e) {
+          errors.push(`${oldRel}/${name}: stat 失败 ${errMsg(e)}（跳过该条，继续同目录其余条目）`)
+          continue
         }
+        // 同名子目录 → 递归合并内部文件（D5）；同名文件 → 幂等跳过
+        if (srcIsDir && dstIsDir) {
+          count += moveTree(bookRoot, `${oldRel}/${name}`, `${newRel}/${name}`, errors)
+          continue
+        }
+        // R65-38①：同名跳过不再静默——旧文件内容残留旧目录成孤儿（上次迁移中断/
+        // rename 失败），无告警作者无从核对；push 到 errors 供迁移报告提示手动处理。
+        errors.push(`同名跳过：${oldRel}/${name}（${newRel}/${name} 已存在，旧文件保留原位成孤儿，请手动核对去留）`)
         continue
       }
       try {

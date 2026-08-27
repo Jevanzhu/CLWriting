@@ -31,6 +31,11 @@ import { bodyOf } from '../../../format/frontmatter-core.js'
 import type { SessionRecorder } from '../../../events/chat-bridge.js'
 import { turnStartEvent, turnEndEvent, assistantMessageEvent, toolCallEvent, toolResultEvent } from '../../../events/chat-bridge.js'
 import { settingsSnapshotEvent, revisionRefEvent, skillsSnapshotEvent } from '../../../events/chain-bridge.js'
+// R65-15：可见性诊断开关直接消费 lineage 校验器（lineage 只依赖 node:crypto 与
+// 自身 types，无环）；NewEvent→ChatEvent 形状补齐仅供校验器读取 type/data
+import { verifyVisibleRecorded, type VisibleInjection } from '../../../events/lineage.js'
+import type { ChatEvent } from '../../../events/types.js'
+import type { NewEvent } from '../../../events/store.js'
 import type { ChatOpts } from '../chat.js'
 import { emit, activeBranchByBook, type ChatRunState } from './state.js'
 import { finishTurn, finalizeHistory } from './finish.js'
@@ -325,6 +330,45 @@ export interface TurnDeps {
   markCompleted: () => void
 }
 
+/** R65-15（总六十五轮）：CLW_VERIFY_VISIBLE=1 诊断开关——llm/call 落库后对本回合
+ *  注入清单抽样跑 verifyVisibleRecorded（「模型可见 ⟺ 已记录」生产侧抽查）。可见清单
+ *  scope/digest 与 visibleInjections（prompts/chat.ts）同源镜像：settings 恒在、
+ *  revision→chapter、skills→skills（两侧改拼接源即失配——正是本开关要抓的漂移）；
+ *  recorded 传本回合已登记的三种血缘事件（settings/snapshot + revision/ref +
+ *  skills/snapshot，与 recorder 收到的同物）。违约只 console.warn（不抛、不进事件库、
+ *  不影响主流程）；flag 关闭首行即返回，零开销。 */
+export function verifyVisibleSampled(
+  digests: { settings: string; revision?: string; skills?: string },
+  recorded: NewEvent[],
+): void {
+  if (process.env['CLW_VERIFY_VISIBLE'] !== '1') return
+  try {
+    const visible: VisibleInjection[] = [
+      { scope: 'settings', digest: digests.settings },
+      ...(digests.revision !== undefined ? [{ scope: 'chapter', digest: digests.revision }] : []),
+      ...(digests.skills !== undefined ? [{ scope: 'skills', digest: digests.skills }] : []),
+    ]
+    // 校验器只读 type/data——NewEvent 补齐 ChatEvent 必填字段（seq 用批内序号占位）
+    const events: ChatEvent[] = recorded.map((ev, i) => ({
+      seq: i,
+      sessionId: '',
+      type: ev.type,
+      data: ev.data,
+      replaceGeneration: 0,
+      createdAt: 0,
+    }))
+    const check = verifyVisibleRecorded(visible, events)
+    if (check.missing.length > 0) {
+      console.warn(
+        `[CLW_VERIFY_VISIBLE] 模型可见注入未登记（${check.missing.length}/${visible.length}）：` +
+          check.missing.map((m) => `${m.scope}:${m.digest}`).join(', '),
+      )
+    }
+  } catch {
+    /* 诊断通道自身异常不外溢——不影响主流程是开关的硬约束 */
+  }
+}
+
 /** 相位 d：轮循环 + 轮数触顶收尾。返回 completedOk（E1a 续链口径：正常完成才 true）。 */
 export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
   const { opts, state, confirmTimeout, history, baseLen, recorder, sys, turnBranch, seqs } = deps
@@ -364,14 +408,21 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
     recorder.add(turnStartEvent(turn))
     // P3 血缘：登记本轮注入快照（settings/snapshot + revision/ref + skills/snapshot），assistant 事件引用
     const lineageIdx: number[] = []
-    lineageIdx.push(recorder.add(settingsSnapshotEvent({ scope: 'settings', digest: settingsDigest })))
+    // R65-15：本回合登记的血缘事件同留一份供 CLW_VERIFY_VISIBLE 抽样校验（与
+    // recorder 收到的同物；flag 关时收集成本 = 数组 push，可忽略）
+    const lineageRecorded: NewEvent[] = []
+    const addLineage = (ev: NewEvent): number => {
+      lineageRecorded.push(ev)
+      return recorder.add(ev)
+    }
+    lineageIdx.push(addLineage(settingsSnapshotEvent({ scope: 'settings', digest: settingsDigest })))
     if (revisionDigest !== undefined) {
       // T2-1：path 记章正文实际注入源（spill locator 或草稿路径），此前恒空串断链
-      lineageIdx.push(recorder.add(revisionRefEvent({ chapter: opts.chapter ?? 0, revision: revisionDigest, path: deps.revisionPath ?? '' })))
+      lineageIdx.push(addLineage(revisionRefEvent({ chapter: opts.chapter ?? 0, revision: revisionDigest, path: deps.revisionPath ?? '' })))
     }
     // G2-2：技巧包索引注入（DSH-18）补登记——skillsIndex 非空才注入，同条件才登记
     if (skillsDigest !== undefined) {
-      lineageIdx.push(recorder.add(skillsSnapshotEvent({ digest: skillsDigest })))
+      lineageIdx.push(addLineage(skillsSnapshotEvent({ digest: skillsDigest })))
     }
     emit(opts, { type: 'chat_turn', turn })
 
@@ -439,6 +490,10 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
         }
       },
     })
+
+    // R65-15：llm/call 已落库（成败两路都落 trace）——对注入清单抽样校验（flag 开时；
+    // 违约仅 warn，先于失败出口收口，失败回合的注入同样受查）
+    verifyVisibleSampled(deps.digests, lineageRecorded)
 
     if (!out.ok) {
       // CC-P2-2：deadline 定时器在 generate 期间触发 → 按超时收口（与轮首 aborted 分支同文案）

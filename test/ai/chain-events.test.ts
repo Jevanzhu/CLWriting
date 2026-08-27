@@ -206,6 +206,36 @@ describe('F1-P2 runTask 链事件', () => {
     expect(end.reason).toBe('completed')
   })
 
+  // R65-12（总六十五轮）：durationMs 只记本 attempt LLM 调用时长——旧口径跨 attempt
+  // 累计（含失败 attempt + 退避 sleep），重试链计费/时延统计失真
+  it('R65-12: 重试链各 attempt 的 durationMs 不含退避 sleep（只记本 attempt 调用窗口）', async () => {
+    const ud = tempUserData()
+    writeProviders(ud)
+    const root = tempBookRoot()
+    let calls = 0
+    // Retry-After=300ms：退避窗固定且足够大（旧口径下成功 attempt 的 durationMs ≥ 300）
+    const out = await runTask<string>({
+      userDataPath: ud,
+      bookRoot: root,
+      task: 'self-heal',
+      run: () => {
+        calls++
+        if (calls < 2) throw new GenError('429 limit', true, { code: 'RATE_LIMIT', retryAfterMs: 300 })
+        return Promise.resolve('ok')
+      },
+    })
+    expect(out.ok).toBe(true)
+    const callsEv = readChainEvents(ud, root).filter((e) => e.type === 'llm/call')
+    expect(callsEv).toHaveLength(2)
+    const failEv = callsEv.find((e) => (e.data as { ok?: boolean }).ok === false)!.data as { attempt: number; durationMs: number }
+    const okEv = callsEv.find((e) => (e.data as { ok?: boolean }).ok === true)!.data as { attempt: number; durationMs: number }
+    expect(failEv.attempt).toBe(0)
+    expect(okEv.attempt).toBe(1)
+    // 两次 run 都是即时 resolve/reject → 本 attempt 窗口 ≈ 0；旧口径下 okEv 会 ≥ 300（退避窗计入）
+    expect(failEv.durationMs).toBeLessThan(150)
+    expect(okEv.durationMs).toBeLessThan(150)
+  }, 10_000)
+
   it('终态失败（不可重试）→ step/end(error) + llm/call(ok=false)', async () => {
     const ud = tempUserData()
     writeProviders(ud)

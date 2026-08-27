@@ -101,3 +101,64 @@ describe('N-6（第十二轮）：finalizeHistory 压缩分支先算后切', () 
     expect(histories.get(book)).toBe(compacted)
   })
 })
+
+describe('R65-2（十三轮）：硬截断分支 close 先行（suppress 短路路径）', () => {
+  /** 压缩不可用（summarizedCount=0）→ 走 trimAndClose 硬截断：close 先于内存突变。
+   *  夹具 24 条消息（12 回合）确保越过窗口：trimHistory 保留最近 10 个纯文本 user 边界 → 截前 4 条（cut>0 真截断）（真截断形态）。 */
+  function hardTrimOutcome() {
+    return { history: [], summarizedCount: 0, wasOverLimit: true }
+  }
+  function longFixture() {
+    const n = 24
+    const h = Array.from({ length: n }, (_, i) =>
+      i % 2 === 0 ? { role: 'user' as const, content: `长对话问题${i}` } : { role: 'assistant' as const, content: `长对话回答${i}` },
+    )
+    const q = Array.from({ length: n }, (_, i) => [100 + i])
+    return { h, q }
+  }
+
+  it('硬截断 + close 抛错 → msgSeqs/histories 双未动，退化为「截断未发生」', async () => {
+    const { h, q } = longFixture()
+    msgSeqMap.set(book, q)
+    histories.set(book, h)
+    compactionSuppressed.add(book) // suppress 短路 → 直接 trimAndClose
+    compactHistoryMock.mockResolvedValueOnce(hardTrimOutcome())
+    const recorder = makeRecorder(() => {
+      throw new Error('E2: close SQLITE_BUSY')
+    })
+
+    await expect(finalizeHistory(opts, h, q, recorder, 'sys', state)).rejects.toThrow('SQLITE_BUSY')
+
+    // R65-2 核心：close 抛错时内存/账本双未动——trim 视同未发生（修复前先截后 close，
+    // 失败即「内存已截、遮蔽未落库」错位；restore 投影出幽灵历史）
+    expect(q.length).toBe(24)
+    expect(msgSeqMap.get(book)).toEqual(q.slice())
+    expect(histories.get(book)).toBe(h)
+    expect(recorder.close).toHaveBeenCalledTimes(1)
+  })
+
+  it('硬截断 close 成功 → 账本裁掉前 cut 段 + 历史换余量（close 时点内存仍全量）', async () => {
+    const { h, q } = longFixture()
+    msgSeqMap.set(book, q)
+    histories.set(book, h)
+    compactionSuppressed.add(book)
+    compactHistoryMock.mockResolvedValueOnce(hardTrimOutcome())
+
+    let atCloseMsgs = -1
+    let atCloseSeqs = -1
+    const recorder = makeRecorder(() => {
+      // N-6 断言时点：close 执行瞬间内存尚未被 splice/set（次序证据）
+      atCloseMsgs = histories.get(book)?.length ?? -1
+      atCloseSeqs = msgSeqMap.get(book)?.length ?? -1
+      return null
+    })
+
+    await finalizeHistory(opts, h, q, recorder, 'sys', state)
+
+    expect(atCloseMsgs).toBe(24) // close 时历史仍全量 → close 确实先行
+    expect(atCloseSeqs).toBe(24)
+    // cutIdx 落在第 10 个倒数的 user 消息（idx=4）→ 截 4 留 20；硬截断无存档节点
+    expect(msgSeqMap.get(book)).toHaveLength(20)
+    expect(histories.get(book)).toHaveLength(20)
+  })
+})

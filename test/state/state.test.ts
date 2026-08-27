@@ -298,3 +298,43 @@ test('P3-10 自愈: 两端都不在（异常态）→ 不可自动判定，报 c
   expect(findUnsettled(jPath)).toHaveLength(1)
   rmSync(root, { recursive: true, force: true })
 })
+
+// ── R65-30（第六十五轮）：move-pending 愈合同步内存镜像——同次进门不误报 finalizedLost ──
+
+test('R65-30: 已定稿章 move-pending 愈合（rename 已发生）→ 同次 detectState 不报 finalizedLost', () => {
+  // 场景：清单登记 oldRel 且带定稿基线；文件已 rename 到 newRel；journal 悬置 move pending。
+  // 修复前：healMovePending 只改盘上清单，③ finalizedLost 检查仍用入参旧镜像查 oldRel
+  // （盘上已无）→ 同次进门误报「已定稿文件不在盘上」（态 1 拦门）。
+  const root = makeGitBook()
+  const docId = generateDocId()
+  const oldRel = '写作/正文/0001-开篇.md'
+  const newRel = '写作/正文/0002-开篇.md'
+  const newAbs = join(root, newRel)
+  mkdirSync(join(root, '写作', '正文'), { recursive: true })
+  writeFileSync(newAbs, '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n正文。\n', 'utf-8')
+  const manifestPath = join(root, '项目', '文档清单.jsonl')
+  mkdirSync(join(root, '项目'), { recursive: true })
+  const m = readManifest(manifestPath)
+  upsertEntry(m, {
+    id: docId,
+    nodeType: 'document',
+    path: oldRel,
+    parentId: null,
+    finalizedRevision: computeRevision(newAbs), // 已定稿（内容未变，rename 后指纹一致）
+    finalizedAt: new Date().toISOString(),
+  })
+  writeManifest(manifestPath, m)
+  const jPath = join(root, '工作区', '.journal', `${docId}.jsonl`)
+  mkdirSync(join(root, '工作区', '.journal'), { recursive: true })
+  appendMovePending(jPath, docId, oldRel, newRel)
+
+  const d = detectState(root, DEFAULT_CONFIG)
+  // 同次进门：愈合生效且不再误报 finalizedLost（修复前此处 state===1 且含 finalizedLost）
+  if (d.state === 1) {
+    expect(d.issues.some((i) => i.kind === 'finalizedLost')).toBe(false)
+  }
+  // 盘上清单已对齐新路径；journal 已 settled
+  expect(readManifest(manifestPath).entries.get(docId)?.path).toBe(newRel)
+  expect(findUnsettled(jPath)).toHaveLength(0)
+  rmSync(root, { recursive: true, force: true })
+})

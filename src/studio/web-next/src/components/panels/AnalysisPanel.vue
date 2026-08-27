@@ -49,7 +49,9 @@ async function analyzeTags(): Promise<void> {
     await doc.refresh(id)
     ui.toast('标签分析完成', 'success')
   } catch (err) {
-    ui.toast(friendlyError(err), 'error')
+    // R65-53（E-5）：失败提示同域守卫——60s AI 调用期间切档/切书后，A 的失败不该
+    // 弹在 B 的界面上（作者无从对应；对齐上方成功路径的双条件）
+    if (docId.value === id && props.bookName === book) ui.toast(friendlyError(err), 'error')
   } finally {
     tagging.value = false
   }
@@ -87,10 +89,10 @@ async function inferChapterMeta(): Promise<void> {
   if (!docId.value || inferring.value) return
   // dd-P1：入口捕获 docId（同 analyzeTags——await 后切档会把 A 的推断写进 B）
   const id = docId.value
+  // 第五轮：bookName 入口捕获（同 analyzeTags 的跨书写坏面；提 try 外——catch 守卫要用）
+  const book = props.bookName
   inferring.value = true
   try {
-    // 第五轮：bookName 入口捕获（同 analyzeTags 的跨书写坏面）
-    const book = props.bookName
     const meta = await inferMeta(book, id)
     await updateDocMeta(book, id, meta)
     // M-6（第八轮）：同上——双条件守卫
@@ -99,7 +101,8 @@ async function inferChapterMeta(): Promise<void> {
     await doc.refresh(id)
     ui.toast('情绪/反转推断完成', 'success')
   } catch (err) {
-    ui.toast(friendlyError(err), 'error')
+    // R65-53（E-5）：失败提示同域守卫（同 analyzeTags——切档/切书后不弹 A 的失败到 B 界面）
+    if (docId.value === id && props.bookName === book) ui.toast(friendlyError(err), 'error')
   } finally {
     inferring.value = false
   }

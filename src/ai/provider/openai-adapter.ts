@@ -291,7 +291,12 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
             // attempts[0] 已是剥除版，旧判据对首发恒 false，记忆命中路径漏标 degraded）
             degraded = attempt !== plan.original
             // 消费流（tool_calls 增量拼装 / text / reasoning / usage）
-            const toolAccum = new Map<number, { id: string; name: string; argsBuf: string }>()
+            const toolAccum = new Map<number | string, { id: string; name: string; argsBuf: string }>()
+            // R65-9（总六十五轮）：网关缺省 tc.index 的兜底聚合——此前并入同一 undefined
+            // 键会把多个 tool_call 拼成一团；改「带 id/name 的新调用分片 → 自增兜底键、
+            // 续片归并最近兜底键」，无 index 流也能拆出独立调用（有 index 走原路径不变）
+            let idxlessSeq = 0
+            let lastIdxlessKey: string | null = null
             for await (const chunk of stream) {
               consumedAny = true
               const usage = chunk.usage
@@ -326,11 +331,22 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
               // tool_calls 增量
               if (delta.tool_calls) {
                 for (const tc of delta.tool_calls) {
-                  const idx = tc.index
-                  let acc = toolAccum.get(idx)
+                  // R65-9：key 决策——有 index 原样；缺 index 时新调用分片（带 id/name）
+                  // 开新兜底键，续片归并最近兜底键（上一兜底键已被 finish_reason 清空则另开）
+                  let key: number | string
+                  if (tc.index !== undefined) {
+                    key = tc.index
+                  } else {
+                    const startsCall = (tc.id !== undefined && tc.id !== '') || !!tc.function?.name
+                    if (startsCall || lastIdxlessKey === null || !toolAccum.has(lastIdxlessKey)) {
+                      lastIdxlessKey = `no-index-${++idxlessSeq}`
+                    }
+                    key = lastIdxlessKey
+                  }
+                  let acc = toolAccum.get(key)
                   if (!acc) {
                     acc = { id: tc.id ?? '', name: tc.function?.name ?? '', argsBuf: '' }
-                    toolAccum.set(idx, acc)
+                    toolAccum.set(key, acc)
                   }
                   if (tc.function?.name) acc.name = tc.function.name
                   if (tc.function?.arguments) acc.argsBuf += tc.function.arguments

@@ -8,7 +8,7 @@
  */
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
@@ -135,5 +135,38 @@ describe('R-18: per-book SSE 计数随书级生命周期清理', () => {
     const r = await req('DELETE', `/api/books/${encodeURIComponent(BOOK)}`)
     expect(r.status).toBe(200)
     expect(__getSseConnections().has(BOOK)).toBe(false) // R-18：同名重建书不被旧计数顶上限
+  })
+})
+
+// R65-44（总六十五轮）：rename 清理序列补 forgetSseCount(oldName)（对齐 delete:261 的
+// R-18）——改名后旧名残留计数，随后新建同名书 SSE 配额被旧连接占用 429。
+describe('R65-44: rename 清理序列补 forgetSseCount(oldName)', () => {
+  it('改名成功 → 旧名 SSE 计数随清（在途连接被销毁、账目清空）', async () => {
+    // R-18 用例已删除 BOOK——登记一本新书专供改名
+    const OLD = '改名计数书'
+    const NEW = '改名计数书2'
+    const reg = join(workDir, '.clwriting', 'books.jsonl')
+    writeFileSync(reg, readFileSync(reg, 'utf8') + JSON.stringify({ name: OLD, path: OLD, kind: 'long' }) + '\n')
+    const bookRoot = join(workDir, OLD)
+    // 目录结构对齐 beforeAll 的 BOOK fixture（ensureSession/建流路径依赖）；
+    // 长篇/ 为 bookStoragePath(long) 的目标父目录（renameSync 需其存在）
+    mkdirSync(join(workDir, '长篇'), { recursive: true })
+    mkdirSync(join(bookRoot, '定稿', '正文', '第一卷'), { recursive: true })
+    mkdirSync(join(bookRoot, '工作区'), { recursive: true })
+    mkdirSync(join(bookRoot, '大纲'), { recursive: true })
+    mkdirSync(join(bookRoot, '项目'), { recursive: true })
+    writeFileSync(
+      join(bookRoot, 'book.yaml'),
+      'spec_version: 1\nkind: long\nbook:\n  title: 改名计数书\n  genre: 玄幻\nhost: cc\n',
+    )
+    // 旧名挂一条在途连接（残留计数的前置态）
+    await openStream(OLD)
+    await tick()
+    expect(__getSseConnections().get(OLD)).toBe(1)
+    // 改名：修复前旧名计数残留（forgetSseCount 缺席，close 回调也因书已改名无归零通路）
+    const r = await req('POST', `/api/books/${encodeURIComponent(OLD)}/rename`, { name: NEW })
+    expect(r.status).toBe(200)
+    expect(__getSseConnections().has(OLD)).toBe(false) // R65-44：随改名清理
+    await tick()
   })
 })

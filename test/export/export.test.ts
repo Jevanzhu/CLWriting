@@ -543,3 +543,75 @@ test('exportBook: fenced 代码块（``` 围栏）内的 #% 原样保留；块�
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+// ── R65-27（第六十五轮）：旧产物归档不删（导出/.旧版/）──────────
+
+test('R65-27: 改书名再导出 → 旧「全本-」产物归档进 导出/.旧版/ 且内容不变（不再 rmSync 销毁）', () => {
+  const root = makeLongBook('旧书名')
+  writeLongChapter(root, 1, '北境的雪', '雪落在了城墙上。')
+  try {
+    expect(exportBook({ bookRoot: root, format: 'merged' }).ok).toBe(true)
+    // 作者手改导出稿（改书名后再导出的典型形态——此前被 rmSync 静默销毁）
+    const oldPath = join(root, '工作区', '导出', '全本-旧书名.md')
+    writeFileSync(oldPath, '作者手改过的导出稿内容', 'utf-8')
+    writeFileSync(
+      join(root, 'book.yaml'),
+      ['spec_version: 1', 'book:', '  title: 新书名', '  genre: 玄幻'].join('\n'),
+      'utf-8',
+    )
+    const r = exportBook({ bookRoot: root, format: 'merged' })
+    expect(r.ok).toBe(true)
+    // 旧产物归档进 .旧版/ 且内容原样（未被销毁）
+    expect(existsSync(oldPath)).toBe(false)
+    expect(readFileSync(join(root, '工作区', '导出', '.旧版', '全本-旧书名.md'), 'utf-8')).toBe('作者手改过的导出稿内容')
+    // 新产物在位
+    expect(existsSync(join(root, '工作区', '导出', '全本-新书名.md'))).toBe(true)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('R65-27: 归档同名冲突 → 追加序号后缀保双份', () => {
+  const root = makeLongBook('书名A')
+  writeLongChapter(root, 1, '第一章', '正文一。')
+  const writeCfg = (title: string): void => {
+    writeFileSync(join(root, 'book.yaml'), ['spec_version: 1', 'book:', `  title: ${title}`, '  genre: 玄幻'].join('\n'), 'utf-8')
+  }
+  try {
+    writeCfg('书名A')
+    exportBook({ bookRoot: root, format: 'merged' })
+    writeFileSync(join(root, '工作区', '导出', '全本-书名A.md'), '第一版手改', 'utf-8')
+    writeCfg('书名B')
+    exportBook({ bookRoot: root, format: 'merged' }) // 全本-书名A.md → .旧版/
+    // 再造同名旧产物后再次换名导出 → 归档目录撞名
+    writeFileSync(join(root, '工作区', '导出', '全本-书名A.md'), '第二版手改', 'utf-8')
+    writeCfg('书名C')
+    exportBook({ bookRoot: root, format: 'merged' })
+    const archiveDir = join(root, '工作区', '导出', '.旧版')
+    expect(readFileSync(join(archiveDir, '全本-书名A.md'), 'utf-8')).toBe('第一版手改')
+    expect(readFileSync(join(archiveDir, '全本-书名A-2.md'), 'utf-8')).toBe('第二版手改') // 序号后缀保双份
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('R65-27: 短篇投稿视图旧产物同口径归档（改书名后旧「投稿视图-」进 .旧版/ 不销毁）', () => {
+  const root = mkdtempSync(join(tmpdir(), 'export-subm-archive-'))
+  const writeCfg = (title: string): void => {
+    writeFileSync(join(root, 'book.yaml'), ['spec_version: 1', 'kind: short', '', 'book:', `  title: ${title}`, '  genre: 悬疑'].join('\n'), 'utf-8')
+  }
+  writeCfg('旧名短篇')
+  mkdirSync(join(root, '写作', '正文'), { recursive: true })
+  writeFileSync(join(root, '写作', '正文', '1-雪夜.md'), '---\n章号: 1\n标题: 雪夜\n---\n雪夜的正文。', 'utf-8')
+  try {
+    exportBook({ bookRoot: root, format: 'merged' }) // 产出 投稿视图-旧名短篇.md
+    writeFileSync(join(root, '工作区', '导出', '投稿视图-旧名短篇.md'), '作者改过的投稿稿', 'utf-8')
+    writeCfg('新名短篇')
+    exportBook({ bookRoot: root, format: 'merged' })
+    expect(existsSync(join(root, '工作区', '导出', '投稿视图-旧名短篇.md'))).toBe(false)
+    expect(readFileSync(join(root, '工作区', '导出', '.旧版', '投稿视图-旧名短篇.md'), 'utf-8')).toBe('作者改过的投稿稿')
+    expect(existsSync(join(root, '工作区', '导出', '投稿视图-新名短篇.md'))).toBe(true)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})

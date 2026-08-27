@@ -5,7 +5,7 @@
  * - C4 token 系数（查表/前缀匹配/兜底）+ 拟合函数与报告快照
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync, chmodSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -222,5 +222,43 @@ describe('C4 token 系数', () => {
     expect(report).toContain('| model-a | 2 | —（样本不足） |')
     const empty = renderCalibrationReport(new Map(), '2026-08-20')
     expect(empty).toContain('（无样本——事件库里没有可用的 llm/call 记账对）')
+  })
+})
+
+// ── R65-31（第六十五轮）：卷摘要 sourceHash 重读失败降级（不直穿自愈链）────────
+
+describe('R65-31: 卷摘要读失败降级', () => {
+  it('selfHealVolumeSummary：卷摘要文件不可读（EACCES）→ 按手写产物跳过（null）且不覆盖不抛', async () => {
+    const root = makeBook(2, 2)
+    const config = effectiveConfig(root, null)
+    await genChapterSummaries(root, config, [1, 2])
+    await generateVolumeSummary({ bookRoot: root, userDataPath: null, config, volume: 1 })
+    const fp = volumeSummaryPath(root, 1)
+    const before = readFileSync(fp, 'utf8')
+    chmodSync(fp, 0o000) // 自然故障注入：sourceHash 重读 EACCES
+    try {
+      // 修复前：裸 readFileSync 直穿抛 EACCES；修复后按手写产物降级（宁不动不可见文件）
+      expect(await selfHealVolumeSummary(root, null, config, 3)).toBeNull()
+    } finally {
+      chmodSync(fp, 0o644)
+    }
+    // 文件内容原样未被覆盖
+    expect(readFileSync(fp, 'utf8')).toBe(before)
+  })
+
+  it('generateVolumeSummary：卷摘要文件不可读（EACCES）→ 按缺失降级重生成（skipped 判定不再直穿）', async () => {
+    const root = makeBook(2, 2)
+    const config = effectiveConfig(root, null)
+    await genChapterSummaries(root, config, [1, 2])
+    await generateVolumeSummary({ bookRoot: root, userDataPath: null, config, volume: 1 })
+    const fp = volumeSummaryPath(root, 1)
+    chmodSync(fp, 0o000)
+    try {
+      // 修复前：existsSync 通过后裸 readFileSync 抛 EACCES；修复后按指纹不匹配降级走重生成
+      const r = await generateVolumeSummary({ bookRoot: root, userDataPath: null, config, volume: 1 })
+      expect(r.ok).toBe(true)
+    } finally {
+      chmodSync(fp, 0o644)
+    }
   })
 })

@@ -337,7 +337,10 @@ export function startServer(opts: StudioServerOptions): http.Server {
     // 与 stream.ts 既有 query 凭据口径一致）、常量时间比较、失败 403 FORBIDDEN 同口径。
     // 豁免清单 = 上方 GET_TOKEN_EXEMPT_PATHS 显式路径表（X-19：原 endsWith('/stream')
     // 后缀匹配是路由命名耦合的静默失闸模式）。
-    if (req.method === 'GET' && req.url.startsWith('/api/')) {
+    // R65-46（总六十五轮）：HEAD 与 GET 同读语义，一并入闸——原只判 GET，HEAD /api/*
+    // 绕过 token 校验（当前无 HEAD 路由无实害，口径不一致留缺口；响应头同会泄漏
+    // 资源元数据）。
+    if ((req.method === 'GET' || req.method === 'HEAD') && req.url.startsWith('/api/')) {
       const path = urlPathOnly(req.url)
       if (!GET_TOKEN_EXEMPT_PATHS.some((re) => re.test(path))) {
         // S7（五十九轮）：query token 通道收窄——原 `?token=` 对全部非豁免 GET 通用，

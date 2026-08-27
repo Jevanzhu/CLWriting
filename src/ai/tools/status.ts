@@ -19,6 +19,10 @@ export function chapterStatus(ctx: ToolContext, _input: Record<string, unknown>)
   let db: DatabaseSync
   try {
     db = new DatabaseSync(cachePath, { readOnly: true })
+    // R65-11（总六十五轮）：readOnly 连接同样设 busy_timeout——与域内其他连接口径一致
+    //（events/store、cache/rebuild、check 均 5s）：写尖峰（rebuild/机检并发）下即时读
+    // 抛 SQLITE_BUSY，等锁而非失败。busy_timeout 是连接级设置，只读连接可设
+    db.exec('PRAGMA busy_timeout = 5000')
   } catch (e) {
     return { ok: false, summary: '打开书缓存失败：' + (e instanceof Error ? e.message : String(e)) }
   }

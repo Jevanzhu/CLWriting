@@ -138,10 +138,15 @@ export async function finalizeHistory(
   const trimAndClose = (): void => {
     const trimmed = trimHistory(history, MAX_HISTORY_TURNS)
     const cut = history.length - trimmed.length
-    const shadowSeqs = msgSeqs.splice(0, cut).flat()
+    // R65-2（十三轮）：close 先行——N-6 纪律收口硬截断路径。此前先 splice/set 内存后
+    // close 落库，close 抛错（SQLITE_BUSY/盘满）时遮蔽区间未持久化而内存已截：重启
+    // restore 投影回全量历史复活本应 trim 的消息（幽灵历史），且 msgSeqs 与投影错位。
+    // close 成功后才突变（失败时内存/DB 双未动，退化为「截断未发生」而非错位）。
+    const shadowSeqs = msgSeqs.slice(0, cut).flat()
+    recorder.close('completed', shadowSeqs)
+    msgSeqs.splice(0, cut)
     msgSeqMap.set(opts.bookName, msgSeqs)
     histories.set(opts.bookName, trimmed)
-    recorder.close('completed', shadowSeqs)
   }
 
   // suppress 短路在摘要尝试之前——失败过的书不再白打一次摘要调用（E10 抑制的本意）

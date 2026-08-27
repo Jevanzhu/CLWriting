@@ -75,6 +75,12 @@ export function runExportBookAsync(
     )
     w.once('message', (r: ExportResult) => settle(() => resolve(r)))
     w.once('error', (e: Error) => settle(() => reject(e)))
+    // R65-29（第六十五轮）：worker 非错误退出（resourceLimits abort / 入口显式
+    // process.exit / 致命信号）不触发 'error' 事件——Promise 原先悬挂至 120s 超时
+    // 才拒；补 'exit' 监听直接拒绝（settle 幂等：成功/失败先到者生效，此路径仅兜底）。
+    w.once('exit', (code) =>
+      settle(() => reject(new Error(`导出工作线程已退出（exit code=${code}），未返回导出结果`))),
+    )
     w.postMessage(job)
   })
 }

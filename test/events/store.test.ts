@@ -214,7 +214,7 @@ describe('F1-P1 启动修复', () => {
     store.appendEvent(sid, { type: 'session/start', data: { book: '书A' } })
     store.appendEvent(sid, { type: 'user/message', data: { message: 'crash' }, surfaceOp: 'append' })
     store.close()
-    backdateEvents(ud, '/books/a', 11 * 60 * 1000) // 超过 10 分钟宽限期
+    backdateEvents(ud, '/books/a', 33 * 60 * 1000) // 超过 32 分钟宽限期（R65-19 对齐 AGENT_DEADLINE_MS）
     // 重开库（模拟崩溃后重启）
     const store2 = openSessionStore(ud, '/books/a')!;
     const evs = store2.listEvents('书A')
@@ -232,8 +232,8 @@ describe('F1-P1 启动修复', () => {
     store.appendEvent(sid, { type: 'session/start', data: {} })
     store.close()
     // 事件与 sessions 双双回拨：修复前 updated_at 停留在创建时刻（t0-11min）
-    backdateEvents(ud, '/books/a', 11 * 60 * 1000)
-    backdateSessions(ud, '/books/a', 11 * 60 * 1000)
+    backdateEvents(ud, '/books/a', 33 * 60 * 1000)
+    backdateSessions(ud, '/books/a', 33 * 60 * 1000)
     const store2 = openSessionStore(ud, '/books/a')!;
     const ends = store2.listEvents('书A').filter((e) => e.type === 'session/end')
     expect(ends).toHaveLength(1) // 修复生效
@@ -255,8 +255,8 @@ describe('F1-P1 启动修复', () => {
     const sid = store.createSession('书A')
     store.appendEvent(sid, { type: 'session/start', data: {} })
     store.close()
-    backdateEvents(ud, '/books/a', 11 * 60 * 1000)
-    backdateSessions(ud, '/books/a', 11 * 60 * 1000)
+    backdateEvents(ud, '/books/a', 33 * 60 * 1000)
+    backdateSessions(ud, '/books/a', 33 * 60 * 1000)
     const dbPath = join(ud, 'clwriting', 'session', bookHash('/books/a') + '.db')
     const before = new DatabaseSync(dbPath)
     before.exec("CREATE TRIGGER mock_touch_fail BEFORE UPDATE ON sessions BEGIN SELECT RAISE(ABORT, 'mock touch fail'); END")
@@ -291,13 +291,13 @@ describe('F1-P1 启动修复', () => {
     store2.close()
   })
 
-  it('RB-IF-P2-2: 恰在宽限期边界内（9 分钟前）仍不补', () => {
+  it('RB-IF-P2-2: 恰在宽限期边界内（31 分钟前）仍不补（R65-19 窗口随宽限对齐）', () => {
     const ud = tmpRoot()
     const store = openSessionStore(ud, '/books/a')!;
     const sid = store.createSession('书A')
     store.appendEvent(sid, { type: 'session/start', data: {} })
     store.close()
-    backdateEvents(ud, '/books/a', 9 * 60 * 1000)
+    backdateEvents(ud, '/books/a', 31 * 60 * 1000)
     const store2 = openSessionStore(ud, '/books/a')!;
     expect(store2.listEvents('书A').filter((e) => e.type === 'session/end')).toHaveLength(0)
     store2.close()
@@ -310,7 +310,7 @@ describe('F1-P1 启动修复', () => {
     store.appendEvent(sid, { type: 'session/start', data: {} })
     store.appendEvent(sid, { type: 'session/end', data: { reason: 'completed' } })
     store.close()
-    backdateEvents(ud, '/books/a', 11 * 60 * 1000)
+    backdateEvents(ud, '/books/a', 33 * 60 * 1000)
     const store2 = openSessionStore(ud, '/books/a')!;
     expect(store2.listEvents('书A').filter((e) => e.type === 'session/end')).toHaveLength(1)
     store2.close()
@@ -318,7 +318,7 @@ describe('F1-P1 启动修复', () => {
 
   it('打开时仍在宽限期内的孤儿：长跑进程不重开库，写路径按 TTL 惰性补 end', () => {
     // 原缺陷：孤儿修复只在 openSessionStore 首次打开跑一次——崩溃残留若打开时
-    // 距最后活动 <10min 被宽限期跳过，此后单例连接长开（refs>0）不再触发修复，
+    // 距最后活动 <32min 被宽限期跳过，此后单例连接长开（refs>0）不再触发修复，
     // 孤儿 end 永远补不上（审计流缺收尾），除非进程重启。
     const ud = tmpRoot()
     const t0 = Date.now()
@@ -332,7 +332,7 @@ describe('F1-P1 启动修复', () => {
       const store2 = openSessionStore(ud, '/books/a')!;
       expect(store2.listEvents('书A').filter((e) => e.type === 'session/end')).toHaveLength(0)
       // 宽限期过后（库保持打开，长跑进程）：写路径（createSession）触发 TTL 惰性修复
-      vi.setSystemTime(t0 + 11 * 60 * 1000)
+      vi.setSystemTime(t0 + 33 * 60 * 1000)
       store2.createSession('书A')
       const ends = store2.listEvents('书A').filter((e) => e.type === 'session/end')
       expect(ends).toHaveLength(1)
@@ -345,3 +345,38 @@ describe('F1-P1 启动修复', () => {
   })
 })
 
+
+describe('R65-20（批 B）：listEvents 坏行降级', () => {
+  it('单行 data 坏 JSON → 跳过该行 + warn 留 seq，其余行完整返回不抛', () => {
+    const ud = tmpRoot()
+    const store = openSessionStore(ud, '/books/a')!
+    const sid = store.createSession('书A')
+    store.appendEvents(sid, [
+      { type: 'user/message', data: { message: '好行1' }, surfaceOp: 'append' },
+      { type: 'user/message', data: { message: '好行2' }, surfaceOp: 'append' },
+      { type: 'user/message', data: { message: '好行3' }, surfaceOp: 'append' },
+    ])
+    store.close()
+    // 外部腐蚀：把 seq=2 的 data 改成坏 JSON（模拟跨版本写坏/盘损）
+    const dbPath = join(ud, 'clwriting', 'session', bookHash('/books/a') + '.db')
+    const db = new DatabaseSync(dbPath)
+    db.prepare("UPDATE events SET data = '{oops' WHERE seq = 2").run()
+    db.close()
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const store2 = openSessionStore(ud, '/books/a')!
+      const evs = store2.listEvents('书A')
+      expect(evs.map((e) => e.seq)).toEqual([1, 3]) // 坏行跳过，好行完整
+      expect(evs.map((e) => (e.data as { message?: string })['message'])).toEqual(['好行1', '好行3'])
+      // 会话维度同口径
+      expect(store2.listEvents('书A', sid)).toHaveLength(2)
+      store2.close()
+      // warn 带行 seq（诊断入口）
+      const msg = String(warn.mock.calls.find((c) => String(c[0]).includes('seq=2'))?.[0] ?? '')
+      expect(msg).toContain('listEvents 跳过坏行 seq=2')
+    } finally {
+      warn.mockRestore()
+    }
+  })
+})

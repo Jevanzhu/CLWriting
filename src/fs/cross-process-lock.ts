@@ -135,7 +135,13 @@ export function tryAcquireCrossProcessLock(
     let fd: number | undefined
     try {
       fd = openSync(lockPath, 'wx')
-      writeSync(fd, JSON.stringify({ pid: process.pid, bootTime: processBootTime() }))
+      // R65-35①（第六十五轮）：writeSync 单次调用可短写（ENOSPC 磁盘满/信号中断），
+      // 半写残 JSON 锁文件会被对手判「坏锁」接管（双持锁）——循环写满为止
+      const payload = JSON.stringify({ pid: process.pid, bootTime: processBootTime() })
+      const buf = Buffer.from(payload, 'utf8')
+      for (let off = 0; off < buf.length; ) {
+        off += writeSync(fd, buf, off, buf.length - off)
+      }
       let released = false
       // N6：续期定时器——周期 utimes 刷锁文件 mtime（best-effort：锁文件被外部清理/
       // 磁盘异常时静默跳过，release 照常删文件）。release 幂等 + 停表。
@@ -156,6 +162,15 @@ export function tryAcquireCrossProcessLock(
         if (released) return
         released = true
         if (renewTimer) clearInterval(renewTimer)
+        // R65-35②：释放前校验「仍是我创建的那把锁」——读锁文件内容与写入串逐字节
+        // 一致（pid+bootTime 即自身）才删；不一致 = X-4 双 contender 双持锁残余窗口
+        // 里锁已被他人重建（无条件 rmSync 会删掉他人在位的新锁）。读失败（含已不在
+        // 盘）同样不删——删错他人锁的代价高于残留（残留由 stale 接管路径收口）。
+        try {
+          if (readFileSync(lockPath, 'utf-8') !== payload) return
+        } catch {
+          return
+        }
         rmSync(lockPath, { force: true })
       }
     } catch (e) {

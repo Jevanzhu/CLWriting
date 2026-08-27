@@ -1,5 +1,5 @@
 import { test, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { migrateLayoutV2 } from '../../src/install/migrate-layout-v2.js'
@@ -122,4 +122,35 @@ test('空书库：no-op', () => {
   const r = migrateLayoutV2(tmp)
   expect(r.migrated).toBe(0)
   expect(r.errors).toEqual([])
+})
+
+// ── R65-38（第六十五轮）：同名跳过留痕 + statSync 容错不中断同目录迁移 ──────────
+
+test('R65-38: 同名文件静默跳过 → push 到 errors（孤儿留痕）；同目录其余文件照常迁移', () => {
+  // 定稿/正文/ 与 写作/正文/ 同名冲突（部分迁移过的断点形态）
+  write('定稿/正文/0001-冲突.md', '旧目录内容（孤儿）')
+  write('写作/正文/0001-冲突.md', '新目录已有内容')
+  write('定稿/正文/0002-可迁.md', '可迁移文件')
+  const r = migrateLayoutV2(tmp)
+  // 同名跳过留痕：errors 含告警（旧文件残留旧目录成孤儿，提示手动核对）
+  expect(r.errors.some((e) => e.includes('同名跳过') && e.includes('定稿/正文/0001-冲突.md'))).toBe(true)
+  // 同目录其余文件照常迁移（修复前同名跳过本身也正常，此断言锁「不中断」）
+  expect(has('写作/正文/0002-可迁.md')).toBe(true)
+  // 双份内容均未被覆盖
+  expect(readFileSync(join(tmp, '定稿', '正文', '0001-冲突.md'), 'utf-8')).toBe('旧目录内容（孤儿）')
+  expect(readFileSync(join(tmp, '写作', '正文', '0001-冲突.md'), 'utf-8')).toBe('新目录已有内容')
+})
+
+test('R65-38: statSync 抛错（dangling symlink 源 + 同名目标在位）→ 记 warn 跳过该条，同目录后续文件继续迁', () => {
+  mkdirSync(join(tmp, '定稿', '正文'), { recursive: true })
+  mkdirSync(join(tmp, '写作', '正文'), { recursive: true })
+  // 坏条目：源是 dangling symlink（statSync 跟随 → ENOENT），目标同名文件已存在
+  // → 进入同名分支的 statSync 即抛（修复前直穿外层 catch，同目录剩余条目整段跳过）
+  symlinkSync(join(tmp, '不存在.md'), join(tmp, '定稿', '正文', '0000-坏链.md'))
+  write('写作/正文/0000-坏链.md', '目标在位')
+  write('定稿/正文/0001-后续.md', '后续文件')
+  const r = migrateLayoutV2(tmp)
+  expect(r.errors.some((e) => e.includes('0000-坏链.md') && e.includes('stat 失败'))).toBe(true)
+  // 关键回归：坏条目之后的文件仍被迁移（修复前被跳过）
+  expect(has('写作/正文/0001-后续.md')).toBe(true)
 })

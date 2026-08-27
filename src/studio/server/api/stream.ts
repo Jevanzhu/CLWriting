@@ -24,7 +24,7 @@ import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错�
 import { resolveTier } from '../../../ai/provider/index.js'
 import { resolveModelPricing, computeCallCost } from '../../../ai/pricing.js'
 import { safeTokenCompare } from '../http.js'
-import { consumeStreamTicket } from './stream-ticket.js'
+import { consumeStreamTicket, peekStreamTicket } from './stream-ticket.js'
 import { heldTaskGatesFor } from './task-gate.js'
 import { isReviewRunningForBook } from './review.js'
 // M-2（第八轮）：spawn 闸移驻 ai 层（turns.ts 的嵌套生成工具闸要查它，ai 层不得反向
@@ -114,7 +114,10 @@ export function createSseWriter(
   return (chunk: string): void => {
     if (res.writableEnded || res.destroyed) return
     if (res.write(chunk) === false) {
-      pendingBytes += chunk.length
+      // R65-42（总六十五轮）：滞留字节按 UTF-8 实际字节数计——原 chunk.length 是
+      // UTF-16 码元数，中文事件实际滞留约为计数 3 倍（1MB 阈值实际放行 ~3MB，
+      // 背压判死闸对中文流形同放宽 3 倍）
+      pendingBytes += Buffer.byteLength(chunk, 'utf8')
       stuckWrites += 1
       // R64-26（十二轮）：字节闸 + 连续次数双判死——次数闸兜「仅心跳存活」的假死连接
       if (pendingBytes > limit || stuckWrites > stuckLimit) res.destroy()
@@ -244,7 +247,10 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     // R64-27（十二轮）：鉴权前移到全部书域判定（连接数闸 429 / resolveBook 404）之前
     // ——原顺序让未持凭据者借差异响应探测书名存在性。攻击面窄（Host 闸 + 本机同
     // 信任域），统一 403 消除信道零成本。
-    if (!consumeStreamTicket(queryTicket) && !safeTokenCompare(queryToken, ctx.studioToken)) {
+    // R65-43（总六十五轮）：此处只「预检」不消费 ticket——原 consumeStreamTicket 在
+    // 闸首即烧掉一次性 ticket，429/404 时票被白白作废，EventSource 自动重连带废票
+    // 反复 403 成无诊断风暴；消费移至全部书域校验通过之后（见下方 R65-43 消费点）。
+    if (!peekStreamTicket(queryTicket) && !safeTokenCompare(queryToken, ctx.studioToken)) {
       replyError(res, 403, 'FORBIDDEN', 'forbidden')
       return
     }
@@ -264,6 +270,14 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     const bookR = resolveBook(ctx.workDir, params['name'])
     if ('error' in bookR) {
       replyError(res, bookR.status, bookR.code, bookR.error)
+      return
+    }
+    // R65-43（总六十五轮）：全部书域校验（429 连接数 / workDir / resolveBook 404）
+    // 通过后才消费一次性 ticket、建流——429/404 不再烧票。鉴权顺序语义不变：
+    // 先凭据预检（上方闸）、后书域判定、最后消费；token 过闸者无需 ticket。
+    // 竞态兜底：预检与消费之间被并发连接抢先消费 → 票已作废，403（一次性语义）。
+    if (!safeTokenCompare(queryToken, ctx.studioToken) && !consumeStreamTicket(queryTicket)) {
+      replyError(res, 403, 'FORBIDDEN', 'forbidden')
       return
     }
     // 校验通过后才登记连接句柄（P1-1：防 early return 路径泄漏计数器致 DoS；

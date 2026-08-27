@@ -154,14 +154,32 @@ function fsyncDir(dir: string): void {
 }
 
 /** Y-24（第五十七轮）：崩溃残留 tmp 的命名模式（`.<name>.<pid>.<uuid>.tmp`）。
- *  带 mtime 年龄判据使用——见 sweepAbandonedTmpFiles。 */
-const ABANDONED_TMP_RE = /^\..+\.\d+\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp$/
+ *  带 mtime 年龄判据使用——见 sweepAbandonedTmpFiles。
+ *  R65-37（第六十五轮）：捕获组 1 = pid 段（紧贴 uuid 前的数字段）——sweep 据此做
+ *  持有进程存活探测，防误清他进程在途写。 */
+const ABANDONED_TMP_RE = /^\..+\.(\d+)\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp$/
+
+/** R65-37：进程存活探测（与 fs/cross-process-lock.ts 同口径）——process.kill(pid,0)
+ *  不发信号只查存在性：ESRCH=死；EPERM=存在但属他人，按存活保守处理。 */
+function isPidAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
 
 /** Y-24：清扫 atomicWriteFile 崩溃残留的 tmp 文件（rename 前进程崩溃时 catch 清理
  *  不可达，`.<name>.<pid>.<uuid>.tmp` 永久留盘累积占空间）。
  *
  *  年龄门槛 5 分钟：原子写的 tmp 寿命是毫秒级（创建→rename 同步相邻），超龄可断定
  *  非他进程在途写——误删在途 tmp 会把对方写入变成 rename 失败，宁慢勿错。
+ *  R65-37（第六十五轮）：年龄门防不住 CLI/GUI 双进程下他进程的**长时间**大文件在途
+ *  写（超 5 分钟即误清）——tmp 命名自带 pid 段，pid 仍存活则永不清（进程在 = 写仍
+ *  在途或将由其自身 catch 清理）；pid 已死才交给年龄门（无 pid 段/解析异常维持
+ *  5 分钟年龄门原口径）。
  *  返回清除数（调用方留痕用）。best-effort：目录不可读/文件不可删逐项跳过。 */
 export function sweepAbandonedTmpFiles(rootDir: string, opts?: { now?: number; minAgeMs?: number }): number {
   const now = opts?.now ?? Date.now()
@@ -183,6 +201,9 @@ export function sweepAbandonedTmpFiles(rootDir: string, opts?: { now?: number; m
     try {
       const st = statSync(full)
       if (now - Math.floor(st.mtimeMs) < minAge) continue // 可能在途——不动
+      // R65-37：pid 仍存活 → 他进程在途写（年龄门外的双进程保护），永不清
+      const pid = Number(ABANDONED_TMP_RE.exec(ent.name)?.[1])
+      if (Number.isInteger(pid) && pid > 0 && isPidAlive(pid)) continue
       rmSync(full, { force: true })
       removed++
     } catch {

@@ -50,6 +50,30 @@ export type PurgeResult =
 const TRASH_DIR_REL = '工作区/.trash'
 const TRASH_MANIFEST_REL = '工作区/.trash/.trash-manifest.jsonl'
 
+/** R65-36（第六十五轮）：恢复目标位与回收站源的内容比对——上次「linkSync 成功 →
+ *  删源」之间崩溃的续跑形态（目标位与 .trash 双份硬链同 inode），比对一致视为上次
+ *  已完成，继续走清理不再报 OCCUPIED；比对优先 readFileSync 逐字节相等，读失败退
+ *  size+mtime 指纹；任一侧非普通文件（目录恢复走原子 rename 无此窗口）→ 不一致。 */
+function sameRestoreCopy(a: string, b: string): boolean {
+  try {
+    if (!statSync(a).isFile() || !statSync(b).isFile()) return false
+  } catch {
+    return false
+  }
+  try {
+    return readFileSync(a).equals(readFileSync(b))
+  } catch {
+    /* 读失败（权限）退 size+mtime 指纹 */
+  }
+  try {
+    const sa = statSync(a)
+    const sb = statSync(b)
+    return sa.size === sb.size && Math.floor(sa.mtimeMs) === Math.floor(sb.mtimeMs)
+  } catch {
+    return false
+  }
+}
+
 function trashManifestPath(bookRoot: string): string {
   return join(bookRoot, TRASH_MANIFEST_REL)
 }
@@ -138,7 +162,11 @@ export function restoreTrash(bookRoot: string, id: string): RestoreResult {
     return { ok: false, code: 'NOT_FOUND', reason: '回收站条目路径非法（越出书仓库）' }
   }
   if (!existsSync(trashAbs)) return { ok: false, code: 'NOT_FOUND', reason: '回收站文件已丢失' }
-  if (existsSync(origAbs)) {
+  // R65-36：目标位已占用先比对内容——上次「link 成功 → 删源」之间崩溃的续跑（目标位
+  // 与 .trash 双份），一致则视为已完成恢复，跳过搬运继续走删源+清单收口；不一致才是
+  // 真占用（作者另建了文件），仍报 OCCUPIED（不自动改，§17 决策④）
+  const alreadyLinked = existsSync(origAbs)
+  if (alreadyLinked && !sameRestoreCopy(origAbs, trashAbs)) {
     return {
       ok: false,
       code: 'OCCUPIED',
@@ -148,33 +176,38 @@ export function restoreTrash(bookRoot: string, id: string): RestoreResult {
 
   try {
     mkdirSync(dirname(origAbs), { recursive: true })
-    // R64-21（十二轮）：existsSync→renameSync 的 TOCTOU 窗口内原位被跨进程新建 →
-    // POSIX rename 静默覆盖占位文件（不可逆）。文件改 linkSync 原子探测：EEXIST →
-    // OCCUPIED（link 失败即占用，无窗口）；成功 → 内容已借硬链接落位，再删 .trash
-    // 侧（同一 inode，无复制窗口）。目录不支持硬链接，保留 rename 路径（目录 rename
-    // 对非空目标报 ENOTEMPTY，无静默覆盖面）。
-    let origIsDir = false
-    try {
-      origIsDir = statSync(trashAbs).isDirectory()
-    } catch {
-      return { ok: false, code: 'WRITE_ERROR', reason: '恢复失败：回收站文件已丢失' }
-    }
-    if (origIsDir) {
-      renameSync(trashAbs, origAbs)
-    } else {
-      try {
-        linkSync(trashAbs, origAbs)
-      } catch (e) {
-        if ((e as NodeJS.ErrnoException).code === 'EEXIST') {
-          return {
-            ok: false,
-            code: 'OCCUPIED',
-            reason: `原位 ${entry.originalPath} 已被占用，请先重命名或删除现有文件`,
-          }
-        }
-        throw e
-      }
+    if (alreadyLinked) {
+      // R65-36：续跑补删源（目标位内容已比对一致 = 上次 link 已完成）
       rmSync(trashAbs, { force: true })
+    } else {
+      // R64-21（十二轮）：existsSync→renameSync 的 TOCTOU 窗口内原位被跨进程新建 →
+      // POSIX rename 静默覆盖占位文件（不可逆）。文件改 linkSync 原子探测：EEXIST →
+      // OCCUPIED（link 失败即占用，无窗口）；成功 → 内容已借硬链接落位，再删 .trash
+      // 侧（同一 inode，无复制窗口）。目录不支持硬链接，保留 rename 路径（目录 rename
+      // 对非空目标报 ENOTEMPTY，无静默覆盖面）。
+      let origIsDir = false
+      try {
+        origIsDir = statSync(trashAbs).isDirectory()
+      } catch {
+        return { ok: false, code: 'WRITE_ERROR', reason: '恢复失败：回收站文件已丢失' }
+      }
+      if (origIsDir) {
+        renameSync(trashAbs, origAbs)
+      } else {
+        try {
+          linkSync(trashAbs, origAbs)
+        } catch (e) {
+          if ((e as NodeJS.ErrnoException).code === 'EEXIST') {
+            return {
+              ok: false,
+              code: 'OCCUPIED',
+              reason: `原位 ${entry.originalPath} 已被占用，请先重命名或删除现有文件`,
+            }
+          }
+          throw e
+        }
+        rmSync(trashAbs, { force: true })
+      }
     }
   } catch (e) {
     return { ok: false, code: 'WRITE_ERROR', reason: `恢复失败：${errMsg(e)}` }

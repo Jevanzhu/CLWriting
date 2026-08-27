@@ -273,3 +273,28 @@ test('cardCache 删除自愈：删卡后再读，缓存条目被清扫；他目�
     clearCharacterCardCache()
   }
 })
+
+// ── R65-32（第六十五轮）：降级分支二次裸读容错——单卡读失败跳过，其余卡正常 ──────
+
+test('readCharacterCards：无 fm 卡读盘失败（EACCES）→ 跳过该卡，其余卡正常返回（不再直穿抛出）', async () => {
+  const { readCharacterCards, clearCharacterCardCache } = await import('../../src/process/settings-context.js')
+  const { mkdtempSync, rmSync, writeFileSync, chmodSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = mkdtempSync(join(tmpdir(), 'cards-eacces-'))
+  try {
+    // 一张正常无 fm 卡（走降级分支：姓名=文件名，正文=全文）+ 一张不可读卡（无 fm 也无读权）
+    writeFileSync(join(dir, '林远.md'), '冷面剑修，旧自由 MD 无 front matter。\n')
+    writeFileSync(join(dir, '坏卡.md'), '读不出来的内容\n')
+    chmodSync(join(dir, '坏卡.md'), 0o000) // 自然故障：readFile 失败 → 降级分支裸 readFileSync 再抛 EACCES
+    // 修复前：此处直穿抛 EACCES（无 fm 与读盘失败混在同一 else）；修复后跳过坏卡
+    const cards = readCharacterCards(dir, dir)
+    expect(cards).toHaveLength(1)
+    expect(cards[0]!.姓名).toBe('林远')
+    expect(cards[0]!.正文).toContain('冷面剑修')
+  } finally {
+    chmodSync(join(dir, '坏卡.md'), 0o644) // 还原权限供清理
+    rmSync(dir, { recursive: true, force: true })
+    clearCharacterCardCache()
+  }
+})

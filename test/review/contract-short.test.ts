@@ -22,8 +22,9 @@ test('buildReviewTasks short: reader/editor 恒跑 + 短篇三视角', () => {
   expect(tasks.every((t) => t.must_run)).toBe(true)
 })
 
-test('buildReviewTasks long（缺省）: 行为不变，产长篇三视角', () => {
-  const tasks = buildReviewTasks(emptyReport)
+test('buildReviewTasks long（显式 hasWiring）: 行为不变，产长篇三视角', () => {
+  // R65-26：默认 hasWiring 改 false——长篇三视角由显式实参声明（缺省只产 reader+editor）
+  const tasks = buildReviewTasks(emptyReport, { hasWiring: true, hasShort: false })
   expect(tasks.map((t) => t.lens)).toEqual(['reader', 'editor', 'continuity'])
 })
 
@@ -50,7 +51,7 @@ test('短篇三视角：hasShort 时 buildReviewTasks 补 hook/emotion_peak/payo
   expect(lenses).toContain('emotion_peak')
   expect(lenses).toContain('payoff')
   // 无 hasShort（纯长篇）不含短篇视角
-  const longLenses = buildReviewTasks(emptyReport).map((t) => t.lens)
+  const longLenses = buildReviewTasks(emptyReport, { hasWiring: true, hasShort: false }).map((t) => t.lens)
   expect(longLenses).not.toContain('hook')
 })
 

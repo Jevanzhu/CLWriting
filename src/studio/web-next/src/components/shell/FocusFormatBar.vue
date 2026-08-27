@@ -1,6 +1,7 @@
 <script setup lang="ts">
-// 专注模式右侧竖状浮动排版条：字号/行距/纸宽滑杆 + 中英文字体下拉（常驻半透明，
-// hover 加深，对齐 ws-focus-exit 风格）。控件直连 prefs store 既有 setter——调整
+// 专注模式纸张右缘竖状浮动排版条：字号/行距/纸宽滑杆 + 中英文字体下拉（常驻半透明，
+// hover 加深，对齐 ws-focus-exit 风格）。定位贴编辑纸张右缘而非窗口右缘（窄窗侧位
+// 不足时回落窗口右缘，见样式注释）。控件直连 prefs store 既有 setter——调整
 // 即时 apply CSS 变量（所见即所得）+ 防抖落 global.json/prefs.json，与设置面板
 // 「编辑器」tab 同构同范围；纸宽保持当前 scope（书级覆盖存在时只写本书，label
 // 带「本书」标记；切换 scope 仍走设置面板）。非弹层：不进 useHotkeys 的 Esc
@@ -55,10 +56,14 @@ function onPageWidthInput(v: number): void {
 </template>
 
 <style scoped>
-/* 常驻半透明竖条：不占布局流（absolute 挂 ws-main），hover 加深为实体可操作 */
+/* 常驻半透明竖条：不占布局流（absolute 挂 ws-main），hover 加深为实体可操作。
+ * 定位贴纸张右缘：专注态纸张在 ws-main 内居中（doc-page margin auto + 左右对称
+ * padding），条左缘 = 中心 + 半页宽 + 12px 间距——与纸张共用 --page-width（同源
+ * 同 1020px fallback），拖纸宽滑杆时条随纸实时贴移。侧位容不下整条（窄窗，
+ * 需 12 间距 + 150 条宽）时 min 回落窗口右缘（旧位；166 = 150 + 16 余量）。 */
 .focus-format-bar {
   position: absolute;
-  right: var(--size-4-4, 16px);
+  left: min(calc(50% + var(--page-width, 1020px) / 2 + var(--size-4-3, 12px)), calc(100% - 166px));
   top: 50%;
   transform: translateY(-50%);
   z-index: 5;
