@@ -1,5 +1,6 @@
 import { timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { redactSecret } from '../../ai/provider/redact.js'
 
 export const JSON_BODY_LIMIT_BYTES = 1024 * 1024
 
@@ -43,8 +44,13 @@ export function replyError(
   error: string,
   extra?: Record<string, unknown>,
 ): void {
+  // R67-14（十五轮）：错误信封单一出口统一脱敏——各 handler 直透 result.error 的窄
+  // 路径（非 GenError 逃逸 message）此前靠各点自觉套 redactSecret，8 处直透漏网；
+  // 收进本出口后所有非 2xx error 文本一律过 redactSecret（幂等：已脱敏文本再过
+  // 无变化，既有调用点的显式脱敏不受影响；中文人话不匹配凭据模式不受影响）
+  const safeError = redactSecret(error)
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
-  res.end(JSON.stringify({ code, error, ...(extra ?? {}) }))
+  res.end(JSON.stringify({ code, error: safeError, ...(extra ?? {}) }))
 }
 
 /** HttpError → 统一信封（dispatch catch / readJson 抛错的兜底出口）。 */

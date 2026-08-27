@@ -44,7 +44,22 @@ import { heldTaskGatesFor } from './task-gate.js'
 import { isReviewRunningForBook } from './review.js'
 import { forgetRagBuildTask } from './rag.js'
 import { isSpawnRunning, forgetSseCount } from './stream.js'
+// R67-15（十五轮）：四个书键 TTL 结果缓存（体检扫描/概览态/风格语料/learn 候选）的
+// 失效挂点——删书/改名正向清理，TTL 5s 退为兜底自愈
+import { forgetStyleScanCache } from './health.js'
+import { forgetOverviewCache } from './overview.js'
+import { forgetStyleCorpusCache } from './analysis.js'
+import { forgetLearnCache } from './knowledge.js'
 import { log } from '../../../log/index.js'
+
+/** R67-15：删书/改名共用的书键缓存清理（TTL 结果缓存四件——内存卫生，防删书后
+ *  5s 内残留概览/体检数据被同名重建书读到）。 */
+function forgetBookKeyedCaches(bookRoot: string): void {
+  forgetStyleScanCache(bookRoot)
+  forgetOverviewCache(bookRoot)
+  forgetStyleCorpusCache(bookRoot)
+  forgetLearnCache(bookRoot)
+}
 
 interface BookCtx {
   workDir: string | null
@@ -259,6 +274,8 @@ export function registerBookRoutes(ctx: BookCtx): void {
     forgetSession(name)
     // R-18（第十六轮）：per-book SSE 计数一并清——残留计数会让同名重建书被顶到 429 上限
     forgetSseCount(name)
+    // R67-15（十五轮）：书键 TTL 结果缓存一并清（见顶部 forgetBookKeyedCaches 注释）
+    forgetBookKeyedCaches(bookAbs)
     invalidateTreeIndex(bookAbs, true)
     // 内存闸（2026-08-24 审计 C2）：章节元数据缓存按书前缀一并清——删书后目录已不在，
     // 每章元数据条目成死重（bookAbs 即各调用方 readChapterDir 键的 join 前缀）
@@ -421,6 +438,8 @@ export function registerBookRoutes(ctx: BookCtx): void {
       // 路径（R-18）。改名后旧名残留 SSE 计数，随后新建同名书 SSE 配额被旧连接
       // 顶到 429（计数只在 req close 时递减，改名后旧名再无归零通路）。
       forgetSseCount(oldName)
+      // R67-15（十五轮）：书键 TTL 结果缓存清旧键（新键惰性重建——新 root 尚无请求）
+      forgetBookKeyedCaches(oldRoot)
       invalidateTreeIndex(oldRoot, true)
       invalidateBookSummary(oldRoot)
       // 内存闸（2026-08-24 审计 C2）：旧路径前缀的章节元数据缓存一并清（新路径键惰性重建）

@@ -814,6 +814,11 @@ export class DocumentService {
   }
 
   private doTrash(docId: string): TrashResult {
+    // R67-11（十五轮）：入口补 safeDocId——与 saveDocument/executeSave 同口径的纵深
+    // 一致性：manifest 属可篡改数据面，带恶意 docId 的登记可经 lookup 命中后进入
+    // snapshot 留底/trash 路径拼接（下游 resolveSafePath 两层已挡穿越，此处挡在
+    // 更早，非法 ID 不进后续链）
+    if (!safeDocId(docId)) return { ok: false, code: 'PATH_ESCAPE', reason: '文档 ID 非法' }
     const oldPath = this.lookupPathByDocId(docId)
     if (!oldPath) return { ok: false, code: 'NOT_FOUND', reason: `文档 ${docId} 未在清单登记` }
     if (!layoutOf(oldPath).capabilities.trash) {

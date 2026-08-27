@@ -228,22 +228,34 @@ function main() {
     }
   }
 
+  // R67-23（十五轮）：锚定短语的正则对全/半角变体容错——此前只认全角括号 + 半角
+  // 斜杠/逗号的一种精确排印，README 排版微调即模式失配→假红（fail-closed 方向没错，
+  // 但把排版差异当数字失真红太脆）；语义锚（短语 + 数字位置）不变，真失配/真缺行仍红。
+  const PH = (inner) => `[（(]${inner}[)）]`
   // 徽章：tests-2937%20all%20green（示例为 2026-08-23 当前值，实际以 README 为准）
   claim(/badge\/tests-(\d+)%20all%20green/, actual.unitTests, '徽章单测数')
   // 「npm test                   # 2937 单测」
-  claim(/npm test\s+#\s*(\d+)\s*单测/, actual.unitTests, 'npm test 单测数')
+  claim(/npm test\s+[#＃]\s*(\d+)\s*单测/, actual.unitTests, 'npm test 单测数')
   // 「vitest（2937 单测）+ Playwright（28 specs / 41 用例）」
-  claim(/vitest（(\d+) 单测）/, actual.unitTests, '技术栈单测数')
-  claim(/Playwright（(\d+) specs/, actual.e2eSpecs, 'Playwright spec 数')
+  claim(new RegExp(`vitest${PH('(\\d+) 单测')}`), actual.unitTests, '技术栈单测数')
+  claim(new RegExp('Playwright[（(](\\d+) specs'), actual.e2eSpecs, 'Playwright spec 数')
   // dd-P3（E-P3-3）：锚定完整短语——裸 `(\d+) 用例）` 会命中 README 里任何以"用例）"结尾的数字
-  claim(/Playwright（\d+ specs \/ (\d+) 用例）/, actual.e2eCases, 'Playwright 用例数')
+  claim(new RegExp(`Playwright${PH('\\d+ specs [\\/／] (\\d+) 用例')}`), actual.e2eCases, 'Playwright 用例数')
   // P-11（第十四轮）：开发节 e2e 行此前是盲区——「Playwright e2e（mock 驱动，28 specs / 41 用例）」
   // 中间夹了「e2e（mock 驱动，」，不匹配上面的「Playwright（」模式，该行漂移时门禁仍绿
-  claim(/Playwright e2e（mock 驱动，(\d+) specs \/ \d+ 用例）/, actual.e2eSpecs, '开发节 e2e spec 数')
-  claim(/Playwright e2e（mock 驱动，\d+ specs \/ (\d+) 用例）/, actual.e2eCases, '开发节 e2e 用例数')
+  claim(
+    new RegExp(`Playwright e2e${PH(`mock 驱动[,，](\\d+) specs [\\/／] \\d+ 用例`)}`),
+    actual.e2eSpecs,
+    '开发节 e2e spec 数',
+  )
+  claim(
+    new RegExp(`Playwright e2e${PH(`mock 驱动[,，]\\d+ specs [\\/／] (\\d+) 用例`)}`),
+    actual.e2eCases,
+    '开发节 e2e 用例数',
+  )
   // 「327 个测试文件 / 2937 单测全绿」
-  claim(/(\d+) 个测试文件 \/ \d+ 单测全绿/, actual.unitFiles, '测试文件数')
-  claim(/\d+ 个测试文件 \/ (\d+) 单测全绿/, actual.unitTests, '状态段单测数')
+  claim(/(\d+) 个测试文件 [\/／] \d+ 单测全绿/, actual.unitFiles, '测试文件数')
+  claim(/\d+ 个测试文件 [\/／] (\d+) 单测全绿/, actual.unitTests, '状态段单测数')
 
   console.log(`实测：${actual.unitFiles} 个测试文件 / ${actual.unitTests} 单测；${actual.e2eSpecs} e2e spec / ${actual.e2eCases} 用例`)
 

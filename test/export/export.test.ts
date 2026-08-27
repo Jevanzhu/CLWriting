@@ -615,3 +615,42 @@ test('R65-27: 短篇投稿视图旧产物同口径归档（改书名后旧「投
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+// ── R67-1（十五轮）：分章目录整删 → 先归档再重建 ──────────
+
+test('R67-1: 再导出时旧 分章/ 整目录归档进 .旧版/ 不再 rmSync 销毁（作者手改分章稿保留）', () => {
+  const root = makeLongBook('分章归档')
+  writeLongChapter(root, 1, '第一章', '第一版正文。')
+  try {
+    exportBook({ bookRoot: root, format: 'both' })
+    // 作者手改分章稿（此前 rmSync 整目录销毁不可挽回）
+    const hand = join(root, '工作区', '导出', '分章', '001-第一章.md')
+    writeFileSync(hand, '作者手改过的分章稿', 'utf-8')
+    writeLongChapter(root, 1, '第一章', '第二版正文。')
+    const r = exportBook({ bookRoot: root, format: 'both' })
+    expect(r.ok).toBe(true)
+    // 手改稿整目录归档进 .旧版/分章/ 且内容原样（同名章新产物会重建同名文件，以内容判）
+    expect(readFileSync(join(root, '工作区', '导出', '.旧版', '分章', '001-第一章.md'), 'utf-8')).toBe('作者手改过的分章稿')
+    // 新分章产物在位且为第二版
+    expect(readFileSync(join(root, '工作区', '导出', '分章', '001-第一章.md'), 'utf-8')).toContain('第二版正文')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('R67-1: 分章归档目录撞名 → 追加序号后缀保多份', () => {
+  const root = makeLongBook('分章撞名')
+  writeLongChapter(root, 1, '第一章', '初版。')
+  try {
+    exportBook({ bookRoot: root, format: 'split' })
+    writeFileSync(join(root, '工作区', '导出', '分章', '001-第一章.md'), '第一次手改', 'utf-8')
+    exportBook({ bookRoot: root, format: 'split' }) // 分章/ → .旧版/分章/
+    writeFileSync(join(root, '工作区', '导出', '分章', '001-第一章.md'), '第二次手改', 'utf-8')
+    exportBook({ bookRoot: root, format: 'split' }) // 再归档 → .旧版/分章-2/
+    const archiveDir = join(root, '工作区', '导出', '.旧版')
+    expect(readFileSync(join(archiveDir, '分章', '001-第一章.md'), 'utf-8')).toBe('第一次手改')
+    expect(readFileSync(join(archiveDir, '分章-2', '001-第一章.md'), 'utf-8')).toBe('第二次手改')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})

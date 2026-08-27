@@ -33,6 +33,10 @@ interface OverviewCtx {
 // CC-P1-3：原单条目缓存多书交替访问永 miss（P3 观察项）——改多书 Map（key=bookRoot）+ FIFO 上限。
 type StateOutput = { state: number; name: string; detail: DetectedState | { error: string } }
 const stateCache = new Map<string, { result: StateOutput; ts: number }>()
+/** R67-15（十五轮）：删书/改名失效挂点（同 health.ts forgetStyleScanCache 口径）。 */
+export function forgetOverviewCache(bookRoot: string): void {
+  stateCache.delete(bookRoot)
+}
 const STATE_CACHE_TTL = 5000
 const STATE_CACHE_MAX = 32
 

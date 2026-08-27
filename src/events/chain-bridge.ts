@@ -242,8 +242,10 @@ export function recordForeshadowChanges(
   if (events.length === 0) return
   try {
     store.appendEvents(sessionId, events)
-  } catch {
-    // 观测层：写失败静默
+  } catch (e) {
+    // 观测层：不阻断主流程，但留痕（R67-7：静默吞错与 R66-4 留痕纪律相悖——
+    // 伏笔变更事件丢失时审计链缺段，无诊断线索可查）
+    log.warn('chain-bridge', `伏笔变更事件写入失败（session=${sessionId}，${events.length} 条）：${e instanceof Error ? e.message : String(e)}`)
   }
 }
 

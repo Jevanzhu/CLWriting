@@ -166,3 +166,30 @@ test('checkNewNames: 扩展 A 区生僻字人名的对白归属行豁免（䜣 U
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+// ── R67-9（十五轮）：嵌套引号伪专名守卫 ──────────────
+
+test('R67-9: 嵌套引号截断 span 不产伪专名黄项（「他说『快走』」不再报「他说快走」）', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'names-'))
+  try {
+    const roster = join(dir, '名册.md')
+    writeFileSync(roster, '已有角色：云澈', 'utf-8')
+    // QUOTED_SPAN_RE 截出 span「他说『快走 → 剥引号「他说快走」3 字恰落候选窗（旧实现报黄）
+    const r = checkNewNames('风声骤紧，「他说『快走』了」这四个字在耳边炸开。', roster)
+    expect(r.items.every((i) => !i.message.includes('他说快走'))).toBe(true)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('R67-9: 守恒回归——平级引号内未登记 2-4 字专名照常报黄（守卫不误伤正常候选）', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'names-'))
+  try {
+    const roster = join(dir, '名册.md')
+    writeFileSync(roster, '已登记：云澈', 'utf-8')
+    const r = checkNewNames('远处传来「萧破军」的怒喝。', roster)
+    expect(r.items.some((i) => i.checkId === 'new-name' && i.message.includes('萧破军'))).toBe(true)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

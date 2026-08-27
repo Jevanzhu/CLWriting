@@ -12,7 +12,7 @@ import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { generateLeadUpdateDraft } from '../../../process/lead-update-draft.js'
-import { acquireTaskGate } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
+import { acquireTaskGate, orchestrationBusyFor } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
 
 interface LeadUpdateCtx {
   workDir: string | null
@@ -26,6 +26,10 @@ export function registerLeadUpdateRoutes(ctx: LeadUpdateCtx): void {
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    // R67-13（十五轮）：编排互斥矩阵补角——写稿系编排在途（self-heal/对话/后台收尾）
+    // 时拒收生成长任务（细纲/账本是写稿上下文注入源，在途覆盖写 = 混合态上下文）
+    const busyOrch = orchestrationBusyFor(params['name']!)
+    if (busyOrch) return replyError(res, 409, 'BUSY', busyOrch)
     // RB-SV-P2-2：长任务并发闸（AI 草拟分钟级，覆盖落盘 工作区/账本推进.md）
     const release = acquireTaskGate(params['name']!, 'lead-updates')
     if (!release) return replyError(res, 409, 'BUSY', '本书正在草拟账本推进，请等待完成后再试')

@@ -19,6 +19,9 @@ import { rmSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { tryAcquireCrossProcessLock } from '../../../fs/cross-process-lock.js'
+import { isSelfHealRunning } from '../../../ai/orchestrate/self-heal.js'
+import { isChatRunning } from '../../../ai/orchestrate/chat.js'
+import { hasBackgroundTasks } from '../../../ai/orchestrate/background.js'
 
 const running = new Set<string>()
 
@@ -107,4 +110,19 @@ export function heldTaskGatesFor(bookName: string): string[] {
     if (i !== -1 && key.slice(i + SEP.length) === bookName) actions.push(key.slice(0, i))
   }
   return actions
+}
+
+/**
+ * R67-13（十五轮）：编排互斥矩阵补角。写稿系编排（self-heal 写章 / 对话在途 / 后台
+ * 收尾任务）与覆盖写其输入文件的生成长任务（细纲/账本推进/onboard/风格分析）此前
+ * 只有 per-action 的 acquireTaskGate（同 action 互斥，不跨类）：self-heal 在途时仍可
+ * 并发生成细纲/账本草稿——细纲与账本恰是写稿的上下文注入源，覆盖写落盘 = self-heal
+ * 后续章拿到混合态上下文（双费 + 机检误报红可触发多余重写；原子写保证无数据损坏）。
+ * 生成类端点入口先查本闸再占自身 action 闸；在途 → 409 BUSY（与删书 busyGate 同口径）。
+ */
+export function orchestrationBusyFor(bookName: string): string | null {
+  if (isSelfHealRunning(bookName)) return `本书自愈写稿进行中，等它完成后再生成（防写稿上下文被覆盖写混态）`
+  if (isChatRunning(bookName)) return `本书对话进行中，等它完成后再生成（防写稿上下文被覆盖写混态）`
+  if (hasBackgroundTasks(bookName)) return `本书有后台任务收尾中，稍后再生成`
+  return null
 }

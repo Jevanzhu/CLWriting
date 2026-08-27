@@ -11,7 +11,7 @@
  * - 净化：每章 `# {标题}\n\n{body}`，完全不输出 front matter
  */
 
-import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, renameSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { atomicWriteFile, atomicWriteStream } from '../fs/atomic.js'
 import { readChapterDir } from '../format/chapters.js'
@@ -244,10 +244,24 @@ export function exportBook(options: ExportOptions): ExportResult {
     }
   }
 
-  // 6. 分章导出目录准备：整目录重建（第五轮：纯派生产物，旧残留会让作者上错版本）
+  // 6. 分章导出目录准备：旧目录先归档再重建（R67-1：原 rmSync 整删与 R65-27「归档
+  //    不删」哲学相悖——作者手改过 分章/ 内单章稿后再导出即被静默销毁不可挽回；
+  //    对齐 archiveOldExport：整目录 rename 进 导出/.旧版/分章[-N]/，归档失败保留
+  //    原目录记 warnings 继续导（宁可残留不可销毁），新产物照常覆写）
   if (doSplit) {
     const splitDir = join(exportDir, '分章')
-    rmSync(splitDir, { recursive: true, force: true })
+    if (existsSync(splitDir)) {
+      try {
+        const archiveDir = join(exportDir, OLD_EXPORT_DIR)
+        mkdirSync(archiveDir, { recursive: true })
+        let dstName = '分章'
+        let n = 2
+        while (existsSync(join(archiveDir, dstName))) dstName = `分章-${n++}`
+        renameSync(splitDir, join(archiveDir, dstName))
+      } catch {
+        warnings.push(`分章目录归档失败（已保留原位，请手动移入 ${OLD_EXPORT_DIR}/）`)
+      }
+    }
     mkdirSync(splitDir, { recursive: true })
   }
   // R66-23（十四轮）：splitUsed 原声明在 writeSplit 闭包定义之后（仅靠「闭包实际调用
@@ -255,6 +269,7 @@ export function exportBook(options: ExportOptions): ExportResult {
   // 调用即 ReferenceError；声明上移到闭包定义之前，消除对调用时序的隐式依赖（行为不变）。
   const splitUsed = new Set<string>() // R62-15：分章产物文件名占用集（撞名序号判定）
   const writeSplit = (unit: { num: number; title: string; path: string }, body: string): void => {
+   try {
     const prefix = `${String(unit.num).padStart(3, '0')}-`
     const baseName = sanitizeFileName(unit.title, FILENAME_MAX_BYTES - Buffer.byteLength(prefix) - Buffer.byteLength('.md'))
     // R62-15：同章号+同标题（手工复制备份 / 网盘同步副本「xxx 2.md」形态）撞名——
@@ -274,23 +289,43 @@ export function exportBook(options: ExportOptions): ExportResult {
       atomicWriteFile(join(exportDir, '分章', fileName), `# ${unit.title}\n\n${body}`)
       files.push(`工作区/导出/分章/${fileName}`)
     }
+   } catch (e) {
+    // R67-10（十五轮）：分章单章写入失败带上章上下文重抛——外层收编为 {ok:false}
+    throw new Error(`分章 ${unit.num}「${unit.title}」写入失败：${e instanceof Error ? e.message : String(e)}`)
+   }
   }
 
-  if (doMerged) {
-    let first = true
-    atomicWriteStream(join(exportDir, mergedFileName), (append) => {
+  // R67-10（十五轮）：写入期异常（writeSplit 经 merged 流式回调或 split 循环抛出、
+  // atomicWriteStream 自身失败）不再裸穿透 exportBook——库形态信封契约是 {ok:false}，
+  // 裸异常在服务端直接打到 500 兜底面且丢 chapterCount/warnings 上下文。收编时全本
+  // 尚在 tmp 未发布（atomicWriteStream 自清理），分章半产物由下次导出整目录归档清位。
+  try {
+    if (doMerged) {
+      let first = true
+      atomicWriteStream(join(exportDir, mergedFileName), (append) => {
+        for (const unit of exportable) {
+          const body = purifyBody(unit.body!)
+          if (!first) append('\n\n---\n\n')
+          first = false
+          append(`# ${unit.title}\n\n${body}`)
+          if (doSplit) writeSplit(unit, body)
+        }
+      })
+      files.unshift(`工作区/导出/${mergedFileName}`)
+    } else if (doSplit) {
       for (const unit of exportable) {
-        const body = purifyBody(unit.body!)
-        if (!first) append('\n\n---\n\n')
-        first = false
-        append(`# ${unit.title}\n\n${body}`)
-        if (doSplit) writeSplit(unit, body)
+        writeSplit(unit, purifyBody(unit.body!))
       }
-    })
-    files.unshift(`工作区/导出/${mergedFileName}`)
-  } else if (doSplit) {
-    for (const unit of exportable) {
-      writeSplit(unit, purifyBody(unit.body!))
+    }
+  } catch (e) {
+    return {
+      ok: false,
+      files: [],
+      chapterCount: 0,
+      unit: '章',
+      skippedDrafts,
+      ...(warnings.length > 0 ? { warnings } : {}),
+      error: `导出写入失败：${e instanceof Error ? e.message : String(e)}`,
     }
   }
 

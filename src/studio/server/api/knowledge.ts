@@ -28,6 +28,10 @@ interface KnowledgeCtx {
 const LEARN_CACHE_TTL = 5000
 const LEARN_CACHE_MAX = 32
 const learnCache = new Map<string, { result: LearnResult; ts: number }>()
+/** R67-15（十五轮）：删书/改名失效挂点（同 health.ts forgetStyleScanCache 口径）。 */
+export function forgetLearnCache(bookRoot: string): void {
+  learnCache.delete(bookRoot)
+}
 /** R66-28：TTL 测试注入口（先例同 health.ts __setStyleScanTtlForTest）——真实 5s 墙钟
  *  依赖会让「失效重扫」用例慢机假红，测试注入短档消除。仅测试用。 */
 let learnTtlMs: number | null = null

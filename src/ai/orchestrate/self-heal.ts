@@ -105,6 +105,13 @@ export function isSelfHealRunning(bookName: string): boolean {
   return running.has(bookName)
 }
 
+/** R67-13 回归注入（先例同 api/review.ts __setReviewRunning）——orchestrationBusyFor
+ *  互斥矩阵测试需制造「self-heal 在途」态，真实跑完整闭环过重。生产零调用。 */
+export function __setSelfHealRunningForTest(bookName: string, on: boolean): void {
+  if (on) running.set(bookName, { ctrl: new AbortController(), usage: { outputTokens: 0, cost: 0 } })
+  else running.delete(bookName)
+}
+
 /** #7：在途 runSelfHeal 的收尾 Promise（改名/删书/退出等待用；含 emitResult 后的完整收尾） */
 const settling = new Map<string, Promise<unknown>>()
 

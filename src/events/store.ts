@@ -11,13 +11,13 @@
  */
 import { DatabaseSync } from 'node:sqlite'
 import { createHash } from 'node:crypto'
-import { mkdirSync, existsSync, renameSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { mkdirSync, existsSync, renameSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { join, resolve, basename } from 'node:path'
 import { ulid } from '../document/stable-id.js'
 import type { ChatEvent, EventType, SurfaceOp } from './types.js'
 import { SURFACE_EVENT_TYPES } from './types.js'
 import { log } from '../log/index.js'
-import { acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
+import { acquireCrossProcessLockWithTimeout, isProcessAlive } from '../fs/cross-process-lock.js'
 
 /** 书 hash：sha256(bookRoot) 前 16 hex——稳定，不落原文路径。
  *  B-18（第六十轮补修）：哈希前 resolve 归一化——尾分隔符 / '.'/'..' 段变体不再
@@ -128,6 +128,71 @@ export function sessionMigrateLockPath(userDataPath: string): string {
   return join(userDataPath, 'clwriting', 'session', 'migrate.lock')
 }
 
+// ── R67-2（十五轮）：跨进程「已持有句柄」标记 + 迁移墓碑 ──
+// R66-12 的目录级锁只挡他进程**首开段**；迁移开始前就已打开的句柄（空闲态不持任何
+// SQLite 锁，checkpoint busy=0 照样放行）成了残余窗口：rename 后他进程句柄的后续写入
+// 打到已搬走的 inode，或下次重开旧路径时 DatabaseSync 重建空库——事件流就此分裂。
+// 两个互补守卫：
+// 1) 开口标记 <db>.open-<pid>：openSessionStore 首开登记（在目录锁内）、close() 归零
+//    注销、进程崩溃残留由 pid 探测在扫描时 GC；migrateBookSession 持目录锁扫描——
+//    有活标记即放弃迁移（false，源库原地完整可重试），把「先收口再迁」契约扩到跨进程。
+// 2) 迁移墓碑 <db>.migrated：迁移成功后在旧位落指路标（内容 = 新库绝对路径）；
+//    迁移完成后他进程才首开旧路径时，openSessionStore 据此 fail-closed 拒建空库
+//    （走调用方既有 catch 降级 null），而不是开出第二只空库。墓碑指向的新库也已
+//    不存在（再迁移/已删除）→ 墓碑过期，清掉放行新建（同路径重新建书场景）。
+
+/** 句柄标记文件后缀（<dbPath>.open-<pid>）。 */
+const OPEN_MARKER_SUFFIX = '.open-'
+/** 迁移墓碑文件后缀（<dbPath>.migrated）。 */
+const MIGRATED_EXT = '.migrated'
+
+function openMarkerPath(dbPath: string): string {
+  return dbPath + OPEN_MARKER_SUFFIX + process.pid
+}
+
+/** 扫描某库的全部开口标记：死 pid 残留顺手 GC（best-effort），返回活标记路径列表。
+ *  只在持 session 目录锁的段内调用（登记/迁移互斥由锁保证）。 */
+function sweepOpenMarkers(dir: string, dbPath: string): string[] {
+  const prefix = basename(dbPath) + OPEN_MARKER_SUFFIX
+  let names: string[]
+  try {
+    names = readdirSync(dir)
+  } catch {
+    return [] // 目录不存在：无任何标记
+  }
+  const live: string[] = []
+  for (const name of names) {
+    if (!name.startsWith(prefix)) continue
+    const pid = Number.parseInt(name.slice(prefix.length), 10)
+    if (Number.isInteger(pid) && pid > 0 && isProcessAlive(pid)) {
+      live.push(join(dir, name))
+      continue
+    }
+    try {
+      rmSync(join(dir, name), { force: true })
+    } catch {
+      /* GC 失败不阻断：下次扫描再试 */
+    }
+  }
+  return live
+}
+
+/** 首开登记：GC 死残留 + 落本进程标记（fail-closed——登记失败时句柄不可信，抛错走
+ *  调用方降级，不能带着「迁移看不见我」的隐形句柄继续写库）。 */
+function registerOpenMarker(dir: string, dbPath: string): void {
+  sweepOpenMarkers(dir, dbPath)
+  writeFileSync(openMarkerPath(dbPath), JSON.stringify({ pid: process.pid }), 'utf-8')
+}
+
+/** 归零注销（best-effort：文件系统异常时残留由下次扫描的 pid 探测 GC 收口）。 */
+function releaseOpenMarker(dbPath: string): void {
+  try {
+    rmSync(openMarkerPath(dbPath), { force: true })
+  } catch {
+    /* best-effort */
+  }
+}
+
 /** 启动修复：孤儿 session（有 session/start 无 session/end）补 closers。
  *  Y-P1-1：跳过本进程活跃会话（SessionRecorder 登记中）——修复只面向崩溃残留，
  *  不得给进行中的会话插 session/end（否则审计流出现虚假中断）。
@@ -159,6 +224,16 @@ export function repairOrphanSessions(db: DatabaseSync, skip: ReadonlySet<string>
   // 活动时刻」（审计流时序矛盾 + 恢复排序失真）；last_at 让 updated_at 始终反映
   // 真实活动，该会话后续真实写入自会再刷。
   const touch = db.prepare('UPDATE sessions SET updated_at = ? WHERE session_id = ?')
+  // R67-6（十五轮）：事务内复核语句——外层 SELECT 与本事务之间，他进程可能已给同一
+  // 孤儿补上 session/end（两进程并行修复同一批孤儿的 TOCTOU：双双见 starts>ends →
+  // 双 INSERT → 事件流出现成对 interrupted end）。BEGIN IMMEDIATE 在 BEGIN 即取写锁
+  // （互斥另一写方，busy_timeout 内排队），复核读到的是排他后的最新计数，仍
+  // starts>ends 才补；否则本事务空提交（他进程已补，无需重复）。
+  const recheck = db.prepare(
+    `SELECT SUM(CASE WHEN type = 'session/start' THEN 1 ELSE 0 END) AS starts,
+            SUM(CASE WHEN type = 'session/end' THEN 1 ELSE 0 END) AS ends
+     FROM events WHERE session_id = ?`
+  )
   const now = Date.now()
   let attempted = 0
   const errors: Array<{ session_id: string; err: unknown }> = []
@@ -171,10 +246,13 @@ export function repairOrphanSessions(db: DatabaseSync, skip: ReadonlySet<string>
       // 此前裸跑两语句，中途失败留「补了 end 但 updated_at 未刷」半态。同
       // migrateBookSession 的 BEGIN/COMMIT + 失败回滚用法；事务内单会话两语句，
       // 失败回滚不影响已成功补齐的其他孤儿。
-      db.exec('BEGIN')
+      db.exec('BEGIN IMMEDIATE')
       try {
-        ins.run(o.session_id, JSON.stringify({ reason: 'interrupted' }), now)
-        touch.run(o.last_at, o.session_id) // R64-9：真实 last_at（上方头注）
+        const fresh = recheck.get(o.session_id) as { starts: number | null; ends: number | null } | undefined
+        if (fresh && (fresh.starts ?? 0) > (fresh.ends ?? 0)) {
+          ins.run(o.session_id, JSON.stringify({ reason: 'interrupted' }), now)
+          touch.run(o.last_at, o.session_id) // R64-9：真实 last_at（上方头注）
+        }
         db.exec('COMMIT')
       } catch (err) {
         // R61-10（第六十一轮）：C4 同款加固——裸 ROLLBACK 在事务已自动回亡时抛
@@ -249,6 +327,29 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
   }
   let db: DatabaseSync
   try {
+    // R67-2（十五轮）：旧路径库文件缺失 + 墓碑在位 = 该库曾随书改名迁走——分两态：
+    // 旧书根目录已不存在（书确实改名迁走，stale 书目录视图的进程迟来首开）且墓碑
+    // 指向的新库还活着 → fail-closed 抛错拒建空库（建空库会让事件流分裂成两半，走
+    // 调用方既有 catch 降级 null）；旧根目录又在（同路径重新建书）或新库也已不存在
+    // （再迁移/已删书）→ 墓碑过期，清除后放行正常新建。
+    if (!existsSync(dbPath) && existsSync(dbPath + MIGRATED_EXT)) {
+      let to: unknown = null
+      try {
+        to = (JSON.parse(readFileSync(dbPath + MIGRATED_EXT, 'utf-8')) as { to?: unknown }).to
+      } catch {
+        /* 墓碑损坏：视同无指向，走过期清除 */
+      }
+      if (!existsSync(bookRoot) && typeof to === 'string' && to !== '' && existsSync(to)) {
+        throw new Error(
+          `事件库已随书改名迁移（${dbPath} → ${to}）——拒绝在旧路径重建空库，请以改名后的书访问`,
+        )
+      }
+      try {
+        rmSync(dbPath + MIGRATED_EXT, { force: true })
+      } catch {
+        /* 清除失败维持原样：下次首开再试 */
+      }
+    }
     mkdirSync(dir, { recursive: true })
     db = new DatabaseSync(dbPath)
     // 内存闸（2026-08-24 审计 B3）：打开期（PRAGMA/DDL/孤儿修复）抛错时句柄不滞留——
@@ -310,6 +411,9 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
       );
 
       repairOrphanSessions(db, activeChatSessions)
+      // R67-2：首开成功（DDL/修复全过）→ 落开口标记（仍在目录锁内，与迁移扫描互斥）。
+      // 放在 repair 之后：打开期抛错则不登记（句柄已在 catch 关闭）。
+      registerOpenMarker(dir, dbPath)
     } catch (e) {
       try {
         db.close()
@@ -607,6 +711,8 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
         entry.closed = true
         openStores.delete(dbPath)
         db.close()
+        // R67-2：引用归零真关库 → 注销开口标记（迁移扫描从此看不见本进程）
+        releaseOpenMarker(dbPath)
       }
     },
   }
@@ -679,6 +785,18 @@ export function migrateBookSession(
       )
       return false
     }
+    // 1.5) R67-2（十五轮）：跨进程「已持有句柄」探测——本进程引用清零不代表他进程也
+    //    收口了（第二个进程/CLI 持旧库句柄，空闲态不持 SQLite 锁，checkpoint 拦不住）；
+    //    扫描开口标记（死 pid 残留顺手 GC），有活标记即放弃迁移，源库原地完整可重试。
+    //    标记登记在首开段同锁内完成——扫描与登记被目录锁互斥，无 TOCTOU。
+    const liveMarkers = sweepOpenMarkers(dir, oldDb)
+    if (liveMarkers.length > 0) {
+      log.error(
+        'events',
+        `事件库迁移中止：旧库仍有他进程开口句柄（${liveMarkers.length} 个活标记，${oldDb}）——请先关闭持有该书的其他进程（第二个实例/CLI）后重试`,
+      )
+      return false
+    }
     // 2) 5.1-3：搬移前折叠 WAL——TRUNCATE 模式把未 checkpoint 事务折进主库并截断
     //    -wal，此后即使只搬走主库文件数据也完整。busy_timeout 与库打开纪律一致
     //    （5000ms）：给短暂并发的写方留收尾时间；等不到（另有连接持锁）返回
@@ -728,6 +846,16 @@ export function migrateBookSession(
     } finally {
       // 未 COMMIT 的事务随连接关闭回滚（先关干净再让异常冒泡去回滚文件搬移）
       db.close()
+    }
+    // 5) R67-2：迁移全成后在旧位落墓碑指路标（他进程迟来首开旧路径 → openSessionStore
+    //    fail-closed 拒建空库）；目标位若有历史墓碑（书改回旧名再改回的场景）一并清除
+    //    ——该路径重新成为活库位。best-effort + log.error：此刻库已搬完钥匙已改，回滚
+    //    反而制造「文件回旧位、钥匙是新名」的撕裂态（POST-COMMIT 失败不回滚的既有纪律）。
+    try {
+      rmSync(newDb + MIGRATED_EXT, { force: true })
+      writeFileSync(oldDb + MIGRATED_EXT, JSON.stringify({ to: newDb, at: Date.now() }), 'utf-8')
+    } catch (e) {
+      log.error('events', `事件库迁移墓碑写入失败（${oldDb + MIGRATED_EXT}）——旧路径迟来首开的拒建空库守卫降级，请人工关注`, e)
     }
     return true
   } catch (e) {

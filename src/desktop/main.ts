@@ -79,6 +79,34 @@ const RENDERER_CRASH_NOTICE_HTML =
   '<p>渲染进程短时间内多次异常退出，已停止自动重载。</p>' +
   '<p>请重启 CLWriting；未保存的内容在重启后仍可从自动保存找回。</p></body>'
 
+/**
+ * R67-16（十五轮）：渲染崩溃自愈收敛进窗口工厂——此前只挂主窗（dd-P3/C-P3-15 +
+ * X-26 退避 + S6 稳定窗口复位），书架/书库子窗口 GPU/内存崩溃停在白屏无自愈。
+ * 逻辑原样提取（计数随窗口闭包走、新窗口归零）；label 进日志区分窗口。
+ */
+function attachRendererCrashSelfHeal(win: BrowserWindow, label: string): void {
+  let crashes = 0
+  win.webContents.on('render-process-gone', (_e, details) => {
+    crashes++
+    if (crashes > RENDERER_CRASH_MAX_RELOADS) {
+      log.error('desktop', `渲染进程连续崩溃 ${RENDERER_CRASH_MAX_RELOADS} 次自愈后仍异常（${label}，${details.reason}），停止自动重载——载提示页等待人工处理`)
+      if (!win.isDestroyed()) {
+        void win.webContents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(RENDERER_CRASH_NOTICE_HTML)}`)
+      }
+      return
+    }
+    log.error('desktop', `渲染进程崩溃（${label}，${details.reason}，exit=${details.exitCode}），重载窗口自愈（第 ${crashes}/${RENDERER_CRASH_MAX_RELOADS} 次）`)
+    if (!win.isDestroyed()) win.webContents.reload()
+  })
+  // S6（五十九轮）：did-finish-load 后延迟复位崩溃计数——渲染层真正稳定（存活满
+  // 稳定窗口）才清零，长跑零星崩溃不累计到 3；unref 不拖退出。
+  win.webContents.on('did-finish-load', () => {
+    setTimeout(() => {
+      if (!win.isDestroyed()) crashes = 0
+    }, RENDERER_CRASH_STABILITY_RESET_MS).unref?.()
+  })
+}
+
 // userData 强制统一到定值（大写 CLWriting）。
 // Electron 默认目录名跟随 app.name——dev（package.json name=clwriting）与打包
 // （electron-builder productName=CLWriting）大小写不一致，macOS/Windows 大小写不敏感
@@ -315,6 +343,8 @@ function createSecureWindow(opts: BrowserWindowConstructorOptions): BrowserWindo
   // 防 CSP 被 XSS 绕过后子窗口被导航到外部）
   win.webContents.on('will-navigate', (e) => e.preventDefault())
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  // R67-16：渲染崩溃自愈随工厂挂载（三窗同享；原先只挂主窗，书架/书库白屏无自愈）
+  attachRendererCrashSelfHeal(win, opts.title ?? '窗口')
   // dev 模式:不经系统代理（防 clash/surge 类 HTTP 代理 buffer SSE 长连接 → driver events 断流）
   if (process.env['CLW_DEV_UI']) { // R62-45：bracket 统一风格
     void win.webContents.session.setProxy({ proxyRules: 'direct://' })
@@ -476,33 +506,9 @@ async function bootstrap(): Promise<void> {
   mainWindow.webContents.on('preload-error', (_e, p, err) => {
     log.error('desktop', `preload 加载失败：${p}`, err)
   })
-  // dd-P3（C-P3-15）：渲染进程崩溃兜底——GPU/内存崩了不能停在白屏，重载窗口自愈。
-  // X-26（第五十六轮）：裸 reload 无退避——崩溃风暴下无限 reload 打转（每次 reload 起
-  // 一新渲染进程旋即又崩）；对齐 server child 退避协议的轻量版：连续崩溃计数封顶后
-  // 停 reload，改载静态提示页留白屏说明（计数随窗口闭包走，新窗口/重 bootstrap 归零）
-  let rendererCrashes = 0
-  const win = mainWindow
-  win.webContents.on('render-process-gone', (_e, details) => {
-    rendererCrashes++
-    if (rendererCrashes > RENDERER_CRASH_MAX_RELOADS) {
-      log.error('desktop', `渲染进程连续崩溃 ${RENDERER_CRASH_MAX_RELOADS} 次自愈后仍异常（${details.reason}），停止自动重载——载提示页等待人工处理`)
-      if (!win.isDestroyed()) {
-        void win.webContents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(RENDERER_CRASH_NOTICE_HTML)}`)
-      }
-      return
-    }
-    log.error('desktop', `渲染进程崩溃（${details.reason}，exit=${details.exitCode}），重载窗口自愈（第 ${rendererCrashes}/${RENDERER_CRASH_MAX_RELOADS} 次）`)
-    if (!win.isDestroyed()) win.webContents.reload()
-  })
-  // S6（五十九轮）：did-finish-load 后延迟复位崩溃计数——对齐 server-manager
-  // stabilityResetMs 先例（U-2/S-9）：偶发单次/零星崩溃只要窗口存活过稳定窗口就不
-  // 累计到 3（原只随窗口重建归零，长跑第 4 次偶发崩溃误触发停摆页）。每次 load 都
-  // 重起计时：渲染层真正稳定（存活满窗口）才清零；unref 不拖退出。
-  win.webContents.on('did-finish-load', () => {
-    setTimeout(() => {
-      if (!win.isDestroyed()) rendererCrashes = 0
-    }, RENDERER_CRASH_STABILITY_RESET_MS).unref?.()
-  })
+  // R67-16（十五轮）：渲染崩溃自愈已随 createSecureWindow 工厂挂载（原主窗专属块
+  // 删除——attachRendererCrashSelfHeal 原样承接 dd-P3/X-26 退避 + S6 稳定复位），
+  // 书架/书库子窗口同享。
   // 纵深防御监听与 dev 代理已由 createSecureWindow 统一挂载；此处 await 一次保证
   // 主窗首载前代理确定生效（工厂内是 fire-and-forget，此处 loadURL 前须确定）
   if (devUi) {

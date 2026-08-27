@@ -28,7 +28,7 @@ import type { AnalysisKind as ContractKind } from '../../../ai/contract/index.js
 import { readAnalysis, writeAnalysis, readBookAnalysis, writeBookAnalysis, sourceHashOf, type AnalysisKind } from '../../../document/analysis.js'
 import { mapAnalysisToCandidates, persistCandidates } from '../../../format/style-candidate.js'
 import { safeManifestPath } from '../../../fs/safe-path.js'
-import { acquireTaskGate } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
+import { acquireTaskGate, orchestrationBusyFor } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
 
 interface AnalysisCtx {
   workDir: string | null
@@ -44,6 +44,10 @@ interface StyleCorpusResult {
   sampleText: string
 }
 const styleCorpusCache = new Map<string, { result: StyleCorpusResult; ts: number }>()
+/** R67-15（十五轮）：删书/改名失效挂点（同 health.ts forgetStyleScanCache 口径）。 */
+export function forgetStyleCorpusCache(bookRoot: string): void {
+  styleCorpusCache.delete(bookRoot)
+}
 const STYLE_CORPUS_TTL = 5000
 /** R62-21：与 health.ts __setStyleScanTtlForTest 同族注入点——analyze-style 走独立
  *  styleCorpusCache，d3-style-ttl 测试两处 TTL 都要压到短档，否则 analyze-style 的
@@ -119,6 +123,10 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
+      // R67-13（十五轮）：编排互斥矩阵补角——写稿系编排在途（self-heal/对话/后台收尾）
+      // 时拒收生成长任务（细纲/账本是写稿上下文注入源，在途覆盖写 = 混合态上下文）
+      const busyOrch = orchestrationBusyFor(params['name']!)
+      if (busyOrch) return replyError(res, 409, 'BUSY', busyOrch)
       // RB-SV-P2-2：长任务并发闸（分钟级 AI 分析，重复点击=双倍费用）
       const release = acquireTaskGate(params['name']!, 'analyze')
       if (!release) return replyError(res, 409, 'BUSY', '本书已有分析任务在跑，请等待完成后再试')
@@ -180,6 +188,10 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
+      // R67-13（十五轮）：编排互斥矩阵补角——写稿系编排在途（self-heal/对话/后台收尾）
+      // 时拒收生成长任务（细纲/账本是写稿上下文注入源，在途覆盖写 = 混合态上下文）
+      const busyOrch = orchestrationBusyFor(params['name']!)
+      if (busyOrch) return replyError(res, 409, 'BUSY', busyOrch)
       // RB-SV-P2-2：长任务并发闸
       const release = acquireTaskGate(params['name']!, 'autotag')
       if (!release) return replyError(res, 409, 'BUSY', '本书已在识别章节标签，请等待完成后再试')
@@ -236,6 +248,10 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
+      // R67-13（十五轮）：编排互斥矩阵补角——写稿系编排在途（self-heal/对话/后台收尾）
+      // 时拒收生成长任务（细纲/账本是写稿上下文注入源，在途覆盖写 = 混合态上下文）
+      const busyOrch = orchestrationBusyFor(params['name']!)
+      if (busyOrch) return replyError(res, 409, 'BUSY', busyOrch)
       // RB-SV-P2-2：长任务并发闸
       const release = acquireTaskGate(params['name']!, 'infer-meta')
       if (!release) return replyError(res, 409, 'BUSY', '本书已在推断目标情绪，请等待完成后再试')
@@ -378,6 +394,10 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
+      // R67-13（十五轮）：编排互斥矩阵补角——写稿系编排在途（self-heal/对话/后台收尾）
+      // 时拒收生成长任务（细纲/账本是写稿上下文注入源，在途覆盖写 = 混合态上下文）
+      const busyOrch = orchestrationBusyFor(params['name']!)
+      if (busyOrch) return replyError(res, 409, 'BUSY', busyOrch)
       // RB-SV-P2-2：长任务并发闸（全书文风分析采样多章，耗时最长）
       const release = acquireTaskGate(params['name']!, 'analyze-style')
       if (!release) return replyError(res, 409, 'BUSY', '本书正在做文风分析，请等待完成后再试')

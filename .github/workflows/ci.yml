@@ -47,6 +47,12 @@ jobs:
       - name: 前端类型检查（vue-tsc）
         run: npm --prefix src/studio/web-next run typecheck
 
+      # R67-3（十五轮）：lint 门接线——package.json 的 lint 脚本此前只在本地跑，
+      # ci.yml 全文无 lint 步骤，与 coverage 门「只在本地生效」同款名存实亡判例。
+      # 当前 eslint.config.js 射程仅 3 个 JS 文件（TS/Vue 扩射程另立账），步绿门在先。
+      - name: lint 门（eslint）
+        run: npm run lint
+
       - name: 构建（src + web-next → dist，发布资产门）
         run: npm run build:all
 

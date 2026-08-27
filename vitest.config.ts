@@ -48,8 +48,11 @@ export default defineConfig({
     // 内存闸（2026-08-24）：默认按 CPU 数 fork（本机 8-10 worker）× 大负载测试
     // （rag/scale、check/scale 各自 GB 级峰值）叠加出过 19GB 总占用（机器 16GB 爆内存）；
     // forks 池限到 4 并发压峰值（CPU 核多时不再全开）。
+    // R67-21（十五轮）：CI 再压到 2——GitHub runner（ubuntu/macos 均 ~7GB）比本机
+    // 16GB 更紧，4 fork × GB 级 scale 峰值在 CI 侧无实测背书、OOM 风险单向；2 并发
+    // 峰值减半换时长（20 分钟预算内），本地维持 4。
     pool: 'forks',
-    poolOptions: { forks: { maxForks: 4, minForks: 1 } },
+    poolOptions: { forks: { maxForks: process.env.CI ? 2 : 4, minForks: 1 } },
     // 排除 macOS 外置卷自动生成的 ._ AppleDouble 元数据文件
     exclude: ['**/node_modules/**', '**/._*'],
     environment: 'node',
@@ -87,10 +90,10 @@ export default defineConfig({
         // M-7（第十轮）：api 层单列覆盖桶——此前十余 api 文件落进聚合桶被 stores 高覆盖
         // 均值掩盖（单文件回退对阈值门不可见，参数/响应映射逻辑零守护）；阈值 = 实测基线
         // −2pp 向下取整，只防回退不追高。X-6（第五十六轮批 D）：批 A 补 api 直测后
-        // 2026-08-24 实测 lines 25.17 / branches 88.77——lines 门随本轮基线提到 23
-        // （防回退下限，批 A 覆盖只会更高不会更低）；branches 门暂留 67（2026-08-22
-        // 基线 69.35 −2pp），主评审收口时可按新基线同步收紧
-        'src/studio/web-next/src/api/**': { lines: 23, branches: 67 },
+        // 2026-08-24 实测 lines 25.17 / branches 88.77。R67-5（十五轮）：本轮再收基线——
+        // 2026-08-27 全量 coverage-summary 实测 lines 36.87 / branches 90.35，门收到
+        // 34 / 88（−2pp 向下取整；lines 自 23 提 11pp，注释自认的「待收紧」销账）
+        'src/studio/web-next/src/api/**': { lines: 34, branches: 88 },
         // R62-23：editor/ 并入——typewriter.ts（运行时逻辑 19 行）此前不落任何桶，
         // 进报告却是「桶外暗区」；并入三桶后纳入门禁（阈值不变）
         'src/studio/web-next/src/{composables,editor,shared,stores}/**': { lines: 43, branches: 81 },

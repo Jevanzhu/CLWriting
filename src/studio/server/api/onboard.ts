@@ -23,7 +23,7 @@ import { runSpec } from '../../../ai/tasks/spec.js'
 import { ONBOARD_SPEC } from '../../../ai/tasks/specs.js'
 import { countWords } from '../../../format/words.js'
 import { bodyOf } from '../../../format/frontmatter.js'
-import { acquireTaskGate } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
+import { acquireTaskGate, orchestrationBusyFor } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
 import { log } from '../../../log/index.js'
 
 interface OnboardCtx {
@@ -77,6 +77,10 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    // R67-13（十五轮）：编排互斥矩阵补角——写稿系编排在途（self-heal/对话/后台收尾）
+    // 时拒收生成长任务（细纲/账本是写稿上下文注入源，在途覆盖写 = 混合态上下文）
+    const busyOrch = orchestrationBusyFor(params['name']!)
+    if (busyOrch) return replyError(res, 409, 'BUSY', busyOrch)
     // RB-SV-P2-2：长任务并发闸（AI 填设定分钟级且覆盖落盘）
     const release = acquireTaskGate(params['name']!, 'onboard-ai')
     if (!release) return replyError(res, 409, 'BUSY', '本书已有 AI 设定任务在跑，请等待完成后再试')

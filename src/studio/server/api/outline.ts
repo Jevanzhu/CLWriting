@@ -25,7 +25,7 @@ import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
 import { readOpenLeads } from '../../../process/open-leads.js'
 import { readLeadDir } from '../../../format/leads.js'
-import { acquireTaskGate } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
+import { acquireTaskGate, orchestrationBusyFor } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
 
 interface OutlineCtx {
   workDir: string | null
@@ -53,6 +53,10 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    // R67-13（十五轮）：编排互斥矩阵补角——写稿系编排在途（self-heal/对话/后台收尾）
+    // 时拒收生成长任务（细纲/账本是写稿上下文注入源，在途覆盖写 = 混合态上下文）
+    const busyOrch = orchestrationBusyFor(params['name']!)
+    if (busyOrch) return replyError(res, 409, 'BUSY', busyOrch)
     // RB-SV-P2-2：长任务并发闸（细纲生成分钟级，且落盘为覆盖写）
     const release = acquireTaskGate(params['name']!, 'outline')
     if (!release) return replyError(res, 409, 'BUSY', '本书正在生成细纲，请等待完成后再试')

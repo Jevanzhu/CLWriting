@@ -39,6 +39,10 @@ jobs:
         run: npm run typecheck
       - name: 前端类型检查（vue-tsc）
         run: npm --prefix src/studio/web-next run typecheck
+      # R67-3（十五轮）：lint 门焊进 tag 发布工作流（与 ci.yml 同款步骤）——此前 tag 门
+      # 门集与分支 CI 不对称，lint 只在本地生效
+      - name: lint 门（eslint）
+        run: npm run lint
       - name: 单元测试（vitest run）
         run: npm test
       # N-1（第十二轮）：M-3 修得不完整——tag 门只补了 typecheck+test，check:packaging
@@ -70,9 +74,36 @@ jobs:
       # GH_TOKEN 即红，v1.0.0-rc.1 首跑实录）；本工作流产物走下方 upload-artifact，不发布
       - run: npm run build:desktop
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: clwriting-desktop-${{ matrix.os }}
           path: |
             dist-electron/*.dmg
             dist-electron/mac*/
           if-no-files-found: error
+      # R67-4（十五轮）：Electron 壳真实启动冒烟——release-smoke 只 spawn 编译产物
+      # server-main.js（node 进程，不启动 Electron 壳），BrowserWindow/preload/IPC 在
+      # 真实 Electron 运行时的行为此前无任何自动化兜底。拉起打包态 .app 二进制，
+      # 存活 ≥25s 且未触发崩溃自愈日志即过（放工件上传后：冒烟红仍留 DMG 供排查）。
+      - name: Electron 启动冒烟（打包态 .app 拉起）
+        run: |
+          set -eu
+          APP_BIN=$(ls -d dist-electron/mac*/CLWriting.app/Contents/MacOS/CLWriting | head -n1)
+          test -x "$APP_BIN" || { echo "::error::未找到打包态可执行体：$APP_BIN"; exit 1; }
+          ELECTRON_ENABLE_LOGGING=1 "$APP_BIN" >/tmp/clw-electron-smoke.log 2>&1 &
+          PID=$!
+          sleep 25
+          if ! kill -0 "$PID" 2>/dev/null; then
+            echo "::error::Electron 打包应用 25s 内退出（启动失败）"
+            tail -80 /tmp/clw-electron-smoke.log || true
+            exit 1
+          fi
+          if grep -qiE "render-process-gone|连续崩溃|停止自动重载" /tmp/clw-electron-smoke.log; then
+            echo "::error::冒烟期内触发渲染进程崩溃自愈"
+            tail -80 /tmp/clw-electron-smoke.log || true
+            exit 1
+          fi
+          kill "$PID" 2>/dev/null || true
+          sleep 3
+          kill -9 "$PID" 2>/dev/null || true
+          echo "冒烟通过：打包态 Electron 进程存活 ≥25s，无崩溃自愈触发"

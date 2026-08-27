@@ -204,6 +204,8 @@ export function checkNewNames(
   // R62-28：句读命中判定外提——此前每个候选名 new RegExp 一次（一章数十候选×
   // 每章重跑，纯浪费；字符类内容循环内不变）
   const spanPunctRe = new RegExp(`[${SPAN_PUNCT}]`)
+  // R67-9：span 内部开引号探测（嵌套截断守卫，见下方循环内注释）
+  const innerOpenRe = new RegExp(`[${QUOTE_OPEN}]`)
   for (const rawLine of body.split(/\n+/)) {
     const line = rawLine.trim()
     const spans = line.match(spanRe)
@@ -215,6 +217,11 @@ export function checkNewNames(
     // X-P2-9：人名 + 说话动词的对白归属行同样豁免
     if (SPEECH_ATTRIBUTION_RE.test(outside)) continue
     for (const q of spans) {
+      // R67-9（十五轮）：嵌套引号截断守卫——QUOTED_SPAN_RE 跨体系配对但不感知嵌套，
+      // 嵌套对白「他说『快走』了」被截成 span「他说『快走，剥引号后「他说快走」恰落
+      // 2-4 字窗报伪专名黄项；span 内部还有开引号 = 截断产物（对白内容非专名），跳过
+      // （漏报向安全：真嵌套提及的专名本就多在对白内容里，黄项启发式不追全）
+      if (innerOpenRe.test(q.slice(1))) continue
       const name = q.replace(punctRe, '')
       if (name.length < 2 || name.length > 4) continue
       // 含句读的片段是对白内容，不是专名
@@ -602,6 +609,9 @@ export function checkBodyParts(
 // R-9（十五轮登记销账）：前置排除改零宽 lookbehind——原消费型 (?:^|[^相很好不像]) 会
 // 吞掉「像」前一个字符，相邻明喻（如「像刀像雪」）第二个「像」因前字符已被上一命中
 // 消费而漏计（漏报不误报）；lookbehind 语义等价（行首无边=通过、前排他字符=拒绝）。
+// R67-9（十五轮）登记口径：前排他集含「好」是排除高频非比喻「好像」的必要代价——
+// 「恰好像刀」「正好像雪」等真·明喻被一并漏计；本检查为超阈黄项密度统计，漏报向
+// 安全（不误报），且「恰好/正好」+明喻连用占比极低，零 token 边界不做分词级判别。
 const SIMILE_RE = /(?<![相很好不像])(像)(?!他|她|你|我|这|那)[^，。！？；、：\s像]{1,12}(?:一样|似的|一般|般)?/gu
 
 export function checkSimile(

@@ -92,3 +92,60 @@ describe('P3 repairOrphanSessions 单会话失败不中断', () => {
     }
   })
 })
+
+describe('R67-6（十五轮）TOCTOU：他进程在 SELECT 与事务之间补了 end', () => {
+  it('BEGIN IMMEDIATE 后事务内复核 starts>ends → 不双补（事件流无成对 interrupted end）', () => {
+    const db = openRaw()
+    const other = openRaw() // 他进程连接（并发修复方）
+    try {
+      // 前序用例的故障触发器滞留共享库，先清场
+      db.exec('DROP TRIGGER IF EXISTS fail_all')
+      db.exec('DROP TRIGGER IF EXISTS fail_bad')
+      db.exec('DELETE FROM events')
+      db.exec('DELETE FROM sessions')
+      seedOrphan(db, 's-r67', '书C')
+
+      // 注入点：包装 exec——repair 走到 BEGIN IMMEDIATE 的前一刻，他进程抢先补上
+      // session/end 并提交（外层 SELECT 已跑完，恰是 TOCTOU 窗口的确定性复现）
+      let injected = false
+      const wrapper = {
+        prepare: (sql: string) => db.prepare(sql),
+        exec: (sql: string) => {
+          if (sql === 'BEGIN IMMEDIATE' && !injected) {
+            injected = true
+            other.exec(
+              `INSERT INTO events (session_id, type, data, replace_generation, created_at)
+               VALUES ('s-r67', 'session/end', '{"reason":"interrupted"}', 0, ${Date.now()})`,
+            )
+          }
+          return db.exec(sql)
+        },
+      } as unknown as DatabaseSync
+
+      repairOrphanSessions(wrapper, new Set())
+      // 恰一个 end（他进程的）：旧实现复核缺席会再补一个成对 end
+      expect(endCount(db, 's-r67')).toBe(1)
+      // 本进程 touch 未跑（复核跳过路径不写 sessions）——updated_at 保持种子值
+      const row = db.prepare(`SELECT updated_at FROM sessions WHERE session_id = 's-r67'`).get() as { updated_at: number }
+      expect(row.updated_at).toBe(OLD)
+    } finally {
+      other.close()
+      db.close()
+    }
+  })
+
+  it('无并发时行为守恒：过期孤儿照常补单个 end（复核不误伤正常路径）', () => {
+    const db = openRaw()
+    try {
+      db.exec('DROP TRIGGER IF EXISTS fail_all')
+      db.exec('DROP TRIGGER IF EXISTS fail_bad')
+      db.exec('DELETE FROM events')
+      db.exec('DELETE FROM sessions')
+      seedOrphan(db, 's-keep', '书D')
+      repairOrphanSessions(db, new Set())
+      expect(endCount(db, 's-keep')).toBe(1)
+    } finally {
+      db.close()
+    }
+  })
+})

@@ -90,6 +90,10 @@ function tryIncrementalRebuild(bookRoot: string, cachePath: string): RebuildResu
   let db: DatabaseSync
   try {
     db = new DatabaseSync(cachePath, { readOnly: true })
+    // R67-8（十五轮）：只读探测也设 busy_timeout（对齐全库 5000ms 口径）——写方短暂
+    // 持锁时裸读立即 SQLITE_BUSY → catch 判「打不开」走全量重建，白扔整库索引；
+    // 排队等锁（毫秒级）后再读，增量跳过判定不被并发写误伤（纯性能项，不改语义）
+    db.exec('PRAGMA busy_timeout = 5000')
   } catch {
     return null // 只读打不开（损坏/被锁）→ 全量重建
   }

@@ -213,3 +213,25 @@ test('R65-36: 目标位是作者另建的不同内容 → 仍 OCCUPIED（内容�
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+// ── R67-11（十五轮）：doTrash 入口 safeDocId 纵深守卫 ──────────────
+
+test('R67-11: 恶意 docId（manifest 篡改数据面）→ PATH_ESCAPE，不进 snapshot/trash 链', async () => {
+  const { root, svc } = makeBookWithChapter()
+  // 清单被篡改：登记一条带穿越形态 id 的条目（safeDocId 应在入口拦下，
+  // 而非依赖下游 resolveSafePath 兜底）
+  writeFileSync(
+    join(root, '项目', '文档清单.jsonl'),
+    [
+      '{"version":1,"type":"header"}',
+      '{"id":"../../evil","nodeType":"document","path":"写作/正文/第一卷/0001-开篇.md","parentId":null}',
+    ].join('\n') + '\n',
+  )
+  const r = await svc.trashDocument({ docId: '../../evil' })
+  expect(r.ok).toBe(false)
+  if (!r.ok) expect(r.code).toBe('PATH_ESCAPE')
+  // 原文件无损，回收站/快照无穿越产物
+  expect(existsSync(join(root, '写作', '正文', '第一卷', '0001-开篇.md'))).toBe(true)
+  expect(existsSync(join(root, '工作区', '.trash'))).toBe(false)
+  rmSync(root, { recursive: true, force: true })
+})

@@ -291,10 +291,14 @@ export function readVersionMeta(
   let head: string
   try {
     // bounded read 只取头部，避免整读大正文入内存
+    // R67-12（十五轮）：4KB → 64KB——超长 frontmatter（异常长的「原因」等 fm 字段，
+    // 或历史工具写入的赘余 fm）跨过 4KB 边界时闭合 --- 落在读取窗外，splitFrontMatter
+    // 失败整版本被静默跳过；64KB 覆盖一切现实 fm 规模仍保有界（MB 级正文不入内存）
+    const HEAD_LIMIT = 65_536
     const fd = openSync(file, 'r')
     try {
-      const buf = Buffer.alloc(4096)
-      const n = readSync(fd, buf, 0, 4096, 0)
+      const buf = Buffer.alloc(HEAD_LIMIT)
+      const n = readSync(fd, buf, 0, HEAD_LIMIT, 0)
       head = buf.toString('utf-8', 0, n)
     } finally {
       closeSync(fd)

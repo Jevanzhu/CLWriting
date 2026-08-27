@@ -8,7 +8,7 @@
  * 失败 → 返回 false 整体放弃，源库主库+侧车原地完整，绝不半搬。
  */
 import { describe, expect, it, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, existsSync, copyFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, existsSync, copyFileSync, mkdirSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -186,10 +186,14 @@ describe('migrateBookSession', () => {
 
   it('第十轮 M-1 回归：未关连接的强制迁移必须真关+清缓存，旧路径重开拿到全新空库而非别名已迁走库的僵尸句柄', () => {
     const ud = tmpRoot()
-    const oldRoot = '/books/僵甲'
-    const newRoot = '/books/僵乙'
+    // R67-2（十五轮）：改用真实目录路径——墓碑守卫按「旧书根目录是否仍在」分态：
+    // 根目录在（同路径重新建书）→ 过期墓碑清除、放行新建空库；本例建模前者。
+    // 迁移后 mkdirSync 即「同路径重新建书」动作本身。
+    const oldRoot = join(ud, 'books', '僵甲')
+    const newRoot = join(ud, 'books', '僵乙')
     const oldDb = join(ud, 'clwriting', 'session', bookHash(oldRoot) + '.db')
     const newDb = join(ud, 'clwriting', 'session', bookHash(newRoot) + '.db')
+    mkdirSync(oldRoot, { recursive: true })
 
     // R64-8（十二轮）：refs=1 不再强迁（N8+R64-8 判定 refs>0 全拦）——收口后再迁。
     // L-5/M-1 的「真关+清缓存」语义由正常 close 承接；本例守「迁移后旧路径重开
@@ -203,7 +207,7 @@ describe('migrateBookSession', () => {
     expect(existsSync(oldDb)).toBe(false)
     expect(existsSync(newDb)).toBe(true)
 
-    // 旧路径重开：强制关若真生效（条目已清缓存），此处应新建空库文件——
+    // 同路径重新建书（根目录在位）：过期墓碑清除，重开必须新建空库文件——
     // 缺陷态则复用僵尸条目、不建文件，oldDb 仍不存在
     const reopened = openSessionStore(ud, oldRoot)!
     expect(existsSync(oldDb)).toBe(true)

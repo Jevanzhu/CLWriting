@@ -20,6 +20,16 @@ interface HealthCtx {
 // FIFO 上限；overview 本身无写路径失效挂点（纯 TTL，概览页 stale 5s 可接受），此处同口径——
 // 保存/定稿后最迟 5s 自愈，不做即时失效。
 const styleScanCache = new Map<string, { samples: ChapterSample[]; ts: number }>()
+/** R67-15（十五轮）：删书/改名失效挂点——书键缓存随书生命周期正向失效（books.ts
+ *  清理清单接线；TTL 5s 仍为兜底自愈）。 */
+export function forgetStyleScanCache(bookRoot: string): void {
+  styleScanCache.delete(bookRoot)
+}
+/** R67-15 回归观测钩子（先例同 stream.ts __getSseConnections）——删书清理接线测试
+ *  经此断言缓存条目随 DELETE /api/books/:name 失效。仅测试用。 */
+export function __styleScanCacheHasForTest(bookRoot: string): boolean {
+  return styleScanCache.has(bookRoot)
+}
 /** R61-18（第六十一轮）：导出供测试派生 sleep 时长——测试侧 5300 魔数与 TTL 双处
  *  硬编码，TTL 调大时「失效重扫」用例静默变假（仍在 TTL 内 → 断言 count=2 假红）。 */
 export const STYLE_SCAN_TTL = 5000
