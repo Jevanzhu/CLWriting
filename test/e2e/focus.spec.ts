@@ -67,8 +67,11 @@ test('专注打字机：滚动居中 + 上下文按行距渐隐', async ({ page 
   await page.locator('.focus-format-bar').waitFor()
 
   // 灌长文把光标置于文末。回归锁：旧 bug 中 CmHost 主题的 padding:0 简写按序覆盖了
-  // 打字机 45vh 底部余量 → 文末永不居中（漂移 ~208px、滚动钉底）；特异性修复后应 ≤ 容差
-  await page.locator('.cm-content').click()
+  // 打字机底部余量 → 文末永不居中（漂移 ~208px、滚动钉底）；特异性修复后应 ≤ 容差。
+  // 置位：点末行 + End 到行尾（打字机有上下 50vh 余量后 .cm-content 盲点中心会落进
+  // padding 空白带、光标被映射到文档边缘——必须点真实文本行定位）
+  await page.locator('.cm-line').last().click()
+  await page.keyboard.press('End')
   await page.keyboard.insertText('\n'.repeat(300) + '末行标记')
   await expect(page.locator('.cm-activeLine')).toContainText('末行标记')
 
@@ -83,15 +86,17 @@ test('专注打字机：滚动居中 + 上下文按行距渐隐', async ({ page 
     const op = (d: number): string => (idx - d >= 0 ? getComputedStyle(lines[idx - d]!).opacity : '-1')
     return {
       drift: Math.round(ar.top + ar.height / 2 - (sr.top + sr.height / 2)),
+      paddingTop: getComputedStyle(content).paddingTop,
       paddingBottom: getComputedStyle(content).paddingBottom,
       transition: getComputedStyle(active).transitionDuration,
       op1: op(1), op2: op(2), op3: op(3), op5: op(5), op8: op(8), op12: op(12),
     }
   })
 
-  // 滚动居中：当前行中心与滚动容器中心偏差 ≤40px；底部余量非 0（45vh 生效，文末可居中）
+  // 滚动居中：当前行中心与滚动容器中心偏差 ≤40px；上下半屏余量非 0（首行/文末都可居中）
   const m = await get()
   expect(Math.abs(m.drift)).toBeLessThanOrEqual(40)
+  expect(m.paddingTop).not.toBe('0px')
   expect(m.paddingBottom).not.toBe('0px')
   // 渐隐分带：亮窗 ±2 行全亮，之外 d=3~4 → 0.72 / d=5~6 → 0.5 / d=7~9 → 0.32 / d≥10 → 0.16
   expect(m.op1).toBe('1')
@@ -109,6 +114,14 @@ test('专注打字机：滚动居中 + 上下文按行距渐隐', async ({ page 
   // 回车换行后滚动居中仍保持
   for (let i = 0; i < 3; i++) await page.keyboard.press('Enter', { delay: 30 })
   expect(Math.abs((await get()).drift)).toBeLessThanOrEqual(40)
+
+  // 首行也居中（2026-08-27 批四）：内容上方 50vh 余量给 scrollTop 滚动空间——
+  // 无上方余量时钳 0，首行只能贴顶（编辑已有文档从第一行写起的关键回归）
+  await page.locator('.cm-line').first().click()
+  await page.keyboard.type('首', { delay: 30 })
+  const first = await get()
+  expect(first.drift).toBeGreaterThanOrEqual(-40)
+  expect(first.drift).toBeLessThanOrEqual(40)
 })
 
 test('专注统计条 + 浏览态全亮：输入渐隐 → 滚轮回看全亮 → 再输入渐隐回来', async ({ page }) => {
@@ -136,8 +149,9 @@ test('专注统计条 + 浏览态全亮：输入渐隐 → 滚轮回看全亮 �
   const fadeCount = () => page.locator('.cm-line[class*="tw-fade-"]').count()
   await expect.poll(fadeCount, { timeout: 2000 }).toBe(0)
 
-  // 输入（灌长文置光标于文末）→ 渐隐回来：远行落带 + 统计条「本次」转正增量
-  await page.locator('.cm-content').click()
+  // 输入（灌长文置光标于文末行尾——同打字机用例：盲点 .cm-content 中心会落进 padding 带）
+  await page.locator('.cm-line').last().click()
+  await page.keyboard.press('End')
   await page.keyboard.insertText('\n'.repeat(30) + '末尾标记')
   await expect.poll(fadeCount, { timeout: 2000 }).toBeGreaterThan(0)
   await expect(statsBar.locator('.fsb-main').first()).toHaveText(/\+[1-9]\d* 字/)

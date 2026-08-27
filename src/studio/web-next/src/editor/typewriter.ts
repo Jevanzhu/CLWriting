@@ -105,10 +105,12 @@ const fadePlugin = ViewPlugin.fromClass(
 )
 
 // 选择器带 .cm-editor 升特异性（三联类 vs 其他主题的二联类）：CM6 主题 StyleModule
-// 的挂载顺序不可依赖（实测可与组件层主题倒序），45vh 底部余量曾被 CmHost 主题的
-// `padding: 0` 简写按序覆盖致文末永不居中——特异性保证与顺序无关
+// 的挂载顺序不可依赖（实测可与组件层主题倒序），余量曾被 CmHost 主题的 `padding: 0`
+// 简写按序覆盖致文末永不居中——特异性保证与顺序无关。
+// 上下各 50vh：首行/末行也有滚动余量可被 y:center 真正居中——无上方余量时 scrollTop
+// 钳 0，首行只能贴顶（编辑已有文档从第一行写起的关键）
 const fadeTheme = EditorView.theme({
-  '&.cm-editor .cm-content': { paddingBottom: '45vh' },
+  '&.cm-editor .cm-content': { paddingTop: '50vh', paddingBottom: '50vh' },
   '&.cm-editor .cm-line': { transition: 'opacity 0.25s ease' },
   '&.cm-editor .tw-fade-1': { opacity: '0.72' },
   '&.cm-editor .tw-fade-2': { opacity: '0.5' },
