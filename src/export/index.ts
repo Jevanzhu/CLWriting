@@ -250,6 +250,10 @@ export function exportBook(options: ExportOptions): ExportResult {
     rmSync(splitDir, { recursive: true, force: true })
     mkdirSync(splitDir, { recursive: true })
   }
+  // R66-23（十四轮）：splitUsed 原声明在 writeSplit 闭包定义之后（仅靠「闭包实际调用
+  // 晚于声明执行」侥幸不触发 TDZ）——结构脆弱：后续在声明执行前新增任何 writeSplit
+  // 调用即 ReferenceError；声明上移到闭包定义之前，消除对调用时序的隐式依赖（行为不变）。
+  const splitUsed = new Set<string>() // R62-15：分章产物文件名占用集（撞名序号判定）
   const writeSplit = (unit: { num: number; title: string; path: string }, body: string): void => {
     const prefix = `${String(unit.num).padStart(3, '0')}-`
     const baseName = sanitizeFileName(unit.title, FILENAME_MAX_BYTES - Buffer.byteLength(prefix) - Buffer.byteLength('.md'))
@@ -271,8 +275,6 @@ export function exportBook(options: ExportOptions): ExportResult {
       files.push(`工作区/导出/分章/${fileName}`)
     }
   }
-
-  const splitUsed = new Set<string>() // R62-15：分章产物文件名占用集（撞名序号判定）
 
   if (doMerged) {
     let first = true

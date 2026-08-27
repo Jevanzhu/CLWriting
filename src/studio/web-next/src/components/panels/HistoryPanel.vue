@@ -114,7 +114,9 @@ async function onRestore(e: SnapshotEntry): Promise<void> {
     if (props.bookName === book) ui.toast(`已恢复到 ${fmtTime(e.time)} 的版本`, 'success')
     await load()
   } catch (error) {
-    ui.toast(friendlyError(error), 'error')
+    // R66-30（十四轮）：失败路径补书名守卫——上方成功路径有 `props.bookName === book` 门，
+    // catch 漏配：restoreSnapshot await 窗口切书后，A 书的恢复失败错误会 toast 在 B 书界面上
+    if (props.bookName === book) ui.toast(friendlyError(error), 'error')
   } finally {
     restoring.value = null
   }

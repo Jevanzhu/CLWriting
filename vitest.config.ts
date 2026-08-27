@@ -76,6 +76,14 @@ export default defineConfig({
         // 主代码单桶（brace+extglob 组合 = 除 web-next 外的全部，池化口径与旧全局门一致；
         // 首次实测 2026-08-20：lines 89.45 / branches 82.89 / functions 95.9）
         'src/{!(studio),studio/!(web-next)}/**': { statements: 82, branches: 78, functions: 93, lines: 82 },
+        // R66-41（十四轮）：主桶上叠三个域级子桶——聚合均值仍可稀释新增低覆盖文件
+        //（主桶池化 ~90% 均值，新文件 10% 也推不动门）；vitest 多桶语义为「匹配多桶的
+        // 文件须过所有桶」，子桶与主桶并存 = 域级基线门叠加全局防回退门，两不误。
+        // 阈值 = 2026-08-27 实测基线 −2pp 向下取整（coverage-summary.json 全量重算）：
+        // ai 90.76/86.81/97.04 · events 97.25/92.14/100 · studio/server 88.24/71.51/94.43
+        'src/ai/**': { statements: 88, branches: 84, functions: 95, lines: 88 },
+        'src/events/**': { statements: 95, branches: 90, functions: 98, lines: 95 },
+        'src/studio/server/**': { statements: 86, branches: 69, functions: 92, lines: 86 },
         // M-7（第十轮）：api 层单列覆盖桶——此前十余 api 文件落进聚合桶被 stores 高覆盖
         // 均值掩盖（单文件回退对阈值门不可见，参数/响应映射逻辑零守护）；阈值 = 实测基线
         // −2pp 向下取整，只防回退不追高。X-6（第五十六轮批 D）：批 A 补 api 直测后

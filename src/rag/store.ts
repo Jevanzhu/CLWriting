@@ -9,6 +9,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { existsSync, mkdirSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
 import { createRagTables } from './schema.js'
+import { log } from '../log/index.js'
 
 /** 一个向量块（召回返回位置 + 向量，原文交精准读取从定稿取） */
 export interface RagChunk {
@@ -104,7 +105,9 @@ export function resolveRagDbPath(bookRoot: string): string {
       } catch {
         // R65-4：不留静默回退——主库已迁而侧车滞留旧处时记 warn（checkpoint 失败 +
         // rename 失败双降级才会到这；日志至少能看到「迁移丢失」而非「未建过库」）
-        console.warn(`[rag] 迁移侧车失败（${ext}）：${legacyPath}${ext} 滞留旧处，WAL 内已提交数据可能丢失`)
+        // R66-10（十四轮）：console.warn → log 通道——Electron 生产环境 console 不被采集，
+        // 迁移丢失线索必须落文件日志
+        log.warn('rag', `迁移侧车失败（${ext}）：${legacyPath}${ext} 滞留旧处，WAL 内已提交数据可能丢失`)
       }
     }
   }

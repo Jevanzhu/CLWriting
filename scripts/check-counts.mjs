@@ -17,6 +17,9 @@
  * 跳过而门禁照常绿）；条件式 skip（test.skip(!env.X) 环境门）白名单豁免。
  * 净化/计数/检出逻辑抽为纯函数 export，直测见 test/scripts/check-counts.test.ts。
  *
+ * R66-37（十四轮）：e2e spec 顺序快照守卫——README「勿改动 spec 顺序」从注释
+ * 契约升级为机器门：spec 名单/字典序位漂移即红（详见 E2E_SPEC_ORDER_SNAPSHOT）。
+ *
  * 用法：npm run check:counts（退出码 1 = 失配，并列出实测值供修 README）
  */
 import { execFileSync } from 'node:child_process'
@@ -95,6 +98,59 @@ function walk(dir, pred, out = []) {
   return out
 }
 
+// ── R66-37（十四轮）：e2e spec 顺序快照守卫 ─────────────────────────────────────
+// e2e 的 28+ spec 共享 globalSetup 的单一临时 workDir，playwright.config workers:1
+// 下按 spec 路径字典序串行跑，前一个建的书/写的内容供后一个用——顺序是隐式契约
+// （README「勿加并行或改动 spec 顺序」此前只有注释、无机器守卫）。
+// 快照按代码单元排序（Array.prototype.sort 默认序，与 playwright 的文件排序同基），
+// 锁相对路径：新增/改名/删除任何 spec 都会改变名单或字典序位 → 失配红，
+// 逼改动者显式确认「插序是否破坏前序 spec 的落盘依赖」后再同步快照。
+// 【快照 = 2026-08-27 工作区实测清单（含并行批新增 settings-book-scope.spec.ts）】
+const E2E_SPEC_ORDER_SNAPSHOT = [
+  'test/e2e/ai-degrade.spec.ts',
+  'test/e2e/ai-provider.spec.ts',
+  'test/e2e/ai-review.spec.ts',
+  'test/e2e/analysis.spec.ts',
+  'test/e2e/audit.spec.ts',
+  'test/e2e/auto-write.spec.ts',
+  'test/e2e/batch-finalize.spec.ts',
+  'test/e2e/check.spec.ts',
+  'test/e2e/conflict.spec.ts',
+  'test/e2e/edit-save.spec.ts',
+  'test/e2e/export-ai-settings.spec.ts',
+  'test/e2e/finalize.spec.ts',
+  'test/e2e/focus.spec.ts',
+  'test/e2e/foreshadow.spec.ts',
+  'test/e2e/learn.spec.ts',
+  'test/e2e/overview-short.spec.ts',
+  'test/e2e/release-smoke.spec.ts',
+  'test/e2e/rewrite.spec.ts',
+  'test/e2e/search.spec.ts',
+  'test/e2e/settings-book-scope.spec.ts',
+  'test/e2e/shelf-search.spec.ts',
+  'test/e2e/shelf.spec.ts',
+  'test/e2e/short-flow.spec.ts',
+  'test/e2e/short-full-flow.spec.ts',
+  'test/e2e/switch-book.spec.ts',
+  'test/e2e/tree-issues.spec.ts',
+  'test/e2e/tree-ops.spec.ts',
+  'test/e2e/usage-card.spec.ts',
+  'test/e2e/version-restore.spec.ts',
+]
+
+/**
+ * R66-37：spec 名单/顺序失配检出（纯函数，便于直测）。
+ * 返回 { added, removed }——同名增删即名单漂移；只有名单一致时顺序才有意义
+ * （名单一致 + 排序后比较恒等，顺序漂移只会表现为增删位差）。
+ */
+export function diffSpecOrder(actualRelativePaths, snapshot) {
+  const actual = [...actualRelativePaths].sort()
+  const want = [...snapshot]
+  const added = actual.filter((p) => !want.includes(p))
+  const removed = want.filter((p) => !actual.includes(p))
+  return { added, removed }
+}
+
 // 门禁主体收进 main() + 直跑守卫：node 直跑本文件（npm run check:counts）时执行；
 // 被测试 import（R63-12 直测纯函数）时不触发 vitest list / process.exit 副作用
 function main() {
@@ -118,6 +174,22 @@ function main() {
 
   let e2eCases = 0
   for (const fp of e2eSpecs) e2eCases += countE2eCases(readFileSync(fp, 'utf8'))
+
+  // ── R66-37（十四轮）：e2e spec 顺序快照守卫 ─────────────────────
+  // spec 名单/字典序位与快照失配即红：新 spec 插序改变 workers:1 下的执行顺序，
+  // 前序 spec 的落盘依赖可能静默错位——须人工确认后同步 E2E_SPEC_ORDER_SNAPSHOT。
+  const { added: specAdded, removed: specRemoved } = diffSpecOrder(
+    e2eSpecs.map((fp) => fp.replace(root, '')),
+    E2E_SPEC_ORDER_SNAPSHOT,
+  )
+  if (specAdded.length > 0 || specRemoved.length > 0) {
+    console.error('\ncheck:counts 失败：e2e spec 名单/顺序与快照失配（R66-37）——')
+    console.error('  spec 按 workers:1 字典序串行跑且共享单一 workDir，顺序是隐式契约（README「勿改动 spec 顺序」）。')
+    console.error('  新增/改名 spec 前请确认其字典序位不破坏前序 spec 的落盘依赖，再同步本快照：')
+    for (const p of specAdded) console.error('  + 新增（当前在跑，快照缺）: ' + p)
+    for (const p of specRemoved) console.error('  - 移除（快照有，当前缺）: ' + p)
+    process.exit(1)
+  }
 
   // ── .only / 无条件 .skip 拒绝 ─────────────────────
   const onlyHits = []

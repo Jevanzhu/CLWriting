@@ -25,7 +25,7 @@ import { resolveDraftPath } from '../../../format/draft.js'
 import { acquireTaskGate } from '../../../studio/server/api/task-gate.js'
 // DSH-18：写作技巧包按需加载（read_skill 工具的执行通道）
 import { listSkills, loadSkill } from '../../../process/skills.js'
-import { sanitizeHistory } from '../../prompts/chat.js'
+import { sanitizeHistory, visibleInjectionsFromDigests } from '../../prompts/chat.js'
 // A1（五十九轮）：read_chapter 剥 fm 与 prompts/chat.ts 同源（bodyOf 单源导出复用）
 import { bodyOf } from '../../../format/frontmatter-core.js'
 import type { SessionRecorder } from '../../../events/chat-bridge.js'
@@ -158,6 +158,14 @@ async function executeChatTool(
         if (!Number.isInteger(chapter) || chapter < 1) {
           return { ok: false, summary: '章号需为正整数。' }
         }
+        // R66-2（十四轮）：write_chapter 覆写旧章与编辑器 /rewrite 端点只各查各的布尔、
+        // 闸不互通，可并发改稿——写章全程持有同把 task-gate 'rewrite'（与 REWRITE_GATE_TOOLS
+        // 同语义）：编辑器改写在途时此处 fail-closed 拒绝；反向 chat 写章持闸期间端点
+        // acquireTaskGate 得 null 回 409——两侧经同一把闸真正互斥，非两把独立锁。
+        const releaseWrite = acquireTaskGate(opts.bookName, 'rewrite')
+        if (!releaseWrite) {
+          return { ok: false, summary: '本书正在改写中（编辑器改写请求在途），无法同时写章——请等本轮改写完成后再试。' }
+        }
         // chat 中断时同步中断 self-heal（abortChat 只 abort chat ctrl，self-heal 独立 ctrl 须显式桥接）
         const onAbort = (): void => { abortSelfHeal(opts.bookName) }
         ctrl.addEventListener('abort', onAbort)
@@ -177,6 +185,7 @@ async function executeChatTool(
             summary: formatHealResult(r),
           }
         } finally {
+          releaseWrite()
           ctrl.removeEventListener('abort', onAbort)
         }
       }
@@ -332,8 +341,8 @@ export interface TurnDeps {
 
 /** R65-15（总六十五轮）：CLW_VERIFY_VISIBLE=1 诊断开关——llm/call 落库后对本回合
  *  注入清单抽样跑 verifyVisibleRecorded（「模型可见 ⟺ 已记录」生产侧抽查）。可见清单
- *  scope/digest 与 visibleInjections（prompts/chat.ts）同源镜像：settings 恒在、
- *  revision→chapter、skills→skills（两侧改拼接源即失配——正是本开关要抓的漂移）；
+ *  经 visibleInjectionsFromDigests 单源组装（R66-9；revision→chapter、skills→skills
+ *  的字段映射在本函数）：
  *  recorded 传本回合已登记的三种血缘事件（settings/snapshot + revision/ref +
  *  skills/snapshot，与 recorder 收到的同物）。违约只 console.warn（不抛、不进事件库、
  *  不影响主流程）；flag 关闭首行即返回，零开销。 */
@@ -343,11 +352,13 @@ export function verifyVisibleSampled(
 ): void {
   if (process.env['CLW_VERIFY_VISIBLE'] !== '1') return
   try {
-    const visible: VisibleInjection[] = [
-      { scope: 'settings', digest: digests.settings },
-      ...(digests.revision !== undefined ? [{ scope: 'chapter', digest: digests.revision }] : []),
-      ...(digests.skills !== undefined ? [{ scope: 'skills', digest: digests.skills }] : []),
-    ]
+    // R66-9（十四轮）：可见清单改由 visibleInjectionsFromDigests 单源组装（此前手工
+    // 镜像 visibleInjections 形状——两侧改拼接源即失配，恰是本开关要抓的漂移）
+    const visible: VisibleInjection[] = visibleInjectionsFromDigests({
+      settings: digests.settings,
+      ...(digests.revision !== undefined ? { chapter: digests.revision } : {}),
+      ...(digests.skills !== undefined ? { skills: digests.skills } : {}),
+    })
     // 校验器只读 type/data——NewEvent 补齐 ChatEvent 必填字段（seq 用批内序号占位）
     const events: ChatEvent[] = recorded.map((ev, i) => ({
       seq: i,

@@ -75,8 +75,15 @@ export function acquireTaskGate(bookName: string, action: string, opts?: TaskGat
   return () => {
     if (released) return
     released = true
-    // 先删锁文件再清 Set：反序会让并发 acquire 在文件已删、Set 未清的窗口读到双闸
-    if (lockPath) rmSync(lockPath, { force: true })
+    // R66-29（十四轮）：rmSync 失败会永久占死进程内闸——force 仅吞 ENOENT，EPERM 等
+    // 抛错会跳过 running.delete（该 key 永不可再占）。包 try/catch 保证清理必达；
+    // 残留锁文件由 tryAcquireCrossProcessLock 的 stale 接管清理兜底，不致永锁。
+    try {
+      // 先删锁文件再清 Set：反序会让并发 acquire 在文件已删、Set 未清的窗口读到双闸
+      if (lockPath) rmSync(lockPath, { force: true })
+    } catch {
+      /* 锁文件残留交 stale 接管；进程内闸照常释放 */
+    }
     running.delete(key)
   }
 }

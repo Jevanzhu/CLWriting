@@ -27,10 +27,14 @@ export function newRunId(): string {
 /** 计算 prompt 的脱敏元信息 */
 export function promptMeta(systemPrompt: string, userPrompt: string, files: string[] = []): PromptMeta {
   const full = systemPrompt + userPrompt
+  // R66-8（十四轮）：两段直接拼接进 hash 时 ("ab","c") 与 ("a","bc") 同 hash——相邻
+  // 字段边界不可辨，审计指纹歧义。hash 输入前置 systemPrompt 长度前缀（len:full），
+  // 边界由前缀唯一确定；chars 仍记真实拼接长度，脱敏口径不变。
+  const hashInput = `${systemPrompt.length}:${full}`
   return {
     chars: full.length,
     files,
-    hash: createHash('sha256').update(full).digest('hex').slice(0, 16),
+    hash: createHash('sha256').update(hashInput).digest('hex').slice(0, 16),
   }
 }
 

@@ -17,6 +17,7 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync, readdirSync, type Dirent } from 'node:fs'
 import { join } from 'node:path'
+import { log } from '../log/index.js'
 
 // ── 统一 git 执行器（#16 第 3 节）──────────────────
 
@@ -33,6 +34,15 @@ export type GitResult =
 const GIT_TIMEOUT_MS = 15_000
 
 /**
+ * R66-22（十四轮）：git 子进程输出缓冲上限。spawnSync 默认 1MB——大书
+ * `ls-files` / `status --porcelain -uall`（数千 tracked 文件 × 中文路径）输出
+ * 超限即 ENOBUFS 失败，此前与普通失败无日志区分地静默降级（listTrackedDocs
+ * 拿空表 → 旧书定稿基线迁移永久跳过）。抬高到 64MB（仅上限不预分配；书籍
+ * 规模量级下不可能再触顶），触顶时单独留痕见下方 ENOBUFS 分支。
+ */
+const GIT_MAX_BUFFER = 64 * 1024 * 1024
+
+/**
  * 执行一条 git 命令（统一收口，#16 第 3 节）。
  * spawnSync 数组形式不走 shell，免注入、免转义（同 finalize 既有做法）。
  * 失败按退出码 → 人话，不把作者丢给 git 报错。
@@ -46,17 +56,28 @@ export function git(args: string[], cwd: string, opts?: { encoding?: 'utf-8'; in
     encoding: opts?.encoding ?? 'utf-8',
     ...(opts?.input !== undefined ? { input: opts.input } : {}),
     timeout: GIT_TIMEOUT_MS,
+    // R66-22（十四轮）：显式 maxBuffer——默认 1MB 下大书 git 输出超限即 ENOBUFS，
+    // 与普通失败混在一起无留痕（listTrackedDocs 静默拿空 → 定稿基线迁移永久跳过）
+    maxBuffer: GIT_MAX_BUFFER,
   })
   if (r.status === 0) return { ok: true, stdout: String(r.stdout ?? '') }
 
   const errCode = (r.error as { code?: string } | undefined)?.code
   const timedOut = errCode === 'ETIMEDOUT' || r.signal === 'SIGTERM'
   const stderr = String(r.stderr || r.error?.message || '')
+  // R66-22（十四轮）：ENOBUFS 单独留痕——输出缓冲超限是「结果被截断的环境问题」而非
+  // git 本身失败，与普通失败混流会让静默降级（空表/跳过迁移）无从定位；抬高 maxBuffer
+  // 后理论不可达，真触顶时 log.warn 供诊断。
+  if (errCode === 'ENOBUFS') {
+    log.warn('git', `git 输出超限（ENOBUFS，${args.join(' ')}）：子进程 stdout 超 maxBuffer ${GIT_MAX_BUFFER} 字节被截断，结果按失败返回`)
+  }
   return {
     ok: false,
     humanMsg: timedOut
       ? `git 操作超时（${args.join(' ')}）：git 进程无响应，已中止`
-      : `git 操作失败（${args.join(' ')}）：${humanizeGitError(args, stderr)}`,
+      : errCode === 'ENOBUFS'
+        ? `git 输出超限（${args.join(' ')}）：仓库改动量过大，输出超出缓冲上限，请分批处理或清理仓库`
+        : `git 操作失败（${args.join(' ')}）：${humanizeGitError(args, stderr)}`,
     stderr,
   }
 }

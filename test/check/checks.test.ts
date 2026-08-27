@@ -6,7 +6,8 @@ import { join } from 'node:path'
 import { createAllTables } from '../../src/cache/schema.js'
 import { syncLead } from '../../src/cache/sync.js'
 import { hasRed, getRedItems } from '../../src/check/runner.js'
-import { formatReport, formatRedForRewrite } from '../../src/check/report.js'
+// R66-14（十四轮）：formatReport（CLI 分级输出）随死代码清理删除——生产消费面已全部 API 化
+import { formatRedForRewrite } from '../../src/check/report.js'
 import { checkGrowth } from '../../src/check/growth.js'
 import {
   checkFrontMatter,
@@ -179,38 +180,8 @@ test('checkGrowth: 成长线非法履历动词 → 黄项告警', () => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-// ── 报告分级（#10 第 7 节）────────────────────────
-
-test('formatReport: brief 模式红项逐条 + 黄项计数', () => {
-  const report = {
-    sections: [
-      { name: '禁词', items: [
-        { checkId: 'banned-word', level: 'red' as const, message: '命中「废话」' },
-      ]},
-      { name: '复读', items: [
-        { checkId: 'repeat', level: 'yellow' as const, message: '复读3处' },
-        { checkId: 'repeat', level: 'yellow' as const, message: '复读2处' },
-      ]},
-    ],
-  }
-  const brief = formatReport(report, 'brief')
-  expect(brief).toContain('红项 1 条')
-  expect(brief).toContain('命中「废话」')
-  expect(brief).toContain('复读 2 处') // 黄项分类计数
-  expect(brief).not.toContain('复读3处') // brief 不出黄项明细
-})
-
-test('formatReport: full 模式出全明细', () => {
-  const report = {
-    sections: [
-      { name: '复读', items: [
-        { checkId: 'repeat', level: 'yellow' as const, message: '复读3处' },
-      ]},
-    ],
-  }
-  const full = formatReport(report, 'full')
-  expect(full).toContain('复读3处')
-})
+// ── 报告产出（#10 第 6 节）────────────────────────
+// R66-14（十四轮）：formatReport（--brief/--full CLI 分级输出）两用例随死代码删除
 
 test('formatRedForRewrite: 红项清单', () => {
   const report = {

@@ -61,6 +61,17 @@ test('全自动写章：mock 快路收工自动转编辑器（P1-1）', async ({
   const autoBtn = page.locator('.workbench .btn.auto')
   await expect(autoBtn).toBeEnabled()
 
+  // R66-40（十四轮）：先取 token + 判态——工作台 auto 按钮写的就是 state.nextChapter
+  // （WorkbenchView chapter computed），记下目标章号供落盘断言按章核验
+  // T2-3：GET 读端点也要求 token（boot 取，与下方批量连写用例同通道）
+  const boot = await page.request.get(`${BASE}/api/boot`)
+  const token = (await boot.json()).token
+  const stateHeaders = { headers: { 'x-studio-token': token } }
+  const before = await page.request.get(`${BASE}/api/books/长篇测试书/state`, stateHeaders)
+  expect(before.status()).toBe(200)
+  const target = (await before.json()).nextChapter as number
+  expect(target).toBeGreaterThanOrEqual(1)
+
   // 触发全自动写章（fire-and-forget：立即返回，后续 SSE 回流）
   await autoBtn.click()
 
@@ -70,14 +81,44 @@ test('全自动写章：mock 快路收工自动转编辑器（P1-1）', async ({
   // 草稿正文已进编辑器 buffer：mock 快路真实落盘 + 打开
   await expect(cm).toContainText('mock 自动写章', { timeout: 10_000 })
 
-  // 事件流记录了自愈终局（高级区不展开；借 store 无从期断言，验证磁盘已落盘）
-  // T2-3：GET 读端点也要求 token（boot 取，与下方批量连写用例同通道）
-  const boot = await page.request.get(`${BASE}/api/boot`)
-  const token = (await boot.json()).token
-  const ok = await page.request.get(`${BASE}/api/books/长篇测试书/state`, {
-    headers: { 'x-studio-token': token },
-  })
+  // R66-40（十四轮）：原断言只核 state 端点 200，注释却称「验证磁盘已落盘」——
+  // 200 只证明路由活着，不证明写章闭环产物在盘上。补两口硬断言：
+  // ① state 响应体语义非空（判态真实产出）；② 直接读目标章文件内容含 mock 正文。
+  const ok = await page.request.get(`${BASE}/api/books/长篇测试书/state`, stateHeaders)
   expect(ok.status()).toBe(200)
+  const sb = await ok.json()
+  expect(typeof sb.stateName, 'state 端点应回判态人话名').toBe('string')
+  expect((sb.stateName as string).length).toBeGreaterThan(0)
+  expect(typeof sb.humanMsg, 'state 端点应回判态提示语').toBe('string')
+
+  // 长篇章文件名 = 章号 4 位-标题.md（documents/service updateChapterMeta 口径）；
+  // 目标章已存在则原文件被覆写、不存在则新建——两种形态都按「000N-」前缀兜住
+  const tree = await page.request.get(`${BASE}/api/books/长篇测试书/tree?refresh=1`, stateHeaders)
+  expect(tree.status()).toBe(200)
+  const nodes = (await tree.json()).nodes as Array<{ path: string; children?: unknown[] }>
+  const allPaths: string[] = []
+  const collect = (ns: Array<{ path: string; children?: unknown[] }>): void => {
+    for (const n of ns) {
+      allPaths.push(n.path)
+      if (Array.isArray(n.children)) collect(n.children as Array<{ path: string; children?: unknown[] }>)
+    }
+  }
+  collect(nodes)
+  const pad = String(target).padStart(4, '0')
+  const chapterFiles = allPaths.filter((p) => p.startsWith('写作/正文/') && p.includes(`/${pad}-`))
+  expect(chapterFiles.length, `落盘后树上应有目标章 ${pad} 的文件节点`).toBeGreaterThan(0)
+
+  let landed = false
+  for (const p of chapterFiles) {
+    const file = await page.request.get(
+      `${BASE}/api/books/长篇测试书/file?file=${encodeURIComponent(p)}`,
+      stateHeaders,
+    )
+    expect(file.status(), `读回 ${p}`).toBe(200)
+    const body = (await file.json()) as { content: string }
+    if (body.content.includes('mock 自动写章')) landed = true
+  }
+  expect(landed, '目标章文件正文应含 mock 自动写章产出（终稿真实落盘）').toBe(true)
 })
 // ── P2-3：批量连写 ──────────────────────────────────────────────
 test('批量连写：batchSize=2 时后端返回 chapters 序列', async ({ page }) => {

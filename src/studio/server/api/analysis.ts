@@ -137,13 +137,22 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
         if (!absPath) return replyError(res, 400, 'BAD_PATH', '文档路径不合法')
         if (!existsSync(absPath)) return replyError(res, 404, 'NOT_FOUND', `文档不存在：${m.path}`)
 
-        const draft = readDraft(absPath)
+        // R66-26（十四轮）：sourceHash 与进 prompt 的正文分两次读盘——readDraft 一读、
+        // sourceHashOf(readFileSync) 二读，两读之间作者保存会让 body（进 prompt）与
+        // sourceHash 对应不同稿（stale 判定错配）。仿 review.ts R63-7 同型：单次读取取
+        // buffer，readDraft 经 content 吃同一快照；existsSync 后 µs 级竞态删除（R64-10 口径）
+        // 的 ENOENT 由守卫转人话 500，不再裸穿 dispatch。
+        let draftBuf: Buffer
+        try {
+          draftBuf = readFileSync(absPath)
+        } catch {
+          return replyError(res, 500, 'IO', '读不到正文文件（可能已被移动或删除），请刷新后再试')
+        }
+        const draftText = draftBuf.toString('utf-8')
+        const draft = readDraft(absPath, draftText)
         if (!draft.ok) return replyError(res, 400, 'NOT_CHAPTER', draft.reason)
         const { body, chapter } = draft
-
-        // CC-P1-2：sourceHash 与进 prompt 的正文同刻同源——分钟级分析期间作者保存会让
-        // 任务后重读的 hash 对应新稿而 payload 分析的是旧稿，stale 判定恒 false（错配）。
-        const sourceHash = sourceHashOf(readFileSync(absPath, 'utf-8'))
+        const sourceHash = sourceHashOf(draftText)
 
         const prompt = buildAnalystPrompt(kind, body, chapter, bookRoot)
         const result = await runAnalyst(ctx.userDataPath, kind as ContractKind, prompt, bookRoot, [m.path])
@@ -297,7 +306,14 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       allChapters.sort((a, b) => a.章号 - b.章号)
 
       if (existsSync(analysisDir)) {
-        const files = readdirSync(analysisDir).filter((f) => f.endsWith('.json') && f !== '__book__.json')
+        // R66-27（十四轮）：existsSync→readdir 间竞态（目录被移/删）会让 ENOENT/ENOTDIR
+        // 裸穿端点 500——包守卫降级为空趋势（信封缺失本就跳过，口径一致）
+        let files: string[]
+        try {
+          files = readdirSync(analysisDir).filter((f) => f.endsWith('.json') && f !== '__book__.json')
+        } catch {
+          files = []
+        }
         for (const file of files) {
           const docId = file.replace(/\.json$/, '')
           const me = manifest.entries.get(docId)

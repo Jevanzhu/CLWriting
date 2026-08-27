@@ -15,6 +15,7 @@ import { SURFACE_EVENT_TYPES } from './types.js'
 import { foldSurface, assistantMessageVisible, type SurfaceNode } from './projection.js'
 import type { SessionStore, NewEvent } from './store.js'
 import { registerActiveChatSession, unregisterActiveChatSession } from './store.js'
+import { log } from '../log/index.js'
 
 // ── 事件构造辅助 ──────────────────────────────────
 
@@ -253,6 +254,24 @@ export class SessionRecorder {
         }
       }
       segs.push({ start: segStart, end: segEnd })
+      // R66-16（十四轮）：写 compaction 前遮蔽区间 O(1) 自检（validateEventStream 的生产
+      // 接线最小面）——违例 warn 留痕不阻断（close 幂等闸已开，阻断反留会话无终态）：
+      // ① 与既有 replace 遮蔽区间重叠 = 二次遮蔽（投影会重复插存档节点，疑记账错链）；
+      // ② 区间内零表面类事件 = 遮蔽从未可见的内容（遮蔽只许盖「曾可见」节点的契约）
+      for (const s of segs) {
+        const chk = this.store.maskSelfCheckData(s.start, s.end)
+        if (chk.intervals.length > 0) {
+          log.warn(
+            'events',
+            `compaction 遮蔽区间 [${s.start},${s.end}] 与既有遮蔽重叠（${chk.intervals
+              .map((i) => `[${i.start},${i.end}]`)
+              .join(',')}）——二次遮蔽疑为遮蔽清单错链`,
+          )
+        }
+        if (chk.rows.length === 0) {
+          log.warn('events', `compaction 遮蔽区间 [${s.start},${s.end}] 内无任何曾可见（表面类）事件——违反遮蔽只盖「曾可见」节点契约`)
+        }
+      }
       // Y-P2-2：存档只在首个遮蔽段携带（一张累计存档取代全部被压内容）
       let carried = false
       for (const s of segs) {

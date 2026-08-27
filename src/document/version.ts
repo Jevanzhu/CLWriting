@@ -161,8 +161,11 @@ export function writeVersion(
       // origin」版本判窗口，刚写过 finalize/ai 版本后窗口内的 autosave 修改前留底
       // 会被静默吞掉，跨 origin 误节流。
       for (const s of existing) {
-        const prev = readVersion(versionsDir, docId, s.id)
-        if (!prev || prev.meta.origin !== meta.origin) continue
+        // R66-19（十四轮）：节流判定只需 origin——整读 readVersion 把全文读进内存，
+        // 长书高频 autosave 留底每次扫到最新同 origin 前触发多次全文读；改走 R62-36
+        // 已建的 readVersionMeta 头部 bounded read（此三处当年漏迁移）。
+        const prevMeta = readVersionMeta(versionsDir, docId, s.id)
+        if (!prevMeta || prevMeta.meta.origin !== meta.origin) continue
         const age = Date.now() - decodeUlidTime(s.id)
         if (age < policy.throttleMinutes * 60_000) return null
         break // 最新同 origin 版本已出窗 → 不节流
@@ -185,10 +188,13 @@ export function writeVersion(
       latestOriginHash.delete(cacheKey)
     }
     for (const s of existing) {
+      // R66-19（十四轮）：origin 过滤先走 meta 头部读——跨 origin 版本不再整读全文
+      //（ai/finalize/autosave 混排的长书，冷缓存落盘比对从 N 次全文读降到 1 次）；
+      // 仅最新同 origin 版本需要正文比对才整读（去重语义不变）。
+      const prevMeta = readVersionMeta(versionsDir, docId, s.id)
+      if (!prevMeta || prevMeta.meta.origin !== meta.origin) continue
       const prev = readVersion(versionsDir, docId, s.id)
-      if (!prev) continue
-      if (prev.meta.origin !== meta.origin) continue
-      if (prev.content === content) {
+      if (prev && prev.content === content) {
         setVersionCache(cacheKey, { id: s.id, fp })
         return null
       }
@@ -366,8 +372,11 @@ export function pruneVersions(
   const maxAge = policy.maxDays * DAY_MS
 
   for (const s of ascending) {
-    const read = readVersion(versionsDir, docId, s.id)
-    if (read?.meta.pinned) {
+    // R66-19（十四轮）：分层清理只判 pinned（meta 字段）——整读 readVersion 把全文
+    // 读进内存只为拿一个布尔位；改 readVersionMeta 头部 bounded read（R62-36 漏迁移），
+    // prune 每文档全量扫版本时的全文读归零。
+    const meta = readVersionMeta(versionsDir, docId, s.id)
+    if (meta?.meta.pinned) {
       // 定稿版本永久保留：不参与分层/超期清理
       keep.add(s.id)
       pinned.add(s.id)

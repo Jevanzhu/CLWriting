@@ -8,10 +8,10 @@
 
 import { existsSync } from 'node:fs'
 import { join, basename } from 'node:path'
-import { readChapterDir } from '../format/chapters.js'
+import { readChapterDir, countWords } from '../format/chapters.js'
 import { readPieceList } from '../format/manifest.js'
-import { countWords } from '../format/chapters.js'
 import { classifyReversal } from '../format/reversal-types.js'
+import { readChapterBody } from './style.js'
 import type { BookConfig, PieceList, SetupPoint } from '../format/types.js'
 export interface ShortPieceIndexEntry {
   num: number
@@ -109,24 +109,9 @@ export interface ShortSubmissionTemplate {
   sellingPoints: string[]
 }
 
-export interface ShortCalibrationSample {
-  num: number
-  title: string
-  words: number
-  sectionCount: number | null
-  maxBodyPartCount: number
-  simileCount: number
-  openingEnvHits: string[]
-}
-
-export interface ShortRepairPlanItem {
-  num: number
-  title: string
-  priority: '高' | '中' | '低'
-  score: number
-  reasons: string[]
-  actions: string[]
-}
+// R66-25（十四轮）：ShortCalibrationSample / ShortRepairPlanItem 两个零引用死接口
+// 已删（原 112-129 行——短篇校准/修复计划设计期预留形状，全库 grep 无任何消费方，
+// 属评审登记的 8 处死代码之一；删除后由 tsc 门禁兜底防复活）。
 
 const DEFAULT_SHORT_CONFIG: NonNullable<BookConfig['short']> = {
   profile: '通用短篇',
@@ -189,16 +174,19 @@ export function scanShortCollection(bookRoot: string): ShortPieceIndexEntry[] {
   const 章纲Dir = join(bookRoot, '大纲', '章纲')
   if (!existsSync(bodyDir)) return []
 
-  // CC-P2-33：includeBody 一次读带出正文（对齐 export W-P2-4 口径），
-  // 消除每章二次 readFile 的整读放大（大书 O(2n) 读 → O(n)）
-  const { chapters } = readChapterDir(bodyDir, true)
+  // R66-24（十四轮）：原走 readChapterDir(includeBody=true) 现读通道（绕开 meta
+  // 缓存、正文不驻留）——短篇集索引随 health/视图反复扫描时每次全书整读零缓存；
+  // 改为缓存 meta（readChapterDir 默认 stat 级缓存）+ 缓存 body（readChapterBody
+  // 指纹缓存），未变章节数据零重读。CC-P2-33 的「一次读带出」语义由缓存命中替代。
+  const { chapters } = readChapterDir(bodyDir)
   const entries: ShortPieceIndexEntry[] = []
   for (const ch of chapters) {
     if (!ch._path) continue
     const name = basename(ch._path)
     const list = readListIfExists(join(章纲Dir, name))
     const coreReversal = firstReal(ch.核心反转, list?.反转线索表.核心反转)
-    const body = ch._body ?? ''
+    // 读失败（TOCTOU）按空正文降级——旧通道同章解析失败会被 errors 分流，不拖垮整集
+    const body = readChapterBody(ch) ?? ''
     entries.push({
       num: ch.章号,
       title: ch.标题,

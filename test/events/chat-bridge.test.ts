@@ -1,7 +1,7 @@
 /**
  * F1-P1 桥接层单测：loadHistoryWithSeqs 映射重建 + SessionRecorder 录制/遮蔽。
  */
-import { describe, expect, it, afterEach } from 'vitest'
+import { describe, expect, it, afterEach, vi } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { tmpdir } from 'node:os'
@@ -19,6 +19,7 @@ import {
   turnEndEvent,
 } from '../../src/events/chat-bridge.js'
 import { deriveMessages, validateEventStream } from '../../src/events/projection.js'
+import { log } from '../../src/log/index.js'
 
 const dirs: string[] = []
 function openTmp(): { store: SessionStore; ud: string } {
@@ -245,6 +246,68 @@ describe('R62-10/R62-11：close 可重试性 + 空载荷遮蔽过滤', () => {
     // 修复前：该 seq 进遮蔽区间 → 校验报「遮蔽区间含未可见 seq」（契约与实现不符）
     const issues = validateEventStream(store.listEvents(sid))
     expect(issues.filter((i) => i.message.includes('未可见'))).toEqual([])
+    store.close()
+  })
+})
+
+// ── R66-16（十四轮）：close 写 compaction 前遮蔽区间自检 ──────────────────
+// validateEventStream 此前生产不接线——自检以 O(1) 查询落在唯一写点（close）上：
+// 二次遮蔽 / 遮蔽从未可见内容两类违约 warn 留痕（不阻断，close 幂等闸已开）。
+describe('R66-16: compaction 遮蔽区间自检', () => {
+  it('正常遮蔽（盖曾可见的 user 消息）→ 无违约 warn（对照组）', () => {
+    const { store } = openTmp()
+    const warn = vi.spyOn(log, 'warn')
+    const sid = store.createSession('书A')
+    const rec = new SessionRecorder(store, sid)
+    rec.add(sessionStartEvent('书A'))
+    rec.add(userMessageEvent('旧1'))
+    rec.flush()
+    rec.add(userMessageEvent('新'))
+    rec.flush()
+    rec.close('completed', [2])
+    const msgs = warn.mock.calls.map((c) => String(c[1]))
+    expect(msgs.filter((m) => m.includes('遮蔽区间') || m.includes('曾可见'))).toEqual([])
+    expect(deriveMessages(store.listEvents('书A'))).toEqual([{ role: 'user', content: '新' }])
+    warn.mockRestore()
+    store.close()
+  })
+
+  it('与既有遮蔽区间重叠（二次遮蔽）→ warn 留痕', () => {
+    const { store } = openTmp()
+    const warn = vi.spyOn(log, 'warn')
+    const sid = store.createSession('书A')
+    const rec = new SessionRecorder(store, sid)
+    rec.add(sessionStartEvent('书A'))
+    rec.add(userMessageEvent('旧1'))
+    rec.add(userMessageEvent('旧2'))
+    rec.add(userMessageEvent('新'))
+    rec.flush()
+    rec.close('completed', [2, 3]) // 第一段遮蔽 [2,3]
+    const rec2 = new SessionRecorder(store, sid)
+    rec2.add(userMessageEvent('再遮一次'))
+    rec2.flush()
+    rec2.close('completed', [3, 4]) // 连续段 [3,4]，与既有 [2,3] 重叠（二次遮蔽）
+    const overlaps = warn.mock.calls.map((c) => String(c[1])).filter((m) => m.includes('重叠'))
+    expect(overlaps).toHaveLength(1)
+    expect(overlaps[0]).toContain('[3,4]')
+    expect(overlaps[0]).toContain('[2,3]')
+    warn.mockRestore()
+    store.close()
+  })
+
+  it('遮蔽区间内零表面类事件（盖结构性事件）→ warn 留痕', () => {
+    const { store } = openTmp()
+    const warn = vi.spyOn(log, 'warn')
+    const sid = store.createSession('书A')
+    const rec = new SessionRecorder(store, sid)
+    rec.add(sessionStartEvent('书A')) // seq 1：结构性事件（session/start 不在 surface 集）
+    rec.add(userMessageEvent('hi'))
+    rec.flush()
+    rec.close('completed', [1]) // 只遮 session/start → 区间内零表面类事件
+    const empties = warn.mock.calls.map((c) => String(c[1])).filter((m) => m.includes('曾可见'))
+    expect(empties).toHaveLength(1)
+    expect(empties[0]).toContain('[1,1]')
+    warn.mockRestore()
     store.close()
   })
 })

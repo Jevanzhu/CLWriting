@@ -12,11 +12,14 @@ jobs:
   build-test:
     name: ${{ matrix.os }} · Node ${{ matrix.node }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+    # R66-39（十四轮）：10 分钟无数据背书偏紧——慢机偶发超时以超时红呈现（报告 §五）。
+    # 放宽到 20（≈2× 余量）作过渡值，待 CI 实跑时长数据回填后再校准。
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        # G4-1（2026-08-16）：typecheck/单测扩 ubuntu；e2e 与桌面构建仍仅 mac（Electron 面）。
+        # G4-1（2026-08-16）：typecheck/单测扩 ubuntu；e2e 已迁 ubuntu（R66-38），
+        # mac 腿保留验证 Electron 相关面（devDependencies 二进制/tsup 桌面产物构建）。
         os: [ubuntu-latest, macos-latest]
         # 24=LTS / 26=Current（25 奇数线已 EOL）。engines >=24；node:sqlite 自 v23.4.0 起免 flag，两版均零 flag 可用。
         node: [24, 26]
@@ -86,8 +89,13 @@ jobs:
   # e2e job（M11 E1 恢复）：playwright 跑 web-next 动线 e2e（test/e2e/，release-smoke 另走 test:e2e:release），独立 job 不阻塞 build-test。
   e2e:
     name: e2e · playwright
-    runs-on: macos-latest
-    timeout-minutes: 10
+    # R66-38（十四轮）：mac → ubuntu——本 job 全链只碰 chromium + Node HTTP（globalSetup 起
+    # studio server、release-smoke 起编译产物 server-main.js，均不启动 Electron 壳），
+    # 「Electron 面须 mac」的理由不成立；macos runner 计费 10× 于 linux，纯惯例性浪费。
+    runs-on: ubuntu-latest
+    # R66-39（十四轮）：与 build-test 同款放宽——build:all + 29 spec 串行（workers:1）+
+    # release-smoke 二次构建，10 分钟慢机易触顶。20 为过渡值，待实跑数据校准。
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -105,8 +113,9 @@ jobs:
       - name: 装前端依赖（web-next node_modules）
         run: npm --prefix src/studio/web-next ci
 
+      # --with-deps：ubuntu 上确保 chromium 系统库齐备（runner 镜像通常预装，此处幂等兜底）
       - name: 装 playwright chromium
-        run: npx playwright install chromium
+        run: npx playwright install --with-deps chromium
 
       - name: 跑 e2e（build:web + playwright test）
         run: npm run test:e2e

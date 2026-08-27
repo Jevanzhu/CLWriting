@@ -13,10 +13,26 @@ import { checkToken, readJson, reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { learnFromBook } from '../../../learn/index.js'
 import { commitSamples, commitQuotes } from '../../../learn/commit.js'
-import type { SampleCandidate, QuoteCandidate } from '../../../learn/index.js'
+import type { LearnResult, SampleCandidate, QuoteCandidate } from '../../../learn/index.js'
+import { acquireTaskGate } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
 interface KnowledgeCtx {
   workDir: string | null
   token: string
+}
+
+// ── R66-28（十四轮）：/learn 全书扫描的并发闸 + TTL 缓存 ──────────────────────
+// learnFromBook 同步整读全书定稿正文（Node 请求线程阻塞秒级），此前既无并发闸也无缓存：
+// 重复点击 = 双跑双扫；health/files/documents 三处同型已修，此处漏网。口径对齐 health.ts
+// styleScanCache：5s TTL + 书键 Map FIFO 上限，纯 TTL 无写路径失效挂点（learn 候选只读
+// 落盘 工作区/learn候选，书内容变化最迟 5s 可见）。
+const LEARN_CACHE_TTL = 5000
+const LEARN_CACHE_MAX = 32
+const learnCache = new Map<string, { result: LearnResult; ts: number }>()
+/** R66-28：TTL 测试注入口（先例同 health.ts __setStyleScanTtlForTest）——真实 5s 墙钟
+ *  依赖会让「失效重扫」用例慢机假红，测试注入短档消除。仅测试用。 */
+let learnTtlMs: number | null = null
+export function __setLearnTtlForTest(ms: number | null): void {
+  learnTtlMs = ms
 }
 
 /** 校验 SampleCandidate 形状（防外部提交畸形数据经 as 断言绕过） */
@@ -43,9 +59,34 @@ export function registerKnowledgeRoutes(ctx: KnowledgeCtx): void {
     if (!checkToken(req, ctx.token)) return replyError(res, 403, 'FORBIDDEN', 'token 校验失败')
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
-    const result = learnFromBook(r.bookRoot)
-    if (!result.ok) return replyError(res, 400, 'BAD_INPUT', result.error ?? '学习产出候选失败')
-    reply(res, 200, { samples: result.samples ?? [], quotes: result.quotes ?? [] })
+    // R66-28（十四轮）：全书同步扫描既无并发闸也无缓存——重复点击双跑双扫（秒级阻塞
+    // 请求线程）。套 acquireTaskGate 同款并发闸（learnFromBook 同步执行，release 同步
+    // finally 释放即可），扫描结果按书 5s TTL 缓存（口径见 learnCache 头注）。
+    const release = acquireTaskGate(params['name']!, 'learn')
+    if (!release) return replyError(res, 409, 'BUSY', '本书正在收割文风候选，请等待完成后再试')
+    try {
+      const now = Date.now()
+      const cached = learnCache.get(r.bookRoot)
+      let result: LearnResult
+      if (cached && now - cached.ts < (learnTtlMs ?? LEARN_CACHE_TTL)) {
+        result = cached.result // R66-28：TTL 命中跳过全书重扫
+      } else {
+        result = learnFromBook(r.bookRoot)
+        // 只缓存成功结果——失败（无定稿正文/解析失败）多为输入问题，重试应现算
+        if (result.ok) {
+          // 简单 FIFO 淘汰（Map 保插入序）：超上限丢最旧条目，防长期运行的书库累积
+          if (learnCache.size >= LEARN_CACHE_MAX) {
+            const oldest = learnCache.keys().next().value
+            if (oldest !== undefined) learnCache.delete(oldest)
+          }
+          learnCache.set(r.bookRoot, { result, ts: now })
+        }
+      }
+      if (!result.ok) return replyError(res, 400, 'BAD_INPUT', result.error ?? '学习产出候选失败')
+      reply(res, 200, { samples: result.samples ?? [], quotes: result.quotes ?? [] })
+    } finally {
+      release()
+    }
   },
   })
 

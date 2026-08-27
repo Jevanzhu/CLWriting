@@ -10,7 +10,8 @@
  * 2. 全局纪元（tree_issues_meta.global_fp）：机检还吃章外全局输入——book.yaml /
  *    global.json（配置与托底）、布线（账本 db 源）、大纲/章纲（targetWords）、
  *    工作区/细纲.md（账本推进声明）、设定/境界体系.md（成长线）、文风/、
- *    工作区/账本推进.md、项目/文档清单.jsonl（maxWritten 基准 + final 跳过）。
+ *    工作区/账本推进.md + 工作区/.账本推进暂存/（R65-24 两源读取，R66-3 入纪元）、
+ *    项目/文档清单.jsonl（maxWritten 基准 + final 跳过）。
  *    任一 stat 变化 → 整表清空重查（改配置/定稿/动账本是低频操作，可接受连坐）。
  *    章正文本身不在纪元里——改 1 章只破那 1 章的行指纹，这正是增量的意义。
  *
@@ -21,6 +22,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { existsSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { ensureTreeIssuesTables } from '../cache/schema.js'
+import { LEAD_UPDATES_ARCHIVE_DIR } from './lead-updates.js'
 
 /** 机检器代次：词表 / 阈值 / 规则语义演进时 bump（旧缓存整代表失效）。
  *  a1-v2（2026-08-21 H-1）：章级行不再含账本全书性条目（改独立缓存 leads_book_*），
@@ -107,6 +109,10 @@ export function computeTreeIssuesGlobalFp(bookRoot: string, userDataPath: string
     // 章级缓存不失效，新专名候选黄项陈旧（登记表新名被误报/漏报）
     fileFp(join(bookRoot, '设定', '名册.md')),
     fileFp(join(bookRoot, '工作区', '账本推进.md')),
+    // R66-3（十四轮）：R65-24 起机检吃「主文件 + .账本推进暂存 归档」两源，但纪元只含
+    // 主文件 fileFp——归档章被补/改/删而纪元内文件不动时，章级缓存命中陈旧行（假红
+    // 残留/漏红）。归档目录 dirFp 入纪元一次性整表失效（对齐周边目录口径，无害）。
+    dirFp(join(bookRoot, LEAD_UPDATES_ARCHIVE_DIR)),
     fileFp(join(bookRoot, '项目', '文档清单.jsonl')),
   ]
   return parts.join('|')

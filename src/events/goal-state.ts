@@ -50,6 +50,19 @@ function asTodo(raw: unknown): Todo | null {
 }
 
 /**
+ * R66-17（十四轮）：fold 输入的 seq 有序化——生产链（audit/chat-history 每请求
+ * foldGoals+foldTodos）喂的是 listEvents 产物，已 ORDER BY seq 升序，两个 fold
+ * 各自 `[...events].sort()` 全量复制排序纯属防御性开销（长书几万事件每请求两次）。
+ * 零拷贝有序检测：升序输入原引用直用；乱序输入（测试直喂）仍走排序副本，语义不变。
+ */
+export function inSeqOrder(events: ChatEvent[]): ChatEvent[] {
+  for (let i = 1; i < events.length; i++) {
+    if (events[i]!.seq < events[i - 1]!.seq) return [...events].sort((a, b) => a.seq - b.seq)
+  }
+  return events
+}
+
+/**
  * 重放 goal/change 事件 → 当前 goal 列表（按 seq 顺序，last-write-wins）。
  * - create/edit：覆盖该 id 的快照
  * - pause/resume/complete/block：更新 state（完整快照仍在事件里，直接覆盖）
@@ -58,7 +71,7 @@ function asTodo(raw: unknown): Todo | null {
  */
 export function foldGoals(events: ChatEvent[]): GoalSnapshot[] {
   const goals = new Map<string, GoalSnapshot>()
-  const sorted = [...events].sort((a, b) => a.seq - b.seq)
+  const sorted = inSeqOrder(events)
   for (const ev of sorted) {
     if (ev.type !== 'goal/change') continue
     const d = ev.data as GoalChangePayload
@@ -78,7 +91,7 @@ export function foldGoals(events: ChatEvent[]): GoalSnapshot[] {
 /** 重放 todo/write 事件 → 当前任务清单（最后一个整表，last-write-wins；空表 = 清空） */
 export function foldTodos(events: ChatEvent[]): Todo[] {
   let todos: Todo[] = []
-  const sorted = [...events].sort((a, b) => a.seq - b.seq)
+  const sorted = inSeqOrder(events)
   for (const ev of sorted) {
     if (ev.type !== 'todo/write') continue
     const d = ev.data as TodoWritePayload

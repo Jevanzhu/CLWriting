@@ -366,6 +366,38 @@ function escapeRegExp(s: string): string {
 
 // ── 章节正文收集 ─────────────────────────────────
 
+/** R66-6（十四轮）：进程级章正文指纹缓存（abs path → mtimeNs+size 指纹 + 去 fm 正文）。
+ *  伏笔足迹/搜索此前每次调用 walkMdEach + 逐章 readFile 整读全书正文（Node 请求线程
+ *  同步执行，200 万字长篇开一次伏笔面板/搜一次即秒级阻塞事件循环，GUI 并发请求含
+ *  心跳/保存全被拖住）；改 stat 指纹缓存后未变章节零重读。纪律对齐 document/tree.ts
+ *  probeCache：bigint stat（mtimeNs + size，撞车窗口 ns 级）、Map 插入序 FIFO 上限
+ *  （正文章数千级的 4 倍余量）、指纹失配/文件消失自动失效。 */
+const CHAPTER_TEXT_CACHE_MAX = 4096
+const chapterTextCache = new Map<string, { mtimeNs: bigint; size: bigint; body: string }>()
+
+/** 带指纹缓存的章正文读取：未变（stat 指纹一致）→ 复用缓存零读；变更/删除 → 重读或清条目。 */
+function readChapterBodyCached(abs: string): string {
+  let st: { mtimeNs: bigint; size: bigint }
+  try {
+    st = statSync(abs, { bigint: true })
+  } catch {
+    // 文件消失（walk 与 read 之间被删）：清残留条目，按空正文降级（与原 readFile 失败口径一致）
+    chapterTextCache.delete(abs)
+    return ''
+  }
+  const hit = chapterTextCache.get(abs)
+  if (hit && hit.mtimeNs === st.mtimeNs && hit.size === st.size) return hit.body
+  const r = readFile(abs)
+  const body = r.ok ? r.body : ''
+  // FIFO 淘汰最旧（Map 保插入序，对齐 probeCache 防长跑无界）
+  if (chapterTextCache.size >= CHAPTER_TEXT_CACHE_MAX) {
+    const oldest = chapterTextCache.keys().next().value
+    if (oldest !== undefined) chapterTextCache.delete(oldest)
+  }
+  chapterTextCache.set(abs, { mtimeNs: st.mtimeNs, size: st.size, body })
+  return body
+}
+
 /** 收集 写作/正文/ 下所有章节 md（递归含卷子目录）的 { 章号 → 正文（去 fm） } */
 function collectChapterTexts(bookRoot: string): Map<number, string> {
   const texts = new Map<number, string>()
@@ -389,8 +421,8 @@ function walkChapters(dir: string, texts: Map<number, string>): void {
     if (texts.has(章号)) {
       log.warn('foreshadow', `正文存在重复章号 ${章号}（${name} 与先前已收集的同号章冲突，伏笔足迹按后扫文件计——请核对卷内章号规划）`)
     }
-    const r = readFile(abs)
-    texts.set(章号, r.ok ? r.body : '')
+    // R66-6（十四轮）：整读改走指纹缓存——二次扫描未变章节跳过重读，变更章指纹失配重读
+    texts.set(章号, readChapterBodyCached(abs))
   })
 }
 

@@ -11,6 +11,12 @@ import { sendChat, clearChatHistory } from '../api/chat'
 import { interrupt } from '../api/stream'
 import { isImeComposing } from '../shared/ime'
 
+// R66-33（十四轮）：发送失败 + 切书 → 文本找回。input 先清空、消息已进 A 书对话区；
+// 失败返回时若已切到 B 书，popUser 被书名守卫拦下（误弹会 B 书末条），文本无处可去。
+// 以书名键失败草稿：回切该书（watch）或 composer 随面板重建（ChatPanel 挂 :key 全量重建）
+// 时回填输入框；A 书对话区的幽灵气泡由切书重播种自动清掉。
+const failedDrafts = new Map<string, string>()
+
 export function useChatComposer(
   bookName: () => string,
   currentChapter: () => number | undefined,
@@ -21,6 +27,16 @@ export function useChatComposer(
   const wb = useWorkbenchStore()
 
   const input = ref('')
+  /** R66-33：取出本书的失败草稿回填输入框（仅输入框为空时回填，不打断已开始的新输入） */
+  function restoreFailedDraft(book: string): void {
+    const stash = failedDrafts.get(book)
+    if (stash === undefined) return
+    failedDrafts.delete(book)
+    if (!input.value.trim()) input.value = stash
+  }
+  // R66-33：ChatPanel 挂 :key 切书即重建（watch 不可达），靠 setup 时取；ChatDock 常驻，靠 watch
+  restoreFailedDraft(bookName())
+  watch(bookName, (nb) => restoreFailedDraft(nb))
   const sending = ref(false)
   // E1a（steer）：对话运行中允许继续发消息（后端入队，当前轮结束自动续链）；
   // 仅写稿/自愈编排运行（wb.running）时禁发，避免生成中改稿并发
@@ -59,6 +75,10 @@ export function useChatComposer(
       if (bookName() === book) {
         chat.popUser()
         chat.error = e instanceof Error ? e.message : String(e)
+      } else {
+        // R66-33（十四轮）：失败时已切书——回滚被书名守卫拦下（popUser 会误弹 B 书末条），
+        // 文本存入本书失败草稿，回切时回填输入框
+        failedDrafts.set(book, text)
       }
     } finally {
       sending.value = false

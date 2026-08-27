@@ -177,13 +177,24 @@ export async function generateChapterSummary(opts: GenerateChapterSummaryOpts): 
   inFlight.add(key)
   try {
     const budget = opts.config.budget.summary_chapter_max ?? SUMMARY_CHAPTER_MAX_FALLBACK
-    const draft = readDraft(bodyAbsPath)
+    // R66-18（十四轮）：正文与指纹此前两次独立读盘（readDraft 一次 + computeRevision
+    // 一次）——两读之间正文被改（H1→H2）会把 H2 的指纹绑给 H1 正文的摘要；改单次读
+    // Buffer 同源派生 body（readDraft 的 R63-7 content 通道）与哈希。
+    // 哈希字节口径逐字对齐 fs/hash.ts hashFile / document/revision.ts computeRevision
+    //（'sha256:' + 原始字节 SHA-256；src/fs 不在本批可写域，不重复开 import 面）。
+    let raw: Buffer
+    try {
+      raw = readFileSync(bodyAbsPath)
+    } catch (e) {
+      return { ok: false, error: `读正文失败：${e instanceof Error ? e.message : String(e)}` }
+    }
+    const draft = readDraft(bodyAbsPath, raw.toString('utf8'))
     if (!draft.ok) return { ok: false, error: `读正文失败：${draft.reason}` }
-    // 第五轮：指纹在读取时点取——AI 生成窗口（数十秒）内正文若被再改并再次定稿（H2），
-    // 写盘时才算会把 H2 指纹绑给 H1 正文的摘要：过期判定从此恒 fresh，自愈与定稿
-    // 钩子都被挡住，过期摘要长期喂后续章节的「近章结尾」材料。取读取时点的 H1，
-    // H2 到来后过期判定正常触发重生成。
-    const sourceHash = computeRevision(bodyAbsPath)
+    // 第五轮：指纹取读取时点（现为同一 Buffer，杜绝第二读的时点漂移）——AI 生成窗口
+    // （数十秒）内正文若被再改并再次定稿（H2），写盘时才算会把 H2 指纹绑给 H1 正文的
+    // 摘要：过期判定从此恒 fresh，自愈与定稿钩子都被挡住，过期摘要长期喂后续章节的
+    // 「近章结尾」材料。取读取时点的 H1，H2 到来后过期判定正常触发重生成。
+    const sourceHash = 'sha256:' + createHash('sha256').update(raw).digest('hex')
     const userPrompt = [
       `请为第 ${chapter} 章写章摘要（三行：情节推进 / 账本变动 / 章尾钩子，总长 ≤ ${budget} 字）。`,
       '',

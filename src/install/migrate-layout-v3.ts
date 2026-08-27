@@ -23,7 +23,11 @@ function trashDraft(bookRoot: string, srcAbs: string, name: string): void {
   // 跨次迁移同名旧稿会被覆盖（doTrash 用 <docId>- 前缀正是防此）；追加 ULID 保全两代
   let dstName = name
   if (existsSync(join(trashDir, dstName))) dstName = `${ulid()}-${name}`
-  renameSync(srcAbs, join(trashDir, dstName))
+  // R66-21（十四轮）：登记次序违反「登记先于移文件」——原实现先 renameSync 后
+  // appendTrashEntry，两步间崩溃留下 .trash 孤儿无登记（回收站 UI 失明、无法还原）；
+  // 对齐 doTrash 的 GG-P2-6 纪律改为先登记成功再移文件。反向残留（登记成功而 rename
+  // 失败/崩溃）只留下指向不存在 trashedPath 的孤儿条目——无害：源稿未动留在草稿区、
+  // 下次迁移重试；restore 报 NOT_FOUND、purge 可清。
   appendTrashEntry(bookRoot, {
     id: ulid(),
     originalPath: `写作/草稿/${name}`,
@@ -31,6 +35,7 @@ function trashDraft(bookRoot: string, srcAbs: string, name: string): void {
     trashedAt: new Date().toISOString(),
     role: roleOf(`写作/草稿/${name}`),
   })
+  renameSync(srcAbs, join(trashDir, dstName))
 }
 
 export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: string[] } {

@@ -24,7 +24,7 @@ import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it } from
 import { createFakeProvider, type FakeProvider } from '../ai/fake-provider.js'
 import { withFakeProvider, tempUserData, makeDualTrackWorkdir } from '../studio/fixtures.js'
 import { runChat } from '../../src/ai/orchestrate/chat.js'
-import { buildChatContext, visibleInjections } from '../../src/ai/prompts/chat.js'
+import { buildChatContext, visibleInjections, visibleInjectionsFromDigests, type ChatContext } from '../../src/ai/prompts/chat.js'
 import { openSessionStore } from '../../src/events/store.js'
 import { digest16, verifyVisibleRecorded, type VisibleInjection } from '../../src/events/lineage.js'
 import type { ChatEvent } from '../../src/events/types.js'
@@ -272,5 +272,34 @@ describe('Y-P2-4 治理：模型可见 ⟺ 已记录（verifyVisibleRecorded 管
     const check = verifyVisibleRecorded(visible, sabotaged)
     expect(check.missing).toEqual([skillsInj])
     expect(check.present).toBe(visible.length - 1)
+  })
+})
+
+// ── R66-9（十四轮）：可见清单单源一致性 ──────────────────────────────────
+// CLW_VERIFY_VISIBLE 诊断开关（turns.ts）此前手工镜像 visibleInjections 形状——
+// 两侧改拼接源即失配（恰是开关要抓的漂移）。形状逻辑下沉 FromDigests 单源后，
+// 两入口对同一 ctx 必须产出逐项相等。
+describe('R66-9: 可见清单单源一致性（visibleInjections ↔ FromDigests）', () => {
+  it('三注入齐全 → 两入口产出逐项相等', () => {
+    const ctx: ChatContext = {
+      settings: '设定段落甲',
+      currentChapter: '正文段落乙',
+      skillsIndex: '技巧索引丙',
+      files: [],
+    }
+    expect(
+      visibleInjectionsFromDigests({
+        settings: digest16(ctx.settings),
+        chapter: digest16(ctx.currentChapter!),
+        skills: digest16(ctx.skillsIndex!),
+      }),
+    ).toEqual(visibleInjections(ctx))
+  })
+
+  it('条件注入缺席（无章/无技巧）→ 两入口仍一致（settings 恒在）', () => {
+    const bare: ChatContext = { settings: '只有设定', files: [] }
+    expect(visibleInjectionsFromDigests({ settings: digest16('只有设定') })).toEqual(
+      visibleInjections(bare),
+    )
   })
 })

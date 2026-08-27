@@ -12,7 +12,14 @@ import { mkdtempSync, rmSync, existsSync, copyFileSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { openSessionStore, migrateBookSession, bookHash } from '../../src/events/store.js'
+import {
+  openSessionStore,
+  migrateBookSession,
+  bookHash,
+  sessionMigrateLockPath,
+  __setSessionMigrateLockTimeoutForTest,
+} from '../../src/events/store.js'
+import { acquireCrossProcessLockWithTimeout } from '../../src/fs/cross-process-lock.js'
 
 const dirs: string[] = []
 function tmpRoot(): string {
@@ -239,5 +246,63 @@ describe('migrateBookSession', () => {
     const probeNew = new DatabaseSync(newDb)
     expect((probeNew.prepare("SELECT COUNT(*) AS n FROM events WHERE type = 'user/message'").get() as { n: number }).n).toBe(1)
     probeNew.close()
+  })
+})
+
+describe('R66-12: 迁移/首开跨进程互斥（session 目录级 migrate.lock）', () => {
+  it('锁被占（模拟另一进程正在迁移/持锁）→ migrate 返回 false 且源库原地完整；释放后重试成功', () => {
+    const ud = tmpRoot()
+    const oldRoot = '/books/互斥甲'
+    const newRoot = '/books/互斥乙'
+    const oldDb = join(ud, 'clwriting', 'session', bookHash(oldRoot) + '.db')
+    const newDb = join(ud, 'clwriting', 'session', bookHash(newRoot) + '.db')
+    // 造数据并收口（在途引用路径之外的锁路径）
+    const store = openSessionStore(ud, oldRoot)!
+    const sid = store.createSession('互斥甲')
+    store.appendEvents(sid, [{ type: 'user/message', data: { message: '互斥数据' }, surfaceOp: 'append' }])
+    store.close()
+
+    __setSessionMigrateLockTimeoutForTest(80) // 缩短锁等待保测试快
+    try {
+      // 模拟另一进程持锁：锁文件对任何持有者一视同仁（本进程占位同样构成互斥面）
+      const release = acquireCrossProcessLockWithTimeout(sessionMigrateLockPath(ud), 1_000)
+      expect(release).not.toBeNull()
+      // 修复前：无跨进程锁，迁移段照常推进（checkpoint/搬移不被互斥）
+      expect(migrateBookSession(ud, oldRoot, newRoot, '互斥甲', '互斥乙')).toBe(false)
+      expect(existsSync(oldDb)).toBe(true) // 源库原地完整
+      expect(existsSync(newDb)).toBe(false) // 一个文件都没动
+      release!()
+      // 释放后重试成功、数据完整
+      expect(migrateBookSession(ud, oldRoot, newRoot, '互斥甲', '互斥乙')).toBe(true)
+      expect(existsSync(newDb)).toBe(true)
+      const migrated = openSessionStore(ud, newRoot)!
+      expect(migrated.listEvents('互斥乙').map((e) => e.type)).toContain('user/message')
+      migrated.close()
+    } finally {
+      __setSessionMigrateLockTimeoutForTest(5_000)
+    }
+  })
+
+  it('迁移持锁期间他进程首开被阻：openSessionStore 等锁超时上抛、不留半成品库文件；释放后首开成功', () => {
+    const ud = tmpRoot()
+    const bookRoot = '/books/互斥丙'
+    const dbPath = join(ud, 'clwriting', 'session', bookHash(bookRoot) + '.db')
+    __setSessionMigrateLockTimeoutForTest(80)
+    try {
+      // 模拟迁移进行中（另一进程持 migrate.lock）：此窗口内首开旧库会在旧路径
+      // 重建空库或对半搬文件集跑 DDL（撕裂态）——修复前无任何互斥
+      const release = acquireCrossProcessLockWithTimeout(sessionMigrateLockPath(ud), 1_000)
+      expect(release).not.toBeNull()
+      expect(() => openSessionStore(ud, bookRoot)).toThrow(/打开锁获取超时/)
+      // 被阻的首开不得留下半成品（库文件未建）
+      expect(existsSync(dbPath)).toBe(false)
+      release!()
+      // 释放后首开成功（锁不滞留）
+      const s = openSessionStore(ud, bookRoot)!
+      expect(s.dbPath).toBe(dbPath)
+      s.close()
+    } finally {
+      __setSessionMigrateLockTimeoutForTest(5_000)
+    }
   })
 })

@@ -243,6 +243,38 @@ describe('tree-issues-cache 模块单元', () => {
       rmSync(root, { recursive: true, force: true })
     }
   })
+
+  it('R66-3（十四轮）：.账本推进暂存 归档变化 → 纪元清表（R65-24 两源读取后归档此前漏在纪元外）', () => {
+    const root = makeBook(1)
+    try {
+      mkdirSync(join(root, '工作区'), { recursive: true })
+      const archiveDir = join(root, '工作区', '.账本推进暂存')
+      mkdirSync(archiveDir, { recursive: true })
+      writeFileSync(join(archiveDir, '第1章.md'), '- 悬念-001 埋下：古剑出鞘\n', 'utf-8')
+      mkdirSync(join(root, '.cache'), { recursive: true })
+      const db = new DatabaseSync(join(root, '.cache', 'index.db'))
+      try {
+        expect(syncTreeIssuesEpoch(db, root, null)).toBe(true) // 首次：清+记
+        expect(syncTreeIssuesEpoch(db, root, null)).toBe(false) // 稳定：no-op
+        // +5s 防同毫秒写撞车（dirFp 的 maxMtime 是 mtimeMs 粒度）
+        const later = new Date(Date.now() + 5000)
+        utimesSync(join(archiveDir, '第1章.md'), later, later)
+        expect(syncTreeIssuesEpoch(db, root, null)).toBe(true) // 修复前：归档不在纪元 → no-op，章级缓存陈旧
+        expect(syncTreeIssuesEpoch(db, root, null)).toBe(false)
+        // 归档新增/删除同样构成变化（dirFp 的 count 部分）
+        writeFileSync(join(archiveDir, '第2章.md'), '- 悬念-001 递进：剑鸣再起\n', 'utf-8')
+        expect(syncTreeIssuesEpoch(db, root, null)).toBe(true) // 新增归档章 → 清表
+        expect(syncTreeIssuesEpoch(db, root, null)).toBe(false)
+        rmSync(join(archiveDir, '第2章.md'))
+        expect(syncTreeIssuesEpoch(db, root, null)).toBe(true) // 删除归档章 → 清表
+        expect(syncTreeIssuesEpoch(db, root, null)).toBe(false)
+      } finally {
+        db.close()
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('R64-7（十二轮）：事务自动回亡 → 吞 ROLLBACK、原始病因优先', () => {

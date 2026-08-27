@@ -15,7 +15,9 @@ import { mkdirSync, existsSync, renameSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { ulid } from '../document/stable-id.js'
 import type { ChatEvent, EventType, SurfaceOp } from './types.js'
+import { SURFACE_EVENT_TYPES } from './types.js'
 import { log } from '../log/index.js'
+import { acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
 
 /** 书 hash：sha256(bookRoot) 前 16 hex——稳定，不落原文路径。
  *  B-18（第六十轮补修）：哈希前 resolve 归一化——尾分隔符 / '.'/'..' 段变体不再
@@ -49,15 +51,30 @@ export interface SessionStore {
    *  events 的 sourceSeqs 按「批内序号」（0-based，同批前驱引用）传入；返回 seq 数组与
    *  events 一一对应。血缘推算不再依赖 lastSeq()+批内序号（多窗口并发写时可错链）。 */
   appendEventsResolveLineage(sessionId: string, events: NewEvent[]): number[]
+  /** R66-13（十四轮）：单事件便捷封装 = appendEvents(sid,[ev])[0]——生产链全走批接口
+   *  （appendEvents / appendEventsResolveLineage），本方法零生产调用、仅测试使用
+   *  （test/events/**、test/metrics/** 直接驱动）；待测试侧迁移批接口后随清理删除。 */
   appendEvent(sessionId: string, ev: NewEvent): number
   /** O-2（第十三轮）：可选 limit 限量通道（seq 升序取前 N）——现有调用方均为全量投影
    *  （折叠需要完整事件流，限流会破坏投影正确性，故不默认启用）；分页/审计渐进读取用。 */
   listEvents(book: string, sessionId?: string, limit?: number, type?: EventType): ChatEvent[]
   /** P2：每书一个 workspace 会话（ws- 前缀）承载非对话链路事件（step/llm/retry/check）；惰性创建复用 */
   workspaceSession(book: string): string
+  /** R66-13（十四轮）：最新对话会话查询——生产零调用（对话恢复经内存 histories/restore
+   *  路径，不查库选会话），仅 test/events/** 直测使用；其语义锚点（孤儿修复 touch
+   *  updated_at 的排序口径）由测试守护，待清理批定夺去留。 */
   latestSession(book: string): SessionRow | null
   /** 当前库最大 seq（recorder 算写入区间用） */
   lastSeq(): number
+  /** R66-16（十四轮）：SessionRecorder.close 写 compaction 前遮蔽区间自检的数据源
+   *  （validateEventStream 生产接线的写点前置）。全局 seq 口径——遮蔽可指向跨会话
+   *  恢复历史的旧 seq，不能按 session 过滤。返回：①与 [from,to] 相交的既有
+   *  compaction/end 遮蔽区间；②该区间内的表面类候选事件行（type+data JSON 串，
+   *  供调用侧按投影口径判「曾可见」）。 */
+  maskSelfCheckData(from: number, to: number): {
+    intervals: Array<{ start: number; end: number }>
+    rows: Array<{ seq: number; type: string; data: string }>
+  }
   clearBook(book: string): void
   /** 多 book 键单事务清理（第六轮低级项）：全清或全不动 */
   clearBooks(books: string[]): void
@@ -95,6 +112,21 @@ function rowToEvent(r: Row): ChatEvent {
  *  虚假中断 + 真实 session/end 后补双写）。取 32 分钟 = deadline + 2 分钟收尾余量；
  *  不 import 该常量（chat.ts 反向依赖本文件，提常量会成环），改由注释锚定对齐依据。 */
 const ORPHAN_GRACE_MS = 32 * 60 * 1000
+
+/** R66-12（十四轮）：session 目录级跨进程锁超时（毫秒）——迁移段与首开段互斥用，
+ *  对齐 books.lock 的 5s（争用为文件 IO 级毫秒，极保守）；导出可注入缩短保测试快。 */
+export let SESSION_MIGRATE_LOCK_TIMEOUT_MS = 5_000
+
+/** 测试注入钩子（生产零调用）。 */
+export function __setSessionMigrateLockTimeoutForTest(ms: number): void {
+  SESSION_MIGRATE_LOCK_TIMEOUT_MS = ms
+}
+
+/** R66-12：锁文件路径 <userData>/clwriting/session/migrate.lock（导出供回归测试模拟
+ *  「另一进程持锁」；同进程嵌套获取同一锁会自锁——本模块两处持锁段互不嵌套）。 */
+export function sessionMigrateLockPath(userDataPath: string): string {
+  return join(userDataPath, 'clwriting', 'session', 'migrate.lock')
+}
 
 /** 启动修复：孤儿 session（有 session/start 无 session/end）补 closers。
  *  Y-P1-1：跳过本进程活跃会话（SessionRecorder 登记中）——修复只面向崩溃残留，
@@ -204,76 +236,92 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
     cached.refs++
     return cached.store
   }
-  mkdirSync(dir, { recursive: true })
-  const db = new DatabaseSync(dbPath)
-  // 内存闸（2026-08-24 审计 B3）：打开期（PRAGMA/DDL/孤儿修复）抛错时句柄不滞留——
-  // 此刻尚未登记 openStores，引用计数的 close 回收路径接不到它；调用方 catch 后降级
-  // null 继续跑，句柄滞留进程积累（「损坏库重试」类测试反复触发尤甚）
+  // R66-12（十四轮）：首开段（建库 + DDL + 孤儿修复）进 session 目录级跨进程锁——
+  // 此前另一进程恰在迁移的 checkpoint 与 rename 之间首开旧库时，SQLite 会在旧路径
+  // 重建空库（旧 hash 下对话历史「清零」）或对半搬文件集跑 DDL（撕裂态）；缓存命中
+  // 复用无文件操作，不加锁。超时上抛 = 打开失败（调用方既有 catch 降级 null 语义）。
+  const releaseOpenLock = acquireCrossProcessLockWithTimeout(
+    sessionMigrateLockPath(userDataPath),
+    SESSION_MIGRATE_LOCK_TIMEOUT_MS,
+  )
+  if (!releaseOpenLock) {
+    throw new Error(`事件库打开锁获取超时（另一进程正在迁移会话库），本进程首开 ${dbPath} 失败——可重试`)
+  }
+  let db: DatabaseSync
   try {
-    // N3（五十九轮）补：busy_timeout 必须先于 journal_mode=WAL 设置——WAL 切换在
-    // journal_mode 处需拿写锁，若另一进程正持锁而 busy_timeout 未设，会立即抛
-    // SQLITE_BUSY（N3 三进程并发首开回归在全量并发下偶发红的根因）
-    db.exec('PRAGMA busy_timeout = 5000')
-    // N3（五十九轮）：WAL 切换需短暂独占——并发首开下其他进程持锁（DDL/首写）时，
-    // 即使 busy_timeout 也可能立即 SQLITE_BUSY 且库仍处 delete 态（幂等 no-op 兜底
-    // 不够）。带退避重试：对方事务必然短（建表/一次 INSERT），数百 ms 内可得手。
-    {
-      let lastErr: unknown
-      for (let i = 0; i < 8; i++) {
-        try {
-          db.exec('PRAGMA journal_mode = WAL')
-          lastErr = null
-          break
-        } catch (err) {
-          lastErr = err
-          const mode = (db.prepare('PRAGMA journal_mode').get() as { journal_mode?: string } | undefined)?.journal_mode
-          if (mode === 'wal') {
+    mkdirSync(dir, { recursive: true })
+    db = new DatabaseSync(dbPath)
+    // 内存闸（2026-08-24 审计 B3）：打开期（PRAGMA/DDL/孤儿修复）抛错时句柄不滞留——
+    // 此刻尚未登记 openStores，引用计数的 close 回收路径接不到它；调用方 catch 后降级
+    // null 继续跑，句柄滞留进程积累（「损坏库重试」类测试反复触发尤甚）
+    try {
+      // N3（五十九轮）补：busy_timeout 必须先于 journal_mode=WAL 设置——WAL 切换在
+      // journal_mode 处需拿写锁，若另一进程正持锁而 busy_timeout 未设，会立即抛
+      // SQLITE_BUSY（N3 三进程并发首开回归在全量并发下偶发红的根因）
+      db.exec('PRAGMA busy_timeout = 5000')
+      // N3（五十九轮）：WAL 切换需短暂独占——并发首开下其他进程持锁（DDL/首写）时，
+      // 即使 busy_timeout 也可能立即 SQLITE_BUSY 且库仍处 delete 态（幂等 no-op 兜底
+      // 不够）。带退避重试：对方事务必然短（建表/一次 INSERT），数百 ms 内可得手。
+      {
+        let lastErr: unknown
+        for (let i = 0; i < 8; i++) {
+          try {
+            db.exec('PRAGMA journal_mode = WAL')
             lastErr = null
             break
+          } catch (err) {
+            lastErr = err
+            const mode = (db.prepare('PRAGMA journal_mode').get() as { journal_mode?: string } | undefined)?.journal_mode
+            if (mode === 'wal') {
+              lastErr = null
+              break
+            }
+            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50 * (i + 1))
           }
-          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50 * (i + 1))
         }
+        if (lastErr !== null) throw lastErr
       }
-      if (lastErr !== null) throw lastErr
-    }
-    db.exec(
-      `CREATE TABLE IF NOT EXISTS events (
-        seq         INTEGER PRIMARY KEY,
-        session_id  TEXT NOT NULL,
-        turn        INTEGER,
-        step        INTEGER,
-        type        TEXT NOT NULL,
-        data        TEXT NOT NULL,
-        surface_op  TEXT,
-        shadow_start INTEGER,
-        shadow_end   INTEGER,
-        source_seqs  TEXT,
-        replace_generation INTEGER NOT NULL DEFAULT 0,
-        created_at   INTEGER NOT NULL
-      )`
-    );
-    db.exec('CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id, seq)')
-    db.exec(
-      `CREATE TABLE IF NOT EXISTS sessions (
-        session_id TEXT PRIMARY KEY,
-        format_version INTEGER NOT NULL DEFAULT 1,
-        book        TEXT NOT NULL,
-        header      TEXT NOT NULL,
-        created_at   INTEGER NOT NULL,
-        updated_at   INTEGER NOT NULL
-      )`
-    );
+      db.exec(
+        `CREATE TABLE IF NOT EXISTS events (
+          seq         INTEGER PRIMARY KEY,
+          session_id  TEXT NOT NULL,
+          turn        INTEGER,
+          step        INTEGER,
+          type        TEXT NOT NULL,
+          data        TEXT NOT NULL,
+          surface_op  TEXT,
+          shadow_start INTEGER,
+          shadow_end   INTEGER,
+          source_seqs  TEXT,
+          replace_generation INTEGER NOT NULL DEFAULT 0,
+          created_at   INTEGER NOT NULL
+        )`
+      );
+      db.exec('CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id, seq)')
+      db.exec(
+        `CREATE TABLE IF NOT EXISTS sessions (
+          session_id TEXT PRIMARY KEY,
+          format_version INTEGER NOT NULL DEFAULT 1,
+          book        TEXT NOT NULL,
+          header      TEXT NOT NULL,
+          created_at   INTEGER NOT NULL,
+          updated_at   INTEGER NOT NULL
+        )`
+      );
 
-    repairOrphanSessions(db, activeChatSessions)
-  } catch (e) {
-    try {
-      db.close()
-    } catch {
-      /* best-effort：close 自身失败不再遮蔽原始错误 */
+      repairOrphanSessions(db, activeChatSessions)
+    } catch (e) {
+      try {
+        db.close()
+      } catch {
+        /* best-effort：close 自身失败不再遮蔽原始错误 */
+      }
+      throw e
     }
-    throw e
+  } finally {
+    releaseOpenLock()
   }
-
+  // R66-12：登记/挂缓存段不碰库文件（纯内存），留在锁外——持锁面越小，迁移等待越短
   const entry: StoreEntry = { store: null!, refs: 1, closed: false, lastOrphanRepairAt: Date.now() }
   /** 写路径惰性孤儿修复（TTL = ORPHAN_GRACE_MS，至多每 32 分钟一次）：打开时仍在
    *  宽限期内的崩溃残留，宽限期过后随下一次会话写入补 end——无需等进程重开库。 */
@@ -482,6 +530,26 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
       const row = db.prepare('SELECT MAX(seq) AS m FROM events').get() as { m: number | null }
       return row.m ?? 0
     },
+    maskSelfCheckData(from: number, to: number) {
+      // R66-16（十四轮）：close 写 compaction 前的遮蔽区间自检数据源——O(1) 索引查询，
+      // 不做投影全量重放（validateEventStream 的生产接线最小面）。区间重叠判定：
+      // 既有 [s,e] 与 [from,to] 相交 ⟺ s <= to && e >= from
+      const intervals = (
+        db
+          .prepare(
+            `SELECT shadow_start AS start, shadow_end AS end FROM events
+             WHERE surface_op = 'replace' AND shadow_start IS NOT NULL AND shadow_end IS NOT NULL
+               AND shadow_start <= ? AND shadow_end >= ?`,
+          )
+          .all(to, from) as Array<{ start: number; end: number }>
+      ).map((r) => ({ start: r.start, end: r.end }))
+      const surfaceTypes = [...SURFACE_EVENT_TYPES]
+      const ph = surfaceTypes.map(() => '?').join(',')
+      const rows = db
+        .prepare(`SELECT seq, type, data FROM events WHERE seq >= ? AND seq <= ? AND type IN (${ph}) ORDER BY seq`)
+        .all(from, to, ...surfaceTypes) as Array<{ seq: number; type: string; data: string }>
+      return { intervals, rows }
+    },
     clearBook(book: string): void {
       // RB-IF-P2-1：两条 DELETE 同事务（对齐同文件其他写路径）——中途失败/崩溃
       // 不留「events 已删、sessions 残留」的孤儿（孤儿 events 永久查不到，审计丢失）
@@ -577,6 +645,19 @@ export function migrateBookSession(
   const oldDb = join(dir, bookHash(oldRoot) + '.db')
   const newDb = join(dir, bookHash(newRoot) + '.db')
   if (oldDb === newDb) return true
+  // R66-12（十四轮）：迁移整段（在途断言→checkpoint→搬移→改钥匙）进 session 目录级
+  // 跨进程锁，与 openSessionStore 首开段互斥——此前只挡本进程在途引用（openStores），
+  // 另一进程（第二个 studio 实例/CLI）恰在 checkpoint 与 rename 之间首开旧库时，SQLite
+  // 会在旧路径重建空库（旧 hash 下历史「清零」）或对半搬文件集跑 DDL（撕裂态）。
+  // 超时放弃（false）：源库原地完整可重试，与既有失败语义一致。
+  const releaseMigrateLock = acquireCrossProcessLockWithTimeout(
+    sessionMigrateLockPath(userDataPath),
+    SESSION_MIGRATE_LOCK_TIMEOUT_MS,
+  )
+  if (!releaseMigrateLock) {
+    log.warn('events', '事件库迁移锁获取超时（另一进程正在迁移/首开会话库）——放弃本轮，源库原地完整可重试')
+    return false
+  }
   // 已完成搬移的记录（from=源位 to=新位）：任一步失败时逆序搬回，保证源库原地完整
   const moves: Array<{ from: string; to: string }> = []
   try {
@@ -663,6 +744,9 @@ export function migrateBookSession(
     }
     log.error('events', '事件库迁移失败（已回滚，源库原地完整可找回）', e)
     return false
+  } finally {
+    // R66-12：迁移段锁释放（成败路径都到——finally 必达）
+    releaseMigrateLock()
   }
 }
 

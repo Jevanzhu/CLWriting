@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { ChatEvent, GoalSnapshot, Todo } from '../../src/events/types.js'
-import { foldGoals, foldTodos, getGoal } from '../../src/events/goal-state.js'
+import { foldGoals, foldTodos, getGoal, inSeqOrder } from '../../src/events/goal-state.js'
 import { goalChangeEvent, todoWriteEvent } from '../../src/events/chain-bridge.js'
 import { validateEventStream } from '../../src/events/projection.js'
 
@@ -156,5 +156,31 @@ describe('F5 构造器 + 校验', () => {
     expect(validateEventStream(bad).some((i) => i.message.includes('非法 operation'))).toBe(true)
     expect(validateEventStream(bad).some((i) => i.message.includes('缺 id/title'))).toBe(true)
     expect(validateEventStream(bad).some((i) => i.message.includes('含非法条目'))).toBe(true)
+  })
+})
+
+// ── R66-17（十四轮）：fold 输入零拷贝有序检测 ──────────────────
+// 修法见 src/events/goal-state.ts inSeqOrder：listEvents 产物已 ORDER BY seq 升序，
+// 生产链每请求 foldGoals+foldTodos 不再各做一次全量复制排序（audit 长书两 fold 同数组）。
+describe('R66-17: fold 输入 seq 有序化（零拷贝有序检测）', () => {
+  it('升序输入（listEvents 生产口径）→ inSeqOrder 原引用直用（零拷贝）', () => {
+    const ordered = [
+      ev('goal/change', { operation: 'create', goal: goal({ id: 'g1', title: 't1' }) }),
+      ev('todo/write', { todos: [todo('a', 'pending')] }),
+    ]
+    expect(inSeqOrder(ordered)).toBe(ordered) // 同引用——未复制未排序
+  })
+
+  it('乱序输入 → 排序副本（原数组不动；fold 结果与喂有序数组一致）', () => {
+    const e1 = ev('todo/write', { todos: [todo('旧表', 'pending')] })
+    const e2 = ev('todo/write', { todos: [todo('新表', 'in_progress')] })
+    const scrambled = [e2, e1] // seq 降序
+    const fixed = inSeqOrder(scrambled)
+    expect(fixed).not.toBe(scrambled) // 复制
+    expect(fixed.map((e) => e.seq)).toEqual([e1.seq, e2.seq])
+    expect(scrambled.map((e) => e.seq)).toEqual([e2.seq, e1.seq]) // 原数组不动
+    // last-write-wins 语义在乱序输入下仍按 seq 定序（高 seq 整表胜出）
+    expect(foldTodos(scrambled)).toEqual([todo('新表', 'in_progress')])
+    expect(foldTodos(scrambled)).toEqual(foldTodos(fixed))
   })
 })

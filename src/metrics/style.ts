@@ -91,10 +91,36 @@ export { readIronRules }
  * 读一章正文的 body（readChapterDir 返回 ChapterMeta 不含 body，订正第 4 条）。
  * 复用 frontmatter.readFile 剥 front matter。文件缺失/坏 → 返回 null。
  */
+// R66-24（十四轮）：章正文指纹缓存（abs path → mtimeNs+size 指纹 + 去 fm 正文）。
+// 文风重扫（scanChapters → readChapterBody）此前每次调用逐章整读全文零缓存——
+// health/文风视图每开一次全书重读（与 R66-6 伏笔同族）；按 stat 指纹缓存后未变
+// 章节零重读。纪律对齐 document/tree.ts probeCache 与 format/chapters.ts
+// chapterDirCache：bigint stat（mtimeNs + size）、Map 插入序 FIFO 上限、失配自失效。
+const CHAPTER_BODY_CACHE_MAX = 4096
+const chapterBodyCache = new Map<string, { mtimeNs: bigint; size: bigint; body: string }>()
+
+/** 读章正文（带 stat 指纹缓存：未变 → 复用零读，变更/删除 → 重读或清条目）。
+ *  R66-24：metrics/short-index.ts 短篇集索引同走本缓存（原 readChapterDir
+ *  includeBody 现读通道改为缓存 meta + 缓存 body）。 */
 export function readChapterBody(chapter: ChapterMeta): string | null {
   if (!chapter._path) return null
+  let st: { mtimeNs: bigint; size: bigint }
+  try {
+    st = statSync(chapter._path, { bigint: true })
+  } catch {
+    chapterBodyCache.delete(chapter._path)
+    return null // 文件消失（TOCTOU）：按无正文降级（原 readFile 失败同口径）
+  }
+  const hit = chapterBodyCache.get(chapter._path)
+  if (hit && hit.mtimeNs === st.mtimeNs && hit.size === st.size) return hit.body
   const r = readFile(chapter._path)
   if (!r.ok) return null
+  // FIFO 淘汰最旧（Map 保插入序，防长跑无界）
+  if (chapterBodyCache.size >= CHAPTER_BODY_CACHE_MAX) {
+    const oldest = chapterBodyCache.keys().next().value
+    if (oldest !== undefined) chapterBodyCache.delete(oldest)
+  }
+  chapterBodyCache.set(chapter._path, { mtimeNs: st.mtimeNs, size: st.size, body: r.body })
   return r.body
 }
 

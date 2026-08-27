@@ -79,6 +79,9 @@ export function failureAction(e: { code?: GenErrorCode; retryable?: boolean }): 
     case 'TIMEOUT':
     case 'NETWORK':
       return 'retry'
+    // R66-11（十四轮）：switch-provider / shrink-prompt 在 A7 接线前无消费者——调用侧
+    // 拿到这两个动作的实际处理与终态（author）等同：配额/凭据错不会自动换供应商、超窗
+    // 不会自动缩输入。决策表保留动作语义供 A7 落地；勿据返回值断言存在自动降级行为
     case 'AUTH':
     case 'NOT_FOUND':
     case 'UNSUPPORTED':

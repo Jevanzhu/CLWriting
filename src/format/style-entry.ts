@@ -111,6 +111,27 @@ export function writeEntry(filePath: string, e: StyleEntry): void {
   writeFile(filePath, stringifyFlat(entryToMap(e)), e.正文)
 }
 
+/** R66-20（十四轮）：O_EXCL 排他写（addEntry 排他分支抽出复用）——迁移等「自算序号」
+ *  的写点此前用 writeEntry（atomic-rename 覆盖语义），双进程同跑播种出同序号时后写
+ *  静默互覆前写、丢条目无痕；本入口以 'wx' 排他建文件，EEXIST 返回 false 由调用方
+ *  换序号重试（写侧绕开 atomic rename 正是为保排他语义——创建型写入，无旧内容可失）。 */
+export function writeEntryExclusive(filePath: string, e: StyleEntry): boolean {
+  const text = joinFrontMatter(stringifyFlat(entryToMap(e)), e.正文)
+  let fd: number
+  try {
+    fd = openSync(filePath, 'wx')
+  } catch (en) {
+    if ((en as NodeJS.ErrnoException).code === 'EEXIST') return false
+    throw en
+  }
+  try {
+    writeFileSync(fd, text)
+  } finally {
+    closeSync(fd)
+  }
+  return true
+}
+
 /**
  * 读条目库（entriesDir = <bookRoot>/文风/条目）。
  * kind 省略 → 全部四类；目录不存在 → 空（老书未迁移时的正常形态）。

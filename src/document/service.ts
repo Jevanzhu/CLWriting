@@ -146,6 +146,15 @@ export type MoveResult =
       reason: string
     }
 
+/** R66-5（十四轮）：move 目标目录归一——拒绝前导 '/'（绝对路径逃逸）与归一后为空
+ *  （根目录/纯斜杠），折叠连续斜杠、剥全部尾斜杠；'a/b/'、'a/b//'、'a//b' 归一到
+ *  同一键 'a/b'，防畸形 toDir 直拼进 manifest 造成目录身份分裂。返回 null = 非法。 */
+function normalizeMoveToDir(toDir: string): string | null {
+  if (toDir.startsWith('/')) return null
+  const normalized = toDir.replace(/\/{2,}/g, '/').replace(/\/+$/, '')
+  return normalized === '' ? null : normalized
+}
+
 /** 软删结果。 */
 export type TrashResult =
   | { ok: true; docId: string; trashedPath: string }
@@ -628,10 +637,21 @@ export class DocumentService {
       return { ok: false, code: 'PATH_ESCAPE', reason: '新文件名不能包含路径分隔符' }
     }
 
-    const newPath =
-      op.kind === 'move'
-        ? `${op.toDir.replace(/\/$/, '')}/${basename(oldPath)}`
-        : `${dirname(oldPath)}/${op.newName}`
+    let newPath: string
+    if (op.kind === 'move') {
+      // R66-5（十四轮）：toDir 此前只剥一个尾斜杠——'写作/正文//' 会把 '写作/正文//0001-x.md'
+      // 直拼记入 manifest，目录身份分裂致该文档永久 REVISION_CONFLICT（registered !==
+      // relPath）且 finalizedPathSet 失配（文风重扫/导出/学习链把已定稿章当草稿）；
+      // 入层归一：拒绝前导 '/'（绝对路径逃逸）与归一后为空、折叠连续斜杠、剥全部尾斜杠，
+      // 让 'a/b/'、'a/b//'、'a//b' 归一到同一键。
+      const toDir = normalizeMoveToDir(op.toDir)
+      if (toDir === null) {
+        return { ok: false, code: 'BAD_INPUT', reason: '目标目录非法（前导斜杠或空目录不被接受）' }
+      }
+      newPath = `${toDir}/${basename(oldPath)}`
+    } else {
+      newPath = `${dirname(oldPath)}/${op.newName}`
+    }
     if (newPath === oldPath) return { ok: true, docId, path: newPath } // 无变化，幂等
 
     // 能力校验：source rename+move，target write（§7.2）

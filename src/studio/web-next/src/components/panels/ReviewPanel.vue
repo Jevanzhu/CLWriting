@@ -92,14 +92,17 @@ const verdictBadgeLabel = computed(() => {
 const verdictSaving = ref(false)
 async function setVerdict(approved: boolean): Promise<void> {
   if (!docId.value || verdictSaving.value) return
+  // R66-32（十四轮）：书名入口捕获 + 失败 toast 守卫——await 窗口切书后，
+  // A 书的裁决失败错误会 toast 在 B 书界面上；树红点刷新也按发起时的书
+  const book = props.bookName
   verdictSaving.value = true
   try {
-    await review.setVerdict(props.bookName, docId.value, approved)
+    await review.setVerdict(book, docId.value, approved)
     // T9b：verdict 变化（驳回/通过）→ 刷新树红点
-    void tree.loadIssues(props.bookName)
+    void tree.loadIssues(book)
   } catch (e) {
     // RB-FE-P2-3：后端不可达时给出反馈（原先 unhandled rejection 只进 console，点击无响应）
-    ui.toast(friendlyError(e), 'error')
+    if (props.bookName === book) ui.toast(friendlyError(e), 'error')
   } finally {
     verdictSaving.value = false
   }

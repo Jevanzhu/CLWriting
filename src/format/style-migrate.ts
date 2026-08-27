@@ -14,7 +14,7 @@
 import { existsSync, readdirSync, readFileSync, rmSync, rmdirSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { readSamplesByScene } from './style.js'
-import { writeEntry, readEntries, ENTRIES_DIR } from './style-entry.js'
+import { writeEntryExclusive, readEntries, ENTRIES_DIR } from './style-entry.js'
 import { parseIronRules } from './iron-rules.js'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { sanitizeChapterTitle } from './filename.js'
@@ -115,11 +115,19 @@ function makeWriter(bookRoot: string, result: StyleMigrateResult) {
     const kind = sanitizeChapterTitle(e.类型) || '未分类'
     const scene = sanitizeChapterTitle(e.场景) || '未命名'
     const key = `${kind}/${scene}`
-    const n = (seq.get(key) ?? 0) + 1
-    seq.set(key, n)
+    let n = (seq.get(key) ?? 0) + 1
     const dir = join(entriesDir, kind)
     mkdirSync(dir, { recursive: true })
-    writeEntry(join(dir, `${scene}-${String(n).padStart(3, '0')}.md`), e)
+    // R66-20（十四轮）：writeEntry 是 atomic-rename 覆盖语义——双进程同跑各自播种出
+    // 同序号时，后写静默互覆前写（丢条目无痕）；改走 O_EXCL 排他写，EEXIST → 序号 +1
+    // 重试（addEntry 排他分支同款），上限 32 次防病态环。续跑播种仍在写入前（RB-KN-P2-4 不变）。
+    let wrote = false
+    for (let attempt = 0; attempt < 32 && !wrote; attempt++) {
+      wrote = writeEntryExclusive(join(dir, `${scene}-${String(n).padStart(3, '0')}.md`), e)
+      if (!wrote) n++
+    }
+    if (!wrote) throw new Error(`迁移条目写入失败：${kind}/${scene} 连续 32 次序号撞名`)
+    seq.set(key, n)
     result.migrated++
     // 合法类型值（金句/样章/…）消毒为恒等映射，as 仅收窄回索引类型
     result.byKind[kind as EntryKind] = (result.byKind[kind as EntryKind] ?? 0) + 1

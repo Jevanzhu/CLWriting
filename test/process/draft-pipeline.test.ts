@@ -12,10 +12,10 @@
  * → ③ 细纲「## 场景声明」段（带章号门：细纲 fm 章号 === 被检章号才可信）→ 全空回落「通用」。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { buildDraftPrompt, SETTINGS_BUDGET_CHARS } from '../../src/process/draft-pipeline.js'
+import { buildDraftPrompt, SETTINGS_BUDGET_CHARS, snapshotBeforeOverwrite, saveDraft } from '../../src/process/draft-pipeline.js'
 
 /** Q-5（第十五轮）：buildDraftPrompt 返回 {prompt, files}——既有断言全部针对 prompt 文本；
  *  files 清单的回归见「Q-5 注入源清单」describe（新用例直用原函数取双字段）。 */
@@ -447,5 +447,58 @@ describe('buildDraftPrompt: Q-5 注入源清单', () => {
     expect(d.files).not.toContain('设定/世界观.md')
     expect(d.files).toContain('设定/角色/林远.md')
     expect(d.files).toContain('设定/境界体系.md')
+  })
+})
+
+// ── R66-1（十四轮）：草稿覆写链非 UTF-8 防线（M-5 同族）──────────────────────
+// GBK 等非 UTF-8 旧文件被 AI 写章链覆写时，utf8 留底快照只含 U+FFFD 失真文本、
+// 原字节不可恢复；防线应 fail-closed 上抛拒绝覆写（编辑器保存路径 M-5 的对称面）。
+describe('R66-1: snapshotBeforeOverwrite 非 UTF-8 覆写防线', () => {
+  it('非 UTF-8 旧文件 → 上抛拒绝覆写，原文件字节原样', () => {
+    const rel = '工作区/草稿/0003-旧稿.md'
+    mkdirSync(join(dir, '工作区', '草稿'), { recursive: true })
+    // GBK「风」(0xB7 0xE7)——utf-8 fatal 解码必炸的字节序列（对齐 service.test M-5 夹具口径）
+    const gbk = Buffer.from([0xb7, 0xe7])
+    writeFileSync(join(dir, rel), gbk)
+    expect(() => snapshotBeforeOverwrite(dir, rel, '新内容')).toThrow('不是 UTF-8')
+    // 原字节未被任何形式改写/移动
+    expect(readFileSync(join(dir, rel))).toEqual(gbk)
+  })
+
+  it('合法 UTF-8 旧文件（含真实 U+FFFD 字符）→ 正常留底不误伤', () => {
+    const rel = '工作区/草稿/0004-替换符.md'
+    mkdirSync(join(dir, '工作区', '草稿'), { recursive: true })
+    const old = '\uFFFD 旧内容' // 合法 UTF-8 编码的 U+FFFD 字符（0xEF 0xBF 0xBD）
+    writeFileSync(join(dir, rel), old, 'utf-8')
+    const snap = snapshotBeforeOverwrite(dir, rel, '新内容')
+    expect(snap).toBeTruthy()
+    // writeSnapshot 返回版本 id（非路径）：按 .版本/<docId>/<id>.md 布局落盘，走目录扫描读回
+    const verDir = join(dir, '工作区', '.版本')
+    const docDir = readdirSync(verDir).find((d) => existsSync(join(verDir, d, `${snap}.md`)))
+    expect(docDir).toBeTruthy()
+    expect(readFileSync(join(verDir, docDir!, `${snap}.md`), 'utf-8')).toContain('旧内容')
+  })
+
+  it('saveDraft 集成：case2 文件名相撞的 GBK 旧文件 → 拒绝落盘且字节不变（撤防线本用例红）', () => {
+    // 触发链定谳（R66-1）：GBK 文件 fm 解析失败不进 readChapterDir → resolveDraftPath case1
+    // 找不到它；真实覆写路径 = case2 按新稿标题生成的文件名与既有 GBK 文件同名相撞
+    // （extractTitleFromContent 读 fm 标题 → 0003-旧稿.md），此时 snapshotBeforeOverwrite
+    // existsSync 命中 → 防线上抛。
+    mkdirSync(join(dir, '写作', '正文', '第一卷'), { recursive: true })
+    const gbk = Buffer.from([0xb7, 0xe7]) // GBK「风」——utf-8 fatal 解码必炸
+    const fp = join(dir, '写作', '正文', '第一卷', '0003-旧稿.md')
+    writeFileSync(fp, gbk)
+    expect(() => saveDraft(dir, 3, '---\n章号: 3\n标题: 旧稿\n---\n\n新内容')).toThrow('不是 UTF-8')
+    expect(readFileSync(fp)).toEqual(gbk) // 原文件未被覆写
+    expect(existsSync(join(dir, '工作区', '.版本'))).toBe(false) // 未写失真快照
+  })
+
+  it('saveDraft 集成：case2 文件名相撞的 UTF-8 旧文件 → 正常覆写并留底（对照组）', () => {
+    mkdirSync(join(dir, '写作', '正文', '第一卷'), { recursive: true })
+    writeFileSync(join(dir, '写作', '正文', '第一卷', '0005-旧稿.md'), '旧内容', 'utf-8')
+    const r = saveDraft(dir, 5, '---\n章号: 5\n标题: 旧稿\n---\n\n新内容')
+    expect(r.relPath).toBe('写作/正文/第一卷/0005-旧稿.md')
+    expect(r.snapshotted).toBe(true)
+    expect(readFileSync(join(dir, r.relPath), 'utf-8')).toContain('新内容')
   })
 })

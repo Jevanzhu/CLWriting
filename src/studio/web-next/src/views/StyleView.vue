@@ -2,7 +2,7 @@
 // 文风视图（StyleView 拆分 P2-5 编排壳）：定标 / 条目库 / 候选箱 / 验收 四段式。
 // 四段拆为独立子组件（StyleBaselineCard / StyleEntryPanel / StyleCandidateBox / StyleAcceptancePanel），
 // 通过 style store 共享数据；本文件只留加载编排 + 四段布局。
-import { onMounted, watch } from 'vue'
+import { onMounted } from 'vue'
 import { useStyleStore } from '../stores/style'
 import { useUiStore } from '../stores/ui'
 import { friendlyError } from '../shared/error'
@@ -27,7 +27,8 @@ async function load(): Promise<void> {
   }
 }
 onMounted(load)
-watch(() => props.bookName, load)
+// R66-36（十四轮）：原 bookName watch 为不可达死代码已移除——本视图在 Book.vue 挂
+// :key="bookName"（H-2），切书是整实例拆建，实例存活期内 bookName 恒不变；加载由 onMounted 承担
 </script>
 
 <template>

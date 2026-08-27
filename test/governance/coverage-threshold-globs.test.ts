@@ -20,6 +20,10 @@ const picomatch = require_('picomatch') as (g: string | string[]) => (s: string)
 /** 与 vitest.config.ts thresholds 键保持同序（双向锁基准） */
 const EXPECTED_GLOBS = [
   'src/{!(studio),studio/!(web-next)}/**',
+  // R66-41（十四轮）：主桶上叠的三个域级子桶（ai/events/studio-server，基线 −2pp）
+  'src/ai/**',
+  'src/events/**',
+  'src/studio/server/**',
   'src/studio/web-next/src/api/**',
   'src/studio/web-next/src/{composables,editor,shared,stores}/**',
 ]

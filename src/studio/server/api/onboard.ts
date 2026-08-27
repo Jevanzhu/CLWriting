@@ -117,6 +117,10 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
       }
 
       const prompt = buildOnboardPrompt(step, title, genre, kind, premise, discussionContext)
+      // R66-7（十四轮）口径明确（铁律①「模型可见⟺已记录」）：本端点 prompt 只注入
+      // config 派生值（title/genre/kind，非文件正文）与 premise/discussionContext（用户
+      // 请求体自由文本）——两者均非文件注入源，故 runSpec 不传 promptFiles（files 是文件
+      // 级溯源通道）；用户文本的凭据 = 请求本身 + llm/call promptMeta 的 chars/hash 指纹。
 
       const result = await runOnboard(ctx.userDataPath, prompt, bookRoot)
       if (!result.ok) return replyError(res, 500, 'GEN_FAIL', result.error)

@@ -70,9 +70,25 @@ ${ctx.skillsIndex ? `\n${ctx.skillsIndex}\n` : ''}
  * 同一字段做同源 digest16，任一侧改拼接源即破坏「模型可见 ⟺ 已记录」。
  */
 export function visibleInjections(ctx: ChatContext): VisibleInjection[] {
-  const out: VisibleInjection[] = [{ scope: 'settings', digest: digest16(ctx.settings) }]
-  if (ctx.currentChapter) out.push({ scope: 'chapter', digest: digest16(ctx.currentChapter) })
-  if (ctx.skillsIndex) out.push({ scope: 'skills', digest: digest16(ctx.skillsIndex) })
+  // R66-9（十四轮）：{scope,digest} 组装下沉到 FromDigests 单源——CLW_VERIFY_VISIBLE
+  // 诊断开关与治理测试共用同一形状逻辑，诊断侧不再手工镜像（镜像漂移恰是该开关要抓的）
+  return visibleInjectionsFromDigests({
+    settings: digest16(ctx.settings),
+    ...(ctx.currentChapter ? { chapter: digest16(ctx.currentChapter) } : {}),
+    ...(ctx.skillsIndex ? { skills: digest16(ctx.skillsIndex) } : {}),
+  })
+}
+
+/** digest 级单源组装（R66-9）：运行时诊断入口——轮循环里只有预计算的 deps.digests、
+ *  无原始 ctx。形状口径与 visibleInjections 严格一致（settings 恒在 + 条件注入）。 */
+export function visibleInjectionsFromDigests(d: {
+  settings: string
+  chapter?: string
+  skills?: string
+}): VisibleInjection[] {
+  const out: VisibleInjection[] = [{ scope: 'settings', digest: d.settings }]
+  if (d.chapter !== undefined) out.push({ scope: 'chapter', digest: d.chapter })
+  if (d.skills !== undefined) out.push({ scope: 'skills', digest: d.skills })
   return out
 }
 

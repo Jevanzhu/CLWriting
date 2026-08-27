@@ -1,7 +1,7 @@
 /**
  * F1-P2 chain-bridge 单测：链路事件构造器载荷 + task→layer 五层映射 + ChainRecorder 写失败静默。
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   stepStartEvent,
   stepEndEvent,
@@ -18,6 +18,7 @@ import {
   ChainRecorder,
 } from '../../src/events/chain-bridge.js'
 import { assistantMessageEvent } from '../../src/events/chat-bridge.js'
+import { log } from '../../src/log/index.js'
 
 describe('F1-P2 链路事件构造器', () => {
   it('step/start + step/end 载荷（task + layer + reason）', () => {
@@ -194,6 +195,82 @@ describe('F1-P2 ChainRecorder', () => {
     expect(total).toBe(256)
     const last = (calls[calls.length - 1]! as { data: { attempt: number } }[])
     expect(last[last.length - 1]!.data.attempt).toBe(299)
+  })
+})
+
+describe('R66-4: ChainRecorder 写失败留痕（丢事件 = 丢「已记录」凭据）', () => {
+  it('flush 写失败 → log.warn 留批规模与病因，且 buffer 保留可恢复（恢复后整批不丢）', () => {
+    const warn = vi.spyOn(log, 'warn').mockReturnValue()
+    try {
+      const calls: unknown[][] = []
+      let fail = true
+      const store = {
+        appendEvents: (_sid: string, events: unknown[]) => {
+          if (fail) throw new Error('SQLITE_BUSY')
+          calls.push(events)
+          return events.map((_, i) => i + 1)
+        },
+        close: () => {},
+      } as never
+      const r = new ChainRecorder(store, 'ws-x')
+      r.add(stepStartEvent('chat', 'chat'))
+      r.add(llmRetryEvent({ attempt: 1, delayMs: 100 }))
+      r.flush() // 失败：修复前完全静默
+      expect(warn).toHaveBeenCalledTimes(1)
+      const [scope, msg] = warn.mock.calls[0]!
+      expect(scope).toBe('events')
+      expect(String(msg)).toContain('ChainRecorder 批落库失败')
+      expect(String(msg)).toContain('2 条') // 批规模
+      expect(String(msg)).toContain('SQLITE_BUSY') // 病因
+      // 恢复后重试成功：失败批不丢
+      fail = false
+      r.flush()
+      expect(calls).toHaveLength(1)
+      expect((calls[0]! as { type: string }[]).map((e) => e.type)).toEqual(['step/start', 'llm/retry'])
+      expect(warn).toHaveBeenCalledTimes(1) // 成功路径不再 warn
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('close 时有积压且落库持续失败 → best-effort flush 后 warn 丢弃条数与类型', () => {
+    const warn = vi.spyOn(log, 'warn').mockReturnValue()
+    try {
+      const closed: string[] = []
+      const store = {
+        appendEvents: () => { throw new Error('disk full') },
+        close: () => { closed.push('closed') },
+      } as never
+      const r = new ChainRecorder(store, 'ws-x')
+      r.add(stepStartEvent('chat', 'chat'))
+      r.add(checkReportEvent({ chapter: 1, reds: [] }))
+      r.close() // 修复前：flush 静默失败后直接关库，2 条观测事件无声蒸发
+      // flush 失败 warn（R66-4 第一处）+ close 残留丢弃 warn（第二处）
+      const msgs = warn.mock.calls.map((c) => String(c[1]))
+      expect(msgs.some((m) => m.includes('ChainRecorder 批落库失败'))).toBe(true)
+      expect(msgs.some((m) => m.includes('ChainRecorder close：残留 2 条') && m.includes('step/start') && m.includes('check/report'))).toBe(true)
+      expect(closed).toEqual(['closed']) // 留痕不炸收尾：store 照常关闭
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('close 时积压成功落库 → 无丢弃 warn（best-effort flush 生效路径）', () => {
+    const warn = vi.spyOn(log, 'warn').mockReturnValue()
+    try {
+      const calls: unknown[][] = []
+      const store = {
+        appendEvents: (_sid: string, events: unknown[]) => { calls.push(events); return events.map((_, i) => i + 1) },
+        close: () => {},
+      } as never
+      const r = new ChainRecorder(store, 'ws-x')
+      r.add(stepStartEvent('chat', 'chat'))
+      r.close()
+      expect(calls).toHaveLength(1) // close 前 best-effort flush 落整批
+      expect(warn).not.toHaveBeenCalled() // 成功路径零噪声
+    } finally {
+      warn.mockRestore()
+    }
   })
 })
 

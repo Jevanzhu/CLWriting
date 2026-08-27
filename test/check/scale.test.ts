@@ -105,7 +105,10 @@ function makeScaleBook(): { root: string; hitDocOf: (no: number) => string } {
   return { root, hitDocOf: (no) => docOfNo.get(no)! }
 }
 
-describe('树红点聚合规模界值（500 章长篇）', () => {
+// R66-43（十四轮）：墙钟界值类测试是受管理的 flaky 面——界值已按本机 ×12 预放大
+// （见上），CI 慢机偶发越界仍会以假红呈现。describe 级 retry:2：失败自动重跑至多
+// 2 次，抖动不放大为红灯；真退化（复杂度劣化）会稳定越界、连败 3 次仍红，可捕性不变。
+describe('树红点聚合规模界值（500 章长篇）', { retry: 2 }, () => {
   it('冷算与缓存命中两口耗时 < 界值，红点语义不空转', { timeout: 300_000 }, () => {
     const { root, hitDocOf } = makeScaleBook()
     try {

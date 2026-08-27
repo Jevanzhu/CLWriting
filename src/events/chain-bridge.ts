@@ -7,6 +7,7 @@
  */
 import type { NewEvent, SessionStore } from './store.js'
 import type { GoalChangeData, LayerName, StepEndReason, TodoWriteData } from './types.js'
+import { log } from '../log/index.js'
 
 // ── 事件构造辅助 ──────────────────────────────────
 
@@ -165,9 +166,16 @@ export class ChainRecorder {
     this.buffer = []
     try {
       this.store.appendEvents(this.sessionId, evs)
-    } catch {
+    } catch (e) {
       // 观测层：写失败不炸业务流程（与 appendTrace 一致）。O-1（第十三轮）：
       // 失败不整批丢弃——换回 buffer 待下次 flush 重试；持续失败超上限时丢最旧防无限增长
+      // R66-4（十四轮）：写失败完全静默无留痕——持续性故障（SQLITE_BUSY/磁盘满）期间
+      // 链路观测事件（llm/call 等）成审计流出黑洞无法定位；warn 留批规模与病因（丢事件
+      // = 丢「已记录」凭据，铁律①视角必须留痕），业务流程仍不炸
+      log.warn(
+        'events',
+        `ChainRecorder 批落库失败（${evs.length} 条链路事件暂存 buffer 待重试）：${e instanceof Error ? e.message : String(e)}`,
+      )
       this.buffer = [...evs, ...this.buffer]
       if (this.buffer.length > CHAIN_BUFFER_MAX) {
         this.buffer = this.buffer.slice(this.buffer.length - CHAIN_BUFFER_MAX)
@@ -183,7 +191,18 @@ export class ChainRecorder {
   close(): void {
     if (this.closed) return
     this.closed = true
+    // R66-4（十四轮）：close 路径此前 flush 失败后随即关库，buffer 内最多 256 条链路
+    // 观测事件（llm/call、check/report、goal/todo）无声蒸发——flush 本身已是 best-effort
+    // （失败批换回 buffer），close 后再无重试机会：残留条数 warn 留痕（丢事件 = 丢
+    // 「已记录」凭据，审计黑洞须可定位），不炸收尾流程
     this.flush()
+    if (this.buffer.length > 0) {
+      const types = [...new Set(this.buffer.map((e) => e.type))].join(',')
+      log.warn(
+        'events',
+        `ChainRecorder close：残留 ${this.buffer.length} 条链路事件（${types}）随录制器关闭丢弃——落库故障期间链路审计不完整`,
+      )
+    }
     try {
       this.store?.close()
     } catch {

@@ -22,6 +22,7 @@ import { readManifest, type Manifest } from '../document/manifest.js'
 import { readTrashManifest } from '../document/trash.js'
 import { writeSnapshot } from '../document/snapshot.js'
 import { legacyId } from '../document/stable-id.js'
+import { isUtf8Bytes } from '../document/service.js'
 import { invalidateTreeIndex } from '../document/tree.js'
 
 /**
@@ -40,7 +41,15 @@ export function snapshotBeforeOverwrite(
 ): string | null {
   const absPath = join(bookRoot, relPath)
   if (!existsSync(absPath)) return null
-  const old = readFileSync(absPath, 'utf8')
+  // R66-1（十四轮）：非 UTF-8 覆写防线（M-5 同族，lead-finalize 同款无条件口径）——
+  // 旧文件为 GBK 等非 UTF-8 编码时，utf8 读入留底的是含 U+FFFD 的失真快照，覆写后原字节
+  // 任何形式不可恢复（编辑器保存路径 M-5 只拦「乱码回写」，AI 写章链覆写旧文件此前静默
+  // 放行）。fail-closed 上抛拒绝覆写（Y-3 同款语义），提示先转码。
+  const raw = readFileSync(absPath)
+  if (!isUtf8Bytes(raw)) {
+    throw new Error(`目标文件 ${relPath} 不是 UTF-8 编码，覆写将使原始内容不可恢复——请先转码为 UTF-8 再重试`)
+  }
+  const old = raw.toString('utf8')
   if (old === newContent) return null
   // docId：清单反查（编辑器保存的快照同目录）→ 未登记按文件名派生
   let docId: string | undefined

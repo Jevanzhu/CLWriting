@@ -93,8 +93,9 @@ describe('N-10（第十二轮）：runSpec 动态 system 进 trace promptMeta', 
       | { data: { promptMeta?: { hash: string; chars: number } } }
       | undefined
     expect(call).toBeDefined()
-    // 修复点：哈希 = sha256(system + user) 前 16 位
-    expect(call!.data.promptMeta!.hash).toBe(hash16(`${req.systemPrompt}写第二章`))
+    // 修复点：哈希 = sha256(system + user) 前 16 位；R66-8（十四轮）起 hash 输入
+    // 前置 systemPrompt 长度前缀（len:full）消字段边界歧义——同 N-10 断言同口径
+    expect(call!.data.promptMeta!.hash).toBe(hash16(`${req.systemPrompt.length}:${req.systemPrompt}写第二章`))
     expect(call!.data.promptMeta!.chars).toBe(`${req.systemPrompt}写第二章`.length)
     // 修复前（只哈希 userPrompt）的对照值不得相等
     expect(call!.data.promptMeta!.hash).not.toBe(hash16('写第二章'))

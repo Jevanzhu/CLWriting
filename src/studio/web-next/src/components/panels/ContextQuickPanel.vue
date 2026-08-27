@@ -40,9 +40,13 @@ async function open(node: TreeNode): Promise<void> {
   }
 }
 
-/** 插入文档名到正文光标（命令管道 → EditorView → CmHost）；无活动文档时跳过。 */
+/** 插入文档名到正文光标（命令管道 → EditorView → CmHost）。 */
 function onInsert(text: string): void {
-  if (!ws.activeDocId) return
+  // R66-35（十四轮）：无活动文档时给反馈——此前静默 return，点击毫无响应像功能坏了
+  if (!ws.activeDocId) {
+    ui.toast('没有打开中的文档——先点开一章或设定文件，再插入', 'info')
+    return
+  }
   ws.requestInsert(text)
 }
 </script>

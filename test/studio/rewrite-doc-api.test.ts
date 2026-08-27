@@ -7,9 +7,10 @@ import type { AddressInfo } from 'node:net'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { beforeAll, afterAll, describe, it, expect } from 'vitest'
+import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest'
 import { startServer } from '../../src/studio/server/index.js'
 import { appendRewritten, buildAppendPrompt } from '../../src/studio/server/api/rewrite.js'
+import { isSelfHealRunning } from '../../src/ai/orchestrate/self-heal.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
 
@@ -211,5 +212,35 @@ describe('append 纯函数（M2 续写解选区）', () => {
 
   it('buildAppendPrompt：空白页语境给从头开写提示', () => {
     expect(buildAppendPrompt('', '开写')).toContain('本章尚无正文')
+  })
+})
+
+// ── R66-2（十四轮）：/rewrite 与全自动写章互斥（反向面） ─────────────────
+// chat 侧 write_chapter 已同持 'rewrite' 闸（turns.ts，正向面回归见
+// test/ai/tools/chat-ai-gen-gate.test.ts）；本端点此前只持自己的闸、不查
+// self-heal 运行标记——全自动写章在途时编辑器整章改写可并发起跑。
+vi.mock('../../src/ai/orchestrate/self-heal.js', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('../../src/ai/orchestrate/self-heal.js')>()
+  return { ...orig, isSelfHealRunning: vi.fn(() => false) }
+})
+
+describe('R66-2: /rewrite 与 self-heal 互斥（反向面）', () => {
+  it('self-heal 运行中 → 409 BUSY，不进入改写（修复前可并发起跑）', async () => {
+    vi.mocked(isSelfHealRunning).mockReturnValueOnce(true)
+    const r = await post(`/api/books/${encodeURIComponent(BOOK)}/documents/${chapterDocId}/rewrite`, {
+      instruction: '润色',
+    })
+    expect(r.status).toBe(409)
+    const j = r.json as { code: string; error: string }
+    expect(j.code).toBe('BUSY')
+    expect(j.error).toContain('全自动写章')
+  })
+
+  it('self-heal 空闲（默认态）→ 不拦（守卫不误伤，正常路径回归见上方既有用例）', async () => {
+    const r = await post(`/api/books/${encodeURIComponent(BOOK)}/documents/${chapterDocId}/rewrite`, {
+      instruction: '更生动',
+      selection: '主角登场',
+    })
+    expect(r.status).toBe(200)
   })
 })

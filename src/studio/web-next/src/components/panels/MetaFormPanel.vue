@@ -210,7 +210,9 @@ async function onSave(): Promise<void> {
     if (ws.activeDocId === docId && props.bookName === book) await doc.refresh(docId)
     if (props.bookName === book) ui.toast('已保存', 'success')
   } catch (err) {
-    ui.toast(friendlyError(err), 'error')
+    // R66-31（十四轮）：失败路径补书名守卫——成功路径（上方）有门，catch 漏配：
+    // updateDocMeta await 窗口切书后，A 书的保存失败错误会 toast 在 B 书界面上
+    if (props.bookName === book) ui.toast(friendlyError(err), 'error')
   } finally {
     saving.value = false
   }
