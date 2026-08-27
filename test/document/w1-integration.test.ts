@@ -30,7 +30,8 @@ describe('W1 / 原子性与路径安全', () => {
   })
   afterEach(() => rmSync(bookRoot, { recursive: true, force: true }))
 
-  it('落盘失败（只读目录）→ WRITE_ERROR，目标文件不变（无半截）', async () => {
+  // Windows 无 POSIX 权限位（chmod 为 no-op/仅映射只读位），该守卫语义由 macOS/Linux CI 腿覆盖
+  it.skipIf(process.platform === 'win32')('落盘失败（只读目录）→ WRITE_ERROR，目标文件不变（无半截）', async () => {
     const roDir = join(bookRoot, '素材')
     mkdirSync(roDir, { recursive: true })
     const f = join(roDir, 'x.md')
@@ -50,7 +51,8 @@ describe('W1 / 原子性与路径安全', () => {
     }
   })
 
-  it('symlink 越出书仓库 → PATH_ESCAPE，不落盘', async () => {
+  // Windows 无 POSIX 权限位/需开发者模式，symlinkSync 直建 EPERM，该守卫语义由 macOS/Linux CI 腿覆盖
+  it.skipIf(process.platform === 'win32')('symlink 越出书仓库 → PATH_ESCAPE，不落盘', async () => {
     mkdirSync(join(bookRoot, '定稿', '正文'), { recursive: true })
     symlinkSync('/etc/passwd', join(bookRoot, '定稿', '正文', 'link.md'))
     const r = await svc.save('doc_l', '定稿/正文/link.md', {

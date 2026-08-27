@@ -6,7 +6,7 @@
  * - buildDraftPrompt：细纲 + 备料 + 章纲 + 设定预算注入（C3：世界观/角色/境界共享
  *   SETTINGS_BUDGET_CHARS，超限先丢宽泛层再截断最具体层）+ 要求（长短篇 front matter 分支）
  */
-import { join, basename, dirname, relative } from 'node:path'
+import { join, basename, dirname, relative, isAbsolute } from 'node:path'
 import { mkdirSync, existsSync, readFileSync } from 'node:fs'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { readChapterDir } from '../format/chapters.js'
@@ -361,9 +361,15 @@ export function buildDraftPrompt(
   const styleSampleInjection = buildStyleSampleInjection(bookRoot, chapter, config)
   const range = wordRange(kind, config?.book?.chapter_target_words)
   // Q-5：注入序源文件清单（各段非空才计——空段 = 该源未入 prompt，不得登记）
+  // files 契约"相对书根"（posix / 归一）：mix 自有物理反斜杠（relative/sources 在 win
+  // 返回 \），统一归一——否则注入源清单跨平台分隔符不一致（win 适配 F2 缺陷）。
+  // p 两种形态：字面 posix rel（'工作区/细纲.md'）与绝对路径（relative/sources）——
+  // 绝对路径转相对+posix；字面 rel 已是 posix 原样保留。
   const files: string[] = []
   const pushFile = (p: string | undefined): void => {
-    if (p && !files.includes(p)) files.push(p)
+    if (!p) return
+    const rel = isAbsolute(p) ? relative(bookRoot, p).replace(/\\/g, '/') : p.replace(/\\/g, '/')
+    if (rel && !files.includes(rel)) files.push(rel)
   }
   if (outline) pushFile('工作区/细纲.md')
   if (chapterOutline) pushFile(chapterOutlinePath ? relative(bookRoot, chapterOutlinePath) : undefined)

@@ -9,7 +9,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { appendBaseline, appendWordsDelta, readBaseline, readTodayDelta, wordsDiaryPath } from '../../src/document/words-diary.js'
 
-test('P5-数据层（第七轮）：日记文件读失败（权限）→ readBaseline/readTodayDelta 返 null 不抛', () => {
+// Windows 无 POSIX 权限位（chmod 为 no-op/仅映射只读位），该守卫语义由 macOS/Linux CI 腿覆盖
+test.skipIf(process.platform === 'win32')('P5-数据层（第七轮）：日记文件读失败（权限）→ readBaseline/readTodayDelta 返 null 不抛', () => {
   const root = mkdtempSync(join(tmpdir(), 'w-diary-fail-'))
   appendBaseline(root, '2026-08-21', 100)
   appendWordsDelta(root, '2026-08-21', 50)

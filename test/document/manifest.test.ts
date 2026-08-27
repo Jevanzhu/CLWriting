@@ -95,7 +95,8 @@ describe('manifest', () => {
 })
 
 describe('M-13（第八轮）：finalizedChapterSetOfBook 读失败 → undefined（全量兜底），不误判真 0 章', () => {
-  it('读失败（EACCES）→ undefined', () => {
+  // Windows 无 POSIX 权限位（chmod 为 no-op/仅映射只读位），该守卫语义由 macOS/Linux CI 腿覆盖
+  it.skipIf(process.platform === 'win32')('读失败（EACCES）→ undefined', () => {
     const root = mkdtempSync(join(tmpdir(), 'manifest-sentinel-'))
     const fp = join(root, '项目', '文档清单.jsonl')
     try {
@@ -123,7 +124,8 @@ describe('M-2（第十轮）：finalizedPathSet 哨兵对齐 M-13——读失败
     }
   })
 
-  it('读失败（EACCES）→ null 全量兜底，不把「读不到」当「零定稿」放草稿进来', () => {
+  // Windows 无 POSIX 权限位（chmod 为 no-op/仅映射只读位），该守卫语义由 macOS/Linux CI 腿覆盖
+  it.skipIf(process.platform === 'win32')('读失败（EACCES）→ null 全量兜底，不把「读不到」当「零定稿」放草稿进来', () => {
     const root = mkdtempSync(join(tmpdir(), 'manifest-m2-'))
     const fp = join(root, '项目', '文档清单.jsonl')
     try {

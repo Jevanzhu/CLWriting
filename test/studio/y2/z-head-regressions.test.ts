@@ -83,8 +83,12 @@ beforeAll(async () => {
 })
 afterAll(() => {
   server?.close()
-  rmSync(workDir, { recursive: true, force: true })
-  rmSync(userDataPath, { recursive: true, force: true })
+  try {
+    rmSync(workDir, { recursive: true, force: true })
+    rmSync(userDataPath, { recursive: true, force: true })
+  } catch {
+    // Windows 清理竞态（句柄/防病毒占用偶发 EPERM）——best-effort 忽略
+  }
 })
 
 describe('Z-1/Z-4: /rewrite 端点登记与章预算', () => {

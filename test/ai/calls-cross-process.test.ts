@@ -10,7 +10,7 @@ import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawn } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { describe, it, expect, afterAll } from 'vitest'
 
 const root = mkdtempSync(join(tmpdir(), 'clwriting-calls-xproc-'))
@@ -23,7 +23,7 @@ const callsPath = fileURLToPath(new URL('../../src/ai/calls.ts', import.meta.url
 /** 起一个子进程并发记账 N 次，resolve 退出码 */
 function spawnWorker(bookRoot: string, n: number): Promise<number> {
   const script = `
-import { recordAiCall } from ${JSON.stringify(callsPath)}
+import { recordAiCall } from ${JSON.stringify(pathToFileURL(callsPath).href)}
 for (let i = 0; i < ${n}; i++) {
   recordAiCall(${JSON.stringify(bookRoot)}, 5, { inputTokens: 10, outputTokens: 20 })
 }

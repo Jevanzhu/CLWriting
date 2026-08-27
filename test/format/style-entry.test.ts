@@ -131,7 +131,8 @@ describe('readEntries / nextEntrySeq / addEntry', () => {
   // 低-3（第十轮）：readdir 与 stat 之间文件被删的竞态——等价造法是悬空 symlink
   // （stat 跟随链接取目标，同样 ENOENT）。此前裸 statSync 会把整个条目库读取抛穿，
   // 对齐 leads.ts readLeadDir 的守卫写法：单文件失败跳过不中断
-  it('低-3（第十轮）：类型目录含已消失文件（悬空链接）不抛，其余条目照常读出', () => {
+  // Windows 无 POSIX 权限位/需开发者模式，symlinkSync 直建 EPERM，该守卫语义由 macOS/Linux CI 腿覆盖
+  it.skipIf(process.platform === 'win32')('低-3（第十轮）：类型目录含已消失文件（悬空链接）不抛，其余条目照常读出', () => {
     addEntry(root, { 类型: '样章', 场景: '战斗', 来源: '作者标注', 正文: 'A' })
     symlinkSync(join(root, ENTRIES_DIR, '样章', 'no-such.md'), join(root, ENTRIES_DIR, '样章', '战斗-002.md'))
     const { entries, errors } = readEntries(join(root, ENTRIES_DIR))

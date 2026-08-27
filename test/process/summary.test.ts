@@ -336,7 +336,7 @@ describe('prepare 注入登记（模型可见 ⟺ 已记录，C1 红线）', () 
     try {
       const config = effectiveConfig(root, null)
       const r = prepare(db, config, root, [], undefined, '战斗')
-      expect(r.injectedSummaryFiles).toContain(join('定稿', '摘要', '章摘要', '1.md'))
+      expect(r.injectedSummaryFiles).toContain('定稿/摘要/章摘要/1.md')
       // 注入内容剥 fm：fm 键不进材料正文，mock 摘要正文进
       const endings = r.sections.find((s) => s.title === '近章结尾')
       expect(endings).toBeDefined()

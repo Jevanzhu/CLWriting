@@ -43,7 +43,8 @@ describe('readForeshadows', () => {
   // B-4（第六十轮）：walkChapters 接入 walk-md 共享口径（N2 漏网第四套）——
   // 裸 statSync 跟随 symlink 递归无剪枝：循环 symlink 无限递归 RangeError、
   // 指向书外的 symlink 整树 .md 按章号整读
-  test('B-4: 循环 symlink 不崩溃；书外 symlink 目录整树不进章收集', () => {
+  // Windows 无 POSIX 权限位/需开发者模式，symlinkSync 直建 EPERM，该守卫语义由 macOS/Linux CI 腿覆盖
+  test.skipIf(process.platform === 'win32')('B-4: 循环 symlink 不崩溃；书外 symlink 目录整树不进章收集', () => {
     writeForeshadow('玉佩', { 重要性: '高', 关联词: '玉佩', 埋设章号: '1' })
     writeChapter(1, '埋', '他摸了摸胸前的玉佩。')
     // 循环 symlink：正文/loop → 正文（修复前 RangeError 崩进门）

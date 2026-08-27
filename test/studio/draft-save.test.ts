@@ -14,6 +14,7 @@ import { join } from 'node:path'
 import { snapshotBeforeOverwrite } from '../../src/studio/server/api/draft.js'
 import { startServer } from '../../src/studio/server/index.js'
 import { legacyId, generateDocId } from '../../src/document/stable-id.js'
+import { encodeDocDirName } from '../../src/document/version.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 
 let root = ''
@@ -28,9 +29,9 @@ afterEach(() => {
   if (root) rmSync(root, { recursive: true, force: true })
 })
 
-/** 列指定 docId 目录下的快照文件 */
+/** 列指定 docId 目录下的快照文件（目录名按 win 跨平台编码映射） */
 function snapshotFiles(docId: string): string[] {
-  const dir = join(root, '工作区', '.版本', docId)
+  const dir = join(root, '工作区', '.版本', encodeDocDirName(docId))
   if (!existsSync(dir)) return []
   return readdirSync(dir).filter((f) => f.endsWith('.md'))
 }
@@ -43,7 +44,7 @@ describe('snapshotBeforeOverwrite(M1 覆写留底)', () => {
     // 未登记清单 → legacyId(relPath) 派生键（X-P2-2：与树扫盘/编辑器 openTab 同口径，快照在版本历史可恢复）
     const files = snapshotFiles(legacyId(REL))
     expect(files).toHaveLength(1)
-    const snap = readFileSync(join(root, '工作区', '.版本', legacyId(REL), files[0]!), 'utf8')
+    const snap = readFileSync(join(root, '工作区', '.版本', encodeDocDirName(legacyId(REL)), files[0]!), 'utf8')
     expect(snap).toContain('旧稿：他把烟摁灭。')
     expect(snap).toContain('来源: draft-overwrite')
     expect(snap).not.toContain('新稿')
@@ -89,7 +90,7 @@ describe('snapshotBeforeOverwrite(M1 覆写留底)', () => {
     expect(id).not.toBeNull()
     const files = snapshotFiles(legacyId(shortRel))
     expect(files).toHaveLength(1)
-    expect(readFileSync(join(root, '工作区', '.版本', legacyId(shortRel), files[0]!), 'utf8')).toContain('第1章草稿')
+    expect(readFileSync(join(root, '工作区', '.版本', encodeDocDirName(legacyId(shortRel)), files[0]!), 'utf8')).toContain('第1章草稿')
   })
 })
 

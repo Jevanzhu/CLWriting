@@ -167,7 +167,7 @@ describe('C3 细纲卷进展段', () => {
     const p = volumeProgressOf(root, 3)
     expect(p.section).toContain('## 当前卷进展')
     expect(p.section).toContain('第 1 卷摘要')
-    expect(p.file).toBe(join('定稿', '摘要', '卷摘要', '1.md'))
+    expect(p.file).toBe('定稿/摘要/卷摘要/1.md')
     // prompt 含该段
     const prompt = buildOutlinePrompt(root, 3, 'long')
     expect(prompt).toContain('## 当前卷进展')

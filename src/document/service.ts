@@ -37,6 +37,7 @@ import { appendTrashEntry, readTrashManifest } from './trash.js'
 import { appendWordsDelta, todayDate } from './words-diary.js'
 import { countWords, chapterFilePrefix } from '../format/words.js'
 import { sanitizeChapterTitle } from '../format/filename.js'
+import { encodeDocDirName } from './version.js'
 import { readBookConfig } from '../format/yaml.js'
 
 /** 第五轮：非 UTF-8（GBK 等）文件的元数据写回统一拒绝——utf-8 读入产生 U+FFFD 替换
@@ -782,7 +783,7 @@ export class DocumentService {
     if (!oldSafe) return { ok: false, code: 'PATH_ESCAPE', reason: '路径越出书仓库' }
     if (!existsSync(oldSafe)) return { ok: false, code: 'NOT_FOUND', reason: '源文件不存在' }
 
-    const trashedRel = `工作区/.trash/${docId}-${basename(oldPath)}`
+    const trashedRel = `工作区/.trash/${encodeDocDirName(docId)}-${basename(oldPath)}`
     try {
       // snapshot 留底（删除前，W0-1 §7）
       const baseRev = computeRevision(oldSafe)

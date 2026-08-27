@@ -24,13 +24,15 @@ afterEach(() => {
 })
 
 describe('Y-5: 不存在目标的中间 symlink', () => {
-  it('linkdir 指向书外 + 新建目标 → 拒绝（null）', () => {
+  // Windows 无 POSIX 权限位/需开发者模式，symlinkSync 直建 EPERM，该守卫语义由 macOS/Linux CI 腿覆盖
+  it.skipIf(process.platform === 'win32')('linkdir 指向书外 + 新建目标 → 拒绝（null）', () => {
     mkdirSync(join(root, '写作'), { recursive: true })
     symlinkSync(outside, join(root, '写作', 'linkdir'))
     expect(resolveWithinRoot(root, '写作/linkdir/新章.md')).toBeNull()
   })
 
-  it('linkdir 指向书内（合法重定向）+ 新建目标 → 解析到真实路径放行', () => {
+  // Windows 无 POSIX 权限位/需开发者模式，symlinkSync 直建 EPERM，该守卫语义由 macOS/Linux CI 腿覆盖
+  it.skipIf(process.platform === 'win32')('linkdir 指向书内（合法重定向）+ 新建目标 → 解析到真实路径放行', () => {
     mkdirSync(join(root, '写作'), { recursive: true })
     mkdirSync(join(root, '设定'), { recursive: true })
     symlinkSync(join(root, '设定'), join(root, '写作', 'linkdir'))

@@ -251,7 +251,8 @@ test('S5-D7: 第二次 save 产生 providers.bak.json 备份', () => {
 
 // ── ee-P2-1：凭据文件权限 0600 创建即生效（无 umask 窗口）────────
 
-test('ee-P2-1: save 后主文件与 bak 权限均 0600（mode 随临时文件创建，无全局可读窗口）', () => {
+// Windows 无 POSIX 权限位（chmod/mode 为 no-op），仅 POSIX 断言 mode，守卫语义由 macOS/Linux CI 腿覆盖
+test.skipIf(process.platform === 'win32')('ee-P2-1: save 后主文件与 bak 权限均 0600（mode 随临时文件创建，无全局可读窗口）', () => {
   const store = emptySettings()
   store.providers = [makeConf({ apiKey: 'sk-mode-first-12345' })]
   saveProviders(dir, store) // 首次（主文件创建）

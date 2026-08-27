@@ -170,8 +170,11 @@ describe('知识层更新：commit 登记', () => {
       expect(commitKnowledgeFile(root, { target: '知识层/../库外定稿.md' }).ok).toBe(false)
       expect(commitKnowledgeFile(root, { target: join(root, '知识层', '存量.md') }).ok).toBe(false) // 绝对路径
       // symlink 指库外：resolveWithinRoot fail-closed（realpath 逃出 root）
-      symlinkSync(join(root, '库外定稿.md'), join(root, '知识层', '链.md'))
-      expect(commitKnowledgeFile(root, { target: '知识层/链.md' }).ok).toBe(false)
+      // win 需开发者模式才能建链接（EPERM）——该守卫语义由 mac/linux CI 腿覆盖
+      if (process.platform !== 'win32') {
+        symlinkSync(join(root, '库外定稿.md'), join(root, '知识层', '链.md'))
+        expect(commitKnowledgeFile(root, { target: '知识层/链.md' }).ok).toBe(false)
+      }
       // 全部拒绝后 manifest 零变化、库外文件未被注入 fm（仍是原文）
       const m = JSON.parse(readFileSync(join(root, '知识层', '_manifest.json'), 'utf8'))
       expect(m.entries).toHaveLength(1)

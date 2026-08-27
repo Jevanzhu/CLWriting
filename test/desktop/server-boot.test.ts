@@ -12,6 +12,8 @@
  */
 import { describe, it, expect, vi } from 'vitest'
 import http from 'node:http'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
   parseServerArgs,
   bootServerFromArgs,
@@ -184,8 +186,13 @@ describe('批 U1：describeBootError（boot-error 信封）', () => {
 })
 
 describe('批 U1：deriveStaticDir', () => {
+  // Windows 无 POSIX 分隔且 file:///app/ 非绝对 URL：用 resolve+pathToFileURL 构造
+  // 平台绝对 module URL，期望以 fileURLToPath+join 同源推导——仅锁「dist 同级 web」相对语义，
+  // win 与 mac/linux 各按本平台分隔符解析
   it('入口产物相对派生：dist/desktop/*.js → dist/web（asar 内同款，R-6）', () => {
-    expect(deriveStaticDir('file:///app/dist/desktop/server-utility.js')).toBe('/app/dist/web')
-    expect(deriveStaticDir('file:///app/dist/desktop/server-main.js')).toBe('/app/dist/web')
+    const ut = pathToFileURL(resolve('dist', 'desktop', 'server-utility.js')).href
+    const main = pathToFileURL(resolve('dist', 'desktop', 'server-main.js')).href
+    expect(deriveStaticDir(ut)).toBe(join(dirname(dirname(fileURLToPath(ut))), 'web'))
+    expect(deriveStaticDir(main)).toBe(join(dirname(dirname(fileURLToPath(main))), 'web'))
   })
 })

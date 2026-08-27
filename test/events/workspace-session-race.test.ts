@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawn } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { describe, it, expect, afterAll } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
 import { bookHash } from '../../src/events/store.js'
@@ -24,7 +24,7 @@ const storePath = fileURLToPath(new URL('../../src/events/store.ts', import.meta
 /** 子进程：开库 → workspaceSession → 落 1 条链路事件 → close，stdout 打印 ws id */
 function spawnWorker(userDataPath: string, bookRoot: string): Promise<string> {
   const script = `
-import { openSessionStore, bookHash } from ${JSON.stringify(storePath)}
+import { openSessionStore, bookHash } from ${JSON.stringify(pathToFileURL(storePath).href)}
 const store = openSessionStore(${JSON.stringify(userDataPath)}, ${JSON.stringify(bookRoot)})!
 try {
   const book = bookHash(${JSON.stringify(bookRoot)})

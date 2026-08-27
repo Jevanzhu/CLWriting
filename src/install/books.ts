@@ -56,7 +56,9 @@ export function bookStoragePath(bookName: string, kind: 'long' | 'short'): strin
  * 防 `../` 经 join 后越出 workDir（此前防线只在 server 层，逻辑层新调用方会重踩）。
  */
 export function isInvalidBookName(name: string): boolean {
-  if (name === '' || name.includes('\0') || /[\\/]/.test(name) || name === '.' || name === '..') return true
+  // win 非法字符集（win 适配批 2，2026-08-27）：书名直接作目录名，任意非法字符
+  // 在 win 上 mkdir 失败/吞字；跨平台统一拒绝（mac 也拦住，行为一致更简单）
+  if (name === '' || name.includes('\0') || /[\\/:*?"<>|]/.test(name) || name === '.' || name === '..') return true
   // Z-22（第五十八轮）：Windows 保留设备名（CON/NUL/COM1-9/LPT1-9 等）——win 上
   // mkdir 对这些名字直接失败，提前以人话校验拒绝（mac 不受影响，为阶段 21 预铺）；
   // 尾点/尾空格同拒（win 落盘时被剥引发读写名不一致）

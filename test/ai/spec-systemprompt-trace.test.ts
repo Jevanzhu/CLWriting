@@ -71,7 +71,9 @@ function hash16(full: string): string {
 
 describe('N-10（第十二轮）：runSpec 动态 system 进 trace promptMeta', () => {
   afterEach(() => {
-    for (const d of workDirs.splice(0)) rmSync(d, { recursive: true, force: true })
+    try { for (const d of workDirs.splice(0)) rmSync(d, { recursive: true, force: true }) } catch {
+          // Windows 清理竞态（防病毒/句柄占用偶发 EPERM）——best-effort 忽略
+        }
   })
 
   it('llm/call 的 promptMeta.hash 哈希了 system 终值 + userPrompt（不只 userPrompt）', async () => {

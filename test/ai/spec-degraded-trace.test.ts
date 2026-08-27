@@ -88,7 +88,9 @@ function readLlmCalls(ud: string, bookRoot: string): LlmCallEvent[] {
 describe('B-2/B-12（第六十轮）：degraded 透传与失败 usage 的 llm/call 全链', () => {
   afterEach(() => {
     generateMock.mockReset()
-    for (const d of workDirs.splice(0)) rmSync(d, { recursive: true, force: true })
+    try { for (const d of workDirs.splice(0)) rmSync(d, { recursive: true, force: true }) } catch {
+          // Windows 清理竞态（防病毒/句柄占用偶发 EPERM）——best-effort 忽略
+        }
   })
 
   it('B-2：降级参数面成功 → runSpec 回调带 degraded → llm/call 事件带 degraded:true（三断点全闭合）', async () => {

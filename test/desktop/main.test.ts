@@ -536,7 +536,7 @@ describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
     const n0 = M.shell.open.length
     M.ipcHandle['desktop:open-book-dir']!(null, '书A')
     expect(M.shell.open.length).toBe(n0 + 1)
-    expect(M.shell.open[n0]).toContain('books/a')
+    expect(M.shell.open[n0]).toContain(join('books', 'a'))
     const lib = mkLibrary()
     writeFileSync(join(lib, '.clwriting', 'books.jsonl'), `${JSON.stringify({ name: '坏书', path: '../outside' })}\n`)
     writeFileSync(join(M.userData, 'workdir.json'), JSON.stringify({ current: lib, recent: [] }))

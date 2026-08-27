@@ -170,9 +170,10 @@ describe('收割 + 候选箱端点（源1 闭环）', () => {
       body: JSON.stringify({ path: '文风/条目/样章/通用-001.md' }),
     })
     expect(evil.status).toBe(400)
+  })
 
-    // M-7：中间组件符号链接穿越——路径字面在 候选/ 内但 realpath 越出书库，
-    // confirm/ignore 都要拒（旧实现只挡字面穿越，symlink 可逃逸）
+  // Windows 无 POSIX 权限位/需开发者模式，symlinkSync 直建 EPERM，该守卫语义由 macOS/Linux CI 腿覆盖
+  it.skipIf(process.platform === 'win32')('M-7：中间组件符号链接穿越——路径字面在候选目录内但 realpath 越出书库，confirm/ignore 都拒', async () => {
     const outside = mkdtempSync(join(tmpdir(), 'clwriting-style-evil-'))
     try {
       writeFileSync(join(outside, 'evil.md'), '---\n场景: 战斗\n---\n逃逸正文', 'utf8')

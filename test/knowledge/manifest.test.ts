@@ -86,7 +86,8 @@ test('validateKnowledgeManifest: 拒绝知识层外路径', () => {
 
 // 第五轮：单文件不可读（EACCES/竞态消失）记 issue 继续——修复前 readFileSync 抛出
 // 穿透 validateKnowledgeManifest，一个坏文件让整场校验崩掉
-test('validateKnowledgeManifest: 单文件读取失败 → 记 issue 不抛', () => {
+// Windows 无 POSIX 权限位（chmod 为 no-op/仅映射只读位），该守卫语义由 macOS/Linux CI 腿覆盖
+test.skipIf(process.platform === 'win32')('validateKnowledgeManifest: 单文件读取失败 → 记 issue 不抛', () => {
   const root = makeKnowledgeProject()
   const target = join(root, '知识层', '题材', 'README.md')
   try {

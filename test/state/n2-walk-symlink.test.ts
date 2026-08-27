@@ -41,7 +41,8 @@ function finalizePiece(root: string, num: number): string {
   return rel
 }
 
-test('N2: 正文区 symlink 环（a→b、b→a）不无限递归——detectState 正常判定不崩', () => {
+// Windows 无 POSIX 权限位/需开发者模式，symlinkSync 直建 EPERM，该守卫语义由 macOS/Linux CI 腿覆盖
+test.skipIf(process.platform === 'win32')('N2: 正文区 symlink 环（a→b、b→a）不无限递归——detectState 正常判定不崩', () => {
   const root = makeShortBook()
   finalizePiece(root, 1)
   // 造环：写作/正文/a → b，b → a
@@ -56,7 +57,8 @@ test('N2: 正文区 symlink 环（a→b、b→a）不无限递归——detectSta
   rmSync(root, { recursive: true, force: true })
 })
 
-test('N2: 正文区指向书外的 symlink 章（.md 直链）不参与章号推算（根界 fail-closed）', () => {
+// Windows 无 POSIX 权限位/需开发者模式，symlinkSync 直建 EPERM，该守卫语义由 macOS/Linux CI 腿覆盖
+test.skipIf(process.platform === 'win32')('N2: 正文区指向书外的 symlink 章（.md 直链）不参与章号推算（根界 fail-closed）', () => {
   const root = makeShortBook()
   finalizePiece(root, 1)
   // 书外目录放一个高章号章（旧实现跟随 symlink 整读 → maxFileNameChapter 抬到 9）

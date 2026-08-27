@@ -16,6 +16,7 @@ import { join, relative } from 'node:path'
 import { atomicWriteFile, atomicWriteStream } from '../fs/atomic.js'
 import { readChapterDir } from '../format/chapters.js'
 import { readBookConfig } from '../format/yaml.js'
+import { sanitizeFileNamePart } from '../format/filename.js'
 import { finalizedPathSet } from '../document/manifest.js'
 import {
   formatShortSubmissionView,
@@ -116,7 +117,9 @@ const FILENAME_MAX_CP = 80
 const FILENAME_MAX_BYTES = 255 - 52
 
 function sanitizeFileName(name: string, maxBytes: number): string {
-  const cleaned = name.replace(/[\\/]/g, '_').trim()
+  // 收敛统一字符集净化（sanitizeFileNamePart：非法字符 + win 尾点/保留名），
+  // 按导出侧更强的 80 码位 / 255-52 字节后缀感知预算截断。
+  const cleaned = sanitizeFileNamePart(name, FILENAME_MAX_CP, maxBytes)
   const cps = Array.from(cleaned)
   let out = ''
   let used = 0
@@ -127,7 +130,7 @@ function sanitizeFileName(name: string, maxBytes: number): string {
     out += cps[i]!
     used += b
   }
-  return out
+  return out || '未命名'
 }
 
 export function exportBook(options: ExportOptions): ExportResult {

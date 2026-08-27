@@ -49,7 +49,8 @@ afterAll(async () => {
 })
 
 describe('M-10: 启动迁移链逐书容错', () => {
-  it('一本书迁移抛错（EACCES）→ 服务照常启动，另一本书可用', async () => {
+  // Windows 无 POSIX 权限位（chmod 为 no-op/仅映射只读位），EACCES 迁移故障腿由 macOS/Linux CI 覆盖
+  it.skipIf(process.platform === 'win32')('一本书迁移抛错（EACCES）→ 服务照常启动，另一本书可用', async () => {
     expect(server?.listening).toBe(true)
     // 好书正常解析（注册表 + 目录完好在册）
     const r = await fetch(`http://127.0.0.1:${(server!.address() as AddressInfo).port}/api/boot`)
