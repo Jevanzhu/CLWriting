@@ -5,6 +5,9 @@
  * + 打字机（滚动居中 + 焦点渐隐，行为契约单测锁 typewriter.test.ts，本 spec 锁真实
  * 浏览器几何/透明度）。退出走 Esc（完全沉浸下 TabBar 已隐藏，原「再点按钮」路径不
  * 存在；e2e 跑浏览器形态，无桌面桥 → 全屏走 HTML5 API，click 前置有手势）。
+ *
+ * 2026-08-27 批二：渐隐升级为「只在写作位」——浏览态（进专注未输入/滚轮回看/输入停
+ * 8s）全亮，输入才渐隐；左侧新增专注统计条（本次/速度/本章目标，FocusStatsBar）。
  */
 import { test, expect } from '@playwright/test'
 
@@ -106,4 +109,50 @@ test('专注打字机：滚动居中 + 上下文按行距渐隐', async ({ page 
   // 回车换行后滚动居中仍保持
   for (let i = 0; i < 3; i++) await page.keyboard.press('Enter', { delay: 30 })
   expect(Math.abs((await get()).drift)).toBeLessThanOrEqual(40)
+})
+
+test('专注统计条 + 浏览态全亮：输入渐隐 → 滚轮回看全亮 → 再输入渐隐回来', async ({ page }) => {
+  await page.goto('/')
+  await page.locator('.book-title', { hasText: '长篇测试书' }).click()
+  await page.getByText('初入宗门').first().click()
+  await page.locator('.doc-page').waitFor()
+  await page.locator('[data-tip*="专注"]').click()
+  await page.locator('.focus-stats-bar').waitFor()
+
+  // 统计条渲染：本次/速度两区在场（本章目标区依赖三级配置，单测已锁，此处不强断）
+  const statsBar = page.locator('.focus-stats-bar')
+  await expect(statsBar.locator('.fsb-label', { hasText: '本次' })).toBeVisible()
+  await expect(statsBar.locator('.fsb-label', { hasText: '速度' })).toBeVisible()
+  // 左侧贴纸张左缘（与右侧排版条镜像）：条右缘应落在纸张左缘左侧 0~40px
+  const barBox = await statsBar.boundingBox()
+  const paperBox = await page.locator('.doc-page').boundingBox()
+  expect(barBox).toBeTruthy()
+  expect(paperBox).toBeTruthy()
+  const sbGap = paperBox!.x - (barBox!.x + barBox!.width)
+  expect(sbGap).toBeGreaterThanOrEqual(0)
+  expect(sbGap).toBeLessThanOrEqual(40)
+
+  // 浏览态（进专注未输入）：全亮起步——视口内无任何渐隐行
+  const fadeCount = () => page.locator('.cm-line[class*="tw-fade-"]').count()
+  await expect.poll(fadeCount, { timeout: 2000 }).toBe(0)
+
+  // 输入（灌长文置光标于文末）→ 渐隐回来：远行落带 + 统计条「本次」转正增量
+  await page.locator('.cm-content').click()
+  await page.keyboard.insertText('\n'.repeat(30) + '末尾标记')
+  await expect.poll(fadeCount, { timeout: 2000 }).toBeGreaterThan(0)
+  await expect(statsBar.locator('.fsb-main').first()).toHaveText(/\+[1-9]\d* 字/)
+
+  // 滚轮回看 → 立即全亮（不等 idle 计时）
+  const scroller = await page.locator('.cm-scroller').boundingBox()
+  await page.mouse.move(scroller!.x + scroller!.width / 2, scroller!.y + scroller!.height / 2)
+  await page.mouse.wheel(0, -40)
+  await expect.poll(fadeCount, { timeout: 2000 }).toBe(0)
+
+  // 再输入 → 渐隐亮窗回来
+  await page.keyboard.type('续写', { delay: 30 })
+  await expect.poll(fadeCount, { timeout: 2000 }).toBeGreaterThan(0)
+
+  // 退出专注：统计条随沉浸态卸载
+  await page.locator('.ws-focus-exit').click()
+  await expect(statsBar).toBeHidden()
 })

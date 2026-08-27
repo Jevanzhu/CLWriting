@@ -26,6 +26,15 @@ const FADE_BANDS: readonly { maxDist: number; cls: string; opacity: number }[] =
   { maxDist: 9, cls: 'tw-fade-3', opacity: 0.32 },
   { maxDist: Number.POSITIVE_INFINITY, cls: 'tw-fade-4', opacity: FADE_FLOOR },
 ]
+/**
+ * 浏览态判定（渐隐只在「正在写」时存在，回看不吃灰）：
+ * - 进专注未输入 → 全亮起步；任何输入 → 渐隐亮窗
+ * - 输入停 IDLE_MS（思考停顿不误触发，取宽）或滚轮回看 → 全亮
+ * 实现为插件内部状态：浏览态 = 不产出任何渐隐装饰（而非根类压样式——CM6 初始
+ * setState 阶段会整体重写 view.dom.className，构造期挂的根类会被冲掉）。
+ * wheel/idle 在事务外改态后派发空事务驱动 update() 重建装饰。
+ */
+const BROWSE_IDLE_MS = 8000
 
 function fadeBand(dist: number): string | null {
   if (dist <= KEEP_FULL) return null
@@ -50,12 +59,46 @@ function fadeDeco(view: EditorView): DecorationSet {
 const fadePlugin = ViewPlugin.fromClass(
   class {
     decorations: DecorationSet
+    /** 浏览态（全亮）：true 时不产出渐隐装饰。起步即浏览（阅读位），输入转写作位。 */
+    private browsing = true
+    /** 装饰集对应的浏览态：态翻转而无 doc/selection/viewport 变化时（空事务）驱动重建 */
+    private decoratedBrowsing = true
+    private idleTimer: ReturnType<typeof setTimeout> | null = null
+    private readonly onWheel: () => void
+    private readonly view: EditorView
     constructor(view: EditorView) {
-      this.decorations = fadeDeco(view)
+      this.view = view
+      this.decorations = Decoration.none // 进专注未输入：全亮起步（阅读位）
+      this.onWheel = () => this.setBrowse(true)
+      view.scrollDOM.addEventListener('wheel', this.onWheel, { passive: true })
+      this.scheduleIdle()
     }
     update(u: ViewUpdate) {
-      // 重建而非映射：分带只依赖「行号差」，任何变化后重算最简且视口行数有限
-      if (u.docChanged || u.selectionSet || u.viewportChanged) this.decorations = fadeDeco(u.view)
+      if (u.docChanged) {
+        this.browsing = false // 输入 → 渐隐亮窗回来
+        this.scheduleIdle()
+      }
+      // 重建而非映射：分带只依赖「行号差」，任何变化后重算最简且视口行数有限；
+      // 浏览态翻转走空事务（flags 全 false），以态不一致驱动重建
+      if (u.docChanged || u.selectionSet || u.viewportChanged || this.browsing !== this.decoratedBrowsing) {
+        this.decorations = this.browsing ? Decoration.none : fadeDeco(u.view)
+        this.decoratedBrowsing = this.browsing
+      }
+    }
+    /** 切浏览态：事件/定时器上下文（事务外）派发空事务合法，update() 里统一重建 */
+    private setBrowse(on: boolean): void {
+      if (this.browsing === on) return
+      this.browsing = on
+      this.view.dispatch({})
+    }
+    /** 输入停 IDLE_MS 后进入浏览态（全亮）；每次输入重排 */
+    private scheduleIdle(): void {
+      if (this.idleTimer) clearTimeout(this.idleTimer)
+      this.idleTimer = setTimeout(() => this.setBrowse(true), BROWSE_IDLE_MS)
+    }
+    destroy(): void {
+      if (this.idleTimer) clearTimeout(this.idleTimer)
+      this.view.scrollDOM.removeEventListener('wheel', this.onWheel)
     }
   },
   { decorations: (v) => v.decorations },

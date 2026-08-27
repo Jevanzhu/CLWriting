@@ -6,7 +6,7 @@
  * 用真实 EditorView（happy-dom 可构造，vitest 别名钉 @codemirror/* 到 web-next 嵌套
  * node_modules）锁死「推迟到微任务后 dispatch」的行为契约。
  */
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { EditorView } from '@codemirror/view'
 import { typewriterExt, centerCursorLine } from '../../../src/studio/web-next/src/editor/typewriter'
 
@@ -85,11 +85,16 @@ describe('typewriterExt：焦点渐隐（分带 line 装饰）', () => {
     const lines = view.dom.querySelectorAll('.cm-line')
     return (lines[n - 1] as HTMLElement).className
   }
+  /** 模拟一次输入（docChanged）：退出浏览态进入渐隐（打字机语义：渐隐只在写作位） */
+  function typeAt(view: EditorView, line: number): void {
+    const pos = view.state.doc.line(line).from
+    view.dispatch({ changes: { from: pos, insert: '字' }, selection: { anchor: pos + 1 } })
+  }
 
   it('亮窗 ±2 行全亮，之外按行距分带：fade-1(3~4) / fade-2(5~6) / fade-3(7~9) / fade-4(≥10)', () => {
     const view = makeLongView(true, 22)
     try {
-      view.dispatch({ selection: { anchor: view.state.doc.line(8).from } })
+      typeAt(view, 8)
       // happy-dom 无布局度量 → viewport 覆盖全文，22 行全渲染可逐行断言
       expect(view.dom.querySelectorAll('.cm-line')).toHaveLength(22)
       // 亮窗：活动行 ±2（6/8/10）无渐隐类
@@ -111,7 +116,7 @@ describe('typewriterExt：焦点渐隐（分带 line 装饰）', () => {
   it('亮窗跟随选区：移动后原渐隐行转全亮、原全亮行落带', () => {
     const view = makeLongView(true, 22)
     try {
-      view.dispatch({ selection: { anchor: view.state.doc.line(8).from } })
+      typeAt(view, 8)
       expect(lineClass(view, 22)).toContain('tw-fade-4')
       // 光标移到第 20 行：22 行（d=2）转全亮，第 8 行（d=12）落到 fade-4
       view.dispatch({ selection: { anchor: view.state.doc.line(20).from } })
@@ -125,10 +130,82 @@ describe('typewriterExt：焦点渐隐（分带 line 装饰）', () => {
   it('关闭态（on=false）无任何渐隐类', () => {
     const view = makeLongView(false, 22)
     try {
-      view.dispatch({ selection: { anchor: view.state.doc.line(8).from } })
+      typeAt(view, 8)
       expect(view.dom.querySelectorAll('.cm-line.tw-fade-1, .cm-line.tw-fade-2, .cm-line.tw-fade-3, .cm-line.tw-fade-4')).toHaveLength(0)
     } finally {
       view.destroy()
     }
+  })
+})
+
+describe('typewriterExt：浏览态全亮（渐隐只在写作位）', () => {
+  function makeLongView(on: boolean, lines: number): EditorView {
+    const el = document.createElement('div')
+    document.body.appendChild(el)
+    const doc = Array.from({ length: lines }, (_, i) => `第${i + 1}行`).join('\n')
+    return new EditorView({ doc, parent: el, extensions: [typewriterExt(on)] })
+  }
+  /** 全文中的渐隐行数（浏览态 = 0，全亮） */
+  function fadeCount(view: EditorView): number {
+    return view.dom.querySelectorAll('.cm-line.tw-fade-1, .cm-line.tw-fade-2, .cm-line.tw-fade-3, .cm-line.tw-fade-4').length
+  }
+  function typeAt(view: EditorView, line: number): void {
+    const pos = view.state.doc.line(line).from
+    view.dispatch({ changes: { from: pos, insert: '字' }, selection: { anchor: pos + 1 } })
+  }
+
+  // 本组全用假时钟：idle 定时器（8s）不落地真实等待；afterEach 还原
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('生命周期：起步全亮 → 输入即渐隐 → 停 8s 回全亮', () => {
+    vi.useFakeTimers()
+    const view = makeLongView(true, 22)
+    try {
+      // 进专注未输入：阅读位起步全亮（无任何渐隐装饰）
+      expect(fadeCount(view)).toBe(0)
+      // 任何输入：渐隐亮窗回来（22 行视口内活动行 8 ±2 外渐隐）
+      typeAt(view, 8)
+      expect(fadeCount(view)).toBeGreaterThan(0)
+      // 输入停 BROWSE_IDLE_MS（8s，思考停顿取宽不误触发）→ 浏览态全亮
+      vi.advanceTimersByTime(7999)
+      expect(fadeCount(view)).toBeGreaterThan(0)
+      vi.advanceTimersByTime(1)
+      expect(fadeCount(view)).toBe(0)
+    } finally {
+      view.destroy()
+    }
+  })
+
+  it('滚轮回看：输入后 wheel 立即全亮，再输入回到渐隐', () => {
+    vi.useFakeTimers()
+    const view = makeLongView(true, 22)
+    try {
+      typeAt(view, 8)
+      expect(fadeCount(view)).toBeGreaterThan(0)
+      // 滚轮回看不等 idle 计时——立即全亮
+      view.scrollDOM.dispatchEvent(new Event('wheel'))
+      expect(fadeCount(view)).toBe(0)
+      // 回到写作：渐隐亮窗
+      typeAt(view, 8)
+      expect(fadeCount(view)).toBeGreaterThan(0)
+    } finally {
+      view.destroy()
+    }
+  })
+
+  it('destroy 清理：wheel 监听移除 + idle 定时器取消（推进时钟无副作用）', () => {
+    vi.useFakeTimers()
+    const view = makeLongView(true, 22)
+    const rmSpy = vi.spyOn(view.scrollDOM, 'removeEventListener')
+    view.destroy()
+    // wheel 监听已摘（CM6 自身滚动监听也在列，只断言 wheel 项在场）
+    const wheelCalls = rmSpy.mock.calls.filter(([type]) => type === 'wheel')
+    expect(wheelCalls.length).toBeGreaterThan(0)
+    expect(wheelCalls[0]![1]).toBeTypeOf('function')
+    // idle 定时器已清：销毁后推进不抛（防泄漏句柄在后续 tick 里摸已销毁 DOM）
+    expect(() => vi.advanceTimersByTime(9000)).not.toThrow()
+    vi.useRealTimers()
   })
 })

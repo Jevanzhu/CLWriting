@@ -58,6 +58,7 @@ import { defineComponent, h, nextTick } from 'vue'
 import EditorView from '../../../src/studio/web-next/src/views/EditorView.vue'
 import WorkspaceShell from '../../../src/studio/web-next/src/components/shell/WorkspaceShell.vue'
 import FocusFormatBar from '../../../src/studio/web-next/src/components/shell/FocusFormatBar.vue'
+import FocusStatsBar from '../../../src/studio/web-next/src/components/shell/FocusStatsBar.vue'
 import { useHotkeys } from '../../../src/studio/web-next/src/composables/useHotkeys'
 import { useWorkspaceStore } from '../../../src/studio/web-next/src/stores/workspace'
 import { useDocStore } from '../../../src/studio/web-next/src/stores/doc'
@@ -391,22 +392,127 @@ describe('WorkspaceShell: 专注排版浮动条挂载', () => {
     const ws = useWorkspaceStore()
     const w = mount(WorkspaceShell, { props: { bookName: BOOK }, shallow: true })
     expect(w.findComponent(FocusFormatBar).exists()).toBe(false)
+    expect(w.findComponent(FocusStatsBar).exists()).toBe(false)
 
     ws.setFocus(true)
     await nextTick()
     expect(w.findComponent(FocusFormatBar).exists()).toBe(true)
+    expect(w.findComponent(FocusStatsBar).exists()).toBe(true)
 
     ws.setActiveView('workbench')
     await nextTick()
     expect(w.findComponent(FocusFormatBar).exists()).toBe(false)
+    expect(w.findComponent(FocusStatsBar).exists()).toBe(false)
 
     ws.setActiveView('editor')
     await nextTick()
     expect(w.findComponent(FocusFormatBar).exists()).toBe(true)
+    expect(w.findComponent(FocusStatsBar).exists()).toBe(true)
 
     ws.setFocus(false)
     await nextTick()
     expect(w.findComponent(FocusFormatBar).exists()).toBe(false)
+    expect(w.findComponent(FocusStatsBar).exists()).toBe(false)
+    w.unmount()
+  })
+})
+
+describe('FocusStatsBar: 专注统计浮动条', () => {
+  /** 直接种一篇文档进 doc store（不走 open 网络链），并设定 activeDocId */
+  function seedDoc(content: string): string {
+    const doc = useDocStore()
+    doc.setBook(BOOK)
+    doc.docs.set('d1', {
+      docId: 'd1',
+      path: '写作/正文/第1章-标题.md',
+      name: '第1章-标题.md',
+      role: 'chapter',
+      mode: 'text',
+      content,
+      baselineRevision: 'sha256:x',
+      dirty: false,
+      saving: false,
+      savedAt: null,
+      error: null,
+      conflict: false,
+    })
+    const ws = useWorkspaceStore()
+    ws.bookName = BOOK
+    ws.activeDocId = 'd1'
+    return 'd1'
+  }
+  /** 第 i 个统计块（0=本次 1=速度 2=本章）的正文文本 */
+  function stat(w: ReturnType<typeof mount>, i: number): string {
+    return w.findAll('.fsb-main')[i]!.text()
+  }
+
+  it('渲染：本次起步 +0、未动笔速度 —、本章目标走书级链；输入后 delta/速度更新', async () => {
+    seedDoc('---\n标题: 标题\n---\n\n正文') // 正文 2 字
+    mocks.getConfig.mockResolvedValue({ kind: 'long', book: { chapter_target_words: 2000 } })
+    const w = mount(FocusStatsBar)
+    await flushPromises()
+    expect(w.find('[aria-label="专注统计"]').exists()).toBe(true)
+    expect(stat(w, 0)).toBe('+0 字')
+    expect(stat(w, 1)).toBe('—')
+    expect(stat(w, 2)).toContain('2/2,000')
+
+    // 输入 +3 字：本次 +3；同刻起算无时长 → 速度仍 —
+    const doc = useDocStore()
+    doc.patch('d1', '---\n标题: 标题\n---\n\n正文六七八')
+    await nextTick()
+    expect(stat(w, 0)).toBe('+3 字')
+    expect(stat(w, 1)).toBe('—')
+    // 再一笔（隔 ≥2ms 有时长）：速度起算
+    await new Promise((r) => setTimeout(r, 3))
+    doc.patch('d1', '---\n标题: 标题\n---\n\n正文六七八九')
+    await nextTick()
+    expect(stat(w, 0)).toBe('+4 字')
+    expect(stat(w, 1)).toMatch(/字\/分$/)
+    w.unmount()
+  })
+
+  it('章目标三级链：fm「字数目标」压过书级（与 WritingInfoPanel 同语义）', async () => {
+    seedDoc('---\n标题: 标题\n字数目标: 100\n---\n\n正文内容') // 正文 4 字
+    mocks.getConfig.mockResolvedValue({ kind: 'long', book: { chapter_target_words: 2000 } })
+    const w = mount(FocusStatsBar)
+    await flushPromises()
+    expect(stat(w, 2)).toContain('4/100')
+    expect(w.find('.fsb-pct').text()).toBe('4%')
+    w.unmount()
+  })
+
+  it('章目标未设（三级全空）：目标区隐藏（本次/速度仍在）', async () => {
+    seedDoc('---\n标题: 标题\n---\n\n正文')
+    mocks.getConfig.mockResolvedValue({ kind: 'long' })
+    const w = mount(FocusStatsBar)
+    await flushPromises()
+    expect(w.findAll('.fsb-main')).toHaveLength(2)
+    expect(w.find('.fsb-progress').exists()).toBe(false)
+    w.unmount()
+  })
+
+  it('退出专注：无增量不 toast；有增量 → 成果 toast；重进重开基线', async () => {
+    const ws = useWorkspaceStore()
+    const ui = useUiStore()
+    ws.setFocus(true)
+    seedDoc('---\n标题: 标题\n---\n\n正文')
+    const w = mount(FocusStatsBar)
+    await flushPromises()
+    const before = ui.toasts.length
+    // 无增量退出：不 toast
+    ws.setFocus(false)
+    await nextTick()
+    expect(ui.toasts.length).toBe(before)
+    // 重进（直挂场景 watch 重开基线）+ 输入 + 退出：toast 汇报本次增量
+    ws.setFocus(true)
+    await nextTick()
+    expect(stat(w, 0)).toBe('+0 字')
+    useDocStore().patch('d1', '---\n标题: 标题\n---\n\n正文六七八')
+    await nextTick()
+    expect(stat(w, 0)).toBe('+3 字')
+    ws.setFocus(false)
+    await nextTick()
+    expect(ui.toasts.some((t) => t.msg.includes('专注结束') && t.msg.includes('+3 字'))).toBe(true)
     w.unmount()
   })
 })
