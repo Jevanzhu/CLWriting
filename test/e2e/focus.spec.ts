@@ -2,9 +2,9 @@
  * T1.6 专注模式（M11 E1）：入口切换 → 沉浸隐藏 → 退出还原。
  *
  * 完全沉浸批（2026-08-23）：focusMode = 全部 UI 隐藏（Ribbon/TabBar/状态栏/侧栏）+ 全屏
- * + 打字机（打字机为 CM6 输入时滚动行为，无 DOM class，单测锁 typewriter.test.ts）。
- * 退出走 Esc（完全沉浸下 TabBar 已隐藏，原「再点按钮」路径不存在；e2e 跑浏览器形态，
- * 无桌面桥 → 全屏走 HTML5 API，click 前置有手势）。
+ * + 打字机（滚动居中 + 焦点渐隐，行为契约单测锁 typewriter.test.ts，本 spec 锁真实
+ * 浏览器几何/透明度）。退出走 Esc（完全沉浸下 TabBar 已隐藏，原「再点按钮」路径不
+ * 存在；e2e 跑浏览器形态，无桌面桥 → 全屏走 HTML5 API，click 前置有手势）。
  */
 import { test, expect } from '@playwright/test'
 
@@ -53,4 +53,57 @@ test('专注模式：沉浸隐藏 + Esc 退出还原', async ({ page }) => {
   await expect(page.locator('.tabbar')).toBeVisible()
   await expect(page.locator('.focus-format-bar')).toBeHidden()
   await expect(focusBtn).not.toHaveClass(/active/)
+})
+
+test('专注打字机：滚动居中 + 上下文按行距渐隐', async ({ page }) => {
+  await page.goto('/')
+  await page.locator('.book-title', { hasText: '长篇测试书' }).click()
+  await page.getByText('初入宗门').first().click()
+  await page.locator('.doc-page').waitFor()
+  await page.locator('[data-tip*="专注"]').click()
+  await page.locator('.focus-format-bar').waitFor()
+
+  // 灌长文把光标置于文末。回归锁：旧 bug 中 CmHost 主题的 padding:0 简写按序覆盖了
+  // 打字机 45vh 底部余量 → 文末永不居中（漂移 ~208px、滚动钉底）；特异性修复后应 ≤ 容差
+  await page.locator('.cm-content').click()
+  await page.keyboard.insertText('\n'.repeat(300) + '末行标记')
+  await expect(page.locator('.cm-activeLine')).toContainText('末行标记')
+
+  const get = () => page.evaluate(() => {
+    const scroller = document.querySelector('.cm-scroller') as HTMLElement
+    const content = document.querySelector('.cm-content') as HTMLElement
+    const active = document.querySelector('.cm-activeLine') as HTMLElement
+    const lines = Array.from(content.querySelectorAll('.cm-line')) as HTMLElement[]
+    const idx = lines.indexOf(active)
+    const sr = scroller.getBoundingClientRect()
+    const ar = active.getBoundingClientRect()
+    const op = (d: number): string => (idx - d >= 0 ? getComputedStyle(lines[idx - d]!).opacity : '-1')
+    return {
+      drift: Math.round(ar.top + ar.height / 2 - (sr.top + sr.height / 2)),
+      paddingBottom: getComputedStyle(content).paddingBottom,
+      transition: getComputedStyle(active).transitionDuration,
+      op1: op(1), op2: op(2), op3: op(3), op5: op(5), op8: op(8), op12: op(12),
+    }
+  })
+
+  // 滚动居中：当前行中心与滚动容器中心偏差 ≤40px；底部余量非 0（45vh 生效，文末可居中）
+  const m = await get()
+  expect(Math.abs(m.drift)).toBeLessThanOrEqual(40)
+  expect(m.paddingBottom).not.toBe('0px')
+  // 渐隐分带：亮窗 ±2 行全亮，之外 d=3~4 → 0.72 / d=5~6 → 0.5 / d=7~9 → 0.32 / d≥10 → 0.16
+  expect(m.op1).toBe('1')
+  expect(m.op2).toBe('1')
+  expect(m.op3).toBe('0.72')
+  expect(m.op5).toBe('0.5')
+  expect(m.op8).toBe('0.32')
+  expect(m.op12).toBe('0.16')
+  // 渐隐过渡动画载体在（0.25s）
+  expect(m.transition).toContain('0.25s')
+
+  // 逐字输入后滚动居中仍保持（真实打字路径）
+  for (let i = 0; i < 5; i++) await page.keyboard.type('字', { delay: 30 })
+  expect(Math.abs((await get()).drift)).toBeLessThanOrEqual(40)
+  // 回车换行后滚动居中仍保持
+  for (let i = 0; i < 3; i++) await page.keyboard.press('Enter', { delay: 30 })
+  expect(Math.abs((await get()).drift)).toBeLessThanOrEqual(40)
 })

@@ -8,20 +8,12 @@ const prefs = usePrefsStore()
 const { chineseFonts, englishFonts, fontDisplayName } = useSystemFonts()
 const hasDesktop = computed(() => typeof window !== 'undefined' && !!window.clwritingDesktop)
 
-// ── 书级覆盖（纸张宽度/自动保存 可选"仅本书"）──
-const pageWidthBookOnly = computed(() => prefs.bookPageWidth !== null)
-const autosaveBookOnly = computed(() => prefs.bookAutosaveInterval !== null)
+// 全局默认：纸张宽度 / 自动保存（书级覆盖现由「本书」页管理，全局页只设跨书共享默认）
 function onPageWidthInput(v: number): void {
-  prefs.setPageWidth(v, pageWidthBookOnly.value)
+  prefs.setPageWidth(v)
 }
 function onAutosaveInput(v: number): void {
-  prefs.setAutosaveInterval(v, autosaveBookOnly.value)
-}
-function togglePageWidthScope(): void {
-  prefs.setPageWidth(prefs.effectivePageWidth, !pageWidthBookOnly.value)
-}
-function toggleAutosaveScope(): void {
-  prefs.setAutosaveInterval(prefs.effectiveAutosaveInterval, !autosaveBookOnly.value)
+  prefs.setAutosaveInterval(v)
 }
 
 /** range 配套数字输入：clamp 到范围后调 setter */
@@ -89,13 +81,12 @@ function numInput(min: number, max: number, setter: (v: number) => void, e: Even
       <div class="setting-item-info">
         <div class="setting-item-name">纸张宽度</div>
         <div class="setting-item-desc">
-          写作区纸张的最大宽度
-          <button class="scope-btn" :class="{ on: pageWidthBookOnly }" @click="togglePageWidthScope">仅本书</button>
+          写作区纸张的最大宽度（全局默认；某本书要单独设 —— 去「本书」页）
         </div>
       </div>
       <div class="setting-item-control">
-        <input type="range" min="600" max="1400" step="20" :value="prefs.effectivePageWidth" @input="onPageWidthInput(Number(($event.target as HTMLInputElement).value))" />
-        <input class="val-input" type="number" min="600" max="1400" step="20" :value="prefs.effectivePageWidth" @change="numInput(600, 1400, onPageWidthInput, $event)" />
+        <input type="range" min="600" max="1400" step="20" :value="prefs.pageWidth" @input="onPageWidthInput(Number(($event.target as HTMLInputElement).value))" />
+        <input class="val-input" type="number" min="600" max="1400" step="20" :value="prefs.pageWidth" @change="numInput(600, 1400, onPageWidthInput, $event)" />
         <span class="val-suffix">px</span>
       </div>
     </div>
@@ -103,13 +94,12 @@ function numInput(min: number, max: number, setter: (v: number) => void, e: Even
       <div class="setting-item-info">
         <div class="setting-item-name">自动保存</div>
         <div class="setting-item-desc">
-          编辑后自动保存的间隔
-          <button class="scope-btn" :class="{ on: autosaveBookOnly }" @click="toggleAutosaveScope">仅本书</button>
+          编辑后自动保存的间隔（全局默认；某本书要单独设 —— 去「本书」页）
         </div>
       </div>
       <div class="setting-item-control">
-        <input type="range" min="5" max="120" step="5" :value="prefs.effectiveAutosaveInterval" @input="onAutosaveInput(Number(($event.target as HTMLInputElement).value))" />
-        <input class="val-input" type="number" min="5" max="120" step="5" :value="prefs.effectiveAutosaveInterval" @change="numInput(5, 120, onAutosaveInput, $event)" />
+        <input type="range" min="5" max="120" step="5" :value="prefs.autosaveInterval" @input="onAutosaveInput(Number(($event.target as HTMLInputElement).value))" />
+        <input class="val-input" type="number" min="5" max="120" step="5" :value="prefs.autosaveInterval" @change="numInput(5, 120, onAutosaveInput, $event)" />
         <span class="val-suffix">s</span>
       </div>
     </div>

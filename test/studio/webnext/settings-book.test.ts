@@ -13,6 +13,7 @@ import SettingsBook from '../../../src/studio/web-next/src/components/ui/Setting
 import { SAVE_CONFIG_KEY } from '../../../src/studio/web-next/src/components/ui/settings-context'
 import { useUiStore } from '../../../src/studio/web-next/src/stores/ui'
 import { useWorkspaceStore } from '../../../src/studio/web-next/src/stores/workspace'
+import { usePrefsStore } from '../../../src/studio/web-next/src/stores/prefs'
 import type { BookConfig } from '../../../src/studio/web-next/src/api/books'
 
 const mocks = vi.hoisted(() => ({
@@ -187,5 +188,72 @@ describe('R64-4（十二轮）：书名基线加载代守卫（R63-3 同款，�
     // 修复前：甲书标题迟到落地 → 书名框显示「甲书」且 titleBaseline 被污染（后续改名误判）
     expect((wrapper.find('input[aria-label="书名"]').element as HTMLInputElement).value).toBe('乙书')
     wrapper.unmount()
+  })
+})
+
+describe('SettingsBook 编辑排版覆盖组（纸张宽度/自动保存 书级覆盖）', () => {
+  it('默认（无覆盖）→ 开关未勾、「跟随全局默认」、无子项；全局默认提示在', async () => {
+    const wrapper = await mountOpen()
+    const prefs = usePrefsStore()
+    expect(prefs.bookPageWidth).toBeNull()
+    expect(prefs.bookAutosaveInterval).toBeNull()
+    const pfwSwitch = wrapper.find('input[aria-label="本书独立设定纸张宽度"]').element as HTMLInputElement
+    expect(pfwSwitch.checked).toBe(false)
+    expect(wrapper.text()).toContain('跟随全局默认')
+    expect(wrapper.find('input[aria-label="本书纸宽"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain(`${prefs.pageWidth}px`)
+  })
+
+  it('开启纸宽开关 → 写书级（=当前生效值）且不动全局；出现本书纸宽子项', async () => {
+    const wrapper = await mountOpen()
+    const prefs = usePrefsStore()
+    prefs.pageWidth = 1100 // 全局默认
+    await wrapper.find('input[aria-label="本书独立设定纸张宽度"]').setValue(true)
+    expect(prefs.bookPageWidth).toBe(1100) // effectivePageWidth = 1100
+    expect(prefs.pageWidth).toBe(1100) // 全局不动
+    expect(wrapper.text()).toContain('本书独立设定')
+    expect(wrapper.find('input[aria-label="本书纸宽"]').exists()).toBe(true)
+  })
+
+  it('改本书纸宽 → 只写书级，全局默认保持原值', async () => {
+    const wrapper = await mountOpen()
+    const prefs = usePrefsStore()
+    await wrapper.find('input[aria-label="本书独立设定纸张宽度"]').setValue(true)
+    const bookW = wrapper.find('input[aria-label="本书纸宽"]')
+    await bookW.setValue(800)
+    await bookW.trigger('change')
+    expect(prefs.bookPageWidth).toBe(800)
+    expect(prefs.pageWidth).toBe(1020) // 全局仍默认，未被覆盖
+  })
+
+  it('关闭纸宽开关 → 仅清书级（null），全局默认保持不变 -> 回复「跟随全局默认」', async () => {
+    const wrapper = await mountOpen()
+    const prefs = usePrefsStore()
+    const switchIn = wrapper.find('input[aria-label="本书独立设定纸张宽度"]')
+    await switchIn.setValue(true)
+    await wrapper.find('input[aria-label="本书纸宽"]').trigger('change') // 走一次变化确保有覆盖
+    expect(prefs.bookPageWidth).not.toBeNull()
+    await switchIn.setValue(false) // 关闭
+    expect(prefs.bookPageWidth).toBeNull()
+    expect(prefs.pageWidth).toBe(1020) // 全局默认未被改
+    expect(wrapper.find('input[aria-label="本书纸宽"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('跟随全局默认')
+  })
+
+  it('自动保存覆盖组同构：开启写书级、数值只写书级、关闭只清书级不动全局', async () => {
+    const wrapper = await mountOpen()
+    const prefs = usePrefsStore()
+    prefs.autosaveInterval = 60
+    await wrapper.find('input[aria-label="本书独立设定自动保存"]').setValue(true)
+    expect(prefs.bookAutosaveInterval).toBe(60)
+    expect(prefs.autosaveInterval).toBe(60) // 全局不变
+    const asInput = wrapper.find('input[aria-label="本书自动保存间隔"]')
+    await asInput.setValue(20)
+    await asInput.trigger('change')
+    expect(prefs.bookAutosaveInterval).toBe(20)
+    expect(prefs.autosaveInterval).toBe(60) // 全局默认保持
+    await wrapper.find('input[aria-label="本书独立设定自动保存"]').setValue(false)
+    expect(prefs.bookAutosaveInterval).toBeNull()
+    expect(prefs.autosaveInterval).toBe(60) // 关闭不动全局
   })
 })

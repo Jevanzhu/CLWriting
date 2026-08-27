@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // 设置 · 本书页（单页，IA 重组后不再有页内子标签）：
-// 书名 banner + 基本信息（书名，唯一纯书级项）+ 覆盖组（写作默认/智能分析——各全局默认已拆到对应独立一级页）
+// 书名 banner + 基本信息（书名，唯一纯书级项）+ 覆盖组（编辑排版/写作默认/智能分析——各
+// 全局默认已拆到对应独立一级页；编辑排版即纸张宽度/自动保存的书级覆盖，直连 prefs store）
 // + 定稿版本 + 存储。AI 写作与版本保留 2026-08-19 起砍掉书级（一律跟随全局），不再出现在本书页。
 // 覆盖组拆成子组件各自独立拉 config（设置打开时共 2 次 getConfig，可接受——不引入父级统一状态）。
 // 书名改动走全量改名（POST /rename：磁盘目录 + books.jsonl 登记 + active 指针 + book.yaml title 同步），
@@ -13,6 +14,7 @@ import { useUiStore } from '../../stores/ui'
 import { useDocStore } from '../../stores/doc'
 import { getConfig, renameBook } from '../../api/books'
 import { friendlyError } from '../../shared/error'
+import { usePrefsStore } from '../../stores/prefs'
 import SettingsBookWriting from './SettingsBookWriting.vue'
 import SettingsBookAnalysis from './SettingsBookAnalysis.vue'
 import SettingsBookRetention from './SettingsBookRetention.vue'
@@ -21,6 +23,31 @@ const ui = useUiStore()
 const ws = useWorkspaceStore()
 const router = useRouter()
 const doc = useDocStore()
+const prefs = usePrefsStore()
+
+// ── 编辑排版（纸张宽度/自动保存）书级覆盖 —— 直连 prefs store book ref。
+// 关闭 = 跟随全局默认（book 置 null，不改动全局默认）；开启 = 写本书覆盖。
+// 持久化由 workspace 的 startPersistWatch 统一写 prefs.json（本页不碰 book.yaml）。
+const pfwOverride = computed(() => prefs.bookPageWidth !== null)
+const asOverride = computed(() => prefs.bookAutosaveInterval !== null)
+const pfwEff = computed(() => prefs.bookPageWidth ?? prefs.pageWidth)
+const asEff = computed(() => prefs.bookAutosaveInterval ?? prefs.autosaveInterval)
+function onPfwToggle(e: Event): void {
+  prefs.bookPageWidth = (e.target as HTMLInputElement).checked ? prefs.effectivePageWidth : null
+  prefs.apply()
+}
+function onAsToggle(e: Event): void {
+  prefs.bookAutosaveInterval = (e.target as HTMLInputElement).checked ? prefs.effectiveAutosaveInterval : null
+  prefs.apply()
+}
+function onPfwInput(v: number): void {
+  prefs.bookPageWidth = v
+  prefs.apply()
+}
+function onAsInput(v: number): void {
+  prefs.bookAutosaveInterval = v
+  prefs.apply()
+}
 
 const hasDesktop = computed(() => typeof window !== 'undefined' && !!window.clwritingDesktop)
 const hasBook = computed(() => !!ws.bookName)
@@ -74,7 +101,13 @@ async function onBookTitleChange(): Promise<void> {
   if (next === titleBaseline.value) return
   // 改名 = 磁盘目录+登记+active 一起搬；先落盘未保存的正文编辑，
   // 防目录搬家后旧名 URL 404 导致编辑丢失
-  await doc.flushDirty()
+  // R66-34（十四轮）：冲排失败必须中止改名——flushDirty 返回保存失败的 docId 清单，此前
+  // 被丢弃照常改名：目录搬走后旧名 URL 404，这些未落盘编辑的救援路径彻底断裂
+  const flushFailed = await doc.flushDirty()
+  if (flushFailed.length > 0) {
+    ui.toast(`有 ${flushFailed.length} 篇文档保存失败，改名会中断其找回路径——请先重试保存或解决冲突后再改名`, 'error')
+    return
+  }
   try {
     const res = await renameBook(name, next)
     titleBaseline.value = res.name
@@ -120,7 +153,58 @@ async function onBookTitleChange(): Promise<void> {
         </div>
       </section>
 
-      <!-- 覆盖组：写作默认 + 智能分析（AI 写作/版本保留已砍书级，见各组件头注释） -->
+      <!-- 覆盖组：编辑排版（纸张宽度/自动保存 书级覆盖）+ 写作默认 + 智能分析（AI 写作/版本保留已砍书级，见各组件头注释） -->
+      <div class="cfg-card-head">编辑排版</div>
+      <section class="cfg-card">
+        <div class="setting-item">
+          <div class="setting-item-info">
+            <div class="setting-item-name">纸张宽度</div>
+            <div class="setting-item-desc">
+              当前生效 {{ pfwEff }}px{{ pfwOverride ? '（本书独立设定）' : '（跟随全局默认）' }}
+            </div>
+          </div>
+          <div class="setting-item-control">
+            <label class="switch">
+              <input type="checkbox" aria-label="本书独立设定纸张宽度" :checked="pfwOverride" @change="onPfwToggle($event)" />
+              <span class="switch-slider"></span>
+            </label>
+          </div>
+        </div>
+        <div v-if="pfwOverride" class="setting-item sub">
+          <div class="setting-item-info">
+            <div class="setting-item-name">本书纸宽</div>
+          </div>
+          <div class="setting-item-control">
+            <input type="range" min="600" max="1400" step="20" :value="prefs.bookPageWidth ?? 1020" @input="onPfwInput(Number(($event.target as HTMLInputElement).value))" />
+            <input class="num-input" type="number" min="600" max="1400" step="20" :value="prefs.bookPageWidth ?? ''" aria-label="本书纸宽" @change="onPfwInput(Number(($event.target as HTMLInputElement).value))" />
+            <span class="val-suffix">px</span>
+          </div>
+        </div>
+        <div class="setting-item">
+          <div class="setting-item-info">
+            <div class="setting-item-name">自动保存</div>
+            <div class="setting-item-desc">
+              当前生效 {{ asEff }}s{{ asOverride ? '（本书独立设定）' : '（跟随全局默认）' }}
+            </div>
+          </div>
+          <div class="setting-item-control">
+            <label class="switch">
+              <input type="checkbox" aria-label="本书独立设定自动保存" :checked="asOverride" @change="onAsToggle($event)" />
+              <span class="switch-slider"></span>
+            </label>
+          </div>
+        </div>
+        <div v-if="asOverride" class="setting-item sub">
+          <div class="setting-item-info">
+            <div class="setting-item-name">本书自动保存间隔</div>
+          </div>
+          <div class="setting-item-control">
+            <input type="range" min="5" max="120" step="5" :value="prefs.bookAutosaveInterval ?? 30" @input="onAsInput(Number(($event.target as HTMLInputElement).value))" />
+            <input class="num-input" type="number" min="5" max="120" step="5" :value="prefs.bookAutosaveInterval ?? ''" aria-label="本书自动保存间隔" @change="onAsInput(Number(($event.target as HTMLInputElement).value))" />
+            <span class="val-suffix">s</span>
+          </div>
+        </div>
+      </section>
       <SettingsBookWriting />
       <SettingsBookAnalysis />
       <SettingsBookRetention />

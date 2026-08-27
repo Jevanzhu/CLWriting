@@ -72,3 +72,63 @@ describe('typewriterExt：推迟 dispatch 契约', () => {
     view.destroy()
   })
 })
+
+describe('typewriterExt：焦点渐隐（分带 line 装饰）', () => {
+  function makeLongView(on: boolean, lines: number): EditorView {
+    const el = document.createElement('div')
+    document.body.appendChild(el)
+    const doc = Array.from({ length: lines }, (_, i) => `第${i + 1}行`).join('\n')
+    return new EditorView({ doc, parent: el, extensions: [typewriterExt(on)] })
+  }
+  /** 第 n 行（1 基）的 class 串 */
+  function lineClass(view: EditorView, n: number): string {
+    const lines = view.dom.querySelectorAll('.cm-line')
+    return (lines[n - 1] as HTMLElement).className
+  }
+
+  it('亮窗 ±2 行全亮，之外按行距分带：fade-1(3~4) / fade-2(5~6) / fade-3(7~9) / fade-4(≥10)', () => {
+    const view = makeLongView(true, 22)
+    try {
+      view.dispatch({ selection: { anchor: view.state.doc.line(8).from } })
+      // happy-dom 无布局度量 → viewport 覆盖全文，22 行全渲染可逐行断言
+      expect(view.dom.querySelectorAll('.cm-line')).toHaveLength(22)
+      // 亮窗：活动行 ±2（6/8/10）无渐隐类
+      for (const n of [6, 7, 8, 9, 10]) expect(lineClass(view, n)).not.toMatch(/tw-fade/)
+      // 分带（以 8 为中心）：d=3~4 → fade-1；d=5~6 → fade-2；d=7~9 → fade-3；d≥10 → fade-4
+      expect(lineClass(view, 5)).toContain('tw-fade-1')
+      expect(lineClass(view, 12)).toContain('tw-fade-1')
+      expect(lineClass(view, 3)).toContain('tw-fade-2')
+      expect(lineClass(view, 14)).toContain('tw-fade-2')
+      expect(lineClass(view, 1)).toContain('tw-fade-3') // d=7
+      expect(lineClass(view, 17)).toContain('tw-fade-3') // d=9
+      expect(lineClass(view, 18)).toContain('tw-fade-4') // d=10
+      expect(lineClass(view, 22)).toContain('tw-fade-4') // d=14
+    } finally {
+      view.destroy()
+    }
+  })
+
+  it('亮窗跟随选区：移动后原渐隐行转全亮、原全亮行落带', () => {
+    const view = makeLongView(true, 22)
+    try {
+      view.dispatch({ selection: { anchor: view.state.doc.line(8).from } })
+      expect(lineClass(view, 22)).toContain('tw-fade-4')
+      // 光标移到第 20 行：22 行（d=2）转全亮，第 8 行（d=12）落到 fade-4
+      view.dispatch({ selection: { anchor: view.state.doc.line(20).from } })
+      expect(lineClass(view, 22)).not.toMatch(/tw-fade/)
+      expect(lineClass(view, 8)).toContain('tw-fade-4')
+    } finally {
+      view.destroy()
+    }
+  })
+
+  it('关闭态（on=false）无任何渐隐类', () => {
+    const view = makeLongView(false, 22)
+    try {
+      view.dispatch({ selection: { anchor: view.state.doc.line(8).from } })
+      expect(view.dom.querySelectorAll('.cm-line.tw-fade-1, .cm-line.tw-fade-2, .cm-line.tw-fade-3, .cm-line.tw-fade-4')).toHaveLength(0)
+    } finally {
+      view.destroy()
+    }
+  })
+})
