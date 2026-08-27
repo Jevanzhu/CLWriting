@@ -81,7 +81,8 @@ test('P5-数据层（第七轮）：同名文件占位（非目录）→ ok:fals
   }
 })
 
-test('L-D2（第八轮）：目录存在但不可读（EACCES）→ 可读原因，不裸抛破坏契约', () => {
+// Windows 无 POSIX 权限位（chmod 为 no-op/仅映射只读位），该守卫语义由 macOS/Linux CI 腿覆盖
+test.skipIf(process.platform === 'win32')('L-D2（第八轮）：目录存在但不可读（EACCES）→ 可读原因，不裸抛破坏契约', () => {
   const wd = mkdtempSync(join(tmpdir(), 'init-eacces-'))
   try {
     mkdirSync(join(wd, '长篇', '北境'), { recursive: true })

@@ -5,6 +5,7 @@
 import { join, dirname, basename } from 'node:path'
 import { DocumentService } from '../../document/service.js'
 import { readChapterDir } from '../../format/chapters.js'
+import { sanitizeFileNamePart } from '../../format/filename.js'
 import { chapterToDocId, relFromBookRoot } from './shared.js'
 import type { ToolContext, ToolResult } from './context.js'
 
@@ -16,9 +17,9 @@ function findChapterRel(ctx: ToolContext, chapter: number): string | null {
   return relFromBookRoot(ctx.bookRoot, hit._path)
 }
 
-/** 标题净化（与 resolveDraftPath 同口径：路径分隔符/空字符替换为 _）。 */
+/** 标题净化（单源收敛 sanitizeFileNamePart：win 非法字符 + 尾点/保留名 + 双封顶）。 */
 function sanitizeTitle(title: string): string {
-  return title.replace(/[\\/\0]/g, '_')
+  return sanitizeFileNamePart(title)
 }
 
 /** 校验章号入参；非法返回错误摘要。 */

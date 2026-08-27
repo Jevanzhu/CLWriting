@@ -223,7 +223,8 @@ describe('快照端点（单章版本回滚）', () => {
   // R-15（第十六轮）：walk 对 symlink 目录环的防护——version-stats 的 scanVersionsDir
   // 此前 statSync 跟随 symlink，指向祖先目录的 symlink 造成无限递归（挂死端点/栈溢出）；
   // 修复后 lstatSync 判定 + symlink 条目跳过（M-9 同族口径）。
-  it('R-15: 版本目录含指向祖先的 symlink → version-stats 正常返回（不死循环）', async () => {
+  // Windows 无 POSIX 权限位/需开发者模式，symlinkSync 直建 EPERM，该守卫语义由 macOS/Linux CI 腿覆盖
+  it.skipIf(process.platform === 'win32')('R-15: 版本目录含指向祖先的 symlink → version-stats 正常返回（不死循环）', async () => {
     const vdir = join(workDir, BOOK, '工作区', '.版本')
     mkdirSync(join(vdir, 'doc_loop'), { recursive: true })
     writeFileSync(join(vdir, 'doc_loop', 'a.md'), '---\n来源: manual\n---\n环内容\n')

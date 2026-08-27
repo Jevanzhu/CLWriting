@@ -188,7 +188,8 @@ describe('collectTreeIssues 账本全书性红项（H-1 跨章陈旧修复）', 
     }
   })
 
-  it('低级项（第六轮）：章文件在但读失败（权限）→ 不崩三检，落 unverifiable 黄项', () => {
+  // Windows 无 POSIX 权限位（chmod 为 no-op/仅映射只读位），该守卫语义由 macOS/Linux CI 腿覆盖
+  it.skipIf(process.platform === 'win32')('低级项（第六轮）：章文件在但读失败（权限）→ 不崩三检，落 unverifiable 黄项', () => {
     const { root } = makeBook(true)
     const ch2 = join(root, '写作', '正文', '002-第2章.md')
     try {

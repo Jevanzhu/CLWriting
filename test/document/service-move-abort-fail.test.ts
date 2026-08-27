@@ -46,7 +46,8 @@ function makeBookWithChapter(): { root: string; svc: DocumentService } {
   return { root, svc: new DocumentService({ bookRoot: root }) }
 }
 
-test('低-4（第十轮）：移动失败且 appendAborted 也失败 → 仍返回 {ok:false} 不穿透', async () => {
+// Windows 无 POSIX 权限位（chmod 为 no-op/仅映射只读位），该守卫语义由 macOS/Linux CI 腿覆盖
+test.skipIf(process.platform === 'win32')('低-4（第十轮）：移动失败且 appendAborted 也失败 → 仍返回 {ok:false} 不穿透', async () => {
   const { root, svc } = makeBookWithChapter()
   // 目标目录只读 → renameSync EACCES 进 catch（pending 已写入，opId 已拿到）
   mkdirSync(join(root, '写作', '正文', '第二卷'), { recursive: true })

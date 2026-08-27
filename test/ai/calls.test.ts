@@ -31,7 +31,8 @@ describe('recordAiCall 记账', () => {
     if (b.ok) expect(b.used).toBe(1)
   })
 
-  it('CC-P2-3: 记账文件权限 0600（atomicWriteFile mode 随临时文件创建，无全局可读窗口）', () => {
+  // Windows 无 POSIX 权限位（chmod/mode 为 no-op），仅 POSIX 断言 mode，守卫语义由 macOS/Linux CI 腿覆盖
+  it.skipIf(process.platform === 'win32')('CC-P2-3: 记账文件权限 0600（atomicWriteFile mode 随临时文件创建，无全局可读窗口）', () => {
     const root = tempBook()
     recordAiCall(root, 1, { inputTokens: 100, outputTokens: 200 })
     recordAiCall(root, 1, { inputTokens: 1, outputTokens: 2 }) // 二次写（覆盖 rename）权限不变
@@ -187,7 +188,8 @@ describe('E-4/E-7：迁移写互斥 + 互斥范围声明', () => {
     if (b.ok) expect(b.used).toBe(3)
   })
 
-  it('N-10: 迁移写 IO 失败 → 完成标记未置位，下次 read 可重试（文件不永留旧格式）', () => {
+  // Windows 无 POSIX 权限位（chmod 为 no-op/仅映射只读位），该守卫语义由 macOS/Linux CI 腿覆盖
+  it.skipIf(process.platform === 'win32')('N-10: 迁移写 IO 失败 → 完成标记未置位，下次 read 可重试（文件不永留旧格式）', () => {
     const root = tempBook()
     const fp = join(root, '.cache', 'ai-calls.json')
     mkdirSync(join(root, '.cache'), { recursive: true })

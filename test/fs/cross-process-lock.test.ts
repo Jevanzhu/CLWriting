@@ -88,7 +88,9 @@ describe('tryAcquireCrossProcessLock', () => {
     }
   })
 
-  it('非冲突类故障（EACCES）原样上抛——不吞权限/磁盘错误', () => {
+  // Windows 无 POSIX 权限位（chmod 为 no-op/仅映射只读位）；锁模块 win 失败路径已由
+  // mock isProcessAlive 覆盖，该 EACCES 用例保留给 macOS/Linux CI 腿
+  it.skipIf(process.platform === 'win32')('非冲突类故障（EACCES）原样上抛——不吞权限/磁盘错误', () => {
     const sub = join(dir, 'no-perm')
     mkdirSync(sub, { recursive: true })
     chmodSync(sub, 0o500)

@@ -29,7 +29,8 @@ test('低级项（第六轮）：active 读取失败（EISDIR）→ 降级 null�
   }
 })
 
-test('DA-3（第七轮）：books.jsonl 读失败（EACCES）→ appendBook 拒绝重写（不清掉其余登记）', () => {
+// Windows 无 POSIX 权限位（chmod 为 no-op/仅映射只读位），该守卫语义由 macOS/Linux CI 腿覆盖
+test.skipIf(process.platform === 'win32')('DA-3（第七轮）：books.jsonl 读失败（EACCES）→ appendBook 拒绝重写（不清掉其余登记）', () => {
   const wd = mkdtempSync(join(tmpdir(), 'books-strict-'))
   const fp = join(wd, '.clwriting', 'books.jsonl')
   try {
@@ -46,7 +47,8 @@ test('DA-3（第七轮）：books.jsonl 读失败（EACCES）→ appendBook 拒�
   }
 })
 
-test('DA-3（第七轮）：读失败 → readBooksStrict=null / readBooks=[]（读路径降级）、removeBookEntry 不清库', () => {
+// Windows 无 POSIX 权限位（chmod 为 no-op/仅映射只读位），该守卫语义由 macOS/Linux CI 腿覆盖
+test.skipIf(process.platform === 'win32')('DA-3（第七轮）：读失败 → readBooksStrict=null / readBooks=[]（读路径降级）、removeBookEntry 不清库', () => {
   const wd = mkdtempSync(join(tmpdir(), 'books-strict2-'))
   const fp = join(wd, '.clwriting', 'books.jsonl')
   try {
@@ -63,7 +65,8 @@ test('DA-3（第七轮）：读失败 → readBooksStrict=null / readBooks=[]（
   }
 })
 
-test('M-8（第八轮）：repairBooks 读失败（EACCES）→ 跳过本轮自愈，不整写清掉登记', () => {
+// Windows 无 POSIX 权限位（chmod 为 no-op/仅映射只读位），该守卫语义由 macOS/Linux CI 腿覆盖
+test.skipIf(process.platform === 'win32')('M-8（第八轮）：repairBooks 读失败（EACCES）→ 跳过本轮自愈，不整写清掉登记', () => {
   const wd = mkdtempSync(join(tmpdir(), 'repair-skip-'))
   const fp = join(wd, '.clwriting', 'books.jsonl')
   try {

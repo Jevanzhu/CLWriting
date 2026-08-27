@@ -72,7 +72,9 @@ function readCallFiles(ud: string, bookRoot: string): string[] {
 
 describe('Y-2（第五十七轮）：rules 注入段源文件登记', () => {
   afterEach(() => {
-    for (const d of workDirs.splice(0)) rmSync(d, { recursive: true, force: true })
+    try { for (const d of workDirs.splice(0)) rmSync(d, { recursive: true, force: true }) } catch {
+          // Windows 清理竞态（防病毒/句柄占用偶发 EPERM）——best-effort 忽略
+        }
   })
 
   it('AI味词表与 rule-hits 均注入时，两源进 promptMeta.files', async () => {
@@ -126,7 +128,9 @@ vi.mock('../../src/ai/rule-hits.js', async (importOriginal) => {
 
 describe('A8（五十九轮）：rules 注入与登记单源派生', () => {
   afterEach(() => {
-    for (const d of workDirs.splice(0)) rmSync(d, { recursive: true, force: true })
+    try { for (const d of workDirs.splice(0)) rmSync(d, { recursive: true, force: true }) } catch {
+          // Windows 清理竞态（防病毒/句柄占用偶发 EPERM）——best-effort 忽略
+        }
     vi.mocked(topRuleHits).mockClear()
   })
 

@@ -56,7 +56,8 @@ test('readSamplesByScene: 场景目录不存在返回空', () => {
 // 低-3（第十轮）：readdir 与 stat 之间文件被删的竞态——等价造法是悬空 symlink
 // （stat 跟随链接取目标，同样 ENOENT，与真实竞态同错误面）。此前裸 statSync 会把
 // 整个场景读取抛穿，对齐 leads.ts readLeadDir 的守卫写法：单文件失败跳过不中断
-test('低-3（第十轮）：场景目录含已消失文件（悬空链接）不抛，其余样章照常读出', () => {
+// Windows 无 POSIX 权限位/需开发者模式，symlinkSync 直建 EPERM，该守卫语义由 macOS/Linux CI 腿覆盖
+test.skipIf(process.platform === 'win32')('低-3（第十轮）：场景目录含已消失文件（悬空链接）不抛，其余样章照常读出', () => {
   const root = mkdtempSync(join(tmpdir(), '北境往事-'))
   const dir = join(root, '文风', '样章库')
   mkdirSync(join(dir, '战斗'), { recursive: true })

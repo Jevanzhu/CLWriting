@@ -10,7 +10,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawn } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { describe, it, expect, afterAll } from 'vitest'
 import { appendPending, appendSettled, findUnsettled, JOURNAL_COMPACT_BYTES } from '../../src/document/journal.js'
 
@@ -51,7 +51,7 @@ describe('N4 compact 与并发 append 互斥', () => {
   it('A 高频 append+settle（触发压缩）× B 并发 pending → B 的 pending 行零丢失', async () => {
     const jp = join(dir, 'race.jsonl')
     seedOversized(jp)
-    const mod = JSON.stringify(journalPath)
+    const mod = JSON.stringify(pathToFileURL(journalPath).href)
     const scriptA = `
 import { appendPending, appendSettled } from ${mod}
 const jp = ${JSON.stringify(jp)}

@@ -1,11 +1,17 @@
 /**
- * 写章文件名净化（R-10，第十六轮）。
+ * 写章文件名净化（R-10，第十六轮；win 适配批 2 升格单一真相源，2026-08-27）。
  *
  * AI 产出标题（不可信）可超长（ENAMETOOLONG）或含控制字符/换行（块标量多行标题），
  * 直接拼文件名会在写盘时炸或产生含换行的非法名。对齐导出侧 X-P2-4 口径
  * （src/export/index.ts：码位 + 字节双封顶），但正文文件名拼接点更长
  * （卷目录 + 4 位章号前缀 + 原子写 tmp 名 +49B 余量），取更紧的常数：
  * 码位 ≤60 / 字节 ≤120，超长截断且不切多字节字符。
+ *
+ * win 适配批 2（2026-08-27）：本模块升格为全库非法字符净化的单一真相源——
+ * 新增 Windows 保留设备名规避（mac 上也是合法目录名，但拷至 win 会被拒）与
+ * 尾部点/空格剥离（win 落盘被自动剖，读写名不一致歧义）。mac 同样执行，
+ * 保持数据面跨平台一致。既有调用方（style-entry/scene 名、foreshadow、tree、
+ * export）逐一收敛至此。
  */
 
 /** 码位封顶（对齐导出侧 FILENAME_MAX_CP 口径但更紧：正文文件名拼接点更长） */
@@ -13,28 +19,60 @@ const CHAPTER_TITLE_MAX_CP = 60
 /** 字节封顶（255B - 原子写 tmp 余量 52B - 前缀/后缀余量，留足 120B） */
 const CHAPTER_TITLE_MAX_BYTES = 120
 
+/** 码位 + 字节双封顶截断（不切多字节字符）。非法字符净化后单独调用。
+ *  预算可按拼接点覆写（export 用更强的 80/255-52 后缀感知预算）。 */
+function truncateTitle(input: string, maxCp = CHAPTER_TITLE_MAX_CP, maxBytes = CHAPTER_TITLE_MAX_BYTES): string {
+  const cps = Array.from(input)
+  let out = ''
+  let used = 0
+  for (let i = 0; i < cps.length; i++) {
+    if (i >= maxCp) break
+    const b = Buffer.byteLength(cps[i]!, 'utf8')
+    if (used + b > maxBytes) break
+    out += cps[i]!
+    used += b
+  }
+  return out
+}
+
+/** Windows HTTP 保留设备名前缀（win 适配批 2）。这些名字本身是合法目录名，但
+ *  拷到 Windows 会被文件系统拒绝；新写入数据面预留规避（加 `_` 前缀）。 */
+export const RESERVED_WIN = new Set([
+  'CON', 'PRN', 'AUX', 'NUL', 'CLOCK$',
+  'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
+  'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9',
+])
+
+/** 对已净化标题做 Windows 兼容再处理：尾点/尾空格剥离 + 保留设备名避让。
+ *  同名存储路径语义（尾点自动被剥会读写名不一致）在 mac 上也一致执行。 */
+function winCompatNamePart(name: string): string {
+  const stripped = name.replace(/[. ]+$/, '')
+  if (stripped === '') return stripped
+  const base = stripped.split('.')[0]!.toUpperCase()
+  return RESERVED_WIN.has(base) ? '_' + stripped : stripped
+}
+
 /**
- * 净化写章文件名的标题段：剥控制字符（含 \n\r\t）→ 替换非法文件名字符 →
- * 码位 + 字节双封顶截断（不切多字节字符）。
+ * 单一真相源：净化文件名的标题段——剥控制字符 → 替换非法文件名字符 →
+ * [[ ]] 转义 → 尾点/尾空格剥离 + 保留设备名避让 → 码位 + 字节双封顶 →
+ * 非空兜底（`未命名`）。供正文/风格库/伏笔/树工具/导出等所有拼文件名点收敛。
  */
-export function sanitizeChapterTitle(title: string): string {
-  // R-10：控制字符（含换行/回车/制表，块标量多行标题会带出）一律剥除
+export function sanitizeFileNamePart(title: string, maxCp?: number, maxBytes?: number): string {
   const cleaned = title
+    // 控制字符（含换行/回车/制表，块标量多行标题会带出）一律剥除
     // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u001f\u007f]/g, '')
     // 非法文件名字符：路径分隔符（防 ../ 越出 bookRoot）等
     .replace(/[\\/:*?"<>|]/g, '_')
     .trim()
-  // 码位 + 字节双封顶（X-P2-4 同款：码位挡不住 4 字节 emoji，字节截断不切多字节字符）
-  const cps = Array.from(cleaned)
-  let out = ''
-  let used = 0
-  for (let i = 0; i < cps.length; i++) {
-    if (i >= CHAPTER_TITLE_MAX_CP) break
-    const b = Buffer.byteLength(cps[i]!, 'utf8')
-    if (used + b > CHAPTER_TITLE_MAX_BYTES) break
-    out += cps[i]!
-    used += b
-  }
-  return out
+    // X-P2-9：转义 [[ ]] 防止文件名解析成链接文本
+    .replace(/\[\[/g, '（')
+    .replace(/\]\]/g, '）')
+  const out = winCompatNamePart(truncateTitle(cleaned, maxCp, maxBytes))
+  return out === '' ? '未命名' : out
+}
+
+/** 写章文件名的标题段净化（保留原 firma 单源名字便于既有调用方 diff 收敛）。 */
+export function sanitizeChapterTitle(title: string): string {
+  return sanitizeFileNamePart(title)
 }

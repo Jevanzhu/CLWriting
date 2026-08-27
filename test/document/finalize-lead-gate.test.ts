@@ -173,7 +173,8 @@ test('ee-P1-3: 无布线书 / 非正文文档 → 不触发闸（正常定稿）
 
 // ── ee-P1-4：账本回写先于定稿基线 ────────────────────────────────────
 
-test('ee-P1-4: 账本回写失败 → LEAD_WRITE_ERROR 且基线未写；恢复后重试成功（丢失窗口封死）', () => {
+// Windows 无 POSIX 权限位（chmod 为 no-op/仅映射只读位），该守卫语义由 macOS/Linux CI 腿覆盖
+test.skipIf(process.platform === 'win32')('ee-P1-4: 账本回写失败 → LEAD_WRITE_ERROR 且基线未写；恢复后重试成功（丢失窗口封死）', () => {
   const { root, docId } = makeBook({ outlineLeads: '悬念-001' })
   const leadDir = join(root, '布线', '悬念')
   try {

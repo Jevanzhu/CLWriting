@@ -14,6 +14,7 @@ import { readdirSync, statSync, existsSync, mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { readFile, parseFlat } from '../format/frontmatter.js'
 import { readLead } from '../format/leads.js'
+import { sanitizeFileNamePart } from '../format/filename.js'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { walkMdEach } from '../fs/walk-md.js'
 import { log } from '../log/index.js'
@@ -109,10 +110,10 @@ export function migrateLegacyForeshadows(bookRoot: string): MigrateResult {
 
     // 文件名带编号兜底，防同名标题伏笔迁移时互相覆盖丢数据（N3）
     // B-P1-5：改原子写，避免迁移过程中断留下半截目标文件
-    // title 可能含路径分隔符（来自 fm 可篡改数据），净化防穿越
-    const safeTitle = String(title).replace(/[/\\\0]/g, '_')
+    // title 可能含路径分隔符（来自 fm 可篡改数据），净化防穿越 + win 非法字符（单源收敛）
+    const safeTitle = sanitizeFileNamePart(String(title))
     // P2-BE-3：编号同样净化（与 safeTitle 一致——fm 可篡改，defense-in-depth）
-    const safeId = String(lead.编号).replace(/[/\\\0]/g, '_')
+    const safeId = sanitizeFileNamePart(String(lead.编号))
     const targetPath = join(newDir, `${safeId}-${safeTitle}.md`)
     if (existsSync(targetPath)) {
       // Y-19（第五十七轮）：上次「写成功 → rmSync 旧源」之间崩溃的续跑形态——目标已在，

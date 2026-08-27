@@ -110,7 +110,7 @@ test('低-4（第十轮）：书级未设 volume_size 时 global defaultVolumeSi
     // raw 读法（?? 50）会算成卷 0 → 整段省略
     const p = volumeProgressOf(root, 6, ud)
     expect(p.section).toContain('第 1 卷摘要')
-    expect(p.file).toBe(join('定稿', '摘要', '卷摘要', '1.md'))
+    expect(p.file).toBe('定稿/摘要/卷摘要/1.md')
   } finally {
     rmSync(root, { recursive: true, force: true })
     if (ud) rmSync(ud, { recursive: true, force: true })

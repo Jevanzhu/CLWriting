@@ -31,6 +31,27 @@ export const VERSIONS_DIR_NAME = '.版本'
 /** 旧快照目录名（迁移源）。 */
 export const LEGACY_SNAPSHOTS_DIR_NAME = '.snapshots'
 
+/**
+ * docId → 版本子目录名的跨平台映射（win 适配 F4 缺陷修复，2026-08-27）。
+ * stable-id 的 legacy 方案含 `:`（`legacy:<sha256 前 16 位>`），是 Windows 目录名
+ * 非法字符——写入端统一编码（`:`→`_`）；读取端优先命中**字面历史目录**
+ * （mac 存量库的裸冒号目录在 win 上可读不可建，跨平台书库迁移验收 §9 前提），
+ * 不存在再回退编码目录。两 id 仅差 `:` 与 `_` 才可能碰撞，id 空间（hex/doc_ 前缀）
+ * 实践中不存在；新写入恒编码保证 win 可建，mac 对无冒号目录名不受影响。
+ */
+export function encodeDocDirName(docId: string): string {
+  return docId.replace(/:/g, '_')
+}
+
+function resolveDocVersionsDir(versionsDir: string, docId: string, mode: 'read' | 'write'): string {
+  const encoded = encodeDocDirName(docId)
+  if (mode === 'write') return join(versionsDir, encoded)
+  const literal = join(versionsDir, docId)
+  // 读：字面目录存在（mac 存量 / 自身即合法命名）则直读——historical 数据零迁移原则
+  if (literal !== encoded && existsSync(literal)) return literal
+  return join(versionsDir, encoded)
+}
+
 export interface VersionMeta {
   /** 来源：autosave 编辑快照 / manual 手动留底 / finalize 定稿 / restore 恢复 / rename / delete… */
   origin: string
@@ -210,7 +231,7 @@ export function writeVersion(
   if (meta.words !== undefined) front.push(`字数: ${meta.words}`)
   if (meta.pinned) front.push('永久: true')
   front.push('---', '')
-  const file = join(versionsDir, docId, `${id}.md`)
+  const file = join(resolveDocVersionsDir(versionsDir, docId, 'write'), `${id}.md`)
   atomicWriteFile(file, front.join('\n') + content, { fsync: true })
   // P3-14 + AA-P1-1：写入成功后更新指纹缓存（存「版本 id + fp」，下次同 origin 同内容
   // 命中时校验该 id 仍在盘；Map 有 size 上限防缓涨）
@@ -230,7 +251,7 @@ function sanitizeFmLine(s: string): string {
 /** 列某文档的版本（按 id 降序，新的在前；id 是 ULID 时间排序）。 */
 export function listVersions(versionsDir: string, docId: string): VersionInfo[] {
   if (!safeDocId(docId)) return []
-  const dir = join(versionsDir, docId)
+  const dir = resolveDocVersionsDir(versionsDir, docId, 'read')
   if (!existsSync(dir)) return []
   const out: VersionInfo[] = []
   for (const name of readdirSync(dir)) {
@@ -250,7 +271,7 @@ export function readVersion(
   if (!/^[0-9A-HJKMNP-TV-Z]{26}$/.test(id)) return null
   // docId 防穿越（manifest 可篡改数据面 defense-in-depth）
   if (!safeDocId(docId)) return null
-  const file = join(versionsDir, docId, `${id}.md`)
+  const file = join(resolveDocVersionsDir(versionsDir, docId, 'read'), `${id}.md`)
   if (!existsSync(file)) return null
   const r = readFile(file)
   if (!r.ok) return null
@@ -287,7 +308,7 @@ export function readVersionMeta(
   if (!/^[0-9A-HJKMNP-TV-Z]{26}$/.test(id)) return null
   // docId 防穿越（manifest 可篡改数据面 defense-in-depth）
   if (!safeDocId(docId)) return null
-  const file = join(versionsDir, docId, `${id}.md`)
+  const file = join(resolveDocVersionsDir(versionsDir, docId, 'read'), `${id}.md`)
   let head: string
   try {
     // bounded read 只取头部，避免整读大正文入内存
@@ -434,7 +455,7 @@ export function pruneVersions(
     }
     // macOS AppleDouble 伴生文件一并清理
     try {
-      unlinkSync(join(versionsDir, docId, `._${s.id}.md`))
+      unlinkSync(join(resolveDocVersionsDir(versionsDir, docId, 'read'), `._${s.id}.md`))
     } catch {
       /* 没有就算了 */
     }

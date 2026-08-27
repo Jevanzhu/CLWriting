@@ -1,1 +1,7 @@
+# 全局行尾策略（win 适配批 3 / 阶段 21，2026-08-27）：文本入库统一 LF，
+# 防跨机检出漂移破坏字节等价金测与脚本;二进制显式排除防规范化损坏。
+* text=auto
 知识层/** text eol=lf
+*.png binary
+*.ico binary
+*.icns binary

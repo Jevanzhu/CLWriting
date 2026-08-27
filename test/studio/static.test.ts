@@ -138,7 +138,8 @@ test('X-21: /assets/../index.html → 实发 SPA 入口 no-cache（穿越字面�
 })
 
 // M-9（第十一轮）：canonical 双侧 realpath 判界——dist 被植入外指 symlink 不得读出
-test('M-9: dist 内 symlink 外指 root 外文件 → 403（canonical 判界，非前缀判界）', async () => {
+// Windows 无 POSIX 权限位/需开发者模式，symlinkSync 直建 EPERM，该守卫语义由 macOS/Linux CI 腿覆盖
+test.skipIf(process.platform === 'win32')('M-9: dist 内 symlink 外指 root 外文件 → 403（canonical 判界，非前缀判界）', async () => {
   const outside = mkdtempSync(join(tmpdir(), 'clwriting-static-out-'))
   try {
     writeFileSync(join(outside, 'secret.txt'), 'secret-content-should-not-leak')
@@ -155,7 +156,8 @@ test('M-9: dist 内 symlink 外指 root 外文件 → 403（canonical 判界，�
   }
 })
 
-test('M-9: root 内部 symlink（合法用途）仍正常服务', async () => {
+// Windows 无 POSIX 权限位/需开发者模式，symlinkSync 直建 EPERM，该守卫语义由 macOS/Linux CI 腿覆盖
+test.skipIf(process.platform === 'win32')('M-9: root 内部 symlink（合法用途）仍正常服务', async () => {
   writeFileSync(join(root, 'real.js'), 'console.log("ok")')
   symlinkSync(join(root, 'real.js'), join(root, 'alias.js'))
 
@@ -165,7 +167,8 @@ test('M-9: root 内部 symlink（合法用途）仍正常服务', async () => {
 })
 
 // N-3（第十二轮）：errno 分流——存在文件读失败（EACCES 等 IO 错误）不再混叠成 SPA 200
-test('N-3: 存在的文件读失败（EACCES）→ 500 IO_ERROR；不存在路由仍 SPA fallback 200', async () => {
+// Windows 无 POSIX 权限位（chmod 为 no-op/仅映射只读位），该守卫语义由 macOS/Linux CI 腿覆盖
+test.skipIf(process.platform === 'win32')('N-3: 存在的文件读失败（EACCES）→ 500 IO_ERROR；不存在路由仍 SPA fallback 200', async () => {
   writeFileSync(join(root, 'blocked.js'), 'console.log(1)')
   chmodSync(join(root, 'blocked.js'), 0o000) // stat 过、readFile 拒——模拟权限/IO 故障
 

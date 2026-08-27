@@ -105,7 +105,8 @@ describe('候选读写往返', () => {
   // 低-3（第十轮）：readdir 与 stat 之间文件被删的竞态——等价造法是悬空 symlink
   // （stat 跟随链接取目标，同样 ENOENT）。此前裸 statSync 会把整个候选箱读取抛穿，
   // 对齐 leads.ts readLeadDir 的守卫写法：单文件失败跳过不中断
-  it('低-3（第十轮）：候选目录含已消失文件（悬空链接）不抛，其余候选照常读出', () => {
+  // Windows 无 POSIX 权限位/需开发者模式，symlinkSync 直建 EPERM，该守卫语义由 macOS/Linux CI 腿覆盖
+  it.skipIf(process.platform === 'win32')('低-3（第十轮）：候选目录含已消失文件（悬空链接）不抛，其余候选照常读出', () => {
     const dir = join(root, CANDIDATES_DIR)
     addCandidate(root, sampleCandidate) // 自建候选目录
     symlinkSync(join(dir, 'no-such.md'), join(dir, '已消失.md'))
@@ -149,7 +150,8 @@ describe('确认 / 忽略', () => {
     expect(confirmCandidate(root, '文风/候选/不存在.md')).toBeNull()
   })
 
-  it('M-7：穿越 / 书外绝对路径 / symlink 越出 → confirm null + ignore false（内层统一委托 resolveWithinRoot）', () => {
+  // Windows 无 POSIX 权限位/需开发者模式，symlinkSync 直建 EPERM，该守卫语义由 macOS/Linux CI 腿覆盖
+  it.skipIf(process.platform === 'win32')('M-7：穿越 / 书外绝对路径 / symlink 越出 → confirm null + ignore false（内层统一委托 resolveWithinRoot）', () => {
     // 字面穿越
     expect(confirmCandidate(root, '../outside.md')).toBeNull()
     expect(ignoreCandidate(root, '文风/候选/../../outside.md')).toBe(false)

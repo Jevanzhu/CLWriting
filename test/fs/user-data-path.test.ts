@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import * as os from 'node:os'
-import { join, sep } from 'node:path'
+import { join } from 'node:path'
 import { defaultUserDataPath, APP_DIR_NAME } from '../../src/fs/user-data-path.js'
 
 vi.mock('node:os', async (importOriginal) => {
@@ -35,7 +35,8 @@ describe('defaultUserDataPath 跨平台统一', () => {
   it('darwin → ~/Library/Application Support/CLWriting', () => {
     mockPlatform('darwin')
     vi.mocked(os.homedir).mockReturnValue('/Users/jevanzhu')
-    expect(defaultUserDataPath()).toBe(`/Users/jevanzhu/Library/Application Support/CLWriting`)
+    // Windows 无 POSIX 分隔：期望用 path.join 构造（与实现同源，win 下解析为反斜杠）
+    expect(defaultUserDataPath()).toBe(join('/Users/jevanzhu', 'Library', 'Application Support', 'CLWriting'))
   })
 
   it('win32 → AppData/Roaming/CLWriting', () => {
@@ -48,12 +49,14 @@ describe('defaultUserDataPath 跨平台统一', () => {
     mockPlatform('linux')
     vi.stubEnv('XDG_CONFIG_HOME', '')
     vi.mocked(os.homedir).mockReturnValue('/home/jevanzhu')
-    expect(defaultUserDataPath()).toBe('/home/jevanzhu/.config/CLWriting')
+    // Windows 无 POSIX 分隔：期望用 path.join 构造（与实现同源，win 下解析为反斜杠）
+    expect(defaultUserDataPath()).toBe(join('/home/jevanzhu', '.config', 'CLWriting'))
   })
 
   it('linux 有 XDG_CONFIG_HOME → $XDG_CONFIG_HOME/CLWriting（Electron 同规则）', () => {
     mockPlatform('linux')
     vi.stubEnv('XDG_CONFIG_HOME', '/home/jevanzhu/.xdgconf')
-    expect(defaultUserDataPath()).toBe(`/home/jevanzhu/.xdgconf${sep}CLWriting`)
+    // Windows 无 POSIX 分隔：期望用 path.join 构造（与实现同源，win 下解析为反斜杠）
+    expect(defaultUserDataPath()).toBe(join('/home/jevanzhu/.xdgconf', 'CLWriting'))
   })
 })

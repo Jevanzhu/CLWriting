@@ -54,7 +54,8 @@ describe('safeManifestPath', () => {
     expect(safeManifestPath(dir, '新文件.md')).not.toBeNull()
   })
 
-  it('拒绝 symlink 指向 bookRoot 外（文件已存在场景）', () => {
+  // Windows 无 POSIX 权限位/需开发者模式，symlinkSync 直建 EPERM，该守卫语义由 macOS/Linux CI 腿覆盖
+  it.skipIf(process.platform === 'win32')('拒绝 symlink 指向 bookRoot 外（文件已存在场景）', () => {
     // 创建 dir 内的 symlink 指向 dir 外（tmpdir），并在目标处放一个文件
     symlinkSync(tmpdir(), join(dir, 'evil'))
     writeFileSync(join(tmpdir(), 'secret.md'), 'test')
@@ -124,7 +125,8 @@ describe('resolveWithinRoot', () => {
     expect(r!.rel).toBe('设定/总纲.md')
   })
 
-  it('symlink 指向 root 外 → null（双侧 realpath 消解 /var→/private/var 前缀差）', () => {
+  // Windows 无 POSIX 权限位/需开发者模式，symlinkSync 直建 EPERM，该守卫语义由 macOS/Linux CI 腿覆盖
+  it.skipIf(process.platform === 'win32')('symlink 指向 root 外 → null（双侧 realpath 消解 /var→/private/var 前缀差）', () => {
     symlinkSync(tmpdir(), join(dir, 'evil'))
     writeFileSync(join(tmpdir(), 'secret-rwr.md'), 'test')
     try {
@@ -150,7 +152,8 @@ describe('L-D1（第八轮）：isWithinRoot 段级越出判定（与 resolveWit
     expect(isWithinRoot(dir, p)).toBe(true)
   })
 
-  it('symlink 指向 root 外 → 拒绝', () => {
+  // Windows 无 POSIX 权限位/需开发者模式，symlinkSync 直建 EPERM，该守卫语义由 macOS/Linux CI 腿覆盖
+  it.skipIf(process.platform === 'win32')('symlink 指向 root 外 → 拒绝', () => {
     symlinkSync(tmpdir(), join(dir, 'evil2'))
     expect(isWithinRoot(dir, join(dir, 'evil2'))).toBe(false)
   })
