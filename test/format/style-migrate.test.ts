@@ -182,9 +182,9 @@ describe('migrateStyleLibrary', () => {
     expect(files[0]).toBe('.._.._evil-001.md')
   })
 
-  it('B-5: fm 场景含 Windows 非法字符 → 消毒为 _（与 addEntry Y-27 单源同口径）', () => {
-    // 场景名用 win 合法名「雨夜_追杀」（原「雨夜:追杀」含 : 在 Windows 上是非法目录字符）
-    makeSample('雨夜_追杀', '001', '正文')
+  // 冒号文件名仅 POSIX 可建（win 上落盘即失败）——skipIf 保原输入，冒号消毒断言不因适配空转
+  it.skipIf(process.platform === 'win32')('B-5: fm 场景含 Windows 非法字符 → 消毒为 _（与 addEntry Y-27 单源同口径）', () => {
+    makeSample('雨夜:追杀', '001', '正文')
     const result = migrateStyleLibrary(root)
     expect(result.migrated).toBe(1)
     const files = readdirSync(join(root, ENTRIES_DIR, '样章'))

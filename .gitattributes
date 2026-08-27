@@ -1,6 +1,11 @@
 # 全局行尾策略（win 适配批 3 / 阶段 21，2026-08-27）：文本入库统一 LF，
 # 防跨机检出漂移破坏字节等价金测与脚本;二进制显式排除防规范化损坏。
-* text=auto
+# eol=lf（win 合并后检查轮升格）：text=auto 只管入库归一，检出仍随 Git-for-Windows
+# 默认 core.autocrlf=true 落 CRLF——字节等价金测在 win 本地即红。检出也钉死 LF，
+# 跨平台工作区字节一致；批处理脚本（cmd.exe 对 LF 的标签/续行有边角缺陷）例外保 CRLF。
+* text=auto eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
 知识层/** text eol=lf
 *.png binary
 *.ico binary

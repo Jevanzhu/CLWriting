@@ -209,13 +209,13 @@ test('低级项（第六轮）：非 ASCII 文件名的 untracked 不建基线�
   expect(byPath.get(rel)?.finalizedRevision).toBeUndefined()
 })
 
-test('P5-数据层（第七轮）：文件名含字面 " -> " 的 untracked 不建基线（仅 R 状态才切箭头）', () => {
+// 含 > 的文件名仅 POSIX 可建（win 上落盘即失败）——skipIf 保原输入，字面箭头断言不因适配空转
+test.skipIf(process.platform === 'win32')('P5-数据层（第七轮）：文件名含字面 " -> " 的 untracked 不建基线（仅 R 状态才切箭头）', () => {
   scaffold([['写作/正文/0001-开篇.md', '---\n章号: 1\n---\n正文']], true)
   execSync('git add -A && git commit -m base', { cwd: tmp, stdio: 'pipe' })
   // untracked：旧实现非 R 行也可能按 indexOf(' -> ') 切，路径被截 → dirty 失配 →
-  // 误判 clean 给未提交文件建定稿基线（断写红线）。文件名用 win 合法的「旧 - 新.md」
-  // 占位（原「旧 -> 新.md」含 > 在 Windows 上是非法字符）。
-  const rel = '写作/正文/0002-旧 - 新.md'
+  // 误判 clean 给未提交文件建定稿基线（断写红线）
+  const rel = '写作/正文/0002-旧 -> 新.md'
   const segs = rel.split('/')
   mkdirSync(join(tmp, ...segs.slice(0, -1)), { recursive: true })
   writeFileSync(join(tmp, ...segs), '未跟踪草稿', 'utf-8')
@@ -231,12 +231,13 @@ test('P5-数据层（第七轮）：文件名含字面 " -> " 的 untracked 不�
   expect(byPath.get('写作/正文/0001-开篇.md')?.finalizedRevision).toMatch(/^sha256:/)
 })
 
-test('L-D7（第八轮）：R 行引号路径任一侧字面含 " -> " —— 引号外箭头定位不切引号内', () => {
+// 含 > 的文件名仅 POSIX 可建（win 上落盘即失败）——skipIf 保原输入，引号内箭头断言不因适配空转
+test.skipIf(process.platform === 'win32')('L-D7（第八轮）：R 行引号路径任一侧字面含 " -> " —— 引号外箭头定位不切引号内', () => {
   scaffold([['写作/正文/0001-开篇.md', '---\n章号: 1\n---\n正文']], true)
   execSync('git add -A && git commit -m base', { cwd: tmp, stdio: 'pipe' })
-  // 改名：旧名含字面空格连字符（win 合法名，原「旧 -> 名.md」含 > 在 Windows 非法）。
-  // git porcelain 引号路径场景下误切会造成 rename 失配——据此锁定引号外箭头定位不切引号内。
-  const oldRel = '写作/正文/0002-旧 - 名.md'
+  // 改名：旧名含字面箭头（引号内）→ git porcelain 输出 `"…旧 -> 名" -> "…新名"`。
+  // 首匹配 indexOf 会切在引号内箭头处，得残路径「名" -> "…新名"」→ rename 失配。
+  const oldRel = '写作/正文/0002-旧 -> 名.md'
   const newRel = '写作/正文/0002-新名.md'
   mkdirSync(join(tmp, '写作', '正文'), { recursive: true })
   writeFileSync(join(tmp, ...oldRel.split('/')), '改名内容', 'utf-8')
