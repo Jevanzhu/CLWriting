@@ -1,9 +1,12 @@
 name: CI
 
 on:
-  # W-P2-14：恢复自动触发（发布门不再名存实亡）。分支限 main/dev + 指向 main 的 PR，避免特性分支频繁跑。
+  # W-P2-14：恢复自动触发（发布门不再名存实亡）。分支限 main + 指向 main 的 PR，避免特性分支频繁跑。
+  # 2026-08-28 临时收窄：push 腿摘除 dev——近期 dev 频繁推送（win 迭代期），dev 腿逐推
+  # 全矩阵跑过重；dev 验证改走 workflow_dispatch 手动跑，合入 main 时仍由 push 腿背书。
+  # 频推期结束后把 dev 加回 branches。
   push:
-    branches: [main, dev]
+    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
