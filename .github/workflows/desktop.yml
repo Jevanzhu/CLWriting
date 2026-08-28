@@ -1,5 +1,5 @@
-# Electron 桌面应用构建（#electron · 仅 mac，2026-06-30 决策）
-# 手动触发 或 tag v* 触发；产物 macOS→dmg（win/linux 暂缓）
+# Electron 桌面应用构建（#electron · mac dmg + win nsis——win 腿阶段 21 J0 启用，2026-08-28；linux 仍暂缓）
+# 手动触发 或 tag v* 触发；产物 macOS→dmg、Windows→exe（x64 单文件 NSIS，首版 unsigned 见 D4）
 name: Desktop Build
 on:
   workflow_dispatch:
@@ -22,7 +22,9 @@ jobs:
     # mac 单腿跑全量 vitest + electron-builder 需要更宽的预算
     # N-1（第十二轮）：30→40——tag 门再补 check:packaging + release-smoke（自带一次
     # build:all + playwright），与 ci.yml e2e job 同预算量级
-    timeout-minutes: 40
+    # J0（阶段 21）：40→50——win 腿 npm ci 与 NSIS 首跑工具链下载（nsis/winCodeSign）
+    # 偏慢，windows runner 无历史缓存留余量；mac 腿实测量级不变
+    timeout-minutes: 50
     strategy:
       fail-fast: false
       matrix:
@@ -30,7 +32,10 @@ jobs:
         # Intel mac 无可用产物。发行架构（+x64 / universal / win/linux 恢复）属发行决策，
         # 暂记档不代拍；需要双 arch 时改 electron-builder.yml mac.target 为
         # [{target: dmg, arch: [arm64, x64]}]（或 universal）并跑一次 tag 门验证。
-        os: [macos-latest]  # 仅 mac（win/linux 暂缓 2026-06-30）
+        # J0（阶段 21，2026-08-28）：加 windows-latest 腿产 exe——e2e/release-smoke/Electron
+        # 冒烟按 D5（win 仅 typecheck+build+单测）仍留 mac，win 腿跑门禁步 + build:desktop +
+        # exe 上传 + 打包态启动冒烟。H-2 的 mac arch 注记不变（arm64 单腿）。
+        os: [macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -71,17 +76,20 @@ jobs:
       - name: 知识层门（check:knowledge）
         run: npm run check:knowledge
       - name: 装 playwright chromium
+        if: runner.os == 'macOS'  # D5：e2e 仍 mac，win 腿不装不跑
         run: npx playwright install chromium
       # R69-32（十七轮）：tag 门补常规 e2e（29 spec 前端动线）——此前 tag 门只有
       # release-smoke（2 用例）+ Electron 启动冒烟兜底核心面，前端交互回归可随 DMG
       # 出包；复用上方已装 chromium（test:e2e 自带 build:web 前置）。coverage 阈值门
       # 仍留分支 CI（阈值门管代码演化趋势，非发布物属性，注释记档口径）。
       - name: 常规 e2e（build:web + playwright test）
+        if: runner.os == 'macOS'  # D5：e2e 仍 mac（J0 注记，同上）
         run: npm run test:e2e
       - name: 发布冒烟（release-smoke，build:all + 编译产物起服）
+        if: runner.os == 'macOS'  # D5：e2e 仍 mac（J0 注记，同上）
         run: npm run test:e2e:release
       - name: 上传 playwright trace（失败时）
-        if: failure()
+        if: failure() && runner.os == 'macOS'
         uses: actions/upload-artifact@v4
         with:
           name: playwright-trace-desktop
@@ -92,18 +100,27 @@ jobs:
       # GH_TOKEN 即红，v1.0.0-rc.1 首跑实录）；本工作流产物走下方 upload-artifact，不发布
       - run: npm run build:desktop
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && runner.os == 'macOS'
         with:
           name: clwriting-desktop-${{ matrix.os }}
           # R72-15（二十轮 H-8）：工件只留 dmg——mac*/ 整目录（.app 解包态）与 dmg 内容
           # 重复、上传体积双倍；Electron 冒烟步用本地 dist-electron 路径，不依赖本工件
           path: dist-electron/*.dmg
           if-no-files-found: error
+      # J0：win 腿工件只留 NSIS 单文件 exe（win-unpacked/ 解包态不上传，同 H-8 体积口径；
+      # blockmap 等伴生文件不在 *.exe 通配内自然排除）
+      - uses: actions/upload-artifact@v4
+        if: always() && runner.os == 'Windows'
+        with:
+          name: clwriting-desktop-${{ matrix.os }}
+          path: dist-electron/*.exe
+          if-no-files-found: error
       # R67-4（十五轮）：Electron 壳真实启动冒烟——release-smoke 只 spawn 编译产物
       # server-main.js（node 进程，不启动 Electron 壳），BrowserWindow/preload/IPC 在
       # 真实 Electron 运行时的行为此前无任何自动化兜底。拉起打包态 .app 二进制，
       # 存活 ≥25s 且未触发崩溃自愈日志即过（放工件上传后：冒烟红仍留 DMG 供排查）。
       - name: Electron 启动冒烟（打包态 .app 拉起）
+        if: runner.os == 'macOS'
         run: |
           set -eu
           APP_BIN=$(ls -d dist-electron/mac*/CLWriting.app/Contents/MacOS/CLWriting | head -n1)
@@ -125,3 +142,22 @@ jobs:
           sleep 3
           kill -9 "$PID" 2>/dev/null || true
           echo "冒烟通过：打包态 Electron 进程存活 ≥25s，无崩溃自愈触发"
+      # J0：win 腿同款启动冒烟——NSIS 产物不解包，拉起 win-unpacked/ 内可执行体（与 .app
+      # 同一次 electron-builder 产物、解包态同口径，非安装器复验）。存活 ≥25s 即过。
+      - name: Electron 启动冒烟（打包态 exe 拉起）
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $exe = "dist-electron/win-unpacked/CLWriting.exe"
+          if (-not (Test-Path $exe)) {
+            Write-Output "::error::未找到打包态可执行体：$exe"
+            exit 1
+          }
+          $p = Start-Process -FilePath $exe -PassThru
+          Start-Sleep -Seconds 25
+          if ($p.HasExited) {
+            Write-Output "::error::Electron 打包应用 25s 内退出（启动失败）"
+            exit 1
+          }
+          Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+          Write-Output "冒烟通过：打包态 Electron 进程存活 ≥25s"

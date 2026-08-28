@@ -59,8 +59,11 @@ describe('R71-3 任务闸锁续期', () => {
     expect(isTaskGateHeld(book, 'review')).toBe(true)
     const lockPath = lockPathOf(dir, book, 'review')
 
-    // 模拟「本闸锁已被接管/重建」：锁文件内容换成他人 payload（pid=1 恒活）
-    writeFileSync(lockPath, JSON.stringify({ pid: 1, bootTime: 0 }), 'utf-8')
+    // 模拟「本闸锁已被接管/重建」：锁文件内容换成他人 payload——pid 取「必活他进程」
+    // （POSIX 1=init 恒活；win 4=System 恒在，pid 1 在 win 多半不存在会被误判死锁 →
+    // stale 接管 → 假红。J0（win 适配）实测修正）
+    const liveForeignPid = process.platform === 'win32' ? 4 : 1
+    writeFileSync(lockPath, JSON.stringify({ pid: liveForeignPid, bootTime: 0 }), 'utf-8')
 
     release!()
     // 他人在位的新锁幸存（校验版释放读到不一致即不删）

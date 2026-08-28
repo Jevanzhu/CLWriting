@@ -151,6 +151,16 @@ export function diffSpecOrder(actualRelativePaths, snapshot) {
   return { added, removed }
 }
 
+/**
+ * J0（win 适配，2026-08-28 本机实测暴露）：walk 产出平台原生分隔符路径（Windows 为 `\`），
+ * 快照名单恒为 posix 相对路径——先剥 root 再统一 `\`→`/` 归一化。否则 windows 上
+ * R66-37 守卫全体失配假红（'test\e2e\x.spec.ts' ≠ 'test/e2e/x.spec.ts'）；R70-9 只修了
+ * vitest list 的 spawn，本归一化是其漏网的另一半（win CI 腿落库后未实跑 check:counts 故未暴露）。
+ */
+export function posixRelPath(root, fp) {
+  return fp.replace(root, '').replace(/\\/g, '/')
+}
+
 // 门禁主体收进 main() + 直跑守卫：node 直跑本文件（npm run check:counts）时执行；
 // 被测试 import（R63-12 直测纯函数）时不触发 vitest list / process.exit 副作用
 function main() {
@@ -185,7 +195,7 @@ function main() {
   // spec 名单/字典序位与快照失配即红：新 spec 插序改变 workers:1 下的执行顺序，
   // 前序 spec 的落盘依赖可能静默错位——须人工确认后同步 E2E_SPEC_ORDER_SNAPSHOT。
   const { added: specAdded, removed: specRemoved } = diffSpecOrder(
-    e2eSpecs.map((fp) => fp.replace(root, '')),
+    e2eSpecs.map((fp) => posixRelPath(root, fp)),
     E2E_SPEC_ORDER_SNAPSHOT,
   )
   if (specAdded.length > 0 || specRemoved.length > 0) {
@@ -202,7 +212,7 @@ function main() {
   for (const fp of [...unitFiles, ...e2eSpecs]) {
     const { only, uncondSkip } = findOnlyOrSkipViolations(readFileSync(fp, 'utf8'))
     const n = only + uncondSkip
-    if (n > 0) onlyHits.push(`${fp.replace(root, '')}（${n} 处）`)
+    if (n > 0) onlyHits.push(`${posixRelPath(root, fp)}（${n} 处）`)
   }
   if (onlyHits.length > 0) {
     console.error('\ncheck:counts 失败：发现 .only 或无条件 .skip 用例（提交前移除——其余用例会被静默跳过，门禁假绿；环境门条件式 skip 可豁免）：')
@@ -238,12 +248,20 @@ function main() {
   // 斜杠/逗号的一种精确排印，README 排版微调即模式失配→假红（fail-closed 方向没错，
   // 但把排版差异当数字失真红太脆）；语义锚（短语 + 数字位置）不变，真失配/真缺行仍红。
   const PH = (inner) => `[（(]${inner}[)）]`
+  // J0（win 适配，2026-08-28 本机实测）：README 单测数为 macOS/Linux 口径——win 上 J3
+  // 的 skipIf(win32) 平台门用例不进 vitest list 收集（实测 4066→4010，差属预期非丢失），
+  // 单测数对账由 macos/ubuntu 腿承担（承 coverage 门「阈值门留分支 CI」的平台分工先例）；
+  // win 腿仍对账测试文件数与 e2e spec/用例数（平台不变量）。
+  const isWin = process.platform === 'win32'
+  const claimUnitTests = (pattern, label) => {
+    if (!isWin) claim(pattern, actual.unitTests, label)
+  }
   // 徽章：tests-2937%20all%20green（示例为 2026-08-23 当前值，实际以 README 为准）
-  claim(/badge\/tests-(\d+)%20all%20green/, actual.unitTests, '徽章单测数')
+  claimUnitTests(/badge\/tests-(\d+)%20all%20green/, '徽章单测数')
   // 「npm test                   # 2937 单测」
-  claim(/npm test\s+[#＃]\s*(\d+)\s*单测/, actual.unitTests, 'npm test 单测数')
+  claimUnitTests(/npm test\s+[#＃]\s*(\d+)\s*单测/, 'npm test 单测数')
   // 「vitest（2937 单测）+ Playwright（28 specs / 41 用例）」
-  claim(new RegExp(`vitest${PH('(\\d+) 单测')}`), actual.unitTests, '技术栈单测数')
+  claimUnitTests(new RegExp(`vitest${PH('(\\d+) 单测')}`), '技术栈单测数')
   claim(new RegExp('Playwright[（(](\\d+) specs'), actual.e2eSpecs, 'Playwright spec 数')
   // dd-P3（E-P3-3）：锚定完整短语——裸 `(\d+) 用例）` 会命中 README 里任何以"用例）"结尾的数字
   claim(new RegExp(`Playwright${PH('\\d+ specs [\\/／] (\\d+) 用例')}`), actual.e2eCases, 'Playwright 用例数')
@@ -261,7 +279,7 @@ function main() {
   )
   // 「327 个测试文件 / 2937 单测全绿」
   claim(/(\d+) 个测试文件 [\/／] \d+ 单测全绿/, actual.unitFiles, '测试文件数')
-  claim(/\d+ 个测试文件 [\/／] (\d+) 单测全绿/, actual.unitTests, '状态段单测数')
+  claimUnitTests(/\d+ 个测试文件 [\/／] (\d+) 单测全绿/, '状态段单测数')
 
   console.log(`实测：${actual.unitFiles} 个测试文件 / ${actual.unitTests} 单测；${actual.e2eSpecs} e2e spec / ${actual.e2eCases} 用例`)
 

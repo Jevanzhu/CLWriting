@@ -14,7 +14,7 @@ import { mkdtempSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawn } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { describe, it, expect, afterAll } from 'vitest'
 import { readRuleHits, recordRuleHits, __setRuleHitsLockTimeoutForTest } from '../../src/ai/rule-hits.js'
 import { acquireCrossProcessLockWithTimeout } from '../../src/fs/cross-process-lock.js'
@@ -25,11 +25,14 @@ afterAll(() => {
 })
 
 const ruleHitsPath = fileURLToPath(new URL('../../src/ai/rule-hits.ts', import.meta.url))
+// win 下 --eval 内嵌 import 的 specifier 必须是 file URL——反斜杠绝对路径是非法 ESM
+// specifier（批次 A worker 修复同款；J0 实测本文件漏网）
+const ruleHitsImportSpecifier = pathToFileURL(ruleHitsPath).href
 
 /** 起一个子进程并发记录同一 ruleId 命中 N 次，resolve 退出码 */
 function spawnWorker(bookRoot: string, n: number): Promise<number> {
   const script = `
-import { recordRuleHits } from ${JSON.stringify(ruleHitsPath)}
+import { recordRuleHits } from ${JSON.stringify(ruleHitsImportSpecifier)}
 for (let i = 0; i < ${n}; i++) {
   recordRuleHits(${JSON.stringify(bookRoot)}, [{ ruleId: 'xproc-race', level: 'yellow', message: '并发计数回归命中' }])
 }

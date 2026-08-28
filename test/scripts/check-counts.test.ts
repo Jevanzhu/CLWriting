@@ -8,7 +8,19 @@
  */
 import { describe, it, expect } from 'vitest'
 // @ts-expect-error —— .mjs 直跑脚本无类型声明（不为其维护 d.ts；断言口径靠用例锚定）
-import { stripComments, stripStrings, countE2eCases, findOnlyOrSkipViolations, sanitizeForCount } from '../../scripts/check-counts.mjs'
+import { stripComments, stripStrings, countE2eCases, findOnlyOrSkipViolations, sanitizeForCount, posixRelPath } from '../../scripts/check-counts.mjs'
+
+describe('J0（win 适配）：posixRelPath 分隔符归一化', () => {
+  it('Windows 反斜杠绝对路径归一为 posix 相对路径——R66-37 快照守卫 win 假红根因', () => {
+    // win 形态：walk 产出带盘符反斜杠的绝对路径，剥 root 后须归一为 posix 相对路径
+    expect(posixRelPath('C:\\repo\\', 'C:\\repo\\test\\e2e\\a.spec.ts')).toBe('test/e2e/a.spec.ts')
+    expect(posixRelPath('G:\\02^Workspace\\repo\\', 'G:\\02^Workspace\\repo\\test\\e2e\\b.spec.ts')).toBe('test/e2e/b.spec.ts')
+    // posix 形态原样通过（mac/linux 不回归）
+    expect(posixRelPath('/home/u/repo/', '/home/u/repo/test/e2e/c.spec.ts')).toBe('test/e2e/c.spec.ts')
+    // 快照语义：归一化后与 posix 快照名单可互相命中
+    expect(['test/e2e/a.spec.ts']).toContain(posixRelPath('C:\\repo\\', 'C:\\repo\\test\\e2e\\a.spec.ts'))
+  })
+})
 
 describe('R63-12：净化口径（X-32 语义锚定）', () => {
   it('stripComments 剥行注释与块注释，保留 https:// 协议斜杠', () => {

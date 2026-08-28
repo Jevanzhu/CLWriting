@@ -241,7 +241,7 @@ describe('自愈补漏 selfHealRecentChapterSummaries（挂点二）', () => {
     const root = makeBook(3, 2) // 章 1/2 已定稿，章 3 未定稿
     const generated = await selfHealRecentChapterSummaries(root, null, DEFAULT_CONFIG, 4)
     // N=4 → 近章 [2, 3]；章 2 已定稿补生成，章 3 未定稿跳过
-    expect(generated).toEqual([join('定稿', '摘要', '章摘要', '2.md')])
+    expect(generated).toEqual(['定稿/摘要/章摘要/2.md']) // R71-15：产品侧 posix 口径（勿用 join——win 上是反斜杠）
     expect(existsSync(chapterSummaryPath(root, 2))).toBe(true)
     expect(existsSync(chapterSummaryPath(root, 3))).toBe(false)
     const again = await selfHealRecentChapterSummaries(root, null, DEFAULT_CONFIG, 4)

@@ -189,7 +189,8 @@ test('低级项（第六轮）：样章库读取按文件名排序（跨平台�
   }
 })
 
-test('低级项（第六轮）：book_search 不跟随越出 bookRoot 的 symlink（目录与文件）', () => {
+// Windows 建 symlink 需开发者模式（无防护 symlinkSync 直建 EPERM），该守卫语义由 macOS/Linux CI 腿覆盖
+test.skipIf(process.platform === 'win32')('低级项（第六轮）：book_search 不跟随越出 bookRoot 的 symlink（目录与文件）', () => {
   const root = mkdtempSync(join(tmpdir(), 'search-symlink-'))
   const outside = mkdtempSync(join(tmpdir(), 'outside-'))
   try {

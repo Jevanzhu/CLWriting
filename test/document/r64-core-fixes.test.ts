@@ -220,7 +220,8 @@ test('R64-21：文件恢复走 linkSync 探测——原位占用 → OCCUPIED；
 
 // ── R64-22：atomicWriteStream mode 透传 ──────────
 
-test('R64-22：opts.mode 落到产物（0o600）', () => {
+// Windows 无 POSIX 权限位（chmod 仅映射只读位），该守卫语义由 macOS/Linux CI 腿覆盖
+test.skipIf(process.platform === 'win32')('R64-22：opts.mode 落到产物（0o600）', () => {
   const fp = join(root, 'out', 'merged.md')
   atomicWriteStream(fp, (append) => { append('第一段\n'); append('第二段\n') }, { mode: 0o600 })
   expect(readFileSync(fp, 'utf-8')).toBe('第一段\n第二段\n')

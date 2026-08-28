@@ -118,7 +118,7 @@ describe('C2 卷摘要按需生成', () => {
     await genChapterSummaries(root, config, [1, 2])
     // 章 3 属卷 2（volumeSize=2）→ 触发卷 1 生成
     const vol = await selfHealVolumeSummary(root, null, config, 3)
-    expect(vol).toBe(join('定稿', '摘要', '卷摘要', '1.md'))
+    expect(vol).toBe('定稿/摘要/卷摘要/1.md') // R71-15：产品侧登记路径 posix 口径（勿用 join——win 上是反斜杠）
     expect(existsSync(volumeSummaryPath(root, 1))).toBe(true)
     // 已有 → null（不重复）
     expect(await selfHealVolumeSummary(root, null, config, 3)).toBeNull()
@@ -137,7 +137,7 @@ describe('C2 卷摘要按需生成', () => {
     // 模拟章摘要重生成（链指纹变）——修复前此处因「文件存在」直接 return null，重生成不可达
     writeFileSync(chapterSummaryPath(root, 1), '---\nchapter: 1\nsourceHash: 旧\n---\n新的第 1 章摘要内容。', 'utf-8')
     const vol = await selfHealVolumeSummary(root, null, config, 3)
-    expect(vol).toBe(join('定稿', '摘要', '卷摘要', '1.md'))
+    expect(vol).toBe('定稿/摘要/卷摘要/1.md') // R71-15：产品侧登记路径 posix 口径（勿用 join——win 上是反斜杠）
     const after = readFileSync(volumeSummaryPath(root, 1), 'utf8')
     expect(after).not.toBe(before)
     expect(after).toContain('sourceHash: sha256:') // 新链指纹落 fm

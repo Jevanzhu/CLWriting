@@ -57,7 +57,9 @@ describe('R66-20: 迁移条目写入 O_EXCL 排他', () => {
     expect(readFileSync(fp, 'utf-8')).toContain('场景: 打斗')
   })
 
-  it('同净化目标的两场景撞名 → 序号排他递增（两条都在盘，旧实现的互覆丢条不再发生）', () => {
+  // Windows 文件名禁 ':'——fixture「打斗:x」在 win 上建不出（mkdir EINVAL），撞名净化
+  // 语义（':' → '_' 序号排他）由 macOS/Linux CI 腿覆盖
+  it.skipIf(process.platform === 'win32')('同净化目标的两场景撞名 → 序号排他递增（两条都在盘，旧实现的互覆丢条不再发生）', () => {
     // '打斗:x' 与 '打斗_x' 经 sanitizeChapterTitle 净化后同名（':' → '_'）——
     // 播种按原始 key 分开计数，第二个写点必然撞上第一个的 打斗_x-001.md：
     // 旧 writeEntry 覆盖语义 → 第一条被第二条静默互覆；排他写 → 递增到 002 保双份
