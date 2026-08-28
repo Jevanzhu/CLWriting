@@ -1,5 +1,6 @@
 import { test, expect } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
@@ -26,7 +27,7 @@ const reportWithLedger: CheckReport = {
 // ── buildReviewPacket ─────────────────────────────
 
 test('buildReviewPacket: 满审档位 → 三份独立分包，账本清单只进设定校对', () => {
-  const workDir = mkdtempSync(join(tmpdir(), 'review-run-'))
+  const workDir = mkdtempTracked(join(tmpdir(), 'review-run-'))
   const built = buildReviewPacket({
     checkReport: reportWithLedger,
     body: '第12章正文。',
@@ -58,7 +59,7 @@ test('buildReviewPacket: 满审档位 → 三份独立分包，账本清单只�
 })
 
 test('buildReviewPacket: 合审档位 → 单分包但账本清单不丢', () => {
-  const workDir = mkdtempSync(join(tmpdir(), 'review-run-'))
+  const workDir = mkdtempTracked(join(tmpdir(), 'review-run-'))
   const built = buildReviewPacket({
     checkReport: reportWithLedger,
     body: '正文。',
@@ -84,7 +85,7 @@ test('buildReviewPacket: 合审档位 → 单分包但账本清单不丢', () =>
 })
 
 test('buildReviewPacket: 高风险章预算不足 → 拒绝（禁止降级）', () => {
-  const workDir = mkdtempSync(join(tmpdir(), 'review-run-'))
+  const workDir = mkdtempTracked(join(tmpdir(), 'review-run-'))
   const built = buildReviewPacket({
     checkReport: { sections: [] },
     body: '',
@@ -121,7 +122,7 @@ function makeFullPacket(workDir: string): ReviewExecutionPacket {
 }
 
 test('collectReviewIssues: 回收三视角 issues → 设定校对逮到账本 blocker', () => {
-  const workDir = mkdtempSync(join(tmpdir(), 'review-run-'))
+  const workDir = mkdtempTracked(join(tmpdir(), 'review-run-'))
   const packet = makeFullPacket(workDir)
   mkdirSync(packet.out_dir, { recursive: true })
 
@@ -152,7 +153,7 @@ test('collectReviewIssues: 回收三视角 issues → 设定校对逮到账本 b
 })
 
 test('collectReviewIssues: 缺视角 → 审稿单不成立', () => {
-  const workDir = mkdtempSync(join(tmpdir(), 'review-run-'))
+  const workDir = mkdtempTracked(join(tmpdir(), 'review-run-'))
   const packet = makeFullPacket(workDir)
   mkdirSync(packet.out_dir, { recursive: true })
   // 只回写 reader / editor，缺 continuity
@@ -166,7 +167,7 @@ test('collectReviewIssues: 缺视角 → 审稿单不成立', () => {
 })
 
 test('RB-KN-P2-8: issues 文件读取失败（并发删除/权限）→ 与 JSON 损坏分开记录原因', () => {
-  const workDir = mkdtempSync(join(tmpdir(), 'review-run-'))
+  const workDir = mkdtempTracked(join(tmpdir(), 'review-run-'))
   const packet = makeFullPacket(workDir)
   mkdirSync(packet.out_dir, { recursive: true })
   // reader：占位目录 → readFileSync 抛 EISDIR（读取失败面）
@@ -185,7 +186,7 @@ test('RB-KN-P2-8: issues 文件读取失败（并发删除/权限）→ 与 JSON
 })
 
 test('collectReviewIssues: 空 evidence issue → 判无效（审稿单不成立）', () => {
-  const workDir = mkdtempSync(join(tmpdir(), 'review-run-'))
+  const workDir = mkdtempTracked(join(tmpdir(), 'review-run-'))
   const packet = makeFullPacket(workDir)
   mkdirSync(packet.out_dir, { recursive: true })
   // 三视角都回写，但有个空 evidence issue
@@ -203,7 +204,7 @@ test('collectReviewIssues: 空 evidence issue → 判无效（审稿单不成立
 })
 
 test('collectReviewIssues: 合审单文件回收三视角', () => {
-  const workDir = mkdtempSync(join(tmpdir(), 'review-run-'))
+  const workDir = mkdtempTracked(join(tmpdir(), 'review-run-'))
   const built = buildReviewPacket({
     checkReport: reportWithLedger,
     body: '正文。',
@@ -235,7 +236,7 @@ test('collectReviewIssues: 合审单文件回收三视角', () => {
 // ── R61-13（第六十一轮）：draft_hash 一致性实装 ────────────────────────────────
 
 test('R61-13: collect 校验 draft_hash——不符 → 审稿单不成立带原因；相符 → 正常回收', () => {
-  const workDir = mkdtempSync(join(tmpdir(), 'review-r61-13-'))
+  const workDir = mkdtempTracked(join(tmpdir(), 'review-r61-13-'))
   const draftPath = join(workDir, 'draft.md')
   writeFileSync(draftPath, '正文。', 'utf-8')
   const hash = createHash('sha256').update(readFileSync(draftPath)).digest('hex')
@@ -289,7 +290,7 @@ test('R61-13: collect 校验 draft_hash——不符 → 审稿单不成立带原
 //（空判据），端点照落信封、前端渲染「三审通过」——假通过持久化。
 
 test('R63-4: draft_hash 不符（stale）→ 注入阻断「三审未完成」issue，normalized.passed 恒 false', () => {
-  const workDir = mkdtempSync(join(tmpdir(), 'review-r63-4-stale-'))
+  const workDir = mkdtempTracked(join(tmpdir(), 'review-r63-4-stale-'))
   const draftPath = join(workDir, 'draft.md')
   writeFileSync(draftPath, '正文。', 'utf-8')
 
@@ -324,7 +325,7 @@ test('R63-4: draft_hash 不符（stale）→ 注入阻断「三审未完成」is
 })
 
 test('R63-4: 缺视角/坏条目 → 注入阻断 issue 带原因清单，passed 恒 false（raw_issues 不混入）', () => {
-  const workDir = mkdtempSync(join(tmpdir(), 'review-r63-4-missing-'))
+  const workDir = mkdtempTracked(join(tmpdir(), 'review-r63-4-missing-'))
   const packet = makeFullPacket(workDir)
   mkdirSync(packet.out_dir, { recursive: true })
   // reader 回写一条真实意见；editor 坏 JSON；continuity 缺失
@@ -355,7 +356,7 @@ test('R63-4: 缺视角/坏条目 → 注入阻断 issue 带原因清单，passed
 // R62-34：ledger_check 如实——分包不带账本核对项 → 跳过（无布线/短篇形态）；
 // 此前恒报「已跑」与实际执行面不符。meta 随 CollectedReview 透出（normalizeReviewResult 不带 meta）。
 test('collectReviewIssues: ledger_check 如实（无账本核对分包 → 跳过；满审带账本 → 已跑）', () => {
-  const workDir = mkdtempSync(join(tmpdir(), 'review-run-'))
+  const workDir = mkdtempTracked(join(tmpdir(), 'review-run-'))
   try {
     const packet: ReviewExecutionPacket = {
       chapter: 12,
@@ -388,7 +389,7 @@ test('collectReviewIssues: ledger_check 如实（无账本核对分包 → 跳�
 })
 
 test('R65-18（批 B）：evidence:[{}] 对象壳穿透判格式不符；字符串证据照常成立', () => {
-  const workDir = mkdtempSync(join(tmpdir(), 'review-run-'))
+  const workDir = mkdtempTracked(join(tmpdir(), 'review-run-'))
   try {
     const packet = makeFullPacket(workDir)
     mkdirSync(packet.out_dir, { recursive: true })

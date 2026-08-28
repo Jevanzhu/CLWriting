@@ -215,7 +215,10 @@ function onTimeout(slot: TierSlot, ev: Event): void {
 /* 共享控件语言（group-title/add-btn/save-btn 胶囊/spin）在 styles/providers.css；
  * 药丸开关 .switch/.switch-slider 复用 SettingsModal 全局样式。 */
 
-/* ── 分区：不加底色不画线——纯大间距与上方提供方列表区分 ── */
+/* ── 分区：不加底色不画线——纯大间距与上方提供方列表区分 ──
+ * R72-12（二十轮 E-8）：140px 为刻意留白——任务档位区须在视觉上与「提供方列表」
+ * 明确分离（上方列表高度随条数伸缩，无固定锚点可流式对齐），取整屏约 1/10 的
+ * 固定间距。若未来上方改为可收起容器，应同步改成流式间距并删此注。 */
 .tier-section {
   display: grid;
   gap: var(--size-4-2);

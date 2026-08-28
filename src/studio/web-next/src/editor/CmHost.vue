@@ -186,8 +186,13 @@ onMounted(() => {
           // addToHistory=false 不可 undo、回写 store 触发 autosave 落盘）。最新值若与
           // 当前 doc 一致（用户续打已覆盖外部变更，同 dirty 本地优先口径）则不替换。
           setTimeout(() => {
+            // R72-12（二十轮 E-4）：复检组合态——两段组合间隙 <1 帧时，上段 end 排队的
+            // 回调会在新组合已开始后才执行，applyExternalReplace 会打断新组合。与下方
+            // update 回调（composing || composing 双判）同口径：组合期丢弃本次应用，
+            // 等组合结束后由 watch 再触发
+            if (!view || composing || view.composing) return
             const latest = props.modelValue
-            if (!view || latest === view.state.doc.toString()) return
+            if (latest === view.state.doc.toString()) return
             applyExternalReplace(latest)
           }, 0)
         },

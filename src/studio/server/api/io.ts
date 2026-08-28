@@ -87,8 +87,18 @@ export function registerIoRoutes(ctx: IoCtx): void {
     let releaseGlobal: (() => void) | null = null
     try {
       const body = await readJson(req)
-      const format: ExportFormat = EXPORT_FORMATS.has(String(body['format'])) ? (String(body['format']) as ExportFormat) : 'both'
-      const platform: ExportPlatform = PLATFORMS.has(String(body['platform'])) ? (String(body['platform']) as ExportPlatform) : 'generic'
+      // R72-10（二十轮 D-3）：显式非法值回 400（与全域 fail-fast 口径一致）；缺省
+      //（undefined）保留回落 both/generic（兼容不带参调用方）
+      const formatRaw = body['format'] === undefined ? 'both' : String(body['format'])
+      if (!EXPORT_FORMATS.has(formatRaw)) {
+        return replyError(res, 400, 'BAD_INPUT', `非法导出格式「${formatRaw}」，允许：${[...EXPORT_FORMATS].join(' / ')}`)
+      }
+      const platformRaw = body['platform'] === undefined ? 'generic' : String(body['platform'])
+      if (!PLATFORMS.has(platformRaw)) {
+        return replyError(res, 400, 'BAD_INPUT', `非法导出平台「${platformRaw}」，允许：${[...PLATFORMS].join(' / ')}`)
+      }
+      const format: ExportFormat = formatRaw as ExportFormat
+      const platform: ExportPlatform = platformRaw as ExportPlatform
       releaseGlobal = await acquireExportSlot()
       const result = await runExportBookAsync({ bookRoot: r.bookRoot, format, platform })
       // B-23（第六十轮补修）：业务失败回 422 错误信封——原 200 {ok:false} 是全域

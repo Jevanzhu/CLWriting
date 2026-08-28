@@ -166,15 +166,33 @@ export function initLogging(opts: { logsDir: string | null; mirrorConsole?: bool
   }
 }
 
+/** R72-9（二十轮 C-10）：兜底脱敏——常见 API key 形态掩码（sk- 前缀 / Bearer 头）。
+ *  纵深一层：现状防线靠调用方「不把密钥记进日志」的纪律，此处兜底层不替代纪律，
+ *  只收 1 命中即 8+ 字符的常见形态（不含 sk- 短前缀普通词，误伤面极小）。 */
+const KEY_MASK_RE = /(sk-[A-Za-z0-9_-]{8,}|Bearer\s+[A-Za-z0-9._-]{8,})/g
+function maskKeys(s: string): string {
+  return s.replace(KEY_MASK_RE, (m) => m.slice(0, 5) + '***')
+}
+
 /** 单条日志：序列化 → 排队落盘（失败降级 console）→ 可选镜像。永不抛出。 */
 function emit(level: LogLevel, tag: string, msg: string, err?: unknown): void {
-  const line = JSON.stringify({
-    ts: new Date().toISOString(),
-    level,
-    tag,
-    msg,
-    ...(err === undefined ? {} : { err: serializeErr(err) }),
-  })
+  let line: string
+  try {
+    line = JSON.stringify({
+      ts: new Date().toISOString(),
+      level,
+      tag,
+      msg,
+      ...(err === undefined ? {} : { err: serializeErr(err) }),
+    })
+  } catch {
+    // R72-9（二十轮 C-10）：序列化失败兜底（病态 err 形态逃过 serializeErr 面）——
+    // 降级为纯文本行，「永不抛出」契约不破
+    line = JSON.stringify({ ts: new Date().toISOString(), level, tag, msg, err: '[[unserializable]]' })
+  }
+  // R72-9（二十轮 C-10）：key 掩码在序列化后的 JSON 行上做（msg 与 err.message/stack
+  // 一层兜底；JSON 文本层替换不影响行结构）
+  line = maskKeys(line)
   if (state.stdoutOnly) {
     // child 专用通道：一行 JSON 直写 stdout（与落盘行同构），main 收行解析重发落盘。
     // 不镜像 console（stdout 本身就是出口，镜像即双写）。

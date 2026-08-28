@@ -21,10 +21,10 @@ interface KnowledgeCtx {
 }
 
 // ── R66-28（十四轮）：/learn 全书扫描的并发闸 + TTL 缓存 ──────────────────────
-// learnFromBook 同步整读全书定稿正文（Node 请求线程阻塞秒级），此前既无并发闸也无缓存：
-// 重复点击 = 双跑双扫；health/files/documents 三处同型已修，此处漏网。口径对齐 health.ts
-// styleScanCache：5s TTL + 书键 Map FIFO 上限，纯 TTL 无写路径失效挂点（learn 候选只读
-// 落盘 工作区/learn候选，书内容变化最迟 5s 可见）。
+// learnFromBook 整读全书定稿正文（秒级 IO+CPU 段；R72-2 已 async 化，不再阻塞请求
+// 线程，但同一把书并发闸仍必要）：重复点击 = 双跑双扫；health/files/documents 三处
+// 同型已修，此处漏网。口径对齐 health.ts styleScanCache：5s TTL + 书键 Map FIFO 上限，
+// 纯 TTL 无写路径失效挂点（learn 候选只读落盘 工作区/learn候选，书内容变化最迟 5s 可见）。
 const LEARN_CACHE_TTL = 5000
 const LEARN_CACHE_MAX = 32
 const learnCache = new Map<string, { result: LearnResult; ts: number }>()
@@ -58,14 +58,14 @@ export function registerKnowledgeRoutes(ctx: KnowledgeCtx): void {
   defineRoute('books.learn', {
     method: 'POST',
     path: '/api/books/:name/learn',
-    handler: ({ params }, req: IncomingMessage, res: ServerResponse) => {
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.workDir) return replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
     if (!checkToken(req, ctx.token)) return replyError(res, 403, 'FORBIDDEN', 'token 校验失败')
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
-    // R66-28（十四轮）：全书同步扫描既无并发闸也无缓存——重复点击双跑双扫（秒级阻塞
-    // 请求线程）。套 acquireTaskGate 同款并发闸（learnFromBook 同步执行，release 同步
-    // finally 释放即可），扫描结果按书 5s TTL 缓存（口径见 learnCache 头注）。
+    // R66-28（十四轮）：全书扫描并发闸 + 缓存（重复点击双跑双扫）。R72-2（二十轮 A-1）：
+    // learnFromBook async 化后 handler 随之 async——await 期间事件循环可响应其他请求，
+    // 但同一本书的并发重入仍要闸住（双跑双扫+候选目录写竞争），release 在 finally。
     const release = acquireTaskGate(params['name']!, 'learn')
     if (!release) return replyError(res, 409, 'BUSY', '本书正在收割文风候选，请等待完成后再试')
     try {
@@ -75,7 +75,7 @@ export function registerKnowledgeRoutes(ctx: KnowledgeCtx): void {
       if (cached && now - cached.ts < (learnTtlMs ?? LEARN_CACHE_TTL)) {
         result = cached.result // R66-28：TTL 命中跳过全书重扫
       } else {
-        result = learnFromBook(r.bookRoot)
+        result = await learnFromBook(r.bookRoot)
         // 只缓存成功结果——失败（无定稿正文/解析失败）多为输入问题，重试应现算
         if (result.ok) {
           // 简单 FIFO 淘汰（Map 保插入序）：超上限丢最旧条目，防长期运行的书库累积

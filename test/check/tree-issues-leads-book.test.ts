@@ -12,7 +12,8 @@
  * 章作用域检查（两端闭合等）。本文件锁两个方向：假红消除 + 漏红消除。
  */
 import { describe, it, expect } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, utimesSync, readFileSync, chmodSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, utimesSync, readFileSync, chmodSync } from 'node:fs'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
@@ -32,7 +33,7 @@ const EVIDENCE = '密室尽头的青铜灯'
  * （第 2 章埋下，证据 EVIDENCE）。evidenceInCh2 控制第 2 章正文是否含引文。
  */
 function makeBook(evidenceInCh2: boolean, finalizeCh3 = true): { root: string; docIds: Record<number, string> } {
-  const root = mkdtempSync(join(tmpdir(), 'leads-book-'))
+  const root = mkdtempTracked(join(tmpdir(), 'leads-book-'))
   mkdirSync(join(root, '布线', '悬念'), { recursive: true })
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '项目'), { recursive: true })
@@ -216,7 +217,7 @@ describe('collectTreeIssues 账本全书性红项（H-1 跨章陈旧修复）', 
 
 describe('R62-5/R62-7：章文件定位单次建表 + 账本降级可见性', () => {
   it('R62-5：正文按卷子目录 + 章号补零布局，章文件定位照常（walkMdEach 单次建表含递归与补零判等）', () => {
-    const root = mkdtempSync(join(tmpdir(), 'leads-book-map-'))
+    const root = mkdtempTracked(join(tmpdir(), 'leads-book-map-'))
     try {
       mkdirSync(join(root, '布线', '悬念'), { recursive: true })
       mkdirSync(join(root, '写作', '正文', '第一卷'), { recursive: true })

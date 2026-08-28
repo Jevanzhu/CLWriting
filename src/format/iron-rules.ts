@@ -121,7 +121,15 @@ function parseBannedWordsLine(rawLine: string): string[] {
   return cleaned
     .split(/[、，,\/／；;]/)
     .map((part) => part.trim())
-    .filter((word) => word.length >= 2 && word.length <= 24 && !/待/.test(word))
+    // R72-8（二十轮 C-6）：占位词过滤改精确形态匹配（词首全等占位词）——原 /待/ 子串
+    // 过滤误伤字面含「待」的真禁词（如「迫不及待」），与本函数头部 97 行的精确占位口径
+    // 不一致；词长 ≥2 已挡单字「待」
+    .filter(
+      (word) =>
+        word.length >= 2 &&
+        word.length <= 24 &&
+        !/^(待补|待定|待填|待写|待确认|待作者补|示例|非硬禁词)/.test(word),
+    )
 }
 
 function extractSection(text: string, headingRe: RegExp): string {

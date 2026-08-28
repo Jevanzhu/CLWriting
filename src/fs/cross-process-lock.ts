@@ -101,7 +101,8 @@ function judgeStaleLock(
         const age = Date.now() - Math.floor(statSync(lockPath).mtimeMs)
         if (age > maxHeldMs) return 'stale'
       } catch {
-        /* stat 失败（刚被释放）→ 交上层重试创建路径 */
+        /* R72-6（二十轮 B-6）注释修正：stat 失败（刚被释放）→ 穿落到下方 return
+           'held'——活 pid 在手时判 held 保守（下次轮询重判），并不交上层重试创建 */
       }
     }
     return 'held'

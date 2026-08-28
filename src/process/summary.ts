@@ -192,6 +192,15 @@ export async function generateChapterSummary(opts: GenerateChapterSummaryOpts): 
     } catch (e) {
       return { ok: false, error: `读正文失败：${e instanceof Error ? e.message : String(e)}` }
     }
+    // R72-7（二十轮 C-1）：非 UTF-8 正文拒绝生成摘要——GBK 等文件以 utf-8 解码出 U+FFFD
+    // 后喂 AI 生成摘要再回写，摘要静默失真且被指纹绑定（过期判定认它为 fresh，永不再生）。
+    // 判据与保存链 M-5 闸（document/service.isUtf8Bytes）同款 fatal 解码探测，补齐防线
+    // 不对称（搬运 fs 底座另行收编，此处先同算法内联）。
+    try {
+      new TextDecoder('utf-8', { fatal: true }).decode(raw)
+    } catch {
+      return { ok: false, error: '正文不是合法 UTF-8 编码，拒绝生成摘要（请先修复文件编码）' }
+    }
     const draft = readDraft(bodyAbsPath, raw.toString('utf8'))
     if (!draft.ok) return { ok: false, error: `读正文失败：${draft.reason}` }
     // 第五轮：指纹取读取时点（现为同一 Buffer，杜绝第二读的时点漂移）——AI 生成窗口

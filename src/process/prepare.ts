@@ -162,8 +162,10 @@ export function estimateTokens(text: string, model?: string): number {
  */
 function tailByParagraph(body: string, maxChars: number): string {
   const trimmed = body.trimEnd()
-  if (trimmed.length <= maxChars) return trimmed
-  const tail = trimmed.slice(-maxChars)
+  if (codePointLength(trimmed) <= maxChars) return trimmed
+  // R72-7（二十轮 C-2）：截尾按码位（对齐全库 code point 口径，summary.clipByCodePoints
+  // 同源语义）——UTF-16 码元 slice(-n) 会把增补平面字符切成半个代理对，边界偏差至多 2 倍
+  const tail = Array.from(trimmed).slice(-maxChars).join('')
   // 跳到首个段落边界之后，避免切半句；无边界则原样返回（极长段罕见）
   const boundary = tail.indexOf('\n\n')
   return boundary === -1 ? tail : tail.slice(boundary + 2)

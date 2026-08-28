@@ -79,7 +79,14 @@ export function atomicWriteStream(
     rmSync(tmpPath, { force: true })
     throw e
   }
-  closeSync(fd)
+  // R72-6（二十轮 B-7）：closeSync 并入错误清理——close 抛错（EIO 等罕见态）时原实现
+  // 裸抛且 tmp 残留；现清 tmp 后上抛（数据未落目标，无半截可见）
+  try {
+    closeSync(fd)
+  } catch (e) {
+    rmSync(tmpPath, { force: true })
+    throw e
+  }
   try {
     renameSync(tmpPath, filePath)
     fsyncDir(dir)

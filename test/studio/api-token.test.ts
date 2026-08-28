@@ -107,7 +107,9 @@ describe('P0 session token(写端点 defense-in-depth)', () => {
       origin: baseUrl,
       'x-studio-token': token,
     })
-    expect(r.status).not.toBe(403) // 过 token 门后 dispatch 处理(书不存在 → 4xx,但非 403)
+    // R72-19（二十轮 G-4）：负向弱断言收紧——not.toBe(403) 连 500/502 都放行；
+    // 该端点对不存在书籍落 404，白名单口径显式圈定过门后的合法状态集
+    expect([400, 404, 422]).toContain(r.status)
   })
 
   // P0-1 守护：PATCH 方法必须走 isWrite 校验（2026-08-10 评审发现 isWrite 曾遗漏 PATCH）

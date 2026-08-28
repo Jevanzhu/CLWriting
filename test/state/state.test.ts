@@ -9,6 +9,7 @@ import { test, expect } from 'vitest'
 import { rmSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { makeGitBook, makeGitBookWithChapters, stageIncompleteChapter } from '../helpers/book.js'
+import { trackTempDir } from '../helpers/temp-dir.js'
 import { detectState, routeState, enter } from '../../src/state/state.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
@@ -21,7 +22,7 @@ const FAST_CHAPTER_FIXTURE = { commitEach: false }
 // ── 态 1: 健康检查（journal 崩溃 + 网盘副本）──────────────────
 
 test('detectState: 网盘副本残留 → 态 1（体检优先）', () => {
-  const root = makeGitBook()
+  const root = trackTempDir(makeGitBook())
   // 造 Dropbox 风格冲突副本（纯 fs，不依赖 git；X-P2-20 起需同名母本共存才算副本）
   writeFileSync(join(root, '写作', '正文', '某章.md'), '母本', 'utf-8')
   writeFileSync(join(root, '写作', '正文', '某章 2.md'), '副本内容', 'utf-8')
@@ -38,7 +39,7 @@ test('detectState: 网盘副本残留 → 态 1（体检优先）', () => {
 // ── 态 2: 源文件解析失败 ────────────────────────────
 
 test('detectState: 源文件解析失败 → 态 2', () => {
-  const root = makeGitBook()
+  const root = trackTempDir(makeGitBook())
   // 写一个坏账本文件（裸文件无 front matter，rebuild 会收 ParseError）
   writeFileSync(join(root, '布线', '悬念', '悬念-099-坏.md'), '这是个坏文件没有 front matter', 'utf-8')
 
@@ -53,7 +54,7 @@ test('detectState: 源文件解析失败 → 态 2', () => {
 // ── 态 3: 未入账手改 ────────────────────────────────
 
 test('detectState: 已定稿文件有手改 → 态 3', () => {
-  const root = makeGitBook()
+  const root = trackTempDir(makeGitBook())
   // 造一章定稿（登记 manifest + 设基线）+ 手改正文
   const bodyPath = join(root, '写作', '正文', '0001-开篇.md')
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
@@ -87,7 +88,7 @@ test('detectState: 已定稿文件有手改 → 态 3', () => {
 // ── 态 4: 工作区未完成 ──────────────────────────────
 
 test('detectState: 工作区有草稿+确认未定稿 → 态 4', () => {
-  const root = makeGitBook()
+  const root = trackTempDir(makeGitBook())
   stageIncompleteChapter(root, 1) // 写草稿+细纲+.confirm，不 commit
 
   const d = detectState(root, DEFAULT_CONFIG)
@@ -101,7 +102,7 @@ test('detectState: 工作区有草稿+确认未定稿 → 态 4', () => {
 // ── 态 5: 卷末 ─────────────────────────────────────
 
 test('detectState: 写满一卷（50 章）→ 态 5 卷末', () => {
-  const root = makeGitBookWithChapters(50, FAST_CHAPTER_FIXTURE) // 50 章 = 第 1 卷末
+  const root = trackTempDir(makeGitBookWithChapters(50, FAST_CHAPTER_FIXTURE)) // 50 章 = 第 1 卷末
 
   const d = detectState(root, DEFAULT_CONFIG)
   expect(d.state).toBe(5)
@@ -112,7 +113,7 @@ test('detectState: 写满一卷（50 章）→ 态 5 卷末', () => {
 })
 
 test('detectState: book.volume_size 覆盖每卷章数', () => {
-  const root = makeGitBookWithChapters(10, FAST_CHAPTER_FIXTURE)
+  const root = trackTempDir(makeGitBookWithChapters(10, FAST_CHAPTER_FIXTURE))
   const config = { ...DEFAULT_CONFIG, book: { ...DEFAULT_CONFIG.book, volume_size: 10 } }
 
   const d = detectState(root, config)
@@ -124,7 +125,7 @@ test('detectState: book.volume_size 覆盖每卷章数', () => {
 })
 
 test('detectState: 正文含「章号: N」字样不干扰章号提取（ii 批 fm 块内解析）', () => {
-  const root = makeGitBook()
+  const root = trackTempDir(makeGitBook())
   stageIncompleteChapter(root, 1)
   // 正文里出现「章号: 999」（作者手记/引用）——旧全文正则会抢先命中，工作区未完成报 999 章
   writeFileSync(
@@ -144,7 +145,7 @@ test('detectState: 正文含「章号: N」字样不干扰章号提取（ii 批 
 // ── 态 7: 起草新章（兜底）──────────────────────────
 
 test('detectState: 一切干净的空书 → 态 7 起草新章', () => {
-  const root = makeGitBook()
+  const root = trackTempDir(makeGitBook())
   const d = detectState(root, DEFAULT_CONFIG)
   expect(d.state).toBe(7)
   if (d.state === 7) {
@@ -154,7 +155,7 @@ test('detectState: 一切干净的空书 → 态 7 起草新章', () => {
 })
 
 test('detectState: 写了 3 章干净书 → 态 7 下一章 = 4', () => {
-  const root = makeGitBookWithChapters(3, FAST_CHAPTER_FIXTURE)
+  const root = trackTempDir(makeGitBookWithChapters(3, FAST_CHAPTER_FIXTURE))
   const d = detectState(root, DEFAULT_CONFIG)
   expect(d.state).toBe(7)
   if (d.state === 7) {
@@ -166,7 +167,7 @@ test('detectState: 写了 3 章干净书 → 态 7 下一章 = 4', () => {
 // ── 判定顺序：健康异常优先 ────────────────────────
 
 test('detectState: 健康异常优先（网盘副本 + 工作区未完成 → 先报态 1）', () => {
-  const root = makeGitBook()
+  const root = trackTempDir(makeGitBook())
   stageIncompleteChapter(root, 1) // 工作区未完成（态 4）
   // 再造健康问题（态 1；X-P2-20：副本需同名母本）
   writeFileSync(join(root, '写作', '正文', '冲突副本.md'), '母本', 'utf-8')
@@ -181,13 +182,13 @@ test('detectState: 健康异常优先（网盘副本 + 工作区未完成 → �
 
 test('routeState: 各态路由动作 + needsAI 标记', () => {
   // 态 1 不需 AI、态 2/3 需 AI（M3 桩）、态 4/7 不需 AI
-  const root1 = makeGitBook()
+  const root1 = trackTempDir(makeGitBook())
   writeFileSync(join(root1, '写作', '正文', '副本.md'), '母本', 'utf-8')
   writeFileSync(join(root1, '写作', '正文', '副本 2.md'), '副本', 'utf-8')
   expect(routeState(detectState(root1, DEFAULT_CONFIG)).state).toBe(1)
   rmSync(root1, { recursive: true, force: true })
 
-  const root7 = makeGitBook()
+  const root7 = trackTempDir(makeGitBook())
   const r7 = routeState(detectState(root7, DEFAULT_CONFIG))
   expect(r7.action).toBe('write-new-chapter')
   expect(r7.humanMsg).toContain('第 1 章')
@@ -196,7 +197,7 @@ test('routeState: 各态路由动作 + needsAI 标记', () => {
 
 test('routeState: 态 7 统一写章入口（CLI 退场，写章收敛到全自动/编辑器）', () => {
   // 缺省 config → 一律 write-new-chapter（写章收敛到全自动/编辑器；旧「手写/严格」分流已随 CLI 退场）
-  const root7 = makeGitBook()
+  const root7 = trackTempDir(makeGitBook())
   expect(routeState(detectState(root7, DEFAULT_CONFIG)).action).toBe('write-new-chapter')
   rmSync(root7, { recursive: true, force: true })
 })
@@ -204,7 +205,7 @@ test('routeState: 态 7 统一写章入口（CLI 退场，写章收敛到全自�
 // ── enter 单入口 + 近况复述 ─────────────────────────
 
 test('enter: 干净书 → recap + route 结构正确', () => {
-  const root = makeGitBookWithChapters(3, FAST_CHAPTER_FIXTURE)
+  const root = trackTempDir(makeGitBookWithChapters(3, FAST_CHAPTER_FIXTURE))
   const { recap, route } = enter(root)
 
   expect(recap.currentChapter).toBe(3)
@@ -215,7 +216,7 @@ test('enter: 干净书 → recap + route 结构正确', () => {
 })
 
 test('enter: 健康异常且缓存缺失 → 不崩，返回态 1 路由', () => {
-  const root = makeGitBook()
+  const root = trackTempDir(makeGitBook())
   writeFileSync(join(root, '写作', '正文', '副本.md'), '母本', 'utf-8')
   writeFileSync(join(root, '写作', '正文', '副本 2.md'), '副本', 'utf-8')
 
@@ -227,7 +228,7 @@ test('enter: 健康异常且缓存缺失 → 不崩，返回态 1 路由', () =>
 })
 
 test('enter: 写满一卷 → recap 显示态 5 卷末', () => {
-  const root = makeGitBookWithChapters(50, FAST_CHAPTER_FIXTURE)
+  const root = trackTempDir(makeGitBookWithChapters(50, FAST_CHAPTER_FIXTURE))
   const { recap, route } = enter(root)
   expect(recap.state).toBe(5)
   expect(route.action).toBe('volume-review')
@@ -244,7 +245,7 @@ function makeMovePendingBook(fileExists: 'old' | 'new' | 'none'): {
   newRel: string
   jPath: string
 } {
-  const root = makeGitBook()
+  const root = trackTempDir(makeGitBook())
   const docId = generateDocId()
   const oldRel = '写作/正文/0001-开篇.md'
   const newRel = '写作/正文/0002-开篇.md'
@@ -305,7 +306,7 @@ test('R65-30: 已定稿章 move-pending 愈合（rename 已发生）→ 同次 d
   // 场景：清单登记 oldRel 且带定稿基线；文件已 rename 到 newRel；journal 悬置 move pending。
   // 修复前：healMovePending 只改盘上清单，③ finalizedLost 检查仍用入参旧镜像查 oldRel
   // （盘上已无）→ 同次进门误报「已定稿文件不在盘上」（态 1 拦门）。
-  const root = makeGitBook()
+  const root = trackTempDir(makeGitBook())
   const docId = generateDocId()
   const oldRel = '写作/正文/0001-开篇.md'
   const newRel = '写作/正文/0002-开篇.md'

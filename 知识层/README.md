@@ -26,4 +26,7 @@ license: MIT
 | 方法论 | 质量检查清单速查、人物与对话技法速查 | 三审焦点、人物对话技法 |
 | 许可 | oh-story MIT 全文 | 许可证留存 |
 
-校验：知识层为纯文档（AI 运行时按本索引读取），无独立校验命令；错漏直接改对应 md。
+校验（R72-17 二十轮 H-7 陈述更新）：知识层为纯文档（AI 运行时按本索引读取），但 manifest
+对账已有正式门——`npm run check:knowledge`（scripts/check-knowledge.ts：_manifest.json 与实际
+文件 sha256/路径任一失配、盘上存在未登记 .md 即红，已入 CI 与 tag 发布门）；内容错漏直接改
+对应 md，并同步 _manifest.json 的登记与 sha256。

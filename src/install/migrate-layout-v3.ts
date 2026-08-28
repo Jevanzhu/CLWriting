@@ -75,7 +75,15 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
       continue
     }
     const m = name.match(/^草稿-(\d+)\.md$/)
-    if (!m) continue // 其他文件跳过
+    if (!m) {
+      // R72-9（二十轮 C-9）：非隐藏的非 .md 认识文件不再静默跳过——v3 布局已退役草稿
+      // 目录，未识别文件将永久滞留。errors 提示作者手动处置（隐藏文件/.DS_Store 等照旧
+      // 忽略，不制造噪音）。
+      if (!name.startsWith('.') && name.endsWith('.md')) {
+        errors.push(`${name}: 草稿目录遗留的未识别文件，v3 布局不再使用 写作/草稿/，请手动移入 大纲/ 或 设定/ 等目标目录`)
+      }
+      continue
+    }
     const chapterNum = Number(m[1])
     // 读 content 传给 resolveDraftPath 提取标题
     let content: string | undefined

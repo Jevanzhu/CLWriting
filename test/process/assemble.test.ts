@@ -1,6 +1,7 @@
 import { test, expect } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { rmSync } from 'node:fs'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createAllTables } from '../../src/cache/schema.js'
@@ -10,7 +11,7 @@ import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import type { BookConfig } from '../../src/format/types.js'
 
 function makeSeededDb(): { db: DatabaseSync; dir: string } {
-  const dir = mkdtempSync(join(tmpdir(), '北境往事-'))
+  const dir = mkdtempTracked(join(tmpdir(), '北境往事-'))
   const db = new DatabaseSync(join(dir, 'index.db'))
   createAllTables(db)
 
@@ -108,7 +109,7 @@ test('P5-管线（第七轮）：recentChapters 按定稿线过滤——在写�
 })
 
 test('assembleStatus: 空书（0 章）', () => {
-  const dir = mkdtempSync(join(tmpdir(), '空书-'))
+  const dir = mkdtempTracked(join(tmpdir(), '空书-'))
   const db = new DatabaseSync(join(dir, 'index.db'))
   createAllTables(db)
   const s = assembleStatus(db, DEFAULT_CONFIG)

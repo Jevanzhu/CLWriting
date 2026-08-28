@@ -68,6 +68,10 @@ function toParams(conf: ProviderConf, req: GenRequest): Record<string, unknown> 
     }
     const textParts: string[] = []
     const toolUseItems: Record<string, unknown>[] = []
+    // R72-12（二十轮 A-3）：user 分支与 assistant 同构——tool_result 也收集后统一输出，
+    // 消除「text+tool_result 混排 user 消息」的块序颠倒（当前链路 tool_result 独占
+    // user 消息不触发，防御性对齐）
+    const toolResultItems: Record<string, unknown>[] = []
     // R3（缺口 11）：assistant 轮 reasoning 块按 echoReasoning 分档——encrypted 回插
     // 加密推理项（置于该 assistant 的 text/function_call 之前，Responses 语义：reasoning
     // item 先于其产出的 function_call）；strip/none 跳过（grok CLI 代理拒绝回传 / 未测）。
@@ -87,7 +91,7 @@ function toParams(conf: ProviderConf, req: GenRequest): Record<string, unknown> 
           arguments: JSON.stringify(b.input),
         })
       } else if (b.type === 'tool_result') {
-        input.push(toolOutputItem(b.toolUseId, b.content))
+        toolResultItems.push(toolOutputItem(b.toolUseId, b.content))
       }
     }
     if (m.role === 'assistant') {
@@ -96,6 +100,7 @@ function toParams(conf: ProviderConf, req: GenRequest): Record<string, unknown> 
       input.push(...toolUseItems)
     } else {
       if (textParts.length > 0) input.push({ role: 'user', content: textParts.join('') })
+      input.push(...toolResultItems)
     }
   }
 

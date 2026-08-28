@@ -97,8 +97,17 @@ function scoreByChecks(body: string, rules: IronRules): number {
 /**
  * learn 收割主流程（产候选，不自动入库）。
  * 场景不做启发式预归（词表伪精度已删，S8）——候选一律「通用」，标注权在作者。
+ *
+ * R72-2（二十轮 A-1）：async 化——全书收割是「逐章同步 IO + 逐段正则打分」的秒级
+ * CPU/IO 段，原先在 chat agent 循环（harvest_style 工具）与 HTTP 请求线程（/learn
+ * 端点）内同步执行，长书收割期间 utility 进程事件循环整体停摆（同进程全部 SSE 广播、
+ * steer 队列、其他书会话卡顿，abort 信号也无法及时处理）。现逐章处理间 await 让出
+ * 事件循环（setImmediate 级，每章一次），单章内的段级打分仍同步（毫秒级，无需更碎）。
+ * ToolExecutor 契约本就支持 Promise（turns.ts executor 调用全带 await），调用方无感。
  */
-export function learnFromBook(bookRoot: string): LearnResult {
+const yieldToEventLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
+
+export async function learnFromBook(bookRoot: string): Promise<LearnResult> {
   // 1. 扫描定稿正文
   const bodyDir = join(bookRoot, '写作', '正文')
   if (!existsSync(bodyDir)) {
@@ -129,6 +138,7 @@ export function learnFromBook(bookRoot: string): LearnResult {
   let skippedDrafts = 0
   const chapterBodies: Array<{ 章号: number; 标题: string; body: string }> = []
   for (const ch of chapters) {
+    await yieldToEventLoop() // R72-2：每章让出事件循环，长书收割不再阻塞同进程其他会话
     const path = ch._path
     if (!path) continue
     if (finalized && !finalized.has(relative(bookRoot, path).replace(/\\/g, '/'))) {
@@ -153,6 +163,7 @@ export function learnFromBook(bookRoot: string): LearnResult {
   // 4. 提取样章候选（按段落分块 + #10 打分 + 低分过滤）
   const sampleCandidates: SampleCandidate[] = []
   for (const ch of chapterBodies) {
+    await yieldToEventLoop() // R72-2：打分循环同为章级热点段
     const blocks = ch.body.split(/\n\n+/).filter((b) => {
       const len = b.trim().length
       return len >= 50 && len <= 500
@@ -178,6 +189,7 @@ export function learnFromBook(bookRoot: string): LearnResult {
   // 5. 提取金句候选（短句 + 钩子/情绪/对比特征）
   const quoteCandidates: QuoteCandidate[] = []
   for (const ch of chapterBodies) {
+    await yieldToEventLoop() // R72-2
     // 统一分句口径（原先少 \n，可能漏检跨行——P2-BE-6）
     const sentences = splitSentences(ch.body).filter((s) => {
       return s.length >= 10 && s.length <= 50 && !s.startsWith('#')

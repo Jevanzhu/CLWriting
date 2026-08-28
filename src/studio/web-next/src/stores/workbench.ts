@@ -117,9 +117,13 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       // F-P1-4：白名单校验在 isHealPhaseEvent 守卫内（防 SSE 非预期值致 UI 渲染异常）
       if (isHealPhaseEvent(e)) healPhase.value = e.phase
     } else if (e.type === 'self_heal_progress') {
+      // R72-11（二十轮 F-6）：attempt/maxAttempts 过有限数守卫——NaN/非数值原样直入
+      // UI（sse-guards 白名单纪律同 isHealPhaseEvent 口径）
+      const attempt = Number(e.attempt ?? 0)
+      const maxAttempts = Number(e.maxAttempts ?? 0)
       healProgress.value = {
-        attempt: Number(e.attempt ?? 0),
-        maxAttempts: Number(e.maxAttempts ?? 0),
+        attempt: Number.isFinite(attempt) ? attempt : 0,
+        maxAttempts: Number.isFinite(maxAttempts) ? maxAttempts : 0,
         remaining: strArr(e.remaining) ?? [],
       }
     } else if (e.type === 'self_heal_result') {

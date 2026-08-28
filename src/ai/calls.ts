@@ -301,6 +301,10 @@ export type BudgetCheckResult =
 export function checkAiCallBudget(bookRoot: string, chapter: number, config: BookConfig): BudgetCheckResult {
   // 全局托底：calls_per_chapter 已可选化——常规路径（self-heal orchestrate）传入的 config
   // 已过 applyGlobalDefaults，这里是直调/测试路径的最终回落（8 与 global.json 缺省一致）
+  // R72-12（二十轮 A-2）超额取舍记档：本函数是锁外快照读（:208），与 consume 的
+  // 锁内记账构成 check-then-act 窗口——并发写者数为上界的少量超额是**既定取舍**
+  // （预算闸防「无限烧」，不承诺精确配额；锁内预记回滚会把 consume 事务复杂化一档，
+  // 收益不成比例），不按 bug 处理。
   const limit = config.budget.calls_per_chapter ?? GLOBAL_FALLBACK_DEFAULTS.callsPerChapter
   const limitTokens = config.budget.tokens_per_chapter
   const limitCost = config.budget.cost_per_chapter

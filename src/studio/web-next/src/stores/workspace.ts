@@ -128,7 +128,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (typeof prefs.leftOpen === 'boolean') leftOpen.value = prefs.leftOpen
     if (typeof prefs.rightOpen === 'boolean') rightOpen.value = prefs.rightOpen
     if (prefs.leftPanel === 'tree' || prefs.leftPanel === 'search' || prefs.leftPanel === 'trash') leftPanel.value = prefs.leftPanel
-    activeDocId.value = prefs.activeDocId ?? null
+    // R72-11（二十轮 F-2）：prefs 迟到回填仅在当前未打开文档时生效——用户已点开另一
+    // 文档后被覆盖回 prefs 记录（既有 gen 守卫只防跨书异步竞态，不防同书用户操作）
+    if (activeDocId.value === null) activeDocId.value = prefs.activeDocId ?? null
     if (Array.isArray(prefs.treeExpanded)) treeExpanded.value = prefs.treeExpanded
 
     // 注入书级覆盖到 prefs store（pageWidth / autosaveInterval）

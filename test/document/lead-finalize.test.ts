@@ -9,7 +9,8 @@
  * - 无账本推进文件 → 0 且不清空
  */
 import { test, expect } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { applyLeadUpdates } from '../../src/document/lead-finalize.js'
@@ -17,7 +18,7 @@ import { readLead } from '../../src/format/leads.js'
 
 /** 造一本带布线的短书 + 一条悬念线 + 账本推进.md */
 function makeBook(): { root: string } {
-  const root = mkdtempSync(join(tmpdir(), 'lead-finalize-'))
+  const root = mkdtempTracked(join(tmpdir(), 'lead-finalize-'))
   mkdirSync(join(root, '布线', '悬念'), { recursive: true })
   mkdirSync(join(root, '工作区'), { recursive: true })
   writeFileSync(
@@ -309,7 +310,7 @@ test('X-P2-6: 其他章归档留存 + 无本章条目 → 0 且互不影响', ()
 })
 
 test('M-9（第八轮）：盘上非 UTF-8 的线索文件 → 拒绝回写（字节不损毁），条目留本章源', () => {
-  const root = mkdtempSync(join(tmpdir(), 'lead-gbk-'))
+  const root = mkdtempTracked(join(tmpdir(), 'lead-gbk-'))
   try {
     mkdirSync(join(root, '布线', '悬念'), { recursive: true })
     mkdirSync(join(root, '工作区'), { recursive: true })

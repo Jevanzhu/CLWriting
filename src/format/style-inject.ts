@@ -99,9 +99,13 @@ export function pickSampleEntries(
   return picked
 }
 
-/** 样章条目 → 注入文本：说明作技法指令行（对齐旧样章格式），超长截断 */
+/** 样章条目 → 注入文本：说明作技法指令行（对齐旧样章格式），超长截断。
+ *  R72-7（二十轮 C-2）：截断按码位（Array.from 迭代码点，对齐全库 code point 口径）——
+ *  UTF-16 码元 slice 会把增补平面字符切成半个代理对。 */
 export function sampleEntryText(e: StyleEntry): string {
   const body =
-    e.正文.length > SAMPLE_INJECT_MAX ? `${e.正文.slice(0, SAMPLE_INJECT_MAX)}……` : e.正文
+    e.正文.length > SAMPLE_INJECT_MAX
+      ? `${Array.from(e.正文).slice(0, SAMPLE_INJECT_MAX).join('')}……`
+      : e.正文
   return e.说明 ? `技法指令：${e.说明}\n${body}` : body
 }

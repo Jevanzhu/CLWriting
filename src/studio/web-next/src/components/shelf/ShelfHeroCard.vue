@@ -18,9 +18,14 @@ const emit = defineEmits<{
 </script>
 
 <template>
+  <!-- R72-12（二十轮 E-10）：role/tabindex/keydown 补键盘与读屏可达性（原仅 @click） -->
   <section
     v-if="viewMode === 'grid'"
     class="hero-card"
+    role="button"
+    tabindex="0"
+    @keydown.enter.prevent="emit('open', book.name)"
+    @keydown.space.prevent="emit('open', book.name)"
     @mousemove="onCardMove"
     @click="emit('open', book.name)"
   >
@@ -50,6 +55,10 @@ const emit = defineEmits<{
   <section
     v-else
     class="hero-list"
+    role="button"
+    tabindex="0"
+    @keydown.enter.prevent="emit('open', book.name)"
+    @keydown.space.prevent="emit('open', book.name)"
     @mousemove="onCardMove"
     @click="emit('open', book.name)"
   >

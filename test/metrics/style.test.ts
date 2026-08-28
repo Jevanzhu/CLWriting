@@ -1,5 +1,6 @@
 import { test, expect, vi } from 'vitest'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -92,7 +93,7 @@ test('computeFullStats: 形容词堆叠去重命中数', () => {
 // ── readChapterBody ────────────────────────────────
 
 test('readChapterBody: 正确剥 front matter 取正文', () => {
-  const root = mkdtempSync(join(tmpdir(), 'style-body-'))
+  const root = mkdtempTracked(join(tmpdir(), 'style-body-'))
   const dir = join(root, '写作', '正文')
   mkdirSync(dir, { recursive: true })
   const ch: ChapterMeta = { 章号: 1, 标题: '一', 钩子类型: '悬念钩', 钩子强弱: '强', 情绪定位: '铺垫' }
@@ -107,7 +108,7 @@ test('readChapterBody: 正确剥 front matter 取正文', () => {
 
 /** 造 N 章定稿正文，后 K 章对话标签占比人为拉高（漂移段） */
 function makeLongBookWithDrift(total: number, driftStart: number): string {
-  const root = mkdtempSync(join(tmpdir(), 'style-drift-'))
+  const root = mkdtempTracked(join(tmpdir(), 'style-drift-'))
   writeBookConfig(join(root, 'book.yaml'), { ...DEFAULT_CONFIG })
   mkdirSync(join(root, '文风'), { recursive: true })
   writeFileSync(join(root, '文风', '文风铁律.md'), '对话标签占比: 50%', 'utf-8')
@@ -202,7 +203,7 @@ test('formatStyleReport: 无基线 → 标注"仅绝对值"', () => {
 test('formatStyleReport: 含全角括号（…）的行与不含的行标记列对齐（#2 width 补全角标点）', () => {
   // 造有超限 + 无超限的样本：格式化后「单句超限」行含全角括号（如 `1/2 章（50%）`），
   // 「对话标签占比」行不含。各行结尾的 ⚠/✓ 标记应在同一显示列（按显示宽度，非字符数）。
-  const root = mkdtempSync(join(tmpdir(), 'style-width-'))
+  const root = mkdtempTracked(join(tmpdir(), 'style-width-'))
   writeBookConfig(join(root, 'book.yaml'), { ...DEFAULT_CONFIG })
   mkdirSync(join(root, '文风'), { recursive: true })
   writeFileSync(join(root, '文风', '文风铁律.md'),
@@ -271,7 +272,7 @@ test('aggregateStyleTrend: 对话标签漂移的 drift.metric === "dialogueTag"�
 // ── 基线冻结（#9）──────────────────────────────────
 
 function makeBookWithSamples(): string {
-  const root = mkdtempSync(join(tmpdir(), 'style-freeze-'))
+  const root = mkdtempTracked(join(tmpdir(), 'style-freeze-'))
   writeBookConfig(join(root, 'book.yaml'), { ...DEFAULT_CONFIG })
   mkdirSync(join(root, '文风', '样章库', '战斗'), { recursive: true })
   mkdirSync(join(root, '文风', '样章库', '对话'), { recursive: true })
@@ -326,7 +327,7 @@ test('freezeBaseline: 幂等重跑（覆盖，learn 新样章后指纹变）', (
 })
 
 test('freezeBaseline: 空样章库 → 报错不写文件', () => {
-  const root = mkdtempSync(join(tmpdir(), 'style-empty-'))
+  const root = mkdtempTracked(join(tmpdir(), 'style-empty-'))
   writeBookConfig(join(root, 'book.yaml'), { ...DEFAULT_CONFIG })
   mkdirSync(join(root, '文风', '样章库', '战斗'), { recursive: true }) // 空场景目录
   expect(() => freezeBaseline(root)).toThrow(/样章库为空/)
@@ -335,7 +336,7 @@ test('freezeBaseline: 空样章库 → 报错不写文件', () => {
 })
 
 test('freezeBaseline: 样章文件无 场景 front matter → 提示样章格式', () => {
-  const root = mkdtempSync(join(tmpdir(), 'style-bad-sample-'))
+  const root = mkdtempTracked(join(tmpdir(), 'style-bad-sample-'))
   writeBookConfig(join(root, 'book.yaml'), { ...DEFAULT_CONFIG })
   mkdirSync(join(root, '文风', '样章库', '战斗'), { recursive: true })
   writeFileSync(join(root, '文风', '样章库', '战斗', '战斗-001.md'), '只有正文，没有 front matter', 'utf-8')
@@ -345,14 +346,14 @@ test('freezeBaseline: 样章文件无 场景 front matter → 提示样章格式
 })
 
 test('freezeBaseline: 样章库目录不存在 → 报错', () => {
-  const root = mkdtempSync(join(tmpdir(), 'style-nodir-'))
+  const root = mkdtempTracked(join(tmpdir(), 'style-nodir-'))
   writeBookConfig(join(root, 'book.yaml'), { ...DEFAULT_CONFIG })
   expect(() => freezeBaseline(root)).toThrow(/样章库目录不存在/)
   rmSync(root, { recursive: true, force: true })
 })
 
 test('readBaseline: 文件不存在 → null（重扫降级为仅绝对值）', () => {
-  const root = mkdtempSync(join(tmpdir(), 'style-nobase-'))
+  const root = mkdtempTracked(join(tmpdir(), 'style-nobase-'))
   expect(readBaseline(root)).toBeNull()
   rmSync(root, { recursive: true, force: true })
 })
@@ -360,7 +361,7 @@ test('readBaseline: 文件不存在 → null（重扫降级为仅绝对值）', 
 // ── 短篇适配（#10）─────────────────────────────────
 
 function makeShortBook(pieceCount: number): string {
-  const root = mkdtempSync(join(tmpdir(), 'style-short-'))
+  const root = mkdtempTracked(join(tmpdir(), 'style-short-'))
   writeBookConfig(join(root, 'book.yaml'), { ...DEFAULT_CONFIG, kind: 'short' })
   mkdirSync(join(root, '文风'), { recursive: true })
   writeFileSync(join(root, '文风', '文风铁律.md'), '对话标签占比: 50%', 'utf-8')

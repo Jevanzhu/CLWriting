@@ -4,6 +4,7 @@
 // 生效链 book.yaml 对应键 → global.json（prefs store）→ 硬编码回落。
 // 分析侧在「智能分析」页；提供方在「服务提供方」页。
 import { usePrefsStore } from '../../stores/prefs'
+import { parseNumericInput } from '../../shared/numeric-input'
 import BetaBadge from './BetaBadge.vue'
 
 // 全局默认值来自 prefs store（main.ts 在 mount 前 await init()，设置打开时必已就绪）
@@ -14,13 +15,15 @@ const prefs = usePrefsStore()
 function onGlobalConfirmToggle(e: Event): void {
   prefs.setAutoConfirmOutline((e.target as HTMLInputElement).checked)
 }
+// R72-11（二十轮 E-2）：数值输入统一走共享 helper——空串不再被 Number('')=0 穿过
+// isFinite 闸后 clamp 成下限
 function onGlobalBatchInput(e: Event): void {
-  const raw = Number((e.target as HTMLInputElement).value)
-  if (Number.isFinite(raw)) prefs.setAiBatchSize(raw)
+  const v = parseNumericInput(e)
+  if (v !== null) prefs.setAiBatchSize(v)
 }
 function onGlobalCallsInput(e: Event): void {
-  const raw = Number((e.target as HTMLInputElement).value)
-  if (Number.isFinite(raw)) prefs.setCallsPerChapter(raw)
+  const v = parseNumericInput(e)
+  if (v !== null) prefs.setCallsPerChapter(v)
 }
 </script>
 

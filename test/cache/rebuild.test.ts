@@ -1,6 +1,7 @@
 import { test, expect } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, statSync, readdirSync, utimesSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, existsSync, statSync, readdirSync, utimesSync } from 'node:fs'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { rebuild } from '../../src/cache/rebuild.js'
@@ -13,7 +14,7 @@ import type { BookConfig } from '../../src/format/types.js'
 /** 造一个完整的书仓库 fixture（含 book.yaml + 账本 + 章节 + 摘要） */
 function makeBookFixture(): string {
   // 用中文目录名（验证中文路径全链路）
-  const root = mkdtempSync(join(tmpdir(), '北境往事-'))
+  const root = mkdtempTracked(join(tmpdir(), '北境往事-'))
 
   // book.yaml：启用 布局线 + 成长线（扩展类）
   const cfg: BookConfig = {

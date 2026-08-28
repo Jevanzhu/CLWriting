@@ -80,9 +80,9 @@ const wordLineD = computed(() => {
       <TrendingUp :size="14" /> <span>字数曲线</span>
       <span class="head-legend">{{ curve.length }} 章 · 均章 {{ curveAvg.toLocaleString() }} 字</span>
     </div>
-    <div v-if="!curve.length" class="empty">尚无已写章节</div>
+    <!-- R72-11（二十轮 E-9）：删内层空态死分支——外层 v-if="curve.length" 已保证非空，
+         内层反条件 v-if 永不成立（svg 的 v-else 随之删属性） -->
     <svg
-      v-else
       class="chart-svg"
       :viewBox="`0 0 ${CHART_W} ${CHART_H}`"
       preserveAspectRatio="xMidYMid meet"

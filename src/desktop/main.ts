@@ -30,7 +30,7 @@ import {
 } from 'electron'
 import { join, dirname, resolve, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { findWorkDir, readBooks } from '../install/books.js'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { resolveWithinRoot } from '../fs/safe-path.js'
@@ -323,7 +323,12 @@ async function openLibraryAction(): Promise<boolean> {
  *  （contextIsolation + sandbox + nodeIntegration:false + preload + hiddenInset 标题栏）
  *  与纵深防御监听（禁外部导航 + 禁弹新窗）原样重复 3 份，安全配置改一处漏两处是
  *  漂移风险，收敛到此。尺寸/标题/位置由 opts 传入，win 专属生命周期监听由调用方自挂。 */
+let devProxyApplied: Promise<void> = Promise.resolve()
+
 function createSecureWindow(opts: BrowserWindowConstructorOptions): BrowserWindow {
+  // dev 代理记账 promise（R72-10 / 二十轮 D-7）：dev 态 direct:// 设置于窗口共享的
+  // defaultSession，各窗 loadURL 前 await 此 promise——原子窗 fire-and-forget 在
+  // 「子窗先于主窗完成设置」的时序下会带着未生效代理加载（SSE 经系统代理 buffer 断流）
   const win = new BrowserWindow({
     titleBarStyle: 'hiddenInset',
     backgroundColor: '#f5f5f5',
@@ -347,13 +352,14 @@ function createSecureWindow(opts: BrowserWindowConstructorOptions): BrowserWindo
   attachRendererCrashSelfHeal(win, opts.title ?? '窗口')
   // dev 模式:不经系统代理（防 clash/surge 类 HTTP 代理 buffer SSE 长连接 → driver events 断流）
   if (process.env['CLW_DEV_UI']) { // R62-45：bracket 统一风格
-    void win.webContents.session.setProxy({ proxyRules: 'direct://' })
+    // R72-10（二十轮 D-7）：记账供 loadURL 前 await（同值幂等，重复设置无害）
+    devProxyApplied = win.webContents.session.setProxy({ proxyRules: 'direct://' })
   }
   return win
 }
 
 /** 打开独立书架窗口（工作区时管理/切换/建书；单例，重复调用聚焦已存在窗口）。*/
-function openShelfWindow(): void {
+async function openShelfWindow(): Promise<void> {
   // Y-12（第五十七轮）：appUrl 就绪守卫——fork+握手期间（打包冷启动可达秒级）原生
   // 菜单已可点，loadURL 无 scheme 相对路径会以 ERR_INVALID_URL 开出加载失败白窗
   if (!appUrl) return
@@ -369,6 +375,7 @@ function openShelfWindow(): void {
     minHeight: 500,
     title: '书架',
   })
+  await devProxyApplied // R72-10（二十轮 D-7）：代理生效后再加载
   shelfWindow.loadURL(`${appUrl}/shelf?win=shelf`)
   shelfWindow.on('closed', () => {
     shelfWindow = null
@@ -376,7 +383,7 @@ function openShelfWindow(): void {
 }
 
 /** 打开独立书库管理窗口（切换/最近/新建书库；单例聚焦）。*/
-function openLibraryWindow(): void {
+async function openLibraryWindow(): Promise<void> {
   // Y-12：同 openShelfWindow 的 appUrl 就绪守卫
   if (!appUrl) return
   if (libraryWindow && !libraryWindow.isDestroyed()) {
@@ -403,6 +410,7 @@ function openLibraryWindow(): void {
     minHeight: 440,
     title: '书库',
   })
+  await devProxyApplied // R72-10（二十轮 D-7）：代理生效后再加载
   libraryWindow.loadURL(`${appUrl}/library?win=library`)
   libraryWindow.on('closed', () => {
     libraryWindow = null
@@ -414,7 +422,17 @@ async function bootstrap(): Promise<void> {
   // 不再启动时弹原生选择器：无书库 → 主窗口加载 /welcome 起始页引导新建 / 打开。
   const store = readStore()
   let workDir: string | null = null
-  if (store.current && existsSync(store.current)) {
+  // R72-10（二十轮 D-1）：持久化 workDir 由仅 existsSync 改目录校验——指向普通文件时
+  // 原样采信会静默空书架无引导；失效回落 findWorkDir(cwd)，仍无 → /welcome 引导
+  const currentIsDir = (() => {
+    if (!store.current) return false
+    try {
+      return statSync(store.current).isDirectory()
+    } catch {
+      return false
+    }
+  })()
+  if (store.current && currentIsDir) {
     workDir = store.current
   } else {
     workDir = findWorkDir(process.cwd())

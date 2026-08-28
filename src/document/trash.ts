@@ -53,16 +53,19 @@ const TRASH_MANIFEST_REL = '工作区/.trash/.trash-manifest.jsonl'
 
 /** R65-36（第六十五轮）：恢复目标位与回收站源的内容比对——上次「linkSync 成功 →
  *  删源」之间崩溃的续跑形态（目标位与 .trash 双份硬链同 inode），比对一致视为上次
- *  已完成，继续走清理不再报 OCCUPIED；比对优先 readFileSync 逐字节相等，读失败退
- *  size+mtime 指纹；任一侧非普通文件（目录恢复走原子 rename 无此窗口）→ 不一致。 */
-function sameRestoreCopy(a: string, b: string): boolean {
+ *  已完成，继续走清理不再报 OCCUPIED；比对优先 readFileSync 逐字节相等；任一侧非
+ *  普通文件（目录恢复走原子 rename 无此窗口）→ different。
+ *  R72-6（二十轮 B-3）：读失败退 size+mtime 指纹不再返回「相等」——指纹巧合相等时
+ *  续跑删源会把回收站唯一副本删掉而原位并非恢复内容。三态区分：byte-equal 可安全
+ *  续跑删源；fingerprint-equal（比对不可定）交调用方保守 OCCUPIED。 */
+function sameRestoreCopy(a: string, b: string): 'byte-equal' | 'fingerprint-equal' | 'different' {
   try {
-    if (!statSync(a).isFile() || !statSync(b).isFile()) return false
+    if (!statSync(a).isFile() || !statSync(b).isFile()) return 'different'
   } catch {
-    return false
+    return 'different'
   }
   try {
-    return readFileSync(a).equals(readFileSync(b))
+    return readFileSync(a).equals(readFileSync(b)) ? 'byte-equal' : 'different'
   } catch {
     /* 读失败（权限）退 size+mtime 指纹 */
   }
@@ -70,8 +73,10 @@ function sameRestoreCopy(a: string, b: string): boolean {
     const sa = statSync(a)
     const sb = statSync(b)
     return sa.size === sb.size && Math.floor(sa.mtimeMs) === Math.floor(sb.mtimeMs)
+      ? 'fingerprint-equal'
+      : 'different'
   } catch {
-    return false
+    return 'different'
   }
 }
 
@@ -167,11 +172,21 @@ export function restoreTrash(bookRoot: string, id: string): RestoreResult {
   // 与 .trash 双份），一致则视为已完成恢复，跳过搬运继续走删源+清单收口；不一致才是
   // 真占用（作者另建了文件），仍报 OCCUPIED（不自动改，§17 决策④）
   const alreadyLinked = existsSync(origAbs)
-  if (alreadyLinked && !sameRestoreCopy(origAbs, trashAbs)) {
-    return {
-      ok: false,
-      code: 'OCCUPIED',
-      reason: `原位 ${entry.originalPath} 已被占用，请先重命名或删除现有文件`,
+  if (alreadyLinked) {
+    // R65-36：目标位已占用先比对内容——一致（字节级）= 上次 link 已完成的续跑形态，
+    // 跳过搬运继续走删源+清单收口。R72-6（二十轮 B-3）：字节比对不可行（读失败退指纹）
+    // 的巧合一致不再删源（会把回收站唯一副本删掉而原位并非恢复内容），保守 OCCUPIED
+    // 交作者人工处置；确定不同才是真占用（作者另建了文件），同样 OCCUPIED（§17 决策④）
+    const verdict = sameRestoreCopy(origAbs, trashAbs)
+    if (verdict !== 'byte-equal') {
+      return {
+        ok: false,
+        code: 'OCCUPIED',
+        reason:
+          verdict === 'fingerprint-equal'
+            ? `原位 ${entry.originalPath} 已被占用（内容逐字节比对不可定，指纹巧合一致），请人工确认后重命名或删除现有文件`
+            : `原位 ${entry.originalPath} 已被占用，请先重命名或删除现有文件`,
+      }
     }
   }
 

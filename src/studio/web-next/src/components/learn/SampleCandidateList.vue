@@ -84,7 +84,15 @@ function clearAllPicks(): void {
     </div>
 
     <div v-for="g in sampleGroups" :key="g.场景" class="scene-group">
-      <div class="group-head" @click="toggleGroup(g.items)">
+      <!-- R72-12（二十轮 E-10）：分组头补键盘可达性（原仅 @click） -->
+      <div
+        class="group-head"
+        role="button"
+        tabindex="0"
+        @keydown.enter.prevent="toggleGroup(g.items)"
+        @keydown.space.prevent="toggleGroup(g.items)"
+        @click="toggleGroup(g.items)"
+      >
         <span class="scene-name">{{ g.场景 }}</span>
         <span class="group-meta">{{ g.count }} 章 · 均分 {{ g.avg }}</span>
         <span class="group-toggle" :class="{ all: g.allPicked }">

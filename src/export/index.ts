@@ -140,20 +140,10 @@ function archiveOldExport(exportDir: string, oldName: string, warnings: string[]
 }
 
 function sanitizeFileName(name: string, maxBytes: number): string {
-  // 收敛统一字符集净化（sanitizeFileNamePart：非法字符 + win 尾点/保留名），
-  // 按导出侧更强的 80 码位 / 255-52 字节后缀感知预算截断。
-  const cleaned = sanitizeFileNamePart(name, FILENAME_MAX_CP, maxBytes)
-  const cps = Array.from(cleaned)
-  let out = ''
-  let used = 0
-  for (let i = 0; i < cps.length; i++) {
-    if (i >= FILENAME_MAX_CP) break
-    const b = Buffer.byteLength(cps[i]!, 'utf8')
-    if (used + b > maxBytes) break
-    out += cps[i]!
-    used += b
-  }
-  return out || '未命名'
+  // R72-9（二十轮 C-7）：删除 sanitizeFileNamePart 之后的重复截断循环——后者已是单一
+  // 真相源（非法字符 + win 尾点/保留名 + 码位/字节双预算后缀感知截断），外层逐字符
+  // 循环行为恒等却构成漂移风险死码（改预算只改其一必分叉）。
+  return sanitizeFileNamePart(name, FILENAME_MAX_CP, maxBytes) || '未命名'
 }
 
 export function exportBook(options: ExportOptions): ExportResult {

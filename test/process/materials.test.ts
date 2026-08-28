@@ -12,7 +12,8 @@
 
 import { test, expect } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, renameSync, readFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, existsSync, renameSync, readFileSync } from 'node:fs'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createAllTables } from '../../src/cache/schema.js'
@@ -29,7 +30,7 @@ import type { RagConfig } from '../../src/rag/config.js'
 
 /** 建一本带 .cache + 文风铁律 + 1 章定稿正文的测试书。 */
 function makeBook(): { root: string; workDir: string; db: DatabaseSync } {
-  const workDir = mkdtempSync(join(tmpdir(), 'mat-wd-'))
+  const workDir = mkdtempTracked(join(tmpdir(), 'mat-wd-'))
   const root = join(workDir, 'mybook')
   mkdirSync(root, { recursive: true })
   mkdirSync(join(workDir, '.clwriting'), { recursive: true })
@@ -324,7 +325,7 @@ test('已配 RAG 但无 key → 降级（无召回段，ragNote 标注）', asyn
 
 test('服务商化：书存 rag.provider 引用应用级服务商 → 召回可用（key 来自服务商）', async () => {
   const { root, workDir, db } = makeBook()
-  const userData = mkdtempSync(join(tmpdir(), 'mat-ud-'))
+  const userData = mkdtempTracked(join(tmpdir(), 'mat-ud-'))
   try {
     delete process.env.CLWRITING_RAG_API_KEY
     // 应用级服务商 fixture（key 走 vault 落 providers.json）

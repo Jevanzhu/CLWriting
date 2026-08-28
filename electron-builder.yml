@@ -15,6 +15,10 @@ mac:
   category: public.app-category.productivity
   target:
     - dmg
+  # H-1（二十轮 P2）：未配 icon——仓内零图标资产（无 build/ 目录，git 无 .icns/.ico/.png），
+  # rc.1 起 DMG 以 Electron 默认图标出货。品牌图标属作者资产决策，此处不代选；资产就位后
+  # 接入方式二选一：① 放 build/icon.icns（electron-builder 约定路径，自动拾取）；
+  # ② 显式 icon: <path>（如 resources/icon.icns，随 asar files 打包）。
 # win/linux 暂缓（2026-06-30 仅 mac 决策）；恢复时取消注释
 # win:
 #   target:

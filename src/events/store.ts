@@ -190,7 +190,11 @@ function sweepOpenMarkers(dir: string, dbPath: string): string[] {
           continue
         }
       } catch {
-        /* stat 失败（刚被 GC）→ 落到下方删除路径 */
+        // R72-6（二十轮 B-4）：stat 失败不再落删除路径——活 pid 的在位标记被 EACCES/
+        // 竞态误 GC 会造成「迁移看不见我」的隐形句柄（registerOpenMarker fail-closed
+        // 正是防它）。保守视为活：误判活的代价只是迁移被拒（安全方向），下次扫描再判
+        live.push(join(dir, name))
+        continue
       }
     }
     try {

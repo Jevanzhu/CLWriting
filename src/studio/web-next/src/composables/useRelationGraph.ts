@@ -559,6 +559,7 @@ export function useRelationGraph(bookName: string): RelationGraph {
   let panning = false
   let panStart = { x: 0, y: 0, vx: 0, vy: 0 }
   function onBgDown(evt: MouseEvent): void {
+    if (evt.button !== 0) return // R72-11（二十轮 E-7）：仅左键平移（右键=菜单、中键=自动滚轮）
     panning = true
     panStart = { x: evt.clientX, y: evt.clientY, vx: view.value.x, vy: view.value.y }
     window.addEventListener('mousemove', onPanMove)

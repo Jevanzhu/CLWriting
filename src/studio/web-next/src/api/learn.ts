@@ -51,8 +51,12 @@ export async function runLearnCommit(
   name: string,
   body: { samples: SampleCandidateFE[]; quotes: QuoteCandidateFE[] },
 ): Promise<LearnCommitResultFE> {
+  // R72-3（二十轮 F-1）：入库为纯文件写（候选已在内存），但兜底超时仍须与收割同档
+  // 60s——无超时的请求挂死时调用方 loading 永转（大书候选 payload 大，弱机慢盘同受
+  // 10-30s 量级影响，与 runLearn 同口径）
   return apiJson<LearnCommitResultFE>(
     `/api/books/${encodeURIComponent(name)}/learn-commit`,
     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+    60_000,
   )
 }

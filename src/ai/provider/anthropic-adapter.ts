@@ -72,7 +72,9 @@ function toAnthropicMessage(m: ChatMsg): Anthropic.MessageParam {
   // block 数组 → Anthropic content block
   const blocks: Anthropic.ContentBlockParam[] = m.content.flatMap((b: ClwContentBlock): Anthropic.ContentBlockParam[] => {
     if (b.type === 'text') return [{ type: 'text', text: b.text }]
-    // reasoning 块（chat 侧 DeepSeek/Kimi 回传产物）→ 原生端点无此字段，静默丢弃（方案 §4.2）
+    // reasoning 块（chat 侧 DeepSeek/Kimi 回传产物）→ 原生端点无此字段，静默丢弃（方案 §4.2）。
+    // R72-12（二十轮 A-11）记档：正确性依赖上游 sanitizeHistory 先剥离——若未来上游
+    // 防线移除，此处丢弃即最后一道（仅丢回传推理文本，不损对话内容，风险可接受）
     if (b.type === 'reasoning') return []
     if (b.type === 'tool_use') return [{ type: 'tool_use', id: b.id, name: b.name, input: b.input as Record<string, unknown> }]
     // tool_result: Anthropic 要求挂在 user 消息里，toolUseId → tool_use_id

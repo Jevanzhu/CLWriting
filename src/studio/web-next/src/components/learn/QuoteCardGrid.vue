@@ -13,11 +13,16 @@ const learn = useLearnStore()
   <section v-if="learn.quotes.length" class="sec">
     <h2 class="sec-title">金句候选 <span class="sec-count">{{ learn.quotes.length }}</span></h2>
     <div class="quote-grid">
+      <!-- R72-12（二十轮 E-10）：勾选卡片补键盘可达性（原仅 @click，键盘不可达） -->
       <div
         v-for="q in learn.quotes"
         :key="q.正文"
         class="quote-card"
         :class="{ picked: learn.isQuotePicked(q.正文) }"
+        role="button"
+        tabindex="0"
+        @keydown.enter.prevent="learn.toggleQuote(q.正文)"
+        @keydown.space.prevent="learn.toggleQuote(q.正文)"
         @click="learn.toggleQuote(q.正文)"
       >
         <p class="quote-text">{{ q.正文 }}</p>

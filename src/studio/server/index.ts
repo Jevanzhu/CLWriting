@@ -362,7 +362,17 @@ export function startServer(opts: StudioServerOptions): http.Server {
     }
 
     // API 优先
-    if (req.url?.startsWith('/api/')) {
+    // R72-10（二十轮 D-8）：/api/ 判定统一用规范化 pathname——原 raw url startsWith
+    // 与 dispatch 的 URL 解析口径双轨（query/编码段/绝对 URI 形态下判定面不一致；
+    // token 闸在先无绕过，此为口径统一）。解析失败按非 API 处理。
+    const apiPathname = (() => {
+      try {
+        return new URL(req.url ?? '/', 'http://local').pathname
+      } catch {
+        return '/'
+      }
+    })()
+    if (apiPathname.startsWith('/api/')) {
       // R64-28（十二轮）：finish 后统一排空未消费请求体——无 body POST（heartbeat/
       // style/rag/chat-branches 等）handler 不读 body 也不 resume，脚本客户端带 body
       // 时 keep-alive 复用被弃（与 stream-ticket.ts 口径一致，收到 dispatch 层统一兜）

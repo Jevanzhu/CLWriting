@@ -7,7 +7,8 @@
  * name 是去 .md 的展示名。查找/断言用 path（带 .md），UI 显示用 name。
  */
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execSync } from 'node:child_process'
@@ -18,7 +19,7 @@ import {
 
 /** 造书：写作/正文/第一卷/0001 + 大纲/卷纲/第一卷 + 工作区/.journal + 工作区/待定稿（应跳过）。 */
 function makeBook(): string {
-  const root = mkdtempSync(join(tmpdir(), 'w2a-tree-'))
+  const root = mkdtempTracked(join(tmpdir(), 'w2a-tree-'))
   execSync('git init && git config user.email t@t.com && git config user.name t && git config commit.gpgsign false', { cwd: root, stdio: 'pipe' })
   mkdirSync(join(root, '写作', '正文', '第一卷'), { recursive: true })
   writeFileSync(join(root, '写作', '正文', '第一卷', '0001-开篇.md'), '---\n章号: 1\n标题: 开篇\n---\n正文', 'utf-8')
@@ -176,7 +177,7 @@ test('buildTree: 有清单时叶子挂正式 docId（清单 path 带 .md 对齐�
 })
 
 test('probeCachedPublished: fm 引号包 "true" 与 parseFlat 同口径判 published（2026-08-21 口径分裂修复）', () => {
-  const root = mkdtempSync(join(tmpdir(), 'w2a-pub-'))
+  const root = mkdtempTracked(join(tmpdir(), 'w2a-pub-'))
   try {
     // 手写 fm 带引号：document 链路（parseFlat→parseValue unquote）判 published=true，
     // 树 probe 链路此前原样返回 '"true"' 判 false——两链路状态口径分裂
@@ -197,7 +198,7 @@ test('低级项（第六轮）：同长改写后指纹不复用旧缓存（bigin
   // Windows NTFS mtime 分辨率不足：同长的 AAAA→BBBB 改写可能落在同一时间戳，
   // stat 指纹不变 → 缓存误复用。该守卫语义（mtimeNs 级指纹）由 mac/linux CI 腿覆盖
   // （win 适配批 3：skipIf 不修语义）。
-  const root = mkdtempSync(join(tmpdir(), 'tree-probe-'))
+  const root = mkdtempTracked(join(tmpdir(), 'tree-probe-'))
   try {
     const rel = '0001-开篇.md'
     writeFileSync(join(root, rel), '---\n章号: 1\n标题: 开篇\n---\nAAAA', 'utf-8')
@@ -214,7 +215,7 @@ test('低级项（第六轮）：同长改写后指纹不复用旧缓存（bigin
 })
 
 test('M-5（第十轮）：章号数值优先排序——混补零宽度（5-/003-/020-/099-/0100-）不再字典序错排', () => {
-  const root = mkdtempSync(join(tmpdir(), 'w2a-tree-m5-'))
+  const root = mkdtempTracked(join(tmpdir(), 'w2a-tree-m5-'))
   try {
     mkdirSync(join(root, '写作', '正文'), { recursive: true })
     // 五种命名口径混存：前端新建不补零（5-）/ 短篇·草稿管线 3 位（003-/020-）/
@@ -230,7 +231,7 @@ test('M-5（第十轮）：章号数值优先排序——混补零宽度（5-/00
 })
 
 test('M-5（第十轮）：同章号不同补零宽度回落 path 字典序；非数字前缀文件不受影响', () => {
-  const root = mkdtempSync(join(tmpdir(), 'w2a-tree-m5b-'))
+  const root = mkdtempTracked(join(tmpdir(), 'w2a-tree-m5b-'))
   try {
     mkdirSync(join(root, '写作', '正文'), { recursive: true })
     for (const f of ['5-手建.md', '005-x.md', '卷末记.md']) {

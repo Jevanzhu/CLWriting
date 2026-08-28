@@ -1,5 +1,6 @@
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
+import { rmSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -12,7 +13,7 @@ import {
 } from '../../src/format/yaml.js'
 
 test('readBookConfig: 完整解析（#9 第 2 节）', () => {
-  const dir = mkdtempSync(join(tmpdir(), '北境往事-'))
+  const dir = mkdtempTracked(join(tmpdir(), '北境往事-'))
   const fp = join(dir, 'book.yaml')
   writeFileSync(fp, [
     'spec_version: 1',
@@ -60,7 +61,7 @@ test('readBookConfig: 完整解析（#9 第 2 节）', () => {
 })
 
 test('writeBookConfig + readBookConfig: 可选 volume_size 往返', () => {
-  const dir = mkdtempSync(join(tmpdir(), '北境往事-'))
+  const dir = mkdtempTracked(join(tmpdir(), '北境往事-'))
   const fp = join(dir, 'book.yaml')
   writeBookConfig(fp, {
     ...DEFAULT_CONFIG,
@@ -75,7 +76,7 @@ test('writeBookConfig + readBookConfig: 可选 volume_size 往返', () => {
 })
 
 test('rag 段：provider 引用往返；设 provider 时不再写旧内联 endpoint/model', () => {
-  const dir = mkdtempSync(join(tmpdir(), '北境往事-'))
+  const dir = mkdtempTracked(join(tmpdir(), '北境往事-'))
   const fp = join(dir, 'book.yaml')
 
   // 服务商引用形态：只写 enabled + provider
@@ -119,7 +120,7 @@ test('X-P2-17: 错误分支返回默认配置深拷贝——调用方 mutate 不
 })
 
 test('writeBookConfig + readBookConfig 往返', () => {
-  const dir = mkdtempSync(join(tmpdir(), '北境往事-'))
+  const dir = mkdtempTracked(join(tmpdir(), '北境往事-'))
   const fp = join(dir, 'book.yaml')
   const cfg = {
     ...DEFAULT_CONFIG,
@@ -138,7 +139,7 @@ test('writeBookConfig + readBookConfig 往返', () => {
 })
 
 test('RB-KN-P2-10: auto.relation_auto_mine / relation_mine_threshold 解析 + 序列化往返', () => {
-  const dir = mkdtempSync(join(tmpdir(), '北境往事-'))
+  const dir = mkdtempTracked(join(tmpdir(), '北境往事-'))
   const fp = join(dir, 'book.yaml')
   writeBookConfig(fp, {
     ...DEFAULT_CONFIG,
@@ -162,7 +163,7 @@ test('RB-KN-P2-10: auto.relation_auto_mine / relation_mine_threshold 解析 + �
 })
 
 test('readBookConfig: 数字字段坏值不设键（留给全局托底链回落），不注入 NaN', () => {
-  const dir = mkdtempSync(join(tmpdir(), '北境往事-'))
+  const dir = mkdtempTracked(join(tmpdir(), '北境往事-'))
   const fp = join(dir, 'book.yaml')
   writeFileSync(fp, [
     'spec_version: abc',
@@ -216,7 +217,7 @@ test('stringifyBookConfig: rag.candidate_depth 随段输出且可回读（PUT /c
 // 下次存配置 stringifyBookConfig 重建时自然丢弃（无行为字段，无兼容负担）。
 
 test('workflow: 存量 book.yaml 的 workflow 行不再解析/输出（删除语义）', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'wf-'))
+  const dir = mkdtempTracked(join(tmpdir(), 'wf-'))
   const fp = join(dir, 'book.yaml')
   writeFileSync(fp, ['spec_version: 1', '', 'workflow: 自由', ''].join('\n'), 'utf-8')
   const r = readBookConfig(fp)
@@ -241,7 +242,7 @@ test('snapshots 段：缺省不输出（零改动红线）；有值往返一致'
   expect(text).toContain('  max_days: 30')
   expect(text).toContain('  max_count: 50')
 
-  const dir = mkdtempSync(join(tmpdir(), 'yaml-snap-'))
+  const dir = mkdtempTracked(join(tmpdir(), 'yaml-snap-'))
   writeFileSync(join(dir, 'book.yaml'), text, 'utf-8')
   const r = readBookConfig(join(dir, 'book.yaml'))
   expect(r.ok).toBe(true)
@@ -253,7 +254,7 @@ test('snapshots 段：缺省不输出（零改动红线）；有值往返一致'
 })
 
 test('snapshots 段：非正数值忽略（回落代码默认）', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'yaml-snap-bad-'))
+  const dir = mkdtempTracked(join(tmpdir(), 'yaml-snap-bad-'))
   writeFileSync(
     join(dir, 'book.yaml'),
     'spec_version: 1\nbook:\n  title: 书\n  genre: 玄幻\nsnapshots:\n  max_days: 0\n  max_count: -5\n',
@@ -297,7 +298,7 @@ test('patchTopSection: 无尾换行文件 → 补齐结构', () => {
 // ── dd-P2：块式列表项（`- xxx` 无冒号行）不再被静默丢弃 ──
 
 test('readBookConfig: 块式列表（- 项）拼成数组，等价内联写法（dd-P2）', () => {
-  const dir = mkdtempSync(join(tmpdir(), '北境往事-block-'))
+  const dir = mkdtempTracked(join(tmpdir(), '北境往事-block-'))
   const fp = join(dir, 'book.yaml')
   writeFileSync(
     fp,
@@ -325,7 +326,7 @@ test('readBookConfig: 块式列表（- 项）拼成数组，等价内联写法�
 })
 
 test('readBookConfig: 块式列表项含逗号时精确解析（ii 批逐项转义）', () => {
-  const dir = mkdtempSync(join(tmpdir(), '北境往事-block2-'))
+  const dir = mkdtempTracked(join(tmpdir(), '北境往事-block2-'))
   const fp = join(dir, 'book.yaml')
   // ii 批前裸 join：项含半角逗号 → 拼出的内联数组多切一刀（已知边界只断言不炸）；
   // 现逐项走 stringifyValue 转义，含逗号/括号/引号项往返精确。
@@ -377,7 +378,7 @@ test('readBookConfig: 有值键下的缩进子行显式报错，不再静默错�
 // ── 书级设定全局托底：键可选化 + 条件输出（现有仓库零改动红线）────────
 
 test('全局托底: 无键新文件 roundtrip 不新增 13 键（未设语义存活）', () => {
-  const dir = mkdtempSync(join(tmpdir(), '北境往事-global-'))
+  const dir = mkdtempTracked(join(tmpdir(), '北境往事-global-'))
   const fp = join(dir, 'book.yaml')
   // 新 scaffold 产物：无 genre 空占位、无 style/auto 段、budget 无 calls_per_chapter
   writeFileSync(fp, [
@@ -426,7 +427,7 @@ test('全局托底: 无键新文件 roundtrip 不新增 13 键（未设语义存
 })
 
 test('全局托底: 有键旧文件 roundtrip 零 diff（值不变照写）', () => {
-  const dir = mkdtempSync(join(tmpdir(), '北境往事-global2-'))
+  const dir = mkdtempTracked(join(tmpdir(), '北境往事-global2-'))
   const fp = join(dir, 'book.yaml')
   // 旧 scaffold 烘焙形态（迁移前的存量书）：13 键齐备
   const oldFile = [
@@ -473,7 +474,7 @@ test('全局托底: 有键旧文件 roundtrip 零 diff（值不变照写）', ()
 })
 
 test('全局托底: genre 空串归一 undefined（`genre: \'\'` 与缺失同义）', () => {
-  const dir = mkdtempSync(join(tmpdir(), '北境往事-global3-'))
+  const dir = mkdtempTracked(join(tmpdir(), '北境往事-global3-'))
   const fp = join(dir, 'book.yaml')
   writeFileSync(fp, 'spec_version: 1\nbook:\n  title: 空题材\n  genre: \'\'\n', 'utf-8')
   const r = readBookConfig(fp)

@@ -92,8 +92,11 @@ export default defineConfig({
         // −2pp 向下取整，只防回退不追高。X-6（第五十六轮批 D）：批 A 补 api 直测后
         // 2026-08-24 实测 lines 25.17 / branches 88.77。R67-5（十五轮）：本轮再收基线——
         // 2026-08-27 全量 coverage-summary 实测 lines 36.87 / branches 90.35，门收到
-        // 34 / 88（−2pp 向下取整；lines 自 23 提 11pp，注释自认的「待收紧」销账）
-        'src/studio/web-next/src/api/**': { lines: 34, branches: 88 },
+        // 34 / 88（−2pp 向下取整；lines 自 23 提 11pp，注释自认的「待收紧」销账）。
+        // G-2（二十轮）：api-endpoints-a/b 两文件补 16 域行为级直测（37 用例：URL 编码/
+        // method/body 负载/响应解包/404 兜底），2026-08-28 实测 lines 89.32 / branches
+        // 95.83，门提到 87 / 93（同 −2pp 规则）
+        'src/studio/web-next/src/api/**': { lines: 87, branches: 93 },
         // R62-23：editor/ 并入——typewriter.ts（运行时逻辑 19 行）此前不落任何桶，
         // 进报告却是「桶外暗区」；并入三桶后纳入门禁（阈值不变）
         'src/studio/web-next/src/{composables,editor,shared,stores}/**': { lines: 43, branches: 81 },

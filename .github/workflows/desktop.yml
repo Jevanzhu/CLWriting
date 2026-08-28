@@ -6,6 +6,14 @@ on:
   push:
     tags: ['v*']
 
+# R72-13（二十轮 H-4）：最小权限 + 并发组（与 ci.yml 同口径；tag 发布腿不做进行中
+# 取消——出包中途杀跑只留半成品工件无益；upload-artifact 走独立 token 不受收窄影响）
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+permissions:
+  contents: read
+
 jobs:
   build:
     name: ${{ matrix.os }}
@@ -18,6 +26,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # H-2（二十轮 P2）：未配 arch——macos-latest 为 arm64 runner，产物仅 arm64 DMG；
+        # Intel mac 无可用产物。发行架构（+x64 / universal / win/linux 恢复）属发行决策，
+        # 暂记档不代拍；需要双 arch 时改 electron-builder.yml mac.target 为
+        # [{target: dmg, arch: [arm64, x64]}]（或 universal）并跑一次 tag 门验证。
         os: [macos-latest]  # 仅 mac（win/linux 暂缓 2026-06-30）
     steps:
       - uses: actions/checkout@v4
@@ -83,9 +95,9 @@ jobs:
         if: always()
         with:
           name: clwriting-desktop-${{ matrix.os }}
-          path: |
-            dist-electron/*.dmg
-            dist-electron/mac*/
+          # R72-15（二十轮 H-8）：工件只留 dmg——mac*/ 整目录（.app 解包态）与 dmg 内容
+          # 重复、上传体积双倍；Electron 冒烟步用本地 dist-electron 路径，不依赖本工件
+          path: dist-electron/*.dmg
           if-no-files-found: error
       # R67-4（十五轮）：Electron 壳真实启动冒烟——release-smoke 只 spawn 编译产物
       # server-main.js（node 进程，不启动 Electron 壳），BrowserWindow/preload/IPC 在

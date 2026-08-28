@@ -25,8 +25,8 @@ function ctx(): ToolContext {
 }
 
 describe('harvest_style', () => {
-  it('收割完成返回 ok 与摘要', () => {
-    const r = harvestStyle(ctx(), {})
+  it('收割完成返回 ok 与摘要', async () => {
+    const r = await harvestStyle(ctx(), {})
     expect(r.ok).toBe(true)
     expect(r.summary).toContain('文风收割')
   })

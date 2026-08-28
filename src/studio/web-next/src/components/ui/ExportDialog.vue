@@ -23,6 +23,7 @@ const loading = ref(false)
 
 async function run(): Promise<void> {
   if (!ws.bookName || loading.value) return
+  const targetBook = ws.bookName
   loading.value = true
   try {
     // B-23：业务失败（无定稿正文等）由 apiJson 抛 ApiError（信封 error 即诊断），
@@ -31,6 +32,8 @@ async function run(): Promise<void> {
       format: format.value,
       platform: platform.value,
     })
+    // R72-11（二十轮 E-6）：await 后切书守卫——成功提示不落 B 书界面（域内普遍模式）
+    if (ws.bookName !== targetBook) return
     ui.toast(`导出完成（${r.chapterCount ?? '?'} ${r.unit ?? '章'}）`, 'success')
     ui.closeExport()
   } catch (e) {

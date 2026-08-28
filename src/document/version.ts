@@ -278,7 +278,15 @@ export function listVersions(versionsDir: string, docId: string): VersionInfo[] 
   const seen = new Set<string>()
   for (const dir of docVersionDirs(versionsDir, docId)) {
     if (!existsSync(dir)) continue
-    for (const name of readdirSync(dir)) {
+    // R72-6（二十轮 B-5）：existsSync→readdirSync 之间并发 purge 落间则 readdir 裸抛，
+    // 列表调用整体失败。该目录按空处理（读失败无数据损伤；另一侧目录照常取并集）
+    let names: string[]
+    try {
+      names = readdirSync(dir)
+    } catch {
+      continue
+    }
+    for (const name of names) {
       if (name.startsWith('._') || !name.endsWith('.md')) continue
       const id = name.slice(0, -3)
       // 同 id 理论上只在一侧（写入恒编码）；防手搬/复制出双份时重复列

@@ -146,17 +146,23 @@ export const usePrefsStore = defineStore('prefs', () => {
    *  首次为空时从旧 localStorage 自动迁移。main.ts 在 mount 前调一次。 */
   async function init(): Promise<void> {
     let prefs: GlobalPrefs = {}
+    let apiOk = false
     try {
       const r = await getGlobalPrefs()
       prefs = r.prefs
       revision = r.revision
+      apiOk = true
     } catch {
       /* API 不可达用默认 */
     }
 
-    // 迁移：prefs 为空（首次）时从旧 localStorage 读取
-    if (Object.keys(prefs).length === 0 && migrateFromLocalStorage()) {
+    // 迁移：API 可达且 prefs 为空（真·首次）时才从旧 localStorage 读取。
+    // R72-11（二十轮 F-3）：API 不可达不再误判「首次」——旧 localStorage 残值会覆盖
+    // 展示态（服务端配置实际存在，重连后展示跳变）。迁移成功后清理旧键（对齐
+    // workspace 侧已修口径），防旧残值在后续 API 不可达时再度触发伪迁移。
+    if (apiOk && Object.keys(prefs).length === 0 && migrateFromLocalStorage()) {
       prefs = buildCache()
+      clearLegacyLocalStorage()
       // GG-P2-7：迁移写会 bump 服务端 revision——同步回存，否则首个用户保存带陈旧号 409
       void putGlobalPrefs(prefs).then((r) => { revision = r.revision }).catch(() => {})
     } else {
@@ -198,6 +204,14 @@ export const usePrefsStore = defineStore('prefs', () => {
       if (sv === 'grid' || sv === 'list') { shelfView.value = sv; has = true }
     } catch { /* localStorage 损坏降级 */ }
     return has
+  }
+
+  /** R72-11（二十轮 F-3）：迁移完成后清理旧 localStorage 键——旧值残留会让后续
+   *  「API 不可达」场景反复误判出伪迁移数据源 */
+  function clearLegacyLocalStorage(): void {
+    try {
+      for (const key of Object.values(OLD_LS)) localStorage.removeItem(key)
+    } catch { /* localStorage 不可用降级 */ }
   }
 
   /** 将 API 读到的 prefs 应用到各 ref */

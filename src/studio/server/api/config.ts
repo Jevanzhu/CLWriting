@@ -55,6 +55,21 @@ export function registerConfigRoutes(ctx: ConfigCtx): void {
     if (/[\u0000-\u001f\u007f]/.test(config.book.title)) {
       return replyError(res, 400, 'BAD_INPUT', 'config.book.title 不能包含换行等控制字符')
     }
+    // R72-10（二十轮 D-6）：已知数值键的类型+下界校验（简版白名单）——此前负数/非有限
+    // 值可落 book.yaml（下游容错不崩但配置面失真）。未列字段维持透传（book.yaml 扩展面）
+    const numericChecks: Array<[string, unknown, number]> = [
+      ['book.target_words', config.book?.target_words, 0],
+      ['book.chapter_target_words', config.book?.chapter_target_words, 0],
+      ['budget.calls_per_chapter', config.budget?.calls_per_chapter, 0],
+      ['auto.batch_size', config.auto?.batch_size, 1],
+      ['snapshots.max_days', config.snapshots?.max_days, 1],
+      ['snapshots.max_count', config.snapshots?.max_count, 1],
+    ]
+    for (const [key, v, min] of numericChecks) {
+      if (v !== undefined && (typeof v !== 'number' || !Number.isFinite(v) || v < min)) {
+        return replyError(res, 400, 'BAD_INPUT', `config.${key} 须为 ≥${min} 的有限数值`)
+      }
+    }
     try {
       const yamlPath = join(r.bookRoot, 'book.yaml')
       // kk-P1-5：文本级补丁写——此前 stringifyBookConfig 全量重生成会丢作者手写

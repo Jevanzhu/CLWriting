@@ -33,15 +33,27 @@ export function pickStyleSamplesWithSources(
       path: e._path ? relative(bookRoot, e._path) : undefined,
     }))
   }
-  // 旧样章库：第一轮每场景各取 1（保证次场景有代表）；第二轮主场景补满到 maxTotal
+  // 旧样章库：第一轮每场景各取 1（保证次场景有代表）；第二轮补满到 maxTotal。
+  // R72-8（二十轮 C-3）：补满轮由「只扫主场景」改轮转全场景——主场景条目空/不足预算时
+  // 原实现拿不满 maxTotal；轮转（场景序=入参序）保持多样性与首轮优先级。
   const sampleDir = join(bookRoot, '文风', '样章库')
   const perScene = scenes.map((sc) => readSamplesByScene(sampleDir, sc).samples)
   const picked: StyleSample[] = []
   for (const samples of perScene) {
     if (samples.length > 0) picked.push(samples[0]!)
   }
-  for (let i = 1; picked.length < maxTotal && i < (perScene[0]?.length ?? 0); i++) {
-    picked.push(perScene[0]![i]!)
+  let cursor = 1
+  while (picked.length < maxTotal) {
+    let advanced = false
+    for (const samples of perScene) {
+      if (cursor < samples.length) {
+        picked.push(samples[cursor]!)
+        advanced = true
+        if (picked.length >= maxTotal) break
+      }
+    }
+    if (!advanced) break
+    cursor++
   }
   return picked.slice(0, maxTotal).map((s) => {
     const text = !s.技法指令 ? s.正文 : `技法指令：${s.技法指令}\n${s.正文}`

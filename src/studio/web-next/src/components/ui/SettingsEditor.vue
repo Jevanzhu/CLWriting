@@ -2,6 +2,7 @@
 // 设置 · 编辑器 tab：编辑器字体、排版（字号/行距）、纸张（宽度/自动保存）。
 import { computed } from 'vue'
 import { usePrefsStore } from '../../stores/prefs'
+import { parseNumericInput } from '../../shared/numeric-input'
 import { useSystemFonts, selValue } from '../../composables/useSystemFonts'
 
 const prefs = usePrefsStore()
@@ -16,10 +17,13 @@ function onAutosaveInput(v: number): void {
   prefs.setAutosaveInterval(v)
 }
 
-/** range 配套数字输入：clamp 到范围后调 setter */
+/**
+ * range 配套数字输入：clamp 到范围后调 setter。
+ * R72-11（二十轮 E-2）：空串/非数字走共享 helper 挡掉（原 Number('')=0 过闸被钳成 min）
+ */
 function numInput(min: number, max: number, setter: (v: number) => void, e: Event): void {
-  const v = Number((e.target as HTMLInputElement).value)
-  if (!Number.isFinite(v)) return
+  const v = parseNumericInput(e)
+  if (v === null) return
   setter(Math.min(max, Math.max(min, v)))
 }
 </script>

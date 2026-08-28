@@ -38,6 +38,7 @@ async function onFreeze(): Promise<void> {
   freezing.value = true
   try {
     await style.freeze()
+    if (style.bookName !== book) return // R72-11（二十轮 E-6）：await 后切书，提示不落 B 书
     ui.toast('文风基准已建立', 'success')
   } catch (e) {
     ui.toast(friendlyError(e), 'error')

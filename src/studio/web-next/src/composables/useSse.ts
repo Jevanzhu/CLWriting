@@ -112,7 +112,9 @@ export function useSse(bookName: WatchSource<string>): void {
         const t = typeof data?.type === 'string' ? data.type : ''
         const isChat = t === 'sync' || t.startsWith('chat_') || t === 'notice'
         if (isChat) chat.dispatch(data)
-        if (t === 'sync' || !t.startsWith('chat_')) wb.dispatch(data)
+        // R72-11（二十轮 E-3）：notice（AA-P3-1 队列丢弃提示）只进 chat 域——原双派发
+        // 让工作台事件流以英文原文显示 notice，与注释声明的路由不符
+        if (t === 'sync' || (!t.startsWith('chat_') && t !== 'notice')) wb.dispatch(data)
       } catch {
         /* 非 JSON 静默丢弃（细案 §2.2） */
       }

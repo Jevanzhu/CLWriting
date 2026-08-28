@@ -8,6 +8,15 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# R72-13（二十轮 H-4）：并发组 + 最小权限——同 ref 新跑取消未完成旧跑（PR 连推连取消，
+# push 腿不取消防长跑被抖动反复杀）；GITHUB_TOKEN 收敛只读（本工作流只
+# checkout/build/upload，无发布面写操作；upload-artifact 走运行时独立 token 不受影响）。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+permissions:
+  contents: read
+
 jobs:
   build-test:
     name: ${{ matrix.os }} · Node ${{ matrix.node }}
@@ -87,6 +96,16 @@ jobs:
       - name: 测试 + 覆盖率阈值门（ubuntu·24 腿）
         run: npm run test:coverage
         if: matrix.os == 'ubuntu-latest' && matrix.node == 24
+
+      # R72-14（二十轮 H-11）：coverage 腿报告工件化——阈值红时 html/json-summary 有现场
+      # 可查（此前只跑门不留档，复现只能在本地另跑）
+      - name: 上传覆盖率报告（ubuntu·24 腿）
+        if: matrix.os == 'ubuntu-latest' && matrix.node == 24
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 7
 
       # X-P2-16：README 数字对账门——「账实对照」从自律升级为门禁，失配即红
       - name: README 数字对账（check:counts）

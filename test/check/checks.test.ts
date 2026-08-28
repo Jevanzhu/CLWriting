@@ -1,6 +1,7 @@
 import { test, expect } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createAllTables } from '../../src/cache/schema.js'
@@ -92,7 +93,7 @@ test('checkRepeat: 重复句多 → 黄', () => {
 // ── 成长线语义（#6，红）─────────────────────────
 
 test('checkGrowth: 境界回退 → 红', () => {
-  const dir = mkdtempSync(join(tmpdir(), '北境-'))
+  const dir = mkdtempTracked(join(tmpdir(), '北境-'))
   const db = new DatabaseSync(join(dir, 'index.db'))
   createAllTables(db)
 
@@ -116,7 +117,7 @@ test('checkGrowth: 境界回退 → 红', () => {
 })
 
 test('checkGrowth: 正常跃迁不报红', () => {
-  const dir = mkdtempSync(join(tmpdir(), '北境-'))
+  const dir = mkdtempTracked(join(tmpdir(), '北境-'))
   const db = new DatabaseSync(join(dir, 'index.db'))
   createAllTables(db)
   syncLead(db, {
@@ -135,7 +136,7 @@ test('checkGrowth: 正常跃迁不报红', () => {
 })
 
 test('checkGrowth: 成长线启用但境界序列缺失 → 红项阻断，不静默空跑', () => {
-  const dir = mkdtempSync(join(tmpdir(), '北境-'))
+  const dir = mkdtempTracked(join(tmpdir(), '北境-'))
   const db = new DatabaseSync(join(dir, 'index.db'))
   createAllTables(db)
   syncLead(db, {
@@ -150,7 +151,7 @@ test('checkGrowth: 成长线启用但境界序列缺失 → 红项阻断，不�
 })
 
 test('checkGrowth: 有境界体系但成长线缺当前境界 → 红项阻断，不静默跳过跃迁检测', () => {
-  const dir = mkdtempSync(join(tmpdir(), '北境-'))
+  const dir = mkdtempTracked(join(tmpdir(), '北境-'))
   const db = new DatabaseSync(join(dir, 'index.db'))
   createAllTables(db)
   syncLead(db, {
@@ -165,7 +166,7 @@ test('checkGrowth: 有境界体系但成长线缺当前境界 → 红项阻断�
 })
 
 test('checkGrowth: 成长线非法履历动词 → 黄项告警', () => {
-  const dir = mkdtempSync(join(tmpdir(), '北境-'))
+  const dir = mkdtempTracked(join(tmpdir(), '北境-'))
   const db = new DatabaseSync(join(dir, 'index.db'))
   createAllTables(db)
   syncLead(db, {
@@ -215,7 +216,7 @@ test('hasRed + getRedItems', () => {
 
 /** 造一个最小书仓库（含 .cache + 写作/正文/），供 checkLeadsForm 测试 */
 function makeLeadsBook(): { root: string; db: DatabaseSync } {
-  const root = mkdtempSync(join(tmpdir(), '账本-'))
+  const root = mkdtempTracked(join(tmpdir(), '账本-'))
   mkdirSync(join(root, '.cache'), { recursive: true })
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   const db = new DatabaseSync(join(root, '.cache', 'index.db'))
@@ -540,7 +541,7 @@ test('checkInfoLeak: 关键词命中 → 候选（黄）；空源 → 静默跳�
 })
 
 test('checkGrowth: 跃迁证据提取不到境界名 → 黄 growth-evidence-no-realm（R62-2：修复前静默跳过，三项红检查对该条失明）', () => {
-  const dir = mkdtempSync(join(tmpdir(), '北境-'))
+  const dir = mkdtempTracked(join(tmpdir(), '北境-'))
   try {
     const db = new DatabaseSync(join(dir, 'index.db'))
     createAllTables(db)

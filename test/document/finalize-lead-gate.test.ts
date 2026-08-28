@@ -10,7 +10,8 @@
  * 恢复后重试同一文件 → 成功且履历包含该条（封死 skipped 幂等造成的永久丢失窗口）。
  */
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, chmodSync, existsSync, readFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, chmodSync, existsSync, readFileSync } from 'node:fs'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { finalizeRevision } from '../../src/document/finalize.js'
@@ -33,7 +34,7 @@ interface WiredBookOpts {
  * + 清单登记。返回 {root, docId}。
  */
 function makeBook(opts: WiredBookOpts = {}): { root: string; docId: string } {
-  const root = mkdtempSync(join(tmpdir(), 'finalize-gate-'))
+  const root = mkdtempTracked(join(tmpdir(), 'finalize-gate-'))
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   writeFileSync(
     join(root, '写作', '正文', '0001-开篇.md'),

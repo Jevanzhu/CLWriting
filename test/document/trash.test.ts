@@ -4,7 +4,8 @@
  * 恢复（移回 + 清单恢复）、原位占用 OCCUPIED、永久删、listTrash。
  */
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, linkSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, linkSync } from 'node:fs'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execSync } from 'node:child_process'
@@ -13,7 +14,7 @@ import { listTrash, restoreTrash, purgeTrash } from '../../src/document/trash.js
 
 /** 造书：写作/正文/第一卷/0001 + 项目清单登记 doc_ch01。 */
 function makeBookWithChapter(): { root: string; svc: DocumentService } {
-  const root = mkdtempSync(join(tmpdir(), 'w2a-trash-'))
+  const root = mkdtempTracked(join(tmpdir(), 'w2a-trash-'))
   execSync('git init && git config user.email t@t.com && git config user.name t && git config commit.gpgsign false', { cwd: root, stdio: 'pipe' })
   mkdirSync(join(root, '写作', '正文', '第一卷'), { recursive: true })
   mkdirSync(join(root, '工作区'), { recursive: true })
@@ -48,7 +49,7 @@ test('trashDocument: 软删 → 移 .trash + 清单移除 + manifest 记录', as
 })
 
 test('trashDocument: 账本（ledger trash=false）→ CAPABILITY_DENIED', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'w2a-trash-lg-'))
+  const root = mkdtempTracked(join(tmpdir(), 'w2a-trash-lg-'))
   execSync('git init && git config user.email t@t.com && git config user.name t && git config commit.gpgsign false', { cwd: root, stdio: 'pipe' })
   mkdirSync(join(root, '布线', '悬念'), { recursive: true })
   mkdirSync(join(root, '工作区'), { recursive: true })
@@ -109,7 +110,7 @@ test('restoreTrash: 原位已被占用 → OCCUPIED（不自动改名，§17 决
 })
 
 test('restoreTrash: 回收站无此 id → NOT_FOUND', () => {
-  const root = mkdtempSync(join(tmpdir(), 'w2a-trash-empty-'))
+  const root = mkdtempTracked(join(tmpdir(), 'w2a-trash-empty-'))
   const r = restoreTrash(root, 'doc_xxx')
   expect(r.ok).toBe(false)
   if (r.ok) return
@@ -130,7 +131,7 @@ test('purgeTrash: 永久删 → 物理删文件 + manifest 移除', async () => 
 })
 
 test('listTrash: 空回收站 → []', () => {
-  const root = mkdtempSync(join(tmpdir(), 'w2a-trash-list-'))
+  const root = mkdtempTracked(join(tmpdir(), 'w2a-trash-list-'))
   expect(listTrash(root)).toEqual([])
   rmSync(root, { recursive: true, force: true })
 })

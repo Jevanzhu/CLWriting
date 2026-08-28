@@ -47,8 +47,10 @@ describe('SettingsRetention 版本保留全局默认（直写 prefs store）', (
 
   it('清空输入（空串）按 0 参与钳制 → 写最小值（沿用原 SettingsHistory 行为）', async () => {
     const wrapper = mountPage()
-    // Number('')=0 且 0 是有限数 → clamp 成 1（原组件即此行为，搬迁保持不变）
+    // R72-11（二十轮 E-1/E-2）：空串不再写 store——Number('')=0 恰好过 isFinite 闸被
+    // clamp 成下限 1 是已修复的 bug（清空输入框不应改值），此处断言值保持不变
+    const before = usePrefsStore().snapDays
     await wrapper.find('input[aria-label="保留天数（全局默认）"]').setValue('')
-    expect(usePrefsStore().snapDays).toBe(1)
+    expect(usePrefsStore().snapDays).toBe(before)
   })
 })

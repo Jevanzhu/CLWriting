@@ -7,7 +7,8 @@
  * 结构性清空）。
  */
 import { describe, it, expect } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, renameSync, existsSync, utimesSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, renameSync, existsSync, utimesSync } from 'node:fs'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -26,7 +27,7 @@ import { readAnalysis, writeAnalysis } from '../../src/document/analysis.js'
 
 /** 与 scan-count 测试同款造书（含禁词红源「玉佩」） */
 function makeBook(chapterCount: number): string {
-  const root = mkdtempSync(join(tmpdir(), 'tree-cache-golden-'))
+  const root = mkdtempTracked(join(tmpdir(), 'tree-cache-golden-'))
   mkdirSync(join(root, '布线', '悬念'), { recursive: true })
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '大纲', '章纲'), { recursive: true })
@@ -184,7 +185,7 @@ describe('tree-issues-cache 模块单元', () => {
   })
 
   it('无 index.db 的书（短篇）clearTreeIssuesCacheForBook 安全 no-op', () => {
-    const root = mkdtempSync(join(tmpdir(), 'tree-cache-bare-'))
+    const root = mkdtempTracked(join(tmpdir(), 'tree-cache-bare-'))
     try {
       expect(existsSync(join(root, '.cache', 'index.db'))).toBe(false)
       expect(() => clearTreeIssuesCacheForBook(root)).not.toThrow()

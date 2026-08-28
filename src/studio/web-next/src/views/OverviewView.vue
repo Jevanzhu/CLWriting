@@ -57,16 +57,22 @@ const analysis = ref<AnalysisOverview | null>(null)
 const loading = ref(true)
 const err = ref<string | null>(null)
 
-// onMounted 并行加载 4 个 API（容错：单个失败不阻断页面）
+// onMounted 并行加载 4 个 API（容错：单个失败不阻断页面）。
+// R72-11（二十轮 F-8）：代守卫——重试连点/切书后慢响应不再覆盖新响应（gen 判定丢弃）
+let loadGen = 0
 async function loadAll(): Promise<void> {
+  const gen = ++loadGen
   loading.value = true
   err.value = null
   try {
-    data.value = await getOverview(props.bookName)
+    const d = await getOverview(props.bookName)
+    if (gen !== loadGen) return
+    data.value = d
   } catch (e) {
+    if (gen !== loadGen) return
     err.value = friendlyError(e)
   } finally {
-    loading.value = false
+    if (gen === loadGen) loading.value = false
   }
   void loadFs()
   void loadRhythm()
@@ -177,7 +183,7 @@ const fsStats = computed(() => {
     <div v-if="loading" class="ov-placeholder">载入总览…</div>
     <div v-else-if="err" class="ov-err">
       总览载入失败：{{ err }}
-      <button class="btn-retry" @click="reload">重试</button>
+      <button class="btn-retry" :disabled="loading" @click="reload">重试</button>
     </div>
 
     <div v-else-if="data" class="overview">

@@ -549,8 +549,10 @@ export function registerBookRoutes(ctx: BookCtx): void {
     method: 'GET',
     path: '/api/books/:name',
     handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
+      // R72-10（二十轮 D-4）：删 !name 死分支——path 参数 :name 为空的 404 由下方
+      // find 未命中统一给出（原并入 NO_WORKDIR 是错误码语义错位）
       const name = params['name']
-      if (!name || !ctx.workDir) {
+      if (!ctx.workDir) {
         replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
         return
       }

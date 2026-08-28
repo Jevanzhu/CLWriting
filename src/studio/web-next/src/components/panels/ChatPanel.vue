@@ -39,7 +39,9 @@ const {
 } = useChatComposer(
   () => props.bookName,
   () => props.currentChapter,
-  async () => { await nextTick(); messagesRef.value?.scrollToBottom() },
+  // R72-11（二十轮 E-5）：发送后滚底传 force=true（无条件）——原无参调用在用户上滚
+  // 读历史时距底超阈值不跟滚，与「发送后应见自己消息」的注释承诺相反
+  async () => { await nextTick(); messagesRef.value?.scrollToBottom(true) },
 )
 </script>
 

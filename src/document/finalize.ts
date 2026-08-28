@@ -17,6 +17,7 @@ import { writeVersion, VERSIONS_DIR_NAME } from './version.js'
 import { countWords } from '../format/words.js'
 import { splitFrontMatter } from '../format/frontmatter.js'
 import { safeManifestPath, safeDocId } from '../fs/safe-path.js'
+import { hashBytes } from '../fs/hash.js'
 import { applyLeadUpdates } from './lead-finalize.js'
 import { outlineDeclarationForChapter } from '../check/outline-leads.js'
 import { readChapterUpdatesForChapter, leadEvidenceMatchesBody } from '../check/lead-updates.js'
@@ -61,7 +62,12 @@ export function finalizeRevision(bookRoot: string, docId: string): FinalizeOutco
     // Z-14（第五十八轮）：锁内重算指纹——锁外计算到锁内读取之间他进程（GUI 保存/CLI
     // 批量定稿）可落盘新内容，pinned 版本与基线指纹会记到不同稿。重算不一致时以新指纹
     // 重走下方幂等/闸门判定（旧指纹作废；跨进程窗口极窄，重算后仍以锁内一致快照为准）。
-    const rev = existsSync(absPath) ? computeRevision(absPath) : currentRev
+    // R72-5（二十轮 B-10）：锁内一次读——原「此处 computeRevision 读盘 + 步骤①再
+    // readFileSync」两次读盘之间他进程仍可插入落盘，pinned 版本内容与基线指纹错拍；
+    // 现指纹与版本内容同源于同一次读取（hashBytes 单源 fs/hash.ts）。读取失败按外部
+    // 已移除处理，沿用锁外基线（原 X-5 兜底语义），后续写版本若也失败走 WRITE_ERROR。
+    const fileBytes = existsSync(absPath) ? readFileSync(absPath) : null
+    const rev = fileBytes ? (hashBytes(fileBytes) as `sha256:${string}`) : currentRev
     // 幂等：当前指纹 == 已记录的定稿基线 → skipped，不重复写版本
     const manifest = readManifest(manifestPath)
     const entry = manifest.entries.get(docId)
@@ -91,9 +97,12 @@ export function finalizeRevision(bookRoot: string, docId: string): FinalizeOutco
       }
     }
 
-    // ① 写定稿版本（永久保留，pinned）
+    // ① 写定稿版本（永久保留，pinned）。R72-5（二十轮 B-10）：内容取自锁内同源读取的
+    // 字节，不再二次 readFileSync；文件在锁内消失（fileBytes null）时此前会在 computeRevision
+    // 处抛裸错，现收编进契约。
     try {
-      const content = readFileSync(absPath, 'utf-8')
+      if (!fileBytes) return { ok: false, code: 'WRITE_ERROR', error: '定稿失败：文件在定稿过程中被移除' }
+      const content = fileBytes.toString('utf-8')
       const versionsDir = join(bookRoot, '工作区', VERSIONS_DIR_NAME)
       const split = splitFrontMatter(content)
       writeVersion(versionsDir, docId, content, {
@@ -136,7 +145,14 @@ export function finalizeRevision(bookRoot: string, docId: string): FinalizeOutco
     const next = manifest.entries.get(docId)!
     next.finalizedRevision = rev
     next.finalizedAt = new Date().toISOString()
-    writeManifest(manifestPath, manifest)
+    // R72-5（二十轮 B-2）：writeManifest 失败此前裸抛穿透 FinalizeOutcome 契约，批量定稿
+    // 循环被单条中断丢汇总。收编进契约（WRITE_ERROR）；版本已写、基线未落 → 重试重写版本
+    // （追加无害）后落基线，不产生不一致态。
+    try {
+      writeManifest(manifestPath, manifest)
+    } catch (e) {
+      return { ok: false, code: 'WRITE_ERROR', error: `定稿基线落盘失败：${e instanceof Error ? e.message : String(e)}` }
+    }
 
     invalidateTreeIndex(bookRoot)
     return { ok: true, status: 'final', skipped: false }

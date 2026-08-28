@@ -6,6 +6,7 @@
 import { computed, watch, onActivated } from 'vue'
 import { useUiStore } from '../../stores/ui'
 import { usePrefsStore } from '../../stores/prefs'
+import { parseNumericInput } from '../../shared/numeric-input'
 import { useProviderStore } from '../../stores/provider'
 import BetaBadge from './BetaBadge.vue'
 
@@ -45,9 +46,10 @@ function onGlobalRagProviderChange(e: Event): void {
   prefs.setRagProvider((e.target as HTMLSelectElement).value)
 }
 function onGlobalThresholdInput(e: Event): void {
-  // 非法输入（空/非数字）不写 store——Number('')=0 会被 clamp 成 1，须先挡掉
-  const raw = Number((e.target as HTMLInputElement).value)
-  if (Number.isFinite(raw)) prefs.setRelationMineThreshold(raw)
+  // R72-11（二十轮 E-1）：空串/非数字不写 store——原注释声称挡掉但 Number('')=0
+  // 恰好过 isFinite 闸、被 clamp 钳成下限 1（注释与行为相反），统一走共享 helper
+  const v = parseNumericInput(e)
+  if (v !== null) prefs.setRelationMineThreshold(v)
 }
 </script>
 

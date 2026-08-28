@@ -37,6 +37,9 @@ export interface SearchHit {
   /** 相对 bookRoot 的路径（正斜杠） */
   path: string;
   matches: SearchMatch[];
+  /** R72-9（二十轮 C-8）：该文件命中总数超过单文件上限（20）——matches 为截断视图，
+   *  UI 可据此提示「仅显示前 20 处」（此前截断静默无提示） */
+  hasMore?: boolean;
 }
 
 export interface SearchOutcome {
@@ -60,7 +63,12 @@ export function searchBook(bookRoot: string, q: string, scope?: string): SearchO
       const matches = searchFile(fp, lower)
       if (matches.length === 0) continue
       const rel = fp.slice(bookRoot.length + 1).split('\\').join('/')
-      results.push({ path: rel, matches: matches.slice(0, MAX_MATCHES_PER_FILE) })
+      // R72-9（二十轮 C-8）：文件内命中超上限时附 hasMore 标记（截断不再静默）
+      results.push({
+        path: rel,
+        matches: matches.slice(0, MAX_MATCHES_PER_FILE),
+        ...(matches.length > MAX_MATCHES_PER_FILE ? { hasMore: true } : {}),
+      })
       if (results.length >= MAX_RESULTS) {
         return { results, truncated: true }
       }

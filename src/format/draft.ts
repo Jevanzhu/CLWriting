@@ -63,11 +63,29 @@ export function resolveDraftPath(
 
   // 1. 已有同章号 → 覆盖（V-P1-3：已定稿章除外——覆盖定稿 = 静默摧毁作者已确认内容）
   if (existsSync(bodyDir)) {
-    const hit = readChapterDir(bodyDir).chapters.find((c) => c.章号 === chapter)
+    const { chapters, errors } = readChapterDir(bodyDir)
+    const hit = chapters.find((c) => c.章号 === chapter)
     if (hit?._path) {
       const relPath = slashRelative(bookRoot, hit._path)
       if (!opts?.forRead) ensureChapterNotFinalized(bookRoot, relPath, chapter)
       return { relPath, existed: true }
+    }
+    // R72-8（二十轮 C-4）：同章号旧文件 fm **损坏**（fm 在但字段解析失败）时不再静默
+    // 新建第二份并存——后续 readdir 序定位可能命中坏版本，写路径写错文件。fail-loud
+    // 让作者先修复 fm。「缺少 front matter」豁免：无 fm 旧稿（手写/迁移存量）是合法
+    // 形态（覆写链有 isUtf8Bytes+留底守卫处置，R66-1），不在此拦。forRead 只读定位
+    // 不建文件，维持未命中原语义。
+    if (!opts?.forRead) {
+      const broken = errors.find((e) => {
+        if (/缺少 front matter/.test(e.message)) return false
+        const m = /(\d+)[^/\\]*\.md$/.exec(e.file)
+        return m !== null && Number(m[1]) === chapter
+      })
+      if (broken) {
+        throw new Error(
+          `第 ${chapter} 章旧文件 front matter 损坏（${broken.file}：${broken.message}），请先修复后再保存，避免同章号出现双份文件`,
+        )
+      }
     }
   }
 

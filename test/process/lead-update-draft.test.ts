@@ -7,7 +7,8 @@
  * - 与 check/lead-updates.ts 读取格式同构（两端闭合右侧数据源闭环）
  */
 import { test, expect } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -20,7 +21,7 @@ import { readChapterLeadUpdates } from '../../src/check/lead-updates.js'
 
 /** 造一本有布线的短书（book.yaml + 布线/悬念 一条进行中线） */
 function makeWiringBook(): string {
-  const root = mkdtempSync(join(tmpdir(), 'lead-draft-'))
+  const root = mkdtempTracked(join(tmpdir(), 'lead-draft-'))
   mkdirSync(join(root, '布线', '悬念'), { recursive: true })
   mkdirSync(join(root, '工作区'), { recursive: true })
   writeFileSync(

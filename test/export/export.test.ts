@@ -1,5 +1,6 @@
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync } from 'node:fs'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { exportBook } from '../../src/export/index.js'
@@ -9,7 +10,7 @@ import { SUBMISSION_TEMPLATES } from '../../src/metrics/short-index.js'
 
 /** 造一个最小长篇书库（book.yaml + 空的 写作/正文/） */
 function makeLongBook(title: string): string {
-  const root = mkdtempSync(join(tmpdir(), 'export-long-'))
+  const root = mkdtempTracked(join(tmpdir(), 'export-long-'))
   writeFileSync(
     join(root, 'book.yaml'),
     ['spec_version: 1', 'book:', `  title: ${title}`, '  genre: 玄幻'].join('\n'),
@@ -99,7 +100,7 @@ test('exportBook: 长篇多章 both 导出（merged + split）', () => {
 // ── 短篇分支（kind: short）──────────────────────
 
 test('exportBook: 短篇分支产全本 + 分章 + 投稿视图', () => {
-  const root = mkdtempSync(join(tmpdir(), 'export-short-'))
+  const root = mkdtempTracked(join(tmpdir(), 'export-short-'))
   writeFileSync(
     join(root, 'book.yaml'),
     ['spec_version: 1', 'kind: short', '', 'book:', '  title: 短篇集', '  genre: 悬疑'].join('\n'),
@@ -130,7 +131,7 @@ test('exportBook: 短篇分支产全本 + 分章 + 投稿视图', () => {
 // ── 平台配置化（P2-PROD-5）────────────────────────
 
 test('exportBook: 新平台只需注册模板表即生效（配置化，无需改导出代码）', () => {
-  const root = mkdtempSync(join(tmpdir(), 'export-platform-'))
+  const root = mkdtempTracked(join(tmpdir(), 'export-platform-'))
   writeFileSync(
     join(root, 'book.yaml'),
     ['spec_version: 1', 'kind: short', '', 'book:', '  title: 平台书', '  genre: 悬疑'].join('\n'),
@@ -155,7 +156,7 @@ test('exportBook: 新平台只需注册模板表即生效（配置化，无需�
 })
 
 test('exportBook: 未知平台 fallback generic（不崩溃）', () => {
-  const root = mkdtempSync(join(tmpdir(), 'export-unkplat-'))
+  const root = mkdtempTracked(join(tmpdir(), 'export-unkplat-'))
   writeFileSync(
     join(root, 'book.yaml'),
     ['spec_version: 1', 'kind: short', '', 'book:', '  title: 未知平台书', '  genre: 悬疑'].join('\n'),
@@ -178,7 +179,7 @@ test('exportBook: 未知平台 fallback generic（不崩溃）', () => {
 // 精确名判定——他平台的「旧书名」残留同属拿错稿风险，一并清；各平台「当前书名」
 // 产物仍保留（多平台视图不互删，见下一样式的精确保护测试）
 test('exportBook: 投稿视图清同槽位旧文件（改名形变）；他平台旧书名产物同属拿错稿风险一并清', () => {
-  const root = mkdtempSync(join(tmpdir(), 'export-subm-clear-'))
+  const root = mkdtempTracked(join(tmpdir(), 'export-subm-clear-'))
   const writeCfg = (title: string): void => {
     writeFileSync(join(root, 'book.yaml'), ['spec_version: 1', 'kind: short', '', 'book:', `  title: ${title}`, '  genre: 悬疑'].join('\n'), 'utf-8')
   }
@@ -205,7 +206,7 @@ test('exportBook: 投稿视图清同槽位旧文件（改名形变）；他平�
 // 平台 label（如「-公众号」）结尾时，generic 旧产物在文件名上与他平台形态无异，
 // 旧 endsWith 判定把它永远当成他平台产物保留；各平台「当前书名」产物仍精确保留
 test('exportBook: 书名以平台 label 结尾时 generic 旧产物照清；各平台当前产物精确保留', () => {
-  const root = mkdtempSync(join(tmpdir(), 'export-subm-label-'))
+  const root = mkdtempTracked(join(tmpdir(), 'export-subm-label-'))
   const writeCfg = (title: string): void => {
     writeFileSync(join(root, 'book.yaml'), ['spec_version: 1', 'kind: short', '', 'book:', `  title: ${title}`, '  genre: 悬疑'].join('\n'), 'utf-8')
   }
@@ -231,7 +232,7 @@ test('exportBook: 书名以平台 label 结尾时 generic 旧产物照清；各�
 // ── 空正文边界 ──────────────────────────────────
 
 test('exportBook: 无定稿目录 → ok:false', () => {
-  const root = mkdtempSync(join(tmpdir(), 'export-nodir-'))
+  const root = mkdtempTracked(join(tmpdir(), 'export-nodir-'))
   writeFileSync(
     join(root, 'book.yaml'),
     ['spec_version: 1', 'book:', '  title: 空书'].join('\n'),
@@ -332,7 +333,7 @@ test('exportBook: 全部未定稿 → ok:false + 人话提示', () => {
 })
 
 test('exportBook: 短篇投稿视图同口径滤未定稿', () => {
-  const root = mkdtempSync(join(tmpdir(), 'export-shortfin-'))
+  const root = mkdtempTracked(join(tmpdir(), 'export-shortfin-'))
   writeFileSync(
     join(root, 'book.yaml'),
     ['spec_version: 1', 'kind: short', '', 'book:', '  title: 短篇滤稿', '  genre: 悬疑'].join('\n'),
@@ -596,7 +597,7 @@ test('R65-27: 归档同名冲突 → 追加序号后缀保双份', () => {
 })
 
 test('R65-27: 短篇投稿视图旧产物同口径归档（改书名后旧「投稿视图-」进 .旧版/ 不销毁）', () => {
-  const root = mkdtempSync(join(tmpdir(), 'export-subm-archive-'))
+  const root = mkdtempTracked(join(tmpdir(), 'export-subm-archive-'))
   const writeCfg = (title: string): void => {
     writeFileSync(join(root, 'book.yaml'), ['spec_version: 1', 'kind: short', '', 'book:', `  title: ${title}`, '  genre: 悬疑'].join('\n'), 'utf-8')
   }

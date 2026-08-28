@@ -3,7 +3,8 @@
  *
  * 服务端 GET /api/* 读端点已要求 token（T2-3）——存量测试大量直接 `fetch(url)` 打
  * GET 端点无凭据，逐个补头改动面巨大。这里在 vitest setup 阶段统一包装 globalThis.fetch：
- * 对 GET /api/*（boot 豁免端点除外）自动按 origin 缓存取 /api/boot 的 token 并注入
+ * 对 GET /api/*（服务端 token 豁免路径表除外，见下方 GET_TOKEN_EXEMPT）自动按 origin
+ * 缓存取 /api/boot 的 token 并注入
  * x-studio-token 头（已有该头或 query token 的请求不动）。显式测 token 闸本身的用例
  * （api-token.test.ts）走 node:http 原生请求，不受本包装影响。
  */
@@ -22,10 +23,15 @@
 
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const u = resolveUrl(input)
+    // R72-20（二十轮 G-6）：与服务端 GET token 豁免路径表（src/studio/server/index.ts
+    // GET_TOKEN_EXEMPT_PATHS，唯一事实源）保持同步——stream 端点走自身 ticket/query
+    // token 双凭据闸、不读本头，注入属无害空转；显式跳过后，未来「豁免路径上断言
+    // 403」类用例不被包装器的注入行为误导排障。
+    const GET_TOKEN_EXEMPT = [/^\/api\/boot$/, /^\/api\/books\/[^/]+\/stream$/]
     const shouldInject =
       u !== null &&
       u.pathname.startsWith('/api/') &&
-      u.pathname !== '/api/boot' &&
+      !GET_TOKEN_EXEMPT.some((re) => re.test(u.pathname)) &&
       !u.searchParams.has('token') && // SSE 等 query 凭据通道：不动
       (init?.method ?? (typeof input === 'string' || input instanceof URL ? 'GET' : input.method) ?? 'GET').toUpperCase() === 'GET'
     if (!shouldInject) return origFetch(input as RequestInfo, init)

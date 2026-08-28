@@ -39,6 +39,7 @@ import { appendWordsDelta, todayDate } from './words-diary.js'
 import { countWords, chapterFilePrefix } from '../format/words.js'
 import { sanitizeChapterTitle } from '../format/filename.js'
 import { encodeDocDirName, decodeDocDirName } from './version.js'
+import { acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
 import { readBookConfig } from '../format/yaml.js'
 
 /** 第五轮：非 UTF-8（GBK 等）文件的元数据写回统一拒绝——utf-8 读入产生 U+FFFD 替换
@@ -279,75 +280,99 @@ export class DocumentService {
       })
     }
 
-    // 步骤 2：revision 校验（串行内执行，保证并发一致）
-    const existing = existsSync(absPath)
-    const currentRev: Revision = existing ? computeRevision(absPath) : null
-    if (input.expectedRevision !== currentRev) {
-      const reason = existing
-        ? `基线不符（期望 ${input.expectedRevision ?? 'null'}，磁盘 ${currentRev}）`
-        : `期望基线 ${input.expectedRevision} 但文件不存在`
-      return Promise.resolve({ ok: false, code: 'REVISION_CONFLICT', reason })
-    }
-
-    // M-5（第六轮）：非 UTF-8 覆写防线（save 主路径含 autosave）——新内容含 U+FFFD 且
-    // 盘上字节不是合法 UTF-8（fatal 解码探测）时拒绝：GBK 文件被错误编码打开后 autosave
-    // 把乱码原子覆盖回原文件，设定/大纲等非 chapter 文档无快照兜底（maybeSnapshot 只留
-    // 底章），原始字节永久丢失。盘上为合法 UTF-8 时放行（含真实 � 字符的普通编辑）。
-    if (existing && input.content.includes('\uFFFD') && !isUtf8Bytes(readFileSync(absPath))) {
-      return Promise.resolve(NON_UTF8_SAVE_REJECT)
-    }
-
-    // 步骤 4：journal pending（含全文快照，防丢字）
-    // RB-KN-P2-2：pending 记不上就不能继续写（无 journal 兜底的落盘违反崩溃恢复协议），
-    // 且失败须走 SaveResult 契约（原在此处直接抛出，save() 变 rejected promise，调用方易 unhandled rejection）
-    let opId: string
-    try {
-      opId = appendPending(journalPath, docId, currentRev, input.content)
-    } catch (e) {
+    // R72-1（二十轮 B-1）：保存临界段跨进程锁——per-docId 串行队列只防进程内并发；
+    // 本仓把「CLI 与 GUI 双进程同书」当支持场景（manifest/journal/analysis/task-gate
+    // 四套跨进程锁皆为此而建），唯独「revision 校验 → atomicWrite → settled」正文写段
+    // 原先不在任何跨进程锁内：journal append 自身的 `<journal>.lock`（N4/J7）只串行化
+    // pending 行写入，护不住「校验通过 → 文件落盘」窗口——双进程各持相同 expectedRevision
+    // 并发保存时双双通过校验、后写者静默覆盖先写者（lost update）。现套 per-doc 保存锁，
+    // 路径 `<journal>.save.lock` 与 journal 锁同目录不同名（锁基建禁同进程嵌套同路径锁，
+    // appendPending 在锁内会再拿 `<journal>.lock`，构成单向嵌套 save→journal；compact
+    // 只持 journal 锁，无反向环，无死锁）。拿不到锁（他进程在写且 5s 未让出）按
+    // WRITE_ERROR 拒绝——保存未执行、无数据损伤、调用方可重试，不做降级裸写（裸写
+    // 正是本锁要闭合的丢更新形态）。同进程同 docId 由 queue 串行保证不会自锁
+    // （appendPending 嵌套拿的是另一路径的 journal 锁）。
+    const docSaveLock = acquireCrossProcessLockWithTimeout(`${journalPath}.save.lock`, 5_000)
+    if (!docSaveLock) {
       return Promise.resolve({
         ok: false,
         code: 'WRITE_ERROR',
-        reason: `journal 追加失败，保存未执行：${e instanceof Error ? e.message : String(e)}`,
+        reason: '保存等待超时：另一进程正在保存此文档（5 秒未让出），请重试',
       })
     }
-
     try {
-      // P2-BE-1：wordDelta 计算移入 try——readFileSync 失败时 journal 标 aborted（而非孤儿 pending 误报崩溃）
-      // 步骤 4.5：算字数 delta（E4）——须在 atomicWrite 前读旧内容；strip fm 口径（与前端 updateWordCount 一致）
-      const wordDelta =
-        countWords(bodyOf(input.content)) -
-        countWords(existing ? bodyOf(readFileSync(absPath, 'utf-8')) : '')
+      // 步骤 2：revision 校验（串行内执行，保证并发一致）
+      const existing = existsSync(absPath)
+      const currentRev: Revision = existing ? computeRevision(absPath) : null
+      if (input.expectedRevision !== currentRev) {
+        const reason = existing
+          ? `基线不符（期望 ${input.expectedRevision ?? 'null'}，磁盘 ${currentRev}）`
+          : `期望基线 ${input.expectedRevision} 但文件不存在`
+        return Promise.resolve({ ok: false, code: 'REVISION_CONFLICT', reason })
+      }
 
-      // 步骤 5：按策略建 snapshot（修改前版本留底）
-      this.maybeSnapshot(docId, relPath, absPath, input, currentRev)
-      // 步骤 6-7：atomic write + fsync + rename + fsync 父目录
-      atomicWriteFile(absPath, input.content, { fsync: true })
-      // 步骤 8：新 revision
-      const newRev = computeRevision(absPath)
-      // 步骤 9：条件性更新清单（书已有清单才更新；保存不建清单，W0-1 §4.2）
-      this.maybeUpdateManifest(docId, relPath)
-      // 步骤 10：journal settled
-      appendSettled(journalPath, opId, newRev)
-      // P2-BE-4：字数增量 best-effort（settled 后失败不影响保存结果——否则文件已落盘但返回 WRITE_ERROR 误报失败）
-      try {
-        appendWordsDelta(this.bookRoot, todayDate(), wordDelta, docId)
-      } catch {
-        // 磁盘满等忽略——保存已成功，字数日记丢失可接受
+      // M-5（第六轮）：非 UTF-8 覆写防线（save 主路径含 autosave）——新内容含 U+FFFD 且
+      // 盘上字节不是合法 UTF-8（fatal 解码探测）时拒绝：GBK 文件被错误编码打开后 autosave
+      // 把乱码原子覆盖回原文件，设定/大纲等非 chapter 文档无快照兜底（maybeSnapshot 只留
+      // 底章），原始字节永久丢失。盘上为合法 UTF-8 时放行（含真实 � 字符的普通编辑）。
+      if (existing && input.content.includes('\uFFFD') && !isUtf8Bytes(readFileSync(absPath))) {
+        return Promise.resolve(NON_UTF8_SAVE_REJECT)
       }
-      // 步骤 11
-      return Promise.resolve({ ok: true, revision: newRev })
-    } catch (e) {
-      // 失败：journal 标 aborted（atomicWriteFile 失败已自清 tmp，未落盘）
+
+      // 步骤 4：journal pending（含全文快照，防丢字）
+      // RB-KN-P2-2：pending 记不上就不能继续写（无 journal 兜底的落盘违反崩溃恢复协议），
+      // 且失败须走 SaveResult 契约（原在此处直接抛出，save() 变 rejected promise，调用方易 unhandled rejection）
+      let opId: string
       try {
-        appendAborted(journalPath, opId, e instanceof Error ? e.message : String(e))
-      } catch {
-        // journal 写失败忽略（best-effort，不影响返回）
+        opId = appendPending(journalPath, docId, currentRev, input.content)
+      } catch (e) {
+        return Promise.resolve({
+          ok: false,
+          code: 'WRITE_ERROR',
+          reason: `journal 追加失败，保存未执行：${e instanceof Error ? e.message : String(e)}`,
+        })
       }
-      return Promise.resolve({
-        ok: false,
-        code: 'WRITE_ERROR',
-        reason: `保存失败：${e instanceof Error ? e.message : String(e)}`,
-      })
+
+      try {
+        // P2-BE-1：wordDelta 计算移入 try——readFileSync 失败时 journal 标 aborted（而非孤儿 pending 误报崩溃）
+        // 步骤 4.5：算字数 delta（E4）——须在 atomicWrite 前读旧内容；strip fm 口径（与前端 updateWordCount 一致）
+        const wordDelta =
+          countWords(bodyOf(input.content)) -
+          countWords(existing ? bodyOf(readFileSync(absPath, 'utf-8')) : '')
+
+        // 步骤 5：按策略建 snapshot（修改前版本留底）
+        this.maybeSnapshot(docId, relPath, absPath, input, currentRev)
+        // 步骤 6-7：atomic write + fsync + rename + fsync 父目录
+        atomicWriteFile(absPath, input.content, { fsync: true })
+        // 步骤 8：新 revision
+        const newRev = computeRevision(absPath)
+        // 步骤 9：条件性更新清单（书已有清单才更新；保存不建清单，W0-1 §4.2）
+        this.maybeUpdateManifest(docId, relPath)
+        // 步骤 10：journal settled
+        appendSettled(journalPath, opId, newRev)
+        // P2-BE-4：字数增量 best-effort（settled 后失败不影响保存结果——否则文件已落盘但返回 WRITE_ERROR 误报失败）
+        try {
+          appendWordsDelta(this.bookRoot, todayDate(), wordDelta, docId)
+        } catch {
+          // 磁盘满等忽略——保存已成功，字数日记丢失可接受
+        }
+        // 步骤 11
+        return Promise.resolve({ ok: true, revision: newRev })
+      } catch (e) {
+        // 失败：journal 标 aborted（atomicWriteFile 失败已自清 tmp，未落盘）
+        try {
+          appendAborted(journalPath, opId, e instanceof Error ? e.message : String(e))
+        } catch {
+          // journal 写失败忽略（best-effort，不影响返回）
+        }
+        return Promise.resolve({
+          ok: false,
+          code: 'WRITE_ERROR',
+          reason: `保存失败：${e instanceof Error ? e.message : String(e)}`,
+        })
+      }
+    } finally {
+      docSaveLock()
     }
   }
 

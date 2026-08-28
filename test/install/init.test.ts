@@ -1,5 +1,6 @@
 import { test, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, existsSync, readFileSync, mkdirSync, realpathSync } from 'node:fs'
+import { rmSync, existsSync, readFileSync, mkdirSync, realpathSync } from 'node:fs'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -30,7 +31,7 @@ function samePath(path: string): string {
 }
 
 test('init: 非交互一条命令装出工作目录 + 建书', () => {
-  const wd = mkdtempSync(join(tmpdir(), 'init-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'init-'))
   const r = doInit({ workDir: wd, name: '北境往事', genre: '玄幻', leads: ['成长线', '设定线'] })
 
   expect(r.ok).toBe(true)
@@ -94,7 +95,7 @@ test('init: 非交互一条命令装出工作目录 + 建书', () => {
 })
 
 test('init: 全局托底——新书不烘焙 13 键默认值（未设语义存活到运行时合并层）', () => {
-  const wd = mkdtempSync(join(tmpdir(), 'init-global-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'init-global-'))
   const r = doInit({ workDir: wd, name: '托底书', genre: '玄幻' })
   expect(r.ok).toBe(true)
   if (!r.ok) return
@@ -116,7 +117,7 @@ test('init: 全局托底——新书不烘焙 13 键默认值（未设语义存�
 })
 
 test('init: 不传 genre 时 book.yaml 不写 genre 空占位行', () => {
-  const wd = mkdtempSync(join(tmpdir(), 'init-nogenre-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'init-nogenre-'))
   const r = doInit({ workDir: wd, name: '无题材书' })
   expect(r.ok).toBe(true)
   if (!r.ok) return
@@ -127,7 +128,7 @@ test('init: 不传 genre 时 book.yaml 不写 genre 空占位行', () => {
 })
 
 test('init: 题材驱动 leads 推荐（玄幻 → 设定线+成长线）', () => {
-  const wd = mkdtempSync(join(tmpdir(), 'init2-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'init2-'))
   const r = doInit({ workDir: wd, name: '仙缘', genre: '仙侠修仙' })
   expect(r.ok).toBe(true)
   if (!r.ok) return
@@ -137,7 +138,7 @@ test('init: 题材驱动 leads 推荐（玄幻 → 设定线+成长线）', () =
 })
 
 test('init: targetWords 落 book.yaml target_words + 读回（决策 14 完成度链路）', () => {
-  const wd = mkdtempSync(join(tmpdir(), 'init-tw-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'init-tw-'))
   const r = doInit({ workDir: wd, name: '目标书', genre: '玄幻', targetWords: 300000 })
   expect(r.ok).toBe(true)
   if (!r.ok) return
@@ -147,7 +148,7 @@ test('init: targetWords 落 book.yaml target_words + 读回（决策 14 完成�
 })
 
 test('init: targetWords 缺省不写 target_words（可选字段，向后兼容）', () => {
-  const wd = mkdtempSync(join(tmpdir(), 'init-tw2-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'init-tw2-'))
   const r = doInit({ workDir: wd, name: '无目标', genre: '玄幻' })
   expect(r.ok).toBe(true)
   if (!r.ok) return
@@ -157,7 +158,7 @@ test('init: targetWords 缺省不写 target_words（可选字段，向后兼容�
 })
 
 test('init: brief 落 简介.md（GUI 新增 5.1）', () => {
-  const wd = mkdtempSync(join(tmpdir(), 'init-brief-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'init-brief-'))
   const r = doInit({ workDir: wd, name: '简介书', genre: '玄幻', brief: '一个少年的修真之路。' })
   expect(r.ok).toBe(true)
   if (!r.ok) return
@@ -166,7 +167,7 @@ test('init: brief 落 简介.md（GUI 新增 5.1）', () => {
 })
 
 test('init: brief 缺省不写 简介.md（向后兼容）', () => {
-  const wd = mkdtempSync(join(tmpdir(), 'init-brief2-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'init-brief2-'))
   const r = doInit({ workDir: wd, name: '无简介', genre: '玄幻' })
   expect(r.ok).toBe(true)
   if (!r.ok) return
@@ -175,7 +176,7 @@ test('init: brief 缺省不写 简介.md（向后兼容）', () => {
 })
 
 test('init: 工作目录不能位于 git 仓库内', () => {
-  const wd = mkdtempSync(join(tmpdir(), 'init-git-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'init-git-'))
   git(['init'], wd)
   const r = doInit({ workDir: wd, name: '误装书', genre: '玄幻' })
   expect(r.ok).toBe(false)
@@ -184,7 +185,7 @@ test('init: 工作目录不能位于 git 仓库内', () => {
 })
 
 test('init: 空 .git 目录不是有效仓库祖先，不应误拦', () => {
-  const parent = mkdtempSync(join(tmpdir(), 'init-empty-git-parent-'))
+  const parent = mkdtempTracked(join(tmpdir(), 'init-empty-git-parent-'))
   mkdirSync(join(parent, '.git'))
   const wd = join(parent, 'work')
   mkdirSync(wd)
@@ -195,7 +196,7 @@ test('init: 空 .git 目录不是有效仓库祖先，不应误拦', () => {
 })
 
 test('init: 冷门题材仅基础三类（leads.enabled 空）', () => {
-  const wd = mkdtempSync(join(tmpdir(), 'init3-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'init3-'))
   const r = doInit({ workDir: wd, name: '都市职场', genre: '都市' })
   expect(r.ok).toBe(true)
   if (!r.ok) return
@@ -205,7 +206,7 @@ test('init: 冷门题材仅基础三类（leads.enabled 空）', () => {
 })
 
 test('init: 幂等——工作目录复用，同名书冲突拒绝', () => {
-  const wd = mkdtempSync(join(tmpdir(), 'init4-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'init4-'))
   // 第一次建
   expect(doInit({ workDir: wd, name: '书A', genre: '玄幻' }).ok).toBe(true)
   // 第二次同名 → 拒绝
@@ -222,7 +223,7 @@ test('init: 幂等——工作目录复用，同名书冲突拒绝', () => {
 })
 
 test('init: P2-27 非法书名（路径分隔符/特殊路径段）→ 逻辑层拒绝，不越出 workDir', () => {
-  const wd = mkdtempSync(join(tmpdir(), 'init-badname-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'init-badname-'))
   try {
     for (const bad of ['../逃逸', 'a/b', 'a\\b', '..', '.', 'x\0y']) {
       const r = doInit({ workDir: wd, name: bad })
@@ -238,7 +239,7 @@ test('init: P2-27 非法书名（路径分隔符/特殊路径段）→ 逻辑层
 })
 
 test('init 出的空书: enter 干净落态 7（起草新章）—— M5 核心出口', () => {
-  const wd = mkdtempSync(join(tmpdir(), 'init5-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'init5-'))
   const r = doInit({ workDir: wd, name: '空书测试', genre: '玄幻' })
   expect(r.ok).toBe(true)
   if (!r.ok) return
@@ -252,7 +253,7 @@ test('init 出的空书: enter 干净落态 7（起草新章）—— M5 核心�
 })
 
 test('接缝闭环: 工作目录内裸命令经活动书定位到书仓库（R1 验证）', () => {
-  const wd = mkdtempSync(join(tmpdir(), 'init6-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'init6-'))
   const r = doInit({ workDir: wd, name: '活动书测试', genre: '玄幻' })
   expect(r.ok).toBe(true)
   if (!r.ok) return

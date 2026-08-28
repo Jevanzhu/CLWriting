@@ -59,9 +59,11 @@ export interface ChatHistoryResult {
 /** GET /chat/history —— 事件库投影的对话历史（刷新后前端种子化用）。
  *  G1：可选 branchId 指定分支（缺省 = 默认分支：最新变体组 + 祖先链）。 */
 export async function fetchChatHistory(bookName: string, branchId?: string): Promise<ChatHistoryResult> {
-  // L-S2（第八轮）：尾窗 500——长书几万事件不再全量出网；messages 仅作展示种子
-  //（模型上下文由服务端从事件库重建，不经此端点）
-  const params = new URLSearchParams({ limit: '500' })
+  // L-S2（第八轮）：尾窗拉取——长书几万事件不再全量出网；messages 仅作展示种子
+  //（模型上下文由服务端从事件库重建，不经此端点）。
+  // R72-11（二十轮 F-5）：500→200 对齐 chat store 的 MAX_MESSAGES——展示种子只留
+  // 200 条，多拉的 300 条每次拉取即弃，纯流量浪费
+  const params = new URLSearchParams({ limit: '200' })
   // 低-1（第十轮）：branchId 交给 URLSearchParams.toString() 统一编码——此前手编
   // encodeURIComponent 后再进 toString 会被二次编码（% → %25），服务端解一层后拿到
   // 残缺分支号（'br 1' → 'br%201'），分支查询静默落空

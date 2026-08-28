@@ -83,7 +83,12 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
       sortIndex: nextSortIndex(s.providers.map((p) => p.sortIndex)),
     }
     s.providers.push(conf)
-    // 首个供应商自动设为当前
+    // 首个供应商自动设为当前——R72-10（二十轮 D-2 裁定不采纳）：曾试「自动接任同样
+    // 要求 caps 已探测」以对齐 PUT /current 的 P2-6 不变量，但 POST 首条语义是
+    // e2e 钉死的引导性产品行为（ai-provider.spec：添加即「当前」徽章，测试连接之前），
+    // caps 前置会让首用旅程出现「无当前供应商」空窗。两者并不冲突：caps 不变量管
+    // 「手动切换/删任后改派」（防未验证顶掉已验证），空态首条接任是引导性默认，
+    // 未验证即生成的风险由测试连接→工作台解灰动线自兜。
     if (!s.currentId) s.currentId = conf.id
     saveProviders(ctx.userDataPath, s)
     reply(res, 200, { provider: maskProvider(conf, s.vault), revision: s.revision })

@@ -58,10 +58,13 @@ export function useChatComposer(
     // 刚恢复的末条用户消息弹掉、错误写进 B 对话区
     const book = bookName()
     input.value = ''
-    chat.pushUser(text)
-    if (onPushed) await onPushed()
+    // R72-11（二十轮 F-9）：sending 提前置位——原在 onPushed await 之后，双 Enter 在
+    // await 间隙可双发（后端 queued 兜底非数据损坏，但 UI 出双气泡）。置位提前后
+    // onPushed 的 await 一并纳入 try，任何抛错走 finally 复位，sending 不再可能永真
     sending.value = true
+    chat.pushUser(text)
     try {
+      if (onPushed) await onPushed()
       const result = await sendChat(book, {
         message: text,
         ...(selectedChapter.value !== undefined ? { chapter: selectedChapter.value } : {}),

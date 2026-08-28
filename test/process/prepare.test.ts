@@ -1,6 +1,7 @@
 import { test, expect } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createAllTables } from '../../src/cache/schema.js'
@@ -12,7 +13,7 @@ import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import type { BookConfig } from '../../src/format/types.js'
 
 function makeBookWithMaterial(): { root: string; db: DatabaseSync } {
-  const root = mkdtempSync(join(tmpdir(), '北境往事-'))
+  const root = mkdtempTracked(join(tmpdir(), '北境往事-'))
   // book.yaml
   writeBookConfig(join(root, 'book.yaml'), DEFAULT_CONFIG)
 
@@ -186,7 +187,7 @@ test('G2: 轻档多场景 → 只主场景 1 段（保持轻注入）', () => {
 })
 
 test('prepare: 近况卷号使用 book.volume_size', () => {
-  const root = mkdtempSync(join(tmpdir(), '卷大小-'))
+  const root = mkdtempTracked(join(tmpdir(), '卷大小-'))
   mkdirSync(join(root, '.cache'), { recursive: true })
   const db = new DatabaseSync(join(root, '.cache', 'index.db'))
   createAllTables(db)
@@ -213,7 +214,7 @@ test('P-7（第十四轮）: 估长按 code points——增补平面字符（emo
 })
 
 test('#8: 非默认 token 系数下，降档/移除扣减与累计同 model 口径（estimatedTokens == 剩余段真实和）', () => {
-  const root = mkdtempSync(join(tmpdir(), '口径-'))
+  const root = mkdtempTracked(join(tmpdir(), '口径-'))
   mkdirSync(join(root, '.cache'), { recursive: true })
   const db = new DatabaseSync(join(root, '.cache', 'index.db'))
   createAllTables(db)
@@ -252,7 +253,7 @@ test('#8: 非默认 token 系数下，降档/移除扣减与累计同 model 口�
 })
 
 test('prepare: 超预算优先降档（文风样章降浓度保留）而非整段删', () => {
-  const root = mkdtempSync(join(tmpdir(), '降档-'))
+  const root = mkdtempTracked(join(tmpdir(), '降档-'))
   mkdirSync(join(root, '.cache'), { recursive: true })
   const db = new DatabaseSync(join(root, '.cache', 'index.db'))
   createAllTables(db)
@@ -342,7 +343,7 @@ test('C1: 无前章文件 → 无此段（产物逐字节不变）', () => {
   const r = prepare(db, DEFAULT_CONFIG, root, ['悬念-031'])
   expect(r.sections.find((s) => s.title === '前章正文结尾')).toBeUndefined()
   // 第 1 章场景：prevChapterNo=0，不进段
-  const root2 = mkdtempSync(join(tmpdir(), '第一章-'))
+  const root2 = mkdtempTracked(join(tmpdir(), '第一章-'))
   mkdirSync(join(root2, '.cache'), { recursive: true })
   const db2 = new DatabaseSync(join(root2, '.cache', 'index.db'))
   createAllTables(db2)

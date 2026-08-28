@@ -140,6 +140,15 @@ const stripComment = stripInlineComment
  *  全局托底改造：起步值不含 13 个可托底键——书文件没写就保持 undefined，
  *  「未设」语义存活到运行时合并层（applyGlobalDefaults）才回落。 */
 function sectionsToConfig(roots: RawSection[]): BookConfig {
+  // R72-8（二十轮 C-5）：同名重复顶层段报错——原 find 静默取首个，作者复制粘贴出两个
+  // `style:` 段时后段整段无效无提示。fail-loud（parseBookConfig 的 catch 转错误信封）。
+  const seenKeys = new Set<string>()
+  for (const r of roots) {
+    if (seenKeys.has(r.key)) {
+      throw new Error(`顶层段「${r.key}」重复：同名段只取首个会静默丢弃后段配置，请合并或删除重复段`)
+    }
+    seenKeys.add(r.key)
+  }
   const cfg: BookConfig = { ...DEFAULT_CONFIG, book: { ...DEFAULT_CONFIG.book }, leads: { ...DEFAULT_CONFIG.leads }, budget: { ...DEFAULT_CONFIG.budget }, growth: { ...DEFAULT_CONFIG.growth } }
   const find = (key: string) => roots.find((r) => r.key === key)
 

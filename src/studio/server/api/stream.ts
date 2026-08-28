@@ -592,8 +592,13 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     path: '/api/books/:name/chat',
     parse: (raw) => {
       const body = (raw ?? {}) as Record<string, unknown>
-      const message = String(body['message'] ?? '').trim()
-      if (!message) throw new Error('message 必填')
+      // R72-10（二十轮 D-5）：message 须为非空 string——原 String() 强转把数字/对象
+      // 静默变串流入对话（掩盖调用方类型错误，与 documents 端点 typeof 口径不一致）
+      const rawMessage = body['message']
+      if (typeof rawMessage !== 'string' || !rawMessage.trim()) {
+        throw new Error('message 必填（须为非空字符串）')
+      }
+      const message = rawMessage.trim()
       if (message.length > 50_000) throw new Error('消息过长（上限 5 万字符）')
       // X-P2-12：chapter 非法值（如 "abc" → NaN）不放进 opts——下游 buildChatContext/工具
       // 会拿 NaN 找章，报错面目全非；入口即校验

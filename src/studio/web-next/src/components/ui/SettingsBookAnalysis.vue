@@ -8,6 +8,7 @@ import { ref, computed, watch, inject, onUnmounted, onDeactivated, onActivated }
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
 import { usePrefsStore } from '../../stores/prefs'
+import { parseNumericInput } from '../../shared/numeric-input'
 import { getConfig, getRagStatus, triggerRagBuild, type RagStatus } from '../../api/books'
 import { useProviderStore } from '../../stores/provider'
 import { friendlyError } from '../../shared/error'
@@ -186,7 +187,9 @@ function onBookAutoMineToggle(e: Event): void {
   })
 }
 function onMineThresholdInput(e: Event): void {
-  const raw = Number((e.target as HTMLInputElement).value)
+  // R72-11（二十轮 E-2）：空串/非数字走共享 helper 挡掉（原 Number('')=0 过闸被钳成 1）
+  const raw = parseNumericInput(e)
+  if (raw === null) return
   const v = Math.min(20, Math.max(1, Math.round(raw)))
   bookMineThreshold.value = v
   void saveConfig((c) => {

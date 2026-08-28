@@ -118,29 +118,32 @@ export async function apiFetch(
 }
 
 /** JSON 封装：apiFetch + 解析 + 错误体抛 ApiError（error > code > HTTP 状态）。
- *  可选 timeoutMs：超时后 abort 并抛 ApiError(408)。未传则无超时（向后兼容）。*/
+ *  timeoutMs 缺省 = 30s 兜底档（R72-3 / 二十轮 F-1）：原先「未传则无超时」，documents/
+ *  books/search 等几十处本地快端点漏配后请求挂死即 loading 永真（与 runLearn 的 P2-FE-2
+ *  修复史同形态）。慢端点（AI 分析/收割/流式生成）均已显式配更大档（60s/120s/300s），
+ *  显式值优先于默认；30s 对本地毫秒级操作是纯兜底，无误杀面。 */
+export const API_DEFAULT_TIMEOUT_MS = 30_000
+
 export async function apiJson<T>(
   path: string,
   init?: RequestInit,
-  timeoutMs?: number,
+  timeoutMs: number = API_DEFAULT_TIMEOUT_MS,
 ): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined
   let timedOut = false
-  const controller = timeoutMs ? new AbortController() : undefined
+  const controller = new AbortController()
   // 低-6（第十轮）：外部 signal 的联动监听器引用——settle 后必须摘除，否则 once 监听器
   // 在请求结束后仍挂在调用方 signal 上（长期复用的 signal 会累积闭包引用的 controller）
   let unlinkExternalSignal: (() => void) | undefined
-  if (controller) {
-    timer = setTimeout(() => { timedOut = true; controller!.abort() }, timeoutMs)
-    // 外部 signal 联动：外部 abort → 内部也 abort。第九轮 L-4：abort 事件只在 abort() 时刻
-    // 派发一次——调用前已 abort 的 signal 不会再发，须预检补发，否则请求不超时也不取消
-    if (init?.signal?.aborted) controller.abort()
-    else if (init?.signal) {
-      const external = init.signal
-      const onExternalAbort = () => controller!.abort()
-      external.addEventListener('abort', onExternalAbort, { once: true })
-      unlinkExternalSignal = () => external.removeEventListener('abort', onExternalAbort)
-    }
+  timer = setTimeout(() => { timedOut = true; controller.abort() }, timeoutMs)
+  // 外部 signal 联动：外部 abort → 内部也 abort。第九轮 L-4：abort 事件只在 abort() 时刻
+  // 派发一次——调用前已 abort 的 signal 不会再发，须预检补发，否则请求不超时也不取消
+  if (init?.signal?.aborted) controller.abort()
+  else if (init?.signal) {
+    const external = init.signal
+    const onExternalAbort = () => controller.abort()
+    external.addEventListener('abort', onExternalAbort, { once: true })
+    unlinkExternalSignal = () => external.removeEventListener('abort', onExternalAbort)
   }
   try {
     const r = await apiFetch(path, { ...init, signal: controller?.signal ?? init?.signal })

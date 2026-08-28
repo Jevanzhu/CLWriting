@@ -54,7 +54,10 @@ beforeAll(() => {
   bookRoot = mkdtempSync(join(tmpdir(), 'clw-corpus-gate-'))
   mkdirSync(join(bookRoot, '文风'), { recursive: true })
   writeFileSync(join(bookRoot, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 语料门\nhost: cc\nleads:\n  enabled: []\n')
-  writeFileSync(join(bookRoot, '文风', '文风铁律.md'), '# 文风铁律\n')
+  // G-1（二十轮）：铁律加禁词段——banned-word 语料门原先只能 silent 断言（fixture 无
+  // 禁词 → checkBannedWords 恒空，fire 侧零覆盖）；禁词在位后 fire/silent 双向有效。
+  // 禁词避开既有 body-parts 语料（已核对不含下列词）与含「待」字（解析器滤除）。
+  writeFileSync(join(bookRoot, '文风', '文风铁律.md'), '# 文风铁律\n\n## 硬禁词\n- 「霎时间」「须臾之间」\n')
 })
 afterAll(() => {
   rmSync(bookRoot, { recursive: true, force: true })

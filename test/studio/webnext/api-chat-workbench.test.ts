@@ -53,7 +53,8 @@ describe('chat api', () => {
     await fetchChatHistory('书A', 'br 1')
     const url = new URL(calls[0]!.url, 'http://x')
     expect(calls[0]!.init?.method).toBe('GET') // 缺省 GET（client 显式 resolve 为 GET）
-    expect(url.searchParams.get('limit')).toBe('500')
+    // R72-11（二十轮 F-5）：500→200 对齐 chat store MAX_MESSAGES（多拉的 300 条即弃）
+    expect(url.searchParams.get('limit')).toBe('200')
     expect(url.searchParams.get('branch')).toBe('br 1') // 解一层即得原始值 → 未被二次编码
     // 契约①：GET 历史读同样带 token 头
     expect(new Headers(calls[0]!.init?.headers).get('x-studio-token')).toBe('T-cw')

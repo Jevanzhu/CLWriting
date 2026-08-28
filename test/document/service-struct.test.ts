@@ -4,7 +4,8 @@
  * PATH_ESCAPE、跨卷移动章号不变、清单 path 更新、移动前 snapshot、rename、NOT_FOUND。
  */
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, appendFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, appendFileSync } from 'node:fs'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execSync } from 'node:child_process'
@@ -26,7 +27,7 @@ function findNodeByDocId(nodes: TreeNode[], docId: string): TreeNode | undefined
 
 /** 造书：写作/正文/第一卷/0001-开篇 + 项目清单登记 doc_ch01 + git init。 */
 function makeBookWithChapter(): { root: string; svc: DocumentService } {
-  const root = mkdtempSync(join(tmpdir(), 'w2a-svc-'))
+  const root = mkdtempTracked(join(tmpdir(), 'w2a-svc-'))
   execSync('git init && git config user.email t@t.com && git config user.name t && git config commit.gpgsign false', { cwd: root, stdio: 'pipe' })
   mkdirSync(join(root, '写作', '正文', '第一卷'), { recursive: true })
   mkdirSync(join(root, '大纲', '卷纲'), { recursive: true })
@@ -241,7 +242,7 @@ test('updateChapterMeta: 非 UTF-8（GBK）文件 → 拒绝写回防字节损�
 
 /** 造短篇书：写作/正文/1-原标.md + book.yaml(kind=short) + 清单登记 doc_p01。 */
 function makeBookWithPiece(): { root: string; svc: DocumentService } {
-  const root = mkdtempSync(join(tmpdir(), 'w2a-piece-'))
+  const root = mkdtempTracked(join(tmpdir(), 'w2a-piece-'))
   execSync('git init && git config user.email t@t.com && git config user.name t && git config commit.gpgsign false', { cwd: root, stdio: 'pipe' })
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '项目'), { recursive: true })
@@ -580,7 +581,7 @@ test('copyDocument: 路径越出 → PATH_ESCAPE', async () => {
 })
 
 test('结构性操作触发旧书建清单（W0 §4.2）', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'w2a-nomanifest-'))
+  const root = mkdtempTracked(join(tmpdir(), 'w2a-nomanifest-'))
   execSync('git init && git config user.email t@t.com && git config user.name t && git config commit.gpgsign false', { cwd: root, stdio: 'pipe' })
   mkdirSync(join(root, '工作区'), { recursive: true })
   const svc = new DocumentService({ bookRoot: root })
