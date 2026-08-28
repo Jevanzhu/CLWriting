@@ -1,14 +1,10 @@
 name: CI
 
 on:
-  # W-P2-14：恢复自动触发（发布门不再名存实亡）。分支限 main + 指向 main 的 PR，避免特性分支频繁跑。
-  # 2026-08-28 临时收窄：push 腿摘除 dev——近期 dev 频繁推送（win 迭代期），dev 腿逐推
-  # 全矩阵跑过重；dev 验证改走 workflow_dispatch 手动跑，合入 main 时仍由 push 腿背书。
-  # 频推期结束后把 dev 加回 branches。
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  # W-P2-14：恢复自动触发（发布门不再名存实亡）。分支限 main/dev + 指向 main 的 PR，避免特性分支频繁跑。
+  # 2026-08-28 两步收窄：先摘 dev push 腿（频推期全矩阵逐推跑过重），本条改全手动——
+  # push/PR 自动触发全部摘除，CI 只走 workflow_dispatch 手动跑。验证责任回到本地
+  # npm test（合入门槛不变）；频推期结束后恢复 push 腿（main，或 main+dev）。
   workflow_dispatch:
 
 # R72-13（二十轮 H-4）：并发组 + 最小权限——同 ref 新跑取消未完成旧跑（PR 连推连取消，
