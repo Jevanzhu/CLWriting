@@ -332,10 +332,22 @@ function createSecureWindow(opts: BrowserWindowConstructorOptions): BrowserWindo
   const win = new BrowserWindow({
     titleBarStyle: 'hiddenInset',
     backgroundColor: '#f5f5f5',
-    // win 体验面（2026-08-29 作者指令「外观向 mac 靠齐」）：win 无系统级菜单栏，应用菜单
-    // 在标题栏下自成一行——隐藏之，Alt 临时唤出。菜单仍挂载（setApplicationMenu 不动），
-    // 加速器（Ctrl+N 新建 / Ctrl+E 导出 / undo/redo 等）不受影响；mac 菜单在系统栏无此行。
-    autoHideMenuBar: process.platform === 'win32',
+    // J5（win 体验面，2026-08-29 作者指令「外观全面向 mac 靠齐」）：win 走「无框标题栏 +
+    // WCO 窗控 overlay」——内容顶到窗口上沿（mac hiddenInset 同形态），最小化/最大化/关闭
+    // 由系统画在右上角（近似 mac 红绿灯位，前端拖拽区已就绪无需新开）。overlay 底色随主题
+    // 运行时改（prefs.applyTheme → desktop:set-titlebar-overlay → setTitleBarOverlay），
+    // 初值 = light 顶栏底 #f6f6f6，高度对齐 --size-tabbar 40px。菜单仍隐藏（accelerator 全保留）。
+    ...(process.platform === 'win32'
+      ? {
+          autoHideMenuBar: true,
+          titleBarStyle: 'hidden' as const,
+          titleBarOverlay: {
+            color: '#f6f6f6',
+            symbolColor: '#666666',
+            height: 40,
+          },
+        }
+      : {}),
     ...opts,
     webPreferences: {
       contextIsolation: true,
@@ -697,6 +709,27 @@ function registerIpc(): void {
     if (!win || win.isDestroyed()) return
     win.setFullScreen(flag === true)
   })
+  // ── win 窗控 overlay 颜色随主题（J5，2026-08-29）──
+  // 无框标题栏的系统窗控底色须与顶栏一致（light #f6f6f6 / dark #262626）；主题切换时
+  // 渲染层经此 IPC 改发起窗口的 overlay。非 win（含 mac）no-op；参数非字符串忽略。
+  ipcMain.handle(
+    'desktop:set-titlebar-overlay',
+    (event, o: { color?: unknown; symbolColor?: unknown }) => {
+      if (process.platform !== 'win32') return
+      const win = BrowserWindow.fromWebContents(event.sender)
+      if (!win || win.isDestroyed()) return
+      const patch: { color?: string; symbolColor?: string } = {}
+      if (typeof o?.color === 'string') patch.color = o.color
+      if (typeof o?.symbolColor === 'string') patch.symbolColor = o.symbolColor
+      if (Object.keys(patch).length === 0) return
+      try {
+        win.setTitleBarOverlay(patch)
+      } catch {
+        // WCO 未启用（如 opts 覆盖掉 overlay）时 setTitleBarOverlay 抛错——忽略，
+        // 窗控仍按创建时颜色渲染，属可降级外观项
+      }
+    },
+  )
 }
 
 // ── 原生菜单 ──────────────────────────────────────────

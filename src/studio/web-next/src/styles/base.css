@@ -22,20 +22,33 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* 滚动条（Obsidian 风：细、半透明轨道）*/
+/* 滚动条（mac 化细滚条：窄、半透明胶囊、悬停加深；J5 win 体验面统一口径）*/
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--background-modifier-border);
-  border-radius: var(--radius-s);
+  background-color: color-mix(in srgb, var(--text-faint) 40%, transparent);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--background-modifier-border-hover);
+  background-color: color-mix(in srgb, var(--text-faint) 75%, transparent);
 }
 ::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* ── J5（win 体验面）：WCO 窗控 overlay 避让 ──
+   win 无框标题栏下，系统窗控（最小化/最大化/关闭）画在右上角一条内——顶栏右侧固定区
+   整体右移让位（3 枚按钮 ≈140px）。html.platform-win 由入口按 bridge.platform 挂载，
+   mac/浏览器版无此类零影响；html 前缀提高具体性，压过组件 scoped 同类规则。 */
+html.platform-win .tabbar-actions {
+  padding-right: 148px;
+}
+html.platform-win .right-topbar {
+  padding-right: 148px;
 }
 
 /* 键盘聚焦环（无障碍；鼠标点击不显）*/

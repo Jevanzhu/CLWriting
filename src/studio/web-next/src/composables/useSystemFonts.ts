@@ -3,9 +3,16 @@
 import { ref, computed, onMounted } from 'vue'
 
 const CJK_RE = /[一-鿿㐀-䶿぀-ヿ가-힯]/
+// J5：补 Windows 系统中文字体关键词（微软雅黑/宋体/黑体系）——原表全 mac/思源系，
+// win 内置字体会被错分进「英文字体」组
 const CN_KW =
-  /\b(SC|TC|HK|GB|Hans|Hant|Hei|Kai|Heiti|Songti|Kaiti|Yuanti|Libian|Xingkai|Weibei|Baoli|Wawati|Yuppy|Hannotate|HanziPen|Lantinghei|LingWai|FangSong|STHeiti|STSong|STKaiti|STFangsong|STXihei|STXingkai|STXinwei|STHupo|STCaiyun|STZhongsong|Hiragino Sans GB|Source Han Sans|Source Han Serif|Noto Sans SC|Noto Serif SC|Noto Sans CJK|Noto Serif CJK|LXGW WenKai)\b/i
+  /\b(SC|TC|HK|GB|Hans|Hant|Hei|Kai|Heiti|Songti|Kaiti|Yuanti|Libian|Xingkai|Weibei|Baoli|Wawati|Yuppy|Hannotate|HanziPen|Lantinghei|LingWai|FangSong|STHeiti|STSong|STKaiti|STFangsong|STXihei|STXingkai|STXinwei|STHupo|STCaiyun|STZhongsong|Hiragino Sans GB|Source Han Sans|Source Han Serif|Noto Sans SC|Noto Serif SC|Noto Sans CJK|Noto Serif CJK|LXGW WenKai|Microsoft YaHei|SimSun|NSimSun|SimHei|KaiTi|DengXian|YouYuan|LiSu)\b/i
 const FONT_CN_LABEL: Record<string, string> = {
+  // J5：Windows 内置中文字体中文名
+  'Microsoft YaHei': '微软雅黑', 'Microsoft YaHei UI': '微软雅黑',
+  SimSun: '宋体', NSimSun: '新宋体', SimHei: '黑体',
+  KaiTi: '楷体', FangSong: '仿宋', DengXian: '等线',
+  YouYuan: '幼圆', LiSu: '隶书',
   'PingFang SC': '苹方', 'PingFang TC': '苹方', 'PingFang HK': '苹方',
   'Heiti SC': '黑体', 'Heiti TC': '黑体', Hei: '黑体',
   'Songti SC': '宋体', 'Songti TC': '宋体',

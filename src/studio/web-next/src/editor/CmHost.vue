@@ -436,16 +436,16 @@ onUnmounted(() => {
 .cm-host :deep(.cm-scroller) {
   overflow: auto;
 }
-/* 编辑器滚动条：比全局更细（6px → 近 Obsidian 极简风） */
+/* 编辑器滚动条：比全局更细（6px → 近 Obsidian 极简风）；J5 与全局口径对齐——半透明胶囊 */
 .cm-host :deep(.cm-scroller)::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 .cm-host :deep(.cm-scroller)::-webkit-scrollbar-thumb {
-  background: var(--background-modifier-border);
-  border-radius: 3px;
+  background-color: color-mix(in srgb, var(--text-faint) 40%, transparent);
+  border-radius: 999px;
 }
 .cm-host :deep(.cm-scroller)::-webkit-scrollbar-thumb:hover {
-  background: var(--background-modifier-border-hover);
+  background-color: color-mix(in srgb, var(--text-faint) 75%, transparent);
 }
 </style>

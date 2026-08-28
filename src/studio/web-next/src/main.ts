@@ -29,3 +29,9 @@ app.config.errorHandler = (err, _instance, info) => {
   useUiStore().reportUnhandledError(err, info)
 }
 app.use(pinia).use(router).mount('#app')
+
+// J5（win 体验面）：html.platform-win 供全局 CSS 做 WCO 窗控 overlay 右上角避让
+// （tabbar 右侧固定区 / 右栏顶栏右内衬），浏览器版与 mac 不加。
+if (window.clwritingDesktop?.platform === 'win32') {
+  document.documentElement.classList.add('platform-win')
+}

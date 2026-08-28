@@ -374,10 +374,16 @@ describe('kk-P2-8：主进程启动链（安全配置 / CSP / 内嵌 server）',
     expect(wp.spellcheck).toBe(false)
   })
 
-  it('win 菜单栏隐藏（2026-08-29 作者指令「外观向 mac 靠齐」）：autoHideMenuBar 仅 win 置真且初始不可见——mac 菜单在系统栏、窗口内本无此行', () => {
+  it('win 无框标题栏+窗控 overlay（2026-08-29 作者指令「外观全面向 mac 靠齐」）：titleBarStyle hidden + overlay 40px 对齐 --size-tabbar；mac 保持 hiddenInset', () => {
     const w = mainWin()
     expect(w.opts.autoHideMenuBar).toBe(process.platform === 'win32')
-    if (process.platform === 'win32') expect(w.menuBarVisibility).toBe(false)
+    if (process.platform === 'win32') {
+      expect(w.opts.titleBarStyle).toBe('hidden')
+      expect(w.opts.titleBarOverlay).toEqual({ color: '#f6f6f6', symbolColor: '#666666', height: 40 })
+      expect(w.menuBarVisibility).toBe(false)
+    } else {
+      expect(w.opts.titleBarStyle).toBe('hiddenInset')
+    }
   })
 
   it('纵深防御：will-navigate 阻断 + 弹新窗拒绝', () => {
@@ -444,7 +450,7 @@ describe('kk-P2-8：主进程启动链（安全配置 / CSP / 内嵌 server）',
 })
 
 describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
-  it('注册面：11 handle + context-menu on', () => {
+  it('注册面：12 handle + context-menu on', () => {
     expect(Object.keys(M.ipcHandle).sort()).toEqual([
       'desktop:get-current',
       'desktop:get-recent',
@@ -456,6 +462,7 @@ describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
       'desktop:open-library-window',
       'desktop:open-shelf',
       'desktop:set-fullscreen',
+      'desktop:set-titlebar-overlay',
       'desktop:show-in-folder',
       'desktop:switch-library',
     ].sort())
