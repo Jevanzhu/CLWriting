@@ -140,7 +140,11 @@ describe('migrateBookSession', () => {
     expect(() => store.close()).not.toThrow()
   }, 30_000)
 
-  it('checkpoint 折叠：未 checkpoint 的写入（唯一副本在 -wal）迁移后新位置完整', () => {
+  // Windows 上 SQLite 的 wal_checkpoint(TRUNCATE) 在「另有连接持有 -wal 文件」时必返
+  // busy（NTFS 文件共享语义，无法截断他句柄打开的文件）——迁移按设计 fail-closed 拒绝
+  // （checkpoint 忙 → 整体放弃，源库原地完整，无数据丢失方向）。「他连接持库时仍可折叠
+  // 迁移」这一守卫语义由 macOS/Linux CI 腿覆盖（J0 win 适配实测定性）
+  it.skipIf(process.platform === 'win32')('checkpoint 折叠：未 checkpoint 的写入（唯一副本在 -wal）迁移后新位置完整', () => {
     const ud = tmpRoot()
     const oldRoot = '/books/折甲'
     const newRoot = '/books/折乙'

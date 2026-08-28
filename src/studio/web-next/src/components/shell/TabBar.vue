@@ -13,6 +13,10 @@ const tree = useTreeStore()
 const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
 // 左栏可见性（含专注模式覆盖）：关闭/专注时 ws-main 左移到交通灯区，lead 需避让
 const leftVisible = computed(() => ws.leftOpen && !ws.focusMode)
+// 右栏可见性：关闭时 tabbar-actions 贴窗口右上角，需避让 win 窗控 overlay（J5）；
+// 打开时贴角的是右栏自己的 right-topbar（其组件内自行避让），此处避让反而把专注
+// 按钮推离栏缘（2026-08-29 作者反馈「专注按钮位置有问题」根因）
+const rightVisible = computed(() => ws.rightOpen && !ws.focusMode)
 
 // --- 新建下拉菜单（split button caret）---
 const dropdownOpen = ref(false)
@@ -50,7 +54,10 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
 </script>
 
 <template>
-  <div class="tabbar" :class="{ 'is-drag': hasDesktop, 'avoid-traffic': hasDesktop && !leftVisible }">
+  <div
+    class="tabbar"
+    :class="{ 'is-drag': hasDesktop, 'avoid-traffic': hasDesktop && !leftVisible, 'avoid-wco': hasDesktop && !rightVisible }"
+  >
     <!-- 最左 lead 区：新建按钮（split）+ 展开左栏（条件） -->
     <div class="tabbar-lead">
       <div class="tb-split">
@@ -162,6 +169,14 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
   align-items: center;
   gap: 6px;
   padding: 0 var(--size-4-2);
+}
+/* J5（win 体验面）：右栏关闭时本栏贴窗口右上角，让位 WCO 系统窗控。宽度由
+ * env(titlebar-area-*) 注入（Chromium 在 WCO 窗口提供；非 win/浏览器/mac
+ * hiddenInset 回退 100vw/0px → padding 0）+ 12px 呼吸间隙（实测 env 恰好贴住
+ * 窗控命中区，不留隙即重叠）。右栏打开时不挂类（贴角的是 right-topbar，避让
+ * 在其组件内）——否则专注按钮被无谓推离栏缘（作者反馈根因）。 */
+.tabbar.avoid-wco .tabbar-actions {
+  padding-right: calc(100vw - env(titlebar-area-width, 100vw) - env(titlebar-area-x, 0px) + var(--size-4-3));
 }
 .tabbar-actions .tb-btn {
   -webkit-app-region: no-drag;

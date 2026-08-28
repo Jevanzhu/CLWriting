@@ -12,7 +12,8 @@ import { join } from 'node:path'
 import { scanUnregisteredKnowledgeMd } from '../../scripts/check-knowledge.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
-test('R71-39: symlink→目录 → fail-closed 抛错（不再静默跳过整树）', () => {
+// Windows 建 symlink 需开发者模式（无防护 symlinkSync 直建 EPERM），该守卫语义由 macOS/Linux CI 腿覆盖
+test.skipIf(process.platform === 'win32')('R71-39: symlink→目录 → fail-closed 抛错（不再静默跳过整树）', () => {
   const root = mkdtempTracked(join(tmpdir(), 'r71-ck-'))
   try {
     const knowledgeRoot = join(root, '知识层')
@@ -29,7 +30,7 @@ test('R71-39: symlink→目录 → fail-closed 抛错（不再静默跳过整树
   }
 })
 
-test('R71-39: symlink→文件 按 .md 名字口径参与反向扫描（未登记即 unmatched）', () => {
+test.skipIf(process.platform === 'win32')('R71-39: symlink→文件 按 .md 名字口径参与反向扫描（未登记即 unmatched）', () => {
   const root = mkdtempTracked(join(tmpdir(), 'r71-ck-file-'))
   try {
     const knowledgeRoot = join(root, '知识层')

@@ -312,7 +312,8 @@ export const usePrefsStore = defineStore('prefs', () => {
       r.style.removeProperty('--font-ui')
     }
     if (proseFontCn.value || proseFontEn.value) {
-      r.style.setProperty('--prose-font', buildFontFamily(proseFontEn.value, proseFontCn.value, "'LXGW WenKai', 'Noto Serif SC', serif"))
+      // J5：基座回退带宋体（win 无霞鹜/思源时保持衬线观感，与 tokens.css 默认栈一致）
+      r.style.setProperty('--prose-font', buildFontFamily(proseFontEn.value, proseFontCn.value, "'LXGW WenKai', 'Noto Serif SC', 'SimSun', serif"))
     } else {
       r.style.removeProperty('--prose-font')
     }
@@ -320,6 +321,16 @@ export const usePrefsStore = defineStore('prefs', () => {
 
   function applyTheme(): void {
     document.documentElement.dataset.theme = theme.value
+    // J5（win 体验面）：无框标题栏的窗控 overlay 底色随主题（light #f6f6f6 / dark
+    // #262626 = 两档 --background-secondary），symbolColor 反色。非 win / 浏览器版 no-op。
+    const d = window.clwritingDesktop
+    if (d?.platform === 'win32') {
+      void d.setTitleBarOverlay(
+        theme.value === 'dark'
+          ? { color: '#262626', symbolColor: '#c8c8c8' }
+          : { color: '#f6f6f6', symbolColor: '#666666' },
+      )
+    }
   }
 
   /** 紧凑模式：给 <html> 挂 .compact，全局 CSS 用该选择器收窄间距 */

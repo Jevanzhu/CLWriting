@@ -278,9 +278,13 @@ describe('R63-13/R63-11：corpus:commit checkId 消毒与存量保护', () => {
   }
 
   function runCommit(root: string, outDir: string) {
-    return spawnSync('npx', ['tsx', join(REPO_ROOT, 'scripts', 'corpus-commit.ts'), root, outDir], {
-      encoding: 'utf8',
-    })
+    // R70-9 同款（J0 win 实测）：spawnSync('npx') 在 win 上只找 npx.exe（实为 npx.cmd）
+    // → ENOENT；改 process.execPath 直跑 + tsx loader，跨平台一致
+    return spawnSync(
+      process.execPath,
+      ['--import', 'tsx', join(REPO_ROOT, 'scripts', 'corpus-commit.ts'), root, outDir],
+      { encoding: 'utf8' },
+    )
   }
 
   it('R63-13：checkId 含 ../、/、\\ → 拒绝入库（不逃出 corpusDir），合法 checkId 照常入库', () => {

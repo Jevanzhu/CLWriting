@@ -23,8 +23,10 @@ afterAll(() => {
   for (const r of roots.splice(0)) rmSync(r, { recursive: true, force: true })
 })
 
-/** 一个必活的「他进程」pid：POSIX 下 pid 1（launchd/init）恒活。 */
-const LIVE_FOREIGN_PID = 1
+/** 一个必活的「他进程」pid：POSIX 下 pid 1（launchd/init）恒活；win 下 pid 4（System）
+ *  恒在——pid 1 在 win 无主进程语义（多半不存在，活标记会被误判死 → 拦迁失效假红），
+ *  kill(4,0) 即便 EPERM 也被 J7 语义按存活保守放行。J0（win 适配）实测修正。 */
+const LIVE_FOREIGN_PID = process.platform === 'win32' ? 4 : 1
 
 describe('R71-24 开口标记 pid 复用防护', () => {
   it('活 pid + 标记超龄（>10min 无续期）→ 视同死残留 GC，迁移放行', () => {

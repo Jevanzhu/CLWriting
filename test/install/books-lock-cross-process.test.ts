@@ -15,7 +15,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawn } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { describe, it, expect, afterAll } from 'vitest'
 import {
   readBooks,
@@ -32,11 +32,14 @@ afterAll(() => {
 })
 
 const booksPath = fileURLToPath(new URL('../../src/install/books.ts', import.meta.url))
+// win 下 --eval 内嵌 import 的 specifier 必须是 file URL——反斜杠绝对路径是非法 ESM
+// specifier（批次 A worker 修复同款；J0 实测本文件漏网）
+const booksImportSpecifier = pathToFileURL(booksPath).href
 
 /** 起一个子进程并发建书 N 次（登记名 前缀+序号），任一 append 失败即非零退出 */
 function spawnWorker(workDir: string, tag: string, n: number): Promise<number> {
   const script = `
-import { appendBook } from ${JSON.stringify(booksPath)}
+import { appendBook } from ${JSON.stringify(booksImportSpecifier)}
 for (let i = 0; i < ${n}; i++) {
   const name = ${JSON.stringify(tag)} + i
   const r = appendBook(${JSON.stringify(workDir)}, { name, path: name, kind: 'long' })

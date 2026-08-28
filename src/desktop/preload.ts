@@ -13,6 +13,8 @@ import type { IpcRendererEvent } from 'electron'
 let pendingMenuSelect: ((_e: IpcRendererEvent, key: string | null) => void) | null = null
 
 contextBridge.exposeInMainWorld('clwritingDesktop', {
+  /** 渲染进程平台标识（win 窗控 overlay 避让等平台分支用；浏览器版无此对象）。 */
+  platform: process.platform,
   /** 弹原生目录选择器选书库 → 选定则切换（relaunch）。取消返回 { ok:false, canceled:true }。 */
   openLibrary: (): Promise<{ ok: true } | { ok: false; canceled: true }> =>
     ipcRenderer.invoke('desktop:open-library'),
@@ -63,6 +65,9 @@ contextBridge.exposeInMainWorld('clwritingDesktop', {
   /** 进入/退出窗口原生全屏（专注模式驱动；HTML5 Fullscreen API 无手势会被拒，走主进程无此限制）。 */
   setFullScreen: (flag: boolean): Promise<void> =>
     ipcRenderer.invoke('desktop:set-fullscreen', flag),
+  /** 运行时更新 win 窗控 overlay 颜色（主题切换驱动；非 win 主进程 no-op）。 */
+  setTitleBarOverlay: (o: { color?: string; symbolColor?: string }): Promise<void> =>
+    ipcRenderer.invoke('desktop:set-titlebar-overlay', o),
   /** 订阅窗口全屏态变化（系统手势退出全屏时回调 false）。返回退订函数。 */
   onFullScreenChange: (cb: (fullscreen: boolean) => void): (() => void) => {
     const handler = (_e: IpcRendererEvent, fullscreen: boolean): void => cb(fullscreen)

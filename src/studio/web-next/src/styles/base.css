@@ -22,21 +22,29 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* 滚动条（Obsidian 风：细、半透明轨道）*/
+/* 滚动条（mac 化细滚条：窄、半透明胶囊、悬停加深；J5 win 体验面统一口径）*/
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--background-modifier-border);
-  border-radius: var(--radius-s);
+  background-color: color-mix(in srgb, var(--text-faint) 40%, transparent);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--background-modifier-border-hover);
+  background-color: color-mix(in srgb, var(--text-faint) 75%, transparent);
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* ── J5（win 体验面）：WCO 窗控 overlay 避让 ──
+   不在此处写全局规则——避让只该作用于「真正贴窗口右上角」的元素，且宽度用
+   env(titlebar-area-width) 自适应（Chromium 在 WCO 窗口注入；非 win/浏览器回退
+   100vw → padding 0），由 TabBar（右栏关闭时）/ SidebarRight（右栏打开时）各自
+   条件挂 wco-avoid 类，规则见各组件 scoped 样式。 */
 
 /* 键盘聚焦环（无障碍；鼠标点击不显）*/
 :focus-visible {

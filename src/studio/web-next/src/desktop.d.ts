@@ -5,6 +5,8 @@ export {}
 declare global {
   interface Window {
     clwritingDesktop?: {
+      /** 渲染进程平台标识（win 窗控 overlay 避让等平台分支用） */
+      platform: string
       openLibrary: () => Promise<{ ok: true } | { ok: false; canceled: true }>
       switchLibrary: (path: string) => Promise<{ ok: true } | { ok: false; reason: string }>
       getRecentLibraries: () => Promise<{ path: string; label: string }[]>
@@ -22,6 +24,8 @@ declare global {
       onMenuAction: (cb: (key: string) => void) => () => void
       /** 进入/退出窗口原生全屏（专注模式驱动） */
       setFullScreen: (flag: boolean) => Promise<void>
+      /** 运行时更新 win 窗控 overlay 颜色（主题切换驱动；非 win no-op） */
+      setTitleBarOverlay: (o: { color?: string; symbolColor?: string }) => Promise<void>
       /** 订阅窗口全屏态变化（系统手势退出全屏时回调 false），返回退订函数 */
       onFullScreenChange: (cb: (fullscreen: boolean) => void) => () => void
       /** 弹原生右键菜单（items=菜单项定义；cb=选择回调，取消收到 null） */
