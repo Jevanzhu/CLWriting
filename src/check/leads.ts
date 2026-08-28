@@ -295,9 +295,13 @@ export function evidenceNeedles(evidence: string): string[] {
  * （曾因硬编码漏掉成长线「跨层/跃迁」导致状态闭合误判）。
  *
  * 成长线特判：resolve 动词（突破/跨层/跃迁）是**常态化升级动词**，
- * 主角修炼期每次升级都用，不代表线已收尾——只有作者显式标「已收尾」
- * 才算闭合。否则卷末阶段性突破会被误报「状态此刻应已收尾」。
- * 其余类 resolve 动词（揭晓/修成/收网…）语义单一，维持原约束。
+ * 主角修炼期每次升级都用，不代表线已收尾——状态闭合不强拦（作者显式
+ * 标终态由上面的终态漂移黄项兜底）。其余类 resolve 动词（揭晓/修成/收网…）
+ * 语义单一：非成长线的收尾动词默认要求「已收尾」。
+ * R73-29（二十一轮）：resolve 动词 + 状态「已放弃」= 揭晓后弃线（先把悬念
+ * 揭了、随后整线放弃）是作者显式收口的**合法序列**——此前 `status !== '已收尾'`
+ * 一刀切硬拦，作者揭晓后弃线永远挂着 lead-status-open 红项。成长线同步对齐：
+ * 突破后弃线同理不再判标错。
  */
 const RESOLVE_VERBS = new Set<string>(LEAD_TYPES.flatMap((t) => LEAD_VERBS[t].resolve))
 const DROP_VERBS = new Set<string>(LEAD_TYPES.flatMap((t) => LEAD_VERBS[t].drop))
@@ -306,14 +310,12 @@ const ADVANCE_VERBS = new Set<string>(LEAD_TYPES.flatMap((t) => LEAD_VERBS[t].ad
 const GROWTH_RESOLVE_VERBS = new Set<string>(LEAD_VERBS.成长线.resolve)
 
 function checkStatusClosure(lastVerb: string, status: string, leadType?: string): boolean {
-  // 成长线的 resolve 动词（突破/跨层/跃迁）是常态化升级，末条「进行中」合理；
-  // 但若作者显式标「已收尾/已放弃」，仍要求动词匹配（防作者标错状态）。
+  // 成长线的 resolve 动词（突破/跨层/跃迁）是常态化升级，任何状态下都不强拦
   if (leadType === '成长线' && GROWTH_RESOLVE_VERBS.has(lastVerb)) {
-    if (status === '已收尾') return false
-    if (status === '已放弃') return true
     return false
   }
-  if (RESOLVE_VERBS.has(lastVerb) && status !== '已收尾') return true
   if (DROP_VERBS.has(lastVerb) && status !== '已放弃') return true
+  // R73-29：resolve +「已收尾/已放弃」都算闭合；其余状态（如进行中）仍要求翻转为已收尾
+  if (RESOLVE_VERBS.has(lastVerb) && status !== '已收尾' && status !== '已放弃') return true
   return false
 }

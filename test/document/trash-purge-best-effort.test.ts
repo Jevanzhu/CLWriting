@@ -6,7 +6,7 @@
  * mock atomicWriteFile 仅对 .trash-manifest.jsonl 抛 EACCES 构造「读得进、写不出」。
  */
 import { test, expect, vi } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -26,9 +26,10 @@ vi.mock('../../src/fs/atomic.js', async (importOriginal) => {
 })
 
 import { purgeTrash, readTrashManifest } from '../../src/document/trash.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 function makeTrashedBook(): string {
-  const root = mkdtempSync(join(tmpdir(), 'clw-trash-purge-be-'))
+  const root = mkdtempTracked(join(tmpdir(), 'clw-trash-purge-be-'))
   mkdirSync(join(root, '工作区', '.trash'), { recursive: true })
   writeFileSync(join(root, '工作区', '.trash', 'doc_a-旧稿.md'), '旧内容', 'utf-8')
   writeFileSync(

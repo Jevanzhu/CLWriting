@@ -8,7 +8,7 @@
  * - 卷摘要 promptFiles = 实际注入的章摘要文件列表
  */
 import { test, expect, vi } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
@@ -16,6 +16,7 @@ import { computeRevision } from '../../src/document/revision.js'
 import { generateDocId } from '../../src/document/stable-id.js'
 import { generateChapterSummary, generateVolumeSummary } from '../../src/process/summary.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 vi.mock('../../src/ai/tasks/spec.js', () => ({
   runSpec: vi.fn(async () => ({ ok: true, data: { text: '情节推进：测试。' }, model: 'mock' })),
@@ -23,7 +24,7 @@ vi.mock('../../src/ai/tasks/spec.js', () => ({
 
 /** 2 章 volume_size=2（卷 1 = 章 1/2），两章均定稿 */
 function makeBook(): string {
-  const root = mkdtempSync(join(tmpdir(), 'clw-sumfiles-'))
+  const root = mkdtempTracked(join(tmpdir(), 'clw-sumfiles-'))
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '项目'), { recursive: true })
   writeFileSync(

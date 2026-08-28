@@ -7,7 +7,7 @@
  * 一并登记（与 user prompt 材料 promptFiles 同通道）；空源（无词表/无命中）不登记
  * （Q-5「空段不登记」口径）。
  */
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it, expect, vi, afterEach } from 'vitest'
@@ -25,7 +25,7 @@ import { openSessionStore, bookHash } from '../../src/events/store.js'
 
 const workDirs: string[] = []
 function tempDir(prefix: string): string {
-  const d = mkdtempSync(join(tmpdir(), prefix))
+  const d = mkdtempTracked(join(tmpdir(), prefix))
   workDirs.push(d)
   return d
 }
@@ -120,6 +120,7 @@ describe('Y-2（第五十七轮）：rules 注入段源文件登记', () => {
 // rulesPromptParts 单源派生，runSpec 内一次读出文本+清单；旧两导出为同源薄壳。
 import { rulesToPrompt, rulesPromptFiles, rulesPromptParts } from '../../src/ai/rules/index.js'
 import { topRuleHits } from '../../src/ai/rule-hits.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 vi.mock('../../src/ai/rule-hits.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/ai/rule-hits.js')>()

@@ -1,16 +1,17 @@
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { startServer } from '../../src/studio/server/index.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const servers: http.Server[] = []
 const roots: string[] = []
 
 function makeWorkDir(book: string): string {
-  const workDir = mkdtempSync(join(tmpdir(), 'clwriting-reentrant-'))
+  const workDir = mkdtempTracked(join(tmpdir(), 'clwriting-reentrant-'))
   roots.push(workDir)
   mkdirSync(join(workDir, '.clwriting'), { recursive: true })
   writeFileSync(

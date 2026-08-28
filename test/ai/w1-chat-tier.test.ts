@@ -7,9 +7,10 @@
  * - defaultTiers 含 chat: null
  */
 import { describe, expect, it } from 'vitest'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import {
   tierFromStore,
   loadProviders,
@@ -19,7 +20,7 @@ import {
 } from '../../src/ai/provider/store.js'
 
 function tmp(): string {
-  return mkdtempSync(join(tmpdir(), 'w1-chat-'))
+  return mkdtempTracked(join(tmpdir(), 'w1-chat-'))
 }
 
 function makeStore(overrides: Partial<ProviderStore> = {}): ProviderStore {

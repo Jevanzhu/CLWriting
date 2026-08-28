@@ -276,6 +276,13 @@ export interface TokenUsage {
   cacheWriteTokens?: number
   /** 推理 token 消耗量（Responses 线 usage.output_tokens_details.reasoning_tokens，缺口 8 校准源；已含于 outputTokens） */
   reasoningTokens?: number
+  /**
+   * R73-1（二十一轮 A-1）：估计入账标记——网关完成生成（有 finish_reason/stop_reason）
+   * 但不回 usage 事件时，input/output 为按库内估算系数（estimateTokens 同源）折算的
+   * 估计值而非端点下发值。记账/预算闸按数值照常生效（修复前按 0/0 入账，预算闸对
+   * 这类端点永不生效）；成本报表消费方可据此区分实测与估计口径。
+   */
+  estimated?: boolean
 }
 
 /** Provider 接口——适配器实现 */

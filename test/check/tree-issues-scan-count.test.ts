@@ -10,7 +10,7 @@
  * 章级 (mtime,size)+verdict 指纹全中的章直接取缓存聚合，零机检零重读。
  */
 import { describe, it, expect, vi } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, utimesSync, readFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, utimesSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -40,10 +40,11 @@ import { readBookConfig } from '../../src/format/yaml.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
 import { readAnalysis, writeAnalysis } from '../../src/document/analysis.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 /** 造一本 N 章正文书；wiring=true 加布线（测 maxWritten/账本路径），每章带禁词「玉佩」制造确定红源 */
 function makeBook(chapterCount: number, wiring = true): string {
-  const root = mkdtempSync(join(tmpdir(), 'scan-count-'))
+  const root = mkdtempTracked(join(tmpdir(), 'scan-count-'))
   if (wiring) mkdirSync(join(root, '布线', '悬念'), { recursive: true })
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '大纲', '章纲'), { recursive: true })

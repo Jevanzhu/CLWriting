@@ -9,7 +9,7 @@ import { join, dirname } from 'node:path'
 import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { createFakeProvider, type FakeProvider } from './fake-provider.js'
 import { withFakeProvider, tempUserData, makeDualTrackWorkdir } from '../studio/fixtures.js'
-import { runChat, isChatRunning, abortChat, resolveChatConfirm, getHistory } from '../../src/ai/orchestrate/chat.js'
+import { runChat, isChatRunning, abortChat, resolveChatConfirm, getHistory, sendChatMessage } from '../../src/ai/orchestrate/chat.js'
 import { chatTools } from '../../src/ai/contract/chat.js'
 import { writeSpillFile } from '../../src/process/spill.js'
 import { resolveDraftPath } from '../../src/format/draft.js'
@@ -110,6 +110,54 @@ describe('W2: 单轮纯文本', () => {
     expect(chatTexts(events).join('')).toContain('主角应该选择谈判')
     expect(hasChatDone(events)).toBe(true)
     expect(isChatRunning('test')).toBe(false)
+  })
+})
+
+// ─── R73-11：空用户消息入口拒绝 ────────────────────
+
+describe('R73-11: 空用户消息入口拒绝', () => {
+  it('空串/纯空白 message → rejected + 人话 error 事件，不启动链路不入历史', () => {
+    const events: DriverEvent[] = []
+    const driver = makeDriver(events)
+    const ud = setup()
+
+    for (const message of ['', '   ']) {
+      events.length = 0
+      const r = sendChatMessage({
+        driver,
+        mainSession: { id: 's1', cwd: bookRoot, closed: false },
+        userDataPath: ud,
+        bookRoot,
+        bookName: 'test-r73-empty',
+        message,
+      })
+      // 修复前：放行进历史，消毒后数组可能为空 → provider 400 报原始英文文案
+      expect(r).toBe('rejected')
+      const err = events.find((e) => e.type === 'error') as { message: string } | undefined
+      expect(err).toBeDefined()
+      expect(err!.message).toContain('消息内容为空')
+    }
+    expect(isChatRunning('test-r73-empty')).toBe(false)
+  })
+
+  it('regenerate 不带 message，不在守卫范围（返回 started 而非 rejected）', async () => {
+    fake.setScript([{ type: 'text', content: '好' }])
+    const events: DriverEvent[] = []
+    const driver = makeDriver(events)
+    const ud = setup()
+
+    const r = sendChatMessage({
+      driver,
+      mainSession: { id: 's1', cwd: bookRoot, closed: false },
+      userDataPath: ud,
+      bookRoot,
+      bookName: 'test-r73-regen',
+      message: '',
+      regenerate: { parentSeq: 1, branchId: 'main' },
+    })
+    expect(r).toBe('started')
+    abortChat('test-r73-regen')
+    await waitFor(() => !isChatRunning('test-r73-regen'))
   })
 })
 

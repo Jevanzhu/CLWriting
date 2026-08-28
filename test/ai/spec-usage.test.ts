@@ -6,7 +6,7 @@
  * 集成口径：mock gen 层返回固定 usage → runSpec → runTask → 任务账落
  * bookRoot/.cache/ai-calls.json（provider 解析走真实 store + 明文迁移路径）。
  */
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it, expect, vi, afterEach } from 'vitest'
@@ -23,10 +23,11 @@ vi.mock('../../src/ai/gen.js', async (importOriginal) => {
 })
 
 import { runSpec, type TaskSpec } from '../../src/ai/tasks/spec.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const workDirs: string[] = []
 function tempDir(prefix: string): string {
-  const d = mkdtempSync(join(tmpdir(), prefix))
+  const d = mkdtempTracked(join(tmpdir(), prefix))
   workDirs.push(d)
   return d
 }

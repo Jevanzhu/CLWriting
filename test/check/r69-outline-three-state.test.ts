@@ -8,20 +8,21 @@
  * 同时锁单章行为不回退：细纲@被检章的 declared-not-done 仍拦。
  */
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { outlineDeclarationForChapter } from '../../src/check/outline-leads.js'
 import { finalizeRevision } from '../../src/document/finalize.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const BODY_SENTENCE = '雪落在宗门的山门上，玉佩在袖中发烫。'
 
 // ── 纯函数三态 ───────────────────────────────────
 
 test('outlineDeclarationForChapter 三态：命中/未知/宽容沿用', () => {
-  const root = mkdtempSync(join(tmpdir(), 'clw-r69-outline-'))
+  const root = mkdtempTracked(join(tmpdir(), 'clw-r69-outline-'))
   try {
     mkdirSync(join(root, '工作区'), { recursive: true })
     writeFileSync(join(root, '工作区', '细纲.md'), '---\n章号: 2\n推进: 悬念-001\n---\n\n细纲。', 'utf-8')
@@ -41,7 +42,7 @@ test('outlineDeclarationForChapter 三态：命中/未知/宽容沿用', () => {
 // ── 定稿闸集成（真实管线时序：细纲@首章 + 归档章推进）──────────
 
 function makeBatchBook(): { root: string; ch2DocId: string } {
-  const root = mkdtempSync(join(tmpdir(), 'clw-r69-batch-'))
+  const root = mkdtempTracked(join(tmpdir(), 'clw-r69-batch-'))
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   // 两章正文，都含证据句
   for (const [num, title] of [[1, '开篇'], [2, '夜行']] as const) {

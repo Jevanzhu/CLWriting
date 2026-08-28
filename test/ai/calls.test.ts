@@ -3,16 +3,17 @@
  *
  * 覆盖：recordAiCall 落账 + tokens 累加、checkAiCallBudget 超限判定、换章重置。
  */
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync, statSync, chmodSync } from 'node:fs'
+import { rmSync, readFileSync, writeFileSync, mkdirSync, statSync, chmodSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { recordAiCall, checkAiCallBudget, recordTaskUsage, AI_CALLS_MUTEX_SCOPE_NOTE } from '../../src/ai/calls.js'
 import type { BookConfig } from '../../src/format/types.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const dirs: string[] = []
 function tempBook(): string {
-  const d = mkdtempSync(join(tmpdir(), 'clwriting-calls-'))
+  const d = mkdtempTracked(join(tmpdir(), 'clwriting-calls-'))
   dirs.push(d)
   return d
 }

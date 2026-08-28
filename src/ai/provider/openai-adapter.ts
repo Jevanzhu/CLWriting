@@ -31,6 +31,7 @@ import type { ProviderStore } from './store.js'
 import { modelConfOf } from './store.js'
 import { quirksFor } from './model-quirks.js'
 import { makeToErrorEvent, buildDegradeAttempts, isMidChain400, markStructuredDegrade } from './adapter-errors.js'
+import { estimateInputTokens, estimateOutputTokens } from './usage-estimate.js'
 
 /** SDK 异常 → GenEvent.error：公共工厂实现（adapter-errors），此处只贴本线错误类与 label */
 const toErrorEvent = makeToErrorEvent({
@@ -292,6 +293,10 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
             degraded = attempt !== plan.original
             // 消费流（tool_calls 增量拼装 / text / reasoning / usage）
             const toolAccum = new Map<number | string, { id: string; name: string; argsBuf: string }>()
+            // R73-1：产出累计（文本/思维链 delta 串联 + tool 参数 JSON 串）——网关吞 usage
+            // 时按此折算估计用量（usage-estimate.ts 同源系数），不再按 0/0 入账
+            const outText: string[] = []
+            const outToolText: string[] = []
             // R65-9（总六十五轮）：网关缺省 tc.index 的兜底聚合——此前并入同一 undefined
             // 键会把多个 tool_call 拼成一团；改「带 id/name 的新调用分片 → 自增兜底键、
             // 续片归并最近兜底键」，无 index 流也能拆出独立调用（有 index 走原路径不变）
@@ -318,6 +323,7 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
 
               // 文本增量（delta 可能为 null —— 非官方端点偶发，须可选链兜底防 TypeError 致 GEN_FAIL）
               if (delta?.content) {
+                outText.push(delta.content) // R73-1：产出累计
                 yield { type: 'text', delta: delta.content }
               }
 
@@ -325,6 +331,7 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
               // OpenAI SDK 的 Delta 类型未含该字段（非官方），运行时由厂商端点下发
               const reasoningDelta = (delta as { reasoning_content?: string } | null)?.reasoning_content
               if (reasoningDelta) {
+                outText.push(reasoningDelta) // R73-1：产出累计（推理 token 也是真实计费面）
                 yield { type: 'reasoning', delta: reasoningDelta }
               }
 
@@ -370,6 +377,7 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
                     } else {
                       input = {}
                     }
+                    outToolText.push(acc.name + acc.argsBuf) // R73-1：tool 参数也是真实计费面
                     // P3-Q5：非官方兼容端点不发 id 时以空串入历史会被拒绝 → 生成 call_ 兜底 id
                     const id = acc.id || `call_${toolIdx}`
                     yield { type: 'tool', id, name: acc.name, input }
@@ -399,14 +407,24 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
                 if (!acc.name) continue
                 let input: unknown
                 try { input = acc.argsBuf ? JSON.parse(acc.argsBuf) : {} } catch { input = { _raw: acc.argsBuf } }
+                outToolText.push(acc.name + acc.argsBuf) // R73-1：残留 tool 参数计入产出累计
                 yield { type: 'tool', id: acc.id || `call_${fallbackIdx}`, name: acc.name, input }
                 fallbackIdx++
               }
               toolAccum.clear()
               if (sawFinishReason) {
-                // 网关完成了生成但不回 usage（include_usage 不兼容面）——按 0 用量记账
-                // 放行生成；判错重试对这类网关是全量破坏，0 成本是可得最优估计
-                const ev = emitDone({ inputTokens: 0, outputTokens: 0 }, pendingStopReason)
+                // 网关完成了生成但不回 usage（include_usage 不兼容面）——放行生成不判错重试
+                //（判错重试对这类网关是全量破坏）。R73-1（二十一轮 A-1）：不再按 0/0 入账
+                //（预算闸 tokens/cost 对该类端点永不生效、成本报表系统性偏低）——按可得信号
+                // 估计入账：output ≈ 累计 delta 文本/tool 参数字符折算（usage-estimate.ts
+                // 与备料 estimateTokens 同源系数），input ≈ 本次请求 prompt 字符折算；
+                // estimated 标记估计口径，runner 记账/self-heal 消费面照常按数值生效。
+                const estimatedUsage: TokenUsage = {
+                  inputTokens: estimateInputTokens(req, conf.model ?? undefined),
+                  outputTokens: estimateOutputTokens(outText.join('') + outToolText.join(''), conf.model ?? undefined),
+                  estimated: true,
+                }
+                const ev = emitDone(estimatedUsage, pendingStopReason)
                 if (ev) yield ev
               } else {
                 // R1 对齐（Responses 线同款）：无终止事件的流结束 = 传输截断，报错不发

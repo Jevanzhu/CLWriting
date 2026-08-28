@@ -95,8 +95,10 @@ interface RunState {
   /** 本次运行 AI 消耗累计（done 事件上报，W-P2-7；genFn 单测替身无 usage 不入账）。
    *  cost 按次现算累计（写稿模型四档分计，未配价不入账）——与 stream.ts /spawn 同口径。
    *  低级项（第六轮）：删掉无人读取的 calls/inputTokens 累计（emitResult 只读
-   *  cost/outputTokens，单次明细已在事件库 llm/call 行） */
-  usage: { outputTokens: number; cost: number }
+   *  cost/outputTokens，单次明细已在事件库 llm/call 行）
+   *  R73-10：estimated——任一 attempt 为估计入账（R73-1）时置位，done 事件透出
+   *  usageEstimated（前端可区分实测/估计口径） */
+  usage: { outputTokens: number; cost: number; estimated?: boolean }
 }
 const running = new Map<string, RunState>()
 
@@ -808,12 +810,15 @@ async function runGenerate(
   // 真实消耗入账（W-P2-7：done 事件不再恒 0；runSpec 已带回 usage）。
   // 金额按次现算累计（D2 同 stream.ts /spawn：写稿模型查价格表四档分计，未配价省略——
   // done 事件不再恒发 cost:0，前端成本口径与 spawn 路径一致）。
-  // 二轮复审留痕（不修）：此处只累计最终成功 attempt 的 usage——失败/重试/中断 attempt
-  // 在 runTask 记账侧已按次入账（W-P2-8/X-P2-10），但 done 事件不含其 token（失败响应
-  // 多无 usage，客观上不可得）；done 用量按「成功产出消耗」口径读，预算/成本以事件库为准
-  const u = out.data.usage
+  // R73-10（二十一轮 A-10）：done 用量改取全 attempt 累计（attemptsUsage——重试/中断
+  // attempt 的可得 usage 一并计入），与 ai-calls.json 按次入账口径一致；修复前只取
+  // 末次成功 attempt，重试链的前置消耗在前端成本显示中缺失。runTask 未带该字段
+  // （旧调用方/单测桩）时回退 out.usage（原口径）。含估计入账 attempt（R73-1）时
+  // estimated 随之置位。
+  const u = out.attemptsUsage ?? out.usage
   if (u) {
     state.usage.outputTokens += u.outputTokens
+    if (u.estimated) state.usage.estimated = true
     // Y-15（第五十七轮）：计价用请求时刻的模型（TaskOk.model = resolve 时快照的 tier.model），
     // 不再二次 resolveTier 取当下档位——生成期间作者换档/改价时 done 事件与 ai-calls
     // 账本（runTask 同口径）计价漂移；mock 快路 model=null → 查价跳过（与 usage=null 同后果）
@@ -892,7 +897,10 @@ function emitResult(opts: SelfHealOpts, result: SelfHealOutcome, usage: RunState
     // 未配价（cost 恒 0）省略字段——与 spawn 路径同口径，不再恒发 cost:0
     ...(usage.cost > 0 ? { cost: usage.cost } : {}),
     // W-P2-7：真实 outputTokens 累计（与 stream.ts 口径一致），不再恒 0
+    // R73-10：usage 为全 attempt 累计口径（runGenerate 取 attemptsUsage）；含估计入账
+    // 时带 usageEstimated（R73-1 协同，前端可区分实测/估计）
     usage: usage.outputTokens,
+    ...(usage.estimated ? { usageEstimated: true } : {}),
     reason: result.outcome === 'aborted' ? 'cancelled' : result.outcome === 'failed' ? 'error' : 'success',
   })
 }

@@ -305,6 +305,11 @@ export function checkAiCallBudget(bookRoot: string, chapter: number, config: Boo
   // 锁内记账构成 check-then-act 窗口——并发写者数为上界的少量超额是**既定取舍**
   // （预算闸防「无限烧」，不承诺精确配额；锁内预记回滚会把 consume 事务复杂化一档，
   // 收益不成比例），不按 bug 处理。
+  // R73-8（二十一轮 A-8，裁定维持）：check 与 record 天然被分钟级生成隔开——预算检查
+  // 并入记账锁内同事务只能「生成后核对」，挡不住本次生成本身的消耗；锁粒度（短写锁）
+  // 不允许跨生成持有，预占/退款方案需在 5 条失败出口（abort/超时/终态失败/Retry-After
+  // 终态/成功）补退款事务，错误面扩大不成比例。维持锁外快照读 + 保守口径（超额上界 =
+  // 并发写者数），签名保持同步（锁外读消费方 review.ts effectiveRemainingCalls 在 A 域外）。
   const limit = config.budget.calls_per_chapter ?? GLOBAL_FALLBACK_DEFAULTS.callsPerChapter
   const limitTokens = config.budget.tokens_per_chapter
   const limitCost = config.budget.cost_per_chapter

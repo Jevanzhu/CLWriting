@@ -13,6 +13,22 @@
   /** origin → token（空串 = boot 未返回 token，短路不再重复探） */
   const tokenCache = new Map<string, string>()
 
+  // R73-73（批 F-5）：低成本告警防线——「注入 token 后仍 403」的响应有两种来历：
+  // ①业务语义确为 403；②该用例本想断「无凭据 → 403」，被本包装的自动注入救活成
+  // 「带凭据 403」（X-35 约定正是为防后者：token 闸断言必须走 node:http rawRequest，
+  // 见 test/studio/api-token.test.ts 头注）。命中时进程级 warn 一次提示排障方向，
+  // 不改写响应、不打断既有测试语义。
+  let warnedInjected403 = false
+  const warnInjected403 = (pathname: string): void => {
+    if (warnedInjected403) return
+    warnedInjected403 = true
+    console.warn(
+      `[studio-token-setup] GET ${pathname} 注入 x-studio-token 后仍返回 403。` +
+        '若该用例意图是断言「无凭据 → 403」，它可能已被本包装的自动注入改写（假绿风险）；' +
+        'token 闸断言请走 node:http rawRequest（约定见 test/studio/api-token.test.ts 头注）。',
+    )
+  }
+
   const resolveUrl = (input: RequestInfo | URL): URL | null => {
     try {
       return new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
@@ -50,6 +66,7 @@
     const resp = await origFetch(input as RequestInfo, { ...init, headers })
     // 端口复用换 server（token 代际不同）→ 403：清缓存重试一次
     if (resp.status === 403) {
+      warnInjected403(u.pathname)
       tokenCache.delete(u.origin)
       const r = await origFetch(`${u.origin}/api/boot`)
       const d = r.ok ? ((await r.json()) as { token?: string }) : null
@@ -57,7 +74,10 @@
         tokenCache.set(u.origin, d.token)
         const h2 = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined))
         h2.set('x-studio-token', d.token)
-        return origFetch(input as RequestInfo, { ...init, headers: h2 })
+        const resp2 = await origFetch(input as RequestInfo, { ...init, headers: h2 })
+        // 换代 token 重试后仍 403：同属「注入后 403」面，同样告警（进程级一次）
+        if (resp2.status === 403) warnInjected403(u.pathname)
+        return resp2
       }
     }
     return resp

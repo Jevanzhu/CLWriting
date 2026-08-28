@@ -52,11 +52,22 @@ describe('Y-23: readBannedEntryWords 多行正文拆词', () => {
       join(root, ENTRIES_DIR, '禁词', 'a.md'),
       '---\n类型: 禁词\n场景: 通用\n---\n仿佛命运\n无处不在\n',
     )
-    const words = readBannedEntryWords(root)
+    // R73-15（二十一轮 B-2）：返回形态改 { words, unparsed }——解析不出词的条目
+    // 随 unparsed 回报（场景名留痕，机检消费面产黄项），不再静默失明
+    const { words, unparsed } = readBannedEntryWords(root)
     expect(words).toContain('仿佛命运')
     expect(words).toContain('无处不在')
     // 整段（旧行为）不再是返回项
     expect(words).not.toContain('仿佛命运\n无处不在')
+    // R73-15：可解析条目不进 unparsed；整段说明性文本条目 → unparsed 留痕
+    expect(unparsed).toEqual([])
+    writeFileSync(
+      join(root, ENTRIES_DIR, '禁词', 'b.md'),
+      // 单行超 24 字且无引号/分隔符 → 拆不出任何合法词条 → unparsed 留痕
+      '---\n类型: 禁词\n场景: 说明段\n---\n这是一整段超过二十四个字长度上限的说明性文字内容因此整体拆不出任何合法词条项。\n',
+    )
+    const r2 = readBannedEntryWords(root)
+    expect(r2.unparsed).toContain('说明段')
   })
 })
 

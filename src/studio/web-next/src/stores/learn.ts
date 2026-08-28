@@ -28,6 +28,12 @@ export const useLearnStore = defineStore('learn', () => {
    *  回填会让 B 书收割视图显示 A 书正文候选，作者勾选入库即跨书污染条目库。后调者胜 */
   let reqGen = 0
 
+  /** R73-66：commit 独立请求代——原 commit 只快照 reqGen 不推代，同代双 commit（并发/
+   *  重入）守卫互相穿透，且全靠 harvest 推代兜底；未来任何旁路清列表不复位 committing
+   *  即穿透。commit 自己推代后：后一笔使前一笔迟到回填/finally 解锁全部作废（对齐
+   *  words/learn reqGen 代守卫惯例） */
+  let commitGen = 0
+
   /** 扫定稿正文收割候选（规则打分，不涉大模型） */
   async function harvest(name: string): Promise<void> {
     const gen = ++reqGen
@@ -72,17 +78,20 @@ export const useLearnStore = defineStore('learn', () => {
 
   /** 入库勾选项（样章入 文风/样章库；金句入 文风/样章库/金句）。
    *  M-11：commit 代守卫——入库在服务端按调用时的书落盘（无串），但回填提示/列表
-   *  过滤前查代，防 A 书的「已收录 N 条」提示落到已切到 B 的视图 */
+   *  过滤前查代，防 A 书的「已收录 N 条」提示落到已切到 B 的视图。
+   *  R73-66：改查独立 commitGen（自己推代）；在途遇 harvest 推代（reqGen 变）仍作废
+   *  本笔回填——原 M-11 语义保留。 */
   async function commit(name: string): Promise<void> {
     const sPicks = samples.value.filter((s) => pickedSamples.value.has(s.正文))
     const qPicks = quotes.value.filter((q) => pickedQuotes.value.has(q.正文))
     if (!sPicks.length && !qPicks.length) return
-    const gen = reqGen
+    const gen = ++commitGen // R73-66：commit 自己推代（原 const gen = reqGen 不推代）
+    const harvestGen = reqGen
     committing.value = true
     commitMessage.value = null
     try {
       const r = await runLearnCommit(name, { samples: sPicks, quotes: qPicks })
-      if (gen !== reqGen) return
+      if (gen !== commitGen || harvestGen !== reqGen) return
       commitMessage.value = `已收录 ${r.sampleFiles.length} 章样章、${r.quoteFiles.length} 条金句 → 文风/样章库。`
       // 入库项从候选列表移除（已落库，不再重复入库）
       const sSet = new Set(sPicks.map((s) => s.正文))
@@ -92,12 +101,13 @@ export const useLearnStore = defineStore('learn', () => {
       pickedSamples.value = new Set()
       pickedQuotes.value = new Set()
     } catch (e) {
-      if (gen !== reqGen) return
+      if (gen !== commitGen || harvestGen !== reqGen) return
       commitMessage.value = '收录失败：' + friendlyError(e)
     } finally {
-      // Y-32（第五十七轮）：finally 查代——A 书 commit 在途切书后，迟到的 finally 不得
-      // 提前解锁 B 书新一次 commit 的按钮（可重复提交同批勾选）；clear() 复位缺项同补
-      if (gen === reqGen) committing.value = false
+      // Y-32（第五十七轮）：finally 查代——在途 commit 被作废后（R73-66 起查独立
+      // commitGen），迟到的 finally 不得解锁新一笔 commit 的按钮（可重复提交同批勾选）；
+      // clear() 复位缺项同补
+      if (gen === commitGen) committing.value = false
     }
   }
 
@@ -109,6 +119,7 @@ export const useLearnStore = defineStore('learn', () => {
 
   function clear(): void {
     reqGen++ // 旧书在途 harvest 全部作废
+    commitGen++ // R73-66：在途 commit 同作废（迟到回填不落、finally 不解锁新 commit）
     // R-1（第十六轮）：clear 推代后在途 harvest 的 finally 查代不过 → loading 永久卡 true；
     // 此处直接复位，按钮可再触发（迟到回填仍被查代挡住，不落数据）
     loading.value = false

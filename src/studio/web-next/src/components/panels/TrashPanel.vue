@@ -41,12 +41,17 @@ const restoring = ref<string | null>(null)
 async function restore(id: string): Promise<void> {
   if (restoring.value) return // 在途锁：双击第二笔直接忽略
   restoring.value = id
+  // R73-65（E 域）：书名入口捕获——恢复在途切书后，对新书做旧书的整树重扫是纯冗余
+  // （tree.load 扫全书）；面板列表 load() 自带代守卫照常刷新，树刷新比对后才执行
+  const book = props.bookName
   try {
-    await restoreTrash(props.bookName, id)
-    await Promise.all([load(), tree.load(props.bookName)])
+    await restoreTrash(book, id)
+    await load()
+    if (props.bookName === book) await tree.load(book) // R73-65：仅未切书才重扫树
   } catch (e) {
     // 404/NOT_FOUND：条目已恢复（双击竞态）或已不在回收站——静默，load 刷新即对齐
     if (e instanceof ApiError && (e.status === 404 || e.code === 'NOT_FOUND')) return
+    if (props.bookName !== book) return // R73-65：A 书的失败 toast 不落 B 书界面（R70-10 同族）
     // R71-32：恢复失败收敛为 toast——列表数据本身无恙，不再整体覆盖成错误态
     ui.toast(friendlyError(e), 'error')
   } finally {

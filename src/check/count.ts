@@ -47,6 +47,19 @@ export function checkFrontMatter(
     })
   }
 
+  // R73-16（二十一轮 B-3）：必填枚举缺失（钩子类型/钩子强弱/情绪定位）此前在 readChapter
+  // 静默补默认（悬念钩/中/铺垫），本检查对「缺字段」零红项，与 draft.ts「至少包含」文案相悖。
+  // readChapter 现把缺失清单记在 _fmMissing，这里逐字段产红（fm-missing）——「缺字段」与
+  // 「写了非法值」（fm-enum，validateEnums）分开呈现，自愈回灌的改法不同。
+  for (const field of chapter._fmMissing ?? []) {
+    items.push({
+      checkId: 'fm-missing',
+      level: 'red',
+      message: `front matter 缺少必填字段「${field}」（合法值见 #7 第 3 节：钩子类型/钩子强弱/情绪定位），请补齐`,
+      chapter: chapter.章号,
+    })
+  }
+
   // 枚举合法
   const enumErrs = validateEnums(chapter)
   for (const e of enumErrs) {
@@ -138,7 +151,9 @@ export function checkSentenceLength(
 ): CheckSectionResult {
   const items: CheckItem[] = []
   const sentences = splitSentences(body)
-  const overlong = sentences.filter((s) => s.length > maxLen)
+  // R73-19（二十一轮）：句长统一码点口径（与 countWords 一致）——UTF-16 .length 对
+  // astral 字符（emoji/生僻扩展区）一符计 2，句长虚高。codePointLength 见下。
+  const overlong = sentences.filter((s) => codePointLength(s) > maxLen)
   if (sentences.length > 0 && overlong.length / sentences.length > 0.2) {
     items.push({
       checkId: 'sentence-length',
@@ -147,6 +162,19 @@ export function checkSentenceLength(
     })
   }
   return { name: '句式体检', items }
+}
+
+/**
+ * R73-19（二十一轮）：句长码点口径——手写码点遍历（代理对合 1 计），
+ * 与 countWords 的 [...body].length 同口径；不用 Array.from 免逐句分配。
+ */
+function codePointLength(s: string): number {
+  let n = 0
+  for (let i = 0; i < s.length; i++) {
+    n++
+    if (s.codePointAt(i)! > 0xffff) i++ // 代理对：astral 字符按 1 计
+  }
+  return n
 }
 
 /**
@@ -210,6 +238,12 @@ export function checkNewNames(
     const line = rawLine.trim()
     const spans = line.match(spanRe)
     if (!spans) continue
+    // R73-17（二十一轮）：「动词+冒号+引语」结构豁免——引导动词词表（挥手/点头/摆手…）
+    // 永远追不全，词表外动词 + 冒号引出的对白（「他挥挥手：『住手。』」）此前整行按
+    // 叙述行处理，引号内 2 字对白被当专名误报。引号外文本以冒号收尾 = 「X：『引语』」
+    // 的引语引入结构，引号内是对白/引文而非专名（黄项候选漏报向安全：冒号后真提及
+    // 的专名本就多在引语里，同 X-P2-9/V-P2-13 的豁免口径）。
+    if (/[:：]$/.test(line.replace(spanRe, '').replace(/[\s\u3000]/g, ''))) continue
     // 引号外只剩提示语成分（代词/说话动词/语气副词等）→ 整行是对白，
     // 引号片段是对白内容而非专名（V-P2-13：此前「住手！」「快走」全报黄项刷屏）
     const outside = line.replace(spanRe, '').replace(/[\s\u3000]/g, '').replace(punctRe, '')
@@ -316,7 +350,8 @@ export function computeStyleMetrics(body: string, rules: IronRules): StyleStats 
   let overlongRatio = 0
   if (rules.maxSentenceLen && rules.maxSentenceLen > 0) {
     if (sentences.length > 0) {
-      const overlong = sentences.filter((s) => s.length > rules.maxSentenceLen!).length
+      // R73-19：句长码点口径（与 countWords 一致）
+      const overlong = sentences.filter((s) => codePointLength(s) > rules.maxSentenceLen!).length
       overlongRatio = overlong / sentences.length
     }
   }
@@ -324,9 +359,7 @@ export function computeStyleMetrics(body: string, rules: IronRules): StyleStats 
   // 形容词堆叠去重命中数
   let adjStackHits = 0
   if (rules.maxAdjStack && rules.maxAdjStack > 0) {
-    const stackRe = adjStackRegex(rules.maxAdjStack)
-    const hits = body.match(stackRe)
-    if (hits) adjStackHits = new Set(hits).size
+    adjStackHits = matchAdjStackHits(body, rules.maxAdjStack).length
   }
 
   // 对话标签占比（分母=对话行数）
@@ -395,11 +428,12 @@ export function checkStyleMetrics(
   if (rules.maxSentenceLen && rules.maxSentenceLen > 0) {
     const sentences = stats._sentences ?? splitSentences(body)
     for (const s of sentences) {
-      if (s.length > rules.maxSentenceLen) {
+      const len = codePointLength(s)
+      if (len > rules.maxSentenceLen) {
         items.push({
           checkId: 'style-sentence-overlong',
           level: 'yellow',
-          message: `单句 ${s.length} 字超文风铁律上限 ${rules.maxSentenceLen} 字：「${s.slice(0, 16)}…」`,
+          message: `单句 ${len} 字超文风铁律上限 ${rules.maxSentenceLen} 字：「${s.slice(0, 16)}…」`,
         })
       }
     }
@@ -407,16 +441,12 @@ export function checkStyleMetrics(
 
   // 形容词连续堆叠：去重后逐个推（保持原行为）
   if (rules.maxAdjStack && rules.maxAdjStack > 0) {
-    const stackRe = adjStackRegex(rules.maxAdjStack)
-    const hits = body.match(stackRe)
-    if (hits) {
-      for (const h of new Set(hits)) {
-        items.push({
-          checkId: 'style-adj-stack',
-          level: 'yellow',
-          message: `形容词堆叠超上限（${rules.maxAdjStack}）：「${h}」`,
-        })
-      }
+    for (const h of matchAdjStackHits(body, rules.maxAdjStack)) {
+      items.push({
+        checkId: 'style-adj-stack',
+        level: 'yellow',
+        message: `形容词堆叠超上限（${rules.maxAdjStack}）：「${h}」`,
+      })
     }
   }
 
@@ -487,6 +517,37 @@ export function checkStyleMetrics(
 
 function adjStackRegex(maxAdjStack: number): RegExp {
   return new RegExp(`(?:[${HANZI}]{1,6}的(?:[、，,]\\s*)?){${maxAdjStack + 1},}`, 'gu')
+}
+
+/**
+ * R73-18（二十一轮）：领属链排除——adjStackRegex 匹配任意「X的」链，「他的母亲的
+ * 家族的」这类人称代词/亲属词领属链与形容词堆叠（「苍白的干裂的颤抖的」）完全两回事，
+ * 此前同判误报。逐单元拆开命中串，任一单元头是人称代词/亲属称谓 → 整条按领属链豁免。
+ */
+const POSSESSIVE_HEADS = new Set([
+  // 人称代词（含复数/反身）
+  '他', '她', '它', '我', '你', '您', '他们', '她们', '它们', '我们', '你们', '咱们', '自己', '别人', '他人',
+  // 亲属/师门/主仆称谓（网文领属链高发词）
+  '父亲', '母亲', '爸爸', '妈妈', '爹', '娘', '爷爷', '奶奶', '外公', '外婆', '姥爷', '姥姥',
+  '哥哥', '姐姐', '弟弟', '妹妹', '兄长', '兄弟', '姐妹', '大哥', '大姐', '堂哥', '堂弟', '表哥', '表妹',
+  '叔叔', '伯伯', '舅舅', '姑姑', '姨母', '婶婶', '儿子', '女儿', '孩子', '家人', '家族', '族人',
+  '师父', '师傅', '老师', '师兄', '师姐', '师弟', '师妹', '主人', '老爷', '少爷', '夫人', '娘子', '前辈', '晚辈',
+])
+
+/** 领属链判定：命中串由 N 个「X的」单元组成，任一单元头命中 POSSESSIVE_HEADS → true */
+function isPossessiveChain(hit: string): boolean {
+  const unitRe = new RegExp(`([${HANZI}]{1,6})的(?:[、，,]\\s*)?`, 'gu')
+  for (const m of hit.matchAll(unitRe)) {
+    if (POSSESSIVE_HEADS.has(m[1]!)) return true
+  }
+  return false
+}
+
+/** 形容词堆叠命中（去重 + R73-18 领属链豁免）——computeStyleMetrics 与 checkStyleMetrics 共用单源 */
+function matchAdjStackHits(body: string, maxAdjStack: number): string[] {
+  const hits = body.match(adjStackRegex(maxAdjStack))
+  if (!hits) return []
+  return [...new Set(hits)].filter((h) => !isPossessiveChain(h))
 }
 
 function summaryEndingRegex(): RegExp {
@@ -612,7 +673,16 @@ export function checkBodyParts(
 // R67-9（十五轮）登记口径：前排他集含「好」是排除高频非比喻「好像」的必要代价——
 // 「恰好像刀」「正好像雪」等真·明喻被一并漏计；本检查为超阈黄项密度统计，漏报向
 // 安全（不误报），且「恰好/正好」+明喻连用占比极低，零 token 边界不做分词级判别。
-const SIMILE_RE = /(?<![相很好不像])(像)(?!他|她|你|我|这|那)[^，。！？；、：\s像]{1,12}(?:一样|似的|一般|般)?/gu
+// R73-14（二十一轮 B-1）：前排他集再纳入「X像」名词首字（图像/偶像/摄像/录像/影像/
+// 照像/画像/音像/映像/实像/虚像/镜像/显像/成像/雕像/塑像/石像/铜像/铁像/玉像/蜡像/
+// 金像/肖像/绣像/头像/佛像/神像/遗像/铸像/拟像/造像/圣像/形象/印像/想像）——此前
+// 词内「像」未排除名词，「他用图像处理软件处理图像数据。」实测命中 2 次、「摄像头
+// 对准了门口」「她是全民偶像明星」各命中 1；短篇 strict 模式下 simile-density 升红
+// 会把无一流比的名物章打回重写烧调用。代价（同 R67-9 登记式取舍）：「拳头像铁锤」
+// 「石头像刀一样硬」等「X头像/X石像」明喻被一并漏计（漏报向安全）；「人像蝼蚁」
+// 类人字领明喻不排（人像的肖像义在散文里远低于明喻用法）。后排他集补「样」——
+// 「挺像样」「很像样」的「像样」非比喻。
+const SIMILE_RE = /(?<![相很好不像图偶摄入影照实音画映形印想虚镜显成雕塑石铜铁玉蜡金肖绣头佛神遗铸拟造圣])(像)(?!他|她|你|我|这|那|样)[^，。！？；、：\s像]{1,12}(?:一样|似的|一般|般)?/gu
 
 export function checkSimile(
   body: string,

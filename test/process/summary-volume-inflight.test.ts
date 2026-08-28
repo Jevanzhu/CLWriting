@@ -4,7 +4,7 @@
  * 不得重复调 AI 写同一文件；完成后键释放，不残留永久拒绝。
  */
 import { test, expect, vi } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
@@ -12,6 +12,7 @@ import { computeRevision } from '../../src/document/revision.js'
 import { generateDocId } from '../../src/document/stable-id.js'
 import { generateChapterSummary, generateVolumeSummary } from '../../src/process/summary.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 let releaseVolume: (() => void) | null = null
 vi.mock('../../src/ai/tasks/spec.js', () => ({
@@ -30,7 +31,7 @@ const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 
 /** 2 章 volume_size=2（卷 1 = 章 1/2），两章均定稿。 */
 function makeBook(): string {
-  const root = mkdtempSync(join(tmpdir(), 'clw-volinflight-'))
+  const root = mkdtempTracked(join(tmpdir(), 'clw-volinflight-'))
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '项目'), { recursive: true })
   writeFileSync(

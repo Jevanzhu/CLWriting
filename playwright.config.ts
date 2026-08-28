@@ -1,4 +1,7 @@
 import { defineConfig } from '@playwright/test'
+// R73-75（批 F-8）：baseURL 与 global-setup 主 server 同源——端口族统一从
+// CLW_E2E_PORT_BASE（缺省 18999）派生，定义见 test/e2e/e2e-ports.ts（含偏移表）
+import { E2E_PORT_BASE } from './test/e2e/e2e-ports.js'
 
 /**
  * e2e 配置（#13.1）：globalSetup 起 studio server（mock driver + 双轨 fixture + dist/web 静态托管），
@@ -21,14 +24,20 @@ export default defineConfig({
   timeout: 30_000,
   expect: { timeout: 10_000 },
   use: {
-    baseURL: 'http://127.0.0.1:18999',
+    // R73-75：端口基址派生（CLW_E2E_PORT_BASE，缺省 18999 与历史硬编码一致）
+    baseURL: `http://127.0.0.1:${E2E_PORT_BASE}`,
     headless: true,
     actionTimeout: 10_000,
     // dd-P3（E-P3-1）：失败留 trace——CI 已有 failure 上传 test-results/ 步骤，
     // 不录 trace 时该工件是空目录，失败只能靠日志猜
     trace: 'retain-on-failure',
   },
+  // R73-76（批 F-9）：首因标记——顺序契约下 spec 崩溃会让下游连坐红，整轮第一个
+  // 未通过用例即首因，reporter 打印提示不改结果（list 保持默认输出）
+  reporter: [['list'], ['./test/e2e/first-cause-reporter.ts']],
   projects: [
+    // R73-74（批 F）：维持单 chromium 腿——Electron=Chromium 同核；补 webkit/firefox
+    // 需另装浏览器且 dev:web 形态非发布面，登记取舍不在本轮扩腿
     { name: 'chromium', use: { browserName: 'chromium' } },
   ],
 })

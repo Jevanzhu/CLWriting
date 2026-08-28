@@ -104,8 +104,21 @@ export function abortChat(bookName: string): boolean {
 }
 
 /** E1a：对话消息统一入口——无运行直接启动；运行中入队（当前轮结束自动续链）。
- * 返回 'started'（直接开跑）| 'queued'（已入队）。错误兜底 emit driver error（与 stream.ts 原 emitSpawnError 对齐）。 */
-export function sendChatMessage(opts: ChatOpts): 'started' | 'queued' {
+ * 返回 'started'（直接开跑）| 'queued'（已入队）| 'rejected'（R73-11：空消息被拒）。
+ * 错误兜底 emit driver error（与 stream.ts 原 emitSpawnError 对齐）。 */
+export function sendChatMessage(opts: ChatOpts): 'started' | 'queued' | 'rejected' {
+  // R73-11（二十一轮 A-11）：空串/纯空白用户消息在入口拒绝——放行进历史后消毒可能
+  // 得到空数组，provider 400 报原始英文文案（作者不可读），且空 user 消息已写入
+  // 事件历史。regenerate 不带 message，不在本守卫范围。
+  if (!opts.regenerate && (opts.message ?? '').trim() === '') {
+    opts.driver.emit?.(opts.mainSession, {
+      type: 'error',
+      kind: 'chat',
+      message: '消息内容为空：请输入要发送的内容后再发送。',
+      recoverable: false,
+    })
+    return 'rejected'
+  }
   if (running.has(opts.bookName)) {
     const q = pendingChats.get(opts.bookName) ?? []
     // P3-4：超容丢最旧（队列是「让出」语义，作者最新指令优先级高于陈旧排队消息）

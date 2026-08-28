@@ -59,9 +59,17 @@ export default defineConfig({
     // T2-3：GET /api/* 读端点要求 token——setup 统一给测试内 fetch 的 GET 请求注入
     // x-studio-token（按 origin 缓存 boot token），存量测试无需逐个补头。
     setupFiles: ['test/helpers/studio-token-setup.ts'],
+    // R73-77（批 F-7）：全局 30s 是常规单测兜底，不是大负载用例的预算——GB 级/界值类
+    // 用例已在文件内显式放宽（test/check/scale.test.ts 与 test/rag/scale.test.ts 的
+    // it(..., { timeout: 300_000 }, ...)），全局值保持不动；新增大负载用例请在用例级
+    // 显式放宽，勿上调全局值（上调会掩盖常规用例的挂死回归）。
     testTimeout: 30000,
     // U-P2-21 coverage 纳管；G4-1（2026-08-16）引入全局阈值门 = 基线 −2pp 向下取整（防回退不追高）。
     // 基线快照 2026-08-16：statements 84.43 / branches 80.96 / functions 95 / lines 84.43。
+    // R73-72（批 F-6）：coverage/coverage-summary.json（含 html/）是「分桶局部跑」产物——
+    // 只反映当次跑到的文件子集，其 total（如 api 桶局部跑的 89.32%）不可解读为全书
+    // 覆盖率；全书口径只在全量跑后读各桶阈值行。该目录未入 git（纯本地构建产物），
+    // 无入库清理问题。
     // 批 6（2026-08-20 二轮复审）：web-next 前端逻辑层（stores/composables/shared/api，纯 .ts）
     // 纳入报告与门禁——per-glob 三桶不重叠分区（glob 键按 picomatch 段级否定切分；
     // 匹配多桶的文件须过所有桶，故主代码不能再用 src/** 全量键）；无扁平键 = 全局桶跳过。

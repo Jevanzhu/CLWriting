@@ -65,6 +65,13 @@ export interface TaskOk<T> {
   ctrl: AbortController
   /** 本次生成的 token 用量（run 回调返回值含 usage 字段时自动提取；mock 快路为 null） */
   usage: TokenUsage | null
+  /**
+   * R73-10（二十一轮 A-10）：全部 attempt 的用量累计（重试/中断 attempt 的可得 usage
+   * 一并计入；单 attempt 成功时与 usage 相等）。done 事件消费方（self-heal）取本字段
+   * 与 ai-calls.json 按次入账口径对齐——修复前 done 只含末次成功 attempt，前端成本
+   * 显示偏低。含任一估计入账（estimated）attempt 时整体带 estimated 标记。
+   */
+  attemptsUsage?: TokenUsage | null
   /** 本次调用的唯一标识（贯穿 trace/SSE/记账三路） */
   runId: string
   /** 低级项（第六轮）：本次实际使用的模型 id（摘要 fm 等落盘留痕用；mock 快路为 null） */
@@ -393,14 +400,14 @@ export async function runTask<T>(opts: {
       // data 内藏 usage（self-heal done 事件自取累计），同一调用事件库 0/0、UI 口径 100/50
       trace({ model: 'mock', attempt: 0, stopReason: 'mock', usage: mock.usage, ok: true })
       finishMock()
-      return { ok: true, data: mock as unknown as T, ctrl: new AbortController(), usage: mock.usage, runId, model: null }
+      return { ok: true, data: mock as unknown as T, ctrl: new AbortController(), usage: mock.usage, attemptsUsage: mock.usage, runId, model: null }
     }
   }
   // mock 快路（文本型）：CLWRITING_DRIVER=mock 时直接返回预定值（守卫位置与 tryMockTool 对称，P0-1）
   if (opts.mockText !== undefined && process.env['CLWRITING_DRIVER'] === 'mock') {
     trace({ model: 'mock', attempt: 0, stopReason: 'mock', usage: null, ok: true })
     finishMock()
-    return { ok: true, data: opts.mockText, ctrl: new AbortController(), usage: null, runId, model: null }
+    return { ok: true, data: opts.mockText, ctrl: new AbortController(), usage: null, attemptsUsage: null, runId, model: null }
   }
 
   const r = resolveProvider(opts.userDataPath, tierKind)
@@ -453,7 +460,27 @@ export async function runTask<T>(opts: {
   // 库损坏）不应吞掉已到手的生成结果或改写错误语义（成功路径抛错会把 ok 变 GEN_FAIL
   // 触发重试，同一次产出双重计费）。降级为日志留痕；少记一次的账目由预算闸的保守口径
   // 与事件库可重算性兜底。五处调用（成功/中断/Retry-After 终态/重试/终态失败）统一走本助手。
+  // R73-10（二十一轮 A-10）：本助手每次 attempt 恰被调用一次——同点累计全 attempt 可得
+  // usage（attemptsUsage），done 事件消费方与按次入账的账本口径对齐。
+  let attemptsUsage: TokenUsage | null = null
+  const accumulateAttemptsUsage = (u: TokenUsage | null): void => {
+    if (!u) return
+    if (!attemptsUsage) {
+      attemptsUsage = { ...u }
+      return
+    }
+    attemptsUsage.inputTokens += u.inputTokens
+    attemptsUsage.outputTokens += u.outputTokens
+    if (u.cacheReadTokens !== undefined) {
+      attemptsUsage.cacheReadTokens = (attemptsUsage.cacheReadTokens ?? 0) + u.cacheReadTokens
+    }
+    if (u.cacheWriteTokens !== undefined) {
+      attemptsUsage.cacheWriteTokens = (attemptsUsage.cacheWriteTokens ?? 0) + u.cacheWriteTokens
+    }
+    if (u.estimated) attemptsUsage.estimated = true // R73-1 协同：任一估计 attempt 污染整体标记
+  }
   const recordUsageSafe = (usage: TokenUsage | null): void => {
+    accumulateAttemptsUsage(usage)
     if (!bookRoot) return
     try {
       if (task) recordTaskUsage(bookRoot, task, usage)
@@ -494,7 +521,7 @@ export async function runTask<T>(opts: {
         trace({ model: tier.model, attempt, stopReason: extractStopReason(data), usage, ok: true, maxTokens: extractMaxTokens(data), ...(extractDegraded(data) ? { degraded: true } : {}) })
         stepReason = extractStopReason(data) === 'max_tokens' ? 'max-tokens' : 'completed'
         // ee-P1-2：TaskOk.ctrl 对外仍是外部 ctrl（register/中断句柄拿到的同一个），契约不变
-        return { ok: true, data, ctrl: external, usage, runId, model: tier.model }
+        return { ok: true, data, ctrl: external, usage, attemptsUsage, runId, model: tier.model }
       } catch (e) {
         // abort 优先——中断必须立即生效，不进退避
         if (ctrl.signal.aborted) {

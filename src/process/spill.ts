@@ -118,6 +118,11 @@ function makeNote(omitted: number, locator: string, readTool: string): string {
   return `\n\n（约 ${omitted} 字已省略。全文已存储：${locator}。需要完整内容时调用 ${readTool} 工具取回。）\n\n`
 }
 
+/** R73-43（二十一轮）：正文预览最小预算（code points）——低于它继续砍头砍尾只会产出
+ *  「只剩通知行」的 preview（模型侧失去任何正文线索，工具取回指引失去上下文）。生产
+ *  配置（chat 上下文 2000/1200/400）下头尾合计远高于此值，不触发。 */
+const MIN_BODY_PREVIEW_CHARS = 200
+
 /**
  * 超阈值则外置并返回头尾预览；否则原文透传。
  * 预算纪律：头 + 通知行 + 尾 ≤ maxInlineChars（超预算先砍头再砍尾；砍到 0 仍不
@@ -141,6 +146,9 @@ export function spillIfLarge(
   let note = makeNote(total - head - tail, locator, readTool)
   // 预算预留循环：通知行随省略量微变，砍头砍尾后重定价直到装得下（floor 保证收敛）
   while (head + tail + Array.from(note).length > thresholds.maxInlineChars) {
+    // R73-43：正文保底——头尾合计已被砍到最小正文预算（且原文比它长）时不再砍，
+    // 按「配置错误」同型兜底回退原文，绝不产出只剩通知行的 preview
+    if (head + tail <= Math.min(total, MIN_BODY_PREVIEW_CHARS)) return { preview: text }
     if (head > 0) head = Math.floor(head * 0.8)
     else if (tail > 0) tail = Math.floor(tail * 0.8)
     else return { preview: text } // 连通知行都装不下：配置错误，回退原文

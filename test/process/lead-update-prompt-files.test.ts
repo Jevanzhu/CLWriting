@@ -6,18 +6,19 @@
  * 「模型可见 ⟺ 已记录」在 lead-update 链断裂。修复后登记正文路径 + 细纲（若在）。
  */
 import { test, expect, vi } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { generateLeadUpdateDraft } from '../../src/process/lead-update-draft.js'
 import { runSpec } from '../../src/ai/tasks/spec.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 vi.mock('../../src/ai/tasks/spec.js', () => ({
   runSpec: vi.fn(async () => ({ ok: true, data: { text: '- 悬念-001 递进：焦痕在烛火下泛着暗红。' }, model: 'mock' })),
 }))
 
 function makeBook(): string {
-  const root = mkdtempSync(join(tmpdir(), 'clw-leadopt-'))
+  const root = mkdtempTracked(join(tmpdir(), 'clw-leadopt-'))
   mkdirSync(join(root, '布线', '悬念'), { recursive: true })
   mkdirSync(join(root, '工作区'), { recursive: true })
   mkdirSync(join(root, '写作', '正文'), { recursive: true })

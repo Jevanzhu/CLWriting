@@ -22,7 +22,7 @@
 import { describe, it, expect, afterAll, vi } from 'vitest'
 import { EventEmitter } from 'node:events'
 import { PassThrough } from 'node:stream'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -35,6 +35,7 @@ import {
   MAX_LINE_CHARS,
 } from '../../src/desktop/server-manager.js'
 import type { LogLike, ServerManagerDeps } from '../../src/desktop/server-manager.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 /** utilityProcess 假件：EventEmitter 方法双变结构兼容 UtilityProcessLike */
 class FakeChild extends EventEmitter {
@@ -97,7 +98,7 @@ function mkHarness(extra: ServerManagerDeps = {}): {
 
 const tmpDirs: string[] = []
 function mkUserData(): string {
-  const d = mkdtempSync(join(tmpdir(), 'clw-mgr-ud-'))
+  const d = mkdtempTracked(join(tmpdir(), 'clw-mgr-ud-'))
   tmpDirs.push(d)
   return d
 }

@@ -7,10 +7,11 @@
  * fsync 本身不可观测，此处经 spy 断言选项透传；原子写语义由 test/document/atomic.test.ts 兜底。
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, readFileSync } from 'node:fs'
+import { mkdirSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { writeFile as writeFm } from '../../src/format/frontmatter.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const atomicSpy = vi.hoisted(() => vi.fn())
 vi.mock('../../src/fs/atomic.js', async (importOriginal) => {
@@ -33,7 +34,7 @@ describe('账本写点 fsync 纪律（ee-P1-6）', () => {
   afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
   it('writeLead → atomicWriteFile 传 {fsync:true}', () => {
-    dir = mkdtempSync(join(tmpdir(), 'lead-fsync-'))
+    dir = mkdtempTracked(join(tmpdir(), 'lead-fsync-'))
     const fp = join(dir, '布线', '悬念', '悬念-001.md')
     mkdirSync(join(dir, '布线', '悬念'), { recursive: true })
     writeLead(fp, {
@@ -50,14 +51,14 @@ describe('账本写点 fsync 纪律（ee-P1-6）', () => {
   })
 
   it('writeFile 不传 opts → 行为不变（默认不 fsync，普通写点零感知）', () => {
-    dir = mkdtempSync(join(tmpdir(), 'fm-fsync-'))
+    dir = mkdtempTracked(join(tmpdir(), 'fm-fsync-'))
     const fp = join(dir, '普通文档.md')
     writeFm(fp, '标题: x', '正文')
     expect(atomicSpy).toHaveBeenLastCalledWith(fp, expect.any(String), undefined)
   })
 
   it('writeFile 传 {fsync:true} → 透传（frontmatter 写点可选升级）', () => {
-    dir = mkdtempSync(join(tmpdir(), 'fm-fsync2-'))
+    dir = mkdtempTracked(join(tmpdir(), 'fm-fsync2-'))
     const fp = join(dir, '强一致文档.md')
     writeFm(fp, '标题: y', '正文', { fsync: true })
     expect(atomicSpy).toHaveBeenLastCalledWith(fp, expect.any(String), { fsync: true })
@@ -66,7 +67,7 @@ describe('账本写点 fsync 纪律（ee-P1-6）', () => {
   it('清空账本推进（lead-finalize 路径）也走 fsync', async () => {
     // 该写点在 src/document/lead-finalize.ts（atomicWriteFile(mainPath, '', {fsync:true})）；
     // 这里直接断言同一契约：空内容 + fsync 组合可用（mock 已包真实实现，写盘真实发生）
-    dir = mkdtempSync(join(tmpdir(), 'lead-clear-'))
+    dir = mkdtempTracked(join(tmpdir(), 'lead-clear-'))
     const fp = join(dir, '账本推进.md')
     mkdirSync(dir, { recursive: true })
     atomicWriteFile(fp, '', { fsync: true })

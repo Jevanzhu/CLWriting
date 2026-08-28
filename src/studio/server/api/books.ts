@@ -9,8 +9,8 @@
  * workDir 由 server 启动时 findWorkDir(cwd) 注入；为 null 时书架空 + 提示（不崩）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { rmSync, renameSync, existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import { rmSync, renameSync, existsSync, readdirSync, readFileSync, statSync, mkdirSync } from 'node:fs'
+import { join, basename, dirname } from 'node:path'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
 import { resolveWithinRoot } from '../../../fs/safe-path.js'
@@ -209,6 +209,10 @@ export function registerBookRoutes(ctx: BookCtx): void {
   },
   })
 
+  // R73-34（二十一轮 D-1）：删书墓地——workDir 根下点前缀目录（与 .journal/.旧版 同族，
+  // 书架扫描与启动 repair 不触达），同盘 rename 保证原子性
+  const DELETE_GRAVEYARD_DIR = '.删书墓地'
+
   // 删书（物理删除：rmSync 书目录 + 移 books.jsonl 登记 + 清 active 指针）
   defineRoute('books.delete', {
     method: 'DELETE',
@@ -264,13 +268,24 @@ export function registerBookRoutes(ctx: BookCtx): void {
       if (!resolveWithinRoot(ctx.workDir, entry.path)) {
         return replyError(res, 400, 'BAD_PATH', '书路径非法（越出书库）')
       }
+      // R73-34（二十一轮 D-1）：裸 rmSync 中途抛错（占用/权限/磁盘满）会留下半删目录 +
+      // 未清的 books.jsonl 登记（启动 repair 只兜底整目录缺失，半删态登记悬空且不可逆）。
+      // 改先整体 rename 进删书墓地（同盘 rename 原子：成功即原位不存在半删态），墓地副本
+      // 清理失败仅留痕不阻断——数据在墓地可手工恢复，登记照常移除（与作者删除意图一致）。
+      const graveAbs = join(ctx.workDir, DELETE_GRAVEYARD_DIR, `${Date.now()}-${basename(entry.path)}`)
       try {
-        rmSync(bookAbs, { recursive: true, force: true })
-    } catch (e) {
-      log.error('api', `删除目录失败（${name}）`, e)
-      replyError(res, 500, 'IO', '删除目录失败')
-      return
-    }
+        mkdirSync(dirname(graveAbs), { recursive: true })
+        renameSync(bookAbs, graveAbs)
+      } catch (e) {
+        log.error('api', `删书移入墓地失败（${name}，书原样保留）`, e)
+        replyError(res, 500, 'IO', '删除书目录失败（书未受影响，可重试）')
+        return
+      }
+      try {
+        rmSync(graveAbs, { recursive: true, force: true })
+      } catch (e) {
+        log.error('api', `删书墓地清理失败（${name}，留档待手工处理：${graveAbs}）`, e)
+      }
     // 移 books.jsonl 登记 + 清活动书指针
     removeBookEntry(ctx.workDir, name)
     // 清理 service 缓存，防同 path 重建复用旧实例

@@ -104,4 +104,21 @@ describe('readJson 分块解码（V-P1-1）', () => {
     await new Promise((r) => setTimeout(r, 150)) // 越过宽限期
     expect(destroyCalls).toBe(atClose) // 无新增 destroy = 定时器已被 close 清掉
   })
+
+  // ── R73-51（二十一轮）：body 统一断言为 JSON object（原语/数组 → 400 BAD_INPUT）──
+
+  it('JSON 原语 body（"abc"/123/true）→ 400 BAD_INPUT 统一信封', async () => {
+    for (const raw of ['"abc"', '123', 'true']) {
+      await expect(chunkedReq([Buffer.from(raw)])).rejects.toMatchObject({ status: 400, code: 'BAD_INPUT' })
+    }
+  })
+
+  it('数组 body → 400（返回类型 Record 即契约，调用方无一按顶层数组消费）', async () => {
+    await expect(chunkedReq([Buffer.from('[1,2]')])).rejects.toMatchObject({ status: 400, code: 'BAD_INPUT' })
+  })
+
+  it('字面 null body 仍归一为 {}（既有兜底语义不受 object 断言影响）', async () => {
+    const result = await chunkedReq([Buffer.from('null')])
+    expect(result).toEqual({})
+  })
 })

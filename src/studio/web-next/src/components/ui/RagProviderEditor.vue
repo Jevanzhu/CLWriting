@@ -9,6 +9,9 @@ import { apiKeyFailure } from '../../shared/provider-format'
 const props = defineProps<{
   /** 编辑目标（null = 新增）；挂载时快照初始化（与原 v-if 重建语义一致） */
   initial: RagProviderDto | null
+  /** 父层保存在途（R73-62）：校验与 API 写入在父层（AiServicePanel.saveRag），在途锁也在
+   *  父层——在途时禁保存按钮 + 文案反馈，挡双击第二笔重复提交 */
+  saving?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -57,7 +60,8 @@ const keyError = computed(() => {
       </div>
       <div class="form-actions">
         <button class="cancel-btn" @click="emit('cancel')">取消</button>
-        <button class="save-btn" @click="emit('save', { ...form })">保存</button>
+        <!-- R73-62：保存按钮在途禁用 + 文案反馈 -->
+        <button class="save-btn" :disabled="saving" @click="emit('save', { ...form })">{{ saving ? '保存中…' : '保存' }}</button>
       </div>
     </div>
   </div>

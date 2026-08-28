@@ -6,14 +6,15 @@
  * 此前两词表无任何调用方供给 → 检查器恒静默（评审：功能性缺口）。
  */
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { runCheckForDocument } from '../../src/check/run.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 /** 造一本有布线的书（信息差检查在 hasWiring 分支内）；extraYaml 追加 book.yaml 尾部 */
 function makeWiringBook(extraYaml = ''): string {
-  const root = mkdtempSync(join(tmpdir(), 'wordlist-'))
+  const root = mkdtempTracked(join(tmpdir(), 'wordlist-'))
   mkdirSync(join(root, '布线', '悬念'), { recursive: true })
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '项目'), { recursive: true })

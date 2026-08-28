@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -18,6 +18,7 @@ import {
 } from '../../src/format/frontmatter.js'
 import { readBookConfig } from '../../src/format/yaml.js'
 import { stripInlineComment } from '../../src/format/frontmatter-core.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 // ── 值类型推断 ──────────────────────────────────
 
@@ -95,7 +96,7 @@ test('parseFlat: 未知字段原样保留', () => {
 // ── 文件读写（容错：坏文件不崩）──────────────────
 
 test('readFile: 正常文件', () => {
-  const dir = mkdtempSync(join(tmpdir(), '北境的雪-'))
+  const dir = mkdtempTracked(join(tmpdir(), '北境的雪-'))
   const fp = join(dir, '伏笔-031-灭门真凶.md')
   writeFileSync(fp, '---\n编号: 伏笔-031\n---\n正文', 'utf-8')
   const r = readFile(fp)
@@ -117,7 +118,7 @@ test('readFile: 坏文件返回结构化错误不崩', () => {
   }
 
   // 无 front matter 的文件
-  const dir = mkdtempSync(join(tmpdir(), '北境的雪-'))
+  const dir = mkdtempTracked(join(tmpdir(), '北境的雪-'))
   const fp = join(dir, '无头.md')
   writeFileSync(fp, '只有正文没有 front matter', 'utf-8')
   const r2 = readFile(fp)
@@ -129,7 +130,7 @@ test('readFile: 坏文件返回结构化错误不崩', () => {
 })
 
 test('writeFile + readFile 往返', () => {
-  const dir = mkdtempSync(join(tmpdir(), '北境的雪-'))
+  const dir = mkdtempTracked(join(tmpdir(), '北境的雪-'))
   const fp = join(dir, '伏笔-031.md')
   writeFile(fp, '编号: 伏笔-031\n开启章: 12', '正文在这里')
   const r = readFile(fp)
@@ -404,7 +405,7 @@ test('E-3: 读改写往返不炸（注释丢失与 yaml.ts 读改写口径一致
 // N-4（第五十四轮）：双入口行为一致——parseFlat（章 fm）与 readBookConfig（book.yaml）
 // 共用 frontmatter-core.ts stripInlineComment 后，同一值串在两侧剥注释结果必须一致
 test('N-4: 双入口（parseFlat / readBookConfig）行内注释剥除行为一致', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'n4-双入口-'))
+  const dir = mkdtempTracked(join(tmpdir(), 'n4-双入口-'))
   try {
     const values = [
       '甲 # 注',        // 常规行内注释

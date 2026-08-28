@@ -10,7 +10,6 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
-import { log } from '../log/index.js'
 
 /** 清单条目：身份 + 排序投影。folder 无 status。 */
 export interface ManifestEntry {
@@ -194,9 +193,15 @@ const heldManifestLocks = new Map<string, { depth: number; release: () => void }
  * 此前全程无互斥——CLI 与 GUI 双进程同书并发时后写者整文件重写吞掉先写者的更新。
  * 锁文件 `<manifestPath>.lock`（复用 fs/cross-process-lock）。
  *
- * 语义对齐 J7 journal 先例：锁超时**降级裸写** + log.warn 留痕（清单是自愈型元数据——
- * 树重建按磁盘现状收口，锁饿死时宁裸写不阻断保存/定稿主流程）。
- * 进程内重入走计数（同进程嵌套获取不死锁）；跨进程嵌套（他进程持锁）正常等待。
+ * R73-33（二十一轮 C-2）：锁超时**不再降级裸写**，改 fail-closed——原「超时降级 + warn
+ * 留痕」在双进程同时降级时后写者整文件覆盖先写者，finalizedRevision/清单条目丢行
+ * （正是 X-5 要防的事故在超时窗口复现；清单整文件重写不是 append-only，journal 那套
+ * 「降级裸写有兜底」的理由在这里不成立）。现对齐 service.ts 保存锁「超时拒绝不降级」
+ * 纪律：每轮等待 MANIFEST_LOCK_TIMEOUT_MS，有界重试 1 次（间隔 50ms，吸收恰在超时后
+ * 释放的持有者）后仍拿不到 → 抛错拒绝写。调用方语义核查：请求层有统一错误出口
+ * （executeSave 内 catch → WRITE_ERROR；doTrash/doMoveOrRename catch → {ok:false}；
+ * install 迁移链逐书 try/catch；finalize/trash 持锁段为毫秒级 IO，抛错即上层 500/失败信封），
+ * 宁拒绝不覆盖。进程内重入走计数（同进程嵌套获取不死锁）；跨进程嵌套（他进程持锁）正常等待。
  */
 export function withManifestLock<T>(manifestPath: string, fn: () => T): T {
   const held = heldManifestLocks.get(manifestPath)
@@ -208,16 +213,24 @@ export function withManifestLock<T>(manifestPath: string, fn: () => T): T {
       held.depth--
     }
   }
-  const release = acquireCrossProcessLockWithTimeout(`${manifestPath}.lock`, MANIFEST_LOCK_TIMEOUT_MS)
-  if (!release) {
-    log.warn('manifest', `清单锁超时，降级裸写（${manifestPath}）——并发互斥窗口回到无锁口径`)
-    return fn()
-  }
-  heldManifestLocks.set(manifestPath, { depth: 1, release })
-  try {
-    return fn()
-  } finally {
-    heldManifestLocks.delete(manifestPath)
-    release()
+  // R73-33：有界重试（共 2 轮 × 5s）后 fail-closed 抛错
+  const lockPath = `${manifestPath}.lock`
+  for (let attempt = 0; ; attempt++) {
+    const release = acquireCrossProcessLockWithTimeout(lockPath, MANIFEST_LOCK_TIMEOUT_MS)
+    if (release) {
+      heldManifestLocks.set(manifestPath, { depth: 1, release })
+      try {
+        return fn()
+      } finally {
+        heldManifestLocks.delete(manifestPath)
+        release()
+      }
+    }
+    if (attempt >= 1) {
+      throw new Error(
+        `清单锁获取超时（另一进程持锁 ${MANIFEST_LOCK_TIMEOUT_MS}ms × 2 轮未让出：${manifestPath}）——已拒绝本次清单写入以防并发覆盖丢失，请稍后重试`,
+      )
+    }
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50)
   }
 }

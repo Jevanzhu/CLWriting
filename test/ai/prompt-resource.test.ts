@@ -8,13 +8,14 @@
  * - 精确匹配：命中历史哈希定位内置名；runner 入口换 overlay/当前内置
  */
 import { describe, it, expect } from 'vitest'
-import { readFileSync, writeFileSync, mkdirSync, rmSync, mkdtempSync, existsSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 const golden = JSON.parse(
   readFileSync(new URL('./__fixtures__/prompts-golden.json', import.meta.url), 'utf8'),
 ) as Record<string, string>
 import { bundledResource } from '../../src/fs/resources.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import {
   promptHash,
   loadBuiltinPrompt,
@@ -67,7 +68,7 @@ describe('C2 一致性（离线重算）', () => {
 
 describe('C2 overlay 解析', () => {
   it('无 overlay → 内置；有 overlay → overlay 优先生效', () => {
-    const ud = mkdtempSync(join(tmpdir(), 'clwriting-prompt-ov-'))
+    const ud = mkdtempTracked(join(tmpdir(), 'clwriting-prompt-ov-'))
     try {
       expect(resolvePrompt('writer-long', ud).source).toBe('builtin')
       mkdirSync(join(ud, 'prompts'), { recursive: true })
@@ -95,7 +96,7 @@ function miniRegistry(): { registry: PromptRegistry; v1: string; v2: string } {
 describe('C2 迁移（A6：升级不覆盖用户改动）', () => {
   it('未改动的旧版拷贝 → 升级为当前内置', () => {
     const { registry, v1, v2 } = miniRegistry()
-    const ud = mkdtempSync(join(tmpdir(), 'clwriting-prompt-mig-'))
+    const ud = mkdtempTracked(join(tmpdir(), 'clwriting-prompt-mig-'))
     try {
       mkdirSync(join(ud, 'prompts'), { recursive: true })
       writeFileSync(join(ud, 'prompts', 'writer-long.md'), v1 + '\n', 'utf8')
@@ -110,7 +111,7 @@ describe('C2 迁移（A6：升级不覆盖用户改动）', () => {
 
   it('用户改过的拷贝 → 原样保留；已是当前版 → 不写盘不报告；无 overlay → no-op', () => {
     const { registry, v1, v2 } = miniRegistry()
-    const ud = mkdtempSync(join(tmpdir(), 'clwriting-prompt-mig2-'))
+    const ud = mkdtempTracked(join(tmpdir(), 'clwriting-prompt-mig2-'))
     try {
       mkdirSync(join(ud, 'prompts'), { recursive: true })
       writeFileSync(join(ud, 'prompts', 'writer-long.md'), v1 + '\n但用户加了私货\n', 'utf8')
@@ -145,7 +146,7 @@ describe('C2 哈希精确匹配（CS-19）', () => {
   it('runner 入口：旧版内置 → overlay 优先，无 overlay → 当前内置；动态 prompt 原样', () => {
     const { registry, v1, v2 } = miniRegistry()
     expect(resolveBuiltinSystemPrompt(v1, undefined, registry)).toBe(v2)
-    const ud = mkdtempSync(join(tmpdir(), 'clwriting-prompt-swap-'))
+    const ud = mkdtempTracked(join(tmpdir(), 'clwriting-prompt-swap-'))
     try {
       mkdirSync(join(ud, 'prompts'), { recursive: true })
       writeFileSync(join(ud, 'prompts', 'writer-long.md'), '用户改版\n', 'utf8')

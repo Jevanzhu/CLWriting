@@ -102,7 +102,11 @@ jobs:
       # R67-4（十五轮）：Electron 壳真实启动冒烟——release-smoke 只 spawn 编译产物
       # server-main.js（node 进程，不启动 Electron 壳），BrowserWindow/preload/IPC 在
       # 真实 Electron 运行时的行为此前无任何自动化兜底。拉起打包态 .app 二进制，
-      # 存活 ≥25s 且未触发崩溃自愈日志即过（放工件上传后：冒烟红仍留 DMG 供排查）。
+      # 存活 ≥25s、捕获 [CLW_SMOKE] ready 结构化标记且未触发 renderer-crash 标记即过
+      # （放工件上传后：冒烟红仍留 DMG 供排查）。
+      # R73-53（二十一轮）：判定改 grep main.ts 直写 stdout 的结构化标记（一行 ASCII）——
+      # 原 grep 中文措辞与 main.ts 文案强耦合，文案改写即静默失判（且打包态 log.* 只落
+      # JSONL 不进 stdout，原崩溃 grep 实际并不可见）
       - name: Electron 启动冒烟（打包态 .app 拉起）
         run: |
           set -eu
@@ -116,12 +120,17 @@ jobs:
             tail -80 /tmp/clw-electron-smoke.log || true
             exit 1
           fi
-          if grep -qiE "render-process-gone|连续崩溃|停止自动重载" /tmp/clw-electron-smoke.log; then
-            echo "::error::冒烟期内触发渲染进程崩溃自愈"
+          if ! grep -q "\[CLW_SMOKE\] ready" /tmp/clw-electron-smoke.log; then
+            echo "::error::冒烟未捕获启动完成标记（[CLW_SMOKE] ready）——进程存活但启动链未走完"
+            tail -80 /tmp/clw-electron-smoke.log || true
+            exit 1
+          fi
+          if grep -q "\[CLW_SMOKE\] renderer-crash" /tmp/clw-electron-smoke.log; then
+            echo "::error::冒烟期内触发渲染进程崩溃"
             tail -80 /tmp/clw-electron-smoke.log || true
             exit 1
           fi
           kill "$PID" 2>/dev/null || true
           sleep 3
           kill -9 "$PID" 2>/dev/null || true
-          echo "冒烟通过：打包态 Electron 进程存活 ≥25s，无崩溃自愈触发"
+          echo "冒烟通过：打包态 Electron 进程存活 ≥25s，启动标记已捕获，无渲染崩溃标记"

@@ -39,9 +39,83 @@ const root = fileURLToPath(new URL('..', import.meta.url))
 export function stripComments(src) {
   return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1')
 }
-// 字符串字面量内容清空（保留空串定界符维持词法形态）：标题/说明文本不参与匹配
+// 字符串字面量内容清空（保留空串定界符维持词法形态）：标题/说明文本不参与匹配。
+// R73-78（批 F-12）：模板串改前向扫描支持 ${} 嵌套——旧单条正则 `[^`\\]*` 在
+// 「模板内嵌套模板/字符串」（如 `a ${ t(`x`) } b`）处提前截断，半截模板残留在净化
+// 输出里：残留中的 `test(` 假声明被虚增计数、真实用例可能被吞（计数漂移）。扫描器
+// 口径：最外层模板（含 ${} 表达式内的嵌套模板与单双引号串）整体清成 ""；未闭合
+// 模板与旧正则口径一致——不匹配、原样保留。
+/**
+ * 从 src[at]（须为反引号）起吞一个完整模板串，返回闭合反引号下标；未闭合返回 -1。
+ * ${} 表达式内允许：花括号嵌套（对象字面量）、单双引号串（串内反引号不算定界）、
+ * 嵌套模板（递归吞到其闭合）。
+ */
+function skipTemplateLiteral(src, at) {
+  let depth = 0 // 0 = 模板文本段；>0 = ${ } 表达式内花括号平衡深度
+  let i = at + 1
+  while (i < src.length) {
+    const c = src[i]
+    if (c === '\\') { i += 2; continue }
+    if (depth === 0) {
+      if (c === '`') return i
+      if (c === '$' && src[i + 1] === '{') { depth = 1; i += 2; continue }
+    } else {
+      if (c === '{') { depth++; i++; continue }
+      if (c === '}') { depth--; i++; continue }
+      if (c === "'" || c === '"') {
+        // 表达式内的普通字符串：串内反引号/${} 不参与模板定界，整串跳过
+        const q = c
+        i++
+        while (i < src.length && src[i] !== q && src[i] !== '\n') {
+          if (src[i] === '\\') i += 2
+          else i++
+        }
+        i++ // 越过闭合引号（未闭合时停在行尾断点，容错前进）
+        continue
+      }
+      if (c === '`') {
+        const close = skipTemplateLiteral(src, i)
+        if (close === -1) return -1
+        i = close + 1
+        continue
+      }
+    }
+    i++
+  }
+  return -1
+}
+
 export function stripStrings(src) {
-  return src.replace(/'(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*"|`(?:[^`\\]|\\.)*`/g, '""')
+  let out = ''
+  let i = 0
+  const n = src.length
+  while (i < n) {
+    const c = src[i]
+    if (c === "'" || c === '"') {
+      // 单双引号串：口径同旧正则（不跨行、\ 转义），清成 ""
+      let j = i + 1
+      let closed = false
+      while (j < n) {
+        if (src[j] === '\\') { j += 2; continue }
+        if (src[j] === c) { closed = true; break }
+        if (src[j] === '\n') break
+        j++
+      }
+      if (closed) { out += '""'; i = j + 1 }
+      else { out += src.slice(i, j); i = j } // 未闭合：原样保留（旧正则同口径）
+      continue
+    }
+    if (c === '`') {
+      const close = skipTemplateLiteral(src, i)
+      if (close !== -1) { out += '""'; i = close + 1; continue }
+      out += c // 未闭合模板：原样保留（旧正则不匹配未闭合串）
+      i++
+      continue
+    }
+    out += c
+    i++
+  }
+  return out
 }
 
 /**

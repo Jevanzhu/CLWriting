@@ -14,6 +14,7 @@
  */
 import { readFileSync, mkdirSync, existsSync, chmodSync, copyFileSync, statSync } from 'node:fs'
 import { atomicWriteFile } from '../../fs/atomic.js'
+import { acquireCrossProcessLockWithTimeout } from '../../fs/cross-process-lock.js'
 import { dirname, join } from 'node:path'
 import type { ProviderConf, ModelConf, TierSlot, TierConfig, RagProviderConf } from './types.js'
 import { builtinKeyMaterial } from './vault-key.js'
@@ -280,8 +281,62 @@ export function loadProviders(userDataPath: string): ProviderStore {
  *
  * 每次 save 以 providers 列表为准重建 vault.keys（D4：删除的 provider 自动清除密文）。
  * 若 store 无 vault（首次 / 迁移），创建新 vault + 随机 DEK。
+ *
+ * R73-2（二十一轮 A-2）：全部写路径（loadProviders 迁移回写 / runner 降级持久化 /
+ * 设置页保存）统一收口到本函数 → 按 userDataPath 的串行写队列 + 跨进程文件锁
+ * （范式同 ai/calls.ts serializedWrite + J7 跨进程锁）。修复前读-改-写三段无串行化，
+ * 与设置页保存并发时旧快照整态覆盖新写，用户配置丢失。
+ *
+ * 语义变化（与 calls.ts R61-7 同款取舍）：队列空闲时同步直行（同步调用方「存完即读」
+ * 与「revision 写后 +1 立即可读」语义不变、IO 异常照旧同步上抛）；存在在途段时排队为
+ * 微任务执行，排队段的 IO 异常无法同步上抛 → log.warn 留痕后吞掉（对齐 runner
+ * recordUsageSafe 口径）。
+ *
+ * 残余窗口（登记）：读路径 loadProviders 不参与互斥——排队写未落地的微任务窗口内
+ * 并发 load 读到旧快照、改动后再 save 会按调用序排在后面（后写覆盖前写）。
+ * 设置页写端点已有 P4 expectedRevision 校验（陈旧快照 409 重读）兜住主路径；
+ * 降级持久化等无 revision 校验的路径残余窗口 = 该微任务窗，写频每 key 一次
+ * （AA-P3-5 去重），风险可接受。跨进程窗口由文件锁互斥（写段不交错），锁内
+ * 不重读合并（与 calls.ts 同口径，读合并在锁外做收益为零）。
  */
+const writeChains = new Map<string, Promise<unknown>>()
+
+/** R73-2 跨进程锁等待超时（毫秒）——写段为本地文件 IO 级毫秒，5s 已极保守（同 calls.ts） */
+const PROVIDERS_WRITE_LOCK_TIMEOUT_MS = 5_000
+
 export function saveProviders(userDataPath: string, store: ProviderStore): void {
+  const prev = writeChains.get(userDataPath)
+  if (prev === undefined) {
+    // 空闲快路：同步原子完成（跨进程锁内——多进程同写 providers.json 不再交错覆盖）
+    saveWithCrossProcessLock(userDataPath, store)
+    return
+  }
+  const next = prev.catch(() => {}).then(() => saveWithCrossProcessLock(userDataPath, store))
+  writeChains.set(userDataPath, next)
+  const cleanup = (): void => {
+    if (writeChains.get(userDataPath) === next) writeChains.delete(userDataPath)
+  }
+  void next.then(cleanup, (e: unknown) => {
+    log.warn('providers', `排队 providers.json 写入失败（本轮写未落盘）：${e instanceof Error ? e.message : String(e)}`)
+    cleanup()
+  })
+}
+
+function saveWithCrossProcessLock(userDataPath: string, store: ProviderStore): void {
+  const lockPath = `${userDataPath}/${FILE}.lock`
+  const release = acquireCrossProcessLockWithTimeout(lockPath, PROVIDERS_WRITE_LOCK_TIMEOUT_MS)
+  if (!release) {
+    throw new Error(`providers.json 跨进程锁获取超时（${lockPath}）——本次写入未落盘，避免与其他进程交错覆盖`)
+  }
+  try {
+    saveProvidersLocked(userDataPath, store)
+  } finally {
+    release()
+  }
+}
+
+/** 原 saveProviders 主体（R73-2 改名入锁；逻辑逐行不变） */
+function saveProvidersLocked(userDataPath: string, store: ProviderStore): void {
   const fp = `${userDataPath}/${FILE}`
   mkdirSync(dirname(fp), { recursive: true })
 

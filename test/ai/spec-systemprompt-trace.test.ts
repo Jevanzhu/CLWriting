@@ -10,7 +10,7 @@
  * 手法：mock gen 层捕获进请求的 systemPrompt 终值 → runSpec → 重开事件库读回
  * workspace 链的 llm/call 事件，断言 promptMeta.hash === promptMeta(system, user)。
  */
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
@@ -27,12 +27,13 @@ vi.mock('../../src/ai/gen.js', async (importOriginal) => {
 import { generate } from '../../src/ai/gen.js'
 import { runSpec, type TaskSpec } from '../../src/ai/tasks/spec.js'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const generateMock = generate as ReturnType<typeof vi.fn>
 
 const workDirs: string[] = []
 function tempDir(prefix: string): string {
-  const d = mkdtempSync(join(tmpdir(), prefix))
+  const d = mkdtempTracked(join(tmpdir(), prefix))
   workDirs.push(d)
   return d
 }

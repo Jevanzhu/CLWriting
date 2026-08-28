@@ -6,17 +6,18 @@
  * 修复后空串短路（不计匹配），计数如实。
  */
 import { test, expect } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs'
+import { mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { writeChapter } from '../helpers/chapter.js'
 import { writePieceList } from '../../src/format/manifest.js'
 import { scanShortCollection } from '../../src/metrics/short-index.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 let seq = 0
 
 test('R71-33: 纯标点锚点标题不虚报 anchoredSetupCount（空串短路）', () => {
-  const root = mkdtempSync(join(tmpdir(), 'r71-short-anchor-'))
+  const root = mkdtempTracked(join(tmpdir(), 'r71-short-anchor-'))
   try {
     const name = `00${++seq}-空锚.md`
     const bodyDir = join(root, '写作', '正文', '第一卷')
@@ -53,7 +54,7 @@ test('R71-33: 纯标点锚点标题不虚报 anchoredSetupCount（空串短路�
 })
 
 test('R71-33: 纯标点铺垫内容不虚报 payoffMatched（空串短路）', () => {
-  const root = mkdtempSync(join(tmpdir(), 'r71-short-payoff-'))
+  const root = mkdtempTracked(join(tmpdir(), 'r71-short-payoff-'))
   try {
     const name = `00${++seq}-空铺.md`
     const bodyDir = join(root, '写作', '正文', '第一卷')

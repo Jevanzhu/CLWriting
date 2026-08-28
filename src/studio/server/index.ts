@@ -27,7 +27,7 @@ import { registerOverviewRoutes } from './api/overview.js'
 import { registerRhythmRoutes } from './api/rhythm.js'
 import { registerSettingsRoutes } from './api/settings.js'
 import { registerStreamRoutes } from './api/stream.js'
-import { registerStreamTicketRoutes } from './api/stream-ticket.js'
+import { createStreamTicketStore, registerStreamTicketRoutes, type StreamTicketStore } from './api/stream-ticket.js'
 import { registerDraftRoutes } from './api/draft.js'
 import { registerOutlineRoutes } from './api/outline.js'
 import { registerReviewRoutes } from './api/review.js'
@@ -72,6 +72,7 @@ function buildRoutes(
   userDataPath: string | null,
   isTrustedOrigin: (origin: string) => boolean,
   sink: StartupNoticeSink,
+  streamTickets: StreamTicketStore,
 ): RouteTable {
   const routes = createRouteTable()
   // E2：schema 注册表随路由表生命周期重置（防跨 server 实例重复声明）
@@ -115,8 +116,10 @@ function buildRoutes(
     registerChatBranchesRoutes({ workDir, userDataPath }) // G1：分支列表只读端点（editor 组，分支 UI 服务端支撑）
 
     // ── ai 组（依赖 driver；AI 不可达时前端置灰）──
-    registerStreamRoutes({ workDir, userDataPath, studioToken: token })
-    registerStreamTicketRoutes() // T2 批：SSE 一次性 ticket 签发（POST 走写闸），token 不再出 URL
+    // R73-49（二十一轮）：ticket 库随本实例建，签发与 SSE 消费两侧共享同一份——
+    // 票不跨 server 实例残留/消费（对齐路由表 per-server 生命周期）
+    registerStreamRoutes({ workDir, userDataPath, studioToken: token, tickets: streamTickets })
+    registerStreamTicketRoutes(streamTickets) // T2 批：SSE 一次性 ticket 签发（POST 走写闸），token 不再出 URL
     registerOutlineRoutes({ workDir, userDataPath })
     registerLeadUpdateRoutes({ workDir, userDataPath })
     registerReviewRoutes({ workDir, userDataPath })
@@ -270,7 +273,9 @@ export function startServer(opts: StudioServerOptions): http.Server {
   const isTrustedOrigin = (origin: string): boolean => allowedOrigins.has(origin)
   // T2-4：本 server 进程的书库锁根——双进程开同书时长任务闸走文件锁互斥
   configureTaskGateLockRoot(opts.workDir ? join(opts.workDir, '.clwriting', 'task-gate') : null)
-  const routes = buildRoutes(opts.workDir ?? null, studioToken, opts.userDataPath ?? null, isTrustedOrigin, sink)
+  // R73-49（二十一轮）：ticket 库 per-server 实例（签发/消费两路由在本 buildRoutes 内共享）
+  const streamTickets = createStreamTicketStore()
+  const routes = buildRoutes(opts.workDir ?? null, studioToken, opts.userDataPath ?? null, isTrustedOrigin, sink, streamTickets)
   // CC-P2-13：host 选项此前是陷阱——允许传任意监听地址，但下方 Host 白名单硬编码回环，
   // 传非回环 host 时全请求 403（参数存在即故障）。产品口径仅本机回环（本文件头注释），
   // 非回环值启动即拒——fail-fast 优于逐请求 403 的静默失效。
@@ -440,5 +445,8 @@ export function startServer(opts: StudioServerOptions): http.Server {
   server.on('close', () => {
     setInitialBook(undefined)
   })
+  // R73-49（二十一轮）：票库挂 server 对象——同进程多实例（测试/e2e）按实例取用，
+  // 旧实例签发的票随实例隔离，新实例（二次 startServer）零残留零可用
+  ;(server as http.Server & { __streamTickets?: StreamTicketStore }).__streamTickets = streamTickets
   return server
 }

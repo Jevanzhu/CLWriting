@@ -8,9 +8,12 @@
  * expect：误报=silent（回归门断言不再命中）、命中=fire（断言仍命中）。
  * 合并去重按 excerpt 全文；入库即进 CI（test/check/corpus.test.ts）。
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import process from 'node:process'
+// R73-50（二十一轮）：语料 JSON 落盘走原子写原语（同目录 tmp + rename）——写中途被杀
+// 不得留半截文件（checkId.json 是 CI 回归门 corpus.test.ts 的输入，截断即门挂）
+import { atomicWriteFile } from '../src/fs/atomic.js'
 
 const bookRoot = process.argv[2] ?? '.'
 // 第二可选参：语料输出目录（缺省仓库 test/corpus/checks；测试传 tmp 隔离）
@@ -106,7 +109,7 @@ for (const [checkId, entries] of byCheck) {
   const merged = new Map(existing.map((e) => [e.excerpt, e] as const))
   for (const e of entries) merged.set(e.excerpt, e)
   const final = [...merged.values()]
-  writeFileSync(fp, JSON.stringify(final, null, 2) + '\n')
+  atomicWriteFile(fp, JSON.stringify(final, null, 2) + '\n') // R73-50：原子替换，防半截 JSON
   written++
   console.log(`[corpus:commit] ${fp} ← ${final.length} 条`) // R62-55：打实际 fp，自定义 corpusDir 不误导
 }

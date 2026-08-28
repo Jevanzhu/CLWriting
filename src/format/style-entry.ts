@@ -228,16 +228,81 @@ export function addEntry(bookRoot: string, e: StyleEntry): string {
 }
 
 /**
+ * 禁词行清洗拆词（R73-15 二十一轮自 iron-rules.ts 移驻）——readBannedEntryWords 与
+ * 铁律「反和解/硬禁词」段共用同一套清洗（占位行过滤 → 引号词抽取 → 剥列表前缀/括注
+ * → 标签冒号行校验 → 顿号/逗号/斜杠/分号劈分 → 占位词过滤）。实现逐字保留，仅函数
+ * 随消费方迁文件（iron-rules 原已单向 import 本模块，反向会成环）；导出供两侧调用。
+ */
+export function parseBannedWordsLine(rawLine: string): string[] {
+  const line = rawLine.trim()
+  if (!line || line.startsWith('>') || /待作者补|待补|示例|非硬禁词/.test(line)) return []
+
+  const quoted = [...line.matchAll(/[「『“"]([^」』”"]{2,24})[」』”"]/g)].map((m) => m[1]!)
+  if (quoted.length > 0) return quoted
+
+  let cleaned = line
+    .replace(/^[-*+]\s*/, '')
+    .replace(/^\d+[.)、]\s*/, '')
+    .replace(/[（(].*?[）)]/g, '')
+    .trim()
+
+  const colon = cleaned.match(/^([^:：]{1,24})[:：]\s*(.+)$/)
+  if (colon) {
+    const label = colon[1]!.trim()
+    const value = colon[2]!.trim()
+    if (!/(禁止|禁用|不要|不得|避免|少用|硬禁词|禁词|禁句|套话|反和解|清单|词表|不可出现)/.test(label)) {
+      return []
+    }
+    cleaned = value
+  } else {
+    cleaned = cleaned.replace(/^(禁止|禁用|不要|不得|避免|少用)\s+/, '').trim()
+  }
+
+  if (!cleaned) return []
+  return cleaned
+    .split(/[、，,\/／；;]/)
+    .map((part) => part.trim())
+    // R72-8（二十轮 C-6）：占位词过滤改精确形态匹配（词首全等占位词）——原 /待/ 子串
+    // 过滤误伤字面含「待」的真禁词（如「迫不及待」），与本函数头部 97 行的精确占位口径
+    // 不一致；词长 ≥2 已挡单字「待」
+    .filter(
+      (word) =>
+        word.length >= 2 &&
+        word.length <= 24 &&
+        !/^(待补|待定|待填|待写|待确认|待作者补|示例|非硬禁词)/.test(word),
+    )
+}
+
+/**
  * 条目库硬禁词列表（机检收口 S5：禁词知识在条目库；无条目库 → 空）。
  * 「AI味」标签的是软禁词（旧铁律替换表迁移而来）——只注入不机检，
  * 保持旧语义：反和解硬禁词命中报红，AI 味词交给写稿/去味阶段。
+ *
+ * R73-15（二十一轮 B-2）：此前仅按 \n 拆行、整行当一个词——单行多词（顿号/逗号
+ * 分隔）作 includes 永不命中，禁词红闸对该条目静默全量漏报。现复用
+ * parseBannedWordsLine 同套清洗（铁律侧同源口径）：引号词/列表前缀/顿号劈分全认。
+ * 解析不出任何词的条目（整段说明性文本）随 unparsed 回报，机检消费面产黄项提示
+ * （不再静默失明）。
  */
-export function readBannedEntryWords(bookRoot: string): string[] {
+export function readBannedEntryWords(bookRoot: string): { words: string[]; unparsed: string[] } {
   const { entries } = readEntries(join(bookRoot, ENTRIES_DIR), '禁词')
-  // Y-23（第五十七轮）：多行正文逐行拆词——手写条目正文常是说明性多行文本，
-  // 整段当一个词作 includes 永不命中（禁词漏报且无提示）
-  return entries
-    .filter((e) => !(e.标签?.includes('AI味')))
-    .flatMap((e) => e.正文.split('\n').map((line) => line.trim()))
-    .filter(Boolean)
+  const words: string[] = []
+  const unparsed: string[] = []
+  for (const e of entries) {
+    if (e.标签?.includes('AI味')) continue
+    // Y-23（第五十七轮）：多行正文逐行清洗拆词——手写条目正文常是说明性多行文本，
+    // 整段当一个词作 includes 永不命中（禁词漏报且无提示）
+    const parsed = e.正文
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .flatMap((line) => parseBannedWordsLine(line))
+    if (parsed.length === 0) {
+      // R73-15：整条解析不出词 → 回报场景名留痕（调用方产黄项），不再静默丢条目
+      unparsed.push(e.场景)
+      continue
+    }
+    words.push(...parsed)
+  }
+  return { words, unparsed }
 }

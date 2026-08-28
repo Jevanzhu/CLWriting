@@ -8,7 +8,8 @@
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createServer } from 'node:http'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { runTask, resolveProvider, NO_USERDATA_MSG, NO_PROVIDER_MSG, degradedPersistCallbacksForTest } from '../../src/ai/runner.js'
 import { persistDegraded, registerDegradedPersist, resetDegradedChannels } from '../../src/ai/provider/store.js'
 import { checkAiCallBudget } from '../../src/ai/calls.js'
@@ -22,6 +23,25 @@ function tempUserData(): string {
   workDirs.push(d)
   return d
 }
+
+// R73-13c（二十一轮，F 域移交）：必然拒绝端点可控化——此前写死 http://localhost:1，
+// 依赖「低位端口必 ECONNREFUSED」的环境假设（部分环境对特权低位端口返回
+// EACCES/Permission denied，错误形态漂移）。改为本地起一个立即关闭的 server 占 port 0
+// （内核分配）再释放——该端口必然处于关闭态，连接错误形态确定（同族 ECONNREFUSED）。
+let REFUSED_BASE_URL = 'http://127.0.0.1:1'
+beforeAll(async () => {
+  const srv = createServer()
+  await new Promise<void>((resolve) => srv.listen(0, '127.0.0.1', resolve))
+  const port = (srv.address() as { port: number }).port
+  // vitest worker 在无其它 ref 句柄时不驱动 http close 回调（forks/threads 同现，
+  // 探针实测保活 interval 后 5ms 完成）——保活至 close 完成再释放。
+  await new Promise<void>((resolve) => {
+    const keep = setInterval(() => {}, 50)
+    srv.close(() => { clearInterval(keep); resolve() })
+  })
+  REFUSED_BASE_URL = `http://127.0.0.1:${port}`
+})
+
 afterEach(() => {
   for (const d of workDirs.splice(0)) rmSync(d, { recursive: true, force: true })
   delete process.env.CLWRITING_DRIVER
@@ -39,7 +59,7 @@ function writeProviders(userDataPath: string, timeoutMs?: number): void {
           name: 'test',
           protocol: 'openai',
           auth: 'bearer',
-          baseUrl: 'http://localhost:1',
+          baseUrl: REFUSED_BASE_URL,
           apiKey: 'sk-test',
           caps: { connected: true, streaming: true },
         },
@@ -170,6 +190,27 @@ describe('runTask B-1 指数退避重试', () => {
     expect(out.ok).toBe(true)
     if (out.ok) expect(out.data).toBe('ok')
     expect(calls).toBe(2) // 第一次 429 → 退避 → 第二次成功
+  }, 10_000)
+
+  // R73-10（二十一轮 A-10）：attemptsUsage 随成功返回——全 attempt 可得 usage 的累计
+  // 口径（done 消费方与按次入账账本对齐）；重试链单成功 attempt 时与 usage 相等
+  it('R73-10：重试链成功 → attemptsUsage 在场且等于成功 attempt 的 usage', async () => {
+    const ud = tempUserData()
+    writeProviders(ud)
+    let calls = 0
+    const out = await runTask<{ usage: { inputTokens: number; outputTokens: number; estimated?: boolean } }>({
+      userDataPath: ud,
+      run: () => {
+        calls++
+        if (calls < 2) throw new GenError('429 limit', true)
+        return Promise.resolve({ usage: { inputTokens: 10, outputTokens: 5 } })
+      },
+    })
+    expect(out.ok).toBe(true)
+    if (out.ok) {
+      expect(out.attemptsUsage).toEqual({ inputTokens: 10, outputTokens: 5 })
+      expect(out.usage).toEqual({ inputTokens: 10, outputTokens: 5 })
+    }
   }, 10_000)
 
   it('B4：服务端 Retry-After（封顶内）→ 用服务端值快退避后重试成功', async () => {

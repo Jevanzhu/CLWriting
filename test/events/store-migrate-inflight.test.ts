@@ -6,15 +6,16 @@
  * refs>1 收紧为 refs>0——refs==1（首个在途调用方）同样是活跃持有者。验证：
  * refs≥1 → 迁移放弃（false，源库原地完整）；全部收口（refs=0）→ 迁移成功。
  */
-import { mkdtempSync, rmSync, existsSync } from 'node:fs'
+import { rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it, expect, afterEach } from 'vitest'
 import { openSessionStore, migrateBookSession, bookHash } from '../../src/events/store.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const dirs: string[] = []
 function tmpRoot(): string {
-  const d = mkdtempSync(join(tmpdir(), 'n8-migrate-'))
+  const d = mkdtempTracked(join(tmpdir(), 'n8-migrate-'))
   dirs.push(d)
   return d
 }

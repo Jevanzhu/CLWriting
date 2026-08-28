@@ -7,16 +7,17 @@
  * 真实内容并把 6 条预置禁词翻倍。「正文是唯一不可再生区」的注释断言过强。
  */
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, readdirSync } from 'node:fs'
+import { rmSync, writeFileSync, readFileSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { scaffoldBookRepo } from '../../src/install/scaffold.js'
 import { readManifest, upsertEntry, writeManifest, type ManifestEntry } from '../../src/document/manifest.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const OPTS = { name: '幂等书', genre: '玄幻', leadsEnabled: [] as never[], kind: 'long' as const }
 
 test('DA-2: 复跑 scaffold → 占位文档不覆盖已有真实内容', () => {
-  const root = mkdtempSync(join(tmpdir(), 'scaffold-idem-'))
+  const root = mkdtempTracked(join(tmpdir(), 'scaffold-idem-'))
   try {
     scaffoldBookRepo(root, OPTS)
     const world = join(root, '设定', '世界观.md')
@@ -34,7 +35,7 @@ test('DA-2: 复跑 scaffold → 占位文档不覆盖已有真实内容', () => 
 })
 
 test('DA-2: 复跑 scaffold → book.yaml 与已有清单登记不抹掉', () => {
-  const root = mkdtempSync(join(tmpdir(), 'scaffold-idem2-'))
+  const root = mkdtempTracked(join(tmpdir(), 'scaffold-idem2-'))
   try {
     scaffoldBookRepo(root, OPTS)
     // 作者改过 book.yaml（如改题材）+ 半成品阶段已登记条目
@@ -56,7 +57,7 @@ test('DA-2: 复跑 scaffold → book.yaml 与已有清单登记不抹掉', () =>
 })
 
 test('DA-2: 复跑 scaffold → 预置 AI 味禁词不翻倍（按 类型+正文 去重）', () => {
-  const root = mkdtempSync(join(tmpdir(), 'scaffold-idem3-'))
+  const root = mkdtempTracked(join(tmpdir(), 'scaffold-idem3-'))
   try {
     scaffoldBookRepo(root, OPTS)
     scaffoldBookRepo(root, OPTS)

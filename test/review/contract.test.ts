@@ -129,7 +129,7 @@ test('selectReviewTier: X-P2-7 高风险章无并行能力但可多次调用 →
   }
 })
 
-test('aggregateReviewIssues: 同 lens/category/location 去重，severity 与 blocking 取最严', () => {
+test('aggregateReviewIssues: 同位置同一句问题去重，severity 与 blocking 取最严（R73-25 键含 issue 摘要）', () => {
   const issues: ReviewIssue[] = [
     {
       lens: 'continuity',
@@ -146,8 +146,8 @@ test('aggregateReviewIssues: 同 lens/category/location 去重，severity 与 bl
       category: 'ledger',
       location: '第12章第30段',
       evidence: ['掌印'],
-      issue: '同一问题的更严判断。',
-      fix: '重写该段。',
+      issue: '账本推进证据不足。',
+      fix: '',
       blocking: true,
     },
   ]
@@ -158,6 +158,36 @@ test('aggregateReviewIssues: 同 lens/category/location 去重，severity 与 bl
   expect(aggregated[0]!.severity).toBe('S1')
   expect(aggregated[0]!.blocking).toBe(true)
   expect(aggregated[0]!.evidence).toEqual(['焦痕', '掌印'])
+  // fix 空文本不覆盖已有 fix
+  expect(aggregated[0]!.fix).toBe('补出推进动作。')
+})
+
+test('aggregateReviewIssues: 同位置不同问题描述 → 各自保留（R73-25：不再整条蒸发）', () => {
+  const issues: ReviewIssue[] = [
+    {
+      lens: 'continuity',
+      severity: 'S3',
+      category: 'logic',
+      location: '第12章第30段',
+      evidence: ['a'],
+      issue: '动机断裂。',
+      fix: '补动机。',
+    },
+    {
+      lens: 'continuity',
+      severity: 'S1',
+      category: 'logic',
+      location: '第12章第30段',
+      evidence: ['b'],
+      issue: '时间线矛盾。',
+      fix: '理时间线。',
+      blocking: true,
+    },
+  ]
+
+  const aggregated = aggregateReviewIssues(issues)
+  expect(aggregated).toHaveLength(2)
+  expect(aggregated.map((i) => i.issue).sort()).toEqual(['动机断裂。', '时间线矛盾。'])
 })
 
 test('normalizeReviewResult: 账本类 issue 自动阻断，空 evidence 让审稿单无效', () => {

@@ -88,6 +88,10 @@ function attachRendererCrashSelfHeal(win: BrowserWindow, label: string): void {
   let crashes = 0
   win.webContents.on('render-process-gone', (_e, details) => {
     crashes++
+    // R73-53（二十一轮）：渲染进程异常退出的结构化标记——desktop.yml 启动冒烟 grep
+    // 此判定用（一行 ASCII、无中文措辞依赖）。直写 console：打包态 log.* 只落 JSONL
+    // 不镜像 stdout，冒烟步重定向的是进程标准流
+    console.log(`[CLW_SMOKE] renderer-crash reason=${details.reason} reload=${crashes <= RENDERER_CRASH_MAX_RELOADS}`)
     if (crashes > RENDERER_CRASH_MAX_RELOADS) {
       log.error('desktop', `渲染进程连续崩溃 ${RENDERER_CRASH_MAX_RELOADS} 次自愈后仍异常（${label}，${details.reason}），停止自动重载——载提示页等待人工处理`)
       if (!win.isDestroyed()) {
@@ -536,6 +540,10 @@ async function bootstrap(): Promise<void> {
   // L1（二轮复审）：改走 logger——打包态 mirrorConsole=false，console.log 此前在生产
   // 完全不可见（终端无人看、又不进 JSONL 日志）
   log.info('desktop', `CLWriting ${devUi ? 'dev（HMR）' : '桌面版'}已启动 → ${appUrl}${needsWelcome ? '/welcome' : ''}`)
+  // R73-53（二十一轮）：启动完成的结构化标记——desktop.yml 启动冒烟 grep 此判定用
+  // （一行 ASCII、无中文措辞依赖）。直写 console：打包态 log.* 只落 JSONL 不镜像
+  // stdout，冒烟步重定向的是进程标准流
+  console.log('[CLW_SMOKE] ready')
 }
 
 // ── IPC（供 preload 调用）──────────────────────────────

@@ -149,6 +149,7 @@ const spawnPending = ref(false)
 const outlinePending = ref(false)
 const leadUpdatesPending = ref(false)
 const autoPending = ref(false)
+const saveDraftPending = ref(false) // R73-63：存草稿在途锁（同族兄弟动作均有，此前漏网）
 const genBusy = computed(
   () => spawnPending.value || outlinePending.value || leadUpdatesPending.value || autoPending.value || wb.running,
 )
@@ -272,6 +273,8 @@ async function onSaveDraft(): Promise<void> {
     ui.toast('重连同步中，生成正文可能不完整，暂不能存为草稿', 'error')
     return
   }
+  if (saveDraftPending.value) return // R73-63：本地在途锁（R69-29 同族——双击第二笔重复 POST 存同一草稿）
+  saveDraftPending.value = true
   // L-F1（第八轮）：await 前捕获书名——存草稿在途切书后 tree.load/openTab/toast 会
   // 落到 B 书界面（legacy docId 可撞 B 书同路径），确认后守卫中止
   const book = props.bookName
@@ -290,6 +293,8 @@ async function onSaveDraft(): Promise<void> {
     if (props.bookName !== book) return // R70-10：同 onSpawn——A 书失败不落 B 书界面
     err.value = friendlyError(e)
     ui.toast(err.value, 'error')
+  } finally {
+    saveDraftPending.value = false
   }
 }
 </script>
@@ -384,7 +389,7 @@ async function onSaveDraft(): Promise<void> {
     <WbHealCard />
 
     <!-- 生成正文（M4 默认主区：作者看到的是文章，不是事件日志） -->
-    <WbDraftCard :draft-saved="draftSaved" @save="onSaveDraft" />
+    <WbDraftCard :draft-saved="draftSaved" :saving="saveDraftPending" @save="onSaveDraft" />
 
     <div v-if="err" class="err-msg">{{ err }}</div>
     </template>

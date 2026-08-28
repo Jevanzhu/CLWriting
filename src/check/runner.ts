@@ -151,8 +151,18 @@ export function runAllChecks(input: CheckInput): CheckReport {
   // 文风铁律（禁词红项 + 可量化黄项）
   const ironRules = readIronRules(bookRoot)
 
-  // #10 项 4 禁词（红）
-  sections.push(checkBannedWords(body, mergeBannedWords(input.bannedWords, ironRules.bannedWords)))
+  // #10 项 4 禁词（红）—— R73-15：条目库里解析不出任何词的禁词条目产黄项提示
+  //（此前静默失明：整段说明性正文作 includes 永不命中，作者无从知晓红闸失效）
+  const bannedSection = checkBannedWords(body, mergeBannedWords(input.bannedWords, ironRules.bannedWords))
+  for (const scene of ironRules.unparsedBannedEntries ?? []) {
+    bannedSection.items.push({
+      checkId: 'banned-entry-unparsed',
+      level: 'yellow',
+      message: `禁词条目「${scene}」解析不出有效禁词（整段说明性文本？），该条对本章禁词红闸未生效——请改写为逐行或顿号分隔的词条`,
+      chapter: chapter.章号,
+    })
+  }
+  sections.push(bannedSection)
 
   // 字数（黄）：有 config.short 用短篇阈值；否则用细纲目标
   if (short) {

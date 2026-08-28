@@ -4,13 +4,14 @@
  * resolveBookRoot 等读路径整链 500；现降级为空表 / null（与缺文件同口径）。
  */
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, chmodSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, readFileSync, chmodSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readBooks, readActive, appendBook, removeBookEntry, readBooksStrict, repairBooks } from '../../src/install/books.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 test('低级项（第六轮）：books.jsonl 读取失败（EISDIR）→ 降级空表，不裸抛', () => {
-  const wd = mkdtempSync(join(tmpdir(), 'books-guard-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'books-guard-'))
   try {
     mkdirSync(join(wd, '.clwriting', 'books.jsonl'), { recursive: true })
     expect(readBooks(wd)).toEqual([])
@@ -20,7 +21,7 @@ test('低级项（第六轮）：books.jsonl 读取失败（EISDIR）→ 降级�
 })
 
 test('低级项（第六轮）：active 读取失败（EISDIR）→ 降级 null（未选书），不裸抛', () => {
-  const wd = mkdtempSync(join(tmpdir(), 'active-guard-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'active-guard-'))
   try {
     mkdirSync(join(wd, '.clwriting', 'active'), { recursive: true })
     expect(readActive(wd)).toBeNull()
@@ -31,7 +32,7 @@ test('低级项（第六轮）：active 读取失败（EISDIR）→ 降级 null�
 
 // Windows 无 POSIX 权限位（chmod 为 no-op/仅映射只读位），该守卫语义由 macOS/Linux CI 腿覆盖
 test.skipIf(process.platform === 'win32')('DA-3（第七轮）：books.jsonl 读失败（EACCES）→ appendBook 拒绝重写（不清掉其余登记）', () => {
-  const wd = mkdtempSync(join(tmpdir(), 'books-strict-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'books-strict-'))
   const fp = join(wd, '.clwriting', 'books.jsonl')
   try {
     mkdirSync(join(wd, '.clwriting'), { recursive: true })
@@ -49,7 +50,7 @@ test.skipIf(process.platform === 'win32')('DA-3（第七轮）：books.jsonl 读
 
 // Windows 无 POSIX 权限位（chmod 为 no-op/仅映射只读位），该守卫语义由 macOS/Linux CI 腿覆盖
 test.skipIf(process.platform === 'win32')('DA-3（第七轮）：读失败 → readBooksStrict=null / readBooks=[]（读路径降级）、removeBookEntry 不清库', () => {
-  const wd = mkdtempSync(join(tmpdir(), 'books-strict2-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'books-strict2-'))
   const fp = join(wd, '.clwriting', 'books.jsonl')
   try {
     mkdirSync(join(wd, '.clwriting'), { recursive: true })
@@ -67,7 +68,7 @@ test.skipIf(process.platform === 'win32')('DA-3（第七轮）：读失败 → r
 
 // Windows 无 POSIX 权限位（chmod 为 no-op/仅映射只读位），该守卫语义由 macOS/Linux CI 腿覆盖
 test.skipIf(process.platform === 'win32')('M-8（第八轮）：repairBooks 读失败（EACCES）→ 跳过本轮自愈，不整写清掉登记', () => {
-  const wd = mkdtempSync(join(tmpdir(), 'repair-skip-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'repair-skip-'))
   const fp = join(wd, '.clwriting', 'books.jsonl')
   try {
     mkdirSync(join(wd, '.clwriting'), { recursive: true })

@@ -7,13 +7,14 @@
  * 调用方判 ALREADY_EXISTS；创建成功返回 'created'。
  */
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, readdirSync } from 'node:fs'
+import { rmSync, writeFileSync, readFileSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createFileExclusive } from '../../src/fs/atomic.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 test('B-6: 全新路径 → created，内容落盘且无 tmp 残留', () => {
-  const d = mkdtempSync(join(tmpdir(), 'clw-b6-'))
+  const d = mkdtempTracked(join(tmpdir(), 'clw-b6-'))
   const r = createFileExclusive(join(d, 'a.md'), '内容', { fsync: true })
   expect(r).toBe('created')
   expect(readFileSync(join(d, 'a.md'), 'utf-8')).toBe('内容')
@@ -22,7 +23,7 @@ test('B-6: 全新路径 → created，内容落盘且无 tmp 残留', () => {
 })
 
 test('B-6: 目标已存在 → exists 且不覆盖既有内容（rename 覆盖语义的对照）', () => {
-  const d = mkdtempSync(join(tmpdir(), 'clw-b6-'))
+  const d = mkdtempTracked(join(tmpdir(), 'clw-b6-'))
   const fp = join(d, 'a.md')
   writeFileSync(fp, '先到者')
   const r = createFileExclusive(fp, '后到者')
@@ -34,7 +35,7 @@ test('B-6: 目标已存在 → exists 且不覆盖既有内容（rename 覆盖�
 })
 
 test('B-6: 同路径两次创建 → 先 created 后 exists，双方各自明确不再双成功', () => {
-  const d = mkdtempSync(join(tmpdir(), 'clw-b6-'))
+  const d = mkdtempTracked(join(tmpdir(), 'clw-b6-'))
   const fp = join(d, 'a.md')
   const first = createFileExclusive(fp, 'A')
   const second = createFileExclusive(fp, 'B')

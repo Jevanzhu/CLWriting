@@ -23,7 +23,7 @@ import { readKind } from '../book-context.js'
 import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
 import { resolveModelPricing, computeCallCost } from '../../../ai/pricing.js'
 import { safeTokenCompare } from '../http.js'
-import { consumeStreamTicket, peekStreamTicket } from './stream-ticket.js'
+import type { StreamTicketStore } from './stream-ticket.js'
 import { heldTaskGatesFor } from './task-gate.js'
 import { isReviewRunningForBook } from './review.js'
 // M-2（第八轮）：spawn 闸移驻 ai 层（turns.ts 的嵌套生成工具闸要查它，ai 层不得反向
@@ -37,6 +37,8 @@ interface StreamCtx {
   userDataPath: string | null
   /** GET SSE 端点 token 校验用（EventSource 不走 isWrite 拦截） */
   studioToken: string
+  /** R73-49（二十一轮）：本 server 实例的 ticket 库（与 /api/stream-ticket 签发侧同实例共享） */
+  tickets: StreamTicketStore
 }
 
 // P2-2：per-book SSE 连接记账（防多标签页耗尽 FD）。
@@ -251,7 +253,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     // R65-43（总六十五轮）：此处只「预检」不消费 ticket——原 consumeStreamTicket 在
     // 闸首即烧掉一次性 ticket，429/404 时票被白白作废，EventSource 自动重连带废票
     // 反复 403 成无诊断风暴；消费移至全部书域校验通过之后（见下方 R65-43 消费点）。
-    if (!peekStreamTicket(queryTicket) && !safeTokenCompare(queryToken, ctx.studioToken)) {
+    if (!ctx.tickets.peek(queryTicket) && !safeTokenCompare(queryToken, ctx.studioToken)) {
       replyError(res, 403, 'FORBIDDEN', 'forbidden')
       return
     }
@@ -277,7 +279,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     // 通过后才消费一次性 ticket、建流——429/404 不再烧票。鉴权顺序语义不变：
     // 先凭据预检（上方闸）、后书域判定、最后消费；token 过闸者无需 ticket。
     // 竞态兜底：预检与消费之间被并发连接抢先消费 → 票已作废，403（一次性语义）。
-    if (!safeTokenCompare(queryToken, ctx.studioToken) && !consumeStreamTicket(queryTicket)) {
+    if (!safeTokenCompare(queryToken, ctx.studioToken) && !ctx.tickets.consume(queryTicket)) {
       replyError(res, 403, 'FORBIDDEN', 'forbidden')
       return
     }

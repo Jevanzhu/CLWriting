@@ -6,14 +6,15 @@
  * 永远进不了账本推进 prompt。此处锁住两目录口径一致。
  */
 import { test, expect } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readOpenLeads } from '../../src/process/open-leads.js'
 import { writeLead } from '../../src/format/leads.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 function makeBook(enabled: string[]): string {
-  const root = mkdtempSync(join(tmpdir(), 'open-leads-'))
+  const root = mkdtempTracked(join(tmpdir(), 'open-leads-'))
   mkdirSync(join(root, '布线', '悬念'), { recursive: true })
   writeFileSync(
     join(root, 'book.yaml'),

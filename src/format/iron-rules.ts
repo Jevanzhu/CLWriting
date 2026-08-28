@@ -5,10 +5,12 @@
  * 纯文本解析、零依赖——format 基础层可安全引用（check/count.js 反向依赖 format，
  * 不可在 format 内 import check）。
  */
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { log } from '../log/index.js'
-import { readBannedEntryWords } from './style-entry.js'
+// R73-15（二十一轮）：parseBannedWordsLine 移驻 style-entry（readBannedEntryWords 拆词
+// 复用同套清洗；本文件原已单向 import style-entry，反向会成环——函数随消费方迁移）
+import { readBannedEntryWords, parseBannedWordsLine } from './style-entry.js'
 
 /** 文风铁律可量化硬约束（parseIronRules 输出） */
 export interface IronRules {
@@ -24,6 +26,9 @@ export interface IronRules {
   avoidSummaryEnding?: boolean
   /** 文风铁律里的反和解/硬禁词清单，命中即红 */
   bannedWords?: string[]
+  /** R73-15（二十一轮）：条目库禁词条目里解析不出任何词的条目场景名——机检消费面
+   *  产黄项提示（禁词红闸对这些条目静默失明，作者须改写为逐行/顿号分词） */
+  unparsedBannedEntries?: string[]
 }
 
 /** 从 文风铁律.md 解析可量化硬约束阈值 + 反和解硬禁词（#5 第 8 节）。 */
@@ -48,8 +53,20 @@ export function parseIronRules(text: string): IronRules {
  * 只读铁律不合并条目库，而 S5 迁移已把禁词知识搬进条目库并瘦身铁律，迁移书的
  * checkBannedWords 红项因此恒空、禁词拦截与自愈打回整体失效）。
  * metrics/style 与 check/runner 均消费此实现；皆无 → 空规则。
+ *
+ * R73-31（二十一轮）：(mtimeNs,size)+条目库目录 stat 指纹缓存——runAllChecks 每章
+ * 调用本函数，此前每章「铁律整读 + 禁词条目库全扫全读」（O(章数×条目库) 重复 IO，
+ * 树红点聚合数百章书一次聚合全量重读）。同指纹直接回缓存（global-defaults R64-25
+ * 同款范式，精度升 mtimeNs 防同毫秒改回同长内容撞缓存）；指纹 = 铁律 md stat +
+ * 禁词类型目录 stat 摘要（含文件名 hash——改名不改 stat 也要失效）。命中返回浅拷贝
+ * 防调用方 mutate 污染缓存；铁律读失败（TOCTOU）不缓存，下轮重试。
  */
 export function readIronRules(bookRoot: string): IronRules {
+  const fp = ironRulesFp(bookRoot)
+  const hit = ironRulesCache.get(bookRoot)
+  if (hit && hit.fp === fp) {
+    return { ...hit.rules, ...(hit.rules.bannedWords ? { bannedWords: [...hit.rules.bannedWords] } : {}) }
+  }
   const p = join(bookRoot, '文风', '文风铁律.md')
   // R65-16（十三轮）：existsSync→readFileSync 间隙铁律被瞬删（TOCTOU）时 ENOENT 直穿
   // 炸机检/文风重扫——读失败按空规则降级 + warn 留痕（对齐 X-P2-5 读失败按无推进降级）
@@ -62,11 +79,72 @@ export function readIronRules(bookRoot: string): IronRules {
     }
   }
   const rules = text !== null ? parseIronRules(text) : {}
-  const entryWords = readBannedEntryWords(bookRoot)
+  // R73-15（二十一轮）：readBannedEntryWords 改拆词解析并回报「解析不出词」的条目，
+  // 透传给机检消费面产黄项（禁词红闸对这些条目静默失明的留痕）
+  const { words: entryWords, unparsed: unparsedEntries } = readBannedEntryWords(bookRoot)
   if (entryWords.length > 0) {
     rules.bannedWords = [...new Set([...(rules.bannedWords ?? []), ...entryWords])]
   }
+  if (unparsedEntries.length > 0) {
+    rules.unparsedBannedEntries = unparsedEntries
+  }
+  // 铁律读失败（存在但瞬读失败）不缓存降级值——指纹未变会让降级值存活到下次改动
+  if (text !== null || !existsSync(p)) {
+    ironRulesCache.set(bookRoot, { fp, rules })
+    // 容量纪律（R70-21 同款）：超上限 FIFO 修剪最旧书目录（Map 插入序）
+    while (ironRulesCache.size > IRON_RULES_CACHE_MAX) {
+      const oldest = ironRulesCache.keys().next().value
+      if (oldest === undefined) break
+      ironRulesCache.delete(oldest)
+    }
+  }
   return rules
+}
+
+/** R73-31：readIronRules 进程级指纹缓存（bookRoot → 条目）。容量对齐章节元数据缓存
+ *  64 书目录纪律（R70-21）；指纹见 ironRulesFp。 */
+const IRON_RULES_CACHE_MAX = 64
+const ironRulesCache = new Map<string, { fp: string; rules: IronRules }>()
+
+/**
+ * R73-31：readIronRules 全部输入的 stat 指纹——铁律 md (mtimeNs,size) + 禁词条目目录
+ * （count:size:maxMtimeNs:文件名FNV，目录未装 = 'no-entries'）。禁词条目库是
+ * readBannedEntryWords 的读放大源，指纹必须覆盖；文件名入 hash 防「改名不改 stat」。
+ * 旧格式指纹与缓存比对天然 miss（一次性重算，语义无损）。
+ */
+function ironRulesFp(bookRoot: string): string {
+  let ruleFp = 'absent'
+  try {
+    const st = statSync(join(bookRoot, '文风', '文风铁律.md'), { bigint: true })
+    ruleFp = `${st.mtimeNs}:${st.size}`
+  } catch {
+    /* 无铁律 = absent（解析走空规则，仍缓存——确定性结果） */
+  }
+  const dir = join(bookRoot, '文风', '条目', '禁词')
+  let entriesFp = 'no-entries'
+  try {
+    const names = readdirSync(dir).filter((f) => f.endsWith('.md') && !f.startsWith('._')).sort()
+    let size = 0n
+    let maxMtime = 0n
+    let nameHash = 0x811c9dc5
+    for (const name of names) {
+      for (let i = 0; i < name.length; i++) {
+        nameHash ^= name.charCodeAt(i)
+        nameHash = Math.imul(nameHash, 0x01000193) >>> 0
+      }
+      try {
+        const st = statSync(join(dir, name), { bigint: true })
+        size += st.size
+        if (st.mtimeNs > maxMtime) maxMtime = st.mtimeNs
+      } catch {
+        /* 竞态消失：下轮指纹自然变化（count 与实际读到的文件数可能瞬时错位，方向安全） */
+      }
+    }
+    entriesFp = `${names.length}:${size}:${maxMtime}:${nameHash.toString(16)}`
+  } catch {
+    /* 目录不存在 = 未装条目库（稳定态，可缓存） */
+  }
+  return `${ruleFp}|${entriesFp}`
 }
 
 function parseRatio(raw: string): number {
@@ -86,50 +164,11 @@ function parseAntiReconciliationWords(text: string): string[] {
   const words: string[] = []
   for (const section of sections) {
     for (const rawLine of section.split('\n')) {
+      // R73-15（二十一轮）：parseBannedWordsLine 移驻 style-entry.ts（实现逐字不变）
       words.push(...parseBannedWordsLine(rawLine))
     }
   }
   return [...new Set(words)]
-}
-
-function parseBannedWordsLine(rawLine: string): string[] {
-  const line = rawLine.trim()
-  if (!line || line.startsWith('>') || /待作者补|待补|示例|非硬禁词/.test(line)) return []
-
-  const quoted = [...line.matchAll(/[「『“"]([^」』”"]{2,24})[」』”"]/g)].map((m) => m[1]!)
-  if (quoted.length > 0) return quoted
-
-  let cleaned = line
-    .replace(/^[-*+]\s*/, '')
-    .replace(/^\d+[.)、]\s*/, '')
-    .replace(/[（(].*?[）)]/g, '')
-    .trim()
-
-  const colon = cleaned.match(/^([^:：]{1,24})[:：]\s*(.+)$/)
-  if (colon) {
-    const label = colon[1]!.trim()
-    const value = colon[2]!.trim()
-    if (!/(禁止|禁用|不要|不得|避免|少用|硬禁词|禁词|禁句|套话|反和解|清单|词表|不可出现)/.test(label)) {
-      return []
-    }
-    cleaned = value
-  } else {
-    cleaned = cleaned.replace(/^(禁止|禁用|不要|不得|避免|少用)\s+/, '').trim()
-  }
-
-  if (!cleaned) return []
-  return cleaned
-    .split(/[、，,\/／；;]/)
-    .map((part) => part.trim())
-    // R72-8（二十轮 C-6）：占位词过滤改精确形态匹配（词首全等占位词）——原 /待/ 子串
-    // 过滤误伤字面含「待」的真禁词（如「迫不及待」），与本函数头部 97 行的精确占位口径
-    // 不一致；词长 ≥2 已挡单字「待」
-    .filter(
-      (word) =>
-        word.length >= 2 &&
-        word.length <= 24 &&
-        !/^(待补|待定|待填|待写|待确认|待作者补|示例|非硬禁词)/.test(word),
-    )
 }
 
 function extractSection(text: string, headingRe: RegExp): string {

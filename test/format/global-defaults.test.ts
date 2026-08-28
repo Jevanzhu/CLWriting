@@ -3,7 +3,7 @@
  * applyGlobalDefaults 的「书级优先 → global → 硬编码回落」合并语义。
  */
 import { test, expect } from 'vitest'
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -13,9 +13,10 @@ import {
 } from '../../src/format/global-defaults.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import type { BookConfig } from '../../src/format/types.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 function mkUserData(): string {
-  return mkdtempSync(join(tmpdir(), 'clwriting-global-'))
+  return mkdtempTracked(join(tmpdir(), 'clwriting-global-'))
 }
 
 function writeGlobal(userDataPath: string, json: unknown): void {

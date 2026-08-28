@@ -38,11 +38,16 @@ const draft = ref<{ 类型: EntryKindFE; 场景: string; 说明: string; 正文:
   说明: '',
   正文: '',
 })
+// R73-62（E-1）：入库在途锁——style.add 在途时按钮未禁，双击/慢网重复提交会落两条
+// 同名条目（与 R70-25 建书在途锁同族惯例）
+const submitting = ref(false)
 async function submitAdd(): Promise<void> {
   if (!draft.value.正文.trim()) {
     ui.toast('正文不能为空', 'error')
     return
   }
+  if (submitting.value) return // R73-62：在途锁（双击第二笔在入口丢弃）
+  submitting.value = true
   try {
     await style.add({
       类型: draft.value.类型,
@@ -55,6 +60,8 @@ async function submitAdd(): Promise<void> {
     draft.value = { 类型: '手法', 场景: '', 说明: '', 正文: '' }
   } catch (e) {
     ui.toast(friendlyError(e), 'error')
+  } finally {
+    submitting.value = false // R73-62：成败都解锁（失败停留表单可重试）
   }
 }
 async function onRemove(path: string, text: string): Promise<void> {
@@ -115,7 +122,10 @@ async function onRemove(path: string, text: string): Promise<void> {
       ></textarea>
       <div class="af-actions">
         <button class="btn-ghost" @click="adding = false"><X :size="13" /> 取消</button>
-        <button class="btn-primary" @click="submitAdd"><Check :size="13" /> 存入条目库</button>
+        <!-- R73-62：在途禁用 + 文案反馈 -->
+        <button class="btn-primary" :disabled="submitting" @click="submitAdd">
+          <Check :size="13" /> {{ submitting ? '存入中…' : '存入条目库' }}
+        </button>
       </div>
     </div>
 

@@ -643,16 +643,21 @@ export class DocumentService {
     if (!layoutOf(path).capabilities.write) {
       return { ok: false, code: 'CAPABILITY_DENIED', reason: '该文档只读，不可改元数据' }
     }
+    // R73-40（二十一轮）：两次独立 readFileSync 收敛为单次读（finalize.ts R72-5 单读
+    // 同源先例）——「utf-8 读文本」与「字节级 UTF-8 判据」原先各读一次盘，两读之间文件
+    // 被并发替换（他进程保存/改名）时判据与写回内容错源（微 TOCTOU）。Buffer 一读，
+    // 判据与写回同源派生。
     let raw: string
     try {
-      raw = readFileSync(abs, 'utf-8')
+      const buf = readFileSync(abs)
+      // 非 UTF-8 防线（第五轮引入；DA-1·第七轮升级字节级判据，同 updateChapterMeta 口径）——
+      // 原字符串 FFFD 判据有 fm 区 GBK 盲区：部分 GBK 双字节对恰好构成合法 UTF-8，读入
+      // 无 U+FFFD 即放行，fm 往返把乱码原子覆盖回原文件，原始字节永久丢失
+      if (!isUtf8Bytes(buf)) return NON_UTF8_REJECT
+      raw = buf.toString('utf-8')
     } catch (e) {
       return { ok: false, code: 'WRITE_ERROR', reason: `元数据读取失败：${errMsg(e)}` }
     }
-    // 非 UTF-8 防线（第五轮引入；DA-1·第七轮升级字节级判据，同 updateChapterMeta 口径）——
-    // 原字符串 FFFD 判据有 fm 区 GBK 盲区：部分 GBK 双字节对恰好构成合法 UTF-8，读入
-    // 无 U+FFFD 即放行，fm 往返把乱码原子覆盖回原文件，原始字节永久丢失
-    if (!isUtf8Bytes(readFileSync(abs))) return NON_UTF8_REJECT
     // 容错：裸 md 无 fm（旧书卷纲/总纲）→ 整体当 body，新建 fm
     const split = splitFrontMatter(raw)
     const body = split ? split.body : raw
@@ -915,6 +920,13 @@ export class DocumentService {
     if (!existsSync(oldSafe)) return { ok: false, code: 'NOT_FOUND', reason: '源文件不存在' }
 
     const trashedRel = `工作区/.trash/${encodeDocDirName(docId)}-${basename(oldPath)}`
+    // R73-34（二十一轮）：确定性命名残留防线的落位路径（函数域声明——成功返回值也要用）。
+    // 上次软删「清单条目删除失败」残留后，同 docId 的文件经编辑器保存合法复活
+    //（executeSave Z-6 对「文件在盘」放行）再被再次软删时，同名 .trash 目标会被
+    // renameSync 静默覆盖，上一版回收站内容无痕丢失。目标已存在 → 追加时间戳后缀保
+    // 双份（lead-update-draft L-P6 / syncRenamePieceList R70-18 同款先例）；后缀须在
+    // 回收站登记**之前**定——条目 trashedPath 记的是真实落位。
+    let finalTrashRel = trashedRel
     try {
       // snapshot 留底（删除前，W0-1 §7）
       const baseRev = computeRevision(oldSafe)
@@ -928,6 +940,17 @@ export class DocumentService {
       const trashAbs = this.resolveSafePath(trashedRel)
       if (!trashAbs) return { ok: false, code: 'PATH_ESCAPE', reason: '回收站路径越出书仓库' }
       mkdirSync(dirname(trashAbs), { recursive: true })
+      let finalTrashAbs = trashAbs
+      if (existsSync(trashAbs)) {
+        const name = basename(oldPath)
+        const dot = name.lastIndexOf('.')
+        const stem = dot > 0 ? name.slice(0, dot) : name
+        const ext = dot > 0 ? name.slice(dot) : ''
+        finalTrashRel = `工作区/.trash/${encodeDocDirName(docId)}-${stem}-${Date.now()}${ext}`
+        const suffixedAbs = this.resolveSafePath(finalTrashRel)
+        if (!suffixedAbs) return { ok: false, code: 'PATH_ESCAPE', reason: '回收站路径越出书仓库' }
+        finalTrashAbs = suffixedAbs
+      }
       // W-P2-1：软删前抓取定稿基线随 TrashEntry 落账（主清单条目稍后删除，不先抓就找不回）
       let priorFinalized: { finalizedRevision?: string; finalizedAt?: string } = {}
       try {
@@ -948,7 +971,7 @@ export class DocumentService {
         appendTrashEntry(this.bookRoot, {
           id: docId,
           originalPath: oldPath,
-          trashedPath: trashedRel,
+          trashedPath: finalTrashRel,
           trashedAt: new Date().toISOString(),
           role: layoutOf(oldPath).role,
           ...priorFinalized,
@@ -960,7 +983,7 @@ export class DocumentService {
           reason: `回收站登记写入失败，已中止删除（文件未动，请检查磁盘后重试）：${errMsg(e)}`,
         }
       }
-      renameSync(oldSafe, trashAbs)
+      renameSync(oldSafe, finalTrashAbs)
       // P1-S3：rename 成功后 manifest 更新改 best-effort——失败不阻断（文件已实质删除，
       // 回收站 manifest / 主清单不一致不影响数据安全，下次操作自然修复）
       try {
@@ -982,7 +1005,7 @@ export class DocumentService {
       return { ok: false, code: 'WRITE_ERROR', reason: `删除失败：${errMsg(e)}` }
     }
     invalidateTreeIndex(this.bookRoot, true)
-    return { ok: true, docId, trashedPath: trashedRel }
+    return { ok: true, docId, trashedPath: finalTrashRel }
   }
 }
 

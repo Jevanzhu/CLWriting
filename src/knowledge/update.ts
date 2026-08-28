@@ -148,6 +148,10 @@ export interface CommitKnowledgeOpts {
 export function commitKnowledgeFile(projectRoot: string, opts: CommitKnowledgeOpts): KnowledgeManifestReport {
   const read = readKnowledgeManifest(projectRoot)
   if (!read.ok || read.manifest === undefined) return read
+  // R73-4（二十一轮 A-4）：手编 manifest 缺 entries 字段（readKnowledgeManifest 只验
+  // JSON 合法）此前在下方 manifest.entries.some 处裸 TypeError 崩——读后形状守卫，
+  // 复用 validateKnowledgeManifest 的口径报「manifest.entries 必须是数组」
+  if (!Array.isArray(read.manifest.entries)) return validateKnowledgeManifest(projectRoot)
   const manifest: KnowledgeManifest = read.manifest
 
   // R61-2（第六十一轮）：路径闸统一委托 isSafeKnowledgeTarget——此前本处仅
@@ -168,7 +172,12 @@ export function commitKnowledgeFile(projectRoot: string, opts: CommitKnowledgeOp
   const license = opts.license ?? '内部'
   // front matter 一致性：validateMarkdownMetadata 要求 md 顶层 fm 的 source/license 与
   // manifest 一致——commit 时自动注入/改写这两键（其余 fm 键与正文原样保留），随登记
-  // 一体落盘，两边由构造一致；sha256 在注入后实算
+  // 一体落盘，两边由构造一致；sha256 在注入后实算。
+  // R73-13（二十一轮 A-13）：fm 注入（文件写）与 manifest 写是两笔落盘——此前 manifest
+  // 写失败会留下「文件已注入 fm、manifest 无条目」的跨文件不一致窗口。两难评估：
+  // manifest 先写不可行（sha256 须在注入后实算，先写必错哈希），故选错误面小的
+  // 「注入后失败回滚 fm」——回滚后文件与 manifest 同回旧态，两文件保持一致。
+  const originalText = readFileSync(filePath, 'utf8')
   injectFrontMatterKeys(filePath, { source, license })
 
   const entry: KnowledgeManifestEntry = {
@@ -184,7 +193,29 @@ export function commitKnowledgeFile(projectRoot: string, opts: CommitKnowledgeOp
   // R65-14：generated_at 用真实本地时区偏移（此前硬编码 +08:00，见 localIsoTimestamp 注释）
   manifest.generated_at = opts.now ?? localIsoTimestamp()
 
-  atomicWriteFile(join(projectRoot, KNOWLEDGE_MANIFEST), JSON.stringify(manifest, null, 2) + '\n')
+  try {
+    atomicWriteFile(join(projectRoot, KNOWLEDGE_MANIFEST), JSON.stringify(manifest, null, 2) + '\n')
+  } catch (e) {
+    // R73-13：manifest 写失败 → 回滚 fm 注入（文件恢复原文）。回滚自身也失败（磁盘满等
+    // 同源 IO 故障）时不再吞——报错文案注明残留状态，作者可手删 fm 两键后重试。
+    try {
+      atomicWriteFile(filePath, originalText)
+    } catch (e2) {
+      return {
+        ok: false,
+        issues: [
+          {
+            path: opts.target,
+            message: `manifest 写入失败且 fm 注入回滚亦失败（文件残留注入的 source/license 两键，请手工还原后重试）：${e instanceof Error ? e.message : String(e)}；回滚错误：${e2 instanceof Error ? e2.message : String(e2)}`,
+          },
+        ],
+      }
+    }
+    return {
+      ok: false,
+      issues: [{ path: opts.target, message: `manifest 写入失败，已回滚 front matter 注入（两文件均保持原态，可重试）：${e instanceof Error ? e.message : String(e)}` }],
+    }
+  }
   return validateKnowledgeManifest(projectRoot)
 }
 

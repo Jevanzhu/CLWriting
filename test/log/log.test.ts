@@ -2,11 +2,12 @@
  * A4（批 0）结构化日志模块单测：队列串行 / 轮转清理 / err 序列化 /
  * 未初始化镜像 / 落盘失败降级（fail-open）。
  */
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs'
+import { rmSync, writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { initLogging, log, resetLoggingForTest, flushLogsForTest, localDayKey } from '../../src/log/index.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 let dir = ''
 
@@ -56,7 +57,7 @@ describe('log 模块（A4 批 0）', () => {
   })
 
   it('初始化后：JSONL 落盘 + 镜像 console；行含 {ts,level,tag,msg,err}', async () => {
-    dir = mkdtempSync(join(tmpdir(), 'clw-log-'))
+    dir = mkdtempTracked(join(tmpdir(), 'clw-log-'))
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     initLogging({ logsDir: dir })
     const e = new Error('disk on fire')
@@ -76,7 +77,7 @@ describe('log 模块（A4 批 0）', () => {
   })
 
   it('串行队列：连续写入保持调用序（行序 = 调用序）', async () => {
-    dir = mkdtempSync(join(tmpdir(), 'clw-log-'))
+    dir = mkdtempTracked(join(tmpdir(), 'clw-log-'))
     vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.spyOn(console, 'warn').mockImplementation(() => {})
     vi.spyOn(console, 'log').mockImplementation(() => {})
@@ -89,7 +90,7 @@ describe('log 模块（A4 批 0）', () => {
   })
 
   it('mirrorConsole=false：打包态不镜像', async () => {
-    dir = mkdtempSync(join(tmpdir(), 'clw-log-'))
+    dir = mkdtempTracked(join(tmpdir(), 'clw-log-'))
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     initLogging({ logsDir: dir, mirrorConsole: false })
     log.error('pack', 'quiet')
@@ -99,7 +100,7 @@ describe('log 模块（A4 批 0）', () => {
   })
 
   it('轮转清理：>7 天的日志文件启动即删，7 天内保留', async () => {
-    dir = mkdtempSync(join(tmpdir(), 'clw-log-'))
+    dir = mkdtempTracked(join(tmpdir(), 'clw-log-'))
     vi.spyOn(console, 'log').mockImplementation(() => {})
     const old = new Date(Date.now() - 9 * 24 * 3600 * 1000)
     const oldName = `app-${old.getFullYear()}${String(old.getMonth() + 1).padStart(2, '0')}${String(old.getDate()).padStart(2, '0')}.jsonl`
@@ -116,10 +117,10 @@ describe('log 模块（A4 批 0）', () => {
   })
 
   it('fail-open：落盘失败（目录被换成名同文件）降级 console，不抛出、队列不断', async () => {
-    const real = mkdtempSync(join(tmpdir(), 'clw-log-real-'))
+    const real = mkdtempTracked(join(tmpdir(), 'clw-log-real-'))
     dir = real
     // 占坑：把目录名先占住的是普通文件——appendFile 到 <file>/x 报 ENOTDIR
-    const blocked = mkdtempSync(join(tmpdir(), 'clw-log-block-'))
+    const blocked = mkdtempTracked(join(tmpdir(), 'clw-log-block-'))
     rmSync(blocked, { recursive: true, force: true })
     writeFileSync(blocked, 'not a dir')
     vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -133,7 +134,7 @@ describe('log 模块（A4 批 0）', () => {
   })
 
   it('非 Error 值收编为 {name,message} 字符串形状', async () => {
-    dir = mkdtempSync(join(tmpdir(), 'clw-log-'))
+    dir = mkdtempTracked(join(tmpdir(), 'clw-log-'))
     vi.spyOn(console, 'error').mockImplementation(() => {})
     initLogging({ logsDir: dir })
     log.error('odd', 'weird value', 'plain string')
@@ -144,7 +145,7 @@ describe('log 模块（A4 批 0）', () => {
   })
 
   it('幂等 init：重复调用不重复清理也不丢在途行', async () => {
-    dir = mkdtempSync(join(tmpdir(), 'clw-log-'))
+    dir = mkdtempTracked(join(tmpdir(), 'clw-log-'))
     vi.spyOn(console, 'log').mockImplementation(() => {})
     initLogging({ logsDir: dir, mirrorConsole: false })
     log.info('a', 'before-reinit')
@@ -162,7 +163,7 @@ describe('log 模块（A4 批 0）', () => {
   // 先于新目录 mkdir 执行 → ENOENT 降级丢行。修复 = 泵首幂等 mkdir 兜底。
   // 全量跑红 / 单跑绿的正是在途泵跨测试换目录的同型时序；此处用同步交错确定性复现。
   it('D2 实施期回归：泵先于新目录 mkdir 链执行的交错不丢行（泵首幂等 mkdir 兜底）', async () => {
-    const dirA = mkdtempSync(join(tmpdir(), 'clw-log-sw-'))
+    const dirA = mkdtempTracked(join(tmpdir(), 'clw-log-sw-'))
     const dirB = join(dirA, 'b') // 不预创建——目录创建是日志链的职责
     dir = dirA // afterEach 递归清理覆盖 dirB
     vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -186,7 +187,7 @@ describe('log 模块（A4 批 0）', () => {
   it('M-6（第十轮）：第九轮 L-6——跨零点排队的日志行落次日文件（不串到前一天）', async () => {
     vi.useFakeTimers()
     try {
-      dir = mkdtempSync(join(tmpdir(), 'clw-log-'))
+      dir = mkdtempTracked(join(tmpdir(), 'clw-log-'))
       vi.spyOn(console, 'log').mockImplementation(() => {})
       // 23:59 入队（init 的 mkdir/清理队列先排空，保证日志行入队后队列首动作就是它的 flush）
       vi.setSystemTime(new Date(2026, 7, 21, 23, 59, 0))
@@ -214,7 +215,7 @@ describe('log stdout-only 模式（阶段 22 批 U2 / U-5 单写者，S-3 + 二�
   })
 
   it('CLW_LOG_STDOUT=1：init 短路忽略 opts；emit 直写 stdout 同构 JSON 行；不镜像 console 不落盘', () => {
-    dir = mkdtempSync(join(tmpdir(), 'clw-log-so-'))
+    dir = mkdtempTracked(join(tmpdir(), 'clw-log-so-'))
     process.env['CLW_LOG_STDOUT'] = '1'
     const writes: string[] = []
     vi.spyOn(process.stdout, 'write').mockImplementation(((c: string) => {
@@ -241,7 +242,7 @@ describe('log stdout-only 模式（阶段 22 批 U2 / U-5 单写者，S-3 + 二�
   })
 
   it('init 短路不跑 7 天清理：超期旧文件保留（正常模式会删）', () => {
-    dir = mkdtempSync(join(tmpdir(), 'clw-log-so2-'))
+    dir = mkdtempTracked(join(tmpdir(), 'clw-log-so2-'))
     writeFileSync(join(dir, 'app-20200101.jsonl'), '{"old":1}\n')
     process.env['CLW_LOG_STDOUT'] = '1'
     initLogging({ logsDir: dir, mirrorConsole: false })

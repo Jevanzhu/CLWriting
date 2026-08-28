@@ -7,11 +7,12 @@
  */
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { startServer } from '../../src/studio/server/index.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const servers: http.Server[] = []
 const dirs: string[] = []
@@ -49,7 +50,7 @@ function makeBrokenBook(root: string): void {
 }
 
 function makeWorkdir(withBrokenBook: boolean): string {
-  const workDir = mkdtempSync(join(tmpdir(), 'clw-notices-'))
+  const workDir = mkdtempTracked(join(tmpdir(), 'clw-notices-'))
   dirs.push(workDir)
   mkdirSync(join(workDir, '.clwriting'), { recursive: true })
   const name = withBrokenBook ? '坏书' : '好书'
@@ -68,7 +69,7 @@ function makeWorkdir(withBrokenBook: boolean): string {
 describe('GET /api/startup-notices（A4 批 0）', () => {
   it('干净书库：无通告', async () => {
     const workDir = makeWorkdir(false)
-    const userData = mkdtempSync(join(tmpdir(), 'clw-notices-ud-'))
+    const userData = mkdtempTracked(join(tmpdir(), 'clw-notices-ud-'))
     dirs.push(userData)
     const baseUrl = await bootReady(workDir, userData)
     const r = await getNotices(baseUrl)
@@ -78,7 +79,7 @@ describe('GET /api/startup-notices（A4 批 0）', () => {
 
   it('v2 迁移失败注入：通告可见（kind + 人话 message）', async () => {
     const workDir = makeWorkdir(true)
-    const userData = mkdtempSync(join(tmpdir(), 'clw-notices-ud-'))
+    const userData = mkdtempTracked(join(tmpdir(), 'clw-notices-ud-'))
     dirs.push(userData)
     const baseUrl = await bootReady(workDir, userData)
     const r = await getNotices(baseUrl)
@@ -95,7 +96,7 @@ describe('GET /api/startup-notices（A4 批 0）', () => {
 
   it('日志同步落痕：失败通告同时写入 userData/logs/ JSONL', async () => {
     const workDir = makeWorkdir(true)
-    const userData = mkdtempSync(join(tmpdir(), 'clw-notices-ud-'))
+    const userData = mkdtempTracked(join(tmpdir(), 'clw-notices-ud-'))
     dirs.push(userData)
     await bootReady(workDir, userData)
     // startServer 内 log.error 排队异步落盘；轮询等文件出现（串行队列保证有序）。

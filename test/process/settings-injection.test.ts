@@ -10,6 +10,7 @@
 import { test, expect } from 'vitest'
 import { assembleSettingsInjection, type SettingsLayer } from '../../src/process/settings-injection.js'
 import { PRUNE_MARKER } from '../../src/process/prune.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 /** 造指定 code point 长度的中文文本（带锚点字符，断言层去留用） */
 function cn(anchor: string, len: number): string {
@@ -159,10 +160,10 @@ test('code point 度量——emoji 计 1 不劈 surrogate pair', () => {
 
 test('readCharacterCards 缓存：未变命中复用、变更重读、返回引用隔离', async () => {
   const { readCharacterCards, clearCharacterCardCache } = await import('../../src/process/settings-context.js')
-  const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs')
+  const { rmSync, writeFileSync } = await import('node:fs')
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
-  const dir = mkdtempSync(join(tmpdir(), 'cards-cache-'))
+  const dir = mkdtempTracked(join(tmpdir(), 'cards-cache-'))
   try {
     writeFileSync(join(dir, '林远.md'), '---\n姓名: 林远\n身份: 首席大弟子\n---\n\n冷面剑修。\n')
     const bookRoot = dir
@@ -192,10 +193,10 @@ test('readCharacterCards 缓存：未变命中复用、变更重读、返回引�
 
 test('cardCache FIFO 上限 64：塞超后最旧键失活、活跃键仍命中（命中不续位）', async () => {
   const { readCharacterCards, clearCharacterCardCache } = await import('../../src/process/settings-context.js')
-  const { mkdtempSync, rmSync, writeFileSync, utimesSync } = await import('node:fs')
+  const { rmSync, writeFileSync, utimesSync } = await import('node:fs')
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
-  const dir = mkdtempSync(join(tmpdir(), 'cards-fifo-'))
+  const dir = mkdtempTracked(join(tmpdir(), 'cards-fifo-'))
   const T = new Date(1_700_000_000_000)
   const write = (name: string, body: string): void => {
     writeFileSync(join(dir, name), `---\n姓名: ${name.replace('.md', '')}\n---\n\n${body}\n`)
@@ -236,11 +237,11 @@ test('cardCache FIFO 上限 64：塞超后最旧键失活、活跃键仍命中�
 
 test('cardCache 删除自愈：删卡后再读，缓存条目被清扫；他目录条目不受连坐', async () => {
   const { readCharacterCards, clearCharacterCardCache } = await import('../../src/process/settings-context.js')
-  const { mkdtempSync, rmSync, writeFileSync, utimesSync } = await import('node:fs')
+  const { rmSync, writeFileSync, utimesSync } = await import('node:fs')
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
-  const dir1 = mkdtempSync(join(tmpdir(), 'cards-heal1-'))
-  const dir2 = mkdtempSync(join(tmpdir(), 'cards-heal2-'))
+  const dir1 = mkdtempTracked(join(tmpdir(), 'cards-heal1-'))
+  const dir2 = mkdtempTracked(join(tmpdir(), 'cards-heal2-'))
   const T = new Date(1_700_000_000_000)
   const write = (base: string, name: string, body: string): void => {
     writeFileSync(join(base, name), `---\n姓名: ${name.replace('.md', '')}\n---\n\n${body}\n`)
@@ -280,10 +281,10 @@ test.skipIf(process.platform === 'win32')( // Windows 无 POSIX 权限位（chmo
   'readCharacterCards：无 fm 卡读盘失败（EACCES）→ 跳过该卡，其余卡正常返回（不再直穿抛出）',
   async () => {
   const { readCharacterCards, clearCharacterCardCache } = await import('../../src/process/settings-context.js')
-  const { mkdtempSync, rmSync, writeFileSync, chmodSync } = await import('node:fs')
+  const { rmSync, writeFileSync, chmodSync } = await import('node:fs')
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
-  const dir = mkdtempSync(join(tmpdir(), 'cards-eacces-'))
+  const dir = mkdtempTracked(join(tmpdir(), 'cards-eacces-'))
   try {
     // 一张正常无 fm 卡（走降级分支：姓名=文件名，正文=全文）+ 一张不可读卡（无 fm 也无读权）
     writeFileSync(join(dir, '林远.md'), '冷面剑修，旧自由 MD 无 front matter。\n')

@@ -1,14 +1,15 @@
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, symlinkSync } from 'node:fs'
+import { rmSync, mkdirSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readSample, writeSample, readSamplesByScene, parseSampleFileName } from '../../src/format/style.js'
 import { readRealmDoc, writeRealmDoc, getRealmSequence, realmIndex } from '../../src/format/realms.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 // ── 文风样章（#5）──────────────────────────────
 
 test('readSample + writeSample: 往返（含标签数组）', () => {
-  const dir = mkdtempSync(join(tmpdir(), '北境往事-'))
+  const dir = mkdtempTracked(join(tmpdir(), '北境往事-'))
   const fp = join(dir, '战斗-001.md')
   const s = {
     场景: '战斗', 来源: '作者原作' as const,
@@ -30,7 +31,7 @@ test('readSample + writeSample: 往返（含标签数组）', () => {
 })
 
 test('readSamplesByScene: 按场景取、容错', () => {
-  const root = mkdtempSync(join(tmpdir(), '北境往事-'))
+  const root = mkdtempTracked(join(tmpdir(), '北境往事-'))
   const dir = join(root, '文风', '样章库')
   mkdirSync(join(dir, '战斗'), { recursive: true })
   writeSample(join(dir, '战斗', '战斗-001.md'), {
@@ -58,7 +59,7 @@ test('readSamplesByScene: 场景目录不存在返回空', () => {
 // 整个场景读取抛穿，对齐 leads.ts readLeadDir 的守卫写法：单文件失败跳过不中断
 // Windows 无 POSIX 权限位/需开发者模式，symlinkSync 直建 EPERM，该守卫语义由 macOS/Linux CI 腿覆盖
 test.skipIf(process.platform === 'win32')('低-3（第十轮）：场景目录含已消失文件（悬空链接）不抛，其余样章照常读出', () => {
-  const root = mkdtempSync(join(tmpdir(), '北境往事-'))
+  const root = mkdtempTracked(join(tmpdir(), '北境往事-'))
   const dir = join(root, '文风', '样章库')
   mkdirSync(join(dir, '战斗'), { recursive: true })
   writeSample(join(dir, '战斗', '战斗-001.md'), {
@@ -80,7 +81,7 @@ test('parseSampleFileName', () => {
 // ── 境界枚举（#6）──────────────────────────────
 
 test('readRealmDoc + writeRealmDoc: 嵌套体系往返', () => {
-  const dir = mkdtempSync(join(tmpdir(), '北境往事-'))
+  const dir = mkdtempTracked(join(tmpdir(), '北境往事-'))
   const fp = join(dir, '境界体系.md')
   const doc = {
     体系: [

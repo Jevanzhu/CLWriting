@@ -9,6 +9,7 @@
 import { join } from 'node:path'
 import { readdirSync, readFileSync, existsSync, statSync, realpathSync } from 'node:fs'
 import { isWithinRoot } from '../fs/safe-path.js'
+import { finalizedPathSet } from '../document/manifest.js'
 import { clipByCodePoints } from './summary.js'
 
 /** 可搜目录全集（相对 bookRoot） */
@@ -54,6 +55,12 @@ export function searchBook(bookRoot: string, q: string, scope?: string): SearchO
   const query = (q ?? '').trim()
   if (!query) return { results: [] }
   const dirs = SEARCH_SCOPE_DIRS[scope ?? 'all'] ?? SEARCH_ALL_DIRS
+  // R73-42（二十一轮）：scope「定稿」名要符实——写作/正文 下的未定稿草稿原先一并命中，
+  // 与 assembleStatus 的定稿口径（manifest.finalizedRevision 单一真相）不一致，AI 拿
+  // 草稿当定稿引用会串内容。现正文区命中按 finalizedPathSet 过滤（设定/大纲等目录不受
+  // 定稿基线管辖，不过滤）；清单缺失/不可读（null）无法判定 → 保持全量兜底（与
+  // finalizedPathSet 的 M-2/PL-2 降级哲学一致）。
+  const finalizedPaths = scope === '定稿' ? finalizedPathSet(bookRoot) : null
   const lower = query.toLowerCase()
   const results: SearchHit[] = []
   for (const dir of dirs) {
@@ -63,6 +70,8 @@ export function searchBook(bookRoot: string, q: string, scope?: string): SearchO
       const matches = searchFile(fp, lower)
       if (matches.length === 0) continue
       const rel = fp.slice(bookRoot.length + 1).split('\\').join('/')
+      // R73-42：定稿 scope 下，写作/正文 中未登记定稿基线的章（在写草稿）不进结果
+      if (finalizedPaths !== null && dir === '写作/正文' && !finalizedPaths.has(rel)) continue
       // R72-9（二十轮 C-8）：文件内命中超上限时附 hasMore 标记（截断不再静默）
       results.push({
         path: rel,

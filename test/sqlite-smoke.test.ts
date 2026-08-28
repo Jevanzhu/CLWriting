@@ -1,13 +1,14 @@
 import { test, expect } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdtempSync, rmSync, existsSync } from 'node:fs'
+import { rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from './helpers/temp-dir.js'
 
 // 母本第 9 节 M0 出口：建库→读写→删库重建，坐实 node:sqlite RC 在 ≥24 实际可用。
 // 临时目录前缀含中文，顺带验证中文落盘（Windows 中文一等公民的最小覆盖）。
 test('node:sqlite 建库→读写→删库重建（含中文落盘）', () => {
-  const dir = mkdtempSync(join(tmpdir(), '北境的雪-'))
+  const dir = mkdtempTracked(join(tmpdir(), '北境的雪-'))
   const dbPath = join(dir, 'index.db')
 
   // 建库 + 写（含中文值）

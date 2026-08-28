@@ -3,16 +3,17 @@
  * 判定与导出 V-P2-2 同一函数（manifest.finalizedPathSet）；旧书无清单 → 全量（降级一致）。
  */
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { learnFromBook } from '../../src/learn/index.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const QUALIFYING_BODY =
   '林远踏出山门，暮色四合，青石阶尽头的灯火次第亮起。玉佩在胸前微微发烫，像一颗不肯安分的心。他抬手覆上，那温度便缓缓沉下去。\n\n他忽然感到一阵锥心之痛，仿佛有旧事在血里翻身。'
 
 function makeBook(): string {
-  const root = mkdtempSync(join(tmpdir(), 'learn-final-'))
+  const root = mkdtempTracked(join(tmpdir(), 'learn-final-'))
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '项目'), { recursive: true })
   writeFileSync(join(root, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 测试书\n', 'utf-8')

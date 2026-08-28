@@ -10,3 +10,17 @@
 *.png binary
 *.ico binary
 *.icns binary
+# R73-58（二十一轮）：常见二进制资产后缀补全（字体/位图/音视频/归档/wasm）——
+# 防 text=auto 误规范化损坏；新增此类资产入仓时对齐此处
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.webp binary
+*.gif binary
+*.jpg binary
+*.jpeg binary
+*.mp3 binary
+*.mp4 binary
+*.zip binary
+*.wasm binary

@@ -34,11 +34,15 @@ export interface TreeIssueEntry {
   verdictRejected: boolean
 }
 
-/** 文件指纹 "mtime:size"；不存在 → 'absent'（新出现/消失都构成变化）。 */
+/** 文件指纹 "mtime:size"；不存在 → 'absent'（新出现/消失都构成变化）。
+ *  R73-27（二十一轮）：精度从 mtimeMs 升级 mtimeNs（bigint stat）——与章元数据缓存
+ *  （chapters.ts CC-P1-3，R62-35 同款）统一到 ns 级：同毫秒内「改回同长内容」此前
+ *  不失效（纪元指纹粒度与章缓存不一致），ns 级撞车窗口收窄到与章缓存同源口径。
+ *  指纹串格式随升级变化 → 旧 global_fp 比对必 miss，一次性整表重查（语义无损）。 */
 function fileFp(p: string): string {
   try {
-    const st = statSync(p)
-    return `${st.mtimeMs}:${st.size}`
+    const st = statSync(p, { bigint: true })
+    return `${st.mtimeNs}:${st.size}`
   } catch {
     return 'absent'
   }
@@ -47,12 +51,13 @@ function fileFp(p: string): string {
 /** 目录树指纹 "count:size:maxMtime:nameHash"（递归文件，跳过 ._ 资源文件）。
  *  nameHash = 相对路径 FNV-1a（2026-08-21 四轮复审）：纯改名 count/size/mtime 全不变，
  *  但章节文件名是 findChapterFile 章号映射与引文 grep 的输入——改名不失效会让
- *  leads_book 缓存陈旧（含本指纹的纪元 dirFp 同享此修正，一次性整表失效无害）。 */
+ *  leads_book 缓存陈旧（含本指纹的纪元 dirFp 同享此修正，一次性整表失效无害）。
+ *  R73-27（二十一轮）：maxMtime 同步升 mtimeNs（同 fileFp 口径）。 */
 function dirFp(p: string): string {
   if (!existsSync(p)) return 'absent'
   let count = 0
   let size = 0
-  let maxMtime = 0
+  let maxMtime = 0n
   let nameHash = 0x811c9dc5
   const walk = (dir: string, prefix: string): void => {
     let entries
@@ -67,10 +72,10 @@ function dirFp(p: string): string {
       if (e.isDirectory()) walk(fp, `${prefix}${e.name}/`)
       else if (e.isFile()) {
         try {
-          const st = statSync(fp)
+          const st = statSync(fp, { bigint: true })
           count++
-          size += st.size
-          if (st.mtimeMs > maxMtime) maxMtime = st.mtimeMs
+          size += Number(st.size)
+          if (st.mtimeNs > maxMtime) maxMtime = st.mtimeNs
           const rel = `${prefix}${e.name}`
           for (let i = 0; i < rel.length; i++) {
             nameHash ^= rel.charCodeAt(i)

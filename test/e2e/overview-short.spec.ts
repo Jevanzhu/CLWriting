@@ -15,8 +15,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { startServer } from '../../src/studio/server/index.js'
 import { makeDualTrackWorkdir, SHORT_BOOK } from '../studio/fixtures.js'
+import { e2ePort } from './e2e-ports.js'
 
-const PORT = 19012
+// R73-75（批 F-8）：端口基址派生（CLW_E2E_PORT_BASE+13，旧硬编码 19012；偏移表见 e2e-ports.ts）
+const PORT = e2ePort(13)
 const BASE = `http://127.0.0.1:${PORT}`
 let server: http.Server
 let workDir = ''

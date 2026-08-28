@@ -5,7 +5,13 @@ import { defineConfig } from 'tsup'
 // 不触碰第二个 config 的 clean 竞争前提（clean 整个 dist/ 会删掉并发构建的 preload.cjs）。
 // 清理历史 chunk 累积：clean:false 下旧 hash chunk 永久残留，且会被 files: dist/**/*
 // 原样打进 DMG（发布物膨胀 + 排障时新旧 chunk 混淆）。配置加载期同步执行，早于产物发射。
-rmSync('dist/desktop', { recursive: true, force: true })
+// R73-57（二十一轮）：仅在非 watch 构建执行——`tsup --watch`（npm run dev）改配置触发
+// restart 会重新加载本文件，此处的 rmSync 会把 dev 循环正在使用的 dist/desktop 产物连根
+// 删掉；dev 态不清 stale chunk 无碍（残留只损发布物体积，发布走 build:desktop 全新构建，
+// 不含 --watch，守卫不生效）。
+if (!process.argv.includes('--watch')) {
+  rmSync('dist/desktop', { recursive: true, force: true })
+}
 
 export default defineConfig([
   {

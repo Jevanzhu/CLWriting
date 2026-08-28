@@ -6,15 +6,16 @@
  * - R71-25：墓碑在搬移前预写；迁移失败回滚后旧位完整活库且无墓碑残留。
  */
 import { afterAll, describe, expect, it } from 'vitest'
-import { mkdtempSync, rmSync, existsSync, mkdirSync, writeFileSync, statSync, utimesSync } from 'node:fs'
+import { rmSync, existsSync, mkdirSync, writeFileSync, statSync, utimesSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openSessionStore, migrateBookSession, bookHash, configureOpenMarkerRenewMs } from '../../src/events/store.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const roots: string[] = []
 function freshUd(): string {
-  const ud = mkdtempSync(join(tmpdir(), 'r71-marker-'))
+  const ud = mkdtempTracked(join(tmpdir(), 'r71-marker-'))
   roots.push(ud)
   return ud
 }

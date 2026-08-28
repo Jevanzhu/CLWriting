@@ -219,7 +219,8 @@ export async function generateText(
   // P1-3：纯文本端点截断检查（与 generateTool 对称）
   if (r.stopReason === 'max_tokens') {
     // R61-6（第六十一轮）：截断调用照样烧 token，usage 随错误上抛记账（此前截断即丢账）
-    throw new GenError('AI 产出达到长度上限被截断，请精简输入提示或稍后重试。', false, { code: 'MAX_TOKENS', usage: r.usage })
+    // R73-3（二十一轮 A-3）：MAX_TOKENS 终态不可重试——文案明示「模型行可配输出上限」出路
+    throw new GenError('AI 产出达到长度上限被截断，请精简输入提示或稍后重试；也可在设置 → AI 的模型行配置单次输出上限（maxTokens）。', false, { code: 'MAX_TOKENS', usage: r.usage })
   }
   return r.text
 }
@@ -269,7 +270,8 @@ export async function generateTool(
   // P1-3：输出撞顶且无 tool_use → JSON 被截断；抛明确错误而非静默降级到 text
   if (!tool && r.stopReason === 'max_tokens') {
     // R61-6（第六十一轮）：同 generateText——截断调用 usage 随错误上抛记账
-    throw new GenError('AI 产出达到长度上限被截断，结构化结果不完整，请精简输入提示或稍后重试。', false, { code: 'MAX_TOKENS', usage: r.usage })
+    // R73-3：同款出路提示（模型行可配输出上限）
+    throw new GenError('AI 产出达到长度上限被截断，结构化结果不完整，请精简输入提示或稍后重试；也可在设置 → AI 的模型行配置单次输出上限（maxTokens）。', false, { code: 'MAX_TOKENS', usage: r.usage })
   }
   return {
     input: tool ? tool.input : null,

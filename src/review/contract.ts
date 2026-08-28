@@ -332,12 +332,17 @@ export function selectReviewTier(input: {
   }
 }
 
-/** 合并满审 / 顺序审的多份 issue：同 lens/category/location 去重，取最严。 */
+/** 合并满审 / 顺序审的多份 issue：同 lens/category/location 去重，取最严。
+ *  R73-25（二十一轮）：去重键纳入 issue 摘要——同位置的两条不同问题（如「动机断裂」
+ *  与「时间线矛盾」都在同一段落）此前共用一键，后到条只把 issue/fix 文本丢成空合并
+ *  （existing 非空时 `if (existing.issue === '')` 不触发），第二条问题整条蒸发。
+ *  现按「同位置且同一句问题描述」才判同一问题合并（severity 取最严/evidence 并集/
+ *  blocking 或），不同描述的同位置问题各自保留。 */
 export function aggregateReviewIssues(issues: ReviewIssue[]): ReviewIssue[] {
   const byKey = new Map<string, ReviewIssue>()
 
   for (const issue of issues) {
-    const key = `${issue.lens}\0${issue.category}\0${issue.location.trim()}`
+    const key = `${issue.lens}\0${issue.category}\0${issue.location.trim()}\0${issue.issue.trim()}`
     const existing = byKey.get(key)
     if (existing === undefined) {
       byKey.set(key, cloneIssue(issue))

@@ -131,12 +131,23 @@ export function readJson(
       // 超限已在 data 中 reject；此处仅防御（promise settle 后重复调用无效）
       if (tooLarge) return
       const data = Buffer.concat(chunks).toString('utf-8')
+      let parsed: unknown
       try {
         // 字面 null 体（JSON.parse('null') = null）兜底为 {}，防端点 body['x'] TypeError
-        resolve(data.trim() === '' ? {} : (JSON.parse(data) ?? {}))
+        parsed = data.trim() === '' ? {} : (JSON.parse(data) ?? {})
       } catch (e) {
         reject(new HttpError(400, `请求体不是合法 JSON：${e instanceof Error ? e.message : ''}`, 'BAD_INPUT'))
+        return
       }
+      // R73-51（二十一轮）：body 统一断言为 JSON object——全部调用方（含 defineRoute
+      // 的 parse 声明路由）均按 body['key'] 消费，无一以数组/字符串/数字等原语为契约；
+      // 原语此前原样透传，各端点或按空对象静默处理或 TypeError 500，错误信封口径不一。
+      // 数组同拒（返回类型 Record<string, unknown> 即契约）；null 已归一为 {} 不受影响
+      if (typeof parsed !== 'object' || Array.isArray(parsed)) {
+        reject(new HttpError(400, '请求体必须是 JSON 对象', 'BAD_INPUT'))
+        return
+      }
+      resolve(parsed as Record<string, unknown>)
     })
     req.on('error', (e) => reject(e))
   })

@@ -129,17 +129,19 @@ function push(id: string, ev: DriverEvent): void {
   // 广播：复制事件到每个活跃消费者队列，唤醒其挂起等待
   for (const c of ch.consumers) {
     // 内存核查（2026-08-25 M-P2-1）：消费者队列 cap——广播腿是 pre/execRing 之外的
-    // 一支（原先无上限），超限丢最旧腾位；每轮积压首次超限时再腾一位补发 notice
-    // （notice 自身也占队列位，入队后长度恒 ≤ MAX_CONSUMER_QUEUE）
+    // 一支（原先无上限），超限丢最旧腾位；每轮积压首次超限时补发 notice。
+    // R73-9（二十一轮 A-9）：notice 走「容量 +1 内部槽」——修复前首次溢出先 shift 腾位、
+    // 再 shift 一位给 notice，首轮实际连丢 2 条真实事件。现在每次溢出只丢 1 条最旧
+    // 真实事件，notice 不占真实事件位（队列瞬态上限 MAX_CONSUMER_QUEUE+1，notice
+    // 消费后回落 ≤ cap），文案「最旧的排队事件已被丢弃」与实际丢弃数一致。
     if (c.queue.length >= MAX_CONSUMER_QUEUE) {
       c.queue.shift()
       if (!c.dropNotified) {
-        c.queue.shift()
+        c.dropNotified = true
         c.queue.push({
           type: 'notice',
           message: '事件队列已满：消费过慢或连接停滞，最旧的排队事件已被丢弃（运行中的执行可经重连回放最近事件补齐）',
         })
-        c.dropNotified = true
       }
     }
     c.queue.push(ev)

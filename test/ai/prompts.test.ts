@@ -5,7 +5,7 @@
  * （writerSystem kind 选择、reviewSystem 未知 lens fallback、chat trimHistory 截断）。
  */
 import { describe, it, expect } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { resolveDraftPath } from '../../src/format/draft.js'
@@ -14,6 +14,7 @@ import { WRITER_SYSTEM_LONG, WRITER_SYSTEM_SHORT, REWRITER_SYSTEM, writerSystem 
 import { REVIEW_SYSTEMS, reviewSystem } from '../../src/ai/prompts/review.js'
 import { chatSystem, buildChatContext, trimHistory, sanitizeHistory } from '../../src/ai/prompts/chat.js'
 import type { ChatMsg, ContentBlock } from '../../src/ai/provider/types.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 describe('analyst.ts', () => {
   it('包含角色定位 + 各分析维度 + 输出方式', () => {
@@ -97,7 +98,7 @@ describe('chat.ts', () => {
   })
 
   it('P-6（第十四轮）无 fm 但正文含 --- 字样的手写稿 → 预览不吞段（bodyOf 同源剥 fm）', () => {
-    const root = mkdtempSync(join(tmpdir(), 'clw-p6-'))
+    const root = mkdtempTracked(join(tmpdir(), 'clw-p6-'))
     try {
       const rel = resolveDraftPath(root, 3).relPath
       mkdirSync(dirname(join(root, rel)), { recursive: true })

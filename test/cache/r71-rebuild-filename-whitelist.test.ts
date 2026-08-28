@@ -4,14 +4,15 @@
  * 联查）；改 /^\d+$/ 严格白名单，不匹配计入 errors（对齐 R62-32 口径）。
  */
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { rebuild } from '../../src/cache/rebuild.js'
 import { writeBookConfig, DEFAULT_CONFIG } from '../../src/format/yaml.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 function makeBareRoot(): string {
-  const root = mkdtempSync(join(tmpdir(), 'r71-rebuild-'))
+  const root = mkdtempTracked(join(tmpdir(), 'r71-rebuild-'))
   writeBookConfig(join(root, 'book.yaml'), { ...DEFAULT_CONFIG, book: { title: '书', genre: '玄幻' } })
   return root
 }

@@ -107,8 +107,7 @@ export interface PieceList {
   反转线索表: ReversalLead
   情绪曲线?: EmotionCurvePoint[]
   伏笔回收: PayoffEntry[]
-  _raw?: Record<string, string>
-  _path?: string
+  _path?: string // R73-16b（二十一轮）：死字段 _raw 删除（R65-39 已登记从不填充，未知段保形走文本级补丁路径）
 }
 
 /** 钩子强弱 */
@@ -138,6 +137,9 @@ export interface ChapterMeta {
   _wordCount?: number // 机检算的派生（#7 第 2 节，不入 front matter）
   /** W-P2-4：readChapterDir 传 includeBody 时带出正文原文（导出单次读用；默认缺省不驻留内存） */
   _body?: string
+  /** R73-16（二十一轮 B-3）：必填枚举缺失清单（钩子类型/钩子强弱/情绪定位，缺省 = 全齐）。
+   *  readChapter 登记、checkFrontMatter 消费产红项（fm-missing）；缺字段不再静默补默认了事。 */
+  _fmMissing?: string[]
 }
 
 // ── 文风样章（#5 第 4 节）────────────────────────
@@ -314,10 +316,9 @@ export interface BookConfig {
     candidate_depth?: number // A3（批 7）：召回惰性指纹校验的候选章上限（缺省 20；P4 拍板写死可覆盖）
     embed_timeout_ms?: number // R62-27：embedding 单请求超时毫秒（正整数才收；缺省 embed.ts 内置 30s）
   }
-  // Z-16（第五十八轮）注释如实化：此字段全库无生产填充（sectionsToConfig 从不设置）——
-  // 未知顶层段的实际保留由 patchBookConfigText 文本补丁路径达成（保形在文本层，
-  // 非 parse→stringify 往返）；全量重生成（stringifyBookConfig）会丢弃未知段。勿依赖此字段。
-  _raw?: Record<string, unknown>
+  // R73-16b（二十一轮）：死字段 _raw 删除——Z-16 已如实登记「全库无生产填充」，
+  // 未知顶层段的实际保留由 patchBookConfigText 文本补丁路径达成（保形在文本层），
+  // 全量重生成（stringifyBookConfig）丢弃未知段是既定取舍；类型面不再保留幻影字段。
 }
 
 // ── 解析错误（#3 第 8 节，容错不崩）──────────────

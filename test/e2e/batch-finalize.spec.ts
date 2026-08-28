@@ -13,8 +13,10 @@ import { join } from 'node:path'
 import { startServer } from '../../src/studio/server/index.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
+import { e2ePort } from './e2e-ports.js'
 
-const PORT = 19014
+// R73-75（批 F-8）：端口基址派生（CLW_E2E_PORT_BASE+15，旧硬编码 19014；偏移表见 e2e-ports.ts）
+const PORT = e2ePort(15)
 const BASE = `http://127.0.0.1:${PORT}`
 const BOOK = '批量定稿e2e书'
 let server: http.Server

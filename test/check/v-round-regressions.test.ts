@@ -6,7 +6,7 @@
  */
 import { test, expect } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createAllTables } from '../../src/cache/schema.js'
@@ -20,6 +20,7 @@ import { selectReviewTier, buildReviewTasks } from '../../src/review/contract.js
 import { writeBookConfig, DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import type { CheckReport } from '../../src/check/types.js'
 import type { BookConfig, ChapterMeta, RealmDoc } from '../../src/format/types.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const CONFIG: BookConfig = { ...DEFAULT_CONFIG, book: { title: '回归', genre: '仙侠' } }
 const CH: ChapterMeta = { 章号: 5, 标题: '回归章', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫' }
@@ -27,7 +28,7 @@ const CH: ChapterMeta = { 章号: 5, 标题: '回归章', 钩子类型: '悬念�
 // ── V-P1-4：byproducts.leadChanges 必须按被检章（非全书最高已定稿章）──────────────
 
 test('V-P1-4: 三审账本变动 = 被检章自身的履历（不是最高已定稿章的）', () => {
-  const root = mkdtempSync(join(tmpdir(), 'clw-v4-'))
+  const root = mkdtempTracked(join(tmpdir(), 'clw-v4-'))
   try {
     mkdirSync(join(root, '布线'), { recursive: true }) // hasWiring → 走账本 byproducts
     const db = new DatabaseSync(':memory:')
@@ -58,7 +59,7 @@ test('V-P1-4: 三审账本变动 = 被检章自身的履历（不是最高已定
 // ── V-P1-5：fm-chapter-mismatch 用真实文件名（生产路径不再恒真空）─────────────────
 
 test('V-P1-5: checkWithDb 用真实文件名 → 章号≠文件名报红', () => {
-  const root = mkdtempSync(join(tmpdir(), 'clw-v5-'))
+  const root = mkdtempTracked(join(tmpdir(), 'clw-v5-'))
   try {
     writeBookConfig(join(root, 'book.yaml'), CONFIG)
     mkdirSync(join(root, '写作', '正文'), { recursive: true })
@@ -105,7 +106,7 @@ test('V-P2-12: extractEvidenceCore 覆盖中文弯引号与直角引号', () => 
 // ── V-P2-14：细纲声明按被检章过滤 ────────────────────────────────────────────────
 
 test('V-P2-14: 细纲章号与被检章不一致 → 声明侧置空；一致/缺省 → 沿用', () => {
-  const root = mkdtempSync(join(tmpdir(), 'clw-v14-'))
+  const root = mkdtempTracked(join(tmpdir(), 'clw-v14-'))
   try {
     mkdirSync(join(root, '工作区'), { recursive: true })
     writeFileSync(join(root, '工作区', '细纲.md'), '---\n章号: 6\n推进: 悬念-001\n---\n\n第六章细纲', 'utf-8')
@@ -167,7 +168,7 @@ test('V-P2-17: 当前境界为序列枚举的细化（炼气一层）→ 不误�
 // ── R61-14（第六十一轮）：实际侧（账本推进主文件）按被检章过滤 ────────────────────
 
 test('R61-14: 账本推进章标签与被检章不一致 → 实际侧置空；一致/缺省 → 沿用（V-P2-14 声明侧同向）', () => {
-  const root = mkdtempSync(join(tmpdir(), 'clw-r61-14-'))
+  const root = mkdtempTracked(join(tmpdir(), 'clw-r61-14-'))
   try {
     mkdirSync(join(root, '工作区'), { recursive: true })
     writeFileSync(join(root, '工作区', '账本推进.md'), '# 第6章 账本推进\n\n- 悬念-001 推进：密室尽头的青铜灯亮了\n', 'utf-8')

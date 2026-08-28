@@ -5,14 +5,15 @@
  * - 端点：长篇 + 布线时 细纲.md fm 含 推进: [...]（mock 产出无 推进 行 → 显式 []）
  */
 import { test, expect } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { parseOutlineLeads, volumeProgressOf } from '../../src/studio/server/api/outline.js'
 import { readOutlineLeads } from '../../src/check/outline-leads.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 function makeWiringBook(): string {
-  const root = mkdtempSync(join(tmpdir(), 'outline-leads-'))
+  const root = mkdtempTracked(join(tmpdir(), 'outline-leads-'))
   mkdirSync(join(root, '布线', '悬念'), { recursive: true })
   mkdirSync(join(root, '工作区'), { recursive: true })
   writeFileSync(
@@ -90,14 +91,14 @@ test('闭环：parseOutlineLeads 产出可直接写 fm → readOutlineLeads 读�
 
 /** 造书 + 卷摘要（volumeN.md）：书级 volume_size 可选（未设时测 global 托底） */
 function makeVolumeBook(bookYamlExtra: string, userDataPath?: string): { root: string; ud: string | null } {
-  const root = mkdtempSync(join(tmpdir(), 'outline-vol-'))
+  const root = mkdtempTracked(join(tmpdir(), 'outline-vol-'))
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   writeFileSync(join(root, 'book.yaml'), `spec_version: 1\nkind: long\nbook:\n  title: 卷书\n${bookYamlExtra}host: cc\n`, 'utf-8')
   mkdirSync(join(root, '定稿', '摘要', '卷摘要'), { recursive: true })
   writeFileSync(join(root, '定稿', '摘要', '卷摘要', '1.md'), '# 第 1 卷\n\n第一卷的进展摘要。\n', 'utf-8')
   let ud: string | null = null
   if (userDataPath) {
-    ud = mkdtempSync(join(tmpdir(), 'outline-vol-ud-'))
+    ud = mkdtempTracked(join(tmpdir(), 'outline-vol-ud-'))
     writeFileSync(join(ud, 'global.json'), userDataPath, 'utf-8')
   }
   return { root, ud }

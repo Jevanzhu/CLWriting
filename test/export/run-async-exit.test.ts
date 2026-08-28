@@ -7,15 +7,16 @@
  * 脚本（.mjs，非 .ts → 不挂 tsx loader），timeoutMs 放大——若 exit 监听缺失则用例
  * 等满超时（测试内墙钟断言拦下「没等超时就拒绝」）。
  */
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { test, expect } from 'vitest'
 import { runExportBookAsync } from '../../src/export/run-async.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 test('R65-29: worker 无消息即退出（process.exit(0)）→ 快速 reject，不等 120s 超时', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'clw-run-async-exit-'))
+  const dir = mkdtempTracked(join(tmpdir(), 'clw-run-async-exit-'))
   try {
     const workerScript = join(dir, 'exit-immediately.mjs')
     writeFileSync(workerScript, 'process.exit(0)\n', 'utf-8')

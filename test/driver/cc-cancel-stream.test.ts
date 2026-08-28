@@ -145,10 +145,13 @@ describe.each(capDrivers)('M-P2-1: %s 已连接消费者队列上限', (_name, d
       }
       // 唤醒后一次性收尽积压：收到的 = 队列内容全量（封顶观测面）
       const { collected } = await collectUntilParked(iter, parked)
-      expect(collected).toHaveLength(maxQueue) // 封顶：超 200 后不再增长
+      // R73-9（二十一轮 A-9）：notice 走「容量 +1 内部槽」——真实事件仍精确封顶
+      // maxQueue，notice 是 +1 槽（修复前 notice 挤占真实事件位，首轮溢出连丢 2 条真实事件）
+      expect(collected).toHaveLength(maxQueue + 1)
       const texts = collected
         .filter((e) => e.type === 'text')
         .map((e) => (e as { text: string }).text)
+      expect(texts).toHaveLength(maxQueue) // 真实事件恰好 maxQueue 条（每次溢出只丢 1 条最旧）
       expect(texts).not.toContain('ev-0') // 最旧已丢（修复前 ev-0 仍在队首）
       expect(texts).toContain(`ev-${total - 1}`) // 最新事件照常送达
       // 幸存事件保序（丢的是队头连续一段，不是乱序抽丢）
@@ -180,7 +183,8 @@ describe.each(capDrivers)('M-P2-1: %s 已连接消费者队列上限', (_name, d
         driver.emit!(session, { type: 'text', text: `r2-${i}` })
       }
       const r2 = await collectUntilParked(iter, r1.parked)
-      expect(r2.collected).toHaveLength(maxQueue)
+      // R73-9：maxQueue 条真实事件 + 1 条 notice 内部槽
+      expect(r2.collected).toHaveLength(maxQueue + 1)
       expect(r2.collected.filter((e) => e.type === 'notice')).toHaveLength(1)
     } finally {
       driver.dispose(session)

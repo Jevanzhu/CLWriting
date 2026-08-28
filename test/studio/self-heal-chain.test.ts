@@ -3,7 +3,7 @@
  * 写入事件库 workspace 会话；红→绿 与 escalate 两路径覆盖。
  */
 import { test, expect } from 'vitest'
-import { mkdirSync, writeFileSync, rmSync, mkdtempSync } from 'node:fs'
+import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { makeDualTrackWorkdir, SHORT_BOOK } from '../studio/fixtures.js'
@@ -13,6 +13,7 @@ import type { CheckOutcome } from '../../src/studio/server/api/check.js'
 import type { DriverEvent, Session, StudioDriver } from '../../src/driver/index.js'
 import type { ChapterMeta } from '../../src/format/types.js'
 import type { saveDraft } from '../../src/studio/server/api/draft.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const BOOK = SHORT_BOOK
 const META: ChapterMeta = { 章号: 1, 标题: '测试章', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫' }
@@ -71,7 +72,7 @@ function readChain(ud: string, bookRoot: string) {
 test('红→绿：check/report（含红项）+ retry/attempt 落库，最终 pass', async () => {
   const workDir = makeDualTrackWorkdir()
   const bookRoot = join(workDir, '短篇', SHORT_BOOK)
-  const ud = mkdtempSync(join(tmpdir(), 'clwriting-sh-chain-'))
+  const ud = mkdtempTracked(join(tmpdir(), 'clwriting-sh-chain-'))
   try {
     const emitted: DriverEvent[] = []
     let checks = 0
@@ -109,7 +110,7 @@ test('红→绿：check/report（含红项）+ retry/attempt 落库，最终 pas
 test('触顶 escalate：多次红 → retry/attempt 记录每轮 + 最终 escalate 不落 retry/attempt 之外的 pass', async () => {
   const workDir = makeDualTrackWorkdir()
   const bookRoot = join(workDir, '短篇', SHORT_BOOK)
-  const ud = mkdtempSync(join(tmpdir(), 'clwriting-sh-chain2-'))
+  const ud = mkdtempTracked(join(tmpdir(), 'clwriting-sh-chain2-'))
   try {
     const emitted: DriverEvent[] = []
     const opts: SelfHealOpts = {
@@ -155,7 +156,7 @@ test('触顶 escalate：多次红 → retry/attempt 记录每轮 + 最终 escala
 test('F5：章节任务清单（todo/write）+ 修复目标（goal/change）随 self-heal 落库（红→绿 complete）', async () => {
   const workDir = makeDualTrackWorkdir()
   const bookRoot = join(workDir, '短篇', SHORT_BOOK)
-  const ud = mkdtempSync(join(tmpdir(), 'clwriting-sh-chain-f5-'))
+  const ud = mkdtempTracked(join(tmpdir(), 'clwriting-sh-chain-f5-'))
   try {
     const emitted: DriverEvent[] = []
     let checks = 0
@@ -197,7 +198,7 @@ test('F5：章节任务清单（todo/write）+ 修复目标（goal/change）随 
 test('F5 审阅批：中止 → goal pause（非终态，不再悬置 active）', async () => {
   const workDir = makeDualTrackWorkdir()
   const bookRoot = join(workDir, '短篇', SHORT_BOOK)
-  const ud = mkdtempSync(join(tmpdir(), 'clwriting-sh-chain-f5pause-'))
+  const ud = mkdtempTracked(join(tmpdir(), 'clwriting-sh-chain-f5pause-'))
   try {
     const opts: SelfHealOpts = {
       driver: makeEmitDriver([]),
@@ -227,7 +228,7 @@ test('F5 审阅批：中止 → goal pause（非终态，不再悬置 active）'
 test('F5 审阅批：机检崩溃（CHECK_ERROR）→ goal block 附原因（非悬置 active）', async () => {
   const workDir = makeDualTrackWorkdir()
   const bookRoot = join(workDir, '短篇', SHORT_BOOK)
-  const ud = mkdtempSync(join(tmpdir(), 'clwriting-sh-chain-f5cf-'))
+  const ud = mkdtempTracked(join(tmpdir(), 'clwriting-sh-chain-f5cf-'))
   try {
     const opts: SelfHealOpts = {
       driver: makeEmitDriver([]),

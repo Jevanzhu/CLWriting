@@ -23,6 +23,7 @@ import { modelConfOf } from './store.js'
 import { quirksFor } from './model-quirks.js'
 import { anthropicClientOpts } from './models.js'
 import { makeToErrorEvent, buildDegradeAttempts, isMidChain400, markStructuredDegrade } from './adapter-errors.js'
+import { estimateInputTokens, estimateOutputTokens } from './usage-estimate.js'
 
 /** SDK 异常 → GenEvent.error：公共工厂实现（adapter-errors），此处只贴本线错误类与 label */
 const toErrorEvent = makeToErrorEvent({
@@ -63,8 +64,11 @@ function normalizeAnthropicBaseUrl(baseUrl: string): string {
   return baseUrl.replace(/\/+$/, '').replace(/\/v1$/, '')
 }
 
-/** Anthropic API 强制要求 max_tokens（不可省略）——兜底取安全值（P1-5：128000 对旧模型 400） */
-const MAX_TOKENS = 8192
+/** Anthropic API 强制要求 max_tokens（不可省略）——兜底取安全值。
+ *  R73-3（二十一轮 A-3）：8192 → 16384（对齐 quirks 表 claude 档 maxOutputTokens）——
+ *  unknown 家族模型走协议兜底时长章必截断，且 MAX_TOKENS 是终态不可重试；16384 为
+ *  现役 claude 安全下限（对旧模型 128000 才 400，16384 无此问题）。 */
+const MAX_TOKENS = 16_384
 
 /** ChatMsg → Anthropic 线格式 message（纯文本直传；block 数组逐项映射） */
 function toAnthropicMessage(m: ChatMsg): Anthropic.MessageParam {
@@ -228,6 +232,10 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
         // tool_use input 增量拼装：content_block_start 记 tool name，
         // input_json_delta 增量拼 JSON 字符串，content_block_stop 时整体解析
         const toolBlocks = new Map<number, { id: string; name: string; jsonBuf: string }>()
+        // R73-1：产出累计（text_delta 串联 + tool jsonBuf）——网关吞 usage 时按此折算
+        // 估计用量（usage-estimate.ts 同源系数），不再按 0 输出入账
+        const outText: string[] = []
+        const outToolText: string[] = []
 
         for await (const event of stream) {
           switch (event.type) {
@@ -251,6 +259,7 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
             case 'content_block_delta': {
               const delta = event.delta
               if (delta.type === 'text_delta') {
+                outText.push(delta.text) // R73-1：产出累计
                 yield { type: 'text', delta: delta.text }
               } else if (delta.type === 'input_json_delta') {
                 const tb = toolBlocks.get(event.index)
@@ -295,14 +304,26 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
         // 兜底（H-2 第六轮）：流结束未发 done 的两种情形必须分流——与 OpenAI 线 L5-1
         // sawFinishReason / Responses 线 R1 同款契约：
         // ① 到过 message_delta（stop_reason 已缓存）但无 usage → 网关完成不回 usage，
-        //    按 message_start 缓存的 input_tokens + 0 输出放行（0 成本是可得最优估计）；
+        //    放行生成（0 成本是可得最优估计的旧取舍已被 R73-1 升级）：input 优先用
+        //    message_start 缓存的实测值，缺失才按请求字符折算；output 按累计产出
+        //    （text_delta + tool jsonBuf）折算；estimated 标记估计口径（修复前 output
+        //    恒 0，预算闸 tokens/cost 对该类端点永不生效、成本报表系统性偏低）；
         // ② 连 message_delta 都没到 → 传输截断（中转/代理提前断流时 SDK 迭代器不抛错
         //    而是正常 return 的形态），报可重试错误不发 done——半截正文不得当完整产出
         //    落稿、不得按成功 0 成本入账、必须进重试路径。修复前两种情形混同，截断流
         //    被伪造成 end_turn 正常完成。
         if (!doneEmitted) {
           if (pendingStopReason !== null) {
-            const ev = emitDone({ inputTokens: inputTokensFromStart, outputTokens: 0 }, pendingStopReason)
+            for (const [, tb] of toolBlocks) outToolText.push(tb.name + tb.jsonBuf) // R73-1：tool 参数计入产出累计
+            const usage: TokenUsage = {
+              inputTokens:
+                inputTokensFromStart > 0
+                  ? inputTokensFromStart // message_start 实测值优先（真实输入计量）
+                  : estimateInputTokens(req, conf.model ?? undefined),
+              outputTokens: estimateOutputTokens(outText.join('') + outToolText.join(''), conf.model ?? undefined),
+              estimated: true,
+            }
+            const ev = emitDone(usage, pendingStopReason)
             if (ev) yield ev
           } else {
             yield { type: 'error', message: '传输截断：流结束无终止事件', retryable: true, code: 'NETWORK' }

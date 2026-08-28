@@ -4,11 +4,12 @@
  * readPublished（有/无字段/无 frontmatter）、deriveStatusFull（published 合成 + revision 优先）。
  */
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { deriveStatus, deriveStatusFull, readPublished } from '../../src/document/status.js'
 import type { ManifestEntry } from '../../src/document/manifest.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 /** 造一个 manifest entry（定稿基线字段可配）。 */
 function entry(finRev?: string): ManifestEntry {
@@ -47,7 +48,7 @@ test('deriveStatus: 文件不存在（currentRevision=null）→ 有基线时 fi
 })
 
 test('readPublished: 已发布: true → true；无字段 → false；无 frontmatter → false', () => {
-  const root = mkdtempSync(join(tmpdir(), 'w2a-status-'))
+  const root = mkdtempTracked(join(tmpdir(), 'w2a-status-'))
   writeFileSync(join(root, '0002-迷雾.md'), '---\n章号: 2\n已发布: true\n---\n正文', 'utf-8')
   expect(readPublished(root, '0002-迷雾.md')).toBe(true)
   writeFileSync(join(root, '0001-开篇.md'), '---\n章号: 1\n---\n正文', 'utf-8')
@@ -58,7 +59,7 @@ test('readPublished: 已发布: true → true；无字段 → false；无 frontm
 })
 
 test('deriveStatusFull: final + 已发布 → published；revision 优先于 published', () => {
-  const root = mkdtempSync(join(tmpdir(), 'w2a-pub-'))
+  const root = mkdtempTracked(join(tmpdir(), 'w2a-pub-'))
   writeFileSync(join(root, '0002-迷雾.md'), '---\n章号: 2\n已发布: true\n---\n正文', 'utf-8')
   // final + 已发布 → published
   expect(deriveStatusFull(root, '0002-迷雾.md', entry('sha256:aaa'), 'sha256:aaa')).toBe('published')

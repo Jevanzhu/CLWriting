@@ -285,7 +285,15 @@ export function patchFlatFm(
       span.push(nxt)
       j++
     }
-    const hasNested = span.some((l) => l.trim() !== '')
+    // R73-28（二十一轮）：嵌套判定收紧为「缩进子键/列表项」形态——此前段内任意非空行
+    //（含注释行）都算嵌套子结构，`标题: 某书` 后跟作者手写注释行时合法更新被过宽拒绝
+    //（fail-loud 失真）。纯注释行（任意缩进）/空行不构成嵌套；真嵌套（缩进内容行、
+    //  `- ` 列表项）仍拒绝改写（防平铺化红线不变）。
+    const hasNested = span.some((l) => {
+      const t = l.trim()
+      if (t === '' || t.startsWith('#')) return false
+      return /^\s/.test(l) || t.startsWith('- ')
+    })
     if (!Object.prototype.hasOwnProperty.call(updates, key)) {
       out.push(line, ...span)
       i = j

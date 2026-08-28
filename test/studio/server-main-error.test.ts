@@ -11,11 +11,12 @@
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { spawn, type ChildProcess } from 'node:child_process'
-import { mkdtempSync, rmSync, mkdirSync } from 'node:fs'
+import { rmSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, describe, it, expect } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const tsxCli = join(repoRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs')
@@ -44,7 +45,7 @@ function spawnServerMain(args: string[]): { child: ChildProcess; out: { stdout: 
 }
 
 function makeWorkDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'clwriting-srvmain-'))
+  const dir = mkdtempTracked(join(tmpdir(), 'clwriting-srvmain-'))
   mkdirSync(join(dir, '.clwriting'), { recursive: true })
   tmpDirs.push(dir)
   return dir

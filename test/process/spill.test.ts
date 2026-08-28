@@ -7,11 +7,12 @@
  * - readSpillFile（GG-P2-2 读侧）：locator 形状白名单 + isWithinRoot 双保险，按路径取回全文
  */
 import { describe, it, expect } from 'vitest'
-import { mkdtempSync, rmSync, readFileSync, existsSync, writeFileSync, utimesSync } from 'node:fs'
+import { rmSync, readFileSync, existsSync, writeFileSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { spillIfLarge, writeSpillFile, readSpillFile, readSpillMeta, type SpillThresholds } from '../../src/process/spill.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const T: SpillThresholds = { maxInlineChars: 2000, headChars: 1200, tailChars: 400 }
 
@@ -76,7 +77,7 @@ describe('spillIfLarge', () => {
 
 describe('writeSpillFile', () => {
   it('落到 工作区/spills/<sha256 前 16>.md，同内容幂等（同 locator 同内容重写）', () => {
-    const root = mkdtempSync(join(tmpdir(), 'clwriting-spill-'))
+    const root = mkdtempTracked(join(tmpdir(), 'clwriting-spill-'))
     try {
       const text = '全文内容' + 'z'.repeat(3000)
       const loc1 = writeSpillFile(root, text)
@@ -95,12 +96,12 @@ describe('writeSpillFile', () => {
   })
 
   it('目录已存在（第二次写不同内容）不报错；父路径为文件时返回 null（best-effort）', () => {
-    const root = mkdtempSync(join(tmpdir(), 'clwriting-spill2-'))
+    const root = mkdtempTracked(join(tmpdir(), 'clwriting-spill2-'))
     try {
       expect(writeSpillFile(root, 'aaaa'.repeat(600))).toMatch(/^工作区\/spills\//)
       expect(writeSpillFile(root, 'bbbb'.repeat(600))).toMatch(/^工作区\/spills\//)
       // 工作区 是普通文件 → mkdir 失败 → null
-      const root2 = mkdtempSync(join(tmpdir(), 'clwriting-spill3-'))
+      const root2 = mkdtempTracked(join(tmpdir(), 'clwriting-spill3-'))
       try {
         writeFileSync(join(root2, '工作区'), 'blocker')
         expect(writeSpillFile(root2, 'cccc'.repeat(600))).toBeNull()
@@ -115,7 +116,7 @@ describe('writeSpillFile', () => {
 
 describe('readSpillFile', () => {
   it('writeSpillFile 的 locator 可取回全文（写读同源），不存在的文件返回 null', () => {
-    const root = mkdtempSync(join(tmpdir(), 'clwriting-spill-read-'))
+    const root = mkdtempTracked(join(tmpdir(), 'clwriting-spill-read-'))
     try {
       const text = '改写稿全文' + 'q'.repeat(2500)
       const locator = writeSpillFile(root, text)!
@@ -128,7 +129,7 @@ describe('readSpillFile', () => {
   })
 
   it('locator 形状白名单：穿越 / 绝对路径 / 缺段 / 非 hex / 非 md 一律 null（不碰盘）', () => {
-    const root = mkdtempSync(join(tmpdir(), 'clwriting-spill-badloc-'))
+    const root = mkdtempTracked(join(tmpdir(), 'clwriting-spill-badloc-'))
     try {
       // 预埋可被穿越命中的真实文件，验证校验在任何读盘之前拦下
       writeFileSync(join(root, 'book.yaml'), 'book:')
@@ -148,7 +149,7 @@ describe('readSpillFile', () => {
   })
 
   it('spills 下越出书库的路径（isWithinRoot 兜底）：null', () => {
-    const root = mkdtempSync(join(tmpdir(), 'clwriting-spill-within-'))
+    const root = mkdtempTracked(join(tmpdir(), 'clwriting-spill-within-'))
     try {
       // 正则已拦 .. ；isWithinRoot 是对 join 语义的双保险——形状合法但根外场景由该层兜住
       expect(readSpillFile(root, '工作区/spills/feedfacefeedface.md')).toBeNull()
@@ -160,7 +161,7 @@ describe('readSpillFile', () => {
 
 describe('L-P8（第八轮）：spills 过期清理', () => {
   it('30 天前的旧 spill 被清，新 spill 保留', () => {
-    const root = mkdtempSync(join(tmpdir(), 'clwriting-spill-gc-'))
+    const root = mkdtempTracked(join(tmpdir(), 'clwriting-spill-gc-'))
     try {
       writeSpillFile(root, '新内容')
       const dir = join(root, '工作区', 'spills')
@@ -185,7 +186,7 @@ describe('L-P8（第八轮）：spills 过期清理', () => {
 // spill 各得独立 locator；读侧按 locator 直读文件与 sidecar，不重算哈希，天然兼容。
 describe('A6（五十九轮）：writeSpillFile locator 并入 meta（章号+基线 sha）', () => {
   it('同正文不同基线 → 独立 locator 两份 meta 并存；同 meta 幂等；无 meta 保持纯内容寻址', () => {
-    const root = mkdtempSync(join(tmpdir(), 'spill-a6-'))
+    const root = mkdtempTracked(join(tmpdir(), 'spill-a6-'))
     try {
       const meta1 = { kind: 'rewrite' as const, chapter: 1, baseSha: 'a'.repeat(64) }
       const meta2 = { kind: 'rewrite' as const, chapter: 2, baseSha: 'b'.repeat(64) }

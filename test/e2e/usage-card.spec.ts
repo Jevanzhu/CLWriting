@@ -12,8 +12,20 @@ test('用量卡：工作台视图展示「AI 用量」卡（D1）', async ({ pag
   // CI 慢速 runner 挂载放宽（与 check.spec 同口径）
   await expect(page.locator('.usage-card')).toBeVisible({ timeout: 20_000 })
   await expect(page.locator('.usage-card .usage-title')).toContainText('AI 用量')
-  // 空书：要么空态文案、要么表格（fixture 书可能有历史事件库记录，两态都合法）
+  // R73-70（F-3）：收紧原「empty+table>0」弱断言——loading 态的「统计加载中…」也挂
+  // .usage-empty 类，旧口径会把未 settle 的加载中当空态放过（假绿）。上游 edit-save
+  // 已恢复派生状态（字数日记 delta/树缓存），本卡可收紧为实质断言：
+  // ①「统计加载中」必须退场（数据已 settle）；②两态仍都合法（取决于前序 AI spec
+  // 是否留下事件，非本卡可控），但各自锚定实质内容而非仅 count>0。
+  await expect(page.locator('.usage-card .usage-empty', { hasText: '统计加载中' })).toHaveCount(0)
   const empty = await page.locator('.usage-card .usage-empty').count()
   const table = await page.locator('.usage-card table').count()
   expect(empty + table).toBeGreaterThan(0)
+  if (empty > 0) {
+    // 空态：锚定真实空态文案（区分于加载中/渲染异常的空壳）
+    await expect(page.locator('.usage-card .usage-empty')).toContainText('暂无 AI 调用记录')
+  } else {
+    // 表格态：至少一行任务数据（表头壳不算渲染成功）
+    await expect(page.locator('.usage-card table tbody tr').first()).toBeVisible()
+  }
 })

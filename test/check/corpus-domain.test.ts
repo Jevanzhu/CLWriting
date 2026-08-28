@@ -9,7 +9,7 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { execSync, spawnSync } from 'node:child_process'
 import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -23,6 +23,7 @@ import { cutExcerpt } from '../../src/studio/server/api/check.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
 import { writeVersion, VERSIONS_DIR_NAME } from '../../src/document/version.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const dirs: string[] = []
 
@@ -31,7 +32,7 @@ afterEach(() => {
 })
 
 function tmpDir(prefix: string): string {
-  const d = mkdtempSync(join(tmpdir(), prefix))
+  const d = mkdtempTracked(join(tmpdir(), prefix))
   dirs.push(d)
   return d
 }

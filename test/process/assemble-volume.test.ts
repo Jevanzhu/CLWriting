@@ -8,7 +8,7 @@
  */
 import { test, expect } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createAllTables } from '../../src/cache/schema.js'
@@ -17,10 +17,11 @@ import { assembleStatus } from '../../src/process/assemble.js'
 import { applyGlobalDefaults } from '../../src/format/global-defaults.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import type { BookConfig } from '../../src/format/types.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 /** 造写到第 maxN 章的缓存 db */
 function makeDb(maxN: number): { db: DatabaseSync; dir: string } {
-  const dir = mkdtempSync(join(tmpdir(), 'clwriting-gg26-'))
+  const dir = mkdtempTracked(join(tmpdir(), 'clwriting-gg26-'))
   const db = new DatabaseSync(join(dir, 'index.db'))
   createAllTables(db)
   for (let n = 1; n <= maxN; n++) {
@@ -34,7 +35,7 @@ function makeDb(maxN: number): { db: DatabaseSync; dir: string } {
 
 /** 造只含 defaultVolumeSize 的 global.json（书库级第二层；卷大小下界 5） */
 function mkGlobal(volumeSize: number): string {
-  const ud = mkdtempSync(join(tmpdir(), 'clwriting-gg26-ud-'))
+  const ud = mkdtempTracked(join(tmpdir(), 'clwriting-gg26-ud-'))
   writeFileSync(join(ud, 'global.json'), JSON.stringify({ defaultVolumeSize: volumeSize }), 'utf8')
   return ud
 }

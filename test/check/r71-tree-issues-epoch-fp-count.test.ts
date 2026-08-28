@@ -7,7 +7,7 @@
  * 解耦；另以「二次聚合零正文整读」断言 epochStable 口径未破（缓存仍正确写入）。
  */
 import { describe, it, expect, vi } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -26,13 +26,14 @@ import { readDraft } from '../../src/format/draft.js'
 import { collectTreeIssues } from '../../src/check/run.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const fpMock = vi.mocked(computeTreeIssuesGlobalFp)
 const readDraftMock = vi.mocked(readDraft)
 
 /** 与 tree-issues-scan-count 测试同款造书（含布线 + 每章禁词「玉佩」制造确定红源） */
 function makeBook(chapterCount: number): string {
-  const root = mkdtempSync(join(tmpdir(), 'epoch-fp-count-'))
+  const root = mkdtempTracked(join(tmpdir(), 'epoch-fp-count-'))
   mkdirSync(join(root, '布线', '悬念'), { recursive: true })
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '大纲', '章纲'), { recursive: true })

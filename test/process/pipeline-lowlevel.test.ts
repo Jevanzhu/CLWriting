@@ -9,7 +9,7 @@
  */
 import { test, expect } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, symlinkSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createAllTables } from '../../src/cache/schema.js'
@@ -20,12 +20,13 @@ import { readBookConfig, writeBookConfig, DEFAULT_CONFIG } from '../../src/forma
 import { readSamplesByScene } from '../../src/format/style.js'
 import { searchBook } from '../../src/process/book-search.js'
 import type { BookConfig } from '../../src/format/types.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 // R70-31（十八轮）：symlink 能力探测——此前两用例 try-catch 早退「跳过」，其后的
 // 全部断言静默不执行照绿（非特权 Windows 零验证）；改 skipIf 对齐库内 49 处守卫惯例
 const canSymlink = (() => {
   try {
-    const dir = mkdtempSync(join(tmpdir(), 'clw-symlink-probe-'))
+    const dir = mkdtempTracked(join(tmpdir(), 'clw-symlink-probe-'))
     symlinkSync(join(dir, 'a'), join(dir, 'b'))
     rmSync(dir, { recursive: true, force: true })
     return true
@@ -36,7 +37,7 @@ const canSymlink = (() => {
 
 
 function makeBookWithMaterial(): { root: string; db: DatabaseSync } {
-  const root = mkdtempSync(join(tmpdir(), 'pipe-low-'))
+  const root = mkdtempTracked(join(tmpdir(), 'pipe-low-'))
   writeBookConfig(join(root, 'book.yaml'), DEFAULT_CONFIG)
   const dbPath = join(root, '.cache', 'index.db')
   mkdirSync(join(root, '.cache'), { recursive: true })
@@ -87,7 +88,7 @@ test('低级项（第六轮）：预算裁剪整段移除后 injectedSummaryFile
 })
 
 test('低级项（第六轮）：assembleStatus 传入定稿集 → currentChapter 只数定稿章', () => {
-  const root = mkdtempSync(join(tmpdir(), 'assemble-fin-'))
+  const root = mkdtempTracked(join(tmpdir(), 'assemble-fin-'))
   try {
     const dbPath = join(root, '.cache', 'index.db')
     mkdirSync(join(root, '.cache'), { recursive: true })
@@ -112,7 +113,7 @@ test('低级项（第六轮）：assembleStatus 传入定稿集 → currentChapt
 })
 
 test('低级项（第六轮）：book.yaml rag 段缺 enabled 键 → 不整段丢弃，缺省启用', () => {
-  const root = mkdtempSync(join(tmpdir(), 'yaml-rag-'))
+  const root = mkdtempTracked(join(tmpdir(), 'yaml-rag-'))
   try {
     const fp = join(root, 'book.yaml')
     writeFileSync(fp, [
@@ -150,7 +151,7 @@ test('低级项（第六轮）：book.yaml rag 段缺 enabled 键 → 不整段�
 })
 
 test('低级项（第六轮）：YAML 块列表项含冒号 → 按列表项文本解析，不再静默吞', () => {
-  const root = mkdtempSync(join(tmpdir(), 'yaml-list-'))
+  const root = mkdtempTracked(join(tmpdir(), 'yaml-list-'))
   try {
     const fp = join(root, 'book.yaml')
     writeFileSync(fp, [
@@ -173,7 +174,7 @@ test('低级项（第六轮）：YAML 块列表项含冒号 → 按列表项文�
 })
 
 test('低级项（第六轮）：样章库读取按文件名排序（跨平台注入可复现）', () => {
-  const root = mkdtempSync(join(tmpdir(), 'sample-sort-'))
+  const root = mkdtempTracked(join(tmpdir(), 'sample-sort-'))
   try {
     const sceneDir = join(root, '文风', '样章库', '战斗')
     mkdirSync(sceneDir, { recursive: true })
@@ -190,8 +191,8 @@ test('低级项（第六轮）：样章库读取按文件名排序（跨平台�
 })
 
 test('低级项（第六轮）：book_search 不跟随越出 bookRoot 的 symlink（目录与文件）', () => {
-  const root = mkdtempSync(join(tmpdir(), 'search-symlink-'))
-  const outside = mkdtempSync(join(tmpdir(), 'outside-'))
+  const root = mkdtempTracked(join(tmpdir(), 'search-symlink-'))
+  const outside = mkdtempTracked(join(tmpdir(), 'outside-'))
   try {
     const bodyDir = join(root, '写作', '正文')
     mkdirSync(bodyDir, { recursive: true })
@@ -215,7 +216,7 @@ test('低级项（第六轮）：book_search 不跟随越出 bookRoot 的 symlin
 })
 
 test.skipIf(!canSymlink)('P5-管线（第七轮）：书内 symlink 环（a→b→a）不再无限递归（visited 剪枝）', () => {
-  const root = mkdtempSync(join(tmpdir(), 'search-cycle-'))
+  const root = mkdtempTracked(join(tmpdir(), 'search-cycle-'))
   try {
     const bodyDir = join(root, '写作', '正文')
     mkdirSync(join(bodyDir, 'a'), { recursive: true })

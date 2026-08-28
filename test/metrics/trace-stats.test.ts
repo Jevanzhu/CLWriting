@@ -4,7 +4,7 @@
  * 覆盖：空数据、单 task 多条聚合、通过率/attempt/百分位/token 趋势、多 task 分组、
  * 按天趋势（事件创建时间聚日）、userDataPath 缺失降级。
  */
-import { mkdtempSync, rmSync } from 'node:fs'
+import { rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -12,17 +12,18 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
 import { llmCallEvent } from '../../src/events/chain-bridge.js'
 import { aggregateTrace } from '../../src/ai/trace-stats.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const dirs: string[] = []
 
 function tempUserData(): string {
-  const d = mkdtempSync(join(tmpdir(), 'clwriting-ud-'))
+  const d = mkdtempTracked(join(tmpdir(), 'clwriting-ud-'))
   dirs.push(d)
   return d
 }
 
 function tempBookRoot(): string {
-  const d = mkdtempSync(join(tmpdir(), 'clwriting-stats-'))
+  const d = mkdtempTracked(join(tmpdir(), 'clwriting-stats-'))
   dirs.push(d)
   return d
 }

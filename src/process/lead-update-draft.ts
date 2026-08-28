@@ -11,6 +11,7 @@
 import { join, relative, sep } from 'node:path'
 import { existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs'
 import { atomicWriteFile } from '../fs/atomic.js'
+import { acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
 import { readChapterDir } from '../format/chapters.js'
 import { readDraft } from '../format/draft.js'
 import { readKind } from '../format/kind.js'
@@ -21,6 +22,7 @@ import { LEAD_UPDATES_FILE, LEAD_UPDATES_ARCHIVE_DIR } from '../check/lead-updat
 import { LEAD_VERBS } from '../format/leads.js'
 import { readOpenLeads } from './open-leads.js'
 import { pruneTextMiddle } from './prune.js'
+import { log } from '../log/index.js'
 
 // ff-P1-1 常量归一：路径唯一出处 check/lead-updates.ts（闸/回写/草拟三方共用），此处再导出兼容既有导入方
 export { LEAD_UPDATES_FILE, LEAD_UPDATES_ARCHIVE_DIR }
@@ -29,6 +31,32 @@ export { LEAD_UPDATES_FILE, LEAD_UPDATES_ARCHIVE_DIR }
 // 「archive 旧章草稿 + 覆写主文件」的读改写序列会交错（A 归档后 B 无东西可归档、
 // 双写互相覆盖，作者未确认内容丢失）。按 bookRoot 排队执行，跨书不互相阻塞。
 const leadUpdateQueues = new Map<string, Promise<unknown>>()
+
+// R73-46（二十一轮）：进程内队列不防**跨进程**双写（GUI 与 CLI 同书各跑各的队列），
+// 归档判定与落盘的读改写序列在双进程下仍可交错（B 的 renameSync 撞上 A 已 rename 的
+// 源 → ENOENT 误报失败；或归档/覆写交错丢「作者未确认」草稿）。落盘尾段（archive +
+// 写主文件）套按书跨进程锁（J7 原语）——AI 生成段（数十秒）不持锁，锁只盖毫秒级文件
+// 变更段；拿不到锁降级裸跑 + warn 留痕（与 journal appendLine 同款取舍：生成一次成本
+// 高，不因锁等待把整次生成作废）。
+/** R73-46 锁等待档（毫秒）——let + 注入钩子（manifest/journal 锁同款惯例，测试注入缩短保快）。 */
+export let LEAD_UPDATE_LOCK_TIMEOUT_MS = 5_000
+export function __setLeadUpdateLockTimeoutForTest(ms: number): void {
+  LEAD_UPDATE_LOCK_TIMEOUT_MS = ms
+}
+
+function withLeadUpdateLock<T>(bookRoot: string, fn: () => T): T {
+  const lockPath = join(bookRoot, LEAD_UPDATES_FILE + '.lock')
+  const release = acquireCrossProcessLockWithTimeout(lockPath, LEAD_UPDATE_LOCK_TIMEOUT_MS)
+  if (!release) {
+    log.warn('lead-update-draft', `账本推进锁超时，降级无锁归档+落盘（${lockPath}）——跨进程互斥窗口回到队列口径`)
+    return fn()
+  }
+  try {
+    return fn()
+  } finally {
+    release()
+  }
+}
 
 /**
  * W-P1-3 右端：生成并落盘 账本推进.md（AI 草拟）。
@@ -91,8 +119,11 @@ async function generateLeadUpdateDraftInner(
   try {
     // X-P2-6：批量连写下，主文件可能是上一章（尚未定稿确认）的草稿——先按章归档再写本章，
     // finalize（applyLeadUpdates）按定稿章号从归档回收，防止整链旁路丢确认内容。
-    archivePendingLeadUpdates(bookRoot, chapter)
-    atomicWriteFile(join(bookRoot, LEAD_UPDATES_FILE), `# 第${chapter}章 账本推进\n` + body + '\n')
+    // R73-46：归档 + 覆写两步在按书跨进程锁内原子执行（跨进程双写收口，见上注）。
+    withLeadUpdateLock(bookRoot, () => {
+      archivePendingLeadUpdates(bookRoot, chapter)
+      atomicWriteFile(join(bookRoot, LEAD_UPDATES_FILE), `# 第${chapter}章 账本推进\n` + body + '\n')
+    })
   } catch (e) {
     return { ok: false, code: 'failed', error: '落盘:' + (e instanceof Error ? e.message : String(e)) }
   }

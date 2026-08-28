@@ -3,16 +3,17 @@
  * 血缘 sourceSeqs + 工作流事件分组。
  */
 import { describe, expect, it } from 'vitest'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
 import { SessionRecorder, userMessageEvent, assistantMessageEvent, sessionStartEvent } from '../../src/events/chat-bridge.js'
 import { stepStartEvent, llmCallEvent, goalChangeEvent, todoWriteEvent } from '../../src/events/chain-bridge.js'
 import { buildAuditView, parseAuditPaging } from '../../src/studio/server/api/audit.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 function withStore<T>(fn: (store: NonNullable<ReturnType<typeof openSessionStore>>, bookRoot: string) => T): T {
-  const userData = mkdtempSync(join(tmpdir(), 'audit-'))
+  const userData = mkdtempTracked(join(tmpdir(), 'audit-'))
   const bookRoot = join(userData, 'books', 'x')
   const store = openSessionStore(userData, bookRoot)!
   try {

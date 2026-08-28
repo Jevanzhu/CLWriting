@@ -3,14 +3,15 @@
  * 且不干扰对话恢复（latestSession 排除 ws）。
  */
 import { describe, expect, it, afterEach } from 'vitest'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const dirs: string[] = []
 function tmpRoot(): string {
-  const d = mkdtempSync(join(tmpdir(), 'f1-ws-'))
+  const d = mkdtempTracked(join(tmpdir(), 'f1-ws-'))
   dirs.push(d)
   return d
 }

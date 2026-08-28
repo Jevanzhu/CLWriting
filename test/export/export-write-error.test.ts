@@ -1,5 +1,5 @@
 import { test, expect, vi } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -23,9 +23,10 @@ vi.mock('../../src/fs/atomic.js', async (importOriginal) => {
 })
 
 import { exportBook } from '../../src/export/index.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 function makeLongBook(title: string): string {
-  const root = mkdtempSync(join(tmpdir(), 'export-werr-'))
+  const root = mkdtempTracked(join(tmpdir(), 'export-werr-'))
   writeFileSync(
     join(root, 'book.yaml'),
     ['spec_version: 1', 'book:', `  title: ${title}`, '  genre: 玄幻'].join('\n'),

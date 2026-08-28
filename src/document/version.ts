@@ -208,7 +208,11 @@ export function writeVersion(
         // 长书高频 autosave 留底每次扫到最新同 origin 前触发多次全文读；改走 R62-36
         // 已建的 readVersionMeta 头部 bounded read（此三处当年漏迁移）。
         const prevMeta = readVersionMeta(versionsDir, docId, s.id)
-        if (!prevMeta || prevMeta.meta.origin !== meta.origin) continue
+        // R73-35（二十一轮）：meta 不可读（头部损坏/截断）视为**无法判定**——continue
+        // 落到更旧版本会把窗口判定锚在错误锚点上（最新版可能恰在窗口内却节流失效/
+        // 误节流），fail-open 不节流直接落写（留底宁多勿失，与下方去重循环同口径）。
+        if (!prevMeta) break
+        if (prevMeta.meta.origin !== meta.origin) continue
         const age = Date.now() - decodeUlidTime(s.id)
         if (age < policy.throttleMinutes * 60_000) return null
         break // 最新同 origin 版本已出窗 → 不节流
@@ -235,7 +239,12 @@ export function writeVersion(
       //（ai/finalize/autosave 混排的长书，冷缓存落盘比对从 N 次全文读降到 1 次）；
       // 仅最新同 origin 版本需要正文比对才整读（去重语义不变）。
       const prevMeta = readVersionMeta(versionsDir, docId, s.id)
-      if (!prevMeta || prevMeta.meta.origin !== meta.origin) continue
+      // R73-35（二十一轮）：meta 不可读（损坏）的同源候选不再 continue 落到更旧版本
+      // 比对——恰等旧版时会跳写致快照链尾部失真（最新同 origin 版本的内容既没比对上、
+      // 新版本又被吞）。meta 不可读 = 同源与否无法判定 = 去重无法判定，fail-open 直接
+      // 落写（W0-1 留底纪律：宁多留一版，不可静默丢一版）。
+      if (!prevMeta) break
+      if (prevMeta.meta.origin !== meta.origin) continue
       const prev = readVersion(versionsDir, docId, s.id)
       if (prev && prev.content === content) {
         setVersionCache(cacheKey, { id: s.id, fp })

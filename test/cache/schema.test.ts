@@ -1,6 +1,6 @@
 import { test, expect } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createAllTables, clearAllTables } from '../../src/cache/schema.js'
@@ -13,9 +13,10 @@ import {
   getMeta,
 } from '../../src/cache/sync.js'
 import type { Lead } from '../../src/format/types.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 function makeDb(): { db: DatabaseSync; dir: string } {
-  const dir = mkdtempSync(join(tmpdir(), '北境往事-'))
+  const dir = mkdtempTracked(join(tmpdir(), '北境往事-'))
   const db = new DatabaseSync(join(dir, 'index.db'))
   createAllTables(db)
   return { db, dir }

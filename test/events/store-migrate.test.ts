@@ -253,7 +253,7 @@ describe('migrateBookSession', () => {
   })
 })
 
-describe('R66-12: 迁移/首开跨进程互斥（session 目录级 migrate.lock）', () => {
+describe('R66-12/R73-38: 迁移/首开跨进程互斥（per-book migrate-<bookHash>.lock）', () => {
   it('锁被占（模拟另一进程正在迁移/持锁）→ migrate 返回 false 且源库原地完整；释放后重试成功', () => {
     const ud = tmpRoot()
     const oldRoot = '/books/互斥甲'
@@ -269,8 +269,9 @@ describe('R66-12: 迁移/首开跨进程互斥（session 目录级 migrate.lock�
     __setSessionMigrateLockTimeoutForTest(80) // 缩短锁等待保测试快
     try {
       // 模拟另一进程持锁：锁文件对任何持有者一视同仁（本进程占位同样构成互斥面）
-      const release = acquireCrossProcessLockWithTimeout(sessionMigrateLockPath(ud), 1_000)
+      const release = acquireCrossProcessLockWithTimeout(sessionMigrateLockPath(ud, oldRoot), 1_000)
       expect(release).not.toBeNull()
+      // R73-38：锁名掺 bookHash 后持旧书锁即构成迁移互斥面（新旧两把任一被占即放弃）
       // 修复前：无跨进程锁，迁移段照常推进（checkpoint/搬移不被互斥）
       expect(migrateBookSession(ud, oldRoot, newRoot, '互斥甲', '互斥乙')).toBe(false)
       expect(existsSync(oldDb)).toBe(true) // 源库原地完整
@@ -295,7 +296,7 @@ describe('R66-12: 迁移/首开跨进程互斥（session 目录级 migrate.lock�
     try {
       // 模拟迁移进行中（另一进程持 migrate.lock）：此窗口内首开旧库会在旧路径
       // 重建空库或对半搬文件集跑 DDL（撕裂态）——修复前无任何互斥
-      const release = acquireCrossProcessLockWithTimeout(sessionMigrateLockPath(ud), 1_000)
+      const release = acquireCrossProcessLockWithTimeout(sessionMigrateLockPath(ud, bookRoot), 1_000)
       expect(release).not.toBeNull()
       expect(() => openSessionStore(ud, bookRoot)).toThrow(/打开锁获取超时/)
       // 被阻的首开不得留下半成品（库文件未建）

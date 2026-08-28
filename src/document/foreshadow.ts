@@ -15,7 +15,7 @@ import { join } from 'node:path'
 import { readFile, parseFlat , stringifyValue } from '../format/frontmatter.js'
 import { readLead } from '../format/leads.js'
 import { sanitizeFileNamePart } from '../format/filename.js'
-import { atomicWriteFile } from '../fs/atomic.js'
+import { createFileExclusive } from '../fs/atomic.js'
 import { walkMdEach } from '../fs/walk-md.js'
 import { log } from '../log/index.js'
 
@@ -81,7 +81,9 @@ export function migrateLegacyForeshadows(bookRoot: string): MigrateResult {
   const result: MigrateResult = { migrated: 0, skipped: 0, details: [] }
   for (const f of files) {
     const oldPath = join(oldDir, f)
-    const r = readLead(oldPath)
+    // legacy：旧档类型「伏笔」非法于现行六类（R73-22 严格校验会全量 skip 拒迁），
+    // 迁移按旧 scheme 容错解析（状态映射由 LEGACY_STATUS_MAP 兜底）
+    const r = readLead(oldPath, { legacy: true })
     if (!r.ok) {
       result.skipped++
       result.details.push(`跳过（解析失败）：${f}`)
@@ -117,15 +119,21 @@ export function migrateLegacyForeshadows(bookRoot: string): MigrateResult {
     // P2-BE-3：编号同样净化（与 safeTitle 一致——fm 可篡改，defense-in-depth）
     const safeId = sanitizeFileNamePart(String(lead.编号))
     const targetPath = join(newDir, `${safeId}-${safeTitle}.md`)
-    if (existsSync(targetPath)) {
-      // Y-19（第五十七轮）：上次「写成功 → rmSync 旧源」之间崩溃的续跑形态——目标已在，
-      // 视为已迁：不重写（作者可能已编辑新文件，无条件覆盖会吞掉修改），只补删旧源
+    // R73-39（二十一轮）：existsSync→atomicWriteFile 的 TOCTOU 收口——上方 existsSync
+    // 与落盘之间无互斥，双进程（GUI 与 CLI 迁移链）并发迁移同一伏笔时后到者 rename
+    // 静默覆盖先到者已落位的新文件（作者若已编辑即丢修改）。改 createFileExclusive
+    // 惯例（link 不覆盖，EEXIST → 'exists'，B-6/doCreate 同款原语）：EEXIST 走下方
+    // Y-19 续跑语义（视为已迁，只补删旧源，不重写）。
+    const created = createFileExclusive(targetPath, fm)
+    if (created === 'exists') {
+      // Y-19（第五十七轮）：上次「写成功 → rmSync 旧源」之间崩溃的续跑形态（含并发
+      // 双跑先到者已落位）——目标已在，视为已迁：不重写（作者可能已编辑新文件，
+      // 无条件覆盖会吞掉修改），只补删旧源
       rmSync(oldPath, { force: true })
       result.migrated++
       result.details.push(`${lead.编号} → ${title}（${status}，续跑补删旧源）`)
       continue
     }
-    atomicWriteFile(targetPath, fm)
     rmSync(oldPath, { force: true })
     result.migrated++
     result.details.push(`${lead.编号} → ${title}（${status}）`)

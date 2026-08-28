@@ -15,6 +15,7 @@ import { existsSync, mkdirSync, readdirSync, renameSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { atomicWriteFile, atomicWriteStream } from '../fs/atomic.js'
 import { readChapterDir } from '../format/chapters.js'
+import { readFile } from '../format/frontmatter.js'
 import { readBookConfig } from '../format/yaml.js'
 import { sanitizeFileNamePart } from '../format/filename.js'
 import { finalizedPathSet } from '../document/manifest.js'
@@ -58,8 +59,6 @@ interface ExportUnit {
   num: number
   title: string
   path: string
-  /** W-P2-4：readChapterDir(includeBody) 一次读带出，替代二次 readFile */
-  body?: string
 }
 
 /**
@@ -152,16 +151,19 @@ export function exportBook(options: ExportOptions): ExportResult {
   const kind = cfg.ok && cfg.config.kind === 'short' ? 'short' : 'long'
   const bodyDir = join(bookRoot, '写作', '正文')
 
-  // 1. 扫描定稿正文（统一 readChapterDir，递归卷结构；W-P2-4：includeBody 一次读带出正文，不再二次 readFile）
+  // 1. 扫描定稿正文（统一 readChapterDir，递归卷结构）。R73-37（二十一轮）：不再
+  // includeBody 一次读带出全部正文——极端大书（200 万字级）全部章正文 + 净化副本同时
+  // 驻留内存可 OOM；改 meta-only 扫描，正文在下方写循环内逐章现读即弃（读-写流水化，
+  // 峰值降为单章级，对齐 5+6 步「单遍流式」注释口径）。
   if (!existsSync(bodyDir)) {
     return { ok: false, files: [], chapterCount: 0, unit: '章', error: '没有定稿正文可导出。' }
   }
   // X-P2-4：单个坏章（解析失败）不再拖垮整本导出——记入 warnings 跳过，仍有可导章则继续
   const warnings: string[] = []
-  const { chapters, errors } = readChapterDir(bodyDir, true)
+  const { chapters, errors } = readChapterDir(bodyDir)
   for (const e of errors) warnings.push(`${relative(bookRoot, e.file)}: ${e.message}`)
   const units: ExportUnit[] = chapters.flatMap((ch) =>
-    ch._path ? [{ num: ch.章号, title: ch.标题, path: ch._path, body: ch._body }] : [],
+    ch._path ? [{ num: ch.章号, title: ch.标题, path: ch._path }] : [],
   )
   if (units.length === 0 && warnings.length > 0) {
     return { ok: false, files: [], chapterCount: 0, unit: '章', error: `章解析失败：${warnings.join('; ')}` }
@@ -185,12 +187,23 @@ export function exportBook(options: ExportOptions): ExportResult {
           return false
         })
       : units
-  // X-P2-4：正文为空的单章跳过（记警告），不再整本失败
-  const exportable: ExportUnit[] = filtered.filter((u) => {
-    if (u.body) return true
-    warnings.push(`${relative(bookRoot, u.path)}: 正文为空，已跳过`)
-    return false
-  })
+  // X-P2-4：正文为空/读取失败的单章在写循环内现读时判定（R73-37 起正文不预读），
+  // 记警告跳过，不再整本失败；零可写章在下方按 writtenCount 收口
+  const exportable: ExportUnit[] = filtered
+  /** R73-37：逐章现读正文（frontmatter.readFile 单源，剥 fm 取 body）。
+   *  返回 null = 读取失败/正文为空（已记 warnings，调用方跳过该章）。 */
+  const readUnitBody = (u: ExportUnit): string | null => {
+    const r = readFile(u.path)
+    if (!r.ok) {
+      warnings.push(`${relative(bookRoot, u.path)}: 正文读取失败（${r.error.message}），已跳过`)
+      return null
+    }
+    if (!r.body) {
+      warnings.push(`${relative(bookRoot, u.path)}: 正文为空，已跳过`)
+      return null
+    }
+    return r.body
+  }
   if (exportable.length === 0) {
     return {
       ok: false,
@@ -294,22 +307,36 @@ export function exportBook(options: ExportOptions): ExportResult {
   // atomicWriteStream 自身失败）不再裸穿透 exportBook——库形态信封契约是 {ok:false}，
   // 裸异常在服务端直接打到 500 兜底面且丢 chapterCount/warnings 上下文。收编时全本
   // 尚在 tmp 未发布（atomicWriteStream 自清理），分章半产物由下次导出整目录归档清位。
+  // R73-37：循环内逐章 readUnitBody 现读即弃（读-写流水化），writtenCount 记实际
+  // 写出的章数（空正文/读取失败章已记 warnings 跳过，不再计入）。
+  let writtenCount = 0
+  // R73-37：实际产出章号集——投稿视图按它对齐（原实现经 exportable 预滤天然排除空正文
+  // 章；预滤取消后改按实际写出集合，口径不漂移）
+  const writtenNums = new Set<number>()
   try {
     if (doMerged) {
       let first = true
       atomicWriteStream(join(exportDir, mergedFileName), (append) => {
         for (const unit of exportable) {
-          const body = purifyBody(unit.body!)
+          const raw = readUnitBody(unit)
+          if (raw === null) continue // 读取失败/空正文：警告已记，跳过（不出分隔符）
+          const body = purifyBody(raw)
           if (!first) append('\n\n---\n\n')
           first = false
           append(`# ${unit.title}\n\n${body}`)
           if (doSplit) writeSplit(unit, body)
+          writtenCount++
+          writtenNums.add(unit.num)
         }
       })
-      files.unshift(`工作区/导出/${mergedFileName}`)
+      if (writtenCount > 0) files.unshift(`工作区/导出/${mergedFileName}`)
     } else if (doSplit) {
       for (const unit of exportable) {
-        writeSplit(unit, purifyBody(unit.body!))
+        const raw = readUnitBody(unit)
+        if (raw === null) continue
+        writeSplit(unit, purifyBody(raw))
+        writtenCount++
+        writtenNums.add(unit.num)
       }
     }
   } catch (e) {
@@ -321,6 +348,19 @@ export function exportBook(options: ExportOptions): ExportResult {
       skippedDrafts,
       ...(warnings.length > 0 ? { warnings } : {}),
       error: `导出写入失败：${e instanceof Error ? e.message : String(e)}`,
+    }
+  }
+  // R73-37：定稿章在册但全部空正文/读取失败 → 零产物，按失败收口（原实现经 exportable
+  // 预滤走同一信封；错误文案沿用历史口径，具体病因见 warnings 逐章留痕）
+  if (writtenCount === 0) {
+    return {
+      ok: false,
+      files: [],
+      chapterCount: 0,
+      unit: '章',
+      skippedDrafts,
+      ...(warnings.length > 0 ? { warnings } : {}),
+      error: `正文区共 ${units.length} 章均未定稿，没有可导出的定稿正文；请先在文档树中定稿。`,
     }
   }
 
@@ -352,8 +392,8 @@ export function exportBook(options: ExportOptions): ExportResult {
       // R65-27：旧产物归档不删（作者手改过的投稿稿不可静默销毁）
       archiveOldExport(exportDir, old, warnings)
     }
-    // V-P2-2：投稿视图同口径滤未定稿（entries 按 exportable 章号对齐）
-    const exportableNums = new Set(exportable.map((u) => u.num))
+    // V-P2-2：投稿视图同口径滤未定稿（entries 按 R73-37 实际产出章号对齐）
+    const exportableNums = writtenNums
     const entries = scanShortCollection(bookRoot).filter((e) => exportableNums.has(e.num))
     atomicWriteFile(
       join(exportDir, submissionName),
@@ -376,7 +416,7 @@ export function exportBook(options: ExportOptions): ExportResult {
   return {
     ok: true,
     files,
-    chapterCount: exportable.length,
+    chapterCount: writtenCount,
     unit: '章',
     skippedDrafts,
     ...(warnings.length > 0 ? { warnings } : {}),

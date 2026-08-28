@@ -89,16 +89,17 @@ function push(id: string, ev: DriverEvent): void {
   }
   for (const c of ch.consumers) {
     // 内存核查（2026-08-25 M-P2-1，与 cc.ts 同构）：消费者队列 cap——超限丢最旧
-    // 腾位；每轮积压首次超限时再腾一位补发 notice（入队后长度恒 ≤ MAX_CONSUMER_QUEUE）
+    // 腾位；每轮积压首次超限时补发 notice。R73-9（二十一轮 A-9）：notice 走「容量 +1
+    // 内部槽」——修复前首次溢出连丢 2 条真实事件（先腾位再腾 notice 位）；现在每次
+    // 溢出只丢 1 条最旧真实事件（瞬态上限 MAX_CONSUMER_QUEUE+1，与 cc.ts 同构）。
     if (c.queue.length >= MAX_CONSUMER_QUEUE) {
       c.queue.shift()
       if (!c.dropNotified) {
-        c.queue.shift()
+        c.dropNotified = true
         c.queue.push({
           type: 'notice',
           message: '事件队列已满：消费过慢或连接停滞，最旧的排队事件已被丢弃（运行中的执行可经重连回放最近事件补齐）',
         })
-        c.dropNotified = true
       }
     }
     c.queue.push(ev)

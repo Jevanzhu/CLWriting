@@ -7,16 +7,17 @@
  *   写入串（被接管/被重建）时不删，他人在位的新锁得以幸存。
  */
 import { afterAll, describe, expect, it } from 'vitest'
-import { mkdtempSync, rmSync, existsSync, writeFileSync, utimesSync } from 'node:fs'
+import { rmSync, existsSync, writeFileSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { acquireTaskGate, isTaskGateHeld } from '../../src/studio/server/api/task-gate.js'
 import { tryAcquireCrossProcessLock } from '../../src/fs/cross-process-lock.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const roots: string[] = []
 function freshDir(): string {
-  const d = mkdtempSync(join(tmpdir(), 'r71-task-gate-'))
+  const d = mkdtempTracked(join(tmpdir(), 'r71-task-gate-'))
   roots.push(d)
   return d
 }

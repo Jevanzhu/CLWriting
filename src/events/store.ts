@@ -122,10 +122,39 @@ export function __setSessionMigrateLockTimeoutForTest(ms: number): void {
   SESSION_MIGRATE_LOCK_TIMEOUT_MS = ms
 }
 
-/** R66-12：锁文件路径 <userData>/clwriting/session/migrate.lock（导出供回归测试模拟
- *  「另一进程持锁」；同进程嵌套获取同一锁会自锁——本模块两处持锁段互不嵌套）。 */
-export function sessionMigrateLockPath(userDataPath: string): string {
-  return join(userDataPath, 'clwriting', 'session', 'migrate.lock')
+/** R66-12：首开/迁移段跨进程锁（导出供回归测试模拟「另一进程持锁」；同进程嵌套获取
+ *  同一锁会自锁——本模块持锁段对同一 bookHash 的锁互不嵌套）。
+ *  R73-38（二十一轮）：锁名掺 bookHash——原先全局单把 migrate.lock 把所有书的首开段
+ *  串成全局队头（多书库场景下开书 B 被无关书 A 的迁移/首开阻塞 5s 即失败）。改按书
+ *  一把 `migrate-<bookHash>.lock`：开书/迁移只与**同一本书**（新旧路径两个 hash）互斥。
+ *  迁移段须同持新旧两把（bookHash 排序获取防 ABBA 死锁）——openSessionStore(newRoot)
+ *  与迁移 rename 窗口的互斥由此保持（Global 锁的唯一实质保护面），跨书并发不再互拽。 */
+export function sessionMigrateLockPath(userDataPath: string, bookRoot: string): string {
+  return join(userDataPath, 'clwriting', 'session', `migrate-${bookHash(bookRoot)}.lock`)
+}
+
+/** 迁移段按 bookHash 排序拿新旧两把锁；第二把拿不到 → 释放第一把返回 null（调用方按
+ *  超时语义放弃迁移，源库原地完整）。排序获取保证任意迁移对之间无环路死锁。 */
+function acquireMigrateLockPair(
+  userDataPath: string,
+  oldRoot: string,
+  newRoot: string,
+): (() => void) | null {
+  const [first, second] =
+    bookHash(oldRoot) <= bookHash(newRoot)
+      ? [sessionMigrateLockPath(userDataPath, oldRoot), sessionMigrateLockPath(userDataPath, newRoot)]
+      : [sessionMigrateLockPath(userDataPath, newRoot), sessionMigrateLockPath(userDataPath, oldRoot)]
+  const releaseFirst = acquireCrossProcessLockWithTimeout(first, SESSION_MIGRATE_LOCK_TIMEOUT_MS)
+  if (!releaseFirst) return null
+  const releaseSecond = acquireCrossProcessLockWithTimeout(second, SESSION_MIGRATE_LOCK_TIMEOUT_MS)
+  if (!releaseSecond) {
+    releaseFirst()
+    return null
+  }
+  return () => {
+    releaseSecond()
+    releaseFirst()
+  }
 }
 
 // ── R67-2（十五轮）：跨进程「已持有句柄」标记 + 迁移墓碑 ──
@@ -361,12 +390,13 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
     cached.refs++
     return cached.store
   }
-  // R66-12（十四轮）：首开段（建库 + DDL + 孤儿修复）进 session 目录级跨进程锁——
+  // R66-12（十四轮）：首开段（建库 + DDL + 孤儿修复）进 session 跨进程锁——
   // 此前另一进程恰在迁移的 checkpoint 与 rename 之间首开旧库时，SQLite 会在旧路径
   // 重建空库（旧 hash 下对话历史「清零」）或对半搬文件集跑 DDL（撕裂态）；缓存命中
   // 复用无文件操作，不加锁。超时上抛 = 打开失败（调用方既有 catch 降级 null 语义）。
+  // R73-38：锁按 bookHash 分书（见 sessionMigrateLockPath 注）——只与同书的首开/迁移互斥。
   const releaseOpenLock = acquireCrossProcessLockWithTimeout(
-    sessionMigrateLockPath(userDataPath),
+    sessionMigrateLockPath(userDataPath, bookRoot),
     SESSION_MIGRATE_LOCK_TIMEOUT_MS,
   )
   if (!releaseOpenLock) {
@@ -409,6 +439,11 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
       // journal_mode 处需拿写锁，若另一进程正持锁而 busy_timeout 未设，会立即抛
       // SQLITE_BUSY（N3 三进程并发首开回归在全量并发下偶发红的根因）
       db.exec('PRAGMA busy_timeout = 5000')
+      // R73-48（二十一轮·裁定维持不加深退避）：审查项「8 次退避耗尽仍可抛 SQLITE_BUSY」
+      // ——耗尽即抛是 fail-closed 正确出口，不是缺陷：每轮失败前 busy_timeout 已在
+      // SQLite 内部等待 5s，8 轮 × 5s + 退避 1.8s ≈ 42s 仍抢不到，说明对手是僵死
+      // 写方（SIGSTOP 挂起/磁盘级卡死），再等只会把「打开失败可重试」拖成分钟级假死；
+      // 抛错走调用方既有 catch 降级 null，无数据损伤。维持 8 次 + 线性退避现状。
       // N3（五十九轮）：WAL 切换需短暂独占——并发首开下其他进程持锁（DDL/首写）时，
       // 即使 busy_timeout 也可能立即 SQLITE_BUSY 且库仍处 delete 态（幂等 no-op 兜底
       // 不够）。带退避重试：对方事务必然短（建表/一次 INSERT），数百 ms 内可得手。
@@ -807,17 +842,16 @@ export function migrateBookSession(
   const oldDb = join(dir, bookHash(oldRoot) + '.db')
   const newDb = join(dir, bookHash(newRoot) + '.db')
   if (oldDb === newDb) return true
-  // R66-12（十四轮）：迁移整段（在途断言→checkpoint→搬移→改钥匙）进 session 目录级
-  // 跨进程锁，与 openSessionStore 首开段互斥——此前只挡本进程在途引用（openStores），
+  // R66-12（十四轮）：迁移整段（在途断言→checkpoint→搬移→改钥匙）进 session 跨进程
+  // 锁，与 openSessionStore 首开段互斥——此前只挡本进程在途引用（openStores），
   // 另一进程（第二个 studio 实例/CLI）恰在 checkpoint 与 rename 之间首开旧库时，SQLite
   // 会在旧路径重建空库（旧 hash 下历史「清零」）或对半搬文件集跑 DDL（撕裂态）。
   // 超时放弃（false）：源库原地完整可重试，与既有失败语义一致。
-  const releaseMigrateLock = acquireCrossProcessLockWithTimeout(
-    sessionMigrateLockPath(userDataPath),
-    SESSION_MIGRATE_LOCK_TIMEOUT_MS,
-  )
+  // R73-38：新旧路径两把 per-book 锁（bookHash 排序获取，见 acquireMigrateLockPair）——
+  // 首开旧库对 lock(old)、首开新库对 lock(new)，rename 窗口两侧都不再漏。
+  const releaseMigrateLock = acquireMigrateLockPair(userDataPath, oldRoot, newRoot)
   if (!releaseMigrateLock) {
-    log.warn('events', '事件库迁移锁获取超时（另一进程正在迁移/首开会话库）——放弃本轮，源库原地完整可重试')
+    log.warn('events', '事件库迁移锁获取超时（另一进程正在迁移/首开同书会话库）——放弃本轮，源库原地完整可重试')
     return false
   }
   // 已完成搬移的记录（from=源位 to=新位）：任一步失败时逆序搬回，保证源库原地完整

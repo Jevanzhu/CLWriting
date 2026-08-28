@@ -6,7 +6,7 @@
  */
 
 import { test, expect } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { detectState, buildRecap } from '../../src/state/state.js'
@@ -15,12 +15,13 @@ import { readManifest, writeManifest, upsertEntry } from '../../src/document/man
 import { generateDocId } from '../../src/document/stable-id.js'
 import { computeRevision } from '../../src/document/revision.js'
 import type { BookConfig } from '../../src/format/types.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const SHORT_CONFIG: BookConfig = { ...DEFAULT_CONFIG, kind: 'short', book: { title: '夜语集', genre: '悬疑' } }
 
 /** 建一个干净短篇集仓库（book.yaml kind:short + 写作/正文/ + 文风/ + 工作区/）。去 git。 */
 function makeShortBook(): string {
-  const root = mkdtempSync(join(tmpdir(), '夜语集-'))
+  const root = mkdtempTracked(join(tmpdir(), '夜语集-'))
   writeBookConfig(join(root, 'book.yaml'), SHORT_CONFIG)
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   for (const s of ['战斗', '对话', '抒情', '叙事铺陈', '爽点高潮']) {
@@ -187,7 +188,7 @@ test('short 不触发态 5/6: 已有多个章节也不判卷末/体检（无长�
 })
 
 test('long 回归: 同一 detectState 长篇分支不受 short 改动影响', () => {
-  const root = mkdtempSync(join(tmpdir(), '长篇-'))
+  const root = mkdtempTracked(join(tmpdir(), '长篇-'))
   try {
     writeBookConfig(join(root, 'book.yaml'), DEFAULT_CONFIG) // 无 kind = long
     mkdirSync(join(root, '写作', '正文'), { recursive: true })

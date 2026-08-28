@@ -165,6 +165,8 @@ test('RB-KN-P2-10: auto.relation_auto_mine / relation_mine_threshold 解析 + �
 test('readBookConfig: 数字字段坏值不设键（留给全局托底链回落），不注入 NaN', () => {
   const dir = mkdtempTracked(join(tmpdir(), '北境往事-'))
   const fp = join(dir, 'book.yaml')
+  // growth.realm_span_max 不在本例：R73-20 起该字段坏值/非正数 fail-loud（见下例），
+  // 不再走「坏值=未设」回落契约
   writeFileSync(fp, [
     'spec_version: abc',
     'leads:',
@@ -175,8 +177,6 @@ test('readBookConfig: 数字字段坏值不设键（留给全局托底链回落�
     '  input_per_chapter: 90000',
     'auto:',
     '  batch_size: nope',
-    'growth:',
-    '  realm_span_max: nope',
   ].join('\n'), 'utf-8')
 
   const r = readBookConfig(fp)
@@ -187,9 +187,29 @@ test('readBookConfig: 数字字段坏值不设键（留给全局托底链回落�
     expect(r.config.budget.calls_per_chapter).toBeUndefined()
     expect(r.config.budget.input_per_chapter).toBe(90000)
     expect(r.config.auto?.batch_size).toBeUndefined()
-    expect(r.config.growth.realm_span_max).toBe(2)
     expect(r.config.leads.thresholds?.['成长线']).toBeUndefined()
   }
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('R73-20: growth.realm_span_max 坏值/非正数 fail-loud（错误信封 + 可读信息），不再静默回落', () => {
+  const dir = mkdtempTracked(join(tmpdir(), '北境往事-'))
+  // 坏值：此前 parseFiniteNumber 落默认 2 静默吞掉；非正数：此前原样落 cfg（0/负数让
+  // checkGrowth 的 idx-prevIdx > 0 恒真，一切正常晋阶报红）
+  for (const bad of ['nope', '0', '-1']) {
+    const fp = join(dir, 'book.yaml')
+    writeFileSync(fp, ['growth:', '  realm_span_max: ' + bad].join('\n'), 'utf-8')
+    const r = readBookConfig(fp)
+    if (r.ok) throw new Error(`bad=${bad} 应 fail-loud 却解析成功`)
+    expect(r.error.message, `bad=${bad}`).toContain('realm_span_max 必须为正数')
+    expect(r.error.message, `bad=${bad}`).toContain(bad)
+  }
+  // 合法值照常回读
+  const fp = join(dir, 'book.yaml')
+  writeFileSync(fp, ['growth:', '  realm_span_max: 5'].join('\n'), 'utf-8')
+  const ok = readBookConfig(fp)
+  expect(ok.ok).toBe(true)
+  if (ok.ok) expect(ok.config.growth.realm_span_max).toBe(5)
   rmSync(dir, { recursive: true, force: true })
 })
 

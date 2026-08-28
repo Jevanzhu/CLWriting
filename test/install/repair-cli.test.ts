@@ -1,13 +1,14 @@
 import { test, expect } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, existsSync } from 'node:fs'
+import { mkdirSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { repairBooks, readBooks, findWorkDir } from '../../src/install/books.js'
 import { doInit } from '../../src/install/init.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 /** repairBooks：删 books.jsonl 后重建登记（核心自愈链路）。 */
 test('repairBooks: 删 books.jsonl 后重建登记，含原 init 建的书', () => {
-  const wd = mkdtempSync(join(tmpdir(), 'repcli-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'repcli-'))
   doInit({ workDir: wd, name: '门面测书', genre: '玄幻' })
   // 删 books.jsonl 模拟登记丢失
   rmSync(join(wd, '.clwriting', 'books.jsonl'), { force: true })
@@ -38,7 +39,7 @@ test('repair: 非工作目录下 findWorkDir 定位不到', () => {
 
 /** 登记完好 → 无变动，不改写。 */
 test('repairBooks: 登记完好时无变动', () => {
-  const wd = mkdtempSync(join(tmpdir(), 'repcli3-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'repcli3-'))
   doInit({ workDir: wd, name: '完好书', genre: '玄幻' })
   const before = readBooks(wd)
   const result = repairBooks(wd)

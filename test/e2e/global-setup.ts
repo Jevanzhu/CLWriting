@@ -13,6 +13,7 @@ import { join } from 'node:path'
 import { rmSync } from 'node:fs'
 import { startServer } from '../../src/studio/server/index.js'
 import { makeDualTrackWorkdir } from '../studio/fixtures.js'
+import { E2E_PORT_BASE } from './e2e-ports.js'
 
 let server: http.Server | undefined
 
@@ -22,7 +23,9 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   // 暴露给 spec：T1.3 冲突测需外部直接改磁盘文件触发 REVISION_CONFLICT
   process.env['CLWRITING_E2E_WORKDIR'] = workDir
   server = startServer({
-    port: 18999,
+    // R73-75（批 F-8）：端口族基址派生（CLW_E2E_PORT_BASE，缺省 18999 = 旧硬编码；
+    // 各独立 server spec 同基址偏移，见 test/e2e/e2e-ports.ts 偏移表）
+    port: E2E_PORT_BASE,
     workDir,
     staticDir: join(process.cwd(), 'dist', 'web'),
   })
@@ -33,8 +36,9 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     server!.once('error', (err: NodeJS.ErrnoException) => {
       if (err.code === 'EADDRINUSE') {
         console.error(
-          '[e2e global-setup] 端口 18999 已被占用——通常是上一次 e2e 未退干净，或本地有 dev 服务占了同端口。\n' +
-            '排查：lsof -i :18999 查占用进程并 kill，或停掉本地 dev:api/dev:web 后重跑。',
+          `[e2e global-setup] 端口 ${E2E_PORT_BASE} 已被占用——通常是上一次 e2e 未退干净，或本地有 dev 服务占了同端口。\n` +
+            `排查：lsof -i :${E2E_PORT_BASE} 查占用进程并 kill，或停掉本地 dev:api/dev:web 后重跑；` +
+            `整族端口被争用时可用 CLW_E2E_PORT_BASE=<基址> 整套平移（R73-75）。`,
         )
       }
       reject(err)

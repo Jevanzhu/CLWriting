@@ -14,12 +14,13 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { collectTreeIssues } from '../../src/check/run.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 // ── 规模参数 ────────────────────────────────────────────────────────
 /** 章数：500 章 × ~3000 字 ≈ 150 万字（讨论稿口径「500 章合成书」） */
@@ -77,7 +78,7 @@ function makeBody(no: number): string {
 
 /** 与 tree-issues-cache.test.ts makeBook 同款造书（含布线/文风禁词/book.yaml），放大到 500 章 */
 function makeScaleBook(): { root: string; hitDocOf: (no: number) => string } {
-  const root = mkdtempSync(join(tmpdir(), 'check-scale-'))
+  const root = mkdtempTracked(join(tmpdir(), 'check-scale-'))
   mkdirSync(join(root, '布线', '悬念'), { recursive: true })
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '项目'), { recursive: true })

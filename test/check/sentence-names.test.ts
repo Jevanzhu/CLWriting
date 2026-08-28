@@ -1,8 +1,9 @@
 import { test, expect } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { checkSentenceLength, checkNewNames, checkImagery, checkInfoLeak } from '../../src/check/count.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 // ── checkSentenceLength（#10 项 8，🟡 黄）──────────
 // 分句按 [。！？\n] 切；超 maxLen（默认 60）为超长句；
@@ -48,7 +49,7 @@ test('checkSentenceLength: 自定义 maxLen', () => {
 // 对照名册文件（文本 includes 判定），未登记 → 报黄候选。
 
 test('checkNewNames: 名册中已登记 → 通过', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'names-'))
+  const dir = mkdtempTracked(join(tmpdir(), 'names-'))
   const roster = join(dir, '名册.md')
   writeFileSync(roster, '已有角色：云澈、萧破军', 'utf-8')
   try {
@@ -61,7 +62,7 @@ test('checkNewNames: 名册中已登记 → 通过', () => {
 })
 
 test('checkNewNames: 正文含未登记专名 → 报黄', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'names-'))
+  const dir = mkdtempTracked(join(tmpdir(), 'names-'))
   const roster = join(dir, '名册.md')
   writeFileSync(roster, '已登记：云澈', 'utf-8')
   try {
@@ -85,7 +86,7 @@ test('checkNewNames: 名册文件不存在 → 空结果（不崩）', () => {
 // 此处用同名目录占位：existsSync 真、readFileSync EISDIR）→ 不再 ENOENT 直穿炸
 // 整次机检，照 R62-9 同款降级为黄项提示本轮未跑
 test('R65-16: 名册在盘但读取失败 → 黄 roster-unreadable 降级（不炸机检）', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'names-'))
+  const dir = mkdtempTracked(join(tmpdir(), 'names-'))
   mkdirSync(join(dir, '名册.md'), { recursive: true }) // 目录占位触发读失败
   try {
     const r = checkNewNames('「云澈」拔剑而出。', join(dir, '名册.md'))
@@ -100,7 +101,7 @@ test('R65-16: 名册在盘但读取失败 → 黄 roster-unreadable 降级（不
 })
 
 test('checkNewNames: 引号内仅 1 字或超 4 字不候选', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'names-'))
+  const dir = mkdtempTracked(join(tmpdir(), 'names-'))
   const roster = join(dir, '名册.md')
   writeFileSync(roster, '空名册', 'utf-8')
   try {
@@ -114,7 +115,7 @@ test('checkNewNames: 引号内仅 1 字或超 4 字不候选', () => {
 })
 
 test('X-P2-9: 人名+说话动词的对白归属行不报新专名（说话人不在提示语词表）', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'names-'))
+  const dir = mkdtempTracked(join(tmpdir(), 'names-'))
   const roster = join(dir, '名册.md')
   writeFileSync(roster, '空名册', 'utf-8')
   try {
@@ -128,7 +129,7 @@ test('X-P2-9: 人名+说话动词的对白归属行不报新专名（说话人�
 })
 
 test('X-P2-9: 引号外非归属结构照报（叙述行不豁免）', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'names-'))
+  const dir = mkdtempTracked(join(tmpdir(), 'names-'))
   const roster = join(dir, '名册.md')
   writeFileSync(roster, '空名册', 'utf-8')
   try {
@@ -156,7 +157,7 @@ test('X-P2-22: checkInfoLeak 无关键词 → 零项（不产 source-disabled �
 // R62-29：SPEECH_ATTRIBUTION_RE 汉字段与全文件 HANZI（基本区+扩展 A）同源——
 // 此前字面 \u4e00-\u9fa5 漏扩展 A 区，生僻字人名的归属行不豁免、对白被当专名误报。
 test('checkNewNames: 扩展 A 区生僻字人名的对白归属行豁免（䜣 U+4723 + 说）', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'names-'))
+  const dir = mkdtempTracked(join(tmpdir(), 'names-'))
   try {
     const roster = join(dir, '名册.md')
     writeFileSync(roster, '已有角色：云澈', 'utf-8')
@@ -170,7 +171,7 @@ test('checkNewNames: 扩展 A 区生僻字人名的对白归属行豁免（䜣 U
 // ── R67-9（十五轮）：嵌套引号伪专名守卫 ──────────────
 
 test('R67-9: 嵌套引号截断 span 不产伪专名黄项（「他说『快走』」不再报「他说快走」）', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'names-'))
+  const dir = mkdtempTracked(join(tmpdir(), 'names-'))
   try {
     const roster = join(dir, '名册.md')
     writeFileSync(roster, '已有角色：云澈', 'utf-8')
@@ -183,7 +184,7 @@ test('R67-9: 嵌套引号截断 span 不产伪专名黄项（「他说『快走�
 })
 
 test('R67-9: 守恒回归——平级引号内未登记 2-4 字专名照常报黄（守卫不误伤正常候选）', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'names-'))
+  const dir = mkdtempTracked(join(tmpdir(), 'names-'))
   try {
     const roster = join(dir, '名册.md')
     writeFileSync(roster, '已登记：云澈', 'utf-8')

@@ -4,7 +4,7 @@
  * 未登记 NOT_FOUND、版本档案落盘（pinned 永久保留）。
  */
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { finalizeRevision } from '../../src/document/finalize.js'
@@ -12,10 +12,11 @@ import { readManifest, writeManifest, upsertEntry } from '../../src/document/man
 import { generateDocId } from '../../src/document/stable-id.js'
 import { deriveStatus } from '../../src/document/status.js'
 import { computeRevision } from '../../src/document/revision.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 /** 造一本干净书：一章 + 登记清单。返回 {root, docId}。 */
 function makeBook(): { root: string; docId: string } {
-  const root = mkdtempSync(join(tmpdir(), 'finalize-'))
+  const root = mkdtempTracked(join(tmpdir(), 'finalize-'))
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   writeFileSync(
     join(root, '写作', '正文', '0001-开篇.md'),

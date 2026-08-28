@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -16,6 +16,7 @@ import { writePieceList } from '../../src/format/manifest.js'
 import type { CheckReport } from '../../src/check/types.js'
 import type { ReviewIssue } from '../../src/review/contract.js'
 import type { BookConfig, PieceList } from '../../src/format/types.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const emptyReport: CheckReport = { sections: [], byproducts: {} }
 // short 段需至少一个字段，writeBookConfig 才会落盘 → 机检跑短篇专属项 + 清单形式检
@@ -46,7 +47,7 @@ function makeShortFullPacket(workDir: string): ReviewExecutionPacket {
 // ── buildReviewPacket short: 三视角分包 ──────────
 
 test('buildReviewPacket short: 满审产 reader/editor + 短篇三视角分包', () => {
-  const workDir = mkdtempSync(join(tmpdir(), 'review-short-'))
+  const workDir = mkdtempTracked(join(tmpdir(), 'review-short-'))
   const built = buildReviewPacket({
     checkReport: emptyReport,
     body: '正文。',
@@ -68,7 +69,7 @@ test('buildReviewPacket short: 满审产 reader/editor + 短篇三视角分包',
 })
 
 test('review 打包 short: 读取章号草稿并把清单核对写入执行包', () => {
-  const root = mkdtempSync(join(tmpdir(), 'review-short-cli-'))
+  const root = mkdtempTracked(join(tmpdir(), 'review-short-cli-'))
   const workDir = join(root, '写作', '草稿')
   try {
     writeBookConfig(join(root, 'book.yaml'), SHORT_CONFIG)
@@ -130,7 +131,7 @@ test('review 打包 short: 读取章号草稿并把清单核对写入执行包',
 // ── 白名单双改：短篇 category/lens 不进 bad_entries ──
 
 test('collectReviewIssues short: reversal issue 不被丢弃进 bad_entries', () => {
-  const workDir = mkdtempSync(join(tmpdir(), 'review-short-'))
+  const workDir = mkdtempTracked(join(tmpdir(), 'review-short-'))
   const packet = makeShortFullPacket(workDir)
   mkdirSync(packet.out_dir, { recursive: true })
 
@@ -165,7 +166,7 @@ test('collectReviewIssues short: reversal issue 不被丢弃进 bad_entries', ()
 // ── 合审档：短篇三视角单包覆盖 ────────────────────
 
 test('collectReviewIssues short 合审: 单包覆盖三视角不缺', () => {
-  const workDir = mkdtempSync(join(tmpdir(), 'review-short-'))
+  const workDir = mkdtempTracked(join(tmpdir(), 'review-short-'))
   const built = buildReviewPacket({
     checkReport: emptyReport,
     body: '正文。',

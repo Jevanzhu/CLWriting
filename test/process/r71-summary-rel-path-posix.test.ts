@@ -7,9 +7,10 @@
  * 归一不受影响。
  */
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import {
   CHAPTER_SUMMARY_DIR,
   VOLUME_SUMMARY_DIR,
@@ -31,7 +32,7 @@ test('R71-15: 摘要相对路径恒 posix（无平台分隔符）', () => {
 })
 
 test('R71-15: fs 消费侧不受影响——chapterSummaryPath/volumeSummaryPath 照常定位文件', () => {
-  const root = mkdtempSync(join(tmpdir(), 'clw-r71-sumrel-'))
+  const root = mkdtempTracked(join(tmpdir(), 'clw-r71-sumrel-'))
   try {
     const chPath = chapterSummaryPath(root, 3)
     mkdirSync(dirname(chPath), { recursive: true })

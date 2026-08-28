@@ -1,6 +1,7 @@
 import { watch, onUnmounted, type WatchSource } from 'vue'
 import { useWorkbenchStore } from '../stores/workbench'
 import { useChatStore } from '../stores/chat'
+import { useUiStore } from '../stores/ui'
 import { getToken, rebootstrap } from '../api/client'
 
 /**
@@ -47,6 +48,7 @@ export function useSse(bookName: WatchSource<string>): void {
   // setup 内提前获取 chat store 实例：onmessage 回调不在组件上下文，
   // 运行时再 useChatStore() 会撞 activePinia 未设置（抛错被 catch 吞掉 → chat 事件丢失）
   const chat = useChatStore()
+  const ui = useUiStore()
   let es: EventSource | null = null
   let errorCount = 0
   let backoffStep = 0
@@ -54,6 +56,38 @@ export function useSse(bookName: WatchSource<string>): void {
   let currentName = ''
   /** 连接代：disconnect/重连会推进——悬挂中的 doConnect（await re-bootstrap 期间被接管）据此放弃 */
   let connectGen = 0
+  // R73-67：429 指引一次连接纪元只提示一次（onopen 成功/切书复位）——退避重连期间不反复打扰
+  let busy429Notified = false
+  let probing429 = false
+
+  // R73-67（D 域移交前端面）：per-book SSE 连接数上限（第 6 个标签页 429 BUSY）的前端展示面。
+  // EventSource 不暴露状态码/body——非 2xx 一律 fail-closed，无法与 403/404 区分。借 fetch
+  // 探测拿状态码：走 ?token= 旧通道（服务端只做凭据比对，不消费一次性 ticket、不烧票），
+  // 且服务端 429 判定在连接登记之前（429 响应不占连接槽）。取到状态码即 abort，不留存活
+  // 探测流连接；仅在 fail-closed 接管退避前探测一次，网络抖动/每轮退避不重复探测。
+  async function probeSseBusy(): Promise<void> {
+    if (probing429) return
+    const t = getToken()
+    if (!t) return
+    probing429 = true
+    const base = import.meta.env.DEV ? DEV_API_BASE : ''
+    const ctrl = new AbortController()
+    try {
+      const r = await fetch(
+        `${base}/api/books/${encodeURIComponent(currentName)}/stream?token=${encodeURIComponent(t)}`,
+        { signal: ctrl.signal },
+      )
+      ctrl.abort() // 拿到状态码即断（非 429 时服务端已建流——不留存活探测连接）
+      if (r.status === 429 && !busy429Notified) {
+        busy429Notified = true
+        ui.toast('同一本书的标签页开太多啦，请关闭多余的标签页后重试', 'error')
+      }
+    } catch {
+      /* 探测失败不提示——交回既有退避重连节奏 */
+    } finally {
+      probing429 = false
+    }
+  }
 
   async function doConnect(): Promise<void> {
     const gen = connectGen
@@ -84,6 +118,7 @@ export function useSse(bookName: WatchSource<string>): void {
     es.onopen = () => {
       errorCount = 0
       backoffStep = 0
+      busy429Notified = false // R73-67：连接成功后复位（下次 429 再提示）
       wb.setConnected(true)
     }
     es.onerror = () => {
@@ -102,6 +137,7 @@ export function useSse(bookName: WatchSource<string>): void {
         backoffStep += 1
         const delay = Math.min(BASE_BACKOFF_MS * 2 ** (backoffStep - 1), MAX_BACKOFF_MS)
         reconnectTimer = setTimeout(doConnect, delay)
+        if (failClosed) void probeSseBusy() // R73-67：fail-closed（429/403/404 族）→ 探测区分 429 出指引
       }
     }
     es.onmessage = (e: MessageEvent) => {
@@ -124,6 +160,7 @@ export function useSse(bookName: WatchSource<string>): void {
   function connect(name: string): void {
     if (!name) return
     currentName = name
+    busy429Notified = false // R73-67：切书新连接纪元，429 指引可再提示
     disconnect()
     doConnect()
   }

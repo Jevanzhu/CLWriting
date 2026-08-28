@@ -58,6 +58,19 @@ export function readChapter(
     if (!KNOWN_FM_KEYS.has(k)) _raw[k] = String(v)
   }
 
+  // R73-16（二十一轮 B-3）：必填枚举（钩子类型/钩子强弱/情绪定位）缺字段此前静默补
+  // 默认（悬念钩/中/铺垫），机检 fm 检对「缺失」零红项，与 draft.ts「至少包含」文案相悖。
+  // 缺失清单记入 _fmMissing，checkFrontMatter 据此产红项（fm-missing）；非法值仍走
+  // validateEnums（fm-enum）——「缺字段」与「写了非法值」分开呈现。空串视同缺失。
+  const fmMissing: string[] = []
+  const requireEnum = (key: string): void => {
+    const v = map.get(key)
+    if (v === undefined || v === null || v === '') fmMissing.push(key)
+  }
+  requireEnum('钩子类型')
+  requireEnum('钩子强弱')
+  requireEnum('情绪定位')
+
   const chapter: ChapterMeta = {
     章号,
     标题: String(map.get('标题') ?? ''),
@@ -65,6 +78,7 @@ export function readChapter(
     钩子强弱: (map.get('钩子强弱') as HookLevel) ?? '中',
     情绪定位: (map.get('情绪定位') as Emotion) ?? '铺垫',
     ...(Object.keys(_raw).length > 0 ? { _raw } : {}),
+    ...(fmMissing.length > 0 ? { _fmMissing: fmMissing } : {}),
     _path: filePath,
     _wordCount: countWords(r.body),
     ...(includeBody ? { _body: r.body } : {}),
@@ -194,9 +208,13 @@ function readChapterDirUncached(
 
 /** CC-P1-3：章节元数据缓存条目（stat 快照 + 章元数据，不含正文）。 */
 /** Z-21（第五十八轮）：缓存章元数据克隆——浅拷贝之上再拷 _raw（嵌套对象与缓存共享
- *  会让「防调用方 mutate 污染缓存」的承诺对嵌套字段不成立） */
+ *  会让「防调用方 mutate 污染缓存」的承诺对嵌套字段不成立）；R73-16：_fmMissing 同理。 */
 function cloneChapter(c: ChapterMeta): ChapterMeta {
-  return { ...c, ...(c._raw !== undefined ? { _raw: { ...c._raw } } : {}) }
+  return {
+    ...c,
+    ...(c._raw !== undefined ? { _raw: { ...c._raw } } : {}),
+    ...(c._fmMissing !== undefined ? { _fmMissing: [...c._fmMissing] } : {}),
+  }
 }
 
 interface ChapterDirEntry {

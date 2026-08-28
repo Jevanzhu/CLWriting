@@ -7,16 +7,17 @@
  * docId 的静默 null 改为 warn 留痕（留底纪律失守可诊断）。
  */
 import { test, expect, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { DocumentService } from '../../src/document/service.js'
 import { writeSnapshot } from '../../src/document/snapshot.js'
 import { initLogging, flushLogsForTest } from '../../src/log/index.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const dirs: string[] = []
 function tmpRoot(): string {
-  const d = mkdtempSync(join(tmpdir(), 'n1-docid-'))
+  const d = mkdtempTracked(join(tmpdir(), 'n1-docid-'))
   dirs.push(d)
   return d
 }

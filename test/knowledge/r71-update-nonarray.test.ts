@@ -4,14 +4,15 @@
  * 的 silent 条目被滤（不再渲染成「> undefined」）。
  */
 import { describe, it, expect } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { summarizeFalsePositives } from '../../src/knowledge/update.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 describe('R71-35: 语料回归域非数组/缺 excerpt 防御', () => {
   it('parse 成功但非数组（{}）→ 跳过不崩；其余文件正常汇总', () => {
-    const root = mkdtempSync(join(tmpdir(), 'r71-knowledge-'))
+    const root = mkdtempTracked(join(tmpdir(), 'r71-knowledge-'))
     const corpusDir = join(root, 'corpus')
     try {
       mkdirSync(corpusDir, { recursive: true })
@@ -31,7 +32,7 @@ describe('R71-35: 语料回归域非数组/缺 excerpt 防御', () => {
   })
 
   it('缺 excerpt 的 silent 条目被滤——excerpts 不含 undefined', () => {
-    const root = mkdtempSync(join(tmpdir(), 'r71-knowledge-'))
+    const root = mkdtempTracked(join(tmpdir(), 'r71-knowledge-'))
     const corpusDir = join(root, 'corpus')
     try {
       mkdirSync(corpusDir, { recursive: true })

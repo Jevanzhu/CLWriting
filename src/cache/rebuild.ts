@@ -25,6 +25,7 @@ import { readBookConfig } from '../format/yaml.js'
 import { readChapter } from '../format/chapters.js'
 import type { ParseError } from '../format/types.js'
 import { walkMdEach } from '../fs/walk-md.js'
+import { log } from '../log/index.js'
 
 /** 基础两类（恒启用，母本第 2.1 节） */
 const BASE_LEAD_TYPES = ['悬念', '感情线'] as const
@@ -295,7 +296,11 @@ function scanSummaries(
     // R71-37（总七十一轮）：Number() 过宽——`.md`→0、`0x10.md`→16、`1e2.md`→100、
     // `-3.md`→-3 均 Number.isFinite 入表且不进健康报告；改 /^\d+$/ 严格白名单
     // （不匹配 → errors.push 计入健康报告，对齐同函数 R62-32 口径）
+    // R73-47（二十一轮）：白名单外命名追加 log.warn 留痕——errors 只进 meta 健康报告
+    // （下次增量跳过重建时不可见），操作日志即时留痕方便定位「摘要不生效」类问题；
+    // 命名契约本身不动（<数字>.md 仍是唯一入库形态）。
     if (!/^\d+$/.test(f.replace(/\.md$/, ''))) {
+      log.warn('rebuild', `摘要文件名「${f}」不是 <章号或卷号>.md 形式，未入库（${dir}）`)
       errors.push({ file: fp, line: 0, message: `摘要文件名「${f}」不是 <章号或卷号>.md 形式，未入库` })
       continue
     }

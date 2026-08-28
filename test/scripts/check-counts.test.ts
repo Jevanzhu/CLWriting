@@ -82,6 +82,31 @@ describe('R63-12：.only / 无条件 .skip 拒绝门', () => {
   })
 })
 
+describe('R73-78：模板串 ${} 嵌套净化（计数漂移防线）', () => {
+  it('嵌套模板整体清成 ""——旧单条正则在嵌套反引号处提前截断、半截残留', () => {
+    expect(stripStrings('const s = `a ${ t(`inner`) } b`;')).toBe('const s = "";')
+  })
+
+  it('${} 表达式内单双引号串里的反引号不算模板定界', () => {
+    expect(stripStrings('`a ${ q["`"] } b`')).toBe('""')
+    expect(stripStrings("`a ${ q['`'] } b`")).toBe('""')
+  })
+
+  it('多层嵌套与花括号平衡（对象字面量 + 嵌套模板含自身 ${}）', () => {
+    expect(stripStrings('`a ${ JSON.stringify({ k: `n${x}` }) } b`')).toBe('""')
+  })
+
+  it('嵌套断裂不再虚增用例计数（旧口径把残留 `test(` 数成真用例 → 漂移为 2）', () => {
+    // 旧正则：第一对反引号在嵌套模板前闭合，残留片段中的 `test(` 被数成真用例
+    const src = 'const s = `x ${ tag(`test(`) } y`;\ntest(\'真用例\', () => {})'
+    expect(countE2eCases(src)).toBe(1)
+  })
+
+  it('未闭合模板原样保留（与旧正则「不匹配未闭合串」口径一致）', () => {
+    expect(stripStrings('const s = `unclosed')).toBe('const s = `unclosed')
+  })
+})
+
 describe('R65-63（F-11）：sanitizeForCount 先清字符串后剥注释', () => {
   it('字符串内非冒前 // 不再吞行——行尾真实用例声明完整保留', () => {
     const src = "const t = 'data:aa//bb==';\ntest.serial('真实用例', () => {})"

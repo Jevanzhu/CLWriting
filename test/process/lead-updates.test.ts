@@ -5,14 +5,15 @@
  */
 
 import { test, expect } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { leadEvidenceMatchesBody, readChapterLeadUpdates } from '../../src/check/lead-updates.js'
 import { readOutlineLeads } from '../../src/check/outline-leads.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 function tmpWorkDir(): string {
-  return mkdtempSync(join(tmpdir(), 'lead-updates-'))
+  return mkdtempTracked(join(tmpdir(), 'lead-updates-'))
 }
 
 test('readChapterLeadUpdates: 解析标准行（编号/动词/证据，全角冒号）', () => {

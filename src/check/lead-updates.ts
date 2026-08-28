@@ -51,12 +51,22 @@ export function readLeadUpdatesAt(absPath: string): ChapterLeadUpdate[] {
   return parseLeadUpdateLines(text)
 }
 
-/** 解析账本推进文本（`- <编号> <动词>：<证据>` 行；非列表行忽略）。 */
+/** 解析账本推进文本（`- <编号> <动词>：<证据>` 行；非列表行忽略）。
+ *  R73-23（二十一轮）：对齐 format/leads.ts parseHistory 的续行折入口径——编辑器折行/
+ *  手写换行的证据第二行此前被静默丢弃，声明证据与落盘履历（折入后续行）比对失配 →
+ *  「声明了没兑现」假红。无条目前的行（标题/首行章标签）不折。 */
 export function parseLeadUpdateLines(text: string): ChapterLeadUpdate[] {
   const out: ChapterLeadUpdate[] = []
   for (const raw of text.split('\n')) {
     const line = raw.trim()
-    if (!line.startsWith('-')) continue
+    if (!line.startsWith('-')) {
+      // R73-23：非列表行折入上一条证据（换行归一空格；条目前无折入对象，忽略）
+      if (out.length > 0 && line !== '') {
+        const prev = out[out.length - 1]!
+        prev.证据 = `${prev.证据} ${line}`.trim()
+      }
+      continue
+    }
     // - <编号> <动词>：<证据>
     const m = line.match(/^-\s*(\S+)\s+([^\s:：]+)[:：]\s*(.+)$/)
     if (m) {

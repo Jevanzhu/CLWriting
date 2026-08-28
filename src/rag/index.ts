@@ -361,21 +361,93 @@ async function commitIndexBatch(
 ): Promise<BuildIndexResult> {
   // 批量 embed——P1-9：分批防端点上限。修复前全量一次性单 POST：200 万字 ≈3.5 万块
   // 必超常见 embedding 端点的单请求上限（静默失败/截断）。分批按块数封顶
-  //（100 块/批 ≈ 10 万字量级，对 8k~32k token 输入模型都留足余量），任一批失败即整体失败。
+  //（100 块/批 ≈ 10 万字量级，对 8k~32k token 输入模型都留足余量）。任一批失败不再
+  // 整体报废——R73-5（二十一轮 A-5）：已成功批按「整章」小事务续传落库（见下）。
   const EMBED_BATCH_SIZE = 100
   // 内存闸（2026-08-24 审计 A2）：批结果即转 Float32Array 驻留——原实现以 number[][]
   // 全量累积（8B/维，200 万字书 ≈ 430MB）到 COMMIT 才逐条 BLOB 化；即转后峰值减半
   //（≈215MB，与召回侧 readAllChunks 单份口径一致）。刻意不做「事务内逐批 embed 逐批
   // 写库」：BEGIN IMMEDIATE 跨 embed 网络往返会把同书 rag.db 写锁窗从 DB 写时长拉长
-  // 到分钟级网络时长，阻塞并发 recall 读——锁窗与峰值二取其一，保锁窗。
+  // 到分钟级网络时长，阻塞并发 recall 读——锁窗与峰值二取其一，保锁窗（R73-5 的续传
+  // 小事务同样只在批边界同步执行、不跨网络往返，锁窗纪律不变）。
   const vectors: Float32Array[] = []
+  // R73-5：章 → 其块在 allChunks 中的下标区间 [start, end)（块按章序收集，章内连续）
+  const chapterSpans = new Map<number, { start: number; end: number }>()
+  for (let i = 0; i < allChunks.length; i++) {
+    const ch = allChunks[i]!.章号
+    const span = chapterSpans.get(ch)
+    if (span) span.end = i + 1
+    else chapterSpans.set(ch, { start: i, end: i + 1 })
+  }
+  // 首个失败批的起始块下标；-1 = 全部成功
+  let failedAt = -1
   for (let i = 0; i < allChunks.length; i += EMBED_BATCH_SIZE) {
     const batchTexts = allChunks.slice(i, i + EMBED_BATCH_SIZE).map((c) => c.chunk.text)
     const batchVec = await embedFn(config.endpoint!, config.model!, apiKey, batchTexts, embedOptions)
     if (batchVec === null) {
-      return { ok: false, chunkCount: 0, chapterCount: 0, error: 'embedding 端点调用失败（已降级，未阻断主路径）' }
+      failedAt = i
+      break
     }
     for (const v of batchVec) vectors.push(Float32Array.from(v))
+  }
+  if (failedAt >= 0) {
+    // R73-5（二十一轮 A-5）：部分成功续传——此前任一批失败即整体失败、已成功批向量
+    // 全弃，重跑整批重 embed 重复计费（200 万字书最贵可白白烧掉百万字级 embedding）。
+    // 修复：把「已成功批覆盖到的整章」写入小事务提交——指纹即续传标记（重跑时指纹
+    // 比对命中跳过），游标随提交章单调推进。半章（尾批截断的章）不提交不写指纹——
+    // 部分索引会被指纹闸挡在召回外，但会污染「指纹集合==已索引章集合」不变量，且
+    // 下轮重索引按章删旧块即可，无残留。零块章（trim 后全 <20 字）无向量，直接落指纹。
+    const complete: Array<[number, { start: number; end: number } | null]> = []
+    for (const [ch, span] of chapterSpans) {
+      if (span.end <= failedAt) complete.push([ch, span])
+    }
+    for (const ch of chapterHashes.keys()) {
+      if (!chapterSpans.has(ch)) complete.push([ch, null]) // 零块章
+    }
+    let salvaged = 0
+    // 维度守护：与既有索引维度不一致时不续传（该错要求重建索引，续传无意义）
+    const vectorDim = vectors[0]?.length
+    const indexedDim = getRagMeta(db, 'embedding_dim')
+    if (complete.length > 0 && vectorDim && (!indexedDim || Number(indexedDim) === vectorDim)) {
+      db.exec('BEGIN IMMEDIATE')
+      try {
+        let maxCommitted = 0
+        for (const [ch, span] of complete) {
+          if (span) {
+            deleteChunksByChapter(db, ch)
+            for (let i = span.start; i < span.end; i++) {
+              storeChunk(db, {
+                章号: ch,
+                start_offset: allChunks[i]!.chunk.start,
+                end_offset: allChunks[i]!.chunk.end,
+                embedding: vectors[i]!,
+                model: config.model!,
+              })
+            }
+          }
+          setRagMeta(db, chapterHashKey(ch), chapterHashes.get(ch)!)
+          maxCommitted = Math.max(maxCommitted, ch)
+        }
+        // 游标只推进到已提交章（不越过失败章）；不回退既有更高游标
+        const prevCursor = Number(getRagMeta(db, 'indexed_max_chapter') ?? 0)
+        if (maxCommitted > prevCursor) setRagMeta(db, 'indexed_max_chapter', String(maxCommitted))
+        setRagMeta(db, 'embedding_model', config.model!)
+        setRagMeta(db, 'embedding_dim', String(vectorDim))
+        db.exec('COMMIT')
+        salvaged = complete.length
+      } catch {
+        db.exec('ROLLBACK') // 续传失败不致命：回到旧行为（整体重跑），错误文案不带续传字样
+      }
+    }
+    return {
+      ok: false,
+      chunkCount: 0,
+      chapterCount: 0,
+      error:
+        salvaged > 0
+          ? `embedding 端点调用失败（已降级，未阻断主路径）；前序已成功章节已续传落库（${salvaged} 章），重跑将从断点继续、不再整批重 embed`
+          : 'embedding 端点调用失败（已降级，未阻断主路径）',
+    }
   }
   const indexedDim = getRagMeta(db, 'embedding_dim')
   if (allChunks.length > 0) {
@@ -440,6 +512,21 @@ export interface RecallHit {
 }
 
 /**
+ * R73-12（二十一轮 A-12）：召回结果结构化出口——truncated 标记上抛。
+ * 召回池超 10 万块（RAG_CHUNK_WARN_THRESHOLD）被硬截断时，旧口径仅 log.warn 留痕、
+ * 前端/消费面无感。本结构把截断事实作为数据返回，供消费方在 prompt 组装等处留痕
+ * （前端 UI 面不在 A 域，消费接入由对应域批次跟进——materials.ts 现有消费面走
+ * 兼容包装 recall()，零改动）。
+ */
+export interface RecallResult {
+  hits: RecallHit[]
+  /** 召回池超上限被硬截断（读出序前缀保留、尾部丢弃，非按相似度裁剪） */
+  truncated: boolean
+  /** 截断前的全量块数（truncated=false 时 = 参与召回的块数） */
+  totalBlocks: number
+}
+
+/**
  * 召回（query embed → 全表点积排序 → 候选子集惰性指纹校验 → topK）。
  * 失败/降级返回空数组（#37 第 6.2 节，不崩）。
  *
@@ -452,7 +539,7 @@ export interface RecallHit {
  *
  * @param embedFn 可选：注入 embed 函数（测试用桩）
  */
-export async function recall(
+export async function recallDetailed(
   bookRoot: string,
   config: RagConfig,
   apiKey: string,
@@ -461,8 +548,9 @@ export async function recall(
   embedFn: typeof embed = embed,
   /** O-3：块数告警阈值（测试注入用，默认 RAG_CHUNK_WARN_THRESHOLD） */
   warnThreshold = RAG_CHUNK_WARN_THRESHOLD,
-): Promise<RecallHit[]> {
-  if (!config.enabled || !config.endpoint || !config.model) return []
+): Promise<RecallResult> {
+  const empty: RecallResult = { hits: [], truncated: false, totalBlocks: 0 }
+  if (!config.enabled || !config.endpoint || !config.model) return empty
 
   // 下界钳制（2026-08-21 低级项）：书里配 0/负数时首轮 `verdict.size >= 0` 恒 break，
   // 召回恒空静默降级为「无 RAG」且无告警——读侧已拒非法值，这里再兜一层防直调/测试路径
@@ -472,20 +560,24 @@ export async function recall(
   // embed 网络往返（≤30s）不再持有 db 句柄；空库直接返回不烧 API 调用。
   const db = openRagDb(bookRoot)
   let chunks!: RagChunk[]
+  // R73-12：截断事实随结构化出口上抛（旧口径仅 log.warn，前端无感）
+  let truncated = false
+  let totalBlocks = 0
   let indexedDim: string | null = null
   let indexedFingerprints!: Map<number, string>
   let chapterByNumber!: Map<number, ChapterMeta>
   try {
     const indexedModel = getRagMeta(db, 'embedding_model')
-    if (indexedModel && indexedModel !== config.model) return []
+    if (indexedModel && indexedModel !== config.model) return empty
 
     chunks = readAllChunks(db)
-    if (chunks.length === 0) return [] // 空库：无向量可召回，先判空不烧 API
+    if (chunks.length === 0) return empty // 空库：无向量可召回，先判空不烧 API
     // O-3（第十三轮）：块数超已知可用区间（十万块，见 store.ts readAllChunks 量化注释）
     // 时告警；T2 批起同时硬截断到上限——超区间线性扫描延迟已超交互预期，防单次召回
     // 无界膨胀（截断取读出序前缀 + warn 留痕，配额数值与告警阈值同一常量）
+    totalBlocks = chunks.length
     if (chunks.length >= warnThreshold) {
-      const truncated = chunks.length > warnThreshold
+      truncated = chunks.length > warnThreshold
       if (truncated) chunks = chunks.slice(0, warnThreshold)
       log.warn('rag', `召回块数超已知可用区间（${warnThreshold}）——线性扫描延迟可能超预期，建议评估 FTS/向量索引${truncated ? `；已硬截断至 ${warnThreshold} 块` : ''}`)
     }
@@ -507,10 +599,10 @@ export async function recall(
 
   // 网络段（无 db 句柄）
   const qVec = await embedFn(config.endpoint, config.model, apiKey, [query], embedOptionsFor(bookRoot, config))
-  if (qVec === null || qVec.length === 0) return []
+  if (qVec === null || qVec.length === 0) return empty
   const queryVec = Float32Array.from(qVec[0]!)
 
-  if (indexedDim && Number(indexedDim) !== queryVec.length) return []
+  if (indexedDim && Number(indexedDim) !== queryVec.length) return empty
 
   const qNorm = l2Norm(queryVec)
   const hits: RecallHit[] = chunks
@@ -544,5 +636,20 @@ export async function recall(
     }
     if (fresh) out.push(h)
   }
-  return out
+  return { hits: out, truncated, totalBlocks }
+}
+
+/** 兼容包装（R73-12）：既有消费面（materials.ts 等）签名与返回不变；截断等结构化
+ *  信息走 recallDetailed（消费面接入由对应域批次跟进，见 RecallResult 注） */
+export async function recall(
+  bookRoot: string,
+  config: RagConfig,
+  apiKey: string,
+  query: string,
+  topK = 5,
+  embedFn: typeof embed = embed,
+  warnThreshold = RAG_CHUNK_WARN_THRESHOLD,
+): Promise<RecallHit[]> {
+  const r = await recallDetailed(bookRoot, config, apiKey, query, topK, embedFn, warnThreshold)
+  return r.hits
 }

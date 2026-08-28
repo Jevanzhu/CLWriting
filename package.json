@@ -59,6 +59,7 @@
     "vitest": "^3.0.0",
     "vue": "^3.5.0"
   },
+  "//overrides": "esbuild 钉版因由：54e0eaa（2026-06-23）清依赖安全告警——esbuild 旧版 dev server 有跨站读取泄漏面（GHSA-67mh-4wv8-2f99，修复线 0.25.0），强制 tsup/tsx/vite 构建链统一越过受影响版本；放开钉版前需回归 electron 构建链（tsup 构建 + dev:app + build:desktop 出包）",
   "overrides": {
     "esbuild": "^0.28.1"
   },

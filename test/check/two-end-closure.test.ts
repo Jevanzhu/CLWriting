@@ -6,15 +6,16 @@
  *   有目标 → 黄项触发；无目标 → 不检也不提示（决策 3）
  */
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { runCheckForDocument } from '../../src/check/run.js'
 import { getRedItems } from '../../src/check/runner.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 /** 造一本有布线的完整书：布线/悬念 + 正文一章 + 章纲（带字数目标） */
 function makeWiringBook(章纲目标?: number): string {
-  const root = mkdtempSync(join(tmpdir(), 'two-end-'))
+  const root = mkdtempTracked(join(tmpdir(), 'two-end-'))
   mkdirSync(join(root, '布线', '悬念'), { recursive: true })
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '大纲', '章纲'), { recursive: true })

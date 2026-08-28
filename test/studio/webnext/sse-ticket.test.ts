@@ -121,7 +121,10 @@ describe('契约② · SSE ticket 化', () => {
   it('fail-closed（403，readyState=CLOSED）→ 退避重连时重取新 ticket（一次性短时效，不复用旧票）', async () => {
     vi.useFakeTimers()
     let call = 0
-    stubTicketFetch(() => {
+    stubTicketFetch((url) => {
+      // R73-67：fail-closed 现在附带一次 429 探测（GET /stream?token= 旧通道）——
+      // 该请求不走换票端点，桩按 URL 分流只对 /api/stream-ticket 发号（生产语义）
+      if (!String(url).endsWith('/api/stream-ticket')) return new Response('{}', { status: 200 })
       call++
       return new Response(JSON.stringify({ ticket: `K${call}` }), { status: 200 })
     })

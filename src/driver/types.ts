@@ -52,7 +52,9 @@ export type DriverEvent =
       path?: string
       error?: string
     }
-  | { type: 'done'; usage: number; reason: 'success' | 'cancelled' | 'error'; cost?: number }
+  // R73-10（二十一轮 A-10）：usageEstimated——usage 为全 attempt 累计口径（含重试 attempt
+  // 的可得用量，与 ai-calls.json 按次入账对齐）；含估计入账（R73-1 网关吞 usage 折算）时为 true
+  | { type: 'done'; usage: number; reason: 'success' | 'cancelled' | 'error'; cost?: number; usageEstimated?: boolean }
   // 对话助手(chat.ts 经 emit 推主 session)
   | { type: 'chat_start' }
   | { type: 'chat_turn'; turn: number }

@@ -12,10 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { startServer } from '../../src/studio/server/index.js'
-import {
-  consumeStreamTicket,
-  __setStreamTicketForTest,
-} from '../../src/studio/server/api/stream-ticket.js'
+import { createStreamTicketStore, type StreamTicketStore } from '../../src/studio/server/api/stream-ticket.js'
 
 const BOOK = '凭据测试书'
 let workDir = ''
@@ -24,10 +21,15 @@ let server: http.Server | undefined
 let baseUrl = ''
 let token = ''
 
-/** 打 SSE 端点，返回状态码（不等 body 流，头到手即断） */
-function openStream(query: string): Promise<number> {
+/** R73-49：取 startServer 挂到 server 对象上的本实例票库 */
+function ticketsOf(s: http.Server): StreamTicketStore {
+  return (s as http.Server & { __streamTickets?: StreamTicketStore }).__streamTickets!
+}
+
+/** 打 SSE 端点，返回状态码（不等 body 流，头到手即断）；base 可指定实例（R73-49 多实例用） */
+function openStreamOn(base: string, query: string): Promise<number> {
   return new Promise((resolve) => {
-    const u = new URL(baseUrl)
+    const u = new URL(base)
     const r = http.request(
       {
         host: u.hostname,
@@ -47,12 +49,16 @@ function openStream(query: string): Promise<number> {
   })
 }
 
-/** 带 token 头的 POST（与前端 fetchStreamTicket 同形：无 body） */
-function postTicket(withToken: boolean): Promise<{ status: number; json: { ticket?: string; expiresInMs?: number } }> {
+function openStream(query: string): Promise<number> {
+  return openStreamOn(baseUrl, query)
+}
+
+/** 带 token 头的 POST（与前端 fetchStreamTicket 同形：无 body）；base/token 可指定实例 */
+function postTicketOn(base: string, tok: string, withToken: boolean): Promise<{ status: number; json: { ticket?: string; expiresInMs?: number } }> {
   return new Promise((resolve, reject) => {
-    const u = new URL(baseUrl)
-    const headers: Record<string, string> = { origin: baseUrl }
-    if (withToken) headers['x-studio-token'] = token
+    const u = new URL(base)
+    const headers: Record<string, string> = { origin: base }
+    if (withToken) headers['x-studio-token'] = tok
     const r = http.request(
       { host: u.hostname, port: u.port, path: '/api/stream-ticket', method: 'POST', headers },
       (res) => {
@@ -72,6 +78,10 @@ function postTicket(withToken: boolean): Promise<{ status: number; json: { ticke
     r.on('error', reject)
     r.end()
   })
+}
+
+function postTicket(withToken: boolean): Promise<{ status: number; json: { ticket?: string; expiresInMs?: number } }> {
+  return postTicketOn(baseUrl, token, withToken)
 }
 
 beforeAll(async () => {
@@ -129,12 +139,13 @@ describe('stream-ticket 端点', () => {
     expect(await openStream(`?token=${encodeURIComponent(token)}`)).toBe(200)
   })
 
-  it('过期 ticket → 403；未知/空 ticket → false（consumeStreamTicket 单元口径）', async () => {
-    expect(consumeStreamTicket(undefined)).toBe(false)
-    expect(consumeStreamTicket('not-a-ticket')).toBe(false)
+  it('过期 ticket → 403；未知/空 ticket → false（consume 单元口径，注入本实例票库）', async () => {
+    const tickets = ticketsOf(server!)
+    expect(tickets.consume(undefined)).toBe(false)
+    expect(tickets.consume('not-a-ticket')).toBe(false)
     const expired = 'expired-ticket'
-    __setStreamTicketForTest(expired, Date.now() - 1)
-    expect(consumeStreamTicket(expired)).toBe(false)
+    tickets.__setForTest(expired, Date.now() - 1)
+    expect(tickets.consume(expired)).toBe(false)
     expect(await openStream(`?ticket=${encodeURIComponent(expired)}`)).toBe(403)
   })
 })
@@ -234,5 +245,48 @@ describe('R65-43：429/404 不烧一次性 ticket（消费在书域校验之后�
     expect(status404).toBe(404) // 凭据过闸（peek）→ 书域校验 404
     // ticket 未被 404 烧掉：对登记书同票 → 200（修复前 → 403）
     expect(await openStream(`?ticket=${encodeURIComponent(t)}`)).toBe(200)
+  })
+})
+
+// R73-49（二十一轮）：票库 per-server 实例化——原模块级单例在同进程二次 startServer
+// 时旧实例的未过期票残留可消费。回归锚定：旧实例签发的票在新实例凭据闸 403（peek
+// 不到即拒，若残留/共享会放行到 200）、新实例票库快照无旧票、新实例签发/一次性语义
+// 照常。单元面（工厂隔离）+ 集成面（同进程二次 startServer）双层。
+describe('R73-49：票库随 server 实例隔离', () => {
+  it('工厂级：两个票库互不相通（库 A 签发的票在库 B peek/consume 均 false）', () => {
+    const a = createStreamTicketStore()
+    const b = createStreamTicketStore()
+    const t = a.issue().ticket
+    expect(a.peek(t)).toBe(true)
+    expect(b.peek(t)).toBe(false)
+    expect(b.consume(t)).toBe(false)
+    expect(a.consume(t)).toBe(true) // 一次性语义在本库内不受影响
+  })
+
+  it('同进程二次 startServer：旧实例票在新实例不可用且零残留，新实例签发照常', async () => {
+    // 旧实例（beforeAll 起）签发一张票，保持未消费
+    const oldTicket = (await postTicket(true)).json.ticket!
+    expect(oldTicket).toBeTruthy()
+    await new Promise<void>((r) => server!.close(() => r()))
+
+    const serverB = startServer({ port: 0, workDir, userDataPath })
+    await new Promise<void>((r) => serverB.once('listening', r))
+    const baseB = `http://127.0.0.1:${(serverB.address() as AddressInfo).port}`
+    const rBoot = await fetch(`${baseB}/api/boot`)
+    const tokenB = ((await rBoot.json()) as { token: string }).token
+    try {
+      // 旧票：新实例凭据闸 403（未过期票若残留/共享，此处会放行进书域 → 200）
+      expect(await openStreamOn(baseB, `?ticket=${encodeURIComponent(oldTicket)}`)).toBe(403)
+      // 零残留：新实例票库快照不含旧票
+      const storeB = ticketsOf(serverB)
+      expect(storeB.__entries().has(oldTicket)).toBe(false)
+      // 新实例签发/一次性语义照常：新票首连 200、复用 403
+      const t2 = (await postTicketOn(baseB, tokenB, true)).json.ticket!
+      expect(t2).toBeTruthy()
+      expect(await openStreamOn(baseB, `?ticket=${encodeURIComponent(t2!)}`)).toBe(200)
+      expect(await openStreamOn(baseB, `?ticket=${encodeURIComponent(t2!)}`)).toBe(403)
+    } finally {
+      await new Promise<void>((r) => serverB.close(() => r()))
+    }
   })
 })

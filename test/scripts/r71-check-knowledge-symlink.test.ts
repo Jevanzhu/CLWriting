@@ -6,13 +6,14 @@
  * symlink→文件沿用 .md 名字口径：未登记即 unmatched（不豁免、不误跳）。
  */
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, symlinkSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { scanUnregisteredKnowledgeMd } from '../../scripts/check-knowledge.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 test('R71-39: symlink→目录 → fail-closed 抛错（不再静默跳过整树）', () => {
-  const root = mkdtempSync(join(tmpdir(), 'r71-ck-'))
+  const root = mkdtempTracked(join(tmpdir(), 'r71-ck-'))
   try {
     const knowledgeRoot = join(root, '知识层')
     const outside = join(root, '外部目录')
@@ -29,7 +30,7 @@ test('R71-39: symlink→目录 → fail-closed 抛错（不再静默跳过整树
 })
 
 test('R71-39: symlink→文件 按 .md 名字口径参与反向扫描（未登记即 unmatched）', () => {
-  const root = mkdtempSync(join(tmpdir(), 'r71-ck-file-'))
+  const root = mkdtempTracked(join(tmpdir(), 'r71-ck-file-'))
   try {
     const knowledgeRoot = join(root, '知识层')
     const outside = join(root, '外部文件.md')

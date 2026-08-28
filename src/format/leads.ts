@@ -144,6 +144,7 @@ const KNOWN_FM_KEYS = new Set([
 /** 读取一个账本 md → Lead 内存模型（容错） */
 export function readLead(
   filePath: string,
+  opts?: { legacy?: boolean },
 ): { ok: true; lead: Lead } | { ok: false; error: ParseError } {
   const r = readFile(filePath)
   if (!r.ok) return r
@@ -154,6 +155,29 @@ export function readLead(
   const 编号 = map.get('编号')
   if (typeof 编号 !== 'string' || !编号) {
     return { ok: false, error: { file: filePath, line: 0, message: '缺少必填字段：编号' } }
+  }
+
+  // R73-22（二十一轮）：类型/状态写了非法值不再静默默认——此前错别字类型（如「选念」）
+  // 落默认「悬念」、错状态落「进行中」，机检动词表按错类执行（动词越界黄项+状态闭合
+  // 误判），作者还以为配置生效。缺字段维持默认回落（存量手写账本兼容）；写了但非法 =
+  // 结构化错误（readLeadDir 容错收集、重建面板可见），fail-loud 不入库错类。
+  // opts.legacy：账本伏笔迁移读旧 scheme（大纲/伏笔/，类型「伏笔」本就非法于六类），
+  // 严格校验会让存量旧档全部 skip 拒迁（数据滞留旧目录）——迁移侧按旧规则容错解析。
+  if (opts?.legacy !== true) {
+    const rawType = map.get('类型')
+    if (rawType !== undefined && rawType !== null && String(rawType) !== '' && !(LEAD_TYPES as readonly string[]).includes(String(rawType))) {
+      return {
+        ok: false,
+        error: { file: filePath, line: 0, message: `「类型」非法：「${String(rawType)}」（合法值：${LEAD_TYPES.join('/')}）` },
+      }
+    }
+    const rawStatus = map.get('状态')
+    if (rawStatus !== undefined && rawStatus !== null && String(rawStatus) !== '' && !['进行中', '已收尾', '已放弃'].includes(String(rawStatus))) {
+      return {
+        ok: false,
+        error: { file: filePath, line: 0, message: `「状态」非法：「${String(rawStatus)}」（合法值：进行中/已收尾/已放弃）` },
+      }
+    }
   }
 
   // 收集未知字段（容错保留）

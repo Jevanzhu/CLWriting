@@ -124,6 +124,48 @@ describe('Anthropic 适配器', () => {
     } as unknown as Anthropic
     const evs = await collect(createAnthropicProvider(CONF, client), REQ)
     expect(evs.filter((e) => e.type === 'done')).toHaveLength(1)
+    // R73-13b（二十一轮，F 域移交）：幂等契约锁死 usage 取首条——重复 delta 的 9/9
+    // 不得覆盖首条 1/1（修复前仅断言次数，usage 取首条的口径无测试锚）
+    expect(evs.find((e) => e.type === 'done')).toMatchObject({ usage: { inputTokens: 1, outputTokens: 1 } })
+  })
+
+  // R73-3（二十一轮 A-3）：Anthropic 协议强制 max_tokens——unknown 家族模型 quirks 无
+  // maxOutputTokens，走协议兜底；8192 时写长章必截断且 MAX_TOKENS 终态不可重试，
+  // 兜底提到 16384（对齐 quirks 表 claude 档）
+  it('unknown 家族模型 max_tokens 协议兜底 16384（R73-3）', async () => {
+    let captured: Record<string, unknown> | null = null
+    const client = {
+      messages: {
+        create: (params: unknown) => {
+          captured = params as Record<string, unknown>
+          return fakeSend([
+            { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+            { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: '好' } },
+            { type: 'content_block_stop', index: 0 },
+            { type: 'message_delta', usage: { input_tokens: 1, output_tokens: 1 }, delta: { stop_reason: 'end_turn' } },
+          ])()
+        },
+      },
+    } as unknown as Anthropic
+    // 'test-model' 不命中任何家族 → quirksFor 无 maxOutputTokens → 兜底链终值
+    await collect(createAnthropicProvider(CONF, client), REQ)
+    expect(captured).toMatchObject({ model: 'test-model', max_tokens: 16_384 })
+  })
+
+  it('req.maxTokens 显式指定时覆盖协议兜底（R73-3 对照）', async () => {
+    let captured: Record<string, unknown> | null = null
+    const client = {
+      messages: {
+        create: (params: unknown) => {
+          captured = params as Record<string, unknown>
+          return fakeSend([
+            { type: 'message_delta', usage: { input_tokens: 1, output_tokens: 1 }, delta: { stop_reason: 'end_turn' } },
+          ])()
+        },
+      },
+    } as unknown as Anthropic
+    await collect(createAnthropicProvider(CONF, client), { ...REQ, maxTokens: 4096 })
+    expect(captured).toMatchObject({ max_tokens: 4096 })
   })
 
   // ── H-2（第六轮）：流结束兜底必须区分「有终止无 usage」与「传输截断」──
@@ -157,7 +199,13 @@ describe('Anthropic 适配器', () => {
     } as unknown as Anthropic
     const evs = await collect(createAnthropicProvider(CONF, client), REQ)
     const done = evs.find((e) => e.type === 'done')
-    expect(done).toMatchObject({ type: 'done', usage: { inputTokens: 7, outputTokens: 0 }, stopReason: 'max_tokens' })
+    // R73-1：网关吞 usage → 估计入账。input 用 message_start 实测 7；output 按累计
+    // 产出文本折算（'回复' 2 码位 × 0.6 → ceil = 2），不再恒 0；estimated 标记估计口径
+    expect(done).toMatchObject({
+      type: 'done',
+      usage: { inputTokens: 7, outputTokens: 2, estimated: true },
+      stopReason: 'max_tokens',
+    })
     expect(evs.some((e) => e.type === 'error')).toBe(false)
   })
 
@@ -927,7 +975,7 @@ describe('D4 cache token 记账（三协议提取口径）', () => {
     expect(evs.find((e) => e.type === 'error')).toMatchObject({ type: 'error', retryable: true, code: 'NETWORK' })
   })
 
-  it('OpenAI Chat：有 finish_reason 无 usage（include_usage 不兼容网关）→ done{0,0} 放行（有意保留）', async () => {
+  it('OpenAI Chat：有 finish_reason 无 usage（include_usage 不兼容网关）→ 估计入账放行（R73-1）', async () => {
     const client = {
       chat: {
         completions: {
@@ -936,8 +984,13 @@ describe('D4 cache token 记账（三协议提取口径）', () => {
       },
     } as unknown as OpenAI
     const evs = await collect(createOpenAIProvider({ ...CONF, protocol: 'openai' as const, auth: 'bearer' as const } as ProviderConf, client), REQ)
-    // 网关完成但不回 usage——判错重试对这类网关是全量破坏，0 成本是可得最优估计
-    expect(evs.find((e) => e.type === 'done')).toMatchObject({ usage: { inputTokens: 0, outputTokens: 0 }, stopReason: 'stop' })
+    // R73-1：网关完成但不回 usage——判错重试对这类网关是全量破坏，仍放行；但不再按
+    // 0/0 入账（预算闸 tokens/cost 对该类端点永不生效）——input/output 按请求/产出
+    // 字符折算（'hi' 与 '完整' 各 2 码位 × 0.6 → ceil = 2），estimated 标记估计口径
+    expect(evs.find((e) => e.type === 'done')).toMatchObject({
+      usage: { inputTokens: 2, outputTokens: 2, estimated: true },
+      stopReason: 'stop',
+    })
     expect(evs.find((e) => e.type === 'error')).toBeUndefined()
   })
 })

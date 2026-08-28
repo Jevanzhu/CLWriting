@@ -5,8 +5,8 @@
  * （B-18 bookHash 同款口径——仅 generated_at 与新增条目变化）；③commit 拒绝
  * 重复登记 / 路径越界 / 文件不在盘；④登记后对账（validateKnowledgeManifest）必须过。
  */
-import { describe, it, expect } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, readdirSync, symlinkSync } from 'node:fs'
+import { describe, it, expect, vi } from 'vitest'
+import { rmSync, mkdirSync, writeFileSync, readFileSync, readdirSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -17,9 +17,26 @@ import {
   localIsoTimestamp,
 } from '../../src/knowledge/update.js'
 import { hashFileSha256, validateKnowledgeManifest } from '../../src/knowledge/manifest.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
+
+// R73-13（二十一轮 A-13）：fm 注入回滚回归注入点——默认直通真实 atomicWriteFile，
+// 仅 atomicGate.failManifestWrite 置位时对 manifest 落盘注入失败（定稿 md 的注入写放行）
+const atomicGate = vi.hoisted(() => ({ failManifestWrite: false }))
+vi.mock('../../src/fs/atomic.js', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('../../src/fs/atomic.js')>()
+  return {
+    ...mod,
+    atomicWriteFile: (filePath: string, data: string | Uint8Array, opts?: Parameters<typeof mod.atomicWriteFile>[2]) => {
+      if (atomicGate.failManifestWrite && filePath.endsWith('_manifest.json')) {
+        throw new Error('模拟 manifest 写失败（R73-13 注入）')
+      }
+      return mod.atomicWriteFile(filePath, data, opts)
+    },
+  }
+})
 
 function fixture(): { root: string; corpusDir: string } {
-  const root = mkdtempSync(join(tmpdir(), 'knowledge-update-'))
+  const root = mkdtempTracked(join(tmpdir(), 'knowledge-update-'))
   const corpusDir = join(root, 'corpus')
   mkdirSync(join(root, '知识层'), { recursive: true })
   mkdirSync(corpusDir, { recursive: true })
@@ -219,6 +236,58 @@ describe('R65-14：本地时区 ISO 时间戳', () => {
       expect(report.ok, report.issues.map((i) => i.message).join(';')).toBe(true)
       const after = JSON.parse(readFileSync(join(root, '知识层', '_manifest.json'), 'utf8'))
       expect(after.generated_at).toMatch(ISO_WITH_OFFSET)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+// ── R73-4 / R73-13（二十一轮 A-4 / A-13）：手编 manifest 防御 + fm 注入回滚 ──
+describe('R73-4/R73-13：commit 对手编 manifest 的防御与两笔落盘一致', () => {
+  it('R73-4：manifest 缺 entries 字段 → 复用 validate 口径报「manifest.entries 必须是数组」，不再 TypeError 裸崩', () => {
+    const { root } = fixture()
+    try {
+      // JSON 合法但缺 entries（手编辑残缺态）——修复前在 manifest.entries.some 裸 TypeError
+      writeFileSync(
+        join(root, '知识层', '_manifest.json'),
+        JSON.stringify({ version: 1, generated_at: '2026-08-28T00:00:00+08:00' }, null, 2) + '\n',
+        'utf8',
+      )
+      const finalRel = '知识层/机检误报规律.md'
+      writeFileSync(join(root, finalRel), '# 规律\n', 'utf8')
+
+      const report = commitKnowledgeFile(root, { target: finalRel })
+      expect(report.ok).toBe(false)
+      expect(report.issues.some((i) => i.message === 'manifest.entries 必须是数组')).toBe(true)
+      // 拒绝路径零写入：定稿文件未被注入 fm
+      expect(readFileSync(join(root, finalRel), 'utf8')).toBe('# 规律\n')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('R73-13：manifest 写失败 → fm 注入回滚（定稿文件恢复原文），报错可读', () => {
+    const { root, corpusDir } = fixture()
+    try {
+      baseManifest(root)
+      const finalRel = '知识层/机检误报规律.md'
+      writeFalsePositiveDraft(root, corpusDir, '2026-08-28')
+      const original = '# 机检误报规律\n## body-parts\n作者归纳……\n'
+      writeFileSync(join(root, finalRel), original, 'utf8')
+      const manifestBefore = readFileSync(join(root, '知识层', '_manifest.json'), 'utf8')
+
+      atomicGate.failManifestWrite = true
+      try {
+        const report = commitKnowledgeFile(root, { target: finalRel, sourceRef: 'test/corpus/checks/body-parts.json', now: '2026-08-28T12:00:00+08:00' })
+        expect(report.ok).toBe(false)
+        // 文案注明「已回滚」（而非残留注入态的升级文案——回滚自身成功）
+        expect(report.issues[0]!.message).toContain('已回滚 front matter 注入')
+        // 回滚后两文件同回旧态：定稿无注入的 source/license，manifest 无新条目
+        expect(readFileSync(join(root, finalRel), 'utf8')).toBe(original)
+        expect(readFileSync(join(root, '知识层', '_manifest.json'), 'utf8')).toBe(manifestBefore)
+      } finally {
+        atomicGate.failManifestWrite = false
+      }
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

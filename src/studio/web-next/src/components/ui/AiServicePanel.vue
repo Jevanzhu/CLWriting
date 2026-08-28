@@ -48,6 +48,11 @@ const tierForm = ref<{ creative: TierSlot; assistant: TierSlot | null; chat: Tie
 const assistantEnabled = ref(false)
 const chatTierEnabled = ref(false)
 const tierSaving = ref(false)
+// R73-62（E-1）：保存入口在途锁——按钮 disabled 管不住双击/慢网窗口（R70-25 建书在途锁
+// 同类先例）。新增卡双击会双 POST 落两条同名记录；编辑卡第二笔以陈旧 revision 409 弹
+// 误导性「并发冲突」。锁在编排层（校验/API 写入都在这），经 :saving 下传编辑器禁按钮 + 文案
+const saving = ref(false)
+const ragSaving = ref(false)
 
 /** store → 档位草稿重置（挂载 + 每次 store.refresh 后） */
 function syncTierForm(): void {
@@ -127,6 +132,7 @@ async function save(f: {
   models?: ProviderConfDto['models']
   modelDrafts?: ModelRowDraft[]
 }): Promise<void> {
+  if (saving.value) return // R73-62：在途锁（双击第二笔在入口丢弃）
   if (!f.name.trim()) return ui.toast('名称必填', 'error')
   if (!f.baseUrl.trim()) return ui.toast('API 地址必填', 'error')
   if (!editedId.value && !f.apiKey.trim()) return ui.toast('API Key 必填', 'error')
@@ -141,17 +147,22 @@ async function save(f: {
     }
   }
   const input = { name: f.name.trim(), protocol: f.protocol, auth: f.auth, baseUrl: f.baseUrl.trim(), apiKey: f.apiKey, models: f.models }
-  const addId = editedId.value ? null : await store.add(input)
-  const ok = editedId.value ? await store.update(editedId.value, input) : !!addId
-  if (!ok) return
-  const pid = editedId.value ?? addId
-  closeEdit()
-  addOpen.value = false
-  // P0-2：提供方表已变 → 刷新 AI 可达性
-  void ui.probeAiStatus()
-  await store.refresh()
-  syncTierForm()
-  if (pid) await afterProviderModelsSaved(pid)
+  saving.value = true
+  try {
+    const addId = editedId.value ? null : await store.add(input)
+    const ok = editedId.value ? await store.update(editedId.value, input) : !!addId
+    if (!ok) return
+    const pid = editedId.value ?? addId
+    closeEdit()
+    addOpen.value = false
+    // P0-2：提供方表已变 → 刷新 AI 可达性
+    void ui.probeAiStatus()
+    await store.refresh()
+    syncTierForm()
+    if (pid) await afterProviderModelsSaved(pid)
+  } finally {
+    saving.value = false // R73-62：成败都解锁（失败停留表单可改后重试）
+  }
 }
 
 async function remove(p: ProviderConfDto): Promise<void> {
@@ -251,6 +262,7 @@ function closeRagEdit(): void {
 }
 
 async function saveRag(f: { name: string; endpoint: string; model: string; apiKey: string }): Promise<void> {
+  if (ragSaving.value) return // R73-62：在途锁（同 save）
   if (!f.name.trim()) return ui.toast('名称必填', 'error')
   if (!f.endpoint.trim()) return ui.toast('嵌入服务地址必填', 'error')
   if (!f.model.trim()) return ui.toast('嵌入模型必填', 'error')
@@ -258,11 +270,16 @@ async function saveRag(f: { name: string; endpoint: string; model: string; apiKe
   const keyErr = apiKeyFailure(f.apiKey)
   if (keyErr && !(ragEditedId.value && !f.apiKey)) return ui.toast(keyErr, 'error')
   const input = { name: f.name.trim(), endpoint: f.endpoint.trim(), model: f.model.trim(), apiKey: f.apiKey }
-  const ok = ragEditedId.value ? await store.updateRag(ragEditedId.value, input) : await store.addRag(input)
-  if (!ok) return
-  closeRagEdit()
-  ragAddOpen.value = false
-  await store.refreshRag()
+  ragSaving.value = true
+  try {
+    const ok = ragEditedId.value ? await store.updateRag(ragEditedId.value, input) : await store.addRag(input)
+    if (!ok) return
+    closeRagEdit()
+    ragAddOpen.value = false
+    await store.refreshRag()
+  } finally {
+    ragSaving.value = false
+  }
 }
 
 async function removeRag(p: RagProviderDto): Promise<void> {
@@ -327,6 +344,7 @@ async function testRag(p: RagProviderDto): Promise<void> {
               :initial="p"
               embedded
               :probe-model="store.probeModels.get(p.id) ?? ''"
+              :saving="saving"
               @probe-model="(m) => setProbeModel(p.id, m)"
               @save="save"
               @cancel="closeEdit"
@@ -343,6 +361,7 @@ async function testRag(p: RagProviderDto): Promise<void> {
       <div v-if="addOpen" class="add-provider-card">
         <AiProviderEditor
           :initial="null"
+          :saving="saving"
           @save="save"
           @cancel="addOpen = false"
         />
@@ -376,7 +395,7 @@ async function testRag(p: RagProviderDto): Promise<void> {
       >
         <template #row-expand="{ p }">
           <div v-if="ragEditedId === p.id" class="row-inline-editor">
-            <RagProviderEditor :initial="p" @save="saveRag" @cancel="closeRagEdit" />
+            <RagProviderEditor :initial="p" :saving="ragSaving" @save="saveRag" @cancel="closeRagEdit" />
           </div>
           <div v-else class="row-expand-preview"><span class="row-expand-placeholder">展开编辑配置</span></div>
         </template>
@@ -384,7 +403,7 @@ async function testRag(p: RagProviderDto): Promise<void> {
 
       <!-- RAG 新增卡：列表保持可见 -->
       <div v-if="ragAddOpen" class="add-provider-card">
-        <RagProviderEditor :initial="null" @save="saveRag" @cancel="ragAddOpen = false" />
+        <RagProviderEditor :initial="null" :saving="ragSaving" @save="saveRag" @cancel="ragAddOpen = false" />
       </div>
     </template>
   </div>

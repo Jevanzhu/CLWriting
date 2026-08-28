@@ -6,14 +6,15 @@
  * `units.map(u => `# ${t}\n\n${b}`).join('\n\n---\n\n')` 逐一恒等（同段同序同分隔符），
  * merged/split 双产物 + %# 批注剥除路径一并覆盖。
  */
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
 import { exportBook } from '../../src/export/index.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 function makeBook(title: string): string {
-  const root = mkdtempSync(join(tmpdir(), 'export-stream-'))
+  const root = mkdtempTracked(join(tmpdir(), 'export-stream-'))
   writeFileSync(
     join(root, 'book.yaml'),
     ['spec_version: 1', 'book:', `  title: ${title}`, '  genre: 玄幻'].join('\n'),

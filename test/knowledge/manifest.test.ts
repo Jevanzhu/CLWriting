@@ -1,7 +1,8 @@
 import { test, expect } from 'vitest'
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import {
   hashFileSha256,
   validateKnowledgeManifest,
@@ -9,7 +10,7 @@ import {
 } from '../../src/knowledge/manifest.js'
 
 function makeKnowledgeProject(): string {
-  const root = mkdtempSync(join(tmpdir(), 'clwriting-knowledge-'))
+  const root = mkdtempTracked(join(tmpdir(), 'clwriting-knowledge-'))
   mkdirSync(join(root, '知识层', '题材'), { recursive: true })
   writeFileSync(
     join(root, '知识层', '题材', 'README.md'),

@@ -14,8 +14,11 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { makeDualTrackWorkdir } from '../studio/fixtures.js'
+import { e2ePort } from './e2e-ports.js'
 
-const PORT = 19015 // 独立端口——auto-write.spec.ts 用 19002，两套 spec 分端口并行不抢占（R63-15 修正陈旧注释：勿再合并）
+// 独立端口（基址+16，旧硬编码 19015）——auto-write（基址+3）与本项目分端口并行不抢占
+// （R63-15 修正陈旧注释：勿再合并）；R73-75（批 F-8）：改基址派生，偏移表见 e2e-ports.ts
+const PORT = e2ePort(16)
 const BASE = `http://127.0.0.1:${PORT}`
 
 test.skip(!process.env['CLWRITING_E2E_RELEASE'], '发布 smoke：用 npm run test:e2e:release 跑')

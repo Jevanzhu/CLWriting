@@ -6,16 +6,17 @@
  * - 履历 DELETE+INSERT 中途失败 → 回滚不留半截（旧履历原样保留）
  */
 import { DatabaseSync } from 'node:sqlite'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, expect } from 'vitest'
 import { createAllTables } from '../../src/cache/schema.js'
 import { syncLead, loadLeadFromCache } from '../../src/cache/sync.js'
 import type { Lead } from '../../src/format/types.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 function makeDb(): { db: DatabaseSync; dir: string } {
-  const dir = mkdtempSync(join(tmpdir(), 'clwriting-sync-txn-'))
+  const dir = mkdtempTracked(join(tmpdir(), 'clwriting-sync-txn-'))
   const db = new DatabaseSync(join(dir, 'index.db'))
   createAllTables(db)
   return { db, dir }

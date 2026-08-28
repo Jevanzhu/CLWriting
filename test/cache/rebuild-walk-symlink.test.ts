@@ -6,14 +6,15 @@
  * - 指向书外的 symlink 章不被整读入库（根界 fail-closed）。
  */
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, symlinkSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { rebuild } from '../../src/cache/rebuild.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 /** 最小长篇书骨架（有 布线/ → detectState/rebuild 走全量路径）。 */
 function makeLongBook(): string {
-  const root = mkdtempSync(join(tmpdir(), 'n2-rebuild-'))
+  const root = mkdtempTracked(join(tmpdir(), 'n2-rebuild-'))
   mkdirSync(join(root, '布线', '悬念'), { recursive: true })
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '定稿', '摘要', '章摘要'), { recursive: true })
@@ -40,7 +41,7 @@ test.skipIf(process.platform === 'win32')('N2: rebuild 正文区 symlink 环不�
 test.skipIf(process.platform === 'win32')('N2: rebuild 不跟随指向书外的 symlink 章（不入库、不抬计数）', () => {
   const root = makeLongBook()
   writeFileSync(join(root, '写作', '正文', '0001-第一章.md'), '---\n章号: 1\n标题: 第一章\n钩子类型: 悬念钩\n钩子强弱: 强\n情绪定位: 铺垫\n---\n\n正文。\n', 'utf-8')
-  const outside = mkdtempSync(join(tmpdir(), 'n2-rb-outside-'))
+  const outside = mkdtempTracked(join(tmpdir(), 'n2-rb-outside-'))
   writeFileSync(join(outside, '0002-外链.md'), '---\n章号: 2\n标题: 外链\n钩子类型: 悬念钩\n钩子强弱: 强\n情绪定位: 铺垫\n---\n\n书外内容。\n', 'utf-8')
   symlinkSync(join(outside, '0002-外链.md'), join(root, '写作', '正文', '0002-外链.md'))
   const r = rebuild(root, join(root, '.cache', 'index.db'))

@@ -9,7 +9,7 @@
 
 import { test, expect } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createAllTables } from '../../src/cache/schema.js'
@@ -17,9 +17,10 @@ import { syncLead, syncChapter } from '../../src/cache/sync.js'
 import { prepare } from '../../src/process/prepare.js'
 import { DEFAULT_CONFIG, writeBookConfig } from '../../src/format/yaml.js'
 import type { BookConfig } from '../../src/format/types.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 function makeBook(): { root: string; db: DatabaseSync } {
-  const root = mkdtempSync(join(tmpdir(), 'rag-prepare-'))
+  const root = mkdtempTracked(join(tmpdir(), 'rag-prepare-'))
   writeBookConfig(join(root, 'book.yaml'), DEFAULT_CONFIG)
   mkdirSync(join(root, '.cache'), { recursive: true })
   const db = new DatabaseSync(join(root, '.cache', 'index.db'))

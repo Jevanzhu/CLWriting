@@ -63,11 +63,14 @@ defineExpose({ scrollToBottom })
 
 // ── 工具确认 ────────────────────────────────────
 
-const confirmingCallId = ref<string | null>(null)
+// R73-64：确认在途按 callId 记集合（Vue 对 Set.add/delete 不响应，重赋值触发——learn store
+// 同款惯例）。原 confirmingCallId 单值把所有待确认卡串行化：多张待确认卡并存时，第二张的
+// 点击被入口静默忽略（按钮虽未禁但毫无反应）；改为同卡防重、跨卡并行。
+const confirmingCallIds = ref<Set<string>>(new Set())
 
 async function handleConfirm(callId: string, ok: boolean): Promise<void> {
-  if (confirmingCallId.value) return // 防重复点击
-  confirmingCallId.value = callId
+  if (confirmingCallIds.value.has(callId)) return // 防重复点击（仅同卡；跨卡不受阻）
+  confirmingCallIds.value = new Set(confirmingCallIds.value).add(callId)
   // R69-28（十七轮）：入口捕获书名——await 窗口切书后，迟到的失败 toast/工具终态
   // 落在新书界面（与 doc.finalize catch 同族守卫）
   const book = props.bookName
@@ -83,7 +86,9 @@ async function handleConfirm(callId: string, ok: boolean): Promise<void> {
     }
     ui.toast('确认请求失败，请重试', 'error')
   } finally {
-    confirmingCallId.value = null
+    const rest = new Set(confirmingCallIds.value)
+    rest.delete(callId)
+    confirmingCallIds.value = rest
   }
 }
 
@@ -222,11 +227,11 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
           <!-- 工具结果摘要 -->
           <div v-if="tool.summary" class="chat-tool-summary">{{ tool.summary }}</div>
 
-          <!-- 确认按钮 -->
+          <!-- 确认按钮（R73-64：仅本卡在途才禁用——其他待确认卡可并行确认） -->
           <div v-if="tool.status === 'pending'" class="chat-tool-confirm">
-            <button class="chat-confirm-no" :disabled="!!confirmingCallId" @click="handleConfirm(tool.callId, false)">取消</button>
-            <button class="chat-confirm-yes" :disabled="!!confirmingCallId" @click="handleConfirm(tool.callId, true)">
-              <Loader2 v-if="confirmingCallId === tool.callId" :size="12" class="spin" />
+            <button class="chat-confirm-no" :disabled="confirmingCallIds.has(tool.callId)" @click="handleConfirm(tool.callId, false)">取消</button>
+            <button class="chat-confirm-yes" :disabled="confirmingCallIds.has(tool.callId)" @click="handleConfirm(tool.callId, true)">
+              <Loader2 v-if="confirmingCallIds.has(tool.callId)" :size="12" class="spin" />
               确认执行
             </button>
           </div>

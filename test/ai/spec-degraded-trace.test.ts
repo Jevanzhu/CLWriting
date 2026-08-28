@@ -16,7 +16,7 @@
  * 链的 llm/call 事件，断言 degraded / usage 字段（修复前：degraded 恒缺失、失败 usage
  * 恒 {input:0, output:0}）。
  */
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it, expect, vi, afterEach } from 'vitest'
@@ -32,12 +32,13 @@ vi.mock('../../src/ai/gen.js', async (importOriginal) => {
 import { generate } from '../../src/ai/gen.js'
 import { runSpec, type TaskSpec } from '../../src/ai/tasks/spec.js'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const generateMock = generate as unknown as ReturnType<typeof vi.fn>
 
 const workDirs: string[] = []
 function tempDir(prefix: string): string {
-  const d = mkdtempSync(join(tmpdir(), prefix))
+  const d = mkdtempTracked(join(tmpdir(), prefix))
   workDirs.push(d)
   return d
 }

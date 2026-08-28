@@ -15,10 +15,11 @@
  * - 递归卷子目录也走缓存
  */
 import { describe, it, expect, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, statSync, utimesSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, statSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readChapterDir, clearChapterDirCache, clearChapterDirCacheForBook } from '../../src/format/chapters.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 describe('readChapterDir stat 级缓存（CC-P1-3）', () => {
   let dir: string
@@ -28,7 +29,7 @@ describe('readChapterDir stat 级缓存（CC-P1-3）', () => {
   })
 
   function makeDir(): string {
-    dir = mkdtempSync(join(tmpdir(), 'chapters-cache-'))
+    dir = mkdtempTracked(join(tmpdir(), 'chapters-cache-'))
     mkdirSync(join(dir, '正文'), { recursive: true })
     return join(dir, '正文')
   }
@@ -166,7 +167,7 @@ describe('clearChapterDirCacheForBook 按 bookRoot 前缀清理（审计 C2）',
   }
 
   it('删书口径：该书全部前缀键归零，他书条目保留，清后再读惰性重建', () => {
-    root = mkdtempSync(join(tmpdir(), 'chapters-bookclear-'))
+    root = mkdtempTracked(join(tmpdir(), 'chapters-bookclear-'))
     const a = makeBook('bookA')
     const b = makeBook('bookB')
     // 预热：bookA 两个目录（正文 + 章纲）各占一个外层键，bookB 一个
@@ -185,7 +186,7 @@ describe('clearChapterDirCacheForBook 按 bookRoot 前缀清理（审计 C2）',
   })
 
   it('前缀匹配不误伤同前缀目录（bookA 与 bookA2）', () => {
-    root = mkdtempSync(join(tmpdir(), 'chapters-bookprefix-'))
+    root = mkdtempTracked(join(tmpdir(), 'chapters-bookprefix-'))
     const a = makeBook('bookA')
     const a2 = makeBook('bookA2')
     readChapterDir(join(a, '写作', '正文'))

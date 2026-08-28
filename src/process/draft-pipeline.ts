@@ -18,12 +18,28 @@ import { buildSettingsLayers } from './settings-context.js'
 import { assembleSettingsInjection, type SettingsLayer } from './settings-injection.js'
 import { pickStyleSamplesWithSources } from './style-samples.js'
 import type { BookConfig } from '../format/types.js'
-import { readManifest, type Manifest } from '../document/manifest.js'
+import { readManifest, upsertEntry, withManifestLock, writeManifest, type Manifest, type ManifestEntry } from '../document/manifest.js'
 import { readTrashManifest } from '../document/trash.js'
 import { writeSnapshot } from '../document/snapshot.js'
 import { legacyId } from '../document/stable-id.js'
 import { isUtf8Bytes } from '../document/service.js'
 import { invalidateTreeIndex } from '../document/tree.js'
+import { appendAborted, appendPending, appendSettled } from '../document/journal.js'
+import { appendWordsDelta, todayDate } from '../document/words-diary.js'
+import { computeRevision } from '../document/revision.js'
+import { encodeDocDirName } from '../document/version.js'
+import { acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
+import { log } from '../log/index.js'
+
+/** R73-32：saveDraft 保存临界段跨进程锁等待（毫秒）——与 executeSave 的 per-doc
+ *  保存锁（service.ts R72-1）同档 5s，超时拒绝不降级（裸写正是本锁要闭合的丢更新形态）。
+ *  测试注入缩短保快（生产零调用），同 manifest/journal 锁超时的注入钩子惯例。 */
+export let DRAFT_SAVE_LOCK_TIMEOUT_MS = 5_000
+
+/** 测试注入钩子（生产零调用）。 */
+export function __setDraftSaveLockTimeoutForTest(ms: number): void {
+  DRAFT_SAVE_LOCK_TIMEOUT_MS = ms
+}
 
 /**
  * 覆写留底：已有文件且内容不同 → force 快照（作者手改不静默丢失）。
@@ -68,6 +84,16 @@ export function snapshotBeforeOverwrite(
  * 草稿落盘全套副作用（/draft-save 端点与全自动写章闭环 self-heal.ts 共用）：
  * 覆写留底 → mkdir → 写盘 → 失效树缓存 → docId 反查。
  *
+ * R73-32（二十一轮 C-1）：本函数原先游离于保存协议外（无 per-doc 保存锁、无 journal
+ * pending、无字数日记、新文件不登记 manifest）——与编辑器保存链（DocumentService.executeSave）
+ * 并发时双进程互不知晓，后写者静默覆盖先写者（lost update），且 AI 写章窗口崩溃后无
+ * journal 兜底可恢复。现复用 executeSave 的同款并发纪律（editor 保存链 R72-1 同款锁）：
+ *   per-doc 保存锁（`<journal>.save.lock`，拿不到=他进程在写，超时拒绝不降级）
+ *   → journal pending（含全文快照）→ 覆写留底 → atomic write → journal settled
+ *   → 新文件登记 manifest（结构操作建清单口径）→ 字数日记记账。
+ * revision 校验不套用：本链语义是「AI 产出强覆盖」+ snapshotBeforeOverwrite 留底兜底，
+ * 与 executeSave 的基线校验模型不同（keep 外部返回结构兼容）。
+ *
  * 文风改稿轨迹（recordAuthorSignal + recordAiVersion）由调用方在落盘后显式调用，
  * 避免 process/ → ai/ 的向上依赖（P1-ARCH-1 循环依赖修复）。
  * 落盘失败向上抛，调用方决定回应。
@@ -89,31 +115,92 @@ export function saveDraft(
     throw new Error(`目标 ${relPath} 同时存在于磁盘与回收站登记（可能是恢复中断的残留），已中止写入——请先在回收站完成还原或清除`)
   }
   // 入口读一次 manifest，传给 snapshotBeforeOverwrite + docId 反查（消除双重读盘）
-  const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
-  // M1 覆写留底：已有文件且内容不同 → force 快照（作者手改不静默丢失）
-  const snapshotId = snapshotBeforeOverwrite(bookRoot, relPath, content, opts?.snapshotOrigin, manifest)
-  mkdirSync(dirname(absPath), { recursive: true })
-  // B-P2-3：fsync 保证草稿落盘不丢字（崩溃/断电场景内容先 fsync 再 rename）
-  atomicWriteFile(absPath, content, { fsync: true })
-  // 新文件落盘会改变树结构 → 失效树缓存（前端保存后重拉树能看到新草稿）
-  invalidateTreeIndex(bookRoot)
-  // M3 存草稿并编辑：返回 docId（清单已登记给真 ID；未登记回落 legacyId(relPath)，
-  // 与树扫盘一致，前端可直接 openTab）
-  let docId: string | null = null
+  const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
+  const manifest = readManifest(manifestPath)
+  let registeredId: string | null = null
   for (const e of manifest.entries.values()) {
     if (e.path === relPath) {
-      docId = e.id
+      registeredId = e.id
       break
     }
   }
-  const finalDocId = docId ?? legacyId(relPath)
-  // Q4：剥 fm 后计字数（与保存协议 service.ts 口径一致，fm 键值不入字数）
-  const words = countWords(bodyOf(content))
-  // 清单检文件链（批 3）：短篇写稿后把 AI 章纲（工作区/细纲.md）同步到大纲/章纲/<正文basename>，
-  // 使 清单形式检（runner.ts:158 按正文同名找章纲）+ pieceListChecks 有数据可读。
-  // 短篇正文文件名与章纲同 basename 契约：正文 <章号3位>-<标题>.md → 章纲同名。
-  syncChapterOutline(bookRoot, relPath)
-  return { relPath, docId: finalDocId, words, snapshotted: snapshotId !== null }
+  // M3：未登记回落 legacyId(relPath)（与树扫盘/编辑器 openTab 同口径）；R73-32 起该
+  // id 同时作为 journal/保存锁/字数日记的 key，落盘成功后登记进 manifest（见下）
+  const finalDocId = registeredId ?? legacyId(relPath)
+  const journalPath = join(bookRoot, '工作区', '.journal', `${encodeDocDirName(finalDocId)}.jsonl`)
+  // R73-32：保存临界段跨进程锁（executeSave R72-1 同款）——per-doc 串行队列只存在于
+  // 编辑器链，本链此前对双进程并发零防护。拿不到锁（他进程在写同一 doc 且 5s 未让出）
+  // 上抛拒绝：未执行、无数据损伤、调用方（draft-save 端点 / self-heal）可重试。
+  // 同进程不自锁：本函数无递归入口；锁内 appendPending 嵌套拿的是另一路径的 journal 锁
+  //（save→journal 单向嵌套，与 executeSave 同构，无环）。
+  const docSaveLock = acquireCrossProcessLockWithTimeout(`${journalPath}.save.lock`, DRAFT_SAVE_LOCK_TIMEOUT_MS)
+  if (!docSaveLock) {
+    throw new Error(`草稿保存等待超时：另一进程正在保存此文档（5 秒未让出），请重试`)
+  }
+  try {
+    // M1 覆写留底：已有文件且内容不同 → force 快照（作者手改不静默丢失；Y-3 IO 失败上抛）
+    const snapshotId = snapshotBeforeOverwrite(bookRoot, relPath, content, opts?.snapshotOrigin, manifest)
+    // 步骤 4（对齐 executeSave）：journal pending 先于写盘（含全文快照，防丢字）——
+    // pending 记不上就不能继续写（RB-KN-P2-2 同口径，fail-closed 上抛，调用方已统一 catch）
+    const existing = existsSync(absPath)
+    const currentRev = existing ? computeRevision(absPath) : null
+    const opId = appendPending(journalPath, finalDocId, currentRev, content)
+    let words: number
+    let newRev: `sha256:${string}`
+    try {
+      // 步骤 4.5：字数 delta（E4）——写盘前读旧内容（strip fm 口径，与 service.ts 一致）
+      const wordDelta =
+        countWords(bodyOf(content)) - countWords(existing ? bodyOf(readFileSync(absPath, 'utf-8')) : '')
+      mkdirSync(dirname(absPath), { recursive: true })
+      // B-P2-3：fsync 保证草稿落盘不丢字（崩溃/断电场景内容先 fsync 再 rename）
+      atomicWriteFile(absPath, content, { fsync: true })
+      // 步骤 8-10：新 revision → journal settled
+      newRev = computeRevision(absPath)
+      appendSettled(journalPath, opId, newRev)
+      words = countWords(bodyOf(content))
+      // R73-32：字数增量 best-effort（settled 后失败不影响保存结果，对齐 executeSave P2-BE-4）
+      try {
+        appendWordsDelta(bookRoot, todayDate(), wordDelta, finalDocId)
+      } catch {
+        // 磁盘满等忽略——草稿已落盘，字数日记丢失可接受
+      }
+    } catch (e) {
+      // 写盘/结算失败：journal 标 aborted（atomicWriteFile 失败已自清 tmp，未落盘）
+      try {
+        appendAborted(journalPath, opId, e instanceof Error ? e.message : String(e))
+      } catch {
+        // journal 留痕失败忽略（best-effort）
+      }
+      throw e
+    }
+    // 新文件落盘会改变树结构 → 失效树缓存（前端保存后重拉树能看到新草稿）
+    invalidateTreeIndex(bookRoot)
+    // R73-32：新文件登记 manifest（结构性操作触发建清单，W0-1 §4.2 口径，service
+    // adoptLegacyDoc/doCreate 同款 upsert）——此前 AI 新建草稿不入清单，docId 永远是
+    // legacy 临时身份。登记失败不阻断（文件已落盘，树扫描 adoptLegacyDoc 自愈收口，
+    // doCreate R70-17 同款 warn 留痕）
+    if (registeredId === null) {
+      try {
+        withManifestLock(manifestPath, () => {
+          const m = existsSync(manifestPath)
+            ? readManifest(manifestPath)
+            : { version: 1, entries: new Map<string, ManifestEntry>() }
+          upsertEntry(m, { id: finalDocId, nodeType: 'document', path: relPath, parentId: null })
+          mkdirSync(dirname(manifestPath), { recursive: true })
+          writeManifest(manifestPath, m)
+        })
+      } catch (e) {
+        log.warn('draft-pipeline', `草稿落盘后清单登记失败（${relPath}，树扫描将自愈收编）：${e instanceof Error ? e.message : String(e)}`)
+      }
+    }
+    // 清单检文件链（批 3）：短篇写稿后把 AI 章纲（工作区/细纲.md）同步到大纲/章纲/<正文basename>，
+    // 使 清单形式检（runner.ts:158 按正文同名找章纲）+ pieceListChecks 有数据可读。
+    // 短篇正文文件名与章纲同 basename 契约：正文 <章号3位>-<标题>.md → 章纲同名。
+    syncChapterOutline(bookRoot, relPath)
+    return { relPath, docId: finalDocId, words, snapshotted: snapshotId !== null }
+  } finally {
+    docSaveLock()
+  }
 }
 
 function readSafe(fp: string): string {

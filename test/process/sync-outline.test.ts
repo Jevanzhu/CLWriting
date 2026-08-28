@@ -8,13 +8,14 @@
  * - 非标准正文文件名 → 跳过
  */
 import { test, expect } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { syncChapterOutline } from '../../src/process/draft-pipeline.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 function makeBook(kind: 'long' | 'short'): string {
-  const root = mkdtempSync(join(tmpdir(), 'sync-outline-'))
+  const root = mkdtempTracked(join(tmpdir(), 'sync-outline-'))
   mkdirSync(join(root, '工作区'), { recursive: true })
   mkdirSync(join(root, '大纲'), { recursive: true })
   writeFileSync(

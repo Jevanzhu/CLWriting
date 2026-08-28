@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { mkdtempSync, rmSync, existsSync } from 'node:fs'
+import { rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { scaffoldBookRepo } from '../../src/install/scaffold.js'
@@ -23,6 +23,7 @@ import { generateDocId } from '../../src/document/stable-id.js'
 import { writeChapter } from '../helpers/chapter.js'
 import type { ChapterMeta } from '../../src/format/types.js'
 import type { EmbedResult } from '../../src/rag/embed.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 /** embed 桩：确定性常向量，不联网（rag scale 同款注入点） */
 function stubEmbed(_e: string, _m: string, _k: string, texts: string[]): Promise<EmbedResult> {
@@ -30,7 +31,7 @@ function stubEmbed(_e: string, _m: string, _k: string, texts: string[]): Promise
 }
 
 function freshBook(kind: 'long' | 'short'): string {
-  const root = mkdtempSync(join(tmpdir(), `cold-start-${kind}-`))
+  const root = mkdtempTracked(join(tmpdir(), `cold-start-${kind}-`))
   scaffoldBookRepo(root, {
     name: '冷启动测试书',
     genre: '仙侠',

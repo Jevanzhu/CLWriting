@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdirSync, rmSync, existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { buildIndex, recall, chunkBody } from '../../src/rag/index.js'
+import { buildIndex, recall, recallDetailed, chunkBody } from '../../src/rag/index.js'
 import { writeChapter } from '../helpers/chapter.js'
 import type { ChapterMeta } from '../../src/format/types.js'
 import type { EmbedResult, EmbedOptions } from '../../src/rag/embed.js'
@@ -741,6 +741,153 @@ describe('R62-4/R62-27：embed 选项透传与 rag-embed 记账', () => {
       expect(captured?.timeoutMs).toBeUndefined()
     } finally {
       rmSync(bookRoot2, { recursive: true, force: true })
+    }
+  })
+})
+
+// ── R73-12（二十一轮 A-12）：召回超限截断的结构化出口 ──────────────────
+describe('R73-12：recallDetailed 截断标记上抛', () => {
+  let bookRoot: string
+
+  beforeEach(() => {
+    bookRoot = join(tmpdir(), `rag-r73detail-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+    mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
+    for (const n of [1, 2]) {
+      const meta: ChapterMeta = {
+        章号: n, 标题: `第${n}章`, 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
+        _path: '', _wordCount: 100,
+      }
+      writeChapter(
+        join(bookRoot, '写作', '正文', `${n}-第${n}章.md`),
+        meta,
+        `第${n}章的正文段落内容，这是一个战斗场景，主角挥剑战斗。`,
+      )
+    }
+  })
+
+  afterEach(() => {
+    rmSync(bookRoot, { recursive: true, force: true })
+  })
+
+  function stubEmbed(_e: string, _m: string, _k: string, texts: string[]): Promise<EmbedResult> {
+    return Promise.resolve(texts.map((t) => {
+      const norm = 1 / ((t.charCodeAt(0) || 1) + 1)
+      return [norm, norm * 0.5, norm * 0.3]
+    }))
+  }
+
+  it('未超阈值：truncated=false，totalBlocks=参与召回块数', async () => {
+    const config = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
+    await buildIndex(bookRoot, config, 'stub-key', stubEmbed)
+
+    const r = await recallDetailed(bookRoot, config, 'stub-key', '第1章', 5, stubEmbed, 10_000)
+    expect(r.truncated).toBe(false)
+    expect(r.totalBlocks).toBe(2) // 夹具 2 章各 1 块
+    expect(r.hits.length).toBeGreaterThan(0)
+  })
+
+  it('超阈值（注入 warnThreshold=1）：truncated=true 随结果上抛（修复前仅 log.warn 前端无感）', async () => {
+    const config = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
+    await buildIndex(bookRoot, config, 'stub-key', stubEmbed)
+
+    const r = await recallDetailed(bookRoot, config, 'stub-key', '第1章', 5, stubEmbed, 1)
+    expect(r.truncated).toBe(true)
+    expect(r.totalBlocks).toBe(2) // 截断前的全量块数
+    expect(r.hits.length).toBeLessThanOrEqual(1) // 硬截断到阈值
+  })
+})
+
+// ── R73-5（二十一轮 A-5）：embed 部分失败续传（已成功批按整章小事务落库） ──
+describe('R73-5：commitIndexBatch 部分成功续传', () => {
+  let bookRoot: string
+
+  /** 写 n 段（每段 ≥20 字 → 恰 n 块），段首带章内标记供 embed 调用观测 */
+  function writeChapterWithParas(ch: number, paras: number, marker: string): void {
+    const meta: ChapterMeta = {
+      章号: ch, 标题: `第${ch}章`, 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
+      _path: '', _wordCount: 100,
+    }
+    const body = Array.from({ length: paras }, (_, i) => `${marker}第${i}段：这是一个足够长的段落文本，用于分块与续传行为的回归验证。`).join('\n\n')
+    writeChapter(join(bookRoot, '写作', '正文', `${ch}-第${ch}章.md`), meta, body)
+  }
+
+  beforeEach(() => {
+    bookRoot = join(tmpdir(), `rag-salvage-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+    mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
+    // ch1 3 块（首批内，整章可续传）；ch2 150 块（跨批 1/2，失败时半章不提交）
+    writeChapterWithParas(1, 3, '甲卷')
+    writeChapterWithParas(2, 150, '乙卷')
+  })
+
+  afterEach(() => {
+    rmSync(bookRoot, { recursive: true, force: true })
+  })
+
+  function stubEmbed(_e: string, _m: string, _k: string, texts: string[]): Promise<EmbedResult> {
+    return Promise.resolve(texts.map((t) => {
+      const norm = 1 / ((t.charCodeAt(0) || 1) + 1)
+      return [norm, norm * 0.5, norm * 0.3]
+    }))
+  }
+
+  it('第 2 批 embed 失败 → 首批覆盖的整章（ch1）续传落库，ch2 半章不提交；错误文案带续传说明', async () => {
+    const config = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
+    let calls = 0
+    const failSecondBatch = (e: string, m: string, k: string, texts: string[]): Promise<EmbedResult> => {
+      calls++
+      if (calls >= 2) return Promise.resolve(null) // 第 2 批起失败
+      return stubEmbed(e, m, k, texts)
+    }
+
+    const result = await buildIndex(bookRoot, config, 'key', failSecondBatch)
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('续传')
+    expect(result.error).toContain('1 章')
+
+    const db = openRagDb(bookRoot)
+    try {
+      const chunks = readAllChunks(db)
+      expect(chunks.filter((c) => c.章号 === 1)).toHaveLength(3) // ch1 整章已落库
+      expect(chunks.filter((c) => c.章号 === 2)).toHaveLength(0) // ch2 半章未提交
+      expect(getRagMeta(db, 'chapter_hash:1')).toBeTruthy()
+      expect(getRagMeta(db, 'chapter_hash:2')).toBeNull()
+      expect(Number(getRagMeta(db, 'indexed_max_chapter'))).toBe(1) // 游标只推进到已提交章
+    } finally {
+      db.close()
+    }
+  })
+
+  it('重跑（embed 恢复）：ch1 指纹命中跳过不再重 embed，仅补 ch2，最终全量一致', async () => {
+    const config = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
+    let calls = 0
+    const failSecondBatch = (e: string, m: string, k: string, texts: string[]): Promise<EmbedResult> => {
+      calls++
+      if (calls >= 2) return Promise.resolve(null)
+      return stubEmbed(e, m, k, texts)
+    }
+    const first = await buildIndex(bookRoot, config, 'key', failSecondBatch)
+    expect(first.ok).toBe(false)
+
+    // embed 恢复后重跑：观测调用文本——ch1 段（甲卷标记）不得再进 embed（指纹续传闸）
+    const embedded: string[] = []
+    const countingEmbed = (e: string, m: string, k: string, texts: string[]): Promise<EmbedResult> => {
+      embedded.push(...texts)
+      return stubEmbed(e, m, k, texts)
+    }
+    const second = await buildIndex(bookRoot, config, 'key', countingEmbed)
+    expect(second.ok).toBe(true)
+    expect(embedded.some((t) => t.includes('甲卷'))).toBe(false) // ch1 未重 embed
+    expect(embedded.some((t) => t.includes('乙卷'))).toBe(true) // ch2 补齐
+
+    const db = openRagDb(bookRoot)
+    try {
+      const chunks = readAllChunks(db)
+      expect(chunks.filter((c) => c.章号 === 1)).toHaveLength(3)
+      expect(chunks.filter((c) => c.章号 === 2)).toHaveLength(150)
+      expect(getRagMeta(db, 'chapter_hash:2')).toBeTruthy()
+      expect(Number(getRagMeta(db, 'indexed_max_chapter'))).toBe(2)
+    } finally {
+      db.close()
     }
   })
 })

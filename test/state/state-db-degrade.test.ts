@@ -6,9 +6,10 @@
  * （与 rebuild 失败同款人话：可删 .cache/index.db 重试），不崩。
  */
 import { test, expect, vi } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs'
+import { mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 vi.mock('../../src/process/assemble.js', () => ({
   assembleStatus: vi.fn(() => {
@@ -20,7 +21,7 @@ const { detectState } = await import('../../src/state/state.js')
 const { DEFAULT_CONFIG, writeBookConfig } = await import('../../src/format/yaml.js')
 
 test('RB-KN-P2-1: 缓存读取段故障 → 降级态 2（不抛出崩 enter）', () => {
-  const root = mkdtempSync(join(tmpdir(), 'clw-db-degrade-'))
+  const root = mkdtempTracked(join(tmpdir(), 'clw-db-degrade-'))
   try {
     writeBookConfig(join(root, 'book.yaml'), DEFAULT_CONFIG)
     // 长篇结构：有 布线 → detectState 走「读缓存算 currentChapter」段

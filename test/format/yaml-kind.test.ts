@@ -8,13 +8,14 @@
  */
 
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
+import { rmSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readBookConfig, stringifyBookConfig, DEFAULT_CONFIG } from '../../src/format/yaml.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 test('kind: 无 kind 字段 → config.kind 为 undefined（缺省 = long）', () => {
-  const root = mkdtempSync(join(tmpdir(), 'yaml-kind-'))
+  const root = mkdtempTracked(join(tmpdir(), 'yaml-kind-'))
   try {
     writeFileSync(join(root, 'book.yaml'), 'spec_version: 1\n\nbook:\n  title: 测\n  genre: 玄幻\n', 'utf-8')
     const r = readBookConfig(join(root, 'book.yaml'))
@@ -26,7 +27,7 @@ test('kind: 无 kind 字段 → config.kind 为 undefined（缺省 = long）', (
 })
 
 test('kind: 显式 short → config.kind = short', () => {
-  const root = mkdtempSync(join(tmpdir(), 'yaml-kind-'))
+  const root = mkdtempTracked(join(tmpdir(), 'yaml-kind-'))
   try {
     writeFileSync(join(root, 'book.yaml'), 'spec_version: 1\nkind: short\n\nbook:\n  title: 集\n  genre: 悬疑\n', 'utf-8')
     const r = readBookConfig(join(root, 'book.yaml'))
@@ -38,7 +39,7 @@ test('kind: 显式 short → config.kind = short', () => {
 })
 
 test('kind: 坏值（kind: middle）→ 忽略，config.kind 为 undefined', () => {
-  const root = mkdtempSync(join(tmpdir(), 'yaml-kind-'))
+  const root = mkdtempTracked(join(tmpdir(), 'yaml-kind-'))
   try {
     writeFileSync(join(root, 'book.yaml'), 'spec_version: 1\nkind: middle\n\nbook:\n  title: 集\n  genre: 悬疑\n', 'utf-8')
     const r = readBookConfig(join(root, 'book.yaml'))
@@ -82,7 +83,7 @@ test('stringify: kind === short 时输出 kind: short 行；长篇/缺省不输�
 })
 
 test('stringify → parse 往返：短篇 kind 不丢', () => {
-  const root = mkdtempSync(join(tmpdir(), 'yaml-kind-'))
+  const root = mkdtempTracked(join(tmpdir(), 'yaml-kind-'))
   try {
     const cfg = { ...DEFAULT_CONFIG, kind: 'short' as const, book: { title: '集', genre: '悬疑' } }
     writeFileSync(join(root, 'book.yaml'), stringifyBookConfig(cfg), 'utf-8')
@@ -98,7 +99,7 @@ test('stringify → parse 往返：短篇 kind 不丢', () => {
 })
 
 test('short.strict: 短篇严格模式可读写，长篇不输出 short 段', () => {
-  const root = mkdtempSync(join(tmpdir(), 'yaml-kind-'))
+  const root = mkdtempTracked(join(tmpdir(), 'yaml-kind-'))
   try {
     const cfg = {
       ...DEFAULT_CONFIG,
@@ -122,7 +123,7 @@ test('short.strict: 短篇严格模式可读写，长篇不输出 short 段', ()
 })
 
 test('short thresholds: 短篇机检阈值可读写，长篇不输出 short 段', () => {
-  const root = mkdtempSync(join(tmpdir(), 'yaml-kind-thresholds-'))
+  const root = mkdtempTracked(join(tmpdir(), 'yaml-kind-thresholds-'))
   try {
     const cfg = {
       ...DEFAULT_CONFIG,

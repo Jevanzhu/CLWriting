@@ -326,6 +326,15 @@ export function collectReviewIssues(input: {
   }
 
   // 期望视角：独立档按 lenses_run；合审档 lenses_run 已含三视角（长短各三，buildReviewPacket 决定）
+  // R73-26（二十一轮·登记裁定）：合审档「单文件存在即记全部视角已回收」的最小覆盖闸
+  // ——经核实**本批不可落**：生产链 submit_issues 工具 schema（src/ai/contract/review.ts，
+  // B 域禁改范围）没有 lens 字段、审稿 prompt（resources/prompts/review-*.md）也不要求
+  // 视角标记，合审 issues 的 lens 全部由 coerceIssue 回落锚视角（lenses_run[0]）——
+  // 「按档内视角标记判覆盖」在生产链上恒不满足，强推会把**每一份有发现的合审**判成
+  // 「审稿单不成立」（部分回收），且无标记时无从判「视角没跑」与「视角没问题」（输出
+  // 契约是「只报问题，无问题回空数组」）。维持现状（文件存在且解析成功 = 回收）；
+  // 解锁条件：submit_issues schema 增加 lens 字段（且要求逐视角标记）后，再按档内标记
+  // 判覆盖、不足显式标注部分回收。空数组 = 合法「没问题」结论，不算缺失（既有口径）。
   const expectedLenses = input.packet.lenses_run
   for (const lens of expectedLenses) {
     if (!collectedLenses.has(lens) && !missingLenses.includes(lens)) {

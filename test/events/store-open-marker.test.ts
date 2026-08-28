@@ -8,14 +8,15 @@
  *    空库；同路径重新建书（根目录在位）或新库已不存在 → 墓碑过期清除放行。
  */
 import { describe, expect, it, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, existsSync, mkdirSync, readdirSync, writeFileSync, readFileSync } from 'node:fs'
+import { rmSync, existsSync, mkdirSync, readdirSync, writeFileSync, readFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openSessionStore, migrateBookSession, bookHash } from '../../src/events/store.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 function tmpRoot(): string {
-  return mkdtempSync(join(tmpdir(), 'r67-2-marker-'))
+  return mkdtempTracked(join(tmpdir(), 'r67-2-marker-'))
 }
 
 /** 一个必活的「他进程」pid：POSIX 下 pid 1（launchd/init）恒活。 */

@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -11,6 +11,7 @@ import {
   parseLeadFileName,
 } from '../../src/format/leads.js'
 import type { Lead } from '../../src/format/types.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 // ── 履历解析（#3 第 4 节）────────────────────────
 
@@ -54,7 +55,7 @@ test('stringifyHistory + parseHistory 往返', () => {
 // ── 完整账本读写往返（容错核心）──────────────────
 
 function makeTmpBook(): string {
-  return mkdtempSync(join(tmpdir(), '北境往事-'))
+  return mkdtempTracked(join(tmpdir(), '北境往事-'))
 }
 
 test('readLead + writeLead: 悬念往返不丢字段', () => {
@@ -295,5 +296,64 @@ test('writeLead: 无尾段时回写不引入空段（与旧格式字节等价语
   const after = readFileSync(fp, 'utf8')
   expect(after).not.toContain('\n\n\n') // 无连续空行残留
   expect(after.trimEnd().endsWith('- 第047章 埋下：狗没叫。')).toBe(true)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+// ── R73-22（二十一轮）：类型/状态非法值 fail-loud + legacy 迁移旁路 ──
+
+test('readLead: 类型写非法值 → 结构化错误（不再静默落「悬念」）', () => {
+  const dir = makeTmpBook()
+  const fp = join(dir, '悬念-003-错字.md')
+  writeFileSync(
+    fp,
+    ['---', '编号: 悬念-003', '标题: 错字', '类型: 选念', '状态: 进行中', '---', '', '## 履历', ''].join('\n'),
+  )
+  const r = readLead(fp)
+  expect(r.ok).toBe(false)
+  if (r.ok) return
+  expect(r.error.message).toContain('「类型」非法')
+  expect(r.error.message).toContain('选念')
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('readLead: 状态写非法值 → 结构化错误（不再静默落「进行中」）', () => {
+  const dir = makeTmpBook()
+  const fp = join(dir, '悬念-004-错状态.md')
+  writeFileSync(
+    fp,
+    ['---', '编号: 悬念-004', '标题: 错状态', '类型: 悬念', '状态: 已完结', '---', '', '## 履历', ''].join('\n'),
+  )
+  const r = readLead(fp)
+  expect(r.ok).toBe(false)
+  if (r.ok) return
+  expect(r.error.message).toContain('「状态」非法')
+  expect(r.error.message).toContain('已完结')
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('readLead: 缺字段维持默认回落（存量手写账本兼容）；legacy 旁路容忍旧档非法类型', () => {
+  const dir = makeTmpBook()
+  // 缺类型/状态 → 默认回落（R73-22 不改缺字段语义）
+  const fpMissing = join(dir, '悬念-005-缺字段.md')
+  writeFileSync(
+    fpMissing,
+    ['---', '编号: 悬念-005', '标题: 缺字段', '---', '', '## 履历', ''].join('\n'),
+  )
+  const rMissing = readLead(fpMissing)
+  expect(rMissing.ok).toBe(true)
+  if (rMissing.ok) {
+    expect(rMissing.lead.类型).toBe('悬念')
+    expect(rMissing.lead.状态).toBe('进行中')
+  }
+  // 旧 scheme（大纲/伏笔 迁移源）：类型「伏笔」非法于六类，legacy 旁路放行
+  const fpLegacy = join(dir, '伏笔-031-灭门真凶.md')
+  writeFileSync(
+    fpLegacy,
+    ['---', '编号: 伏笔-031', '标题: 灭门真凶', '类型: 伏笔', '状态: 进行中', '开启章: 1', '---', '', '## 履历', '', '- 第001章 埋下：焦痕', ''].join('\n'),
+  )
+  expect(readLead(fpLegacy).ok).toBe(false) // 现行口径仍 fail-loud
+  const rLegacy = readLead(fpLegacy, { legacy: true })
+  expect(rLegacy.ok).toBe(true)
+  if (rLegacy.ok) expect(rLegacy.lead.履历).toHaveLength(1)
   rmSync(dir, { recursive: true, force: true })
 })

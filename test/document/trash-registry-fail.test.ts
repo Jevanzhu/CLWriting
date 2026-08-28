@@ -8,15 +8,16 @@
  * （顺序调整不改变既有语义）。
  */
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execSync } from 'node:child_process'
 import { DocumentService } from '../../src/document/service.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 /** 造书：写作/正文/第一卷/0001 + 项目清单登记 doc_ch01（结构同 trash.test.ts）。 */
 function makeBookWithChapter(): { root: string; svc: DocumentService } {
-  const root = mkdtempSync(join(tmpdir(), 'gg-p2-6-trash-'))
+  const root = mkdtempTracked(join(tmpdir(), 'gg-p2-6-trash-'))
   execSync('git init && git config user.email t@t.com && git config user.name t && git config commit.gpgsign false', { cwd: root, stdio: 'pipe' })
   mkdirSync(join(root, '写作', '正文', '第一卷'), { recursive: true })
   mkdirSync(join(root, '工作区'), { recursive: true })

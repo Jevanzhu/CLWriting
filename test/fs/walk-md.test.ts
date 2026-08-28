@@ -7,15 +7,16 @@
  * 同族修复的横向收口。
  */
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, symlinkSync, realpathSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, symlinkSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { walkMdFind } from '../../src/fs/walk-md.js'
 import { findChapterFile } from '../../src/process/summary.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 // Windows 无 POSIX 权限位/需开发者模式，symlinkSync 直建 EPERM，该守卫语义由 macOS/Linux CI 腿覆盖
 test.skipIf(process.platform === 'win32')('L-P1: 书内 symlink 环（a→b→a）不无限递归，正常章仍可找到', () => {
-  const root = mkdtempSync(join(tmpdir(), 'walk-md-cycle-'))
+  const root = mkdtempTracked(join(tmpdir(), 'walk-md-cycle-'))
   try {
     const body = join(root, '写作', '正文')
     mkdirSync(join(body, 'a'), { recursive: true })
@@ -37,8 +38,8 @@ test.skipIf(process.platform === 'win32')('L-P1: 书内 symlink 环（a→b→a�
 
 // Windows 无 POSIX 权限位/需开发者模式，symlinkSync 直建 EPERM，该守卫语义由 macOS/Linux CI 腿覆盖
 test.skipIf(process.platform === 'win32')('L-P1: 书内指向书外的 symlink 不被跟随（根界 = 起遍目录）', () => {
-  const root = mkdtempSync(join(tmpdir(), 'walk-md-escape-'))
-  const outside = mkdtempSync(join(tmpdir(), 'walk-md-out-'))
+  const root = mkdtempTracked(join(tmpdir(), 'walk-md-escape-'))
+  const outside = mkdtempTracked(join(tmpdir(), 'walk-md-out-'))
   try {
     const body = join(root, '写作', '正文')
     mkdirSync(body, { recursive: true })

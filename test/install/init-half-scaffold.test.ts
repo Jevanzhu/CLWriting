@@ -6,14 +6,15 @@
  * 其余目录占用场景的拒绝口径不变。
  */
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { doInit } from '../../src/install/init.js'
 import { readBooks, readActive } from '../../src/install/books.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 test('低级项（第六轮）：上次 init 半途崩出的半成品（未登记 + 骨架 + 正文空）→ 重试完成建书', () => {
-  const wd = mkdtempSync(join(tmpdir(), 'init-half-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'init-half-'))
   try {
     // 模拟崩在 scaffold 中途：book.yaml 已写、其余骨架未建、登记未落
     const bookRoot = join(wd, '长篇', '北境')
@@ -33,7 +34,7 @@ test('低级项（第六轮）：上次 init 半途崩出的半成品（未登�
 })
 
 test('低级项（第六轮）：目录存在且正文已有 .md（非半成品）→ 仍拒绝覆盖，用户内容不动', () => {
-  const wd = mkdtempSync(join(tmpdir(), 'init-user-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'init-user-'))
   try {
     const bookRoot = join(wd, '长篇', '北境')
     mkdirSync(join(bookRoot, '写作', '正文', '第一卷'), { recursive: true })
@@ -52,7 +53,7 @@ test('低级项（第六轮）：目录存在且正文已有 .md（非半成品�
 })
 
 test('低级项（第六轮）：已登记但目录被删 → 重试报「已有一本」，冲突口径不变', () => {
-  const wd = mkdtempSync(join(tmpdir(), 'init-reg-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'init-reg-'))
   try {
     const r0 = doInit({ workDir: wd, name: '北境' })
     expect(r0.ok).toBe(true)
@@ -68,7 +69,7 @@ test('低级项（第六轮）：已登记但目录被删 → 重试报「已有
 })
 
 test('P5-数据层（第七轮）：同名文件占位（非目录）→ ok:false 给可读原因（原 statSync ENOTDIR 直接抛）', () => {
-  const wd = mkdtempSync(join(tmpdir(), 'clw-init-file-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'clw-init-file-'))
   mkdirSync(join(wd, '长篇'), { recursive: true })
   writeFileSync(join(wd, '长篇', '北境'), '一个同名普通文件', 'utf-8')
   try {
@@ -83,7 +84,7 @@ test('P5-数据层（第七轮）：同名文件占位（非目录）→ ok:fals
 
 // Windows 无 POSIX 权限位（chmod 为 no-op/仅映射只读位），该守卫语义由 macOS/Linux CI 腿覆盖
 test.skipIf(process.platform === 'win32')('L-D2（第八轮）：目录存在但不可读（EACCES）→ 可读原因，不裸抛破坏契约', () => {
-  const wd = mkdtempSync(join(tmpdir(), 'init-eacces-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'init-eacces-'))
   try {
     mkdirSync(join(wd, '长篇', '北境'), { recursive: true })
     chmodSync(join(wd, '长篇', '北境'), 0o000)

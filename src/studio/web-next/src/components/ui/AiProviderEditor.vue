@@ -17,6 +17,9 @@ const props = defineProps<{
   embedded?: boolean
   /** 当前选中的测试模型（空 = 后端回落全局当前模型） */
   probeModel?: string
+  /** 父层保存在途（R73-62）：校验与 API 写入在父层（AiServicePanel.save），在途锁也在父层——
+   *  在途时禁保存按钮 + 文案反馈，挡双击第二笔（新增卡双 POST 落两条同名记录） */
+  saving?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -243,7 +246,8 @@ async function savePricing(clear = false): Promise<void> {
 
     <div class="form-actions">
       <button class="cancel-btn" @click="emit('cancel')">取消</button>
-      <button class="save-btn" @click="submit">保存</button>
+      <!-- R73-62：保存按钮在途禁用 + 文案反馈（同 :233 价格小节 saving 态口径） -->
+      <button class="save-btn" :disabled="saving" @click="submit">{{ saving ? '保存中…' : '保存' }}</button>
     </div>
   </div>
 </template>

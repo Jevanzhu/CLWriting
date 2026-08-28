@@ -56,19 +56,32 @@ export function checkGrowth(
     const history = readGrowthHistory(db, id)
 
     // 取该条目的境界体系名（从缓存读 cur_realm 推断体系，或遍历）
-    // 简化：遍历所有体系，找到包含 currentRealm 的那个
+    // R73-30（二十一轮）：多体系前缀重叠（炼气/炼气期 两体系并存）时此前取首个命中
+    // 体系，「炼气一层」会错挂到「炼气」系而真实体系是「炼气期」系，后续跃迁全按错
+    // 基准判红。改全序列打分消歧：精确命中 > 最长前缀匹配（任一方向，V-P2-17 语义
+    // 不变），得分同序先到先得。
     let sequence: string[] | null = null
     if (realmDoc && currentRealm) {
+      let bestScore = 0
       for (const sys of realmDoc.体系) {
-        // V-P2-17：精确命中后允许前缀匹配（任一方向）——作者常把当前境界写成
-        // 「炼气一层」而序列枚举是「炼气」（或反之截断），精确 includes 会误报
-        // growth-realm-miss 红。证据侧同问题的解法见 extractExactRealmFromEvidence。
-        if (
-          sys.序列.includes(currentRealm) ||
-          sys.序列.some((realm) => currentRealm.startsWith(realm) || realm.startsWith(currentRealm))
-        ) {
+        let score = 0
+        if (sys.序列.includes(currentRealm)) {
+          // V-P2-17：精确命中最高优先
+          score = Number.MAX_SAFE_INTEGER
+        } else {
+          // V-P2-17：前缀匹配（任一方向）仍认，但以匹配长度为强度——「炼气一层」对
+          // 「炼气期」系（前缀「炼气」长 2）与「炼气」系（全等前缀长 2）同分时先到
+          // 先得；「炼气期一层」对「炼气期」系前缀长 3 > 「炼气」系长 2，正确消歧
+          let bestPrefix = 0
+          for (const realm of sys.序列) {
+            if (currentRealm.startsWith(realm) && realm.length > bestPrefix) bestPrefix = realm.length
+            else if (realm.startsWith(currentRealm) && currentRealm.length > bestPrefix) bestPrefix = currentRealm.length
+          }
+          score = bestPrefix
+        }
+        if (score > bestScore) {
+          bestScore = score
           sequence = sys.序列
-          break
         }
       }
     }

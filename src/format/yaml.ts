@@ -152,6 +152,17 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
   const cfg: BookConfig = { ...DEFAULT_CONFIG, book: { ...DEFAULT_CONFIG.book }, leads: { ...DEFAULT_CONFIG.leads }, budget: { ...DEFAULT_CONFIG.budget }, growth: { ...DEFAULT_CONFIG.growth } }
   const find = (key: string) => roots.find((r) => r.key === key)
 
+  // R73-21（二十一轮）：段内子键重复同样 fail-loud——顶层段重复已 fail-loud（R72-8 C-5），
+  // 但段内同名子键 find 静默取首（作者复制粘贴出两个 `genre:` 时后值无声丢失），
+  // 同文件两种容错策略口径统一为「宁可红不可错」。
+  const findChild = (section: RawSection, key: string): RawSection | undefined => {
+    const hits = section.children.filter((c) => c.key === key)
+    if (hits.length > 1) {
+      throw new Error(`顶层段「${section.key}」内子键「${key}」重复：同名子键只取首个会静默丢弃后值，请合并或删除重复键`)
+    }
+    return hits[0]
+  }
+
   if (find('spec_version')) cfg.spec_version = parseFiniteNumber(find('spec_version')!.value, 1)
 
   // kind（M8 #25）：顶层标量，缺省 long；只有显式 kind: short 才路由短篇轨
@@ -173,10 +184,10 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
 
   const book = find('book')
   if (book) {
-    const t = book.children.find((c) => c.key === 'title')
-    const g = book.children.find((c) => c.key === 'genre')
-    const vs = book.children.find((c) => c.key === 'volume_size')
-    const tw = book.children.find((c) => c.key === 'target_words')
+    const t = findChild(book, "title")
+    const g = findChild(book, "genre")
+    const vs = findChild(book, "volume_size")
+    const tw = findChild(book, "target_words")
     if (t) cfg.book.title = String(parseValue(t.value))
     // 全局托底：genre 空串归一 undefined（`genre: ''` 是旧 scaffold 烘焙的默认占位，
     // 与「没写」同义）——否则空串永远盖住 global.json 的 defaultGenre
@@ -192,7 +203,7 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
       const targetWords = parseFiniteNumber(tw.value, NaN)
       if (Number.isFinite(targetWords) && targetWords > 0) cfg.book.target_words = targetWords
     }
-    const ctw = book.children.find((c) => c.key === 'chapter_target_words')
+    const ctw = findChild(book, "chapter_target_words")
     if (ctw) {
       const v = parseFiniteNumber(ctw.value, 0)
       if (Number.isFinite(v) && v > 0) cfg.book.chapter_target_words = v
@@ -201,7 +212,7 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
 
   const leads = find('leads')
   if (leads) {
-    const en = leads.children.find((c) => c.key === 'enabled')
+    const en = findChild(leads, "enabled")
     if (en) {
       const v = parseValue(en.value)
       if (Array.isArray(v)) {
@@ -213,7 +224,7 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
         cfg.leads.enabled = valid
       }
     }
-    const th = leads.children.find((c) => c.key === 'thresholds')
+    const th = findChild(leads, "thresholds")
     if (th) {
       const thresholds: Record<string, number> = {}
       for (const c of th.children) {
@@ -240,7 +251,7 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
   // 全局托底：style 段从零构建——书里写了合法值才设，未写 = undefined（回落全局）
   const style = find('style')
   if (style) {
-    const inj = style.children.find((c) => c.key === 'injection')
+    const inj = findChild(style, "injection")
     if (inj) {
       const v = String(parseValue(inj.value))
       if (v === 'light' || v === 'heavy') cfg.style = { injection: v }
@@ -254,7 +265,7 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
   // 同款字符串比较归一
   const summary = find('summary')
   if (summary) {
-    const auto = summary.children.find((c) => c.key === 'auto')
+    const auto = findChild(summary, "auto")
     if (auto) {
       const v = String(parseValue(auto.value))
       if (v === 'true' || v === 'false') cfg.summary = { auto: v === 'true' }
@@ -264,7 +275,7 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
   const short = find('short')
   if (short) {
     const shortConfig: NonNullable<BookConfig['short']> = {}
-    const profile = short.children.find((c) => c.key === 'profile')
+    const profile = findChild(short, "profile")
     if (profile) {
       const value = String(parseValue(profile.value)).trim()
       if (value.length > 0) shortConfig.profile = value
@@ -275,7 +286,7 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
       'target_ending_flavors',
       'series_motifs',
     ] as const) {
-      const node = short.children.find((c) => c.key === key)
+      const node = findChild(short, key)
       if (!node) continue
       const value = parseValue(node.value)
       if (Array.isArray(value)) {
@@ -283,7 +294,7 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
         if (items.length > 0) shortConfig[key] = items
       }
     }
-    const strict = short.children.find((c) => c.key === 'strict')
+    const strict = findChild(short, "strict")
     if (strict) shortConfig.strict = String(parseValue(strict.value)) === 'true'
     for (const key of [
       'word_min',
@@ -293,7 +304,7 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
       'section_count',
       'opening_env_chars',
     ] as const) {
-      const node = short.children.find((c) => c.key === key)
+      const node = findChild(short, key)
       if (!node) continue
       const value = parseFiniteNumber(node.value, NaN)
       if (Number.isFinite(value) && value > 0) shortConfig[key] = value
@@ -305,18 +316,18 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
   const auto = find('auto')
   if (auto) {
     const autoConfig: NonNullable<BookConfig['auto']> = {}
-    const co = auto.children.find((c) => c.key === 'confirm_outline')
+    const co = findChild(auto, "confirm_outline")
     if (co) autoConfig.confirm_outline = String(parseValue(co.value)) === 'true'
-    const bs = auto.children.find((c) => c.key === 'batch_size')
+    const bs = findChild(auto, "batch_size")
     if (bs) {
       const v = parseFiniteNumber(bs.value, NaN)
       if (Number.isFinite(v)) autoConfig.batch_size = v
     }
     // RB-KN-P2-10：关系图自动梳理两键——前端 useRelationGraph 已消费，原先解析/序列化
     // 均不支持（作者手写 book.yaml 永远解析成默认值，配置链路断裂）
-    const ram = auto.children.find((c) => c.key === 'relation_auto_mine')
+    const ram = findChild(auto, "relation_auto_mine")
     if (ram) autoConfig.relation_auto_mine = String(parseValue(ram.value)) === 'true'
-    const rmt = auto.children.find((c) => c.key === 'relation_mine_threshold')
+    const rmt = findChild(auto, "relation_mine_threshold")
     if (rmt) {
       const v = parseFiniteNumber(rmt.value, NaN)
       if (Number.isFinite(v)) autoConfig.relation_mine_threshold = v
@@ -326,8 +337,18 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
 
   const growth = find('growth')
   if (growth) {
-    const rs = growth.children.find((c) => c.key === 'realm_span_max')
-    if (rs) cfg.growth.realm_span_max = parseFiniteNumber(rs.value, DEFAULT_CONFIG.growth.realm_span_max ?? 2)
+    const rs = findChild(growth, 'realm_span_max')
+    if (rs) {
+      // R73-20（二十一轮）：无正值校验——`realm_span_max: 0`/负数此前原样落 cfg，
+      // checkGrowth 的跨度检查（idx-prevIdx > 0 恒真）会让一切正常晋阶报红；
+      // 非数字/非正数一律 fail-loud 产可读错误（parseBookConfig 捕获转错误信封，
+      // 对齐顶层段重复 R72-8 C-5 的 fail-loud 口径）
+      const v = parseFiniteNumber(rs.value, NaN)
+      if (!Number.isFinite(v) || v <= 0) {
+        throw new Error(`growth.realm_span_max 必须为正数（实际「${rs.value.trim()}」），请修正 book.yaml 的 growth 段`)
+      }
+      cfg.growth.realm_span_max = v
+    }
   }
 
   // checks 段（机检扩展词表，#10 项 7/11 数据源接线）：显式空数组 = 关（不得归一为
@@ -337,7 +358,7 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
   if (checks) {
     const checksConfig: NonNullable<BookConfig['checks']> = {}
     for (const key of ['imagery_words', 'leak_keywords'] as const) {
-      const node = checks.children.find((c) => c.key === key)
+      const node = findChild(checks, key)
       if (!node) continue
       const value = parseValue(node.value)
       // Array.isArray 才收：显式 [] 原样保留（长度 0 也设键）；标量/坏值忽略
@@ -360,12 +381,12 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
   const snapshots = find('snapshots')
   if (snapshots) {
     const snapshotsConfig: NonNullable<BookConfig['snapshots']> = {}
-    const md = snapshots.children.find((c) => c.key === 'max_days')
+    const md = findChild(snapshots, "max_days")
     if (md) {
       const v = parseFiniteNumber(md.value, 0)
       if (v > 0) snapshotsConfig.max_days = v
     }
-    const mc = snapshots.children.find((c) => c.key === 'max_count')
+    const mc = findChild(snapshots, "max_count")
     if (mc) {
       const v = parseFiniteNumber(mc.value, 0)
       if (v > 0) snapshotsConfig.max_count = v
@@ -376,13 +397,13 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
   // RAG 可选段（#37，非密：enabled/provider/endpoint/model；api_key 不入此）
   const rag = find('rag')
   if (rag) {
-    const en = rag.children.find((c) => c.key === 'enabled')
-    const pv = rag.children.find((c) => c.key === 'provider')
-    const ep = rag.children.find((c) => c.key === 'endpoint')
-    const md = rag.children.find((c) => c.key === 'model')
-    const cd = rag.children.find((c) => c.key === 'candidate_depth')
+    const en = findChild(rag, "enabled")
+    const pv = findChild(rag, "provider")
+    const ep = findChild(rag, "endpoint")
+    const md = findChild(rag, "model")
+    const cd = findChild(rag, "candidate_depth")
     const depth = cd ? Number(parseValue(cd.value)) : NaN
-    const et = rag.children.find((c) => c.key === 'embed_timeout_ms')
+    const et = findChild(rag, "embed_timeout_ms")
     const embedTimeout = et ? Number(parseValue(et.value)) : NaN
     // 低级项（第六轮）：rag 段存在但缺 enabled 键 → 不再整段静默丢弃——
     // 手写了 provider/endpoint 显然意在启用，enabled 缺省 true（显式写 false 才关）

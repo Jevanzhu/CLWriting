@@ -9,7 +9,7 @@
  * 断言：仍返回 {ok:false}、留痕尝试发生过、源文件不动（fail-closed）。
  */
 import { test, expect, vi } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, chmodSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, existsSync, chmodSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execSync } from 'node:child_process'
@@ -27,10 +27,11 @@ vi.mock('../../src/document/journal.js', async (importOriginal) => {
 
 import { DocumentService } from '../../src/document/service.js'
 import { appendAborted } from '../../src/document/journal.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 /** 造书：写作/正文/第一卷/0001-开篇 + 项目清单登记 doc_ch01 + git init（同 service-struct 夹具）。 */
 function makeBookWithChapter(): { root: string; svc: DocumentService } {
-  const root = mkdtempSync(join(tmpdir(), 'clw-move-abort-'))
+  const root = mkdtempTracked(join(tmpdir(), 'clw-move-abort-'))
   execSync('git init && git config user.email t@t.com && git config user.name t && git config commit.gpgsign false', { cwd: root, stdio: 'pipe' })
   mkdirSync(join(root, '写作', '正文', '第一卷'), { recursive: true })
   mkdirSync(join(root, '工作区'), { recursive: true })

@@ -2,7 +2,7 @@
  * F1-P1 桥接层单测：loadHistoryWithSeqs 映射重建 + SessionRecorder 录制/遮蔽。
  */
 import { describe, expect, it, afterEach, vi } from 'vitest'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { rmSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -20,10 +20,11 @@ import {
 } from '../../src/events/chat-bridge.js'
 import { deriveMessages, validateEventStream } from '../../src/events/projection.js'
 import { log } from '../../src/log/index.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const dirs: string[] = []
 function openTmp(): { store: SessionStore; ud: string } {
-  const d = mkdtempSync(join(tmpdir(), 'f1-bridge-'))
+  const d = mkdtempTracked(join(tmpdir(), 'f1-bridge-'))
   dirs.push(d)
   return { store: openSessionStore(d, '/books/a')!, ud: d }
 }

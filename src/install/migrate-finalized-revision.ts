@@ -16,6 +16,7 @@ import { join } from 'node:path'
 import { readManifest, writeManifest, withManifestLock } from '../document/manifest.js'
 import { computeRevision } from '../document/revision.js'
 import { statusPorcelain } from '../git/exec.js'
+import { safeManifestPath } from '../fs/safe-path.js'
 import { log } from '../log/index.js'
 
 /**
@@ -70,7 +71,12 @@ export function migrateFinalizedRevisions(bookRoot: string): number {
     for (const e of m.entries.values()) {
       if (e.nodeType !== 'document') continue
       if (e.finalizedRevision) continue // 幂等：已有基线跳过
-      const abs = join(bookRoot, e.path)
+      // R73-36（二十一轮）：join(bookRoot, e.path) 直拼改过 safe-path 校验（同 doTrash/
+      // save 的 resolveWithinRoot 口径）——manifest 属可篡改数据面，`../`/绝对路径/空 path
+      // 条目此前可让 computeRevision 读到书仓库外（或撞目录 EISDIR 崩迁移链）；不合法
+      // 条目跳过不设基线（保持 draft 安全方向，本文件红线：误判 final 断写）。
+      const abs = safeManifestPath(bookRoot, e.path)
+      if (!abs) continue
       if (!existsSync(abs)) continue
       if (dirty.has(e.path)) continue // git dirty/untracked → 不设基线（revision/draft）
       e.finalizedRevision = computeRevision(abs)

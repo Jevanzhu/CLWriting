@@ -383,15 +383,15 @@ test('checkLeadsForm: 成长线 resolve 动词（突破/跃迁）末条 + 状态
   rmSync(root, { recursive: true, force: true })
 })
 
-test('checkLeadsForm: 成长线 resolve 末条 + 状态已放弃 → 报（状态与动词矛盾）', () => {
+test('checkLeadsForm: 成长线 resolve 末条 + 状态已放弃 → 不报（R73-29：突破后弃线是合法闭合）', () => {
   const { root, db } = makeLeadsBook()
   syncLead(db, {
     编号: '成长线-002', 标题: 'x', 类型: '成长线', 状态: '已放弃', 开启章: 1,
-    履历: [{ 章号: 5, 动词: '突破', 证据: 'a' }], // 突破 ≠ 放弃，状态标错
+    履历: [{ 章号: 5, 动词: '突破', 证据: 'a' }], // R73-29：resolve + 已放弃 = 先行收尾再弃线，不算矛盾
     _path: 'p',
   })
   const r = checkLeadsForm(db, root, 10, ['成长线'])
-  expect(r.items.some((i) => i.checkId === 'lead-status-open')).toBe(true)
+  expect(r.items.some((i) => i.checkId === 'lead-status-open')).toBe(false)
   db.close()
   rmSync(root, { recursive: true, force: true })
 })

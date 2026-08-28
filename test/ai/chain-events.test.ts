@@ -2,7 +2,7 @@
  * F1-P2 runner 链事件单测：runTask 走真实路径时写 llm/call + step/start + step/end{reason}，
  * 重试前写 llm/retry（先落库后等待）；无 bookRoot 降级不写。
  */
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -10,15 +10,16 @@ import { runTask } from '../../src/ai/runner.js'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
 import { GenError } from '../../src/ai/gen.js'
 import { MODEL_QUIRKS_VERSION } from '../../src/ai/provider/model-quirks.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const dirs: string[] = []
 function tempUserData(): string {
-  const d = mkdtempSync(join(tmpdir(), 'clwriting-chain-ud-'))
+  const d = mkdtempTracked(join(tmpdir(), 'clwriting-chain-ud-'))
   dirs.push(d)
   return d
 }
 function tempBookRoot(): string {
-  const d = mkdtempSync(join(tmpdir(), 'clwriting-chain-book-'))
+  const d = mkdtempTracked(join(tmpdir(), 'clwriting-chain-book-'))
   dirs.push(d)
   return d
 }

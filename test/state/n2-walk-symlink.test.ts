@@ -6,7 +6,7 @@
  * 正文区 symlink 环 → RangeError 崩进门。统一后：环被剪枝、书外 symlink 不跟随。
  */
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, symlinkSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { detectState } from '../../src/state/state.js'
@@ -15,12 +15,13 @@ import { readManifest, writeManifest, upsertEntry } from '../../src/document/man
 import { generateDocId } from '../../src/document/stable-id.js'
 import { computeRevision } from '../../src/document/revision.js'
 import type { BookConfig } from '../../src/format/types.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const SHORT_CONFIG: BookConfig = { ...DEFAULT_CONFIG, kind: 'short', book: { title: '夜语集', genre: '悬疑' } }
 
 /** 干净短篇集仓库（无布线 → detectState 全程走本地 walk，不再经 rebuild walkChapters 兜底）。 */
 function makeShortBook(): string {
-  const root = mkdtempSync(join(tmpdir(), 'n2-walk-'))
+  const root = mkdtempTracked(join(tmpdir(), 'n2-walk-'))
   writeBookConfig(join(root, 'book.yaml'), SHORT_CONFIG)
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '工作区'), { recursive: true })
@@ -62,7 +63,7 @@ test.skipIf(process.platform === 'win32')('N2: 正文区指向书外的 symlink 
   const root = makeShortBook()
   finalizePiece(root, 1)
   // 书外目录放一个高章号章（旧实现跟随 symlink 整读 → maxFileNameChapter 抬到 9）
-  const outside = mkdtempSync(join(tmpdir(), 'n2-outside-'))
+  const outside = mkdtempTracked(join(tmpdir(), 'n2-outside-'))
   writeFileSync(join(outside, '009-外链.md'), '---\n章号: 9\n标题: 外链\n---\n书外内容', 'utf-8')
   symlinkSync(join(outside, '009-外链.md'), join(root, '写作', '正文', '009-外链.md'))
   const d = detectState(root, SHORT_CONFIG)

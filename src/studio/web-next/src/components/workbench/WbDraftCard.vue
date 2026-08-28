@@ -8,7 +8,11 @@ import { useWorkbenchStore } from '../../stores/workbench'
 import { countWords } from '../../shared/words' // R64-33：字数与编辑器头/右栏同源（码点+剥标记）
 import BetaBadge from '../ui/BetaBadge.vue'
 
-defineProps<{ draftSaved: { path?: string; words: number } | null }>()
+defineProps<{
+  draftSaved: { path?: string; words: number } | null
+  /** 存草稿在途（R73-63）：父层 onSaveDraft 在途锁的可视面——禁按钮 + 文案反馈，挡双击重复提交 */
+  saving?: boolean
+}>()
 const emit = defineEmits<{ save: [] }>()
 const wb = useWorkbenchStore()
 const draftWords = computed(() => countWords(wb.textOut))
@@ -22,9 +26,10 @@ const draftWords = computed(() => countWords(wb.textOut))
     </div>
     <pre class="draft-preview">{{ wb.textOut || '（无正文，点「生成」开始）' }}</pre>
     <div class="draft-actions">
-      <!-- F4（五十九轮）：断连重连水印期间禁存——textOut 可能残缺，禁按钮 + 明示原因 -->
-      <button class="btn primary" :disabled="!wb.textOut.trim() || wb.textIncomplete" @click="emit('save')">
-        存草稿并编辑
+      <!-- F4（五十九轮）：断连重连水印期间禁存——textOut 可能残缺，禁按钮 + 明示原因；
+           R73-63：存草稿在途同样禁存（父层在途锁） -->
+      <button class="btn primary" :disabled="!wb.textOut.trim() || wb.textIncomplete || saving" @click="emit('save')">
+        {{ saving ? '存草稿中…' : '存草稿并编辑' }}
       </button>
       <span v-if="wb.textIncomplete" class="muted incomplete">重连同步中，正文可能不完整</span>
       <span v-if="draftSaved" class="muted"><CircleCheck :size="12" /> {{ draftSaved.words }} 字已存</span>

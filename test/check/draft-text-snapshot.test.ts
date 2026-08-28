@@ -8,11 +8,12 @@
  * chapter/body 取快照而非盘上文件。
  */
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readDraft } from '../../src/format/draft.js'
 import { runCheckForDocument } from '../../src/check/run.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const FM1 = '---\n章号: 1\n标题: 盘上版\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n'
 const FM2 = '---\n章号: 2\n标题: 快照版\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n'
@@ -31,7 +32,7 @@ test('readDraft(path, content) 按预读文本解析——文件不存在也成�
 })
 
 test('runCheckForDocument opts.draftText → chapter/body 取快照（盘上文件被另一版本覆盖也不串拍）', () => {
-  const bookRoot = mkdtempSync(join(tmpdir(), 'clwriting-r63-7-check-'))
+  const bookRoot = mkdtempTracked(join(tmpdir(), 'clwriting-r63-7-check-'))
   const draftPath = join(bookRoot, '0001-盘上版.md')
   try {
     writeFileSync(join(bookRoot, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 快照书\nhost: cc\nleads:\n  enabled: []\n', 'utf8')

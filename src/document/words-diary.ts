@@ -74,6 +74,13 @@ interface WordsDeltaEntry {
 /**
  * 记一次保存的字数增量（save settled 时调）。
  * delta 可正可负（删减内容）；append 一行到 `项目/字数日记.jsonl`。
+ *
+ * R73-45（二十一轮·裁定维持不加锁）：appendFileSync 以 O_APPEND 语义打开——单次
+ * write() 的「定位 + 写入」内核级原子，双进程并发 append 最多乱序、不会行内交错或
+ * 互相覆盖（本条目序列化后 < 200 字节，远低于任何文件系统的原子写上限）；唯一损失
+ * 形态是崩溃半写截断末行，读侧（readBaseline/readTodayDelta）逐行容错跳过坏行，
+ * 单行损失仅影响当日字数统计的个位精度——统计口径本就是「今日字数基线方案」的近似
+ * （§5.4 精度限制已认）。加锁反而给每次保存平添一次锁文件创建/删除开销。
  */
 export function appendWordsDelta(
   bookRoot: string,

@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs'
+import { mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { writeChapter } from '../helpers/chapter.js'
@@ -10,6 +10,7 @@ import {
   scanShortCollection,
 } from '../../src/metrics/short-index.js'
 import type { PieceList } from '../../src/format/types.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 function makePiece(root: string, num: number, title: string, opts: {
   emotion: string
@@ -53,7 +54,7 @@ function makePiece(root: string, num: number, title: string, opts: {
 }
 
 test('scanShortCollection: 扫正文与清单生成短篇集索引', () => {
-  const root = mkdtempSync(join(tmpdir(), 'short-index-'))
+  const root = mkdtempTracked(join(tmpdir(), 'short-index-'))
   try {
     makePiece(root, 1, '雪夜', {
       emotion: '惊悚',
@@ -81,7 +82,7 @@ test('scanShortCollection: 扫正文与清单生成短篇集索引', () => {
 })
 
 test('analyzeShortCollection: 最近重复与全书重复会出风险', () => {
-  const root = mkdtempSync(join(tmpdir(), 'short-index-'))
+  const root = mkdtempTracked(join(tmpdir(), 'short-index-'))
   try {
     for (let i = 1; i <= 3; i++) {
       makePiece(root, i, `雪夜${i}`, {
@@ -104,7 +105,7 @@ test('analyzeShortCollection: 最近重复与全书重复会出风险', () => {
 })
 
 test('analyzeShortCollection: 输出平台画像、策划分布与弱反转评分', () => {
-  const root = mkdtempSync(join(tmpdir(), 'short-index-weak-'))
+  const root = mkdtempTracked(join(tmpdir(), 'short-index-weak-'))
   try {
     mkdirSync(join(root, '写作', '正文', '第一卷'), { recursive: true })
     writeChapter(join(root, '写作', '正文', '第一卷', '001-薄反转.md'), {
@@ -142,7 +143,7 @@ test('analyzeShortCollection: 输出平台画像、策划分布与弱反转评�
 })
 
 test('analyzeShortCollection: 画像目标分布会提示缺口，清单质量校验正文锚点与回收链路', () => {
-  const root = mkdtempSync(join(tmpdir(), 'short-index-targets-'))
+  const root = mkdtempTracked(join(tmpdir(), 'short-index-targets-'))
   try {
     makePiece(root, 1, '雪夜', {
       emotion: '惊悚',
@@ -169,7 +170,7 @@ test('analyzeShortCollection: 画像目标分布会提示缺口，清单质量�
 })
 
 test('formatShortSubmissionView: 生成投稿视图含平台模板与策划分布', () => {
-  const root = mkdtempSync(join(tmpdir(), 'short-guidance-'))
+  const root = mkdtempTracked(join(tmpdir(), 'short-guidance-'))
   try {
     for (let i = 1; i <= 3; i++) {
       makePiece(root, i, `雪夜${i}`, {
