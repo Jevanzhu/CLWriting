@@ -102,6 +102,11 @@ vi.mock('electron', () => {
     closed = false
     loaded: string[] = []
     maximized = false
+    // J5（win 菜单栏隐藏）：Electron 默认可见，记录 main.ts 的显式隐藏调用供断言
+    menuBarVisibility = true
+    setMenuBarVisibility(visible: boolean): void {
+      this.menuBarVisibility = visible
+    }
     constructor(opts: Record<string, any>) {
       this.opts = opts
       this.webContents = new FakeWebContents(this)
@@ -367,6 +372,12 @@ describe('kk-P2-8：主进程启动链（安全配置 / CSP / 内嵌 server）',
     expect(String(wp.preload)).toMatch(/preload\.cjs$/)
     // 资源项：纯中文应用关 Hunspell 词典（每渲染进程几 MB 常驻 + 按键路径开销）
     expect(wp.spellcheck).toBe(false)
+  })
+
+  it('win 菜单栏隐藏（2026-08-29 作者指令「外观向 mac 靠齐」）：autoHideMenuBar 仅 win 置真且初始不可见——mac 菜单在系统栏、窗口内本无此行', () => {
+    const w = mainWin()
+    expect(w.opts.autoHideMenuBar).toBe(process.platform === 'win32')
+    if (process.platform === 'win32') expect(w.menuBarVisibility).toBe(false)
   })
 
   it('纵深防御：will-navigate 阻断 + 弹新窗拒绝', () => {

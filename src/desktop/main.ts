@@ -332,6 +332,10 @@ function createSecureWindow(opts: BrowserWindowConstructorOptions): BrowserWindo
   const win = new BrowserWindow({
     titleBarStyle: 'hiddenInset',
     backgroundColor: '#f5f5f5',
+    // win 体验面（2026-08-29 作者指令「外观向 mac 靠齐」）：win 无系统级菜单栏，应用菜单
+    // 在标题栏下自成一行——隐藏之，Alt 临时唤出。菜单仍挂载（setApplicationMenu 不动），
+    // 加速器（Ctrl+N 新建 / Ctrl+E 导出 / undo/redo 等）不受影响；mac 菜单在系统栏无此行。
+    autoHideMenuBar: process.platform === 'win32',
     ...opts,
     webPreferences: {
       contextIsolation: true,
@@ -344,6 +348,8 @@ function createSecureWindow(opts: BrowserWindowConstructorOptions): BrowserWindo
       ...opts.webPreferences,
     },
   })
+  // autoHideMenuBar 只保证 Alt 可唤出；初始态再显式隐藏一次（防平台默认差异）
+  if (process.platform === 'win32') win.setMenuBarVisibility(false)
   // 纵深防御：禁止导航外部 URL + 禁止弹新窗口（contextIsolation+sandbox 已降险，此为兜底，
   // 防 CSP 被 XSS 绕过后子窗口被导航到外部）
   win.webContents.on('will-navigate', (e) => e.preventDefault())
