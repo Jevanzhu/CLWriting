@@ -4,6 +4,7 @@ import { Trash2, RotateCcw, AlertCircle } from 'lucide-vue-next'
 import { useTreeStore } from '../../stores/tree'
 import { useUiStore } from '../../stores/ui'
 import { listTrash, restoreTrash, purgeTrash, type TrashEntry } from '../../api/documents'
+import { ApiError } from '../../api/client'
 import { friendlyError } from '../../shared/error'
 
 // 回收站面板：严格仿章节树叶子行样式（dot-slot + label + hover 操作按钮）。
@@ -33,12 +34,23 @@ async function load(): Promise<void> {
     err.value = friendlyError(e)
   }
 }
+// R71-32（七十一轮）：恢复在途锁（acting 同款）——restore 此前无防重，双击第二笔
+// 必 404（条目已被第一笔恢复），旧口径 catch 置 err 会把「实际已恢复成功」的整个
+// 列表换成错误态；锁挡第二笔，迟到的 404 也按已恢复静默处理
+const restoring = ref<string | null>(null)
 async function restore(id: string): Promise<void> {
+  if (restoring.value) return // 在途锁：双击第二笔直接忽略
+  restoring.value = id
   try {
     await restoreTrash(props.bookName, id)
     await Promise.all([load(), tree.load(props.bookName)])
   } catch (e) {
-    err.value = friendlyError(e)
+    // 404/NOT_FOUND：条目已恢复（双击竞态）或已不在回收站——静默，load 刷新即对齐
+    if (e instanceof ApiError && (e.status === 404 || e.code === 'NOT_FOUND')) return
+    // R71-32：恢复失败收敛为 toast——列表数据本身无恙，不再整体覆盖成错误态
+    ui.toast(friendlyError(e), 'error')
+  } finally {
+    restoring.value = null
   }
 }
 async function purge(id: string): Promise<void> {

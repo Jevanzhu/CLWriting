@@ -13,9 +13,11 @@ export default defineConfig({
   workers: 1,
   // R65-59（F-3）：CI 上拒绝 test.only——与 vitest 侧同款运行期兜底
   forbidOnly: !!process.env.CI,
-  // R65-62（F-8）：CI 上失败重试 1 次——无头/共享 workDir 的偶发抖动不放大为红灯，
-  // 本地不重试（保留抖动可见性便于排查）
-  retries: process.env.CI ? 1 : 0,
+  // R71-38（总七十一轮）：改死 retries: 0（撤 R65-62 的 CI 重试 1 次）——e2e 共享单一
+  // 临时 workDir 的顺序契约（前序 spec 落盘是后序输入，E2E_SPEC_ORDER_SNAPSHOT 守卫
+  // 保护）下，CI 重试会重放失败 spec 的副作用：洗绿失败的同时可能污染下游 spec 的
+  // 输入。偶发 flake 将直接红、需人工重跑——这是顺序契约下的正确取舍
+  retries: 0,
   timeout: 30_000,
   expect: { timeout: 10_000 },
   use: {

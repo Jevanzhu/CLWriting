@@ -473,11 +473,15 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
       //（self-heal promptFiles）同口径：记 hash+chars+files，不落 prompt 全文
       promptFiles: deps.promptFiles,
       ctrl: state.ctrl,
-      // M-1（第八轮）：owner='chat'——driver 分槽防跨编排抢占（此前单槽「换新先 abort
-      // 旧」会掐断在途写稿）。R69-11（十七轮）注释校准：chat 与 self-heal/spawn 的并发
+      // M-1（第八轮）：owner='chat:<book>'——driver 分槽防跨编排抢占（此前单槽「换新先
+      // abort 旧」会掐断在途写稿）。R69-11（十七轮）注释校准：chat 与 self-heal/spawn 的并发
       // 由入口互斥闸管（stream.ts chat.send/regenerate 对写稿在途 409，R-9），本处不承
       // 担并发许可；下方 AI_GEN_TOOLS/write_chapter 闸是工具层二道防线。
-      register: (c) => opts.driver.registerCtrl?.(opts.mainSession, c, 'chat'),
+      // R71-19（十九轮）：owner 带书维度——sendChatMessage 锁按书分键（chat.ts running
+      // map），两本书共享同一 mainSession 的形态下，后书对话注册同 owner 'chat' 触发
+      // P2-6「换新先 abort 旧」掐断前书在途 ctrl。`chat:<bookName>` 分槽后跨书并发
+      // 互不抢占；同书 turns 与 finish 同槽同 ctrl，幂等 no-op 不变。
+      register: (c) => opts.driver.registerCtrl?.(opts.mainSession, c, `chat:${opts.bookName}`),
       onReset: () => emit(opts, { type: 'chat_reset' }),
       // P1-R3：provider 429/5xx 重试时推 warning（与 self-heal.ts:496 对齐，Bug C 同类补齐）
       onRetry: (attempt, error) =>

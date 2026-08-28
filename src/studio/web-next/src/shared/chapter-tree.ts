@@ -7,10 +7,24 @@
 import type { TreeNode } from '../types/tree'
 import { parseChapterFileName } from './words'
 
-/** 名称校验（原 FileTree.sanitizeName）：空/含路径分隔符/点开头/控制字符 → null。 */
+/** Windows 保留设备名（大小写不敏感）：主文件名命中即不可建（CON.md 在 Win 侧同样非法）。
+ *  COM1-9 / LPT1-9 为串并口设备名系列；不含 console（普通词，非保留名）。 */
+const WINDOWS_RESERVED_NAMES = new Set([
+  'con', 'prn', 'aux', 'nul',
+  'com1', 'com2', 'com3', 'com4', 'com5', 'com6', 'com7', 'com8', 'com9',
+  'lpt1', 'lpt2', 'lpt3', 'lpt4', 'lpt5', 'lpt6', 'lpt7', 'lpt8', 'lpt9',
+])
+
+/** 名称校验（原 FileTree.sanitizeName）：空/含路径分隔符/点开头/控制字符 → null。
+ *  R71-30（七十一轮）：补 Windows 保留设备名拒收——书库目录可被 Windows 端同步/打开，
+ *  保留名文件在 Win 不可建，落盘后跨端同步即失败；匹配主文件名（首个点前段，
+ *  与 Win 实际语义对齐）：CON.md / Com1.tar.md 的主文件名均命中。 */
 export function sanitizeName(value: string): string | null {
   const v = value.trim()
   if (!v || /[\/\\]/.test(v) || v.startsWith('.') || /[\x00-\x1f]/.test(v)) return null
+  // R71-30：保留名比对主文件名段（con.tar.md 的主文件名是 con），小写比对大小写不敏感
+  const stem = v.split('.')[0]!.toLowerCase()
+  if (WINDOWS_RESERVED_NAMES.has(stem)) return null
   return v
 }
 

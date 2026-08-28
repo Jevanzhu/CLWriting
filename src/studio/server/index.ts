@@ -233,10 +233,16 @@ export function startServer(opts: StudioServerOptions): http.Server {
         }
         // 版本档案目录迁移：工作区/.snapshots → 工作区/.版本（幂等，旧目录不存在 no-op）
         migrateVersionsDir(bookPath)
+        // 伏笔迁移：大纲/伏笔/ → 设定/伏笔/（幂等，旧目录不存在 no-op）
+        // R71-14（总七十一轮）：必须在 migrateFinalizedRevisions **之前**——
+        // migrateLayoutV2 的清单路径改写已把 大纲/伏笔/* 指到 设定/伏笔/*，但物理
+        // 文件靠本函数搬；若定稿基线先跑，伏笔 entry 对 设定/伏笔/* existsSync 落空
+        // 被跳过，且幂等闸（任一 document entry 已有基线→整书跳过）此后不再补——
+        // git 时代书的伏笔永久缺定稿基线。两函数无相互依赖（本函数不读 manifest，
+        // finalize 不碰磁盘搬迁），调序安全
+        migrateLegacyForeshadows(bookPath)
         // 定稿基线迁移：旧 git 书库 clean→final / dirty→revision / untracked→draft（幂等）
         migrateFinalizedRevisions(bookPath)
-        // 伏笔迁移：大纲/伏笔/ → 设定/伏笔/（幂等，旧目录不存在 no-op）
-        migrateLegacyForeshadows(bookPath)
       } catch (e) {
         noticeOrLog('migrate-layout', `${book.path} 启动迁移失败（已跳过该书，不影响其他书）：${e instanceof Error ? e.message : String(e)}`, e)
       }

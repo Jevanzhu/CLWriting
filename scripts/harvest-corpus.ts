@@ -26,6 +26,7 @@ import { listVersions, readVersion, VERSIONS_DIR_NAME } from '../src/document/ve
 import { runAllChecks } from '../src/check/runner.js'
 import { rebuild } from '../src/cache/rebuild.js'
 import { DEFAULT_IMAGERY_WORDS } from '../src/check/imagery-seed.js'
+import { bodyOf } from '../src/format/frontmatter-core.js'
 
 const bookRoot = process.argv[2]
 if (!bookRoot || !existsSync(bookRoot)) {
@@ -38,11 +39,6 @@ const hasWiring = existsSync(join(bookRoot, '布线'))
 
 // 有布线的书需要 db（账本检查）——rebuild 一次拿现行索引
 let db: DatabaseSync | null = null
-if (hasWiring) {
-  const cachePath = join(bookRoot, '.cache', 'index.db')
-  rebuild(bookRoot, cachePath)
-  db = new DatabaseSync(cachePath, { readOnly: true })
-}
 
 /** 命中词提取：message 里的「」/『』/“”引号片段（禁词/意象/复读等检查项带）
  *  + 「词×N」形态（身体部位/比喻等堆砌类 message：`眼睛×6`）。两形态都覆盖，
@@ -80,6 +76,13 @@ let failedSnapshots = 0
 let firstSnapshotError: string | null = null
 
 try {
+  // R71-34（总七十一轮）：rebuild/开库移入 try/finally——此前在 try 外，BEGIN busy/
+  // 磁盘故障裸栈崩穿（不走 finally 收尾）；db 由 finally 统一 close
+  if (hasWiring) {
+    const cachePath = join(bookRoot, '.cache', 'index.db')
+    rebuild(bookRoot, cachePath)
+    db = new DatabaseSync(cachePath, { readOnly: true })
+  }
   const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
   const versionsDir = join(bookRoot, '工作区', VERSIONS_DIR_NAME)
   const { chapters } = readChapterDir(join(bookRoot, '写作', '正文'))
@@ -102,21 +105,25 @@ try {
     for (const v of versions) {
       const fr = readVersion(versionsDir, docId, v.id)
       if (fr?.meta.pinned && fr.meta.origin === 'finalize') {
-        finalBody = fr.content.replace(/^---[\s\S]*?---\n?/, '')
+        // R71-34：剥 fm 统一走 bodyOf（frontmatter-core，BOM/CRLF 口径）——替代手写正则
+        finalBody = bodyOf(fr.content)
         break
       }
     }
-    if (finalBody === null) finalBody = readFileSync(ch._path, 'utf8').replace(/^---[\s\S]*?---\n?/, '')
+    if (finalBody === null) finalBody = bodyOf(readFileSync(ch._path, 'utf8'))
     for (const v of versions) {
       const r = readVersion(versionsDir, docId, v.id)
       if (!r || !r.content.trim()) continue
+      // R71-34：机检输入与幸存者基准统一剥 fm——此前被检文本带 fm 而基准剥了，
+      // fm 独有命中词（章号/标题等元数据）会被误判「定稿仍出现 ⇒ 幸存（误报候选）」
+      const checkedBody = bodyOf(r.content)
       try {
         const report = runAllChecks({
           ...(db ? { db } : {}),
           bookRoot,
           config,
           chapter: ch,
-          body: r.content,
+          body: checkedBody,
           fileName: basename(ch._path),
         })
         for (const item of report.sections.flatMap((s) => s.items)) {
@@ -128,7 +135,7 @@ try {
               chapter: ch.章号,
               keyword: kw,
               verdict: survived ? '幸存（定稿未改，大概率误报）' : '被改掉（作者认可命中）',
-              excerpt: excerptAround(r.content, kw),
+              excerpt: excerptAround(checkedBody, kw),
               versionId: v.id,
               versionOrigin: r.meta.origin,
             })

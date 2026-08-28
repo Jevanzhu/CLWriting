@@ -120,9 +120,10 @@ describe('低-1（第十轮）：checkpoint 摘要 registerCtrl 的 owner 分槽
 
     // 压缩确实发生（否则 register 次数断言无意义）：历史被摘要替换后远小于 22 条
     expect(histories.get(BOOK)!.length).toBeLessThan(22)
-    // 轮循环 1 次 + 摘要 1 次，全部带 'chat' owner——修复前摘要调用 owner=undefined 落 '' 槽
+    // 轮循环 1 次 + 摘要 1 次，全部带 `chat:<book>` owner——修复前摘要调用 owner=undefined
+    // 落 '' 槽；R71-19 前为无书维度 'chat'（跨书共享 session 时互相抢占）
     expect(regs.length).toBeGreaterThanOrEqual(2)
-    expect(regs.every((r) => r.owner === 'chat')).toBe(true)
+    expect(regs.every((r) => r.owner === `chat:${BOOK}`)).toBe(true)
     // 摘要 register 与轮循环是同一个编排级 ctrl：同槽幂等 no-op，绝不自 abort
     expect(regs[0]!.ctrl).toBe(regs.at(-1)!.ctrl)
     expect(regs.at(-1)!.ctrl.signal.aborted).toBe(false)
@@ -158,5 +159,31 @@ describe('低-1（第十轮）：checkpoint 摘要 registerCtrl 的 owner 分槽
     expect(chatCtrl.signal.aborted).toBe(false)
     heal.abort()
     expect(chatCtrl.signal.aborted).toBe(false)
+  })
+
+  it('R71-19（十九轮）：跨书 register 同 session 不同槽——后书对话不 abort 前书在途 ctrl', { timeout: 15_000 }, async () => {
+    // 两本书共享同一 mainSession 的形态：owner 带书维度前，后书 register 落同一个
+    // 'chat' 槽触发 P2-6「换新先 abort 旧」，前书在途 ctrl 被静默掐断。
+    const events: DriverEvent[] = []
+    const regs: RegEntry[] = []
+    const slots = new Map<string, AbortController>()
+    const driver = makeRecordingDriver(events, regs, slots)
+    const session = { id: 'ckpt-owner-s', cwd: workDir, closed: false }
+
+    const bookACtrl = new AbortController()
+    driver.registerCtrl!(session, bookACtrl, 'chat:书甲')
+    const bookBCtrl = new AbortController()
+    driver.registerCtrl!(session, bookBCtrl, 'chat:书乙')
+
+    // 分槽并存：后书 register 不 abort 前书；前书 ctrl 可独立寻址中断
+    expect(bookACtrl.signal.aborted).toBe(false)
+    expect(bookBCtrl.signal.aborted).toBe(false)
+    bookACtrl.abort()
+    expect(bookBCtrl.signal.aborted).toBe(false)
+    // 同书换新（同槽）仍保持 P2-6「先 abort 旧」——轮循环/摘要的既定语义
+    const bookANew = new AbortController()
+    driver.registerCtrl!(session, bookANew, 'chat:书甲')
+    expect(bookANew.signal.aborted).toBe(false)
+    expect(regs.map((r) => r.owner)).toEqual(['chat:书甲', 'chat:书乙', 'chat:书甲'])
   })
 })

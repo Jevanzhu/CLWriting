@@ -94,6 +94,11 @@ export function resolveRagDbPath(bookRoot: string): string {
     }
     renameSync(legacyPath, dbPath)
   } catch {
+    // R71-36（总七十一轮）：双进程并发迁移竞态——败者的 rename 撞上胜者已迁移完成时
+    // ENOENT，此前无条件回退 legacyPath 会在旧路径（已被胜者迁走）上让 DatabaseSync
+    // 重新开出空库，跑完会话 + 残留孤儿库。先复查 dbPath：存在 ⇒ 胜者已迁移完成，
+    // 改道用新库；仍不存在才是真未迁移（.cache 建不成等），回退旧路径
+    if (existsSync(dbPath)) return dbPath
     return legacyPath
   }
   // WAL 侧车（崩溃残留的 -wal/-shm）随主库一并迁走——主库已在新路径，侧车留在旧处

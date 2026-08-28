@@ -84,7 +84,12 @@ export const useReviewStore = defineStore('review', () => {
   const verdict = computed<ReviewVerdict | null>(() => envelope.value?.payload.verdict ?? null)
 
   async function setVerdict(name: string, docId: string, approved: boolean): Promise<void> {
+    // R71-27（七十一轮）：入口捕获 opGen——裁决在途切书（clear 推代 + 新文档
+    // loadEnvelope 已回填）后，续体再 loadEnvelope(旧参) 会重新推代反超新书拉取，
+    // 旧书信封串显；await 返回后查代不过直接弃（对齐同文件 run/loadEnvelope 守卫）
+    const gen = opGen
     await runVerdictDoc(name, docId, approved)
+    if (gen !== opGen) return // 在途期间已切书/清空：不再以旧书参数拉信封
     await loadEnvelope(name, docId)
   }
 

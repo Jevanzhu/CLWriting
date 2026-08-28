@@ -9,7 +9,7 @@
  * workDir 由 server 启动时 findWorkDir(cwd) 注入；为 null 时书架空 + 提示（不崩）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { rmSync, renameSync, existsSync, readdirSync, readFileSync } from 'node:fs'
+import { rmSync, renameSync, existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
@@ -351,14 +351,42 @@ export function registerBookRoutes(ctx: BookCtx): void {
       const newPath = bookStoragePath(newName, entry.kind)
       const newRoot = join(ctx.workDir, newPath)
       const folderMove = newRoot !== oldRoot
+      // R71-8（总七十一轮）：纯大小写改名（同名不同大小写）在大小写不敏感 FS（mac/win）
+      // 上 newRoot 与 oldRoot 是**同一物理目录**——renameSync 前的目录冲突检查
+      // existsSync(newRoot) 恒真且目录必非空 → 恒 400「已存在且非空」。判定依据
+      // 「目标词法路径已存在 + 与源目录是同一物理目录（dev+inode 相等；macOS realpath
+      // 保留输入大小写、字符串比对不可用；源不存在 = 登记与盘大小写已分歧的存量书，
+      // 同样原位自愈）」：大小写不敏感 FS 命中同一目录（走原位改名——不搬目录，只改
+      // 登记名/path/title 等注册面）；大小写敏感 FS 上新名是另一独立目录时 inode 不等
+      // → 不进原位分支，照常 400 拒（不误吞他目录）
+      const caseOnly =
+        folderMove &&
+        newName !== oldName &&
+        newName.toLowerCase() === oldName.toLowerCase() &&
+        existsSync(newRoot) &&
+        (() => {
+          if (!existsSync(oldRoot)) return true // 登记名大小写与盘分歧——newRoot 即本书目录
+          try {
+            const a = statSync(oldRoot)
+            const b = statSync(newRoot)
+            return a.dev === b.dev && a.ino === b.ino
+          } catch {
+            return false // stat 失败（EACCES 等）→ 不赌，走既有冲突检查
+          }
+        })()
 
       // 重名冲突（排除自身）；目录级冲突只在真正要移动目录时检查
       if (readBooks(ctx.workDir).some((b) => b.name === newName && b.name !== oldName)) {
         replyError(res, 400, 'BAD_INPUT', `已有一本叫「${newName}」的书，换个名字`)
         return
       }
-      if (folderMove && existsSync(newRoot) && readdirSync(newRoot).length > 0) {
-        replyError(res, 400, 'BAD_INPUT', `目录「${newName}」已存在且非空，换个名字`)
+      // R71-12（总七十一轮）：改名目标目录存在即拒（原先只拒非空）——空目录在 POSIX
+      // 上被 renameSync 原子替换成功、Windows 上报 EPERM/EEXIST → 跨平台行为分叉且
+      // win 落 500。统一「存在即拒」（R71-8 的纯大小写分支 newRoot 即 oldRoot 同一
+      // 目录，须先判 caseOnly 再到此处，避免误拒）
+      if (folderMove && !caseOnly && existsSync(newRoot)) {
+        const nonEmpty = readdirSync(newRoot).length > 0
+        replyError(res, 400, 'BAD_INPUT', `目录「${newName}」已存在${nonEmpty ? '且非空' : '（空目录）'}，换个名字`)
         return
       }
 
@@ -417,8 +445,10 @@ export function registerBookRoutes(ctx: BookCtx): void {
       if (readBooks(ctx.workDir).some((b) => b.name === newName && b.name !== oldName)) {
         return replyError(res, 400, 'BAD_INPUT', `已有一本叫「${newName}」的书，换个名字`)
       }
-      if (folderMove && existsSync(newRoot) && readdirSync(newRoot).length > 0) {
-        return replyError(res, 400, 'BAD_INPUT', `目录「${newName}」已存在且非空，换个名字`)
+      // R71-12：目录存在即拒（与入口检查同口径；caseOnly 的 newRoot 即 oldRoot，豁免）
+      if (folderMove && !caseOnly && existsSync(newRoot)) {
+        const nonEmpty = readdirSync(newRoot).length > 0
+        return replyError(res, 400, 'BAD_INPUT', `目录「${newName}」已存在${nonEmpty ? '且非空' : '（空目录）'}，换个名字`)
       }
 
       // dd-P1：先移磁盘目录，成功后才动会话/事件库/缓存——此前 migrateBookSession 先行，
@@ -430,12 +460,18 @@ export function registerBookRoutes(ctx: BookCtx): void {
       if (!resolveWithinRoot(ctx.workDir, entry.path)) {
         return replyError(res, 400, 'BAD_PATH', '书路径非法（越出书库）')
       }
-      try {
-        renameSync(oldRoot, newRoot)
-      } catch (e) {
-        log.error('api', `rename: 改目录名失败（${oldName} → ${newName}）`, e)
-        replyError(res, 500, 'IO', '改目录名失败')
-        return
+      // R71-8：纯大小写改名走「同目录原位」——不 renameSync（目标即源目录本身），直接
+      // 进下方注册面同步（事件库按 bookHash(oldRoot)→bookHash(newRoot) 搬库、books.jsonl
+      // 登记/active 指针/book.yaml title/各缓存清理全量照走；盘上目录名保留原大小写，
+      // 大小写不敏感 FS 上登记与盘互访不受影响）
+      if (!caseOnly) {
+        try {
+          renameSync(oldRoot, newRoot)
+        } catch (e) {
+          log.error('api', `rename: 改目录名失败（${oldName} → ${newName}）`, e)
+          replyError(res, 500, 'IO', '改目录名失败')
+          return
+        }
       }
 
       // 清内存对话态 + 迁移事件库（5.1-3：失败不再静默——migrate 返回 false 时源库

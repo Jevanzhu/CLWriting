@@ -398,6 +398,12 @@ export function collectTreeIssues(
         // 只读主文件——归档章实际侧失明，与单章端点统一后此处一并统一）
         leadUpdatesForChapter: scanChapterUpdatesByChapter(bookRoot),
       }
+      // R71-20：写前纪元复核改轮内缓存——原实现每 miss 章重算一次 computeTreeIssuesGlobalFp
+      // （递归 readdir+stat 全输入树），任一全局输入变动清表后全书 miss，数百章书一次聚合
+      // 数百次全树遍历（同步路径性能回退）。循环前算一次比较即可：语义为「本轮聚合窗口内
+      // 纪元与轮首一致才落缓存」——与逐章复核等价且口径更严（原实现窗口内漂移反而引入
+      // 前后章判定不一致的误判空间）。epochFp0 为 null（纪元同步失败、缓存禁用）时不算。
+      const epochFpNow = epochFp0 === null ? null : computeTreeIssuesGlobalFp(bookRoot, userDataPath ?? null)
       for (const ch of chapters) {
         if (!ch._path) continue
         // M-4（第六轮）：同上归一——entryByPath/pathToDocId 的键与 manifest/树同用正斜杠
@@ -468,8 +474,8 @@ export function collectTreeIssues(
         // writeTreeIssuesCache 会把「未检出」固化为假阴性，指纹不变期间红点永久消失、
         // 后续请求直命中坏缓存；不写则下轮重试。verdict 与缓存互不连带。
         // 注意写入的是章作用域 hasRed（不含 leadsBookRed），合并只在展示层发生。
-        // R70-14：窗口内纪元变了则本轮不落缓存（下轮重算）
-        const epochStable = epochFp0 !== null && computeTreeIssuesGlobalFp(bookRoot, userDataPath ?? null) === epochFp0
+        // R70-14：窗口内纪元变了则本轮不落缓存（下轮重算）。R71-20：比较用轮内缓存值
+        const epochStable = epochFp0 !== null && epochFpNow === epochFp0
         if (!checkFailed && cacheEnabled && db && epochStable) writeTreeIssuesCache(db, relPath, chapterSt.mtimeMs, chapterSt.size, verdictFp, { hasRed, verdictRejected })
         const mergedRed = hasRed || leadsBookRed
         if (mergedRed || verdictRejected) issues[docId] = { hasRed: mergedRed, verdictRejected }

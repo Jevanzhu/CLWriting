@@ -5,7 +5,7 @@
 import { ref, computed } from 'vue'
 import { useShelfStore } from '../stores/shelf'
 import { usePrefsStore } from '../stores/prefs'
-import { apiJson } from '../api/client'
+import { apiJson, ApiError } from '../api/client'
 import { deleteBook } from '../api/shelf'
 import { friendlyError } from '../shared/error'
 import { clearFalsePositiveMarks } from '../stores/check'
@@ -197,7 +197,14 @@ export function useShelf(options?: {
     deleting.value = true
     try {
       for (const name of names) {
-        await deleteBook(name)
+        // R71-26（七十一轮）：单书 404/NOT_FOUND 视为已删继续——部分失败后重试时弹窗
+        // 仍带全量名单，已删成功的书再删必 404，照旧上抛会中断循环、剩余书永远删不掉；
+        // 其余错误照旧中断记失败（保留弹窗可重试语义不变）
+        try {
+          await deleteBook(name)
+        } catch (e) {
+          if (!(e instanceof ApiError && (e.status === 404 || e.code === 'NOT_FOUND'))) throw e
+        }
         // R-5（十五轮登记销账）：删书成功即清该书误报灰显键——同名重建书不继承旧灰显
         clearFalsePositiveMarks(name)
       }

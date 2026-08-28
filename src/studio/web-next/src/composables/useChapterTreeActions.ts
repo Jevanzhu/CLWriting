@@ -173,6 +173,9 @@ export function useChapterTreeActions(deps: {
       ui.toast(`已定稿 ${done}/${total} 章${skipped ? `（${skipped} 章已定稿）` : ''}${failed ? `，${failed} 章失败` : ''}`, failed ? 'error' : 'success')
       void tree.load(bookName, true)
     } catch (err) {
+      // R71-28（七十一轮）：catch 补切书复检（对齐 success 分支 R64-2 写法）——批量
+      // 定稿请求失败时若已切书，A 书的失败 toast 会弹在 B 书界面
+      if (deps.bookName() !== bookName) return
       ui.toast(friendlyError(err), 'error')
     }
   }
@@ -300,7 +303,8 @@ export function useChapterTreeActions(deps: {
     if (!c) return
     const name = sanitizeName(value)
     if (!name) {
-      deps.openError.value = '名称不能为空，或含 / \\ 或以 . 开头'
+      // R71-30（七十一轮）：文案补 Windows 保留名拒收项（sanitizeName 新增校验段）
+      deps.openError.value = '名称不能为空，或含 / \\ 或以 . 开头，或是 Windows 保留名（CON/NUL/COM1 等）'
       return
     }
     creating.value = null

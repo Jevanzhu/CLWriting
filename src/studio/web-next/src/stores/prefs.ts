@@ -354,10 +354,14 @@ export const usePrefsStore = defineStore('prefs', () => {
   function setPageWidth(v: number, bookOnly = false): void {
     if (bookOnly) {
       bookPageWidth.value = v
-    } else {
-      pageWidth.value = v
-      bookPageWidth.value = null
+      apply()
+      // R71-29（七十一轮）：书级持久化由 workspace watch 写 prefs.json 承担——书级键
+      // 不在 buildCache 内，再 schedulePersist 是纯冗余 PUT global.json（服务端无条件
+      // bump revision → 双窗伪 409）
+      return
     }
+    pageWidth.value = v
+    bookPageWidth.value = null
     apply()
     schedulePersist()
   }
@@ -365,10 +369,11 @@ export const usePrefsStore = defineStore('prefs', () => {
   function setAutosaveInterval(v: number, bookOnly = false): void {
     if (bookOnly) {
       bookAutosaveInterval.value = v
-    } else {
-      autosaveInterval.value = v
-      bookAutosaveInterval.value = null
+      // R71-29：同 setPageWidth——书级持久化归 workspace watch，跳过全局 PUT
+      return
     }
+    autosaveInterval.value = v
+    bookAutosaveInterval.value = null
     schedulePersist()
   }
   function setShelfView(v: 'grid' | 'list'): void {

@@ -134,6 +134,19 @@ function flushOnUnload(): void {
 onMounted(() => window.addEventListener('beforeunload', flushOnUnload))
 onUnmounted(() => window.removeEventListener('beforeunload', flushOnUnload))
 
+// R71-6（七十一轮）：关窗守卫（第二个 beforeunload 监听，与 flush 兜底互不干扰）——
+// 「冲突未决 + dirty」文档的本地修改从未落盘（autosave 跳过 conflict 项、上方
+// flushSyncOnUnload 也跳过），关窗即不可恢复丢失且此前全程静默；切书路径已有 Z-8
+// 确认弹窗拦同一形态，关窗至少 preventDefault 让浏览器原生确认留住作者一念
+function guardConflictOnUnload(e: BeforeUnloadEvent): void {
+  if (doc.conflictedDirtyDocs().length > 0) {
+    e.preventDefault()
+    e.returnValue = '' // 旧 Chrome/Safari 惯例位（preventDefault 之外的兼容）
+  }
+}
+onMounted(() => window.addEventListener('beforeunload', guardConflictOnUnload))
+onUnmounted(() => window.removeEventListener('beforeunload', guardConflictOnUnload))
+
 // Q-9（第十五轮）：自动保存节拍上移 Book 层——此前绑 EditorView 挂载，切到工作台/
 // 总览等视图后编辑器卸载、interval 被清，store 里的 dirty 文档停止自动保存（丢失窗口
 // 超过 autosave 间隔）。扫描逻辑在 doc.autosaveTick（覆盖全部打开文档，非仅当前编辑器）。

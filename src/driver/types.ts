@@ -81,9 +81,10 @@ export interface StudioDriver {
   /** 当前是否有存活的生成(SSE 新连接补发运行态快照用)。可选,mock 可不实现 */
   isRunning?(session: Session): boolean
   /** 登记生成任务的中断控制器——interrupt() 据此 abort 真实请求、isRunning() 据此判在途（P1-2）。
-   *  M-1（第八轮）：owner 标识编排归属（'chat'/'spawn'/'self-heal'）——同 owner 换新保持
+   *  M-1（第八轮）：owner 标识编排归属（'chat:<book>'/'spawn'/'self-heal'）——同 owner 换新保持
    *  「先 abort 旧」（P2-6），跨 owner 并存不互相 abort（chat 问答 × 写稿编排的既定并发）。
-   *  可选,mock 可不实现 */
+   *  R71-19（十九轮）：chat 侧 owner 带书维度（`chat:<bookName>`）——两本书共享 session
+   *  时跨书对话互不抢占；同书摘要与轮循环同槽幂等。可选,mock 可不实现 */
   registerCtrl?(session: Session, ctrl: AbortController, owner?: string): void
   /** 注销中断控制器（生成终态时调）——isRunning 归 false，SSE 快照不再假报「生成中」（X-P2-11）。可选 */
   unregisterCtrl?(session: Session, ctrl: AbortController): void

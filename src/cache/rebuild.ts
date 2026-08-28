@@ -292,11 +292,14 @@ function scanSummaries(
     const st = statSync(fp, { throwIfNoEntry: false })
     if (!st || !st.isFile()) continue
     // 文件名：<章号或卷号>.md
-    const ref = Number(f.replace(/\.md$/, ''))
-    if (!Number.isFinite(ref)) {
+    // R71-37（总七十一轮）：Number() 过宽——`.md`→0、`0x10.md`→16、`1e2.md`→100、
+    // `-3.md`→-3 均 Number.isFinite 入表且不进健康报告；改 /^\d+$/ 严格白名单
+    // （不匹配 → errors.push 计入健康报告，对齐同函数 R62-32 口径）
+    if (!/^\d+$/.test(f.replace(/\.md$/, ''))) {
       errors.push({ file: fp, line: 0, message: `摘要文件名「${f}」不是 <章号或卷号>.md 形式，未入库` })
       continue
     }
+    const ref = Number(f.replace(/\.md$/, ''))
     syncSummary(db, scope, ref, fp)
     count++
   }

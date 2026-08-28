@@ -239,6 +239,30 @@ export function loadProviders(userDataPath: string): ProviderStore {
   // 迁移写回——剥离明文、加密进 vault（§五）
   if (needsRewrite) {
     saveProviders(userDataPath, store)
+    // R71-18：迁移后收敛 bak 明文残留——saveProviders 的 D7 写前备份会把迁移前的明文
+    // 主文件原样拷进 providers.bak.json，用户此后不改配置则明文 Key 在 bak 永久残留
+    // （直到下次 save 才被密文覆盖）。此处迁移写入后重新读回校验（openVault 重开 +
+    // openKey 逐条解密比对明文），通过才用刚落盘的密文内容覆写一次 bak
+    // （atomicWriteFile 与 D7/ee-P2-1 同款 0600+fsync）；校验失败保持 bak 现状
+    // （明文 bak 是恢复通道，下次 saveProviders 自然覆盖）。
+    try {
+      const savedRaw = readFileSync(fp, 'utf8')
+      const saved = JSON.parse(savedRaw) as DiskFormat
+      const savedVault = saved.vault
+      if (savedVault) {
+        const savedDek = openVault(savedVault, builtinKeyMaterial())
+        const roundtripOk = [...providers, ...ragProviders].every((p) => {
+          if (!p.apiKey) return true // 空 key 无密文可校
+          const sealed = savedVault.keys[p.id]
+          return !!sealed && openKey(savedDek, sealed) === p.apiKey
+        })
+        if (roundtripOk) {
+          atomicWriteFile(bakFp, savedRaw, { fsync: true, mode: 0o600 })
+        }
+      }
+    } catch {
+      /* 读回/解密校验失败：bak 保持现状（恢复通道），不向调用方传播 */
+    }
   }
 
   // 更新 mtime 缓存

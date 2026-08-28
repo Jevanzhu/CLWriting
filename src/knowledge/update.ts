@@ -71,13 +71,17 @@ export function summarizeFalsePositives(corpusDir: string): FalsePositiveSummary
     } catch {
       continue // 坏文件跳过：update 是产草稿不是门禁，不因单文件炸整轮
     }
+    // R71-35（总七十一轮）：parse 成功但非数组（手编辑成 `{}` 等）→ 下方 entries.filter
+    // TypeError 崩整轮——对齐「坏文件跳过」注释口径，非数组同样 continue
+    if (!Array.isArray(entries)) continue
     const silent = entries.filter((e) => e.expect === 'silent')
     if (silent.length === 0) continue
     out.push({
       checkId,
       silent: silent.length,
       fire: entries.length - silent.length,
-      excerpts: silent.slice(0, 3).map((e) => e.excerpt),
+      // R71-35：缺 excerpt 的条目被滤——此前落 undefined，草稿渲染成「> undefined」
+      excerpts: silent.filter((e) => typeof e.excerpt === 'string').slice(0, 3).map((e) => e.excerpt),
     })
   }
   return out

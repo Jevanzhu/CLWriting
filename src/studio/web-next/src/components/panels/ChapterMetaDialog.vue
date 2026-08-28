@@ -19,20 +19,23 @@ const emit = defineEmits<{
 
 const titleInput = ref('')
 const noInput = ref('')
+// R70-28（十八轮）：章号非法的字段级反馈——此前静默 return，按钮只禁空值不禁非法值，
+// Enter 提交「看似失灵」无任何提示
+const numError = ref('')
 watch(
   () => props.modelValue,
   (v) => {
     if (v) {
       titleInput.value = props.标题
       noInput.value = props.num === null ? '' : String(props.num)
+      // R71-31（七十一轮）：重开复位错误提示（R70-28 引入面）——置错后取消关闭再开，
+      // numError 残留会让作者误以为新弹窗的章号仍非法
+      numError.value = ''
     }
   },
   { immediate: true },
 )
 
-// R70-28（十八轮）：章号非法的字段级反馈——此前静默 return，按钮只禁空值不禁非法值，
-// Enter 提交「看似失灵」无任何提示
-const numError = ref('')
 function onSave(): void {
   const n = Number(noInput.value)
   // 低-3（第十轮）：章号补整数校验——3.5 这类小数旧口径放行后文件名落成 03.5-…，

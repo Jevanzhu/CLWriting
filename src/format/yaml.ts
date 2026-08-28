@@ -692,7 +692,13 @@ export function setTopSectionKey(raw: string, section: string, key: string, valu
     return lines.join('\n')
   }
   const pad = ' '.repeat(childIndent)
-  const isKeyLine = (l: string): boolean => l === `${pad}${key}:` || l.startsWith(`${pad}${key}: `)
+  // R71-4：键行匹配剥 \r（上方 matchesKeyLine 同口径，Z-7 同族）——CRLF book.yaml 的
+  // 裸键行（`  thresholds:\r`）两条件均不中会被判「键不存在」，替换走插入分支残留
+  // 旧块成重复段
+  const isKeyLine = (l: string): boolean => {
+    const bare = l.endsWith('\r') ? l.slice(0, -1) : l
+    return bare === `${pad}${key}:` || bare.startsWith(`${pad}${key}: `)
+  }
   for (let i = start + 1; i < end; i++) {
     if (isKeyLine(lines[i]!)) {
       lines[i] = keyLine(childIndent)
@@ -749,7 +755,13 @@ export function setSectionKeyBlock(
   }
   const pad = ' '.repeat(childIndent === -1 ? 2 : childIndent)
   if (childIndent !== -1) {
-    const isKeyLine = (l: string): boolean => l === `${pad}${key}:` || l.startsWith(`${pad}${key}: `)
+    // R71-4：键行匹配剥 \r（上方 matchesKeyLine 同口径，Z-7 同族）——CRLF book.yaml 的
+    // 裸键行（`  thresholds:\r`）两条件均不中会被判「键不存在」：删除模式静默丢改
+    // （原样返回）、替换模式在段头后再插一份残留重复块
+    const isKeyLine = (l: string): boolean => {
+      const bare = l.endsWith('\r') ? l.slice(0, -1) : l
+      return bare === `${pad}${key}:` || bare.startsWith(`${pad}${key}: `)
+    }
     for (let i = start + 1; i < end; i++) {
       if (!isKeyLine(lines[i]!)) continue
       // 块体吞并：同缩进 `- ` 列表项（YAML 允许列表与键同列）或更深缩进的内容行

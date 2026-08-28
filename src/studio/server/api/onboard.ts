@@ -24,6 +24,7 @@ import { ONBOARD_SPEC } from '../../../ai/tasks/specs.js'
 import { countWords } from '../../../format/words.js'
 import { bodyOf } from '../../../format/frontmatter.js'
 import { acquireTaskGate, orchestrationBusyFor } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
+import { snapshotBeforeOverwrite } from '../../../process/draft-pipeline.js' // R71-9：覆盖留底单源复用
 import { log } from '../../../log/index.js'
 
 interface OnboardCtx {
@@ -131,6 +132,18 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
 
       const content = result.text || '(空产出)'
       const relPath = STEP_PATH[step]
+      // R71-9（总七十一轮）：覆盖前快照留底——onboard-ai（分钟级）与 onboard-save 的
+      // 闸键不同互不阻挡，AI 生成期间作者手改同一文件，完成后的 atomicWriteFile 直接
+      // 覆盖会静默丢手改（该域此前无版本链）。复用 draft 侧 snapshotBeforeOverwrite
+      // 单源工具（工作区/.版本/<docId>/<ULID>.md，docId 清单反查→legacyId 派生）。
+      // 快照失败不阻断主流程（fail-open 记 log.warn——生成产物不因留底 IO 抖动丢弃）；
+      // 成功经响应 snapshotted 字段留痕
+      let snapshotted = false
+      try {
+        snapshotted = snapshotBeforeOverwrite(bookRoot, relPath, content, 'onboard-ai-overwrite') !== null
+      } catch (e) {
+        log.warn('api', `onboard-ai 覆盖前快照失败（${step}，fail-open 继续落盘）`, e)
+      }
       try {
         mkdirSync(dirname(join(bookRoot, relPath)), { recursive: true })
         atomicWriteFile(join(bookRoot, relPath), content)
@@ -138,7 +151,7 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
         log.error('api', `onboard 落盘失败（${step}）`, e)
         return replyError(res, 500, 'IO', '落盘失败')
       }
-      reply(res, 200, { ok: true, step, path: relPath, words: countWords(bodyOf(content)), content })
+      reply(res, 200, { ok: true, step, path: relPath, words: countWords(bodyOf(content)), content, ...(snapshotted ? { snapshotted: true } : {}) })
     } finally {
       release()
     }

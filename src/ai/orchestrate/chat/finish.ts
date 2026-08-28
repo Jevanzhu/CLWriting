@@ -95,12 +95,14 @@ async function summarizeCheckpoint(
     promptText: promptTextWithPrefix,
     promptFiles, // Z-11：摘要调用与轮循环同源登记（sys 内嵌章正文预览的源）
     ctrl: state.ctrl,
-    // 低-1（第十轮）：补 owner='chat'——对齐第八轮 M-1 的 owner 分槽口径（轮循环
+    // 低-1（第十轮）：补 owner——对齐第八轮 M-1 的 owner 分槽口径（轮循环
     // turns.ts 的 register 同款）。此前漏带 owner 落无主 '' 槽：两本书共享 session 的
     // 形态下，后书的摘要 register 在 '' 槽触发 P2-6「换新先 abort 旧」，掐断前书在途
     // 压缩的 ctrl（摘要失败回落硬截断）。带 owner 后与本轮轮循环同槽同 ctrl（幂等
     // no-op），跨 owner（self-heal/spawn）并发互不影响。
-    register: (c) => opts.driver.registerCtrl?.(opts.mainSession, c, 'chat'),
+    // R71-19（十九轮）：owner 带书维度 `chat:<bookName>`——与 turns.ts 同步，跨书
+    // 分槽互不抢占、同书同槽幂等语义不变。
+    register: (c) => opts.driver.registerCtrl?.(opts.mainSession, c, `chat:${opts.bookName}`),
     onReset: () => emit(opts, { type: 'chat_reset' }),
     onRetry: (attempt, error) =>
       emit(opts, { type: 'warning', message: `历史压缩摘要生成异常（${error}），第 ${attempt + 1} 次重试中…` }),

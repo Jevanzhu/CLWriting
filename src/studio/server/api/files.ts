@@ -10,6 +10,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { basename, sep } from 'node:path'
 import { readFile as readFileAsync } from 'node:fs/promises'
+import { realpathSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { resolveWithinRoot } from '../../../fs/safe-path.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
@@ -165,12 +166,29 @@ function enqueueFilePut(safe: string, critical: () => Promise<FilePutOutcome>): 
  *  await 窗口会「读到旧内容 → atomicWriteFile 直写旧路径 + mkdir recursive 重建目录树」
  *  → 旧书路径残留孤儿文件。删除路径天然免疫（基线 ENOENT → 404 不写），仍一并 drain
  *  求同口径。快照当前键后逐键等待（新进链不等——rename 已过本闸的守卫语义由各端点
- *  自身的 orchestration 排队保证）。 */
+ *  自身的 orchestration 排队保证）。
+ *  R71-10（总七十一轮）：链键是 resolveWithinRoot 返回的口径——目标存在时为 realpath
+ *  （safe-path.ts），目标不存在时为词法 resolve；调用方（books.ts）传入的书根是
+ *  join(workDir, entry.path) 词法口径。workDir 含 symlink 组件（macOS /var→/private/var）
+ *  时词法前缀永不匹配 realpath 键 → drain no-op、R69-25 守卫失效。此处对书根补
+ *  realpath 前缀（失败回退词法），两前缀任一命中即 drain——不改 safe-path.ts 语义。 */
 export async function drainFilePutChainsUnder(bookRoot: string): Promise<void> {
-  const prefix = bookRoot + sep
-  const pending = [...filePutChains.keys()].filter((k) => k.startsWith(prefix))
+  const prefixes = [bookRoot + sep]
+  try {
+    const real = realpathSync(bookRoot)
+    if (real !== bookRoot) prefixes.push(real + sep)
+  } catch {
+    /* 书根不存在（已删）等 → 只用词法前缀（与修复前口径一致） */
+  }
+  const pending = [...filePutChains.keys()].filter((k) => prefixes.some((p) => k.startsWith(p)))
   if (pending.length === 0) return
   await Promise.allSettled(pending.map((k) => filePutChains.get(k)))
+}
+
+/** R71-10：测试观测钩子（对齐 stream.ts __getSseConnections 风格）——当前在途 PUT 链
+ *  键的只读快照（链键口径断言 + drain 等待性测试用；快照时点在途，settle 后自清理）。 */
+export function __filePutChainKeysForTest(): readonly string[] {
+  return [...filePutChains.keys()]
 }
 
 /** S4：写后回指纹——对写入内容直接哈希（盘上即该内容，语义与 hashFile 相同且免二次读盘）。 */

@@ -242,8 +242,17 @@ export function writeActive(workDir: string, name: string): void {
 export function findWorkDir(startDir: string): string | null {
   let dir = resolve(startDir)
   for (;;) {
-    if (existsSync(join(dir, CLWRITING_DIR)) && statSync(join(dir, CLWRITING_DIR)).isDirectory()) {
-      return dir
+    // R71-16（总七十一轮）：existsSync 与 statSync 之间存在窗口——同步盘/并发操作下
+    // .clwriting 恰在两次调用之间被移走时 statSync 裸抛 ENOENT 炸穿整个上溯（对齐
+    // init.ts R62-39 同型口径）；按不存在继续上溯
+    if (existsSync(join(dir, CLWRITING_DIR))) {
+      try {
+        if (statSync(join(dir, CLWRITING_DIR)).isDirectory()) {
+          return dir
+        }
+      } catch {
+        // 竞态消失/EACCES 等 stat 失败：视为此处没有 .clwriting，继续上溯
+      }
     }
     const parent = dirname(dir)
     if (parent === dir) return null // 到根了

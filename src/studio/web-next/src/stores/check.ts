@@ -63,6 +63,10 @@ export const useCheckStore = defineStore('check', () => {
       report.value = r.report
       hasRed.value = r.hasRed
       lastDocId.value = docId
+      // R71-5（七十一轮）：新报告落位即在途标记态复位——flag 在途时 run 推代（flag 只
+      // 快照不推进），迟到的 finally 查代不过会让 flagging 停留旧报告的 checkId，误报
+      // 按钮永久禁用直到切文档；此处直接复位（对齐 R-1 修 loading 的思路，双保险）
+      flagging.value = null
       // M-1：灰显态从 localStorage 按书+文档回填（刷新后已标误报仍灰显）
       flagged.value = loadFlagged(name, docId)
       flagError.value = null
@@ -112,7 +116,9 @@ export const useCheckStore = defineStore('check', () => {
       if (gen !== opGen) return
       flagError.value = friendlyError(e)
     } finally {
-      if (gen === opGen) flagging.value = null
+      // R71-5（七十一轮）：归属制清除（不依赖代数）——查代制在「flag 在途 + run 推代」
+      // 时永不清（gen 是 flag 入口快照，run 已推代必不等），flagging 卡死禁用误报按钮
+      if (flagging.value === checkId) flagging.value = null
     }
   }
 

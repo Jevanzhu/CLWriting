@@ -392,6 +392,20 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     if (isChatRunning(bookName)) {
       return replyError(res, 409, 'BUSY', '本书对话进行中，先等它结束或中断再手动写稿')
     }
+    // R71-1（总七十一轮）：生成任务闸反向互斥——对齐 /chat（R70-5）与删书/改名 busyGate
+    // 口径：outline/lead-updates/onboard-ai/analyze 等分钟级任务在途时再 /spawn，写手
+    // 草稿与任务收尾的覆盖写（细纲.md/账本推进.md 等上下文注入源）互相踩踏
+    {
+      const held = heldTaskGatesFor(bookName)
+      if (held.length > 0) {
+        return replyError(res, 409, 'BUSY', `本书有任务在跑（${held.join('、')}），先等它完成或中断再手动写稿`)
+      }
+    }
+    // R71-1：三审运行闸反向互斥（isReviewRunningForBook，同 busyGate 引用）——三审分钟级
+    // 在途时 /spawn 覆写正文，审稿单的 draft_hash 守卫（R61-13）必然失配
+    if (isReviewRunningForBook(bookName)) {
+      return replyError(res, 409, 'BUSY', '本书三审进行中，先等它完成后再手动写稿')
+    }
     holdSpawnGate(bookName)
     let launched = false
     try {
@@ -530,6 +544,15 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     }
     if (isSpawnRunning(bookName)) {
       return replyError(res, 409, 'BUSY', '本书正在手动写稿，先等它跑完或中断再自动写章')
+    }
+    // R71-2（总七十一轮）：任务闸复检（对齐 /chat 的 R70-5 复检口径）——readJson +
+    // ensureSession 两个 await 的窗口内新 acquire 的生成任务闸（分钟级）在此拦截，
+    // 否则 self-heal 收尾覆盖写 细纲.md/账本推进.md 时与任务产出互踩
+    {
+      const held = heldTaskGatesFor(bookName)
+      if (held.length > 0) {
+        return replyError(res, 409, 'BUSY', `本书有任务在跑（${held.join('、')}），先等它完成或中断再自动写章`)
+      }
     }
     const driver = getDriver()
     // Z-P2-5：self-heal 的 ctrl 登记 driver（与 /spawn 的 runWriterSpawn 同款接线）——

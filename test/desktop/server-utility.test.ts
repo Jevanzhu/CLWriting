@@ -84,8 +84,10 @@ function mkParsed(over: Partial<ParsedServerArgs> = {}): ParsedServerArgs {
 }
 
 function flush(times = 6): Promise<void> {
+  // R71-13：exit 改 setImmediate 调度后，纯 queueMicrotask 轮不触达 check 阶段——
+  // flush 改为 setImmediate 轮次（每轮间微任务照常先排空，原有断言时序不受影响）
   let p = Promise.resolve()
-  for (let i = 0; i < times; i++) p = p.then(() => new Promise<void>((r) => queueMicrotask(r)))
+  for (let i = 0; i < times; i++) p = p.then(() => new Promise<void>((r) => setImmediate(r)))
   return p
 }
 
@@ -166,6 +168,39 @@ describe('批 U2：runUtilityEntry 握手与 shutdown 指令', () => {
     await flush()
     expect(h.shutdownCalls).toHaveLength(0)
     expect(exitSpy).not.toHaveBeenCalled()
+  })
+
+  // R71-13（总七十一轮）：boot-error / shutdown-done 回执后不得同步 exit——同步退出会
+  // 截断 postMessage 的跨进程投递；退出必须让出至少一个事件循环轮次（setImmediate）。
+  // 回归锚：老实现（回执后同步 process.exit）在微任务排空后 exit 已被调用 → 本用例红。
+  it('R71-13: boot-error 回执已发而事件循环未让出轮次时不退出——exit 推迟到 setImmediate 轮', async () => {
+    h.bootBehavior = 'error'
+    const port = new FakeParentPort()
+    runUtilityEntry(port, mkParsed())
+    // 只排空微任务（boot 回调经 queueMicrotask 到达）：回执应在场，exit 尚未发生
+    let p = Promise.resolve()
+    for (let i = 0; i < 6; i++) p = p.then(() => new Promise<void>((r) => queueMicrotask(r)))
+    await p
+    expect(port.posted.at(-1)).toMatchObject({ type: 'boot-error' })
+    expect(exitSpy).not.toHaveBeenCalled() // 同步 exit 形态在此即已调用（回归断言点）
+    // 让出 macrotask 轮次（check 阶段）后才退出
+    await new Promise<void>((r) => setImmediate(r))
+    expect(exitSpy).toHaveBeenCalledWith(1)
+  })
+
+  it('R71-13: shutdown-done 回执后 exit(0) 同样推迟到 setImmediate 轮', async () => {
+    const port = new FakeParentPort()
+    runUtilityEntry(port, mkParsed())
+    await flush()
+    port.send({ type: 'shutdown' })
+    // shutdownImpl resolve 走微任务链（.catch/.finally）；微任务排空后回执在场、exit 未发生
+    let p = Promise.resolve()
+    for (let i = 0; i < 6; i++) p = p.then(() => new Promise<void>((r) => queueMicrotask(r)))
+    await p
+    expect(port.posted.at(-1)).toEqual({ type: 'shutdown-done' })
+    expect(exitSpy).not.toHaveBeenCalled() // 回执先于退出至少一个轮次（回归断言点）
+    await new Promise<void>((r) => setImmediate(r))
+    expect(exitSpy).toHaveBeenCalledWith(0)
   })
 })
 

@@ -48,8 +48,15 @@ export async function renameChapter(ctx: ToolContext, input: Record<string, unkn
   const relPath = findChapterRel(ctx, chapter)
   if (!relPath) return { ok: false, summary: '第 ' + chapter + ' 章正文不存在，无法重命名。' }
   const oldName = basename(relPath)
-  const prefix = oldName.split('-')[0] ?? ''
-  const newName = prefix + '-' + sanitizeTitle(newTitle) + '.md'
+  // R71-17：前缀派生先剥 .md 再 split（对齐 copyChapter 低-6 口径）——无连字符章文件名
+  // （如「番外.md」，front matter 带章号即合法形态）原先把整个文件名当前缀，产出
+  // 「番外.md-新标题.md」双 .md 畸形名，破坏 ^(\d+)- 前缀约定消费者。剥后缀后仍无
+  // 连字符 → 无数值前缀可保，新名直接用净化后的新标题；常规 `0001-标题.md` 产物不变。
+  const stem = oldName.endsWith('.md') ? oldName.slice(0, -'.md'.length) : oldName
+  const prefix = stem.split('-')[0] ?? ''
+  const newName = prefix === stem
+    ? sanitizeTitle(newTitle) + '.md'
+    : prefix + '-' + sanitizeTitle(newTitle) + '.md'
   const docId = chapterToDocId(ctx.bookRoot, chapter)
   if (!docId) return { ok: false, summary: '第 ' + chapter + ' 章清单登记缺失，无法重命名。' }
   const r = await new DocumentService({ bookRoot: ctx.bookRoot }).renameDocument({ docId, newName })

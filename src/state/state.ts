@@ -20,7 +20,7 @@
  * 回滚「回到第 N 章」是横切命令（#16 第 5 节），不在顺序判定里——由 version 恢复单独触发。
  */
 
-import { existsSync, readFileSync, readdirSync, renameSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, renameSync, statSync, rmSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { scanCloudCopies } from '../git/exec.js'
@@ -315,7 +315,19 @@ function healMovePending(
   const oldExists = existsSync(oldAbs)
   const newExists = existsSync(newAbs)
   try {
-    if (newExists && !oldExists) {
+    // R71-7（十九轮）：doMoveOrRename 的落盘改 link+rm 两步后，「link 成功、删源前崩溃」
+    // 会留下两端**同 inode** 并存（硬链接）的中间态——内容已完整在新位，删旧即得
+    // 纯 newExists 形态，走下方 settle 分支确定性收口。不同 inode（外部并发在目标位
+    // 写入了别的内容）无法确定性裁决，保守维持报红交作者。
+    let oldLive = oldExists
+    if (oldExists && newExists) {
+      const so = statSync(oldAbs)
+      const sn = statSync(newAbs)
+      if (so.ino !== sn.ino || so.dev !== sn.dev) return false
+      rmSync(oldAbs, { force: true })
+      oldLive = false
+    }
+    if (newExists && !oldLive) {
       const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
       if (existsSync(manifestPath)) {
         // Y-4（第五十七轮）：RMW 持清单锁（X-5 单源漏网点）——悬置 pending 自愈与

@@ -72,8 +72,10 @@ export function codePointLength(text: string): number {
   return n
 }
 
-/** 章摘要目录（相对书根） */
-export const CHAPTER_SUMMARY_DIR = join('定稿', '摘要', '章摘要')
+/** 章摘要目录（相对书根）。R71-15（总七十一轮）：posix 字面量——join() 消费点
+ *  （chapterSummaryPath/mkdirSync）会自动归一到平台分隔符，而相对路径消费点
+ *  （promptFiles/留痕）要求与全库 posix 归一口径（draft-pipeline F2）一致 */
+export const CHAPTER_SUMMARY_DIR = '定稿/摘要/章摘要'
 
 /** 摘要文件路径（纯数字 stem——scanSummaries 的 Number() 归集口径） */
 export function chapterSummaryPath(bookRoot: string, chapter: number): string {
@@ -82,7 +84,9 @@ export function chapterSummaryPath(bookRoot: string, chapter: number): string {
 
 /** 摘要相对书根路径（promptMeta.files 登记用） */
 export function chapterSummaryRelPath(chapter: number): string {
-  return join(CHAPTER_SUMMARY_DIR, `${chapter}.md`)
+  // R71-15：登记/留痕路径不得产平台分隔符（win 反斜杠与全库 posix 口径分裂）——
+  // 显式 '/' 拼接（只进事件记录不进 fs，join 消费走 chapterSummaryPath）
+  return [CHAPTER_SUMMARY_DIR, `${chapter}.md`].join('/')
 }
 
 export type SummaryState = 'fresh' | 'stale' | 'missing'
@@ -376,15 +380,16 @@ export async function selfHealRecentChapterSummaries(
 
 // ── C2（批 3）：卷摘要按需生成 ─────────────────────────────────────────
 
-/** 卷摘要目录（相对书根） */
-export const VOLUME_SUMMARY_DIR = join('定稿', '摘要', '卷摘要')
+/** 卷摘要目录（相对书根）。R71-15：posix 字面量（同 CHAPTER_SUMMARY_DIR 口径） */
+export const VOLUME_SUMMARY_DIR = '定稿/摘要/卷摘要'
 
 export function volumeSummaryPath(bookRoot: string, volume: number): string {
   return join(bookRoot, VOLUME_SUMMARY_DIR, `${volume}.md`)
 }
 
 export function volumeSummaryRelPath(volume: number): string {
-  return join(VOLUME_SUMMARY_DIR, `${volume}.md`)
+  // R71-15：登记/留痕路径 posix 归一（同 chapterSummaryRelPath）
+  return [VOLUME_SUMMARY_DIR, `${volume}.md`].join('/')
 }
 
 /** 第 volume 卷的章号区间（按 volume_size 划卷，与 assembleStatus 同口径） */

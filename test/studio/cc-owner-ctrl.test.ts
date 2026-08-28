@@ -93,4 +93,24 @@ describe('M-1: registerCtrl owner 分槽（跨编排不抢占）', () => {
     expect(events.some((e) => e.type === 'interrupted')).toBe(true)
     driver.dispose(s)
   })
+
+  it('R71-19（十九轮）：chat owner 带书维度——同 session 跨书并存不互相抢占', () => {
+    // 两本书共享 session：`chat:<book>` 分槽后，后书对话不 abort 前书在途 ctrl；
+    // 同书换新仍保持 P2-6「先 abort 旧」。
+    const s = makeSession()
+    const a = new AbortController()
+    const b = new AbortController()
+    driver.registerCtrl?.(s, a, 'chat:书甲')
+    driver.registerCtrl?.(s, b, 'chat:书乙')
+    expect(a.signal.aborted).toBe(false) // 修复前同 'chat' 槽会被 B 抢占 abort
+    expect(b.signal.aborted).toBe(false)
+    expect(driver.isRunning?.(s)).toBe(true)
+    // 同书（书甲）换新：旧 ctrl 被 abort（P2-6 保留）
+    const aNew = new AbortController()
+    driver.registerCtrl?.(s, aNew, 'chat:书甲')
+    expect(a.signal.aborted).toBe(true)
+    expect(aNew.signal.aborted).toBe(false)
+    expect(b.signal.aborted).toBe(false) // 书乙不受书甲换新影响
+    driver.dispose(s)
+  })
 })

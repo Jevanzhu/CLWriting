@@ -42,7 +42,10 @@ export function runUtilityEntry(parentPort: ParentPortLike, parsed: ParsedServer
       // 信封化（EADDRINUSE 中文口径）后回传再退出——main 侧对首启失败弹原生对话框
       const envelope = describeBootError(err, parsed.port)
       parentPort.postMessage({ type: 'boot-error', code: envelope.code, message: envelope.message })
-      process.exit(1)
+      // R71-13（总七十一轮）：紧随 postMessage 的同步 exit 可能截断跨进程投递（消息尚未
+      // flush 即随进程消亡，main 只见 child 退出不见 boot-error）——让出一个事件循环
+      // 轮次（setImmediate）给投递 flush 后再退
+      setImmediate(() => process.exit(1))
     },
   })
   // main → child：shutdown 指令（before-quit 下发）——执行 shutdownStudio 全流程后
@@ -55,7 +58,9 @@ export function runUtilityEntry(parentPort: ParentPortLike, parsed: ParsedServer
       .catch(() => {}) // 收尾失败也必须回执退出——main 总超时兜底，不让 child 挂死
       .finally(() => {
         parentPort.postMessage({ type: 'shutdown-done' })
-        process.exit(0)
+        // R71-13：同 boot-error——回执先经一个事件循环轮次 flush，再退出（main 总超时
+        // 3.5s 远宽于一轮 setImmediate，时序上无风险）
+        setImmediate(() => process.exit(0))
       })
   })
   return server

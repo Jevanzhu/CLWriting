@@ -55,6 +55,7 @@ test.skipIf(process.platform === 'win32')('低-4（第十轮）：移动失败�
   try {
     const r = await svc.moveDocument({ docId: 'doc_ch01', toDir: '写作/正文/第二卷' })
     // 契约：双重故障下仍拿到 {ok:false}，而不是裸异常/rejected promise
+    // （R71-7 起落盘改 linkSync——只读目录同样 EACCES，非 EEXIST，仍是 WRITE_ERROR）
     expect(r.ok).toBe(false)
     if (r.ok) return
     expect(r.code).toBe('WRITE_ERROR')

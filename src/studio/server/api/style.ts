@@ -150,7 +150,16 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
     }
     // R70-23（十八轮）：目录形态分流——文风/条目/ 下被放同名目录时 rmSync 非递归抛
     // EISDIR 落 dispatch 500 'ERROR'；目录递归删（与文件同 force 语义）
-    rmSync(safe.abs, { force: true, recursive: statSync(safe.abs).isDirectory() })
+    // R71-11（总七十一轮）：条目已不存在时 statSync ENOENT 裸抛同样落 dispatch 500——
+    // 幂等删除按不存在处理（stat 失败 → recursive:false，force 的 rmSync 对不存在
+    // 路径本就无害 no-op，重复 DELETE 200 与 rmSync force 语义一致）
+    let recursive = false
+    try {
+      recursive = statSync(safe.abs).isDirectory()
+    } catch {
+      /* 不存在（ENOENT）等 → 幂等删除：非递归 + force 无害通过 */
+    }
+    rmSync(safe.abs, { force: true, recursive })
     reply(res, 200, { ok: true })
   },
   })

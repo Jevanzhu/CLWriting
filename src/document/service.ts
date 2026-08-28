@@ -20,7 +20,7 @@
  *
  * docId 是稳定 ID（队列/日志/清单 key），relPath 是落盘路径。
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, linkSync, rmSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { safeDocId, resolveWithinRoot } from '../fs/safe-path.js'
 import { atomicWriteFile, createFileExclusive } from '../fs/atomic.js'
@@ -150,11 +150,15 @@ export type MoveResult =
 
 /** R66-5（十四轮）：move 目标目录归一——拒绝前导 '/'（绝对路径逃逸）与归一后为空
  *  （根目录/纯斜杠），折叠连续斜杠、剥全部尾斜杠；'a/b/'、'a/b//'、'a//b' 归一到
- *  同一键 'a/b'，防畸形 toDir 直拼进 manifest 造成目录身份分裂。返回 null = 非法。 */
+ *  同一键 'a/b'，防畸形 toDir 直拼进 manifest 造成目录身份分裂。返回 null = 非法。
+ *  R71-23（十九轮）：'\' 归一在前——win32 path.resolve 视 '\' 为分隔符，含反斜杠的
+ *  toDir 会被 resolveSafePath 放行并真实建目录，但混合分隔符串直拼进 manifest 后，
+ *  posix 口径的树扫描/前端全链 miss（docId 身份分裂 + 保存恒 REVISION_CONFLICT，
+ *  R66-5 同族后果）；先归一再按 '/' 口径统一校验，'\\server\\x' 伪 UNC 也被前导斜杠拒绝。 */
 function normalizeMoveToDir(toDir: string): string | null {
-  if (toDir.startsWith('/')) return null
-  const normalized = toDir.replace(/\/{2,}/g, '/').replace(/\/+$/, '')
-  return normalized === '' ? null : normalized
+  const normalized = toDir.replace(/\\/g, '/').replace(/\/{2,}/g, '/').replace(/\/+$/, '')
+  if (normalized.startsWith('/') || normalized === '') return null
+  return normalized
 }
 
 /** 软删结果。 */
@@ -501,7 +505,16 @@ export class DocumentService {
     } catch (e) {
       return { ok: false, code: 'WRITE_ERROR', reason: `元数据写入失败：${errMsg(e)}` }
     }
-    const 标题 = String(map.get('标题') ?? '')
+    // R71-22（十九轮）：标题三级回落——显式传标题（meta.标题）→ fm 标题 → 现有文件名
+    // 标题段（剥章号数字前缀与 .md）。此前章号-only PATCH 且 fm 缺标题时直落「未命名」，
+    // 作者手建的 `0001-我的章节.md` 改一次章号就被静默改成 `000N-未命名.md`（用户自选
+    // 标题丢失）。X-P3a「未命名」兜底语义保留给显式传空标题的编辑路径；回落链产物
+    // 非空（文件名无标题段时退回旧行为）。
+    const explicitTitle = meta.标题 !== undefined ? String(map.get('标题') ?? '') : null
+    const 标题 =
+      explicitTitle !== null
+        ? explicitTitle
+        : String(map.get('标题') ?? '') || (basename(path).match(/^(?:\d+-)?(.+)\.md$/)?.[1] ?? '')
     invalidateTreeIndex(this.bookRoot, true)
 
     if (isPiece) {
@@ -708,7 +721,25 @@ export class DocumentService {
         baseRevision: baseRev,
       })
       mkdirSync(dirname(newSafe), { recursive: true })
-      renameSync(oldSafe, newSafe)
+      // R71-7（十九轮）：existsSync→renameSync 的 TOCTOU 窗口内目标位被跨进程并发落位
+      // → POSIX rename / win MOVEFILE(REPLACE_EXISTING) 均静默覆盖（双方调用都返回成功，
+      // 先到者正文从工作区消失，仅存快照留底）。文件改 linkSync 原子探测（R64-21 回收站
+      // 还原同款）：EEXIST → ALREADY_EXISTS（link 失败即占用，无窗口）；成功 → 内容已借
+      // 硬链接落位，再删源（同一 inode，无复制窗口）。删源失败 → 旧位仍在、清单未动，
+      // 按失败收口（新位成孤儿副本，语义同下方「清单更新失败」：不丢数据）。本方法只
+      // 处理文档文件；目录结构性操作走 books.ts，无目录分支。
+      // EEXIST 判定只认 link 这一步（转成哨兵码再统一收口）——journal/snapshot 的
+      // mkdirSync 撞同名文件同样抛 EEXIST，混入外层 catch 会把 WRITE_ERROR 误判成
+      // 「目标已存在」（ee-P1-5 用例：.journal 槽位被普通文件占用）。
+      try {
+        linkSync(oldSafe, newSafe)
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === 'EEXIST') {
+          throw Object.assign(new Error('目标已存在'), { code: 'ALREADY_EXISTS' })
+        }
+        throw e
+      }
+      rmSync(oldSafe, { force: true })
     } catch (e) {
       // pending 本身没写进去（opId 未赋值）时无从 abort——journal 里没有悬置记录
       // 低-4（第十轮）：appendAborted 自身失败（journal 目录被删/磁盘满/权限）不再穿透——
@@ -718,6 +749,11 @@ export class DocumentService {
         try {
           appendAborted(journalPath, opId, errMsg(e))
         } catch { /* 留痕失败吞掉：journal 无 aborted 行 → 悬置 pending 待恢复链收口 */ }
+      }
+      // R71-7：linkSync 的 EEXIST = 目标位在预检后被并发占用——按 ALREADY_EXISTS 收口
+      // （此时什么都没动：源在旧位、清单未改，journal 已 abort）
+      if ((e as NodeJS.ErrnoException).code === 'ALREADY_EXISTS') {
+        return { ok: false, code: 'ALREADY_EXISTS', reason: '目标已存在' }
       }
       return { ok: false, code: 'WRITE_ERROR', reason: `移动/重命名失败：${errMsg(e)}` }
     }

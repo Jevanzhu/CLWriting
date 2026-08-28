@@ -15,7 +15,6 @@
  * 账本级互斥；账本（ai-calls）/journal 的跨进程真锁已随 J7 落地（fs/cross-process-lock.ts），
  * 本文件锁原语同源收敛（T2-4 复制版已删）。
  */
-import { rmSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { tryAcquireCrossProcessLock } from '../../../fs/cross-process-lock.js'
@@ -47,7 +46,14 @@ export interface TaskGateOptions {
   lockDir?: string | null
   /** 进程存活判定（测试注入用）；缺省 process.kill(pid,0) 探测。 */
   isProcessAlive?: (pid: number) => boolean
+  /** R71-3（十九轮）：锁续期周期注入（测试用）；缺省 TASK_GATE_RENEW_MS。 */
+  renewIntervalMs?: number
 }
+
+/** R71-3（十九轮）：任务闸续期周期——闸持有段是分钟级 AI 任务（analyze/review/
+ *  rag-build/大书导出现实可超 Z-19 的 10min 超龄线），不续期会被第二进程按
+ *  「活 pid 超龄」接管成双持锁。30s 刷一次 mtime，远低于超龄门槛。 */
+const TASK_GATE_RENEW_MS = 30_000
 
 /** key → 锁文件名：sha256 前 16 hex——书名可含任意路径字符，hash 后无路径注入/非法名。 */
 function lockFileName(key: string): string {
@@ -68,22 +74,33 @@ export function acquireTaskGate(bookName: string, action: string, opts?: TaskGat
   // isAlive 未注入时传 undefined → 通用锁用缺省 process.kill(pid,0) 探测（同源）
   const isAlive = opts?.isProcessAlive
   let lockPath: string | null = null
+  let lockRelease: (() => void) | null = null
   if (dir) {
     lockPath = join(dir, lockFileName(key))
     // J7：锁原语收敛到 fs/cross-process-lock.ts 单一实现（本文件原 T2-4 复制版删除）
-    if (!tryAcquireCrossProcessLock(lockPath, { isProcessAlive: isAlive })) return null
+    // R71-3（十九轮）：接线 N6 续期——任务闸持有段为分钟级（rag-build 整书 embed、
+    // 大书多镜 review 现实可超 Z-19 的 10min 超龄线），此前不传 renewIntervalMs 会被
+    // 第二进程按「活 pid 超龄」接管成双持锁（dev-api + 桌面双进程形态，真双进程实验
+    // 已复现）。续期让活闸的 mtime 恒新，超龄接管只打击真死进程的 pid 复用残留。
+    lockRelease = tryAcquireCrossProcessLock(lockPath, {
+      isProcessAlive: isAlive,
+      renewIntervalMs: opts?.renewIntervalMs ?? TASK_GATE_RENEW_MS,
+    })
+    if (!lockRelease) return null
   }
   running.add(key)
   let released = false
   return () => {
     if (released) return
     released = true
-    // R66-29（十四轮）：rmSync 失败会永久占死进程内闸——force 仅吞 ENOENT，EPERM 等
-    // 抛错会跳过 running.delete（该 key 永不可再占）。包 try/catch 保证清理必达；
+    // R66-29（十四轮）：释放失败会永久占死进程内闸——包 try/catch 保证清理必达；
     // 残留锁文件由 tryAcquireCrossProcessLock 的 stale 接管清理兜底，不致永锁。
     try {
-      // 先删锁文件再清 Set：反序会让并发 acquire 在文件已删、Set 未清的窗口读到双闸
-      if (lockPath) rmSync(lockPath, { force: true })
+      // 先删锁文件再清 Set：反序会让并发 acquire 在文件已删、Set 未清的窗口读到双闸。
+      // R71-3（十九轮）：改用锁原语返回的 payload 校验版释放（R65-35②）——读回内容
+      // 与本进程写入串一致才删。此前无条件 rmSync 在「被超龄接管 + 他人重建新锁」的
+      // 残余窗口下会误删他人在位的新锁、放行第三个进程；校验版读到不一致即不删。
+      if (lockRelease) lockRelease()
     } catch {
       /* 锁文件残留交 stale 接管；进程内闸照常释放 */
     }

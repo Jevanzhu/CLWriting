@@ -360,6 +360,9 @@ function setupHasAnchor(position: string, anchors: string[]): boolean {
   if (anchors.length === 0) return false
   return anchors.some((anchor) => {
     const a = normalize(anchor)
+    // R71-33（总七十一轮）：纯标点/emoji 的锚点标题归一化后为空串——`pos.includes('')`
+    // 恒真，会把任何铺垫虚报成已锚定（与 groupBy 空键跳过同口径，匹配前空串短路）
+    if (!a) return false
     return a.includes(pos) || pos.includes(a)
   })
 }
@@ -369,6 +372,9 @@ function payoffMatchesSetup(payoff: string, setups: SetupPoint[]): boolean {
   if (!p || isPlaceholder(payoff)) return false
   return setups.some((setup) => {
     const s = normalize(setup.内容)
+    // R71-33：同 setupHasAnchor——铺垫内容归一化空串时 `p.includes('')` 恒真，任何
+    // 回收条目都虚报 payoffMatched（空串短路，不计匹配）
+    if (!s) return false
     return s.includes(p) || p.includes(s)
   })
 }

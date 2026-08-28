@@ -11,13 +11,13 @@
  */
 import { DatabaseSync } from 'node:sqlite'
 import { createHash } from 'node:crypto'
-import { mkdirSync, existsSync, renameSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, existsSync, renameSync, readdirSync, readFileSync, rmSync, writeFileSync, statSync, utimesSync } from 'node:fs'
 import { join, resolve, basename } from 'node:path'
 import { ulid } from '../document/stable-id.js'
 import type { ChatEvent, EventType, SurfaceOp } from './types.js'
 import { SURFACE_EVENT_TYPES } from './types.js'
 import { log } from '../log/index.js'
-import { acquireCrossProcessLockWithTimeout, isProcessAlive } from '../fs/cross-process-lock.js'
+import { acquireCrossProcessLockWithTimeout, isProcessAlive, processBootTime } from '../fs/cross-process-lock.js'
 
 /** 书 hash：sha256(bookRoot) 前 16 hex——稳定，不落原文路径。
  *  B-18（第六十轮补修）：哈希前 resolve 归一化——尾分隔符 / '.'/'..' 段变体不再
@@ -150,8 +150,25 @@ function openMarkerPath(dbPath: string): string {
   return dbPath + OPEN_MARKER_SUFFIX + process.pid
 }
 
-/** 扫描某库的全部开口标记：死 pid 残留顺手 GC（best-effort），返回活标记路径列表。
- *  只在持 session 目录锁的段内调用（登记/迁移互斥由锁保证）。 */
+/** R71-24（十九轮）：开口标记续期周期——活句柄定期 utimes 刷标记 mtime，让「标记年龄」
+ *  成为可靠的存活旁证（缺省 30s，测试可注入）。 */
+let OPEN_MARKER_RENEW_MS = 30_000
+/** R71-24（十九轮）：活 pid 但标记超龄的判死门槛（毫秒）——对齐 Z-19 锁超龄口径。
+ *  正常活进程由续期定时器保持 mtime 恒新；超龄只可能是持有进程已死、pid 被系统复用
+ *  给长命进程（跨进程 bootTime 无查询 API，年龄是可用判据）。残余风险如实记档：
+ *  被长时间 SIGSTOP/深度 App Nap 挂起超门槛的活进程会被误判死——与 Z-19 对锁的
+ *  同款取舍，门槛取保守的 10 分钟。 */
+const OPEN_MARKER_STALE_MS = 10 * 60_000
+
+/** 测试注入续期周期（生产勿调）。 */
+export function configureOpenMarkerRenewMs(ms: number): void {
+  OPEN_MARKER_RENEW_MS = ms
+}
+
+/** 扫描某库的全部开口标记：死 pid 残留与超龄残留顺手 GC（best-effort），返回活标记
+ *  路径列表。只在持 session 目录锁的段内调用（登记/迁移互斥由锁保证）。
+ *  R71-24：pid 存活但标记 mtime 超龄 → 视同死残留 GC——持有进程死后 pid 被复用时，
+ *  单纯 pid 探测会永远误判活，该书迁移（改名）被无限期误拒。 */
 function sweepOpenMarkers(dir: string, dbPath: string): string[] {
   const prefix = basename(dbPath) + OPEN_MARKER_SUFFIX
   let names: string[]
@@ -165,8 +182,16 @@ function sweepOpenMarkers(dir: string, dbPath: string): string[] {
     if (!name.startsWith(prefix)) continue
     const pid = Number.parseInt(name.slice(prefix.length), 10)
     if (Number.isInteger(pid) && pid > 0 && isProcessAlive(pid)) {
-      live.push(join(dir, name))
-      continue
+      // R71-24：活 pid + 超龄 mtime（续期早已停止）→ pid 复用残留，按死处理
+      try {
+        const age = Date.now() - Math.floor(statSync(join(dir, name)).mtimeMs)
+        if (age <= OPEN_MARKER_STALE_MS) {
+          live.push(join(dir, name))
+          continue
+        }
+      } catch {
+        /* stat 失败（刚被 GC）→ 落到下方删除路径 */
+      }
     }
     try {
       rmSync(join(dir, name), { force: true })
@@ -178,10 +203,26 @@ function sweepOpenMarkers(dir: string, dbPath: string): string[] {
 }
 
 /** 首开登记：GC 死残留 + 落本进程标记（fail-closed——登记失败时句柄不可信，抛错走
- *  调用方降级，不能带着「迁移看不见我」的隐形句柄继续写库）。 */
+ *  调用方降级，不能带着「迁移看不见我」的隐形句柄继续写库）。
+ *  R71-24：内容补 bootTime（诊断字段；同款语义见 cross-process-lock 锁文件）。 */
 function registerOpenMarker(dir: string, dbPath: string): void {
   sweepOpenMarkers(dir, dbPath)
-  writeFileSync(openMarkerPath(dbPath), JSON.stringify({ pid: process.pid }), 'utf-8')
+  writeFileSync(openMarkerPath(dbPath), JSON.stringify({ pid: process.pid, bootTime: processBootTime() }), 'utf-8')
+}
+
+/** R71-24：开口标记续期定时器的 tick——刷 mtime；标记文件被误 GC（他进程按超龄误判）
+ *  时重写自愈（内容不变，重写即重新声明在位）。失败静默：下一 tick 再试。 */
+function touchOpenMarker(dbPath: string): void {
+  const p = openMarkerPath(dbPath)
+  try {
+    utimesSync(p, new Date(), new Date())
+  } catch {
+    try {
+      writeFileSync(p, JSON.stringify({ pid: process.pid, bootTime: processBootTime() }), 'utf-8')
+    } catch {
+      /* best-effort：磁盘异常时静默，句柄仍由 pid 探测兜底 */
+    }
+  }
 }
 
 /** 归零注销（best-effort：文件系统异常时残留由下次扫描的 pid 探测 GC 收口）。 */
@@ -289,6 +330,8 @@ interface StoreEntry {
   refs: number
   closed: boolean
   lastOrphanRepairAt: number
+  /** R71-24：开口标记续期定时器（unref；真关库时清除） */
+  markerTimer: ReturnType<typeof setInterval> | null
 }
 const openStores = new Map<string, StoreEntry>()
 const activeChatSessions = new Set<string>()
@@ -326,6 +369,8 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
     throw new Error(`事件库打开锁获取超时（另一进程正在迁移会话库），本进程首开 ${dbPath} 失败——可重试`)
   }
   let db: DatabaseSync
+  // R71-24：开口标记续期定时器（首开成功后启动；打开期抛错保持 null）
+  let markerTimer: ReturnType<typeof setInterval> | null = null
   try {
     // R67-2（十五轮）：旧路径库文件缺失 + 墓碑在位 = 该库曾随书改名迁走——分两态：
     // 旧书根目录已不存在（书确实改名迁走，stale 书目录视图的进程迟来首开）且墓碑
@@ -414,6 +459,10 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
       // R67-2：首开成功（DDL/修复全过）→ 落开口标记（仍在目录锁内，与迁移扫描互斥）。
       // 放在 repair 之后：打开期抛错则不登记（句柄已在 catch 关闭）。
       registerOpenMarker(dir, dbPath)
+      // R71-24：起续期定时器——活句柄定期刷标记 mtime；进程挂死/崩溃后停止续期，
+      // 超龄标记在扫描时按 pid 复用残留 GC（见 sweepOpenMarkers）。unref 不阻退出。
+      markerTimer = setInterval(() => touchOpenMarker(dbPath), OPEN_MARKER_RENEW_MS)
+      markerTimer.unref()
     } catch (e) {
       try {
         db.close()
@@ -426,7 +475,7 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
     releaseOpenLock()
   }
   // R66-12：登记/挂缓存段不碰库文件（纯内存），留在锁外——持锁面越小，迁移等待越短
-  const entry: StoreEntry = { store: null!, refs: 1, closed: false, lastOrphanRepairAt: Date.now() }
+  const entry: StoreEntry = { store: null!, refs: 1, closed: false, lastOrphanRepairAt: Date.now(), markerTimer }
   /** 写路径惰性孤儿修复（TTL = ORPHAN_GRACE_MS，至多每 32 分钟一次）：打开时仍在
    *  宽限期内的崩溃残留，宽限期过后随下一次会话写入补 end——无需等进程重开库。 */
   const maybeRepairOrphans = (): void => {
@@ -711,6 +760,9 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
         entry.closed = true
         openStores.delete(dbPath)
         db.close()
+        // R71-24：先停续期再注销——反序会让注销后的下一个 tick 重新写出标记（自愈路径
+        // 把「已关库」又声明成「在位」，迁移扫描误拒）。
+        if (entry.markerTimer) clearInterval(entry.markerTimer)
         // R67-2：引用归零真关库 → 注销开口标记（迁移扫描从此看不见本进程）
         releaseOpenMarker(dbPath)
       }
@@ -823,6 +875,21 @@ export function migrateBookSession(
         return false
       }
     }
+    // 3.5) R71-25（十九轮）：墓碑前置到搬移之前——旧方案「COMMIT 后才落碑」在「钥匙
+    //    已改 → 碑未落」间留有崩溃窗口：旧路径无 .db 也无 .migrated，迟来首开按正常
+    //    缺库处理重建空库，旧 hash 下历史视图清零。前置后：搬移/改钥匙途中崩溃，旧
+    //    路径至少有碑，openSessionStore 走墓碑分支 fail-closed 拒建空库；迁移重试
+    //    （作者重试改名）到达时 existsSync(oldDb) 仍真（或碑已 GC）→ 重走全流程收口。
+    //    碑 + 旧库并存对 openSessionStore 无影响（墓碑分支只在 .db 缺失时走）。目标位
+    //    历史墓碑（书改回旧名再改回场景）一并清除——该路径重新成为活库位。预写失败 =
+    //    一个文件都还没动 → 整体放弃（比 POST-COMMIT 失败不回滚的旧态更安全）。
+    try {
+      rmSync(newDb + MIGRATED_EXT, { force: true })
+      writeFileSync(oldDb + MIGRATED_EXT, JSON.stringify({ to: newDb, at: Date.now() }), 'utf-8')
+    } catch (e) {
+      log.error('events', `事件库迁移墓碑预写失败（${oldDb + MIGRATED_EXT}）——整体放弃，源库原地完整`, e)
+      return false
+    }
     for (const suffix of ['', '-wal', '-shm'] as const) {
       const from = oldDb + suffix
       const to = newDb + suffix
@@ -847,16 +914,9 @@ export function migrateBookSession(
       // 未 COMMIT 的事务随连接关闭回滚（先关干净再让异常冒泡去回滚文件搬移）
       db.close()
     }
-    // 5) R67-2：迁移全成后在旧位落墓碑指路标（他进程迟来首开旧路径 → openSessionStore
-    //    fail-closed 拒建空库）；目标位若有历史墓碑（书改回旧名再改回的场景）一并清除
-    //    ——该路径重新成为活库位。best-effort + log.error：此刻库已搬完钥匙已改，回滚
-    //    反而制造「文件回旧位、钥匙是新名」的撕裂态（POST-COMMIT 失败不回滚的既有纪律）。
-    try {
-      rmSync(newDb + MIGRATED_EXT, { force: true })
-      writeFileSync(oldDb + MIGRATED_EXT, JSON.stringify({ to: newDb, at: Date.now() }), 'utf-8')
-    } catch (e) {
-      log.error('events', `事件库迁移墓碑写入失败（${oldDb + MIGRATED_EXT}）——旧路径迟来首开的拒建空库守卫降级，请人工关注`, e)
-    }
+    // 5) R71-25：墓碑已在 3.5) 前置落位——POST-COMMIT 无文件操作，原「COMMIT → 落碑」
+    //    崩溃窗口（旧路径无 .db 无 .migrated → 迟来首开重建空库、事件视图分裂）就此
+    //    闭合；R67-2 的墓碑语义（迟来首开 fail-closed 拒建空库）不变。
     return true
   } catch (e) {
     // 整体放弃：逆序把已搬文件搬回源位——源库原地完整、可读、可重试
@@ -869,6 +929,14 @@ export function migrateBookSession(
         // 不在回滚路径里再抛新异常掩盖原始失败原因
         log.error('events', `迁移回滚失败（${m.to} → ${m.from}），需人工找回`, e2)
       }
+    }
+    // R71-25：撤预写墓碑——回滚完成后旧位是完整活库，3.5) 前置的碑必须撤（残留碑 +
+    // 活库并存对 openSessionStore 无功能影响——墓碑分支只在 .db 缺失时走——但会把
+    // 下次迁移的墓碑预写变成覆盖旧值，语义漂移；best-effort + 留痕）。
+    try {
+      rmSync(oldDb + MIGRATED_EXT, { force: true })
+    } catch (e2) {
+      log.error('events', `迁移回滚后墓碑清除失败（${oldDb + MIGRATED_EXT}）——残留碑不影响旧库打开，下次迁移时覆盖`, e2)
     }
     log.error('events', '事件库迁移失败（已回滚，源库原地完整可找回）', e)
     return false

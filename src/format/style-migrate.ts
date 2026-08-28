@@ -11,7 +11,7 @@
  * 消费方触发（同伏笔迁移范式）：首次进文风视图时调用，结果落 toast。
  */
 
-import { existsSync, readdirSync, readFileSync, rmSync, rmdirSync, mkdirSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, rmSync, rmdirSync, mkdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { readSamplesByScene } from './style.js'
 import { writeEntryExclusive, readEntries, ENTRIES_DIR } from './style-entry.js'
@@ -143,6 +143,17 @@ function rmdirIfEmpty(dir: string): void {
   }
 }
 
+/** R71-21：单文件安全读（同库读取族低-3 口径：单文件失败跳过不中断）——
+ *  existsSync→read 间隙文件被删 / 同名目录 EISDIR 等读失败按「无该输入」返回
+ *  null（调用方跳过该源），异常不再抛穿 migrateStyleLibrary。 */
+function readTextSafe(p: string): string | null {
+  try {
+    return readFileSync(p, 'utf-8')
+  } catch {
+    return null
+  }
+}
+
 /** RB-KN-P2-4：铁律是否仍含待迁移段（反和解 / AI 味替换）——幂等闸的续跑判定输入 */
 function hasLegacyRulesSection(text: string): boolean {
   return /^##[^\n]*(反和解|AI\s*味替换)/m.test(text)
@@ -178,7 +189,10 @@ export function migrateStyleLibrary(bookRoot: string): StyleMigrateResult {
   if (!existsSync(styleDir)) return result // 无文风目录（异常书），不建库
 
   const rulesFile = join(styleDir, '文风铁律.md')
-  const rulesHasLegacy = existsSync(rulesFile) && hasLegacyRulesSection(readFileSync(rulesFile, 'utf-8'))
+  // R71-21：读点竞态降级（低-3 口径）——existsSync→read 间隙被删/同名目录按
+  // 「无该输入」处理（无遗留段），不再抛穿迁移
+  const rulesRaw = readTextSafe(rulesFile)
+  const rulesHasLegacy = rulesRaw !== null && hasLegacyRulesSection(rulesRaw)
   const hasLegacySource =
     existsSync(join(styleDir, '样章库')) ||
     existsSync(join(styleDir, '金句库')) ||
@@ -249,8 +263,20 @@ export function migrateStyleLibrary(bookRoot: string): StyleMigrateResult {
     }
     for (const f of files) {
       const fp = join(quoteDir, f)
+      // R71-21：同名目录守卫（对齐 style.ts 低-3 的 statSync isFile 写法）——金句库出现
+      // 名以 .md 结尾的目录时 readdir 会列出，裸 readFileSync 直接 EISDIR 抛穿整次迁移；
+      // readdir→read 间隙被删同按「无该输入」跳过（未成功读取的源不 rm，留给续跑）
+      let isFile = false
+      try {
+        isFile = statSync(fp).isFile()
+      } catch {
+        continue
+      }
+      if (!isFile) continue
+      const text = readTextSafe(fp)
+      if (text === null) continue
       const scene = f.slice(0, -3)
-      for (const q of parseQuoteEntries(readFileSync(fp, 'utf8'))) {
+      for (const q of parseQuoteEntries(text)) {
         if (dupOrWrite({
           类型: '样章',
           场景: scene,
@@ -265,8 +291,11 @@ export function migrateStyleLibrary(bookRoot: string): StyleMigrateResult {
     rmdirIfEmpty(quoteDir)
   }
   const quoteFile = join(styleDir, '金句库.md')
-  if (existsSync(quoteFile)) {
-    for (const q of parseQuoteEntries(readFileSync(quoteFile, 'utf8'))) {
+  // R71-21：读点竞态降级（低-3 口径）——existsSync→read 间隙被删/同名目录读失败按
+  // 「无该输入」跳过整源（含 rm：未成功读取的源不删，留给续跑），不再抛穿迁移
+  const quoteText = readTextSafe(quoteFile)
+  if (quoteText !== null) {
+    for (const q of parseQuoteEntries(quoteText)) {
       if (dupOrWrite({
         类型: '样章',
         场景: '通用',
@@ -281,8 +310,10 @@ export function migrateStyleLibrary(bookRoot: string): StyleMigrateResult {
   if (quoteCount > 0) result.details.push(`金句库 → ${quoteCount} 条样章（标签: 金句）`)
 
   // ── 3. 铁律：提取（反和解禁词 + AI 味替换表 → 禁词条目）→ 瘦身为纯配置 ──
-  if (existsSync(rulesFile)) {
-    const rulesText = readFileSync(rulesFile, 'utf-8')
+  // R71-21：读点竞态降级（低-3 口径）——existsSync→read 间隙被删/同名目录读失败按
+  // 「无该输入」跳过铁律源（不提取不瘦身，留给续跑），不再抛穿迁移
+  const rulesText = readTextSafe(rulesFile)
+  if (rulesText !== null) {
     // RB-KN-P2-4：续跑去重——条目库已有同文禁词（上次写完条目、瘦身写回前崩溃）不重写
     const seen = new Set<string>(
       readEntries(entriesDir, '禁词').entries.map((e) => e.正文.trim()).filter(Boolean),

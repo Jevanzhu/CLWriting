@@ -13,7 +13,7 @@
  *
  * 用法：npm run check:knowledge（退出码 1 = 失配，并列出问题）
  */
-import { existsSync, readdirSync } from 'node:fs'
+import { existsSync, readdirSync, statSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { validateKnowledgeManifest, KNOWLEDGE_DIR, type KnowledgeManifest } from '../src/knowledge/manifest.js'
@@ -21,13 +21,25 @@ import { validateKnowledgeManifest, KNOWLEDGE_DIR, type KnowledgeManifest } from
 // 仓库根（工作区路径可能含 ^ 等特殊字符，fileURLToPath 解码，与 check-packaging 同口径）
 const root = fileURLToPath(new URL('..', import.meta.url))
 
-/** 递归收集 dir 下全部 .md 的绝对路径。 */
+/** 递归收集 dir 下全部 .md 的绝对路径。
+ *  R71-39（总七十一轮）：symlink→目录此前被 Dirent.isDirectory()（对 symlink 恒 false）
+ *  静默跳过——目录内 .md 整树逃 R62-53 反向门（未登记可绕过 CI 登记）。处置取最小
+ *  正确的 fail-closed 拒绝：知识层内出现指向目录的 symlink 即抛错（main 转
+ *  console.error + exit(1)），作者改实体目录或删除后再跑；symlink→文件沿用 .md
+ *  名字口径（未登记即 unmatched；越界登记由正向 isSafeKnowledgeTarget 挡）。 */
 function collectMdFiles(dir: string): string[] {
   const out: string[] = []
   for (const en of readdirSync(dir, { withFileTypes: true })) {
     const p = join(dir, en.name)
-    if (en.isDirectory()) out.push(...collectMdFiles(p))
-    else if (en.name.endsWith('.md')) out.push(p)
+    if (en.isDirectory()) {
+      out.push(...collectMdFiles(p))
+    } else if (en.isSymbolicLink() && statSync(p).isDirectory()) {
+      // 指向目录的 symlink：反向扫描无法保证其子树 .md 可见（且环路/越界不可判）——
+      // fail-closed 拒绝；断链 symlink 的 statSync 抛错同样未捕获即非零退出
+      throw new Error(`知识层内发现指向目录的 symlink：${p}（反向扫描 fail-closed：请改为实体目录或删除后重跑）`)
+    } else if (en.name.endsWith('.md')) {
+      out.push(p)
+    }
   }
   return out
 }
@@ -67,7 +79,15 @@ function main(): void {
   }
 
   const manifest = report.manifest
-  const unidentified = scanUnregisteredKnowledgeMd(root, manifest)
+  // R71-39：反向扫描的 fail-closed 抛错（symlink→目录等）转人话报错 + 非零退出，
+  // 不裸栈崩（脚本门禁口径与上方失配报告一致）
+  let unidentified: string[] = []
+  try {
+    unidentified = scanUnregisteredKnowledgeMd(root, manifest)
+  } catch (e) {
+    console.error(`check:knowledge 反向扫描失败（${e instanceof Error ? e.message : String(e)}）`)
+    process.exit(1)
+  }
   if (unidentified.length > 0) {
     console.error('check:knowledge 反向扫描发现盘上未登记的 .md（非草稿/非 README，进 CI 需登记 manifest）：')
     for (const p of unidentified) console.error(`  - ${p}`)

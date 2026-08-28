@@ -57,7 +57,7 @@ test('R-2: 章摘要 promptFiles 登记正文路径（注入源），非输出�
     const { runSpec } = await import('../../src/ai/tasks/spec.js')
     const opts = vi.mocked(runSpec).mock.calls[0]![1] as unknown as { promptFiles?: string[] }
     expect(opts.promptFiles).toEqual(['写作/正文/001-第1章.md']) // 真实注入源：draft.body 所在正文
-    expect(opts.promptFiles).not.toContain(join('定稿', '摘要', '章摘要', '1.md')) // 不再登记输出文件
+    expect(opts.promptFiles).not.toContain('定稿/摘要/章摘要/1.md') // 不再登记输出文件（R71-15：posix 字面量口径）
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
@@ -75,9 +75,10 @@ test('R-2: 卷摘要 promptFiles 登记实际注入的章摘要文件列表，�
     const v = await generateVolumeSummary({ bookRoot: root, userDataPath: null, config: DEFAULT_CONFIG, volume: 1 })
     expect(v.ok).toBe(true)
     const opts = vi.mocked(runSpec).mock.calls[0]![1] as unknown as { promptFiles?: string[] }
-    // 真实注入源：chainText 的两个章摘要文件（按注入序）
-    expect(opts.promptFiles).toEqual([join('定稿', '摘要', '章摘要', '1.md'), join('定稿', '摘要', '章摘要', '2.md')])
-    expect(opts.promptFiles).not.toContain(join('定稿', '摘要', '卷摘要', '1.md')) // 不再登记输出文件
+    // 真实注入源：chainText 的两个章摘要文件（按注入序；R71-15：posix 字面量口径——
+    // 修复前 join() 在 win 产反斜杠，与全库相对路径口径分裂）
+    expect(opts.promptFiles).toEqual(['定稿/摘要/章摘要/1.md', '定稿/摘要/章摘要/2.md'])
+    expect(opts.promptFiles).not.toContain('定稿/摘要/卷摘要/1.md') // 不再登记输出文件
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

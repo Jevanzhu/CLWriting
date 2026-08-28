@@ -26,8 +26,9 @@
 import { mkdirSync, openSync, writeSync, closeSync, rmSync, readFileSync, statSync, utimesSync } from 'node:fs'
 import { dirname } from 'node:path'
 
-/** 本进程启动时刻（epoch ms，由 uptime 反推）——锁文件诊断字段（未来 pid 复用判别依据） */
-function processBootTime(): number {
+/** 本进程启动时刻（epoch ms，由 uptime 反推）——锁文件诊断字段（未来 pid 复用判别依据）。
+ *  R71-24（十九轮）导出复用：events 开口标记内容同样落 pid+bootTime。 */
+export function processBootTime(): number {
   return Date.now() - Math.round(process.uptime() * 1000)
 }
 
