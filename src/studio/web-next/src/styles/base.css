@@ -41,15 +41,10 @@ body {
 }
 
 /* ── J5（win 体验面）：WCO 窗控 overlay 避让 ──
-   win 无框标题栏下，系统窗控（最小化/最大化/关闭）画在右上角一条内——顶栏右侧固定区
-   整体右移让位（3 枚按钮 ≈140px）。html.platform-win 由入口按 bridge.platform 挂载，
-   mac/浏览器版无此类零影响；html 前缀提高具体性，压过组件 scoped 同类规则。 */
-html.platform-win .tabbar-actions {
-  padding-right: 148px;
-}
-html.platform-win .right-topbar {
-  padding-right: 148px;
-}
+   不在此处写全局规则——避让只该作用于「真正贴窗口右上角」的元素，且宽度用
+   env(titlebar-area-width) 自适应（Chromium 在 WCO 窗口注入；非 win/浏览器回退
+   100vw → padding 0），由 TabBar（右栏关闭时）/ SidebarRight（右栏打开时）各自
+   条件挂 wco-avoid 类，规则见各组件 scoped 样式。 */
 
 /* 键盘聚焦环（无障碍；鼠标点击不显）*/
 :focus-visible {

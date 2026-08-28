@@ -59,7 +59,7 @@ const isReviewable = computed(() => {
 
 <template>
   <div class="sidebar-right">
-    <div class="right-topbar" :class="{ 'is-drag': hasDesktop }">
+    <div class="right-topbar" :class="{ 'is-drag': hasDesktop, 'wco-avoid': hasDesktop }">
       <button
         class="right-tab"
         data-tip="收起右栏"
@@ -134,6 +134,13 @@ const isReviewable = computed(() => {
 }
 .right-topbar.is-drag {
   -webkit-app-region: drag;
+}
+/* J5（win 体验面）：右栏打开时本栏贴窗口右上角，右侧 tab 图标让位 WCO 系统窗控。
+ * 宽度 env(titlebar-area-*) 自适应（非 win/浏览器/mac hiddenInset 回退 0）+ 12px
+ * 呼吸间隙——实测 env 恰好贴住窗控命中区（校对 vs 最小化重叠 10px），不留隙即
+ * 「图标与窗控重叠」。右栏关闭时贴角的是 TabBar 的 tabbar-actions（避让在其组件内）。 */
+.right-topbar.wco-avoid {
+  padding-right: calc(100vw - env(titlebar-area-width, 100vw) - env(titlebar-area-x, 0px) + var(--size-4-3));
 }
 .right-tabs {
   display: flex;
