@@ -136,7 +136,13 @@ test('专注统计条 + 浏览态全亮：输入渐隐 → 滚轮回看全亮 �
   const statsBar = page.locator('.focus-stats-bar')
   await expect(statsBar.locator('.fsb-label', { hasText: '本次' })).toBeVisible()
   await expect(statsBar.locator('.fsb-label', { hasText: '速度' })).toBeVisible()
+  // R69-8（十七轮）：测量前等布局静置——两重异步源：①进入专注的 HTML5 全屏在无头环境
+  // 会把有效视口重置到屏幕尺寸（与 1680 context 视口不同）；②左栏收拢有宽度过渡动画，
+  // 未静置即测量会取到中途几何（本 spec 头部 1680 视口下公式恒 12px，中途值随机负）。
+  await expect(page.locator('.ws-left')).toHaveClass(/collapsed/)
+  await page.waitForTimeout(500)
   // 左侧贴纸张左缘（与右侧排版条镜像）：条右缘应落在纸张左缘左侧 0~40px
+  // （R69-8 产品侧配套：窄边距下条宽 clamp 收缩，全屏重置视口/窄屏也保 12px 间隙）
   const barBox = await statsBar.boundingBox()
   const paperBox = await page.locator('.doc-page').boundingBox()
   expect(barBox).toBeTruthy()

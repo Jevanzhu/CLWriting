@@ -103,6 +103,8 @@ export function runAllChecks(input: CheckInput): CheckReport {
   // （账本「凭空声称未来章」检查是全书视角，单章低章号会误伤高章规划，T9b 修复）。
   // 注意：这只喂 checkLeadsForm 的未来章判定；collectByproducts 必须用被检章自身章号
   // （V-P1-4：两者曾共用一个变量，三审的「本章账本变动」错拿了最高已定稿章的履历）。
+  // R69-17（十七轮）：零定稿书时 run.ts 侧已回退全书最高现存章号（maxWrittenChapterOf），
+  // 本行 ?? chapter.章号 仅剩「调用方未传且无正文扫描结果」的兜底语义。
   const futureBaselineChapter = input.maxWrittenChapter ?? chapter.章号
   // 已启用类 = 基础两类 + book.yaml enabled（伏笔已独立为设定伏笔系统）
   const enabledTypes = enabledLeadTypes(config)
@@ -122,6 +124,9 @@ export function runAllChecks(input: CheckInput): CheckReport {
         input.declaredLeadIds,
         input.actualLeadIds,
         input.skipLeadsBookChecks === true,
+        // R69-16（十七轮）：两端闭合红项的 chapter 字段用被检章自身章号——
+        // futureBaselineChapter 在复检低章时是全书最高定稿章，红项错标最高章。
+        chapter.章号,
       ),
     )
 

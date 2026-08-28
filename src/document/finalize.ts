@@ -16,9 +16,9 @@ import { computeRevision } from './revision.js'
 import { writeVersion, VERSIONS_DIR_NAME } from './version.js'
 import { countWords } from '../format/words.js'
 import { splitFrontMatter } from '../format/frontmatter.js'
-import { safeManifestPath } from '../fs/safe-path.js'
+import { safeManifestPath, safeDocId } from '../fs/safe-path.js'
 import { applyLeadUpdates } from './lead-finalize.js'
-import { readOutlineLeads } from '../check/outline-leads.js'
+import { outlineDeclarationForChapter } from '../check/outline-leads.js'
 import { readChapterUpdatesForChapter, leadEvidenceMatchesBody } from '../check/lead-updates.js'
 import { leadClosureItems } from '../check/leads.js'
 import { readDraft } from '../format/draft.js'
@@ -35,6 +35,10 @@ export type FinalizeOutcome =
  * @returns 是否成功 + 结果状态。
  */
 export function finalizeRevision(bookRoot: string, docId: string): FinalizeOutcome {
+  // R70-19（十八轮）：入口 safeDocId fail-loud——writeVersion 对非法 id 是 warn+null
+  // 不抛，若不拦会在「未写定稿版本」的情况下落 finalizedRevision 并返回 ok:true
+  //（清单被篡改插入非法 id 条目时的纵深缺口；executeSave/doMoveOrRename/doTrash 同款）
+  if (!safeDocId(docId)) return { ok: false, code: 'NOT_FOUND', error: '文档 ID 非法' }
   // docId → relPath（清单解析；未登记返回 NOT_FOUND）
   const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
   const relPath = lookupRelPath(docId, manifestPath)
@@ -143,7 +147,10 @@ export function finalizeRevision(bookRoot: string, docId: string): FinalizeOutco
  * ee-P1-3 定稿防吃书闸：算出阻断定稿的账本结构红（人话 message 列表，空 = 放行）。
  *
  * 数据源与 checkWithDb（src/check/run.ts）完全同口径，不自创：
- * - 声明侧：readOutlineLeads（细纲 fm「推进」；章号不匹配的旧细纲自动置空不比对）
+ * - 声明侧：outlineDeclarationForChapter（细纲 fm「推进」三态；R69-2：细纲自带章号 ≠
+ *   被检章 = 声明未知 → 跳过闭合比对——批量连写 batchSize≥2 时细纲恒@首章、其余章推进
+ *   落归档，此前「未知」被当「未声明」，归档章实际推进全部误报 lead-done-not-declared
+ *   并经本闸 LEAD_GATE 硬阻断批量定稿）
  * - 兑现侧：readChapterUpdatesForChapter 过滤 leadEvidenceMatchesBody（证据核心须在 fm 剥离
  *   后的当前正文命中才算兑现），比对逻辑复用 check 层导出的 leadClosureItems
  *   （单一真相源，防与机检口径漂移）。
@@ -155,13 +162,14 @@ export function finalizeRevision(bookRoot: string, docId: string): FinalizeOutco
  */
 function finalGateBlockers(bookRoot: string, absPath: string, chapterNo: number): string[] {
   try {
-    const declared = readOutlineLeads(bookRoot, chapterNo)
+    const declaration = outlineDeclarationForChapter(bookRoot, chapterNo)
+    if (!declaration.known) return [] // 声明未知：闭合比对不可判定，跳过（R69-2）
     const draft = readDraft(absPath)
     if (!draft.ok) return []
     const actual = readChapterUpdatesForChapter(bookRoot, chapterNo)
       .filter((u) => leadEvidenceMatchesBody(draft.body, u.证据))
       .map((u) => u.leadId)
-    return leadClosureItems(declared, actual, chapterNo).map((i) => i.message)
+    return leadClosureItems(declaration.leads, actual, chapterNo).map((i) => i.message)
   } catch {
     return []
   }

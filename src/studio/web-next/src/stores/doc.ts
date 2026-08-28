@@ -312,6 +312,9 @@ export const useDocStore = defineStore('doc', () => {
       }
       return false
     } catch (err) {
+      // R69-28（十七轮）：catch 补切书守卫——成功路径有 R64-3 复检，catch 漏配：定稿
+      // 在途（git 提交可达数秒）切到 B 书后，A 书的失败 toast 会弹在 B 书界面
+      if (bookName.value !== book) return false
       if (err instanceof ApiError && err.code === 'NOT_DRAFT_REGION') {
         useUiStore().toast('仅正文/设定文档可定稿', 'error')
       } else {

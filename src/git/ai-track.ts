@@ -27,6 +27,7 @@ import {
   readVersion,
   readVersionMeta, // R62-36：meta-only 读（不加载正文）
   VERSIONS_DIR_NAME,
+  decodeDocDirName, // R68-4：版本目录名反解（win 编码收口配套）
 } from '../document/version.js'
 
 const REF_ROOT = 'refs/clwriting/ai'
@@ -92,13 +93,16 @@ export function listTrackedDocs(bookRoot: string): string[] {
   // X-P2-3 版本档案后端：扫 工作区/.版本/ 下含 origin 'ai' 版本的 docId 目录
   const dir = versionsDir(bookRoot)
   if (!existsSync(dir)) return []
-  const out: string[] = []
+  // R68-4：目录名反解回真实 docId——写侧恒编码（win legacy 冒号防线），原始目录名
+  //（legacy_abc）与真实 id（legacy:abc）永不相等，文风收割对 legacy 文档静默失明。
+  // Set 去重：同一 docId 的字面/编码目录并存（mac 存量+新写）时双目录各扫一遍。
+  const out = new Set<string>()
   const metaCache: VersionMetaCache = new Map() // R65-28：单次调用内去重
   for (const name of readdirSync(dir)) {
     if (name.startsWith('._')) continue
-    if (listAiVersions(bookRoot, name, metaCache).length > 0) out.push(name)
+    if (listAiVersions(bookRoot, name, metaCache).length > 0) out.add(decodeDocDirName(name))
   }
-  return out
+  return [...out]
 }
 
 /**

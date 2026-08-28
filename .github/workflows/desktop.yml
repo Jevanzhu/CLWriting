@@ -60,6 +60,12 @@ jobs:
         run: npm run check:knowledge
       - name: 装 playwright chromium
         run: npx playwright install chromium
+      # R69-32（十七轮）：tag 门补常规 e2e（29 spec 前端动线）——此前 tag 门只有
+      # release-smoke（2 用例）+ Electron 启动冒烟兜底核心面，前端交互回归可随 DMG
+      # 出包；复用上方已装 chromium（test:e2e 自带 build:web 前置）。coverage 阈值门
+      # 仍留分支 CI（阈值门管代码演化趋势，非发布物属性，注释记档口径）。
+      - name: 常规 e2e（build:web + playwright test）
+        run: npm run test:e2e
       - name: 发布冒烟（release-smoke，build:all + 编译产物起服）
         run: npm run test:e2e:release
       - name: 上传 playwright trace（失败时）

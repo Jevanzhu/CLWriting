@@ -23,6 +23,7 @@ import { runSpec } from '../../../ai/tasks/spec.js'
 import { REWRITE_SPEC } from '../../../ai/tasks/specs.js'
 import { readDraft } from '../../../format/draft.js'
 import { isSelfHealRunning } from '../../../ai/orchestrate/self-heal.js'
+import { isSpawnRunning } from '../../../ai/orchestrate/spawn-registry.js'
 import { recordAiVersion } from '../../../git/ai-track.js'
 import {
   buildRewritePrompt,
@@ -79,6 +80,12 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
     // write_chapter 已同持此闸（turns.ts），本检查补齐 self-heal ↔ 端点互斥
     if (isSelfHealRunning(params['name']!)) {
       return replyError(res, 409, 'BUSY', '本书正在全自动写章，先等它跑完或中断再发起改写')
+    }
+    // R70-3（十八轮）：spawn 面——全库互斥矩阵其余各面（chat 工具/spawn/auto-write/
+    // chat.send）均纳入 spawn，唯本端点漏（R66-2 只补了 self-heal 面）：手动写稿在途
+    // 时编辑器改写放行 = 双倍费用 + 过期基线 + 后写赢顶掉 spawn 产出。
+    if (isSpawnRunning(params['name']!)) {
+      return replyError(res, 409, 'BUSY', '本书正在手动写稿，先等它跑完或中断再发起改写')
     }
     // RB-SV-P2-2：长任务并发闸（整章改写分钟级，重复点击=双倍费用）
     const release = acquireTaskGate(params['name']!, 'rewrite')

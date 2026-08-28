@@ -188,6 +188,25 @@ describe('低-2（第十轮）：chat 改写工具与 /rewrite 端点 task-gate 
     expect(isTaskGateHeld('ai-gen-gate', 'rewrite')).toBe(false)
   })
 
+  // R69-13（十七轮）：apply_spill 并入 REWRITE_GATE_TOOLS——确认落盘通道同样写章草稿，
+  // 此前只靠 sha 落盘前复验压窗（复验后 saveDraft 前的并发写仍是后写赢）。
+  it('R69-13：端点 rewrite 闸在途 → chat 侧 apply_spill 同闸被拒（文案单列不误导）', { timeout: 15_000 }, async () => {
+    const release = acquireTaskGate('ai-gen-gate', 'rewrite')
+    expect(release).not.toBeNull()
+    try {
+      const events = await runConfirmedToolChat([
+        { type: 'tool', name: 'apply_spill', input: { locator: '工作区/spills/不存在.md' } },
+        { type: 'text', content: '知道了。' },
+      ])
+      const result = events.find((e) => e.type === 'chat_tool_result') as { summary?: string } | undefined
+      expect(result?.summary).toContain('落盘改写稿')
+      expect(result?.summary).toContain('正在改写中')
+    } finally {
+      release!()
+    }
+    expect(isTaskGateHeld('ai-gen-gate', 'rewrite')).toBe(false)
+  })
+
   it('chat 侧改写在途 → 持有同把闸（端点/并发 chat 改写此刻 acquire 为 null）', { timeout: 15_000 }, async () => {
     const events: DriverEvent[] = []
     const driver = makeDriver(events)

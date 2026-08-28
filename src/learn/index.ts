@@ -19,6 +19,7 @@ import { join, relative } from 'node:path'
 import { readChapterDir } from '../format/chapters.js'
 import { splitSentences } from '../format/sentences.js'
 import { atomicWriteFile } from '../fs/atomic.js'
+import { acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
 import { readFile } from '../format/frontmatter.js'
 import { readBookConfig } from '../format/yaml.js'
 import { finalizedPathSet } from '../document/manifest.js'
@@ -202,32 +203,49 @@ export function learnFromBook(bookRoot: string): LearnResult {
   const topQuotes: QuoteCandidate[] = quoteCandidates.slice(0, 5)
 
   // 6. 落候选到 工作区/learn候选/
+  // R69-15（十七轮）：候选目录 rm+重建整段跨进程互斥——chat 工具（harvest_style 不经
+  // 端点 'learn' 闸）与 CLI/他进程并发收割时对同一目录互相 rm 半删/覆盖；5s 超时
+  // fail-closed 报「在途」交调用方提示重试（桌面+CLI 双进程形态 J7 已认可）。
   const candidateRoot = join(bookRoot, CANDIDATE_DIR)
-  // 清旧候选（重跑覆盖）
-  try { rmSync(candidateRoot, { recursive: true, force: true }) } catch { /* 不存在无所谓 */ }
-  mkdirSync(candidateRoot, { recursive: true })
-
-  // 样章候选：样章/<场景>-候选-NN.md（拟入 front matter）
-  const sampleDir = join(candidateRoot, '样章')
-  mkdirSync(sampleDir, { recursive: true })
-  topSamples.forEach((c, i) => {
-    const fileName = `${c.场景}-候选-${String(i + 1).padStart(2, '0')}.md`
-    const fm = [`场景: ${c.场景}`, `来源: 作者原作`, `出处: ${c.出处}`, `打分: ${c.打分}`].join('\n')
-    atomicWriteFile(join(sampleDir, fileName), `---\n${fm}\n---\n\n${c.正文}`)
-  })
-
-  // 金句候选：金句/<场景>.md（逐条列表）
-  const quoteDir = join(candidateRoot, '金句')
-  mkdirSync(quoteDir, { recursive: true })
-  const quotesByScene = new Map<string, QuoteCandidate[]>()
-  for (const q of topQuotes) {
-    const list = quotesByScene.get(q.场景) ?? []
-    list.push(q)
-    quotesByScene.set(q.场景, list)
+  const releaseHarvest = acquireCrossProcessLockWithTimeout(join(bookRoot, '工作区', '.learn-harvest.lock'), 5000)
+  if (!releaseHarvest) {
+    return {
+      ok: false,
+      sampleCount: 0,
+      quoteCount: 0,
+      candidateDir: CANDIDATE_DIR,
+      error: 'learn 收割在途（另一进程正在收割本书），请稍后重试。',
+    }
   }
-  for (const [scene, quotes] of quotesByScene) {
-    const content = quotes.map((q) => `- ${q.正文}  \n  ——${q.出处}`).join('\n\n')
-    atomicWriteFile(join(quoteDir, `${scene}.md`), content)
+  try {
+    // 清旧候选（重跑覆盖）
+    try { rmSync(candidateRoot, { recursive: true, force: true }) } catch { /* 不存在无所谓 */ }
+    mkdirSync(candidateRoot, { recursive: true })
+
+    // 样章候选：样章/<场景>-候选-NN.md（拟入 front matter）
+    const sampleDir = join(candidateRoot, '样章')
+    mkdirSync(sampleDir, { recursive: true })
+    topSamples.forEach((c, i) => {
+      const fileName = `${c.场景}-候选-${String(i + 1).padStart(2, '0')}.md`
+      const fm = [`场景: ${c.场景}`, `来源: 作者原作`, `出处: ${c.出处}`, `打分: ${c.打分}`].join('\n')
+      atomicWriteFile(join(sampleDir, fileName), `---\n${fm}\n---\n\n${c.正文}`)
+    })
+
+    // 金句候选：金句/<场景>.md（逐条列表）
+    const quoteDir = join(candidateRoot, '金句')
+    mkdirSync(quoteDir, { recursive: true })
+    const quotesByScene = new Map<string, QuoteCandidate[]>()
+    for (const q of topQuotes) {
+      const list = quotesByScene.get(q.场景) ?? []
+      list.push(q)
+      quotesByScene.set(q.场景, list)
+    }
+    for (const [scene, quotes] of quotesByScene) {
+      const content = quotes.map((q) => `- ${q.正文}  \n  ——${q.出处}`).join('\n\n')
+      atomicWriteFile(join(quoteDir, `${scene}.md`), content)
+    }
+  } finally {
+    releaseHarvest()
   }
 
   return {

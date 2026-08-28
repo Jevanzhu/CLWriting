@@ -7,7 +7,7 @@
  */
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, appendFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
@@ -16,6 +16,8 @@ import { startServer } from '../../src/studio/server/index.js'
 import { replyError } from '../../src/studio/server/http.js'
 import { orchestrationBusyFor } from '../../src/studio/server/api/task-gate.js'
 import { __setSelfHealRunningForTest } from '../../src/ai/orchestrate/self-heal.js'
+import { __setSpawnRunning } from '../../src/ai/orchestrate/spawn-registry.js'
+import { acquireTaskGate } from '../../src/studio/server/api/task-gate.js'
 import { __styleScanCacheHasForTest } from '../../src/studio/server/api/health.js'
 
 const BOOK = 'R67纪律书'
@@ -53,7 +55,9 @@ beforeAll(async () => {
   const bookRoot = join(workDir, BOOK)
   mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
   writeFileSync(join(bookRoot, 'book.yaml'), ['spec_version: 1', 'book:', `  title: ${BOOK}`, '  genre: 玄幻'].join('\n') + '\n', 'utf-8')
-  server = startServer({ port: 0, workDir })
+  // R70-5：auto-write/chat 端点要求 ctx.userDataPath（缺省 400 NO_USERDATA 先于闸检查）
+  mkdirSync(join(workDir, 'userData'), { recursive: true })
+  server = startServer({ port: 0, workDir, userDataPath: join(workDir, 'userData') })
   await new Promise<void>((r) => server!.once('listening', r))
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const boot = await (await fetch(`${baseUrl}/api/boot`)).json()
@@ -143,5 +147,45 @@ describe('R67-15: health styleScan 缓存随删书失效', () => {
     const d = await req('DELETE', `/api/books/${encodeURIComponent(BOOK)}`)
     expect(d.status).toBe(200)
     expect(__styleScanCacheHasForTest(bookRoot)).toBe(false) // 删书清理（R67-15 接线）
+  })
+})
+
+describe('R70-3/R70-5: 互斥矩阵补角（rewrite×spawn 反向 / auto-write·chat×生成闸）', () => {
+  // R67-15 用例已删除 BOOK——本组自建独立书（books.jsonl 追加 + 目录 + book.yaml）
+  const BOOK2 = 'R70互斥书'
+  beforeAll(async () => {
+    const line = JSON.stringify({ name: BOOK2, path: BOOK2, kind: 'long' }) + '\n'
+    appendFileSync(join(workDir, '.clwriting', 'books.jsonl'), line)
+    const root2 = join(workDir, BOOK2)
+    mkdirSync(join(root2, '写作', '正文'), { recursive: true })
+    writeFileSync(join(root2, 'book.yaml'), ['spec_version: 1', 'book:', `  title: ${BOOK2}`, '  genre: 玄幻'].join('\n') + '\n', 'utf-8')
+  })
+
+  it('R70-3：spawn 在途 → POST /documents/:id/rewrite 409 BUSY（手动写稿文案）', async () => {
+    __setSpawnRunning(BOOK2, true)
+    try {
+      const r = await req('POST', `/api/books/${encodeURIComponent(BOOK2)}/documents/doc_x/rewrite`, {
+        instruction: '压缩',
+      })
+      expect(r.status).toBe(409)
+      expect(r.json.error).toContain('手动写稿')
+    } finally {
+      __setSpawnRunning(BOOK2, false)
+    }
+  })
+
+  it('R70-5：生成任务闸（outline）在途 → POST auto-write / chat.send 均 409 BUSY', async () => {
+    const release = acquireTaskGate(BOOK2, 'outline')
+    expect(release).not.toBeNull()
+    try {
+      const aw = await req('POST', `/api/books/${encodeURIComponent(BOOK2)}/auto-write`, { chapter: 1 })
+      expect(aw.status).toBe(409)
+      expect(aw.json.error).toContain('任务在跑')
+      const ch = await req('POST', `/api/books/${encodeURIComponent(BOOK2)}/chat`, { message: '你好' })
+      expect(ch.status).toBe(409)
+      expect(ch.json.error).toContain('任务在跑')
+    } finally {
+      release!()
+    }
   })
 })

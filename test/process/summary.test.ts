@@ -351,7 +351,7 @@ describe('prepare 注入登记（模型可见 ⟺ 已记录，C1 红线）', () 
 // ── R65-31（第六十五轮）：摘要文件读失败降级（权限/TOCTOU 不直穿自愈链）────────
 
 describe('R65-31: 摘要读失败降级', () => {
-  it('章摘要不可读（chmod 000 → EACCES）→ chapterSummaryState 按 missing、body 按 null，均不抛', () => {
+  it.skipIf(process.platform === 'win32')('章摘要不可读（chmod 000 → EACCES）→ chapterSummaryState 按 missing、body 按 null，均不抛', () => {
     const root = mkdtempSync(join(tmpdir(), 'clw-r65-31-'))
     dirs.push(root)
     try {

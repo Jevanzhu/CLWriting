@@ -54,7 +54,7 @@ afterEach(() => {
 })
 
 describe('N-6（第十二轮）：finalizeHistory 压缩分支先算后切', () => {
-  it('close 半途抛错 → msgSeqs/histories 双未动（账本不错位），异常向上传播', async () => {
+  it('close 半途抛错 → msgSeqs/histories 双未动（账本不错位），R69-10 收编不上抛（chat_done 后不再补发 error）', async () => {
     const seqs = Array.from({ length: 12 }, (_, i) => [100 + i])
     msgSeqMap.set(book, seqs)
     histories.set(book, history)
@@ -64,7 +64,10 @@ describe('N-6（第十二轮）：finalizeHistory 压缩分支先算后切', () 
       throw new Error('E1: appendEvents SQLITE_BUSY')
     })
 
-    await expect(finalizeHistory(opts, history, seqs, recorder, 'sys', state)).rejects.toThrow('SQLITE_BUSY')
+    // R69-10（十七轮）：close 抛错收编（warn 留痕 + 退化为本轮未压缩）——此前异常
+    // 穿 runChatInner（无 catch）→ sendChatMessage 的 catch 发 driver error，chat_done
+    // 已发又收 error、压缩存档丢失
+    await expect(finalizeHistory(opts, history, seqs, recorder, 'sys', state)).resolves.toBeUndefined()
 
     // 修复点：close 失败不得缩短共享数组——msgSeqMap 条目（同引用）保持 12 格全量
     expect(seqs.length).toBe(12)
@@ -127,7 +130,8 @@ describe('R65-2（十三轮）：硬截断分支 close 先行（suppress 短路�
       throw new Error('E2: close SQLITE_BUSY')
     })
 
-    await expect(finalizeHistory(opts, h, q, recorder, 'sys', state)).rejects.toThrow('SQLITE_BUSY')
+    // R69-10（十七轮）：同上收编——warn 留痕、退化「截断未发生」，不再上抛
+    await expect(finalizeHistory(opts, h, q, recorder, 'sys', state)).resolves.toBeUndefined()
 
     // R65-2 核心：close 抛错时内存/账本双未动——trim 视同未发生（修复前先截后 close，
     // 失败即「内存已截、遮蔽未落库」错位；restore 投影出幽灵历史）

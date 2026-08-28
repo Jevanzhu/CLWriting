@@ -48,11 +48,16 @@ export function draftParseReason(message: string): string {
  * 定位正文区草稿落盘路径（draft/final 同路径，靠 git 状态区分）。
  * - 已有同章号文件 → 覆盖写（返回该路径）
  * - 新章 → 从 content frontmatter 解析标题，推断卷目录，生成正式文件路径
+ * - opts.forRead（R68-1）：只读定位口径——跳过定稿覆盖守卫。对话上下文注入 /
+ *   check_chapter / read_chapter 等纯读消费方定位定稿章属合法（定稿章是长篇创作
+ *   占比最高的存量），误挂写防线会让「带着定稿章上下文对话/机检」整体失败且文案
+ *   误导（「拒绝覆盖写」）。写路径（saveDraft/rewrite/self-heal/迁移）不传——守卫不变。
  */
 export function resolveDraftPath(
   bookRoot: string,
   chapter: number,
   content?: string,
+  opts?: { forRead?: boolean },
 ): { relPath: string; existed: boolean } {
   const bodyDir = join(bookRoot, '写作', '正文')
 
@@ -61,7 +66,7 @@ export function resolveDraftPath(
     const hit = readChapterDir(bodyDir).chapters.find((c) => c.章号 === chapter)
     if (hit?._path) {
       const relPath = slashRelative(bookRoot, hit._path)
-      ensureChapterNotFinalized(bookRoot, relPath, chapter)
+      if (!opts?.forRead) ensureChapterNotFinalized(bookRoot, relPath, chapter)
       return { relPath, existed: true }
     }
   }

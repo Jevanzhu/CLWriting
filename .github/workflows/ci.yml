@@ -20,9 +20,17 @@ jobs:
       matrix:
         # G4-1（2026-08-16）：typecheck/单测扩 ubuntu；e2e 已迁 ubuntu（R66-38），
         # mac 腿保留验证 Electron 相关面（devDependencies 二进制/tsup 桌面产物构建）。
-        os: [ubuntu-latest, macos-latest]
+        # R69-6（十七轮，= 阶段 21 J4）：补 windows-latest 腿（仅 Node 24 控成本）——
+        # 按 win 适配 D4 拍板口径「win 仅 typecheck+build+单测（e2e 仍 mac/ubuntu）」：
+        # 本 job 其余步（lint/packaging/counts/knowledge/pack）纯 Node 脚本顺带背书。
+        # 45 处 skipIf(win32) 平台守卫 + R69-7 补的 3 文件已就位；win npm ci/构建较慢，
+        # 20 分钟超时为首跑观察值（J0 打包前以本腿为 win 持续门）。
+        os: [ubuntu-latest, macos-latest, windows-latest]
         # 24=LTS / 26=Current（25 奇数线已 EOL）。engines >=24；node:sqlite 自 v23.4.0 起免 flag，两版均零 flag 可用。
         node: [24, 26]
+        exclude:
+          - os: windows-latest
+            node: 26
     steps:
       - uses: actions/checkout@v4
 

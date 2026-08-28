@@ -276,7 +276,9 @@ test('cardCache 删除自愈：删卡后再读，缓存条目被清扫；他目�
 
 // ── R65-32（第六十五轮）：降级分支二次裸读容错——单卡读失败跳过，其余卡正常 ──────
 
-test('readCharacterCards：无 fm 卡读盘失败（EACCES）→ 跳过该卡，其余卡正常返回（不再直穿抛出）', async () => {
+test.skipIf(process.platform === 'win32')( // Windows 无 POSIX 权限位（chmod 不阻读），该守卫语义由 mac/linux 腿覆盖
+  'readCharacterCards：无 fm 卡读盘失败（EACCES）→ 跳过该卡，其余卡正常返回（不再直穿抛出）',
+  async () => {
   const { readCharacterCards, clearCharacterCardCache } = await import('../../src/process/settings-context.js')
   const { mkdtempSync, rmSync, writeFileSync, chmodSync } = await import('node:fs')
   const { tmpdir } = await import('node:os')

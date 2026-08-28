@@ -21,7 +21,7 @@
 import type { Session, StudioDriver } from '../../driver/types.js'
 import { openSessionStore } from '../../events/store.js'
 import type { SessionRecorder } from '../../events/chat-bridge.js'
-import { emit, type ChatRunState } from './chat/state.js'
+import { emit, type ChatRunState, AGENT_DEADLINE_MS } from './chat/state.js'
 import { prepareChatRun } from './chat/restore.js'
 import { runAgentTurns } from './chat/turns.js'
 
@@ -31,7 +31,6 @@ export { waitConfirm } from './chat/turns.js'
 
 // ── 常量 ──────────────────────────────────────────
 
-const AGENT_DEADLINE_MS = 30 * 60_000
 const CONFIRM_TIMEOUT_MS = 2 * 60_000
 
 // ── 类型 ──────────────────────────────────────────

@@ -18,7 +18,8 @@ import { join, dirname } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { resolveWithinRoot, safeDocId } from '../fs/safe-path.js'
 import { readManifest, writeManifest, upsertEntry, withManifestLock, type ManifestEntry } from './manifest.js'
-import { VERSIONS_DIR_NAME } from './version.js'
+import { VERSIONS_DIR_NAME, encodeDocDirName } from './version.js'
+import { analysisPathCandidates } from './analysis.js'
 import { type DocumentRole } from './layout.js'
 import { invalidateTreeIndex } from './tree.js'
 import { log } from '../log/index.js'
@@ -270,9 +271,29 @@ export function purgeTrash(bookRoot: string, id: string): PurgeResult {
     // .trash 文件，工作区/.版本/<docId>/ 快照残留（pinned 定稿版永久保留），内容仍可
     // 经版本 API 读出，与 UI 的不可逆承诺冲突（隐私残留）。docId 走 safeDocId 同守卫
     // （与 listVersions 一致，防篡改清单借 purge 删版本目录外文件）。
+    // R68-2（十六轮）：双候选连删（与 version.ts docVersionDirs 同口径：字面在前、
+    // 编码在后、同名去重）——此前只拼字面 entry.id，win 上字面含 `:` 永不存在、
+    // mac 上新写版本全在编码目录，两种平台都残留。
     if (safeDocId(entry.id)) {
-      const verDir = safePathWithin(bookRoot, `工作区/${VERSIONS_DIR_NAME}/${entry.id}`)
-      if (verDir && existsSync(verDir)) rmSync(verDir, { recursive: true, force: true })
+      const names = entry.id === encodeDocDirName(entry.id) ? [entry.id] : [entry.id, encodeDocDirName(entry.id)]
+      for (const name of names) {
+        const verDir = safePathWithin(bookRoot, `工作区/${VERSIONS_DIR_NAME}/${name}`)
+        if (verDir && existsSync(verDir)) rmSync(verDir, { recursive: true, force: true })
+      }
+      // R69-4（十七轮）：分析信封双候选 + journal 双名连删——purge「不可逆」承诺下
+      // 此前漏清两处：项目/分析/<docId>.json（review/score 载荷 = 隐私残留，字面+编码
+      // 双候选，与版本目录同族）；工作区/.journal/<name>.jsonl（崩溃未结算的 pending
+      // 行含全文快照，残留会让 healthCheck 对已删文档永久报 crashedWrite 幽灵红）。
+      const analysisCandidates = analysisPathCandidates(bookRoot, entry.id)
+      if (analysisCandidates) {
+        for (const fp of analysisCandidates) {
+          if (existsSync(fp)) rmSync(fp, { force: true })
+        }
+      }
+      for (const name of names) {
+        const journalFile = safePathWithin(bookRoot, `工作区/.journal/${name}.jsonl`)
+        if (journalFile && existsSync(journalFile)) rmSync(journalFile, { force: true })
+      }
     }
   } catch (e) {
     return { ok: false, code: 'WRITE_ERROR', reason: `永久删失败：${errMsg(e)}` }

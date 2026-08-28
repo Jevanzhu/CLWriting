@@ -15,7 +15,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, relative, isAbsolute } from 'node:path'
-import { rmSync, existsSync, readFileSync } from 'node:fs'
+import { rmSync, existsSync, readFileSync , statSync } from 'node:fs'
 import { defineRoute } from './schema.js'
 import { reply, replyError, readJson } from '../http.js'
 import { resolveWithinRoot } from '../../../fs/safe-path.js'
@@ -148,7 +148,9 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
     if (!safe) {
       return replyError(res, 400, 'BAD_INPUT', '路径非法（越出书库或路径异常）')
     }
-    rmSync(safe.abs, { force: true })
+    // R70-23（十八轮）：目录形态分流——文风/条目/ 下被放同名目录时 rmSync 非递归抛
+    // EISDIR 落 dispatch 500 'ERROR'；目录递归删（与文件同 force 语义）
+    rmSync(safe.abs, { force: true, recursive: statSync(safe.abs).isDirectory() })
     reply(res, 200, { ok: true })
   },
   })

@@ -86,6 +86,39 @@ describe('resolveDraftPath V-P1-3 定稿防护', () => {
     expect(r.existed).toBe(true)
     expect(r.relPath).toBe('写作/正文/003-雪夜.md')
   })
+
+  // R69-1（十七轮）：R68-1 forRead 只读口径回归——定稿章是长篇创作占比最高的存量，
+  // 「带着定稿章上下文对话 / 机检 / read_chapter」定位属合法读，不吃写防线（修复前
+  // 全链单测零覆盖：check_chapter fixture 均未定稿）。
+  it('R68-1：定稿章 + forRead:true → 只读定位放行（对话上下文/机检合法读）', () => {
+    const rel = writeChapter(bookRoot, 3, '雪夜')
+    mkdirSync(join(bookRoot, '项目'), { recursive: true })
+    const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
+    const m = readManifest(manifestPath)
+    upsertEntry(m, {
+      id: generateDocId(), nodeType: 'document', path: rel, parentId: null,
+      finalizedRevision: 'sha256:test-baseline', finalizedAt: new Date().toISOString(),
+    })
+    writeManifest(manifestPath, m)
+
+    const r = resolveDraftPath(bookRoot, 3, undefined, { forRead: true })
+    expect(r.existed).toBe(true)
+    expect(r.relPath).toBe('写作/正文/003-雪夜.md')
+  })
+
+  it('R68-1：定稿章不传 forRead（写路径）→ 守卫不变仍拒绝', () => {
+    const rel = writeChapter(bookRoot, 3, '雪夜')
+    mkdirSync(join(bookRoot, '项目'), { recursive: true })
+    const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
+    const m = readManifest(manifestPath)
+    upsertEntry(m, {
+      id: generateDocId(), nodeType: 'document', path: rel, parentId: null,
+      finalizedRevision: 'sha256:test-baseline', finalizedAt: new Date().toISOString(),
+    })
+    writeManifest(manifestPath, m)
+
+    expect(() => resolveDraftPath(bookRoot, 3)).toThrow(/已定稿/)
+  })
 })
 
 describe('resolveDraftPath W-P2-2 改名旁路防护', () => {

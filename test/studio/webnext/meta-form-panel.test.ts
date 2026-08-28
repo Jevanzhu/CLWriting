@@ -89,3 +89,36 @@ describe('MetaFormPanel: content 原位变更重解析（R65-52）', () => {
     expect((w.find('input[type="number"]').element as HTMLInputElement).value).toBe('4500')
   })
 })
+
+describe('MetaFormPanel: 编辑中脏键保护（R69-5）', () => {
+  it('用户改过未保存的字段在异步 refresh（content 原位变更）时保留；干净键取服务端新值', async () => {
+    const doc = useDocStore()
+    const entry = seedDoc('---\n钩子类型: 危机钩\n字数目标: 3000\n---\n章纲正文')
+    doc.docs.set('d1', entry)
+    useWorkspaceStore().activeDocId = 'd1'
+    const w = mount(MetaFormPanel, { props: { bookName: '书测' } })
+    await nextTick()
+    // 用户编辑「字数目标」（脏键），「钩子类型」未动（干净键）
+    const num = w.find('input[type="number"]')
+    await num.setValue('5000')
+    // 异步 refresh 迟到（如顶栏标题 blur 提交触发 doc.refresh）：content 原位变更
+    doc.get('d1')!.content = '---\n钩子类型: 悬念钩\n字数目标: 3000\n---\n章纲正文'
+    await nextTick()
+    // 脏键保用户输入；干净键取服务端新值
+    expect((w.find('input[type="number"]').element as HTMLInputElement).value).toBe('5000')
+    expect(w.findAll('select').some((s) => s.element.value === '悬念钩')).toBe(true)
+  })
+
+  it('切文档（entry 引用变化）→ 整体重灌，脏键不跨文档携带', async () => {
+    const doc = useDocStore()
+    doc.docs.set('d1', seedDoc('---\n钩子类型: 危机钩\n字数目标: 3000\n---\n章纲正文'))
+    doc.docs.set('d2', { ...seedDoc('---\n钩子类型: 悬念钩\n字数目标: 2000\n---\n另一章'), docId: 'd2' })
+    useWorkspaceStore().activeDocId = 'd1'
+    const w = mount(MetaFormPanel, { props: { bookName: '书测' } })
+    await nextTick()
+    await w.find('input[type="number"]').setValue('5000')
+    useWorkspaceStore().activeDocId = 'd2'
+    await nextTick()
+    expect((w.find('input[type="number"]').element as HTMLInputElement).value).toBe('2000')
+  })
+})

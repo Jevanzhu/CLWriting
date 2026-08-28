@@ -12,7 +12,7 @@
 
 import { readdirSync, statSync, existsSync, mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { readFile, parseFlat } from '../format/frontmatter.js'
+import { readFile, parseFlat , stringifyValue } from '../format/frontmatter.js'
 import { readLead } from '../format/leads.js'
 import { sanitizeFileNamePart } from '../format/filename.js'
 import { atomicWriteFile } from '../fs/atomic.js'
@@ -93,13 +93,15 @@ export function migrateLegacyForeshadows(bookRoot: string): MigrateResult {
     const historyLines = lead.履历.length > 0
       ? ['推进记录：', ...lead.履历.map((h) => `- 第${h.章号}章 ${h.动词}：${h.证据}`)].join('\n')
       : '（无推进记录）'
+    // R70-20（十八轮）：值走 stringifyValue——标题含 # 时直拼会被读侧行内注释剥截、
+    // 含逗号时关联词切分错位；引号化承载与读侧 parseFlat 对称
     const fm = [
       '---',
-      `标题: ${title}`,
+      `标题: ${stringifyValue(title)}`,
       `状态: ${status}`,
       ...(lead.开启章 ? [`埋设章号: ${lead.开启章}`] : []),
       '重要性: 中',
-      `关联词: ${title}`,
+      `关联词: ${stringifyValue(title)}`,
       '---',
       '',
       `（迁移自账本伏笔 ${lead.编号}）`,

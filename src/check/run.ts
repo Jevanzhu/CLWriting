@@ -13,7 +13,7 @@ import { applyGlobalDefaults } from '../format/global-defaults.js'
 import { readDraft } from '../format/draft.js'
 import { rebuild } from '../cache/rebuild.js'
 import { runAllChecks, hasRed, enabledLeadTypes } from './runner.js'
-import { readOutlineLeads } from './outline-leads.js'
+import { outlineDeclarationForChapter } from './outline-leads.js'
 import {
   leadEvidenceMatchesBody,
   readChapterUpdatesForChapter,
@@ -26,8 +26,8 @@ import { readChapterDir } from '../format/chapters.js'
 import { readManifest } from '../document/manifest.js'
 import { deriveStatus } from '../document/status.js'
 import { probeCachedRevision, probeCachedPublished } from '../document/tree.js'
-import { analysisPath } from '../document/analysis.js'
-import { syncTreeIssuesEpoch, readTreeIssuesCache, writeTreeIssuesCache, computeLeadsBookFp, readLeadsBookRed, writeLeadsBookRed } from './tree-issues-cache.js'
+import { existingAnalysisPath } from '../document/analysis.js'
+import { syncTreeIssuesEpoch, readTreeIssuesCache, writeTreeIssuesCache, computeLeadsBookFp, readLeadsBookRed, writeLeadsBookRed, computeTreeIssuesGlobalFp } from './tree-issues-cache.js'
 import { checkLeadsBookItems } from './leads.js'
 import type { CheckReport } from './types.js'
 import type { ChapterMeta, BookConfig } from '../format/types.js'
@@ -134,7 +134,12 @@ function maxWrittenChapterOf(bookRoot: string, preScanned?: ChapterMeta[]): numb
     if (!finalized.has(rel)) continue
     if (ch.章号 > max) max = ch.章号
   }
-  return max > 0 ? max : undefined
+  if (max > 0) return max
+  // R69-17（十七轮）：零定稿书回退全书最高现存章号——与树聚合（collectTreeIssues
+  // maxWritten ?? maxExisting）同口径；此前返回 undefined 让单章侧回落被检章自身
+  // 章号，复检低章时同一履历行「树不红、单章面板红」口径分裂。
+  const maxExisting = chapters.reduce((m, c) => Math.max(m, c.章号), 0)
+  return maxExisting > 0 ? maxExisting : undefined
 }
 
 /**
@@ -208,7 +213,11 @@ export function checkWithDb(
     // 账本数据：有布线才组装（连续故事用账本检查）
     const useLeads = hasWiring
     // V-P2-14：细纲声明按被检章过滤（细纲单文件覆盖写，旧草稿复检不得对上新章声明）
-    const declaredLeadIds = useLeads ? readOutlineLeads(bookRoot, draft.chapter.章号) : undefined
+    // R69-2（十七轮）：声明侧三态——细纲自带章号 ≠ 被检章 = 声明未知（批量连写常态：
+    // 细纲@首章、其余章推进落归档），此时 declaredLeadIds 传 undefined 跳过两端闭合，
+    // 不再把「未知」当「未声明」误报 lead-done-not-declared（曾硬阻断批量定稿闸）。
+    const declaration = useLeads ? outlineDeclarationForChapter(bookRoot, draft.chapter.章号) : undefined
+    const declaredLeadIds = declaration?.known ? declaration.leads : undefined
     // R61-14（第六十一轮）：实际侧同口径按被检章过滤（V-P2-14 声明侧同向）——
     // 他章证据不作本章「已兑现」参照。
     // R65-24（十三轮）：actual 侧改走 readChapterUpdatesForChapter 单源（主文件（属于
@@ -316,9 +325,14 @@ export function collectTreeIssues(
     // 数百章规模；短篇不开 .cache/index.db，行为与从前完全一致）。表缺席/纪元
     // 同步失败 → cacheEnabled=false 走现行全量路径（语义无损降级）。
     let cacheEnabled = false
+    // R70-14（十八轮）：纪元 fp 写前复核基线——fp 在聚合开头计算、行写入在其后，
+    // 外部编辑器/第二进程恰在窗口内改纪元输入时旧行按新输入视角陈旧落表（单请求
+    // 周期陈旧、下一聚合自愈，但该周期红点错）。写入前复核 fp 未变才落缓存。
+    let epochFp0: string | null = null
     if (db) {
       try {
         syncTreeIssuesEpoch(db, bookRoot, userDataPath ?? null)
+        epochFp0 = computeTreeIssuesGlobalFp(bookRoot, userDataPath ?? null)
         cacheEnabled = true
       } catch {
         cacheEnabled = false
@@ -409,7 +423,7 @@ export function collectTreeIssues(
         } catch {
           continue // 竞态消失（回收站/删除）：本条跳过
         }
-        const envAbs = analysisPath(bookRoot, docId)
+        const envAbs = existingAnalysisPath(bookRoot, docId) // R68-3：双候选读侧定位（信封 stat 指纹不吃单候选分裂）
         let verdictFp: string | null = null
         if (envAbs) {
           try {
@@ -454,7 +468,9 @@ export function collectTreeIssues(
         // writeTreeIssuesCache 会把「未检出」固化为假阴性，指纹不变期间红点永久消失、
         // 后续请求直命中坏缓存；不写则下轮重试。verdict 与缓存互不连带。
         // 注意写入的是章作用域 hasRed（不含 leadsBookRed），合并只在展示层发生。
-        if (!checkFailed && cacheEnabled && db) writeTreeIssuesCache(db, relPath, chapterSt.mtimeMs, chapterSt.size, verdictFp, { hasRed, verdictRejected })
+        // R70-14：窗口内纪元变了则本轮不落缓存（下轮重算）
+        const epochStable = epochFp0 !== null && computeTreeIssuesGlobalFp(bookRoot, userDataPath ?? null) === epochFp0
+        if (!checkFailed && cacheEnabled && db && epochStable) writeTreeIssuesCache(db, relPath, chapterSt.mtimeMs, chapterSt.size, verdictFp, { hasRed, verdictRejected })
         const mergedRed = hasRed || leadsBookRed
         if (mergedRed || verdictRejected) issues[docId] = { hasRed: mergedRed, verdictRejected }
       }

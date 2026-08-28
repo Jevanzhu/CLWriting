@@ -133,6 +133,11 @@ export function readChapterDir(
   // 同长内容的撞车窗口收窄到 ns 级，注释同步）。
   // 返回数组与章对象均为新引用（防调用方 sort/mutate 污染缓存）。
   const cache = chapterDirCache.get(dirPath) ?? new Map<string, ChapterDirEntry>()
+  // R70-21：FIFO 上限——超限逐出最旧书目录（Map 插入序），防多书长跑无界缓涨
+  if (!chapterDirCache.has(dirPath) && chapterDirCache.size >= CHAPTER_DIR_CACHE_MAX) {
+    const oldest = chapterDirCache.keys().next().value
+    if (oldest !== undefined) chapterDirCache.delete(oldest)
+  }
   chapterDirCache.set(dirPath, cache)
   const chapters: ChapterMeta[] = []
   const errors: ParseError[] = []
@@ -201,7 +206,9 @@ interface ChapterDirEntry {
 }
 
 /** CC-P1-3：进程级章节元数据缓存（dirPath → 文件路径 → 条目）。
- *  无上限（按书隔离，键含绝对路径；每章仅 fm 元数据 + 字数，数百章 KB 级）——与 tree probeCache 同策略。 */
+ *  R70-21（十八轮）：FIFO 上限 64 书目录（probeCache 4096/树索引 16 同款纪律）——
+ *  此前无上限，多书长跑缓涨（每章仅 fm 元数据 KB 级，卫生项）。 */
+const CHAPTER_DIR_CACHE_MAX = 64
 const chapterDirCache = new Map<string, Map<string, ChapterDirEntry>>()
 
 /** 清空章节元数据缓存（结构性 mutation 后防御性调用；正常由每轮 walk 自愈，测试用）。 */

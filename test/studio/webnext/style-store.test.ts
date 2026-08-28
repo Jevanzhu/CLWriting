@@ -323,4 +323,58 @@ describe('style: 切书竞态（M-2 reqGen 守卫）', () => {
     await p
     expect(style.trend).toBeNull() // A 书 trend 未落地（旧实现会顶掉 B 书的空态）
   })
+  // R69-1（十七轮）：R68-5 六方法代守卫（add/remove/confirm/ignore/reloadEntries/
+  // reloadCandidates）回归——慢响应在 clear+load(B) 后落地不污染 B 书视图。
+  it('R68-5：A 书 add 慢响应在切书后落地 → 不触发 reloadEntries 污染 B 书条目', async () => {
+    const style = useStyleStore()
+    listEntriesMock.mockResolvedValueOnce({ entries: [], errors: [], migration: null })
+    listCandidatesMock.mockResolvedValueOnce({ candidates: [] })
+    getConfigMock.mockResolvedValueOnce(config())
+    await style.load('bookA')
+
+    let releaseA!: () => void
+    const gate = new Promise<void>((r) => {
+      releaseA = r
+    })
+    addEntryMock.mockImplementationOnce((_book: string, _e: unknown) => gate.then(() => undefined))
+    const pAdd = style.add({ 场景: '样章', 类型: '手法', 正文: 'A 书条目' })
+
+    style.clear()
+    listEntriesMock.mockResolvedValueOnce({ entries: [entry('b-book.md', '手法')], errors: [], migration: null })
+    listCandidatesMock.mockResolvedValueOnce({ candidates: [] })
+    getConfigMock.mockResolvedValueOnce(config())
+    await style.load('bookB')
+    const before = style.entries[0]!._path
+
+    releaseA()
+    await pAdd
+    expect(style.entries[0]!._path).toBe(before) // A 书落地后的 reloadEntries 被代守卫拦下
+    expect(style.bookName).toBe('bookB')
+  })
+
+  it('R68-5：A 书 confirm 慢响应在切书后落地 → 不清 B 书候选/不 reload', async () => {
+    const style = useStyleStore()
+    listEntriesMock.mockResolvedValueOnce({ entries: [], errors: [], migration: null })
+    listCandidatesMock.mockResolvedValueOnce({ candidates: [candidate('ac.md', '待确认')] })
+    getConfigMock.mockResolvedValueOnce(config())
+    await style.load('bookA')
+
+    let releaseA!: () => void
+    const gate = new Promise<void>((r) => {
+      releaseA = r
+    })
+    confirmCandidateMock.mockImplementationOnce((_book: string, _path: string) => gate.then(() => undefined))
+    const pConfirm = style.confirm('ac.md')
+
+    style.clear()
+    listEntriesMock.mockResolvedValueOnce({ entries: [entry('b-book.md', '手法')], errors: [], migration: null })
+    listCandidatesMock.mockResolvedValueOnce({ candidates: [candidate('bc.md', '待确认')] })
+    getConfigMock.mockResolvedValueOnce(config())
+    await style.load('bookB')
+    const before = style.candidates[0]!._path
+
+    releaseA()
+    await pConfirm
+    expect(style.candidates[0]!._path).toBe(before) // B 书候选未被 A 书 confirm 落地清掉
+  })
 })

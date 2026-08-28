@@ -110,8 +110,9 @@ export function buildChatContext(
   let chapterFile: string | undefined
 
   if (chapter !== undefined && chapter >= 1) {
-    // 尝试读取章节正文前 2000 字
-    const draftRel = resolveDraftPath(bookRoot, chapter).relPath
+    // 尝试读取章节正文前 2000 字（R68-1：forRead 只读口径——定稿章上下文注入合法，
+    // 不吃「拒绝覆盖写」写防线）
+    const draftRel = resolveDraftPath(bookRoot, chapter, undefined, { forRead: true }).relPath
     const draftPath = join(bookRoot, draftRel)
     const parts: string[] = [`第 ${chapter} 章`]
     if (existsSync(draftPath)) {
@@ -173,6 +174,11 @@ export function trimHistory(history: ChatMsg[], maxTurns = 10): ChatMsg[] {
 
   return history.slice(cutIdx)
 }
+
+/** R69-12（十七轮）：消毒层合成占位文案（连续同 role 补位）。模型可见但无独立事件
+ *  ——确定性函数合成，重放按 sanitizeHistory 同函数重建（口径声明见函数内注释）。 */
+const SANITIZE_PLACEHOLDER_ACK = '[收到]'
+const SANITIZE_PLACEHOLDER_CONT = '[对话继续]'
 
 /**
  * 发送前历史消毒（方案 §6.4，治 #3a/#3b；学 cherry-studio ensureValidHistory）。
@@ -270,13 +276,15 @@ export function sanitizeHistory(history: ChatMsg[]): ChatMsg[] {
 
   // 连续同 role → 插入与当前消息角色互补的占位（保持交替，治 #3b）。
   // 占位角色必须互补：写死 user 会在连续 user 场景插出三连 user（防线失效）
+  // R69-12（十七轮）：占位文案定常量并显式声明事件口径——占位是消毒层对已记录历史的
+  // 确定性合成（模型可见、无独立事件），不破坏铁律①重放：重放按同函数重建即得同值。
   const fixed: ChatMsg[] = []
   for (const m of result) {
     if (fixed.length > 0 && fixed[fixed.length - 1]!.role === m.role) {
       fixed.push(
         m.role === 'user'
-          ? { role: 'assistant', content: '[收到]' }
-          : { role: 'user', content: '[对话继续]' },
+          ? { role: 'assistant', content: SANITIZE_PLACEHOLDER_ACK }
+          : { role: 'user', content: SANITIZE_PLACEHOLDER_CONT },
       )
     }
     fixed.push(m)

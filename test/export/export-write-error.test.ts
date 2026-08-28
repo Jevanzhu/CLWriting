@@ -53,7 +53,7 @@ test('R67-10: split 循环中单章写入失败 → {ok:false} 人话错误带�
     expect(r.error).toContain('分章 2')
     expect(r.error).toContain('EIO')
     // 第 1 章已落盘（半产物在位——收编口径见源码头注：下次导出整目录归档清位）
-    expect(existsSync(join(root, '工作区', '导出', '分章', '001-好章.md'))).toBe(true)
+    expect(existsSync(join(root, '工作区', '导出', '分章', '0001-好章.md'))).toBe(true)
   } finally {
     FAULT.failAfter = null
     rmSync(root, { recursive: true, force: true })
@@ -89,7 +89,7 @@ test('R67-10: 无故障时 both 形态产物齐整（守恒回归——mock 不�
     expect(r.ok).toBe(true)
     expect(r.chapterCount).toBe(1)
     expect(r.files.some((f) => f.includes('全本-守恒.md'))).toBe(true)
-    expect(r.files.some((f) => f.includes('分章/001-一.md'))).toBe(true)
+    expect(r.files.some((f) => f.includes('分章/0001-一.md'))).toBe(true)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

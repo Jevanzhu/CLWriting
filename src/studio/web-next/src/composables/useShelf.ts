@@ -134,6 +134,7 @@ export function useShelf(options?: {
   async function createBook(): Promise<void> {
     const name = newName.value.trim()
     if (!name) return
+    if (creating.value) return // R70-25（十八轮）：Enter 不受按钮 disabled 管辖——双 Enter 第二笔撞重名误报失败
     creating.value = true
     createError.value = null
     try {

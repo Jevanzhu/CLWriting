@@ -160,12 +160,18 @@ function main() {
   // vitest list --json：[{ fullName, ... }]（不执行用例）
   let vitestJson = ''
   try {
-    vitestJson = execFileSync('npx', ['vitest', 'list', '--json'], {
-      cwd: root,
-      encoding: 'utf8',
-      maxBuffer: 64 * 1024 * 1024,
-      stdio: ['ignore', 'pipe', 'ignore'],
-    })
+    // R70-9（十八轮）：win 上 spawn(shell:false) 只找 npx.exe（实际是 npx.cmd）→
+    // ENOENT/EINVAL 必挂 windows CI 腿；改 process.execPath 直跑 vitest.mjs（免 npx 免 shell）
+    vitestJson = execFileSync(
+      process.execPath,
+      [join(root, 'node_modules', 'vitest', 'vitest.mjs'), 'list', '--json'],
+      {
+        cwd: root,
+        encoding: 'utf8',
+        maxBuffer: 64 * 1024 * 1024,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      },
+    )
   } catch (e) {
     console.error('check:counts：vitest list 执行失败（' + (e.message ?? String(e)) + '）')
     process.exit(1)

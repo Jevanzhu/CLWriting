@@ -61,8 +61,11 @@ const READ_CHAPTER_TAIL_CHARS = 6_000
 const AI_GEN_TOOLS = new Set(['rewrite_chapter', 'rewrite_selection', 'lead_update'])
 
 /** 低-2（第十轮）：与 studio /rewrite 端点共闸互斥的 chat 改写两件（task-gate 'rewrite' 动作）。
- *  lead_update 不入——其端点对侧是 /lead-updates 的独立闸，非本缺陷面。 */
-const REWRITE_GATE_TOOLS = new Set(['rewrite_chapter', 'rewrite_selection'])
+ *  lead_update 不入——其端点对侧是 /lead-updates 的独立闸，非本缺陷面。
+ *  R69-13（十七轮）：apply_spill 并入——它同样把全文写进章草稿（rewrite.ts 落盘通道），
+ *  此前只靠 sha 落盘前复验压窗（复验后 saveDraft 前的并发写仍是后写赢），执行期持闸
+ *  与 rewrite_chapter/write_chapter 四处同口径。 */
+const REWRITE_GATE_TOOLS = new Set(['rewrite_chapter', 'rewrite_selection', 'apply_spill'])
 
 // ── 等确认 ────────────────────────────────────────
 
@@ -139,7 +142,12 @@ async function executeChatTool(
       if (REWRITE_GATE_TOOLS.has(call.name)) {
         const release = acquireTaskGate(opts.bookName, 'rewrite')
         if (!release) {
-          return { ok: false, summary: '本书正在改写中（编辑器改写请求在途），无法同时发起 AI 改写——请等本轮改写完成后再试。' }
+          // R69-13：apply_spill 是确认落盘（非发起改写），文案单列防误导
+          const busyMsg =
+            call.name === 'apply_spill'
+              ? '本书正在改写中（编辑器改写请求在途），无法同时落盘改写稿——请等本轮改写完成后再试。'
+              : '本书正在改写中（编辑器改写请求在途），无法同时发起 AI 改写——请等本轮改写完成后再试。'
+          return { ok: false, summary: busyMsg }
         }
         try {
           return await executor(tctx, input)
@@ -195,7 +203,8 @@ async function executeChatTool(
         if (!Number.isInteger(chapter) || chapter < 1) {
           return { ok: false, summary: '章号需为正整数。' }
         }
-        const draftRel = resolveDraftPath(opts.bookRoot, chapter).relPath
+        // R68-1：forRead 只读口径——机检定稿章合法，不吃「拒绝覆盖写」写防线
+        const draftRel = resolveDraftPath(opts.bookRoot, chapter, undefined, { forRead: true }).relPath
         const draftPath = join(opts.bookRoot, draftRel)
         if (!existsSync(draftPath)) {
           return { ok: false, summary: `第${chapter}章草稿不存在。` }
@@ -210,7 +219,8 @@ async function executeChatTool(
         if (!Number.isInteger(chapter) || chapter < 1) {
           return { ok: false, summary: '章号需为正整数。' }
         }
-        const draftRel = resolveDraftPath(opts.bookRoot, chapter).relPath
+        // R68-1：forRead 只读口径——取回定稿章全文合法，不吃「拒绝覆盖写」写防线
+        const draftRel = resolveDraftPath(opts.bookRoot, chapter, undefined, { forRead: true }).relPath
         const draftPath = join(opts.bookRoot, draftRel)
         if (!existsSync(draftPath)) {
           return { ok: false, summary: `第${chapter}章草稿不存在。` }
@@ -463,8 +473,10 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
       //（self-heal promptFiles）同口径：记 hash+chars+files，不落 prompt 全文
       promptFiles: deps.promptFiles,
       ctrl: state.ctrl,
-      // M-1（第八轮）：owner='chat'——self-heal/spawn 在途时 chat 纯问答允许并发，
-      // registerCtrl 按编排分槽不再互相抢占（此前单槽「换新先 abort 旧」会掐断在途写稿）
+      // M-1（第八轮）：owner='chat'——driver 分槽防跨编排抢占（此前单槽「换新先 abort
+      // 旧」会掐断在途写稿）。R69-11（十七轮）注释校准：chat 与 self-heal/spawn 的并发
+      // 由入口互斥闸管（stream.ts chat.send/regenerate 对写稿在途 409，R-9），本处不承
+      // 担并发许可；下方 AI_GEN_TOOLS/write_chapter 闸是工具层二道防线。
       register: (c) => opts.driver.registerCtrl?.(opts.mainSession, c, 'chat'),
       onReset: () => emit(opts, { type: 'chat_reset' }),
       // P1-R3：provider 429/5xx 重试时推 warning（与 self-heal.ts:496 对齐，Bug C 同类补齐）

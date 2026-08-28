@@ -15,7 +15,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { currentProvider } from '../../../ai/provider/index.js'
-import { existsSync, readFileSync, mkdirSync, rmSync } from 'node:fs'
+import { existsSync, readFileSync, mkdirSync, rmSync, readdirSync } from 'node:fs'
+import { readBooks } from '../../../install/books.js'
 import { defineRoute } from './schema.js'
 import { acquireTaskGate } from './task-gate.js' // R62-17：三审接跨进程任务闸（删书/改名/他进程可见）
 import { readJson, reply, replyError } from '../http.js'
@@ -86,6 +87,10 @@ export function lensToRole(lens: string): string {
 }
 
 export function registerReviewRoutes(ctx: ReviewCtx): void {
+  // R70-7（十八轮）：启动期清扫上次进程退出残留的三审临时目录——退出撞三审时
+  // finally 清理不执行，.cache/review-<docId> 随每次累积；启动时无人持锁，幂等安全。
+  sweepStaleReviewDirs(ctx.workDir)
+
   // 三审直读（M12 B0.2，O-a）：docId → 正文 → 机检 → buildReviewPacket → generateTool×3 → 落信封
   defineRoute('books.documents.review', {
     method: 'POST',
@@ -364,4 +369,26 @@ export function buildLensPrompt(
     `## category 枚举参考（与回收白名单一致，短篇视角用后四维）\nhigh_point(爽点)/reader_pull(追读牵引)/pacing(节奏)/ooc(人物崩坏)/logic(逻辑)/consistency(一致性)/continuity(连续性)/setting(设定)/timeline(时间线)/strand(线索)/ledger(账本)/safety(安全红线)/hook(开篇钩子)/emotion_peak(情绪反转)/reversal(反转线索)/payoff(伏笔回收)\n- severity:S1致命/S2严重/S3一般/S4建议\n- evidence 必须引用正文原句\n- 只报问题,不要正面确认`,
   )
   return parts.join('\n\n')
+}
+
+/** R70-7：清扫全部书的 .cache/review-* 残留（服务启动时调用一次；失败不阻断）。 */
+function sweepStaleReviewDirs(workDir: string | null): void {
+  if (!workDir) return
+  try {
+    for (const b of readBooks(workDir)) {
+      const cacheDir = join(workDir, b.path, '.cache')
+      if (!existsSync(cacheDir)) continue
+      for (const d of readdirSync(cacheDir)) {
+        if (d.startsWith('review-')) {
+          try {
+            rmSync(join(cacheDir, d), { recursive: true, force: true })
+          } catch {
+            /* 单目录清理失败忽略 */
+          }
+        }
+      }
+    }
+  } catch {
+    /* 清扫失败不阻断启动 */
+  }
 }

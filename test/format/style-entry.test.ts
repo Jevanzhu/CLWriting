@@ -150,4 +150,16 @@ describe('readEntries / nextEntrySeq / addEntry', () => {
     expect(existsSync(join(root, p2))).toBe(true)
     expect(nextEntrySeq(join(root, ENTRIES_DIR), '样章', '战斗')).toBe(3)
   })
+  // R69-21（十七轮）：序号扫描与文件名同用净化后场景——场景含 win 非法字符（冒号）时
+  // 此前 nextEntrySeq 按原始场景比对 miss 同族文件从 1 起数（靠 O_EXCL EEXIST 重试自愈，
+  // 白耗重试且同场景新旧条目编号割裂）。
+  it('R69-21：场景含文件名非法字符 → 序号扫描按净化口径命中同族文件', () => {
+    const p1 = addEntry(root, { 类型: '样章', 场景: '战斗:夜', 来源: '作者标注', 正文: 'A' })
+    expect(p1).toBe('文风/条目/样章/战斗_夜-001.md')
+    // 修复前：addEntry 的序号扫描按原始 '战斗:夜' 比对 miss → 第二条从 001 起数，
+    // 靠 O_EXCL EEXIST 重试才落 002（白耗重试且编号割裂）；修复后扫描即命中
+    const p2 = addEntry(root, { 类型: '样章', 场景: '战斗:夜', 来源: '作者标注', 正文: 'B' })
+    expect(p2).toBe('文风/条目/样章/战斗_夜-002.md')
+  })
 })
+

@@ -326,8 +326,17 @@ export function validateEventStream(events: ChatEvent[]): ValidationIssue[] {
     }
 
     // 本事件成为可见节点（surface 且带 surfaceOp 时加入）
+    // R70-13（十八轮）：可见性谓词与投影对齐——空 usage 壳/损坏载荷的 assistant
+    // message 在投影侧（foldSurface/assistantMessageVisible）不算可见，校验器此前
+    // 无差别计入，遮蔽契约闸比设计口径宽。R62-11 注释宣称两侧「共用同口径」，今对齐。
     if (isSurfaceType && ev.surfaceOp !== undefined) {
-      visibleSeqs.add(ev.seq)
+      // R70-13：assistant/message 事件与投影侧 foldSurface 同谓词（user 文本恒可见、
+      // assistant 须载荷形别合法且非空壳）
+      if (ev.type === 'assistant/message') {
+        if (assistantMessageVisible(ev.data)) visibleSeqs.add(ev.seq)
+      } else {
+        visibleSeqs.add(ev.seq)
+      }
     }
   }
 

@@ -17,7 +17,7 @@ import { compactHistory } from '../../prompts/compaction.js'
 import { buildCheckpointInstruction, clampCheckpointOutputTokens } from '../../prompts/checkpoint.js'
 import type { SessionRecorder } from '../../../events/chat-bridge.js'
 import type { ChatOpts } from '../chat.js'
-import { emit, histories, msgSeqMap, compactionSuppressed, type ChatRunState } from './state.js'
+import { emit, histories, msgSeqMap, compactionSuppressed, type ChatRunState, AGENT_DEADLINE_MS } from './state.js'
 import { log } from '../../../log/index.js'
 
 const MAX_HISTORY_TURNS = 10
@@ -28,7 +28,8 @@ const MAX_HISTORY_TURNS = 10
 type ChatExitReason = 'timeout' | 'interrupted' | 'max-tokens' | { error: string }
 
 const CHAT_EXIT_SPEC = {
-  timeout: { mask: 'aborted', message: '对话超时（超过 30 分钟），已停止' },
+  // R70-12（十八轮）：文案与超时值同源（AGENT_DEADLINE_MS 共享常量换算），不再硬编码
+  timeout: { mask: 'aborted', message: `对话超时（超过 ${Math.round(AGENT_DEADLINE_MS / 60_000)} 分钟），已停止` },
   interrupted: { mask: 'interrupted', message: '已中断' },
   'max-tokens': { mask: 'max-tokens', message: '回复达到长度上限被截断，请缩小问题范围重试' },
 } as const
@@ -76,6 +77,13 @@ async function summarizeCheckpoint(
   const sanitized = sanitizeHistory(toSummarize)
   if (sanitized.length === 0) return null
   const instruction = buildCheckpointInstruction(priorSummary ?? undefined)
+  // R69-14（十七轮）：摘要调用的实际输入 = 待压前缀 + 指令（messages 全量发给模型），
+  // 此前 promptText 只传 instruction——promptMeta 的 hash/chars 都漏前缀（不同历史同
+  // 指令的摘要调用指纹全同、输入量低估）。并入前缀后指纹可区分（promptMeta 只记
+  // chars+hash 不落正文，体积不变）。
+  const promptTextWithPrefix = `${instruction}\n[待压历史]\n${sanitized
+    .map((m) => `${m.role}: ${typeof m.content === 'string' ? m.content : JSON.stringify(m.content)}`)
+    .join('\n')}`
   // Q-13（第十五轮）：run 返回壳对象以透传 resolvedMaxTokens（runner 提取落 llm/call）——
   // 摘要调用自带 clamp cap（P8），重放口径必须记 resolve 后终值
   const out = await runTask<{ text: string | null; resolvedMaxTokens?: number }>({
@@ -84,7 +92,7 @@ async function summarizeCheckpoint(
     task: 'chat',
     bookRoot: opts.bookRoot,
     systemPrompt: sys,
-    promptText: instruction,
+    promptText: promptTextWithPrefix,
     promptFiles, // Z-11：摘要调用与轮循环同源登记（sys 内嵌章正文预览的源）
     ctrl: state.ctrl,
     // 低-1（第十轮）：补 owner='chat'——对齐第八轮 M-1 的 owner 分槽口径（轮循环
@@ -135,6 +143,10 @@ export async function finalizeHistory(
   promptFiles: string[] = [],
 ): Promise<void> {
   // 硬截断兜底（= F1-P1 原行为）：trim 掉的旧消息 seq 区间 replace 遮蔽（人类抄本 append 全量保留）
+  // R69-10（十七轮）：close 三处收 try——close 抛错（SQLITE_BUSY/盘满）此前穿
+  // runChatInner（无 catch）→ sendChatMessage catch 发 driver error，chat_done 已发又收
+  // error、压缩存档丢失；现 warn 留痕 + 内存不突变（R65-2「close 成功后才突变」纪律的
+  // 自然推论：失败即整体退化为「截断/压缩未发生」，下次溢出重试）。
   const trimAndClose = (): void => {
     const trimmed = trimHistory(history, MAX_HISTORY_TURNS)
     const cut = history.length - trimmed.length
@@ -143,7 +155,12 @@ export async function finalizeHistory(
     // restore 投影回全量历史复活本应 trim 的消息（幽灵历史），且 msgSeqs 与投影错位。
     // close 成功后才突变（失败时内存/DB 双未动，退化为「截断未发生」而非错位）。
     const shadowSeqs = msgSeqs.slice(0, cut).flat()
-    recorder.close('completed', shadowSeqs)
+    try {
+      recorder.close('completed', shadowSeqs)
+    } catch (e) {
+      log.warn('chat', `历史截断遮蔽落库失败（退化为未截断，下次溢出重试）：${e instanceof Error ? e.message : String(e)}`)
+      return
+    }
     msgSeqs.splice(0, cut)
     msgSeqMap.set(opts.bookName, msgSeqs)
     histories.set(opts.bookName, trimmed)
@@ -170,10 +187,17 @@ export async function finalizeHistory(
     // Y-P2-2：压缩存档并入 compaction/end 载荷（replace 在被遮蔽区间原位取代）——
     // 跨重启恢复经投影带回存档（此前摘要只在内存，重启丢被压上下文）
     const firstMsg = outcome.history[0]
-    const archiveSeq =
-      firstMsg !== undefined && typeof firstMsg.content === 'string'
-        ? recorder.close('completed', shadowSeqs, firstMsg.content)
-        : recorder.close('completed', shadowSeqs)
+    let archiveSeq: number | null
+    try {
+      // R69-10：close 收编同 trimAndClose——失败 warn 留痕、内存/DB 双未动（退化为本轮未压缩）
+      archiveSeq =
+        firstMsg !== undefined && typeof firstMsg.content === 'string'
+          ? recorder.close('completed', shadowSeqs, firstMsg.content)
+          : recorder.close('completed', shadowSeqs)
+    } catch (e) {
+      log.warn('chat', `压缩存档落库失败（保留原历史不遮蔽，下次溢出重试）：${e instanceof Error ? e.message : String(e)}`)
+      return
+    }
     msgSeqs.splice(0, cut)
     msgSeqs.unshift(archiveSeq !== null ? [archiveSeq] : [])
     msgSeqMap.set(opts.bookName, msgSeqs)
@@ -183,5 +207,9 @@ export async function finalizeHistory(
   msgSeqMap.set(opts.bookName, msgSeqs)
   // no-op 或摘要失败（fail-open 保留原历史，不遮蔽）；失败 → 置 suppress，下次溢出硬截断
   if (outcome.wasOverLimit) compactionSuppressed.add(opts.bookName)
-  recorder.close('completed')
+  try {
+    recorder.close('completed') // R69-10：no-op close 同款收编（session/end 落库失败不炸收尾）
+  } catch (e) {
+    log.warn('chat', `会话收尾 close 落库失败（孤儿修复将补 interrupted 终态）：${e instanceof Error ? e.message : String(e)}`)
+  }
 }

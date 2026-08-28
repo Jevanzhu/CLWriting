@@ -185,7 +185,7 @@ async function activate(p: ProviderConfDto): Promise<void> {
     if (!ok) return
   }
   // 启用不再要求先测试通过——测试是健康检查，不是启用门槛
-  await store.activate(p.id)
+  if (!(await store.activate(p.id))) return // R70-24：失败已 toast 错误，不再叠「已启用」
   void ui.probeAiStatus()
   ui.toast(`已启用「${p.name}」`, 'success')
   if (declared.length && stale.length) await alignTiersToDeclared(declared)

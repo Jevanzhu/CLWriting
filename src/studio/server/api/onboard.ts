@@ -158,14 +158,22 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
     const content = typeof body['content'] === 'string' ? body['content'] : ''
     const bookRoot = r.bookRoot
     const relPath = STEP_PATH[step]
+    // R69-26（十七轮）：并发闸——与 onboard-ai（:85）互斥面缺失：双窗口同 step 保存
+    // 后写静默覆盖先写（双方均 200）；作者驱动、产物可重存，故 409 提示而非乐观锁
+    const release = acquireTaskGate(params['name']!, 'onboard-save')
+    if (!release) return replyError(res, 409, 'BUSY', '本书设定保存中（另一窗口在途），请稍后重试')
     try {
-      mkdirSync(dirname(join(bookRoot, relPath)), { recursive: true })
-      atomicWriteFile(join(bookRoot, relPath), content)
-    } catch (e) {
-      log.error('api', `onboard-save 落盘失败（${step}）`, e)
-      return replyError(res, 500, 'IO', '落盘失败')
+      try {
+        mkdirSync(dirname(join(bookRoot, relPath)), { recursive: true })
+        atomicWriteFile(join(bookRoot, relPath), content)
+      } catch (e) {
+        log.error('api', `onboard-save 落盘失败（${step}）`, e)
+        return replyError(res, 500, 'IO', '落盘失败')
+      }
+      reply(res, 200, { ok: true, step, path: relPath, words: countWords(bodyOf(content)) })
+    } finally {
+      release()
     }
-    reply(res, 200, { ok: true, step, path: relPath, words: countWords(bodyOf(content)) })
   },
   })
 }

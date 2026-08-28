@@ -34,10 +34,11 @@ import { generateDocId, legacyId } from './stable-id.js'
 import { invalidateTreeIndex, scanBookTree, type TreeNode } from './tree.js'
 import { readFile as readDoc, parseFlat, patchFlatFm, splitFrontMatter, joinFrontMatter, bodyOf } from '../format/frontmatter.js'
 import { appendTrashEntry, readTrashManifest } from './trash.js'
+import { log } from '../log/index.js'
 import { appendWordsDelta, todayDate } from './words-diary.js'
 import { countWords, chapterFilePrefix } from '../format/words.js'
 import { sanitizeChapterTitle } from '../format/filename.js'
-import { encodeDocDirName } from './version.js'
+import { encodeDocDirName, decodeDocDirName } from './version.js'
 import { readBookConfig } from '../format/yaml.js'
 
 /** 第五轮：非 UTF-8（GBK 等）文件的元数据写回统一拒绝——utf-8 读入产生 U+FFFD 替换
@@ -224,7 +225,9 @@ export class DocumentService {
     const out: UnsettledReport[] = []
     for (const name of readdirSync(this.journalDir)) {
       if (name.startsWith('._') || !name.endsWith('.jsonl')) continue
-      const docId = name.slice(0, -'.jsonl'.length)
+      // R68-3：写侧已改编码文件名（win legacy 冒号防线）——此处反解回真实 docId
+      //（mac 存量字面名原样通过，decodeDocDirName 幂等）。
+      const docId = decodeDocDirName(name.slice(0, -'.jsonl'.length))
       const pending = findUnsettled(join(this.journalDir, name))
       if (pending.length > 0) out.push({ docId, pending })
     }
@@ -241,7 +244,10 @@ export class DocumentService {
   ): Promise<SaveResult> {
     // P1-SEC-A：journal 路径含 docId，显式校验防穿越（与 version.ts/analysis.ts 对齐）
     if (!safeDocId(docId)) return Promise.resolve({ ok: false, code: 'PATH_ESCAPE', reason: '文档 ID 非法' })
-    const journalPath = join(this.journalDir, `${docId}.jsonl`)
+    // R68-3（十六轮）：文件名编码（`:`→`_`）——legacy docId 的字面名在 win 上非法
+    // （EINVAL/NTFS ADS），appendPending 记不上 = 保存链路永久 WRITE_ERROR。读侧
+    // recover() 反解见 decodeDocDirName。
+    const journalPath = join(this.journalDir, `${encodeDocDirName(docId)}.jsonl`)
 
     // V-P2-1：结构性操作（rename/move/trash）同步执行、不排队，与入队 save 存在竞态窗口——
     // 新建档（expectedRevision=null）的排队 save 若在移动/删除后出队，会在旧路径复活
@@ -431,7 +437,14 @@ export class DocumentService {
       return { ok: false, code: 'WRITE_ERROR', reason: `新建失败：${errMsg(e)}` }
     }
     // 结构性操作触发建清单（W0-1 §4.2）：无清单则建，加 entry
-    this.upsertManifestEntry(docId, input.relPath)
+    // R70-17（十八轮）：登记收编——文件已落盘后登记抛（磁盘满/权限）此前裸穿破坏
+    // CreateResult 契约且调用方误判完全失败（重试撞 ALREADY_EXISTS）；半成品态由树
+    // legacyId 首次结构性操作 adoptLegacyDoc 自愈，warn 留痕即可（ee-P1-5 同型漏网点）
+    try {
+      this.upsertManifestEntry(docId, input.relPath)
+    } catch (e) {
+      log.warn('document', `新建后清单登记失败（${input.relPath}，树扫描将自愈收编）：${errMsg(e)}`)
+    }
     invalidateTreeIndex(this.bookRoot, true)
     return { ok: true, docId, path: input.relPath, revision: computeRevision(safe) }
   }
@@ -568,7 +581,13 @@ export class DocumentService {
     }
     try {
       mkdirSync(dirname(newSafe), { recursive: true })
-      renameSync(oldSafe, newSafe)
+      // R70-18（十八轮）：目标已存在（手工副本/网盘副本）时不静默覆盖——POSIX rename
+      // 对已存在目标静默替换会无留底毁掉同名章纲；改名保双份（L-P6 同款时间戳后缀）
+      let dst = newSafe
+      if (existsSync(newSafe)) {
+        dst = newSafe.replace(/\.md$/, `-旧稿-${Date.now()}.md`)
+      }
+      renameSync(oldSafe, dst)
       invalidateTreeIndex(this.bookRoot, true)
     } catch {
       // 清单同步失败不阻断正文 rename
@@ -672,7 +691,7 @@ export class DocumentService {
 
     // P3-10：journal 兜底移动/重命名的非原子窗口——pending → snapshot+rename → 清单更新 → settled。
     // 窗口内崩溃：进门 healthCheck 按磁盘现状确定性收口（new 在 old 不在 → 补清单；old 在 new 不在 → abort）。
-    const journalPath = join(this.journalDir, `${docId}.jsonl`)
+    const journalPath = join(this.journalDir, `${encodeDocDirName(docId)}.jsonl`) // R68-3：同 executeSave 编码口径
     // ee-P1-5：pending 写入收进 try——appendMovePending 同步抛（磁盘满/权限）此前在 try 外
     // 裸穿，而调用方以 Promise.resolve 包裹本方法（不捕获同步 throw），拿到的是裸异常而非
     // {ok:false} 契约（save 路径同类已修 RB-KN-P2-2，此处对齐）。pending 仍先于
@@ -803,7 +822,12 @@ export class DocumentService {
     }
     // 新 docId + 清单登记（结构性操作触发建清单，W0-1 §4.2）
     const newDocId = generateDocId()
-    this.upsertManifestEntry(newDocId, input.relPath)
+    // R70-17（十八轮）：登记收编（同 doCreate——半成品由树扫描自愈，不误报完全失败）
+    try {
+      this.upsertManifestEntry(newDocId, input.relPath)
+    } catch (e) {
+      log.warn('document', `复制后清单登记失败（${input.relPath}，树扫描将自愈收编）：${errMsg(e)}`)
+    }
     invalidateTreeIndex(this.bookRoot, true)
     return { ok: true, docId: newDocId, path: input.relPath, revision: computeRevision(dstSafe) }
   }

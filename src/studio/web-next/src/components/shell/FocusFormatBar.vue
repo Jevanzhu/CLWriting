@@ -6,13 +6,22 @@
 // 「编辑器」tab 同构同范围；纸宽保持当前 scope（书级覆盖存在时只写本书，label
 // 带「本书」标记；切换 scope 仍走设置面板）。非弹层：不进 useHotkeys 的 Esc
 // 让渡名单，Esc 保持「退出专注」单一语义。
-import { computed } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
 import { usePrefsStore } from '../../stores/prefs'
 import { useSystemFonts, selValue } from '../../composables/useSystemFonts'
 
 const prefs = usePrefsStore()
 const { chineseFonts, englishFonts, fontDisplayName } = useSystemFonts()
 const hasDesktop = computed(() => typeof window !== 'undefined' && !!window.clwritingDesktop)
+
+// R70-29（十八轮）：页宽设置 ≥ 视口宽时侧位 ≤0，条会压在正文上——隐藏（FocusStatsBar 同款）
+const vw = ref(window.innerWidth)
+const onVwResize = (): void => {
+  vw.value = window.innerWidth
+}
+onMounted(() => window.addEventListener('resize', onVwResize))
+onBeforeUnmount(() => window.removeEventListener('resize', onVwResize))
+const sideRoomTooSmall = computed(() => vw.value < prefs.effectivePageWidth) // R70-29：侧位≤0（页宽≥视口）才隐藏，紧张侧位由 min() 回落窗口右缘
 
 /** 纸宽写入保持当前 scope：书级覆盖存在时继续写书级（SettingsEditor 同语义） */
 const widthBookOnly = computed(() => prefs.bookPageWidth !== null)
@@ -22,7 +31,7 @@ function onPageWidthInput(v: number): void {
 </script>
 
 <template>
-  <aside class="focus-format-bar" aria-label="排版设置">
+  <aside v-if="!sideRoomTooSmall" class="focus-format-bar" aria-label="排版设置">
     <label class="ffb-item">
       <span class="ffb-label">字号<i class="ffb-val">{{ prefs.proseSize }}px</i></span>
       <input class="ffb-range" type="range" min="13" max="24" :value="prefs.proseSize"

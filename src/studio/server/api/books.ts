@@ -27,6 +27,7 @@ import {
 } from '../../../install/books.js'
 import { resolveBook } from '../book-context.js'
 import { forgetService, drainDocumentSaves } from './documents.js'
+import { drainFilePutChainsUnder } from './files.js'
 import { forgetSession } from '../../../driver/index.js'
 import { invalidateTreeIndex } from '../../../document/tree.js'
 import { clearChatHistory, abortChat, isChatRunning, waitChatSettled } from '../../../ai/orchestrate/chat.js'
@@ -244,6 +245,10 @@ export function registerBookRoutes(ctx: BookCtx): void {
     // 第五轮：drain 该书串行保存队列——在途 save 的收尾（journal+快照+fsync）若在
     // rmSync 之后恢复，会对已删路径 atomicWriteFile 重建孤儿文件（窗口毫秒级但真实）
     await drainDocumentSaves(join(ctx.workDir, entry.path))
+    // R69-25（十七轮）：PUT /file 的 per-file 串行链同款 drain——临界段内 readFileHashed
+    // 跨 rm 的 await 窗口理论上会重建目录（删除路径基线 ENOENT → 404 天然免疫，一并
+    // drain 求同口径）
+    await drainFilePutChainsUnder(join(ctx.workDir, entry.path))
     // M-4：闸后复查——settle 等待的 await 间隙里新 acquire 的闸（spawn/三审/task-gate）
     // 在此拦截；复检到 rmSync 之间全同步（单线程事件循环无新任务可插入），三闸 TOCTOU
     // 窗归零（chat/self-heal 在窗内新起的情形由 10s settle 超时降级兜底，与旧版一致）
@@ -276,6 +281,9 @@ export function registerBookRoutes(ctx: BookCtx): void {
     forgetSseCount(name)
     // R67-15（十五轮）：书键 TTL 结果缓存一并清（见顶部 forgetBookKeyedCaches 注释）
     forgetBookKeyedCaches(bookAbs)
+    // R69-24（十七轮）：书架摘要缓存一并清——rename 分支（:444）有 invalidateBookSummary，
+    // delete 分支漏配：删后 5s TTL 窗口内同名重建书，书架卡会读到旧章数/字数/最近编辑
+    invalidateBookSummary(bookAbs)
     invalidateTreeIndex(bookAbs, true)
     // 内存闸（2026-08-24 审计 C2）：章节元数据缓存按书前缀一并清——删书后目录已不在，
     // 每章元数据条目成死重（bookAbs 即各调用方 readChapterDir 键的 join 前缀）
@@ -393,6 +401,10 @@ export function registerBookRoutes(ctx: BookCtx): void {
       if (hadSelfHeal || hadChat || hasBackgroundTasks(oldName)) await awaitOrchestrationsSettled(oldName)
       // 第五轮：同删书——drain 串行保存队列，防在途 save 收尾对旧路径重建孤儿文件
       await drainDocumentSaves(oldRoot)
+      // R69-25（十七轮）：PUT /file 串行链同款 drain——临界段 readFileHashed 的 await 跨
+      // renameSync 时「旧内容基线 + atomicWriteFile mkdir recursive」会重建旧路径目录树
+      //（无 book.yaml 孤儿，repairBooks 不认领）——与 drainDocumentSaves 当年堵的同型窗
+      await drainFilePutChainsUnder(oldRoot)
       // M-4：闸后复查——同删书：settle 等待的 await 间隙新 acquire 的闸在此拦截，
       // 复检到 renameSync 之间全同步（三闸 TOCTOU 归零；chat/self-heal 由超时降级兜底）
       const recheck = busyGate(oldName, '改名')

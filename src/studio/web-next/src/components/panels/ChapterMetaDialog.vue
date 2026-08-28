@@ -30,11 +30,18 @@ watch(
   { immediate: true },
 )
 
+// R70-28（十八轮）：章号非法的字段级反馈——此前静默 return，按钮只禁空值不禁非法值，
+// Enter 提交「看似失灵」无任何提示
+const numError = ref('')
 function onSave(): void {
   const n = Number(noInput.value)
   // 低-3（第十轮）：章号补整数校验——3.5 这类小数旧口径放行后文件名落成 03.5-…，
   // 从「章号 = 整数编号」特性中脱落（前端拒收 + 服务端 documents.ts 同点位 fail-closed）
-  if (!Number.isInteger(n) || n < 1) return
+  if (!Number.isInteger(n) || n < 1) {
+    numError.value = '章号须为 ≥1 的整数'
+    return
+  }
+  numError.value = ''
   emit('save', { 标题: titleInput.value.trim() || '未命名', num: n })
   emit('update:modelValue', false)
 }
@@ -60,7 +67,8 @@ function onKeySave(e: KeyboardEvent): void {
         <div class="side-title">{{ dlgTitle() }}</div>
         <label class="field">
           {{ numLabel() }}
-          <input v-model="noInput" type="number" min="1" autofocus />
+          <input v-model="noInput" type="number" min="1" autofocus @input="numError = ''" />
+          <div v-if="numError" class="num-error">{{ numError }}</div>
         </label>
         <label class="field">
           标题

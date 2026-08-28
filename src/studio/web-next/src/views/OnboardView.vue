@@ -70,6 +70,8 @@ const progressPct = computed(() => Math.round((generatedCount.value / ALL_STEPS.
 const active = ref<OnboardStep | null>(null)
 const phase = ref<'detail' | 'loading' | 'result'>('detail')
 const content = ref('')
+// R70-27（十八轮）：最近一次生成快照——「重新生成」脏检查用（手改未保存不静默丢稿）
+const lastGenerated = ref('')
 const saving = ref(false)
 const err = ref<string | null>(null)
 const lastWords = ref(0)
@@ -87,6 +89,16 @@ async function gen(): Promise<void> {
   // M-4（X-27 补齐）：同 save——入口捕获 + await 后复检，生成在途切书后死实例的
   // 迟到 toast/面板状态不再落到新书界面（旧书结果本就该作废）
   const book = props.bookName
+  // R70-27（十八轮）：重新生成前脏检查——result 相位的手改内容（未保存）此前被
+  // 无条件清空丢稿；与最近一次生成快照比对，有手改先确认
+  if (content.value.trim() !== '' && content.value !== lastGenerated.value) {
+    const okToRegen = await ui.ask({
+      title: '重新生成',
+      message: '当前内容有你未保存的修改，重新生成将覆盖——继续？',
+      confirmText: '重新生成',
+    })
+    if (!okToRegen) return
+  }
   phase.value = 'loading'
   err.value = null
   content.value = ''
@@ -94,6 +106,7 @@ async function gen(): Promise<void> {
     const r = await onboardAi(book, { step: active.value, premise: storyPremise.value })
     if (!stillOn(book)) return
     content.value = r.content
+    lastGenerated.value = r.content
     lastWords.value = r.words
     phase.value = 'result'
     ui.toast(`${STEP_LABEL[active.value]} 生成（${r.words} 字）`, 'success')

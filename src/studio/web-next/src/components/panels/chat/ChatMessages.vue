@@ -68,9 +68,13 @@ const confirmingCallId = ref<string | null>(null)
 async function handleConfirm(callId: string, ok: boolean): Promise<void> {
   if (confirmingCallId.value) return // 防重复点击
   confirmingCallId.value = callId
+  // R69-28（十七轮）：入口捕获书名——await 窗口切书后，迟到的失败 toast/工具终态
+  // 落在新书界面（与 doc.finalize catch 同族守卫）
+  const book = props.bookName
   try {
-    await confirmTool(props.bookName, { callId, ok })
+    await confirmTool(book, { callId, ok })
   } catch (e) {
+    if (props.bookName !== book) return
     if (e instanceof ApiError && e.status === 404) {
       // R65-50（E-2）：404 = 工具调用已超时失效——修复前静默 return，卡面停留 pending、
       // 确认按钮可反复点但服务端早已丢弃，作者无任何反馈。置失败终态给可见交代

@@ -228,7 +228,7 @@ describe('C4 token 系数', () => {
 // ── R65-31（第六十五轮）：卷摘要 sourceHash 重读失败降级（不直穿自愈链）────────
 
 describe('R65-31: 卷摘要读失败降级', () => {
-  it('selfHealVolumeSummary：卷摘要文件不可读（EACCES）→ 按手写产物跳过（null）且不覆盖不抛', async () => {
+  it.skipIf(process.platform === 'win32')('selfHealVolumeSummary：卷摘要文件不可读（EACCES）→ 按手写产物跳过（null）且不覆盖不抛', async () => {
     const root = makeBook(2, 2)
     const config = effectiveConfig(root, null)
     await genChapterSummaries(root, config, [1, 2])
@@ -246,7 +246,7 @@ describe('R65-31: 卷摘要读失败降级', () => {
     expect(readFileSync(fp, 'utf8')).toBe(before)
   })
 
-  it('generateVolumeSummary：卷摘要文件不可读（EACCES）→ 按缺失降级重生成（skipped 判定不再直穿）', async () => {
+  it.skipIf(process.platform === 'win32')('generateVolumeSummary：卷摘要文件不可读（EACCES）→ 按缺失降级重生成（skipped 判定不再直穿）', async () => {
     const root = makeBook(2, 2)
     const config = effectiveConfig(root, null)
     await genChapterSummaries(root, config, [1, 2])

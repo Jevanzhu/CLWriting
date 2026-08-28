@@ -218,15 +218,19 @@ export const useProviderStore = defineStore('provider', () => {
     }
   }
 
-  /** 设为当前启用（P2 caps 守卫 + P4）。 */
-  async function activate(id: string): Promise<void> {
+  /** 设为当前启用（P2 caps 守卫 + P4）。R70-24（十八轮）：返回是否成功——
+   *  调用方（AiServicePanel）此前无条件 toast「已启用」，409/网络失败时同时收到
+   *  错误与成功两条矛盾 toast、徽章仍指旧提供方。 */
+  async function activate(id: string): Promise<boolean> {
     try {
       const r = await setCurrentProvider(id, revision.value)
       currentId.value = id
       // PUT /current saveProviders bump revision——同步前端，避免后续写因陈旧 expectedRevision 409（P4）
       if (typeof r.revision === 'number') revision.value = r.revision
+      return true
     } catch (e) {
       ui.toast(errText(e), 'error')
+      return false
     }
   }
 

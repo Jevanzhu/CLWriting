@@ -21,6 +21,20 @@ import { readSamplesByScene } from '../../src/format/style.js'
 import { searchBook } from '../../src/process/book-search.js'
 import type { BookConfig } from '../../src/format/types.js'
 
+// R70-31（十八轮）：symlink 能力探测——此前两用例 try-catch 早退「跳过」，其后的
+// 全部断言静默不执行照绿（非特权 Windows 零验证）；改 skipIf 对齐库内 49 处守卫惯例
+const canSymlink = (() => {
+  try {
+    const dir = mkdtempSync(join(tmpdir(), 'clw-symlink-probe-'))
+    symlinkSync(join(dir, 'a'), join(dir, 'b'))
+    rmSync(dir, { recursive: true, force: true })
+    return true
+  } catch {
+    return false
+  }
+})()
+
+
 function makeBookWithMaterial(): { root: string; db: DatabaseSync } {
   const root = mkdtempSync(join(tmpdir(), 'pipe-low-'))
   writeBookConfig(join(root, 'book.yaml'), DEFAULT_CONFIG)
@@ -188,12 +202,8 @@ test('低级项（第六轮）：book_search 不跟随越出 bookRoot 的 symlin
     writeFileSync(join(outside, 'dir', 'secret.md'), '外部机密 needle', 'utf-8')
     writeFileSync(join(outside, 'secret.md'), '外部机密文件 needle', 'utf-8')
 
-    try {
-      symlinkSync(join(outside, 'dir'), join(bodyDir, '外链目录'))
-      symlinkSync(join(outside, 'secret.md'), join(bodyDir, '0002-外链.md'))
-    } catch {
-      return // 平台不允许建 symlink（如 Windows 未开开发者模式）→ 跳过
-    }
+    symlinkSync(join(outside, 'dir'), join(bodyDir, '外链目录'))
+    symlinkSync(join(outside, 'secret.md'), join(bodyDir, '0002-外链.md'))
 
     const out = searchBook(root, 'needle', 'all')
     const paths = out.results.map((h) => h.path)
@@ -204,20 +214,16 @@ test('低级项（第六轮）：book_search 不跟随越出 bookRoot 的 symlin
   }
 })
 
-test('P5-管线（第七轮）：书内 symlink 环（a→b→a）不再无限递归（visited 剪枝）', () => {
+test.skipIf(!canSymlink)('P5-管线（第七轮）：书内 symlink 环（a→b→a）不再无限递归（visited 剪枝）', () => {
   const root = mkdtempSync(join(tmpdir(), 'search-cycle-'))
   try {
     const bodyDir = join(root, '写作', '正文')
     mkdirSync(join(bodyDir, 'a'), { recursive: true })
     mkdirSync(join(bodyDir, 'b'), { recursive: true })
     writeFileSync(join(bodyDir, 'a', '0001-环内.md'), '环内命中 needle', 'utf-8')
-    try {
-      // 环完全在书内：isWithinRoot 拦不住，修复前 walkMd 无限递归直至栈溢出（RangeError）
-      symlinkSync(join(bodyDir, 'a'), join(bodyDir, 'b', 'back-a'))
-      symlinkSync(join(bodyDir, 'b'), join(bodyDir, 'a', 'back-b'))
-    } catch {
-      return // 平台不允许建 symlink（如 Windows 未开开发者模式）→ 跳过
-    }
+    // 环完全在书内：isWithinRoot 拦不住，修复前 walkMd 无限递归直至栈溢出（RangeError）
+    symlinkSync(join(bodyDir, 'a'), join(bodyDir, 'b', 'back-a'))
+    symlinkSync(join(bodyDir, 'b'), join(bodyDir, 'a', 'back-b'))
     const out = searchBook(root, 'needle', 'all')
     expect(out.results.map((h) => h.path)).toContain('写作/正文/a/0001-环内.md')
   } finally {

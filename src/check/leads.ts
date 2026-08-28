@@ -23,9 +23,15 @@ import { QUOTE_OPEN_LENIENT, QUOTE_CLOSE_LENIENT } from './quotes.js'
  *
  * @param db 缓存
  * @param bookRoot 书仓库根（读正文 grep 引文）
- * @param currentChapter 当前定稿章号（章号一致校验用）
+ * @param currentChapter 当前定稿章号（章号一致校验用；复检低章时为全书最高定稿章——
+ *   未来章基准，T9b。注意与 closureChapter 语义不同）
  * @param enabledTypes 已启用的账本类（只检这些类，#10 第 1 节原则 4）
+ * @param declaredLeadIds 声明侧（undefined = 声明未知/无布线，跳过两端闭合，R69-2）
+ * @param actualLeadIds 兑现侧（undefined 同上）
  * @param skipBookItems 跳过全书性条目（树红点聚合专用，见 checkLeadsBookItems 头注释）
+ * @param closureChapter 两端闭合红项的 chapter 字段归属章（R69-16：默认 currentChapter；
+ *   复检低章时 currentChapter 是全书最高定稿章，红项 chapter 若标最高章则在 UI 分组
+ *   与误报标记上错指——调用方应传被检章自身章号）
  */
 export function checkLeadsForm(
   db: DatabaseSync,
@@ -35,6 +41,7 @@ export function checkLeadsForm(
   declaredLeadIds?: string[],
   actualLeadIds?: string[],
   skipBookItems = false,
+  closureChapter?: number,
 ): CheckSectionResult {
   const items: CheckItem[] = []
   if (!skipBookItems) items.push(...checkLeadsBookItems(db, bookRoot, currentChapter, enabledTypes))
@@ -44,7 +51,7 @@ export function checkLeadsForm(
   // ee-P1-3：比对逻辑抽为 leadClosureItems 单一真相源——定稿防吃书闸
   // （document/finalize.ts）与机检复用同一段代码，避免两处口径漂移后闸门漏拦/误拦。
   if (declaredLeadIds !== undefined && actualLeadIds !== undefined) {
-    items.push(...leadClosureItems(declaredLeadIds, actualLeadIds, currentChapter))
+    items.push(...leadClosureItems(declaredLeadIds, actualLeadIds, closureChapter ?? currentChapter))
   }
 
   return { name: '账本形式三检', items }

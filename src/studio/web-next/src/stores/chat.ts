@@ -1,3 +1,4 @@
+import { useWorkspaceStore } from './workspace'
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { str } from './sse-guards'
@@ -113,6 +114,15 @@ export const useChatStore = defineStore('chat', () => {
    *  记待补种书名，running 翻 false（chat_done/chat_error）后自动补种——在途回合
    *  不再 UI 失明（服务端历史本就完好）。clear() 复位（每次切换重新登记，防跨书误种）。 */
   let pendingReseed: string | null = null
+  // R70-30：sync 事件不带书名——延迟取 workspace store 当前书（pinia 惰性激活防循环引用）
+  const wsBookName = (): string | null => {
+    try {
+      const ws = useWorkspaceStore()
+      return ws.bookName || null
+    } catch {
+      return null
+    }
+  }
   /** G1：当前激活分支（history 返回的实际采用分支；无分支语义/未拉取时 null） */
   const activeBranchId = ref<string | null>(null)
   /** G1：分支（变体组）列表（种子化/切换/重新生成后 best-effort 维护，失败静默降级） */
@@ -152,6 +162,11 @@ export const useChatStore = defineStore('chat', () => {
             }
           }
           currentIdx = lastUndone
+          // R70-30（十八轮）：running=true 但无可续气泡（seedHistory 先于 sync 到达的
+          // 时序边界）——在途回合的 chat_text 会因 currentIdx=-1 全部被丢且 chat_done
+          // 后无人补种（Q-8 只覆盖「clear 时在跑」反向序）；登记 pendingReseed 由
+          // 回合收尾补种（事件库无损，此处纯展示缺口的自愈）
+          if (lastUndone === -1 && wsBookName()) pendingReseed = wsBookName()
         }
         break
       }

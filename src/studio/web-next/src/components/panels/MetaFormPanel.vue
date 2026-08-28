@@ -129,20 +129,40 @@ const kind = computed(() => {
 const defs = computed<FieldDef[]>(() => (kind.value ? (FIELD_DEFS[kind.value] ?? []) : []))
 
 const fields = ref<Record<string, string>>({})
+// R69-5（十七轮）：最近一次服务端解析快照——「用户改过但未保存」的键（fields ≠ 快照）
+// 在异步 refresh 重灌时保留用户值，不被服务端旧值静默清空（顶栏标题 blur 即提交 →
+// doc.refresh → content 变化触发下方 watch：此前整体重灌，「目标情绪/核心反转」等
+// 编辑中输入被覆盖丢失。对齐 EditorView F2 titleEditing 的编辑中保护思路，但以
+// 脏键比对实现——焦点守卫挡不住「失焦后数秒才到的迟到刷新」）。
+const parsedSnapshot = ref<Record<string, string>>({})
 
 watch(
   // R65-52（E-4）：doc store 对 content 是原位变更（refresh/静默同步改 e.content、对象引用
   // 不换）——单 watch entry 引用时 AI 写回/refresh 后表单不重解析，停留在旧值。源加 content
   [entry, () => entry.value?.content],
-  ([e]) => {
+  ([e], [prev]) => {
     if (!e || !kind.value) {
       fields.value = {}
+      parsedSnapshot.value = {}
       return
     }
     const parsed = parseFmFields(e.content)
     const out: Record<string, string> = {}
     for (const f of FIELD_DEFS[kind.value] ?? []) out[f.key] = parsed[f.key] ?? ''
-    fields.value = out
+    if (prev === e) {
+      // 同文档 content 变化（refresh/AI 写回回填）：干净键取服务端新值，脏键保用户输入
+      const merged: Record<string, string> = {}
+      for (const k of Object.keys(out)) {
+        merged[k] = fields.value[k] !== parsedSnapshot.value[k] ? (fields.value[k] ?? '') : out[k]!
+      }
+      parsedSnapshot.value = out
+      fields.value = merged
+    } else {
+      // 切文档：整体重灌（上一文档的脏键不跨文档携带）。快照必须克隆——与 fields
+      // 共享同一对象时，v-model 写 fields 即同步改快照，「用户改过」永不可判。
+      parsedSnapshot.value = { ...out }
+      fields.value = out
+    }
   },
   { immediate: true },
 )

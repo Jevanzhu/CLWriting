@@ -12,6 +12,10 @@ import { log } from '../../../log/index.js'
 
 // ── 运行态类型（chat.ts 并发锁与 turns.ts waitConfirm 共用） ──
 
+/** R70-12（十八轮）：对话总超时缺省值——finish.ts 超时文案同源换算（防参数化后
+ *  文案与实际值漂移；测试注入 deadlineMs 覆盖运行值，文案按缺省口径展示）。 */
+export const AGENT_DEADLINE_MS = 30 * 60_000
+
 export interface ChatRunState {
   ctrl: AbortController
   deadline: number

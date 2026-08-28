@@ -69,29 +69,51 @@ export const useStyleStore = defineStore('style', () => {
   }
 
   async function reloadEntries(): Promise<void> {
-    const r = await listStyleEntries(bookName.value)
+    // R68-5（十六轮）：代守卫——add/confirm 落盘慢响应在途时切书（clear→load 新书）后，
+    // 旧书条目无守卫落地共享 store，B 书文风页持久显示 A 书条目库（对齐 load/harvest 惯例）。
+    const gen = reqGen
+    const book = bookName.value
+    const r = await listStyleEntries(book)
+    if (gen !== reqGen) return
     entries.value = r.entries
     entryErrors.value = r.errors.length
   }
   async function reloadCandidates(): Promise<void> {
-    candidates.value = (await listStyleCandidates(bookName.value)).candidates
+    // R68-5：同上代守卫
+    const gen = reqGen
+    const book = bookName.value
+    const cs = await listStyleCandidates(book)
+    if (gen !== reqGen) return
+    candidates.value = cs.candidates
   }
 
   async function add(entry: Parameters<typeof addStyleEntry>[1]): Promise<void> {
-    await addStyleEntry(bookName.value, entry)
+    const gen = reqGen
+    const book = bookName.value
+    await addStyleEntry(book, entry)
+    if (gen !== reqGen) return // 已切书：本地回填与 reload 全作废（reload 内另有同款守卫）
     await reloadEntries()
   }
   async function remove(path: string): Promise<void> {
-    await deleteStyleEntry(bookName.value, path)
+    const gen = reqGen
+    const book = bookName.value
+    await deleteStyleEntry(book, path)
+    if (gen !== reqGen) return
     entries.value = entries.value.filter((e) => e._path !== path)
   }
   async function confirm(path: string): Promise<void> {
-    await confirmStyleCandidate(bookName.value, path)
+    const gen = reqGen
+    const book = bookName.value
+    await confirmStyleCandidate(book, path)
+    if (gen !== reqGen) return
     candidates.value = candidates.value.filter((c) => c._path !== path)
     await reloadEntries()
   }
   async function ignore(path: string): Promise<void> {
-    await ignoreStyleCandidate(bookName.value, path)
+    const gen = reqGen
+    const book = bookName.value
+    await ignoreStyleCandidate(book, path)
+    if (gen !== reqGen) return
     const c = candidates.value.find((x) => x._path === path)
     if (c) c.状态 = '已忽略'
   }

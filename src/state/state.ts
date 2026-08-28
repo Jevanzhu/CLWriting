@@ -20,12 +20,14 @@
  * 回滚「回到第 N 章」是横切命令（#16 第 5 节），不在顺序判定里——由 version 恢复单独触发。
  */
 
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, renameSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { scanCloudCopies } from '../git/exec.js'
 import { sweepAbandonedTmpFiles } from '../fs/atomic.js'
 import { appendAborted, appendSettled, findUnsettled, isMovePending, type JournalAnyPending, type JournalMovePending } from '../document/journal.js'
+import { decodeDocDirName } from '../document/version.js'
+import { readTrashManifest } from '../document/trash.js'
 import { rebuild } from '../cache/rebuild.js'
 import { readBookConfig } from '../format/yaml.js'
 import { splitFrontMatter, parseFlat } from '../format/frontmatter.js'
@@ -218,11 +220,29 @@ function healthCheck(bookRoot: string, manifest: Manifest): HealthIssue[] {
     try {
       for (const name of readdirSync(journalDir)) {
         if (name.startsWith('._') || !name.endsWith('.jsonl')) continue
-        const docId = name.slice(0, -'.jsonl'.length)
-        const pending = findUnsettled(join(journalDir, name))
+        // R69-3（十七轮）：journal 文件名反解回真实 docId——写侧恒编码（win legacy 冒号
+        // 防线），`legacy:xxx` 盘上名为 `legacy_xxx.jsonl`，不反解则 healMovePending 对
+        // 清单真实键全 miss、自愈静默失效（settled 照标、清单残留旧路径）。
+        const journalFile = join(journalDir, name)
+        const docId = decodeDocDirName(name.slice(0, -'.jsonl'.length))
+        // R69-4（十七轮）：孤儿 journal 归档——docId 不在清单且不在回收站、且 move 类
+        // pending 两端路径都不在盘（purge/外部删除后的残骸），对其报 crashedWrite 是
+        // 永久幽灵红且含全文快照的内容级残留；改判 .orphaned 保留数据可手工恢复。
+        // save 类 pending 无路径字段无法证实无主，保守维持原报红（ genuine 崩溃不静默）。
+        if (isOrphanJournal(bookRoot, docId, journalFile)) {
+          const dst = `${journalFile}.orphaned-${Date.now()}`
+          try {
+            renameSync(journalFile, dst)
+            log.info('state', `孤儿 journal 已归档（文档已删除且无盘上路径）：${name} → ${dst}，如需恢复可手工改名回 .jsonl`)
+            continue
+          } catch {
+            // 归档失败（占用等）：维持原报红路径
+          }
+        }
+        const pending = findUnsettled(journalFile)
         const unresolved: JournalAnyPending[] = []
         for (const p of pending) {
-          if (!isMovePending(p) || !healMovePending(bookRoot, docId, p, manifest)) unresolved.push(p)
+          if (!isMovePending(p) || !healMovePending(bookRoot, docId, p, manifest, journalFile)) unresolved.push(p)
         }
         if (unresolved.length > 0) {
           issues.push({
@@ -287,6 +307,7 @@ function healMovePending(
   docId: string,
   p: JournalMovePending,
   manifestMirror?: Manifest,
+  journalFile?: string,
 ): boolean {
   const oldAbs = safeManifestPath(bookRoot, p.oldPath)
   const newAbs = safeManifestPath(bookRoot, p.newPath)
@@ -316,11 +337,13 @@ function healMovePending(
         const mirrorEntry = manifestMirror.entries.get(docId)
         if (mirrorEntry && mirrorEntry.path !== p.newPath) mirrorEntry.path = p.newPath
       }
-      appendSettled(join(journalDir(bookRoot), `${docId}.jsonl`), p.opId, computeRevision(newAbs))
+      // R69-3（十七轮）：settled/aborted 回写沿用被扫 journal 文件（传入路径）——
+      // 不再用 docId 重拼（mac 存量字面名文件会写到编码新文件、pending 永不消）。
+      appendSettled(journalFile ?? join(journalDir(bookRoot), `${encodeOrLiteralNames(docId)[0]}.jsonl`), p.opId, computeRevision(newAbs))
       return true
     }
     if (oldExists && !newExists) {
-      appendAborted(join(journalDir(bookRoot), `${docId}.jsonl`), p.opId, '恢复扫描判定：rename 未发生，清除悬置 pending')
+      appendAborted(journalFile ?? join(journalDir(bookRoot), `${encodeOrLiteralNames(docId)[0]}.jsonl`), p.opId, '恢复扫描判定：rename 未发生，清除悬置 pending')
       return true
     }
   } catch {
@@ -331,6 +354,38 @@ function healMovePending(
 
 function journalDir(bookRoot: string): string {
   return join(bookRoot, '工作区', '.journal')
+}
+
+/** R69-4（十七轮）：判定 journal 是否孤儿（对其报红 = 永久幽灵）。保守三重证实：
+ *  docId 不在清单 && 不在回收站 && move pending 两端路径均不在盘（save 类无路径
+ *  字段，无法证实 → 永远返回 false 维持报红，防 genuine 崩溃被静默）。 */
+function isOrphanJournal(bookRoot: string, docId: string, journalFile: string): boolean {
+  // 清单镜像只反映进门时点；盘上清单可能已更新（他进程注册后崩溃），以盘上为准复核
+  try {
+    const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
+    if (existsSync(manifestPath) && readManifest(manifestPath).entries.has(docId)) return false
+  } catch {
+    return false // 清单读失败：不确定 → 不归档
+  }
+  try {
+    if (readTrashManifest(bookRoot).some((e) => e.id === docId)) return false
+  } catch {
+    return false // 回收站清单读失败：不确定 → 不归档
+  }
+  const pending = findUnsettled(journalFile)
+  if (pending.length === 0) return false // 无未结算项：不在报红路径上，无需归档
+  return pending.every((p) => {
+    if (!isMovePending(p)) return false
+    const oldAbs = safeManifestPath(bookRoot, p.oldPath)
+    const newAbs = safeManifestPath(bookRoot, p.newPath)
+    return oldAbs !== null && newAbs !== null && !existsSync(oldAbs) && !existsSync(newAbs)
+  })
+}
+
+/** docId 的 journal 文件名候选（编码在前——写侧恒编码；字面在后兜底 mac 存量）。 */
+function encodeOrLiteralNames(docId: string): string[] {
+  const encoded = docId.replace(/:/g, '_')
+  return encoded === docId ? [docId] : [encoded, docId]
 }
 
 /** 态 3：已定稿文件有未重新定稿的改动（manifest.finalizedRevision vs 当前指纹）。 */

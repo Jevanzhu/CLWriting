@@ -41,10 +41,24 @@ export function encodeDocDirName(docId: string): string {
   return docId.replace(/:/g, '_')
 }
 
+/**
+ * R68-3/R68-4：docId 编码文件/目录名的反解（journal 文件名、分析文件名、版本目录名
+ * 的读侧统一入口）。id 空间三前缀（doc_ / folder_ / legacy:，见 stable-id.ts）保证
+ * 无歧义：无冒号且 `legacy_` 开头的名字只能来自编码写入（真 legacy id 恒含 `:`）→
+ * 逆推 `legacy:`；含 `:` 的字面名（mac 存量）原样即 docId；其余（doc_/folder_）编码
+ * 前后同名原样返回。
+ */
+export function decodeDocDirName(name: string): string {
+  if (name.startsWith('legacy_')) return 'legacy:' + name.slice('legacy_'.length)
+  return name
+}
+
 /** docId 的候选版本目录（字面历史在前、win 编码在后；同一目录则去重为单元素）。
  *  字面目录仅 mac 存量库存在（`:` 在 POSIX 文件名合法、win 非法，win 上永不出现）——
  *  编码写入开启前同一 docId 的版本可能分布在两目录（存量在字面、之后在编码），
- *  任何单目录解析都会读写分裂：新版本写入后 list/read 不可见、prune 只扫一侧。 */
+ *  任何单目录解析都会读写分裂：新版本写入后 list/read 不可见、prune 只扫一侧。
+ *  R68-2：purgeTrash 连删版本目录按本函数同款「字面在前、编码在后、同名去重」
+ *  口径（trash.ts 内联名称候选——文件名层面同构）。 */
 function docVersionDirs(versionsDir: string, docId: string): string[] {
   const literal = join(versionsDir, docId)
   const encoded = join(versionsDir, encodeDocDirName(docId))

@@ -25,7 +25,7 @@ import { runSpec } from '../../../ai/tasks/spec.js'
 import { analysisSpec } from '../../../ai/tasks/specs.js'
 import { resolveTier } from '../../../ai/provider/index.js'
 import type { AnalysisKind as ContractKind } from '../../../ai/contract/index.js'
-import { readAnalysis, writeAnalysis, readBookAnalysis, writeBookAnalysis, sourceHashOf, type AnalysisKind } from '../../../document/analysis.js'
+import { readAnalysis, readAnalysisKinds, writeAnalysis, readBookAnalysis, writeBookAnalysis, sourceHashOf, type AnalysisKind } from '../../../document/analysis.js'
 import { mapAnalysisToCandidates, persistCandidates } from '../../../format/style-candidate.js'
 import { safeManifestPath } from '../../../fs/safe-path.js'
 import { acquireTaskGate, orchestrationBusyFor } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
@@ -341,7 +341,10 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
           const 章号 = parseInt(numMatch[1]!, 10)
           const 标题 = filename.replace(/^\d+-/, '').replace(/\.md$/, '')
 
-          const scoreEnv = readAnalysis(bookRoot, docId, 'score')
+          // R69-27（十七轮）：三 kind 合一次读盘（此前每 kind 各整读同一 JSON 一遍，
+          // 长书 overview 同步 IO 上千次阻塞事件循环秒级）
+          const envs = readAnalysisKinds(bookRoot, docId, ['score', 'emotion', 'hooks'])
+          const scoreEnv = envs['score']
           if (scoreEnv?.payload) {
             // 低-5（第十轮）：形状守卫（对齐同函数 hooks 的 X-P3a 口径）——score 缺失/
             // 非数字、dims 非对象时跳过该章，不让坏信封把 NaN/undefined 塞进趋势
@@ -350,7 +353,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
               scoreTrend.push({ 章号, 标题, score: p.score, dims: p.dims as Record<string, number> })
             }
           }
-          const emotionEnv = readAnalysis(bookRoot, docId, 'emotion')
+          const emotionEnv = envs['emotion']
           if (emotionEnv?.payload) {
             // tool_use 后 payload 为 { segments: [...] }；兼容旧版裸数组
             // 低-5（第十轮）：形状守卫（对齐 hooks 的 X-P3a 口径）——segments 非数组、
@@ -366,7 +369,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
               emotionTrend.push({ 章号, 标题, emotion: last.emotion, label: last.label })
             }
           }
-          const hooksEnv = readAnalysis(bookRoot, docId, 'hooks')
+          const hooksEnv = envs['hooks']
           if (hooksEnv?.payload) {
             // X-P3a：形状守卫——坏信封（hooks 非数组/density 缺失）跳过该章，
             // 不让一章的坏数据 TypeError 拖垮整个 overview 端点

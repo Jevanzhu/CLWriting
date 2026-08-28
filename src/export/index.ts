@@ -273,7 +273,9 @@ export function exportBook(options: ExportOptions): ExportResult {
   const splitUsed = new Set<string>() // R62-15：分章产物文件名占用集（撞名序号判定）
   const writeSplit = (unit: { num: number; title: string; path: string }, body: string): void => {
    try {
-    const prefix = `${String(unit.num).padStart(3, '0')}-`
+    // R69-22（十七轮）：3 位 → 4 位，与正文写侧章文件名（format/words.ts 4 位）对齐
+    //——长篇分章产物 005-x.md 与源 0005-x.md 命名族分裂（纯观感，分章为终端产物无下游）。
+    const prefix = `${String(unit.num).padStart(4, '0')}-`
     const baseName = sanitizeFileName(unit.title, FILENAME_MAX_BYTES - Buffer.byteLength(prefix) - Buffer.byteLength('.md'))
     // R62-15：同章号+同标题（手工复制备份 / 网盘同步副本「xxx 2.md」形态）撞名——
     // 此前 atomicWriteFile 直写同路径幂等替换，chapterCount 与 files 却计两次，两章只
@@ -332,6 +334,10 @@ export function exportBook(options: ExportOptions): ExportResult {
     }
   }
 
+  // R70-4（十八轮）：short 分支整体收编进错误信封——R67-10 只包了 merged/split 写入，
+  // 投稿视图的 scanShortCollection/readdirSync 清点/atomicWriteFile 裸穿：磁盘满/目录
+  // 并发删除时异常破坏 {ok:false} 契约（worker 形态丢 warnings 上下文、库形态裸异常）。
+  try {
   if (kind === 'short') {
     // 文件名与内容标题一致：非 generic 平台带模板 label（多平台产物不互相覆盖）
     const submissionNameOf = (p: string, label: string | undefined): string => {
@@ -364,6 +370,17 @@ export function exportBook(options: ExportOptions): ExportResult {
       formatShortSubmissionView(entries, cfg.ok ? cfg.config.short : undefined, bookTitle, platform),
     )
     files.push(`工作区/导出/${submissionName}`)
+  }
+  } catch (e) {
+    return {
+      ok: false,
+      files: [],
+      chapterCount: 0,
+      unit: '章',
+      skippedDrafts,
+      ...(warnings.length > 0 ? { warnings } : {}),
+      error: `导出写入失败：${e instanceof Error ? e.message : String(e)}`,
+    }
   }
 
   return {

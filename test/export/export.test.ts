@@ -89,8 +89,8 @@ test('exportBook: 长篇多章 both 导出（merged + split）', () => {
     expect(merged).toContain('---') // 章间分隔线
 
     // split：按章号数值排序 + 3 位补零文件名（长短统一）
-    expect(r.files.some((f) => f.includes('分章/001-第一章.md'))).toBe(true)
-    expect(r.files.some((f) => f.includes('分章/002-第二章.md'))).toBe(true)
+    expect(r.files.some((f) => f.includes('分章/0001-第一章.md'))).toBe(true)
+    expect(r.files.some((f) => f.includes('分章/0002-第二章.md'))).toBe(true)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
@@ -121,7 +121,7 @@ test('exportBook: 短篇分支产全本 + 分章 + 投稿视图', () => {
     // merged 文件名为「全本-」前缀
     expect(r.files.some((f) => f.includes('全本-短篇集.md'))).toBe(true)
     // split 目录为「分章」+ 3 位补零
-    expect(r.files.some((f) => f.includes('分章/001-雪夜.md'))).toBe(true)
+    expect(r.files.some((f) => f.includes('分章/0001-雪夜.md'))).toBe(true)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
@@ -311,7 +311,7 @@ test('exportBook: 未定稿章被滤出导出（V-P2-2），skippedDrafts 计数
     const merged = readFileSync(join(root, '工作区', '导出', '全本-滤草稿.md'), 'utf-8')
     expect(merged).toContain('定稿内容')
     expect(merged).not.toContain('半成品')
-    expect(r.files.some((f) => f.includes('分章/002-'))).toBe(false)
+    expect(r.files.some((f) => f.includes('分章/0002-'))).toBe(false)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
@@ -365,8 +365,8 @@ test('X-P2-4: 超长章标题文件名截断（80 码位封顶，ASCII 不触字
     expect(r.ok).toBe(true)
     const names = readdirSync(join(root, '工作区', '导出', '分章'))
     expect(names).toHaveLength(1)
-    // 码位封顶：`001-` + 标题截 80 码位（ASCII 80 字节，远未触字节封顶）+ `.md`；字节封顶见 FF-F3
-    expect(Array.from(names[0]!).length).toBe('001-'.length + 80 + '.md'.length)
+    // 码位封顶：`0001-`（R69-22 4 位对齐正文写侧）+ 标题截 80 码位（ASCII 80 字节，远未触字节封顶）+ `.md`；字节封顶见 FF-F3
+    expect(Array.from(names[0]!).length).toBe('0001-'.length + 80 + '.md'.length)
     expect(Buffer.byteLength(names[0]!, 'utf8')).toBeLessThanOrEqual(255)
     // 只有文件名截，内容里标题完整
     const body = readFileSync(join(root, '工作区', '导出', '分章', names[0]!), 'utf-8')
@@ -479,14 +479,14 @@ test('第五轮: 分章目录整目录重建——改章标题/删章后旧文�
     const first = exportBook({ bookRoot: root, format: 'split' })
     expect(first.ok).toBe(true)
     const dir = join(root, '工作区', '导出', '分章')
-    expect(readdirSync(dir).sort()).toEqual(['001-旧标题.md', '002-第二章.md'])
+    expect(readdirSync(dir).sort()).toEqual(['0001-旧标题.md', '0002-第二章.md'])
     // 第一章改标题（新文件名）+ 删第二章 → 旧导出必须整体重建不残留
     rmSync(join(root, '写作', '正文', '1-旧标题.md'))
     writeLongChapter(root, 1, '新标题', '内容一改。')
     rmSync(join(root, '写作', '正文', '2-第二章.md'))
     const r = exportBook({ bookRoot: root, format: 'split' })
     expect(r.ok).toBe(true)
-    expect(readdirSync(dir).sort()).toEqual(['001-新标题.md'])
+    expect(readdirSync(dir).sort()).toEqual(['0001-新标题.md'])
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
@@ -624,15 +624,15 @@ test('R67-1: 再导出时旧 分章/ 整目录归档进 .旧版/ 不再 rmSync �
   try {
     exportBook({ bookRoot: root, format: 'both' })
     // 作者手改分章稿（此前 rmSync 整目录销毁不可挽回）
-    const hand = join(root, '工作区', '导出', '分章', '001-第一章.md')
+    const hand = join(root, '工作区', '导出', '分章', '0001-第一章.md')
     writeFileSync(hand, '作者手改过的分章稿', 'utf-8')
     writeLongChapter(root, 1, '第一章', '第二版正文。')
     const r = exportBook({ bookRoot: root, format: 'both' })
     expect(r.ok).toBe(true)
     // 手改稿整目录归档进 .旧版/分章/ 且内容原样（同名章新产物会重建同名文件，以内容判）
-    expect(readFileSync(join(root, '工作区', '导出', '.旧版', '分章', '001-第一章.md'), 'utf-8')).toBe('作者手改过的分章稿')
+    expect(readFileSync(join(root, '工作区', '导出', '.旧版', '分章', '0001-第一章.md'), 'utf-8')).toBe('作者手改过的分章稿')
     // 新分章产物在位且为第二版
-    expect(readFileSync(join(root, '工作区', '导出', '分章', '001-第一章.md'), 'utf-8')).toContain('第二版正文')
+    expect(readFileSync(join(root, '工作区', '导出', '分章', '0001-第一章.md'), 'utf-8')).toContain('第二版正文')
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
@@ -643,13 +643,13 @@ test('R67-1: 分章归档目录撞名 → 追加序号后缀保多份', () => {
   writeLongChapter(root, 1, '第一章', '初版。')
   try {
     exportBook({ bookRoot: root, format: 'split' })
-    writeFileSync(join(root, '工作区', '导出', '分章', '001-第一章.md'), '第一次手改', 'utf-8')
+    writeFileSync(join(root, '工作区', '导出', '分章', '0001-第一章.md'), '第一次手改', 'utf-8')
     exportBook({ bookRoot: root, format: 'split' }) // 分章/ → .旧版/分章/
-    writeFileSync(join(root, '工作区', '导出', '分章', '001-第一章.md'), '第二次手改', 'utf-8')
+    writeFileSync(join(root, '工作区', '导出', '分章', '0001-第一章.md'), '第二次手改', 'utf-8')
     exportBook({ bookRoot: root, format: 'split' }) // 再归档 → .旧版/分章-2/
     const archiveDir = join(root, '工作区', '导出', '.旧版')
-    expect(readFileSync(join(archiveDir, '分章', '001-第一章.md'), 'utf-8')).toBe('第一次手改')
-    expect(readFileSync(join(archiveDir, '分章-2', '001-第一章.md'), 'utf-8')).toBe('第二次手改')
+    expect(readFileSync(join(archiveDir, '分章', '0001-第一章.md'), 'utf-8')).toBe('第一次手改')
+    expect(readFileSync(join(archiveDir, '分章-2', '0001-第一章.md'), 'utf-8')).toBe('第二次手改')
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

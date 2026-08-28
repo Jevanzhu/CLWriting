@@ -200,7 +200,10 @@ export function addEntry(bookRoot: string, e: StyleEntry): string {
   // 排他建文件：EEXIST → 序号 +1 重试；写侧绕开 atomic rename 正是为保排他语义
   //（创建型写入，无旧内容可失）。上限 32 次防病态环。
   const text = joinFrontMatter(stringifyFlat(entryToMap(e)), e.正文)
-  let seq = nextEntrySeq(entriesDir, e.类型, e.场景)
+  // R69-21（十七轮）：序号扫描同用净化后场景——文件名是 sanitizeChapterTitle(场景)，
+  // 此前比对用原始场景，场景含 win 非法字符时序号扫描 miss 同族文件从 1 起数（靠
+  // O_EXCL 的 EEXIST 重试自愈，但白耗重试且同场景新旧条目编号割裂）。
+  let seq = nextEntrySeq(entriesDir, e.类型, scene)
   for (let attempt = 0; attempt < 32; attempt++) {
     const fileName = `${scene}-${String(seq).padStart(3, '0')}.md`
     const filePath = join(dir, fileName)

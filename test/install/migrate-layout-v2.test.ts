@@ -4,6 +4,20 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { migrateLayoutV2 } from '../../src/install/migrate-layout-v2.js'
 
+// R70-32（十八轮）：symlink 能力探测守卫（dangling 链用例——非特权 win 建链 EPERM；
+// GH win runner 以管理员跑大概率可建，本地与 CI 口径对齐库内 skipIf 惯例）
+const canSymlink = (() => {
+  try {
+    const d = mkdtempSync(join(tmpdir(), 'clw-symlink-probe-'))
+    symlinkSync(join(d, 'a'), join(d, 'b'))
+    rmSync(d, { recursive: true, force: true })
+    return true
+  } catch {
+    return false
+  }
+})()
+
+
 let tmp: string
 beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), 'clw-migrate-v2-'))
@@ -141,7 +155,7 @@ test('R65-38: 同名文件静默跳过 → push 到 errors（孤儿留痕）；�
   expect(readFileSync(join(tmp, '写作', '正文', '0001-冲突.md'), 'utf-8')).toBe('新目录已有内容')
 })
 
-test('R65-38: statSync 抛错（dangling symlink 源 + 同名目标在位）→ 记 warn 跳过该条，同目录后续文件继续迁', () => {
+test.skipIf(!canSymlink)('R65-38: statSync 抛错（dangling symlink 源 + 同名目标在位）→ 记 warn 跳过该条，同目录后续文件继续迁', () => {
   mkdirSync(join(tmp, '定稿', '正文'), { recursive: true })
   mkdirSync(join(tmp, '写作', '正文'), { recursive: true })
   // 坏条目：源是 dangling symlink（statSync 跟随 → ENOENT），目标同名文件已存在

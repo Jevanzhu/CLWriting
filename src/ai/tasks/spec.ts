@@ -11,7 +11,7 @@ import type { TaskResult } from '../runner.js'
 import { runTask } from '../runner.js'
 import { generate, generateTool, GenError } from '../gen.js'
 import { rulesPromptParts } from '../rules/index.js'
-import { resolveBuiltinSystemPrompt } from '../prompts/resource.js'
+import { resolveBuiltinSystemPromptSourced } from '../prompts/resource.js'
 
 /** 任务生成模式 */
 type GenMode = 'text' | 'tool'
@@ -120,14 +120,26 @@ export async function runSpec(
   // A2：按 spec.name 拼接适用规则的 toPrompt()（写稿查 AI 味、审稿不查，由挂载关系表达）
   // C2：内置 prompt 运行期精确匹配——spec.systemPrompt 命中内置（任意历史版本）哈希时
   // 换成 overlay/当前内置（用户覆盖层优先）；rulesToPrompt 拼接段与动态 prompt 不受影响
-  const base = resolveBuiltinSystemPrompt(opts.systemPromptOverride ?? spec.systemPrompt, opts.userDataPath ?? undefined) ?? ''
+  // R69-9（十七轮）：改用带源版本——overlay 命中时把注入源绝对路径登记进 promptFiles
+  // （铁律①「模型可见⟺已记录」：overlay 是书外可变文件，仅入哈希不可重建）
+  const resolvedPrompt = resolveBuiltinSystemPromptSourced(
+    opts.systemPromptOverride ?? spec.systemPrompt,
+    opts.userDataPath ?? undefined,
+  )
+  const base = resolvedPrompt.text ?? ''
   // A8（五十九轮）：注入文本与登记清单同一次读盘派生（rulesPromptParts 单源）——此前
   // rulesToPrompt 与 rulesPromptFiles 各自独立读盘，微观窗口注入与登记可撕裂
   const parts = rulesPromptParts(spec.name, opts.bookRoot)
   const systemPrompt = base + parts.prompt
   // Y-2（第五十七轮）：rules 注入段源文件并入 promptFiles（铁律①「模型可见⟺已记录」——
   // AI味词表条目库与 rule-hits.json 为可变文件，仅入哈希不可重建，登记后事件可溯源）
-  const promptFiles = [...new Set([...(opts.promptFiles ?? []), ...parts.files])]
+  const promptFiles = [
+    ...new Set([
+      ...(opts.promptFiles ?? []),
+      ...parts.files,
+      ...(resolvedPrompt.overlayFile ? [resolvedPrompt.overlayFile] : []),
+    ]),
+  ]
   const tool = opts.toolOverride ?? spec.tool
   const mock = opts.mockOverride ?? spec.mock
   const messages: ChatMsg[] = [{ role: 'user', content: opts.userPrompt }]

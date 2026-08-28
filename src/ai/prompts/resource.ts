@@ -151,7 +151,27 @@ export function matchBuiltinPrompt(text: string, registry: PromptRegistry = DEFA
  * runner 入口：systemPrompt 若是某内置 prompt 的（任意历史版本）原文，
  * 换成 overlay/当前内置——旧版内置文本在运行期自动升级，用户 overlay 优先。
  * 非内置文本原样返回（chat 等动态 prompt 零影响）。
+ * R69-9（十七轮）：带源版本（resolveBuiltinSystemPromptSourced）额外透出 overlay 命中
+ * 的绝对路径——runSpec 据此把 overlay 注入源登记进 promptFiles（铁律①「模型可见⟺已
+ * 记录」：overlay 是可变文件，仅入哈希不可重建，与 Y-2 rules 注入段同性质同登记）。
  */
+export function resolveBuiltinSystemPromptSourced(
+  systemPrompt: string | undefined,
+  userDataPath?: string,
+  registry: PromptRegistry = DEFAULT_REGISTRY,
+): { text: string | undefined; overlayFile?: string } {
+  if (systemPrompt === undefined) return { text: undefined }
+  const name = matchBuiltinPrompt(systemPrompt, registry)
+  if (name === null) return { text: systemPrompt }
+  if (userDataPath) {
+    const fp = overlayPath(userDataPath, name)
+    if (existsSync(fp)) {
+      return { text: canonicalize(readFileSync(fp, 'utf8')), overlayFile: fp }
+    }
+  }
+  return { text: loadBuiltinPrompt(name, registry).text }
+}
+
 export function resolveBuiltinSystemPrompt(
   systemPrompt: string | undefined,
   userDataPath?: string,

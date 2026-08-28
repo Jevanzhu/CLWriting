@@ -21,7 +21,6 @@ import { runSpec } from '../../../ai/tasks/spec.js'
 import { streamSpec } from '../../../ai/tasks/specs.js'
 import { readKind } from '../book-context.js'
 import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
-import { resolveTier } from '../../../ai/provider/index.js'
 import { resolveModelPricing, computeCallCost } from '../../../ai/pricing.js'
 import { safeTokenCompare } from '../http.js'
 import { consumeStreamTicket, peekStreamTicket } from './stream-ticket.js'
@@ -191,7 +190,9 @@ async function runWriterSpawn(opts: {
       }
       // D2（批 5）：有价格表算单次金额（input+output 按写稿模型四档分计），
       // 未配价省略 cost 字段——不再发恒 0（mock 遗留口径修正）
-      const model = resolveTier(opts.userDataPath, 'creative').model
+      // R70-11（十八轮）：计价用请求时刻的模型（TaskOk.model = resolve 时快照，Y-15 同
+      // 口径）——此前生成后二次 resolveTier，生成期间作者换档/改价会按新价折旧调用。
+      const model = out.model
       const pricing = model ? resolveModelPricing(opts.userDataPath, model) : null
       const cost = out.usage && pricing
         ? computeCallCost(pricing, {
@@ -494,6 +495,16 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     if (isSpawnRunning(bookName)) {
       return replyError(res, 409, 'BUSY', '本书正在手动写稿，先等它跑完或中断再自动写章')
     }
+    // R70-5（十八轮）：生成任务闸反向互斥——R67-13 只修了「写稿在途→拒收生成任务」
+    // 方向；outline/lead-updates/onboard-ai/analyze 持闸（分钟级）期间启动 self-heal，
+    // 其收尾覆盖写 细纲.md/账本推进.md，后续章拿到混合态上下文（双费 + 两端闭合误报
+    // 红触发多余重写）。与删书/改名 busyGate 同口径。
+    {
+      const held = heldTaskGatesFor(bookName)
+      if (held.length > 0) {
+        return replyError(res, 409, 'BUSY', `本书有任务在跑（${held.join('、')}），先等它完成或中断再自动写章`)
+      }
+    }
 
     const body = await readJson(req)
     const chapter = Number(body['chapter'])
@@ -586,6 +597,13 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       if (isSpawnRunning(bookName)) {
         return replyError(res, 409, 'BUSY', '本书正在手动写稿，先等它跑完或中断再对话')
       }
+      // R70-5（十八轮）：生成任务闸反向互斥（同 /auto-write 口径，见彼处注释）
+      {
+        const held = heldTaskGatesFor(bookName)
+        if (held.length > 0) {
+          return replyError(res, 409, 'BUSY', `本书有任务在跑（${held.join('、')}），先等它完成或中断再对话`)
+        }
+      }
 
       const mainSession = await ensureSession(bookName, ctx.workDir!)
       // R-9：ensureSession await 后二次检查（对齐 /auto-write 的 N4 TOCTOU 收窄口径）
@@ -594,6 +612,13 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       }
       if (isSpawnRunning(bookName)) {
         return replyError(res, 409, 'BUSY', '本书正在手动写稿，先等它跑完或中断再对话')
+      }
+      // R70-5：复检（同首检口径）
+      {
+        const held = heldTaskGatesFor(bookName)
+        if (held.length > 0) {
+          return replyError(res, 409, 'BUSY', `本书有任务在跑（${held.join('、')}），先等它完成或中断再对话`)
+        }
       }
       // E1a（steer）：对话运行中不再 409 拒绝，改为入队（当前轮结束自动续链）。
       // 二次检查（await 期间可能另一个请求已启动）在 sendChatMessage 内原子完成——running 判定与入队同临界区。
@@ -646,6 +671,13 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     if (isSpawnRunning(bookName)) {
       return replyError(res, 409, 'BUSY', '本书正在手动写稿，先等它跑完或中断再对话')
     }
+    // R70-5（十八轮）：生成任务闸反向互斥（同 chat.send 口径，见彼处注释）
+    {
+      const held = heldTaskGatesFor(bookName)
+      if (held.length > 0) {
+        return replyError(res, 409, 'BUSY', `本书有任务在跑（${held.join('、')}），先等它完成或中断再对话`)
+      }
+    }
     const body = await readJson(req)
     const rawParentSeq = Number(body['parentSeq'])
     if (!Number.isInteger(rawParentSeq) || rawParentSeq < 1) return replyError(res, 400, 'BAD_INPUT', 'parentSeq 需为正整数')
@@ -671,6 +703,13 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     }
     if (isSpawnRunning(bookName)) {
       return replyError(res, 409, 'BUSY', '本书正在手动写稿，先等它跑完或中断再对话')
+    }
+    // R70-5（十八轮）：复检（同 chat.send 口径）
+    {
+      const held = heldTaskGatesFor(bookName)
+      if (held.length > 0) {
+        return replyError(res, 409, 'BUSY', `本书有任务在跑（${held.join('、')}），先等它完成或中断再对话`)
+      }
     }
     const driver = getDriver()
     const outcome = sendChatMessage({

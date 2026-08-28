@@ -8,7 +8,7 @@
  * 路径防穿越：resolve + relative 判定，必须落在 bookRoot 内。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { basename } from 'node:path'
+import { basename, sep } from 'node:path'
 import { readFile as readFileAsync } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { resolveWithinRoot } from '../../../fs/safe-path.js'
@@ -110,6 +110,15 @@ export function registerFileRoutes(ctx: FileCtx): void {
         // S4：异步读取基线（原 existsSync + hashFile 同步整读；ENOENT 统一 404）
         const baseline = await readFileHashed(safe)
         if (!baseline) return { status: 404, code: 'NOT_FOUND', error: '文件不存在' } as const
+        // R70-6（十八轮）：临界段写前重验书注册——readFileHashed 的 await 可跨
+        // renameSync/rmSync（drain 是快照式，快照后新进的 PUT 无闸拦）：书已删/改路径
+        // 后写旧路径，atomicWriteFile 的 mkdir recursive 会重建目录树成孤儿文件，PUT
+        // 却返回 200「已保存」。重验 resolveBook：已删（error）或 bookRoot 变化（改名）
+        // → 拒写 409，编辑端拿到可读错误重新进书。
+        const rNow = resolveBook(ctx.workDir, params['name']!)
+        if ('error' in rNow || rNow.bookRoot !== r.bookRoot) {
+          return { status: 409, code: 'BOOK_MOVED', error: '书目录刚被改名或删除，保存已取消——请重新打开本书后再试' } as const
+        }
         if (typeof body.expectedRevision === 'string' && body.expectedRevision !== baseline.revision) {
           return {
             status: 409,
@@ -149,6 +158,19 @@ function enqueueFilePut(safe: string, critical: () => Promise<FilePutOutcome>): 
     if (filePutChains.get(safe) === settled) filePutChains.delete(safe)
   })
   return task
+}
+
+/** R69-25（十七轮）：等待某书根前缀下全部在途 PUT /file 串行链排空——改名/删书前
+ *  drain（与 drainDocumentSaves 同型）：PUT 临界段内 readFileHashed 跨 renameSync 的
+ *  await 窗口会「读到旧内容 → atomicWriteFile 直写旧路径 + mkdir recursive 重建目录树」
+ *  → 旧书路径残留孤儿文件。删除路径天然免疫（基线 ENOENT → 404 不写），仍一并 drain
+ *  求同口径。快照当前键后逐键等待（新进链不等——rename 已过本闸的守卫语义由各端点
+ *  自身的 orchestration 排队保证）。 */
+export async function drainFilePutChainsUnder(bookRoot: string): Promise<void> {
+  const prefix = bookRoot + sep
+  const pending = [...filePutChains.keys()].filter((k) => k.startsWith(prefix))
+  if (pending.length === 0) return
+  await Promise.allSettled(pending.map((k) => filePutChains.get(k)))
 }
 
 /** S4：写后回指纹——对写入内容直接哈希（盘上即该内容，语义与 hashFile 相同且免二次读盘）。 */

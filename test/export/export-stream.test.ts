@@ -44,8 +44,8 @@ test('A1 流式化：both 导出产物与原构造式字节恒等（含批注剥
       ['# 第一章\n\n第一章正文。', '# 第二章\n\n第二章正文。', '# 第三章\n\n第三章正文。'].join('\n\n---\n\n'),
     )
 
-    const split1 = readFileSync(join(root, '工作区', '导出', '分章', '001-第一章.md'), 'utf8')
-    const split2 = readFileSync(join(root, '工作区', '导出', '分章', '002-第二章.md'), 'utf8')
+    const split1 = readFileSync(join(root, '工作区', '导出', '分章', '0001-第一章.md'), 'utf8')
+    const split2 = readFileSync(join(root, '工作区', '导出', '分章', '0002-第二章.md'), 'utf8')
     expect(split1).toBe('# 第一章\n\n第一章正文。')
     expect(split2).toBe('# 第二章\n\n第二章正文。') // 贴附批注截断 + 整行批注剔除
   } finally {

@@ -17,6 +17,18 @@ const doc = useDocStore()
 const ui = useUiStore()
 const prefs = usePrefsStore()
 
+// R70-29（十八轮）：页宽设置 ≥ 视口宽时侧位 ≤0，条会压在正文上——编辑内容优先，
+// 侧位容不下（<140px：条宽下限 + 间距）时隐藏两浮动条（FocusFormatBar 同款）
+const vw = ref(window.innerWidth)
+const onVwResize = (): void => {
+  vw.value = window.innerWidth
+}
+onMounted(() => window.addEventListener('resize', onVwResize))
+onBeforeUnmount(() => window.removeEventListener('resize', onVwResize))
+// 隐藏判据 = 页宽 ≥ 视口（侧位 ≤0，条必然压正文）；侧位紧张但 >0 时靠 R69-8 的
+// clamp 收窄条宽保间隙，不隐藏（1280×800 笔记本默认页宽侧位 130px 仍可用）
+const sideRoomTooSmall = computed(() => vw.value < prefs.effectivePageWidth)
+
 const docId = computed(() => ws.activeDocId)
 const entry = computed(() => (docId.value ? doc.get(docId.value) : undefined))
 const words = computed(() => (entry.value ? countWords(stripFrontmatter(entry.value.content)) : 0))
@@ -102,7 +114,7 @@ watch(
 </script>
 
 <template>
-  <aside class="focus-stats-bar" aria-label="专注统计">
+  <aside v-if="!sideRoomTooSmall" class="focus-stats-bar" aria-label="专注统计">
     <div class="fsb-item">
       <span class="fsb-label">本次</span>
       <span class="fsb-main" :class="{ plus: delta > 0 }">{{ delta >= 0 ? '+' : '' }}{{ delta }} 字</span>
@@ -127,14 +139,18 @@ watch(
 
 <style scoped>
 /* 左侧浮动条：与右侧 FocusFormatBar 同定位语义（纸张居中 → 50% - 半页宽 - 间距 - 条宽），
- * 但更清晰：0.85 常驻（排版条 0.35），hover 全实。窄窗侧位不足时 max 回落左缘 */
+ * 但更清晰：0.85 常驻（排版条 0.35），hover 全实。
+ * R69-8（十七轮）：窄窗侧位不足（边距 < 条宽 + 间距，如 1280 屏配默认页宽 1020 边距仅
+ * 130px）时此前 max() 钳到左缘 x=8 而 150px 条宽照旧——条与纸张左缘重叠 28px，「条右缘
+ * 落在纸张左缘左侧 0~40px」的设计意图失守；改 clamp 随侧位收窄条宽（下限 56px 保两行
+ * label/value 可读），条右缘恒 = 纸张左缘 - 12px。宽窗（边距充足）条宽维持 150px 不变。 */
 .focus-stats-bar {
   position: absolute;
-  left: max(var(--size-4-2, 8px), calc(50% - var(--page-width, 1020px) / 2 - var(--size-4-3, 12px) - 150px));
+  left: max(var(--size-4-2, 8px), calc(50% - var(--page-width, 1020px) / 2 - var(--size-4-3, 12px) - min(150px, calc(50% - var(--page-width, 1020px) / 2 - 20px))));
   top: 50%;
   transform: translateY(-50%);
   z-index: 5;
-  width: 150px;
+  width: clamp(56px, calc(50% - var(--page-width, 1020px) / 2 - 20px), 150px);
   display: flex;
   flex-direction: column;
   gap: 8px;
