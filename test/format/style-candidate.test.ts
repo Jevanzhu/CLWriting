@@ -2,7 +2,7 @@
  * 文风候选箱单测（文风系统重整 S4）：往返 / 过期 / 确认忽略 / 四源转换 / 查重落盘。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, existsSync, readFileSync, readdirSync, writeFileSync, symlinkSync } from 'node:fs'
+import { rmSync, existsSync, readFileSync, readdirSync, writeFileSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -26,11 +26,12 @@ import { addEntry, readEntries, ENTRIES_DIR } from '../../src/format/style-entry
 import { recordAiVersion } from '../../src/git/ai-track.js'
 import { git } from '../../src/git/exec.js'
 import type { EntryKind } from '../../src/format/types.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 let root = ''
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'clwriting-candidate-'))
+  root = mkdtempTracked(join(tmpdir(), 'clwriting-candidate-'))
 })
 
 afterEach(() => {

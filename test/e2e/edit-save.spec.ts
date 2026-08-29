@@ -9,6 +9,7 @@
 import { test, expect } from '@playwright/test'
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { attachPageErrorBaseline } from './page-error-baseline.js'
 
 /** 从状态栏「全书 N · 今日 +M」提取全书字数。 */
 function parseTotalWords(s: string | null): number {
@@ -66,6 +67,7 @@ test.afterAll(() => {
 })
 
 test('选章编辑 → ⌘S 保存 → 字数增加', async ({ page }) => {
+  attachPageErrorBaseline(page, 'edit-save')
   await page.goto('/')
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
   await expect(page.locator('.ws-shell')).toBeVisible()

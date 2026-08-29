@@ -8,18 +8,19 @@
  * 2. 无争用 → 写/清互斥段执行、保留其他键、锁文件不残留。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { writeBatchPause, clearBatchPause, readBatchPause, __setBatchPauseLockTimeoutForTest } from '../../src/state/batch-pause.js'
 import { log } from '../../src/log/index.js'
 import { processBootTime } from '../../src/fs/cross-process-lock.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 describe('R73-41 / batch-pause 跨进程锁', () => {
   let root: string
   let lockPath: string
   beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), 'r73-pause-'))
+    root = mkdtempTracked(join(tmpdir(), 'r73-pause-'))
     mkdirSync(join(root, '工作区', '待定稿'), { recursive: true })
     lockPath = join(root, '工作区', '待定稿', '.auto-batch.json.lock')
     __setBatchPauseLockTimeoutForTest(80) // 缩短锁等待保测试快

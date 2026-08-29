@@ -5,8 +5,10 @@
  * fixture 短篇测试集：写作/正文/001-雨夜门铃.md（无 布线/ 目录）。
  */
 import { test, expect } from '@playwright/test'
+import { attachPageErrorBaseline } from './page-error-baseline.js'
 
 test('短篇冒烟：开书 → 选篇 → 编辑器 → 关系图', async ({ page }) => {
+  attachPageErrorBaseline(page, 'short-flow')
   await page.goto('/')
   await expect(page.getByRole('heading', { name: '书架' })).toBeVisible()
   // 短篇书卡可见

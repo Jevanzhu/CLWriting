@@ -21,6 +21,7 @@ import { tryAcquireCrossProcessLock } from '../../../fs/cross-process-lock.js'
 import { isSelfHealRunning } from '../../../ai/orchestrate/self-heal.js'
 import { isChatRunning } from '../../../ai/orchestrate/chat.js'
 import { hasBackgroundTasks } from '../../../ai/orchestrate/background.js'
+import { isSpawnRunning } from '../../../ai/orchestrate/spawn-registry.js'
 
 const running = new Set<string>()
 
@@ -140,6 +141,11 @@ export function heldTaskGatesFor(bookName: string): string[] {
 export function orchestrationBusyFor(bookName: string): string | null {
   if (isSelfHealRunning(bookName)) return `本书自愈写稿进行中，等它完成后再生成（防写稿上下文被覆盖写混态）`
   if (isChatRunning(bookName)) return `本书对话进行中，等它完成后再生成（防写稿上下文被覆盖写混态）`
+  // R74-3（二十二轮）：spawn 面（互斥矩阵补面，R67-13/R70-3 同族收口）——本闸此前
+  // 只查 self-heal/chat/后台收尾，手动写稿（分钟级）在途时 outline/analysis/onboard/
+  // lead-updates 等生成端点照常放行：覆盖写与写稿并发、后续章拿到混合态上下文，正是
+  // R67-13 要防的场景（rewrite.ts R70-3 注释自认全库唯该面单独补查——本闸补齐后统一收口）。
+  if (isSpawnRunning(bookName)) return `本书手动写稿进行中，等它完成后再生成（防写稿上下文被覆盖写混态）`
   if (hasBackgroundTasks(bookName)) return `本书有后台任务收尾中，稍后再生成`
   return null
 }

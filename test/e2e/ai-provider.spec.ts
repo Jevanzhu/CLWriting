@@ -15,6 +15,7 @@ import { join } from 'node:path'
 import { startServer } from '../../src/studio/server/index.js'
 import { makeDualTrackWorkdir } from '../studio/fixtures.js'
 import { e2ePort } from './e2e-ports.js'
+import { attachPageErrorBaseline } from './page-error-baseline.js'
 
 // R73-75（批 F-8）：端口基址派生（CLW_E2E_PORT_BASE+2，旧硬编码 19001；偏移表见 e2e-ports.ts）
 const PORT = e2ePort(2)
@@ -63,6 +64,7 @@ test.beforeAll(async () => {
 })
 
 test('添加→测试→双供应商切换→工作台解灰 全流程', async ({ page }) => {
+  attachPageErrorBaseline(page, 'ai-provider')
   await page.goto(`${BASE}/`)
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
 
@@ -161,6 +163,7 @@ test('添加→测试→双供应商切换→工作台解灰 全流程', async (
 // Responses 启用批（T16，缺口 15）：协议栏三选一——第三按钮可选 openai-responses、
 // 保存持久化、卡片 tag 显示 Responses（后端 parseProviderInput 放行三选一）
 test('Responses 协议三选一：添加 openai-responses 供应商保存成功', async ({ page }) => {
+  attachPageErrorBaseline(page, 'ai-provider')
   await page.goto(`${BASE}/`)
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
 

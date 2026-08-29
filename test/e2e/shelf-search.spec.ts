@@ -5,8 +5,11 @@
  * 搜索按书名模糊过滤；排序切换后书卡顺序变化。
  */
 import { test, expect } from '@playwright/test'
+import { attachPageErrorBaseline } from './page-error-baseline.js'
 
 test.beforeEach(async ({ page }) => {
+  // R74-24（批E）：本 spec 4 用例共享 beforeEach 开页，基线在此一次挂全（先于 goto）
+  attachPageErrorBaseline(page, 'shelf-search')
   await page.goto('/')
   await expect(page.getByRole('heading', { name: '书架' })).toBeVisible()
 })

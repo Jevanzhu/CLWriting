@@ -484,6 +484,38 @@ describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
     expect(calls).toEqual([true, false, false])
   })
 
+  // R74-21（七十四轮批 D）：overlay 颜色白名单——此前只验 typeof，任意长字符串直达
+  // setTitleBarOverlay 靠 Electron 内部抛错兜底（catch 吞掉无痕）。校验置于平台守卫前
+  //（与 isInvalidBookName「跨平台统一拒绝」口径一致），mac 上亦可测。
+  it('R74-21: set-titlebar-overlay 颜色白名单——非法色回错误、合法 hex 放行（不再只验 typeof）', () => {
+    const calls: Array<Record<string, unknown>> = []
+    const wc = { sent: [], on(): void {}, isDestroyed(): boolean { return false } }
+    const win = {
+      webContents: wc,
+      isDestroyed(): boolean { return false },
+      setTitleBarOverlay(p: Record<string, unknown>): void { calls.push(p) },
+    }
+    M.windows.push(win as unknown as Record<string, any>)
+    const h = M.ipcHandle['desktop:set-titlebar-overlay']!
+    // 非法：任意长字符串（修复前直达 Electron）、无 # 前缀、非 hex 字符、数字类型
+    expect(h({ sender: wc }, { color: 'x'.repeat(500) })).toMatchObject({ ok: false })
+    expect(h({ sender: wc }, { color: 'red' })).toMatchObject({ ok: false })
+    expect(h({ sender: wc }, { color: '#GGGGGG' })).toMatchObject({ ok: false })
+    expect(h({ sender: wc }, { symbolColor: '#12' })).toMatchObject({ ok: false })
+    expect(h({ sender: wc }, { color: 12345 })).toMatchObject({ ok: false })
+    // 合法 hex（3/6/8 位）放行：返回非错误；win32 下转发 setTitleBarOverlay（mac 上
+    // 平台守卫 no-op，仅验校验面）
+    expect(h({ sender: wc }, { color: '#f6f6f6', symbolColor: '#666' })).toBeUndefined()
+    expect(h({ sender: wc }, { color: '#262626FF' })).toBeUndefined()
+    if (process.platform === 'win32') {
+      expect(calls).toEqual([{ color: '#f6f6f6', symbolColor: '#666' }, { color: '#262626FF' }])
+    } else {
+      expect(calls).toEqual([]) // 非 win 平台守卫 no-op，不应触达 setTitleBarOverlay
+    }
+    // 合法载荷后未销毁窗口上的既有空参形态维持 no-op（无字段 → undefined）
+    expect(h({ sender: wc }, {})).toBeUndefined()
+  })
+
   it('专注全屏反向同步：enter/leave-full-screen → desktop:fullscreen-change 转发渲染层', () => {
     const win = mainWin()
     const n0 = win.webContents.sent.length

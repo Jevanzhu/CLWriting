@@ -1,15 +1,16 @@
 import { test, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, basename } from 'node:path'
 import { runAllChecks, hasRed } from '../../src/check/runner.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import { writePieceList } from '../../src/format/manifest.js'
 import type { ChapterMeta, BookConfig, PieceList } from '../../src/format/types.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 let tmp: string
 beforeEach(() => {
-  tmp = mkdtempSync(join(tmpdir(), 'clwriting-runner-short-'))
+  tmp = mkdtempTracked(join(tmpdir(), 'clwriting-runner-short-'))
 })
 afterEach(() => {
   rmSync(tmp, { recursive: true, force: true })
@@ -151,7 +152,7 @@ test('X-P2-23: 铁律配了单句上限 → 跳过汇总句式体检（不与逐
   // 汇总口径的「句式体检」section 不再出现（逐句铁律项已覆盖超长句）
   expect(r.sections.map((s) => s.name)).not.toContain('句式体检')
   // 铁律未配时不跳过——上面「含禁词/复读/句式」用例已覆盖，此处再验一次显式无铁律
-  const bare = mkdtempSync(join(tmpdir(), 'clwriting-runner-noiron-'))
+  const bare = mkdtempTracked(join(tmpdir(), 'clwriting-runner-noiron-'))
   try {
     const r2 = runAllChecks({
       bookRoot: bare,

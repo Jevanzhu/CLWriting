@@ -18,6 +18,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { startServer } from '../../src/studio/server/index.js'
 import { e2ePort } from './e2e-ports.js'
+import { attachPageErrorBaseline } from './page-error-baseline.js'
 
 // R73-75（批 F-8）：端口基址派生（CLW_E2E_PORT_BASE+14，旧硬编码 19013；偏移表见 e2e-ports.ts）
 const PORT = e2ePort(14)
@@ -62,6 +63,7 @@ test.afterAll(async () => {
 const BOOK = '手测短篇集'
 
 test('短篇 UI 全流程：建书 → 开书 → 写章 → 机检 → 三审 → 定稿', async ({ page }) => {
+  attachPageErrorBaseline(page, 'short-full-flow')
   // ── 1. 书架新建短篇书 ──
   await page.goto(`${BASE}/shelf`)
   await expect(page.locator('.head-title', { hasText: '书架' })).toBeVisible()

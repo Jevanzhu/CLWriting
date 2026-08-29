@@ -5,8 +5,10 @@
  * 命中 .result，点击 open(path) → doc.open + openTab → cm 渲染。
  */
 import { test, expect } from '@playwright/test'
+import { attachPageErrorBaseline } from './page-error-baseline.js'
 
 test('全书搜索 → 命中 → 跳转开 tab', async ({ page }) => {
+  attachPageErrorBaseline(page, 'search')
   await page.goto('/')
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
   // 切搜索面板

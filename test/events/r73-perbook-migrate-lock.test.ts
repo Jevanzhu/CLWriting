@@ -8,7 +8,7 @@
  * 3. 同书新路径持锁 → 迁移同样放弃（rename 窗口两侧互斥不漏）。
  */
 import { describe, expect, it, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, existsSync } from 'node:fs'
+import { rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -19,10 +19,11 @@ import {
   __setSessionMigrateLockTimeoutForTest,
 } from '../../src/events/store.js'
 import { acquireCrossProcessLockWithTimeout } from '../../src/fs/cross-process-lock.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const dirs: string[] = []
 function tmpRoot(): string {
-  const d = mkdtempSync(join(tmpdir(), 'r73-evlock-'))
+  const d = mkdtempTracked(join(tmpdir(), 'r73-evlock-'))
   dirs.push(d)
   return d
 }

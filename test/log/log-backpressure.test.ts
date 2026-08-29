@@ -10,7 +10,7 @@
  * 立即通过），其余 fs（mkdir/轮转清理）走真实现。独立文件承载 vi.mock——挂起
  * appendFile 会让共用文件的既有用例全部卡死。
  */
-import { mkdtempSync, rmSync } from 'node:fs'
+import { rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -22,6 +22,7 @@ import {
   debugLogQueueForTest,
   MAX_PENDING_WRITES,
 } from '../../src/log/index.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 /** 受控闸（vi.hoisted：vi.mock 工厂提升后仍可引用）：appendFile 调用记录 + 挂起闸 */
 const gate = vi.hoisted(() => {
@@ -75,7 +76,7 @@ afterEach(() => {
 describe('log 落盘队列背压（D2 内存闸 2026-08-24）', () => {
   it('慢盘（appendFile 永挂起）连续写超上限：队列封顶、最旧被丢、出现告警计数', async () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    dir = mkdtempSync(join(tmpdir(), 'clw-log-bp-'))
+    dir = mkdtempTracked(join(tmpdir(), 'clw-log-bp-'))
     hangWrites()
     initLogging({ logsDir: dir, mirrorConsole: false })
     const total = MAX_PENDING_WRITES + 100
@@ -101,7 +102,7 @@ describe('log 落盘队列背压（D2 内存闸 2026-08-24）', () => {
 
   it('正常盘（不挂起）：串行顺序保持、无丢弃无告警（泵化不改既有语义）', async () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    dir = mkdtempSync(join(tmpdir(), 'clw-log-bp2-'))
+    dir = mkdtempTracked(join(tmpdir(), 'clw-log-bp2-'))
     initLogging({ logsDir: dir, mirrorConsole: false })
     for (let i = 0; i < 50; i++) log.info('seq', `line-${i}`)
     await flushLogsForTest()

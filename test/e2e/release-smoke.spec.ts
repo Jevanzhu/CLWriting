@@ -23,6 +23,9 @@ const BASE = `http://127.0.0.1:${PORT}`
 
 test.skip(!process.env['CLWRITING_E2E_RELEASE'], '发布 smoke：用 npm run test:e2e:release 跑')
 
+// R74-24（批E）：pageerror/console error 基线（page-error-baseline.ts）本 spec 不接——
+// 两个用例均无浏览器 page（纯文件系统断言 + fetch 直连编译产物 server），无渲染层可监听
+
 let child: ChildProcess | undefined
 let smokeWorkDir = ''
 

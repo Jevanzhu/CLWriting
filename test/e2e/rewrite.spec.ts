@@ -11,6 +11,7 @@
 import { test, expect } from '@playwright/test'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { attachPageErrorBaseline } from './page-error-baseline.js'
 
 // workDir 由 globalSetup 注入 env；须 lazy 读取——收集阶段（--list/单跑）不跑 globalSetup，顶层读会炸
 function chapter1Path(): string {
@@ -29,6 +30,7 @@ test.afterAll(() => {
 })
 
 test('选段改写：选中段落 → 改写 → mode=选段', async ({ page }) => {
+  attachPageErrorBaseline(page, 'rewrite')
   await page.goto('/')
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
   await page.getByText('初入宗门').first().click()
@@ -60,6 +62,7 @@ test('选段改写：选中段落 → 改写 → mode=选段', async ({ page }) 
 })
 
 test('改写：选章 → 审阅 tab → 改写整章 → diff → 接受 → ⌘S 持久', async ({ page }) => {
+  attachPageErrorBaseline(page, 'rewrite')
   await page.goto('/')
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
   await page.getByText('初入宗门').first().click()

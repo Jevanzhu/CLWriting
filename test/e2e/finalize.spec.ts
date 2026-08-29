@@ -7,8 +7,10 @@
  * （D4：仅 revision 态可定稿）。不污染被多 spec 复用的 0001/0002。
  */
 import { test, expect } from '@playwright/test'
+import { attachPageErrorBaseline } from './page-error-baseline.js'
 
 test('定稿：选 revision 章 → 定稿 → toast + 树节点 final', async ({ page }) => {
+  attachPageErrorBaseline(page, 'finalize')
   await page.goto('/')
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
   await expect(page.locator('.ws-shell')).toBeVisible()

@@ -50,6 +50,16 @@ export function bookStoragePath(bookName: string, kind: 'long' | 'short'): strin
   return `${bookKindDir(kind)}/${bookName}`
 }
 
+/** R74-11（七十四轮批 D）：书名 UTF-8 字节上限。书名直接作书目录名，完整路径 =
+ *  <书库根>/长篇|短篇/<书名>/<书内最深后代>，win MAX_PATH 260 单位封顶下预算：
+ *  盘符+用户目录+书库根 ≈30 + 分隔/长篇层级 ≈3 + 书内最深 scaffold 后代
+ *  写作/正文/第一卷/0001-<60 码位标题>.md ≈76 + 原子写 tmp 后缀
+ *  （.<pid>.<uuid>.tmp）≈48 → 书名至多约 100 单位。取 120 字节（≈40 个汉字，占
+ *  40 单位）留足余量，且与 filename.ts 的 sanitizeChapterTitle 120 字节上限同值
+ *  （库内既有封顶口径）。超限名 mkdir 时 ENAMETOOLONG 裸抛（win 上 MAX_PATH 直拒），
+ *  入口统一先行拒绝。 */
+export const BOOK_NAME_MAX_BYTES = 120
+
 /**
  * 书名合法性（P2-27：跨 server 建书 + doInit 逻辑层共用单一真相源）。
  * 书名直接用作目录名——禁空、NUL、路径分隔符、特殊路径段（. / ..），
@@ -59,6 +69,9 @@ export function isInvalidBookName(name: string): boolean {
   // win 非法字符集（win 适配批 2，2026-08-27）：书名直接作目录名，任意非法字符
   // 在 win 上 mkdir 失败/吞字；跨平台统一拒绝（mac 也拦住，行为一致更简单）
   if (name === '' || name.includes('\0') || /[\\/:*?"<>|]/.test(name) || name === '.' || name === '..') return true
+  // R74-11（七十四轮批 D）：UTF-8 字节封顶（推导见 BOOK_NAME_MAX_BYTES 头注）——
+  // 单源防御：server 建书/改名与 doInit 共用本判据，超长名不再漏到 mkdir 才炸
+  if (Buffer.byteLength(name, 'utf8') > BOOK_NAME_MAX_BYTES) return true
   // Z-22（第五十八轮）：Windows 保留设备名（CON/NUL/COM1-9/LPT1-9 等）——win 上
   // mkdir 对这些名字直接失败，提前以人话校验拒绝（mac 不受影响，为阶段 21 预铺）；
   // 尾点/尾空格同拒（win 落盘时被剥引发读写名不一致）
@@ -431,6 +444,11 @@ function repairBooksLocked(workDir: string): RepairResult {
           ...(entry.created_at || !createdAt ? {} : { created_at: createdAt }),
         }
         relinked.push({ name: bookName, from: oldPath, to: relPath })
+      } else if (oldPath !== relPath) {
+        // R74-10（七十四轮批 D）：同名书跳过留痕——原路径仍存在（两处同名书仓库并存）
+        // 时静默 continue，书架对第二处失明且无任何痕迹可查；去重语义不变（仍不重复
+        // 登记），仅补 warn 让作者可从日志发现「多出来的同名书目录」自行处理
+        log.warn('books', `扫盘发现同名书「${bookName}」在 ${relPath}（登记路径 ${oldPath} 仍存在），跳过不重复登记——请手动确认两处书目录哪个是要保留的`)
       }
       continue
     }

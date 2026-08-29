@@ -3,8 +3,10 @@
  * （空书无记录 → 空态文案；有记录 → 表格 + 未配价引导，金额口径不在 e2e 断言面）。
  */
 import { test, expect } from '@playwright/test'
+import { attachPageErrorBaseline } from './page-error-baseline.js'
 
 test('用量卡：工作台视图展示「AI 用量」卡（D1）', async ({ page }) => {
+  attachPageErrorBaseline(page, 'usage-card')
   await page.goto('/')
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
   // 开书默认进编辑器视图 → ribbon 切「工作台」

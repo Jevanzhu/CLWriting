@@ -3,7 +3,7 @@
  * 写读列删、legacy docId 编码、时间序、reset --hard 免疫、非 git 目录容错。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -17,6 +17,7 @@ import {
 } from '../../src/git/ai-track.js'
 import { git } from '../../src/git/exec.js'
 import { legacyId } from '../../src/document/stable-id.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 /** 测试自备 add+commit（exec.addCommit 已随去 git 清理删除）。返回 commit hash。 */
 function commit(root: string, msg: string): { ok: boolean; hash: string } {
@@ -32,7 +33,7 @@ function commit(root: string, msg: string): { ok: boolean; hash: string } {
 let root = ''
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'clwriting-ai-track-'))
+  root = mkdtempTracked(join(tmpdir(), 'clwriting-ai-track-'))
   git(['init'], root)
   git(['config', 'user.email', 'test@test.com'], root)
   git(['config', 'user.name', 'test'], root)
@@ -86,7 +87,7 @@ describe('recordAiVersion / listAiVersions / readAiVersion', () => {
 
 describe('X-P2-3 版本档案后端（无 .git 书库）', () => {
   it('recordAiVersion → 落 工作区/.版本；list/read/listTrackedDocs/delete 全链可用', () => {
-    const plain = mkdtempSync(join(tmpdir(), 'clwriting-not-git-'))
+    const plain = mkdtempTracked(join(tmpdir(), 'clwriting-not-git-'))
     try {
       // 修复前：无 git 静默返回 null（自愈/改写轨迹全丢）；现在落版本档案
       const id = recordAiVersion(plain, 'doc_A', 'AI 版本一')
@@ -112,7 +113,7 @@ describe('X-P2-3 版本档案后端（无 .git 书库）', () => {
   })
 
   it('编辑快照（非 ai 来源）不混入 AI 轨迹列表', async () => {
-    const plain = mkdtempSync(join(tmpdir(), 'clwriting-not-git-'))
+    const plain = mkdtempTracked(join(tmpdir(), 'clwriting-not-git-'))
     try {
       const { writeVersion } = await import('../../src/document/version.js')
       writeVersion(join(plain, '工作区', '.版本'), 'doc_A', '手编辑内容', { origin: 'manual' })
@@ -179,7 +180,7 @@ describe('旁路语义', () => {
 
 describe('R65-28: listTrackedDocs 版本档案后端（meta 缓存路径）', () => {
   it('混合 origin 多文档：只列含 ai 版本的 docId，且与逐 doc 独立 listAiVersions 结果一致', async () => {
-    const plain = mkdtempSync(join(tmpdir(), 'clwriting-r65-28-'))
+    const plain = mkdtempTracked(join(tmpdir(), 'clwriting-r65-28-'))
     try {
       const { writeVersion } = await import('../../src/document/version.js')
       const vdir = join(plain, '工作区', '.版本')

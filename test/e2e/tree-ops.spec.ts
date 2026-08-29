@@ -11,6 +11,7 @@
  * 删除弹 ConfirmPrompt（通用确认框 .cp-modal），测试里点确认钮。
  */
 import { test, expect, type Page } from '@playwright/test'
+import { attachPageErrorBaseline } from './page-error-baseline.js'
 
 async function gotoBook(page: Page): Promise<void> {
   await page.goto('/')
@@ -46,6 +47,7 @@ async function commitInline(page: Page, value: string): Promise<void> {
 }
 
 test('新建章 + 重命名', async ({ page }) => {
+  attachPageErrorBaseline(page, 'tree-ops')
   await gotoBook(page)
   // 新建章：右键「写作」组 → 平铺「新建章节」（1381025 起告别「新建」子菜单）
   await ctxOn(page, '写作')
@@ -61,6 +63,7 @@ test('新建章 + 重命名', async ({ page }) => {
 })
 
 test('软删 → 回收站还原', async ({ page }) => {
+  attachPageErrorBaseline(page, 'tree-ops')
   await gotoBook(page)
   await expect(page.locator('.tree-list')).toContainText('玉佩之秘')
   // 软删
@@ -82,6 +85,7 @@ test('软删 → 回收站还原', async ({ page }) => {
 })
 
 test('建卷 → 移动章到卷', async ({ page }) => {
+  attachPageErrorBaseline(page, 'tree-ops')
   await gotoBook(page)
   // 建卷
   await ctxOn(page, '写作')
@@ -98,6 +102,7 @@ test('建卷 → 移动章到卷', async ({ page }) => {
 })
 
 test('复制章 → 副本入树 + 内容同源', async ({ page }) => {
+  attachPageErrorBaseline(page, 'tree-ops')
   await gotoBook(page)
   // 用「玉佩之秘」：test2 还原后稳定在正文根、test3 未移动（避免 fixture 状态耦合）
   await expect(page.locator('.tree-list')).toContainText('玉佩之秘')

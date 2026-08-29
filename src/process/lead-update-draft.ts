@@ -11,6 +11,7 @@
 import { join, relative, sep } from 'node:path'
 import { existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs'
 import { atomicWriteFile } from '../fs/atomic.js'
+import { snapshotBeforeOverwrite } from './draft-pipeline.js' // R74-4：覆盖留底单源复用
 import { acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
 import { readChapterDir } from '../format/chapters.js'
 import { readDraft } from '../format/draft.js'
@@ -122,7 +123,20 @@ async function generateLeadUpdateDraftInner(
     // R73-46：归档 + 覆写两步在按书跨进程锁内原子执行（跨进程双写收口，见上注）。
     withLeadUpdateLock(bookRoot, () => {
       archivePendingLeadUpdates(bookRoot, chapter)
-      atomicWriteFile(join(bookRoot, LEAD_UPDATES_FILE), `# 第${chapter}章 账本推进\n` + body + '\n')
+      // R74-4（二十二轮）：覆盖前快照留底（对齐 onboard.ts R71-9 先例）——lead-updates
+      // 生成分钟级窗口内作者可经 PUT /file 手改 工作区/账本推进.md（files.ts
+      // WORKDIR_EDITABLE 白名单恰含此文件，与生成闸互不相查），完成后覆盖写会把手改
+      // 静默丢失。置于 archive 之后：他章草稿已被 rename 归档保全，此处只留底真正将被
+      // 覆盖的同章/无标签文件。fail-open：快照失败不阻断主流程（log.warn 留痕——生成
+      // 产物不因留底 IO 抖动丢弃，同 R71-9 取舍）。调用方（端点/chat 工具/self-heal
+      // 收尾）均为生成路径，无不该留底的反例面。
+      const content = `# 第${chapter}章 账本推进\n` + body + '\n'
+      try {
+        snapshotBeforeOverwrite(bookRoot, LEAD_UPDATES_FILE, content, 'lead-updates-overwrite')
+      } catch (e) {
+        log.warn('lead-update-draft', `账本推进覆盖前快照失败（第${chapter}章，fail-open 继续落盘）`, e)
+      }
+      atomicWriteFile(join(bookRoot, LEAD_UPDATES_FILE), content)
     })
   } catch (e) {
     return { ok: false, code: 'failed', error: '落盘:' + (e instanceof Error ? e.message : String(e)) }

@@ -321,6 +321,11 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
                   ? inputTokensFromStart // message_start 实测值优先（真实输入计量）
                   : estimateInputTokens(req, conf.model ?? undefined),
               outputTokens: estimateOutputTokens(outText.join('') + outToolText.join(''), conf.model ?? undefined),
+              // R74-7（二十二轮批 A）：message_start 已实测的 cache 两档原样保留——R73-1
+              // 整包重估输入时丢弃，usage 四档分计在兜底路径少两档（cache 计费面被清零）；
+              // anthropic 的 input_tokens 不含 cache（D4 独立记账），并档不双计
+              ...(cacheReadFromStart !== undefined ? { cacheReadTokens: cacheReadFromStart } : {}),
+              ...(cacheWriteFromStart !== undefined ? { cacheWriteTokens: cacheWriteFromStart } : {}),
               estimated: true,
             }
             const ev = emitDone(usage, pendingStopReason)

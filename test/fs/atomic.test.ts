@@ -5,10 +5,11 @@
  * - 显式 fsync:false：快速路径，不 fsync
  * - 显式 fsync:true：与缺省一致
  */
-import { mkdtempSync, rmSync, readFileSync } from 'node:fs'
+import { rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it, expect, vi, afterEach } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 // ESM 内置模块的导出不可 spy（namespace 不可配置）——工厂内换 vi.fn 包装透传
 const h = vi.hoisted(() => ({ fsyncMock: null as unknown as ReturnType<typeof vi.fn> }))
@@ -31,7 +32,7 @@ afterEach(() => {
 
 describe('T2-5 atomicWriteFile 默认 fsync', () => {
   it('缺省（不传 opts）→ fsync 生效（内容 + 目录）', () => {
-    dir = mkdtempSync(join(tmpdir(), 'clwriting-atomic-'))
+    dir = mkdtempTracked(join(tmpdir(), 'clwriting-atomic-'))
     const p = join(dir, 'a.json')
     atomicWriteFile(p, '{"a":1}')
     expect(readFileSync(p, 'utf-8')).toBe('{"a":1}')
@@ -41,13 +42,13 @@ describe('T2-5 atomicWriteFile 默认 fsync', () => {
   })
 
   it('显式 fsync:true → 与缺省一致', () => {
-    dir = mkdtempSync(join(tmpdir(), 'clwriting-atomic-'))
+    dir = mkdtempTracked(join(tmpdir(), 'clwriting-atomic-'))
     atomicWriteFile(join(dir, 'b.json'), 'x', { fsync: true })
     expect(h.fsyncMock).toHaveBeenCalled()
   })
 
   it('显式 fsync:false → 不 fsync（高频低价值写快速路径）', () => {
-    dir = mkdtempSync(join(tmpdir(), 'clwriting-atomic-'))
+    dir = mkdtempTracked(join(tmpdir(), 'clwriting-atomic-'))
     const p = join(dir, 'c.json')
     atomicWriteFile(p, 'y', { fsync: false })
     expect(readFileSync(p, 'utf-8')).toBe('y')

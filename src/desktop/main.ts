@@ -95,7 +95,13 @@ function attachRendererCrashSelfHeal(win: BrowserWindow, label: string): void {
     if (crashes > RENDERER_CRASH_MAX_RELOADS) {
       log.error('desktop', `渲染进程连续崩溃 ${RENDERER_CRASH_MAX_RELOADS} 次自愈后仍异常（${label}，${details.reason}），停止自动重载——载提示页等待人工处理`)
       if (!win.isDestroyed()) {
-        void win.webContents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(RENDERER_CRASH_NOTICE_HTML)}`)
+        // R74-16 连带（批 D 代理范围外上报、主评审收口）：崩溃提示页 loadURL 同为
+        // 无人 catch 的 promise（data: URL 失败概率极低但同类）——接日志防丢诊断
+        void win.webContents
+          .loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(RENDERER_CRASH_NOTICE_HTML)}`)
+          .catch((e) => {
+            log.error('desktop', `崩溃提示页加载失败（${label}）`, e)
+          })
       }
       return
     }
@@ -378,7 +384,14 @@ function createSecureWindow(opts: BrowserWindowConstructorOptions): BrowserWindo
   // dev 模式:不经系统代理（防 clash/surge 类 HTTP 代理 buffer SSE 长连接 → driver events 断流）
   if (process.env['CLW_DEV_UI']) { // R62-45：bracket 统一风格
     // R72-10（二十轮 D-7）：记账供 loadURL 前 await（同值幂等，重复设置无害）
-    devProxyApplied = win.webContents.session.setProxy({ proxyRules: 'direct://' })
+    // R74-16（七十四轮批 D）：setProxy 返回 promise 此前无人 catch——设置失败成
+    // unhandledRejection 丢诊断（且 await 方拿到 rejected promise 会二次炸穿书架/
+    // 书库窗口加载链）；接日志吞错降级（按系统代理继续，SSE 断流风险留日志可查）
+    devProxyApplied = win.webContents.session
+      .setProxy({ proxyRules: 'direct://' })
+      .catch((e) => {
+        log.error('desktop', `dev 代理 direct:// 设置失败（${opts.title ?? '窗口'}），按系统代理继续加载`, e)
+      })
   }
   return win
 }
@@ -401,7 +414,12 @@ async function openShelfWindow(): Promise<void> {
     title: '书架',
   })
   await devProxyApplied // R72-10（二十轮 D-7）：代理生效后再加载
-  shelfWindow.loadURL(`${appUrl}/shelf?win=shelf`)
+  // R74-16（七十四轮批 D）：loadURL promise 此前无人 catch——server 恰在此刻崩溃/
+  // 端口失效时 rejection 成 unhandledRejection 丢诊断（与 child 侧 fatal 兜底口径
+  // 不对称）；接日志留痕（窗口崩溃另有 R67-16 自愈，此处只补诊断）
+  shelfWindow.loadURL(`${appUrl}/shelf?win=shelf`).catch((e) => {
+    log.error('desktop', `书架窗口加载失败（${appUrl}/shelf）`, e)
+  })
   shelfWindow.on('closed', () => {
     shelfWindow = null
   })
@@ -436,7 +454,10 @@ async function openLibraryWindow(): Promise<void> {
     title: '书库',
   })
   await devProxyApplied // R72-10（二十轮 D-7）：代理生效后再加载
-  libraryWindow.loadURL(`${appUrl}/library?win=library`)
+  // R74-16（七十四轮批 D）：同 openShelfWindow——loadURL promise 接日志防丢诊断
+  libraryWindow.loadURL(`${appUrl}/library?win=library`).catch((e) => {
+    log.error('desktop', `书库窗口加载失败（${appUrl}/library）`, e)
+  })
   libraryWindow.on('closed', () => {
     libraryWindow = null
   })
@@ -726,6 +747,18 @@ function registerIpc(): void {
   ipcMain.handle(
     'desktop:set-titlebar-overlay',
     (event, o: { color?: unknown; symbolColor?: unknown }) => {
+      // R74-21（七十四轮批 D）：颜色格式白名单——此前只验 typeof，任意长/任意内容
+      // 字符串直达 Electron setTitleBarOverlay 靠内部抛错兜底（catch 吞掉无痕）。
+      // 只认 #RGB/#RGBA/#RRGGBB/#RRGGBBAA 形态（3-8 位十六进制），白名单外回显式
+      // 错误；校验置于平台守卫前，与 isInvalidBookName 的「跨平台统一拒绝」口径一致
+      //（mac 上也拦，行为一致更简单且可测）
+      const hexColor = /^#[0-9a-fA-F]{3,8}$/
+      if (o?.color !== undefined && (typeof o.color !== 'string' || !hexColor.test(o.color))) {
+        return { ok: false as const, reason: '标题栏底色格式非法（须为 #RGB/#RRGGBB 等 # 十六进制色值）' }
+      }
+      if (o?.symbolColor !== undefined && (typeof o.symbolColor !== 'string' || !hexColor.test(o.symbolColor))) {
+        return { ok: false as const, reason: '标题栏符号色格式非法（须为 #RGB/#RRGGBB 等 # 十六进制色值）' }
+      }
       if (process.platform !== 'win32') return
       const win = BrowserWindow.fromWebContents(event.sender)
       if (!win || win.isDestroyed()) return

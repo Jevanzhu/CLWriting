@@ -5,16 +5,17 @@
  * 在 test/studio/self-heal-batch-pause.test.ts）。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { readBatchPause, writeBatchPause, clearBatchPause } from '../../src/state/batch-pause.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 let dir: string
 const fp = (): string => join(dir, '工作区', '待定稿', '.auto-batch.json')
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'clw-batchpause-'))
+  dir = mkdtempTracked(join(tmpdir(), 'clw-batchpause-'))
   mkdirSync(join(dir, '工作区', '待定稿'), { recursive: true })
 })
 

@@ -186,7 +186,10 @@ export async function runSpec(
         if (r.stopReason === 'max_tokens') {
           // B-12（第六十轮）：截断时网关已返回的 usage 随 GenError 载荷上抛——runner 终态
           // 失败路径按可得值入账（此前 recordUsageSafe(null) 记 0，成本口径低估）
-          throw new GenError('AI 产出达到长度上限被截断，请精简输入提示或稍后重试。', false, { usage: r.usage })
+          // R74-8（二十二轮批 A）：补 code:'MAX_TOKENS'——errCode 口径与 gen.ts 两处
+          // MAX_TOKENS 出口对齐（runner 终态失败按 GenError.code 落 trace errCode，
+          // 缺码时笼统记 GEN_FAIL，失败归类统计分不出截断）
+          throw new GenError('AI 产出达到长度上限被截断，请精简输入提示或稍后重试。', false, { code: 'MAX_TOKENS', usage: r.usage })
         }
         return { input: null, text: r.text, stopReason: r.stopReason, usage: r.usage, resolvedMaxTokens: r.resolvedMaxTokens, degraded: r.degraded }
       },

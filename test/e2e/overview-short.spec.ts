@@ -16,6 +16,7 @@ import { join } from 'node:path'
 import { startServer } from '../../src/studio/server/index.js'
 import { makeDualTrackWorkdir, SHORT_BOOK } from '../studio/fixtures.js'
 import { e2ePort } from './e2e-ports.js'
+import { attachPageErrorBaseline } from './page-error-baseline.js'
 
 // R73-75（批 F-8）：端口基址派生（CLW_E2E_PORT_BASE+13，旧硬编码 19012；偏移表见 e2e-ports.ts）
 const PORT = e2ePort(13)
@@ -56,6 +57,7 @@ test.afterAll(async () => {
 })
 
 test('短篇概览：字数曲线面板非空白（2 章数据点 + 标题）', async ({ page }) => {
+  attachPageErrorBaseline(page, 'overview-short')
   // 进短篇集工作区（书架 → 点击书卡）
   await page.goto(`${BASE}/shelf`)
   await page.locator('.book-title', { hasText: SHORT_BOOK }).first().click()

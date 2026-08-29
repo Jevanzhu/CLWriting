@@ -10,7 +10,7 @@
 import { existsSync, mkdirSync, readdirSync, statSync, type Dirent } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { matchGenreLeads } from './data.js'
-import { appendBook, writeActive, readBooks, bookStoragePath, isInvalidBookName } from './books.js'
+import { appendBook, writeActive, readBooks, bookStoragePath, isInvalidBookName, BOOK_NAME_MAX_BYTES } from './books.js'
 import { scaffoldBookRepo, findGitAncestor } from './scaffold.js'
 import type { LeadType } from '../format/types.js'
 
@@ -47,6 +47,13 @@ export function doInit(opts: InitOptions): InitResult {
   const workDir = resolve(opts.workDir)
   const bookName = opts.name
   if (!bookName) return { ok: false, reason: '书名不能为空' }
+  // R74-11（七十四轮批 D）：书名 UTF-8 字节上限显式校验——超长名 mkdir ENAMETOOLONG
+  // 裸抛破坏 {ok:false,reason} 契约。isInvalidBookName 已收录同判据作单源防御，但其
+  // 通用分支的消息不含「过长」语义；本检查须在前，给出专门人话原因（上限推导见
+  // books.ts BOOK_NAME_MAX_BYTES 头注，120 字节 ≈ 40 个汉字）
+  if (Buffer.byteLength(bookName, 'utf8') > BOOK_NAME_MAX_BYTES) {
+    return { ok: false, reason: `书名过长（上限约 ${Math.floor(BOOK_NAME_MAX_BYTES / 3)} 个汉字），请缩短后重试` }
+  }
   // P2-27：逻辑层补书名校验（与 server 建书同口径）——书名直接用作目录名，防 `../` 越出 workDir
   if (isInvalidBookName(bookName)) {
     return { ok: false, reason: '书名不能包含路径分隔符或特殊路径段（/ \\ . ..）' }
@@ -112,10 +119,17 @@ export function doInit(opts: InitOptions): InitResult {
         : []
 
   // 步骤 5：工作目录骨架（非 git，幂等复用）
-  scaffoldWorkDir(workDir)
-
   // 步骤 6：书仓库 scaffold（book.yaml + 6.2 目录 + 文风占位 + 初始 manifest——去 git，见 scaffold.ts）
-  scaffoldBookRepo(bookRoot, { name: bookName, genre: opts.genre ?? '', leadsEnabled, kind, host: opts.host, targetWords: opts.targetWords, brief: opts.brief })
+  // R74-11（七十四轮批 D）：mkdir 族文件系统错误收编——书名/书库深度组合超 win
+  // MAX_PATH（ENAMETOOLONG）、路径段被同名文件占用（ENOTDIR）、权限（EACCES）等
+  // 此前从 scaffold 裸抛穿 doInit，破坏 {ok:false,reason} 契约（调用方按 reason 人话
+  // 展示，裸 throw 直接炸启动链）；统一收编为可读原因
+  try {
+    scaffoldWorkDir(workDir)
+    scaffoldBookRepo(bookRoot, { name: bookName, genre: opts.genre ?? '', leadsEnabled, kind, host: opts.host, targetWords: opts.targetWords, brief: opts.brief })
+  } catch (e) {
+    return { ok: false, reason: `建书目录失败（${e instanceof Error ? e.message : String(e)}），请换更短的书名或更浅的书库位置后重试` }
+  }
 
   // 步骤 8：登记 books.jsonl + 设活动书
   const appendRes = appendBook(workDir, {

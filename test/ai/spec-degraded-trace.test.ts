@@ -153,7 +153,9 @@ describe('B-2/B-12（第六十轮）：degraded 透传与失败 usage 的 llm/ca
     const calls = readLlmCalls(ud, bookRoot)
     expect(calls).toHaveLength(1)
     expect(calls[0]!.data.ok).toBe(false)
-    expect(calls[0]!.data.errCode).toBe('GEN_FAIL')
+    // R74-8（二十二轮批 A）：spec.ts 文本模式 MAX_TOKENS GenError 补 code——trace
+    // errCode 从笼统 GEN_FAIL 变 MAX_TOKENS（与 gen.ts 两处出口口径对齐）
+    expect(calls[0]!.data.errCode).toBe('MAX_TOKENS')
     // 修复前：失败路径恒 usage:null → toTraceUsage(null) = {input:0, output:0}，成本口径低估
     expect(calls[0]!.data.usage).toMatchObject({ input: 1200, output: 4096 })
   })

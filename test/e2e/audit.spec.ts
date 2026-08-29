@@ -9,6 +9,7 @@
  * 数据；进书/导航/交互仍走真实 UI（同 check.spec / version-restore.spec 模式）。
  */
 import { test, expect, type Page, type Route } from '@playwright/test'
+import { attachPageErrorBaseline } from './page-error-baseline.js'
 
 const BOOK = '长篇测试书'
 /** 总量取 520：首页 500（= 服务端 DEFAULT_PAGE_LIMIT 截断线）+ 次页 20，跨页续页路径必达 */
@@ -76,6 +77,7 @@ function stubAudit(page: Page): void {
 }
 
 test('审计：进书 → 审计视图 → 遮蔽差异双模式 → 两 tab 加载更多续页', async ({ page }) => {
+  attachPageErrorBaseline(page, 'audit')
   stubAudit(page)
   await page.goto('/')
   await page.locator('.book-title', { hasText: BOOK }).click()

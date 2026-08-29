@@ -5,7 +5,7 @@
  * 单独成文：需 mock node:fs 统计 readFileSync 次数，避免污染其他用例的 fs 观测。
  */
 import { test, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -20,12 +20,13 @@ vi.mock('node:fs', async (importOriginal) => {
 // 注：vi.mock 提升后，被测模块经此 import 才会拿到 mock 版 node:fs
 import { readFileSync } from 'node:fs'
 import { readGlobalBookDefaults } from '../../src/format/global-defaults.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const readCalls = () => vi.mocked(readFileSync).mock.calls.length
 
 let userData: string
 beforeEach(() => {
-  userData = mkdtempSync(join(tmpdir(), 'clw-r64-gd-'))
+  userData = mkdtempTracked(join(tmpdir(), 'clw-r64-gd-'))
   mkdirSync(userData, { recursive: true })
 })
 afterEach(() => {

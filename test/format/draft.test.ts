@@ -1,7 +1,7 @@
 /**
  * resolveDraftPath 路径安全测试：标题含路径分隔符时须净化，防 AI 产出越出 bookRoot。
  */
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, renameSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, renameSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
@@ -9,11 +9,12 @@ import { resolveDraftPath } from '../../src/format/draft.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
 import { computeRevision } from '../../src/document/revision.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 let bookRoot: string
 
 beforeEach(() => {
-  bookRoot = mkdtempSync(join(tmpdir(), 'clw-draft-'))
+  bookRoot = mkdtempTracked(join(tmpdir(), 'clw-draft-'))
 })
 
 afterEach(() => {

@@ -26,6 +26,8 @@ import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错�
 import { readOpenLeads } from '../../../process/open-leads.js'
 import { readLeadDir } from '../../../format/leads.js'
 import { acquireTaskGate, orchestrationBusyFor } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
+import { snapshotBeforeOverwrite } from '../../../process/draft-pipeline.js' // R74-4：覆盖留底单源复用
+import { log } from '../../../log/index.js'
 
 interface OutlineCtx {
   workDir: string | null
@@ -91,6 +93,16 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
       const withFm = content.startsWith('---')
         ? content
         : `---\n章号: ${chapter}${declaredFm ? '\n' + declaredFm : ''}\n---\n\n${content}`
+      // R74-4（二十二轮）：覆盖前快照留底（对齐 onboard.ts R71-9 先例）——outline 生成
+      // 分钟级窗口内作者可经 PUT /file 手改 工作区/细纲.md（files.ts WORKDIR_EDITABLE
+      // 白名单恰含此文件，/file 与 outline 闸互不相查），生成完成的覆盖写会把手改静默
+      // 丢失（细纲域无版本链）。fail-open：快照失败不阻断主流程（log.warn 留痕——
+      // 生成产物不因留底 IO 抖动丢弃，同 R71-9 取舍）。
+      try {
+        snapshotBeforeOverwrite(bookRoot, relPath, withFm || '(空细纲)', 'outline-overwrite')
+      } catch (e) {
+        log.warn('api', `outline 覆盖前快照失败（第${chapter}章，fail-open 继续落盘）`, e)
+      }
       try {
         mkdirSync(outlineDir, { recursive: true })
         atomicWriteFile(join(outlineDir, `细纲.md`), withFm || '(空细纲)')

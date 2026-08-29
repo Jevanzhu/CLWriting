@@ -7,8 +7,10 @@
  * 候选制：作者勾选才入库（learnFromBook 不自动入库）。
  */
 import { test, expect } from '@playwright/test'
+import { attachPageErrorBaseline } from './page-error-baseline.js'
 
 test('文风收割：收割 → 候选 → 勾选 → 入库', async ({ page }) => {
+  attachPageErrorBaseline(page, 'learn')
   await page.goto('/')
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
 

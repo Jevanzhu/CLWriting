@@ -7,8 +7,10 @@
  * （ai-review/check/analysis 均用 0001），避免共享 workDir 的测试污染。
  */
 import { test, expect } from '@playwright/test'
+import { attachPageErrorBaseline } from './page-error-baseline.js'
 
 test('树红点：verdict 驳回 → 冒泡亮；通过 → 灭', async ({ page }) => {
+  attachPageErrorBaseline(page, 'tree-issues')
   await page.goto('/')
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
   // 选 0002「玉佩之秘」并打开（限定树行，避免误点 tab 标题等全局文本）

@@ -9,13 +9,14 @@
  * 内部闭引号留在单针串，正文以无引号形式写同短语时整组 miss；多候选任一命中即算。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, utimesSync, existsSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, utimesSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { spawnSync } from 'node:child_process'
 import { sweepAbandonedTmpFiles } from '../../src/fs/atomic.js'
 import { extractEvidenceCore, evidenceNeedles } from '../../src/check/leads.js'
 import { leadEvidenceMatchesBody } from '../../src/check/lead-updates.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 /** R65-37：确定性死 pid——起一个立即退出的子进程取其 pid（原先硬编码 12345 在
  *  pid 恰被占用的机器上会被存活探测判「在途」导致用例随机红）。 */
@@ -27,7 +28,7 @@ function deadPid(): number {
 
 let root: string
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'clw-y24-'))
+  root = mkdtempTracked(join(tmpdir(), 'clw-y24-'))
 })
 afterEach(() => {
   rmSync(root, { recursive: true, force: true })

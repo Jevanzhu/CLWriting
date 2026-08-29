@@ -1,5 +1,5 @@
 import { test, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -10,10 +10,11 @@ import {
   emptyPieceList,
 } from '../../src/format/manifest.js'
 import type { PieceList } from '../../src/format/types.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 let tmp: string
 beforeEach(() => {
-  tmp = mkdtempSync(join(tmpdir(), 'clwriting-manifest-'))
+  tmp = mkdtempTracked(join(tmpdir(), 'clwriting-manifest-'))
 })
 afterEach(() => {
   rmSync(tmp, { recursive: true, force: true })

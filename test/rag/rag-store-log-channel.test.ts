@@ -22,17 +22,18 @@ vi.mock('node:fs', async (importOriginal) => {
   }
 })
 
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { resolveRagDbPath } from '../../src/rag/store.js'
 import { log, resetLoggingForTest } from '../../src/log/index.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 describe('R66-10: 迁移侧车告警走 log 通道', () => {
   it("侧车 rename 失败 → log.warn('rag') 落痕（修复前 console.warn 不被 Electron 采集）", () => {
     resetLoggingForTest()
     const warn = vi.spyOn(log, 'warn')
-    const dir = mkdtempSync(join(tmpdir(), 'clw-rag-log-'))
+    const dir = mkdtempTracked(join(tmpdir(), 'clw-rag-log-'))
     try {
       // 主库为非 sqlite 字节：checkpoint 打不开（回落纯 rename 迁移）——R65-4 记档的
       // 「checkpoint 失败 + rename 失败」双降级场景

@@ -18,7 +18,7 @@ import { currentProvider } from '../../../ai/provider/index.js'
 import { existsSync, readFileSync, mkdirSync, rmSync, readdirSync } from 'node:fs'
 import { readBooks } from '../../../install/books.js'
 import { defineRoute } from './schema.js'
-import { acquireTaskGate } from './task-gate.js' // R62-17：三审接跨进程任务闸（删书/改名/他进程可见）
+import { acquireTaskGate, orchestrationBusyFor } from './task-gate.js' // R62-17：三审接跨进程任务闸（删书/改名/他进程可见）
 import { readJson, reply, replyError } from '../http.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { safeManifestPath, safeDocId } from '../../../fs/safe-path.js'
@@ -98,6 +98,13 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
+      // R74-20（七十四轮批 D）：写手在途预检——三审端点自身此前不查编排互斥
+      //（outline/analysis/onboard 等生成端点均已接 orchestrationBusyFor）：写稿中
+      //（self-heal/chat/后台收尾）发起三审，分钟级窗口内草稿持续推进，draft_hash
+      // 守卫到期必失配（审稿单不成立），generateTool×3 白烧一次费用；对齐 outline.ts
+      // 接法，命中 409 BUSY（R67-13 同口径）
+      const busyOrch = orchestrationBusyFor(params['name']!)
+      if (busyOrch) return replyError(res, 409, 'BUSY', busyOrch)
       const bookRoot = r.bookRoot
       const docId = params['docId'] ?? ''
       // P1-SEC-B：docId 拼 .cache/review-${docId} 后 rmSync recursive，显式校验防穿越

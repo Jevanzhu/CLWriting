@@ -6,16 +6,17 @@
  * （白名单外仍不入库）。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { rebuild } from '../../src/cache/rebuild.js'
 import { log } from '../../src/log/index.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 describe('R73-47 / 白名单外摘要命名 warn 留痕', () => {
   let root: string
   beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), 'r73-rebuild-'))
+    root = mkdtempTracked(join(tmpdir(), 'r73-rebuild-'))
     writeFileSync(join(root, 'book.yaml'), 'spec_version: 1\nbook:\n  title: 摘要书\n', 'utf-8')
     const dir = join(root, '定稿', '摘要', '章摘要')
     mkdirSync(dir, { recursive: true })

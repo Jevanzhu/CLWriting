@@ -31,6 +31,7 @@ import { modelConfOf } from './store.js'
 import { redactSecret } from './redact.js'
 import { responsesQuirksFor } from './model-quirks.js'
 import { makeToErrorEvent, buildDegradeAttempts, isMidChain400, markStructuredDegrade } from './adapter-errors.js'
+import { estimateInputTokens, estimateOutputTokens } from './usage-estimate.js'
 
 /** SDK 异常 → GenEvent.error：公共工厂实现（adapter-errors），此处只贴本线错误类与 label */
 const toErrorEvent = makeToErrorEvent({
@@ -254,6 +255,23 @@ export function createOpenAIResponsesProvider(
             // 顺序相邻，队头即当前项），续片归并最近兜底键
             let idxlessSeq = 0
             const idxlessQueue: string[] = []
+            // R74-1（二十二轮批 A）：产出累计（文本/推理 delta 串联 + tool 参数串）——
+            // completed/incomplete 无 usage 时按此折算估计入账（usage-estimate.ts 同源
+            // 系数，对齐 openai/anthropic 线 R73-1 形态），不再按 0/0 入账（预算闸对
+            // 不回 usage 的 Responses 端点永不生效）
+            const outText: string[] = []
+            const outToolText: string[] = []
+            // R74-1：终止事件无 usage 的估计兜底——input 按请求字符折算；output 按产出
+            // 累计折算，toolAccum 未认领残留（incomplete 截断在途的调用参数）一并并入
+            const estimateDoneUsage = (): TokenUsage => {
+              const toolText = [...outToolText]
+              for (const [, t] of toolAccum) toolText.push(t.name + t.args)
+              return {
+                inputTokens: estimateInputTokens(req, conf.model ?? undefined),
+                outputTokens: estimateOutputTokens(outText.join('') + toolText.join(''), conf.model ?? undefined),
+                estimated: true,
+              }
+            }
 
             // ── R1 事件循环：终止事件契约 ──
             // 流必须以 completed / incomplete / failed 之一收尾；无终止事件 = 传输截断。
@@ -264,14 +282,20 @@ export function createOpenAIResponsesProvider(
               consumedAny = true
               switch (event.type) {
                 case 'response.output_text.delta': {
-                  if (event.delta) yield { type: 'text', delta: event.delta }
+                  if (event.delta) {
+                    outText.push(event.delta) // R74-1：产出累计
+                    yield { type: 'text', delta: event.delta }
+                  }
                   break
                 }
                 // 缺口 4：reasoning 增量——reasoning_text.delta（OpenAI/grok 原生文本）
                 // 与 reasoning_summary_text.delta（OpenAI summary）都归一到 reasoning 事件
                 case 'response.reasoning_text.delta':
                 case 'response.reasoning_summary_text.delta': {
-                  if (event.delta) yield { type: 'reasoning', delta: event.delta }
+                  if (event.delta) {
+                    outText.push(event.delta) // R74-1：产出累计（推理 token 也是真实计费面，学 openai 线）
+                    yield { type: 'reasoning', delta: event.delta }
+                  }
                   break
                 }
                 case 'response.function_call_arguments.delta': {
@@ -310,6 +334,7 @@ export function createOpenAIResponsesProvider(
                     acc.name = item.name
                     acc.args = acc.args || item.arguments || ''
                     toolAccum.delete(accKey)
+                    outToolText.push(acc.name + acc.args) // R74-1：tool 参数计入产出累计
                     let input: unknown
                     try {
                       input = acc.args ? JSON.parse(acc.args) : {}
@@ -336,7 +361,9 @@ export function createOpenAIResponsesProvider(
                     yield { type: 'error', message: '模型返回空产出（Responses completed 无内容项）', retryable: false }
                     return
                   }
-                  const ev = emitDone(toUsage(r.usage), toolYielded ? 'tool_use' : 'stop')
+                  // R74-1：completed 无 usage（网关不回 usage）→ 估计入账兜底，
+                  // estimated 标记估计口径（修复前 toUsage(null) 恒 0/0 入账）
+                  const ev = emitDone(r.usage ? toUsage(r.usage) : estimateDoneUsage(), toolYielded ? 'tool_use' : 'stop')
                   if (ev) yield ev
                   break
                 }
@@ -345,7 +372,8 @@ export function createOpenAIResponsesProvider(
                   const r = event.response
                   const reason = r.incomplete_details?.reason
                   if (reason === 'max_output_tokens') {
-                    const ev = emitDone(toUsage(r.usage), 'max_tokens')
+                    // R74-1：incomplete 同款估计兜底（截断场景网关更常缺 usage）
+                    const ev = emitDone(r.usage ? toUsage(r.usage) : estimateDoneUsage(), 'max_tokens')
                     if (ev) yield ev
                   } else {
                     // R1（缺口 2）：content_filter 等其他截断原因不得伪装成正常 stop

@@ -6,8 +6,10 @@
  * fixture：设定/伏笔/玉佩线索.md（关联词「玉佩」命中 0001/0002 正文，无 mock driver）。
  */
 import { test, expect } from '@playwright/test'
+import { attachPageErrorBaseline } from './page-error-baseline.js'
 
 test('伏笔追踪：列表+足迹+打开编辑+新建', async ({ page }) => {
+  attachPageErrorBaseline(page, 'foreshadow')
   await page.goto('/')
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
   await expect(page.locator('.ws-shell')).toBeVisible()

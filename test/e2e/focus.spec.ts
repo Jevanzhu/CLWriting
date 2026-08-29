@@ -10,12 +10,14 @@
  * 8s）全亮，输入才渐隐；左侧新增专注统计条（本次/速度/本章目标，FocusStatsBar）。
  */
 import { test, expect } from '@playwright/test'
+import { attachPageErrorBaseline } from './page-error-baseline.js'
 
 // 视口拉宽到侧位充足（(1680-1020)/2=330px ≥ 12 间距 + 150 条宽）：专注态浏览器形态走
 // HTML5 全屏，全屏窗口协议禁改 setViewportSize，故须在 context 创建时定视口
 test.use({ viewport: { width: 1680, height: 1000 } })
 
 test('专注模式：沉浸隐藏 + Esc 退出还原', async ({ page }) => {
+  attachPageErrorBaseline(page, 'focus')
   await page.goto('/')
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
   // 打开一章（纸张宽度断言需要 .doc-page 在场；空态编辑器无纸张）
@@ -59,6 +61,7 @@ test('专注模式：沉浸隐藏 + Esc 退出还原', async ({ page }) => {
 })
 
 test('专注打字机：滚动居中 + 上下文按行距渐隐', async ({ page }) => {
+  attachPageErrorBaseline(page, 'focus')
   await page.goto('/')
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
   await page.getByText('初入宗门').first().click()
@@ -125,6 +128,7 @@ test('专注打字机：滚动居中 + 上下文按行距渐隐', async ({ page 
 })
 
 test('专注统计条 + 浏览态全亮：输入渐隐 → 滚轮回看全亮 → 再输入渐隐回来', async ({ page }) => {
+  attachPageErrorBaseline(page, 'focus')
   await page.goto('/')
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
   await page.getByText('初入宗门').first().click()

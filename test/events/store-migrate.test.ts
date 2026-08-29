@@ -8,7 +8,7 @@
  * 失败 → 返回 false 整体放弃，源库主库+侧车原地完整，绝不半搬。
  */
 import { describe, expect, it, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, existsSync, copyFileSync, mkdirSync } from 'node:fs'
+import { rmSync, existsSync, copyFileSync, mkdirSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -20,10 +20,11 @@ import {
   __setSessionMigrateLockTimeoutForTest,
 } from '../../src/events/store.js'
 import { acquireCrossProcessLockWithTimeout } from '../../src/fs/cross-process-lock.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const dirs: string[] = []
 function tmpRoot(): string {
-  const d = mkdtempSync(join(tmpdir(), 'f1-migrate-'))
+  const d = mkdtempTracked(join(tmpdir(), 'f1-migrate-'))
   dirs.push(d)
   return d
 }

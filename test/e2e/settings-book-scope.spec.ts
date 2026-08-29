@@ -5,8 +5,10 @@
  *  - 本书页：新增「编辑排版」覆盖组（纸张宽度/自动保存），用「本书独立设定」开关切换书级覆盖
  */
 import { test, expect } from '@playwright/test'
+import { attachPageErrorBaseline } from './page-error-baseline.js'
 
 test('设置：仅本书入口移本书页 —— 编辑器页无「仅本书」，本书页可开关书级覆盖', async ({ page }) => {
+  attachPageErrorBaseline(page, 'settings-book-scope')
   await page.goto('/')
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
   await page.getByText('初入宗门').first().click()

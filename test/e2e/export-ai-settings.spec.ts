@@ -7,8 +7,10 @@
  * 文风/节奏预测已由 learn.spec / overview-short.spec 覆盖。
  */
 import { test, expect } from '@playwright/test'
+import { attachPageErrorBaseline } from './page-error-baseline.js'
 
 test('导出：打开弹窗 → 选分章格式 → 导出 → toast + 弹窗关闭', async ({ page }) => {
+  attachPageErrorBaseline(page, 'export-ai-settings')
   await page.goto('/')
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
   await expect(page.locator('.ws-shell')).toBeVisible()
@@ -35,6 +37,7 @@ test('导出：打开弹窗 → 选分章格式 → 导出 → toast + 弹窗关
 })
 
 test('AI 设置：设置弹窗 → AI tab → 对话助手开关切换', async ({ page }) => {
+  attachPageErrorBaseline(page, 'export-ai-settings')
   await page.goto('/')
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
   await expect(page.locator('.ws-shell')).toBeVisible()

@@ -8,8 +8,10 @@
  * 保存/快照/恢复全走文件系统（.版本/），无 mock driver 依赖。
  */
 import { test, expect } from '@playwright/test'
+import { attachPageErrorBaseline } from './page-error-baseline.js'
 
 test('版本恢复：改稿保存 → 历史面板 → 恢复旧版 → 内容回退', async ({ page }) => {
+  attachPageErrorBaseline(page, 'version-restore')
   await page.goto('/')
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
   await expect(page.locator('.ws-shell')).toBeVisible()

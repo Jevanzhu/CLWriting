@@ -2,7 +2,7 @@
  * 注入预算分配单测（文风系统重整 S5）：便宜段构建 / 样章挑选 / 截断 / 机检禁词合并。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -14,6 +14,7 @@ import {
 import { addEntry } from '../../src/format/style-entry.js'
 import { readIronRules } from '../../src/metrics/style.js'
 import type { StyleEntry } from '../../src/format/types.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const mk = (over: Partial<StyleEntry> & Pick<StyleEntry, '类型' | '正文'>): StyleEntry => ({
   场景: '通用',
@@ -95,7 +96,7 @@ describe('pickSampleEntries / sampleEntryText', () => {
 describe('readIronRules 条目库禁词合并（S5 机检收口）', () => {
   let root = ''
   beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), 'clwriting-inject-'))
+    root = mkdtempTracked(join(tmpdir(), 'clwriting-inject-'))
   })
   afterEach(() => {
     if (root) rmSync(root, { recursive: true, force: true })

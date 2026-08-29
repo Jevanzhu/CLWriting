@@ -3,7 +3,7 @@
  * 样章搬移 / 金句拆条 / 铁律提取+瘦身 / 幂等 / 词去重 / 空书。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync, readdirSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, existsSync, readFileSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -13,11 +13,12 @@ import {
 } from '../../src/format/style-migrate.js'
 import { readEntries, ENTRIES_DIR } from '../../src/format/style-entry.js'
 import { writeSample } from '../../src/format/style.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 let root = ''
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'clwriting-style-migrate-'))
+  root = mkdtempTracked(join(tmpdir(), 'clwriting-style-migrate-'))
   mkdirSync(join(root, '文风'), { recursive: true })
 })
 

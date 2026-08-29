@@ -14,6 +14,7 @@ import { startServer } from '../../src/studio/server/index.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
 import { e2ePort } from './e2e-ports.js'
+import { attachPageErrorBaseline } from './page-error-baseline.js'
 
 // R73-75（批 F-8）：端口基址派生（CLW_E2E_PORT_BASE+15，旧硬编码 19014；偏移表见 e2e-ports.ts）
 const PORT = e2ePort(15)
@@ -73,6 +74,7 @@ test.afterAll(async () => {
 })
 
 test('批量定稿到此章：右键第2章 → 菜单 → 2章全定稿 → toast + 树全绿', async ({ page }) => {
+  attachPageErrorBaseline(page, 'batch-finalize')
   await page.goto(`${BASE}/shelf`)
   await page.locator('.book-title', { hasText: BOOK }).click()
   await expect(page.locator('.ws-shell')).toBeVisible()

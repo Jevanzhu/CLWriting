@@ -13,6 +13,7 @@ import { rmSync } from 'node:fs'
 import { startServer } from '../../src/studio/server/index.js'
 import { makeDualTrackWorkdir } from '../studio/fixtures.js'
 import { e2ePort } from './e2e-ports.js'
+import { attachPageErrorBaseline } from './page-error-baseline.js'
 
 // R73-75（批 F-8）：端口基址派生（CLW_E2E_PORT_BASE+1，旧硬编码 19000；偏移表见 e2e-ports.ts）
 const PORT = e2ePort(1)
@@ -48,6 +49,7 @@ test.afterAll(async () => {
 })
 
 test('AI 不可达：编辑保存照常 + 辅助置灰', async ({ page }) => {
+  attachPageErrorBaseline(page, 'ai-degrade')
   // ① ai-status 报告不可达（T2-3：GET 读端点要求 token，boot 取）
   const boot = await page.request.get(`${BASE}/api/boot`)
   const token = (await boot.json()).token

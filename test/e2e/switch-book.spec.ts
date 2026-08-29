@@ -8,8 +8,10 @@
  * （该场景由 WbUsageCard 组件测试 + loadGen/watch 单测覆盖）。
  */
 import { test, expect } from '@playwright/test'
+import { attachPageErrorBaseline } from './page-error-baseline.js'
 
 test('切书：A 总览 → 返回书架 → B 总览，B 数据就位且无 A 残留', async ({ page }) => {
+  attachPageErrorBaseline(page, 'switch-book')
   await page.goto('/')
 
   // 开 A（长篇）→ ribbon 总览：标题/类型/章数就位

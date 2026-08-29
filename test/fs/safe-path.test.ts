@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { safeManifestPath, resolveWithinRoot, isWithinRoot } from '../../src/fs/safe-path.js'
-import { mkdtempSync, rmSync, symlinkSync, writeFileSync, mkdirSync, realpathSync } from 'node:fs'
+import { rmSync, symlinkSync, writeFileSync, mkdirSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 // P1-R2：safe-path.ts 的 realpathSync 是命名导入，ESM 下无法 vi.spyOn 模块命名空间
 //（"Cannot spy on export ... Module namespace is not configurable"）。
@@ -16,7 +17,7 @@ describe('safeManifestPath', () => {
   let dir: string
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'clw-safepath-'))
+    dir = mkdtempTracked(join(tmpdir(), 'clw-safepath-'))
   })
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true })
@@ -89,7 +90,7 @@ describe('resolveWithinRoot', () => {
   let dir: string
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'clw-rwr-'))
+    dir = mkdtempTracked(join(tmpdir(), 'clw-rwr-'))
   })
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true })
@@ -140,7 +141,7 @@ describe('resolveWithinRoot', () => {
 describe('L-D1（第八轮）：isWithinRoot 段级越出判定（与 resolveWithinRoot 同口径）', () => {
   let dir = ''
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'safe-path-ld1-'))
+    dir = mkdtempTracked(join(tmpdir(), 'safe-path-ld1-'))
   })
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true })

@@ -13,6 +13,7 @@ import { join } from 'node:path'
 import { startServer } from '../../src/studio/server/index.js'
 import { makeDualTrackWorkdir } from '../studio/fixtures.js'
 import { e2ePort } from './e2e-ports.js'
+import { attachPageErrorBaseline } from './page-error-baseline.js'
 
 // R73-75（批 F-8）：端口基址派生（CLW_E2E_PORT_BASE+3，旧硬编码 19002；偏移表见 e2e-ports.ts）
 const PORT = e2ePort(3)
@@ -54,6 +55,7 @@ test.afterAll(async () => {
 })
 
 test('全自动写章：mock 快路收工自动转编辑器（P1-1）', async ({ page }) => {
+  attachPageErrorBaseline(page, 'auto-write')
   await page.goto(`${BASE}/`)
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
 
@@ -124,6 +126,7 @@ test('全自动写章：mock 快路收工自动转编辑器（P1-1）', async ({
 })
 // ── P2-3：批量连写 ──────────────────────────────────────────────
 test('批量连写：batchSize=2 时后端返回 chapters 序列', async ({ page }) => {
+  attachPageErrorBaseline(page, 'auto-write')
   await page.goto(`${BASE}/`)
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
 

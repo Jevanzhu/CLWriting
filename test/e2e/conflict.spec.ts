@@ -11,6 +11,7 @@
 import { test, expect } from '@playwright/test'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { attachPageErrorBaseline } from './page-error-baseline.js'
 
 // workDir 由 globalSetup 注入 env；须 lazy 读取——收集阶段（--list/单跑）不跑 globalSetup，顶层读会炸
 function chapterPath(file: string): string {
@@ -54,6 +55,7 @@ async function provokeConflict(page: import('@playwright/test').Page, chapter: s
 }
 
 test('冲突 → 重载远端（丢本地取远端）', async ({ page }) => {
+  attachPageErrorBaseline(page, 'conflict')
   await openChapter(page, '初入宗门')
   await provokeConflict(page, CHAPTER_1(), '林远踏入宗门')
 
@@ -66,6 +68,7 @@ test('冲突 → 重载远端（丢本地取远端）', async ({ page }) => {
 })
 
 test('冲突 → 覆盖远端（丢远端写本地）', async ({ page }) => {
+  attachPageErrorBaseline(page, 'conflict')
   await openChapter(page, '玉佩之秘')
   await provokeConflict(page, CHAPTER_2(), '玉佩突然爆发灵光')
 

@@ -14,6 +14,7 @@ import { join, basename } from 'node:path'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { readFile, parseFlat } from '../format/frontmatter.js'
 import { bundledResource } from '../fs/resources.js'
+import { log } from '../log/index.js'
 
 /** 技巧包元信息（索引级；正文按需加载） */
 export interface SkillMeta {
@@ -43,7 +44,18 @@ function scanRoot(dir: string, source: SkillMeta['source']): SkillMeta[] {
   const out: SkillMeta[] = []
   for (const f of files) {
     const fp = join(dir, f)
-    const r = readFile(fp)
+    // R74-12（七十四轮批 D）：索引先试读——readFile 的 {ok:false} 混装「读失败」与
+    // 「无 front matter」两种形态，此前一律按裸 md 降级收录：不可读文件（权限/竞态
+    // 删除/IO 故障）也进索引，而 loadSkill 对它恒 null——模型见目录取不到包。现读
+    // 失败不入索引并 warn 留痕（读到 text 后再走 readFile 的 content 参数，不二读）
+    let text: string
+    try {
+      text = readFileSync(fp, 'utf-8')
+    } catch (e) {
+      log.warn('skills', `技巧包读取失败，不入索引：${fp}（${e instanceof Error ? e.message : String(e)}）`)
+      continue
+    }
+    const r = readFile(fp, text)
     if (r.ok) {
       const map = parseFlat(r.fmRaw)
       out.push({

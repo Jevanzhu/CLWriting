@@ -5,8 +5,10 @@
  * 断网态置灰由 ai-degrade.spec 模式覆盖（aiOff 逻辑在 ReviewPanel 单测/手测）。
  */
 import { test, expect } from '@playwright/test'
+import { attachPageErrorBaseline } from './page-error-baseline.js'
 
 test('三审：选章 → 审阅 tab → 三审 → 出 mock 意见', async ({ page }) => {
+  attachPageErrorBaseline(page, 'ai-review')
   await page.goto('/')
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
   await page.getByText('初入宗门').first().click()

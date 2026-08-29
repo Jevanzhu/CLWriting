@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url'
 import { runAllChecks } from '../../src/check/runner.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import type { ChapterMeta } from '../../src/format/types.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 interface CorpusEntry {
   excerpt: string
@@ -71,7 +72,7 @@ describe('B3 装载器容错', () => {
   // R63-11：标题此前宣称「坏 json 文件跳过」但断言只覆盖缺目录分支——补齐坏文件分支：
   // 坏文件跳过（warn 不炸门）、好文件照常入门、_ 前缀豁免
   it('坏 json 文件跳过（warn 不炸门）；好文件照常入门；_ 前缀豁免', () => {
-    const d = mkdtempSync(join(tmpdir(), 'clw-corpus-bad-'))
+    const d = mkdtempTracked(join(tmpdir(), 'clw-corpus-bad-'))
     try {
       writeFileSync(join(d, 'bad-check.json'), 'NOT JSON {{{')
       writeFileSync(join(d, 'empty-check.json'), '[]') // 空数组不入门（与坏文件同不入门，但路径不同）

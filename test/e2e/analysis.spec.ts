@@ -10,8 +10,10 @@
  * （旧版 4 个独立分析 card 已移到 Overview/rhythm 视图，此处只测右栏 AnalysisPanel。）
  */
 import { test, expect } from '@playwright/test'
+import { attachPageErrorBaseline } from './page-error-baseline.js'
 
 test('分析：选章 → AI 标签分析 → 标签更新 + 全书速览空态', async ({ page }) => {
+  attachPageErrorBaseline(page, 'analysis')
   await page.goto('/')
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
   await page.getByText('初入宗门').first().click()

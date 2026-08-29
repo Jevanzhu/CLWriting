@@ -221,7 +221,23 @@ export function exportBook(options: ExportOptions): ExportResult {
 
   // 3. 准备导出目录（母本 6.2 工作区/导出/）
   const exportDir = join(bookRoot, '工作区', '导出')
-  mkdirSync(exportDir, { recursive: true })
+  // R74-2（二十二轮）：目录创建位于主信封 try 之外——工作区只读/EROFS/EACCES 时裸异常
+  // 上抛，worker 形态变 500 且丢 chapterCount/warnings，违背 R67-10/R70-4 确立的
+  // {ok:false} 信封契约。mkdir 结果被后续清旧/分章目录准备依赖、无法并入主 try，
+  // 本地 try 收编同款错误信封（口径照抄 R70-4 的 short 分支收编写法）。
+  try {
+    mkdirSync(exportDir, { recursive: true })
+  } catch (e) {
+    return {
+      ok: false,
+      files: [],
+      chapterCount: 0,
+      unit: '章',
+      skippedDrafts,
+      ...(warnings.length > 0 ? { warnings } : {}),
+      error: `导出写入失败：${e instanceof Error ? e.message : String(e)}`,
+    }
+  }
 
   // 4. 读书名（用于合并文件名；book.yaml #9 格式）
   let bookTitle = '未命名'
@@ -243,9 +259,23 @@ export function exportBook(options: ExportOptions): ExportResult {
     mergedFileName = `全本-${sanitizeFileName(bookTitle, FILENAME_MAX_BYTES - Buffer.byteLength('全本-') - Buffer.byteLength('.md'))}.md`
     // 第五轮：书改名/字节截断形变后，旧「全本-旧书名.md」残留在导出目录里会让作者
     // 拿错稿——同前缀其余文件视为过期产物归档清位（R65-27：归档不删，清旧失败不阻断导出）
-    for (const old of readdirSync(exportDir)) {
-      if (old.startsWith('全本-') && old.endsWith('.md') && old !== mergedFileName) {
-        archiveOldExport(exportDir, old, warnings)
+    // R74-2（二十二轮）：readdirSync 清点同在主信封 try 之外——导出目录被并发删/
+    // EACCES 时裸异常上抛破坏 {ok:false} 信封契约（同上方 mkdir 收编口径，口径照抄 R70-4）。
+    try {
+      for (const old of readdirSync(exportDir)) {
+        if (old.startsWith('全本-') && old.endsWith('.md') && old !== mergedFileName) {
+          archiveOldExport(exportDir, old, warnings)
+        }
+      }
+    } catch (e) {
+      return {
+        ok: false,
+        files: [],
+        chapterCount: 0,
+        unit: '章',
+        skippedDrafts,
+        ...(warnings.length > 0 ? { warnings } : {}),
+        error: `导出写入失败：${e instanceof Error ? e.message : String(e)}`,
       }
     }
   }
@@ -268,7 +298,22 @@ export function exportBook(options: ExportOptions): ExportResult {
         warnings.push(`分章目录归档失败（已保留原位，请手动移入 ${OLD_EXPORT_DIR}/）`)
       }
     }
-    mkdirSync(splitDir, { recursive: true })
+    // R74-2 连带（批 B 代理范围外上报、主评审收口）：分章目录重建 mkdir 同在主信封
+    // try 之外（EROFS/EACCES 裸抛破坏 {ok:false} 信封契约）——与上方母本目录/清旧
+    // 两处同族同款本地收编（口径照抄 R70-4）。
+    try {
+      mkdirSync(splitDir, { recursive: true })
+    } catch (e) {
+      return {
+        ok: false,
+        files: [],
+        chapterCount: 0,
+        unit: '章',
+        skippedDrafts,
+        ...(warnings.length > 0 ? { warnings } : {}),
+        error: `导出写入失败：${e instanceof Error ? e.message : String(e)}`,
+      }
+    }
   }
   // R66-23（十四轮）：splitUsed 原声明在 writeSplit 闭包定义之后（仅靠「闭包实际调用
   // 晚于声明执行」侥幸不触发 TDZ）——结构脆弱：后续在声明执行前新增任何 writeSplit

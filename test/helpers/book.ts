@@ -10,9 +10,10 @@
 
 import { spawnSync } from 'node:child_process'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from 'node:fs'
+import { mkdirSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from './temp-dir.js'
 import { createAllTables } from '../../src/cache/schema.js'
 import { syncLead, syncChapter } from '../../src/cache/sync.js'
 import { writeBookConfig } from '../../src/format/yaml.js'
@@ -32,9 +33,14 @@ export function git(args: string[], cwd: string): string {
  * 造一个干净的书仓库（git init + book.yaml + 目录骨架 + 1 条账本 + 初始 commit）。
  * 缓存按「可重建派生」原则**不**预建——状态机/重建器自己 rebuild。
  * 这是所有 fixture 的基础形态（对应状态机态 7：一切干净 → 起草新章）。
+ *
+ * R74-25（批E）：临时根迁 mkdtempTracked——断言失败时尾行 rmSync 不可达由
+ * afterEach 兜底收走（与尾行清理幂等共存）。注意：因此本函数**不得**在
+ * beforeAll 里调用共享跨用例（afterEach 会删掉共享目录）——现有 6 个调用方
+ * 均在 it() 体内调用，新增调用方须沿用此形态。
  */
 export function makeGitBook(opts?: { withCache?: boolean }): string {
-  const root = mkdtempSync(join(tmpdir(), '北境往事-'))
+  const root = mkdtempTracked(join(tmpdir(), '北境往事-'))
 
   // git init + 身份（fixture 隔离，不污染全局 git config）
   git(['init'], root)

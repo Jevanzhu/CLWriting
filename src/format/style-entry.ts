@@ -9,8 +9,9 @@
  * 「类型」以 fm 为真相源（文件即真相）；目录仅组织，扫描时作 fm 缺失的兜底。
  */
 
-import { readdirSync, statSync, mkdirSync, existsSync, openSync, writeFileSync, closeSync } from 'node:fs'
+import { readdirSync, statSync, mkdirSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { createFileExclusive } from '../fs/atomic.js'
 import { sanitizeChapterTitle } from './filename.js'
 import { readFile, writeFile, parseFlat, stringifyFlat, joinFrontMatter } from './frontmatter.js'
 import { parseSampleFileName } from './style.js'
@@ -113,23 +114,15 @@ export function writeEntry(filePath: string, e: StyleEntry): void {
 
 /** R66-20（十四轮）：O_EXCL 排他写（addEntry 排他分支抽出复用）——迁移等「自算序号」
  *  的写点此前用 writeEntry（atomic-rename 覆盖语义），双进程同跑播种出同序号时后写
- *  静默互覆前写、丢条目无痕；本入口以 'wx' 排他建文件，EEXIST 返回 false 由调用方
+ *  静默互覆前写、丢条目无痕；本入口以排他建文件，EEXIST 返回 false 由调用方
  *  换序号重试（写侧绕开 atomic rename 正是为保排他语义——创建型写入，无旧内容可失）。 */
 export function writeEntryExclusive(filePath: string, e: StyleEntry): boolean {
   const text = joinFrontMatter(stringifyFlat(entryToMap(e)), e.正文)
-  let fd: number
-  try {
-    fd = openSync(filePath, 'wx')
-  } catch (en) {
-    if ((en as NodeJS.ErrnoException).code === 'EEXIST') return false
-    throw en
-  }
-  try {
-    writeFileSync(fd, text)
-  } finally {
-    closeSync(fd)
-  }
-  return true
+  // R74-9（七十四轮批 D）：排他写补耐久——此前 'wx' 建文件后 writeFileSync 直 close，
+  // 无 fsync：断电窗口内目录项已落而内容未落盘，重启用 0 字节条目占序号（序号扫描视
+  // 其存在、readEntry 解析报错）。换 fs/atomic 的 createFileExclusive（排他+耐久双语义
+  // 单源：tmp+fsync+link+目录 fsync）；EEXIST → false 语义不变。
+  return createFileExclusive(filePath, text) === 'created'
 }
 
 /**
@@ -207,20 +200,12 @@ export function addEntry(bookRoot: string, e: StyleEntry): string {
   for (let attempt = 0; attempt < 32; attempt++) {
     const fileName = `${scene}-${String(seq).padStart(3, '0')}.md`
     const filePath = join(dir, fileName)
-    let fd: number
-    try {
-      fd = openSync(filePath, 'wx')
-    } catch (en) {
-      if ((en as NodeJS.ErrnoException).code === 'EEXIST') {
-        seq++
-        continue
-      }
-      throw en
-    }
-    try {
-      writeFileSync(fd, text)
-    } finally {
-      closeSync(fd)
+    // R74-9（七十四轮批 D）：本写点同 writeEntryExclusive 补耐久——原裸 'wx' +
+    // writeFileSync + close 无 fsync，断电可留 0 字节条目占序号；改走 createFileExclusive
+    // 单源（排他 + fsync + 目录 fsync），EEXIST → 序号 +1 重试语义不变
+    if (createFileExclusive(filePath, text) === 'exists') {
+      seq++
+      continue
     }
     return `${ENTRIES_DIR}/${e.类型}/${fileName}`
   }

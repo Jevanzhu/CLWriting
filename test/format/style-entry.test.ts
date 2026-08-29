@@ -3,7 +3,7 @@
  * readEntry/writeEntry 往返、类型兜底、极性推导、序号递增、addEntry 入库。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync, symlinkSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, existsSync, readFileSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -17,11 +17,12 @@ import {
   ENTRIES_DIR,
 } from '../../src/format/style-entry.js'
 import type { StyleEntry } from '../../src/format/types.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 let root = ''
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'clwriting-style-entry-'))
+  root = mkdtempTracked(join(tmpdir(), 'clwriting-style-entry-'))
 })
 
 afterEach(() => {

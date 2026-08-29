@@ -152,7 +152,12 @@ jobs:
           kill -9 "$PID" 2>/dev/null || true
           echo "冒烟通过：打包态 Electron 进程存活 ≥25s，启动标记已捕获，无渲染崩溃标记"
       # J0：win 腿同款启动冒烟——NSIS 产物不解包，拉起 win-unpacked/ 内可执行体（与 .app
-      # 同一次 electron-builder 产物、解包态同口径，非安装器复验）。存活 ≥25s 即过。
+      # 同一次 electron-builder 产物、解包态同口径，非安装器复验）。
+      # R74-6（二十二轮）：判定对齐 mac 腿三重判（R73-53 口径——进程存活≠启动链走完）：
+      # ①进程存活 ②日志含 [CLW_SMOKE] ready 启动标记 ③无 [CLW_SMOKE] renderer-crash
+      # 崩溃标记（标记字符串与 mac 腿同源，均为 main.ts 直写 stdout 的结构化打点）。
+      # ELECTRON_ENABLE_LOGGING=1 与 mac 腿同口径；pwsh 的 Start-Process 不允许
+      # stdout/stderr 重定向同一文件，分两文件后同查（等价 mac 的 2>&1 合流）。
       - name: Electron 启动冒烟（打包态 exe 拉起）
         if: runner.os == 'Windows'
         shell: pwsh
@@ -162,11 +167,27 @@ jobs:
             Write-Output "::error::未找到打包态可执行体：$exe"
             exit 1
           }
-          $p = Start-Process -FilePath $exe -PassThru
+          $logOut = "clw-electron-smoke.out.log"
+          $logErr = "clw-electron-smoke.err.log"
+          $env:ELECTRON_ENABLE_LOGGING = "1"
+          $p = Start-Process -FilePath $exe -PassThru -RedirectStandardOutput $logOut -RedirectStandardError $logErr
           Start-Sleep -Seconds 25
           if ($p.HasExited) {
-            Write-Output "::error::Electron 打包应用 25s 内退出（启动失败）"
+            Write-Output "::error::Electron 打包应用 25s 内退出（启动失败，ExitCode=$($p.ExitCode)）"
+            Get-Content $logOut -Tail 80 -ErrorAction SilentlyContinue
+            Get-Content $logErr -Tail 80 -ErrorAction SilentlyContinue
+            exit 1
+          }
+          $logs = @($logOut, $logErr) | Where-Object { Test-Path $_ }
+          if (-not ($logs | Select-String -SimpleMatch "[CLW_SMOKE] ready")) {
+            Write-Output "::error::冒烟未捕获启动完成标记（[CLW_SMOKE] ready）——进程存活但启动链未走完"
+            $logs | ForEach-Object { Get-Content $_ -Tail 80 }
+            exit 1
+          }
+          if ($logs | Select-String -SimpleMatch "[CLW_SMOKE] renderer-crash") {
+            Write-Output "::error::冒烟期内触发渲染进程崩溃"
+            $logs | ForEach-Object { Get-Content $_ -Tail 80 }
             exit 1
           }
           Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
-          Write-Output "冒烟通过：打包态 Electron 进程存活 ≥25s"
+          Write-Output "冒烟通过：打包态 Electron 进程存活 ≥25s，启动标记已捕获，无渲染崩溃标记"
