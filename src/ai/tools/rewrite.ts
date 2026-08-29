@@ -136,7 +136,7 @@ export async function applySpill(ctx: ToolContext, input: Record<string, unknown
     }
   }
   // 改写稿是 body 维度产物——front matter（章号/标题/钩子等）原样保留，只换正文
-  const saved = saveDraft(ctx.bookRoot, chapter, joinFrontMatter(raw.fmRaw, produced), { snapshotOrigin: 'chat-rewrite' })
+  const saved = saveDraft(ctx.bookRoot, chapter, joinFrontMatter(raw.fmRaw, produced), { snapshotOrigin: 'chat-rewrite', userDataPath: ctx.userDataPath })
   return {
     ok: true,
     summary: '已落盘：' + saved.relPath + '（' + saved.words + ' 字，改写前的旧稿已自动快照）。暂存原文保留在 ' + locator + ' 备查。',

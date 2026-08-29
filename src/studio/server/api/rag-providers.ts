@@ -25,6 +25,7 @@ import {
 } from '../../../ai/provider/index.js'
 import type { Vault } from '../../../ai/provider/vault.js'
 import { embed } from '../../../rag/embed.js'
+import { log } from '../../../log/index.js'
 
 interface RagProvidersCtx {
   userDataPath: string | null
@@ -168,15 +169,26 @@ export function registerRagProviderRoutes(ctx: RagProvidersCtx): void {
     const target = snapshot.ragProviders.find((p) => p.id === params['id'])
     if (!target) return replyError(res, 404, 'NOT_FOUND', 'RAG 提供方不存在')
 
+    // R76-28（二十四轮 D 域）：探测前抓配置指纹——embed 是 15s 网络往返，窗口内提供方
+    // 可能被 PUT 编辑（endpoint/model/key 变更会清 caps 要求重测）；探测完成后旧快照的
+    // connected 直接回写会把「打旧端点/旧 key 探出的结果」盖到新配置上，绕过该不变量。
+    // 对齐 chat 侧 providers.test 的 R75-D-P3c 同型；指纹取连通性相关三字段（name 不影响）。
+    const probeFp = JSON.stringify([target.endpoint, target.model, target.apiKey])
     const vectors = await embed(target.endpoint, target.model, target.apiKey, ['ping'], { timeoutMs: 15_000 })
     const connected = vectors !== null
     // dd-P2：embed 是 15s 网络往返——写回前重载重找，探测期间被编辑/删除则不硬写旧克隆
     const s2 = loadProviders(ctx.userDataPath)
     const fresh = s2.ragProviders.find((p) => p.id === params['id'])
     if (fresh) {
-      fresh.caps = { connected }
-      fresh.capsProbedAt = Date.now()
-      saveProviders(ctx.userDataPath, s2)
+      if (JSON.stringify([fresh.endpoint, fresh.model, fresh.apiKey]) === probeFp) {
+        fresh.caps = { connected }
+        fresh.capsProbedAt = Date.now()
+        saveProviders(ctx.userDataPath, s2)
+      } else {
+        // R76-28：探测窗口内配置已变——旧结果不再描述现配置，丢弃回写并留痕；
+        // 探测结果仍随本次响应回传（对发起者有信息量）；未落盘 → revision 不 bump。
+        log.warn('api', `rag-providers test：探测期间提供方配置已变更，丢弃旧快照 caps 回写（${params['id']}）`)
+      }
     }
     reply(res, 200, {
       ok: connected,

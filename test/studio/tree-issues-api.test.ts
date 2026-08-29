@@ -10,6 +10,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { startServer } from '../../src/studio/server/index.js'
+// R75-D-P3b（批 D）：/tree-issues 已有 5s TTL 结果缓存——本测验证「verdict 落盘后立即可见」，
+// 注入 TTL=0 关缓存保住原即时语义（缓存三态由 r75-state-tree-issues-ttl.test.ts 覆盖）
+import { __setTreeIssuesTtlForTest } from '../../src/studio/server/api/check.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
 import { computeRevision } from '../../src/document/revision.js'
@@ -56,6 +59,7 @@ function get(path: string): Promise<{ status: number; json: unknown }> {
 }
 
 beforeAll(async () => {
+  __setTreeIssuesTtlForTest(0) // R75-D-P3b：关 TTL 缓存（it1→it2 verdict 翻转后需立即可见）
   process.env['CLWRITING_DRIVER'] = 'mock'
   workDir = mkdtempSync(join(tmpdir(), 'clwriting-tree-issues-'))
   mkdirSync(join(workDir, '.clwriting'), { recursive: true })
@@ -109,6 +113,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  __setTreeIssuesTtlForTest(null) // 恢复默认 TTL，避免污染同进程其它测试
   if (server) await new Promise<void>((r) => server!.close(() => r()))
   if (workDir) rmSync(workDir, { recursive: true, force: true })
   if (prevDriver === undefined) delete process.env['CLWRITING_DRIVER']

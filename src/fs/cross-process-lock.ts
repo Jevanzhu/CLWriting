@@ -122,6 +122,28 @@ function judgeStaleLock(
 }
 
 /**
+ * R75-5（批 D）：只读锁状态查询——复用 judgeStaleLock 的完整陈锁判定语义（活 pid +
+ * 未超龄 / 年轻空锁 = held；死 pid、超龄半写、活 pid 超龄且无续期 = stale 不算在持），
+ * 供 task-gate 的跨进程 busyGate 查询用：只取锁状态、绝不取锁、绝不清理（stale 锁的
+ * 接管清理仍归 acquire 路径独有，查询侧误删会在持锁文件 = 互斥失效）。锁文件不存在
+ * （'gone'）同样不算在持。缺省参数与 tryAcquireCrossProcessLock 同源（grace/超龄门槛
+ * /存活探测），保证「查询判 held ⟺ acquire 会拿到 null」两侧口径一致。
+ */
+export function queryLockHeld(
+  lockPath: string,
+  opts?: { isProcessAlive?: (pid: number) => boolean; staleGraceMs?: number; maxHeldMs?: number },
+): boolean {
+  return (
+    judgeStaleLock(
+      lockPath,
+      opts?.isProcessAlive ?? isProcessAlive,
+      opts?.staleGraceMs ?? STALE_GRACE_MS,
+      opts?.maxHeldMs ?? MAX_HELD_MS,
+    ) === 'held'
+  )
+}
+
+/**
  * 非阻塞占锁：成功返回 release（幂等）；锁被活进程持有（或等待超时语义外的调用方
  * 自行决策）返回 null。EEXIST 时做 stale 判定与接管（至多重试一次，防竞态循环）。
  */

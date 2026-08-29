@@ -54,6 +54,35 @@ export const LEAD_VERBS: Record<LeadType, LeadVerbSet> = {
 
 // ── 履历段解析（#3 第 4 节）──────────────────────
 
+/** 履历条目行：- 第012章 埋下：证据...（全角/半角冒号均接受，防输入法切错致履历行被丢）。
+ *  R75-2（二十三轮）抽出单一出处——parseHistory 条目匹配与节界判定的条目前瞻共用，
+ *  防两处正则漂移（漂移则分组标题误判节终、条目落 after 段致模型失明）。 */
+const HISTORY_ENTRY_RE = /^\s*-\s*第(\d+)章\s+(.+?)[：:](.+)$/
+
+/** ATX 标题行（#~###### 后随空白；markdown 标准形态）。 */
+export const ATX_HEADING_RE = /^#{1,6}\s/
+
+/** R75-2（二十三轮）：lines[headingIdx] 是标题行时判定「节终 or 分组」——其后到下一
+ *  标题/文末仍出现条目行 → 分组标题（false：跳过不折入，条目照常解析）；否则为节终
+ *  标题（true：终断条目段，其后人工内容归 after 段保真回写）。isEntry 由调用方注入
+ *  （履历条目与账本推进声明条目格式不同，共用同一分组判定口径防两侧漂移）。 */
+export function headingEndsSection(
+  lines: string[],
+  headingIdx: number,
+  isEntry: (line: string) => boolean,
+): boolean {
+  // R76-21（二十四轮 B 域）：连续标题链不再提前终断——原「下一行是标题即判节终」把
+  // `## 分组`+`### 详注`+条目 的链式分组首标题误判节终，其下条目整体掉出解析（回写
+  // 保真无数据丢失，机检对它们失明）。标题行改为跳过继续找条目：链下仍出现条目 =
+  // 整链是分组结构（false，条目照常解析）；到文末无条目 = 节终（其后人工内容归
+  // after 段保真回写）。非标题非条目的普通行维持原「跳过继续」语义不变。
+  for (let i = headingIdx + 1; i < lines.length; i++) {
+    if (ATX_HEADING_RE.test(lines[i]!.trim())) continue
+    if (isEntry(lines[i]!)) return false
+  }
+  return true
+}
+
 /**
  * 解析履历段（markdown 列表，每行：- 第N章 动词：章内证据）。
  * body 是 front matter 之后的正文，含 `## 履历` 标题。
@@ -63,20 +92,29 @@ export function parseHistory(body: string): LeadEntry[] {
   const lines = body.split('\n')
   let inHistory = false
 
-  for (const line of lines) {
-    // 进入履历段
-    if (/^##\s*履历/.test(line.trim())) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!
+    const t = line.trim()
+    // 进入履历段（段内重复出现沿用旧口径按无操作处理）
+    if (/^##\s*履历/.test(t)) {
       inHistory = true
       continue
     }
-    // 遇到下一个 ## 标题则结束
-    if (inHistory && /^##\s/.test(line.trim()) && !/^##\s*履历/.test(line.trim())) {
-      break
-    }
     if (!inHistory) continue
 
-    // 匹配：- 第012章 埋下：证据...（全角/半角冒号均接受，防输入法切错致履历行被丢；可能含 回填 标记）
-    const m = line.match(/^\s*-\s*第(\d+)章\s+(.+?)[：:](.+)$/)
+    // R75-2（二十三轮）：条目段的 ATX 标题不再折入上一条证据——此前 `### 手记` 等
+    // 标题行被 R64-17 续行折空格拼进证据（证据 needle 派生自标题碎片、命中正文必败
+    // →「声明了没兑现」定稿假红；且定稿回写 dedup 按 章号+动词+证据 精确比对永不相
+    // 等 → 重复条目追加固化）。节终标题（后无条目）终断条目段——其后内容由
+    // bodyAfterHistory 保真回写；分组标题（后随条目）跳过。# 一级/### 三级此前不触发
+    // `## ` 终断、一律折入证据，同本修收口。
+    if (ATX_HEADING_RE.test(t)) {
+      if (headingEndsSection(lines, i, (l) => HISTORY_ENTRY_RE.test(l))) break
+      continue
+    }
+
+    // 匹配：- 第012章 埋下：证据...（可能含 回填 标记）
+    const m = line.match(HISTORY_ENTRY_RE)
     if (m) {
       const 章号 = Number(m[1])
       const 动词 = m[2]!.trim()
@@ -89,11 +127,12 @@ export function parseHistory(body: string): LeadEntry[] {
         证据 = 证据.slice(0, bf.index).trim()
       }
       entries.push({ 章号, 动词, 证据, ...(回填 ? { 回填 } : {}) })
-    } else if (entries.length > 0 && line.trim() !== '') {
+    } else if (entries.length > 0 && t !== '') {
       // R64-17（十二轮）：多行证据续行——手写/编辑器折行的证据第二行不匹配条目正则，
       // 此前被静默丢弃（下次回写物理丢失）。续行折空格并入上一条证据（换行归一）。
+      // R75-2：标题行已在上方分流（分组跳过/节终终断），到达此处的必为普通续行文本。
       const prev = entries[entries.length - 1]!
-      prev.证据 = `${prev.证据} ${line.trim()}`.trim()
+      prev.证据 = `${prev.证据} ${t}`.trim()
     }
   }
   return entries
@@ -116,7 +155,10 @@ function bodyBeforeHistory(body: string): string {
   return lines.slice(0, idx).join('\n').trim()
 }
 
-/** 履历段之后的人工正文（下一个非履历 ## 标题起，到文末；无则空）——dd-P2 回写保真用 */
+/** 履历段之后的人工正文（节终标题起到文末；无则空）——dd-P2 回写保真用。
+ *  R75-2（二十三轮）：节终判定与 parseHistory 共用 headingEndsSection——此前仅认
+ *  `## ` 二级标题，`### 手记` 等子标题不终断，其后续写内容被 parseHistory 折进证据；
+ *  现两处同口径，节终标题起的内容原样保真、不再触碰条目数据。 */
 function bodyAfterHistory(body: string): string {
   const lines = body.split('\n')
   let inHistory = false
@@ -126,7 +168,8 @@ function bodyAfterHistory(body: string): string {
       if (/^##\s*履历/.test(t)) inHistory = true
       continue
     }
-    if (/^##\s/.test(t) && !/^##\s*履历/.test(t)) {
+    if (/^##\s*履历/.test(t)) continue
+    if (ATX_HEADING_RE.test(t) && headingEndsSection(lines, i, (l) => HISTORY_ENTRY_RE.test(l))) {
       return lines.slice(i).join('\n').trim()
     }
   }
@@ -191,12 +234,17 @@ export function readLead(
     }
   }
 
+  // R75-2（二十三轮）：Number() 无守卫——手写「十二」→ NaN 落模型，机检章号区间
+  // 比较恒 false（「未来章」误判族）、回写 NaN 扩散。对齐 chapters.ts R64-19 口径：
+  // 非有限数按「未写」处理，回落默认 0（缺字段/空串语义不变）。
+  const 开启章Num = Number(map.get('开启章'))
+
   const lead: Lead = {
     编号,
     标题: String(map.get('标题') ?? ''),
     类型: (map.get('类型') as LeadType) ?? '悬念',
     状态: (map.get('状态') as Lead['状态']) ?? '进行中',
-    开启章: Number(map.get('开启章') ?? 0),
+    开启章: Number.isFinite(开启章Num) ? 开启章Num : 0,
     履历: parseHistory(r.body),
     _bodyBeforeHistory: bodyBeforeHistory(r.body),
     _bodyAfterHistory: bodyAfterHistory(r.body),

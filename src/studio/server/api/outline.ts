@@ -99,7 +99,7 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
       // 丢失（细纲域无版本链）。fail-open：快照失败不阻断主流程（log.warn 留痕——
       // 生成产物不因留底 IO 抖动丢弃，同 R71-9 取舍）。
       try {
-        snapshotBeforeOverwrite(bookRoot, relPath, withFm || '(空细纲)', 'outline-overwrite')
+        snapshotBeforeOverwrite(bookRoot, relPath, withFm || '(空细纲)', 'outline-overwrite', undefined, ctx.userDataPath)
       } catch (e) {
         log.warn('api', `outline 覆盖前快照失败（第${chapter}章，fail-open 继续落盘）`, e)
       }

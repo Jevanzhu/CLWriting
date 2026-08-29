@@ -28,6 +28,37 @@ export function mergeFm(full: string, body: string): string {
 }
 
 /**
+ * R75-E-P3f：剥 fm 值两端对称引号（format/frontmatter unquote 的 web-next 镜像，
+ * 该函数未导出且 format 域禁改，故此处单源）。服务端 stringifyValue 对空串/纯数字串/
+ * 含特殊字符值加引号落盘（清空值即 `key: ""`），前端读回不剥则表单显示两个引号字符。
+ * 双引号单遍解码 \\ \" \n \r（与写侧转义对称，R-11 同口径）；单引号 '' → '；
+ * length>=2 守卫防单引号字符值被归一成空（B-16 同款）。
+ */
+function unquoteFmValue(s: string): string {
+  if (s.length >= 2 && s.startsWith('"') && s.endsWith('"')) {
+    const inner = s.slice(1, -1)
+    let out = ''
+    for (let i = 0; i < inner.length; i++) {
+      const c = inner[i]!
+      if (c === '\\' && i + 1 < inner.length) {
+        const n = inner[i + 1]!
+        if (n === '"' || n === '\\' || n === 'n' || n === 'r') {
+          out += n === 'n' ? '\n' : n === 'r' ? '\r' : n
+          i++
+          continue
+        }
+      }
+      out += c
+    }
+    return out
+  }
+  if (s.length >= 2 && s.startsWith("'") && s.endsWith("'")) {
+    return s.slice(1, -1).replace(/''/g, "'")
+  }
+  return s
+}
+
+/**
  * 解析 frontmatter 字段为 key→value（纯字符串；浏览器安全）。
  * 与服务端 format/frontmatter.parseFlat 同逻辑但不做值类型推断（前端表单用 string 足够）。
  * 无 frontmatter → 空对象。
@@ -74,7 +105,7 @@ export function parseFmFields(content: string): Record<string, string> {
         : block.join('\n').replace(/\n+$/, '')
       continue
     }
-    out[key] = valRaw
+    out[key] = unquoteFmValue(valRaw)
     i++
   }
   return out

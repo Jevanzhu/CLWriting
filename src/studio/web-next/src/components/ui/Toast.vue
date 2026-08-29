@@ -1,5 +1,6 @@
 <script setup lang="ts">
-// 全局 Toast（细案 T2.4）：右下角堆叠，1.8s 自动消失。
+// 全局 Toast（细案 T2.4）：右下角堆叠，自动消失——error 5s / 其余 1.8s（时长在 ui.toast
+// 分级，R76-35 注释校正：旧「1.8s」只覆盖非错误级，与实现相悖）。
 import { useUiStore } from '../../stores/ui'
 const ui = useUiStore()
 </script>

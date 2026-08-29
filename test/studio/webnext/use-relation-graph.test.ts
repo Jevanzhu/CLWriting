@@ -17,6 +17,11 @@ const mocks = vi.hoisted(() => ({
   toast: vi.fn(),
   docOpen: vi.fn(async () => {}),
   openTab: vi.fn(),
+  // R75-E-P3c：onMine 切书守卫读 doc.bookName——可变活源（新用例 mid-flight 改书名验守卫）。
+  // R76-34（二十四轮 E 域）：守卫源改为路由参数（doc.bookName 是 flushDirty 滞后活源）——
+  // routeState.params.name 同为可变活源，mid-flight 改名验守卫
+  docState: { bookName: '测试书' },
+  routeState: { params: { name: '测试书' } },
 }))
 
 vi.mock('../../../src/studio/web-next/src/api/settings', () => ({
@@ -27,7 +32,11 @@ vi.mock('../../../src/studio/web-next/src/api/books', () => ({
   getConfig: mocks.getConfig,
 }))
 vi.mock('../../../src/studio/web-next/src/stores/doc', () => ({
-  useDocStore: vi.fn(() => ({ open: mocks.docOpen })),
+  useDocStore: vi.fn(() => ({
+    open: mocks.docOpen,
+    // R75-E-P3c：getter 保活源（mid-flight 改 docState.bookName 守卫即时可见）
+    get bookName() { return mocks.docState.bookName },
+  })),
 }))
 vi.mock('../../../src/studio/web-next/src/stores/workspace', () => ({
   useWorkspaceStore: vi.fn(() => ({ openTab: mocks.openTab })),
@@ -40,6 +49,11 @@ vi.mock('../../../src/studio/web-next/src/stores/ui', () => ({
 }))
 vi.mock('../../../src/studio/web-next/src/stores/prefs', () => ({
   usePrefsStore: vi.fn(() => ({ relationAutoMine: false, relationMineThreshold: 20 })),
+}))
+// R76-34：onMine 切书守卫改读 route.params.name（即时源）——mock useRoute 返回可变
+// routeState（守卫用例 mid-flight 改 params.name）
+vi.mock('vue-router', () => ({
+  useRoute: vi.fn(() => mocks.routeState),
 }))
 
 import { useRelationGraph } from '../../../src/studio/web-next/src/composables/useRelationGraph'
@@ -67,6 +81,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.getSettings.mockResolvedValue(fixture())
   mocks.getConfig.mockResolvedValue({})
+  mocks.docState.bookName = '测试书' // R75-E-P3c：守卫用例改过后复位
+  mocks.routeState.params.name = '测试书' // R76-34：路由参数守卫源复位
 })
 
 describe('useRelationGraph: 建图契约', () => {
@@ -173,6 +189,22 @@ describe('useRelationGraph: AI 梳理', () => {
     expect(mocks.toast).toHaveBeenCalledWith(expect.stringContaining('boom'), 'error')
     expect(g.err.value).toBeNull()
     expect(g.mining.value).toBe(false)
+  })
+
+  it('R75-E-P3c/R76-34: 梳理在途切书 → 不 toast、不重载旧书（死实例静默收尾）', async () => {
+    const g = useRelationGraph('测试书') // 死实例书名冻结在旧书
+    await g.load()
+    const callsBefore = mocks.getSettings.mock.calls.length
+    // 梳理 await 期间已切到 B 书（R76-34：守卫源为路由参数即时源——doc.bookName 要等
+    // flushDirty 数秒后才 setBook，窄窗内靠它复检会漏）
+    mocks.mineRelations.mockImplementationOnce(async () => {
+      mocks.routeState.params.name = '新书B'
+      return { ok: true, cached: false, relations: [{ from: 'A', to: 'B', type: '同门' }] }
+    })
+    await g.onMine()
+    expect(mocks.toast).not.toHaveBeenCalled() // 成败 toast 都不落新书界面
+    expect(mocks.getSettings.mock.calls.length).toBe(callsBefore) // 死续体不重拉旧书
+    expect(g.mining.value).toBe(false) // finally 复位不受影响
   })
 
   it('mining 防重入：进行中再触发直接返回（不重复起任务）', async () => {

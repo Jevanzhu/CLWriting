@@ -226,6 +226,10 @@ function toggleChatTier(on: boolean): void {
 }
 
 async function saveTiers(): Promise<void> {
+  // R75-E-P3b：保存档位入口在途锁——同文件 save()/saveRag() 的 R73-62 写法补齐。
+  // tierSaving 虽有 :disabled 下传，但管不住双击/慢网窗口：第二笔并发 saveTiers 会以
+  // 同一草稿双 POST setTiers（revision 双 bump），applyChatTier 亦双发
+  if (tierSaving.value) return // 在途锁：双击第二笔在入口丢弃
   if (!tierForm.value.creative.model) return ui.toast('创作档模型必选', 'error')
   tierSaving.value = true
   try {

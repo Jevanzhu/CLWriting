@@ -160,6 +160,36 @@ export function findOnlyOrSkipViolations(src) {
   return { only: only ? only.length : 0, uncondSkip: (skipPlain?.length ?? 0) + (skipEach?.length ?? 0) }
 }
 
+/**
+ * R76-40（二十四轮 F 域）：空洞测试门——剥注释/字符串后每个 .test.ts 至少一处
+ * expect( / assert 调用。单测数来自 vitest list（数声明不数断言）：只声明用例、
+ * 零断言的文件也能满足 README 计数对账，此前仅靠 coverage 语句门 82 弱兜底。
+ * 口径：expect( 是 vitest 家规断言面（全量实测无一文件例外）；assert(/.( 认
+ * node:assert 形态；写进字符串/注释的样例不算（sanitizeForCount 同源）。
+ */
+export function findAssertionFreeTestFiles(entries) {
+  return entries
+    .filter((e) => !/(^|[^.\w])(?:expect|assert)\s*[.(]/.test(sanitizeForCount(e.src)))
+    .map((e) => e.relPath)
+}
+
+/**
+ * R76-6（二十四轮 F 域）：e2e pageerror 基线接线静态门——R75-7 把渲染层异常升级为红
+ * 的前提是各 spec 接 attachPageErrorBaseline，但接线是约定式 opt-in 无机器校验：新增
+ * spec 漏接一行，「渲染层异常被断言偶然通过掩盖」的洞静默重开。剥注释/字符串后每个
+ * spec 须有一处 attachPageErrorBaseline( 调用（import 行不带 `(` 不会误判通过）；
+ * 无浏览器页面的 spec 走显式豁免名单（登记理由，新增须改此处过目）。
+ */
+export const PAGEERROR_WIRING_EXEMPT = [
+  'test/e2e/release-smoke.spec.ts', // 发布 smoke：API 冒烟无浏览器页面（R75-7 摸底时即未接，正当理由）
+]
+export function missingPageErrorWiring(entries, exempt = PAGEERROR_WIRING_EXEMPT) {
+  return entries
+    .filter((e) => !exempt.includes(e.relPath))
+    .filter((e) => !/(^|[^.\w])attachPageErrorBaseline\s*\(/.test(sanitizeForCount(e.src)))
+    .map((e) => e.relPath)
+}
+
 /** 递归收集文件 */
 function walk(dir, pred, out = []) {
   for (const name of readdirSync(dir)) {
@@ -291,6 +321,30 @@ function main() {
   if (onlyHits.length > 0) {
     console.error('\ncheck:counts 失败：发现 .only 或无条件 .skip 用例（提交前移除——其余用例会被静默跳过，门禁假绿；环境门条件式 skip 可豁免）：')
     for (const h of onlyHits) console.error('  - ' + h)
+    process.exit(1)
+  }
+
+  // ── R76-6（二十四轮 F 域）：e2e pageerror 接线静态门 ─────────────
+  const pageerrorMissing = missingPageErrorWiring(
+    e2eSpecs.map((fp) => ({ relPath: posixRelPath(root, fp), src: readFileSync(fp, 'utf8') })),
+  )
+  if (pageerrorMissing.length > 0) {
+    console.error('\ncheck:counts 失败：e2e spec 未接 pageerror 基线（R76-6）——')
+    console.error('  渲染层未捕获异常只有接了 attachPageErrorBaseline 才会让用例红（R75-7），漏接=该 spec 异常被断言偶然通过掩盖。')
+    console.error('  在首个 page 动作前接线：attachPageErrorBaseline(page, \'<spec 文件名去 .spec.ts>\')；')
+    console.error('  无浏览器页面的 spec 须在 PAGEERROR_WIRING_EXEMPT 登记理由：')
+    for (const p of pageerrorMissing) console.error('  - ' + p)
+    process.exit(1)
+  }
+
+  // ── R76-40（二十四轮 F 域）：空洞测试门 ─────────────
+  const assertionFree = findAssertionFreeTestFiles(
+    unitFiles.map((fp) => ({ relPath: posixRelPath(root, fp), src: readFileSync(fp, 'utf8') })),
+  )
+  if (assertionFree.length > 0) {
+    console.error('\ncheck:counts 失败：零断言测试文件（R76-40）——')
+    console.error('  只声明用例不写 expect/assert 也能计入单测数对账（数声明不数断言），空洞测试从计数门静默通过：')
+    for (const p of assertionFree) console.error('  - ' + p)
     process.exit(1)
   }
 

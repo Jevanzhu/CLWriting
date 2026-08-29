@@ -80,7 +80,8 @@ export const useUiStore = defineStore('ui', () => {
     s?.resolve(v)
   }
   /** 弹 toast（自动消失；时长按级别分级——低级项（第六轮）：错误 1.8s 读不完就消失，
-   *  作者看不到失败原因只能重复操作；成功/信息类保持 1.8s 轻提示）。 */
+   *  作者看不到失败原因只能重复操作。R76-35（二十四轮 E 域）：注释校正——实际代码
+   *  error 5000ms / 成功与信息类 1800ms，旧注释「错误 1.8s」与实现相悖，误导后续维护）。 */
   function toast(msg: string, kind: ToastItem['kind'] = 'info'): void {
     const id = ++seq
     toasts.value.push({ id, msg, kind })

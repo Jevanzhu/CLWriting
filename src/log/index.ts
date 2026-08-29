@@ -174,6 +174,16 @@ function maskKeys(s: string): string {
   return s.replace(KEY_MASK_RE, (m) => m.slice(0, 5) + '***')
 }
 
+/** R76-30：镜像面 err 掩码——Error 实例重建（message/stack 过 KEY_MASK_RE，name
+ *  原样）保住 instanceof 契约；非 Error 原样交 console 渲染（掩码只兜字符串面）。 */
+function maskedErr(e: unknown): unknown {
+  if (!(e instanceof Error)) return e
+  const m = new Error(maskKeys(e.message))
+  m.name = e.name
+  if (e.stack) m.stack = maskKeys(e.stack)
+  return m
+}
+
 /** 单条日志：序列化 → 排队落盘（失败降级 console）→ 可选镜像。永不抛出。 */
 function emit(level: LogLevel, tag: string, msg: string, err?: unknown): void {
   let line: string
@@ -205,9 +215,14 @@ function emit(level: LogLevel, tag: string, msg: string, err?: unknown): void {
   }
   const mirror = () => {
     if (!state.mirrorConsole) return
-    if (level === 'error') console.error(`[${tag}] ${msg}`, ...(err === undefined ? [] : [err]))
-    else if (level === 'warn') console.warn(`[${tag}] ${msg}`, ...(err === undefined ? [] : [err]))
-    else console.log(`[${tag}] ${msg}`)
+    // R76-30（二十四轮 D 域）：console 镜像出口同步过 maskKeys——此前掩码只做在
+    // 落盘/child stdout 的 JSON 行上，镜像走原始 msg/err，同一日志两个出口密钥
+    // 一掩一裸（终端/IDE 控制台恰是人最常盯的出口）。err 保持 Error 实例形态
+    //（Z-P2-9 契约：镜像 err 须 instanceof Error 且 message 含原始异常摘要），
+    // message/stack 内容过掩码，name 原样。
+    if (level === 'error') console.error(`[${tag}] ${maskKeys(msg)}`, ...(err === undefined ? [] : [maskedErr(err)]))
+    else if (level === 'warn') console.warn(`[${tag}] ${maskKeys(msg)}`, ...(err === undefined ? [] : [maskedErr(err)]))
+    else console.log(`[${tag}] ${maskKeys(msg)}`)
   }
   mirror()
   if (!state.logsDir) return

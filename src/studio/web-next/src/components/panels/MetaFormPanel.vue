@@ -220,9 +220,19 @@ async function onSave(): Promise<void> {
     const meta: Record<string, unknown> = {}
     for (const f of FIELD_DEFS[kind.value] ?? []) {
       const v = fields.value[f.key] ?? ''
-      if (v === '') continue
-      // 多行值由 stringifyFlat 用块标量 key: | 存储（fm 多行已根治）
-      meta[f.key] = f.type === 'number' ? Number(v) : v
+      // R75-E-P3f：清空（''）照发不跳过——此前 skip 掉导致「清空字段不持久化、toast 却报
+      // 已保存」的静默谎言。查证服务端（PATCH op=fm → updateDocMeta → patchFlatFm）：'' 是
+      // 合法清空值（落 `key: ""`，读回 ''），数值字段落 "" 后消费侧 Number('""')=NaN 按
+      // 未设处理（chapters 字数目标跳键 / foreshadow parsePositiveInt → null），安全。
+      // 数值字段非空时仍须有限数字：NaN 经 JSON 序列化成 null 落盘（fm 出现 `key: null`）
+      if (f.type === 'number' && v !== '') {
+        const n = Number(v)
+        if (!Number.isFinite(n)) continue
+        meta[f.key] = n
+      } else {
+        // 多行值由 stringifyFlat 用块标量 key: | 存储（fm 多行已根治）
+        meta[f.key] = v
+      }
     }
     // CC-P2-15：refresh 自带本地正文保护（dirty 时只取服务端 fm、正文保留本地），
     // 此前在此手动 patch 回 body 的守卫已下沉到 doc store

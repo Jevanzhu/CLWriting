@@ -7,6 +7,7 @@ import { useRouter } from 'vue-router'
 import { Sun, Moon, BookOpen, LayoutGrid, List, Plus, Trash2, CheckSquare } from 'lucide-vue-next'
 import { useShelf, formatWords, formatRelative } from '../composables/useShelf'
 import { useTheme } from '../composables/useTheme'
+import { isImeComposing } from '../shared/ime'
 import ShelfGrid from '../components/ui/ShelfGrid.vue'
 import ShelfHeroCard from '../components/shelf/ShelfHeroCard.vue'
 import EmptyState from '../components/ui/EmptyState.vue'
@@ -43,6 +44,9 @@ const lastEdited = computed(() => {
 
 // Esc：确认弹窗 → 建书 → 批量模式（逐级收）
 function onKeydown(e: KeyboardEvent): void {
+  // R75-E-P3e：IME 组合期 Esc 让渡（CommandPalette R61-3 先例）——搜索框收输入法
+  // 候选框的 Esc 不应收弹窗/退出批量（isComposing || keyCode 229 单源判据）
+  if (isImeComposing(e)) return
   if (e.key === 'Escape') {
     if (confirmTarget.value) cancelDelete()
     else if (showCreate.value) showCreate.value = false

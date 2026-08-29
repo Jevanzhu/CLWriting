@@ -132,7 +132,7 @@ async function generateLeadUpdateDraftInner(
       // 收尾）均为生成路径，无不该留底的反例面。
       const content = `# 第${chapter}章 账本推进\n` + body + '\n'
       try {
-        snapshotBeforeOverwrite(bookRoot, LEAD_UPDATES_FILE, content, 'lead-updates-overwrite')
+        snapshotBeforeOverwrite(bookRoot, LEAD_UPDATES_FILE, content, 'lead-updates-overwrite', undefined, userDataPath)
       } catch (e) {
         log.warn('lead-update-draft', `账本推进覆盖前快照失败（第${chapter}章，fail-open 继续落盘）`, e)
       }

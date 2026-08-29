@@ -24,6 +24,8 @@ import {
   migratePromptOverlays,
   matchBuiltinPrompt,
   resolveBuiltinSystemPrompt,
+  resolveBuiltinSystemPromptSourced,
+  overlayPath,
   type PromptRegistry,
 } from '../../src/ai/prompts/resource.js'
 
@@ -76,6 +78,26 @@ describe('C2 overlay 解析', () => {
       const r = resolvePrompt('writer-long', ud)
       expect(r.source).toBe('overlay')
       expect(r.text).toBe('我的自定义写手人设')
+    } finally {
+      rmSync(ud, { recursive: true, force: true })
+    }
+  })
+
+  // R75-A-P3b（批 A）：existsSync→readFileSync 间隙 overlay 被删（TOCTOU）时裸
+  // ENOENT 直冒 runSpec——收编为带上下文明确错误（文件名 + 操作），fail-fast 不变。
+  // 目录占位模拟读失败：existsSync 为真、readFileSync 必抛（EISDIR），等价「存在性
+  // 判定后读取前文件被替换/删除」的竞态窗口，且无需挂钩 fs 内部时序。
+  it('R75-A-P3b: overlay 存在但读取抛错 → 带路径上下文的明确错误，不裸穿、不静默回落内置', () => {
+    const ud = mkdtempTracked(join(tmpdir(), 'clwriting-prompt-toctou-'))
+    try {
+      mkdirSync(join(ud, 'prompts'), { recursive: true })
+      mkdirSync(overlayPath(ud, 'writer-long')) // 路径被目录占位：exists ✓ / read ✗
+      // resolvePrompt：抛错须含「用户覆盖」+ overlay 路径（可定位），且确实抛（fail-fast 保留）
+      expect(() => resolvePrompt('writer-long', ud)).toThrow(/用户覆盖/)
+      expect(() => resolvePrompt('writer-long', ud)).toThrow(new RegExp(overlayPath(ud, 'writer-long').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+      // resolveBuiltinSystemPromptSourced（runSpec 同款入口）：同款收编
+      const builtin = loadBuiltinPrompt('writer-long')
+      expect(() => resolveBuiltinSystemPromptSourced(builtin.text, ud)).toThrow(/用户覆盖/)
     } finally {
       rmSync(ud, { recursive: true, force: true })
     }

@@ -17,7 +17,12 @@
  */
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
-import { tryAcquireCrossProcessLock } from '../../../fs/cross-process-lock.js'
+import { readdirSync } from 'node:fs'
+import {
+  tryAcquireCrossProcessLock,
+  queryLockHeld,
+  isProcessAlive as defaultIsProcessAlive,
+} from '../../../fs/cross-process-lock.js'
 import { isSelfHealRunning } from '../../../ai/orchestrate/self-heal.js'
 import { isChatRunning } from '../../../ai/orchestrate/chat.js'
 import { hasBackgroundTasks } from '../../../ai/orchestrate/background.js'
@@ -120,12 +125,78 @@ export function isTaskGateHeld(bookName: string, action: string): boolean {
  * 无 abort 通道，带着跑会让旧目录被收尾落盘重建 + 白烧 API 费用；入口拒 409 最省。
  * T2-4 注：只反映本进程持有（进程内 Set）；跨进程持有由锁文件体现，不在此列表
  * （删书闸本就要求任务与删书同进程才有 abort 收尾问题，跨进程场景交由真锁 J7 收口）。
+ * R75-5（批 D）收口：跨进程面已由下方 crossProcessHeldTaskGatesFor 补齐（busyGate
+ * 合并两侧后判 409）；本函数保持纯进程内语义（audit/stream/graceful-shutdown 等
+ * 调用方只关心本进程编排态）。
  */
 export function heldTaskGatesFor(bookName: string): string[] {
   const actions: string[] = []
   for (const key of running) {
     const i = key.indexOf(SEP)
     if (i !== -1 && key.slice(i + SEP.length) === bookName) actions.push(key.slice(0, i))
+  }
+  return actions
+}
+
+// ── R75-5（批 D）：跨进程持闸查询（只读扫描）────────────────────────
+
+/** R75-5：全库任务闸 action 注册表——锁文件名是 key（action+NUL+书名）的单向 sha256
+ *  截断，查询侧无法从文件名反解出 action，只能对已知 action 正向枚举 hash 比对。
+ *  新增 acquireTaskGate 调用点时须同步登记此处（漏登记只削弱跨进程 busyGate 查询的
+ *  完备性——少报一个在途 action，不影响 acquire 侧互斥本身）。 */
+const KNOWN_ACTIONS: readonly string[] = [
+  'analyze',
+  'analyze-style',
+  'autotag',
+  'batch-finalize',
+  'export',
+  'infer-meta',
+  'learn',
+  'lead-updates',
+  'onboard-ai',
+  'onboard-save',
+  'outline',
+  'rag-build',
+  'relations-mine',
+  'review',
+  'rewrite',
+]
+
+/** R75-5：跨进程查询注入项（语义同 TaskGateOptions 对应字段）。 */
+export interface CrossProcessQueryOptions {
+  /** 显式锁目录（测试注入用）；缺省用模块级 lockRoot。 */
+  lockDir?: string | null
+  /** 进程存活判定（测试注入用）；缺省 process.kill(pid,0) 探测（与锁原语同源）。 */
+  isProcessAlive?: (pid: number) => boolean
+}
+
+/**
+ * R75-5（批 D）：该书当前被**其他进程**持有的任务闸（action 名列表）——扫任务闸锁
+ * 文件目录，对已知 action 正向枚举锁文件名，陈锁判定复用锁原语语义（queryLockHeld：
+ * 死 pid / 活 pid 超龄无续期 / 超龄半写均不算在持——勿把崩溃残留陈锁算成在持导致
+ * 删书/改名被永久 409）。只读扫描、不取锁、不清理。
+ *
+ * 背景：dev-api/脚本与 GUI 多进程并存时，进程 B 的 DELETE/RENAME 书此前只查进程 A
+ * 看不见的进程内 Set——分钟级任务（analyze/outline/rag-build/review…）在途时放行
+ * 删/改，收尾原子写会在旧路径重建孤儿目录并白烧 API 费。busyGate 将本函数与
+ * heldTaskGatesFor 合并去重后判 409（本进程闸在锁目录里也有锁文件，去重防双报）。
+ * 锁目录不可读/未配置 → 返回空（退化旧纯内存行为，fail-open 与 lockRoot=null 同口径）。
+ */
+export function crossProcessHeldTaskGatesFor(bookName: string, opts?: CrossProcessQueryOptions): string[] {
+  const dir = opts?.lockDir !== undefined ? opts.lockDir : lockRoot
+  if (!dir) return []
+  let names: Set<string>
+  try {
+    names = new Set(readdirSync(dir))
+  } catch {
+    return [] // 目录不存在（书库从未有过跨进程闸）/不可读——无在持
+  }
+  const isAlive = opts?.isProcessAlive ?? defaultIsProcessAlive
+  const actions: string[] = []
+  for (const action of KNOWN_ACTIONS) {
+    const fname = lockFileName(keyOf(bookName, action))
+    if (!names.has(fname)) continue
+    if (queryLockHeld(join(dir, fname), { isProcessAlive: isAlive })) actions.push(action)
   }
   return actions
 }

@@ -1,4 +1,4 @@
-import { closeSync, fsyncSync, linkSync, mkdirSync, openSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { closeSync, fsyncSync, linkSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 
@@ -180,6 +180,8 @@ function isPidAlive(pid: number): boolean {
 
 /** Y-24：清扫 atomicWriteFile 崩溃残留的 tmp 文件（rename 前进程崩溃时 catch 清理
  *  不可达，`.<name>.<pid>.<uuid>.tmp` 永久留盘累积占空间）。
+ *  R76-27（二十四轮 C 域）扩两件：① 陈锁清扫（`.lock` 分支——持有 pid 已死且超龄的
+ *  跨进程锁文件，孤儿锁不再永久堆积）；② 递归跳过 .git/node_modules（纯空扫性能损耗）。
  *
  *  年龄门槛 5 分钟：原子写的 tmp 寿命是毫秒级（创建→rename 同步相邻），超龄可断定
  *  非他进程在途写——误删在途 tmp 会把对方写入变成 rename 失败，宁慢勿错。
@@ -188,6 +190,15 @@ function isPidAlive(pid: number): boolean {
  *  在途或将由其自身 catch 清理）；pid 已死才交给年龄门（无 pid 段/解析异常维持
  *  5 分钟年龄门原口径）。
  *  返回清除数（调用方留痕用）。best-effort：目录不可读/文件不可删逐项跳过。 */
+/** R76-27（二十四轮 C 域）：递归跳过表——.git（对象库成百上千文件）/ node_modules
+ *  （依赖树）只可能藏 tmp 于自身写入习惯之外，本仓原子写从不落位其间，纯空扫性能
+ *  损耗；书内正文/工作区/.版本 照扫（atomicWriteFile 的 tmp 就落目标文件同目录）。 */
+const SWEEP_SKIP_DIRS = new Set(['.git', 'node_modules'])
+
+/** R76-27：跨进程锁文件年龄门槛（毫秒）——与 cross-process-lock MAX_HELD_MS 同口径
+ *  （10 分钟），超龄且持有 pid 已死才清（见 sweepAbandonedTmpFiles 的 .lock 分支）。 */
+const STALE_LOCK_MIN_AGE_MS = 10 * 60_000
+
 export function sweepAbandonedTmpFiles(rootDir: string, opts?: { now?: number; minAgeMs?: number }): number {
   const now = opts?.now ?? Date.now()
   const minAge = opts?.minAgeMs ?? 5 * 60_000
@@ -201,10 +212,32 @@ export function sweepAbandonedTmpFiles(rootDir: string, opts?: { now?: number; m
   for (const ent of entries) {
     const full = join(rootDir, ent.name)
     if (ent.isDirectory()) {
+      if (SWEEP_SKIP_DIRS.has(ent.name)) continue
       removed += sweepAbandonedTmpFiles(full, opts)
       continue
     }
-    if (!ent.isFile() || !ABANDONED_TMP_RE.test(ent.name)) continue
+    if (!ent.isFile()) continue
+    // R76-27（二十四轮 C 域）：陈锁清扫——跨进程锁文件（{pid,bootTime} JSON 指纹）持有
+    // 进程已死且超龄时清掉：锁的正常生命周期由获取方 release/接管清理，但「锁的主人
+    // （journal 等）已被 purge」后该锁再无获取者，孤儿锁永久堆积。判据三重收紧防误删：
+    // ① 内容必须是合法锁指纹（{pid:正整数} JSON——作者手放的同名 .md/.lock 杂物不匹配
+    // 即不动）；② 持有 pid 仍活不动（删在持锁 = 互斥失效）；③ mtime 未超龄不动（与
+    // cross-process-lock 的 MAX_HELD_MS 接管门槛同口径，覆盖 pid 复用形态）。任一读取/
+    // 解析失败跳过（fail-closed to residue，宁残留勿误删）。
+    if (ent.name.endsWith('.lock')) {
+      try {
+        const holder = JSON.parse(readFileSync(full, 'utf-8')) as { pid?: unknown }
+        if (typeof holder.pid !== 'number' || !Number.isInteger(holder.pid) || holder.pid <= 0) continue
+        if (isPidAlive(holder.pid)) continue
+        if (now - Math.floor(statSync(full).mtimeMs) < STALE_LOCK_MIN_AGE_MS) continue
+        rmSync(full, { force: true })
+        removed++
+      } catch {
+        /* 单项失败跳过（并发消失/权限/半写不可解析） */
+      }
+      continue
+    }
+    if (!ABANDONED_TMP_RE.test(ent.name)) continue
     try {
       const st = statSync(full)
       if (now - Math.floor(st.mtimeMs) < minAge) continue // 可能在途——不动

@@ -8,6 +8,7 @@
  * 数据源 #7.5 settings（parseRelations 派生自角色卡「关系」）。
  */
 import { ref, computed, onMounted, onUnmounted, provide, inject, type Ref, type InjectionKey } from 'vue'
+import { useRoute } from 'vue-router'
 import { getSettings, mineRelations, type CharacterCard, type RelationEdge, type DebtEdge } from '../api/settings'
 import { getConfig } from '../api/books'
 import { useDocStore } from '../stores/doc'
@@ -125,6 +126,10 @@ export function useRelationGraph(bookName: string): RelationGraph {
   const ui = useUiStore()
   // 关系图自动梳理的全局默认托底（书级未设时生效；ref 初值即硬编码回落，服务端合并同链）
   const prefs = usePrefsStore()
+  // R76-34：切书复检即时源——setup 语境取一次（onMine 事件/异步链里调 useRoute 会脱离
+  // inject 语境报错）；route.params.name 随导航即时更新，比 doc.bookName（flushDirty 滞后
+  // 数秒）可靠
+  const route = useRoute()
 
   const nodes = ref<SimNode[]>([])
   const edges = ref<SimEdge[]>([])
@@ -268,10 +273,16 @@ export function useRelationGraph(bookName: string): RelationGraph {
   const hiddenColors = ref<Set<string>>(new Set())
   async function onMine(): Promise<void> {
     if (mining.value) return
+    // R75-E-P3c：书名入口捕获 + await 后复检（StyleAcceptancePanel M-4 同款）——RelationsView
+    // 挂 :key=bookName 整树重建，本死实例的 bookName 参数冻结在旧书；梳理可达数分钟，
+    // 在途切书后成败 toast 都会落在新书界面、死续体 load() 还会重拉旧书数据。
+    // 活源比 doc store 内 live bookName（Book.vue 切书编排的权威书名，ForeshadowPanel 同款）
+    const book = bookName
     mining.value = true
     err.value = null
     try {
-      const r = await mineRelations(bookName, true)
+      const r = await mineRelations(book, true)
+      if (route.params.name !== book) return // 已切书：死实例不再 toast / 重拉旧书
       if (r.ok && r.relations.length) {
         ui.toast(`AI 已梳理 ${r.relations.length} 条关系`, 'success')
         await load()
@@ -280,6 +291,7 @@ export function useRelationGraph(bookName: string): RelationGraph {
       }
     } catch (e) {
       // 梳理失败只 toast，不覆盖 err——图主体已渲染成功，页面不应变「载入失败」
+      if (route.params.name !== book) return // R75-E-P3c：A 书的失败 toast 不落 B 书界面（R76-34 改路由参数即时源）
       ui.toast(friendlyError(e), 'error')
     } finally {
       mining.value = false

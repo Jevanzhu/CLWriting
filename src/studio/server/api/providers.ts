@@ -19,7 +19,6 @@ import {
   saveProviders,
   newProviderId,
   maskKey,
-  probeCapabilities,
   normalizeApiKey,
   apiKeyRefusal,
   type ProviderConf,
@@ -28,10 +27,21 @@ import {
   type AuthStrategy,
   type TierSlot,
   type EffortLevel,
+  type ProbeResult,
 } from '../../../ai/provider/index.js'
 import type { Vault } from '../../../ai/provider/vault.js'
 import { listModels } from '../../../ai/provider/models.js'
+import { probeCapabilities as realProbeCapabilities } from '../../../ai/provider/probe.js'
 import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
+import { log } from '../../../log/index.js'
+
+// R75-D-P3c（批 D）：探测函数替换口（默认真探测）——回归测试注入受控延迟/结果的
+// 探测函数，复现「探测 10s+ 窗口内配置被改」竞态（mock driver 的快路探测瞬时完成，
+// 无法天然开出竞态窗）。仅测试用，勿在生产路径调用。
+let __probeForTest: ((conf: ProviderConf) => Promise<ProbeResult>) | null = null
+export function __setProbeCapabilitiesForTest(fn: ((conf: ProviderConf) => Promise<ProbeResult>) | null): void {
+  __probeForTest = fn
+}
 
 interface ProvidersCtx {
   userDataPath: string | null
@@ -387,14 +397,27 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
       if (!conf) return replyError(res, 404, 'NOT_FOUND', '供应商不存在')
       const probeModel = typeof body['model'] === 'string' && body['model']
         ? body['model'] : (snapshot.currentModel ?? conf.model)
-      const { caps, details } = await probeCapabilities({ ...conf, model: probeModel })
+      // R75-D-P3c（批 D）：探测前抓配置指纹——探测是 10s+ 网络往返，窗口内供应商可能被
+      // 编辑（PUT 改 baseUrl/key 后会清 caps 要求重新探测）；探测完成后旧快照的 caps 直接
+      // 回写会把「打旧端点/旧 key 探出的能力」盖到新配置上，恰好绕过该不变量（PUT /current
+      // 的 caps 校验随之形同虚设）。指纹取 caps 有效性相关四字段（与 PUT 的 fieldsChanged
+      // 同源；name/models 改动不影响服务级 caps，不误伤）。
+      const probeFp = probeFingerprint(conf)
+      const probe = __probeForTest ?? realProbeCapabilities
+      const { caps, details } = await probe({ ...conf, model: probeModel })
       // 写回探测结果——重载 + 重找（探测期间 provider 可能被编辑/删除；丢了不硬写旧克隆）
       const s2 = loadProviders(ctx.userDataPath)
       const target = s2.providers.find((p) => p.id === id)
       if (target) {
-        target.caps = caps
-        target.capsProbedAt = Date.now()
-        saveProviders(ctx.userDataPath, s2)
+        if (probeFingerprint(target) === probeFp) {
+          target.caps = caps
+          target.capsProbedAt = Date.now()
+          saveProviders(ctx.userDataPath, s2)
+        } else {
+          // R75-D-P3c：探测窗口内配置已变——旧快照 caps 不再描述现配置，丢弃回写并留痕；
+          // 探测结果仍随本次响应回传（对发起者有信息量）；未落盘 → revision 不 bump。
+          log.warn('api', `providers test：探测期间供应商配置已变更，丢弃旧快照 caps 回写（${id}）`)
+        }
       }
       // 探测写回会 bump revision——回传新 revision，前端 test() 同步，
       // 否则测试后任意写（新增/编辑/档位）都会因 expectedRevision 陈旧 409（P4 竞态）
@@ -415,6 +438,13 @@ function nextSortIndex(existing: Array<number | undefined>): number {
   let max = -1
   for (const x of existing) max = Math.max(max, x ?? 0)
   return max + 1
+}
+
+/** R75-D-P3c（批 D）：caps 有效性相关字段指纹（protocol/auth/baseUrl/apiKey）——这四
+ *  个字段决定探测目标（服务端点 + 认证），变了则探测出的 caps 不再描述现配置。字段集
+ *  与 PUT 端点 fieldsChanged（编辑后清 caps 的判定）同源，两处将来须同步演进。 */
+function probeFingerprint(p: ProviderConf): string {
+  return JSON.stringify([p.protocol, p.auth, p.baseUrl, p.apiKey])
 }
 
 /** key 遮蔽 + 凭据状态点——真实 key 从不回传前端（编辑不改 key 就传回空 = 保留）；

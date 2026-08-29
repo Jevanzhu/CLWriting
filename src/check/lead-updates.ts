@@ -16,6 +16,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { evidenceNeedles } from './leads.js'
+import { ATX_HEADING_RE, headingEndsSection } from '../format/leads.js'
 
 /** 本章一条账本推进声明（章号在落盘时由定稿章号补齐） */
 export interface ChapterLeadUpdate {
@@ -51,14 +52,28 @@ export function readLeadUpdatesAt(absPath: string): ChapterLeadUpdate[] {
   return parseLeadUpdateLines(text)
 }
 
+/** 声明条目行形状判定（R75-2 节界前瞻用，与下方条目正则同步） */
+function isLeadUpdateEntryLine(line: string): boolean {
+  return /^-\s*\S+\s+[^\s:：]+[:：]\s*.+$/.test(line.trim())
+}
+
 /** 解析账本推进文本（`- <编号> <动词>：<证据>` 行；非列表行忽略）。
  *  R73-23（二十一轮）：对齐 format/leads.ts parseHistory 的续行折入口径——编辑器折行/
  *  手写换行的证据第二行此前被静默丢弃，声明证据与落盘履历（折入后续行）比对失配 →
- *  「声明了没兑现」假红。无条目前的行（标题/首行章标签）不折。 */
+ *  「声明了没兑现」假红。无条目前的行（标题/首行章标签）不折。
+ *  R75-2（二十三轮）：ATX 标题行不再折入上一条证据——手写 `## 备注` 等标题折入后，
+ *  证据 needle 派生自标题碎片、命中正文必败 →「声明了没兑现」定稿假红。分组标题
+ *  （后随条目）跳过；节终标题（后无条目）终断，其后人工备注不再触碰条目数据。与
+ *  parseHistory 共用 headingEndsSection 判定，两侧口径不漂移。 */
 export function parseLeadUpdateLines(text: string): ChapterLeadUpdate[] {
   const out: ChapterLeadUpdate[] = []
-  for (const raw of text.split('\n')) {
-    const line = raw.trim()
+  const lines = text.split('\n')
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!.trim()
+    if (ATX_HEADING_RE.test(line)) {
+      if (headingEndsSection(lines, i, isLeadUpdateEntryLine)) break
+      continue
+    }
     if (!line.startsWith('-')) {
       // R73-23：非列表行折入上一条证据（换行归一空格；条目前无折入对象，忽略）
       if (out.length > 0 && line !== '') {

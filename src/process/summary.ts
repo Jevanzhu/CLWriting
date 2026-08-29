@@ -157,6 +157,9 @@ export interface GenerateChapterSummaryOpts {
   bodyAbsPath: string
   /** 计入 calls_per_chapter 章预算的章号（自愈路径传当前写作章；定稿钩子不传=不占预算） */
   budgetChapter?: number
+  /** R76-5（二十四轮 A 域）：编排级中断信号（Z-P1-1 同款）——备料补漏路径传入，中断时
+   *  在途 LLM 调用即时收口而非各跑到自身超时（分钟级白烧 token + running 迟迟不释放）。 */
+  signal?: AbortSignal
 }
 
 export type GenerateSummaryResult =
@@ -219,6 +222,7 @@ export async function generateChapterSummary(opts: GenerateChapterSummaryOpts): 
       userPrompt,
       bookRoot,
       ...(opts.budgetChapter !== undefined ? { chapter: opts.budgetChapter } : {}),
+      ...(opts.signal ? { signal: opts.signal } : {}),
       // R-2（第十六轮）：登记真实注入源——模型实际读的是 draft.body（正文全文），
       // 此前登记输出文件（定稿/摘要/章摘要/N.md）属溯源虚报；改为登记正文相对路径
       promptFiles: [relative(bookRoot, bodyAbsPath).split(sep).join('/')],
@@ -346,6 +350,7 @@ export async function selfHealRecentChapterSummaries(
   userDataPath: string | null,
   config: BookConfig,
   writingChapter: number, // L-P3n（第八轮）：语义=正在写的章号 N（自愈 N-2/N-1），非 assembleStatus 的 currentChapter（最后定稿章）——同名不同义极易接错
+  signal?: AbortSignal, // R76-5：编排级中断透传（备料补漏路径）
 ): Promise<string[]> {
   if (!summaryAutoEnabled(config)) return []
   const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
@@ -371,6 +376,7 @@ export async function selfHealRecentChapterSummaries(
       chapter: ch,
       bodyAbsPath: bodyAbs,
       budgetChapter: writingChapter,
+      ...(signal ? { signal } : {}), // R76-5：中断透传到在途 LLM 调用
     })
     if (r.ok && !r.skipped) generated.push(chapterSummaryRelPath(ch))
     else if (!r.ok) log.warn('summary', `自愈补漏失败（第 ${ch} 章）：${r.error}`)
@@ -460,6 +466,7 @@ export async function generateVolumeSummary(opts: {
   userDataPath: string | null
   config: BookConfig
   volume: number
+  signal?: AbortSignal // R76-5：编排级中断透传（备料补漏路径）
 }): Promise<GenerateSummaryResult> {
   const { bookRoot, config, volume } = opts
   const volumeSize = config.book.volume_size ?? 50
@@ -504,6 +511,7 @@ export async function generateVolumeSummary(opts: {
       userDataPath: opts.userDataPath,
       userPrompt,
       bookRoot,
+      ...(opts.signal ? { signal: opts.signal } : {}), // R76-5：中断透传到在途 LLM 调用
       // R-2（第十六轮）：登记真实注入源——模型实际读的是章摘要链（chainText），
       // 此前登记输出文件（定稿/摘要/卷摘要/N.md）属溯源虚报；改为登记实际注入的
       // 章摘要文件列表（链内章号 → 章摘要路径，按注入序）
@@ -543,6 +551,7 @@ export async function selfHealVolumeSummary(
   userDataPath: string | null,
   config: BookConfig,
   currentChapter: number,
+  signal?: AbortSignal, // R76-5：编排级中断透传（备料补漏路径）
 ): Promise<string | null> {
   if (!summaryAutoEnabled(config)) return null
   const volumeSize = config.book.volume_size ?? 50
@@ -567,7 +576,7 @@ export async function selfHealVolumeSummary(
     const { chain } = volumeChainState(bookRoot, targetVolume, volumeSize)
     if (chain === null || m[1] === volumeChainFingerprint(chain)) return null
   }
-  const r = await generateVolumeSummary({ bookRoot, userDataPath, config, volume: targetVolume })
+  const r = await generateVolumeSummary({ bookRoot, userDataPath, config, volume: targetVolume, ...(signal ? { signal } : {}) })
   if (r.ok) return volumeSummaryRelPath(targetVolume)
   log.warn('summary', `上一卷（第 ${targetVolume} 卷）摘要按需生成失败：${r.error}`)
   return null

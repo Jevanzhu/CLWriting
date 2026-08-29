@@ -8,7 +8,8 @@
  *
  * 偏移表（= 旧端口 − 18999，刻意保持既有端口对齐不换号）：
  *   0  global-setup 主 server（playwright.config 的 baseURL 同源同值）
- *   1  ai-degrade     2  ai-provider     3  auto-write
+ *   1  ai-degrade     2  ai-provider     3  auto-write     4  usage-card（R76-10
+ *   独立 server：主 server 无 userDataPath，trace 统计恒空——表格臂需自有事件库）
  *  13  overview-short 14  short-full-flow 15  batch-finalize 16  release-smoke
  *
  * 注意：独立 server spec 各自持有独立 workDir、分端口是为互不抢占（release-smoke

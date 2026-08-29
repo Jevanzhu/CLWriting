@@ -326,6 +326,37 @@ test('freezeBaseline: 幂等重跑（覆盖，learn 新样章后指纹变）', (
   rmSync(root, { recursive: true, force: true })
 })
 
+// R75-1（批 A）：计数维归一化因子 charCount——新冻结基线持久化该字段（overall/byScene）；
+// 旧 v1 基线文件缺字段时 readBaseline 容忍保留缺失（undefined，不伪造值），消费方据此降级。
+test('R75-1: computeFullStats 带 charCount 因子；freezeBaseline 持久化、旧基线缺字段容忍', () => {
+  // 因子口径：码点数（代理对合 1 计）——含 emoji 的正文 charCount < UTF-16 length
+  const stats = computeFullStats('他推开门。😀😀😀 桌上摆着凉茶。', TAG_RULES)
+  expect(stats.charCount).toBeDefined()
+  expect(stats.charCount).toBe([...('他推开门。😀😀😀 桌上摆着凉茶。')].length)
+
+  // 冻结产物持久化因子（overall + byScene 都带）
+  const root = makeBookWithSamples()
+  freezeBaseline(root)
+  const b = readBaseline(root)!
+  expect(b.overall.charCount).toBeGreaterThan(0)
+  expect(b.byScene['战斗']!.charCount).toBeGreaterThan(0)
+  rmSync(root, { recursive: true, force: true })
+
+  // 旧 v1 基线（charCount 引入前冻结）→ 读回保持缺失语义，不伪造 0/1
+  const legacy = mkdtempTracked(join(tmpdir(), 'style-legacy-base-'))
+  mkdirSync(join(legacy, '文风'), { recursive: true })
+  const legacyOverall = computeFullStats('他推开门。桌上摆着凉茶。', TAG_RULES)
+  delete legacyOverall.charCount
+  writeFileSync(
+    baselinePath(legacy),
+    JSON.stringify({ version: 1, frozenAt: '2026-01-01T00:00:00.000Z', frozenFrom: 'legacy', byScene: {}, overall: legacyOverall }),
+    'utf-8',
+  )
+  const lb = readBaseline(legacy)!
+  expect(lb.overall.charCount).toBeUndefined()
+  rmSync(legacy, { recursive: true, force: true })
+})
+
 test('freezeBaseline: 空样章库 → 报错不写文件', () => {
   const root = mkdtempTracked(join(tmpdir(), 'style-empty-'))
   writeBookConfig(join(root, 'book.yaml'), { ...DEFAULT_CONFIG })

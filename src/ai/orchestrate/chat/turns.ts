@@ -186,6 +186,9 @@ async function executeChatTool(
             bookRoot: opts.bookRoot,
             bookName: opts.bookName,
             chapter,
+            // R76-12：标记对话嵌套写章——chat 入口闸（stream.ts）据此放行 steer 入队
+            //（当前轮 = 本工具执行期，作者追加的话在写章结束后续链），不再误 409。
+            embedded: true,
           })
           return {
             // B-P1-6：escalate 时章已生成落盘，不应标记 isError（ok=false 会让 AI 误判失败重复写章）
@@ -594,6 +597,20 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
     // 执行工具 + 结果按 tool_result block 回填
     const results: ContentBlock[] = []
     for (const call of toolCalls) {
+      // R76-13（二十四轮 A 域）：未注册工具直接 isError 回填——TOOL_RISK 缺名时原先
+      // 默认 'write' 从严弹确认卡，作者确认的却是一个必然失败的调用（executeChatTool
+      // default 分支「未知工具」），确认卡失实。改为不弹卡直接回错误结果（风险面不变：
+      // 未知工具本就无执行体；未知工具事件已在上方 toolCallEvent 全量登记，审计不缺）。
+      if (TOOL_RISK[call.name] === undefined) {
+        results.push({
+          type: 'tool_result',
+          toolUseId: call.id,
+          content: `未知工具：${call.name}（未注册，无法执行）`,
+          isError: true,
+        })
+        emit(opts, { type: 'chat_tool_result', callId: call.id, summary: `未知工具 ${call.name}`, ok: false })
+        continue
+      }
       const risk = TOOL_RISK[call.name] ?? 'write'
       if (risk === 'write') {
         emit(opts, { type: 'chat_tool_pending', callId: call.id, name: call.name, input: call.input })

@@ -3,6 +3,7 @@
 // IA 重组后从「本书」页的书籍与目标子页拆出独立成页——本页只承载全局默认组（不依赖当前书），
 // 本书独立设定在「本书」页的写作默认组；生效链 book.yaml book 段对应键 → 此处 → 硬编码回落。
 import { usePrefsStore } from '../../stores/prefs'
+import { parseNumericInput } from '../../shared/numeric-input'
 
 // 全局默认值来自 prefs store（main.ts 在 mount 前 await init()，设置打开时必已就绪）
 const prefs = usePrefsStore()
@@ -12,9 +13,12 @@ const prefs = usePrefsStore()
 function onGlobalGenreInput(e: Event): void {
   prefs.setDefaultGenre((e.target as HTMLInputElement).value)
 }
+// R75-E-P3a：每卷章数改共享 helper——此前 `Number('')===0` 穿过 isFinite 闸，
+// setDefaultVolumeSize(0) 被 store clamp 静默钳成 5（清空输入框反而落 5）；
+// 空串/非数字不写。目标字数/每章字数不在此列：0 本身是「未设」合法语义
 function onGlobalVolumeSizeInput(e: Event): void {
-  const raw = Number((e.target as HTMLInputElement).value)
-  if (Number.isFinite(raw)) prefs.setDefaultVolumeSize(raw)
+  const v = parseNumericInput(e)
+  if (v !== null) prefs.setDefaultVolumeSize(v)
 }
 function onGlobalTargetWordsInput(e: Event): void {
   const raw = Number((e.target as HTMLInputElement).value)

@@ -74,21 +74,39 @@ async function loadAll(): Promise<void> {
   } finally {
     if (gen === loadGen) loading.value = false
   }
-  void loadFs()
-  void loadRhythm()
-  void loadAnalysis()
+  void loadFs(gen)
+  void loadRhythm(gen)
+  void loadAnalysis(gen)
 }
-async function loadFs(): Promise<void> {
-  try { foreshadows.value = await getForeshadows(props.bookName) } catch { /* 静默 */ }
+// R76-33（二十四轮 E 域）：次级加载器补代守卫——主加载器有 R72-11 的 gen 判定，三个
+// 次级加载器此前裸写响应：重试连点/切书后慢响应（伏笔/节奏/分析）照样回填，A 书的
+// 次级数据盖到 B 书页面上（跨书数据渗漏，主数据代守卫防住的正是同型）。
+async function loadFs(gen: number): Promise<void> {
+  try {
+    const r = await getForeshadows(props.bookName)
+    if (gen !== loadGen) return
+    foreshadows.value = r
+  } catch { /* 静默 */ }
 }
-async function loadRhythm(): Promise<void> {
+async function loadRhythm(gen: number): Promise<void> {
   try {
     const r = await getRhythm(props.bookName)
+    if (gen !== loadGen) return
     rhythmData.value = r
-  } catch { rhythmData.value = null }
+  } catch {
+    if (gen !== loadGen) return // 旧请求的失败不清新书的数据（同成功路径口径）
+    rhythmData.value = null
+  }
 }
-async function loadAnalysis(): Promise<void> {
-  try { analysis.value = await getAnalysisOverview(props.bookName) } catch { analysis.value = null }
+async function loadAnalysis(gen: number): Promise<void> {
+  try {
+    const r = await getAnalysisOverview(props.bookName)
+    if (gen !== loadGen) return
+    analysis.value = r
+  } catch {
+    if (gen !== loadGen) return // 同上
+    analysis.value = null
+  }
 }
 function reload(): Promise<void> { return loadAll() }
 onMounted(loadAll)

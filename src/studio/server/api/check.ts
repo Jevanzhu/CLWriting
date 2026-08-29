@@ -40,6 +40,30 @@ interface CheckCtx {
   userDataPath: string | null
 }
 
+// ── R75-D-P3b（批 D）：/tree-issues 结果 5s TTL 缓存 ─────────────────────
+// collectTreeIssues 每请求同步扫全书定稿正文聚合机检 red + verdict 驳回（大书秒级
+// 阻塞事件循环），前端树轮询/反复刷新会反复重扫。缓存口径对齐 health.ts styleScanCache
+//（书键 Map + FIFO 上限 + 纯 TTL）：写路径不挂即时失效——保存/定稿/verdict 落盘后
+// 最迟 5s 自愈（health.ts 先例同款，避免给每个写端点平添 forget 接线的过度设计）；
+// 书删除/改名的生命周期清理走 forgetTreeIssuesCache（R67-15 forgetBookKeyedCaches 接线）。
+const treeIssuesCache = new Map<string, { payload: Record<string, unknown>; ts: number }>()
+/** R75-D-P3b：删书/改名失效挂点（books.ts forgetBookKeyedCaches 接线；TTL 5s 兜底自愈）。 */
+export function forgetTreeIssuesCache(bookRoot: string): void {
+  treeIssuesCache.delete(bookRoot)
+}
+/** R75-D-P3b 回归观测钩子（先例同 health.ts __styleScanCacheHasForTest）——仅测试用。 */
+export function __treeIssuesCacheHasForTest(bookRoot: string): boolean {
+  return treeIssuesCache.has(bookRoot)
+}
+/** R75-D-P3b：TTL 测试注入口（先例同 health.ts __setStyleScanTtlForTest）——传 null
+ *  恢复默认。仅测试用，勿在生产路径调用。 */
+let treeIssuesTtlMs: number | null = null
+export function __setTreeIssuesTtlForTest(ms: number | null): void {
+  treeIssuesTtlMs = ms
+}
+const TREE_ISSUES_TTL = 5000
+const TREE_ISSUES_CACHE_MAX = 32
+
 export function registerCheckRoutes(ctx: CheckCtx): void {
   defineRoute('books.documents.check', {
     method: 'POST',
@@ -141,13 +165,21 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
 
       const bookRoot = r.bookRoot
+      // R75-D-P3b：命中短时缓存则跳过全书同步重扫（payload 为纯数据可复用）
+      const now = Date.now()
+      const ttl = treeIssuesTtlMs ?? TREE_ISSUES_TTL // 测试注入优先
+      const cached = treeIssuesCache.get(bookRoot)
+      if (cached && now - cached.ts < ttl) {
+        reply(res, 200, cached.payload)
+        return
+      }
       // 聚合逻辑已下沉内核（P1-8）：扫正文 + 机检 + verdict 驳回，返回只有 issue 的 docId
       const { issues, rebuildFailed, leadsBookDegraded, chaptersDegraded } = collectTreeIssues(bookRoot, (docId) => {
         const reviewEnv = readAnalysis(bookRoot, docId, 'review')
         const v = (reviewEnv?.payload as { verdict?: { approved: boolean } } | undefined)?.verdict
         return v ?? undefined
       }, ctx.userDataPath)
-      reply(res, 200, {
+      const payload: Record<string, unknown> = {
         ok: true,
         issues,
         // R62-7：账本全书性红项计算失败随响应 warning（与 rebuildFailed 同口径——
@@ -156,7 +188,14 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
         ...(leadsBookDegraded ? { warning: '账本全书性红项本轮计算失败，账本红点可能缺失' } : {}),
         // R65-5（十三轮）：单章机检失败随响应 warning（第三种降级形态，此前零提示）
         ...(chaptersDegraded > 0 ? { warning: `${chaptersDegraded} 个章节本轮机检失败，对应红点可能缺失` } : {}),
-      })
+      }
+      // R75-D-P3b：FIFO 淘汰同 health.ts（Map 保插入序，超上限丢最旧）
+      if (treeIssuesCache.size >= TREE_ISSUES_CACHE_MAX) {
+        const oldest = treeIssuesCache.keys().next().value
+        if (oldest !== undefined) treeIssuesCache.delete(oldest)
+      }
+      treeIssuesCache.set(bookRoot, { payload, ts: now })
+      reply(res, 200, payload)
     },
   })
 }

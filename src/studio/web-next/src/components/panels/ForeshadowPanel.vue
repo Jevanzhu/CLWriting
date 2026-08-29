@@ -89,7 +89,11 @@ async function openFile(file: string): Promise<void> {
   }
 }
 
+// R75-E-P3d：新建在途锁（TrashPanel restore 的 restoring 锁同款）——按钮无 disabled，
+// 双击第二笔与第一笔并发 createDoc 同路径 → 服务端 409/重名冲突 toast 误导作者
+const creating = ref(false)
 async function create(): Promise<void> {
+  if (creating.value) return // 在途锁：双击第二笔直接忽略
   const existing = new Set(list.value.map((f) => f.标题))
   let name = '新伏笔'
   let i = 2
@@ -99,6 +103,7 @@ async function create(): Promise<void> {
   // 本面板经 SidebarRight 常驻外壳挂载（非 keyed），props.bookName 即路由活书名（无滞后），
   // 再比 doc store 内 live bookName 兜底（对齐 Book.vue 切书编排的权威书名）
   const book = props.bookName
+  creating.value = true
   try {
     const r = await createDoc(book, { relPath: `设定/伏笔/${name}.md` })
     if (props.bookName !== book || doc.bookName !== book) return // 已切书：放弃后续写操作
@@ -110,7 +115,12 @@ async function create(): Promise<void> {
       ws.openTab(fresh.docId)
     }
   } catch (e) {
+    // R75-E-P3c：catch 侧补同款书名复检——成功路径有门（上方），catch 漏配：
+    // createDoc await 窗口切书后，A 书的失败错误会 toast 在 B 书界面上（R70-10 同族）
+    if (props.bookName !== book || doc.bookName !== book) return
     ui.toast(friendlyError(e), 'error')
+  } finally {
+    creating.value = false
   }
 }
 

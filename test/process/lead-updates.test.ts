@@ -8,7 +8,7 @@ import { test, expect } from 'vitest'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { leadEvidenceMatchesBody, readChapterLeadUpdates } from '../../src/check/lead-updates.js'
+import { leadEvidenceMatchesBody, parseLeadUpdateLines, readChapterLeadUpdates } from '../../src/check/lead-updates.js'
 import { readOutlineLeads } from '../../src/check/outline-leads.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
@@ -89,4 +89,43 @@ test('readOutlineLeads: 多值 / 单值 / 缺省', () => {
   } finally {
     rmSync(wd, { recursive: true, force: true })
   }
+})
+
+// ── R75-2（二十三轮）：ATX 标题不折入声明证据（「声明了没兑现」定稿假红防线） ──
+
+test('parseLeadUpdateLines: 节终标题行不折入上一条证据，其后人工备注不再触碰条目', () => {
+  const text = [
+    '- 悬念-001 埋下：焦痕在烛火下泛着暗红。',
+    '',
+    '## 备注',
+    '',
+    '作者备注：下章揭晓。',
+  ].join('\n')
+  // 此前「## 备注」「作者备注：下章揭晓。」都被 R73-23 续行折拼进上一条证据——
+  // 证据 needle 命中正文必败 → 定稿闸「声明了没兑现」假红
+  expect(parseLeadUpdateLines(text)).toEqual([
+    { leadId: '悬念-001', 动词: '埋下', 证据: '焦痕在烛火下泛着暗红。' },
+  ])
+})
+
+test('parseLeadUpdateLines: 首行章标签维持忽略；分组标题跳过、后随条目照常解析', () => {
+  const text = [
+    '# 第12章 账本推进',
+    '',
+    '- 悬念-001 埋下：焦痕',
+    '',
+    '### 第二批',
+    '',
+    '- 设定线-001 树立：灵脉分九品',
+  ].join('\n')
+  const out = parseLeadUpdateLines(text)
+  expect(out).toHaveLength(2)
+  expect(out[0]!.证据).toBe('焦痕')
+  expect(out[1]!.leadId).toBe('设定线-001')
+})
+
+test('parseLeadUpdateLines: R73-23 普通续行折入维持（非标题文本仍折，不回归）', () => {
+  const text = '- 悬念-001 埋下：焦痕\n第二行续文'
+  const out = parseLeadUpdateLines(text)
+  expect(out[0]!.证据).toBe('焦痕 第二行续文')
 })

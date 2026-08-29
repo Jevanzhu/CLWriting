@@ -14,7 +14,7 @@ import { readJson, reply, replyError, parseRequestUrl } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { ensureSession, getDriver, getSession } from '../../../driver/index.js'
 import type { DriverEvent, Session, StudioDriver } from '../../../driver/index.js'
-import { abortSelfHeal, isSelfHealRunning, runSelfHeal } from '../../../ai/orchestrate/self-heal.js'
+import { abortSelfHeal, isSelfHealRunning, isChatEmbeddedSelfHealRunning, runSelfHeal } from '../../../ai/orchestrate/self-heal.js'
 import { hasBackgroundTasks } from '../../../ai/orchestrate/background.js'
 import { isChatRunning, abortChat, resolveChatConfirm, clearChatHistory, sendChatMessage } from '../../../ai/orchestrate/chat.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
@@ -621,14 +621,21 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       // 写手在途时发对话（含 rewrite/write_chapter 嵌套生成工具），两路 runTask 以不同
       // 章号交替记账互覆预算章块、写手互覆草稿。注：chat 自身 running 的 steer 入队
       // 语义只针对 chat 自己，与这两闸不冲突（sendChatMessage 内原子判定）。
-      if (isSelfHealRunning(bookName)) {
+      // R76-12（二十四轮 A 域）：对话嵌套写章豁免——chat 的 write_chapter 工具在途时
+      // isSelfHealRunning 为真且 'rewrite' 任务闸被本会话工具持有，原样 409 会把作者
+      // 的 steer 追加话拒之门外（写章是 chat 自己发起的，结束后续链正是 E1a 入队
+      // 语义）。嵌套标记（isChatEmbeddedSelfHealRunning）时放行两闸，交 sendChatMessage
+      // 原子判定入队；独立写稿（非嵌套）维持 409 不变。
+      const chatEmbeddedWrite = isChatEmbeddedSelfHealRunning(bookName)
+      if (isSelfHealRunning(bookName) && !chatEmbeddedWrite) {
         return replyError(res, 409, 'BUSY', '本书正在全自动写章，先等它跑完或中断再对话')
       }
       if (isSpawnRunning(bookName)) {
         return replyError(res, 409, 'BUSY', '本书正在手动写稿，先等它跑完或中断再对话')
       }
-      // R70-5（十八轮）：生成任务闸反向互斥（同 /auto-write 口径，见彼处注释）
-      {
+      // R70-5（十八轮）：生成任务闸反向互斥（同 /auto-write 口径，见彼处注释）；
+      // R76-12：嵌套写章时豁免（held 的 'rewrite' 是本会话工具所持）
+      if (!chatEmbeddedWrite) {
         const held = heldTaskGatesFor(bookName)
         if (held.length > 0) {
           return replyError(res, 409, 'BUSY', `本书有任务在跑（${held.join('、')}），先等它完成或中断再对话`)
@@ -636,15 +643,17 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       }
 
       const mainSession = await ensureSession(bookName, ctx.workDir!)
-      // R-9：ensureSession await 后二次检查（对齐 /auto-write 的 N4 TOCTOU 收窄口径）
-      if (isSelfHealRunning(bookName)) {
+      // R-9：ensureSession await 后二次检查（对齐 /auto-write 的 N4 TOCTOU 收窄口径；
+      // R76-12 嵌套豁免同首检口径——嵌套标记可能在 await 期间才落下）
+      const chatEmbeddedWrite2 = isChatEmbeddedSelfHealRunning(bookName)
+      if (isSelfHealRunning(bookName) && !chatEmbeddedWrite2) {
         return replyError(res, 409, 'BUSY', '本书正在全自动写章，先等它跑完或中断再对话')
       }
       if (isSpawnRunning(bookName)) {
         return replyError(res, 409, 'BUSY', '本书正在手动写稿，先等它跑完或中断再对话')
       }
-      // R70-5：复检（同首检口径）
-      {
+      // R70-5：复检（同首检口径；R76-12 嵌套豁免同上）
+      if (!chatEmbeddedWrite2) {
         const held = heldTaskGatesFor(bookName)
         if (held.length > 0) {
           return replyError(res, 409, 'BUSY', `本书有任务在跑（${held.join('、')}），先等它完成或中断再对话`)

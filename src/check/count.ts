@@ -256,10 +256,15 @@ export function checkNewNames(
       // 2-4 字窗报伪专名黄项；span 内部还有开引号 = 截断产物（对白内容非专名），跳过
       // （漏报向安全：真嵌套提及的专名本就多在对白内容里，黄项启发式不追全）
       if (innerOpenRe.test(q.slice(1))) continue
+      // R76-3（二十四轮 B 域）：句读守卫改在剥句读前的原文上判——punctRe 含全部句读
+      // 且下方 name 已被它剥净，原 `spanPunctRe.test(name)` 恒 false 成死守卫，注释宣称
+      // 的「含句读的片段是对白内容」失效；三条整行豁免只覆盖「整行是对白」形态，
+      // 动作+对白混排行（网文最高频行式，如「他低声道：『别动。』然后按住她的肩。」）
+      // 全部穿透成伪专名黄项刷屏。改判剥两端引号后的原文：含句读 = 对白内容非专名，
+      // 跳过（漏报向安全：真提及的专名带句读本就在引语里）。
+      if (spanPunctRe.test(q.slice(1, -1))) continue
       const name = q.replace(punctRe, '')
       if (name.length < 2 || name.length > 4) continue
-      // 含句读的片段是对白内容，不是专名
-      if (spanPunctRe.test(name)) continue
       if (!roster.includes(name)) candidates.add(name)
     }
   }

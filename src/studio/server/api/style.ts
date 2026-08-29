@@ -41,6 +41,7 @@ import { migrateStyleLibrary } from '../../../format/style-migrate.js'
 import { harvestStyleCandidates } from '../../../process/style-harvest.js'
 import { readKind, resolveBook } from '../book-context.js'
 import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
+import { localDayKey } from '../../../log/index.js' // R76-31：候选日键与 overview/日记同口径（本地日）
 import type { EntryKind, EntrySource, StyleEntry } from '../../../format/types.js'
 
 interface StyleCtx {
@@ -49,9 +50,11 @@ interface StyleCtx {
   userDataPath: string | null
 }
 
-/** 服务端今天（候选 创建/过期口径统一在服务端） */
+/** 服务端今天（候选 创建/过期口径统一在服务端）。R76-31（二十四轮 D 域）：改本地日
+ *  ——此前 UTC 切日，东八区 0-8 点确认/忽略的候选记到前一 UTC 日，与 overview 热力图/
+ *  日记/成本分桶（localDayKey）打架；口径统一走 log/index 同一函数。 */
 function today(): string {
-  return new Date().toISOString().slice(0, 10)
+  return localDayKey(new Date())
 }
 
 /** 绝对 _path → 书内相对路径（前端确认/忽略/删除都用相对路径互传） */

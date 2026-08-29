@@ -14,6 +14,7 @@ import { useUiStore } from '../../stores/ui'
 import { useDocStore } from '../../stores/doc'
 import { getConfig, renameBook } from '../../api/books'
 import { friendlyError } from '../../shared/error'
+import { parseNumericInput } from '../../shared/numeric-input'
 import { usePrefsStore } from '../../stores/prefs'
 import SettingsBookWriting from './SettingsBookWriting.vue'
 import SettingsBookAnalysis from './SettingsBookAnalysis.vue'
@@ -47,6 +48,20 @@ function onPfwInput(v: number): void {
 function onAsInput(v: number): void {
   prefs.bookAutosaveInterval = v
   prefs.apply()
+}
+// R75-6：书级 num-input（range 配套数字输入）改共享 helper + 组件层钳制——此前
+// `Number('')===0` 穿透直写 prefs.bookPageWidth（store 的 bookOnly 分支无钳制），
+// apply() 落 `--page-width: 0px` 页宽当场塌掉；空串/非数字不写，合法值钳到滑杆
+// 同款 min/max（纸宽 600-1400、间隔 5-120）。R72-11 五处组件已接 helper，此处是唯一漏点
+function onPfwNumChange(e: Event): void {
+  const v = parseNumericInput(e)
+  if (v === null) return
+  onPfwInput(Math.min(1400, Math.max(600, v)))
+}
+function onAsNumChange(e: Event): void {
+  const v = parseNumericInput(e)
+  if (v === null) return
+  onAsInput(Math.min(120, Math.max(5, v)))
 }
 
 const hasDesktop = computed(() => typeof window !== 'undefined' && !!window.clwritingDesktop)
@@ -89,7 +104,21 @@ watch(
   { immediate: true },
 )
 
+// R76-36（二十四轮 E 域）：改名在途锁——改名是重操作（冲排 + 目录/登记/active 搬家 +
+// 事件库迁移），二连发（连点回车/双 change）时第二笔在第一笔进行中对旧名发起 renameBook，
+// 必然 404 或撞半途态（数据无损、体验受损）。在途直接吞掉：成功路径会 router.replace 到
+// 新名整树重挂，输入框随 watch 重载对齐，无需额外提示。
+let renaming = false
 async function onBookTitleChange(): Promise<void> {
+  if (renaming) return
+  renaming = true
+  try {
+    await doBookTitleChange()
+  } finally {
+    renaming = false
+  }
+}
+async function doBookTitleChange(): Promise<void> {
   const name = ws.bookName
   if (!name) return
   const next = bookTitle.value.trim()
@@ -176,7 +205,7 @@ async function onBookTitleChange(): Promise<void> {
           </div>
           <div class="setting-item-control">
             <input type="range" min="600" max="1400" step="20" :value="prefs.bookPageWidth ?? 1020" @input="onPfwInput(Number(($event.target as HTMLInputElement).value))" />
-            <input class="num-input" type="number" min="600" max="1400" step="20" :value="prefs.bookPageWidth ?? ''" aria-label="本书纸宽" @change="onPfwInput(Number(($event.target as HTMLInputElement).value))" />
+            <input class="num-input" type="number" min="600" max="1400" step="20" :value="prefs.bookPageWidth ?? ''" aria-label="本书纸宽" @change="onPfwNumChange($event)" />
             <span class="val-suffix">px</span>
           </div>
         </div>
@@ -200,7 +229,7 @@ async function onBookTitleChange(): Promise<void> {
           </div>
           <div class="setting-item-control">
             <input type="range" min="5" max="120" step="5" :value="prefs.bookAutosaveInterval ?? 30" @input="onAsInput(Number(($event.target as HTMLInputElement).value))" />
-            <input class="num-input" type="number" min="5" max="120" step="5" :value="prefs.bookAutosaveInterval ?? ''" aria-label="本书自动保存间隔" @change="onAsInput(Number(($event.target as HTMLInputElement).value))" />
+            <input class="num-input" type="number" min="5" max="120" step="5" :value="prefs.bookAutosaveInterval ?? ''" aria-label="本书自动保存间隔" @change="onAsNumChange($event)" />
             <span class="val-suffix">s</span>
           </div>
         </div>

@@ -8,6 +8,7 @@ import { X, BookOpen, LayoutGrid, List, Sun, Moon, Plus, Trash2, CheckSquare } f
 import { useShelf } from '../../composables/useShelf'
 import { useUiStore } from '../../stores/ui'
 import { useTheme } from '../../composables/useTheme'
+import { isImeComposing } from '../../shared/ime'
 import { useFocusTrap } from '../../composables/useFocusTrap'
 import ShelfGrid from './ShelfGrid.vue'
 import ShelfModalHero from '../shelf/ShelfModalHero.vue'
@@ -66,6 +67,9 @@ function openBook(name: string): void {
 
 // Esc 关闭（mask 点击已支持；键盘可达性补全）
 function onKeydown(e: KeyboardEvent): void {
+  // R75-E-P3e：IME 组合期 Esc 让渡（CommandPalette R61-3 先例）——搜索框收输入法
+  // 候选框的 Esc 不应关浮层/收批量（isComposing || keyCode 229 单源判据）
+  if (isImeComposing(e)) return
   if (e.key !== 'Escape') return
   // 本组件常驻挂载（WorkspaceShell 无 v-if）——只有实际消费（书架开或子态在）才
   // preventDefault；否则让 Esc 落到 useHotkeys（专注模式退出），同一按键不双效

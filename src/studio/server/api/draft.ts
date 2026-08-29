@@ -49,7 +49,7 @@ export function registerDraftRoutes(ctx: DraftCtx): void {
     const bookRoot = r.bookRoot
     let saved: ReturnType<typeof saveDraft>
     try {
-      saved = saveDraft(bookRoot, chapter, content)
+      saved = saveDraft(bookRoot, chapter, content, { userDataPath: ctx.userDataPath })
       // 文风改稿轨迹（P1-ARCH-1：从 saveDraft 内部提取到调用方，消除 process→ai 向上依赖）
       recordAuthorSignal(bookRoot, saved.docId, content, 'draft-save', ctx.userDataPath ?? undefined)
       recordAiVersion(bookRoot, saved.docId, content)

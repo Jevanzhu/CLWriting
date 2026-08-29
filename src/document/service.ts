@@ -69,7 +69,17 @@ export function isUtf8Bytes(buf: Buffer): boolean {
 const NON_UTF8_SAVE_REJECT = {
   ok: false as const,
   code: 'WRITE_ERROR' as const,
-  reason: '检测到非 UTF-8 文件（保存内容含 U+FFFD 替换字符且原文件不是合法 UTF-8）：可能是编辑器以错误编码打开了本文件，为防乱码覆盖原文已拒绝保存——请先将文件转为 UTF-8 再编辑',
+  reason: '目标文件不是合法 UTF-8（可能是编辑器以错误编码打开本文件，或外部工具写入了 GBK 等编码）：为防原始内容被乱码覆盖后不可恢复，已拒绝保存——请先将文件转为 UTF-8 再编辑',
+}
+
+/** R76-1（二十四轮）：元数据 PATCH 双路径（updateChapterMeta/updateDocMeta）的跨进程
+ *  保存锁等待（毫秒）——与 executeSave 的 5s 同档；测试注入缩短保快（生产零调用），
+ *  同 draft-pipeline DRAFT_SAVE_LOCK_TIMEOUT_MS 惯例。 */
+export let META_SAVE_LOCK_TIMEOUT_MS = 5_000
+
+/** 测试注入钩子（生产零调用）。 */
+export function __setMetaSaveLockTimeoutForTest(ms: number): void {
+  META_SAVE_LOCK_TIMEOUT_MS = ms
 }
 
 /** 保存输入（W0-1 §5.1）。 */
@@ -301,6 +311,28 @@ export class DocumentService {
       })
     }
     try {
+      // R76-22（二十四轮 C 域）：锁内复核——路径登记/回收站认领守卫原先只在取锁前判
+      // 一次，5s 等锁窗口内他进程 doTrash/doMoveOrRename 后，出队保存仍按旧世界落盘
+      //（旧路径复活已删文件/写错位，内容重复非丢失、低危）。取锁后重判把窗口收窄到
+      // 复核→写盘的毫秒级；结构性操作不持 save 锁，残余窗口如实记档。
+      const registeredNow = this.lookupPathByDocId(docId)
+      if (registeredNow !== null && registeredNow !== relPath) {
+        return Promise.resolve({
+          ok: false,
+          code: 'REVISION_CONFLICT',
+          reason: `文档已移动或重命名（现路径 ${registeredNow}），本次保存目标 ${relPath} 已失效，请刷新后重试`,
+        })
+      }
+      if (
+        readTrashManifest(this.bookRoot).some((t) => t.id === docId) &&
+        (registeredNow === null || !existsSync(absPath))
+      ) {
+        return Promise.resolve({
+          ok: false,
+          code: 'REVISION_CONFLICT',
+          reason: '文档已删除（在回收站中），拒绝在原路径复活文件；如需恢复请从回收站还原',
+        })
+      }
       // 步骤 2：revision 校验（串行内执行，保证并发一致）
       const existing = existsSync(absPath)
       const currentRev: Revision = existing ? computeRevision(absPath) : null
@@ -315,7 +347,11 @@ export class DocumentService {
       // 盘上字节不是合法 UTF-8（fatal 解码探测）时拒绝：GBK 文件被错误编码打开后 autosave
       // 把乱码原子覆盖回原文件，设定/大纲等非 chapter 文档无快照兜底（maybeSnapshot 只留
       // 底章），原始字节永久丢失。盘上为合法 UTF-8 时放行（含真实 � 字符的普通编辑）。
-      if (existing && input.content.includes('\uFFFD') && !isUtf8Bytes(readFileSync(absPath))) {
+      // R75-3（二十三轮）：条件缺口收口——原仅拦「新内容含 U+FFFD 且盘上非 UTF-8」，
+      // 新内容干净时静默放行覆写，而 maybeSnapshot 以 utf-8 读盘留底的是失真快照（假
+      // 留底，覆写后原字节任何形式不可恢复）。对齐 draft-pipeline R66-1 / lead-finalize
+      // M-9 的无条件口径：盘上非 UTF-8 一律拒绝，先转码再保存。
+      if (existing && !isUtf8Bytes(readFileSync(absPath))) {
         return Promise.resolve(NON_UTF8_SAVE_REJECT)
       }
 
@@ -347,7 +383,16 @@ export class DocumentService {
         // 步骤 8：新 revision
         const newRev = computeRevision(absPath)
         // 步骤 9：条件性更新清单（书已有清单才更新；保存不建清单，W0-1 §4.2）
-        this.maybeUpdateManifest(docId, relPath)
+        // R75-4（二十三轮）：清单刷新转 best-effort——此时文件已原子落盘，清单只是可
+        // 重建索引（树扫盘/repairBooks 自愈收编）；此前它抛（清单锁超时/磁盘满）会落
+        // 进下方 catch：journal 误记 aborted + 返回 WRITE_ERROR——保存实际成功却报失
+        // 败（编辑器误报、重试撞 REVISION_CONFLICT）。对齐 appendWordsDelta 的 P2-BE-4
+        // 口径：warn 留痕后照常 settled + 返回成功。
+        try {
+          this.maybeUpdateManifest(docId, relPath)
+        } catch (e) {
+          log.warn('document', `保存后清单刷新失败（${relPath}，树扫描将自愈收编）：${e instanceof Error ? e.message : String(e)}`)
+        }
         // 步骤 10：journal settled
         appendSettled(journalPath, opId, newRev)
         // P2-BE-4：字数增量 best-effort（settled 后失败不影响保存结果——否则文件已落盘但返回 WRITE_ERROR 误报失败）
@@ -388,8 +433,13 @@ export class DocumentService {
     let reason: string | undefined
     if (input.origin === 'restore' || input.origin === 'external-merge') {
       reason = `${input.origin} 覆盖前留底`
-    } else if (existsSync(absPath) && layoutOf(relPath).role === 'chapter' && input.expectedRevision !== null) {
-      reason = '定稿章修改前留底（§6）'
+    } else if (existsSync(absPath) && input.expectedRevision !== null) {
+      // R76-2（二十四轮 C 域）：非章节文档补留底——README 宣称「保存前自动留快照」，
+      // 此前仅章节（+restore/merge 覆盖）留底，设定/大纲/布线/关系线的普通保存零快照：
+      // journal pending 只含新内容，settled+compact 后旧内容零副本，误存/外部删除无底
+      // 可回。非章节与章节同口径：同 origin 节流（5 分钟窗）+ 分层保留 + maxCount/maxDays
+      // 策略约束磁盘增量（高频 autosave 至多 5 分钟一版、每文档封顶 maxCount）。
+      reason = layoutOf(relPath).role === 'chapter' ? '定稿章修改前留底（§6）' : '修改前留底（R76-2）'
     }
     if (!reason) return
     // P5-数据层（第七轮）：restore/external-merge 到尚不存在的文件（expectedRevision=null
@@ -501,80 +551,98 @@ export class DocumentService {
     if (!layoutOf(path).capabilities.write) {
       return { ok: false, code: 'CAPABILITY_DENIED', reason: '该文档只读，不可改元数据' }
     }
-    const r = readDoc(abs)
-    if (!r.ok) return { ok: false, code: 'WRITE_ERROR', reason: `元数据读取失败：${r.error.message}` }
-    // 第五轮：非 UTF-8（GBK 等）防线——utf-8 读入产生 U+FFFD 替换符，元数据写回会把
-    // 乱码正文原子覆盖回原文件，原始字节永久丢失（本路径无快照留底，用户没碰正文却
-    // 被「盲改」）。检出即拒绝，先转码再改。
-    // 低级项（第六轮）：判据从「body 含 U+FFFD」升级为「盘上字节非合法 UTF-8」（fatal
-    // 解码探测，与 save 主路径 M-5 同口径）——原判据对 fm 区（GBK 标题等）是盲区，且 fm
-    // 往返依赖 parse/stringify 非无损；盘上合法 UTF-8 时读出的 FFFD 是用户自粘内容，
-    // body 原样透传不构成损坏。
-    if (!isUtf8Bytes(readFileSync(abs))) return NON_UTF8_REJECT
-    const map = parseFlat(r.fmRaw)
-    if (meta.标题 !== undefined) map.set('标题', meta.标题)
-    // piece-body / chapter 统一写「章号」字段
-    // 缓存 isPieceBody 结果（一次 readBookConfig，避免同方法内两次磁盘读）
-    const isPiece = isPieceBody(path, this.bookRoot)
-    if (meta.章号 !== undefined) map.set('章号', meta.章号)
-    // R65-1（十三轮）：写侧改文本级补丁——parseFlat→stringifyFlat 整体重排会把手写
-    // 嵌套段/块标量变体压平（同 updateDocMeta 的境界体系问题），补丁只换目标键行
-    const fmUpdates: Record<string, unknown> = {}
-    if (meta.标题 !== undefined) fmUpdates['标题'] = meta.标题
-    if (meta.章号 !== undefined) fmUpdates['章号'] = meta.章号
-    const patched = patchFlatFm(r.fmRaw, fmUpdates)
-    if (!patched.ok) return { ok: false, code: 'BAD_INPUT', reason: patched.reason }
-    try {
-      // 元数据写入走原子写（P1-6A：防 writeFileSync 半截损坏不可恢复）
-      atomicWriteFile(abs, joinFrontMatter(patched.text, r.body), { fsync: true })
-    } catch (e) {
-      return { ok: false, code: 'WRITE_ERROR', reason: `元数据写入失败：${errMsg(e)}` }
+    // R76-1（二十四轮 C 域）：保存协议收口——本路径 read→patch→写回原先全程不持
+    // per-doc save 锁，GUI(dev:app) 与 dev:api 双进程同书时：进程 A executeSave 刚落盘
+    // 的新正文 C2，会被进程 B 在此路径读到的旧正文 C1 以「新 fm + 旧正文」整篇覆盖回去
+    //（B 的 read→write 毫秒窗），终态 C2 永久不可恢复（本路径又无快照留底）。取与
+    // executeSave 同款跨进程保存锁（`<journal>.save.lock`，5s fail-closed，拿不到=
+    // 未执行可重试，不降级裸写）。锁覆盖到尾部 doMoveOrRename：其内部嵌套拿
+    // manifest/journal 锁，方向与 executeSave 内 maybeUpdateManifest 相同（单向无环）；
+    // 同进程同 docId 不会自锁（executeSave 锁内临界段全同步，JS 单线程不与本同步方法
+    // 交错；doMoveOrRename 不取 save 锁）。
+    const journalPath = join(this.journalDir, `${encodeDocDirName(docId)}.jsonl`)
+    const docSaveLock = acquireCrossProcessLockWithTimeout(`${journalPath}.save.lock`, META_SAVE_LOCK_TIMEOUT_MS)
+    if (!docSaveLock) {
+      return { ok: false, code: 'WRITE_ERROR', reason: '元数据保存等待超时：另一进程正在保存此文档（5 秒未让出），请重试' }
     }
-    // R71-22（十九轮）：标题三级回落——显式传标题（meta.标题）→ fm 标题 → 现有文件名
-    // 标题段（剥章号数字前缀与 .md）。此前章号-only PATCH 且 fm 缺标题时直落「未命名」，
-    // 作者手建的 `0001-我的章节.md` 改一次章号就被静默改成 `000N-未命名.md`（用户自选
-    // 标题丢失）。X-P3a「未命名」兜底语义保留给显式传空标题的编辑路径；回落链产物
-    // 非空（文件名无标题段时退回旧行为）。
-    const explicitTitle = meta.标题 !== undefined ? String(map.get('标题') ?? '') : null
-    const 标题 =
-      explicitTitle !== null
-        ? explicitTitle
-        : String(map.get('标题') ?? '') || (basename(path).match(/^(?:\d+-)?(.+)\.md$/)?.[1] ?? '')
-    invalidateTreeIndex(this.bookRoot, true)
+    try {
+      const r = readDoc(abs)
+      if (!r.ok) return { ok: false, code: 'WRITE_ERROR', reason: `元数据读取失败：${r.error.message}` }
+      // 第五轮：非 UTF-8（GBK 等）防线——utf-8 读入产生 U+FFFD 替换符，元数据写回会把
+      // 乱码正文原子覆盖回原文件，原始字节永久丢失（本路径无快照留底，用户没碰正文却
+      // 被「盲改」）。检出即拒绝，先转码再改。
+      // 低级项（第六轮）：判据从「body 含 U+FFFD」升级为「盘上字节非合法 UTF-8」（fatal
+      // 解码探测，与 save 主路径 M-5 同口径）——原判据对 fm 区（GBK 标题等）是盲区，且 fm
+      // 往返依赖 parse/stringify 非无损；盘上合法 UTF-8 时读出的 FFFD 是用户自粘内容，
+      // body 原样透传不构成损坏。
+      if (!isUtf8Bytes(readFileSync(abs))) return NON_UTF8_REJECT
+      const map = parseFlat(r.fmRaw)
+      if (meta.标题 !== undefined) map.set('标题', meta.标题)
+      // piece-body / chapter 统一写「章号」字段
+      // 缓存 isPieceBody 结果（一次 readBookConfig，避免同方法内两次磁盘读）
+      const isPiece = isPieceBody(path, this.bookRoot)
+      if (meta.章号 !== undefined) map.set('章号', meta.章号)
+      // R65-1（十三轮）：写侧改文本级补丁——parseFlat→stringifyFlat 整体重排会把手写
+      // 嵌套段/块标量变体压平（同 updateDocMeta 的境界体系问题），补丁只换目标键行
+      const fmUpdates: Record<string, unknown> = {}
+      if (meta.标题 !== undefined) fmUpdates['标题'] = meta.标题
+      if (meta.章号 !== undefined) fmUpdates['章号'] = meta.章号
+      const patched = patchFlatFm(r.fmRaw, fmUpdates)
+      if (!patched.ok) return { ok: false, code: 'BAD_INPUT', reason: patched.reason }
+      try {
+        // 元数据写入走原子写（P1-6A：防 writeFileSync 半截损坏不可恢复）
+        atomicWriteFile(abs, joinFrontMatter(patched.text, r.body), { fsync: true })
+      } catch (e) {
+        return { ok: false, code: 'WRITE_ERROR', reason: `元数据写入失败：${errMsg(e)}` }
+      }
+      // R71-22（十九轮）：标题三级回落——显式传标题（meta.标题）→ fm 标题 → 现有文件名
+      // 标题段（剥章号数字前缀与 .md）。此前章号-only PATCH 且 fm 缺标题时直落「未命名」，
+      // 作者手建的 `0001-我的章节.md` 改一次章号就被静默改成 `000N-未命名.md`（用户自选
+      // 标题丢失）。X-P3a「未命名」兜底语义保留给显式传空标题的编辑路径；回落链产物
+      // 非空（文件名无标题段时退回旧行为）。
+      const explicitTitle = meta.标题 !== undefined ? String(map.get('标题') ?? '') : null
+      const 标题 =
+        explicitTitle !== null
+          ? explicitTitle
+          : String(map.get('标题') ?? '') || (basename(path).match(/^(?:\d+-)?(.+)\.md$/)?.[1] ?? '')
+      invalidateTreeIndex(this.bookRoot, true)
 
-    if (isPiece) {
-      // 短篇：rename 文件名（章号3位-标题.md）+ 同步章纲同名文件
+      if (isPiece) {
+        // 短篇：rename 文件名（章号3位-标题.md）+ 同步章纲同名文件
+        const no = normalizeChapterNo(map.get('章号'))
+        const numPrefix =
+          no !== null
+            ? chapterFilePrefix(no, 'piece')
+            : (basename(path).match(/^(\d+-)/)?.[1] ?? '')
+        // X-P3a：标题缺失/空白时兜底「未命名」——否则文件名劣化成 `001-.md`
+        // B-3（第六十轮）：消毒走 sanitizeChapterTitle 单源（控制字符含 \n / Windows
+        // 非法字符 :*?"<>| / 码位 60/字节 120 双封顶）——此前仅替换 \\ / 两字符，
+        // 「改标题→重命名」路径消毒族口径漂移（同族 draft.ts 新建章、style-entry Y-27 已单源）
+        const safeTitle = sanitizeChapterTitle(标题) || '未命名'
+        const newName = `${numPrefix}${safeTitle}.md`
+        if (basename(path) !== newName) {
+          const result = this.doMoveOrRename(docId, { kind: 'rename', newName })
+          if (result.ok) this.syncRenamePieceList(path, newName)
+          else this.rollbackMetaOnRenameFail(abs, r)
+          return result
+        }
+        return { ok: true, docId, path }
+      }
+
+      // 长篇 chapter：文件名按 章号4位-标题.md（B-3：消毒同 piece 分支单源口径）
       const no = normalizeChapterNo(map.get('章号'))
-      const numPrefix =
-        no !== null
-          ? chapterFilePrefix(no, 'piece')
-          : (basename(path).match(/^(\d+-)/)?.[1] ?? '')
-      // X-P3a：标题缺失/空白时兜底「未命名」——否则文件名劣化成 `001-.md`
-      // B-3（第六十轮）：消毒走 sanitizeChapterTitle 单源（控制字符含 \n / Windows
-      // 非法字符 :*?"<>| / 码位 60/字节 120 双封顶）——此前仅替换 \\ / 两字符，
-      // 「改标题→重命名」路径消毒族口径漂移（同族 draft.ts 新建章、style-entry Y-27 已单源）
       const safeTitle = sanitizeChapterTitle(标题) || '未命名'
-      const newName = `${numPrefix}${safeTitle}.md`
+      const newName =
+        no !== null ? `${chapterFilePrefix(no, 'chapter')}${safeTitle}.md` : basename(path)
       if (basename(path) !== newName) {
         const result = this.doMoveOrRename(docId, { kind: 'rename', newName })
-        if (result.ok) this.syncRenamePieceList(path, newName)
-        else this.rollbackMetaOnRenameFail(abs, r)
+        if (!result.ok) this.rollbackMetaOnRenameFail(abs, r)
         return result
       }
       return { ok: true, docId, path }
+    } finally {
+      docSaveLock()
     }
-
-    // 长篇 chapter：文件名按 章号4位-标题.md（B-3：消毒同 piece 分支单源口径）
-    const no = normalizeChapterNo(map.get('章号'))
-    const safeTitle = sanitizeChapterTitle(标题) || '未命名'
-    const newName =
-      no !== null ? `${chapterFilePrefix(no, 'chapter')}${safeTitle}.md` : basename(path)
-    if (basename(path) !== newName) {
-      const result = this.doMoveOrRename(docId, { kind: 'rename', newName })
-      if (!result.ok) this.rollbackMetaOnRenameFail(abs, r)
-      return result
-    }
-    return { ok: true, docId, path }
   }
 
   /** M-2（第十一轮）：updateChapterMeta rename 失败回写旧 fm——两步非原子（先原子写 fm
@@ -643,42 +711,56 @@ export class DocumentService {
     if (!layoutOf(path).capabilities.write) {
       return { ok: false, code: 'CAPABILITY_DENIED', reason: '该文档只读，不可改元数据' }
     }
-    // R73-40（二十一轮）：两次独立 readFileSync 收敛为单次读（finalize.ts R72-5 单读
-    // 同源先例）——「utf-8 读文本」与「字节级 UTF-8 判据」原先各读一次盘，两读之间文件
-    // 被并发替换（他进程保存/改名）时判据与写回内容错源（微 TOCTOU）。Buffer 一读，
-    // 判据与写回同源派生。
-    let raw: string
+    // R76-1（二十四轮 C 域）：保存协议收口——同 updateChapterMeta，本路径 read→patch→
+    // 写回原先不持 per-doc save 锁，双进程同书时他进程 executeSave 的新正文会被本路径
+    // 的「旧正文+新 fm」覆盖回去（跨进程丢正文窗）。取 executeSave 同款跨进程保存锁
+    //（5s fail-closed）；锁内无嵌套锁获取（纯 read/patch/write），与 executeSave 的
+    // save→journal/manifest 单向序无环。
+    const journalPath = join(this.journalDir, `${encodeDocDirName(docId)}.jsonl`)
+    const docSaveLock = acquireCrossProcessLockWithTimeout(`${journalPath}.save.lock`, META_SAVE_LOCK_TIMEOUT_MS)
+    if (!docSaveLock) {
+      return { ok: false, code: 'WRITE_ERROR', reason: '元数据保存等待超时：另一进程正在保存此文档（5 秒未让出），请重试' }
+    }
     try {
-      const buf = readFileSync(abs)
-      // 非 UTF-8 防线（第五轮引入；DA-1·第七轮升级字节级判据，同 updateChapterMeta 口径）——
-      // 原字符串 FFFD 判据有 fm 区 GBK 盲区：部分 GBK 双字节对恰好构成合法 UTF-8，读入
-      // 无 U+FFFD 即放行，fm 往返把乱码原子覆盖回原文件，原始字节永久丢失
-      if (!isUtf8Bytes(buf)) return NON_UTF8_REJECT
-      raw = buf.toString('utf-8')
-    } catch (e) {
-      return { ok: false, code: 'WRITE_ERROR', reason: `元数据读取失败：${errMsg(e)}` }
+      // R73-40（二十一轮）：两次独立 readFileSync 收敛为单次读（finalize.ts R72-5 单读
+      // 同源先例）——「utf-8 读文本」与「字节级 UTF-8 判据」原先各读一次盘，两读之间文件
+      // 被并发替换（他进程保存/改名）时判据与写回内容错源（微 TOCTOU）。Buffer 一读，
+      // 判据与写回同源派生。
+      let raw: string
+      try {
+        const buf = readFileSync(abs)
+        // 非 UTF-8 防线（第五轮引入；DA-1·第七轮升级字节级判据，同 updateChapterMeta 口径）——
+        // 原字符串 FFFD 判据有 fm 区 GBK 盲区：部分 GBK 双字节对恰好构成合法 UTF-8，读入
+        // 无 U+FFFD 即放行，fm 往返把乱码原子覆盖回原文件，原始字节永久丢失
+        if (!isUtf8Bytes(buf)) return NON_UTF8_REJECT
+        raw = buf.toString('utf-8')
+      } catch (e) {
+        return { ok: false, code: 'WRITE_ERROR', reason: `元数据读取失败：${errMsg(e)}` }
+      }
+      // 容错：裸 md 无 fm（旧书卷纲/总纲）→ 整体当 body，新建 fm
+      const split = splitFrontMatter(raw)
+      const body = split ? split.body : raw
+      // R65-1（十三轮）：写侧改文本级补丁——parseFlat→stringifyFlat 整体重排会摧毁
+      // fm 内唯一嵌套结构（设定/境界体系.md 的 体系:/- 名称:/序列: 被压平成伪平铺键
+      // 且同名键互相覆盖，回写后 parseRealmSystems 永远解析失败 → 成长线机检静默失明，
+      // 多体系时仅最后一组内容存活）。补丁只换目标键行，其余行逐字节保留；目标键自带
+      // 嵌套子行时 fail-loud 拒绝。
+      const fmUpdates: Record<string, unknown> = {}
+      for (const [k, v] of Object.entries(meta)) {
+        if (v !== undefined) fmUpdates[k] = v
+      }
+      const patched = patchFlatFm(split ? split.fmRaw : '', fmUpdates)
+      if (!patched.ok) return { ok: false, code: 'BAD_INPUT', reason: patched.reason }
+      try {
+        atomicWriteFile(abs, joinFrontMatter(patched.text, body), { fsync: true })
+      } catch (e) {
+        return { ok: false, code: 'WRITE_ERROR', reason: `元数据写入失败：${errMsg(e)}` }
+      }
+      invalidateTreeIndex(this.bookRoot, true)
+      return { ok: true, docId, path }
+    } finally {
+      docSaveLock()
     }
-    // 容错：裸 md 无 fm（旧书卷纲/总纲）→ 整体当 body，新建 fm
-    const split = splitFrontMatter(raw)
-    const body = split ? split.body : raw
-    // R65-1（十三轮）：写侧改文本级补丁——parseFlat→stringifyFlat 整体重排会摧毁
-    // fm 内唯一嵌套结构（设定/境界体系.md 的 体系:/- 名称:/序列: 被压平成伪平铺键
-    // 且同名键互相覆盖，回写后 parseRealmSystems 永远解析失败 → 成长线机检静默失明，
-    // 多体系时仅最后一组内容存活）。补丁只换目标键行，其余行逐字节保留；目标键自带
-    // 嵌套子行时 fail-loud 拒绝。
-    const fmUpdates: Record<string, unknown> = {}
-    for (const [k, v] of Object.entries(meta)) {
-      if (v !== undefined) fmUpdates[k] = v
-    }
-    const patched = patchFlatFm(split ? split.fmRaw : '', fmUpdates)
-    if (!patched.ok) return { ok: false, code: 'BAD_INPUT', reason: patched.reason }
-    try {
-      atomicWriteFile(abs, joinFrontMatter(patched.text, body), { fsync: true })
-    } catch (e) {
-      return { ok: false, code: 'WRITE_ERROR', reason: `元数据写入失败：${errMsg(e)}` }
-    }
-    invalidateTreeIndex(this.bookRoot, true)
-    return { ok: true, docId, path }
   }
 
   /** move/rename 共用：查清单 oldPath → 算 newPath → 能力校验 → snapshot → rename → 清单更新。 */

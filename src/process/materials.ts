@@ -89,6 +89,9 @@ export interface PrepareMaterialsOptions {
   sampleScene?: string | string[]
   /** 召回 topK（默认 5） */
   topK?: number
+  /** R76-5（二十四轮 A 域）：编排级中断信号（Z-P1-1 同款）——内部补漏 LLM 调用
+   *  （selfHealRecentChapterSummaries/selfHealVolumeSummary）透传收口，中断即时生效。 */
+  signal?: AbortSignal
   /** 可选：注入 embed 函数（测试用桩，默认调真实 embed）—— 与 buildIndex/recall 对齐 */
   embedFn?: typeof embed
 }
@@ -158,12 +161,12 @@ export async function prepareMaterials(
   let summaryGenerated: string[] = []
   if (opts.chapter !== undefined) {
     try {
-      summaryGenerated = await selfHealRecentChapterSummaries(bookRoot, opts.userDataPath ?? null, config, opts.chapter)
+      summaryGenerated = await selfHealRecentChapterSummaries(bookRoot, opts.userDataPath ?? null, config, opts.chapter, opts.signal)
     } catch { /* 补漏失败静默降级——prepare 无该段照常组装 */ }
     // C2（批 3）：上一卷摘要缺失且章摘要链完整 → 按需生成（链不全不强行，留痕降级）。
     // 卷摘要手写优先（文件存在即跳过）；prepare 直接读文件，无需 rebuild
     try {
-      const vol = await selfHealVolumeSummary(bookRoot, opts.userDataPath ?? null, config, opts.chapter)
+      const vol = await selfHealVolumeSummary(bookRoot, opts.userDataPath ?? null, config, opts.chapter, opts.signal)
       if (vol) summaryGenerated.push(vol)
     } catch { /* 同上：备料降级 */ }
   }

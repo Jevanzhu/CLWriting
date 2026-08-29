@@ -19,6 +19,7 @@ import { atomicWriteFile } from '../fs/atomic.js'
 import { resolveWithinRoot, safeDocId } from '../fs/safe-path.js'
 import { readManifest, writeManifest, upsertEntry, withManifestLock, type ManifestEntry } from './manifest.js'
 import { VERSIONS_DIR_NAME, encodeDocDirName } from './version.js'
+import { queryLockHeld } from '../fs/cross-process-lock.js'
 import { analysisPathCandidates } from './analysis.js'
 import { type DocumentRole } from './layout.js'
 import { invalidateTreeIndex } from './tree.js'
@@ -308,6 +309,20 @@ export function purgeTrash(bookRoot: string, id: string): PurgeResult {
       for (const name of names) {
         const journalFile = safePathWithin(bookRoot, `工作区/.journal/${name}.jsonl`)
         if (journalFile && existsSync(journalFile)) rmSync(journalFile, { force: true })
+        // R76-27（二十四轮 C 域）：同名锁残留连删（best-effort）——purge 删 journal 但留
+        // `<journal>.save.lock`/`<journal>.lock`，文档已永久删、该锁再无获取者，孤儿锁
+        // 永久堆积。在持（他进程恰在写该 doc）则跳过——删在持锁 = 互斥失效；残留留给
+        // 下次 purge 或 healthCheck 的陈锁清扫（atomic.ts sweepAbandonedTmpFiles）。
+        for (const suffix of ['.save.lock', '.lock']) {
+          const lockResidue = journalFile ? `${journalFile}${suffix}` : null
+          if (!lockResidue || !existsSync(lockResidue)) continue
+          if (queryLockHeld(lockResidue)) continue
+          try {
+            rmSync(lockResidue, { force: true })
+          } catch {
+            /* 占用等跳过 */
+          }
+        }
       }
     }
   } catch (e) {

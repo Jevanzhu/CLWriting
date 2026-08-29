@@ -79,6 +79,57 @@ describe('F1-P2 runTask 链事件', () => {
     expect(end).toMatchObject({ task: 'chat', layer: 'chat', reason: 'completed' })
   })
 
+  // R75-A-P3a（批 A）：resolveProvider 失败路径的 llm/call 带模型身份——此前 model:''
+  // 使 trace-stats/cost-stats 按 model 聚合落空桶。供应商已解析到 → provider:<id>；
+  // 连供应商都没解析到 → tier:<kind>（model 拿不到时至少带 provider id 或 tier 名）。
+  it('R75-A-P3a: 取 provider 失败 → llm/call.model 带可得身份（provider id / tier 名），不再空串', async () => {
+    // NO_MODEL：供应商在、档位模型空（currentModel 也空）→ modelHint = provider:prov-test
+    const ud = tempUserData()
+    writeFileSync(
+      join(ud, 'providers.json'),
+      JSON.stringify({
+        providers: [
+          {
+            id: 'prov-test',
+            name: 'test',
+            protocol: 'openai',
+            auth: 'bearer',
+            baseUrl: 'http://localhost:1',
+            apiKey: 'sk-test',
+            caps: { connected: true, streaming: true },
+          },
+        ],
+        currentId: 'prov-test',
+        currentModel: '',
+      }),
+    )
+    const root = tempBookRoot()
+    const out = await runTask<string>({
+      userDataPath: ud,
+      bookRoot: root,
+      task: 'chat',
+      run: () => Promise.resolve('never'), // provider 解析即失败，不应触达 run
+    })
+    expect(out).toMatchObject({ ok: false, code: 'NO_MODEL' })
+    const call = readChainEvents(ud, root).find((e) => e.type === 'llm/call')!.data as Record<string, unknown>
+    expect(call['model']).toBe('provider:prov-test')
+    expect(call['ok']).toBe(false)
+
+    // NO_PROVIDER：无 providers.json（连供应商都没解析到）→ 回落档位名 tier:creative
+    const ud2 = tempUserData()
+    const root2 = tempBookRoot()
+    const out2 = await runTask<string>({
+      userDataPath: ud2,
+      bookRoot: root2,
+      task: 'chat',
+      run: () => Promise.resolve('never'),
+    })
+    expect(out2).toMatchObject({ ok: false, code: 'NO_PROVIDER' })
+    const call2 = readChainEvents(ud2, root2).find((e) => e.type === 'llm/call')!.data as Record<string, unknown>
+    expect(call2['model']).toBe('tier:creative')
+    expect(call2['errCode']).toBe('NO_PROVIDER')
+  })
+
   // I7（第十一轮）：resolve 解析值落 trace——llm/call 携带实际生效的 effort/timeoutMs
   // （档位显式值 + DEFAULT_TIMEOUT_MS 回落后的最终值），重放可精确重建（铁律②补全）
   it('I7: llm/call 携带 resolve 解析值 effort/timeoutMs（显式档位 + 默认回落）', async () => {

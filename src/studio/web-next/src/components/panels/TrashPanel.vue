@@ -74,6 +74,10 @@ async function purge(id: string): Promise<void> {
     await purgeTrash(book, id)
     if (props.bookName === book) await load()
   } catch (e) {
+    // R76-32（二十四轮 E 域）：purge 是 15s 级确认弹窗 + 网络往返，失败回填前复检书名——
+    // A 书的删除失败此前无复检直接覆盖 err.value，切到 B 书后整个面板显示成 A 书的错误态
+    //（restore 的 catch 已有同款复检 R73-65/R70-10，purge 漏挂）
+    if (props.bookName !== book) return
     err.value = friendlyError(e)
   }
 }

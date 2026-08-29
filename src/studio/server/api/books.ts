@@ -41,7 +41,7 @@ import { doInit } from '../../../install/init.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { computeBookSummary, invalidateBookSummary } from './progress.js'
 import { migrateBookSession, bookHash } from '../../../events/store.js'
-import { heldTaskGatesFor } from './task-gate.js'
+import { heldTaskGatesFor, crossProcessHeldTaskGatesFor } from './task-gate.js'
 import { isReviewRunningForBook } from './review.js'
 import { forgetRagBuildTask } from './rag.js'
 import { isSpawnRunning, forgetSseCount } from './stream.js'
@@ -51,6 +51,9 @@ import { forgetStyleScanCache } from './health.js'
 import { forgetOverviewCache } from './overview.js'
 import { forgetStyleCorpusCache } from './analysis.js'
 import { forgetLearnCache } from './knowledge.js'
+// R75-D-P3b（批 D）：/state 与 /tree-issues 两个书键 TTL 结果缓存同挂点收编
+import { forgetStateCache } from './state.js'
+import { forgetTreeIssuesCache } from './check.js'
 import { log } from '../../../log/index.js'
 
 /** R67-15：删书/改名共用的书键缓存清理（TTL 结果缓存四件——内存卫生，防删书后
@@ -60,6 +63,9 @@ function forgetBookKeyedCaches(bookRoot: string): void {
   forgetOverviewCache(bookRoot)
   forgetStyleCorpusCache(bookRoot)
   forgetLearnCache(bookRoot)
+  // R75-D-P3b：判态/树红点缓存同族清理
+  forgetStateCache(bookRoot)
+  forgetTreeIssuesCache(bookRoot)
 }
 
 interface BookCtx {
@@ -97,7 +103,11 @@ async function awaitOrchestrationsSettled(name: string): Promise<void> {
 function busyGate(name: string, verb: '删' | '改名'): { error: string } | null {
   if (isSpawnRunning(name)) return { error: `本书正在生成（手动写稿），先等它完成或中断后再${verb}` }
   if (isReviewRunningForBook(name)) return { error: `本书三审进行中，先等它完成后再${verb}` }
-  const held = heldTaskGatesFor(name)
+  // R75-5（批 D）：进程内 Set 与跨进程锁文件扫描合并去重——dev-api/脚本与 GUI 双进程
+  // 并存时，此前只查 heldTaskGatesFor（进程内）看不见进程 A 的分钟级任务闸，放行删/改
+  // 后任务收尾原子写在旧路径重建孤儿目录并白烧 API 费。跨进程侧陈锁（死 pid/超龄）由
+  // 锁原语语义剔除，不算在持；本进程闸两侧都会报（锁文件也在），去重防文案双报。
+  const held = [...new Set([...heldTaskGatesFor(name), ...crossProcessHeldTaskGatesFor(name)])]
   if (held.length > 0) return { error: `本书有任务在跑（${held.join('、')}），先等它完成或稍后再${verb}` }
   return null
 }

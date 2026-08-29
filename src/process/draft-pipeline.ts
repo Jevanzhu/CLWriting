@@ -20,7 +20,7 @@ import { pickStyleSamplesWithSources } from './style-samples.js'
 import type { BookConfig } from '../format/types.js'
 import { readManifest, upsertEntry, withManifestLock, writeManifest, type Manifest, type ManifestEntry } from '../document/manifest.js'
 import { readTrashManifest } from '../document/trash.js'
-import { writeSnapshot } from '../document/snapshot.js'
+import { writeSnapshot, readGlobalSnapshotPolicy, DEFAULT_SNAPSHOT_POLICY } from '../document/snapshot.js'
 import { legacyId } from '../document/stable-id.js'
 import { isUtf8Bytes } from '../document/service.js'
 import { invalidateTreeIndex } from '../document/tree.js'
@@ -54,6 +54,7 @@ export function snapshotBeforeOverwrite(
   newContent: string,
   origin = 'draft-overwrite',
   manifest?: Manifest,
+  userDataPath?: string | null,
 ): string | null {
   const absPath = join(bookRoot, relPath)
   if (!existsSync(absPath)) return null
@@ -77,7 +78,19 @@ export function snapshotBeforeOverwrite(
     }
   }
   if (!docId) docId = legacyId(relPath) // X-P2-2：与树扫盘/编辑器 openTab 同口径（basename 派生会造出第二身份）
-  return writeSnapshot(join(bookRoot, '工作区', '.版本'), docId, old, { origin }, { force: true })
+  // R76-26（二十四轮 C 域）：留底保留策略对齐编辑器保存链——此前不传 policy 落
+  // 硬编码默认（14 天/30 版），作者在 global.json 配的 snapMaxDays/snapMaxCount 只对
+  // service.ts maybeSnapshot 生效，两条留底路径的保留口径割裂（AI 覆写快照可能被更紧
+  // 的默认策略清掉）。force 语义保留（覆写前必留，不节流），仅 prune 边界统一走全局。
+  const global = readGlobalSnapshotPolicy(userDataPath ?? null)
+  return writeSnapshot(join(bookRoot, '工作区', '.版本'), docId, old, { origin }, {
+    force: true,
+    policy: {
+      maxDays: global.maxDays ?? DEFAULT_SNAPSHOT_POLICY.maxDays,
+      maxCount: global.maxCount ?? DEFAULT_SNAPSHOT_POLICY.maxCount,
+      throttleMinutes: DEFAULT_SNAPSHOT_POLICY.throttleMinutes,
+    },
+  })
 }
 
 /**
@@ -102,7 +115,7 @@ export function saveDraft(
   bookRoot: string,
   chapter: number,
   content: string,
-  opts?: { snapshotOrigin?: string },
+  opts?: { snapshotOrigin?: string; userDataPath?: string | null },
 ): { relPath: string; docId: string; words: number; snapshotted: boolean } {
   const { relPath } = resolveDraftPath(bookRoot, chapter, content)
   const absPath = join(bookRoot, relPath)
@@ -139,7 +152,7 @@ export function saveDraft(
   }
   try {
     // M1 覆写留底：已有文件且内容不同 → force 快照（作者手改不静默丢失；Y-3 IO 失败上抛）
-    const snapshotId = snapshotBeforeOverwrite(bookRoot, relPath, content, opts?.snapshotOrigin, manifest)
+    const snapshotId = snapshotBeforeOverwrite(bookRoot, relPath, content, opts?.snapshotOrigin, manifest, opts?.userDataPath)
     // 步骤 4（对齐 executeSave）：journal pending 先于写盘（含全文快照，防丢字）——
     // pending 记不上就不能继续写（RB-KN-P2-2 同口径，fail-closed 上抛，调用方已统一 catch）
     const existing = existsSync(absPath)

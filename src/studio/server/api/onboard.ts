@@ -140,7 +140,7 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
       // 成功经响应 snapshotted 字段留痕
       let snapshotted = false
       try {
-        snapshotted = snapshotBeforeOverwrite(bookRoot, relPath, content, 'onboard-ai-overwrite') !== null
+        snapshotted = snapshotBeforeOverwrite(bookRoot, relPath, content, 'onboard-ai-overwrite', undefined, ctx.userDataPath) !== null
       } catch (e) {
         log.warn('api', `onboard-ai 覆盖前快照失败（${step}，fail-open 继续落盘）`, e)
       }

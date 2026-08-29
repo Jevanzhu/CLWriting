@@ -8,7 +8,7 @@
  */
 import { describe, it, expect } from 'vitest'
 // @ts-expect-error —— .mjs 直跑脚本无类型声明（不为其维护 d.ts；断言口径靠用例锚定）
-import { stripComments, stripStrings, countE2eCases, findOnlyOrSkipViolations, sanitizeForCount, posixRelPath } from '../../scripts/check-counts.mjs'
+import { stripComments, stripStrings, countE2eCases, findOnlyOrSkipViolations, sanitizeForCount, posixRelPath, findAssertionFreeTestFiles, missingPageErrorWiring } from '../../scripts/check-counts.mjs'
 
 describe('J0（win 适配）：posixRelPath 分隔符归一化', () => {
   it('Windows 反斜杠绝对路径归一为 posix 相对路径——R66-37 快照守卫 win 假红根因', () => {
@@ -135,8 +135,67 @@ describe('R65-63（F-11）：sanitizeForCount 先清字符串后剥注释', () =
   it('.only/.skip 探测与两版净化的兼容锚（标题串占位为 ""）', () => {
     expect(findOnlyOrSkipViolations("it.skip('挂起的用例', () => {})")).toEqual({ only: 0, uncondSkip: 1 })
     expect(findOnlyOrSkipViolations("test.only('x', () => {})")).toEqual({ only: 1, uncondSkip: 0 })
-    // 协议双斜杠在旧/新口径下均不被误剥（[^:] 守卫 + 先空串双保险）
+    // 协议双斜线在旧/新口径下均不被误剥（[^:] 守卫 + 先空串双保险）
     const src = "const BASE = `http://127.0.0.1:${PORT}`\ntest('x', () => {})"
     expect(countE2eCases(src)).toBe(1)
+  })
+})
+
+describe('R76-40：空洞测试门（数断言不数声明）', () => {
+  it('正常测试文件（含 expect 调用）不命中', () => {
+    const entries = [{ relPath: 'test/a.test.ts', src: "it('x', () => { expect(1).toBe(1) })" }]
+    expect(findAssertionFreeTestFiles(entries)).toEqual([])
+  })
+
+  it('只声明用例零断言的空洞文件命中——剥注释/字符串后判定', () => {
+    // 用例体为空 / 断言只写进字符串或注释（样例文案）都不算真断言
+    const hollow = [
+      "describe('g', () => {",
+      "  it('空壳', () => {})",
+      "})",
+      "const doc = 'expect(1).toBe(1)'",
+      "// expect(x) 注释样例",
+    ].join('\n')
+    expect(findAssertionFreeTestFiles([{ relPath: 'test/hollow.test.ts', src: hollow }])).toEqual([
+      'test/hollow.test.ts',
+    ])
+  })
+
+  it('node:assert 形态（assert( / assert.equal(）同样认作断言面', () => {
+    expect(findAssertionFreeTestFiles([{ relPath: 'test/n.test.ts', src: 'assert.equal(1, 1)' }])).toEqual([])
+    expect(findAssertionFreeTestFiles([{ relPath: 'test/n2.test.ts', src: 'assert(true)' }])).toEqual([])
+  })
+})
+
+describe('R76-6：e2e pageerror 接线静态门', () => {
+  it('接了 attachPageErrorBaseline( 调用的 spec 不命中（import 行不带括号不算）', () => {
+    const wired = [
+      "import { attachPageErrorBaseline } from './page-error-baseline'",
+      "test('x', async ({ page }) => {",
+      "  attachPageErrorBaseline(page, 'x')",
+      "})",
+    ].join('\n')
+    expect(missingPageErrorWiring([{ relPath: 'test/e2e/x.spec.ts', src: wired }])).toEqual([])
+  })
+
+  it('未接线的 spec 命中——注释/字符串里的接线样例不算（sanitizeForCount 同源）', () => {
+    const unwired = [
+      "// 记得 attachPageErrorBaseline(page, 'x')",
+      "const s = 'attachPageErrorBaseline('",
+      "test('x', async ({ page }) => { await page.goto('/') })",
+    ].join('\n')
+    expect(missingPageErrorWiring([{ relPath: 'test/e2e/y.spec.ts', src: unwired }])).toEqual([
+      'test/e2e/y.spec.ts',
+    ])
+  })
+
+  it('豁免名单（无浏览器页面的 spec）跳过——显式登记制', () => {
+    const unwired = "test('x', () => {})"
+    expect(
+      missingPageErrorWiring(
+        [{ relPath: 'test/e2e/release-smoke.spec.ts', src: unwired }],
+        ['test/e2e/release-smoke.spec.ts'],
+      ),
+    ).toEqual([])
   })
 })

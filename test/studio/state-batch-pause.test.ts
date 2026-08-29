@@ -13,6 +13,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { startServer } from '../../src/studio/server/index.js'
+// R75-D-P3b（批 D）：/state 已有 5s TTL 结果缓存——本测验证「落暂停记录后立即可见」，
+// 注入 TTL=0 关缓存保住原即时语义（缓存三态由 r75-state-tree-issues-ttl.test.ts 覆盖）
+import { __setStateTtlForTest } from '../../src/studio/server/api/state.js'
 
 const BOOK = '暂停透传测试书'
 
@@ -45,6 +48,7 @@ function get(path: string): Promise<{ status: number; json: any }> {
 }
 
 beforeAll(async () => {
+  __setStateTtlForTest(0) // R75-D-P3b：关 TTL 缓存（it1→it2 落盘后需立即可见）
   workDir = mkdtempSync(join(tmpdir(), 'clw-kk14-'))
   mkdirSync(join(workDir, '.clwriting'), { recursive: true })
   writeFileSync(
@@ -67,6 +71,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  __setStateTtlForTest(null) // 恢复默认 TTL，避免污染同进程其它测试
   await new Promise<void>((r) => server?.close(() => r()))
   rmSync(workDir, { recursive: true, force: true })
 })

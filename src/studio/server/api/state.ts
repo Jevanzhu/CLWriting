@@ -11,7 +11,6 @@
  * （与 overview 喂 detectState 同一口径），态 5 卷末判定 / recap 卷号因此吃到生效值。
  * 失败不崩（500 + 错误）。
  */
-import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { defineRoute } from './schema.js'
 import { reply, replyError } from '../http.js'
@@ -29,15 +28,47 @@ interface StateCtx {
   userDataPath: string | null
 }
 
+// ── R75-D-P3b（批 D）：/state 结果 5s TTL 缓存 ─────────────────────────
+// detectState→routeState→buildRecap 每请求全量读盘（manifest + 布线 rebuild + 近况
+// 复述），工作台进页/轮询/反复刷新会反复重建。缓存口径对齐 health.ts styleScanCache
+//（书键 Map + FIFO 上限 + 纯 TTL）：写路径不挂即时失效挂点——保存/定稿后最迟 5s 自愈
+//（health.ts 先例同款，避免给每个写端点平添 forget 接线的过度设计）；书删除/改名的
+// 生命周期清理走 forgetStateCache（R67-15 forgetBookKeyedCaches 家族接线）。
+const stateCache = new Map<string, { payload: Record<string, unknown>; ts: number }>()
+/** R75-D-P3b：删书/改名失效挂点（books.ts forgetBookKeyedCaches 接线；TTL 5s 兜底自愈）。 */
+export function forgetStateCache(bookRoot: string): void {
+  stateCache.delete(bookRoot)
+}
+/** R75-D-P3b 回归观测钩子（先例同 health.ts __styleScanCacheHasForTest）——仅测试用。 */
+export function __stateCacheHasForTest(bookRoot: string): boolean {
+  return stateCache.has(bookRoot)
+}
+/** R75-D-P3b：TTL 测试注入口（先例同 health.ts __setStyleScanTtlForTest）——传 null
+ *  恢复默认。仅测试用，勿在生产路径调用。 */
+let stateTtlMs: number | null = null
+export function __setStateTtlForTest(ms: number | null): void {
+  stateTtlMs = ms
+}
+const STATE_TTL = 5000
+const STATE_CACHE_MAX = 32
+
 export function registerStateRoutes(ctx: StateCtx): void {
   defineRoute('books.state', {
     method: 'GET',
     path: '/api/books/:name/state',
-    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
+    handler: ({ params }, _req, res) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
 
     const bookRoot = r.bookRoot
+    // R75-D-P3b：命中短时缓存则跳过全量判态重建（payload 为纯数据可复用）
+    const now = Date.now()
+    const ttl = stateTtlMs ?? STATE_TTL // 测试注入优先
+    const cached = stateCache.get(bookRoot)
+    if (cached && now - cached.ts < ttl) {
+      reply(res, 200, cached.payload)
+      return
+    }
     try {
       // GG-P2-5：enter() 的等价展开（见文件头注释），差异仅在读出的 config 过
       // applyGlobalDefaults——态 5 卷末判定（currentChapter % volume_size）与 recap
@@ -57,7 +88,7 @@ export function registerStateRoutes(ctx: StateCtx): void {
       const d = detected
       const nextChapter =
         d.state === 7 ? d.nextChapter : d.state === 4 ? d.chapterNum : recap.nextChapter
-      reply(res, 200, {
+      const payload: Record<string, unknown> = {
         state: act.state,
         stateName: STATE_NAMES[act.state],
         humanMsg: act.humanMsg,
@@ -69,7 +100,15 @@ export function registerStateRoutes(ctx: StateCtx): void {
         // kk-P1-4：连写暂停元状态（M6 #34）透传——buildRecap 已产出但此前在响应组装处被
         // 丢弃，前端/AI 工具均零消费，「进书提示连写暂停在第 N 章」无任何用户可见出口
         ...(recap.batchPause ? { batchPause: recap.batchPause } : {}),
-      })
+      }
+      // R75-D-P3b：只缓存成功路径（错误响应不缓存——book.yaml 修复后下次即重算）；
+      // FIFO 淘汰同 health.ts（Map 保插入序，超上限丢最旧）
+      if (stateCache.size >= STATE_CACHE_MAX) {
+        const oldest = stateCache.keys().next().value
+        if (oldest !== undefined) stateCache.delete(oldest)
+      }
+      stateCache.set(bookRoot, { payload, ts: now })
+      reply(res, 200, payload)
     } catch (e) {
       // P2-4：API 错误脱敏——SDK 报错 message 可能含 API Key 痕迹
       replyError(res, 500, 'ERROR', redactSecret(e instanceof Error ? e.message : String(e)))

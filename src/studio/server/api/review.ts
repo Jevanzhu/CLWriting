@@ -26,7 +26,7 @@ import { resolveBook, resolveDocEntry } from '../book-context.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { getDriver, ensureSession } from '../../../driver/index.js'
-import { runCheckForDocument, checkOutcomeStatus } from './check.js'
+import { runCheckForDocument, checkOutcomeStatus, forgetTreeIssuesCache } from './check.js'
 import { buildReviewPacket, collectReviewIssues, COMBINED_ISSUES_FILE } from '../../../review/run.js'
 import type { ReviewLensPacket } from '../../../review/run.js'
 import type { ReviewTier } from '../../../review/contract.js'
@@ -296,6 +296,12 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
         sourceHash: latest?.sourceHash ?? existing?.sourceHash ?? sourceHashOf(body),
         payload,
       })
+      // R75-D-P3b 修正（批 F 收尾）：verdict 落盘即失效 /tree-issues 5s TTL 缓存——
+      // ReviewPanel 的 UI 契约是「裁决写完立即 loadIssues 刷新红点」，纯 TTL 自愈对
+      // 本端点不成立（无轮询兜底，写后首读恰命中缓存 → 驳回/通过的红点变化被吞到
+      // 下一次任意触发，e2e tree-issues 实证红）。这是树红点唯一的写侧来源，单点
+      // 挂 forget 不属于「给每个写端点平添接线」的过度设计（health.ts 先例的边界）。
+      forgetTreeIssuesCache(bookRoot)
       reply(res, 200, { ok: true, verdict: payload.verdict })
     },
   })

@@ -192,11 +192,14 @@ function registerDegradedCallbacks(userDataPath: string): void {
 /**
  * 解析当前供应商 provider（统一错误文案）。
  * `ok:false` 时 code 恒为 NO_USERDATA / NO_PROVIDER / NO_MODEL。
+ * R75-A-P3a（批 A）：失败结果附带 modelHint——解析中途已拿到的供应商身份
+ * （`provider:<id>`），供失败路径 trace 的 model 桶使用；连供应商都没解析到时缺省
+ * （调用方回落 tier 名），不伪造模型名。
  */
 export function resolveProvider(
   userDataPath: string | null,
   tierKind: 'creative' | 'assistant' | 'chat' = 'creative',
-): { ok: true; provider: ModelProvider; tier: TierSlot } | { ok: false; code: 'NO_USERDATA' | 'NO_PROVIDER' | 'NO_MODEL'; error: string } {
+): { ok: true; provider: ModelProvider; tier: TierSlot } | { ok: false; code: 'NO_USERDATA' | 'NO_PROVIDER' | 'NO_MODEL'; error: string; modelHint?: string } {
   if (!userDataPath) return { ok: false, code: 'NO_USERDATA', error: NO_USERDATA_MSG }
   // 注册降级记忆落盘回调（适配器只改内存 clone，落盘经 store 模块转发）。
   // O-6（第十三轮）：注册幂等化——同 userDataPath 只注册一次（此前每次 resolveProvider
@@ -221,10 +224,12 @@ export function resolveProvider(
     return { ok: false, code: 'NO_PROVIDER', error: `供应商配置读取失败：${e instanceof Error ? e.message : String(e)}` }
   }
   const conf = s.currentId ? (s.providers.find((p) => p.id === s.currentId) ?? null) : null
-  if (!conf) return { ok: false, code: 'NO_PROVIDER', error: NO_PROVIDER_MSG }
+  // R75-A-P3a：currentId 已知但条目缺失（指向已删供应商）→ 身份仍带上（可定位配置错在哪）
+  if (!conf) return { ok: false, code: 'NO_PROVIDER', error: NO_PROVIDER_MSG, ...(s.currentId ? { modelHint: `provider:${s.currentId}` } : {}) }
   // D 档：模型从任务档位取（creative/assistant），档位未配模型时回落 currentModel
   const tier = tierFromStore(s, tierKind)
-  if (!tier.model) return { ok: false, code: 'NO_MODEL', error: NO_MODEL_MSG }
+  // R75-A-P3a：NO_MODEL 时供应商已解析到——modelHint 带 provider id（tier.model 为空是失败本身）
+  if (!tier.model) return { ok: false, code: 'NO_MODEL', error: NO_MODEL_MSG, modelHint: `provider:${conf.id}` }
   // 表驱动重构（§6.3）：modelCaps 探测退役——能力由静态表判定；
   // store 传入适配器供降级记忆读写（§6.5）
   // dd-P2：createProvider 对存量坏 conf 会 throw（未知协议等——openai-responses
@@ -412,7 +417,11 @@ export async function runTask<T>(opts: {
 
   const r = resolveProvider(opts.userDataPath, tierKind)
   if (!r.ok) {
-    trace({ model: '', attempt: 0, stopReason: 'error', usage: null, ok: false, errCode: r.code })
+    // R75-A-P3a（批 A）：失败路径 trace 不再记空 model——trace-stats/cost-stats 按 model
+    // 聚合，'' 落空桶。model 拿不到时至少带可得身份：resolveProvider 已解析到供应商 →
+    // provider:<id>；连供应商都没解析到（NO_USERDATA/配置读取失败）→ 档位名 tier:<kind>
+    // （tierKind 虽已单列在事件里，model 聚合桶仍需非空可区分值）
+    trace({ model: r.modelHint ?? `tier:${tierKind}`, attempt: 0, stopReason: 'error', usage: null, ok: false, errCode: r.code })
     // P3-6：step/start 已落——失败路径也必须 step/end 收尾（防孤儿 step/start）
     stepReason = 'error'
     if (chain) {

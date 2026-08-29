@@ -363,14 +363,19 @@ function createSecureWindow(opts: BrowserWindowConstructorOptions): BrowserWindo
       : {}),
     ...opts,
     webPreferences: {
-      contextIsolation: true,
-      sandbox: true,
-      nodeIntegration: false,
       preload: join(here, 'preload.cjs'),
       // 资源项（非安全项）：纯中文写作应用，Hunspell 词典每渲染进程常驻几 MB
       // 且参与编辑器按键路径——默认开启属纯耗，随工厂一处收敛三窗。
       spellcheck: false,
       ...opts.webPreferences,
+      // R76-29（二十四轮 D 域）：安全标志置于 spread 之后——此前 contextIsolation/
+      // sandbox/nodeIntegration 排在 ...opts.webPreferences 前，调用方一旦传
+      // webPreferences（现三窗均未传，纯防未来）就能静默关掉隔离/沙箱，工厂名
+      // 「Secure」失实。三项不可让渡：任何调用方都不得以入参放宽（preload/spellcheck
+      // 属资源项仍可覆盖）。
+      contextIsolation: true,
+      sandbox: true,
+      nodeIntegration: false,
     },
   })
   // autoHideMenuBar 只保证 Alt 可唤出；初始态再显式隐藏一次（防平台默认差异）

@@ -245,9 +245,13 @@ function healthCheck(bookRoot: string, manifest: Manifest): HealthIssue[] {
           if (!isMovePending(p) || !healMovePending(bookRoot, docId, p, manifest, journalFile)) unresolved.push(p)
         }
         if (unresolved.length > 0) {
+          // R76-25（二十四轮 C 域）：报文补文档路径——此前只报 docId（doc_…/legacy:…
+          // 机器标识），作者无法定位是哪篇没保存完；清单在册以路径为首要标识，不在册
+          // 回落 docId（孤儿 journal 已在上方 R69-4 分支归档，走到此处的多在册）。
+          const where = manifest.entries.get(docId)?.path ?? docId
           issues.push({
             kind: 'crashedWrite',
-            humanMsg: `上次写作时「${docId}」的保存没完成，可能丢字。`,
+            humanMsg: `上次写作时「${where}」的保存没完成，可能丢字。`,
             fix: '确认内容是否完整，可从版本历史恢复，或忽略继续写作。',
             files: unresolved.map((p) => p.opId),
           })

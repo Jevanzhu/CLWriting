@@ -26,9 +26,16 @@ import type { ChapterMeta } from '../format/types.js'
 export interface FullStyleStats extends StyleStats {
   sentenceLenVariance: number
   repeatRate: number
+  /** R75-1（批 A）：计数维归一化因子——该指纹对应正文的码点数。adjStackHits 等计数维
+   *  随文本长度近似线性增长，跨长度对比（单章 vs 拼接语料基线）须除以自身 charCount
+   *  归一成密度（次/千字）再比，否则量纲错配稳定产假阳。
+   *  可选字段：v1 基线可能冻结于本字段引入前，缺失 = 旧基线，消费方须降级（跳过计数维
+   *  密度比较），不得伪造 0/1 等值参与计算。 */
+  charCount?: number
 }
 
-/** 基线指纹（文风方案 §5.2，byScene + overall） */
+/** 基线指纹（文风方案 §5.2，byScene + overall）。version 1 持续兼容：字段只增不改，
+ *  旧文件缺新字段（如 R75-1 的 charCount）由 coerceStats 容忍保留缺失语义。 */
 export interface StyleBaseline {
   version: number
   frozenAt: string
@@ -140,12 +147,26 @@ export function computeRepeatRate(body: string): number {
   return ngramRepeatRate(body).rate
 }
 
-/** 对一段正文算完整文风指纹（StyleStats 5 维 + 句长方差 + 复读率） */
+/** R75-1（批 A）：码点计数（代理对合 1 计），与 check/count.ts 的 codePointLength
+ *  同口径手写遍历——该函数未导出，且 metrics→process（summary）→ai→metrics 会成环，
+ *  故本地同款不引依赖（全库 code point 口径第 5 处，P-7/R73-19 家族）。 */
+function charCountOf(body: string): number {
+  let n = 0
+  for (let i = 0; i < body.length; i++) {
+    n++
+    if (body.codePointAt(i)! > 0xffff) i++ // 代理对：astral 字符按 1 计
+  }
+  return n
+}
+
+/** 对一段正文算完整文风指纹（StyleStats 5 维 + 句长方差 + 复读率）。
+ *  R75-1：附带 charCount 归一化因子（新冻结的基线随之持久化该字段）。 */
 export function computeFullStats(body: string, rules: IronRules): FullStyleStats {
   return {
     ...computeStyleMetrics(body, rules),
     sentenceLenVariance: computeSentenceLenVariance(body),
     repeatRate: computeRepeatRate(body),
+    charCount: charCountOf(body),
   }
 }
 
@@ -464,6 +485,9 @@ function coerceStats(raw: unknown): FullStyleStats | null {
   const sentenceLenVariance = Number(o['sentenceLenVariance'])
   const repeatRate = Number(o['repeatRate'])
   if (![overlongRatio, dialogueTagRatio, sentenceLenVariance, repeatRate].every(Number.isFinite)) return null
+  // R75-1：charCount 是计数维密度归一因子（可选）——旧 v1 基线缺字段须容忍：
+  // 缺失/非有限/非正一律保持 undefined（= 不可归一），消费方据此降级跳过，不伪造值
+  const charCount = Number(o['charCount'])
   return {
     overlongRatio,
     adjStackHits: Number(o['adjStackHits']) || 0,
@@ -472,6 +496,7 @@ function coerceStats(raw: unknown): FullStyleStats | null {
     summaryEnding: o['summaryEnding'] === true,
     sentenceLenVariance,
     repeatRate,
+    ...(Number.isFinite(charCount) && charCount > 0 ? { charCount } : {}),
     _dialogueLines: Number(o['_dialogueLines']) || 0,
   }
 }

@@ -228,8 +228,12 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
     if (th) {
       const thresholds: Record<string, number> = {}
       for (const c of th.children) {
-        const num = parseFiniteNumber(c.value, NaN)
-        if (Number.isFinite(num)) thresholds[c.key] = num
+        // R76-15（二十四轮 B 域）：空值/非正数拒收——`复读率:` 写空经 parseValue('')→
+        // Number('')=0 混过 isFinite 静默落 0（阈值 0 = 全量误报），与「未设」语义
+        // 割裂。正数才收，否则 warn 留痕按未设（回落全局链）。
+        const num = parsePositiveNumber(c.value)
+        if (num !== undefined) thresholds[c.key] = num
+        else log.warn('book.yaml', `leads.thresholds.${c.key} 值非正数（「${c.value.trim()}」），已忽略（按未设处理）`)
       }
       if (Object.keys(thresholds).length > 0) cfg.leads.thresholds = thresholds
     }
@@ -242,8 +246,11 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
     // 摘出 DEFAULT_CONFIG 后 in 检查永远 false，旧行内值会被静默丢弃
     for (const c of budget.children) {
       if (BUDGET_KEYS.has(c.key)) {
-        const v = parseFiniteNumber(c.value, NaN)
-        if (Number.isFinite(v)) (cfg.budget as Record<string, number | undefined>)[c.key] = v
+        // R76-15：预算键族空值/非正数拒收——`tokens_per_chapter:` 写空落 0 = 每次调用
+        // 都超限（预算 0 语义荒谬但消费侧无从区分）；warn 留痕按未设（回落全局链）。
+        const v = parsePositiveNumber(c.value)
+        if (v !== undefined) (cfg.budget as Record<string, number | undefined>)[c.key] = v
+        else log.warn('book.yaml', `budget.${c.key} 值非正数（「${c.value.trim()}」），已忽略（按未设处理）`)
       }
     }
   }
@@ -320,8 +327,10 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
     if (co) autoConfig.confirm_outline = String(parseValue(co.value)) === 'true'
     const bs = findChild(auto, "batch_size")
     if (bs) {
-      const v = parseFiniteNumber(bs.value, NaN)
-      if (Number.isFinite(v)) autoConfig.batch_size = v
+      // R76-15：空值/非正数拒收（写空落 0 = 连写批大小 0，语义荒谬）；warn 按未设。
+      const v = parsePositiveNumber(bs.value)
+      if (v !== undefined) autoConfig.batch_size = v
+      else log.warn('book.yaml', `auto.batch_size 值非正数（「${bs.value.trim()}」），已忽略（按未设处理）`)
     }
     // RB-KN-P2-10：关系图自动梳理两键——前端 useRelationGraph 已消费，原先解析/序列化
     // 均不支持（作者手写 book.yaml 永远解析成默认值，配置链路断裂）
@@ -329,8 +338,10 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
     if (ram) autoConfig.relation_auto_mine = String(parseValue(ram.value)) === 'true'
     const rmt = findChild(auto, "relation_mine_threshold")
     if (rmt) {
-      const v = parseFiniteNumber(rmt.value, NaN)
-      if (Number.isFinite(v)) autoConfig.relation_mine_threshold = v
+      // R76-15：同 batch_size——关系梳理阈值空值/非正数拒收，warn 按未设。
+      const v = parsePositiveNumber(rmt.value)
+      if (v !== undefined) autoConfig.relation_mine_threshold = v
+      else log.warn('book.yaml', `auto.relation_mine_threshold 值非正数（「${rmt.value.trim()}」），已忽略（按未设处理）`)
     }
     if (Object.keys(autoConfig).length > 0) cfg.auto = autoConfig
   }
@@ -425,6 +436,15 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
 function parseFiniteNumber(raw: string, fallback: number): number {
   const n = Number(parseValue(raw))
   return Number.isFinite(n) ? n : fallback
+}
+
+/** R76-15（二十四轮 B 域）：正数语义字段（预算/阈值/批量）专用——空值键（`key:` 写空）
+ *  经 parseValue('')→Number('')=0 混过 isFinite 静默落 0，与非正数一并拒收（返回
+ *  undefined = 未设，回落全局链）。与 snapshots max_days/max_count 的 v>0 收门口径
+ *  同源，warn 留痕由调用方负责（区分键名）。 */
+function parsePositiveNumber(raw: string): number | undefined {
+  const n = Number(parseValue(raw))
+  return Number.isFinite(n) && n > 0 ? n : undefined
 }
 
 // ── 公开 API ────────────────────────────────────

@@ -74,9 +74,12 @@ beforeAll(async () => {
   )
   writeFileSync(join(bookRoot, '写作', '正文', '0001-开篇.md'), CH1_FM + '主角登场，初入宗门，一切由此开始。\n', 'utf8')
 
-  // R62-21：两处 TTL 均注入短档（300ms）——消除 STYLE_SCAN_TTL+300≈5.3s 真实墙钟，慢机假红
-  __setStyleScanTtlForTest(300)
-  __setStyleCorpusTtlForTest(300)
+  // R62-21：两处 TTL 均注入短档——消除 STYLE_SCAN_TTL+300≈5.3s 真实墙钟，慢机假红。
+  // R76-37（二十四轮 F 域）：300ms→1000ms——「命中」用例首查与二查之间夹着两次
+  // writeFileSync，慢机/CI 卡顿下超 300ms 即缓存过期、二查变重扫（count/hash 变化），
+  // 假红；1000ms 给足裕量，到期侧睡 TTL+500 不受影响。
+  __setStyleScanTtlForTest(1000)
+  __setStyleCorpusTtlForTest(1000)
   server = startServer({ port: 0, workDir })
   await new Promise<void>((r) => server!.once('listening', r))
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
@@ -125,8 +128,9 @@ describe('D3：health/style + analyze-style 全书扫描 5s TTL 缓存', () => {
   })
 
   it('失效：TTL 到期后重扫（盘上变更可见）', async () => {
-    // R62-21：注入 TTL=300 → 睡 600ms 过 TTL（含余量）。此前 STYLE_SCAN_TTL+300≈5.3s 真实墙钟，慢机假红。
-    await new Promise((r) => setTimeout(r, 300 + 300))
+    // R62-21：注入 TTL（R76-37 起为 1000ms）→ 睡 TTL+500 过期（含余量）。此前
+    // STYLE_SCAN_TTL+300≈5.3s 真实墙钟，慢机假红。
+    await new Promise((r) => setTimeout(r, 1000 + 500))
 
     const third = await req('GET', `/api/books/${encodeURIComponent(BOOK)}/health/style`)
     expect(third.status).toBe(200)

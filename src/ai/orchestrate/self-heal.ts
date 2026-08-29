@@ -64,6 +64,10 @@ export interface SelfHealOpts {
   chapter: number
   /** 批量连写章号序列（P2-3）：有值且 >1 章时走批量循环，中途 escalate 停后续 */
   chapters?: number[]
+  /** R76-12（二十四轮 A 域）：chat 对话嵌套写章标记（write_chapter 工具驱动）——登记进
+   *  RunState 供 isChatEmbeddedSelfHealRunning 查询；chat 入口闸据此放行 steer 入队
+   *  （独立写稿仍 409），不改变写稿链路自身行为。 */
+  embedded?: boolean
   /** 最大重写次数（默认 3） */
   maxAttempts?: number
   /** 机检注入（单测替身） */
@@ -92,6 +96,8 @@ export type SelfHealOutcome =
 /** 运行中的编排（book 级并发锁 + 中断句柄） */
 interface RunState {
   ctrl: AbortController
+  /** R76-12：chat 对话嵌套写章标记（SelfHealOpts.embedded 透传） */
+  embedded?: boolean
   /** 本次运行 AI 消耗累计（done 事件上报，W-P2-7；genFn 单测替身无 usage 不入账）。
    *  cost 按次现算累计（写稿模型四档分计，未配价不入账）——与 stream.ts /spawn 同口径。
    *  低级项（第六轮）：删掉无人读取的 calls/inputTokens 累计（emitResult 只读
@@ -105,6 +111,13 @@ const running = new Map<string, RunState>()
 /** 本书是否正在全自动写章 */
 export function isSelfHealRunning(bookName: string): boolean {
   return running.has(bookName)
+}
+
+/** R76-12（二十四轮 A 域）：在途自愈是否为 chat 对话嵌套写章（write_chapter 工具驱动）
+ *  ——chat 入口闸（stream.ts）据此区分独立写稿（409 拒新对话）与对话嵌套写稿（放行
+ *  交 sendChatMessage 入队 steer，当前轮结束自动续链）。 */
+export function isChatEmbeddedSelfHealRunning(bookName: string): boolean {
+  return running.get(bookName)?.embedded === true
 }
 
 /** R67-13 回归注入（先例同 api/review.ts __setReviewRunning）——orchestrationBusyFor
@@ -164,7 +177,7 @@ export function runSelfHeal(opts: SelfHealOpts): Promise<SelfHealOutcome> {
 }
 
 async function runSelfHealInner(opts: SelfHealOpts): Promise<SelfHealOutcome> {
-  const state: RunState = { ctrl: new AbortController(), usage: { outputTokens: 0, cost: 0 } }
+  const state: RunState = { ctrl: new AbortController(), usage: { outputTokens: 0, cost: 0 }, ...(opts.embedded ? { embedded: true } : {}) }
   running.set(opts.bookName, state)
   let result: SelfHealOutcome
   try {
@@ -386,6 +399,7 @@ async function prepareChapterMaterials(
   opts: SelfHealOpts,
   ctx: ChapterCtx,
   chapter: number,
+  signal?: AbortSignal,
 ): Promise<string[]> {
   if (!ctx.db) return []
   // R-4（第十六轮）：promptFiles 只登记备料成功后真实注入的文件——此前无条件含
@@ -401,6 +415,10 @@ async function prepareChapterMaterials(
       // kk-P1-2：备料场景与 draft 链同源（readChapterScenes 三级回退）——
       // 此前不传 → 备料恒按「战斗」选样章，与本章实际场景脱节
       chapter,
+      // R76-5（二十四轮 A 域）：编排级中断透传——备料补漏的近章/卷摘要在途 LLM 调用
+      // 此前不受中断传播（Z-P1-1 修了 rewrite/lead_update 独漏此面），批量连写点中断
+      // 时分钟级白烧 token、running 迟迟不释放。
+      ...(signal ? { signal } : {}),
     })
     atomicWriteFile(join(ctx.bookRoot, '工作区', '本章写作材料.md'), r.text, { fsync: true })
     promptFiles = ['工作区/本章写作材料.md', ...r.injectedSummaryFiles]
@@ -499,7 +517,7 @@ async function draftFirstChapter(
   // 文风条目+样章/近章结尾/前章正文结尾；RAG 按配置召回、未配/失败自动降级）原子写
   // 工作区/本章写作材料.md，buildDraftPrompt 的「备料」段自此有生产写入方。
   // C1（批 2）：备料返回 prompt 引用材料（材料文件 + 章摘要）→ promptFiles 登记
-  const materialFiles = await prepareChapterMaterials(opts, ctx, chapter)
+  const materialFiles = await prepareChapterMaterials(opts, ctx, chapter, state.ctrl.signal)
   emit(opts, { type: 'self_heal_phase', phase: 'drafting' })
   // Q-5（第十五轮）：draft prompt 自带注入源清单（细纲/章纲/设定层/样章）——与备料
   // 清单合并去重（注入序）进 promptMeta.files，铁律①文件级溯源闭合
@@ -697,7 +715,17 @@ async function runChapter(
   for (;;) {
     if (state.ctrl.signal.aborted) return exitAborted(term)
     emit(opts, { type: 'self_heal_phase', phase: 'checking', attempt: loop.attempt })
-    const outcome = ctx.check(loop.draftPath)
+    // R76-11（二十四轮 A 域）：机检抛异常（非返回 not-ok）收敛——ctx.check 原先裸调，
+    // 内部未捕获的读盘/解析异常会原样上抛：goal 悬挂 active（writeGoal('create','active')
+    // 已写、无 block 收口）、批量连写不落暂停记录（recordPause 只认 runChapter 的返回
+    // 值形态，异常直接穿出 orchestrateBatch）。收敛到 exitCheckCrash 同款 failed 出口
+    //（goal 落 block 附原因，批量侧按 failed 落暂停）。
+    let outcome: ReturnType<typeof ctx.check>
+    try {
+      outcome = ctx.check(loop.draftPath)
+    } catch (e) {
+      return exitCheckCrash(term, loop, `机检异常（未归类）：${e instanceof Error ? e.message : String(e)}`)
+    }
     // P2：机检报告事件化（红项结构化，自愈打回判据来源）
     ctx.chain?.add(
       checkReportEvent({

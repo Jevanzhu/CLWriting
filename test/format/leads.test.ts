@@ -357,3 +357,122 @@ test('readLead: 缺字段维持默认回落（存量手写账本兼容）；lega
   if (rLegacy.ok) expect(rLegacy.lead.履历).toHaveLength(1)
   rmSync(dir, { recursive: true, force: true })
 })
+
+// ── R75-2（二十三轮）：条目段 ATX 标题不折入证据 + 节终保真 + 分组跳过 ──
+
+test('R75-2: 条目后的 ### 手记 标题行不折入上一条证据（定稿假红防线）', () => {
+  const body = `## 履历
+
+- 第012章 埋下：林家祠堂暗格被一笔带过。
+- 第047章 推进：管家提到那夜后门的狗没叫。
+
+### 手记
+
+作者备注：这条线要在第三卷收掉。`
+  const entries = parseHistory(body)
+  expect(entries).toHaveLength(2)
+  // 标题与其后备注零折入——此前会被 R64-17 续行折拼成「…狗没叫。 ### 手记 作者备注：…」
+  expect(entries[1]!.证据).toBe('管家提到那夜后门的狗没叫。')
+})
+
+test('R75-2: # 一级 / ### 三级标题同样终断（此前仅 ## 二级终断，其余级别折入证据）', () => {
+  const body = `## 履历
+
+- 第012章 埋下：焦痕
+
+# 章外笔记
+
+随便写`
+  const entries = parseHistory(body)
+  expect(entries).toHaveLength(1)
+  expect(entries[0]!.证据).toBe('焦痕')
+})
+
+test('R75-2: 分组标题跳过、其后条目照常解析（不丢条目）', () => {
+  const body = `## 履历
+
+- 第001章 埋下：焦痕
+
+### 第二阶段
+
+- 第047章 推进：狗没叫`
+  const entries = parseHistory(body)
+  expect(entries).toHaveLength(2)
+  expect(entries[0]!.证据).toBe('焦痕')
+  expect(entries[1]!.章号).toBe(47)
+  expect(entries[1]!.证据).toBe('狗没叫')
+})
+
+test('R75-2: 节终标题后的人工内容回写保真（readLead→writeLead 往返）', () => {
+  const dir = makeTmpBook()
+  const fp = join(dir, '悬念-006-手记.md')
+  const original = [
+    '---',
+    '编号: 悬念-006',
+    '标题: 手记',
+    '类型: 悬念',
+    '状态: 进行中',
+    '开启章: 12',
+    '---',
+    '',
+    '## 履历',
+    '',
+    '- 第012章 埋下：焦痕泛着暗红。',
+    '',
+    '### 手记',
+    '',
+    '作者手写备注，不能被回写吞掉。',
+    '',
+  ].join('\n')
+  writeFileSync(fp, original)
+  const r = readLead(fp)
+  expect(r.ok).toBe(true)
+  if (!r.ok) return
+  expect(r.lead.履历[0]!.证据).toBe('焦痕泛着暗红。') // 证据干净（标题未折入）
+  r.lead.履历.push({ 章号: 47, 动词: '推进', 证据: '狗没叫' })
+  writeLead(fp, r.lead)
+  const after = readFileSync(fp, 'utf8')
+  expect(after).toContain('### 手记')
+  expect(after).toContain('作者手写备注，不能被回写吞掉。')
+  expect(after).toContain('第047章 推进')
+  // 再读一轮：履历两条、证据仍干净（可继续往返）
+  const r2 = readLead(fp)
+  expect(r2.ok).toBe(true)
+  if (r2.ok) {
+    expect(r2.lead.履历).toHaveLength(2)
+    expect(r2.lead.履历[0]!.证据).toBe('焦痕泛着暗红。')
+  }
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('R75-2: 空履历 + 尾段（`## 履历` 后直接 `## 备注`）after 段维持保真', () => {
+  const dir = makeTmpBook()
+  const fp = join(dir, '悬念-007-空履历.md')
+  writeFileSync(fp, [
+    '---', '编号: 悬念-007', '标题: 空履历', '类型: 悬念', '状态: 进行中', '---', '',
+    '## 履历', '',
+    '## 备注', '',
+    '只有备注没有条目。',
+  ].join('\n'))
+  const r = readLead(fp)
+  expect(r.ok).toBe(true)
+  if (!r.ok) return
+  expect(r.lead.履历).toHaveLength(0)
+  writeLead(fp, r.lead)
+  const after = readFileSync(fp, 'utf8')
+  expect(after).toContain('## 备注')
+  expect(after).toContain('只有备注没有条目。')
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('R75-2: 开启章 非数值回落 0（NaN 防线，对齐 chapters.ts R64-19 口径）', () => {
+  const dir = makeTmpBook()
+  const fp = join(dir, '悬念-008-乱数.md')
+  writeFileSync(fp, [
+    '---', '编号: 悬念-008', '标题: 乱数', '类型: 悬念', '状态: 进行中', '开启章: 十二', '---', '', '## 履历', '',
+  ].join('\n'))
+  const r = readLead(fp)
+  expect(r.ok).toBe(true)
+  if (r.ok) expect(r.lead.开启章).toBe(0)
+  rmSync(dir, { recursive: true, force: true })
+})

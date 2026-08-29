@@ -19,7 +19,7 @@ import { readFile, parseFlat } from '../../../format/frontmatter.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
 import { RELATION_MINE_SPEC } from '../../../ai/tasks/specs.js'
-import { acquireTaskGate } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
+import { acquireTaskGate, orchestrationBusyFor } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
 import type { RealmSystem } from '../../../format/types.js'
 
 interface SettingsCtx {
@@ -83,6 +83,13 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    // R75-D-P3a（批 D）：编排互斥矩阵补角——对照 analyze/autotag/infer-meta/analyze-style/
+    // outline/onboard-ai/lead-updates 同族写法补齐。关系梳理是分钟级 AI 任务且 relations.json
+    // 落盘为覆盖写，梳理输入含正文节选/角色卡（写稿上下文注入源）——写稿系编排（self-heal/
+    // 对话/手动写稿/后台收尾）在途时放行会复刻 R67-13 要防的形态：覆盖写落盘 + 后续章拿到
+    // 混合态上下文。409 BUSY 语义与同族端点一致。
+    const busyOrch = orchestrationBusyFor(params['name']!)
+    if (busyOrch) return replyError(res, 409, 'BUSY', busyOrch)
     // RB-SV-P2-2：长任务并发闸（分钟级 AI 梳理，重复点击=双倍费用）
     const release = acquireTaskGate(params['name']!, 'relations-mine')
     if (!release) return replyError(res, 409, 'BUSY', '本书正在梳理角色关系，请等待完成后再试')

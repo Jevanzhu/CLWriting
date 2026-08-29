@@ -51,6 +51,9 @@ async function onAnalyze(): Promise<void> {
       ui.toast('分析完成', 'success')
     }
   } catch (e) {
+    // R75-E-P3c：catch 侧补同款书名复检——成功路径有门（上方两处），catch 漏配：
+    // runStyleAnalysis await 窗口切书后，A 书的分析失败错误会 toast 在 B 书界面上
+    if (String(route.params.name ?? '') !== book) return
     ui.toast(friendlyError(e), 'error')
   } finally {
     analyzing.value = false

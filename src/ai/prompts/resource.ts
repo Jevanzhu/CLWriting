@@ -83,6 +83,18 @@ export function overlayPath(userDataPath: string, name: string): string {
   return join(userDataPath, 'prompts', `${name}.md`)
 }
 
+/** R75-A-P3b（批 A）：读 overlay 正文——existsSync 与 readFileSync 之间文件被删/被换成
+ *  目录（TOCTOU）时，裸 ENOENT/EISDIR 会直冒 runSpec 无从定位。收编为带上下文的明确
+ *  错误（文件名 + 操作）；fail-fast 语义不变（仍抛，不静默回落内置——「读失败」与
+ *  「无 overlay」语义不同，静默回落会让用户的覆盖改动无声失效）。 */
+function readOverlaySync(fp: string): string {
+  try {
+    return readFileSync(fp, 'utf8')
+  } catch (e) {
+    throw new Error(`读取用户覆盖 prompt 失败（${fp}）：${e instanceof Error ? e.message : String(e)}`)
+  }
+}
+
 /** 解析生效 prompt：overlay 存在优先（用户主权），否则内置 */
 export function resolvePrompt(
   name: string,
@@ -91,8 +103,9 @@ export function resolvePrompt(
 ): { text: string; hash: string; source: 'builtin' | 'overlay' } {
   if (userDataPath) {
     const fp = overlayPath(userDataPath, name)
+    // R75-A-P3b：读取经收编助手（见其注释），存在性判定与读取之间被删 → 带路径上下文抛错
     if (existsSync(fp)) {
-      const text = canonicalize(readFileSync(fp, 'utf8'))
+      const text = canonicalize(readOverlaySync(fp))
       return { text, hash: promptHash(text), source: 'overlay' }
     }
   }
@@ -165,8 +178,9 @@ export function resolveBuiltinSystemPromptSourced(
   if (name === null) return { text: systemPrompt }
   if (userDataPath) {
     const fp = overlayPath(userDataPath, name)
+    // R75-A-P3b：同 resolvePrompt——exists→read 间隙被删时收编为带路径上下文的明确错误
     if (existsSync(fp)) {
-      return { text: canonicalize(readFileSync(fp, 'utf8')), overlayFile: fp }
+      return { text: canonicalize(readOverlaySync(fp)), overlayFile: fp }
     }
   }
   return { text: loadBuiltinPrompt(name, registry).text }

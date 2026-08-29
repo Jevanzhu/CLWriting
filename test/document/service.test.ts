@@ -110,6 +110,44 @@ describe('DocumentService / 保存协议主路径', () => {
     expect(r.ok).toBe(true)
   })
 
+  it('R75-3: 新内容干净（无 U+FFFD）+ 盘上 GBK → 同样拒绝（假快照缺口收口）', async () => {
+    // 原防线只拦「新内容含 U+FFFD」：干净内容覆写 GBK 文件被静默放行，而
+    // maybeSnapshot 以 utf-8 读盘留底的是失真快照——覆写后原字节任何形式不可恢复。
+    // 现对齐 draft-pipeline R66-1 无条件口径：盘上非 UTF-8 一律拒绝。
+    const fp = join(bookRoot, '设定', '世界观.md')
+    mkdirSync(join(bookRoot, '设定'), { recursive: true })
+    writeFileSync(fp, Buffer.from([0xd0, 0xf2, 0xd5, 0xfd, 0xce, 0xc4])) // GBK「序正文」
+    const before = readFileSync(fp)
+    const r = await svc.save('doc_world', '设定/世界观.md', {
+      content: '整段重写的干净新内容（不含替换字符）',
+      expectedRevision: computeRevision(fp),
+      operationId: 'op-r75-3',
+      origin: 'manual',
+    })
+    expect(r.ok).toBe(false)
+    if (r.ok) return
+    expect(r.code).toBe('WRITE_ERROR')
+    expect(r.reason).toContain('UTF-8')
+    expect(readFileSync(fp).equals(before)).toBe(true) // 原始字节一字不动
+  })
+
+  it('R75-4: 清单刷新失败（读清单抛）→ 保存仍成功（best-effort，不误报 WRITE_ERROR）', async () => {
+    // 文件已原子落盘后清单只是可重建索引：此前清单锁超时/读失败会落进外层 catch
+    // 记 journal aborted + 返回 WRITE_ERROR——保存实际成功却报失败。以「清单路径是
+    // 目录」制造 readManifest 抛（EISDIR），断言保存照常 ok、内容落盘。
+    mkdirSync(join(bookRoot, '项目', '文档清单.jsonl'), { recursive: true }) // 目录占位 → 读必抛
+    const fp = join(bookRoot, '设定', '世界观.md')
+    const r = await svc.save('doc_world', '设定/世界观.md', {
+      content: '内容已落盘，清单坏了也不该报保存失败',
+      expectedRevision: null,
+      operationId: 'op-r75-4',
+      origin: 'manual',
+    })
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.revision).toMatch(/^sha256:/)
+    expect(readFileSync(fp, 'utf-8')).toContain('清单坏了也不该报保存失败')
+  })
+
   it('P5-数据层（第七轮）: restore 到尚不存在的文件 → 跳过快照正常落盘（原 ENOENT 抛 WRITE_ERROR）', async () => {
     // 外部恢复/合并场景：目标文件已被清掉（expectedRevision=null 过基线校验），
     // maybeSnapshot 无底可留应直接跳过——原实现 readFileSync(absPath) ENOENT 抛走，

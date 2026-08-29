@@ -175,6 +175,18 @@ export function checkLeadsBookItems(
             leadId: id,
             chapter: entry.章号,
           })
+        } else if (needles.length === 0) {
+          // R76-19（二十四轮 B 域）：证据剥引号/清洗后为空（整条证据只是一对空引号或
+          // 纯标点）——needles 空使 miss/unverifiable 两不报，引文红闸对该条目静默
+          // 失明。改报黄：证据无法核验，请作者补写可检索的引文（假阴性向黄的保守
+          // 口径，同章文件缺失分支——不拦截定稿）。
+          items.push({
+            checkId: 'lead-evidence-unverifiable',
+            level: 'yellow',
+            message: `${id} 履历证据「${entry.证据.slice(0, 20)}」剥引号后为空——证据无法核验（请补写正文中可检索的引文）`,
+            leadId: id,
+            chapter: entry.章号,
+          })
         }
       }
     }

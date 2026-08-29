@@ -222,8 +222,17 @@ export function parseBannedWordsLine(rawLine: string): string[] {
   const line = rawLine.trim()
   if (!line || line.startsWith('>') || /待作者补|待补|示例|非硬禁词/.test(line)) return []
 
-  const quoted = [...line.matchAll(/[「『“"]([^」』”"]{2,24})[」』”"]/g)].map((m) => m[1]!)
-  if (quoted.length > 0) return quoted
+  // R76-4（二十四轮 B 域）：引号抽取窗口 {2,24} → {1,}，长度约束后移过滤——原下限 2
+  // 让单字引号禁词（网文真实规则「禁『了』开头句式」类）不中引号分支、落入兜底清洗后
+  // **带引号整行成词**，body.includes('「了」') 永不命中且因「解析成功」不进
+  // unparsedBannedEntries（R73-15 失明提示也不触发），红闸静默失效零提示。现单字照入
+  // 表（fail-noisy：宁可报红让作者改写条目，不静默失明）；>24 字的引号段不是「词」
+  // （说明性引文/长禁句），全部超长时返回 [] 交 readBannedEntryWords 的 unparsed 黄项。
+  const quoted = [...line.matchAll(/[「『“"]([^」』”"]{1,})[」』”"]/g)].map((m) => m[1]!)
+  if (quoted.length > 0) {
+    const words = quoted.filter((w) => w.length <= 24)
+    return words.length > 0 ? words : []
+  }
 
   let cleaned = line
     .replace(/^[-*+]\s*/, '')

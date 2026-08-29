@@ -27,6 +27,7 @@ import { resolveTier } from '../../../ai/provider/index.js'
 import type { AnalysisKind as ContractKind } from '../../../ai/contract/index.js'
 import { readAnalysis, readAnalysisKinds, writeAnalysis, readBookAnalysis, writeBookAnalysis, sourceHashOf, type AnalysisKind } from '../../../document/analysis.js'
 import { mapAnalysisToCandidates, persistCandidates } from '../../../format/style-candidate.js'
+import { localDayKey } from '../../../log/index.js' // R76-31：候选日键本地日（同 overview/日记口径）
 import { safeManifestPath } from '../../../fs/safe-path.js'
 import { acquireTaskGate, orchestrationBusyFor } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
 
@@ -477,7 +478,9 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
         if (typeof payload === 'object' && payload !== null) {
           const mapped = mapAnalysisToCandidates(
             payload as { 口癖?: string[]; 建议?: string[] },
-            new Date().toISOString().slice(0, 10),
+            // R76-31：候选日键本地日——与 style.ts today()/overview 热力图同口径（此前
+            // UTC 切日，东八区 0-8 点生成的候选记前一日，查重闸跨日误放行）
+            localDayKey(new Date()),
           )
           styleCandidates = persistCandidates(bookRoot, mapped).created.length
         }

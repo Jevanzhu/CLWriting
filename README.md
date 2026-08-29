@@ -5,7 +5,7 @@
 一本书就是一个普通文件夹，里面全是 Markdown 和 YAML，放在你自己的磁盘上。设计目标是长篇写到两百万字量级还不崩设定、不吃书——这事不指望 AI 自觉，靠账本核对、伏笔追踪、版本快照这些机制兜底。
 
 [![Node](https://img.shields.io/badge/Node-%E2%89%A524-339933?logo=node.js&logoColor=white)](https://nodejs.org)
-[![Test](https://img.shields.io/badge/tests-4208%20all%20green-4FC08D?logo=vitest&logoColor=white)](#开发)
+[![Test](https://img.shields.io/badge/tests-4282%20all%20green-4FC08D?logo=vitest&logoColor=white)](#开发)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 ## 写一本书的流程
@@ -49,13 +49,13 @@ npm run dev:app     # 终端 2：再起桌面应用（HMR，加载 :5173 的 Vit
 ├── 工作区/             # 草稿、待定稿（自动连写的攒稿区）
 ├── 定稿/正文/          # 定稿后的章节落这里
 ├── 项目/               # 文档清单、字数日记这些内部账本
-├── .版本/              # 每次保存前的历史快照，可恢复
+├── .版本/              # 保存前自动留底的历史快照（分层保留），可恢复
 └── .cache/rag.db       # 全书设定的本地检索索引（SQLite）
 ```
 
 短篇集用同一套目录，只是没有卷纲和布线，章纲换成反转线索表、情绪曲线、伏笔回收三段式。
 
-编辑器自动保存（手动 ⌘S 也行），保存带版本校验——同一章要是在别处改过，会提示你选「重载」还是「覆盖」，不会悄悄吞掉任何一版。每次保存前自动留快照，章节历史面板里能恢复任意一版，恢复动作本身也会先留底。
+编辑器自动保存（手动 ⌘S 也行），保存带版本校验——同一章要是在别处改过，会提示你选「重载」还是「覆盖」，不会悄悄吞掉任何一版。保存前自动留快照（同一来源短窗内合并留一次，越近留得越细），章节和文档的历史面板里能恢复留底的各版，恢复动作本身也会先留底。
 
 机检阈值、调用预算这些默认值，可以在 book.yaml 里按书调，也可以在设置里定全局默认让新建的书自动继承；标了「全局固定」的项以全局为准。
 
@@ -77,8 +77,8 @@ GET 读接口不校验令牌，这是有意的设计：令牌防的是远端网�
 npm --prefix src/studio/web-next ci   # 装前端子包依赖（CodeMirror 等；新克隆必跑，见下）
 npm run typecheck          # tsc --noEmit
 npm run build:all          # 桌面主进程 + 前端构建
-npm test                   # 4208 单测
-npm run test:e2e           # Playwright e2e（mock 驱动，29 specs / 44 用例）（其中常规命令跑 42，另 2 个发布 smoke 需 CLWRITING_E2E_RELEASE）
+npm test                   # 4282 单测
+npm run test:e2e           # Playwright e2e（mock 驱动，29 specs / 45 用例）（其中常规命令跑 43，另 2 个发布 smoke 需 CLWRITING_E2E_RELEASE）
 npm run dev:api            # 只起 Studio API :7878（配合 dev:app / dev:web）
 npm run dev:web            # Vite HMR :5173（配合 dev:api）
 npm run dev:app            # 桌面应用（HMR；需先有 dev:api，见「安装和上手」）
@@ -90,11 +90,11 @@ npm run check:counts       # 核对 README 里的测试数和实际是否一致
 
 前端子包 `src/studio/web-next` 有自己的 `package.json` 和二级 `node_modules`（CodeMirror 等钉在那里，根目录的 `npm install` 不会带下来）。新克隆后要先补装上面第一行（CI 同款命令；本地改前端依赖时把 `ci` 换成 `install`）——不装的话 `npm test` 会在打字机相关用例上报模块解析失败，`build:web` / `dev:web` 也起不来。
 
-改完代码至少跑 `npm test`：530 个测试文件 / 4208 单测全绿是合入门槛，CI 里的 check:counts 会核对 README 声称的数字，对不上直接红。单测数是 macOS/Linux 口径——win 上平台门（`skipIf(win32)`）的用例不进 vitest 收集（阶段 21 J3，2026-08-28 实测差 56），win 腿的 check:counts 只对账文件数与 e2e 数，单测数由 macos/ubuntu 腿核对。动了前端就再跑 `vue-tsc` 和 e2e。e2e 的 29 个 spec 共享单一临时 workDir、按 spec 固有顺序跑（前一个建的书/写的内容供后一个用）——勿加并行或改动 spec 顺序，否则隐式依赖会静默错。
+改完代码至少跑 `npm test`：539 个测试文件 / 4282 单测全绿是合入门槛，CI 里的 check:counts 会核对 README 声称的数字，对不上直接红。单测数是 macOS/Linux 口径——win 上平台门（`skipIf(win32)`）的用例不进 vitest 收集（阶段 21 J3，2026-08-28 实测差 56），win 腿的 check:counts 只对账文件数与 e2e 数，单测数由 macos/ubuntu 腿核对。动了前端就再跑 `vue-tsc` 和 e2e。e2e 的 29 个 spec 共享单一临时 workDir、按 spec 固有顺序跑（前一个建的书/写的内容供后一个用）——勿加并行或改动 spec 顺序，否则隐式依赖会静默错。
 
 ## 技术栈
 
-Node 24+，TypeScript strict。前端 Vue 3 + Pinia + Vite，编辑器 CodeMirror 6，桌面壳 Electron；存储是 node:sqlite（RAG 索引）加 JSON/YAML 配置；AI 侧三个协议适配器（Anthropic、OpenAI Chat、OpenAI Responses）统一走 runTask 编排，重试、超时、用量都归它管；测试 vitest（4208 单测）+ Playwright（29 specs / 44 用例）（常规命令跑 42，2 个发布 smoke 需 CLWRITING_E2E_RELEASE 环境变量）。
+Node 24+，TypeScript strict。前端 Vue 3 + Pinia + Vite，编辑器 CodeMirror 6，桌面壳 Electron；存储是 node:sqlite（RAG 索引）加 JSON/YAML 配置；AI 侧三个协议适配器（Anthropic、OpenAI Chat、OpenAI Responses）统一走 runTask 编排，重试、超时、用量都归它管；测试 vitest（4282 单测）+ Playwright（29 specs / 45 用例）（常规命令跑 43，2 个发布 smoke 需 CLWRITING_E2E_RELEASE 环境变量）。
 
 代码上有几条一直守着的规矩：作者数据不被升级覆盖；定稿走原子写入加指纹校验；api_key 不进 git；服务端不 spawn 任何 CLI 子进程，要用的内核模块直接 import；对话和工作流的事件 append-only 全量落库（每本书一个 SQLite，在 userData 下），要清理去「事件审计」视图里手动删。
 
