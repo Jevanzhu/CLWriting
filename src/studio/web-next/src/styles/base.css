@@ -22,6 +22,17 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* J5 win（2026-08-31，解剖 ZCode 后定稿）：雅黑只有 400/700 两档，全项目 88 处
+ * weight:600 / 41 处 500 全走浏览器合成伪粗（涂抹发虚）——ZCode 同为系统栈却
+ * 700×549 次用真实 Bold 所以锐利。font-synthesis-weight:none 禁合成后，按字体
+ * 匹配规则 desired 600 会先命中真实 700 Bold（desired 500 落 400 Regular），
+ * 全应用粗体从此都是真笔画。仅 win；mac 苹方 Semibold 为真实字重无需。 */
+:root[data-platform='win32'] *,
+:root[data-platform='win32'] *::before,
+:root[data-platform='win32'] *::after {
+  font-synthesis-weight: none;
+}
+
 /* 滚动条（mac 化细滚条：窄、半透明胶囊、悬停加深；J5 win 体验面统一口径）*/
 ::-webkit-scrollbar {
   width: 8px;
