@@ -113,8 +113,16 @@ export async function embed(
 
     return slots as number[][]
   } catch {
-    // 网络/解析错误：降级不抛（#37 第 6.2 节，不崩主路径），仅留痕
-    warnEmbedFailure(endpoint, '网络/解析异常')
+    // 网络/解析错误：降级不抛（#37 第 6.2 节，不崩主路径），仅留痕。
+    // R26-91（二十六轮）：超时 abort 与网络/解析错误分流文案——此前一律「网络/解析
+    // 异常」，端点只是慢（未坏）时作者无从判断该调 embed_timeout_ms 还是查网络。
+    // abort 只可能来自本函数的超时定时器（未外接信号），signal.aborted 即超时铁证。
+    if (controller?.signal.aborted) {
+      const label = timeoutMs >= 1000 ? `${timeoutMs / 1000}s` : `${timeoutMs}ms`
+      warnEmbedFailure(endpoint, `embedding 请求超时（${label}）——可调大书级 rag.embed_timeout_ms 或检查端点负载`)
+    } else {
+      warnEmbedFailure(endpoint, '网络/解析异常')
+    }
     return null
   } finally {
     if (timer) clearTimeout(timer)

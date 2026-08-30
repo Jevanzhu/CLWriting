@@ -48,10 +48,23 @@ export interface SearchOutcome {
   truncated?: boolean;
 }
 
+/** R26-104：bookRoot 归一化——去尾部路径分隔符；根形态（'/'、'C:\'、空串）原样返回，
+ *  防止剥成 'C:'/' '\ 一类驱动器相对/退化的语义。 */
+function normalizeBookRoot(bookRoot: string): string {
+  const stripped = bookRoot.replace(/[\\/]+$/, '')
+  if (stripped === '' || /^[a-zA-Z]:$/.test(stripped)) return bookRoot
+  return stripped
+}
+
 /**
  * 全书搜索主函数。q 为空返回空结果；scope 非法回落 all。
  */
 export function searchBook(bookRoot: string, q: string, scope?: string): SearchOutcome {
+  // R26-104（二十六轮）：bookRoot 入参归一化（去尾部路径分隔符）后再用——rel 路径靠
+  // `fp.slice(root.length + 1)` 剥前缀的算术对「根路径带尾分隔符」的入参形态敏感
+  // （多剥一个字符，rel 变成「作/正文/…」式截断残串，命中结果路径错乱）。join/
+  // isWithinRoot 的语义本不受尾分隔符影响，统一走归一根后两类形态等价。
+  const root = normalizeBookRoot(bookRoot)
   const query = (q ?? '').trim()
   if (!query) return { results: [] }
   const dirs = SEARCH_SCOPE_DIRS[scope ?? 'all'] ?? SEARCH_ALL_DIRS
@@ -60,16 +73,16 @@ export function searchBook(bookRoot: string, q: string, scope?: string): SearchO
   // 草稿当定稿引用会串内容。现正文区命中按 finalizedPathSet 过滤（设定/大纲等目录不受
   // 定稿基线管辖，不过滤）；清单缺失/不可读（null）无法判定 → 保持全量兜底（与
   // finalizedPathSet 的 M-2/PL-2 降级哲学一致）。
-  const finalizedPaths = scope === '定稿' ? finalizedPathSet(bookRoot) : null
+  const finalizedPaths = scope === '定稿' ? finalizedPathSet(root) : null
   const lower = query.toLowerCase()
   const results: SearchHit[] = []
   for (const dir of dirs) {
-    const abs = join(bookRoot, dir)
+    const abs = join(root, dir)
     if (!existsSync(abs)) continue
-    for (const fp of walkMd(abs, bookRoot)) {
+    for (const fp of walkMd(abs, root)) {
       const matches = searchFile(fp, lower)
       if (matches.length === 0) continue
-      const rel = fp.slice(bookRoot.length + 1).split('\\').join('/')
+      const rel = fp.slice(root.length + 1).split('\\').join('/')
       // R73-42：定稿 scope 下，写作/正文 中未登记定稿基线的章（在写草稿）不进结果
       if (finalizedPaths !== null && dir === '写作/正文' && !finalizedPaths.has(rel)) continue
       // R72-9（二十轮 C-8）：文件内命中超上限时附 hasMore 标记（截断不再静默）

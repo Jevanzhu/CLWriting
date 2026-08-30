@@ -151,7 +151,7 @@ const latestOriginHash = new Map<string, VersionFpCacheEntry>()
 /** 进程级缓存上限（防多书长跑缓涨）——超限丢最旧（Map 按插入序） */
 const MAX_CACHE_ENTRIES = 500
 
-function contentFingerprint(content: string): string {
+function contentFingerprint(content: string | Buffer): string {
   return createHash('sha256').update(content).digest('hex')
 }
 
@@ -177,7 +177,7 @@ function setVersionCache(cacheKey: string, entry: VersionFpCacheEntry): void {
 export function writeVersion(
   versionsDir: string,
   docId: string,
-  content: string,
+  content: string | Buffer,
   meta: VersionMeta,
   options: WriteVersionOptions = {},
 ): string | null {
@@ -246,7 +246,14 @@ export function writeVersion(
       if (!prevMeta) break
       if (prevMeta.meta.origin !== meta.origin) continue
       const prev = readVersion(versionsDir, docId, s.id)
-      if (prev && prev.content === content) {
+      // R26-52 + R28-17（二十八轮注释口径修正）：字节档（Buffer）不走 readVersion 的
+      // utf-8 文本回读比对——readVersion 的文本对非 UTF-8 原字节必然失配，比不中；
+      // 但内容级去重并未缺席：上方指纹缓存路径（contentFingerprint 对 Buffer 同样
+      // 成立，写盘后 setVersionCache 必更新）在 fp 相等且缓存指向版本仍在盘时照样
+      // 去重（return null），同内容重复留底仍被跳过、行为无害。此处仅是跳过「文本
+      // 回读比对」这一条路径，W0-1 宁多勿失由 fail-open 分支（meta 不可读 → break
+      // 落写）与缓存失效回读盘比对继续兜住。
+      if (prev && !Buffer.isBuffer(content) && prev.content === content) {
         setVersionCache(cacheKey, { id: s.id, fp })
         return null
       }
@@ -263,7 +270,16 @@ export function writeVersion(
   if (meta.pinned) front.push('永久: true')
   front.push('---', '')
   const file = join(versionsDir, encodeDocDirName(docId), `${id}.md`)
-  atomicWriteFile(file, front.join('\n') + content, { fsync: true })
+  // R26-52（二十六轮）：Buffer 直存字节档——非 UTF-8 源（GBK 旧档）的结构性留底
+  //（移动/删除前，service.ts 调用点）若按 utf-8 文本写，U+FFFD 替换符落盘后原字节
+  // 永久失真（假留底：正文被覆盖后无任何字节级可恢复副本）。fm 头恒 utf-8，正文段
+  // 原字节拼接，快照文件即字节档。
+  const frontText = front.join('\n')
+  atomicWriteFile(
+    file,
+    Buffer.isBuffer(content) ? Buffer.concat([Buffer.from(frontText, 'utf8'), content]) : frontText + content,
+    { fsync: true },
+  )
   // P3-14 + AA-P1-1：写入成功后更新指纹缓存（存「版本 id + fp」，下次同 origin 同内容
   // 命中时校验该 id 仍在盘；Map 有 size 上限防缓涨）
   setVersionCache(cacheKey, { id, fp })

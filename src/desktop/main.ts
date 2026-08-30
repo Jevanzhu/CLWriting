@@ -35,11 +35,13 @@ import { findWorkDir, readBooks } from '../install/books.js'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { resolveWithinRoot } from '../fs/safe-path.js'
 import { defaultUserDataPath } from '../fs/user-data-path.js'
-import { initialBookArg, resolveInitialBook } from './initial-book.js' // RB-SV-P2-4：--book 直进
+import { initialBookArg, initialBookArgvOnly, resolveInitialBook } from './initial-book.js' // RB-SV-P2-4：--book 直进
 import { parseContextMenuSpecs, type ContextMenuSpec } from './context-menu.js' // RB-SV-P2-5：IPC 载荷净化
 import { createStudioServerManager, ServerBootError } from './server-manager.js' // 阶段 22：server 拆分 utilityProcess
 import { createBootstrapRunner } from './bootstrap-runner.js' // O-4：生命周期 runner 可测
+import { isBoundsVisibleOnAnyDisplay } from './window-state.js' // R26-86：多屏 bounds 校验纯函数
 import { getFonts as getSystemFontList } from 'font-list'
+import { createSystemFontCache } from './font-cache.js' // R77-1（二十五轮批 A）：系统字体 IPC 缓存
 import {
   parseStore,
   setCurrent,
@@ -86,8 +88,18 @@ const RENDERER_CRASH_NOTICE_HTML =
  */
 function attachRendererCrashSelfHeal(win: BrowserWindow, label: string): void {
   let crashes = 0
+  // R27-91（二十七轮）：稳定窗口复位计时器的句柄——崩溃要撤销在途复位（互撤），重载要
+  // 撤旧排新（不叠）。原实现计时器排定后裸跑：周期短于稳定窗的崩溃循环每次都被上一轮
+  // 计时器清零，crashes 永远到不了封顶值（server-manager 同型的 active?.proc===proc
+  // 身份校验防的是跨 child 误清零；此处缺的是「窗口内没活满就不得清零」的互撤语义）。
+  let stabilityTimer: NodeJS.Timeout | null = null
   win.webContents.on('render-process-gone', (_e, details) => {
     crashes++
+    // 崩溃即证明未活满稳定窗——在途复位撤销，计数得以跨轮累计到封顶
+    if (stabilityTimer) {
+      clearTimeout(stabilityTimer)
+      stabilityTimer = null
+    }
     // R73-53（二十一轮）：渲染进程异常退出的结构化标记——desktop.yml 启动冒烟 grep
     // 此判定用（一行 ASCII、无中文措辞依赖）。直写 console：打包态 log.* 只落 JSONL
     // 不镜像 stdout，冒烟步重定向的是进程标准流
@@ -109,11 +121,14 @@ function attachRendererCrashSelfHeal(win: BrowserWindow, label: string): void {
     if (!win.isDestroyed()) win.webContents.reload()
   })
   // S6（五十九轮）：did-finish-load 后延迟复位崩溃计数——渲染层真正稳定（存活满
-  // 稳定窗口）才清零，长跑零星崩溃不累计到 3；unref 不拖退出。
+  // 稳定窗口且期间无崩溃，R27-91 互撤）才清零，长跑零星崩溃不累计到 3；unref 不拖退出。
   win.webContents.on('did-finish-load', () => {
-    setTimeout(() => {
+    if (stabilityTimer) clearTimeout(stabilityTimer) // 上一轮计时器未跑就又重载：撤旧排新不叠
+    stabilityTimer = setTimeout(() => {
+      stabilityTimer = null
       if (!win.isDestroyed()) crashes = 0
-    }, RENDERER_CRASH_STABILITY_RESET_MS).unref?.()
+    }, RENDERER_CRASH_STABILITY_RESET_MS)
+    stabilityTimer.unref?.()
   })
 }
 
@@ -139,8 +154,10 @@ if (!gotSingleInstanceLock) {
 } else {
   app.on('second-instance', (_e, argv: string[]) => {
     // RB-SV-P2-4：第二实例带 --book → 主窗口直达该书（与 desktop:open-book 同通路）
+    // R27-97（二十七轮）：只认本次 argv——原 initialBookArg 回落 env 读到的是首实例
+    // 的 CLWRITING_INITIAL_BOOK，普通二次拉起（无参双开）被误导航到首实例初书
     const workDir = currentWorkDir() // M-3（第八轮）：bootstrap 实际值优先
-    const ref = initialBookArg(argv)
+    const ref = initialBookArgvOnly(argv)
     if (workDir && ref && mainWindow && !mainWindow.isDestroyed()) {
       const name = resolveInitialBook(workDir, ref)
       if (name) mainWindow.webContents.send('desktop:navigate', `/book/${encodeURIComponent(name)}`)
@@ -210,15 +227,10 @@ interface WinState {
 function loadWinState(): WinState | null {
   try {
     const s = JSON.parse(readFileSync(stateFile, 'utf-8')) as WinState
-    const wa = screen.getPrimaryDisplay().bounds
-    // 校验 bounds 有效且在屏幕可见区内（避免恢复到屏幕外 / 多屏拔除后坐标失效）
-    const { x, y, width, height } = s.bounds
-    if (
-      width >= 1200 && height >= 760 &&
-      x >= wa.x - 200 && y >= wa.y - 200 &&
-      x + width <= wa.x + wa.width + 200 &&
-      y + height <= wa.y + wa.height + 200
-    ) return s
+    // R26-86（二十六轮）：校验扩为 getAllDisplays 任一显示器包含即有效（±容差口径
+    // 原样保留）——原只对主屏判定，多屏作者窗口常驻副屏：副屏坐标对主屏永远「越界」，
+    // 恢复被无条件丢弃、窗口尺寸/位置白丢。判定逻辑抽 window-state.ts 纯函数（可单测）。
+    if (isBoundsVisibleOnAnyDisplay(s.bounds, screen.getAllDisplays().map((d) => d.bounds))) return s
   } catch {
     /* 无文件或损坏 → 默认 */
   }
@@ -314,6 +326,11 @@ async function pickLibrary(): Promise<string | null> {
 /** 重启进程以应用新 workDir（规避 server 路由单例，见方案 §3.1）。 */
 function relaunch(): void {
   app.relaunch()
+  // R27-96（二十七轮）：显式释放单实例锁再退出——relaunch 的新实例在旧进程退出后
+  // 立即拉起并 requestSingleInstanceLock，而锁随进程退出释放存在时序缝隙：新实例
+  // 扑空 → 自我 app.quit() → 切书库后无任何实例存活（死局）。显式交接释放消除缝隙；
+  // 释放窗内用户恰好真双开的最坏结果也只是一方拿到锁退出另一方存活，无死局。
+  app.releaseSingleInstanceLock()
   // RB-SV-P2-6：走 before-quit 优雅清理（app.exit 会跳过 before-quit）
   app.quit()
 }
@@ -655,9 +672,13 @@ function registerIpc(): void {
     void shell.openPath(safe.abs)
   })
   // 枚举系统已装字体（设置弹窗字体下拉用；font-list 跨平台封装系统命令，disableQuoting 返回裸名便于直拼 CSS）
+  // R77-1（二十五轮批 A）：TTL 缓存降半档——系统字体枚举是跨平台系统命令（mac osascript /
+  // win 注册表），渲染层重载（设置弹窗重开）/第二窗口重复 invoke 会逐次重跑；主进程侧补
+  // 60s TTL + 在途合并（font-cache.ts）。失败不缓存，此处 catch 返回 [] 的兜底语义不变。
+  const loadSystemFonts = createSystemFontCache(() => getSystemFontList({ disableQuoting: true }))
   ipcMain.handle('desktop:get-system-fonts', async () => {
     try {
-      return await getSystemFontList({ disableQuoting: true })
+      return await loadSystemFonts()
     } catch (e) {
       log.error('desktop', `get-system-fonts 失败：${e instanceof Error ? e.message : String(e)}`)
       return []

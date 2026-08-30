@@ -8,7 +8,7 @@
  */
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readdirSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
@@ -115,5 +115,58 @@ describe('S4: /file 端点异步化后行为契约不回归', () => {
     const after = await req('GET', path)
     const content = (after.json as { content: string }).content
     expect(['甲的保存', '乙的保存']).toContain(content)
+  })
+})
+
+// ── R26-9（二十六轮）：PUT /file 覆盖写前快照留底回归 ─────────
+// 编辑器 PUT 直接 atomicWriteFile 覆盖既有 .md，旧内容此前无版本链、误存即不可恢复；
+// 修复后写前经 snapshotBeforeOverwrite 留底（工作区/.版本/<docId>/<ULID>.md）。
+// 注：PUT /file 无创建路径（目标不存在 → 404，见临界段基线闸），「首次创建不触发留底」
+// 在本端点由构造保证——snapshotBeforeOverwrite 的 existsSync null 短路天然不可达；
+// 端点侧可测的不触发面是「内容未变化」短路（同下）。
+
+describe('R26-9: PUT /file 覆盖写前快照留底', () => {
+  const NEW_FILE = encodeURIComponent('设定/留底新文件.md')
+  const newPath = `/api/books/${encodeURIComponent(BOOK)}/file?file=${NEW_FILE}`
+  const NEW_ABS = () => join(workDir, BOOK, '设定', '留底新文件.md')
+
+  /** 递归收集 .版本 目录下全部文件绝对路径（目录不存在 → 空数组）。 */
+  function versionFiles(): string[] {
+    const versionsDir = join(workDir, BOOK, '工作区', '.版本')
+    if (!existsSync(versionsDir)) return []
+    const walk = (d: string): string[] =>
+      readdirSync(d, { withFileTypes: true }).flatMap((e) =>
+        e.isDirectory() ? walk(join(d, e.name)) : [join(d, e.name)],
+      )
+    return walk(versionsDir)
+  }
+
+  it('目标文件不存在 → 404（PUT 无创建路径，留底「文件不存在」分支构造性不触发）', async () => {
+    const before = versionFiles().length
+    const r = await req('PUT', newPath, { content: '第一版留底新文件' })
+    expect(r.status).toBe(404)
+    expect(versionFiles().length).toBe(before) // 快照目录无新增
+  })
+
+  it('覆盖已有文件 → .版本 出现含旧内容的留底记录', async () => {
+    // 前置播种：直接落一份「已存在」文件（PUT 不能建新文件）
+    writeFileSync(NEW_ABS(), '作者手改的旧内容', 'utf8')
+    const before = versionFiles().length
+
+    const r = await req('PUT', newPath, { content: '第二版留底新文件（覆盖）' })
+    expect(r.status).toBe(200)
+
+    const snaps = versionFiles()
+    expect(snaps.length).toBeGreaterThan(before) // 覆盖写新增留底
+    expect(snaps.some((p) => readFileSync(p, 'utf8').includes('作者手改的旧内容'))).toBe(true)
+    // 主流程不受影响：新内容落盘
+    expect(readFileSync(NEW_ABS(), 'utf8')).toBe('第二版留底新文件（覆盖）')
+  })
+
+  it('内容未变化 → 不留底（snapshotBeforeOverwrite 同内容 null 短路）', async () => {
+    const before = versionFiles().length
+    const r = await req('PUT', newPath, { content: '第二版留底新文件（覆盖）' })
+    expect(r.status).toBe(200)
+    expect(versionFiles().length).toBe(before) // 同内容不产生新快照
   })
 })

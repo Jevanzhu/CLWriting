@@ -526,7 +526,15 @@ async function draftFirstChapter(
   const first = await runGenerate(opts, state, ctx.kind, draft.prompt, chapter, promptFiles)
   if (first.status === 'aborted') return { status: 'aborted' }
   if (first.status !== 'ok') return { status: 'error', error: first.error }
-  const firstDraft = ctx.save(ctx.bookRoot, chapter, first.text, { snapshotOrigin: 'self-heal' })
+  // R26-5（二十六轮）：save 抛错收编（磁盘满/EACCES 等）——原样上抛会穿出 runChapter/
+  // orchestrateBatch，批量侧不落暂停记录（recordPause 只认返回值形态）。转 error 出口
+  // 后由调用方按既有 failed 链收口（此刻 goal 尚未写 active，无悬挂面）。
+  let firstDraft: { relPath: string }
+  try {
+    firstDraft = ctx.save(ctx.bookRoot, chapter, first.text, { snapshotOrigin: 'self-heal' })
+  } catch (e) {
+    return { status: 'error', error: `首稿落盘失败：${e instanceof Error ? e.message : String(e)}` }
+  }
   return { status: 'ok', text: first.text, draftPath: join(ctx.bookRoot, firstDraft.relPath) }
 }
 
@@ -616,7 +624,15 @@ async function rewriteOnce(
   if (again.status === 'aborted') return { status: 'aborted' }
   if (again.status !== 'ok') return { status: 'error', error: again.error }
   loop.current = again.text
-  ctx.save(ctx.bookRoot, loop.chapter, loop.current, { snapshotOrigin: 'self-heal' })
+  // R26-5（二十六轮）：save 抛错收编——此刻 goal 已 writeGoal('create','active')，原样
+  // 上抛 = goal 悬挂 active + 批量不落暂停（R76-11 修机检同族时漏掉的写盘路径）。转
+  // error 出口：调用方走 exitEscalateBlocked（F2 语义——重写失败 escalate 保留当前
+  // 已落盘稿），goal 落 block 附原因、批量按 escalate 落暂停，终态收口闭合。
+  try {
+    ctx.save(ctx.bookRoot, loop.chapter, loop.current, { snapshotOrigin: 'self-heal' })
+  } catch (e) {
+    return { status: 'error', error: `重写稿落盘失败：${e instanceof Error ? e.message : String(e)}` }
+  }
   loop.attempt++
   return { status: 'ok' }
 }

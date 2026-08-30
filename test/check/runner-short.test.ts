@@ -313,3 +313,35 @@ test('runAllChecks short: 章纲在盘但读取失败 → 黄 piece-list-unreada
   expect(sec).toBeDefined()
   expect(sec!.items.some((i) => i.checkId === 'piece-list-unreadable' && i.level === 'yellow')).toBe(true)
 })
+
+
+// R26-13：短篇判定与路由侧 kind.ts 的 kind==='short' 单源对齐——
+// kind: short 无 short 段（合法，全走缺省阈值）此前短篇专属机检整体失明；
+// 长篇误写 short 段反而跑短篇机检、short.strict 误升红
+test('R26-13: kind:short 无 short 段 → 短篇机检项在位且缺省阈值生效', () => {
+  const ch: ChapterMeta = { 章号: 1, 标题: '雪夜', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫' }
+  const r = runAllChecks({
+    bookRoot: tmp,
+    config: { ...DEFAULT_CONFIG, kind: 'short' }, // 无 short 段
+    chapter: ch,
+    body: '正文四个字',
+    fileName: '001-雪夜.md',
+  })
+  const names = r.sections.map((s) => s.name)
+  expect(names).toContain('短篇字数') // checkPieceWordCount 缺省区间 8000–20000
+  expect(names).toContain('节数守恒')
+  expect(names).toContain('开头零环境')
+  const items = r.sections.flatMap((s) => s.items)
+  expect(items.some((i) => i.checkId === 'piece-word-short' && i.message.includes('8000'))).toBe(true)
+
+  // 对照：kind 缺省（长篇）误写 short 段 → 不跑短篇机检，short.strict 也不再误升红
+  const longR = runAllChecks({
+    bookRoot: tmp,
+    config: { ...DEFAULT_CONFIG, short: { strict: true } },
+    chapter: ch,
+    body: '正文',
+    fileName: '001-雪夜.md',
+  })
+  expect(longR.sections.map((s) => s.name)).not.toContain('短篇字数')
+  expect(hasRed(longR)).toBe(false)
+})

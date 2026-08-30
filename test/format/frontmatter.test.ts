@@ -1,4 +1,4 @@
-import { test, expect } from 'vitest'
+import { test, expect, vi } from 'vitest'
 import { rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -287,6 +287,22 @@ test('旧平铺 fm（无块标量）parseFlat 不受影响', () => {
   expect(stringifyFlat(map)).toBe(fmRaw)
 })
 
+// R28-11（二十八轮）：块标量分支的重复键 warn 行号指向重复键起始行——块体消费会
+// 推进 i，此前直接取 i+1 使「第 N 行起」落到块体之后（失真）；修后用消费前记录值
+test('R28-11: parseFlat 块标量同名键重复 warn 行号指向键行', () => {
+  const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  try {
+    // 行号（1 起）：1 标题 / 2 钩子: | / 3 块体 / 4 钩子: |（重复键起始行）/ 5 块体
+    const m = parseFlat('标题: 旧名\n钩子: |\n  第一行\n钩子: |\n  替代行\n')
+    expect(m.get('钩子')).toBe('替代行') // 后胜语义不变
+    const dup = warnSpy.mock.calls.find((c) => String(c[0]).includes('钩子'))
+    expect(dup).toBeDefined()
+    expect(String(dup![0])).toContain('第 4 行')
+  } finally {
+    warnSpy.mockRestore()
+  }
+})
+
 test('X-P2-18: 数组逐项序列化——含逗号/引号/纯数字/空项往返不丢', () => {
   const cases: unknown[][] = [
     ['科幻', '悬疑,推理', '带"引号"', '123', ''],
@@ -441,4 +457,23 @@ test('E-9d: 按块内最小缩进去缩进，保留相对缩进，多行值往�
 
 test('E-9d: 首行缩进即最小缩进时行为不变（正常手写块）', () => {
   expect(parseFlat('钩子: |\n  a\n  b').get('钩子')).toBe('a\nb')
+})
+
+// R26-35（二十六轮）：readFile 错误文案区分「无起始 ---」与「有起始未闭合」——
+// 未闭合此前被误标为「缺少 front matter」，draft.ts 的无 fm 豁免把坏 fm 也一并放过
+test('R26-35: fm 未闭合 → 「front matter 未闭合（缺少结尾 ---）」；无起始 → 旧文案不变', () => {
+  const dir = mkdtempTracked(join(tmpdir(), 'r2635-'))
+  // 未闭合：有起始 --- 但无结尾
+  const unclosed = join(dir, '未闭合.md')
+  writeFileSync(unclosed, '---\n章号: 1\n标题: 没写结尾\n\n正文', 'utf-8')
+  const r1 = readFile(unclosed)
+  expect(r1.ok).toBe(false)
+  if (!r1.ok) expect(r1.error.message).toContain('front matter 未闭合（缺少结尾 ---）')
+  // 无起始（裸 md 旧稿）：旧文案逐字保留（draft.ts 豁免 regex 依赖该文案）
+  const bare = join(dir, '裸.md')
+  writeFileSync(bare, '只有正文没有 front matter', 'utf-8')
+  const r2 = readFile(bare)
+  expect(r2.ok).toBe(false)
+  if (!r2.ok) expect(r2.error.message).toBe('缺少 front matter（未找到起始 ---）')
+  rmSync(dir, { recursive: true, force: true })
 })

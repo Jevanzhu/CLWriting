@@ -106,7 +106,10 @@ describe('Z-P1-1: 嵌套 rewrite 生成随 chat 中止', () => {
     const abortAt = Date.now()
     abortChat('abort-nested')
     await chatPromise
-    expect(Date.now() - abortAt).toBeLessThan(3000)
+    // R26-108（二十六轮）：CI 容差——修复后即时返回（实测 <200ms），挂死基线是
+    // 4000ms delayMs；上界 3000 余量过薄，慢机事件环停顿会假红。提到 3500：
+    // 对即时路径 17 倍余量，对挂死基线仍保有 500ms 判别窗。
+    expect(Date.now() - abortAt).toBeLessThan(3500)
 
     // 工具结果为中断失败，循环终止于 chat_error，且不再发新 LLM 请求
     const toolResult = events.find((e) => e.type === 'chat_tool_result') as { ok: boolean; summary: string }
@@ -153,7 +156,7 @@ describe('Z-P1-1: waitConfirm abort 即时释放', () => {
     state.ctrl.abort()
     const ok = await p
     expect(ok).toBe(false)
-    expect(Date.now() - t0).toBeLessThan(1000)
+    expect(Date.now() - t0).toBeLessThan(3000) // R26-108：CI 容差 1s→3s（挂死基线 8s，判别窗 5s）
     expect(state.pending.size).toBe(0)
   })
 
@@ -178,7 +181,7 @@ describe('Z-P1-1: waitConfirm abort 即时释放', () => {
     const t0 = Date.now()
     const ok = await waitConfirm(state, 'c2', 8000)
     expect(ok).toBe(false)
-    expect(Date.now() - t0).toBeLessThan(1000)
+    expect(Date.now() - t0).toBeLessThan(3000) // R26-108：CI 容差 1s→3s（挂死基线 8s，判别窗 5s）
     expect(state.pending.size).toBe(0)
   })
 

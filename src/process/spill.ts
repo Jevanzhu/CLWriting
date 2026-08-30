@@ -17,6 +17,7 @@ import { existsSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs
 import { join } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { isWithinRoot } from '../fs/safe-path.js'
+import { codePointLength } from './summary.js' // R26-96：非分配码位计数单源复用
 
 export interface SpillThresholds {
   /** 超过该 code point 数才外置（≤ 则原文透传） */
@@ -134,9 +135,13 @@ export function spillIfLarge(
   writeSpill: SpillWriter,
   readTool = 'read_chapter',
 ): SpillOutcome {
-  const chars = Array.from(text)
-  const total = chars.length
+  // R26-96（二十六轮）：阈值判定前改非分配码位计数（summary.ts codePointLength 同源，
+  // book-search 已有跨文件复用先例）——原先 Array.from(text) 先把全文展开成码位数组
+  // 只为取个数，≤阈值的常态路径也付出 O(n) 临时数组分配；现仅超阈确需头尾切片时才展开。
+  // 口径严格不变：代理对算一个码位，与展开结果一致。
+  const total = codePointLength(text)
   if (total <= thresholds.maxInlineChars) return { preview: text }
+  const chars = Array.from(text)
 
   const locator = writeSpill(text)
   if (locator === null) return { preview: text }
@@ -145,7 +150,7 @@ export function spillIfLarge(
   let tail = Math.min(thresholds.tailChars, Math.max(0, total - head))
   let note = makeNote(total - head - tail, locator, readTool)
   // 预算预留循环：通知行随省略量微变，砍头砍尾后重定价直到装得下（floor 保证收敛）
-  while (head + tail + Array.from(note).length > thresholds.maxInlineChars) {
+  while (head + tail + codePointLength(note) > thresholds.maxInlineChars) {
     // R73-43：正文保底——头尾合计已被砍到最小正文预算（且原文比它长）时不再砍，
     // 按「配置错误」同型兜底回退原文，绝不产出只剩通知行的 preview
     if (head + tail <= Math.min(total, MIN_BODY_PREVIEW_CHARS)) return { preview: text }

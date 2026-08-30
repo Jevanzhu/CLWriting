@@ -31,6 +31,22 @@ const PLATFORMS = new Set(SUBMISSION_PLATFORMS)
 //（不 409——跨书导出可等，用户无感；单书并发仍走 task-gate 409 语义不变）。
 // acquireExportSlot 导出仅供测试断言排队/放行。
 const MAX_EXPORT_WORKERS = 2
+// R27-62（二十七轮）：等待面封顶——此前 FIFO 队列无界、等待无超时：队首 worker 挂死
+// 时全体 waiter 无限滞留（前端转圈、全局导出不可用且无出口）。排队上限防请求堆积
+// 雪崩；单 waiter 超时给滞留者明确出口（导出是分钟级任务，10min 足够宽）。超限/
+// 超时回 503 BUSY（可重试语义），与单书 task-gate 409 口径区分。
+const MAX_EXPORT_WAITERS = 8
+let exportWaitTimeoutMs = 10 * 60_000
+/** R27-62 测试钩子：注入等待超时（毫秒），回归测超时出口用。 */
+export function __setExportWaitTimeoutForTest(ms: number): void {
+  exportWaitTimeoutMs = ms
+}
+export class ExportSlotWaitError extends Error {
+  constructor(msg: string) {
+    super(msg)
+    this.name = 'ExportSlotWaitError'
+  }
+}
 let activeExportWorkers = 0
 const exportWaiters: Array<() => void> = []
 
@@ -56,7 +72,30 @@ function makeExportSlotReleaser(): () => void {
 
 export async function acquireExportSlot(): Promise<() => void> {
   if (activeExportWorkers >= MAX_EXPORT_WORKERS) {
-    await new Promise<void>((resolve) => exportWaiters.push(resolve))
+    // R27-62（二十七轮）：队列封顶——超限直接拒（不无限堆积）
+    if (exportWaiters.length >= MAX_EXPORT_WAITERS) {
+      throw new ExportSlotWaitError(`导出排队已达上限（${MAX_EXPORT_WAITERS}），请稍后重试`)
+    }
+    // R27-62（二十七轮）：等待限时——resolve 与 timeout 竞速，先到者定局（单线程
+    // 事件循环下二者互斥执行）；超时方把自己从队列摘除再抛错，防 release shift 到
+    // 已废弃的 waiter 名额转移落空
+    await new Promise<void>((resolve, reject) => {
+      let settled = false
+      const timer = setTimeout(() => {
+        if (settled) return
+        settled = true
+        const idx = exportWaiters.indexOf(wrapped)
+        if (idx !== -1) exportWaiters.splice(idx, 1)
+        reject(new ExportSlotWaitError(`导出排队等待超时（${Math.round(exportWaitTimeoutMs / 60_000)} 分钟），请稍后重试`))
+      }, exportWaitTimeoutMs)
+      const wrapped = () => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        resolve()
+      }
+      exportWaiters.push(wrapped)
+    })
     // R65-45（总六十五轮）：名额已由 release 直接转移（release 未自减、直接 resolve
     // 本 waiter）——此处不再自增。原「release 先自减再 resolve、waiter 微任务恢复后
     // 才自增」存在窗口：窗口内新请求查 activeExportWorkers < MAX 即插队直接放行，
@@ -112,6 +151,12 @@ export function registerIoRoutes(ctx: IoCtx): void {
         unit: result.unit,
         files: result.files,
       })
+    } catch (e) {
+      // R27-62（二十七轮）：排队超限/超时给 503 信封（可重试），不再直穿 500 兜底
+      if (e instanceof ExportSlotWaitError) {
+        return replyError(res, 503, 'BUSY', e.message)
+      }
+      throw e
     } finally {
       releaseGlobal?.()
       release()

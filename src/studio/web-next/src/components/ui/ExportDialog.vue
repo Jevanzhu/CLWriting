@@ -37,6 +37,9 @@ async function run(): Promise<void> {
     ui.toast(`导出完成（${r.chapterCount ?? '?'} ${r.unit ?? '章'}）`, 'success')
     ui.closeExport()
   } catch (e) {
+    // R26-68（二十六轮）：catch 补切书复检——成功路径（上方）有门，catch 漏配：
+    // 导出（worker 线程数秒）在途切书后，A 书的失败 toast 会弹在 B 书界面上
+    if (ws.bookName !== targetBook) return
     ui.toast(friendlyError(e), 'error')
   } finally {
     loading.value = false

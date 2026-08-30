@@ -52,6 +52,28 @@ const ragBuilding = ref(false)
 const ragStatusText = ref('')
 let ragPollTimer: ReturnType<typeof setInterval> | undefined
 let ragPolling = false
+// R28-26（二十八轮）：轮询在途旗标——interval 回调是 async，单拍 refreshRagStatus 慢于
+// 1.5s 时下一拍照发、多拍并发：同一失败被并发响应重复计数（ragFailStreak 连加），
+// 提前误进 RAG_POLL_MAX_FAILS 失败终态。上一拍未 settle 则本拍跳过（不并发）；
+// stopRagPolling 一并复位（停表时可能在途，否则下次轮询永久跳拍）。
+let ragPollInFlight = false
+// R26-14（二十六轮）：轮询连续失败计数与上限——原轮询对失败无感知（refreshRagStatus
+// catch 静默），服务端持续 5xx/网络断时 ragBuilding 恒 true：按钮永久置灰、状态卡死
+// 「构建中…」再无出路。连续 RAG_POLL_MAX_FAILS 次（1.5s 间隔 ≈ 7.5s）即停表给失败终态
+const RAG_POLL_MAX_FAILS = 5
+let ragFailStreak = 0
+
+// R28-22（二十八轮）：「重建已清空旧索引、未完成」提示。数据可行性：RagStatus.lastResult
+// 只有 ok/error/chunk/chapter，无「索引已清空」显式字段（服务端 api/rag.ts 本轮不动，
+// 先清库再后台建的阶段信息前端拿不到）——最小实现走文案条件渲染：以「本组件触发过
+// 重建且尚未见到成功结果」为条件（ragRebuildTriggered），失败文案旁补一句人话。
+// 局限如实记：他窗口触发/刷新页面后该本地记忆丢失，退回普通失败文案（保守面，不误报）。
+const ragRebuildTriggered = ref(false)
+// 提示按书隔离：切书复位，防 A 书重建记忆串到 B 书（ws.bookName 为 string|null，一并收留无书态）
+let ragHintBook: string | null = ''
+const ragRebuildFailedHint = computed(
+  () => ragRebuildTriggered.value && !ragBuilding.value && ragStatus.value?.lastResult?.ok === false,
+)
 
 // R63-3（十一轮）：配置加载代守卫（style store M-2 / AnalysisPanel M-11 的 reqGen 惯例）——
 // 此前 watch 无代守卫、await getConfig 后无书名复检：A 书在途响应迟到落地 B 书面板，
@@ -64,6 +86,12 @@ watch(
   async ([open, name]) => {
     if (!open) return
     const gen = ++loadGen
+    // R28-22：重建触发记忆按书隔离——换书（含切到无书）才复位，防 A 书「重建中失败」
+    // 提示串到 B 书；同书重开弹窗不触发复位，失败提示不因关/开弹窗丢失
+    if (name !== ragHintBook) {
+      ragHintBook = name
+      ragRebuildTriggered.value = false
+    }
     // 无书打开：覆盖复位（父组件此时整页空态，本组不可见，复位只为切书不留旧值）
     if (!name) {
       bookKind.value = 'long'
@@ -219,17 +247,22 @@ function onBookRagProviderChange(e: Event): void {
   })
 }
 
-/** 刷新建索引状态（读 .cache/rag.db 现状 + 最近结果） */
-async function refreshRagStatus(name?: string): Promise<void> {
+/** 刷新建索引状态（读 .cache/rag.db 现状 + 最近结果）。
+ *  R26-14：返回成败——true = 拿到状态且已落地（连续失败计数随之归零）；
+ *  false = 请求失败或在途切书（书名复检不过），轮询侧据此计失败。 */
+async function refreshRagStatus(name?: string): Promise<boolean> {
   const book = name ?? ws.bookName
-  if (!book) return
+  if (!book) return false
   try {
     const s = await getRagStatus(book)
     // R63-3：await 后书名复检——在途响应迟到时 ws.bookName 已切换，不得把旧书状态
     // 落到新书面板（轮询入口 pollRagStatus 有同款检查，此处覆盖直调入口）
-    if (ws.bookName !== book) return
+    if (ws.bookName !== book) return false
+    ragFailStreak = 0 // R26-14：成功归零（下一轮失败从头计）
     ragStatus.value = s
     ragBuilding.value = s.running
+    // R28-22：见到「不在构建 + 最近结果成功」即认定重建已完成，撤销触发记忆
+    if (!s.running && s.lastResult?.ok) ragRebuildTriggered.value = false
     if (s.running) {
       ragStatusText.value = '索引构建中…'
     } else if (s.lastResult && s.lastResult.ok) {
@@ -245,8 +278,9 @@ async function refreshRagStatus(name?: string): Promise<void> {
     } else {
       ragStatusText.value = '尚未建立索引'
     }
+    return true
   } catch {
-    /* 状态拉不到不打扰（如书未配置） */
+    return false /* 状态拉不到不打扰（如书未配置）；轮询侧计连续失败 */
   }
 }
 
@@ -256,6 +290,9 @@ async function startRagBuild(): Promise<void> {
   if (!name || ragBuilding.value) return
   try {
     await triggerRagBuild(name)
+    // R28-22：本组件触发过重建（服务端先清库再后台建）——此后若以失败收场，
+    // ragRebuildFailedHint 据此补「索引已清空、重建未完成」的提示
+    ragRebuildTriggered.value = true
     ragBuilding.value = true
     ragStatusText.value = '索引构建中…'
     void pollRagStatus(name)
@@ -274,11 +311,30 @@ async function pollRagStatus(name: string): Promise<void> {
       ragPolling = false
       return
     }
-    await refreshRagStatus(name)
-    if (!ragBuilding.value) {
-      clearInterval(ragPollTimer)
-      ragPollTimer = undefined
-      ragPolling = false
+    // R28-26（二十八轮）：重叠去重——上一拍 refreshRagStatus 未 settle（慢响应 >1.5s）
+    // 则本拍直接跳过：并发多拍会把同一失败重复计数（ragFailStreak 连加），提前误进
+    // RAG_POLL_MAX_FAILS 失败终态
+    if (ragPollInFlight) return
+    ragPollInFlight = true
+    try {
+      // R26-14（二十六轮）：连续失败终态——refreshRagStatus 内部成功已归零，此处只累加
+      const ok = await refreshRagStatus(name)
+      if (!ok && ws.bookName !== name) return // 在途切书：不计失败，下一拍书名检查自会停表
+      if (!ok) ragFailStreak++
+      if (ragFailStreak >= RAG_POLL_MAX_FAILS) {
+        // 失败终态：停轮询 + 按钮解禁（作者可手动重试）+ 可行动提示
+        clearInterval(ragPollTimer)
+        ragPollTimer = undefined
+        ragPolling = false
+        ragBuilding.value = false
+        ragStatusText.value = '索引状态获取失败，请稍后重试'
+      } else if (!ragBuilding.value) {
+        clearInterval(ragPollTimer)
+        ragPollTimer = undefined
+        ragPolling = false
+      }
+    } finally {
+      ragPollInFlight = false
     }
   }, 1500)
 }
@@ -289,6 +345,10 @@ function stopRagPolling(): void {
     ragPollTimer = undefined
   }
   ragPolling = false
+  // R28-26：停表时可能有在途 refresh（其 settle 落在停表后）——复位在途旗标，
+  // 否则下次 pollRagStatus 每拍都被跳过、轮询空转
+  ragPollInFlight = false
+  ragFailStreak = 0 // R26-14：停表一并清失败计数（下次轮询从头计）
 }
 
 // dd-P2：SettingsModal 用 keep-alive 包 tab——关弹窗只 deactivated 不 unmount，
@@ -431,6 +491,11 @@ onUnmounted(stopRagPolling)
     <div v-if="effRagEnabled" class="rag-build-row">
       <button class="save-btn" @click="startRagBuild" :disabled="ragBuilding">{{ ragBuilding ? '构建中…' : '建立索引' }}</button>
       <span class="rag-status" :class="{ running: ragBuilding }">{{ ragStatusText }}</span>
+      <!-- R28-22：重建先清库再后台建——建索引期失败时旧索引已删、新索引未成，检索归零
+           但普通「索引失败」文案不说明这一点。此处如实补一句 + 给出路（重试/正文不受影响） -->
+      <span v-if="ragRebuildFailedHint" class="rag-rebuild-hint" role="status">
+        上次重建已清空旧索引、新索引未建成——检索暂时查不到内容。可重新点「建立索引」重试；书稿正文不受影响。
+      </span>
     </div>
   </section>
 </template>
@@ -462,6 +527,7 @@ onUnmounted(stopRagPolling)
 .rag-build-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap; /* R28-22：重建失败提示整行折行显示 */
   gap: 10px;
   margin-top: 10px;
 }
@@ -469,6 +535,14 @@ onUnmounted(stopRagPolling)
 .rag-status {
   font-size: var(--font-size-xs);
   color: var(--text-faint);
+}
+
+/* R28-22：「索引已清空、重建未完成」提示（占整行，警示色但低刺激） */
+.rag-rebuild-hint {
+  width: 100%;
+  font-size: var(--font-size-xs);
+  line-height: 1.6;
+  color: var(--text-warning);
 }
 
 .rag-status.running {

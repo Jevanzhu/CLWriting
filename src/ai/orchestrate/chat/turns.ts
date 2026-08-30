@@ -562,9 +562,13 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
       seqs.pendingMsgSeqs.push(recorder.add(assistantMessageEvent(asstContent, out.usage ?? undefined, stopReason, lineageIdx, turnBranch)))
       recorder.add(turnEndEvent(turn, 'completed'))
       if (!flushTurnEvents()) return false
+      // R27-3（二十七轮）：attemptsUsage 优先——runTask 内部重试链（429/5xx 退避）时
+      // out.usage 只是末 attempt 的单次值，前端/审计的回合用量被系统性低估；
+      // self-heal 已用合并口径，chat 此前漏改
+      const doneUsage = out.attemptsUsage ?? out.usage
       emit(opts, {
         type: 'chat_done',
-        ...(out.usage ? { inputTokens: out.usage.inputTokens, outputTokens: out.usage.outputTokens } : {}),
+        ...(doneUsage ? { inputTokens: doneUsage.inputTokens, outputTokens: doneUsage.outputTokens } : {}),
       })
       deps.markCompleted()
       // Z-P1-2：regenerate 成功才激活新分支（失败/中断的半截组已被遮蔽，激活会归因到幽灵组）

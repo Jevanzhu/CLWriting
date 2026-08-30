@@ -189,6 +189,7 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
       let inputTokensFromStart = 0 // message_start 带 input_tokens；message_delta 一般只有 output_tokens（P2-3）
       let cacheReadFromStart: number | undefined // D4：message_start 的 cache 读量（message_delta 缺字段时兜底）
       let cacheWriteFromStart: number | undefined // D4：message_start 的 cache 写量（同上）
+      let latestUsage: TokenUsage | null = null // R27-2：流内逐 delta 覆盖，流末统一 emit（末见 wins）
       let pendingStopReason: string | null = null // N6：缓存 stop_reason，防与 usage 耦合丢失
       let degraded = false // Z-12：成功建流是否用了降级参数面（emitDone 闭包读）
       // Q-13（第十五轮）：resolve 后终值随 done 透出（降级链 attempt 不改 maxTokens，
@@ -242,7 +243,11 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
             case 'message_start': {
               // input_tokens 在 message_start（message_delta 一般不含，P2-3）；
               // D4：cache 读/写量同点捕获（Anthropic input_tokens 不含 cache，独立记账）
-              inputTokensFromStart = event.message.usage.input_tokens
+              // R26-2（二十六轮）：?? 0 终兜底——非标网关 message_start 缺 input_tokens 时
+              // 原样赋 undefined 会覆盖声明侧的 0 初值，下游 TokenUsage.inputTokens 变
+              // undefined → calls 记账 += 得 NaN → checkAiCallBudget 对 NaN 恒 false，
+              // 该进程内 token/成本预算闸静默失效（cache/output 侧均有 ?? 兜底，唯此处漏）
+              inputTokensFromStart = event.message.usage.input_tokens ?? 0
               cacheReadFromStart = event.message.usage.cache_read_input_tokens ?? undefined
               cacheWriteFromStart = event.message.usage.cache_creation_input_tokens ?? undefined
               break
@@ -283,18 +288,19 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
             case 'message_delta': {
               // 缓存 stop_reason（即使无 usage 也不丢）——N6
               if (event.delta?.stop_reason) pendingStopReason = event.delta.stop_reason
-              // 最终 usage + stop_reason 在 message_delta 里（input_tokens 合并 message_start 缓存，P2-3）
+              // 最终 usage + stop_reason 在 message_delta 里（input_tokens 合并 message_start 缓存，P2-3）。
+              // R27-2（二十七轮）：「末见 wins」——此前 message_delta 即席 emitDone（幂等门锁
+              // 首个 usage），逐 delta 回 usage 的网关被记成早期部分值、末 delta 完整值被丢，
+              // 与 openai 线 R26-3 末见口径分叉；现只记 latestUsage，流末统一 emit（下同）
               if (event.usage) {
                 const cacheRead = event.usage.cache_read_input_tokens ?? cacheReadFromStart
                 const cacheWrite = event.usage.cache_creation_input_tokens ?? cacheWriteFromStart
-                const usage: TokenUsage = {
+                latestUsage = {
                   inputTokens: event.usage.input_tokens ?? inputTokensFromStart,
                   outputTokens: event.usage.output_tokens ?? 0,
                   ...(cacheRead !== undefined ? { cacheReadTokens: cacheRead } : {}),
                   ...(cacheWrite !== undefined ? { cacheWriteTokens: cacheWrite } : {}),
                 }
-                const ev = emitDone(usage, pendingStopReason ?? 'end_turn')
-                if (ev) yield ev
               }
               break;
             }
@@ -313,7 +319,12 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
         //    落稿、不得按成功 0 成本入账、必须进重试路径。修复前两种情形混同，截断流
         //    被伪造成 end_turn 正常完成。
         if (!doneEmitted) {
-          if (pendingStopReason !== null) {
+          // R27-2（二十七轮）：流末统一 emit——末见 usage 优先（上面 message_delta 只记
+          // 不发）；无 usage 才走估计/截断兜底（与 openai 线 R26-3 同构）
+          if (latestUsage) {
+            const ev = emitDone(latestUsage, pendingStopReason ?? 'end_turn')
+            if (ev) yield ev
+          } else if (pendingStopReason !== null) {
             for (const [, tb] of toolBlocks) outToolText.push(tb.name + tb.jsonBuf) // R73-1：tool 参数计入产出累计
             const usage: TokenUsage = {
               inputTokens:

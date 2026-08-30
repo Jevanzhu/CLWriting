@@ -11,6 +11,10 @@ import type { GenErrorCode } from './types.js'
 /** HTTP status + 错误消息 → 错误码（消息启发只用于 400 的超窗识别） */
 export function httpStatusToCode(status: number | undefined, message: string): GenErrorCode {
   if (status === 429) return 'RATE_LIMIT'
+  // R27-6（二十七轮）：408 Request Timeout 命名码 TIMEOUT（复用既有码，无新成员）——
+  // 此前落 UNKNOWN，failureAction 走 default 终态化 author，请求超时这类瞬时故障
+  // 不进重试族（网关侧短暂拥塞即停机，重试即可自愈的面被放大成人工介入）
+  if (status === 408) return 'TIMEOUT'
   if (status === 401 || status === 402 || status === 403) return 'AUTH'
   if (status === 404) return 'NOT_FOUND'
   if (status !== undefined && status >= 500) return 'SERVER_ERROR'

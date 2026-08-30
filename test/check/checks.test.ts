@@ -1,4 +1,4 @@
-import { test, expect } from 'vitest'
+import { test, expect, vi } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
 import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
@@ -18,9 +18,11 @@ import {
   checkImagery,
   checkStyleMetrics,
   checkInfoLeak,
+  computeStyleMetrics,
 } from '../../src/check/count.js'
 import { parseIronRules } from '../../src/format/iron-rules.js'
 import { checkLeadsForm } from '../../src/check/leads.js'
+import { parseLeadUpdateLines } from '../../src/check/lead-updates.js'
 import { renderStyleRules } from '../../src/install/scaffold.js'
 import type { ChapterMeta, RealmDoc } from '../../src/format/types.js'
 
@@ -444,7 +446,8 @@ test('checkLeadsForm: 声明与实写一致 → 两端闭合无红', () => {
 // ── 高频意象（#10 项 7，黄）────────────────────────
 
 test('checkImagery: 词表命中超阈 → 黄；空表 → 静默跳过（X-P2-22，不再产未启用黄）', () => {
-  const body = '空气仿佛凝固。又一次空气仿佛凝固。还是空气仿佛凝固。'
+  // R26-29：阈值统一为「超过才报」（4 次 > 阈 3）；恰等阈不报见 R26-29 边界用例
+  const body = '空气仿佛凝固。又一次空气仿佛凝固。还是空气仿佛凝固。再来一次空气仿佛凝固。'
   expect(checkImagery(body, ['空气仿佛凝固'], 3).items.some((i) => i.level === 'yellow')).toBe(true)
   expect(checkImagery(body, [], 3).items).toHaveLength(0)
 })
@@ -562,5 +565,124 @@ test('checkGrowth: 跃迁证据提取不到境界名 → 黄 growth-evidence-no-
     db.close()
   } finally {
     rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+
+// ── 二十六轮修复批 B 回归（R26-11/29/30/31/32/39）────────
+
+// R26-11：对话标签占比提示语双侧边界锚定——剥引号后构词语素（知道/味道/道理/笑点）
+// 不再误命中；「X说：」「XX喊道。」真提示语照常计入
+test('R26-11: 对话标签边界锚定——构词语素不计入，提示语形态计入', () => {
+  // 反例（修复前误计）：「“走吧。”他知道已经拦不住了。」剥引号后「道」无边界锚定
+  const noTag = computeStyleMetrics('“走吧。”他知道已经拦不住了。', { maxDialogueTagRatio: 0.3 })
+  expect(noTag._dialogueLines).toBe(1)
+  expect(noTag.dialogueTagRatio).toBe(0)
+  // 语素词「味道」同判（引号行承载，叙述语素不算标签）
+  const flavor = computeStyleMetrics('“嗯。”汤的味道淡了。', { maxDialogueTagRatio: 0.3 })
+  expect(flavor.dialogueTagRatio).toBe(0)
+  // 正例：「他说：」提示语应计入（修复前裸字面也计，此处锁锚定后不回归）
+  const withColon = computeStyleMetrics('他说：“走吧。”', { maxDialogueTagRatio: 0.3 })
+  expect(withColon.dialogueTagRatio).toBe(1)
+  const withShout = computeStyleMetrics('“走吧。”林晚喊道。', { maxDialogueTagRatio: 0.3 })
+  expect(withShout.dialogueTagRatio).toBe(1)
+})
+
+// R26-29：高频意象阈值边界统一为 `>`（超过才报）——与身体部位/比喻两项同口径
+test('R26-29: 高频意象恰等阈不报、超阈才报（阈值边界统一）', () => {
+  expect(checkImagery('焦痕焦痕焦痕', ['焦痕'], 3).items).toHaveLength(0) // 3 = 阈 → 不报
+  const over = checkImagery('焦痕'.repeat(4), ['焦痕'], 3)
+  expect(over.items).toHaveLength(1)
+  expect(over.items[0]!.message).toContain('>3') // 文案同步 ≥ → >
+})
+
+// R26-39：占比解析认全角％与省整数位小数（.5）
+test('R26-39: 对话标签占比阈值认 50％ / .5（归一后解析）', () => {
+  expect(parseIronRules('对话标签占比: 50％').maxDialogueTagRatio).toBe(0.5)
+  expect(parseIronRules('对话标签占比: .5').maxDialogueTagRatio).toBe(0.5)
+  expect(parseIronRules('对话标签占比: .5%').maxDialogueTagRatio).toBe(0.005)
+  expect(parseIronRules('对话标签占比: 50%').maxDialogueTagRatio).toBe(0.5) // 既有语义不回归
+})
+
+// R26-30：引文 grep 面改剥 fm 的 body——证据只落在 front matter 时不再误判命中
+test('R26-30: 证据只存在于 front matter → lead-evidence-miss（全文 grep 误判不再）', () => {
+  const { root, db } = makeLeadsBook()
+  // 证据句只写在 fm 标题行；正文完全无关——修复前全文 grep 命中、红闸对该条失明
+  writeFileSync(
+    join(root, '写作', '正文', '12-灭门.md'),
+    '---\n章号: 12\n标题: 那道焦痕在烛火下泛着暗红\n---\n完全无关的正文内容。',
+    'utf-8',
+  )
+  syncLead(db, {
+    编号: '悬念-031', 标题: '灭门真凶', 类型: '悬念', 状态: '进行中', 开启章: 12,
+    履历: [{ 章号: 12, 动词: '埋下', 证据: '那道焦痕在烛火下泛着暗红' }], _path: 'p',
+  })
+  const r = checkLeadsForm(db, root, 12, ['悬念'])
+  expect(r.items.some((i) => i.checkId === 'lead-evidence-miss')).toBe(true)
+  db.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
+// R26-31：履历末条词表外动词黄项提示（对齐 growth-verb-invalid，仅提示不判红）
+test('R26-31: 词表外末条动词 → lead-verb-invalid 黄项；合法动词不产黄', () => {
+  const { root, db } = makeLeadsBook()
+  syncLead(db, {
+    编号: '悬念-001', 标题: 'x', 类型: '悬念', 状态: '进行中', 开启章: 1,
+    履历: [{ 章号: 1, 动词: '乱写', 证据: '证据句' }], _path: 'p',
+  })
+  const r = checkLeadsForm(db, root, 1, ['悬念'])
+  const bad = r.items.find((i) => i.checkId === 'lead-verb-invalid')
+  expect(bad).toBeDefined()
+  expect(bad!.level).toBe('yellow')
+  expect(bad!.message).toContain('乱写')
+  // 对照：合法动词（埋下=悬念.open）不产词表外黄项
+  const { root: root2, db: db2 } = makeLeadsBook()
+  syncLead(db2, {
+    编号: '悬念-002', 标题: 'x', 类型: '悬念', 状态: '进行中', 开启章: 1,
+    履历: [{ 章号: 1, 动词: '设下', 证据: '证据句' }], _path: 'p', // 设下 = 悬念.open（表内动词）
+  })
+  const ok = checkLeadsForm(db2, root2, 1, ['悬念'])
+  expect(ok.items.some((i) => i.checkId === 'lead-verb-invalid')).toBe(false)
+  db.close()
+  db2.close()
+  rmSync(root, { recursive: true, force: true })
+  rmSync(root2, { recursive: true, force: true })
+})
+
+// R26-32：账本推进格式不符行 warn 留痕（此前静默丢弃）
+test('R26-32: 账本推进格式不符行 warn；合法行照常解析', () => {
+  const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  try {
+    const out = parseLeadUpdateLines('- 悬念-001 推进：密室尽头的青铜灯亮了\n- 这行缺冒号结构')
+    expect(out).toHaveLength(1)
+    expect(out[0]!.leadId).toBe('悬念-001')
+    expect(out[0]!.证据).toBe('密室尽头的青铜灯亮了')
+    expect(warnSpy.mock.calls.some((c) => String(c[0]).includes('格式不符'))).toBe(true)
+  } finally {
+    warnSpy.mockRestore()
+  }
+})
+
+// R28-10（二十八轮）：R26-32 warn 收窄——`---` 分隔线与嵌套子列表行（真条目的子项）
+// 恢复静默跳过（不告警、不折入证据），顶层真条目格式错仍留痕
+test('R28-10: 分隔线与嵌套子项静默，顶层格式错行仍 warn', () => {
+  const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  try {
+    // 真条目格式错（顶层缺「编号 动词：证据」结构）仍告警
+    parseLeadUpdateLines('- 这行缺冒号结构')
+    expect(warnSpy.mock.calls.some((c) => String(c[0]).includes('格式不符'))).toBe(true)
+    // `---` 分隔线静默（不告警、不折入上一条证据）
+    warnSpy.mockClear()
+    const out1 = parseLeadUpdateLines('- 悬念-001 埋下：焦痕\n---\n- 设定线-001 树立：九品灵气')
+    expect(out1).toHaveLength(2)
+    expect(out1[0]!.证据).toBe('焦痕')
+    expect(warnSpy.mock.calls.some((c) => String(c[0]).includes('格式不符'))).toBe(false)
+    // 嵌套子列表行（缩进子项）静默（不告警、不折入、不产条目）
+    warnSpy.mockClear()
+    const out2 = parseLeadUpdateLines('- 悬念-001 埋下：焦痕\n  - 子项备注一行')
+    expect(out2).toEqual([{ leadId: '悬念-001', 动词: '埋下', 证据: '焦痕' }])
+    expect(warnSpy.mock.calls.some((c) => String(c[0]).includes('格式不符'))).toBe(false)
+  } finally {
+    warnSpy.mockRestore()
   }
 })

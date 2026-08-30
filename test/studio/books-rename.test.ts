@@ -10,6 +10,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { startServer } from '../../src/studio/server/index.js'
+import { __setSpawnRunning } from '../../src/studio/server/api/stream.js' // R26-58：spawn 闸测试夹具
+import { acquireTaskGate } from '../../src/studio/server/api/task-gate.js' // R26-58：任务闸真实占位
 
 const OLD = '旧名测试书'
 const NEW = '新名测试书'
@@ -178,5 +180,55 @@ describe('POST /api/books/:name/rename 全量改名', () => {
     writeFileSync(join(clash, 'x.md'), 'x')
     const r = await req('POST', `/api/books/${encodeURIComponent(NEW)}/rename`, { name: '撞名目录' })
     expect(r.status).toBe(400)
+  })
+})
+
+// ── R26-58（二十六轮）：同名/目录未动早退分支挪到编排闸检查之后 ──
+// 原实现该分支在 busyGate 之前，同名改名完全绕过 spawn/三审/任务闸联合检查
+// （title 同步写 book.yaml 与在途任务并发）。修复后同名也过闸：闸忙 409，
+// 空闲时维持 200 renamed:false 契约（上方「同名 no-op」用例）。
+
+describe('R26-58: rename 同名早退分支过编排闸', () => {
+  /** 登记一本独立书（目录 + book.yaml + books.jsonl 追加），返回书名。 */
+  function registerBook(name: string): void {
+    const root = join(workDir, '长篇', name)
+    mkdirSync(root, { recursive: true })
+    writeFileSync(join(root, 'book.yaml'), bookYaml(name))
+    const reg = join(workDir, '.clwriting', 'books.jsonl')
+    writeFileSync(reg, readFileSync(reg, 'utf8') + JSON.stringify({ name, path: `长篇/${name}`, kind: 'long' }) + '\n')
+  }
+
+  it('spawn 在途时同名改名 → 409 BUSY；释放后 → 200 renamed:false', async () => {
+    const NAME = '同名闸书甲'
+    registerBook(NAME)
+
+    __setSpawnRunning(NAME, true)
+    try {
+      const busy = await req('POST', `/api/books/${encodeURIComponent(NAME)}/rename`, { name: NAME })
+      expect(busy.status).toBe(409)
+      expect((busy.json as { error: string }).error).toContain('生成')
+    } finally {
+      __setSpawnRunning(NAME, false)
+    }
+    const ok = await req('POST', `/api/books/${encodeURIComponent(NAME)}/rename`, { name: NAME })
+    expect(ok.status).toBe(200)
+    expect(ok.json).toMatchObject({ ok: true, renamed: false, name: NAME })
+  })
+
+  it('任务闸（analyze）在途时同名改名 → 409 BUSY；释放后恢复', async () => {
+    const NAME = '同名闸书乙'
+    registerBook(NAME)
+
+    const release = acquireTaskGate(NAME, 'analyze')!
+    try {
+      const busy = await req('POST', `/api/books/${encodeURIComponent(NAME)}/rename`, { name: NAME })
+      expect(busy.status).toBe(409)
+      expect((busy.json as { error: string }).error).toContain('任务在跑')
+    } finally {
+      release()
+    }
+    const ok = await req('POST', `/api/books/${encodeURIComponent(NAME)}/rename`, { name: NAME })
+    expect(ok.status).toBe(200)
+    expect(ok.json).toMatchObject({ ok: true, renamed: false })
   })
 })

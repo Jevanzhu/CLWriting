@@ -126,10 +126,12 @@ export function sendChatMessage(opts: ChatOpts): 'started' | 'queued' | 'rejecte
     if (q.length >= MAX_PENDING_CHATS) {
       const dropped = q.shift()!
       // RB-AI-P2-1：regenerate 项无 message，预览降级显示「(重新生成)」而非误报空消息
-      const preview = (dropped.message || (dropped.regenerate ? '(重新生成)' : '(空消息)')).slice(0, 40)
+      // R26-28（二十六轮）：省略号只在真的截断时加——短预览恒带「…」是文案噪音
+      const fullPreview = dropped.message || (dropped.regenerate ? '(重新生成)' : '(空消息)')
+      const preview = fullPreview.length > 40 ? `${fullPreview.slice(0, 40)}…` : fullPreview
       emit(opts, {
         type: 'notice',
-        message: `对话队列已满：已丢弃最旧的排队消息「${preview}…」——你刚发送的这条会顶替它。`,
+        message: `对话队列已满：已丢弃最旧的排队消息「${preview}」——你刚发送的这条会顶替它。`,
       })
     }
     // RB-AI-P2-1：排队项完整保留语义字段（此前只存 message/chapter——运行中发起的

@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, chmodSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { readManifest, writeManifest, upsertEntry, removeEntry, finalizedChapterSetOfBook, finalizedPathSet } from '../../src/document/manifest.js'
+import { readManifest, readManifestStrict, writeManifest, upsertEntry, removeEntry, finalizedChapterSetOfBook, finalizedPathSet } from '../../src/document/manifest.js'
 
 describe('manifest', () => {
   let dir: string
@@ -152,6 +152,39 @@ describe('M-2（第十轮）：finalizedPathSet 哨兵对齐 M-13——读失败
       expect(set).not.toBeNull()
       expect(set!.size).toBe(0)
       rmSync(root, { recursive: true, force: true })
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('R27-40（二十七轮）P1：RMW 写路径 strict 读——读失败拒写，防空表重写吞登记', () => {
+  // Windows 无 POSIX 权限位（chmod 为 no-op/仅映射只读位），该守卫语义由 macOS/Linux CI 腿覆盖
+  it.skipIf(process.platform === 'win32')('readManifestStrict：EACCES 上抛（readManifest 仍 fail-open 空表，两版分立）', () => {
+    const root = mkdtempSync(join(tmpdir(), 'manifest-strict-'))
+    const fp = join(root, '项目', '文档清单.jsonl')
+    try {
+      mkdirSync(join(root, '项目'), { recursive: true })
+      writeFileSync(fp, '{"id":"doc_1","nodeType":"document","path":"写作/正文/001-开篇.md","parentId":null}\n')
+      const before = readFileSync(fp, 'utf-8')
+      chmodSync(fp, 0o000)
+      // 读侧容错版：空表（M-13 口径不变）
+      expect(readManifest(fp).entries.size).toBe(0)
+      // RMW strict 版：上抛——调用方 catch 后拒写，保住全书登记
+      expect(() => readManifestStrict(fp)).toThrow('文档清单读取失败')
+      chmodSync(fp, 0o644)
+      expect(readFileSync(fp, 'utf-8')).toBe(before) // 文件字节原样未动
+    } finally {
+      chmodSync(fp, 0o644) // 恢复权限便于 rmSync
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it.skipIf(process.platform === 'win32')('readManifestStrict：ENOENT（existsSync 与 read 之间被删）= 合法空态，不上抛', () => {
+    // 无文件 → 空（与 readManifest 同）；此用例锁「文件不存在不是错误」的语义分界
+    const root = mkdtempSync(join(tmpdir(), 'manifest-strict2-'))
+    try {
+      expect(readManifestStrict(join(root, '项目', '不存在.jsonl')).entries.size).toBe(0)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

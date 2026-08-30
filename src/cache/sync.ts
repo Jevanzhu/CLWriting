@@ -101,6 +101,16 @@ export function loadLeadFromCache(
 // ── 章节入库（#7 第 5 节对接 chapters 表）────────
 
 export function syncChapter(db: DatabaseSync, ch: ChapterMeta): void {
+  // R26-54（二十六轮）：重复章号入库留痕——chapters.number 是 PRIMARY KEY，INSERT OR
+  // REPLACE 静默后者胜（legacy 双目录/复制章场景），章节索引与文档树从此漂移且零可见
+  // 性。console.warn 而非 log 模块：本文件保持模块头注「运行时零依赖」约束（与
+  // format 零依赖件对 log 的取舍一致）。
+  const prev = db.prepare('SELECT path FROM chapters WHERE number = ?').get(ch.章号) as
+    | { path: string }
+    | undefined
+  if (prev && prev.path !== (ch._path ?? '')) {
+    console.warn(`[cache] 章号 ${ch.章号} 重复入库：${prev.path} 将被 ${ch._path ?? ''} 覆盖（后者胜）——请核对章节目录是否含重复章号`)
+  }
   db.prepare(
     `INSERT OR REPLACE INTO chapters
       (number, title, word_count, hook_type, hook_level, emotion, path)

@@ -251,3 +251,24 @@ test('applyGlobalDefaults: 就地 mutate 入参并返回同引用（运行时副
   expect(eff).toBe(cfg) // 同一对象——调用方拿返回值拿到的就是合并后的副本本身
   expect(cfg.budget.calls_per_chapter).toBe(8)
 })
+
+// R26-13（二十六轮）：托底口径与 runner 的短篇判定（kind==='short'）同源——
+// kind: short 而无 short 段的书此前 cfg.short 恒 undefined，defaultShortStrict 永不生效
+test('R26-13: kind: short 无 short 段 → 保底实例化 strict（defaultShortStrict 托底生效）', () => {
+  const ud = mkUserData()
+  writeGlobal(ud, { defaultShortStrict: true })
+  const eff = applyGlobalDefaults({ ...bareConfig(), kind: 'short' }, ud)
+  expect(eff.short?.strict).toBe(true)
+  rmSync(ud, { recursive: true, force: true })
+
+  // 无 global.json → 硬编码 fallback false 仍实例化（短篇判定不再依赖 short 段存在性）
+  const eff2 = applyGlobalDefaults({ ...bareConfig(), kind: 'short' }, null)
+  expect(eff2.short?.strict).toBe(false)
+  // 已有 short 段且显式 strict → 书级保留（不回归）
+  const eff3 = applyGlobalDefaults({ ...bareConfig(), kind: 'short', short: { strict: false } }, ud)
+  expect(eff3.short?.strict).toBe(false)
+  // 长篇无 short 段 → 不强行建段（原语义不回归）
+  const eff4 = applyGlobalDefaults(bareConfig(), ud)
+  expect(eff4.short).toBeUndefined()
+  rmSync(ud, { recursive: true, force: true })
+})

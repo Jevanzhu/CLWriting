@@ -21,10 +21,14 @@ async function onPrune(): Promise<void> {
   pruning.value = true
   try {
     const removed = await pruneVersions(name)
+    // R26-72（二十六轮）：toast 前补书名复检（对齐 MetaFormPanel R66-31 口径）——
+    // 清理在途切书后，A 书的成功提示/统计重拉不落 B 书「本书」页
+    if (ws.bookName !== name) return
     ui.toast(removed > 0 ? `已清理 ${removed} 个过期版本` : '没有需要清理的版本', 'success')
     await loadVersionStats()
   } catch (e) {
-    ui.toast(`清理失败：${e instanceof Error ? e.message : String(e)}`, 'error')
+    // R26-72：失败路径同门（成功路径有门、catch 漏配的同族缺陷）
+    if (ws.bookName === name) ui.toast(`清理失败：${e instanceof Error ? e.message : String(e)}`, 'error')
   } finally {
     pruning.value = false
   }

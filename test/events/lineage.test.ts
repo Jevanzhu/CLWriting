@@ -157,7 +157,7 @@ describe('G2-1 verifyVisibleRecorded 三种登记形状（settings/snapshot + re
   })
 })
 
-describe('F1-P3 SessionRecorder sourceSeqs 批内 → 全局', () => {
+describe('F1-P3 SessionRecorder 批内 sourceIdxs → 全局 sourceSeqs（R26-20 字段拆分）', () => {
   it('assistant 引用同批 settings/revision：flush 后转全局 seq 且 < assistant seq', () => {
     const ud = tmpRoot()
     const bookRoot = '/books/x'
@@ -226,15 +226,16 @@ describe('F1-P3 SessionRecorder sourceSeqs 批内 → 全局', () => {
     }
   })
 
-  // hh §八-18：批内 sourceSeqs 越界无防御的回归——seqs[s]! 断言曾把 undefined 写成 null 血缘
+  // hh §八-18：批内血缘索引越界无防御的回归——seqs[s]! 断言曾把 undefined 写成 null 血缘
+  // R26-20：字段改名 sourceIdxs（与全局 seq 语义的 sourceSeqs 拆分），越界防御口径不变
   it('越界/负数/非整数索引：抛错回滚整批零残留；合法批随后照常', () => {
     const ud = tmpRoot()
     const store = openSessionStore(ud, '/books/y')!
     try {
       const sessionId = store.createSession('y', { book: 'y' })
-      const mk = (sourceSeqs?: number[]): NewEvent[] => [
+      const mk = (sourceIdxs?: number[]): NewEvent[] => [
         sessionStartEvent('y'),
-        assistantMessageEvent('hi', undefined, undefined, sourceSeqs),
+        assistantMessageEvent('hi', undefined, undefined, sourceIdxs),
       ]
       for (const bad of [[2], [-1], [0.5], [Number.NaN], [0, 99]]) {
         expect(() => store.appendEventsResolveLineage(sessionId, mk(bad))).toThrow(/血缘引用越界/)
@@ -246,6 +247,37 @@ describe('F1-P3 SessionRecorder sourceSeqs 批内 → 全局', () => {
       expect(seqs).toHaveLength(2)
       const asst = store.listEvents('y', sessionId).find((e) => e.type === 'assistant/message')!
       expect(asst.sourceSeqs).toEqual([seqs[0]])
+    } finally {
+      store.close()
+    }
+  })
+
+  // R26-20（二十六轮）：sourceIdxs / sourceSeqs 按方法拆分——NewEvent 直带 sourceIdxs
+  // 走批内索引解析（seq 回写正确）；带 sourceSeqs（全局 seq 语义，appendEvents 专用）
+  // 一律拒收报错，双语义陷阱闭合
+  it('R26-20: NewEvent 直带 sourceIdxs → 按批内索引回写全局 seq；带 sourceSeqs → 拒收报错', () => {
+    const ud = tmpRoot()
+    const store = openSessionStore(ud, '/books/z')!
+    try {
+      const sessionId = store.createSession('z', { book: 'z' })
+      // sourceIdxs 建血缘：批内 [0, 1] → 本批真实 seq（INSERT RETURNING），落 source_seqs 列
+      const seqs = store.appendEventsResolveLineage(sessionId, [
+        { type: 'session/start', data: { book: 'z' } },
+        { type: 'user/message', data: { message: 'q' }, surfaceOp: 'append' },
+        { type: 'assistant/message', data: { message: 'a' }, surfaceOp: 'append', sourceIdxs: [0, 1] },
+      ])
+      const asst = store.listEvents('z', sessionId).find((e) => e.type === 'assistant/message')!
+      expect(asst.sourceSeqs).toEqual([seqs[0], seqs[1]])
+      expect(asst.sourceSeqs!.every((s) => s < asst.seq)).toBe(true)
+
+      // 拒收 sourceSeqs：本方法按批内索引解析，全局 seq 传进来会被错链——宁可红不可错
+      const bad: NewEvent[] = [
+        { type: 'session/start', data: { book: 'z' } },
+        { type: 'assistant/message', data: { message: 'x' }, surfaceOp: 'append', sourceSeqs: [1, 2] },
+      ]
+      expect(() => store.appendEventsResolveLineage(sessionId, bad)).toThrow(/sourceSeqs.*sourceIdxs|双语义/)
+      // 抛错回滚整批零残留
+      expect(store.listEvents('z', sessionId)).toHaveLength(3)
     } finally {
       store.close()
     }

@@ -143,8 +143,10 @@ export function heldTaskGatesFor(bookName: string): string[] {
 /** R75-5：全库任务闸 action 注册表——锁文件名是 key（action+NUL+书名）的单向 sha256
  *  截断，查询侧无法从文件名反解出 action，只能对已知 action 正向枚举 hash 比对。
  *  新增 acquireTaskGate 调用点时须同步登记此处（漏登记只削弱跨进程 busyGate 查询的
- *  完备性——少报一个在途 action，不影响 acquire 侧互斥本身）。 */
-const KNOWN_ACTIONS: readonly string[] = [
+ *  完备性——少报一个在途 action，不影响 acquire 侧互斥本身）。
+ *  R77-2（二十五轮批 E）：导出 + test/governance/known-actions-audit.test.ts 静态对账
+ *  （扫全库调用点字面量 == 注册表）——漏登记从「注释自觉」变机器门。 */
+export const KNOWN_ACTIONS: readonly string[] = [
   'analyze',
   'analyze-style',
   'autotag',
@@ -160,6 +162,7 @@ const KNOWN_ACTIONS: readonly string[] = [
   'relations-mine',
   'review',
   'rewrite',
+  'versions-prune', // R26-67（二十六轮）：快照清理端点（snapshots.ts POST /versions/prune）
 ]
 
 /** R75-5：跨进程查询注入项（语义同 TaskGateOptions 对应字段）。 */

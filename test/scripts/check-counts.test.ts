@@ -92,6 +92,16 @@ describe('R63-12：.only / 无条件 .skip 拒绝门', () => {
     // 与 only 门同口径：注释/字符串里的形态不误报
     expect(findOnlyOrSkipViolations("// it.skip.each([1])('注释', (n) => {})")).toEqual({ only: 0, uncondSkip: 0 })
   })
+
+  it('R27-134: 零参形态 test.skip() 同样检出——连条件都没有的无条件跳过，比标题串更赤裸', () => {
+    expect(findOnlyOrSkipViolations('test.skip()')).toEqual({ only: 0, uncondSkip: 1 })
+    expect(findOnlyOrSkipViolations('it.skip( )')).toEqual({ only: 0, uncondSkip: 1 })
+    expect(findOnlyOrSkipViolations('describe.skip()')).toEqual({ only: 0, uncondSkip: 1 })
+    // 条件式豁免口径不受影响：`(` 后非引号/非右括号仍是环境门（首参布尔表达式）
+    expect(findOnlyOrSkipViolations("test.skip(!process.env['X'], '门')")).toEqual({ only: 0, uncondSkip: 0 })
+    // 注释/字符串里的零参形态不误报（sanitize 同源口径）
+    expect(findOnlyOrSkipViolations('// test.skip()')).toEqual({ only: 0, uncondSkip: 0 })
+  })
 })
 
 describe('R73-78：模板串 ${} 嵌套净化（计数漂移防线）', () => {

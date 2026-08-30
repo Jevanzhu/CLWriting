@@ -112,7 +112,17 @@ export async function apiFetch(
     // 说明 401/403 另有原因（Origin/权限类），透传不空转（同一请求最多重试一次）
     const used = token
     await rebootstrap()
-    if (token !== null && token !== used) return apiFetch(path, init, true)
+    if (token !== null && token !== used) {
+      // R26-81（二十六轮）：重放前取消首个响应的未读流——重放后旧响应体不再被消费，
+      // 不 cancel 会占住连接直到 GC（浏览器每 host 连接数有限，re-boot 窗口内并发请求
+      // 可能挤占连接池）；cancel 拒绝（已锁定的流等）静默吞掉。
+      // R28-4（二十八轮）：cancel 只放在**确定重放**的分支——不重放（token 未变/为
+      // null）时响应体须原样返回调用方（apiJson 仍要读 {code,error} 信封）；原先
+      // 无条件 cancel 把响应体提前作废，信封解析失败被伪造成「本地服务未连接」，
+      // 掩盖服务端真实错误。
+      r.body?.cancel().catch(() => {})
+      return apiFetch(path, init, true)
+    }
   }
   return r
 }
@@ -146,7 +156,11 @@ export async function apiJson<T>(
     unlinkExternalSignal = () => external.removeEventListener('abort', onExternalAbort)
   }
   try {
-    const r = await apiFetch(path, { ...init, signal: controller?.signal ?? init?.signal })
+    // R26-85（二十六轮）：原 `controller?.signal ?? init?.signal` 的 `?? init?.signal`
+    // 是死代码（controller 恒已创建，左侧永真）——删除。外部 init.signal 的取消语义已由
+    // 上方联动机制完整覆盖（外部 abort → controller.abort，settle 后摘监听器），apiFetch
+    // 收到的恒是内部 signal，不存「未传 controller 就透传原 signal」的分支。
+    const r = await apiFetch(path, { ...init, signal: controller.signal })
     // 错误信封判别（dv-01）：服务端错误统一走 {code, error} JSON 信封（error-envelope 门禁）。
     // 检出空体/裸文本 5xx（dev Vite proxy 在 7878 未起时返回 502 空体；反代口子同形态）——
     // 这类「本地 API 服务未连接」不是 AI 提供方故障，不能套 friendlyError 的 AI 文案

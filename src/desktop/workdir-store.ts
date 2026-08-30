@@ -10,7 +10,7 @@
  * 关联：Dev/Plans/desktop-workdir-方案.md（决策③ 多数库切换）。
  */
 import { basename } from 'node:path'
-import { existsSync } from 'node:fs'
+import { existsSync, statSync } from 'node:fs'
 
 export interface RecentItem {
   /** 书库绝对路径 */
@@ -92,11 +92,27 @@ export function setCurrent(store: WorkDirStore, newCurrent: string): WorkDirStor
 }
 
 /**
+ * R26-93（二十六轮）：目录有效性判定——existsSync 之外补 isDirectory。
+ * existsSync 对「同路径普通文件」也为 true：书库目录被同名文件顶替（误删后重建/解压
+ * 残留）时该 recent 项不再可用，却原样保留 → 点击切换后链路把文件路径当书库目录用。
+ * statSync 单独 try/catch（对齐本文件容错口径）：判定窗口内被删（ENOENT）/权限
+ * （EACCES）按无效处理，不裸抛破坏「容错解析，不抛异常」契约。
+ */
+function isExistingDir(p: string): boolean {
+  if (!existsSync(p)) return false
+  try {
+    return statSync(p).isDirectory()
+  } catch {
+    return false
+  }
+}
+
+/**
  * 过滤掉 recent 中已失效（目录不存在）的项 —— 启动时清理。
  * current 失效不在本函数处理（由调用方决定是否弹选择器重选）。
  */
 export function filterValidRecent(store: WorkDirStore): WorkDirStore {
-  return { current: store.current, recent: store.recent.filter((r) => existsSync(r.path)) }
+  return { current: store.current, recent: store.recent.filter((r) => isExistingDir(r.path)) }
 }
 
 /** 序列化为 workdir.json 文本（pretty + 尾换行）。 */

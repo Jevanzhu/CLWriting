@@ -10,7 +10,7 @@
 import { join } from 'node:path'
 import { existsSync, readFileSync } from 'node:fs'
 import { readChapter } from '../format/chapters.js'
-import { readManifest, writeManifest, withManifestLock } from './manifest.js'
+import { readManifest, readManifestStrict, writeManifest, withManifestLock } from './manifest.js'
 import { invalidateTreeIndex } from './tree.js'
 import { computeRevision } from './revision.js'
 import { writeVersion, VERSIONS_DIR_NAME } from './version.js'
@@ -68,8 +68,15 @@ export function finalizeRevision(bookRoot: string, docId: string): FinalizeOutco
     // 已移除处理，沿用锁外基线（原 X-5 兜底语义），后续写版本若也失败走 WRITE_ERROR。
     const fileBytes = existsSync(absPath) ? readFileSync(absPath) : null
     const rev = fileBytes ? (hashBytes(fileBytes) as `sha256:${string}`) : currentRev
-    // 幂等：当前指纹 == 已记录的定稿基线 → skipped，不重复写版本
-    const manifest = readManifest(manifestPath)
+    // 幂等：当前指纹 == 已记录的定稿基线 → skipped，不重复写版本。
+    // R27-40（二十七轮）：strict 读——瞬态读失败原会当「无基线」走补建分支，空表
+    // 整文件重写吞掉全书登记；现上抛由本信封收口为 WRITE_ERROR（拒定稿保旧清单）。
+    let manifest
+    try {
+      manifest = readManifestStrict(manifestPath)
+    } catch (e) {
+      return { ok: false, code: 'WRITE_ERROR', error: `定稿前清单读取失败（已拒绝，防空表重写）：${e instanceof Error ? e.message : String(e)}` }
+    }
     const entry = manifest.entries.get(docId)
     if (entry?.finalizedRevision === rev) {
       return { ok: true, status: 'final', skipped: true }
@@ -105,7 +112,10 @@ export function finalizeRevision(bookRoot: string, docId: string): FinalizeOutco
       const content = fileBytes.toString('utf-8')
       const versionsDir = join(bookRoot, '工作区', VERSIONS_DIR_NAME)
       const split = splitFrontMatter(content)
-      writeVersion(versionsDir, docId, content, {
+      // R27-41（二十七轮）：pinned 版本直存原始字节（writeVersion R26-52 已支持
+      // Buffer）——utf-8 文本化会把 GBK 等非 UTF-8 源变 U+FFFD 失真副本，而这是全
+      // 系统唯一 pinned 永久留底；content 仍供 words 统计（近似口径，注释在案）。
+      writeVersion(versionsDir, docId, fileBytes, {
         origin: 'finalize',
         reason: `定稿 ch:${String(chapterNo).padStart(4, '0')} ${title}`,
         baseRevision: rev,

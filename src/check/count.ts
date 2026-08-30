@@ -190,13 +190,43 @@ function isAttributionOnly(outside: string): boolean {
   return outside === '' || ATTRIBUTION_RE.test(outside)
 }
 
+/** R28-8（二十八轮）：说话动词集单源——SPEECH_ATTRIBUTION_RE（对白归属行豁免）与
+ *  DIALOGUE_TAG_RE（对话标签占比分子）共用同一动词集。此前 DIALOGUE_TAG_RE 只有
+ *  说/道/问/喊/叫/答/叹/笑 8 个，窄于归属行豁免的 21 个（骂/吼/喝/斥/呼/唤/念/回/
+ *  应/嘀咕/嘟囔/喃喃/低语 不计标签）→ 标签占比分子系统性偏低（漏检向黄）。对齐后
+ *  「“闭嘴！”他骂道。」这类行照常计入占比。
+ *  已知登记不动（R28-8）：「他喊了一声，」的「了」后接数词「一」不满足双侧边界锚定
+ *  （lookahead 要求动词/尾缀后紧跟标点或行尾）→ 该形态不计标签；修锚定易引入构词
+ *  语素回潮（R26-11 反例），本期只对齐动词集。 */
+const SPEECH_VERBS = '说|道|问|喊|叫|答|叹|笑|骂|吼|喝|斥|呼|唤|念|回|应|嘀咕|嘟囔|喃喃|低语'
+
 /** X-P2-9：对白归属行结构——1-4 汉字（人名/称谓）+ 说话动词 + 可选尾缀（了/着/道）。
  *  说话人名词不在提示语词表（V-P2-13 只挡代词行），「快走。」林晚说。这类
  *  网文最高频对白行式按结构匹配豁免，否则引号内对白被当专名每章批量误报。
  *  R62-29：汉字段改 ${HANZI} 插值（与全文件口径同源）——此前字面 \u4e00-\u9fa5
- *  漏基本区顶与扩展 A 区，生僻字人名的归属行不匹配、对白被当专名误报。 */
+ *  漏基本区顶与扩展 A 区，生僻字人名的归属行不匹配、对白被当专名误报。
+ *  R28-8：动词段收 SPEECH_VERBS 单源（动词集语义不变，见上）。 */
 const SPEECH_ATTRIBUTION_RE =
-  new RegExp(`^[${HANZI}]{1,4}(?:说|道|问|喊|叫|答|叹|笑|骂|吼|喝|斥|呼|唤|念|回|应|嘀咕|嘟囔|喃喃|低语)(?:了|着|道)?$`)
+  new RegExp(`^[${HANZI}]{1,4}(?:${SPEECH_VERBS})(?:了|着|道)?$`)
+
+/**
+ * R26-11（二十六轮）：对话标签提示语结构锚定（computeStyleMetrics 对话标签占比用）。
+ * V-P1-7 只看引号外文本后，裸字面匹配（`[汉字]{1,8}说|道|…(了|着)?`）仍把剥引号后
+ * 残留的构词语素当标签——「“走吧。”他知道已经拦不住了。」剥引号后「他知道…」的
+ * 「道」、「味道/道理/笑点」的语素均误命中，分子系统性虚高。改双侧边界锚定（对白
+ * 提示语形态「X说：」「他道，」「XX喊道。」）：
+ * - 动词段（1-8 汉字人名/代词前缀 + 说话动词 + 可选 了/着）整体前须行首/标点/空白；
+ * - 动词（含尾缀）后须紧跟标点/冒号/行尾——构词语素后跟普通字（知「道」→已经）不再匹配。
+ * stripQuotedSpans 语义不变（V-P1-7：对白内容不算标签）。
+ * R26-47（二十六轮）：原循环/逐行 new RegExp 提升为模块级常量（无 g 标志，test 安全）。
+ * R28-8（二十八轮）：动词段收 SPEECH_VERBS 单源——原 8 动词窄于归属行豁免的 21 动词，
+ * 标签占比分子系统性偏低（漏检向黄），对齐后双口径同词表。
+ */
+const TAG_ANCHOR = `[\\s${SPAN_PUNCT}「」『』“”‘’（）《》〈〉]`
+const DIALOGUE_TAG_RE = new RegExp(
+  `(?:^|${TAG_ANCHOR})[${HANZI}]{1,8}(?:${SPEECH_VERBS})(?:了|着)?(?=$|${TAG_ANCHOR})`,
+  'u',
+)
 
 /**
  * 新专名比对名册（#10 项 10，🟡 黄）。
@@ -305,11 +335,14 @@ export function checkImagery(
       count++
       idx = body.indexOf(word, idx + word.length)
     }
-    if (count >= threshold) {
+    // R26-29（二十六轮）：阈值边界统一为 `>`（超过才报）——与 checkBodyParts/checkSimile
+    // 的「≤阈 合法、>阈 报黄」语义一致（#27 第 5.3 节同款）；原 `>=` 让恰好踩线的
+    // 「3 次整」也报，与身体部位/比喻两项口径分裂。
+    if (count > threshold) {
       items.push({
         checkId: 'imagery-overuse',
         level: 'yellow',
-        message: `高频意象「${word}」本章出现 ${count} 次（≥${threshold}），疑似套路堆叠`,
+        message: `高频意象「${word}」本章出现 ${count} 次（>${threshold}），疑似套路堆叠`,
       })
     }
   }
@@ -376,18 +409,19 @@ export function computeStyleMetrics(body: string, rules: IronRules): StyleStats 
   if (rules.maxDialogueTagRatio !== undefined && dialogueLines.length > 0) {
     // V-P1-7：标签判定只看引号外的提示语——对整行 test 会把对白里的
     // 「知道/别叫/笑道」等普通内容也算成对话标签，分子系统性虚高。
-    const tagRe = new RegExp(`[${HANZI}]{1,8}(说|道|问|喊|叫|答|叹|笑)(了|着)?`, 'u')
-    const tagged = dialogueLines.filter((line) => tagRe.test(stripQuotedSpans(line))).length
+    // R26-11：剥引号后的判定改 DIALOGUE_TAG_RE 双侧边界锚定（构词语素不再误命中）。
+    const tagged = dialogueLines.filter((line) => DIALOGUE_TAG_RE.test(stripQuotedSpans(line))).length
     dialogueTagRatio = tagged / dialogueLines.length
   }
 
-  // 最大同构排比连续数（补全统计，不同于 checkStyleMetrics 的「首次越界即 break」）
+  // 最大同构排比连续数（补全统计，不同于 checkStyleMetrics 的「首次越界即 break」）。
+  // R26-47（二十六轮）：循环内 new RegExp 提升为模块级常量 PARALLEL_PREFIX_RE（纯浪费）
   let parallelStreakMax = 0
   if (rules.maxParallelStreak !== undefined && rules.maxParallelStreak > 0) {
     let prev = ''
     let streak = 0
     for (const sentence of sentencesWithColon) {
-      const prefix = sentence.match(new RegExp(`^[${HANZI}]{2}`, 'u'))?.[0] ?? ''
+      const prefix = sentence.match(PARALLEL_PREFIX_RE)?.[0] ?? ''
       if (prefix && prefix === prev) {
         streak += 1
       } else {
@@ -481,7 +515,8 @@ export function checkStyleMetrics(
     })
   }
 
-  // 连续同构排比：首次越界即推一条 + break（保持原行为；max 留在 stats 供聚合用）
+  // 连续同构排比：首次越界即推一条 + break（保持原行为；max 留在 stats 供聚合用）。
+  // R26-47：循环内 new RegExp 提升为模块级常量 PARALLEL_PREFIX_RE
   if (rules.maxParallelStreak !== undefined && rules.maxParallelStreak > 0 && stats.parallelStreakMax > rules.maxParallelStreak) {
     // 复算首个越界 prefix（复用 stats 已分句结果）
     const sentences = stats._sentencesWithColon ?? splitSentences(body, true)
@@ -489,7 +524,7 @@ export function checkStyleMetrics(
     let streak = 0
     let hitPrefix = ''
     for (const sentence of sentences) {
-      const prefix = sentence.match(new RegExp(`^[${HANZI}]{2}`, 'u'))?.[0] ?? ''
+      const prefix = sentence.match(PARALLEL_PREFIX_RE)?.[0] ?? ''
       if (prefix && prefix === prev) {
         streak += 1
       } else {
@@ -524,6 +559,10 @@ function adjStackRegex(maxAdjStack: number): RegExp {
   return new RegExp(`(?:[${HANZI}]{1,6}的(?:[、，,]\\s*)?){${maxAdjStack + 1},}`, 'gu')
 }
 
+/** R26-47（二十六轮）：排比前缀匹配——原 computeStyleMetrics/checkStyleMetrics 两处
+ *  循环体内逐句 new RegExp(`^[汉字]{2}`)，提升为模块级常量（内容循环不变）。 */
+const PARALLEL_PREFIX_RE = new RegExp(`^[${HANZI}]{2}`, 'u')
+
 /**
  * R73-18（二十一轮）：领属链排除——adjStackRegex 匹配任意「X的」链，「他的母亲的
  * 家族的」这类人称代词/亲属词领属链与形容词堆叠（「苍白的干裂的颤抖的」）完全两回事，
@@ -539,10 +578,13 @@ const POSSESSIVE_HEADS = new Set([
   '师父', '师傅', '老师', '师兄', '师姐', '师弟', '师妹', '主人', '老爷', '少爷', '夫人', '娘子', '前辈', '晚辈',
 ])
 
-/** 领属链判定：命中串由 N 个「X的」单元组成，任一单元头命中 POSSESSIVE_HEADS → true */
+/** 领属链判定：命中串由 N 个「X的」单元组成，任一单元头命中 POSSESSIVE_HEADS → true。
+ *  R26-47（二十六轮）：单元正则原在逐命中过滤循环内逐次 new，提升为模块级常量
+ *  （matchAll 内部克隆消费，不携带 lastIndex 状态，共享安全）。 */
+const POSSESSIVE_UNIT_RE = new RegExp(`([${HANZI}]{1,6})的(?:[、，,]\\s*)?`, 'gu')
+
 function isPossessiveChain(hit: string): boolean {
-  const unitRe = new RegExp(`([${HANZI}]{1,6})的(?:[、，,]\\s*)?`, 'gu')
-  for (const m of hit.matchAll(unitRe)) {
+  for (const m of hit.matchAll(POSSESSIVE_UNIT_RE)) {
     if (POSSESSIVE_HEADS.has(m[1]!)) return true
   }
   return false
@@ -716,8 +758,43 @@ export function checkSectionCount(
 ): CheckSectionResult {
   const items: CheckItem[] = []
   // 有 ## 标题才按标题计五段；无标题时不把自然段空行误判为“节”。
-  // 用 match 数标题行（split 会把首个 ## 之前的前导内容多计一节）
-  const headings = body.match(/^##\s.+$/gm) ?? []
+  // 用 match 数标题行（split 会把首个 ## 之前的前导内容多计一节）。
+  // R26-43（二十六轮）：`##` 后空白可选（`##标题` 紧排形态此前漏计 → 全部落
+  // 「未使用 ## 标注」误导文案）；`##` 后须仍有内容（`.+`），裸 `##` 行不计。
+  // R27-25（二十七轮）：计数先剥代码围栏（``` / ~~~）内的行——设定/知识块里
+  // 引用示例的 `## xxx` 此前被当节标题计入，节数守恒虚高误绿
+  // R28-9（二十八轮·先证伪后修）：评审上报「孤立闭合 ``` 翻真吞掉其后全部 ## 标题」
+  // 经 CommonMark 对照**证伪**——非围栏态遇 ``` 行本就是「开栏」（围栏可无信息串），
+  // 无配对时围栏延伸到文末、其内 ## 不计恰是 spec 正确行为，该项转维持登记。
+  // 但推演发现真实 spec 偏离并做最小修复：CommonMark 要闭栏行与开栏**同字符、长度
+  // 不小于开栏、其后只允许空白**；原 `(```|~~~)` 一视同仁互翻 → ① ~~~ 开的栏被 ```
+  // 提前闭合（反之亦然）；② 围栏内的 ~~~/``` 内容行被误当闭栏；③ 带信息串的闭栏行
+  // （如 ```js）在围栏内应属内容却被当闭栏。改记开栏字符+长度，闭栏行须三者皆符；
+  // 开栏语义不变（非围栏态 ``` / ~~~ 行照旧开栏，信息串允许）。
+  let fence: { ch: string; len: number } | null = null
+  const stripped = body
+    .split('\n')
+    .filter((ln) => {
+      const m = ln.match(/^\s{0,3}(`{3,}|~{3,})(.*)$/)
+      if (fence === null) {
+        // 非围栏态：```/~~~ 行（信息串可选）= 开栏（R27-25 语义不变），开栏行剥除
+        if (m) fence = { ch: m[1]![0]!, len: m[1]!.length }
+        return !m
+      }
+      // 围栏态：仅同类同长且其后只有空白的行 = 闭栏；其余（异类/更短/带信息串）
+      // 是围栏内容，照旧剥除不计
+      if (m && m[1]![0]! === fence.ch && m[1]!.length >= fence.len && m[2]!.trim() === '') {
+        fence = null
+      }
+      return false
+    })
+    .join('\n')
+  // R28-2（二十八轮）：R26-43 把 `\s` 放宽为 `\s*`（支持 `##标题` 紧排）后未排除更深
+  // `#` 前缀——`^##\s*.+` 对「### 手记」以 `##` + 空 + `# 手记` 误命中，`###`/`####`
+  // 子标题被当节标题计入 → 节数虚高 → section-count 假黄 → 短篇 strict 提红拦定稿。
+  // 改 `^##(?!#)`：lookahead 排除 `###`/`####`，紧排 `##标题` 照旧命中、裸 `##` 行
+  // 照旧不计（R26-43 语义不变）。
+  const headings = stripped.match(/^##(?!#)\s*.+$/gm) ?? []
   let sections: number
   if (headings.length >= 2) {
     // 有 ## 标题：按标题数

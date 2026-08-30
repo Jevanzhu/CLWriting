@@ -41,7 +41,9 @@ import { mkdtempTracked } from '../helpers/temp-dir.js'
 class FakeChild extends EventEmitter {
   posted: unknown[] = []
   killed = 0
-  pid = 4242
+  // R28-21：pid 类型放宽为可 undefined（Electron 语义——UtilityProcess 退出后 pid 置
+  // undefined），供「SIGTERM 被吞 + 窗口内已退」的 pid 重读用例注入
+  pid: number | undefined = 4242
   stdout: PassThrough = new PassThrough()
   stderr: PassThrough = new PassThrough()
   postMessage(message: unknown): void {
@@ -312,6 +314,62 @@ describe('批 U1：旧 child 清理与 stopChild（L-3 换轨）', () => {
     expect(child.killed).toBe(1)
     expect(manager.isRunning()).toBe(false)
     await expect(manager.stopChild()).resolves.toBeUndefined() // 幂等
+  })
+
+  // R28-21（二十八轮）：SIGKILL 升级前重读 proc.pid——killWaitMs（2s）窗内子进程已死亡
+  // 且 pid 被系统复用时，按入口快照盲杀会误伤无关进程（极窄理论窗）。Electron 退出后
+  // pid 置 undefined，重读 undefined = 已退出（exit 事件竞态迟到）→ 跳过升级走「超时放行」。
+  describe('R28-21：SIGKILL 升级前 pid 重读', () => {
+    /** SIGTERM 被吞形态的假件：kill 只计数，不派发 exit（killWaitMs 窗口内「仍活」） */
+    function swallowTerm(child: FakeChild): void {
+      child.kill = () => {
+        child.killed++
+        return true
+      }
+    }
+
+    it('killWaitMs 窗内 child 已退（pid 置 undefined）→ 不升级 SIGKILL（防 pid 复用误杀无关进程）', async () => {
+      const { forkRecords, manager } = mkHarness({ killWaitMs: 40 })
+      const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true)
+      try {
+        const p = manager.start({ workDir: null, userDataPath: mkUserData() })
+        const child = forkRecords[0]!.child
+        child.emit('message', { type: 'ready', port: 1 })
+        await p
+        swallowTerm(child)
+        const stopping = manager.stopChild()
+        // 窗口过半后模拟 Electron 语义：进程已退，pid 置 undefined（exit 事件竞态迟到）
+        await new Promise((r) => setTimeout(r, 10))
+        child.pid = undefined
+        await expect(stopping).resolves.toBeUndefined()
+        expect(killSpy).not.toHaveBeenCalled() // 修复前按入口快照 pid=4242 盲杀
+        // 竞态迟到的 exit 事件补达：active 由 exit 监听清空（停机语义收口）
+        child.emit('exit', 0)
+        await flushMicrotasks()
+        expect(manager.isRunning()).toBe(false)
+      } finally {
+        killSpy.mockRestore()
+      }
+    })
+
+    it('对照：窗口内 pid 仍在（真挂死）→ 照常升级 SIGKILL（修复不弱化强杀兜底）', async () => {
+      const { forkRecords, manager } = mkHarness({ killWaitMs: 40 })
+      const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true)
+      try {
+        const p = manager.start({ workDir: null, userDataPath: mkUserData() })
+        const child = forkRecords[0]!.child
+        child.emit('message', { type: 'ready', port: 1 })
+        await p
+        swallowTerm(child)
+        const stopping = manager.stopChild()
+        await new Promise((r) => setTimeout(r, 10))
+        expect(child.pid).toBe(4242) // pid 未变（真挂死形态）
+        await expect(stopping).resolves.toBeUndefined()
+        expect(killSpy).toHaveBeenCalledWith(4242, 'SIGKILL')
+      } finally {
+        killSpy.mockRestore()
+      }
+    })
   })
 })
 

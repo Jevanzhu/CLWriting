@@ -155,6 +155,39 @@ describe('C2 迁移（A6：升级不覆盖用户改动）', () => {
       rmSync(ud, { recursive: true, force: true })
     }
   })
+
+  // R27-132（二十七轮）：单 overlay 读异常（TOCTOU 被删/被目录占位/EACCES）不再中断
+  // 整轮升级——读经 R75-A-P3b 收编助手拿带路径上下文的错误，逐文件 warn 跳过继续，
+  // 对齐 v2/v3 迁移「单条目失败不拖死同轮其余条目」的容错口径。目录占位模拟读失败
+  // （existsSync ✓ / readFileSync ✗ EISDIR，同 R75-A-P3b 用例的注入手法）。
+  it('R27-132: 单 overlay 读失败 → warn 跳过该文件不中断整轮，其余 overlay 照常升级', () => {
+    const v1a = '写手 v1'
+    const v2a = '写手 v2'
+    const v1b = '改写 v1'
+    const v2b = '改写 v2'
+    const registry: PromptRegistry = {
+      readBuiltin: (name) => (name === 'writer-long' ? v2a : v2b),
+      versions: () => ({
+        'writer-long.md': [promptHash(v1a), promptHash(v2a)],
+        'rewriter.md': [promptHash(v1b), promptHash(v2b)],
+      }),
+    }
+    const ud = mkdtempTracked(join(tmpdir(), 'clwriting-prompt-mig3-'))
+    try {
+      mkdirSync(join(ud, 'prompts'), { recursive: true })
+      mkdirSync(overlayPath(ud, 'writer-long')) // 读失败源：exists ✓ / read ✗
+      writeFileSync(join(ud, 'prompts', 'rewriter.md'), v1b + '\n', 'utf8')
+      // 修复前：readFileSync 裸抛 → 整轮中断，rewriter 升级丢失（server 启动通告红）
+      const r = migratePromptOverlays(ud, registry)
+      expect(r.upgraded).toEqual(['rewriter'])
+      expect(r.kept).toEqual([])
+      expect(readFileSync(join(ud, 'prompts', 'rewriter.md'), 'utf8')).toBe(v2b + '\n')
+      // 失败文件原样保留（不误写不误删——仍是目录，重跑下轮继续跳过）
+      expect(existsSync(overlayPath(ud, 'writer-long'))).toBe(true)
+    } finally {
+      rmSync(ud, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('C2 哈希精确匹配（CS-19）', () => {

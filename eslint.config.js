@@ -6,8 +6,10 @@
  * R74-26（二十二轮 批E）：TS 面接入——typescript-eslint 预装后扩 src 下 .ts 块
  * （此前 espree 不认 TS 语法，CI lint 步对 TS 零约束近乎空转）。规则起步＝
  * recommended 预设，报红量大且低价值的规则逐条关掉（每条配中文理由，见下）。
- * 射程登记：vue 面（web-next 子包独立自治 + .vue SFC）本轮不动；
- * test 目录与 scripts 下 .ts 本轮不接（后续增量）。
+ * 射程登记：vue 面（web-next 子包独立自治 + .vue SFC）本轮不动。
+ * R28-30（二十八轮）：scripts 目录 .ts 接入（实测 9 文件 0 错，零修复纳管）；
+ * test 目录待增量接入（当前 45 错：31 处 no-explicit-any + 14 处 no-unused-vars，
+ * 2026-08-30 实测，>30 阈值故本轮不纳入，清零存量后扩 files 即可）。
  *
  * 刻意不做的：
  * - 风格类规则（引号/分号等）：无 prettier 依赖，不预设口径，避免一次性海量 diff。
@@ -71,8 +73,9 @@ export default [
   },
   {
     // TS 面（R74-26）：src 下的 .ts——parser/plugin 用 typescript-eslint；
-    // .vue SFC、test 目录、scripts 下 .ts 本轮不接（头注登记），后续增量扩 files 即可
-    files: ['src/**/*.ts'],
+    // R28-30（二十八轮）：scripts/**/*.ts 增量接入（9 文件 0 错零修复纳管）；
+    // test/** 待增量接入（当前 45 错，见头注登记），清零后扩 files 即可
+    files: ['src/**/*.ts', 'scripts/**/*.ts'],
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: {

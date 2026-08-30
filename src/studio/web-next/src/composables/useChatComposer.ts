@@ -13,9 +13,18 @@ import { isImeComposing } from '../shared/ime'
 
 // R66-33（十四轮）：发送失败 + 切书 → 文本找回。input 先清空、消息已进 A 书对话区；
 // 失败返回时若已切到 B 书，popUser 被书名守卫拦下（误弹会 B 书末条），文本无处可去。
-// 以书名键失败草稿：回切该书（watch）或 composer 随面板重建（ChatPanel 挂 :key 全量重建）
-// 时回填输入框；A 书对话区的幽灵气泡由切书重播种自动清掉。
+// 以书名键失败草稿：回切该书（watch）或随书重建实例（ChatDock 挂 :key=bookName，R27-76 起）
+// setup 取稿时回填输入框；A 书对话区的幽灵气泡由切书重播种自动清掉。
+// R28-23（二十八轮）：口径更正——旧表述「ChatPanel 挂 :key 全量重建」不实：ChatPanel 在
+// WorkbenchView 无 :key（切书常驻，走下方 watch），随书重建的消费入口实为 ChatDock，
+// 与 R27-75 注释及模板实状对齐。
 const failedDrafts = new Map<string, string>()
+
+/** R26-83（二十六轮，登记顺手补清）：删书成功后清该书的失败草稿残留——module 级
+ *  Map 无书删除出口，残留条目会常驻内存；同名重建书也不该回填旧书的幽灵文本。 */
+export function clearFailedDrafts(book: string): void {
+  failedDrafts.delete(book)
+}
 
 export function useChatComposer(
   bookName: () => string,
@@ -31,10 +40,17 @@ export function useChatComposer(
   function restoreFailedDraft(book: string): void {
     const stash = failedDrafts.get(book)
     if (stash === undefined) return
-    failedDrafts.delete(book)
-    if (!input.value.trim()) input.value = stash
+    // R27-75（二十七轮）：先删后查——stash 存在即无条件销毁、回填却以输入框空为前提，
+    // 「切书后回来」时输入框已有新输入反而永久删稿（R66-33 找回语义自毁）。
+    // delete 移入「确实回填了」分支：未消费时草稿保留，等下次输入框空的取书时机再回填
+    if (!input.value.trim()) {
+      input.value = stash
+      failedDrafts.delete(book)
+    }
   }
-  // R66-33：ChatPanel 挂 :key 切书即重建（watch 不可达），靠 setup 时取；ChatDock 常驻，靠 watch
+  // R66-33：消费入口两条——随书重建的实例（ChatDock 挂 :key=bookName，R27-76 起）靠
+  // setup 时取；切书仍常驻的实例（工作台 tab 内 ChatPanel，WorkbenchView 无 :key）靠 watch。
+  // 重建实例的 watch 随销毁失效，两条并存不重复回填
   restoreFailedDraft(bookName())
   watch(bookName, (nb) => restoreFailedDraft(nb))
   const sending = ref(false)

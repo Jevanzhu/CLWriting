@@ -48,15 +48,40 @@ function argValue(argv: string[], flag: string): string | null {
  */
 export function parseServerArgs(
   argv: string[],
-  opts?: { portDefault?: number; env?: Record<string, string | undefined>; warn?: (msg: string) => void },
+  opts?: {
+    portDefault?: number
+    env?: Record<string, string | undefined>
+    warn?: (msg: string) => void
+    /** R26-94：--port 非法时的显式报错出口（缺省 console.error + process.exit(2)）；
+     *  测试注入捕获件。注入件若不退出，后续按「--port 未提供」回落缺省端口。 */
+    fatal?: (msg: string) => void
+  },
 ): ParsedServerArgs {
   const env = opts?.env ?? process.env
   const warn = opts?.warn ?? ((msg: string) => console.warn(msg))
+  const fatal = opts?.fatal ?? ((msg: string) => {
+    console.error(msg)
+    process.exit(2)
+  })
   if (argv.includes('--token')) {
     warn('--token 已废弃：token 现经 env CLW_STUDIO_TOKEN 注入，argv 上的 --token 将被忽略（本次以 env/随机 token 为准）')
   }
   const portRaw = argValue(argv, '--port')
-  const port = portRaw !== null ? Number(portRaw) : NaN
+  // R26-94（二十六轮）：--port 携带空串/非数值时显式报错退出（人话文案），不再静默
+  // 落缺省——原口径 Number(portRaw) 收 NaN/''.（Number('') === 0）分别落 portDefault
+  // 或随机端口：外部脚本拼错参数时服务起在意外端口上，无人知晓也无从排查。
+  // R28-19（二十八轮）：补整数 + 0–65535 界域判定——-1/65536/78.5 均 Number.isFinite，
+  // 旧校验放行后落 server.listen() 同步抛 RangeError，绕开 boot-error 信封（utilityProcess
+  // 子进程里成无因由退出，main 侧只见 EXIT 看不到因由）。非法一律走既有 fatal 人话通道。
+  let port = NaN
+  if (portRaw !== null) {
+    const n = Number(portRaw)
+    if (portRaw.trim() === '' || !Number.isFinite(n) || !Number.isInteger(n) || n < 0 || n > 65535) {
+      fatal(`--port 的值「${portRaw}」不是合法端口号：请传 0–65535 的整数（如 --port 7878），或不传以使用缺省端口`)
+    } else {
+      port = n
+    }
+  }
   return {
     port: Number.isFinite(port) ? port : (opts?.portDefault ?? 0),
     workDir: argValue(argv, '--dir'),

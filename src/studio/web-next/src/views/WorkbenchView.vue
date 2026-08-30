@@ -8,6 +8,7 @@ import { Sparkles } from 'lucide-vue-next'
 import { useWorkbenchStore } from '../stores/workbench'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useTreeStore } from '../stores/tree'
+import { useDocStore } from '../stores/doc'
 import {
   getState,
   spawnRole,
@@ -39,6 +40,7 @@ const wb = useWorkbenchStore()
 const ui = useUiStore()
 const ws = useWorkspaceStore()
 const tree = useTreeStore()
+const doc = useDocStore()
 const prefs = usePrefsStore()
 
 /** 工作台 tab：写作 / 对话（对话 tab 仅 chatEnabled 时可见） */
@@ -112,6 +114,14 @@ watch(
 )
 // P1-1：全自动写章收工 → 草稿已由 self-heal 落盘，凭 healResult.docId 自动转编辑器。
 // tool_use 模式下无逐字流，正文区恒空白，收工跳转是作者看到成品的唯一通道。
+// R26-17（二十六轮）：AI 落盘后 doc 缓存新鲜度——正文已写进磁盘，若该 docId 已在
+// doc 缓存（clean），openTab 命中旧内容。refresh 异步重拉对齐磁盘，不必 await（打开
+// 后编辑器内容随响应式 entry 自然更新）；dirty 不刷：本地有未保存编辑优先（CC-P2-15
+// 本地优先口径，refresh 自身也保护 dirty 正文）；未缓存则 open 全新拉取，无需处理。
+function refreshCachedDoc(docId: string): void {
+  const cached = doc.get(docId)
+  if (cached && !cached.dirty) void doc.refresh(docId)
+}
 watch(
   () => wb.healResult,
   async (r) => {
@@ -123,6 +133,7 @@ watch(
     try {
       await tree.load(book)
       if (props.bookName !== book) return
+      refreshCachedDoc(r.docId) // R26-17：openTab 前刷新 clean 缓存（异步，不阻塞跳转）
       ws.openTab(r.docId)
       ui.toast(r.outcome === 'pass' ? '已写完，已转到编辑器' : '已写完（剩红项待你定夺），已转到编辑器', 'success')
     } catch {
@@ -131,15 +142,9 @@ watch(
   },
 )
 
-// B-3：max_tokens 截断等非致命警告 → toast 提示
-watch(
-  () => wb.warning,
-  (msg) => {
-    if (!msg) return
-    ui.toast(msg, 'error')
-    wb.warning = null
-  },
-)
+// R27-77（二十七轮）：wb.warning 消费面上移 WorkspaceShell（常驻层）——原 watch 挂在
+// 本视图，视图未挂载期间（生成中切到编辑器/总览）警告静默滞留，且 watch 无 immediate、
+// 回工作台也不补 toast，截断类提示失效。本文件不再消费
 
 // R69-29（十七轮）：生成类动作本地在途锁——wb.running 仅在 SSE role_spawn 事件回流后
 // 翻 true，点击→回流窗口内按钮仍可点、Enter 仍放行（双击/慢网重复发起）；outline/
@@ -287,6 +292,7 @@ async function onSaveDraft(): Promise<void> {
     draftSaved.value = { words: countWords(wb.textOut) } // R64-33：与草稿卡同源口径
     // 树重拉后新草稿在「写作」组；openTab 切编辑器视图 + 激活文档
     await tree.load(book)
+    refreshCachedDoc(r.docId) // R26-17：同 healResult——缓存命中（clean）时先异步重拉再开
     ws.openTab(r.docId)
     ui.toast(`第 ${chapter.value} 章草稿已存，转到编辑`, 'success')
   } catch (e) {

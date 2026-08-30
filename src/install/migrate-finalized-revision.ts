@@ -13,7 +13,7 @@
  */
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { readManifest, writeManifest, withManifestLock } from '../document/manifest.js'
+import { readManifest, readManifestStrict, writeManifest, withManifestLock } from '../document/manifest.js'
 import { computeRevision } from '../document/revision.js'
 import { statusPorcelain } from '../git/exec.js'
 import { safeManifestPath } from '../fs/safe-path.js'
@@ -63,7 +63,7 @@ export function migrateFinalizedRevisions(bookRoot: string): number {
   // 与 service/其他迁移并发时后写者整文件覆盖先写者（finalizedRevision 丢行）。
   // 锁内重读复查幂等闸：并发迁移者可能已写入。git 状态在锁外取（与清单无依赖）。
   updated = withManifestLock(manifestPath, () => {
-    const m = readManifest(manifestPath)
+    const m = readManifestStrict(manifestPath) // R27-40：RMW strict 读（读失败上抛走逐书 try 收口）
     for (const e of m.entries.values()) {
       if (e.nodeType === 'document' && e.finalizedRevision) return 0
     }

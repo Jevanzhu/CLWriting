@@ -72,6 +72,10 @@ export function useSse(bookName: WatchSource<string>): void {
     probing429 = true
     const base = import.meta.env.DEV ? DEV_API_BASE : ''
     const ctrl = new AbortController()
+    // R26-78（二十六轮）：探测超时 8s——探测挂死（半开连接/对端不回包）时 probing429
+    // 恒 true，后续所有 fail-closed 的探测被在途锁吞掉；超时按「非 429」处理（catch
+    // 静默，交回既有退避重连节奏），与探测网络失败的既有语义一致
+    const probeTimer = setTimeout(() => ctrl.abort(), 8_000)
     try {
       const r = await fetch(
         `${base}/api/books/${encodeURIComponent(currentName)}/stream?token=${encodeURIComponent(t)}`,
@@ -83,8 +87,9 @@ export function useSse(bookName: WatchSource<string>): void {
         ui.toast('同一本书的标签页开太多啦，请关闭多余的标签页后重试', 'error')
       }
     } catch {
-      /* 探测失败不提示——交回既有退避重连节奏 */
+      /* 探测失败/超时 abort 不提示——交回既有退避重连节奏 */
     } finally {
+      clearTimeout(probeTimer)
       probing429 = false
     }
   }
@@ -134,6 +139,9 @@ export function useSse(bookName: WatchSource<string>): void {
       if (es && (failClosed || errorCount > FAST_RETRY_LIMIT)) {
         es.close()
         es = null
+        // R26-66（二十六轮）复核：429 拒绝即 fail-closed，已并入下方同一指数退避通道
+        // （backoffStep 2s→4s→…→60s 封顶，r73-sse-429-guide/sse-reconnect 有回归），
+        // 无需另接退避线——本批仅补 probeSseBusy 超时（R26-78），退避机制零改动
         backoffStep += 1
         const delay = Math.min(BASE_BACKOFF_MS * 2 ** (backoffStep - 1), MAX_BACKOFF_MS)
         reconnectTimer = setTimeout(doConnect, delay)

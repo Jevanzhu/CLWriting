@@ -179,15 +179,23 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
         const v = (reviewEnv?.payload as { verdict?: { approved: boolean } } | undefined)?.verdict
         return v ?? undefined
       }, ctx.userDataPath)
+      // R26-57（二十六轮）：三降级条件收数组全量透出——原三处条件展开同用 `warning`
+      // 键，后写覆盖先写、至多存活一条（多降级叠加时其余静默丢失）。改 `warnings:
+      // string[]` 全量上报；旧键 `warning` 保留（取末条 = 修复前实际存活的那条语义）
+      // 供 web-next 旧消费方（tree.ts issuesWarning）一个迭代双轨。
+      const warnings: string[] = []
+      // R62-7：账本全书性红项计算失败随响应降级说明（与 rebuildFailed 同口径——
+      // 此前静默降级为「无红」，持续性失败期间漏红不可见）
+      if (rebuildFailed) warnings.push('机检索引构建失败，仅显示审稿驳回红点')
+      if (leadsBookDegraded) warnings.push('账本全书性红项本轮计算失败，账本红点可能缺失')
+      // R65-5（十三轮）：单章机检失败（第三种降级形态，此前零提示）
+      if (chaptersDegraded > 0) warnings.push(`${chaptersDegraded} 个章节本轮机检失败，对应红点可能缺失`)
       const payload: Record<string, unknown> = {
         ok: true,
         issues,
-        // R62-7：账本全书性红项计算失败随响应 warning（与 rebuildFailed 同口径——
-        // 此前静默降级为「无红」，持续性失败期间漏红不可见）
-        ...(rebuildFailed ? { warning: '机检索引构建失败，仅显示审稿驳回红点' } : {}),
-        ...(leadsBookDegraded ? { warning: '账本全书性红项本轮计算失败，账本红点可能缺失' } : {}),
-        // R65-5（十三轮）：单章机检失败随响应 warning（第三种降级形态，此前零提示）
-        ...(chaptersDegraded > 0 ? { warning: `${chaptersDegraded} 个章节本轮机检失败，对应红点可能缺失` } : {}),
+        ...(warnings.length > 0
+          ? { warning: warnings[warnings.length - 1], warnings }
+          : {}),
       }
       // R75-D-P3b：FIFO 淘汰同 health.ts（Map 保插入序，超上限丢最旧）
       if (treeIssuesCache.size >= TREE_ISSUES_CACHE_MAX) {

@@ -147,3 +147,32 @@ describe('Q-4：sync 快照复位残留自愈态', () => {
     expect(wb.warning).toBeNull()
   })
 })
+
+// R26-76（二十六轮）：self_heal_batch* 数值过有限数守卫——SSE 脏值（NaN/Infinity/
+// 非数值字符串）原样直入会让批量进度条与终局文案渲染异常（R72-11 同款口径）
+describe('R26-76：self_heal_batch 数值守卫（非法值不写入 UI 态）', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+  })
+
+  it('batch_progress 脏值：非数值 done/total 归零、Infinity stoppedAt 置空', () => {
+    const wb = useWorkbenchStore()
+    wb.dispatch({ type: 'self_heal_batch_progress', done: 'x', total: Number.NaN, stoppedAt: Infinity })
+    expect(wb.batchProgress).toEqual({ done: 0, total: 0, stoppedAt: null })
+  })
+
+  it('batch 开跑 total=Infinity → 不入 UI 态（原 total>0 只挡 NaN 挡不住 Infinity）', () => {
+    const wb = useWorkbenchStore()
+    wb.dispatch({ type: 'self_heal_batch', total: Infinity })
+    expect(wb.batchProgress!.total).toBe(0)
+  })
+
+  it('对照：合法值（含 stoppedAt: null 与数值字串）照常写入，守卫不误伤', () => {
+    const wb = useWorkbenchStore()
+    wb.dispatch({ type: 'self_heal_batch', total: 5 })
+    wb.dispatch({ type: 'self_heal_batch_progress', done: 2, total: '5', stoppedAt: null })
+    expect(wb.batchProgress).toEqual({ done: 2, total: 5, stoppedAt: null })
+    wb.dispatch({ type: 'self_heal_batch_progress', done: 3, total: 5, stoppedAt: 3 })
+    expect(wb.batchProgress).toEqual({ done: 3, total: 5, stoppedAt: 3 })
+  })
+})

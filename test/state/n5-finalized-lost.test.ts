@@ -53,10 +53,12 @@ test('N5: 定稿条目 path 被篡改为越出书仓库 → 同样报 finalizedL
 test('N5: 全部定稿文件在盘 → 无 finalizedLost（不误报）', () => {
   const root = makeGitBookWithChapters(3, FAST_CHAPTER_FIXTURE)
   const d = detectState(root, DEFAULT_CONFIG)
-  if (d.state === 1) {
-    expect(d.issues.some((i) => i.kind === 'finalizedLost')).toBe(false)
-  } else {
-    expect([2, 3, 4, 5, 7]).toContain(d.state)
-  }
+  // R26-111（二十六轮）：原 if/else（state===1 才验「无 finalizedLost」，否则放行
+  // [2,3,4,5,7]）在健康书上整体空转——finalizedLost 只在态 1（健康检查，文件丢失
+  // 才进）出现，全在盘的健康书恒为态 7（起草新章，无 issues 字段），if 分支永不
+  // 命中、else 断言形同虚设。改钉真实契约：健康书归态 7 且不携带 issues（误报面
+  // 由上一用例的正向检出守住）。
+  expect(d.state).toBe(7)
+  expect('issues' in d).toBe(false)
   rmSync(root, { recursive: true, force: true })
 })

@@ -36,8 +36,21 @@ export function pickStyleSamplesWithSources(
   // 旧样章库：第一轮每场景各取 1（保证次场景有代表）；第二轮补满到 maxTotal。
   // R72-8（二十轮 C-3）：补满轮由「只扫主场景」改轮转全场景——主场景条目空/不足预算时
   // 原实现拿不满 maxTotal；轮转（场景序=入参序）保持多样性与首轮优先级。
+  // R26-100（二十六轮）：取样前先跨场景去重——场景入参可重复（同一场景出现在多个声明
+  // 位）或两个场景目录互为软链等形态会让同一样章文件被读进多份，第一轮与补满轮都会重复
+  // 注入同一文件；按身份键（_path 优先，无 _path 回落正文全文）Set 去重后再取样。
   const sampleDir = join(bookRoot, '文风', '样章库')
-  const perScene = scenes.map((sc) => readSamplesByScene(sampleDir, sc).samples)
+  const seen = new Set<string>()
+  const perScene: StyleSample[][] = []
+  for (const sc of scenes) {
+    const samples = readSamplesByScene(sampleDir, sc).samples.filter((s) => {
+      const key = s._path ?? `text:${s.正文}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    perScene.push(samples)
+  }
   const picked: StyleSample[] = []
   for (const samples of perScene) {
     if (samples.length > 0) picked.push(samples[0]!)

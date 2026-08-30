@@ -25,6 +25,7 @@ import { readFile, parseFlat } from '../../../format/frontmatter.js'
 import { countWords } from '../../../format/words.js'
 import { ulid } from '../../../fs/id.js'
 import { getOrCreateService } from './documents.js'
+import { acquireTaskGate } from './task-gate.js' // R26-67（二十六轮）：prune 书级任务闸
 import type { Revision } from '../../../document/revision.js'
 
 interface SnapshotCtx {
@@ -140,46 +141,56 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
     handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
-      const bookRoot = r.bookRoot
-      const versionsDir = join(bookRoot, '工作区', '.版本')
-      if (!existsSync(versionsDir)) return reply(res, 200, { ok: true, removed: 0 })
-
-      // 保留策略（2026-08-19 起只走全局）：global.json snapMax* → 硬编码 14 天 / 30 个；
-      // book.yaml snapshots 段已砍书级，不再参与（旧值忽略）。
-      const global = readGlobalSnapshotPolicy(ctx.userDataPath)
-      const policy = {
-        maxDays: global.maxDays ?? 14,
-        maxCount: global.maxCount ?? 30,
-        throttleMinutes: DEFAULT_SNAPSHOT_POLICY.throttleMinutes,
-      }
-
-      // 收集所有 docId（manifest 已登记的 + 版本目录里实际存在的）
-      const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
-      const ids = new Set(manifest.entries.keys())
+      // R26-67（二十六轮）：书级任务闸全程持闸——prune 批量删除 .版本 快照，与生成类
+      // 任务（写稿/onboard 等收尾会写快照）及删书/改名 busyGate（crossProcessHeldTask
+      // GatesFor 借 KNOWN_ACTIONS 正向枚举）的互斥面此前缺失；闸忙 409 口径对齐
+      // onboard-save 等同类端点。action 已登记 task-gate.ts KNOWN_ACTIONS（R77-2 静态对账门）。
+      const release = acquireTaskGate(params['name']!, 'versions-prune')
+      if (!release) return replyError(res, 409, 'BUSY', '本书快照清理已在进行中，请稍后再试')
       try {
-        for (const d of readdirSync(versionsDir)) {
-          // dd-P3：readdir 后目录项可能并发消失——单项失败跳过，防裸 ENOENT 中断整轮 prune
+        const bookRoot = r.bookRoot
+        const versionsDir = join(bookRoot, '工作区', '.版本')
+        if (!existsSync(versionsDir)) return reply(res, 200, { ok: true, removed: 0 })
+
+        // 保留策略（2026-08-19 起只走全局）：global.json snapMax* → 硬编码 14 天 / 30 个；
+        // book.yaml snapshots 段已砍书级，不再参与（旧值忽略）。
+        const global = readGlobalSnapshotPolicy(ctx.userDataPath)
+        const policy = {
+          maxDays: global.maxDays ?? 14,
+          maxCount: global.maxCount ?? 30,
+          throttleMinutes: DEFAULT_SNAPSHOT_POLICY.throttleMinutes,
+        }
+
+        // 收集所有 docId（manifest 已登记的 + 版本目录里实际存在的）
+        const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
+        const ids = new Set(manifest.entries.keys())
+        try {
+          for (const d of readdirSync(versionsDir)) {
+            // dd-P3：readdir 后目录项可能并发消失——单项失败跳过，防裸 ENOENT 中断整轮 prune
+            try {
+              if (statSync(join(versionsDir, d)).isDirectory()) ids.add(d)
+            } catch {
+              continue
+            }
+          }
+        } catch {
+          /* 目录读取失败用 manifest 集合 */
+        }
+
+        let removed = 0
+        for (const docId of ids) {
+          // P3-1：docId 白名单校验共享（防 manifest 篡改导致的路径穿越删除）
+          if (!safeDocId(docId)) continue
           try {
-            if (statSync(join(versionsDir, d)).isDirectory()) ids.add(d)
+            removed += pruneSnapshots(versionsDir, docId, policy)
           } catch {
-            continue
+            /* 单文档清理失败不阻断全书 */
           }
         }
-      } catch {
-        /* 目录读取失败用 manifest 集合 */
+        reply(res, 200, { ok: true, removed })
+      } finally {
+        release()
       }
-
-      let removed = 0
-      for (const docId of ids) {
-        // P3-1：docId 白名单校验共享（防 manifest 篡改导致的路径穿越删除）
-        if (!safeDocId(docId)) continue
-        try {
-          removed += pruneSnapshots(versionsDir, docId, policy)
-        } catch {
-          /* 单文档清理失败不阻断全书 */
-        }
-      }
-      reply(res, 200, { ok: true, removed })
     },
   })
 

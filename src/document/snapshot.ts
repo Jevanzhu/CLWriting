@@ -46,10 +46,11 @@ export const DEFAULT_SNAPSHOT_POLICY: VersionPolicy = DEFAULT_VERSION_POLICY
 export function writeSnapshot(
   snapshotsDir: string,
   docId: string,
-  content: string,
+  content: string | Buffer,
   meta: SnapshotMeta,
   options: WriteSnapshotOptions = {},
 ): string | null {
+  // R26-52（二十六轮）：Buffer 透传——结构性留底（移动/删除前）字节档直存，见 version.ts
   return writeVersion(snapshotsDir, docId, content, meta, options)
 }
 

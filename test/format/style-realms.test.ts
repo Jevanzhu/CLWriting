@@ -1,9 +1,9 @@
-import { test, expect } from 'vitest'
-import { rmSync, mkdirSync, symlinkSync } from 'node:fs'
+import { test, expect, vi } from 'vitest'
+import { rmSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readSample, writeSample, readSamplesByScene, parseSampleFileName } from '../../src/format/style.js'
-import { readRealmDoc, writeRealmDoc, getRealmSequence, realmIndex } from '../../src/format/realms.js'
+import { readRealmDoc, writeRealmDoc, getRealmSequence, realmIndex, extractExactRealmFromEvidence } from '../../src/format/realms.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 // ── 文风样章（#5）──────────────────────────────
@@ -114,4 +114,52 @@ test('getRealmSequence + realmIndex: 成长线机检数据源（#6 第 4 节）'
   // 未命中
   expect(realmIndex(seq, '渡劫')).toBe(-1)
   expect(getRealmSequence(doc, '不存在的体系')).toBeNull()
+})
+
+// ── 二十六轮修复批 B 回归（R26-40 / R26-41）────────
+
+// R26-40：境界命中前边界锚定——「伪金丹/九转金丹」不再把「金丹」当命中；
+// 常规跃迁证据「突破至筑基」（连接语素「至」）不受影响
+test('R26-40: extractExactRealmFromEvidence 前边界锚定——伪金丹/九转金丹 误配排除', () => {
+  const seq = ['炼气', '筑基', '金丹', '元婴']
+  // 既有语义不回归：连接语素（至/到/成/结）+ 行首/边界前缀照常命中
+  expect(extractExactRealmFromEvidence('突破至筑基', seq)).toBe('筑基')
+  expect(extractExactRealmFromEvidence('跌落至炼气', seq)).toBe('炼气')
+  expect(extractExactRealmFromEvidence('林凡凝结金丹。', seq)).toBe('金丹')
+  expect(extractExactRealmFromEvidence('晋入元婴', seq)).toBe('元婴')
+  // R26-40 修复点：前邻汉字非连接语素 → 拒绝（修复前误配「金丹」）
+  expect(extractExactRealmFromEvidence('林凡凝成的是伪金丹。', seq)).toBeNull()
+  expect(extractExactRealmFromEvidence('服下九转金丹，气血翻涌。', seq)).toBeNull()
+  // 「伪金丹」本身在序列中 → 整词命中正确胜出（修复前按最靠后错取子串「金丹」）
+  const seq2 = ['筑基', '金丹', '伪金丹']
+  expect(extractExactRealmFromEvidence('突破至伪金丹', seq2)).toBe('伪金丹')
+})
+
+// R26-41：来源三值白名单——非法值 warn + 按缺省「作者原作」处理（此前 as 直转污染消费侧）
+test('R26-41: 来源非法值 warn 并按缺省处理；合法三值与缺省不 warn', () => {
+  const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  const dir = mkdtempTracked(join(tmpdir(), 'r2641-'))
+  try {
+    const fp = join(dir, '战斗-001.md')
+    writeFileSync(fp, '---\n场景: 战斗\n来源: 网络摘抄\n---\n\n正文', 'utf-8')
+    const r = readSample(fp)
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.sample.来源).toBe('作者原作') // 非法值 → 缺省
+    expect(warnSpy.mock.calls.some((c) => String(c[0]).includes('来源值非法'))).toBe(true)
+
+    // 合法值照常收；未写来源 = 缺省且不 warn（「未设」语义）
+    warnSpy.mockClear()
+    const fp2 = join(dir, '战斗-002.md')
+    writeFileSync(fp2, '---\n场景: 战斗\n来源: 题材范文\n---\n\n正文', 'utf-8')
+    const r2 = readSample(fp2)
+    if (r2.ok) expect(r2.sample.来源).toBe('题材范文')
+    const fp3 = join(dir, '战斗-003.md')
+    writeSample(fp3, { 场景: '战斗', 来源: '作者原作', 正文: '正文' })
+    const r3 = readSample(fp3)
+    if (r3.ok) expect(r3.sample.来源).toBe('作者原作')
+    expect(warnSpy.mock.calls.some((c) => String(c[0]).includes('来源值非法'))).toBe(false)
+  } finally {
+    warnSpy.mockRestore()
+    rmSync(dir, { recursive: true, force: true })
+  }
 })

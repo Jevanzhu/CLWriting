@@ -49,10 +49,11 @@ function imageryItems(root: string, path: string) {
   return (section?.items ?? []).filter((i) => i.checkId === 'imagery-overuse')
 }
 
-test('默认生效：正文 3× 种子短语 → 黄项（此前词表恒空、检查器恒静默）', () => {
+test('默认生效：正文 4× 种子短语 → 黄项（此前词表恒空、检查器恒静默）', () => {
   const root = makeWiringBook()
   try {
-    const path = writeChapter(root, '空气仿佛凝固。空气仿佛凝固。空气仿佛凝固。')
+    // R26-29：阈值统一为「超过才报」——夹具 3× → 4×（原 3× 恰等阈，新语义不报）
+    const path = writeChapter(root, '空气仿佛凝固。'.repeat(4))
     const items = imageryItems(root, path)
     expect(items.some((i) => i.message.includes('空气仿佛凝固'))).toBe(true)
     expect(items.every((i) => i.level === 'yellow')).toBe(true)
@@ -64,8 +65,8 @@ test('默认生效：正文 3× 种子短语 → 黄项（此前词表恒空、�
 test('书级覆盖：checks.imagery_words 整体替换种子表（覆盖不合并）', () => {
   const root = makeWiringBook('checks:\n  imagery_words: [青铜灯]\n')
   try {
-    // 青铜灯 3 次 + 种子短语 3 次：只报书级词，种子词已被替换不再检
-    const path = writeChapter(root, '青铜灯。青铜灯。青铜灯。空气仿佛凝固。空气仿佛凝固。空气仿佛凝固。')
+    // 青铜灯 4 次 + 种子短语 4 次：只报书级词，种子词已被替换不再检（R26-29 超过才报）
+    const path = writeChapter(root, '青铜灯。'.repeat(4) + '空气仿佛凝固。'.repeat(4))
     const items = imageryItems(root, path)
     expect(items.some((i) => i.message.includes('青铜灯'))).toBe(true)
     expect(items.some((i) => i.message.includes('空气仿佛凝固'))).toBe(false)
@@ -74,10 +75,10 @@ test('书级覆盖：checks.imagery_words 整体替换种子表（覆盖不合�
   }
 })
 
-test('显式空数组 = 关：imagery_words: [] → 种子短语 3 次也不报', () => {
+test('显式空数组 = 关：imagery_words: [] → 种子短语 4 次也不报', () => {
   const root = makeWiringBook('checks:\n  imagery_words: []\n')
   try {
-    const path = writeChapter(root, '空气仿佛凝固。空气仿佛凝固。空气仿佛凝固。')
+    const path = writeChapter(root, '空气仿佛凝固。'.repeat(4))
     expect(imageryItems(root, path)).toHaveLength(0)
   } finally {
     rmSync(root, { recursive: true, force: true })

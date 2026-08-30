@@ -38,18 +38,31 @@ export interface SessionRow {
   updated_at: number
 }
 
-export type NewEvent = Omit<ChatEvent, 'seq' | 'sessionId' | 'createdAt' | 'replaceGeneration'>
+// R26-20（二十六轮）：sourceSeqs 同名双语义拆分——NewEvent 额外提供 sourceIdxs
+// （批内 0-based 索引，仅供 appendEventsResolveLineage 消费）；sourceSeqs 收窄为
+// 「全局 seq」（appendEvents 原样落库路径，如 compaction/end 遮蔽区间）。两字段
+// 不再共用一名，appendEventsResolveLineage 对 sourceSeqs 拒收（宁可红不可错）。
+export type NewEvent = Omit<ChatEvent, 'seq' | 'sessionId' | 'createdAt' | 'replaceGeneration'> & {
+  /** 批内 0-based 血缘索引（同批前驱引用）——仅供 appendEventsResolveLineage 消费：
+   *  INSERT RETURNING 拿到真实 seq 后同事务回写解析为全局 seq 落 source_seqs 列。
+   *  appendEvents（原样落库）不解析本字段，勿在此路径传。 */
+  sourceIdxs?: number[]
+}
 
 export interface SessionStore {
   dbPath: string
   createSession(book: string, header?: Record<string, unknown>): string
   /** 落库一批事件，返回数据库真实分配的 seq 数组（与 events 一一对应）。
    *  RB-IF-P1-2：compaction 事件的 sourceSeqs 是全局 seq（遮蔽区间），不走
-   *  appendEventsResolveLineage 的批内索引解析——由本方法原样落库并返回真实 seq。 */
+   *  appendEventsResolveLineage 的批内索引解析——由本方法原样落库并返回真实 seq。
+   *  R26-20（二十六轮）：本路径的 sourceSeqs 语义即「全局 seq」（原样落库），已按
+   *  类型注释收窄；批内索引血缘请走 appendEventsResolveLineage + sourceIdxs。 */
   appendEvents(sessionId: string, events: NewEvent[]): number[]
   /** AA-P3-7：落库并返回真实分配的 seq（INSERT RETURNING，单事务内回写血缘）。
-   *  events 的 sourceSeqs 按「批内序号」（0-based，同批前驱引用）传入；返回 seq 数组与
-   *  events 一一对应。血缘推算不再依赖 lastSeq()+批内序号（多窗口并发写时可错链）。 */
+   *  R26-20（二十六轮）：events 的批内血缘改由 sourceIdxs（0-based，同批前驱引用）
+   *  传入——原与 appendEvents 的 sourceSeqs（全局 seq）同名双语义，调用方极易把
+   *  全局 seq 传进本方法被当批内索引错链（或反之）；现按方法拆分并对 sourceSeqs
+   *  拒收报错（文案说明陷阱）。返回 seq 数组与 events 一一对应。 */
   appendEventsResolveLineage(sessionId: string, events: NewEvent[]): number[]
   /** R66-13（十四轮）：单事件便捷封装 = appendEvents(sid,[ev])[0]——生产链全走批接口
    *  （appendEvents / appendEventsResolveLineage），本方法零生产调用、仅测试使用
@@ -114,8 +127,12 @@ function rowToEvent(r: Row): ChatEvent {
 const ORPHAN_GRACE_MS = 32 * 60 * 1000
 
 /** R66-12（十四轮）：session 目录级跨进程锁超时（毫秒）——迁移段与首开段互斥用，
- *  对齐 books.lock 的 5s（争用为文件 IO 级毫秒，极保守）；导出可注入缩短保测试快。 */
-export let SESSION_MIGRATE_LOCK_TIMEOUT_MS = 5_000
+ *  对齐 books.lock 的 5s（争用为文件 IO 级毫秒，极保守）。
+ *  R26-105（二十六轮）：停止裸导出——`export let` 使模块态可被任何导入方静默改写，
+ *  且「读侧直读 + 写侧 setter」两条通道并存。全仓 grep 生产与测试均无外部直读直写
+ *  （仅本模块三处消费 + ForTest setter），收口为模块内 let + 仅供测试的 ForTest
+ *  setter（同款惯例见 summary.ts R26-19 / lead-update-draft.ts R73-46）。 */
+let SESSION_MIGRATE_LOCK_TIMEOUT_MS = 5_000
 
 /** 测试注入钩子（生产零调用）。 */
 export function __setSessionMigrateLockTimeoutForTest(ms: number): void {
@@ -570,7 +587,7 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
         throw err
       }
     },
-    // AA-P3-7：INSERT RETURNING 取真实 seq，sourceSeqs 批内索引同事务回写解析——
+    // AA-P3-7：INSERT RETURNING 取真实 seq，sourceIdxs 批内索引同事务回写解析——
     // 血缘不再依赖 lastSeq()+批内序号推算（多窗口并发写事件库时可能错链到别窗的 seq）
     appendEventsResolveLineage(sessionId: string, evs: NewEvent[]): number[] {
       maybeRepairOrphans()
@@ -591,19 +608,29 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
           ) as { seq: number }
           seqs.push(row.seq)
         }
-        // 血缘回写：批内序号（0-based 同批前驱引用）→ 真实全局 seq，与插入同事务。
+        // 血缘回写：批内索引（0-based 同批前驱引用）→ 真实全局 seq，与插入同事务。
         // hh §八-18：越界索引 = 生产者 bug——显式抛错回滚整批（宁可红不可错），
         // 绝不把 seqs[s]! 断言掩盖的 undefined 序列化成 null 血缘静默写库
         evs.forEach((e, idx) => {
-          if (e.sourceSeqs && e.sourceSeqs.length > 0) {
-            for (const s of e.sourceSeqs) {
+          // R26-20（二十六轮）：拒收 sourceSeqs——本方法只认批内索引 sourceIdxs；
+          // sourceSeqs 语义已收窄为「全局 seq」（appendEvents 原样落库专用）。此前两路
+          // 同名双语义（全局 seq vs 批内 0-based 索引）靠调用方自觉区分，传错即静默
+          // 错链；现宁可红不可错：传了即抛错回滚整批，文案说明双语义陷阱。
+          if (e.sourceSeqs !== undefined) {
+            throw new Error(
+              `appendEventsResolveLineage：事件 ${idx}「${e.type}」带了 sourceSeqs（全局 seq 语义，仅 appendEvents 原样落库用）——本方法按批内索引解析血缘，请改传 sourceIdxs（R26-20 双语义拆分）`,
+            )
+          }
+          const idxs = e.sourceIdxs
+          if (idxs && idxs.length > 0) {
+            for (const s of idxs) {
               if (!Number.isInteger(s) || s < 0 || s >= seqs.length) {
                 throw new Error(
-                  `appendEventsResolveLineage：批内 sourceSeqs 索引非法（${s}，批大小 ${seqs.length}）——事件 ${idx}「${e.type}」血缘引用越界`,
+                  `appendEventsResolveLineage：批内 sourceIdxs 索引非法（${s}，批大小 ${seqs.length}）——事件 ${idx}「${e.type}」血缘引用越界`,
                 )
               }
             }
-            const resolved = e.sourceSeqs.map((s) => seqs[s]!)
+            const resolved = idxs.map((s) => seqs[s]!)
             upd.run(JSON.stringify(resolved), sessionId, seqs[idx]!)
           }
         })

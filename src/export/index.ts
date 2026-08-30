@@ -361,19 +361,25 @@ export function exportBook(options: ExportOptions): ExportResult {
   try {
     if (doMerged) {
       let first = true
-      atomicWriteStream(join(exportDir, mergedFileName), (append) => {
-        for (const unit of exportable) {
-          const raw = readUnitBody(unit)
-          if (raw === null) continue // 读取失败/空正文：警告已记，跳过（不出分隔符）
-          const body = purifyBody(raw)
-          if (!first) append('\n\n---\n\n')
-          first = false
-          append(`# ${unit.title}\n\n${body}`)
-          if (doSplit) writeSplit(unit, body)
-          writtenCount++
-          writtenNums.add(unit.num)
-        }
-      })
+      atomicWriteStream(
+        join(exportDir, mergedFileName),
+        (append) => {
+          for (const unit of exportable) {
+            const raw = readUnitBody(unit)
+            if (raw === null) continue // 读取失败/空正文：警告已记，跳过（不出分隔符）
+            const body = purifyBody(raw)
+            if (!first) append('\n\n---\n\n')
+            first = false
+            append(`# ${unit.title}\n\n${body}`)
+            if (doSplit) writeSplit(unit, body)
+            writtenCount++
+            writtenNums.add(unit.num)
+          }
+        },
+        // R26-53（二十六轮）：发布裁定——零成功章时全本文件连空壳都不落盘（原口径
+        // 空 `全本-*.md` 照常 rename 落盘后才在下方按失败收口，盘上残留空产物）
+        { publish: () => writtenCount > 0 },
+      )
       if (writtenCount > 0) files.unshift(`工作区/导出/${mergedFileName}`)
     } else if (doSplit) {
       for (const unit of exportable) {
@@ -396,8 +402,19 @@ export function exportBook(options: ExportOptions): ExportResult {
     }
   }
   // R73-37：定稿章在册但全部空正文/读取失败 → 零产物，按失败收口（原实现经 exportable
-  // 预滤走同一信封；错误文案沿用历史口径，具体病因见 warnings 逐章留痕）
+  // 预滤走同一信封；具体病因见 warnings 逐章留痕）。
+  // R26-53（二十六轮）：文案如实归因——到达此处时各章**均已定稿**（exportable 即定稿
+  // 集），真实病因是空正文/读取失败；原「均未定稿，请先在文档树中定稿」误导作者去重
+  // 复定稿操作。配合 publish 裁定，盘上亦无空壳产物残留。
+  // R28-16（二十八轮）：报数口径再收紧——units.length 是正文区全部章数，跳过草稿
+  // （skippedDrafts>0）或无清单兜底（finalizedPaths===null）时按它报「有定稿章 N 章」
+  // 会虚高（10 章仅 1 定稿且空 → 误报 10 章）。分口径如实表述：有定稿清单报定稿章数
+  // （filtered.length，另注跳过的草稿数）；无清单兜底改说正文区全部章（未按定稿过滤）。
   if (writtenCount === 0) {
+    const scope =
+      finalizedPaths !== null
+        ? `有定稿章 ${filtered.length} 章但正文全部为空或读取失败${skippedDrafts > 0 ? `（另有 ${skippedDrafts} 章未定稿已跳过）` : ''}`
+        : `正文区 ${units.length} 章的正文全部为空或读取失败（未找到定稿清单，未按定稿过滤）`
     return {
       ok: false,
       files: [],
@@ -405,7 +422,7 @@ export function exportBook(options: ExportOptions): ExportResult {
       unit: '章',
       skippedDrafts,
       ...(warnings.length > 0 ? { warnings } : {}),
-      error: `正文区共 ${units.length} 章均未定稿，没有可导出的定稿正文；请先在文档树中定稿。`,
+      error: `${scope}，没有可导出的内容；逐章原因见 warnings。`,
     }
   }
 

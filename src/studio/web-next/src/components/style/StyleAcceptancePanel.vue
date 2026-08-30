@@ -18,10 +18,14 @@ const ui = useUiStore()
 const rescanning = ref(false)
 async function onRescan(): Promise<void> {
   if (rescanning.value) return
+  // R26-71（二十六轮）：书名入口捕获 + catch 复检（对齐下方 onAnalyze 的 M-4/R75-E-P3c
+  // 模式）——重扫在途切书后本组件成死实例（props 冻结旧书），A 书的失败 toast 不落 B 书
+  const book = props.bookName
   rescanning.value = true
   try {
     await style.rescan()
   } catch (e) {
+    if (String(route.params.name ?? '') !== book) return
     ui.toast(friendlyError(e), 'error')
   } finally {
     rescanning.value = false

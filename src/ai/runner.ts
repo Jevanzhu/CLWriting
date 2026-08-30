@@ -323,6 +323,10 @@ export async function runTask<T>(opts: {
   // 跨 attempt 累计值（含此前失败 attempt + 退避 sleep），重试链的时延/计费统计失真；
   // 每次 attempt 调 run 前重置（trace-stats 百分位 / 计费消费方口径随之校正）
   let attemptStartMs = startMs
+  // R27-1（二十七轮）：attempt 时长终点点快照——trace 内联 Date.now() 时，成功路径
+  // 的 recordUsageSafe 记账 IO（含最长 5s 用量文件锁等待）被计入 llm/call durationMs，
+  // 时延/计费统计失真。快照在 run 返回/抛出边界取，记账耗时不再入时长
+  let attemptEndedMs = startMs
   const tierKind = opts.tierKind ?? 'creative'
   const bookRoot = opts.bookRoot
   const task = opts.task
@@ -361,7 +365,7 @@ export async function runTask<T>(opts: {
         attempt: p.attempt,
         stopReason: p.stopReason,
         usage: p.usage ? toTraceUsage(p.usage) : undefined,
-        durationMs: Date.now() - attemptStartMs, // R65-12：本 attempt 口径（见声明处注释）
+        durationMs: attemptEndedMs - attemptStartMs, // R65-12：本 attempt 口径；R27-1 终点快照（见声明处注释）
         ok: p.ok,
         ...(p.errCode ? { errCode: p.errCode } : {}),
         ...(opts.promptText
@@ -511,7 +515,17 @@ export async function runTask<T>(opts: {
     for (let attempt = 0; ; attempt++) {
       try {
         attemptStartMs = Date.now() // R65-12：每次 attempt 的 LLM 调用起点（不含上一轮退避）
-        const data = await opts.run(r.provider, ctrl.signal, r.tier)
+        attemptEndedMs = attemptStartMs
+        const data = await opts.run(r.provider, ctrl.signal, r.tier).then(
+          (d) => {
+            attemptEndedMs = Date.now() // R27-1：run 返回边界即计时长终点
+            return d
+          },
+          (e) => {
+            attemptEndedMs = Date.now() // R27-1：失败 attempt 时长到抛出边界（不含后续退避 sleep）
+            throw e
+          },
+        )
         // O-5（第十三轮）：run 已 resolve 但 abort 恰在返回边界到达（外部中断 / 总超时
         // 定时器竞态）——按中断/超时口径收口，不把「成功」契约让给可能被截断的流；
         // 此前靠调用方（self-heal 等）各自二次检查兜底，现收归 runTask 单点，调用方

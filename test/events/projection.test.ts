@@ -213,3 +213,30 @@ describe('R62-31：遮蔽区间校验 O(visible)', () => {
     expect(issues.some((i) => i.message.includes('未可见'))).toBe(true)
   })
 })
+
+// ── R26-103（二十六轮）：同一坏事件的「未递增 + 重复」双告警合并 ──
+// 重复 seq 必然也 ≤ 前一 seq，修复前两条 issue 叠发（同一病灶两行噪音）；现重复只报
+// 「seq 重复」，非重复的乱序才报「未严格递增（乱序）」。
+describe('R26-103: seq 重复/乱序单告警', () => {
+  it('重复 seq → 只报一条「seq 重复」，不再叠加「未严格递增」', () => {
+    const dup = [
+      ev(1, 'user/message', { message: 'a' }, { surfaceOp: 'append' }),
+      ev(1, 'user/message', { message: 'b' }, { surfaceOp: 'append' }),
+    ]
+    const issues = validateEventStream(dup)
+    expect(issues).toHaveLength(1)
+    expect(issues[0]!.message).toBe('seq 重复')
+  })
+
+  it('非重复的乱序输入 → validateEventStream 内部按 seq 升序排序，不误报', () => {
+    // sortEvents 先升序排列再校验：调用方传入乱序数组 [5,3] 排序后 [3,5]，
+    // 「未严格递增（乱序）」分支只可能由重复 seq 触发（已被上一用例的「seq 重复」
+    // 单告警优先收口）——防御性分支保留，公开 API 面不再对乱序输入报假阳性。
+    const disorder = [
+      ev(5, 'user/message', { message: 'a' }, { surfaceOp: 'append' }),
+      ev(3, 'user/message', { message: 'b' }, { surfaceOp: 'append' }),
+    ]
+    const issues = validateEventStream(disorder)
+    expect(issues).toHaveLength(0)
+  })
+})

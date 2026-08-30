@@ -98,7 +98,16 @@ export function listTrackedDocs(bookRoot: string): string[] {
   // Set 去重：同一 docId 的字面/编码目录并存（mac 存量+新写）时双目录各扫一遍。
   const out = new Set<string>()
   const metaCache: VersionMetaCache = new Map() // R65-28：单次调用内去重
-  for (const name of readdirSync(dir)) {
+  // R27-48（二十七轮）：existsSync 与 readdirSync 之间目录被并发移除/权限变化时裸抛，
+  // 违背本模块「失败一律返回 null/空——轨迹是旁路证据，绝不阻断落盘主流程」的自我
+  // 定位（version.ts listVersions 的 R72-6 同款守卫，此处漏配）。
+  let names: string[]
+  try {
+    names = readdirSync(dir)
+  } catch {
+    return []
+  }
+  for (const name of names) {
     if (name.startsWith('._')) continue
     if (listAiVersions(bookRoot, name, metaCache).length > 0) out.add(decodeDocDirName(name))
   }

@@ -10,6 +10,7 @@ import { useNativeMenu } from '../../composables/useNativeMenu'
 import { useTreeMenu } from '../../composables/useTreeMenu'
 import { useChapterTreeActions } from '../../composables/useChapterTreeActions'
 import { defaultExpandedDirs } from '../../shared/chapter-tree'
+import { treeFirstOpenKey } from '../../shared/storage-keys'
 import ChapterTreeItem from './ChapterTreeItem.vue'
 import ChapterMetaDialog from './ChapterMetaDialog.vue'
 import { friendlyError } from '../../shared/error'
@@ -77,6 +78,24 @@ function onBlankContextMenu(e: MouseEvent): void {
   popup(menu.blankItems, e.clientX, e.clientY, (key) => actions.onMenuSelect(key, menuNode.value))
 }
 
+// R26-74（二十六轮）：首开判定改显式 per-book 标记——原 `treeExpanded.length <= 1`
+// 启发式会把「作者刻意只留一个展开组」的持久化意图误判为首次打开（切书往返/重开
+// 设置即触发），静默重置成默认展开。标记落 localStorage（刷新后仍生效），同一本书
+// 只在真·首次打开时套默认展开；localStorage 不可用时保守视作非首开（不动作者展开态）。
+// R28-3（二十八轮）：首开键改经 shared/storage-keys 单一事实源拼出（原局部常量
+// 'clw2.tree-first-open.' 为点号形态，而 useShelf 删书清扫硬编码冒号形态致键名
+// 断裂、R26-74 标记删书清不掉——收敛后写入/清除同源，根因详见 useShelf R28-3 注释）
+function consumeFirstOpen(book: string): boolean {
+  try {
+    const key = treeFirstOpenKey(book)
+    if (localStorage.getItem(key) !== null) return false
+    localStorage.setItem(key, '1')
+    return true
+  } catch {
+    return false
+  }
+}
+
 watch(
   () => props.bookName,
   async (name, old) => {
@@ -90,8 +109,8 @@ watch(
     // treeExpanded（按落定时的 grouped 算默认展开）与 ensureBaseline('A')（words 的
     // reqGen 后调者胜——A 反客为主覆盖 B 的今日字数）都会打到 B 头上
     if (props.bookName !== name) return
-    // 首次打开（无持久化展开状态）→ 一级目录 + 写作/正文
-    if (ws.treeExpanded.length <= 1) {
+    // 首次打开（显式 per-book 标记，见 R26-74 注释）→ 一级目录 + 写作/正文
+    if (consumeFirstOpen(name)) {
       ws.treeExpanded = defaultExpandedDirs(tree.grouped)
     }
     // 今日基线：tree.load 后 totalWords 已就绪（§5.4），不阻塞树渲染

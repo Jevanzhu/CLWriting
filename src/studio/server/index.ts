@@ -90,7 +90,7 @@ function buildRoutes(
     registerRagRoutes({ workDir, userDataPath })
     registerRagProviderRoutes({ userDataPath })
     registerHealthRoutes({ workDir })
-    registerFileRoutes({ workDir })
+    registerFileRoutes({ workDir, userDataPath }) // R26-9（二十六轮）：PUT /file 覆盖留底读全局保留策略
     registerOverviewRoutes({ workDir, userDataPath }) // 全局托底：genre/target_words/volume_size 喂运行时合并 global.json
     registerRhythmRoutes({ workDir })
     registerSettingsRoutes({ workDir, userDataPath })

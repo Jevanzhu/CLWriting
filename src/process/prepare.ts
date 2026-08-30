@@ -23,6 +23,8 @@ import type { BookConfig } from '../format/types.js'
 import { readForeshadows, scanForeshadowTrails } from '../document/foreshadow.js'
 import { finalizedChapterSetOfBook } from '../document/manifest.js'
 import { isWithinRoot } from '../fs/safe-path.js'
+import { volumeSummaryProvablyStale } from './summary.js'
+import { log } from '../log/index.js'
 
 /**
  * W-P2-4：按章号在 写作/正文/ 找正文文件，只扫「根目录 + 直接卷子目录」两层，
@@ -115,6 +117,8 @@ export interface PrepareResult {
 export const TOKEN_COEFFICIENTS: Record<string, number> = {
   // 测定日期：尚未实测（2026-08-20 建表）。首次跑校准脚本后填入，形如：
   // 'claude-sonnet': 0.58, // 2026-08-20，n=1234，r=0.97
+  // R26-106（二十六轮·登记不修）：空表是「待校准」状态而非代码欠账——系数必须来自
+  // 真实语料拟合（无值可填，属登记观察项）；语料收集到位后跑 calibrate-tokens.ts 回填。
 }
 
 /** 全局兜底系数（校准前的既有口径：中文约 0.6 token/字） */
@@ -428,17 +432,25 @@ function buildOutlookSections(
   if (outlookVolume > 1) {
     const volSummaryPath = join(bookRoot, '定稿', '摘要', '卷摘要', `${outlookVolume - 1}.md`)
     if (existsSync(volSummaryPath)) {
-      // M-7（第六轮）：卷摘要剥 fm 再注入（程序生成的 volume/generatedAt/model/sourceHash
-      // 是元数据非内容）——与近章结尾同口径；注入文件随段登记（整段被裁时随段回收）
-      const raw = readFileSync(volSummaryPath, 'utf-8').trim()
-      const split = splitFrontMatter(raw)
-      sections.push({
-        title: `第${outlookVolume - 1}卷摘要`,
-        content: (split ? split.body : raw).trim(),
-        essential: false,
-        flexibleRank: 3,
-        summaryFiles: [relative(bookRoot, volSummaryPath).replace(/\\/g, '/')],
-      })
+      // R27-107（二十七轮）：备料陈旧闸——程序生成（fm 带 sourceHash）且指纹落后于当前
+      // 章摘要链 = 可证明过期，不再注入 prompt（宁缺段降级，不喂过期剧情误导续写）；
+      // 手写/链不全/读失败等无法证明的形态放行（宁窄勿误杀，判据收在
+      // summary.volumeSummaryProvablyStale 单一真相源）。放弃注入即留痕（对齐全库 warn 风格）
+      if (volumeSummaryProvablyStale(bookRoot, outlookVolume - 1, volumeSize)) {
+        log.warn('prepare', `第 ${outlookVolume - 1} 卷摘要已过期（章摘要链指纹不匹配），本次备料不注入`)
+      } else {
+        // M-7（第六轮）：卷摘要剥 fm 再注入（程序生成的 volume/generatedAt/model/sourceHash
+        // 是元数据非内容）——与近章结尾同口径；注入文件随段登记（整段被裁时随段回收）
+        const raw = readFileSync(volSummaryPath, 'utf-8').trim()
+        const split = splitFrontMatter(raw)
+        sections.push({
+          title: `第${outlookVolume - 1}卷摘要`,
+          content: (split ? split.body : raw).trim(),
+          essential: false,
+          flexibleRank: 3,
+          summaryFiles: [relative(bookRoot, volSummaryPath).replace(/\\/g, '/')],
+        })
+      }
     }
   }
 

@@ -176,6 +176,16 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
     const release = acquireTaskGate(params['name']!, 'onboard-save')
     if (!release) return replyError(res, 409, 'BUSY', '本书设定保存中（另一窗口在途），请稍后重试')
     try {
+      // R26-59（二十六轮）：覆盖写前快照留底——onboard-save 直接 atomicWriteFile 覆盖
+      // 目标文件，作者对既有文件的手改此前无版本链、误存即丢。与上方 onboard-ai
+      // （R71-9）同口径接入 snapshotBeforeOverwrite 单源工具：留底失败 fail-open
+      // （log 留痕不阻断保存），成功经响应 snapshotted 字段留痕
+      let snapshotted = false
+      try {
+        snapshotted = snapshotBeforeOverwrite(bookRoot, relPath, content, 'onboard-save-overwrite', undefined, ctx.userDataPath) !== null
+      } catch (e) {
+        log.warn('api', `onboard-save 覆盖前快照失败（${step}，fail-open 继续落盘）`, e)
+      }
       try {
         mkdirSync(dirname(join(bookRoot, relPath)), { recursive: true })
         atomicWriteFile(join(bookRoot, relPath), content)
@@ -183,7 +193,7 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
         log.error('api', `onboard-save 落盘失败（${step}）`, e)
         return replyError(res, 500, 'IO', '落盘失败')
       }
-      reply(res, 200, { ok: true, step, path: relPath, words: countWords(bodyOf(content)) })
+      reply(res, 200, { ok: true, step, path: relPath, words: countWords(bodyOf(content)), ...(snapshotted ? { snapshotted: true } : {}) })
     } finally {
       release()
     }

@@ -98,9 +98,21 @@ export function listBranches(tree: BranchTree): BranchInfo[] {
       if (!cur || lastSeq > cur.lastSeq) latestByParent.set(parentSeq, { branchId, lastSeq })
     }
   }
+  // R26-102（二十六轮）：isDefault 判定按「有无 parent」分口径，修复无 parentSeq 分支组
+  // 恒非默认的字段/行为分裂——原先 parentSeq 走 `?? -1` 兜底查 latestByParent（该键永不
+  // 登记），无 parent 组的 isDefault 恒 false；而 defaultBranchId 取「全部组按 lastSeq
+  // 降序首组」的排序兜底，会把无 parent 组选为默认——字段说不是、行为却选中。现：有
+  // parent 的组维持「该 parent 下最新一组」口径；无 parent 的组对齐 defaultBranchId 的
+  // 排序兜底——全局最新一组（同款 lastSeq 降序取首）恰为无 parent 组时标默认。保证
+  // listBranches().find(isDefault) 与 defaultBranchId() 恒一致。
+  const globalLatest = [...out].sort((a, b) => b.lastSeq - a.lastSeq)[0]
   for (const b of out) {
-    const latest = latestByParent.get(b.parentSeq ?? -1)
-    b.isDefault = latest?.branchId === b.branchId
+    if (b.parentSeq !== null) {
+      const latest = latestByParent.get(b.parentSeq)
+      b.isDefault = latest?.branchId === b.branchId
+    } else {
+      b.isDefault = globalLatest?.branchId === b.branchId
+    }
   }
   return out.sort((a, b) => b.lastSeq - a.lastSeq)
 }

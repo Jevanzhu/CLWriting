@@ -7,17 +7,35 @@ import { apiFetch, getToken } from '../api/client'
 const online = ref(true)
 export const serverOnline = online
 
+/** R26-77（二十六轮）：单次 beat 超时档——apiFetch 无内建超时，对端挂死时 promise 永不
+ *  settle，在线信号冻结在上一次结果（误显在线）且在途锁不释放（后续 beat 全被跳过）。 */
+const BEAT_TIMEOUT_MS = 10_000
+
 export function useHeartbeat(getBookName: () => string | null): void {
   let timer: ReturnType<typeof setInterval> | null = null
+  // R26-77：在途去重——上一拍未返回（慢网/挂死）时跳过本拍，不叠加并发心跳
+  let inFlight = false
 
   async function beat(): Promise<void> {
+    if (inFlight) return
     const name = getBookName()
     if (!name) return
+    inFlight = true
+    // R26-77：10s 超时 abort（对齐 client.ts boot 的 AbortController 手法；apiFetch
+    // 透传 init.signal）——超时走 catch 置离线，信号不再冻结
+    const ctrl = new AbortController()
+    const timeout = setTimeout(() => ctrl.abort(), BEAT_TIMEOUT_MS)
     try {
-      const r = await apiFetch(`/api/books/${encodeURIComponent(name)}/heartbeat`, { method: 'POST' })
+      const r = await apiFetch(`/api/books/${encodeURIComponent(name)}/heartbeat`, {
+        method: 'POST',
+        signal: ctrl.signal,
+      })
       online.value = r.ok
     } catch {
       online.value = false
+    } finally {
+      clearTimeout(timeout)
+      inFlight = false
     }
   }
 

@@ -154,15 +154,19 @@ function errStr(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
 }
 
-function hashChapterContent(fmRaw: string, body: string): string {
-  return 'sha256:' + createHash('sha256').update(fmRaw).update('\n---body---\n').update(body).digest('hex')
+// R27-94（二十七轮）：指纹只摘 body——分块与 embedding 的输入只有正文，frontmatter
+// （备注/状态等）改动不影响任何向量；原实现把 fmRaw 掺进哈希，「仅改 frontmatter」被
+// 误判成内容变更触发整章重嵌（白烧 embedding 费用）。注意指纹语义变更：存量库的旧指纹
+// 全部失配，升级后首轮 buildIndex 会全量重嵌一次（一次性成本，自愈续传路径承接）。
+function hashChapterBody(body: string): string {
+  return 'sha256:' + createHash('sha256').update(body).digest('hex')
 }
 
 function readChapterFingerprint(ch: ChapterMeta): string | null {
   if (!ch._path) return null
   const r = readFile(ch._path)
   if (!r.ok) return null
-  return hashChapterContent(r.fmRaw, r.body)
+  return hashChapterBody(r.body)
 }
 
 /**
@@ -188,6 +192,30 @@ export interface BuildIndexResult {
   /** 覆盖的章数 */
   chapterCount: number
   error?: string
+}
+
+/**
+ * R26-16（二十六轮）：重建索引前置——清空本书 RAG 库（chunks 全部行 + rag_meta 全部键：
+ * 模型/维度/游标/指纹一并清）。修复「请重建索引」死路：此前模型/维度失配后 buildIndex
+ * 硬错、无程序化出路（只能手工删 .cache/rag.db）。取「清表不删文件」口径（优先级裁定）：
+ * 保留 openRagDb 的建表/norm 迁移/WAL 语义，避开删库重建与并发开库的竞态窗口。
+ * 幂等：空库再清一次无害；失败回滚可重试。由 rag/rebuild 端点在建索引任务闸内调用。
+ */
+export function resetRagIndex(bookRoot: string): void {
+  const db = openRagDb(bookRoot)
+  try {
+    db.exec('BEGIN IMMEDIATE')
+    try {
+      db.exec('DELETE FROM chunks')
+      db.exec('DELETE FROM rag_meta')
+      db.exec('COMMIT')
+    } catch (e) {
+      db.exec('ROLLBACK')
+      throw new Error(`清空 RAG 索引失败（已回滚，可重试）：${errStr(e)}`)
+    }
+  } finally {
+    db.close()
+  }
 }
 
 /**
@@ -225,7 +253,9 @@ export async function buildIndex(
         ok: false,
         chunkCount: 0,
         chapterCount: 0,
-        error: `embedding 模型与现有索引不一致（现有：${indexedModel}，当前：${config.model}），请重建索引。`,
+        // R26-16（二十六轮）：文案指向 rag/rebuild 重建端点——原「请重建索引」无程序化
+        // 出路（前端按钮本轮未加，不虚构入口，如实写接口）
+        error: `embedding 模型与现有索引不一致（现有：${indexedModel}，当前：${config.model}），请重建索引（POST /rag/rebuild）后重试。`,
       }
     }
 
@@ -305,7 +335,7 @@ export async function buildIndex(
         readFailAt = ch.章号
         break
       }
-      chapterHashes.set(ch.章号, hashChapterContent(r.fmRaw, r.body))
+      chapterHashes.set(ch.章号, hashChapterBody(r.body))
       for (const chunk of chunkBody(r.body)) {
         allChunks.push({ 章号: ch.章号, chunk })
       }
@@ -381,10 +411,22 @@ async function commitIndexBatch(
   }
   // 首个失败批的起始块下标；-1 = 全部成功
   let failedAt = -1
+  // R27-93（二十七轮）：维度基准——首批首行定基准，其后批/行全量比对
+  let refDim: number | null = null
   for (let i = 0; i < allChunks.length; i += EMBED_BATCH_SIZE) {
     const batchTexts = allChunks.slice(i, i + EMBED_BATCH_SIZE).map((c) => c.chunk.text)
     const batchVec = await embedFn(config.endpoint!, config.model!, apiKey, batchTexts, embedOptions)
     if (batchVec === null) {
+      failedAt = i
+      break
+    }
+    // R27-93（二十七轮）：批内维度/条数校验——端点异常（混服降维模型/截断行）返回的
+    // 混维行此前静默入库成「死行」：余弦召回对其算出 NaN/垃圾相似度还占索引位，用户
+    // 只觉召回变差无从排查。任一批条数与请求文本数不符、或任一行维度偏离基准 → 该批
+    // 按 embed 失败同款收口（failedAt 续传路径：批前整章小事务提交，混维批零入库）。
+    if (refDim === null) refDim = batchVec[0]?.length ?? null
+    if (batchVec.length !== batchTexts.length || batchVec.some((v) => v.length !== refDim)) {
+      log.warn('rag', `embedding 批响应条数/维度异常（期望 ${batchTexts.length} 行 × ${refDim ?? '?'} 维，实得 ${batchVec.length} 行）——该批起不入库，已成功部分续传`)
       failedAt = i
       break
     }
@@ -413,8 +455,11 @@ async function commitIndexBatch(
       try {
         let maxCommitted = 0
         for (const [ch, span] of complete) {
+          // R26-15（二十六轮）：删旧块不分有块/零块章——零块章（正文改成全 <20 字短段）
+          // 原口径只落指纹不删旧块：指纹刷新后旧向量被指纹闸判 fresh，召回永远返回指向
+          // 旧正文的偏移。同事务先删后落指纹（本事务即续传小事务，分批不跨网络往返）。
+          deleteChunksByChapter(db, ch)
           if (span) {
-            deleteChunksByChapter(db, ch)
             for (let i = span.start; i < span.end; i++) {
               storeChunk(db, {
                 章号: ch,
@@ -457,7 +502,8 @@ async function commitIndexBatch(
         ok: false,
         chunkCount: 0,
         chapterCount: 0,
-        error: `embedding 维度与现有索引不一致（现有：${indexedDim}，当前：${vectorDim}），请重建索引。`,
+        // R26-16（二十六轮）：同模型失配文案——指向 rag/rebuild 重建端点
+        error: `embedding 维度与现有索引不一致（现有：${indexedDim}，当前：${vectorDim}），请重建索引（POST /rag/rebuild）后重试。`,
       }
     }
   }
@@ -467,8 +513,12 @@ async function commitIndexBatch(
     // 第五轮：重索引章先清旧块。storeChunk 的唯一键是（章号, 偏移, 模型）——正文变更后
     // 偏移平移，旧块按新偏移插不中旧行而残留；missingFingerprint 自愈场景（历史半截库：
     // chunks 在、指纹缺）正是「正文已变过的章」，残留旧偏移块会让召回返回指向现正文
-    // 错误区间的 offset。全新章无旧块，删除是空操作。
-    for (const ch of new Set(allChunks.map((c) => c.章号))) deleteChunksByChapter(db, ch)
+    // 错误区间的 offset。
+    // R26-15（二十六轮）：删旧块集合从「本轮有块的章」扩为「本轮全部待索引章」（chapterHashes
+    // 的键，含零块章）——零块章（trim 后全部 <20 字不成块）此前不在 allChunks 反推的集合
+    // 里：指纹在下方照常刷新、旧向量却原样残留，指纹闸判 fresh 后召回永远返回旧正文偏移。
+    // 全新书章无旧块，删除是空操作（原口径语义保留）。
+    for (const ch of chapterHashes.keys()) deleteChunksByChapter(db, ch)
     // 存向量
     for (let i = 0; i < allChunks.length; i++) {
       const { 章号, chunk } = allChunks[i]!

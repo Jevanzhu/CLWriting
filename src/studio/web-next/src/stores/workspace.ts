@@ -98,6 +98,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
     // 向后兼容：prefs.json 成功读到且为空时从旧 localStorage 迁移（R-6：拉取失败已提前 return，不会误迁移写回）
     if (Object.keys(prefs).length === 0) {
+      let migrated = false
       try {
         const oldUi = localStorage.getItem('clw2.ui-prefs')
         if (oldUi) {
@@ -115,11 +116,21 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         const oldTree = localStorage.getItem(`clw2.filetree.${bookName.value}`)
         if (oldTree) {
           const arr = JSON.parse(oldTree)
-          if (Array.isArray(arr)) prefs.treeExpanded = arr
+          // R26-79（二十六轮）：迁移元素验 string——非 string 脏值（数字/null/嵌套）过滤掉，
+          // 否则树展开渲染按 path 比对时出现无主条目
+          if (Array.isArray(arr)) prefs.treeExpanded = arr.filter((x): x is string => typeof x === 'string')
         }
+        migrated = Object.keys(prefs).length > 0
       } catch { /* 损坏降级 */ }
-      if (Object.keys(prefs).length > 0) {
+      if (migrated) {
         void putBookPrefs(bookName.value, prefs).catch(() => {})
+        // R26-79：迁移后清旧键（对齐 prefs store 的 clearLegacyLocalStorage 手法）——
+        // 不清则每次 prefs.json 为空的新书都会重复走迁移分支；清失败静默（下次重迁移无害）
+        try {
+          localStorage.removeItem('clw2.ui-prefs')
+          localStorage.removeItem(`clw2.workspace.${bookName.value}`)
+          localStorage.removeItem(`clw2.filetree.${bookName.value}`)
+        } catch { /* localStorage 不可用降级 */ }
       }
     }
 

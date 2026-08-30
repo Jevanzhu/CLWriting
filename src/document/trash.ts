@@ -13,11 +13,11 @@
  * 路径安全（P1 修复）：originalPath/trashedPath 来自 manifest 文件，须经 safePathWithin 校验，
  * 防 manifest 被篡改后 restore/purge 的 rename/rmSync 越出 bookRoot。
  */
-import { existsSync, readFileSync, renameSync, rmSync, mkdirSync, linkSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, renameSync, rmSync, mkdirSync, statSync } from 'node:fs'
 import { join, dirname } from 'node:path'
-import { atomicWriteFile } from '../fs/atomic.js'
+import { atomicWriteFile, linkOrRenameExclusive } from '../fs/atomic.js'
 import { resolveWithinRoot, safeDocId } from '../fs/safe-path.js'
-import { readManifest, writeManifest, upsertEntry, withManifestLock, type ManifestEntry } from './manifest.js'
+import { readManifestStrict, writeManifest, upsertEntry, withManifestLock, type ManifestEntry } from './manifest.js'
 import { VERSIONS_DIR_NAME, encodeDocDirName } from './version.js'
 import { queryLockHeld } from '../fs/cross-process-lock.js'
 import { analysisPathCandidates } from './analysis.js'
@@ -39,6 +39,12 @@ export interface TrashEntry {
    *  已定稿章恢复后被当草稿态续写，ensureChapterNotFinalized 失守，AI 可覆盖曾定稿内容。 */
   finalizedRevision?: string
   finalizedAt?: string
+  /** R27-47（二十七轮）：软删前的清单投影字段（manifest 承诺承载「身份/排序/状态/标签
+   *  投影」）——原 TrashEntry 不携带，软删删条目、还原按字面重建，用户 tags 与自由区
+   *  order 在「删→还原」一轮后不可逆清零（W-P2-1 为 finalizedRevision 补过同型，
+   *  tags/order 是同族漏项：status 可派生故不带）。 */
+  tags?: string[]
+  order?: number
 }
 
 export type RestoreResult =
@@ -85,7 +91,8 @@ function trashManifestPath(bookRoot: string): string {
   return join(bookRoot, TRASH_MANIFEST_REL)
 }
 
-/** 读 trash manifest（容错，非法行跳过）。无文件 → 空。 */
+/** 读 trash manifest（容错，非法行跳过）。无文件 → 空。读失败 → 空（X-P3a：只读
+ *  消费面——列表展示/存在性探测按「无回收站」处理，不阻断）。 */
 export function readTrashManifest(bookRoot: string): TrashEntry[] {
   const p = trashManifestPath(bookRoot)
   if (!existsSync(p)) return []
@@ -97,6 +104,30 @@ export function readTrashManifest(bookRoot: string): TrashEntry[] {
   } catch {
     return []
   }
+  return parseTrashText(raw, entries)
+}
+
+/** R27-40（二十七轮）P1：RMW 写路径专用 strict 版——appendTrashEntry/restore/purge
+ *  的「读全量→改→整文件重写」在瞬态读失败（EBUSY/EACCES/EIO）下原会以空表重写，
+ *  全部回收站条目一次性丢失（同 readManifestStrict 根因）。ENOENT = 合法空；
+ *  其余上抛，由调用方既有收口（GG-P2-6 中止软删 / best-effort catch）拒写保旧。 */
+export function readTrashManifestStrict(bookRoot: string): TrashEntry[] {
+  const p = trashManifestPath(bookRoot)
+  if (!existsSync(p)) return []
+  const entries: TrashEntry[] = []
+  let raw: string
+  try {
+    raw = readFileSync(p, 'utf-8')
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code
+    if (code === 'ENOENT') return []
+    throw new Error(`回收站清单读取失败（${code ?? '未知错误'}）：${p}——已拒绝以空清单重写整文件（R27-40 防丢条目）`)
+  }
+  return parseTrashText(raw, entries)
+}
+
+/** 文本 → TrashEntry[]（容错/strict 两版共用解析体） */
+function parseTrashText(raw: string, entries: TrashEntry[]): TrashEntry[] {
   for (const line of raw.split('\n')) {
     const t = line.trim()
     if (!t) continue
@@ -108,6 +139,11 @@ export function readTrashManifest(bookRoot: string): TrashEntry[] {
           originalPath: o.originalPath,
           trashedPath: o.trashedPath,
           trashedAt: o.trashedAt ?? '',
+          // R27-47：可选投影字段透传（旧清单无此字段 → undefined，行为不变）
+          ...(Array.isArray(o.tags) && o.tags.every((t) => typeof t === 'string') && o.tags.length > 0
+            ? { tags: o.tags as string[] }
+            : {}),
+          ...(typeof o.order === 'number' ? { order: o.order } : {}),
           role: (o.role as DocumentRole) ?? 'note',
           // W-P2-1：定稿基线随条目落账/读回（旧条目无此字段 → undefined，按从未定稿处理）
           ...(o.finalizedRevision ? { finalizedRevision: o.finalizedRevision, finalizedAt: o.finalizedAt } : {}),
@@ -134,7 +170,9 @@ export function appendTrashEntry(bookRoot: string, entry: TrashEntry): void {
   // 裸「读全量→改→整文件重写」后写者吞掉先者条目（回收站 UI 失明）。锁文件
   // <trash-manifest>.lock 独立于主清单锁，全程不与主清单锁嵌套（无获取序环路）。
   withManifestLock(trashManifestPath(bookRoot), () => {
-    const entries = readTrashManifest(bookRoot)
+    // R27-40：RMW strict 读——读失败上抛 → GG-P2-6「登记不成则删不成」中止软删，
+    // 不再以空表重写吞掉全部回收站条目
+    const entries = readTrashManifestStrict(bookRoot)
     const idx = entries.findIndex((e) => e.id === entry.id)
     if (idx >= 0) entries[idx] = entry
     else entries.push(entry)
@@ -152,14 +190,23 @@ export function listTrash(bookRoot: string): TrashEntry[] {
  * 原位占用 → OCCUPIED（不自动重命名，§17 决策④）；trash 文件丢失 → NOT_FOUND。
  */
 export function restoreTrash(bookRoot: string, id: string): RestoreResult {
-  const entries = readTrashManifest(bookRoot)
+  // R27-40：入口 strict 读——读失败上抛走调用方 500 信封（比「当无回收站」的 NOT_FOUND
+  // 诚实）；下方 264 行条目移除的 RMW 同样 strict，读失败拒写保旧
+  const entries = readTrashManifestStrict(bookRoot)
   const entry = entries.find((e) => e.id === id)
   if (!entry) return { ok: false, code: 'NOT_FOUND', reason: `回收站无 ${id}` }
 
   // Y-18（第五十七轮）：trashedPath 必须落在 工作区/.trash/ 内——trash-manifest 是
   // 可篡改数据面，此前的「不出书仓库」校验挡不住书内横向搬文件（trashedPath 填正文
   // 路径 + originalPath 填目标 → restore 把正文 rename 走）。fail-closed 拒绝整条。
-  if (!entry.trashedPath.replace(/\\/g, '/').startsWith(`${TRASH_DIR_REL}/`)) {
+  // R27-49（二十七轮）：排除清单自身——`工作区/.trash/.trash-manifest.jsonl` 同样满足
+  // `.trash/` 前缀，篡改条目可借 restore/purge 把清单本体搬离回收站（随后 writeTrashManifest
+  // 以空读结果重建空清单，全部条目丢失）。Y-18 威胁模型（trash-manifest 是可篡改数据面）
+  // 的残余缺口。
+  if (
+    !entry.trashedPath.replace(/\\/g, '/').startsWith(`${TRASH_DIR_REL}/`) ||
+    entry.trashedPath.replace(/\\/g, '/') === TRASH_MANIFEST_REL
+  ) {
     return { ok: false, code: 'NOT_FOUND', reason: '回收站条目路径非法（不在 .trash 目录内）' }
   }
 
@@ -211,17 +258,16 @@ export function restoreTrash(bookRoot: string, id: string): RestoreResult {
       if (origIsDir) {
         renameSync(trashAbs, origAbs)
       } else {
-        try {
-          linkSync(trashAbs, origAbs)
-        } catch (e) {
-          if ((e as NodeJS.ErrnoException).code === 'EEXIST') {
-            return {
-              ok: false,
-              code: 'OCCUPIED',
-              reason: `原位 ${entry.originalPath} 已被占用，请先重命名或删除现有文件`,
-            }
+        // R26-7（二十六轮）：落位改 linkOrRenameExclusive——EPERM/ENOSYS/EACCES
+        // （exFAT/FAT32/部分 SMB 不支持硬链接）降级 rename 还原（'exists' 判定语义
+        // 不变），非 NTFS 卷上回收站还原不再全线失败；EEXIST → OCCUPIED 口径不变。
+        const placed = linkOrRenameExclusive(trashAbs, origAbs)
+        if (placed === 'exists') {
+          return {
+            ok: false,
+            code: 'OCCUPIED',
+            reason: `原位 ${entry.originalPath} 已被占用，请先重命名或删除现有文件`,
           }
-          throw e
         }
         rmSync(trashAbs, { force: true })
       }
@@ -236,7 +282,7 @@ export function restoreTrash(bookRoot: string, id: string): RestoreResult {
     // X-5：RMW 持清单锁（跨进程互斥，与 service/finalize 同锁）
     withManifestLock(manifestPath, () => {
       const m = existsSync(manifestPath)
-        ? readManifest(manifestPath)
+        ? readManifestStrict(manifestPath) // R27-40：RMW strict 读（读失败走本 best-effort catch，warn 保旧清单）
         : { version: 1, entries: new Map<string, ManifestEntry>() }
       upsertEntry(m, {
         id: entry.id,
@@ -247,6 +293,9 @@ export function restoreTrash(bookRoot: string, id: string): RestoreResult {
         ...(entry.finalizedRevision
           ? { finalizedRevision: entry.finalizedRevision, ...(entry.finalizedAt ? { finalizedAt: entry.finalizedAt } : {}) }
           : {}),
+        // R27-47：tags/order 随还原带回清单（删→还原一轮不再静默清零用户标注/排序）
+        ...(entry.tags && entry.tags.length > 0 ? { tags: entry.tags } : {}),
+        ...(typeof entry.order === 'number' ? { order: entry.order } : {}),
       })
       mkdirSync(dirname(manifestPath), { recursive: true })
       writeManifest(manifestPath, m)
@@ -262,7 +311,7 @@ export function restoreTrash(bookRoot: string, id: string): RestoreResult {
   try {
     // Z-5（第五十八轮）：RMW 持锁（同 appendTrashEntry；与上方主清单锁先后串联、不嵌套）
     withManifestLock(trashManifestPath(bookRoot), () => {
-      writeTrashManifest(bookRoot, readTrashManifest(bookRoot).filter((e) => e.id !== id))
+      writeTrashManifest(bookRoot, readTrashManifestStrict(bookRoot).filter((e) => e.id !== id)) // R27-40：RMW strict 读
     })
   } catch { /* trash manifest 写失败：条目残留，下次恢复报 NOT_FOUND，无害 */
   }
@@ -276,7 +325,14 @@ export function purgeTrash(bookRoot: string, id: string): PurgeResult {
   const entry = entries.find((e) => e.id === id)
   if (!entry) return { ok: false, code: 'NOT_FOUND', reason: `回收站无 ${id}` }
   // Y-18：与 restoreTrash 同款 .trash 前缀校验（防篡改清单借 purge 删书内任意文件）
-  if (!entry.trashedPath.replace(/\\/g, '/').startsWith(`${TRASH_DIR_REL}/`)) {
+  // R27-49（二十七轮）：排除清单自身——`工作区/.trash/.trash-manifest.jsonl` 同样满足
+  // `.trash/` 前缀，篡改条目可借 restore/purge 把清单本体搬离回收站（随后 writeTrashManifest
+  // 以空读结果重建空清单，全部条目丢失）。Y-18 威胁模型（trash-manifest 是可篡改数据面）
+  // 的残余缺口。
+  if (
+    !entry.trashedPath.replace(/\\/g, '/').startsWith(`${TRASH_DIR_REL}/`) ||
+    entry.trashedPath.replace(/\\/g, '/') === TRASH_MANIFEST_REL
+  ) {
     return { ok: false, code: 'NOT_FOUND', reason: '回收站条目路径非法（不在 .trash 目录内）' }
   }
   try {
@@ -333,7 +389,7 @@ export function purgeTrash(bookRoot: string, id: string): PurgeResult {
   try {
     // Z-5：RMW 持锁（同上）
     withManifestLock(trashManifestPath(bookRoot), () => {
-      writeTrashManifest(bookRoot, readTrashManifest(bookRoot).filter((e) => e.id !== id))
+      writeTrashManifest(bookRoot, readTrashManifestStrict(bookRoot).filter((e) => e.id !== id)) // R27-40：RMW strict 读
     })
   } catch { /* 条目残留：下次对该 id 操作报 NOT_FOUND，自愈 */ }
   return { ok: true, id }

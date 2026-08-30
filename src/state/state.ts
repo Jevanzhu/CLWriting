@@ -34,7 +34,7 @@ import { splitFrontMatter, parseFlat } from '../format/frontmatter.js'
 import { assembleStatus } from '../process/assemble.js'
 import { readChapterDir } from '../format/chapters.js'
 import { parseChapterFileName } from '../format/words.js'
-import { readManifest, writeManifest, finalizedChapterNumbers, finalizedChapterSetOfBook, withManifestLock, type Manifest } from '../document/manifest.js'
+import { readManifest, readManifestStrict, writeManifest, finalizedChapterNumbers, finalizedChapterSetOfBook, withManifestLock, type Manifest } from '../document/manifest.js'
 import { computeRevision } from '../document/revision.js'
 import { probeCachedRevision } from '../document/tree.js'
 import { safeManifestPath } from '../fs/safe-path.js'
@@ -338,7 +338,7 @@ function healMovePending(
         // 他进程清单写（CLI batch-finalize / GUI 保存）并发时，裸 read→write 会用
         // 陈旧镜像整文件重写吞掉刚落的 finalizedRevision（定稿防线失守）
         withManifestLock(manifestPath, () => {
-          const m = readManifest(manifestPath)
+          const m = readManifestStrict(manifestPath) // R27-40：RMW strict 读——读失败上抛走外层 best-effort，保旧清单
           const entry = m.entries.get(docId)
           if (entry && entry.path !== p.newPath) {
             entry.path = p.newPath

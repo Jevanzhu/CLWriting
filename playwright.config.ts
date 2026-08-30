@@ -11,6 +11,10 @@ import { E2E_PORT_BASE } from './test/e2e/e2e-ports.js'
  */
 export default defineConfig({
   testDir: './test/e2e',
+  // R27-122（二十七轮）：顺序契约守卫 test/e2e/spec-order.guard.test.ts 是 vitest 用例
+  // （R73-77 注释宣称的 E2E_SPEC_ORDER_SNAPSHOT 此前是幻影，本轮落地），但 *.test.ts
+  // 会命中 Playwright 默认 testMatch——不排除它会被收成第 30 个 spec，破坏 29-spec 契约
+  testIgnore: '**/spec-order.guard.test.ts',
   globalSetup: './test/e2e/global-setup.ts',
   // e2e 共享 globalSetup 的单一 workDir/server，必须串行跑避免 test 间磁盘并行污染
   workers: 1,
@@ -18,7 +22,8 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   // R71-38（总七十一轮）：改死 retries: 0（撤 R65-62 的 CI 重试 1 次）——e2e 共享单一
   // 临时 workDir 的顺序契约（前序 spec 落盘是后序输入，E2E_SPEC_ORDER_SNAPSHOT 守卫
-  // 保护）下，CI 重试会重放失败 spec 的副作用：洗绿失败的同时可能污染下游 spec 的
+  // 保护——守卫实体 R27-122 落在 test/e2e/spec-order.guard.test.ts，vitest 侧跑）下，
+  // CI 重试会重放失败 spec 的副作用：洗绿失败的同时可能污染下游 spec 的
   // 输入。偶发 flake 将直接红、需人工重跑——这是顺序契约下的正确取舍
   retries: 0,
   timeout: 30_000,

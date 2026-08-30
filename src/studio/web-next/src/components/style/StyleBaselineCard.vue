@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // 文风定标卡（StyleView 拆分 P2-5 ① 定标段）：检测标准 chips + 基准建立/重建 + 参考强度 + 铁律原文编辑。
 import { computed, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { SlidersHorizontal, Snowflake } from 'lucide-vue-next'
 import { useStyleStore } from '../../stores/style'
 import { usePrefsStore } from '../../stores/prefs'
@@ -20,6 +21,17 @@ const rules = computed(() => style.config?.rules ?? {})
 const baseline = computed(() => style.config?.baseline ?? null)
 const freezing = ref(false)
 
+// R28-25（二十八轮）：armed 门——书名守卫读 style.bookName 依赖 store.load 入口同步置位，
+// 而路由变更 → StyleView :key 重建 → setup → onMounted 才 load 之间存在一个渲染 tick
+// 窗口：窗口内 store.bookName 仍滞留旧书，死实例在途动作恰在该窗口 settle 时
+// 「bookName 匹配」放行，A 书 toast 落 B 书界面。armed 以路由活书名为代次源即时判定
+// （等价代次比对）：路由切书瞬间即变、且是全局响应式对象，死实例闭包读到的也是活值，
+// 窗口期动作直接吞掉；store.bookName 匹配照旧保留（armed && bookName 双门）。
+const route = useRoute()
+function armed(book: string): boolean {
+  return String(route.params.name ?? '') === book
+}
+
 function fmtDate(iso: string): string {
   return iso.slice(0, 10)
 }
@@ -27,20 +39,25 @@ async function onFreeze(): Promise<void> {
   if (freezing.value) return
   // M-4（第八轮）：M-8 类收敛——await 前捕获书名，弹窗滞留跨窗切书后确认不落 B 书
   //（store 的 freeze() 在调用时刻读 bookName，此前空书名 400 或替换 B 书基准）
-  const book = style.bookName
+  const book = props.bookName
   const ok = await ui.ask({
     title: baseline.value ? '重新建立文风基准' : '建立文风基准',
     message: '以当前样章按场景重新提取你的文风特征，替换之前的基准。后续偏差检测将以新基准为准。',
     confirmText: '建立',
   })
   if (!ok) return
-  if (style.bookName !== book) return // 弹窗期间已切书：中止
+  // R28-25：armed 门 + 书名门（原 capture 改 props.bookName——与 saveRules 同源，store
+  // 滞留窗口内捕获到旧书名会假性匹配）
+  if (!armed(book) || style.bookName !== book) return // 弹窗期间已切书：中止
   freezing.value = true
   try {
     await style.freeze()
-    if (style.bookName !== book) return // R72-11（二十轮 E-6）：await 后切书，提示不落 B 书
+    if (!armed(book) || style.bookName !== book) return // R72-11（二十轮 E-6）：await 后切书，提示不落 B 书
     ui.toast('文风基准已建立', 'success')
   } catch (e) {
+    // R26-69（二十六轮）：catch 补书名复检——成功路径（上方）有门，catch 漏配：
+    // 建基准在途（特征提取可达数十秒）切书后，A 书的失败 toast 会弹在 B 书界面上
+    if (!armed(book) || style.bookName !== book) return
     ui.toast(friendlyError(e), 'error')
   } finally {
     freezing.value = false
@@ -92,21 +109,29 @@ async function toggleRulesEdit(): Promise<void> {
 }
 async function saveRules(): Promise<void> {
   if (rulesSaving.value) return
+  // R26-70（二十六轮）：入口捕获书名 + await 后复检（对齐同文件 onFreeze 的 M-4/R72-11
+  // 模式）——铁律保存在途切书后（StyleView :key 重建，本死实例 props 冻结在旧书），
+  // A 书的保存结果 toast 与 style.load(旧书) 会落 B 书界面/把 A 书定标数据写进共享 store
+  const book = props.bookName
   rulesSaving.value = true
   try {
     // dd-P3：去首次空写——putContent 本身可创建文件，空写多余
     rulesMissing.value = false
-    const r = await putContent(props.bookName, RULES_PATH, rulesText.value, rulesBaseRev.value ?? undefined)
+    const r = await putContent(book, RULES_PATH, rulesText.value, rulesBaseRev.value ?? undefined)
+    if (!armed(book) || style.bookName !== book) return // 保存期间已切书：旧书结果不落地（R28-25：armed 门补 store 滞留窗口）
     rulesOrig.value = rulesText.value
     rulesBaseRev.value = r.revision
     ui.toast('文风铁律已保存', 'success')
-    await style.load(props.bookName) // 阈值可能已改，重拉定标数据
+    await style.load(book) // 阈值可能已改，重拉定标数据
+    if (!armed(book) || style.bookName !== book) return // style.load 期间再切书（二次门，同 onAnalyze）
   } catch (e) {
+    if (!armed(book) || style.bookName !== book) return // R26-70：切书后旧书失败提示不落 B 书界面（R28-25：含 store 滞留窗口）
     if (e instanceof ApiError && e.code === 'REVISION_CONFLICT') {
       // 双出路取「重载」：铁律是低频配置，重拉最新版让作者比对重写，比静默覆盖稳妥
       ui.toast('铁律已在其他窗口修改——已为你重新加载最新版，请比对后再保存', 'error')
       try {
-        const remote = await getContentRevisioned(props.bookName, RULES_PATH)
+        const remote = await getContentRevisioned(book, RULES_PATH)
+        if (!armed(book) || style.bookName !== book) return // 重拉在途切书：旧书内容不回填死实例 UI
         rulesText.value = remote.content
         rulesOrig.value = remote.content
         rulesBaseRev.value = remote.revision

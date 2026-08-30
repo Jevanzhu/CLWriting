@@ -168,3 +168,43 @@ describe('R73-67: SSE 429（per-book 连接上限）→ 中文指引 toast', () 
     expect(probeUrls.at(-1)).toContain('/api/books/%E4%B9%A6B/stream')
   })
 })
+
+// R26-78（二十六轮）：probeSseBusy 探测超时——探测 fetch 挂死（半开连接/对端不回包）
+// 时 probing429 恒 true，后续 fail-closed 的探测全被在途锁吞掉；超时 8s 按「非 429」
+// 收场（不出指引 toast、交回退避节奏），锁释放后后续探测恢复。
+describe('R26-78: probeSseBusy 探测超时', () => {
+  it('探测挂死 → 8s 超时 abort 不出指引；锁释放后后续 fail-closed 可再探测', async () => {
+    vi.useFakeTimers()
+    const fn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith('/api/stream-ticket')) return new Response('Not Found', { status: 404 })
+      if (url.includes('/stream?token')) {
+        // 模拟真实 fetch：永不回包，但 abort 信号到达即 reject（超时通道可观察）
+        return new Promise<Response>((_, rej) => {
+          init?.signal?.addEventListener('abort', () => rej(new DOMException('aborted', 'AbortError')))
+        })
+      }
+      return new Response('{}')
+    })
+    vi.stubGlobal('fetch', fn)
+    useSse(ref('书A'))
+    await settle()
+
+    failClose(MockES.instances[0]!) // 探测 #1 发出（挂死）+ 2s 退避排定
+    await settle()
+    expect(useUiStore().toasts).toHaveLength(0) // 未确认 429，不出指引
+
+    vi.advanceTimersByTime(2_000) // 退避到点重连
+    await settle()
+    failClose(MockES.instances[1]!) // 探测 #1 仍在途 → 在途锁吞掉本次探测
+    await settle()
+    expect(fn.mock.calls.filter(([u]) => String(u).includes('/stream?token'))).toHaveLength(1)
+
+    vi.advanceTimersByTime(8_000) // 探测 #1 超时 abort → catch → 锁释放（4s 退避也已重连）
+    await settle()
+    failClose(MockES.instances[2]!) // 锁已释放 → 探测 #2 正常发出
+    await settle()
+    expect(fn.mock.calls.filter(([u]) => String(u).includes('/stream?token'))).toHaveLength(2)
+    expect(useUiStore().toasts).toHaveLength(0) // 超时按「非 429」：全程无指引
+  })
+})

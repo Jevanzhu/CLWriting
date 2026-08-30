@@ -141,7 +141,7 @@ const SEVERITY_RANK: Record<ReviewSeverity, number> = {
  * 长短篇统一按数据存在性条件化：
  * - 基础：reader + editor（恒跑）
  * - 有布线：+ continuity（设定校对，账本清单驱动）
- * - 有 config.short：+ hook / emotion_peak / payoff（短篇单章爆破力三视角，清单驱动核对）
+ * - kind==='short'（config.kind，经 hasShort 传入；R28-12 注释口径对齐实装）：+ hook / emotion_peak / payoff（短篇单章爆破力三视角，清单驱动核对）
  *
  * R65-26（十三轮）：默认 hasWiring:false——原 true 是反向兜底（短篇书调用方漏传
  * opts 时凭空多出 continuity 视角与账本核对）；生产唯一调用方（run.ts buildReviewPacket）

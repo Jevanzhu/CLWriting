@@ -355,8 +355,12 @@ export function createOpenAIResponsesProvider(
                   // R1 判空（EMPTY_RESPONSE 语义，学 dsh）：completed 但无 message/function_call
                   // 产出且未 yield 过 tool → 退化完成判错不判成功。判据限定 output item 类型，
                   // probe（「回复OK」）与结构化产出（message item）不受影响。
+                  // R26-4（二十六轮）：补本流已实际流出内容判据——网关省略 completed 的
+                  // output 数组（响应缺字段形态，文件头缺口 18 自认）但 delta 已流出正文时，
+                  // 原判据误判「空产出」且 retryable:false 不重试，token 白烧。outText 是
+                  // R74-1 为估计入账收集的本流累计，就在手边。
                   const hasOutput =
-                    toolYielded || Boolean(r.output?.some((it) => it.type === 'message' || it.type === 'function_call'))
+                    toolYielded || outText.length > 0 || Boolean(r.output?.some((it) => it.type === 'message' || it.type === 'function_call'))
                   if (!hasOutput) {
                     yield { type: 'error', message: '模型返回空产出（Responses completed 无内容项）', retryable: false }
                     return

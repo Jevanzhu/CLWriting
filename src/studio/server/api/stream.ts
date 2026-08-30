@@ -206,7 +206,10 @@ async function runWriterSpawn(opts: {
         : null
       emit({ type: 'done', usage: out.usage?.outputTokens ?? 0, reason: 'success', ...(cost !== null ? { cost } : {}) })
     } else {
-      emit({ type: 'error', kind: 'provider', message: out.error, recoverable: false })
+      // R26-8（二十六轮）：失败分支消息过 redactSecret——runSpec 失败的 out.error 是
+      // provider/SDK 原始报错，可能携带 API Key 痕迹，此前未脱敏直接经 SSE 广播给
+      // 前端（emitSpawnError / SSE catch 分支均有同款先例）
+      emit({ type: 'error', kind: 'provider', message: redactSecret(out.error), recoverable: false })
     }
   } finally {
     if (registered) opts.driver.unregisterCtrl?.(opts.mainSession, registered)
@@ -683,9 +686,16 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.workDir) return replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
     const bookName = params['name']!
+    // R27-64（二十七轮）：补 resolveBook——chat 族（send/regenerate）都有书存在性
+    // 校验，唯本端点漏挂：书名打错/书已删时落到下方 404「未找到待确认的工具调用」，
+    // 语义误导排障（书不存在 ≠ 调用不存在）
+    const r = resolveBook(ctx.workDir, bookName)
+    if ('error' in r) return replyError(res, r.status, r.code, r.error)
     const body = await readJson(req)
     const callId = String(body['callId'] ?? '')
-    const ok = Boolean(body['ok'])
+    // R26-60（二十六轮）：确认旗标严格判定——原 Boolean() 强转把字符串 'false' / 0 以外
+    // 的任意真值（如 'false'、'0'）都判成作者确认，前端序列化偏差即误放行工具调用
+    const ok = body['ok'] === true
     if (!callId) return replyError(res, 400, 'BAD_INPUT', 'callId 必填')
 
     const found = resolveChatConfirm(bookName, callId, ok)

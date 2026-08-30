@@ -15,6 +15,7 @@ import { useWorkbenchStore } from '../../../src/studio/web-next/src/stores/workb
 import { useTreeStore } from '../../../src/studio/web-next/src/stores/tree'
 import { useProviderStore } from '../../../src/studio/web-next/src/stores/provider'
 import { useUiStore } from '../../../src/studio/web-next/src/stores/ui'
+import { useDocStore } from '../../../src/studio/web-next/src/stores/doc'
 
 // 网络层全 mock（组件只关心编排次序，不关心真实 IO）
 const streamMocks = vi.hoisted(() => ({
@@ -32,6 +33,13 @@ const traceMocks = vi.hoisted(() => ({ getTraceStats: vi.fn(async () => ({ ruleH
 vi.mock('../../../src/studio/web-next/src/api/trace-stats', () => traceMocks)
 const booksMocks = vi.hoisted(() => ({ getConfig: vi.fn(async () => ({})) }))
 vi.mock('../../../src/studio/web-next/src/api/books', () => booksMocks)
+// R26-17（二十六轮）：doc store 的 refresh 重拉走 api/documents——mock 控制磁盘新内容
+const docApiMocks = vi.hoisted(() => ({
+  getContent: vi.fn(),
+  saveContent: vi.fn(),
+  finalizeDoc: vi.fn(),
+}))
+vi.mock('../../../src/studio/web-next/src/api/documents', () => docApiMocks)
 
 /** 起一个手动放行的 Promise（模拟在途存草稿请求） */
 function pending<T>(): { promise: Promise<T>; resolve: (v: T) => void } {
@@ -103,5 +111,74 @@ describe('低-2（第十轮）：存草稿在途切书 → B 书工作台不残�
     const badge = wrapper.findComponent(WbDraftCard).find('.draft-actions .muted')
     expect(badge.exists()).toBe(true)
     expect(badge.text()).toContain('5 字已存')
+  })
+})
+
+// R26-17（二十六轮）：AI 落盘后 doc 缓存新鲜度——正文已写进磁盘，openTab 命中旧缓存
+// 则编辑器显示旧内容。修复：openTab 前 clean 缓存异步 refresh 对齐磁盘（dirty 不刷，
+// CC-P2-15 本地优先；未缓存走 open 全新拉取）。
+describe('R26-17（二十六轮）：存草稿后同 docId 缓存命中 → refresh 对齐磁盘', () => {
+  const DOC_ID = 'doc_9'
+  const DOC_PATH = '写作/正文/0003-x.md'
+
+  function seedCache(dirty: boolean): void {
+    const doc = useDocStore()
+    doc.bookName = '书A'
+    doc.docs.set(DOC_ID, {
+      docId: DOC_ID,
+      path: DOC_PATH,
+      name: '0003-x.md',
+      role: 'chapter',
+      mode: 'text',
+      content: '缓存旧内容',
+      baselineRevision: 'sha256:x',
+      dirty,
+      saving: false,
+      savedAt: null,
+      error: null,
+      conflict: false,
+    })
+  }
+
+  async function mountAndSave(): Promise<ReturnType<typeof mount>> {
+    streamMocks.saveDraft.mockResolvedValue({ ok: true, path: DOC_PATH, words: 5, docId: DOC_ID, snapshotted: false })
+    const wrapper = mount(WorkbenchView, {
+      props: { bookName: '书A' },
+      global: {
+        stubs: { ChatPanel: true, WbStateCard: true, WbAdvanced: true, WbHealCard: true, WbUsageCard: true },
+      },
+    })
+    await flushPromises()
+    await wrapper.findComponent(WbDraftCard).find('button').trigger('click')
+    await flushPromises()
+    return wrapper
+  }
+
+  it('缓存命中（clean）→ openTab 前 refresh 被调，编辑器内容对齐磁盘新内容', async () => {
+    const doc = useDocStore()
+    seedCache(false)
+    docApiMocks.getContent.mockResolvedValue('磁盘新内容')
+    const wb = useWorkbenchStore()
+    wb.textOut = '正文若干字'
+
+    const wrapper = await mountAndSave()
+
+    expect(docApiMocks.getContent).toHaveBeenCalledWith('书A', DOC_PATH) // refresh 重拉
+    expect(doc.get(DOC_ID)!.content).toBe('磁盘新内容') // 响应式落进缓存 entry
+    expect(doc.get(DOC_ID)!.dirty).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('缓存命中但 dirty（本地有未保存编辑）→ 不刷（CC-P2-15 本地优先口径）', async () => {
+    const doc = useDocStore()
+    seedCache(true)
+    const wb = useWorkbenchStore()
+    wb.textOut = '正文若干字'
+
+    const wrapper = await mountAndSave()
+
+    expect(docApiMocks.getContent).not.toHaveBeenCalled() // dirty 不重拉
+    expect(doc.get(DOC_ID)!.content).toBe('缓存旧内容') // 本地编辑原封
+    wrapper.unmount()
   })
 })

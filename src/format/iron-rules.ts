@@ -37,8 +37,15 @@ export function parseIronRules(text: string): IronRules {
   const lenM = text.match(/单句上限字数[:：]\s*(\d+)/)
   if (lenM) rules.maxSentenceLen = Number(lenM[1])
   const stackM = text.match(/形容词连续堆叠上限[:：]\s*(\d+)/)
-  if (stackM) rules.maxAdjStack = Number(stackM[1])
-  const tagRatioM = text.match(/对话标签占比[:：]\s*(\d+(?:\.\d+)?%?)/)
+  if (stackM) {
+    // R27-23（二十七轮）：上限夹取 [0,20]——该值直通 adjStackRegex 的 `{N+1,}` 量词，
+    // 手滑多打一个 0（如 200）时长「的」串上的嵌套量词回退实测秒级；20 个连续
+    // 「X的」单元已远超任何合法散文意图，语义无损
+    rules.maxAdjStack = Math.min(Math.max(Number(stackM[1]), 0), 20)
+  }
+  // R26-39（二十六轮）：捕获放宽 `\d*\.?\d+%?`——省整数位小数（`对话标签占比: .5`）
+  // 此前 `\d+` 要求首位数字整条漏配，阈值静默不生效；`50％`（全角）由 parseRatio 归一
+  const tagRatioM = text.match(/对话标签占比[:：]\s*(\d*\.?\d+%?)/)
   if (tagRatioM) rules.maxDialogueTagRatio = parseRatio(tagRatioM[1]!)
   const parallelM = text.match(/排比连续数[:：]\s*(\d+)/)
   if (parallelM) rules.maxParallelStreak = Number(parallelM[1])
@@ -65,7 +72,10 @@ export function readIronRules(bookRoot: string): IronRules {
   const fp = ironRulesFp(bookRoot)
   const hit = ironRulesCache.get(bookRoot)
   if (hit && hit.fp === fp) {
-    return { ...hit.rules, ...(hit.rules.bannedWords ? { bannedWords: [...hit.rules.bannedWords] } : {}) }
+    // R27-27（二十七轮）：unparsedBannedEntries 与 bannedWords 同为缓存内可变数组，
+    // 浅拷贝只拷后者——调用方 mutate 前者会污染缓存（与函数头「命中返回浅拷贝防
+    // 污染」的承诺不符）；两数组一起拷
+    return cloneIronRules(hit.rules)
   }
   const p = join(bookRoot, '文风', '文风铁律.md')
   // R65-16（十三轮）：existsSync→readFileSync 间隙铁律被瞬删（TOCTOU）时 ENOENT 直穿
@@ -98,7 +108,19 @@ export function readIronRules(bookRoot: string): IronRules {
       ironRulesCache.delete(oldest)
     }
   }
-  return rules
+  // R27-27（二十七轮）：miss 路径同样回拷贝——此前直接 return rules（缓存对象本体），
+  // 首个调用方 mutate bannedWords/unparsedBannedEntries 污染的是缓存活引用（比命中
+  // 路径浅拷贝漏项更深的同型缺陷，回归测试首调 mutate 即复现）
+  return cloneIronRules(rules)
+}
+
+/** R27-27（二十七轮）：IronRules 防御性拷贝——数组字段逐个克隆，标量浅拷即可。 */
+function cloneIronRules(r: IronRules): IronRules {
+  return {
+    ...r,
+    ...(r.bannedWords ? { bannedWords: [...r.bannedWords] } : {}),
+    ...(r.unparsedBannedEntries ? { unparsedBannedEntries: [...r.unparsedBannedEntries] } : {}),
+  }
 }
 
 /** R73-31：readIronRules 进程级指纹缓存（bookRoot → 条目）。容量对齐章节元数据缓存
@@ -147,8 +169,11 @@ function ironRulesFp(bookRoot: string): string {
   return `${ruleFp}|${entriesFp}`
 }
 
+/** R26-39（二十六轮）：占比解析归一——全角「％」此前 Number NaN 静默落 0（阈值 0 =
+ *  全量误报）、省整数位小数「.5」被阈值捕获 regex 漏配。归一（％→%）后再解析；
+ *  捕获侧 parseIronRules 的 regex 同步放宽为 `\d*\.?\d+%?`。 */
 function parseRatio(raw: string): number {
-  const text = raw.trim()
+  const text = raw.trim().replace('％', '%')
   const n = Number(text.replace('%', ''))
   if (!Number.isFinite(n)) return 0
   return text.endsWith('%') ? n / 100 : n > 1 ? n / 100 : n
@@ -171,15 +196,27 @@ function parseAntiReconciliationWords(text: string): string[] {
   return [...new Set(words)]
 }
 
+/** R27-20（二十七轮）：段内更深层级子标题（如 ## 硬禁词 下的 ### 网文套话）不再
+ *  截断采集——原「inSection 后遇任意标题即 break」把子标题之后的禁词全部丢在门外，
+ *  红闸对它们永不命中且零提示（段内已采到词时 R73-15 失明黄项也不触发，双重静默）。
+ *  现仅遇**同级或更高级**标题才终断；更深层级标题行本身不入采集（防标题文字被当词）。
+ *  headingLevel 取行首 # 连续数。 */
 function extractSection(text: string, headingRe: RegExp): string {
   const lines = text.split('\n')
   const out: string[] = []
   let inSection = false
+  let sectionLevel = 0
   for (const line of lines) {
-    if (/^#{1,6}\s+/.test(line)) {
-      if (inSection) break
+    const m = /^(#{1,6})\s+/.exec(line)
+    if (m) {
+      const level = m[1]!.length
+      if (inSection) {
+        if (level <= sectionLevel) break // 同级/更高级 → 段终
+        continue // 更深层级子标题 → 跳过标题行本身，继续采集其后内容
+      }
       if (headingRe.test(line)) {
         inSection = true
+        sectionLevel = level
         continue
       }
     }

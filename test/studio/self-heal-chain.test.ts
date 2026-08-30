@@ -13,7 +13,9 @@ import type { CheckOutcome } from '../../src/studio/server/api/check.js'
 import type { DriverEvent, Session, StudioDriver } from '../../src/driver/index.js'
 import type { ChapterMeta } from '../../src/format/types.js'
 import type { saveDraft } from '../../src/studio/server/api/draft.js'
-import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { mkdtempTracked, trackTempDir } from '../helpers/temp-dir.js'
+// R27-120（二十七轮）：workDir 此前只清 ud、双书仓库本体泄漏——统一 trackTempDir
+// 登记（测试体尾行 rmSync 与 afterEach 并存，force 幂等 no-op）
 
 const BOOK = SHORT_BOOK
 const META: ChapterMeta = { 章号: 1, 标题: '测试章', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫' }
@@ -70,7 +72,7 @@ function readChain(ud: string, bookRoot: string) {
 }
 
 test('红→绿：check/report（含红项）+ retry/attempt 落库，最终 pass', async () => {
-  const workDir = makeDualTrackWorkdir()
+  const workDir = trackTempDir(makeDualTrackWorkdir())
   const bookRoot = join(workDir, '短篇', SHORT_BOOK)
   const ud = mkdtempTracked(join(tmpdir(), 'clwriting-sh-chain-'))
   try {
@@ -108,7 +110,7 @@ test('红→绿：check/report（含红项）+ retry/attempt 落库，最终 pas
 })
 
 test('触顶 escalate：多次红 → retry/attempt 记录每轮 + 最终 escalate 不落 retry/attempt 之外的 pass', async () => {
-  const workDir = makeDualTrackWorkdir()
+  const workDir = trackTempDir(makeDualTrackWorkdir())
   const bookRoot = join(workDir, '短篇', SHORT_BOOK)
   const ud = mkdtempTracked(join(tmpdir(), 'clwriting-sh-chain2-'))
   try {
@@ -154,7 +156,7 @@ test('触顶 escalate：多次红 → retry/attempt 记录每轮 + 最终 escala
 })
 
 test('F5：章节任务清单（todo/write）+ 修复目标（goal/change）随 self-heal 落库（红→绿 complete）', async () => {
-  const workDir = makeDualTrackWorkdir()
+  const workDir = trackTempDir(makeDualTrackWorkdir())
   const bookRoot = join(workDir, '短篇', SHORT_BOOK)
   const ud = mkdtempTracked(join(tmpdir(), 'clwriting-sh-chain-f5-'))
   try {
@@ -196,7 +198,7 @@ test('F5：章节任务清单（todo/write）+ 修复目标（goal/change）随 
 })
 
 test('F5 审阅批：中止 → goal pause（非终态，不再悬置 active）', async () => {
-  const workDir = makeDualTrackWorkdir()
+  const workDir = trackTempDir(makeDualTrackWorkdir())
   const bookRoot = join(workDir, '短篇', SHORT_BOOK)
   const ud = mkdtempTracked(join(tmpdir(), 'clwriting-sh-chain-f5pause-'))
   try {
@@ -226,7 +228,7 @@ test('F5 审阅批：中止 → goal pause（非终态，不再悬置 active）'
 })
 
 test('F5 审阅批：机检崩溃（CHECK_ERROR）→ goal block 附原因（非悬置 active）', async () => {
-  const workDir = makeDualTrackWorkdir()
+  const workDir = trackTempDir(makeDualTrackWorkdir())
   const bookRoot = join(workDir, '短篇', SHORT_BOOK)
   const ud = mkdtempTracked(join(tmpdir(), 'clwriting-sh-chain-f5cf-'))
   try {

@@ -18,7 +18,7 @@ import { buildSettingsLayers } from './settings-context.js'
 import { assembleSettingsInjection, type SettingsLayer } from './settings-injection.js'
 import { pickStyleSamplesWithSources } from './style-samples.js'
 import type { BookConfig } from '../format/types.js'
-import { readManifest, upsertEntry, withManifestLock, writeManifest, type Manifest, type ManifestEntry } from '../document/manifest.js'
+import { readManifest, readManifestStrict, upsertEntry, withManifestLock, writeManifest, type Manifest, type ManifestEntry } from '../document/manifest.js'
 import { readTrashManifest } from '../document/trash.js'
 import { writeSnapshot, readGlobalSnapshotPolicy, DEFAULT_SNAPSHOT_POLICY } from '../document/snapshot.js'
 import { legacyId } from '../document/stable-id.js'
@@ -195,8 +195,9 @@ export function saveDraft(
     if (registeredId === null) {
       try {
         withManifestLock(manifestPath, () => {
+          // R27-40：RMW strict 读——读失败上抛走本 best-effort catch（warn + 树扫描自愈收编）
           const m = existsSync(manifestPath)
-            ? readManifest(manifestPath)
+            ? readManifestStrict(manifestPath)
             : { version: 1, entries: new Map<string, ManifestEntry>() }
           upsertEntry(m, { id: finalDocId, nodeType: 'document', path: relPath, parentId: null })
           mkdirSync(dirname(manifestPath), { recursive: true })
@@ -460,7 +461,28 @@ export function buildDraftPrompt(
   kind: 'long' | 'short',
   config?: BookConfig,
 ): DraftPrompt {
-  const outline = readSafe(join(bookRoot, '工作区', '细纲.md'))
+  // R26-97（二十六轮）：细纲注入加章号门——对齐同文件 readDeclaredChapterScenes 水源③的
+  // 解析。细纲是覆盖写的**当前章**文件（outline 端点落盘确定性写 `章号: N`），fm 章号
+  // 存在且 ≠ 当前章 = 别章陈旧细纲残留，直接注入会让 AI 按旧章情节写稿（与场景串场
+  // 同源的错，写稿侧此前裸放）→ 跳过注入并 log.warn 留痕；files 清单随 outline 置空
+  // 自然不计（promptMeta 不虚报，与「空段 = 未入 prompt 不登记」的既有契约一致）。
+  // 主评审核销修正（口径收窄）：fm **缺**章号的细纲按当前章放行——作者手写细纲是既有
+  // 合法工作流（draft-pipeline 既有用例锁定的契约：无 fm 细纲照常注入），缺声明不等于
+  // 陈旧；只有**显式声明了别章章号**才判残留拦截。声明侧（readDeclaredChapterScenes）
+  // 对缺章号文件按「非本章场景文件」跳过是检索语义，与写稿注入语义不同源，不强行对齐。
+  const outlinePath = join(bookRoot, '工作区', '细纲.md')
+  const outlineRaw = readSafe(outlinePath)
+  let outline = ''
+  if (outlineRaw) {
+    // R63-7 content 通道：单次读盘，fm 解析与注入同源
+    const detail = readFile(outlinePath, outlineRaw)
+    const declaredNo = detail.ok ? Number(parseFlat(detail.fmRaw).get('章号')) : Number.NaN
+    if (Number.isNaN(declaredNo) || declaredNo === chapter) {
+      outline = outlineRaw
+    } else {
+      log.warn('draft-pipeline', `细纲章号门未过（工作区/细纲.md 声明章号 ${declaredNo} ≠ 第 ${chapter} 章）——跳过细纲注入，防别章陈旧细纲串进写稿 prompt`)
+    }
+  }
   const materials = readSafe(join(bookRoot, '工作区', '本章写作材料.md'))
   // Bug B 修复：补读章纲 + 世界观——AI 据此知道本书题材/人物/世界，不再跑题
   const chapterOutlinePath = findChapterOutlinePath(bookRoot, chapter)

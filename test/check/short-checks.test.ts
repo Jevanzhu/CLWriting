@@ -259,3 +259,12 @@ test('checkPieceListForm: 缺核心反转报黄', () => {
   const r = checkPieceListForm(list)
   expect(r.items.some((i) => i.checkId === 'manifest-no-reversal')).toBe(true)
 })
+
+
+// R26-43：`##` 后空白可选——`##标题` 紧排形态此前漏配，全落「未使用 ## 标注」误导文案
+test('R26-43: ##标题（## 后空白可选）计入节数；带空格形态不回归', () => {
+  const tight = checkSectionCount('##开头\nx\n##铺垫\nx', 5)
+  expect(tight.items).toHaveLength(1)
+  expect(tight.items[0]!.checkId).toBe('section-count') // 2 节 ≠ 5 → 节数黄项，非 heading-missing
+  expect(checkSectionCount('## 开头\nx\n## 铺垫\nx', 5).items[0]!.checkId).toBe('section-count')
+})

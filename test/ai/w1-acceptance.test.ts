@@ -15,7 +15,11 @@
 import { test, expect } from 'vitest'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { makeDualTrackWorkdir, SHORT_BOOK } from '../studio/fixtures.js'
+import { makeDualTrackWorkdir, SHORT_BOOK, tempUserData } from '../studio/fixtures.js'
+// R27-120/121（二十七轮）：workDir/userDataPath 登记回收——本文件原先 0 个 rmSync
+//（每次全量跑泄漏双书仓库）+ 固定共享 '/tmp/clwriting-test'；per-test 包 trackTempDir
+//（fixtures.ts 本体因 Playwright global-setup 复用不动），userDataPath 改唯一临时目录
+import { trackTempDir } from '../helpers/temp-dir.js'
 import {
   runSelfHeal,
   type SelfHealOpts,
@@ -66,7 +70,7 @@ function redOutcome(msg = '命中禁词「顿时」'): CheckOutcome {
 
 /** 造书 fixture：短篇书 + 写 文风/基线.json（无 AI 味指纹）+ 铁律（含单句/叠词上限） */
 function makeBook(): string {
-  const workDir = makeDualTrackWorkdir()
+  const workDir = trackTempDir(makeDualTrackWorkdir())
   const bookRoot = join(workDir, '短篇', BOOK)
   const baseline: FullStyleStats = {
     overlongRatio: 0,
@@ -140,7 +144,7 @@ test('W1 端到端：AI 味稿检出黄 → 修复指令 → 二稿收敛 → pa
   const opts: SelfHealOpts = {
     driver: makeEmitDriver(emitted),
     mainSession: { id: 'main', cwd: bookRoot, closed: false },
-    userDataPath: '/tmp/clwriting-test',
+    userDataPath: trackTempDir(tempUserData()),
     cwd: bookRoot,
     bookRoot,
     bookName: BOOK,

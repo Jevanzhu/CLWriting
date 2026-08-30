@@ -42,55 +42,6 @@ async function req(method: string, path: string, body?: unknown): Promise<{ stat
   return { status: r.status, json }
 }
 
-/**
- * R71-2 窗口注入用：分片发 body——请求头先到（handler 同步过首检后在 readJson 等整包），
- * midHook 在包未发完的窗口内执行（测试在此 acquire 任务闸），随后补发剩余 body。
- */
-function postStreaming(
-  path: string,
-  body: unknown,
-  midHook: () => Promise<void>,
-): Promise<{ status: number; json: any }> {
-  return new Promise((resolve, reject) => {
-    const u = new URL(baseUrl)
-    const payload = JSON.stringify(body)
-    const req_ = http.request(
-      {
-        host: u.hostname,
-        port: u.port,
-        path,
-        method: 'POST',
-        headers: {
-          'x-studio-token': token,
-          origin: baseUrl,
-          'content-type': 'application/json',
-          'content-length': String(Buffer.byteLength(payload)),
-        },
-      },
-      (res) => {
-        let data = ''
-        res.on('data', (c) => (data += c.toString('utf8')))
-        res.on('end', () => {
-          let json: any = null
-          try {
-            json = JSON.parse(data)
-          } catch {
-            /* 非 JSON */
-          }
-          resolve({ status: res.statusCode ?? 0, json })
-        })
-      },
-    )
-    req_.on('error', reject)
-    // 先发一小片（handler 已派发、readJson 等待余量），窗口钩子后再补完
-    req_.write(payload.slice(0, 6))
-    void midHook().then(() => {
-      req_.write(payload.slice(6))
-      req_.end()
-    })
-  })
-}
-
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
 beforeAll(async () => {
@@ -161,11 +112,61 @@ describe('R71-2: /auto-write 二次复查任务闸复检', () => {
   it('首检过后、body 发完前的窗口内 acquire 任务闸 → 409 BUSY（不再漏拦）', async () => {
     // holder 数组：TS5.5 CFA 对「闭包内赋值的 let」在 await 后误收窄 never，经索引读不触发
     const held: Array<(() => void) | null> = [null]
-    const r = await postStreaming(`/api/books/${encodeURIComponent(BOOK)}/auto-write`, { chapter: 1 }, async () => {
-      // readJson 等整包的窗口内占闸（首检时闸尚未持有，二次复查应拦截）
-      await sleep(80)
-      held[0] = acquireTaskGate(BOOK, 'lead-updates')
+    // R27-123（二十七轮）：首检臂退化观测锚——原 sleep(80) 是纯时序赌注：慢派发下
+    // 「占闸时首检尚未跑」则首检自身 409，测试照样绿但静默退化成首检臂（弱臂假覆盖）。
+    // 早退探测：首检 409 会在 body 未发完时就 end 响应——占闸前响应已 end 即显式
+    // 失败本用例，保证走到断言的一定是「首检已过 + 二次复查拦截」臂
+    let earlyResponse = false
+    const u = new URL(baseUrl)
+    const payload = JSON.stringify({ chapter: 1 })
+    const path = `/api/books/${encodeURIComponent(BOOK)}/auto-write`
+    const resultP = new Promise<{ status: number; json: any }>((resolve, reject) => {
+      const req_ = http.request(
+        {
+          host: u.hostname,
+          port: u.port,
+          path,
+          method: 'POST',
+          headers: {
+            'x-studio-token': token,
+            origin: baseUrl,
+            'content-type': 'application/json',
+            'content-length': String(Buffer.byteLength(payload)),
+          },
+        },
+        (res) => {
+          let data = ''
+          res.on('data', (c) => (data += c.toString('utf8')))
+          res.on('end', () => {
+            earlyResponse = true
+            let json: any = null
+            try {
+              json = JSON.parse(data)
+            } catch {
+              /* 非 JSON */
+            }
+            resolve({ status: res.statusCode ?? 0, json })
+          })
+        },
+      )
+      req_.on('error', reject)
+      req_.write(payload.slice(0, 6))
+      void (async () => {
+        await sleep(80)
+        if (earlyResponse) {
+          req_.destroy()
+          throw new Error('首检臂退化：闸占位前响应已返回（80ms 内首检即 409），未覆盖二次复查臂')
+        }
+        held[0] = acquireTaskGate(BOOK, 'lead-updates')
+        req_.write(payload.slice(6))
+        req_.end()
+      })().catch((e) => {
+        held[0]?.()
+        held[0] = null
+        reject(e)
+      })
     })
+    const r = await resultP
     try {
       expect(r.status).toBe(409)
       expect(r.json?.code).toBe('BUSY')

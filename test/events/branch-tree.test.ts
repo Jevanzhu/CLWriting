@@ -197,3 +197,43 @@ describe('F1-P4 selectBranchTo（重新生成入口：恢复到指定 seq）', (
     expect(selectBranch(linear)).toBe(linear)
   })
 })
+
+// ── R26-102（二十六轮）：无 parentSeq 分支组的 isDefault 判定 ──
+// 修复前：parentSeq 走 `?? -1` 查 latestByParent（该键永不登记）→ 无 parent 组 isDefault
+// 恒 false；而 defaultBranchId 按「全部组 lastSeq 降序取首」的排序兜底会选中它——字段与
+// 行为分裂。现无 parent 组对齐 defaultBranchId 的排序兜底口径，字段/行为恒一致。
+describe('R26-102: 无 parentSeq 分支组的 isDefault（对齐 defaultBranchId 排序兜底）', () => {
+  it('只有无 parent 组：全局最新组 isDefault=true，且 find(isDefault) === defaultBranchId', () => {
+    const evs = seqEvents([
+      assistantMessageEvent('v1', undefined, undefined, undefined, { branchId: 'b1' }), // seq1
+      assistantMessageEvent('v2', undefined, undefined, undefined, { branchId: 'b1' }), // seq2 同组
+      assistantMessageEvent('v3', undefined, undefined, undefined, { branchId: 'b2' }), // seq3 新组
+    ])
+    const tree = buildBranchTree(evs)
+    const branches = listBranches(tree)
+    const b1 = branches.find((b) => b.branchId === 'b1')!
+    const b2 = branches.find((b) => b.branchId === 'b2')!
+    expect(b1.parentSeq).toBeNull()
+    expect(b2.parentSeq).toBeNull()
+    expect(b1.isDefault).toBe(false) // 非全局最新
+    expect(b2.isDefault).toBe(true) // 修复前恒 false（字段/行为分裂）
+    expect(defaultBranchId(tree)).toBe('b2')
+    expect(branches.find((b) => b.isDefault)?.branchId).toBe(defaultBranchId(tree))
+  })
+
+  it('无 parent 组与有 parent 组混存：全局最新组持有默认位，两口径不打架', () => {
+    const evs = seqEvents([
+      userMessageEvent('hi'), // seq1
+      assistantMessageEvent('root-less', undefined, undefined, undefined, { branchId: 'b1' }), // seq2 无 parent 组
+      assistantMessageEvent('v1', undefined, undefined, undefined, { parentSeq: 1, branchId: 'g1' }), // seq3 有 parent 组
+    ])
+    const tree = buildBranchTree(evs)
+    const branches = listBranches(tree)
+    expect(defaultBranchId(tree)).toBe('g1') // 排序兜底取全局最新
+    const b1 = branches.find((b) => b.branchId === 'b1')!
+    const g1 = branches.find((b) => b.branchId === 'g1')!
+    expect(b1.isDefault).toBe(false) // 全局最新组是有 parent 的 g1，无 parent 组不抢默认位
+    expect(g1.isDefault).toBe(true)
+    expect(branches.find((b) => b.isDefault)?.branchId).toBe(defaultBranchId(tree))
+  })
+})

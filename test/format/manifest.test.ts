@@ -1,4 +1,4 @@
-import { test, expect, beforeEach, afterEach } from 'vitest'
+import { test, expect, vi, beforeEach, afterEach } from 'vitest'
 import { rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -198,4 +198,56 @@ test('readPieceList: 带 fm 头的章纲文件仍正确解析三段式（F9.5，
   expect(r.list.情绪曲线).toHaveLength(2)
   expect(r.list.伏笔回收).toHaveLength(1)
   expect(r.list.伏笔回收[0]!.伏笔).toBe('红伞')
+})
+
+// ── 二十六轮修复批 B 回归（R26-33 / R26-34）────────
+
+// R26-33：重复 `## 同名段` 此前后者静默覆盖前者——warn + 保留首个
+test('R26-33: 重复段 warn 并保留首个（后段丢弃，不再静默覆盖）', () => {
+  const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  try {
+    const body = [
+      '## 反转线索表',
+      '- 核心反转：真正的反转',
+      '- 铺垫点（≥3，反转可回溯）：',
+      '  - [开头] 雪夜敲门',
+      '',
+      '## 反转线索表',
+      '- 核心反转：复制粘贴出的重复段',
+      '',
+    ].join('\n')
+    const list = parsePieceListBody(body)
+    expect(list.反转线索表.核心反转).toBe('真正的反转') // 保留首个
+    expect(warnSpy.mock.calls.some((c) => String(c[0]).includes('重复段'))).toBe(true)
+  } finally {
+    warnSpy.mockRestore()
+  }
+})
+
+// R26-33：伏笔回收段格式不符列表行此前静默吞掉——warn 留痕不中断解析
+test('R26-33: 伏笔回收段格式不符行 warn；合法条目不受影响', () => {
+  const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  try {
+    const body = [
+      '## 伏笔回收',
+      '- 玉佩 → 回收于 结尾',
+      '- 这一行缺回收标记',
+    ].join('\n')
+    const list = parsePieceListBody(body)
+    expect(list.伏笔回收).toHaveLength(1) // 合法条目照常解析
+    expect(list.伏笔回收[0]!.伏笔).toBe('玉佩')
+    expect(warnSpy.mock.calls.some((c) => String(c[0]).includes('格式不符'))).toBe(true)
+  } finally {
+    warnSpy.mockRestore()
+  }
+})
+
+// R26-34：空情绪曲线不再烘五条「待定」假数据——「（待补）」占位，读回仍为空曲线
+test('R26-34: 空情绪曲线 stringify 输出（待补）占位且 parse 读回为空（无假数据）', () => {
+  const text = stringifyPieceList(emptyPieceList())
+  expect(text).toContain('## 情绪曲线')
+  expect(text).toContain('（待补）')
+  expect(text).not.toContain('待定') // 五条「待定」假数据不再烘焙
+  const reparsed = parsePieceListBody(text)
+  expect(reparsed.情绪曲线).toHaveLength(0) // 读侧不受影响
 })

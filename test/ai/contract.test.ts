@@ -1,8 +1,9 @@
 /**
- * contract/chapter.ts 契约层单测（审查 §七：ai/contract 零单测）。
+ * contract 契约层单测（审查 §七：ai/contract 零单测）。
  *
  * assembleChapter：AI 结构化字段 → 宿主拼装 front matter + 正文。
  * 重点守卫：fm 由宿主拼装（章号宿主填）、正文纯文本透传、空正文拒收。
+ * R28-6（二十八轮）：并入 contract/chat.ts 零参工具路由不变量锁（见文末 describe）。
  */
 import { describe, expect, it } from 'vitest'
 import {
@@ -11,6 +12,14 @@ import {
   chapterToolName,
   submitText,
 } from '../../src/ai/contract/chapter.js'
+import { chatTools } from '../../src/ai/contract/chat.js'
+import {
+  RELATION_MINE_SPEC,
+  REWRITE_SPEC,
+  analysisSpec,
+  reviewSpec,
+  selfHealSpec,
+} from '../../src/ai/tasks/specs.js'
 
 describe('assembleChapter 长篇', () => {
   it('结构化字段 → 宿主拼装 fm + 正文', () => {
@@ -85,5 +94,40 @@ describe('写稿工具契约', () => {
     const props = t.input_schema.properties as Record<string, unknown>
     expect('章号' in props).toBe(false)
     expect('钩子强弱' in props).toBe(true)
+  })
+})
+
+describe('R28-6 零参 schema 工具路由不变量（chat ≠ generateTool）', () => {
+  // 背景：零参工具（properties: {}）在 max_tokens 撞顶时 input 恒为 {}——这是完整
+  // 合法调用，但 generateTool 的 toolInputEmpty 判据（gen.ts R27-4/R28-6）会把它误判
+  // 成截断抛 MAX_TOKENS。现网不可达的前提是路由不变量：零参工具只出现在 chat agent
+  // turns（turns.ts 对 max_tokens 整体拒收，不经 generateTool）。本 describe 把该
+  // 不变量锁成机器门：清单漂移或零参工具混入工作流工具面即红。
+  const propsOf = (t: { input_schema: Record<string, unknown> }) =>
+    Object.keys((t.input_schema['properties'] ?? {}) as Record<string, unknown>)
+
+  it('chat 零参工具清单锁死——新增零参工具须先确认路由路径', () => {
+    const zeroArg = chatTools.filter((t) => propsOf(t).length === 0)
+    expect(zeroArg.map((t) => t.name)).toEqual(['chapter_status', 'harvest_style'])
+  })
+
+  it('工作流 generateTool 路径（genMode=tool 的 TaskSpec）工具 schema 均声明 ≥1 属性', () => {
+    const defs = [
+      REWRITE_SPEC,
+      RELATION_MINE_SPEC,
+      reviewSpec('plot'),
+      selfHealSpec('long'),
+      selfHealSpec('short'),
+      // analysis 全 kind 枚举（动态工具名，逐一验证 schema 非零参）
+      ...(['score', 'emotion', 'hooks', 'style', 'tags', 'infer_meta'] as const).map((k) => analysisSpec(k)),
+    ].map((spec) => spec.tool?.def)
+    expect(defs.length).toBeGreaterThan(0)
+    for (const def of defs) {
+      expect(def).toBeDefined()
+      expect(
+        propsOf(def!),
+        `工具 ${def!.name} 的 schema 声明了 0 个属性——零参工具不得走 generateTool（R28-6），请改走 chat turns 或补 schema`,
+      ).not.toHaveLength(0)
+    }
   })
 })

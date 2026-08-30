@@ -134,3 +134,39 @@ test('P2-30: git()/statusPorcelain 调 spawnSync 必带 timeout（防仓库锁/�
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+test('R77-3: 坚果云「冲突副本」命中（全角/半角形态，需同名母本）；无母本不误报', () => {
+  const root = join(tmpdir(), `clw-exec-${Date.now()}`)
+  mkdirSync(join(root, '写作', '正文'), { recursive: true })
+  writeFileSync(join(root, '写作', '正文', '第1章.md'), '母本', 'utf-8')
+  writeFileSync(join(root, '写作', '正文', '第1章（冲突副本 2026-08-30 11-22-33）.md'), '副本-全角', 'utf-8')
+  writeFileSync(join(root, '写作', '正文', '第1章 (冲突副本 2026-08-30).md'), '副本-半角', 'utf-8')
+  // 无母本的冲突副本形态：不报（母本收紧，同 X-P2-20 口径——合法标题可能含该字样）
+  writeFileSync(join(root, '写作', '正文', '番外（冲突副本 2026-08-30）.md'), '孤儿副本', 'utf-8')
+  try {
+    const copies = scanCloudCopies(root)
+    expect(copies.some((f) => f.includes('第1章（冲突副本'))).toBe(true)
+    expect(copies.some((f) => f.includes('第1章 (冲突副本'))).toBe(true)
+    expect(copies.some((f) => f.includes('番外'))).toBe(false)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('R77-3: git 可执行缺失（ENOENT）→ 人话引导装 Git，不落穿 spawn 英文报错', () => {
+  const enoent = {
+    pid: -1,
+    output: [],
+    stdout: '',
+    stderr: '',
+    status: null,
+    error: Object.assign(new Error('spawn git ENOENT'), { code: 'ENOENT' }),
+  }
+  mockSpawn.mockImplementationOnce(() => enoent as unknown as ReturnType<typeof spawnSync>)
+  const r = git(['status'], tmpdir())
+  expect(r.ok).toBe(false)
+  if (!r.ok) {
+    expect(r.humanMsg).toContain('未检测到 Git')
+    expect(r.humanMsg).toContain('Git for Windows')
+  }
+})

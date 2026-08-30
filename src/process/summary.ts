@@ -37,6 +37,7 @@ import { readBookConfig } from '../format/yaml.js'
 import type { BookConfig } from '../format/types.js'
 import { log } from '../log/index.js'
 import { atomicWriteFile } from '../fs/atomic.js'
+import { acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
 
 // N-7（第五十四轮）：预算兜底显式声明——summary_chapter_max / summary_volume_max 不在
 // applyGlobalDefaults 全局默认链内（书级不设即 undefined），此值即实际生效的最终回落，
@@ -169,20 +170,76 @@ export type GenerateSummaryResult =
 /** 同章在途去重：批量定稿并发触发 / 自愈与定稿钩子同时命中时不重复调用 */
 const inFlight = new Set<string>()
 
+// R26-19（二十六轮）：摘要生成跨进程互斥锁——GUI 与 CLI 双开同书时，定稿钩子与备料自愈
+// 两路各自的进程内 inFlight 互相看不见，同一章的「状态判定（stale/missing）→ AI 调用 →
+// 落盘」会在两个进程里各跑一遍：重复调 AI 重复计费，且后写者覆盖先写者产物。对临界段套
+// 按章跨进程锁（J7 原语，lead-update-draft / learn-harvest 同款用法）；锁文件放 工作区/
+// 下、按生成目标分把——粒度与 inFlight 键一致，同进程不同章并发互不阻塞（若合成按书一把，
+// 章摘要串行链之外的两章并发会白等锁超时）。锁盖全临界段（状态判定在内——锁外判状态
+// 会重开 TOCTOU 窗口），AI 调用数十秒在所难免；拿不到锁 → 本调用返回
+// { ok: true, skipped: true }：语义 = 他人正在生成/已完成，不是失败（同时解决 R26-101——
+// 并发去重命中不再被调用方当「自愈失败」warn 留痕），漏生窗口由既有自愈兜底。
+// R28-15（二十八轮）：锁等待档 5s → 0（非阻塞 try-acquire，拿不到即跳过本轮）。理由：
+// 锁原语的等待是 Atomics.wait 同步微睡（Node 主线程合法但整段阻塞事件循环），而持锁方
+// 是分钟级 AI 调用——GUI（Electron 主进程，IPC 敏感）与 CLI 双开同书时，第二进程为一把
+// 几乎不可能在等待档内释放的锁同步阻塞整个等待档，纯付出零收益（300ms 档同理不成立：
+// 仍冻结主进程且等不到分钟级持锁面）。两路挂点（定稿钩子 fire-and-forget / 备料自愈）
+// 对 skipped 的消费语义本就是「他人正在生成/已完成，非失败」，跳过一轮无害、自愈兜底
+// 照旧。0 档不影响陈锁接管：tryAcquire 内部的死 pid 判 stale + jitter + 重建不受等待档
+// 约束，崩溃残留不永锁的语义保留。
+/** R26-19 锁等待档（毫秒；R28-15 起生产固定 0 = 纯 try-acquire）——模块内 let + ForTest 注入钩子（R26-105 收口惯例：不裸导出变量本体）。 */
+let SUMMARY_GENERATE_LOCK_TIMEOUT_MS = 0
+/** 测试注入钩子（生产零调用）。 */
+export function __setSummaryGenerateLockTimeoutForTest(ms: number): void {
+  SUMMARY_GENERATE_LOCK_TIMEOUT_MS = ms
+}
+
+/**
+ * R27-105（二十七轮）：锁续期周期（毫秒）——锁盖「状态判定 + AI 调用 + 落盘」全临界段
+ * （R26-19），而锁原语的活 pid 超龄门槛（Z-19）与 AI 任务默认超时同为 10 分钟：两处锁
+ * 调用不传 renewIntervalMs 时锁文件 mtime 恒为创建时刻，AI 调用一超 10min（慢派发/限流
+ * 重试），第二进程按「活 pid 超龄且无续期」接管成双持锁 → 同一章/卷双生成双计费，
+ * 跨进程互斥被静默击穿。接线锁原语既有续期能力（N6；task-gate R71-3 同款）：30s 刷一次
+ * mtime 远低于超龄门槛，活锁不再被误接管。模块内 let + ForTest 注入钩子（R26-105 惯例）
+ * 保测试可缩周期。
+ */
+let SUMMARY_LOCK_RENEW_MS = 30_000
+/** 测试注入钩子（生产零调用）。 */
+export function __setSummaryLockRenewMsForTest(ms: number): void {
+  SUMMARY_LOCK_RENEW_MS = ms
+}
+
 /**
  * 生成（或按 sourceHash 过期重生成）一章摘要。fresh → skipped 不调 AI。
  * 产出硬约束：三行结构由 system prompt 约定；字数上限 prompt 声明 + 落盘前硬截断
  * （确定性上限，不信任模型自觉）。
+ * R26-19：进程内 inFlight 快速去重 + 按章跨进程锁盖「状态判定 + AI 调用 + 落盘」全临界段；
+ * 两路去重命中一律返回 skipped: true（他人正在生成/已完成，不是失败）。
  */
 export async function generateChapterSummary(opts: GenerateChapterSummaryOpts): Promise<GenerateSummaryResult> {
   const { bookRoot, chapter, bodyAbsPath } = opts
-  const state = chapterSummaryState(bookRoot, chapter, bodyAbsPath)
-  if (state === 'fresh') return { ok: true, path: chapterSummaryPath(bookRoot, chapter), skipped: true }
-
+  const fp = chapterSummaryPath(bookRoot, chapter)
+  // 同进程快速去重（保留）：并发去重命中 = 本进程已在生成，语义同锁超时（skipped 非失败）
   const key = `${bookRoot}#${chapter}`
-  if (inFlight.has(key)) return { ok: false, error: `第 ${chapter} 章摘要生成已在途` }
+  if (inFlight.has(key)) return { ok: true, path: fp, skipped: true }
+  // R26-19：跨进程锁（锁内才判状态——锁外判会重开「判完他进程开写」的 TOCTOU 窗口）
+  // R27-105：接线 N6 续期——持锁面覆盖全长 AI 调用，不续期会被第二进程按超龄接管成双持锁
+  const releaseLock = acquireCrossProcessLockWithTimeout(
+    // R28-14（二十八轮）：锁名补 .lock 后缀——fs/atomic sweepAbandonedTmpFiles 的陈锁
+    // 清扫分支只认 `*.lock`（R76-27），此前 `.摘要锁-章N` 永不命中：崩溃残留锁只能靠
+    // stale 接管对冲，锁主人不再有获取者时（产物已 purge 等）永久堆积。后缀不参与锁
+    // 身份判定语义之外的任何事（锁身份 = 全路径，改名对新旧锁互不相认——旧残留由
+    // sweep/超龄接管收口，不存在兼容问题）。
+    join(bookRoot, '工作区', `.摘要锁-章${chapter}.lock`),
+    SUMMARY_GENERATE_LOCK_TIMEOUT_MS,
+    { renewIntervalMs: SUMMARY_LOCK_RENEW_MS },
+  )
+  // 拿不到锁 = 他进程正在生成/已完成：skipped（非失败），漏生由自愈兜底
+  if (!releaseLock) return { ok: true, path: fp, skipped: true }
   inFlight.add(key)
   try {
+    const state = chapterSummaryState(bookRoot, chapter, bodyAbsPath)
+    if (state === 'fresh') return { ok: true, path: fp, skipped: true }
     const budget = opts.config.budget.summary_chapter_max ?? SUMMARY_CHAPTER_MAX_FALLBACK
     // R66-18（十四轮）：正文与指纹此前两次独立读盘（readDraft 一次 + computeRevision
     // 一次）——两读之间正文被改（H1→H2）会把 H2 的指纹绑给 H1 正文的摘要；改单次读
@@ -238,7 +295,6 @@ export async function generateChapterSummary(opts: GenerateChapterSummaryOpts): 
     if (codePointLength(text) > budget) text = clipByCodePoints(text, budget) + '…'
     if (text.length === 0) return { ok: false, error: 'AI 产出为空' }
 
-    const fp = chapterSummaryPath(bookRoot, chapter)
     mkdirSync(join(bookRoot, CHAPTER_SUMMARY_DIR), { recursive: true })
     const fm = [
       '---',
@@ -255,6 +311,7 @@ export async function generateChapterSummary(opts: GenerateChapterSummaryOpts): 
     return { ok: true, path: fp, skipped: false }
   } finally {
     inFlight.delete(key)
+    releaseLock()
   }
 }
 
@@ -471,32 +528,41 @@ export async function generateVolumeSummary(opts: {
   const { bookRoot, config, volume } = opts
   const volumeSize = config.book.volume_size ?? 50
   const budget = config.budget.summary_volume_max ?? SUMMARY_VOLUME_MAX_FALLBACK
-  const { chain, missing } = volumeChainState(bookRoot, volume, volumeSize)
-  if (!chain || chain.size === 0) {
-    log.warn('summary', `第 ${volume} 卷章摘要链不全（缺 ${missing.join('、') || '全部'}），卷摘要不强行生成`)
-    return { ok: false, error: `第 ${volume} 卷章摘要链不全（缺第 ${missing.join('、') || '全部'} 章摘要），先补章摘要` }
-  }
   const fp = volumeSummaryPath(bookRoot, volume)
-  const fingerprint = volumeChainFingerprint(chain)
-  // 已有且链未变 → skipped
-  if (existsSync(fp)) {
-    // R65-31：sourceHash 重读包 try/catch——读失败（权限/TOCTOU）按指纹不匹配降级
-    //（视同缺失，落到下方重生成路径）+ warn，不直穿生成链
-    let volRaw: string | null = null
-    try {
-      volRaw = readFileSync(fp, 'utf8')
-    } catch (e) {
-      log.warn('summary', `卷摘要读取失败（第 ${volume} 卷，按缺失降级重生成）：${e instanceof Error ? e.message : String(e)}`)
-    }
-    const m = volRaw !== null ? /^sourceHash:\s*(\S+)/m.exec(volRaw) : null
-    if (m && m[1] === fingerprint) return { ok: true, path: fp, skipped: true }
-  }
-  // P5-管线（第七轮）：卷摘要并发去重（对齐章摘要 inFlight 模式）——定稿钩子与备料
-  // 自愈同时命中同一卷时，并发窗口内会重复调 AI 写同一文件
+  // R26-19（二十六轮）：卷摘要对齐章摘要同款两级去重——进程内 inFlight 快速去重 +
+  // 按卷跨进程锁盖「链完整性判定 + AI 调用 + 落盘」全临界段（GUI/CLI 双开同书防重复
+  // 调 AI 重复计费）；去重命中一律 skipped: true（他人正在生成/已完成，非失败），
+  // 状态判定挪进锁内（锁外判会重开 TOCTOU 窗口）。
   const volKey = `${bookRoot}#vol${volume}`
-  if (inFlight.has(volKey)) return { ok: false, error: `第 ${volume} 卷摘要生成已在途` }
+  if (inFlight.has(volKey)) return { ok: true, path: fp, skipped: true }
+  // R27-105：接线 N6 续期（同章摘要锁）——链完整性判定 + AI 调用 + 落盘全临界段在持锁面内
+  const releaseLock = acquireCrossProcessLockWithTimeout(
+    // R28-14（二十八轮）：锁名补 .lock 后缀（同章摘要锁——sweep 陈锁清扫分支只认 *.lock）
+    join(bookRoot, '工作区', `.摘要锁-卷${volume}.lock`),
+    SUMMARY_GENERATE_LOCK_TIMEOUT_MS,
+    { renewIntervalMs: SUMMARY_LOCK_RENEW_MS },
+  )
+  if (!releaseLock) return { ok: true, path: fp, skipped: true }
   inFlight.add(volKey)
   try {
+    const { chain, missing } = volumeChainState(bookRoot, volume, volumeSize)
+    if (!chain || chain.size === 0) {
+      log.warn('summary', `第 ${volume} 卷章摘要链不全（缺 ${missing.join('、') || '全部'}），卷摘要不强行生成`)
+      return { ok: false, error: `第 ${volume} 卷章摘要链不全（缺第 ${missing.join('、') || '全部'} 章摘要），先补章摘要` }
+    }
+    const fingerprint = volumeChainFingerprint(chain)
+    // 已有且链未变 → skipped（R65-31：sourceHash 重读包 try/catch——读失败（权限/TOCTOU）
+    // 按指纹不匹配降级（视同缺失，落到下方重生成路径）+ warn，不直穿生成链）
+    if (existsSync(fp)) {
+      let volRaw: string | null = null
+      try {
+        volRaw = readFileSync(fp, 'utf8')
+      } catch (e) {
+        log.warn('summary', `卷摘要读取失败（第 ${volume} 卷，按缺失降级重生成）：${e instanceof Error ? e.message : String(e)}`)
+      }
+      const m = volRaw !== null ? /^sourceHash:\s*(\S+)/m.exec(volRaw) : null
+      if (m && m[1] === fingerprint) return { ok: true, path: fp, skipped: true }
+    }
     const chainText = [...chain.keys()]
       .sort((a, b) => a - b)
       .map((ch) => `【第 ${ch} 章】${chain.get(ch)}`)
@@ -539,6 +605,7 @@ export async function generateVolumeSummary(opts: {
     return { ok: true, path: fp, skipped: false }
   } finally {
     inFlight.delete(volKey)
+    releaseLock()
   }
 }
 
@@ -574,10 +641,38 @@ export async function selfHealVolumeSummary(
     const m = volRaw !== null ? /^sourceHash:\s*(\S+)/m.exec(volRaw) : null
     if (!m) return null
     const { chain } = volumeChainState(bookRoot, targetVolume, volumeSize)
-    if (chain === null || m[1] === volumeChainFingerprint(chain)) return null
+    // R27-107（二十七轮）：链不全时链指纹无从计算（既不能证新也不能证旧），此前与
+    // 「fresh」合用一个 return 静默放弃——交集路径无留痕，备料侧照注入旧文件无人知晓。
+    // 「保留现有文件、不强行生成」的取舍不变（二阶误差红线），只补留痕（对齐模块 warn 风格）
+    if (chain === null) {
+      log.warn('summary', `第 ${targetVolume} 卷章摘要链不全，卷摘要新鲜度无法判定，放弃按需重生成（保留现有文件）`)
+      return null
+    }
+    if (m[1] === volumeChainFingerprint(chain)) return null
   }
   const r = await generateVolumeSummary({ bookRoot, userDataPath, config, volume: targetVolume, ...(signal ? { signal } : {}) })
   if (r.ok) return volumeSummaryRelPath(targetVolume)
   log.warn('summary', `上一卷（第 ${targetVolume} 卷）摘要按需生成失败：${r.error}`)
   return null
+}
+
+/**
+ * R27-107（二十七轮）：备料陈旧闸判据（prepare 弹性#3 注入前查询）——「可证明过期」
+ * 仅指：程序生成（fm 带 sourceHash）+ 当前链完整非空 + 链指纹不匹配。手写产物（M-7
+ * 作者优先）、链不全（指纹无从计算）、空链（退化指纹无比较意义，legacy/无清单书一律
+ * 放行）、读失败（R65-31 宁不动）一律 false——宁窄勿误杀，闸只拦「拿得出指纹证明
+ * 落后于当前卷状态」的形态；留痕归调用方（谁放弃注入谁留痕）。
+ */
+export function volumeSummaryProvablyStale(bookRoot: string, volume: number, volumeSize: number): boolean {
+  let volRaw: string
+  try {
+    volRaw = readFileSync(volumeSummaryPath(bookRoot, volume), 'utf8')
+  } catch {
+    return false // 读失败无法证明过期（R65-31 同款保守：宁注入路径自行降级，不在这里下判）
+  }
+  const m = /^sourceHash:\s*(\S+)/m.exec(volRaw)
+  if (!m) return false // 手写产物：作者优先，不按程序指纹判旧
+  const { chain } = volumeChainState(bookRoot, volume, volumeSize)
+  if (chain === null || chain.size === 0) return false // 链不全/空链：无法证明过期
+  return m[1] !== volumeChainFingerprint(chain)
 }

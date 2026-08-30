@@ -18,7 +18,7 @@ import { currentProvider } from '../../../ai/provider/index.js'
 import { existsSync, readFileSync, mkdirSync, rmSync, readdirSync } from 'node:fs'
 import { readBooks } from '../../../install/books.js'
 import { defineRoute } from './schema.js'
-import { acquireTaskGate, orchestrationBusyFor } from './task-gate.js' // R62-17：三审接跨进程任务闸（删书/改名/他进程可见）
+import { acquireTaskGate, orchestrationBusyFor, crossProcessHeldTaskGatesFor } from './task-gate.js' // R62-17：三审接跨进程任务闸（删书/改名/他进程可见）
 import { readJson, reply, replyError } from '../http.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { safeManifestPath, safeDocId } from '../../../fs/safe-path.js'
@@ -384,11 +384,16 @@ export function buildLensPrompt(
   return parts.join('\n\n')
 }
 
-/** R70-7：清扫全部书的 .cache/review-* 残留（服务启动时调用一次；失败不阻断）。 */
-function sweepStaleReviewDirs(workDir: string | null): void {
+/** R70-7：清扫全部书的 .cache/review-* 残留（服务启动时调用一次；失败不阻断）。
+ *  R27-60：导出供回归测（跨进程闸跳过语义直测）。 */
+export function sweepStaleReviewDirs(workDir: string | null): void {
   if (!workDir) return
   try {
     for (const b of readBooks(workDir)) {
+      // R27-60（二十七轮）：他进程三审在途则跳过该书清扫——「启动时无人持锁」是
+      // 单进程假设（R70-7 原注），T2-4/R75-5 开放双进程后不成立：B 进程启动清扫
+      // 会删掉 A 进程在途三审的 out_dir（分钟级任务白烧费用、信封降级 incomplete）
+      if (crossProcessHeldTaskGatesFor(b.name).includes('review')) continue
       const cacheDir = join(workDir, b.path, '.cache')
       if (!existsSync(cacheDir)) continue
       for (const d of readdirSync(cacheDir)) {

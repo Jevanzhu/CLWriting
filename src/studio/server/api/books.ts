@@ -429,6 +429,16 @@ export function registerBookRoutes(ctx: BookCtx): void {
         }
       }
 
+      // R26-58（二十六轮）：编排闸检查前置——「同名/目录未动」早退分支原在闸检查之前，
+      // 同名改名完全绕过 spawn/三审/任务闸联合检查（title 同步写 book.yaml 与在途任务并发）。
+      // 现先过闸（闸忙 409 与全量改名同口径）再进早退分支；在途 AI 中断仍只在真正搬目录的
+      // 全量路径执行（此处到原闸点之间无 await，检查结果与原位置逐位一致，全量路径行为等价）。
+      // ee-P2-11 / hh-P1 / dd-P2：三闸联合检查（同删书口径，busyGate 集中各闸背景）
+      const busy = busyGate(oldName, '改名')
+      if (busy) {
+        return replyError(res, 409, 'BUSY', busy.error)
+      }
+
       // 同名（或目录未动）→ 只同步 title（兜底历史分歧：title≠name 的书存配置时回正），不做目录搬家
       if (!folderMove || newName === oldName) {
         writeTitle(oldRoot)
@@ -441,11 +451,6 @@ export function registerBookRoutes(ctx: BookCtx): void {
       if (hadSelfHeal) abortSelfHeal(oldName)
       const hadChat = isChatRunning(oldName)
       if (hadChat) abortChat(oldName)
-      // ee-P2-11 / hh-P1 / dd-P2：三闸联合检查（同删书口径，busyGate 集中各闸背景）
-      const busy = busyGate(oldName, '改名')
-      if (busy) {
-        return replyError(res, 409, 'BUSY', busy.error)
-      }
       // #7：等被中断的编排收尾后再搬目录/关库——abort 是异步信号，straggler 的收尾
       // 写库若在强制关库后恢复会抛「连接未打开」（对话以 error 收尾）；等待把这一窗
       // 收敛为零（确定性时序：本 handler 的同步段此前必然先于 straggler 恢复执行）。

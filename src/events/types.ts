@@ -100,7 +100,11 @@ export interface ChatEvent {
   /** replace 遮蔽闭区间 [start, end]（seq） */
   shadowStart?: number
   shadowEnd?: number
-  /** 血缘：sourceEventSeqs（被遮蔽节点/输入事件 seq 列表） */
+  /** 血缘：sourceEventSeqs（被遮蔽节点/输入事件 seq 列表）。
+   *  R26-20（二十六轮）语义收窄为「全局 seq」：只由 appendEvents 原样落库路径写入
+   *  （compaction/end 遮蔽区间，store.appendEvents），投影校验/审计按全局 seq 读。
+   *  批内 0-based 索引血缘走 NewEvent.sourceIdxs（仅 appendEventsResolveLineage 消费，
+   *  落库时回写解析为全局 seq 后仍存本字段）——同名双语义陷阱就此按方法拆分闭合。 */
   sourceSeqs?: number[]
   /** 派生消息缓存失效判据 */
   replaceGeneration: number
@@ -151,7 +155,10 @@ export interface StepStartData {
 export interface StepEndData {
   task: string
   layer: LayerName
-  /** 结构化终止原因：completed / max-tokens / error / aborted / timeout */
+  /** 结构化终止原因：受控词表以 STEP_END_REASONS 为准（completed / aborted / blocked /
+   *  error / max-tokens / interrupted）。
+   *  R26-99（二十六轮）：注释删 'timeout'——词表无此值；生产超时终止按 'interrupted'
+   *  记（runner.ts AA-P3-4 口径：执行被强制中止），不扩词表 */
   reason: string
 }
 

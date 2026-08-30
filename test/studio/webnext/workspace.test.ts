@@ -263,3 +263,33 @@ describe('workspace · 插入信号（第五轮 {text, tick}）', () => {
     await flush()
   })
 })
+
+// R26-79（二十六轮）：localStorage 迁移分支——treeExpanded 元素验 string（非 string
+// 过滤）+ 迁移后清旧键（对齐 prefs store 的 clearLegacyLocalStorage 手法），不清则每次
+// prefs.json 为空的新书都会重复走迁移分支。
+describe('workspace · R26-79 迁移元素校验与旧键清理', () => {
+  it('treeExpanded 混入非 string 元素 → 过滤后迁移；迁移写回后旧 localStorage 键被清', async () => {
+    localStorage.setItem('clw2.ui-prefs', JSON.stringify({ leftWidth: 260 }))
+    localStorage.setItem(`clw2.filetree.${BOOK}`, JSON.stringify(['写作', 42, null, '卷一']))
+    localStorage.setItem(`clw2.workspace.${BOOK}`, JSON.stringify({ activeDocId: 'd-old' }))
+
+    const ws = useWorkspaceStore()
+    ws.setBook(BOOK)
+    await flush()
+
+    expect(ws.treeExpanded).toEqual(['写作', '卷一']) // 非法元素被过滤
+    expect(bookPrefs.get(BOOK)).toMatchObject({ leftWidth: 260, treeExpanded: ['写作', '卷一'] })
+    // 修复点：迁移完成即清旧键
+    expect(localStorage.getItem('clw2.ui-prefs')).toBeNull()
+    expect(localStorage.getItem(`clw2.workspace.${BOOK}`)).toBeNull()
+    expect(localStorage.getItem(`clw2.filetree.${BOOK}`)).toBeNull()
+  })
+
+  it('无迁移数据（无旧键）→ 不触发清理路径，旧键语义不受影响', async () => {
+    const ws = useWorkspaceStore()
+    ws.setBook(BOOK)
+    await flush()
+    expect(bookPrefs.has(BOOK)).toBe(false) // 空迁移不写回
+    expect(ws.treeExpanded).toEqual(['写作']) // 默认值
+  })
+})

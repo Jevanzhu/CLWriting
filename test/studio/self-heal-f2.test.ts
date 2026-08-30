@@ -9,7 +9,11 @@
  */
 import { test, expect, vi, describe, beforeEach } from 'vitest'
 import { join } from 'node:path'
-import { makeDualTrackWorkdir, SHORT_BOOK } from '../studio/fixtures.js'
+import { makeDualTrackWorkdir, SHORT_BOOK, tempUserData } from '../studio/fixtures.js'
+// R27-120/121（二十七轮）：workDir/userDataPath 登记回收——原 0 清理 + 固定共享
+// '/tmp/clwriting-test'，每次跑泄漏双书仓库；per-test 包 trackTempDir（fixtures.ts
+// 本体因 Playwright global-setup 复用不动），userDataPath 改 tempUserData 唯一目录
+import { trackTempDir } from '../helpers/temp-dir.js'
 import { runSelfHeal, isSelfHealRunning, waitSelfHealSettled, type SelfHealOpts } from '../../src/ai/orchestrate/self-heal.js'
 import type { CheckOutcome } from '../../src/studio/server/api/check.js'
 import type { DriverEvent, Session, StudioDriver } from '../../src/driver/index.js'
@@ -84,7 +88,7 @@ function setup(
   check: (p: string) => CheckOutcome,
   extra?: Partial<SelfHealOpts>,
 ): Setup {
-  const workDir = makeDualTrackWorkdir()
+  const workDir = trackTempDir(makeDualTrackWorkdir())
   const bookRoot = join(workDir, '短篇', SHORT_BOOK)
   const emitted: DriverEvent[] = []
   const driver = makeEmitDriver(emitted)
@@ -92,7 +96,7 @@ function setup(
   const opts: SelfHealOpts = {
     driver,
     mainSession: { id: 'main', cwd: workDir, closed: false },
-    userDataPath: '/tmp/clwriting-test',
+    userDataPath: trackTempDir(tempUserData()),
     cwd: workDir,
     bookRoot,
     bookName: BOOK,
@@ -217,13 +221,13 @@ describe('F2 self-heal 语义统一（无稿 failed / 有稿 escalate）', () =>
     const genFn: NonNullable<SelfHealOpts['genFn']> = async () => {
       throw new Error('AI 服务不可用')
     }
-    const workDir = makeDualTrackWorkdir()
+    const workDir = trackTempDir(makeDualTrackWorkdir())
     const emitted: DriverEvent[] = []
     const driver = makeEmitDriver(emitted)
     const opts: SelfHealOpts = {
       driver,
       mainSession: { id: 'main', cwd: workDir, closed: false },
-      userDataPath: '/tmp/clwriting-test',
+      userDataPath: trackTempDir(tempUserData()),
       cwd: workDir,
       bookRoot: join(workDir, '短篇', SHORT_BOOK),
       bookName: BOOK,

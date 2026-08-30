@@ -24,7 +24,7 @@
  */
 import { execFileSync } from 'node:child_process'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 // fileURLToPath 解码百分号编码（工作区路径含 ^ 时 pathname 会带 %5E，scandir 直接 ENOENT）
@@ -155,7 +155,10 @@ export function findOnlyOrSkipViolations(src) {
   const only = clean.match(/(^|[^.\w])(?:it|test|describe)\.only(?:\.each)?\s*[({[]/g)
   // R65-59（F-3）：无条件 skip 同补 `.each` 组合——`it.skip.each([...])('t', fn)` 同样
   // 静默跳过整组；条件式豁免口径不变（plain 形态首参须标题串，each 形态第二调用首参须标题串）
-  const skipPlain = clean.match(/(^|[^.\w])(?:it|test|describe)\.skip\s*\(\s*"/g)
+  // R27-134（二十七轮）：plain 形态补零参——`test.skip()`（连条件都没有的无条件整用例
+  // 跳过，比标题串形态更赤裸）此前 `\(\s*"` 只认标题串首参，零参漏放行；剥串后判定
+  // `(` 紧跟 `"`（标题串）或 `)`（零参）均算无条件，其余首参（环境门表达式）照旧豁免
+  const skipPlain = clean.match(/(^|[^.\w])(?:it|test|describe)\.skip\s*\(\s*(?:"|\))/g)
   const skipEach = clean.match(/(^|[^.\w])(?:it|test|describe)\.skip\.each\s*\([^)]*\)\s*\(\s*"/g)
   return { only: only ? only.length : 0, uncondSkip: (skipPlain?.length ?? 0) + (skipEach?.length ?? 0) }
 }
@@ -204,43 +207,53 @@ function walk(dir, pred, out = []) {
 
 // ── R66-37（十四轮）：e2e spec 顺序快照守卫 ─────────────────────────────────────
 // e2e 的 28+ spec 共享 globalSetup 的单一临时 workDir，playwright.config workers:1
-// 下按 spec 路径字典序串行跑，前一个建的书/写的内容供后一个用——顺序是隐式契约
-// （README「勿加并行或改动 spec 顺序」此前只有注释、无机器守卫）。
-// 快照按代码单元排序（Array.prototype.sort 默认序，与 playwright 的文件排序同基），
-// 锁相对路径：新增/改名/删除任何 spec 都会改变名单或字典序位 → 失配红，
-// 逼改动者显式确认「插序是否破坏前序 spec 的落盘依赖」后再同步快照。
-// 【快照 = 2026-08-27 工作区实测清单（含并行批新增 settings-book-scope.spec.ts）】
-const E2E_SPEC_ORDER_SNAPSHOT = [
-  'test/e2e/ai-degrade.spec.ts',
-  'test/e2e/ai-provider.spec.ts',
-  'test/e2e/ai-review.spec.ts',
-  'test/e2e/analysis.spec.ts',
-  'test/e2e/audit.spec.ts',
-  'test/e2e/auto-write.spec.ts',
-  'test/e2e/batch-finalize.spec.ts',
-  'test/e2e/check.spec.ts',
-  'test/e2e/conflict.spec.ts',
-  'test/e2e/edit-save.spec.ts',
-  'test/e2e/export-ai-settings.spec.ts',
-  'test/e2e/finalize.spec.ts',
-  'test/e2e/focus.spec.ts',
-  'test/e2e/foreshadow.spec.ts',
-  'test/e2e/learn.spec.ts',
-  'test/e2e/overview-short.spec.ts',
-  'test/e2e/release-smoke.spec.ts',
-  'test/e2e/rewrite.spec.ts',
-  'test/e2e/search.spec.ts',
-  'test/e2e/settings-book-scope.spec.ts',
-  'test/e2e/shelf-search.spec.ts',
-  'test/e2e/shelf.spec.ts',
-  'test/e2e/short-flow.spec.ts',
-  'test/e2e/short-full-flow.spec.ts',
-  'test/e2e/switch-book.spec.ts',
-  'test/e2e/tree-issues.spec.ts',
-  'test/e2e/tree-ops.spec.ts',
-  'test/e2e/usage-card.spec.ts',
-  'test/e2e/version-restore.spec.ts',
-]
+// 下按 spec 路径 localeCompare 序串行跑，前一个建的书/写的内容供后一个用——顺序是
+// 隐式契约（README「勿加并行或改动 spec 顺序」此前只有注释、无机器守卫）。
+// R28-28（二十八轮）：快照单一真相源 = test/e2e/spec-order.snapshot.txt——此前本处
+// 硬编码 spec 名单数组、与快照文件双真相源，改序者同步其一漏其二即静默分叉。本脚本
+// 改为直读快照文件（缺失/解析失败/行形不合规一律 fail-closed 报人话），按 spec 裸
+// 文件名比对（快照由守卫写入 entry.name，e2e 扁平目录下锁名即锁序）：
+// 新增/改名/删除任何 spec 都会改变名单或序位 → 失配红，逼改动者显式确认「插序是否
+// 破坏前序 spec 的落盘依赖」后用 CLW_UPDATE_SPEC_ORDER_SNAPSHOT=1 重拍快照（序为
+// localeCompare，镜像 Playwright 收集序，见 spec-order.guard.test.ts R28-27）。
+const SPEC_ORDER_SNAPSHOT_PATH = join(root, 'test', 'e2e', 'spec-order.snapshot.txt')
+
+/**
+ * R28-28：读取 spec 顺序快照（唯一真相源），fail-closed——
+ * - 文件缺失 / 读失败：报人话指路重拍命令；
+ * - 解析后 0 行：空快照当不了契约基线；
+ * - 行形不合规（须为 test/e2e/*.spec.ts 相对路径）：点名坏行。
+ * 任一中招即 process.exit(1)，绝不静默放行。
+ */
+function loadSpecOrderSnapshot() {
+  let raw
+  try {
+    raw = readFileSync(SPEC_ORDER_SNAPSHOT_PATH, 'utf8')
+  } catch (e) {
+    console.error('\ncheck:counts 失败：spec 顺序快照缺失/不可读（R28-28 fail-closed）——')
+    console.error(`  唯一真相源：${SPEC_ORDER_SNAPSHOT_PATH}`)
+    console.error(`  读失败原因：${e.message ?? String(e)}`)
+    console.error('  若为首次建立或有意重排，先跑守卫重拍：CLW_UPDATE_SPEC_ORDER_SNAPSHOT=1 npx vitest run test/e2e/spec-order.guard.test.ts')
+    process.exit(1)
+  }
+  const lines = raw
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+  if (lines.length === 0) {
+    console.error('\ncheck:counts 失败：spec 顺序快照为空，当不了契约基线（R28-28 fail-closed）——')
+    console.error(`  唯一真相源：${SPEC_ORDER_SNAPSHOT_PATH}`)
+    console.error('  重拍：CLW_UPDATE_SPEC_ORDER_SNAPSHOT=1 npx vitest run test/e2e/spec-order.guard.test.ts')
+    process.exit(1)
+  }
+  const bad = lines.filter((line) => !/^[\w.-]+\.spec\.ts$/.test(line))
+  if (bad.length > 0) {
+    console.error('\ncheck:counts 失败：spec 顺序快照含不合规行（须为 *.spec.ts 裸文件名，每行一个）（R28-28 fail-closed）——')
+    for (const b of bad) console.error('  - ' + b)
+    process.exit(1)
+  }
+  return lines
+}
 
 /**
  * R66-37：spec 名单/顺序失配检出（纯函数，便于直测）。
@@ -296,16 +309,18 @@ function main() {
   for (const fp of e2eSpecs) e2eCases += countE2eCases(readFileSync(fp, 'utf8'))
 
   // ── R66-37（十四轮）：e2e spec 顺序快照守卫 ─────────────────────
-  // spec 名单/字典序位与快照失配即红：新 spec 插序改变 workers:1 下的执行顺序，
-  // 前序 spec 的落盘依赖可能静默错位——须人工确认后同步 E2E_SPEC_ORDER_SNAPSHOT。
+  // spec 名单/localeCompare 序位与快照失配即红：新 spec 插序改变 workers:1 下的执行
+  // 顺序，前序 spec 的落盘依赖可能静默错位——须人工确认后重拍唯一真相源快照文件。
   const { added: specAdded, removed: specRemoved } = diffSpecOrder(
-    e2eSpecs.map((fp) => posixRelPath(root, fp)),
-    E2E_SPEC_ORDER_SNAPSHOT,
+    // R28-28：快照行 = spec 裸文件名（守卫写 entry.name），此处对齐口径取 basename
+    e2eSpecs.map((fp) => basename(fp)),
+    loadSpecOrderSnapshot(),
   )
   if (specAdded.length > 0 || specRemoved.length > 0) {
     console.error('\ncheck:counts 失败：e2e spec 名单/顺序与快照失配（R66-37）——')
-    console.error('  spec 按 workers:1 字典序串行跑且共享单一 workDir，顺序是隐式契约（README「勿改动 spec 顺序」）。')
-    console.error('  新增/改名 spec 前请确认其字典序位不破坏前序 spec 的落盘依赖，再同步本快照：')
+    console.error('  spec 按 workers:1 localeCompare 序串行跑且共享单一 workDir，顺序是隐式契约（README「勿改动 spec 顺序」）。')
+    console.error('  唯一真相源 = test/e2e/spec-order.snapshot.txt；新增/改名 spec 前请确认其序位不破坏前序 spec 的落盘依赖，再重拍快照：')
+    console.error('  CLW_UPDATE_SPEC_ORDER_SNAPSHOT=1 npx vitest run test/e2e/spec-order.guard.test.ts')
     for (const p of specAdded) console.error('  + 新增（当前在跑，快照缺）: ' + p)
     for (const p of specRemoved) console.error('  - 移除（快照有，当前缺）: ' + p)
     process.exit(1)

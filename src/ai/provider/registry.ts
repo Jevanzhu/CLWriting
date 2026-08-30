@@ -137,8 +137,11 @@ export function createProvider(conf: ProviderConf, store?: ProviderStore): Model
     // Protocol 是封闭联合类型，落到这里说明类型被绕过（JSON 直灌等）——显式报错不做猜测
     throw new Error(`未知协议适配器：${String(conf.protocol)}`)
   }
-  // 原子绑定：适配器捕获 bound conf，调用方后续 mutate 自己的对象不影响本实例
-  const bound: ProviderConf = { ...conf }
+  // 原子绑定：适配器捕获 bound conf，调用方后续 mutate 自己的对象不影响本实例。
+  // R26-22（二十六轮）：models 数组浅拷贝补齐——spread 只拷引用，调用方原地
+  // mutate conf.models（push/改项）时缓存实例行为漂移而 settingsHash 不变
+  //（缓存失效判定与实例状态脱钩）。数组新建浅拷元素（元素被视为不可变值）。
+  const bound: ProviderConf = { ...conf, ...(conf.models ? { models: [...conf.models] } : {}) }
   const provider = entry.create(bound, store)
   cachePut(hash, provider)
   return provider

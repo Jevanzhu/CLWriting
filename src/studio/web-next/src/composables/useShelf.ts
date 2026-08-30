@@ -9,6 +9,8 @@ import { apiJson, ApiError } from '../api/client'
 import { deleteBook } from '../api/shelf'
 import { friendlyError } from '../shared/error'
 import { clearFalsePositiveMarks } from '../stores/check'
+import { clearFailedDrafts } from './useChatComposer'
+import { treeFirstOpenKey } from '../shared/storage-keys'
 
 /** 字数千分位 + 万字简写（书卡紧凑展示）*/
 export function formatWords(n?: number): string {
@@ -207,6 +209,25 @@ export function useShelf(options?: {
         }
         // R-5（十五轮登记销账）：删书成功即清该书误报灰显键——同名重建书不继承旧灰显
         clearFalsePositiveMarks(name)
+        // R26-83（二十六轮，登记顺手补清）：一并清该书对话失败草稿残留（module 级 Map
+        // 原无书删除出口）——同名重建书不回填旧书幽灵文本
+        clearFailedDrafts(name)
+        // R27-79（二十七轮）：连带清该书 localStorage 残留键——否则同名重建书继承已删书
+        // 梗概（首启引导凭空带出旧稿设定）、且永不套章节树默认展开。键名真实出处：
+        // 梗概键对齐 OnboardPremise.vue 内局部 PREMISE_KEY（<script setup> 局部常量
+        // 不可导入，此处按同款拼法）；首开键经 shared/storage-keys.treeFirstOpenKey
+        // 与写入方 ChapterTreePanel 同源（R28-3）。try 包裹对齐本文件
+        // loadSortPreference：localStorage 不可用（隐私模式）时静默忽略
+        try {
+          localStorage.removeItem(`clwriting:onboard-premise:${name}`)
+          // R28-3（二十八轮）：首开键原写死冒号形态 `clw2.tree-first-open:${name}`，而
+          // 写入方 ChapterTreePanel 前缀为点号 'clw2.tree-first-open.'——冒号→点号键名
+          // 断裂致 R26-74 首开标记删书永远清不掉、同名重建书永不套默认展开（R27-79
+          // 落空一半）。改从 shared/storage-keys 与写入方同源拼键
+          localStorage.removeItem(treeFirstOpenKey(name))
+        } catch {
+          /* localStorage 不可用时忽略 */
+        }
       }
       confirmTarget.value = null
       // 删除完成后清选中 + 退出批量模式

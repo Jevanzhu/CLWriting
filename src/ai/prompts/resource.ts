@@ -21,6 +21,7 @@ import { existsSync, readFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { bundledResource } from '../../fs/resources.js'
 import { atomicWriteFile } from '../../fs/atomic.js'
+import { log } from '../../log/index.js'
 
 /** 哈希 = sha256(规范文本) 前 16 位（内容寻址，与 spill 文件名同族） */
 export function promptHash(text: string): string {
@@ -135,7 +136,16 @@ export function migratePromptOverlays(
     const name = file.replace(/\.md$/, '')
     const fp = overlayPath(userDataPath, name)
     if (!existsSync(fp)) continue
-    const hash = promptHash(canonicalize(readFileSync(fp, 'utf8')))
+    // R27-132（二十七轮）：单 overlay 读异常（TOCTOU 被删/被目录占位/EACCES）不再中断
+    // 整轮升级——读经 R75-A-P3b 收编助手拿带路径上下文的错误，逐文件 try/catch warn
+    // 跳过继续，对齐 v2/v3 迁移「单条目失败不拖死同轮其余条目」的容错口径
+    let hash: string
+    try {
+      hash = promptHash(canonicalize(readOverlaySync(fp)))
+    } catch (e) {
+      log.warn('migrate-prompts', `prompt overlay 读取失败，跳过该文件继续升级：${e instanceof Error ? e.message : String(e)}`)
+      continue
+    }
     if (!versions[file]!.includes(hash)) {
       report.kept.push(name)
       continue

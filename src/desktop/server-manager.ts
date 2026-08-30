@@ -250,7 +250,7 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
       throw new ServerBootError('SHUTDOWN', 'studio server 启动途中收到停机指令，已中止新 child')
     }
     forwardChildStdio(proc, logger) // 握手前接线——boot 期日志不丢
-    const port = await handshake(proc)
+    const port = await handshake(proc, logger)
     // 稳定窗口计时（unref 不拖退出）：到点仍是他为 active 才清零
     setTimeout(() => {
       if (active?.proc === proc) restartCount = 0
@@ -332,6 +332,21 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
     }
   }
 
+  /**
+   * R26-87（二十六轮）：kill 后等退出，超时不再静默放行——升级 SIGKILL 强杀。
+   * 依据（electron.d.ts 实证）：utilityProcess 的 kill() 无信号参数（`kill(): boolean`，
+   * POSIX 走 SIGTERM），而 UtilityProcess.pid 可得（spawn 前/exit 后为 undefined）——
+   * SIGTERM 被吞（child 卡死在不可中断调用）时原「超时放行」会把 child 永久留成孤儿，
+   * pid 在手即可 process.kill(pid, 'SIGKILL')（Windows 上 Node 将 SIGKILL 映射为进程
+   * 终止，跨平台成立）。kill 竞态窗口内 child 已自行退出（ESRCH）等失败只留痕不阻断
+   * 停机链；升级后再等一轮 killWaitMs（超时放行口径保留为最终兜底）。
+   */
+  async function killAwaitEscalating(current: ActiveChild, context: string): Promise<void> {
+    // R27-90（二十七轮）：主体抽到模块级 killProcAwaitEscalating——握手超时路径（模块级
+    // handshake 够不着工厂闭包）也要用同一套 kill+等退出+升级纪律，不再各写一份。
+    return killProcAwaitEscalating(current.proc, current.exited, context, killWaitMs, logger)
+  }
+
   /** stopChild 核心（kill + 等退出）；start 的换轮路径直接用（此时 starting 是 start
    *  自身 IIFE 的 promise——公共 stopChild 的 settleStarting 会 await 自己死锁）。 */
   async function stopActiveChild(): Promise<void> {
@@ -340,8 +355,9 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
     if (!current) return
     shutdownStarted = true // 主动 kill：随后的 exit 是预期收口，不触发重启（S-5）
     current.proc.kill()
-    // SIGTERM 被吞的兜底：超时放行（退出事件迟到时 active 已由 exit 监听清空）
-    await Promise.race([current.exited, delay(killWaitMs)])
+    // SIGTERM 被吞的兜底：R26-87 起超时升级 SIGKILL 强杀（退出事件迟到时 active 已由
+    // exit 监听清空，语义不变）；无 pid / 升级失败回落「超时放行」
+    await killAwaitEscalating(current, 'stopChild')
   }
 
   return {
@@ -462,7 +478,8 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
       if (active?.proc === current.proc) {
         // 超时未退 / 回执后滞留：强杀兜底（E-1：总超时已覆盖 child 最坏预算，此处才是真强杀）
         current.proc.kill()
-        await Promise.race([current.exited, delay(killWaitMs)])
+        // R26-87：同 stopChild——kill 后超时升级 SIGKILL，不再静默放行孤儿
+        await killAwaitEscalating(current, 'shutdown')
       }
       } finally {
         // B-7：停机生命周期门复位——收口后允许下一轮 start（新生命周期；幂等 early-return
@@ -574,12 +591,45 @@ function reconstructErr(raw: unknown): Error | undefined {
 }
 
 /**
+ * proc 级 kill+等退出+SIGKILL 升级（R27-90（二十七轮）自 killAwaitEscalating 抽出为模块级：
+ * 握手超时路径同用）。exit promise 由调用方供给——当值 child 用 ActiveChild.exited；
+ * 握手超时的未就绪 child 现挂 once('exit')。时序：kill 后等 killWaitMs，仍活且 pid 在手
+ * 升级 SIGKILL，再等一轮 killWaitMs 作最终兜底。签名带 killWaitMs/logger：模块级函数
+ * 不进工厂闭包，两处调用方各传自己的注入值。
+ */
+async function killProcAwaitEscalating(
+  proc: UtilityProcessLike,
+  exited: Promise<void>,
+  context: string,
+  killWaitMs: number,
+  logger: LogLike,
+): Promise<void> {
+  const didExit = await Promise.race([exited.then(() => true), delay(killWaitMs).then(() => false)])
+  if (didExit) return
+  // R28-21（二十八轮）：升级 SIGKILL 前才读 pid（原在入口快照）——killWaitMs（2s）窗内
+  // 子进程可能已死亡且 pid 被系统复用，按入口旧 pid 盲杀会误伤无关进程（极窄理论窗）。
+  // Electron 语义：UtilityProcess 退出后 pid 置 undefined（R26-87 注引 electron.d.ts：
+  // spawn 前/exit 后为 undefined），重读 undefined = 已退出而 exit 事件竞态迟到 → 不升级，
+  // 维持「超时放行」最终兜底；仍为在册 pid 才强杀。残余窗口如实记档：重读到 process.kill
+  // 之间仍有微秒级缝隙，彻底闭合需句柄级 kill（utilityProcess 面未暴露），超本修法范畴。
+  const pid = proc.pid
+  if (pid === undefined) return // 无 pid（未 spawn 成功/窗口内已退出）：维持原「超时放行」口径
+  try {
+    process.kill(pid, 'SIGKILL')
+    logger.warn('server-manager', `${context}：kill 后 ${killWaitMs}ms 仍未退出（SIGTERM 疑似被吞），已升级 SIGKILL 强杀（pid=${pid}）`)
+  } catch (e) {
+    logger.warn('server-manager', `${context}：SIGKILL 升级失败（child 可能已自行退出）：${e instanceof Error ? e.message : String(e)}`)
+  }
+  await Promise.race([exited, delay(killWaitMs)])
+}
+
+/**
  * 每 fork 一轮握手（S-5：退避重启的新 child 各发各的 ready，不假设全局一次性）。
  * ready → resolve 端口；boot-error 信封 → ServerBootError；启动途中 exit → 同类错误；
- * 30s 超时兜底（child 挂起）→ kill 后按启动失败收口。settle 后残余监听挂在 child
- * 对象上随其消亡，无跨 child 泄漏（exit persistent 版本由 start 成功路径另挂）。
+ * 30s 超时兜底（child 挂起）→ kill+等退出+SIGKILL 升级后按启动失败收口。settle 后残余
+ * 监听挂在 child 对象上随其消亡，无跨 child 泄漏（exit persistent 版本由 start 成功路径另挂）。
  */
-function handshake(proc: UtilityProcessLike): Promise<number> {
+function handshake(proc: UtilityProcessLike, logger: LogLike): Promise<number> {
   return new Promise<number>((resolveRaw, rejectRaw) => {
     let settled = false
     const settle = (finish: () => void): void => {
@@ -592,7 +642,22 @@ function handshake(proc: UtilityProcessLike): Promise<number> {
       () =>
         settle(() => {
           proc.kill()
-          rejectRaw(new ServerBootError('HANDSHAKE_TIMEOUT', 'studio server 子进程启动握手超时（30s 无 ready）'))
+          // R27-90（二十七轮）：kill 不再 fire-and-forget——R26-87 已实证 SIGTERM 可被吞，
+          // 唯此第三条 kill 路径漏应用同族纪律，卡死 child 会占住端口喂重启 EADDRINUSE
+          // 循环/首启 quit 后成孤儿。等退出+升级完成后再按启动失败收口，重启链拿到的是
+          // 无端口残留的干净现场。
+          const exited = new Promise<void>((resolveExit) => {
+            proc.once('exit', () => resolveExit())
+          })
+          void killProcAwaitEscalating(
+            proc,
+            exited,
+            'studio server 握手超时',
+            KILL_WAIT_TIMEOUT_MS,
+            logger,
+          ).finally(() =>
+            rejectRaw(new ServerBootError('HANDSHAKE_TIMEOUT', 'studio server 子进程启动握手超时（30s 无 ready）')),
+          )
         }),
       HANDSHAKE_TIMEOUT_MS,
     )

@@ -124,9 +124,11 @@ describe('Anthropic 适配器', () => {
     } as unknown as Anthropic
     const evs = await collect(createAnthropicProvider(CONF, client), REQ)
     expect(evs.filter((e) => e.type === 'done')).toHaveLength(1)
-    // R73-13b（二十一轮，F 域移交）：幂等契约锁死 usage 取首条——重复 delta 的 9/9
-    // 不得覆盖首条 1/1（修复前仅断言次数，usage 取首条的口径无测试锚）
-    expect(evs.find((e) => e.type === 'done')).toMatchObject({ usage: { inputTokens: 1, outputTokens: 1 } })
+    // R27-2（二十七轮）：值口径改为「末见 wins」（与 openai 线 R26-3 归一）——末 delta
+    // 9/9 胜出。R73-13b 锚定的「取首条」与此互斥，随本轮口径统一更新：done 次数幂等
+    // （该测试的原始关切——重复 delta 不双发 done）保留不变；真·同值重传形态下末见
+    // 与首见同值，去重场景不受影响
+    expect(evs.find((e) => e.type === 'done')).toMatchObject({ usage: { inputTokens: 9, outputTokens: 9 } })
   })
 
   // R73-3（二十一轮 A-3）：Anthropic 协议强制 max_tokens——unknown 家族模型 quirks 无

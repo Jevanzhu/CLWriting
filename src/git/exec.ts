@@ -65,6 +65,9 @@ export function git(args: string[], cwd: string, opts?: { encoding?: 'utf-8'; in
   const errCode = (r.error as { code?: string } | undefined)?.code
   const timedOut = errCode === 'ETIMEDOUT' || r.signal === 'SIGTERM'
   const stderr = String(r.stderr || r.error?.message || '')
+  // R77-3（二十五轮批 B）：ENOENT（找不到 git 可执行）特判——win 未装 Git for Windows
+  // 的典型形态，此前落穿 generic 分支把 spawn 的英文报错翻面直出；特判成人话引导装 Git。
+  // ENOENT 也可来自 cwd 不存在，但本模块调用方均传已验证书根，非本形态。
   // R66-22（十四轮）：ENOBUFS 单独留痕——输出缓冲超限是「结果被截断的环境问题」而非
   // git 本身失败，与普通失败混流会让静默降级（空表/跳过迁移）无从定位；抬高 maxBuffer
   // 后理论不可达，真触顶时 log.warn 供诊断。
@@ -77,17 +80,19 @@ export function git(args: string[], cwd: string, opts?: { encoding?: 'utf-8'; in
       ? `git 操作超时（${args.join(' ')}）：git 进程无响应，已中止`
       : errCode === 'ENOBUFS'
         ? `git 输出超限（${args.join(' ')}）：仓库改动量过大，输出超出缓冲上限，请分批处理或清理仓库`
-        : `git 操作失败（${args.join(' ')}）：${humanizeGitError(args, stderr)}`,
+        : errCode === 'ENOENT'
+          ? '未检测到 Git（未安装或不在 PATH）——请安装 Git（Windows 推荐 Git for Windows）后重启应用'
+          : `git 操作失败（${args.join(' ')}）：${humanizeGitError(args, stderr)}`,
     stderr,
   }
 }
 
-/** 把 git 原始报错翻成人话（#16 第 3 节，零机器味） */
-function humanizeGitError(args: string[], stderr?: string): string {
-  const sub = args[0] ?? ''
+/** 把 git 原始报错翻成人话（#16 第 3 节，零机器味）。
+ *  R26-56（二十六轮）：commit 两翻译分支删除——addCommit 随 #16 去依赖化移除后本模块
+ *  再无 commit 子命令调用方（现存导出仅 status/scan 类，test/git/exec.test.ts 亦无
+ *  commit 分支用例），两分支永不命中；args 形参保留（调用点报错信封仍要 join 展示）。 */
+function humanizeGitError(_args: string[], stderr?: string): string {
   const hint = stderr ?? ''
-  if (sub === 'commit' && hint.includes('nothing to commit')) return '没有改动需要保存'
-  if (sub === 'commit' && hint.includes('Author identity unknown')) return 'git 没设身份，请联系管理员配置 user.name/user.email'
   if (hint.includes('not a git repository')) return '这里不是书仓库（没有 .git）'
   return hint.split('\n')[0] || '未知错误'
 }
@@ -117,6 +122,11 @@ export function scanCloudCopies(bookRoot: string): string[] {
   // X-P2-20：`<名> 2.md` / `<名> (1).md` 收紧为「同名去重副本」——同目录存在母本 `<名>.md` 才报；
   // 纯文件名正则分不出副本与合法标题（`第 2.md` 会被误报），必须验母本
   const dedupCopy = /^(.+)\s(?:\d+|\(\d+\))\.md$/
+  // R77-3（二十五轮批 B）：坚果云 win 特征——`<名>（冲突副本 …）.md` 中文冲突标记
+  //（全角/半角括号或连字符分隔，名与分隔符间的空格不入捕获——母本推导不受尾随空格干扰）。
+  // OneDrive 式 `<名>-<计算机名>.md` 与合法标题不可分（假阳性高），不进自动检测，
+  // 改根 README「Windows 版使用须知」披露；同 X-P2-20 必须验母本。
+  const zhConflicted = /^(.+?)\s*[（(-]\s*冲突副本.*\.md$/
   const walk = (dir: string): void => {
     let entries: Dirent[]
     try {
@@ -136,6 +146,10 @@ export function scanCloudCopies(bookRoot: string): string[] {
       } else {
         const m = dedupCopy.exec(e.name)
         if (m && existsSync(join(dir, `${m[1]}.md`))) copies.push(full)
+        else {
+          const c = zhConflicted.exec(e.name)
+          if (c && existsSync(join(dir, `${c[1]}.md`))) copies.push(full)
+        }
       }
     }
   }

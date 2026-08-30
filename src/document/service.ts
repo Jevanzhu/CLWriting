@@ -20,15 +20,15 @@
  *
  * docId 是稳定 ID（队列/日志/清单 key），relPath 是落盘路径。
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, linkSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { safeDocId, resolveWithinRoot } from '../fs/safe-path.js'
-import { atomicWriteFile, createFileExclusive } from '../fs/atomic.js'
+import { atomicWriteFile, createFileExclusive, linkOrRenameExclusive } from '../fs/atomic.js'
 import { computeRevision, type Revision } from './revision.js'
-import { layoutOf, roleOf } from './layout.js'
+import { layoutOf, roleOf, isInternalBookPath } from './layout.js'
 import { appendAborted, appendMovePending, appendPending, appendSettled, findUnsettled, type JournalAnyPending } from './journal.js'
 import { writeSnapshot, DEFAULT_SNAPSHOT_POLICY, readGlobalSnapshotPolicy, type SnapshotPolicy } from './snapshot.js'
-import { readManifest, writeManifest, upsertEntry, withManifestLock, type ManifestEntry } from './manifest.js'
+import { readManifest, readManifestStrict, writeManifest, upsertEntry, withManifestLock, type ManifestEntry } from './manifest.js'
 import { SaveQueue } from './queue.js'
 import { generateDocId, legacyId } from './stable-id.js'
 import { invalidateTreeIndex, scanBookTree, type TreeNode } from './tree.js'
@@ -37,7 +37,9 @@ import { appendTrashEntry, readTrashManifest } from './trash.js'
 import { log } from '../log/index.js'
 import { appendWordsDelta, todayDate } from './words-diary.js'
 import { countWords, chapterFilePrefix } from '../format/words.js'
-import { sanitizeChapterTitle } from '../format/filename.js'
+// R26-55（二十六轮）：createDocument 的 relPath 逐段消毒同源（sanitizeChapterTitle 是
+// 同函数的章标题别名）
+import { sanitizeChapterTitle, sanitizeFileNamePart } from '../format/filename.js'
 import { encodeDocDirName, decodeDocDirName } from './version.js'
 import { acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
 import { readBookConfig } from '../format/yaml.js'
@@ -269,7 +271,20 @@ export class DocumentService {
     // 已移走/已删文件（trash 场景绕过回收站）。出队时按清单核对保存目标仍是该 docId
     // 的登记路径；已删（清单除名 + 回收站在案）同样拒绝。REVISION_CONFLICT 语义 =
     // 「世界已变，请刷新重试」，前端既有冲突处理会重新同步路径。
-    const registered = this.lookupPathByDocId(docId)
+    // R27-43（二十七轮）：前段收编——lookupPathByDocId 的 legacy 收编链（adoptLegacyDoc
+    // → upsertManifestEntry → withManifestLock 超时 throw）此前在契约 try 之外裸穿：
+    // queue reject → save() 变 rejected promise / API 500（manifest.ts 注释宣称的
+    // 「executeSave 内 catch → WRITE_ERROR」对前段不实）。现同款收编为 SaveResult。
+    let registered: string | null
+    try {
+      registered = this.lookupPathByDocId(docId)
+    } catch (e) {
+      return Promise.resolve({
+        ok: false,
+        code: 'WRITE_ERROR',
+        reason: `保存前清单查询失败（未执行保存，可重试）：${e instanceof Error ? e.message : String(e)}`,
+      })
+    }
     if (registered !== null && registered !== relPath) {
       return Promise.resolve({
         ok: false,
@@ -379,7 +394,29 @@ export class DocumentService {
         // 步骤 5：按策略建 snapshot（修改前版本留底）
         this.maybeSnapshot(docId, relPath, absPath, input, currentRev)
         // 步骤 6-7：atomic write + fsync + rename + fsync 父目录
-        atomicWriteFile(absPath, input.content, { fsync: true })
+        // R26-49（二十六轮）：新建路径（expectedRevision=null）不再裸 rename——基线校验
+        // （文件不存在）与落盘之间无互斥，他进程并发新建同名文件时 atomicWriteFile 的
+        // rename 会静默覆盖先到者内容且本方返回成功（lost update）。改 createFileExclusive
+        // 独占创建（link 不覆盖，R26-7 起自带非 NTFS 卷 rename 降级）：'exists' = 落位时
+        // 目标已被并发创建，按既有 REVISION_CONFLICT 口径拒绝（「世界已变，请刷新重试」，
+        // 同 V-P2-1 出队守卫的语义，不新增错误码），journal pending 补 aborted 后返回。
+        if (existing) {
+          atomicWriteFile(absPath, input.content, { fsync: true })
+        } else {
+          const created = createFileExclusive(absPath, input.content, { fsync: true })
+          if (created === 'exists') {
+            try {
+              appendAborted(journalPath, opId, '新建落位时目标已被并发创建（REVISION_CONFLICT）')
+            } catch {
+              // journal 留痕失败吞掉（best-effort）：必须保住 {ok:false} 契约
+            }
+            return Promise.resolve({
+              ok: false,
+              code: 'REVISION_CONFLICT',
+              reason: `预期新建，但落位时 ${relPath} 已被并发创建（另一进程先到）——请刷新后基于最新内容重试`,
+            })
+          }
+        }
         // 步骤 8：新 revision
         const newRev = computeRevision(absPath)
         // 步骤 9：条件性更新清单（书已有清单才更新；保存不建清单，W0-1 §4.2）
@@ -393,8 +430,16 @@ export class DocumentService {
         } catch (e) {
           log.warn('document', `保存后清单刷新失败（${relPath}，树扫描将自愈收编）：${e instanceof Error ? e.message : String(e)}`)
         }
-        // 步骤 10：journal settled
-        appendSettled(journalPath, opId, newRev)
+        // 步骤 10：journal settled。
+        // R27-44（二十七轮）：settled 失败不误报——此刻正文已原子落盘、清单已刷新，
+        // 原裸调用落入下方 catch 会返回 WRITE_ERROR（编辑器误报失败、重试必撞
+        // REVISION_CONFLICT，journal 悬置 pending 误报 crashedWrite），与 R75-4 对清单
+        // 刷新的定性完全同型。改 best-effort：warn 留痕 + 按成功收口。
+        try {
+          appendSettled(journalPath, opId, newRev)
+        } catch (e) {
+          log.warn('document', `保存已落盘但 journal settled 写失败（${docId}，恢复链下次启动将按 pending 自愈复核）：${e instanceof Error ? e.message : String(e)}`)
+        }
         // P2-BE-4：字数增量 best-effort（settled 后失败不影响保存结果——否则文件已落盘但返回 WRITE_ERROR 误报失败）
         try {
           appendWordsDelta(this.bookRoot, todayDate(), wordDelta, docId)
@@ -416,6 +461,24 @@ export class DocumentService {
           reason: `保存失败：${e instanceof Error ? e.message : String(e)}`,
         })
       }
+    } catch (e) {
+      // R28-5（二十八轮）：锁内段裸穿收编——R27-43（:279-287）只收编了取锁**前段**的
+      // 同款 lookupPathByDocId（注释自称「前段」），锁内段漏修：临界段内 :333
+      // lookupPathByDocId（legacy 收编链 adoptLegacyDoc → upsertManifestEntry →
+      // withManifestLock 2×5s 超时 throw，manifest.ts 锁尾 fail-closed）、:353
+      // computeRevision、:369 readFileSync（win 杀软 EBUSY/EACCES）任一抛出都裸穿
+      // 本 try/finally → SaveQueue reject → save() 变 rejected promise / API 500，
+      // 与 manifest.ts RMW 段注释宣称的「executeSave 内 catch → WRITE_ERROR」不符
+      //（manifest.ts 本轮文件互斥不动，对齐点以其宣称口径为准，由本 catch 兑现）。
+      // 外层 catch 只兜 appendPending **之前**落盘前同步段的意外抛出：此刻尚未写
+      // journal pending（无 opId，无孤儿可标 aborted），保存未执行、无数据损伤；
+      // appendPending 之后的失败各有专属内层 catch 契约（journal 追加 :379、落盘段
+      // :451），全部显式 return 不会流入本 catch，落盘成功后的失败语义原样保留。
+      return Promise.resolve({
+        ok: false,
+        code: 'WRITE_ERROR',
+        reason: `保存失败（未落盘，可重试）：${e instanceof Error ? e.message : String(e)}`,
+      })
     } finally {
       docSaveLock()
     }
@@ -474,7 +537,7 @@ export class DocumentService {
   private maybeUpdateManifest(docId: string, relPath: string): void {
     if (!existsSync(this.manifestPath)) return
     withManifestLock(this.manifestPath, () => {
-      const m = readManifest(this.manifestPath)
+      const m = readManifestStrict(this.manifestPath) // R27-40：RMW strict 读——读失败拒写保旧清单
       const entry = m.entries.get(docId)
       if (!entry || entry.path === relPath) return
       entry.path = relPath
@@ -483,9 +546,20 @@ export class DocumentService {
   }
 
   /** 路径安全：批 6 统一委托 resolveWithinRoot（symlink 防越出 + fail-closed，
-   *  目标存在时返回 realpath；此前本方法为各变体中语义最全的一份，canonical 即取自它） */
+   *  目标存在时返回 realpath；此前本方法为各变体中语义最全的一份，canonical 即取自它）。
+   *  R27-42（二十七轮）：realpath 反查内部簿记（仅跳板形态）——capabilitiesOf 只按
+   *  **词法** relPath fail-closed 内部路径（layout.ts P-1），书内 symlink（如
+   *  设定/x.md → 项目/book.yaml）使能力判定按词法放行、落写却命中 realpath 的系统
+   *  文件。判定限定「词法非内部 && realpath 内部」的跳板形态：词法内部路径（doTrash
+   *  的 .trash 落点等合法内部用法）仍放行交能力层拒绝，错误码口径不变。仅覆盖
+   *  「目标已存在」面（resolveWithinRoot 对存在目标才 realpath）；不存在目标的中间
+   *  目录 symlink 窗口是 Y-5 已认账取舍，不在此扩面。 */
   private resolveSafePath(relPath: string): string | null {
-    return resolveWithinRoot(this.bookRoot, relPath)?.abs ?? null
+    const safe = resolveWithinRoot(this.bookRoot, relPath)
+    if (!safe) return null
+    const lexical = relPath.replace(/\\/g, '/')
+    if (!isInternalBookPath(lexical) && isInternalBookPath(safe.rel)) return null
+    return safe.abs
   }
 
   // ── 结构性操作（W2A §7，同步实现）──────────────────
@@ -496,10 +570,27 @@ export class DocumentService {
   }
 
   private doCreate(input: CreateDocumentInput): CreateResult {
-    const safe = this.resolveSafePath(input.relPath)
+    // R26-55（二十六轮）：relPath 逐段过 sanitizeFileNamePart（format/filename.ts 单一
+    // 真相源）——win 保留设备名（CON.md 等）拷至 Windows 被拒、尾点/尾空格 win 落盘被
+    // 自动剖（读写名不一致），非法字符直落盘时炸或产生跨平台歧义名。先消毒再走既有
+    // 校验链（resolveSafePath 的越界/symlink 防线对消毒后路径照常生效），登记与返回
+    // path 一律用消毒后路径（落盘真实路径是唯一身份）。文件段带 .md 扩展名时只消毒
+    // 标题段再拼回扩展名——截断预算不吞扩展名（sanitizeFileNamePart 的码位/字节封顶
+    // 是整段预算，扩段整段消毒会把长标题的 .md 截掉）。
+    // 主评审核销修正：消毒前先对**原始 relPath** 做越界校验——`../etc/passwd` 这类
+    // 穿越路径若先消毒（`..` 段被洗成普通名）就永远到不了 PATH_ESCAPE，越界防线
+    // 被消毒静默吞掉（service-struct PATH_ESCAPE 用例锁定的安全契约）。口径：原始
+    // 路径必须先在书仓库内（穿越/绝对路径拒绝），消毒只放宽「名字合法化」不放宽
+    // 「位置合法化」，消毒后再校验一次兜底消毒引入的意外形态。
+    if (!this.resolveSafePath(input.relPath)) return { ok: false, code: 'PATH_ESCAPE', reason: '路径越出书仓库' }
+    const rel = input.relPath
+      .split('/')
+      .map((seg) => sanitizeCreateSegment(seg))
+      .join('/')
+    const safe = this.resolveSafePath(rel)
     if (!safe) return { ok: false, code: 'PATH_ESCAPE', reason: '路径越出书仓库' }
     if (existsSync(safe)) return { ok: false, code: 'ALREADY_EXISTS', reason: '文件已存在' }
-    if (!layoutOf(input.relPath).capabilities.write) {
+    if (!layoutOf(rel).capabilities.write) {
       return { ok: false, code: 'CAPABILITY_DENIED', reason: '该位置只读，不可新建' }
     }
     const docId = generateDocId()
@@ -520,12 +611,12 @@ export class DocumentService {
     // CreateResult 契约且调用方误判完全失败（重试撞 ALREADY_EXISTS）；半成品态由树
     // legacyId 首次结构性操作 adoptLegacyDoc 自愈，warn 留痕即可（ee-P1-5 同型漏网点）
     try {
-      this.upsertManifestEntry(docId, input.relPath)
+      this.upsertManifestEntry(docId, rel)
     } catch (e) {
-      log.warn('document', `新建后清单登记失败（${input.relPath}，树扫描将自愈收编）：${errMsg(e)}`)
+      log.warn('document', `新建后清单登记失败（${rel}，树扫描将自愈收编）：${errMsg(e)}`)
     }
     invalidateTreeIndex(this.bookRoot, true)
-    return { ok: true, docId, path: input.relPath, revision: computeRevision(safe) }
+    return { ok: true, docId, path: rel, revision: computeRevision(safe) }
   }
 
   /** 移动文档到新目录（章号/文件名不变，只改卷归属）。 */
@@ -566,7 +657,18 @@ export class DocumentService {
       return { ok: false, code: 'WRITE_ERROR', reason: '元数据保存等待超时：另一进程正在保存此文档（5 秒未让出），请重试' }
     }
     try {
-      const r = readDoc(abs)
+      // R27-45（二十七轮）：单次 Buffer 读派生文本与判据（照抄 R73-40 updateDocMeta 修法）
+      // ——原 readDoc（610）与 readFileSync（619）两次独立读盘，两读之间文件被并发替换
+      // （他进程改名/移动不持 save 锁）时判据与写回内容错源（微 TOCTOU）；且第二次读
+      // 无守卫，ENOENT 裸穿 MoveResult 契约（ee-P1-5 同族）。
+      let fileBytes: Buffer
+      try {
+        fileBytes = readFileSync(abs)
+      } catch (e) {
+        return { ok: false, code: 'WRITE_ERROR', reason: `元数据读取失败：${e instanceof Error ? e.message : String(e)}` }
+      }
+      // readFile(filePath, content) 形参直喂单读文本——fmRaw/body 与 readDoc(abs) 同源派生
+      const r = readDoc(abs, fileBytes.toString('utf-8'))
       if (!r.ok) return { ok: false, code: 'WRITE_ERROR', reason: `元数据读取失败：${r.error.message}` }
       // 第五轮：非 UTF-8（GBK 等）防线——utf-8 读入产生 U+FFFD 替换符，元数据写回会把
       // 乱码正文原子覆盖回原文件，原始字节永久丢失（本路径无快照留底，用户没碰正文却
@@ -575,7 +677,7 @@ export class DocumentService {
       // 解码探测，与 save 主路径 M-5 同口径）——原判据对 fm 区（GBK 标题等）是盲区，且 fm
       // 往返依赖 parse/stringify 非无损；盘上合法 UTF-8 时读出的 FFFD 是用户自粘内容，
       // body 原样透传不构成损坏。
-      if (!isUtf8Bytes(readFileSync(abs))) return NON_UTF8_REJECT
+      if (!isUtf8Bytes(fileBytes)) return NON_UTF8_REJECT
       const map = parseFlat(r.fmRaw)
       if (meta.标题 !== undefined) map.set('标题', meta.标题)
       // piece-body / chapter 统一写「章号」字段
@@ -589,6 +691,29 @@ export class DocumentService {
       if (meta.章号 !== undefined) fmUpdates['章号'] = meta.章号
       const patched = patchFlatFm(r.fmRaw, fmUpdates)
       if (!patched.ok) return { ok: false, code: 'BAD_INPUT', reason: patched.reason }
+      // R26-51（二十六轮）：覆盖前留底（对齐 R26-9 files.ts PUT 覆盖留底同款，fail-open
+      // 不阻断）——meta PATCH 的「读旧→patch→整文件写回」此前零快照，写入失败之外的
+      // 误改（如 patch 错键行）无底可回；本路径已有非 UTF-8 拒写防线（上方），此处
+      // utf-8 读入必然无损。快照失败（磁盘满/权限）只 log.warn，元数据修改照常落盘
+      // （留底是兜底不是闸，与 lead-update-draft R74-4 取舍一致）。
+      try {
+        // R28-13（二十八轮）：同源派生对齐 R27-45——本函数上方 R27-45 已把两次读盘收敛
+        // 为单次 fileBytes 读且已过 isUtf8Bytes 判据（合法 UTF-8 时 Buffer 直存与
+        // utf-8 往返字节一致），R26-51 快照却又第二次 readFileSync 再读盘：两读之间文件
+        // 被并发替换（他进程结构性操作不持 save 锁的毫秒窗）时「覆盖前留底」存档的不是
+        // 被覆盖内容（错档非丢失），且多一次全文读。改直喂 fileBytes（writeSnapshot 形参
+        // string | Buffer，R26-52 Buffer 透传字节档），words 口径不受影响（本路径不产
+        // words，meta 无字数段）。
+        writeSnapshot(
+          this.snapshotsDir,
+          docId,
+          fileBytes,
+          { origin: 'meta-overwrite', reason: '章节元数据修改前留底（R26-51）' },
+          { policy: this.snapshotPolicy(), force: true },
+        )
+      } catch (e) {
+        log.warn('document', `章节元数据修改前快照失败（fail-open 继续写入）：${errMsg(e)}`)
+      }
       try {
         // 元数据写入走原子写（P1-6A：防 writeFileSync 半截损坏不可恢复）
         atomicWriteFile(abs, joinFrontMatter(patched.text, r.body), { fsync: true })
@@ -751,6 +876,19 @@ export class DocumentService {
       }
       const patched = patchFlatFm(split ? split.fmRaw : '', fmUpdates)
       if (!patched.ok) return { ok: false, code: 'BAD_INPUT', reason: patched.reason }
+      // R26-51（二十六轮）：覆盖前留底（同 updateChapterMeta——R26-9 同款，fail-open）。
+      // raw 是上方单次 Buffer 读出的原文件文本（R73-40 同源），字节级忠实。
+      try {
+        writeSnapshot(
+          this.snapshotsDir,
+          docId,
+          raw,
+          { origin: 'meta-overwrite', reason: '元数据修改前留底（R26-51）' },
+          { policy: this.snapshotPolicy(), force: true },
+        )
+      } catch (e) {
+        log.warn('document', `元数据修改前快照失败（fail-open 继续写入）：${errMsg(e)}`)
+      }
       try {
         atomicWriteFile(abs, joinFrontMatter(patched.text, body), { fsync: true })
       } catch (e) {
@@ -826,7 +964,10 @@ export class DocumentService {
       opId = appendMovePending(journalPath, docId, oldPath, newPath)
       // snapshot 留底（移动/重命名前，W0-1 §7）
       const baseRev = computeRevision(oldSafe)
-      const oldContent = readFileSync(oldSafe, 'utf-8')
+      // R26-52（二十六轮）：留底读原始字节——utf-8 文本读入会把 GBK 等非 UTF-8 源变
+      // U+FFFD 失真快照（假留底：移动覆盖后原字节任何形式不可恢复）。writeVersion 支持
+      // 原字节直存（front matter utf-8 + 原字节拼接），快照即字节档。
+      const oldContent = readFileSync(oldSafe)
       writeSnapshot(this.snapshotsDir, docId, oldContent, {
         origin: 'manual',
         reason: op.kind === 'move' ? '移动前留底' : '重命名前留底',
@@ -843,13 +984,12 @@ export class DocumentService {
       // EEXIST 判定只认 link 这一步（转成哨兵码再统一收口）——journal/snapshot 的
       // mkdirSync 撞同名文件同样抛 EEXIST，混入外层 catch 会把 WRITE_ERROR 误判成
       // 「目标已存在」（ee-P1-5 用例：.journal 槽位被普通文件占用）。
-      try {
-        linkSync(oldSafe, newSafe)
-      } catch (e) {
-        if ((e as NodeJS.ErrnoException).code === 'EEXIST') {
-          throw Object.assign(new Error('目标已存在'), { code: 'ALREADY_EXISTS' })
-        }
-        throw e
+      // R26-7（二十六轮）：接入 linkOrRenameExclusive——EPERM/ENOSYS/EACCES（exFAT/
+      // FAT32/部分 SMB 不支持硬链接）降级 rename 落位（'exists' 判定语义不变），非
+      // NTFS 卷上移动/重命名不再全线失败。
+      const placed = linkOrRenameExclusive(oldSafe, newSafe)
+      if (placed === 'exists') {
+        throw Object.assign(new Error('目标已存在'), { code: 'ALREADY_EXISTS' })
       }
       rmSync(oldSafe, { force: true })
     } catch (e) {
@@ -911,7 +1051,9 @@ export class DocumentService {
   /** 清单登记/upsert（无清单则建——结构性操作触发，W0-1 §4.2）。X-5：RMW 持清单锁。 */
   private upsertManifestEntry(docId: string, relPath: string): void {
     withManifestLock(this.manifestPath, () => {
-      const m = existsSync(this.manifestPath) ? readManifest(this.manifestPath) : { version: 1, entries: new Map<string, ManifestEntry>() }
+      // R27-40：RMW strict 读——读失败（EBUSY/EACCES）上抛走调用方 WRITE_ERROR 信封，
+      // 不再以空清单整文件重写吞掉全部登记
+      const m = existsSync(this.manifestPath) ? readManifestStrict(this.manifestPath) : { version: 1, entries: new Map<string, ManifestEntry>() }
       upsertEntry(m, { id: docId, nodeType: 'document', path: relPath, parentId: null })
       mkdirSync(dirname(this.manifestPath), { recursive: true })
       writeManifest(this.manifestPath, m)
@@ -922,7 +1064,7 @@ export class DocumentService {
   private updateManifestPath(docId: string, newPath: string): void {
     if (!existsSync(this.manifestPath)) return
     withManifestLock(this.manifestPath, () => {
-      const m = readManifest(this.manifestPath)
+      const m = readManifestStrict(this.manifestPath) // R27-40：RMW strict 读
       const entry = m.entries.get(docId)
       if (!entry) return
       entry.path = newPath
@@ -1012,7 +1154,10 @@ export class DocumentService {
     try {
       // snapshot 留底（删除前，W0-1 §7）
       const baseRev = computeRevision(oldSafe)
-      const content = readFileSync(oldSafe, 'utf-8')
+      // R26-52（二十六轮）：留底读原始字节（同 doMoveOrRename）——utf-8 文本读入对
+      // GBK 等非 UTF-8 源产出失真快照，删除落位后原字节不可恢复；writeVersion 支持
+      // 原字节直存，快照即字节档。
+      const content = readFileSync(oldSafe)
       writeSnapshot(this.snapshotsDir, docId, content, {
         origin: 'manual',
         reason: '删除前留底',
@@ -1023,41 +1168,59 @@ export class DocumentService {
       if (!trashAbs) return { ok: false, code: 'PATH_ESCAPE', reason: '回收站路径越出书仓库' }
       mkdirSync(dirname(trashAbs), { recursive: true })
       let finalTrashAbs = trashAbs
-      if (existsSync(trashAbs)) {
+      const trashStemExt = (): { stem: string; ext: string } => {
         const name = basename(oldPath)
         const dot = name.lastIndexOf('.')
-        const stem = dot > 0 ? name.slice(0, dot) : name
-        const ext = dot > 0 ? name.slice(dot) : ''
+        return {
+          stem: dot > 0 ? name.slice(0, dot) : name,
+          ext: dot > 0 ? name.slice(dot) : '',
+        }
+      }
+      if (existsSync(trashAbs)) {
+        const { stem, ext } = trashStemExt()
         finalTrashRel = `工作区/.trash/${encodeDocDirName(docId)}-${stem}-${Date.now()}${ext}`
         const suffixedAbs = this.resolveSafePath(finalTrashRel)
         if (!suffixedAbs) return { ok: false, code: 'PATH_ESCAPE', reason: '回收站路径越出书仓库' }
         finalTrashAbs = suffixedAbs
       }
       // W-P2-1：软删前抓取定稿基线随 TrashEntry 落账（主清单条目稍后删除，不先抓就找不回）
-      let priorFinalized: { finalizedRevision?: string; finalizedAt?: string } = {}
+      let priorFinalized: { finalizedRevision?: string; finalizedAt?: string; tags?: string[]; order?: number } = {}
       try {
         if (existsSync(this.manifestPath)) {
-          const prior = readManifest(this.manifestPath).entries.get(docId)
-          if (prior?.finalizedRevision) {
-            priorFinalized = { finalizedRevision: prior.finalizedRevision, finalizedAt: prior.finalizedAt }
+          // R27-46（二十七轮）：strict 读——瞬态读失败不再静默降级「从未定稿」（还原后
+          // 防覆盖闸失守且零留痕），warn 后仍按无基线落账（软删主流程不因基线读失败
+          // 中止；真正的 fail-closed 由下方 appendTrashEntry 的 strict 读把守——trash
+          // 清单读得失败时登记不成则删不成，GG-P2-6）。
+          const prior = readManifestStrict(this.manifestPath).entries.get(docId)
+          if (prior) {
+            // R27-47：tags/order 一并随 TrashEntry 落账（还原时带回清单）
+            priorFinalized = {
+              ...(prior.finalizedRevision ? { finalizedRevision: prior.finalizedRevision, finalizedAt: prior.finalizedAt } : {}),
+              ...(prior.tags && prior.tags.length > 0 ? { tags: prior.tags } : {}),
+              ...(typeof prior.order === 'number' ? { order: prior.order } : {}),
+            }
           }
         }
-      } catch { /* 清单不可读：按从未定稿落账 */ }
+      } catch (e) {
+        log.warn('document', `软删 ${docId} 前读定稿基线失败（按无基线落账，还原后该章不带定稿态）：${e instanceof Error ? e.message : String(e)}`)
+      }
       // GG-P2-6：回收站登记先于移文件，且登记写失败即中止整个软删（宁删失败）——
       // 原实现「先 rename 进 .trash、后补登记」，登记失败（磁盘满/登记路径被占）被
       // catch {} 静默吞掉，结果是文件已删而回收站无记录，作者永远无法还原（静默丢稿）。
       // 登记失败 → WRITE_ERROR（API 层 structStatus 映射 500），文件原地未动、清单条目保留。
       // 反向残留（登记成功而 rename 失败）留下指向不存在 trashedPath 的孤儿条目——无害：
       // 源文件未动，restore 报 NOT_FOUND、purge 可清。
+      // R26-48：换名重试链里 trashedPath 变化须重登记（条目记的是真实落位），条目
+      // 基座（id/originalPath/role/基线）抽出共用。
+      const entryBase = {
+        id: docId,
+        originalPath: oldPath,
+        trashedAt: new Date().toISOString(),
+        role: layoutOf(oldPath).role,
+        ...priorFinalized,
+      }
       try {
-        appendTrashEntry(this.bookRoot, {
-          id: docId,
-          originalPath: oldPath,
-          trashedPath: finalTrashRel,
-          trashedAt: new Date().toISOString(),
-          role: layoutOf(oldPath).role,
-          ...priorFinalized,
-        })
+        appendTrashEntry(this.bookRoot, { ...entryBase, trashedPath: finalTrashRel })
       } catch (e) {
         return {
           ok: false,
@@ -1065,14 +1228,49 @@ export class DocumentService {
           reason: `回收站登记写入失败，已中止删除（文件未动，请检查磁盘后重试）：${errMsg(e)}`,
         }
       }
-      renameSync(oldSafe, finalTrashAbs)
+      // R26-48（二十六轮）：软删落位改 linkOrRenameExclusive 独占探测——原
+      // existsSync 预检 + renameSync 之间存在跨进程窄窗：他进程并发落位同名回收站
+      // 目标时 POSIX rename / win MOVEFILE(REPLACE_EXISTING) 静默覆盖，上一版回收站
+      // 内容无痕丢失。'exists' 时沿用 R73-34 时间戳后缀重试链（换名 → 重登记 → 再落
+      // 位，有界 3 次——毫秒级窄窗连撞 3 个时间戳的形态只剩目录被塞满的病态卷）；
+      // 重试耗尽按 WRITE_ERROR 收口（文件原地未动，孤儿条目无害如上）。EPERM 降级
+      // rename 由 linkOrRenameExclusive 内部处理（非 NTFS 卷软删可用性）。
+      let landed = linkOrRenameExclusive(oldSafe, finalTrashAbs)
+      for (let attempt = 0; landed === 'exists' && attempt < 3; attempt++) {
+        const { stem, ext } = trashStemExt()
+        finalTrashRel = `工作区/.trash/${encodeDocDirName(docId)}-${stem}-${Date.now()}-${attempt + 2}${ext}`
+        const retryAbs = this.resolveSafePath(finalTrashRel)
+        if (!retryAbs) return { ok: false, code: 'PATH_ESCAPE', reason: '回收站路径越出书仓库' }
+        mkdirSync(dirname(retryAbs), { recursive: true })
+        finalTrashAbs = retryAbs
+        try {
+          appendTrashEntry(this.bookRoot, { ...entryBase, trashedPath: finalTrashRel })
+        } catch (e) {
+          return {
+            ok: false,
+            code: 'WRITE_ERROR',
+            reason: `回收站登记写入失败，已中止删除（文件未动，请检查磁盘后重试）：${errMsg(e)}`,
+          }
+        }
+        landed = linkOrRenameExclusive(oldSafe, finalTrashAbs)
+      }
+      if (landed === 'exists') {
+        return {
+          ok: false,
+          code: 'WRITE_ERROR',
+          reason: '回收站落位失败：目标名被持续并发占用（含时间戳后缀重试 3 次），文件未删除，请重试',
+        }
+      }
+      // link 落位后源仍在原位（同 inode 硬链接）——删源完成软删；降级 rename 落位时
+      // 源已搬走，rmSync force 为 no-op。
+      rmSync(oldSafe, { force: true })
       // P1-S3：rename 成功后 manifest 更新改 best-effort——失败不阻断（文件已实质删除，
       // 回收站 manifest / 主清单不一致不影响数据安全，下次操作自然修复）
       try {
         if (existsSync(this.manifestPath)) {
           // X-5：RMW 持清单锁（跨进程互斥）
           withManifestLock(this.manifestPath, () => {
-            const m = readManifest(this.manifestPath)
+            const m = readManifestStrict(this.manifestPath) // R27-40：RMW strict 读——读失败拒删，保住全书登记
             m.entries.delete(docId)
             writeManifest(this.manifestPath, m)
           })
@@ -1094,6 +1292,16 @@ export class DocumentService {
 /** 错误信息提取（避免重复 try/catch 样板）。 */
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
+}
+
+/** R26-55（二十六轮）：createDocument 的单段消毒——文件段带 .md 扩展名时只消毒标题段
+ *  再原样拼回扩展名（大小写保留），目录段/无扩展名段整体消毒。sanitizeFileNamePart
+ *  对空段兜底「未命名」，故 `/.md` 形态落为 `未命名.md`，不产生空段。 */
+function sanitizeCreateSegment(seg: string): string {
+  if (seg.toLowerCase().endsWith('.md')) {
+    return sanitizeFileNamePart(seg.slice(0, -3)) + seg.slice(-3)
+  }
+  return sanitizeFileNamePart(seg)
 }
 
 /** 短篇正文（写作/正文/ + 书级 kind=short）——标题编辑联动文件名 rename + 清单同步。 */

@@ -68,7 +68,11 @@ describe('E-6a · serverOnline 退书复位', () => {
     fetchMock.mockResolvedValue(new Response('{}', { status: 200 }))
     mountHeartbeat(book)
     await vi.waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith('/api/books/b1/heartbeat', { method: 'POST' }),
+      // R26-77：beat 带 10s 超时 signal（其余形状不变）
+      expect(fetchMock).toHaveBeenCalledWith('/api/books/b1/heartbeat', {
+        method: 'POST',
+        signal: expect.anything(),
+      }),
     )
     expect(serverOnline.value).toBe(true)
   })
@@ -96,5 +100,52 @@ describe('E-6b · 卸载 DELETE 的 token 守卫', () => {
     await vi.waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith('/api/books/b1/heartbeat', { method: 'DELETE' }),
     )
+  })
+})
+
+// R26-77（二十六轮）：beat 10s 超时 + 在途去重——原实现无超时（对端挂死 promise 永不
+// settle，在线信号冻结）且每拍无条件并发（慢网叠加堆积）。
+describe('R26-77 · beat 超时与在途去重', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('上一拍在途 → 下一拍跳过（不叠加并发心跳）；settle 后恢复正常节拍', async () => {
+    vi.useFakeTimers()
+    const book = ref<string | null>('b1')
+    let release!: (v: Response) => void
+    fetchMock.mockReturnValue(new Promise<Response>((r) => (release = r))) // 悬挂
+    const w = mountHeartbeat(book)
+    await vi.advanceTimersByTimeAsync(0) // 首拍已发起（在途）
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    await vi.advanceTimersByTimeAsync(20_000) // 第二拍到点：首拍仍在途 → 跳过
+    expect(fetchMock).toHaveBeenCalledTimes(1) // 修复点：在途去重
+
+    release(new Response('{}', { status: 200 }))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(serverOnline.value).toBe(true)
+
+    await vi.advanceTimersByTimeAsync(20_000) // 首拍已 settle → 节拍恢复正常发送
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    w.unmount()
+  })
+
+  it('beat 挂死 → 10s 超时 abort 置离线（在线信号不再冻结）', async () => {
+    vi.useFakeTimers()
+    // 模拟真实 fetch：从不回包，但 abort 信号到达即 reject（超时通道可观察）
+    fetchMock.mockImplementation((_input: RequestInfo | URL, init?: RequestInit) =>
+      new Promise<Response>((_, rej) => {
+        init?.signal?.addEventListener('abort', () => rej(new DOMException('aborted', 'AbortError')))
+      }),
+    )
+    const book = ref<string | null>('b1')
+    const w = mountHeartbeat(book)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(serverOnline.value).toBe(true) // 未超时前维持在线
+
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(serverOnline.value).toBe(false) // 修复点：超时 → catch → 离线（此前永久冻结）
+    w.unmount()
   })
 })

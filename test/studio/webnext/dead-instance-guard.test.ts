@@ -12,11 +12,14 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import StyleAcceptancePanel from '../../../src/studio/web-next/src/components/style/StyleAcceptancePanel.vue'
+import StyleCandidateBox from '../../../src/studio/web-next/src/components/style/StyleCandidateBox.vue'
+import ExportDialog from '../../../src/studio/web-next/src/components/ui/ExportDialog.vue'
 import OnboardView from '../../../src/studio/web-next/src/views/OnboardView.vue'
 import OnboardStepPanel from '../../../src/studio/web-next/src/components/onboard/OnboardStepPanel.vue'
 import { useStyleStore } from '../../../src/studio/web-next/src/stores/style'
 import { useTreeStore } from '../../../src/studio/web-next/src/stores/tree'
 import { useUiStore } from '../../../src/studio/web-next/src/stores/ui'
+import { useWorkspaceStore } from '../../../src/studio/web-next/src/stores/workspace'
 
 // 可变路由 mock：route.params.name 即「当前书」，测试中途改值 = 切书。
 // 双注册：web-next 组件解析的是自己的 node_modules/vue-router，测试文件解析根路径那份
@@ -27,6 +30,14 @@ vi.mock('../../../src/studio/web-next/node_modules/vue-router', () => ({ useRout
 const analysisMocks = vi.hoisted(() => ({ runStyleAnalysis: vi.fn() }))
 vi.mock('../../../src/studio/web-next/src/api/analysis', () => ({
   runStyleAnalysis: analysisMocks.runStyleAnalysis,
+}))
+
+// R26-68（二十六轮）：ExportDialog 的 exportBook mock（含格式/平台常量，弹窗模板消费）
+const ioMocks = vi.hoisted(() => ({ exportBook: vi.fn() }))
+vi.mock('../../../src/studio/web-next/src/api/io', () => ({
+  exportBook: ioMocks.exportBook,
+  EXPORT_FORMATS: [{ v: 'both', label: '全部', hint: '正文+设定' }],
+  EXPORT_PLATFORMS: [{ v: 'generic', label: '通用' }],
 }))
 
 const onboardMocks = vi.hoisted(() => ({ onboardAi: vi.fn(), onboardSave: vi.fn() }))
@@ -48,6 +59,15 @@ function pending<T>(): { promise: Promise<T>; resolve: (v: T) => void } {
     resolve = res
   })
   return { promise, resolve }
+}
+
+/** 起一个手动拒绝的 Promise（R26 家族 toast 守卫用例：失败路径在途切书） */
+function pendingRej<T = never>(): { promise: Promise<T>; reject: (e: unknown) => void } {
+  let reject!: (e: unknown) => void
+  const promise = new Promise<T>((_, rej) => {
+    reject = rej
+  })
+  return { promise, reject }
 }
 
 function stylePayload(drift: string): { envelope: { payload: unknown }; styleCandidates: number } {
@@ -226,5 +246,123 @@ describe('M-4（第十轮）：OnboardView 死实例守卫', () => {
     await flushPromises()
 
     expect(ui.toasts.some((t) => t.msg.includes('生成（88 字）'))).toBe(true)
+  })
+})
+
+// ── R26 批 E：toast 守卫家族代表用例（R26-68/71/73，模式对齐上方 R75-E-P3c 家族）──
+// 同一口径：await 在途切书（mockRoute.params.name / store.bookName 改值）后，
+// 旧书动作的结果与失败 toast 均不落新书面板；未切书路径不误伤。
+
+describe('R26-71（二十六轮）：StyleAcceptancePanel.onRescan catch 书名复检', () => {
+  it('重扫在途切书 → 失败不 toast（catch 侧守卫）', async () => {
+    const style = useStyleStore()
+    const ui = useUiStore()
+    const req = pendingRej<void>()
+    vi.spyOn(style, 'rescan').mockReturnValue(req.promise)
+
+    const wrapper = mount(StyleAcceptancePanel, { props: { bookName: '书A' } })
+    const btn = wrapper.findAll('button').find((b) => b.text().includes('扫'))!
+    await btn.trigger('click')
+
+    mockRoute.params.name = '书B' // 重扫在途切书（死实例 props 冻结旧书）
+    req.reject(new Error('机检失败'))
+    await flushPromises()
+
+    expect(ui.toasts).toHaveLength(0) // 修复点：catch 复检拦下
+  })
+
+  it('未切书 → 失败照常 toast（守卫不误伤）', async () => {
+    const style = useStyleStore()
+    const ui = useUiStore()
+    vi.spyOn(style, 'rescan').mockRejectedValue(new Error('机检失败'))
+
+    const wrapper = mount(StyleAcceptancePanel, { props: { bookName: '书A' } })
+    const btn = wrapper.findAll('button').find((b) => b.text().includes('扫'))!
+    await btn.trigger('click')
+    await flushPromises()
+
+    expect(ui.toasts.some((t) => t.msg.includes('机检失败'))).toBe(true)
+  })
+})
+
+describe('R26-73（二十六轮）：StyleCandidateBox 动作 toast 书名复检（代表用例：收割双路径）', () => {
+  it('收割在途切书 → 成功结果不 toast', async () => {
+    const style = useStyleStore()
+    const ui = useUiStore()
+    style.bookName = '书A'
+    const req = pending<{ created: number; skipped: number }>()
+    vi.spyOn(style, 'harvest').mockReturnValue(req.promise)
+
+    const wrapper = mount(StyleCandidateBox)
+    const btn = wrapper.findAll('button').find((b) => b.text().includes('收割'))!
+    await btn.trigger('click')
+
+    style.bookName = '书B' // 收割在途切书（共享 store 活书名已换）
+    req.resolve({ created: 3, skipped: 0 })
+    await flushPromises()
+
+    expect(ui.toasts).toHaveLength(0) // 修复点：A 书收割结果不落 B 书
+  })
+
+  it('收割失败在途切书 → 错误同样不 toast；未切书对照路径正常提示', async () => {
+    const style = useStyleStore()
+    const ui = useUiStore()
+    style.bookName = '书A'
+    const req = pendingRej<{ created: number; skipped: number }>()
+    vi.spyOn(style, 'harvest').mockReturnValue(req.promise)
+
+    const wrapper = mount(StyleCandidateBox)
+    await wrapper.findAll('button').find((b) => b.text().includes('收割'))!.trigger('click')
+    style.bookName = '书B'
+    req.reject(new Error('收割失败'))
+    await flushPromises()
+    expect(ui.toasts).toHaveLength(0) // catch 侧同门
+
+    // 对照：未切书失败照常 toast（R28-25 起 armed 门要求路由与 store 一致——本例当前书
+    // 已是书B，对照路径把路由 mock 对齐到书B，代表活书会话内的失败照常提示）
+    mockRoute.params.name = '书B'
+    vi.spyOn(style, 'harvest').mockRejectedValue(new Error('收割失败'))
+    await wrapper.findAll('button').find((b) => b.text().includes('收割'))!.trigger('click')
+    await flushPromises()
+    expect(ui.toasts.some((t) => t.msg.includes('收割失败'))).toBe(true)
+    wrapper.unmount()
+  })
+})
+
+describe('R26-68（二十六轮）：ExportDialog catch 切书复检', () => {
+  it('导出失败在途切书 → 错误不 toast、弹窗不被失败路径关闭', async () => {
+    const ui = useUiStore()
+    const ws = useWorkspaceStore()
+    ws.bookName = '书A'
+    ui.exportOpen = true
+    const req = pendingRej()
+    ioMocks.exportBook.mockReturnValue(req.promise)
+
+    const wrapper = mount(ExportDialog, { global: { stubs: { Teleport: true } } })
+    await wrapper.find('[data-testid="export-run"]').trigger('click')
+
+    ws.bookName = '书B' // 导出（worker 数秒）在途切书
+    req.reject(new Error('磁盘满'))
+    await flushPromises()
+
+    expect(ui.toasts).toHaveLength(0) // 修复点：catch 复检拦下
+    expect(ui.exportOpen).toBe(true) // closeExport 只在成功+未切书分支
+    wrapper.unmount()
+  })
+
+  it('未切书失败 → 照常 toast 错误（守卫不误伤）', async () => {
+    const ui = useUiStore()
+    const ws = useWorkspaceStore()
+    ws.bookName = '书A'
+    ui.exportOpen = true
+    ioMocks.exportBook.mockRejectedValue(new Error('磁盘满'))
+
+    const wrapper = mount(ExportDialog, { global: { stubs: { Teleport: true } } })
+    await wrapper.find('[data-testid="export-run"]').trigger('click')
+    await flushPromises()
+
+    expect(ui.toasts.some((t) => t.msg.includes('磁盘满'))).toBe(true)
+    expect(ui.exportOpen).toBe(true) // 失败不关弹窗（仅成功关）
+    wrapper.unmount()
   })
 })

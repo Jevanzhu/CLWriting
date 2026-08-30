@@ -45,6 +45,17 @@ export const DEFAULT_CONFIG: BookConfig = {
 /** budget 段已知键白名单（解析用；calls_per_chapter 已可选化，不能再用 `in 起步值` 判定） */
 const BUDGET_KEYS = new Set(['calls_per_chapter', 'input_per_chapter', 'summary_chapter_max', 'summary_volume_max', 'tokens_per_chapter', 'cost_per_chapter'])
 
+/** R26-10（二十六轮）：短篇 budget 段输出判定——条件键三键（calls + 双口径 tokens/cost）
+ *  任一已设即输出段；全未设整段省略（缺省语义，回落运行时合并层）。此前外层条件只认
+ *  calls_per_chapter，短篇仅设 tokens/cost_per_chapter（D3 批 5 起合法）时整段丢失。 */
+function budgetHasAnyKey(budget: BookConfig['budget']): boolean {
+  return (
+    budget.calls_per_chapter !== undefined ||
+    budget.tokens_per_chapter !== undefined ||
+    budget.cost_per_chapter !== undefined
+  )
+}
+
 // ── 解析：段 + 缩进子字段 ────────────────────────
 
 interface RawSection {
@@ -66,9 +77,18 @@ function parseSections(text: string): RawSection[] {
 
   // ii 批：上一行产出的键节点——用于「更深缩进行跟在有值键后」的错挂检测（ff P2-2）
   let lastNode: RawSection | undefined
+  // R26-37（二十六轮）：tab 缩进 warn 留痕开关（首个 tab 一次，不刷屏）
+  let tabWarned = false
   for (const [lineNo, line] of text.split('\n').entries()) {
     if (line.trim() === '' || line.trim().startsWith('#')) continue
     const indent = line.length - line.trimStart().length
+    // R26-37（二十六轮）：缩进含 tab 时 warn 一次——2 空格缩进协议下 tab 按字符数
+    // 凑合可解析（计数维持现状，改语义风险大），但作者无从知晓文件混入了 tab、
+    // 段挂靠类问题难排查；留痕不中断解析。
+    if (!tabWarned && line.slice(0, indent).includes('\t')) {
+      tabWarned = true
+      log.warn('book.yaml', `book.yaml 第 ${lineNo + 1} 行缩进含 tab（本协议为 2 空格缩进），已按字符数解析；建议改用空格`)
+    }
     const content = line.trim()
     // ii 批（ff P2-2）：有值键（`key: v`）不能有缩进子行——真 YAML 里这是语法错误，
     // 此前子行会被静默挂到更外层段上（配置无声错位）。改挂前显式报错，宁可红不可错
@@ -83,6 +103,12 @@ function parseSections(text: string): RawSection[] {
       const parent = stack.length > 0 ? stack[stack.length - 1] : undefined
       const item = stripComment(content.slice(2)).trim()
       if (parent && parent.value === '' && item) {
+        // R27-24（二十七轮）：段头直挂块列表 warn——顶层段（indent 0）按映射（子键）
+        // 解析，列表项被拼进段 value 后所有子键读取全部落空（如 leads: 下直接
+        // `- 主线`，作者意图是 leads.enabled，实际 enabled 无声丢失）。留痕不中断。
+        if (parent.indent === 0) {
+          log.warn('yaml', `book.yaml 段头「${parent.key}:」直挂块列表（${content.slice(0, 40)}）——该段按子键解析，列表值不会被子键读到；如需列表请落到列表型子键下（如 leads: 的 enabled:）`)
+        }
         parent.listItems = [...(parent.listItems ?? []), item]
         if (!listNodes.includes(parent)) listNodes.push(parent)
       } else {
@@ -163,7 +189,17 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
     return hits[0]
   }
 
-  if (find('spec_version')) cfg.spec_version = parseFiniteNumber(find('spec_version')!.value, 1)
+  // R26-38（二十六轮）：spec_version 非法值 warn 留痕（维持回落 1）——此前
+  // parseFiniteNumber 静默回落，版本号写错无迹可查
+  const sv = find('spec_version')
+  if (sv) {
+    const parsed = parseFiniteNumber(sv.value, NaN)
+    if (Number.isFinite(parsed)) cfg.spec_version = parsed
+    else {
+      log.warn('book.yaml', `spec_version 值非法（「${sv.value.trim()}」），回落 1`)
+      cfg.spec_version = 1
+    }
+  }
 
   // kind（M8 #25）：顶层标量，缺省 long；只有显式 kind: short 才路由短篇轨
   const kindNode = find('kind')
@@ -266,16 +302,17 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
   }
 
   // C1（批 2）：摘要金字塔开关——summary.auto: false 关闭生成钩子（回到手写约定现状）。
-  // 仅认显式布尔；显式 true 也落 cfg（写侧序列化保真，round-trip 不归一）。
-  // parseValue 不产出布尔（无布尔字面量规则）——此前 typeof 守卫是死分支，
-  // 书里写 summary.auto: false 永远读不到（关闭开关静默失效），按 strict/confirm_outline
-  // 同款字符串比较归一
+  // 显式布尔落 cfg（写侧序列化保真，round-trip 不归一）。
+  // parseValue 不产出布尔（无布尔字面量规则）——按 strict/confirm_outline 同款字符串
+  // 归一；R26-12（二十六轮）：收口 parseStrictBool（yes/on/1/True 同义收，非法值
+  // warn + 按未设 = 不设键回落全局链）
   const summary = find('summary')
   if (summary) {
     const auto = findChild(summary, "auto")
     if (auto) {
-      const v = String(parseValue(auto.value))
-      if (v === 'true' || v === 'false') cfg.summary = { auto: v === 'true' }
+      const v = parseStrictBool(auto.value)
+      if (v !== undefined) cfg.summary = { auto: v }
+      else warnBadBool('summary.auto', auto.value)
     }
   }
 
@@ -302,7 +339,13 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
       }
     }
     const strict = findChild(short, "strict")
-    if (strict) shortConfig.strict = String(parseValue(strict.value)) === 'true'
+    // R26-12（二十六轮）：parseStrictBool 收口（原 `String() === 'true'` 把 strict: yes
+    // 解析成 false 反向开关）；非法值 warn + 按未设（回落 defaultShortStrict 托底链）
+    if (strict) {
+      const v = parseStrictBool(strict.value)
+      if (v !== undefined) shortConfig.strict = v
+      else warnBadBool('short.strict', strict.value)
+    }
     for (const key of [
       'word_min',
       'word_max',
@@ -324,7 +367,12 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
   if (auto) {
     const autoConfig: NonNullable<BookConfig['auto']> = {}
     const co = findChild(auto, "confirm_outline")
-    if (co) autoConfig.confirm_outline = String(parseValue(co.value)) === 'true'
+    // R26-12（二十六轮）：parseStrictBool 收口 + 非法值 warn 按未设（回落全局链）
+    if (co) {
+      const v = parseStrictBool(co.value)
+      if (v !== undefined) autoConfig.confirm_outline = v
+      else warnBadBool('auto.confirm_outline', co.value)
+    }
     const bs = findChild(auto, "batch_size")
     if (bs) {
       // R76-15：空值/非正数拒收（写空落 0 = 连写批大小 0，语义荒谬）；warn 按未设。
@@ -335,7 +383,12 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
     // RB-KN-P2-10：关系图自动梳理两键——前端 useRelationGraph 已消费，原先解析/序列化
     // 均不支持（作者手写 book.yaml 永远解析成默认值，配置链路断裂）
     const ram = findChild(auto, "relation_auto_mine")
-    if (ram) autoConfig.relation_auto_mine = String(parseValue(ram.value)) === 'true'
+    // R26-12（二十六轮）：parseStrictBool 收口 + 非法值 warn 按未设（回落全局链）
+    if (ram) {
+      const v = parseStrictBool(ram.value)
+      if (v !== undefined) autoConfig.relation_auto_mine = v
+      else warnBadBool('auto.relation_auto_mine', ram.value)
+    }
     const rmt = findChild(auto, "relation_mine_threshold")
     if (rmt) {
       // R76-15：同 batch_size——关系梳理阈值空值/非正数拒收，warn 按未设。
@@ -417,9 +470,17 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
     const et = findChild(rag, "embed_timeout_ms")
     const embedTimeout = et ? Number(parseValue(et.value)) : NaN
     // 低级项（第六轮）：rag 段存在但缺 enabled 键 → 不再整段静默丢弃——
-    // 手写了 provider/endpoint 显然意在启用，enabled 缺省 true（显式写 false 才关）
+    // 手写了 provider/endpoint 显然意在启用，enabled 缺省 true（显式写 false 才关）。
+    // R26-12（二十六轮）：enabled 收口 parseStrictBool（`enabled: yes/1` 此前被当
+    // false 反向关停）；非法值 warn + 按未设 = 段存在时的缺省 true
+    let ragEnabled = true
+    if (en) {
+      const v = parseStrictBool(en.value)
+      if (v !== undefined) ragEnabled = v
+      else warnBadBool('rag.enabled', en.value)
+    }
     if (en || pv || ep || md || (Number.isInteger(depth) && depth > 0)) cfg.rag = {
-      enabled: en ? String(parseValue(en.value)) === 'true' : true,
+      enabled: ragEnabled,
       ...(pv ? { provider: String(parseValue(pv.value)) } : {}),
       ...(ep ? { endpoint: String(parseValue(ep.value)) } : {}),
       ...(md ? { model: String(parseValue(md.value)) } : {}),
@@ -445,6 +506,27 @@ function parseFiniteNumber(raw: string, fallback: number): number {
 function parsePositiveNumber(raw: string): number | undefined {
   const n = Number(parseValue(raw))
   return Number.isFinite(n) && n > 0 ? n : undefined
+}
+
+/** R26-12（二十六轮）：布尔语义键（summary.auto / short.strict / auto.confirm_outline /
+ *  auto.relation_auto_mine / rag.enabled）专用宽松布尔解析。此前五处只认字面
+ *  `String(parseValue(v)) === 'true'`，作者按 YAML 惯例写 yes/on/1/True 一律按 false
+ *  静默生效（反向开关：想开却关、想关却开，配置链路无声错位）。认 true/false/yes/no/
+ *  on/off/1/0（大小写不敏感）；其余返回 undefined = 未设语义，由调用方 warn 留痕后
+ *  按该键缺省语义处理。 */
+const TRUE_BOOLS = new Set(['true', 'yes', 'on', '1'])
+const FALSE_BOOLS = new Set(['false', 'no', 'off', '0'])
+
+function parseStrictBool(raw: string): boolean | undefined {
+  const v = String(parseValue(raw)).trim().toLowerCase()
+  if (TRUE_BOOLS.has(v)) return true
+  if (FALSE_BOOLS.has(v)) return false
+  return undefined
+}
+
+/** R26-12：布尔键非法值 warn 留痕（tag/句式对齐本文件 R76-15 口径），按未设处理。 */
+function warnBadBool(key: string, raw: string): void {
+  log.warn('book.yaml', `${key} 值非合法布尔（「${raw.trim()}」，合法：true/false/yes/no/on/off/1/0），已忽略（按未设处理，回落缺省）`)
 }
 
 // ── 公开 API ────────────────────────────────────
@@ -531,8 +613,11 @@ export function stringifyBookConfig(cfg: BookConfig): string {
 
   // budget 段：长短共用 calls_per_chapter；长篇额外含 summary 长程项（短篇无分层摘要）。
   // 全局托底：calls_per_chapter 条件行（未设不烘焙 8，回落交给运行时合并层）；短篇段内
-  // 只剩这一键，未设时整段不输出；长篇 summary 三键照旧恒写（不进全局托底）
-  if (!isShort || cfg.budget.calls_per_chapter !== undefined) {
+  // 只剩这一键，未设时整段不输出；长篇 summary 三键照旧恒写（不进全局托底）。
+  // R26-10（二十六轮）：外层条件扩为「!isShort || 条件键三键任一已设」——原条件只认
+  // calls_per_chapter，短篇仅设 tokens_per_chapter/cost_per_chapter 时整段丢失、重存即
+  // 丢配置；段内各键仍按自身 undefined 条件落行，未设键不烘焙。
+  if (!isShort || budgetHasAnyKey(cfg.budget)) {
     lines.push('', 'budget:')
     if (cfg.budget.calls_per_chapter !== undefined) {
       lines.push(`  calls_per_chapter: ${cfg.budget.calls_per_chapter}`)

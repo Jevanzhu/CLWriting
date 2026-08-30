@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, onUnmounted } from 'vue'
+import { computed, ref, watch, onUnmounted } from 'vue'
 import Ribbon from './Ribbon.vue'
 import SidebarLeft from './SidebarLeft.vue'
 import SidebarRight from './SidebarRight.vue'
@@ -20,6 +20,8 @@ import { useHotkeys } from '../../composables/useHotkeys'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { usePrefsStore } from '../../stores/prefs'
 import { useTreeStore } from '../../stores/tree'
+import { useWorkbenchStore } from '../../stores/workbench'
+import { useUiStore } from '../../stores/ui'
 import { onFullScreenChange } from '../../shared/fullscreen'
 
 // Obsidian 工作区外壳：ribbon + 左侧栏 + 中央(tabbar+viewheader+视图) + 右侧栏 + 状态栏。
@@ -30,7 +32,22 @@ defineProps<{ bookName: string }>()
 const ws = useWorkspaceStore()
 const prefs = usePrefsStore()
 const tree = useTreeStore()
+const ui = useUiStore()
 useHotkeys()
+
+// B-3：max_tokens 截断等非致命警告 → toast 提示。
+// R27-77（二十七轮）：消费面从 WorkbenchView 上移到本常驻层——原 watch 挂在工作台视图，
+// 生成中切到编辑器/总览等视图时警告静默滞留（watch 无 immediate，回工作台也不补 toast），
+// 截断类提示失效。外壳随书常驻（Book.vue 全程挂载），任何视图下警告即产即 toast
+const wb = useWorkbenchStore()
+watch(
+  () => wb.warning,
+  (msg) => {
+    if (!msg) return
+    ui.toast(msg, 'error')
+    wb.warning = null
+  },
+)
 
 // 专注模式覆盖：focus 时左右栏视觉收起，退出恢复 leftOpen/rightOpen 原值
 const leftVisible = computed(() => ws.leftOpen && !ws.focusMode)
@@ -137,9 +154,12 @@ onUnmounted(() => {
         <!-- 专注统计浮动条：贴纸张左缘竖状（与排版条呼应但更清晰：常驻 0.85/hover 全实），
              本次 +N 字 / 速度 / 本章目标进度；退出时有成果 toast。仅编辑器视图渲染（同上） -->
         <FocusStatsBar v-if="ws.focusMode && ws.activeView === 'editor'" />
-        <!-- 对话助手 dock B（开关默认关闭，开启时底部可折叠面板；工作台视图有对话 tab，不叠 dock） -->
+        <!-- 对话助手 dock B（开关默认关闭，开启时底部可折叠面板；工作台视图有对话 tab，不叠 dock）。
+             R27-76（二十七轮）：挂 :key=bookName 切书即重建——dock 常驻时组件本地 input 跨书残留，
+             A 书没发出去的文本切到 B 书会直接发进 B 书；重建一并复位展开态（fabOpen/chatOpen） -->
         <ChatDock
           v-if="prefs.chatEnabled && !ws.focusMode && ws.activeView !== 'workbench'"
+          :key="bookName"
           :book-name="bookName"
           :current-chapter="dockChapter"
         />

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // 文风候选箱卡（StyleView 拆分 P2-5 ③ 候选箱段）：四源管线汇流可视化，确认/忽略入库。
 import { computed, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { Inbox, Sparkles, X, Check, ChevronRight } from 'lucide-vue-next'
 import { useStyleStore } from '../../stores/style'
 import { useUiStore } from '../../stores/ui'
@@ -26,17 +27,34 @@ function evidenceOf(c: StyleCandidateFE): string {
   return parts.join(' · ')
 }
 
+// R26-73（二十六轮）：三处动作 toast 前补书名复检（对齐 StyleAcceptancePanel.onAnalyze
+// 的入口捕获模式）——本组件无 bookName prop，守卫读共享 style store 的活书名（StyleView
+// :key 重建后死实例的 store 引用仍活着，store.bookName 已是新书）。收割/确认/忽略在途
+// 切书后，A 书的结果与失败 toast 均不落 B 书界面。
+// R28-25（二十八轮）：书名守卫补 armed 门——路由变更 → StyleView :key 重建 → 子组件
+// setup → StyleView onMounted 才 style.load（入口同步置 store.bookName）之间存在一个
+// 渲染 tick 窗口，窗口内 store.bookName 仍滞留旧书；死实例在途动作恰在该窗口 settle 时
+// 「bookName 匹配」放行，A 书 toast 落 B 书界面。armed 以路由活书名为代次源即时判定
+// （等价代次比对）：路由在切书瞬间即变、且是全局响应式对象，死实例闭包读到的也是活值，
+// 窗口期动作直接吞掉；store.bookName 匹配照旧保留（armed && bookName 双门）。
+const route = useRoute()
+function armed(book: string): boolean {
+  return String(route.params.name ?? '') === book
+}
 async function onHarvest(): Promise<void> {
   if (harvesting.value) return
+  const book = style.bookName
   harvesting.value = true
   try {
     const r = await style.harvest()
+    if (!armed(book) || style.bookName !== book) return // R28-25：armed 门 + 书名门
     if (r.created > 0) {
       ui.toast(`收割完成：${r.created}条新候选${r.skipped > 0 ? `（${r.skipped}条重复已跳过）` : ''}`, 'success')
     } else {
       ui.toast(r.skipped > 0 ? `无新候选（${r.skipped}条重复已跳过）` : '暂无可收割的信号', 'info')
     }
   } catch (e) {
+    if (!armed(book) || style.bookName !== book) return
     ui.toast(friendlyError(e), 'error')
   } finally {
     harvesting.value = false
@@ -44,11 +62,14 @@ async function onHarvest(): Promise<void> {
 }
 async function onConfirm(c: StyleCandidateFE): Promise<void> {
   if (acting.value) return
+  const book = style.bookName
   acting.value = c._path
   try {
     await style.confirm(c._path)
+    if (!armed(book) || style.bookName !== book) return
     ui.toast(`已收录：${c.类型}`, 'success')
   } catch (e) {
+    if (!armed(book) || style.bookName !== book) return
     ui.toast(friendlyError(e), 'error')
   } finally {
     acting.value = null
@@ -56,10 +77,12 @@ async function onConfirm(c: StyleCandidateFE): Promise<void> {
 }
 async function onIgnore(c: StyleCandidateFE): Promise<void> {
   if (acting.value) return
+  const book = style.bookName
   acting.value = c._path
   try {
     await style.ignore(c._path)
   } catch (e) {
+    if (!armed(book) || style.bookName !== book) return
     ui.toast(friendlyError(e), 'error')
   } finally {
     acting.value = null

@@ -10,9 +10,13 @@
 import { readdirSync, statSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { readFile, writeFile, parseFlat, stringifyFlat } from './frontmatter.js'
+import { log } from '../log/index.js'
 import type { StyleSample, SampleSource, ParseError } from './types.js'
 
 const KNOWN_FM_KEYS = new Set(['场景', '来源', '出处', '标签', '技法指令'])
+
+/** 来源三值白名单（#5 第 6 节；与 SampleSource 联合类型同源，R26-41 校验用） */
+const KNOWN_SOURCES: readonly string[] = ['作者原作', '题材范文', '导入']
 
 /** 读取一个样章 md → StyleSample（容错） */
 export function readSample(
@@ -32,9 +36,21 @@ export function readSample(
     if (!KNOWN_FM_KEYS.has(k)) _raw[k] = String(v)
   }
 
+  // R26-41（二十六轮）：来源三值白名单校验——此前 `as SampleSource` 直转无校验，
+  // 手写非法值原样落对象污染消费侧（按来源分档的取样/注入逻辑错档）。非法值 warn
+  // 留痕按缺省「作者原作」处理（对齐 R76-15 warn+缺省口径）；未写 = 缺省，不 warn。
+  const rawSource = map.get('来源')
+  const 来源 =
+    typeof rawSource === 'string' && KNOWN_SOURCES.includes(rawSource)
+      ? (rawSource as SampleSource)
+      : undefined
+  if (rawSource !== undefined && 来源 === undefined) {
+    log.warn('style', `样章 ${basename(filePath)} 来源值非法（「${String(rawSource)}」，合法：${KNOWN_SOURCES.join('/')}），按「作者原作」处理`)
+  }
+
   const sample: StyleSample = {
     场景,
-    来源: (map.get('来源') as SampleSource) ?? '作者原作',
+    来源: 来源 ?? '作者原作',
     ...(map.has('出处') ? { 出处: String(map.get('出处')) } : {}),
     ...(Array.isArray(map.get('标签')) ? { 标签: map.get('标签') as string[] } : {}),
     ...(map.has('技法指令') ? { 技法指令: String(map.get('技法指令')) } : {}),

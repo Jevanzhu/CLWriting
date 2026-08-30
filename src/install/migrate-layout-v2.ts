@@ -19,7 +19,7 @@
  */
 import { existsSync, readdirSync, renameSync, mkdirSync, rmdirSync, statSync } from 'node:fs'
 import { join, dirname } from 'node:path'
-import { readManifest, writeManifest, withManifestLock } from '../document/manifest.js'
+import { readManifestStrict, writeManifest, withManifestLock } from '../document/manifest.js'
 
 /** 迁移到布线的 5 类线索（关系线为派生数据，保留原位）。 */
 const LEADS_TO_MOVE = ['悬念', '感情线', '布局线', '设定线', '成长线'] as const
@@ -59,7 +59,9 @@ function migratePath(oldPath: string): string {
   if (oldPath.startsWith('大纲/清单/')) return '大纲/章纲/' + oldPath.slice('大纲/清单/'.length)
   if (oldPath.startsWith('定稿/设定/')) return '设定/' + oldPath.slice('定稿/设定/'.length)
   if (oldPath.startsWith('大纲/伏笔/')) return '设定/伏笔/' + oldPath.slice('大纲/伏笔/'.length) // P2：伏笔迁移路径同步
-  if (/^工作区\/(草稿-\d+|细纲)\.md$/.test(oldPath)) return '写作/草稿/' + oldPath.slice('工作区/'.length)
+  // R27-130（二十七轮）：细纲.md 不再随迁（运行时永久写在 工作区/，见 moveDrafts）——
+  // 清单映射同步收窄，防文件留在 工作区/ 而 entry.path 被改到 写作/草稿/（悬挂 entry）
+  if (/^工作区\/草稿-\d+\.md$/.test(oldPath)) return '写作/草稿/' + oldPath.slice('工作区/'.length)
   for (const lead of LEADS_TO_MOVE) {
     const prefix = `大纲/${lead}/`
     if (oldPath.startsWith(prefix)) return `布线/${lead}/` + oldPath.slice(prefix.length)
@@ -75,7 +77,7 @@ function migrateManifestPaths(bookRoot: string, errors: string[]): number {
   // 其他迁移并发时，无锁读改写会后写整文件覆盖先写（entry 丢行）
   try {
     return withManifestLock(manifestPath, () => {
-      const m = readManifest(manifestPath)
+      const m = readManifestStrict(manifestPath) // R27-40：RMW strict 读（读失败上抛走外层 errors 收口）
       let count = 0
       for (const entry of m.entries.values()) {
         const newPath = migratePath(entry.path)
@@ -169,7 +171,7 @@ function moveTree(
 }
 
 /**
- * 工作区草稿搬迁：草稿-N.md + 细纲.md → 写作/草稿/。
+ * 工作区草稿搬迁：草稿-N.md → 写作/草稿/。
  * 不碰运行时资产（.trash/.journal/.版本/待定稿/.confirm.json/.ai-calls.json）。
  */
 function moveDrafts(bookRoot: string, errors: string[]): number {
@@ -180,10 +182,19 @@ function moveDrafts(bookRoot: string, errors: string[]): number {
   try {
     for (const name of readdirSync(workdir)) {
       // 仅草稿文件；其余运行时资产不动
-      if (!/^草稿-\d+\.md$/.test(name) && name !== '细纲.md') continue
+      // R27-130（二十七轮）：不再认领 细纲.md——运行时 outline 端点把章纲永久覆盖写在
+      // 工作区/细纲.md，v2 认领搬去 写作/草稿/ 后 v3 又搬回，每启动两笔 rename + 建删
+      // 目录（同步盘持续变更风暴、迁移计数虚增）；认领收窄到 草稿-N.md
+      if (!/^草稿-\d+\.md$/.test(name)) continue
       const src = join(workdir, name)
       const dst = join(dstDir, name)
-      if (existsSync(dst)) continue // 幂等
+      // R27-136（二十七轮）：同名跳过不再静默——对齐 moveTree 的 R65-38① 口径：
+      // 旧文件残留 工作区/ 成孤儿（上次迁移中断/rename 失败的断点形态），无告警
+      // 作者无从核对，push 到 errors 供迁移报告提示手动处理
+      if (existsSync(dst)) {
+        errors.push(`同名跳过：工作区/${name}（写作/草稿/${name} 已存在，旧文件保留原位成孤儿，请手动核对去留）`)
+        continue
+      }
       try {
         mkdirSync(dstDir, { recursive: true })
         renameSync(src, dst)

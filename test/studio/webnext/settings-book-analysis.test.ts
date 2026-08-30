@@ -8,7 +8,7 @@
  * - 组件测试 mock getConfig 直接返回 raw 形态（13 键未设时为 undefined），验证「跟随全局默认」展示与生效值计算。
  *   IA 重组前这些断言在 settings-ai-rag.test.ts（本书组部分）。
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import SettingsBookAnalysis from '../../../src/studio/web-next/src/components/ui/SettingsBookAnalysis.vue'
@@ -437,5 +437,238 @@ describe('R63-3（十一轮）：配置加载竞态守卫（代守卫 + await �
     await flushPromises()
     expect(wrapper.find('.rag-status').text()).toContain('已索引 9 章')
     expect(wrapper.find('.rag-status').text()).not.toContain('3 章')
+  })
+})
+
+// R26-14（二十六轮）：RAG 轮询连续失败终态——原轮询对失败无感知（catch 静默），
+// 服务端持续 5xx 时 ragBuilding 恒 true：按钮永久置灰、状态卡死「构建中…」。
+// 修复后连续 5 次失败（1.5s 间隔 ≈7.5s）停轮询、按钮解禁、状态给可行动提示；成功归零。
+describe('R26-14（二十六轮）：RAG 轮询连续失败终态', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('连续 5 次失败 → 停轮询 + 失败终态文本 + 按钮解禁', async () => {
+    vi.useFakeTimers()
+    usePrefsStore().setRagEnabled(true)
+    mocks.triggerRagBuild.mockResolvedValue({ ok: true })
+    mocks.getRagStatus.mockRejectedValue(new Error('服务端挂了'))
+    const wrapper = await mountOpen()
+    await wrapper.find('.rag-build-row button').trigger('click') // 建立索引 → 轮询启动
+    await flushPromises()
+    expect(wrapper.find('.rag-status').text()).toContain('构建中')
+    expect(wrapper.find('.rag-build-row button').attributes('disabled')).toBeDefined()
+
+    for (let i = 0; i < 5; i++) {
+      vi.advanceTimersByTime(1500)
+      await flushPromises()
+    }
+    // 修复点：失败终态（非「构建中」卡死），按钮解禁可手动重试
+    expect(wrapper.find('.rag-status').text()).toContain('索引状态获取失败，请稍后重试')
+    expect(wrapper.find('.rag-build-row button').attributes('disabled')).toBeUndefined()
+
+    // 轮询已停：再走 3 拍不再打接口（1 次 mount 直调 + 5 次轮询 = 6 次封顶）
+    const calls = mocks.getRagStatus.mock.calls.length
+    expect(calls).toBe(6)
+    for (let i = 0; i < 3; i++) {
+      vi.advanceTimersByTime(1500)
+      await flushPromises()
+    }
+    expect(mocks.getRagStatus.mock.calls.length).toBe(calls)
+    wrapper.unmount()
+  })
+
+  it('中途成功归零：4 败 → 成功 → 再 4 败不终态，第 10 败才终态', async () => {
+    vi.useFakeTimers()
+    usePrefsStore().setRagEnabled(true)
+    mocks.triggerRagBuild.mockResolvedValue({ ok: true })
+    // 调用序：#1 mount 直调（失败不计数，直调不进轮询计数）；轮询 #2..#5 败（streak 4）、
+    // #6 成功（running，归零）、#7..#10 败 → 第 10 次轮询失败才触终态
+    let n = 0
+    const runningStatus = {
+      running: true, indexedChapters: 0, chunkCount: 0, model: null,
+      ragConfig: {}, providerName: null, legacy: false, lastResult: null,
+    }
+    mocks.getRagStatus.mockImplementation(() => {
+      n++
+      return n === 6 ? Promise.resolve(runningStatus) : Promise.reject(new Error('down'))
+    })
+    const wrapper = await mountOpen()
+    await wrapper.find('.rag-build-row button').trigger('click')
+    await flushPromises()
+
+    for (let i = 0; i < 9; i++) {
+      vi.advanceTimersByTime(1500)
+      await flushPromises()
+    }
+    // 第 6 次成功已把计数归零，此后 4 连败（streak 4 < 5）→ 仍未终态
+    expect(wrapper.find('.rag-status').text()).not.toContain('索引状态获取失败')
+    expect(wrapper.text()).toContain('构建中')
+
+    vi.advanceTimersByTime(1500) // 第 10 次轮询失败 → streak 达 5
+    await flushPromises()
+    expect(wrapper.find('.rag-status').text()).toContain('索引状态获取失败，请稍后重试')
+    wrapper.unmount()
+  })
+})
+
+// R28-26（二十八轮）：轮询重叠去重——interval 回调 async，单拍慢于 1.5s 时下一拍照发、
+// 多拍并发：同一失败被并发响应重复计数（ragFailStreak 连加）提前误进失败终态。
+// 修复后上一拍未 settle 本拍跳过（不并发），streak 只按 settle 次数累加。
+describe('R28-26（二十八轮）：RAG 轮询重叠去重（inFlight 旗标）', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('慢响应在途 → 后续拍跳过不并发；失败只计一次，不提前进终态', async () => {
+    vi.useFakeTimers()
+    usePrefsStore().setRagEnabled(true)
+    mocks.triggerRagBuild.mockResolvedValue({ ok: true })
+    // 调用序：#1 mount 直调（rejected，不进轮询计数）；#2 轮询第 1 拍 = 慢请求（挂起）；
+    // 其余调用立即 rejected
+    let n = 0
+    let rejectSlow!: (e: unknown) => void
+    mocks.getRagStatus.mockImplementation(() => {
+      n++
+      if (n === 2) {
+        return new Promise((_, rej) => {
+          rejectSlow = rej
+        })
+      }
+      return Promise.reject(new Error('down'))
+    })
+    const wrapper = await mountOpen()
+    await wrapper.find('.rag-build-row button').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('构建中')
+
+    // 第 1 拍发起慢请求（#2：mount 直调 #1 之后）
+    vi.advanceTimersByTime(1500)
+    await flushPromises()
+    const callsDuringSlow = mocks.getRagStatus.mock.calls.length
+
+    // 慢请求未 settle 期间连走 3 拍 → 全部跳过，无新请求（修复前会并发 3 拍）
+    for (let i = 0; i < 3; i++) {
+      vi.advanceTimersByTime(1500)
+      await flushPromises()
+    }
+    expect(mocks.getRagStatus.mock.calls.length).toBe(callsDuringSlow)
+
+    // 慢拍失败 settle → streak 只 +1；此后 3 拍全败（累计 4）仍未终态，第 4 拍才达 5
+    rejectSlow(new Error('down'))
+    await flushPromises()
+    for (let i = 0; i < 3; i++) {
+      vi.advanceTimersByTime(1500)
+      await flushPromises()
+      expect(wrapper.find('.rag-status').text()).not.toContain('索引状态获取失败')
+    }
+    vi.advanceTimersByTime(1500) // 第 5 次失败 settle → 终态
+    await flushPromises()
+    expect(wrapper.find('.rag-status').text()).toContain('索引状态获取失败，请稍后重试')
+    wrapper.unmount()
+  })
+})
+
+// R28-22（二十八轮）：重建先清库再后台建（服务端不动）——建索引期失败时旧索引已删、
+// 新索引未成，recall 归零但普通「索引失败」文案不明示。修复后：本组件触发过重建且未见
+// 成功结果、最近结果 ok=false 且不在构建中 → 补「已清空 / 可重试 / 正文不受影响」提示；
+// 非本组件触发的失败不提示（数据无「已清空」字段，保守面不误报，见组件注释）。
+describe('R28-22（二十八轮）：重建失败「索引已清空」提示', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('触发重建后最近结果失败 → 提示出现且含出路；构建中不显示', async () => {
+    vi.useFakeTimers()
+    usePrefsStore().setRagEnabled(true)
+    mocks.triggerRagBuild.mockResolvedValue({ ok: true })
+    const wrapper = await mountOpen()
+    await wrapper.find('.rag-build-row button').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('构建中')
+    expect(wrapper.find('.rag-rebuild-hint').exists()).toBe(false) // 构建中不提示
+
+    mocks.getRagStatus.mockResolvedValue({
+      running: false, indexedChapters: 0, chunkCount: 0, model: null,
+      ragConfig: {}, providerName: null, legacy: false,
+      lastResult: { ok: false, chunkCount: 0, chapterCount: 0, error: '嵌入配额超限' },
+    })
+    vi.advanceTimersByTime(1500)
+    await flushPromises()
+
+    expect(wrapper.find('.rag-status').text()).toContain('索引失败：嵌入配额超限')
+    const hint = wrapper.find('.rag-rebuild-hint')
+    expect(hint.exists()).toBe(true)
+    expect(hint.text()).toContain('已清空')
+    expect(hint.text()).toContain('重试')
+    expect(hint.text()).toContain('正文不受影响')
+    wrapper.unmount()
+  })
+
+  it('非本组件触发的失败（打开页面即读到 lastResult 失败）→ 不提示（不误报）', async () => {
+    usePrefsStore().setRagEnabled(true)
+    mocks.getRagStatus.mockResolvedValue({
+      running: false, indexedChapters: 0, chunkCount: 0, model: null,
+      ragConfig: {}, providerName: null, legacy: false,
+      lastResult: { ok: false, chunkCount: 0, chapterCount: 0, error: '历史失败' },
+    })
+    const wrapper = await mountOpen()
+    expect(wrapper.find('.rag-status').text()).toContain('索引失败')
+    expect(wrapper.find('.rag-rebuild-hint').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('触发重建后最近结果成功 → 提示不出现（触发记忆已撤销）', async () => {
+    vi.useFakeTimers()
+    usePrefsStore().setRagEnabled(true)
+    mocks.triggerRagBuild.mockResolvedValue({ ok: true })
+    const wrapper = await mountOpen()
+    await wrapper.find('.rag-build-row button').trigger('click')
+    await flushPromises()
+
+    mocks.getRagStatus.mockResolvedValue({
+      running: false, indexedChapters: 3, chunkCount: 12, model: null,
+      ragConfig: {}, providerName: null, legacy: false,
+      lastResult: { ok: true, chunkCount: 12, chapterCount: 3 },
+    })
+    vi.advanceTimersByTime(1500)
+    await flushPromises()
+
+    expect(wrapper.find('.rag-status').text()).toContain('已索引 3 章')
+    expect(wrapper.find('.rag-rebuild-hint').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('切书后触发记忆复位：A 书失败提示不串到 B 书', async () => {
+    vi.useFakeTimers()
+    const ui = useUiStore()
+    const ws = useWorkspaceStore()
+    const prefs = usePrefsStore()
+    prefs.setRagEnabled(true)
+    ui.settingsOpen = true
+    ws.bookName = '甲书'
+    mocks.triggerRagBuild.mockResolvedValue({ ok: true })
+    mocks.getRagStatus.mockResolvedValue({
+      running: false, indexedChapters: 0, chunkCount: 0, model: null,
+      ragConfig: {}, providerName: null, legacy: false,
+      lastResult: { ok: false, chunkCount: 0, chapterCount: 0, error: '嵌入失败' },
+    })
+    const wrapper = mount(SettingsBookAnalysis, {
+      global: { provide: { [SAVE_CONFIG_KEY as symbol]: mocks.saveConfig } },
+    })
+    await flushPromises()
+    // 甲书：手动触发一次重建（触发记忆置位），下一拍轮询读回失败 → 提示出现
+    await wrapper.find('.rag-build-row button').trigger('click')
+    await flushPromises()
+    vi.advanceTimersByTime(1500)
+    await flushPromises()
+    expect(wrapper.find('.rag-rebuild-hint').exists()).toBe(true)
+
+    // 切到乙书：watch 换书复位触发记忆 → 乙书虽也读到失败 lastResult，但不带甲书提示
+    mocks.getConfig.mockResolvedValue({ kind: 'long', book: { title: '乙书' } } satisfies BookConfig)
+    ws.bookName = '乙书'
+    await flushPromises()
+    expect(wrapper.find('.rag-rebuild-hint').exists()).toBe(false)
+    wrapper.unmount()
   })
 })

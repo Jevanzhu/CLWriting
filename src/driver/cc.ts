@@ -243,6 +243,14 @@ export const ccDriver: StudioDriver = {
   // 写稿的既定并存）不互相 abort——原先单槽覆盖会把在途十几分钟的批量写章 ctrl
   // 换成一句自然提问的 ctrl，旧请求被静默 abort（self-heal 报 aborted）。
   registerCtrl(session: Session, ctrl: AbortController, owner?: string): void {
+    // R27-92（二十七轮）：已 dispose 会话拒收登记——此前懒建 byOwner 会把 dispose 刚删的
+    // sessionCtrls 条目复活且无人再清（Map 泄漏）；且复活后 interrupt/dispose 兜底已跑过，
+    // 迟到登记的真实在途请求从此无人能 abort（控制权丢失）——故登记即 abort 该 ctrl，
+    // 让请求立即终止而不是挂在孤儿条目里跑完。
+    if (session.closed) {
+      if (!ctrl.signal.aborted) ctrl.abort()
+      return
+    }
     const own = owner ?? ''
     let byOwner = sessionCtrls.get(session.id)
     if (!byOwner) {

@@ -191,7 +191,15 @@ export function applyGlobalDefaults(cfg: BookConfig, userDataPath: string | null
     cfg.auto = { ...(cfg.auto ?? {}), relation_mine_threshold: g.relationMineThreshold ?? GLOBAL_FALLBACK_DEFAULTS.relationMineThreshold }
   }
 
-  // short.strict：短篇集专属段，未设才回落（长篇无 short 段不强行建段）
+  // short.strict：短篇集专属段，未设才回落（长篇无 short 段不强行建段）。
+  // R26-13（二十六轮）：托底口径与 runner 的短篇判定（kind==='short'）同源——
+  // kind: short 而 book.yaml 未写 short 段的书此前 cfg.short 恒 undefined，
+  // defaultShortStrict 托底键对它永不生效（runner 的 config.short 存在性判定同样
+  // 失明）。现保底实例化 { strict }（本函数只 mutate 运行时副本，绝不写回文件，
+  // 书文件零改动红线不变）；已有 short 段仅缺 strict 时维持原回落行为。
+  if (cfg.short === undefined && cfg.kind === 'short') {
+    cfg.short = { strict: g.defaultShortStrict ?? GLOBAL_FALLBACK_DEFAULTS.defaultShortStrict }
+  }
   if (cfg.short?.strict === undefined && cfg.short !== undefined) {
     cfg.short = { ...cfg.short, strict: g.defaultShortStrict ?? GLOBAL_FALLBACK_DEFAULTS.defaultShortStrict }
   }

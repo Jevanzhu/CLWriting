@@ -297,6 +297,8 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
             // 时按此折算估计用量（usage-estimate.ts 同源系数），不再按 0/0 入账
             const outText: string[] = []
             const outToolText: string[] = []
+            // R26-3：最后可见 usage（逐 chunk 覆盖）——done 延后到流末统一 emit（见循环后注）
+            let latestUsage: WireUsage | null = null
             // R65-9（总六十五轮）：网关缺省 tc.index 的兜底聚合——此前并入同一 undefined
             // 键会把多个 tool_call 拼成一团；改「带 id/name 的新调用分片 → 自增兜底键、
             // 续片归并最近兜底键」，无 index 流也能拆出独立调用（有 index 走原路径不变）
@@ -312,10 +314,8 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
               const choice = chunk.choices?.[0]
               if (!choice) {
                 // usage-only chunk（最后一个 chunk 只含 usage）
-                if (effectiveUsage) {
-                  const ev = emitDone(toUsage(effectiveUsage), pendingStopReason)
-                  if (ev) yield ev
-                }
+                // R26-3：不再此处即席 emit——usage 记入 latestUsage，流末统一取最新值 emit
+                if (effectiveUsage) latestUsage = effectiveUsage
                 continue
               }
 
@@ -392,27 +392,38 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
                   : choice.finish_reason === 'length' ? 'max_tokens'
                   : choice.finish_reason
                 sawFinishReason = true
-                // finish_reason chunk 自带 usage（非 include_usage 模式）→ 直接 done
-                if (effectiveUsage) {
-                  const ev = emitDone(toUsage(effectiveUsage), pendingStopReason)
-                  if (ev) yield ev
-                }
+                // finish_reason chunk 自带 usage（非 include_usage 模式）→ 记入 latestUsage
+                //（R26-3：done 延后到流末统一 emit，见循环后注）
+                if (effectiveUsage) latestUsage = effectiveUsage
                 // 无 usage → 等 usage-only chunk；若不来由 stream 结束兜底
               }
             }
-            // P2-AI-2：流异常截断无 finish_reason 时，补发 toolAccum 残留
+            // R26-3（二十六轮）：done 统一延后到流末尾，取最后可见 usage——原「首见即定」
+            // 口径（emitDone 幂等门锁首个 usage）：逐 chunk 回 usage 的网关（本适配器明确
+            // 要兜的怪形态）会被记成早期部分值，末 chunk 完整 usage 被丢弃，记账系统性
+            // 低估。R27-2（二十七轮）：Anthropic 线已改为同款「末见 wins」（此前该线
+            // message_delta 即席 emitDone 锁首值，与本处旧描述正相反），两线口径归一。
+            if (latestUsage) {
+              const ev = emitDone(toUsage(latestUsage), pendingStopReason)
+              if (ev) yield ev
+            }
+            // P2-AI-2：流异常收尾（usage 已在上面统一 emit 过则整块跳过）
             if (!doneEmitted) {
-              let fallbackIdx = 0
-              for (const [, acc] of toolAccum) {
-                if (!acc.name) continue
-                let input: unknown
-                try { input = acc.argsBuf ? JSON.parse(acc.argsBuf) : {} } catch { input = { _raw: acc.argsBuf } }
-                outToolText.push(acc.name + acc.argsBuf) // R73-1：残留 tool 参数计入产出累计
-                yield { type: 'tool', id: acc.id || `call_${fallbackIdx}`, name: acc.name, input }
-                fallbackIdx++
-              }
-              toolAccum.clear()
               if (sawFinishReason) {
+                // R26-25（二十六轮）：残留 tool 事件只在「正常完成但缺 usage」分支补发并
+                // 计入产出估计——原口径传输截断分支也先 flush tool 再发 error，gen 层遇
+                // error 必弃事件，序列自相矛盾（纯语义噪音），且截断 tool 参数抬高 output
+                // 估计（该分支本来就不入账，更无意义）。
+                let fallbackIdx = 0
+                for (const [, acc] of toolAccum) {
+                  if (!acc.name) continue
+                  let input: unknown
+                  try { input = acc.argsBuf ? JSON.parse(acc.argsBuf) : {} } catch { input = { _raw: acc.argsBuf } }
+                  outToolText.push(acc.name + acc.argsBuf) // R73-1：残留 tool 参数计入产出累计
+                  yield { type: 'tool', id: acc.id || `call_${fallbackIdx}`, name: acc.name, input }
+                  fallbackIdx++
+                }
+                toolAccum.clear()
                 // 网关完成了生成但不回 usage（include_usage 不兼容面）——放行生成不判错重试
                 //（判错重试对这类网关是全量破坏）。R73-1（二十一轮 A-1）：不再按 0/0 入账
                 //（预算闸 tokens/cost 对该类端点永不生效、成本报表系统性偏低）——按可得信号

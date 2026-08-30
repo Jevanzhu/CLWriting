@@ -31,8 +31,17 @@ export function promptMeta(systemPrompt: string, userPrompt: string, files: stri
   // 字段边界不可辨，审计指纹歧义。hash 输入前置 systemPrompt 长度前缀（len:full），
   // 边界由前缀唯一确定；chars 仍记真实拼接长度，脱敏口径不变。
   const hashInput = `${systemPrompt.length}:${full}`
+  // R26-26（二十六轮）：chars 记码位数（for..of 迭代）而非 UTF-16 length——usage 估算
+  // 侧（usage-estimate→estimateTokens）按码位折算，校准拟合（C4 用 chars）与估算应用
+  // 两侧口径对齐；代理对密集（emoji）文本下两侧系数不再有系统偏差。
+  let chars = 0
+  for (let i = 0; i < full.length; ) {
+    const cp = full.codePointAt(i)!
+    chars++
+    i += cp > 0xffff ? 2 : 1
+  }
   return {
-    chars: full.length,
+    chars,
     files,
     hash: createHash('sha256').update(hashInput).digest('hex').slice(0, 16),
   }

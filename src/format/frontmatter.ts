@@ -14,6 +14,7 @@
  */
 
 import type { ParseError } from './types.js'
+import { log } from '../log/index.js'
 import { splitFrontMatter, bodyOf, stripInlineComment } from './frontmatter-core.js'
 // splitFrontMatter 已拆到 frontmatter-core.ts（零 Node 依赖，浏览器共用）；此处 re-export 保持兼容
 export { splitFrontMatter, bodyOf }
@@ -164,6 +165,9 @@ export function parseFlat(
       continue
     }
     const key = line.slice(0, colonIdx).trim()
+    // R28-11（二十八轮）：键行行号先记下——块标量分支消费块体会推进 i，重复键 warn
+    // 若直接取 i+1 会指向块体之后（行号失真），报错改用本记录值
+    const keyLineNo = i + 1
     // E-3：值解析前剥行内注释（口径对齐 yaml.ts stripComment），防注释尾巴进值
     const valRaw = stripInlineComment(line.slice(colonIdx + 1).trim())
     // 块标量：key: |（literal，保留换行）或 key: >（folded，换行转空格）
@@ -212,9 +216,15 @@ export function parseFlat(
         return segs.join('\n')
       }
       const value = folded ? foldSegs(dedented) : dedented.join('\n').replace(/\n+$/, '')
+      // R27-26（二十七轮）：同名键后胜留痕——book.yaml 侧段内子键重复已 fail-loud
+      // （R73-21），章 fm 此前静默覆盖；手改复制粘贴出双「标题:」时前一值无迹消失。
+      // R28-11（二十八轮）：行号用进入块标量消费前记录的 keyLineNo（i 已越过块体，
+      // 直接取 i+1 会指到块后），warn 指向重复键起始行。
+      if (result.has(key)) log.warn('frontmatter', `front matter 同名键「${key}」重复（第 ${keyLineNo} 行起），后值覆盖前值`)
       result.set(key, value)
       continue
     }
+    if (result.has(key)) log.warn('frontmatter', `front matter 同名键「${key}」重复（第 ${i + 1} 行），后值覆盖前值`)
     result.set(key, parseValue(valRaw))
     i++
   }
@@ -362,9 +372,19 @@ export function readFile(
   }
   const split = splitFrontMatter(text)
   if (split === null) {
+    // R26-35（二十六轮）：splitFrontMatter 返回 null 有两种成因（无起始 --- / 有起始
+    // 未闭合），原文案一刀切「未找到起始 ---」失真——未闭合文件被误标，且 draft.ts 的
+    // 「缺少 front matter」豁免（无 fm 旧稿/迁移存量合法）regex 恰好把未闭合 fm 也一并
+    // 豁免（坏 fm 静默过闸）。区分文案：未闭合改「front matter 未闭合（缺少结尾 ---）」
+    // （不再命中豁免，须修复）；无起始的旧文案逐字不变（豁免语义不回归）。
+    const hasOpenFence = /^---\r?(?:\n|$)/.test(text.replace(/^﻿/, ''))
     return {
       ok: false,
-      error: { file: filePath, line: 1, message: '缺少 front matter（未找到起始 ---）' },
+      error: {
+        file: filePath,
+        line: 1,
+        message: hasOpenFence ? 'front matter 未闭合（缺少结尾 ---）' : '缺少 front matter（未找到起始 ---）',
+      },
     }
   }
   return { ok: true, fmRaw: split.fmRaw, body: split.body }

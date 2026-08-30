@@ -89,8 +89,45 @@ describe('批 U1：parseServerArgs', () => {
     expect(parseServerArgs(['x', '--port', '9'], { portDefault: 7878 }).port).toBe(9)
   })
 
-  it('--port 非数字 → 缺省（不透传 NaN 进 listen）', () => {
-    expect(parseServerArgs(['x', '--port', 'abc']).port).toBe(0)
+  // R26-94（二十六轮）：--port 空串/非数值从「静默落缺省」改为 fatal 报错（人话文案）。
+  // 注入 fatal 捕获件（不退出）→ 后续按「--port 未提供」回落缺省端口——不透传 NaN 进
+  // listen 的旧契约保留，新增「拼错参数必须有人看见」的显式出口。
+  it('--port 非数字 → fatal 报错 + 回落缺省（不透传 NaN 进 listen）', () => {
+    const fatal = vi.fn()
+    const r = parseServerArgs(['x', '--port', 'abc'], { fatal })
+    expect(fatal).toHaveBeenCalledTimes(1)
+    expect(String(fatal.mock.calls[0]![0])).toContain('--port')
+    expect(r.port).toBe(0)
+  })
+
+  it('--port 空串 → fatal 报错（Number(\'\')===0 的静默随机端口形态已收口）', () => {
+    const fatal = vi.fn()
+    parseServerArgs(['x', '--port', ''], { fatal })
+    expect(fatal).toHaveBeenCalledTimes(1)
+  })
+
+  // R28-19（二十八轮）：负数/越界/小数原校验 Number.isFinite 放行，落 server.listen()
+  // 同步抛 RangeError 绕开 boot-error 信封（utilityProcess 子进程内成无因由退出）。
+  // 补整数 + 0–65535 界域判定后三形态一律走既有 fatal 人话通道；注入 fatal 不退出的
+  // 既有契约保留——回落「--port 未提供」的缺省端口。
+  describe('R28-19：--port 越界/非整数补全', () => {
+    it.each(['-1', '65536', '78.5'])('--port %s → fatal 人话报错 + 回落缺省端口（不透传进 listen）', (raw) => {
+      const fatal = vi.fn()
+      const r = parseServerArgs(['x', '--port', raw], { fatal })
+      expect(fatal).toHaveBeenCalledTimes(1)
+      const msg = String(fatal.mock.calls[0]![0])
+      expect(msg).toContain('--port')
+      expect(msg).toContain(raw) // 人话文案回显原值，拼错参数有人看见
+      expect(msg).toContain('0–65535') // 界域口径如实
+      expect(r.port).toBe(0)
+    })
+
+    it('边界合法值放行：0 与 65535 不触发 fatal（随机端口/端口上限仍在域内）', () => {
+      const fatal = vi.fn()
+      expect(parseServerArgs(['x', '--port', '0'], { fatal }).port).toBe(0)
+      expect(parseServerArgs(['x', '--port', '65535'], { fatal }).port).toBe(65535)
+      expect(fatal).not.toHaveBeenCalled()
+    })
   })
 })
 

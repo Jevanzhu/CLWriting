@@ -41,9 +41,10 @@ const DEFAULT_VERSION = 1
 /** jsonl 一行的宽松形状（解析后逐字段校验）。 */
 type RawLine = { [k: string]: unknown }
 
-/** 读清单（W0-1 §4.2）。
+/** 读清单（W0-1 §4.2）——读侧容错版（树扫描/查询/哨兵等只读消费面用）。
  *  - 文件不存在 → 空清单（version 默认 1）。
- *  - 非法 JSON 行 / 缺关键字段的行跳过（损坏降级，不阻断）。 */
+ *  - 非法 JSON 行 / 缺关键字段的行跳过（损坏降级，不阻断）。
+ *  - 读失败（EACCES/EBUSY/EIO 瞬态）→ 空清单（M-13：读侧哨兵/全量兜底承接）。 */
 export function readManifest(filePath: string): Manifest {
   const entries = new Map<string, ManifestEntry>()
   if (!existsSync(filePath)) return { version: DEFAULT_VERSION, entries }
@@ -53,6 +54,35 @@ export function readManifest(filePath: string): Manifest {
   } catch {
     return { version: DEFAULT_VERSION, entries }
   }
+  return parseManifestText(text, entries)
+}
+
+/** R27-40（二十七轮）P1：读清单——RMW 写路径专用 strict 版。
+ *  根因：readManifest 把「读失败」与「文件不存在」混同为空清单，所有持锁读改写点
+ *  （doTrash 删条目 / finalize 补建基线 / upsert / restore 回写 / 迁移 RMW）在
+ *  readFileSync 撞瞬态读失败（win 杀软/索引器/网盘的 EBUSY/EACCES/EIO）时拿到空
+ *  entries 照常走写分支，writeManifest 用空表原子替换整文件——全书 docId↔path 登记、
+ *  finalizedRevision 定稿基线、回收站条目一次性物理丢失（防覆盖闸随之失守）。
+ *  语义：ENOENT（含 existsSync 与 read 之间被并发删的竞态）= 合法空态，与无清单同；
+ *  其余读错误上抛——调用方的既有 catch（WRITE_ERROR 信封 / best-effort warn /
+ *  GG-P2-6 登记不成则删不成）自然收口为「拒写保旧文件」。解析级损坏（坏行跳过）
+ *  维持降级不变——那是内容问题不是可读性问题，与既有口径一致。 */
+export function readManifestStrict(filePath: string): Manifest {
+  const entries = new Map<string, ManifestEntry>()
+  if (!existsSync(filePath)) return { version: DEFAULT_VERSION, entries }
+  let text: string
+  try {
+    text = readFileSync(filePath, 'utf-8')
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code
+    if (code === 'ENOENT') return { version: DEFAULT_VERSION, entries }
+    throw new Error(`文档清单读取失败（${code ?? '未知错误'}）：${filePath}——已拒绝以空清单重写整文件（R27-40 防丢登记）`)
+  }
+  return parseManifestText(text, entries)
+}
+
+/** 文本 → Manifest（readManifest/readManifestStrict 共用解析体） */
+function parseManifestText(text: string, entries: Map<string, ManifestEntry>): Manifest {
   let version = DEFAULT_VERSION
   for (const raw of text.split('\n')) {
     const line = raw.trim()

@@ -17,6 +17,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { evidenceNeedles } from './leads.js'
 import { ATX_HEADING_RE, headingEndsSection } from '../format/leads.js'
+import { log } from '../log/index.js'
 
 /** 本章一条账本推进声明（章号在落盘时由定稿章号补齐） */
 export interface ChapterLeadUpdate {
@@ -69,7 +70,10 @@ export function parseLeadUpdateLines(text: string): ChapterLeadUpdate[] {
   const out: ChapterLeadUpdate[] = []
   const lines = text.split('\n')
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!.trim()
+    // R28-10（二十八轮）：rawLine 保留原始缩进——嵌套子列表行（真条目的子项）须凭
+    // 缩进识别，trimmed 后与顶层格式错行无法区分（见下方 warn 收窄）
+    const rawLine = lines[i]!
+    const line = rawLine.trim()
     if (ATX_HEADING_RE.test(line)) {
       if (headingEndsSection(lines, i, isLeadUpdateEntryLine)) break
       continue
@@ -88,6 +92,16 @@ export function parseLeadUpdateLines(text: string): ChapterLeadUpdate[] {
       const evidence = m[3]!.trim()
       if (!evidence) continue
       out.push({ leadId: m[1]!.trim(), 动词: m[2]!.trim(), 证据: evidence })
+    } else {
+      // R28-10（二十八轮）：R26-32 的「格式不符」warn 收窄——只对形似账本条目的顶层
+      // 列表行告警。`---` 分隔线（`-` 连字符串）与嵌套子列表行（原始行带缩进，真条目
+      // 的子项）同样以 `-` 开头却不匹配条目正则，此前被一并误告警刷屏；两者恢复静默
+      // 跳过（不折入证据，与既有列表行语义一致），顶层真条目格式错仍留痕。
+      if (/^-+$/.test(line) || /^\s/.test(rawLine)) continue
+      // R26-32（二十六轮）：列表行但条目格式不符（缺「编号 动词：证据」结构）此前
+      // 静默丢弃——作者写了推进声明却因格式错误整条失效无迹可查（「声明了没兑现」
+      // 假红的隐性来源）。warn 留痕不中断解析（对齐 yaml.ts 无冒号行同款手法）。
+      log.warn('lead-updates', `账本推进行格式不符被丢弃（应为「- 编号 动词：证据」）：${line.slice(0, 40)}`)
     }
   }
   return out

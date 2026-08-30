@@ -236,6 +236,24 @@ describe('快照端点（单章版本回滚）', () => {
     // 清理本用例的环构造，避免影响后续（同文件各用例共享书目录）
     rmSync(join(vdir, 'doc_loop'), { recursive: true, force: true })
   }, 10_000)
+
+  // R26-67（二十六轮）：prune 全程持书级任务闸——闸忙 409 口径对齐 onboard-save 等
+  // 同类端点；闸在位使 spawn/auto-write/chat（heldTaskGatesFor 反查）与删书/改名
+  // busyGate（crossProcessHeldTaskGatesFor 借 KNOWN_ACTIONS 枚举）与 prune 互斥。
+  it('R26-67: versions-prune 闸忙 → 409 BUSY；闸空闲 → 200 正常清理', async () => {
+    const { acquireTaskGate } = await import('../../src/studio/server/api/task-gate.js')
+    const release = acquireTaskGate(BOOK, 'versions-prune')!
+    try {
+      const busy = await request('POST', api('/versions/prune'))
+      expect(busy.status).toBe(409)
+      expect((busy.json as { code: string }).code).toBe('BUSY')
+    } finally {
+      release()
+    }
+    const ok = await request('POST', api('/versions/prune'))
+    expect(ok.status).toBe(200)
+    expect((ok.json as { ok: boolean }).ok).toBe(true)
+  })
 })
 
 /** 当前磁盘内容的 revision（服务端乐观锁基线，按文件字节算）。 */

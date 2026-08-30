@@ -13,6 +13,8 @@ import { startServer } from '../../src/studio/server/index.js'
 // R75-D-P3b（批 D）：/tree-issues 已有 5s TTL 结果缓存——本测验证「verdict 落盘后立即可见」，
 // 注入 TTL=0 关缓存保住原即时语义（缓存三态由 r75-state-tree-issues-ttl.test.ts 覆盖）
 import { __setTreeIssuesTtlForTest } from '../../src/studio/server/api/check.js'
+// R26-57（二十六轮）：降级注入口（真实损坏多被自愈吞掉，难确定性触发——生产恒 false）
+import { __setChapterCheckDegradeForTest } from '../../src/check/run.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
 import { computeRevision } from '../../src/document/revision.js'
@@ -289,5 +291,36 @@ describe('T9b 修复：多章定稿 + 高章伏笔规划不误报 future', () =>
     expect(j.hasRed).toBe(false)
     const futureLeads = j.report.sections.flatMap((s) => s.items).filter((i) => i.checkId === 'lead-chapter-future')
     expect(futureLeads).toHaveLength(0)
+  })
+})
+
+// ── R26-57（二十六轮）：降级说明 warnings 数组透出（旧 warning 键双轨保留）──
+// 原三处降级条件展开同用 `warning` 键，后写覆盖先写、至多存活一条；改 `warnings:
+// string[]` 全量上报，旧键保留末条供 web-next 旧消费方（tree.ts issuesWarning）过渡。
+
+describe('R26-57: tree-issues 降级 warnings 数组 + 旧 warning 键双轨', () => {
+  it('章机检失败注入 → warnings 收全量降级说明，warning 键保留末条（双轨）', async () => {
+    __setChapterCheckDegradeForTest(true)
+    try {
+      const r = await get(`/api/books/${encodeURIComponent(BOOK)}/tree-issues`)
+      expect(r.status).toBe(200)
+      const j = r.json as { ok: boolean; warnings?: string[]; warning?: string }
+      expect(j.ok).toBe(true)
+      expect(Array.isArray(j.warnings)).toBe(true)
+      expect(j.warnings!.some((w) => w.includes('本轮机检失败'))).toBe(true)
+      // 旧键 = 数组末条（与修复前「后写覆盖」实际存活的语义一致）
+      expect(j.warning).toBe(j.warnings![j.warnings!.length - 1])
+      expect(j.warning).toContain('本轮机检失败')
+    } finally {
+      __setChapterCheckDegradeForTest(false) // 注入必须复位，防污染同进程其它用例
+    }
+  })
+
+  it('无降级 → 响应不带 warning / warnings 键', async () => {
+    const r = await get(`/api/books/${encodeURIComponent(BOOK)}/tree-issues`)
+    expect(r.status).toBe(200)
+    const j = r.json as { warnings?: string[]; warning?: string }
+    expect(j.warning).toBeUndefined()
+    expect(j.warnings).toBeUndefined()
   })
 })

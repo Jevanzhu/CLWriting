@@ -27,9 +27,12 @@ const isReviewable = computed(() => {
 const aiOff = computed(() => ui.aiAvailable === false)
 
 // 打开文档 → 读存量信封；切走 → 清空
+// R27-78（二十七轮）：watch 源加 node（tree.byDocId.get(docId)，对齐 EditorView CC-P1-4
+// 同型修法）——进书时 activeDocId 先到、tree.load 后到，仅 watch docId 会在树为空时
+// 触发一次 clear 后静默放弃，树到达后无补偿重试 → 面板滞留「不可审阅」误报
 watch(
-  docId,
-  async (id) => {
+  [docId, node],
+  async ([id]) => {
     if (id && isReviewable.value) await review.loadEnvelope(props.bookName, id)
     else review.clear()
   },

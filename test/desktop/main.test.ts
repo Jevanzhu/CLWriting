@@ -200,6 +200,11 @@ vi.mock('electron', () => {
       },
       getPath: (k: string) => (k === 'userData' ? M.userData : `/fake/${k}`),
       requestSingleInstanceLock: () => M.lock,
+      // R27-96（二十七轮）：relaunch 显式交接释放锁——桩补同款方法（真实 Electron app 有）
+      releaseSingleInstanceLock: () => {
+        M.lock = true // 锁释放后锁位回归可获取态
+        return true
+      },
       on: (evt: string, fn: (...a: unknown[]) => void) => {
         ;(M.appOn[evt] ??= []).push(fn)
       },
@@ -239,6 +244,8 @@ vi.mock('electron', () => {
         bounds: { x: 0, y: 0, width: 1920, height: 1080 },
         workAreaSize: { width: 1920, height: 1080 },
       }),
+      // R26-86：loadWinState 校验扩为 getAllDisplays 任一包含——mock 与主屏同款单屏面
+      getAllDisplays: () => [{ bounds: { x: 0, y: 0, width: 1920, height: 1080 } }],
     },
     ipcMain: {
       handle: (ch: string, fn: (e: unknown, ...a: unknown[]) => unknown) => {

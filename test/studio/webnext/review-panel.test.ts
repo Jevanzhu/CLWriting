@@ -336,3 +336,30 @@ describe('ReviewPanel: 作者裁决', () => {
     expect(ui.toasts[0]!.kind).toBe('error')
   })
 })
+
+// ── R27-78（二十七轮）：进书竞态——docId 先到、tree 后到 ──
+
+describe('ReviewPanel: R27-78 进书竞态（docId 先到 tree 后到）', () => {
+  it('docId 已设而树未到 → 先显示不可审阅；树到达后补偿重载信封并转为可审（修复前滞留不可审阅）', async () => {
+    const tree = useTreeStore()
+    tree.raw = [] // 进书窗口：activeDocId 已恢复，tree.load 尚未返回（byDocId 为空）
+    const w = mountPanel({ docId: 'doc_ch1' })
+    await flushPromises()
+    // 树未到：isReviewable false → 走清空分支 + 不可审阅提示（此瞬态正确）
+    expect(w.find('.rev-hint').text()).toContain('三审仅适用于正文')
+    expect(mocks.getReviewEnvelope).not.toHaveBeenCalled()
+
+    seedTree() // tree.load 完成 → byDocId 就位
+    await flushPromises()
+    // 修复前：仅 watch docId，树到达不重触发 → 永远滞留「不可审阅」且不读信封
+    expect(w.find('.rev-run-btn').attributes('disabled')).toBeUndefined()
+    expect(mocks.getReviewEnvelope).toHaveBeenCalledWith('test-book', 'doc_ch1')
+  })
+
+  it('树先到、后打开文档 → 立即可审并读信封（正常路径不受 watch 源扩容影响）', async () => {
+    const w = mountPanel() // seedTree 已在 beforeEach 就位
+    await flushPromises()
+    expect(w.find('.rev-run-btn').attributes('disabled')).toBeUndefined()
+    expect(mocks.getReviewEnvelope).toHaveBeenCalledWith('test-book', 'doc_ch1')
+  })
+})

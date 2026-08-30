@@ -29,21 +29,29 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     workDir,
     staticDir: join(process.cwd(), 'dist', 'web'),
   })
-  await new Promise<void>((resolve, reject) => {
-    server!.once('listening', () => resolve())
-    // X-36③：固定端口被占时给指因的人话提示（裸 EADDRINUSE 只留栈看不出该查谁）。
-    // startServer 由调用方管 error（见其头注），这里补监听后 reject 让 globalSetup 明确失败。
-    server!.once('error', (err: NodeJS.ErrnoException) => {
-      if (err.code === 'EADDRINUSE') {
-        console.error(
-          `[e2e global-setup] 端口 ${E2E_PORT_BASE} 已被占用——通常是上一次 e2e 未退干净，或本地有 dev 服务占了同端口。\n` +
-            `排查：lsof -i :${E2E_PORT_BASE} 查占用进程并 kill，或停掉本地 dev:api/dev:web 后重跑；` +
-            `整族端口被争用时可用 CLW_E2E_PORT_BASE=<基址> 整套平移（R73-75）。`,
-        )
-      }
-      reject(err)
+  try {
+    await new Promise<void>((resolve, reject) => {
+      server!.once('listening', () => resolve())
+      // X-36③：固定端口被占时给指因的人话提示（裸 EADDRINUSE 只留栈看不出该查谁）。
+      // startServer 由调用方管 error（见其头注），这里补监听后 reject 让 globalSetup 明确失败。
+      server!.once('error', (err: NodeJS.ErrnoException) => {
+        if (err.code === 'EADDRINUSE') {
+          console.error(
+            `[e2e global-setup] 端口 ${E2E_PORT_BASE} 已被占用——通常是上一次 e2e 未退干净，或本地有 dev 服务占了同端口。\n` +
+              `排查：lsof -i :${E2E_PORT_BASE} 查占用进程并 kill，或停掉本地 dev:api/dev:web 后重跑；` +
+              `整族端口被争用时可用 CLW_E2E_PORT_BASE=<基址> 整套平移（R73-75）。`,
+          )
+        }
+        reject(err)
+      })
     })
-  })
+  } catch (err) {
+    // R27-124（二十七轮）：启动失败路径此前只 reject 不清理——workDir（fixtures 双轨书仓）
+    // 已落盘，而删除只挂在成功路径的 teardown（X-31），EADDRINUSE 等监听失败会把整个
+    // workDir 泄漏在系统 tmp；此处对齐成功路径「用完即删」口径，抛错前先收走。
+    rmSync(workDir, { recursive: true, force: true })
+    throw err
+  }
   return async () => {
     if (server) await new Promise<void>((r) => server!.close(() => r()))
     // X-31：对齐 release-smoke 的删除口径——临时 workDir 用完即删（此前只 close 不删，

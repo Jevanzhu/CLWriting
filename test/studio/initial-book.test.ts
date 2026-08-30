@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, it, expect } from 'vitest'
-import { initialBookArg, resolveInitialBook } from '../../src/desktop/initial-book.js'
+import { initialBookArg, initialBookArgvOnly, resolveInitialBook } from '../../src/desktop/initial-book.js'
 
 let workDir = ''
 const prevEnv = process.env['CLWRITING_INITIAL_BOOK']
@@ -71,5 +71,15 @@ describe('resolveInitialBook', () => {
   it('未登记的名/路径 → null（前端回落默认页）', () => {
     expect(resolveInitialBook(workDir, '不存在的书')).toBeNull()
     expect(resolveInitialBook(workDir, join(workDir, '不存在目录'))).toBeNull()
+  })
+})
+
+describe('initialBookArgvOnly（R27-97：second-instance 只认 argv）', () => {
+  it('argv 带 --book → 取值；无 --book → 不回落 env（普通二次拉起不误导航）', () => {
+    process.env['CLWRITING_INITIAL_BOOK'] = '首实例env书'
+    expect(initialBookArgvOnly(['electron', '.', '--book', '新参书'])).toBe('新参书')
+    // 修复前：此场景回落到首实例 env「首实例env书」，无参双开被误导航
+    expect(initialBookArgvOnly(['electron', '.'])).toBeUndefined()
+    expect(initialBookArgvOnly(['electron', '.', '--book'])).toBeUndefined()
   })
 })

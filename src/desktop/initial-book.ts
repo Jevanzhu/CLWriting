@@ -9,7 +9,17 @@
 import { resolve } from 'node:path'
 import { readBooks } from '../install/books.js'
 
-/** 从 argv 取 --book 值；无则回落 CLWRITING_INITIAL_BOOK env。 */
+/** 仅从 argv 取 --book 值（R27-97（二十七轮）：second-instance 路径专用——那边回落
+ *  env 拿到的是**首实例**的 CLWRITING_INITIAL_BOOK，用户普通二次拉起（无参）会被
+ *  意外导航到首实例的初书；argv 无 --book 就该无直达）。 */
+export function initialBookArgvOnly(argv: string[]): string | undefined {
+  const i = argv.indexOf('--book')
+  const v = i !== -1 && i + 1 < argv.length ? argv[i + 1] : undefined
+  const t = typeof v === 'string' ? v.trim() : ''
+  return t || undefined
+}
+
+/** 从 argv 取 --book 值；无则回落 CLWRITING_INITIAL_BOOK env（仅冷启动解析自进程 argv 用）。 */
 export function initialBookArg(argv: string[]): string | undefined {
   const i = argv.indexOf('--book')
   const fromArg = i !== -1 && i + 1 < argv.length ? argv[i + 1] : undefined

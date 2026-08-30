@@ -115,3 +115,37 @@ describe('R71-9: onboard-ai 覆盖既有文件前快照留底', () => {
     expect(existsSync(join(workDir, BOOK, '设定', '名册.md'))).toBe(true)
   })
 })
+
+// ── R26-59（二十六轮）：onboard-save 覆盖写前快照留底回归 ──────
+// onboard-save 直接 atomicWriteFile 覆盖目标文件，作者对既有文件的手改此前无版本链；
+// 修复后与 onboard-ai（R71-9）同口径接入 snapshotBeforeOverwrite（fail-open）。
+
+describe('R26-59: onboard-save 覆盖既有文件前快照留底', () => {
+  it('覆盖已有文件 → .版本 新增含旧内容的快照 + 响应 snapshotted 留痕', async () => {
+    const versionsDir = join(workDir, BOOK, '工作区', '.版本')
+    const count = (dir: string): number => listFiles(dir).length
+    const before = count(versionsDir)
+    // 前置：世界观.md 尚不存在——先用 onboard-save 创建，再覆盖
+    const create = await req('POST', `/api/books/${encodeURIComponent(BOOK)}/onboard-save`, {
+      step: 'world',
+      content: '作者手写的世界观底稿',
+    })
+    expect(create.status).toBe(200)
+    expect((create.json as { snapshotted?: boolean }).snapshotted).toBeUndefined() // 首次创建不触发
+    expect(count(versionsDir)).toBe(before)
+
+    const r = await req('POST', `/api/books/${encodeURIComponent(BOOK)}/onboard-save`, {
+      step: 'world',
+      content: '保存按钮覆盖后的世界观',
+    })
+    expect(r.status).toBe(200)
+    expect((r.json as { ok: boolean; snapshotted?: boolean }).snapshotted).toBe(true) // 响应留痕
+
+    // 快照存在且内容 = 覆盖前的旧内容
+    const snaps = listFiles(versionsDir)
+    expect(snaps.length).toBeGreaterThan(before)
+    expect(snaps.some((p) => readFileSync(p, 'utf8').includes('作者手写的世界观底稿'))).toBe(true)
+    // 主流程不受影响：新内容落盘
+    expect(readFileSync(join(workDir, BOOK, '设定', '世界观.md'), 'utf8')).toBe('保存按钮覆盖后的世界观')
+  })
+})

@@ -388,9 +388,13 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     try {
       // 前端可指定测试模型；未指定则用全局当前模型；都无则回落 conf.model（废弃旧值）
       //（dd-P2：body 先读；探测是 10s+ 网络往返，load 克隆不能跨它存活——探测后重载再写）
+      // R26-63（二十六轮）：注释对齐实现（选低风险侧，语义是 Z-9 已定的正确口径）——
+      // readJson 的空 body 走 resolve({}) 根本不进 catch；协议类错误（坏 JSON 400 / 超限
+      // 413，均 HttpError）透传外层统一回信封；本 catch 只容错连接层异常（socket error
+      // 非 HttpError）按空 body 兜底继续探测。原注释「只容错无 body/坏 JSON」两处皆失实。
       let body: Record<string, unknown> = {}
       try { body = await readJson(req) } catch (e) {
-        if (e instanceof HttpError) throw e // 413 等透传，只容错无 body/坏 JSON
+        if (e instanceof HttpError) throw e // 坏 JSON 400 / 413 超限等协议类错误透传（Z-9 口径）
       }
       const snapshot = loadProviders(ctx.userDataPath)
       const conf = snapshot.providers.find((p) => p.id === id)

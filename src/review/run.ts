@@ -99,7 +99,7 @@ export function buildReviewPacket(input: {
   capabilities: ReviewHostCapabilities
   remaining_calls: number
   high_risk: boolean
-  /** 有布线（账本/成长线）→ continuity 视角；有 config.short → 短篇三视角 */
+  /** 有布线（账本/成长线）→ continuity 视角；kind==='short'（config.kind，R28-12 注释对齐实装）→ 短篇三视角 */
   hasWiring: boolean
   hasShort: boolean
 }): { ok: true; packet: ReviewExecutionPacket; decision: ReviewTierDecision } | { ok: false; reason: string } {

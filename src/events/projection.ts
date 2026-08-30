@@ -114,24 +114,28 @@ export function foldSurface(events: ChatEvent[], prefixSeq?: number): SurfaceNod
       // replace 遮蔽：闭区间 [shadowStart, shadowEnd] 内已可见节点标 shadowed；
       // Y-P2-2：携带存档内容（data.message）时在被遮蔽区间原位取代——投影语义与内存
       // 历史 [存档, ...toKeep] 一致（此前存档只在内存，跨重启恢复丢被压上下文）
+      // R27-106（二十七轮）：插入锚按 seq 优先级判定，不再依赖数组位序——visible 数组
+      // 本应 seq 升序，但此前存档插在中部后（存档 seq 大于其后的保留节点 seq）数组已
+      // 失序：原单遍扫描「先到先得」会让 seq>end 节点（数组在前）抢走锚点，新存档反插
+      // 到旧存档之前（原位取代被数组位序击穿，正确性只靠无断言的生产不变量）。两候选
+      // 独立收集后按 seq 取舍：区间内节点 seq ≤ end < 区间后节点 seq → 区间内锚恒优先；
+      // 区间内无节点回退「区间后首个」（P-15 区间语义）、全无候选追加尾部（P-15 兜底），
+      // 两锁定行为不变。
       const start = ev.shadowStart
       const end = ev.shadowEnd
       if (start !== undefined && end !== undefined && start <= end) {
-        let insertAt = visible.length
-        let inserted = false
+        let firstShadowedAt = -1
+        let firstAfterAt = -1
         for (let i = 0; i < visible.length; i++) {
           const n = visible[i]!
           if (n.seq >= start && n.seq <= end) {
             n.shadowed = true
-            if (!inserted) {
-              insertAt = i
-              inserted = true
-            }
-          } else if (n.seq > end && !inserted) {
-            insertAt = i
-            inserted = true
+            if (firstShadowedAt === -1) firstShadowedAt = i
+          } else if (n.seq > end && firstAfterAt === -1) {
+            firstAfterAt = i
           }
         }
+        const insertAt = firstShadowedAt !== -1 ? firstShadowedAt : firstAfterAt !== -1 ? firstAfterAt : visible.length
         const msg = ev.data['message']
         if (typeof msg === 'string' && msg.trim() !== '') {
           visible.splice(insertAt, 0, {
@@ -204,9 +208,15 @@ export function validateEventStream(events: ChatEvent[]): ValidationIssue[] {
   let lastSeq = -1
 
   for (const ev of sorted) {
-    if (ev.seq <= lastSeq) issues.push({ seq: ev.seq, message: 'seq 未严格递增（重复或乱序）' })
-    if (seenSeqs.has(ev.seq)) issues.push({ seq: ev.seq, message: 'seq 重复' })
-    seenSeqs.add(ev.seq)
+    // R26-103（二十六轮）：同一坏事件的「未递增 + 重复」双告警合并为一条——重复 seq 必然
+    // 也 ≤ 前一 seq，原先两条 issue 叠发（同一病灶两行噪音）；现重复只报「seq 重复」，
+    // 非重复的乱序才报「未严格递增」。
+    if (seenSeqs.has(ev.seq)) {
+      issues.push({ seq: ev.seq, message: 'seq 重复' })
+    } else {
+      if (ev.seq <= lastSeq) issues.push({ seq: ev.seq, message: 'seq 未严格递增（乱序）' })
+      seenSeqs.add(ev.seq)
+    }
     lastSeq = ev.seq
 
     const isSurfaceType = SURFACE_EVENT_TYPES.has(ev.type as EventType)

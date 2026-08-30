@@ -60,8 +60,11 @@ test('机检：选章 → 机检 tab → 出报告（无 AI 依赖）', async ({
   await expect(page.locator('.check-panel .check-group').first()).toBeVisible({
     timeout: 15_000,
   })
-  // 种子项锚定：新专名候选组产出未登记专名「陌离子」黄项（弱断言加强 P1-T5 的确定性版）
+  // 种子项锚定：新专名候选组产出未登记专名「陌离子」黄项（弱断言加强 P1-T5 的确定性版）。
+  // R26-31（二十六轮）新增 lead-verb-invalid 黄项（账本节先于专名节产出）后，黄项组
+  // DOM 首项不再恒为「陌离子」——契约是「组内产出该黄项」而非「居首」，改按内容定位
+  // （hasText 靠黄项组内任一条目命中「新专名候选」字样，组定位口径不变）。
   const nameGroup = page.locator('.check-group', { hasText: '新专名候选' })
   await expect(nameGroup).toBeVisible()
-  await expect(nameGroup.locator('.check-item').first()).toContainText('陌离子')
+  await expect(nameGroup.locator('.check-item', { hasText: '陌离子' }).first()).toContainText('陌离子')
 })

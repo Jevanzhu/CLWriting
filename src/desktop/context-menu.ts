@@ -31,16 +31,29 @@ const MAX_SUBMENU_DEPTH = 5
  *  暴涨。超限整体拒收（null → 不弹菜单），对齐深度方向的 fail-closed 思路 */
 const MAX_MENU_ITEMS = 200
 
-/** 净化载荷：合法返回净化后的菜单项数组（可为空数组，调用方空数组不弹菜单）；非数组返回 null。 */
-export function parseContextMenuSpecs(raw: unknown, depth = 0): ContextMenuSpec[] | null {
+/**
+ * 净化载荷：合法返回净化后的菜单项数组（可为空数组，调用方空数组不弹菜单）；非数组返回 null。
+ *
+ * R27-95（二十七轮）：预算跨层共享——原 MAX_MENU_ITEMS 按层独立生效，200 项/层 ×
+ * MAX_SUBMENU_DEPTH=5 层是指数积（200^5），恶意嵌套载荷每层都合规、总量却无界，
+ * 净化+建原生菜单照样阻塞主进程。改为所有层共用一个扁平项预算：每层先 O(1) 长度
+ * 预筛（raw.length > 剩余额度直接拒），逐项扣减；顶层超限整体 null（L-S3 口径），
+ * 深层超限剥该 submenu（SV-1 口径），总净化工作量被钳在 200 项以内。
+ */
+export function parseContextMenuSpecs(
+  raw: unknown,
+  depth = 0,
+  budget: { left: number } = { left: MAX_MENU_ITEMS },
+): ContextMenuSpec[] | null {
   if (!Array.isArray(raw)) return null
-  if (raw.length > MAX_MENU_ITEMS) return null
+  if (raw.length > budget.left) return null
   const items: ContextMenuSpec[] = []
   for (const s of raw) {
     if (typeof s !== 'object' || s === null) continue
     const r = s as Record<string, unknown>
     if (r['separator'] === true) {
       items.push({ label: '', separator: true })
+      budget.left--
       continue
     }
     // 非分隔项必须有 label（Menu.buildFromTemplate 的必填字段）
@@ -48,8 +61,11 @@ export function parseContextMenuSpecs(raw: unknown, depth = 0): ContextMenuSpec[
     const item: ContextMenuSpec = { label: r['label'], disabled: r['disabled'] === true }
     if (typeof r['key'] === 'string' && r['key']) item.key = r['key']
     if (typeof r['accelerator'] === 'string' && ACCELERATOR_RE.test(r['accelerator'])) item.accelerator = r['accelerator']
+    // 先扣本项额度再下钻——递归进门时才能看到已扣的真实余量（后扣会让每层嵌套
+    // 都按满预算准入、层层各自吃满 200，总量闸失效）
+    budget.left--
     if (Array.isArray(r['submenu']) && depth < MAX_SUBMENU_DEPTH) {
-      const sub = parseContextMenuSpecs(r['submenu'], depth + 1)
+      const sub = parseContextMenuSpecs(r['submenu'], depth + 1, budget)
       if (sub && sub.length > 0) item.submenu = sub
     }
     items.push(item)

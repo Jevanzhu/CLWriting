@@ -18,6 +18,7 @@ import { readKind } from '../../../format/kind.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { saveDraft, buildDraftPrompt } from '../../../process/draft-pipeline.js'
+import { isSelfHealRunning } from '../../../ai/orchestrate/self-heal.js'
 import { recordAuthorSignal } from '../../../ai/author-signal.js'
 import { recordAiVersion } from '../../../git/ai-track.js'
 import { log } from '../../../log/index.js'
@@ -37,6 +38,14 @@ export function registerDraftRoutes(ctx: DraftCtx): void {
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
+
+    // R27-61（二十七轮）：编排互斥补齐——self-heal 写章在途时同章 draft-save 放行
+    // = 后写赢覆盖自愈产物（有 snapshotBeforeOverwrite 留底故定级 P3）。对齐 rewrite.ts
+    // R66-2/R70-3 同款双查口径；draft-save 是 writer 产出的落盘通道，spawn 侧经
+    // driver 内部走同函数不经本端点，故只查 self-heal 面
+    if (isSelfHealRunning(params['name']!)) {
+      return replyError(res, 409, 'BUSY', '本书正在全自动写章，先等它跑完或中断再保存草稿')
+    }
 
     const body = await readJson(req)
     const chapter = Number(body['chapter'])

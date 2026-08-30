@@ -50,7 +50,10 @@ export function assistantMessageEvent(
   message: string | ContentBlock[],
   usage?: { inputTokens: number; outputTokens: number },
   stopReason?: string,
-  sourceSeqs?: number[],
+  // R26-20（二十六轮）：批内血缘索引改名 sourceIdxs——与 ChatEvent.sourceSeqs（全局 seq，
+  // appendEvents 原样落库）按字段拆分；本构造器产出的事件只走 appendEventsResolveLineage
+  // 批内索引解析路径（turns.ts lineageIdx 即 recorder.add 的批内序号），语义就此显式化
+  sourceIdxs?: number[],
   branch?: { parentSeq?: number; branchId?: string },
 ): NewEvent {
   const data: Record<string, unknown> = { message }
@@ -61,7 +64,7 @@ export function assistantMessageEvent(
   // 祖先链的可达性）；线性回合不传，行为不变
   if (branch?.parentSeq !== undefined) data['parentSeq'] = branch.parentSeq
   if (branch?.branchId) data['branchId'] = branch.branchId
-  return { type: 'assistant/message', data, surfaceOp: 'append', ...(sourceSeqs ? { sourceSeqs } : {}) }
+  return { type: 'assistant/message', data, surfaceOp: 'append', ...(sourceIdxs ? { sourceIdxs } : {}) }
 }
 
 export function toolCallEvent(callId: string, name: string, args: unknown): NewEvent {
@@ -177,7 +180,8 @@ export class SessionRecorder {
     if (!this.store || this.pending.length === 0) return null
     // AA-P3-7：血缘 seq 不再用 lastSeq()+批内序号推算（多窗口并发写事件库时 lastSeq()
     // 与落库之间无原子性，可能错链到别的窗口）——INSERT RETURNING 取数据库真实分配的
-    // seq，sourceSeqs 批内索引在同一事务内回写解析。
+    // seq，sourceIdxs 批内索引在同一事务内回写解析（R26-20：字段名与全局 seq 语义的
+    // sourceSeqs 拆分，本路径一律传批内索引）。
     // R65-23（十三轮）：真实 seqs 数组随返回值透出（range.first + i 区间算术反推在
     // 批内 seq 不连续时会遮蔽整体错位——遮蔽区间/消息 seq 映射一律直索引真实值）
     const seqs = this.store.appendEventsResolveLineage(this.sessionId, this.pending)

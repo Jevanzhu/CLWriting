@@ -170,8 +170,19 @@ export function initLogging(opts: { logsDir: string | null; mirrorConsole?: bool
  *  纵深一层：现状防线靠调用方「不把密钥记进日志」的纪律，此处兜底层不替代纪律，
  *  只收 1 命中即 8+ 字符的常见形态（不含 sk- 短前缀普通词，误伤面极小）。 */
 const KEY_MASK_RE = /(sk-[A-Za-z0-9_-]{8,}|Bearer\s+[A-Za-z0-9._-]{8,})/g
-function maskKeys(s: string): string {
-  return s.replace(KEY_MASK_RE, (m) => m.slice(0, 5) + '***')
+/**
+ * R72-9 引入、R26-95（二十六轮）修正：key 掩码。Bearer 形态改为「token 部分掩码」——
+ * 原实现 m.slice(0,5) 对 Bearer 产出「Beare***」破损外观（前缀被截断、token 一位未掩），
+ * 现保留 Bearer 前缀 + 全掩 + 末 4 位（末 4 位足够人工对账定位，不构成可用凭据）；
+ * sk- 形态维持原口径（保留前 5 字符 + ***）。导出供直测（掩码是安全语义，锁形貌）。
+ */
+export function maskKeys(s: string): string {
+  return s.replace(KEY_MASK_RE, (m) => {
+    const wsAt = m.search(/\s/)
+    if (wsAt === -1) return m.slice(0, 5) + '***' // sk- 形态：无空白分隔，原口径
+    const token = m.slice(wsAt).trim()
+    return `Bearer ****${token.slice(-4)}`
+  })
 }
 
 /** R76-30：镜像面 err 掩码——Error 实例重建（message/stack 过 KEY_MASK_RE，name

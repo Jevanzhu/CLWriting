@@ -17,6 +17,7 @@ import type { CheckSectionResult, CheckItem } from './types.js'
 import { readLeadHistory } from '../format/read.js'
 import { LEAD_TYPES, LEAD_VERBS } from '../format/leads.js'
 import { QUOTE_OPEN_LENIENT, QUOTE_CLOSE_LENIENT } from './quotes.js'
+import { bodyOf } from '../format/frontmatter-core.js'
 
 /**
  * 账本形式三检。
@@ -111,7 +112,11 @@ export function checkLeadsBookItems(
     let text: string | null = null
     if (path !== null) {
       try {
-        text = readFileSync(path, 'utf-8')
+        // R26-30（二十六轮）：引文 grep 面改剥 front matter 的 body（与 lead-updates.ts
+        // leadEvidenceMatchesBody 吃 body 同口径）——证据按 spec 只须在正文命中，原文
+        // 全文 grep 会把 fm 里的标题/枚举值误当命中（假阴性，红闸失明），也会因证据
+        // 恰含「章号: 12」等 fm 形态误判命中。bodyOf 对裸 md 原样返回，无 fm 章不受影响。
+        text = bodyOf(readFileSync(path, 'utf-8'))
       } catch {
         text = null
       }
@@ -195,7 +200,14 @@ export function checkLeadsBookItems(
     if (history.length > 0) {
       const lastEntry = history[history.length - 1]!
       const status = lead['status'] as string
-      const statusMismatch = checkStatusClosure(lastEntry.动词, status, lead['type'] as string)
+      const type = lead['type'] as string
+      // R27-21（二十七轮）：词表外（错类/错别字）动词不进状态闭合红项——checkStatusClosure
+      // 的 RESOLVE/DROP 集是跨类并集，悬念线末动词「突破」（成长线 resolve）会同时产
+      // 「词表外……状态闭合校验对其不生效」黄项和 lead-status-open 红项，R26-31 宣称的
+      // 「词表外只黄不红」被并集击穿。判定收窄到本类词表内动词（词表外已有黄项提示，
+      // 语义由黄项文案承载）。
+      const verbInType = VALID_VERBS_BY_TYPE.get(type)?.has(lastEntry.动词) ?? false
+      const statusMismatch = verbInType ? checkStatusClosure(lastEntry.动词, status, type) : false
       if (statusMismatch) {
         items.push({
           checkId: 'lead-status-open',
@@ -214,6 +226,15 @@ export function checkLeadsBookItems(
           checkId: 'lead-status-drift',
           level: 'yellow',
           message: `${id} 状态已标「${status}」但履历末条仍是推进动词「${lastEntry.动词}」——若为作者显式收口请忽略，否则状态与足迹已漂移`,
+          leadId: id,
+        })
+      } else if (!(VALID_VERBS_BY_TYPE.get(type)?.has(lastEntry.动词) ?? false)) {
+        // R26-31（二十六轮）：词表外动词黄项提示（对齐 growth-verb-invalid，仅提示
+        // 不判红）——错别字/他类动词此前对状态闭合校验静默失明。
+        items.push({
+          checkId: 'lead-verb-invalid',
+          level: 'yellow',
+          message: `${id} 履历末条动词「${lastEntry.动词}」不是「${type}」合法动词（词表外，状态闭合校验对其不生效）——请核对是否他类动词或错别字`,
           leadId: id,
         })
       }
@@ -320,6 +341,16 @@ const DROP_VERBS = new Set<string>(LEAD_TYPES.flatMap((t) => LEAD_VERBS[t].drop)
 const OPEN_VERBS = new Set<string>(LEAD_TYPES.flatMap((t) => LEAD_VERBS[t].open))
 const ADVANCE_VERBS = new Set<string>(LEAD_TYPES.flatMap((t) => LEAD_VERBS[t].advance))
 const GROWTH_RESOLVE_VERBS = new Set<string>(LEAD_VERBS.成长线.resolve)
+
+/** R26-31（二十六轮）：各类合法动词全集（open+advance+resolve+drop，单源派生自
+ *  LEAD_VERBS）——履历末条动词词表外（错别字/误写他类动词）时状态闭合校验对其
+ *  既不判红也不提示、静默失明。对齐 growth-verb-invalid 的黄项口径：仅提示不判红。 */
+const VALID_VERBS_BY_TYPE: ReadonlyMap<string, Set<string>> = new Map(
+  LEAD_TYPES.map((t) => [
+    t,
+    new Set<string>([...LEAD_VERBS[t].open, ...LEAD_VERBS[t].advance, ...LEAD_VERBS[t].resolve, ...LEAD_VERBS[t].drop]),
+  ]),
+)
 
 function checkStatusClosure(lastVerb: string, status: string, leadType?: string): boolean {
   // 成长线的 resolve 动词（突破/跨层/跃迁）是常态化升级，任何状态下都不强拦

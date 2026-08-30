@@ -141,14 +141,22 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       }
     } else if (e.type === 'self_heal_batch') {
       // P2-3：批量开跑
+      // R26-76（二十六轮）：total 过有限数守卫（对齐下方 progress 分支）——NaN/Infinity
+      // 等非法值不写入 UI 态（进度条/「第 N/共 M 章」文案渲染异常）
       const total = Number(e.total ?? 0)
-      batchProgress.value = { done: 0, total: total > 0 ? total : 0, stoppedAt: null }
+      batchProgress.value = { done: 0, total: Number.isFinite(total) && total > 0 ? total : 0, stoppedAt: null }
     } else if (e.type === 'self_heal_batch_progress') {
       // P2-3：批量中途停（escalate/预算超限）
+      // R26-76（二十六轮）：done/total/stoppedAt 过有限数守卫——SSE 脏值（字符串数字/
+      // NaN/Infinity）原样直入会让批量进度条与终局文案渲染异常（R72-11 同款口径）
       const done = Number(e.done ?? 0)
       const total = Number(e.total ?? 0)
-      const stoppedAt = e.stoppedAt !== undefined ? Number(e.stoppedAt) : null
-      batchProgress.value = { done, total, stoppedAt }
+      const stoppedAt = e.stoppedAt !== undefined && e.stoppedAt !== null ? Number(e.stoppedAt) : null
+      batchProgress.value = {
+        done: Number.isFinite(done) ? done : 0,
+        total: Number.isFinite(total) ? total : 0,
+        stoppedAt: stoppedAt !== null && Number.isFinite(stoppedAt) ? stoppedAt : null,
+      }
     } else if (e.type === 'warning') {
       const msg = str(e.message)
       if (msg) warning.value = msg

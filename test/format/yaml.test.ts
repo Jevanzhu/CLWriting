@@ -1,4 +1,4 @@
-import { test, expect } from 'vitest'
+import { test, expect, vi } from 'vitest'
 import { rmSync, writeFileSync, readFileSync } from 'node:fs'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { tmpdir } from 'node:os'
@@ -725,4 +725,94 @@ test('setSectionKeyBlock: 删除模式键不存在 → 原样返回；空段插�
   expect(setSectionKeyBlock('book:\n  title: T\n', 'book', 'genre', null)).toBe('book:\n  title: T\n')
   expect(setSectionKeyBlock('book:\n  title: T\n', 'checks', 'imagery_words', 'imagery_words: [月]'))
     .toBe('book:\n  title: T\n\nchecks:\n  imagery_words: [月]\n')
+})
+
+// ── 二十六轮修复批 B 回归 ────────────────────────
+
+// R26-10：短篇 budget 段外层条件原只认 calls_per_chapter——仅设双口径预算键
+//（tokens/cost_per_chapter，D3 批 5 起合法）时整段丢失、重存即丢配置
+test('R26-10: 短篇仅设 tokens/cost_per_chapter 时 budget 段保留（stringify→parse round-trip）', () => {
+  const cfg = {
+    ...DEFAULT_CONFIG,
+    kind: 'short' as const,
+    budget: { ...DEFAULT_CONFIG.budget, calls_per_chapter: undefined, tokens_per_chapter: 50000, cost_per_chapter: 0.5 },
+  }
+  const text = stringifyBookConfig(cfg)
+  expect(text).toContain('budget:')
+  expect(text).toContain('tokens_per_chapter: 50000')
+  expect(text).toContain('cost_per_chapter: 0.5')
+  expect(text).not.toContain('calls_per_chapter') // 未设键不烘焙（缺省语义不回归）
+  const r = parseBookConfig(text)
+  expect(r.ok).toBe(true)
+  if (r.ok) {
+    expect(r.config.budget.tokens_per_chapter).toBe(50000)
+    expect(r.config.budget.cost_per_chapter).toBe(0.5)
+    expect(r.config.budget.calls_per_chapter).toBeUndefined()
+  }
+  // 对照：三键全未设时短篇整段仍省略（缺省语义）
+  const bare = stringifyBookConfig({ ...DEFAULT_CONFIG, kind: 'short' as const })
+  expect(bare).not.toContain('budget')
+})
+
+// R26-12：布尔键此前只认字面 true/false（`strict: yes` 被解析成 false 反向开关）
+test('R26-12: 布尔键宽松解析——yes/True/1 收，Off 收 false，非法值 warn + 按未设', () => {
+  const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  try {
+    const r = parseBookConfig([
+      'kind: short',
+      'short:',
+      '  strict: yes',
+      'summary:',
+      '  auto: True',
+      'rag:',
+      '  enabled: 1',
+      'auto:',
+      '  confirm_outline: maybe',
+      '  relation_auto_mine: Off',
+    ].join('\n'))
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect(r.config.short?.strict).toBe(true) // yes → true
+      expect(r.config.summary?.auto).toBe(true) // True → true
+      expect(r.config.rag?.enabled).toBe(true) // 1 → true
+      expect(r.config.auto?.relation_auto_mine).toBe(false) // Off → false
+      // confirm_outline: maybe → 非法值按未设（auto 段无其余合法键 → 整段 undefined）
+      expect(r.config.auto?.confirm_outline).toBeUndefined()
+    }
+    // warn 留痕（未 initLogging 时镜像 console.warn）
+    expect(warnSpy.mock.calls.some((c) => String(c[0]).includes('confirm_outline'))).toBe(true)
+  } finally {
+    warnSpy.mockRestore()
+  }
+})
+
+// R26-37：tab 缩进 warn 留痕（计数维持现状——按字符数照常解析）
+test('R26-37: tab 缩进 warn 一次且解析不中断（计数按字符数）', () => {
+  const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  try {
+    const r = parseBookConfig('book:\n\ttitle: Tab书\n')
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.config.book.title).toBe('Tab书')
+    expect(warnSpy.mock.calls.some((c) => String(c[0]).includes('tab'))).toBe(true)
+    // 多个 tab 行只 warn 一次（开关去重）
+    const r2 = parseBookConfig('book:\n\ttitle: A\n\tgenre: B\n')
+    expect(r2.ok).toBe(true)
+    const tabWarns = warnSpy.mock.calls.filter((c) => String(c[0]).includes('tab'))
+    expect(tabWarns).toHaveLength(2) // 两次独立 parse 各一次，单次 parse 内不重复
+  } finally {
+    warnSpy.mockRestore()
+  }
+})
+
+// R26-38：spec_version 非法值 warn 留痕（维持回落 1）
+test('R26-38: spec_version 非法值 warn 并回落 1', () => {
+  const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  try {
+    const r = parseBookConfig('spec_version: abc\nbook:\n  title: T\n')
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.config.spec_version).toBe(1)
+    expect(warnSpy.mock.calls.some((c) => String(c[0]).includes('spec_version'))).toBe(true)
+  } finally {
+    warnSpy.mockRestore()
+  }
 })

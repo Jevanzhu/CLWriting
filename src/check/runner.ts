@@ -90,13 +90,18 @@ export function enabledLeadTypes(config: BookConfig): string[] {
  *
  * 长短篇统一链路，按数据存在性条件开关：
  * - 有布线（账本/成长线）：账本形式三检 + 成长线 + 专名/信息差（db 强依赖）
- * - 有 config.short：短篇专属项（五段节数/开头零环境）+ 清单形式检
+ * - kind === 'short'：短篇专属项（五段节数/开头零环境）+ 清单形式检
  * - 通用项（禁词/复读/句式/文风/字数/AI 味=身体部位词+比喻）恒跑
  */
 export function runAllChecks(input: CheckInput): CheckReport {
   const { db, bookRoot, config, chapter, body, fileName } = input
   const hasWiring = existsSync(join(bookRoot, '布线'))
-  const short = config.short
+  // R26-13（二十六轮）：短篇判定与路由侧 kind.ts 的 kind==='short' 单源对齐——此前用
+  // config.short 段存在性判定，两处口径分裂：kind: short 而未写 short 段的书（合法，
+  // 全部走缺省阈值）短篇专属机检整体失明；长篇误写 short 段反而跑短篇机检。空对象
+  // （无 short 段）时 word_min/word_max 等传 undefined，由 checkPieceWordCount 等
+  // 的缺省参数兜底（8000–20000/5 段/300 字，与既有缺省值机制一致）。
+  const short = config.kind === 'short' ? (config.short ?? {}) : undefined
   const sections: CheckSectionResult[] = []
 
   // 未来章基准：默认取本章自身章号；调用方传了全书最高章号时用它
@@ -246,7 +251,9 @@ export function runAllChecks(input: CheckInput): CheckReport {
     byproducts = { ...byproducts, pieceListChecks: collectPieceListChecks(pieceList) }
   }
   const report: CheckReport = { sections, byproducts }
-  if (input.strictShort || config.short?.strict) promoteStrictShort(report)
+  // R26-13：严格模式同样走统一后的 short 判定（kind==='short' 的书无 short 段时，
+  // strict 由 applyGlobalDefaults 的保底实例化/defaultShortStrict 托底进来）
+  if (input.strictShort || short?.strict) promoteStrictShort(report)
   return report
 }
 

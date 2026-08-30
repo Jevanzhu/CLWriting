@@ -154,7 +154,11 @@ describe('useHeartbeat', () => {
     const name = ref<string | null>('书A')
     useHeartbeat(() => name.value)
     await Promise.resolve() // beat 异步
-    expect(apiFetchMock).toHaveBeenCalledWith('/api/books/%E4%B9%A6A/heartbeat', { method: 'POST' })
+    // R26-77：beat 带 10s 超时 signal（其余形状不变）
+    expect(apiFetchMock).toHaveBeenCalledWith('/api/books/%E4%B9%A6A/heartbeat', {
+      method: 'POST',
+      signal: expect.anything(),
+    })
     expect(serverOnline.value).toBe(true)
   })
 

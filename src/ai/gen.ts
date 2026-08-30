@@ -268,7 +268,27 @@ export async function generateTool(
     log.warn('gen', `generateTool 收到 ${r.toolCalls.length} 个 tool_use，仅采用首个（${tool?.name ?? 'unnamed'}），其余 ${r.toolCalls.length - 1} 个已丢弃`)
   }
   // P1-3：输出撞顶且无 tool_use → JSON 被截断；抛明确错误而非静默降级到 text
-  if (!tool && r.stopReason === 'max_tokens') {
+  // R26-1（二十六轮）：tool_use 的 arguments 被截断在中途同样是截断面——适配器把解析
+  // 失败的截断 JSON 兜成 { _raw }（openai/anthropic 两线同款 catch），此时 tool 存在、
+  // stopReason 同为 max_tokens，原判据（!tool）漏接：工具型链路（self-heal/review/
+  // analysis/rewrite/relation-mine）把残缺 input 按**成功**入账，MAX_TOKENS 错误码与
+  // 「模型行可配 maxTokens」出路全部丢失。判据扩为「撞顶且（无 tool 或首个 tool 的
+  // input 带 _raw 降级键）」——_raw 只在 JSON.parse 失败时出现，正常完整产出不受影响。
+  // R27-4（二十七轮）：再补「input 空对象」型——anthropic content_block_stop 收到空
+  // jsonBuf 时兜成 {}（无 _raw 标记，R26-1 判据不中），撞顶截断的 tool 调用按**成功**
+  // 带空 input 出场。撞顶与「合法零参调用」不同时出现，max_tokens 门下空 {} 判截断
+  const toolInputObj =
+    tool !== undefined && tool.input !== null && typeof tool.input === 'object'
+      ? (tool.input as Record<string, unknown>)
+      : null
+  const toolInputTruncated = toolInputObj !== null && '_raw' in toolInputObj
+  // R28-6（二十八轮）：toolInputEmpty 判据的前提不变量——零参 schema 工具（properties: {}，
+  // 现仅 contract/chat.ts 的 chapter_status / harvest_style）**不得走 generateTool**：
+  // 它们只出现在 chat agent turns（turns.ts 对 max_tokens 整体拒收、不经本函数），因此
+  // 撞顶时本判据不会把零参工具的完整合法调用（input 恒为 {}）误判成截断。不变量的机器锁
+  // 见 test/ai/contract.test.ts「零参 schema 工具路由不变量」——新增零参工具须先确认路由。
+  const toolInputEmpty = toolInputObj !== null && Object.keys(toolInputObj).length === 0
+  if ((!tool || toolInputTruncated || toolInputEmpty) && r.stopReason === 'max_tokens') {
     // R61-6（第六十一轮）：同 generateText——截断调用 usage 随错误上抛记账
     // R73-3：同款出路提示（模型行可配输出上限）
     throw new GenError('AI 产出达到长度上限被截断，结构化结果不完整，请精简输入提示或稍后重试；也可在设置 → AI 的模型行配置单次输出上限（maxTokens）。', false, { code: 'MAX_TOKENS', usage: r.usage })

@@ -4,7 +4,7 @@
  * A 书慢 load 落定时书名已换 B → 修复前仍走 ensureBaseline('A')——words store 的
  * reqGen 后调者胜使 A 反客为主，B 界面今日字数显示 A 的数据。
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { nextTick, reactive, ref } from 'vue'
@@ -117,6 +117,56 @@ describe('ChapterTreePanel: 切书 load 在途守卫（R65-56）', () => {
     mocks.pendingLoads[0]!.res()
     await flushPromises()
     expect(mocks.ensureBaseline).toHaveBeenCalledWith('书A')
+    w.unmount()
+  })
+})
+
+// R26-74（二十六轮）：首开判定改显式 per-book localStorage 标记——弃
+// `treeExpanded.length <= 1` 启发式（作者刻意只留一个展开组会被误判为首次打开而
+// 反复重置）。本文件为 node 环境，localStorage 用 stub 模拟。
+describe('ChapterTreePanel: 首开显式标志（R26-74）', () => {
+  const ls = new Map<string, string>()
+  const KEY = (b: string) => `clw2.tree-first-open.${b}`
+
+  beforeEach(() => {
+    ls.clear()
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => ls.get(k) ?? null,
+      setItem: (k: string, v: string) => void ls.set(k, v),
+      removeItem: (k: string) => void ls.delete(k),
+    })
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('持久化展开态只有一项（作者刻意收拢）→ 重开面板不再被重置为默认展开', async () => {
+    // 首开：套默认（grouped mock 为空 → 默认展开为空数组），并落 per-book 标记
+    const w = mount(ChapterTreePanel, { props: { bookName: '书A' } })
+    mocks.pendingLoads[0]!.res()
+    await flushPromises()
+    w.unmount()
+
+    // 作者收拢到只剩一项（length 1 的持久化意图，落 prefs.json）
+    wsReactive.treeExpanded = ['卷一']
+
+    // 重开面板（切书往返）：修复前 length<=1 启发式误判首开 → 被重置成默认展开
+    const w2 = mount(ChapterTreePanel, { props: { bookName: '书A' } })
+    mocks.pendingLoads.at(-1)!.res()
+    await flushPromises()
+    expect(wsReactive.treeExpanded).toEqual(['卷一']) // 修复点：持久化意图保持
+    w2.unmount()
+    expect(ls.get(KEY('书A'))).toBe('1') // 标记已登记
+  })
+
+  it('真·首次打开新书 → 按当前树套默认展开（标志不误伤首开）', async () => {
+    wsReactive.treeExpanded = ['旧书残留']
+    const w = mount(ChapterTreePanel, { props: { bookName: '新书' } })
+    mocks.pendingLoads[0]!.res()
+    await flushPromises()
+    // tree store mock 的 grouped 为空 → defaultExpandedDirs([]) = 空数组（首开套默认）
+    expect(wsReactive.treeExpanded).toEqual([])
+    expect(ls.get(KEY('新书'))).toBe('1')
     w.unmount()
   })
 })

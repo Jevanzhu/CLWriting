@@ -58,6 +58,16 @@ let bookGen = 0
   watch(bookName, async (n) => {
     // 快速连切防乱序：flushDirty 挂起期间又切了书 → 本轮放弃（新轮回处理切换）
     const gen = ++bookGen
+    // R26-18（二十六轮）：同书重入短路——守卫取消分支 router.replace 回原书会再次触发
+    // 本 watch，此时书并未变化，workbench.clear/flushDirty/setBook/各 store clear 全是
+    // 零收益动作（clear 还会误清原书工作台态）。n===lastBook 直接返回，不重复清。
+    // R28-24（二十八轮）：口径收窄——「原封」仅对 Z-8 冲突拒绝路径成立（其取消点在
+    // 下方 workbench.clear 之前）；F1 路径（flush 失败拒绝）弹窗前 workbench.clear() 已
+    // 执行，回退后原书 workbench 态（textOut/healPhase 等）不保留——这是既有第五轮口径
+    // （clear 提前防双 spawn 窗），非本短路新增损失；其余 store 均在 clear 之后、未动。
+    // 首载 lastBook==='' 不受影响：路由书名经 X-P2-21 归空串时 n==='' 与 lastBook 初值
+    // 相等，但首载时各 store 本就是初值，短路等价于原「清一遍空状态」，无行为差异。
+    if (n === lastBook) return
     // Z-8（第五十八轮）：未决冲突守卫——conflict && dirty 文档的本地修改从未落盘（autosave
     // 跳过 conflict 项），setBook 清缓存即不可恢复丢失，此前全程静默。确认弹窗：拒绝 → 回退
     // 路由留在原书（first watch 即时跑，lastBook 初值为空时跳过守卫）
@@ -104,6 +114,12 @@ let bookGen = 0
       })
       if (gen !== bookGen) return
       if (!drop) {
+        // R26-18：此分支在 lastBook = n 之后取消——lastBook 已指向未切换成的目标书，
+        // 与实际路由（回退到 prev）不一致；不恢复则回退重入 n=prev !== lastBook 走不到
+        // 上方短路，且此后选回 n 书会被短路误吞。恢复 lastBook = prev 维持「lastBook ⟺
+        // 当前路由书」不变式，回退重入即被短路（不重复清；R28-24：workbench 态已在
+        // 本轮前段 workbench.clear() 清掉、不因此恢复——第五轮既有口径）
+        lastBook = prev
         void router.replace(`/book/${encodeURIComponent(prev)}`)
         return
       }

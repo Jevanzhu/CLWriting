@@ -79,7 +79,8 @@ test('R73-37: 定稿过滤后全部章空正文 → 零产物失败信封 + 逐�
     const r = exportBook({ bookRoot: root, format: 'merged' })
     expect(r.ok).toBe(false)
     expect(r.chapterCount).toBe(0)
-    expect(r.error).toContain('没有可导出的定稿正文')
+    // R26-53（二十六轮）：文案如实归因——各章均已定稿，病因是空正文/读取失败
+    expect(r.error).toContain('正文全部为空或读取失败')
     expect(r.warnings?.filter((w) => w.includes('正文为空'))).toHaveLength(2)
   } finally {
     rmSync(root, { recursive: true, force: true })
@@ -102,6 +103,44 @@ test('R73-37: 定稿过滤 + 空正文章并存 → skippedDrafts 与实际产�
     expect(r.warnings?.some((w) => w.includes('写作/正文/2-定稿空章.md') && w.includes('正文为空'))).toBe(true)
     expect(existsSync(join(root, '工作区', '导出', '分章', '0001-定稿有肉.md'))).toBe(true)
     expect(existsSync(join(root, '工作区', '导出', '分章', '0003-在写草稿.md'))).toBe(false)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// R28-16（二十八轮）：零可写章收口的报数如实口径——units.length 是正文区全部章数，
+// 跳过草稿/无清单兜底时按它报「有定稿章 N 章」会虚高；有清单报定稿章数并注明跳过，
+// 无清单兜底改说正文区口径
+test('R28-16: 部分定稿全空 + 草稿并存 → 报定稿章数并注明跳过草稿', () => {
+  const root = makeLongBook('如实口径')
+  writeLongChapter(root, 1, '定稿空章', '')
+  finalizeAll(root) // 只登记在盘的第 1 章为已定稿
+  // 第 2、3 章在清单登记后落盘（不定稿）→ skippedDrafts=2
+  writeLongChapter(root, 2, '在写草稿一', '草稿正文一。')
+  writeLongChapter(root, 3, '在写草稿二', '草稿正文二。')
+  try {
+    const r = exportBook({ bookRoot: root, format: 'merged' })
+    expect(r.ok).toBe(false)
+    expect(r.skippedDrafts).toBe(2)
+    // 修复前：units.length=3 → 误报「有定稿章 3 章」；现按定稿集如实报 1 章
+    expect(r.error).toContain('有定稿章 1 章')
+    expect(r.error).toContain('2 章未定稿已跳过')
+    expect(r.error).toContain('正文全部为空或读取失败')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('R28-16: 无定稿清单兜底 → 不再误称「有定稿章」，改报正文区口径', () => {
+  const root = makeLongBook('无清单口径')
+  writeLongChapter(root, 1, '空章', '')
+  // 不写文档清单 → finalizedPathSet 返回 null，兜底不过滤
+  try {
+    const r = exportBook({ bookRoot: root, format: 'merged' })
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('正文区 1 章')
+    expect(r.error).toContain('正文全部为空或读取失败')
+    expect(r.error).not.toContain('有定稿章')
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

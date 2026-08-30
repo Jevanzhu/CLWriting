@@ -165,4 +165,41 @@ describe('E-2 · apiFetch 401/403 恢复通道', () => {
     // 原因）→ token 未变不重放，原样透传不空转
     expect(bootCalls).toBe(2)
   })
+
+  it('R26-81/R28-4：仅确定重放时 cancel 首响应体；不重放路径响应体完整留给调用方', async () => {
+    // 场景 A：re-boot 拿回新枚 → 确定重放 → 旧响应体不再需要，重放前 cancel 一次
+    const c = await freshClient()
+    const cancel = vi.fn(() => Promise.resolve())
+    let bootCalls = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input) === '/api/boot') {
+          bootCalls++
+          return jsonRes(200, { token: `T${bootCalls}` }) // 每次发新枚 → token 必变
+        }
+        // 受控 body 桩：观测 cancel 是否被调（真实 Response 体在 Node 侧不可注入 spy）
+        return { status: 401, ok: false, body: { cancel } } as unknown as Response
+      }),
+    )
+    await c.boot()
+    await c.apiFetch('/api/books/x/heartbeat', { method: 'POST' })
+    expect(cancel).toHaveBeenCalledTimes(1) // 重放分支：未读旧流释放，不占连接池
+
+    // 场景 B：token 未变 → 不重放 → 不 cancel——响应体须完整返回调用方
+    // （R28-4：原先无条件 cancel 把信封作废，apiJson 误判「本地服务未连接」）
+    const c2 = await freshClient()
+    const cancel2 = vi.fn(() => Promise.resolve())
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input) === '/api/boot') return jsonRes(200, { token: 'T9' })
+        return { status: 401, ok: false, body: { cancel: cancel2 } } as unknown as Response
+      }),
+    )
+    await c2.boot()
+    const r2 = await c2.apiFetch('/api/books/x/heartbeat', { method: 'POST' })
+    expect(cancel2).not.toHaveBeenCalled() // 不重放：调用方仍要读信封
+    expect(r2.status).toBe(401) // token 未变（T9 同枚）→ 不重放，原样透传
+  })
 })

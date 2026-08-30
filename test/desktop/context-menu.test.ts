@@ -74,3 +74,26 @@ describe('L-S3（第八轮）：菜单平面项数上限', () => {
     expect(ok).toHaveLength(200)
   })
 })
+
+describe('R27-95（二十七轮）：跨层扁平项预算', () => {
+  it('嵌套载荷总量钳在 200：每层各 200 项 × 5 层深不再是指数积', () => {
+    // 修复前：每层独立 200 上限，恶意 5 层嵌套每层合规、总量 200^5 无界
+    const leaf = Array.from({ length: 200 }, (_, i) => ({ label: `底${i}` }))
+    let node: unknown = leaf
+    for (let d = 0; d < 4; d++) {
+      node = Array.from({ length: 200 }, (_, i) => ({ label: `层${d}-${i}`, submenu: node }))
+    }
+    const top = parseContextMenuSpecs(node)
+    expect(top).not.toBeNull()
+    // 顶层 200 项全收后预算耗尽：深层 submenu 被 SV-1 口径剥掉（保留顶层项，总数 ≤200）
+    expect(top).toHaveLength(200)
+    const flat = (spec: { submenu?: unknown[] }): number => {
+      let n = 0
+      for (const s of spec.submenu ?? []) n += 1 + flat(s as { submenu?: unknown[] })
+      return n
+    }
+    let total = 0
+    for (const item of top!) total += 1 + flat(item as { submenu?: unknown[] })
+    expect(total).toBeLessThanOrEqual(200)
+  })
+})

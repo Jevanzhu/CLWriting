@@ -18,9 +18,13 @@ import { defineRoute } from './schema.js'
 import { readJson, reply, replyError, parseRequestUrl } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { invalidateTreeIndex } from '../../../document/tree.js'
+import { snapshotBeforeOverwrite } from '../../../process/draft-pipeline.js' // R26-9（二十六轮）：覆盖留底单源复用（R71-9/R74-4 同款）
+import { log } from '../../../log/index.js'
 
 interface FileCtx {
   workDir: string | null
+  /** R26-9（二十六轮）：留底保留策略读 global.json 需要（缺省 → 硬编码默认，与快照端点同口径） */
+  userDataPath: string | null
 }
 
 /** 可编辑目录（相对 bookRoot）+ 编辑模式（正文纯文本 / 设定 MD） */
@@ -92,8 +96,11 @@ export function registerFileRoutes(ctx: FileCtx): void {
       const file = q.get('file') ?? ''
       // X-P2-14：路径寻址 PUT 不放行 写作/正文——正文保存必须走 /documents/:docId/content
       // （乐观锁 + journal + 快照协议），否则编辑器并发保存被静默覆写、树状态失真
-      const safe = writablePath(r.bookRoot, file)
-      if (!safe) return replyError(res, 400, 'BAD_PATH', '非法路径（正文请走文档保存协议）')
+      // R26-9（二十六轮）：writablePath 同次解析带回 rel（快照留底按 bookRoot 相对路径寻址）
+      const dest = writablePath(r.bookRoot, file)
+      if (!dest) return replyError(res, 400, 'BAD_PATH', '非法路径（正文请走文档保存协议）')
+      const putRel: string = dest.rel
+      const safe: string = dest.abs
       const body = (await readJson(req)) as { content?: unknown; expectedRevision?: unknown }
       if (typeof body.content !== 'string') {
         replyError(res, 400, 'BAD_INPUT', '缺少 content')
@@ -126,6 +133,16 @@ export function registerFileRoutes(ctx: FileCtx): void {
             code: 'REVISION_CONFLICT',
             error: '文件已在其他地方修改（基线不符）——请重载最新内容后再保存',
           } as const
+        }
+        // R26-9（二十六轮）：覆盖写前快照留底——PUT /file 直接 atomicWriteFile 覆盖既有
+        // 文件（设定/大纲/细纲等编辑器白名单 .md），旧内容此前无版本链、误存即不可恢复。
+        // 复用 draft 侧 snapshotBeforeOverwrite 单源工具（文件不存在/内容相同 → null 不留）。
+        // 留底失败 fail-open（log 留痕不阻断保存）——与 onboard-ai（R71-9）同口径：保存
+        // 主链路不因留底 IO 抖动失败（编辑器 PUT 另有乐观锁 + per-file 串行链兜底）。
+        try {
+          snapshotBeforeOverwrite(r.bookRoot, putRel, content, 'file-put-overwrite', undefined, ctx.userDataPath)
+        } catch (e) {
+          log.warn('api', `PUT /file 覆盖前快照失败（fail-open 继续保存）：${safe}`, e)
         }
         atomicWriteFile(safe, content)
         // U-P2-8：与 DocumentService 写路径同口径——失效树索引缓存（wordCount/status），
@@ -216,14 +233,15 @@ function editablePath(bookRoot: string, file: string): string | null {
   return allowed ? safe.abs : null
 }
 
-/** X-P2-14：写侧白名单 = editablePath 去掉 写作/正文——正文 PUT 走文档保存协议（读侧 doc store 仍按路径读正文）。 */
-function writablePath(bookRoot: string, file: string): string | null {
+/** X-P2-14：写侧白名单 = editablePath 去掉 写作/正文——正文 PUT 走文档保存协议（读侧 doc store 仍按路径读正文）。
+ *  R26-9（二十六轮）：返回值带 rel（bookRoot 相对路径）——快照留底 snapshotBeforeOverwrite 按 rel 寻址，免二次解析。 */
+function writablePath(bookRoot: string, file: string): { rel: string; abs: string } | null {
   const safe = resolveWithinRoot(bookRoot, file)
   if (!safe) return null
   if (!file.endsWith('.md') || basename(file).startsWith('._')) return null
   if (safe.rel === '写作/正文' || safe.rel.startsWith('写作/正文/')) return null
   const allowed = EDIT_DIRS.some(({ dir }) => safe.rel === dir || safe.rel.startsWith(`${dir}/`))
   if (!allowed && !WORKDIR_EDITABLE.has(safe.rel)) return null
-  return safe.abs
+  return { rel: safe.rel, abs: safe.abs }
 }
 

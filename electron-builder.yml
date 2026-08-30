@@ -21,6 +21,11 @@ mac:
   icon: build/icon.png
 # win 已启用（阶段 21 J0，2026-08-28；D1 仅 NSIS / D3 x64 先行 / 首版 unsigned 披露见 D4）；
 # linux 仍暂缓（2026-06-30 决策不变，恢复时取消注释）
+# R77-4（二十五轮批 F，J6 落账）：首版 unsigned 维持——SmartScreen「更多信息→仍要运行」
+# 与无自动更新（覆盖安装）指引在根 README「Windows 版使用须知」。长路径对策复核收口：
+# electron-builder 无 longPathAware 字段（app-builder-lib schema 零命中，2026-08-30），
+# Node/libuv 对绝对路径自动 \\?\ 前缀已绕 MAX_PATH（test/fs/long-path-smoke.test.ts 冒烟），
+# 披露口径 = 书库路径建议 <200 字符。
 win:
   target:
     - target: nsis

@@ -305,13 +305,14 @@ describe('F1-P3 血缘事件构造器', () => {
     })
   })
 
-  it('assistantMessageEvent 可选 sourceSeqs 透传', () => {
+  it('assistantMessageEvent 可选 sourceIdxs 透传（R26-20：批内索引字段改名，与全局 seq 的 sourceSeqs 拆分）', () => {
     expect(assistantMessageEvent('ok', undefined, undefined, [3, 4])).toEqual({
       type: 'assistant/message',
       data: { message: 'ok' },
       surfaceOp: 'append',
-      sourceSeqs: [3, 4],
+      sourceIdxs: [3, 4],
     })
+    expect(assistantMessageEvent('ok')).not.toHaveProperty('sourceIdxs')
     expect(assistantMessageEvent('ok')).not.toHaveProperty('sourceSeqs')
   })
 })

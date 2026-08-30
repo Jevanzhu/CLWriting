@@ -9,8 +9,11 @@ import type { TokenUsage } from './provider/types.js'
 
 const MOCK_USAGE: TokenUsage = { inputTokens: 100, outputTokens: 50 }
 
-/** 各 tool 的 mock input（按 toolName 分发） */
-const MOCK_TOOL_INPUT: Record<string, unknown> = {
+/** 各 tool 的 mock input（按 toolName 分发）。
+ *  R26-27（二十六轮）：导出供治理测试对账（test/governance/mock-tool-zero-billing.test.ts
+ *  静态扫 mockTool 调用面 vs 本表键集）——漏键即 mock 模式下漏斗到真实计费调用，
+ *  破坏零成本契约（dd-P2 同型事故），此处靠测试门拦漂移。 */
+export const MOCK_TOOL_INPUT: Readonly<Record<string, unknown>> = {
   submit_score: { score: 8, verdict: 'mock 体验：节奏稳健', dims: { 爽点: 8, 节奏感: 7, 拖沓: 3 } },
   submit_emotion: { segments: [{ seg: '开头', emotion: 0, label: 'mock 平稳' }, { seg: '高潮', emotion: 2, label: 'mock 高点' }] },
   submit_hooks: { hooks: [{ pos: '章尾', type: '悬念钩', strength: 4, note: 'mock 悬念' }], density: '中' },

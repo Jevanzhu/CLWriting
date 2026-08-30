@@ -24,9 +24,13 @@ export const QUOTE_CLOSE_LENIENT = QUOTE_CLOSE + '"'
  * 此前本正则漏收，‘他低声道’ 一类单引号嵌套对白不构成 span（剥除/证据面漂移）。 */
 export const QUOTED_SPAN_RE = /[「『“‘][^」』”’]*[」』”’]/
 
-/** 剥除行内全部引号片段，返回引号外文本（对话标签判定只看提示语，V-P1-7）。 */
+/** 剥除行内全部引号片段，返回引号外文本（对话标签判定只看提示语，V-P1-7）。
+ *  R26-47（二十六轮）：本函数按行高频调用、原每次 new RegExp 提升为模块级常量
+ *  （String.replace 对 g 正则每调用重置扫描位，共享常量安全，语义逐字不变）。 */
+const QUOTED_SPAN_GLOBAL_RE = new RegExp(QUOTED_SPAN_RE.source, 'g')
+
 export function stripQuotedSpans(line: string): string {
-  return line.replace(new RegExp(QUOTED_SPAN_RE.source, 'g'), '')
+  return line.replace(QUOTED_SPAN_GLOBAL_RE, '')
 }
 
 /** 引号内常见的句读（对白内容特征：专名一般不含句读；对白以句读收尾或含句读）。 */

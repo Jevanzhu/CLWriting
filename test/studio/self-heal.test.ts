@@ -9,6 +9,11 @@ import { test, expect } from 'vitest'
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { makeDualTrackWorkdir, SHORT_BOOK, LONG_BOOK, tempUserData } from '../studio/fixtures.js'
+// R27-120/121（二十七轮）：workDir/userDataPath 登记回收——本文件原先 0 个 rmSync，
+// 每次全量跑泄漏含 .git 的双书仓库（fixtures.ts 裸 mkdtemp 因 Playwright global-setup
+// 复用不能改，per-test 包 trackTempDir）；userDataPath 弃固定共享 '/tmp/clwriting-test'
+// 改 tempUserData 唯一目录（fixtures.ts:199 口径）+ 登记清算
+import { trackTempDir } from '../helpers/temp-dir.js'
 import {
   runSelfHeal,
   isSelfHealRunning,
@@ -105,7 +110,7 @@ function setup(
   check: (p: string) => CheckOutcome,
   extra?: Partial<SelfHealOpts>,
 ): Setup {
-  const workDir = makeDualTrackWorkdir()
+  const workDir = trackTempDir(makeDualTrackWorkdir())
   const bookRoot = join(workDir, '短篇', SHORT_BOOK)
   const emitted: DriverEvent[] = []
   const driver = makeEmitDriver(emitted)
@@ -114,7 +119,7 @@ function setup(
   const opts: SelfHealOpts = {
     driver,
     mainSession: { id: 'main', cwd: workDir, closed: false },
-    userDataPath: '/tmp/clwriting-test',
+    userDataPath: trackTempDir(tempUserData()),
     cwd: workDir,
     bookRoot,
     bookName: BOOK,
@@ -411,7 +416,7 @@ function setupLongBook(
   check: (p: string) => CheckOutcome,
   extra: Partial<SelfHealOpts> = {},
 ): { opts: SelfHealOpts; emitted: DriverEvent[]; prompts: string[]; bookRoot: string } {
-  const workDir = makeDualTrackWorkdir()
+  const workDir = trackTempDir(makeDualTrackWorkdir())
   const bookRoot = join(workDir, '长篇', LONG_BOOK)
   // 细纲声明推进 悬念-001（账本侧红的数据条件；check 为替身，声明仅为口径还原）
   mkdirSync(join(bookRoot, '工作区'), { recursive: true })
@@ -421,7 +426,7 @@ function setupLongBook(
   const opts: SelfHealOpts = {
     driver: makeEmitDriver(emitted),
     mainSession: { id: 'main', cwd: workDir, closed: false },
-    userDataPath: tempUserData(),
+    userDataPath: trackTempDir(tempUserData()),
     cwd: workDir,
     bookRoot,
     bookName: LONG_BOOK,

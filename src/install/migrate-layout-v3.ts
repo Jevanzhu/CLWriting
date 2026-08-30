@@ -1,7 +1,8 @@
 /**
  * v3 迁移：取消草稿目录——`写作/草稿/草稿-N.md` 搬到正文区。
  *
- * 幂等：源不存在 → no-op；目标已存在 → 跳过（防覆盖）。
+ * 幂等：源不存在 → no-op；目标已存在 → 跳过（防覆盖；R26-88：细纲/首章细纲两分支
+ * 的防覆盖跳过记入 errors，草稿正文分支照旧移回收站）。
  * 搬完后更新文档清单路径，尝试删空 `写作/草稿/` 目录。
  *
  * 细纲/本章写作材料/首章细纲 已在任务1改路径引用，此处做磁盘搬迁兜底。
@@ -9,7 +10,7 @@
 import { existsSync, readdirSync, renameSync, rmdirSync, readFileSync, mkdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { resolveDraftPath } from '../format/draft.js'
-import { readManifest, writeManifest, withManifestLock } from '../document/manifest.js'
+import { readManifestStrict, writeManifest, withManifestLock, removeEntry } from '../document/manifest.js'
 import { appendTrashEntry } from '../document/trash.js'
 import { ulid } from '../fs/id.js'
 import { roleOf } from '../document/layout.js'
@@ -45,6 +46,8 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
   let migrated = 0
   const errors: string[] = []
   const pathRemap = new Map<string, string>() // 旧 path → 新 path（manifest 更新用）
+  // R27-133（二十七轮）：旧稿入回收站的旧 path 集合——主清单同路径旧条目待清
+  const trashPaths = new Set<string>()
 
   for (const name of readdirSync(draftDir)) {
     const srcAbs = join(draftDir, name)
@@ -57,6 +60,11 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
           renameSync(srcAbs, dst)
           migrated++
         } catch (e) { errors.push(`${name}: ${e instanceof Error ? e.message : String(e)}`) }
+      } else {
+        // R26-88（二十六轮）：目标已存在不再静默跳过——对齐 R72-9「未识别文件不再静默
+        // 跳过」口径：源文件滞留草稿区成孤儿（v3 布局已退役该目录）作者无从知晓，
+        // 记入 errors 提示手动处置；文件保持原位不覆盖。
+        errors.push(`${name}: 目标 工作区/${name} 已存在，防覆盖跳过，源文件滞留 写作/草稿/，请手动核对去留`)
       }
       continue
     }
@@ -71,6 +79,10 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
           migrated++
           pathRemap.set(`写作/草稿/${name}`, `大纲/${dstName}`)
         } catch (e) { errors.push(`${name}: ${e instanceof Error ? e.message : String(e)}`) }
+      } else {
+        // R26-88（二十六轮）：同目标（首篇/首章两源抢 大纲/首章细纲.md）防覆盖跳过
+        // 同样记入 errors——两源内容可能不同，静默丢弃后到者有丢稿风险，提示手动核对。
+        errors.push(`${name}: 目标 大纲/${dstName} 已存在，防覆盖跳过，源文件滞留 写作/草稿/，请手动核对去留`)
       }
       continue
     }
@@ -98,6 +110,7 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
       try {
         trashDraft(bookRoot, srcAbs, name)
         migrated++
+        trashPaths.add(`写作/草稿/${name}`) // R27-133：旧路径清单条目待清
       } catch (e2) { errors.push(`${name} → .trash: ${e2 instanceof Error ? e2.message : String(e2)}`) }
       continue
     }
@@ -107,6 +120,7 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
       try {
         trashDraft(bookRoot, srcAbs, name)
         migrated++
+        trashPaths.add(`写作/草稿/${name}`) // R27-133：旧路径清单条目待清
       } catch (e) { errors.push(`${name} → .trash: ${e instanceof Error ? e.message : String(e)}`) }
       continue
     }
@@ -120,18 +134,27 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
     }
   }
 
-  // 更新文档清单路径（path 变更 → 重建 entries Map，key 不变只改 entry.path）
+  // 更新文档清单（path 变更 → 重建 entries Map，key 不变只改 entry.path；R27-133：
+  // 入回收站的旧 path → 清除旧条目——草稿若曾登记，文件进 .trash 后 entry 悬挂指向
+  // 退役目录 写作/草稿/，还原落点也在退役目录；对齐 doTrash「移文件成功后清清单条目」
+  // 口径，与 pathRemap 同锁同轮收口）
   // R64-23（十二轮）：RMW 持 withManifestLock（Y-4/X-5 纪律）——防迁移期与 service/
   // 其他迁移并发互覆盖丢 entry
-  if (pathRemap.size > 0) {
+  if (pathRemap.size > 0 || trashPaths.size > 0) {
     try {
       const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
       withManifestLock(manifestPath, () => {
-        const manifest = readManifest(manifestPath)
+        const manifest = readManifestStrict(manifestPath) // R27-40：RMW strict 读（读失败上抛走外层 errors 收口）
+        const removeIds: string[] = []
         for (const entry of manifest.entries.values()) {
           const newPath = pathRemap.get(entry.path)
-          if (newPath) entry.path = newPath
+          if (newPath) {
+            entry.path = newPath
+            continue
+          }
+          if (trashPaths.has(entry.path)) removeIds.push(entry.id)
         }
+        for (const id of removeIds) removeEntry(manifest, id)
         writeManifest(manifestPath, manifest)
       })
     } catch (e) {

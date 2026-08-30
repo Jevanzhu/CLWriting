@@ -57,7 +57,7 @@ function makeBook(): string {
 
 const bodyOf = (root: string, no: number): string => join(root, '写作', '正文', `${String(no).padStart(3, '0')}-第${no}章.md`)
 
-test('P5-管线（第七轮）：同卷并发只放行一个，第二个报「已在途」，完成后键释放可 skipped', async () => {
+test('P5-管线（第七轮）：同卷并发只放行一个，第二个 skipped（R26-19：去重命中非失败），完成后键释放可 skipped', async () => {
   const root = makeBook()
   try {
     for (const ch of [1, 2]) {
@@ -66,9 +66,10 @@ test('P5-管线（第七轮）：同卷并发只放行一个，第二个报「�
     }
     const first = generateVolumeSummary({ bookRoot: root, userDataPath: null, config: DEFAULT_CONFIG, volume: 1 })
     await delay(30) // 等第一个真正进入挂起的 AI 调用（在途窗口内）
+    // R26-19（二十六轮）：并发去重命中 = 他人正在生成，返回 skipped（非失败）——
+    // 调用方不再把「已在途」误报成自愈失败（R26-101 同步闭合）
     const second = await generateVolumeSummary({ bookRoot: root, userDataPath: null, config: DEFAULT_CONFIG, volume: 1 })
-    expect(second.ok).toBe(false)
-    if (!second.ok) expect(second.error).toContain('已在途')
+    expect(second.ok && second.skipped).toBe(true)
     releaseVolume!()
     const r1 = await first
     expect(r1.ok).toBe(true)
