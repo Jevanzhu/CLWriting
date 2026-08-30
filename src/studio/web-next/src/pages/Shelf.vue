@@ -7,6 +7,7 @@ import { useRouter } from 'vue-router'
 import { Sun, Moon, BookOpen, LayoutGrid, List, Plus, Trash2, CheckSquare } from 'lucide-vue-next'
 import { useShelf, formatWords, formatRelative } from '../composables/useShelf'
 import { useTheme } from '../composables/useTheme'
+import { usePlatform } from '../composables/usePlatform'
 import { isImeComposing } from '../shared/ime'
 import ShelfGrid from '../components/ui/ShelfGrid.vue'
 import ShelfHeroCard from '../components/shelf/ShelfHeroCard.vue'
@@ -17,6 +18,7 @@ import ConfirmDeleteModal from '../components/ui/ConfirmDeleteModal.vue'
 const router = useRouter()
 const { theme, toggle } = useTheme()
 const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
+const { isMac } = usePlatform()
 const {
   shelf, groups, latestBook, viewMode, setView,
   query, sortBy, setSortBy,
@@ -77,7 +79,7 @@ function openBook(name: string): void {
 </script>
 
 <template>
-  <div class="shelf" :class="{ 'has-traffic': hasDesktop }">
+  <div class="shelf" :class="{ 'has-traffic': isMac }">
     <!-- 环境背景：呼吸光晕（与 Welcome 同语言） -->
     <div class="ambient">
       <div class="glow glow-tr"></div>

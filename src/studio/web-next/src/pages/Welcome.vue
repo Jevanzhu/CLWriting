@@ -3,8 +3,9 @@
 // 引导用户新建书库或打开已有书库；提供最近书库快捷切换。全部走现有桌面 IPC。
 import { ref, onMounted } from 'vue'
 import { Sparkles, FolderOpen, BookOpen, ArrowRight, Clock } from 'lucide-vue-next'
+import { usePlatform } from '../composables/usePlatform'
 
-const hasDesktop = !!window.clwritingDesktop
+const { isDesktop: hasDesktop, isMac } = usePlatform()
 const recents = ref<{ path: string; label: string }[]>([])
 const loading = ref(true)
 // 低级项（第六轮）：IPC 失败不再永久「加载中…」——错误态 + 重试出口
@@ -48,7 +49,7 @@ async function switchTo(path: string): Promise<void> {
 </script>
 
 <template>
-  <div class="welcome" :class="{ 'has-traffic': hasDesktop }">
+  <div class="welcome" :class="{ 'has-traffic': isMac }">
     <!-- 环境背景：多层渐变 + 呼吸光晕（签名氛围层） -->
     <div class="ambient">
       <div class="glow glow-tr"></div>
