@@ -6,11 +6,12 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { FilePlus, ChevronDown, Focus, PanelRight, PanelLeft } from 'lucide-vue-next'
 import { useWorkspaceStore, type CreateKind } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
+import { usePlatform } from '../../composables/usePlatform'
 
 defineProps<{ bookName: string }>()
 const ws = useWorkspaceStore()
 const tree = useTreeStore()
-const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
+const { isDesktop, isMac, isWin } = usePlatform()
 // 左栏可见性（含专注模式覆盖）：关闭/专注时 ws-main 左移到交通灯区，lead 需避让
 const leftVisible = computed(() => ws.leftOpen && !ws.focusMode)
 // 右栏可见性：关闭时 tabbar-actions 贴窗口右上角，需避让 win 窗控 overlay（J5）；
@@ -56,7 +57,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
 <template>
   <div
     class="tabbar"
-    :class="{ 'is-drag': hasDesktop, 'avoid-traffic': hasDesktop && !leftVisible, 'avoid-wco': hasDesktop && !rightVisible }"
+    :class="{ 'is-drag': isDesktop, 'avoid-traffic': isMac && !leftVisible, 'avoid-wco': isWin && !rightVisible }"
   >
     <!-- 最左 lead 区：新建按钮（split）+ 展开左栏（条件） -->
     <div class="tabbar-lead">
@@ -185,8 +186,8 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: var(--size-control);
+  height: var(--size-control);
   border: none;
   background: transparent;
   color: var(--text-muted);

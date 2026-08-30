@@ -19,13 +19,15 @@ import {
 import { useTheme } from '../../composables/useTheme'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
+import { usePlatform } from '../../composables/usePlatform'
 
 // Ribbon（~44px 图标列）：上部 章节树/搜索/总览/工作台/开书；底部 导出/书架/设置/亮暗。
 // macOS 交通灯占顶部 ~28px：桌面版顶部留白 40px（图标下移避让）+ 顶部空白可拖动窗口（参考 Obsidian）。
+// 交通灯仅 mac（左上红绿灯）→ has-traffic（top 留白）仅 isMac；win 无左上红绿灯不加。
 const { theme, toggle } = useTheme()
 const ws = useWorkspaceStore()
 const ui = useUiStore()
-const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
+const { isMac } = usePlatform()
 
 // 书架：主窗口内浮层（与设置统一；不再弹独立窗口）
 function openShelf(): void {
@@ -40,7 +42,7 @@ function openLibraryManager(): void {
 </script>
 
 <template>
-  <div class="ribbon" :class="{ 'has-traffic': hasDesktop }">
+  <div class="ribbon" :class="{ 'has-traffic': isMac }">
     <div class="ribbon-group">
       <button
         class="rbtn" data-tip-dir="right"
@@ -189,8 +191,8 @@ function openLibraryManager(): void {
   gap: 2px;
 }
 .rbtn {
-  width: 32px;
-  height: 32px;
+  width: var(--size-ribbon-btn);
+  height: var(--size-ribbon-btn);
   display: flex;
   align-items: center;
   justify-content: center;

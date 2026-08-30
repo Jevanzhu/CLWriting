@@ -16,11 +16,12 @@ import CollapseSection from '../ui/CollapseSection.vue'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
 import { formKindOf, isBodyKind } from '../../shared/words'
+import { usePlatform } from '../../composables/usePlatform'
 
 defineProps<{ bookName: string }>()
 const ws = useWorkspaceStore()
 const tree = useTreeStore()
-const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
+const { isDesktop, isWin } = usePlatform()
 
 const showOutlineForm = computed(() => {
   if (!ws.activeDocId) return false
@@ -59,7 +60,7 @@ const isReviewable = computed(() => {
 
 <template>
   <div class="sidebar-right">
-    <div class="right-topbar" :class="{ 'is-drag': hasDesktop, 'wco-avoid': hasDesktop }">
+    <div class="right-topbar" :class="{ 'is-drag': isDesktop, 'wco-avoid': isWin }">
       <button
         class="right-tab"
         data-tip="收起右栏"
@@ -164,8 +165,9 @@ const isReviewable = computed(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: var(--size-control-sm);
+  height: var(--size-control-sm);
+  flex-shrink: 0;
   padding: 0;
   border: none;
   border-radius: var(--radius-s);

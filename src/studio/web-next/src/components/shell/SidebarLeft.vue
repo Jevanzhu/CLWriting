@@ -6,13 +6,16 @@ import { useTreeStore } from '../../stores/tree'
 import ChapterTreePanel from '../panels/ChapterTreePanel.vue'
 import SearchPanel from '../panels/SearchPanel.vue'
 import TrashPanel from '../panels/TrashPanel.vue'
+import { usePlatform } from '../../composables/usePlatform'
 
 // 左侧栏：顶部面板切换（树/搜索/回收站）+ 活动面板。
 // 桌面版：顶部横排按钮与交通灯同一排（在交通灯右侧），右移让出交通灯宽度，不下移。
+// 交通灯仅在 mac（左上角红绿灯）存在 → has-traffic（52px 左避让）仅 mac 命中；
+// win 无左上角红绿灯，不加此避让（其右上 WCO 由 TabBar/右栏 env 避让）。
 const props = defineProps<{ bookName: string }>()
 const ws = useWorkspaceStore()
 const tree = useTreeStore()
-const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
+const { isDesktop, isMac } = usePlatform()
 
 // 手动刷新树：重扫盘（外部编辑器 / CLI 写的文件不经服务端缓存失效）
 const refreshing = ref(false)
@@ -28,8 +31,8 @@ async function onRefresh(): Promise<void> {
 </script>
 
 <template>
-  <div class="sidebar-left" :class="{ 'has-traffic': hasDesktop }">
-    <div class="left-tabs" :class="{ 'is-drag': hasDesktop }">
+  <div class="sidebar-left" :class="{ 'has-traffic': isMac }">
+    <div class="left-tabs" :class="{ 'is-drag': isDesktop }">
       <button
         v-if="ws.leftPanel === 'tree'"
         class="left-tab refresh-tree"
@@ -79,8 +82,8 @@ async function onRefresh(): Promise<void> {
   -webkit-app-region: drag;
 }
 .left-tab {
-  width: 28px;
-  height: 28px;
+  width: var(--size-control);
+  height: var(--size-control);
   display: flex;
   align-items: center;
   justify-content: center;

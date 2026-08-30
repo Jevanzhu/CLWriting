@@ -44,6 +44,11 @@
   --size-ribbon: 44px;
   --size-tabbar: 32px;
   --size-statusbar: 24px;
+  /* 交互控件尺寸（图标钮 / 侧栏宽）：组件零散硬编码收敛至此，按平台适配 */
+  --size-control: 28px;      /* 标准图标按钮（TabBar / 左栏 / 右栏收起钮） */
+  --size-control-sm: 26px;   /* 窄图标按钮（右栏 tab 组） */
+  --size-ribbon-btn: 32px;   /* Ribbon 图标列按钮 */
+  --size-side-right: 260px;  /* 右栏固定宽度 */
   /* 4-base 间距阶（Obsidian 惯例：4-1=4 .. 4-16=64，跨主题不变） */
   --size-4-1: 4px;
   --size-4-2: 8px;
@@ -99,14 +104,64 @@
   --dv-bad: var(--text-error);
 }
 
-/* J5（win 体验面，2026-08-30）：字体栈按平台分支。win 的 system-ui 落 Segoe UI，
- * 中文回退链末尾的 Microsoft YaHei 与西文混排不自然，此处把中文显式提前到
- * Microsoft YaHei UI（win 8+ 变体，字形为 UI 优化）；mac/浏览器不经 data-platform
- * 不命中，仍走 :root 默认栈。只改字形，不动任何字号/尺寸，零布局影响。 */
+/* ===== 平台两套适配（J5，2026-08-31）：UI 外观不变，仅按平台渲染各套一套。
+ * 基准 = :root 默认（即 mac 观感），mac 桌面 / 浏览器预览均走此；win 覆盖成
+ * win 优化值。data-platform 由 main.ts 在桌面启动时挂 html 根（进程.platform：
+ * win32/darwin/…）。只拆几何类维度（字号/间距/圆角/外壳/prose/字体栈），
+ * 颜色/阴影/dataviz 跨平台不动，避免与 light/dark 叠成 2×2 矩阵。 */
+/* win（光学渲染：ClearType + Microsoft YaHei 字形偏紧凑 → 小字号可读性弱）。
+ * 策略：字号整体 +1px、根字号 15、prose 18、圆角略大（win11 圆润风）、
+ * 间距小阶放宽 1px。 */
 :root[data-platform='win32'] {
+  /* 根字号（base.css body 用） */
+  --root-size: 15px;
+  /* 字体栈：西文 Segoe UI + 中文 Microsoft YaHei UI（win8+ 变体）前置 */
   --font-ui: 'Segoe UI', 'Microsoft YaHei UI', system-ui, -apple-system, 'PingFang SC',
     'Microsoft YaHei', sans-serif;
   --font-monospace: Consolas, ui-monospace, 'SF Mono', Menlo, monospace;
+  /* 字号 +1px */
+  --font-size-xxs: 11px;
+  --font-size-xs: 12px;
+  --font-size-s: 13px;
+  --font-size-m: 14px;
+  --font-size-l: 16px;
+  --font-size-xl: 19px;
+  --font-size-2xl: 26px;
+  /* 圆角略放大（win11 圆润风） */
+  --radius-s: 6px;
+  --radius-m: 10px;
+  --radius-l: 14px;
+  --radius-xl: 28px;
+  /* 间距小阶放宽 1px（8→9 等；大阶保持 4 基数） */
+  --size-4-1: 5px;
+  --size-4-2: 9px;
+  --size-4-3: 14px;
+  /* 外壳尺度与 win 密度 */
+  --size-ribbon: 46px;
+  --size-tabbar: 34px;
+  --size-statusbar: 25px;
+  /* 交互控件：win 略大一点，命中区更稳（ClearType 渲染偏细的感受补位） */
+  --size-control: 30px;
+  --size-control-sm: 26px;   /* 右栏 tab 组：受 WCO 避让硬约束，mac/win 同为 26 不放大 */
+  --size-ribbon-btn: 34px;
+  --size-side-right: 264px;
+  /* 正文排版：win 阅读字号更大 */
+  --prose-size: 18px;
+  --prose-lh: 1.9;
+}
+
+/* mac：显式声明 == :root 默认（主要为可读性 + 预留差异点）。mac 桌面命中此，
+ * 浏览器预览无 data-platform 也回落默认，两处观感一致。 */
+:root[data-platform='darwin'] {
+  --root-size: 14px;
+  --font-ui: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Microsoft YaHei', sans-serif;
+  --font-monospace: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --prose-size: 17px;
+  --prose-lh: 1.85;
+  --size-ribbon: 44px;
+  --size-tabbar: 32px;
+  --size-statusbar: 24px;
 }
 
 [data-theme='dark'] {

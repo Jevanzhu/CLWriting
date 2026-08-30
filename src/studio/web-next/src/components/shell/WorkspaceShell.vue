@@ -206,7 +206,7 @@ onUnmounted(() => {
   background: var(--background-secondary);
 }
 .ws-right {
-  width: 260px;
+  width: var(--size-side-right);
   border-left: 1px solid var(--background-modifier-border);
   background: var(--background-secondary);
 }
