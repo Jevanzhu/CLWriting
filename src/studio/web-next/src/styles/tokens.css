@@ -33,6 +33,17 @@
   /* 字体 */
   --font-ui: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   --font-monospace: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  /* UI 字号档（外观设置「字号」驱动）：整条刻度随 step 平移，0 = 平台基准
+   * （win 基准 +1px 见平台块；mac 0）。prefs 写 html 内联 --font-size-step 覆盖。 */
+  --font-size-step: 0px;
+  --root-size: calc(14px + var(--font-size-step));
+  --font-size-xxs: calc(10px + var(--font-size-step));
+  --font-size-xs: calc(11px + var(--font-size-step));
+  --font-size-s: calc(12px + var(--font-size-step));
+  --font-size-m: calc(13px + var(--font-size-step));
+  --font-size-l: calc(15px + var(--font-size-step));
+  --font-size-xl: calc(18px + var(--font-size-step));
+  --font-size-2xl: calc(24px + var(--font-size-step));
   /* 圆角（刻度对齐 dsh：图标钮 6 / 输入·条目 8 / 卡片 12 / 大面板·弹窗 24） */
   --radius-s: 4px;
   --radius-m: 8px;
@@ -73,13 +84,6 @@
   --shadow-s: 0 1px 3px rgba(0, 0, 0, 0.06);
   --shadow-m: 0 4px 12px rgba(0, 0, 0, 0.08);
   --shadow-l: 0 12px 32px rgba(0, 0, 0, 0.12);
-  --font-size-xxs: 10px;
-  --font-size-xs: 11px;
-  --font-size-s: 12px;
-  --font-size-m: 13px;
-  --font-size-l: 15px;
-  --font-size-xl: 18px;
-  --font-size-2xl: 24px;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-std: cubic-bezier(0.4, 0, 0.2, 1);
   --dur-fast: 120ms;
@@ -113,21 +117,15 @@
  * 度量值不变。字形渲染差异（ClearType vs 苹方平滑）属操作系统层，应用不补偿。
  * data-platform 由 main.ts 启动时挂 html 根（win32/darwin/…），浏览器不挂 → 走 :root。 */
 :root[data-platform='win32'] {
-  /* MiSans 一体（2026-08-31 作者采纳推荐）：拉丁/数字/CJK 同一字库同源度量（混排
-   * 基线恒定）、真实 400-700 字重、免费商用可内嵌。Segoe/雅黑仅作加载期回退。
-   * （宋体方案实测观感不佳已撤；'Noto Sans SC VF' 保留为未声明备用资产。） */
-  --font-ui: 'MiSans', 'Segoe UI', 'Microsoft YaHei UI', system-ui, -apple-system,
-    'PingFang SC', 'Microsoft YaHei', sans-serif;
+  /* 原生系统栈（2026-08-31，ZCode 同款）：Segoe UI + 雅黑 UI——win 原生观感。
+   * 内嵌字体（MiSans/Noto）试用后全部撤：渲染质量由行高/字号/字重/对齐体系保证，
+   * 包体 -29MB。文字主色微提亮：#222 在 ClearType 下偏黑闷。 */
+  --font-ui: 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', system-ui, sans-serif;
   --font-monospace: Consolas, ui-monospace, 'SF Mono', Menlo, monospace;
-  /* 排版刻度整体 +1px：参考 Codex/ZCode 类 win 桌面应用 13-14px 正文基准，且 CJK
-   * 小字在 11px 以下 hinting 破碎（设置说明文字错位发虚重灾区）。mac 苹方无需。 */
-  --font-size-xxs: 11px;
-  --font-size-xs: 12px;
-  --font-size-s: 13px;
-  --font-size-m: 14px;
-  --font-size-l: 16px;
-  --font-size-xl: 19px;
-  --font-size-2xl: 25px;
+  --text-normal: #2e2e2e;
+  /* UI 字号档基准：win 比 mac 基准 +1px（ClearType 小字 hinting 差一档），
+   * 用户可在外观设置再 ±调节（prefs 写 html 内联 --font-size-step 覆盖此处）。 */
+  --font-size-step: 1px;
 }
 
 :root[data-platform='darwin'] {

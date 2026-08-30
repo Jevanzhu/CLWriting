@@ -85,6 +85,9 @@ export const usePrefsStore = defineStore('prefs', () => {
   const proseLh = ref(DEFAULTS.proseLh)
   const uiFontCn = ref('')
   const uiFontEn = ref('')
+  /** UI 字号档（外观设置；-1 小 / 0 标准 / 1 大 / 2 特大）——整条字号刻度随
+   *  --font-size-step 平移，平台基准（win +1px）之上叠加。两平台通用。 */
+  const uiFontSizeStep = ref(0)
   const proseFontCn = ref('')
   const proseFontEn = ref('')
   const pageWidth = ref(DEFAULTS.pageWidth)
@@ -221,6 +224,9 @@ export const usePrefsStore = defineStore('prefs', () => {
     if (typeof p.proseLh === 'number' && p.proseLh > 0) proseLh.value = p.proseLh
     if (typeof p.uiFontCn === 'string') uiFontCn.value = p.uiFontCn
     if (typeof p.uiFontEn === 'string') uiFontEn.value = p.uiFontEn
+    if (typeof p.uiFontSizeStep === 'number' && p.uiFontSizeStep >= -1 && p.uiFontSizeStep <= 2) {
+      uiFontSizeStep.value = p.uiFontSizeStep
+    }
     if (typeof p.proseFontCn === 'string') proseFontCn.value = p.proseFontCn
     if (typeof p.proseFontEn === 'string') proseFontEn.value = p.proseFontEn
     if (typeof p.pageWidth === 'number' && p.pageWidth > 0) pageWidth.value = p.pageWidth
@@ -255,6 +261,7 @@ export const usePrefsStore = defineStore('prefs', () => {
       proseLh: proseLh.value,
       uiFontCn: uiFontCn.value,
       uiFontEn: uiFontEn.value,
+      uiFontSizeStep: uiFontSizeStep.value,
       proseFontCn: proseFontCn.value,
       proseFontEn: proseFontEn.value,
       pageWidth: pageWidth.value,
@@ -306,6 +313,10 @@ export const usePrefsStore = defineStore('prefs', () => {
     r.style.setProperty('--prose-size', `${proseSize.value}px`)
     r.style.setProperty('--prose-lh', String(proseLh.value))
     r.style.setProperty('--page-width', `${effectivePageWidth.value}px`)
+    // J5：UI 字号档（外观「字号」设置，两平台通用）——在平台基准上叠用户选择
+    // （win 基准 +1px 见 tokens 平台块；内联值覆盖 CSS，故此处始终写平台合计值）
+    const baseStep = window.clwritingDesktop?.platform === 'win32' ? 1 : 0
+    r.style.setProperty('--font-size-step', `${baseStep + uiFontSizeStep.value}px`)
     if (uiFontCn.value || uiFontEn.value) {
       r.style.setProperty('--font-ui', buildFontFamily(uiFontEn.value, uiFontCn.value, 'system-ui, sans-serif'))
     } else {
@@ -391,6 +402,12 @@ export const usePrefsStore = defineStore('prefs', () => {
   }
   function setUiFontCn(v: string): void {
     uiFontCn.value = v
+    apply()
+    schedulePersist()
+  }
+  /** UI 字号档（-1 小 / 0 标准 / 1 大 / 2 特大）：整条字号刻度随 --font-size-step 平移 */
+  function setUiFontSizeStep(v: number): void {
+    uiFontSizeStep.value = Math.min(2, Math.max(-1, Math.round(v)))
     apply()
     schedulePersist()
   }
@@ -533,6 +550,7 @@ export const usePrefsStore = defineStore('prefs', () => {
     proseLh,
     uiFontCn,
     uiFontEn,
+    uiFontSizeStep,
     proseFontCn,
     proseFontEn,
     pageWidth,
@@ -572,6 +590,7 @@ export const usePrefsStore = defineStore('prefs', () => {
     setLh,
     setUiFontCn,
     setUiFontEn,
+    setUiFontSizeStep,
     setProseFontCn,
     setProseFontEn,
     setPageWidth,
