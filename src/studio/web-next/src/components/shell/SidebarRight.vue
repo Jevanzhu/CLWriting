@@ -135,12 +135,16 @@ const isReviewable = computed(() => {
 .right-topbar.is-drag {
   -webkit-app-region: drag;
 }
-/* J5（win 体验面）：右栏打开时本栏贴窗口右上角，右侧 tab 图标让位 WCO 系统窗控。
- * 宽度 env(titlebar-area-*) 自适应（非 win/浏览器/mac hiddenInset 回退 0）+ 12px
- * 呼吸间隙——实测 env 恰好贴住窗控命中区（校对 vs 最小化重叠 10px），不留隙即
- * 「图标与窗控重叠」。右栏关闭时贴角的是 TabBar 的 tabbar-actions（避让在其组件内）。 */
-.right-topbar.wco-avoid {
-  padding-right: calc(100vw - env(titlebar-area-width, 100vw) - env(titlebar-area-x, 0px) + var(--size-4-3));
+/* J5（win 体验面，2026-08-30 修正）：右栏打开时本栏贴窗口右上角，右侧 tab 组让位
+ * WCO 系统窗控。让位作用在 .right-tabs 的 margin-right（而非容器 padding-right 挤压：
+ * 原 padding 挤压在窄右栏下会把内容区挤爆、tab 溢出探进窗控下方——实测重叠 10px，
+ * 见 CDP 量化；margin 让位保持容器背景满铺、窗控盖于其上无异常，仅把 tab 组推到
+ * 窗控左侧）。env(titlebar-area-*) 自适应（非 win/浏览器/mac hiddenInset 回退 0）。
+ * tab 缩窄 24px 后方能塞进窗控左侧（右栏固定 259px，窗控占 137px）；实测呼吸隙≈6px
+ * ——margin 取「窗控宽」已是安全上限，再大即触发 flex 溢出致 margin 失效（复现交叠）。
+ * 右栏关闭时贴角的是 TabBar 的 tabbar-actions（避让在其组件内）。 */
+.right-topbar.wco-avoid .right-tabs {
+  margin-right: calc(100vw - env(titlebar-area-width, 100vw) - env(titlebar-area-x, 0px));
 }
 .right-tabs {
   display: flex;
@@ -153,8 +157,8 @@ const isReviewable = computed(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   border: none;
   border-radius: var(--radius-s);
   background: transparent;
