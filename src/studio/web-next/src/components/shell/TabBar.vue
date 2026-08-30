@@ -67,7 +67,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
           data-tip="新建正文" data-tip-dir="bottom"
           @click="ws.triggerCreate('chapter')"
         >
-          <FilePlus :size="16" />
+          <FilePlus :size="17" :stroke-width="1.6" />
         </button>
         <button
           ref="caretRef"
@@ -76,7 +76,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
           data-tip="新建…" data-tip-dir="bottom"
           @click.stop="toggleDropdown"
         >
-          <ChevronDown :size="16" />
+          <ChevronDown :size="17" :stroke-width="1.6" />
         </button>
       </div>
       <button
@@ -85,7 +85,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
         data-tip="展开左栏" data-tip-dir="bottom"
         @click="ws.toggleLeft()"
       >
-        <PanelLeft :size="16" />
+        <PanelLeft :size="17" :stroke-width="1.6" />
       </button>
     </div>
     <div class="tabbar-spacer" />
@@ -97,7 +97,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
         data-tip-dir="bottom"
         @click="ws.toggleFocus()"
       >
-        <Focus :size="16" />
+        <Focus :size="17" :stroke-width="1.6" />
       </button>
       <button
         v-show="!ws.rightOpen"
@@ -105,7 +105,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
         data-tip="展开右栏" data-tip-dir="bottom"
         @click="ws.toggleRight()"
       >
-        <PanelRight :size="16" />
+        <PanelRight :size="17" :stroke-width="1.6" />
       </button>
     </div>
     <!-- 下拉菜单（Teleport 到 body 脱离 tabbar overflow:hidden 裁剪） -->
@@ -152,13 +152,15 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
   flex: 1;
   min-width: 0;
 }
-/* 最左 lead 区：新建 + 展开左栏。垂直居中，水平 padding 距左缘 */
+/* 最左 lead 区：新建 + 展开左栏。垂直居中；左侧 padding 归零——新建图标在按钮内
+ * 距左缘 5px，若再叠加 lead padding 会使「窗沿→图标 12px ≠ 图标→竖线 5px」右侧
+ * 显得贴线（2026-08-31 作者反馈），归零后两侧各 5px 对称 */
 .tabbar-lead {
   flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 0 var(--size-4-2);
+  padding: 0 var(--size-4-2) 0 0;
 }
 .tabbar-lead .tb-btn {
   -webkit-app-region: no-drag;
@@ -188,9 +190,10 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
   justify-content: center;
   width: var(--size-control);
   height: var(--size-control);
+  padding: 0;
   border: none;
   background: transparent;
-  color: var(--text-muted);
+  color: var(--text-icon);
   border-radius: var(--radius-s);
   cursor: pointer;
 }

@@ -1,0 +1,36 @@
+/* 内嵌字体（J5 win 字体美化，2026-08-31）：MiSans（小米，免费商用、允许随应用分发）。
+ * 选型理由：为屏幕设计的现代无衬线，拉丁/数字/CJK 同一字库同源度量——一行内基线
+ * 恒定（根治 Segoe+雅黑 混排错位）；真实 400/500/600/700 字重（根治雅黑系合成粗体
+ * 糊字）；跨电脑渲染一致。仅 win 字体栈引用（tokens.css [data-platform='win32']），
+ * @font-face 声明不触发下载，mac/浏览器不引用则零开销。
+ *
+ * 採用官方 woff2 静态四字重（Regular/Medium/Semibold/Bold ≈ 19.6MB），MiSans 字符集
+ * 覆盖 GB18030 + 拉丁/西里尔/希腊，缺字走 Segoe/雅黑系统回退。 */
+@font-face {
+  font-family: 'MiSans';
+  src: url('../assets/fonts/MiSans-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'MiSans';
+  src: url('../assets/fonts/MiSans-Medium.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'MiSans';
+  src: url('../assets/fonts/MiSans-Semibold.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'MiSans';
+  src: url('../assets/fonts/MiSans-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}

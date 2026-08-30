@@ -24,8 +24,9 @@ declare global {
       onMenuAction: (cb: (key: string) => void) => () => void
       /** 进入/退出窗口原生全屏（专注模式驱动） */
       setFullScreen: (flag: boolean) => Promise<void>
-      /** 运行时更新 win 窗控 overlay 颜色（主题切换驱动；非 win no-op） */
-      setTitleBarOverlay: (o: { color?: string; symbolColor?: string }) => Promise<void>
+      /** 运行时更新 win 窗控 overlay 颜色（主题切换驱动；非 win no-op）。
+       *  dark 同步系统 nativeTheme（overlay 透明后按钮底色由系统按主题绘制） */
+      setTitleBarOverlay: (o: { color?: string; symbolColor?: string; dark?: boolean }) => Promise<void>
       /** 订阅窗口全屏态变化（系统手势退出全屏时回调 false），返回退订函数 */
       onFullScreenChange: (cb: (fullscreen: boolean) => void) => () => void
       /** 弹原生右键菜单（items=菜单项定义；cb=选择回调，取消收到 null） */

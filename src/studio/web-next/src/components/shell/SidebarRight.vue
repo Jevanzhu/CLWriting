@@ -2,7 +2,7 @@
 // 右侧栏：顶部 tab 条（M12 B0.5：信息/审阅/机检/分析）+ 按 tab 切上半面板
 // （信息=字数/大纲表单，审阅/机检/分析 块1/3/4 填充）+ 上下文速查（常驻）。
 import { computed } from 'vue'
-import { Info, FileSearch, CheckSquare, PanelRightClose } from 'lucide-vue-next'
+import { Info, Eye, CheckCheck, PanelRightClose } from 'lucide-vue-next'
 import WritingInfoPanel from '../panels/WritingInfoPanel.vue'
 import ContextQuickPanel from '../panels/ContextQuickPanel.vue'
 import MetaFormPanel from '../panels/MetaFormPanel.vue'
@@ -31,8 +31,8 @@ const showOutlineForm = computed(() => {
 
 const tabs: { key: 'info' | 'review' | 'check'; label: string; icon: typeof Info }[] = [
   { key: 'info', label: '信息', icon: Info },
-  { key: 'review', label: '审阅', icon: FileSearch },
-  { key: 'check', label: '校对', icon: CheckSquare },
+  { key: 'review', label: '审阅', icon: Eye },
+  { key: 'check', label: '校对', icon: CheckCheck },
 ]
 /** 表单分区标题（按文档类型：章节/章纲/卷纲…信息）。
  *  短篇正文（role=piece-body）与长篇同 path（写作/正文/），按 role 取「短篇」标题。 */
@@ -67,7 +67,7 @@ const isReviewable = computed(() => {
         data-tip-dir="bottom"
         @click="ws.toggleRight()"
       >
-        <PanelRightClose :size="18" />
+        <PanelRightClose :size="17" :stroke-width="1.6" />
       </button>
       <div class="right-tabs">
         <button
@@ -78,7 +78,7 @@ const isReviewable = computed(() => {
           :data-tip="t.label" data-tip-dir="bottom"
           @click="ws.setRightTab(t.key)"
         >
-          <component :is="t.icon" :size="18" />
+          <component :is="t.icon" :size="17" :stroke-width="1.6" />
         </button>
       </div>
     </div>
@@ -172,7 +172,7 @@ const isReviewable = computed(() => {
   border: none;
   border-radius: var(--radius-s);
   background: transparent;
-  color: var(--text-muted);
+  color: var(--text-icon);
   cursor: pointer;
   transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
@@ -180,9 +180,14 @@ const isReviewable = computed(() => {
   background: var(--background-modifier-hover);
   color: var(--text-normal);
 }
+/* 激活态：软色调（accent 14% 底 + accent 图标），不用实心紫方块——实心底上的白
+ * 图标在 1x 屏线条发糊显脏，软色调保持图标本形的清晰，观感也轻（2026-08-31 重做） */
 .right-tab.active {
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
+  background: color-mix(in srgb, var(--interactive-accent) 14%, transparent);
+  color: var(--interactive-accent);
+}
+.right-tab.active:hover {
+  background: color-mix(in srgb, var(--interactive-accent) 20%, transparent);
 }
 .right-body {
   flex: 1;

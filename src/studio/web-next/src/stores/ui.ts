@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { getAiStatus } from '../api/ai-status'
+import { usePrefsStore } from './prefs'
 
 // UI 全局状态：命令面板 / 设置 / 导出弹窗可见性 + Toast 队列 + AI 可达性（G4 降级）。
 export interface ToastItem {
@@ -42,9 +43,12 @@ export const useUiStore = defineStore('ui', () => {
   }
   function openSettings(): void {
     settingsOpen.value = true
+    // J5 win：弹窗遮罩压暗页面时同步压暗系统窗控条（否则亮块钉在暗页面上）
+    usePrefsStore().setOverlayDimmed(true)
   }
   function closeSettings(): void {
     settingsOpen.value = false
+    usePrefsStore().setOverlayDimmed(false)
   }
   function openExport(): void {
     exportOpen.value = true

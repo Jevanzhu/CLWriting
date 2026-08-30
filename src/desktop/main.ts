@@ -23,6 +23,7 @@ import {
   dialog,
   Menu,
   shell,
+  nativeTheme,
   type MenuItemConstructorOptions,
   type OpenDialogOptions,
   type MessageBoxOptions,
@@ -365,10 +366,11 @@ function createSecureWindow(opts: BrowserWindowConstructorOptions): BrowserWindo
     autoHideMenuBar: process.platform === 'win32',
     // J5（win 体验面，2026-08-29 作者指令「外观全面向 mac 靠齐」）：win 走「无框标题栏 +
     // WCO 窗控 overlay」——内容顶到窗口上沿（mac hiddenInset 同形态），最小化/最大化/关闭
-    // 由系统画在右上角（近似 mac 红绿灯位，前端拖拽区已就绪无需新开）。overlay 底色随主题
-    // 运行时改（prefs.applyTheme → desktop:set-titlebar-overlay → setTitleBarOverlay），
-    // 初值 = light 顶栏底 #f6f6f6，overlay 高 31px——比 --size-tabbar 矮 1px，让顶栏
-    // 底部那条分隔线在窗控下方完整露出（与整体线同色同位；overlay 不透明，按钮几乎不变）。
+    // 由系统画在右上角（近似 mac 红绿灯位，前端拖拽区已就绪无需新开）。overlay 只能
+    // 实色（'transparent' 不被 Chromium 接受，实测回落系统亮色底且不跟 nativeTheme），
+    // 初值 = light 顶栏底 #f6f6f6，暗色由 boot IPC 立即纠正；弹窗遮罩期间经
+    // prefs.setOverlayDimmed 同步压暗（暗页面亮窗控条 = 作者反馈的「窗控突兀」）。
+    // 按钮 hover 态由系统绘制。运行时主题/遮罩切换走 desktop:set-titlebar-overlay。
     ...(process.platform === 'win32'
       ? {
           titleBarStyle: 'hidden' as const,
@@ -773,18 +775,26 @@ function registerIpc(): void {
   // 渲染层经此 IPC 改发起窗口的 overlay。非 win（含 mac）no-op；参数非字符串忽略。
   ipcMain.handle(
     'desktop:set-titlebar-overlay',
-    (event, o: { color?: unknown; symbolColor?: unknown }) => {
+    (event, o: { color?: unknown; symbolColor?: unknown; dark?: unknown }) => {
       // R74-21（七十四轮批 D）：颜色格式白名单——此前只验 typeof，任意长/任意内容
       // 字符串直达 Electron setTitleBarOverlay 靠内部抛错兜底（catch 吞掉无痕）。
-      // 只认 #RGB/#RGBA/#RRGGBB/#RRGGBBAA 形态（3-8 位十六进制），白名单外回显式
-      // 错误；校验置于平台守卫前，与 isInvalidBookName 的「跨平台统一拒绝」口径一致
+      // 只认 #RGB/#RGBA/#RRGGBB/#RRGGBBAA 形态（3-8 位十六进制）+ 字面量 'transparent'
+      // （2026-08-31 窗控底色改透明后主题切换仍需合法通过），白名单外回显式错误；
+      // 校验置于平台守卫前，与 isInvalidBookName 的「跨平台统一拒绝」口径一致
       //（mac 上也拦，行为一致更简单且可测）
       const hexColor = /^#[0-9a-fA-F]{3,8}$/
-      if (o?.color !== undefined && (typeof o.color !== 'string' || !hexColor.test(o.color))) {
-        return { ok: false as const, reason: '标题栏底色格式非法（须为 #RGB/#RRGGBB 等 # 十六进制色值）' }
+      const validColor = (v: unknown): v is string =>
+        v === 'transparent' || (typeof v === 'string' && hexColor.test(v))
+      if (o?.color !== undefined && !validColor(o.color)) {
+        return { ok: false as const, reason: '标题栏底色格式非法（须为 #RGB/#RRGGBB 或 transparent）' }
       }
-      if (o?.symbolColor !== undefined && (typeof o.symbolColor !== 'string' || !hexColor.test(o.symbolColor))) {
-        return { ok: false as const, reason: '标题栏符号色格式非法（须为 #RGB/#RRGGBB 等 # 十六进制色值）' }
+      if (o?.symbolColor !== undefined && !validColor(o.symbolColor)) {
+        return { ok: false as const, reason: '标题栏符号色格式非法（须为 #RGB/#RRGGBB 或 transparent）' }
+      }
+      // 窗控按钮的底色由 DWM/Chromium 按 nativeTheme 绘制（overlay 透明时尤甚）——
+      // 应用主题切换必须同步系统主题源，否则暗色应用顶着亮色按钮（作者反馈「突兀」）
+      if (typeof o?.dark === 'boolean') {
+        nativeTheme.themeSource = o.dark ? 'dark' : 'light'
       }
       if (process.platform !== 'win32') return
       const win = BrowserWindow.fromWebContents(event.sender)

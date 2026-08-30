@@ -17,6 +17,7 @@
   /* 文本 */
   --text-normal: #222222;
   --text-muted: #555555;
+  --text-icon: #6f6f6f;                     /* 工具栏图标 idle：介于 muted/faint，配 2px 锐线 */
   --text-faint: #999999;
   --text-accent: #705dcf;
   --text-on-accent: #ffffff;
@@ -45,7 +46,7 @@
   --size-tabbar: 32px;
   --size-statusbar: 24px;
   /* 交互控件尺寸（图标钮 / 侧栏宽）：组件零散硬编码收敛至此，按平台适配 */
-  --size-control: 28px;      /* 标准图标按钮（TabBar / 左栏 / 右栏收起钮） */
+  --size-control: 26px;      /* 标准图标按钮（TabBar / 左栏 / 右栏收起钮）——三栏统一容器 */
   --size-control-sm: 26px;   /* 窄图标按钮（右栏 tab 组） */
   --size-ribbon-btn: 32px;   /* Ribbon 图标列按钮 */
   --size-side-right: 260px;  /* 右栏固定宽度 */
@@ -104,64 +105,35 @@
   --dv-bad: var(--text-error);
 }
 
-/* ===== 平台两套适配（J5，2026-08-31）：UI 外观不变，仅按平台渲染各套一套。
- * 基准 = :root 默认（即 mac 观感），mac 桌面 / 浏览器预览均走此；win 覆盖成
- * win 优化值。data-platform 由 main.ts 在桌面启动时挂 html 根（进程.platform：
- * win32/darwin/…）。只拆几何类维度（字号/间距/圆角/外壳/prose/字体栈），
- * 颜色/阴影/dataviz 跨平台不动，避免与 light/dark 叠成 2×2 矩阵。 */
-/* win（光学渲染：ClearType + Microsoft YaHei 字形偏紧凑 → 小字号可读性弱）。
- * 策略：字号整体 +1px、根字号 15、prose 18、圆角略大（win11 圆润风）、
- * 间距小阶放宽 1px。 */
+/* ===== 平台分支（J5，2026-08-31 定稿）：两套代码、一套视觉 =====
+ * 作者指令「显示效果靠齐 mac」：所有显示值（根字号/字号/间距/圆角/外壳/控件/
+ * prose）只在 :root 定义一份（= mac 观感基准），win 不做任何数值覆盖——同一应用
+ * 在 mac / win / 不同电脑上布局与密度完全一致。平台分支仅保留「字体族」适配：
+ * mac 系统族（SF/苹方）在 win 不存在，换用 win 等价族（Segoe UI/微软雅黑 UI），
+ * 度量值不变。字形渲染差异（ClearType vs 苹方平滑）属操作系统层，应用不补偿。
+ * data-platform 由 main.ts 启动时挂 html 根（win32/darwin/…），浏览器不挂 → 走 :root。 */
 :root[data-platform='win32'] {
-  /* 根字号（base.css body 用） */
-  --root-size: 15px;
-  /* 字体栈：西文 Segoe UI + 中文 Microsoft YaHei UI（win8+ 变体）前置 */
-  --font-ui: 'Segoe UI', 'Microsoft YaHei UI', system-ui, -apple-system, 'PingFang SC',
-    'Microsoft YaHei', sans-serif;
+  /* MiSans 一体（2026-08-31 作者采纳推荐）：拉丁/数字/CJK 同一字库同源度量（混排
+   * 基线恒定）、真实 400-700 字重、免费商用可内嵌。Segoe/雅黑仅作加载期回退。
+   * （宋体方案实测观感不佳已撤；'Noto Sans SC VF' 保留为未声明备用资产。） */
+  --font-ui: 'MiSans', 'Segoe UI', 'Microsoft YaHei UI', system-ui, -apple-system,
+    'PingFang SC', 'Microsoft YaHei', sans-serif;
   --font-monospace: Consolas, ui-monospace, 'SF Mono', Menlo, monospace;
-  /* 字号 +1px */
+  /* 排版刻度整体 +1px：参考 Codex/ZCode 类 win 桌面应用 13-14px 正文基准，且 CJK
+   * 小字在 11px 以下 hinting 破碎（设置说明文字错位发虚重灾区）。mac 苹方无需。 */
   --font-size-xxs: 11px;
   --font-size-xs: 12px;
   --font-size-s: 13px;
   --font-size-m: 14px;
   --font-size-l: 16px;
   --font-size-xl: 19px;
-  --font-size-2xl: 26px;
-  /* 圆角略放大（win11 圆润风） */
-  --radius-s: 6px;
-  --radius-m: 10px;
-  --radius-l: 14px;
-  --radius-xl: 28px;
-  /* 间距小阶放宽 1px（8→9 等；大阶保持 4 基数） */
-  --size-4-1: 5px;
-  --size-4-2: 9px;
-  --size-4-3: 14px;
-  /* 外壳尺度与 win 密度 */
-  --size-ribbon: 46px;
-  --size-tabbar: 34px;
-  --size-statusbar: 25px;
-  /* 交互控件：win 略大一点，命中区更稳（ClearType 渲染偏细的感受补位） */
-  --size-control: 30px;
-  --size-control-sm: 26px;   /* 右栏 tab 组：受 WCO 避让硬约束，mac/win 同为 26 不放大 */
-  --size-ribbon-btn: 34px;
-  --size-side-right: 264px;
-  /* 正文排版：win 阅读字号更大 */
-  --prose-size: 18px;
-  --prose-lh: 1.9;
+  --font-size-2xl: 25px;
 }
 
-/* mac：显式声明 == :root 默认（主要为可读性 + 预留差异点）。mac 桌面命中此，
- * 浏览器预览无 data-platform 也回落默认，两处观感一致。 */
 :root[data-platform='darwin'] {
-  --root-size: 14px;
   --font-ui: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
     'Microsoft YaHei', sans-serif;
   --font-monospace: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-  --prose-size: 17px;
-  --prose-lh: 1.85;
-  --size-ribbon: 44px;
-  --size-tabbar: 32px;
-  --size-statusbar: 24px;
 }
 
 [data-theme='dark'] {
@@ -175,6 +147,7 @@
   --background-modifier-active-hover: color-mix(in srgb, #ffffff 12%, transparent);
   --text-normal: #dadada;
   --text-muted: #aaaaaa;
+  --text-icon: #909090;
   --text-faint: #666666;
   --text-accent: #9d8cff;
   --text-on-accent: #1e1e1e;
@@ -199,3 +172,4 @@
   --dv-good: #5cb87a;
   --dv-warn: #e8a847;
 }
+

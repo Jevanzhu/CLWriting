@@ -319,20 +319,52 @@ export const usePrefsStore = defineStore('prefs', () => {
     }
   }
 
+  // ── 窗控 overlay 色（win）──
+  // WCO 能力上限 = 实色 + 主题跟随（'transparent' 不被 Chromium 接受、按钮底色也不跟
+  // nativeTheme，2026-08-31 实测）。色值 = 两档 --background-secondary（= 顶栏底）；
+  // 遮罩压暗期间用被 rgba(0,0,0,.45) 压暗后的等效色（实测 light 246→135、dark 38→21），
+  // 否则暗页面顶着一列亮窗控（作者反馈「窗控突兀」）。
+  let overlayDimmed = false
+  /** View Transition 圆形扩散进行中——applyTheme 暂不改窗控色，由 useTheme 在扩散
+   *  前沿扫过窗控区的时刻经 syncOverlayDelayed 切换（否则特效 400ms 内窗控先跳色）。 */
+  let overlaySweep = false
+
+  function syncOverlayNow(): void {
+    const d = window.clwritingDesktop
+    if (d?.platform !== 'win32') return
+    const dark = theme.value === 'dark'
+    void d.setTitleBarOverlay(
+      overlayDimmed
+        ? { color: dark ? '#151515' : '#878787', symbolColor: dark ? '#c8c8c8' : '#666666', dark }
+        : { color: dark ? '#262626' : '#f6f6f6', symbolColor: dark ? '#c8c8c8' : '#666666', dark },
+    )
+  }
+
+  /** 主题切换圆形扩散扫过窗控区的时刻由 useTheme 计算并延迟调用（ms）。 */
+  function syncOverlayDelayed(delayMs: number): void {
+    setTimeout(() => syncOverlayNow(), Math.max(0, Math.round(delayMs)))
+  }
+  function beginOverlaySweep(): void {
+    overlaySweep = true
+  }
+  function endOverlaySweep(): void {
+    overlaySweep = false
+  }
+
+  /**
+   * 弹窗遮罩联动窗控色（win）：全屏遮罩压暗页面时，系统绘制的窗控条不会被压暗——
+   * 暗页面顶着一列亮块即作者反馈的「窗控突兀」。开启期间窗控色用压暗等效色，关闭还原。
+   */
+  function setOverlayDimmed(open: boolean): void {
+    overlayDimmed = open
+    syncOverlayNow()
+  }
+
   function applyTheme(): void {
     document.documentElement.dataset.theme = theme.value
-    // J5（win 体验面）：无框标题栏的窗控 overlay 底色随主题（light #f6f6f6 / dark
-    // #262626 = 两档 --background-secondary），symbolColor 反色。overlay 不透明且高比
-    // --size-tabbar 矮 1px（main 侧 height 31）——顶栏那条分隔线在窗控下方完整露出、
-    // 与整体同色同位。非 win / 浏览器版 no-op。
-    const d = window.clwritingDesktop
-    if (d?.platform === 'win32') {
-      void d.setTitleBarOverlay(
-        theme.value === 'dark'
-          ? { color: '#262626', symbolColor: '#c8c8c8' }
-          : { color: '#f6f6f6', symbolColor: '#666666' },
-      )
-    }
+    // 窗控色：非特效路径即时同步；圆形扩散路径由 useTheme 延迟到扫过窗控的时刻
+    // （overlaySweep 挂起中，防止特效开始就跳色导致的不同步）
+    if (!overlaySweep) syncOverlayNow()
   }
 
   /** 紧凑模式：给 <html> 挂 .compact，全局 CSS 用该选择器收窄间距 */
@@ -531,6 +563,10 @@ export const usePrefsStore = defineStore('prefs', () => {
     apply,
     applyTheme,
     applyCompact,
+    setOverlayDimmed,
+    syncOverlayDelayed,
+    beginOverlaySweep,
+    endOverlaySweep,
     setThemeValue,
     setSize,
     setLh,
