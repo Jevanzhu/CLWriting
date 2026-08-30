@@ -13,11 +13,26 @@ import { resolveDraftPath } from '../format/draft.js'
 import { readManifestStrict, writeManifest, withManifestLock, removeEntry } from '../document/manifest.js'
 import { appendTrashEntry } from '../document/trash.js'
 import { ulid } from '../fs/id.js'
+import { legacyId } from '../document/stable-id.js'
 import { roleOf } from '../document/layout.js'
 
-/** 冲突/受阻草稿 → 工作区/.trash + 回收站清单登记（W-P2-3：只挪文件不登记，
- *  回收站 UI 永不可见、无法还原——与 doTrash 的回收站语义保持一致）。 */
-function trashDraft(bookRoot: string, srcAbs: string, name: string): void {
+/**
+ * 冲突/受阻草稿 → 工作区/.trash + 回收站清单登记（W-P2-3：只挪文件不登记，
+ * 回收站 UI 永不可见、无法还原——与 doTrash 的回收站语义保持一致）。
+ *
+ * R29-n/C-4（二十九轮）：id 与 originalPath 身份链闭合——
+ * - id 此前用随机 ULID：TrashEntry.id 语义是「原 docId」（restoreTrash 按它查找条目，
+ *   并以 id+originalPath upsert 主清单），草稿迁移时点无法恢复真实 docId，随机值使
+ *   还原后的条目身份与树扫描口径无关（docId 身份断链）。改用 stable-id 的
+ *   legacyId(originalPath)（`legacy:<sha256(path)[:16]>`，确定性派生）：与 tree 对
+ *   未登记文件的运行期 ID 同构造，还原后身份链闭合；且同路径派生同 id，迁移重试
+ *   幂等（appendTrashEntry 同 id 替换），不再每次运行堆积新随机条目。
+ * - originalPath 此前固定 写作/草稿/<name>——该目录 v3 已退役，restore 会把文件还原
+ *   回退役目录（写作链的正文区扫描/章号推算看不见，还原即失明）。改传「迁移落点」
+ *   （originalRel：resolveDraftPath 的结果，含 forRead 只读口径兜底，见迁移主循环），
+ *   还原落点即草稿本应落位。
+ */
+function trashDraft(bookRoot: string, srcAbs: string, name: string, originalRel: string): void {
   const trashDir = join(bookRoot, '工作区', '.trash')
   mkdirSync(trashDir, { recursive: true })
   // L-D3（第八轮）：目标占用不静默覆盖——POSIX renameSync 对已存在文件静默替换，
@@ -30,11 +45,11 @@ function trashDraft(bookRoot: string, srcAbs: string, name: string): void {
   // 失败/崩溃）只留下指向不存在 trashedPath 的孤儿条目——无害：源稿未动留在草稿区、
   // 下次迁移重试；restore 报 NOT_FOUND、purge 可清。
   appendTrashEntry(bookRoot, {
-    id: ulid(),
-    originalPath: `写作/草稿/${name}`,
+    id: legacyId(originalRel),
+    originalPath: originalRel,
     trashedPath: `工作区/.trash/${dstName}`,
     trashedAt: new Date().toISOString(),
-    role: roleOf(`写作/草稿/${name}`),
+    role: roleOf(originalRel),
   })
   renameSync(srcAbs, join(trashDir, dstName))
 }
@@ -100,6 +115,14 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
     // 读 content 传给 resolveDraftPath 提取标题
     let content: string | undefined
     try { content = readFileSync(srcAbs, 'utf-8') } catch { /* 读失败用 undefined */ }
+    // R29-n/C-4（二十九轮）：回收站条目的 originalPath 取「迁移落点」——先走 forRead
+    // 只读口径（跳过已定稿章/坏 fm 的 throw）拿到确定性落点，正式口径 throw 时回收站
+    // 条目也记真实落点而非已退役的 写作/草稿/ 旧路径（restore 还原回退役目录即失明）。
+    // forRead 意外失败保底退役路径（条目仍可还原，仅落点次优，不阻断迁移）。
+    let landingRel = `写作/草稿/${name}`
+    try {
+      landingRel = resolveDraftPath(bookRoot, chapterNum, content, { forRead: true }).relPath
+    } catch { /* 理论路径：保底退役路径 */ }
     // W-P1-5：resolveDraftPath 对已定稿章无条件 throw（V-P1-3 防线）——迁移跑在启动链路，
     // throw 冒泡会让 server 起不来且每次启动重演；归入 errors + 冲突稿进回收站，迁移继续。
     let dstRel: string
@@ -108,7 +131,7 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
     } catch (e) {
       errors.push(`${name}: ${e instanceof Error ? e.message : String(e)}`)
       try {
-        trashDraft(bookRoot, srcAbs, name)
+        trashDraft(bookRoot, srcAbs, name, landingRel)
         migrated++
         trashPaths.add(`写作/草稿/${name}`) // R27-133：旧路径清单条目待清
       } catch (e2) { errors.push(`${name} → .trash: ${e2 instanceof Error ? e2.message : String(e2)}`) }
@@ -118,7 +141,7 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
     if (existsSync(dstAbs)) {
       // 目标已存在（同章号已有定稿/草稿）→ 旧稿移回收站，不覆盖也不残留草稿区
       try {
-        trashDraft(bookRoot, srcAbs, name)
+        trashDraft(bookRoot, srcAbs, name, dstRel)
         migrated++
         trashPaths.add(`写作/草稿/${name}`) // R27-133：旧路径清单条目待清
       } catch (e) { errors.push(`${name} → .trash: ${e instanceof Error ? e.message : String(e)}`) }

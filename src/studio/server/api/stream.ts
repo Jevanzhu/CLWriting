@@ -26,6 +26,10 @@ import { safeTokenCompare } from '../http.js'
 import type { StreamTicketStore } from './stream-ticket.js'
 import { heldTaskGatesFor } from './task-gate.js'
 import { isReviewRunningForBook } from './review.js'
+// R29-9（二十九轮）：chat/clear 的任务闸查询换合并口径（进程内 + 跨进程锁文件扫描，
+// books.ts busyGate R75-5 同款）——helper 放 audit.ts 导出（模式已三处重复，不动
+// task-gate.ts 共享面）；本文件其余 spawn/对话在途闸仍用纯进程内 heldTaskGatesFor
+import { allHeldTaskGatesFor } from './audit.js'
 // M-2（第八轮）：spawn 闸移驻 ai 层（turns.ts 的嵌套生成工具闸要查它，ai 层不得反向
 // import server 路由层）；此处再导出保持 books/audit/测试的既有导入不变
 import { isSpawnRunning, holdSpawnGate, releaseSpawnGate, __setSpawnRunning } from '../../../ai/orchestrate/spawn-registry.js'
@@ -786,7 +790,9 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     // 工作流会话），audit 侧五闸（dd-P3/hh-P1/第五轮）已收口，此处此前只配两道——
     // spawn 手动写稿 / self-heal 批量写稿 / task-gate 分钟级任务在途时清空同样清不彻底，
     // 且任务收尾的 step/llm-call 事件追加到已被删 session 的行上成孤儿。对齐补三闸。
-    const held = heldTaskGatesFor(bookName)
+    // R29-9（二十九轮）：换 allHeldTaskGatesFor（books.ts busyGate R75-5 同口径）——
+    // 双进程下 B 进程分钟级任务在途时 A 进程清空对话同样放行清不彻底，现 409 拒清
+    const held = allHeldTaskGatesFor(bookName)
     if (held.length > 0) {
       return replyError(res, 409, 'BUSY', `本书有任务在跑（${held.join('、')}），先等它完成后再清空对话`)
     }

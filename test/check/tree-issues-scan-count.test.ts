@@ -70,7 +70,7 @@ function makeBook(chapterCount: number, wiring = true): string {
     const pad = String(no).padStart(3, '0')
     writeFileSync(
       join(root, '写作', '正文', `${pad}-第${no}章.md`),
-      `---\n章号: ${no}\n标题: 第${no}章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n山门外的玉佩在雨夜里连响了三下。\n`,
+      `---\n章号: ${no}\n标题: 第${no}章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n山门外的雨夜里，玉佩，连响了三下。\n`,
       'utf-8',
     )
     upsertEntry(m, {

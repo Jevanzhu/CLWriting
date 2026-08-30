@@ -81,8 +81,12 @@ function onEnterKey(e: KeyboardEvent): void {
 async function open(path: string): Promise<void> {
   const node = tree.byPath.get(path)
   if (!node?.docId) return // 非树内可编辑文件忽略
+  // E-2（二十九轮）：await 前快照书名——doc.open 在途切书后不得把旧书文档开进新书
+  // 工作区（新书同名路径命中旧书 docId）
+  const bookAtClick = ws.bookName
   try {
     await doc.open(node)
+    if (ws.bookName !== bookAtClick) return
     ws.openTab(node.docId)
   } catch (e) {
     // P5-前端（第七轮）：静默吞错收敛（对齐 ForeshadowPanel）——搜索结果点开失败

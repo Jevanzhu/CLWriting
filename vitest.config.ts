@@ -108,6 +108,13 @@ export default defineConfig({
         // R62-23：editor/ 并入——typewriter.ts（运行时逻辑 19 行）此前不落任何桶，
         // 进报告却是「桶外暗区」；并入三桶后纳入门禁（阈值不变）
         'src/studio/web-next/src/{composables,editor,shared,stores}/**': { lines: 43, branches: 81 },
+        // R29-12（二十九轮批 F）：stores 单列子桶——stores（纯逻辑层，实测最厚）此前与
+        // composables（实测 lines 76.70）同池，域内回退被聚合均值稀释、对门不可见；
+        // 阈值 = 2026-08-30 全量 coverage-summary 实测基线（lines 91.82 / branches
+        // 90.20）−2pp 向下取整 → 89 / 88，远高于 43% 总门 → 拆桶条件成立（评估结论见
+        // 总览 R29-12）。原聚合桶 glob/阈值维持不动，沿用「匹配多桶的文件须过所有桶」
+        // 语义：stores 文件同过域级基线门 + 聚合防回退门，两不误。
+        'src/studio/web-next/src/stores/**': { lines: 89, branches: 88 },
       },
     },
   },

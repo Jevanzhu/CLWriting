@@ -239,7 +239,10 @@ export function loadProviders(userDataPath: string): ProviderStore {
 
   // 迁移写回——剥离明文、加密进 vault（§五）
   if (needsRewrite) {
-    saveProviders(userDataPath, store)
+    // R29-2（二十九轮）：saveProviders 现返回 promise——迁移写是 load 的内联副作用：
+    // 快路同步异常照旧向上抛（本行表达式同步求值，语义不变）；排队段（存在在途写时）
+    // 的拒绝在此收口（saveProviders 内部已 log.warn 留痕），不再成为未处理 rejection
+    saveProviders(userDataPath, store).catch(() => { /* 排队段失败已留痕，迁移写不向 load 异步上抛 */ })
     // R71-18：迁移后收敛 bak 明文残留——saveProviders 的 D7 写前备份会把迁移前的明文
     // 主文件原样拷进 providers.bak.json，用户此后不改配置则明文 Key 在 bak 永久残留
     // （直到下次 save 才被密文覆盖）。此处迁移写入后重新读回校验（openVault 重开 +
@@ -287,10 +290,13 @@ export function loadProviders(userDataPath: string): ProviderStore {
  * （范式同 ai/calls.ts serializedWrite + J7 跨进程锁）。修复前读-改-写三段无串行化，
  * 与设置页保存并发时旧快照整态覆盖新写，用户配置丢失。
  *
- * 语义变化（与 calls.ts R61-7 同款取舍）：队列空闲时同步直行（同步调用方「存完即读」
- * 与「revision 写后 +1 立即可读」语义不变、IO 异常照旧同步上抛）；存在在途段时排队为
- * 微任务执行，排队段的 IO 异常无法同步上抛 → log.warn 留痕后吞掉（对齐 runner
- * recordUsageSafe 口径）。
+ * 语义变化（R73-2 原口径，R29-2 二十九轮修订）：队列空闲时同步直行（同步调用方
+ * 「存完即读」与「revision 写后 +1 立即可读」语义不变、IO 异常照旧同步上抛）；存在
+ * 在途段时排队为微任务执行。R29-2：签名 void → Promise<void>——快路同步写完后
+ * resolve（IO 异常仍同步抛，对 `try { await saveProviders(...) } catch` 两侧等价捕获）；
+ * 排队段返回链式 promise，失败 log.warn 留痕后随 promise 上抛（修复前仅 warn 吞掉：
+ * 设置页保存 API 已按成功返回而配置未落盘）。端点侧（批 D）约定按
+ * `try { await saveProviders(...) } catch → 500` 消费。
  *
  * 残余窗口（登记）：读路径 loadProviders 不参与互斥——排队写未落地的微任务窗口内
  * 并发 load 读到旧快照、改动后再 save 会按调用序排在后面（后写覆盖前写）。
@@ -304,22 +310,34 @@ const writeChains = new Map<string, Promise<unknown>>()
 /** R73-2 跨进程锁等待超时（毫秒）——写段为本地文件 IO 级毫秒，5s 已极保守（同 calls.ts） */
 const PROVIDERS_WRITE_LOCK_TIMEOUT_MS = 5_000
 
-export function saveProviders(userDataPath: string, store: ProviderStore): void {
+/** 测试辅助：向写链注入一段在途 promise（R29-2 排队路径回归用——空闲快路永不入链，
+ *  生产代码无从触达排队段；生产零调用）。 */
+export function __seedProvidersWriteChainForTest(userDataPath: string, pending: Promise<unknown>): void {
+  writeChains.set(userDataPath, pending)
+}
+
+export function saveProviders(userDataPath: string, store: ProviderStore): Promise<void> {
   const prev = writeChains.get(userDataPath)
   if (prev === undefined) {
-    // 空闲快路：同步原子完成（跨进程锁内——多进程同写 providers.json 不再交错覆盖）
+    // 空闲快路：同步原子完成（跨进程锁内——多进程同写 providers.json 不再交错覆盖）；
+    // IO 异常照旧同步上抛（R29-2：throw 路径保持 throw，await 侧 try/catch 同样接得住）
     saveWithCrossProcessLock(userDataPath, store)
-    return
+    return Promise.resolve()
   }
   const next = prev.catch(() => {}).then(() => saveWithCrossProcessLock(userDataPath, store))
   writeChains.set(userDataPath, next)
   const cleanup = (): void => {
     if (writeChains.get(userDataPath) === next) writeChains.delete(userDataPath)
   }
+  // 旁挂分支只负责留痕 + 清链——不吞返回 promise 的拒绝（R29-2 前这里是唯一出口，
+  // 排队段失败对外表现为「成功」）
   void next.then(cleanup, (e: unknown) => {
     log.warn('providers', `排队 providers.json 写入失败（本轮写未落盘）：${e instanceof Error ? e.message : String(e)}`)
     cleanup()
   })
+  // R29-2（二十九轮）：排队段失败随返回的链式 promise 向上传播（await 方 catch → 500），
+  // 不再「log.warn 后吞」——写未落盘不得伪装成保存成功
+  return next
 }
 
 function saveWithCrossProcessLock(userDataPath: string, store: ProviderStore): void {

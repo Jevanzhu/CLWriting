@@ -79,13 +79,15 @@ export function applyLeadUpdates(bookRoot: string, chapterNo: number): number {
       continue
     }
     // R26-6（二十六轮）：对单个布线文件的「读→改→写」临界段套跨进程短锁（J7 原语，
-    // 键 `<布线文件>.lock`，与 analysis.ts 的 `${filePath}.lock` 同款按文件锁惯例）——
-    // 作者经 executeSave 保存同一布线文件（其保存锁按该 doc 的 journal 命名，与本处
-    // 原先互不知晓）时，本处的「读旧内容→补履历→writeLead 整文件写回」会用旧正文
-    // 覆盖掉作者刚保存的内容（lost update，且布线文件无快照留底，丢即永久）。
-    // 拿不到锁（超时）→ fail-closed：该条目进 unresolved 留本章源 + 警告（M-6/
-    // ee-P1-4 同通道），不降级裸写——裸写正是本锁要闭合的覆盖形态。锁只盖毫秒级
-    // 文件读写段，不与本章源清理段嵌套（无获取序环路）。
+    // 键 `<布线文件>.lock`，与 analysis.ts 的 `${filePath}.lock` 同款按文件锁惯例）。
+    // R29-7（二十九轮）注释如实化：R26-6 原文宣称防住「作者经 executeSave 保存同一
+    // 布线文件」，实际当时只有本侧持锁——保存侧的锁按该 doc 的 journal 命名，与本锁
+    // 互不感知，lost update（回写用旧正文覆盖作者刚保存的新正文）并未闭合。现
+    // service.ts 三个写路径（executeSave/updateChapterMeta/updateDocMeta）已在 save
+    // 锁内对本文件再取**同名锁**（save→file 单向嵌套），双侧同名锁互斥后该窗口真正
+    // 闭合；本侧仍只持 file 锁，无获取序环路。拿不到锁（超时）→ fail-closed：该条目
+    // 进 unresolved 留本章源 + 警告（M-6/ee-P1-4 同通道），不降级裸写——裸写正是本锁
+    // 要闭合的覆盖形态。锁只盖毫秒级文件读写段，不与本章源清理段嵌套（无获取序环路）。
     const release = acquireCrossProcessLockWithTimeout(`${leadFile.filePath}.lock`, LEAD_FINALIZE_LOCK_TIMEOUT_MS)
     if (!release) {
       log.warn(

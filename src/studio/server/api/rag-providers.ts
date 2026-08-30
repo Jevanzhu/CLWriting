@@ -22,6 +22,7 @@ import {
   normalizeApiKey,
   apiKeyRefusal,
   type RagProviderConf,
+  type ProviderStore,
 } from '../../../ai/provider/index.js'
 import type { Vault } from '../../../ai/provider/vault.js'
 import { embed } from '../../../rag/embed.js'
@@ -29,6 +30,21 @@ import { log } from '../../../log/index.js'
 
 interface RagProvidersCtx {
   userDataPath: string | null
+}
+
+// R29-2（二十九轮）：providers.json 写入失败不再静默假成功——批 B 把 store.ts 的
+// saveProviders 从 void 改为 Promise<void>（排队段写失败向上传播），端点侧保存点统一
+// 捕住回 500 WRITE_ERROR 信封（同 /api/providers 的 saveProvidersOr500，两文件各自持有
+// 本地副本避免路由模块互相 import）。当前 void 返回下 await/try-catch 合法且零行为差异。
+// 返回 false = 已回错误响应，调用方直接 return 不再 reply 200。
+async function saveProvidersOr500(res: ServerResponse, userDataPath: string, s: ProviderStore): Promise<boolean> {
+  try {
+    await saveProviders(userDataPath, s)
+    return true
+  } catch {
+    replyError(res, 500, 'WRITE_ERROR', '配置写入失败，请重试')
+    return false
+  }
 }
 
 /** key 遮蔽 + 凭据状态点——真实 key 从不回传前端（编辑不改 key 就传回空 = 保留）；
@@ -96,7 +112,7 @@ export function registerRagProviderRoutes(ctx: RagProvidersCtx): void {
       sortIndex: s.ragProviders.reduce((m, p) => Math.max(m, p.sortIndex ?? 0), -1) + 1,
     }
     s.ragProviders.push(conf)
-    saveProviders(ctx.userDataPath, s)
+    if (!(await saveProvidersOr500(res, ctx.userDataPath, s))) return
     reply(res, 200, { provider: maskRagProvider(conf, s.vault), revision: s.revision })
   },
   })
@@ -127,7 +143,7 @@ export function registerRagProviderRoutes(ctx: RagProvidersCtx): void {
       target.caps = null
       target.capsProbedAt = undefined
     }
-    saveProviders(ctx.userDataPath, s)
+    if (!(await saveProvidersOr500(res, ctx.userDataPath, s))) return
     reply(res, 200, { provider: maskRagProvider(target, s.vault), revision: s.revision })
   },
   })
@@ -153,7 +169,7 @@ export function registerRagProviderRoutes(ctx: RagProvidersCtx): void {
     const idx = s.ragProviders.findIndex((p) => p.id === params['id'])
     if (idx === -1) return replyError(res, 404, 'NOT_FOUND', 'RAG 提供方不存在')
     s.ragProviders.splice(idx, 1)
-    saveProviders(ctx.userDataPath, s)
+    if (!(await saveProvidersOr500(res, ctx.userDataPath, s))) return
     reply(res, 200, { ok: true, revision: s.revision })
   },
   })
@@ -183,7 +199,8 @@ export function registerRagProviderRoutes(ctx: RagProvidersCtx): void {
       if (JSON.stringify([fresh.endpoint, fresh.model, fresh.apiKey]) === probeFp) {
         fresh.caps = { connected }
         fresh.capsProbedAt = Date.now()
-        saveProviders(ctx.userDataPath, s2)
+        // R29-2（二十九轮）：探测写回同样过保存失败闸
+        if (!(await saveProvidersOr500(res, ctx.userDataPath, s2))) return
       } else {
         // R76-28：探测窗口内配置已变——旧结果不再描述现配置，丢弃回写并留痕；
         // 探测结果仍随本次响应回传（对发起者有信息量）；未落盘 → revision 不 bump。

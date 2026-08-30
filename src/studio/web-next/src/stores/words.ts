@@ -3,6 +3,14 @@ import { ref, computed } from 'vue'
 import { getWordsDiary, postBaseline } from '../api/books'
 import { useTreeStore } from './tree'
 
+/** 本地日期 YYYY-MM-DD（与服务端 todayDate 同格式：本地时区逐段拼，非 toISOString 的 UTC）。 */
+function localToday(): string {
+  const d = new Date()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${d.getFullYear()}-${m}-${day}`
+}
+
 /**
  * 字数日记 store（§5.4 今日基线 + E4 精确增量）。
  *
@@ -43,16 +51,30 @@ export const useWordsStore = defineStore('words', () => {
     try {
       const r = await getWordsDiary(name)
       if (gen !== reqGen) return
-      date.value = r.date
-      todayDelta.value = r.delta
-      if (r.baseline === null) {
+      // E-6（二十九轮）：跨零点守卫——响应的 date 由服务端在响应生成时刻打（今日），
+      // 若它已 ≠ 前端当前本地日期，说明响应生成于零点前（慢响应跨日竞态）：baseline/delta
+      // 属昨日，不能拿来当「今日」。以当前已写重记今日基线，再重取一次对齐服务端新日记录。
+      if (r.date !== localToday()) {
         baseline.value = tree.totalWords
-        // R-23（第十六轮）：postBaseline 后查代——await 期间切书（旧书 ensureBaseline
-        // 被 reqGen++ 作废）时旧书迟到响应不落盘（对齐同库其他 store 的 gen 模式）
         await postBaseline(name, baseline.value)
         if (gen !== reqGen) return
+        const r2 = await getWordsDiary(name)
+        if (gen !== reqGen) return
+        date.value = r2.date
+        todayDelta.value = r2.delta
+        baseline.value = r2.baseline ?? baseline.value
       } else {
-        baseline.value = r.baseline
+        date.value = r.date
+        todayDelta.value = r.delta
+        if (r.baseline === null) {
+          baseline.value = tree.totalWords
+          // R-23（第十六轮）：postBaseline 后查代——await 期间切书（旧书 ensureBaseline
+          // 被 reqGen++ 作废）时旧书迟到响应不落盘（对齐同库其他 store 的 gen 模式）
+          await postBaseline(name, baseline.value)
+          if (gen !== reqGen) return
+        } else {
+          baseline.value = r.baseline
+        }
       }
     } catch {
       if (gen !== reqGen) return
@@ -66,5 +88,17 @@ export const useWordsStore = defineStore('words', () => {
     }
   }
 
-  return { date, baseline, todayDelta, todayWords, ready, ensureBaseline }
+  /** E-7（二十九轮）：清今日字数展示态（脏路由 name='' 离开书时由 ChapterTreePanel 调）——
+   *  前书的 date/baseline/delta 不再参与展示；loadedFor 复位 + reqGen 推代，在途旧书
+   *  响应落定不回填，下次进书按新书重取。 */
+  function reset(): void {
+    reqGen++
+    loadedFor = null
+    date.value = null
+    baseline.value = null
+    todayDelta.value = null
+    ready.value = false
+  }
+
+  return { date, baseline, todayDelta, todayWords, ready, ensureBaseline, reset }
 })

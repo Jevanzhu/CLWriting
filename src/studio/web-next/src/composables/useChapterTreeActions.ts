@@ -10,6 +10,7 @@ import { useTreeStore } from '../stores/tree'
 import { useDocStore } from '../stores/doc'
 import { useWorkspaceStore, type CreateKind } from '../stores/workspace'
 import { useUiStore } from '../stores/ui'
+import { clearFalsePositiveMarksForDoc } from '../stores/check'
 import type { TreeNode } from '../types/tree'
 import {
   createDoc,
@@ -296,7 +297,8 @@ export function useChapterTreeActions(deps: {
     const next = new Set(ws.treeExpanded)
     next.add(renderDir)
     if (ancestors) for (const a of ancestors) next.add(a)
-    ws.treeExpanded = [...next]
+    // E-3（二十九轮）：新建自动展开随用户动作置「已操作」位（挡迟到 prefs 回填覆盖）
+    ws.setTreeExpanded([...next])
   }
   async function onCreateCommit(value: string): Promise<void> {
     const c = creating.value
@@ -413,6 +415,9 @@ export function useChapterTreeActions(deps: {
     if (deps.bookName() !== book) return
     try {
       await deleteDoc(book, node.docId)
+      // E-10（二十九轮）：删章成功即清该章误报灰显键——同路径重建新章复用 legacy docId，
+      // 残留键会把旧章灰显态/禁用按钮带给新章
+      clearFalsePositiveMarksForDoc(book, node.docId)
       if (deps.bookName() === book) await tree.load(book)
     } catch (e) {
       deps.openError.value = friendlyError(e)

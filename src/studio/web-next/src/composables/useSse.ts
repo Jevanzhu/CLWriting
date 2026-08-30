@@ -43,7 +43,7 @@ async function fetchStreamTicket(token: string, base: string): Promise<string | 
   }
 }
 
-export function useSse(bookName: WatchSource<string>): void {
+export function useSse(bookName: WatchSource<string>): { resync: () => void } {
   const wb = useWorkbenchStore()
   // setup 内提前获取 chat store 实例：onmessage 回调不在组件上下文，
   // 运行时再 useChatStore() 会撞 activePinia 未设置（抛错被 catch 吞掉 → chat 事件丢失）
@@ -185,7 +185,17 @@ export function useSse(bookName: WatchSource<string>): void {
     wb.setConnected(false)
   }
 
+  // R29-10（二十九轮）：强制重取连接级 sync 快照——sync 只在连接建立时由服务端推送一次，
+  // 若切书 await 链（确认弹窗等）期间到达的新书快照被调用方（Book.vue 切书 watch 的
+  // workbench.clear()）复位，此后连接常驻不再有新 sync → 假空闲。resync 走既有
+  // connect(currentName)（disconnect + doConnect）：disconnect 推进 connectGen 使悬挂
+  // 中的旧 doConnect 放弃开连（代语义不变），重连后服务端对新连接重发权威快照。
+  function resync(): void {
+    if (currentName) connect(currentName)
+  }
+
   watch(bookName, (n) => (n ? connect(n) : disconnect()), { immediate: true })
   onUnmounted(() => disconnect())
+  return { resync }
 }
 

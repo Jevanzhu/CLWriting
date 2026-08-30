@@ -47,10 +47,36 @@ test('checkFrontMatter: 章号与文件名不一致 → 红', () => {
 
 // ── 禁词（#10 项 4，红）──────────────────────────
 
+// R29-1（二十九轮）：禁词匹配收紧（剥引号 + 前后非汉字边界）——「废话」「深情地说」
+// 须以标点/文本边界夹持才计命中（「说了句废话」嵌在连续汉字中不再误报红）
 test('checkBannedWords: 命中禁词 → 红', () => {
-  const r = checkBannedWords('他微笑着深情地说了句废话', ['废话', '深情地说'])
+  const r = checkBannedWords('废话。他顿了顿，深情地说，字字见血。', ['废话', '深情地说'])
   expect(r.items).toHaveLength(2)
   expect(r.items.every((i) => i.level === 'red')).toBe(true)
+})
+
+// R29-1①（二十九轮）：对白引号 span 内的禁词不再计命中——角色嘴里说的不算作者叙述用词
+test('R29-1: 对白引号内禁词不红（剥引号后匹配）', () => {
+  const r = checkBannedWords('「你真是废话真多。」他说。', ['废话'])
+  expect(r.items.some((i) => i.level === 'red')).toBe(false)
+  // 对照：叙述面同词照报
+  expect(checkBannedWords('他开了口：废话。', ['废话']).items.some((i) => i.level === 'red')).toBe(true)
+})
+
+// R29-1②（二十九轮）：成语边界——「一丝」嵌在「一丝不苟」中（前后皆汉字）不再命中
+test('R29-1: 成语裸子串不再命中（前后非汉字边界）', () => {
+  const r = checkBannedWords('他做事一丝不苟。', ['一丝'])
+  expect(r.items).toHaveLength(0)
+  // 对照：标点夹持的同词照报
+  expect(checkBannedWords('他松了手，一丝，只一丝，不甘漏了出来。', ['一丝']).items.some((i) => i.level === 'red')).toBe(true)
+})
+
+// R29-1③（二十九轮）：单字禁词降黄——fail-noisy 可见但不再驱动红闸打回
+test('R29-1: 单字禁词降级为黄项', () => {
+  const r = checkBannedWords('他顿了顿，没有回头。', ['顿'])
+  expect(r.items).toHaveLength(1)
+  expect(r.items[0]!.level).toBe('yellow')
+  expect(r.items[0]!.checkId).toBe('banned-word')
 })
 
 test('parseIronRules: 反和解段解析为硬禁词', () => {
@@ -152,7 +178,9 @@ test('checkGrowth: 成长线启用但境界序列缺失 → 红项阻断，不�
   rmSync(dir, { recursive: true, force: true })
 })
 
-test('checkGrowth: 有境界体系但成长线缺当前境界 → 红项阻断，不静默跳过跃迁检测', () => {
+// R29-6（二十九轮）：缺「当前境界」红→黄——新书/未设境界的成长线此前每章恒红，
+// 自动写章被打回；降黄后面板仍可见（fail-noisy），跃迁类真红项不松
+test('checkGrowth: 有境界体系但成长线缺当前境界 → 黄项提示，不静默跳过跃迁检测', () => {
   const dir = mkdtempTracked(join(tmpdir(), '北境-'))
   const db = new DatabaseSync(join(dir, 'index.db'))
   createAllTables(db)
@@ -162,7 +190,9 @@ test('checkGrowth: 有境界体系但成长线缺当前境界 → 红项阻断�
   })
   const realmDoc: RealmDoc = { 体系: [{ 名称: '修真', 序列: ['炼气', '筑基', '金丹'] }] }
   const r = checkGrowth(db, realmDoc, ['成长线-001'], 2)
-  expect(r.items.some((i) => i.checkId === 'growth-current-realm-missing' && i.level === 'red')).toBe(true)
+  const missing = r.items.find((i) => i.checkId === 'growth-current-realm-missing')
+  expect(missing).toBeDefined()
+  expect(missing!.level).toBe('yellow')
   db.close()
   rmSync(dir, { recursive: true, force: true })
 })

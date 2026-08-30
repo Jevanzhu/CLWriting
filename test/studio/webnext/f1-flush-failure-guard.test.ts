@@ -51,7 +51,8 @@ vi.mock('../../../src/studio/web-next/src/views/LearnView.vue', () => ({ default
 vi.mock('../../../src/studio/web-next/src/views/StyleView.vue', () => ({ default: stub }))
 vi.mock('../../../src/studio/web-next/src/views/AuditView.vue', () => ({ default: stub }))
 vi.mock('../../../src/studio/web-next/src/composables/useHeartbeat', () => ({ useHeartbeat: vi.fn() }))
-vi.mock('../../../src/studio/web-next/src/composables/useSse', () => ({ useSse: vi.fn() }))
+// R29-10：Book.vue 现持有 useSse 返回值并在切书链尾调 resync()——mock 返回带 resync 的句柄
+vi.mock('../../../src/studio/web-next/src/composables/useSse', () => ({ useSse: vi.fn(() => ({ resync: vi.fn() })) }))
 vi.mock('../../../src/studio/web-next/src/composables/useChatTier', () => ({ useChatTier: vi.fn(() => ({ refresh: vi.fn() })) }))
 
 // 可变路由 mock：params.name 即「当前书」。reactive 代理经 hoisted 持有者暴露——

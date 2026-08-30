@@ -18,8 +18,13 @@ export function splitSentences(body: string, includeColon = false): string[] {
  * computeRepeatRate 的共享实现（原先两处各写一套，style 那套是整句哈希且句长阈值不同，
  * 复读率系统性低估、avgRepeat>0.1 预警近乎永不触发，与「同口径」注释互相矛盾）。
  * 「重复 n-gram 实例数 / 总 n-gram 数」：重复句改个别字仍有大量相同 n-gram 被计数。
+ * R29-B6（二十九轮）：返回值新增 repeatChars——绝对重复字符量（量纲：每个重复
+ * n-gram 的「超出首次出现的实例」按 n 字折算，全书求和）。纯比率口径随章长稀释：
+ * 大章里百字级复读块的占比被总 n-gram 数摊薄（5000 字章重复 100 字 ≈ 2% < 15% 阈），
+ * 消费方（checkRepeat）可用绝对量双口径兜住漏报；存量消费方 metrics/style.ts 只读
+ * .rate，新增字段向后兼容。
  */
-export function ngramRepeatRate(body: string, n = 8): { rate: number; total: number; repeatInstances: number } {
+export function ngramRepeatRate(body: string, n = 8): { rate: number; total: number; repeatInstances: number; repeatChars: number } {
   const sentences = splitSentences(body).filter((s) => s.length >= n)
   const counts = new Map<string, number>()
   let total = 0
@@ -31,8 +36,12 @@ export function ngramRepeatRate(body: string, n = 8): { rate: number; total: num
     }
   }
   let repeatInstances = 0
+  let repeatChars = 0
   for (const c of counts.values()) {
-    if (c >= 2) repeatInstances += c - 1
+    if (c >= 2) {
+      repeatInstances += c - 1
+      repeatChars += (c - 1) * n
+    }
   }
-  return { rate: total > 0 ? repeatInstances / total : 0, total, repeatInstances }
+  return { rate: total > 0 ? repeatInstances / total : 0, total, repeatInstances, repeatChars }
 }

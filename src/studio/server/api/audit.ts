@@ -27,7 +27,7 @@ import { isChatRunning } from '../../../ai/orchestrate/chat.js'
 import { isSelfHealRunning } from '../../../ai/orchestrate/self-heal.js'
 import { hasBackgroundTasks } from '../../../ai/orchestrate/background.js'
 import { isSpawnRunning } from './stream.js'
-import { heldTaskGatesFor } from './task-gate.js'
+import { heldTaskGatesFor, crossProcessHeldTaskGatesFor } from './task-gate.js'
 import { isReviewRunningForBook } from './review.js'
 import type { EventType, GoalSnapshot, SurfaceOp, Todo } from '../../../events/types.js'
 
@@ -176,6 +176,19 @@ export function parseAuditPaging(limitRaw: string | null, offsetRaw: string | nu
   return { limit: limitParam(limitRaw), offset: offsetParam(offsetRaw) }
 }
 
+/**
+ * R29-9（二十九轮）：任务闸「进程内 + 跨进程」合并查询——books.ts busyGate（R75-5）
+ * 同口径。heldTaskGatesFor 只看进程内 Set，双进程形态（dev-api/脚本与 GUI 并存）下
+ * B 进程分钟级任务在途时，A 进程的清史（DELETE /audit）/清空对话（chat/clear）看不见
+ * 该闸，放行清库后任务收尾继续向已清 session 追加事件（清不彻底 + 事件复活）。并入
+ * crossProcessHeldTaskGatesFor 锁文件扫描（陈锁由锁原语语义剔除，不误伤）；Set 去重
+ * 防本进程闸两侧双报。模式已在 books/audit/stream 三处重复 → 抽本地 helper（放本文件
+ * 导出、stream.ts 引用，不动 task-gate.ts 共享面）。
+ */
+export function allHeldTaskGatesFor(bookName: string): string[] {
+  return [...new Set([...heldTaskGatesFor(bookName), ...crossProcessHeldTaskGatesFor(bookName)])]
+}
+
 export function registerAuditRoutes(ctx: AuditCtx): void {
   defineRoute('books.audit.get', {
     method: 'GET',
@@ -224,8 +237,10 @@ export function registerAuditRoutes(ctx: AuditCtx): void {
       return replyError(res, 409, 'BUSY', '本书对话仍在运行，先停止后再清除事件史')
     }
     // hh-P1（同族缺口）：task-gate 分钟级任务与 self-heal 批量写稿都会续写事件库——
-    // 运行中清库同样「清不彻底」（任务收尾继续追加），补齐与 chat 相同的拒清口径
-    const held = heldTaskGatesFor(params['name']!)
+    // 运行中清库同样「清不彻底」（任务收尾继续追加），补齐与 chat 相同的拒清口径。
+    // R29-9（二十九轮）：换 allHeldTaskGatesFor（books.ts busyGate R75-5 同口径）——
+    // 进程内闸并入跨进程锁文件扫描，双进程下 B 进程分钟级任务在途时 A 进程清史同样 409
+    const held = allHeldTaskGatesFor(params['name']!)
     if (held.length > 0) {
       return replyError(res, 409, 'BUSY', `本书有任务在跑（${held.join('、')}），先等它完成后再清除事件史`)
     }

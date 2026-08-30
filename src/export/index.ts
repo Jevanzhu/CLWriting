@@ -146,7 +146,22 @@ function sanitizeFileName(name: string, maxBytes: number): string {
 }
 
 export function exportBook(options: ExportOptions): ExportResult {
-  const { bookRoot, format = 'both', platform = 'generic' } = options
+  const { bookRoot, platform = 'generic' } = options
+  const format = options.format ?? 'both'
+  // C-9（二十九轮）：format 入口校验——TS 类型上只可能是三合法值，但 API/worker 层透传
+  // 任意 JSON 可达（运行期不受类型约束），非法值此前会让 doMerged/doSplit 双 false：
+  // 全部章静默跳过写入，落到「零产出」收口误报「正文全部为空或读取失败」，病因完全
+  // 错位（误导作者去查正文）。改入口显式参数错误返回（对齐本文件 {ok:false,error}
+  // 错误信封形态），不做任何盘上操作。
+  if (format !== 'merged' && format !== 'split' && format !== 'both') {
+    return {
+      ok: false,
+      files: [],
+      chapterCount: 0,
+      unit: '章',
+      error: `参数错误：format=${JSON.stringify(format)} 非法（只接受 merged / split / both）`,
+    }
+  }
   const cfg = readBookConfig(join(bookRoot, 'book.yaml'))
   const kind = cfg.ok && cfg.config.kind === 'short' ? 'short' : 'long'
   const bodyDir = join(bookRoot, '写作', '正文')

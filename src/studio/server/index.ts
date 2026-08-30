@@ -400,6 +400,20 @@ export function startServer(opts: StudioServerOptions): http.Server {
       }
     }
 
+    // D-4（二十九轮）：/API/ 大写前缀变体此前双失配——上方 GET token 闸与 dispatch 都按
+    // 小写 /api/ 匹配，/API/books 一路落进静态分支回 200 index.html（API 路径拿到 SPA
+    // 页面，调用方按 JSON 解析报糊墙错误）。静态回退（含静态 miss 落 index.html）前按
+    // 小写化口径兜一道：任意大小写的 /api/ 前缀未匹配任何路由 → 统一 404 JSON 错误信封
+    // （与 /api/ 未命中同款 replyError），不再落 SPA。排空钩子对齐上方 api 分支（POST
+    // /API/* 带 body 被 404 时 keep-alive 连接的未消费请求体照常排空，R64-28 同款）。
+    if (apiPathname.toLowerCase().startsWith('/api/')) {
+      res.on('finish', () => {
+        if (!req.readableEnded) req.resume()
+      })
+      replyError(res, 404, 'NOT_FOUND', 'not found')
+      return
+    }
+
     // 静态托管前端
     // R-8（第十六轮）：静态分支补兜底 catch——对齐 /api 分支口径。createStaticHandler
     // 是 async（返回 promise），对已销毁连接 writeHead 抛 ERR_STREAM_ALREADY_FINISHED

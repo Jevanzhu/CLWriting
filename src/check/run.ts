@@ -102,7 +102,24 @@ export function runCheckForDocument(
         }
       }
     }
-    return checkWithDb(bookRoot, absPath, db, config, undefined, { draftText: opts?.draftText })
+    // R29-5（二十九轮）：book.yaml 降级黄项透出——config 回落默认仍能跑，但阈值/词表/
+    // 账本类配置本轮未生效，作者只看 warn 日志无从知晓；在机检报告里透出黄项（面板可见，
+    // 不驱动红闸）让「降级事实」与「机检结果」同屏。
+    const outcome = checkWithDb(bookRoot, absPath, db, config, undefined, { draftText: opts?.draftText })
+    if (outcome.ok && !cfgResult.ok) {
+      outcome.report.sections.push({
+        name: 'book.yaml',
+        items: [
+          {
+            checkId: 'book-config-degraded',
+            level: 'yellow',
+            message: `book.yaml 解析失败，本轮机检按默认配置降级执行（${cfgResult.error.message}）——书级阈值/词表/账本配置未生效，修复后请重查。`,
+            chapter: outcome.chapter.章号,
+          },
+        ],
+      })
+    }
+    return outcome
   } finally {
     if (db) db.close()
   }
@@ -285,6 +302,10 @@ export function collectTreeIssues(
   userDataPath?: string | null,
 ): { issues: Record<string, { hasRed: boolean; verdictRejected: boolean }>; rebuildFailed: boolean; leadsBookDegraded: boolean; chaptersDegraded: number } {
   // B-P2-7：检查 .ok，损坏时 warn 留诊断（config 回落 DEFAULT_CONFIG，不阻断）
+  // R29-5（二十九轮）：树聚合路径降级只 warn 不产黄项——树红点聚合只吃 hasRed
+  // （issues 只记 {hasRed, verdictRejected}，黄项无处落），逐章注入黄项既不可见又会
+  // 拖累章级缓存判定；降级可见性由 warn 日志 + 单章面板（runCheckForDocument 注入的
+  // book-config-degraded 黄项）承担。
   const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
   if (!cfgResult.ok) log.warn('check', `book.yaml 降级: ${cfgResult.error.message}`)
   // 全局托底：同 runCheckForDocument——树红点聚合也吃 short.strict 生效值
@@ -423,24 +444,33 @@ export function collectTreeIssues(
         if (!docId) continue
         // A1（批 1）：章级指纹 = 正文 stat + 裁决信封 stat（信封改动=verdict 变，
         // 自动失效；无信封=verdict_fp NULL）。全中 → 直接取缓存聚合，零机检零重读。
-        let chapterSt: { mtimeMs: number; size: number }
+        // R29-B8（二十九轮）：stat 精度毫秒 → mtimeNs bigint（与纪元/dirFp 的 R73-27
+        // 口径一致）——同毫秒内「改回同长内容」此前不失效，ns 级撞车窗口收窄到与
+        // 章缓存/纪元同源。缓存列存 µs 整数（mtimeNs/1000n → JS 安全整数，64-bit
+        // SQLite 列无损绑定）：毫秒值(~1.7e12)与微秒值(~1.7e15)量级隔离，旧代毫秒行
+        // 必 miss → 一次性整表重算，不存在旧缓存脏读面（方案升级失效与 R73-27 指纹
+        // 格式变更同路径：值空间不相交即天然失效，无需额外版本号）。
+        let chapterSt: { mtimeNs: bigint; size: number }
         try {
-          chapterSt = statSync(ch._path)
+          const st = statSync(ch._path, { bigint: true })
+          chapterSt = { mtimeNs: st.mtimeNs, size: Number(st.size) }
         } catch {
           continue // 竞态消失（回收站/删除）：本条跳过
         }
+        // µs 级安全整数指纹（读/写共用同一次换算，口径一致）
+        const chapterFp = Number(chapterSt.mtimeNs / 1000n)
         const envAbs = existingAnalysisPath(bookRoot, docId) // R68-3：双候选读侧定位（信封 stat 指纹不吃单候选分裂）
         let verdictFp: string | null = null
         if (envAbs) {
           try {
-            const es = statSync(envAbs)
-            verdictFp = `${es.mtimeMs}:${es.size}`
+            const es = statSync(envAbs, { bigint: true })
+            verdictFp = `${es.mtimeNs}:${es.size}`
           } catch {
             verdictFp = null // 信封竞态消失：按无信封处理
           }
         }
         if (cacheEnabled && db) {
-          const cached = readTreeIssuesCache(db, relPath, chapterSt.mtimeMs, chapterSt.size, verdictFp)
+          const cached = readTreeIssuesCache(db, relPath, chapterFp, chapterSt.size, verdictFp)
           if (cached) {
             // 章级行只存章作用域 hasRed（H-1 拆分后），全书性红项在此合并展示
             const mergedRed = cached.hasRed || leadsBookRed
@@ -476,7 +506,7 @@ export function collectTreeIssues(
         // 注意写入的是章作用域 hasRed（不含 leadsBookRed），合并只在展示层发生。
         // R70-14：窗口内纪元变了则本轮不落缓存（下轮重算）。R71-20：比较用轮内缓存值
         const epochStable = epochFp0 !== null && epochFpNow === epochFp0
-        if (!checkFailed && cacheEnabled && db && epochStable) writeTreeIssuesCache(db, relPath, chapterSt.mtimeMs, chapterSt.size, verdictFp, { hasRed, verdictRejected })
+        if (!checkFailed && cacheEnabled && db && epochStable) writeTreeIssuesCache(db, relPath, chapterFp, chapterSt.size, verdictFp, { hasRed, verdictRejected })
         const mergedRed = hasRed || leadsBookRed
         if (mergedRed || verdictRejected) issues[docId] = { hasRed: mergedRed, verdictRejected }
       }

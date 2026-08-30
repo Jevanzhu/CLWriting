@@ -69,17 +69,57 @@ export function checkFrontMatter(
   return { name: 'front matter 格式', items }
 }
 
+/** R29-1②（二十九轮）：汉字单字符判定（复用 HANZI 区间单源），边界检测用。 */
+const HANZI_CHAR_RE = new RegExp(`[${HANZI}]`)
+
+/**
+ * R29-1②（二十九轮）：≥2 字禁词的边界命中——命中位置的「前后都必须是非汉字」
+ * （文本首尾算边界）才计命中，防成语/复合词裸子串误报（「一丝不苟」不再命中「一丝」）。
+ * 方向取舍（有意为之）：禁词红项假阳代价最高（红项驱动自愈打回，误报烧真模型调用），
+ * 由此引入的漏报（禁词嵌在连续汉字中段，如「说了句废话」的「废话」）向安全可接受，
+ * 作者仍可把词条写成带标点的形态或下修为单字黄项观察。
+ */
+function hasBoundedHit(text: string, word: string): boolean {
+  let idx = text.indexOf(word)
+  while (idx !== -1) {
+    const beforeOk = idx === 0 || !HANZI_CHAR_RE.test(text[idx - 1]!)
+    const end = idx + word.length
+    const afterOk = end >= text.length || !HANZI_CHAR_RE.test(text[end]!)
+    if (beforeOk && afterOk) return true
+    idx = text.indexOf(word, idx + 1) // 步进 1：不漏重叠位置上的合法边界命中
+  }
+  return false
+}
+
 /**
  * 禁词检查（#10 项 4，🔴 红）。
  * 命中作者设的禁词表（文风铁律.md 的禁词段）。
+ * R29-1（二十九轮）三处收紧：
+ * ① 匹配前剥对白引号 span（quotes.ts 单源 stripQuotedSpans）——对白是角色嘴里的话，
+ *    不算作者叙述用词（角色骂禁词不等于作者写禁词）；
+ * ② ≥2 字禁词加「前后非汉字」边界（见 hasBoundedHit 注释：防成语裸子串误报，
+ *    漏报向安全）；
+ * ③ 单字禁词降级为黄项——单字命中误报面最大（「顿」命中「安顿/顿开」），保留
+ *    fail-noisy 可见性（黄项照出）但不再驱动红闸打回。
  */
 export function checkBannedWords(
   body: string,
   bannedWords: string[],
 ): CheckSectionResult {
   const items: CheckItem[] = []
+  const prose = stripQuotedSpans(body)
   for (const word of bannedWords) {
-    if (body.includes(word)) {
+    if (!word) continue
+    if (word.length === 1) {
+      // R29-1③：单字禁词降黄（不再驱动打回）
+      if (prose.includes(word)) {
+        items.push({
+          checkId: 'banned-word',
+          level: 'yellow',
+          message: `命中单字禁词「${word}」（单字误报面大，降级为黄项提示，不驱动打回）`,
+        })
+      }
+    } else if (hasBoundedHit(prose, word)) {
       items.push({
         checkId: 'banned-word',
         level: 'red',
@@ -122,19 +162,35 @@ export function checkWordCount(
  */
 const REPEAT_N_GRAM = 8
 
+/** R29-B6（二十九轮）：绝对重复字符量阈值（双口径的第二口径）。
+ *  量纲 = 重复 n-gram 实例折算字符数（每多出现一次计 REPEAT_N_GRAM 字，全书求和，
+ *  见 ngramRepeatRate.repeatChars）。取值保守：200 字 ≈ 一段 30+ 字的复读块重复两遍，
+ *  正常行文（人名/套语零星重现）远达不到；比率口径（15%）继续管小章，绝对口径兜
+ *  大章集中复读（5000 字章重复 100 字 ≈ 2%，比率不报、绝对量 700+ 字必报）。 */
+const REPEAT_CHARS_THRESHOLD = 200
+
 export function checkRepeat(
   body: string,
   threshold = 0.15,
+  repeatCharThreshold = REPEAT_CHARS_THRESHOLD,
 ): CheckSectionResult {
   const items: CheckItem[] = []
   // M-12（第八轮）：滑窗口径收口到 format/sentences.ngramRepeatRate（与文风重扫共用）
-  const { rate, total, repeatInstances } = ngramRepeatRate(body, REPEAT_N_GRAM)
+  const { rate, total, repeatInstances, repeatChars } = ngramRepeatRate(body, REPEAT_N_GRAM)
   if (total > 0) {
+    // R29-B6：双口径——比率超阈（章长无关的密度语义）或绝对重复字符量超阈
+    // （防大章稀释漏报）任一命中即报，message 注明触发口径
     if (rate > threshold) {
       items.push({
         checkId: 'repeat',
         level: 'yellow',
         message: `复读率 ${(rate * 100).toFixed(1)}% 超阈值 ${threshold * 100}%（重复 ${repeatInstances} 处）`,
+      })
+    } else if (repeatChars > repeatCharThreshold) {
+      items.push({
+        checkId: 'repeat',
+        level: 'yellow',
+        message: `重复字符量 ${repeatChars} 字超绝对阈值 ${repeatCharThreshold} 字（复读率 ${(rate * 100).toFixed(1)}% 未超，大章集中复读）`,
       })
     }
   }
@@ -210,6 +266,17 @@ const SPEECH_ATTRIBUTION_RE =
   new RegExp(`^[${HANZI}]{1,4}(?:${SPEECH_VERBS})(?:了|着|道)?$`)
 
 /**
+ * R29-B12（二十九轮）：对白引导词收尾判定（checkNewNames 混排行守卫专用，刻意不复用
+ * SPEECH_VERBS 全集）——span 开引号紧前（允许隔一个冒号/逗号）以这些说话动词收尾 =
+ * 该 span 是「引导词 + 引语」的对白引用而非专名提及。单字集从 SPEECH_VERBS 剔除
+ * 叫/回/应/念/叹/笑/斥/呼/唤/低语 等构词语素高发字（「名叫『萧策』」的「叫」会把
+ * 真候选杀掉），双字词（吩咐/嘀咕/嘟囔/喃喃/低语）按 2 字符窗口整词收尾才认。
+ * 已知残余面（漏报向安全，黄项启发式不追全）：「频道/知道/频道」等以「道」收尾的
+ * 普通词紧邻引号时同样豁免——与 R76-3 同款取舍。
+ */
+const DIALOGUE_GUIDE_RE = /(?:说|道|问|骂|喊|答|吼|喝|吩咐|嘀咕|嘟囔|喃喃|低语)[：:，,]?\s*$/
+
+/**
  * R26-11（二十六轮）：对话标签提示语结构锚定（computeStyleMetrics 对话标签占比用）。
  * V-P1-7 只看引号外文本后，裸字面匹配（`[汉字]{1,8}说|道|…(了|着)?`）仍把剥引号后
  * 残留的构词语素当标签——「“走吧。”他知道已经拦不住了。」剥引号后「他知道…」的
@@ -266,8 +333,10 @@ export function checkNewNames(
   const innerOpenRe = new RegExp(`[${QUOTE_OPEN}]`)
   for (const rawLine of body.split(/\n+/)) {
     const line = rawLine.trim()
-    const spans = line.match(spanRe)
-    if (!spans) continue
+    // R29-B12（二十九轮）：match→matchAll——守卫需要 span 在行内的位置（取开引号
+    // 紧前文本判引导词），裸字符串数组拿不到 index
+    const spans = [...line.matchAll(spanRe)]
+    if (spans.length === 0) continue
     // R73-17（二十一轮）：「动词+冒号+引语」结构豁免——引导动词词表（挥手/点头/摆手…）
     // 永远追不全，词表外动词 + 冒号引出的对白（「他挥挥手：『住手。』」）此前整行按
     // 叙述行处理，引号内 2 字对白被当专名误报。引号外文本以冒号收尾 = 「X：『引语』」
@@ -280,7 +349,8 @@ export function checkNewNames(
     if (isAttributionOnly(outside)) continue
     // X-P2-9：人名 + 说话动词的对白归属行同样豁免
     if (SPEECH_ATTRIBUTION_RE.test(outside)) continue
-    for (const q of spans) {
+    for (const span of spans) {
+      const q = span[0]
       // R67-9（十五轮）：嵌套引号截断守卫——QUOTED_SPAN_RE 跨体系配对但不感知嵌套，
       // 嵌套对白「他说『快走』了」被截成 span「他说『快走，剥引号后「他说快走」恰落
       // 2-4 字窗报伪专名黄项；span 内部还有开引号 = 截断产物（对白内容非专名），跳过
@@ -293,6 +363,12 @@ export function checkNewNames(
       // 全部穿透成伪专名黄项刷屏。改判剥两端引号后的原文：含句读 = 对白内容非专名，
       // 跳过（漏报向安全：真提及的专名带句读本就在引语里）。
       if (spanPunctRe.test(q.slice(1, -1))) continue
+      // R29-B12（二十九轮）：混排行残余面——动作+无句读短引语（「林晚喊道『站住』，
+      // 追了出去。」）不落 R76-3 句读守卫也不落整行豁免，span 被当 2 字伪专名报黄。
+      // span 开引号紧前（隔一个冒号/逗号算紧邻）以对白引导词收尾 → 判为对白引用跳过；
+      // 引导词不在紧邻窗口（如「他说了很多，『诚实』才是关键」）或引导词词表外
+      // （「名叫『萧策』」）仍照报，真候选不误伤（词表收窄理由见 DIALOGUE_GUIDE_RE 注释）
+      if (DIALOGUE_GUIDE_RE.test(line.slice(0, span.index ?? 0).trimEnd())) continue
       const name = q.replace(punctRe, '')
       if (name.length < 2 || name.length > 4) continue
       if (!roster.includes(name)) candidates.add(name)
@@ -839,7 +915,11 @@ export function checkOpeningNoEnv(
   envWords: string[] = DEFAULT_ENV_WORDS,
 ): CheckSectionResult {
   const items: CheckItem[] = []
-  const opening = body.slice(0, openingChars)
+  // R29-4（二十九轮）：opening 窗口先剥对白引号 span 再匹配环境词——角色嘴里说的
+  // 「今天天气真好」是对白不是环境描写（叙述面），裸匹配此前误报对白密集的开篇。
+  // 窗口尾截断的半个 span（有开无闭）不被识别为 span → 该处引号内容仍参与匹配，
+  // 属可接受的漏报向残余（黄项 advisory，非红闸）。
+  const opening = stripQuotedSpans(body.slice(0, openingChars))
   const hits: string[] = []
   for (const word of envWords) {
     if (word && opening.includes(word)) hits.push(word)

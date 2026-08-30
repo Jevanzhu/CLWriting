@@ -95,8 +95,12 @@ watch(sel, () => {
 
 async function openDoc(node: TreeNode): Promise<void> {
   if (!node.docId) return
+  // E-2（二十九轮）：await 前快照书名——doc.open 在途切书后不得把旧书文档开进新书
+  // 工作区（新书同名路径命中旧书 docId）
+  const bookAtOpen = ws.bookName
   try {
     await doc.open(node)
+    if (ws.bookName !== bookAtOpen) return
     ws.openTab(node.docId)
   } catch (e) {
     ui.toast(friendlyError(e), 'error')

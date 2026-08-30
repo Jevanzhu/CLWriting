@@ -26,6 +26,8 @@ const EXPECTED_GLOBS = [
   'src/studio/server/**',
   'src/studio/web-next/src/api/**',
   'src/studio/web-next/src/{composables,editor,shared,stores}/**',
+  // R29-12（二十九轮批 F）：stores 单列域级子桶（基线 −2pp → 89/88，与聚合桶并存叠加）
+  'src/studio/web-next/src/stores/**',
 ]
 /** 各桶排除时留下注释标记便于人读；include/exclude 口径抄自 vitest.config.ts */
 const INCLUDE = ['src/**/*.ts']

@@ -76,9 +76,17 @@ async function load(): Promise<void> {
   }
 }
 
-watch(() => [ws.activeDocId, props.bookName], load, { immediate: true })
-// 保存后版本会变，刷新列表（savedAt 变化即一次落盘）
-watch(() => current.value?.savedAt, load)
+// E-8（二十九轮）：原「[activeDocId, bookName] + savedAt」双 watch 合并为单 watch——
+// 三元组一次订阅（文档/书切换或落盘 savedAt 变化都走这里），回调内逐位比对，值未
+// 变化不重拉（避免同一次状态变更触发两次列表请求）；load 内 loadGen 防竞态保持
+watch(
+  () => [ws.activeDocId, props.bookName, current.value?.savedAt] as const,
+  (cur, prev) => {
+    if (prev && cur[0] === prev[0] && cur[1] === prev[1] && cur[2] === prev[2]) return
+    void load()
+  },
+  { immediate: true },
+)
 
 async function onRestore(e: SnapshotEntry): Promise<void> {
   // 低级项（第六轮）：上下文入口捕获——确认弹窗 await 期间可切书/切文档，

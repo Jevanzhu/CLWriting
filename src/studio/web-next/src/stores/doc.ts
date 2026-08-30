@@ -43,6 +43,9 @@ export interface DocEntry {
   error: string | null
   /** 乐观锁冲突未决：外部已修改，等用户选「重载/覆盖」；期间 autosave 跳过（必再冲突）。 */
   conflict: boolean
+  /** E-4（二十九轮）：打开时的树版本快照（tree store revision）——树重扫推进版本后，
+   *  与当前版本不一致的 clean 缓存项可能已过期（外部改动），由 syncCleanWithTree 静默重拉。 */
+  treeRev?: string
 }
 
 /** 卸载兜底同步落盘的总预算（ms）：串行同步 XHR 超预算即放弃余下文档（尽力而为）。 */
@@ -135,6 +138,8 @@ export const useDocStore = defineStore('doc', () => {
         savedAt: null,
         error: null,
         conflict: false,
+        // E-4（二十九轮）：记录打开时的树版本，供树刷新后对账新鲜度
+        treeRev: useTreeStore().revision,
       })
       evictLRU() // F7（五十九轮）：新 entry 落位后裁剪 clean 缓存至 LRU 上限
     } finally {
@@ -292,6 +297,35 @@ export const useDocStore = defineStore('doc', () => {
     }
   }
 
+  /** E-4（二十九轮）：树刷新后的 clean 缓存新鲜度对账（tree store load 成功处调用）——
+   *  打开时记录的树版本（treeRev）与当前树版本不一致、且非 dirty/conflict/saving 的
+   *  缓存项静默重拉，内容对齐磁盘（外部改动的冲突不必拖到保存才暴露）。LRU/驱逐语义
+   *  不变：命中项就地更新、不重排 Map 迭代序（重排会扰动 F7 的访问序 LRU）。 */
+  async function syncCleanWithTree(book: string, curRev: string): Promise<void> {
+    if (!curRev || bookName.value !== book) return
+    const stale = [...docs.value.values()].filter(
+      (e) => e.treeRev !== curRev && !e.dirty && !e.conflict && !e.saving,
+    )
+    await Promise.all(
+      stale.map(async (e) => {
+        try {
+          const content = await getContent(book, e.path)
+          const rev = await sha256Revision(content)
+          // await 窗口复检：已切书 / 条目被清或已转 dirty/conflict/saving（期间有本地
+          // 编辑/在途保存）→ 放弃回写，交由常规保存/打开路径处理
+          if (bookName.value !== book) return
+          const cur = docs.value.get(e.docId)
+          if (cur !== e || e.dirty || e.conflict || e.saving) return
+          e.content = content
+          e.baselineRevision = rev
+          e.treeRev = curRev
+        } catch {
+          /* 静默失败（best-effort 对齐磁盘）：下次树刷新再对账 */
+        }
+      }),
+    )
+  }
+
   /** 定稿确认（revision → final）：git commit 锁定当前版本。成功后刷新树（状态变 final）。 */
   async function finalize(docId: string): Promise<boolean> {
     if (!bookName.value) return false
@@ -412,5 +446,5 @@ export const useDocStore = defineStore('doc', () => {
     }
   }
 
-  return { docs, bookName, setBook, get, open, patch, save, reloadFromRemote, overwriteRemote, refresh, finalize, conflictedDirtyDocs, flushDirty, flushSyncOnUnload, autosaveTick }
+  return { docs, bookName, setBook, get, open, patch, save, reloadFromRemote, overwriteRemote, refresh, syncCleanWithTree, finalize, conflictedDirtyDocs, flushDirty, flushSyncOnUnload, autosaveTick }
 })

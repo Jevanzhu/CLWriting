@@ -89,8 +89,10 @@ test('目标已存在（同章号）→ 旧稿回收站，不覆盖', () => {
   // 旧稿进回收站
   expect(has('工作区/.trash/草稿-1.md')).toBe(true)
   // W-P2-3：进回收站清单（此前只挪文件不登记，回收站 UI 永不可见、不可还原）
+  // C-4（二十九轮）：originalPath 记「迁移落点」（resolveDraftPath 命中的既有章路径），
+  // 不再是已退役的 写作/草稿/ 旧路径
   const trash = listTrash(tmp)
-  expect(trash.some((e) => e.originalPath === '写作/草稿/草稿-1.md' && e.trashedPath === '工作区/.trash/草稿-1.md')).toBe(true)
+  expect(trash.some((e) => e.originalPath === '写作/正文/第一卷/001-正式.md' && e.trashedPath === '工作区/.trash/草稿-1.md')).toBe(true)
 })
 
 // ── W-P1-5：定稿防线 throw 不得炸掉启动链路 ────────
@@ -113,9 +115,9 @@ test('W-P1-5：草稿指向已定稿章（resolveDraftPath throw）→ 迁移不
   expect(r.errors[0]).toContain('已定稿')
   // 定稿内容未被覆盖
   expect(readFileSync(join(tmp, '写作/正文/第一卷/001-开篇.md'), 'utf-8')).toContain('定稿内容')
-  // 冲突稿进回收站且登记在案
+  // 冲突稿进回收站且登记在案（C-4：originalPath 记 forRead 落点=已定稿章路径）
   expect(has('工作区/.trash/草稿-1.md')).toBe(true)
-  expect(listTrash(tmp).some((e) => e.originalPath === '写作/草稿/草稿-1.md')).toBe(true)
+  expect(listTrash(tmp).some((e) => e.originalPath === '写作/正文/第一卷/001-开篇.md')).toBe(true)
 })
 
 test('W-P1-5 后续启动可自愈：冲突稿已入回收站 → 二次迁移 no-op 无新错误', () => {
@@ -188,8 +190,8 @@ test('R27-133: 冲突稿入回收站（目标已存在分支）→ 主清单旧�
   const r = migrateLayoutV3(dir)
   expect(r.errors).toEqual([])
   expect(r.migrated).toBe(1)
-  // 旧稿入回收站（既有 W-P2-3 口径不变）
-  expect(listTrash(dir).some((e) => e.originalPath === '写作/草稿/草稿-1.md')).toBe(true)
+  // 旧稿入回收站（既有 W-P2-3 口径不变；C-4：originalPath 记落点 001-旧稿.md）
+  expect(listTrash(dir).some((e) => e.originalPath === '写作/正文/第一卷/001-旧稿.md')).toBe(true)
   // R27-133：主清单旧路径条目整行清除（修复前悬挂 entry 指向退役目录 写作/草稿/）
   const paths = r27ManifestPaths(dir)
   expect(paths.has('docD1')).toBe(false)
@@ -220,7 +222,7 @@ test('R27-133: 定稿防线 throw 分支稿入回收站 → 同样清除主清�
   const r = migrateLayoutV3(dir)
   expect(r.errors.length).toBe(1)
   expect(r.errors[0]).toContain('已定稿')
-  expect(listTrash(dir).some((e) => e.originalPath === '写作/草稿/草稿-1.md')).toBe(true)
+  expect(listTrash(dir).some((e) => e.originalPath === '写作/正文/第一卷/001-开篇.md')).toBe(true)
   // R27-133：throw 分支同口径清条目（W-P1-5 既有断言不回归：定稿条目原样）
   const paths = r27ManifestPaths(dir)
   expect(paths.has('docD2')).toBe(false)

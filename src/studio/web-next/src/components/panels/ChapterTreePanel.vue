@@ -48,14 +48,20 @@ function toggle(path: string): void {
   const next = new Set(expanded.value)
   if (next.has(path)) next.delete(path)
   else next.add(path)
-  ws.treeExpanded = [...next]
+  // E-3（二十九轮）：展开/折叠走 setTreeExpanded——置「用户已操作」位，挡住迟到的
+  // loadBookPrefs 回填覆盖（比照 activeDocId 的 R72-11 守卫口径）
+  ws.setTreeExpanded([...next])
 }
 
 async function onSelect(node: TreeNode): Promise<void> {
   if (node.isDirectory || !node.docId) return
   openError.value = null
+  // E-2（二十九轮）：await 前快照书名——doc.open 在途切书（新书同名路径命中旧书
+  // docId）后不得把旧书文档开进新书工作区
+  const bookAtClick = ws.bookName
   try {
     await doc.open(node)
+    if (ws.bookName !== bookAtClick) return
     ws.openTab(node.docId)
   } catch (e) {
     openError.value = friendlyError(e)
@@ -103,7 +109,14 @@ watch(
     // 挂的是旧书路径/docId，留着会在新树渲染出无主输入框/弹窗（immediate 首跑 old 为
     // undefined 时无旧态可清，跳过）
     if (old !== undefined && old !== name) actions.resetInlineState()
-    if (!name) return
+    // E-7（二十九轮）：脏路由 name='' ——前书的树/红点/今日字数展示态一并清掉（原
+    // `if (!name) return` 直接返回，A 书树滞留展示在无书界面）；store 内推代，在途
+    // 旧书 load/红点/基线响应落定不回填
+    if (!name) {
+      tree.clear()
+      words.reset()
+      return
+    }
     await tree.load(name, true) // 切书：重扫盘（上次会话期间盘上可能被外部改过）
     // R65-56（E-8）：load 在途切书守卫——A 书慢 load 落定时书名已换 B，后续 set
     // treeExpanded（按落定时的 grouped 算默认展开）与 ensureBaseline('A')（words 的

@@ -140,19 +140,22 @@ describe('ui: AI 可达性探测', () => {
     expect(getAiStatusMock).toHaveBeenCalledTimes(2)
   })
 
-  // R-22（第十六轮）：后端可达但 available:false（AI 供应商未配置/未就绪）也走 5s 重试
-  it('available:false → 同样 5s 后重试（只有 available:true 停止）', async () => {
+  // R-22（第十六轮）：后端可达但 available:false（AI 供应商未配置/未就绪）也重试。
+  // E-5（二十九轮）：重试间隔改指数退避 5s→10s→…（封顶 60s），available:true 即停
+  it('available:false → 指数退避重试（5s→10s→20s），available:true 停止', async () => {
     getAiStatusMock.mockResolvedValue({ available: false, driver: '' })
     const ui = useUiStore()
     await ui.probeAiStatus()
     expect(ui.aiAvailable).toBe(false)
     await vi.advanceTimersByTimeAsync(5000)
-    expect(getAiStatusMock).toHaveBeenCalledTimes(2) // 修复前：不重试，永久卡 false
+    expect(getAiStatusMock).toHaveBeenCalledTimes(2) // 第 1 次退避 5s：t=5s 触发
     await vi.advanceTimersByTimeAsync(5000)
-    expect(getAiStatusMock).toHaveBeenCalledTimes(3) // 仍 false → 继续按 5s 重试
-    // 变 true 后停止
+    expect(getAiStatusMock).toHaveBeenCalledTimes(2) // 第 2 次退避 10s：t=10s 未到（15s 才触发）
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(getAiStatusMock).toHaveBeenCalledTimes(3) // t=15s：第 2 次重试发生
+    // 变 true 后停止（第 3 次退避 20s：t=35s 触发即成功）
     getAiStatusMock.mockResolvedValue({ available: true, driver: 'anthropic' })
-    await vi.advanceTimersByTimeAsync(5000)
+    await vi.advanceTimersByTimeAsync(30000)
     expect(ui.aiAvailable).toBe(true)
     vi.advanceTimersByTime(15000)
     expect(getAiStatusMock).toHaveBeenCalledTimes(4) // 成功即停

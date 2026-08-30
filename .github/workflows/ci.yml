@@ -25,7 +25,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     # R66-39（十四轮）：10 分钟无数据背书偏紧——慢机偶发超时以超时红呈现（报告 §五）。
     # 放宽到 20（≈2× 余量）作过渡值，待 CI 实跑时长数据回填后再校准。
-    timeout-minutes: 20
+    # F-7（二十九轮批 F）：20→30——job 级超时为全矩阵共享，win 腿（npm ci ×2 +
+    # build:all + 全量单测）在 20 分钟预算上易触顶假红，取最慢腿背书放宽。
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -35,7 +37,7 @@ jobs:
         # 按 win 适配 D4 拍板口径「win 仅 typecheck+build+单测（e2e 仍 mac/ubuntu）」：
         # 本 job 其余步（lint/packaging/counts/knowledge/pack）纯 Node 脚本顺带背书。
         # 45 处 skipIf(win32) 平台守卫 + R69-7 补的 3 文件已就位；win npm ci/构建较慢，
-        # 20 分钟超时为首跑观察值（J0 打包前以本腿为 win 持续门）。
+        # 20 分钟超时为首跑观察值（J0 打包前以本腿为 win 持续门），F-7 已放宽到 30。
         os: [ubuntu-latest, macos-latest, windows-latest]
         # 24=LTS / 26=Current（25 奇数线已 EOL）。engines >=24；node:sqlite 自 v23.4.0 起免 flag，两版均零 flag 可用。
         node: [24, 26]

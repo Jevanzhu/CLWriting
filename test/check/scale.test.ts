@@ -60,7 +60,7 @@ function mulberry32(seed: number): () => number {
 function makeBody(no: number): string {
   const rng = mulberry32(no * 2654435761)
   const paragraphs: string[] = []
-  if (no % HIT_EVERY === 1) paragraphs.push('山门外的玉佩在雨夜里连响了三下，谁也没有回头。')
+  if (no % HIT_EVERY === 1) paragraphs.push('山门外的雨夜里，玉佩，连响了三下，谁也没有回头。')
   // 内存闸（2026-08-24 审计 A3）：增量计数替代每段全量 join——O(N²) 拷贝是造书期
   // GC churn 推手；total 口径与 join('\n\n').length 恒等（首段无分隔符，此后 +len+2）
   let total = paragraphs[0]?.length ?? 0

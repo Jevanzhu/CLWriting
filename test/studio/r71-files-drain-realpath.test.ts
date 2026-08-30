@@ -69,8 +69,11 @@ afterAll(async () => {
 })
 
 describe('R71-10: symlink workDir 下 PUT 链能被 drain', () => {
-  // Windows 建 symlink 需特权——跳过（mac/linux 覆盖词法/realpath 分叉场景）
-  (process.platform === 'win32' ? it.skip : it)(
+  // Windows 建 symlink 需特权——平台门跳过（mac/linux 覆盖词法/realpath 分叉场景）。
+  // F-10（二十九轮批 F）：三元 `(platform === 'win32' ? it.skip : it)(...)` 形态改
+  // `it.skipIf(...)` 家规形态；check-counts 的 skip 检出正则（findOnlyOrSkipViolations）
+  // 只认 `.skip(`，`.skipIf(` 不会被误判为无条件 skip。
+  it.skipIf(process.platform === 'win32')(
     '链键为 realpath 时 drain(词法书根) 真正等待链排空（修复前 no-op）',
     { timeout: 30_000 },
     async () => {

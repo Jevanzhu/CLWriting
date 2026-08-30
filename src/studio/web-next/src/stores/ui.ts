@@ -10,9 +10,10 @@ export interface ToastItem {
 }
 let seq = 0
 
-/** 探测失败后的重试间隔（ms）。dev 启动竞态：api 慢于 web 就绪时，启动探测失败，
- *  不永久卡「AI 服务未连接」——按间隔重试直到成功。 */
-const AI_PROBE_RETRY_MS = 5000
+/** E-5（二十九轮）：探测失败重试间隔——指数退避（5s 起步 ×2 封顶 60s）。原 5s 固定
+ *  轮询在 AI 长期不可达时永久打点（无退避上限）；available:true 成功即停并复位阶数。 */
+const AI_PROBE_BASE_MS = 5_000
+const AI_PROBE_MAX_MS = 60_000
 
 export const useUiStore = defineStore('ui', () => {
   const paletteOpen = ref(false)
@@ -89,35 +90,39 @@ export const useUiStore = defineStore('ui', () => {
       toasts.value = toasts.value.filter((t) => t.id !== id)
     }, kind === 'error' ? 5000 : 1800)
   }
-  /** G4：探测 AI 可达性（启动调一次；失败自动重试，重试成功即停）。 */
+  /** G4：探测 AI 可达性（启动调一次；失败按指数退避自动重试，available:true 成功即停）。 */
   let probeTimer: ReturnType<typeof setTimeout> | null = null
+  let probeStep = 0 // E-5：退避阶数（成功复位；每次失败 +1 → 5s→10s→…→60s 封顶）
+  function scheduleProbeRetry(): void {
+    if (probeTimer) return
+    probeStep += 1
+    const delay = Math.min(AI_PROBE_BASE_MS * 2 ** (probeStep - 1), AI_PROBE_MAX_MS)
+    probeTimer = setTimeout(() => {
+      probeTimer = null
+      void probeAiStatus()
+    }, delay)
+  }
   async function probeAiStatus(): Promise<void> {
     try {
       const s = await getAiStatus()
       aiAvailable.value = s.available
       aiDriver.value = s.driver
-      // R-22（第十六轮）：available:false 也走 5s 重试（与网络异常同口径）——后端可达但
+      // R-22（第十六轮）：available:false 也重试（与网络异常同口径）——后端可达但
       // AI 供应商未配置/未就绪是暂时态，只有 available:true 才停止探测
-      if (s.available && probeTimer) {
-        clearTimeout(probeTimer)
-        probeTimer = null
-      }
-      if (!s.available && !probeTimer) {
-        probeTimer = setTimeout(() => {
+      if (s.available) {
+        probeStep = 0 // E-5：成功复位退避阶数（下次失败重新从 5s 起步）
+        if (probeTimer) {
+          clearTimeout(probeTimer)
           probeTimer = null
-          void probeAiStatus()
-        }, AI_PROBE_RETRY_MS)
+        }
+        return
       }
+      scheduleProbeRetry()
     } catch {
       aiAvailable.value = false
       aiDriver.value = ''
-      // API 不可达：定时重试（dev 启动竞态 / 后端重启后自动恢复），成功即停
-      if (!probeTimer) {
-        probeTimer = setTimeout(() => {
-          probeTimer = null
-          void probeAiStatus()
-        }, AI_PROBE_RETRY_MS)
-      }
+      // API 不可达：退避重试（dev 启动竞态 / 后端重启后自动恢复），成功即停
+      scheduleProbeRetry()
     }
   }
 

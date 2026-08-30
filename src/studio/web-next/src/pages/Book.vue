@@ -36,7 +36,9 @@ const bookName = computed(() => {
   return n === undefined || n === null ? '' : String(n)
 })
 useHeartbeat(() => bookName.value)
-useSse(() => bookName.value)
+// R29-10（二十九轮）：持有 useSse 句柄——切书 watch 链尾调 resync() 强制重取连接级
+// sync 快照（sync 是连接级一次性推送，见 watch 内时序说明）
+const sse = useSse(() => bookName.value)
 
 const doc = useDocStore()
 const ws = useWorkspaceStore()
@@ -68,6 +70,28 @@ let bookGen = 0
     // 首载 lastBook==='' 不受影响：路由书名经 X-P2-21 归空串时 n==='' 与 lastBook 初值
     // 相等，但首载时各 store 本就是初值，短路等价于原「清一遍空状态」，无行为差异。
     if (n === lastBook) return
+    // E-7（二十九轮）：脏路由（name=''，手输坏 URL / 上位页面异常跳转）提前分支——
+    // 残存 dirty 属前书，先落盘再按现有切书口径清各 store，防前书数据滞留展示。
+    // 不走下方 Z-8/F1 确认弹窗：脏路由不是「切书」决断（无回退目标书），flush 失败
+    // 与卸载路径同口径 console.warn 留痕（.版本 快照是恢复底线）
+    if (!n) {
+      workbench.clear() // 第五轮口径：clear 早于 flushDirty（防双 spawn 窗），此处照搬
+      const failedEmpty = await doc.flushDirty()
+      if (gen !== bookGen) return // 挂起期间路由又变：交新轮回处理
+      if (failedEmpty.length > 0) {
+        console.warn(`[Book] 脏路由离开时 ${failedEmpty.length} 个文档保存失败（编辑未落盘）: ${failedEmpty.join(', ')}`)
+      }
+      lastBook = ''
+      doc.setBook('')
+      ws.setBook('')
+      check.clear()
+      review.clear()
+      learn.clear()
+      style.clear()
+      rewrite.clear()
+      chat.clear()
+      return
+    }
     // Z-8（第五十八轮）：未决冲突守卫——conflict && dirty 文档的本地修改从未落盘（autosave
     // 跳过 conflict 项），setBook 清缓存即不可恢复丢失，此前全程静默。确认弹窗：拒绝 → 回退
     // 路由留在原书（first watch 即时跑，lastBook 初值为空时跳过守卫）
@@ -89,14 +113,13 @@ let bookGen = 0
         }
       }
     }
-    // R62-48：时序说明——bookName 走 computed，路由一变新书 SSE/心跳即刻连上；弹窗
-    // 等待与 flushDirty await 期间新书连接已存在（心率先到旧书名/SSE sync 竞态由下方
-    // gen 守卫与 setBook 后重连自愈，无需专门掐断）。
+    // 时序说明（R62-48 → R29-10 改写）——bookName 走 computed，路由一变新书 SSE/心跳
+    // 即刻连上；弹窗等待与 flushDirty await 期间新书连接已存在，其连接级 sync 快照随时
+    // 可能到达。第五轮把 workbench.clear() 提前到 flushDirty 之前（防「sync(running=true)
+    // 先到、其后的 clear 把 running 错误复位 → 可再『生成』双 spawn 窗」），该口径保持
+    // 不变；但 clear 早于 clear 前到达的 sync 仍会被复位且连接常驻不再重发（假空闲）——
+    // R29-10 在链尾以 sse.resync() 断开重连，让服务端对新连接重发权威快照收口
     lastBook = n
-    // 第五轮：workbench.clear() 提前到 flushDirty 之前——旧书有 dirty 文档时 flushDirty
-    // 秒级在途，期间新书 SSE 的 sync(running=true) 已先到，随后才执行的 clear() 会把
-    // running 错误复位（状态卡显示可再「生成」→ 双 spawn 窗）。clear 只清旧书内存态，
-    // 不依赖 doc 缓存，提前无副作用；新月 sync 快照在 await 之后必然重设权威值
     workbench.clear()
     // 切书前先保存当前书的 dirty 文档（setBook 会清空缓存，否则 <autosaveInterval 的编辑静默丢失）
     const failed = await doc.flushDirty()
@@ -137,6 +160,11 @@ let bookGen = 0
     if (n) void chat.seedHistory(n)
     // 切书后刷新对话档位（防短暂显示旧书模型列表）
     void useChatTier().refresh()
+    // R29-10（二十九轮）：切书链收尾强制重取 SSE sync 快照——上方 await 链（确认弹窗/
+    // flushDirty 秒级在途）期间新书连接的 sync 可能已到并被链首 workbench.clear() 复位
+    //（假空闲 → 状态卡显示可再「生成」的双 spawn 窗）。gen 守卫通过（本轮仍是最新切书）
+    // 且 bookName 仍等于 n（本轮切书结果未被再切覆盖）时，断开重连让服务端重发权威快照
+    if (gen === bookGen && bookName.value === n) sse.resync()
 }, { immediate: true })
 // tree 加载后校验 tabs（剔除失效 docId）
 watch(

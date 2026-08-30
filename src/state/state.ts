@@ -200,9 +200,11 @@ export function detectState(bookRoot: string, config: BookConfig, manifest?: Man
   return { state: 7, nextChapter: skipFinalizedChapters(currentChapter + 1, finalizedChapterNumbers(m)) }
 }
 
-/** 健康检查异常项（去 git：journal 崩溃恢复 + 网盘副本扫描 + 定稿文件丢失）。 */
+/** 健康检查异常项（去 git：journal 崩溃恢复 + 网盘副本扫描 + 定稿文件丢失 + 布线缺失）。
+ *  R29-8（二十九轮）：kind 联合新增 'wiringMissing'（长篇书 布线/ 目录缺失，防吃书闸
+ *  与账本回写静默失效的观测项）。 */
 export interface HealthIssue {
-  kind: 'crashedWrite' | 'cloudCopy' | 'finalizedLost'
+  kind: 'crashedWrite' | 'cloudCopy' | 'finalizedLost' | 'wiringMissing'
   humanMsg: string
   fix: string
   files?: string[]
@@ -262,20 +264,56 @@ function healthCheck(bookRoot: string, manifest: Manifest): HealthIssue[] {
     }
   }
 
-  // ③ N5（五十九轮）：已定稿文件丢失——清单在册有 finalizedRevision 的正文/设定/
-  // 大纲/布线文档文件不在盘（被外部删除/移走），detectHandEdits 的 rev===null 分支
-  // 原先静默跳过，无任何健康出口（静默丢章：章号推算只看盘上文件，缺章无感知）。
-  // 归入态 1 issues 交作者裁决（恢复来源：版本档案/回收站/同步盘备份）。
+  // ③ N5（五十九轮）：已定稿文件丢失——清单在册有 finalizedRevision 的文档文件不在盘
+  //（被外部删除/移走），detectHandEdits 的 rev===null 分支原先静默跳过，无任何健康出口
+  //（静默丢章：章号推算只看盘上文件，缺章无感知）。归入态 1 issues 交作者裁决（恢复
+  // 来源：版本档案/回收站/同步盘备份）。
+  // R29-n/C-5（二十九轮）：核对范围从固定四前缀（HAND_EDIT_PREFIXES，态 3 手改检测的
+  // 口径）放宽为「清单在册有 finalizedRevision 的全部 document 条目」——finalizedRevision
+  // 是清单侧唯一定稿标记（finalizeRevision 落盘），定稿在四前缀之外的登记文档此前丢失
+  // 零出口。同时区分「确实不存在（ENOENT）」与「stat 出错（EACCES 等不可探测）」：
+  // 后者同样计入 lost（保守报红），但 warn 留痕——不可读 ≠ 不在盘，处置动作不同。
   for (const entry of manifest.entries.values()) {
     if (entry.nodeType !== 'document' || !entry.finalizedRevision) continue
-    if (!HAND_EDIT_PREFIXES.some((p) => entry.path.startsWith(p))) continue
     const abs = safeManifestPath(bookRoot, entry.path)
-    if (abs === null || !existsSync(abs)) {
+    let statErr: NodeJS.ErrnoException | null = null
+    if (abs !== null) {
+      try {
+        statSync(abs)
+      } catch (e) {
+        statErr = e as NodeJS.ErrnoException
+      }
+    }
+    if (abs === null || statErr !== null) {
+      if (statErr !== null && statErr.code !== 'ENOENT') {
+        log.warn(
+          'state',
+          `已定稿文件「${entry.path}」状态探测失败（${statErr.code ?? '未知错误'}）：按丢失计入健康项——可能只是无读取权限，请人工核对后处置`,
+        )
+      }
       issues.push({
         kind: 'finalizedLost',
         humanMsg: `已定稿文件「${entry.path}」不在盘上（可能被外部删除或移走）。`,
         fix: '从版本历史（工作区/.版本）或备份找回该文件；确认不需要可重新定稿覆盖基线。',
         files: [entry.path],
+      })
+    }
+  }
+
+  // ④ R29-8（二十九轮）：长篇书 布线/ 目录缺失——finalize 的防吃书闸（ee-P1-3，含
+  // finalGateBlockers 的 fail-open 降级）与账本履历回写（ee-P1-4）都以 existsSync(布线)
+  // 为生效条件，目录缺失时两者整体静默失效（作者零感知地失去防吃书保护）。短篇书
+  // 不建布线是正常形态（scaffold 短篇分支），只对长篇（kind 缺省 long，与 isPieceBody
+  // 读 book.yaml 的判定方式同口径）报 warning 健康项交作者裁决；healthCheck 无配置
+  // 入参，就地读 book.yaml（解析失败按长篇处理，宁报不漏）。
+  if (!existsSync(join(bookRoot, '布线'))) {
+    const cfg = readBookConfig(join(bookRoot, 'book.yaml'))
+    const kind = cfg.ok ? (cfg.config.kind ?? 'long') : 'long'
+    if (kind !== 'short') {
+      issues.push({
+        kind: 'wiringMissing',
+        humanMsg: '布线目录缺失，防吃书闸与账本回写未生效。',
+        fix: '从备份恢复 布线/ 目录；确认本书不需要布线（长程线索账本）可忽略此提示，写作将按无布线模式进行。',
       })
     }
   }

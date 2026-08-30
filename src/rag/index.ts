@@ -10,10 +10,11 @@
  */
 
 import { existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { readChapterDir } from '../format/chapters.js'
 import { readFile } from '../format/frontmatter.js'
+import { parseChapterFileName } from '../format/words.js'
 import { openRagDb, storeChunk, readAllChunks, readAllChapterFingerprints, getRagMeta, setRagMeta, deleteRagMeta, deleteChunksByChapter, getIndexedChapterNumbers, l2Norm, cosineSimilarity, type RagChunk } from './store.js'
 import { embed, type EmbedOptions } from './embed.js'
 import type { RagConfig } from './config.js'
@@ -240,9 +241,19 @@ export async function buildIndex(
   if (!existsSync(bodyDir)) {
     return { ok: false, chunkCount: 0, chapterCount: 0, error: '没有定稿正文可索引。' }
   }
-  const { chapters } = readChapterDir(bodyDir)
+  const { chapters, errors } = readChapterDir(bodyDir)
   if (chapters.length === 0) {
     return { ok: false, chunkCount: 0, chapterCount: 0, error: '没有定稿正文可索引。' }
+  }
+  // A-9（二十九轮）：frontmatter 解析失败章号集——文件名仍带章号（<章号>-<标题>.md），
+  // 按 basename 反推；名字也不可解析的（无章号前缀）无从保护，退回原口径。
+  const brokenChapterNums = new Set<number>()
+  for (const err of errors) {
+    const n = parseChapterFileName(basename(err.file))?.章号
+    if (n !== undefined) brokenChapterNums.add(n)
+  }
+  if (brokenChapterNums.size > 0) {
+    log.warn('rag', `${brokenChapterNums.size} 章正文 frontmatter 解析失败（章号：${[...brokenChapterNums].sort((a, b) => a - b).join('、')}）——本轮索引跳过且保留其既有向量，修复后自动恢复`)
   }
 
   const db = openRagDb(bookRoot)
@@ -270,7 +281,11 @@ export async function buildIndex(
       ]
       if (indexedChapterNums.length > 0) {
         const currentChapterNums = new Set(chapters.map((ch) => ch.章号))
-        const stale = indexedChapterNums.filter((n) => !currentChapterNums.has(n))
+        // A-9（二十九轮）：解析失败章排除出 stale 差集——fm 坏的章只是「本轮读不出」，
+        // 不是「已删除」。不排除会把它的有效向量+指纹当残留清掉，作者修好 fm 后
+        // buildIndex 重嵌整章（重复计费）。排除后旧向量保留（召回侧指纹闸对读不出的
+        // 章判 stale 不出 hit，fail-closed），修好后指纹比对自然走增量/重索引自愈。
+        const stale = indexedChapterNums.filter((n) => !currentChapterNums.has(n) && !brokenChapterNums.has(n))
         if (stale.length > 0) {
           db.exec('BEGIN IMMEDIATE')
           try {

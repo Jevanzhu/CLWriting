@@ -174,7 +174,10 @@ function registerDegradedCallbacks(userDataPath: string): void {
       return
     }
     s.modelCaps[key] = { structured: false }
-    saveProviders(userDataPath, s)
+    // R29-2（二十九轮）：saveProviders 排队段失败现随返回 promise 上抛——降级记忆落盘是
+    // fire-and-forget 侧通道（AA-P3-5 不中断已成功的建流），此处收口拒绝（saveProviders
+    // 内部已 log.warn 留痕）；快路同步异常照旧落进 persistDegraded 的 try/catch，语义不变
+    saveProviders(userDataPath, s).catch(() => { /* 排队段失败已留痕，下轮 persistDegraded 自然重试 */ })
     degradedPersistedKeys.add(memoKey)
   })
   // D2：降级记忆新鲜读——适配器实例缓存（registry settings hash）后不再依赖

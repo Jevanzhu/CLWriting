@@ -79,13 +79,16 @@ test('B-3: updateChapterMeta 改标题含 Windows 非法字符/控制字符 → 
   rmSync(root, { recursive: true, force: true })
 })
 
-test('B-3: updateChapterMeta 超长标题 → 双封顶截断（80 汉字撞 120 字节上限 = 40 字，R-10 口径）', () => {
+test('B-3: updateChapterMeta 超长标题 → 双封顶截断（80 汉字撞 120 字节上限，R-10 口径）', () => {
   const { root, svc } = makeBookWithChapter()
   const longTitle = '长'.repeat(80)
   const r = svc.updateChapterMeta('doc_ch01', { 标题: longTitle })
   expect(r.ok).toBe(true)
   if (!r.ok) { rmSync(root, { recursive: true, force: true }); return }
-  if (r.ok) expect(r.path!.split('/').pop()).toBe(`0001-${'长'.repeat(40)}.md`)
+  // C-3（二十九轮）：rename 落名过 sanitizeCreateSegment 单源后，整段（含 '0001-' 前缀
+  // 5 字节）共用 120 字节预算 → floor((120-5)/3) = 38 字，与 createDocument 同源口径
+  //（此前标题段单独 120B = 40 字；落名二次消毒按整段封顶收 38 字）。
+  if (r.ok) expect(r.path!.split('/').pop()).toBe(`0001-${'长'.repeat(38)}.md`)
   rmSync(root, { recursive: true, force: true })
 })
 

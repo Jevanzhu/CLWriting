@@ -23,6 +23,7 @@ import { outlineDeclarationForChapter } from '../check/outline-leads.js'
 import { readChapterUpdatesForChapter, leadEvidenceMatchesBody } from '../check/lead-updates.js'
 import { leadClosureItems } from '../check/leads.js'
 import { readDraft } from '../format/draft.js'
+import { log } from '../log/index.js'
 
 export type FinalizeOutcome =
   | { ok: true; status: 'final'; skipped: boolean }
@@ -196,7 +197,14 @@ function finalGateBlockers(bookRoot: string, absPath: string, chapterNo: number)
       .filter((u) => leadEvidenceMatchesBody(draft.body, u.证据))
       .map((u) => u.leadId)
     return leadClosureItems(declaration.leads, actual, chapterNo).map((i) => i.message)
-  } catch {
+  } catch (e) {
+    // R29-8（二十九轮）：fail-open 留痕——闸门自身故障此前静默返回 [] 放行，「闸门
+    // 降级」零痕迹（与 R29-8② state.ts 布线缺失健康项同族：静默失效面至少可观测）。
+    // 只加观测，不改变放行语义（闸门是防吃书增强而非定稿必要条件，X-P2-5 哲学不变）。
+    log.warn(
+      'finalize',
+      `第${chapterNo}章 防吃书闸执行失败，闸门降级放行：${e instanceof Error ? e.message : String(e)}`,
+    )
     return []
   }
 }

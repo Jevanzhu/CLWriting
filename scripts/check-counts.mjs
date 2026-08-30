@@ -193,9 +193,16 @@ export function missingPageErrorWiring(entries, exempt = PAGEERROR_WIRING_EXEMPT
     .map((e) => e.relPath)
 }
 
-/** 递归收集文件 */
+/**
+ * 递归收集文件
+ * F-5（二十九轮批 F）：`.` 前缀跳过同时覆盖外置卷 AppleDouble 元数据（macOS 在 exFAT
+ * 等卷上为每个真实文件旁生成 `._<name>` 副本，含 `._x.test.ts` 形态）——与 vitest
+ * exclude 的 `._*` 通配同口径（vitest.config.ts），否则外置卷工作区跑门禁时副本虚增
+ * 测试文件计数。此处显式注记，防后续把点前缀跳过误当普通 dotfile 卫生而收窄。
+ */
 function walk(dir, pred, out = []) {
   for (const name of readdirSync(dir)) {
+    // `._*`（AppleDouble）以 `.` 开头，随 dotfile 一并跳过（对齐 vitest 收集口径）
     if (name === 'node_modules' || name.startsWith('.')) continue
     const fp = join(dir, name)
     const st = statSync(fp)

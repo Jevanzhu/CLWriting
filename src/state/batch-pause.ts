@@ -6,7 +6,7 @@
  * 重新开批即清除——文件存在 ⇔ 上次连写未跑完且此后未再开批。
  * 观测性元数据：读写失败静默降级，绝不挡写稿主线（与备料 best-effort 同口径）。
  */
-import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
@@ -94,7 +94,22 @@ export function clearBatchPause(bookRoot: string): void {
     try {
       obj = JSON.parse(readFileSync(fp, 'utf-8')) as Record<string, unknown>
     } catch {
-      rmSync(fp, { force: true }) // 坏文件视作只剩暂停记录 → 直接删
+      // R29-n/C-7（二十九轮）：坏文件不再直接删——先把原文件改名保留为 <名>.corrupt
+      // 留证（同名已存在则追加时间戳，不覆盖前证），再写全新 { paused: false }。
+      // 原 rmSync 会把文件里除 paused 外的其他键（未来扩展的批处理进度等）无痕丢掉；
+      // 保留原文既留排查证据也不销毁未知数据。改名失败（占用等）退回旧口径删除重建
+      // （观测性元数据，绝不挡主线）。
+      const corruptPath = existsSync(`${fp}.corrupt`) ? `${fp}.corrupt-${Date.now()}` : `${fp}.corrupt`
+      let preserved = false
+      try {
+        renameSync(fp, corruptPath)
+        preserved = true
+        log.warn('batch-pause', `.auto-batch.json 解析失败，原文件已保留为 ${corruptPath}（留证），重建全新暂停记录`)
+      } catch {
+        log.warn('batch-pause', '.auto-batch.json 解析失败且留证改名失败，按旧口径删除重建')
+      }
+      if (!preserved) rmSync(fp, { force: true })
+      atomicWriteFile(fp, JSON.stringify({ paused: false }, null, 2) + '\n')
       return
     }
     if (!('paused' in obj)) return

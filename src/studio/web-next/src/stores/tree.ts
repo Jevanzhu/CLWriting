@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { getTree } from '../api/books'
 import { getTreeIssues, type TreeIssue } from '../api/tree-issues'
+import { useDocStore } from './doc'
 import type { TreeNode } from '../types/tree'
 import { friendlyError } from '../shared/error'
 
@@ -132,6 +133,10 @@ export const useTreeStore = defineStore('tree', () => {
       if (gen !== loadGen) return // 连切/并发刷新：慢响应后到，防旧树覆盖新树
       raw.value = r.nodes ?? []
       revision.value = r.revision ?? ''
+      // E-4（二十九轮）：树刷新成功即对账 doc 缓存新鲜度——树版本推进（重扫盘/结构性
+      // mutation 重建）后，打开时记录旧版本的 clean 缓存项可能已过期（外部改动），
+      // 静默重拉对齐（fire-and-forget，不阻塞树渲染）
+      void useDocStore().syncCleanWithTree(name, r.revision ?? '')
       // T9b：树就绪后 fire-and-forget 拉红点（聚合接口较重，不阻塞树渲染）
       void loadIssues(name)
     } catch (e) {
@@ -140,6 +145,20 @@ export const useTreeStore = defineStore('tree', () => {
     } finally {
       if (gen === loadGen) loading.value = false
     }
+  }
+
+  /** E-7（二十九轮）：清树展示态（脏路由 name='' 时由 ChapterTreePanel 调）——
+   *  前书 raw/红点/错误提示不滞留展示；loadGen/issuesGen 推代，在途旧书 load/红点
+   *  响应落定不回填（同库 opGen 纪律）。 */
+  function clear(): void {
+    loadGen++
+    issuesGen++
+    raw.value = []
+    revision.value = ''
+    loading.value = false
+    error.value = null
+    issues.value = {}
+    issuesWarning.value = null
   }
 
   return {
@@ -153,6 +172,7 @@ export const useTreeStore = defineStore('tree', () => {
     loading,
     error,
     load,
+    clear,
     issues,
     issuesWarning,
     issuePaths,

@@ -25,7 +25,9 @@ import { readManifest, writeManifest, upsertEntry } from '../../src/document/man
 import { generateDocId } from '../../src/document/stable-id.js'
 import { readAnalysis, writeAnalysis } from '../../src/document/analysis.js'
 
-/** 与 scan-count 测试同款造书（含禁词红源「玉佩」） */
+/** 与 scan-count 测试同款造书（含禁词红源「玉佩」）。
+ *  R29-1（二十九轮）：禁词匹配加「前后非汉字」边界后，红源正文改为标点夹持形态
+ *  （「，玉佩，」）——嵌在连续汉字中的「的玉佩在」不再计命中（漏报向安全的既定取舍）。 */
 function makeBook(chapterCount: number): string {
   const root = mkdtempTracked(join(tmpdir(), 'tree-cache-golden-'))
   mkdirSync(join(root, '布线', '悬念'), { recursive: true })
@@ -46,7 +48,7 @@ function makeBook(chapterCount: number): string {
     const pad = String(no).padStart(3, '0')
     writeFileSync(
       join(root, '写作', '正文', `${pad}-第${no}章.md`),
-      `---\n章号: ${no}\n标题: 第${no}章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n山门外的玉佩在雨夜里连响了三下。\n`,
+      `---\n章号: ${no}\n标题: 第${no}章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n山门外的雨夜里，玉佩，连响了三下。\n`,
       'utf-8',
     )
     upsertEntry(m, { id: generateDocId(), nodeType: 'document', path: `写作/正文/${pad}-第${no}章.md`, parentId: null })
@@ -84,7 +86,7 @@ describe('A1 golden 对照：缓存路径 ≡ 全量重算（逐字节一致）'
       )
       writeFileSync(
         join(root, '写作', '正文', '004-第4章.md'),
-        '---\n章号: 4\n标题: 第4章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n他又摸出了那枚玉佩。\n',
+        '---\n章号: 4\n标题: 第4章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n他又摸出了那枚旧物。玉佩，在掌心微凉。\n',
         'utf-8',
       )
       utimesSync(join(root, '写作', '正文', '006-第6章.md'), new Date(), new Date())

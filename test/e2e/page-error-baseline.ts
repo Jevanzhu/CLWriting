@@ -8,10 +8,15 @@
  * pageerror 事件为零——升级条件成熟：
  * - pageerror → 直接 throw（Playwright 将事件监听器内异常记为用例失败）：
  *   渲染层未捕获异常从此红，不再被断言偶然通过掩盖。
- * - console error → 滤除「Failed to load resource:」开头的资源加载日志（HTTP 语义
- *   已由各 spec 对状态码/响应体的显式断言覆盖，属负路径用例的预期产物，非渲染层
- *   缺陷）；其余真实应用 console.error（Vue 报错、逻辑分支 error 日志）维持 warn
- *   供人工排查，噪音摸清为零后再评估升红。
+ * - pageerror → 直接 throw（Playwright 将事件监听器内异常记为用例失败）：
+ *   渲染层未捕获异常从此红，不再被断言偶然通过掩盖。
+ * - console error → R29-14（二十九轮批 F）升红：滤除「Failed to load resource:」开头的
+ *   资源加载日志（HTTP 语义已由各 spec 对状态码/响应体的显式断言覆盖，属负路径用例的
+ *   预期产物，非渲染层缺陷）后，其余真实应用 console.error（Vue 报错、逻辑分支 error
+ *   日志）升为用例失败——收集到同一 page 的错误清单，照 pageerror 的升红模式（监听器内
+ *   throw，Playwright 记为当前用例失败）在首个应用错误处抛出，消息携带全部已收集条目。
+ *   R75-7 摸底时应用级 console.error 为零（108 条噪音全是资源日志），此后新增 spec 由
+ *   本门兜底；如现全量跑出新形态预期噪音，按白名单窄化口径在下方 filter 处登记。
  *
  * 接线约定：各 spec 用例开头（首个 page 动作之前）调
  *   attachPageErrorBaseline(page, '<spec 文件名去 .spec.ts>')
@@ -22,8 +27,8 @@
 import type { Page } from '@playwright/test'
 
 /**
- * 挂 pageerror（红）+ console error（滤资源日志后 warn）基线（幂等：同一 page
- * 重复挂会重复告警/重复抛，各用例只接一次即可）。
+ * 挂 pageerror（红）+ 应用 console error（滤资源日志后红，R29-14）基线（幂等：同一
+ * page 重复挂会重复告警/重复抛，各用例只接一次即可）。
  */
 export function attachPageErrorBaseline(page: Page, specTag: string): void {
   // R75-7：渲染层未捕获异常（window.onerror / unhandledrejection 上抛到 CDP）——
@@ -31,11 +36,19 @@ export function attachPageErrorBaseline(page: Page, specTag: string): void {
   page.on('pageerror', (err) => {
     throw new Error(`[e2e-pageerror][${specTag}] 渲染层未捕获异常：${err.message}`)
   })
-  // 页面 console.error——滤掉浏览器对非 2xx 响应自动打的资源加载日志（预期 4xx
-  // 是负路径用例的断言对象，非缺陷；见文件头 R75-7 摸底记录）
+  // 页面 console.error——先滤掉浏览器对非 2xx 响应自动打的资源加载日志（预期 4xx
+  // 是负路径用例的断言对象，非缺陷；见文件头 R75-7 摸底记录），其余为应用自身错误：
+  // R29-14 升红——收集后照 pageerror 模式在监听器内 throw，首个应用错误即用例失败，
+  // 错误消息携带本用例已收集的全部应用错误（避免多条报错被首条掩盖）
+  const appErrors: string[] = []
   page.on('console', (msg) => {
     if (msg.type() !== 'error') return
-    if (msg.text().startsWith('Failed to load resource:')) return
-    console.warn(`[e2e-console-error][${specTag}] ${msg.text()}`)
+    const text = msg.text()
+    if (text.startsWith('Failed to load resource:')) return
+    appErrors.push(text)
+    throw new Error(
+      `[e2e-console-error][${specTag}] 应用自身 console.error（R29-14 升红，共 ${appErrors.length} 条）：\n` +
+        appErrors.map((t, i) => `  ${i + 1}. ${t}`).join('\n'),
+    )
   })
 }

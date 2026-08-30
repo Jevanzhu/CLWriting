@@ -32,6 +32,7 @@ import { redactSecret } from './redact.js'
 import { responsesQuirksFor } from './model-quirks.js'
 import { makeToErrorEvent, buildDegradeAttempts, isMidChain400, markStructuredDegrade } from './adapter-errors.js'
 import { estimateInputTokens, estimateOutputTokens } from './usage-estimate.js'
+import { log } from '../../log/index.js'
 
 /** SDK 异常 → GenEvent.error：公共工厂实现（adapter-errors），此处只贴本线错误类与 label */
 const toErrorEvent = makeToErrorEvent({
@@ -255,6 +256,10 @@ export function createOpenAIResponsesProvider(
             // 顺序相邻，队头即当前项），续片归并最近兜底键
             let idxlessSeq = 0
             const idxlessQueue: string[] = []
+            // A-5（二十九轮）：本 attempt 加密推理项计数——gen.ts 对 reasoning_item 是
+            // 覆盖式收集（只留末条），多条时前 N-1 条被丢弃；流尾按计数一次性汇总留痕
+            //（逐条 warn 会刷屏，丢弃必须可感知 → 汇总一条）
+            let reasoningItemCount = 0
             // R74-1（二十二轮批 A）：产出累计（文本/推理 delta 串联 + tool 参数串）——
             // completed/incomplete 无 usage 时按此折算估计入账（usage-estimate.ts 同源
             // 系数，对齐 openai/anthropic 线 R73-1 形态），不再按 0/0 入账（预算闸对
@@ -345,6 +350,7 @@ export function createOpenAIResponsesProvider(
                     yield { type: 'tool', id: acc.callId, name: acc.name, input }
                   } else if (item.type === 'reasoning' && item.encrypted_content) {
                     // R3（缺口 11 后半）：加密推理项透出（gen 收集入 GenResult → chat 存回）
+                    reasoningItemCount++ // A-5：覆盖前计数（消费侧只留末条）
                     yield { type: 'reasoning_item', encrypted: item.encrypted_content, ...(item.id ? { itemId: item.id } : {}) }
                   }
                   break
@@ -424,6 +430,11 @@ export function createOpenAIResponsesProvider(
               yield { type: 'tool', id: t.callId, name: t.name, input }
             }
             toolAccum.clear()
+            // A-5（二十九轮）：多条加密推理项 → 流尾一次性汇总留痕丢弃条数
+            //（GenResult.reasoningEncrypted 覆盖式只留末条，前 N-1 条不再无感消失）
+            if (reasoningItemCount > 1) {
+              log.warn('responses', `单回合收到 ${reasoningItemCount} 条加密推理项，GenResult 仅保留末条（丢弃 ${reasoningItemCount - 1} 条，chat 回传推理状态以末条为准）`)
+            }
             if (terminal === 'none') {
               yield { type: 'error', message: '传输截断：流结束无终止事件', retryable: true, code: 'NETWORK' }
             }

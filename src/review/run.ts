@@ -224,6 +224,44 @@ function incompleteReviewIssue(reasons: string[], lens: ReviewLens): ReviewIssue
   }
 }
 
+/** R29-B11（二十九轮）：漂移阻断返回的共用装配——stale（hash 不符）与「draft_path/
+ *  draft_hash 恰缺一」（打包半接线）同构：注入阻断 issue + bad_entries 留痕 + ok:false。 */
+function unsoundCollect(
+  packet: ReviewExecutionPacket,
+  ledgerCheckRan: boolean,
+  reason: string,
+  badPath: string,
+): CollectedReview {
+  const stale: ReviewResult = {
+    // R63-4：注入阻断级 issue（原空 issues → 空判据假 passed:true，见 incompleteReviewIssue 头注）
+    issues: [
+      incompleteReviewIssue([reason], packet.lenses_run[0] ?? 'continuity'),
+    ],
+    summary: '',
+    meta: {
+      requested_tier: packet.requested_tier,
+      effective_tier: packet.tier,
+      fallback: packet.fallback,
+      lenses_run: packet.lenses_run,
+      ledger_check: ledgerCheckRan ? '已跑' : '跳过',
+    },
+  }
+  return {
+    ok: false,
+    collected_lenses: [],
+    missing_lenses: [],
+    bad_entries: [{ path: badPath, reason }],
+    raw_issues: [],
+    normalized: normalizeReviewResult(stale),
+    meta: stale.meta,
+    tier: packet.tier,
+    requested_tier: packet.requested_tier,
+    fallback: packet.fallback,
+    chapter: packet.chapter,
+    lenses_run: packet.lenses_run,
+  }
+}
+
 export function collectReviewIssues(input: {
   packet: ReviewExecutionPacket
 }): CollectedReview {
@@ -232,51 +270,36 @@ export function collectReviewIssues(input: {
   // 已不存在的文本。hash 不符/不可读 → 审稿单不成立（同缺视角/坏条目口径）。
   // R62-34：ledger_check 如实——任一分包带账本核对项才算「已跑」（无布线/账本无变动
   // 时任务书不带 ledger_checks，此前恒报「已跑」与实际执行面不符）
+  // R29-B11（二十九轮）：恰缺一 = 漂移（fail-closed）——生产链恒双传（studio/server/
+  // api/review.ts R62-33 接线），原实现「缺一即整段跳过校验」让半接线的打包方静默
+  // 失去漂移守卫；改按漂移同判注入阻断 issue。双缺保留跳过：合法形态（无草稿绑定的
+  // 回放/直造 packet，无可校验对象），非漂移信号。
   const ledgerCheckRan = input.packet.packets.some((p) => (p.ledger_checks?.length ?? 0) > 0)
+  const hasDraftPath = input.packet.draft_path !== undefined
+  const hasDraftHash = input.packet.draft_hash !== undefined
+  if (hasDraftPath !== hasDraftHash) {
+    return unsoundCollect(
+      input.packet,
+      ledgerCheckRan,
+      'draft_path 与 draft_hash 恰缺其一，草稿漂移校验无法执行（打包方接线断裂），审稿单不成立，请重跑三审',
+      input.packet.draft_path ?? input.packet.out_dir,
+    )
+  }
   if (input.packet.draft_path !== undefined && input.packet.draft_hash !== undefined) {
+    const draftPath = input.packet.draft_path
     let actual: string | null = null
     try {
-      actual = createHash('sha256').update(readFileSync(input.packet.draft_path)).digest('hex')
+      actual = createHash('sha256').update(readFileSync(draftPath)).digest('hex')
     } catch {
       actual = null // 读失败（草稿被删/移动）与 hash 不符同判
     }
     if (actual !== input.packet.draft_hash) {
-      const stale: ReviewResult = {
-        // R63-4：注入阻断级 issue（原空 issues → 空判据假 passed:true，见 incompleteReviewIssue 头注）
-        issues: [
-          incompleteReviewIssue(
-            ['草稿在审阅期间已变更或不可读（draft_hash 不符），审稿单不成立'],
-            input.packet.lenses_run[0] ?? 'continuity',
-          ),
-        ],
-        summary: '',
-        meta: {
-          requested_tier: input.packet.requested_tier,
-          effective_tier: input.packet.tier,
-          fallback: input.packet.fallback,
-          lenses_run: input.packet.lenses_run,
-          ledger_check: ledgerCheckRan ? '已跑' : '跳过',
-        },
-      }
-      return {
-        ok: false,
-        collected_lenses: [],
-        missing_lenses: [],
-        bad_entries: [
-          {
-            path: input.packet.draft_path,
-            reason: '草稿在审阅期间已变更或不可读（draft_hash 不符），审稿单不成立，请重跑三审',
-          },
-        ],
-        raw_issues: [],
-        normalized: normalizeReviewResult(stale),
-        meta: stale.meta,
-        tier: input.packet.tier,
-        requested_tier: input.packet.requested_tier,
-        fallback: input.packet.fallback,
-        chapter: input.packet.chapter,
-        lenses_run: input.packet.lenses_run,
-      }
+      return unsoundCollect(
+        input.packet,
+        ledgerCheckRan,
+        '草稿在审阅期间已变更或不可读（draft_hash 不符），审稿单不成立，请重跑三审',
+        draftPath,
+      )
     }
   }
 

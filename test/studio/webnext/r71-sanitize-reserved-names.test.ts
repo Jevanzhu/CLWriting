@@ -48,7 +48,8 @@ vi.mock('../../../src/studio/web-next/src/stores/ui', () => ({
   useUiStore: vi.fn(() => ({ toast: vi.fn(), ask: vi.fn(async () => true) })),
 }))
 vi.mock('../../../src/studio/web-next/src/stores/workspace', () => ({
-  useWorkspaceStore: vi.fn(() => ({ openTab: vi.fn(), activeDocId: ref(null), treeExpanded: [] })),
+  // E-3（二十九轮）：startCreate 自动展开改走 setTreeExpanded——mock 补该动作
+  useWorkspaceStore: vi.fn(() => ({ openTab: vi.fn(), activeDocId: ref(null), treeExpanded: [], setTreeExpanded: vi.fn() })),
 }))
 vi.mock('../../../src/studio/web-next/src/stores/tree', () => ({
   useTreeStore: vi.fn(() => treeMock),

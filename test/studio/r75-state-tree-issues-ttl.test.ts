@@ -124,7 +124,9 @@ beforeAll(async () => {
   mkdirSync(join(treeBookRoot, '文风'), { recursive: true })
   writeFileSync(join(treeBookRoot, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: R75树红点缓存书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n')
   writeFileSync(join(treeBookRoot, '文风', '文风铁律.md'), '# 文风铁律\n## 硬禁词\n- 玉佩\n')
-  writeFileSync(join(treeBookRoot, '写作', '正文', '0001-红章.md'), CH_FM(1, '红章') + '主角登场，玉佩发光。\n')
+  // R29-1（二十九轮）禁词新口径（前后非汉字边界）夹具适配：玉佩后邻汉字「发」被边界
+  // 拦截不再报红——改夹持形态（两侧标点 = 非汉字边界）恢复命中（造法同 tree-issues-api.test.ts）
+  writeFileSync(join(treeBookRoot, '写作', '正文', '0001-红章.md'), CH_FM(1, '红章') + '主角登场，玉佩，通体发亮。\n')
   const manifestPath = join(treeBookRoot, '项目', '文档清单.jsonl')
   const m = readManifest(manifestPath)
   redDocId = generateDocId()

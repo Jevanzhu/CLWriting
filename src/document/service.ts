@@ -84,6 +84,17 @@ export function __setMetaSaveLockTimeoutForTest(ms: number): void {
   META_SAVE_LOCK_TIMEOUT_MS = ms
 }
 
+/** R29-7（二十九轮）：布线文件写路径的第二道跨进程锁（`<布线文件绝对路径>.lock`，
+ *  与 lead-finalize.ts applyLeadUpdates 同名锁）等待档（毫秒）——与 save 锁的 5s
+ *  同档；let + 注入钩子（META_SAVE_LOCK_TIMEOUT_MS 同款惯例，测试注入缩短保快，
+ *  生产零调用）。 */
+export let WIRING_SAVE_LOCK_TIMEOUT_MS = 5_000
+
+/** 测试注入钩子（生产零调用）。 */
+export function __setWiringSaveLockTimeoutForTest(ms: number): void {
+  WIRING_SAVE_LOCK_TIMEOUT_MS = ms
+}
+
 /** 保存输入（W0-1 §5.1）。 */
 export interface SaveDocumentInput {
   content: string
@@ -325,6 +336,32 @@ export class DocumentService {
         reason: '保存等待超时：另一进程正在保存此文档（5 秒未让出），请重试',
       })
     }
+    // R29-7（二十九轮）：布线文件在 save 锁内再取同名文件锁（`<布线文件绝对路径>.lock`，
+    // 与 lead-finalize 回写临界段互斥，锁序单向 save→file 无环）——超时按 WRITE_ERROR
+    // 拒绝保存（fail-closed 不降级裸写：裸写正是本锁要闭合的覆盖形态）；获取自身抛出
+    // （权限等）同样拒绝并先释放 save 锁防泄漏。非布线文件 wiringLock 为 null，零开销。
+    const wiringKey = this.wiringFileLockKey(relPath)
+    let wiringLock: (() => void) | null = null
+    if (wiringKey) {
+      try {
+        wiringLock = acquireCrossProcessLockWithTimeout(wiringKey, WIRING_SAVE_LOCK_TIMEOUT_MS)
+      } catch (e) {
+        docSaveLock()
+        return Promise.resolve({
+          ok: false,
+          code: 'WRITE_ERROR',
+          reason: `布线文件锁获取失败（未执行保存，可重试）：${e instanceof Error ? e.message : String(e)}`,
+        })
+      }
+      if (!wiringLock) {
+        docSaveLock()
+        return Promise.resolve({
+          ok: false,
+          code: 'WRITE_ERROR',
+          reason: '保存等待超时：另一进程正在回写此布线文件（5 秒未让出），请重试',
+        })
+      }
+    }
     try {
       // R76-22（二十四轮 C 域）：锁内复核——路径登记/回收站认领守卫原先只在取锁前判
       // 一次，5s 等锁窗口内他进程 doTrash/doMoveOrRename 后，出队保存仍按旧世界落盘
@@ -480,6 +517,8 @@ export class DocumentService {
         reason: `保存失败（未落盘，可重试）：${e instanceof Error ? e.message : String(e)}`,
       })
     } finally {
+      // R29-7：布线文件锁先于 save 锁释放（逆获取序），release 幂等
+      if (wiringLock) wiringLock()
       docSaveLock()
     }
   }
@@ -560,6 +599,25 @@ export class DocumentService {
     const lexical = relPath.replace(/\\/g, '/')
     if (!isInternalBookPath(lexical) && isInternalBookPath(safe.rel)) return null
     return safe.abs
+  }
+
+  /** R29-7（二十九轮）：布线线索文件的跨进程文件锁键（非布线文件 → null 不加锁）。
+   *  背景：lead-finalize.ts applyLeadUpdates 对单个布线文件的「读旧→补履历→writeLead」
+   *  临界段持 `<文件绝对路径>.lock`，与本服务按 journal 命名的 save 锁互不感知——
+   *  R26-6 注释宣称防住了「作者经 executeSave 保存同一布线文件」，实际没防住（lost
+   *  update：保存的新正文被回写的旧正文整文件覆盖）。本服务三个写路径
+   *  （executeSave/updateChapterMeta/updateDocMeta）在 save 锁内对本文件再取**同名
+   *  锁**（锁序单向 save→file；lead-finalize 只持 file 锁，无获取序环路），双侧同名锁
+   *  互斥后覆盖窗口真正闭合。键必须与 lead-finalize 同构造（join(bookRoot, relPath)
+   *  词法路径，不经 realpath）——resolveSafePath 对存在目标返回 realpath，在 symlink
+   *  根（macOS tmp /var→/private/var）下会拼出不同键名使互斥失效。关系线按
+   *  lead-finalize 同口径位于 大纲/关系线/（同为布线族回写点），一并覆盖。 */
+  private wiringFileLockKey(relPath: string): string | null {
+    const p = relPath.replace(/\\/g, '/')
+    if (p.startsWith('布线/') || p.startsWith('大纲/关系线/')) {
+      return `${join(this.bookRoot, relPath)}.lock`
+    }
+    return null
   }
 
   // ── 结构性操作（W2A §7，同步实现）──────────────────
@@ -655,6 +713,23 @@ export class DocumentService {
     const docSaveLock = acquireCrossProcessLockWithTimeout(`${journalPath}.save.lock`, META_SAVE_LOCK_TIMEOUT_MS)
     if (!docSaveLock) {
       return { ok: false, code: 'WRITE_ERROR', reason: '元数据保存等待超时：另一进程正在保存此文档（5 秒未让出），请重试' }
+    }
+    // R29-7（二十九轮）：同 executeSave——布线文件在 save 锁内再取同名文件锁（与
+    // lead-finalize 回写互斥，锁序单向 save→file 无环），超时/获取异常按 WRITE_ERROR
+    // 拒绝（fail-closed，先释放 save 锁防泄漏）；非布线文件不加锁。
+    const wiringKey = this.wiringFileLockKey(path)
+    let wiringLock: (() => void) | null = null
+    if (wiringKey) {
+      try {
+        wiringLock = acquireCrossProcessLockWithTimeout(wiringKey, WIRING_SAVE_LOCK_TIMEOUT_MS)
+      } catch (e) {
+        docSaveLock()
+        return { ok: false, code: 'WRITE_ERROR', reason: `布线文件锁获取失败（未执行保存，可重试）：${errMsg(e)}` }
+      }
+      if (!wiringLock) {
+        docSaveLock()
+        return { ok: false, code: 'WRITE_ERROR', reason: '元数据保存等待超时：另一进程正在回写此布线文件（5 秒未让出），请重试' }
+      }
     }
     try {
       // R27-45（二十七轮）：单次 Buffer 读派生文本与判据（照抄 R73-40 updateDocMeta 修法）
@@ -766,6 +841,8 @@ export class DocumentService {
       }
       return { ok: true, docId, path }
     } finally {
+      // R29-7：布线文件锁先于 save 锁释放（逆获取序），release 幂等
+      if (wiringLock) wiringLock()
       docSaveLock()
     }
   }
@@ -846,6 +923,23 @@ export class DocumentService {
     if (!docSaveLock) {
       return { ok: false, code: 'WRITE_ERROR', reason: '元数据保存等待超时：另一进程正在保存此文档（5 秒未让出），请重试' }
     }
+    // R29-7（二十九轮）：同 executeSave/updateChapterMeta——布线文件（含 大纲/关系线/）
+    // 在 save 锁内再取同名文件锁（与 lead-finalize 回写互斥，锁序单向 save→file 无环），
+    // 超时/获取异常按 WRITE_ERROR 拒绝（fail-closed，先释放 save 锁防泄漏）。
+    const wiringKey = this.wiringFileLockKey(path)
+    let wiringLock: (() => void) | null = null
+    if (wiringKey) {
+      try {
+        wiringLock = acquireCrossProcessLockWithTimeout(wiringKey, WIRING_SAVE_LOCK_TIMEOUT_MS)
+      } catch (e) {
+        docSaveLock()
+        return { ok: false, code: 'WRITE_ERROR', reason: `布线文件锁获取失败（未执行保存，可重试）：${errMsg(e)}` }
+      }
+      if (!wiringLock) {
+        docSaveLock()
+        return { ok: false, code: 'WRITE_ERROR', reason: '元数据保存等待超时：另一进程正在回写此布线文件（5 秒未让出），请重试' }
+      }
+    }
     try {
       // R73-40（二十一轮）：两次独立 readFileSync 收敛为单次读（finalize.ts R72-5 单读
       // 同源先例）——「utf-8 读文本」与「字节级 UTF-8 判据」原先各读一次盘，两读之间文件
@@ -897,6 +991,8 @@ export class DocumentService {
       invalidateTreeIndex(this.bookRoot, true)
       return { ok: true, docId, path }
     } finally {
+      // R29-7：布线文件锁先于 save 锁释放（逆获取序），release 幂等
+      if (wiringLock) wiringLock()
       docSaveLock()
     }
   }
@@ -919,7 +1015,6 @@ export class DocumentService {
     if (op.kind === 'rename' && basename(op.newName) !== op.newName) {
       return { ok: false, code: 'PATH_ESCAPE', reason: '新文件名不能包含路径分隔符' }
     }
-
     let newPath: string
     if (op.kind === 'move') {
       // R66-5（十四轮）：toDir 此前只剥一个尾斜杠——'写作/正文//' 会把 '写作/正文//0001-x.md'
@@ -933,7 +1028,12 @@ export class DocumentService {
       }
       newPath = `${toDir}/${basename(oldPath)}`
     } else {
-      newPath = `${dirname(oldPath)}/${op.newName}`
+      // C-3（二十九轮）：newName 消毒同 create 路径单源口径（sanitizeCreateSegment →
+      // format/filename.ts 单一真相源）——此前只挡路径分隔符，Windows 非法字符/控制
+      // 字符/尾点尾空格/保留设备名/超长名直落盘（跨平台拷贝被拒或读写名不一致），
+      // 与 create 的静默消毒行为漂移。分隔符仍由上方守卫显式拒绝，其余非法形态按
+      // create 同款静默调整后落盘（落盘真实路径是唯一身份，返回 path 即消毒后路径）。
+      newPath = `${dirname(oldPath)}/${sanitizeCreateSegment(op.newName)}`
     }
     if (newPath === oldPath) return { ok: true, docId, path: newPath } // 无变化，幂等
 
@@ -1143,7 +1243,11 @@ export class DocumentService {
     if (!oldSafe) return { ok: false, code: 'PATH_ESCAPE', reason: '路径越出书仓库' }
     if (!existsSync(oldSafe)) return { ok: false, code: 'NOT_FOUND', reason: '源文件不存在' }
 
-    const trashedRel = `工作区/.trash/${encodeDocDirName(docId)}-${basename(oldPath)}`
+    // C-3（二十九轮）：回收站落名消毒同 create/rename 单源口径——basename 含 win
+    // 非法字符/尾点/控制字符时直拼 .trash 落名（跨平台同步盘/拷贝歧义或写失败）。
+    // 消毒只影响落名；TrashEntry.trashedPath 记录消毒后的真实落位，还原语义不变。
+    const cleanBase = sanitizeCreateSegment(basename(oldPath))
+    const trashedRel = `工作区/.trash/${encodeDocDirName(docId)}-${cleanBase}`
     // R73-34（二十一轮）：确定性命名残留防线的落位路径（函数域声明——成功返回值也要用）。
     // 上次软删「清单条目删除失败」残留后，同 docId 的文件经编辑器保存合法复活
     //（executeSave Z-6 对「文件在盘」放行）再被再次软删时，同名 .trash 目标会被
@@ -1169,7 +1273,9 @@ export class DocumentService {
       mkdirSync(dirname(trashAbs), { recursive: true })
       let finalTrashAbs = trashAbs
       const trashStemExt = (): { stem: string; ext: string } => {
-        const name = basename(oldPath)
+        // C-3：与落名同源——从消毒后的 cleanBase 拆 stem/ext，时间戳后缀重试链产物
+        // 同为消毒名
+        const name = cleanBase
         const dot = name.lastIndexOf('.')
         return {
           stem: dot > 0 ? name.slice(0, dot) : name,

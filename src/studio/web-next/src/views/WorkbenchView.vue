@@ -72,6 +72,15 @@ async function loadRuleHits(): Promise<void> {
 }
 
 const draftSaved = ref<{ path?: string; words: number } | null>(null)
+// E-9（二十九轮）：textOut 被清空（role_spawn 再生成重置正文流 / text_reset）时一并
+// 清 draftSaved 徽标——徽标描述「当前正文已存草稿」，正文已不在则提示失效，不清会
+// 对着空白正文区残留「N 字已存」误导作者
+watch(
+  () => wb.textOut,
+  (t) => {
+    if (!t) draftSaved.value = null
+  },
+)
 
 const chapter = computed(() => state.value?.nextChapter ?? 1)
 

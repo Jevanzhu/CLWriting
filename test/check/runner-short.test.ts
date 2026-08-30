@@ -86,11 +86,12 @@ test('runAllChecks short: 文风铁律反和解段命中 → 禁词红项', () =
   ].join('\n'), 'utf-8')
 
   const ch: ChapterMeta = { 章号: 1, 标题: '雪夜', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫' }
+  // R29-1（二十九轮）：禁词边界化——词条须标点夹持才计命中，fixture 同步改夹持形态
   const r = runAllChecks({
     bookRoot: tmp,
     config: shortConfig(),
     chapter: ch,
-    body: '全场倒吸凉气，仿佛时间静止。',
+    body: '全场哗然，倒吸凉气，时间静止，仿佛被冻住。',
     fileName: '001-雪夜.md',
   })
   const red = r.sections.flatMap((s) => s.items).filter((i) => i.level === 'red')
@@ -120,11 +121,12 @@ test('RB-KN-P1-1: S5 迁移形态（铁律无禁词段 + 禁词在条目库）�
   )
 
   const ch: ChapterMeta = { 章号: 1, 标题: '雪夜', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫' }
+  // R29-1（二十九轮）：禁词边界化——fixture 改标点夹持形态（「，不由得心头一震，」）
   const r = runAllChecks({
     bookRoot: tmp,
     config: shortConfig(),
     chapter: ch,
-    body: '他不由得心头一震，某种意义上事情不对。',
+    body: '夜风一过，不由得心头一震，某种意义上事情不对。',
     fileName: '001-雪夜.md',
   })
   const red = r.sections.flatMap((s) => s.items).filter((i) => i.level === 'red')

@@ -213,7 +213,12 @@ export function runAllChecks(input: CheckInput): CheckReport {
   // 短篇专属项（#27 第 5.3 节，有 config.short 才跑）：五段节数 + 开头零环境（黄金 300 字）
   if (short) {
     sections.push(checkSectionCount(body, short.section_count))
-    sections.push(checkOpeningNoEnv(body, short.opening_env_chars))
+    // R29-B7（二十九轮）：opening_env_chars 显式 0 = 作者关闭「开头零环境」检查
+    // （与「未设 = 默认 300」区分，解析侧 yaml.ts 只对显式 0 落键）；undefined 走
+    // checkOpeningNoEnv 的缺省参数
+    if (short.opening_env_chars !== 0) {
+      sections.push(checkOpeningNoEnv(body, short.opening_env_chars))
+    }
   }
 
   // 清单形式检（#27 第 5 节 + #28 第 3 节分工）：章纲在 大纲/章纲/ 与正文同名，有 config.short 才跑

@@ -12,16 +12,22 @@ import { join } from 'node:path'
 import { makeGitBook } from '../helpers/book.js'
 import { detectState, buildRecap } from '../../src/state/state.js'
 import { resolveDraftPath } from '../../src/format/draft.js'
-import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
+import { DEFAULT_CONFIG, writeBookConfig } from '../../src/format/yaml.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
 import { computeRevision } from '../../src/document/revision.js'
+import type { BookConfig } from '../../src/format/types.js'
 
-/** 造一本短篇书（无 布线/ 目录即短轨），并按给定篇号落定稿文件 + manifest 定稿基线。 */
+const SHORT_CONFIG: BookConfig = { ...DEFAULT_CONFIG, kind: 'short', book: { title: '夜语集', genre: '悬疑' } }
+
+/** 造一本短篇书（book.yaml kind:short + 无 布线/ 目录），并按给定篇号落定稿文件 + manifest 定稿基线。 */
 function makeShortBookWithFinalized(nums: number[]): string {
   const root = makeGitBook()
-  // 短篇书形态：无布线（detectState 按 布线/ 存在性分轨）
+  // 短篇书形态：kind: short + 无布线（detectState 按 布线/ 存在性分轨）。
+  // R29-8（二十九轮）：healthCheck 对「长篇 kind 且 布线/ 缺失」报 wiringMissing 健康项
+  // ——本夹具必须落真实的 kind: short（只删布线目录的长篇书现在按设计进态 1 体检）。
   rmSync(join(root, '布线'), { recursive: true, force: true })
+  writeBookConfig(join(root, 'book.yaml'), SHORT_CONFIG)
 
   const manifestPath = join(root, '项目', '文档清单.jsonl')
   mkdirSync(join(root, '项目'), { recursive: true })
@@ -47,7 +53,7 @@ function makeShortBookWithFinalized(nums: number[]): string {
 test('CC-P1-6:定稿 1、2、5 断档 → nextChapter=6 而非回指已定稿 5', () => {
   const root = makeShortBookWithFinalized([1, 2, 5])
   try {
-    const d = detectState(root, DEFAULT_CONFIG)
+    const d = detectState(root, SHORT_CONFIG)
     expect(d.state).toBe(7)
     if (d.state === 7) {
       // 旧算式：max(3+1, 5)=5 → 回指已定稿第 5 篇；修复后跳过 5
@@ -66,7 +72,7 @@ test('CC-P1-6:定稿 1、2、5 断档 → nextChapter=6 而非回指已定稿 5'
 test('CC-P1-6:连续定稿 1、2、3 → nextChapter=4（零断档零跳号，行为不变）', () => {
   const root = makeShortBookWithFinalized([1, 2, 3])
   try {
-    const d = detectState(root, DEFAULT_CONFIG)
+    const d = detectState(root, SHORT_CONFIG)
     expect(d.state).toBe(7)
     if (d.state === 7) expect(d.nextChapter).toBe(4)
   } finally {
@@ -79,7 +85,7 @@ test('CC-P1-6:V-P1-3 语义保留——坏 fm 草稿占号走态 4 续写覆盖�
   try {
     // 坏 fm 草稿占 004（无 front matter，readChapterDir 不计入 chapters 但文件名占号）
     writeFileSync(join(root, '写作', '正文', '004-坏草稿.md'), '没有 front matter 的草稿', 'utf-8')
-    const d = detectState(root, DEFAULT_CONFIG)
+    const d = detectState(root, SHORT_CONFIG)
     // 草稿在正文 → detectIncompleteWorkdir 捕获，走态 4 续写（覆盖草稿的恢复语义在态 4 通道）
     expect(d.state).toBe(4)
     if (d.state === 4) {
@@ -95,8 +101,8 @@ test('CC-P1-6:V-P1-3 语义保留——坏 fm 草稿占号走态 4 续写覆盖�
 test('CC-P1-6:buildRecap 提示号与 detectState 执行号同口径（断档 → 6）', () => {
   const root = makeShortBookWithFinalized([1, 2, 5])
   try {
-    const d = detectState(root, DEFAULT_CONFIG)
-    const recap = buildRecap(root, DEFAULT_CONFIG, d)
+    const d = detectState(root, SHORT_CONFIG)
+    const recap = buildRecap(root, SHORT_CONFIG, d)
     // 旧口径：currentChapter=4 → 提示「开始写第 5 章」回指定稿；修复后与执行号一致
     expect(recap.nextChapter).toBe(6)
   } finally {

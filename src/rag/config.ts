@@ -15,6 +15,7 @@ import { atomicWriteFile } from '../fs/atomic.js'
 import { readBookConfig, patchTopSection } from '../format/yaml.js'
 import { readGlobalBookDefaults } from '../format/global-defaults.js'
 import { stringifyValue } from '../format/frontmatter.js'
+import { log } from '../log/index.js'
 
 const RAG_SECRET_FILE = 'rag.secret'
 const ENV_KEY = 'CLWRITING_RAG_API_KEY'
@@ -37,15 +38,24 @@ export interface RagConfig {
 }
 
 /**
- * 读 RAG 配置（book.yaml rag 段；缺段 → 未启用）。
- * 全局托底：enabled/provider 书级未设时回落 global.json 的 ragEnabled/ragProvider
- * （userDataPath 缺省/无 global.json → 行为与此前完全一致）。书级显式关闭（enabled: false）
- * 永远赢——全局默认只托「未设」，不翻「本书已关」的案。
+ * 读 RAG 配置（book.yaml rag 段；缺段 → 全局托底）。
+ * R29-3（二十九轮）：「配置损坏」与「未设段」分岔——book.yaml 读不出/解析失败时书级
+ * RAG 意图不可知，fail-closed 直接禁用（修复前与缺段同路：损坏书会被全局默认 ragEnabled
+ * 拉去建索引/召回，对着残缺配置烧 embedding 费）；带解析错误 log.warn 留痕。
+ * 全局托底：enabled/provider 书级未设（rag 键缺席）时回落 global.json 的
+ * ragEnabled/ragProvider（userDataPath 缺省/无 global.json → 行为与此前完全一致）。
+ * 书级显式关闭（enabled: false）永远赢——全局默认只托「未设」，不翻「本书已关」的案。
  */
 export function readRagConfig(bookRoot: string, userDataPath?: string | null): RagConfig {
   const cfg = readBookConfig(join(bookRoot, 'book.yaml'))
   const global = readGlobalBookDefaults(userDataPath ?? null)
-  if (!cfg.ok || !cfg.config.rag) {
+  if (!cfg.ok) {
+    // R29-3（二十九轮）：损坏不托底——禁用并留痕（book.yaml 是书库必需件，读不出
+    // 视同配置不可知；缺段才走下方全局托底口径不变）
+    log.warn('rag', `book.yaml 读取/解析失败，RAG 对本书禁用（防按全局默认误建索引/召回）：${cfg.error.message}`)
+    return { enabled: false }
+  }
+  if (!cfg.config.rag) {
     // 书级未设：enabled 回落 global（无则关）；provider 无硬编码回落，global 没有就不带
     if (global.ragEnabled === undefined && global.ragProvider === undefined) return { enabled: false }
     return {

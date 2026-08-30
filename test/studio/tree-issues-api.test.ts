@@ -83,9 +83,11 @@ beforeAll(async () => {
   mkdirSync(join(bookRoot, '文风'), { recursive: true })
   writeFileSync(join(bookRoot, '文风', '文风铁律.md'), '# 文风铁律\n## 硬禁词\n- 玉佩\n', 'utf8')
   // 0001：正文含禁词「玉佩」→ checkBannedWords 报 banned-word（红）
+  // R29-1（二十九轮）禁词新口径（前后非汉字边界）夹具适配：玉佩后邻汉字「发」被边界
+  // 拦截不再报红——改夹持形态（两侧标点 = 非汉字边界）恢复命中
   writeFileSync(
     join(bookRoot, '写作', '正文', '0001-红章.md'),
-    '---\n章号: 1\n标题: 红章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n主角登场，玉佩发光。\n',
+    '---\n章号: 1\n标题: 红章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n主角登场，玉佩，通体发亮。\n',
     'utf8',
   )
   // 0002：fm 干净（章号 2 == 文件名 0002），无机检 red

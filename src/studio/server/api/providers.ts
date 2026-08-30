@@ -28,6 +28,7 @@ import {
   type TierSlot,
   type EffortLevel,
   type ProbeResult,
+  type ProviderStore,
 } from '../../../ai/provider/index.js'
 import type { Vault } from '../../../ai/provider/vault.js'
 import { listModels } from '../../../ai/provider/models.js'
@@ -45,6 +46,21 @@ export function __setProbeCapabilitiesForTest(fn: ((conf: ProviderConf) => Promi
 
 interface ProvidersCtx {
   userDataPath: string | null
+}
+
+// R29-2（二十九轮）：providers.json 写入失败不再静默假成功——批 B 把 store.ts 的
+// saveProviders 从 void 改为 Promise<void>（排队段写失败向上传播，此前仅 log.warn 吞掉），
+// 端点侧保存点统一 try/await 捕住回 500 WRITE_ERROR 信封（磁盘满/权限/锁超时故障下，
+// 此前 200 假成功让作者以为已保存）。当前 void 返回下 await/try-catch 合法且零行为差异，
+// B 落地后语义自动激活。返回 false = 已回错误响应，调用方直接 return 不再 reply 200。
+async function saveProvidersOr500(res: ServerResponse, userDataPath: string, s: ProviderStore): Promise<boolean> {
+  try {
+    await saveProviders(userDataPath, s)
+    return true
+  } catch {
+    replyError(res, 500, 'WRITE_ERROR', '配置写入失败，请重试')
+    return false
+  }
 }
 
 export function registerProvidersRoutes(ctx: ProvidersCtx): void {
@@ -100,7 +116,7 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     // 「手动切换/删任后改派」（防未验证顶掉已验证），空态首条接任是引导性默认，
     // 未验证即生成的风险由测试连接→工作台解灰动线自兜。
     if (!s.currentId) s.currentId = conf.id
-    saveProviders(ctx.userDataPath, s)
+    if (!(await saveProvidersOr500(res, ctx.userDataPath, s))) return
     reply(res, 200, { provider: maskProvider(conf, s.vault), revision: s.revision })
   },
   })
@@ -125,7 +141,7 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
       return replyError(res, 400, 'BAD_INPUT', `供应商「${target.name}」尚未测试连接，请先探测能力`)
     }
     s.currentId = id || null
-    saveProviders(ctx.userDataPath, s)
+    if (!(await saveProvidersOr500(res, ctx.userDataPath, s))) return
     // saveProviders bump revision——回传新值，前端 activate() 同步，否则后续写因陈旧 expectedRevision 409（P4）
     reply(res, 200, { ok: true, currentId: s.currentId, revision: s.revision })
   },
@@ -162,7 +178,7 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     s.tiers = { creative: creative.slot, assistant, chat: s.tiers.chat }
     // 同步 currentModel（兼容 resolveTier 回落逻辑）
     s.currentModel = creative.slot.model || null
-    saveProviders(ctx.userDataPath, s)
+    if (!(await saveProvidersOr500(res, ctx.userDataPath, s))) return
 
     // 表驱动重构（§6.3）：不再触发模型级探测——能力由静态表判定
     reply(res, 200, { ok: true, tiers: s.tiers, revision: s.revision, details: {} })
@@ -192,7 +208,7 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
       const revErr = revisionError(body?.['expectedRevision'], s.revision)
       if (revErr) return replyError(res, 409, 'REVISION_CONFLICT', revErr)
       s.tiers = { ...s.tiers, chat: null }
-      saveProviders(ctx.userDataPath, s)
+      if (!(await saveProvidersOr500(res, ctx.userDataPath, s))) return
       return reply(res, 200, { ok: true, tiers: s.tiers, revision: s.revision })
     }
 
@@ -203,7 +219,7 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     const revErr = revisionError(body['expectedRevision'], s.revision)
     if (revErr) return replyError(res, 409, 'REVISION_CONFLICT', revErr)
     s.tiers = { ...s.tiers, chat: parsed.slot }
-    saveProviders(ctx.userDataPath, s)
+    if (!(await saveProvidersOr500(res, ctx.userDataPath, s))) return
 
     // 表驱动重构（§6.3）：不再异步探测 caps——能力由静态表判定
     reply(res, 200, { ok: true, tiers: s.tiers, revision: s.revision })
@@ -258,7 +274,7 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
         if (key.startsWith(prefix)) delete s.modelCaps[key]
       }
     }
-    saveProviders(ctx.userDataPath, s)
+    if (!(await saveProvidersOr500(res, ctx.userDataPath, s))) return
     reply(res, 200, { provider: maskProvider(s.providers[idx]!, s.vault), revision: s.revision })
   },
   })
@@ -281,7 +297,7 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     const raw = body['pricing']
     if (raw === null || raw === undefined) {
       s.providers[idx] = { ...s.providers[idx]!, pricing: undefined }
-      saveProviders(ctx.userDataPath, s)
+      if (!(await saveProvidersOr500(res, ctx.userDataPath, s))) return
       return reply(res, 200, { ok: true, pricing: null, revision: s.revision })
     }
     if (typeof raw !== 'object' || Array.isArray(raw)) {
@@ -301,7 +317,7 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
       return replyError(res, 400, 'BAD_INPUT', 'pricing 至少需要一个单价键（inputPerMTok/outputPerMTok/cacheReadPerMTok/cacheWritePerMTok，单位：每百万 token）')
     }
     s.providers[idx] = { ...s.providers[idx]!, pricing }
-    saveProviders(ctx.userDataPath, s)
+    if (!(await saveProvidersOr500(res, ctx.userDataPath, s))) return
     reply(res, 200, { ok: true, pricing, revision: s.revision })
   },
   })
@@ -331,7 +347,7 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     for (const key of Object.keys(s.modelCaps)) {
       if (key.startsWith(mcPrefix)) delete s.modelCaps[key]
     }
-    saveProviders(ctx.userDataPath, s)
+    if (!(await saveProvidersOr500(res, ctx.userDataPath, s))) return
     reply(res, 200, { ok: true, currentId: s.currentId, revision: s.revision })
   },
   })
@@ -416,7 +432,8 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
         if (probeFingerprint(target) === probeFp) {
           target.caps = caps
           target.capsProbedAt = Date.now()
-          saveProviders(ctx.userDataPath, s2)
+          // R29-2（二十九轮）：探测写回同样过保存失败闸（外层 catch 兜不到 WRITE_ERROR 口径）
+          if (!(await saveProvidersOr500(res, ctx.userDataPath, s2))) return
         } else {
           // R75-D-P3c：探测窗口内配置已变——旧快照 caps 不再描述现配置，丢弃回写并留痕；
           // 探测结果仍随本次响应回传（对发起者有信息量）；未落盘 → revision 不 bump。

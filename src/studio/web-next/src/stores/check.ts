@@ -8,6 +8,11 @@ import { friendlyError } from '../shared/error'
  * run 触发即算即显（不落信封）；红/黄项 computed 分组供面板渲染。
  * 文档切换时由调用方 clear（报告与 docId 绑定，不跨文档残留）。
  */
+/** 误报灰显 localStorage 键单一事实源（模块级：store 内与清理接口共用同源拼法）。 */
+function fpKey(name: string, docId: string): string {
+  return `clw-fp:${name}:${docId}`
+}
+
 export const useCheckStore = defineStore('check', () => {
   const report = ref<CheckReport | null>(null)
   const loading = ref(false)
@@ -30,9 +35,6 @@ export const useCheckStore = defineStore('check', () => {
   // M-1（二轮复审）：误报标记按 书+文档 存 localStorage——服务端无查询端点，前端灰显态
   // 刷新即失；in-memory Set 只在 run→clear 生命周期内存活（checkId 是检查器级 id、跨文档
   // 同名，不随 clear 清会把 A 文档的标记灰显到 B 文档同名命中上、误报按钮被禁用）
-  function fpKey(name: string, docId: string): string {
-    return `clw-fp:${name}:${docId}`
-  }
   function loadFlagged(name: string, docId: string): Set<string> {
     try {
       const raw = localStorage.getItem(fpKey(name, docId))
@@ -135,6 +137,21 @@ export function clearFalsePositiveMarks(bookName: string): void {
   const prefix = `clw-fp:${bookName}:`
   try {
     // 倒序扫描：removeItem 不影响未访问下标
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i)
+      if (k !== null && k.startsWith(prefix)) localStorage.removeItem(k)
+    }
+  } catch {
+    /* 配额/隐私模式：清不到就算了（灰显态本就是 best-effort 展示层） */
+  }
+}
+
+/** E-10（二十九轮）：删章成功后清该章误报灰显键——legacy docId 由路径派生
+ *  （legacyId(path)），同路径重建新章会复用同一 docId，残留键会把旧章的灰显态/
+ *  禁用误报按钮带给新章。只清匹配前缀（该书该文档）的键，不动他章。 */
+export function clearFalsePositiveMarksForDoc(bookName: string, docId: string): void {
+  const prefix = fpKey(bookName, docId)
+  try {
     for (let i = localStorage.length - 1; i >= 0; i--) {
       const k = localStorage.key(i)
       if (k !== null && k.startsWith(prefix)) localStorage.removeItem(k)

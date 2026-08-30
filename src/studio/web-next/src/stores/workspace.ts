@@ -62,6 +62,17 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   let debounceTimer: ReturnType<typeof setTimeout> | null = null
   /** 切书 generation token：防止快速切换 A→B→C 时 A 的异步 prefs 覆盖 C（竞态污染） */
   let bookGen = 0
+  // E-3（二十九轮）：进书后用户是否动过 treeExpanded（展开/折叠 mutation 处 setTreeExpanded
+  // 置位）——loadBookPrefs 迟到回填不得覆盖作者已手工调整的展开态（比照 activeDocId 的
+  // R72-11 守卫：既有 gen 守卫只防跨书异步竞态，不防同书用户操作）
+  let treeExpandedTouched = false
+
+  /** 展开/折叠树节点的唯一用户入口（ChapterTreePanel toggle / 新建自动展开）：
+   *  置「用户已操作」位 + 写值。程序化默认展开（首开 defaultExpandedDirs）不走这里。 */
+  function setTreeExpanded(paths: string[]): void {
+    treeExpandedTouched = true
+    treeExpanded.value = paths
+  }
 
   /** 切书：异步加载书库级 prefs（工作区布局 + 最后打开文档）。 */
   function setBook(name: string): void {
@@ -72,6 +83,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     // R64-32（十二轮）：A 书展开态不带入 B 书——loadBookPrefs 失败路径（R-6 不置
     // prefsLoaded）下旧展开路径滞留作用于 B 书树（同名「写作」组直接命中）
     treeExpanded.value = ['写作']
+    // E-3（二十九轮）：新进书复位「用户已操作」位——上本书的操作不挡本书 prefs 回填
+    treeExpandedTouched = false
     // FE-4（第七轮）：滞留插入信号随切书作废——非编辑器视图点「插入」后切书，
     // 新书编辑器 tryConsumeInsert 三口会把 A 书设定名插进 B 书正文
     pendingInsert.value = null
@@ -142,7 +155,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     // R72-11（二十轮 F-2）：prefs 迟到回填仅在当前未打开文档时生效——用户已点开另一
     // 文档后被覆盖回 prefs 记录（既有 gen 守卫只防跨书异步竞态，不防同书用户操作）
     if (activeDocId.value === null) activeDocId.value = prefs.activeDocId ?? null
-    if (Array.isArray(prefs.treeExpanded)) treeExpanded.value = prefs.treeExpanded
+    // E-3（二十九轮）：同款守卫护展开态——用户已展开/折叠过则跳过回填，不覆盖作者意图
+    if (Array.isArray(prefs.treeExpanded) && !treeExpandedTouched) treeExpanded.value = prefs.treeExpanded
 
     // 注入书级覆盖到 prefs store（pageWidth / autosaveInterval）
     const ps = usePrefsStore()
@@ -267,6 +281,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     createTick,
     bookName,
     setBook,
+    setTreeExpanded,
     validate,
     openTab,
     triggerCreate,

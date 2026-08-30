@@ -28,6 +28,9 @@ vi.mock('node:fs', async (importOriginal) => {
 
 import { migrateLayoutV3 } from '../../src/install/migrate-layout-v3.js'
 import { listTrash } from '../../src/document/trash.js'
+// C-4（二十九轮）：回收站条目 originalPath 改记「迁移落点」（resolveDraftPath 结果，
+// 不再是已退役的 写作/草稿/ 旧路径）——夹具正文区已有同章号章 0001-占位.md，即落点
+const LANDING = '写作/正文/0001-占位.md'
 
 let root: string
 
@@ -60,7 +63,7 @@ describe('R66-21: v3 迁移回收站登记先于移文件', () => {
     expect(r.errors.some((e) => e.includes('草稿-1.md'))).toBe(true)
     expect(existsSync(join(root, '写作', '草稿', '草稿-1.md'))).toBe(true)
     // 关键断言：登记先于移动——rename 未执行而回收站清单已有条目（反向孤儿无害）
-    expect(listTrash(root).some((e) => e.originalPath === '写作/草稿/草稿-1.md')).toBe(true)
+    expect(listTrash(root).some((e) => e.originalPath === LANDING)).toBe(true)
   })
 
   it('正常冲突迁移：登记与移动都完成（回收站可见 + 草稿区清空 + 下次幂等）', () => {
@@ -69,11 +72,11 @@ describe('R66-21: v3 迁移回收站登记先于移文件', () => {
     expect(r.migrated).toBe(1)
     expect(existsSync(join(root, '写作', '草稿', '草稿-1.md'))).toBe(false)
     expect(existsSync(join(root, '工作区', '.trash', '草稿-1.md'))).toBe(true)
-    expect(listTrash(root).some((e) => e.originalPath === '写作/草稿/草稿-1.md')).toBe(true)
+    expect(listTrash(root).some((e) => e.originalPath === LANDING)).toBe(true)
 
     // 幂等：草稿区已空 → 二跑 no-op，不产生重复登记
     const again = migrateLayoutV3(root)
     expect(again.migrated).toBe(0)
-    expect(listTrash(root).filter((e) => e.originalPath === '写作/草稿/草稿-1.md').length).toBe(1)
+    expect(listTrash(root).filter((e) => e.originalPath === LANDING).length).toBe(1)
   })
 })

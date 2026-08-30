@@ -356,8 +356,21 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
     ] as const) {
       const node = findChild(short, key)
       if (!node) continue
+      // R29-B7（二十九轮）：坏值不再静默丢弃，warn 留痕（对齐 budget/bool 键的
+      // R76-15/R26-12 留痕模式——「配置写了但不生效」此前无迹可查）。
+      // opening_env_chars 特殊语义：显式 0 = 关闭「开头零环境」检查（与「未设 = 默认
+      // 300」区分，读侧 runner 据此跳过检查）；写空（`opening_env_chars:`）不是显式 0
+      // ——parseValue('')→Number('')=0 会冒充关检，按未设处理 + warn。
       const value = parseFiniteNumber(node.value, NaN)
-      if (Number.isFinite(value) && value > 0) shortConfig[key] = value
+      const rawTrimmed = node.value.trim()
+      if (key === 'opening_env_chars' && value === 0 && rawTrimmed !== '') {
+        // 显式 0（含 '0'/'0.0' 引号形态）= 作者关检；写空（Number('')=0）不冒充关检
+        shortConfig[key] = 0
+      } else if (Number.isFinite(value) && value > 0) {
+        shortConfig[key] = value
+      } else {
+        log.warn('book.yaml', `short.${key} 值非法（「${rawTrimmed}」），已忽略（按未设处理，回落缺省）`)
+      }
     }
     if (Object.keys(shortConfig).length > 0) cfg.short = shortConfig
   }

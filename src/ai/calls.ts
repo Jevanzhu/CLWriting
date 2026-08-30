@@ -34,6 +34,10 @@ interface ChapterUsage {
   /** D3（批 5）：本章金额累计（可选——runTask 按价格表算入；未配价全书不累计=口径不生效）。
    *  币种随价格表 currency（缺省 USD）；数值口径假设全书一致（混币属配置错误） */
   costAccum?: number
+  /** A-6（二十九轮）：含估计入账标记——任一次 estimated usage 累入即置位（粘性，
+   *  与数值累计同语义：块内数字已是实测/估计混合，标记只说「含估计」）。账实对账
+   *  可区分口径；消费方只读数值字段，加性安全 */
+  estimated?: boolean
 }
 
 /** task 块（全端点覆盖） */
@@ -43,6 +47,8 @@ interface TaskUsage {
   outputTokens: number
   cacheReadTokens?: number
   cacheWriteTokens?: number
+  /** A-6（二十九轮）：同 chapter 块——含估计入账标记（粘性置位） */
+  estimated?: boolean
 }
 
 /** 磁盘记录格式 */
@@ -142,6 +148,9 @@ function readRecord(bookRoot: string): { rec: CallRecord | null; corrupt: boolea
           outputTokens: t.outputTokens,
           ...(cr !== undefined ? { cacheReadTokens: cr } : {}),
           ...(cw !== undefined ? { cacheWriteTokens: cw } : {}),
+          // A-6（二十九轮）：加性字段原样收（非布尔值按未标记丢弃，不判损坏——
+          // 标记不参与数值累计，错型无烂账风险）
+          ...(t.estimated === true ? { estimated: true } : {}),
         }
       }
     }
@@ -160,6 +169,8 @@ function readRecord(bookRoot: string): { rec: CallRecord | null; corrupt: boolea
           ...(chapterCr !== undefined ? { cacheReadTokens: chapterCr } : {}),
           ...(chapterCw !== undefined ? { cacheWriteTokens: chapterCw } : {}),
           ...(chapterCost !== undefined ? { costAccum: chapterCost } : {}),
+          // A-6（二十九轮）：同 tasks——加性收标记（错型按未标记丢弃，不判损坏）
+          ...(chapter.estimated === true ? { estimated: true } : {}),
         },
         tasks,
       },
@@ -433,7 +444,8 @@ function recordAiCallLocked(bookRoot: string, chapter: number, usage: TokenUsage
   writeRecord(bookRoot, rec)
 }
 
-/** chapter 计数 +1 并累计 tokens（原 recordAiCall 主体；D4 含 cache 字段；D3 含 cost） */
+/** chapter 计数 +1 并累计 tokens（原 recordAiCall 主体；D4 含 cache 字段；D3 含 cost；
+ *  A-6 含 estimated 粘性标记） */
 function applyCall(rec: CallRecord, usage: TokenUsage | null, costUsd?: number): void {
   rec.chapter.used += 1
   if (usage) {
@@ -445,6 +457,8 @@ function applyCall(rec: CallRecord, usage: TokenUsage | null, costUsd?: number):
     if (usage.cacheWriteTokens !== undefined) {
       rec.chapter.cacheWriteTokens = (rec.chapter.cacheWriteTokens ?? 0) + usage.cacheWriteTokens
     }
+    // A-6（二十九轮）：估计口径留痕——账面数字照常累计，标记置位供对账区分实测/估计
+    if (usage.estimated) rec.chapter.estimated = true
   }
   // D3（批 5）：金额累计（costUsd 仅在配价时由 runner 传入）
   if (typeof costUsd === 'number' && Number.isFinite(costUsd)) {
@@ -481,6 +495,8 @@ function recordTaskUsageLocked(bookRoot: string, task: string, usage: TokenUsage
     if (usage.cacheWriteTokens !== undefined) {
       t.cacheWriteTokens = (t.cacheWriteTokens ?? 0) + usage.cacheWriteTokens
     }
+    // A-6（二十九轮）：同 applyCall——估计口径粘性标记
+    if (usage.estimated) t.estimated = true
   }
   base.tasks[task] = t
   writeRecord(bookRoot, base)

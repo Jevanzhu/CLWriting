@@ -86,10 +86,14 @@ export function checkGrowth(
       }
     }
 
+    // R29-6（二十九轮）：缺「当前境界」红→黄——该条目在新书/未设境界的成长线上恒真，
+    // 红项会每章把自动写章打回（红项驱动自愈循环，成长线无当前境界不阻断本章叙事）；
+    // 降黄后作者面板仍可见（fail-noisy 保留），只有真实的跃迁类红项（回退/超跨/不在
+    // 序列）继续打回。体系缺失红项（growth-realm-sequence-missing）语义不同，维持红。
     if (!currentRealm && realmDoc && realmDoc.体系.length > 0) {
       items.push({
         checkId: 'growth-current-realm-missing',
-        level: 'red',
+        level: 'yellow',
         message: `${id} 缺少当前境界，无法确定应使用哪套境界序列，成长线跃迁检测未完整生效。`,
         leadId: id,
       })
