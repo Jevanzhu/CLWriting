@@ -191,15 +191,18 @@ export function exportBook(options: ExportOptions): ExportResult {
   // 记警告跳过，不再整本失败；零可写章在下方按 writtenCount 收口
   const exportable: ExportUnit[] = filtered
   /** R73-37：逐章现读正文（frontmatter.readFile 单源，剥 fm 取 body）。
-   *  返回 null = 读取失败/正文为空（已记 warnings，调用方跳过该章）。 */
+   *  返回 null = 读取失败/正文为空（已记 warnings，调用方跳过该章）。
+   *  警告里的相对路径统一正斜杠——win 的 relative() 产反斜杠，消费方/测试按 / 匹配
+   *  （与本文件上方 finalizedPaths 的归一化同款，2026-08-31 整体检查补）。 */
+  const relPosix = (p: string): string => relative(bookRoot, p).replace(/\\/g, '/')
   const readUnitBody = (u: ExportUnit): string | null => {
     const r = readFile(u.path)
     if (!r.ok) {
-      warnings.push(`${relative(bookRoot, u.path)}: 正文读取失败（${r.error.message}），已跳过`)
+      warnings.push(`${relPosix(u.path)}: 正文读取失败（${r.error.message}），已跳过`)
       return null
     }
     if (!r.body) {
-      warnings.push(`${relative(bookRoot, u.path)}: 正文为空，已跳过`)
+      warnings.push(`${relPosix(u.path)}: 正文为空，已跳过`)
       return null
     }
     return r.body

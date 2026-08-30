@@ -341,6 +341,8 @@ export const usePrefsStore = defineStore('prefs', () => {
   let overlaySweep = false
 
   function syncOverlayNow(): void {
+    // 测试环境（node，无 window）与其他非桌面上下文直接短路
+    if (typeof window === 'undefined') return
     const d = window.clwritingDesktop
     if (d?.platform !== 'win32') return
     const dark = theme.value === 'dark'
