@@ -84,11 +84,15 @@ const saveStatus = computed<{ text: string; cls: string }>(() => {
   return { text: '', cls: '' }
 })
 
-/** 保存按钮标签（dirty→保存 / saved→已保存 / err→重试）。 */
+/** 保存按钮标签（dirty→保存 / saved→已保存 / err→重试）。
+ *  R31-33（三十一轮）：conflict 未决时「重试」是死按钮——manual save 携旧
+ *  baselineRevision 必再收 REVISION_CONFLICT；改文案并禁用，出路引到并排的
+ *  「重载/覆盖」双按钮。 */
 const saveBtnLabel = computed(() => {
   const e = entry.value
   if (!e) return '保存'
   if (e.saving) return '保存中'
+  if (e.conflict) return '冲突待决'
   if (e.error) return '重试'
   return e.dirty ? '保存' : '已保存'
 })
@@ -96,7 +100,7 @@ const saveBtnLabel = computed(() => {
 /** 手动保存（按钮；⌘S/Ctrl+S 在父层挂）。 */
 function onSave(): void {
   const e = entry.value
-  if (!e || e.saving || (!e.dirty && !e.error)) return
+  if (!e || e.saving || e.conflict || (!e.dirty && !e.error)) return
   void doc.save(e.docId, 'manual')
 }
 
@@ -251,7 +255,7 @@ async function onTitleCommit(): Promise<void> {
             <button
               class="save-btn"
               :class="saveStatus.cls"
-              :disabled="entry?.saving || (!entry?.dirty && !entry?.error)"
+              :disabled="entry?.saving || entry?.conflict || (!entry?.dirty && !entry?.error)"
               data-tip="保存（⌘S）"
               data-tip-dir="bottom"
               @click="onSave"

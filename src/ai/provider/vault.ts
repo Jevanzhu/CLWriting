@@ -68,21 +68,23 @@ function deriveKEK(keyMaterial: Buffer, salt: Buffer): Buffer {
 
 // ── AES-256-GCM ──────────────────────────────────────
 
-/** AES-256-GCM 加密（§4.2：IV 每次必须重新随机，12 字节） */
-function sealAESGCM(key: Buffer, plaintext: Buffer): SealedKey {
+/** AES-256-GCM 加密（§4.2：IV 每次必须重新随机，12 字节）；aad 可选绑定上下文（R31-28） */
+function sealAESGCM(key: Buffer, plaintext: Buffer, aad?: Buffer): SealedKey {
   const iv = randomBytes(12)
   const cipher = createCipheriv('aes-256-gcm', key, iv)
+  if (aad) cipher.setAAD(aad)
   const ct = Buffer.concat([cipher.update(plaintext), cipher.final()])
   const tag = cipher.getAuthTag()
   return { iv: iv.toString('base64'), ct: ct.toString('base64'), tag: tag.toString('base64') }
 }
 
 /** AES-256-GCM 解密——认证失败抛 VaultDecryptError */
-function openAESGCM(key: Buffer, sealed: SealedKey): Buffer {
+function openAESGCM(key: Buffer, sealed: SealedKey, aad?: Buffer): Buffer {
   try {
     const iv = Buffer.from(sealed.iv, 'base64')
     const decipher = createDecipheriv('aes-256-gcm', key, iv)
     decipher.setAuthTag(Buffer.from(sealed.tag, 'base64'))
+    if (aad) decipher.setAAD(aad)
     return Buffer.concat([decipher.update(Buffer.from(sealed.ct, 'base64')), decipher.final()])
   } catch {
     throw new VaultDecryptError('密文认证失败——文件损坏或密钥不匹配')
@@ -126,12 +128,24 @@ export function openVault(vault: Vault, keyMaterial: Buffer): Buffer {
   return openAESGCM(kek, vault.dek.byApp)
 }
 
-/** 用 DEK 加密单个 API Key → SealedKey（IV 每次随机） */
-export function sealKey(dek: Buffer, apiKey: string): SealedKey {
-  return sealAESGCM(dek, Buffer.from(apiKey, 'utf8'))
+/** 用 DEK 加密单个 API Key → SealedKey（IV 每次随机）。
+ *  R31-28（三十一轮）：aad 绑定上下文（store 侧传 providerId）——同 DEK 下密文互换
+ *  （手改 providers.json 交换两条 SealedKey）GCM 认证不再通过，防 key 定向泄漏。 */
+export function sealKey(dek: Buffer, apiKey: string, aad?: string): SealedKey {
+  return sealAESGCM(dek, Buffer.from(apiKey, 'utf8'), aad ? Buffer.from(aad, 'utf8') : undefined)
 }
 
-/** 用 DEK 解密单个 API Key → 明文 */
-export function openKey(dek: Buffer, sealed: SealedKey): string {
-  return openAESGCM(dek, sealed).toString('utf8')
+/** 用 DEK 解密单个 API Key。
+ *  R31-28（三十一轮）：返回 { apiKey, legacy }——legacy=true 表示密文未绑 AAD（存量
+ *  形态，经无 AAD 通道打开），调用方（load）以此置 needsRewrite 自动重封迁移；绑定态
+ *  密文用错误 aad 解时两通道均失败 → 抛 VaultDecryptError（互换攻击被拦截）。 */
+export function openKey(dek: Buffer, sealed: SealedKey, aad?: string): { apiKey: string; legacy: boolean } {
+  if (aad) {
+    try {
+      return { apiKey: openAESGCM(dek, sealed, Buffer.from(aad, 'utf8')).toString('utf8'), legacy: false }
+    } catch {
+      // 绑定通道失败 → 落存量无 AAD 通道（见返回注）
+    }
+  }
+  return { apiKey: openAESGCM(dek, sealed).toString('utf8'), legacy: aad !== undefined }
 }

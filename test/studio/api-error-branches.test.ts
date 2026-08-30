@@ -247,7 +247,7 @@ describe('kk-P2-15：book.yaml 损坏 → 单书端点显式 500（真实错误�
     makeBook('坏身份', BROKEN)
     const r = await req({ method: 'GET', path: `/api/books/${encodeURIComponent('坏身份')}` })
     expect(r.status).toBe(500)
-    expect(r.json.code).toBe('IO')
+    expect(r.json.code).toBe('IO_ERROR')
     expect(r.json.error).toContain('book.yaml')
   })
 
@@ -264,7 +264,7 @@ describe('kk-P2-15：book.yaml 损坏 → 单书端点显式 500（真实错误�
     makeBook('坏配置', BROKEN)
     const r = await req({ method: 'GET', path: `/api/books/${encodeURIComponent('坏配置')}/config` })
     expect(r.status).toBe(500)
-    expect(r.json.code).toBe('IO')
+    expect(r.json.code).toBe('IO_ERROR')
     expect(r.json.error).not.toContain('[object Object]')
     expect(r.json.error).toContain('解析失败')
   })

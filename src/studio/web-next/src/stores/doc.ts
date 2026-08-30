@@ -104,7 +104,11 @@ export const useDocStore = defineStore('doc', () => {
     }
   }
 
-  /** 打开文档：读内容 + 算基线 revision + 入 Map。已打开或加载中则不重读。 */
+  /** 打开文档：读内容 + 算基线 revision + 入 Map。已打开或加载中则不重读。
+   *  R31-31（三十一轮）：并发去重改「返回在途 promise」——原裸 return 让
+   *  `await doc.open()` 即刻 resolve 而 entry 未落位，调用方（EditorView 的
+   *  pendingInsert 补消费只等一拍 nextTick）在慢网下消费不到挂起信号。 */
+  const inflightOpens = new Map<string, Promise<void>>()
   async function open(node: TreeNode): Promise<void> {
     if (!node.docId) throw new Error('节点无 docId')
     // R64-31（十二轮）：命中重排（Map 迭代序 = LRU 序）——不重排则 evictLRU 实为 FIFO，
@@ -115,8 +119,21 @@ export const useDocStore = defineStore('doc', () => {
       docs.value.set(node.docId, cached)
       return
     }
-    if (loading.has(node.docId)) return
-    loading.add(node.docId)
+    const running = inflightOpens.get(node.docId)
+    if (running) return running
+    const docId = node.docId
+    const p = doOpen(docId, node)
+    inflightOpens.set(docId, p)
+    try {
+      await p
+    } finally {
+      inflightOpens.delete(docId)
+    }
+  }
+
+  /** R31-31：open 的实际执行体（读 + 基线 + 入缓存）。docId 已由 open 收窄校验。 */
+  async function doOpen(docId: string, node: TreeNode): Promise<void> {
+    loading.add(docId)
     // RB-FE-P2-1：进入时代数——await 期间切书（setBook bump bookGen）则丢弃结果，
     // 防旧书 doc 注入新书缓存（后续 save 会用新书名写旧书内容）
     const gen = bookGen
@@ -125,8 +142,8 @@ export const useDocStore = defineStore('doc', () => {
       const content = await getContent(book, node.path)
       const baselineRevision = await sha256Revision(content)
       if (gen !== bookGen) return
-      docs.value.set(node.docId, {
-        docId: node.docId,
+      docs.value.set(docId, {
+        docId,
         path: node.path,
         name: node.name,
         role: node.role,
@@ -143,7 +160,7 @@ export const useDocStore = defineStore('doc', () => {
       })
       evictLRU() // F7（五十九轮）：新 entry 落位后裁剪 clean 缓存至 LRU 上限
     } finally {
-      loading.delete(node.docId)
+      loading.delete(docId)
     }
   }
 

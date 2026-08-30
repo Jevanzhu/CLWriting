@@ -259,13 +259,21 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     // 且 test/e2e 无残余消费后，删本分支与 stream-ticket 测试的兼容用例一并收口。
     const queryTicket = url.searchParams.get('ticket') ?? undefined
     const queryToken = url.searchParams.get('token') ?? undefined
+    // R31-32（三十一轮）：fetch 型客户端（429 探测）本可带头，改走 x-studio-token 头
+    // 通道——token 不再进 URL（进程列表/代理日志信道）；EventSource 回退通道维持
+    // R30-25 登记（EventSource 无法带头，移除条件不变）。
+    const headerToken = req.headers['x-studio-token']
     // R64-27（十二轮）：鉴权前移到全部书域判定（连接数闸 429 / resolveBook 404）之前
     // ——原顺序让未持凭据者借差异响应探测书名存在性。攻击面窄（Host 闸 + 本机同
     // 信任域），统一 403 消除信道零成本。
     // R65-43（总六十五轮）：此处只「预检」不消费 ticket——原 consumeStreamTicket 在
     // 闸首即烧掉一次性 ticket，429/404 时票被白白作废，EventSource 自动重连带废票
     // 反复 403 成无诊断风暴；消费移至全部书域校验通过之后（见下方 R65-43 消费点）。
-    if (!ctx.tickets.peek(queryTicket) && !safeTokenCompare(queryToken, ctx.studioToken)) {
+    if (
+      !ctx.tickets.peek(queryTicket) &&
+      !safeTokenCompare(queryToken, ctx.studioToken) &&
+      !safeTokenCompare(headerToken, ctx.studioToken)
+    ) {
       replyError(res, 403, 'FORBIDDEN', 'forbidden')
       return
     }

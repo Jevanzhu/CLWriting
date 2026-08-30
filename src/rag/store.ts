@@ -34,7 +34,10 @@ export interface ChunkInput {
   model: string
 }
 
-/** Float32Array ↔ Buffer（BLOB 序列化） */
+/** Float32Array ↔ Buffer（BLOB 序列化）。
+ *  R31-36（三十一轮）登记维持：序列化按 TypedArray 本机字节序（现实宿主 x86/ARM
+ *  全小端，无实害面）——显式 littleEndian 需换 DataView 并作废旧库向量（全部 rag.db
+ *  重嵌一次），代价远超理论收益；若未来出现大端宿主跨架构迁移需求再立项。 */
 export function float32ToBuffer(arr: Float32Array): Buffer {
   return Buffer.from(new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength))
 }
@@ -274,18 +277,29 @@ export function cosineSimilarity(
   if (a.length !== b.length) return 0
   // P3-14：长度已判等，Math.min 冗余
   const len = a.length
+  // R31-34（三十一轮）：预存范数双全时走纯点积分派——召回热路径（index.ts）每次
+  // 调用都传 precomputed，原循环仍无条件累加两份范数平方（每维 3 次乘加当 1 次用，
+  // A3/R64-45 宣称的「数学量减半」从未兑现，3.5 万块×1536 维/召回 ≈ 白做 1 亿次
+  // 浮点）；预存缺失（校准/单测直调）回落全算，语义不变。
+  const hasPre = typeof precomputed?.normA === 'number' && typeof precomputed?.normB === 'number'
   let dot = 0
   let normA = 0
   let normB = 0
-  for (let i = 0; i < len; i++) {
-    dot += a[i]! * b[i]!
-    normA += a[i]! * a[i]!
-    normB += b[i]! * b[i]!
+  if (hasPre) {
+    for (let i = 0; i < len; i++) dot += a[i]! * b[i]!
+    normA = precomputed!.normA!
+    normB = precomputed!.normB!
+  } else {
+    for (let i = 0; i < len; i++) {
+      dot += a[i]! * b[i]!
+      normA += a[i]! * a[i]!
+      normB += b[i]! * b[i]!
+    }
   }
   // R64-45（十二轮）：召回侧（index.ts）此前内联同逻辑且按块缓存范数——合流单源。
   // precomputed 传**最终 L2 范数**（l2Norm 口径，已开方）；缺省现算，语义与全量余弦一致。
-  const na = precomputed?.normA ?? Math.sqrt(normA)
-  const nb = precomputed?.normB ?? Math.sqrt(normB)
+  const na = hasPre ? normA : Math.sqrt(normA)
+  const nb = hasPre ? normB : Math.sqrt(normB)
   const denom = na * nb
   return denom === 0 ? 0 : dot / denom
 }

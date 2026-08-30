@@ -64,7 +64,7 @@ export function registerDraftRoutes(ctx: DraftCtx): void {
       recordAiVersion(bookRoot, saved.docId, content)
     } catch (e) {
       log.error('api', `落盘失败（章 ${chapter}）`, e)
-      return replyError(res, 500, 'IO', '落盘失败')
+      return replyError(res, 500, 'IO_ERROR', '落盘失败')
     }
     reply(res, 200, {
       ok: true,

@@ -125,7 +125,7 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
         atomicWriteFile(cachePath, JSON.stringify({ relations, chapterCount: countChapters(bookRoot) }, null, 2))
       } catch (e) {
         log.error('api', '落盘缓存失败（角色关系）', e)
-        return replyError(res, 500, 'IO', '落盘缓存失败')
+        return replyError(res, 500, 'IO_ERROR', '落盘缓存失败')
       }
       reply(res, 200, { ok: true, cached: false, relations })
     } finally {

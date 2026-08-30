@@ -68,9 +68,9 @@ test('createDocument: 已存在 → ALREADY_EXISTS', async () => {
 
 // ── B-3（第六十轮）：updateChapterMeta 标题消毒走 sanitizeChapterTitle 单源 ──
 
-test('B-3: updateChapterMeta 改标题含 Windows 非法字符/控制字符 → 文件名单源消毒（不再仅替换 \\ /）', () => {
+test('B-3: updateChapterMeta 改标题含 Windows 非法字符/控制字符 → 文件名单源消毒（不再仅替换 \\ /）', async () => {
   const { root, svc } = makeBookWithChapter()
-  const r = svc.updateChapterMeta('doc_ch01', { 标题: '新:题*目?\n' })
+  const r = await svc.updateChapterMeta('doc_ch01', { 标题: '新:题*目?\n' })
   expect(r.ok).toBe(true)
   if (!r.ok) { rmSync(root, { recursive: true, force: true }); return }
   // : * ? 各自 → _；\n 剥除（修复前仅替换 \\ /，换行/非法字符直进文件名）
@@ -79,10 +79,10 @@ test('B-3: updateChapterMeta 改标题含 Windows 非法字符/控制字符 → 
   rmSync(root, { recursive: true, force: true })
 })
 
-test('B-3: updateChapterMeta 超长标题 → 双封顶截断（80 汉字撞 120 字节上限，R-10 口径）', () => {
+test('B-3: updateChapterMeta 超长标题 → 双封顶截断（80 汉字撞 120 字节上限，R-10 口径）', async () => {
   const { root, svc } = makeBookWithChapter()
   const longTitle = '长'.repeat(80)
-  const r = svc.updateChapterMeta('doc_ch01', { 标题: longTitle })
+  const r = await svc.updateChapterMeta('doc_ch01', { 标题: longTitle })
   expect(r.ok).toBe(true)
   if (!r.ok) { rmSync(root, { recursive: true, force: true }); return }
   // C-3（二十九轮）：rename 落名过 sanitizeCreateSegment 单源后，整段（含 '0001-' 前缀
@@ -186,9 +186,9 @@ test('renameDocument: 改文件名，目录不变', async () => {
   rmSync(root, { recursive: true, force: true })
 })
 
-test('updateChapterMeta: 改标题 → fm 标题 + 文件名同步（章号-标题.md）', () => {
+test('updateChapterMeta: 改标题 → fm 标题 + 文件名同步（章号-标题.md）', async () => {
   const { root, svc } = makeBookWithChapter()
-  const r = svc.updateChapterMeta('doc_ch01', { 标题: '序章' })
+  const r = await svc.updateChapterMeta('doc_ch01', { 标题: '序章' })
   expect(r.ok).toBe(true)
   if (!r.ok) return
   expect(r.path).toBe('写作/正文/第一卷/0001-序章.md')
@@ -199,9 +199,9 @@ test('updateChapterMeta: 改标题 → fm 标题 + 文件名同步（章号-标�
   rmSync(root, { recursive: true, force: true })
 })
 
-test('updateChapterMeta: 改章号 → fm 章号 + 文件名同步', () => {
+test('updateChapterMeta: 改章号 → fm 章号 + 文件名同步', async () => {
   const { root, svc } = makeBookWithChapter()
-  const r = svc.updateChapterMeta('doc_ch01', { 章号: 5 })
+  const r = await svc.updateChapterMeta('doc_ch01', { 章号: 5 })
   expect(r.ok).toBe(true)
   if (!r.ok) return
   expect(r.path).toBe('写作/正文/第一卷/0005-开篇.md')
@@ -211,16 +211,16 @@ test('updateChapterMeta: 改章号 → fm 章号 + 文件名同步', () => {
   rmSync(root, { recursive: true, force: true })
 })
 
-test('updateChapterMeta: 未知 docId → NOT_FOUND', () => {
+test('updateChapterMeta: 未知 docId → NOT_FOUND', async () => {
   const { root, svc } = makeBookWithChapter()
-  const r = svc.updateChapterMeta('doc_unknown', { 标题: 'x' })
+  const r = await svc.updateChapterMeta('doc_unknown', { 标题: 'x' })
   expect(r.ok).toBe(false)
   if (r.ok) return
   expect(r.code).toBe('NOT_FOUND')
   rmSync(root, { recursive: true, force: true })
 })
 
-test('updateChapterMeta: 非 UTF-8（GBK）文件 → 拒绝写回防字节损坏（第五轮）', () => {
+test('updateChapterMeta: 非 UTF-8（GBK）文件 → 拒绝写回防字节损坏（第五轮）', async () => {
   const { root, svc } = makeBookWithChapter()
   const fp = join(root, '写作', '正文', '第一卷', '0001-开篇.md')
   // GBK「序」(0xD0F2) +「正文」(0xD5FD CEC4)：utf-8 读入产生 U+FFFD 替换符
@@ -232,7 +232,7 @@ test('updateChapterMeta: 非 UTF-8（GBK）文件 → 拒绝写回防字节损�
   ])
   writeFileSync(fp, gbk)
   const before = readFileSync(fp)
-  const r = svc.updateChapterMeta('doc_ch01', { 标题: '新标' })
+  const r = await svc.updateChapterMeta('doc_ch01', { 标题: '新标' })
   expect(r.ok).toBe(false)
   if (r.ok) return
   expect(r.code).toBe('WRITE_ERROR')
@@ -262,9 +262,9 @@ function makeBookWithPiece(): { root: string; svc: DocumentService } {
   return { root, svc: new DocumentService({ bookRoot: root }) }
 }
 
-test('updateChapterMeta（短篇）: 改标题 → fm 标题 + 文件名 rename（docId 不变）', () => {
+test('updateChapterMeta（短篇）: 改标题 → fm 标题 + 文件名 rename（docId 不变）', async () => {
   const { root, svc } = makeBookWithPiece()
-  const r = svc.updateChapterMeta('doc_p01', { 标题: '新标' })
+  const r = await svc.updateChapterMeta('doc_p01', { 标题: '新标' })
   expect(r.ok).toBe(true)
   if (!r.ok) return
   // 章号 1 → 3 位补零 001；标题更新
@@ -283,9 +283,9 @@ test('updateChapterMeta（短篇）: 改标题 → fm 标题 + 文件名 rename�
   rmSync(root, { recursive: true, force: true })
 })
 
-test('updateChapterMeta（短篇）: 改章号 → fm 章号 + 文件名 rename（3 位补零）', () => {
+test('updateChapterMeta（短篇）: 改章号 → fm 章号 + 文件名 rename（3 位补零）', async () => {
   const { root, svc } = makeBookWithPiece()
-  const r = svc.updateChapterMeta('doc_p01', { 章号: 12, 标题: '原标' })
+  const r = await svc.updateChapterMeta('doc_p01', { 章号: 12, 标题: '原标' })
   expect(r.ok).toBe(true)
   if (!r.ok) return
   expect(r.path).toBe('写作/正文/012-原标.md')
@@ -311,10 +311,10 @@ function makeBookWithPieceList(): { root: string; svc: DocumentService } {
   return { root, svc }
 }
 
-test('N-7: 章纲已登记 → 跟随改名走 doMoveOrRename——清单 path 同步、docId 稳定、journal 收口、无孤儿条目', () => {
+test('N-7: 章纲已登记 → 跟随改名走 doMoveOrRename——清单 path 同步、docId 稳定、journal 收口、无孤儿条目', async () => {
   const { root, svc } = makeBookWithPieceList()
   getBookTreeIndex(root) // 预热缓存（验证 rename 后索引重建按新路径挂 docId）
-  const r = svc.updateChapterMeta('doc_p01', { 标题: '新标' })
+  const r = await svc.updateChapterMeta('doc_p01', { 标题: '新标' })
   expect(r.ok).toBe(true)
 
   // 章纲文件跟随改名（修复前裸 rename 也做到）
@@ -343,12 +343,12 @@ test('N-7: 章纲已登记 → 跟随改名走 doMoveOrRename——清单 path �
   rmSync(root, { recursive: true, force: true })
 })
 
-test('N-7: 章纲未登记（从未结构性操作）→ 裸 rename 回落：文件跟随改名、清单无章纲条目、正文 rename ok', () => {
+test('N-7: 章纲未登记（从未结构性操作）→ 裸 rename 回落：文件跟随改名、清单无章纲条目、正文 rename ok', async () => {
   const { root, svc } = makeBookWithPiece()
   mkdirSync(join(root, '大纲', '章纲'), { recursive: true })
   writeFileSync(join(root, '大纲', '章纲', '1-原标.md'), '章纲内容（未登记）', 'utf-8')
 
-  const r = svc.updateChapterMeta('doc_p01', { 标题: '新标' })
+  const r = await svc.updateChapterMeta('doc_p01', { 标题: '新标' })
   expect(r.ok).toBe(true)
   expect(existsSync(join(root, '大纲', '章纲', '001-新标.md'))).toBe(true)
   expect(existsSync(join(root, '大纲', '章纲', '1-原标.md'))).toBe(false)
@@ -361,11 +361,11 @@ test('N-7: 章纲未登记（从未结构性操作）→ 裸 rename 回落：文
 
 // ── N-11（第十二轮）：引号章号归一（文件名派生不吃字符串劣化）──
 
-test('N-11: 短篇 fm 章号为引号数字串（"7"）→ 文件名仍按 3 位补零派生（007-）', () => {
+test('N-11: 短篇 fm 章号为引号数字串（"7"）→ 文件名仍按 3 位补零派生（007-）', async () => {
   const { root, svc } = makeBookWithPiece()
   // 作者手写/外部工具写回的引号包裹章号——parseFlat 读回 string，旧 typeof 判不过
   writeFileSync(join(root, '写作', '正文', '1-原标.md'), '---\n章号: "7"\n标题: 原标\n---\n短篇正文', 'utf-8')
-  const r = svc.updateChapterMeta('doc_p01', { 标题: '新标' })
+  const r = await svc.updateChapterMeta('doc_p01', { 标题: '新标' })
   expect(r.ok).toBe(true)
   if (!r.ok) return
   expect(r.path).toBe('写作/正文/007-新标.md')
@@ -374,20 +374,20 @@ test('N-11: 短篇 fm 章号为引号数字串（"7"）→ 文件名仍按 3 位
   rmSync(root, { recursive: true, force: true })
 })
 
-test('N-11: 长篇 fm 章号为引号数字串（"12"）→ 文件名仍按 4 位补零派生（0012-）', () => {
+test('N-11: 长篇 fm 章号为引号数字串（"12"）→ 文件名仍按 4 位补零派生（0012-）', async () => {
   const { root, svc } = makeBookWithChapter()
   writeFileSync(join(root, '写作', '正文', '第一卷', '0001-开篇.md'), '---\n章号: "12"\n标题: 开篇\n---\n正文', 'utf-8')
-  const r = svc.updateChapterMeta('doc_ch01', { 标题: '新标' })
+  const r = await svc.updateChapterMeta('doc_ch01', { 标题: '新标' })
   expect(r.ok).toBe(true)
   if (!r.ok) return
   expect(r.path).toBe('写作/正文/第一卷/0012-新标.md')
   rmSync(root, { recursive: true, force: true })
 })
 
-test('N-11: 章号非数字（小数串/空串）→ 维持原 basename 前缀回落，不误派生', () => {
+test('N-11: 章号非数字（小数串/空串）→ 维持原 basename 前缀回落，不误派生', async () => {
   const { root, svc } = makeBookWithPiece()
   writeFileSync(join(root, '写作', '正文', '1-原标.md'), '---\n章号: "3.5"\n标题: 原标\n---\n短篇正文', 'utf-8')
-  const r = svc.updateChapterMeta('doc_p01', { 标题: '新标' })
+  const r = await svc.updateChapterMeta('doc_p01', { 标题: '新标' })
   expect(r.ok).toBe(true)
   if (!r.ok) return
   // 回落 basename 前缀 1-（原文件名的章号段），不产 3.5 派生名
@@ -395,14 +395,14 @@ test('N-11: 章号非数字（小数串/空串）→ 维持原 basename 前缀�
   rmSync(root, { recursive: true, force: true })
 })
 
-test('updateDocMeta: 改卷纲字段 → fm 更新，文件名不变', () => {
+test('updateDocMeta: 改卷纲字段 → fm 更新，文件名不变', async () => {
   const { root, svc } = makeBookWithChapter()
   writeFileSync(join(root, '大纲', '卷纲', '第一卷.md'), '---\n卷名: 第一卷\n---\n卷纲正文', 'utf-8')
   appendFileSync(
     join(root, '项目', '文档清单.jsonl'),
     '{"id":"doc_vol1","nodeType":"document","path":"大纲/卷纲/第一卷.md","parentId":null}\n',
   )
-  const r = svc.updateDocMeta('doc_vol1', { 卷主线: '主角崛起', 字数目标: 300000 })
+  const r = await svc.updateDocMeta('doc_vol1', { 卷主线: '主角崛起', 字数目标: 300000 })
   expect(r.ok).toBe(true)
   if (!r.ok) return
   expect(r.path).toBe('大纲/卷纲/第一卷.md') // 文件名不变
@@ -413,9 +413,9 @@ test('updateDocMeta: 改卷纲字段 → fm 更新，文件名不变', () => {
   rmSync(root, { recursive: true, force: true })
 })
 
-test('updateDocMeta: 未知 docId → NOT_FOUND', () => {
+test('updateDocMeta: 未知 docId → NOT_FOUND', async () => {
   const { root, svc } = makeBookWithChapter()
-  const r = svc.updateDocMeta('doc_unknown', { 主题: 'x' })
+  const r = await svc.updateDocMeta('doc_unknown', { 主题: 'x' })
   expect(r.ok).toBe(false)
   if (r.ok) return
   expect(r.code).toBe('NOT_FOUND')
@@ -436,7 +436,7 @@ const REALM_FILE = [
   '',
 ].join('\n')
 
-test('R65-1: updateDocMeta 补平铺键 → 境界体系嵌套结构完好（成长线机检不失明）', () => {
+test('R65-1: updateDocMeta 补平铺键 → 境界体系嵌套结构完好（成长线机检不失明）', async () => {
   const { root, svc } = makeBookWithChapter()
   mkdirSync(join(root, '设定'), { recursive: true })
   writeFileSync(join(root, '设定', '境界体系.md'), REALM_FILE, 'utf-8')
@@ -444,7 +444,7 @@ test('R65-1: updateDocMeta 补平铺键 → 境界体系嵌套结构完好（成
     join(root, '项目', '文档清单.jsonl'),
     '{"id":"doc_realm","nodeType":"document","path":"设定/境界体系.md","parentId":null}\n',
   )
-  const r = svc.updateDocMeta('doc_realm', { 标签: ['修真', '升级流'] })
+  const r = await svc.updateDocMeta('doc_realm', { 标签: ['修真', '升级流'] })
   expect(r.ok).toBe(true)
   if (!r.ok) return
   const after = readFileSync(join(root, '设定', '境界体系.md'), 'utf-8')
@@ -458,7 +458,7 @@ test('R65-1: updateDocMeta 补平铺键 → 境界体系嵌套结构完好（成
   rmSync(root, { recursive: true, force: true })
 })
 
-test('R65-1: updateDocMeta 改嵌套键本体（体系）→ BAD_INPUT 拒绝（fail-loud 防平铺化）', () => {
+test('R65-1: updateDocMeta 改嵌套键本体（体系）→ BAD_INPUT 拒绝（fail-loud 防平铺化）', async () => {
   const { root, svc } = makeBookWithChapter()
   mkdirSync(join(root, '设定'), { recursive: true })
   writeFileSync(join(root, '设定', '境界体系.md'), REALM_FILE, 'utf-8')
@@ -466,7 +466,7 @@ test('R65-1: updateDocMeta 改嵌套键本体（体系）→ BAD_INPUT 拒绝（
     join(root, '项目', '文档清单.jsonl'),
     '{"id":"doc_realm","nodeType":"document","path":"设定/境界体系.md","parentId":null}\n',
   )
-  const r = svc.updateDocMeta('doc_realm', { 体系: 'x' })
+  const r = await svc.updateDocMeta('doc_realm', { 体系: 'x' })
   expect(r.ok).toBe(false)
   if (r.ok) return
   expect(r.code).toBe('BAD_INPUT')
@@ -475,7 +475,7 @@ test('R65-1: updateDocMeta 改嵌套键本体（体系）→ BAD_INPUT 拒绝（
   rmSync(root, { recursive: true, force: true })
 })
 
-test('updateDocMeta: 非 UTF-8（GBK）文件 → 拒绝写回防字节损坏（第五轮）', () => {
+test('updateDocMeta: 非 UTF-8（GBK）文件 → 拒绝写回防字节损坏（第五轮）', async () => {
   const { root, svc } = makeBookWithChapter()
   writeFileSync(join(root, '大纲', '卷纲', '第一卷.md'), '---\n卷名: 第一卷\n---\n卷纲正文', 'utf-8')
   appendFileSync(
@@ -490,7 +490,7 @@ test('updateDocMeta: 非 UTF-8（GBK）文件 → 拒绝写回防字节损坏（
   ])
   writeFileSync(fp, gbk)
   const before = readFileSync(fp)
-  const r = svc.updateDocMeta('doc_vol1', { 卷主线: '主角崛起' })
+  const r = await svc.updateDocMeta('doc_vol1', { 卷主线: '主角崛起' })
   expect(r.ok).toBe(false)
   if (r.ok) return
   expect(r.code).toBe('WRITE_ERROR')
@@ -499,14 +499,14 @@ test('updateDocMeta: 非 UTF-8（GBK）文件 → 拒绝写回防字节损坏（
   rmSync(root, { recursive: true, force: true })
 })
 
-test('updateDocMeta: 裸 md 无 fm → 自动包裹 fm 写字段', () => {
+test('updateDocMeta: 裸 md 无 fm → 自动包裹 fm 写字段', async () => {
   const { root, svc } = makeBookWithChapter()
   writeFileSync(join(root, '大纲', '总纲.md'), '# 总纲\n\n（待补）\n', 'utf-8')
   appendFileSync(
     join(root, '项目', '文档清单.jsonl'),
     '{"id":"doc_syn","nodeType":"document","path":"大纲/总纲.md","parentId":null}\n',
   )
-  const r = svc.updateDocMeta('doc_syn', { 主题: '复仇', 字数目标: 2000000 })
+  const r = await svc.updateDocMeta('doc_syn', { 主题: '复仇', 字数目标: 2000000 })
   expect(r.ok).toBe(true)
   if (!r.ok) return
   const fm = readFileSync(join(root, '大纲', '总纲.md'), 'utf-8')

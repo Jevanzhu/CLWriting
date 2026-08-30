@@ -369,8 +369,11 @@ describe('OpenAI 适配器', () => {
     const client = {
       chat: {
         completions: {
+          // R31-1（三十一轮）：夹具补 finish_reason——真实 include_usage 流为
+          // [内容…, finish chunk, usage-only chunk]；无 finish_reason 的形态按新契约
+          // 归传输截断（见 r31a-openai-truncation.test.ts）
           create: fakeSend([
-            { choices: [{ delta: { content: 'x' }, finish_reason: null }] },
+            { choices: [{ delta: { content: 'x' }, finish_reason: 'stop' }] },
             { choices: [], usage: { prompt_tokens: 8, completion_tokens: 4 } },
           ]),
         },

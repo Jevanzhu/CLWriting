@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { stripQuotedSpans, QUOTED_SPAN_RE } from '../../src/check/quotes.js'
 import { extractEvidenceCore } from '../../src/check/leads.js'
-import { computeStyleMetrics, checkNewNames } from '../../src/check/count.js'
+import { computeStyleMetrics, checkNewNames, DIALOGUE_TAG_RE } from '../../src/check/count.js'
 import type { IronRules } from '../../src/format/iron-rules.js'
 
 const RULES = { maxDialogueTagRatio: 1 } as IronRules
@@ -67,8 +67,10 @@ describe('引号矩阵 · 对话行与标签', () => {
     ['他却笑道：“来吧。”', true], // 弯引号体系同口径（外部“笑道”）
     ['“问道二字在内。”', false],
   ])('%s → 标签行=%s', (line, expected) => {
-    const tagged = /^[\u4e00-\u9fff]{1,8}(说|道|问|喊|叫|答|叹|笑)(了|着)?/u.test(stripQuotedSpans(line)) || /[\u4e00-\u9fff]{1,8}(说|道|问|喊|叫|答|叹|笑)(了|着)?/u.test(stripQuotedSpans(line))
-    expect(tagged).toBe(expected)
+    // R31-12 连带（三十一轮）：断言改走产线 DIALOGUE_TAG_RE（原测试内自写正则副本
+    // 假绿——全绿不代表产线行为；现产线正则导出，本表回归真实契约）
+    const stripped = stripQuotedSpans(line)
+    expect(DIALOGUE_TAG_RE.test(stripped)).toBe(expected)
   })
 
   it('computeStyleMetrics 整合：对白内的“笑道”不再虚增标签占比', () => {

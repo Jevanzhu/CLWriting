@@ -16,9 +16,10 @@ import { runAllChecks, hasRed, enabledLeadTypes } from './runner.js'
 import { outlineDeclarationForChapter } from './outline-leads.js'
 import {
   leadEvidenceMatchesBody,
-  readChapterUpdatesForChapter,
-  readLeadUpdatesAt,
+  readChapterUpdatesForChapterChecked,
+  readLeadUpdatesAtChecked,
   readLeadUpdateChapterTag,
+  type ChapterUpdatesResult,
   LEAD_UPDATES_FILE,
   LEAD_UPDATES_ARCHIVE_DIR,
 } from './lead-updates.js'
@@ -31,7 +32,6 @@ import { syncTreeIssuesEpoch, readTreeIssuesCache, writeTreeIssuesCache, compute
 import { checkLeadsBookItems } from './leads.js'
 import type { CheckReport } from './types.js'
 import type { ChapterMeta, BookConfig } from '../format/types.js'
-import type { ChapterLeadUpdate } from './lead-updates.js'
 import { log } from '../log/index.js'
 
 /** 机检结果：成功带 report + chapter + body（三审端点复用 chapter/body）；失败带 code（映射 HTTP 状态）。 */
@@ -170,33 +170,46 @@ export interface BatchCheckContext {
   /** 大纲/章纲 章列表（targetWords 查表用；空数组 = 无章纲目录） */
   outlineChapters?: ChapterMeta[]
   /** R65-24（十三轮）：每章账本推进预扫（主文件 + 归档暂存两源一次读齐，闭包按章
-   *  还原 readChapterUpdatesForChapter 拼装口径）；不传则单章路径现读（语义等价） */
-  leadUpdatesForChapter?: (chapterNo: number) => ChapterLeadUpdate[]
+   *  还原 readChapterUpdatesForChapter 拼装口径）；不传则单章路径现读（语义等价）。
+   *  R31-3（三十一轮）：闭包升级为读失败感知版 ChapterUpdatesResult——unreadable 时
+   *  调用方跳过两端闭合（不再把「清单未知」当「未兑现」误报红硬阻断定稿）。 */
+  leadUpdatesForChapter?: (chapterNo: number) => ChapterUpdatesResult
 }
 
 /**
  * R65-24（十三轮）：批量路径的账本推进预扫——主文件标签 + 正文一次读、.账本推进暂存/
  * 第N章.md 目录一次扫，返回按章取数的闭包（与逐章调 readChapterUpdatesForChapter 逐条
  * 等价：无标签主文件对每章生效、带章标签主文件只对本章生效、归档按章名配对）。
- * 单文件读失败按空降级（readLeadUpdatesAt 的 X-P2-5 口径，不阻断批量机检）。
+ * R31-3（三十一轮）：读失败不再静默折算成空清单——经 checked 读取透传 unreadable
+ * （主文件读失败对所有本章生效章可见；归档文件读失败仅对该章可见），单文件读失败
+ * 不阻断批量机检本体，但两端闭合对该章降级跳过（fail-noisy，见 checkWithDb 黄项）。
  */
-function scanChapterUpdatesByChapter(bookRoot: string): (chapterNo: number) => ChapterLeadUpdate[] {
+function scanChapterUpdatesByChapter(bookRoot: string): (chapterNo: number) => ChapterUpdatesResult {
   const mainPath = join(bookRoot, LEAD_UPDATES_FILE)
   const mainTag = readLeadUpdateChapterTag(mainPath) // 无文件/读失败 → null（宽容口径）
-  const mainUpdates = readLeadUpdatesAt(mainPath)
-  const archiveByChapter = new Map<number, ChapterLeadUpdate[]>()
+  const mainRead = readLeadUpdatesAtChecked(mainPath)
+  const mainResult: ChapterUpdatesResult = { updates: mainRead ?? [], unreadable: mainRead === null }
+  const archiveByChapter = new Map<number, ChapterUpdatesResult>()
   const archiveDir = join(bookRoot, LEAD_UPDATES_ARCHIVE_DIR)
   if (existsSync(archiveDir)) {
     for (const f of readdirSync(archiveDir)) {
       const m = f.match(/^第(\d+)章\.md$/)
       if (!m) continue // 非本章归档命名（含 ._ 资源文件）不入预扫
-      archiveByChapter.set(Number(m[1]), readLeadUpdatesAt(join(archiveDir, f)))
+      const read = readLeadUpdatesAtChecked(join(archiveDir, f))
+      archiveByChapter.set(Number(m[1]), { updates: read ?? [], unreadable: read === null })
     }
   }
-  return (chapterNo: number): ChapterLeadUpdate[] => [
-    ...(mainTag === null || mainTag === chapterNo ? mainUpdates : []),
-    ...(archiveByChapter.get(chapterNo) ?? []),
-  ]
+  return (chapterNo: number): ChapterUpdatesResult => {
+    const mainActive = mainTag === null || mainTag === chapterNo
+    const archive = archiveByChapter.get(chapterNo)
+    return {
+      updates: [
+        ...(mainActive ? mainResult.updates : []),
+        ...(archive?.updates ?? []),
+      ],
+      unreadable: (mainActive && mainResult.unreadable) || (archive?.unreadable ?? false),
+    }
+  }
 }
 
 /**
@@ -241,8 +254,14 @@ export function checkWithDb(
     // 本章时）+ 工作区/.账本推进暂存/第N章.md，内含 in-scope 判定）——此前只读主文件：
     // 批量连写书的归档章推进被无视，误报 lead-declared-not-done 红（定稿闸与履历回写
     // 自 ff-P1-1 已统一本函数，机检是最后缺口）。batch 预扫闭包同口径（CC-P1-3 消每章重读）
-    const actualLeadIds = useLeads
-      ? (batch?.leadUpdatesForChapter?.(draft.chapter.章号) ?? readChapterUpdatesForChapter(bookRoot, draft.chapter.章号))
+    // R31-3（三十一轮）：兑现侧读失败（权限/瞬态占用）≠「无推进」——unreadable 时
+    // actualLeadIds 传 undefined 跳过两端闭合（对齐声明侧 R70-15 known:false 口径，
+    // 防把瞬态故障当作者过错产 lead-declared-not-done 假红硬阻断定稿），黄项降级见下方。
+    const updatesResult = useLeads
+      ? (batch?.leadUpdatesForChapter?.(draft.chapter.章号) ?? readChapterUpdatesForChapterChecked(bookRoot, draft.chapter.章号))
+      : undefined
+    const actualLeadIds = updatesResult && !updatesResult.unreadable
+      ? updatesResult.updates
           .filter((u) => leadEvidenceMatchesBody(draft.body, u.证据))
           .map((u) => u.leadId)
       : undefined
@@ -269,6 +288,24 @@ export function checkWithDb(
       targetWords,
       skipLeadsBookChecks: opts?.skipLeadsBookChecks === true,
     })
+    // R31-3（三十一轮）：兑现侧读失败的黄项降级（fail-noisy 不可静默）——跳过闭合的
+    // 事实随报告透出（对齐 checkNewNames roster-unreadable / R29-5 book-config-degraded
+    // 的降级黄项口径），作者只看面板即知本轮「声明↔兑现」未比对、修复后须重查。
+    // 树红点聚合缓存只存 {hasRed, verdictRejected} 布尔、不缓存黄项条目，降级黄项
+    // 不会被缓存固化（hasRed=false 只表示本轮无红，属账本全书性红项同一缓存语义）。
+    if (updatesResult?.unreadable) {
+      report.sections.push({
+        name: '账本推进',
+        items: [
+          {
+            checkId: 'lead-updates-unreadable',
+            level: 'yellow',
+            message: '账本推进文件读取失败（权限/瞬态占用），本章「声明↔兑现」两端闭合本轮跳过——修复读取后请重查，闭合未知期间请勿定稿该章。',
+            chapter: draft.chapter.章号,
+          },
+        ],
+      })
+    }
     return { ok: true, report, hasRed: hasRed(report), chapter: draft.chapter, body: draft.body }
   } catch (e) {
     return { ok: false, code: 'CHECK_ERROR', error: e instanceof Error ? e.message : String(e) }

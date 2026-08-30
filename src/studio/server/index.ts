@@ -351,9 +351,25 @@ export function startServer(opts: StudioServerOptions): http.Server {
     // R65-46（总六十五轮）：HEAD 与 GET 同读语义，一并入闸——原只判 GET，HEAD /api/*
     // 绕过 token 校验（当前无 HEAD 路由无实害，口径不一致留缺口；响应头同会泄漏
     // 资源元数据）。
-    if ((req.method === 'GET' || req.method === 'HEAD') && req.url.startsWith('/api/')) {
-      const path = urlPathOnly(req.url)
-      if (!GET_TOKEN_EXEMPT_PATHS.some((re) => re.test(path))) {
+    // API 优先
+    // R72-10（二十轮 D-8）：/api/ 判定统一用规范化 pathname——原 raw url startsWith
+    // 与 dispatch 的 URL 解析口径双轨（query/编码段/绝对 URI 形态下判定面不一致；
+    // token 闸在先无绕过，此为口径统一）。解析失败按非 API 处理。
+    // R31-4（三十一轮）：apiPathname 计算上移到 GET/HEAD token 闸之前——原闸用 raw
+    // `req.url.startsWith('/api/')`，与 dispatch 的规范化 pathname 双轨：llhttp 不归一化
+    // 请求行，`GET /foo/../api/books` 的 raw url 不含 `/api/` 前缀 → 跳过 token 闸，
+    // 而 apiPathname 归一化后命中 `/api/` → 无凭据进路由（读闸自定目标失守；
+    // `%2e%2e` 编码点段同效）。闸与豁免表改用同一规范化口径（WHATWG URL 归一化点段），
+    // 豁免匹配同步换 apiPathname（new URL().pathname 已剥 query，urlPathOnly 职责内含）。
+    const apiPathname = (() => {
+      try {
+        return new URL(req.url ?? '/', 'http://local').pathname
+      } catch {
+        return '/'
+      }
+    })()
+    if ((req.method === 'GET' || req.method === 'HEAD') && apiPathname.startsWith('/api/')) {
+      if (!GET_TOKEN_EXEMPT_PATHS.some((re) => re.test(apiPathname))) {
         // S7（五十九轮）：query token 通道收窄——原 `?token=` 对全部非豁免 GET 通用，
         // token 进 URL 的暴露面（进程列表/代理/服务器日志）比「EventSource 不能带头」
         // 的最小必要面大。现在非豁免 GET 只认 x-studio-token 头（前端 client.ts 契约①
@@ -366,17 +382,6 @@ export function startServer(opts: StudioServerOptions): http.Server {
       }
     }
 
-    // API 优先
-    // R72-10（二十轮 D-8）：/api/ 判定统一用规范化 pathname——原 raw url startsWith
-    // 与 dispatch 的 URL 解析口径双轨（query/编码段/绝对 URI 形态下判定面不一致；
-    // token 闸在先无绕过，此为口径统一）。解析失败按非 API 处理。
-    const apiPathname = (() => {
-      try {
-        return new URL(req.url ?? '/', 'http://local').pathname
-      } catch {
-        return '/'
-      }
-    })()
     if (apiPathname.startsWith('/api/')) {
       // R64-28（十二轮）：finish 后统一排空未消费请求体——无 body POST（heartbeat/
       // style/rag/chat-branches 等）handler 不读 body 也不 resume，脚本客户端带 body

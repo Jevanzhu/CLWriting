@@ -203,7 +203,10 @@ export function loadProviders(userDataPath: string): ProviderStore {
     const conf = { ...p, apiKey: '' } as ProviderConf
     if (vault && dek && vault.keys[conf.id]) {
       // vault 有 → 解密（vault 永远优先）
-      conf.apiKey = openKey(dek, vault.keys[conf.id]!)
+      // R31-28（三十一轮）：providerId 绑 AAD；存量未绑密文经 legacy 通道打开并标记重封
+      const opened = openKey(dek, vault.keys[conf.id]!, conf.id)
+      conf.apiKey = opened.apiKey
+      if (opened.legacy) needsRewrite = true
       // 残留明文 apiKey 字段 → 标记清理
       if (p.apiKey) needsRewrite = true
     } else if (p.apiKey) {
@@ -225,7 +228,10 @@ export function loadProviders(userDataPath: string): ProviderStore {
   const ragProviders: RagProviderConf[] = ragRaw.map((p) => {
     const conf = { ...p, apiKey: '' } as RagProviderConf
     if (vault && dek && vault.keys[conf.id]) {
-      conf.apiKey = openKey(dek, vault.keys[conf.id]!)
+      // R31-28（三十一轮）：同 chat 侧——providerId 绑 AAD + legacy 重封迁移
+      const opened = openKey(dek, vault.keys[conf.id]!, conf.id)
+      conf.apiKey = opened.apiKey
+      if (opened.legacy) needsRewrite = true
       if (p.apiKey) needsRewrite = true
     } else if (p.apiKey) {
       conf.apiKey = p.apiKey
@@ -260,7 +266,7 @@ export function loadProviders(userDataPath: string): ProviderStore {
         const roundtripOk = [...providers, ...ragProviders].every((p) => {
           if (!p.apiKey) return true // 空 key 无密文可校
           const sealed = savedVault.keys[p.id]
-          return !!sealed && openKey(savedDek, sealed) === p.apiKey
+          return !!sealed && openKey(savedDek, sealed, p.id).apiKey === p.apiKey
         })
         if (roundtripOk) {
           atomicWriteFile(bakFp, savedRaw, { fsync: true, mode: 0o600 })
@@ -405,7 +411,8 @@ function saveProvidersLocked(userDataPath: string, store: ProviderStore): void {
   // 两类 key 必须同批收齐：漏收任一类 = 存另一类时静默抹掉它的密文。
   vault.keys = {}
   const sealKeyOf = (id: string, apiKey: string): void => {
-    if (apiKey) vault!.keys[id] = sealKey(dek!, apiKey)
+    // R31-28（三十一轮）：providerId 绑 AAD——密文换位到其他条目认证失败
+    if (apiKey) vault!.keys[id] = sealKey(dek!, apiKey, id)
   }
   const diskProviders = store.providers.map((p) => {
     sealKeyOf(p.id, p.apiKey)

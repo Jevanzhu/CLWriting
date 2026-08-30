@@ -6,6 +6,8 @@ export { countWords, parseChapterFileName, chapterFilePrefix } from '../../../..
 // splitFrontMatter 从 frontmatter-core.ts re-export（零 Node 依赖，服务端/浏览器共用），
 // 消除此前手写 --- 查找逻辑的漂移风险。
 import { splitFrontMatter } from '../../../../format/frontmatter-core'
+// R31-30（三十一轮）：re-export 供视图层取 fmRaw（编辑器为准补笔用，format 直引不外溢）
+export { splitFrontMatter as splitFrontmatter }
 
 /**
  * 剥 frontmatter（--- ... ---）取正文 body。

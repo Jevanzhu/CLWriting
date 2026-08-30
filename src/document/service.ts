@@ -41,7 +41,7 @@ import { countWords, chapterFilePrefix } from '../format/words.js'
 // 同函数的章标题别名）
 import { sanitizeChapterTitle, sanitizeFileNamePart } from '../format/filename.js'
 import { encodeDocDirName, decodeDocDirName } from './version.js'
-import { acquireCrossProcessLockWithTimeout, acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
+import { acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js' // R31-20：meta 链全异步化，同步等待原语已无使用方
 import { readBookConfig } from '../format/yaml.js'
 
 /** 第五轮：非 UTF-8（GBK 等）文件的元数据写回统一拒绝——utf-8 读入产生 U+FFFD 替换
@@ -390,7 +390,9 @@ export class DocumentService {
       // 一次，5s 等锁窗口内他进程 doTrash/doMoveOrRename 后，出队保存仍按旧世界落盘
       //（旧路径复活已删文件/写错位，内容重复非丢失、低危）。取锁后重判把窗口收窄到
       // 复核→写盘的毫秒级；结构性操作不持 save 锁，残余窗口如实记档。
-      const registeredNow = this.lookupPathByDocId(docId)
+      // R31-19（三十一轮）：legacy 收编链改走异步清单锁孪生（R30-6 全异步化口径的
+      // 残留收口——非 legacy docId 行为不变，仅清单命中读）
+      const registeredNow = await this.lookupPathByDocIdAdoptAsync(docId)
       if (registeredNow !== null && registeredNow !== relPath) {
         return Promise.resolve({
           ok: false,
@@ -719,29 +721,60 @@ export class DocumentService {
     // R70-17（十八轮）：登记收编——文件已落盘后登记抛（磁盘满/权限）此前裸穿破坏
     // CreateResult 契约且调用方误判完全失败（重试撞 ALREADY_EXISTS）；半成品态由树
     // legacyId 首次结构性操作 adoptLegacyDoc 自愈，warn 留痕即可（ee-P1-5 同型漏网点）
+    // R31-24（三十一轮）：登记失败时降级返回 legacyId(rel)——树扫描自愈产物是
+    // legacy:<hash>，返回原 doc_xxx 会让前端持有的身份与磁盘自愈身份分裂
+    //（.版本/journal 以旧 id 孤儿化，历史面板失联）；与自愈同 id 即身份连续。
+    let registeredDocId = docId
     try {
       this.upsertManifestEntry(docId, rel)
     } catch (e) {
-      log.warn('document', `新建后清单登记失败（${rel}，树扫描将自愈收编）：${errMsg(e)}`)
+      registeredDocId = legacyId(rel)
+      log.warn('document', `新建后清单登记失败（${rel}，降级返回 legacy id 与树扫描自愈同源）：${errMsg(e)}`)
     }
     invalidateTreeIndex(this.bookRoot, true)
-    return { ok: true, docId, path: rel, revision: computeRevision(safe) }
+    return { ok: true, docId: registeredDocId, path: rel, revision: computeRevision(safe) }
   }
 
   /** 移动文档到新目录（章号/文件名不变，只改卷归属）。 */
   moveDocument(input: MoveDocumentInput): Promise<MoveResult> {
-    return Promise.resolve(this.doMoveOrRename(input.docId, { kind: 'move', toDir: input.toDir }))
+    return this.doMoveOrRename(input.docId, { kind: 'move', toDir: input.toDir })
   }
 
   /** 重命名文档（改文件名，目录不变）。 */
   renameDocument(input: RenameDocumentInput): Promise<MoveResult> {
-    return Promise.resolve(this.doMoveOrRename(input.docId, { kind: 'rename', newName: input.newName }))
+    return this.doMoveOrRename(input.docId, { kind: 'rename', newName: input.newName })
   }
 
   /** 更新章节元数据（标题/章号）。
    *  - 长篇 chapter：写 fm + 文件名同步 rename（章号4位-标题.md，docId 不变）。
    *  - 短篇 piece-body：写 fm + 文件名同步 rename（章号3位-标题.md，docId 不变）+ 章纲同名跟随。 */
-  updateChapterMeta(docId: string, meta: { 标题?: string; 章号?: number }): MoveResult {
+  // R31-20（三十一轮）：同进程同 docId meta 操作串行链——锁等待让出事件循环后，
+  // 同文档第二请求会撞跨进程锁文件的同进程 pid 自锁语义（等满超时 fail-closed）。
+  // promise 链串行保持旧同步版「单线程无交错」行为等价（跨进程互斥仍由文件锁承担）。
+  private metaOpChains = new Map<string, Promise<unknown>>()
+  private chainDocMetaOp<T>(docId: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.metaOpChains.get(docId) ?? Promise.resolve()
+    const p = prev.then(fn, fn)
+    this.metaOpChains.set(docId, p)
+    void p.catch(() => {}).finally(() => {
+      if (this.metaOpChains.get(docId) === p) this.metaOpChains.delete(docId)
+    })
+    return p
+  }
+
+  // R31-20（三十一轮）：meta PATCH 异步化——R30-6 只异步化了 executeSave/finalize，
+  // 本方法与 updateDocMeta 的 save/布线/清单锁等待仍为 Atomics.wait 同步睡（最坏
+  // ≈20s 冻结服务进程事件循环，与 R30-6 的异步化理由正面冲突）。改异步孪生：
+  // 取锁等待走 acquireCrossProcessLockAsync（setTimeout 轮询），锁内临界段保持
+  // 全同步 FS（与 executeSave 锁内段同纪律）；同进程同 docId 并发 PATCH 经
+  // chainDocMetaOp promise 链串行（锁等待让出事件循环后，第二请求会撞同进程
+  // pid 自锁语义——链串行保持旧同步版「单线程无交错」行为等价）。跨进程互斥
+  // 仍由文件锁承担，锁序「save → 布线 → 清单」不变。
+  updateChapterMeta(docId: string, meta: { 标题?: string; 章号?: number }): Promise<MoveResult> {
+    return this.chainDocMetaOp(docId, () => this.updateChapterMetaLocked(docId, meta))
+  }
+
+  private async updateChapterMetaLocked(docId: string, meta: { 标题?: string; 章号?: number }): Promise<MoveResult> {
     const path = this.lookupPathByDocId(docId)
     if (!path) return { ok: false, code: 'NOT_FOUND', reason: `文档 ${docId} 未在清单登记` }
     const abs = this.resolveSafePath(path)
@@ -761,7 +794,7 @@ export class DocumentService {
     // 同进程同 docId 不会自锁（executeSave 锁内临界段全同步，JS 单线程不与本同步方法
     // 交错；doMoveOrRename 不取 save 锁）。
     const journalPath = join(this.journalDir, `${encodeDocDirName(docId)}.jsonl`)
-    const docSaveLock = acquireCrossProcessLockWithTimeout(`${journalPath}.save.lock`, metaSaveLockTimeoutMs)
+    const docSaveLock = await acquireCrossProcessLockAsync(`${journalPath}.save.lock`, metaSaveLockTimeoutMs)
     if (!docSaveLock) {
       return { ok: false, code: 'WRITE_ERROR', reason: '元数据保存等待超时：另一进程正在保存此文档（5 秒未让出），请重试' }
     }
@@ -769,11 +802,12 @@ export class DocumentService {
     // lead-finalize 回写互斥），超时/获取异常按 WRITE_ERROR 拒绝（fail-closed，先释放
     // save 锁防泄漏）；非布线文件不加锁。R30-5（三十轮）锁序如实化：全仓统一
     // 「save 锁 → 布线锁 → 清单锁」，finalize 侧已同步改为进清单锁前预取布线锁。
+    // R31-20：两处锁获取均异步化（等待期不阻塞事件循环）。
     const wiringKey = this.wiringFileLockKey(path)
     let wiringLock: (() => void) | null = null
     if (wiringKey) {
       try {
-        wiringLock = acquireCrossProcessLockWithTimeout(wiringKey, wiringSaveLockTimeoutMs)
+        wiringLock = await acquireCrossProcessLockAsync(wiringKey, wiringSaveLockTimeoutMs)
       } catch (e) {
         docSaveLock()
         return { ok: false, code: 'WRITE_ERROR', reason: `布线文件锁获取失败（未执行保存，可重试）：${errMsg(e)}` }
@@ -873,8 +907,8 @@ export class DocumentService {
         const safeTitle = sanitizeChapterTitle(标题) || '未命名'
         const newName = `${numPrefix}${safeTitle}.md`
         if (basename(path) !== newName) {
-          const result = this.doMoveOrRename(docId, { kind: 'rename', newName })
-          if (result.ok) this.syncRenamePieceList(path, newName)
+          const result = await this.doMoveOrRename(docId, { kind: 'rename', newName })
+          if (result.ok) await this.syncRenamePieceList(path, newName)
           else this.rollbackMetaOnRenameFail(abs, r)
           return result
         }
@@ -887,7 +921,7 @@ export class DocumentService {
       const newName =
         no !== null ? `${chapterFilePrefix(no, 'chapter')}${safeTitle}.md` : basename(path)
       if (basename(path) !== newName) {
-        const result = this.doMoveOrRename(docId, { kind: 'rename', newName })
+        const result = await this.doMoveOrRename(docId, { kind: 'rename', newName })
         if (!result.ok) this.rollbackMetaOnRenameFail(abs, r)
         return result
       }
@@ -923,7 +957,7 @@ export class DocumentService {
    *  编辑器按 docId 挂的标签页/分析信封/工作区/.版本/<docId>/ 版本历史全断链。委托后
    *  journal + snapshot + 清单 path 更新 + 树索引失效与正文改名同一纪律。未登记（从未
    *  做过结构性操作）时无条目可孤儿，保留裸 rename 回落。 */
-  private syncRenamePieceList(oldBodyRel: string, newName: string): void {
+  private async syncRenamePieceList(oldBodyRel: string, newName: string): Promise<void> {
     const oldListRel = `大纲/章纲/${basename(oldBodyRel)}`
     const newListRel = `大纲/章纲/${newName}`
     const oldSafe = this.resolveSafePath(oldListRel)
@@ -933,7 +967,7 @@ export class DocumentService {
     if (existsSync(this.manifestPath)) {
       const hit = [...readManifest(this.manifestPath).entries].find(([, e]) => e.path === oldListRel)
       if (hit) {
-        const r = this.doMoveOrRename(hit[0], { kind: 'rename', newName })
+        const r = await this.doMoveOrRename(hit[0], { kind: 'rename', newName })
         if (r.ok) return
         // 失败（含「文件已移、清单更新失败」半程态）不阻断正文 rename：前者落回裸
         // rename 兜底配对，后者 healthCheck 按悬置 pending 收口（P3-10 语义）
@@ -956,7 +990,14 @@ export class DocumentService {
 
   /** 更新文档 frontmatter 字段（通用，不联动文件名；卷纲/总纲用）。
    *  与 updateChapterMeta 的区别：不改文件名（卷纲/总纲文件名不按 章号-标题）。 */
-  updateDocMeta(docId: string, meta: Record<string, unknown>): MoveResult {
+  // R31-20（三十一轮）：同 updateChapterMeta——锁获取异步化；本方法锁内段纯
+  // 同步 FS（read/patch/write，无嵌套锁），链串行与 chapter 面统一（同 docId
+  // 双 meta 请求不再撞同进程 pid 自锁窗口）。
+  updateDocMeta(docId: string, meta: Record<string, unknown>): Promise<MoveResult> {
+    return this.chainDocMetaOp(docId, () => this.updateDocMetaLocked(docId, meta))
+  }
+
+  private async updateDocMetaLocked(docId: string, meta: Record<string, unknown>): Promise<MoveResult> {
     const path = this.lookupPathByDocId(docId)
     if (!path) return { ok: false, code: 'NOT_FOUND', reason: `文档 ${docId} 未在清单登记` }
     const abs = this.resolveSafePath(path)
@@ -971,7 +1012,7 @@ export class DocumentService {
     //（5s fail-closed）；锁内无嵌套锁获取（纯 read/patch/write），与 executeSave 的
     // save→journal/manifest 单向序无环。
     const journalPath = join(this.journalDir, `${encodeDocDirName(docId)}.jsonl`)
-    const docSaveLock = acquireCrossProcessLockWithTimeout(`${journalPath}.save.lock`, metaSaveLockTimeoutMs)
+    const docSaveLock = await acquireCrossProcessLockAsync(`${journalPath}.save.lock`, metaSaveLockTimeoutMs)
     if (!docSaveLock) {
       return { ok: false, code: 'WRITE_ERROR', reason: '元数据保存等待超时：另一进程正在保存此文档（5 秒未让出），请重试' }
     }
@@ -983,7 +1024,7 @@ export class DocumentService {
     let wiringLock: (() => void) | null = null
     if (wiringKey) {
       try {
-        wiringLock = acquireCrossProcessLockWithTimeout(wiringKey, wiringSaveLockTimeoutMs)
+        wiringLock = await acquireCrossProcessLockAsync(wiringKey, wiringSaveLockTimeoutMs)
       } catch (e) {
         docSaveLock()
         return { ok: false, code: 'WRITE_ERROR', reason: `布线文件锁获取失败（未执行保存，可重试）：${errMsg(e)}` }
@@ -1051,10 +1092,13 @@ export class DocumentService {
   }
 
   /** move/rename 共用：查清单 oldPath → 算 newPath → 能力校验 → snapshot → rename → 清单更新。 */
-  private doMoveOrRename(
+  // R31-20（三十一轮）：doMoveOrRename 改异步——尾部清单 path 更新走
+  // updateManifestPath 的异步清单锁（等待期不阻塞事件循环）；锁序不变（本方法
+  // 不取 save 锁，由调用方 save 锁内 await，见 updateChapterMetaLocked）。
+  private async doMoveOrRename(
     docId: string,
     op: { kind: 'move'; toDir: string } | { kind: 'rename'; newName: string },
-  ): MoveResult {
+  ): Promise<MoveResult> {
     // N1（五十九轮）：journal 路径含 docId，入口显式 safeDocId 校验防穿越——executeSave
     // 已有 P1-SEC-A 守卫，此处同型构造漏校验；manifest 是可篡改数据面，构造
     // id:"../../evil" 条目后 PATCH move/rename 可把 .jsonl 写出书仓库外。
@@ -1166,7 +1210,7 @@ export class DocumentService {
     // 清单 path 更新（docId 不变，只改 path）——在 journal 保护段内：
     // 此步失败/崩溃 → pending 悬置（文件已在新路径），下次进门 healthCheck 自动对齐清单
     try {
-      this.updateManifestPath(docId, newPath)
+      await this.updateManifestPath(docId, newPath)
       appendSettled(journalPath, opId, computeRevision(newSafe))
     } catch (e) {
       return {
@@ -1213,10 +1257,42 @@ export class DocumentService {
     })
   }
 
+  /** R31-19（三十一轮）：upsertManifestEntry 的异步孪生——executeSave 锁内复核的
+   *  legacy 收编链专用。等待期 withManifestLockAsync（setTimeout 轮询，事件循环不
+   *  阻塞），RMW 本体与同步版逐位对齐（strict 读/同错误/同锁文件）。其余同步
+   *  调用方（doCreate/doCopy/adoptLegacyDoc）保持同步版不动。 */
+  private async upsertManifestEntryAsync(docId: string, relPath: string): Promise<void> {
+    await withManifestLockAsync(this.manifestPath, () => {
+      const m = existsSync(this.manifestPath) ? readManifestStrict(this.manifestPath) : { version: 1, entries: new Map<string, ManifestEntry>() }
+      upsertEntry(m, { id: docId, nodeType: 'document', path: relPath, parentId: null })
+      mkdirSync(dirname(this.manifestPath), { recursive: true })
+      writeManifest(this.manifestPath, m)
+    })
+  }
+
+  /** R31-19（三十一轮）：lookupPathByDocId 的异步收编孪生（executeSave 锁内复核用）。
+   *  清单命中读与同步版同口径（无锁读）；miss 且 legacy 前缀时扫盘反查后经异步清单锁
+   *  登记——原路径 adoptLegacyDoc → upsertManifestEntry 用同步 withManifestLock
+   *  （Atomics.wait），双进程争用窗口内在 save 锁等待异步化的保存链上重新引入最长
+   *  2×5s 的事件循环阻塞。 */
+  private async lookupPathByDocIdAdoptAsync(docId: string): Promise<string | null> {
+    if (existsSync(this.manifestPath)) {
+      const path = readManifest(this.manifestPath).entries.get(docId)?.path
+      if (path) return path
+    }
+    if (!docId.startsWith('legacy:')) return null
+    const hit = findByLegacyId(scanBookTree(this.bookRoot), docId)
+    if (!hit) return null
+    await this.upsertManifestEntryAsync(docId, hit)
+    return hit
+  }
+
   /** 清单 path 更新（move/rename 用，docId 不变）。X-5：RMW 持清单锁。 */
-  private updateManifestPath(docId: string, newPath: string): void {
+  private async updateManifestPath(docId: string, newPath: string): Promise<void> {
     if (!existsSync(this.manifestPath)) return
-    withManifestLock(this.manifestPath, () => {
+    // R31-20（三十一轮）：清单锁等待异步化（withManifestLockAsync，R30-6 原语）——
+    // RMW 本体仍全程同步 FS，语义与同步版逐位对齐
+    await withManifestLockAsync(this.manifestPath, () => {
       const m = readManifestStrict(this.manifestPath) // R27-40：RMW strict 读
       const entry = m.entries.get(docId)
       if (!entry) return
@@ -1266,13 +1342,16 @@ export class DocumentService {
     // 新 docId + 清单登记（结构性操作触发建清单，W0-1 §4.2）
     const newDocId = generateDocId()
     // R70-17（十八轮）：登记收编（同 doCreate——半成品由树扫描自愈，不误报完全失败）
+    // R31-24（三十一轮）：登记失败降级返回 legacyId(rel)（同 doCreate，身份连续）
+    let registeredDocId = newDocId
     try {
       this.upsertManifestEntry(newDocId, input.relPath)
     } catch (e) {
-      log.warn('document', `复制后清单登记失败（${input.relPath}，树扫描将自愈收编）：${errMsg(e)}`)
+      registeredDocId = legacyId(input.relPath)
+      log.warn('document', `复制后清单登记失败（${input.relPath}，降级返回 legacy id 与树扫描自愈同源）：${errMsg(e)}`)
     }
     invalidateTreeIndex(this.bookRoot, true)
-    return { ok: true, docId: newDocId, path: input.relPath, revision: computeRevision(dstSafe) }
+    return { ok: true, docId: registeredDocId, path: input.relPath, revision: computeRevision(dstSafe) }
   }
 
   /** 软删文档（snapshot + 回收站登记 + 移 .trash + 清单 removeEntry + invalidate；

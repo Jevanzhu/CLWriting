@@ -45,13 +45,14 @@ class MockES {
   }
 }
 
-/** fetch 桩：按 URL 分流——ticket 端点 404（回退 ?token= 旧通道），stream 端点按指定状态回 */
+/** fetch 桩：按 URL 分流——ticket 端点 404（EventSource 回退通道），stream 端点按指定状态回 */
 function stubFetch(streamStatus: number): ReturnType<typeof vi.fn> {
-  const fn = vi.fn(async (input: RequestInfo | URL) => {
+  const fn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
     if (url.endsWith('/api/stream-ticket')) return new Response('Not Found', { status: 404 })
     if (url.includes('/stream')) {
       probeUrls.push(url)
+      probeHeaders.push(init?.headers as Record<string, string> | undefined)
       return new Response('busy', { status: streamStatus })
     }
     return new Response('{}')
@@ -60,6 +61,7 @@ function stubFetch(streamStatus: number): ReturnType<typeof vi.fn> {
   return fn
 }
 const probeUrls: string[] = []
+const probeHeaders: Array<Record<string, string> | undefined> = []
 
 beforeEach(() => {
   setActivePinia(createPinia())
@@ -104,8 +106,13 @@ describe('R73-67: SSE 429（per-book 连接上限）→ 中文指引 toast', () 
     expect(toast!.kind).toBe('error')
     // 探测请求形态：GET stream 端点带 token 旧通道（不带 ticket——不消费一次性票）
     expect(probeUrls).toHaveLength(1)
-    expect(probeUrls[0]).toContain('/api/books/%E4%B9%A6A/stream?token=T0')
-    expect(fetchFn.mock.calls.filter(([u]) => String(u).includes('/stream?token'))).toHaveLength(1)
+    expect(probeUrls[0]).toContain('/api/books/%E4%B9%A6A/stream')
+    // R31-32（三十一轮）：探测是 fetch（可带头）——token 走 x-studio-token 头不再进 URL；
+    // 不带 ticket（不消费一次性票）的既有语义不变
+    expect(probeUrls[0]).not.toContain('token=')
+    expect(probeHeaders[0]).toMatchObject({ 'x-studio-token': 'T0' })
+    // endsWith 防误吞 /api/stream-ticket（其 URL 同含 '/stream' 子串）
+    expect(fetchFn.mock.calls.filter(([u]) => String(u).endsWith('/stream'))).toHaveLength(1)
   })
 
   it('非 429（403 凭据失效族）→ 不出指引 toast（维持原退避重连）', async () => {
@@ -178,7 +185,7 @@ describe('R26-78: probeSseBusy 探测超时', () => {
     const fn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
       if (url.endsWith('/api/stream-ticket')) return new Response('Not Found', { status: 404 })
-      if (url.includes('/stream?token')) {
+      if (url.endsWith('/stream')) { // R31-32：探测改 header 通道，URL 不再带 ?token=
         // 模拟真实 fetch：永不回包，但 abort 信号到达即 reject（超时通道可观察）
         return new Promise<Response>((_, rej) => {
           init?.signal?.addEventListener('abort', () => rej(new DOMException('aborted', 'AbortError')))
@@ -198,13 +205,13 @@ describe('R26-78: probeSseBusy 探测超时', () => {
     await settle()
     failClose(MockES.instances[1]!) // 探测 #1 仍在途 → 在途锁吞掉本次探测
     await settle()
-    expect(fn.mock.calls.filter(([u]) => String(u).includes('/stream?token'))).toHaveLength(1)
+    expect(fn.mock.calls.filter(([u]) => String(u).endsWith('/stream'))).toHaveLength(1) // R31-32：header 通道
 
     vi.advanceTimersByTime(8_000) // 探测 #1 超时 abort → catch → 锁释放（4s 退避也已重连）
     await settle()
     failClose(MockES.instances[2]!) // 锁已释放 → 探测 #2 正常发出
     await settle()
-    expect(fn.mock.calls.filter(([u]) => String(u).includes('/stream?token'))).toHaveLength(2)
+    expect(fn.mock.calls.filter(([u]) => String(u).endsWith('/stream'))).toHaveLength(2)
     expect(useUiStore().toasts).toHaveLength(0) // 超时按「非 429」：全程无指引
   })
 })

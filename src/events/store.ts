@@ -337,8 +337,11 @@ export function repairOrphanSessions(db: DatabaseSync, skip: ReadonlySet<string>
       // 此前裸跑两语句，中途失败留「补了 end 但 updated_at 未刷」半态。同
       // migrateBookSession 的 BEGIN/COMMIT + 失败回滚用法；事务内单会话两语句，
       // 失败回滚不影响已成功补齐的其他孤儿。
-      db.exec('BEGIN IMMEDIATE')
+      // R31-22（三十一轮）：BEGIN 挪进 try——BEGIN IMMEDIATE 在 busy_timeout 耗尽时
+      // 抛错，此前会冲出本循环经 maybeRepairOrphans（挂在 appendEvents/createSession
+      // 头部）让无关的正常事件写入直接抛错；挪入后按单会话错误收集继续。
       try {
+        db.exec('BEGIN IMMEDIATE')
         const fresh = recheck.get(o.session_id) as { starts: number | null; ends: number | null } | undefined
         if (fresh && (fresh.starts ?? 0) > (fresh.ends ?? 0)) {
           ins.run(o.session_id, JSON.stringify({ reason: 'interrupted' }), now)
@@ -876,7 +879,15 @@ export function migrateBookSession(
   // 超时放弃（false）：源库原地完整可重试，与既有失败语义一致。
   // R73-38：新旧路径两把 per-book 锁（bookHash 排序获取，见 acquireMigrateLockPair）——
   // 首开旧库对 lock(old)、首开新库对 lock(new)，rename 窗口两侧都不再漏。
-  const releaseMigrateLock = acquireMigrateLockPair(userDataPath, oldRoot, newRoot)
+  // R31-23（三十一轮）：锁获取异常（EACCES/只读卷等非 EEXIST 故障会 throw）收口为
+  // false——函数契约「false = 迁移失败可重试」，此前裸异常穿到 books.ts 改名端点。
+  let releaseMigrateLock: (() => void) | null = null
+  try {
+    releaseMigrateLock = acquireMigrateLockPair(userDataPath, oldRoot, newRoot)
+  } catch (e) {
+    log.warn('events', `事件库迁移锁获取失败（${e instanceof Error ? e.message : String(e)}）——放弃本轮，源库原地完整可重试`)
+    return false
+  }
   if (!releaseMigrateLock) {
     log.warn('events', '事件库迁移锁获取超时（另一进程正在迁移/首开同书会话库）——放弃本轮，源库原地完整可重试')
     return false

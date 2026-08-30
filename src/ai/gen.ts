@@ -190,11 +190,14 @@ export async function generate(
           if (ev.degraded) degraded = true
           break
         case 'error':
+          // R31-1（三十一轮）：ev.usage 随错装入 GenError.usage（B-12 通道）——
+          // 终态失败按真实消耗入账（runner 已消费该字段）
           throw new GenError(ev.message, ev.retryable, {
             code: ev.code,
             status: ev.status,
             retryAfterMs: ev.retryAfterMs,
             requestId: ev.requestId,
+            ...(ev.usage ? { usage: ev.usage } : {}),
           })
       }
     }

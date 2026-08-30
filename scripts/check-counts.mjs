@@ -85,6 +85,11 @@ function skipTemplateLiteral(src, at) {
   return -1
 }
 
+// R31-35（三十一轮）登记维持：stripStrings/stripComments 均不识别正则字面量——
+// `/['"]/` 类形态内的引号被当字符串定界吞掉同行后续代码。实测当前全部 spec/.test.ts
+// 无实伤（counts 门绿）；漂移主方向 e2e 用例少计 → README 对账红（fail-closed 可接受），
+// 次方向 `.skip(` 漏检（假绿向）——已有空洞测试门/`.only` 机器门双兜底。补正则识别需
+// 词法重写，收益低风险高，维持登记。
 export function stripStrings(src) {
   let out = ''
   let i = 0

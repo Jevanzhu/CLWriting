@@ -206,7 +206,8 @@ export function createOpenAIResponsesProvider(
   store?: ProviderStore,
   userDataPath?: string,
 ): ModelProvider {
-  const c = client ?? new OpenAI({ apiKey: conf.apiKey, baseURL: normalizeBaseUrl(conf.baseUrl) })
+  // R31-5（三十一轮）：SDK 内建重试关闭（runner 重试层是唯一重试决策方，见 openai-adapter 同注）
+  const c = client ?? new OpenAI({ apiKey: conf.apiKey, baseURL: normalizeBaseUrl(conf.baseUrl), maxRetries: 0 })
   const q = responsesQuirksFor(conf.model ?? '')
 
   return {

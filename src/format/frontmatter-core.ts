@@ -46,6 +46,22 @@ export function bodyOf(raw: string): string {
  * frontmatter-core.ts 拆出而不成立（core 零依赖，二者均无环），下沉至此共享，
  * 语义逐字不变（引号感知 / # 前空白或行首判定 / URL 字面 # 保留）。
  */
+/**
+ * R31-2（三十一轮）：键位冒号探测——双认半角 `:` 与全角 `：`，取先出现者为键值切分点。
+ * 此前只认半角冒号：中文键手写全角冒号（`章号：152`、细纲 `推进：[悬念-001]`）整行
+ * 被静默跳过（parseFlat/yaml.parseSections 的无冒号分支），键无声丢失 → 整章必填字段
+ * 假缺、细纲推进声明失明。键名保留切点前原文（trim 后即正常键名）；值侧内容不动
+ * （值含全角冒号不误切——半角键位先出现时切点仍是半角，见回归 r31b-fullwidth-colon）。
+ * 返回 -1 = 两式皆无（非键行，维持调用方既有的跳过/warn 路径）。
+ */
+export function firstKeyColon(line: string): number {
+  const half = line.indexOf(':')
+  const full = line.indexOf('：')
+  if (half === -1) return full
+  if (full === -1) return half
+  return Math.min(half, full)
+}
+
 export function stripInlineComment(s: string): string {
   let quote: '"' | "'" | null = null
   for (let i = 0; i < s.length; i++) {

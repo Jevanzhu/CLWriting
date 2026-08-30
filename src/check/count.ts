@@ -290,7 +290,7 @@ const DIALOGUE_GUIDE_RE = /(?:说|道|问|骂|喊|答|吼|喝|吩咐|嘀咕|嘟�
  * 标签占比分子系统性偏低（漏检向黄），对齐后双口径同词表。
  */
 const TAG_ANCHOR = `[\\s${SPAN_PUNCT}「」『』“”‘’（）《》〈〉]`
-const DIALOGUE_TAG_RE = new RegExp(
+export const DIALOGUE_TAG_RE = new RegExp(
   `(?:^|${TAG_ANCHOR})[${HANZI}]{1,8}(?:${SPEECH_VERBS})(?:了|着)?(?=$|${TAG_ANCHOR})`,
   'u',
 )
@@ -359,7 +359,8 @@ export function checkNewNames(
   }
   // R30-2（三十轮）：名册文本解析为已登记名字数组（精确判重，见 parseRosterNames）
   const registeredNames = parseRosterNames(roster)
-  // 粗抽：2-4 字中文专名候选（带引号或书名号的优先）
+  // 粗抽：2-4 字中文专名候选——候选仅出自引号 span（QUOTED_SPAN_RE 命中段；
+  // R31-12（三十一轮）注释如实化：叙述行裸名不入候选，扩裸名会引入高误报面，超出本轮）
   const candidates = new Set<string>()
   const spanRe = new RegExp(QUOTED_SPAN_RE.source, 'g')
   const punctRe = new RegExp(`[${QUOTE_OPEN}${QUOTE_CLOSE}${SPAN_PUNCT}「」『』]`, 'gu')

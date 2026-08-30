@@ -55,7 +55,7 @@ test('X-P2-25: v=0/缺失 → 明确「版本不识别」，不再误导成认�
 test('vault: sealKey + openKey 往返', () => {
   const { dek } = createVault(KEY_A)
   const sealed = sealKey(dek, 'sk-test-12345')
-  expect(openKey(dek, sealed)).toBe('sk-test-12345')
+  expect(openKey(dek, sealed).apiKey).toBe('sk-test-12345')
 })
 
 test('vault: IV 不复用——同一明文加密两次 iv/ct 不同（§4.2）', () => {
@@ -65,15 +65,15 @@ test('vault: IV 不复用——同一明文加密两次 iv/ct 不同（§4.2）'
   expect(a.iv).not.toBe(b.iv)
   expect(a.ct).not.toBe(b.ct)
   // 都能解出同一明文
-  expect(openKey(dek, a)).toBe('sk-same-key')
-  expect(openKey(dek, b)).toBe('sk-same-key')
+  expect(openKey(dek, a).apiKey).toBe('sk-same-key')
+  expect(openKey(dek, b).apiKey).toBe('sk-same-key')
 })
 
 test('vault: dek 不匹配 → openKey 抛 VaultDecryptError', () => {
   const { dek: dek1 } = createVault(KEY_A)
   const { dek: dek2 } = createVault(KEY_A)
   const sealed = sealKey(dek1, 'sk-test')
-  expect(() => openKey(dek2, sealed)).toThrow(VaultDecryptError)
+  expect(() => openKey(dek2, sealed).apiKey).toThrow(VaultDecryptError)
 })
 
 test('vault: 两次 createVault 产生不同 salt（随机性）', () => {

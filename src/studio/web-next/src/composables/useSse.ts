@@ -77,10 +77,13 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
     // 静默，交回既有退避重连节奏），与探测网络失败的既有语义一致
     const probeTimer = setTimeout(() => ctrl.abort(), 8_000)
     try {
-      const r = await fetch(
-        `${base}/api/books/${encodeURIComponent(currentName)}/stream?token=${encodeURIComponent(t)}`,
-        { signal: ctrl.signal },
-      )
+      // R31-32（三十一轮）：探测是 fetch（可带头）——token 改走 x-studio-token 头，
+      // 不再拼 `?token=` 进 URL（服务端闸已补认 header）；EventSource 正式连接仍走
+      // ticket，其 ?token= 回退通道维持 R30-25 登记。
+      const r = await fetch(`${base}/api/books/${encodeURIComponent(currentName)}/stream`, {
+        signal: ctrl.signal,
+        headers: { 'x-studio-token': t },
+      })
       ctrl.abort() // 拿到状态码即断（非 429 时服务端已建流——不留存活探测连接）
       if (r.status === 429 && !busy429Notified) {
         busy429Notified = true

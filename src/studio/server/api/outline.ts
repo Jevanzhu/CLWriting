@@ -108,7 +108,7 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
         atomicWriteFile(join(outlineDir, `细纲.md`), withFm || '(空细纲)')
       } catch (e) {
         // P2-4：API 错误脱敏
-        return replyError(res, 500, 'IO', `落盘:${redactSecret(e instanceof Error ? e.message : String(e))}`)
+        return replyError(res, 500, 'IO_ERROR', `落盘:${redactSecret(e instanceof Error ? e.message : String(e))}`)
       }
       reply(res, 200, { ok: true, path: relPath, words: countWords(bodyOf(content)) })
     } finally {

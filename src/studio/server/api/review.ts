@@ -141,7 +141,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
         try {
           draftBuf = readFileSync(absPath)
         } catch {
-          return replyError(res, 500, 'IO', '读不到正文文件（可能已被移动或删除），请刷新后再试')
+          return replyError(res, 500, 'IO_ERROR', '读不到正文文件（可能已被移动或删除），请刷新后再试')
         }
         const draftText = draftBuf.toString('utf-8')
 
@@ -284,7 +284,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
       try {
         body = readFileSync(absPath, 'utf-8')
       } catch {
-        return replyError(res, 500, 'IO', '读不到正文文件（可能已被移动或删除），请刷新后再试')
+        return replyError(res, 500, 'IO_ERROR', '读不到正文文件（可能已被移动或删除），请刷新后再试')
       }
       // R-16：写前重读——三审若在首读与读稿之间完成，这里拿到的是新 collected/lenses
       const latest = readAnalysis(bookRoot, docId, 'review') ?? existing

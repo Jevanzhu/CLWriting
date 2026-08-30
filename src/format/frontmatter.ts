@@ -15,7 +15,7 @@
 
 import type { ParseError } from './types.js'
 import { log } from '../log/index.js'
-import { splitFrontMatter, bodyOf, stripInlineComment } from './frontmatter-core.js'
+import { splitFrontMatter, bodyOf, stripInlineComment, firstKeyColon } from './frontmatter-core.js'
 // splitFrontMatter 已拆到 frontmatter-core.ts（零 Node 依赖，浏览器共用）；此处 re-export 保持兼容
 export { splitFrontMatter, bodyOf }
 
@@ -159,7 +159,10 @@ export function parseFlat(
       i++
       continue
     }
-    const colonIdx = line.indexOf(':')
+    // R31-2（三十一轮）：键位冒号双认 `:`/`：` 取先出现者（firstKeyColon，见 frontmatter-core）——
+    // 手写全角冒号键行（`章号：152`）此前整行静默跳过，键无声丢失。块标量分支与
+    // stripInlineComment 都作用在切分后的值侧，不受切分点改判影响。
+    const colonIdx = firstKeyColon(line)
     if (colonIdx === -1) {
       i++
       continue
@@ -270,7 +273,9 @@ export function patchFlatFm(
   const isTopKey = (line: string): string | null => {
     if (line === '' || line.startsWith('#')) return null
     if (/^\s/.test(line) || line.trimStart().startsWith('- ')) return null
-    const colonIdx = line.indexOf(':')
+    // R31-2（三十一轮）：顶层键判定同 parseFlat 双认 `:`/`：`——parseFlat 已认全角键行
+    // 而此处不认的话，patchFlatFm 会把该键当不存在走追加分支（同键重复行）。
+    const colonIdx = firstKeyColon(line)
     if (colonIdx === -1) return null
     return line.slice(0, colonIdx).trim()
   }
@@ -316,7 +321,8 @@ export function patchFlatFm(
     }
     done.add(key)
     const val = updates[key]
-    const valRaw = line.slice(line.indexOf(':') + 1).trim()
+    // R31-2（三十一轮）：块标量头判定同键位双认口径（isTopKey 同源）
+    const valRaw = line.slice(firstKeyColon(line) + 1).trim()
     const isBlockScalar = /^([|>])[+-]?$/.test(valRaw)
     if (!isBlockScalar && hasNested) {
       return {

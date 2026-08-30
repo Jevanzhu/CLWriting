@@ -58,6 +58,10 @@ function winCompatNamePart(name: string): string {
  * 非空兜底（`未命名`）。供正文/风格库/伏笔/树工具/导出等所有拼文件名点收敛。
  */
 export function sanitizeFileNamePart(title: string, maxCp?: number, maxBytes?: number): string {
+  // R31-17（三十一轮）备案：本函数不做 NFC/NFD 归一与大小写折叠——macOS NFD 与
+  // 「ABC/abc」碰撞由调用方章号前缀（数字段区分）与 O_EXCL 序号兜底，未观察到实害；
+  // 收敛归一须同步存量文件迁移，超出本轮。
+
   const cleaned = title
     // 控制字符（含换行/回车/制表，块标量多行标题会带出）一律剥除
     // eslint-disable-next-line no-control-regex

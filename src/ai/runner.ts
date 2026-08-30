@@ -561,8 +561,11 @@ export async function runTask<T>(opts: {
         if (ctrl.signal.aborted) {
           // X-P2-10：中断/超时的调用也是真实消耗——按次入账（无 usage，token 记 0），
           // 否则中断重跑可绕过预算闸（task/chapter 两块与成功/重试路径同口径）
-          recordUsageSafe(null)
-          trace({ model: tier.model, attempt, stopReason: abortedByUser() ? 'aborted' : 'timeout', usage: null, ok: false, errCode: abortedByUser() ? 'ABORTED' : 'TIMEOUT_TOTAL' })
+          // R31-8（三十一轮）：abort 边界同拍抛出的 GenError 若携 usage（B-12/R31-1
+          // 载荷通道，如截断随错上抛），按真实消耗入账而非记 0
+          const abortUsage = e instanceof GenError && e.usage ? e.usage : null
+          recordUsageSafe(abortUsage)
+          trace({ model: tier.model, attempt, stopReason: abortedByUser() ? 'aborted' : 'timeout', usage: abortUsage, ok: false, errCode: abortedByUser() ? 'ABORTED' : 'TIMEOUT_TOTAL' })
           // AA-P3-4：step/end 终止原因不再恒等——超时按 STEP_END_REASONS 口径记
           // 'interrupted'（执行被强制中止），用户中断记 'aborted'（审计可区分两类终止）
           stepReason = abortedByUser() ? 'aborted' : 'interrupted'

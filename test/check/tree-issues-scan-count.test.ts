@@ -126,10 +126,11 @@ describe('collectTreeIssues 预扫提升（CC-P1-3）', () => {
     const root = makeBook(1, false) // 无布线 → db 传 null 合法（对齐 v 轮回归测口径）
     try {
       const { config } = readBookConfig(join(root, 'book.yaml'))
-      // 与 collectTreeIssues 同口径构造 batch 上下文
+      // 与 collectTreeIssues 同口径构造 batch 上下文（R31-3：闭包升级为读失败感知
+      // ChapterUpdatesResult，此处为无推进且可读的恒定空实现）
       const batch: BatchCheckContext = {
         outlineChapters: readChapterDir(join(root, '大纲', '章纲')).chapters,
-        leadUpdatesForChapter: () => [],
+        leadUpdatesForChapter: () => ({ updates: [], unreadable: false }),
       }
       const outcome = checkWithDb(root, join(root, '写作', '正文', '001-第1章.md'), null, config, batch)
       expect(outcome.ok).toBe(true)

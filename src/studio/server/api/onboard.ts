@@ -107,7 +107,7 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
 
       const bookRoot = r.bookRoot
       const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
-      if (!cfgResult.ok) return replyError(res, 500, 'IO', '读 book.yaml 失败')
+      if (!cfgResult.ok) return replyError(res, 500, 'IO_ERROR', '读 book.yaml 失败')
       // 全局托底：genre 喂 onboard AI prompt（运行时值）——书级未设回落 global.json
       // defaultGenre → ''，AI 设定生成拿到的是有效题材而非 undefined
       const config = applyGlobalDefaults(cfgResult.config, ctx.userDataPath)
@@ -149,7 +149,7 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
         atomicWriteFile(join(bookRoot, relPath), content)
       } catch (e) {
         log.error('api', `onboard 落盘失败（${step}）`, e)
-        return replyError(res, 500, 'IO', '落盘失败')
+        return replyError(res, 500, 'IO_ERROR', '落盘失败')
       }
       reply(res, 200, { ok: true, step, path: relPath, words: countWords(bodyOf(content)), content, ...(snapshotted ? { snapshotted: true } : {}) })
     } finally {
@@ -191,7 +191,7 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
         atomicWriteFile(join(bookRoot, relPath), content)
       } catch (e) {
         log.error('api', `onboard-save 落盘失败（${step}）`, e)
-        return replyError(res, 500, 'IO', '落盘失败')
+        return replyError(res, 500, 'IO_ERROR', '落盘失败')
       }
       reply(res, 200, { ok: true, step, path: relPath, words: countWords(bodyOf(content)), ...(snapshotted ? { snapshotted: true } : {}) })
     } finally {

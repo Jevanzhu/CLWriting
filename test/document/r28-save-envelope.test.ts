@@ -47,14 +47,16 @@ describe('R28 保存链契约', () => {
   // ── R28-5 ────────────────────────────────────────────────────
 
   it('R28-5: 锁内 lookupPathByDocId 抛出 → save() resolve 出 WRITE_ERROR 信封（不 reject），锁已释放', async () => {
-    // 第 1 次调用 = 取锁前段（R27-43 已收编，须正常返回走到取锁）；第 2 次 = 锁内段
-    // 复核（:333），模拟 legacy 收编链清单锁超时 throw；其后恢复真身供后续保存用。
-    const target = svc as unknown as { lookupPathByDocId: (id: string) => string | null }
-    const real = target.lookupPathByDocId.bind(svc)
+    // R31-19：锁内复核改走 lookupPathByDocIdAdoptAsync 异步收编孪生（非 legacy
+    // docId 仅清单命中读）——mock 其首次调用即抛，模拟收编链清单锁超时 fail-closed；
+    // 取锁前段仍走同步 lookupPathByDocId（真身，正常返回走到取锁）。恢复真身供
+    // 后续保存用（第二个 save 断言锁释放干净）。
+    const target = svc as unknown as { lookupPathByDocIdAdoptAsync: (id: string) => Promise<string | null> }
+    const real = target.lookupPathByDocIdAdoptAsync.bind(svc)
     let calls = 0
-    vi.spyOn(target, 'lookupPathByDocId').mockImplementation((id: string) => {
+    vi.spyOn(target, 'lookupPathByDocIdAdoptAsync').mockImplementation((id: string) => {
       calls++
-      if (calls === 2) throw new Error('清单锁获取超时（模拟 withManifestLock 2×5s fail-closed）')
+      if (calls === 1) return Promise.reject(new Error('清单锁获取超时（模拟 withManifestLockAsync 2×5s fail-closed）'))
       return real(id)
     })
     const rev1 = computeRevision(absPath)
@@ -65,7 +67,7 @@ describe('R28 保存链契约', () => {
       operationId: 'op-r28-5',
       origin: 'manual',
     })
-    expect(calls).toBe(2) // 前段 1 次 + 锁内 1 次（抛点）
+    expect(calls).toBe(1) // R31-19：锁内复核 = AdoptAsync 首次调用（抛点）
     expect(r.ok).toBe(false)
     if (!r.ok) {
       expect(r.code).toBe('WRITE_ERROR')
@@ -91,10 +93,10 @@ describe('R28 保存链契约', () => {
 
   // ── R28-13 ───────────────────────────────────────────────────
 
-  it('R28-13: meta PATCH 覆盖前留底 === 被覆盖的盘上旧内容（R27-45 单次读同源派生）', () => {
+  it('R28-13: meta PATCH 覆盖前留底 === 被覆盖的盘上旧内容（R27-45 单次读同源派生）', async () => {
     const oldContent = readFileSync(absPath, 'utf-8')
     expect(oldContent).toBe(contentV1)
-    const r = svc.updateChapterMeta(docId, { 标题: '新标题' })
+    const r = await svc.updateChapterMeta(docId, { 标题: '新标题' })
     expect(r.ok).toBe(true)
     const versionsDir = join(bookRoot, '工作区', VERSIONS_DIR_NAME)
     // updateChapterMeta 落两版：meta-overwrite 覆盖前留底 + doMoveOrRename 改名结构留底；

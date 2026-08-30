@@ -5,11 +5,14 @@
  * 各自内联 split，且 learn 少了 \n 口径不一致（可能漏检跨行）。统一收口到此模块。
  */
 
-/** 分句：按中文句末标点（。！？）+ 半角 !?（中英混排收尾，R27-29）+ 换行切，去空白。
- *  includeColon 时额外按 ；切（对话/排比场景）。半角 `.` 不切——小数点/英文缩写
- *  误伤面大，混排句以 !? 高发形态覆盖即可。 */
+/** 分句：按中文句末标点（。！？）+ 半角 !?（中英混排收尾，R27-29）+ 省略号 …
+ *  （R31-10，三十一轮：省略号收句与句号同级，此前「她想说什么……」整句不切、句读
+ *  统计面系统性失真）+ 换行切，去空白。includeColon 时额外按 ；切（对话/排比场景）。
+ *  半角 `.` 不切——小数点/英文缩写误伤面大，混排句以 !? 高发形态覆盖即可。
+ *  `……` 连写：按字符切分在两个 … 之间产一个空段，经既有 trim+filter 空段剔除后
+ *  等效单边界（见 r31b-sentences-ellipsis 回归）。 */
 export function splitSentences(body: string, includeColon = false): string[] {
-  const re = includeColon ? /[。！？；!?\n]/ : /[。！？!?\n]/
+  const re = includeColon ? /[。！？；…!?\n]/ : /[。！？…!?\n]/
   return body.split(re).map((s) => s.trim()).filter((s) => s.length > 0)
 }
 
@@ -28,7 +31,20 @@ export function ngramRepeatRate(body: string, n = 8): { rate: number; total: num
   const sentences = splitSentences(body).filter((s) => s.length >= n)
   const counts = new Map<string, number>()
   let total = 0
+  // R31-18（三十一轮）：滑窗默认按 UTF-16 码元（快路径——纯 BMP 文本码元=码点，行为
+  // 不变、热路径零额外开销）；句内含 astral 字符（代理对：emoji/CJK 扩展区）时改码点
+  // 迭代取窗，防一个字符被拆两半计入不同 gram（伪不重复）或窗口对齐错位。两路径的
+  // gram 键空间不相交（含代理对的键只出自码点路径），混用同一 Map 无碰撞。
   for (const s of sentences) {
+    if (ASTRAL_CHAR_RE.test(s)) {
+      const cps = Array.from(s)
+      for (let i = 0; i + n <= cps.length; i++) {
+        const gram = cps.slice(i, i + n).join('')
+        counts.set(gram, (counts.get(gram) ?? 0) + 1)
+        total++
+      }
+      continue
+    }
     for (let i = 0; i + n <= s.length; i++) {
       const gram = s.slice(i, i + n)
       counts.set(gram, (counts.get(gram) ?? 0) + 1)
@@ -45,3 +61,6 @@ export function ngramRepeatRate(body: string, n = 8): { rate: number; total: num
   }
   return { rate: total > 0 ? repeatInstances / total : 0, total, repeatInstances, repeatChars }
 }
+
+/** R31-18：代理对（U+D800-U+DFFF）探测——命中即该句含 astral 字符，走码点取窗路径。 */
+const ASTRAL_CHAR_RE = /[\uD800-\uDFFF]/

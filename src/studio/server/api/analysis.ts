@@ -155,7 +155,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
         try {
           draftBuf = readFileSync(absPath)
         } catch {
-          return replyError(res, 500, 'IO', '读不到正文文件（可能已被移动或删除），请刷新后再试')
+          return replyError(res, 500, 'IO_ERROR', '读不到正文文件（可能已被移动或删除），请刷新后再试')
         }
         const draftText = draftBuf.toString('utf-8')
         const draft = readDraft(absPath, draftText)

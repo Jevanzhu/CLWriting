@@ -177,7 +177,7 @@ describe('DocumentService / 保存协议主路径', () => {
     ])
     writeFileSync(fp, gbkFm)
 
-    const r = svc.updateChapterMeta(r0.docId, { 标题: '新标题' })
+    const r = await svc.updateChapterMeta(r0.docId, { 标题: '新标题' })
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.code).toBe('WRITE_ERROR')
     // 原始字节一字不动（防线只拒绝不修改）
@@ -195,7 +195,7 @@ describe('DocumentService / 保存协议主路径', () => {
       Buffer.from('\n---\nplain ascii body', 'utf-8'),
     ])
     writeFileSync(fp, gbkFm)
-    const r = svc.updateDocMeta(r0.docId, { 备注: 'x' })
+    const r = await svc.updateDocMeta(r0.docId, { 备注: 'x' })
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.code).toBe('WRITE_ERROR')
     expect(readFileSync(fp).equals(gbkFm)).toBe(true)
@@ -204,7 +204,7 @@ describe('DocumentService / 保存协议主路径', () => {
   it('DA-1（第七轮）：盘上合法 UTF-8（含真实 � 字符）→ updateDocMeta 放行（升级判据消除误拒）', async () => {
     const r0 = await svc.createDocument({ relPath: '大纲/卷纲/第一卷.md', content: '---\nvolume: 1\n---\n\uFFFD 卷内既有要点' })
     if (!r0.ok) throw new Error('prereq')
-    const r = svc.updateDocMeta(r0.docId, { 备注: '已校' })
+    const r = await svc.updateDocMeta(r0.docId, { 备注: '已校' })
     expect(r.ok).toBe(true) // 原字符串判据会把合法 UTF-8 的真实 � 误判为乱码而拒写
     if (r.ok) expect(readFileSync(join(bookRoot, r.path), 'utf-8')).toContain('� 卷内既有要点')
   })
@@ -212,7 +212,7 @@ describe('DocumentService / 保存协议主路径', () => {
   it('低级项（第六轮）：盘上合法 UTF-8（body 含真实 �）→ updateChapterMeta 放行，与 save 主路径 M-5 同口径', async () => {
     const r0 = await svc.createDocument({ relPath: '写作/正文/0003-开篇.md', content: '---\n章号: 3\n标题: 开篇\n---\n\uFFFD 旧内容' })
     if (!r0.ok) throw new Error('prereq')
-    const r = svc.updateChapterMeta(r0.docId, { 标题: '改题' })
+    const r = await svc.updateChapterMeta(r0.docId, { 标题: '改题' })
     expect(r.ok).toBe(true)
     if (r.ok) {
       // rename 跟随新标题；body 的真实 � 原样透传
@@ -230,7 +230,7 @@ describe('DocumentService / 保存协议主路径', () => {
     // 占住目标文件名 → doMoveOrRename 返回 ALREADY_EXISTS（rename 未发生，文件仍在原路径）
     writeFileSync(join(bookRoot, '写作/正文/0002-新章.md'), '---\n章号: 2\n标题: 新章\n---\n占位')
 
-    const r = svc.updateChapterMeta(r0.docId, { 标题: '新章', 章号: 2 })
+    const r = await svc.updateChapterMeta(r0.docId, { 标题: '新章', 章号: 2 })
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.code).toBe('ALREADY_EXISTS')
     // 失败回写：原文件整体恢复原文（fm 章号 1 与文件名 0001 仍一致，按章号定位不再 miss）
@@ -240,7 +240,7 @@ describe('DocumentService / 保存协议主路径', () => {
   it('M-2: rename 成功路径不受回写影响（fm 新值 + 新文件名，行为不变）', async () => {
     const r0 = await svc.createDocument({ relPath: '写作/正文/0001-旧章.md', content: '---\n章号: 1\n标题: 旧章\n---\n正文' })
     if (!r0.ok) throw new Error('prereq')
-    const r = svc.updateChapterMeta(r0.docId, { 标题: '新章', 章号: 2 })
+    const r = await svc.updateChapterMeta(r0.docId, { 标题: '新章', 章号: 2 })
     expect(r.ok).toBe(true)
     if (r.ok) {
       expect(r.path).toBe('写作/正文/0002-新章.md')

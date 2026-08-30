@@ -16,7 +16,7 @@ import { readFileSync, existsSync } from 'node:fs'
 import { atomicWriteFile } from '../fs/atomic.js'
 import type { BookConfig, ParseError } from './types.js'
 import { parseValue, stringifyValue } from './frontmatter.js'
-import { stripInlineComment } from './frontmatter-core.js'
+import { stripInlineComment, firstKeyColon } from './frontmatter-core.js'
 import { LEAD_TYPES } from './leads.js'
 import { log } from '../log/index.js'
 
@@ -119,7 +119,10 @@ function parseSections(text: string): RawSection[] {
       }
       continue
     }
-    const colonIdx = content.indexOf(':')
+    // R31-2（三十一轮）：键位冒号双认 `:`/`：` 取先出现者（firstKeyColon，与 parseFlat
+    // 同一实现）——手写全角冒号键行（`title：测试`）此前整行走「无冒号」warn 被丢弃，
+    // 段/键无声丢失。值侧 stripComment 等切分后逻辑不受影响。
+    const colonIdx = firstKeyColon(content)
     if (colonIdx === -1) {
       // R64-24（十二轮）：无冒号残行此前静默吞掉（Y-26 同款「配置写了但不生效」
       // 风险面）——手写残句/续行无迹消失。warn 留痕不中断解析。

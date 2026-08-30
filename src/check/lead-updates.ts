@@ -35,16 +35,38 @@ export interface ChapterLeadUpdate {
 /** 读指定路径的账本推进文件（无文件/空/读失败 → []）。
  *  R30-17（三十轮）：原「整文件视角」封装 readChapterLeadUpdates（bookRoot → 主文件）
  *  零生产调用（R66-15 登记的死代码）已删除——生产链统一走 readChapterUpdatesForChapter
- *  （ff-P1-1 单源，主文件+归档两源），文件级读取统一走本函数。 */
+ *  （ff-P1-1 单源，主文件+归档两源），文件级读取统一走本函数。
+ *  R31-3（三十一轮）：读失败降级语义由调用方按需选择——降级敏感场景（两端闭合判定）
+ *  请改走 readLeadUpdatesAtChecked（null = 读失败 ≠ 无推进）。本函数维持 X-P2-5 的 []
+ *  兜底口径，供对「读失败=无推进」不敏感的既有调用方（履历回写等）零改动沿用。 */
 export function readLeadUpdatesAt(absPath: string): ChapterLeadUpdate[] {
+  return readLeadUpdatesAtChecked(absPath) ?? []
+}
+
+/**
+ * R31-3（三十一轮）：读失败三态版 readLeadUpdatesAt——区分「文件不存在」（→ []，
+ * 语义 = 明确无推进）与「文件在但读失败」（→ null，权限/瞬态占用等，推进清单未知）。
+ * 此前读失败按 [] 与「无推进」混同：声明侧有推进而兑现侧读失败时，闭合比对把
+ * 「未知」当「已声明未兑现」产 lead-declared-not-done 红，经 LEAD_GATE 硬阻断定稿
+ * （把瞬态故障当作者过错）。对齐 outline-leads.ts 声明侧 R70-15 的 known:false 口径
+ * （读失败跳过闭合，防假红硬阻断）；调用方拿到 null 须跳过闭合并产黄降级（fail-noisy）。
+ */
+export function readLeadUpdatesAtChecked(absPath: string): ChapterLeadUpdate[] | null {
   if (!existsSync(absPath)) return []
   let text: string
   try {
     text = readFileSync(absPath, 'utf-8')
   } catch {
-    return [] // X-P2-5：读失败（并发删/权限）按无推进降级，不阻断机检/定稿
+    return null // R31-3：读失败（并发删/权限）→ null = 推进清单未知，不冒充「无推进」
   }
   return parseLeadUpdateLines(text)
+}
+
+/** R31-3（三十一轮）：本章推进读取结果——updates 为可用清单；unreadable = true 表示
+ *  至少一个数据源（主文件/归档）存在但读失败，清单不完整，调用方不得据其做闭合判定。 */
+export interface ChapterUpdatesResult {
+  updates: ChapterLeadUpdate[]
+  unreadable: boolean
 }
 
 /** 声明条目行形状判定（R75-2 节界前瞻用，与下方条目正则同步） */
@@ -148,13 +170,33 @@ export function chapterUpdateSources(
  * ff-P1-1：定稿防吃书闸与履历回写**必须**共用本函数——此前闸只读主文件、回写读
  * 主+归档，两源不对称：归档章的推进（批量连写常态）绕过闸直接落履历，「做了没
  * 声明」红失明、「声明已兑现」误阻断，闸对回写将写什么一无所知。
+ * R31-3（三十一轮）：读失败（任一在位数据源不可读）维持按 [] 兜底——本函数的既有
+ * 调用方（finalize 闸/履历回写，document 域）对「读失败=无推进」不敏感或自带
+ * fail-open；两端闭合判定等降级敏感消费请走 readChapterUpdatesForChapterChecked。
  */
 export function readChapterUpdatesForChapter(bookRoot: string, chapterNo: number): ChapterLeadUpdate[] {
+  return readChapterUpdatesForChapterChecked(bookRoot, chapterNo).updates
+}
+
+/**
+ * R31-3（三十一轮）：readChapterUpdatesForChapter 的读失败感知版——主文件（属于本章时）
+ * 与本章归档两源任一「存在但读失败」→ unreadable:true（updates 为剩余可用部分）。
+ * 调用方（checkWithDb 两端闭合）凭 unreadable 跳过闭合比对并产黄降级，不再把
+ * 「清单未知」当「已声明未兑现」误报红硬阻断定稿。文件不存在仍属「无推进」已知态。
+ */
+export function readChapterUpdatesForChapterChecked(bookRoot: string, chapterNo: number): ChapterUpdatesResult {
   const { mainPath, archivePath, mainIsThisChapter } = chapterUpdateSources(bookRoot, chapterNo)
-  return [
-    ...(mainIsThisChapter ? readLeadUpdatesAt(mainPath) : []),
-    ...readLeadUpdatesAt(archivePath),
-  ]
+  let unreadable = false
+  const parts: ChapterLeadUpdate[][] = []
+  if (mainIsThisChapter) {
+    const main = readLeadUpdatesAtChecked(mainPath)
+    if (main === null) unreadable = true
+    else parts.push(main)
+  }
+  const archive = readLeadUpdatesAtChecked(archivePath)
+  if (archive === null) unreadable = true
+  else parts.push(archive)
+  return { updates: parts.flat(), unreadable }
 }
 
 /** 账本证据核心必须非空且在正文命中，避免 includes('') 把空证据误判为兑现。

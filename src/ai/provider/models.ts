@@ -42,6 +42,9 @@ export function anthropicClientOpts(
     baseURL: url,
     defaultHeaders: { 'anthropic-version': '2023-06-01' },
     authToken: null,
+    // R31-5（三十一轮）：SDK 内建重试关闭——runner 重试层是唯一重试决策方，
+    // SDK 默认 maxRetries=2 与之叠加放大请求且退避消耗首字节超时窗
+    maxRetries: 0,
   }
   if (auth === 'anthropic') {
     opts.apiKey = apiKey

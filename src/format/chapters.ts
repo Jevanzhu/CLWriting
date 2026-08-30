@@ -51,6 +51,13 @@ export function readChapter(
   } else {
     return { ok: false, error: { file: filePath, line: 0, message: '章号格式不符（预期整数，实际为「' + String(章号Raw) + '」）' } }
   }
+  // R31-15（三十一轮）：章号安全守卫——非正整数/超安全整数范围（`章号: -3`、
+  // `章号: 99999999999999999999` 解析成 1e20）此前照收，下游比较/排序/文件名组装
+  // 产生荒谬行为；与 parseChapterFileName 的 isSafeInteger 口径对齐（fail-loud，
+  // 文案沿用「格式不符」便于 AI 自愈与作者改对）。
+  if (!Number.isSafeInteger(章号) || 章号 < 1) {
+    return { ok: false, error: { file: filePath, line: 0, message: '章号格式不符（预期正整数，实际为「' + String(章号Raw) + '」）' } }
+  }
 
   // 收集未知字段
   const _raw: Record<string, string> = {}

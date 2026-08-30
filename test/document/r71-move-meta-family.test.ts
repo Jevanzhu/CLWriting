@@ -141,7 +141,7 @@ describe('R71-22: 章号-only 标题回落', () => {
     upsertEntry(m, { id: docId, nodeType: 'document', path: '笔记/0001-我的章节.md', parentId: null })
     writeManifest(manifestPath, m)
 
-    const r = svc.updateChapterMeta(docId, { 章号: 5 })
+    const r = await svc.updateChapterMeta(docId, { 章号: 5 })
     expect(r.ok).toBe(true)
     if (r.ok) expect(r.path).toBe('笔记/0005-我的章节.md')
     expect(existsSync(join(bookRoot, '笔记', '0005-我的章节.md'))).toBe(true)
@@ -158,7 +158,7 @@ describe('R71-22: 章号-only 标题回落', () => {
     upsertEntry(m, { id: docId, nodeType: 'document', path: '笔记/0002-原标题.md', parentId: null })
     writeManifest(manifestPath, m)
 
-    const r = svc.updateChapterMeta(docId, { 标题: '', 章号: 3 })
+    const r = await svc.updateChapterMeta(docId, { 标题: '', 章号: 3 })
     expect(r.ok).toBe(true)
     if (r.ok) expect(r.path).toBe('笔记/0003-未命名.md')
   })
@@ -173,7 +173,7 @@ describe('R71-22: 章号-only 标题回落', () => {
     upsertEntry(m, { id: docId, nodeType: 'document', path: '笔记/0004-文件名标题.md', parentId: null })
     writeManifest(manifestPath, m)
 
-    const r = svc.updateChapterMeta(docId, { 章号: 6 })
+    const r = await svc.updateChapterMeta(docId, { 章号: 6 })
     expect(r.ok).toBe(true)
     if (r.ok) expect(r.path).toBe('笔记/0006-正式标题.md')
   })

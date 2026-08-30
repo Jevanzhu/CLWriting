@@ -103,7 +103,7 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
       reply(res, 200, { ok: true })
     } catch (e) {
       log.error('api', '写 prefs 失败', e)
-      replyError(res, 500, 'IO', '写 prefs 失败')
+      replyError(res, 500, 'IO_ERROR', '写 prefs 失败')
     }
   },
   })

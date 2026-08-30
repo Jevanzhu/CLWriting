@@ -46,6 +46,10 @@ function createClient(conf: ProviderConf): OpenAI {
   return new OpenAI({
     apiKey: conf.apiKey,
     baseURL: normalizeOpenAIBaseUrl(conf.baseUrl),
+    // R31-5（三十一轮）：SDK 内建重试关闭——runner 重试层是唯一重试决策方
+    //（Retry-After/退避都在那）；SDK 默认 maxRetries=2 会叠加放大 HTTP 请求
+    //（runTask 4 attempts × SDK 3 = 12 次）且 SDK 退避消耗 60s 首字节窗
+    maxRetries: 0,
   })
 }
 
@@ -114,8 +118,11 @@ function toOpenAIMessages(m: ChatMsg): Record<string, unknown>[] {
     out.push(msg)
   } else {
     // user 消息：纯 text 部分作为 user content；tool_result 展开为独立 role:'tool' 消息
-    if (textParts.length > 0) out.push({ role: 'user', content: textParts.join('') })
+    // R31-6（三十一轮）：tool 消息先出、文本后出——OpenAI 要求 role:'tool' 紧跟 assistant
+    // tool_calls，文本插中间会在混合形态下 400；当前链路 tool_result 恒独占 user 消息
+    //（responses-adapter 同注），本序修正是防御性口径对齐
     out.push(...toolResults)
+    if (textParts.length > 0) out.push({ role: 'user', content: textParts.join('') })
   }
   return out
 }
@@ -404,7 +411,11 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
             // 要兜的怪形态）会被记成早期部分值，末 chunk 完整 usage 被丢弃，记账系统性
             // 低估。R27-2（二十七轮）：Anthropic 线已改为同款「末见 wins」（此前该线
             // message_delta 即席 emitDone 锁首值，与本处旧描述正相反），两线口径归一。
-            if (latestUsage) {
+            // R31-1（三十一轮）：emit 前须见过 finish_reason——usage 可随任意 chunk 先行
+            // 到达（Kimi 形态 usage 在 choices[0] 先行出现），finish_reason 之前断流时
+            // 半截文本曾按 stopReason:'stop' 正常完成出场（generateText 不触发截断检查、
+            // 半稿按完整产出落盘）。仅 usage 无终止 → 落下方传输截断分支，真实消耗随错上抛。
+            if (latestUsage && sawFinishReason) {
               const ev = emitDone(toUsage(latestUsage), pendingStopReason)
               if (ev) yield ev
             }
@@ -440,8 +451,16 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
                 if (ev) yield ev
               } else {
                 // R1 对齐（Responses 线同款）：无终止事件的流结束 = 传输截断，报错不发
-                // done——真实计费调用不得按成功 0 成本入账
-                yield { type: 'error', message: '传输截断：流结束无终止事件', retryable: true, code: 'NETWORK' }
+                // done——真实计费调用不得按成功 0 成本入账。
+                // R31-1（三十一轮）：已见 usage 时随错上抛（B-12 载荷通道）——runner 终态
+                // 失败按真实消耗入账，截断不再丢失已发生的计费。
+                yield {
+                  type: 'error',
+                  message: '传输截断：流结束无终止事件',
+                  retryable: true,
+                  code: 'NETWORK',
+                  ...(latestUsage ? { usage: toUsage(latestUsage) } : {}),
+                }
               }
             }
             return

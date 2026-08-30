@@ -288,7 +288,7 @@ export function registerBookRoutes(ctx: BookCtx): void {
         renameSync(bookAbs, graveAbs)
       } catch (e) {
         log.error('api', `删书移入墓地失败（${name}，书原样保留）`, e)
-        replyError(res, 500, 'IO', '删除书目录失败（书未受影响，可重试）')
+        replyError(res, 500, 'IO_ERROR', '删除书目录失败（书未受影响，可重试）')
         return
       }
       try {
@@ -499,7 +499,7 @@ export function registerBookRoutes(ctx: BookCtx): void {
           renameSync(oldRoot, newRoot)
         } catch (e) {
           log.error('api', `rename: 改目录名失败（${oldName} → ${newName}）`, e)
-          replyError(res, 500, 'IO', '改目录名失败')
+          replyError(res, 500, 'IO_ERROR', '改目录名失败')
           return
         }
       }
@@ -596,7 +596,7 @@ export function registerBookRoutes(ctx: BookCtx): void {
       // 低-2（第十轮）：error 是 ParseError {file,line,message} 对象——直接插值会串成
       // 「[object Object]」，取 .message 展示真实解析错误（与 state.ts 同场景口径）
       const cfgResult = readBookConfig(join(ctx.workDir, entry.path, 'book.yaml'))
-      if (!cfgResult.ok) return replyError(res, 500, 'IO', `读 book.yaml 失败:${cfgResult.error.message}`)
+      if (!cfgResult.ok) return replyError(res, 500, 'IO_ERROR', `读 book.yaml 失败:${cfgResult.error.message}`)
       const { config } = cfgResult
       // 单书身份回显：保持 raw（与 GET /api/books/:name/config 同口径——身份 = 书文件里
       // 实际写的值；genre 未设 = undefined 由前端自行回落全局默认，服务端不代答）

@@ -183,7 +183,7 @@ describe('R64-10（十二轮）：读稿守卫——existsSync 后读不到正�
     const r = await post(`/api/books/${encodeURIComponent(BOOK)}/documents/${dirDocId}/review`, {})
     expect(r.status).toBe(500)
     const j = r.json as { code: string; error: string }
-    expect(j.code).toBe('IO')
+    expect(j.code).toBe('IO_ERROR')
     expect(j.error).toContain('读不到正文')
   })
 })

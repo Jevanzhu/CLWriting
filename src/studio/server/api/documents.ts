@@ -353,14 +353,14 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
         const metaUpdate: Record<string, unknown> = {}
         if (标题 !== undefined) metaUpdate['标题'] = 标题
         if (Number.isFinite(numVal)) metaUpdate['章号'] = numVal
-        result = svc.updateChapterMeta(docId, metaUpdate)
+        result = await svc.updateChapterMeta(docId, metaUpdate) // R31-20：异步孪生
       } else if (body.op === 'fm') {
         const meta = body.meta
         if (!meta || typeof meta !== 'object' || Array.isArray(meta)) {
           replyError(res, 400, 'BAD_INPUT', 'fm 需要 meta 对象')
           return
         }
-        result = svc.updateDocMeta(docId, meta as Record<string, unknown>)
+        result = await svc.updateDocMeta(docId, meta as Record<string, unknown>) // R31-20：异步孪生
       } else {
         replyError(res, 400, 'BAD_INPUT', '未知 op（rename/move/meta/fm）')
         return

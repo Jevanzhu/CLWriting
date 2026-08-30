@@ -168,8 +168,12 @@ export function initLogging(opts: { logsDir: string | null; mirrorConsole?: bool
 
 /** R72-9（二十轮 C-10）：兜底脱敏——常见 API key 形态掩码（sk- 前缀 / Bearer 头）。
  *  纵深一层：现状防线靠调用方「不把密钥记进日志」的纪律，此处兜底层不替代纪律，
- *  只收 1 命中即 8+ 字符的常见形态（不含 sk- 短前缀普通词，误伤面极小）。 */
-const KEY_MASK_RE = /(sk-[A-Za-z0-9_-]{8,}|Bearer\s+[A-Za-z0-9._-]{8,})/g
+ *  只收 1 命中即 8+ 字符的常见形态（不含 sk- 短前缀普通词，误伤面极小）。
+ *  R31-27（三十一轮）：词表与 log/redact.ts 全词表对齐——补齐智谱（32hex.32hex）与
+ *  Gemini（AIza+35）两无前缀形态，此前只被 API 出口层（redactSecret）掩，SDK 报错经
+ *  本层落 app-*.jsonl（留存 7 天）时漏掩；本函数维持「保留前缀/尾 4 位」形貌层
+ *  （R26-95 契约，不串联 redactSecret——其全 ***REDACTED*** 形态会破坏对账形貌）。 */
+const KEY_MASK_RE = /(sk-[A-Za-z0-9_-]{8,}|Bearer\s+[A-Za-z0-9._-]{8,}|\b[0-9a-fA-F]{32}\.[0-9a-fA-F]{32}\b|\bAIza[A-Za-z0-9_\-]{35}\b)/g
 /**
  * R72-9 引入、R26-95（二十六轮）修正：key 掩码。Bearer 形态改为「token 部分掩码」——
  * 原实现 m.slice(0,5) 对 Bearer 产出「Beare***」破损外观（前缀被截断、token 一位未掩），

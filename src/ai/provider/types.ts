@@ -235,6 +235,10 @@ export type GenEvent =
       retryAfterMs?: number
       /** 服务端请求 id（OpenAI 兼容 x-request-id / Anthropic request-id，排障用） */
       requestId?: string
+      /** B-12/R31-1（三十一轮）：网关已返回 usage 的终态失败（如传输截断前已收到
+       *  usage chunk）随错上抛——gen 层装入 GenError.usage，runner 终态失败按
+       *  B-12 通道按真实消耗入账，截断不丢计费 */
+      usage?: TokenUsage
     }
 
 /**

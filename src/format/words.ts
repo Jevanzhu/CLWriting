@@ -5,7 +5,10 @@
  * （chapters.ts 因 import node:fs 不可跨入浏览器）。chapters.ts re-export 本文件以保 API 不变。
  */
 
-/** 计算正文字数（中文按字符计，#7 第 2 节）：剥 markdown 标记后按字符计。frontmatter 由调用方先剥。 */
+/** 计算正文字数（中文按字符计，#7 第 2 节）：剥 markdown 标记后按字符计。frontmatter 由调用方先剥。
+ *  R31-11（三十一轮）口径备案：剥除集不含标点——对白密集章计数值系统性高于「汉字感」
+ *  口径（实测可 +38%），但 _wordCount/短篇字数/字数曲线全链同源自洽，targetWords 为
+ *  AI 语义给数（阈值留有弹性），维持现状不改口径（改口径需全链联动与存量曲线迁移）。 */
 export function countWords(body: string): number {
   return [...body.replace(/[#>*_`~\-\[\]()!\s]/g, '')].length
 }

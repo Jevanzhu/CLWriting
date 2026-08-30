@@ -316,7 +316,14 @@ export function evidenceNeedles(evidence: string): string[] {
   const inner = new RegExp(`[${QUOTE_OPEN_LENIENT}]([^${QUOTE_CLOSE_LENIENT}]+)[${QUOTE_CLOSE_LENIENT}]`).exec(evidence)?.[1]
   const edgeStripped = evidence.replace(new RegExp(`^[${QUOTE_OPEN_LENIENT}]+|[${QUOTE_CLOSE_LENIENT}]+$`, 'g'), '')
   const allStripped = evidence.replace(new RegExp(`[${QUOTE_OPEN_LENIENT}${QUOTE_CLOSE_LENIENT}]`, 'g'), '')
-  return [...new Set([inner, edgeStripped, allStripped].filter((s): s is string => typeof s === 'string' && s.trim().length > 0).map((s) => s.trim()))]
+  const candidates = [...new Set([inner, edgeStripped, allStripped].filter((s): s is string => typeof s === 'string' && s.trim().length > 0).map((s) => s.trim()))]
+  // R31-13（三十一轮）：针串最短 2 码位——1 字针串（如证据「雪」无声 → inner='雪'）
+  // 在正文几乎恒命中，兑现判定/引文命中 trivially 通过（防吃书红线漏报向）。候选全被
+  // 过滤时回退完整剥引号串 ≥2 才用；仍不达 → 空数组，消费方按既有空针串口径处理
+  //（引文红闸走 R76-19 unverifiable 黄；兑现判定按未命中，fail-noisy 不静默放行）。
+  const usable = candidates.filter((s) => [...s].length >= 2)
+  if (usable.length > 0) return usable
+  return [...allStripped.trim()].length >= 2 ? [allStripped.trim()] : []
 }
 
 /**

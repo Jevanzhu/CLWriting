@@ -109,7 +109,7 @@ describe('R66-26: analyze 端点单次读盘 + 读稿守卫', () => {
     const docId = registerDoc('写作/正文/0002-占位.md')
     const res = await req('POST', `/api/books/${encodeURIComponent(BOOK)}/documents/${docId}/analyze`, { kind: 'score' })
     expect(res.status).toBe(500)
-    expect((res.json as { code?: string }).code).toBe('IO')
+    expect((res.json as { code?: string }).code).toBe('IO_ERROR')
     expect((res.json as { error?: string }).error).toContain('读不到正文文件')
   })
 })

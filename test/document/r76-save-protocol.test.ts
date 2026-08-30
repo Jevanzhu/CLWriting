@@ -58,7 +58,7 @@ test('R76-1: 持锁期间 updateDocMeta fail-closed 拒绝且文件一字不动�
   const release = acquireCrossProcessLockWithTimeout(lockPath, 0)
   expect(release).not.toBeNull()
   const before = readFileSync(join(bookRoot, '设定/世界观.md'), 'utf-8')
-  const r = svc.updateDocMeta(c.docId, { 名称: 'B' })
+  const r = await svc.updateDocMeta(c.docId, { 名称: 'B' })
   expect(r.ok).toBe(false)
   if (!r.ok) {
     expect(r.code).toBe('WRITE_ERROR')
@@ -66,7 +66,7 @@ test('R76-1: 持锁期间 updateDocMeta fail-closed 拒绝且文件一字不动�
   }
   expect(readFileSync(join(bookRoot, '设定/世界观.md'), 'utf-8')).toBe(before)
   release!()
-  const r2 = svc.updateDocMeta(c.docId, { 名称: 'B' })
+  const r2 = await svc.updateDocMeta(c.docId, { 名称: 'B' })
   expect(r2.ok).toBe(true)
   expect(existsSync(lockPath)).toBe(false)
 })
@@ -82,7 +82,7 @@ test('R76-1: 持锁期间 updateChapterMeta 同款拒绝（含尾部 rename 不�
   const lockPath = join(bookRoot, '工作区', '.journal', `${c.docId}.jsonl.save.lock`)
   const release = acquireCrossProcessLockWithTimeout(lockPath, 0)
   expect(release).not.toBeNull()
-  const r = svc.updateChapterMeta(c.docId, { 标题: '新标题' })
+  const r = await svc.updateChapterMeta(c.docId, { 标题: '新标题' })
   expect(r.ok).toBe(false)
   if (!r.ok) expect(r.code).toBe('WRITE_ERROR')
   expect(existsSync(join(bookRoot, '写作/正文/0001-开篇.md'))).toBe(true)

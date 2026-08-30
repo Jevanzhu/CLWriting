@@ -25,7 +25,12 @@ export interface JournalPending {
   baseRevision: Revision
   ts: string
   status: 'pending'
-  content: string // 发起时的全文快照（防丢字）
+  content: string // 发起时的全文快照（防丢字）；降级落盘行为 ''（R31-21）
+  /** R31-21（三十一轮）：true = 本行在跨进程锁超时后降级裸写、快照已剥离——
+   *  大快照 append 超文件系统原子窗，双进程同拍降级可交错损坏（坏行被
+   *  findUnsettled 容错跳过 → 恢复失据）。恢复消费方只读 opId（state 健康
+   *  扫描）不受空快照影响；正文恢复以 .版本 留底/磁盘现状为准。 */
+  degraded?: boolean
 }
 
 /** 移动/重命名 pending（P3-10：rename 与清单更新之间的非原子窗口兜底）。
@@ -81,7 +86,10 @@ export function appendPending(
     status: 'pending',
     content,
   }
-  appendLine(journalPath, JSON.stringify(entry))
+  // R31-21（三十一轮）：锁超时降级时剥离全文快照（行长收敛回原子窗）——
+  // 带全快照的降级裸写是本轮评审实证的交错损坏面。
+  const degradedFallback = JSON.stringify({ ...entry, content: '', degraded: true })
+  appendLine(journalPath, JSON.stringify(entry), degradedFallback)
   return entry.opId
 }
 
@@ -184,7 +192,7 @@ export function findUnsettled(journalPath: string): JournalAnyPending[] {
  *  J7（2026-08-23）：与 compact 共享 `${filePath}.lock` 跨进程锁——append 是
  *  崩溃恢复唯一依据，锁超时降级裸写（append 本身近似原子，丢数据比等锁更糟），
  *  log.warn 留痕。 */
-function appendLine(filePath: string, line: string): void {
+function appendLine(filePath: string, line: string, degradedLine?: string): void {
   mkdirSync(dirname(filePath), { recursive: true })
   const release = acquireCrossProcessLockWithTimeout(`${filePath}.lock`, journalLockTimeoutMs)
   if (release) {
@@ -197,7 +205,9 @@ function appendLine(filePath: string, line: string): void {
     return
   }
   log.warn('journal', `跨进程锁超时，降级裸写（${filePath}）——与 compact 的互斥窗口回到守卫口径`)
-  appendFileSync(filePath, line + '\n', 'utf-8')
+  // R31-21（三十一轮）：调用方提供精简降级行（如 pending 剥离全文快照）时降级写精简版，
+  // 防大快照行超原子 append 窗与另一进程同拍降级行交错损坏。
+  appendFileSync(filePath, (degradedLine ?? line) + '\n', 'utf-8')
   fsyncFile(filePath)
 }
 

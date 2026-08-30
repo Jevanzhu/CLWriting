@@ -318,6 +318,9 @@ export async function buildIndex(
     // 事务内 deleteChunksByChapter 清旧块 + 重 embed + 覆盖指纹，偏移漂移残留同 missing 场景）。
     const missingFingerprint = new Set<number>()
     const staleFingerprint = new Set<number>()
+    // R31-37（三十一轮）成本口径备案：指纹核对需逐章全文读+SHA-256（200 万字书每轮
+    // build ≈8MB 读，秒级）——readChapterDir 的 (mtimeNs,size) 缓存只覆盖 meta 不覆盖
+    // 指纹；引入 mtime 快路径会开「同 mtime 改内容」的漏检窗，有意不设，成本口径见此。
     for (const ch of chapters) {
       if (ch.章号 > indexedMax) continue
       const currentHash = readChapterFingerprint(ch)

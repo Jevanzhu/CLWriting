@@ -137,10 +137,10 @@ describe('R29-7 / updateDocMeta 布线文件锁', () => {
     return { docId: 'doc_w1', abs }
   }
 
-  it('布线文件被同名锁占用 → WRITE_ERROR 拒绝元数据保存（不裸写）', () => {
+  it('布线文件被同名锁占用 → WRITE_ERROR 拒绝元数据保存（不裸写）', async () => {
     const { docId, abs } = registerWiringDoc()
     holdLock(abs)
-    const r = svc.updateDocMeta(docId, { 状态: '已收尾' })
+    const r = await svc.updateDocMeta(docId, { 状态: '已收尾' })
     expect(r.ok).toBe(false)
     if (!r.ok) {
       expect(r.code).toBe('WRITE_ERROR')
@@ -153,9 +153,9 @@ describe('R29-7 / updateDocMeta 布线文件锁', () => {
     expect(existsSync(saveLock)).toBe(false)
   })
 
-  it('锁释放后元数据保存照常成功（写入 + 基线 revision 对齐）', () => {
+  it('锁释放后元数据保存照常成功（写入 + 基线 revision 对齐）', async () => {
     const { docId, abs } = registerWiringDoc()
-    const r = svc.updateDocMeta(docId, { 状态: '已收尾' })
+    const r = await svc.updateDocMeta(docId, { 状态: '已收尾' })
     expect(r.ok).toBe(true)
     expect(readFileSync(abs, 'utf-8')).toContain('状态: 已收尾')
     expect(existsSync(`${abs}.lock`)).toBe(false)

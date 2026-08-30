@@ -10,7 +10,7 @@ import { useTreeStore } from '../stores/tree'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useUiStore } from '../stores/ui'
 import { getConfig } from '../api/books'
-import { stripFrontmatter, mergeFm, parseFmFields, formKindOf, isBodyKind, countWords } from '../shared/words'
+import { stripFrontmatter, mergeFm, parseFmFields, formKindOf, isBodyKind, countWords, splitFrontmatter } from '../shared/words'
 import CmHost from '../editor/CmHost.vue'
 import EditorDocHead from '../components/editor/EditorDocHead.vue'
 import ContextMenu from '../components/ui/ContextMenu.vue'
@@ -65,7 +65,23 @@ const body = computed(() => {
 function onBodyChange(next: string): void {
   const e = entry.value
   if (!e) return
-  doc.patch(e.docId, hasForm.value ? mergeFm(e.content, next) : next)
+  if (!hasForm.value) {
+    doc.patch(e.docId, next)
+    return
+  }
+  const merged = mergeFm(e.content, next)
+  if (merged !== e.content) {
+    doc.patch(e.docId, merged)
+    return
+  }
+  // R31-30（三十一轮）：mergeFm 吞前导空行造成「编辑器变了、store 不变」的静默丢失窗
+  //——正文首行回车是 ghost（CM6 有行、store/磁盘永不记录，外部同步/切文档时视觉跳回）。
+  // 按编辑器为准补笔：typed 前导换行作为正文真实内容原样落（fm 分隔照常单行收敛），
+  // store 与 CM6 一致，重载后 ghost 不再消失（展示层剥前导空行的既有口径不变）。
+  if (next.startsWith('\n')) {
+    const fm = splitFrontmatter(e.content)
+    if (fm) doc.patch(e.docId, `---\n${fm.fmRaw}\n---\n\n${next}`)
+  }
 }
 // R64-33（十二轮）：字数与服务端/右栏同源（countWords：码点计数 + 剥 markdown 标记）——
 // 旧「去空白 UTF-16 计数」与右栏同屏可稳定不一致（markdown 标记/代理对字符）

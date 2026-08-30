@@ -32,4 +32,17 @@ describe('R26-95：maskKeys 密钥形态掩码', () => {
     expect(both).toContain('sk-ww***')
     expect(maskKeys('普通日志文本，没有密钥')).toBe('普通日志文本，没有密钥')
   })
+
+  // ── R31-27（三十一轮）：词表对齐——智谱/Gemini 无前缀形态（此前漏掩） ──
+  it('R31-27: 智谱 32hex.32hex 形态掩码', () => {
+    const zhipu = `${'a'.repeat(32)}.${'b'.repeat(32)}`
+    const out = maskKeys(`SDK 报错 key=${zhipu} 请检查`)
+    expect(out).not.toContain(zhipu)
+  })
+
+  it('R31-27: Gemini AIza+35 形态掩码', () => {
+    const gem = `AIza${'C'.repeat(35)}`
+    const out = maskKeys(`Gemini failed with ${gem}`)
+    expect(out).not.toContain(gem)
+  })
 })

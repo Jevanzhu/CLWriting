@@ -32,7 +32,7 @@ export function registerConfigRoutes(ctx: ConfigCtx): void {
     const cfgResult = readBookConfig(join(r.bookRoot, 'book.yaml'))
     // 低-2（第十轮）：error 是 ParseError {file,line,message} 对象——直接插值会串成
     // 「[object Object]」，取 .message 展示真实解析错误（与 books.ts 同场景口径）
-    if (!cfgResult.ok) return replyError(res, 500, 'IO', `读 book.yaml 失败:${cfgResult.error.message}`)
+    if (!cfgResult.ok) return replyError(res, 500, 'IO_ERROR', `读 book.yaml 失败:${cfgResult.error.message}`)
     reply(res, 200, { config: (cfgResult as { config: BookConfig }).config })
   },
   })
@@ -86,7 +86,7 @@ export function registerConfigRoutes(ctx: ConfigCtx): void {
       atomicWriteFile(yamlPath, yaml)
     } catch (e) {
       log.error('api', '写 book.yaml 失败', e)
-      return replyError(res, 500, 'IO', '写 book.yaml 失败')
+      return replyError(res, 500, 'IO_ERROR', '写 book.yaml 失败')
     }
     reply(res, 200, { ok: true })
   },
