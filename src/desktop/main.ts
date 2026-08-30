@@ -367,14 +367,15 @@ function createSecureWindow(opts: BrowserWindowConstructorOptions): BrowserWindo
     // WCO 窗控 overlay」——内容顶到窗口上沿（mac hiddenInset 同形态），最小化/最大化/关闭
     // 由系统画在右上角（近似 mac 红绿灯位，前端拖拽区已就绪无需新开）。overlay 底色随主题
     // 运行时改（prefs.applyTheme → desktop:set-titlebar-overlay → setTitleBarOverlay），
-    // 初值 = light 顶栏底 #f6f6f6，高度对齐 --size-tabbar 40px。菜单仍隐藏（accelerator 全保留）。
+    // 初值 = light 顶栏底 #f6f6f6，overlay 高 31px——比 --size-tabbar 矮 1px，让顶栏
+    // 底部那条分隔线在窗控下方完整露出（与整体线同色同位；overlay 不透明，按钮几乎不变）。
     ...(process.platform === 'win32'
       ? {
           titleBarStyle: 'hidden' as const,
           titleBarOverlay: {
             color: '#f6f6f6',
             symbolColor: '#666666',
-            height: 40,
+            height: 31,
           },
         }
       : {}),

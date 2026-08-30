@@ -42,7 +42,7 @@
   --tab-container-background: var(--background-secondary);
   /* 外壳尺度 */
   --size-ribbon: 44px;
-  --size-tabbar: 40px;
+  --size-tabbar: 32px;
   --size-statusbar: 24px;
   /* 4-base 间距阶（Obsidian 惯例：4-1=4 .. 4-16=64，跨主题不变） */
   --size-4-1: 4px;
@@ -97,6 +97,16 @@
   --dv-good: #4e9d68;   /* 语义正向（收编 AnalysisPanel 预留 --color-green） */
   --dv-warn: #d97706;   /* 语义警告（收编 --color-orange） */
   --dv-bad: var(--text-error);
+}
+
+/* J5（win 体验面，2026-08-30）：字体栈按平台分支。win 的 system-ui 落 Segoe UI，
+ * 中文回退链末尾的 Microsoft YaHei 与西文混排不自然，此处把中文显式提前到
+ * Microsoft YaHei UI（win 8+ 变体，字形为 UI 优化）；mac/浏览器不经 data-platform
+ * 不命中，仍走 :root 默认栈。只改字形，不动任何字号/尺寸，零布局影响。 */
+:root[data-platform='win32'] {
+  --font-ui: 'Segoe UI', 'Microsoft YaHei UI', system-ui, -apple-system, 'PingFang SC',
+    'Microsoft YaHei', sans-serif;
+  --font-monospace: Consolas, ui-monospace, 'SF Mono', Menlo, monospace;
 }
 
 [data-theme='dark'] {

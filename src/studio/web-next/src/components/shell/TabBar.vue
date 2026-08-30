@@ -189,13 +189,18 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
   height: 28px;
   border: none;
   background: transparent;
-  color: var(--text-faint);
+  color: var(--text-muted);
   border-radius: var(--radius-s);
   cursor: pointer;
 }
 .tb-btn:hover {
   background: var(--background-modifier-hover);
   color: var(--text-normal);
+}
+/* 图标按名义尺寸等比渲染：.tb-btn 默认 button padding(≈1px 6px)在窄钮(如 caret 22px)
+ * 里会把 16px 图标 flex-shrink 压到内容盒宽，viewBox 被横向拉伸、描边畸变发糊 */
+.tb-btn svg {
+  flex-shrink: 0;
 }
 .tb-btn.active {
   color: var(--text-accent);

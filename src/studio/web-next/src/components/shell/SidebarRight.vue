@@ -66,7 +66,7 @@ const isReviewable = computed(() => {
         data-tip-dir="bottom"
         @click="ws.toggleRight()"
       >
-        <PanelRightClose :size="16" />
+        <PanelRightClose :size="18" />
       </button>
       <div class="right-tabs">
         <button
@@ -77,7 +77,7 @@ const isReviewable = computed(() => {
           :data-tip="t.label" data-tip-dir="bottom"
           @click="ws.setRightTab(t.key)"
         >
-          <component :is="t.icon" :size="16" />
+          <component :is="t.icon" :size="18" />
         </button>
       </div>
     </div>
@@ -140,29 +140,37 @@ const isReviewable = computed(() => {
  * 原 padding 挤压在窄右栏下会把内容区挤爆、tab 溢出探进窗控下方——实测重叠 10px，
  * 见 CDP 量化；margin 让位保持容器背景满铺、窗控盖于其上无异常，仅把 tab 组推到
  * 窗控左侧）。env(titlebar-area-*) 自适应（非 win/浏览器/mac hiddenInset 回退 0）。
- * tab 缩窄 24px 后方能塞进窗控左侧（右栏固定 259px，窗控占 137px）；实测呼吸隙≈6px
- * ——margin 取「窗控宽」已是安全上限，再大即触发 flex 溢出致 margin 失效（复现交叠）。
+ * 图标放大：tab 容器 26px + icon 18px，.right-tabs 内 gap 收到 2px（用 gap 换尺寸，
+ * 让 4 个 tab 的组宽从 24px 方案下放到 26px 仍塞进窗控左侧——右栏固定 259px，窗控
+ * 占 137px）；实测呼吸隙≈2px（margin 取「窗控宽」已是安全上限，再大即触发 flex
+ * 溢出致 margin 失效复现交叠，故放大只能靠压缩 gap，不能加 margin）。
  * 右栏关闭时贴角的是 TabBar 的 tabbar-actions（避让在其组件内）。 */
 .right-topbar.wco-avoid .right-tabs {
   margin-right: calc(100vw - env(titlebar-area-width, 100vw) - env(titlebar-area-x, 0px));
 }
 .right-tabs {
   display: flex;
-  gap: var(--size-4-1);
+  gap: 2px;
 }
 .right-topbar button {
   -webkit-app-region: no-drag;
+}
+/* 图标按属性和命名尺寸等比渲染，不被按钮内容盒 flex-shrink 压扁（否则 titlebar
+ * 26px 盒内 18px 图标被压成 14px 宽，viewBox 24 被横向拉伸、描边畸变发糊）。 */
+.right-topbar svg {
+  flex-shrink: 0;
 }
 .right-tab {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
+  padding: 0;
   border: none;
   border-radius: var(--radius-s);
   background: transparent;
-  color: var(--text-faint);
+  color: var(--text-muted);
   cursor: pointer;
   transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }

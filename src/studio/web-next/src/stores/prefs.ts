@@ -322,7 +322,9 @@ export const usePrefsStore = defineStore('prefs', () => {
   function applyTheme(): void {
     document.documentElement.dataset.theme = theme.value
     // J5（win 体验面）：无框标题栏的窗控 overlay 底色随主题（light #f6f6f6 / dark
-    // #262626 = 两档 --background-secondary），symbolColor 反色。非 win / 浏览器版 no-op。
+    // #262626 = 两档 --background-secondary），symbolColor 反色。overlay 不透明且高比
+    // --size-tabbar 矮 1px（main 侧 height 31）——顶栏那条分隔线在窗控下方完整露出、
+    // 与整体同色同位。非 win / 浏览器版 no-op。
     const d = window.clwritingDesktop
     if (d?.platform === 'win32') {
       void d.setTitleBarOverlay(
