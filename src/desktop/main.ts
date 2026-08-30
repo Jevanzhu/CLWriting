@@ -686,7 +686,13 @@ function registerIpc(): void {
   })
   // 打开独立书架窗口（ribbon 书架按钮调用）
   ipcMain.handle('desktop:open-shelf', () => {
-    openShelfWindow()
+    // R30-24（三十轮）：openShelfWindow 是 async（内部 await devProxyApplied）——此前
+    // fire-and-forget 裸调，窗工厂早期抛错成主进程 unhandledRejection 丢诊断。对齐
+    // R74-16 的 loadURL 口径：promise 接日志留痕（handler 同步返回，invoke 端不悬等待、
+    // 错误不外抛到渲染层，窗口崩溃另有 R67-16 自愈兜底）
+    openShelfWindow().catch((e) => {
+      log.error('desktop', `书架窗口打开失败`, e)
+    })
   })
   // 书架窗口选书 → 主窗口加载该书并聚焦，关闭书架窗口
   ipcMain.handle('desktop:open-book', (_e, name: unknown) => {
@@ -701,7 +707,10 @@ function registerIpc(): void {
   })
   // 打开独立书库管理窗口（ribbon 书库按钮调用）
   ipcMain.handle('desktop:open-library-window', () => {
-    openLibraryWindow()
+    // R30-24（三十轮）：同 open-shelf——async 工厂 promise 接日志，防 unhandledRejection
+    openLibraryWindow().catch((e) => {
+      log.error('desktop', `书库管理窗口打开失败`, e)
+    })
   })
   // 在系统文件管理器中打开当前书库根目录
   ipcMain.handle('desktop:open-library-dir', () => {
@@ -887,8 +896,10 @@ function buildMenu(): void {
         { role: 'zoom' },
         { type: 'separator' },
         // 书架/书库管理直接主进程开窗（不绕前端 dispatch）
-        { label: '书架', click: () => openShelfWindow() },
-        { label: '书库管理', click: () => openLibraryWindow() },
+        // R30-24（三十轮）：同 ipc handler 口径——async 工厂 promise 接日志防
+        // unhandledRejection（click 回调与 invoke 回调同款裸浮调用面）
+        { label: '书架', click: () => { openShelfWindow().catch((e) => { log.error('desktop', `书架窗口打开失败`, e) }) } },
+        { label: '书库管理', click: () => { openLibraryWindow().catch((e) => { log.error('desktop', `书库管理窗口打开失败`, e) }) } },
       ],
     },
     // macOS 的「关于」在 app 菜单；非 mac 单独「帮助」菜单承载

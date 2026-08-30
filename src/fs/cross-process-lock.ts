@@ -248,6 +248,30 @@ export function acquireCrossProcessLockWithTimeout(
   }
 }
 
+/**
+ * R30-6（三十轮）：限时占锁的异步孪生——轮询等待改用 setTimeout（事件循环不阻塞），
+ * 供承载 SSE/全部接口的服务进程调用链（executeSave/finalize/记账写段）在双进程争用
+ * 窗口内保持可响应；同步版（Atomics.wait 微睡）保留给 CLI 侧与无异步上下文的内部点。
+ * 语义与同步版逐位对齐：超时返回 null、release 幂等、锁文件机制同源
+ * （tryAcquireCrossProcessLock）——同步/异步获取者对同一把锁互通互斥。
+ * 同进程嵌套获取同一锁同样自锁（异步形态表现为轮询到超时）——调用方约束不变。
+ */
+export async function acquireCrossProcessLockAsync(
+  lockPath: string,
+  timeoutMs: number,
+  opts?: CrossProcessLockOptions & { pollIntervalMs?: number },
+): Promise<(() => void) | null> {
+  const poll = opts?.pollIntervalMs ?? 20
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    const release = tryAcquireCrossProcessLock(lockPath, opts)
+    if (release) return release
+    const remain = deadline - Date.now()
+    if (remain <= 0) return null
+    await new Promise<void>((resolve) => setTimeout(resolve, Math.min(poll, remain)))
+  }
+}
+
 /** 读锁文件持有者 pid；损坏/缺字段返回 null（视同 stale，崩溃半写兜底）。 */
 function readHolderPid(lockPath: string): number | null {
   try {

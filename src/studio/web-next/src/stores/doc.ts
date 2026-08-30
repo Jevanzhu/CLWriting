@@ -274,17 +274,19 @@ export const useDocStore = defineStore('doc', () => {
   /** 静默刷新文档内容（外部改了 fm 等，重新拉对齐磁盘；不 toast、不重置 conflict）。
    *  CC-P2-15：本地有未保存编辑（含 await 窗口内的键盘输入）时不整体覆盖——
    *  只取服务端 fm、正文保留本地、dirty 不清，否则编辑被静默丢弃。
-   *  守卫下沉到 store 前 EditorView/MetaFormPanel 各自 patch 回本地正文，现全调用方统一受保护。 */
-  async function refresh(docId: string): Promise<void> {
+   *  守卫下沉到 store 前 EditorView/MetaFormPanel 各自 patch 回本地正文，现全调用方统一受保护。
+   *  R30-7（三十轮）：补返回值 Promise<boolean>（成功 true / 失败 false）——既有吞错
+   *  语义不变（catch 不上抛），仅让调用方能感知结果；忽略返回值的既有调用方零影响。 */
+  async function refresh(docId: string): Promise<boolean> {
     const e = docs.value.get(docId)
-    if (!e) return
+    if (!e) return false
     try {
       const content = await getContent(bookName.value!, e.path)
       if (e.dirty && e.content !== content) {
         // fm 以服务端为准（refresh 的目的），正文以本地为准（未保存编辑）
         e.content = mergeFm(content, stripFrontmatter(e.content))
         e.baselineRevision = await sha256Revision(content)
-        return
+        return true
       }
       e.content = content
       const rev = await sha256Revision(content)
@@ -292,8 +294,10 @@ export const useDocStore = defineStore('doc', () => {
       // beforeunload 双兜底同时被跳过，编辑静默丢失（CC-P2-15 只护住了上面的 dirty 分支）
       e.baselineRevision = rev
       if (e.content === content) e.dirty = false
+      return true
     } catch {
-      /* 静默失败（best-effort 对齐磁盘） */
+      // R30-7（三十轮）：保持既有静默吞错（best-effort 对齐磁盘），仅以 false 上报失败
+      return false
     }
   }
 

@@ -250,7 +250,7 @@ function toUsage(u: WireUsage | undefined | null): TokenUsage {
   }
 }
 
-export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, store?: ProviderStore): ModelProvider {
+export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, store?: ProviderStore, userDataPath?: string): ModelProvider {
   const c = client ?? createClient(conf)
   const q = quirksFor(conf.model ?? '')
 
@@ -273,7 +273,8 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
 
       // 400 降级链（方案 §6.5）：attempts 构造 / 400 续跑闸 / 记忆写入走 adapter-errors
       // 公共实现——「连接期异常（未 yield）可安全重试、流中异常不重跑」的约定见其注释。
-      const plan = buildDegradeAttempts(req, q.structuredMode, conf, store)
+      // R30-4（三十轮）：携来源 userDataPath——降级记忆读/写按显式 path 分发
+      const plan = buildDegradeAttempts(req, q.structuredMode, conf, store, userDataPath)
 
       try {
         let lastErr: unknown = null

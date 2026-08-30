@@ -243,3 +243,89 @@ test('R27-136: moveDrafts 同名跳过记 errors（对齐 moveTree R65-38① 口
   // 同目录其余草稿照常迁移（不中断）
   expect(has('写作/草稿/草稿-2.md')).toBe(true)
 })
+
+// ── R30-22（三十轮）：清单改写只对实际搬移成功的文件——冲突跳过条目保持旧路径 ──
+
+test('R30-22: moveTree 同名冲突跳过的文件清单条目保持旧路径，成功搬移的照改，errors 照记', () => {
+  // 断点形态：定稿/正文/ 与 写作/正文/ 同名冲突 + 一件可迁文件
+  write('定稿/正文/0001-冲突.md', '旧目录内容（孤儿）')
+  write('写作/正文/0001-冲突.md', '新目录已有内容（冲突胜者）')
+  write('定稿/正文/0002-可迁.md', '可迁移文件')
+  write(
+    '项目/文档清单.jsonl',
+    [
+      '{"version":1,"type":"header"}',
+      '{"id":"docConflict","nodeType":"document","path":"定稿/正文/0001-冲突.md","parentId":null}',
+      '{"id":"docMoved","nodeType":"document","path":"定稿/正文/0002-可迁.md","parentId":null}',
+    ].join('\n') + '\n',
+  )
+
+  const r = migrateLayoutV2(tmp)
+  // 搬移侧（R65-38① 既有口径不回归）：冲突留痕、旧文件未动、可迁文件照搬
+  expect(r.errors.some((e) => e.includes('同名跳过') && e.includes('定稿/正文/0001-冲突.md'))).toBe(true)
+  expect(has('定稿/正文/0001-冲突.md')).toBe(true)
+  expect(has('写作/正文/0002-可迁.md')).toBe(true)
+  // 清单侧（本修复核心）：冲突条目仍指旧路径（docId 不挂到冲突胜者内容上、
+  // 旧文件不成无登记孤儿）；成功搬移的条目照常改写
+  const paths = manifestPaths(tmp)
+  expect(paths.get('docConflict')).toBe('定稿/正文/0001-冲突.md')
+  expect(paths.get('docMoved')).toBe('写作/正文/0002-可迁.md')
+})
+
+test('R30-22: moveDrafts 同名冲突跳过的草稿条目保持旧路径，成功搬移的照改', () => {
+  const { dir, w } = r27Fixture()
+  w('工作区/草稿-1.md', '旧目录孤儿')
+  w('写作/草稿/草稿-1.md', '已在目标位')
+  w('工作区/草稿-2.md', '可迁草稿')
+  w(
+    '项目/文档清单.jsonl',
+    [
+      '{"version":1,"type":"header"}',
+      '{"id":"docSkip","nodeType":"document","path":"工作区/草稿-1.md","parentId":null}',
+      '{"id":"docMove","nodeType":"document","path":"工作区/草稿-2.md","parentId":null}',
+    ].join('\n') + '\n',
+  )
+
+  const r = migrateLayoutV2(dir)
+  expect(r.errors.some((e) => e.includes('同名跳过') && e.includes('工作区/草稿-1.md'))).toBe(true)
+  const paths = manifestPaths(dir)
+  // 跳过条目保持旧路径（登记与盘上旧文件一致）；成功搬移照改
+  expect(paths.get('docSkip')).toBe('工作区/草稿-1.md')
+  expect(paths.get('docMove')).toBe('写作/草稿/草稿-2.md')
+})
+
+test('R30-22: 伏笔前缀条目豁免 moved 过滤——物理搬移在 migrateLegacyForeshadows（R71-14 链序），清单维持无条件改写', () => {
+  // 伏笔不经本文件 moveTree（moved 恒不含它）；若被过滤，R71-14 场景
+  // （伏笔按改写后路径接定稿基线）即断链——锁定豁免不被误伤
+  write('大纲/伏笔/001-钩子.md', '伏笔内容')
+  write(
+    '项目/文档清单.jsonl',
+    [
+      '{"version":1,"type":"header"}',
+      '{"id":"docLead","nodeType":"document","path":"大纲/伏笔/001-钩子.md","parentId":null}',
+    ].join('\n') + '\n',
+  )
+
+  const r = migrateLayoutV2(tmp)
+  expect(r.errors).toEqual([])
+  // 无条件改写（物理文件由 document/ 层迁移按 R71-14 链序处理）
+  const paths = manifestPaths(tmp)
+  expect(paths.get('docLead')).toBe('设定/伏笔/001-钩子.md')
+})
+
+test('R30-22: 清单先行盘上无文件 → 预改写落 v2（scaffold 新书首次保存契约，documents-api 依赖）', () => {
+  // 只登记清单、不建物理目录/文件——server 启动迁移须把 v1 条目预改写到 v2，
+  // 首次保存才按新路径落盘；「无残留文件」不得被误判为「冲突跳过保持旧值」
+  write(
+    '项目/文档清单.jsonl',
+    [
+      '{"version":1,"type":"header"}',
+      '{"id":"docNew","nodeType":"document","path":"定稿/正文/0001-开篇.md","parentId":null}',
+    ].join('\n') + '\n',
+  )
+
+  const r = migrateLayoutV2(tmp)
+  expect(r.errors).toEqual([])
+  const paths = manifestPaths(tmp)
+  expect(paths.get('docNew')).toBe('写作/正文/0001-开篇.md')
+})

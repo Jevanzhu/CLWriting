@@ -74,6 +74,10 @@ const imageryStats = new Map<string, { survived: number; removed: number }>()
 // R63-14：单版快照失败计数与首错（catch-all 不再零告警——产出段统一告警）
 let failedSnapshots = 0
 let firstSnapshotError: string | null = null
+// R30-29（三十轮）：章级解析失败不再被解构丢弃——聚合为批级清单，末尾 warn 汇总
+// （书名/章名/原因）+ 结果统计带 failedChapters 计数。此前章级失败静默跳过，
+// 系统性故障会以「候选 0 条」成功口径收场（对比 src/learn/index.ts 的显式报错口径）
+const failedChapters: Array<{ file: string; line: number; message: string }> = []
 
 try {
   // R71-34（总七十一轮）：rebuild/开库移入 try/finally——此前在 try 外，BEGIN busy/
@@ -85,7 +89,10 @@ try {
   }
   const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
   const versionsDir = join(bookRoot, '工作区', VERSIONS_DIR_NAME)
-  const { chapters } = readChapterDir(join(bookRoot, '写作', '正文'))
+  // R30-29（三十轮）：errors 并入批级 failedChapters（原 `const { chapters } = …` 把
+  // 章级解析失败静默丢弃）
+  const { chapters, errors: chapterErrors } = readChapterDir(join(bookRoot, '写作', '正文'))
+  failedChapters.push(...chapterErrors)
   // manifest 路径 → docId 一次建索引（原每章全量扫 entries，O(章×条目)）
   const docIdByPath = new Map<string, string>()
   for (const [id, e] of manifest.entries) {
@@ -206,7 +213,7 @@ writeCandidates('命中候选.md', '命中候选（被作者改写消失）', '�
 }
 
 console.log(
-  `[harvest-corpus] 章快照判定完成：误报候选 ${candidates.filter((c) => c.verdict.startsWith('幸存')).length} 条、命中候选 ${candidates.filter((c) => c.verdict.startsWith('被改')).length} 条 → ${outDir}`,
+  `[harvest-corpus] 章快照判定完成：误报候选 ${candidates.filter((c) => c.verdict.startsWith('幸存')).length} 条、命中候选 ${candidates.filter((c) => c.verdict.startsWith('被改')).length} 条${failedChapters.length > 0 ? `、章级解析失败 ${failedChapters.length} 章` : ''} → ${outDir}`,
 )
 
 // R63-14：快照失败不再静默——首错 + 计数随成功口径一并打印（系统性失败时
@@ -215,4 +222,13 @@ if (failedSnapshots > 0 && firstSnapshotError !== null) {
   console.error(`[harvest-corpus] 警告：${failedSnapshots} 个版本快照判定失败被跳过（首错如下，若为系统性失败请先修复再采信候选数）`)
   console.error(firstSnapshotError)
   process.exitCode = 1
+}
+
+// R30-29（三十轮）：章级解析失败汇总——书名/章名/原因逐条留痕（0 失败时输出
+// 逐位不变，成功路径零扰动；计数已并入上方结果统计）
+if (failedChapters.length > 0) {
+  console.warn(`[harvest-corpus] 警告：${failedChapters.length} 个章节解析失败被跳过（书：${basename(bookRoot)}）`)
+  for (const err of failedChapters) {
+    console.warn(`  - 章 ${basename(err.file)}（行 ${err.line}）：${err.message}`)
+  }
 }

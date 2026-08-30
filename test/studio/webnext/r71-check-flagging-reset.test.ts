@@ -54,7 +54,7 @@ describe('R71-5: flag 在途 + run 推代 → flagging 复位', () => {
     const s = useCheckStore()
     await s.run('book', 'doc_A')
     const pFlag = s.flagFalsePositive('book', 'doc_A', 'r1') // flag 在途
-    const pRun = s.run('book', 'doc_A') // 推代（run 挂起中，尚未走到回填复位）
+    const _pRun = s.run('book', 'doc_A') // 推代（run 挂起中，尚未走到回填复位；刻意不 await）
     resolveFlag({ ok: true }) // 迟到 flag 响应先于 run 回填 settle
     await pFlag
     expect(s.flagging).toBeNull() // 修复点：finally 归属制清除（修复前查代制永不清）

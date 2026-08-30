@@ -186,7 +186,7 @@ export function findUnsettled(journalPath: string): JournalAnyPending[] {
  *  log.warn 留痕。 */
 function appendLine(filePath: string, line: string): void {
   mkdirSync(dirname(filePath), { recursive: true })
-  const release = acquireCrossProcessLockWithTimeout(`${filePath}.lock`, JOURNAL_LOCK_TIMEOUT_MS)
+  const release = acquireCrossProcessLockWithTimeout(`${filePath}.lock`, journalLockTimeoutMs)
   if (release) {
     try {
       appendFileSync(filePath, line + '\n', 'utf-8')
@@ -275,10 +275,15 @@ function maybeCompactJournal(journalPath: string): void {
   }
 }
 
-/** J7 锁等待超时（毫秒）——可注入缩短保测试快；争用为文件 IO 级毫秒。 */
-export let JOURNAL_LOCK_TIMEOUT_MS = 2_000
+/** J7 锁等待超时（毫秒）——争用为文件 IO 级毫秒。
+ *  R30-18（三十轮）：常量化——export let 可被任一 import 方静默改写（同 events/store.ts
+ *  R26-105 的收口认定），改 const + 内部可变生效值；测试只能经注入钩子改档，生产恒用常量。 */
+export const JOURNAL_LOCK_TIMEOUT_MS = 2_000
+
+/** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改。 */
+let journalLockTimeoutMs = JOURNAL_LOCK_TIMEOUT_MS
 
 /** 测试注入钩子（生产零调用）。 */
 export function __setJournalLockTimeoutForTest(ms: number): void {
-  JOURNAL_LOCK_TIMEOUT_MS = ms
+  journalLockTimeoutMs = ms
 }

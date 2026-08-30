@@ -70,8 +70,10 @@ function normalizeAnthropicBaseUrl(baseUrl: string): string {
  *  现役 claude 安全下限（对旧模型 128000 才 400，16384 无此问题）。 */
 const MAX_TOKENS = 16_384
 
-/** ChatMsg → Anthropic 线格式 message（纯文本直传；block 数组逐项映射） */
-function toAnthropicMessage(m: ChatMsg): Anthropic.MessageParam {
+/** ChatMsg → Anthropic 线格式 message（纯文本直传；block 数组逐项映射）。
+ *  R30-10（三十轮）：映射后 content 为空数组（block 全为 reasoning 的消息）→ 返回 null，
+ *  由 toParams 从请求历史剔除（见 toParams 处注）。 */
+function toAnthropicMessage(m: ChatMsg): Anthropic.MessageParam | null {
   if (typeof m.content === 'string') return { role: m.role, content: m.content }
   // block 数组 → Anthropic content block
   const blocks: Anthropic.ContentBlockParam[] = m.content.flatMap((b: ClwContentBlock): Anthropic.ContentBlockParam[] => {
@@ -84,6 +86,8 @@ function toAnthropicMessage(m: ChatMsg): Anthropic.MessageParam {
     // tool_result: Anthropic 要求挂在 user 消息里，toolUseId → tool_use_id
     return [{ type: 'tool_result', tool_use_id: b.toolUseId, content: b.content, ...(b.isError ? { is_error: true } : {}) }]
   })
+  // R30-10（三十轮）：全 reasoning 消息 flatMap 产出空数组 → null（toParams 过滤剔除）
+  if (blocks.length === 0) return null
   return { role: m.role, content: blocks }
 }
 
@@ -100,10 +104,15 @@ function toParams(conf: ProviderConf, req: GenRequest): Anthropic.MessageCreateP
 
   const params: Anthropic.MessageCreateParamsStreaming = {
     model: conf.model ?? '',
-    // #5：max_tokens 用表值（如 claude 16384 / deepseek 384000），兜底 8192。
+    // #5：max_tokens 用表值（如 claude 16384 / deepseek 384000），兜底 16384（= MAX_TOKENS，
+    // R73-3 上调；R30-12（三十轮）：注释与常量同步，原「兜底 8192」为漂移残留）。
     // 阶段 14 §7.2 显式 resolve：调用方 cap（req.maxTokens）→ 模型行覆盖（用户声明）→ quirks 表 → 协议兜底。
     max_tokens: resolveMaxTokens(conf, req),
-    messages: req.messages.map(toAnthropicMessage),
+    // R30-10（三十轮）：仅 reasoning block 的 assistant 轮 flatMap 产出 content:[]，
+    // Anthropic API 对空 content 数组 400——上游 sanitizeHistory 剥离是常规防线但非保证
+    //（本适配器是最后防线）：无可渲染内容的轮次整条从请求历史剔除（text/tool_use/
+    // tool_result 任一存在即保留；剔除后同 role 相邻消息由 Anthropic 端点合并为一轮）。
+    messages: req.messages.map(toAnthropicMessage).filter((m): m is Anthropic.MessageParam => m !== null),
     stream: true,
     // #4：空 system 不发字段（对齐 OpenAI 侧守卫，严格中转 system:"" 可 400）
     ...(req.systemPrompt ? { system: req.systemPrompt } : {}),
@@ -178,7 +187,7 @@ function toAnthropicTool(tool: ToolDef): Anthropic.Tool {
   }
 }
 
-export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, store?: ProviderStore): ModelProvider {
+export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, store?: ProviderStore, userDataPath?: string): ModelProvider {
   const c = client ?? createClient(conf)
 
   return {
@@ -206,8 +215,9 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
       try {
         // 400 降级链（方案 §6.5）：attempts 构造 / 400 续跑闸 / 记忆写入走 adapter-errors
         // 公共实现——「连接期异常（未 yield）可安全重试、流中异常不重跑」的约定见其注释。
+        // R30-4（三十轮）：携来源 userDataPath——降级记忆读/写按显式 path 分发
         const q = quirksFor(conf.model ?? '')
-        const plan = buildDegradeAttempts(req, q.structuredMode, conf, store)
+        const plan = buildDegradeAttempts(req, q.structuredMode, conf, store, userDataPath)
         let stream: AsyncIterable<Anthropic.RawMessageStreamEvent> | null = null
         let lastErr: unknown = null
         for (const attempt of plan.attempts) {
@@ -318,6 +328,11 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
         //    而是正常 return 的形态），报可重试错误不发 done——半截正文不得当完整产出
         //    落稿、不得按成功 0 成本入账、必须进重试路径。修复前两种情形混同，截断流
         //    被伪造成 end_turn 正常完成。
+        // R30-13（三十轮）登记维持：stopReason 命名三线未归一——本线透传上游原生值
+        //（'end_turn'/'max_tokens'/'tool_use'/…），openai/responses 两线自然完成发 'stop'
+        //（其余值已各自归一：'length'→'max_tokens'、'tool_calls'→'tool_use'）。收敛为规范
+        // 枚举影响面超 4 文件（gen/runner 缺省值 + 15 个断言 'end_turn' 的测试），且现
+        // 消费方只判 'max_tokens'（截断重写）与 toolCalls 非空，命名差异无实害——维持登记。
         if (!doneEmitted) {
           // R27-2（二十七轮）：流末统一 emit——末见 usage 优先（上面 message_delta 只记
           // 不发）；无 usage 才走估计/截断兜底（与 openai 线 R26-3 同构）

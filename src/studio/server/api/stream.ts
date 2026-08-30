@@ -252,6 +252,11 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     // T2 批：优先一次性 ticket（POST /api/stream-ticket 换取，短时效+一次性消费）——
     // token 不再进 URL（进程列表/代理日志信道收敛）。`?token=` 旧通道保留为兼容期
     // 通道（e2e 及未升级客户端），两凭据任一过闸即放行。
+    // R30-25（三十轮）登记维持：全仓盘点（src/ + test/ 含 test/e2e）后本通道仍有
+    // **非测试消费方**——src/studio/web-next/src/composables/useSse.ts 把 `?token=`
+    // 作为 ticket 端点 404/网络异常时的探测与回退路径（服务端只比对凭据不烧票），
+    // 依赖本分支放行。移除条件：web-next 回退路径下线（useSse 不再拼 `?token=`）
+    // 且 test/e2e 无残余消费后，删本分支与 stream-ticket 测试的兼容用例一并收口。
     const queryTicket = url.searchParams.get('ticket') ?? undefined
     const queryToken = url.searchParams.get('token') ?? undefined
     // R64-27（十二轮）：鉴权前移到全部书域判定（连接数闸 429 / resolveBook 404）之前
@@ -351,7 +356,26 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     )
 
     // driver.stream 实现为 async generator（mock / cc 均从 channel 推事件）
-    iter = driver.stream(session) as AsyncGenerator<DriverEvent>
+    // R30-21（三十轮）：stream() 工厂同步抛错兜底——此刻 writeHead(200) 已发出，
+    // 异常直穿 handler 后 dispatch 兜底因 headersSent 不回错也不 end，连接悬挂至
+    // 客户端自断（心跳也未建，无任何字节回流）。catch 中按本文件既有 SSE 错误事件
+    // 格式（下方 for-await 的 catch 同款：type:'error'/kind:'stream' + redactSecret
+    // 脱敏）写一条 error event 后 end()，连接正常收束（close 回调走常规清理链）。
+    // 心跳在此时尚未创建，无需清理；不继续走下方 for-await（iter 未建立）。
+    try {
+      iter = driver.stream(session) as AsyncGenerator<DriverEvent>
+    } catch (e) {
+      safeWrite(
+        `data: ${JSON.stringify({
+          type: 'error',
+          kind: 'stream',
+          message: redactSecret(e instanceof Error ? e.message : String(e)),
+          recoverable: false,
+        })}\n\n`,
+      )
+      if (!res.writableEnded) res.end()
+      return
+    }
     // K5：心跳保活（防代理/浏览器 30-60s 无数据超时断连）
     heartbeat = setInterval(() => safeWrite(': heartbeat\n\n'), 30_000)
     try {

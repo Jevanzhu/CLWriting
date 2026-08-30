@@ -3,15 +3,17 @@
 // localStorage 持久化（300ms 防抖）随卡迁移；值经 v-model 与父层双向（gen() 读同一份）。
 import { onMounted, onBeforeUnmount, watch } from 'vue'
 import { PenLine } from 'lucide-vue-next'
+// R30-26（三十轮）：键名改从 shared/storage-keys 单一事实源拼（原局部 PREMISE_KEY 与
+// useShelf 删书清扫各自硬编码同串，写入/清除键名断裂隐患同 R28-3 首开键）
+import { onboardPremiseKey } from '../../shared/storage-keys'
 
 const props = defineProps<{ bookName: string }>()
 const storyPremise = defineModel<string>({ required: true })
 
 // ── localStorage 持久化（隐私模式静默忽略）──
-const PREMISE_KEY = (n: string) => `clwriting:onboard-premise:${n}`
 onMounted(() => {
   try {
-    storyPremise.value = localStorage.getItem(PREMISE_KEY(props.bookName)) ?? ''
+    storyPremise.value = localStorage.getItem(onboardPremiseKey(props.bookName)) ?? ''
   } catch { /* 隐私模式忽略 */ }
 })
 let premiseTimer: ReturnType<typeof setTimeout> | null = null
@@ -20,7 +22,7 @@ watch(storyPremise, (v) => {
   premiseTimer = setTimeout(() => {
     premiseTimer = null
     try {
-      localStorage.setItem(PREMISE_KEY(props.bookName), v)
+      localStorage.setItem(onboardPremiseKey(props.bookName), v)
     } catch { /* 忽略 */ }
   }, 300)
 })
@@ -31,7 +33,7 @@ onBeforeUnmount(() => {
     // R65-51（E-3）：卸载冲刷在途防抖——输入后 300ms 内离开本卡（切步/关页/前进）时
     // 修复前最后一次编辑随定时器被清而丢弃，重进回退到旧值
     try {
-      localStorage.setItem(PREMISE_KEY(props.bookName), storyPremise.value)
+      localStorage.setItem(onboardPremiseKey(props.bookName), storyPremise.value)
     } catch { /* 隐私模式忽略 */ }
   }
 })

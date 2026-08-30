@@ -17,7 +17,8 @@ import {
   generateLeadUpdateDraft,
   archivePendingLeadUpdates,
 } from '../../src/process/lead-update-draft.js'
-import { readChapterLeadUpdates } from '../../src/check/lead-updates.js'
+// R30-17（三十轮）：readChapterLeadUpdates 死封装已删，读取端改走单源 readLeadUpdatesAt
+import { readLeadUpdatesAt, LEAD_UPDATES_FILE } from '../../src/check/lead-updates.js'
 
 /** 造一本有布线的短书（book.yaml + 布线/悬念 一条进行中线） */
 function makeWiringBook(): string {
@@ -102,7 +103,7 @@ test('A3: 超长正文 → 头尾保留 + 省略标记（替代无通知硬切�
   }
 })
 
-test('闭环：parseLeadUpdateDraft 产出可被 readChapterLeadUpdates 读回（格式同构）', () => {
+test('闭环：parseLeadUpdateDraft 产出可被账本推进读取端读回（格式同构）', () => {
   const root = makeWiringBook()
   try {
     const text = '- 悬念-001 递进：焦痕在烛火下泛着暗红。\n'
@@ -115,7 +116,7 @@ test('闭环：parseLeadUpdateDraft 产出可被 readChapterLeadUpdates 读回�
       parsed.map((u) => '- ' + u.leadId + ' ' + u.动词 + '：' + u.证据).join('\n') + '\n',
       'utf-8',
     )
-    expect(readChapterLeadUpdates(root)).toEqual([{ leadId: '悬念-001', 动词: '递进', 证据: '焦痕在烛火下泛着暗红。' }])
+    expect(readLeadUpdatesAt(join(root, LEAD_UPDATES_FILE))).toEqual([{ leadId: '悬念-001', 动词: '递进', 证据: '焦痕在烛火下泛着暗红。' }])
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

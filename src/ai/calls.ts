@@ -16,7 +16,9 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
-import { acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
+// R30-3（三十轮）：锁等待改异步孪生 + 快路同步尝试——生成收尾路径（SSE/全部接口所在的
+// 服务进程）在双进程争用窗口不再被 Atomics.wait 同步微睡冻结事件循环
+import { acquireCrossProcessLockAsync, tryAcquireCrossProcessLock } from '../fs/cross-process-lock.js'
 import type { BookConfig } from '../format/types.js'
 import { GLOBAL_FALLBACK_DEFAULTS } from '../format/global-defaults.js'
 import type { TokenUsage } from './provider/types.js'
@@ -103,7 +105,7 @@ function readRecord(bookRoot: string): { rec: CallRecord | null; corrupt: boolea
         // 迁移永不重试且文件永留旧格式；清除后下次 read 重新入队可重试（排队窗口内
         // 并发 read 仍靠先置位的标记去重，不重复入队）。
         try {
-          serializedWrite(bookRoot, () => {
+          const inflight = serializedWrite(bookRoot, () => {
             try {
               writeRecord(bookRoot, migrated)
             } catch (err) {
@@ -111,6 +113,11 @@ function readRecord(bookRoot: string): { rec: CallRecord | null; corrupt: boolea
               throw err
             }
           })
+          // R30-3（三十轮）：锁被占时 serializedWrite 返回在途 promise（异步轮询等待）——
+          // 锁超时等异步失败时 doWrite 未执行、上方内联清标记不生效，这里补清
+          //（N-10 口径：锁获取失败与写失败同语义，不清则迁移永不重试）；失败留痕由
+          // serializedWrite 旁挂 warn 承担，此处只补标记清理
+          if (inflight !== undefined) inflight.catch(() => migratedRoots.delete(bookRoot))
         } catch (err) {
           // N-10 + J7：快路同步抛（J7 锁文件创建 EACCES 等）同样要清标记——
           // 锁获取失败与写失败同语义，不清则迁移永不重试
@@ -229,19 +236,37 @@ const writeChains = new Map<string, Promise<unknown>>()
 let inWriteSegment = false
 
 /** J7（2026-08-23 落地）：跨进程互斥为真锁——serializedWrite 的每次写段在
- * bookRoot/.cache/ai-calls.lock 上做限时阻塞跨进程文件锁（O_EXCL + pid 存活探测
+ * bookRoot/.cache/ai-calls.lock 上做限时跨进程文件锁（O_EXCL + pid 存活探测
  * + 崩溃接管，见 fs/cross-process-lock.ts）。E-7 的「进程内前提」声明就此废止；
  * 超时（默认 5s，持有进程活着但迟迟不放——理论上是文件 IO 级毫秒争用）上抛由
- * 调用方降级（runner recordUsageSafe warn 留痕，少记一次由预算闸保守口径兜底）。 */
+ * 调用方降级（runner recordUsageSafe warn 留痕，少记一次由预算闸保守口径兜底）。
+ * R30-3（三十轮）：锁等待改异步轮询（争用窗口事件循环不冻结），无争用快路保持
+ * 同步直行（见 writeWithCrossProcessLock 注）。 */
 export const AI_CALLS_MUTEX_SCOPE_NOTE =
-  'ai-calls.json 互斥为进程内队列 + 跨进程文件锁（J7 已落地，fs/cross-process-lock.ts）：写段在 bookRoot/.cache/ai-calls.lock 上限时互斥，超时上抛由调用方降级留痕'
+  'ai-calls.json 互斥为进程内队列 + 跨进程文件锁（J7 已落地，fs/cross-process-lock.ts；R30-3 等待改异步轮询）：写段在 bookRoot/.cache/ai-calls.lock 上限时互斥，超时上抛由调用方降级留痕'
 
-function serializedWrite(bookRoot: string, doWrite: () => void): void {
+/** 读改写互斥队列（per-bookRoot）。返回 undefined = 已同步完成；Promise = 在途写段
+ *  （R30-3：锁被占时的异步等待，调用方无需 await——失败由旁挂 warn 留痕） */
+function serializedWrite(bookRoot: string, doWrite: () => void): void | Promise<void> {
   const prev = writeChains.get(bookRoot)
   if (prev === undefined) {
-    // 空闲快路：同步原子完成（J7：跨进程锁内执行——load→mutate→write 整段互斥，
-    // 双进程同书记账不再交错覆盖丢账）
-    writeWithCrossProcessLock(bookRoot, doWrite)
+    // 空闲快路：无争用时同步原子完成（J7：跨进程锁内执行——load→mutate→write 整段互斥，
+    // 双进程同书记账不再交错覆盖丢账；同步错误同步上抛，rag recordEmbedUsage / runner
+    // recordUsageSafe 的既有同步 try/catch 口径不变）。R30-3（三十轮）：锁被占时
+    // writeWithCrossProcessLock 返回在途 promise（异步轮询等待）——此处临时入链让后续
+    // 写者排队其后（保调用序 = 落盘序），失败走下方旁挂留痕（调用方拿不到同步 throw）。
+    const r = writeWithCrossProcessLock(bookRoot, doWrite)
+    if (r === undefined) return
+    writeChains.set(bookRoot, r)
+    const cleanupInflight = (): void => {
+      if (writeChains.get(bookRoot) === r) writeChains.delete(bookRoot)
+    }
+    // R61-7（第六十一轮）口径沿用：在途写段失败旁挂 warn 留痕（少记一次可从日志发现）；
+    // 旁挂 rejection handler 同时向运行时标记「已处理」，防 unhandled rejection
+    void r.then(cleanupInflight, (e: unknown) => {
+      log.warn('ai-calls', `记账写段等待跨进程锁后失败（本轮账目缺失）：${e instanceof Error ? e.message : String(e)}`)
+      cleanupInflight()
+    })
     return
   }
   const next = prev.catch(() => {}).then(() => writeWithCrossProcessLock(bookRoot, doWrite))
@@ -265,19 +290,40 @@ export function __setAiCallsLockTimeoutForTest(ms: number): void {
   AI_CALLS_LOCK_TIMEOUT_MS = ms
 }
 
-function writeWithCrossProcessLock(bookRoot: string, doWrite: () => void): void {
+/** R30-3（三十轮）：跨进程锁获取——无争用快路同步持锁直行（tryAcquire 即得，写段为
+ *  文件 IO 级毫秒，同步原子完成后返回 undefined，既有「记完即读」语义逐位不变）；
+ *  锁被占时改用 acquireCrossProcessLockAsync 异步轮询等待（setTimeout 微睡、事件循环
+ *  不阻塞）——CLI+桌面双进程争用时承载 SSE/全部接口的服务进程不再被 Atomics.wait
+ *  同步微睡冻结至超时。同步/异步获取对同一把锁互通互斥（fs/cross-process-lock.ts 同源
+ *  tryAcquireCrossProcessLock）。返回 undefined = 已同步完成（含同步抛错）；Promise =
+ *  在途写段（超时/写失败以 rejection 表达， serializedWrite 旁挂留痕）。
+ *  inWriteSegment 进程内串行化语义不变：标志在 doWrite 同步执行段两侧置/清，等待期
+ *  （标志为 false）与执行段（标志为 true）对 readRecord 的可观测口径与旧实现一致。 */
+function writeWithCrossProcessLock(bookRoot: string, doWrite: () => void): void | Promise<void> {
   const lockPath = `${budgetPath(bookRoot)}.lock`
-  const release = acquireCrossProcessLockWithTimeout(lockPath, AI_CALLS_LOCK_TIMEOUT_MS)
-  if (!release) {
-    throw new Error(`ai-calls 跨进程锁获取超时（${lockPath}）——本轮账目未记，避免与其他进程交错覆盖丢账`)
+  const fast = tryAcquireCrossProcessLock(lockPath)
+  if (fast) {
+    try {
+      inWriteSegment = true
+      doWrite()
+      return
+    } finally {
+      inWriteSegment = false
+      fast()
+    }
   }
-  try {
-    inWriteSegment = true
-    doWrite()
-  } finally {
-    inWriteSegment = false
-    release()
-  }
+  return acquireCrossProcessLockAsync(lockPath, AI_CALLS_LOCK_TIMEOUT_MS).then((release) => {
+    if (!release) {
+      throw new Error(`ai-calls 跨进程锁获取超时（${lockPath}）——本轮账目未记，避免与其他进程交错覆盖丢账`)
+    }
+    try {
+      inWriteSegment = true
+      doWrite()
+    } finally {
+      inWriteSegment = false
+      release()
+    }
+  })
 }
 
 /** 预算判定（D3 批 5 起三口径：次数 / tokens / cost）：任一超限 → ok=false + 人话提示

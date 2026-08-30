@@ -400,6 +400,36 @@ describe('doc store · refresh 净分支 sha256 窗口竞态（ee-P1-7）', () =
   })
 })
 
+// ── R30-7（三十轮）：refresh 返回值 Promise<boolean>（HistoryPanel 恢复分流依据）──
+
+describe('doc store · refresh 返回值（R30-7）', () => {
+  it('成功（净分支对齐磁盘）→ true', async () => {
+    const doc = await openDoc('d1', '写作/正文/第1章-x.md', '旧内容')
+    vi.mocked(getContent).mockResolvedValueOnce('服务端内容')
+    await expect(doc.refresh('d1')).resolves.toBe(true)
+  })
+
+  it('成功（dirty 分支保本地正文、只取服务端 fm）→ true', async () => {
+    const doc = await openDoc('d1', '写作/正文/第1章-x.md', '---\n标题: 旧\n---\n\n旧正文')
+    doc.patch('d1', '---\n标题: 旧\n---\n\n本地编辑')
+    vi.mocked(getContent).mockResolvedValueOnce('---\n标题: 新\n---\n\n服务端正文')
+    await expect(doc.refresh('d1')).resolves.toBe(true)
+  })
+
+  it('失败（getContent 拒绝）→ false 且不上抛（吞错语义不变），内容不被半途改动', async () => {
+    const doc = await openDoc('d1', '写作/正文/第1章-x.md', '旧内容')
+    vi.mocked(getContent).mockRejectedValueOnce(new Error('network down'))
+    await expect(doc.refresh('d1')).resolves.toBe(false)
+    expect(doc.get('d1')!.content).toBe('旧内容')
+    expect(doc.get('d1')!.baselineRevision).toBe(await sha256Revision('旧内容'))
+  })
+
+  it('条目不存在（未打开/被驱逐）→ false', async () => {
+    const doc = await openDoc('d1', '写作/正文/第1章-x.md', 'x')
+    await expect(doc.refresh('missing')).resolves.toBe(false)
+  })
+})
+
 describe('P5-前端（第七轮）：save 在途切书 → 成功分支不写新书树/不弹新书 toast', () => {
   it('bookName 已切 → updateWordCount 不被调用', async () => {
     const { useTreeStore } = await import('../../../src/studio/web-next/src/stores/tree')

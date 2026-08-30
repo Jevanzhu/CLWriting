@@ -32,16 +32,10 @@ export interface ChapterLeadUpdate {
  * 行格式：`- <编号> <动词>：<证据>`（冒号支持全角/半角；非列表行忽略）。
  * 首行约定 `# 第N章 账本推进`（X-P2-6 章节标签，解析时忽略；旧文件无标签同样兼容）。
  */
-// R66-15（十四轮）：R65-24 统一后生产链全部走 readChapterUpdatesForChapter（ff-P1-1
-// 单源，主文件+归档两源），本「整文件视角」封装零生产调用——仅 test/process/** 直测
-// 引用；该测试目录不在本修复批可改范围，故先标注测试专用、删除随其测试迁移收口。
-export function readChapterLeadUpdates(bookRoot: string): ChapterLeadUpdate[] {
-  // 注意：只读主文件、不分章——仅用于「整文件视角」的调用方；定稿闸与履历回写
-  // 一律走 readChapterUpdatesForChapter（ff-P1-1 单源，含归档）。
-  return readLeadUpdatesAt(join(bookRoot, LEAD_UPDATES_FILE))
-}
-
-/** 读指定路径的账本推进文件（无文件/空/读失败 → []）。 */
+/** 读指定路径的账本推进文件（无文件/空/读失败 → []）。
+ *  R30-17（三十轮）：原「整文件视角」封装 readChapterLeadUpdates（bookRoot → 主文件）
+ *  零生产调用（R66-15 登记的死代码）已删除——生产链统一走 readChapterUpdatesForChapter
+ *  （ff-P1-1 单源，主文件+归档两源），文件级读取统一走本函数。 */
 export function readLeadUpdatesAt(absPath: string): ChapterLeadUpdate[] {
   if (!existsSync(absPath)) return []
   let text: string

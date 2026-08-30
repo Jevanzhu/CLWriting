@@ -18,7 +18,6 @@ import ChapterMetaDialog from '../../../src/studio/web-next/src/components/panel
 import CreateBookModal from '../../../src/studio/web-next/src/components/ui/CreateBookModal.vue'
 import SearchPanel from '../../../src/studio/web-next/src/components/panels/SearchPanel.vue'
 import { search } from '../../../src/studio/web-next/src/api/search'
-import { useTreeStore } from '../../../src/studio/web-next/src/stores/tree'
 import type { TreeNode } from '../../../src/studio/web-next/src/types/tree'
 
 vi.mock('../../../src/studio/web-next/src/api/search', () => ({

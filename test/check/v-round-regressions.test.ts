@@ -179,7 +179,7 @@ test('R61-14: 账本推进章标签与被检章不一致 → 实际侧置空；�
     expect(leadUpdatesInScopeForChapter(root, 2)).toBe(true) // 旧书无标签 → 宽容沿用
 
     rmSync(join(root, '工作区', '账本推进.md'))
-    expect(leadUpdatesInScopeForChapter(root, 2)).toBe(true) // 无文件（无标签同判）→ 沿用（readChapterLeadUpdates 返回 []，空集无害）
+    expect(leadUpdatesInScopeForChapter(root, 2)).toBe(true) // 无文件（无标签同判）→ 沿用（R30-17：读取端为 readChapterUpdatesForChapter，返回 [] 空集无害）
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

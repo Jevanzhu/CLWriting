@@ -9,7 +9,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
-import { acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
+import { acquireCrossProcessLockWithTimeout, acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 
 /** 清单条目：身份 + 排序投影。folder 无 status。 */
 export interface ManifestEntry {
@@ -206,12 +206,17 @@ export function writeManifest(filePath: string, manifest: Manifest): void {
  * 事故在争用高峰复现）。持锁段为「读清单 + 整写」的文件 IO 级毫秒，但争用可排队
  * （多 contender），5s 与全仓锁基建的最长等待档一致（busy_timeout 5000 同源）。
  * 测试注入缩短保快。
+ * R30-18（三十轮）：常量化——export let 可被任一 import 方静默改写（同 events/store.ts
+ * R26-105 的收口认定），改 const + 内部可变生效值；测试只能经注入钩子改档，生产恒用常量。
  */
-export let MANIFEST_LOCK_TIMEOUT_MS = 5_000
+export const MANIFEST_LOCK_TIMEOUT_MS = 5_000
+
+/** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改。 */
+let manifestLockTimeoutMs = MANIFEST_LOCK_TIMEOUT_MS
 
 /** 测试注入钩子（生产零调用）。 */
 export function __setManifestLockTimeoutForTest(ms: number): void {
-  MANIFEST_LOCK_TIMEOUT_MS = ms
+  manifestLockTimeoutMs = ms
 }
 
 /** 进程内已持锁登记（manifestPath → 重入计数 + release）——计数式可重入防自锁：
@@ -246,7 +251,7 @@ export function withManifestLock<T>(manifestPath: string, fn: () => T): T {
   // R73-33：有界重试（共 2 轮 × 5s）后 fail-closed 抛错
   const lockPath = `${manifestPath}.lock`
   for (let attempt = 0; ; attempt++) {
-    const release = acquireCrossProcessLockWithTimeout(lockPath, MANIFEST_LOCK_TIMEOUT_MS)
+    const release = acquireCrossProcessLockWithTimeout(lockPath, manifestLockTimeoutMs)
     if (release) {
       heldManifestLocks.set(manifestPath, { depth: 1, release })
       try {
@@ -258,9 +263,51 @@ export function withManifestLock<T>(manifestPath: string, fn: () => T): T {
     }
     if (attempt >= 1) {
       throw new Error(
-        `清单锁获取超时（另一进程持锁 ${MANIFEST_LOCK_TIMEOUT_MS}ms × 2 轮未让出：${manifestPath}）——已拒绝本次清单写入以防并发覆盖丢失，请稍后重试`,
+        `清单锁获取超时（另一进程持锁 ${manifestLockTimeoutMs}ms × 2 轮未让出：${manifestPath}）——已拒绝本次清单写入以防并发覆盖丢失，请稍后重试`,
       )
     }
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50)
+  }
+}
+
+/**
+ * R30-6（三十轮）：清单 RMW 互斥段的异步孪生——等待期改 setTimeout 轮询（事件循环
+ * 不阻塞），供承载 SSE/全部接口的服务进程保存链（executeSave → maybeUpdateManifest）
+ * 在双进程争用窗口内保持可响应。语义与同步版逐位对齐：超时档（2 轮 × 生效档 + 50ms
+ * 间隔）不变、fail-closed 抛错不变、错误文案同源、锁文件同源（同步/异步获取者互通互斥）。
+ * 进程内重入沿用 heldManifestLocks 计数：持锁后执行的 fn 与同步版同样**全程同步无
+ * await**（读改写为同步 FS 调用），单线程下持锁段不会与他调用交错，重入计数语义不变；
+ * await 只出现在取锁等待期（此刻未持锁、未登记 map，不产生伪重入）。
+ * 其余不在异步链上的调用方保持同步版不动。
+ */
+export async function withManifestLockAsync<T>(manifestPath: string, fn: () => T): Promise<T> {
+  const held = heldManifestLocks.get(manifestPath)
+  if (held) {
+    held.depth++
+    try {
+      return fn()
+    } finally {
+      held.depth--
+    }
+  }
+  const lockPath = `${manifestPath}.lock`
+  for (let attempt = 0; ; attempt++) {
+    const release = await acquireCrossProcessLockAsync(lockPath, manifestLockTimeoutMs)
+    if (release) {
+      heldManifestLocks.set(manifestPath, { depth: 1, release })
+      try {
+        return fn()
+      } finally {
+        heldManifestLocks.delete(manifestPath)
+        release()
+      }
+    }
+    if (attempt >= 1) {
+      throw new Error(
+        `清单锁获取超时（另一进程持锁 ${manifestLockTimeoutMs}ms × 2 轮未让出：${manifestPath}）——已拒绝本次清单写入以防并发覆盖丢失，请稍后重试`,
+      )
+    }
+    // 同步版的 50ms 吸收间隔对应改异步睡（不阻塞事件循环）
+    await new Promise<void>((resolve) => setTimeout(resolve, 50))
   }
 }

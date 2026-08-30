@@ -65,7 +65,12 @@ export function checkPieceListForm(list: PieceList): CheckSectionResult {
       message: '情绪曲线缺少反转段，情绪峰值无锚点',
     })
   }
-  if (realCurve.length > 0 && Math.max(...realCurve.map((p) => p.强度)) < 8) {
+  // R30-14（三十轮）：realCurve 混入 NaN/Infinity 强度时 Math.max 得 NaN，`NaN < 8`
+  // 恒 false → emotion-curve-peak-low 漏判。计算前过滤非有限值：非 1-10 强度（含非
+  // 有限）已由上方 emotion-curve-strength 黄项兜底回报，本处只管「有效强度里的峰值」；
+  // 过滤后为空 → Math.max() 得 -Infinity < 8 照报（fail-noisy：曲线全坏不静默放行）。
+  const finiteStrengths = realCurve.map((p) => p.强度).filter((s) => Number.isFinite(s))
+  if (realCurve.length > 0 && Math.max(...finiteStrengths) < 8) {
     items.push({
       checkId: 'emotion-curve-peak-low',
       level: 'yellow',

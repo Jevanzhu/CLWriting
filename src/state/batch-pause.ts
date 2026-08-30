@@ -23,12 +23,17 @@ function pausePath(bookRoot: string): string {
   return join(bookRoot, '工作区', '待定稿', '.auto-batch.json')
 }
 
-/** R73-41 锁等待档（毫秒）：观测元数据，短等即降级（绝不挡写稿主线）。 */
-export let PAUSE_LOCK_TIMEOUT_MS = 2_000
+/** R73-41 锁等待档（毫秒）：观测元数据，短等即降级（绝不挡写稿主线）。
+ *  R30-18（三十轮）：常量化——export let 可被任一 import 方静默改写（同 events/store.ts
+ *  R26-105 的收口认定），改 const + 内部可变生效值；测试只能经注入钩子改档，生产恒用常量。 */
+export const PAUSE_LOCK_TIMEOUT_MS = 2_000
+
+/** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改。 */
+let pauseLockTimeoutMs = PAUSE_LOCK_TIMEOUT_MS
 
 /** 测试注入钩子（生产零调用）。 */
 export function __setBatchPauseLockTimeoutForTest(ms: number): void {
-  PAUSE_LOCK_TIMEOUT_MS = ms
+  pauseLockTimeoutMs = ms
 }
 
 /**
@@ -41,7 +46,7 @@ export function __setBatchPauseLockTimeoutForTest(ms: number): void {
  */
 function withPauseLock<T>(bookRoot: string, fn: () => T): T {
   const lockPath = pausePath(bookRoot) + '.lock'
-  const release = acquireCrossProcessLockWithTimeout(lockPath, PAUSE_LOCK_TIMEOUT_MS)
+  const release = acquireCrossProcessLockWithTimeout(lockPath, pauseLockTimeoutMs)
   if (!release) {
     log.warn('batch-pause', `.auto-batch 锁超时，降级无锁读改写（${lockPath}）——并发窗口回到后写胜口径`)
     return fn()

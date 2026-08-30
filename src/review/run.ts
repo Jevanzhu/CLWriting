@@ -61,9 +61,12 @@ export interface ReviewExecutionPacket {
   fallback: string
   downgrade_reason?: string
   lenses_run: ReviewLens[]
-  /** 预计 AI 调用次数（满审/顺序审=3，合审=1） */
+  /** 预计 AI 调用次数。R30-16（三十轮）注释改正：已改按 lenses 动态——
+   *  满审/顺序审 = 实际视角数（lenses_run.length，长篇 2-3、短篇 5），合审 = 1
+   *  （contract.selectReviewTier V-P1-8 口径，不再硬编码 3） */
   planned_calls: number
-  /** 各视角分包（满审/顺序审=3 份独立；合审=1 份合并） */
+  /** 各视角分包。R30-16（三十轮）注释改正：份数按 lenses 动态——满审/顺序审 =
+   *  lenses_run.length 份独立（不再是硬编码 3 份）；合审 = 1 份合并 */
   packets: ReviewLensPacket[]
   /** 输出目录：宿主把各视角 issues JSON 回写到此处 */
   out_dir: string

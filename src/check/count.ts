@@ -295,9 +295,44 @@ const DIALOGUE_TAG_RE = new RegExp(
   'u',
 )
 
+/** R30-2（三十轮）：纯汉字名判定（名册侧名字过滤用，区间与候选抽取同源 HANZI）。 */
+const ROSTER_NAME_RE = new RegExp(`^[${HANZI}]{2,4}$`)
+
+/**
+ * R30-2（三十轮）：名册文本 → 已登记名字数组（checkNewNames 精确判重专用）。
+ *
+ * 单源指向：grep src/check/ 无现成名册解析器（checkNewNames 此前直接对名册**全文**
+ * 做 includes 粗匹配；src/ai/rules/setting-rule.ts 的名册面同为全文粗匹配口径），
+ * 故按名册格式（行/顿号分隔，兼容 `已登记：A、B`、`- 已登记：A、B`、`### A` 等仓内
+ * 既有形态）在本文件局部实现本解析，作为 check 域名册判重单源；setting-rule 的
+ * 粗匹配口径不属本批可改范围，维持现状。
+ *
+ * 逐行剥 ATX 标题/列表前缀/括注（「云澈（主角）」→「云澈」），再按顿号/逗号/分号/
+ * 冒号/斜杠/空白劈分；只收 2-4 字纯汉字 token（与候选抽取窗一致，说明性词汇
+ * 「身份/动机」等字段名即便混入也只是多登记而无害——精确全等比对不会吞掉他名）。
+ */
+function parseRosterNames(roster: string): string[] {
+  const names: string[] = []
+  for (const rawLine of roster.split(/\r?\n/)) {
+    const cleaned = rawLine
+      .replace(/^#{1,6}\s*/, '') // ATX 标题
+      .replace(/^[-*+]\s*/, '') // 无序列表
+      .replace(/^\d+[.)、]\s*/, '') // 有序列表
+      .replace(/[（(][^）)]*[）)]/g, '') // 括注
+    for (const token of cleaned.split(/[、，,;；:：/／\s]+/)) {
+      if (token && ROSTER_NAME_RE.test(token)) names.push(token)
+    }
+  }
+  return names
+}
+
 /**
  * 新专名比对名册（#10 项 10，🟡 黄）。
  * 新专名 vs 名册.md，未登记 → 候选（不自动入册）。
+ * R30-2（三十轮）：判重口径由「名册全文 includes」改为「已登记名字集合精确全等」
+ * ——全文 includes 在名册更长名字包含候选（「林晚晴」⊃「林晚」）时误判已登记，
+ * 独立新角色漏报；现按 parseRosterNames 解析出的名字数组逐名比对，候选与已登记名
+ * 完全同名才算已登记。名册缺失/读失败路径不变（见下）。
  */
 export function checkNewNames(
   body: string,
@@ -322,6 +357,8 @@ export function checkNewNames(
       ],
     }
   }
+  // R30-2（三十轮）：名册文本解析为已登记名字数组（精确判重，见 parseRosterNames）
+  const registeredNames = parseRosterNames(roster)
   // 粗抽：2-4 字中文专名候选（带引号或书名号的优先）
   const candidates = new Set<string>()
   const spanRe = new RegExp(QUOTED_SPAN_RE.source, 'g')
@@ -371,7 +408,9 @@ export function checkNewNames(
       if (DIALOGUE_GUIDE_RE.test(line.slice(0, span.index ?? 0).trimEnd())) continue
       const name = q.replace(punctRe, '')
       if (name.length < 2 || name.length > 4) continue
-      if (!roster.includes(name)) candidates.add(name)
+      // R30-2（三十轮）：精确全等判重（见 parseRosterNames/函数头注）——
+      // 原 roster.includes(name) 是名册全文子串判定，长名吞短名致独立新角色漏报
+      if (!registeredNames.includes(name)) candidates.add(name)
     }
   }
   for (const name of candidates) {

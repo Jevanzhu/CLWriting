@@ -24,6 +24,8 @@ export function redactSecret(text: string): string {
     .replace(/([?&](?:api[_-]?key|key|token|access[_-]?key|authorization)=)[^&\s#]+/gi, '$1***REDACTED***')
     .replace(/((?:Bearer|x-api-key)[:\s]+)[A-Za-z0-9\-._~+/=]+/gi, '$1***REDACTED***')
     .replace(/\b(?:sk-|sk-ant-|xai-|sk_|gsk_|hf_|glpat-|ghp_)[A-Za-z0-9\-_]{16,}/g, '***REDACTED***')
+    // R30-11（三十轮）登记维持：智谱 key 形态无前缀特征，本正则会误伤正文中同形的
+    // 「32 位 hex.32 位 hex」hash 对——过度脱敏是保守方向（宁多勿漏），维持不修。
     .replace(/\b[0-9a-fA-F]{32}\.[0-9a-fA-F]{32}\b/g, '***REDACTED***')
     .replace(/\bAIza[A-Za-z0-9_\-]{35}\b/g, '***REDACTED***')
 }

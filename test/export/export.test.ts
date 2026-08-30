@@ -89,7 +89,7 @@ test('exportBook: 长篇多章 both 导出（merged + split）', () => {
     expect(merged.indexOf('第一章')).toBeLessThan(merged.indexOf('第二章'))
     expect(merged).toContain('---') // 章间分隔线
 
-    // split：按章号数值排序 + 3 位补零文件名（长短统一）
+    // split：按章号数值排序 + 4 位补零文件名（长短统一；R69-22 对齐正文写侧）
     expect(r.files.some((f) => f.includes('分章/0001-第一章.md'))).toBe(true)
     expect(r.files.some((f) => f.includes('分章/0002-第二章.md'))).toBe(true)
   } finally {
@@ -121,7 +121,7 @@ test('exportBook: 短篇分支产全本 + 分章 + 投稿视图', () => {
     expect(r.files.some((f) => f.includes('投稿视图-短篇集.md'))).toBe(true)
     // merged 文件名为「全本-」前缀
     expect(r.files.some((f) => f.includes('全本-短篇集.md'))).toBe(true)
-    // split 目录为「分章」+ 3 位补零
+    // split 目录为「分章」+ 4 位补零（R69-22 对齐正文写侧）
     expect(r.files.some((f) => f.includes('分章/0001-雪夜.md'))).toBe(true)
   } finally {
     rmSync(root, { recursive: true, force: true })

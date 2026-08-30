@@ -17,7 +17,7 @@ import { existsSync, rmSync, readFileSync } from 'node:fs'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { join } from 'node:path'
 import { readLead, readLeadDir, writeLead, LEAD_TYPES, LEAD_VERBS } from '../format/leads.js'
-import { acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
+import { acquireCrossProcessLockWithTimeout, acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 import { log } from '../log/index.js'
 import { isUtf8Bytes } from './service.js'
 import {
@@ -34,43 +34,177 @@ export { LEAD_UPDATES_FILE, LEAD_UPDATES_ARCHIVE_DIR }
 /**
  * R26-6（二十六轮）：布线回写临界段跨进程锁等待（毫秒）——单条履历回写的持锁段是
  * 毫秒级文件 IO，5s 与全仓锁基建最长等待档同源（manifest/journal/save 同档）。
- * let + 注入钩子（lead-update-draft LEAD_UPDATE_LOCK_TIMEOUT_MS 同款惯例，测试注入
- * 缩短保快，生产零调用）。
+ * R30-18（三十轮）：常量化——export let 可被任一 import 方静默改写（同 events/store.ts
+ * R26-105 的收口认定），改 const + 内部可变生效值；测试只能经注入钩子改档，生产恒用常量。
  */
-export let LEAD_FINALIZE_LOCK_TIMEOUT_MS = 5_000
+export const LEAD_FINALIZE_LOCK_TIMEOUT_MS = 5_000
+
+/** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改。 */
+let leadFinalizeLockTimeoutMs = LEAD_FINALIZE_LOCK_TIMEOUT_MS
+
 export function __setLeadFinalizeLockTimeoutForTest(ms: number): void {
-  LEAD_FINALIZE_LOCK_TIMEOUT_MS = ms
+  leadFinalizeLockTimeoutMs = ms
+}
+
+/**
+ * R30-5（三十轮）：本章待回写条目与其目标布线文件的解析结果——定稿布线预取锁与
+ * 持锁核心共用的同一份数据（防两处各自解析漂移）。
+ */
+export interface LeadUpdateTargets {
+  mainPath: string
+  archivePath: string
+  mainIsThisChapter: boolean
+  /** 本章全部待确认条目（消费顺序与旧实现一致）。 */
+  updates: ChapterLeadUpdate[]
+  /** leadId → 目标布线文件绝对路径（查无此线的条目不在表内）。 */
+  files: Map<string, string>
+}
+
+/** 布线目录：基础类在 布线/{类}，关系线在 大纲/关系线（与 cache/rebuild.ts 同口径）。 */
+function wiringDirs(bookRoot: string): string[] {
+  const dirs: string[] = []
+  for (const typeName of LEAD_TYPES) {
+    const root = typeName === '关系线' ? join(bookRoot, '大纲') : join(bookRoot, '布线')
+    dirs.push(join(root, typeName))
+  }
+  return dirs
+}
+
+/**
+ * R30-5（三十轮）：解析本章待回写条目与全部目标布线文件（不取锁，纯读）。
+ * 定稿路径在进入清单锁**之前**调它来预取布线锁；自取锁包装层也用它确定要取的锁集。
+ */
+export function resolveLeadUpdateTargets(bookRoot: string, chapterNo: number): LeadUpdateTargets {
+  // ff-P1-1：读取走 readChapterUpdatesForChapter 单源（主文件属于本章时 + 本章归档）——
+  // 与定稿闸（finalize.ts finalGateBlockers）严格对称，闸看到的=回写要写的；
+  // 主文件载有其他章待确认内容（批量连写）时不动它。
+  const { mainPath, archivePath, mainIsThisChapter } = chapterUpdateSources(bookRoot, chapterNo)
+  const updates = readChapterUpdatesForChapter(bookRoot, chapterNo)
+  const files = new Map<string, string>()
+  if (updates.length > 0) {
+    const dirs = wiringDirs(bookRoot)
+    for (const u of updates) {
+      const leadFile = findLeadFile(dirs, u.leadId)
+      if (leadFile) files.set(u.leadId, leadFile.filePath)
+    }
+  }
+  return { mainPath, archivePath, mainIsThisChapter, updates, files }
+}
+
+/**
+ * R30-5（三十轮）：对全部目标布线文件预取同名锁（`<布线文件>.lock`）。
+ * 文件按路径排序后逐个取——多文件批次内取序确定化，双进程各自成批时不因批次内
+ * 取序不同互等（批量内自成环）。任一文件取不到（超时/获取抛出→按超时同通道）→
+ * 释放已取得者并返回 null（fail-closed，绝不部分持锁裸写）。
+ * 同步版给 finalizeRevision（同步孪生），异步版（R30-6）给 finalizeRevisionAsync /
+ * 自取锁包装——异步等待期 setTimeout 轮询，不阻塞事件循环。
+ */
+
+/** 同步预取：全部成功 → release 列表；任一失败 → 释放已取得者并返回 null。 */
+export function acquireLeadFileLocksSync(files: Iterable<string>): (() => void)[] | null {
+  const releases: (() => void)[] = []
+  for (const f of [...new Set(files)].sort()) {
+    let release: (() => void) | null
+    try {
+      release = acquireCrossProcessLockWithTimeout(`${f}.lock`, leadFinalizeLockTimeoutMs)
+    } catch (e) {
+      log.warn('lead-finalize', `布线锁获取失败（${f}.lock）：${e instanceof Error ? e.message : String(e)}`)
+      release = null
+    }
+    if (!release) {
+      for (const r of releases) r()
+      return null
+    }
+    releases.push(release)
+  }
+  return releases
+}
+
+/** 异步预取（R30-6）：语义与同步版逐位对齐，等待期 setTimeout 轮询不阻塞事件循环。 */
+export async function acquireLeadFileLocksAsync(files: Iterable<string>): Promise<(() => void)[] | null> {
+  const releases: (() => void)[] = []
+  for (const f of [...new Set(files)].sort()) {
+    let release: (() => void) | null
+    try {
+      release = await acquireCrossProcessLockAsync(`${f}.lock`, leadFinalizeLockTimeoutMs)
+    } catch (e) {
+      log.warn('lead-finalize', `布线锁获取失败（${f}.lock）：${e instanceof Error ? e.message : String(e)}`)
+      release = null
+    }
+    if (!release) {
+      for (const r of releases) r()
+      return null
+    }
+    releases.push(release)
+  }
+  return releases
 }
 
 /**
  * 把已确认的账本推进回写布线履历（找到对应条目按 编号 追加履历行），
  * 成功回写后清空本章 账本推进.md / 本章归档。
  *
+ * R30-5（三十轮）拆层：本函数是**自取锁包装**（保留旧 applyLeadUpdates 语义，供
+ * 定稿链以外的直接调用方/测试使用）；持锁核心见 applyLeadUpdatesLocked。定稿路径
+ * （finalizeRevision/Async）不走本包装——它需在进入清单锁**之前**预取布线锁
+ * （统一锁序「布线锁 → 清单锁」，消 save↔finalize 的 ABBA 对），持锁后直接调核心，
+ * 不得在同进程内嵌套再取同名锁（本实现同进程嵌套取同名锁会等到超时失败）。
+ *
+ * 锁语义（原 R26-6/R29-7 注释的 R30-5 版）：对每个目标布线文件取同名跨进程短锁，
+ * 与 service.ts 三个写路径（executeSave/updateChapterMeta/updateDocMeta）在 save 锁内
+ * 取的同名锁互斥，覆盖（lost update）窗口闭合。批量条目改为**预取全部目标锁后再回写**
+ *（旧实现逐条取/放）：任一文件取不到锁 → 整批 fail-closed 拒绝（applied=0，条目全部
+ * 留本章源，下次定稿自动重试），不降级裸写——裸写正是本锁要闭合的覆盖形态。
+ * R30-6：取锁等待用 acquireCrossProcessLockAsync（setTimeout 轮询），不阻塞事件循环。
+ *
  * @param bookRoot 书仓库根
  * @param chapterNo 定稿章号（履历行「第N章」）
- * @returns 回写条数（无账本推进文件 → 0）
+ * @returns 回写条数（无账本推进文件 / 全部条目未回写 → 0）
  */
-export function applyLeadUpdates(bookRoot: string, chapterNo: number): number {
-  // ff-P1-1：读取走 readChapterUpdatesForChapter 单源（主文件属于本章时 + 本章归档）——
-  // 与定稿闸（finalize.ts finalGateBlockers）严格对称，闸看到的=回写要写的；
-  // 主文件载有其他章待确认内容（批量连写）时不动它。
-  const { mainPath, archivePath, mainIsThisChapter } = chapterUpdateSources(bookRoot, chapterNo)
-  const updates: ChapterLeadUpdate[] = readChapterUpdatesForChapter(bookRoot, chapterNo)
-  if (updates.length === 0) return 0
-
-  // 布线目录：基础类在 布线/{类}，关系线在 大纲/关系线（与 cache/rebuild.ts 同口径）
-  const dirs: string[] = []
-  for (const typeName of LEAD_TYPES) {
-    const root = typeName === '关系线' ? join(bookRoot, '大纲') : join(bookRoot, '布线')
-    dirs.push(join(root, typeName))
+export async function applyLeadUpdates(bookRoot: string, chapterNo: number): Promise<number> {
+  const targets = resolveLeadUpdateTargets(bookRoot, chapterNo)
+  if (targets.updates.length === 0) return 0
+  const releases = await acquireLeadFileLocksAsync(targets.files.values())
+  if (releases === null) {
+    // 整批 fail-closed：applied=0，按既有 X-P2-6 语义不动本章源（条目本就在盘上，
+    // 作者原文原样保留，下次定稿自动重试）；warn 留痕让「锁争用导致本次未回写」可观测。
+    log.warn(
+      'lead-finalize',
+      `布线回写锁等待超时（${leadFinalizeLockTimeoutMs}ms 未全部让出）——本章 ${targets.updates.length} 条账本推进整批留源未回写，下次定稿自动重试`,
+    )
+    return 0
   }
+  try {
+    return applyLeadUpdatesLocked(chapterNo, targets)
+  } finally {
+    for (const r of releases) r()
+  }
+}
 
+/**
+ * R30-5（三十轮）：**持锁核心**——执行履历回写 + 本章源清理，不取任何锁。
+ * 前置契约：调用方已持有 targets.files 中全部布线文件的同名布线锁
+ *（定稿路径 = finalize 在进清单锁前的预取锁；直接调用方 = applyLeadUpdates 包装层）。
+ * 核心内禁止再取同名锁：同进程嵌套取同名锁会等到超时失败。锁内重读语义保留：
+ * 每个布线文件的内容在写入前重读（readLead）——预取锁窗口内他进程可能已改写该线，
+ * 预解析时的 lead 内容作废，读→改→写全程在锁内，lost update 窗口闭合。
+ *
+ * 锁序说明（替代原 lead-finalize.ts:81-90 R26-6/R29-7 注释）：全仓统一锁序为
+ * 「save 锁 → 布线锁 → 清单锁」——service 保存链持 save 锁后取布线锁、再进清单锁
+ *（maybeUpdateManifest）；定稿链先取布线锁（本文件预取助手）、再进清单锁
+ *（finalize.ts）。两侧同名布线锁互斥，且对清单锁的获取序一致，R30-5 之前的
+ * 「定稿持清单锁再取布线锁」反向交叉对（与保存链构成 ABBA 等待）已消除。
+ */
+export function applyLeadUpdatesLocked(
+  chapterNo: number,
+  targets: LeadUpdateTargets,
+): number {
   let applied = 0
   /** M-6 通道扩展（R26-6）：未回写条目带原因——警告文本按原因给准确的处置指引。 */
-  const unresolved: { u: ChapterLeadUpdate; why: 'not-found' | 'non-utf8' | 'lock-timeout' }[] = []
-  for (const u of updates) {
-    const leadFile = findLeadFile(dirs, u.leadId)
-    if (!leadFile) {
+  const unresolved: { u: ChapterLeadUpdate; why: 'not-found' | 'non-utf8' }[] = []
+  for (const u of targets.updates) {
+    const filePath = targets.files.get(u.leadId)
+    if (!filePath) {
       // M-6（第六轮）：查无此线不再随清空静默丢弃——此前混合场景（一条成功 + 一条查无）
       // 下 applied>0 触发整体清空，被跳过的推进无 issue、无提示永久丢失，违反「不得
       // 静默通过」红线（M5-C 同族）。改为写回本章源并留警告，作者可见可修，下次定稿
@@ -78,62 +212,39 @@ export function applyLeadUpdates(bookRoot: string, chapterNo: number): number {
       unresolved.push({ u, why: 'not-found' })
       continue
     }
-    // R26-6（二十六轮）：对单个布线文件的「读→改→写」临界段套跨进程短锁（J7 原语，
-    // 键 `<布线文件>.lock`，与 analysis.ts 的 `${filePath}.lock` 同款按文件锁惯例）。
-    // R29-7（二十九轮）注释如实化：R26-6 原文宣称防住「作者经 executeSave 保存同一
-    // 布线文件」，实际当时只有本侧持锁——保存侧的锁按该 doc 的 journal 命名，与本锁
-    // 互不感知，lost update（回写用旧正文覆盖作者刚保存的新正文）并未闭合。现
-    // service.ts 三个写路径（executeSave/updateChapterMeta/updateDocMeta）已在 save
-    // 锁内对本文件再取**同名锁**（save→file 单向嵌套），双侧同名锁互斥后该窗口真正
-    // 闭合；本侧仍只持 file 锁，无获取序环路。拿不到锁（超时）→ fail-closed：该条目
-    // 进 unresolved 留本章源 + 警告（M-6/ee-P1-4 同通道），不降级裸写——裸写正是本锁
-    // 要闭合的覆盖形态。锁只盖毫秒级文件读写段，不与本章源清理段嵌套（无获取序环路）。
-    const release = acquireCrossProcessLockWithTimeout(`${leadFile.filePath}.lock`, LEAD_FINALIZE_LOCK_TIMEOUT_MS)
-    if (!release) {
-      log.warn(
-        'lead-finalize',
-        `布线回写锁等待超时（${leadFile.filePath}.lock，${LEAD_FINALIZE_LOCK_TIMEOUT_MS}ms 未让出）——条目「${u.leadId} ${u.动词}」留本章源，下次定稿自动重试`,
-      )
-      unresolved.push({ u, why: 'lock-timeout' })
+    // 锁内重读（锁由调用方在持）：预解析窗口内他进程可能已改写该线——
+    // 读→改→写全程在锁内，lost update 窗口闭合
+    const reread = readLead(filePath)
+    if (!reread.ok) {
+      unresolved.push({ u, why: 'not-found' })
       continue
     }
-    try {
-      // 锁内重读：拿锁窗口内他进程可能已改写该线（findLeadFile 的解析在锁外，作废）——
-      // 读→改→写全程在锁内，lost update 窗口闭合
-      const reread = readLead(leadFile.filePath)
-      if (!reread.ok) {
-        unresolved.push({ u, why: 'not-found' })
-        continue
-      }
-      const lead = reread.lead
-      // 去重：同 章号+动词+证据 已在履历中（内容未变重复定稿）→ 跳过
-      const dup = lead.履历.some(
-        (e) => e.章号 === chapterNo && e.动词 === u.动词 && e.证据 === u.证据,
-      )
-      if (dup) continue
-      // M-9（第八轮）：定稿回写的编码防线——盘上非 UTF-8（如 GBK 布线文件，utf-8 读入
-      // 即乱码）时拒绝写回：线索文件不在快照留底范围、writeVersion 只为被定稿章建档，
-      // 原子写回即原始字节永久丢失（save/updateChapterMeta/updateDocMeta 三写点之后的
-      // 最后一个无留底写点）。与「查无此线」同通道：条目留本章源 + 警告，作者转码后
-      // 下次定稿自动重试（回写按 章号+动词+证据 幂等）。
-      if (!isUtf8Bytes(readFileSync(leadFile.filePath))) {
-        unresolved.push({ u, why: 'non-utf8' })
-        continue
-      }
-      lead.履历.push({ 章号: chapterNo, 动词: u.动词, 证据: u.证据 })
-      // X-P2-8：按动词派生状态（仅 进行中 → 终态；作者显式标注的终态/其他值不覆盖）。
-      // 成长线 resolve（突破/跨层/跃迁）是常态化升级，保持 进行中（与 checkStatusClosure 特判一致）。
-      const leadType = u.leadId.split('-')[0] as keyof typeof LEAD_VERBS
-      const verbs = LEAD_VERBS[leadType]
-      if (verbs && lead.状态 === '进行中') {
-        if (verbs.drop.includes(u.动词)) lead.状态 = '已放弃'
-        else if (verbs.resolve.includes(u.动词) && leadType !== '成长线') lead.状态 = '已收尾'
-      }
-      writeLead(leadFile.filePath, lead)
-      applied++
-    } finally {
-      release()
+    const lead = reread.lead
+    // 去重：同 章号+动词+证据 已在履历中（内容未变重复定稿）→ 跳过
+    const dup = lead.履历.some(
+      (e) => e.章号 === chapterNo && e.动词 === u.动词 && e.证据 === u.证据,
+    )
+    if (dup) continue
+    // M-9（第八轮）：定稿回写的编码防线——盘上非 UTF-8（如 GBK 布线文件，utf-8 读入
+    // 即乱码）时拒绝写回：线索文件不在快照留底范围、writeVersion 只为被定稿章建档，
+    // 原子写回即原始字节永久丢失（save/updateChapterMeta/updateDocMeta 三写点之后的
+    // 最后一个无留底写点）。与「查无此线」同通道：条目留本章源 + 警告，作者转码后
+    // 下次定稿自动重试（回写按 章号+动词+证据 幂等）。
+    if (!isUtf8Bytes(readFileSync(filePath))) {
+      unresolved.push({ u, why: 'non-utf8' })
+      continue
     }
+    lead.履历.push({ 章号: chapterNo, 动词: u.动词, 证据: u.证据 })
+    // X-P2-8：按动词派生状态（仅 进行中 → 终态；作者显式标注的终态/其他值不覆盖）。
+    // 成长线 resolve（突破/跨层/跃迁）是常态化升级，保持 进行中（与 checkStatusClosure 特判一致）。
+    const leadType = u.leadId.split('-')[0] as keyof typeof LEAD_VERBS
+    const verbs = LEAD_VERBS[leadType]
+    if (verbs && lead.状态 === '进行中') {
+      if (verbs.drop.includes(u.动词)) lead.状态 = '已放弃'
+      else if (verbs.resolve.includes(u.动词) && leadType !== '成长线') lead.状态 = '已收尾'
+    }
+    writeLead(filePath, lead)
+    applied++
   }
 
   // 回写完成后清空本章源（作者已确认并落库，防重复追加）；其他章待确认内容保持原样。
@@ -141,27 +252,27 @@ export function applyLeadUpdates(bookRoot: string, chapterNo: number): number {
   // applied=0 时不动文件——纯未解析场景条目本就在盘上，作者原文原样保留，X-P2-6 语义不变）。
   if (applied > 0) {
     const residue = unresolved.length > 0 ? unresolvedText(chapterNo, unresolved) : ''
-    if (mainIsThisChapter && existsSync(mainPath)) {
+    if (targets.mainIsThisChapter && existsSync(targets.mainPath)) {
       try {
         // dd-P3：统一原子写（目标虽是清空，也走 tmp+rename 消裸写窗口）
         // ee-P1-6：对齐账本写点 fsync 纪律（掉电回退由履历去重兜底，fsync 消除该窗口）
-        atomicWriteFile(mainPath, residue, { fsync: true })
+        atomicWriteFile(targets.mainPath, residue, { fsync: true })
       } catch {
         /* 清空失败不阻断定稿主流程 */
       }
-      if (existsSync(archivePath)) {
+      if (existsSync(targets.archivePath)) {
         try {
-          rmSync(archivePath, { force: true })
+          rmSync(targets.archivePath, { force: true })
         } catch {
           /* 归档清理失败不阻断定稿主流程 */
         }
       }
-    } else if (existsSync(archivePath)) {
+    } else if (existsSync(targets.archivePath)) {
       // 主文件载有其他章待确认内容（X-P2-6）——主文件不动；本章归档全兑现则删，
       // 有查无此线残留则改写为警告文本（不丢条目）
       try {
-        if (residue) atomicWriteFile(archivePath, residue, { fsync: true })
-        else rmSync(archivePath, { force: true })
+        if (residue) atomicWriteFile(targets.archivePath, residue, { fsync: true })
+        else rmSync(targets.archivePath, { force: true })
       } catch {
         /* 同上：失败不阻断定稿主流程 */
       }

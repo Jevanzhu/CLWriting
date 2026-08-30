@@ -14,7 +14,9 @@
  */
 import { readFileSync, mkdirSync, existsSync, chmodSync, copyFileSync, statSync } from 'node:fs'
 import { atomicWriteFile } from '../../fs/atomic.js'
-import { acquireCrossProcessLockWithTimeout } from '../../fs/cross-process-lock.js'
+// R30-3（三十轮）：锁等待改异步孪生 + 快路同步尝试——生成收尾路径（降级持久化等）与
+// 设置页保存在 CLI+桌面双进程争用窗口不再被 Atomics.wait 同步微睡冻结事件循环
+import { acquireCrossProcessLockAsync, tryAcquireCrossProcessLock } from '../../fs/cross-process-lock.js'
 import { dirname, join } from 'node:path'
 import type { ProviderConf, ModelConf, TierSlot, TierConfig, RagProviderConf } from './types.js'
 import { builtinKeyMaterial } from './vault-key.js'
@@ -319,10 +321,23 @@ export function __seedProvidersWriteChainForTest(userDataPath: string, pending: 
 export function saveProviders(userDataPath: string, store: ProviderStore): Promise<void> {
   const prev = writeChains.get(userDataPath)
   if (prev === undefined) {
-    // 空闲快路：同步原子完成（跨进程锁内——多进程同写 providers.json 不再交错覆盖）；
-    // IO 异常照旧同步上抛（R29-2：throw 路径保持 throw，await 侧 try/catch 同样接得住）
-    saveWithCrossProcessLock(userDataPath, store)
-    return Promise.resolve()
+    // 空闲快路：无争用时同步原子完成（跨进程锁内——多进程同写 providers.json 不再交错
+    // 覆盖）；IO 异常照旧同步上抛（R29-2：throw 路径保持 throw，await 侧 try/catch 同样
+    // 接得住）。R30-3（三十轮）：锁被占时 saveWithCrossProcessLock 返回在途 promise
+    //（异步轮询等待）——此处临时入链让后续写排队其后（保调用序 = 落盘序），并原样
+    // 返回给 await 方（失败随 promise 上抛）；旁挂分支防在途 rejection 无人接时变
+    // unhandled rejection + warn 留痕（R29-2 口径）。
+    const inflight = saveWithCrossProcessLock(userDataPath, store)
+    if (inflight === undefined) return Promise.resolve()
+    writeChains.set(userDataPath, inflight)
+    const cleanupInflight = (): void => {
+      if (writeChains.get(userDataPath) === inflight) writeChains.delete(userDataPath)
+    }
+    void inflight.then(cleanupInflight, (e: unknown) => {
+      log.warn('providers', `providers.json 写入失败（本次写未落盘）：${e instanceof Error ? e.message : String(e)}`)
+      cleanupInflight()
+    })
+    return inflight
   }
   const next = prev.catch(() => {}).then(() => saveWithCrossProcessLock(userDataPath, store))
   writeChains.set(userDataPath, next)
@@ -340,17 +355,34 @@ export function saveProviders(userDataPath: string, store: ProviderStore): Promi
   return next
 }
 
-function saveWithCrossProcessLock(userDataPath: string, store: ProviderStore): void {
+/** R30-3（三十轮）：跨进程锁获取——无争用快路同步持锁直行（tryAcquire 即得，写段为
+ *  文件 IO 级毫秒，同步原子完成后返回 undefined；R29-2「快路 IO 异常同步上抛」与
+ *  loadProviders 迁移写回的 R71-18 紧邻读回校验所依赖的「存完即读」逐位不变）；
+ *  锁被占时改用 acquireCrossProcessLockAsync 异步轮询等待（setTimeout 微睡、事件循环
+ *  不阻塞）——生成收尾路径与设置页保存在 CLI+桌面双进程争用时不再冻结承载 SSE/全部
+ *  接口的服务进程至超时。超时语义不变：5s 封顶、超时上抛（rejection 随 saveProviders
+ *  返回的 promise 上抛 / 排队段旁挂 warn 留痕）。 */
+function saveWithCrossProcessLock(userDataPath: string, store: ProviderStore): void | Promise<void> {
   const lockPath = `${userDataPath}/${FILE}.lock`
-  const release = acquireCrossProcessLockWithTimeout(lockPath, PROVIDERS_WRITE_LOCK_TIMEOUT_MS)
-  if (!release) {
-    throw new Error(`providers.json 跨进程锁获取超时（${lockPath}）——本次写入未落盘，避免与其他进程交错覆盖`)
+  const fast = tryAcquireCrossProcessLock(lockPath)
+  if (fast) {
+    try {
+      saveProvidersLocked(userDataPath, store)
+      return
+    } finally {
+      fast()
+    }
   }
-  try {
-    saveProvidersLocked(userDataPath, store)
-  } finally {
-    release()
-  }
+  return acquireCrossProcessLockAsync(lockPath, PROVIDERS_WRITE_LOCK_TIMEOUT_MS).then((release) => {
+    if (!release) {
+      throw new Error(`providers.json 跨进程锁获取超时（${lockPath}）——本次写入未落盘，避免与其他进程交错覆盖`)
+    }
+    try {
+      saveProvidersLocked(userDataPath, store)
+    } finally {
+      release()
+    }
+  })
 }
 
 /** 原 saveProviders 主体（R73-2 改名入锁；逻辑逐行不变） */
@@ -413,15 +445,20 @@ function saveProvidersLocked(userDataPath: string, store: ProviderStore): void {
  * （P2-SEC-4：loadProviders 返回副本），mutate 不回缓存也无人保存。
  * runner 侧注册落盘函数（load→改→save 读盘最新，防覆盖并发改动），
  * 适配器经 persistDegraded 转发；未注册（如单测直接构造 store）时静默跳过。
+ *
+ * R30-4（三十轮）：通道补显式 path 维度——同进程双库并发生成时，适配器携
+ * 来源 userDataPath（resolveProvider 经 createProvider 注入）调用，分发按显式
+ * path 路由；未传（旧形态/单测直调）由 runner 分发器回落「最近 resolve 的活跃
+ * path」（进程内口径 = 活跃库优先，兼容不变）。
  */
-let _persistDegraded: ((key: string) => void) | null = null
-export function registerDegradedPersist(fn: (key: string) => void): void {
+let _persistDegraded: ((key: string, userDataPath?: string) => void) | null = null
+export function registerDegradedPersist(fn: (key: string, userDataPath?: string) => void): void {
   _persistDegraded = fn
 }
-export function persistDegraded(key: string): void {
+export function persistDegraded(key: string, userDataPath?: string): void {
   if (!_persistDegraded) return
   try {
-    _persistDegraded(key)
+    _persistDegraded(key, userDataPath)
   } catch {
     // AA-P3-5：降级记忆是优化通道——写失败（load/save 抛错）不向调用方传播，不得中断
     // 已成功的建流；失败由 runner 侧「不标记」承载，下次 persistDegraded 自然重试。
@@ -436,13 +473,14 @@ export function persistDegraded(key: string): void {
  * lookupDegraded 读「此刻磁盘上的记忆」（loadProviders 有 mtime 缓存，代价可忽略），
  * 适配器不再依赖捕获的 store 快照。未注册（单测直接构造 store）时返回 undefined，
  * 由适配器回落到捕获 store 的快照读。
+ * R30-4（三十轮）：显式 path 维度同 persistDegraded（见上注）。
  */
-let _lookupDegraded: ((key: string) => boolean | undefined) | null = null
-export function registerDegradedLookup(fn: (key: string) => boolean | undefined): void {
+let _lookupDegraded: ((key: string, userDataPath?: string) => boolean | undefined) | null = null
+export function registerDegradedLookup(fn: (key: string, userDataPath?: string) => boolean | undefined): void {
   _lookupDegraded = fn
 }
-export function lookupDegraded(key: string): boolean | undefined {
-  return _lookupDegraded?.(key)
+export function lookupDegraded(key: string, userDataPath?: string): boolean | undefined {
+  return _lookupDegraded?.(key, userDataPath)
 }
 /** 测试辅助：清空注册的查/写回调（防跨用例泄漏） */
 export function resetDegradedChannels(): void {

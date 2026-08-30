@@ -14,7 +14,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { nextTick, reactive } from 'vue'
+import { nextTick } from 'vue'
 
 const mocks = vi.hoisted(() => ({
   getContent: vi.fn(),

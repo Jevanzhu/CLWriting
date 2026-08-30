@@ -191,7 +191,10 @@ test.skipIf(process.platform === 'win32')('ee-P1-4: 账本回写失败 → LEAD_
     expect(r.ok).toBe(false)
     if (r.ok) return
     expect(r.code).toBe('LEAD_WRITE_ERROR')
-    expect(r.error).toContain('账本履历回写失败')
+    // R30-5（三十轮）：布线锁改由定稿入口在进清单锁**前**预取——只读目录下取锁自身
+    // EACCES 也走同一 LEAD_WRITE_ERROR 通道（旧文案「账本履历回写失败」→ 预取失败文案）
+    expect(r.error).toContain('账本履历回写布线锁预取失败')
+    expect(r.error).toContain('定稿未生效')
     // 关键断言：manifest 基线未落盘（旧序下基线已写 → 下次定稿 skipped 永不再回写）
     const e1 = readManifest(join(root, '项目', '文档清单.jsonl')).entries.get(docId)!
     expect(e1.finalizedRevision).toBeUndefined()

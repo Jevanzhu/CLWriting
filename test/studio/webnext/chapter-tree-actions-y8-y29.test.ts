@@ -50,8 +50,6 @@ vi.mock('../../../src/studio/web-next/src/stores/doc', () => ({
 }))
 
 import { updateChapterMetaDoc, renameDoc, moveDoc } from '../../../src/studio/web-next/src/api/documents'
-import { useTreeStore } from '../../../src/studio/web-next/src/stores/tree'
-import { useDocStore } from '../../../src/studio/web-next/src/stores/doc'
 import { useChapterTreeActions } from '../../../src/studio/web-next/src/composables/useChapterTreeActions'
 
 const metaMock = updateChapterMetaDoc as ReturnType<typeof vi.fn>

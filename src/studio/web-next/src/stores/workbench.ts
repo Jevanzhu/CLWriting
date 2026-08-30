@@ -40,6 +40,40 @@ function ts(): string {
 /** 事件日志上限：SSE 长会话只 push 不裁剪会内存膨胀，超出即丢弃最旧条目。 */
 const MAX_LOG = 500
 
+/**
+ * R30-27（三十轮）：事件日志 type 白名单——空串/未知名事件此前照进 workbench.log，
+ * 事件流里渲染为裸 type 噪声（未知 type 对作者无意义）。集合口径 = 既有事件处理分支
+ * 的全集：dispatch 状态分支（role_spawn / init / done / interrupted / error / text /
+ * self_heal 系列 / warning）∪ 事件流渲染分支（WbAdvanced evLabel 的
+ * tool_use / usage / review-progress）。
+ * 只过滤日志入库，不改分发：未知/空 type 事件照常走 dispatch（无命中分支自然 no-op），
+ * chat_* 与 sync 的路由在 useSse 层本就不依赖本表。新增事件 type 时须同步补录本表。
+ */
+const WORKBENCH_LOG_TYPES: ReadonlySet<string> = new Set([
+  'role_spawn',
+  'init',
+  'done',
+  'interrupted',
+  'error',
+  'text',
+  'self_heal_reset',
+  'text_reset',
+  'self_heal_phase',
+  'self_heal_progress',
+  'self_heal_result',
+  'self_heal_batch',
+  'self_heal_batch_progress',
+  'warning',
+  // 事件流渲染分支（WbAdvanced evLabel）独有、dispatch 无状态分支的展示型事件
+  'tool_use',
+  'usage',
+  'review-progress',
+])
+
+/** R30-27（三十轮）：未知/空 type 事件日志丢弃计数（debug 观测口径——只丢日志不丢
+ *  事件，分发行为不变；计数经 console.debug 留痕，便于排查服务端新增事件漏录白名单） */
+let droppedLogCount = 0
+
 export const useWorkbenchStore = defineStore('workbench', () => {
   /** 事件日志（按序追加，右栏事件流消费）。 */
   const log = ref<SseEvent[]>([])
@@ -89,8 +123,15 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       return
     }
     const e = { ...ev, _ts: ts() } as SseEvent
-    log.value.push(e)
-    if (log.value.length > MAX_LOG) log.value.splice(0, log.value.length - MAX_LOG)
+    // R30-27（三十轮）：日志落库前按白名单过滤——未知/空 type 只跳过入库（计数 +
+    // console.debug 留痕），后续状态分支照常执行（分发行为零改动）
+    if (!WORKBENCH_LOG_TYPES.has(e.type)) {
+      droppedLogCount++
+      console.debug(`[workbench] 未入库日志：未知事件 type="${e.type}"（累计丢弃 ${droppedLogCount} 条）`)
+    } else {
+      log.value.push(e)
+      if (log.value.length > MAX_LOG) log.value.splice(0, log.value.length - MAX_LOG)
+    }
     if (e.type === 'role_spawn') {
       // 生成开始（provider 直连路径即以此事件声明生成在途）
       running.value = true

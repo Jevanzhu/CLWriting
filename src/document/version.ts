@@ -543,11 +543,13 @@ export function migrateVersionsDir(bookRoot: string): boolean {
     renameSync(legacy, target)
     return true
   } catch (e) {
-    // R29-n/C-6（二十九轮）：迁移失败补 warn 留痕——原静默 return false，读取方虽兼容
-    // 旧目录，但「版本档案分裂在 .snapshots（旧）与 .版本（新写）」的持续分裂态零痕迹。
+    // R29-n/C-6（二十九轮）：迁移失败补 warn 留痕——原静默 return false。
+    // R30-19（三十轮）：文案如实化——旧文称「读取方仍兼容旧位置」不实：listVersions
+    // 只读 .版本/，迁移失败时旧位置快照在版本历史中**不可见**（文件仍在盘上，可手工
+    // 恢复），按真实后果与处置指引告警。
     log.warn(
       'version',
-      `版本目录迁移失败（${legacy} → ${target}，保留旧目录，读取方仍兼容旧位置）：${e instanceof Error ? e.message : String(e)}`,
+      `版本目录迁移失败（${legacy} → ${target}）：旧位置快照在版本历史中不可见（文件仍在盘上，可手工恢复），请排查后重试迁移——${e instanceof Error ? e.message : String(e)}`,
     )
     return false
   }

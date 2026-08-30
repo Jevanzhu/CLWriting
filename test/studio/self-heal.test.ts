@@ -473,9 +473,7 @@ test('X-P1-2：补生成失败（无 provider）→ 不死循环，按正常重�
   const prev = process.env['CLWRITING_DRIVER']
   delete process.env['CLWRITING_DRIVER'] // 真实 provider 路径 → 空 providers 解析失败
   try {
-    let i = 0
     const { opts, emitted, prompts, bookRoot } = setupLongBook(() => {
-      i++
       return leadRedOutcome() // 恒红（重写修不了账本侧红）→ 触顶升级
     })
     const r = await runSelfHeal(opts)

@@ -118,8 +118,16 @@ async function onRestore(e: SnapshotEntry): Promise<void> {
   restoring.value = e.id
   try {
     await restoreSnapshot(book, docId, e.id, cur.baselineRevision)
-    if (ws.activeDocId === docId && props.bookName === book) await doc.refresh(docId)
-    if (props.bookName === book) ui.toast(`已恢复到 ${fmtTime(e.time)} 的版本`, 'success')
+    // R30-7（三十轮）：refresh 静默吞错（网络抖动时 best-effort 失败）——按返回值分流，
+    // false = 恢复已落盘但编辑器未对齐（基线可能仍指旧版），warning 提示手动重载，
+    // 不再假报成功（旧行为编辑器显旧正文、下次编辑撞 REVISION_CONFLICT 才暴露）。
+    // 恢复期间已切文档时 refresh 未执行（既有门），保持成功口径不变。
+    let refreshed = true
+    if (ws.activeDocId === docId && props.bookName === book) refreshed = await doc.refresh(docId)
+    if (props.bookName === book) {
+      if (refreshed) ui.toast(`已恢复到 ${fmtTime(e.time)} 的版本`, 'success')
+      else ui.toast(`已恢复到 ${fmtTime(e.time)} 的版本，但编辑器刷新失败，请手动重载该章`, 'warning')
+    }
     await load()
   } catch (error) {
     // R66-30（十四轮）：失败路径补书名守卫——上方成功路径有 `props.bookName === book` 门，

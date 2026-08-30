@@ -7,7 +7,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { nextTick, reactive, ref } from 'vue'
+import { reactive, ref } from 'vue'
 
 const mocks = vi.hoisted(() => ({
   /** tree.load 挂起队列：resolve(n) 放行第 n 个未决 load */

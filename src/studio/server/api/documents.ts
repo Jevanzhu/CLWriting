@@ -14,7 +14,7 @@ import { readJson, reply, replyError, parseRequestUrl } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { DocumentService, type SaveDocumentInput } from '../../../document/service.js'
 import { getBookTreeIndex } from '../../../document/tree.js'
-import { finalizeRevision } from '../../../document/finalize.js'
+import { finalizeRevisionAsync } from '../../../document/finalize.js' // R30-6（三十轮，批 C 移交收尾）：服务进程切异步孪生
 import { afterFinalizeGenerateSummary, afterFinalizeGenerateSummaryBatch } from '../../../process/summary.js'
 import { invalidateBookSummary } from './progress.js'
 import { acquireTaskGate } from './task-gate.js' // CC-P2-9：批量定稿并发闸
@@ -178,7 +178,9 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
-      const outcome = finalizeRevision(r.bookRoot, params['docId'] ?? '')
+      // R30-6（三十轮，批 C 移交收尾）：切异步孪生——锁等待（布线锁/清单锁）走事件
+      // 循环轮询原语，不再阻塞 SSE/心跳；语义（超时档/fail-closed/锁序）与同步孪生逐位一致
+      const outcome = await finalizeRevisionAsync(r.bookRoot, params['docId'] ?? '')
       if (!outcome.ok) {
         // ee-P1-3：LEAD_GATE → 409（可修复的账实状态冲突，语义与 structStatus 的
         // REVISION_CONFLICT/OCCUPIED 冲突族一致）；ee-P1-4：LEAD_WRITE_ERROR → 500
@@ -200,7 +202,8 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
   })
 
   // ── 批量定稿（P2-PROD-2：一键定稿 ≤目标章号 的全部 revision/draft 章）────────
-  // body { docIds: string[] }；逐个 finalizeRevision（同步串行，天然无 SQLite 写锁冲突）。
+  // body { docIds: string[] }；逐个 finalizeRevisionAsync（await 串行，天然无 SQLite 写锁冲突；
+  // R30-6 三十轮起为异步孪生，锁等待不阻塞事件循环）。
   // 单条失败不中断：返回逐条结果，前端汇总 toast。
   // X-23（第五十六轮）：条数上限——每条 finalizeRevision 各自全量读改写 manifest，
   // 无上限的大批量同步循环会阻塞事件循环数秒（SSE/心跳全停）。400 为长篇全书待定稿
@@ -229,15 +232,19 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
           return replyError(res, 400, 'BAD_INPUT', `批量定稿一次最多 ${BATCH_FINALIZE_MAX_DOCS} 章（本次 ${docIds.length} 章），请分批提交`)
         }
         const summarized: string[] = []
-        const results = docIds.map((docId) => {
+        const results: Array<{ docId: string; ok: boolean; status?: string; skipped?: boolean; error?: string }> = []
+        // R30-6（三十轮，批 C 移交收尾）：切异步孪生 finalizeRevisionAsync——逐条 await
+        // 串行保持既有「串行天然无 SQLite 写锁冲突」语义，锁等待不再阻塞事件循环。
+        // （原同步 map 循环：finalizeRevision 逐条全量读改写 manifest）
+        for (const docId of docIds) {
           // ee-P1-3/ee-P1-4：LEAD_GATE / LEAD_WRITE_ERROR 同样作为该文档的失败结果记录
           // （error 人话透传，前端汇总 toast），不中断其余文档的定稿。
-          const o = finalizeRevision(r.bookRoot, docId)
+          const o = await finalizeRevisionAsync(r.bookRoot, docId)
           // C1（批 2）：批量定稿同样触发章摘要（best-effort；fire-and-forget 不阻塞批量循环；
           // M-2：书名登记进后台表——批量连发多任务也能被 settle 逐个追上）
           if (o.ok && !o.skipped) summarized.push(docId)
-          return { docId, ok: o.ok, status: o.ok ? o.status : undefined, skipped: o.ok ? o.skipped : undefined, error: o.ok ? undefined : o.error }
-        })
+          results.push({ docId, ok: o.ok, status: o.ok ? o.status : undefined, skipped: o.ok ? o.skipped : undefined, error: o.ok ? undefined : o.error })
+        }
         // 第五轮：批量摘要走串行链——逐章 fire-and-forget 会让一键定稿 N 章 = N 路
         // 摘要 AI 并发（provider 限流整批失败）；整链单条登记，settle 在链首即追上全部
         afterFinalizeGenerateSummaryBatch(r.bookRoot, ctx.userDataPath ?? null, summarized, params['name'])

@@ -100,6 +100,9 @@ export function createStaticHandler(rootDir: string) {
         const size = s.isDirectory() ? (await stat(safe.abs)).size : s.size
         res.writeHead(200, {
           'content-type': MIME[extname(file)] ?? 'application/octet-stream',
+          // R30-23（三十轮）：静态响应统一 nosniff——禁浏览器 MIME 嗅探，防上传/落盘
+          // 内容被误判为可执行脚本（X-XSS 防线的一环，全部静态响应头统一处理）
+          'x-content-type-options': 'nosniff',
           'cache-control': cacheable
             ? 'public, max-age=31536000, immutable'
             : 'no-cache',
@@ -111,6 +114,8 @@ export function createStaticHandler(rootDir: string) {
       const data = await readFile(safe.abs)
       res.writeHead(200, {
         'content-type': MIME[extname(file)] ?? 'application/octet-stream',
+        // R30-23（三十轮）：同 HEAD 分支——nosniff 统一加（所有静态响应头统一处）
+        'x-content-type-options': 'nosniff',
         'cache-control': cacheable
           ? 'public, max-age=31536000, immutable'
           : 'no-cache',
@@ -131,6 +136,8 @@ export function createStaticHandler(rootDir: string) {
         const data = await readFile(join(root, 'index.html'))
         res.writeHead(200, {
           'content-type': 'text/html; charset=utf-8',
+          // R30-23（三十轮）：SPA fallback 分支同加 nosniff（所有静态响应头统一处）
+          'x-content-type-options': 'nosniff',
           'cache-control': 'no-cache',
           'content-length': String(data.length),
         })

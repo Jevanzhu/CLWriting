@@ -32,6 +32,13 @@ describe('引号矩阵 · stripQuotedSpans', () => {
     ['未闭合「残文', '未闭合「残文'],
     ['无引号行', '无引号行'],
     ['「跨『多』层」x「再」', '层」x'],
+    // R30-1（三十轮）契约变更：引号片段不跨行——跨行的「开引号…（换行）…闭引号」不再
+    // 构成 span（内部字符类补排 \n）。旧字符类 [^」』”’] 天然匹配换行，checkBannedWords/
+    // checkOpeningNoEnv 对整 body 剥 span 时，某段漏写闭引号会把下文任意闭引号（可隔多段）
+    // 之前的全部叙述当对白吞掉，禁词红闸静默漏报（63 字正文剥掉 60 字实测）。跨行回归
+    // 用例见 r30-quote-crossline.test.ts；单行消费方行为逐字不变。
+    ['「第一行\n第二行」尾', '「第一行\n第二行」尾'],
+    ['前文“开头\n后文”结束', '前文“开头\n后文”结束'],
   ])('%s → %j', (line, expected) => {
     expect(stripQuotedSpans(line)).toBe(expected)
   })

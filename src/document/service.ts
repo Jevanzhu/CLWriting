@@ -20,7 +20,7 @@
  *
  * docId 是稳定 ID（队列/日志/清单 key），relPath 是落盘路径。
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { safeDocId, resolveWithinRoot } from '../fs/safe-path.js'
 import { atomicWriteFile, createFileExclusive, linkOrRenameExclusive } from '../fs/atomic.js'
@@ -28,7 +28,7 @@ import { computeRevision, type Revision } from './revision.js'
 import { layoutOf, roleOf, isInternalBookPath } from './layout.js'
 import { appendAborted, appendMovePending, appendPending, appendSettled, findUnsettled, type JournalAnyPending } from './journal.js'
 import { writeSnapshot, DEFAULT_SNAPSHOT_POLICY, readGlobalSnapshotPolicy, type SnapshotPolicy } from './snapshot.js'
-import { readManifest, readManifestStrict, writeManifest, upsertEntry, withManifestLock, type ManifestEntry } from './manifest.js'
+import { readManifest, readManifestStrict, writeManifest, upsertEntry, withManifestLock, withManifestLockAsync, type ManifestEntry } from './manifest.js'
 import { SaveQueue } from './queue.js'
 import { generateDocId, legacyId } from './stable-id.js'
 import { invalidateTreeIndex, scanBookTree, type TreeNode } from './tree.js'
@@ -41,7 +41,7 @@ import { countWords, chapterFilePrefix } from '../format/words.js'
 // 同函数的章标题别名）
 import { sanitizeChapterTitle, sanitizeFileNamePart } from '../format/filename.js'
 import { encodeDocDirName, decodeDocDirName } from './version.js'
-import { acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
+import { acquireCrossProcessLockWithTimeout, acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 import { readBookConfig } from '../format/yaml.js'
 
 /** 第五轮：非 UTF-8（GBK 等）文件的元数据写回统一拒绝——utf-8 读入产生 U+FFFD 替换
@@ -76,23 +76,31 @@ const NON_UTF8_SAVE_REJECT = {
 
 /** R76-1（二十四轮）：元数据 PATCH 双路径（updateChapterMeta/updateDocMeta）的跨进程
  *  保存锁等待（毫秒）——与 executeSave 的 5s 同档；测试注入缩短保快（生产零调用），
- *  同 draft-pipeline DRAFT_SAVE_LOCK_TIMEOUT_MS 惯例。 */
-export let META_SAVE_LOCK_TIMEOUT_MS = 5_000
+ *  同 draft-pipeline DRAFT_SAVE_LOCK_TIMEOUT_MS 惯例。
+ *  R30-18（三十轮）：常量化——export let 可被任一 import 方静默改写（同 events/store.ts
+ *  R26-105 的收口认定），改 const + 内部可变生效值；测试只能经注入钩子改档，生产恒用常量。 */
+export const META_SAVE_LOCK_TIMEOUT_MS = 5_000
+
+/** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改。 */
+let metaSaveLockTimeoutMs = META_SAVE_LOCK_TIMEOUT_MS
 
 /** 测试注入钩子（生产零调用）。 */
 export function __setMetaSaveLockTimeoutForTest(ms: number): void {
-  META_SAVE_LOCK_TIMEOUT_MS = ms
+  metaSaveLockTimeoutMs = ms
 }
 
 /** R29-7（二十九轮）：布线文件写路径的第二道跨进程锁（`<布线文件绝对路径>.lock`，
  *  与 lead-finalize.ts applyLeadUpdates 同名锁）等待档（毫秒）——与 save 锁的 5s
- *  同档；let + 注入钩子（META_SAVE_LOCK_TIMEOUT_MS 同款惯例，测试注入缩短保快，
- *  生产零调用）。 */
-export let WIRING_SAVE_LOCK_TIMEOUT_MS = 5_000
+ *  同档（测试注入缩短保快，生产零调用）。
+ *  R30-18（三十轮）：常量化——同 META_SAVE_LOCK_TIMEOUT_MS 的收口口径。 */
+export const WIRING_SAVE_LOCK_TIMEOUT_MS = 5_000
+
+/** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改。 */
+let wiringSaveLockTimeoutMs = WIRING_SAVE_LOCK_TIMEOUT_MS
 
 /** 测试注入钩子（生产零调用）。 */
 export function __setWiringSaveLockTimeoutForTest(ms: number): void {
-  WIRING_SAVE_LOCK_TIMEOUT_MS = ms
+  wiringSaveLockTimeoutMs = ms
 }
 
 /** 保存输入（W0-1 §5.1）。 */
@@ -264,7 +272,15 @@ export class DocumentService {
 
   // ── 串行执行体（§5.2 步骤 4-11，队列内调用）─────────
 
-  private executeSave(
+  // R30-6（三十轮）：本保存链上的全部锁等待已异步化（save 锁 / 布线锁 /
+  // 清单锁均走 setTimeout 轮询原语 acquireCrossProcessLockAsync / withManifestLockAsync），
+  // 事件循环不被阻塞——服务进程承载 SSE/全部接口，双进程争用窗口（最坏 5s+5s+2×5s 档）
+  // 内不再出现可感知冻结；读改写/落盘本身仍为同步 FS 调用（毫秒级，无妨）。
+  // 队列串行语义核实：SaveQueue.pump 以 run 的 promise 决议驱动下一项（queue.ts），
+  // executeSave await 化不改变 per-docId 串行保证。
+  // R30-5（三十轮）锁序：save 锁 → 布线锁 → 清单锁（全仓统一，含 finalize 链——
+  // 定稿入口已改为进清单锁前预取布线锁，save↔finalize 的 ABBA 交叉对已消除）。
+  private async executeSave(
     docId: string,
     relPath: string,
     absPath: string,
@@ -328,7 +344,9 @@ export class DocumentService {
     // WRITE_ERROR 拒绝——保存未执行、无数据损伤、调用方可重试，不做降级裸写（裸写
     // 正是本锁要闭合的丢更新形态）。同进程同 docId 由 queue 串行保证不会自锁
     // （appendPending 嵌套拿的是另一路径的 journal 锁）。
-    const docSaveLock = acquireCrossProcessLockWithTimeout(`${journalPath}.save.lock`, 5_000)
+    // R30-6：取锁等待异步化（setTimeout 轮询），事件循环不阻塞；超时档与 fail-closed
+    // 语义不变。
+    const docSaveLock = await acquireCrossProcessLockAsync(`${journalPath}.save.lock`, 5_000)
     if (!docSaveLock) {
       return Promise.resolve({
         ok: false,
@@ -337,14 +355,19 @@ export class DocumentService {
       })
     }
     // R29-7（二十九轮）：布线文件在 save 锁内再取同名文件锁（`<布线文件绝对路径>.lock`，
-    // 与 lead-finalize 回写临界段互斥，锁序单向 save→file 无环）——超时按 WRITE_ERROR
-    // 拒绝保存（fail-closed 不降级裸写：裸写正是本锁要闭合的覆盖形态）；获取自身抛出
-    // （权限等）同样拒绝并先释放 save 锁防泄漏。非布线文件 wiringLock 为 null，零开销。
+    // 与 lead-finalize 回写临界段互斥）——超时按 WRITE_ERROR 拒绝保存（fail-closed 不降级
+    // 裸写：裸写正是本锁要闭合的覆盖形态）；获取自身抛出（权限等）同样拒绝并先释放
+    // save 锁防泄漏。非布线文件 wiringLock 为 null，零开销。
+    // R30-5（三十轮）锁序注释如实化：本侧顺序为 save 锁 → 布线锁 → 清单锁（maybeUpdate
+    // Manifest）。lead-finalize/finalize 侧经 R30-5 已统一为「布线锁 → 清单锁」（定稿在进
+    // 清单锁前预取布线锁）——旧序「定稿持清单锁内再取布线锁」与保存链的 ABBA 交叉对
+    // 已消除，双侧注释旧称「单向无环」只覆盖各自侧序、未覆盖交叉对的缺口由本轮收口。
+    // R30-6：等待异步化。
     const wiringKey = this.wiringFileLockKey(relPath)
     let wiringLock: (() => void) | null = null
     if (wiringKey) {
       try {
-        wiringLock = acquireCrossProcessLockWithTimeout(wiringKey, WIRING_SAVE_LOCK_TIMEOUT_MS)
+        wiringLock = await acquireCrossProcessLockAsync(wiringKey, wiringSaveLockTimeoutMs)
       } catch (e) {
         docSaveLock()
         return Promise.resolve({
@@ -463,7 +486,8 @@ export class DocumentService {
         // 败（编辑器误报、重试撞 REVISION_CONFLICT）。对齐 appendWordsDelta 的 P2-BE-4
         // 口径：warn 留痕后照常 settled + 返回成功。
         try {
-          this.maybeUpdateManifest(docId, relPath)
+          // R30-6：清单锁等待异步化（withManifestLockAsync）
+          await this.maybeUpdateManifest(docId, relPath)
         } catch (e) {
           log.warn('document', `保存后清单刷新失败（${relPath}，树扫描将自愈收编）：${e instanceof Error ? e.message : String(e)}`)
         }
@@ -561,9 +585,33 @@ export class DocumentService {
     )
   }
 
-  /** 快照保留策略（2026-08-19 起只走全局）：global.json snapMax* → 硬编码默认；book.yaml snapshots 已砍书级。 */
+  /** 快照保留策略（2026-08-19 起只走全局）：global.json snapMax* → 硬编码默认；book.yaml snapshots 已砍书级。
+   *  R30-20（三十轮）：global.json 解析结果走 stat 缓存——每次 save 都 existsSync+readFileSync
+   *  改为 statSync 一次（stat 远廉价于读盘，与 version.ts 指纹缓存同款「缓存命中免读盘」口径）。
+   *  失效条件：global.json 的 mtimeMs（取整毫秒）或 size 任一变化即重读重解析——作者手工
+   *  编辑 global.json 后**下一次 save 即生效**（无需重启）；stat 失败（文件不存在/不可读）
+   *  不缓存负条目，直接回落空策略；进程重启缓存自然失效（实例字段）。 */
+  private globalPolicyCache: { statKey: string; value: { maxDays?: number; maxCount?: number } } | null = null
+
+  /** R30-20：global.json 的 stat 键控缓存读取（见 snapshotPolicy 注释）。 */
+  private readGlobalPolicyCached(): { maxDays?: number; maxCount?: number } {
+    if (!this.userDataPath) return {}
+    const p = join(this.userDataPath, 'global.json')
+    let st: ReturnType<typeof statSync>
+    try {
+      st = statSync(p)
+    } catch {
+      return {}
+    }
+    const statKey = `${Math.floor(st.mtimeMs)}:${st.size}`
+    if (this.globalPolicyCache?.statKey === statKey) return this.globalPolicyCache.value
+    const value = readGlobalSnapshotPolicy(this.userDataPath)
+    this.globalPolicyCache = { statKey, value }
+    return value
+  }
+
   private snapshotPolicy(): SnapshotPolicy {
-    const global = readGlobalSnapshotPolicy(this.userDataPath)
+    const global = this.readGlobalPolicyCached()
     return {
       maxDays: global.maxDays ?? DEFAULT_SNAPSHOT_POLICY.maxDays,
       maxCount: global.maxCount ?? DEFAULT_SNAPSHOT_POLICY.maxCount,
@@ -572,10 +620,12 @@ export class DocumentService {
   }
 
   /** 条件性更新清单：书已有清单 + 条目已存在 → 刷新 path；否则 no-op（保存不建清单）。
-   *  X-5：RMW 全程持清单锁（跨进程互斥）。 */
-  private maybeUpdateManifest(docId: string, relPath: string): void {
+   *  X-5：RMW 全程持清单锁（跨进程互斥）。
+   *  R30-6：锁等待异步化（withManifestLockAsync）——读改写文件操作本身仍是同步 FS
+   *  调用（毫秒级无妨），仅锁争用等待期不阻塞事件循环；超时档与 fail-closed 语义不变。 */
+  private async maybeUpdateManifest(docId: string, relPath: string): Promise<void> {
     if (!existsSync(this.manifestPath)) return
-    withManifestLock(this.manifestPath, () => {
+    await withManifestLockAsync(this.manifestPath, () => {
       const m = readManifestStrict(this.manifestPath) // R27-40：RMW strict 读——读失败拒写保旧清单
       const entry = m.entries.get(docId)
       if (!entry || entry.path === relPath) return
@@ -602,16 +652,17 @@ export class DocumentService {
   }
 
   /** R29-7（二十九轮）：布线线索文件的跨进程文件锁键（非布线文件 → null 不加锁）。
-   *  背景：lead-finalize.ts applyLeadUpdates 对单个布线文件的「读旧→补履历→writeLead」
-   *  临界段持 `<文件绝对路径>.lock`，与本服务按 journal 命名的 save 锁互不感知——
-   *  R26-6 注释宣称防住了「作者经 executeSave 保存同一布线文件」，实际没防住（lost
-   *  update：保存的新正文被回写的旧正文整文件覆盖）。本服务三个写路径
-   *  （executeSave/updateChapterMeta/updateDocMeta）在 save 锁内对本文件再取**同名
-   *  锁**（锁序单向 save→file；lead-finalize 只持 file 锁，无获取序环路），双侧同名锁
-   *  互斥后覆盖窗口真正闭合。键必须与 lead-finalize 同构造（join(bookRoot, relPath)
-   *  词法路径，不经 realpath）——resolveSafePath 对存在目标返回 realpath，在 symlink
-   *  根（macOS tmp /var→/private/var）下会拼出不同键名使互斥失效。关系线按
-   *  lead-finalize 同口径位于 大纲/关系线/（同为布线族回写点），一并覆盖。 */
+   *  背景：lead-finalize.ts 对单个布线文件的「读旧→补履历→writeLead」临界段持
+   *  `<文件绝对路径>.lock`，与本服务按 journal 命名的 save 锁互不感知——R26-6 注释宣称
+   *  防住了「作者经 executeSave 保存同一布线文件」，实际没防住（lost update：保存的新正文
+   *  被回写的旧正文整文件覆盖）。本服务三个写路径（executeSave/updateChapterMeta/
+   *  updateDocMeta）在 save 锁内对本文件再取**同名锁**，双侧同名锁互斥后覆盖窗口真正
+   *  闭合。键必须与 lead-finalize 同构造（join(bookRoot, relPath) 词法路径，不经
+   *  realpath）——resolveSafePath 对存在目标返回 realpath，在 symlink 根（macOS tmp
+   *  /var→/private/var）下会拼出不同键名使互斥失效。关系线按 lead-finalize 同口径位于
+   *  大纲/关系线/（同为布线族回写点），一并覆盖。
+   *  R30-5（三十轮）锁序：全仓统一「save 锁 → 布线锁 → 清单锁」——定稿链原
+   *  「持清单锁内取布线锁」的反向交叉对已由 finalize 入口预取布线锁消除。 */
   private wiringFileLockKey(relPath: string): string | null {
     const p = relPath.replace(/\\/g, '/')
     if (p.startsWith('布线/') || p.startsWith('大纲/关系线/')) {
@@ -710,18 +761,19 @@ export class DocumentService {
     // 同进程同 docId 不会自锁（executeSave 锁内临界段全同步，JS 单线程不与本同步方法
     // 交错；doMoveOrRename 不取 save 锁）。
     const journalPath = join(this.journalDir, `${encodeDocDirName(docId)}.jsonl`)
-    const docSaveLock = acquireCrossProcessLockWithTimeout(`${journalPath}.save.lock`, META_SAVE_LOCK_TIMEOUT_MS)
+    const docSaveLock = acquireCrossProcessLockWithTimeout(`${journalPath}.save.lock`, metaSaveLockTimeoutMs)
     if (!docSaveLock) {
       return { ok: false, code: 'WRITE_ERROR', reason: '元数据保存等待超时：另一进程正在保存此文档（5 秒未让出），请重试' }
     }
     // R29-7（二十九轮）：同 executeSave——布线文件在 save 锁内再取同名文件锁（与
-    // lead-finalize 回写互斥，锁序单向 save→file 无环），超时/获取异常按 WRITE_ERROR
-    // 拒绝（fail-closed，先释放 save 锁防泄漏）；非布线文件不加锁。
+    // lead-finalize 回写互斥），超时/获取异常按 WRITE_ERROR 拒绝（fail-closed，先释放
+    // save 锁防泄漏）；非布线文件不加锁。R30-5（三十轮）锁序如实化：全仓统一
+    // 「save 锁 → 布线锁 → 清单锁」，finalize 侧已同步改为进清单锁前预取布线锁。
     const wiringKey = this.wiringFileLockKey(path)
     let wiringLock: (() => void) | null = null
     if (wiringKey) {
       try {
-        wiringLock = acquireCrossProcessLockWithTimeout(wiringKey, WIRING_SAVE_LOCK_TIMEOUT_MS)
+        wiringLock = acquireCrossProcessLockWithTimeout(wiringKey, wiringSaveLockTimeoutMs)
       } catch (e) {
         docSaveLock()
         return { ok: false, code: 'WRITE_ERROR', reason: `布线文件锁获取失败（未执行保存，可重试）：${errMsg(e)}` }
@@ -919,18 +971,19 @@ export class DocumentService {
     //（5s fail-closed）；锁内无嵌套锁获取（纯 read/patch/write），与 executeSave 的
     // save→journal/manifest 单向序无环。
     const journalPath = join(this.journalDir, `${encodeDocDirName(docId)}.jsonl`)
-    const docSaveLock = acquireCrossProcessLockWithTimeout(`${journalPath}.save.lock`, META_SAVE_LOCK_TIMEOUT_MS)
+    const docSaveLock = acquireCrossProcessLockWithTimeout(`${journalPath}.save.lock`, metaSaveLockTimeoutMs)
     if (!docSaveLock) {
       return { ok: false, code: 'WRITE_ERROR', reason: '元数据保存等待超时：另一进程正在保存此文档（5 秒未让出），请重试' }
     }
     // R29-7（二十九轮）：同 executeSave/updateChapterMeta——布线文件（含 大纲/关系线/）
-    // 在 save 锁内再取同名文件锁（与 lead-finalize 回写互斥，锁序单向 save→file 无环），
-    // 超时/获取异常按 WRITE_ERROR 拒绝（fail-closed，先释放 save 锁防泄漏）。
+    // 在 save 锁内再取同名文件锁（与 lead-finalize 回写互斥），超时/获取异常按
+    // WRITE_ERROR 拒绝（fail-closed，先释放 save 锁防泄漏）。R30-5（三十轮）锁序如实化：
+    // 全仓统一「save 锁 → 布线锁 → 清单锁」，finalize 侧已同步改为进清单锁前预取布线锁。
     const wiringKey = this.wiringFileLockKey(path)
     let wiringLock: (() => void) | null = null
     if (wiringKey) {
       try {
-        wiringLock = acquireCrossProcessLockWithTimeout(wiringKey, WIRING_SAVE_LOCK_TIMEOUT_MS)
+        wiringLock = acquireCrossProcessLockWithTimeout(wiringKey, wiringSaveLockTimeoutMs)
       } catch (e) {
         docSaveLock()
         return { ok: false, code: 'WRITE_ERROR', reason: `布线文件锁获取失败（未执行保存，可重试）：${errMsg(e)}` }

@@ -6,7 +6,9 @@ import { getAiStatus } from '../api/ai-status'
 export interface ToastItem {
   id: number
   msg: string
-  kind: 'info' | 'success' | 'error'
+  // R30-7（三十轮）：补 'warning' 级——「已落盘但未完全生效」类半失败提示（如恢复后
+  // 编辑器刷新失败）语义介于 info 与 error 之间，错用 error 会夸大、错用 info 会淡化
+  kind: 'info' | 'success' | 'error' | 'warning'
 }
 let seq = 0
 
@@ -88,7 +90,7 @@ export const useUiStore = defineStore('ui', () => {
     toasts.value.push({ id, msg, kind })
     setTimeout(() => {
       toasts.value = toasts.value.filter((t) => t.id !== id)
-    }, kind === 'error' ? 5000 : 1800)
+    }, kind === 'error' || kind === 'warning' ? 5000 : 1800) // R30-7（三十轮）：warning 需作者行动（如手动重载），时长对齐 error 档
   }
   /** G4：探测 AI 可达性（启动调一次；失败按指数退避自动重试，available:true 成功即停）。 */
   let probeTimer: ReturnType<typeof setTimeout> | null = null

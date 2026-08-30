@@ -11,7 +11,7 @@
  * 场景过滤：场景 ∈ 本章场景 ∪「通用」才候选；排序=场景命中序 → 证据强度。
  */
 
-import { SOURCE_RANK } from './style-entry.js'
+import { SOURCE_RANK, bannedEntryWords } from './style-entry.js'
 import type { StyleEntry } from './types.js'
 
 /** 注入样章单条最长字数（超出截断，与「样章 50–500 字」上限一致） */
@@ -48,8 +48,16 @@ export function buildStyleEssentials(entries: StyleEntry[], scenes: string[]): s
   const parts: string[] = []
 
   const banned = pickSorted(entries, '禁词', scenes)
+  // R30-15（三十轮）：禁词注入改用与机检 readBannedEntryWords 同源的取词口径
+  //（style-entry.bannedEntryWords 逐行拆词）——原把条目正文整段（可含多行说明文本）
+  // 直接 join 注入，与机检拆词口径分裂，说明性条目把整段原文塞进 prompt 白烧预算。
+  // 现只注入解析出的词；整条解析不出词的条目不注入（机检侧对同一形态已产
+  // unparsed 黄项提示，不静默失明）。
   if (banned.length > 0) {
-    parts.push(`禁用：${banned.map((e) => e.正文).join('、')}`)
+    const words = banned.flatMap((e) => bannedEntryWords(e.正文))
+    if (words.length > 0) {
+      parts.push(`禁用：${words.join('、')}`)
+    }
   }
 
   const moves = pickSorted(entries, '手法', scenes)

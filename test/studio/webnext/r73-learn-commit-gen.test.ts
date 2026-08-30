@@ -21,15 +21,6 @@ import { useLearnStore } from '../../../src/studio/web-next/src/stores/learn'
 const learnMock = runLearn as ReturnType<typeof vi.fn>
 const commitMock = runLearnCommit as ReturnType<typeof vi.fn>
 
-/** 起一个手动放行的 Promise（模拟在途 commit） */
-function pending<T>(): { promise: Promise<T>; resolve: (v: T) => void } {
-  let resolve!: (v: T) => void
-  const promise = new Promise<T>((res) => {
-    resolve = res
-  })
-  return { promise, resolve }
-}
-
 beforeEach(() => {
   setActivePinia(createPinia())
   vi.clearAllMocks()

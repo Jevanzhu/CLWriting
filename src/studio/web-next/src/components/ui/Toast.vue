@@ -39,6 +39,10 @@ const ui = useUiStore()
 .toast.success {
   color: var(--dv-good);
 }
+/* R30-7（三十轮）：warning 级（半失败提示，如恢复后编辑器刷新失败）用语义警告色 */
+.toast.warning {
+  color: var(--dv-warn);
+}
 .toast.error {
   color: var(--text-error);
 }

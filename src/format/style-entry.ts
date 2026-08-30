@@ -268,6 +268,20 @@ export function parseBannedWordsLine(rawLine: string): string[] {
 }
 
 /**
+ * R30-15（三十轮）：单条禁词条目正文 → 解析出的禁词数组（多行逐行拆词）。
+ * 取词口径单源——机检侧 readBannedEntryWords 与注入侧 style-inject 的禁用段共用
+ * 本函数，两侧词表不再漂移（此前注入侧整段 join 条目正文，说明性多行文本整段
+ * 进 prompt，与机检拆词口径分裂）。
+ */
+export function bannedEntryWords(entryBody: string): string[] {
+  return entryBody
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .flatMap((line) => parseBannedWordsLine(line))
+}
+
+/**
  * 条目库硬禁词列表（机检收口 S5：禁词知识在条目库；无条目库 → 空）。
  * 「AI味」标签的是软禁词（旧铁律替换表迁移而来）——只注入不机检，
  * 保持旧语义：反和解硬禁词命中报红，AI 味词交给写稿/去味阶段。
@@ -285,12 +299,9 @@ export function readBannedEntryWords(bookRoot: string): { words: string[]; unpar
   for (const e of entries) {
     if (e.标签?.includes('AI味')) continue
     // Y-23（第五十七轮）：多行正文逐行清洗拆词——手写条目正文常是说明性多行文本，
-    // 整段当一个词作 includes 永不命中（禁词漏报且无提示）
-    const parsed = e.正文
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .flatMap((line) => parseBannedWordsLine(line))
+    // 整段当一个词作 includes 永不命中（禁词漏报且无提示）。
+    // R30-15（三十轮）：逐行拆词收编 bannedEntryWords 单源（与注入侧共用）。
+    const parsed = bannedEntryWords(e.正文)
     if (parsed.length === 0) {
       // R73-15：整条解析不出词 → 回报场景名留痕（调用方产黄项），不再静默丢条目
       unparsed.push(e.场景)

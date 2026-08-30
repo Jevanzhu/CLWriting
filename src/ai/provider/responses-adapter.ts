@@ -204,6 +204,7 @@ export function createOpenAIResponsesProvider(
   conf: ProviderConf,
   client?: OpenAI,
   store?: ProviderStore,
+  userDataPath?: string,
 ): ModelProvider {
   const c = client ?? new OpenAI({ apiKey: conf.apiKey, baseURL: normalizeBaseUrl(conf.baseUrl) })
   const q = responsesQuirksFor(conf.model ?? '')
@@ -227,7 +228,8 @@ export function createOpenAIResponsesProvider(
       // 记忆写入走 adapter-errors 公共实现（「连接期可安全重试、流中不重跑」约定见其注释）。
       // 判据 q.structuredMode 是 responsesQuirksFor 的 responsesWire 覆盖值（与 text.format
       // 发射同源）；mode='json_object' 时 text.format 不发但链仍保留（照搬原实现口径）。
-      const plan = buildDegradeAttempts(req, q.structuredMode, conf, store)
+      // R30-4（三十轮）：携来源 userDataPath——降级记忆读/写按显式 path 分发
+      const plan = buildDegradeAttempts(req, q.structuredMode, conf, store, userDataPath)
 
       try {
         let lastErr: unknown = null
@@ -398,6 +400,9 @@ export function createOpenAIResponsesProvider(
                 }
                 case 'response.failed': {
                   terminal = 'failed'
+                  // R30-9（三十轮）登记维持：流中 failed/error 事件恒 retryable:false，与
+                  // 另两线（HTTP status → 决策表）不对称系有意保守——流中事件缺 HTTP
+                  // status，无法可靠判可重试；保守终态防半截流反复重试成风暴。不修。
                   // R1（缺口 1）：failed → error 不发 done（此前落穿被流结束兜底伪装成
                   // done{stop, 0/0}）；message 脱敏后带上。
                   // code：流中 failed 属协议层异常，无 HTTP status 可归因 → 与 toErrorEvent

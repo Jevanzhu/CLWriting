@@ -13,3 +13,13 @@ export const TREE_FIRST_OPEN_KEY_PREFIX = 'clw2.tree-first-open.'
 export function treeFirstOpenKey(book: string): string {
   return TREE_FIRST_OPEN_KEY_PREFIX + book
 }
+
+/** R30-26（三十轮）：开书对话·故事梗概草稿键前缀（冒号形态，落盘格式不变——
+ *  此前写入方 OnboardPremise 与清除方 useShelf 各自硬编码同串，属 R28-3 修掉的
+ *  「写入/清除键名断裂」同族隐患，收敛到本模块单一事实源杜绝再分叉） */
+export const ONBOARD_PREMISE_KEY_PREFIX = 'clwriting:onboard-premise:'
+
+/** 拼某书的开书梗概草稿完整键（写入 / 读取 / 删除共用） */
+export function onboardPremiseKey(book: string): string {
+  return ONBOARD_PREMISE_KEY_PREFIX + book
+}

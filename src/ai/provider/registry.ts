@@ -29,8 +29,9 @@ export interface AdapterEntry {
   name: Protocol
   /** 别名（中转/网关的 adapterFamily 叫法，小写；解析不出主名时兜底） */
   aliases: readonly string[]
-  /** 同步工厂（见文件头「有意分歧」注） */
-  create(conf: ProviderConf, store?: ProviderStore): ModelProvider
+  /** 同步工厂（见文件头「有意分歧」注）；userDataPath 为来源配置目录
+   *  （R30-4：降级记忆通道按显式 path 分发，见 createProvider 注） */
+  create(conf: ProviderConf, store?: ProviderStore, userDataPath?: string): ModelProvider
 }
 
 /** 全量注册表——新增协议在此加一行 */
@@ -38,18 +39,18 @@ export const ADAPTER_REGISTRY: readonly AdapterEntry[] = [
   {
     name: 'anthropic',
     aliases: ['anthropic-messages', 'claude'],
-    create: (conf, store) => createAnthropicProvider(conf, undefined, store),
+    create: (conf, store, userDataPath) => createAnthropicProvider(conf, undefined, store, userDataPath),
   },
   {
     name: 'openai',
     aliases: ['openai-chat', 'openai-completions', 'chat-completions'],
-    create: (conf, store) => createOpenAIProviderChat(conf, undefined, store),
+    create: (conf, store, userDataPath) => createOpenAIProviderChat(conf, undefined, store, userDataPath),
   },
   {
     // Responses 启用批（2026-08-17）回接——曾随 Z-P2-1 误判停用摘除
     name: 'openai-responses',
     aliases: ['openai-responses-api', 'responses'],
-    create: (conf, store) => createOpenAIResponsesProvider(conf, undefined, store),
+    create: (conf, store, userDataPath) => createOpenAIResponsesProvider(conf, undefined, store, userDataPath),
   },
 ]
 
@@ -71,8 +72,10 @@ export function resolveAdapter(key: string): AdapterEntry | null {
  * 查询、protocol/auth/baseUrl/apiKey 决定客户端；models 行影响 maxTokens/contextWindow 解析），
  * 固定字段序 → stringify 稳定。
  * name/notes/caps/sortIndex 等展示字段不入键（不影响适配器行为，入键白白击穿缓存）。
+ * R30-4（三十轮）：userDataPath 入键——实例捕获来源 path 供降级记忆通道按 path 分发，
+ * 同 conf 跨 path 不得复用实例（否则后 resolve 的库会借缓存实例把降级记忆写进他库）。
  */
-function settingsHash(conf: ProviderConf): string {
+function settingsHash(conf: ProviderConf, userDataPath?: string): string {
   const material = JSON.stringify({
     id: conf.id,
     protocol: conf.protocol,
@@ -81,6 +84,7 @@ function settingsHash(conf: ProviderConf): string {
     apiKey: conf.apiKey,
     model: conf.model ?? null,
     models: conf.models ?? null,
+    userDataPath: userDataPath ?? null,
   })
   return createHash('sha256').update(material).digest('hex').slice(0, 16)
 }
@@ -120,15 +124,18 @@ export function providerCacheSize(): number {
 }
 
 /**
- * 按 conf 创建/复用适配器实例（原 probe.ts 的 createProvider 迁入，签名不变）。
+ * 按 conf 创建/复用适配器实例（原 probe.ts 的 createProvider 迁入）。
  *
  * hash 命中 → 复用实例（原子绑定：其 bound conf 与本 conf 的行为字段全等）；
  * 未命中 → 路由 protocol → create（conf 浅拷贝绑定）→ 入缓存。
  * 降级记忆的新鲜度经 store.lookupDegraded 通道保证（见 store.ts 注释），
  * 不依赖缓存实例捕获的 store 快照。
+ * R30-4（三十轮）：userDataPath 为来源配置目录——适配器降级记忆读/写按此显式 path
+ * 分发（双库并发生成互不劫持，缺省回落 runner 侧活跃 path）；并参与实例缓存键
+ * （同 conf 跨 path 不复用实例，见 settingsHash 注）。
  */
-export function createProvider(conf: ProviderConf, store?: ProviderStore): ModelProvider {
-  const hash = settingsHash(conf)
+export function createProvider(conf: ProviderConf, store?: ProviderStore, userDataPath?: string): ModelProvider {
+  const hash = settingsHash(conf, userDataPath)
   const cached = cacheGet(hash)
   if (cached) return cached
 
@@ -142,7 +149,7 @@ export function createProvider(conf: ProviderConf, store?: ProviderStore): Model
   // mutate conf.models（push/改项）时缓存实例行为漂移而 settingsHash 不变
   //（缓存失效判定与实例状态脱钩）。数组新建浅拷元素（元素被视为不可变值）。
   const bound: ProviderConf = { ...conf, ...(conf.models ? { models: [...conf.models] } : {}) }
-  const provider = entry.create(bound, store)
+  const provider = entry.create(bound, store, userDataPath)
   cachePut(hash, provider)
   return provider
 }

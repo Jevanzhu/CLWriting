@@ -285,7 +285,7 @@ describe('ReviewPanel: 三审与信封', () => {
   })
 
   it('打开正文文档 → loadEnvelope 读存量；切走 → 清空', async () => {
-    const w = mountPanel()
+    const _w = mountPanel() // mount 副作用保留（loadEnvelope 随挂载触发），绑定按惯例弃名
     await flushPromises()
     expect(mocks.getReviewEnvelope).toHaveBeenCalledWith('test-book', 'doc_ch1')
     const review = useReviewStore()

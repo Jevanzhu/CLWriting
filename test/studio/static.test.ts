@@ -272,3 +272,30 @@ test('R65-47: 405 后请求体被排空——keep-alive 连接可复用', async 
     agent.destroy()
   }
 })
+
+// R30-23（三十轮）：静态响应统一 nosniff——三条产出路径（HEAD / GET / SPA fallback）
+// 的 writeHead 均须带 x-content-type-options: nosniff（禁 MIME 嗅探被误判为脚本）
+test('R30-23: 静态响应（GET/HEAD/SPA fallback）均含 x-content-type-options: nosniff', async () => {
+  mkdirSync(join(root, 'assets'), { recursive: true })
+  writeFileSync(join(root, 'assets', 'app-R30.js'), 'console.log(1)')
+
+  // GET 静态文件
+  const get = await fetch(`${baseUrl}/assets/app-R30.js`)
+  expect(get.status).toBe(200)
+  expect(get.headers.get('x-content-type-options')).toBe('nosniff')
+
+  // HEAD 静态文件
+  const head = await fetch(`${baseUrl}/assets/app-R30.js`, { method: 'HEAD' })
+  expect(head.status).toBe(200)
+  expect(head.headers.get('x-content-type-options')).toBe('nosniff')
+
+  // SPA fallback（不存在路由回 index.html）
+  const spa = await fetch(`${baseUrl}/some/route`)
+  expect(spa.status).toBe(200)
+  expect(spa.headers.get('x-content-type-options')).toBe('nosniff')
+
+  // 根入口（index.html 直发）
+  const index = await fetch(`${baseUrl}/`)
+  expect(index.status).toBe(200)
+  expect(index.headers.get('x-content-type-options')).toBe('nosniff')
+})

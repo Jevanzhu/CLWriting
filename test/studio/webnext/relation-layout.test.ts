@@ -87,8 +87,8 @@ describe('O-9 relation-layout', () => {
       { from: '甲', to: '乙' },
     ]
     const n1 = mk(); const n2 = mk()
-    computeRadialLayout(n1, edges, (a, b) => (a === '主角' ? '同辈' : ''))
-    computeRadialLayout(n2, edges, (a, b) => (a === '主角' ? '同辈' : ''))
+    computeRadialLayout(n1, edges, (a, _b) => (a === '主角' ? '同辈' : ''))
+    computeRadialLayout(n2, edges, (a, _b) => (a === '主角' ? '同辈' : ''))
     for (let i = 0; i < n1.length; i++) {
       expect(n1[i]!.homeX).toBe(n2[i]!.homeX)
       expect(n1[i]!.homeY).toBe(n2[i]!.homeY)

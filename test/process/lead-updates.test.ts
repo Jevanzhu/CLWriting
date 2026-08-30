@@ -1,14 +1,15 @@
 /**
  * 账本推进声明读取 单元测试 —— 账本 CLI 接缝修复。
  *
- * 覆盖 readChapterLeadUpdates（兑现层）+ readOutlineLeads（计划层）。
+ * 覆盖账本推进读取（兑现层：R30-17 起 readChapterLeadUpdates 死封装已删，文件级
+ * 读取改走单源 readLeadUpdatesAt）+ readOutlineLeads（计划层）。
  */
 
 import { test, expect } from 'vitest'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { leadEvidenceMatchesBody, parseLeadUpdateLines, readChapterLeadUpdates } from '../../src/check/lead-updates.js'
+import { leadEvidenceMatchesBody, parseLeadUpdateLines, readLeadUpdatesAt, LEAD_UPDATES_FILE } from '../../src/check/lead-updates.js'
 import { readOutlineLeads } from '../../src/check/outline-leads.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
@@ -16,7 +17,7 @@ function tmpWorkDir(): string {
   return mkdtempTracked(join(tmpdir(), 'lead-updates-'))
 }
 
-test('readChapterLeadUpdates: 解析标准行（编号/动词/证据，全角冒号）', () => {
+test('readLeadUpdatesAt: 解析标准行（编号/动词/证据，全角冒号）', () => {
   const wd = tmpWorkDir()
   try {
     const wsDir = join(wd, '工作区')
@@ -26,7 +27,7 @@ test('readChapterLeadUpdates: 解析标准行（编号/动词/证据，全角冒
       '- 成长线-001 起步：林开脉，踏入炼气一层。\n- 设定线-001 树立：灵脉体系——天地灵气分九品。\n',
       'utf-8',
     )
-    expect(readChapterLeadUpdates(wd)).toEqual([
+    expect(readLeadUpdatesAt(join(wd, LEAD_UPDATES_FILE))).toEqual([
       { leadId: '成长线-001', 动词: '起步', 证据: '林开脉，踏入炼气一层。' },
       { leadId: '设定线-001', 动词: '树立', 证据: '灵脉体系——天地灵气分九品。' },
     ])
@@ -35,25 +36,25 @@ test('readChapterLeadUpdates: 解析标准行（编号/动词/证据，全角冒
   }
 })
 
-test('readChapterLeadUpdates: 半角冒号 + 忽略非列表行', () => {
+test('readLeadUpdatesAt: 半角冒号 + 忽略非列表行', () => {
   const wd = tmpWorkDir()
   try {
     const wsDir = join(wd, '工作区')
     mkdirSync(wsDir, { recursive: true })
     writeFileSync(join(wsDir, '账本推进.md'), '# 本章推进\n说明文字一行\n- 悬念-002 埋下: 桌上多了一封信\n', 'utf-8')
-    expect(readChapterLeadUpdates(wd)).toEqual([{ leadId: '悬念-002', 动词: '埋下', 证据: '桌上多了一封信' }])
+    expect(readLeadUpdatesAt(join(wd, LEAD_UPDATES_FILE))).toEqual([{ leadId: '悬念-002', 动词: '埋下', 证据: '桌上多了一封信' }])
   } finally {
     rmSync(wd, { recursive: true, force: true })
   }
 })
 
-test('readChapterLeadUpdates: 空证据行忽略', () => {
+test('readLeadUpdatesAt: 空证据行忽略', () => {
   const wd = tmpWorkDir()
   try {
     const wsDir = join(wd, '工作区')
     mkdirSync(wsDir, { recursive: true })
     writeFileSync(join(wsDir, '账本推进.md'), '- 悬念-002 埋下:    \n', 'utf-8')
-    expect(readChapterLeadUpdates(wd)).toEqual([])
+    expect(readLeadUpdatesAt(join(wd, LEAD_UPDATES_FILE))).toEqual([])
   } finally {
     rmSync(wd, { recursive: true, force: true })
   }
@@ -63,10 +64,10 @@ test('leadEvidenceMatchesBody: 空证据核心不算正文命中', () => {
   expect(leadEvidenceMatchesBody('任意正文都不该让空证据通过。', '   ')).toBe(false)
 })
 
-test('readChapterLeadUpdates: 无文件 → []', () => {
+test('readLeadUpdatesAt: 无文件 → []', () => {
   const wd = tmpWorkDir()
   try {
-    expect(readChapterLeadUpdates(wd)).toEqual([])
+    expect(readLeadUpdatesAt(join(wd, LEAD_UPDATES_FILE))).toEqual([])
   } finally {
     rmSync(wd, { recursive: true, force: true })
   }

@@ -137,9 +137,11 @@ function extractDegraded(data: unknown): boolean {
  *  同进程先后以两个 userDataPath 各建 provider 时，后注册者不再覆盖前者的降级
  *  持久化回调（旧 provider 触发 persistDegraded 会读写另一个配置目录的 providers.json）。
  *  各 path 的回调闭包常驻 Map、只建一次；store 单槽承载稳定分发器（模块级函数引用，
- *  重装幂等），按最近 resolve 的 userDataPath 路由——适配器的 persistDegraded/
- *  lookupDegraded 通道无 path 维度，进程内口径 = 活跃库优先（与 T2 降级标记键
- *  生命周期同口径）。 */
+ *  重装幂等）。R30-4（三十轮）：分发器升级为显式 path 优先路由——适配器实例由
+ *  resolveProvider 注入来源 path（经 createProvider 贯穿至降级链），persistDegraded/
+ *  lookupDegraded 调用时显式携带，双库并发生成互不劫持（旧实现按「最近 resolve 的
+ *  活跃 path」路由，后 resolve 的库会劫持先库的降级读写）；未传 path（旧形态/单测
+ *  直调）回落活跃 path（进程内口径 = 活跃库优先，兼容不变）。 */
 const degradedPersistByPath = new Map<string, (key: string) => void>()
 const degradedLookupByPath = new Map<string, (key: string) => boolean | undefined>()
 let degradedActivePath: string | null = null
@@ -150,13 +152,16 @@ export function degradedPersistCallbacksForTest(): ReadonlyMap<string, (key: str
   return degradedPersistByPath
 }
 
-/** R65-6：store 单槽里的稳定分发器——路由到活跃 path 的回调（重装传同一函数引用） */
-function degradedPersistDispatch(key: string): void {
-  if (degradedActivePath !== null) degradedPersistByPath.get(degradedActivePath)?.(key)
+/** R65-6：store 单槽里的稳定分发器——R30-4（三十轮）：显式 path 优先、缺省回落活跃
+ *  path（重装传同一函数引用，幂等） */
+function degradedPersistDispatch(key: string, userDataPath?: string): void {
+  const path = userDataPath ?? degradedActivePath
+  if (path !== null) degradedPersistByPath.get(path)?.(key)
 }
 
-function degradedLookupDispatch(key: string): boolean | undefined {
-  return degradedActivePath !== null ? degradedLookupByPath.get(degradedActivePath)?.(key) : undefined
+function degradedLookupDispatch(key: string, userDataPath?: string): boolean | undefined {
+  const path = userDataPath ?? degradedActivePath
+  return path !== null ? degradedLookupByPath.get(path)?.(key) : undefined
 }
 
 /** 注册降级记忆双通道回调（persist 落盘 + lookup 新鲜读），见 resolveProvider 注释。 */
@@ -234,13 +239,16 @@ export function resolveProvider(
   // R75-A-P3a：NO_MODEL 时供应商已解析到——modelHint 带 provider id（tier.model 为空是失败本身）
   if (!tier.model) return { ok: false, code: 'NO_MODEL', error: NO_MODEL_MSG, modelHint: `provider:${conf.id}` }
   // 表驱动重构（§6.3）：modelCaps 探测退役——能力由静态表判定；
-  // store 传入适配器供降级记忆读写（§6.5）
+  // store 传入适配器供降级记忆读写（§6.5）。
+  // R30-4（三十轮）：createProvider 携来源 userDataPath——适配器降级记忆读/写按显式
+  // path 分发（实例缓存键亦含 path，同 conf 跨 path 不复用实例），双库并发生成时
+  // 各库 provider 的降级记忆落在各自的 providers.json。
   // dd-P2：createProvider 对存量坏 conf 会 throw（未知协议等——openai-responses
   // 停用期的迁移报错曾属此列，2026-08-17 启用批已随注册回接移除）——
   // 原生 throw 会绕过 {ok:false} 封套、在 runTask 里留下孤儿 step/start
   // 且异常穿透到 API 层变成裸 500；此处收进封套（错误文案保留迁移指引）
   try {
-    return { ok: true, provider: createProvider({ ...conf, model: tier.model }, s), tier }
+    return { ok: true, provider: createProvider({ ...conf, model: tier.model }, s, userDataPath), tier }
   } catch (e) {
     return { ok: false, code: 'NO_PROVIDER', error: e instanceof Error ? e.message : '供应商初始化失败' }
   }

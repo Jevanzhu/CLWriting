@@ -33,7 +33,6 @@ vi.mock('../../../src/studio/web-next/src/api/documents', () => ({
 }))
 
 import { sendChat, clearChatHistory } from '../../../src/studio/web-next/src/api/chat'
-import { interrupt } from '../../../src/studio/web-next/src/api/stream'
 import { getProviders, setChatTier, fetchModels } from '../../../src/studio/web-next/src/api/providers'
 import { deleteDoc, createDoc, copyDoc, updateChapterMetaDoc } from '../../../src/studio/web-next/src/api/documents'
 import { useChatComposer } from '../../../src/studio/web-next/src/composables/useChatComposer'
@@ -45,7 +44,6 @@ import { useTheme } from '../../../src/studio/web-next/src/composables/useTheme'
 
 const sendMock = sendChat as ReturnType<typeof vi.fn>
 const clearMock = clearChatHistory as ReturnType<typeof vi.fn>
-const interruptMock = interrupt as ReturnType<typeof vi.fn>
 const getProvidersMock = getProviders as ReturnType<typeof vi.fn>
 const setTierMock = setChatTier as ReturnType<typeof vi.fn>
 const fetchModelsMock = fetchModels as ReturnType<typeof vi.fn>

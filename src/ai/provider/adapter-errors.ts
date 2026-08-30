@@ -92,6 +92,10 @@ export interface DegradePlan {
    *  记忆命中路径——常态——全部漏标）；适配器改判 attempt !== original，无论首发是否
    *  被记忆剥除，成功建流只要非原始参数面即标降级 */
   original: GenRequest
+  /** R30-4（三十轮）：来源 userDataPath（resolveProvider 经 createProvider 注入）——
+   *  降级记忆读/写按显式 path 分发，双库并发生成互不劫持；未传（单测直连适配器）
+   *  由 runner 分发器回落活跃 path。 */
+  userDataPath?: string
 }
 
 /**
@@ -114,12 +118,14 @@ export function buildDegradeAttempts(
   structuredMode: 'json_schema' | 'json_object' | 'none',
   conf: Pick<ProviderConf, 'id' | 'model'>,
   store: ProviderStore | undefined,
+  userDataPath?: string,
 ): DegradePlan {
   const degradedKey = conf.id && conf.model ? `${conf.id}/${conf.model}` : null
   // 优先 lookupDegraded 新鲜读（适配器实例缓存后，捕获 store 是创建时快照，会读到旧记忆，D2）；
-  // 未注册查通道（单测直连适配器）→ 回落捕获 store 快照
+  // 未注册查通道（单测直连适配器）→ 回落捕获 store 快照。
+  // R30-4（三十轮）：新鲜读携显式来源 path——双库并发时读各自 providers.json 的记忆
   const degraded = degradedKey
-    ? (lookupDegraded(degradedKey) ?? (store?.modelCaps?.[degradedKey] ? true : undefined))
+    ? (lookupDegraded(degradedKey, userDataPath) ?? (store?.modelCaps?.[degradedKey] ? true : undefined))
     : undefined
   const stripStructured =
     req.structured && structuredMode !== 'none' ? ({ ...req, structured: undefined } as GenRequest) : null
@@ -137,7 +143,7 @@ export function buildDegradeAttempts(
   } else {
     attempts = [req]
   }
-  return { attempts, stripStructured, degradedKey, original: req }
+  return { attempts, stripStructured, degradedKey, original: req, ...(userDataPath !== undefined ? { userDataPath } : {}) }
 }
 
 /**
@@ -152,10 +158,12 @@ export function isMidChain400(e: unknown, APIError: SdkErrorCtor, attempt: GenRe
  * 降级记忆写入：仅当「剥 structured 的重试」建流成功才落盘（防任意 400 误归因污染记忆）；
  * 剥 tools 的 attempt 不写 structured 记忆（归因不同，防污染）。
  * 落盘走 persistDegraded 通道（不依赖捕获 store），store 快照有则同步双写（D2）。
+ * R30-4（三十轮）：落盘携 plan.userDataPath（来源 path）——双库并发时写各自的
+ * providers.json，不再按「最近 resolve 的活跃 path」误路由。
  */
 export function markStructuredDegrade(plan: DegradePlan, attempt: GenRequest, store: ProviderStore | undefined): void {
   if (plan.degradedKey && attempt === plan.stripStructured) {
     if (store) store.modelCaps[plan.degradedKey] = { structured: false }
-    persistDegraded(plan.degradedKey)
+    persistDegraded(plan.degradedKey, plan.userDataPath)
   }
 }

@@ -1,8 +1,9 @@
 /**
  * C-6（二十九轮）回归：migrateVersionsDir rename 失败不再静默（warn 留痕 + 返回 false）。
  *
- * 失败（权限/占用）时保留旧目录、读取方仍兼容——行为不变；本回归验证失败路径的
- * 返回值与两侧目录状态（留痕本身不重复断言日志内容，遵循「日志只加观测不改语义」）。
+ * 失败（权限/占用）时保留旧目录、返回 false——行为不变；本回归验证失败路径的
+ * 返回值与两侧目录状态，以及告警文案的如实性（R30-19：旧文案「读取方仍兼容旧位置」
+ * 不实——listVersions 只读 .版本/，迁移失败时旧位置快照在版本历史中不可见）。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, renameSync } from 'node:fs'
@@ -25,6 +26,7 @@ vi.mock('node:fs', async (importOriginal) => {
 })
 
 import { migrateVersionsDir, LEGACY_SNAPSHOTS_DIR_NAME, VERSIONS_DIR_NAME } from '../../src/document/version.js'
+import { log } from '../../src/log/index.js'
 
 let root: string
 
@@ -56,5 +58,26 @@ describe('C-6 / migrateVersionsDir 失败留痕', () => {
     expect(migrateVersionsDir(root)).toBe(true)
     expect(existsSync(join(root, '工作区', VERSIONS_DIR_NAME, '01JXYZ.md'))).toBe(true)
     expect(existsSync(legacy)).toBe(false)
+  })
+
+  // R30-19（三十轮）：失败告警文案如实化——不实陈述「读取方仍兼容旧位置」移除，
+  // 按真实后果（版本历史不可见）与处置指引（文件仍在盘上可手工恢复、重试迁移）告警
+  it('R30-19: 失败 warn 文案如实——旧位置快照在版本历史中不可见、可手工恢复、请重试迁移', () => {
+    const legacy = join(root, '工作区', LEGACY_SNAPSHOTS_DIR_NAME)
+    mkdirSync(legacy, { recursive: true })
+    writeFileSync(join(legacy, '01JXYZ.md'), '---\n---\n\n旧快照\n', 'utf-8')
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
+    try {
+      FAIL.enabled = true
+      expect(migrateVersionsDir(root)).toBe(false)
+      expect(warn).toHaveBeenCalledTimes(1)
+      const msg = String(warn.mock.calls[0]![1])
+      expect(msg).toContain('在版本历史中不可见')
+      expect(msg).toContain('可手工恢复')
+      expect(msg).toContain('重试迁移')
+      expect(msg).not.toContain('读取方仍兼容旧位置')
+    } finally {
+      warn.mockRestore()
+    }
   })
 })

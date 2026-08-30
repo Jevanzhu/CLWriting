@@ -22,7 +22,9 @@ vi.mock('../../../src/studio/web-next/src/api/snapshots', () => ({
 // 断言侧取到的 spy 与组件内不是同一个——Y-31 同坑）
 const docEntryRef = ref<{ path: string; content: string; dirty: boolean; baselineRevision: string; saving?: boolean } | undefined>(undefined)
 const docSaveMock = vi.fn(async () => true)
-const docRefreshMock = vi.fn(async () => {})
+// R30-7（三十轮）：refresh 契约改为 Promise<boolean>（true=对齐成功）——本文件覆盖成功
+// 口径，默认返 true；失败分流（warning toast）见 r30-history-refresh-toast.test.ts
+const docRefreshMock = vi.fn(async () => true)
 vi.mock('../../../src/studio/web-next/src/stores/doc', () => ({
   useDocStore: vi.fn(() => ({
     get: (id: string) => (id === 'doc_1' ? docEntryRef.value : undefined),
@@ -43,8 +45,6 @@ vi.mock('../../../src/studio/web-next/src/stores/ui', () => ({
 }))
 
 import { restoreSnapshot } from '../../../src/studio/web-next/src/api/snapshots'
-import { useDocStore } from '../../../src/studio/web-next/src/stores/doc'
-import { useUiStore } from '../../../src/studio/web-next/src/stores/ui'
 import HistoryPanel from '../../../src/studio/web-next/src/components/panels/HistoryPanel.vue'
 
 const restoreMock = restoreSnapshot as ReturnType<typeof vi.fn>
