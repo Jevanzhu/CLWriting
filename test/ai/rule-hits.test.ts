@@ -34,8 +34,8 @@ describe('B3 规则命中统计（rule-hits.ts）', () => {
     expect(topRuleHits(bookRoot, 3)).toEqual([])
   })
 
-  it('recordRuleHits 记录违规 → readRuleHits 按 hits 降序', () => {
-    recordRuleHits(bookRoot, [aiCliche, styleHit])
+  it('recordRuleHits 记录违规 → readRuleHits 按 hits 降序', async () => {
+    await recordRuleHits(bookRoot, [aiCliche, styleHit])
     const hits = readRuleHits(bookRoot)
     expect(hits).toHaveLength(2)
     expect(hits[0]!.ruleId).toBe('ai-cliche')
@@ -44,9 +44,9 @@ describe('B3 规则命中统计（rule-hits.ts）', () => {
     expect(existsSync(join(bookRoot, '.cache', 'rule-hits.json'))).toBe(true)
   })
 
-  it('多次命中累加 + recentMessages 保留最近 5 条', () => {
-    recordRuleHits(bookRoot, [aiCliche])
-    recordRuleHits(bookRoot, [styleHit, styleHit])
+  it('多次命中累加 + recentMessages 保留最近 5 条', async () => {
+    await recordRuleHits(bookRoot, [aiCliche])
+    await recordRuleHits(bookRoot, [styleHit, styleHit])
     const hits = readRuleHits(bookRoot)
     const cliche = hits.find((h) => h.ruleId === 'ai-cliche')!
     const style = hits.find((h) => h.ruleId === 'style-consistency')!
@@ -65,11 +65,11 @@ describe('B3 规则命中统计（rule-hits.ts）', () => {
 describe('B4 反馈前置（rulesToPrompt 预防指令）', () => {
   let bookRoot: string
 
-  beforeAll(() => {
+  beforeAll(async () => {
     bookRoot = mkdtempSync(join(tmpdir(), 'clwriting-prevention-'))
-    // 造一条命中：ai-cliche 已检出 2 次
+    // 造一条命中：ai-cliche 已检出 2 次（R32-13：recordRuleHits 异步化）
     const v: RuleViolation = { ruleId: 'ai-cliche', level: 'yellow', message: 'AI高频套话「不禁」——删除或替换为具体描写' }
-    recordRuleHits(bookRoot, [v, v])
+    await recordRuleHits(bookRoot, [v, v])
   })
 
   afterAll(() => {
@@ -103,14 +103,14 @@ describe('B4 反馈前置（rulesToPrompt 预防指令）', () => {
 })
 
 describe('F1-P3 rule/hit 事件化（可选 userDataPath 双写）', () => {
-  it('带 userDataPath → workspace 会话写 rule/hit 事件；缺省不写', () => {
+  it('带 userDataPath → workspace 会话写 rule/hit 事件；缺省不写', async () => {
     const root = mkdtempSync(join(tmpdir(), 'clwriting-rule-hits-ev-'))
     try {
       const ud = mkdtempSync(join(tmpdir(), 'clwriting-rule-hits-ud-'))
       try {
         const v: RuleViolation = { ruleId: 'ai-cliche', level: 'yellow', message: 'AI高频词' }
         // 缺省（无 userDataPath）：不写事件
-        recordRuleHits(root, [v])
+        await recordRuleHits(root, [v])
         const store0 = openSessionStore(ud, root)!
         try {
           expect(store0.listEvents(bookHash(root))).toHaveLength(0)
@@ -118,7 +118,7 @@ describe('F1-P3 rule/hit 事件化（可选 userDataPath 双写）', () => {
           store0.close()
         }
         // 带 userDataPath：写事件
-        recordRuleHits(root, [v], ud)
+        await recordRuleHits(root, [v], ud)
         const store = openSessionStore(ud, root)!
         try {
           const evs = store.listEvents(bookHash(root))
@@ -136,11 +136,11 @@ describe('F1-P3 rule/hit 事件化（可选 userDataPath 双写）', () => {
     }
   })
 
-  it('json 读路径不受影响（双写兼容）', () => {
+  it('json 读路径不受影响（双写兼容）', async () => {
     const root = mkdtempSync(join(tmpdir(), 'clwriting-rule-hits-json-'))
     try {
       const v: RuleViolation = { ruleId: 'banned-word', level: 'red', message: '命中禁词' }
-      recordRuleHits(root, [v], undefined)
+      await recordRuleHits(root, [v], undefined)
       const hits = readRuleHits(root)
       expect(hits).toHaveLength(1)
       expect(hits[0]!.ruleId).toBe('banned-word')

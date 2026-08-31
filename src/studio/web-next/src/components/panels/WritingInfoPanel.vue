@@ -60,10 +60,13 @@ const volumeWords = computed(() => {
   return sum
 })
 // 章级目标优先级：fm「字数目标」> 书级每章字数（book.yaml chapter_target_words）> 全局默认（0=未设，三级同语义）
+// R32-32（三十二轮）：fm 手填非数字（「十万」/「3.5k」）时 Number(v) 得 NaN——NaN 为
+// falsy 不进 chapterProgress 的 truthy 分支虽显示 0%，但 NaN 传入下游比较/展示面是
+// 「NaN%」隐患；isFinite 过滤后落到书级/全局默认，三级链不受脏 fm 牵连。
 const chapterTarget = computed(() => {
   if (entry.value) {
     const v = parseFmFields(entry.value.content)['字数目标']
-    if (v) return Number(v)
+    if (v && Number.isFinite(Number(v))) return Number(v)
   }
   return config.value.book?.chapter_target_words ?? prefs.defaultChapterTargetWords
 })

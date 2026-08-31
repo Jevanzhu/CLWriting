@@ -25,6 +25,7 @@ import { readRagConfig } from '../rag/config.js'
 import { resolveRag } from '../rag/resolve.js'
 import { loadProviders, resolveTier } from '../ai/provider/index.js'
 import { recall, type RecallHit } from '../rag/index.js'
+import { log } from '../log/index.js'
 import { embed } from '../rag/embed.js'
 import { findWorkDir } from '../install/books.js'
 import type { BookConfig } from '../format/types.js'
@@ -162,13 +163,20 @@ export async function prepareMaterials(
   if (opts.chapter !== undefined) {
     try {
       summaryGenerated = await selfHealRecentChapterSummaries(bookRoot, opts.userDataPath ?? null, config, opts.chapter, opts.signal)
-    } catch { /* 补漏失败静默降级——prepare 无该段照常组装 */ }
+    } catch (e) {
+      // R32-20（三十二轮）：静默降级改 warn 留痕——此前「补漏失败静默」把 ENOENT/权限类
+      // 持续性故障埋进零痕迹（自愈循环断链无观测），备料降级语义不变
+      log.warn('materials', `近章摘要补漏失败（prepare 无该段照常组装）：${e instanceof Error ? e.message : String(e)}`)
+    }
     // C2（批 3）：上一卷摘要缺失且章摘要链完整 → 按需生成（链不全不强行，留痕降级）。
     // 卷摘要手写优先（文件存在即跳过）；prepare 直接读文件，无需 rebuild
     try {
       const vol = await selfHealVolumeSummary(bookRoot, opts.userDataPath ?? null, config, opts.chapter, opts.signal)
       if (vol) summaryGenerated.push(vol)
-    } catch { /* 同上：备料降级 */ }
+    } catch (e) {
+      // R32-20：同款 warn 留痕（备料降级语义不变）
+      log.warn('materials', `上一卷摘要按需生成失败（备料降级）：${e instanceof Error ? e.message : String(e)}`)
+    }
   }
   // RAG 解析：书级引用 → 应用级服务商（providers.json ragProviders）；无引用走旧版内联回落。
   // workDir 定位：传入的 workDir 可能是「书仓库内写章工作区」，真正放 .clwriting/rag.secret

@@ -8,7 +8,7 @@
  * 失败 → 返回 false 整体放弃，源库主库+侧车原地完整，绝不半搬。
  */
 import { describe, expect, it, afterEach } from 'vitest'
-import { rmSync, existsSync, copyFileSync, mkdirSync } from 'node:fs'
+import { rmSync, existsSync, copyFileSync, mkdirSync, writeFileSync, renameSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -228,8 +228,7 @@ describe('migrateBookSession', () => {
     expect(() => store.close()).not.toThrow()
   })
 
-  it('kk-P2-3 目标位已有库 → 返回 false 放弃（renameSync 静默覆盖防线），两侧数据都不动', () => {
-    const ud = tmpRoot()
+  it('kk-P2-3 目标位已有库 → 返回 false 放弃（renameSync 静默覆盖防线），两侧数据都不动', () => {    const ud = tmpRoot()
     const oldRoot = '/books/碰甲'
     const newRoot = '/books/碰乙'
     const oldDb = join(ud, 'clwriting', 'session', bookHash(oldRoot) + '.db')
@@ -255,6 +254,47 @@ describe('migrateBookSession', () => {
     const probeNew = new DatabaseSync(newDb)
     expect((probeNew.prepare("SELECT COUNT(*) AS n FROM events WHERE type = 'user/message'").get() as { n: number }).n).toBe(1)
     probeNew.close()
+  })
+
+  // R32-4（三十二轮）：迁移崩溃窗自愈——「rename 成功、钥匙 UPDATE 未及 COMMIT」的
+  // 半迁移态（旧库缺失+墓碑在位+新库在位但两把钥匙仍旧名）此前被早退分支吞掉
+  // （return true 永不补跑），对话史/工作区事件视图在新旧两头都查不到（「消失」）。
+  it('R32-4: 半迁移态（文件已搬、钥匙未改）重试 → 幂等补跑钥匙 UPDATE，新旧两头恢复可读', () => {
+    const ud = tmpRoot()
+    const oldRoot = '/books/愈甲'
+    const newRoot = '/books/愈乙'
+    const oldDb = join(ud, 'clwriting', 'session', bookHash(oldRoot) + '.db')
+    const newDb = join(ud, 'clwriting', 'session', bookHash(newRoot) + '.db')
+
+    // 造数据：对话 + 工作区两把钥匙，收口
+    const store = openSessionStore(ud, oldRoot)!
+    const chatSid = store.createSession('愈甲')
+    store.appendEvents(chatSid, [{ type: 'user/message', data: { message: '崩溃窗数据' }, surfaceOp: 'append' }])
+    const wsSid = store.createSession(bookHash(oldRoot))
+    store.appendEvents(wsSid, [{ type: 'step/start', data: {} }])
+    store.close()
+
+    // 手工构造崩溃窗终态：墓碑已落（3.5）+ 文件已搬（3）+ 钥匙 UPDATE 未 COMMIT（4）
+    writeFileSync(oldDb + '.migrated', JSON.stringify({ to: newDb, at: Date.now() }), 'utf-8')
+    for (const suffix of ['', '-wal', '-shm'] as const) {
+      if (existsSync(oldDb + suffix)) renameSync(oldDb + suffix, newDb + suffix)
+    }
+    expect(existsSync(oldDb)).toBe(false)
+    expect(existsSync(newDb)).toBe(true)
+    // 窗内事实：新库钥匙仍旧名——新名下两头都查不到（「消失」形态）
+    const half = new DatabaseSync(newDb)
+    const oldKeyRows = half.prepare("SELECT COUNT(*) AS n FROM sessions WHERE book = ?").get('愈甲') as { n: number }
+    half.close()
+    expect(oldKeyRows.n).toBeGreaterThan(0)
+
+    // 作者重试改名到达：早退分支不得吞掉——幂等补跑两条 UPDATE 后自愈
+    expect(migrateBookSession(ud, oldRoot, newRoot, '愈甲', '愈乙')).toBe(true)
+    const migrated = openSessionStore(ud, newRoot)!
+    expect(migrated.listEvents('愈乙').map((e) => e.type)).toContain('user/message')
+    expect(migrated.listEvents(bookHash(newRoot)).length).toBeGreaterThan(0)
+    expect(migrated.listEvents('愈甲')).toEqual([])
+    expect(migrated.listEvents(bookHash(oldRoot))).toEqual([])
+    migrated.close()
   })
 })
 

@@ -140,7 +140,6 @@ describe('树红点聚合规模界值（500 章长篇）', { retry: 2 }, () => {
       }
       const warmMs = Math.min(...durations)
 
-      // eslint-disable-next-line no-console
       console.log(
         `[check-scale] ${CHAPTERS} 章 / ~${((CHAPTERS * CHARS_PER_CHAPTER) / 10000).toFixed(0)}万字` +
         `｜冷算 ${coldMs.toFixed(0)}ms｜缓存命中 3 次：${durations.map((d) => d.toFixed(0) + 'ms').join('、')}（取最小 ${warmMs.toFixed(0)}ms）` +

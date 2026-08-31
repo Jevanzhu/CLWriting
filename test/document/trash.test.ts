@@ -84,7 +84,7 @@ test('trashDocument: 未登记 docId → NOT_FOUND', async () => {
 test('restoreTrash: 恢复 → 移回原位 + 清单恢复 + manifest 移除', async () => {
   const { root, svc } = makeBookWithChapter()
   await svc.trashDocument({ docId: 'doc_ch01' })
-  const r = restoreTrash(root, 'doc_ch01')
+  const r = await restoreTrash(root, 'doc_ch01')
   expect(r.ok).toBe(true)
   if (!r.ok) return
   expect(r.path).toBe('写作/正文/第一卷/0001-开篇.md')
@@ -100,7 +100,7 @@ test('restoreTrash: 原位已被占用 → OCCUPIED（不自动改名，§17 决
   // 原位新建同名文件（占用）
   mkdirSync(join(root, '写作', '正文', '第一卷'), { recursive: true })
   writeFileSync(join(root, '写作', '正文', '第一卷', '0001-开篇.md'), '新的内容', 'utf-8')
-  const r = restoreTrash(root, 'doc_ch01')
+  const r = await restoreTrash(root, 'doc_ch01')
   expect(r.ok).toBe(false)
   if (r.ok) return
   expect(r.code).toBe('OCCUPIED')
@@ -109,9 +109,9 @@ test('restoreTrash: 原位已被占用 → OCCUPIED（不自动改名，§17 决
   rmSync(root, { recursive: true, force: true })
 })
 
-test('restoreTrash: 回收站无此 id → NOT_FOUND', () => {
+test('restoreTrash: 回收站无此 id → NOT_FOUND', async () => {
   const root = mkdtempTracked(join(tmpdir(), 'w2a-trash-empty-'))
-  const r = restoreTrash(root, 'doc_xxx')
+  const r = await restoreTrash(root, 'doc_xxx')
   expect(r.ok).toBe(false)
   if (r.ok) return
   expect(r.code).toBe('NOT_FOUND')
@@ -123,7 +123,7 @@ test('purgeTrash: 永久删 → 物理删文件 + manifest 移除', async () => 
   await svc.trashDocument({ docId: 'doc_ch01' })
   const trashedAbs = join(root, '工作区', '.trash', 'doc_ch01-0001-开篇.md')
   expect(existsSync(trashedAbs)).toBe(true)
-  const r = purgeTrash(root, 'doc_ch01')
+  const r = await purgeTrash(root, 'doc_ch01')
   expect(r.ok).toBe(true)
   expect(existsSync(trashedAbs)).toBe(false)
   expect(listTrash(root)).toHaveLength(0)
@@ -158,7 +158,7 @@ test('W-P2-1：软删已定稿章 → 回收站条目带基线；恢复后清单
   expect(entries).toHaveLength(1)
   expect(entries[0]!.finalizedRevision).toBe('sha256:baseline-1')
 
-  const rr = restoreTrash(root, 'doc_ch01')
+  const rr = await restoreTrash(root, 'doc_ch01')
   expect(rr.ok).toBe(true)
   // 恢复后清单条目带回基线（修复前：upsertEntry 不带基线 → 已定稿章降级草稿态）
   const { readManifest } = await import('../../src/document/manifest.js')
@@ -184,7 +184,7 @@ test('R65-36: 目标位与回收站双份（link 后未删源崩溃形态）→ 
     linkSync(trashAbs, origAbs)
     expect(existsSync(origAbs)).toBe(true) // 双份在位
     // 修复前：此处 OCCUPIED 卡死（每次还原都撞占用，条目永不清）
-    const r = restoreTrash(root, 'doc_ch01')
+    const r = await restoreTrash(root, 'doc_ch01')
     expect(r.ok).toBe(true)
     if (!r.ok) return
     // 源被清、目标保留、清单恢复、条目移除
@@ -204,7 +204,7 @@ test('R65-36: 目标位是作者另建的不同内容 → 仍 OCCUPIED（内容�
     await svc.trashDocument({ docId: 'doc_ch01' })
     mkdirSync(join(root, '写作', '正文', '第一卷'), { recursive: true })
     writeFileSync(join(root, '写作', '正文', '第一卷', '0001-开篇.md'), '作者完全不同的新内容', 'utf-8')
-    const r = restoreTrash(root, 'doc_ch01')
+    const r = await restoreTrash(root, 'doc_ch01')
     expect(r.ok).toBe(false)
     if (r.ok) return
     expect(r.code).toBe('OCCUPIED')

@@ -19,6 +19,7 @@ import {
 import { useTheme } from '../../composables/useTheme'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
+import { friendlyError } from '../../shared/error'
 
 // Ribbon（~44px 图标列）：上部 章节树/搜索/总览/工作台/开书；底部 导出/书架/设置/亮暗。
 // macOS 交通灯占顶部 ~28px：桌面版顶部留白 40px（图标下移避让）+ 顶部空白可拖动窗口（参考 Obsidian）。
@@ -34,7 +35,8 @@ function openShelf(): void {
 // 书库：独立管理窗口（切换/最近/新建书库，进程级操作需单独窗口）
 function openLibraryManager(): void {
   if (window.clwritingDesktop) {
-    void window.clwritingDesktop.openLibraryWindow()
+    // R33D-31（三十三轮）：IPC 失败 toast 交代（窗口创建失败静默 = 点击无响应）
+    window.clwritingDesktop.openLibraryWindow().catch((e: unknown) => ui.toast(friendlyError(e), 'error'))
   }
 }
 </script>

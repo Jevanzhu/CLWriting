@@ -44,17 +44,17 @@ describe('readBatchPause', () => {
 })
 
 describe('writeBatchPause → readBatchPause round-trip', () => {
-  it('atChapter/reason/detail 保真；detail 缺省读出空串', () => {
-    writeBatchPause(dir, { atChapter: 3, reason: 'escalate', detail: '命中禁词「顿时」' })
+  it('atChapter/reason/detail 保真；detail 缺省读出空串', async () => {
+    await writeBatchPause(dir, { atChapter: 3, reason: 'escalate', detail: '命中禁词「顿时」' })
     expect(readBatchPause(dir)).toEqual({ atChapter: 3, reason: 'escalate', detail: '命中禁词「顿时」' })
     // detail 省略时读侧补空串（readBatchPause 契约）
     writeFileSync(fp(), JSON.stringify({ paused: { at_chapter: 3, reason: 'aborted' } }))
     expect(readBatchPause(dir)).toEqual({ atChapter: 3, reason: 'aborted', detail: '' })
   })
 
-  it('覆盖写 paused；文件里其他键保留（未来扩展不互踩）', () => {
+  it('覆盖写 paused；文件里其他键保留（未来扩展不互踩）', async () => {
     writeFileSync(fp(), JSON.stringify({ last_total: 8 }))
-    writeBatchPause(dir, { atChapter: 2, reason: 'failed', detail: '上限' })
+    await writeBatchPause(dir, { atChapter: 2, reason: 'failed', detail: '上限' })
     const obj = JSON.parse(readFileSync(fp(), 'utf-8')) as Record<string, unknown>
     expect(obj['last_total']).toBe(8)
     expect(readBatchPause(dir)).toEqual({ atChapter: 2, reason: 'failed', detail: '上限' })
@@ -62,25 +62,25 @@ describe('writeBatchPause → readBatchPause round-trip', () => {
 })
 
 describe('clearBatchPause', () => {
-  it('只剩 paused → 删文件', () => {
-    writeBatchPause(dir, { atChapter: 1, reason: 'aborted', detail: '' })
-    clearBatchPause(dir)
+  it('只剩 paused → 删文件', async () => {
+    await writeBatchPause(dir, { atChapter: 1, reason: 'aborted', detail: '' })
+    await clearBatchPause(dir)
     expect(existsSync(fp())).toBe(false)
     expect(readBatchPause(dir)).toBeUndefined()
   })
 
-  it('还有其他键 → 保留改写（只摘 paused）', () => {
+  it('还有其他键 → 保留改写（只摘 paused）', async () => {
     writeFileSync(fp(), JSON.stringify({ last_total: 8, paused: { at_chapter: 1, reason: 'aborted' } }))
-    clearBatchPause(dir)
+    await clearBatchPause(dir)
     const obj = JSON.parse(readFileSync(fp(), 'utf-8')) as Record<string, unknown>
     expect(obj['last_total']).toBe(8)
     expect('paused' in obj).toBe(false)
   })
 
-  it('无 paused 键 → no-op（文件原样）；无文件 → no-op 不抛', () => {
+  it('无 paused 键 → no-op（文件原样）；无文件 → no-op 不抛', async () => {
     writeFileSync(fp(), JSON.stringify({ last_total: 8 }))
-    clearBatchPause(dir)
+    await clearBatchPause(dir)
     expect(JSON.parse(readFileSync(fp(), 'utf-8'))).toEqual({ last_total: 8 })
-    expect(() => clearBatchPause(dir)).not.toThrow()
+    await expect(clearBatchPause(dir)).resolves.toBeUndefined()
   })
 })

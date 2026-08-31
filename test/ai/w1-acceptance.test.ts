@@ -100,7 +100,7 @@ interface SaveCall {
   content: string
 }
 function makeSave(calls: SaveCall[]): typeof saveDraft {
-  return (root, _chapter, content) => {
+  return async (root, _chapter, content) => {
     calls.push({ content })
     const dir = join(root, '工作区')
     mkdirSync(dir, { recursive: true })

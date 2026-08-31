@@ -23,6 +23,7 @@ import { isUtf8Bytes } from './service.js'
 import {
   readChapterUpdatesForChapter,
   chapterUpdateSources,
+  readLeadUpdateChapterTag,
   LEAD_UPDATES_FILE,
   LEAD_UPDATES_ARCHIVE_DIR,
   type ChapterLeadUpdate,
@@ -253,12 +254,26 @@ export function applyLeadUpdatesLocked(
   if (applied > 0) {
     const residue = unresolved.length > 0 ? unresolvedText(chapterNo, unresolved) : ''
     if (targets.mainIsThisChapter && existsSync(targets.mainPath)) {
-      try {
-        // dd-P3：统一原子写（目标虽是清空，也走 tmp+rename 消裸写窗口）
-        // ee-P1-6：对齐账本写点 fsync 纪律（掉电回退由履历去重兜底，fsync 消除该窗口）
-        atomicWriteFile(targets.mainPath, residue, { fsync: true })
-      } catch {
-        /* 清空失败不阻断定稿主流程 */
+      // R33D-4（三十三轮）：锁内复核再清空——targets（含 mainIsThisChapter 判定）在
+      // finalize 的布线锁/清单锁**外**解析，锁等待窗口（最长 ~10s）内他请求的
+      // generateLeadUpdateDraft(N+1) 可写入新的他章草稿（该文件与定稿锁不互斥，且在
+      // 编辑器白名单内可被作者手改）。按锁外快照直接清空会把新草稿无痕抹掉。锁内重读
+      // 章标签：仍为本章/无标签（旧格式语义上属本章）才清；已变成他章 → 主文件原样
+      // 保留（新草稿完整无损，含未确认内容），本章归档照常清理，warn 留痕。
+      const liveTag = readLeadUpdateChapterTag(targets.mainPath)
+      if (liveTag !== null && liveTag !== chapterNo) {
+        log.warn(
+          'lead-finalize',
+          `账本推进主文件在定稿锁等待窗口内被改写为第${liveTag}章草稿——跳过清空保护新内容（第${chapterNo}章履历回写不受影响）`,
+        )
+      } else {
+        try {
+          // dd-P3：统一原子写（目标虽是清空，也走 tmp+rename 消裸写窗口）
+          // ee-P1-6：对齐账本写点 fsync 纪律（掉电回退由履历去重兜底，fsync 消除该窗口）
+          atomicWriteFile(targets.mainPath, residue, { fsync: true })
+        } catch {
+          /* 清空失败不阻断定稿主流程 */
+        }
       }
       if (existsSync(targets.archivePath)) {
         try {

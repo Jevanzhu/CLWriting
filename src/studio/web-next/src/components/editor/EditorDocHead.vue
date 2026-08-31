@@ -222,8 +222,10 @@ async function onTitleCommit(): Promise<void> {
           <span class="word-count">{{ wordCount.toLocaleString() }} 字</span>
           <span v-if="chapterStatus" class="doc-status" :class="statusCls">{{ chapterStatus }}</span>
           <template v-if="entry?.conflict">
-            <button class="conflict-btn" @click="doc.reloadFromRemote(entry.docId)">重载</button>
-            <button class="conflict-btn danger" @click="doc.overwriteRemote(entry.docId)">覆盖</button>
+            <!-- R32-33（三十二轮）：saving 窗口禁用——重载/覆盖入口对 saving 在途静默 no-op
+                 （doc store saving 守卫），按钮此前可点但毫无反应（死按钮残余点） -->
+            <button class="conflict-btn" :disabled="entry.saving" @click="doc.reloadFromRemote(entry.docId)">重载</button>
+            <button class="conflict-btn danger" :disabled="entry.saving" @click="doc.overwriteRemote(entry.docId)">覆盖</button>
           </template>
           <div v-if="isReviewable" class="ai-group">
             <button

@@ -82,15 +82,42 @@ export const useUiStore = defineStore('ui', () => {
     confirmState.value = null
     s?.resolve(v)
   }
+  /** R32-34（三十二轮）：toast 上限——循环失败（AI 轮询报错等）此前逐条无界堆叠遮屏 */
+  const TOAST_MAX = 5
+  /** R32-34：消失计时器登记表（同文案合并重置计时用；dismiss 时同步清理） */
+  const toastTimers = new Map<number, ReturnType<typeof setTimeout>>()
+  function armToastTimer(id: number, kind: ToastItem['kind']): void {
+    toastTimers.set(
+      id,
+      setTimeout(() => dismissToast(id), kind === 'error' || kind === 'warning' ? 5000 : 1800), // R30-7（三十轮）：warning 需作者行动（如手动重载），时长对齐 error 档
+    )
+  }
+  /** R32-34：关闭单条 toast（点击关闭 + 计时到期共用出口） */
+  function dismissToast(id: number): void {
+    const timer = toastTimers.get(id)
+    if (timer) {
+      clearTimeout(timer)
+      toastTimers.delete(id)
+    }
+    toasts.value = toasts.value.filter((t) => t.id !== id)
+  }
   /** 弹 toast（自动消失；时长按级别分级——低级项（第六轮）：错误 1.8s 读不完就消失，
    *  作者看不到失败原因只能重复操作。R76-35（二十四轮 E 域）：注释校正——实际代码
-   *  error 5000ms / 成功与信息类 1800ms，旧注释「错误 1.8s」与实现相悖，误导后续维护）。 */
+   *  error 5000ms / 成功与信息类 1800ms，旧注释「错误 1.8s」与实现相悖，误导后续维护）。
+   *  R32-34：同文案同级别合并（重置既有条目消失计时，循环失败只刷新一条不堆叠）+
+   *  上限 TOAST_MAX（挤掉最旧）。 */
   function toast(msg: string, kind: ToastItem['kind'] = 'info'): void {
+    const existing = toasts.value.find((t) => t.msg === msg && t.kind === kind)
+    if (existing) {
+      const timer = toastTimers.get(existing.id)
+      if (timer) clearTimeout(timer)
+      armToastTimer(existing.id, kind)
+      return
+    }
+    if (toasts.value.length >= TOAST_MAX) dismissToast(toasts.value[0]!.id)
     const id = ++seq
-    toasts.value.push({ id, msg, kind })
-    setTimeout(() => {
-      toasts.value = toasts.value.filter((t) => t.id !== id)
-    }, kind === 'error' || kind === 'warning' ? 5000 : 1800) // R30-7（三十轮）：warning 需作者行动（如手动重载），时长对齐 error 档
+    toasts.value = [...toasts.value, { id, msg, kind }]
+    armToastTimer(id, kind)
   }
   /** G4：探测 AI 可达性（启动调一次；失败按指数退避自动重试，available:true 成功即停）。 */
   let probeTimer: ReturnType<typeof setTimeout> | null = null
@@ -163,6 +190,7 @@ export const useUiStore = defineStore('ui', () => {
     ask,
     resolveConfirm,
     toast,
+    dismissToast,
     reportUnhandledError,
   }
 })

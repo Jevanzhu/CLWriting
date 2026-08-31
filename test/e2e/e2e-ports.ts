@@ -17,10 +17,15 @@
  */
 const DEFAULT_PORT_BASE = 18999
 
+/** 独立 server spec 相对基址的最大端口偏移（与偏移表同源：release-smoke=16，越界即坏基址） */
+export const MAX_PORT_OFFSET = 16
+
 /** 非法/越界 env 回落缺省（防御性：基址坏值不应把整套 e2e 打挂） */
 const parsed = Number(process.env['CLW_E2E_PORT_BASE'])
 export const E2E_PORT_BASE =
-  Number.isInteger(parsed) && parsed > 0 && parsed < 65536 ? parsed : DEFAULT_PORT_BASE
+  // R33D-35（三十三轮）：上界留偏移余量——独立 server spec 的派生端口最大 +16，
+  // 放行 65520+ 会让 e2ePort(16) 越 65535 起服必挂（违背「坏值回落缺省」自述意图）
+  Number.isInteger(parsed) && parsed > 0 && parsed < 65536 - MAX_PORT_OFFSET ? parsed : DEFAULT_PORT_BASE
 
 /** 基址 + 偏移派生端口（独立 server spec 用；偏移表见头注） */
 export function e2ePort(offset: number): number {

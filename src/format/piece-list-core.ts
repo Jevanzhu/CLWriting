@@ -21,6 +21,13 @@ const SECTION_REVERSAL = '反转线索表'
 const SECTION_EMOTION = '情绪曲线'
 const SECTION_PAYOFF = '伏笔回收'
 
+/** R32-17（三十二轮）：段头整行精确匹配——此前 `/^##\s*反转线索表/` 前缀正则会把
+ *  `## 反转线索表补遗` 类手写标题当正式段头（后随内容被段解析器吞入结构数据）。
+ *  现要求标题后即行尾，仅容忍尾随空白或一个括注尾注（`## 反转线索表（修订）` 类）。 */
+function isSectionHead(trimmed: string, title: string): boolean {
+  return new RegExp(`^##\\s*${title}(?:\\s*[（(][^）)]*[）)])?\\s*$`).test(trimmed)
+}
+
 /** 默认空章纲（导入/冷启动占位，不臆造反转线索——吸收点 7.5 负向约束） */
 export function emptyPieceList(): PieceList {
   return {
@@ -164,7 +171,7 @@ export function parsePieceListBody(body: string): PieceList {
 
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i]!.trim()
-    if (trimmed === `## ${SECTION_REVERSAL}` || /^##\s*反转线索表/.test(trimmed)) {
+    if (isSectionHead(trimmed, SECTION_REVERSAL)) {
       if (seenSections.has(SECTION_REVERSAL)) {
         warnParse(`章纲重复段「${SECTION_REVERSAL}」，保留首个（后段丢弃）`)
         continue
@@ -173,7 +180,7 @@ export function parsePieceListBody(body: string): PieceList {
       const r = parseReversalSection(lines, i + 1)
       lead = r.lead
       i = r.endIdx - 1
-    } else if (trimmed === `## ${SECTION_EMOTION}` || /^##\s*情绪曲线/.test(trimmed)) {
+    } else if (isSectionHead(trimmed, SECTION_EMOTION)) {
       if (seenSections.has(SECTION_EMOTION)) {
         warnParse(`章纲重复段「${SECTION_EMOTION}」，保留首个（后段丢弃）`)
         continue
@@ -182,7 +189,7 @@ export function parsePieceListBody(body: string): PieceList {
       const r = parseEmotionSection(lines, i + 1)
       emotionCurve = r.curve
       i = r.endIdx - 1
-    } else if (trimmed === `## ${SECTION_PAYOFF}` || /^##\s*伏笔回收/.test(trimmed)) {
+    } else if (isSectionHead(trimmed, SECTION_PAYOFF)) {
       if (seenSections.has(SECTION_PAYOFF)) {
         warnParse(`章纲重复段「${SECTION_PAYOFF}」，保留首个（后段丢弃）`)
         continue

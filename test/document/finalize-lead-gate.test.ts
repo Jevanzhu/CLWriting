@@ -266,3 +266,33 @@ test('ff-P1-1: 归档两端一致 → 放行 + 从归档回写履历并清归档
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+// ── R32-3（三十二轮）：兑现侧清单不可读 → 闸降级放行，不产「声明了没做」假红 ──
+
+test('R32-3: 主文件在位但不可读（目录占位）→ 闭合比对降级跳过，定稿放行（旧口径假红 LEAD_GATE）', () => {
+  const { root, docId } = makeBook({ outlineLeads: '悬念-001' }) // 声明已知：旧口径下按零兑现比对 → 假红
+  try {
+    // 账本推进.md 做成目录：existsSync 命中但 readFileSync 必败（EISDIR）——「存在但读失败」形态
+    mkdirSync(join(root, '工作区', '账本推进.md'))
+    const r = finalizeRevision(root, docId)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const e = readManifest(join(root, '项目', '文档清单.jsonl')).entries.get(docId)!
+    expect(typeof e.finalizedRevision).toBe('string')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('R32-3: 本章归档在位但不可读（目录占位）→ 同款降级放行（机检侧 R31-3 口径对齐）', () => {
+  const { root, docId } = makeBook({ outlineLeads: '悬念-001' })
+  try {
+    // 主文件载其他章标签（本章推进「应在」归档）+ 归档做成目录 → unreadable
+    writeFileSync(join(root, '工作区', '账本推进.md'), '# 第2章 账本推进\n- 悬念-002 递进：别章证据。\n', 'utf-8')
+    mkdirSync(join(root, '工作区', '.账本推进暂存', '第1章.md'), { recursive: true })
+    const r = finalizeRevision(root, docId)
+    expect(r.ok).toBe(true)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})

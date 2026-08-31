@@ -19,6 +19,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawn } from 'node:child_process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { armWatchdog } from '../helpers/spawn-node.js'
 import { finalizeRevision, finalizeRevisionAsync } from '../../src/document/finalize.js'
 import { readManifest, writeManifest, upsertEntry, __setManifestLockTimeoutForTest, type Manifest } from '../../src/document/manifest.js'
 import { __setLeadFinalizeLockTimeoutForTest } from '../../src/document/lead-finalize.js'
@@ -68,14 +69,17 @@ function holdProbeLock(targetAbs: string): void {
   writeFileSync(`${targetAbs}.lock`, JSON.stringify({ pid: process.pid, bootTime: processBootTime() }), 'utf-8')
 }
 
-/** spawn 子进程跑一段 TS 脚本（--import tsx，同 workspace-session-race 惯例）。 */
+/** spawn 子进程跑一段 TS 脚本（--import tsx，同 workspace-session-race 惯例）。
+ *  R32-37：看门狗兜底防孤儿进程（挂死子进程 60s 后 SIGKILL）；退出码原样透传
+ *  （调用方自断言 code）。 */
 function spawnTS(script: string): Promise<{ code: number | null; out: string; stderr: string }> {
+  let out = ''
+  let stderr = ''
+  const child = spawn(process.execPath, ['--import', 'tsx', '--eval', script], { stdio: ['ignore', 'pipe', 'pipe'] })
+  armWatchdog(child, 60_000)
+  child.stdout?.on('data', (c) => (out += c.toString('utf8')))
+  child.stderr?.on('data', (c) => (stderr += c.toString('utf8')))
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ['--import', 'tsx', '--eval', script], { stdio: ['ignore', 'pipe', 'pipe'] })
-    let out = ''
-    let stderr = ''
-    child.stdout.on('data', (c) => (out += c.toString('utf8')))
-    child.stderr.on('data', (c) => (stderr += c.toString('utf8')))
     child.on('error', reject)
     child.on('close', (code) => resolve({ code, out, stderr }))
   })

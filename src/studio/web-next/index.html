@@ -4,9 +4,46 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CLWriting</title>
+    <style>
+      /* R32-28（三十二轮）：boot 占位静态壳——boot 重试期（RB-FE-P2-2 指数退避最长
+         ≈22s）此前纯白屏零反馈。壳全部内联样式（不依赖 JS 侧 CSS 加载），Vue mount
+         到 #app 时整体替换。 */
+      #boot-shell {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+        color: #6b7280;
+        background: #fafafa;
+      }
+      #boot-shell .boot-spinner {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        border: 3px solid #d1d5db;
+        border-top-color: #6366f1;
+        animation: boot-spin 0.9s linear infinite;
+      }
+      @keyframes boot-spin {
+        to { transform: rotate(360deg); }
+      }
+      @media (prefers-color-scheme: dark) {
+        #boot-shell { background: #17171a; color: #9ca3af; }
+        #boot-shell .boot-spinner { border-color: #3f3f46; border-top-color: #818cf8; }
+      }
+    </style>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <div id="boot-shell">
+        <div class="boot-spinner"></div>
+        <p>正在启动 CLWriting…</p>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

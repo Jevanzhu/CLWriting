@@ -144,12 +144,20 @@ export function writeBooks(workDir: string, books: BookEntry[]): void {
 }
 
 /** R63-2（十一轮）：books.jsonl 锁等待超时（毫秒）——可注入缩短保测试快；
- *  争用为文件 IO 级毫秒，5s 已极保守（对齐 ai-calls J7 的 AI_CALLS_LOCK_TIMEOUT_MS）。 */
-export let BOOKS_LOCK_TIMEOUT_MS = 5_000
+ *  争用为文件 IO 级毫秒，5s 已极保守（对齐 ai-calls J7 的 AI_CALLS_LOCK_TIMEOUT_MS）。
+ *  R32-19（三十二轮）：`export let` 违反全仓 const+ForTest 注入口径改 const 导出 +
+ *  内部可变生效值（import 方静默改写会绕过注入钩子）；R32-18 口径：本族同步锁窄面
+ *  登记维持——mutator 族（append/remove/repair/rename）26 处调用跨 CLI/桌面/测试三面，
+ *  异步化级联不成比例，争用本身是毫秒级文件 IO（Atomics.wait 最坏停 5s 仅双进程
+ *  争写同一 books.jsonl 窗口），与 journal/manifest 已登记口径同族。 */
+export const BOOKS_LOCK_TIMEOUT_MS = 5_000
+
+/** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改。 */
+let booksLockTimeoutMs = BOOKS_LOCK_TIMEOUT_MS
 
 /** 测试注入钩子（生产零调用）。 */
 export function __setBooksLockTimeoutForTest(ms: number): void {
-  BOOKS_LOCK_TIMEOUT_MS = ms
+  booksLockTimeoutMs = ms
 }
 
 /**
@@ -165,7 +173,7 @@ export function __setBooksLockTimeoutForTest(ms: number): void {
  */
 export function tryBooksLock(workDir: string): (() => void) | null {
   mkdirSync(join(workDir, CLWRITING_DIR), { recursive: true })
-  return acquireCrossProcessLockWithTimeout(join(workDir, CLWRITING_DIR, 'books.lock'), BOOKS_LOCK_TIMEOUT_MS)
+  return acquireCrossProcessLockWithTimeout(join(workDir, CLWRITING_DIR, 'books.lock'), booksLockTimeoutMs)
 }
 
 /** 追加一本书到 books.jsonl（不改 active）。同名已存在则报冲突。 */

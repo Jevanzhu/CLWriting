@@ -13,22 +13,24 @@ const learn = useLearnStore()
   <section v-if="learn.quotes.length" class="sec">
     <h2 class="sec-title">金句候选 <span class="sec-count">{{ learn.quotes.length }}</span></h2>
     <div class="quote-grid">
-      <!-- R72-12（二十轮 E-10）：勾选卡片补键盘可达性（原仅 @click，键盘不可达） -->
+      <!-- R72-12（二十轮 E-10）：勾选卡片补键盘可达性（原仅 @click，键盘不可达）
+           R32-31（三十二轮）：key 与勾选身份改 出处+正文（同文不同出处此前 duplicate key
+           + 勾选联动）——身份计算在 learn store（quoteKey），模板传整对象 -->
       <div
         v-for="q in learn.quotes"
-        :key="q.正文"
+        :key="`${q.出处}\u0000${q.正文}`"
         class="quote-card"
-        :class="{ picked: learn.isQuotePicked(q.正文) }"
+        :class="{ picked: learn.isQuotePicked(q) }"
         role="button"
         tabindex="0"
-        @keydown.enter.prevent="learn.toggleQuote(q.正文)"
-        @keydown.space.prevent="learn.toggleQuote(q.正文)"
-        @click="learn.toggleQuote(q.正文)"
+        @keydown.enter.prevent="learn.toggleQuote(q)"
+        @keydown.space.prevent="learn.toggleQuote(q)"
+        @click="learn.toggleQuote(q)"
       >
         <p class="quote-text">{{ q.正文 }}</p>
         <div class="quote-foot">
           <span class="src">{{ q.出处 }} · {{ q.场景 }}</span>
-          <Check v-if="learn.isQuotePicked(q.正文)" :size="13" class="picked-mark" />
+          <Check v-if="learn.isQuotePicked(q)" :size="13" class="picked-mark" />
         </div>
       </div>
     </div>

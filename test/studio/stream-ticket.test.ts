@@ -252,6 +252,52 @@ describe('R65-43：429/404 不烧一次性 ticket（消费在书域校验之后�
 // 时旧实例的未过期票残留可消费。回归锚定：旧实例签发的票在新实例凭据闸 403（peek
 // 不到即拒，若残留/共享会放行到 200）、新实例票库快照无旧票、新实例签发/一次性语义
 // 照常。单元面（工厂隔离）+ 集成面（同进程二次 startServer）双层。
+describe('R33D-6：SSE x-studio-token 头通道全链可建流', () => {
+  it('header-only（无 ?ticket=/?token=）→ 预检放行且建流 200（消费点补认 header）；无凭据仍 403', async () => {
+    // 消费点此前只认 ?token=/?ticket=：header-only 请求过预检+书域校验后建流前必 403
+    const u = new URL(baseUrl)
+    const status = await new Promise<number>((resolve) => {
+      const req = http.request(
+        {
+          host: u.hostname,
+          port: u.port,
+          path: `/api/books/${encodeURIComponent(BOOK)}/stream`,
+          method: 'GET',
+          headers: { accept: 'text/event-stream', 'x-studio-token': token },
+        },
+        (res) => {
+          const st = res.statusCode ?? 0
+          res.destroy()
+          resolve(st)
+        },
+      )
+      req.on('error', () => resolve(0))
+      req.end()
+    })
+    expect(status).toBe(200)
+    // 对照：完全无凭据仍 403（预检闸未松动）
+    const status403 = await new Promise<number>((resolve) => {
+      const req = http.request(
+        {
+          host: u.hostname,
+          port: u.port,
+          path: `/api/books/${encodeURIComponent(BOOK)}/stream`,
+          method: 'GET',
+          headers: { accept: 'text/event-stream' },
+        },
+        (res) => {
+          const st = res.statusCode ?? 0
+          res.destroy()
+          resolve(st)
+        },
+      )
+      req.on('error', () => resolve(0))
+      req.end()
+    })
+    expect(status403).toBe(403)
+  })
+})
+
 describe('R73-49：票库随 server 实例隔离', () => {
   it('工厂级：两个票库互不相通（库 A 签发的票在库 B peek/consume 均 false）', () => {
     const a = createStreamTicketStore()
@@ -288,5 +334,25 @@ describe('R73-49：票库随 server 实例隔离', () => {
     } finally {
       await new Promise<void>((r) => serverB.close(() => r()))
     }
+  })
+})
+
+describe('R32-21：在库票上限（签发频控，内存有界）', () => {
+  it('连发 300 票 → 在库恒 ≤256；最早签发的超容票被逐出（peek/consume false），新票有效', () => {
+    const store = createStreamTicketStore()
+    const issued: string[] = []
+    for (let i = 0; i < 300; i++) issued.push(store.issue().ticket)
+    // 上限钉板：300 连发后库存恰为 256（修复前无界涨到 300）
+    expect(store.__entries().size).toBe(256)
+    // 300 - 256 = 44 张最早签发的票被逐出
+    for (const t of issued.slice(0, 44)) {
+      expect(store.peek(t)).toBe(false)
+      expect(store.consume(t)).toBe(false)
+    }
+    // 留存票照常有效（一次性语义不受上限影响）
+    expect(store.peek(issued[44]!)).toBe(true)
+    expect(store.peek(issued[299]!)).toBe(true)
+    expect(store.consume(issued[299]!)).toBe(true)
+    expect(store.__entries().size).toBe(255)
   })
 })

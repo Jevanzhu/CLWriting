@@ -175,6 +175,11 @@ export async function apiJson<T>(
         typeof parsed === 'object' &&
         (typeof parsed['error'] === 'string' || typeof parsed['code'] === 'string')
     } catch {
+      // R32-25（三十二轮）：超时若落在响应体读取期（r.json() 中途 abort），AbortError
+      // 在本 catch 被吞成 body={}，r.ok 为真 → 「空对象成功」假完成。timedOut 在手
+      // （fetch 头已到、体读取超时的形态）→ 补抛 408（外层 catch 只拦 DOMException，
+      // ApiError 原样穿透）。非超时的解析失败维持空体口径（304/204 等无体响应合法）。
+      if (timedOut) throw new ApiError('请求超时，请稍后重试', 408, 'TIMEOUT')
       body = {} as T & { error?: string; code?: string }
     }
     if (!r.ok) {

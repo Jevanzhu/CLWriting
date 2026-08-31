@@ -92,35 +92,46 @@ export async function* withFirstByteTimeout(
   onStall?: () => void,
 ): AsyncGenerator<GenEvent> {
   const it = source[Symbol.asyncIterator]()
-  while (true) {
-    const next = it.next()
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const timeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(
-        () => reject(new GenError(`响应超时（${timeoutMs / 1000}s 无数据），服务可能不可达`, true, { code: 'TIMEOUT' })),
-        timeoutMs,
-      )
-    })
-    try {
-      const result = await Promise.race([next, timeout])
-      if (result.done) { await it.return?.(); return }
-      yield result.value
-    } catch (e) {
-      // P1-1：超时/异常 → 关闭上游迭代器释放 HTTP 连接（否则悬挂连接叠加重试最多 4 条并存）。
-      // Q2：不得 `await it.return?.()` —— async generator 的 return() 会排队等待挂起的 next()
-      // 结算；半死连接场景下 next() 永不结算 → 60s 快速失败退化 10min 死等。
-      // 改为不等待（连接短暂驻留，由外层 signal 最终清理）。
-      // RB-AI-P2-3：先 onStall（abort signal，SDK 立即断开在途 HTTP）再清理迭代器——
-      // 只放弃消费不 abort 时旧请求仍服务端继续生成计费
-      // M-3（第八轮）：return() 触发的清理段（内层 SDK 流隐式 return）reject 时若被
-      // void 丢弃即 unhandledRejection 崩主进程（第六轮 stream.ts:186 同型收敛）——
-      // 吞清理段异常，外层 e 照常上抛走重试链
-      onStall?.()
-      it.return?.().catch(() => { /* 清理段异常不外抛 */ })
-      throw e
-    } finally {
-      if (timer) clearTimeout(timer)
+  // R33D-11（三十三轮）：任意退出路径都关源迭代器——原实现只在 done 与自身超时分支
+  // it.return()；消费方（generate/probe）收到适配器 yield 的 error 事件 throw 时，
+  // for-await 调 wrapper.return() 只恢复到 wrapper 的 yield 点、finally 仅 clearTimeout，
+  // 源迭代器（适配器生成器）停在 yield 上无人关闭，其内部 SDK SSE 连接悬挂到服务端 FIN
+  //（responses 线「yield error 后 return」写在事件循环体内，四条错误路径全部命中）。
+  // 不 await（Q2 同口径：return() 会排队等挂起的 next() 结算，半死连接下退化死等），
+  // 清理段异常吞掉（M-3 同口径）。
+  try {
+    while (true) {
+      const next = it.next()
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new GenError(`响应超时（${timeoutMs / 1000}s 无数据），服务可能不可达`, true, { code: 'TIMEOUT' })),
+          timeoutMs,
+        )
+      })
+      try {
+        const result = await Promise.race([next, timeout])
+        if (result.done) { return }
+        yield result.value
+      } catch (e) {
+        // P1-1：超时/异常 → 关闭上游迭代器释放 HTTP 连接（否则悬挂连接叠加重试最多 4 条并存）。
+        // Q2：不得 `await it.return?.()` —— async generator 的 return() 会排队等待挂起的 next()
+        // 结算；半死连接场景下 next() 永不结算 → 60s 快速失败退化 10min 死等。
+        // 改为不等待（连接短暂驻留，由外层 signal 最终清理）。
+        // RB-AI-P2-3：先 onStall（abort signal，SDK 立即断开在途 HTTP）再清理迭代器——
+        // 只放弃消费不 abort 时旧请求仍服务端继续生成计费
+        // M-3（第八轮）：return() 触发的清理段（内层 SDK 流隐式 return）reject 时若被
+        // void 丢弃即 unhandledRejection 崩主进程（第六轮 stream.ts:186 同型收敛）——
+        // 吞清理段异常，外层 e 照常上抛走重试链
+        onStall?.()
+        throw e
+      } finally {
+        if (timer) clearTimeout(timer)
+      }
     }
+  } finally {
+    // R33D-11：正常 return / 消费方 throw / 自身 throw 全部到 this——不等待、吞清理异常
+    it.return?.().catch(() => { /* 清理段异常不外抛 */ })
   }
 }
 

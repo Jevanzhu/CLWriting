@@ -30,25 +30,26 @@ function putChapter(rel: string, content: string): void {
 }
 
 describe('Y-3: saveDraft 留底 fail-closed', () => {
-  it('快照写失败（.版本 是文件）→ 拒绝覆写上抛，原文件不动', () => {
+  it('快照写失败（.版本 是文件）→ 拒绝覆写上抛，原文件不动', async () => {
     putChapter('写作/正文/0005-旧稿.md', OLD)
     // .版本 做成普通文件 → writeSnapshot 的 mkdir 必败
     mkdirSync(join(root, '工作区'), { recursive: true })
     writeFileSync(join(root, '工作区', '.版本'), 'not-a-dir')
-    expect(() => saveDraft(root, 5, NEW)).toThrow()
+    // R32-5：saveDraft 异步化 → rejects 断言
+    await expect(saveDraft(root, 5, NEW)).rejects.toThrow()
     expect(readFileSync(join(root, '写作/正文/0005-旧稿.md'), 'utf-8')).toBe(OLD)
   })
 
-  it('正常覆写：先留底后写盘，snapshotted=true', () => {
+  it('正常覆写：先留底后写盘，snapshotted=true', async () => {
     putChapter('写作/正文/0005-旧稿.md', OLD)
-    const r = saveDraft(root, 5, NEW)
+    const r = await saveDraft(root, 5, NEW)
     expect(r.snapshotted).toBe(true)
     expect(readFileSync(join(root, '写作/正文/0005-旧稿.md'), 'utf-8')).toBe(NEW)
   })
 })
 
 describe('Y-3: saveDraft 回收站双认领守卫', () => {
-  it('文件在盘 + 回收站认领同路径 → 中止上抛，文件不动', () => {
+  it('文件在盘 + 回收站认领同路径 → 中止上抛，文件不动', async () => {
     putChapter('写作/正文/0005-旧稿.md', OLD)
     mkdirSync(join(root, '工作区', '.trash'), { recursive: true })
     writeFileSync(join(root, '工作区', '.trash', 'doc_y3-旧稿.md'), OLD)
@@ -59,11 +60,12 @@ describe('Y-3: saveDraft 回收站双认领守卫', () => {
       trashedAt: '2026-08-24T00:00:00Z',
       role: 'chapter',
     })
-    expect(() => saveDraft(root, 5, NEW)).toThrow(/回收站/)
+    // R32-5：saveDraft 异步化 → rejects 断言
+    await expect(saveDraft(root, 5, NEW)).rejects.toThrow(/回收站/)
     expect(readFileSync(join(root, '写作/正文/0005-旧稿.md'), 'utf-8')).toBe(OLD)
   })
 
-  it('路径不在盘（删后重写）→ 放行落盘，不受回收站旧条目牵连', () => {
+  it('路径不在盘（删后重写）→ 放行落盘，不受回收站旧条目牵连', async () => {
     // 回收站里有同路径旧条目，但文件已不在盘（正常软删形态）
     mkdirSync(join(root, '工作区', '.trash'), { recursive: true })
     writeFileSync(join(root, '工作区', '.trash', 'doc_y3b-新稿.md'), OLD)
@@ -74,7 +76,7 @@ describe('Y-3: saveDraft 回收站双认领守卫', () => {
       trashedAt: '2026-08-24T00:00:00Z',
       role: 'chapter',
     })
-    const r = saveDraft(root, 5, NEW) // 新章生成路径 = 写作/正文/第一卷/0005-新稿.md
+    const r = await saveDraft(root, 5, NEW) // 新章生成路径 = 写作/正文/第一卷/0005-新稿.md
     expect(r.relPath).toBe('写作/正文/第一卷/0005-新稿.md')
     expect(existsSync(join(root, r.relPath))).toBe(true)
   })

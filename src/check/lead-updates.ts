@@ -131,12 +131,16 @@ export function leadUpdatesInScopeForChapter(bookRoot: string, forChapter: numbe
   return tag === null || tag === forChapter
 }
 
-/** 读账本推进文件的章节标签（首行 `# 第N章 …`；无标签/解析失败 → null）。 */
+/** 读账本推进文件的章节标签（首行 `# 第N章 …`；无标签/解析失败 → null）。
+ *  R33D-3（三十三轮）：读入后剥 BOM——带 BOM 文件的首行 `\uFEFF# 第5章` 对
+ *  `/^#\s*第(\d+)章/` 恒 miss → tag=null → mainIsThisChapter 对任意章为 true，
+ *  定稿他章时把标签章推进写成被定稿章履历 + 清空主文件销毁待确认内容
+ *  （同库 splitFrontMatter/Q-14 均已剥 BOM，此处补齐单点）。 */
 export function readLeadUpdateChapterTag(absPath: string): number | null {
   if (!existsSync(absPath)) return null
   try {
     const first = readFileSync(absPath, 'utf-8').split('\n', 1)[0] ?? ''
-    const m = first.match(/^#\s*第(\d+)章/)
+    const m = first.replace(/^\uFEFF/, '').match(/^#\s*第(\d+)章/)
     return m ? Number(m[1]) : null
   } catch {
     return null
@@ -171,8 +175,10 @@ export function chapterUpdateSources(
  * 主+归档，两源不对称：归档章的推进（批量连写常态）绕过闸直接落履历，「做了没
  * 声明」红失明、「声明已兑现」误阻断，闸对回写将写什么一无所知。
  * R31-3（三十一轮）：读失败（任一在位数据源不可读）维持按 [] 兜底——本函数的既有
- * 调用方（finalize 闸/履历回写，document 域）对「读失败=无推进」不敏感或自带
- * fail-open；两端闭合判定等降级敏感消费请走 readChapterUpdatesForChapterChecked。
+ * 调用方（履历回写 applyLeadUpdates 等 document 域）对「读失败=无推进」不敏感或自带
+ * fail-open；两端闭合判定等降级敏感消费走 readChapterUpdatesForChapterChecked（机检侧
+ * checkWithDb 与定稿闸 finalGateBlockers——R32-3 后者补齐：非 Checked 读会把「清单
+ * 不可读」当「零兑现」产假红硬阻断定稿）。
  */
 export function readChapterUpdatesForChapter(bookRoot: string, chapterNo: number): ChapterLeadUpdate[] {
   return readChapterUpdatesForChapterChecked(bookRoot, chapterNo).updates

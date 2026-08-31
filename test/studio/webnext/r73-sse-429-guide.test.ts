@@ -171,7 +171,10 @@ describe('R73-67: SSE 429（per-book 连接上限）→ 中文指引 toast', () 
     await settle()
     failClose(MockES.instances[MockES.instances.length - 1]!)
     await settle()
-    expect(ui.toasts.filter((t) => t.msg.includes('标签页'))).toHaveLength(2) // 切书复位后再提示
+    // R32-34（三十二轮）：同文案 toast 合并——切书复位后的再提示把仍可见的上一条
+    // 429 指引刷新（计数维持 1，消失计时重置），不再第二条堆叠；「可再提示」（notify
+    // 路径确实重跑）由探测 URL 指向新书佐证
+    expect(ui.toasts.filter((t) => t.msg.includes('标签页'))).toHaveLength(1)
     expect(probeUrls.at(-1)).toContain('/api/books/%E4%B9%A6B/stream')
   })
 })

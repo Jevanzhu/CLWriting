@@ -10,6 +10,7 @@
  */
 import { readdirSync, readFileSync, statSync, type Dirent } from 'node:fs'
 import { join } from 'node:path'
+import { safeManifestPath } from '../fs/safe-path.js'
 import { createHash } from 'node:crypto'
 import { roleOf, type DocumentRole } from './layout.js'
 import { readManifest, type ManifestEntry } from './manifest.js'
@@ -251,7 +252,10 @@ export function probeCachedPublished(bookRoot: string, relPath: string): boolean
  * 文件不存在/读失败 → null（调用方容错）。
  */
 function probeFile(bookRoot: string, rel: string): FileProbe | null {
-  const full = join(bookRoot, rel)
+  // R33D-19（三十三轮）：probe 的调用方传 manifest 登记路径——过 safeManifestPath
+  // 防 `../` 条目越出书仓库（stat/hash 只读逃逸面）；非法路径按「文件不存在」语义 null。
+  const full = safeManifestPath(bookRoot, rel)
+  if (!full) return null
   let st: { mtimeNs: bigint; size: bigint }
   try {
     st = statSync(full, { bigint: true })

@@ -3,7 +3,11 @@
 // 当前书库（路径 + 打开目录）+ 最近列表（切换→relaunch）+ 选择目录（新建/切换）。
 // 仅桌面版（window.clwritingDesktop）；浏览器版显示提示。
 import { ref, onMounted } from 'vue'
+import { useUiStore } from '../stores/ui'
+import { friendlyError } from '../shared/error'
 import { FolderOpen, ExternalLink, Database, ArrowRight, Check } from 'lucide-vue-next'
+
+const ui = useUiStore()
 
 const hasDesktop = !!window.clwritingDesktop
 const current = ref<string | null>(null)
@@ -58,7 +62,8 @@ async function switchTo(path: string): Promise<void> {
 
 // 在文件管理器中打开当前书库根目录
 function openDir(): void {
-  void window.clwritingDesktop?.openLibraryDir()
+  // R33D-31：IPC 失败 toast 交代
+  window.clwritingDesktop?.openLibraryDir().catch((e: unknown) => ui.toast(friendlyError(e), 'error'))
 }
 </script>
 

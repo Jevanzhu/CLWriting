@@ -33,44 +33,44 @@ afterEach(() => {
 })
 
 describe('R71-29: bookOnly setter 不触发全局 PUT（双窗伪 409 消除）', () => {
-  it('setPageWidth(v, true) → 推进防抖窗口后 putGlobalPrefs 不调用', () => {
+  it('setPageWidth(v, true) → 推进防抖窗口后 putGlobalPrefs 不调用', async () => {
     const prefs = usePrefsStore()
     prefs.setPageWidth(800, true)
     expect(prefs.bookPageWidth).toBe(800) // 书级覆盖仍生效（守卫不误伤功能）
     expect(prefs.effectivePageWidth).toBe(800)
-    vi.advanceTimersByTime(600)
+    await vi.advanceTimersByTimeAsync(600)
     expect(putGlobalPrefsMock).not.toHaveBeenCalled() // 修复点：bookOnly 跳过全局 PUT
   })
 
-  it('setAutosaveInterval(v, true) → 同规则不触发', () => {
+  it('setAutosaveInterval(v, true) → 同规则不触发', async () => {
     const prefs = usePrefsStore()
     prefs.setAutosaveInterval(10, true)
     expect(prefs.bookAutosaveInterval).toBe(10)
-    vi.advanceTimersByTime(600)
+    await vi.advanceTimersByTimeAsync(600)
     expect(putGlobalPrefsMock).not.toHaveBeenCalled()
   })
 
-  it('连续 bookOnly 变更多次 → 仍零 PUT', () => {
+  it('连续 bookOnly 变更多次 → 仍零 PUT', async () => {
     const prefs = usePrefsStore()
     prefs.setPageWidth(800, true)
     prefs.setPageWidth(900, true)
     prefs.setAutosaveInterval(15, true)
-    vi.advanceTimersByTime(600)
+    await vi.advanceTimersByTimeAsync(600)
     expect(putGlobalPrefsMock).not.toHaveBeenCalled()
   })
 
-  it('setPageWidth(v, false)（写全局默认）→ 照常防抖 PUT（对照组）', () => {
+  it('setPageWidth(v, false)（写全局默认）→ 照常防抖 PUT（对照组）', async () => {
     const prefs = usePrefsStore()
     prefs.setPageWidth(900, false)
-    vi.advanceTimersByTime(600)
+    await vi.advanceTimersByTimeAsync(600)
     expect(putGlobalPrefsMock).toHaveBeenCalledTimes(1)
     expect(putGlobalPrefsMock).toHaveBeenCalledWith(expect.objectContaining({ pageWidth: 900 }), 0)
   })
 
-  it('setAutosaveInterval(v, false) → 照常 PUT（对照组）', () => {
+  it('setAutosaveInterval(v, false) → 照常 PUT（对照组）', async () => {
     const prefs = usePrefsStore()
     prefs.setAutosaveInterval(45, false)
-    vi.advanceTimersByTime(600)
+    await vi.advanceTimersByTimeAsync(600)
     expect(putGlobalPrefsMock).toHaveBeenCalledTimes(1)
     expect(putGlobalPrefsMock).toHaveBeenCalledWith(expect.objectContaining({ autosaveInterval: 45 }), 0)
   })

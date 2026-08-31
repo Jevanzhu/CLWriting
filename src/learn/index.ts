@@ -19,7 +19,7 @@ import { join, relative } from 'node:path'
 import { readChapterDir } from '../format/chapters.js'
 import { splitSentences } from '../format/sentences.js'
 import { atomicWriteFile } from '../fs/atomic.js'
-import { acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
+import { acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 import { readFile } from '../format/frontmatter.js'
 import { readBookConfig } from '../format/yaml.js'
 import { finalizedPathSet } from '../document/manifest.js'
@@ -106,6 +106,17 @@ function scoreByChecks(body: string, rules: IronRules): number {
  * ToolExecutor 契约本就支持 Promise（turns.ts executor 调用全带 await），调用方无感。
  */
 const yieldToEventLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
+
+/** learn 收割跨进程锁等待上限（R30-18 口径：const 导出 + 内部可变生效值 + 测试注入钩子）。 */
+export const LEARN_HARVEST_LOCK_TIMEOUT_MS = 5_000
+
+/** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改。 */
+let learnHarvestLockTimeoutMs = LEARN_HARVEST_LOCK_TIMEOUT_MS
+
+/** 测试注入钩子（生产零调用）。 */
+export function __setLearnHarvestLockTimeoutForTest(ms: number): void {
+  learnHarvestLockTimeoutMs = ms
+}
 
 export async function learnFromBook(bookRoot: string): Promise<LearnResult> {
   // 1. 扫描定稿正文
@@ -218,8 +229,10 @@ export async function learnFromBook(bookRoot: string): Promise<LearnResult> {
   // R69-15（十七轮）：候选目录 rm+重建整段跨进程互斥——chat 工具（harvest_style 不经
   // 端点 'learn' 闸）与 CLI/他进程并发收割时对同一目录互相 rm 半删/覆盖；5s 超时
   // fail-closed 报「在途」交调用方提示重试（桌面+CLI 双进程形态 J7 已认可）。
+  // R32-13（三十二轮）：锁等待异步化（acquireCrossProcessLockAsync，rule-hits 同口径）——
+  // 同步 Atomics.wait 微睡会在双进程争用时冻结 utility 进程事件循环（SSE/HTTP 最坏停 5s）。
   const candidateRoot = join(bookRoot, CANDIDATE_DIR)
-  const releaseHarvest = acquireCrossProcessLockWithTimeout(join(bookRoot, '工作区', '.learn-harvest.lock'), 5000)
+  const releaseHarvest = await acquireCrossProcessLockAsync(join(bookRoot, '工作区', '.learn-harvest.lock'), learnHarvestLockTimeoutMs)
   if (!releaseHarvest) {
     return {
       ok: false,

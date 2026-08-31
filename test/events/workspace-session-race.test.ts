@@ -8,11 +8,11 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { spawn } from 'node:child_process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { describe, it, expect, afterAll } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
 import { bookHash } from '../../src/events/store.js'
+import { spawnNodeEval } from '../helpers/spawn-node.js'
 
 const dir = mkdtempSync(join(tmpdir(), 'n3-ws-race-'))
 afterAll(() => {
@@ -21,7 +21,8 @@ afterAll(() => {
 
 const storePath = fileURLToPath(new URL('../../src/events/store.ts', import.meta.url))
 
-/** 子进程：开库 → workspaceSession → 落 1 条链路事件 → close，stdout 打印 ws id */
+/** 子进程：开库 → workspaceSession → 落 1 条链路事件 → close，stdout 打印 ws id
+ *  （R32-37：看门狗兜底防孤儿进程） */
 function spawnWorker(userDataPath: string, bookRoot: string): Promise<string> {
   const script = `
 import { openSessionStore, bookHash } from ${JSON.stringify(pathToFileURL(storePath).href)}
@@ -35,18 +36,10 @@ try {
   store.close()
 }
 `
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ['--import', 'tsx', '--eval', script], { stdio: ['ignore', 'pipe', 'pipe'] })
-    let out = ''
-    let stderr = ''
-    child.stdout.on('data', (c) => (out += c.toString('utf8')))
-    child.stderr.on('data', (c) => (stderr += c.toString('utf8')))
-    child.on('error', reject)
-    child.on('close', (code) => {
-      if (code !== 0) reject(new Error(`worker 退出码 ${code}：${stderr.slice(0, 500)}`))
-      else resolve(out.trim().split('\n').pop()!)
-    })
-  })
+  let out = ''
+  return spawnNodeEval(script, { onStdout: (c) => (out += c) }).done.then(
+    () => out.trim().split('\n').pop()!,
+  )
 }
 
 describe('N3 workspaceSession 并行首开', () => {

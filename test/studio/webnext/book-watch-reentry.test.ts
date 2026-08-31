@@ -127,9 +127,13 @@ describe('R26-18: 切书守卫拒绝回退原书 → 同书重入 watch 零动�
     routeHolder.route!.params.name = '书A'
     await flushPromises()
 
-    // 修复点：重入短路——clear 不再执行（仍只有首载 1 次），原书状态原封
-    expect(clearSpy).toHaveBeenCalledTimes(1)
-    expect(wb.textOut).toBe('A 书生成正文残留')
+    // R26-18：重入短路——各 store clear 在取消分支内已清、重入零动作
+    // R32-8（三十二轮）口径更新：取消分支本身补清污（弹窗 await 期间 B 书事件已
+    // dispatch 进仍展示 A 的 store；workbench 的 B sync 污染同窗落下）——workbench.clear
+    // 在取消分支多跑 1 次（共 2 次），wb.textOut 被清（R28-24「原封」让位于污染清污，
+    // 回退后 sse.resync 由服务端权威快照重建）；doc 缓存仍原封（setBook 未被调用）
+    expect(clearSpy).toHaveBeenCalledTimes(2)
+    expect(wb.textOut).toBe('')
     expect(doc.bookName).toBe('书A')
     expect(doc.get('d1')).toBeDefined() // 缓存未被 setBook 清掉
     w.unmount()

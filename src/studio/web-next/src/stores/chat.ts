@@ -368,8 +368,13 @@ export const useChatStore = defineStore('chat', () => {
    * 切书（clear 使 seedGen 失效）→ 宁可放弃种子化也不覆盖/插入错位。
    * G1：种子化成功后 best-effort 拉 branches（失败静默不影响种子化），
    * branches 存列表、activeBranchId 用 history 返回的 branchId（两者解耦）。
+   * R33D-8（三十三轮）：`replace:true` 替换式补种——pendingReseed 场景下 messages
+   * 已被历史种子化（非空），原空列表守卫使补种恒 no-op（在途回合回复界面缺失）。
+   * replace 跳过「非空即弃」守卫（gen/running 守卫保留），先清后种（对齐 switchBranch
+   * 整体替换写法），把服务端含该回合结果的权威历史回填界面。
    */
-  async function seedHistory(bookName: string): Promise<void> {
+  async function seedHistory(bookName: string, opts?: { replace?: boolean }): Promise<void> {
+    const replace = opts?.replace === true
     if (!bookName) return
     // Q-8：running 中种子化会吞掉在途回合的增量（clear 后 currentIdx=-1）——改为
     // 登记 pendingReseed 等回合收尾后补种，不再直接放弃
@@ -377,7 +382,7 @@ export const useChatStore = defineStore('chat', () => {
       pendingReseed = bookName
       return
     }
-    if (messages.value.length > 0) return
+    if (!replace && messages.value.length > 0) return
     const gen = ++seedGen
     let data: ChatHistoryResult
     try {
@@ -385,7 +390,13 @@ export const useChatStore = defineStore('chat', () => {
     } catch {
       return // 后端未起/离线：静默放弃（对话区留白，可正常发起新对话）
     }
-    if (gen !== seedGen || messages.value.length > 0 || running.value) return
+    // 非 replace：fetch 窗口内 SSE 新消息已到（messages 非空）→ 放弃（不插入错位，Y-P2-5）
+    if (gen !== seedGen || running.value || (!replace && messages.value.length > 0)) return
+    if (replace) {
+      // R33D-8：替换式——先清旧种子再回填，防 append 错位（fetch 窗口内无在途回合）
+      messages.value = []
+      currentIdx = -1
+    }
     if (data.messages.length === 0) return
     seedFromHistory(data.messages, data.seqs)
     // G1：activeBranchId 用 history 返回的实际采用分支——种子化成功即写，
@@ -561,11 +572,13 @@ export const useChatStore = defineStore('chat', () => {
 
   // Q-8：在途回合收尾（running 翻 false）自动补种登记中的书——切书窗口内被 clear
   // 掉的回合届时从服务端历史回填，不再失明。store 常驻（App 级），watch 不卸载。
+  // R33D-8：补种走 replace:true——pendingReseed 登记时 messages 已非空（历史先于
+  // sync 种子化），原空列表守卫使补种恒 no-op；替换式重播种回填在途回合的权威结果。
   watch(running, (v) => {
     if (!v && pendingReseed) {
       const b = pendingReseed
       pendingReseed = null
-      void seedHistory(b)
+      void seedHistory(b, { replace: true })
     }
   })
 

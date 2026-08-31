@@ -256,6 +256,37 @@ export function writeTreeIssuesCache(
   }
 }
 
+/** 批量章级缓存写的行输入（collectTreeIssues 循环后统一落盘用）。 */
+export interface TreeIssuesCacheRow {
+  relPath: string
+  chapterFp: number
+  size: number
+  verdictFp: string | null
+  value: TreeIssueEntry
+}
+
+/**
+ * R33D-17（三十三轮）：章缓存批量落盘（单事务包批）——数百章书在纪元失效后一轮聚合
+ * 此前逐行独立 INSERT（每行一个隐式事务 = 数百次 WAL commit）。单 BEGIN…COMMIT 包批
+ * 语义不变（INSERT OR REPLACE 幂等）；批内任何失败回退逐行（保留逐行 best-effort 语义，
+ * 失败行静默放弃下次 miss 重算）。
+ */
+export function writeTreeIssuesCacheBatch(db: DatabaseSync, rows: TreeIssuesCacheRow[]): void {
+  if (rows.length === 0) return
+  try {
+    db.exec('BEGIN')
+    const stmt = db.prepare(
+      'INSERT OR REPLACE INTO tree_issues_cache (rel_path, mtime_ms, size, verdict_fp, report_json) VALUES (?, ?, ?, ?, ?)',
+    )
+    for (const r of rows) stmt.run(r.relPath, r.chapterFp, r.size, r.verdictFp, JSON.stringify(r.value))
+    db.exec('COMMIT')
+  } catch {
+    // 批失败回退逐行（best-effort 口径不变）
+    try { db.exec('ROLLBACK') } catch { /* 未开成功事务/已自动回滚：忽略 */ }
+    for (const r of rows) writeTreeIssuesCache(db, r.relPath, r.chapterFp, r.size, r.verdictFp, r.value)
+  }
+}
+
 /**
  * 结构性变更整表清空（invalidateTreeIndex(structural=true) 调用）：
  * 改名/移动/删章后旧行成垃圾（键是 rel_path，残留不致错——新路径必 miss——

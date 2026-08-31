@@ -31,11 +31,12 @@ const AI_TEXT = '第一段。\n\n值得一提的是，他走进了房间。\n\n�
 const DOC = 'doc_TEST001'
 
 describe('B5 作者信号', () => {
-  it('作者删掉含套话词的行 → ai-cliche 命中 +1', () => {
+  it('作者删掉含套话词的行 → ai-cliche 命中 +1', async () => {
     recordAiVersion(root, DOC, AI_TEXT)
     // 作者手改版：删掉「值得一提的是」那行
     const edited = '第一段。\n\n第二段。'
-    recordAuthorSignal(root, DOC, edited, 'self-heal')
+    // R32-13：recordAuthorSignal 异步化（recordRuleHits 锁等待 async）
+    await recordAuthorSignal(root, DOC, edited, 'self-heal')
 
     const hits = readRuleHits(root)
     expect(hits).toHaveLength(1)
@@ -44,10 +45,10 @@ describe('B5 作者信号', () => {
     expect(hits[0]!.recentMessages[0]).toContain('值得一提的是')
   })
 
-  it('多文档不串信号', () => {
+  it('多文档不串信号', async () => {
     recordAiVersion(root, DOC, AI_TEXT)
     recordAiVersion(root, 'doc_OTHER', '另一篇没有套话的内容')
-    recordAuthorSignal(root, DOC, '第一段。\n\n第二段。', 'self-heal')
+    await recordAuthorSignal(root, DOC, '第一段。\n\n第二段。', 'self-heal')
 
     const hits = readRuleHits(root)
     expect(hits).toHaveLength(1)

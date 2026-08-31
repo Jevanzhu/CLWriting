@@ -9,9 +9,9 @@
 import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { spawn } from 'node:child_process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { describe, it, expect, afterAll } from 'vitest'
+import { spawnNodeEval } from '../helpers/spawn-node.js'
 
 const root = mkdtempSync(join(tmpdir(), 'clwriting-calls-xproc-'))
 afterAll(() => {
@@ -20,7 +20,7 @@ afterAll(() => {
 
 const callsPath = fileURLToPath(new URL('../../src/ai/calls.ts', import.meta.url))
 
-/** 起一个子进程并发记账 N 次，resolve 退出码 */
+/** 起一个子进程并发记账 N 次，resolve 退出码（R32-37：看门狗兜底防孤儿进程） */
 function spawnWorker(bookRoot: string, n: number): Promise<number> {
   const script = `
 import { recordAiCall } from ${JSON.stringify(pathToFileURL(callsPath).href)}
@@ -28,16 +28,7 @@ for (let i = 0; i < ${n}; i++) {
   recordAiCall(${JSON.stringify(bookRoot)}, 5, { inputTokens: 10, outputTokens: 20 })
 }
 `
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ['--import', 'tsx', '--eval', script], { stdio: 'pipe' })
-    let stderr = ''
-    child.stderr.on('data', (c) => (stderr += c.toString('utf8')))
-    child.on('error', reject)
-    child.on('close', (code) => {
-      if (code !== 0) reject(new Error(`worker 退出码 ${code}：${stderr.slice(0, 500)}`))
-      else resolve(code ?? 0)
-    })
-  })
+  return spawnNodeEval(script).done
 }
 
 describe('ai-calls 跨进程互斥（J7 真锁）', () => {

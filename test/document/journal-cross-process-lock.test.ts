@@ -52,7 +52,7 @@ function holdLockWithOwnPid(journalPath: string): void {
 }
 
 describe('journal 跨进程锁（J7）', () => {
-  it('锁被活进程持有 → compact 弃本轮（文件原样保留），不误吞行', () => {
+  it('锁被活进程持有 → compact 弃本轮（文件原样保留），不误吞行', async () => {
     __setJournalLockTimeoutForTest(50) // append 分支若误入等待路也不拖慢测试
     const jp = join(dir, 'compact-held.jsonl')
     // 造一个超阈值的 journal（settled 行占字节）
@@ -63,7 +63,7 @@ describe('journal 跨进程锁（J7）', () => {
     const sizeBefore = readFileSync(jp, 'utf8').length
     holdLockWithOwnPid(jp)
     // appendSettled 会触发 maybeCompactJournal——锁被持 → 弃压缩
-    appendSettled(jp, 'op-new', 'sha256:y')
+    await appendSettled(jp, 'op-new', 'sha256:y')
     expect(readFileSync(jp, 'utf8').length).toBeGreaterThan(sizeBefore) // 只多了 append 行，未压缩
     rmSyncSafe(`${jp}.lock`)
   })
@@ -71,7 +71,7 @@ describe('journal 跨进程锁（J7）', () => {
   it('锁被活进程持有 → append 仍落盘（降级裸写 + warn 留痕）', async () => {
     const jp = join(dir, 'append-held.jsonl')
     holdLockWithOwnPid(jp)
-    const opId = appendPending(jp, 'doc-1', null, '正文内容')
+    const opId = await appendPending(jp, 'doc-1', null, '正文内容')
     const lines = readFileSync(jp, 'utf8').trim().split('\n')
     expect(lines.length).toBe(1)
     expect(JSON.parse(lines[0]!).opId).toBe(opId)
@@ -82,14 +82,14 @@ describe('journal 跨进程锁（J7）', () => {
     rmSyncSafe(`${jp}.lock`)
   })
 
-  it('无锁竞争 → append+settled 后 compact 正常压缩（无 pending 残留）', () => {
+  it('无锁竞争 → append+settled 后 compact 正常压缩（无 pending 残留）', async () => {
     const jp = join(dir, 'compact-normal.jsonl')
     let text = ''
     for (let i = 0; i < 200; i++) text += `${JSON.stringify({ opId: `op${i}`, ts: 't', status: 'settled', newRevision: 'sha256:x' })}\n`
     while (text.length < JOURNAL_COMPACT_BYTES + 1024) text += text
     writeFileSync(jp, text)
-    const opId = appendPending(jp, 'doc-1', null, '快照')
-    appendSettled(jp, opId, 'sha256:z')
+    const opId = await appendPending(jp, 'doc-1', null, '快照')
+    await appendSettled(jp, opId, 'sha256:z')
     expect(readFileSync(jp, 'utf8').length).toBeLessThan(JOURNAL_COMPACT_BYTES)
     expect(findUnsettled(jp)).toEqual([])
     expect(existsSync(`${jp}.lock`)).toBe(false) // 锁用后清理

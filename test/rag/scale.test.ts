@@ -209,7 +209,6 @@ describe('RAG 召回规模界值（200 万字目标场景）', () => {
       expect(again.length).toBe(5)
     }
     const best = Math.min(...durations)
-    // eslint-disable-next-line no-console
     console.log(
       `[rag-scale] ${CHAPTERS} 章 / ${(totalChars / 10000).toFixed(1)} 万字 / ${chunkCount} 块 / ${VECTOR_DIM} 维` +
       `｜召回耗时 3 次：${durations.map((d) => d.toFixed(0) + 'ms').join('、')}（取最小 ${best.toFixed(0)}ms）` +

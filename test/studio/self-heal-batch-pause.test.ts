@@ -53,7 +53,7 @@ function redOutcome(msg = '命中禁词「顿时」'): CheckOutcome {
 }
 
 function makeSave(): typeof saveDraft {
-  return (_bookRoot, _chapter, content) => ({
+  return async (_bookRoot, _chapter, content) => ({
     relPath: '写作/正文/1-测试章.md',
     docId: 'doc-短篇-1',
     words: content.length,
@@ -196,7 +196,7 @@ describe('M6 #34 连写暂停元状态：驱动侧接线', () => {
     const { opts, bookRoot, workDir } = setup([FM + '一章', FM + '二章'], () => greenOutcome(), { chapters: [1, 2] })
     cleanup.push(workDir)
     const stale = join(bookRoot, '工作区', '待定稿', '.auto-batch.json')
-    writeBatchPause(bookRoot, { atChapter: 1, reason: 'escalate', detail: '上次遗留' })
+    await writeBatchPause(bookRoot, { atChapter: 1, reason: 'escalate', detail: '上次遗留' })
     expect(existsSync(stale)).toBe(true)
 
     const r = await runSelfHeal(opts)

@@ -8,7 +8,7 @@
 
 import type { DatabaseSync } from 'node:sqlite'
 import { join, basename } from 'node:path'
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import type { CheckReport, CheckSectionResult } from './types.js'
 import { hasRed, getRedItems } from './types.js'
 import { checkLeadsForm } from './leads.js'
@@ -36,7 +36,7 @@ import { readIronRules } from '../format/iron-rules.js'
 import { deriveLeakKeywords } from './leak-derive.js'
 import { checkPieceListForm } from './manifest-check.js'
 import { readRealmDoc } from '../format/realms.js'
-import { countWords } from '../format/chapters.js'
+import { countWords, readChapterDir } from '../format/chapters.js'
 import { readPieceList } from '../format/manifest.js'
 // #10 项 7 数据源接线：高频意象内置种子表（三级供给的最底层）
 import { DEFAULT_IMAGERY_WORDS } from './imagery-seed.js'
@@ -224,8 +224,28 @@ export function runAllChecks(input: CheckInput): CheckReport {
   // 清单形式检（#27 第 5 节 + #28 第 3 节分工）：章纲在 大纲/章纲/ 与正文同名，有 config.short 才跑
   let pieceList: PieceList | null = null
   if (short && chapter._path) {
-    const manifestPath = join(bookRoot, '大纲', '章纲', basename(chapter._path))
-    if (existsSync(manifestPath)) {
+    // R32-15（三十二轮）：章纲定位三口径——① 同名 basename（既有口径）；② 目录内按
+    // fm 章号匹配（正文 4 位补零重命名/存量 3 位章纲不同名时 basename 恒 miss，清单
+    // 形式检静默失明）；③ 文件名数字前缀匹配（无 fm 章号的裸文件兜底，覆盖 0005-标题
+    // vs 005-标题 类补零差异）。三口径都空 → 黄项提示（缺失不再静默）。
+    const outlineDir = join(bookRoot, '大纲', '章纲')
+    let manifestPath: string | null = join(outlineDir, basename(chapter._path))
+    if (!existsSync(manifestPath)) {
+      const byFm = readChapterDir(outlineDir).chapters.find((o) => o.章号 === chapter.章号 && o._path)
+      if (byFm?._path) {
+        manifestPath = byFm._path
+      } else if (existsSync(outlineDir)) {
+        const prefixMatch = (f: string): boolean => {
+          const m = /^(\d+)[^\d]/.exec(f)
+          return f.endsWith('.md') && m !== null && Number(m[1]) === chapter.章号
+        }
+        const byName = readdirSync(outlineDir).find(prefixMatch)
+        manifestPath = byName ? join(outlineDir, byName) : null
+      } else {
+        manifestPath = null // 大纲/章纲 目录整个不存在
+      }
+    }
+    if (manifestPath && existsSync(manifestPath)) {
       const r = readPieceList(manifestPath)
       if (r.ok) {
         pieceList = r.list
@@ -245,6 +265,19 @@ export function runAllChecks(input: CheckInput): CheckReport {
           ],
         })
       }
+    } else {
+      // R32-15：本章章纲缺失 → 黄项（此前静默跳过，作者无感知清单形式检没跑）
+      sections.push({
+        name: '清单形式检',
+        items: [
+          {
+            checkId: 'piece-list-outline-missing',
+            level: 'yellow',
+            message: `第 ${chapter.章号} 章未找到章纲（大纲/章纲/ 无同名/同章号文件），清单形式检未跑；补写章纲后重查。`,
+            chapter: chapter.章号,
+          },
+        ],
+      })
     }
   }
 

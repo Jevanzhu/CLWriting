@@ -73,7 +73,12 @@ const titleBaseline = ref('')
 
 async function openBookDir(): Promise<void> {
   if (!ws.bookName) return
-  await window.clwritingDesktop?.openBookDir(ws.bookName)
+  // R33D-31（三十三轮）：IPC 失败不再静默（书目录被外部移动等）——toast 交代
+  try {
+    await window.clwritingDesktop?.openBookDir(ws.bookName)
+  } catch (e) {
+    ui.toast(friendlyError(e), 'error')
+  }
 }
 
 // R64-4（十二轮）：配置加载代守卫（R63-3 只修了兄弟组件 SettingsBookAnalysis）——本组件

@@ -894,8 +894,42 @@ export function migrateBookSession(
   }
   // 已完成搬移的记录（from=源位 to=新位）：任一步失败时逆序搬回，保证源库原地完整
   const moves: Array<{ from: string; to: string }> = []
+  // R32-4（三十二轮）：钥匙改写抽闭包——迁移第 4 步与半迁移态自愈共用。幂等：两条
+  // UPDATE 的 WHERE 只匹配仍持旧钥匙的行（对话书名 / 工作区 hash），已改行不再命中，
+  // 重复补跑零副作用。kk-P2-4：busy_timeout 先于 BEGIN——同进程连接已全关，但另一
+  // 进程（第二个 studio 实例）若恰在此窗口打开新库，裸 BEGIN 会立刻 SQLITE_BUSY 而非等待。
+  const rewriteSessionKeys = (): void => {
+    const db = new DatabaseSync(newDb)
+    try {
+      db.exec('PRAGMA busy_timeout = 5000')
+      db.exec('BEGIN')
+      db.prepare('UPDATE sessions SET book = ? WHERE book = ?').run(newName, oldName)
+      db.prepare('UPDATE sessions SET book = ? WHERE book = ?').run(bookHash(newRoot), bookHash(oldRoot))
+      db.exec('COMMIT')
+    } finally {
+      // 未 COMMIT 的事务随连接关闭回滚（先关干净再让异常冒泡去回滚文件搬移）
+      db.close()
+    }
+  }
   try {
-    if (!existsSync(oldDb)) return true
+    if (!existsSync(oldDb)) {
+      // R32-4（三十二轮）：半迁移态自愈——「rename 成功（3）→ 钥匙 UPDATE 未及 COMMIT
+      // （4）」的崩溃窗此前被本早退吞掉（return true 视作已完成、永不补跑），新库在位但
+      // 两把钥匙仍旧名：对话史/工作区事件视图在新旧两头都查不到（「消失」无自愈）。
+      // 墓碑在位 + 新库存在 = 该窗文件特征（成功路径碑同样留存，但补跑幂等无害）：
+      // 幂等补跑两条 UPDATE。R71-25 墓碑只挡旧路径重建空库，不治新库钥匙——本分支
+      // 补的是另一半。补跑失败 → 按迁移失败上报（false 可重试），状态仍为半迁移。
+      if (existsSync(oldDb + MIGRATED_EXT) && existsSync(newDb)) {
+        try {
+          rewriteSessionKeys()
+          log.warn('events', `事件库半迁移态自愈：旧库已搬而钥匙未改（${newDb}）——已幂等补跑钥匙 UPDATE`)
+        } catch (e) {
+          log.error('events', '事件库半迁移态钥匙补跑失败——按迁移失败上报可重试', e)
+          return false
+        }
+      }
+      return true
+    }
     // 1) 断言旧库缓存无存活连接——有则放弃迁移（false，源库原地完整可重试）。
     //    R65-25（十三轮）：删除「refs=1 强制关库」死分支——close() 归零即置 closed 并
     //    从 openStores 删除（见上方 close 实现），Map 中未 closed 条目必 refs≥1，
@@ -977,19 +1011,8 @@ export function migrateBookSession(
     // 4) 在新库上改会话 book 字段（对话 + 工作区两把钥匙）。两条 UPDATE 同事务：
     //    中途失败随连接关闭整体回滚，不留「一把钥匙已改、一把没改」的半改状态；
     //    随后外层把文件搬移一并回滚——否则库在新位而钥匙是旧名，新旧两头都查不到。
-    //    kk-P2-4：busy_timeout 先于 BEGIN——同进程连接已全关，但另一进程（第二个
-    //    studio 实例）若恰在此窗口打开新库，裸 BEGIN 会立刻 SQLITE_BUSY 而非等待
-    const db = new DatabaseSync(newDb)
-    try {
-      db.exec('PRAGMA busy_timeout = 5000')
-      db.exec('BEGIN')
-      db.prepare('UPDATE sessions SET book = ? WHERE book = ?').run(newName, oldName)
-      db.prepare('UPDATE sessions SET book = ? WHERE book = ?').run(bookHash(newRoot), bookHash(oldRoot))
-      db.exec('COMMIT')
-    } finally {
-      // 未 COMMIT 的事务随连接关闭回滚（先关干净再让异常冒泡去回滚文件搬移）
-      db.close()
-    }
+    //    （实现抽 rewriteSessionKeys 闭包，与 R32-4 半迁移态自愈共用）
+    rewriteSessionKeys()
     // 5) R71-25：墓碑已在 3.5) 前置落位——POST-COMMIT 无文件操作，原「COMMIT → 落碑」
     //    崩溃窗口（旧路径无 .db 无 .migrated → 迟来首开重建空库、事件视图分裂）就此
     //    闭合；R67-2 的墓碑语义（迟来首开 fail-closed 拒建空库）不变。

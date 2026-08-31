@@ -338,7 +338,10 @@ export function createOpenAIResponsesProvider(
                       acc = toolAccum.get(accKey)
                     }
                     if (!acc) acc = { callId: '', name: '', args: '' }
-                    acc.callId = item.call_id ?? itemId
+                    // R33D-12（三十三轮）：done 项 call_id/id 双缺（R65-10 只兜了 delta 缺
+                    // item_id 的拼装面）→ 空 callId 回灌历史成 tool_use{id:''}，下轮组装
+                    // function_call_output{call_id:''} 严格网关 400。兜底序号 id 对齐另两线。
+                    acc.callId = item.call_id ?? (itemId || `call_${toolAccum.size}`)
                     acc.name = item.name
                     acc.args = acc.args || item.arguments || ''
                     toolAccum.delete(accKey)
@@ -390,10 +393,13 @@ export function createOpenAIResponsesProvider(
                     if (ev) yield ev
                   } else {
                     // R1（缺口 2）：content_filter 等其他截断原因不得伪装成正常 stop
+                    // R32-2（三十二轮）：随错上抛已发生消耗（R31-1 openai 线同口径）——
+                    // r.usage 在手即真值，否则 estimateDoneUsage 折算（标 estimated）
                     yield {
                       type: 'error',
                       message: `响应不完整：${reason ?? 'unknown'}`,
                       retryable: false,
+                      usage: r.usage ? toUsage(r.usage) : estimateDoneUsage(),
                     }
                     return
                   }
@@ -410,13 +416,21 @@ export function createOpenAIResponsesProvider(
                   // 兜底同码 'PROTOCOL'（vendor 的 response.error.code 是自由字符串，无
                   // GenErrorCode 映射表，不猜）
                   const msg = event.response.error?.message ?? `response.failed (status=${event.response.status ?? 'unknown'})`
-                  yield { type: 'error', message: redactSecret(msg), retryable: false, code: 'PROTOCOL' }
+                  // R32-2（三十二轮）：failed 同款随错上抛 usage（R31-1 口径，B-12 通道）
+                  yield {
+                    type: 'error',
+                    message: redactSecret(msg),
+                    retryable: false,
+                    code: 'PROTOCOL',
+                    usage: event.response.usage ? toUsage(event.response.usage) : estimateDoneUsage(),
+                  }
                   return
                 }
                 case 'error': {
                   // SDK 流中错误事件（网关 mid-stream error）——同 failed 处理，code 同上
                   terminal = 'failed'
-                  yield { type: 'error', message: redactSecret(event.message ?? '流中错误事件'), retryable: false, code: 'PROTOCOL' }
+                  // R32-2：error 事件无 response 载荷，usage 走估计兜底（标 estimated）
+                  yield { type: 'error', message: redactSecret(event.message ?? '流中错误事件'), retryable: false, code: 'PROTOCOL', usage: estimateDoneUsage() }
                   return
                 }
               }
@@ -425,6 +439,9 @@ export function createOpenAIResponsesProvider(
             // 循环后兜底改写（R1 缺口 3）：toolAccum 残留 flush 保留（有 delta 无
             // output_item.done 的截断场景，有 name 才构成完整调用）；删除「无 completed
             // 兜底发 done{0/0,stop}」——无终止事件 = 传输截断，报错不发 done。
+            // R32-2（三十二轮）：截断兜底 error 的 usage 在 toolAccum flush/clear 之前
+            // 估计（残留调用参数一并计入产出，clear 后再估就丢了）
+            const truncUsage = terminal === 'none' ? estimateDoneUsage() : null
             for (const [, t] of toolAccum) {
               if (!t.name) continue
               let input: unknown
@@ -442,7 +459,8 @@ export function createOpenAIResponsesProvider(
               log.warn('responses', `单回合收到 ${reasoningItemCount} 条加密推理项，GenResult 仅保留末条（丢弃 ${reasoningItemCount - 1} 条，chat 回传推理状态以末条为准）`)
             }
             if (terminal === 'none') {
-              yield { type: 'error', message: '传输截断：流结束无终止事件', retryable: true, code: 'NETWORK' }
+              // R32-2：无终止事件截断同款随错上抛估计 usage（R31-1 口径）
+              yield { type: 'error', message: '传输截断：流结束无终止事件', retryable: true, code: 'NETWORK', usage: truncUsage ?? undefined }
             }
             return
           } catch (e) {

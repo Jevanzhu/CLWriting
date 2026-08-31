@@ -16,6 +16,15 @@ import { useLearnStore } from '../../../src/studio/web-next/src/stores/learn'
 const learnMock = runLearn as ReturnType<typeof vi.fn>
 const commitMock = runLearnCommit as ReturnType<typeof vi.fn>
 
+/** R32-31：金句 fixture 工厂（身份 = 出处+正文，勾选 API 传整对象） */
+function Q(正文: string, 出处: string) {
+  return { 场景: '通用', 正文, 出处, 章号: 1 }
+}
+/** R33D-30：样章 fixture 工厂（同款身份统一） */
+function S(正文: string, 出处: string) {
+  return { 场景: '通用', 正文, 出处, 章号: 1, 打分: 80 }
+}
+
 beforeEach(() => {
   setActivePinia(createPinia())
   vi.clearAllMocks()
@@ -55,12 +64,12 @@ describe('learn: 勾选切换', () => {
     await s.harvest('book1')
     expect(s.pickedCount).toBe(0)
 
-    s.toggleSample('b1')
-    expect(s.isSamplePicked('b1')).toBe(true)
+    s.toggleSample(S('b1', 'c'))
+    expect(s.isSamplePicked(S('b1', 'c'))).toBe(true)
     expect(s.pickedCount).toBe(1)
 
-    s.toggleSample('b1')
-    expect(s.isSamplePicked('b1')).toBe(false)
+    s.toggleSample(S('b1', 'c'))
+    expect(s.isSamplePicked(S('b1', 'c'))).toBe(false)
     expect(s.pickedCount).toBe(0)
   })
 
@@ -69,19 +78,41 @@ describe('learn: 勾选切换', () => {
     const s = useLearnStore()
     await s.harvest('book1')
 
-    s.toggleQuote('qb1')
-    expect(s.isQuotePicked('qb1')).toBe(true)
+    // R32-31：金句身份 = 出处+正文——toggle/isPicked 传整对象
+    s.toggleQuote(Q('qb1', '《书》第1章'))
+    expect(s.isQuotePicked(Q('qb1', '《书》第1章'))).toBe(true)
 
-    s.toggleQuote('qb1')
-    expect(s.isQuotePicked('qb1')).toBe(false)
+    s.toggleQuote(Q('qb1', '《书》第1章'))
+    expect(s.isQuotePicked(Q('qb1', '《书》第1章'))).toBe(false)
+  })
+
+  // R32-31（三十二轮）：同文不同出处 → 独立勾选互不联动（此前共用正文身份）
+  it('R32-31: 同文不同出处 → 各自独立勾选', async () => {
+    learnMock.mockResolvedValue({
+      samples: [],
+      quotes: [Q('同文', '《书》第1章'), Q('同文', '《书》第2章')],
+    })
+    const s = useLearnStore()
+    await s.harvest('book1')
+
+    s.toggleQuote(Q('同文', '《书》第1章'))
+    expect(s.isQuotePicked(Q('同文', '《书》第1章'))).toBe(true)
+    expect(s.isQuotePicked(Q('同文', '《书》第2章'))).toBe(false)
+    expect(s.pickedCount).toBe(1)
+
+    // commit 只移除已勾选身份，另一条保留
+    commitMock.mockResolvedValue({ ok: true, sampleFiles: [], quoteFiles: ['q1.md'] })
+    await s.commit('book1')
+    expect(s.quotes).toHaveLength(1)
+    expect(s.quotes[0]!.出处).toBe('《书》第2章')
   })
 
   it('clearPicks → 清空所有勾选', async () => {
     learnMock.mockResolvedValue({ samples: [{ 正文: 'b1' }], quotes: [{ 正文: 'q1' }] })
     const s = useLearnStore()
     await s.harvest('book1')
-    s.toggleSample('b1')
-    s.toggleQuote('q1')
+    s.toggleSample(S('b1', 'c'))
+    s.toggleQuote(Q('q1', '《书》第1章'))
     expect(s.pickedCount).toBe(2)
 
     s.clearPicks()
@@ -95,7 +126,7 @@ describe('learn: 入库提交', () => {
     commitMock.mockResolvedValue({ ok: true, sampleFiles: ['f1.md'], quoteFiles: [] })
     const s = useLearnStore()
     await s.harvest('book1')
-    s.toggleSample('b1')
+    s.toggleSample(S('b1', 'c'))
 
     await s.commit('book1')
     expect(commitMock).toHaveBeenCalledWith('book1', { samples: [{ 场景: 's', 正文: 'b1', 出处: 'c' }], quotes: [] })
@@ -115,11 +146,11 @@ describe('learn: 入库提交', () => {
   })
 
   it('commit 失败 → 设错误消息', async () => {
-    learnMock.mockResolvedValue({ samples: [{ 正文: 'b1' }], quotes: [] })
+    learnMock.mockResolvedValue({ samples: [{ 场景: 's', 正文: 'b1', 出处: 'c' }], quotes: [] })
     commitMock.mockRejectedValue(new Error('写入失败'))
     const s = useLearnStore()
     await s.harvest('book1')
-    s.toggleSample('b1')
+    s.toggleSample(S('b1', 'c'))
 
     await s.commit('book1')
     expect(s.commitMessage).toContain('失败')
@@ -132,7 +163,7 @@ describe('learn: clear', () => {
     learnMock.mockResolvedValue({ samples: [{ 正文: 'b1' }], quotes: [{ 正文: 'q1' }] })
     const s = useLearnStore()
     await s.harvest('book1')
-    s.toggleSample('b1')
+    s.toggleSample(S('b1', 'c'))
 
     s.clear()
     expect(s.samples).toHaveLength(0)

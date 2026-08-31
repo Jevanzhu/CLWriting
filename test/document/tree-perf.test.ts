@@ -73,7 +73,6 @@ describe('tree 大书性能（§9.3）', () => {
     const t0 = performance.now()
     const nodes = buildTree(root)
     const dt = performance.now() - t0
-    // eslint-disable-next-line no-console
     console.log(`  buildTree ${VOL * CH} 章: ${dt.toFixed(1)}ms`)
     expect(countChapters(nodes)).toBe(VOL * CH)
     // 方案本地目标 < 200ms；防回归阈值 1000ms（CI/慢机留余量，超标才告警优化）
@@ -84,7 +83,6 @@ describe('tree 大书性能（§9.3）', () => {
     const t0 = performance.now()
     const nodes = scanBookTree(root)
     const dt = performance.now() - t0
-    // eslint-disable-next-line no-console
     console.log(`  scanBookTree ${VOL * CH} 章: ${dt.toFixed(1)}ms`)
     expect(countChapters(nodes)).toBe(VOL * CH)
   })
@@ -105,7 +103,6 @@ describe('tree 大书性能（§9.3）', () => {
     }
     samples.sort((a, b) => a - b)
     const dt = samples[4]!
-    // eslint-disable-next-line no-console
     console.log(`  缓存命中(9 次中位): ${dt.toFixed(3)}ms (构建 ${buildDt.toFixed(1)}ms)`)
     expect(dt).toBeLessThan(Math.max(1, buildDt * 0.01))
   })

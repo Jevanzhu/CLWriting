@@ -113,7 +113,7 @@ describe('R71-7: move/rename 落盘防覆盖', () => {
     const newRel = `素材/${name}`
     // 手工构造 R71-7 引入的中间态：pending 已写、两端同 inode（link 完成、rm 未发生）
     const jPath = join(bookRoot, '工作区', '.journal', `${docId}.jsonl`)
-    appendMovePending(jPath, docId, oldRel, newRel)
+    await appendMovePending(jPath, docId, oldRel, newRel)
     mkdirSync(join(bookRoot, '素材'), { recursive: true })
     linkSync(join(bookRoot, oldRel), join(bookRoot, newRel))
     expect(existsSync(join(bookRoot, oldRel))).toBe(true)

@@ -13,7 +13,7 @@ import { applyGlobalDefaults } from '../format/global-defaults.js'
 import { readDraft } from '../format/draft.js'
 import { rebuild } from '../cache/rebuild.js'
 import { runAllChecks, hasRed, enabledLeadTypes } from './runner.js'
-import { outlineDeclarationForChapter } from './outline-leads.js'
+import { outlineDeclarationForChapter, scanOutlineDeclarationMemo, type OutlineDeclaration } from './outline-leads.js'
 import {
   leadEvidenceMatchesBody,
   readChapterUpdatesForChapterChecked,
@@ -28,7 +28,7 @@ import { readManifest } from '../document/manifest.js'
 import { deriveStatus } from '../document/status.js'
 import { probeCachedRevision, probeCachedPublished } from '../document/tree.js'
 import { existingAnalysisPath } from '../document/analysis.js'
-import { syncTreeIssuesEpoch, readTreeIssuesCache, writeTreeIssuesCache, computeLeadsBookFp, readLeadsBookRed, writeLeadsBookRed, computeTreeIssuesGlobalFp } from './tree-issues-cache.js'
+import { syncTreeIssuesEpoch, readTreeIssuesCache, writeTreeIssuesCacheBatch, computeLeadsBookFp, readLeadsBookRed, writeLeadsBookRed, computeTreeIssuesGlobalFp } from './tree-issues-cache.js'
 import { checkLeadsBookItems } from './leads.js'
 import type { CheckReport } from './types.js'
 import type { ChapterMeta, BookConfig } from '../format/types.js'
@@ -174,6 +174,11 @@ export interface BatchCheckContext {
    *  R31-3（三十一轮）：闭包升级为读失败感知版 ChapterUpdatesResult——unreadable 时
    *  调用方跳过两端闭合（不再把「清单未知」当「未兑现」误报红硬阻断定稿）。 */
   leadUpdatesForChapter?: (chapterNo: number) => ChapterUpdatesResult
+  /** R32-16（三十二轮）：细纲声明批内 memo——细纲是覆盖写单文件，批量聚合 N 章
+   *  此前逐章 existsSync+read+parse 同一文件（CC-P1-3 预扫漏项，仅性能）。闭包
+   *  首调读+parse 一次，其后按章号出三态；不传则单章路径现读（语义等价）。
+   *  R33D-14：返回类型扩 OutlineDeclaration（known:false 带 reason）。 */
+  outlineDeclarationFor?: (chapterNo: number) => OutlineDeclaration
 }
 
 /**
@@ -246,7 +251,10 @@ export function checkWithDb(
     // R69-2（十七轮）：声明侧三态——细纲自带章号 ≠ 被检章 = 声明未知（批量连写常态：
     // 细纲@首章、其余章推进落归档），此时 declaredLeadIds 传 undefined 跳过两端闭合，
     // 不再把「未知」当「未声明」误报 lead-done-not-declared（曾硬阻断批量定稿闸）。
-    const declaration = useLeads ? outlineDeclarationForChapter(bookRoot, draft.chapter.章号) : undefined
+    // R32-16：batch 预扫闭包优先（细纲单文件批内 memo）；未传 batch（单章 check 端点）现读
+    const declaration = useLeads
+      ? (batch?.outlineDeclarationFor?.(draft.chapter.章号) ?? outlineDeclarationForChapter(bookRoot, draft.chapter.章号))
+      : undefined
     const declaredLeadIds = declaration?.known ? declaration.leads : undefined
     // R61-14（第六十一轮）：实际侧同口径按被检章过滤（V-P2-14 声明侧同向）——
     // 他章证据不作本章「已兑现」参照。
@@ -301,6 +309,22 @@ export function checkWithDb(
             checkId: 'lead-updates-unreadable',
             level: 'yellow',
             message: '账本推进文件读取失败（权限/瞬态占用），本章「声明↔兑现」两端闭合本轮跳过——修复读取后请重查，闭合未知期间请勿定稿该章。',
+            chapter: draft.chapter.章号,
+          },
+        ],
+      })
+    }
+    // R33D-14（三十三轮）：声明侧读失败的黄项降级（对齐兑现侧 R31-3 fail-noisy 口径）
+    // ——known:false 且 reason='read-failed' 时本章两端闭合同样被跳过，此前零留痕；
+    // chapter-mismatch（细纲属他章，批量连写常态）维持静默，不算故障。
+    if (declaration && !declaration.known && declaration.reason === 'read-failed') {
+      report.sections.push({
+        name: '账本推进',
+        items: [
+          {
+            checkId: 'lead-outline-unreadable',
+            level: 'yellow',
+            message: '细纲文件读取失败（权限/瞬态占用），本章「声明↔兑现」两端闭合本轮跳过——修复读取后请重查，闭合未知期间请勿定稿该章。',
             chapter: draft.chapter.章号,
           },
         ],
@@ -455,13 +479,25 @@ export function collectTreeIssues(
         // R65-24：批量预扫同口径走「主文件 + 归档暂存」两源（此前 readChapterLeadUpdates
         // 只读主文件——归档章实际侧失明，与单章端点统一后此处一并统一）
         leadUpdatesForChapter: scanChapterUpdatesByChapter(bookRoot),
+        // R32-16：细纲声明批内 memo（此前每章现读同一细纲文件，CC-P1-3 预扫漏项）
+        outlineDeclarationFor: scanOutlineDeclarationMemo(bookRoot),
       }
       // R71-20：写前纪元复核改轮内缓存——原实现每 miss 章重算一次 computeTreeIssuesGlobalFp
       // （递归 readdir+stat 全输入树），任一全局输入变动清表后全书 miss，数百章书一次聚合
-      // 数百次全树遍历（同步路径性能回退）。循环前算一次比较即可：语义为「本轮聚合窗口内
-      // 纪元与轮首一致才落缓存」——与逐章复核等价且口径更严（原实现窗口内漂移反而引入
-      // 前后章判定不一致的误判空间）。epochFp0 为 null（纪元同步失败、缓存禁用）时不算。
+      // 数百次全树遍历（同步路径性能回退）。循环前算一次即可：轮前值与轮首一致才允许
+      // 入列。R32-14（三十二轮）修正口径：轮前一次**弱于**逐章复核——窗口内全局输入
+      // 变更仍会落陈旧行；章缓存写入因此全部推迟到循环后，经一次终核纪元再落盘（漂移 →
+      // 整批丢弃下轮重算），每请求仅两次全树指纹（O(1)/请求的 R71-20 口径保留）。
+      // epochFp0 为 null（纪元同步失败、缓存禁用）时不入列。
       const epochFpNow = epochFp0 === null ? null : computeTreeIssuesGlobalFp(bookRoot, userDataPath ?? null)
+      // R32-14：待落盘章缓存（循环后统一终核纪元再写）
+      const pendingCacheWrites: Array<{
+        relPath: string
+        chapterFp: number
+        size: number
+        verdictFp: string | null
+        value: { hasRed: boolean; verdictRejected: boolean }
+      }> = []
       for (const ch of chapters) {
         if (!ch._path) continue
         // M-4（第六轮）：同上归一——entryByPath/pathToDocId 的键与 manifest/树同用正斜杠
@@ -541,11 +577,28 @@ export function collectTreeIssues(
         // writeTreeIssuesCache 会把「未检出」固化为假阴性，指纹不变期间红点永久消失、
         // 后续请求直命中坏缓存；不写则下轮重试。verdict 与缓存互不连带。
         // 注意写入的是章作用域 hasRed（不含 leadsBookRed），合并只在展示层发生。
-        // R70-14：窗口内纪元变了则本轮不落缓存（下轮重算）。R71-20：比较用轮内缓存值
+        // R70-14：窗口内纪元变了则本轮不落缓存（下轮重算）。R71-20：比较用轮内缓存值。
+        // R32-14：直接写改入列——落盘推迟到循环后终核纪元（见 pendingCacheWrites 段注）
         const epochStable = epochFp0 !== null && epochFpNow === epochFp0
-        if (!checkFailed && cacheEnabled && db && epochStable) writeTreeIssuesCache(db, relPath, chapterFp, chapterSt.size, verdictFp, { hasRed, verdictRejected })
+        if (!checkFailed && cacheEnabled && db && epochStable) {
+          pendingCacheWrites.push({ relPath, chapterFp, size: chapterSt.size, verdictFp, value: { hasRed, verdictRejected } })
+        }
         const mergedRed = hasRed || leadsBookRed
         if (mergedRed || verdictRejected) issues[docId] = { hasRed: mergedRed, verdictRejected }
+      }
+      // R32-14（三十二轮）：循环后终核纪元再落盘——聚合窗口内全局输入（大纲/章纲/布线）
+      // 变更时轮前 epochFpNow 已陈旧，直接落会把旧纪元判定固化成缓存行（单轮错、下轮
+      // 自愈，但窗口内各章红点口径前后不一致）。漂移 → 整批丢弃（本轮零落缓存，下轮
+      // 全部重算），每请求只多一次全树指纹计算。
+      // R33D-17（三十三轮）：落盘改单事务包批（writeTreeIssuesCacheBatch）——数百章书
+      // 纪元失效后一轮聚合此前逐行独立 commit（WAL 放大）。
+      if (pendingCacheWrites.length > 0 && db && epochFp0 !== null) {
+        const epochFpEnd = computeTreeIssuesGlobalFp(bookRoot, userDataPath ?? null)
+        if (epochFpEnd !== epochFp0) {
+          log.warn('check', `聚合窗口内全局输入纪元漂移——本轮 ${pendingCacheWrites.length} 条章缓存不落盘（下轮重算）`)
+        } else {
+          writeTreeIssuesCacheBatch(db, pendingCacheWrites)
+        }
       }
     }
     return { issues, rebuildFailed, leadsBookDegraded, chaptersDegraded }

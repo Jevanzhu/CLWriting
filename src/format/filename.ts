@@ -64,7 +64,7 @@ export function sanitizeFileNamePart(title: string, maxCp?: number, maxBytes?: n
 
   const cleaned = title
     // 控制字符（含换行/回车/制表，块标量多行标题会带出）一律剥除
-    // eslint-disable-next-line no-control-regex
+    // （R32-41：此处历史 eslint-disable no-control-regex 指令已清——规则未启用，指令失效）
     .replace(/[\u0000-\u001f\u007f]/g, '')
     // 非法文件名字符：路径分隔符（防 ../ 越出 bookRoot）等
     .replace(/[\\/:*?"<>|]/g, '_')

@@ -16,6 +16,7 @@ import { tmpdir } from 'node:os'
 import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, describe, it, expect } from 'vitest'
+import { armWatchdog } from '../helpers/spawn-node.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -30,13 +31,16 @@ afterAll(() => {
   for (const d of tmpDirs) rmSync(d, { recursive: true, force: true })
 })
 
-/** 起 server-main 子进程，收集 stdout/stderr（累积到可变对象，避免字符串快照失效）。 */
+/** 起 server-main 子进程，收集 stdout/stderr（累积到可变对象，避免字符串快照失效）。
+ *  R32-37：每 child 挂 60s lifetime 看门狗（挂死 SIGKILL）——afterAll 清扫之外的
+ *  兜底，防单测试卡死后子进程随 vitest 进程退出成为孤儿。 */
 function spawnServerMain(args: string[]): { child: ChildProcess; out: { stdout: string; stderr: string } } {
   const child = spawn(process.execPath, [tsxCli, serverMainTs, ...args], {
     cwd: repoRoot,
     env: { ...process.env, CLWRITING_DRIVER: 'mock' },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
+  armWatchdog(child, 60_000)
   children.push(child)
   const out = { stdout: '', stderr: '' }
   child.stdout?.on('data', (d) => (out.stdout += String(d)))

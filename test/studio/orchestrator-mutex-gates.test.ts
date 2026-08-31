@@ -20,7 +20,7 @@ import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest'
 import { startServer } from '../../src/studio/server/index.js'
 import { isChatRunning } from '../../src/ai/orchestrate/chat.js'
-import { isSelfHealRunning } from '../../src/ai/orchestrate/self-heal.js'
+import { isSelfHealRunning, isChatEmbeddedSelfHealRunning } from '../../src/ai/orchestrate/self-heal.js'
 import { __setSpawnRunning } from '../../src/ai/orchestrate/spawn-registry.js'
 
 vi.mock('../../src/ai/orchestrate/chat.js', async (importOriginal) => {
@@ -29,7 +29,11 @@ vi.mock('../../src/ai/orchestrate/chat.js', async (importOriginal) => {
 })
 vi.mock('../../src/ai/orchestrate/self-heal.js', async (importOriginal) => {
   const orig = await importOriginal<typeof import('../../src/ai/orchestrate/self-heal.js')>()
-  return { ...orig, isSelfHealRunning: vi.fn(() => false) }
+  return {
+    ...orig,
+    isSelfHealRunning: vi.fn(() => false),
+    isChatEmbeddedSelfHealRunning: vi.fn(() => false),
+  }
 })
 
 const BOOK = '互斥闸书'
@@ -190,6 +194,35 @@ describe('AI-1: 编排互斥矩阵反向闸', () => {
       expect((r.json as { error: string }).error).toContain('手动写稿')
     } finally {
       __setSpawnRunning(BOOK, false)
+    }
+  })
+
+  // R32-7（三十二轮）：regenerate 补 R76-12 嵌套写章豁免（与 chat.send 口径对齐）——
+  // chat 自己的 write_chapter 在途（isSelfHealRunning 真 + 嵌套标记真）时，原样 409
+  // 把 regenerate 拒之门外且文案误导（报「全自动写章进行中」，实为 chat 自身嵌套生成）
+  it('R32-7: chat 嵌套写章在途 → /chat/regenerate 豁免 self-heal/任务闸（落到 body 校验 400）', async () => {
+    vi.mocked(isSelfHealRunning).mockReturnValue(true)
+    vi.mocked(isChatEmbeddedSelfHealRunning).mockReturnValue(true)
+    try {
+      // body 故意空缺 parentSeq/branchId——过闸即落到 400 参数校验（未实际续体）
+      const r = await post(`/api/books/${encodeURIComponent(BOOK)}/chat/regenerate`, {})
+      expect(r.status).toBe(400)
+      expect((r.json as { error: string }).error).toContain('parentSeq')
+    } finally {
+      vi.mocked(isSelfHealRunning).mockReturnValue(false)
+      vi.mocked(isChatEmbeddedSelfHealRunning).mockReturnValue(false)
+    }
+  })
+
+  // 独立写稿（非嵌套）维持 409——豁免不得放大到全自动写稿在途场景
+  it('R32-7 对照: 独立 self-heal 在途（非嵌套）→ /chat/regenerate 仍 409', async () => {
+    vi.mocked(isSelfHealRunning).mockReturnValue(true)
+    try {
+      const r = await post(`/api/books/${encodeURIComponent(BOOK)}/chat/regenerate`, {})
+      expect(r.status).toBe(409)
+      expect((r.json as { error: string }).error).toContain('全自动写章')
+    } finally {
+      vi.mocked(isSelfHealRunning).mockReturnValue(false)
     }
   })
 })

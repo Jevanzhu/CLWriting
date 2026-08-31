@@ -25,7 +25,7 @@ import { join, relative } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { scanCloudCopies } from '../git/exec.js'
 import { sweepAbandonedTmpFiles } from '../fs/atomic.js'
-import { appendAborted, appendSettled, findUnsettled, isMovePending, type JournalAnyPending, type JournalMovePending } from '../document/journal.js'
+import { appendAbortedSync, appendSettledSync, findUnsettled, isMovePending, type JournalAnyPending, type JournalMovePending } from '../document/journal.js'
 import { decodeDocDirName } from '../document/version.js'
 import { readTrashManifest } from '../document/trash.js'
 import { rebuild } from '../cache/rebuild.js'
@@ -393,11 +393,11 @@ function healMovePending(
       }
       // R69-3（十七轮）：settled/aborted 回写沿用被扫 journal 文件（传入路径）——
       // 不再用 docId 重拼（mac 存量字面名文件会写到编码新文件、pending 永不消）。
-      appendSettled(journalFile ?? join(journalDir(bookRoot), `${encodeOrLiteralNames(docId)[0]}.jsonl`), p.opId, computeRevision(newAbs))
+      appendSettledSync(journalFile ?? join(journalDir(bookRoot), `${encodeOrLiteralNames(docId)[0]}.jsonl`), p.opId, computeRevision(newAbs))
       return true
     }
     if (oldExists && !newExists) {
-      appendAborted(journalFile ?? join(journalDir(bookRoot), `${encodeOrLiteralNames(docId)[0]}.jsonl`), p.opId, '恢复扫描判定：rename 未发生，清除悬置 pending')
+      appendAbortedSync(journalFile ?? join(journalDir(bookRoot), `${encodeOrLiteralNames(docId)[0]}.jsonl`), p.opId, '恢复扫描判定：rename 未发生，清除悬置 pending')
       return true
     }
   } catch {

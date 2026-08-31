@@ -27,7 +27,8 @@ test('outlineDeclarationForChapter 三态：命中/未知/宽容沿用', () => {
     mkdirSync(join(root, '工作区'), { recursive: true })
     writeFileSync(join(root, '工作区', '细纲.md'), '---\n章号: 2\n推进: 悬念-001\n---\n\n细纲。', 'utf-8')
     expect(outlineDeclarationForChapter(root, 2)).toEqual({ known: true, leads: ['悬念-001'] })
-    expect(outlineDeclarationForChapter(root, 3)).toEqual({ known: false, leads: [] })
+    // R33D-14：chapter-mismatch 形态带 reason 标记（机检侧凭 reason 区分故障与常态）
+    expect(outlineDeclarationForChapter(root, 3)).toEqual({ known: false, leads: [], reason: 'chapter-mismatch' })
     // 无章号 → 宽容沿用（视为属于被检章）
     writeFileSync(join(root, '工作区', '细纲.md'), '---\n推进: 悬念-002\n---\n\n细纲。', 'utf-8')
     expect(outlineDeclarationForChapter(root, 9)).toEqual({ known: true, leads: ['悬念-002'] })

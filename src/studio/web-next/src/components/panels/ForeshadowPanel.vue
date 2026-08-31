@@ -80,8 +80,12 @@ async function openFile(file: string): Promise<void> {
   if (node?.docId) {
     // 低级项（第六轮）：打开失败不再裸抛——模板点击处理器不接 async 错，
     // 未捕获 rejection 且无任何提示（对齐 EditorView 的打开编排）
+    // R32-29（三十二轮）：E-2 家族守卫（await 前快照书名 + 复检）——doc.open 在途
+    // 切书后旧书 docId 不得写进新书 activeDocId
+    const bookAtClick = ws.bookName
     try {
       await doc.open(node)
+      if (ws.bookName !== bookAtClick) return
       ws.openTab(node.docId)
     } catch (err) {
       ui.toast(friendlyError(err), 'error')
@@ -185,7 +189,8 @@ watch(() => props.bookName, load, { immediate: true })
       </template>
     </div>
 
-    <button class="fs-add" @click="create">
+    <!-- R33D-29：creating 在途锁有、按钮禁用无 → 对齐 R73-62 惯例（锁+disabled） -->
+        <button class="fs-add" :disabled="creating" @click="create">
       <Plus :size="13" /> 新建伏笔
     </button>
   </div>

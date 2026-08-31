@@ -22,6 +22,7 @@
 import { existsSync, readFileSync, mkdirSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { join, relative, sep } from 'node:path'
+import { safeManifestPath } from '../fs/safe-path.js'
 import { walkMdFind } from '../fs/walk-md.js'
 import { chapterNamePrefixes, parseChapterFileName } from '../format/chapters.js'
 import { splitFrontMatter } from '../format/frontmatter-core.js'
@@ -115,7 +116,18 @@ export function chapterSummaryState(bookRoot: string, chapter: number, bodyAbsPa
   if (!split) return 'fresh' // 手写摘要（无 fm）：作者优先
   const hashMatch = /^sourceHash:\s*(\S+)/m.exec(split.fmRaw)
   if (!hashMatch) return 'fresh' // 有 fm 无指纹：同样按作者产物对待
-  return hashMatch[1] === computeRevision(bodyAbsPath) ? 'fresh' : 'stale'
+  // R32-20（三十二轮）：正文 TOCTOU 消失（定稿章在 manifest 扫描与状态判定之间被移删）
+  // → computeRevision 裸抛 ENOENT 穿出自愈循环，被 materials 备料的静默 catch 吞掉——
+  // N-1 补漏断链且零痕迹。读失败按 missing 降级 + warn：自愈对 missing 照常尝试重生成
+  // （生成侧对正文缺失自身降级），循环继续下一章不断链。
+  let currentHash: string
+  try {
+    currentHash = computeRevision(bodyAbsPath)
+  } catch (e) {
+    log.warn('summary', `章摘要状态判定失败（第 ${chapter} 章正文不可读，按缺失降级）：${e instanceof Error ? e.message : String(e)}`)
+    return 'missing'
+  }
+  return hashMatch[1] === currentHash ? 'fresh' : 'stale'
 }
 
 /** 解析章摘要正文（剥 fm——prepare 注入用内容的同源读取） */
@@ -340,8 +352,10 @@ async function runFinalizeSummaryOnce(bookRoot: string, userDataPath: string | n
   const entry = manifest.entries.get(docId)
   if (!entry || !entry.path.startsWith('写作/正文/')) return
   // 从文件名取章号（fm 解析在 findChapterFile 后由 readFile 兜底，这里只定位文件）
-  const bodyAbs = join(bookRoot, entry.path)
-  if (!existsSync(bodyAbs)) return
+  // R33D-19（三十三轮）：manifest 是可篡改数据面——路径过 safeManifestPath 防只读
+  // 逃逸（`../` 条目内容进 AI 摘要 prompt），非法跳过（与 finalize.ts 同口径）。
+  const bodyAbs = safeManifestPath(bookRoot, entry.path)
+  if (!bodyAbs || !existsSync(bodyAbs)) return
   const parsed = parseChapterFileName(entry.path.split('/').pop() ?? '')
   if (!parsed || parsed.章号 <= 0) return
   const r = await generateChapterSummary({
@@ -417,7 +431,9 @@ export async function selfHealRecentChapterSummaries(
     if (!e.path.startsWith('写作/正文/')) continue
     const name = e.path.split('/').pop() ?? ''
     const m = /^(\d+)-/.exec(name)
-    if (m) finalizedByChapter.set(Number(m[1]), join(bookRoot, e.path))
+    // R33D-19：同款 safeManifestPath 防线（hash/stat 只读逃逸面）
+    const abs = safeManifestPath(bookRoot, e.path)
+    if (m && abs) finalizedByChapter.set(Number(m[1]), abs)
   }
   const generated: string[] = []
   for (const ch of [writingChapter - 2, writingChapter - 1]) {

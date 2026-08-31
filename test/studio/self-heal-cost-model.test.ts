@@ -50,7 +50,7 @@ test('Y-15: done.cost 按请求时刻模型（TaskOk.model）计价，不随档�
   const userDataPath = mkdtempTracked(join(tmpdir(), 'clw-y15-appdata-'))
   const bookRoot = join(workDir, '长篇', LONG_BOOK)
   const emitted: DriverEvent[] = []
-  const save: typeof saveDraft = (_root, _ch, _content) => ({
+  const save: typeof saveDraft = async (_root, _ch, _content) => ({
     relPath: '写作/正文/0005-第五章.md',
     docId: 'doc-y15-5',
     words: 10,
@@ -117,7 +117,7 @@ test('R73-10: done.usage 取全 attempt 累计（attemptsUsage 优先于末次 u
   const userDataPath = mkdtempTracked(join(tmpdir(), 'clw-r73a10-appdata-'))
   const bookRoot = join(workDir, '长篇', LONG_BOOK)
   const emitted: DriverEvent[] = []
-  const save: typeof saveDraft = (_root, _ch, _content) => ({
+  const save: typeof saveDraft = async (_root, _ch, _content) => ({
     relPath: '写作/正文/0005-第五章.md',
     docId: 'doc-r73a10-5',
     words: 10,

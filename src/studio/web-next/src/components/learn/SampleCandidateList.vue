@@ -46,7 +46,7 @@ const sampleGroups = computed(() => {
         items,
         count: items.length,
         avg: Math.round(items.reduce((s, x) => s + x.打分, 0) / items.length),
-        allPicked: items.every((s) => learn.isSamplePicked(s.正文)),
+        allPicked: items.every((s) => learn.isSamplePicked(s)),
       }
     })
     .sort((a, b) => b.avg - a.avg)
@@ -55,13 +55,13 @@ const sampleGroups = computed(() => {
 // ── 批量操作 ──
 function selectAllTierA(): void {
   for (const s of learn.samples) {
-    if (s.打分 >= TIER_A && !learn.isSamplePicked(s.正文)) learn.toggleSample(s.正文)
+    if (s.打分 >= TIER_A && !learn.isSamplePicked(s)) learn.toggleSample(s)
   }
 }
 function toggleGroup(items: SampleCandidateFE[]): void {
-  const allIn = items.every((s) => learn.isSamplePicked(s.正文))
+  const allIn = items.every((s) => learn.isSamplePicked(s))
   for (const s of items) {
-    if (allIn === learn.isSamplePicked(s.正文)) learn.toggleSample(s.正文)
+    if (allIn === learn.isSamplePicked(s)) learn.toggleSample(s)
   }
 }
 function clearAllPicks(): void {
@@ -102,17 +102,17 @@ function clearAllPicks(): void {
       <div class="cand-list">
         <div
           v-for="s in g.items"
-          :key="s.正文"
+          :key="`${s.出处}\u0000${s.正文}`"
           class="cand-card"
-          :class="[tierOf(s.打分), { picked: learn.isSamplePicked(s.正文) }]"
+          :class="[tierOf(s.打分), { picked: learn.isSamplePicked(s) }]"
         >
           <div class="cand-head">
             <span class="score-badge">{{ s.打分 }}</span>
             <span class="src">{{ s.出处 }}</span>
             <input
               type="checkbox"
-              :checked="learn.isSamplePicked(s.正文)"
-              @change="learn.toggleSample(s.正文)"
+              :checked="learn.isSamplePicked(s)"
+              @change="learn.toggleSample(s)"
               @click.stop
             />
           </div>

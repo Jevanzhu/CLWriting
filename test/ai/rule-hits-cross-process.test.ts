@@ -13,11 +13,11 @@
 import { mkdtempSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { spawn } from 'node:child_process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { describe, it, expect, afterAll } from 'vitest'
 import { readRuleHits, recordRuleHits, __setRuleHitsLockTimeoutForTest } from '../../src/ai/rule-hits.js'
 import { acquireCrossProcessLockWithTimeout } from '../../src/fs/cross-process-lock.js'
+import { spawnNodeEval } from '../helpers/spawn-node.js'
 
 const root = mkdtempSync(join(tmpdir(), 'clwriting-rule-hits-xproc-'))
 afterAll(() => {
@@ -29,24 +29,15 @@ const ruleHitsPath = fileURLToPath(new URL('../../src/ai/rule-hits.ts', import.m
 // specifier（批次 A worker 修复同款；J0 实测本文件漏网）
 const ruleHitsImportSpecifier = pathToFileURL(ruleHitsPath).href
 
-/** 起一个子进程并发记录同一 ruleId 命中 N 次，resolve 退出码 */
+/** 起一个子进程并发记录同一 ruleId 命中 N 次，resolve 退出码（R32-37：看门狗兜底） */
 function spawnWorker(bookRoot: string, n: number): Promise<number> {
   const script = `
 import { recordRuleHits } from ${JSON.stringify(ruleHitsImportSpecifier)}
 for (let i = 0; i < ${n}; i++) {
-  recordRuleHits(${JSON.stringify(bookRoot)}, [{ ruleId: 'xproc-race', level: 'yellow', message: '并发计数回归命中' }])
+  await recordRuleHits(${JSON.stringify(bookRoot)}, [{ ruleId: 'xproc-race', level: 'yellow', message: '并发计数回归命中' }])
 }
 `
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ['--import', 'tsx', '--eval', script], { stdio: 'pipe' })
-    let stderr = ''
-    child.stderr.on('data', (c) => (stderr += c.toString('utf8')))
-    child.on('error', reject)
-    child.on('close', (code) => {
-      if (code !== 0) reject(new Error(`worker 退出码 ${code}：${stderr.slice(0, 500)}`))
-      else resolve(code ?? 0)
-    })
-  })
+  return spawnNodeEval(script).done
 }
 
 describe('rule-hits 跨进程互斥（R63-6 真锁）', () => {
@@ -61,7 +52,7 @@ describe('rule-hits 跨进程互斥（R63-6 真锁）', () => {
     expect(existsSync(join(bookRoot, '.cache', 'rule-hits.json.lock'))).toBe(false)
   }, 120_000)
 
-  it('锁超时降级：跳过文件统计不抛错（观测层口径），释放后恢复记录', () => {
+  it('锁超时降级：跳过文件统计不抛错（观测层口径），释放后恢复记录', async () => {
     const bookRoot = mkdtempSync(join(tmpdir(), 'clwriting-rule-hits-degrade-'))
     try {
       // 本进程持锁（pid 活 → 判 held）+ 注入 0ms 超时 → recordRuleHits 恒拿不到锁
@@ -69,7 +60,8 @@ describe('rule-hits 跨进程互斥（R63-6 真锁）', () => {
       if (!release) throw new Error('前置：无争用下占锁失败')
       __setRuleHitsLockTimeoutForTest(0)
       try {
-        recordRuleHits(bookRoot, [{ ruleId: 'degrade', level: 'yellow', message: '超时期间的命中' }])
+        // R32-13：recordRuleHits 异步化（锁等待 acquireCrossProcessLockAsync）
+        await recordRuleHits(bookRoot, [{ ruleId: 'degrade', level: 'yellow', message: '超时期间的命中' }])
       } finally {
         __setRuleHitsLockTimeoutForTest(5_000)
         release()
@@ -77,7 +69,7 @@ describe('rule-hits 跨进程互斥（R63-6 真锁）', () => {
       // 降级口径：本轮命中未落文件统计（warn 留痕，不炸流程）
       expect(existsSync(join(bookRoot, '.cache', 'rule-hits.json'))).toBe(false)
       // 释放后恢复正常记录
-      recordRuleHits(bookRoot, [{ ruleId: 'degrade', level: 'yellow', message: '恢复后的命中' }])
+      await recordRuleHits(bookRoot, [{ ruleId: 'degrade', level: 'yellow', message: '恢复后的命中' }])
       const hits = readRuleHits(bookRoot)
       expect(hits).toHaveLength(1)
       expect(hits[0]!.hits).toBe(1)

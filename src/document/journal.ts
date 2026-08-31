@@ -12,7 +12,7 @@
  * 依赖），已结算行整段丢弃；原子替换，压缩窗口崩溃则原文件不动，无净损失。
  */
 import { appendFileSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, statSync } from 'node:fs'
-import { tryAcquireCrossProcessLock, acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
+import { tryAcquireCrossProcessLock, acquireCrossProcessLockWithTimeout, acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 import { log } from '../log/index.js'
 import { dirname } from 'node:path'
 import { ulid } from './stable-id.js'
@@ -72,12 +72,12 @@ export function isMovePending(p: JournalAnyPending): p is JournalMovePending {
 type RawLine = { [k: string]: unknown }
 
 /** 追加 pending 行（含全文快照）。返回 opId 供后续 appendSettled 配对。 */
-export function appendPending(
+export async function appendPending(
   journalPath: string,
   docId: string,
   baseRevision: Revision,
   content: string,
-): string {
+): Promise<string> {
   const entry: JournalPending = {
     opId: ulid(),
     docId,
@@ -89,17 +89,17 @@ export function appendPending(
   // R31-21（三十一轮）：锁超时降级时剥离全文快照（行长收敛回原子窗）——
   // 带全快照的降级裸写是本轮评审实证的交错损坏面。
   const degradedFallback = JSON.stringify({ ...entry, content: '', degraded: true })
-  appendLine(journalPath, JSON.stringify(entry), degradedFallback)
+  await appendLineAsync(journalPath, JSON.stringify(entry), degradedFallback)
   return entry.opId
 }
 
 /** 追加移动/重命名 pending 行（P3-10）。返回 opId 供配对 settle/abort。 */
-export function appendMovePending(
+export async function appendMovePending(
   journalPath: string,
   docId: string,
   oldPath: string,
   newPath: string,
-): string {
+): Promise<string> {
   const entry: JournalMovePending = {
     opId: ulid(),
     docId,
@@ -109,12 +109,41 @@ export function appendMovePending(
     oldPath,
     newPath,
   }
-  appendLine(journalPath, JSON.stringify(entry))
+  await appendLineAsync(journalPath, JSON.stringify(entry))
   return entry.opId
 }
 
 /** 追加 settled 行，标记某 opId 已成功落盘。 */
-export function appendSettled(
+export async function appendSettled(
+  journalPath: string,
+  opId: string,
+  newRevision: `sha256:${string}`,
+): Promise<void> {
+  const entry: JournalSettled = {
+    opId,
+    ts: new Date().toISOString(),
+    status: 'settled',
+    newRevision,
+  }
+  await appendLineAsync(journalPath, JSON.stringify(entry))
+  maybeCompactJournal(journalPath)
+}
+
+/** appendAborted 的同步孪生——同 appendSettledSync 语境限制（R33D-5）。 */
+export function appendAbortedSync(journalPath: string, opId: string, reason: string): void {
+  const entry: JournalAborted = {
+    opId,
+    ts: new Date().toISOString(),
+    status: 'aborted',
+    reason,
+  }
+  appendLine(journalPath, JSON.stringify(entry))
+  maybeCompactJournal(journalPath)
+}
+
+/** appendSettled 的同步孪生——仅供 state.ts healMovePending 崩溃自愈链（真同步语境）
+ *  使用；服务进程保存链一律走 async 版（R33D-5）。 */
+export function appendSettledSync(
   journalPath: string,
   opId: string,
   newRevision: `sha256:${string}`,
@@ -130,14 +159,14 @@ export function appendSettled(
 }
 
 /** 追加 aborted 行，标记某 opId 保存失败（不落盘）。 */
-export function appendAborted(journalPath: string, opId: string, reason: string): void {
+export async function appendAborted(journalPath: string, opId: string, reason: string): Promise<void> {
   const entry: JournalAborted = {
     opId,
     ts: new Date().toISOString(),
     status: 'aborted',
     reason,
   }
-  appendLine(journalPath, JSON.stringify(entry))
+  await appendLineAsync(journalPath, JSON.stringify(entry))
   maybeCompactJournal(journalPath)
 }
 
@@ -207,6 +236,29 @@ function appendLine(filePath: string, line: string, degradedLine?: string): void
   log.warn('journal', `跨进程锁超时，降级裸写（${filePath}）——与 compact 的互斥窗口回到守卫口径`)
   // R31-21（三十一轮）：调用方提供精简降级行（如 pending 剥离全文快照）时降级写精简版，
   // 防大快照行超原子 append 窗与另一进程同拍降级行交错损坏。
+  appendFileSync(filePath, (degradedLine ?? line) + '\n', 'utf-8')
+  fsyncFile(filePath)
+}
+
+/**
+ * R33D-5（三十三轮）：appendLine 的异步孪生——executeSave/saveDraft 服务进程保存链
+ * 每笔 2-3 次 journal 追加，此前走同步 Atomics.wait 锁等待（双进程争用冻结事件循环
+ * 最长 2s）。降级语义原样平移（锁超时 → 精简降级行裸写）；同步版保留给真同步语境
+ * （state.ts healMovePending 崩溃自愈链）。
+ */
+async function appendLineAsync(filePath: string, line: string, degradedLine?: string): Promise<void> {
+  mkdirSync(dirname(filePath), { recursive: true })
+  const release = await acquireCrossProcessLockAsync(`${filePath}.lock`, journalLockTimeoutMs)
+  if (release) {
+    try {
+      appendFileSync(filePath, line + '\n', 'utf-8')
+      fsyncFile(filePath)
+    } finally {
+      release()
+    }
+    return
+  }
+  log.warn('journal', `跨进程锁超时，降级裸写（${filePath}）——与 compact 的互斥窗口回到守卫口径`)
   appendFileSync(filePath, (degradedLine ?? line) + '\n', 'utf-8')
   fsyncFile(filePath)
 }

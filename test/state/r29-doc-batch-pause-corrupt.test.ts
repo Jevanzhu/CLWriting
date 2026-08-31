@@ -23,10 +23,10 @@ beforeEach(() => {
 afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
 describe('C-7 / clearBatchPause 坏 JSON 留证', () => {
-  it('坏 JSON → 原文保留为 .corrupt，重建 {paused:false}，不再丢全部键', () => {
+  it('坏 JSON → 原文保留为 .corrupt，重建 {paused:false}，不再丢全部键', async () => {
     const raw = '{"paused":{"at_chapter":2,"reason":"failed"},"progress_stage":7'
     writeFileSync(fp(), raw, 'utf-8') // 截断 JSON（半写形态）
-    clearBatchPause(dir)
+    await clearBatchPause(dir)
     // 原文留证
     expect(existsSync(`${fp()}.corrupt`)).toBe(true)
     expect(readFileSync(`${fp()}.corrupt`, 'utf-8')).toBe(raw)
@@ -37,10 +37,10 @@ describe('C-7 / clearBatchPause 坏 JSON 留证', () => {
     expect(readFileSync(fp(), 'utf-8')).not.toContain('progress_stage')
   })
 
-  it('.corrupt 已存在 → 时间戳后缀另存，不覆盖前证', () => {
+  it('.corrupt 已存在 → 时间戳后缀另存，不覆盖前证', async () => {
     writeFileSync(`${fp()}.corrupt`, '上一代坏文件', 'utf-8')
     writeFileSync(fp(), '这一代{坏', 'utf-8')
-    clearBatchPause(dir)
+    await clearBatchPause(dir)
     // 前证原样
     expect(readFileSync(`${fp()}.corrupt`, 'utf-8')).toBe('上一代坏文件')
     // 新证落在带时间戳的变体名下
@@ -49,12 +49,12 @@ describe('C-7 / clearBatchPause 坏 JSON 留证', () => {
     expect(readFileSync(join(dir, '工作区', '待定稿', siblings[0]!), 'utf-8')).toBe('这一代{坏')
   })
 
-  it('留证重建后写/清链路照常（round-trip 不回归）', () => {
+  it('留证重建后写/清链路照常（round-trip 不回归）', async () => {
     writeFileSync(fp(), 'not-json{', 'utf-8')
-    clearBatchPause(dir)
-    writeBatchPause(dir, { atChapter: 3, reason: 'escalate', detail: '命中禁词' })
+    await clearBatchPause(dir)
+    await writeBatchPause(dir, { atChapter: 3, reason: 'escalate', detail: '命中禁词' })
     expect(readBatchPause(dir)).toEqual({ atChapter: 3, reason: 'escalate', detail: '命中禁词' })
-    clearBatchPause(dir)
+    await clearBatchPause(dir)
     expect(existsSync(fp())).toBe(false)
   })
 })

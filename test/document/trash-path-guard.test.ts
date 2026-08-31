@@ -41,18 +41,18 @@ function tamperEntry(): void {
 }
 
 describe('Y-18: trashedPath 必须在 .trash 内', () => {
-  it('restore：篡改条目（trashedPath 指向正文）→ NOT_FOUND，正文不被搬走', () => {
+  it('restore：篡改条目（trashedPath 指向正文）→ NOT_FOUND，正文不被搬走', async () => {
     tamperEntry()
-    const r = restoreTrash(root, 'doc_evil')
+    const r = await restoreTrash(root, 'doc_evil')
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.code).toBe('NOT_FOUND')
     expect(existsSync(join(root, '写作', '正文', '0001-开篇.md'))).toBe(true)
     expect(existsSync(join(root, '素材', '目标.md'))).toBe(false)
   })
 
-  it('purge：篡改条目 → NOT_FOUND，正文不被物理删除', () => {
+  it('purge：篡改条目 → NOT_FOUND，正文不被物理删除', async () => {
     tamperEntry()
-    const r = purgeTrash(root, 'doc_evil')
+    const r = await purgeTrash(root, 'doc_evil')
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.code).toBe('NOT_FOUND')
     expect(existsSync(join(root, '写作', '正文', '0001-开篇.md'))).toBe(true)
@@ -61,7 +61,7 @@ describe('Y-18: trashedPath 必须在 .trash 内', () => {
 })
 
 describe('Y-17: restore 清单写失败 warn 留痕', () => {
-  it('主清单写失败（项目 是文件）→ 恢复仍成功 + log.warn 记身份断链提示', () => {
+  it('主清单写失败（项目 是文件）→ 恢复仍成功 + log.warn 记身份断链提示', async () => {
     // 正常 trash 形态：文件在 .trash 内
     mkdirSync(join(root, '工作区', '.trash'), { recursive: true })
     mkdirSync(join(root, '写作', '正文'), { recursive: true })
@@ -76,7 +76,7 @@ describe('Y-17: restore 清单写失败 warn 留痕', () => {
     // 项目 做成普通文件 → 清单 RMW 的 mkdir/write 必败
     writeFileSync(join(root, '项目'), 'not-a-dir')
     const warnSpy = vi.spyOn(logMod.log, 'warn').mockImplementation(() => {})
-    const r = restoreTrash(root, 'doc_w')
+    const r = await restoreTrash(root, 'doc_w')
     expect(r.ok).toBe(true)
     // 文件已回原位（清单失败不阻断恢复）
     expect(existsSync(join(root, '写作', '正文', '0001-开篇.md'))).toBe(true)

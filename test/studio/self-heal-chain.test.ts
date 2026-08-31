@@ -44,7 +44,7 @@ function makeGenFn(texts: string[]): NonNullable<SelfHealOpts['genFn']> {
 }
 
 function makeSave(): typeof saveDraft {
-  return (bookRoot, _chapter, content, _opts) => {
+  return async (bookRoot, _chapter, content, _opts) => {
     const dir = join(bookRoot, '写作', '正文')
     const relPath = '写作/正文/1-测试章.md'
     mkdirSync(dir, { recursive: true })

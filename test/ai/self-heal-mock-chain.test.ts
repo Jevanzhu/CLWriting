@@ -47,7 +47,7 @@ test('A2: mock 快路走 runSpec 统一通道——链路事件（step/llm）落
   const bookRoot = join(workDir, '短篇', SHORT_BOOK)
   const emitted: DriverEvent[] = []
   const saves: string[] = []
-  const save: typeof saveDraft = (_root, _ch, content) => {
+  const save: typeof saveDraft = async (_root, _ch, content) => {
     saves.push(content)
     return { relPath: '工作区/草稿-1.md', docId: 'doc-短篇-1', words: content.length, snapshotted: false }
   }
@@ -105,7 +105,7 @@ test('R65-8: persistFinal 抛错 → 链上仍有 goal 终态（blocked/persist-
   const emitted: DriverEvent[] = []
   // save 注入：首稿落盘成功（第 1 次），exitPass 的 persistFinal（第 2 次）抛错
   let saveCalls = 0
-  const save: typeof saveDraft = (_root, _ch, content) => {
+  const save: typeof saveDraft = async (_root, _ch, content) => {
     saveCalls++
     if (saveCalls >= 2) throw new Error('disk full (mock)')
     return { relPath: '工作区/草稿-1.md', docId: 'doc-短篇-1', words: content.length, snapshotted: false }

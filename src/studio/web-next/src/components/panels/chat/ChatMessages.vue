@@ -6,7 +6,7 @@
  * hideComposer 控制）。selectedChapter 经 props 传入（regenerate 的章号语境）。
  */
 import { ref, computed, watch, onBeforeUnmount, nextTick } from 'vue'
-import { PenLine, ShieldCheck, AlertCircle, Loader2, MessageSquareText, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-vue-next'
+import { PenLine, ShieldCheck, AlertCircle, Loader2, MessageSquareText, RefreshCw, ChevronLeft, ChevronRight, Info } from 'lucide-vue-next'
 import { useChatStore, type ChatMessage } from '../../../stores/chat'
 import { confirmTool } from '../../../api/chat'
 import { ApiError } from '../../../api/client'
@@ -54,7 +54,8 @@ onBeforeUnmount(() => {
 // ── 消息流滚动跟随 ──────────────────────────────
 
 watch(
-  [() => chat.messages.length, () => chat.messages.at(-1)?.content],
+  // R32-9：notice 变化同样触发滚底（入队提示在流尾部，不跟随则不可见）
+  [() => chat.messages.length, () => chat.messages.at(-1)?.content, () => chat.notice],
   () => void nextTick(scrollToBottom),
 )
 
@@ -256,6 +257,14 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
       <AlertCircle :size="14" />
       <span>{{ chat.error }}</span>
     </div>
+
+    <!-- R32-9（三十二轮）：非错误提示（E1a steer 入队确认 / AA-P3-1 队列超容丢弃等
+         chat.notice）——此前全前端无渲染点：发送即清空输入框、运行中追加零反馈，
+         作者无法得知「已入队」。消息流内联展示（对齐 error 区样式，中性色）。 -->
+    <div v-if="chat.notice" class="chat-notice-msg">
+      <Info :size="14" />
+      <span>{{ chat.notice }}</span>
+    </div>
   </div>
 </template>
 
@@ -430,6 +439,18 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
   padding: var(--size-4-2);
   border-radius: var(--radius-s);
   background: color-mix(in srgb, var(--dv-bad) 8%, transparent);
+}
+
+/* ── R32-9：非错误提示（notice，中性色对齐 error 区布局） ── */
+.chat-notice-msg {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: var(--font-size-s);
+  padding: var(--size-4-2);
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
 }
 
 /* ── G1：变体切换器 + 重新生成 ── */

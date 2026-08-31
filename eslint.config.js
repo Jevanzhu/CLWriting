@@ -29,14 +29,18 @@ const tsRecommendedRules = tseslint.configs.recommended.reduce(
 export default [
   {
     // 生成产物与参考资料不入口：coverage/test-results/playwright-report 为工具输出，
-    // dist 为构建产物，Dev/ 为第三方参考项目（只读语料），web-next 子包独立自治。
+    // dist 为构建产物，Dev/ 为第三方参考项目（只读语料）。
+    // R32-11（三十二轮）：web-next 不再整体忽略——TS 面接入 lint 门（原「子包独立
+    // 自治」口径收窄为「.vue SFC 仍由 vue-tsc 管」）；工具输出目录保留排除。
     ignores: [
       'dist/**',
       'coverage/**',
       'test-results/**',
       'playwright-report/**',
       'Dev/**',
-      'src/studio/web-next/**',
+      'src/studio/web-next/node_modules/**',
+      'src/studio/web-next/test-results/**',
+      'src/studio/web-next/dist/**',
     ],
   },
   {
@@ -75,8 +79,11 @@ export default [
   {
     // TS 面（R74-26）：src 下的 .ts——parser/plugin 用 typescript-eslint；
     // R28-30（二十八轮）：scripts/**/*.ts 增量接入（9 文件 0 错零修复纳管）；
-    // R30-28（三十轮）：test/**/*.ts 增量接入（同规则族，存量 45 错机械清偿）
-    files: ['src/**/*.ts', 'scripts/**/*.ts', 'test/**/*.ts'],
+    // R30-28（三十轮）：test/**/*.ts 增量接入（同规则族，存量 45 错机械清偿）；
+    // R32-11（三十二轮）：web-next 随 src/**/*.ts 通配自然纳入（.vue SFC 仍由
+    // vue-tsc 管，本配置不解析 SFC 模板）
+    // R33D-36（三十三轮）：根目录构建配置收编（vitest/playwright/tsup config 此前只受 tsc 管不受 lint 管）
+    files: ['src/**/*.ts', 'scripts/**/*.ts', 'test/**/*.ts', '*.config.ts'],
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: {
@@ -84,12 +91,8 @@ export default [
         sourceType: 'module',
       },
     },
-    // src/format/filename.ts:63 有一条历史 eslint-disable no-control-regex 指令——
-    // 本轮规则集未开 no-control-regex，被上报为 unused directive；本批禁改 src，
-    // 故整体关闭该上报（代价：TS 面未来真失效的 disable 指令不再提示）
-    linterOptions: {
-      reportUnusedDisableDirectives: 'off',
-    },
+    // R32-41（三十二轮）：reportUnusedDisableDirectives 回归默认（warn）——存量唯一
+    // 失效指令 filename.ts 的 no-control-regex 注释已清（规则本就未启用，指令纯噪声）
     plugins: {
       '@typescript-eslint': tseslint.plugin,
     },

@@ -85,6 +85,10 @@ export const useDocStore = defineStore('doc', () => {
     docs.value = new Map()
     // RB-FE-P2-1：清 loading 锁 + bump 代数——在途 open 的旧书响应不得注入新书缓存
     loading.clear()
+    // R33D-26（三十三轮）：inflightOpens 同口径清——legacy docId 按路径派生跨书可同 id，
+    // A 书在途 open 的 promise 被 B 书同名 open 复用后其结果被 bookGen 守卫整体丢弃
+    //（promise resolve 但缓存无 entry，调用方空手而归）。清台账让 B 书 open 真发新请求。
+    inflightOpens.clear()
     bookGen++
   }
 

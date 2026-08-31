@@ -17,6 +17,10 @@ const ignored = computed(() => style.candidates.filter((c) => c.状态 === '已�
 const showIgnored = ref(false)
 const harvesting = ref(false)
 const acting = ref<string | null>(null) // 正在确认/忽略的候选路径（防连点）
+// R32-30（三十二轮）：确认/忽略是全局单飞（style.confirm/ignore 串行口径）——原模板只
+// 禁用在途卡自身（acting === c._path），跨卡按钮可点但入口 `if (acting) return` 静默
+// 无响应（死按钮残余点）。改全部按钮按 acting 非空统一禁用，在途卡有 disabled 态、
+// 跨卡按钮不再可点。
 
 /** 候选证据行（源1 章号/相似度/频次；源2 漂移说明在说明字段单独展示） */
 function evidenceOf(c: StyleCandidateFE): string {
@@ -129,10 +133,11 @@ async function onIgnore(c: StyleCandidateFE): Promise<void> {
         </template>
         <div v-else class="cc-text">{{ c.正文 }}</div>
         <div class="cc-actions">
-          <button class="btn-ghost" :disabled="acting === c._path" @click="onIgnore(c)">
+          <!-- R32-30：acting 非空全禁（单飞口径对齐；在途卡同态可见） -->
+          <button class="btn-ghost" :disabled="acting !== null" @click="onIgnore(c)">
             <X :size="13" /> 忽略
           </button>
-          <button class="btn-primary" :disabled="acting === c._path" @click="onConfirm(c)">
+          <button class="btn-primary" :disabled="acting !== null" @click="onConfirm(c)">
             <Check :size="13" /> 确认收录
           </button>
         </div>
@@ -154,7 +159,8 @@ async function onIgnore(c: StyleCandidateFE): Promise<void> {
         <div class="cc-top">
           <span class="kind-badge" :data-kind="c.类型">{{ c.类型 }}</span>
           <span class="cc-text-inline">{{ c.正文 }}</span>
-          <button class="btn-ghost" :disabled="acting === c._path" @click="onConfirm(c)">仍要收录</button>
+          <!-- R33D-10（三十三轮）：已忽略区同对齐全局单飞口径（R32-30 漏改的兄弟按钮） -->
+          <button class="btn-ghost" :disabled="acting !== null" @click="onConfirm(c)">仍要收录</button>
         </div>
       </div>
     </div>

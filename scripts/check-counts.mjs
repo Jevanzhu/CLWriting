@@ -140,8 +140,11 @@ export function sanitizeForCount(src) {
  * R62-56：test.fail( / test.fixme( 也声明真实用例（期望失败/挂起的测试），此前漏数
  */
 export function countE2eCases(src) {
+  // R33D-33（三十三轮）：补 test.each 参数化组形态——整组此前只计 1 条（当前 29 spec
+  // 零 .each 无实伤；漂移方向 = 用例数计少、README 口径失真）。each 组计 1 条与既有
+  // 「数声明」口径一致（组内运行时行数静态不可知）。
   const m = sanitizeForCount(src).match(
-    /(^|[^.\w])(?:test\.serial|test\.only|test\.fail|test\.fixme|test)\s*\(/g,
+    /(^|[^.\w])(?:test\.serial|test\.only|test\.fail|test\.fixme|test)(?:\.each(?:\.only|\.skip|\.fails)?)?\s*\(/g,
   )
   return m ? m.length : 0
 }
@@ -365,8 +368,10 @@ function main() {
   }
 
   // ── R76-40（二十四轮 F 域）：空洞测试门 ─────────────
+  // R33D-37（三十三轮）：扩跑 e2e spec——e2e 用例数同样进 README 对账，零 expect 的
+  // spec 此前只被 pageerror 门（全部 spec）间接覆盖接线、不被空洞门覆盖。
   const assertionFree = findAssertionFreeTestFiles(
-    unitFiles.map((fp) => ({ relPath: posixRelPath(root, fp), src: readFileSync(fp, 'utf8') })),
+    [...unitFiles, ...e2eSpecs].map((fp) => ({ relPath: posixRelPath(root, fp), src: readFileSync(fp, 'utf8') })),
   )
   if (assertionFree.length > 0) {
     console.error('\ncheck:counts 失败：零断言测试文件（R76-40）——')

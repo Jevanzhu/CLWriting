@@ -12,7 +12,7 @@ import { join, relative, sep } from 'node:path'
 import { existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { snapshotBeforeOverwrite } from './draft-pipeline.js' // R74-4：覆盖留底单源复用
-import { acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
+import { acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 import { readChapterDir } from '../format/chapters.js'
 import { readDraft } from '../format/draft.js'
 import { readKind } from '../format/kind.js'
@@ -39,15 +39,22 @@ const leadUpdateQueues = new Map<string, Promise<unknown>>()
 // 写主文件）套按书跨进程锁（J7 原语）——AI 生成段（数十秒）不持锁，锁只盖毫秒级文件
 // 变更段；拿不到锁降级裸跑 + warn 留痕（与 journal appendLine 同款取舍：生成一次成本
 // 高，不因锁等待把整次生成作废）。
-/** R73-46 锁等待档（毫秒）——let + 注入钩子（manifest/journal 锁同款惯例，测试注入缩短保快）。 */
-export let LEAD_UPDATE_LOCK_TIMEOUT_MS = 5_000
+/** R73-46 锁等待档（毫秒）——R30-18 口径：const 导出 + 内部可变生效值 + 测试注入钩子
+ *  （R32-19：`export let` 违反全仓口径改 const；R32-18：锁等待异步化——调用方
+ *  generateLeadUpdateDraft 本就 async，Atomics.wait 微睡不再冻结事件循环）。 */
+export const LEAD_UPDATE_LOCK_TIMEOUT_MS = 5_000
+
+/** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改。 */
+let leadUpdateLockTimeoutMs = LEAD_UPDATE_LOCK_TIMEOUT_MS
+
+/** 测试注入钩子（生产零调用）。 */
 export function __setLeadUpdateLockTimeoutForTest(ms: number): void {
-  LEAD_UPDATE_LOCK_TIMEOUT_MS = ms
+  leadUpdateLockTimeoutMs = ms
 }
 
-function withLeadUpdateLock<T>(bookRoot: string, fn: () => T): T {
+async function withLeadUpdateLock<T>(bookRoot: string, fn: () => T): Promise<T> {
   const lockPath = join(bookRoot, LEAD_UPDATES_FILE + '.lock')
-  const release = acquireCrossProcessLockWithTimeout(lockPath, LEAD_UPDATE_LOCK_TIMEOUT_MS)
+  const release = await acquireCrossProcessLockAsync(lockPath, leadUpdateLockTimeoutMs)
   if (!release) {
     log.warn('lead-update-draft', `账本推进锁超时，降级无锁归档+落盘（${lockPath}）——跨进程互斥窗口回到队列口径`)
     return fn()
@@ -121,7 +128,8 @@ async function generateLeadUpdateDraftInner(
     // X-P2-6：批量连写下，主文件可能是上一章（尚未定稿确认）的草稿——先按章归档再写本章，
     // finalize（applyLeadUpdates）按定稿章号从归档回收，防止整链旁路丢确认内容。
     // R73-46：归档 + 覆写两步在按书跨进程锁内原子执行（跨进程双写收口，见上注）。
-    withLeadUpdateLock(bookRoot, () => {
+    // R32-18（三十二轮）：withLeadUpdateLock 异步化 → await（R73-46 锁语义不变）
+    await withLeadUpdateLock(bookRoot, () => {
       archivePendingLeadUpdates(bookRoot, chapter)
       // R74-4（二十二轮）：覆盖前快照留底（对齐 onboard.ts R71-9 先例）——lead-updates
       // 生成分钟级窗口内作者可经 PUT /file 手改 工作区/账本推进.md（files.ts

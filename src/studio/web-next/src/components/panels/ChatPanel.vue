@@ -102,10 +102,11 @@ const {
             >
               <Square :size="14" />
             </button>
+            <!-- R33D-28：busy/sending 禁用同 ChatDock（入口静默 return 的死按钮面） -->
             <button
               v-else
               class="chat-send-btn"
-              :disabled="!input.trim()"
+              :disabled="!input.trim() || busy || sending"
               @click="handleSend"
             >
               <Send :size="15" />

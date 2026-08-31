@@ -95,8 +95,13 @@ let bookGen = 0
     // Z-8（第五十八轮）：未决冲突守卫——conflict && dirty 文档的本地修改从未落盘（autosave
     // 跳过 conflict 项），setBook 清缓存即不可恢复丢失，此前全程静默。确认弹窗：拒绝 → 回退
     // 路由留在原书（first watch 即时跑，lastBook 初值为空时跳过守卫）
-    const prev = lastBook // F1（五十九轮）：flush 失败守卫拒绝时回退路由用
-    if (lastBook !== '' && n !== lastBook) {
+    // R33D-9（三十三轮）：守卫的「原书」代次源补权威回退——lastBook 是组件实例本地值，
+    // Book 重挂（/book/A → /shelf → /book/B）后首跑为 ''，Z-8/F1 双双跳过 → A 的
+    // conflict+dirty 缓存被 setBook('B') 清掉静默丢失。doc store 是应用级单例（卸载后
+    // bookName 仍指 A），以其为回退源：重挂路径守卫照常跑（作者至少拿到决断权）。
+    // doc.bookName 类型 string|null（null=未载入），守卫语义下 null 与 '' 同义
+    const prevBook = lastBook || doc.bookName || ''
+    if (prevBook !== '' && n !== prevBook) {
       const conflicted = doc.conflictedDirtyDocs()
       if (conflicted.length > 0) {
         const drop = await ui.ask({
@@ -108,7 +113,26 @@ let bookGen = 0
         })
         if (gen !== bookGen) return
         if (!drop) {
-          void router.replace(`/book/${encodeURIComponent(lastBook)}`)
+          // R32-8（三十二轮）：取消 = 留在原书，但弹窗 await 期间路由已是目标书 n——
+          // SSE 已连上 n，其 sync/chat/text 事件已 dispatch 进仍展示原书的 store；回退
+          // 路由重入 n===lastBook 被 R26-18 短路，清污永不触发 → 污染残留至下次切书。
+          // 此处等效清污：按切书口径清事件驱动各 store（含 workbench——R28-24 的「原封」
+          // 口径就此让位：B 的 sync 在 await 窗已污染 running 态，原封会假显示目标书写稿中；
+          // 回退后 resync 由服务端权威快照重建），再回退路由 + chat 补种原书历史。
+          workbench.clear()
+          check.clear()
+          review.clear()
+          learn.clear()
+          style.clear()
+          rewrite.clear()
+          chat.clear()
+          // R33D-9：重挂路径 lastBook 为 ''，回退目标用权威源 prevBook
+          lastBook = prevBook
+          await router.replace(`/book/${encodeURIComponent(prevBook)}`)
+          if (gen === bookGen && bookName.value === prevBook) {
+            sse.resync()
+            void chat.seedHistory(prevBook)
+          }
           return
         }
       }
@@ -127,7 +151,7 @@ let bookGen = 0
     // F1（五十九轮）：守卫拓宽——非冲突保存失败（网络断/5xx）的 dirty 文档同样从未
     // 落盘，setBook 清缓存即不可恢复丢失，与 Z-8 冲突形态同类灾难；统一走确认弹窗
     // （文案区分），拒绝 → 回退路由留在原书重试保存
-    if (failed.length > 0 && prev !== '') {
+    if (failed.length > 0 && prevBook !== '') {
       const drop = await ui.ask({
         title: `有 ${failed.length} 个文档保存失败`,
         message: '这些文档的本地修改因网络/服务异常未能写入磁盘，切换书将永久丢弃。建议留在本书重试保存。仍要切换吗？',
@@ -138,12 +162,26 @@ let bookGen = 0
       if (gen !== bookGen) return
       if (!drop) {
         // R26-18：此分支在 lastBook = n 之后取消——lastBook 已指向未切换成的目标书，
-        // 与实际路由（回退到 prev）不一致；不恢复则回退重入 n=prev !== lastBook 走不到
-        // 上方短路，且此后选回 n 书会被短路误吞。恢复 lastBook = prev 维持「lastBook ⟺
-        // 当前路由书」不变式，回退重入即被短路（不重复清；R28-24：workbench 态已在
-        // 本轮前段 workbench.clear() 清掉、不因此恢复——第五轮既有口径）
-        lastBook = prev
-        void router.replace(`/book/${encodeURIComponent(prev)}`)
+        // 与实际路由（回退到 prevBook）不一致；不恢复则回退重入 n=prevBook !== lastBook
+        // 走不到上方短路，且此后选回 n 书会被短路误吞。恢复 lastBook = prevBook 维持
+        // 「lastBook ⟺ 当前路由书」不变式，回退重入即被短路（不重复清；R28-24：workbench
+        // 态已在本轮前段 workbench.clear() 清掉、不因此恢复——第五轮既有口径）。
+        // R33D-9：重挂路径 prev 为 ''，恢复目标用权威源 prevBook（维持 lastBook ⟺ 当前路由书不变式）
+        lastBook = prevBook
+        // R32-8：同 Z-8 取消分支——F1 await 窗（flushDirty + 确认弹窗）期间目标书 n 的
+        // 事件已入各 store；回退重入被 R26-18 短路，不在此清污则残留至下次切书。
+        // workbench 已在链首 clear（第五轮口径），此处清其余事件驱动 store。
+        check.clear()
+        review.clear()
+        learn.clear()
+        style.clear()
+        rewrite.clear()
+        chat.clear()
+        await router.replace(`/book/${encodeURIComponent(prevBook)}`)
+        if (gen === bookGen && bookName.value === prevBook) {
+          sse.resync()
+          void chat.seedHistory(prevBook)
+        }
         return
       }
     }

@@ -64,10 +64,13 @@ export interface GlobalBookDefaults {
   costPerChapter?: number
 }
 
-/** R64-25（十二轮）：(mtimeMs,size) 指纹缓存——readGlobalBookDefaults 是高频读侧
+/** R64-25（十二轮）：指纹缓存——readGlobalBookDefaults 是高频读侧
  *  （每次 config apply 全量读盘 + JSON.parse），同指纹直接回缓存（对照 settings-context
- *  CARD_CACHE 同款）。解析失败不缓存（下次重试）；命中返回浅拷贝防调用方 mutate 污染缓存。 */
-const defaultsCache = new Map<string, { mtimeMs: number; size: number; val: GlobalBookDefaults }>()
+ *  CARD_CACHE 同款）。解析失败不缓存（下次重试）；命中返回浅拷贝防调用方 mutate 污染缓存。
+ *  R33D-15（三十三轮）：mtimeMs → mtimeNs（bigint，R73-27 同口径）——同毫秒内等长重写
+ *  （布尔翻转恰等长）此前不失效，global.json 托底 short.strict 等闸门口径漂移；ns 值串
+ *  变长与旧代毫秒值空间不相交，天然一次性失效。 */
+const defaultsCache = new Map<string, { mtimeNs: bigint; size: number; val: GlobalBookDefaults }>()
 
 /**
  * 读全局书级默认（userData/global.json）。
@@ -81,12 +84,12 @@ export function readGlobalBookDefaults(userDataPath: string | null): GlobalBookD
   const p = join(userDataPath, 'global.json')
   let st
   try {
-    st = statSync(p)
+    st = statSync(p, { bigint: true })
   } catch {
     return {}
   }
   const hit = defaultsCache.get(p)
-  if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return { ...hit.val }
+  if (hit && hit.mtimeNs === st.mtimeNs && hit.size === Number(st.size)) return { ...hit.val }
   try {
     const raw = JSON.parse(readFileSync(p, 'utf8')) as Record<string, unknown>
     // 校验器：非法值 → undefined（与「没写」同义，走回落链）
@@ -119,7 +122,7 @@ export function readGlobalBookDefaults(userDataPath: string | null): GlobalBookD
       tokensPerChapter: posNum(raw['tokensPerChapter']),
       costPerChapter: posNum(raw['costPerChapter']),
     }
-    defaultsCache.set(p, { mtimeMs: st.mtimeMs, size: st.size, val })
+    defaultsCache.set(p, { mtimeNs: st.mtimeNs, size: Number(st.size), val })
     return { ...val }
   } catch {
     // JSON 损坏 / 读失败 → 全空（逐项回落第三层），不阻断调用方

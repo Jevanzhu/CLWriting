@@ -415,7 +415,20 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
             // 到达（Kimi 形态 usage 在 choices[0] 先行出现），finish_reason 之前断流时
             // 半截文本曾按 stopReason:'stop' 正常完成出场（generateText 不触发截断检查、
             // 半稿按完整产出落盘）。仅 usage 无终止 → 落下方传输截断分支，真实消耗随错上抛。
+            // R33D-2（三十三轮）：content_filter 不是正常完成——finish_reason 归一未覆盖
+            // 该值，原样透传时被过滤的半截正文按成功 done 落稿（responses 线 R1 缺口 2
+            // 同因判 error，三线分叉）。error 出场（retryable:false，usage 随错上抛）。
             if (latestUsage && sawFinishReason) {
+              if (pendingStopReason === 'content_filter') {
+                yield {
+                  type: 'error',
+                  message: '生成被内容过滤截断（finish_reason=content_filter）——半截产出不落稿，请调整提示词后重试',
+                  retryable: false,
+                  code: 'PROTOCOL',
+                  usage: toUsage(latestUsage),
+                }
+                return
+              }
               const ev = emitDone(toUsage(latestUsage), pendingStopReason)
               if (ev) yield ev
             }
@@ -446,6 +459,17 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
                   inputTokens: estimateInputTokens(req, conf.model ?? undefined),
                   outputTokens: estimateOutputTokens(outText.join('') + outToolText.join(''), conf.model ?? undefined),
                   estimated: true,
+                }
+                // R33D-2：无 usage 的 content_filter 同款判错（估计 usage 随错上抛）
+                if (pendingStopReason === 'content_filter') {
+                  yield {
+                    type: 'error',
+                    message: '生成被内容过滤截断（finish_reason=content_filter）——半截产出不落稿，请调整提示词后重试',
+                    retryable: false,
+                    code: 'PROTOCOL',
+                    usage: estimatedUsage,
+                  }
+                  return
                 }
                 const ev = emitDone(estimatedUsage, pendingStopReason)
                 if (ev) yield ev

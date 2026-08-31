@@ -53,7 +53,7 @@ interface SaveCall {
 }
 
 function makeSave(calls: SaveCall[]): typeof saveDraft {
-  return (bookRoot, _chapter, content, opts) => {
+  return async (bookRoot, _chapter, content, opts) => {
     calls.push({
       content,
       ...(opts?.snapshotOrigin ? { origin: opts.snapshotOrigin } : {}),

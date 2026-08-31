@@ -9,7 +9,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
-import { acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
+import { acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 import { log } from '../log/index.js'
 
 /** 暂停记录：atChapter=停在第几章，reason=停法（escalate/failed/aborted），detail=人话细节 */
@@ -43,10 +43,13 @@ export function __setBatchPauseLockTimeoutForTest(ms: number): void {
  * 暂停标记丢失，近况复述口径错）。现 RMW 段套按文件跨进程锁（J7 原语）；拿不到锁
  * 降级裸写 + warn 留痕——本文件是观测性元数据（读写失败本就静默降级），丢一次更新
  * 可接受，不阻断主流程。
+ * R33D-1（三十三轮）：锁等待异步化（acquireCrossProcessLockAsync，R30-3/R32-13 同口径）
+ * ——本函数被 self-heal（studio 服务进程内编排）直调，同步 Atomics.wait 微睡会在双进程
+ * 争用时冻结服务事件循环（SSE/HTTP 最坏停 2s）；锁内写段仍同步（文件 IO 级毫秒）。
  */
-function withPauseLock<T>(bookRoot: string, fn: () => T): T {
+async function withPauseLock<T>(bookRoot: string, fn: () => T): Promise<T> {
   const lockPath = pausePath(bookRoot) + '.lock'
-  const release = acquireCrossProcessLockWithTimeout(lockPath, pauseLockTimeoutMs)
+  const release = await acquireCrossProcessLockAsync(lockPath, pauseLockTimeoutMs)
   if (!release) {
     log.warn('batch-pause', `.auto-batch 锁超时，降级无锁读改写（${lockPath}）——并发窗口回到后写胜口径`)
     return fn()
@@ -74,9 +77,9 @@ export function readBatchPause(bookRoot: string): BatchPause | undefined {
   }
 }
 
-/** 落暂停记录（覆盖写 paused 键；文件里可能存在的其他键保留） */
-export function writeBatchPause(bookRoot: string, p: BatchPause): void {
-  withPauseLock(bookRoot, () => {
+/** 落暂停记录（覆盖写 paused 键；文件里可能存在的其他键保留）。R33D-1：异步化 */
+export async function writeBatchPause(bookRoot: string, p: BatchPause): Promise<void> {
+  await withPauseLock(bookRoot, () => {
     const fp = pausePath(bookRoot)
     let obj: Record<string, unknown> = {}
     try {
@@ -90,9 +93,9 @@ export function writeBatchPause(bookRoot: string, p: BatchPause): void {
   })
 }
 
-/** 清暂停记录：还有其他键则保留改写，只剩 paused 则删文件；无暂停记录 no-op */
-export function clearBatchPause(bookRoot: string): void {
-  withPauseLock(bookRoot, () => {
+/** 清暂停记录：还有其他键则保留改写，只剩 paused 则删文件；无暂停记录 no-op。R33D-1：异步化 */
+export async function clearBatchPause(bookRoot: string): Promise<void> {
+  await withPauseLock(bookRoot, () => {
     const fp = pausePath(bookRoot)
     if (!existsSync(fp)) return
     let obj: Record<string, unknown>

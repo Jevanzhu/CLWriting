@@ -10,7 +10,7 @@
  * expect 语义：silent = 作者判误报（当前检查器不得再命中该 checkId）；
  * fire = 作者认可命中（当前检查器仍须命中——防止规则误修把真命中弄丢）。
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, test } from 'vitest'
 import { existsSync, readdirSync, readFileSync, mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -90,6 +90,15 @@ describe('B3 装载器容错', () => {
 })
 
 const corpus = loadCorpusFrom(CORPUS_DIR)
+
+// R33D-34（三十三轮）：目录级哨兵——唯一「真实文本 golden-master」门可因目录缺失/
+// 清空整组静默 skip（CI 照绿）。目录不存在 = fail-closed 红（登记纪律被破坏）；
+// 单文件坏 JSON 的容错 warn 保留（装载器既有口径）。
+if (!existsSync(CORPUS_DIR)) {
+  test('B3 语料回归门哨兵：语料目录必须在库（否则 golden-master 门整组静默失效）', () => {
+    throw new Error(`语料目录缺失：${CORPUS_DIR}——golden-master 门已整组失效，请恢复 test/corpus/checks/（清空语料须同步下线本哨兵）`)
+  })
+}
 
 describe.skipIf(corpus.size === 0)('B3 语料回归门（golden-master：真实语料 × 当前检查器）', () => {
   const chapter: ChapterMeta = {

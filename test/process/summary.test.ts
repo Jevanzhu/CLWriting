@@ -138,6 +138,20 @@ describe('generateChapterSummary（C1 批 2）', () => {
     expect(readChapterSummaryBody(root, 1)).toBe('BOM 摘要正文。')
   })
 
+  // R32-20（三十二轮）：正文 TOCTOU 消失 → 状态判定按 missing 降级不抛（此前
+  // computeRevision 裸抛 ENOENT 穿出自愈循环被 materials 静默吞掉，补漏断链零痕迹）
+  it('R32-20: 正文消失（TOCTOU）→ chapterSummaryState 返回 missing 不抛', async () => {
+    const root = makeBook(1)
+    await generateChapterSummary({ bookRoot: root, userDataPath: null, config: DEFAULT_CONFIG, chapter: 1, bodyAbsPath: bodyOf(root, 1) })
+    // 变体 a：路径已不存在（定稿章在扫描与判定间被移删）
+    const gone = join(root, '写作', '正文', '999-消失.md')
+    expect(chapterSummaryState(root, 1, gone)).toBe('missing')
+    // 变体 b：正文读失败（同路径文件变目录占位 → EISDIR）
+    rmSync(bodyOf(root, 1))
+    mkdirSync(bodyOf(root, 1), { recursive: true })
+    expect(chapterSummaryState(root, 1, bodyOf(root, 1))).toBe('missing')
+  })
+
   it('R-11（十五轮登记销账）：硬截断按码位——边界处增补平面字符不切成半个代理对', async () => {
     const root = makeBook(1)
     const spec = SUMMARY_CHAPTER_SPEC as unknown as { mock: { kind: 'text'; text: string } }

@@ -597,8 +597,15 @@ async function bootstrap(): Promise<void> {
   // 书架/书库子窗口同享。
   // 纵深防御监听与 dev 代理已由 createSecureWindow 统一挂载；此处 await 一次保证
   // 主窗首载前代理确定生效（工厂内是 fire-and-forget，此处 loadURL 前须确定）
+  // R32-24（三十二轮）：工厂侧 setProxy 失败仅降级留日志（见 createSecureWindow），
+  // 此处裸 await 同因异果——失败会炸启动。补 catch 降级（dev 代理缺 direct:// 归零
+  // 只影响 HMR 场景的代理一致性，不阻断首载），与工厂侧同口径。
   if (devUi) {
-    await mainWindow.webContents.session.setProxy({ proxyRules: 'direct://' })
+    try {
+      await mainWindow.webContents.session.setProxy({ proxyRules: 'direct://' })
+    } catch (e) {
+      log.warn('desktop', `dev 代理归零失败（继续首载）：${e instanceof Error ? e.message : String(e)}`)
+    }
   }
   await mainWindow.loadURL(needsWelcome ? `${appUrl}/welcome` : appUrl)
   // L1（二轮复审）：改走 logger——打包态 mirrorConsole=false，console.log 此前在生产
@@ -815,12 +822,17 @@ function registerIpc(): void {
 
 function buildMenu(): void {
   const isMac = process.platform === 'darwin'
-  /** 业务菜单项 click → 发 actionKey 给当前聚焦窗口（前端 useAppActions.dispatch 消费）。
-   *  actionKey 须与 web-next/src/composables/useAppActions.ts 的 id 一致。 */
+  /** 业务菜单项 click → 发 actionKey 给主窗口（前端 useAppActions.dispatch 消费）。
+   *  actionKey 须与 web-next/src/composables/useAppActions.ts 的 id 一致。
+   *  R32-22（三十二轮）：此前发往聚焦窗口——书架/书库等子窗口聚焦时（macOS 菜单恒
+   *  全局可点）action 发进子窗口静默丢失（子窗口无 useAppActions 接线）。固定发
+   *  mainWindow + isDestroyed 判（退出/崩溃窗口期菜单仍可点）。 */
   function action(key: string): Pick<MenuItemConstructorOptions, 'click'> {
     return {
-      click: () =>
-        BrowserWindow.getFocusedWindow()?.webContents.send('desktop:menu-action', key),
+      click: () => {
+        const target = mainWindow ?? BrowserWindow.getAllWindows()[0]
+        if (target && !target.isDestroyed()) target.webContents.send('desktop:menu-action', key)
+      },
     }
   }
   const macAppMenu: MenuItemConstructorOptions = {

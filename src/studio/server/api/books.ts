@@ -239,17 +239,21 @@ export function registerBookRoutes(ctx: BookCtx): void {
       return
     }
     const entry = r.entry
+    // ee-P2-11 / hh-P1 / dd-P2：三闸联合检查（busyGate 集中各闸口径）
+    // R32-6（三十二轮）：闸检查前置（对齐 rename 路径 R26-58 序）——此前先 abort 后过闸，
+    // 闸拒绝（409，如 spawn/三审/任务闸在持）时在途对话/嵌套写稿已被不可逆中断，作者
+    // 只是想删书却被顺带杀掉别的在途任务还删不成。abort 移到闸后：闸忙直接 409，
+    // 零副作用；闸过才中断 chat/self-heal 走删除。
+    const busy = busyGate(name, '删')
+    if (busy) {
+      return replyError(res, 409, 'BUSY', busy.error)
+    }
     // U-P2-7：先中断该书在途的 AI 编排（self-heal 批量写稿可长达十几分钟，
     // 不中断会在删除后继续落盘重建目录、白耗 API 费用）
     const hadSelfHeal = isSelfHealRunning(name)
     if (hadSelfHeal) abortSelfHeal(name)
     const hadChat = isChatRunning(name)
     if (hadChat) abortChat(name)
-    // ee-P2-11 / hh-P1 / dd-P2：三闸联合检查（busyGate 集中各闸口径）
-    const busy = busyGate(name, '删')
-    if (busy) {
-      return replyError(res, 409, 'BUSY', busy.error)
-    }
     // #7：等被中断的编排收尾后再动磁盘/事件库——straggler 的 session/end 与链路
     // flush 落定后才 clearChatHistory，防「清完表又被 straggler 写回」（清不彻底）。
     // M-2 接线收口：后台任务须独立判定——定稿章摘要等 fire-and-forget 常发生在
@@ -265,7 +269,13 @@ export function registerBookRoutes(ctx: BookCtx): void {
     await drainFilePutChainsUnder(join(ctx.workDir, entry.path))
     // M-4：闸后复查——settle 等待的 await 间隙里新 acquire 的闸（spawn/三审/task-gate）
     // 在此拦截；复检到 rmSync 之间全同步（单线程事件循环无新任务可插入），三闸 TOCTOU
-    // 窗归零（chat/self-heal 在窗内新起的情形由 10s settle 超时降级兜底，与旧版一致）
+    // 窗归零。
+    // R33D-7（三十三轮）：复查补 chat/self-heal——两闸不在 busyGate 之列，drain 段
+    // await 窗口内新起的对话/写稿既不在入口 abort 之列也无闸拦截，会贯穿 rmSync 继续跑
+    // 分钟级（重建孤儿目录 + 白烧 API 费）。命中 → 保守 409（作者正主动用书，删除可重试）。
+    if (isChatRunning(name) || isSelfHealRunning(name)) {
+      return replyError(res, 409, 'BUSY', '本书有对话/写稿在途启动，已中止删除——请等它完成或中断后重试')
+    }
     const recheck = busyGate(name, '删')
     if (recheck) {
       return replyError(res, 409, 'BUSY', recheck.error)
@@ -464,7 +474,11 @@ export function registerBookRoutes(ctx: BookCtx): void {
       //（无 book.yaml 孤儿，repairBooks 不认领）——与 drainDocumentSaves 当年堵的同型窗
       await drainFilePutChainsUnder(oldRoot)
       // M-4：闸后复查——同删书：settle 等待的 await 间隙新 acquire 的闸在此拦截，
-      // 复检到 renameSync 之间全同步（三闸 TOCTOU 归零；chat/self-heal 由超时降级兜底）
+      // 复检到 renameSync 之间全同步（三闸 TOCTOU 归零）。
+      // R33D-7：同删书复查补 chat/self-heal（drain 段新起的对话/写稿贯穿 renameSync）。
+      if (isChatRunning(oldName) || isSelfHealRunning(oldName)) {
+        return replyError(res, 409, 'BUSY', '本书有对话/写稿在途启动，已中止改名——请等它完成或中断后重试')
+      }
       const recheck = busyGate(oldName, '改名')
       if (recheck) {
         return replyError(res, 409, 'BUSY', recheck.error)

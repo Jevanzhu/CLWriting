@@ -9,7 +9,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { spawn } from 'node:child_process'
+import { spawnNodeEval } from '../helpers/spawn-node.js'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { describe, it, expect, afterAll } from 'vitest'
 import { appendPending, appendSettled, findUnsettled, JOURNAL_COMPACT_BYTES } from '../../src/document/journal.js'
@@ -31,20 +31,10 @@ function seedOversized(jp: string): void {
   writeFileSync(jp, text)
 }
 
-/** 起子进程跑脚本，resolve stdout（按行） */
+/** 起子进程跑脚本，resolve stdout（按行）——R32-37：看门狗兜底防孤儿进程 */
 function spawnWorker(script: string): Promise<string[]> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ['--import', 'tsx', '--eval', script], { stdio: ['ignore', 'pipe', 'pipe'] })
-    let out = ''
-    let stderr = ''
-    child.stdout.on('data', (c) => (out += c.toString('utf8')))
-    child.stderr.on('data', (c) => (stderr += c.toString('utf8')))
-    child.on('error', reject)
-    child.on('close', (code) => {
-      if (code !== 0) reject(new Error(`worker 退出码 ${code}：${stderr.slice(0, 800)}`))
-      else resolve(out.split('\n').filter((l) => l.trim()))
-    })
-  })
+  let out = ''
+  return spawnNodeEval(script, { onStdout: (c) => (out += c) }).done.then(() => out.split('\n').filter((l) => l.trim()))
 }
 
 describe('N4 compact 与并发 append 互斥', () => {
@@ -56,15 +46,15 @@ describe('N4 compact 与并发 append 互斥', () => {
 import { appendPending, appendSettled } from ${mod}
 const jp = ${JSON.stringify(jp)}
 for (let i = 0; i < 60; i++) {
-  const op = appendPending(jp, 'docA', null, 'A'.repeat(1024))
-  appendSettled(jp, op, 'sha256:a' + i)
+  const op = await appendPending(jp, 'docA', null, 'A'.repeat(1024))
+  await appendSettled(jp, op, 'sha256:a' + i)
 }
 `
     const scriptB = `
 import { appendPending } from ${mod}
 const jp = ${JSON.stringify(jp)}
 for (let i = 0; i < 40; i++) {
-  const op = appendPending(jp, 'docB', null, 'B'.repeat(2048))
+  const op = await appendPending(jp, 'docB', null, 'B'.repeat(2048))
   console.log(op)
 }
 `
@@ -80,9 +70,9 @@ for (let i = 0; i < 40; i++) {
     const jp = join(dir, 'quiet.jsonl')
     seedOversized(jp)
     // 留一个未结算 pending（压缩必须保留）；用另一个 op 的 settled 触发压缩
-    const opA = appendPending(jp, 'docC', null, '会被结算的内容')
-    const keep = appendPending(jp, 'docC', null, '待恢复内容')
-    appendSettled(jp, opA, 'sha256:c')
+    const opA = await appendPending(jp, 'docC', null, '会被结算的内容')
+    const keep = await appendPending(jp, 'docC', null, '待恢复内容')
+    await appendSettled(jp, opA, 'sha256:c')
     const unsettled = findUnsettled(jp)
     expect(unsettled.map((p) => p.opId)).toEqual([keep])
   })

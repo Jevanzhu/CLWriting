@@ -125,13 +125,13 @@ test('R76-2: 非章节文档普通保存留「修改前」快照；节流窗内�
 
 // ── R76-25：crashedWrite 报文带路径 ──────────────────────────────
 
-test('R76-25: crashedWrite 健康报文以清单路径为首要标识（不再裸报 docId）', () => {
+test('R76-25: crashedWrite 健康报文以清单路径为首要标识（不再裸报 docId）', async () => {
   mkdirSync(join(bookRoot, '工作区', '.journal'), { recursive: true })
   const mp = join(bookRoot, '项目', '文档清单.jsonl')
   const m = readManifest(mp)
   upsertEntry(m, { id: 'doc_r25', nodeType: 'document', path: '设定/人物.md', parentId: null })
   writeManifest(mp, m)
-  appendPending(join(bookRoot, '工作区', '.journal', 'doc_r25.jsonl'), 'doc_r25', null, 'lost content')
+  await appendPending(join(bookRoot, '工作区', '.journal', 'doc_r25.jsonl'), 'doc_r25', null, 'lost content')
   const d = detectState(bookRoot, DEFAULT_CONFIG)
   expect(d.state).toBe(1)
   if (d.state !== 1) return
@@ -176,7 +176,7 @@ test('R76-26: snapshotBeforeOverwrite 按 global.json snapMaxCount 修剪；缺�
 
 // ── R76-27：锁残留卫生 ──────────────────────────────────────────
 
-test('R76-27: purge 连删 journal + 无人持有的锁残留；在持锁跳过', () => {
+test('R76-27: purge 连删 journal + 无人持有的锁残留；在持锁跳过', async () => {
   const id = 'doc_r27'
   const jdir = join(bookRoot, '工作区', '.journal')
   mkdirSync(jdir, { recursive: true })
@@ -192,7 +192,7 @@ test('R76-27: purge 连删 journal + 无人持有的锁残留；在持锁跳过'
     trashedAt: '',
     role: 'setting' as DocumentRole,
   })
-  const p1 = purgeTrash(bookRoot, id)
+  const p1 = await purgeTrash(bookRoot, id)
   expect(p1.ok).toBe(true)
   expect(existsSync(journalFile)).toBe(false)
   expect(existsSync(lockResidue)).toBe(false)
@@ -207,7 +207,7 @@ test('R76-27: purge 连删 journal + 无人持有的锁残留；在持锁跳过'
     trashedAt: '',
     role: 'setting' as DocumentRole,
   })
-  const p2 = purgeTrash(bookRoot, id)
+  const p2 = await purgeTrash(bookRoot, id)
   expect(p2.ok).toBe(true)
   expect(existsSync(journalFile)).toBe(false)
   expect(existsSync(lockResidue)).toBe(true)

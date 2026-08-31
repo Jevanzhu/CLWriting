@@ -100,6 +100,36 @@ test('parsePieceListBody: 空正文 → 空清单', () => {
   expect(list.伏笔回收).toHaveLength(0)
 })
 
+// ── R32-17（三十二轮）：段头整行精确匹配 ──────────
+
+test('R32-17: `## 反转线索表补遗` 类手写标题不当段头（前缀正则误吞修复）', () => {
+  const body = [
+    '## 反转线索表',
+    '- 核心反转：来客即凶手',
+    '',
+    '## 反转线索表补遗',
+    '- 核心反转：补遗内容不得覆盖正式段',
+    '',
+    '## 情绪曲线备注',
+    '- [开头] 震惊 9/10',
+    '',
+    '## 伏笔回收草稿',
+    '- 玉佩 → 回收于 结尾',
+    '',
+  ].join('\n')
+  const list = parsePieceListBody(body)
+  // 正式段照常解析；「补遗/备注/草稿」后缀标题不得被前缀正则当段头（其内容混入
+  // 结构数据、或触发重复段 warn 丢弃）
+  expect(list.反转线索表.核心反转).toBe('来客即凶手')
+  expect(list.情绪曲线).toHaveLength(0)
+  expect(list.伏笔回收).toHaveLength(0)
+})
+
+test('R32-17: 段头尾注括注容忍（`## 反转线索表（修订）` 仍是段头）', () => {
+  const list = parsePieceListBody('## 反转线索表（修订）\n- 核心反转：x\n')
+  expect(list.反转线索表.核心反转).toBe('x')
+})
+
 // ── stringify 往返 ───────────────────────────────
 
 test('stringifyPieceList + parsePieceListBody 往返', () => {

@@ -56,11 +56,12 @@ export function registerDraftRoutes(ctx: DraftCtx): void {
     if (!content.trim()) return replyError(res, 400, 'BAD_INPUT', 'content 为空')
 
     const bookRoot = r.bookRoot
-    let saved: ReturnType<typeof saveDraft>
+    let saved: Awaited<ReturnType<typeof saveDraft>>
     try {
-      saved = saveDraft(bookRoot, chapter, content, { userDataPath: ctx.userDataPath })
+      // R32-5：saveDraft/recordAuthorSignal 已异步化（保存锁等待不再冻结事件循环）
+      saved = await saveDraft(bookRoot, chapter, content, { userDataPath: ctx.userDataPath })
       // 文风改稿轨迹（P1-ARCH-1：从 saveDraft 内部提取到调用方，消除 process→ai 向上依赖）
-      recordAuthorSignal(bookRoot, saved.docId, content, 'draft-save', ctx.userDataPath ?? undefined)
+      await recordAuthorSignal(bookRoot, saved.docId, content, 'draft-save', ctx.userDataPath ?? undefined)
       recordAiVersion(bookRoot, saved.docId, content)
     } catch (e) {
       log.error('api', `落盘失败（章 ${chapter}）`, e)

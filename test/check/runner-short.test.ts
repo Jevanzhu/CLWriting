@@ -316,6 +316,72 @@ test('runAllChecks short: 章纲在盘但读取失败 → 黄 piece-list-unreada
   expect(sec!.items.some((i) => i.checkId === 'piece-list-unreadable' && i.level === 'yellow')).toBe(true)
 })
 
+// ── R32-15（三十二轮）：章纲三口径定位 + 缺失黄项 ──────────────
+
+// 正文 4 位补零（0005-雪夜.md）而章纲不同名（fm 章号 5）→ 此前 basename 恒 miss，
+// 清单形式检静默失明；现按目录 fm 章号定位（口径②）
+test('R32-15: 章纲与正文不同名但 fm 章号一致 → 按章号定位，清单形式检照跑', () => {
+  const chPath = join(tmp, '写作', '正文', '0005-雪夜.md')
+  mkdirSync(join(tmp, '写作', '正文'), { recursive: true })
+  writeFileSync(chPath, '---\n章号: 5\n标题: 雪夜\n---\n正文', 'utf-8')
+  mkdirSync(join(tmp, '大纲', '章纲'), { recursive: true })
+  // 章纲名与正文 basename 完全不同，仅 fm 章号可配对
+  writeFileSync(
+    join(tmp, '大纲', '章纲', '第五章-雪夜.md'),
+    '---\n章号: 5\n标题: 雪夜\n---\n\n## 反转线索表\n- 核心反转：来客即凶手\n- 铺垫点（≥3，反转可回溯）：\n  - [开头] 雪夜敲门\n  - [中段] 来客手上的焦痕\n  - [结尾] 灯下的旧画像\n\n## 伏笔回收\n- 旧画像 → 回收于 结尾认亲\n',
+    'utf-8',
+  )
+  const ch: ChapterMeta = {
+    章号: 5, 标题: '雪夜', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
+    _path: chPath,
+  }
+  const r = runAllChecks({ bookRoot: tmp, config: shortConfig(), chapter: ch, body: '正文', fileName: '0005-雪夜.md' })
+  // 定位成功：清单形式检真实跑了（非 unreadable/missing 黄项），副产物接线
+  const sec = r.sections.find((s) => s.name === '清单形式检')
+  expect(sec).toBeDefined()
+  expect(sec!.items.some((i) => i.checkId === 'piece-list-unreadable' || i.checkId === 'piece-list-outline-missing')).toBe(false)
+  expect(r.byproducts?.pieceListChecks?.some((p) => p.type === 'reversal')).toBe(true)
+})
+
+// 章纲无 fm 章号、名用 3 位补零（005-雪夜.md）vs 正文 4 位（0005-雪夜.md）→ 按文件名
+// 数字前缀配对（口径③）
+test('R32-15: 存量 3 位补零章纲（无 fm 章号）vs 4 位正文 → 按文件名前缀定位', () => {
+  const chPath = join(tmp, '写作', '正文', '0005-雪夜.md')
+  mkdirSync(join(tmp, '写作', '正文'), { recursive: true })
+  writeFileSync(chPath, '正文', 'utf-8')
+  mkdirSync(join(tmp, '大纲', '章纲'), { recursive: true })
+  writeFileSync(
+    join(tmp, '大纲', '章纲', '005-雪夜.md'),
+    '## 反转线索表\n- 核心反转：x\n- 铺垫点（≥3，反转可回溯）：\n  - [开头] a\n  - [中段] b\n  - [结尾] c\n\n## 伏笔回收\n- y（未回收）\n',
+    'utf-8',
+  )
+  const ch: ChapterMeta = {
+    章号: 5, 标题: '雪夜', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
+    _path: chPath,
+  }
+  const r = runAllChecks({ bookRoot: tmp, config: shortConfig(), chapter: ch, body: '正文', fileName: '0005-雪夜.md' })
+  const sec = r.sections.find((s) => s.name === '清单形式检')
+  expect(sec).toBeDefined()
+  expect(sec!.items.some((i) => i.checkId === 'piece-list-unreadable' || i.checkId === 'piece-list-outline-missing')).toBe(false)
+  expect(r.byproducts?.pieceListChecks?.length).toBeGreaterThan(0)
+})
+
+// 本章章纲整体缺失 → 黄项提示（此前静默跳过零痕迹）
+test('R32-15: 本章章纲缺失 → 黄 piece-list-outline-missing（不再静默失明）', () => {
+  const chPath = join(tmp, '写作', '正文', '001-雪夜.md')
+  mkdirSync(join(tmp, '写作', '正文'), { recursive: true })
+  writeFileSync(chPath, '正文', 'utf-8')
+  const ch: ChapterMeta = {
+    章号: 1, 标题: '雪夜', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
+    _path: chPath,
+  }
+  const r = runAllChecks({ bookRoot: tmp, config: shortConfig(), chapter: ch, body: '正文', fileName: '001-雪夜.md' })
+  const sec = r.sections.find((s) => s.name === '清单形式检')
+  expect(sec).toBeDefined()
+  expect(sec!.items.some((i) => i.checkId === 'piece-list-outline-missing' && i.level === 'yellow')).toBe(true)
+})
+
+
 
 // R26-13：短篇判定与路由侧 kind.ts 的 kind==='short' 单源对齐——
 // kind: short 无 short 段（合法，全走缺省阈值）此前短篇专属机检整体失明；

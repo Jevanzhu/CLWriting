@@ -55,7 +55,7 @@ test('R64-12：reason 含换行/` # ` → 落盘单行且 readVersionMeta 往返
 
 // ── R64-13：purge 连删版本目录 ───────────────────
 
-test('R64-13：purgeTrash 连删 工作区/.版本/<docId>/（pinned 快照不留残）', () => {
+test('R64-13：purgeTrash 连删 工作区/.版本/<docId>/（pinned 快照不留残）', async () => {
   mkdirSync(join(root, '工作区', '.trash'), { recursive: true })
   writeFileSync(join(root, '工作区', '.trash', 'doc_a-旧稿.md'), '旧内容', 'utf-8')
   writeFileSync(
@@ -67,7 +67,7 @@ test('R64-13：purgeTrash 连删 工作区/.版本/<docId>/（pinned 快照不�
   mkdirSync(verDir, { recursive: true })
   writeFileSync(join(verDir, 'pin.md'), '---\n版本ID: pin\n---\n定稿底稿', 'utf-8')
 
-  const r = purgeTrash(root, 'doc_a')
+  const r = await purgeTrash(root, 'doc_a')
   expect(r.ok).toBe(true)
   expect(existsSync(join(root, '工作区', '.trash', 'doc_a-旧稿.md'))).toBe(false)
   expect(existsSync(verDir)).toBe(false) // 版本目录连删
@@ -192,7 +192,7 @@ test('R64-20：超精度数字章号（17 位）→ null（不产生错位章号
 
 // ── R64-21：restoreTrash link 探测 ───────────────
 
-test('R64-21：文件恢复走 linkSync 探测——原位占用 → OCCUPIED；空闲 → 内容原样回位', () => {
+test('R64-21：文件恢复走 linkSync 探测——原位占用 → OCCUPIED；空闲 → 内容原样回位', async () => {
   mkdirSync(join(root, '工作区', '.trash'), { recursive: true })
   writeFileSync(join(root, '工作区', '.trash', 'doc_b-手记.md'), '回收内容', 'utf-8')
   const manifestLine = (orig: string) =>
@@ -204,7 +204,7 @@ test('R64-21：文件恢复走 linkSync 探测——原位占用 → OCCUPIED；
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   writeFileSync(join(root, '写作', '正文', '0002-手记.md'), '占位内容', 'utf-8')
   writeManifestLine('写作/正文/0002-手记.md')
-  const occ = restoreTrash(root, 'doc_b')
+  const occ = await restoreTrash(root, 'doc_b')
   expect(occ.ok).toBe(false)
   if (!occ.ok) expect(occ.code).toBe('OCCUPIED')
   expect(readFileSync(join(root, '写作', '正文', '0002-手记.md'), 'utf-8')).toBe('占位内容') // 占位文件未被覆盖
@@ -212,7 +212,7 @@ test('R64-21：文件恢复走 linkSync 探测——原位占用 → OCCUPIED；
 
   // 空闲：清掉占位 → 恢复成功，内容一致，.trash 侧清除
   rmSync(join(root, '写作', '正文', '0002-手记.md'))
-  const ok = restoreTrash(root, 'doc_b')
+  const ok = await restoreTrash(root, 'doc_b')
   expect(ok.ok).toBe(true)
   expect(readFileSync(join(root, '写作', '正文', '0002-手记.md'), 'utf-8')).toBe('回收内容')
   expect(existsSync(join(root, '工作区', '.trash', 'doc_b-手记.md'))).toBe(false)

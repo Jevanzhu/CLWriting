@@ -110,10 +110,12 @@ function onExpandChat(): void {
               >
                 <Square :size="14" />
               </button>
+              <!-- R33D-28（三十三轮）：busy（工作台写稿在途）时入口静默 return——
+                   按钮同步禁用消死按钮点（chat.running 的 E1a steer 不禁是正确口径） -->
               <button
                 v-else
                 class="chat-send-btn"
-                :disabled="!input.trim()"
+                :disabled="!input.trim() || busy || sending"
                 @click="handleSend"
               >
                 <Send :size="15" />

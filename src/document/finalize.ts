@@ -38,7 +38,7 @@ import {
   type LeadUpdateTargets,
 } from './lead-finalize.js'
 import { outlineDeclarationForChapter } from '../check/outline-leads.js'
-import { readChapterUpdatesForChapter, leadEvidenceMatchesBody } from '../check/lead-updates.js'
+import { readChapterUpdatesForChapterChecked, leadEvidenceMatchesBody } from '../check/lead-updates.js'
 import { leadClosureItems } from '../check/leads.js'
 import { readDraft } from '../format/draft.js'
 import { log } from '../log/index.js'
@@ -294,7 +294,16 @@ function finalGateBlockers(bookRoot: string, absPath: string, chapterNo: number)
     if (!declaration.known) return [] // 声明未知：闭合比对不可判定，跳过（R69-2）
     const draft = readDraft(absPath)
     if (!draft.ok) return []
-    const actual = readChapterUpdatesForChapter(bookRoot, chapterNo)
+    // R32-3（三十二轮）：兑现侧改 Checked 读——主文件/归档「存在但读失败」时 updates
+    // 不完整，按其比对会把「清单未知」当「已声明未兑现」产 lead-declared-not-done 假红
+    // 硬阻断定稿（R31-3 只闭合了机检侧）。unreadable → 跳过闭合比对 + warn 留痕
+    // （闸门降级放行，对齐 X-P2-5/R29-8 口径——观测得到但不锁死作者）。
+    const fulfilled = readChapterUpdatesForChapterChecked(bookRoot, chapterNo)
+    if (fulfilled.unreadable) {
+      log.warn('finalize', `第${chapterNo}章 防吃书闸兑现侧清单不可读（主文件/归档在位但读失败），闭合比对降级跳过`)
+      return []
+    }
+    const actual = fulfilled.updates
       .filter((u) => leadEvidenceMatchesBody(draft.body, u.证据))
       .map((u) => u.leadId)
     return leadClosureItems(declaration.leads, actual, chapterNo).map((i) => i.message)

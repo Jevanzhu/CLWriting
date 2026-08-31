@@ -436,7 +436,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const id = params['id'] ?? ''
-      const result = restoreTrash(r.bookRoot, id)
+      const result = await restoreTrash(r.bookRoot, id)
       // Q-7（第十五轮）：失败走 replyError 统一信封（原裸 result 违反 schema.ts 信封约定）
       if (result.ok) reply(res, 200, result)
       else replyError(res, structStatus(result.code), result.code, result.reason)
@@ -450,7 +450,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const id = params['id'] ?? ''
-      const result = purgeTrash(r.bookRoot, id)
+      const result = await purgeTrash(r.bookRoot, id)
       // Q-7（第十五轮）：失败走 replyError 统一信封（原裸 result 违反 schema.ts 信封约定）
       if (result.ok) reply(res, 200, result)
       else replyError(res, structStatus(result.code), result.code, result.reason)

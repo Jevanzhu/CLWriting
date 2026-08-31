@@ -1,11 +1,15 @@
 <script setup lang="ts">
 // 书架共享网格（Shelf/ShelfModal 去重 P2-5）：书卡分组（网格/列表）+ 右键菜单。
 // 状态来自壳（useShelf composable 实例），本组件只做渲染 + 事件冒泡；两壳差异（容器/hero/工具栏/新建书/删除确认）留在各自壳内。
+import { useUiStore } from '../../stores/ui'
+import { friendlyError } from '../../shared/error'
 import { useNativeMenu } from '../../composables/useNativeMenu'
 import { onCardMove } from '../../composables/useShelf'
 import ContextMenu, { type MenuItem } from './ContextMenu.vue'
 import BookCard from './BookCard.vue'
 import type { BookEntry } from '../../api/shelf'
+
+const ui = useUiStore()
 
 const props = defineProps<{
   groups: { title: string; books: BookEntry[] }[]
@@ -34,7 +38,8 @@ function onCardContextmenu(e: MouseEvent, name: string): void {
   ]
   popup(items, e.clientX, e.clientY, (key) => {
     if (key === 'open') emit('open', name)
-    else if (key === 'folder') window.clwritingDesktop?.openBookDir(name)
+    // R33D-31：IPC 失败 toast 交代
+    else if (key === 'folder') window.clwritingDesktop?.openBookDir(name).catch((e: unknown) => ui.toast(friendlyError(e), 'error'))
     else if (key === 'delete') emit('delete-request', [name])
   })
 }

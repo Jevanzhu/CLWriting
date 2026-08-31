@@ -345,18 +345,18 @@ describe('DocumentService / journal 与崩溃恢复', () => {
     expect(svc.recover()).toEqual([])
   })
 
-  it('recover 报告 pending 无 settled（崩溃未结算）', () => {
+  it('recover 报告 pending 无 settled（崩溃未结算）', async () => {
     const jp = join(bookRoot, '工作区', '.journal', 'doc_y.jsonl')
-    appendPending(jp, 'doc_y', null, 'lost content')
+    await appendPending(jp, 'doc_y', null, 'lost content')
     const reports = svc.recover()
     expect(reports.length).toBe(1)
     expect(reports[0]!.docId).toBe('doc_y')
     expect((reports[0]!.pending[0] as JournalPending).content).toBe('lost content')
   })
 
-  it('recover：aborted 不算未结算', () => {
+  it('recover：aborted 不算未结算', async () => {
     const jp = join(bookRoot, '工作区', '.journal', 'doc_z.jsonl')
-    const opId = appendPending(jp, 'doc_z', null, 'will fail')
+    const opId = await appendPending(jp, 'doc_z', null, 'will fail')
     // 手动追加 aborted
     writeFileSync(jp, JSON.stringify({ opId, ts: new Date().toISOString(), status: 'aborted', reason: 'boom' }) + '\n', { flag: 'a' })
     expect(svc.recover()).toEqual([])

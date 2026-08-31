@@ -8,7 +8,8 @@ const ui = useUiStore()
 <template>
   <Teleport to="body">
     <div class="toast-wrap" role="status" aria-live="polite">
-      <div v-for="t in ui.toasts" :key="t.id" class="toast" :class="t.kind">
+      <!-- R32-34（三十二轮）：点击关闭——循环失败堆叠时作者可手动清掉（计时消失保留） -->
+      <div v-for="t in ui.toasts" :key="t.id" class="toast" :class="t.kind" @click="ui.dismissToast(t.id)">
         {{ t.msg }}
       </div>
     </div>
@@ -35,6 +36,8 @@ const ui = useUiStore()
   border-radius: var(--radius-m);
   box-shadow: var(--shadow-m);
   animation: clw-appear var(--dur-norm) var(--ease-out);
+  pointer-events: auto; /* R32-34：点击关闭（wrap 透传，本层接管） */
+  cursor: pointer;
 }
 .toast.success {
   color: var(--dv-good);

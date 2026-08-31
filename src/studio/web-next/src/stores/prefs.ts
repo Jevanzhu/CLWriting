@@ -137,10 +137,15 @@ export const usePrefsStore = defineStore('prefs', () => {
   const effectiveAutosaveInterval = computed(() => bookAutosaveInterval.value ?? autosaveInterval.value)
 
   let persistTimer: ReturnType<typeof setTimeout> | null = null
+  /** R32-27：在途写回句柄（单飞排队判据；finally 复位） */
+  let putInFlight: Promise<void> | null = null
 
   /** 并发修订号（GG-P2-7）：PUT /api/library/prefs 的 expectedRevision 依据。
-   *  GET/写成功响应回传时同步（照 provider store P4 的维护方式），非响应式——仅供写路径用。 */
+   *  GET/写成功响应回传时同步（照 provider store P4 的维护方式），非响应式——仅供写路径用。
+   *  R32-26（三十二轮）：配对未知态标记——init 失败（API 不可达）时 revision=0 是「未知」
+   *  而非「服务端确为 0」，原样参与 PUT 会让首保存必 409（误报「已在其他窗口被修改」）。 */
   let revision = 0
+  let revisionKnown = false
 
   /** 异步初始化：从 global.json 加载（替代 localStorage）。
    *  首次为空时从旧 localStorage 自动迁移。main.ts 在 mount 前调一次。 */
@@ -151,9 +156,10 @@ export const usePrefsStore = defineStore('prefs', () => {
       const r = await getGlobalPrefs()
       prefs = r.prefs
       revision = r.revision
+      revisionKnown = true
       apiOk = true
     } catch {
-      /* API 不可达用默认 */
+      /* API 不可达用默认——revision 维持未知态（R32-26：写回前重 GET 对齐） */
     }
 
     // 迁移：API 可达且 prefs 为空（真·首次）时才从旧 localStorage 读取。
@@ -164,7 +170,7 @@ export const usePrefsStore = defineStore('prefs', () => {
       prefs = buildCache()
       clearLegacyLocalStorage()
       // GG-P2-7：迁移写会 bump 服务端 revision——同步回存，否则首个用户保存带陈旧号 409
-      void putGlobalPrefs(prefs).then((r) => { revision = r.revision }).catch(() => {})
+      void putGlobalPrefs(prefs).then((r) => { revision = r.revision; revisionKnown = true }).catch(() => {})
     } else {
       applyPrefs(prefs)
     }
@@ -281,22 +287,55 @@ export const usePrefsStore = defineStore('prefs', () => {
     }
   }
 
-  /** debounce 写回 global.json（500ms） */
+  /** debounce 写回 global.json（500ms）。
+   *  R32-27（三十二轮）：快照移入定时器回调（此前防抖注册即捕快照，PUT 晚 500ms 发出，
+   *  与在途 PUT 交叠时旧快照后到可丢改动）+ 在途单飞（在途时重走防抖排队，完成后以
+   *  届时最新快照发出）。 */
   function schedulePersist(): void {
     if (persistTimer) clearTimeout(persistTimer)
-    const cache = buildCache()
     persistTimer = setTimeout(() => {
-      // GG-P2-7：带 expectedRevision 乐观并发——两面板同时保存时后写收 409 而非静默覆盖先写
-      void putGlobalPrefs(cache, revision)
-        .then((r) => { revision = r.revision })
-        .catch(async (e) => {
-          if (!(e instanceof ApiError) || e.status !== 409) return /* 其他错误静默（离线等，与原口径一致） */
-          // 冲突：本次改动放弃落盘，提示刷新（与 provider store 同口径，不自动覆盖他窗改动）；
-          // 但 revision 必须追上服务端，否则后续保存永久卡在陈旧号静默失败
-          useUiStore().toast('全局偏好已在其他窗口被修改，请刷新后重试', 'error')
-          try { revision = (await getGlobalPrefs()).revision } catch { /* 网络不可达保持现值 */ }
-        })
+      if (putInFlight) {
+        schedulePersist() // 在途挂起排队：完成后重拍 500ms，快照届时重取
+        return
+      }
+      // R33D-24（三十三轮）：占位提前到 GET 之前——!revisionKnown 分支的 await 在
+      // putInFlight 赋值前，两次防抖回落进「500ms + GET 时延」窗口时第二个定时器
+      // 判空仍为 null → 双重 PUT 同 expectedRevision → 必 409 伪告警丢一笔。先占位
+      // 再补 GET，单飞不变式贯穿 revisionKnown 两种取值。
+      putInFlight = Promise.resolve()
+      void (async () => {
+        try {
+          // R32-26：revision 未知态（init 失败离线）首次 PUT 前重 GET 对齐——不再以 0
+          // 自伤 409；GET 不可达时照旧发 PUT，走既有 409/静默口径自愈
+          if (!revisionKnown) {
+            try {
+              revision = (await getGlobalPrefs()).revision
+              revisionKnown = true
+            } catch { /* 网络不可达：照旧 PUT */ }
+          }
+          await doPersistPut()
+        } finally {
+          putInFlight = null
+        }
+      })()
     }, 500)
+  }
+
+  /** R33D-24：实际 PUT 段抽直（占位逻辑外提后保持原 409 处理不变） */
+  async function doPersistPut(): Promise<void> {
+    {
+      // GG-P2-7：带 expectedRevision 乐观并发——两面板同时保存时后写收 409 而非静默覆盖先写
+        // GG-P2-7：带 expectedRevision 乐观并发——两面板同时保存时后写收 409 而非静默覆盖先写
+        await putGlobalPrefs(buildCache(), revision)
+          .then((r) => { revision = r.revision; revisionKnown = true })
+          .catch(async (e) => {
+            if (!(e instanceof ApiError) || e.status !== 409) return /* 其他错误静默（离线等，与原口径一致） */
+            // 冲突：本次改动放弃落盘，提示刷新（与 provider store 同口径，不自动覆盖他窗改动）；
+            // 但 revision 必须追上服务端，否则后续保存永久卡在陈旧号静默失败
+            useUiStore().toast('全局偏好已在其他窗口被修改，请刷新后重试', 'error')
+            try { revision = (await getGlobalPrefs()).revision; revisionKnown = true } catch { /* 网络不可达保持现值 */ }
+          })
+    }
   }
 
   // ── apply（直写 :root CSS 变量）──

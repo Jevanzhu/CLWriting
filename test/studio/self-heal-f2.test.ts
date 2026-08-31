@@ -52,7 +52,7 @@ function redOutcome(msg = '命中禁词「顿时」'): CheckOutcome {
 interface SaveCall { content: string; origin?: string }
 
 function makeSave(calls: SaveCall[]): typeof saveDraft {
-  return (_bookRoot, _chapter, content, opts) => {
+  return async (_bookRoot, _chapter, content, opts) => {
     calls.push({ content, ...(opts?.snapshotOrigin ? { origin: opts.snapshotOrigin } : {}) })
     return { relPath: '写作/正文/1-测试章.md', docId: 'doc-短篇-1', words: content.length, snapshotted: false }
   }

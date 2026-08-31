@@ -227,7 +227,7 @@ test('enter: 健康异常且缓存缺失 → 不崩，返回态 1 路由', () =>
   rmSync(root, { recursive: true, force: true })
 })
 
-test('enter: 写满一卷 → recap 显示态 5 卷末', () => {
+test('enter: 写满一卷 → recap 显示态 5 卷末', async () => {
   const root = trackTempDir(makeGitBookWithChapters(50, FAST_CHAPTER_FIXTURE))
   const { recap, route } = enter(root)
   expect(recap.state).toBe(5)
@@ -238,13 +238,13 @@ test('enter: 写满一卷 → recap 显示态 5 卷末', () => {
 // ── P3-10: move 类 journal pending 进门确定性自愈 ───────────────────
 
 /** 造场景：清单登记 oldRel，文件按 fileExists 落盘（new=rename 已发生），journal 悬置 move pending。 */
-function makeMovePendingBook(fileExists: 'old' | 'new' | 'none'): {
+async function makeMovePendingBook(fileExists: 'old' | 'new' | 'none'): Promise<{
   root: string
   docId: string
   oldRel: string
   newRel: string
   jPath: string
-} {
+}> {
   const root = trackTempDir(makeGitBook())
   const docId = generateDocId()
   const oldRel = '写作/正文/0001-开篇.md'
@@ -261,12 +261,12 @@ function makeMovePendingBook(fileExists: 'old' | 'new' | 'none'): {
   writeManifest(manifestPath, m)
   const jPath = join(root, '工作区', '.journal', `${docId}.jsonl`)
   mkdirSync(join(root, '工作区', '.journal'), { recursive: true })
-  appendMovePending(jPath, docId, oldRel, newRel)
+  await appendMovePending(jPath, docId, oldRel, newRel)
   return { root, docId, oldRel, newRel, jPath }
 }
 
-test('P3-10 自愈: 文件已到新路径、清单未跟上 → 补清单 + settled，不拦进门', () => {
-  const { root, docId, newRel, jPath } = makeMovePendingBook('new')
+test('P3-10 自愈: 文件已到新路径、清单未跟上 → 补清单 + settled，不拦进门', async () => {
+  const { root, docId, newRel, jPath } = await makeMovePendingBook('new')
   const d = detectState(root, DEFAULT_CONFIG)
   // 不因 move pending 报 crashedWrite（确定性自愈，不门禁）
   if (d.state === 1) expect(d.issues.some((i) => i.kind === 'crashedWrite')).toBe(false)
@@ -278,8 +278,8 @@ test('P3-10 自愈: 文件已到新路径、清单未跟上 → 补清单 + sett
   rmSync(root, { recursive: true, force: true })
 })
 
-test('P3-10 自愈: 文件仍在旧路径（rename 未发生）→ abort 悬置，清单不动', () => {
-  const { root, docId, oldRel, jPath } = makeMovePendingBook('old')
+test('P3-10 自愈: 文件仍在旧路径（rename 未发生）→ abort 悬置，清单不动', async () => {
+  const { root, docId, oldRel, jPath } = await makeMovePendingBook('old')
   const d = detectState(root, DEFAULT_CONFIG)
   if (d.state === 1) expect(d.issues.some((i) => i.kind === 'crashedWrite')).toBe(false)
   const after = readManifest(join(root, '项目', '文档清单.jsonl'))
@@ -288,8 +288,8 @@ test('P3-10 自愈: 文件仍在旧路径（rename 未发生）→ abort 悬置�
   rmSync(root, { recursive: true, force: true })
 })
 
-test('P3-10 自愈: 两端都不在（异常态）→ 不可自动判定，报 crashedWrite 交作者', () => {
-  const { root, jPath } = makeMovePendingBook('none')
+test('P3-10 自愈: 两端都不在（异常态）→ 不可自动判定，报 crashedWrite 交作者', async () => {
+  const { root, jPath } = await makeMovePendingBook('none')
   const d = detectState(root, DEFAULT_CONFIG)
   expect(d.state).toBe(1)
   if (d.state === 1) {
@@ -302,7 +302,7 @@ test('P3-10 自愈: 两端都不在（异常态）→ 不可自动判定，报 c
 
 // ── R65-30（第六十五轮）：move-pending 愈合同步内存镜像——同次进门不误报 finalizedLost ──
 
-test('R65-30: 已定稿章 move-pending 愈合（rename 已发生）→ 同次 detectState 不报 finalizedLost', () => {
+test('R65-30: 已定稿章 move-pending 愈合（rename 已发生）→ 同次 detectState 不报 finalizedLost', async () => {
   // 场景：清单登记 oldRel 且带定稿基线；文件已 rename 到 newRel；journal 悬置 move pending。
   // 修复前：healMovePending 只改盘上清单，③ finalizedLost 检查仍用入参旧镜像查 oldRel
   // （盘上已无）→ 同次进门误报「已定稿文件不在盘上」（态 1 拦门）。
@@ -327,7 +327,7 @@ test('R65-30: 已定稿章 move-pending 愈合（rename 已发生）→ 同次 d
   writeManifest(manifestPath, m)
   const jPath = join(root, '工作区', '.journal', `${docId}.jsonl`)
   mkdirSync(join(root, '工作区', '.journal'), { recursive: true })
-  appendMovePending(jPath, docId, oldRel, newRel)
+  await appendMovePending(jPath, docId, oldRel, newRel)
 
   const d = detectState(root, DEFAULT_CONFIG)
   // 同次进门：愈合生效且不再误报 finalizedLost（修复前此处 state===1 且含 finalizedLost）

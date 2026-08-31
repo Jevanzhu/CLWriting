@@ -80,7 +80,7 @@ describe('Z-6: doTrash 尾段残留 → executeSave 复活守卫双条件', () =
       id: 'doc_o', originalPath: '写作/正文/0001-a.md', trashedPath: '工作区/.trash/doc_o-a.md',
       trashedAt: '2026-08-24T00:00:00Z', role: 'chapter',
     })
-    const rr = restoreTrash(root, 'doc_o')
+    const rr = await restoreTrash(root, 'doc_o')
     expect(rr.ok).toBe(true)
     const svc = new DocumentService({ bookRoot: root })
     const abs = join(root, '写作', '正文', '0001-a.md')

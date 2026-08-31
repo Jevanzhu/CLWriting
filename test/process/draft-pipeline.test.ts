@@ -479,7 +479,7 @@ describe('R66-1: snapshotBeforeOverwrite 非 UTF-8 覆写防线', () => {
     expect(readFileSync(join(verDir, docDir!, `${snap}.md`), 'utf-8')).toContain('旧内容')
   })
 
-  it('saveDraft 集成：case2 文件名相撞的 GBK 旧文件 → 拒绝落盘且字节不变（撤防线本用例红）', () => {
+  it('saveDraft 集成：case2 文件名相撞的 GBK 旧文件 → 拒绝落盘且字节不变（撤防线本用例红）', async () => {
     // 触发链定谳（R66-1）：GBK 文件 fm 解析失败不进 readChapterDir → resolveDraftPath case1
     // 找不到它；真实覆写路径 = case2 按新稿标题生成的文件名与既有 GBK 文件同名相撞
     // （extractTitleFromContent 读 fm 标题 → 0003-旧稿.md），此时 snapshotBeforeOverwrite
@@ -488,15 +488,16 @@ describe('R66-1: snapshotBeforeOverwrite 非 UTF-8 覆写防线', () => {
     const gbk = Buffer.from([0xb7, 0xe7]) // GBK「风」——utf-8 fatal 解码必炸
     const fp = join(dir, '写作', '正文', '第一卷', '0003-旧稿.md')
     writeFileSync(fp, gbk)
-    expect(() => saveDraft(dir, 3, '---\n章号: 3\n标题: 旧稿\n---\n\n新内容')).toThrow('不是 UTF-8')
+    // R32-5：saveDraft 异步化 → rejects 断言
+    await expect(saveDraft(dir, 3, '---\n章号: 3\n标题: 旧稿\n---\n\n新内容')).rejects.toThrow('不是 UTF-8')
     expect(readFileSync(fp)).toEqual(gbk) // 原文件未被覆写
     expect(existsSync(join(dir, '工作区', '.版本'))).toBe(false) // 未写失真快照
   })
 
-  it('saveDraft 集成：case2 文件名相撞的 UTF-8 旧文件 → 正常覆写并留底（对照组）', () => {
+  it('saveDraft 集成：case2 文件名相撞的 UTF-8 旧文件 → 正常覆写并留底（对照组）', async () => {
     mkdirSync(join(dir, '写作', '正文', '第一卷'), { recursive: true })
     writeFileSync(join(dir, '写作', '正文', '第一卷', '0005-旧稿.md'), '旧内容', 'utf-8')
-    const r = saveDraft(dir, 5, '---\n章号: 5\n标题: 旧稿\n---\n\n新内容')
+    const r = await saveDraft(dir, 5, '---\n章号: 5\n标题: 旧稿\n---\n\n新内容')
     expect(r.relPath).toBe('写作/正文/第一卷/0005-旧稿.md')
     expect(r.snapshotted).toBe(true)
     expect(readFileSync(join(dir, r.relPath), 'utf-8')).toContain('新内容')

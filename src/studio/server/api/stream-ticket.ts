@@ -16,6 +16,11 @@ import { defineRoute } from './schema.js'
 import { reply } from '../http.js'
 
 const TICKET_TTL_MS = 60_000
+/** R32-21（三十二轮）：在库票上限——签发无频控时持 token 客户端可无限囤票（内存无界，
+ *  60s TTL 只在下次签发/peek 时被顺带清）。上限触顶时逐出最早过期票再签发（一次性票
+ *  消费即删，正常客户端每连接 1 票，256 票远超合理并发面；逐出方不破坏既有票的
+ *  「最早过期先失效」自然序，被逐出票 peek/consume 均按不存在处理）。 */
+const MAX_TICKETS = 256
 
 /**
  * ticket 库（签发/预检/消费）。R73-49（二十一轮）：per-server 实例化——buildRoutes
@@ -52,6 +57,11 @@ export function createStreamTicketStore(): StreamTicketStore {
     issue(): { ticket: string; expiresInMs: number } {
       const now = Date.now()
       pruneExpired(now)
+      // R32-21：触顶逐出最早过期票（Map 迭代序 = 插入序，签发序即过期序——TTL 恒定）
+      if (tickets.size >= MAX_TICKETS) {
+        const oldest = tickets.keys().next().value
+        if (oldest !== undefined) tickets.delete(oldest)
+      }
       const ticket = randomUUID()
       tickets.set(ticket, now + TICKET_TTL_MS)
       return { ticket, expiresInMs: TICKET_TTL_MS }

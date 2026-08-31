@@ -42,7 +42,7 @@ async function seededPicks(): Promise<ReturnType<typeof useLearnStore>> {
 describe('R73-66: commit 独立推代（同代双 commit 不再互相穿透）', () => {
   it('同批勾选重入双 commit：B 先归 → A 迟到成功回填被推代作废（不覆盖 B 的消息）', async () => {
     const s = await seededPicks()
-    s.toggleSample('b1')
+    s.toggleSample({ 场景: 's', 正文: 'b1', 出处: 'c', 章号: 1, 打分: 80 })
     let resolveA!: (v: { sampleFiles: string[]; quoteFiles: string[] }) => void
     let resolveB!: (v: { sampleFiles: string[]; quoteFiles: string[] }) => void
     commitMock
@@ -68,7 +68,7 @@ describe('R73-66: commit 独立推代（同代双 commit 不再互相穿透）',
 
   it('commit A 迟到失败同样不覆盖新 commit 的消息', async () => {
     const s = await seededPicks()
-    s.toggleSample('b1')
+    s.toggleSample({ 场景: 's', 正文: 'b1', 出处: 'c', 章号: 1, 打分: 80 })
     let rejectA!: (e: Error) => void
     let resolveB!: (v: { sampleFiles: string[]; quoteFiles: string[] }) => void
     commitMock
@@ -94,7 +94,7 @@ describe('R73-66: commit 独立推代（同代双 commit 不再互相穿透）',
 
   it('clear() 在途 commit → 迟到成功回填不落、committing 复位（按钮不卡）', async () => {
     const s = await seededPicks()
-    s.toggleSample('b1')
+    s.toggleSample({ 场景: 's', 正文: 'b1', 出处: 'c', 章号: 1, 打分: 80 })
     let resolveA!: (v: { sampleFiles: string[]; quoteFiles: string[] }) => void
     commitMock.mockImplementationOnce(() => new Promise((r) => (resolveA = r)))
     const p = s.commit('bookA')
@@ -111,7 +111,7 @@ describe('R73-66: commit 独立推代（同代双 commit 不再互相穿透）',
 
   it('M-11 语义保留：commit 在途遇 harvest 推代（reqGen 变）→ 回填仍作废', async () => {
     const s = await seededPicks()
-    s.toggleSample('b1')
+    s.toggleSample({ 场景: 's', 正文: 'b1', 出处: 'c', 章号: 1, 打分: 80 })
     let resolveCommit!: (v: { sampleFiles: string[]; quoteFiles: string[] }) => void
     commitMock.mockImplementationOnce(() => new Promise((r) => (resolveCommit = r)))
     const p = s.commit('bookA')

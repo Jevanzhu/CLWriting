@@ -336,7 +336,21 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
         if (!doneEmitted) {
           // R27-2（二十七轮）：流末统一 emit——末见 usage 优先（上面 message_delta 只记
           // 不发）；无 usage 才走估计/截断兜底（与 openai 线 R26-3 同构）
+          // R33D-2（三十三轮）：refusal 不是正常完成——stop_reason 原生透传口径（R30-13
+          // 登记）下该值此前按成功 done 出场，被过滤的半截正文按成功落稿（openai 线
+          // content_filter / responses 线 R1 缺口 2 同因判 error，三线分叉）。error 出场
+          // （retryable:false，usage 随错上抛）。
           if (latestUsage) {
+            if (pendingStopReason === 'refusal') {
+              yield {
+                type: 'error',
+                message: '生成被内容过滤截断（stop_reason=refusal）——半截产出不落稿，请调整提示词后重试',
+                retryable: false,
+                code: 'PROTOCOL',
+                usage: latestUsage,
+              }
+              return
+            }
             const ev = emitDone(latestUsage, pendingStopReason ?? 'end_turn')
             if (ev) yield ev
           } else if (pendingStopReason !== null) {
@@ -354,10 +368,40 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
               ...(cacheWriteFromStart !== undefined ? { cacheWriteTokens: cacheWriteFromStart } : {}),
               estimated: true,
             }
+            // R33D-2：无 usage 的 refusal 同款判错（估计 usage 随错上抛）
+            if (pendingStopReason === 'refusal') {
+              yield {
+                type: 'error',
+                message: '生成被内容过滤截断（stop_reason=refusal）——半截产出不落稿，请调整提示词后重试',
+                retryable: false,
+                code: 'PROTOCOL',
+                usage,
+              }
+              return
+            }
             const ev = emitDone(usage, pendingStopReason)
             if (ev) yield ev
           } else {
-            yield { type: 'error', message: '传输截断：流结束无终止事件', retryable: true, code: 'NETWORK' }
+            // R32-1（三十二轮）：截断 error 随错上抛已发生消耗（R31-1 openai 线同口径，
+            // B-12 通道）——message_start 实测 input/cache 优先（本分支 latestUsage 必为
+            // null，见上），output 按累计产出折算，标 estimated；截断不再丢已发生计费。
+            for (const [, tb] of toolBlocks) outToolText.push(tb.name + tb.jsonBuf)
+            yield {
+              type: 'error',
+              message: '传输截断：流结束无终止事件',
+              retryable: true,
+              code: 'NETWORK',
+              usage: {
+                inputTokens:
+                  inputTokensFromStart > 0
+                    ? inputTokensFromStart
+                    : estimateInputTokens(req, conf.model ?? undefined),
+                outputTokens: estimateOutputTokens(outText.join('') + outToolText.join(''), conf.model ?? undefined),
+                ...(cacheReadFromStart !== undefined ? { cacheReadTokens: cacheReadFromStart } : {}),
+                ...(cacheWriteFromStart !== undefined ? { cacheWriteTokens: cacheWriteFromStart } : {}),
+                estimated: true,
+              },
+            }
           }
         }
       } catch (e) {

@@ -30,11 +30,11 @@ describe('R73-41 / batch-pause 跨进程锁', () => {
     rmSync(root, { recursive: true, force: true })
   })
 
-  it('他进程持锁 → 降级写入成功、warn 留痕、不删他人在位锁', () => {
+  it('他进程持锁 → 降级写入成功、warn 留痕、不删他人在位锁', async () => {
     writeFileSync(lockPath, JSON.stringify({ pid: process.pid, bootTime: processBootTime() }), 'utf-8')
     const warnSpy = vi.spyOn(log, 'warn')
     try {
-      writeBatchPause(root, { atChapter: 7, reason: 'escalate', detail: '三连黄' })
+      await writeBatchPause(root, { atChapter: 7, reason: 'escalate', detail: '三连黄' })
       expect(readBatchPause(root)?.atChapter).toBe(7)
       expect(warnSpy).toHaveBeenCalled()
       expect(existsSync(lockPath)).toBe(true) // 他人在位锁未被误删
@@ -43,16 +43,16 @@ describe('R73-41 / batch-pause 跨进程锁', () => {
     }
   })
 
-  it('无争用 → 写/清正常，其他键保留，锁文件不残留', () => {
+  it('无争用 → 写/清正常，其他键保留，锁文件不残留', async () => {
     const fp = join(root, '工作区', '待定稿', '.auto-batch.json')
     writeFileSync(fp, JSON.stringify({ other_key: '保留我' }), 'utf-8')
-    writeBatchPause(root, { atChapter: 3, reason: 'failed', detail: '驱动失败' })
+    await writeBatchPause(root, { atChapter: 3, reason: 'failed', detail: '驱动失败' })
     const obj = JSON.parse(readFileSync(fp, 'utf-8')) as Record<string, unknown>
     expect(obj['other_key']).toBe('保留我')
     expect(readBatchPause(root)?.reason).toBe('failed')
     expect(existsSync(lockPath)).toBe(false)
 
-    clearBatchPause(root)
+    await clearBatchPause(root)
     expect(readBatchPause(root)).toBeUndefined()
     // 只剩 paused 被清 → 其他键保留，文件改写不删除
     const after = JSON.parse(readFileSync(fp, 'utf-8')) as Record<string, unknown>

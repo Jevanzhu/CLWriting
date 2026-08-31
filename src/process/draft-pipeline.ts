@@ -18,7 +18,7 @@ import { buildSettingsLayers } from './settings-context.js'
 import { assembleSettingsInjection, type SettingsLayer } from './settings-injection.js'
 import { pickStyleSamplesWithSources } from './style-samples.js'
 import type { BookConfig } from '../format/types.js'
-import { readManifest, readManifestStrict, upsertEntry, withManifestLock, writeManifest, type Manifest, type ManifestEntry } from '../document/manifest.js'
+import { readManifest, readManifestStrict, upsertEntry, withManifestLockAsync, writeManifest, type Manifest, type ManifestEntry } from '../document/manifest.js'
 import { readTrashManifest } from '../document/trash.js'
 import { writeSnapshot, readGlobalSnapshotPolicy, DEFAULT_SNAPSHOT_POLICY } from '../document/snapshot.js'
 import { legacyId } from '../document/stable-id.js'
@@ -27,18 +27,24 @@ import { invalidateTreeIndex } from '../document/tree.js'
 import { appendAborted, appendPending, appendSettled } from '../document/journal.js'
 import { appendWordsDelta, todayDate } from '../document/words-diary.js'
 import { computeRevision } from '../document/revision.js'
+import { hashBytes } from '../fs/hash.js'
 import { encodeDocDirName } from '../document/version.js'
-import { acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
+import { acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 import { log } from '../log/index.js'
 
 /** R73-32：saveDraft 保存临界段跨进程锁等待（毫秒）——与 executeSave 的 per-doc
  *  保存锁（service.ts R72-1）同档 5s，超时拒绝不降级（裸写正是本锁要闭合的丢更新形态）。
- *  测试注入缩短保快（生产零调用），同 manifest/journal 锁超时的注入钩子惯例。 */
-export let DRAFT_SAVE_LOCK_TIMEOUT_MS = 5_000
+ *  测试注入缩短保快（生产零调用），同 manifest/journal 锁超时的注入钩子惯例。
+ *  R32-19（三十二轮）：常量化（journal.ts R30-18 同口径）——export let 可被任一
+ *  import 方静默改写，改 const + 内部可变生效值；测试只能经注入钩子改档。 */
+export const DRAFT_SAVE_LOCK_TIMEOUT_MS = 5_000
+
+/** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改。 */
+let draftSaveLockTimeoutMs = DRAFT_SAVE_LOCK_TIMEOUT_MS
 
 /** 测试注入钩子（生产零调用）。 */
 export function __setDraftSaveLockTimeoutForTest(ms: number): void {
-  DRAFT_SAVE_LOCK_TIMEOUT_MS = ms
+  draftSaveLockTimeoutMs = ms
 }
 
 /**
@@ -111,12 +117,12 @@ export function snapshotBeforeOverwrite(
  * 避免 process/ → ai/ 的向上依赖（P1-ARCH-1 循环依赖修复）。
  * 落盘失败向上抛，调用方决定回应。
  */
-export function saveDraft(
+export async function saveDraft(
   bookRoot: string,
   chapter: number,
   content: string,
   opts?: { snapshotOrigin?: string; userDataPath?: string | null },
-): { relPath: string; docId: string; words: number; snapshotted: boolean } {
+): Promise<{ relPath: string; docId: string; words: number; snapshotted: boolean }> {
   const { relPath } = resolveDraftPath(bookRoot, chapter, content)
   const absPath = join(bookRoot, relPath)
   // Y-3（第五十七轮）：回收站双认领守卫——目标文件在盘且回收站登记仍认领同一路径
@@ -146,30 +152,45 @@ export function saveDraft(
   // 上抛拒绝：未执行、无数据损伤、调用方（draft-save 端点 / self-heal）可重试。
   // 同进程不自锁：本函数无递归入口；锁内 appendPending 嵌套拿的是另一路径的 journal 锁
   //（save→journal 单向嵌套，与 executeSave 同构，无环）。
-  const docSaveLock = acquireCrossProcessLockWithTimeout(`${journalPath}.save.lock`, DRAFT_SAVE_LOCK_TIMEOUT_MS)
+  // R32-5（三十二轮）：锁等待异步化（acquireCrossProcessLockAsync + withManifestLockAsync，
+  // executeSave/meta/finalize 的 R30-3 全仓纪律补齐本漏网点）——同步 Atomics.wait 微睡
+  // 在双进程争用时冻结服务事件循环（SSE/HTTP 最坏停 ≈15s）；保存协议各步原样平移。
+  const docSaveLock = await acquireCrossProcessLockAsync(`${journalPath}.save.lock`, draftSaveLockTimeoutMs)
   if (!docSaveLock) {
     throw new Error(`草稿保存等待超时：另一进程正在保存此文档（5 秒未让出），请重试`)
   }
   try {
+    // R33D-20（三十三轮）：锁内复核（executeSave R76-22 纪律对齐）——resolveDraftPath 与
+    // manifest 反查都在取锁前，等锁窗口内他进程 doMoveOrRename 可把登记路径移走；
+    // 复核 manifest 登记路径仍等于 relPath，不等 = 世界已变，上抛拒绝（不复活旧路径副本）。
+    const liveManifest = readManifest(manifestPath)
+    for (const e of liveManifest.entries.values()) {
+      if (e.id === finalDocId && e.path !== relPath) {
+        throw new Error(`草稿保存目标已变（登记路径 ${e.path} ≠ ${relPath}，等待保存锁期间文档被移动/改名）——请刷新后重试`)
+      }
+    }
     // M1 覆写留底：已有文件且内容不同 → force 快照（作者手改不静默丢失；Y-3 IO 失败上抛）
     const snapshotId = snapshotBeforeOverwrite(bookRoot, relPath, content, opts?.snapshotOrigin, manifest, opts?.userDataPath)
     // 步骤 4（对齐 executeSave）：journal pending 先于写盘（含全文快照，防丢字）——
     // pending 记不上就不能继续写（RB-KN-P2-2 同口径，fail-closed 上抛，调用方已统一 catch）
+    // R33D-18（三十三轮）：盘上内容单读派生（revision 哈希 / UTF-8 判定 / 字数 delta
+    // 三路同源，消除此前的重复整读与读间 TOCTOU；R27-45/R72-5 先例）。
     const existing = existsSync(absPath)
-    const currentRev = existing ? computeRevision(absPath) : null
-    const opId = appendPending(journalPath, finalDocId, currentRev, content)
+    const diskBytes = existing ? readFileSync(absPath) : null
+    const currentRev = diskBytes ? (hashBytes(diskBytes) as `sha256:${string}`) : null
+    const opId = await appendPending(journalPath, finalDocId, currentRev, content)
     let words: number
     let newRev: `sha256:${string}`
     try {
       // 步骤 4.5：字数 delta（E4）——写盘前读旧内容（strip fm 口径，与 service.ts 一致）
       const wordDelta =
-        countWords(bodyOf(content)) - countWords(existing ? bodyOf(readFileSync(absPath, 'utf-8')) : '')
+        countWords(bodyOf(content)) - countWords(existing && diskBytes ? bodyOf(diskBytes.toString('utf-8')) : '')
       mkdirSync(dirname(absPath), { recursive: true })
       // B-P2-3：fsync 保证草稿落盘不丢字（崩溃/断电场景内容先 fsync 再 rename）
       atomicWriteFile(absPath, content, { fsync: true })
       // 步骤 8-10：新 revision → journal settled
       newRev = computeRevision(absPath)
-      appendSettled(journalPath, opId, newRev)
+      await appendSettled(journalPath, opId, newRev)
       words = countWords(bodyOf(content))
       // R73-32：字数增量 best-effort（settled 后失败不影响保存结果，对齐 executeSave P2-BE-4）
       try {
@@ -180,7 +201,7 @@ export function saveDraft(
     } catch (e) {
       // 写盘/结算失败：journal 标 aborted（atomicWriteFile 失败已自清 tmp，未落盘）
       try {
-        appendAborted(journalPath, opId, e instanceof Error ? e.message : String(e))
+        await appendAborted(journalPath, opId, e instanceof Error ? e.message : String(e))
       } catch {
         // journal 留痕失败忽略（best-effort）
       }
@@ -194,7 +215,8 @@ export function saveDraft(
     // doCreate R70-17 同款 warn 留痕）
     if (registeredId === null) {
       try {
-        withManifestLock(manifestPath, () => {
+        // R32-5：清单登记锁同步孪生 → 异步（与保存锁同批异步化，锁内写段不变）
+        await withManifestLockAsync(manifestPath, () => {
           // R27-40：RMW strict 读——读失败上抛走本 best-effort catch（warn + 树扫描自愈收编）
           const m = existsSync(manifestPath)
             ? readManifestStrict(manifestPath)

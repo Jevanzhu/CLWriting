@@ -78,14 +78,8 @@ export const useStyleStore = defineStore('style', () => {
     entries.value = r.entries
     entryErrors.value = r.errors.length
   }
-  async function reloadCandidates(): Promise<void> {
-    // R68-5：同上代守卫
-    const gen = reqGen
-    const book = bookName.value
-    const cs = await listStyleCandidates(book)
-    if (gen !== reqGen) return
-    candidates.value = cs.candidates
-  }
+  // R32-11（三十二轮）：reloadCandidates 零调用死代码删除（原意是手动刷新候选，
+  // 实际候选加载由 load() 内联承担；保留只会让读者误以为存在第二加载入口）
 
   async function add(entry: Parameters<typeof addStyleEntry>[1]): Promise<void> {
     const gen = reqGen

@@ -437,7 +437,7 @@ export class DocumentService {
       // 且失败须走 SaveResult 契约（原在此处直接抛出，save() 变 rejected promise，调用方易 unhandled rejection）
       let opId: string
       try {
-        opId = appendPending(journalPath, docId, currentRev, input.content)
+        opId = await appendPending(journalPath, docId, currentRev, input.content)
       } catch (e) {
         return Promise.resolve({
           ok: false,
@@ -468,7 +468,7 @@ export class DocumentService {
           const created = createFileExclusive(absPath, input.content, { fsync: true })
           if (created === 'exists') {
             try {
-              appendAborted(journalPath, opId, '新建落位时目标已被并发创建（REVISION_CONFLICT）')
+              await appendAborted(journalPath, opId, '新建落位时目标已被并发创建（REVISION_CONFLICT）')
             } catch {
               // journal 留痕失败吞掉（best-effort）：必须保住 {ok:false} 契约
             }
@@ -499,7 +499,7 @@ export class DocumentService {
         // REVISION_CONFLICT，journal 悬置 pending 误报 crashedWrite），与 R75-4 对清单
         // 刷新的定性完全同型。改 best-effort：warn 留痕 + 按成功收口。
         try {
-          appendSettled(journalPath, opId, newRev)
+          await appendSettled(journalPath, opId, newRev)
         } catch (e) {
           log.warn('document', `保存已落盘但 journal settled 写失败（${docId}，恢复链下次启动将按 pending 自愈复核）：${e instanceof Error ? e.message : String(e)}`)
         }
@@ -514,7 +514,7 @@ export class DocumentService {
       } catch (e) {
         // 失败：journal 标 aborted（atomicWriteFile 失败已自清 tmp，未落盘）
         try {
-          appendAborted(journalPath, opId, e instanceof Error ? e.message : String(e))
+          await appendAborted(journalPath, opId, e instanceof Error ? e.message : String(e))
         } catch {
           // journal 写失败忽略（best-effort，不影响返回）
         }
@@ -557,6 +557,7 @@ export class DocumentService {
     absPath: string,
     input: SaveDocumentInput,
     baseRevision: Revision,
+    diskContent?: string,
   ): void {
     let reason: string | undefined
     if (input.origin === 'restore' || input.origin === 'external-merge') {
@@ -574,8 +575,8 @@ export class DocumentService {
     // 过基线校验）→ 无底可留，跳过快照正常新建落盘——原 readFileSync ENOENT 抛走
     // WRITE_ERROR，本可成功的恢复被拒
     if (!existsSync(absPath)) return
-    // snapshot = 修改前的当前磁盘内容
-    const currentContent = readFileSync(absPath, 'utf-8')
+    // snapshot = 修改前的当前磁盘内容（R33D-18：调用方已整读时透传，免二次读盘）
+    const currentContent = diskContent !== undefined ? diskContent : readFileSync(absPath, 'utf-8')
     // restore/external-merge 是"真要反悔"的时刻，必留；autosave 走节流
     const force = input.origin === 'restore' || input.origin === 'external-merge'
     writeSnapshot(
@@ -1158,7 +1159,7 @@ export class DocumentService {
     // snapshot+rename，P3-10 崩溃恢复语义不变。
     let opId: string | undefined
     try {
-      opId = appendMovePending(journalPath, docId, oldPath, newPath)
+      opId = await appendMovePending(journalPath, docId, oldPath, newPath)
       // snapshot 留底（移动/重命名前，W0-1 §7）
       const baseRev = computeRevision(oldSafe)
       // R26-52（二十六轮）：留底读原始字节——utf-8 文本读入会把 GBK 等非 UTF-8 源变
@@ -1196,7 +1197,7 @@ export class DocumentService {
       // 必须保住 {ok:false} 契约，不能把调用方换成吃裸异常
       if (opId !== undefined) {
         try {
-          appendAborted(journalPath, opId, errMsg(e))
+          await appendAborted(journalPath, opId, errMsg(e))
         } catch { /* 留痕失败吞掉：journal 无 aborted 行 → 悬置 pending 待恢复链收口 */ }
       }
       // R71-7：linkSync 的 EEXIST = 目标位在预检后被并发占用——按 ALREADY_EXISTS 收口
@@ -1211,7 +1212,7 @@ export class DocumentService {
     // 此步失败/崩溃 → pending 悬置（文件已在新路径），下次进门 healthCheck 自动对齐清单
     try {
       await this.updateManifestPath(docId, newPath)
-      appendSettled(journalPath, opId, computeRevision(newSafe))
+      await appendSettled(journalPath, opId, computeRevision(newSafe))
     } catch (e) {
       return {
         ok: false,

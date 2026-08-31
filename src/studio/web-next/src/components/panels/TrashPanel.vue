@@ -109,7 +109,8 @@ watch(() => props.bookName, () => load(), { immediate: true })
         </span>
         <span class="label">{{ basename(e.originalPath ?? e.path) }}</span>
         <div class="item-actions">
-          <button class="action-btn" data-tip="恢复" data-tip-dir="right" @click="restore(e.id)">
+          <!-- R33D-29（三十三轮）：restoring 在途锁有、按钮禁用无（在途点击静默忽略）→ 对齐 HistoryPanel 惯例 -->
+                  <button class="action-btn" data-tip="恢复" data-tip-dir="right" :disabled="restoring !== null" @click="restore(e.id)">
             <RotateCcw :size="13" />
           </button>
           <button class="action-btn danger" data-tip="永久删除" data-tip-dir="right" @click="purge(e.id)">

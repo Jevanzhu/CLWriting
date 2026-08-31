@@ -299,7 +299,14 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     // 通过后才消费一次性 ticket、建流——429/404 不再烧票。鉴权顺序语义不变：
     // 先凭据预检（上方闸）、后书域判定、最后消费；token 过闸者无需 ticket。
     // 竞态兜底：预检与消费之间被并发连接抢先消费 → 票已作废，403（一次性语义）。
-    if (!safeTokenCompare(queryToken, ctx.studioToken) && !ctx.tickets.consume(queryTicket)) {
+    // R33D-6（三十三轮）：消费点补认 x-studio-token 头——预检三凭据（ticket/?token=/
+    // header）任一放行，消费只认前两者：header-only 请求通过全部书域校验后在建流前
+    // 必 403（R31-32 头通道契约只在预检半边落地，零覆盖死路）。票抢消费语义不变。
+    if (
+      !safeTokenCompare(queryToken, ctx.studioToken) &&
+      !safeTokenCompare(headerToken, ctx.studioToken) &&
+      !ctx.tickets.consume(queryTicket)
+    ) {
       replyError(res, 403, 'FORBIDDEN', 'forbidden')
       return
     }
@@ -750,14 +757,19 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     const bookName = params['name']!
     if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到用户数据目录')
     // R-9（第十六轮）：regenerate 同款 spawn/self-heal 反向互斥（与 chat.send 口径一致）
-    if (isSelfHealRunning(bookName)) {
+    // R32-7（三十二轮）：补 R76-12 嵌套写章豁免——chat 自己的 write_chapter 工具在途时
+    // isSelfHealRunning 为真且 'rewrite' 任务闸被本会话工具持有，原样 409 会把 regenerate
+    // 拒之门外且文案误导（报「全自动写章进行中」，实为 chat 自身嵌套生成）。豁免口径与
+    // chat.send 完全一致（独立写稿维持 409 不变）。
+    const chatEmbeddedWrite = isChatEmbeddedSelfHealRunning(bookName)
+    if (isSelfHealRunning(bookName) && !chatEmbeddedWrite) {
       return replyError(res, 409, 'BUSY', '本书正在全自动写章，先等它跑完或中断再对话')
     }
     if (isSpawnRunning(bookName)) {
       return replyError(res, 409, 'BUSY', '本书正在手动写稿，先等它跑完或中断再对话')
     }
-    // R70-5（十八轮）：生成任务闸反向互斥（同 chat.send 口径，见彼处注释）
-    {
+    // R70-5（十八轮）：生成任务闸反向互斥（同 chat.send 口径，见彼处注释）；R32-7：嵌套豁免
+    if (!chatEmbeddedWrite) {
       const held = heldTaskGatesFor(bookName)
       if (held.length > 0) {
         return replyError(res, 409, 'BUSY', `本书有任务在跑（${held.join('、')}），先等它完成或中断再对话`)
@@ -772,7 +784,9 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     const chapter = rawChapter === undefined || rawChapter === null ? undefined : Number(rawChapter)
     if (chapter !== undefined && (!Number.isInteger(chapter) || chapter < 1)) return replyError(res, 400, 'BAD_INPUT', 'chapter 需为正整数')
 
-    if (isSelfHealRunning(bookName)) {
+    // R32-7：此处二次检查嵌套豁免（readJson await 期间嵌套标记可能才落下）
+    const chatEmbeddedWriteMid = isChatEmbeddedSelfHealRunning(bookName)
+    if (isSelfHealRunning(bookName) && !chatEmbeddedWriteMid) {
       return replyError(res, 409, 'BUSY', '本书正在全自动写章，先等它跑完或中断再对话')
     }
     if (isSpawnRunning(bookName)) {
@@ -783,14 +797,16 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     // 此前排在 await 之前（注释却宣称「await 后二次检查」），让出窗口内他标签页 /spawn
     // 占闸启动写手，regenerate 续体无复查直接 sendChatMessage（内含嵌套生成工具）→
     // 双写手互覆草稿/预算章块（R-9 互斥矩阵要防的场景）
-    if (isSelfHealRunning(bookName)) {
+    // R32-7：复检同款嵌套豁免（嵌套标记可能在 await 期间才落下，同 chat.send R76-12）
+    const chatEmbeddedWrite2 = isChatEmbeddedSelfHealRunning(bookName)
+    if (isSelfHealRunning(bookName) && !chatEmbeddedWrite2) {
       return replyError(res, 409, 'BUSY', '本书正在全自动写章，先等它跑完或中断再对话')
     }
     if (isSpawnRunning(bookName)) {
       return replyError(res, 409, 'BUSY', '本书正在手动写稿，先等它跑完或中断再对话')
     }
-    // R70-5（十八轮）：复检（同 chat.send 口径）
-    {
+    // R70-5（十八轮）：复检（同 chat.send 口径）；R32-7：嵌套豁免
+    if (!chatEmbeddedWrite2) {
       const held = heldTaskGatesFor(bookName)
       if (held.length > 0) {
         return replyError(res, 409, 'BUSY', `本书有任务在跑（${held.join('、')}），先等它完成或中断再对话`)

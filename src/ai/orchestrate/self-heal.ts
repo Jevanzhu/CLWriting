@@ -324,15 +324,15 @@ async function orchestrateBatch(
   // 此后任何未跑完的停法（aborted/failed/escalate）重新落暂停——进书近况（state.ts
   // readBatchPause → StatusRecap.batchPause）据此提示「连写暂停在第 N 章（原因）」。
   // 观测性元数据：落盘失败静默降级，不挡写稿主线（与备料 best-effort 同口径）。
+  // R33D-1（三十三轮）：writeBatchPause/clearBatchPause 异步化（锁等待 Async 孪生）——
+  // recordPause 保持 fire-and-forget 语义（void + catch 吞 rejection）；开批清暂停 await。
   const recordPause = (atChapter: number, reason: string, detail: string): void => {
-    try {
-      writeBatchPause(opts.bookRoot, { atChapter, reason, detail })
-    } catch {
+    void writeBatchPause(opts.bookRoot, { atChapter, reason, detail }).catch(() => {
       // 暂停记录失败不影响连写结果与回报
-    }
+    })
   }
   try {
-    clearBatchPause(opts.bookRoot)
+    await clearBatchPause(opts.bookRoot)
   } catch {
     // 同上
   }
@@ -451,9 +451,10 @@ interface HealLoop {
   hasWiring: boolean
 }
 
-/** 终态出口共享闭包组（终稿三连 + todo/goal 事件）——persistFinal 语义不动（ii 批口径） */
+/** 终态出口共享闭包组（终稿三连 + todo/goal 事件）——persistFinal 语义不动（ii 批口径）；
+ *  R32-5（三十二轮）：persistFinal 随 saveDraft 异步化改 async（保存锁等待异步孪生） */
 interface ChapterTerminal {
-  persistFinal(): { docId: string; relPath: string }
+  persistFinal(): Promise<{ docId: string; relPath: string }>
   writeTodos(draft: Todo['state'], check: Todo['state'], fix: Todo['state']): void
   writeGoal(op: GoalOperation, st: GoalState, extra?: { blockedReason?: string; rounds?: number }): void
 }
@@ -487,9 +488,9 @@ function mkTerminal(opts: SelfHealOpts, ctx: ChapterCtx, loop: HealLoop): Chapte
       },
     }))
   }
-  const persistFinal = () => {
-    const final = ctx.save(ctx.bookRoot, chapter, loop.current, { snapshotOrigin: 'self-heal' })
-    recordAuthorSignal(ctx.bookRoot, final.docId, loop.current, 'self-heal', opts.userDataPath ?? undefined)
+  const persistFinal = async () => {
+    const final = await ctx.save(ctx.bookRoot, chapter, loop.current, { snapshotOrigin: 'self-heal' })
+    await recordAuthorSignal(ctx.bookRoot, final.docId, loop.current, 'self-heal', opts.userDataPath ?? undefined)
     recordAiVersion(ctx.bookRoot, final.docId, loop.current)
     return final
   }
@@ -531,7 +532,7 @@ async function draftFirstChapter(
   // 后由调用方按既有 failed 链收口（此刻 goal 尚未写 active，无悬挂面）。
   let firstDraft: { relPath: string }
   try {
-    firstDraft = ctx.save(ctx.bookRoot, chapter, first.text, { snapshotOrigin: 'self-heal' })
+    firstDraft = await ctx.save(ctx.bookRoot, chapter, first.text, { snapshotOrigin: 'self-heal' })
   } catch (e) {
     return { status: 'error', error: `首稿落盘失败：${e instanceof Error ? e.message : String(e)}` }
   }
@@ -593,7 +594,8 @@ async function rewriteOnce(
   emit(opts, { type: 'self_heal_reset' })
 
   const ruleViolations = collectRuleViolations(loop.current, 'self-heal', ctx.bookRoot, chapterNo)
-  recordRuleHits(ctx.bookRoot, ruleViolations, opts.userDataPath ?? undefined)
+  // R32-13：随 recordRuleHits 异步化
+  await recordRuleHits(ctx.bookRoot, ruleViolations, opts.userDataPath ?? undefined)
   const allIssues = [
     ...redIssues.map((s) => `[必须] ${s}`),
     ...ruleViolations.map((v) => `[建议] ${v.message}`),
@@ -629,7 +631,7 @@ async function rewriteOnce(
   // error 出口：调用方走 exitEscalateBlocked（F2 语义——重写失败 escalate 保留当前
   // 已落盘稿），goal 落 block 附原因、批量按 escalate 落暂停，终态收口闭合。
   try {
-    ctx.save(ctx.bookRoot, loop.chapter, loop.current, { snapshotOrigin: 'self-heal' })
+    await ctx.save(ctx.bookRoot, loop.chapter, loop.current, { snapshotOrigin: 'self-heal' })
   } catch (e) {
     return { status: 'error', error: `重写稿落盘失败：${e instanceof Error ? e.message : String(e)}` }
   }
@@ -645,21 +647,22 @@ function exitAborted(term: ChapterTerminal): ChapterRun {
   return { outcome: 'aborted' }
 }
 
-function exitPass(
+// R32-5：exitPass/exitEscalateBlocked 随 persistFinal 异步化改 async（调用点在 async 章循环内 return，无需改调用方）
+async function exitPass(
   opts: SelfHealOpts,
   state: RunState,
   ctx: ChapterCtx,
   loop: HealLoop,
   term: ChapterTerminal,
   chapterNo: number,
-): ChapterRun {
+): Promise<ChapterRun> {
   // R65-8（总六十五轮）：persistFinal 无守卫——抛错（磁盘满/库锁）则 writeTodos/writeGoal
   // 永不执行，事件链上 goal 永远 'active' 悬挂。失败仍走 writeGoal 终态
   //（block/blocked + blockedReason='persist-failed'）后再记失败出口（终稿未落盘，
   // 不得假报 pass）
   let final: { docId: string; relPath: string }
   try {
-    final = term.persistFinal()
+    final = await term.persistFinal()
   } catch (e) {
     term.writeGoal('block', 'blocked', { blockedReason: 'persist-failed', rounds: loop.attempt })
     return { chapter: loop.chapter, outcome: 'failed', error: `终稿落盘失败：${e instanceof Error ? e.message : String(e)}`, attempts: loop.attempt }
@@ -678,12 +681,12 @@ function exitPass(
 }
 
 /** 有稿可交的统一出口（ok-escalate / 格式触顶 / 预算超限 / 重写失败四路同构） */
-function exitEscalateBlocked(term: ChapterTerminal, loop: HealLoop, reds: string[], blockedReason: string): ChapterRun {
+async function exitEscalateBlocked(term: ChapterTerminal, loop: HealLoop, reds: string[], blockedReason: string): Promise<ChapterRun> {
   // R65-8（总六十五轮）：同 exitPass——persistFinal 抛错仍落 goal 终态（block/blocked，
   // blockedReason='persist-failed'）后再记失败出口，防链上 'active' 悬挂
   let final: { docId: string; relPath: string }
   try {
-    final = term.persistFinal()
+    final = await term.persistFinal()
   } catch (e) {
     term.writeGoal('block', 'blocked', { blockedReason: 'persist-failed', rounds: loop.attempt })
     return { chapter: loop.chapter, outcome: 'failed', error: `终稿落盘失败：${e instanceof Error ? e.message : String(e)}`, attempts: loop.attempt }

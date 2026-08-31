@@ -40,17 +40,17 @@ function makeTrashedBook(): string {
   return root
 }
 
-test('低级项（第六轮）：purgeTrash 条目写失败 → best-effort ok:true，物理删除照发生', () => {
+test('低级项（第六轮）：purgeTrash 条目写失败 → best-effort ok:true，物理删除照发生', async () => {
   const root = makeTrashedBook()
   try {
-    const r = purgeTrash(root, 'doc_a')
+    const r = await purgeTrash(root, 'doc_a')
     expect(r.ok).toBe(true) // 修复前：writeTrashManifest 的 EACCES 直接上抛（端点 500）
     expect(existsSync(join(root, '工作区', '.trash', 'doc_a-旧稿.md'))).toBe(false) // 不可逆动作已发生
     expect(readTrashManifest(root).some((e) => e.id === 'doc_a')).toBe(true) // 条目残留（写失败未除名）
     // 残留自愈：磁盘恢复后再次 purge → 条目正常除名；此后该 id 报 NOT_FOUND
-    expect(purgeTrash(root, 'doc_a').ok).toBe(true)
+    expect((await purgeTrash(root, 'doc_a')).ok).toBe(true)
     expect(readTrashManifest(root).some((e) => e.id === 'doc_a')).toBe(false)
-    const third = purgeTrash(root, 'doc_a')
+    const third = await purgeTrash(root, 'doc_a')
     expect(third.ok).toBe(false)
     if (third.ok) return
     expect(third.code).toBe('NOT_FOUND')

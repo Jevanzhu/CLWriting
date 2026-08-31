@@ -28,7 +28,12 @@ let workDir = ''
 let userDataPath = ''
 let studioToken = ''
 
+let prevDriver: string | undefined
+
 test.beforeAll(async () => {
+  // R32-36（三十二轮）：env 保存/恢复惯例（ai-provider/auto-write spec 同款）——
+  // 此前无差别 delete 会把外层（CLI/CI）预设的 CLWRITING_DRIVER 抹掉
+  prevDriver = process.env.CLWRITING_DRIVER
   process.env['CLWRITING_DRIVER'] = 'mock'
   workDir = makeDualTrackWorkdir()
   userDataPath = mkdtempSync(join(tmpdir(), 'clwriting-e2e-usage-ud-'))
@@ -46,7 +51,8 @@ test.afterAll(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()))
   if (userDataPath) rmSync(userDataPath, { recursive: true, force: true })
   if (workDir) rmSync(workDir, { recursive: true, force: true })
-  delete process.env['CLWRITING_DRIVER']
+  if (prevDriver === undefined) delete process.env.CLWRITING_DRIVER
+  else process.env.CLWRITING_DRIVER = prevDriver
 })
 
 async function openWorkbench(page: import('@playwright/test').Page): Promise<void> {

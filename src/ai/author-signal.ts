@@ -23,13 +23,13 @@ const SIGNAL_RULE_IDS = new Set(['ai-cliche', 'ai-flavor-words'])
  * 调用时机：saveDraft 落盘时、recordAiVersion 之前（先对比上一版，再记录当前版）。
  * 无上一版 / 非 git 仓库 / 无删改 → 静默返回。
  */
-export function recordAuthorSignal(
+export async function recordAuthorSignal(
   bookRoot: string,
   docId: string,
   currentContent: string,
   task: string,
   userDataPath?: string,
-): void {
+): Promise<void> {
   const versions = listAiVersions(bookRoot, docId)
   if (!versions.length) return
   const prev = readAiVersion(bookRoot, docId, versions[versions.length - 1]!.sha)
@@ -41,7 +41,8 @@ export function recordAuthorSignal(
   // 只统计套话类规则（作者删掉的 AI 味片段 = 信号）
   const violations = collectRuleViolations(deleted, task, bookRoot)
     .filter((v) => SIGNAL_RULE_IDS.has(v.ruleId))
-  recordRuleHits(bookRoot, violations, userDataPath)
+  // R32-13（三十二轮）：随 recordRuleHits 异步化（锁等待不再冻结服务事件循环）
+  await recordRuleHits(bookRoot, violations, userDataPath)
   // P3 事件化（author/signal）：作者删除信号入事件流（观测层静默）
   if (userDataPath && violations.length > 0) {
     let store: ReturnType<typeof openSessionStore> | null = null

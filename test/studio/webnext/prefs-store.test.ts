@@ -124,24 +124,24 @@ describe('prefs: 书级覆盖', () => {
 })
 
 describe('prefs: setter 应用 + 持久化调度', () => {
-  it('setThemeValue → 更新 theme + html data-theme + debounce 写回', () => {
+  it('setThemeValue → 更新 theme + html data-theme + debounce 写回', async () => {
     const prefs = usePrefsStore()
     prefs.setThemeValue('dark')
     expect(prefs.theme).toBe('dark')
     expect(document.documentElement.dataset.theme).toBe('dark')
     expect(putGlobalPrefsMock).not.toHaveBeenCalled() // 未到 500ms
-    vi.advanceTimersByTime(600)
+    await vi.advanceTimersByTimeAsync(600)
     expect(putGlobalPrefsMock).toHaveBeenCalledTimes(1)
     // 未 init 的实例 revision 初值 0 —— PUT 第二参带 expectedRevision（GG-P2-7）
     expect(putGlobalPrefsMock).toHaveBeenCalledWith(expect.objectContaining({ theme: 'dark' }), 0)
   })
 
-  it('多次 setter 合并为一次写回（debounce）', () => {
+  it('多次 setter 合并为一次写回（debounce）', async () => {
     const prefs = usePrefsStore()
     prefs.setSize(18)
     prefs.setLh(2.0)
     expect(putGlobalPrefsMock).not.toHaveBeenCalled()
-    vi.advanceTimersByTime(600)
+    await vi.advanceTimersByTimeAsync(600)
     expect(putGlobalPrefsMock).toHaveBeenCalledTimes(1)
   })
 
@@ -329,7 +329,7 @@ describe('prefs: 书级设定全局托底 13 键（clamp / 持久化 / 回读守
     expect(prefs.ragEnabled).toBe(true)
   })
 
-  it('setter 走防抖持久化：buildCache 全量带上 13 键（JSON 键名 autoBatchSize 等）', () => {
+  it('setter 走防抖持久化：buildCache 全量带上 13 键（JSON 键名 autoBatchSize 等）', async () => {
     const prefs = usePrefsStore()
     prefs.setDefaultGenre('都市')
     prefs.setDefaultVolumeSize(40)
@@ -345,7 +345,7 @@ describe('prefs: 书级设定全局托底 13 键（clamp / 持久化 / 回读守
     prefs.setRagEnabled(true)
     prefs.setRagProvider('rag-a')
     expect(putGlobalPrefsMock).not.toHaveBeenCalled() // 未到 500ms
-    vi.advanceTimersByTime(600)
+    await vi.advanceTimersByTimeAsync(600)
     expect(putGlobalPrefsMock).toHaveBeenCalledTimes(1)
     // 未 init 的实例 revision 初值 0 —— PUT 第二参带 expectedRevision（GG-P2-7）
     expect(putGlobalPrefsMock).toHaveBeenCalledWith(
@@ -368,13 +368,13 @@ describe('prefs: 书级设定全局托底 13 键（clamp / 持久化 / 回读守
     )
   })
 
-  it('多次 setter 合并为一次写回（debounce，同 snapDays 先例）', () => {
+  it('多次 setter 合并为一次写回（debounce，同 snapDays 先例）', async () => {
     const prefs = usePrefsStore()
     prefs.setAiBatchSize(9)
     prefs.setCallsPerChapter(20)
     prefs.setRelationMineThreshold(7)
     expect(putGlobalPrefsMock).not.toHaveBeenCalled()
-    vi.advanceTimersByTime(600)
+    await vi.advanceTimersByTimeAsync(600)
     expect(putGlobalPrefsMock).toHaveBeenCalledTimes(1)
   })
 })

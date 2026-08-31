@@ -51,7 +51,7 @@ function setup(): { opts: SelfHealOpts; workDir: string; bookRoot: string } {
   const workDir = makeDualTrackWorkdir()
   const bookRoot = join(workDir, '长篇', LONG_BOOK)
   const emitted: DriverEvent[] = []
-  const save: typeof saveDraft = (_root, _ch, _content) => ({
+  const save: typeof saveDraft = async (_root, _ch, _content) => ({
     relPath: '写作/正文/0005-第五章.md',
     docId: 'doc-r4-5',
     words: 10,

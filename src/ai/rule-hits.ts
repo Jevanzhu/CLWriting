@@ -11,7 +11,7 @@
 import { readFileSync, mkdirSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
-import { acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
+import { acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 import { log } from '../log/index.js'
 import type { RuleViolation } from './rules/types.js'
 import { openSessionStore, bookHash } from '../events/store.js'
@@ -50,22 +50,30 @@ function readHits(bookRoot: string): RuleHitsMap {
 }
 
 /** R63-6（十一轮）：rule-hits 跨进程锁等待超时（毫秒）——可注入缩短保测试快；
- *  争用为文件 IO 级毫秒，5s 已极保守（对齐 ai-calls J7）。 */
-export let RULE_HITS_LOCK_TIMEOUT_MS = 5_000
+ *  争用为文件 IO 级毫秒，5s 已极保守（对齐 ai-calls J7）。
+ *  R32-19（三十二轮）：常量化（journal.ts R30-18 同口径）——export let 可被任一
+ *  import 方静默改写，改 const + 内部可变生效值；测试只能经注入钩子改档。 */
+export const RULE_HITS_LOCK_TIMEOUT_MS = 5_000
+
+/** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改。 */
+let ruleHitsLockTimeoutMs = RULE_HITS_LOCK_TIMEOUT_MS
 
 /** 测试注入钩子（生产零调用）。 */
 export function __setRuleHitsLockTimeoutForTest(ms: number): void {
-  RULE_HITS_LOCK_TIMEOUT_MS = ms
+  ruleHitsLockTimeoutMs = ms
 }
 
 /** 记录一次规则违规命中（多条违规 → 多条统计）。落盘失败不炸流程（观测层）。
  *  R63-6（十一轮）：读改写整段进跨进程锁（.cache/rule-hits.json.lock，J7 同款）——
  *  原并发说明只覆盖进程内（同步段单线程天然原子）；CLI 机检与桌面端并发命中同书时
  *  双进程 RMW 交错覆盖丢计数。锁超时按观测层口径降级：warn 留痕跳过文件统计，
- *  事件双写（单一事实源）照常。 */
-export function recordRuleHits(bookRoot: string, violations: RuleViolation[], userDataPath?: string): void {
+ *  事件双写（单一事实源）照常。
+ *  R32-13（三十二轮）：锁等待异步化（acquireCrossProcessLockAsync，calls.ts R30-3
+ *  同口径）——本函数位于 draft-save/self-heal 热路径，同步 Atomics.wait 微睡会在双
+ *  进程争用时冻结服务事件循环（SSE/HTTP 最坏停 5s）；锁内写段仍同步（文件 IO 级毫秒）。 */
+export async function recordRuleHits(bookRoot: string, violations: RuleViolation[], userDataPath?: string): Promise<void> {
   if (!violations.length) return
-  const release = acquireCrossProcessLockWithTimeout(`${hitsPath(bookRoot)}.lock`, RULE_HITS_LOCK_TIMEOUT_MS)
+  const release = await acquireCrossProcessLockAsync(`${hitsPath(bookRoot)}.lock`, ruleHitsLockTimeoutMs)
   if (!release) {
     log.warn('rule-hits', `rule-hits 跨进程锁获取超时，本轮命中统计未记（观测层降级；事件库照常）`)
   } else {

@@ -44,8 +44,8 @@ describe('R73-32 / saveDraft 保存协议纪律', () => {
     return join(root, '工作区', '.journal', `${encodeDocDirName(legacyId(relPath))}.jsonl`)
   }
 
-  it('新建草稿：journal pending+settled、manifest 登记、字数日记记账、锁释放干净', () => {
-    const r = saveDraft(root, 5, NEW)
+  it('新建草稿：journal pending+settled、manifest 登记、字数日记记账、锁释放干净', async () => {
+    const r = await saveDraft(root, 5, NEW)
     expect(r.relPath).toBe('写作/正文/第一卷/0005-新稿.md')
     expect(r.docId).toBe(legacyId(r.relPath))
     expect(r.snapshotted).toBe(false)
@@ -73,9 +73,9 @@ describe('R73-32 / saveDraft 保存协议纪律', () => {
     expect(existsSync(`${jp}.save.lock`)).toBe(false)
   })
 
-  it('覆盖已有草稿：journal 记基线、留底生效、字数日记记差值', () => {
+  it('覆盖已有草稿：journal 记基线、留底生效、字数日记记差值', async () => {
     writeFileSync(join(root, '写作', '正文', '0005-旧稿.md'), OLD, 'utf-8')
-    const r = saveDraft(root, 5, NEW)
+    const r = await saveDraft(root, 5, NEW)
     expect(r.snapshotted).toBe(true)
     const jp = join(root, '工作区', '.journal', `${encodeDocDirName(legacyId('写作/正文/0005-旧稿.md'))}.jsonl`)
     expect(findUnsettled(jp)).toEqual([])
@@ -86,26 +86,27 @@ describe('R73-32 / saveDraft 保存协议纪律', () => {
     expect(readTodayDelta(root, todayDate())).toBe(expected)
   })
 
-  it('双进程竞态：他进程存活持保存锁 → 上抛拒绝，文件未被写（不静默覆盖）', () => {
+  it('双进程竞态：他进程存活持保存锁 → 上抛拒绝，文件未被写（不静默覆盖）', async () => {
     writeFileSync(join(root, '写作', '正文', '0005-旧稿.md'), OLD, 'utf-8')
     const relPath = '写作/正文/0005-旧稿.md'
     const lockPath = `${journalPathOf(relPath)}.save.lock`
     // 预置「活进程」锁（pid = 本进程必然存活，与 r72-save-lock 同款注入）
     mkdirSync(join(root, '工作区', '.journal'), { recursive: true })
     writeFileSync(lockPath, JSON.stringify({ pid: process.pid, bootTime: processBootTime() }), 'utf-8')
-    expect(() => saveDraft(root, 5, NEW)).toThrow(/另一进程正在保存/)
+    // R32-5：saveDraft 异步化 → rejects 断言（语义不变：拿不到锁即拒绝且不写盘）
+    await expect(saveDraft(root, 5, NEW)).rejects.toThrow(/另一进程正在保存/)
     // 拒绝路径：目标文件字节不变、无 journal 半态、他人在位锁未被删
     expect(readFileSync(join(root, relPath), 'utf-8')).toBe(OLD)
     expect(existsSync(lockPath)).toBe(true)
     expect(existsSync(journalPathOf(relPath))).toBe(false)
   })
 
-  it('崩溃残留锁（死 pid）→ stale 接管，保存照常成功', () => {
+  it('崩溃残留锁（死 pid）→ stale 接管，保存照常成功', async () => {
     const relPath = '写作/正文/第一卷/0005-新稿.md'
     const lockPath = `${journalPathOf(relPath)}.save.lock`
     mkdirSync(join(root, '工作区', '.journal'), { recursive: true })
     writeFileSync(lockPath, JSON.stringify({ pid: 4_194_999, bootTime: processBootTime() }), 'utf-8')
-    const r = saveDraft(root, 5, NEW)
+    const r = await saveDraft(root, 5, NEW)
     expect(existsSync(join(root, r.relPath))).toBe(true)
     expect(existsSync(lockPath)).toBe(false)
   })

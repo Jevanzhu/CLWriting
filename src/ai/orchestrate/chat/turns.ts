@@ -118,7 +118,10 @@ async function executeChatTool(
   const input = call.input as Record<string, unknown>
   try {
     // 工具面扩展：注册表分派（read_chapter/read_skill 等既有分支不走注册表）
-    const executor = TOOL_EXECUTORS[call.name]
+    // R33D-13（三十三轮）：hasOwn 守卫——普通对象按模型给出的 name 直索引时，
+    // 'toString'/'constructor' 等原型链继承键命中执行体/风险表，绕过未知工具拒收
+    // 与 write 确认闸（无代码执行风险，但防线语义被穿透）。
+    const executor = Object.hasOwn(TOOL_EXECUTORS, call.name) ? TOOL_EXECUTORS[call.name] : undefined
     if (executor) {
       // M-1（第六轮）+ M-2（第八轮）：嵌套 AI 生成 + 章记账的工具与两路写稿编排互斥
       // （write_chapter 同款闸）——self-heal 之外，spawn 手动写稿同样流式产出互覆草稿、
@@ -605,7 +608,8 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
       // 默认 'write' 从严弹确认卡，作者确认的却是一个必然失败的调用（executeChatTool
       // default 分支「未知工具」），确认卡失实。改为不弹卡直接回错误结果（风险面不变：
       // 未知工具本就无执行体；未知工具事件已在上方 toolCallEvent 全量登记，审计不缺）。
-      if (TOOL_RISK[call.name] === undefined) {
+      // R33D-13：同款 hasOwn 守卫（原型链继承键 ≠ undefined，未知工具防线被穿透）
+      if (!Object.hasOwn(TOOL_RISK, call.name)) {
         results.push({
           type: 'tool_result',
           toolUseId: call.id,

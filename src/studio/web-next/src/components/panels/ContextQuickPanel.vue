@@ -31,8 +31,12 @@ const settings = computed<TreeNode[]>(() => {
 
 async function open(node: TreeNode): Promise<void> {
   if (!node.docId) return
+  // R32-29（三十二轮）：E-2 家族守卫（ChapterTreePanel 同款）——await 前快照书名，
+  // doc.open 在途切书后不得把旧书文档开进新书工作区（旧书 docId 可写入新书 activeDocId）
+  const bookAtClick = ws.bookName
   try {
     await doc.open(node)
+    if (ws.bookName !== bookAtClick) return
     ws.openTab(node.docId)
   } catch (e) {
     // P5-前端（第七轮）：静默吞错收敛（对齐 ForeshadowPanel）

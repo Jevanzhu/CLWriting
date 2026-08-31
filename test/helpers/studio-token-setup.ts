@@ -28,6 +28,25 @@
         'token 闸断言请走 node:http rawRequest（约定见 test/studio/api-token.test.ts 头注）。',
     )
   }
+  // R32-39（三十二轮）：warn 升硬失败（带 opt-out）——X-35 约定（token 闸断言必须走
+  // node:http rawRequest）此前无机器门，「换代重试后仍 403」的假绿面只 warn 不红，
+  // 违约用例照常过。现默认 throw（用例失败信息即排障指引）；确有「业务语义 403 +
+  // 注入 token」合法形态的测试进程，设 CLW_ALLOW_INJECTED_403=1 降回 warn。
+  // 注意：换代重试**前**的首次 403 仍走 warn（端口复用换 server 的可恢复窗，硬失败
+  // 会把恢复路径一并炸掉）；硬失败只钉在重试穷尽之后。
+  const allowInjected403 = process.env['CLW_ALLOW_INJECTED_403'] === '1'
+  const failInjected403 = (pathname: string): void => {
+    const msg =
+      `[studio-token-setup] GET ${pathname} 注入 x-studio-token 且换代重试后仍返回 403。` +
+      '若该用例意图是断言「无凭据 → 403」，它已被本包装的自动注入改写（假绿）——' +
+      'token 闸断言请走 node:http rawRequest（约定见 test/studio/api-token.test.ts 头注）。' +
+      '若该端点业务语义确为 403，请为本测试进程设 CLW_ALLOW_INJECTED_403=1 降回 warn。'
+    if (allowInjected403) {
+      warnInjected403(pathname)
+      return
+    }
+    throw new Error(msg)
+  }
 
   const resolveUrl = (input: RequestInfo | URL): URL | null => {
     try {
@@ -75,8 +94,8 @@
         const h2 = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined))
         h2.set('x-studio-token', d.token)
         const resp2 = await origFetch(input as RequestInfo, { ...init, headers: h2 })
-        // 换代 token 重试后仍 403：同属「注入后 403」面，同样告警（进程级一次）
-        if (resp2.status === 403) warnInjected403(u.pathname)
+        // 换代 token 重试后仍 403：R32-39 默认硬失败（opt-out 降 warn），假绿面有机器门
+        if (resp2.status === 403) failInjected403(u.pathname)
         return resp2
       }
     }

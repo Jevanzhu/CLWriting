@@ -17,7 +17,7 @@ import { existsSync, readFileSync, renameSync, rmSync, mkdirSync, statSync } fro
 import { join, dirname } from 'node:path'
 import { atomicWriteFile, linkOrRenameExclusive } from '../fs/atomic.js'
 import { resolveWithinRoot, safeDocId } from '../fs/safe-path.js'
-import { readManifestStrict, writeManifest, upsertEntry, withManifestLock, type ManifestEntry } from './manifest.js'
+import { readManifestStrict, writeManifest, upsertEntry, withManifestLock, withManifestLockAsync, type ManifestEntry } from './manifest.js'
 import { VERSIONS_DIR_NAME, encodeDocDirName } from './version.js'
 import { queryLockHeld } from '../fs/cross-process-lock.js'
 import { analysisPathCandidates } from './analysis.js'
@@ -189,7 +189,7 @@ export function listTrash(bookRoot: string): TrashEntry[] {
  * 恢复：移回 originalPath + 清单恢复 entry + 移除 trash 条目 + invalidate。
  * 原位占用 → OCCUPIED（不自动重命名，§17 决策④）；trash 文件丢失 → NOT_FOUND。
  */
-export function restoreTrash(bookRoot: string, id: string): RestoreResult {
+export async function restoreTrash(bookRoot: string, id: string): Promise<RestoreResult> {
   // R27-40：入口 strict 读——读失败上抛走调用方 500 信封（比「当无回收站」的 NOT_FOUND
   // 诚实）；下方 264 行条目移除的 RMW 同样 strict，读失败拒写保旧
   const entries = readTrashManifestStrict(bookRoot)
@@ -280,7 +280,7 @@ export function restoreTrash(bookRoot: string, id: string): RestoreResult {
   try {
     const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
     // X-5：RMW 持清单锁（跨进程互斥，与 service/finalize 同锁）
-    withManifestLock(manifestPath, () => {
+    await withManifestLockAsync(manifestPath, () => {
       const m = existsSync(manifestPath)
         ? readManifestStrict(manifestPath) // R27-40：RMW strict 读（读失败走本 best-effort catch，warn 保旧清单）
         : { version: 1, entries: new Map<string, ManifestEntry>() }
@@ -310,7 +310,7 @@ export function restoreTrash(bookRoot: string, id: string): RestoreResult {
 
   try {
     // Z-5（第五十八轮）：RMW 持锁（同 appendTrashEntry；与上方主清单锁先后串联、不嵌套）
-    withManifestLock(trashManifestPath(bookRoot), () => {
+    await withManifestLockAsync(trashManifestPath(bookRoot), () => {
       writeTrashManifest(bookRoot, readTrashManifestStrict(bookRoot).filter((e) => e.id !== id)) // R27-40：RMW strict 读
     })
   } catch { /* trash manifest 写失败：条目残留，下次恢复报 NOT_FOUND，无害 */
@@ -319,8 +319,10 @@ export function restoreTrash(bookRoot: string, id: string): RestoreResult {
   return { ok: true, id, path: entry.originalPath }
 }
 
-/** 永久删：物理删 .trash 文件 + 移除 trash 条目（不可逆，前端二次确认）。 */
-export function purgeTrash(bookRoot: string, id: string): PurgeResult {
+/** 永久删：物理删 .trash 文件 + 移除 trash 条目（不可逆，前端二次确认）。
+ *  R33D-21（三十三轮）：restore/purge 锁等待异步化（withManifestLockAsync，R30-3
+ *  服务进程纪律）——端点本就 async，同步 Atomics.wait 最坏 2×5s 冻结事件循环。 */
+export async function purgeTrash(bookRoot: string, id: string): Promise<PurgeResult> {
   const entries = readTrashManifest(bookRoot)
   const entry = entries.find((e) => e.id === id)
   if (!entry) return { ok: false, code: 'NOT_FOUND', reason: `回收站无 ${id}` }
@@ -388,7 +390,7 @@ export function purgeTrash(bookRoot: string, id: string): PurgeResult {
   // manifest 写失败（磁盘满/权限）不应把整端点打成 500；残留条目只是多余展示，无害
   try {
     // Z-5：RMW 持锁（同上）
-    withManifestLock(trashManifestPath(bookRoot), () => {
+    await withManifestLockAsync(trashManifestPath(bookRoot), () => {
       writeTrashManifest(bookRoot, readTrashManifestStrict(bookRoot).filter((e) => e.id !== id)) // R27-40：RMW strict 读
     })
   } catch { /* 条目残留：下次对该 id 操作报 NOT_FOUND，自愈 */ }

@@ -85,7 +85,7 @@ test.skipIf(process.platform === 'win32')( // R70-8：字面冒号文件/目录�
 
 // ── purgeTrash 清除面（R69-4）────────────────────
 
-function makeTrashedLegacyBook(): void {
+async function makeTrashedLegacyBook(): Promise<void> {
   mkdirSync(join(root, '工作区', '.trash'), { recursive: true })
   writeFileSync(join(root, '工作区', '.trash', 'legacy_purge-旧稿.md'), '旧内容', 'utf-8')
   writeFileSync(
@@ -110,16 +110,16 @@ function makeTrashedLegacyBook(): void {
   writeFileSync(join(root, '项目', '分析', 'legacy_purge.json'), '{"emotion":{}}', 'utf-8')
   // journal：编码名 + 未结算 save pending（含全文快照行）
   mkdirSync(join(root, '工作区', '.journal'), { recursive: true })
-  appendPending(join(root, '工作区', '.journal', 'legacy_purge.jsonl'), 'legacy:purge', 'sha256:x', '崩溃前全文')
+  await appendPending(join(root, '工作区', '.journal', 'legacy_purge.jsonl'), 'legacy:purge', 'sha256:x', '崩溃前全文')
   // 清单（供 purge 后孤儿判定对照：该 doc 不在清单）
   mkdirSync(join(root, '项目'), { recursive: true })
   writeManifest(join(root, '项目', '文档清单.jsonl'), readManifest(join(root, '项目', '文档清单.jsonl')))
 }
 
 test.skipIf(process.platform === 'win32')( // R70-8：字面冒号文件/目录仅 mac/Linux 可造（NTFS EINVAL），编码路径由其余用例覆盖
-  'purgeTrash：连删 分析信封双候选 + journal 编码名 + 版本双目录（不可逆承诺不留残留）', () => {
-  makeTrashedLegacyBook()
-  const r = purgeTrash(root, 'legacy:purge')
+  'purgeTrash：连删 分析信封双候选 + journal 编码名 + 版本双目录（不可逆承诺不留残留）', async () => {
+  await makeTrashedLegacyBook()
+  const r = await purgeTrash(root, 'legacy:purge')
   expect(r.ok).toBe(true)
   expect(existsSync(join(root, '项目', '分析', 'legacy:purge.json'))).toBe(false)
   expect(existsSync(join(root, '项目', '分析', 'legacy_purge.json'))).toBe(false)
@@ -129,9 +129,9 @@ test.skipIf(process.platform === 'win32')( // R70-8：字面冒号文件/目录�
 })
 
 test.skipIf(process.platform === 'win32')( // R70-8：字面冒号文件/目录仅 mac/Linux 可造（NTFS EINVAL），编码路径由其余用例覆盖
-  'purgeTrash 后 healthCheck：无幽灵 crashedWrite（journal 已随 purge 清除）', () => {
-  makeTrashedLegacyBook()
-  purgeTrash(root, 'legacy:purge')
+  'purgeTrash 后 healthCheck：无幽灵 crashedWrite（journal 已随 purge 清除）', async () => {
+  await makeTrashedLegacyBook()
+  await purgeTrash(root, 'legacy:purge')
   // R70-33：无条件锚——journal 已随 purge 删除（恒可断言）；detectState 路由态取决于
   // fixture 其余形状（无正文章会走他态），「无幽灵」保持条件断言但锚已防恒空过
   expect(existsSync(join(root, '工作区', '.journal', 'legacy_purge.jsonl'))).toBe(false)
@@ -143,7 +143,7 @@ test.skipIf(process.platform === 'win32')( // R70-8：字面冒号文件/目录�
 
 // ── state healthCheck journal 名反解自愈（R69-3）────
 
-function makeLegacyMovePendingBook(pos: 'new' | 'old'): { root: string; docId: string; journalName: string } {
+async function makeLegacyMovePendingBook(pos: 'new' | 'old'): Promise<{ root: string; docId: string; journalName: string }> {
   const b = makeGitBook()
   const docId = 'legacy:mv1'
   const oldRel = '写作/正文/0001-旧.md'
@@ -159,12 +159,12 @@ function makeLegacyMovePendingBook(pos: 'new' | 'old'): { root: string; docId: s
   // 写侧恒编码：盘上 journal 名 = legacy_mv1.jsonl
   const journalName = `${encodeDocDirName(docId)}.jsonl`
   mkdirSync(join(b, '工作区', '.journal'), { recursive: true })
-  appendMovePending(join(b, '工作区', '.journal', journalName), docId, oldRel, newRel)
+  await appendMovePending(join(b, '工作区', '.journal', journalName), docId, oldRel, newRel)
   return { root: b, docId, journalName }
 }
 
-test('legacy move pending（编码名 journal）：自愈补清单 + settled 落在被扫的编码名文件', () => {
-  const { root: b, docId, journalName } = makeLegacyMovePendingBook('new')
+test('legacy move pending（编码名 journal）：自愈补清单 + settled 落在被扫的编码名文件', async () => {
+  const { root: b, docId, journalName } = await makeLegacyMovePendingBook('new')
   try {
     const d = detectState(b, DEFAULT_CONFIG)
     // 清单键 = 真实 legacy:xxx（此前不反解时 heal 对清单全 miss：不补路径仍标 settled）
@@ -181,7 +181,7 @@ test('legacy move pending（编码名 journal）：自愈补清单 + settled 落
 })
 
 test.skipIf(process.platform === 'win32')( // R70-8：字面冒号文件/目录仅 mac/Linux 可造（NTFS EINVAL），编码路径由其余用例覆盖
-  'mac 存量字面名 journal：settled 同样落在被扫的字面文件（沿用被扫文件口径）', () => {
+  'mac 存量字面名 journal：settled 同样落在被扫的字面文件（沿用被扫文件口径）', async () => {
   const b = makeGitBook()
   try {
     const docId = 'legacy:lit1'
@@ -197,7 +197,7 @@ test.skipIf(process.platform === 'win32')( // R70-8：字面冒号文件/目录�
     // mac 存量：编码收口之前写的字面名 journal
     const literalJournal = join(b, '工作区', '.journal', 'legacy:lit1.jsonl')
     mkdirSync(join(b, '工作区', '.journal'), { recursive: true })
-    appendMovePending(literalJournal, docId, oldRel, newRel)
+    await appendMovePending(literalJournal, docId, oldRel, newRel)
 
     detectState(b, DEFAULT_CONFIG)
     expect(readManifest(manifestPath).entries.get(docId)?.path).toBe(newRel)
@@ -210,25 +210,25 @@ test.skipIf(process.platform === 'win32')( // R70-8：字面冒号文件/目录�
 
 // ── 孤儿 journal 归档（R69-4）────────────────────
 
-test('孤儿 journal（清单无登记 + move 两端都不在）→ 归档 .orphaned 不报 crashedWrite', () => {
+test('孤儿 journal（清单无登记 + move 两端都不在）→ 归档 .orphaned 不报 crashedWrite', async () => {
   mkdirSync(join(root, '工作区', '.journal'), { recursive: true })
   mkdirSync(join(root, '项目'), { recursive: true })
   // 空清单（文档已删）
   writeManifest(join(root, '项目', '文档清单.jsonl'), readManifest(join(root, '项目', '文档清单.jsonl')))
   const j = join(root, '工作区', '.journal', 'legacy_ghost.jsonl')
-  appendMovePending(j, 'legacy:ghost', '写作/正文/0001-已删.md', '写作/正文/0002-也没了.md')
+  await appendMovePending(j, 'legacy:ghost', '写作/正文/0001-已删.md', '写作/正文/0002-也没了.md')
   const d = detectState(root, DEFAULT_CONFIG)
   if (d.state === 1) expect(d.issues.some((i) => i.kind === 'crashedWrite')).toBe(false)
   expect(existsSync(j)).toBe(false)
   expect(readdirSync(join(root, '工作区', '.journal')).some((f) => f.startsWith('legacy_ghost.jsonl.orphaned-'))).toBe(true)
 })
 
-test('孤儿判定保守面：save pending（无路径字段无法证实无主）→ 仍报 crashedWrite', () => {
+test('孤儿判定保守面：save pending（无路径字段无法证实无主）→ 仍报 crashedWrite', async () => {
   mkdirSync(join(root, '工作区', '.journal'), { recursive: true })
   mkdirSync(join(root, '项目'), { recursive: true })
   writeManifest(join(root, '项目', '文档清单.jsonl'), readManifest(join(root, '项目', '文档清单.jsonl')))
   const j = join(root, '工作区', '.journal', 'legacy_save.jsonl')
-  appendPending(j, 'legacy:save', 'sha256:x', '全文快照')
+  await appendPending(j, 'legacy:save', 'sha256:x', '全文快照')
   const d = detectState(root, DEFAULT_CONFIG)
   expect(d.state).toBe(1)
   if (d.state === 1) {

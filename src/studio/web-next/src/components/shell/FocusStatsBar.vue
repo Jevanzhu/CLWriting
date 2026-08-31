@@ -87,7 +87,8 @@ watch(
 const chapterTarget = computed(() => {
   if (entry.value) {
     const v = parseFmFields(entry.value.content)['字数目标']
-    if (v) return Number(v)
+    // R32-32（三十二轮）：isFinite 守卫同 WritingInfoPanel——脏 fm 手填不产 NaN 目标
+    if (v && Number.isFinite(Number(v))) return Number(v)
   }
   return config.value.book?.chapter_target_words ?? prefs.defaultChapterTargetWords
 })

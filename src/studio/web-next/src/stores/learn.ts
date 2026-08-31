@@ -57,23 +57,37 @@ export const useLearnStore = defineStore('learn', () => {
     }
   }
 
-  function toggleSample(body: string): void {
-    const s = new Set(pickedSamples.value)
-    if (s.has(body)) s.delete(body)
-    else s.add(body)
-    pickedSamples.value = s
+  /** R33D-30（三十三轮）：样章身份 = 出处+正文（对齐金句 R32-31）——同文不同出处
+   *  候选此前共用正文身份（duplicate key + 勾选联动 + 入库误并）。\u0000 分隔防拼接歧义。 */
+  function sampleKey(s: Pick<SampleCandidateFE, '出处' | '正文'>): string {
+    return `${s.出处}\u0000${s.正文}`
   }
-  function toggleQuote(body: string): void {
+
+  function toggleSample(sample: SampleCandidateFE): void {
+    const set = new Set(pickedSamples.value)
+    const k = sampleKey(sample)
+    if (set.has(k)) set.delete(k)
+    else set.add(k)
+    pickedSamples.value = set
+  }
+  function isSamplePicked(sample: SampleCandidateFE): boolean {
+    return pickedSamples.value.has(sampleKey(sample))
+  }
+  /** R32-31（三十二轮）：金句身份 = 出处+正文——同文不同出处此前共用正文作 v-for key
+   *  与勾选身份（duplicate key + 勾选联动 + 入库误并）。\u0000 分隔防字段拼接歧义。 */
+  function quoteKey(q: Pick<QuoteCandidateFE, '出处' | '正文'>): string {
+    return `${q.出处}\u0000${q.正文}`
+  }
+
+  function toggleQuote(q: QuoteCandidateFE): void {
     const s = new Set(pickedQuotes.value)
-    if (s.has(body)) s.delete(body)
-    else s.add(body)
+    const k = quoteKey(q)
+    if (s.has(k)) s.delete(k)
+    else s.add(k)
     pickedQuotes.value = s
   }
-  function isSamplePicked(body: string): boolean {
-    return pickedSamples.value.has(body)
-  }
-  function isQuotePicked(body: string): boolean {
-    return pickedQuotes.value.has(body)
+  function isQuotePicked(q: QuoteCandidateFE): boolean {
+    return pickedQuotes.value.has(quoteKey(q))
   }
 
   /** 入库勾选项（样章入 文风/样章库；金句入 文风/样章库/金句）。
@@ -82,8 +96,10 @@ export const useLearnStore = defineStore('learn', () => {
    *  R73-66：改查独立 commitGen（自己推代）；在途遇 harvest 推代（reqGen 变）仍作废
    *  本笔回填——原 M-11 语义保留。 */
   async function commit(name: string): Promise<void> {
-    const sPicks = samples.value.filter((s) => pickedSamples.value.has(s.正文))
-    const qPicks = quotes.value.filter((q) => pickedQuotes.value.has(q.正文))
+    // R33D-30：样章勾选按 出处+正文 身份取
+    const sPicks = samples.value.filter((s) => pickedSamples.value.has(sampleKey(s)))
+    // R32-31：金句勾选按 出处+正文 身份取（同文不同出处各自独立勾选）
+    const qPicks = quotes.value.filter((q) => pickedQuotes.value.has(quoteKey(q)))
     if (!sPicks.length && !qPicks.length) return
     const gen = ++commitGen // R73-66：commit 自己推代（原 const gen = reqGen 不推代）
     const harvestGen = reqGen
@@ -94,10 +110,10 @@ export const useLearnStore = defineStore('learn', () => {
       if (gen !== commitGen || harvestGen !== reqGen) return
       commitMessage.value = `已收录 ${r.sampleFiles.length} 章样章、${r.quoteFiles.length} 条金句 → 文风/样章库。`
       // 入库项从候选列表移除（已落库，不再重复入库）
-      const sSet = new Set(sPicks.map((s) => s.正文))
-      const qSet = new Set(qPicks.map((q) => q.正文))
-      samples.value = samples.value.filter((s) => !sSet.has(s.正文))
-      quotes.value = quotes.value.filter((q) => !qSet.has(q.正文))
+      const sSet = new Set(sPicks.map((s) => sampleKey(s)))
+      const qSet = new Set(qPicks.map((q) => quoteKey(q)))
+      samples.value = samples.value.filter((s) => !sSet.has(sampleKey(s)))
+      quotes.value = quotes.value.filter((q) => !qSet.has(quoteKey(q)))
       pickedSamples.value = new Set()
       pickedQuotes.value = new Set()
     } catch (e) {
