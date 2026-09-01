@@ -175,6 +175,13 @@ export function ensureNormColumn(db: DatabaseSync): void {
 /** 存一个块（embedding 序列化为 BLOB；A3 同步预算 L2 范数——余弦退化为点积）。
  *  V-P2-3：INSERT OR REPLACE——(章号, 偏移, 模型) 有唯一键，同块重写幂等不重复。 */
 export function storeChunk(db: DatabaseSync, chunk: ChunkInput): void {
+  // R34D-32（三十四轮）：入库末道守卫——embedding 含非有限分量（Float32 溢出成
+  // ±Infinity / NaN）即拒绝写入（fail-closed）：毒行一旦落库即永久（norm=∞、余弦
+  // 恒 NaN 挤占 topK 且无告警）。commitIndexBatch 物化点已拦同款，此处为未来新
+  // 入库路径兜底；抛错走调用方事务回滚（INDEX 写入失败已回滚可安全重跑口径）
+  if (chunk.embedding.some((x) => !Number.isFinite(x))) {
+    throw new Error('storeChunk: embedding 含非有限分量（Float32 溢出/NaN），拒绝入库')
+  }
   const stmt = db.prepare(
     `INSERT OR REPLACE INTO chunks (章号, start_offset, end_offset, embedding, model, indexed_at, norm)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,

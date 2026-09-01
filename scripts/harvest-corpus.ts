@@ -231,4 +231,8 @@ if (failedChapters.length > 0) {
   for (const err of failedChapters) {
     console.warn(`  - 章 ${basename(err.file)}（行 ${err.line}）：${err.message}`)
   }
+  // R34D-31（三十四轮）：章级失败补退出码哨兵——与上方快照失败路径（R63-14 设 1）
+  // 口径统一。此前只 warn 不设 exitCode=1，收割部分失败仍绿（R30-29 修一半），
+  // 脚本出口的调用方（作者/CI）无法以退出码感知「候选集不完整」
+  process.exitCode = 1
 }

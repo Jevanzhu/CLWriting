@@ -17,7 +17,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
 import { reply, replyError, parseRequestUrl } from '../http.js'
 import { resolveBook } from '../book-context.js'
-import { openSessionStore, type SessionStore } from '../../../events/store.js'
+import { openSessionStoreAsync, type SessionStore } from '../../../events/store.js'
 import { loadHistoryWithSeqs } from '../../../events/chat-bridge.js'
 import { buildBranchTree, defaultBranchId, selectBranch } from '../../../events/branch-tree.js'
 
@@ -76,7 +76,7 @@ export function registerChatHistoryRoutes(ctx: ChatHistoryCtx): void {
   defineRoute('chat.history', {
     method: 'GET',
     path: '/api/books/:name/chat/history',
-    handler: ({ params }, req: IncomingMessage, res: ServerResponse) => {
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const bookName = params['name']!
@@ -92,10 +92,11 @@ export function registerChatHistoryRoutes(ctx: ChatHistoryCtx): void {
       // L-S2（第八轮）：?limit= 尾窗（正整数，上限 1000）——防长书全量投影出网
       const rawLimit = Number(url.searchParams.get('limit'))
       const limit = Number.isInteger(rawLimit) && rawLimit >= 1 ? Math.min(rawLimit, 1000) : undefined
-      // userDataPath 非空已确认 → store 必建库（openSessionStore 非惰性）
+      // userDataPath 非空已确认 → store 必建库（openSessionStoreAsync 非惰性）
       // R62-43：库损坏/权限等极端下 openSessionStore 仍可能返回 null——不再用 ! 断言，
       // 显式错误信封（此前静默 TypeError 崩路由）
-      const store = openSessionStore(ctx.userDataPath, bookRoot)
+      // R34D-19（三十四轮）：开库走异步孪生（首开锁等待不阻塞服务事件循环）
+      const store = await openSessionStoreAsync(ctx.userDataPath, bookRoot)
       if (!store) return replyError(res, 500, 'STORE_UNAVAILABLE', '事件库不可用（无法打开会话存储）')
       try {
         reply(res, 200, buildChatHistoryView(store, bookName, branch, limit))

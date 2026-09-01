@@ -38,7 +38,12 @@ export function readBaseline(bookRoot: string, date: string): number | null {
   for (let i = lines.length - 1; i >= 0; i--) {
     try {
       const rec = JSON.parse(lines[i]!) as DailyBaseline
-      if (rec.date === date) return rec.baseline
+      // R34D-13（三十四轮）：命中须**同为基线条目**（typeof baseline === 'number'）——
+      // E4 起 delta 条目与 baseline 条目共存同一 jsonl，真实时序「晨基线 → 日间 delta」
+      // 下倒序首个同日命中是 delta 行（无 baseline 字段），原实现命中即返回 rec.baseline
+      // （undefined）违背 number | null 契约，当日二次 GET 恒 undefined。收紧后 delta 行
+      // continue 落到更早行，找到当日真正的基线条目；全无基线条目仍返 null。
+      if (rec.date === date && typeof rec.baseline === 'number') return rec.baseline
     } catch {
       // 跳过坏行
     }

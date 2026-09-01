@@ -7,7 +7,7 @@
  */
 import type { DriverEvent, Session, StudioDriver } from '../../../driver/types.js'
 import type { ChatMsg } from '../../provider/types.js'
-import { openSessionStore, bookHash } from '../../../events/store.js'
+import { openSessionStore, openSessionStoreAsync, bookHash } from '../../../events/store.js'
 import { log } from '../../../log/index.js'
 
 // ── 运行态类型（chat.ts 并发锁与 turns.ts waitConfirm 共用） ──
@@ -89,8 +89,12 @@ export function getHistory(bookName: string): ChatMsg[] {
 /**
  * 清空本书对话历史（前端"清空对话"时调）。
  * F1-P1：可选传 userDataPath + bookRoot 一并清事件库（无参时只清内存，保持测试兼容）。
+ * R34D-19（三十四轮）：转 async——事件库开库走 openSessionStoreAsync（首开锁等待
+ * 不阻塞服务事件循环）；无 db 参的纯内存路径（books.ts 改名等）随之变异步但语义
+ * 逐位不变（内存清空仍先行，事件库失败降级留痕口径不动）。测试侧未 await 的纯内存
+ * 调用照旧工作（内部无 await 短路）。
  */
-export function clearChatHistory(bookName: string, userDataPath?: string, bookRoot?: string): void {
+export async function clearChatHistory(bookName: string, userDataPath?: string, bookRoot?: string): Promise<void> {
   histories.delete(bookName)
   msgSeqMap.delete(bookName)
   activeBranchByBook.delete(bookName)
@@ -103,7 +107,7 @@ export function clearChatHistory(bookName: string, userDataPath?: string, bookRo
     // 内存已清而事件库未清的半完成态若再 500，作者每次重试同样失败无从自助——降级留痕
     let store: ReturnType<typeof openSessionStore>
     try {
-      store = openSessionStore(userDataPath, bookRoot)
+      store = await openSessionStoreAsync(userDataPath, bookRoot)
     } catch (e) {
       log.warn('chat', `清史打开事件库失败（内存已清、事件库待修复后重清）：${e instanceof Error ? e.message : String(e)}`)
       return

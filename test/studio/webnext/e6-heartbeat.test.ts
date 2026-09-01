@@ -149,3 +149,33 @@ describe('R26-77 · beat 超时与在途去重', () => {
     w.unmount()
   })
 })
+
+// R34D-24（三十四轮）：卸载 DELETE 用落拍捕获的书名——Book.vue 的 bookName 是
+// route.params 派生的 computed，离开 /book/:name 后取值归空，leave() 重读
+// getBookName() 拿到空串 → DELETE 实际不可达（只能靠服务端过期回收）。修复：beat
+// 落拍即捕获书名，leave 用捕获值（e6 既有用例用静态 ref 掩盖了此不可达）。
+describe('R34D-24 · 卸载 DELETE 用落拍捕获书名', () => {
+  it('进书落拍后 getBookName 归空（卸载时路由参数已变）再卸载 → 仍按捕获书名发 DELETE', async () => {
+    tokenMock.mockReturnValue('T1')
+    const book = ref<string | null>('b1')
+    fetchMock.mockResolvedValue(new Response('{}', { status: 200 }))
+    const w = mountHeartbeat(book)
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled())
+    book.value = null // 生产时序复刻：卸载前路由参数已归空（watch 先 stop）
+    w.unmount()
+    // 修复点：捕获书名 b1 的 DELETE（修复前重读为 null 跳过，DELETE 不可达）
+    await vi.waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith('/api/books/b1/heartbeat', { method: 'DELETE' }),
+    )
+  })
+
+  it('未进书即卸载（无落拍）→ 不发 DELETE（对照组）', async () => {
+    tokenMock.mockReturnValue('T1')
+    const book = ref<string | null>(null)
+    fetchMock.mockResolvedValue(new Response('{}', { status: 200 }))
+    const w = mountHeartbeat(book)
+    w.unmount()
+    await Promise.resolve()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+})

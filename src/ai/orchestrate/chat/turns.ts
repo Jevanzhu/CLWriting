@@ -562,7 +562,9 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
       }
       history.push({ role: 'assistant', content: asstContent })
       // F1-P1：记录 assistant 事件 + 回合收尾 + 落库
-      seqs.pendingMsgSeqs.push(recorder.add(assistantMessageEvent(asstContent, out.usage ?? undefined, stopReason, lineageIdx, turnBranch)))
+      // R34D-9（三十四轮）：assistant 事件同下方 chat_done（R27-3）改 attemptsUsage 优先的
+      // 合并口径——重试链回合 out.usage 只是末 attempt 单次值，事件用量被系统性低估
+      seqs.pendingMsgSeqs.push(recorder.add(assistantMessageEvent(asstContent, (out.attemptsUsage ?? out.usage) ?? undefined, stopReason, lineageIdx, turnBranch)))
       recorder.add(turnEndEvent(turn, 'completed'))
       if (!flushTurnEvents()) return false
       // R27-3（二十七轮）：attemptsUsage 优先——runTask 内部重试链（429/5xx 退避）时

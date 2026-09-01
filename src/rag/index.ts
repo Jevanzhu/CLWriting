@@ -448,7 +448,18 @@ async function commitIndexBatch(
       failedAt = i
       break
     }
-    for (const v of batchVec) vectors.push(Float32Array.from(v))
+    // R34D-32（三十四轮）：Float32 溢出守卫——embed() 的 finite 校验在 double 层
+    //（embed.ts 槽位校验），分量 >3.4e38 的**有限** double 经 Float32Array.from 收窄
+    // 成 ±Infinity 静默入库成永久毒行（norm=∞、余弦对它恒 NaN，一行毒数据即可打乱
+    // 整库 topK 排序且无告警；触发面为故障/恶意端点）。物化（double→Float32）之后
+    // 判非有限，命中按维度异常同款收口（failedAt 续传：批前整章小事务提交，毒批零入库）
+    const materialized = batchVec.map((v) => Float32Array.from(v))
+    if (materialized.some((v) => v.some((x) => !Number.isFinite(x)))) {
+      log.warn('rag', 'embedding 批响应含 Float32 溢出分量（double 有限但物化后非有限）——该批起不入库，已成功部分续传')
+      failedAt = i
+      break
+    }
+    for (const v of materialized) vectors.push(v)
   }
   if (failedAt >= 0) {
     // R73-5（二十一轮 A-5）：部分成功续传——此前任一批失败即整体失败、已成功批向量
@@ -669,6 +680,13 @@ export async function recallDetailed(
   const qVec = await embedFn(config.endpoint, config.model, apiKey, [query], embedOptionsFor(bookRoot, config))
   if (qVec === null || qVec.length === 0) return empty
   const queryVec = Float32Array.from(qVec[0]!)
+  // R34D-32（三十四轮）：查询向量同走 double→Float32 收窄——溢出分量（有限 double
+  // 物化后 ±Infinity）会把对全库的相似度算成 NaN、topK 排序整体失真（与入库侧
+  // commitIndexBatch 同款洞的召回半边）；降级返回空（fail-closed，与端点失败口径一致）
+  if (queryVec.some((x) => !Number.isFinite(x))) {
+    log.warn('rag', 'embedding 查询向量含 Float32 溢出分量（double 有限但物化后非有限）——本轮召回降级为空')
+    return empty
+  }
 
   if (indexedDim && Number(indexedDim) !== queryVec.length) return empty
 

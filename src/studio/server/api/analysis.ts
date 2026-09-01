@@ -25,7 +25,7 @@ import { runSpec } from '../../../ai/tasks/spec.js'
 import { analysisSpec } from '../../../ai/tasks/specs.js'
 import { resolveTier } from '../../../ai/provider/index.js'
 import type { AnalysisKind as ContractKind } from '../../../ai/contract/index.js'
-import { readAnalysis, readAnalysisKinds, writeAnalysis, readBookAnalysis, writeBookAnalysis, sourceHashOf, type AnalysisKind } from '../../../document/analysis.js'
+import { readAnalysis, readAnalysisKinds, writeAnalysisAsync, readBookAnalysis, writeBookAnalysis, sourceHashOf, type AnalysisKind } from '../../../document/analysis.js'
 import { mapAnalysisToCandidates, persistCandidates } from '../../../format/style-candidate.js'
 import { localDayKey } from '../../../log/index.js' // R76-31：候选日键本地日（同 overview/日记口径）
 import { safeManifestPath } from '../../../fs/safe-path.js'
@@ -174,7 +174,8 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
           sourceHash, // 进 prompt 时的稿（见上）——与 payload 同源，不重读
           payload,
         }
-        writeAnalysis(bookRoot, docId, kind, envelope)
+        // R34D-19（三十四轮）：写信封走异步孪生（锁等待不阻塞服务事件循环）
+        await writeAnalysisAsync(bookRoot, docId, kind, envelope)
         reply(res, 200, { ok: true, envelope })
       } finally {
         release()

@@ -6,7 +6,7 @@
  *
  * 不做 UI（第二波）；本模块只产数据，由 API 端点薄接线透出。
  */
-import { openSessionStore, bookHash } from '../events/store.js'
+import { openSessionStoreAsync, bookHash } from '../events/store.js'
 import type { LlmCallData } from '../events/types.js'
 import { localDayKey } from '../log/index.js'
 
@@ -59,7 +59,7 @@ function dayKey(ts: number | string): string {
 function readLlmCalls(
   userDataPath: string | null | undefined,
   bookRoot: string,
-): {
+): Promise<{
   task: string
   ok: boolean
   durationMs: number
@@ -67,47 +67,48 @@ function readLlmCalls(
   usageIn: number
   usageOut: number
   day: string
-}[] {
-  if (!userDataPath) return []
-  try {
-    const store = openSessionStore(userDataPath, bookRoot)
-    if (!store) return []
-    try {
-      // B1（2026-08-24 内存闸）：type SQL 下推——只取 llm/call 行（原全量投影再内存过滤，
-      // 全部对话正文一起 JSON.parse，峰值随书龄线性增长无上限）
-      const events = store.listEvents(bookHash(bookRoot), undefined, undefined, 'llm/call')
-      const out: {
-        task: string
-        ok: boolean
-        durationMs: number
-        attempt: number
-        usageIn: number
-        usageOut: number
-        day: string
-      }[] = []
-      for (const e of events) {
-        const d = e.data as unknown as LlmCallData
-        out.push({
-          task: d.task,
-          ok: d.ok,
-          durationMs: d.durationMs,
-          attempt: d.attempt,
-          usageIn: d.usage?.input ?? 0,
-          usageOut: d.usage?.output ?? 0,
-          day: dayKey(e.createdAt),
-        })
+}[]> {
+  if (!userDataPath) return Promise.resolve([])
+  // R34D-19（三十四轮）：转 async——开库走 openSessionStoreAsync（首开锁等待不阻塞
+  // 服务事件循环），aggregateTrace 随迁异步（端点/测试调用方 await）。
+  return openSessionStoreAsync(userDataPath, bookRoot)
+    .then((store) => {
+      if (!store) return []
+      try {
+        // B1（2026-08-24 内存闸）：type SQL 下推——只取 llm/call 行（原全量投影再内存过滤，
+        // 全部对话正文一起 JSON.parse，峰值随书龄线性增长无上限）
+        const events = store.listEvents(bookHash(bookRoot), undefined, undefined, 'llm/call')
+        const out: {
+          task: string
+          ok: boolean
+          durationMs: number
+          attempt: number
+          usageIn: number
+          usageOut: number
+          day: string
+        }[] = []
+        for (const e of events) {
+          const d = e.data as unknown as LlmCallData
+          out.push({
+            task: d.task,
+            ok: d.ok,
+            durationMs: d.durationMs,
+            attempt: d.attempt,
+            usageIn: d.usage?.input ?? 0,
+            usageOut: d.usage?.output ?? 0,
+            day: dayKey(e.createdAt),
+          })
+        }
+        return out
+      } finally {
+        store.close()
       }
-      return out
-    } finally {
-      store.close()
-    }
-  } catch {
-    return []
-  }
+    })
+    .catch(() => [])
 }
 
-export function aggregateTrace(userDataPath: string | null | undefined, bookRoot: string): TraceStats {
-  const entries = readLlmCalls(userDataPath, bookRoot)
+export async function aggregateTrace(userDataPath: string | null | undefined, bookRoot: string): Promise<TraceStats> {
+  const entries = await readLlmCalls(userDataPath, bookRoot)
   if (entries.length === 0) return { total: 0, byTask: {} }
 
   // 按 task 分组

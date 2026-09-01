@@ -182,3 +182,35 @@ describe('契约② · SSE ticket 化', () => {
     expect(urls[0]).toContain('ticket=K-B')
   })
 })
+
+// R34D-23（三十四轮）：换票超时——服务端半死（接受连接不回包）时裸 fetch 永不
+// settle，doConnect 悬挂在换票 await：不建 EventSource、无 onerror 退避接管，SSE
+// 静默断连无自愈。修复：AbortController + 5s 超时（对齐 probeSseBusy/boot 同族手法），
+// 超时按既有失败语义回退 ?token= 旧通道开连。
+describe('R34D-23 · 换票超时自愈', () => {
+  it('ticket 端点不回包 → 5s 超时 abort → 回退 ?token= 旧通道开连（不再悬挂）', async () => {
+    vi.useFakeTimers()
+    // 模拟真实 fetch：不回包，但 abort 信号到达即 reject（超时通道可观察）
+    const fetchFn = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith('/api/stream-ticket')) {
+        // 修复点：换票请求带超时 signal（修复前裸 fetch 无 abort 面）
+        expect(init?.signal).toBeInstanceOf(AbortSignal)
+        return new Promise<Response>((_, rej) => {
+          init?.signal?.addEventListener('abort', () => rej(new DOMException('aborted', 'AbortError')))
+        })
+      }
+      return Promise.resolve(new Response('{}', { status: 200 }))
+    })
+    vi.stubGlobal('fetch', fetchFn)
+    useSse(ref('书A'))
+    await vi.advanceTimersByTimeAsync(0) // doConnect 链走到换票挂起
+    expect(fetchFn).toHaveBeenCalledTimes(1)
+    expect(MockES.instances).toHaveLength(0) // 未超时：不回退也不开连（修复前此后永久悬挂）
+
+    await vi.advanceTimersByTimeAsync(5_000) // TICKET_TIMEOUT_MS 到点 abort
+    for (let i = 0; i < 20; i++) await Promise.resolve() // 泵 catch→回退→开连微任务链
+    expect(MockES.instances).toHaveLength(1) // 修复点：回退旧通道开连，SSE 不再静默断连
+    expect(MockES.instances[0]!.url).toContain('?token=T0')
+    expect(MockES.instances[0]!.url).not.toContain('ticket=')
+  })
+})

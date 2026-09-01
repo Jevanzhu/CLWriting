@@ -7,7 +7,7 @@ import { ref, computed, onMounted, onBeforeUnmount, provide } from 'vue'
 import { X, Palette, Type, NotebookPen, Sparkles, ScanSearch, History, BookOpen, Server } from 'lucide-vue-next'
 import { useUiStore } from '../../stores/ui'
 import { useWorkspaceStore } from '../../stores/workspace'
-import { getConfig, putConfig, type BookConfig } from '../../api/books'
+import { getConfigWithRevision, putConfig, type BookConfig } from '../../api/books'
 import { friendlyError } from '../../shared/error'
 import { useFocusTrap } from '../../composables/useFocusTrap'
 import { SAVE_CONFIG_KEY } from './settings-context'
@@ -67,16 +67,20 @@ const currentTabComponent = computed(() => tabComponents[activeTab.value])
 // ── saveConfig（串行化读写 book.yaml）──
 /** 通用：读 → 改 → 写 book.yaml。silent=true 不弹 toast（range 拖动等高频场景）。
  * P1-10：串行化防竞态——快速连续修改时 getConfig 可能在前一 putConfig 完成前发出，
- * 读到旧值覆盖前一修改。用 Promise 队列保证读改写原子序列。 */
+ * 读到旧值覆盖前一修改。用 Promise 队列保证读改写原子序列。
+ * R34D-25（三十四轮）：乐观锁端到端穿线——每次队列内操作重读 {config, revision}
+ * （指纹）随 PUT 上送 expectedRevision；另一标签页/进程在 GET 与 PUT 之间写入时
+ * 服务端指纹失配回 409，本侧 toast「书籍配置已在其他窗口被修改，请刷新」提示作者，
+ * 后写者不再静默覆盖先写者。串行队列天然自愈：作者下一次修改重读最新基线。 */
 let saveChain: Promise<void> = Promise.resolve()
 function saveConfig(mutate: (cfg: BookConfig) => void, silent = false): Promise<void> {
   const name = ws.bookName
   if (!name) return Promise.resolve()
   saveChain = saveChain.then(async () => {
     try {
-      const cfg = await getConfig(name)
+      const { config: cfg, revision } = await getConfigWithRevision(name)
       mutate(cfg)
-      await putConfig(name, cfg)
+      await putConfig(name, cfg, revision)
       if (!silent) ui.toast('已保存', 'success')
     } catch (e) {
       ui.toast(friendlyError(e), 'error')

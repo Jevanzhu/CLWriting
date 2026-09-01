@@ -20,7 +20,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
 import { reply, replyError, parseRequestUrl } from '../http.js'
 import { resolveBook } from '../book-context.js'
-import { openSessionStore, bookHash, type SessionStore } from '../../../events/store.js'
+import { openSessionStoreAsync, bookHash, type SessionStore } from '../../../events/store.js'
 import { foldSurface } from '../../../events/projection.js'
 import { foldGoals, foldTodos } from '../../../events/goal-state.js'
 import { isChatRunning } from '../../../ai/orchestrate/chat.js'
@@ -193,7 +193,7 @@ export function registerAuditRoutes(ctx: AuditCtx): void {
   defineRoute('books.audit.get', {
     method: 'GET',
     path: '/api/books/:name/audit',
-    handler: ({ params }, req: IncomingMessage, res: ServerResponse) => {
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     const bookName = params['name']!
@@ -210,10 +210,11 @@ export function registerAuditRoutes(ctx: AuditCtx): void {
     const q = url.searchParams
     const paging = parseAuditPaging(q.get('limit'), q.get('offset'))
 
-    // userDataPath 非空已确认 → store 必建库（openSessionStore 非惰性）
+    // userDataPath 非空已确认 → store 必建库（openSessionStoreAsync 非惰性）
     // R62-43：库损坏/权限等极端下 openSessionStore 仍可能返回 null——不再用 ! 断言，
     // 显式错误信封（此前静默 TypeError 崩路由）
-    const store = openSessionStore(ctx.userDataPath, bookRoot)
+    // R34D-19（三十四轮）：开库走异步孪生（首开锁等待不阻塞服务事件循环）
+    const store = await openSessionStoreAsync(ctx.userDataPath, bookRoot)
     if (!store) return replyError(res, 500, 'STORE_UNAVAILABLE', '事件库不可用（无法打开会话存储）')
     try {
       reply(res, 200, buildAuditView(store, bookName, bookRoot, paging))
@@ -229,7 +230,7 @@ export function registerAuditRoutes(ctx: AuditCtx): void {
   defineRoute('books.audit.delete', {
     method: 'DELETE',
     path: '/api/books/:name/audit',
-    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
+    handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     // dd-P3：对话运行中拒清（与 chat/clear 同口径）——清库后 chat 继续追加事件，清不彻底
@@ -264,7 +265,8 @@ export function registerAuditRoutes(ctx: AuditCtx): void {
     if (!ctx.userDataPath) return reply(res, 200, { ok: true }) // 无事件库模式（浏览器版）no-op
     // R62-43：库损坏/权限等极端下 openSessionStore 仍可能返回 null——不再用 ! 断言，
     // 显式错误信封（此前静默 TypeError 崩路由）
-    const store = openSessionStore(ctx.userDataPath, bookRoot)
+    // R34D-19（三十四轮）：开库走异步孪生（首开锁等待不阻塞服务事件循环）
+    const store = await openSessionStoreAsync(ctx.userDataPath, bookRoot)
     if (!store) return replyError(res, 500, 'STORE_UNAVAILABLE', '事件库不可用（无法打开会话存储）')
     try {
       // 低级项（第六轮）：双键单事务（clearBooks）——两次 clearBook 各自事务，

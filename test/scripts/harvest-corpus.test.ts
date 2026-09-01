@@ -5,6 +5,8 @@
  * 跳过，系统性故障以「候选 0 条」成功口径收场。修复后：
  * - 结果统计带 `章级解析失败 N 章` 计数（N>0 才追加，0 失败输出逐位不变）；
  * - 末尾 console.warn 汇总（书名/章名/原因），快照级失败仍走 R63-14 的 error 口径。
+ * R34D-31（三十四轮）：章级失败再补退出码哨兵（exitCode=1）——与快照失败路径
+ * 口径统一，收割部分失败不再以退出码 0 收场（此前 R30-29 修一半：只 warn 不标红）。
  * 手法：verify-responses-relay 单测先例——spawnSync 单次 tsx 冷启动 + 固定书名
  * fixture（好章 + 缺章号的坏章），多断言合并进一个用例（R62-61）。
  */
@@ -47,8 +49,9 @@ test('R30-29: 章级解析失败 → 统计带 failedChapters 计数 + warn 汇�
       encoding: 'utf-8',
       stdio: 'pipe',
     })
-    // 章级失败是软失败（warn + 计数留痕），不改变成功路径退出语义（区别于 R63-14 快照硬失败）
-    expect(r.status).toBe(0)
+    // R34D-31（三十四轮）：章级失败退出码哨兵与快照失败路径（R63-14）口径统一——
+    // 收割部分失败不再绿（候选集不完整须让脚本出口的调用方以退出码感知）
+    expect(r.status).toBe(1)
     // 结果统计带 failedChapters 计数
     expect(r.stdout).toContain('章级解析失败 1 章')
     // warn 汇总：书名 + 章名 + 原因（console.warn 走 stderr）
@@ -57,6 +60,40 @@ test('R30-29: 章级解析失败 → 统计带 failedChapters 计数 + warn 汇�
     expect(r.stderr).toContain('缺少必填字段：章号')
     // 快照级口径未被波及（无版本快照 → 无 R63-14 硬告警）
     expect(r.stderr).not.toContain('版本快照判定失败')
+  } finally {
+    rmSync(join(root, '..'), { recursive: true, force: true })
+  }
+}, 60_000)
+
+// R34D-31（三十四轮）对照臂：零章级失败的干净书 → 退出码 0 照旧——哨兵只对
+//「收割不完整」标红，不误伤全绿路径（失败注入与干净路径两臂同文件锚定）
+test('R34D-31: 干净书（零章级失败、零快照失败）→ 退出码 0 照旧', () => {
+  const root = join(mkdtempTracked(join(tmpdir(), 'harvest-corpus-')), '青萍集净')
+  mkdirSync(join(root, '写作', '正文'), { recursive: true })
+  mkdirSync(join(root, '项目'), { recursive: true })
+  writeFileSync(join(root, 'book.yaml'), ['spec_version: 1', 'book:', '  title: 青萍集净', '  genre: 玄幻'].join('\n'), 'utf-8')
+  writeFileSync(
+    join(root, '写作', '正文', '0001-好章.md'),
+    '---\n章号: 1\n标题: 好章\n---\n雪落在了城墙上。',
+    'utf-8',
+  )
+  writeFileSync(
+    join(root, '项目', '文档清单.jsonl'),
+    [
+      JSON.stringify({ version: 1, type: 'header' }),
+      JSON.stringify({ id: 'chap-1', nodeType: 'document', path: '写作/正文/0001-好章.md', parentId: null }),
+    ].join('\n') + '\n',
+    'utf-8',
+  )
+  try {
+    const r = spawnSync('node', ['--import', 'tsx', script, root], {
+      cwd: repoRoot,
+      encoding: 'utf-8',
+      stdio: 'pipe',
+    })
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('章快照判定完成')
+    expect(r.stderr).not.toContain('章节解析失败')
   } finally {
     rmSync(join(root, '..'), { recursive: true, force: true })
   }

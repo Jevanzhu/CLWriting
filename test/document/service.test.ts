@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { DocumentService } from '../../src/document/service.js'
-import { appendPending, type JournalPending } from '../../src/document/journal.js'
+import { appendPending, findUnsettled, type JournalPending } from '../../src/document/journal.js'
 import { readTodayDelta, todayDate } from '../../src/document/words-diary.js'
 import { hashFile } from '../../src/fs/hash.js'
 import { computeRevision } from '../../src/document/revision.js'
@@ -338,28 +338,28 @@ describe('DocumentService / journal 与崩溃恢复', () => {
   })
   afterEach(() => rmSync(bookRoot, { recursive: true, force: true }))
 
-  it('保存成功后 journal pending+settled 成对，recover 无未结算', async () => {
+  it('保存成功后 journal pending+settled 成对，无未结算', async () => {
     await svc.save('doc_1', '写作/正文/0001.md', {
       content: 'hello', expectedRevision: null, operationId: 'op1', origin: 'manual',
     })
-    expect(svc.recover()).toEqual([])
+    // R34D-17：svc.recover() 假象面已删——直测生产原语 findUnsettled（state.ts 恢复链同源）
+    expect(findUnsettled(join(bookRoot, '工作区', '.journal', 'doc_1.jsonl'))).toEqual([])
   })
 
-  it('recover 报告 pending 无 settled（崩溃未结算）', async () => {
+  it('findUnsettled 报告 pending 无 settled（崩溃未结算）', async () => {
     const jp = join(bookRoot, '工作区', '.journal', 'doc_y.jsonl')
     await appendPending(jp, 'doc_y', null, 'lost content')
-    const reports = svc.recover()
-    expect(reports.length).toBe(1)
-    expect(reports[0]!.docId).toBe('doc_y')
-    expect((reports[0]!.pending[0] as JournalPending).content).toBe('lost content')
+    const pending = findUnsettled(jp)
+    expect(pending.length).toBe(1)
+    expect((pending[0] as JournalPending).content).toBe('lost content')
   })
 
-  it('recover：aborted 不算未结算', async () => {
+  it('findUnsettled：aborted 不算未结算', async () => {
     const jp = join(bookRoot, '工作区', '.journal', 'doc_z.jsonl')
     const opId = await appendPending(jp, 'doc_z', null, 'will fail')
     // 手动追加 aborted
     writeFileSync(jp, JSON.stringify({ opId, ts: new Date().toISOString(), status: 'aborted', reason: 'boom' }) + '\n', { flag: 'a' })
-    expect(svc.recover()).toEqual([])
+    expect(findUnsettled(jp)).toEqual([])
   })
 })
 

@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { startServer } from '../../src/studio/server/index.js'
+import { flushLogsForTest } from '../../src/log/index.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const servers: http.Server[] = []
@@ -99,21 +100,15 @@ describe('GET /api/startup-notices（A4 批 0）', () => {
     const userData = mkdtempTracked(join(tmpdir(), 'clw-notices-ud-'))
     dirs.push(userData)
     await bootReady(workDir, userData)
-    // startServer 内 log.error 排队异步落盘；轮询等文件出现（串行队列保证有序）。
-    // R63-16/O1：轮询窗 5s→10s——首轮全量曾在并行 tsc 争用下假红（单跑两连绿，
-    // log 泵机制亲验无丢行路径）；下界轮询加宽零代价（命中即退，不付全额）
+    // startServer 内 log.error 排队异步落盘。R63-16/O1 起两代以轮询窗口等待（5s→10s
+    // →20s），全量并行争用下 fs 线程池饥饿仍可越窗假红（单跑恒绿、log 泵无丢行路径
+    // 亲验）——窗口加宽是对症不对根。残留清偿批定稿：改确定性排空钩子 flushLogsForTest
+    //（await 串行泵 tail，含在途 appendFile 完成后 tail 才决议），断言不再依赖时间窗。
+    await flushLogsForTest()
     const { readdirSync, readFileSync: rf } = await import('node:fs')
     let found = false
-    for (let i = 0; i < 100 && !found; i++) {
-      await new Promise((r) => setTimeout(r, 100))
-      try {
-        const files = readdirSync(join(userData, 'logs')).filter((f) => f.endsWith('.jsonl'))
-        for (const f of files) {
-          if (rf(join(userData, 'logs', f), 'utf8').includes('migrate-layout-v2')) found = true
-        }
-      } catch {
-        /* 尚未写出 */
-      }
+    for (const f of readdirSync(join(userData, 'logs')).filter((f) => f.endsWith('.jsonl'))) {
+      if (rf(join(userData, 'logs', f), 'utf8').includes('migrate-layout-v2')) found = true
     }
     expect(found).toBe(true)
   })

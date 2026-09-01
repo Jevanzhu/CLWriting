@@ -9,6 +9,8 @@
 
 import { readdirSync, statSync } from 'node:fs'
 import { join, basename } from 'node:path'
+// R34D-2（三十四轮）：履历畸形行抢救失败时的 log.warn 留痕（对齐 lead-updates R26-32 手法）
+import { log } from '../log/index.js'
 import {
   readFile,
   writeFile,
@@ -56,8 +58,22 @@ export const LEAD_VERBS: Record<LeadType, LeadVerbSet> = {
 
 /** 履历条目行：- 第012章 埋下：证据...（全角/半角冒号均接受，防输入法切错致履历行被丢）。
  *  R75-2（二十三轮）抽出单一出处——parseHistory 条目匹配与节界判定的条目前瞻共用，
- *  防两处正则漂移（漂移则分组标题误判节终、条目落 after 段致模型失明）。 */
-const HISTORY_ENTRY_RE = /^\s*-\s*第(\d+)章\s+(.+?)[：:](.+)$/
+ *  防两处正则漂移（漂移则分组标题误判节终、条目落 after 段致模型失明）。
+ *  R34D-2（三十四轮）：证据段 `(.+)` → `(.*)` 收编空证据行（`- 第012章 埋下：`）——
+ *  此前整行不匹配落续行折入分支，声明蒸发 + 上一条证据被污染；空证据条目照常入模型，
+ *  R76-19 的空证据黄项既有路径即可见。 */
+const HISTORY_ENTRY_RE = /^\s*-\s*第(\d+)章\s+(.+?)[：:](.*)$/
+
+/** R34D-2（三十四轮）：形似条目但 HISTORY_ENTRY_RE 解析失败时的二次抢救正则——
+ *  容忍章号后缺空格（`\s*`）、全角数字章号（０-９，配 normalizeDigits 归一）、
+ *  动词与冒号间空格，证据段可空。仅用于 parseHistory 守卫分支的独立条目抢救，
+ *  主路径仍走严格正则（两正则不互为出处，抢救条目回写物化为规范形态后由主正则接管）。 */
+const HISTORY_ENTRY_LOOSE_RE = /^\s*-\s*第([０-９\d]+)章\s*([^\s:：]+)\s*[：:](.*)$/
+
+/** R34D-2（三十四轮）：全角数字 → 半角（防输入法切错致章号进不了账本模型）。 */
+function normalizeDigits(s: string): string {
+  return s.replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+}
 
 /** ATX 标题行（#~###### 后随空白；markdown 标准形态）。 */
 export const ATX_HEADING_RE = /^#{1,6}\s/
@@ -127,6 +143,23 @@ export function parseHistory(body: string): LeadEntry[] {
         证据 = 证据.slice(0, bf.index).trim()
       }
       entries.push({ 章号, 动词, 证据, ...(回填 ? { 回填 } : {}) })
+    } else if (/^\s*-\s*第/.test(line)) {
+      // R34D-2（三十四轮）：形似履历条目（`- 第…` 开头）却未被条目正则解析的畸形行
+      // 不折入上一条证据——此前落 R64-17 续行分支被折空格拼进上一条（空证据行整条
+      // 声明蒸发 + 上一条证据被污染，下次 stringifyHistory 回写把改写后的证据物化，
+      // 账本静默损坏）。缺空格/全角数字形态经 HISTORY_ENTRY_LOOSE_RE 二次抢救为
+      // 独立条目（声明不蒸发、机检可见、回写物化为规范形态，既有条目不被改写）；
+      // 抢救失败 log.warn 留痕后丢弃（对齐 lead-updates R26-32 手法）。
+      const loose = line.match(HISTORY_ENTRY_LOOSE_RE)
+      if (loose) {
+        entries.push({
+          章号: Number(normalizeDigits(loose[1]!)),
+          动词: loose[2]!.trim(),
+          证据: loose[3]!.trim(),
+        })
+      } else {
+        log.warn('leads', `履历条目格式不符被丢弃（应为「- 第N章 动词：证据」）：${t.slice(0, 40)}`)
+      }
     } else if (entries.length > 0 && t !== '') {
       // R64-17（十二轮）：多行证据续行——手写/编辑器折行的证据第二行不匹配条目正则，
       // 此前被静默丢弃（下次回写物理丢失）。续行折空格并入上一条证据（换行归一）。
@@ -344,7 +377,9 @@ export function readLeadDir(
 
   let files: string[]
   try {
-    files = readdirSync(dirPath).filter((f) => f.endsWith('.md') && !f.startsWith('._'))
+    // R34D-11（三十四轮）：扩展名匹配大小写不敏感（win 手工改名 .MD 不再对账本扫描隐形）；
+    // slice(-3) 只对小尾串做一次 toLowerCase，免全名分配
+    files = readdirSync(dirPath).filter((f) => f.slice(-3).toLowerCase() === '.md' && !f.startsWith('._'))
   } catch {
     // 目录不存在（未启用的扩展类）→ 空结果，不报错（母本第 2.1 节）
     return { leads, errors }

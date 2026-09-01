@@ -77,6 +77,17 @@ if (droppedExcerpts > 0) {
   console.warn(`[corpus:commit] ${droppedExcerpts} 行勾选条目未被解析（见上方逐行警告）——修复候选 md 后再提交，否则静默丢条`)
 }
 if (all.length === 0) {
+  // R34D-6（三十四轮）：空集早退不得绕过尾部退出码哨兵——此前此处无条件 exit(0)，
+  // 「勾选行全部摘录解析失败（droppedExcerpts>0）或全部落在被拒 checkId 节下」时
+  // 以退出码 0 收场：语料门入库端假成功（作者以为入库了，CI 回归门实则零新增且
+  // 无任何告警口径）。真没勾才退出 0；勾了但全军覆没按尾部哨兵（见文件尾 R63-13/
+  // R63-11/R64-36 同款）标红退出 1——语料门 fail-closed
+  if (rejectedCheckIds > 0 || droppedExcerpts > 0) {
+    console.error(
+      `[corpus:commit] 未完全成功：${rejectedCheckIds} 个 checkId 被拒（路径穿越）＋ ${droppedExcerpts} 行勾选摘录解析被丢——0 条入库（见上方逐条告警），修复候选 md 后重跑`,
+    )
+    process.exit(1)
+  }
   console.log('[corpus:commit] 无勾选条目（在 工作区/语料候选/*.md 把 `[ ]` 改 `[x]` 后重跑）')
   process.exit(0)
 }

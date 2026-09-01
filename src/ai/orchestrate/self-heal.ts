@@ -22,7 +22,7 @@ import { prepareMaterials } from '../../process/materials.js'
 import { readOutlineLeads } from '../../check/outline-leads.js'
 import { atomicWriteFile } from '../../fs/atomic.js'
 import { getRedItems } from '../../check/types.js'
-import { openSessionStore, bookHash } from '../../events/store.js'
+import { openSessionStore, openSessionStoreAsync, bookHash } from '../../events/store.js'
 import { ChainRecorder, checkReportEvent, retryAttemptEvent, goalChangeEvent, todoWriteEvent } from '../../events/chain-bridge.js'
 import { registerBackgroundTask } from './background.js'
 import type { GoalOperation, GoalState, Todo } from '../../events/types.js'
@@ -191,11 +191,13 @@ async function runSelfHealInner(opts: SelfHealOpts): Promise<SelfHealOutcome> {
   return result
 }
 
-/** P2：自愈链路事件录制（每书 workspace 会话；观测层失败静默 → null） */
-function mkChain(opts: SelfHealOpts): ChainRecorder | null {
+/** P2：自愈链路事件录制（每书 workspace 会话；观测层失败静默 → null）
+ *  R34D-19（三十四轮）：转 async——开库走 openSessionStoreAsync（首开锁等待不阻塞
+ *  服务事件循环），建链半途抛错先关库再降级口径不变。 */
+async function mkChain(opts: SelfHealOpts): Promise<ChainRecorder | null> {
   let store: ReturnType<typeof openSessionStore> = null
   try {
-    store = openSessionStore(opts.userDataPath, opts.bookRoot)
+    store = await openSessionStoreAsync(opts.userDataPath, opts.bookRoot)
     if (!store) return null
     return new ChainRecorder(store, store.workspaceSession(bookHash(opts.bookRoot)))
   } catch {
@@ -209,7 +211,7 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
   const { bookRoot } = opts
   const maxAttempts = opts.maxAttempts ?? 3
   // P2：自愈链路事件录制（check/report + retry/attempt 挂 workspace 会话；观测层静默）
-  const chain = mkChain(opts)
+  const chain = await mkChain(opts)
   const save = opts.save ?? saveDraft
   const kind = readKind(bookRoot)
   // P2-3：批量连写——opts.chapters 有值走批量循环；无则单章旧逻辑（逐字不变，防回归）

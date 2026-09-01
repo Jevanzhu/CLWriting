@@ -51,7 +51,7 @@ describe('R73-38 / per-book 迁移锁', () => {
     release!()
   })
 
-  it('同书旧路径持锁 → 迁移放弃，源库原地完整；释放后重试成功', () => {
+  it('同书旧路径持锁 → 迁移放弃，源库原地完整；释放后重试成功', async () => {
     const ud = tmpRoot()
     const oldRoot = '/books/互斥甲'
     const newRoot = '/books/互斥乙'
@@ -65,17 +65,17 @@ describe('R73-38 / per-book 迁移锁', () => {
     __setSessionMigrateLockTimeoutForTest(80)
     const release = acquireCrossProcessLockWithTimeout(sessionMigrateLockPath(ud, oldRoot), 1_000)
     expect(release).not.toBeNull()
-    expect(migrateBookSession(ud, oldRoot, newRoot, '互斥甲', '互斥乙')).toBe(false)
+    expect(await migrateBookSession(ud, oldRoot, newRoot, '互斥甲', '互斥乙')).toBe(false)
     expect(existsSync(oldDb)).toBe(true)
     expect(existsSync(newDb)).toBe(false)
     release!()
-    expect(migrateBookSession(ud, oldRoot, newRoot, '互斥甲', '互斥乙')).toBe(true)
+    expect(await migrateBookSession(ud, oldRoot, newRoot, '互斥甲', '互斥乙')).toBe(true)
     const migrated = openSessionStore(ud, newRoot)!
     expect(migrated.listEvents('互斥乙').map((e) => e.type)).toContain('user/message')
     migrated.close()
   })
 
-  it('同书新路径持锁 → 迁移同样放弃（目标位互斥不漏）', () => {
+  it('同书新路径持锁 → 迁移同样放弃（目标位互斥不漏）', async () => {
     const ud = tmpRoot()
     const oldRoot = '/books/旧位'
     const newRoot = '/books/新位'
@@ -90,7 +90,7 @@ describe('R73-38 / per-book 迁移锁', () => {
     expect(release).not.toBeNull()
     // 修复前只锁旧路径口径下（若只拿 lock(old)），新位首开与 rename 窗口的互斥会漏；
     // 修复后迁移段新旧两把（hash 排序获取），任一被占即整体放弃
-    expect(migrateBookSession(ud, oldRoot, newRoot, '旧位', '新位')).toBe(false)
+    expect(await migrateBookSession(ud, oldRoot, newRoot, '旧位', '新位')).toBe(false)
     expect(existsSync(oldDb)).toBe(true)
     release!()
   })

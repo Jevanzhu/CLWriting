@@ -17,6 +17,7 @@ import { join } from 'node:path'
 import {
   writeVersion,
   readVersion,
+  readVersionRaw,
   pruneVersions,
   listVersionEntries,
   DEFAULT_VERSION_POLICY,
@@ -62,6 +63,17 @@ export function readSnapshot(
   return readVersion(snapshotsDir, docId, id) as { content: string; meta: SnapshotMeta & { time: number } } | null
 }
 
+/** R34D-18（三十四轮）：字节保真读的快照别名委托（readVersionRaw 的兼容层包装）——
+ *  恢复端点（api/snapshots.ts restore）用它取原字节，闭合 R26-52「写入保的字节可
+ *  无损读出」不变量的调用侧。 */
+export function readSnapshotRaw(
+  snapshotsDir: string,
+  docId: string,
+  id: string,
+): { content: Buffer; meta: SnapshotMeta & { time: number } } | null {
+  return readVersionRaw(snapshotsDir, docId, id) as { content: Buffer; meta: SnapshotMeta & { time: number } } | null
+}
+
 export function listSnapshotEntries(
   snapshotsDir: string,
   docId: string,
@@ -79,8 +91,9 @@ export function pruneSnapshots(
   return pruneVersions(snapshotsDir, docId, policy, now)
 }
 
-/** 读全局保留策略（userData/global.json 的 snapMaxDays / snapMaxCount，三层链的中间层：
- *  book.yaml snapshots → global.json snapMax* → 硬编码默认）。
+/** 读全局保留策略（userData/global.json 的 snapMaxDays / snapMaxCount，两层链的全局层：
+ *  global.json snapMax* → 硬编码默认。R34D-20（三十四轮）校正：book.yaml snapshots
+ *  书级段 2026-08-19 起已砍除，不参与解析——三层链旧说法作废）。
  *  容错：目录未定位 / 文件不存在 / JSON 损坏 / 值非正整数 → 该项 undefined（上层继续回退）。 */
 export function readGlobalSnapshotPolicy(userDataPath: string | null): { maxDays?: number; maxCount?: number } {
   if (!userDataPath) return {}

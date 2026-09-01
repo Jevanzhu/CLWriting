@@ -224,6 +224,9 @@ export function useChapterTreeActions(deps: {
         await doc.refresh(e.docId)
       }
     } catch (err) {
+      // R34D-21（三十四轮）：catch 补切书守卫（对齐 doBatchFinalize 的 R71-28 先例）——
+      // 请求失败落 catch 时若已切书，A 书的报错不得写进 B 书界面（静默丢弃旧书报错）
+      if (deps.bookName() !== book) return
       deps.openError.value = friendlyError(err)
     }
   }
@@ -257,6 +260,8 @@ export function useChapterTreeActions(deps: {
         ws.openTab(fresh.docId)
       }
     } catch (e) {
+      // R34D-21：catch 补切书守卫（对齐 R71-28）——切书后旧书报错不写新书界面
+      if (deps.bookName() !== bookName) return
       deps.openError.value = friendlyError(e)
     }
   }
@@ -289,7 +294,8 @@ export function useChapterTreeActions(deps: {
     }
     const seed =
       kind === 'chapter' || kind === 'chapter-outline'
-        ? `${nextChapterNo()}-未命名`
+        // R34D-26：种子补零走 chapterFilePrefix 单源（按本书宽度口径）——原完全不补零
+        ? `${chapterFilePrefix(nextChapterNo(), bodyPadKind())}未命名`
         : kind === 'volume-outline'
           ? `卷纲_第${volumeCount() + 1}卷`
           : ''
@@ -312,7 +318,9 @@ export function useChapterTreeActions(deps: {
     creating.value = null
     const relPath =
       c.kind === 'volume'
-        ? `${c.fsDir}/${name}/${nextChapterNo()}-未命名.md`
+        // R34D-26：卷内首章文件名补零走单源（原完全不补零）。卷名目录段 ${name}/ 不可丢
+        //（e2e tree-ops 实证：丢段后首章落正文根、卷节点永不出现——树按目录派生卷）
+        ? `${c.fsDir}/${name}/${chapterFilePrefix(nextChapterNo(), bodyPadKind())}未命名.md`
         : `${c.fsDir}/${name}.md`
     // 按类型给初始模板（C5，降低空白页阻力）；volume=建卷即建首章，首章空正文即可
     const content = buildCreateContent(c.kind, name, c.seed)
@@ -328,6 +336,8 @@ export function useChapterTreeActions(deps: {
         ws.openTab(fresh.docId)
       }
     } catch (e) {
+      // R34D-21：catch 补切书守卫（对齐 R71-28）——切书后旧书报错不写新书界面
+      if (deps.bookName() !== book) return
       deps.openError.value = friendlyError(e)
     }
   }
@@ -392,6 +402,8 @@ export function useChapterTreeActions(deps: {
         if (fresh) entry.path = fresh.path
       }
     } catch (e) {
+      // R34D-21：catch 补切书守卫（对齐 R71-28）——切书后旧书报错不写新书界面
+      if (deps.bookName() !== book) return
       deps.openError.value = friendlyError(e)
     }
   }
@@ -420,6 +432,8 @@ export function useChapterTreeActions(deps: {
       clearFalsePositiveMarksForDoc(book, node.docId)
       if (deps.bookName() === book) await tree.load(book)
     } catch (e) {
+      // R34D-21：catch 补切书守卫（对齐 R71-28）——切书后旧书报错不写新书界面
+      if (deps.bookName() !== book) return
       deps.openError.value = friendlyError(e)
     }
   }
@@ -440,6 +454,8 @@ export function useChapterTreeActions(deps: {
         if (fresh) entry.path = fresh.path
       }
     } catch (e) {
+      // R34D-21：catch 补切书守卫（对齐 R71-28）——切书后旧书报错不写新书界面
+      if (deps.bookName() !== book) return
       deps.openError.value = friendlyError(e)
     }
   }
@@ -458,8 +474,9 @@ export function useChapterTreeActions(deps: {
     // 同 meta：章号/标题从 name 提取（path 是完整相对路径）
     const parsed = parseChapterFileName(node.name)
     const title = parsed?.标题 ?? node.name
-    // M-4（第十一轮）：补零宽度走 chapterFilePrefix 单源（与服务端草稿新建/改名同口径）
-    const no = chapterFilePrefix(nextChapterNo(), 'chapter')
+    // M-4（第十一轮）：补零宽度走 chapterFilePrefix 单源（与服务端草稿新建/改名同口径）；
+    // R34D-26（三十四轮）：宽度按本书口径推断（原硬编码 'chapter'——短篇书副本也 4 位）
+    const no = chapterFilePrefix(nextChapterNo(), bodyPadKind(node))
     const relPath = `写作/正文/${no}${title} 副本.md`
     // L-F2（第八轮）：同 onCreateCommit——await 前捕获书名 + 守卫
     const book = deps.bookName()
@@ -473,11 +490,45 @@ export function useChapterTreeActions(deps: {
         ws.openTab(fresh.docId)
       }
     } catch (e) {
+      // R34D-21：catch 补切书守卫（对齐 R71-28）——切书后旧书报错不写新书界面
+      if (deps.bookName() !== book) return
       deps.openError.value = friendlyError(e)
     }
   }
 
   // --- 树数据便捷取值（grouped/raw 就地取）---
+
+  /**
+   * R34D-26（三十四轮）：本书正文文件名的补零宽度口径（M-4 权威口径：长篇 4 位 /
+   * 短篇 3 位，写侧一律经 chapterFilePrefix 单源）。服务端 wire 不产 'piece-body'
+   * role（layout.ts 口径注记，勿依赖 role 判短篇），前端以正文目录既有文件名的实际
+   * 补零宽度反推本书口径：被操作文件自身优先（doCopy 的源文件），否则扫全树——
+   * 见 3 位补零（001-）→ 短篇 piece；见 4 位（0001-）→ 长篇 chapter（两态并存时
+   * 长篇优先，混用属 legacy 病态）；全无补零（空书/legacy 无补零）→ 回落长篇
+   * chapter（维持 M-4 既有行为）。章号 ≥1000 时两种宽度产物相同，误推无实害。
+   * 此前 doCopy 硬编码 'chapter'（短篇书副本也 4 位）、新建种子（startCreate/
+   * onCreateCommit 卷内首章）完全不补零，三口径并存（评审 R34D-26）。
+   */
+  function bodyPadKind(src?: TreeNode): 'chapter' | 'piece' {
+    if (src) {
+      if (/^0\d{3}-/.test(src.name)) return 'chapter'
+      if (/^0\d{2}-/.test(src.name)) return 'piece'
+    }
+    let sawPiece = false
+    let sawChapter = false
+    const walk = (ns: TreeNode[]): void => {
+      for (const n of ns) {
+        if (!n.isDirectory && n.path.startsWith('写作/正文/')) {
+          if (/^0\d{3}-/.test(n.name)) sawChapter = true
+          else if (/^0\d{2}-/.test(n.name)) sawPiece = true
+        }
+        if (n.children.length) walk(n.children)
+      }
+    }
+    walk(tree.grouped)
+    return sawPiece && !sawChapter ? 'piece' : 'chapter'
+  }
+
   function nextChapterNo(): number {
     return nextChapterNoIn(tree.grouped)
   }

@@ -30,7 +30,7 @@ import { runCheckForDocument, checkOutcomeStatus, forgetTreeIssuesCache } from '
 import { buildReviewPacket, collectReviewIssues, COMBINED_ISSUES_FILE } from '../../../review/run.js'
 import type { ReviewLensPacket } from '../../../review/run.js'
 import type { ReviewTier } from '../../../review/contract.js'
-import { writeAnalysis, readAnalysis, sourceHashOf } from '../../../document/analysis.js'
+import { writeAnalysisAsync, readAnalysis, sourceHashOf } from '../../../document/analysis.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
 import { reviewSpec } from '../../../ai/tasks/specs.js'
 import { resolveTier } from '../../../ai/provider/index.js'
@@ -229,7 +229,8 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
           const collected = collectReviewIssues({ packet: built.packet })
           // P2-7：信封 model 记实际供应商/模型名（不再写死 'cc'）
           const prov = process.env['CLWRITING_DRIVER'] === 'mock' ? null : (ctx.userDataPath ? currentProvider(ctx.userDataPath) : null)
-          writeAnalysis(bookRoot, docId, 'review', {
+          // R34D-19（三十四轮）：写信封走异步孪生（锁等待不阻塞服务事件循环）
+          await writeAnalysisAsync(bookRoot, docId, 'review', {
             generatedAt: new Date().toISOString(),
             model: prov ? `${prov.name}/${resolveTier(ctx.userDataPath, 'assistant').model}` : 'mock',
             sourceHash, // CC-P1-2：进 prompt 时的稿（见上）——与 payload 同源，不重读
@@ -290,7 +291,8 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
       const latest = readAnalysis(bookRoot, docId, 'review') ?? existing
       const latestPayload = (latest?.payload as { collected?: unknown; lenses?: string[] } | undefined) ?? {}
       const payload = { ...latestPayload, verdict }
-      writeAnalysis(bookRoot, docId, 'review', {
+      // R34D-19（三十四轮）：写信封走异步孪生（锁等待不阻塞服务事件循环）
+      await writeAnalysisAsync(bookRoot, docId, 'review', {
         generatedAt: latest?.generatedAt ?? existing?.generatedAt ?? new Date().toISOString(),
         model: 'author',
         sourceHash: latest?.sourceHash ?? existing?.sourceHash ?? sourceHashOf(body),

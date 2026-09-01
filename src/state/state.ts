@@ -202,9 +202,12 @@ export function detectState(bookRoot: string, config: BookConfig, manifest?: Man
 
 /** 健康检查异常项（去 git：journal 崩溃恢复 + 网盘副本扫描 + 定稿文件丢失 + 布线缺失）。
  *  R29-8（二十九轮）：kind 联合新增 'wiringMissing'（长篇书 布线/ 目录缺失，防吃书闸
- *  与账本回写静默失效的观测项）。 */
+ *  与账本回写静默失效的观测项）。
+ *  R34D-4（三十四轮）：kind 联合新增 'manifestEmpty'（清单在册可读但零文档条目、而正文区
+ *  存在章节 .md 的哨兵——读侧三防线把解析级全损当合法空集 fail-open 的可见化；只加可见
+ *  哨兵，不新增写阻断路径）。 */
 export interface HealthIssue {
-  kind: 'crashedWrite' | 'cloudCopy' | 'finalizedLost' | 'wiringMissing'
+  kind: 'crashedWrite' | 'cloudCopy' | 'finalizedLost' | 'wiringMissing' | 'manifestEmpty'
   humanMsg: string
   fix: string
   files?: string[]
@@ -326,6 +329,13 @@ function healthCheck(bookRoot: string, manifest: Manifest): HealthIssue[] {
   if (sweptTmp > 0) {
     log.info('state', `已清扫 ${sweptTmp} 个崩溃残留的临时文件（atomicWrite 半途崩溃遗留）`)
   }
+  // R34D-16（三十四轮）：孤儿 journal 归档（`.orphaned-<ts>`，R69-4 改名产物）超龄清扫
+  // ——sweep 只管 .tmp/.lock，归档改名后无清理机制长期堆积。30 天 mtime 判定（远宽于
+  // tmp 的 5 分钟：归档是「可手工恢复」的保留数据面），不产 issue，纯卫生，留痕即可。
+  const sweptOrphaned = sweepOrphanedJournalArchives(bookRoot)
+  if (sweptOrphaned > 0) {
+    log.info('state', `已清扫 ${sweptOrphaned} 个超龄孤儿 journal 归档（.orphaned-*，30 天无人认领）`)
+  }
   if (cloudCopies.length > 0) {
     issues.push({
       kind: 'cloudCopy',
@@ -333,6 +343,31 @@ function healthCheck(bookRoot: string, manifest: Manifest): HealthIssue[] {
       fix: '对比副本和原文件，确认哪份是真内容后删掉多余的；警示同步盘风险（建议关掉书仓库的同步盘）。',
       files: cloudCopies,
     })
+  }
+
+  // ⑤ R34D-4（三十四轮）：清单「在册可读但零条可解析」哨兵——readManifest 对坏行静默
+  // 跳过、finalizedPathSet/finalizedChapterSetOfBook 把解析级全损当合法空集（定稿防覆盖
+  // 闸 ensureChapterNotFinalized 由此 fail-open，可静默覆盖已定稿章），且坏清单的下次写
+  // 会把空表物理落盘永久化。清单文件存在且可读、解析后 0 条文档条目、而 写作/正文 树扫描
+  // 存在章节 .md → 报红健康项交作者裁决。**只加可见哨兵，不新增写阻断路径**（避免行为面
+  // 扩大；数据恢复面由 manifest.ts 写前 .bak 影子承接）。
+  const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
+  if (existsSync(manifestPath)) {
+    let readable = true
+    try {
+      readFileSync(manifestPath)
+    } catch {
+      readable = false // 读失败（EACCES/EBUSY 瞬态）：与 M-13 口径一致不误报
+    }
+    const docEntries = [...manifest.entries.values()].filter((e) => e.nodeType === 'document').length
+    if (readable && docEntries === 0 && maxFileNameChapter(join(bookRoot, '写作', '正文')) > 0) {
+      issues.push({
+        kind: 'manifestEmpty',
+        humanMsg: '文档清单在册可读却没有任何文档记录，而正文区存在章节文件——清单可能被外部清空或损坏，定稿防覆盖闸已失效。',
+        fix: '从 项目/文档清单.jsonl.bak（上一份好内容的影子副本）恢复清单；恢复后重进本书，再核对定稿章是否齐全。',
+        files: ['项目/文档清单.jsonl'],
+      })
+    }
   }
 
   return issues
@@ -408,6 +443,36 @@ function healMovePending(
 
 function journalDir(bookRoot: string): string {
   return join(bookRoot, '工作区', '.journal')
+}
+
+/** R34D-16（三十四轮）：孤儿 journal 归档超龄清理门槛——30 天（毫秒）。
+ *  归档（`<名>.jsonl.orphaned-<ts>`，R69-4 改名产物）是「可手工恢复」的保留数据面，
+ *  门槛远宽于 tmp 的 5 分钟：超 30 天 mtime 无变化即视为作者已放弃恢复，不再永久堆积。 */
+const ORPHANED_JOURNAL_MIN_AGE_MS = 30 * 24 * 60 * 60 * 1000
+
+/** R34D-16（三十四轮）：清扫超龄孤儿 journal 归档（sweep 既有 best-effort 风格：
+ *  目录不可读整体放弃、单项 stat/unlink 失败逐项跳过；mtime 判定，返回清除数）。 */
+function sweepOrphanedJournalArchives(bookRoot: string, now: number = Date.now()): number {
+  let entries: import('node:fs').Dirent[]
+  try {
+    entries = readdirSync(journalDir(bookRoot), { withFileTypes: true })
+  } catch {
+    return 0
+  }
+  let removed = 0
+  for (const ent of entries) {
+    // R69-4 改名形态唯一：`<原名>.orphaned-<毫秒时间戳>`；手放的 `._` AppleDouble 不匹配
+    if (!ent.isFile() || !/\.orphaned-\d+$/.test(ent.name)) continue
+    try {
+      const full = join(journalDir(bookRoot), ent.name)
+      if (now - Math.floor(statSync(full).mtimeMs) < ORPHANED_JOURNAL_MIN_AGE_MS) continue
+      rmSync(full, { force: true })
+      removed++
+    } catch {
+      /* 单项失败跳过（并发消失/权限） */
+    }
+  }
+  return removed
 }
 
 /** R69-4（十七轮）：判定 journal 是否孤儿（对其报红 = 永久幽灵）。保守三重证实：

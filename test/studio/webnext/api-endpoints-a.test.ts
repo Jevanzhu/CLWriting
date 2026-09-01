@@ -34,7 +34,7 @@ import {
 } from '../../../src/studio/web-next/src/api/snapshots'
 import { runCheck, markFalsePositive } from '../../../src/studio/web-next/src/api/check'
 import { runLearn, runLearnCommit } from '../../../src/studio/web-next/src/api/learn'
-import { boot } from '../../../src/studio/web-next/src/api/client'
+import { boot, ApiError } from '../../../src/studio/web-next/src/api/client'
 
 interface Call { url: string; init: RequestInit | undefined }
 
@@ -165,6 +165,27 @@ describe('api 书级操作 · books/shelf', () => {
     await putConfig('书 A', { kind: 'long', book: { title: '新' } })
     expect(lastCall().init?.method).toBe('PUT')
     expect(jsonBody(lastCall())).toEqual({ config: { kind: 'long', book: { title: '新' } } })
+  })
+
+  it('R34D-25：putConfig 可选 expectedRevision 随 body 上送；409 失配经 apiJson 抛 ApiError（GG-P2-7 同族）', async () => {
+    stubFetch(() => ok({ ok: true }))
+    await putConfig('书 A', { kind: 'long', book: { title: '新' } }, 7)
+    expect(jsonBody(lastCall())).toEqual({
+      config: { kind: 'long', book: { title: '新' } },
+      expectedRevision: 7, // 修复点：乐观锁版本随负载上送（不传 = 直通，向后兼容）
+    })
+    // 服务端失配回 409（双标签页后写者拦截）→ ApiError{status:409, code} 供调用方决断
+    stubFetch(() =>
+      new Response(JSON.stringify({ error: '配置已被其他窗口修改', code: 'REVISION_CONFLICT' }), {
+        status: 409,
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+    const err: unknown = await putConfig('书 A', { kind: 'long', book: { title: '再' } }, 6).catch((e) => e)
+    expect(err).toBeInstanceOf(ApiError)
+    expect((err as ApiError).status).toBe(409)
+    expect((err as ApiError).code).toBe('REVISION_CONFLICT')
+    expect((err as ApiError).message).toBe('配置已被其他窗口修改')
   })
 
   it('words-diary：GET / POST baseline', async () => {

@@ -111,7 +111,7 @@ describe('Y-P1-1 活跃会话跳过孤儿修复', () => {
 })
 
 describe('Y-P2-7 clearChatHistory 双钥匙清库', () => {
-  it('对话会话（bookName）与 workspace 会话（bookHash）都清', () => {
+  it('对话会话（bookName）与 workspace 会话（bookHash）都清', async () => {
     const ud = tmpRoot()
     const bookRoot = '/books/a'
     const store = openSessionStore(ud, bookRoot)!
@@ -120,7 +120,8 @@ describe('Y-P2-7 clearChatHistory 双钥匙清库', () => {
     const wsSid = store.workspaceSession(bookHash(bookRoot))
     store.appendEvent(wsSid, { type: 'llm/call', data: { task: 'chat' } })
     store.close()
-    clearChatHistory('书A', ud, bookRoot)
+    // R34D-19：clearChatHistory 转异步（清库走 openSessionStoreAsync 不阻塞事件循环）
+    await clearChatHistory('书A', ud, bookRoot)
     const s2 = openSessionStore(ud, bookRoot)!
     expect(s2.listEvents('书A')).toHaveLength(0)
     expect(s2.listEvents(bookHash(bookRoot))).toHaveLength(0)

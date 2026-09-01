@@ -20,10 +20,11 @@ export function registerCostStatsRoutes(ctx: CostStatsCtx): void {
   defineRoute('books.cost-stats', {
     method: 'GET',
     path: '/api/books/:name/cost-stats',
-    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
+    // R34D-19（三十四轮）：aggregateCost 转异步（事件库开库异步孪生），handler 随迁
+    handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
-      reply(res, 200, aggregateCost(ctx.userDataPath, r.bookRoot))
+      reply(res, 200, await aggregateCost(ctx.userDataPath, r.bookRoot))
     },
   })
 }

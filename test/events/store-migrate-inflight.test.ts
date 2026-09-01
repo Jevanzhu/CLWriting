@@ -24,7 +24,7 @@ afterEach(() => {
 })
 
 describe('N8 migrateBookSession 在途引用断言', () => {
-  it('refs>0（在途引用，含 refs==1）→ 迁移放弃 false 且源库原地保留；全部收口后迁移成功', () => {
+  it('refs>0（在途引用，含 refs==1）→ 迁移放弃 false 且源库原地保留；全部收口后迁移成功', async () => {
     const ud = tmpRoot()
     const oldRoot = '/books/n8-a'
     const newRoot = '/books/n8-b'
@@ -40,7 +40,7 @@ describe('N8 migrateBookSession 在途引用断言', () => {
     expect(existsSync(oldDb)).toBe(true)
 
     // refs=2（双开在途）→ N8 断言拦下：放弃迁移，源库原地完整
-    const r1 = migrateBookSession(ud, oldRoot, newRoot, '旧书名', '新书名')
+    const r1 = await migrateBookSession(ud, oldRoot, newRoot, '旧书名', '新书名')
     expect(r1).toBe(false)
     expect(existsSync(oldDb)).toBe(true)
     expect(existsSync(newDb)).toBe(false)
@@ -49,14 +49,14 @@ describe('N8 migrateBookSession 在途引用断言', () => {
 
     // 收口一个引用后 refs=1 → R64-8：首个在途调用方同样是活跃持有者，仍拦
     s2.close()
-    const r2 = migrateBookSession(ud, oldRoot, newRoot, '旧书名', '新书名')
+    const r2 = await migrateBookSession(ud, oldRoot, newRoot, '旧书名', '新书名')
     expect(r2).toBe(false)
     expect(existsSync(oldDb)).toBe(true)
     expect(existsSync(newDb)).toBe(false)
 
     // 全部收口（refs=0 真关+清缓存）→ 迁移成功
     s1.close()
-    const r3 = migrateBookSession(ud, oldRoot, newRoot, '旧书名', '新书名')
+    const r3 = await migrateBookSession(ud, oldRoot, newRoot, '旧书名', '新书名')
     expect(r3).toBe(true)
     expect(existsSync(oldDb)).toBe(false)
     expect(existsSync(newDb)).toBe(true)

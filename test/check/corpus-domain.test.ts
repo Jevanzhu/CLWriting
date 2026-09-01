@@ -325,6 +325,46 @@ describe('R63-13/R63-11：corpus:commit checkId 消毒与存量保护', () => {
     // 原文件保持原样——不是按空数组整写覆盖（那会静默清掉既有条目）
     expect(readFileSync(join(outDir, 'body-parts.json'), 'utf8')).toBe(before)
   })
+
+  // R34D-6（三十四轮）：空集路径退出码哨兵——勾选行全部摘录解析失败（droppedExcerpts>0、
+  // all=[]）或全部落在被拒 checkId 节下时，原空列表分支无条件 exit(0) 短路尾部哨兵
+  //（拒绝/丢条不静默），语料门入库端假成功。修复后空集路径同判哨兵条件：
+  // 勾了但全军覆没 → exit 1（fail-closed）；真没勾 → exit 0 照旧。
+  it('R34D-6：勾选行全部解析失败（all=[] 且 droppedExcerpts>0）→ exit 1，不误报「无勾选条目」', () => {
+    // 摘录 JSON 坏形（\x 非法转义）：行匹配进解析但 JSON.parse 抛 → droppedExcerpts++
+    const root = makeCandidateBook(
+      ['### checkId: body-parts', '- [x] 章号 2 ｜ 判定：幸存 ｜ 摘录："眼睛\\x正文"（注）', ''].join('\n'),
+    )
+    const outDir = tmpDir('clw-corpus-empty-poison-')
+    const r = runCommit(root, outDir)
+    expect(r.stderr).toContain('未被解析')
+    expect(r.status).toBe(1) // 修复前：空集早退 exit(0) 短路尾部哨兵
+    expect(r.stdout).not.toContain('无勾选条目') // 文案区分「真没勾」与「勾了但全解析失败」
+    expect(r.stderr).toContain('0 条入库')
+    expect(existsSync(join(outDir, 'body-parts.json'))).toBe(false) // 零入库
+  })
+
+  it('R34D-6：勾选行全部落在被拒 checkId 节下（all=[] 且 rejectedCheckIds>0）→ exit 1', () => {
+    const root = makeCandidateBook(
+      ['### checkId: ../../evil', '- [x] 章号 1 ｜ 判定：幸存 ｜ 摘录："穿越正文"（注）', ''].join('\n'),
+    )
+    const outDir = tmpDir('clw-corpus-empty-reject-')
+    const r = runCommit(root, outDir)
+    expect(r.stderr).toContain('拒绝入库')
+    expect(r.status).toBe(1) // 修复前：空集早退 exit(0)——拒绝也不标红
+    expect(existsSync(join(outDir, '..', 'evil.json'))).toBe(false)
+  })
+
+  it('R34D-6：真没勾（无 [x] 行、零告警计数）→ exit 0 照旧（空集哨兵不误伤干净路径）', () => {
+    const root = makeCandidateBook(
+      ['### checkId: body-parts', '- [ ] 章号 2 ｜ 判定：幸存 ｜ 摘录："眼睛正文"（注）', ''].join('\n'),
+    )
+    const outDir = tmpDir('clw-corpus-empty-clean-')
+    const r = runCommit(root, outDir)
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('无勾选条目')
+    expect(existsSync(join(outDir, 'body-parts.json'))).toBe(false)
+  })
 })
 
 describe('R64-11（十二轮）：cutExcerpt 堆砌锚点汉字段收编 HANZI 单源（基本区+扩展 A）', () => {

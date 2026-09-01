@@ -374,7 +374,15 @@ export function createOpenAIResponsesProvider(
                   const hasOutput =
                     toolYielded || outText.length > 0 || Boolean(r.output?.some((it) => it.type === 'message' || it.type === 'function_call'))
                   if (!hasOutput) {
-                    yield { type: 'error', message: '模型返回空产出（Responses completed 无内容项）', retryable: false }
+                    // R34D-8（三十四轮）：空产出 error 同款随错上抛 usage（R32-2 口径——
+                    // 同文件另四条错误路径均已带）：上游 r.usage 在手即真值，否则走紧邻
+                    // R74-1 估计入账兜底
+                    yield {
+                      type: 'error',
+                      message: '模型返回空产出（Responses completed 无内容项）',
+                      retryable: false,
+                      usage: r.usage ? toUsage(r.usage) : estimateDoneUsage(),
+                    }
                     return
                   }
                   // R74-1：completed 无 usage（网关不回 usage）→ 估计入账兜底，

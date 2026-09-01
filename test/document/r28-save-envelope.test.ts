@@ -17,6 +17,7 @@ import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DocumentService } from '../../src/document/service.js'
+import { findUnsettled } from '../../src/document/journal.js'
 import { listVersions, readVersion, VERSIONS_DIR_NAME } from '../../src/document/version.js'
 import { computeRevision } from '../../src/document/revision.js'
 
@@ -48,15 +49,16 @@ describe('R28 保存链契约', () => {
 
   it('R28-5: 锁内 lookupPathByDocId 抛出 → save() resolve 出 WRITE_ERROR 信封（不 reject），锁已释放', async () => {
     // R31-19：锁内复核改走 lookupPathByDocIdAdoptAsync 异步收编孪生（非 legacy
-    // docId 仅清单命中读）——mock 其首次调用即抛，模拟收编链清单锁超时 fail-closed；
-    // 取锁前段仍走同步 lookupPathByDocId（真身，正常返回走到取锁）。恢复真身供
-    // 后续保存用（第二个 save 断言锁释放干净）。
+    // docId 仅清单命中读）——mock 其锁内调用即抛，模拟收编链清单锁超时 fail-closed。
+    // 残留清偿批（三十四轮）：executeSave 前段收编（R27-43 段）亦迁本孪生——保存链
+    // 上现为两次调用：第一次 = 前段（真跑放行走到取锁），第二次 = 锁内复核（本测
+    // 抛点）。恢复真身供后续保存用（第二个 save 断言锁释放干净）。
     const target = svc as unknown as { lookupPathByDocIdAdoptAsync: (id: string) => Promise<string | null> }
     const real = target.lookupPathByDocIdAdoptAsync.bind(svc)
     let calls = 0
     vi.spyOn(target, 'lookupPathByDocIdAdoptAsync').mockImplementation((id: string) => {
       calls++
-      if (calls === 1) return Promise.reject(new Error('清单锁获取超时（模拟 withManifestLockAsync 2×5s fail-closed）'))
+      if (calls === 2) return Promise.reject(new Error('清单锁获取超时（模拟 withManifestLockAsync 2×5s fail-closed）'))
       return real(id)
     })
     const rev1 = computeRevision(absPath)
@@ -67,7 +69,7 @@ describe('R28 保存链契约', () => {
       operationId: 'op-r28-5',
       origin: 'manual',
     })
-    expect(calls).toBe(1) // R31-19：锁内复核 = AdoptAsync 首次调用（抛点）
+    expect(calls).toBe(2) // R31-19 锁内复核 = 第二次 AdoptAsync 调用（残留清偿批后前段收编占第一次）
     expect(r.ok).toBe(false)
     if (!r.ok) {
       expect(r.code).toBe('WRITE_ERROR')
@@ -76,8 +78,8 @@ describe('R28 保存链契约', () => {
     }
     // 未落盘：正文一字未动
     expect(readFileSync(absPath, 'utf-8')).toBe(contentV1)
-    // 抛点在 appendPending 之前：无 journal 孤儿 pending
-    expect(svc.recover()).toHaveLength(0)
+    // 抛点在 appendPending 之前：无 journal 孤儿 pending（R34D-17：直测生产原语 findUnsettled）
+    expect(findUnsettled(join(bookRoot, '工作区', '.journal', `${docId.replace(/:/g, '_')}.jsonl`))).toHaveLength(0)
     // finally 生效：锁释放干净（锁文件不在盘），后续保存照常成功
     expect(existsSync(lockPath)).toBe(false)
     const r2 = await svc.save(docId, relPath, {

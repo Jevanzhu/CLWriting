@@ -144,6 +144,47 @@ describe('GUI API 集成链(设定台 P2)', () => {
     }
   })
 
+  // R34D-25（三十四轮）：GG-P2-7 乐观锁——GET 随配置回传内容指纹 revision（book.yaml
+  // 是作者手写文件，指纹而非 prefs 式内嵌计数键）；PUT 带可选 expectedRevision 比对，
+  // 失配 409（双标签页后写者不再静默覆盖先写者），缺省直通（旧客户端向后兼容）。
+  it('R34D-25: config 乐观锁——GET 回传指纹；PUT 失配 409 / 匹配 200 / 缺省直通', async () => {
+    const cfgUrl = `${baseUrl}/api/books/${encodeURIComponent(BOOK)}/config`
+    const put = (body: unknown) =>
+      fetch(cfgUrl, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json', 'X-Studio-Token': token },
+        body: JSON.stringify(body),
+      })
+
+    const g0 = (await (await fetch(cfgUrl)).json()) as { revision: number }
+    expect(typeof g0.revision).toBe('number')
+
+    // 失配（模拟另一标签页已写入后的旧指纹）→ 409 REVISION_CONFLICT
+    const stale = await put({
+      config: { spec_version: 1, book: { title: '测试书' }, leads: { enabled: [] }, budget: {}, growth: {} },
+      expectedRevision: g0.revision === 0 ? 1 : 0,
+    })
+    expect(stale.status).toBe(409)
+    expect(((await stale.json()) as { error: string }).error).toContain('已在其他窗口被修改')
+
+    // 匹配 → 200 回传写入后指纹；真实写入（改 title）使指纹变化，GET 回读一致
+    const ok = await put({
+      config: { spec_version: 1, book: { title: '测试书改' }, leads: { enabled: [] }, budget: {}, growth: {} },
+      expectedRevision: g0.revision,
+    })
+    expect(ok.status).toBe(200)
+    const next = ((await ok.json()) as { revision: number }).revision
+    expect(next).not.toBe(g0.revision)
+    const g1 = (await (await fetch(cfgUrl)).json()) as { revision: number }
+    expect(g1.revision).toBe(next)
+
+    // 缺省直通（不带 expectedRevision）→ 200；写回原标题恢复现场
+    const bare = await put({
+      config: { spec_version: 1, book: { title: '测试书' }, leads: { enabled: [] }, budget: {}, growth: {} },
+    })
+    expect(bare.status).toBe(200)
+  })
+
   it('GET /file 只允许读可编辑 Markdown，拒绝 book.yaml', async () => {
     const ok = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent('大纲/总纲.md')}`)
     expect(ok.ok).toBe(true)

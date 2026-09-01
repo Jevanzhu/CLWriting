@@ -427,14 +427,17 @@ export function parseRealmSystems(fmRaw: string): ParsedRealmSystem[] {
 
   for (const line of lines) {
     // 体系: 段开始
-    if (/^体系:\s*$/.test(line.trim())) {
+    // R34D-10（三十四轮）：三处键名冒号双认 `:`/`：`——此前只认半角，是 frontmatter
+    // 消费面唯一拒绝全角冒号的入口（parseFlat 的 firstKeyColon、HISTORY_ENTRY_RE 均
+    // 双认），手写全角冒号的境界体系段整体解析为空（成长线机检失明）。
+    if (/^体系[：:]\s*$/.test(line.trim())) {
       inRealms = true
       continue
     }
     if (!inRealms) continue
 
     // - 名称: xxx（新体系项）
-    const nameMatch = line.match(/^\s*-\s*名称:\s*(.*)$/)
+    const nameMatch = line.match(/^\s*-\s*名称[：:]\s*(.*)$/)
     if (nameMatch) {
       if (current) systems.push(current)
       current = { 名称: unquote(nameMatch[1]!.trim()), 序列: [] }
@@ -442,7 +445,7 @@ export function parseRealmSystems(fmRaw: string): ParsedRealmSystem[] {
     }
 
     // 序列: [a, b]（当前体系的序列）
-    const seqMatch = line.match(/^\s*序列:\s*(.*)$/)
+    const seqMatch = line.match(/^\s*序列[：:]\s*(.*)$/)
     if (seqMatch && current) {
       const val = parseValue(seqMatch[1]!)
       if (Array.isArray(val)) {

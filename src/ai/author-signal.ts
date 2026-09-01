@@ -11,7 +11,7 @@
 import { listAiVersions, readAiVersion } from '../git/ai-track.js'
 import { collectRuleViolations } from './rules/index.js'
 import { recordRuleHits } from './rule-hits.js'
-import { openSessionStore, bookHash } from '../events/store.js'
+import { openSessionStore, openSessionStoreAsync, bookHash } from '../events/store.js'
 import { authorSignalEvent } from '../events/chain-bridge.js'
 
 /** 作者删除信号只统计套话类规则（碎片文本对风格/设定/情节统计无意义） */
@@ -47,7 +47,8 @@ export async function recordAuthorSignal(
   if (userDataPath && violations.length > 0) {
     let store: ReturnType<typeof openSessionStore> | null = null
     try {
-      store = openSessionStore(userDataPath, bookRoot)
+      // R34D-19（三十四轮）：开库走异步孪生（首开锁等待不阻塞服务事件循环）
+      store = await openSessionStoreAsync(userDataPath, bookRoot)
       if (store) {
         const sessionId = store.workspaceSession(bookHash(bookRoot))
         store.appendEvents(

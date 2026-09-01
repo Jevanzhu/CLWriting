@@ -52,6 +52,9 @@ export function __setLeadFinalizeLockTimeoutForTest(ms: number): void {
  * 持锁核心共用的同一份数据（防两处各自解析漂移）。
  */
 export interface LeadUpdateTargets {
+  /** R34D-3（三十四轮）：书仓库根——持锁核心锁内重读本章推进源（主文件/归档）必需
+   *  （targets.updates 只是锁外预解析快照，锁窗内可被作者删改，见核心函数内注释）。 */
+  bookRoot: string
   mainPath: string
   archivePath: string
   mainIsThisChapter: boolean
@@ -89,7 +92,7 @@ export function resolveLeadUpdateTargets(bookRoot: string, chapterNo: number): L
       if (leadFile) files.set(u.leadId, leadFile.filePath)
     }
   }
-  return { mainPath, archivePath, mainIsThisChapter, updates, files }
+  return { bookRoot, mainPath, archivePath, mainIsThisChapter, updates, files }
 }
 
 /**
@@ -189,6 +192,9 @@ export async function applyLeadUpdates(bookRoot: string, chapterNo: number): Pro
  * 核心内禁止再取同名锁：同进程嵌套取同名锁会等到超时失败。锁内重读语义保留：
  * 每个布线文件的内容在写入前重读（readLead）——预取锁窗口内他进程可能已改写该线，
  * 预解析时的 lead 内容作废，读→改→写全程在锁内，lost update 窗口闭合。
+ * R34D-3（三十四轮）：重读面从「布线文件内容」扩到「本章推进源」——核心开头对
+ * 主文件/归档重跑 readChapterUpdatesForChapter（targets.bookRoot），履历条目以重读
+ * 结果为准（targets.updates 仅剩预取锁集的用途），residue 同源派生。
  *
  * 锁序说明（替代原 lead-finalize.ts:81-90 R26-6/R29-7 注释）：全仓统一锁序为
  * 「save 锁 → 布线锁 → 清单锁」——service 保存链持 save 锁后取布线锁、再进清单锁
@@ -203,7 +209,19 @@ export function applyLeadUpdatesLocked(
   let applied = 0
   /** M-6 通道扩展（R26-6）：未回写条目带原因——警告文本按原因给准确的处置指引。 */
   const unresolved: { u: ChapterLeadUpdate; why: 'not-found' | 'non-utf8' }[] = []
-  for (const u of targets.updates) {
+  // R34D-3（三十四轮）：持锁核心开头**锁内重读**本章推进源（主文件/归档）——
+  // targets.updates 是锁外预解析快照（finalize 在布线锁/清单锁外调 resolveLeadUpdateTargets），
+  // 账本推进.md 在编辑器白名单内，锁等待窗（布线锁+清单锁最长 ~10s）内作者可删改账目；
+  // 按陈旧快照回写会把旧措辞落履历、作者改后的新措辞被无痕清空（R33D-4 的锁内复核只查
+  // 章标签不查内容，同章编辑不设防）。以重读结果生成履历条目，三态对齐：
+  // - 窗内被改证据 → 以**新措辞**回写（回写=作者最新确认内容）；
+  // - 窗内被作者删除 → 不在重读结果 → 既不回写也不进 residue（尊重删除）；
+  // - 窗内新增条目 → files map 预解析时查无（布线锁只对预取集持有）→ 走既有 not-found
+  //   通道留本章源，下次定稿重解析自动重试——**绝不**对未持锁布线文件落写（写预取集外
+  //   文件 = 裸写，违反整批 fail-closed 纪律）。
+  // 幂等去重（章号+动词+证据）与 ：263 R33D-4 章标签复核保持不变。
+  const liveUpdates = readChapterUpdatesForChapter(targets.bookRoot, chapterNo)
+  for (const u of liveUpdates) {
     const filePath = targets.files.get(u.leadId)
     if (!filePath) {
       // M-6（第六轮）：查无此线不再随清空静默丢弃——此前混合场景（一条成功 + 一条查无）

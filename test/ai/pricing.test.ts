@@ -48,7 +48,7 @@ describe('D2 pricing 解析与金额计算', () => {
       ...over,
     }) as ProviderConf
 
-  it('provider 级价格生效；models 级同名键覆盖；都未配 → null', () => {
+  it('provider 级价格生效；models 级同名键覆盖；都未配 → null', async () => {
     const unpriced = pricingForProvider(baseProvider({}), 'm1')
     expect(unpriced).toBeNull()
     const providerLevel = pricingForProvider(baseProvider({ pricing: { inputPerMTok: 3, outputPerMTok: 15 } }), 'm1')
@@ -69,7 +69,7 @@ describe('D2 pricing 解析与金额计算', () => {
     expect(other).toBeNull()
   })
 
-  it('computeCallCost 四档分计；未配价 → null', () => {
+  it('computeCallCost 四档分计；未配价 → null', async () => {
     const pricing = { inputPerMTok: 3, outputPerMTok: 15, cacheReadPerMTok: 0.3, cacheWritePerMTok: 3.75 }
     const cost = computeCallCost(pricing, {
       inputTokens: 1_000_000,
@@ -84,7 +84,7 @@ describe('D2 pricing 解析与金额计算', () => {
   // M-1：OpenAI 线 usage 已在适配器边界归一成「inputTokens 不含 cache 命中」——同一
   // 份四档公式对两协议同时成立。锚：OpenAI 真实 50 prompt（40 命中）= 归一 10+40，
   // 金额 = 10×input价 + 40×cache读价，不得再按 50×input价 + 40×cache读价 双计
-  it('M-1 归一口径：OpenAI 形态（50 prompt / 40 cached）金额按 10×input + 40×cacheRead 计', () => {
+  it('M-1 归一口径：OpenAI 形态（50 prompt / 40 cached）金额按 10×input + 40×cacheRead 计', async () => {
     const pricing = { inputPerMTok: 3, outputPerMTok: 15, cacheReadPerMTok: 0.3 }
     const cost = computeCallCost(pricing, { inputTokens: 10, outputTokens: 3, cacheReadTokens: 40 })!
     expect(cost).toBeCloseTo((10 * 3 + 40 * 0.3 + 3 * 15) / 1e6, 12)
@@ -92,7 +92,7 @@ describe('D2 pricing 解析与金额计算', () => {
     expect(cost).toBeLessThan(doubleCounted) // 修复前口径虚高一个命中量
   })
 
-  it('resolveModelPricing：models[] 归属优先 → 当前 provider 兜底；无 → null', () => {
+  it('resolveModelPricing：models[] 归属优先 → 当前 provider 兜底；无 → null', async () => {
     const ud = tmpDir('clw-pricing-ud-')
     const store: ProviderStore = {
       providers: [
@@ -118,7 +118,7 @@ describe('D2 pricing 解析与金额计算', () => {
     expect(resolveModelPricing(ud, 'model-a')).toEqual({ inputPerMTok: 1 }) // 归属行覆盖 provider 级
   })
 
-  it('resolveModelPricing：当前 provider 无价且无归属行 → null（不跨 provider 拿价）', () => {
+  it('resolveModelPricing：当前 provider 无价且无归属行 → null（不跨 provider 拿价）', async () => {
     const ud = tmpDir('clw-pricing-ud2-')
     const store: ProviderStore = {
       providers: [
@@ -140,7 +140,7 @@ describe('D2 pricing 解析与金额计算', () => {
   // 第五轮 B-2：归属行存在但归属 provider 未配价 → 必须是未配价（null）——旧实现继续
   // 落到「当前 provider」的价格表，A 家模型按 B 家单价折算成本/预算，切 provider 还会
   // 追溯改写历史折算价。currentId 失效同理不得静默拿第一家兜底。
-  it('resolveModelPricing：归属 provider 未配价 / currentId 失效 → null（不借价、不拿第一家兜底）', () => {
+  it('resolveModelPricing：归属 provider 未配价 / currentId 失效 → null（不借价、不拿第一家兜底）', async () => {
     const ud = tmpDir('clw-pricing-ud3-')
     const mk = (currentId: string): ProviderStore =>
       ({
@@ -183,7 +183,7 @@ describe('D3 checkAiCallBudget 三口径', () => {
     )
   }
 
-  it('tokens 口径：全口径累计（input+output+cache 读写）超限拦截，人话含出路', () => {
+  it('tokens 口径：全口径累计（input+output+cache 读写）超限拦截，人话含出路', async () => {
     writeRecord(3, 2, { inputTokens: 400_000, outputTokens: 50_000, cacheReadTokens: 100_000, cacheWriteTokens: 50_000 })
     const r = checkAiCallBudget(root, 3, cfg({ tokens_per_chapter: 500_000 }))
     expect(r.ok).toBe(false)
@@ -197,7 +197,7 @@ describe('D3 checkAiCallBudget 三口径', () => {
     if (ok.ok) expect(ok.usedTokens).toBe(600_000)
   })
 
-  it('cost 口径：记账有 costAccum（已配价）才拦截——未配价静默不生效', () => {
+  it('cost 口径：记账有 costAccum（已配价）才拦截——未配价静默不生效', async () => {
     writeRecord(3, 2, { costAccum: 1.2 })
     const blocked = checkAiCallBudget(root, 3, cfg({ cost_per_chapter: 1 }))
     expect(blocked.ok).toBe(false)
@@ -208,14 +208,14 @@ describe('D3 checkAiCallBudget 三口径', () => {
     expect(pass.ok).toBe(true)
   })
 
-  it('次数口径不回归（先于双口径判定）', () => {
+  it('次数口径不回归（先于双口径判定）', async () => {
     writeRecord(3, 8, {})
     const r = checkAiCallBudget(root, 3, cfg({}))
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.reason).toContain('上限 8')
   })
 
-  it('effectiveRemainingCalls：三口径取最紧折算', () => {
+  it('effectiveRemainingCalls：三口径取最紧折算', async () => {
     // 次剩 6/8（75% 剩），token 已用 90%（100k/…）→ 最紧 token → 剩 ≈ ceil(0.1*8)=1
     writeRecord(3, 2, { inputTokens: 90_000, outputTokens: 0 })
     expect(effectiveRemainingCalls(root, 3, cfg({ tokens_per_chapter: 100_000 }))).toBe(1)
@@ -226,7 +226,7 @@ describe('D3 checkAiCallBudget 三口径', () => {
     expect(effectiveRemainingCalls(root, 3, cfg({ cost_per_chapter: 1 }))).toBe(1)
   })
 
-  it('effectiveRemainingCalls：超限 → 0（三审降档不误判额度充足）', () => {
+  it('effectiveRemainingCalls：超限 → 0（三审降档不误判额度充足）', async () => {
     // 次数口径耗尽（8/8 → ok=false）：此前误提前返回满额 limit，三审降档拿到
     // 「额度充足」不降档——与「取最紧折算剩余」的注释语义相反
     writeRecord(7, 8, {})
@@ -236,12 +236,12 @@ describe('D3 checkAiCallBudget 三口径', () => {
     expect(effectiveRemainingCalls(root, 8, cfg({ tokens_per_chapter: 100_000 }))).toBe(0)
   })
 
-  it('effectiveRemainingCalls：calls_per_chapter: 0 → 0（0/0 产出 NaN 等同额度无限）', () => {
+  it('effectiveRemainingCalls：calls_per_chapter: 0 → 0（0/0 产出 NaN 等同额度无限）', async () => {
     // 病态配置防 NaN：limit=0 且无记录时 0/0=NaN，下游一切比较恒 false
     expect(effectiveRemainingCalls(root, 9, cfg({ calls_per_chapter: 0 }))).toBe(0)
   })
 
-  it('recordAiCall 金额累计（costUsd 传入时；浮点噪声 1e-10 归一）', () => {
+  it('recordAiCall 金额累计（costUsd 传入时；浮点噪声 1e-10 归一）', async () => {
     recordAiCall(root, 5, { inputTokens: 1000, outputTokens: 100 }, 0.1)
     recordAiCall(root, 5, { inputTokens: 1000, outputTokens: 100 }, 0.2)
     const raw = JSON.parse(readFileSync(join(root, '.cache', 'ai-calls.json'), 'utf8')) as { chapter: { costAccum: number; used: number } }
@@ -257,7 +257,7 @@ describe('D3 checkAiCallBudget 三口径', () => {
 // ── D2 cost-stats 聚合 ───────────────────────────────────────────────
 
 describe('D2 cost-stats 聚合', () => {
-  it('llm/call × 价格表：按日/按章/按任务聚合；未配价模型进 unpricedModels', () => {
+  it('llm/call × 价格表：按日/按章/按任务聚合；未配价模型进 unpricedModels', async () => {
     const ud = tmpDir('clw-cost-ud-')
     const root = tmpDir('clw-cost-book-')
     const store: ProviderStore = {
@@ -304,7 +304,7 @@ describe('D2 cost-stats 聚合', () => {
       es.close()
     }
 
-    const stats = aggregateCost(ud, root)
+    const stats = await aggregateCost(ud, root)
     expect(stats.enabled).toBe(true)
     // model-x 命中 provider 级价（1M*3 + 0.2M*15 = 6）；model-unpriced 无归属行 →
     // 兜底当前 provider（p1，有价）按 provider 级计（0.5M*3 = 1.5）——网关下未知模型按网关价
@@ -320,7 +320,7 @@ describe('D2 cost-stats 聚合', () => {
 
   // Q-12（第十五轮）：判跳改看 usage——失败调用（边界中断等）可携真实 usage，
   // 按 ok 剔除会让报表系统性低于预算闸口径/真实账单
-  it('Q-12: 失败调用带真实 usage → 计入聚合；失败且无 usage 仍跳过', () => {
+  it('Q-12: 失败调用带真实 usage → 计入聚合；失败且无 usage 仍跳过', async () => {
     const ud = tmpDir('clw-cost-ud3-')
     const root = tmpDir('clw-cost-book3-')
     const store: ProviderStore = {
@@ -361,7 +361,7 @@ describe('D2 cost-stats 聚合', () => {
       es.close()
     }
 
-    const stats = aggregateCost(ud, root)
+    const stats = await aggregateCost(ud, root)
     expect(stats.enabled).toBe(true)
     // 带 usage 的失败调用按真实消耗折算（1M*3 + 0.1M*15 = 4.5）
     expect(stats.total).toBeCloseTo(4.5, 8)
@@ -369,7 +369,7 @@ describe('D2 cost-stats 聚合', () => {
     expect(stats.byChapter['7']!.cost).toBeCloseTo(4.5, 8)
   })
 
-  it('全书无价格表 → enabled:false（不显示 0）', () => {
+  it('全书无价格表 → enabled:false（不显示 0）', async () => {
     const ud = tmpDir('clw-cost-ud2-')
     const root = tmpDir('clw-cost-book2-')
     const es = openSessionStore(ud, root)!
@@ -381,19 +381,19 @@ describe('D2 cost-stats 聚合', () => {
     } finally {
       es.close()
     }
-    const stats = aggregateCost(ud, root)
+    const stats = await aggregateCost(ud, root)
     expect(stats.enabled).toBe(false)
     expect(stats.total).toBe(0)
     expect(stats.unpricedModels).toEqual(['m'])
     // 空事件库同样 enabled:false
-    expect(aggregateCost(ud, tmpDir('clw-cost-empty-')).enabled).toBe(false)
+    expect((await aggregateCost(ud, tmpDir('clw-cost-empty-'))).enabled).toBe(false)
   })
 })
 
 // ── budget 键解析/序列化 + global 托底 ────────────────────────────────
 
 describe('D3 budget 双口径键：解析/序列化/global 托底', () => {
-  it('book.yaml round-trip：设了才输出，解析保真', () => {
+  it('book.yaml round-trip：设了才输出，解析保真', async () => {
     const root = tmpDir('clw-budget-yaml-')
     const cfg: BookConfig = {
       spec_version: 1, book: { title: 't' }, leads: { enabled: [] }, growth: {},
@@ -411,7 +411,7 @@ describe('D3 budget 双口径键：解析/序列化/global 托底', () => {
     }
   })
 
-  it('applyGlobalDefaults：书级未设回落 global.tokensPerChapter/costPerChapter；书级覆盖赢', () => {
+  it('applyGlobalDefaults：书级未设回落 global.tokensPerChapter/costPerChapter；书级覆盖赢', async () => {
     const ud = tmpDir('clw-budget-global-')
     writeFileSync(join(ud, 'global.json'), JSON.stringify({ tokensPerChapter: 400_000, costPerChapter: 0.8 }))
     const cfg = { spec_version: 1, book: { title: 't' }, leads: { enabled: [] }, growth: {} } as unknown as BookConfig

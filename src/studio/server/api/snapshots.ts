@@ -5,10 +5,14 @@
  * GET  /api/books/:name/documents/:docId/snapshots/:id       → 单个版本内容（预览）
  * POST /api/books/:name/documents/:docId/snapshots/:id/restore → 恢复该版本
  *
- * 保留策略三层链：book.yaml snapshots → global.json snapMax*（全局默认）→ 硬编码 14 天 / 30 个。
+ * 保留策略两层链（2026-08-19 起只走全局，R34D-20 校正头注）：global.json snapMax*
+ * （全局）→ 硬编码 14 天 / 30 个。book.yaml snapshots 书级段已砍除，不再参与（旧值忽略）。
  *
  * 恢复走 DocumentService.save + origin='restore'，因此会自动再留一份当前内容的底
  * （maybeSnapshot 的 restore 分支 force 不节流）——恢复本身可再撤销。
+ * R34D-18（三十四轮）：恢复按字节保真读（readSnapshotRaw）——utf-8 档解码为精确
+ * 文本（journal 全文快照/字数口径照旧），非 UTF-8 字节档（R26-52 GBK 留底）原字节
+ * 透传 save，恢复不再强制失真（U+FFFD）。
  * 复用 documents.ts 的 service 缓存：两个队列会破坏串行写保证。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -18,9 +22,10 @@ import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { readBooks } from '../../../install/books.js'
-import { listSnapshotEntries, readSnapshot, pruneSnapshots, DEFAULT_SNAPSHOT_POLICY, readGlobalSnapshotPolicy } from '../../../document/snapshot.js'
+import { listSnapshotEntries, readSnapshot, readSnapshotRaw, pruneSnapshots, DEFAULT_SNAPSHOT_POLICY, readGlobalSnapshotPolicy } from '../../../document/snapshot.js'
 import { readManifest } from '../../../document/manifest.js'
 import { safeDocId } from '../../../fs/safe-path.js' // P3-1：docId 白名单校验共享（不内联手写）
+import { isUtf8Bytes } from '../../../document/service.js' // R34D-18：字节档判定共享（M-5 防线同源口径）
 import { readFile, parseFlat } from '../../../format/frontmatter.js'
 import { countWords } from '../../../format/words.js'
 import { ulid } from '../../../fs/id.js'
@@ -36,19 +41,21 @@ interface SnapshotCtx {
 
 /** 定位书 + 文档：返回 bookRoot 与文档相对路径。userDataPath 传给 DocumentService
  *  （缓存实例共享——先经此创建的实例也要带全局策略，否则恢复端点写时清理退化为两层链）。 */
-function resolveDoc(
+async function resolveDoc(
   workDir: string | null,
   name: string | undefined,
   docId: string,
   userDataPath: string | null = null,
-): { bookRoot: string; relPath: string; snapshotsDir: string } | { error: string; status: number; code: string } {
+): Promise<{ bookRoot: string; relPath: string; snapshotsDir: string } | { error: string; status: number; code: string }> {
   if (!workDir) return { error: '未定位到工作目录', status: 400, code: 'NO_WORKDIR' }
   if (!name) return { error: '缺少书名', status: 400, code: 'BAD_INPUT' }
   const entry = readBooks(workDir).find((b) => b.name === name)
   if (!entry) return { error: `没有这本书：${name}`, status: 404, code: 'NOT_FOUND' }
   const bookRoot = join(workDir, entry.path)
-  // docId → relPath（含 legacy 旧文件首次补登记，service.resolvePath → adoptLegacyDoc；这里不能换 resolveDocEntry——legacy 补登记是写操作）
-  const relPath = getOrCreateService(bookRoot, userDataPath).resolvePath(docId)
+  // docId → relPath（含 legacy 旧文件首次补登记，resolvePathAsync → 异步收编孪生；这里
+  // 不能换 resolveDocEntry——legacy 补登记是写操作。残留清偿批：原同步 resolvePath 的
+  // 收编段走 withManifestLock 同步睡，快照端点已改异步孪生不再阻塞事件循环）
+  const relPath = await getOrCreateService(bookRoot, userDataPath).resolvePathAsync(docId)
   if (!relPath) return { error: `文档ID未登记：${docId}`, status: 404, code: 'NOT_FOUND' }
   return { bookRoot, relPath, snapshotsDir: join(bookRoot, '工作区', '.版本') }
 }
@@ -198,9 +205,9 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
   defineRoute('books.documents.snapshots', {
     method: 'GET',
     path: '/api/books/:name/documents/:docId/snapshots',
-    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
+    handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const docId = params['docId'] ?? ''
-      const r = resolveDoc(ctx.workDir, params['name'], docId, ctx.userDataPath)
+      const r = await resolveDoc(ctx.workDir, params['name'], docId, ctx.userDataPath)
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       reply(res, 200, { ok: true, entries: listSnapshotEntries(r.snapshotsDir, docId, countWords) })
     },
@@ -210,9 +217,9 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
   defineRoute('books.documents.snapshots.get', {
     method: 'GET',
     path: '/api/books/:name/documents/:docId/snapshots/:id',
-    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
+    handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const docId = params['docId'] ?? ''
-      const r = resolveDoc(ctx.workDir, params['name'], docId, ctx.userDataPath)
+      const r = await resolveDoc(ctx.workDir, params['name'], docId, ctx.userDataPath)
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const snap = readSnapshot(r.snapshotsDir, docId, params['id'] ?? '')
       if (!snap) return replyError(res, 404, 'NOT_FOUND', '版本不存在')
@@ -226,10 +233,19 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
     path: '/api/books/:name/documents/:docId/snapshots/:id/restore',
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
       const docId = params['docId'] ?? ''
-      const r = resolveDoc(ctx.workDir, params['name'], docId, ctx.userDataPath)
+      const r = await resolveDoc(ctx.workDir, params['name'], docId, ctx.userDataPath)
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
-      const snap = readSnapshot(r.snapshotsDir, docId, params['id'] ?? '')
+      // R34D-18（三十四轮）：字节保真读——此前 readSnapshot 的 utf-8 文本视图对
+      // R26-52 字节档（非 UTF-8 源按原字节留底）必有损（U+FFFD 不可逆），恢复形同
+      // 虚设。utf-8 档解码回精确文本（合法 utf-8 字节 ↔ 字符串双射，journal 全文
+      // 快照/字数增量/回复体口径照旧）；非 UTF-8 字节档原 Buffer 透传 save 原字节
+      // 直存（save 侧 M-5 覆写防线对 Buffer 放行——该防线的威胁模型是文本往返
+      // 失真覆写，字节保真写不在其内）。
+      const snap = readSnapshotRaw(r.snapshotsDir, docId, params['id'] ?? '')
       if (!snap) return replyError(res, 404, 'NOT_FOUND', '版本不存在')
+      const content: string | Buffer = isUtf8Bytes(snap.content)
+        ? snap.content.toString('utf-8')
+        : snap.content
 
       const body = (await readJson(req)) as { expectedRevision?: unknown }
       const expectedRevision =
@@ -239,7 +255,7 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
       }
 
       const outcome = await getOrCreateService(r.bookRoot, ctx.userDataPath).save(docId, r.relPath, {
-        content: snap.content,
+        content,
         expectedRevision,
         operationId: ulid(),
         origin: 'restore',
@@ -250,7 +266,10 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
         // N-2（第十二轮）：收编 replyError 单一出口（去掉 ok:false 冗余位）
         return replyError(res, status, outcome.code, outcome.reason)
       }
-      reply(res, 200, { ok: true, revision: outcome.revision, content: snap.content })
+      // 回复体是编辑器缓冲区的文本视图：utf-8 档即原文；字节档为失真视图（编辑器
+      // 世界是 utf-8 文本，后续保存由 M-5 防线拦截提示先转码——不产生静默覆写）
+      const view = typeof content === 'string' ? content : content.toString('utf-8')
+      reply(res, 200, { ok: true, revision: outcome.revision, content: view })
     },
   })
 }

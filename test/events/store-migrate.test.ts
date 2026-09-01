@@ -34,7 +34,7 @@ afterEach(() => {
 })
 
 describe('migrateBookSession', () => {
-  it('迁移后新名可读到原会话（对话 + 工作区），旧库文件被移走', () => {
+  it('迁移后新名可读到原会话（对话 + 工作区），旧库文件被移走', async () => {
     const ud = tmpRoot()
     const oldRoot = '/books/旧名'
     const newRoot = '/books/新名'
@@ -51,7 +51,7 @@ describe('migrateBookSession', () => {
     expect(existsSync(oldDb)).toBe(true)
     expect(existsSync(newDb)).toBe(false)
 
-    migrateBookSession(ud, oldRoot, newRoot, '旧名', '新名')
+    await migrateBookSession(ud, oldRoot, newRoot, '旧名', '新名')
 
     // 旧库文件已移走、新库文件出现
     expect(existsSync(oldDb)).toBe(false)
@@ -67,15 +67,16 @@ describe('migrateBookSession', () => {
     migrated.close()
   })
 
-  it('userDataPath 为空 → no-op；旧库不存在 → no-op（不抛）', () => {
+  it('userDataPath 为空 → no-op；旧库不存在 → no-op（不抛）', async () => {
     const ud = tmpRoot()
-    expect(() => migrateBookSession(null, '/books/a', '/books/b', 'a', 'b')).not.toThrow()
-    expect(() => migrateBookSession(ud, '/books/a', '/books/b', 'a', 'b')).not.toThrow()
+    // R34D-19：migrateBookSession 转异步——not.toThrow 同步口径改 resolves（无拒绝 = 不抛）
+    await expect(migrateBookSession(null, '/books/a', '/books/b', 'a', 'b')).resolves.toBe(true)
+    await expect(migrateBookSession(ud, '/books/a', '/books/b', 'a', 'b')).resolves.toBe(true)
     // 没建过库 → 无新库文件产生
     expect(existsSync(join(ud, 'clwriting', 'session', bookHash('/books/b') + '.db'))).toBe(false)
   })
 
-  it('连接收口后迁移（R64-8：在途引用不再强迁，引用计数被清零后放行）', () => {
+  it('连接收口后迁移（R64-8：在途引用不再强迁，引用计数被清零后放行）', async () => {
     const ud = tmpRoot()
     const oldRoot = '/books/甲'
     const newRoot = '/books/乙'
@@ -85,7 +86,7 @@ describe('migrateBookSession', () => {
     // R64-8（十二轮）：refs>0 一律拦截（refs==1 的首个调用方同样是活跃持有者）——收口后再迁
     store.close()
 
-    expect(migrateBookSession(ud, oldRoot, newRoot, '甲', '乙')).toBe(true)
+    expect(await migrateBookSession(ud, oldRoot, newRoot, '甲', '乙')).toBe(true)
 
     const migrated = openSessionStore(ud, newRoot)!
     expect(migrated.listEvents('乙').length).toBeGreaterThan(0)
@@ -94,7 +95,7 @@ describe('migrateBookSession', () => {
     expect(() => store.close()).not.toThrow()
   })
 
-  it('持锁回归：另一连接 BEGIN EXCLUSIVE 持锁 → 返回 false 且源库原地完整；释放后重迁成功', () => {
+  it('持锁回归：另一连接 BEGIN EXCLUSIVE 持锁 → 返回 false 且源库原地完整；释放后重迁成功', async () => {
     const ud = tmpRoot()
     const oldRoot = '/books/锁甲'
     const newRoot = '/books/锁乙'
@@ -115,7 +116,7 @@ describe('migrateBookSession', () => {
 
     // 持锁迁移：checkpoint 忙 → 整体放弃（false）。此时一个文件都不许动——
     // 主库+侧车原地完整，绝不允许「主库已走、侧车滞留」的半搬状态
-    expect(migrateBookSession(ud, oldRoot, newRoot, '锁甲', '锁乙')).toBe(false)
+    expect(await migrateBookSession(ud, oldRoot, newRoot, '锁甲', '锁乙')).toBe(false)
     expect(existsSync(oldDb)).toBe(true)
     expect(existsSync(oldDb + '-wal')).toBe(true)
     expect(existsSync(oldDb + '-shm')).toBe(true)
@@ -129,7 +130,7 @@ describe('migrateBookSession', () => {
     // 释放锁后再迁 → 成功且数据完整、对话钥匙已改成新名
     holder.exec('ROLLBACK')
     holder.close()
-    expect(migrateBookSession(ud, oldRoot, newRoot, '锁甲', '锁乙')).toBe(true)
+    expect(await migrateBookSession(ud, oldRoot, newRoot, '锁甲', '锁乙')).toBe(true)
     expect(existsSync(oldDb)).toBe(false)
     expect(existsSync(oldDb + '-wal')).toBe(false)
     expect(existsSync(newDb)).toBe(true)
@@ -145,7 +146,7 @@ describe('migrateBookSession', () => {
   // busy（NTFS 文件共享语义，无法截断他句柄打开的文件）——迁移按设计 fail-closed 拒绝
   // （checkpoint 忙 → 整体放弃，源库原地完整，无数据丢失方向）。「他连接持库时仍可折叠
   // 迁移」这一守卫语义由 macOS/Linux CI 腿覆盖（J0 win 适配实测定性）
-  it.skipIf(process.platform === 'win32')('checkpoint 折叠：未 checkpoint 的写入（唯一副本在 -wal）迁移后新位置完整', () => {
+  it.skipIf(process.platform === 'win32')('checkpoint 折叠：未 checkpoint 的写入（唯一副本在 -wal）迁移后新位置完整', async () => {
     const ud = tmpRoot()
     const oldRoot = '/books/折甲'
     const newRoot = '/books/折乙'
@@ -175,7 +176,7 @@ describe('migrateBookSession', () => {
 
     // 迁移成功：WAL 在搬移前经显式 TRUNCATE 折叠进主库（见 store.ts 5.1-3）——
     // writer 仍开着（跨进程忘关的连接），已提交无持锁 → checkpoint 可折叠
-    expect(migrateBookSession(ud, oldRoot, newRoot, '折甲', '折乙')).toBe(true)
+    expect(await migrateBookSession(ud, oldRoot, newRoot, '折甲', '折乙')).toBe(true)
     // 旧位置整体清空（不留孤儿侧车），新位置数据完整、旧钥匙查不到
     expect(existsSync(oldDb)).toBe(false)
     expect(existsSync(oldDb + '-wal')).toBe(false)
@@ -189,7 +190,7 @@ describe('migrateBookSession', () => {
     writer.close()
   })
 
-  it('第十轮 M-1 回归：未关连接的强制迁移必须真关+清缓存，旧路径重开拿到全新空库而非别名已迁走库的僵尸句柄', () => {
+  it('第十轮 M-1 回归：未关连接的强制迁移必须真关+清缓存，旧路径重开拿到全新空库而非别名已迁走库的僵尸句柄', async () => {
     const ud = tmpRoot()
     // R67-2（十五轮）：改用真实目录路径——墓碑守卫按「旧书根目录是否仍在」分态：
     // 根目录在（同路径重新建书）→ 过期墓碑清除、放行新建空库；本例建模前者。
@@ -208,7 +209,7 @@ describe('migrateBookSession', () => {
     store.appendEvents(sid, [{ type: 'user/message', data: { message: '僵尸数据' }, surfaceOp: 'append' }])
     store.close()
 
-    expect(migrateBookSession(ud, oldRoot, newRoot, '僵甲', '僵乙')).toBe(true)
+    expect(await migrateBookSession(ud, oldRoot, newRoot, '僵甲', '僵乙')).toBe(true)
     expect(existsSync(oldDb)).toBe(false)
     expect(existsSync(newDb)).toBe(true)
 
@@ -228,7 +229,7 @@ describe('migrateBookSession', () => {
     expect(() => store.close()).not.toThrow()
   })
 
-  it('kk-P2-3 目标位已有库 → 返回 false 放弃（renameSync 静默覆盖防线），两侧数据都不动', () => {    const ud = tmpRoot()
+  it('kk-P2-3 目标位已有库 → 返回 false 放弃（renameSync 静默覆盖防线），两侧数据都不动', async () => {    const ud = tmpRoot()
     const oldRoot = '/books/碰甲'
     const newRoot = '/books/碰乙'
     const oldDb = join(ud, 'clwriting', 'session', bookHash(oldRoot) + '.db')
@@ -246,7 +247,7 @@ describe('migrateBookSession', () => {
     expect(existsSync(newDb)).toBe(true)
 
     // 迁移放弃（false），绝不覆盖目标位
-    expect(migrateBookSession(ud, oldRoot, newRoot, '碰甲', '碰乙')).toBe(false)
+    expect(await migrateBookSession(ud, oldRoot, newRoot, '碰甲', '碰乙')).toBe(false)
     expect(existsSync(oldDb)).toBe(true)
     const probeOld = new DatabaseSync(oldDb)
     expect((probeOld.prepare("SELECT COUNT(*) AS n FROM events WHERE type = 'user/message'").get() as { n: number }).n).toBe(1)
@@ -259,7 +260,7 @@ describe('migrateBookSession', () => {
   // R32-4（三十二轮）：迁移崩溃窗自愈——「rename 成功、钥匙 UPDATE 未及 COMMIT」的
   // 半迁移态（旧库缺失+墓碑在位+新库在位但两把钥匙仍旧名）此前被早退分支吞掉
   // （return true 永不补跑），对话史/工作区事件视图在新旧两头都查不到（「消失」）。
-  it('R32-4: 半迁移态（文件已搬、钥匙未改）重试 → 幂等补跑钥匙 UPDATE，新旧两头恢复可读', () => {
+  it('R32-4: 半迁移态（文件已搬、钥匙未改）重试 → 幂等补跑钥匙 UPDATE，新旧两头恢复可读', async () => {
     const ud = tmpRoot()
     const oldRoot = '/books/愈甲'
     const newRoot = '/books/愈乙'
@@ -288,7 +289,7 @@ describe('migrateBookSession', () => {
     expect(oldKeyRows.n).toBeGreaterThan(0)
 
     // 作者重试改名到达：早退分支不得吞掉——幂等补跑两条 UPDATE 后自愈
-    expect(migrateBookSession(ud, oldRoot, newRoot, '愈甲', '愈乙')).toBe(true)
+    expect(await migrateBookSession(ud, oldRoot, newRoot, '愈甲', '愈乙')).toBe(true)
     const migrated = openSessionStore(ud, newRoot)!
     expect(migrated.listEvents('愈乙').map((e) => e.type)).toContain('user/message')
     expect(migrated.listEvents(bookHash(newRoot)).length).toBeGreaterThan(0)
@@ -299,7 +300,7 @@ describe('migrateBookSession', () => {
 })
 
 describe('R66-12/R73-38: 迁移/首开跨进程互斥（per-book migrate-<bookHash>.lock）', () => {
-  it('锁被占（模拟另一进程正在迁移/持锁）→ migrate 返回 false 且源库原地完整；释放后重试成功', () => {
+  it('锁被占（模拟另一进程正在迁移/持锁）→ migrate 返回 false 且源库原地完整；释放后重试成功', async () => {
     const ud = tmpRoot()
     const oldRoot = '/books/互斥甲'
     const newRoot = '/books/互斥乙'
@@ -318,12 +319,12 @@ describe('R66-12/R73-38: 迁移/首开跨进程互斥（per-book migrate-<bookHa
       expect(release).not.toBeNull()
       // R73-38：锁名掺 bookHash 后持旧书锁即构成迁移互斥面（新旧两把任一被占即放弃）
       // 修复前：无跨进程锁，迁移段照常推进（checkpoint/搬移不被互斥）
-      expect(migrateBookSession(ud, oldRoot, newRoot, '互斥甲', '互斥乙')).toBe(false)
+      expect(await migrateBookSession(ud, oldRoot, newRoot, '互斥甲', '互斥乙')).toBe(false)
       expect(existsSync(oldDb)).toBe(true) // 源库原地完整
       expect(existsSync(newDb)).toBe(false) // 一个文件都没动
       release!()
       // 释放后重试成功、数据完整
-      expect(migrateBookSession(ud, oldRoot, newRoot, '互斥甲', '互斥乙')).toBe(true)
+      expect(await migrateBookSession(ud, oldRoot, newRoot, '互斥甲', '互斥乙')).toBe(true)
       expect(existsSync(newDb)).toBe(true)
       const migrated = openSessionStore(ud, newRoot)!
       expect(migrated.listEvents('互斥乙').map((e) => e.type)).toContain('user/message')
@@ -333,7 +334,7 @@ describe('R66-12/R73-38: 迁移/首开跨进程互斥（per-book migrate-<bookHa
     }
   })
 
-  it('迁移持锁期间他进程首开被阻：openSessionStore 等锁超时上抛、不留半成品库文件；释放后首开成功', () => {
+  it('迁移持锁期间他进程首开被阻：openSessionStore 等锁超时上抛、不留半成品库文件；释放后首开成功', async () => {
     const ud = tmpRoot()
     const bookRoot = '/books/互斥丙'
     const dbPath = join(ud, 'clwriting', 'session', bookHash(bookRoot) + '.db')

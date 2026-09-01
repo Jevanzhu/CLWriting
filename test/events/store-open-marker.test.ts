@@ -42,7 +42,7 @@ afterEach(() => {
 })
 
 describe('R67-2 开口标记生命周期', () => {
-  it('首开登记 .open-<pid> 标记，close 归零注销', () => {
+  it('首开登记 .open-<pid> 标记，close 归零注销', async () => {
     const ud = freshUd()
     const bookRoot = join(ud, '书甲')
     mkdirSync(bookRoot)
@@ -57,7 +57,7 @@ describe('R67-2 开口标记生命周期', () => {
 })
 
 describe('R67-2 迁移扫描：已持有句柄拦迁', () => {
-  it('他进程活标记 → 迁移 false、源库原地完整；标记消失后重迁成功', () => {
+  it('他进程活标记 → 迁移 false、源库原地完整；标记消失后重迁成功', async () => {
     const ud = freshUd()
     const oldRoot = join(ud, '旧书')
     const newRoot = join(ud, '新书')
@@ -71,17 +71,17 @@ describe('R67-2 迁移扫描：已持有句柄拦迁', () => {
     // 伪造他进程活标记（第二个实例/CLI 持旧库句柄的等价物）
     writeFileSync(oldDb + '.open-' + LIVE_FOREIGN_PID, JSON.stringify({ pid: LIVE_FOREIGN_PID }), 'utf-8')
 
-    expect(migrateBookSession(ud, oldRoot, newRoot, '旧名', '新名')).toBe(false)
+    expect(await migrateBookSession(ud, oldRoot, newRoot, '旧名', '新名')).toBe(false)
     expect(existsSync(oldDb)).toBe(true) // 源库原地完整
     expect(existsSync(newDb)).toBe(false)
 
     rmSync(oldDb + '.open-' + LIVE_FOREIGN_PID, { force: true }) // 他进程收口
-    expect(migrateBookSession(ud, oldRoot, newRoot, '旧名', '新名')).toBe(true)
+    expect(await migrateBookSession(ud, oldRoot, newRoot, '旧名', '新名')).toBe(true)
     expect(existsSync(oldDb)).toBe(false)
     expect(existsSync(newDb)).toBe(true)
   })
 
-  it('死 pid 崩溃残留标记 → 扫描时 GC，迁移照常成功', () => {
+  it('死 pid 崩溃残留标记 → 扫描时 GC，迁移照常成功', async () => {
     const ud = freshUd()
     const oldRoot = join(ud, '崩书')
     const newRoot = join(ud, '崩书新')
@@ -91,14 +91,14 @@ describe('R67-2 迁移扫描：已持有句柄拦迁', () => {
     store.close()
     writeFileSync(stale, JSON.stringify({ pid: 'gone' }), 'utf-8')
 
-    expect(migrateBookSession(ud, oldRoot, newRoot, '崩书', '崩书新')).toBe(true)
+    expect(await migrateBookSession(ud, oldRoot, newRoot, '崩书', '崩书新')).toBe(true)
     expect(existsSync(stale)).toBe(false) // 被 GC
     expect(existsSync(join(ud, 'clwriting', 'session', bookHash(newRoot) + '.db'))).toBe(true)
   })
 })
 
 describe('R67-2 迁移墓碑', () => {
-  it('迁移成功后旧位落墓碑（内容指向新库）', () => {
+  it('迁移成功后旧位落墓碑（内容指向新库）', async () => {
     const ud = freshUd()
     const oldRoot = join(ud, '墓书')
     const newRoot = join(ud, '墓书新')
@@ -107,33 +107,33 @@ describe('R67-2 迁移墓碑', () => {
     const store = openSessionStore(ud, oldRoot)!
     store.close()
     // 旧根目录移除（改名搬走的等价物——墓碑拒建分支按「旧根不在」判态）
-    expect(migrateBookSession(ud, oldRoot, newRoot, '墓书', '墓书新')).toBe(true)
+    expect(await migrateBookSession(ud, oldRoot, newRoot, '墓书', '墓书新')).toBe(true)
     expect(existsSync(oldDb + '.migrated')).toBe(true)
     expect((JSON.parse(readFileSync(oldDb + '.migrated', 'utf-8')) as { to: string }).to).toBe(newDb)
   })
 
-  it('旧根目录不在 + 新库活着 → 旧路径迟来首开 fail-closed 拒建空库', () => {
+  it('旧根目录不在 + 新库活着 → 旧路径迟来首开 fail-closed 拒建空库', async () => {
     const ud = freshUd()
     const oldRoot = join(ud, '迁走书')
     const newRoot = join(ud, '迁去书')
     const oldDb = join(ud, 'clwriting', 'session', bookHash(oldRoot) + '.db')
     const store = openSessionStore(ud, oldRoot)!
     store.close()
-    expect(migrateBookSession(ud, oldRoot, newRoot, '迁走书', '迁去书')).toBe(true)
+    expect(await migrateBookSession(ud, oldRoot, newRoot, '迁走书', '迁去书')).toBe(true)
 
     // stale 视图进程迟来首开：旧根不存在（未重建），新库在位 → 拒绝且不建空库文件
     expect(() => openSessionStore(ud, oldRoot)!).toThrow(/已随书改名迁移/)
     expect(existsSync(oldDb)).toBe(false)
   })
 
-  it('同路径重新建书（旧根目录在位）→ 墓碑过期清除，放行新建空库', () => {
+  it('同路径重新建书（旧根目录在位）→ 墓碑过期清除，放行新建空库', async () => {
     const ud = freshUd()
     const oldRoot = join(ud, '回锅书')
     const newRoot = join(ud, '回锅书新')
     const oldDb = join(ud, 'clwriting', 'session', bookHash(oldRoot) + '.db')
     const store = openSessionStore(ud, oldRoot)!
     store.close()
-    expect(migrateBookSession(ud, oldRoot, newRoot, '回锅书', '回锅书新')).toBe(true)
+    expect(await migrateBookSession(ud, oldRoot, newRoot, '回锅书', '回锅书新')).toBe(true)
 
     mkdirSync(oldRoot, { recursive: true }) // 同路径重新建书
     const reopened = openSessionStore(ud, oldRoot)!
@@ -143,7 +143,7 @@ describe('R67-2 迁移墓碑', () => {
     reopened.close()
   })
 
-  it('墓碑指向的新库已不存在（再迁移/删书）→ 过期清除放行', () => {
+  it('墓碑指向的新库已不存在（再迁移/删书）→ 过期清除放行', async () => {
     const ud = freshUd()
     const oldRoot = join(ud, '链书')
     const midRoot = join(ud, '链书中')
@@ -151,9 +151,9 @@ describe('R67-2 迁移墓碑', () => {
     const oldDb = join(ud, 'clwriting', 'session', bookHash(oldRoot) + '.db')
     const store = openSessionStore(ud, oldRoot)!
     store.close()
-    expect(migrateBookSession(ud, oldRoot, midRoot, '链书', '链书中')).toBe(true)
+    expect(await migrateBookSession(ud, oldRoot, midRoot, '链书', '链书中')).toBe(true)
     // 再迁一次：中位 → 远位（中位墓碑随之落，旧位墓碑的目标=中位库已不在）
-    expect(migrateBookSession(ud, midRoot, farRoot, '链书中', '链书远')).toBe(true)
+    expect(await migrateBookSession(ud, midRoot, farRoot, '链书中', '链书远')).toBe(true)
 
     // 旧位首开：旧根不在，但墓碑目标（中位库）也没了 → 过期放行（清墓碑建新库）
     const reopened = openSessionStore(ud, oldRoot)!
@@ -161,16 +161,16 @@ describe('R67-2 迁移墓碑', () => {
     reopened.close()
   })
 
-  it('书改回旧名（A→B→A）：目标位历史墓碑被迁移清除，不留孤儿墓碑', () => {
+  it('书改回旧名（A→B→A）：目标位历史墓碑被迁移清除，不留孤儿墓碑', async () => {
     const ud = freshUd()
     const rootA = join(ud, '甲书')
     const rootB = join(ud, '乙书')
     const dbA = join(ud, 'clwriting', 'session', bookHash(rootA) + '.db')
     const store = openSessionStore(ud, rootA)!
     store.close()
-    expect(migrateBookSession(ud, rootA, rootB, '甲书', '乙书')).toBe(true)
+    expect(await migrateBookSession(ud, rootA, rootB, '甲书', '乙书')).toBe(true)
     expect(existsSync(dbA + '.migrated')).toBe(true)
-    expect(migrateBookSession(ud, rootB, rootA, '乙书', '甲书')).toBe(true)
+    expect(await migrateBookSession(ud, rootB, rootA, '乙书', '甲书')).toBe(true)
     // A 位重新成为活库位：墓碑被清，库文件在位
     expect(existsSync(dbA)).toBe(true)
     expect(existsSync(dbA + '.migrated')).toBe(false)

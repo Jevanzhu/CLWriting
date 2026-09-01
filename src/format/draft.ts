@@ -78,7 +78,9 @@ export function resolveDraftPath(
     if (!opts?.forRead) {
       const broken = errors.find((e) => {
         if (/缺少 front matter/.test(e.message)) return false
-        const m = /(\d+)[^/\\]*\.md$/.exec(e.file)
+        // R34D-11（三十四轮）：`i` 标志——win 手工改名 `.MD` 旧文件 fm 损坏时此前
+        // 不被认作同章号旧文件，fail-loud 守卫失守、静默新建第二份并存
+        const m = /(\d+)[^/\\]*\.md$/i.exec(e.file)
         return m !== null && Number(m[1]) === chapter
       })
       if (broken) {

@@ -872,6 +872,15 @@ export function checkSectionCount(
   body: string,
   expected = 5,
 ): CheckSectionResult {
+  // R34D-12（三十四轮）：section_count 可配置（runner 传 short.section_count），文案
+  // 不得硬编码「五段结构」——配置 ≠5 的 strict 短篇把黄提红后 formatRedForRewrite
+  // 喂给自愈重写，重写目标被误导成五段。期望值统一插值 expected；五段节名枚举仅在
+  // 缺省 5 段时保留（≠5 臆造不出节名，去枚举按期望节数描述）。
+  const five = expected === 5
+  const structLabel = five ? '五段结构' : `${expected} 段结构`
+  const sectionGuide = five
+    ? '建议写成 ## 开头钩子 / ## 铺垫 / ## 升级 / ## 反转 / ## 余韵'
+    : `建议用 ## 标题标出 ${expected} 个节`
   const items: CheckItem[] = []
   // 有 ## 标题才按标题计五段；无标题时不把自然段空行误判为“节”。
   // 用 match 数标题行（split 会把首个 ## 之前的前导内容多计一节）。
@@ -921,14 +930,14 @@ export function checkSectionCount(
     items.push({
       checkId: 'section-count-heading-missing',
       level: 'yellow',
-      message: `正文仅检测到 1 个 ## 标题，不足以标注五段结构；建议写成 ## 开头钩子 / ## 铺垫 / ## 升级 / ## 反转 / ## 余韵，本项不按自然段计节。`,
+      message: `正文仅检测到 1 个 ## 标题，不足以标注${structLabel}；${sectionGuide}，本项不按自然段计节。`,
     })
     return { name: '节数守恒', items }
   } else {
     items.push({
       checkId: 'section-count-heading-missing',
       level: 'yellow',
-      message: `正文未使用 ## 标注五段结构；建议写成 ## 开头钩子 / ## 铺垫 / ## 升级 / ## 反转 / ## 余韵，本项不按自然段计节。`,
+      message: `正文未使用 ## 标注${structLabel}；${sectionGuide}，本项不按自然段计节。`,
     })
     return { name: '节数守恒', items }
   }
@@ -936,7 +945,7 @@ export function checkSectionCount(
     items.push({
       checkId: 'section-count',
       level: 'yellow',
-      message: `正文 ${sections} 节，五段结构期望 ${expected} 节（节数守恒）`,
+      message: `正文 ${sections} 节，期望 ${expected} 节（节数守恒）`,
     })
   }
   return { name: '节数守恒', items }

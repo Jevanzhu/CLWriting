@@ -254,6 +254,31 @@ describe('快照端点（单章版本回滚）', () => {
     expect(ok.status).toBe(200)
     expect((ok.json as { ok: boolean }).ok).toBe(true)
   })
+
+  // R34D-18（三十四轮）：非 UTF-8 字节档恢复零失真。R26-52 写侧按原字节留底（GBK
+  // 旧档），修复前 readSnapshot 的 utf-8 文本视图读出必失真（U+FFFD 不可逆），恢复
+  // 把失真文本写回盘上——「可恢复」形同虚设。修复后 restore 走 readSnapshotRaw：
+  // utf-8 档解码精确文本、字节档原 Buffer 透传 save 原字节直存（M-5 防线对 Buffer
+  // 放行——其威胁模型是文本往返失真覆写，字节保真写不在其内）。
+  it('R34D-18: 非 UTF-8 字节档恢复 → 盘上字节与档内逐位相等（无 U+FFFD 失真）', async () => {
+    const cur = await computeCurrentRevision()
+    // 「中文」的 GBK 编码字节（0xD6D0 0xCEC4）——非法 UTF-8 序列
+    const gbk = Buffer.from([0xd6, 0xd0, 0xce, 0xc4])
+    const { writeVersion } = await import('../../src/document/version.js')
+    const id = writeVersion(
+      join(workDir, BOOK, '工作区', '.版本'),
+      'doc_1',
+      gbk,
+      { origin: 'manual', reason: 'R34D-18 字节档', baseRevision: cur as `sha256:${string}` },
+    )
+    expect(id).not.toBeNull()
+    const r = await request('POST', api(`/documents/doc_1/snapshots/${id}/restore`), {
+      expectedRevision: cur,
+    })
+    expect(r.status).toBe(200)
+    // 盘上字节 == 档内原字节（修复前这里是含 U+FFFD 的失真 utf-8 文本）
+    expect(readFileSync(join(workDir, BOOK, CHAPTER))).toEqual(gbk)
+  })
 })
 
 /** 当前磁盘内容的 revision（服务端乐观锁基线，按文件字节算）。 */

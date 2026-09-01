@@ -81,22 +81,22 @@ afterEach(() => {
 })
 
 describe('aggregateTrace（P2：从事件库 llm/call 派生）', () => {
-  it('空数据 → total=0', () => {
+  it('空数据 → total=0', async () => {
     const user = tempUserData()
     const root = tempBookRoot()
-    const stats = aggregateTrace(user, root)
+    const stats = await aggregateTrace(user, root)
     expect(stats.total).toBe(0)
     expect(Object.keys(stats.byTask)).toHaveLength(0)
   })
 
-  it('单 task 多条 → 通过率 / 平均 attempt / token 合计', () => {
+  it('单 task 多条 → 通过率 / 平均 attempt / token 合计', async () => {
     const user = tempUserData()
     const root = tempBookRoot()
     writeCall(user, root, { task: 'self-heal', attempt: 0, ok: true, usage: { input: 100, output: 50 } })
     writeCall(user, root, { task: 'self-heal', attempt: 1, ok: true, usage: { input: 120, output: 60 } })
     writeCall(user, root, { task: 'self-heal', attempt: 2, ok: false, usage: { input: 130, output: 40 } })
 
-    const stats = aggregateTrace(user, root)
+    const stats = await aggregateTrace(user, root)
     expect(stats.total).toBe(3)
     const t = stats.byTask['self-heal']!
     expect(t.count).toBe(3)
@@ -106,30 +106,30 @@ describe('aggregateTrace（P2：从事件库 llm/call 派生）', () => {
     expect(t.totalOutputTokens).toBe(150)
   })
 
-  it('百分位 p50/p95 从排序后的 durationMs 取值', () => {
+  it('百分位 p50/p95 从排序后的 durationMs 取值', async () => {
     const user = tempUserData()
     const root = tempBookRoot()
     for (let i = 1; i <= 10; i++) {
       writeCall(user, root, { task: 'review', durationMs: i * 100 })
     }
-    const t = aggregateTrace(user, root).byTask['review']!
+    const t = (await aggregateTrace(user, root)).byTask['review']!
     expect(t.durationP50).toBeGreaterThanOrEqual(500)
     expect(t.durationP50).toBeLessThanOrEqual(600)
     expect(t.durationP95).toBe(1000)
   })
 
-  it('多 task 分组', () => {
+  it('多 task 分组', async () => {
     const user = tempUserData()
     const root = tempBookRoot()
     writeCall(user, root, { task: 'self-heal' })
     writeCall(user, root, { task: 'analysis' })
     writeCall(user, root, { task: 'outline' })
-    const stats = aggregateTrace(user, root)
+    const stats = await aggregateTrace(user, root)
     expect(stats.total).toBe(3)
     expect(Object.keys(stats.byTask).sort()).toEqual(['analysis', 'outline', 'self-heal'])
   })
 
-  it('按天趋势（事件创建时间聚日）', () => {
+  it('按天趋势（事件创建时间聚日）', async () => {
     const user = tempUserData()
     const root = tempBookRoot()
     // 第一条往前调 1 天 → 昨天 successRate=1 tokens=150
@@ -138,7 +138,7 @@ describe('aggregateTrace（P2：从事件库 llm/call 派生）', () => {
     // 今天：successRate=0 tokens=300
     writeCall(user, root, { task: 't', ok: false, usage: { input: 200, output: 100 } })
 
-    const t = aggregateTrace(user, root).byTask['t']!
+    const t = (await aggregateTrace(user, root)).byTask['t']!
     const days = Object.keys(t.byDay).sort()
     expect(days).toHaveLength(2)
     expect(t.byDay[days[0]!]!.successRate).toBe(1)
@@ -147,9 +147,9 @@ describe('aggregateTrace（P2：从事件库 llm/call 派生）', () => {
     expect(t.byDay[days[1]!]!.tokens).toBe(300)
   })
 
-  it('userDataPath 缺失 → total=0（观测层降级）', () => {
+  it('userDataPath 缺失 → total=0（观测层降级）', async () => {
     const root = tempBookRoot()
-    const stats = aggregateTrace(null, root)
+    const stats = await aggregateTrace(null, root)
     expect(stats.total).toBe(0)
   })
 })

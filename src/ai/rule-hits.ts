@@ -14,7 +14,7 @@ import { atomicWriteFile } from '../fs/atomic.js'
 import { acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 import { log } from '../log/index.js'
 import type { RuleViolation } from './rules/types.js'
-import { openSessionStore, bookHash } from '../events/store.js'
+import { openSessionStore, openSessionStoreAsync, bookHash } from '../events/store.js'
 import { ruleHitEvent } from '../events/chain-bridge.js'
 
 const FILE = 'rule-hits.json'
@@ -101,7 +101,8 @@ export async function recordRuleHits(bookRoot: string, violations: RuleViolation
   if (userDataPath) {
     let store: ReturnType<typeof openSessionStore> | null = null
     try {
-      store = openSessionStore(userDataPath, bookRoot)
+      // R34D-19（三十四轮）：开库走异步孪生（首开锁等待不阻塞服务事件循环）
+      store = await openSessionStoreAsync(userDataPath, bookRoot)
       if (store) {
         const sessionId = store.workspaceSession(bookHash(bookRoot))
         store.appendEvents(

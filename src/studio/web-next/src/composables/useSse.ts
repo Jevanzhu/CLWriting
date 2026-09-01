@@ -20,13 +20,23 @@ const MAX_BACKOFF_MS = 60_000
  *  VITE_DEV_API_BASE 覆盖（行为不变，仅可配置化）。生产同源相对路径（空串）。 */
 const DEV_API_BASE: string = (import.meta.env.VITE_DEV_API_BASE as string | undefined) ?? 'http://127.0.0.1:7878'
 
+/** R34D-23（三十四轮）：换票超时档——同文件 probeSseBusy 8s / client boot 5s 的同族
+ *  补位。服务端半死（接受连接不回包）时裸 fetch 永不 settle：doConnect 悬挂在
+ *  await fetchStreamTicket，既不建 EventSource 也无 onerror 退避接管 → SSE 静默断连
+ *  无自愈。超时 abort 走既有失败语义（回退 ?token= 旧通道，不单独打断 SSE）。 */
+const TICKET_TIMEOUT_MS = 5_000
+
 /** POST /api/stream-ticket 换取一次性短时效 SSE ticket（鉴权契约②）。
  *  EventSource 不支持自定义 header，改由「POST 换 ticket → ?ticket= 拼 URL」两段式。
  *  契约约定请求带 x-studio-token 头；响应 {ticket}。
  *  过渡期兼容：服务端 ticket 端点未就绪（404）或请求异常时返回 null——调用方回退
  *  ?token= 旧通道（e2e 依赖 SSE，服务端未上线前靠此回退保绿）。除 404 外的失败
- *  （网络/5xx）同样回退旧通道：尽力而为，不让 ticket 层故障单独打断 SSE。 */
+ *  （网络/5xx/超时）同样回退旧通道：尽力而为，不让 ticket 层故障单独打断 SSE。 */
 async function fetchStreamTicket(token: string, base: string): Promise<string | null> {
+  // R34D-23：AbortController 手法对齐 probeSseBusy（R26-78）——apiFetch 不可用（此处
+  // 走 DEV_API_BASE 绝对地址裸 fetch），超时档见 TICKET_TIMEOUT_MS
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), TICKET_TIMEOUT_MS)
   try {
     // R62-49：dev 下 ticket 与 SSE 统一走 DEV_API_BASE 直连同一实例——此前相对路径走
     // Vite proxy target，可能与 SSE 直连的 127.0.0.1:7878 指向不同 server（脚本起多实例
@@ -34,12 +44,15 @@ async function fetchStreamTicket(token: string, base: string): Promise<string | 
     const r = await fetch(`${base}/api/stream-ticket`, {
       method: 'POST',
       headers: { 'x-studio-token': token },
+      signal: ctrl.signal,
     })
     if (!r.ok) return null
     const data = (await r.json().catch(() => null)) as { ticket?: unknown } | null
     return typeof data?.ticket === 'string' && data.ticket ? data.ticket : null
   } catch {
     return null
+  } finally {
+    clearTimeout(timer)
   }
 }
 

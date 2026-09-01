@@ -830,7 +830,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
   defineRoute('books.chat.clear', {
     method: 'POST',
     path: '/api/books/:name/chat/clear',
-    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
+    handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.workDir) return replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
     const bookName = params['name']!
     if (isChatRunning(bookName)) return replyError(res, 409, 'BUSY', '对话进行中，请先停止再清空')
@@ -865,7 +865,8 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     const r = resolveBook(ctx.workDir, bookName)
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     // F1-P1：清内存 + 清事件库
-    clearChatHistory(bookName, ctx.userDataPath ?? undefined, r.bookRoot)
+    // R34D-19（三十四轮）：clearChatHistory 转异步（事件库开库异步孪生）
+    await clearChatHistory(bookName, ctx.userDataPath ?? undefined, r.bookRoot)
     // R-18（第十六轮）：清空对话 = 本书对话上下文整体销毁 → per-book SSE 计数一并清理
     forgetSseCount(bookName)
     reply(res, 200, { ok: true })

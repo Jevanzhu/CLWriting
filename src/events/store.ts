@@ -17,7 +17,7 @@ import { ulid } from '../document/stable-id.js'
 import type { ChatEvent, EventType, SurfaceOp } from './types.js'
 import { SURFACE_EVENT_TYPES } from './types.js'
 import { log } from '../log/index.js'
-import { acquireCrossProcessLockWithTimeout, isProcessAlive, processBootTime } from '../fs/cross-process-lock.js'
+import { acquireCrossProcessLockWithTimeout, acquireCrossProcessLockAsync, isProcessAlive, processBootTime } from '../fs/cross-process-lock.js'
 
 /** 书 hash：sha256(bookRoot) 前 16 hex——稳定，不落原文路径。
  *  B-18（第六十轮补修）：哈希前 resolve 归一化——尾分隔符 / '.'/'..' 段变体不再
@@ -151,19 +151,22 @@ export function sessionMigrateLockPath(userDataPath: string, bookRoot: string): 
 }
 
 /** 迁移段按 bookHash 排序拿新旧两把锁；第二把拿不到 → 释放第一把返回 null（调用方按
- *  超时语义放弃迁移，源库原地完整）。排序获取保证任意迁移对之间无环路死锁。 */
-function acquireMigrateLockPair(
+ *  超时语义放弃迁移，源库原地完整）。排序获取保证任意迁移对之间无环路死锁。
+ *  R34D-19（三十四轮）：锁等待异步化（acquireCrossProcessLockAsync，setTimeout 轮询）——
+ *  改名端点（books.ts）在服务进程事件循环上调用 migrateBookSession，同步 Atomics.wait
+ *  会在双进程争用窗内把事件循环停 2×5s；同步对版随之退役（唯一调用方已随迁）。 */
+async function acquireMigrateLockPairAsync(
   userDataPath: string,
   oldRoot: string,
   newRoot: string,
-): (() => void) | null {
+): Promise<(() => void) | null> {
   const [first, second] =
     bookHash(oldRoot) <= bookHash(newRoot)
       ? [sessionMigrateLockPath(userDataPath, oldRoot), sessionMigrateLockPath(userDataPath, newRoot)]
       : [sessionMigrateLockPath(userDataPath, newRoot), sessionMigrateLockPath(userDataPath, oldRoot)]
-  const releaseFirst = acquireCrossProcessLockWithTimeout(first, SESSION_MIGRATE_LOCK_TIMEOUT_MS)
+  const releaseFirst = await acquireCrossProcessLockAsync(first, SESSION_MIGRATE_LOCK_TIMEOUT_MS)
   if (!releaseFirst) return null
-  const releaseSecond = acquireCrossProcessLockWithTimeout(second, SESSION_MIGRATE_LOCK_TIMEOUT_MS)
+  const releaseSecond = await acquireCrossProcessLockAsync(second, SESSION_MIGRATE_LOCK_TIMEOUT_MS)
   if (!releaseSecond) {
     releaseFirst()
     return null
@@ -415,6 +418,9 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
   // 重建空库（旧 hash 下对话历史「清零」）或对半搬文件集跑 DDL（撕裂态）；缓存命中
   // 复用无文件操作，不加锁。超时上抛 = 打开失败（调用方既有 catch 降级 null 语义）。
   // R73-38：锁按 bookHash 分书（见 sessionMigrateLockPath 注）——只与同书的首开/迁移互斥。
+  // R34D-19（三十四轮）：本函数为**同步开库壳**——锁等待为同步原语（Atomics.wait 最坏
+  // 5s），仅供 CLI/测试等合法同步面使用；服务进程事件循环上的调用必须改用
+  // openSessionStoreAsync（等待期 setTimeout 轮询不阻塞事件循环，R30-3/R33D-1 纪律）。
   const releaseOpenLock = acquireCrossProcessLockWithTimeout(
     sessionMigrateLockPath(userDataPath, bookRoot),
     SESSION_MIGRATE_LOCK_TIMEOUT_MS,
@@ -422,6 +428,61 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
   if (!releaseOpenLock) {
     throw new Error(`事件库打开锁获取超时（另一进程正在迁移会话库），本进程首开 ${dbPath} 失败——可重试`)
   }
+  try {
+    return firstOpenStore(bookRoot, dir, dbPath)
+  } finally {
+    releaseOpenLock()
+  }
+}
+
+/** R34D-19（三十四轮）：openSessionStore 的异步孪生——首开锁等待走
+ *  acquireCrossProcessLockAsync（setTimeout 轮询），服务进程事件循环不再被双进程
+ *  争用窗内的 5s Atomics.wait 停住（chat/audit/check 等端点冷首开面）。语义与同步壳
+ *  逐位对齐：缓存命中免锁直复用；锁等待窗内他任务完成首开 → 拿锁后**双检缓存**复用
+ *  （引用计数与命中路径一致）；超时抛同文案错误（调用方既有 catch 降级 null 语义）。 */
+export async function openSessionStoreAsync(
+  userDataPath: string | null | undefined,
+  bookRoot: string,
+): Promise<SessionStore | null> {
+  if (!userDataPath) return null
+  const dir = join(userDataPath, 'clwriting', 'session')
+  const dbPath = join(dir, bookHash(bookRoot) + '.db')
+  const cached = openStores.get(dbPath)
+  if (cached && !cached.closed) {
+    cached.refs++
+    return cached.store
+  }
+  const releaseOpenLock = await acquireCrossProcessLockAsync(
+    sessionMigrateLockPath(userDataPath, bookRoot),
+    SESSION_MIGRATE_LOCK_TIMEOUT_MS,
+  )
+  if (!releaseOpenLock) {
+    throw new Error(`事件库打开锁获取超时（另一进程正在迁移会话库），本进程首开 ${dbPath} 失败——可重试`)
+  }
+  try {
+    // 拿到锁后双检缓存：等待窗内另一 openSessionStoreAsync/OpenTo 壳可能已完成首开
+    // 并登记——直接复用，不重复建库/跑 DDL/起开口标记
+    const again = openStores.get(dbPath)
+    if (again && !again.closed) {
+      again.refs++
+      return again.store
+    }
+    return firstOpenStore(bookRoot, dir, dbPath)
+  } finally {
+    releaseOpenLock()
+  }
+}
+
+/** R34D-19（三十四轮）：首开核心（建库 + DDL + 孤儿修复 + 开口标记 + 登记缓存）——
+ *  自 openSessionStore 抽出，同步/异步两个开库壳共用（防两壳各持一份 DDL/修复逻辑
+ *  漂移）；调用方须已持 session 迁移锁。
+ *  WAL 切换退避（SQLITE_BUSY 重试）内的 Atomics.wait 微睡 ≤1.8s 有界保留：首开段
+ *  已被迁移锁跨进程串行化，退避仅在他进程**已开库连接**持写锁的窗口触发，且
+ *  DatabaseSync 的 DDL 序列是同步共用面不宜双轨化（收口记登记）。
+ *  残留清偿批（三十四轮）复核维持：busy_timeout=5000 本身使 db.exec 在 SQLite
+ *  内部同步等待——微睡异步化不消除真阻塞源（node:sqlite 无异步 API），双轨化只
+ *  增 DDL 漂移面。此为本链同步残留登记中唯一的「不可异步化」架构项。 */
+function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionStore {
   let db: DatabaseSync
   // R71-24：开口标记续期定时器（首开成功后启动；打开期抛错保持 null）
   let markerTimer: ReturnType<typeof setInterval> | null = null
@@ -531,7 +592,9 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
       throw e
     }
   } finally {
-    releaseOpenLock()
+    /* R34D-19：锁释放归开库壳（同步壳/异步壳各自的 finally releaseOpenLock）——首开
+       核心自身无锁可放；空 finally 仅保留外层 try 的既有嵌套层级，内层 try/catch
+       负责「打开期抛错先关句柄」（2026-08-24 审计 B3 内存闸）。 */
   }
   // R66-12：登记/挂缓存段不碰库文件（纯内存），留在锁外——持锁面越小，迁移等待越短
   const entry: StoreEntry = { store: null!, refs: 1, closed: false, lastOrphanRepairAt: Date.now(), markerTimer }
@@ -860,13 +923,13 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
  *   「主库已走、侧车滞留」的半搬状态。
  * 前置：调用方须先中止该书在途对话/自愈（释放引用后再强制关库，避免打断写入）。
  */
-export function migrateBookSession(
+export async function migrateBookSession(
   userDataPath: string | null | undefined,
   oldRoot: string,
   newRoot: string,
   oldName: string,
   newName: string,
-): boolean {
+): Promise<boolean> {
   if (!userDataPath) return true
   const dir = join(userDataPath, 'clwriting', 'session')
   const oldDb = join(dir, bookHash(oldRoot) + '.db')
@@ -881,9 +944,11 @@ export function migrateBookSession(
   // 首开旧库对 lock(old)、首开新库对 lock(new)，rename 窗口两侧都不再漏。
   // R31-23（三十一轮）：锁获取异常（EACCES/只读卷等非 EEXIST 故障会 throw）收口为
   // false——函数契约「false = 迁移失败可重试」，此前裸异常穿到 books.ts 改名端点。
+  // R34D-19（三十四轮）：函数转 async（books.ts 改名端点/测试两处调用方随迁）——
+  // 迁移锁对（acquireMigrateLockPairAsync）等待不再阻塞服务进程事件循环。
   let releaseMigrateLock: (() => void) | null = null
   try {
-    releaseMigrateLock = acquireMigrateLockPair(userDataPath, oldRoot, newRoot)
+    releaseMigrateLock = await acquireMigrateLockPairAsync(userDataPath, oldRoot, newRoot)
   } catch (e) {
     log.warn('events', `事件库迁移锁获取失败（${e instanceof Error ? e.message : String(e)}）——放弃本轮，源库原地完整可重试`)
     return false

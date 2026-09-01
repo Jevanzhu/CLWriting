@@ -22,13 +22,14 @@ export function registerTraceStatsRoutes(ctx: TraceStatsCtx): void {
   defineRoute('books.trace-stats', {
     method: 'GET',
     path: '/api/books/:name/trace-stats',
-    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
+    // R34D-19（三十四轮）：aggregateTrace 转异步（事件库开库异步孪生），handler 随迁
+    handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
 
     const bookRoot = r.bookRoot
     // P2：从事件库 llm/call 派生（接口不变；userDataPath 缺失 → total=0）
-    const stats = aggregateTrace(ctx.userDataPath, bookRoot)
+    const stats = await aggregateTrace(ctx.userDataPath, bookRoot)
     // B3：规则命中统计（按 hits 降序）
     reply(res, 200, { ...stats, ruleHits: readRuleHits(bookRoot) })
   },

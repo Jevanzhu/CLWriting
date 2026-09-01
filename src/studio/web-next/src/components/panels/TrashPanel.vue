@@ -58,27 +58,42 @@ async function restore(id: string): Promise<void> {
     restoring.value = null
   }
 }
+// R34D-29（三十四轮）：purge 在途锁（restoring 同款）——确认弹窗 + 网络往返全程
+// 互斥，双击第二笔不发（旧实现第二笔必 404：条目已被第一笔删除）
+const purging = ref<string | null>(null)
 async function purge(id: string): Promise<void> {
+  if (purging.value) return // 在途锁：双击第二笔直接忽略（含确认弹窗滞留期）
+  purging.value = id
   // FE-2（第七轮）：书名入口捕获（M-8 类收敛）——永久删除不可恢复，请求不能发到
   // 确认弹窗滞留期间切换后的书
   const book = props.bookName
-  const ok = await ui.ask({
-    title: '永久删除',
-    message: '永久删除不可恢复，确认？',
-    confirmText: '永久删除',
-    danger: true,
-  })
-  if (!ok) return
-  if (props.bookName !== book) return
+  // R34D-29：锁在 ask 前置位、try 包住全程（取消/切书早退也走 finally 释放，防锁泄漏）
   try {
+    const ok = await ui.ask({
+      title: '永久删除',
+      message: '永久删除不可恢复，确认？',
+      confirmText: '永久删除',
+      danger: true,
+    })
+    if (!ok) return
+    if (props.bookName !== book) return
     await purgeTrash(book, id)
     if (props.bookName === book) await load()
   } catch (e) {
+    // R34D-29（三十四轮）：404/NOT_FOUND = 条目已被清（双击竞态第二笔迟到/他端已删）
+    // ——按「已删」收敛静默，load() 对齐列表即可；旧口径直接置 err 会把整个面板
+    // 覆盖成假错误态（restore 的 404 静默同款 R71-32）
+    if (e instanceof ApiError && (e.status === 404 || e.code === 'NOT_FOUND')) {
+      await load()
+      return
+    }
     // R76-32（二十四轮 E 域）：purge 是 15s 级确认弹窗 + 网络往返，失败回填前复检书名——
     // A 书的删除失败此前无复检直接覆盖 err.value，切到 B 书后整个面板显示成 A 书的错误态
     //（restore 的 catch 已有同款复检 R73-65/R70-10，purge 漏挂）
     if (props.bookName !== book) return
     err.value = friendlyError(e)
+  } finally {
+    purging.value = null
   }
 }
 
@@ -109,11 +124,12 @@ watch(() => props.bookName, () => load(), { immediate: true })
         </span>
         <span class="label">{{ basename(e.originalPath ?? e.path) }}</span>
         <div class="item-actions">
-          <!-- R33D-29（三十三轮）：restoring 在途锁有、按钮禁用无（在途点击静默忽略）→ 对齐 HistoryPanel 惯例 -->
+          <!-- R33D-29（三十三轮）：restoring 在途锁有、按钮禁用无（在途点击静默忽略）→ 对齐 HistoryPanel 惯例；
+               R34D-29（三十四轮）：purge 同款在途禁用 -->
                   <button class="action-btn" data-tip="恢复" data-tip-dir="right" :disabled="restoring !== null" @click="restore(e.id)">
             <RotateCcw :size="13" />
           </button>
-          <button class="action-btn danger" data-tip="永久删除" data-tip-dir="right" @click="purge(e.id)">
+          <button class="action-btn danger" data-tip="永久删除" data-tip-dir="right" :disabled="purging !== null" @click="purge(e.id)">
             <Trash2 :size="13" />
           </button>
         </div>

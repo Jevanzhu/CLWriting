@@ -448,7 +448,7 @@ export const useChatStore = defineStore('chat', () => {
   /**
    * G1：重新生成最后一条回复（新分支变体）。
    * 仅 !running 且最后一条消息为已完成 assistant 时允许；进行中标志防重入。
-   * 流程：拉默认分支权威历史（拿 seqs）→ 反向定位最后一条 user 的事件 seq 作
+   * 流程：拉当前激活分支权威历史（拿 seqs）→ 反向定位最后一条 user 的事件 seq 作
    * parentSeq → 生成新 branchId → POST regenerate → 成功后本地截断 messages 到
    * 该 user 为止、activeBranchId=新 branchId，SSE 自然接管追加新气泡；
    * 任一步失败 → error 置错并保留原视图。
@@ -462,7 +462,12 @@ export const useChatStore = defineStore('chat', () => {
     try {
       let data: ChatHistoryResult
       try {
-        data = await fetchChatHistory(bookName)
+        // R34D-5（三十四轮）：带 activeBranchId 拉当前显示分支的历史（对齐 switchBranch
+        // 的 branchId ?? undefined 写法）——此前不带 branchId 恒拉默认分支：非默认分支 B
+        // 上点重新生成时，本地截断/激活作用于 B 分支视图，POST 的 fork 基点 parentSeq 却
+        // 取自主线，服务端按主线上下文生成 →「B 分支前缀 + 主线上文的回答」混合血统视图
+        // 落库（新 branchId），分支语义被破坏。
+        data = await fetchChatHistory(bookName, activeBranchId.value ?? undefined)
       } catch {
         error.value = '获取对话历史失败，请稍后重试'
         return

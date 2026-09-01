@@ -34,10 +34,13 @@ const entry = computed(() => (docId.value ? doc.get(docId.value) : undefined))
 const words = computed(() => (entry.value ? countWords(stripFrontmatter(entry.value.content)) : 0))
 
 // ── 会话快照（每章口径；重进专注各重开一段会话）──
-/** 基线：每章首次非零字数时锁存（挂载时文档可能未加载完，content 空） */
+/** 基线：文档到位时锁存当前字数（空章留 null——首笔从旧字数 0 锁，见 words watch） */
 const baseline = ref<number | null>(null)
 /** 首笔时刻：基线在场后字数第一次变化起算；null = 尚未动笔 */
 let firstChangeAt: number | null = null
+/** R34D-28（三十四轮）：会话重开瞬间的字数快照——words 跳变恰好落在该值上即为
+ *  文档切换/迟到加载的置位跳变（非动笔），不起钟（见 words watch） */
+let wordsAtReset: number | null = null
 const now = ref(Date.now())
 const delta = computed(() => (baseline.value === null ? 0 : words.value - baseline.value))
 const speed = computed(() => {
@@ -46,23 +49,33 @@ const speed = computed(() => {
   return minutes <= 0 ? null : Math.round(delta.value / minutes)
 })
 
-/** 重开一段会话：以当前字数为新基线（文档未在场的下一次 words 变化再锁存） */
+/** 重开一段会话：以当前字数为新基线（空章留 null 待首笔从 0 锁） */
 function resetSession(): void {
   baseline.value = words.value > 0 ? words.value : null
   firstChangeAt = null
+  wordsAtReset = words.value
 }
-// 换章重置（本章口径）；基线在首个非零字数时锁存——文档迟到加载不算动笔（hadBaseline 判定）
-watch(docId, resetSession)
+// R34D-28（三十四轮）：会话重开改盯 entry 对象身份——换章必伴随 entry 换对象
+//（切到未加载章先变 undefined、加载完落新对象），作者打字只改 content 不换对象。
+// 旧实现盯 docId：resetSession 先把基线锁到新章字数，紧随其后的 M→N words 跳变
+//（换章本身）被误判为「首笔」起钟——速度从切章时刻起算被摊薄（起算提前）。
+// immediate 覆盖挂载时已开好的文档（原 onMounted 锁基线逻辑并入此处）。
+watch(entry, resetSession, { immediate: true })
 watch(words, (w, old) => {
-  const hadBaseline = baseline.value !== null
-  if (baseline.value === null && w > 0) baseline.value = w
-  if (hadBaseline && old !== w && firstChangeAt === null) firstChangeAt = Date.now()
-  if (firstChangeAt !== null) now.value = Date.now()
-})
-onMounted(() => {
-  if (baseline.value === null && words.value > 0) baseline.value = words.value
+  // R34D-28：文档切换/迟到加载的置位跳变恰好落在 reset 快照上——非动笔，不起钟
+  //（动笔首变必然偏离快照值：N→N±k，不会恰好等于 N）
+  if (wordsAtReset !== null && w === wordsAtReset) {
+    wordsAtReset = null
+    return
+  }
+  wordsAtReset = null
+  // R34D-28：空章首笔（基线 null 且文档在场，words 从 0 起）——基线按旧值 0 锁：
+  // 首字计入 delta。旧实现把首字锁进基线（显示 +0 且钟不起，第二字才起算）
+  if (baseline.value === null) baseline.value = old
+  if (firstChangeAt === null) firstChangeAt = Date.now()
   now.value = Date.now()
 })
+onMounted(() => { now.value = Date.now() })
 // 速度随时间流逝下降：5s 心跳刷新显示（无输入也有意义——均速在摊薄）
 const ticker = setInterval(() => { now.value = Date.now() }, 5000)
 onBeforeUnmount(() => clearInterval(ticker))

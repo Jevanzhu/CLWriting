@@ -85,3 +85,32 @@ test('readTodayDelta: 与 baseline 条目共存（baseline 不影响 delta 汇�
   expect(readBaseline(root, '2026-07-24')).toBe(13000) // baseline 仍正常取最后
   rmSync(root, { recursive: true, force: true })
 })
+
+// ── R34D-13：倒序首个同日命中是 delta 行时不得返回 undefined ────
+
+test('R34D-13: 基线在前 delta 在后（真实时序）→ readBaseline 返回基线而非 undefined', () => {
+  const root = mkdtempTracked(join(tmpdir(), 'w-diary-r34d-'))
+  try {
+    // 真实时序：晨记基线 → 日间多次 save 落 delta（同日尾部是 delta 行）
+    appendBaseline(root, '2026-07-24', 10000)
+    appendWordsDelta(root, '2026-07-24', 500)
+    appendWordsDelta(root, '2026-07-24', -80)
+    // 修复前：倒序首个同日命中是尾部 delta 行（无 baseline 字段）→ 返回 undefined
+    const r = readBaseline(root, '2026-07-24')
+    expect(r).toBe(10000) // 契约 number | null：既非 undefined 也非 null
+    expect(r).not.toBeUndefined()
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('R34D-13: 当日只有 delta 行（无基线）→ 返回 null（契约兜底，非 undefined）', () => {
+  const root = mkdtempTracked(join(tmpdir(), 'w-diary-r34d-'))
+  try {
+    appendWordsDelta(root, '2026-07-24', 300)
+    const r = readBaseline(root, '2026-07-24')
+    expect(r).toBeNull()
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})

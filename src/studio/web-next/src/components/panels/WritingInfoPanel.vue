@@ -30,6 +30,10 @@ watch(
   () => props.bookName,
   async (n) => {
     const gen = ++configGen
+    // R34D-27（三十四轮）：切书先清上一书错误——原实现只在失败分支写 err、成功路径
+    // 不清，A 书的 getConfig 失败信息会粘滞到 B 书（面板常驻不随切书重建）；清掉后
+    // 新错误只由本次请求的 catch 按代守卫落位
+    err.value = null
     if (!n) return
     try {
       const c = await getConfig(n)

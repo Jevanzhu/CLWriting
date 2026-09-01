@@ -191,6 +191,10 @@ export function startServer(opts: StudioServerOptions): http.Server {
   // 书库自愈（P1-10）：books.jsonl 损坏/移书后启动即扫描重建登记——幂等，完好时
   // changed=false 不写盘；变更时报告供诊断（作者侧零交互）。置于迁移循环前：
   // 先保证登记完整，逐书迁移才遍历得到全部书。
+  // 残留清偿批（三十四轮）登记：repairBooks 的 books.lock 同步等待发生在本启动段
+  //（createServer/listen 之前、零请求在途），阻塞仅推迟首请求可处理时刻，不触达
+  // SSE/HTTP 响应性——维持同步版（startServer 契约同步返回 http.Server，异步化
+  // 级联全部测试 boot 面，不成比例）。
   if (opts.workDir) {
     try {
       const r = repairBooks(opts.workDir)

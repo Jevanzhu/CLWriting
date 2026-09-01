@@ -16,7 +16,7 @@
  * 2. 节流：同一文档窗口内只留一个（force 时跳过，如删除/改名前留底）
  * 3. 分层保留：写入后顺带 prune，越近越细越远越粗（pinned 跳过）
  */
-import { existsSync, readdirSync, renameSync, unlinkSync, openSync, readSync, closeSync } from 'node:fs'
+import { existsSync, readdirSync, renameSync, unlinkSync, openSync, readSync, closeSync, readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { join, dirname } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
@@ -136,7 +136,9 @@ const FINE_WINDOW_MS = 2 * HOUR_MS
  * 「指纹缓存命中 O(1) 跳过，冷缓存才读盘比对」。
  *
  * AA-P1-1 修正：缓存值改存「版本 id + fp」，命中需满足两个条件——
- *   ① fp 相等；② 缓存指向的版本 id **仍在盘**（prune 可能已把那份文件删掉）。
+ *   ① fp 相等；② 缓存指向的版本 id 仍有效（R34D-15 收紧为「仍是盘上最新同 origin
+ *   版本」，覆盖原「仍在盘」判定——他进程写入更新的同 origin 版本时旧 id 仍在盘但
+ *   已非最新，按旧 id 去重会错误跳写、快照链尾部失真）。
  * 版本被 prune 删掉后，缓存必须失效（回到读盘比对）——否则「内容恰好等于被删
  * 版本」的强制留底（移动/改名/restore 覆盖前）会被静默吞掉，违背 W0-1 留底纪律。
  * 另有第二道防线：pruneVersions 删除时同步失效对应缓存条目。
@@ -222,16 +224,32 @@ export function writeVersion(
     // 覆写留底共处同一档案但语义不同：跨 origin 同内容去重会把「覆写留底」吞掉（snapshotted
     // 假 false、恢复点被 ai 记录顶替），反向也会让 ai 轨迹被快照顶掉。只与「最新的同 origin
     // 版本」比对同内容；不同 origin 的内容独立保留（各自受分层/数量策略约束）。
-    // P3-14 + AA-P1-1：先查指纹缓存 O(1)；命中须同时满足 ① fp 相等 ② 缓存指向的版本 id
-    // **仍在盘**（prune 删除/外部删除/陈旧缓存都会让 id 失配）——否则「内容恰等于已删
-    // 版本」的强制留底（移动/改名/restore 覆盖前）会被静默吞掉，违背 W0-1 留底纪律。
-    // 任一不满足 → 缓存失效，落读盘比对（保持「最新同 origin」比对语义）。冷缓存直接读盘。
+    // P3-14 + AA-P1-1：先查指纹缓存；命中须同时满足 ① fp 相等 ② 缓存指向的版本 id
+    // 仍是**盘上最新同 origin 版本**（R34D-15 收紧：原校验只验「id 在盘」，双进程下
+    // 他进程已写入更新的同 origin 版本时，旧 id 仍在盘但已非最新——fp 恰与旧版相等
+    // 时错误跳写，快照链尾部失真为旧内容，违背 X-P2-3「只与最新同 origin 比对」的
+    // 去重语义；「id 已被 prune/外部删除」是本校验的子集，AA-P1-1 防线语义不变）。
+    // 任一不满足 → 缓存失效，落读盘比对。冷缓存直接读盘。校验从新到旧扫至缓存 id
+    // 为止：常见单进程路径缓存 id 即 existing[0]（零读盘，优化不回退）；跨 origin
+    // 新版至多多读几个头部 bounded read。
     const cached = latestOriginHash.get(cacheKey)
-    const cacheAlive = cached !== undefined && existing.some((s) => s.id === cached.id)
+    let cacheAlive = false
+    if (cached !== undefined) {
+      for (const s of existing) {
+        if (s.id === cached.id) {
+          cacheAlive = true // 途中无更新同 origin 版本 → 缓存仍指向最新同 origin
+          break
+        }
+        // 新于缓存 id 的版本逐个验 origin：同 origin 已存在 → 缓存非最新；meta 不可读
+        // → 同源与否无法判定（R73-35 口径）→ 一并按失效处理，回读盘比对兜底。
+        const m = readVersionMeta(versionsDir, docId, s.id)
+        if (!m || m.meta.origin === meta.origin) break
+      }
+    }
     if (cacheAlive) {
       if (cached!.fp === fp) return null // 命中：去重跳过
     } else if (cached !== undefined) {
-      // 缓存指向的版本已不在盘 → 失效，回读盘比对
+      // 缓存已非最新同 origin（他进程覆写同源新版 / 指向版本已被删）→ 失效，回读盘比对
       latestOriginHash.delete(cacheKey)
     }
     for (const s of existing) {
@@ -323,7 +341,27 @@ export function listVersions(versionsDir: string, docId: string): VersionInfo[] 
   return out.sort((a, b) => b.id.localeCompare(a.id))
 }
 
-/** 读单个版本：剥 front matter → 内容 + 元信息。文件缺失/损坏返回 null。 */
+/** fm 键值 map → 版本 meta（readVersion / readVersionMeta / readVersionRaw 三读入口
+ *  共用口径，防三处各抄一份后漂移）。 */
+function metaFromMap(map: Map<string, unknown>, id: string): VersionMeta & { time: number } {
+  const meta: VersionMeta & { time: number } = {
+    origin: String(map.get('来源') ?? ''),
+    time: decodeUlidTime(id),
+  }
+  const reason = map.get('原因')
+  if (reason) meta.reason = String(reason)
+  const base = map.get('基线')
+  if (base) meta.baseRevision = String(base) as Revision
+  const words = map.get('字数')
+  if (typeof words === 'number' && words > 0) meta.words = words
+  const pinnedRaw = map.get('永久')
+  if (pinnedRaw === true || pinnedRaw === 'true') meta.pinned = true
+  return meta
+}
+
+/** 读单个版本：剥 front matter → 内容 + 元信息。文件缺失/损坏返回 null。
+ *  注意 content 是 utf-8 文本视图：对 R26-52 字节档（非 UTF-8 源按原字节留底）必然
+ *  有损（U+FFFD）——字节保真读用 readVersionRaw（R34D-18）。 */
 export function readVersion(
   versionsDir: string,
   docId: string,
@@ -338,19 +376,7 @@ export function readVersion(
   const r = readFile(file)
   if (!r.ok) return null
   const map = parseFlat(r.fmRaw)
-  const meta: VersionMeta & { time: number } = {
-    origin: String(map.get('来源') ?? ''),
-    time: decodeUlidTime(id),
-  }
-  const reason = map.get('原因')
-  if (reason) meta.reason = String(reason)
-  const base = map.get('基线')
-  if (base) meta.baseRevision = String(base) as Revision
-  const words = map.get('字数')
-  if (typeof words === 'number' && words > 0) meta.words = words
-  const pinnedRaw = map.get('永久')
-  if (pinnedRaw === true || pinnedRaw === 'true') meta.pinned = true
-  return { content: r.body, meta }
+  return { content: r.body, meta: metaFromMap(map, id) }
 }
 
 /**
@@ -393,19 +419,75 @@ export function readVersionMeta(
   const split = splitFrontMatter(head)
   if (split === null) return null
   const map = parseFlat(split.fmRaw)
-  const meta: VersionMeta & { time: number } = {
-    origin: String(map.get('来源') ?? ''),
-    time: decodeUlidTime(id),
+  return { meta: metaFromMap(map, id) }
+}
+
+/** 行是否恰为零缩进 fence `---`（容忍 \r 尾）——与 splitFrontMatter 的闭合判定同口径。 */
+function isFenceLine(b: Buffer): boolean {
+  if (b.length !== 3 && b.length !== 4) return false
+  if (b[0] !== 0x2d || b[1] !== 0x2d || b[2] !== 0x2d) return false // '---'
+  return b.length === 3 || b[3] === 0x0d
+}
+
+/**
+ * 字节层剥版本文件的 front matter：fm 头恒 utf-8（writeVersion 写侧保证），正文可为
+ * 任意字节（R26-52 字节档）。先整体 utf-8 文本化再 split 的做法对非 UTF-8 正文必有损
+ * （U+FFFD 替换不可逆），故闭合 --- 在字节层按行定位——\n 分行对多字节正文无歧义
+ * （UTF-8/GBK 等编码的非 ASCII 字节恒 ≥0x80，不与 \n / `-` 碰撞）。判定口径与
+ * frontmatter-core 的 splitFrontMatter 对齐：去 UTF-8 BOM、首行整行 ---、闭合行
+ * 零缩进容忍 \r。无起始 fence / 未闭合返回 null（与文本侧同判损坏）。
+ */
+function splitVersionFileBytes(buf: Buffer): { fmRaw: string; body: Buffer } | null {
+  let start = 0
+  if (buf.length >= 3 && buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) start = 3 // UTF-8 BOM
+  const firstNl = buf.indexOf(0x0a, start)
+  if (firstNl === -1) return null // 单行文件无闭合可能
+  if (!isFenceLine(buf.subarray(start, firstNl))) return null
+  let lineStart = firstNl + 1
+  while (lineStart < buf.length) {
+    const nl = buf.indexOf(0x0a, lineStart)
+    const lineEnd = nl === -1 ? buf.length : nl
+    if (isFenceLine(buf.subarray(lineStart, lineEnd))) {
+      // 与 splitFrontMatter 同切法：fm = 首行后～闭合行前；body = 闭合行换行后～尾
+      return {
+        fmRaw: buf.subarray(firstNl + 1, lineStart - 1).toString('utf-8'),
+        body: nl === -1 ? Buffer.alloc(0) : buf.subarray(nl + 1),
+      }
+    }
+    if (nl === -1) break // 扫到尾无闭合 fence
+    lineStart = nl + 1
   }
-  const reason = map.get('原因')
-  if (reason) meta.reason = String(reason)
-  const base = map.get('基线')
-  if (base) meta.baseRevision = String(base) as Revision
-  const words = map.get('字数')
-  if (typeof words === 'number' && words > 0) meta.words = words
-  const pinnedRaw = map.get('永久')
-  if (pinnedRaw === true || pinnedRaw === 'true') meta.pinned = true
-  return { meta }
+  return null
+}
+
+/**
+ * R34D-18（三十四轮）：字节保真读——正文段原样返回 Buffer，不做法定编码假设。
+ * 动机：R26-52 写侧对非 UTF-8 源（GBK 旧档）按原字节留底，但读侧唯一入口
+ * readVersion 走 utf-8 文本化，U+FFFD 替换后原字节读不出（盘上字节在、读出必失真）
+ * ——写读不对称使字节档的「恢复」形同虚设。本入口闭合「写入保的字节可无损读出」
+ * 不变量：fm 头解析口径与 readVersion 完全一致（metaFromMap 同源），正文零解码。
+ * 文件缺失/头部损坏返回 null，与 readVersion 口径一致。恢复链路（api restore →
+ * save 接 Buffer）的接线属调用方批次，本层先落对称读能力。
+ */
+export function readVersionRaw(
+  versionsDir: string,
+  docId: string,
+  id: string,
+): { content: Buffer; meta: VersionMeta & { time: number } } | null {
+  // id/docId 防穿越：与 readVersion 同判（同一数据面）
+  if (!/^[0-9A-HJKMNP-TV-Z]{26}$/.test(id)) return null
+  if (!safeDocId(docId)) return null
+  const file = findVersionFile(versionsDir, docId, id)
+  if (!file) return null
+  let buf: Buffer
+  try {
+    buf = readFileSync(file)
+  } catch {
+    return null
+  }
+  const split = splitVersionFileBytes(buf)
+  if (split === null) return null
+  return { content: split.body, meta: metaFromMap(parseFlat(split.fmRaw), id) }
 }
 
 /** 列版本（对外：含时间/来源/原因/字数/永久，供 UI 展示）。 */
@@ -440,6 +522,9 @@ export function listVersionEntries(
  * | 超过 maxDays     | 删（pinned 仍留）   |
  * | 总数超 maxCount  | 从最旧删（pinned 不删）|
  *
+ * pinned（定稿里程碑）恒保留；头部不可读（是否定稿无法判定）的版本按 pinned 同等
+ * 保护不删（R34D-14，宁多勿失——与写侧 R73-35 fail-open 口径同向）。
+ *
  * @returns 删除的版本数
  */
 export function pruneVersions(
@@ -464,7 +549,18 @@ export function pruneVersions(
     // 读进内存只为拿一个布尔位；改 readVersionMeta 头部 bounded read（R62-36 漏迁移），
     // prune 每文档全量扫版本时的全文读归零。
     const meta = readVersionMeta(versionsDir, docId, s.id)
-    if (meta?.meta.pinned) {
+    // R34D-14（三十四轮）：头部不可读（截断/损坏）⇒ 是否定稿 pinned 无法判定——此前
+    // 落「非 pinned」分支，头部受损的定稿档照样被超期/maxCount 清理删除，「定稿永久
+    // 保留」承诺失守，与写侧 R73-35「meta 不可读 fail-open 落写」的宁多勿失口径相反。
+    // 删侧同向：无法判定 ⇒ 不删，按 pinned 同等保护（含 maxCount 兜底不裁，防兜底
+    // 兜不住再被裁）。注：readVersionMeta 对「文件已被并发删」同样返回 null，此时
+    // keep 一个已不存在的 id 无副作用。
+    if (!meta) {
+      keep.add(s.id)
+      pinned.add(s.id)
+      continue
+    }
+    if (meta.meta.pinned) {
       // 定稿版本永久保留：不参与分层/超期清理
       keep.add(s.id)
       pinned.add(s.id)

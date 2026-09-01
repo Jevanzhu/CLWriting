@@ -86,7 +86,10 @@ function* mdFileEntries(
       const fp = join(real, e.name)
       if (e.isDirectory()) {
         yield* walk(fp)
-      } else if (e.isFile() && e.name.endsWith('.md')) {
+      } else if (e.isFile() && e.name.slice(-3).toLowerCase() === '.md') {
+        // R34D-11（三十四轮）：扩展名匹配大小写不敏感（win 手工改名 .MD 不再对机检/
+        // 树红点/账本扫描隐形）；热路径用 slice(-3) 小尾串做一次 toLowerCase，免每文件
+        // 全名 toLowerCase 分配
         // abs = 重挂回调用方 startDir 命名空间的路径；real = realpath 绝对路径
         yield { real: fp, abs: join(startDir, relative(realRoot, fp)), name: e.name }
       }

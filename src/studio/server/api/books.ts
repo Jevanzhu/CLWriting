@@ -17,13 +17,13 @@ import { resolveWithinRoot } from '../../../fs/safe-path.js'
 import {
   readBooks,
   readBooksStrict,
-  removeBookEntry,
+  removeBookEntryAsync,
   bookStoragePath,
   readActive,
   writeActive,
   writeBooks,
   isInvalidBookName,
-  tryBooksLock,
+  tryBooksLockAsync,
 } from '../../../install/books.js'
 import { resolveBook } from '../book-context.js'
 import { forgetService, drainDocumentSaves } from './documents.js'
@@ -306,8 +306,9 @@ export function registerBookRoutes(ctx: BookCtx): void {
       } catch (e) {
         log.error('api', `删书墓地清理失败（${name}，留档待手工处理：${graveAbs}）`, e)
       }
-    // 移 books.jsonl 登记 + 清活动书指针
-    removeBookEntry(ctx.workDir, name)
+    // 移 books.jsonl 登记 + 清活动书指针（残留清偿批：同步 removeBookEntry 的
+    // Atomics.wait 锁等待改异步孪生——mutator 族服务面落点至此归零）
+    await removeBookEntryAsync(ctx.workDir, name)
     // 清理 service 缓存，防同 path 重建复用旧实例
     forgetService(bookAbs)
     // P1-S2：清理 driver session + 树索引缓存，防删书后资源泄漏
@@ -328,7 +329,8 @@ export function registerBookRoutes(ctx: BookCtx): void {
     // L-S4（第八轮）：删除主流程已完成（登记已移、目录已删），清史收尾若抛（SQLITE_BUSY
     // 等）不该让客户端看到 500「内部错误」且跳过下方 db 文件清理留孤儿——防御性收编
     try {
-      clearChatHistory(name, ctx.userDataPath ?? undefined, bookAbs)
+      // R34D-19（三十四轮）：clearChatHistory 转异步（事件库开库异步孪生），防御性收编不变
+      await clearChatHistory(name, ctx.userDataPath ?? undefined, bookAbs)
     } catch (e) {
       // 低-6（第十轮）：留痕走项目 logger——console 在打包态 mirrorConsole=false 无人看见
       // 也不进 JSONL（诊断失明）；tag 与本文件 log.error 删除目录失败同源 'api'
@@ -521,8 +523,10 @@ export function registerBookRoutes(ctx: BookCtx): void {
       // 清内存对话态 + 迁移事件库（5.1-3：失败不再静默——migrate 返回 false 时源库
       // 原地完整可重试，但必须让用户看得见：改名后书在新目录，事件库却没跟过来，
       // 对话历史/审计在 UI 上无声消失）
-      clearChatHistory(oldName)
-      const eventsMigrated = migrateBookSession(ctx.userDataPath, oldRoot, newRoot, oldName, newName)
+      // R34D-19（三十四轮）：migrateBookSession/clearChatSession 转异步——迁移锁对与
+      // 开库锁等待不再阻塞服务事件循环（双进程争用窗最坏 2×5s Atomics.wait 消除）
+      await clearChatHistory(oldName)
+      const eventsMigrated = await migrateBookSession(ctx.userDataPath, oldRoot, newRoot, oldName, newName)
       // 清缓存（service/driver 会话/树索引/书架摘要）
       forgetService(oldRoot)
       forgetSession(oldName)
@@ -544,8 +548,9 @@ export function registerBookRoutes(ctx: BookCtx): void {
       // R63-2（十一轮）：读改写进 books.lock 跨进程锁（CLI 与桌面并发改名/建书互斥）；
       // 超时跳过整写留痕——目录已改名成功，登记暂指旧路径，下次启动 repairBooks 按
       // book.yaml 重关联（missing 报告可见）
+      // R34D-19（三十四轮）：端点内嵌 RMW 的锁等待走异步孪生（事件循环不阻塞）
       {
-        const release = tryBooksLock(ctx.workDir)
+        const release = await tryBooksLockAsync(ctx.workDir)
         if (!release) {
           log.warn('api', `rename: books.jsonl 登记锁获取超时，跳过登记更新（${oldName} → ${newName}）——自愈将重关联兜底`)
         } else {

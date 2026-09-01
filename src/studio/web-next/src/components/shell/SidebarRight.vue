@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 右侧栏：顶部 tab 条（M12 B0.5：信息/审阅/机检/分析）+ 按 tab 切上半面板
 // （信息=字数/大纲表单，审阅/机检/分析 块1/3/4 填充）+ 上下文速查（常驻）。
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { Info, FileSearch, CheckSquare, PanelRightClose } from 'lucide-vue-next'
 import WritingInfoPanel from '../panels/WritingInfoPanel.vue'
 import ContextQuickPanel from '../panels/ContextQuickPanel.vue'
@@ -55,6 +55,13 @@ const isReviewable = computed(() => {
   if (!node) return false
   return isBodyKind(node.path)
 })
+// R34D-30（三十四轮）：折叠区状态上提到本组件——CollapseSection 原为组件内部态，
+// 随外层 v-if（切右栏 tab / 切文档丢 activeDocId / 正文可审性变化）卸载重建后归位
+// defaultOpen，手动折叠丢失；右栏本体在这些切换间常驻，经 v-model:open 受控保持
+const infoOpen = ref(true)
+const foreshadowOpen = ref(true)
+const analysisOpen = ref(true)
+const historyOpen = ref(true)
 </script>
 
 <template>
@@ -82,21 +89,21 @@ const isReviewable = computed(() => {
       </div>
     </div>
     <div class="right-body">
-      <!-- 信息 tab：写作信息 + 章节表单 + AI 分析（折叠分区） -->
+      <!-- 信息 tab：写作信息 + 章节表单 + AI 分析（折叠分区；v-model:open 受控 = R34D-30 折叠态跨卸载保持） -->
       <template v-if="ws.rightTab === 'info'">
-        <CollapseSection v-if="ws.activeDocId" :title="sectionTitle">
+        <CollapseSection v-if="ws.activeDocId" v-model:open="infoOpen" :title="sectionTitle">
           <div class="info-stack">
             <WritingInfoPanel :book-name="bookName" />
             <MetaFormPanel v-if="showOutlineForm" :book-name="bookName" />
           </div>
         </CollapseSection>
-        <CollapseSection title="伏笔追踪">
+        <CollapseSection v-model:open="foreshadowOpen" title="伏笔追踪">
           <ForeshadowPanel :book-name="bookName" />
         </CollapseSection>
-        <CollapseSection v-if="isReviewable" title="AI 分析" beta>
+        <CollapseSection v-if="isReviewable" v-model:open="analysisOpen" title="AI 分析" beta>
           <AnalysisPanel :book-name="bookName" />
         </CollapseSection>
-        <CollapseSection v-if="isReviewable" title="本章历史">
+        <CollapseSection v-if="isReviewable" v-model:open="historyOpen" title="本章历史">
           <HistoryPanel :book-name="bookName" />
         </CollapseSection>
       </template>

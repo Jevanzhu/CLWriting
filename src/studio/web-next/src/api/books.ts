@@ -33,12 +33,32 @@ export async function getConfig(name: string): Promise<BookConfig> {
   return r.config
 }
 
+// GET /config 的 revision 信封视图（R34D-25）：服务端随 GET 回传 book.yaml 内容指纹
+// revision（sha256 前 4 字节 uint32，文件缺失为 0），供读改写调用方下次 PUT 带
+// expectedRevision。只读调用方继续用 getConfig（返回型不变，零波及）。
+export async function getConfigWithRevision(
+  name: string,
+): Promise<{ config: BookConfig; revision: number }> {
+  return apiJson<{ config: BookConfig; revision: number }>(
+    `/api/books/${encodeURIComponent(name)}/config`,
+  )
+}
+
 // PUT /config {config} → 全量写回 book.yaml（须传完整 config，服务端整文件重写）。
-export async function putConfig(name: string, config: BookConfig): Promise<void> {
+// R34D-25（三十四轮）：expectedRevision 可选乐观锁（对齐 putGlobalPrefs 的 GG-P2-7 契约：
+// 不传 = 直通，向后兼容；传入则随 body 上送，服务端失配回 409，经 apiJson 抛
+// ApiError{status:409, code:REVISION_CONFLICT}——调用方以此拦截「双标签页后写者
+// 静默覆盖先写者」）。服务端批已落地消费：GET 回传内容指纹 revision + PUT 比对
+// 409（config.ts 同轮实修），SettingsModal 经 getConfigWithRevision 穿线端到端生效。
+export async function putConfig(
+  name: string,
+  config: BookConfig,
+  expectedRevision?: number,
+): Promise<void> {
   await apiJson<{ ok: true }>(`/api/books/${encodeURIComponent(name)}/config`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ config }),
+    body: JSON.stringify({ config, expectedRevision }),
   })
 }
 

@@ -15,7 +15,7 @@
  * （修复前口径），其后事件为归一口径（input 不含 cacheRead）——跨边界累计前段偏高。
  * 事件库 append-only 不做迁移；确需精确口径可按事件时间切分。
  */
-import { openSessionStore, bookHash } from '../events/store.js'
+import { openSessionStoreAsync, bookHash } from '../events/store.js'
 import type { LlmCallData } from '../events/types.js'
 import { resolveModelPricing, computeCallCost } from './pricing.js'
 import { localDayKey } from '../log/index.js'
@@ -51,11 +51,13 @@ interface CallEntry {
   day: string
 }
 
-/** 从事件库读 llm/call（与 trace-stats 同源同容错；观测层失败静默 → []） */
-function readLlmCalls(userDataPath: string | null | undefined, bookRoot: string): CallEntry[] {
+/** 从事件库读 llm/call（与 trace-stats 同源同容错；观测层失败静默 → []）
+ *  R34D-19（三十四轮）：转 async——开库走 openSessionStoreAsync（首开锁等待不阻塞
+ *  服务事件循环），aggregateCost 随迁异步（端点/测试调用方 await）。 */
+async function readLlmCalls(userDataPath: string | null | undefined, bookRoot: string): Promise<CallEntry[]> {
   if (!userDataPath) return []
   try {
-    const store = openSessionStore(userDataPath, bookRoot)
+    const store = await openSessionStoreAsync(userDataPath, bookRoot)
     if (!store) return []
     try {
       // B1（2026-08-24 内存闸）：type SQL 下推（同 trace-stats——只取 llm/call 行）
@@ -96,8 +98,8 @@ function bump(map: Record<string, CostBucket>, key: string, cost: number): void 
 }
 
 /** 聚合成本（无事件或全书无价格 → enabled:false 的空壳） */
-export function aggregateCost(userDataPath: string | null | undefined, bookRoot: string): CostStats {
-  const entries = readLlmCalls(userDataPath, bookRoot)
+export async function aggregateCost(userDataPath: string | null | undefined, bookRoot: string): Promise<CostStats> {
+  const entries = await readLlmCalls(userDataPath, bookRoot)
   const stats: CostStats = { enabled: false, total: 0, byDay: {}, byTask: {}, byChapter: {}, unpricedModels: [] }
   if (entries.length === 0) return stats
 

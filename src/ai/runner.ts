@@ -17,7 +17,7 @@ import { MODEL_QUIRKS_VERSION } from './provider/model-quirks.js'
 import { newRunId, promptMeta, toTraceUsage } from './trace.js'
 import { recordAiCall, recordTaskUsage } from './calls.js'
 import { resolveModelPricing, computeCallCost } from './pricing.js'
-import { openSessionStore, bookHash } from '../events/store.js'
+import { openSessionStoreAsync, bookHash } from '../events/store.js'
 import { ChainRecorder, layerForTask, stepStartEvent, stepEndEvent, llmCallEvent, llmRetryEvent } from '../events/chain-bridge.js'
 import type { StepEndReason } from '../events/types.js'
 import { DEFAULT_RETRY_POLICY, backoffDelayMs, shouldRetryError } from './retry-policy.js'
@@ -182,8 +182,13 @@ function registerDegradedCallbacks(userDataPath: string): void {
     // R29-2（二十九轮）：saveProviders 排队段失败现随返回 promise 上抛——降级记忆落盘是
     // fire-and-forget 侧通道（AA-P3-5 不中断已成功的建流），此处收口拒绝（saveProviders
     // 内部已 log.warn 留痕）；快路同步异常照旧落进 persistDegraded 的 try/catch，语义不变
-    saveProviders(userDataPath, s).catch(() => { /* 排队段失败已留痕，下轮 persistDegraded 自然重试 */ })
-    degradedPersistedKeys.add(memoKey)
+    // R34D-7（三十四轮）：per-key 标记移入 saveProviders 成功回调——此前置位在 promise
+    // 落定前，排队段一旦失败本进程内此 key 被永久短路不再重试（与上方「失败不标记」
+    // 相悖）；现失败保持未标记自然重试，成功才标。并发双 persist 同 key 幂等无害：
+    // 快路同步落盘后第二调用走「读盘已含」分支收口；在途窗口内双 save 亦只是重复写同值
+    saveProviders(userDataPath, s)
+      .then(() => { degradedPersistedKeys.add(memoKey) })
+      .catch(() => { /* 排队段失败已留痕，未标记 → 下轮 persistDegraded 自然重试 */ })
   })
   // D2：降级记忆新鲜读——适配器实例缓存（registry settings hash）后不再依赖
   // 创建时捕获的 store 快照；loadProviders 有 mtime 缓存，高频 stream 代价可忽略
@@ -277,27 +282,33 @@ function mkChain(
   userDataPath: string | null,
   bookRoot: string | undefined,
   task: string | undefined,
-): ChainRecorder | null {
+): Promise<ChainRecorder | null> {
   if (!userDataPath || !bookRoot || !task) {
     log.warn('runner', JSON.stringify({ msg: '链路事件录制器未建（本次调用零链路事件）', reason: 'missing-args', hasUserDataPath: !!userDataPath, hasBookRoot: !!bookRoot, task: task ?? null }))
-    return null
+    return Promise.resolve(null)
   }
-  let store: ReturnType<typeof openSessionStore> = null
-  try {
-    store = openSessionStore(userDataPath, bookRoot)
-    if (!store) {
-      log.warn('runner', JSON.stringify({ msg: '链路事件录制器未建（本次调用零链路事件）', reason: 'open-session-store-null', task }))
+  return openSessionStoreAsync(userDataPath, bookRoot)
+    .then((store) => {
+      // R34D-19（三十四轮）：开库走异步孪生（首开锁等待不阻塞服务事件循环）；
+      // 建链半途抛错先关库再降级（口径同下 catch：引用计数单例不留滞留引用）
+      if (!store) {
+        log.warn('runner', JSON.stringify({ msg: '链路事件录制器未建（本次调用零链路事件）', reason: 'open-session-store-null', task }))
+        return null
+      }
+      try {
+        const sessionId = store.workspaceSession(bookHash(bookRoot))
+        return new ChainRecorder(store, sessionId)
+      } catch (e) {
+        log.warn('runner', JSON.stringify({ msg: '链路事件录制器未建（本次调用零链路事件）', reason: 'chain-build-error', task, error: e instanceof Error ? e.message : String(e) }))
+        store.close()
+        return null
+      }
+    })
+    .catch((e: unknown) => {
+      // 二轮复审（低级）：建链抛错降级 null（T2-2 审计黑洞口径——warn 留痕不静默）
+      log.warn('runner', JSON.stringify({ msg: '链路事件录制器未建（本次调用零链路事件）', reason: 'open-error', task, error: e instanceof Error ? e.message : String(e) }))
       return null
-    }
-    const sessionId = store.workspaceSession(bookHash(bookRoot))
-    return new ChainRecorder(store, sessionId)
-  } catch (e) {
-    // 二轮复审（低级）：建链半途抛错先关库再降级——openSessionStore 是引用计数单例，
-    // workspaceSession/ChainRecorder 构造抛错若不关，本次打开的引用滞留到进程结束
-    log.warn('runner', JSON.stringify({ msg: '链路事件录制器未建（本次调用零链路事件）', reason: 'chain-build-error', task, error: e instanceof Error ? e.message : String(e) }))
-    store?.close()
-    return null
-  }
+    })
 }
 
 export async function runTask<T>(opts: {
@@ -398,7 +409,8 @@ export async function runTask<T>(opts: {
   }
 
   // P3-6：step/start 先落库（mock 快路 / resolveProvider 失败路径在其后各自收尾）
-  chain = mkChain(opts.userDataPath, bookRoot, task)
+  // R34D-19（三十四轮）：mkChain 转异步（开库锁等待不阻塞服务事件循环）
+  chain = await mkChain(opts.userDataPath, bookRoot, task)
   if (chain) chain.add(stepStartEvent(task!, layerForTask(task!)))
   let stepReason: StepEndReason | undefined
 
@@ -576,14 +588,18 @@ export async function runTask<T>(opts: {
           const delay = backoffDelayMs(RETRY_POLICY, attempt + 1, {
             ...(e.retryAfterMs !== undefined ? { providerRetryAfterMs: e.retryAfterMs } : {}),
           })
+          // R34D-1（三十四轮）：失败响应并非必无 usage——截断带 usage 机制（B-12/R31-1）
+          // 下 GenError.usage 在手即真值，重试两分支（Retry-After 超封顶 / 正常退避）与
+          // abort/fail 两分支同口径按可得值入账；无 usage 保持 null 口径不变
+          const retryUsage = e instanceof GenError && e.usage ? e.usage : null
           // B4：服务端 Retry-After 超过封顶 → 尊重其「等多久」的判断，不重试（终态）
           if (delay === null) {
-            recordUsageSafe(null)
+            recordUsageSafe(retryUsage)
             trace({
               model: tier.model,
               attempt,
               stopReason: 'error',
-              usage: null,
+              usage: retryUsage,
               ok: false,
               errCode: 'RETRY_AFTER_OVER_CAP',
             })
@@ -594,12 +610,14 @@ export async function runTask<T>(opts: {
               error: `服务端要求等待 ${Math.round(e.retryAfterMs! / 1000)}s 后重试（超过 ${RETRY_POLICY.maxDelayMs / 1000}s 上限），已停止重试：${e.message}`,
             }
           }
-          // W-P2-8：重试也是真实 API 消耗——按次入账（失败响应无 usage，token 记 0），
+          // W-P2-8：重试也是真实 API 消耗——按次入账，
           // 否则单章最多 1+maxRetries 次调用只计 1 次，预算闸可被超限 4 倍
-          recordUsageSafe(null)
+          // （R34D-1：token 量改按 retryUsage——「失败响应无 usage，token 记 0」系截断带
+          // usage 机制引入前的过期假设，与 abort(:566)/终态失败(:621) 两分支口径对齐）
+          recordUsageSafe(retryUsage)
           // N5：失败 attempt 入 trace（429/5xx 无 usage，但可审计重试链）
           // A5：errCode 细化——有结构化 code（RATE_LIMIT/SERVER_ERROR/TIMEOUT…）优先于笼统 RETRYABLE
-          trace({ model: tier.model, attempt, stopReason: 'error', usage: null, ok: false, errCode: e.code ?? 'RETRYABLE' })
+          trace({ model: tier.model, attempt, stopReason: 'error', usage: retryUsage, ok: false, errCode: e.code ?? 'RETRYABLE' })
           // Bug C：重试前通知调用方（前端可见「AI 响应异常，重试中」，不再静默卡死）
           opts.onRetry?.(attempt, e.message)
           opts.onReset?.()

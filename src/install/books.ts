@@ -17,7 +17,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node
 import { resolve, join, dirname, basename, isAbsolute } from 'node:path'
 import { readBookConfig } from '../format/yaml.js'
 import { atomicWriteFile } from '../fs/atomic.js'
-import { acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
+import { acquireCrossProcessLockWithTimeout, acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 import { log } from '../log/index.js'
 
 // ── books.jsonl 登记格式（#32 第 2 节）──────────────
@@ -149,7 +149,11 @@ export function writeBooks(workDir: string, books: BookEntry[]): void {
  *  内部可变生效值（import 方静默改写会绕过注入钩子）；R32-18 口径：本族同步锁窄面
  *  登记维持——mutator 族（append/remove/repair/rename）26 处调用跨 CLI/桌面/测试三面，
  *  异步化级联不成比例，争用本身是毫秒级文件 IO（Atomics.wait 最坏停 5s 仅双进程
- *  争写同一 books.jsonl 窗口），与 journal/manifest 已登记口径同族。 */
+ *  争写同一 books.jsonl 窗口），与 journal/manifest 已登记口径同族。
+ *  残留清偿批（三十四轮）登记收窄：服务事件循环面**归零**——端点内嵌 RMW（改名流
+ *  与删书 removeBookEntryAsync）全走 tryBooksLockAsync；同步版余面 = CLI init
+ *  （appendBook）/ 启动段 pre-listen（repairBooks，见 server/index.ts 登记注）/
+ *  测试，均不在请求处理窗口内。 */
 export const BOOKS_LOCK_TIMEOUT_MS = 5_000
 
 /** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改。 */
@@ -174,6 +178,16 @@ export function __setBooksLockTimeoutForTest(ms: number): void {
 export function tryBooksLock(workDir: string): (() => void) | null {
   mkdirSync(join(workDir, CLWRITING_DIR), { recursive: true })
   return acquireCrossProcessLockWithTimeout(join(workDir, CLWRITING_DIR, 'books.lock'), booksLockTimeoutMs)
+}
+
+/** R34D-19（三十四轮）：tryBooksLock 的异步孪生——锁等待走 acquireCrossProcessLockAsync
+ *  （setTimeout 轮询，事件循环不阻塞），锁文件/超时/降级语义与同步版逐位同源。
+ *  服务进程事件循环上的**端点内嵌 RMW 面**（books.ts 改名端点登记段）专用；
+ *  mutator 族（append/remove/repair/rename 26 处调用跨 CLI/桌面/测试三面）维持
+ *  同步版不动（上方登记口径）。 */
+export async function tryBooksLockAsync(workDir: string): Promise<(() => void) | null> {
+  mkdirSync(join(workDir, CLWRITING_DIR), { recursive: true })
+  return acquireCrossProcessLockAsync(join(workDir, CLWRITING_DIR, 'books.lock'), booksLockTimeoutMs)
 }
 
 /** 追加一本书到 books.jsonl（不改 active）。同名已存在则报冲突。 */
@@ -207,11 +221,41 @@ export function appendBook(
 /**
  * 从 books.jsonl 移除一本书的登记（不改文件系统）。
  * 如果删的是活动书，清 active 指针（防野指针）。找不到则 no-op。
+ * 残留清偿批（三十四轮）：生产调用面已迁下方异步孪生 removeBookEntryAsync（删书
+ * 端点）；本同步版保留供 CLI/测试合法同步面（R32-18 窄面登记收口）。
  */
 export function removeBookEntry(workDir: string, name: string): void {
   // R63-2：读改写整段进跨进程锁；超时跳过留痕（与读失败同口径——登记留盘由
   // repairBooks 扫盘兜底，文件系统侧删除照常进行）
   const release = tryBooksLock(workDir)
+  if (!release) {
+    log.warn('books', `books.jsonl 登记锁获取超时，跳过移除「${name}」登记（登记留盘，自愈兜底）`)
+    return
+  }
+  try {
+    // DA-3（第七轮）：读失败拒绝重写——降级空表会让 writeBooks 清掉其余登记；
+    // 登记留在盘上由 repairBooks 扫盘兜底（文件系统侧删除照常进行）
+    const books = readBooksStrict(workDir)
+    if (books === null) return
+    writeBooks(workDir, books.filter((b) => b.name !== name))
+    // 活动书被删 → 清指针（下次进书架会提示选书）
+    if (readActive(workDir) === name) {
+      atomicWriteFile(join(workDir, ACTIVE_FILE), '')
+    }
+  } finally {
+    release()
+  }
+}
+
+/**
+ * removeBookEntry 的异步孪生（残留清偿批·三十四轮）——删书端点在承载 SSE/全部接口
+ * 的服务进程事件循环上直调同步版，其 tryBooksLock 的 Atomics.wait 等待（双进程争用
+ * 窗最坏 5s）是 R32-18 mutator 族登记残留的最后一个服务面落点。锁等待走
+ * acquireCrossProcessLockAsync（setTimeout 轮询），锁文件/超时档/超时跳过留痕/
+ * DA-3 读失败拒重写语义与同步版逐位对齐。
+ */
+export async function removeBookEntryAsync(workDir: string, name: string): Promise<void> {
+  const release = await tryBooksLockAsync(workDir)
   if (!release) {
     log.warn('books', `books.jsonl 登记锁获取超时，跳过移除「${name}」登记（登记留盘，自愈兜底）`)
     return

@@ -19,7 +19,7 @@
  * - 持 CHAT_SPEC 元数据直调 runTask（不走 runSpec，messages 是累积数组）
  */
 import type { Session, StudioDriver } from '../../driver/types.js'
-import { openSessionStore } from '../../events/store.js'
+import { openSessionStore, openSessionStoreAsync } from '../../events/store.js'
 import type { SessionRecorder } from '../../events/chat-bridge.js'
 import { emit, type ChatRunState, AGENT_DEADLINE_MS } from './chat/state.js'
 import { prepareChatRun } from './chat/restore.js'
@@ -234,7 +234,8 @@ async function runChatInner(opts: ChatOpts): Promise<void> {
   // 与 runner.ts / self-heal.ts 的 mkChain 同款；chat 面向作者，降级时 emit 提示。
   let store: ReturnType<typeof openSessionStore> = null
   try {
-    store = openSessionStore(opts.userDataPath, opts.bookRoot)
+    // R34D-19（三十四轮）：开库走异步孪生（首开锁等待不阻塞服务事件循环）
+    store = await openSessionStoreAsync(opts.userDataPath, opts.bookRoot)
   } catch (e) {
     store = null
     emit(opts, {

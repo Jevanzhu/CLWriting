@@ -17,7 +17,7 @@ import { reply, replyError } from '../http.js'
 import { resolveBook, resolveDocEntry } from '../book-context.js'
 import { safeManifestPath } from '../../../fs/safe-path.js'
 import { readAnalysis } from '../../../document/analysis.js'
-import { openSessionStore, bookHash } from '../../../events/store.js'
+import { openSessionStoreAsync, bookHash } from '../../../events/store.js'
 import { QUOTE_OPEN, QUOTE_CLOSE } from '../../../check/quotes.js'
 import { HANZI } from '../../../check/count.js' // R64-11：堆砌锚点汉字段单源（与 count.ts 口径一致）
 import { checkFalsePositiveEvent } from '../../../events/chain-bridge.js'
@@ -135,7 +135,8 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
       const excerpt = cutExcerpt(outcome.body, items.map((i) => i.message))
       if (ctx.userDataPath) {
         try {
-          const store = openSessionStore(ctx.userDataPath, bookRoot)
+          // R34D-19（三十四轮）：开库走异步孪生（首开锁等待不阻塞服务事件循环）
+          const store = await openSessionStoreAsync(ctx.userDataPath, bookRoot)
           if (store) {
             // M-6：close 收进 finally——workspaceSession/appendEvents 抛错时旧实现
             // 跳过 close，引用计数单例的本次打开滞留到进程结束

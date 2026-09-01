@@ -12,7 +12,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
 import { reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
-import { openSessionStore, type SessionStore } from '../../../events/store.js'
+import { openSessionStoreAsync, type SessionStore } from '../../../events/store.js'
 import { buildBranchTree, listBranches, defaultBranchId, type BranchInfo } from '../../../events/branch-tree.js'
 
 interface ChatBranchesCtx {
@@ -34,7 +34,7 @@ export function registerChatBranchesRoutes(ctx: ChatBranchesCtx): void {
   defineRoute('chat.branches', {
     method: 'GET',
     path: '/api/books/:name/chat/branches',
-    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
+    handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const bookName = params['name']!
@@ -42,10 +42,11 @@ export function registerChatBranchesRoutes(ctx: ChatBranchesCtx): void {
       // userData 为空（无事件库）→ 无分支，不报错（分支 UI 留空，与 history 空视图口径一致）
       if (!ctx.userDataPath) return reply(res, 200, { branches: [], activeBranchId: null })
 
-      // userDataPath 非空已确认 → store 必建库（openSessionStore 非惰性）
+      // userDataPath 非空已确认 → store 必建库（openSessionStoreAsync 非惰性）
       // R62-43：库损坏/权限等极端下 openSessionStore 仍可能返回 null——不再用 ! 断言，
       // 显式错误信封（此前静默 TypeError 崩路由）
-      const store = openSessionStore(ctx.userDataPath, bookRoot)
+      // R34D-19（三十四轮）：开库走异步孪生（首开锁等待不阻塞服务事件循环）
+      const store = await openSessionStoreAsync(ctx.userDataPath, bookRoot)
       if (!store) return replyError(res, 500, 'STORE_UNAVAILABLE', '事件库不可用（无法打开会话存储）')
       try {
         reply(res, 200, buildBranchesView(store, bookName))

@@ -16,31 +16,33 @@
  *   invalidateTreeIndex。结构性操作触发旧书建清单（W0-1 §4.2）。
  *
  * 冲突 / 能力不足 / 落盘失败 → 不落盘、journal 标 aborted（save）/ 返回 {ok:false,code}。
- * recover() 启动扫 journal，报 pending 无 settled/aborted（崩溃未结算）提示作者恢复。
+ * 崩溃恢复面在 state.ts assembleStatus（findUnsettled + healMovePending + crashedWrite
+ * 报文）——R34D-17（三十四轮）：本类曾有的 recover() 盘点方法生产零调用且不做
+ * healMovePending（与真恢复面行为分叉的假象覆盖），已删；测试改直测 findUnsettled。
  *
  * docId 是稳定 ID（队列/日志/清单 key），relPath 是落盘路径。
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { safeDocId, resolveWithinRoot } from '../fs/safe-path.js'
 import { atomicWriteFile, createFileExclusive, linkOrRenameExclusive } from '../fs/atomic.js'
 import { computeRevision, type Revision } from './revision.js'
 import { layoutOf, roleOf, isInternalBookPath } from './layout.js'
-import { appendAborted, appendMovePending, appendPending, appendSettled, findUnsettled, type JournalAnyPending } from './journal.js'
+import { appendAborted, appendMovePending, appendPending, appendSettled } from './journal.js'
 import { writeSnapshot, DEFAULT_SNAPSHOT_POLICY, readGlobalSnapshotPolicy, type SnapshotPolicy } from './snapshot.js'
-import { readManifest, readManifestStrict, writeManifest, upsertEntry, withManifestLock, withManifestLockAsync, type ManifestEntry } from './manifest.js'
+import { readManifest, readManifestStrict, writeManifest, upsertEntry, withManifestLockAsync, type ManifestEntry } from './manifest.js'
 import { SaveQueue } from './queue.js'
 import { generateDocId, legacyId } from './stable-id.js'
 import { invalidateTreeIndex, scanBookTree, type TreeNode } from './tree.js'
 import { readFile as readDoc, parseFlat, patchFlatFm, splitFrontMatter, joinFrontMatter, bodyOf } from '../format/frontmatter.js'
-import { appendTrashEntry, readTrashManifest } from './trash.js'
+import { appendTrashEntryAsync, readTrashManifest } from './trash.js'
 import { log } from '../log/index.js'
 import { appendWordsDelta, todayDate } from './words-diary.js'
 import { countWords, chapterFilePrefix } from '../format/words.js'
 // R26-55（二十六轮）：createDocument 的 relPath 逐段消毒同源（sanitizeChapterTitle 是
 // 同函数的章标题别名）
 import { sanitizeChapterTitle, sanitizeFileNamePart } from '../format/filename.js'
-import { encodeDocDirName, decodeDocDirName } from './version.js'
+import { encodeDocDirName } from './version.js'
 import { acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js' // R31-20：meta 链全异步化，同步等待原语已无使用方
 import { readBookConfig } from '../format/yaml.js'
 
@@ -103,9 +105,12 @@ export function __setWiringSaveLockTimeoutForTest(ms: number): void {
   wiringSaveLockTimeoutMs = ms
 }
 
-/** 保存输入（W0-1 §5.1）。 */
+/** 保存输入（W0-1 §5.1）。
+ *  R34D-18（三十四轮）：content 扩为 string | Buffer——Buffer 仅恢复端点字节档分支
+ *  产生（readSnapshotRaw 原字节透传），原字节直存闭合 R26-52「字节档恢复不失真」；
+ *  文本保存方（编辑器/autosave/外部合并）仍全量 string，行为不变。 */
 export interface SaveDocumentInput {
-  content: string
+  content: string | Buffer
   /** 期望基线 revision；null = 新建（撞已有文件 → 冲突）。 */
   expectedRevision: Revision
   /** 幂等去重 id。 */
@@ -122,14 +127,8 @@ export type SaveResult =
       reason: string
     }
 
-/** 保存出队结果（含旧响应标记）。联合分配：保留 ok 判别标签，可正常 narrow。 */
+/** 保存出队结果（含旧响应标记）。联合分配：保留 ok: 判别标签，可正常 narrow。 */
 export type SaveOutcome = SaveResult & { superseded: boolean }
-
-/** 崩溃恢复报告：docId → 未结算的 pending 列表（保存类含全文快照 / 移动类含新旧路径）。 */
-export interface UnsettledReport {
-  docId: string
-  pending: JournalAnyPending[]
-}
 
 /** 新建文档输入（W2A §7）。 */
 export interface CreateDocumentInput {
@@ -245,9 +244,13 @@ export class DocumentService {
   }
 
   /** docId → relPath（含 legacy 兜底：旧文件首次访问时扫盘反查并补登记清单，
-   *  stable-id.ts「首次结构性操作时落盘」）。未登记且非 legacy / 无匹配 → null。 */
-  resolvePath(docId: string): string | null {
-    return this.lookupPathByDocId(docId)
+   *  stable-id.ts「首次结构性操作时落盘」）。未登记且非 legacy / 无匹配 → null。
+   *  残留清偿批（三十四轮）：legacy 收编链全异步（upsertManifestEntryAsync，
+   *  withManifestLockAsync 等待）——同步版 resolvePath/lookupPathByDocId/
+   *  adoptLegacyDoc/upsertManifestEntry 已删，服务端点不再以同步 withManifestLock
+   *  （Atomics.wait）落在事件循环。 */
+  async resolvePathAsync(docId: string): Promise<string | null> {
+    return this.lookupPathByDocIdAdoptAsync(docId)
   }
 
   /** 在途/排队中的保存任务数（跨全部 docId；删书/改名前 drain 探询用，第五轮）。 */
@@ -255,20 +258,10 @@ export class DocumentService {
     return this.queue.inFlight()
   }
 
-  /** 启动扫 journal，报 pending 无 settled/aborted（崩溃未结算）。 */
-  recover(): UnsettledReport[] {
-    if (!existsSync(this.journalDir)) return []
-    const out: UnsettledReport[] = []
-    for (const name of readdirSync(this.journalDir)) {
-      if (name.startsWith('._') || !name.endsWith('.jsonl')) continue
-      // R68-3：写侧已改编码文件名（win legacy 冒号防线）——此处反解回真实 docId
-      //（mac 存量字面名原样通过，decodeDocDirName 幂等）。
-      const docId = decodeDocDirName(name.slice(0, -'.jsonl'.length))
-      const pending = findUnsettled(join(this.journalDir, name))
-      if (pending.length > 0) out.push({ docId, pending })
-    }
-    return out
-  }
+  // R34D-17（三十四轮）：recover() 盘点方法已删——生产零调用（真恢复面 = state.ts
+  // assembleStatus：findUnsettled + healMovePending + crashedWrite 报文），且它不做
+  // healMovePending 与真恢复面行为分叉，「类上有 recover」的假象覆盖了真实恢复链。
+  // 未结算断言请直测 journal.findUnsettled（journal.ts 生产原语）。
 
   // ── 串行执行体（§5.2 步骤 4-11，队列内调用）─────────
 
@@ -290,7 +283,7 @@ export class DocumentService {
     if (!safeDocId(docId)) return Promise.resolve({ ok: false, code: 'PATH_ESCAPE', reason: '文档 ID 非法' })
     // R68-3（十六轮）：文件名编码（`:`→`_`）——legacy docId 的字面名在 win 上非法
     // （EINVAL/NTFS ADS），appendPending 记不上 = 保存链路永久 WRITE_ERROR。读侧
-    // recover() 反解见 decodeDocDirName。
+    // 文件名编码（R68-3，win legacy 冒号防线）；未结算读侧反解见 journal/state 消费面。
     const journalPath = join(this.journalDir, `${encodeDocDirName(docId)}.jsonl`)
 
     // V-P2-1：结构性操作（rename/move/trash）同步执行、不排队，与入队 save 存在竞态窗口——
@@ -302,9 +295,11 @@ export class DocumentService {
     // → upsertManifestEntry → withManifestLock 超时 throw）此前在契约 try 之外裸穿：
     // queue reject → save() 变 rejected promise / API 500（manifest.ts 注释宣称的
     // 「executeSave 内 catch → WRITE_ERROR」对前段不实）。现同款收编为 SaveResult。
+    // 残留清偿批（三十四轮）：前段收编迁异步孪生——原同步 lookupPathByDocId 的
+    // legacy 收编段走 withManifestLock 同步睡，在保存链前段重新引入事件循环阻塞。
     let registered: string | null
     try {
-      registered = this.lookupPathByDocId(docId)
+      registered = await this.lookupPathByDocIdAdoptAsync(docId)
     } catch (e) {
       return Promise.resolve({
         ok: false,
@@ -428,16 +423,24 @@ export class DocumentService {
       // 新内容干净时静默放行覆写，而 maybeSnapshot 以 utf-8 读盘留底的是失真快照（假
       // 留底，覆写后原字节任何形式不可恢复）。对齐 draft-pipeline R66-1 / lead-finalize
       // M-9 的无条件口径：盘上非 UTF-8 一律拒绝，先转码再保存。
-      if (existing && !isUtf8Bytes(readFileSync(absPath))) {
+      // R34D-18（三十四轮）：Buffer 内容放行——该防线的威胁模型是「文本往返失真覆写」，
+      // 字节档恢复（readSnapshotRaw 原字节透传）正是把原始字节写回盘上的反悔通道，
+      // 拦它等于剥夺 GBK 档唯一的无损恢复路径。
+      const content = input.content
+      const byteRestore = Buffer.isBuffer(content)
+      if (existing && !byteRestore && !isUtf8Bytes(readFileSync(absPath))) {
         return Promise.resolve(NON_UTF8_SAVE_REJECT)
       }
 
       // 步骤 4：journal pending（含全文快照，防丢字）
       // RB-KN-P2-2：pending 记不上就不能继续写（无 journal 兜底的落盘违反崩溃恢复协议），
       // 且失败须走 SaveResult 契约（原在此处直接抛出，save() 变 rejected promise，调用方易 unhandled rejection）
+      // R34D-18：字节档 pending 存空串——journal 全文快照是崩溃提示的恢复材料，存失真
+      // 文本视图（U+FFFD）会在作者按提示「恢复」时写回失真内容；字节档的恢复材料就是
+      // 版本档原件（恢复操作不动它），空串 pending 仍完整承担崩溃检测（crashedWrite 提示）
       let opId: string
       try {
-        opId = await appendPending(journalPath, docId, currentRev, input.content)
+        opId = await appendPending(journalPath, docId, currentRev, byteRestore ? '' : content)
       } catch (e) {
         return Promise.resolve({
           ok: false,
@@ -449,9 +452,12 @@ export class DocumentService {
       try {
         // P2-BE-1：wordDelta 计算移入 try——readFileSync 失败时 journal 标 aborted（而非孤儿 pending 误报崩溃）
         // 步骤 4.5：算字数 delta（E4）——须在 atomicWrite 前读旧内容；strip fm 口径（与前端 updateWordCount 一致）
-        const wordDelta =
-          countWords(bodyOf(input.content)) -
-          countWords(existing ? bodyOf(readFileSync(absPath, 'utf-8')) : '')
+        // R34D-18：字节档不记增量——GBK 字节无安全文本视图，失真视图的字数是伪值，
+        // 字数日记宁缺毋错（delta 0）
+        const wordDelta = byteRestore
+          ? 0
+          : countWords(bodyOf(content)) -
+            countWords(existing ? bodyOf(readFileSync(absPath, 'utf-8')) : '')
 
         // 步骤 5：按策略建 snapshot（修改前版本留底）
         this.maybeSnapshot(docId, relPath, absPath, input, currentRev)
@@ -463,9 +469,9 @@ export class DocumentService {
         // 目标已被并发创建，按既有 REVISION_CONFLICT 口径拒绝（「世界已变，请刷新重试」，
         // 同 V-P2-1 出队守卫的语义，不新增错误码），journal pending 补 aborted 后返回。
         if (existing) {
-          atomicWriteFile(absPath, input.content, { fsync: true })
+          atomicWriteFile(absPath, content, { fsync: true })
         } else {
-          const created = createFileExclusive(absPath, input.content, { fsync: true })
+          const created = createFileExclusive(absPath, content, { fsync: true })
           if (created === 'exists') {
             try {
               await appendAborted(journalPath, opId, '新建落位时目标已被并发创建（REVISION_CONFLICT）')
@@ -676,12 +682,14 @@ export class DocumentService {
 
   // ── 结构性操作（W2A §7，同步实现）──────────────────
 
-  /** 新建文档（分配 docId + 落盘 + 清单登记 + invalidate）。 */
-  createDocument(input: CreateDocumentInput): Promise<CreateResult> {
-    return Promise.resolve(this.doCreate(input))
+  /** 新建文档（分配 docId + 落盘 + 清单登记 + invalidate）。
+   *  R34D-19（三十四轮）：doCreate 转异步——清单登记锁等待走 withManifestLockAsync
+   *  （setTimeout 轮询，事件循环不阻塞）；对外 Promise 契约不变（原本即 Promise 包装）。 */
+  async createDocument(input: CreateDocumentInput): Promise<CreateResult> {
+    return this.doCreate(input)
   }
 
-  private doCreate(input: CreateDocumentInput): CreateResult {
+  private async doCreate(input: CreateDocumentInput): Promise<CreateResult> {
     // R26-55（二十六轮）：relPath 逐段过 sanitizeFileNamePart（format/filename.ts 单一
     // 真相源）——win 保留设备名（CON.md 等）拷至 Windows 被拒、尾点/尾空格 win 落盘被
     // 自动剖（读写名不一致），非法字符直落盘时炸或产生跨平台歧义名。先消毒再走既有
@@ -727,7 +735,7 @@ export class DocumentService {
     //（.版本/journal 以旧 id 孤儿化，历史面板失联）；与自愈同 id 即身份连续。
     let registeredDocId = docId
     try {
-      this.upsertManifestEntry(docId, rel)
+      await this.upsertManifestEntryAsync(docId, rel)
     } catch (e) {
       registeredDocId = legacyId(rel)
       log.warn('document', `新建后清单登记失败（${rel}，降级返回 legacy id 与树扫描自愈同源）：${errMsg(e)}`)
@@ -776,7 +784,7 @@ export class DocumentService {
   }
 
   private async updateChapterMetaLocked(docId: string, meta: { 标题?: string; 章号?: number }): Promise<MoveResult> {
-    const path = this.lookupPathByDocId(docId)
+    const path = await this.lookupPathByDocIdAdoptAsync(docId)
     if (!path) return { ok: false, code: 'NOT_FOUND', reason: `文档 ${docId} 未在清单登记` }
     const abs = this.resolveSafePath(path)
     if (!abs) return { ok: false, code: 'PATH_ESCAPE', reason: '路径越出书仓库' }
@@ -999,7 +1007,7 @@ export class DocumentService {
   }
 
   private async updateDocMetaLocked(docId: string, meta: Record<string, unknown>): Promise<MoveResult> {
-    const path = this.lookupPathByDocId(docId)
+    const path = await this.lookupPathByDocIdAdoptAsync(docId)
     if (!path) return { ok: false, code: 'NOT_FOUND', reason: `文档 ${docId} 未在清单登记` }
     const abs = this.resolveSafePath(path)
     if (!abs) return { ok: false, code: 'PATH_ESCAPE', reason: '路径越出书仓库' }
@@ -1104,7 +1112,7 @@ export class DocumentService {
     // 已有 P1-SEC-A 守卫，此处同型构造漏校验；manifest 是可篡改数据面，构造
     // id:"../../evil" 条目后 PATCH move/rename 可把 .jsonl 写出书仓库外。
     if (!safeDocId(docId)) return { ok: false, code: 'PATH_ESCAPE', reason: '文档 ID 非法' }
-    const oldPath = this.lookupPathByDocId(docId)
+    const oldPath = await this.lookupPathByDocIdAdoptAsync(docId)
     if (!oldPath) return { ok: false, code: 'NOT_FOUND', reason: `文档 ${docId} 未在清单登记` }
 
     // R64-16（十二轮）：rename 的 newName 直拼 `${dirname}/${newName}`——含 `/`/`\`
@@ -1224,44 +1232,18 @@ export class DocumentService {
     return { ok: true, docId, path: newPath }
   }
 
-  /** 查清单 docId → path；无清单或未登记 → null（旧书需先建清单）。 */
-  private lookupPathByDocId(docId: string): string | null {
-    if (existsSync(this.manifestPath)) {
-      const path = readManifest(this.manifestPath).entries.get(docId)?.path
-      if (path) return path
-    }
-    return this.adoptLegacyDoc(docId)
-  }
-
-  /**
-   * legacy 临时 ID 兜底：旧书文件无清单登记时，树用 legacyId(path) 当运行期 ID，
-   * 清单里查不到 → 结构性操作一律 NOT_FOUND。此处扫盘反查同 ID 的文件并补登记
-   * （stable-id.ts「首次结构性操作时落盘」）。非 legacy 前缀 / 无匹配 → null。
-   */
-  private adoptLegacyDoc(docId: string): string | null {
-    if (!docId.startsWith('legacy:')) return null
-    const hit = findByLegacyId(scanBookTree(this.bookRoot), docId)
-    if (!hit) return null
-    this.upsertManifestEntry(docId, hit)
-    return hit
-  }
-
-  /** 清单登记/upsert（无清单则建——结构性操作触发，W0-1 §4.2）。X-5：RMW 持清单锁。 */
-  private upsertManifestEntry(docId: string, relPath: string): void {
-    withManifestLock(this.manifestPath, () => {
-      // R27-40：RMW strict 读——读失败（EBUSY/EACCES）上抛走调用方 WRITE_ERROR 信封，
-      // 不再以空清单整文件重写吞掉全部登记
-      const m = existsSync(this.manifestPath) ? readManifestStrict(this.manifestPath) : { version: 1, entries: new Map<string, ManifestEntry>() }
-      upsertEntry(m, { id: docId, nodeType: 'document', path: relPath, parentId: null })
-      mkdirSync(dirname(this.manifestPath), { recursive: true })
-      writeManifest(this.manifestPath, m)
-    })
-  }
+  // 残留清偿批（三十四轮）：同步收编链三函数已删——lookupPathByDocId / adoptLegacyDoc /
+  // upsertManifestEntry（同步版）。全部调用方（端点 resolvePathAsync / executeSave 前段 /
+  // updateChapterMeta·updateDocMeta·doMoveOrRename·doCopy·doTrash）已迁
+  // lookupPathByDocIdAdoptAsync 异步孪生；legacy 收编语义（清单命中无锁读 → miss 且
+  // legacy 前缀时扫盘反查 → 异步清单锁登记）见下方孪生。同步 withManifestLock 自此
+  // 退出 service 写链（R34D-19 登记的「adoptLegacyDoc 冷路径残留」闭合）。
 
   /** R31-19（三十一轮）：upsertManifestEntry 的异步孪生——executeSave 锁内复核的
    *  legacy 收编链专用。等待期 withManifestLockAsync（setTimeout 轮询，事件循环不
-   *  阻塞），RMW 本体与同步版逐位对齐（strict 读/同错误/同锁文件）。其余同步
-   *  调用方（doCreate/doCopy/adoptLegacyDoc）保持同步版不动。 */
+   *  阻塞），RMW 本体与同步版逐位对齐（strict 读/同错误/同锁文件）。R34D-19（三十
+   *  四轮）：doCreate/doCopy 登记亦迁本异步孪生；残留清偿批：同步版随 adoptLegacyDoc
+   *  链删除——本函数成为清单登记唯一实现。 */
   private async upsertManifestEntryAsync(docId: string, relPath: string): Promise<void> {
     await withManifestLockAsync(this.manifestPath, () => {
       const m = existsSync(this.manifestPath) ? readManifestStrict(this.manifestPath) : { version: 1, entries: new Map<string, ManifestEntry>() }
@@ -1275,7 +1257,8 @@ export class DocumentService {
    *  清单命中读与同步版同口径（无锁读）；miss 且 legacy 前缀时扫盘反查后经异步清单锁
    *  登记——原路径 adoptLegacyDoc → upsertManifestEntry 用同步 withManifestLock
    *  （Atomics.wait），双进程争用窗口内在 save 锁等待异步化的保存链上重新引入最长
-   *  2×5s 的事件循环阻塞。 */
+   *  2×5s 的事件循环阻塞。残留清偿批（三十四轮）：全调用面（含端点侧
+   *  resolvePathAsync）已迁本孪生，同步链删除——本函数为 docId 收编唯一实现。 */
   private async lookupPathByDocIdAdoptAsync(docId: string): Promise<string | null> {
     if (existsSync(this.manifestPath)) {
       const path = readManifest(this.manifestPath).entries.get(docId)?.path
@@ -1307,13 +1290,15 @@ export class DocumentService {
     return '---\n---\n\n'
   }
 
-  /** 复制文档（读源内容 → 落到 relPath → 分配新 docId + 清单登记 + invalidate）。 */
-  copyDocument(input: CopyDocumentInput): Promise<CopyResult> {
-    return Promise.resolve(this.doCopy(input))
+  /** 复制文档（读源内容 → 落到 relPath → 分配新 docId + 清单登记 + invalidate）。
+   *  R34D-19（三十四轮）：doCopy 转异步——清单登记锁等待走 withManifestLockAsync；
+   *  对外 Promise 契约不变。 */
+  async copyDocument(input: CopyDocumentInput): Promise<CopyResult> {
+    return this.doCopy(input)
   }
 
-  private doCopy(input: CopyDocumentInput): CopyResult {
-    const srcPath = this.lookupPathByDocId(input.docId)
+  private async doCopy(input: CopyDocumentInput): Promise<CopyResult> {
+    const srcPath = await this.lookupPathByDocIdAdoptAsync(input.docId)
     if (!srcPath) return { ok: false, code: 'NOT_FOUND', reason: `源文档 ${input.docId} 未在清单登记` }
     // 能力：源 copy + 目标 write（与 create 同步实现，靠单线程微任务不交错）
     if (!layoutOf(srcPath).capabilities.copy) {
@@ -1346,7 +1331,7 @@ export class DocumentService {
     // R31-24（三十一轮）：登记失败降级返回 legacyId(rel)（同 doCreate，身份连续）
     let registeredDocId = newDocId
     try {
-      this.upsertManifestEntry(newDocId, input.relPath)
+      await this.upsertManifestEntryAsync(newDocId, input.relPath)
     } catch (e) {
       registeredDocId = legacyId(input.relPath)
       log.warn('document', `复制后清单登记失败（${input.relPath}，降级返回 legacy id 与树扫描自愈同源）：${errMsg(e)}`)
@@ -1356,18 +1341,21 @@ export class DocumentService {
   }
 
   /** 软删文档（snapshot + 回收站登记 + 移 .trash + 清单 removeEntry + invalidate；
-   *  GG-P2-6：登记不成则删不成——先写登记成功再移文件）。 */
-  trashDocument(input: { docId: string }): Promise<TrashResult> {
-    return Promise.resolve(this.doTrash(input.docId))
+   *  GG-P2-6：登记不成则删不成——先写登记成功再移文件）。
+   *  R34D-19（三十四轮）：doTrash 转异步——回收站登记锁（appendTrashEntryAsync）与
+   *  尾段清单 RMW 锁（withManifestLockAsync）等待均不阻塞服务事件循环，补齐 trash.ts
+   *  同文件 restore/purge 已异步化（R33D-21）的「半异步」残留；对外 Promise 契约不变。 */
+  async trashDocument(input: { docId: string }): Promise<TrashResult> {
+    return this.doTrash(input.docId)
   }
 
-  private doTrash(docId: string): TrashResult {
+  private async doTrash(docId: string): Promise<TrashResult> {
     // R67-11（十五轮）：入口补 safeDocId——与 saveDocument/executeSave 同口径的纵深
     // 一致性：manifest 属可篡改数据面，带恶意 docId 的登记可经 lookup 命中后进入
     // snapshot 留底/trash 路径拼接（下游 resolveSafePath 两层已挡穿越，此处挡在
     // 更早，非法 ID 不进后续链）
     if (!safeDocId(docId)) return { ok: false, code: 'PATH_ESCAPE', reason: '文档 ID 非法' }
-    const oldPath = this.lookupPathByDocId(docId)
+    const oldPath = await this.lookupPathByDocIdAdoptAsync(docId)
     if (!oldPath) return { ok: false, code: 'NOT_FOUND', reason: `文档 ${docId} 未在清单登记` }
     if (!layoutOf(oldPath).capabilities.trash) {
       return { ok: false, code: 'CAPABILITY_DENIED', reason: '该文档不可删除（系统文档）' }
@@ -1428,7 +1416,7 @@ export class DocumentService {
         if (existsSync(this.manifestPath)) {
           // R27-46（二十七轮）：strict 读——瞬态读失败不再静默降级「从未定稿」（还原后
           // 防覆盖闸失守且零留痕），warn 后仍按无基线落账（软删主流程不因基线读失败
-          // 中止；真正的 fail-closed 由下方 appendTrashEntry 的 strict 读把守——trash
+          // 中止；真正的 fail-closed 由下方 appendTrashEntryAsync 的 strict 读把守——trash
           // 清单读得失败时登记不成则删不成，GG-P2-6）。
           const prior = readManifestStrict(this.manifestPath).entries.get(docId)
           if (prior) {
@@ -1459,7 +1447,7 @@ export class DocumentService {
         ...priorFinalized,
       }
       try {
-        appendTrashEntry(this.bookRoot, { ...entryBase, trashedPath: finalTrashRel })
+        await appendTrashEntryAsync(this.bookRoot, { ...entryBase, trashedPath: finalTrashRel })
       } catch (e) {
         return {
           ok: false,
@@ -1483,7 +1471,7 @@ export class DocumentService {
         mkdirSync(dirname(retryAbs), { recursive: true })
         finalTrashAbs = retryAbs
         try {
-          appendTrashEntry(this.bookRoot, { ...entryBase, trashedPath: finalTrashRel })
+          await appendTrashEntryAsync(this.bookRoot, { ...entryBase, trashedPath: finalTrashRel })
         } catch (e) {
           return {
             ok: false,
@@ -1508,7 +1496,9 @@ export class DocumentService {
       try {
         if (existsSync(this.manifestPath)) {
           // X-5：RMW 持清单锁（跨进程互斥）
-          withManifestLock(this.manifestPath, () => {
+          // R34D-19（三十四轮）：锁等待异步化（withManifestLockAsync，R30-6 原语）——
+          // best-effort 语义不变（P1-S3 失败不阻断，文件已实质删除）
+          await withManifestLockAsync(this.manifestPath, () => {
             const m = readManifestStrict(this.manifestPath) // R27-40：RMW strict 读——读失败拒删，保住全书登记
             m.entries.delete(docId)
             writeManifest(this.manifestPath, m)

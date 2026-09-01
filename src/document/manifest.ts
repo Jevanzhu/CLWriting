@@ -188,8 +188,22 @@ export function removeEntry(manifest: Manifest, id: string): boolean {
   return manifest.entries.delete(id)
 }
 
-/** 原子写回整文件（追加 + 重写整文件原子替换，W0-1 §4.2）。 */
+/** 原子写回整文件（追加 + 重写整文件原子替换，W0-1 §4.2）。
+ *  R34D-4（三十四轮）：写前 `.bak` 影子——清单「在册可读但零条可解析」读侧三防线
+ *  （finalizedPathSet/finalizedChapterSetOfBook → ensureChapterNotFinalized）fail-open
+ *  当空集，且坏清单的下次写会把空表物理落盘**永久化**。本写点在替换前把将被覆盖的
+ *  旧内容原子写一份 `文档清单.jsonl.bak`（同目录 tmp+rename，失败 best-effort 不阻断
+ *  主写、已有 .bak 直接覆盖），外部（编辑器/云同步）把清单搞坏后总有上一份好内容可恢复。 */
 export function writeManifest(filePath: string, manifest: Manifest): void {
+  try {
+    if (existsSync(filePath)) {
+      // 字节级快照旧内容（不解析——坏行也原样留底，恢复口径最全）
+      const previous = readFileSync(filePath)
+      atomicWriteFile(`${filePath}.bak`, previous, { fsync: false })
+    }
+  } catch {
+    /* R34D-4：.bak 影子失败不阻断主写（best-effort） */
+  }
   const lines: string[] = [JSON.stringify({ version: manifest.version, type: HEADER_TYPE })]
   for (const e of manifest.entries.values()) {
     lines.push(JSON.stringify(e))

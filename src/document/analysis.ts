@@ -11,7 +11,7 @@
 import { existsSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
-import { acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
+import { acquireCrossProcessLockWithTimeout, acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 import { safeDocId } from '../fs/safe-path.js'
 import { encodeDocDirName } from './version.js'
 import { createHash } from 'node:crypto'
@@ -158,7 +158,37 @@ export function writeAnalysis(
 ): void {
   const fp = analysisPath(bookRoot, docId)
   if (!fp) return
-  withAnalysisLock(fp, () => {
+  withAnalysisLock(fp, () => writeAnalysisLocked(fp, bookRoot, docId, kind, envelope))
+}
+
+/** R34D-19（三十四轮）：writeAnalysis 的异步孪生——锁等待走 acquireCrossProcessLockAsync
+ *  （setTimeout 轮询，事件循环不阻塞），服务进程调用链（review/analysis 端点）专用；
+ *  超时降级裸写 + warn 留痕口径与同步版逐位同源。RMW 本体抽 writeAnalysisLocked 共用
+ *  （防两版漂移）。同步版保留供测试等合法同步面。 */
+export async function writeAnalysisAsync(
+  bookRoot: string,
+  docId: string,
+  kind: AnalysisKind,
+  envelope: Envelope,
+): Promise<void> {
+  const fp = analysisPath(bookRoot, docId)
+  if (!fp) return
+  const release = await acquireCrossProcessLockAsync(`${fp}.lock`, ANALYSIS_LOCK_TIMEOUT_MS)
+  if (!release) {
+    log.warn('analysis', `分析锁超时，降级裸写（${fp}）——并发合并写窗口回到无锁口径`)
+    writeAnalysisLocked(fp, bookRoot, docId, kind, envelope)
+    return
+  }
+  try {
+    writeAnalysisLocked(fp, bookRoot, docId, kind, envelope)
+  } finally {
+    release()
+  }
+}
+
+/** R34D-19（三十四轮）：合并写 RMW 本体（锁由调用方在持）——writeAnalysis（同步壳）与
+ *  writeAnalysisAsync（异步壳）共用，防两壳各持一份合并逻辑漂移。 */
+function writeAnalysisLocked(fp: string, bookRoot: string, docId: string, kind: AnalysisKind, envelope: Envelope): void {
     const candidates = analysisPathCandidates(bookRoot, docId) ?? []
     // overlay 合并基：按候选序依次叠加（后读的编码文件键覆盖字面旧键）
     let raw: Record<string, unknown> = {}
@@ -190,7 +220,6 @@ export function writeAnalysis(
         }
       }
     }
-  })
 }
 
 /** 读全书级某 kind 信封（项目/分析/__book__.json；无文件/无 kind/损坏 → null）。 */

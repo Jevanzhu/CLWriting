@@ -133,3 +133,45 @@ describe('rewrite: clear', () => {
     expect(s.result).toBeNull()
   })
 })
+
+describe('R34D-22: save 返 false 的「排队 no-op」不误读为保存失败', () => {
+  /**
+   * 场景（stores/doc.ts:190-196）：manual 保存遇在途保存排队，等在途 settle 后复查
+   * `!cur.dirty` 返 false（F8 契约：无需重存）——在途保存已把全部内容落盘，dirty 已清。
+   * rewrite 此前无差别按「保存失败」取消改写；修复后复查 dirty：已清 → 内容实已在
+   * 磁盘，改写基线安全，照常发起改写。
+   */
+  function stubDoc(opts: { saveClearsDirty: boolean }): void {
+    let dirty = true
+    vi.mocked(useDocStore).mockReturnValue({
+      // get 每次取实况（save 副作用清 dirty 后，rewrite 的复查读到 false）
+      get: vi.fn(() => ({ content: '旧', dirty, conflict: false, error: null })),
+      // F8 排队 no-op 形态：save 返 false；在途保存成功时副作用清 dirty
+      save: vi.fn(async () => {
+        if (opts.saveClearsDirty) dirty = false
+        return false
+      }),
+      patch: vi.fn(),
+    } as unknown as ReturnType<typeof useDocStore>)
+  }
+
+  it('save 返 false 但 dirty 已清（在途保存已落盘）→ 不取消，照常发起改写', async () => {
+    stubDoc({ saveClearsDirty: true })
+    rewriteMock.mockResolvedValue({ ok: true, mode: 'whole', original: '旧', rewritten: '新', diff: [] })
+    const s = useRewriteStore()
+    await s.run('book1', 'doc_1', '改写', '')
+    // 修复点：不再误读为失败（修复前 error='改写前保存失败' 且 rewriteMock 不被调）
+    expect(rewriteMock).toHaveBeenCalledTimes(1)
+    expect(s.error).toBeNull()
+    expect(s.result).not.toBeNull()
+  })
+
+  it('对照组：save 返 false 且 dirty 仍在（真失败/冲突）→ 取消改写（既有语义不误伤）', async () => {
+    stubDoc({ saveClearsDirty: false })
+    const s = useRewriteStore()
+    await s.run('book1', 'doc_1', '改写', '')
+    expect(rewriteMock).not.toHaveBeenCalled()
+    expect(s.error).toBe('改写前保存失败，已取消改写')
+    expect(s.result).toBeNull()
+  })
+})

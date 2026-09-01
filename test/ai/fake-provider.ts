@@ -25,6 +25,9 @@ export type FakeResponse =
   | ({ type: 'tool'; name: string; input: unknown; id?: string; usage?: FakeUsage } & { delayMs?: number })
   // R64-5：单响应多 tool_use（index 0..n-1 顺序吐出）——驱动 generateTool 丢弃告警路径
   | ({ type: 'tools'; calls: Array<{ name: string; input: unknown; id?: string }>; usage?: FakeUsage } & { delayMs?: number })
+  // R34D-9：传输截断形态——内容增量 + usage 尾包，无 finish_reason 即断流
+  //（适配器按 R31-1 判传输截断，随错上抛已见 usage → 驱动 runTask 重试链带 usage 分支）
+  | ({ type: 'truncated'; content: string; usage?: FakeUsage } & { delayMs?: number })
   | ({ type: 'error'; status: number; message: string; retryAfter?: string } & { delayMs?: number })
   | ({ type: 'max_tokens'; partial: string; usage?: FakeUsage } & { delayMs?: number })
 
@@ -180,6 +183,14 @@ export function createFakeProvider(initialScript: FakeResponse[] = []): Promise<
           id: 'fake-chatcmpl',
           object: 'chat.completion.chunk',
           choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }],
+        })
+        writeChunk({ id: 'fake-chatcmpl', object: 'chat.completion.chunk', choices: [], usage: { prompt_tokens: usage.input, completion_tokens: usage.output } })
+      } else if (resp.type === 'truncated') {
+        // R34D-9：截断流——只有内容增量 + usage 尾包，finish_reason 永不到达（R31-1 形态）
+        writeChunk({
+          id: 'fake-chatcmpl',
+          object: 'chat.completion.chunk',
+          choices: [{ index: 0, delta: { content: resp.content }, finish_reason: null }],
         })
         writeChunk({ id: 'fake-chatcmpl', object: 'chat.completion.chunk', choices: [], usage: { prompt_tokens: usage.input, completion_tokens: usage.output } })
       } else if (resp.type === 'max_tokens') {

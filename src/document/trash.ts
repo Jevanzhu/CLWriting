@@ -169,9 +169,25 @@ export function appendTrashEntry(bookRoot: string, entry: TrashEntry): void {
   // Z-5（第五十八轮）：RMW 持锁（X-5 同型漏网）——GUI 与 CLI/他实例并发软删时，
   // 裸「读全量→改→整文件重写」后写者吞掉先者条目（回收站 UI 失明）。锁文件
   // <trash-manifest>.lock 独立于主清单锁，全程不与主清单锁嵌套（无获取序环路）。
+  // R34D-19（三十四轮）：服务进程链改走异步孪生（下方 appendTrashEntryAsync）——
+  // 本同步版保留供 CLI 迁移脚本（migrate-layout-v3）等合法同步面。
   withManifestLock(trashManifestPath(bookRoot), () => {
     // R27-40：RMW strict 读——读失败上抛 → GG-P2-6「登记不成则删不成」中止软删，
     // 不再以空表重写吞掉全部回收站条目
+    const entries = readTrashManifestStrict(bookRoot)
+    const idx = entries.findIndex((e) => e.id === entry.id)
+    if (idx >= 0) entries[idx] = entry
+    else entries.push(entry)
+    writeTrashManifest(bookRoot, entries)
+  })
+}
+
+/** R34D-19（三十四轮）：appendTrashEntry 的异步孪生——锁等待走 withManifestLockAsync
+ *  （setTimeout 轮询，事件循环不阻塞），服务进程软删链（DocumentService.doTrash）专用，
+ *  补齐 R33D-21 只迁 restore/purge 的「半异步」残留；RMW 本体（strict 读/幂等替换/
+ *  fsync 写回）与同步版逐位同源。 */
+export async function appendTrashEntryAsync(bookRoot: string, entry: TrashEntry): Promise<void> {
+  await withManifestLockAsync(trashManifestPath(bookRoot), () => {
     const entries = readTrashManifestStrict(bookRoot)
     const idx = entries.findIndex((e) => e.id === entry.id)
     if (idx >= 0) entries[idx] = entry

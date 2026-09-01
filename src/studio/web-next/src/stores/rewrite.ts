@@ -36,7 +36,12 @@ export const useRewriteStore = defineStore('rewrite', () => {
         }
         const saved = await doc.save(docId, 'manual')
         if (gen !== reqGen) return
-        if (!saved) {
+        // R34D-22（三十四轮）：save 返 false ≠ 保存失败——manual 排队复查在「在途
+        // 保存已把全部内容落盘（dirty 已清）」时按「无需重存」返 false（F8 契约，
+        // f8-manual-save-queue 钉死），内容实已在磁盘、改写基线（服务端读盘）安全；
+        // 仅 dirty 仍在（真保存失败/冲突未决）才取消改写。此前无差别按失败取消，
+        // 排队窗口内的改写被误杀（内容明明已落盘）。
+        if (!saved && doc.get(docId)?.dirty) {
           error.value = entry.error ?? '改写前保存失败，已取消改写'
           result.value = null
           return

@@ -21,7 +21,7 @@ import { acquireTaskGate } from './task-gate.js' // CC-P2-9：批量定稿并发
 import { readBaseline, appendBaseline, readTodayDelta, todayDate } from '../../../document/words-diary.js'
 import { listTrash, restoreTrash, purgeTrash } from '../../../document/trash.js'
 import { readForeshadows, type ForeshadowEntry } from '../../../document/foreshadow.js'
-import { openSessionStore, bookHash } from '../../../events/store.js'
+import { openSessionStoreAsync, bookHash } from '../../../events/store.js'
 import { recordForeshadowChanges } from '../../../events/chain-bridge.js'
 
 interface DocumentCtx {
@@ -86,15 +86,17 @@ function foreshadowSnapshot(bookRoot: string, path: string | null): ForeshadowEn
   }
 }
 
-/** 变更后差分落事件：prev 为 null（非伏笔/快照失败）静默跳过；写失败静默（观测层）。 */
-function recordForeshadowDelta(
+/** 变更后差分落事件：prev 为 null（非伏笔/快照失败）静默跳过；写失败静默（观测层）。
+ *  R34D-19（三十四轮）：转 async——开库走 openSessionStoreAsync（首开锁等待不阻塞
+ *  服务事件循环）；两处调用方均在异步 handler 内 await。 */
+async function recordForeshadowDelta(
   userDataPath: string | null,
   bookRoot: string,
   prev: ForeshadowEntry[] | null,
-): void {
+): Promise<void> {
   if (!prev || !userDataPath) return
   try {
-    const store = openSessionStore(userDataPath, bookRoot)
+    const store = await openSessionStoreAsync(userDataPath, bookRoot)
     if (!store) return
     try {
       const sessionId = store.workspaceSession(bookHash(bookRoot))
@@ -120,8 +122,9 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
 
       const docId = params['docId'] ?? ''
       const svc = getOrCreateService(r.bookRoot, ctx.userDataPath)
-      // docId → relPath（含 legacy 旧文件首次补登记，service.resolvePath → adoptLegacyDoc）
-      const path = svc.resolvePath(docId)
+      // docId → relPath（含 legacy 旧文件首次补登记，resolvePathAsync → 异步收编孪生——
+      // 残留清偿批：原同步 resolvePath 的收编段走 withManifestLock 同步睡，已改异步不再阻塞）
+      const path = await svc.resolvePathAsync(docId)
       if (!path) {
         replyError(res, 404, 'NOT_FOUND', `文档ID未在清单登记：${docId}`)
         return
@@ -139,7 +142,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
         // V-P2-27：字数变了 → 书架摘要即时失效（不等 5s TTL）
         invalidateBookSummary(r.bookRoot)
         // Z-P2-6：伏笔内容保存（fm 状态变更）→ foreshadow/change 事件
-        recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev)
+        await recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev)
         reply(res, 200, { ok: true, revision: outcome.revision, superseded: outcome.superseded })
         return
       }
@@ -303,7 +306,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
         relPath: body.relPath,
         content: typeof body.content === 'string' ? body.content : undefined,
       })
-      if (result.ok) recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev)
+      if (result.ok) await recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev)
       // Q-7（第十五轮）：失败收编 replyError 统一信封（原裸 result——前端 toast 直显机器码，reason 人话永不见）
       if (result.ok) reply(res, 201, result)
       else replyError(res, structStatus(result.code), result.code, result.reason)
@@ -321,7 +324,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       const body = await readJson(req)
       const svc = getOrCreateService(r.bookRoot, ctx.userDataPath)
       // Z-P2-6：伏笔快照先于变更（rename/move/meta/fm 都可能改 设定/伏笔/ 状态）
-      const fsPrev = foreshadowSnapshot(r.bookRoot, svc.resolvePath(docId))
+      const fsPrev = foreshadowSnapshot(r.bookRoot, await svc.resolvePathAsync(docId))
       let result
       if (body.op === 'rename') {
         if (typeof body.newName !== 'string') {
@@ -365,7 +368,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
         replyError(res, 400, 'BAD_INPUT', '未知 op（rename/move/meta/fm）')
         return
       }
-      if (result.ok) recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev)
+      if (result.ok) await recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev)
       // Q-7（第十五轮）：同上——失败走 replyError 统一信封
       if (result.ok) reply(res, 200, result)
       else replyError(res, structStatus(result.code), result.code, result.reason)
@@ -409,9 +412,9 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       const docId = params['docId'] ?? ''
       const svc = getOrCreateService(r.bookRoot, ctx.userDataPath)
       // Z-P2-6：软删伏笔（clear 事件）前快照
-      const fsPrev = foreshadowSnapshot(r.bookRoot, svc.resolvePath(docId))
+      const fsPrev = foreshadowSnapshot(r.bookRoot, await svc.resolvePathAsync(docId))
       const result = await svc.trashDocument({ docId })
-      if (result.ok) recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev)
+      if (result.ok) await recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev)
       // Q-7（第十五轮）：同上——失败走 replyError 统一信封
       if (result.ok) reply(res, 200, result)
       else replyError(res, structStatus(result.code), result.code, result.reason)
