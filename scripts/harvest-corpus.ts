@@ -14,11 +14,12 @@
  *   工作区/语料候选/误报候选.md / 命中候选.md（`- [ ]` 勾选行）
  *   工作区/语料候选/误报率统计.md（imagery-seed 种子短语误报率，>30% 列剔除候选）
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { join, basename, relative } from 'node:path'
 import process from 'node:process'
 import { DatabaseSync } from 'node:sqlite'
 import { readBookConfig } from '../src/format/yaml.js'
+import { atomicWriteFile } from '../src/fs/atomic.js'
 import { applyGlobalDefaults } from '../src/format/global-defaults.js'
 import { readChapterDir } from '../src/format/chapters.js'
 import { readManifest } from '../src/document/manifest.js'
@@ -185,7 +186,7 @@ function writeCandidates(file: string, title: string, want: Candidate['verdict']
     }
     lines.push('')
   }
-  writeFileSync(join(outDir, file), lines.join('\n') + '\n')
+  atomicWriteFile(join(outDir, file), lines.join('\n') + '\n')
 }
 
 writeCandidates('误报候选.md', '误报候选（命中区间在定稿幸存）', '幸存（定稿未改，大概率误报）')
@@ -202,7 +203,7 @@ writeCandidates('命中候选.md', '命中候选（被作者改写消失）', '�
     lines.push(`| ${p} | ${total} | ${s.removed} | ${(rate * 100).toFixed(0)}% | ${rate > 0.3 ? '**>30%，列入剔除候选（改 imagery-seed.ts 走人工提交 + 回归门）**' : '保留' } |`)
   }
   if (phrases.length === 0) lines.push('|（无 imagery 命中样本）| | | | |')
-  writeFileSync(join(outDir, '误报率统计.md'), lines.join('\n') + '\n')
+  atomicWriteFile(join(outDir, '误报率统计.md'), lines.join('\n') + '\n')
 }
 
 console.log(

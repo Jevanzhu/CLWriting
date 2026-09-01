@@ -14,7 +14,7 @@
 import { test, expect } from '@playwright/test'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { attachPageErrorBaseline } from './page-error-baseline.js'
+import { attachPageErrorBaseline, dismissStartupNotices } from './page-error-baseline.js'
 
 // workDir 由 globalSetup 注入 env；须 lazy 读取——收集阶段（--list/单跑）不跑 globalSetup，顶层读会炸
 const CHAPTER_1 = (): string =>
@@ -46,7 +46,14 @@ test.afterAll(() => {
 test('机检：选章 → 机检 tab → 出报告（无 AI 依赖）', async ({ page }) => {
   attachPageErrorBaseline(page, 'check')
   await page.goto('/')
+  // 启动通告横幅（全量跑时前序 spec 动过 books.jsonl → repair-books 自愈通告弹横幅）
+  // 可能挤版推迟编辑器挂载（单跑 fixture 干净不弹、全量弹——状态差异实证）；
+  // 打开书前按「知道了」关掉，消除横幅版面占位。
+  await dismissStartupNotices(page)
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
+  // R33 修复（三十三轮）：等书页路由到位后再找章节名——getByText 在书架页也匹
+  // hero-recent「最近·章名」，导航未完成时取书架页元素点，导致编辑器挂载期待落空。
+  await page.waitForURL('**/book/**')
   await page.getByText('初入宗门').first().click()
   // 编辑区渲染（章节已打开）。kk 观察：CI 慢速 runner 下冷启挂载可超默认 10s（首跑
   // 抖动实证），与 ai-review/analysis/conflict 同模式的编辑器挂载断言统一放宽到 20s

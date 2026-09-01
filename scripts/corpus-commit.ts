@@ -42,12 +42,17 @@ function parseFile(fp: string, expect: Entry['expect']): ParsedLine[] {
     if (h) {
       // R63-13：checkId 直接 join 进写出路径——含路径段（/ \ 或 ..）即路径穿越，
       // 手编候选 md 的 `### checkId: ../../evil` 会逃出 corpusDir，拒绝入库
-      if (/[\/\\]|\.\./.test(h[1]!)) {
-        console.error(`[corpus:commit] checkId 含路径段（/ \\ 或 ..），拒绝入库：${h[1]}`)
+      // R33-96（三十三轮）：win 上 `:` 等非法字符与保留设备名（con/nul/aux/prn/com1..lpt9，
+      // 含扩展名同样保留）会让 <checkId>.json 落盘 EINVAL/ENOENT 崩脚本——统一拒绝
+      const id = h[1]!
+      const stem = id.split('.')[0]!.toUpperCase()
+      const reservedDevice = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/.test(stem)
+      if (/[\/\]|[<>:"|?*]|\.\./.test(id) || reservedDevice) {
+        console.error(`[corpus:commit] checkId 含路径段/非法字符（/ \ .. : < > " | ? *）或为保留设备名，拒绝入库：${id}`)
         rejectedCheckIds++
         checkId = ''
       } else {
-        checkId = h[1]!
+        checkId = id
       }
       continue
     }

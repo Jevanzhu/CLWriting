@@ -39,3 +39,17 @@ export function attachPageErrorBaseline(page: Page, specTag: string): void {
     console.warn(`[e2e-console-error][${specTag}] ${msg.text()}`)
   })
 }
+
+/**
+ * 关闭启动通告横幅（startup-notice：repair-books 自愈等）。e2e 全量跑时前序 spec 会
+ * 改磁盘 fixture（books.jsonl/正文），后续 spec 的 server 启动触发 repair-books 自愈
+ * 通告 → 横幅占位推迟编辑器挂载（单跑 fixture 干净不弹、全量弹——状态差异实证，
+ * 三十三轮全量复跑 check/focus/conflict 挂因）。打开书前调用消除横幅版面占位；
+ * 无横幅时静默返回（幂等）。
+ */
+export async function dismissStartupNotices(page: Page): Promise<void> {
+  const snClose = page.locator('.sn-close')
+  if (await snClose.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await snClose.click()
+  }
+}

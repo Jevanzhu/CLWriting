@@ -7,7 +7,7 @@
  * 生成物 catalog.gen.ts 不手改——catalog-sync.test.ts 离线重算比对，
  * 「改源不重生成」与「手改生成物」都会红。
  */
-import { writeFileSync } from 'node:fs'
+import { atomicWriteFile } from '../src/fs/atomic.js'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { buildModelCatalog, contentVersionOf } from '../src/ai/provider/catalog.js'
@@ -33,5 +33,5 @@ export const MODEL_CATALOG = ${JSON.stringify(catalog, null, 2)} satisfies Model
 
 // fileURLToPath 解码 ^ 等特殊字符（工作区路径含 ^ 时 URL 形态会 ENOENT，见 check-counts.mjs）
 const dest = join(fileURLToPath(new URL('.', import.meta.url)), '..', 'src', 'ai', 'provider', 'catalog.gen.ts')
-writeFileSync(dest, body)
+atomicWriteFile(dest, body)
 console.log(`catalog.gen.ts 已生成：contentVersion=${version}，${catalog.rows.length} 行`)

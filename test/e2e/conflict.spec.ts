@@ -11,7 +11,7 @@
 import { test, expect } from '@playwright/test'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { attachPageErrorBaseline } from './page-error-baseline.js'
+import { attachPageErrorBaseline, dismissStartupNotices } from './page-error-baseline.js'
 
 // workDir 由 globalSetup 注入 env；须 lazy 读取——收集阶段（--list/单跑）不跑 globalSetup，顶层读会炸
 function chapterPath(file: string): string {
@@ -36,7 +36,13 @@ test.afterAll(() => {
 
 async function openChapter(page: import('@playwright/test').Page, name: string): Promise<void> {
   await page.goto('/')
+  // 启动通告横幅（全量跑时前序 spec 动过磁盘 → repair-books 自愈通告弹横幅）占位推迟
+  // 编辑器挂载；打开书前关掉（单跑 fixture 干净不弹，幂等静默）
+  await dismissStartupNotices(page)
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
+  // R33 修复（三十三轮）：等书页路由到位后再找章节名——getByText 在书架页也匹
+  // hero-recent「最近·章名」，导航未完成时取书架页元素点，导致编辑器挂载期待落空。
+  await page.waitForURL('**/book/**')
   await page.getByText(name).first().click()
   // kk 观察：CI 慢速 runner 冷启挂载可超默认 10s，编辑器挂载断言统一放宽（见 check.spec 注）
   await expect(page.locator('.cm-content')).toBeVisible({ timeout: 20_000 })
