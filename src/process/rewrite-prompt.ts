@@ -84,10 +84,12 @@ export function appendRewritten(original: string, produced: string): string {
   return base ? `${base}\n\n${produced}` : produced
 }
 
-/** 行级 LCS diff → DiffLine[](export 供测试)*/
+/** 行级 LCS diff → DiffLine[](export 供测试)
+ *  R2W-7（win 平台专项复审 R2）：行级等值剥行尾 \r——CRLF 正文（外部编辑器保存）×
+ *  LF AI 产出此前逐行失配，diff 退化成整文件删+加噪块（确认 UI 不可用）。 */
 export function lineDiff(a: string, b: string): DiffLine[] {
-  const la = a.split('\n')
-  const lb = b.split('\n')
+  const la = a.split('\n').map((l) => (l.endsWith('\r') ? l.slice(0, -1) : l))
+  const lb = b.split('\n').map((l) => (l.endsWith('\r') ? l.slice(0, -1) : l))
   const n = la.length
   const m = lb.length
   const dp: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0))

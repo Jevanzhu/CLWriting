@@ -761,9 +761,12 @@ export function writeBookConfig(filePath: string, cfg: BookConfig): void {
  */
 /** Z-7（第五十八轮）：补丁族段定位的 CRLF 容忍——split('\n') 残留 \r 尾，无值段头
  *  （`book:\r`）两条件均不中会走追加分支在文件尾造重复段（解析取首个段 → 改动静默丢失）。
- *  统一剥 \r 后比对（md 侧 frontmatter 同族口径）。 */
+ *  统一剥 \r 后比对（md 侧 frontmatter 同族口径）。
+ *  R2W-6（win 平台专项复审 R2）：补 BOM 容忍——首行带 BOM（记事本「UTF-8 with BOM」
+ *  保存）时键行锚定失配 → 补丁族在文件尾造重复段/重复键（下次解析撞 fail-loud 重复
+ *  守卫，全书配置降级默认）。Z-7 的 BOM 同族补齐。 */
 function matchesKeyLine(line: string, key: string): boolean {
-  const bare = line.endsWith('\r') ? line.slice(0, -1) : line
+  const bare = (line.endsWith('\r') ? line.slice(0, -1) : line).replace(/^\uFEFF/, '')
   return bare === `${key}:` || bare.startsWith(`${key}: `)
 }
 

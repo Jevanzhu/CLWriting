@@ -302,6 +302,9 @@ vi.mock('electron', () => {
 
 vi.mock('../../src/fs/user-data-path.js', () => ({
   defaultUserDataPath: () => M.userData,
+  // R1W-7：isLibraryDir/--book 路径匹配收编的同一性原语（win 小写降口径；mock 同语义）
+  samePath: (a: string, b: string) =>
+    process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b,
 }))
 vi.mock('../../src/log/index.js', () => ({
   initLogging: () => undefined,

@@ -14,9 +14,13 @@ export interface WinRect {
   height: number
 }
 
-/** 最小可用尺寸（拆分前口径原样保留：过小的存量视为损坏） */
+/** 最小可用尺寸（过小的存量视为损坏）。
+ *  R1W-10（win 平台专项复审 R1）：高度下限 760→600——1366×768（win 最常见小屏，
+ *  工作区 ≈728）上 760 下限把小屏合法存档判成「损坏」丢弃、窗口永远恢复不出；
+ *  600 仍能拦住截断/手改的畸形值（创建侧下限由 main.ts 按工作区钳制配合）。宽度
+ *  1200 不动（1366 宽工作区可容纳）。 */
 export const WIN_MIN_WIDTH = 1200
-export const WIN_MIN_HEIGHT = 760
+export const WIN_MIN_HEIGHT = 600
 
 /** 屏幕包含判定的容差（±200，拆分前口径原样保留——允许边框/任务栏轻微出界） */
 export const BOUNDS_TOLERANCE = 200

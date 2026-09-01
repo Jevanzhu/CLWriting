@@ -63,6 +63,10 @@ export function git(args: string[], cwd: string, opts?: { encoding?: 'utf-8'; in
   const r = spawnSync('git', args, {
     cwd,
     stdio: 'pipe',
+    // R1W-8（win 平台专项复审 R1）：windowsHide——git.exe 是控制台程序，打包态 GUI
+    // （无控制台）下不设此项会为每次调用新建可见控制台窗（启动迁移链/保存链高频调用
+    // 连续闪窗）；隐藏窗口不影响 stdio 管道，dev 有控制台形态行为不变。
+    windowsHide: true,
     encoding: opts?.encoding ?? 'utf-8',
     ...(opts?.input !== undefined ? { input: opts.input } : {}),
     timeout: GIT_TIMEOUT_MS,
@@ -119,7 +123,8 @@ export function gitAsync(
   opts?: { encoding?: 'utf-8'; input?: string; signal?: AbortSignal },
 ): Promise<GitResult> {
   return new Promise<GitResult>((resolve) => {
-    const child = spawn('git', args, { cwd, stdio: ['pipe', 'pipe', 'pipe'] })
+    // R1W-8：windowsHide 同步补齐（异步路径与同步路径同频闪窗）
+    const child = spawn('git', args, { cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
     const stdoutParts: string[] = []
     const stderrParts: string[] = []
     // R66-22 同款缓冲上限：只收满上限为止（stream 继续排空，防子进程写阻塞在后挂 SIGPIPE）

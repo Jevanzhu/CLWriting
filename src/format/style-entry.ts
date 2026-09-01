@@ -140,7 +140,9 @@ export function readEntries(
     const dir = join(entriesDir, k)
     let files: string[]
     try {
-      files = readdirSync(dir).filter((f) => f.endsWith('.md') && !f.startsWith('._'))
+      // R2W-8（win 平台专项复审 R2）：扩展名大小写不敏感（R34D-11 家族补齐，对齐
+      // walk-md 口径）——.MD 改名的文风条目此前静默消失（不进注入/禁词）
+      files = readdirSync(dir).filter((f) => f.slice(-3).toLowerCase() === '.md' && !f.startsWith('._'))
     } catch {
       continue // 类型目录不存在，空
     }

@@ -284,6 +284,27 @@ describe('批 U1：studioToken（U-6 A / 二轮 F-5）', () => {
       vi.unstubAllEnvs()
     }
   })
+
+  // R1W-6（win 平台专项复审 R1）：win 环境名大小写不敏感——残留的小写/混写变体
+  // 此前躲过大写 delete 形成双重键、child 取值未指定。逐键 toUpperCase 清除后
+  // 子 env 内只剩大写受控键（该断言跨平台成立：posix 上小写键也被循环清掉）。
+  it('R1W-6：宿主残留小写变体 env → child env 无大小写双重键，仅大写受控值', async () => {
+    vi.stubEnv('clw_studio_token', 'stale-lower-residue')
+    try {
+      const { forkRecords, manager } = mkHarness()
+      const p = manager.start({ workDir: null, userDataPath: mkUserData() })
+      const env = forkRecords[0]!.options['env'] as Record<string, string | undefined>
+      const tokenKeys = Object.keys(env).filter((k) => k.toUpperCase() === 'CLW_STUDIO_TOKEN')
+      expect(tokenKeys).toEqual(['CLW_STUDIO_TOKEN']) // 双重键清除，仅大写受控键
+      expect(env['CLW_STUDIO_TOKEN']).not.toBe('stale-lower-residue')
+      expect(Object.values(env)).not.toContain('stale-lower-residue')
+      forkRecords[0]!.child.emit('message', { type: 'ready', port: 2 })
+      await p
+      await manager.stopChild()
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
 })
 
 describe('批 U1：旧 child 清理与 stopChild（L-3 换轨）', () => {

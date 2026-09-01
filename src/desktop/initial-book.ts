@@ -8,6 +8,7 @@
  */
 import { resolve } from 'node:path'
 import { readBooks } from '../install/books.js'
+import { samePath } from '../fs/user-data-path.js'
 
 /** 仅从 argv 取 --book 值（R27-97（二十七轮）：second-instance 路径专用——那边回落
  *  env 拿到的是**首实例**的 CLWRITING_INITIAL_BOOK，用户普通二次拉起（无参）会被
@@ -28,11 +29,13 @@ export function initialBookArg(argv: string[]): string | undefined {
   return t || undefined
 }
 
-/** 解析为书架登记书名：直接命中名册名 / 路径（相对 workDir 或绝对）命中登记 path；未命中返回 null。 */
+/** 解析为书架登记书名：直接命中名册名 / 路径（相对 workDir 或绝对）命中登记 path；未命中返回 null。
+ *  R1W-7（win 平台专项复审 R1）：路径命中走 samePath——win 上大小写漂移（盘符/手工
+ *  输入）此前全等比较落空，--book 直达被静默丢弃。 */
 export function resolveInitialBook(workDir: string, ref: string): string | null {
   const books = readBooks(workDir)
   if (books.some((b) => b.name === ref)) return ref
   const abs = resolve(workDir, ref)
-  const byPath = books.find((b) => resolve(workDir, b.path) === abs)
+  const byPath = books.find((b) => samePath(resolve(workDir, b.path), abs))
   return byPath ? byPath.name : null
 }

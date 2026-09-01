@@ -10,10 +10,16 @@ const PRIMARY = { x: 0, y: 0, width: 1920, height: 1080 }
 const SECOND = { x: 1920, y: 0, width: 1920, height: 1080 } // 右侧副屏
 
 describe('R26-86：isBoundsVisibleOnAnyDisplay', () => {
-  it('常量口径锚定：最小尺寸 1200×760、容差 ±200（拆分前口径不变）', () => {
+  it('常量口径锚定：最小尺寸 1200×600、容差 ±200（R1W-10 高度下限随小屏收口）', () => {
     expect(WIN_MIN_WIDTH).toBe(1200)
-    expect(WIN_MIN_HEIGHT).toBe(760)
+    expect(WIN_MIN_HEIGHT).toBe(600)
     expect(BOUNDS_TOLERANCE).toBe(200)
+  })
+
+  it('R1W-10：1366×768 小屏合法存档（高 720）恢复有效；600 以下仍按损坏丢弃', () => {
+    const smallScreen = { x: 0, y: 0, width: 1366, height: 728 }
+    expect(isBoundsVisibleOnAnyDisplay({ x: 0, y: 0, width: 1200, height: 700 }, [smallScreen])).toBe(true)
+    expect(isBoundsVisibleOnAnyDisplay({ x: 0, y: 0, width: 1200, height: 500 }, [smallScreen])).toBe(false)
   })
 
   it('单屏：主屏内 bounds 有效；屏幕外/过小无效（原语义保留）', () => {

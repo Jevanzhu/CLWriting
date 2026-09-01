@@ -233,7 +233,12 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
     // delete 再注入受控值——不依赖对象字面量后键覆盖的隐式顺序，防旧值穿透（仅动
     // 拷贝，process.env 本身不动）
     const childEnv: Record<string, string | undefined> = { ...process.env }
-    delete childEnv['CLW_STUDIO_TOKEN']
+    // R1W-6（win 平台专项复审 R1）：win 环境变量名不区分大小写、保序保留——裸 delete
+    // 认不到宿主残留的小写/混写变体（clw_studio_token），子进程 env block 会出现
+    // 双重键、取值未指定（命中旧值 = 全请求 403）。逐键大小写不敏感清除后再注入。
+    for (const k of Object.keys(childEnv)) {
+      if (k.toUpperCase() === 'CLW_STUDIO_TOKEN') delete childEnv[k]
+    }
     childEnv['CLW_STUDIO_TOKEN'] = tokenInMemory
     childEnv['CLW_LOG_STDOUT'] = '1'
     const proc = forkImpl(entryModulePath(), args, {

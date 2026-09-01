@@ -12,8 +12,8 @@
  *
  * 写入健壮性（原子写/备份/损坏不静默）属于 S5；凭据文件权限统一 0600 且随创建即生效（ee-P2-1）。
  */
-import { readFileSync, mkdirSync, existsSync, chmodSync, copyFileSync, statSync } from 'node:fs'
-import { atomicWriteFile } from '../../fs/atomic.js'
+import { readFileSync, mkdirSync, existsSync, statSync } from 'node:fs'
+import { atomicWriteFile, rmQuietly } from '../../fs/atomic.js'
 // R30-3（三十轮）：锁等待改异步孪生 + 快路同步尝试——生成收尾路径（降级持久化等）与
 // 设置页保存在 CLI+桌面双进程争用窗口不再被 Atomics.wait 同步微睡冻结事件循环
 import { acquireCrossProcessLockAsync, tryAcquireCrossProcessLock } from '../../fs/cross-process-lock.js'
@@ -103,18 +103,20 @@ interface DiskFormat {
 
 /**
  * W-P2-9：主文件损坏时的备份恢复引导。
- * 从 providers.bak.json 复制回主文件（并尝试保持 0600 权限）。
- * @returns null=恢复成功；string=恢复失败原因（bak 缺失/读失败/复制失败）。
+ * 从 providers.bak.json 读回字节经 atomicWriteFile 落主文件（0600+fsync，与写侧
+ * ee-P2-1 同口径）。
+ * R2W-4（win 平台专项复审 R2）：原 copyFileSync 覆盖写在 win 有两条失效边——目标只读
+ * 属性（libuv 不清位）与目标被他进程瞬时打开（CopyFileW EPERM），都会把「主文件损坏 →
+ * bak 自愈」打断成持续 500。改为 rmQuietly 先除旧主文件（libuv 对只读属性自动清位删除）
+ * + atomicWriteFile（tmp+rename+EPERM/EBUSY 退避）；unlink 仍失败（真占用）时落下方
+ * catch 的「备份恢复亦失败」既有收口，.bak 全程保留。
+ * @returns null=恢复成功；string=恢复失败原因（bak 缺失/读失败/写失败）。
  */
 function tryRestoreFromBak(fp: string, bakFp: string): string | null {
   if (!existsSync(bakFp)) return '备份文件不存在'
   try {
-    copyFileSync(bakFp, fp)
-    try {
-      chmodSync(fp, 0o600)
-    } catch {
-      /* 平台不支持 chmod 则忽略 */
-    }
+    rmQuietly(fp)
+    atomicWriteFile(fp, readFileSync(bakFp), { mode: 0o600 })
     _cache = null // 恢复后强制重读
     return null
   } catch (e) {

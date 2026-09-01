@@ -71,9 +71,12 @@ export async function recordAuthorSignal(
  * 按行计数匹配（同一行多次出现时按出现次数对齐），避免误判编辑后重排。
  */
 function deletedSegments(prev: string, current: string): string {
-  const prevLines = prev.split('\n')
+  // R2W-7（win 平台专项复审 R2）：行键剥行尾 \r——CRLF 正文 × LF AI 版本此前全量
+  // 误判「作者删除」，ai 痕迹规则命中统计虚高
+  const stripCr = (l: string): string => (l.endsWith('\r') ? l.slice(0, -1) : l)
+  const prevLines = prev.split('\n').map(stripCr)
   const currentCount = new Map<string, number>()
-  for (const l of current.split('\n')) {
+  for (const l of current.split('\n').map(stripCr)) {
     currentCount.set(l, (currentCount.get(l) ?? 0) + 1)
   }
   const used = new Map<string, number>()

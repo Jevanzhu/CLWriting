@@ -35,7 +35,7 @@ import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { findWorkDir, readBooks } from '../install/books.js'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { resolveWithinRoot } from '../fs/safe-path.js'
-import { defaultUserDataPath } from '../fs/user-data-path.js'
+import { defaultUserDataPath, samePath } from '../fs/user-data-path.js'
 import { initialBookArg, initialBookArgvOnly, resolveInitialBook } from './initial-book.js' // RB-SV-P2-4：--book 直进
 import { parseContextMenuSpecs, type ContextMenuSpec } from './context-menu.js' // RB-SV-P2-5：IPC 载荷净化
 import { createStudioServerManager, ServerBootError } from './server-manager.js' // 阶段 22：server 拆分 utilityProcess
@@ -273,9 +273,12 @@ function saveCurrent(dir: string): void {
   writeStore(setCurrent(readStore(), dir))
 }
 
-/** 是否合法书库目录（自身含 .clwriting/）。复用 findWorkDir 的判定。 */
+/** 是否合法书库目录（自身含 .clwriting/）。复用 findWorkDir 的判定。
+ *  R1W-7（win 平台专项复审 R1）：win 路径大小写不敏感——findWorkDir 返回值与
+ *  resolve(dir) 的盘符/目录大小写可能漂移，全等比较会误判「非书库」。 */
 function isLibraryDir(dir: string): boolean {
-  return findWorkDir(dir) === resolve(dir)
+  const found = findWorkDir(dir)
+  return found !== null && samePath(found, resolve(dir))
 }
 
 // ── 目录选择 + 切换 ────────────────────────────────────
@@ -561,13 +564,23 @@ async function bootstrap(): Promise<void> {
     height: winH,
     x: saved?.bounds.x,
     y: saved?.bounds.y,
-    minWidth: 1200,
-    minHeight: 760,
+    // R1W-10（win 平台专项复审 R1）：下限不得超过可用工作区——1366×768（工作区
+    // ≈728px）上原 760 硬下限让窗口出生即压任务栏；大屏产品意图（1200×760 保三栏
+    // 不挤）原样保留，仅在小屏按可用空间收口。恢复侧 WIN_MIN_HEIGHT 随行收口。
+    minWidth: Math.min(1200, wa.width - 8),
+    minHeight: Math.min(760, wa.height - 8),
     title: 'CLWriting',
   })
   if (saved?.maximized) mainWindow.maximize()
   mainWindow.on('close', () => {
     saveWinState()
+  })
+  // R1W-9（win 平台专项复审 R1）：win 会话收尾兜底——OS 关机/重启/注销对主窗发
+  // session-end（不可阻止，时间窗有限），此前整条优雅停机链被跳过、utility child
+  // 随进程硬死（在途 session/end 落库全失，靠 10min 孤儿会话宽限兜底）。尽力下发
+  // 停机指令（shutdown 内部有 3.5s 总超时，不会拖住 OS 收尾）。
+  mainWindow.on('session-end', () => {
+    void serverManager.shutdown().catch((err) => log.error('desktop', 'session-end 停机失败（OS 即将收尾）', err))
   })
   // 书库管理窗口「用完即走」：主窗口获焦 = 用户已切回，关闭书库窗口释放资源
   // （与书架窗口 desktop:open-book 主动 close 行为对齐）
@@ -999,6 +1012,18 @@ if (gotSingleInstanceLock) {
   // 桌面应用：关窗即退出（停 server）
   app.on('window-all-closed', () => {
     app.quit()
+  })
+
+  // R1W-9（win 平台专项复审 R1）：进程级退出兜底——dev 控制台 Ctrl+C（SIGINT）/
+  // Ctrl+Break（SIGBREAK）此前直接硬杀，跳过 before-quit 优雅停机链；改为走
+  // app.quit() 复用既有幂等链（quitViaShutdown 门防重入，重复信号安全）。
+  process.on('SIGINT', () => app.quit())
+  process.on('SIGBREAK', () => app.quit())
+  // 主进程未捕获异常：打包态 GUI 的 stderr 无人可见——先留痕 JSONL 日志（延迟一拍
+  // 让日志泵落盘），再保持与默认崩溃等价的退出语义（不吞、不续跑半坏状态）。
+  process.on('uncaughtException', (err) => {
+    log.error('desktop', '主进程未捕获异常，即将退出', err)
+    setTimeout(() => process.exit(1), 200)
   })
 
   // RB-SV-P2-6：优雅退出。O-4：shutdownStarted 归 runner.beginShutdown（幂等，二次

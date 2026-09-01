@@ -139,16 +139,47 @@ export function isRagDbCorruptionError(e: unknown): boolean {
 }
 
 /**
+ * R1W-11（win 平台专项复审 R1）：unlink 的 EPERM/EBUSY 瞬时占用退避（rename 侧
+ * R65-4/R77-3 的删除侧同族补齐）——杀软/索引器对刚关闭的 db 文件瞬时锁定会让
+ * deleteRagDbFiles 裸 unlink 抛错 → rebuild 自愈链 500 需人工重试。3×50ms 指数
+ * 退避后仍失败原样上抛（调用方按失败收口，不静默吞）。unlink/sleep 可注入（测试用）。
+ */
+const RETRYABLE_UNLINK_CODES = new Set(['EPERM', 'EBUSY'])
+
+export function unlinkWithRetry(
+  fp: string,
+  opts?: { unlink?: (p: string) => void; sleep?: (ms: number) => void; retries?: number; baseDelayMs?: number },
+): void {
+  const doUnlink = opts?.unlink ?? ((p: string) => unlinkSync(p))
+  const sleep =
+    opts?.sleep ?? ((ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms))
+  const retries = opts?.retries ?? 3
+  const base = opts?.baseDelayMs ?? 50
+  let attempt = 0
+  for (;;) {
+    try {
+      return doUnlink(fp)
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code ?? ''
+      if (attempt >= retries || !RETRYABLE_UNLINK_CODES.has(code)) throw e
+      sleep(base * 2 ** attempt)
+      attempt++
+    }
+  }
+}
+
+/**
  * R35-13（三十五轮）：删除 RAG 库文件（连同 -wal/-shm 侧车）。文件级损坏（断电/磁盘
  * 故障/杀软半写后的非 SQLite 字节流）清表救不了，只能删库重建——.cache/rag.db 是派生
  * 缓存区（schema.ts 自述），可弃可重建语义下删库不丢真数据（重嵌成本除外）。调用方
  * 必须先经 isRagDbCorruptionError 确认损坏，绝不对 busy/IO 等可重试错误删库。
+ * R1W-11：unlink 走 EPERM/EBUSY 退避（杀软瞬时锁不再直接 500）。
  */
 export function deleteRagDbFiles(bookRoot: string): void {
   const dbPath = resolveRagDbPath(bookRoot)
   for (const suffix of ['', '-wal', '-shm']) {
     const fp = dbPath + suffix
-    if (existsSync(fp)) unlinkSync(fp)
+    if (existsSync(fp)) unlinkWithRetry(fp)
   }
 }
 
