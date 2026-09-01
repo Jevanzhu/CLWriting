@@ -312,6 +312,9 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
             // 续片归并最近兜底键」，无 index 流也能拆出独立调用（有 index 走原路径不变）
             let idxlessSeq = 0
             let lastIdxlessKey: string | null = null
+            // R33-22（三十三轮）：兜底 id 流级计数——原每段 finish_reason 从 0 重计，
+            // 同流多 finish_reason 段（非标网关）时 call_N 重号撞历史已有 id
+            let fallbackToolSeq = 0
             for await (const chunk of stream) {
               consumedAny = true
               const usage = chunk.usage
@@ -371,7 +374,6 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
               // finish_reason → 发 tool 事件；done 延迟到 usage-only chunk（include_usage 模式）
               if (choice.finish_reason) {
                 // 所有 tool_calls 已拼完 → 发出
-                let toolIdx = 0
                 for (const [, acc] of toolAccum) {
                   // P1-AI-1：有 name 即发出工具调用；空 args 合法（无参工具如 check_chapter）
                   if (acc.name) {
@@ -387,9 +389,9 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
                     }
                     outToolText.push(acc.name + acc.argsBuf) // R73-1：tool 参数也是真实计费面
                     // P3-Q5：非官方兼容端点不发 id 时以空串入历史会被拒绝 → 生成 call_ 兜底 id
-                    const id = acc.id || `call_${toolIdx}`
+                    //（R33-22：流级序号，跨 finish_reason 段不重号）
+                    const id = acc.id || `call_${fallbackToolSeq++}`
                     yield { type: 'tool', id, name: acc.name, input }
-                    toolIdx++
                   }
                 }
                 toolAccum.clear()
@@ -415,6 +417,11 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
             // 到达（Kimi 形态 usage 在 choices[0] 先行出现），finish_reason 之前断流时
             // 半截文本曾按 stopReason:'stop' 正常完成出场（generateText 不触发截断检查、
             // 半稿按完整产出落盘）。仅 usage 无终止 → 落下方传输截断分支，真实消耗随错上抛。
+            // R33-3（三十三轮，win 线同因收口）：先行 emit 收窄为 sawFinishReason 闸——
+            // usage-only chunk 只证明「计费上报过」，不证明「生成完成」。违规 include_usage
+            // 顺序的非标网关（usage 块先到 + 随后断流）此前经此处以 pendingStopReason 默认
+            // 'stop' 把截断流伪装成成功 done，下方 sawFinishReason 截断守卫被整体短路；现在无
+            // 终止事件时 latestUsage 不充当完成证据，走下方 R1 对齐 error 分支。
             // R33D-2（三十三轮）：content_filter 不是正常完成——finish_reason 归一未覆盖
             // 该值，原样透传时被过滤的半截正文按成功 done 落稿（responses 线 R1 缺口 2
             // 同因判 error，三线分叉）。error 出场（retryable:false，usage 随错上抛）。
@@ -439,14 +446,12 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
                 // 计入产出估计——原口径传输截断分支也先 flush tool 再发 error，gen 层遇
                 // error 必弃事件，序列自相矛盾（纯语义噪音），且截断 tool 参数抬高 output
                 // 估计（该分支本来就不入账，更无意义）。
-                let fallbackIdx = 0
                 for (const [, acc] of toolAccum) {
                   if (!acc.name) continue
                   let input: unknown
                   try { input = acc.argsBuf ? JSON.parse(acc.argsBuf) : {} } catch { input = { _raw: acc.argsBuf } }
                   outToolText.push(acc.name + acc.argsBuf) // R73-1：残留 tool 参数计入产出累计
-                  yield { type: 'tool', id: acc.id || `call_${fallbackIdx}`, name: acc.name, input }
-                  fallbackIdx++
+                  yield { type: 'tool', id: acc.id || `call_${fallbackToolSeq++}`, name: acc.name, input }
                 }
                 toolAccum.clear()
                 // 网关完成了生成但不回 usage（include_usage 不兼容面）——放行生成不判错重试

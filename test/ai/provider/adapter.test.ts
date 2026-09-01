@@ -365,13 +365,30 @@ describe('OpenAI 适配器', () => {
     expect(evs.some((e) => e.type === 'error')).toBe(true)
   })
 
-  it('usage-only chunk → done 带 usage（stream_options.include_usage）', async () => {
+  it('usage-only chunk（无 finish_reason）→ 截断错误不发 done（R33-3：usage 不充当完成证据；对齐 dev 侧 R31-1 契约）', async () => {
     const client = {
       chat: {
         completions: {
-          // R31-1（三十一轮）：夹具补 finish_reason——真实 include_usage 流为
-          // [内容…, finish chunk, usage-only chunk]；无 finish_reason 的形态按新契约
-          // 归传输截断（见 r31a-openai-truncation.test.ts）
+          create: fakeSend([
+            { choices: [{ delta: { content: 'x' }, finish_reason: null }] },
+            { choices: [], usage: { prompt_tokens: 8, completion_tokens: 4 } },
+          ]),
+        },
+      },
+    } as unknown as OpenAI
+    const evs = await collect(createOpenAIProvider(CONF, client), REQ)
+    // 旧契约：usage 在场即按 done 收口（截断流被伪装成功）；R33-3 收窄——
+    // usage-only chunk 只证明计费上报过，无 finish_reason 仍按 R1 传输截断报错
+    //（夹具注：无 finish_reason 的「合规 include_usage」对照组见下一条用例；dev 线
+    // r31a-openai-truncation.test.ts 为同契约独立锚定。）
+    expect(evs.find((e) => e.type === 'done')).toBeUndefined()
+    expect(evs.find((e) => e.type === 'error')).toMatchObject({ retryable: true, code: 'NETWORK' })
+  })
+
+  it('合规 include_usage（finish_reason 先到，usage-only 垫后）→ done 带实测 usage', async () => {
+    const client = {
+      chat: {
+        completions: {
           create: fakeSend([
             { choices: [{ delta: { content: 'x' }, finish_reason: 'stop' }] },
             { choices: [], usage: { prompt_tokens: 8, completion_tokens: 4 } },
@@ -380,8 +397,7 @@ describe('OpenAI 适配器', () => {
       },
     } as unknown as OpenAI
     const evs = await collect(createOpenAIProvider(CONF, client), REQ)
-    const done = evs.find((e) => e.type === 'done')
-    expect(done).toMatchObject({ type: 'done', usage: { inputTokens: 8, outputTokens: 4 } })
+    expect(evs.find((e) => e.type === 'done')).toMatchObject({ type: 'done', usage: { inputTokens: 8, outputTokens: 4 } })
   })
 
   it('APIError 5xx → error 事件 retryable=true；message 带脱敏状态码', async () => {

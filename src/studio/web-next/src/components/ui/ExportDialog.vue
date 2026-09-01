@@ -8,6 +8,7 @@ import { useUiStore } from '../../stores/ui'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { friendlyError } from '../../shared/error'
 import { useFocusTrap } from '../../composables/useFocusTrap'
+import { isImeComposing } from '../../shared/ime' // R33-82
 
 const ui = useUiStore()
 const ws = useWorkspaceStore()
@@ -48,6 +49,8 @@ async function run(): Promise<void> {
 
 // Esc 关闭（mask 点击已支持；键盘可达性补全）
 function onKeydown(e: KeyboardEvent): void {
+  // R33-82（三十三轮）：IME 组合期让渡（同 SettingsModal）
+  if (isImeComposing(e)) return
   if (e.key === 'Escape' && ui.exportOpen) {
     ui.closeExport()
     e.preventDefault() // Z-23：本层消费 Esc，防 useHotkeys 同键退专注双效

@@ -2,7 +2,7 @@
 // 右侧栏：顶部 tab 条（M12 B0.5：信息/审阅/机检/分析）+ 按 tab 切上半面板
 // （信息=字数/大纲表单，审阅/机检/分析 块1/3/4 填充）+ 上下文速查（常驻）。
 import { computed, ref } from 'vue'
-import { Info, FileSearch, CheckSquare, PanelRightClose } from 'lucide-vue-next'
+import { Info, Eye, CheckCheck, PanelRightClose } from 'lucide-vue-next'
 import WritingInfoPanel from '../panels/WritingInfoPanel.vue'
 import ContextQuickPanel from '../panels/ContextQuickPanel.vue'
 import MetaFormPanel from '../panels/MetaFormPanel.vue'
@@ -16,11 +16,12 @@ import CollapseSection from '../ui/CollapseSection.vue'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
 import { formKindOf, isBodyKind } from '../../shared/words'
+import { usePlatform } from '../../composables/usePlatform'
 
 defineProps<{ bookName: string }>()
 const ws = useWorkspaceStore()
 const tree = useTreeStore()
-const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
+const { isDesktop, isWin } = usePlatform()
 
 const showOutlineForm = computed(() => {
   if (!ws.activeDocId) return false
@@ -30,8 +31,8 @@ const showOutlineForm = computed(() => {
 
 const tabs: { key: 'info' | 'review' | 'check'; label: string; icon: typeof Info }[] = [
   { key: 'info', label: '信息', icon: Info },
-  { key: 'review', label: '审阅', icon: FileSearch },
-  { key: 'check', label: '校对', icon: CheckSquare },
+  { key: 'review', label: '审阅', icon: Eye },
+  { key: 'check', label: '校对', icon: CheckCheck },
 ]
 /** 表单分区标题（按文档类型：章节/章纲/卷纲…信息）。
  *  短篇正文（role=piece-body）与长篇同 path（写作/正文/），按 role 取「短篇」标题。 */
@@ -66,14 +67,14 @@ const historyOpen = ref(true)
 
 <template>
   <div class="sidebar-right">
-    <div class="right-topbar" :class="{ 'is-drag': hasDesktop, 'wco-avoid': hasDesktop }">
+    <div class="right-topbar" :class="{ 'is-drag': isDesktop, 'wco-avoid': isWin }">
       <button
         class="right-tab"
         data-tip="收起右栏"
         data-tip-dir="bottom"
         @click="ws.toggleRight()"
       >
-        <PanelRightClose :size="16" />
+        <PanelRightClose :size="17" :stroke-width="1.6" />
       </button>
       <div class="right-tabs">
         <button
@@ -84,7 +85,7 @@ const historyOpen = ref(true)
           :data-tip="t.label" data-tip-dir="bottom"
           @click="ws.setRightTab(t.key)"
         >
-          <component :is="t.icon" :size="16" />
+          <component :is="t.icon" :size="17" :stroke-width="1.6" />
         </button>
       </div>
     </div>
@@ -142,30 +143,43 @@ const historyOpen = ref(true)
 .right-topbar.is-drag {
   -webkit-app-region: drag;
 }
-/* J5（win 体验面）：右栏打开时本栏贴窗口右上角，右侧 tab 图标让位 WCO 系统窗控。
- * 宽度 env(titlebar-area-*) 自适应（非 win/浏览器/mac hiddenInset 回退 0）+ 12px
- * 呼吸间隙——实测 env 恰好贴住窗控命中区（校对 vs 最小化重叠 10px），不留隙即
- * 「图标与窗控重叠」。右栏关闭时贴角的是 TabBar 的 tabbar-actions（避让在其组件内）。 */
-.right-topbar.wco-avoid {
-  padding-right: calc(100vw - env(titlebar-area-width, 100vw) - env(titlebar-area-x, 0px) + var(--size-4-3));
+/* J5（win 体验面，2026-08-30 修正）：右栏打开时本栏贴窗口右上角，右侧 tab 组让位
+ * WCO 系统窗控。让位作用在 .right-tabs 的 margin-right（而非容器 padding-right 挤压：
+ * 原 padding 挤压在窄右栏下会把内容区挤爆、tab 溢出探进窗控下方——实测重叠 10px，
+ * 见 CDP 量化；margin 让位保持容器背景满铺、窗控盖于其上无异常，仅把 tab 组推到
+ * 窗控左侧）。env(titlebar-area-*) 自适应（非 win/浏览器/mac hiddenInset 回退 0）。
+ * 图标放大：tab 容器 26px + icon 18px，.right-tabs 内 gap 收到 2px（用 gap 换尺寸，
+ * 让 4 个 tab 的组宽从 24px 方案下放到 26px 仍塞进窗控左侧——右栏固定 259px，窗控
+ * 占 137px）；实测呼吸隙≈2px（margin 取「窗控宽」已是安全上限，再大即触发 flex
+ * 溢出致 margin 失效复现交叠，故放大只能靠压缩 gap，不能加 margin）。
+ * 右栏关闭时贴角的是 TabBar 的 tabbar-actions（避让在其组件内）。 */
+.right-topbar.wco-avoid .right-tabs {
+  margin-right: calc(100vw - env(titlebar-area-width, 100vw) - env(titlebar-area-x, 0px));
 }
 .right-tabs {
   display: flex;
-  gap: var(--size-4-1);
+  gap: 2px;
 }
 .right-topbar button {
   -webkit-app-region: no-drag;
+}
+/* 图标按属性和命名尺寸等比渲染，不被按钮内容盒 flex-shrink 压扁（否则 titlebar
+ * 26px 盒内 18px 图标被压成 14px 宽，viewBox 24 被横向拉伸、描边畸变发糊）。 */
+.right-topbar svg {
+  flex-shrink: 0;
 }
 .right-tab {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: var(--size-control-sm);
+  height: var(--size-control-sm);
+  flex-shrink: 0;
+  padding: 0;
   border: none;
   border-radius: var(--radius-s);
   background: transparent;
-  color: var(--text-faint);
+  color: var(--text-icon);
   cursor: pointer;
   transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
@@ -173,9 +187,14 @@ const historyOpen = ref(true)
   background: var(--background-modifier-hover);
   color: var(--text-normal);
 }
+/* 激活态：软色调（accent 14% 底 + accent 图标），不用实心紫方块——实心底上的白
+ * 图标在 1x 屏线条发糊显脏，软色调保持图标本形的清晰，观感也轻（2026-08-31 重做） */
 .right-tab.active {
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
+  background: color-mix(in srgb, var(--interactive-accent) 14%, transparent);
+  color: var(--interactive-accent);
+}
+.right-tab.active:hover {
+  background: color-mix(in srgb, var(--interactive-accent) 20%, transparent);
 }
 .right-body {
   flex: 1;

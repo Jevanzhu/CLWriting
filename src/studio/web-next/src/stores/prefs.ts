@@ -85,6 +85,9 @@ export const usePrefsStore = defineStore('prefs', () => {
   const proseLh = ref(DEFAULTS.proseLh)
   const uiFontCn = ref('')
   const uiFontEn = ref('')
+  /** UI 字号档（外观设置；-1 小 / 0 标准 / 1 大 / 2 特大）——整条字号刻度随
+   *  --font-size-step 平移，平台基准（win +1px）之上叠加。两平台通用。 */
+  const uiFontSizeStep = ref(0)
   const proseFontCn = ref('')
   const proseFontEn = ref('')
   const pageWidth = ref(DEFAULTS.pageWidth)
@@ -227,6 +230,9 @@ export const usePrefsStore = defineStore('prefs', () => {
     if (typeof p.proseLh === 'number' && p.proseLh > 0) proseLh.value = p.proseLh
     if (typeof p.uiFontCn === 'string') uiFontCn.value = p.uiFontCn
     if (typeof p.uiFontEn === 'string') uiFontEn.value = p.uiFontEn
+    if (typeof p.uiFontSizeStep === 'number' && p.uiFontSizeStep >= -1 && p.uiFontSizeStep <= 2) {
+      uiFontSizeStep.value = p.uiFontSizeStep
+    }
     if (typeof p.proseFontCn === 'string') proseFontCn.value = p.proseFontCn
     if (typeof p.proseFontEn === 'string') proseFontEn.value = p.proseFontEn
     if (typeof p.pageWidth === 'number' && p.pageWidth > 0) pageWidth.value = p.pageWidth
@@ -261,6 +267,7 @@ export const usePrefsStore = defineStore('prefs', () => {
       proseLh: proseLh.value,
       uiFontCn: uiFontCn.value,
       uiFontEn: uiFontEn.value,
+      uiFontSizeStep: uiFontSizeStep.value,
       proseFontCn: proseFontCn.value,
       proseFontEn: proseFontEn.value,
       pageWidth: pageWidth.value,
@@ -321,20 +328,30 @@ export const usePrefsStore = defineStore('prefs', () => {
     }, 500)
   }
 
-  /** R33D-24：实际 PUT 段抽直（占位逻辑外提后保持原 409 处理不变） */
+  /** R33D-24：实际 PUT 段抽直（占位逻辑外提；409 处理并入 win 线 R33-73 回读合并） */
   async function doPersistPut(): Promise<void> {
     {
       // GG-P2-7：带 expectedRevision 乐观并发——两面板同时保存时后写收 409 而非静默覆盖先写
-        // GG-P2-7：带 expectedRevision 乐观并发——两面板同时保存时后写收 409 而非静默覆盖先写
-        await putGlobalPrefs(buildCache(), revision)
-          .then((r) => { revision = r.revision; revisionKnown = true })
-          .catch(async (e) => {
-            if (!(e instanceof ApiError) || e.status !== 409) return /* 其他错误静默（离线等，与原口径一致） */
-            // 冲突：本次改动放弃落盘，提示刷新（与 provider store 同口径，不自动覆盖他窗改动）；
-            // 但 revision 必须追上服务端，否则后续保存永久卡在陈旧号静默失败
-            useUiStore().toast('全局偏好已在其他窗口被修改，请刷新后重试', 'error')
-            try { revision = (await getGlobalPrefs()).revision; revisionKnown = true } catch { /* 网络不可达保持现值 */ }
-          })
+      await putGlobalPrefs(buildCache(), revision)
+        .then((r) => { revision = r.revision; revisionKnown = true })
+        .catch(async (e) => {
+          if (!(e instanceof ApiError) || e.status !== 409) return /* 其他错误静默（离线等，与原口径一致） */
+          // 冲突处理 + revision 必须追上服务端（否则后续保存永久卡在陈旧号静默失败）。
+          // R33-73（三十三轮 win 线）：回读合并——GET 服务端最新偏好 applyPrefs 进本窗
+          // refs 后再重试一次 PUT：原只刷 revision 不回读，下一次写用本窗陈旧 refs
+          // 整文件覆盖，静默清掉他窗刚保存的字段（多窗真实可现；toast「请刷新后重试」
+          // 与实际语义不符）。
+          try {
+            const remote = await getGlobalPrefs()
+            revision = remote.revision
+            revisionKnown = true
+            applyPrefs(remote.prefs)
+            void putGlobalPrefs(buildCache(), revision)
+              .then((r) => { revision = r.revision; revisionKnown = true })
+              .catch(() => { /* 重试仍失败：保持已合并 refs，等下次 schedulePersist */ })
+          } catch { /* 网络不可达保持现值 */ }
+          useUiStore().toast('全局偏好已在其他窗口被修改，已同步最新值', 'info')
+        })
     }
   }
 
@@ -345,6 +362,10 @@ export const usePrefsStore = defineStore('prefs', () => {
     r.style.setProperty('--prose-size', `${proseSize.value}px`)
     r.style.setProperty('--prose-lh', String(proseLh.value))
     r.style.setProperty('--page-width', `${effectivePageWidth.value}px`)
+    // J5：UI 字号档（外观「字号」设置，两平台通用）——在平台基准上叠用户选择
+    // （win 基准 +1px 见 tokens 平台块；内联值覆盖 CSS，故此处始终写平台合计值）
+    const baseStep = window.clwritingDesktop?.platform === 'win32' ? 1 : 0
+    r.style.setProperty('--font-size-step', `${baseStep + uiFontSizeStep.value}px`)
     if (uiFontCn.value || uiFontEn.value) {
       r.style.setProperty('--font-ui', buildFontFamily(uiFontEn.value, uiFontCn.value, 'system-ui, sans-serif'))
     } else {
@@ -358,18 +379,54 @@ export const usePrefsStore = defineStore('prefs', () => {
     }
   }
 
+  // ── 窗控 overlay 色（win）──
+  // WCO 能力上限 = 实色 + 主题跟随（'transparent' 不被 Chromium 接受、按钮底色也不跟
+  // nativeTheme，2026-08-31 实测）。色值 = 两档 --background-secondary（= 顶栏底）；
+  // 遮罩压暗期间用被 rgba(0,0,0,.45) 压暗后的等效色（实测 light 246→135、dark 38→21），
+  // 否则暗页面顶着一列亮窗控（作者反馈「窗控突兀」）。
+  let overlayDimmed = false
+  /** View Transition 圆形扩散进行中——applyTheme 暂不改窗控色，由 useTheme 在扩散
+   *  前沿扫过窗控区的时刻经 syncOverlayDelayed 切换（否则特效 400ms 内窗控先跳色）。 */
+  let overlaySweep = false
+
+  function syncOverlayNow(): void {
+    // 测试环境（node，无 window）与其他非桌面上下文直接短路
+    if (typeof window === 'undefined') return
+    const d = window.clwritingDesktop
+    if (d?.platform !== 'win32') return
+    const dark = theme.value === 'dark'
+    void d.setTitleBarOverlay(
+      overlayDimmed
+        ? { color: dark ? '#151515' : '#878787', symbolColor: dark ? '#c8c8c8' : '#666666', dark }
+        : { color: dark ? '#262626' : '#f6f6f6', symbolColor: dark ? '#c8c8c8' : '#666666', dark },
+    )
+  }
+
+  /** 主题切换圆形扩散扫过窗控区的时刻由 useTheme 计算并延迟调用（ms）。 */
+  function syncOverlayDelayed(delayMs: number): void {
+    setTimeout(() => syncOverlayNow(), Math.max(0, Math.round(delayMs)))
+  }
+  function beginOverlaySweep(): void {
+    overlaySweep = true
+  }
+  function endOverlaySweep(): void {
+    overlaySweep = false
+  }
+
+  /**
+   * 弹窗遮罩联动窗控色（win）：全屏遮罩压暗页面时，系统绘制的窗控条不会被压暗——
+   * 暗页面顶着一列亮块即作者反馈的「窗控突兀」。开启期间窗控色用压暗等效色，关闭还原。
+   */
+  function setOverlayDimmed(open: boolean): void {
+    overlayDimmed = open
+    syncOverlayNow()
+  }
+
   function applyTheme(): void {
     document.documentElement.dataset.theme = theme.value
-    // J5（win 体验面）：无框标题栏的窗控 overlay 底色随主题（light #f6f6f6 / dark
-    // #262626 = 两档 --background-secondary），symbolColor 反色。非 win / 浏览器版 no-op。
-    const d = window.clwritingDesktop
-    if (d?.platform === 'win32') {
-      void d.setTitleBarOverlay(
-        theme.value === 'dark'
-          ? { color: '#262626', symbolColor: '#c8c8c8' }
-          : { color: '#f6f6f6', symbolColor: '#666666' },
-      )
-    }
+    // 窗控色：非特效路径即时同步；圆形扩散路径由 useTheme 延迟到扫过窗控的时刻
+    // （overlaySweep 挂起中，防止特效开始就跳色导致的不同步）
+    if (!overlaySweep) syncOverlayNow()
   }
 
   /** 紧凑模式：给 <html> 挂 .compact，全局 CSS 用该选择器收窄间距 */
@@ -396,6 +453,12 @@ export const usePrefsStore = defineStore('prefs', () => {
   }
   function setUiFontCn(v: string): void {
     uiFontCn.value = v
+    apply()
+    schedulePersist()
+  }
+  /** UI 字号档（-1 小 / 0 标准 / 1 大 / 2 特大）：整条字号刻度随 --font-size-step 平移 */
+  function setUiFontSizeStep(v: number): void {
+    uiFontSizeStep.value = Math.min(2, Math.max(-1, Math.round(v)))
     apply()
     schedulePersist()
   }
@@ -538,6 +601,7 @@ export const usePrefsStore = defineStore('prefs', () => {
     proseLh,
     uiFontCn,
     uiFontEn,
+    uiFontSizeStep,
     proseFontCn,
     proseFontEn,
     pageWidth,
@@ -568,11 +632,16 @@ export const usePrefsStore = defineStore('prefs', () => {
     apply,
     applyTheme,
     applyCompact,
+    setOverlayDimmed,
+    syncOverlayDelayed,
+    beginOverlaySweep,
+    endOverlaySweep,
     setThemeValue,
     setSize,
     setLh,
     setUiFontCn,
     setUiFontEn,
+    setUiFontSizeStep,
     setProseFontCn,
     setProseFontEn,
     setPageWidth,

@@ -206,15 +206,18 @@ export function exportBook(options: ExportOptions): ExportResult {
   // 记警告跳过，不再整本失败；零可写章在下方按 writtenCount 收口
   const exportable: ExportUnit[] = filtered
   /** R73-37：逐章现读正文（frontmatter.readFile 单源，剥 fm 取 body）。
-   *  返回 null = 读取失败/正文为空（已记 warnings，调用方跳过该章）。 */
+   *  返回 null = 读取失败/正文为空（已记 warnings，调用方跳过该章）。
+   *  警告里的相对路径统一正斜杠——win 的 relative() 产反斜杠，消费方/测试按 / 匹配
+   *  （与本文件上方 finalizedPaths 的归一化同款，2026-08-31 整体检查补）。 */
+  const relPosix = (p: string): string => relative(bookRoot, p).replace(/\\/g, '/')
   const readUnitBody = (u: ExportUnit): string | null => {
     const r = readFile(u.path)
     if (!r.ok) {
-      warnings.push(`${relative(bookRoot, u.path)}: 正文读取失败（${r.error.message}），已跳过`)
+      warnings.push(`${relPosix(u.path)}: 正文读取失败（${r.error.message}），已跳过`)
       return null
     }
     if (!r.body) {
-      warnings.push(`${relative(bookRoot, u.path)}: 正文为空，已跳过`)
+      warnings.push(`${relPosix(u.path)}: 正文为空，已跳过`)
       return null
     }
     return r.body
@@ -298,7 +301,12 @@ export function exportBook(options: ExportOptions): ExportResult {
   // 6. 分章导出目录准备：旧目录先归档再重建（R67-1：原 rmSync 整删与 R65-27「归档
   //    不删」哲学相悖——作者手改过 分章/ 内单章稿后再导出即被静默销毁不可挽回；
   //    对齐 archiveOldExport：整目录 rename 进 导出/.旧版/分章[-N]/，归档失败保留
-  //    原目录记 warnings 继续导（宁可残留不可销毁），新产物照常覆写）
+  //    原目录记 warnings 继续导（宁可残留不可销毁））
+  //    R33-8（三十三轮）：归档失败分支不再允许新产物同名覆写原目录——目录被占用
+  //    （编辑器/Word 开着导出稿）正是 win 上 rename 整目录搬迁最常失败的场景，随后
+  //    writeSplit 的同名 atomicWriteFile 会把作者手改稿替换掉且无 .旧版 副本，与
+  //    「已保留原位」警告自相矛盾。改：本次产物写入带序号新目录（分章-N）。
+  let splitTargetDirName = '分章'
   if (doSplit) {
     const splitDir = join(exportDir, '分章')
     if (existsSync(splitDir)) {
@@ -310,14 +318,17 @@ export function exportBook(options: ExportOptions): ExportResult {
         while (existsSync(join(archiveDir, dstName))) dstName = `分章-${n++}`
         renameSync(splitDir, join(archiveDir, dstName))
       } catch {
-        warnings.push(`分章目录归档失败（已保留原位，请手动移入 ${OLD_EXPORT_DIR}/）`)
+        let n = 2
+        while (existsSync(join(exportDir, `分章-${n}`))) n++
+        splitTargetDirName = `分章-${n}`
+        warnings.push(`分章目录归档失败（原目录已保留原位，请手动移入 ${OLD_EXPORT_DIR}/）；本次产物改写入 ${splitTargetDirName}/，不覆写原目录`)
       }
     }
     // R74-2 连带（批 B 代理范围外上报、主评审收口）：分章目录重建 mkdir 同在主信封
     // try 之外（EROFS/EACCES 裸抛破坏 {ok:false} 信封契约）——与上方母本目录/清旧
     // 两处同族同款本地收编（口径照抄 R70-4）。
     try {
-      mkdirSync(splitDir, { recursive: true })
+      mkdirSync(join(exportDir, splitTargetDirName), { recursive: true })
     } catch (e) {
       return {
         ok: false,
@@ -350,12 +361,12 @@ export function exportBook(options: ExportOptions): ExportResult {
       const dedupName = `${prefix}${baseName}-${n}.md`
       splitUsed.add(dedupName)
       warnings.push(`分章 ${unit.num}「${unit.title}」与已导出产物撞名，已另存为 ${dedupName}——若为同名重复章请手动核对/清理`)
-      atomicWriteFile(join(exportDir, '分章', dedupName), `# ${unit.title}\n\n${body}`)
-      files.push(`工作区/导出/分章/${dedupName}`)
+      atomicWriteFile(join(exportDir, splitTargetDirName, dedupName), `# ${unit.title}\n\n${body}`)
+      files.push(`工作区/导出/${splitTargetDirName}/${dedupName}`)
     } else {
       splitUsed.add(fileName)
-      atomicWriteFile(join(exportDir, '分章', fileName), `# ${unit.title}\n\n${body}`)
-      files.push(`工作区/导出/分章/${fileName}`)
+      atomicWriteFile(join(exportDir, splitTargetDirName, fileName), `# ${unit.title}\n\n${body}`)
+      files.push(`工作区/导出/${splitTargetDirName}/${fileName}`)
     }
    } catch (e) {
     // R67-10（十五轮）：分章单章写入失败带上章上下文重抛——外层收编为 {ok:false}

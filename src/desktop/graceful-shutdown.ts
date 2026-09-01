@@ -95,6 +95,9 @@ export async function shutdownStudio(
         resolveP()
       }
       server.close(() => fin())
+      // R33-64（三十三轮）：close 只停接新请求并等在途响应，keep-alive/SSE 空闲连接
+      // 此前靠下方定时器硬等拖满排水尾——主动摘除空闲连接（Node ≥18.2）。
+      server.closeIdleConnections?.()
       timer = setTimeout(fin, opts.closeTimeoutMs ?? 1_500)
       timer.unref() // R-20：同上，不阻塞无其他句柄时的正常退出
     })

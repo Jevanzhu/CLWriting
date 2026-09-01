@@ -205,8 +205,11 @@ let bookGen = 0
     if (gen === bookGen && bookName.value === n) sse.resync()
 }, { immediate: true })
 // tree 加载后校验 tabs（剔除失效 docId）
+// R33-72（三十三轮）：补书名触发源——原只 watch 树节点数，两书节点数相同时切书
+// 不校验，陈旧 activeDocId 滞留（编辑器空态且无「文档已不存在」提示）；回调内以
+// 当前树键集为准，失效 docId 一并剔除。
 watch(
-  () => tree.byDocId.size,
+  [() => tree.byDocId.size, bookName],
   () => ws.validate(new Set(tree.byDocId.keys())),
 )
 // V-P1-2：关窗/重载兜底——beforeunload 窗口内同步落盘 dirty 文档（autosave 间隔内的编辑不再静默丢失）

@@ -11,13 +11,38 @@ export { THEMES }
 
 /** View Transitions API 类型（较新 API，TS lib 可能缺，局部声明避免 any）。*/
 type VTDoc = Document & {
-  startViewTransition?: (cb: () => void) => { ready: Promise<void> }
+  startViewTransition?: (cb: () => void) => { ready: Promise<void>; finished: Promise<void> }
+}
+
+/** Awwwards 冲击面：主题切换圆形扩散时长（ms）——与下方 animate duration 同源。 */
+const SWEEP_MS = 400
+
+/** 圆形扩散前沿到达 WCO 窗控区（右上角 137×31 系统条）的时刻（ms）。
+ *  系统窗控无法参与渐变（瞬切），若在特效开始就切色会先于整体 400ms 渐变——
+ *  作者反馈「不同步」。解法：按扩散前沿扫到窗控区的时刻延迟切色，视觉上窗控
+ *  恰在光圈波及它时跟随变化。缓动 cubic-bezier(.4,0,.2,1) 的纵曲线为 3t²-2t³
+ *  （控制点 y1=0,y2=1），反解时间占比 t 即得延迟。 */
+function sweepArrivalMs(x: number, y: number, endRadius: number): number {
+  const left = window.innerWidth - 137
+  const dx = Math.max(left - x, 0, x - window.innerWidth)
+  const dy = Math.max(-y, 0, y - 31)
+  const d = Math.hypot(dx, dy)
+  const p = Math.min(1, d / endRadius)
+  if (p <= 0) return 0
+  let t = 0.5
+  for (let i = 0; i < 12; i++) {
+    const f = 3 * t * t - 2 * t * t * t - p
+    const df = 6 * t - 6 * t * t
+    t = Math.min(1, Math.max(0, t - f / (df || 1e-6)))
+  }
+  return Math.round(t * SWEEP_MS)
 }
 
 /** Awwwards 冲击面：主题切换圆形扩散。
  *  支持且未减弱动效时，新主题从点击点 clip-path 圆形扩散（400ms ease-std）；
- *  否则瞬切。event 缺省时圆心取视口中心。*/
+ *  否则瞬切。event 缺省时圆心取视口中心。窗控色由 prefs 延迟到扩散扫过时刻。*/
 function withThemeTransition(event: MouseEvent | undefined, fn: () => void): void {
+  const prefs = usePrefsStore()
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   const doc = document as VTDoc
   if (!doc.startViewTransition || reduceMotion) {
@@ -30,17 +55,20 @@ function withThemeTransition(event: MouseEvent | undefined, fn: () => void): voi
     Math.max(x, window.innerWidth - x),
     Math.max(y, window.innerHeight - y),
   )
+  prefs.beginOverlaySweep()
   const t = doc.startViewTransition(() => fn())
   t.ready.then(() => {
     document.documentElement.animate(
       { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${endRadius}px at ${x}px ${y}px)`] },
       {
-        duration: 400,
+        duration: SWEEP_MS,
         easing: 'cubic-bezier(0.4, 0, 0.2, 1)',
         pseudoElement: '::view-transition-new(root)',
       },
     )
+    prefs.syncOverlayDelayed(sweepArrivalMs(x, y, endRadius))
   })
+  t.finished.finally(() => prefs.endOverlaySweep())
 }
 
 export function useTheme() {

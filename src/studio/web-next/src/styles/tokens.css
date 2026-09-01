@@ -17,6 +17,7 @@
   /* 文本 */
   --text-normal: #222222;
   --text-muted: #555555;
+  --text-icon: #6f6f6f;                     /* 工具栏图标 idle：介于 muted/faint，配 2px 锐线 */
   --text-faint: #999999;
   --text-accent: #705dcf;
   --text-on-accent: #ffffff;
@@ -32,6 +33,17 @@
   /* 字体 */
   --font-ui: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   --font-monospace: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  /* UI 字号档（外观设置「字号」驱动）：整条刻度随 step 平移，0 = 平台基准
+   * （win 基准 +1px 见平台块；mac 0）。prefs 写 html 内联 --font-size-step 覆盖。 */
+  --font-size-step: 0px;
+  --root-size: calc(14px + var(--font-size-step));
+  --font-size-xxs: calc(10px + var(--font-size-step));
+  --font-size-xs: calc(11px + var(--font-size-step));
+  --font-size-s: calc(12px + var(--font-size-step));
+  --font-size-m: calc(13px + var(--font-size-step));
+  --font-size-l: calc(15px + var(--font-size-step));
+  --font-size-xl: calc(18px + var(--font-size-step));
+  --font-size-2xl: calc(24px + var(--font-size-step));
   /* 圆角（刻度对齐 dsh：图标钮 6 / 输入·条目 8 / 卡片 12 / 大面板·弹窗 24） */
   --radius-s: 4px;
   --radius-m: 8px;
@@ -42,8 +54,13 @@
   --tab-container-background: var(--background-secondary);
   /* 外壳尺度 */
   --size-ribbon: 44px;
-  --size-tabbar: 40px;
+  --size-tabbar: 32px;
   --size-statusbar: 24px;
+  /* 交互控件尺寸（图标钮 / 侧栏宽）：组件零散硬编码收敛至此，按平台适配 */
+  --size-control: 26px;      /* 标准图标按钮（TabBar / 左栏 / 右栏收起钮）——三栏统一容器 */
+  --size-control-sm: 26px;   /* 窄图标按钮（右栏 tab 组） */
+  --size-ribbon-btn: 32px;   /* Ribbon 图标列按钮 */
+  --size-side-right: 260px;  /* 右栏固定宽度 */
   /* 4-base 间距阶（Obsidian 惯例：4-1=4 .. 4-16=64，跨主题不变） */
   --size-4-1: 4px;
   --size-4-2: 8px;
@@ -67,13 +84,6 @@
   --shadow-s: 0 1px 3px rgba(0, 0, 0, 0.06);
   --shadow-m: 0 4px 12px rgba(0, 0, 0, 0.08);
   --shadow-l: 0 12px 32px rgba(0, 0, 0, 0.12);
-  --font-size-xxs: 10px;
-  --font-size-xs: 11px;
-  --font-size-s: 12px;
-  --font-size-m: 13px;
-  --font-size-l: 15px;
-  --font-size-xl: 18px;
-  --font-size-2xl: 24px;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-std: cubic-bezier(0.4, 0, 0.2, 1);
   --dur-fast: 120ms;
@@ -99,6 +109,31 @@
   --dv-bad: var(--text-error);
 }
 
+/* ===== 平台分支（J5，2026-08-31 定稿）：两套代码、一套视觉 =====
+ * 作者指令「显示效果靠齐 mac」：所有显示值（根字号/字号/间距/圆角/外壳/控件/
+ * prose）只在 :root 定义一份（= mac 观感基准），win 不做任何数值覆盖——同一应用
+ * 在 mac / win / 不同电脑上布局与密度完全一致。平台分支仅保留「字体族」适配：
+ * mac 系统族（SF/苹方）在 win 不存在，换用 win 等价族（Segoe UI/微软雅黑 UI），
+ * 度量值不变。字形渲染差异（ClearType vs 苹方平滑）属操作系统层，应用不补偿。
+ * data-platform 由 main.ts 启动时挂 html 根（win32/darwin/…），浏览器不挂 → 走 :root。 */
+:root[data-platform='win32'] {
+  /* 原生系统栈（2026-08-31，ZCode 同款）：Segoe UI + 雅黑 UI——win 原生观感。
+   * 内嵌字体（MiSans/Noto）试用后全部撤：渲染质量由行高/字号/字重/对齐体系保证，
+   * 包体 -29MB。文字主色微提亮：#222 在 ClearType 下偏黑闷。 */
+  --font-ui: 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', system-ui, sans-serif;
+  --font-monospace: Consolas, ui-monospace, 'SF Mono', Menlo, monospace;
+  --text-normal: #2e2e2e;
+  /* UI 字号档基准：win 比 mac 基准 +1px（ClearType 小字 hinting 差一档），
+   * 用户可在外观设置再 ±调节（prefs 写 html 内联 --font-size-step 覆盖此处）。 */
+  --font-size-step: 1px;
+}
+
+:root[data-platform='darwin'] {
+  --font-ui: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Microsoft YaHei', sans-serif;
+  --font-monospace: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+
 [data-theme='dark'] {
   --background-primary: #1e1e1e;
   --background-secondary: #262626;
@@ -110,6 +145,7 @@
   --background-modifier-active-hover: color-mix(in srgb, #ffffff 12%, transparent);
   --text-normal: #dadada;
   --text-muted: #aaaaaa;
+  --text-icon: #909090;
   --text-faint: #666666;
   --text-accent: #9d8cff;
   --text-on-accent: #1e1e1e;
@@ -134,3 +170,4 @@
   --dv-good: #5cb87a;
   --dv-warn: #e8a847;
 }
+

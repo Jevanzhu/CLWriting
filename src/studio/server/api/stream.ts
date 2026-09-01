@@ -458,7 +458,15 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     let launched = false
     try {
       const body = await readJson(req)
-      const role = typeof body['role'] === 'string' ? (body['role'] as string) : 'writer'
+      // R33-68（三十三轮）：role 白名单——此前任意字符串直进 streamSpec（未知 role
+      // 静默落 error 事件路径）；现客户端仅用 'writer'（WorkbenchView 唯一调用点），
+      // 白名单收敛入口，扩角色时同步补表。
+      const SPAWN_ROLES = new Set(['writer'])
+      const rawRole = typeof body['role'] === 'string' ? (body['role'] as string) : 'writer'
+      if (!SPAWN_ROLES.has(rawRole)) {
+        return replyError(res, 400, 'BAD_INPUT', `未知角色 role=${rawRole}（可用：${[...SPAWN_ROLES].join('、')}）`)
+      }
+      const role = rawRole
       const prompt = typeof body['prompt'] === 'string' ? (body['prompt'] as string) : ''
       // P0-3：拒空 prompt——空包只有 system prompt，产出与本书无关；调用方应先拉 /draft-prompt
       if (!prompt.trim()) {

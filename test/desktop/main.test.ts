@@ -381,12 +381,12 @@ describe('kk-P2-8：主进程启动链（安全配置 / CSP / 内嵌 server）',
     expect(wp.spellcheck).toBe(false)
   })
 
-  it('win 无框标题栏+窗控 overlay（2026-08-29 作者指令「外观全面向 mac 靠齐」）：titleBarStyle hidden + overlay 40px 对齐 --size-tabbar；mac 保持 hiddenInset', () => {
+  it('win 无框标题栏+窗控 overlay（2026-08-29「外观向 mac 靠齐」+ 08-31「露出顶栏分隔线」）：titleBarStyle hidden + overlay 31px（比 --size-tabbar 32 矮 1px 让分隔线在窗控下完整露出）；mac 保持 hiddenInset', () => {
     const w = mainWin()
     expect(w.opts.autoHideMenuBar).toBe(process.platform === 'win32')
     if (process.platform === 'win32') {
       expect(w.opts.titleBarStyle).toBe('hidden')
-      expect(w.opts.titleBarOverlay).toEqual({ color: '#f6f6f6', symbolColor: '#666666', height: 40 })
+      expect(w.opts.titleBarOverlay).toEqual({ color: '#f6f6f6', symbolColor: '#666666', height: 31 })
       expect(w.menuBarVisibility).toBe(false)
     } else {
       expect(w.opts.titleBarStyle).toBe('hiddenInset')

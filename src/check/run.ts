@@ -265,6 +265,7 @@ export function checkWithDb(
     // R31-3（三十一轮）：兑现侧读失败（权限/瞬态占用）≠「无推进」——unreadable 时
     // actualLeadIds 传 undefined 跳过两端闭合（对齐声明侧 R70-15 known:false 口径，
     // 防把瞬态故障当作者过错产 lead-declared-not-done 假红硬阻断定稿），黄项降级见下方。
+    //（win 线 R33-5 同因独立修复，口径一致，合并取本侧 ChapterUpdatesResult 形状。）
     const updatesResult = useLeads
       ? (batch?.leadUpdatesForChapter?.(draft.chapter.章号) ?? readChapterUpdatesForChapterChecked(bookRoot, draft.chapter.章号))
       : undefined

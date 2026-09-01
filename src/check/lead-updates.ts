@@ -85,6 +85,11 @@ function isLeadUpdateEntryLine(line: string): boolean {
 export function parseLeadUpdateLines(text: string): ChapterLeadUpdate[] {
   const out: ChapterLeadUpdate[] = []
   const lines = text.split('\n')
+  // R33-6（三十三轮）：分组标题段前折叠抑制——分组标题（后随仍有条目）跳过后，标题
+  // 与首个后随条目之间的普通备注行不得折入上一条证据。R75-2 只护住标题行本身：备注
+  // 折入会把「证据一」污染成「证据一 手工内容」，evidenceNeedles 必败产「声明了没兑现」
+  // 假红，且经 lead-finalize 把污染证据持久写进履历（lead-evidence-missing 转持久红）。
+  let skipFoldUntilEntry = false
   for (let i = 0; i < lines.length; i++) {
     // R28-10（二十八轮）：rawLine 保留原始缩进——嵌套子列表行（真条目的子项）须凭
     // 缩进识别，trimmed 后与顶层格式错行无法区分（见下方 warn 收窄）
@@ -92,16 +97,19 @@ export function parseLeadUpdateLines(text: string): ChapterLeadUpdate[] {
     const line = rawLine.trim()
     if (ATX_HEADING_RE.test(line)) {
       if (headingEndsSection(lines, i, isLeadUpdateEntryLine)) break
+      skipFoldUntilEntry = true
       continue
     }
     if (!line.startsWith('-')) {
-      // R73-23：非列表行折入上一条证据（换行归一空格；条目前无折入对象，忽略）
-      if (out.length > 0 && line !== '') {
+      // R73-23：非列表行折入上一条证据（换行归一空格；条目前无折入对象，忽略；
+      // R33-6：分组标题段前备注行不折入）
+      if (!skipFoldUntilEntry && out.length > 0 && line !== '') {
         const prev = out[out.length - 1]!
         prev.证据 = `${prev.证据} ${line}`.trim()
       }
       continue
     }
+    skipFoldUntilEntry = false
     // - <编号> <动词>：<证据>
     const m = line.match(/^-\s*(\S+)\s+([^\s:：]+)[:：]\s*(.+)$/)
     if (m) {
@@ -204,6 +212,10 @@ export function readChapterUpdatesForChapterChecked(bookRoot: string, chapterNo:
   else parts.push(archive)
   return { updates: parts.flat(), unreadable }
 }
+
+//（win 线 R33-5 与 R31-3 同因独立修复：兑现侧三态读、读失败跳过两端闭合防
+// lead-declared-not-done 假红硬拦定稿——win 侧 {ok} 形状实现已并入本函数
+// ChapterUpdatesResult 形状，win 侧唯一消费方已随合并改写。）
 
 /** 账本证据核心必须非空且在正文命中，避免 includes('') 把空证据误判为兑现。
  *  R63-8（十一轮）：匹配走 evidenceNeedles 多候选任一命中（单针串的内部闭引号会

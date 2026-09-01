@@ -312,6 +312,12 @@ export function loadProviders(userDataPath: string): ProviderStore {
  * 降级持久化等无 revision 校验的路径残余窗口 = 该微任务窗，写频每 key 一次
  * （AA-P3-5 去重），风险可接受。跨进程窗口由文件锁互斥（写段不交错），锁内
  * 不重读合并（与 calls.ts 同口径，读合并在锁外做收益为零）。
+ *
+ * R33-17（三十三轮）现状校正：J7 之后锁获取为**同步阻塞**（Atomics.wait 轮询，
+ * fs/cross-process-lock.ts），空闲快路同步完成、控制流不归还——上方「排队为微任务/
+ * 微任务残余窗口」论述与下方排队分支**实际不可达**（prev 恒 undefined，队列从不
+ * 置位）。保留排队代码作为未来锁异步化（acquireCrossProcessLockAsync 已在树）的
+ * 现成接管面；在读到本注释时请以「全同步串行」理解当前语义。
  */
 const writeChains = new Map<string, Promise<unknown>>()
 

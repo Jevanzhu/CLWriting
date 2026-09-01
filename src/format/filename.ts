@@ -80,3 +80,27 @@ export function sanitizeFileNamePart(title: string, maxCp?: number, maxBytes?: n
 export function sanitizeChapterTitle(title: string): string {
   return sanitizeFileNamePart(title)
 }
+
+/**
+ * R33-9（三十三轮）：完整文件名段净化（rename/copy 目标名专用）——同一套非法字符/
+ * 控制字符/[[ ]] 转义/尾点尾空格/保留设备名纪律，但**不做长度封顶**（长度预算是各
+ * 拼接点组合时的责任：updateChapterMeta 等已按 sanitizeChapterTitle 封顶；此处对
+ * 「前缀+标题+扩展名」整体再封顶会把前缀/扩展名算进预算产生二次截断 mangle），
+ * 且扩展名感知：保留名判定与尾点剥离作用于词干，扩展名保留。
+ */
+export function sanitizeFullFileName(name: string): string {
+  // 先整体剥尾点/尾空格（win 落盘自动剥；防下方 ext 捕获组把尾点吞进扩展名）
+  const pre = name.replace(/[. ]+$/, '')
+  const m = /^([\s\S]*?)(\.[^./\\]*)?$/.exec(pre)
+  const rawStem = m?.[1] ?? pre
+  const ext = (m?.[2] ?? '').replace(/[\\/]/g, '_')
+  // eslint-disable-next-line no-control-regex
+  const stem = (rawStem
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .replace(/[\\/:*?"<>|]/g, '_')
+    .trim()
+    .replace(/\[\[/g, '（')
+    .replace(/\]\]/g, '）'))
+  const compat = winCompatNamePart(stem)
+  return (compat === '' ? '未命名' : compat) + ext
+}

@@ -6,10 +6,10 @@ import { ref, onMounted } from 'vue'
 import { useUiStore } from '../stores/ui'
 import { friendlyError } from '../shared/error'
 import { FolderOpen, ExternalLink, Database, ArrowRight, Check } from 'lucide-vue-next'
+import { usePlatform } from '../composables/usePlatform'
 
 const ui = useUiStore()
-
-const hasDesktop = !!window.clwritingDesktop
+const { isDesktop: hasDesktop, isMac } = usePlatform()
 const current = ref<string | null>(null)
 const recents = ref<{ path: string; label: string }[]>([])
 const loading = ref(true)
@@ -68,7 +68,7 @@ function openDir(): void {
 </script>
 
 <template>
-  <div class="library" :class="{ 'has-traffic': hasDesktop }">
+  <div class="library" :class="{ 'has-traffic': isMac, 'is-drag': hasDesktop }">
     <!-- 环境背景：呼吸光晕（与 Welcome 同语言） -->
     <div class="ambient">
       <div class="glow glow-tr"></div>
@@ -160,6 +160,10 @@ function openDir(): void {
   flex-shrink: 0;
 }
 .library.has-traffic .lib-titlebar {
+  -webkit-app-region: drag;
+}
+/* R33-14（三十三轮）：win 拖拽区（同 Shelf.vue 注） */
+.library.is-drag .lib-titlebar {
   -webkit-app-region: drag;
 }
 

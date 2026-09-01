@@ -293,6 +293,7 @@ export async function restoreTrash(bookRoot: string, id: string): Promise<Restor
   }
 
   // P2-BE-4：rename 成功后 manifest 更新改 best-effort（与 doTrash 一致——失败不致文件失踪）
+  let manifestUpserted = false
   try {
     const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
     // X-5：RMW 持清单锁（跨进程互斥，与 service/finalize 同锁）
@@ -316,6 +317,7 @@ export async function restoreTrash(bookRoot: string, id: string): Promise<Restor
       mkdirSync(dirname(manifestPath), { recursive: true })
       writeManifest(manifestPath, m)
     })
+    manifestUpserted = true
   } catch (e) {
     // Y-17（第五十七轮）：主清单写失败不阻断恢复（文件已回原位），但 docId 身份断链
     // 并无自动补录——树扫盘的兜底登记只认 legacy: 前缀（adoptLegacyDoc），doc_ 正式
@@ -324,12 +326,19 @@ export async function restoreTrash(bookRoot: string, id: string): Promise<Restor
     log.warn('trash', `恢复 ${id} 后清单登记失败（文件已回 ${entry.originalPath}）：${errMsg(e)}——docId 身份断链，需手工补录`, e instanceof Error ? e : undefined)
   }
 
-  try {
-    // Z-5（第五十八轮）：RMW 持锁（同 appendTrashEntry；与上方主清单锁先后串联、不嵌套）
-    await withManifestLockAsync(trashManifestPath(bookRoot), () => {
-      writeTrashManifest(bookRoot, readTrashManifestStrict(bookRoot).filter((e) => e.id !== id)) // R27-40：RMW strict 读
-    })
-  } catch { /* trash manifest 写失败：条目残留，下次恢复报 NOT_FOUND，无害 */
+  // R33-10（三十三轮）：条目移除收进 upsert 成功分支——此前无论清单登记成败都删条目，
+  // 失败态（清单锁超时/磁盘满）唯一的自愈通道（R65-36 byte-equal 幂等重跑：跳过搬运
+  // 直补清单 upsert）被一并摧毁，doc_ 正式 ID 无法反查 → 版本目录与 journal 永久孤儿。
+  // upsert 失败时保留条目：restore 天然幂等，作者重试即续跑直补清单（断链提示由上方
+  // Y-17 warn 承担，不再重复留痕）。
+  if (manifestUpserted) {
+    try {
+      // Z-5（第五十八轮）：RMW 持锁（同 appendTrashEntry；与上方主清单锁先后串联、不嵌套）
+      await withManifestLockAsync(trashManifestPath(bookRoot), () => {
+        writeTrashManifest(bookRoot, readTrashManifestStrict(bookRoot).filter((e) => e.id !== id)) // R27-40：RMW strict 读
+      })
+    } catch { /* trash manifest 写失败：条目残留，下次恢复报 NOT_FOUND，无害 */
+    }
   }
   invalidateTreeIndex(bookRoot, true)
   return { ok: true, id, path: entry.originalPath }

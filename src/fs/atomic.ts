@@ -216,14 +216,17 @@ export function linkOrRenameExclusive(src: string, dst: string): 'created' | 'ex
 }
 
 /** fsync 目录（持久化 rename 的元数据变更）。
- *  POSIX 上 open 目录只读 + fsync；Windows 等不支持的平台抛错 → best-effort 忽略。 */
+ *  POSIX 上 open 目录只读 + fsync；Windows 可 open 目录（只读句柄合法），但
+ *  FlushFileBuffers 拒绝无写访问权的句柄——fsyncSync 抛 EPERM → best-effort 忽略。
+ *  R33-47（三十三轮）注释校正：原「Windows 不能 open 目录」与实测不符
+ *  （openSync(dir,'r') 成功，fsyncSync 才抛）。 */
 function fsyncDir(dir: string): void {
   let fd: number | undefined
   try {
     fd = openSync(dir, 'r')
     fsyncSync(fd)
   } catch {
-    // 平台不支持（Windows 不能 open 目录 / 不支持 fsync 目录）—— 内容已 fsync
+    // 平台不支持 fsync 目录（win：fsyncSync EPERM，非 open 失败）—— 内容已 fsync
   } finally {
     if (fd !== undefined) {
       try {

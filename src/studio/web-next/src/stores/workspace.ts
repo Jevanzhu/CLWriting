@@ -103,6 +103,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     } catch {
       // R-6（第十六轮）：拉取失败直接放弃——不置 prefsLoaded、不 startPersistWatch（下次进书重试），
       // 否则默认布局经持久化 watch 写回覆盖服务端已存的 prefs.json
+      // R33-75（三十三轮）：放弃前清书级覆盖值——A 书的纸张宽度/自动保存间隔残留
+      // 进 B 书会话直至下次成功加载（活源读取消耗点）。
+      const ps = usePrefsStore()
+      ps.bookPageWidth = null
+      ps.bookAutosaveInterval = null
       return
     }
 

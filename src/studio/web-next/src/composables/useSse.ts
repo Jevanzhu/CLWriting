@@ -33,8 +33,11 @@ const TICKET_TIMEOUT_MS = 5_000
  *  ?token= 旧通道（e2e 依赖 SSE，服务端未上线前靠此回退保绿）。除 404 外的失败
  *  （网络/5xx/超时）同样回退旧通道：尽力而为，不让 ticket 层故障单独打断 SSE。 */
 async function fetchStreamTicket(token: string, base: string): Promise<string | null> {
-  // R34D-23：AbortController 手法对齐 probeSseBusy（R26-78）——apiFetch 不可用（此处
-  // 走 DEV_API_BASE 绝对地址裸 fetch），超时档见 TICKET_TIMEOUT_MS
+  // R34D-23（含 win 线 R33-70 同因修复）：AbortController 手法对齐 probeSseBusy
+  //（R26-78）——apiFetch 不可用（此处走 DEV_API_BASE 绝对地址裸 fetch），超时档见
+  // TICKET_TIMEOUT_MS。无超时时挂死（半开连接）期间 doConnect 永久停摆（无 ES、无
+  // onerror、退避链冻结），自愈全靠服务端 300s requestTimeout；超时 abort 走既有
+  // 失败语义（回退 ?token= 旧通道，不单独打断 SSE）。
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), TICKET_TIMEOUT_MS)
   try {

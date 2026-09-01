@@ -35,10 +35,12 @@ watch(
     // 新错误只由本次请求的 catch 按代守卫落位
     err.value = null
     if (!n) return
+    err.value = null // R33-84（三十三轮）：换书即清上一本的错误行（瞬时失败不得跨书残留）
     try {
       const c = await getConfig(n)
       if (gen !== configGen) return
       config.value = c
+      err.value = null // R33-84：成功路径同清
     } catch (e) {
       if (gen !== configGen) return
       err.value = friendlyError(e)

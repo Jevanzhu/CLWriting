@@ -6,11 +6,12 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { FilePlus, ChevronDown, Focus, PanelRight, PanelLeft } from 'lucide-vue-next'
 import { useWorkspaceStore, type CreateKind } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
+import { usePlatform } from '../../composables/usePlatform'
 
 defineProps<{ bookName: string }>()
 const ws = useWorkspaceStore()
 const tree = useTreeStore()
-const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
+const { isDesktop, isMac, isWin } = usePlatform()
 // 左栏可见性（含专注模式覆盖）：关闭/专注时 ws-main 左移到交通灯区，lead 需避让
 const leftVisible = computed(() => ws.leftOpen && !ws.focusMode)
 // 右栏可见性：关闭时 tabbar-actions 贴窗口右上角，需避让 win 窗控 overlay（J5）；
@@ -49,14 +50,28 @@ function onDocClick(e: MouseEvent): void {
   const t = e.target as HTMLElement
   if (!t.closest('.new-dropdown') && !t.closest('.tb-caret')) dropdownOpen.value = false
 }
-onMounted(() => document.addEventListener('click', onDocClick))
-onUnmounted(() => document.removeEventListener('click', onDocClick))
+function onDocKeydown(e: KeyboardEvent): void {
+  // R33-90（三十三轮）：新建下拉补 Esc 关闭路径（原只能点击外部关闭，键盘不可达）
+  if (e.key === 'Escape' && dropdownOpen.value) {
+    e.preventDefault()
+    dropdownOpen.value = false
+    caretRef.value?.focus()
+  }
+}
+onMounted(() => {
+  document.addEventListener('click', onDocClick)
+  document.addEventListener('keydown', onDocKeydown)
+})
+onUnmounted(() => {
+  document.removeEventListener('click', onDocClick)
+  document.removeEventListener('keydown', onDocKeydown)
+})
 </script>
 
 <template>
   <div
     class="tabbar"
-    :class="{ 'is-drag': hasDesktop, 'avoid-traffic': hasDesktop && !leftVisible, 'avoid-wco': hasDesktop && !rightVisible }"
+    :class="{ 'is-drag': isDesktop, 'avoid-traffic': isMac && !leftVisible, 'avoid-wco': isWin && !rightVisible }"
   >
     <!-- 最左 lead 区：新建按钮（split）+ 展开左栏（条件） -->
     <div class="tabbar-lead">
@@ -66,7 +81,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
           data-tip="新建正文" data-tip-dir="bottom"
           @click="ws.triggerCreate('chapter')"
         >
-          <FilePlus :size="16" />
+          <FilePlus :size="17" :stroke-width="1.6" />
         </button>
         <button
           ref="caretRef"
@@ -75,7 +90,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
           data-tip="新建…" data-tip-dir="bottom"
           @click.stop="toggleDropdown"
         >
-          <ChevronDown :size="16" />
+          <ChevronDown :size="17" :stroke-width="1.6" />
         </button>
       </div>
       <button
@@ -84,7 +99,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
         data-tip="展开左栏" data-tip-dir="bottom"
         @click="ws.toggleLeft()"
       >
-        <PanelLeft :size="16" />
+        <PanelLeft :size="17" :stroke-width="1.6" />
       </button>
     </div>
     <div class="tabbar-spacer" />
@@ -96,7 +111,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
         data-tip-dir="bottom"
         @click="ws.toggleFocus()"
       >
-        <Focus :size="16" />
+        <Focus :size="17" :stroke-width="1.6" />
       </button>
       <button
         v-show="!ws.rightOpen"
@@ -104,7 +119,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
         data-tip="展开右栏" data-tip-dir="bottom"
         @click="ws.toggleRight()"
       >
-        <PanelRight :size="16" />
+        <PanelRight :size="17" :stroke-width="1.6" />
       </button>
     </div>
     <!-- 下拉菜单（Teleport 到 body 脱离 tabbar overflow:hidden 裁剪） -->
@@ -151,13 +166,15 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
   flex: 1;
   min-width: 0;
 }
-/* 最左 lead 区：新建 + 展开左栏。垂直居中，水平 padding 距左缘 */
+/* 最左 lead 区：新建 + 展开左栏。垂直居中；左侧 padding 归零——新建图标在按钮内
+ * 距左缘 5px，若再叠加 lead padding 会使「窗沿→图标 12px ≠ 图标→竖线 5px」右侧
+ * 显得贴线（2026-08-31 作者反馈），归零后两侧各 5px 对称 */
 .tabbar-lead {
   flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 0 var(--size-4-2);
+  padding: 0 var(--size-4-2) 0 0;
 }
 .tabbar-lead .tb-btn {
   -webkit-app-region: no-drag;
@@ -185,17 +202,23 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: var(--size-control);
+  height: var(--size-control);
+  padding: 0;
   border: none;
   background: transparent;
-  color: var(--text-faint);
+  color: var(--text-icon);
   border-radius: var(--radius-s);
   cursor: pointer;
 }
 .tb-btn:hover {
   background: var(--background-modifier-hover);
   color: var(--text-normal);
+}
+/* 图标按名义尺寸等比渲染：.tb-btn 默认 button padding(≈1px 6px)在窄钮(如 caret 22px)
+ * 里会把 16px 图标 flex-shrink 压到内容盒宽，viewBox 被横向拉伸、描边畸变发糊 */
+.tb-btn svg {
+  flex-shrink: 0;
 }
 .tb-btn.active {
   color: var(--text-accent);

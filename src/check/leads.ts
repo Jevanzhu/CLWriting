@@ -297,7 +297,11 @@ export function extractEvidenceCore(evidence: string): string {
   // 否则取前 8 个字符（够 grep）。Y-22（第五十七轮）：短引号证据（如「雪落」3 字，
   // 不满 {4,}）走此兜底——先剥首尾引号再截，带引号字符去 grep 正文会整组 miss
   // （正文写无引号的「雪落」时误报 lead-evidence-miss）
-  const stripped = evidence.replace(new RegExp(`^[${QUOTE_OPEN_LENIENT}]|[${QUOTE_CLOSE_LENIENT}]$`, 'g'), '')
+  const stripped = evidence
+    .replace(new RegExp(`^[${QUOTE_OPEN_LENIENT}]|[${QUOTE_CLOSE_LENIENT}]$`, 'g'), '')
+    // R33-33（三十三轮）：内部残引一并剥除——「雪落」无声 的中段闭引号此前残留进展示
+    // 文案（首/尾剥只处理串端，中间引号漏网）
+    .replace(new RegExp(`[${QUOTE_OPEN_LENIENT}${QUOTE_CLOSE_LENIENT}]`, 'g'), '')
   return (stripped || evidence).slice(0, 8)
 }
 

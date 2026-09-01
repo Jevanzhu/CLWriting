@@ -133,11 +133,22 @@ export function providerCacheSize(): number {
  * R30-4（三十轮）：userDataPath 为来源配置目录——适配器降级记忆读/写按此显式 path
  * 分发（双库并发生成互不劫持，缺省回落 runner 侧活跃 path）；并参与实例缓存键
  * （同 conf 跨 path 不复用实例，见 settingsHash 注）。
+ *
+ * R33-21（三十三轮）：`opts.bypassCache` 供一次性旁路调用（流式探测把 model 换成
+ * 列表首项，若入缓存会以「正常生成永不使用的 key」挤占 LRU 容量，把正常实例挤出
+ * 重建）——探测等临时实例读缓存仍命中但不写入、不驱逐既有条目。
  */
-export function createProvider(conf: ProviderConf, store?: ProviderStore, userDataPath?: string): ModelProvider {
+export function createProvider(
+  conf: ProviderConf,
+  store?: ProviderStore,
+  userDataPath?: string,
+  opts?: { bypassCache?: boolean },
+): ModelProvider {
   const hash = settingsHash(conf, userDataPath)
-  const cached = cacheGet(hash)
-  if (cached) return cached
+  if (!opts?.bypassCache) {
+    const cached = cacheGet(hash)
+    if (cached) return cached
+  }
 
   const entry = resolveAdapter(conf.protocol)
   if (!entry) {
@@ -150,6 +161,6 @@ export function createProvider(conf: ProviderConf, store?: ProviderStore, userDa
   //（缓存失效判定与实例状态脱钩）。数组新建浅拷元素（元素被视为不可变值）。
   const bound: ProviderConf = { ...conf, ...(conf.models ? { models: [...conf.models] } : {}) }
   const provider = entry.create(bound, store, userDataPath)
-  cachePut(hash, provider)
+  if (!opts?.bypassCache) cachePut(hash, provider)
   return provider
 }

@@ -62,7 +62,9 @@ export async function probeCapabilities(conf: ProviderConf): Promise<ProbeResult
   const probeModel = conf.model ?? models[0]!
   try {
     let gotDelta = false
-    const provider = createProvider({ ...conf, model: probeModel })
+    // R33-21（三十三轮）：bypassCache——探测实例的 model 被换成列表首项，正常生成
+    // 永不以此 key 命中；入缓存只会挤占 LRU 容量把正常实例挤出重建。
+    const provider = createProvider({ ...conf, model: probeModel }, undefined, undefined, { bypassCache: true })
     const ctrl = new AbortController()
     const timeout = setTimeout(() => ctrl.abort(), 30_000)
     try {

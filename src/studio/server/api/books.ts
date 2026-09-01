@@ -127,8 +127,13 @@ export function registerBookRoutes(ctx: BookCtx): void {
       return
     }
     // 书架卡补摘要：title / 进度(N 章/字数) / 最近编辑。单本损坏不崩整列（摘要降级缺省）。
+    // R33-69（三十三轮）：entry.path 过 resolveWithinRoot——readBooks 已拒 `..`/绝对
+    // 路径，此处补与删/改路径同强度的越界/symlink 校验（校验强度对称化）；不合法条目
+    // 按损坏标记降级（不崩整列）。
     const books = readBooks(ctx.workDir).map((b) => {
-      const bookRoot = join(ctx.workDir!, b.path)
+      const within = resolveWithinRoot(ctx.workDir!, b.path)
+      if (!within) return { ...b, damaged: true, createdAt: b.created_at }
+      const bookRoot = within.abs
       try {
         const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
         // 低-3（第十轮）：book.yaml 损坏/缺失显式标 damaged——readBookConfig 容错不抛，
@@ -270,13 +275,15 @@ export function registerBookRoutes(ctx: BookCtx): void {
     // M-4：闸后复查——settle 等待的 await 间隙里新 acquire 的闸（spawn/三审/task-gate）
     // 在此拦截；复检到 rmSync 之间全同步（单线程事件循环无新任务可插入），三闸 TOCTOU
     // 窗归零。
-    // R33D-7（三十三轮）：复查补 chat/self-heal——两闸不在 busyGate 之列，drain 段
+    // R33D-7（三十三轮 dev 线）：复查补 chat/self-heal——两闸不在 busyGate 之列，drain 段
     // await 窗口内新起的对话/写稿既不在入口 abort 之列也无闸拦截，会贯穿 rmSync 继续跑
     // 分钟级（重建孤儿目录 + 白烧 API 费）。命中 → 保守 409（作者正主动用书，删除可重试）。
     if (isChatRunning(name) || isSelfHealRunning(name)) {
       return replyError(res, 409, 'BUSY', '本书有对话/写稿在途启动，已中止删除——请等它完成或中断后重试')
     }
-    const recheck = busyGate(name, '删')
+    // R33-63（三十三轮 win 线）：复查补 hasBackgroundTasks——10s settle 窗口内新登记的
+    // 后台摘要任务此前可绕过复查，对已删路径收尾写（对齐上方 settle 三条件口径）。
+    const recheck = busyGate(name, '删') ?? (hasBackgroundTasks(name) ? { error: '本书后台任务进行中，请稍后再删' } : null)
     if (recheck) {
       return replyError(res, 409, 'BUSY', recheck.error)
     }
@@ -477,11 +484,12 @@ export function registerBookRoutes(ctx: BookCtx): void {
       await drainFilePutChainsUnder(oldRoot)
       // M-4：闸后复查——同删书：settle 等待的 await 间隙新 acquire 的闸在此拦截，
       // 复检到 renameSync 之间全同步（三闸 TOCTOU 归零）。
-      // R33D-7：同删书复查补 chat/self-heal（drain 段新起的对话/写稿贯穿 renameSync）。
+      // R33D-7（三十三轮 dev 线）：同删书复查补 chat/self-heal（drain 段新起的对话/写稿贯穿 renameSync）。
       if (isChatRunning(oldName) || isSelfHealRunning(oldName)) {
         return replyError(res, 409, 'BUSY', '本书有对话/写稿在途启动，已中止改名——请等它完成或中断后重试')
       }
-      const recheck = busyGate(oldName, '改名')
+      // R33-63（三十三轮 win 线）：同删书复查——补 hasBackgroundTasks（settle 窗口内新登记后台任务）
+      const recheck = busyGate(oldName, '改名') ?? (hasBackgroundTasks(oldName) ? { error: '本书后台任务进行中，请稍后再改名' } : null)
       if (recheck) {
         return replyError(res, 409, 'BUSY', recheck.error)
       }

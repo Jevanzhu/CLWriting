@@ -11,6 +11,9 @@ import { str, strArr, isSseEvent, isHealPhaseEvent, isHealResultEvent } from './
 export interface SseEvent {
   type: string
   _ts: string
+  /** R33-87（三十三轮）：入队序号（store 级单调查）——事件流滑窗渲染的稳定 key 源
+   *  （原 :key=i 随 slice(-200) 滑动逐条漂移，每条新事件触发全量 DOM 文本 patch） */
+  _seq: number
   [k: string]: unknown
 }
 
@@ -76,7 +79,8 @@ let droppedLogCount = 0
 
 export const useWorkbenchStore = defineStore('workbench', () => {
   /** 事件日志（按序追加，右栏事件流消费）。 */
-  const log = ref<SseEvent[]>([])
+  let seq = 0 // R33-87：入队序号（稳定 key）
+const log = ref<SseEvent[]>([])
   /** 生成正文聚合（text 事件拼接，草稿保存源）。init/role_spawn 清空（新生成）。 */
   const textOut = ref('')
   /** 生成中（init/role_spawn→true，done/interrupted/error→false）。 */
@@ -122,7 +126,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       }
       return
     }
-    const e = { ...ev, _ts: ts() } as SseEvent
+    const e = { ...ev, _ts: ts(), _seq: ++seq } as SseEvent
     // R30-27（三十轮）：日志落库前按白名单过滤——未知/空 type 只跳过入库（计数 +
     // console.debug 留痕），后续状态分支照常执行（分发行为零改动）
     if (!WORKBENCH_LOG_TYPES.has(e.type)) {

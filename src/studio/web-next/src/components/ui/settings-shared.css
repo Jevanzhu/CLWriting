@@ -678,3 +678,39 @@
 .switch:hover input:checked + .switch-slider {
   background: var(--interactive-accent-hover);
 }
+
+/* J5 win 字体美化（2026-08-31，仅 win）：Noto Sans SC 的 CJK 字形在行盒内偏下，
+ * 1.4 行高的负半 leading 使说明文字墨迹下沉 ~2px、seg 胶囊文字未居中下沉 ~1px
+ * （实测 3x 墨迹分析）；mac 苹方度量不同无此问题，故全部 win 限定。
+ * 说明文字行高放宽 1.5 重新居中；控件文字 flex 垂直居中 + 行高 1。 */
+:root[data-platform='win32'] .setting-item-desc {
+  line-height: 1.5;
+}
+:root[data-platform='win32'] .seg button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+:root[data-platform='win32'] .scope-btn {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+}
+
+/* J5 win（2026-08-31）：排版 +1px 后行内控件（字体下拉等）变宽，把 info 列挤到
+ * CJK min-content（1 字宽）→「界面字体」四字竖排。win 限定：设置行允许换行 +
+ * info 保底宽度 + 下拉限宽截断，行高不再被逐字挤压。 */
+:root[data-platform='win32'] .setting-item {
+  flex-wrap: wrap;
+}
+:root[data-platform='win32'] .setting-item-info {
+  flex: 1 1 12em;
+}
+:root[data-platform='win32'] .setting-item-control {
+  flex: 0 0 auto;
+  max-width: 100%;
+}
+:root[data-platform='win32'] .setting-item-control select {
+  max-width: 220px;
+}

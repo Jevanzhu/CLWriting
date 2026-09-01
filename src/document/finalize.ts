@@ -298,6 +298,7 @@ function finalGateBlockers(bookRoot: string, absPath: string, chapterNo: number)
     // 不完整，按其比对会把「清单未知」当「已声明未兑现」产 lead-declared-not-done 假红
     // 硬阻断定稿（R31-3 只闭合了机检侧）。unreadable → 跳过闭合比对 + warn 留痕
     // （闸门降级放行，对齐 X-P2-5/R29-8 口径——观测得到但不锁死作者）。
+    //（win 线 R33-5 同因独立修复，合并取本侧 unreadable 形状 + warn 留痕。）
     const fulfilled = readChapterUpdatesForChapterChecked(bookRoot, chapterNo)
     if (fulfilled.unreadable) {
       log.warn('finalize', `第${chapterNo}章 防吃书闸兑现侧清单不可读（主文件/归档在位但读失败），闭合比对降级跳过`)

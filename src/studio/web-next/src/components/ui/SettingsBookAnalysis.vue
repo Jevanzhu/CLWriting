@@ -288,15 +288,17 @@ async function refreshRagStatus(name?: string): Promise<boolean> {
 async function startRagBuild(): Promise<void> {
   const name = ws.bookName
   if (!name || ragBuilding.value) return
+  // R33-81（三十三轮）：在途锁前置——原在 await 之后才置位，POST 往返窗内双击双发
+  ragBuilding.value = true
   try {
     await triggerRagBuild(name)
     // R28-22：本组件触发过重建（服务端先清库再后台建）——此后若以失败收场，
     // ragRebuildFailedHint 据此补「索引已清空、重建未完成」的提示
     ragRebuildTriggered.value = true
-    ragBuilding.value = true
     ragStatusText.value = '索引构建中…'
     void pollRagStatus(name)
   } catch (e) {
+    ragBuilding.value = false // R33-81：锁前置后失败路径须复位，否则按钮永久置灰
     ui.toast(friendlyError(e), 'error')
   }
 }

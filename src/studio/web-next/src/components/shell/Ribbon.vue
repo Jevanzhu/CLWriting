@@ -20,13 +20,15 @@ import { useTheme } from '../../composables/useTheme'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
 import { friendlyError } from '../../shared/error'
+import { usePlatform } from '../../composables/usePlatform'
 
 // Ribbon（~44px 图标列）：上部 章节树/搜索/总览/工作台/开书；底部 导出/书架/设置/亮暗。
 // macOS 交通灯占顶部 ~28px：桌面版顶部留白 40px（图标下移避让）+ 顶部空白可拖动窗口（参考 Obsidian）。
+// 交通灯仅 mac（左上红绿灯）→ has-traffic（top 留白）仅 isMac；win 无左上红绿灯不加。
 const { theme, toggle } = useTheme()
 const ws = useWorkspaceStore()
 const ui = useUiStore()
-const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
+const { isMac } = usePlatform()
 
 // 书架：主窗口内浮层（与设置统一；不再弹独立窗口）
 function openShelf(): void {
@@ -42,7 +44,7 @@ function openLibraryManager(): void {
 </script>
 
 <template>
-  <div class="ribbon" :class="{ 'has-traffic': hasDesktop }">
+  <div class="ribbon" :class="{ 'has-traffic': isMac }">
     <div class="ribbon-group">
       <button
         class="rbtn" data-tip-dir="right"
@@ -50,7 +52,7 @@ function openLibraryManager(): void {
         data-tip="章节树（⌘B）"
         @click="ws.setLeftPanel('tree')"
       >
-        <ListTree :size="20" />
+        <ListTree :size="20" :stroke-width="1.6" />
       </button>
       <button
         class="rbtn" data-tip-dir="right"
@@ -58,7 +60,7 @@ function openLibraryManager(): void {
         data-tip="搜索"
         @click="ws.setLeftPanel('search')"
       >
-        <Search :size="20" />
+        <Search :size="20" :stroke-width="1.6" />
       </button>
       <div class="ribbon-sep" />
       <button
@@ -67,7 +69,7 @@ function openLibraryManager(): void {
         data-tip="总览（进度 / 节奏 / 伏笔 / 文风）"
         @click="ws.setActiveView('overview')"
       >
-        <LayoutGrid :size="20" />
+        <LayoutGrid :size="20" :stroke-width="1.6" />
       </button>
       <button
         class="rbtn" data-tip-dir="right"
@@ -75,7 +77,7 @@ function openLibraryManager(): void {
         data-tip="角色关系图 Beta"
         @click="ws.setActiveView('relations')"
       >
-        <Share2 :size="20" />
+        <Share2 :size="20" :stroke-width="1.6" />
       </button>
       <div class="ribbon-sep" />
       <button
@@ -84,7 +86,7 @@ function openLibraryManager(): void {
         data-tip="开书对话 Beta"
         @click="ws.setActiveView('onboard')"
       >
-        <Compass :size="20" />
+        <Compass :size="20" :stroke-width="1.6" />
       </button>
       <button
         class="rbtn" data-tip-dir="right"
@@ -92,7 +94,7 @@ function openLibraryManager(): void {
         data-tip="AI 工作台 Beta"
         @click="ws.setActiveView('workbench')"
       >
-        <Wrench :size="20" />
+        <Wrench :size="20" :stroke-width="1.6" />
       </button>
       <button
         class="rbtn" data-tip-dir="right"
@@ -100,7 +102,7 @@ function openLibraryManager(): void {
         data-tip="文风 Beta"
         @click="ws.setActiveView('style')"
       >
-        <Feather :size="20" />
+        <Feather :size="20" :stroke-width="1.6" />
       </button>
       <button
         class="rbtn" data-tip-dir="right"
@@ -108,7 +110,7 @@ function openLibraryManager(): void {
         data-tip="事件审计（重放 / 遮蔽差异）"
         @click="ws.setActiveView('audit')"
       >
-        <ScrollText :size="20" />
+        <ScrollText :size="20" :stroke-width="1.6" />
       </button>
     </div>
 
@@ -119,28 +121,28 @@ function openLibraryManager(): void {
         data-tip="回收站"
         @click="ws.setLeftPanel('trash')"
       >
-        <Trash2 :size="20" />
+        <Trash2 :size="20" :stroke-width="1.6" />
       </button>
       <button class="rbtn" data-tip-dir="right" data-tip="导出定稿" @click="ui.openExport()">
-        <Download :size="20" />
+        <Download :size="20" :stroke-width="1.6" />
       </button>
       <button class="rbtn" data-tip-dir="right" data-tip="打开书架" @click="openShelf">
-        <BookOpen :size="20" />
+        <BookOpen :size="20" :stroke-width="1.6" />
       </button>
       <button class="rbtn" data-tip-dir="right" data-tip="书库管理" @click="openLibraryManager">
-        <Library :size="20" />
+        <Library :size="20" :stroke-width="1.6" />
       </button>
       <div class="ribbon-sep" />
       <button class="rbtn" data-tip-dir="right" data-tip="设置（⌘,）" @click="ui.openSettings()">
-        <Settings :size="20" />
+        <Settings :size="20" :stroke-width="1.6" />
       </button>
       <button
         class="rbtn" data-tip-dir="right"
         :data-tip="theme === 'dark' ? '切到亮色' : '切到暗色'"
         @click="toggle($event)"
       >
-        <Moon v-if="theme === 'light'" :size="20" />
-        <Sun v-else :size="20" />
+        <Moon v-if="theme === 'light'" :size="20" :stroke-width="1.6" />
+        <Sun v-else :size="20" :stroke-width="1.6" />
       </button>
     </div>
   </div>
@@ -191,14 +193,14 @@ function openLibraryManager(): void {
   gap: 2px;
 }
 .rbtn {
-  width: 32px;
-  height: 32px;
+  width: var(--size-ribbon-btn);
+  height: var(--size-ribbon-btn);
   display: flex;
   align-items: center;
   justify-content: center;
   border: none;
   background: transparent;
-  color: var(--text-muted);
+  color: var(--text-icon);
   border-radius: var(--radius-s);
   cursor: pointer;
 }

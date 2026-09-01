@@ -172,9 +172,11 @@ function toParams(conf: ProviderConf, req: GenRequest): Anthropic.MessageCreateP
       format,
     } as unknown as Anthropic.OutputConfig
   }
-  // stop sequences
+  // stop sequences——R33-19（三十三轮）：对齐 openai 线 q.trimStop（各家上限不同、
+  // grok 推理模型不发；原全量透传在 anthropic 线缺同款防线，两线不对称）。
   if (req.stopSequences?.length) {
-    params['stop_sequences'] = req.stopSequences
+    const stops = q.trimStop(req.stopSequences)
+    if (stops?.length) params['stop_sequences'] = stops
   }
   return params
 }
@@ -305,9 +307,17 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
               if (event.usage) {
                 const cacheRead = event.usage.cache_read_input_tokens ?? cacheReadFromStart
                 const cacheWrite = event.usage.cache_creation_input_tokens ?? cacheWriteFromStart
+                // R33-4（三十三轮）：末见 wins 改逐字段 merge——此前 input 有
+                // inputTokensFromStart 兜底、cache 两档有 message_start 兜底，唯
+                // output_tokens 缺失直接 ?? 0：部分上游连发多条 message_delta（本文件
+                // :199 注释已认的 cc-switch 形态）且末条缺该字段时，此前 delta 已报的
+                // 正确 output 值被清零（computeCallCost 输出档计 0、预算闸少计）。
+                // prevUsage 显式断言拓宽 TS 对 latestUsage 的 null 收窄（注解不拓宽
+                // const 初始化收窄；循环回边处真实类型是 TokenUsage | null）。
+                const prevUsage = latestUsage as TokenUsage | null
                 latestUsage = {
-                  inputTokens: event.usage.input_tokens ?? inputTokensFromStart,
-                  outputTokens: event.usage.output_tokens ?? 0,
+                  inputTokens: event.usage.input_tokens ?? prevUsage?.inputTokens ?? inputTokensFromStart,
+                  outputTokens: event.usage.output_tokens ?? prevUsage?.outputTokens ?? 0,
                   ...(cacheRead !== undefined ? { cacheReadTokens: cacheRead } : {}),
                   ...(cacheWrite !== undefined ? { cacheWriteTokens: cacheWrite } : {}),
                 }

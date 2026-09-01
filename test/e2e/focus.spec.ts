@@ -10,7 +10,7 @@
  * 8s）全亮，输入才渐隐；左侧新增专注统计条（本次/速度/本章目标，FocusStatsBar）。
  */
 import { test, expect } from '@playwright/test'
-import { attachPageErrorBaseline } from './page-error-baseline.js'
+import { attachPageErrorBaseline, dismissStartupNotices } from './page-error-baseline.js'
 
 // 视口拉宽到侧位充足（(1680-1020)/2=330px ≥ 12 间距 + 150 条宽）：专注态浏览器形态走
 // HTML5 全屏，全屏窗口协议禁改 setViewportSize，故须在 context 创建时定视口
@@ -19,7 +19,11 @@ test.use({ viewport: { width: 1680, height: 1000 } })
 test('专注模式：沉浸隐藏 + Esc 退出还原', async ({ page }) => {
   attachPageErrorBaseline(page, 'focus')
   await page.goto('/')
+  await dismissStartupNotices(page)
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
+  // R33 修复（三十三轮）：等书页路由到位后再找章节名——getByText 在书架页也匹
+  // hero-recent「最近·章名」，导航未完成时取书架页元素点，导致编辑器挂载期待落空。
+  await page.waitForURL('**/book/**')
   // 打开一章（纸张宽度断言需要 .doc-page 在场；空态编辑器无纸张）
   await page.getByText('初入宗门').first().click()
   await expect(page.locator('.doc-page')).toBeVisible()
@@ -63,7 +67,11 @@ test('专注模式：沉浸隐藏 + Esc 退出还原', async ({ page }) => {
 test('专注打字机：滚动居中 + 上下文按行距渐隐', async ({ page }) => {
   attachPageErrorBaseline(page, 'focus')
   await page.goto('/')
+  await dismissStartupNotices(page)
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
+  // R33 修复（三十三轮）：等书页路由到位后再找章节名——getByText 在书架页也匹
+  // hero-recent「最近·章名」，导航未完成时取书架页元素点，导致编辑器挂载期待落空。
+  await page.waitForURL('**/book/**')
   await page.getByText('初入宗门').first().click()
   await page.locator('.doc-page').waitFor()
   await page.locator('[data-tip*="专注"]').click()
@@ -130,7 +138,11 @@ test('专注打字机：滚动居中 + 上下文按行距渐隐', async ({ page 
 test('专注统计条 + 浏览态全亮：输入渐隐 → 滚轮回看全亮 → 再输入渐隐回来', async ({ page }) => {
   attachPageErrorBaseline(page, 'focus')
   await page.goto('/')
+  await dismissStartupNotices(page)
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
+  // R33 修复（三十三轮）：等书页路由到位后再找章节名——getByText 在书架页也匹
+  // hero-recent「最近·章名」，导航未完成时取书架页元素点，导致编辑器挂载期待落空。
+  await page.waitForURL('**/book/**')
   await page.getByText('初入宗门').first().click()
   await page.locator('.doc-page').waitFor()
   await page.locator('[data-tip*="专注"]').click()

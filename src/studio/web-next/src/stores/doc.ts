@@ -85,10 +85,15 @@ export const useDocStore = defineStore('doc', () => {
     docs.value = new Map()
     // RB-FE-P2-1：清 loading 锁 + bump 代数——在途 open 的旧书响应不得注入新书缓存
     loading.clear()
-    // R33D-26（三十三轮）：inflightOpens 同口径清——legacy docId 按路径派生跨书可同 id，
+    // R33D-26（三十三轮 dev 线）：inflightOpens 同口径清——legacy docId 按路径派生跨书可同 id，
     // A 书在途 open 的 promise 被 B 书同名 open 复用后其结果被 bookGen 守卫整体丢弃
     //（promise resolve 但缓存无 entry，调用方空手而归）。清台账让 B 书 open 真发新请求。
     inflightOpens.clear()
+    // R33-12（三十三轮 win 线）：inflightSaves 一并清——旧书在途保存的 finally 无条件按
+    // docId 删键，若新书（legacy docId 按路径派生跨书同键）已在途同 docId 保存，
+    // 旧 settle 会误删新登记 → ⌘S 走进 e.saving 分支且 inflight 取不到 → 无闸
+    // 同步尾递归（RangeError，保存静默失败）。
+    inflightSaves.clear()
     bookGen++
   }
 
@@ -164,7 +169,9 @@ export const useDocStore = defineStore('doc', () => {
       })
       evictLRU() // F7（五十九轮）：新 entry 落位后裁剪 clean 缓存至 LRU 上限
     } finally {
-      loading.delete(docId)
+      // R33-71（三十三轮）：代守卫——切书后旧 open 的 finally 不得释放新书同 docId
+      // 的在途加载锁（否则新书可重复 GET；结果注入有 gen 守卫，仅冗余请求面）
+      if (gen === bookGen) loading.delete(docId)
     }
   }
 
@@ -203,7 +210,9 @@ export const useDocStore = defineStore('doc', () => {
     try {
       return await p
     } finally {
-      inflightSaves.delete(docId)
+      // R33-12（三十三轮）：条件删——只撤自己登记（切书 clear 后新书同 docId 的
+      // 新登记不得被旧书 settle 的无条件 delete 抹掉）
+      if (inflightSaves.get(docId) === p) inflightSaves.delete(docId)
     }
   }
 
@@ -240,6 +249,15 @@ export const useDocStore = defineStore('doc', () => {
       if (err instanceof ApiError && err.code === 'REVISION_CONFLICT') {
         e.conflict = true
         e.error = '此文档已在其他地方修改'
+      } else if (err instanceof ApiError && err.code === 'NOT_FOUND') {
+        // R33-13（三十三轮）：文档已删除（软删后 404）→ 移除缓存条目——dirty 僵尸
+        // entry 此前驻留 Map：autosaveTick 每 30s 对已删 docId 无限重试（404 后 dirty
+        // 不清）、LRU 永不驱逐、切书 flushDirty 计入 failed 触发「保存失败将永久丢弃」
+        // 假警报。discard 同时清 inflightSaves（本 promise 正在 settle 链上，条件删兜底）。
+        docs.value.delete(docId)
+        // 本 promise 的在途登记由 save 的 finally 条件删收口（get === p）
+        if (origin === 'manual') useUiStore().toast('文档已删除，已清理本地缓存', 'info')
+        return false
       } else {
         e.error = friendlyError(err)
       }
@@ -471,5 +489,12 @@ export const useDocStore = defineStore('doc', () => {
     }
   }
 
-  return { docs, bookName, setBook, get, open, patch, save, reloadFromRemote, overwriteRemote, refresh, syncCleanWithTree, finalize, conflictedDirtyDocs, flushDirty, flushSyncOnUnload, autosaveTick }
+  /** R33-13（三十三轮）：显式丢弃缓存条目（删除文档后调用）——清 entry + 在途登记，
+   *  防脏 dirty 僵尸 entry 无限重试/切书假警报。entry 在途保存时其 finally 条件删兜底。 */
+  function discard(docId: string): void {
+    docs.value.delete(docId)
+    inflightSaves.delete(docId)
+  }
+
+  return { docs, bookName, setBook, get, open, patch, save, reloadFromRemote, overwriteRemote, refresh, syncCleanWithTree, finalize, conflictedDirtyDocs, flushDirty, flushSyncOnUnload, autosaveTick, discard }
 })

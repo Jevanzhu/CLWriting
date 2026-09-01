@@ -26,6 +26,11 @@ import type { IronRules } from '../format/iron-rules.js'
  */
 export const HANZI = '一-鿿㐀-䶿'
 
+// R33-31（三十三轮）：对话提示语正则模块常量化（循 R26-47）——原在 checkStyleMetrics
+// 每次调用 new RegExp 两枚；String.match 对带 g 的正则不保留 lastIndex，提升安全。
+const DIALOGUE_TAG_SHUO_RE = new RegExp(`[${HANZI}]{2,}地说`, 'gu')
+const DIALOGUE_TAG_DIDAO_RE = new RegExp(`[${HANZI}]{2,}地道(?=[:：\u201c\u2018「『])`, 'gu')
+
 /**
  * front matter 格式检查（#10 项 3，🔴 红）。
  * 章号==文件名、枚举合法、必填齐。
@@ -37,7 +42,9 @@ export function checkFrontMatter(
   const items: CheckItem[] = []
 
   // 章号 == 文件名前缀（非数字文件名如 前言.md 不报红——与短篇版 checkPieceFrontMatter 对齐）
-  const fileNum = Number(fileName.match(/(?:^|\/)(\d+)-/)?.[1])
+  // R33-30（三十三轮）：分隔符双侧容忍（`[/\\]`）——契约对路径形态脆弱（win 反斜杠
+  // 直传时前缀识别失明）；现调用方传 basename 不触发，纯加固。
+  const fileNum = Number(fileName.match(/(?:^|[/\\])(\d+)-/)?.[1])
   if (!Number.isNaN(fileNum) && fileNum !== chapter.章号) {
     items.push({
       checkId: 'fm-chapter-mismatch',
@@ -608,9 +615,10 @@ export function checkStyleMetrics(
   // 对话提示语堆叠（"…地说/道"，优先"他说"，#5 第 8 节示例）
   // Z-17（第五十八轮）：X地道 收窄为后续跟引语标点（:：""「『）——「十分地道，」这类
   // 词语误用（地道=名词「正宗」，非「说道」动词）不再计入；X地说 不受影响（无同形名词）
+  // R33-31（三十三轮）：消费模块常量（原每调用 new RegExp 两枚）
   const tagHits = [
-    ...(body.match(new RegExp(`[${HANZI}]{2,}地说`, 'gu')) ?? []),
-    ...(body.match(new RegExp(`[${HANZI}]{2,}地道(?=[:：\u201c\u2018「『])`, 'gu')) ?? []),
+    ...(body.match(DIALOGUE_TAG_SHUO_RE) ?? []),
+    ...(body.match(DIALOGUE_TAG_DIDAO_RE) ?? []),
   ]
   if (tagHits.length) {
     for (const t of new Set(tagHits)) {
@@ -845,7 +853,7 @@ export function checkBodyParts(
 // 「石头像刀一样硬」等「X头像/X石像」明喻被一并漏计（漏报向安全）；「人像蝼蚁」
 // 类人字领明喻不排（人像的肖像义在散文里远低于明喻用法）。后排他集补「样」——
 // 「挺像样」「很像样」的「像样」非比喻。
-const SIMILE_RE = /(?<![相很好不像图偶摄入影照实音画映形印想虚镜显成雕塑石铜铁玉蜡金肖绣头佛神遗铸拟造圣])(像)(?!他|她|你|我|这|那|样)[^，。！？；、：\s像]{1,12}(?:一样|似的|一般|般)?/gu
+const SIMILE_RE = /(?<![相很好不像图偶摄入影照实音画映形印想虚镜显成雕塑石铜铁玉蜡金肖绣头佛神遗铸拟造圣群])(像)(?!他|她|你|我|这|那|样)[^，。！？；、：\s像]{1,12}(?:一样|似的|一般|般)?/gu
 
 export function checkSimile(
   body: string,
@@ -900,7 +908,12 @@ export function checkSectionCount(
   const stripped = body
     .split('\n')
     .filter((ln) => {
-      const m = ln.match(/^\s{0,3}(`{3,}|~{3,})(.*)$/)
+      // R33-1（三十三轮）：尾部 `\r?` 容忍——CRLF 文件按 \n 切行后行尾残留 \r，而
+      // `.` 不匹配 \r 且本正则无 m 标志（$ 只认串尾），原样下 "```\r"/"```js\r" 匹配
+      // 恒失败 → fence 恒 null → 围栏内 ## 全部计入节数，R27-25 语义在 win 主平台
+      // 整体反转（短篇 strict 假红硬拦定稿）。标题行正则带 m 标志（JS 多行模式视 \r
+      // 为行终止符）不受影响，只修本处。
+      const m = ln.match(/^\s{0,3}(`{3,}|~{3,})(.*)\r?$/)
       if (fence === null) {
         // 非围栏态：```/~~~ 行（信息串可选）= 开栏（R27-25 语义不变），开栏行剥除
         if (m) fence = { ch: m[1]![0]!, len: m[1]!.length }
@@ -968,7 +981,10 @@ export function checkOpeningNoEnv(
   // 「今天天气真好」是对白不是环境描写（叙述面），裸匹配此前误报对白密集的开篇。
   // 窗口尾截断的半个 span（有开无闭）不被识别为 span → 该处引号内容仍参与匹配，
   // 属可接受的漏报向残余（黄项 advisory，非红闸）。
-  const opening = stripQuotedSpans(body.slice(0, openingChars))
+  // R33-32（三十三轮）：码点口径（对齐 R73-19）——UTF-16 直接 slice 在含 astral 字符
+  // 时窗口实际缩短；astral 码点最多占 2 个 UTF-16 单元，先取 openingChars*2 单元再按
+  // 码点截断，窗口恒足 openingChars 码点。
+  const opening = stripQuotedSpans([...body.slice(0, openingChars * 2)].slice(0, openingChars).join(''))
   const hits: string[] = []
   for (const word of envWords) {
     if (word && opening.includes(word)) hits.push(word)

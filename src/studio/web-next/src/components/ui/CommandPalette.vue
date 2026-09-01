@@ -76,17 +76,32 @@ const sections = computed(() => {
 })
 // R61-16（第六十一轮）：键盘导航上限收到已渲染区间——每节 slice(RENDER_CAP) 后未渲染
 // 条目无 DOM，旧上限（filtered.length-1）会让 ↓ 走进不可见区，Enter 执行看不见的命令。
-// 上限 = 末个非空节末项的扁平索引（sections 按渲染顺序排列，i 即 filtered 全量索引）。
-const maxSelIndex = computed(() => {
-  const secs = sections.value
-  for (let s = secs.length - 1; s >= 0; s--) {
-    const items = secs[s]!.items
-    if (items.length > 0) return items[items.length - 1]!.i
+// R33-16（三十三轮）：导航域改「已渲染条目的扁平索引数组」（按渲染顺序）——R61-16 的
+// 「末节末项扁平索引」上限只封右边界：章节节截到 100 条而动作节全渲染时，扁平索引
+// 100~149 的章节未渲染却仍在导航域内（↓ 高亮脱离 DOM、Enter 执行看不见的章节命令，
+// 实测 150 章 + 3 动作第 100 步即入空洞）。
+const renderedIndices = computed<number[]>(() => sections.value.flatMap((s) => s.items.map((it) => it.i)))
+
+/** ↑/↓ 在已渲染索引内步进；sel 落在空洞（旧态残留）时跳到 delta 方向最近渲染项。 */
+function stepSel(delta: 1 | -1): void {
+  const idxs = renderedIndices.value
+  if (idxs.length === 0) {
+    sel.value = 0
+    return
   }
-  return -1
-})
+  const pos = idxs.indexOf(sel.value)
+  if (pos === -1) {
+    const next =
+      delta > 0
+        ? (idxs.find((i) => i > sel.value) ?? idxs[0]!)
+        : ([...idxs].reverse().find((i) => i < sel.value) ?? idxs[0]!)
+    sel.value = next
+    return
+  }
+  sel.value = idxs[Math.min(Math.max(pos + delta, 0), idxs.length - 1)]!
+}
 watch(filtered, () => {
-  sel.value = 0
+  sel.value = renderedIndices.value[0] ?? 0
 })
 // sel 变化滚动跟随（键盘移动后高亮项保持可见；鼠标 hover 路径同受益）
 watch(sel, () => {
@@ -126,10 +141,10 @@ function onKey(e: KeyboardEvent): void {
   if (isImeComposing(e)) return
   if (e.key === 'ArrowDown') {
     e.preventDefault()
-    sel.value = Math.min(sel.value + 1, Math.max(maxSelIndex.value, 0))
+    stepSel(1)
   } else if (e.key === 'ArrowUp') {
     e.preventDefault()
-    sel.value = Math.max(sel.value - 1, 0)
+    stepSel(-1)
   } else if (e.key === 'Enter') {
     e.preventDefault()
     const c = filtered.value[sel.value]

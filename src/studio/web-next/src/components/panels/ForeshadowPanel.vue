@@ -160,6 +160,10 @@ watch(() => props.bookName, load, { immediate: true })
         :key="f.file"
         class="fs-item pending"
         :class="{ current: currentChapNo !== null && f.埋设章号 === currentChapNo }"
+        role="button"
+        tabindex="0"
+        @keydown.enter.prevent="openFile(f.file)"
+        @keydown.space.prevent="openFile(f.file)"
         @click="openFile(f.file)"
       >
         <CircleAlert :size="14" class="fs-icon" :class="'risk-' + (f.足迹?.risk ?? '绿')" />

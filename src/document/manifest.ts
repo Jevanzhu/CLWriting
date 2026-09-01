@@ -7,7 +7,7 @@
  * - order：章由文件名编号派生顺序，**省略 order 字段**；自由区文档与文件夹才有 order。
  */
 import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { acquireCrossProcessLockWithTimeout, acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 
@@ -237,6 +237,19 @@ export function __setManifestLockTimeoutForTest(ms: number): void {
  *  嵌套获取（如持锁段内再触发清单登记的调用链）只加深计数不再抢锁，最外层返回时释放。 */
 const heldManifestLocks = new Map<string, { depth: number; release: () => void }>()
 
+/** R33-54（三十三轮）：锁键归一化——重入计数原以原始路径字符串为键，同一锁文件经
+ *  大小写（win 不敏感 FS）或分隔符漂移的等价路径再入时会被当「他锁」抢锁，同步
+ *  Atomics.wait 自持锁等待至超时 fail-closed（而非复用持锁计数）。resolve + 分隔符
+ *  归一 + win32 大小写折叠，让等价路径命中同一条目。 */
+function manifestLockKey(manifestPath: string): string {
+  let p = manifestPath
+  try {
+    p = resolve(manifestPath)
+  } catch { /* resolve 失败保原值（畸形路径本就会在 acquire 处失败） */ }
+  p = p.replace(/[\\/]+/g, '/')
+  return process.platform === 'win32' ? p.toLowerCase() : p
+}
+
 /**
  * 清单 RMW 互斥段（X-5）：J7 已锁 journal/账本/task-gate，清单的 read→mutate→write
  * 此前全程无互斥——CLI 与 GUI 双进程同书并发时后写者整文件重写吞掉先写者的更新。
@@ -253,7 +266,8 @@ const heldManifestLocks = new Map<string, { depth: number; release: () => void }
  * 宁拒绝不覆盖。进程内重入走计数（同进程嵌套获取不死锁）；跨进程嵌套（他进程持锁）正常等待。
  */
 export function withManifestLock<T>(manifestPath: string, fn: () => T): T {
-  const held = heldManifestLocks.get(manifestPath)
+  const lockKey = manifestLockKey(manifestPath)
+  const held = heldManifestLocks.get(lockKey)
   if (held) {
     held.depth++
     try {
@@ -267,11 +281,11 @@ export function withManifestLock<T>(manifestPath: string, fn: () => T): T {
   for (let attempt = 0; ; attempt++) {
     const release = acquireCrossProcessLockWithTimeout(lockPath, manifestLockTimeoutMs)
     if (release) {
-      heldManifestLocks.set(manifestPath, { depth: 1, release })
+      heldManifestLocks.set(lockKey, { depth: 1, release })
       try {
         return fn()
       } finally {
-        heldManifestLocks.delete(manifestPath)
+        heldManifestLocks.delete(lockKey)
         release()
       }
     }

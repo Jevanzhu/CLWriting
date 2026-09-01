@@ -111,7 +111,10 @@ export function registerStateRoutes(ctx: StateCtx): void {
       reply(res, 200, payload)
     } catch (e) {
       // P2-4：API 错误脱敏——SDK 报错 message 可能含 API Key 痕迹
-      replyError(res, 500, 'ERROR', redactSecret(e instanceof Error ? e.message : String(e)))
+      // R33-61（三十三轮）：500 不直透原始 message（可含文件路径等内部 detail，与
+      // index.ts「500 只回泛化文案」口径对齐）；全量诊断经 log.error 留服务端日志。
+      log.error('state', `state 聚合失败：${redactSecret(e instanceof Error ? e.message : String(e))}`, e instanceof Error ? e : undefined)
+      replyError(res, 500, 'ERROR', '状态聚合失败（详见服务端日志）')
     }
   },
   })

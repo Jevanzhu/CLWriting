@@ -5,7 +5,7 @@
  * serveStatic 是 async（返回 promise），对已销毁连接 writeHead 抛
  * ERR_STREAM_ALREADY_FINISHED 等异步异常变 unhandledRejection（Node ≥15 默认
  * throw 即进程崩溃）。修复：对齐 /api 分支口径包 try/catch——响应未结束则
- * 500 IO_ERROR 收尾；已结束则只吞异常不重复写头。
+ * 500 'IO' 信封收尾；已结束则只吞异常不重复写头。R33-58：错误码统一 'IO'（循 R31-26 单一口径）。
  *
  * 注入方式：vi.mock static.ts 的 createStaticHandler 为受控桩（按场景抛错/先收尾再抛）。
  */
@@ -66,11 +66,11 @@ afterAll(async () => {
 })
 
 describe('R-8: 静态分支 serveStatic 异常兜底', () => {
-  it('A：serveStatic 抛错且响应未结束 → 500 IO_ERROR 信封，且无 unhandledRejection', async () => {
+  it('A：serveStatic 抛错且响应未结束 → 500 IO 信封，且无 unhandledRejection', async () => {
     mode.throw = 'sync'
     const r = await fetch(`${baseUrl}/index.html`)
     expect(r.status).toBe(500)
-    expect(JSON.parse(await r.text())).toEqual({ code: 'IO_ERROR', error: '服务器内部错误' })
+    expect(JSON.parse(await r.text())).toEqual({ code: 'IO', error: '服务器内部错误' })
     await new Promise((resolveP) => setTimeout(resolveP, 100))
     expect(unhandled).toHaveLength(0) // 修复前：promise 未捕获 → unhandledRejection
   })

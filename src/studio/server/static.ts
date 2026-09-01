@@ -128,7 +128,9 @@ export function createStaticHandler(rootDir: string) {
       // （存在的文件被静默换成 SPA 入口、无任何报错），现如实回 500
       const err = e as NodeJS.ErrnoException
       if (err.code !== 'ENOENT' && err.code !== 'ENOTDIR') {
-        replyError(res, 500, 'IO_ERROR', `静态文件读取失败：${err.code ?? err.message}`)
+        // R33-62（三十三轮）：err.code 不出网（对齐 index.ts 500 只回泛化文案口径，
+        // 诊断留日志）；R33-58：错误码对齐 'IO' 单一口径
+        replyError(res, 500, 'IO', '静态文件读取失败')
         return
       }
       // SPA fallback：非文件路径回 index.html（前端路由接管；B-21：HEAD 同口径补长度不发 body）

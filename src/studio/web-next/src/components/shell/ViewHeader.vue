@@ -2,10 +2,11 @@
 // Obsidian view-header：面包屑（书名 › 视图）。收起右栏/专注入口已移至 TabBar。
 import { computed } from 'vue'
 import { useWorkspaceStore } from '../../stores/workspace'
+import { usePlatform } from '../../composables/usePlatform'
 
 defineProps<{ bookName: string }>()
 const ws = useWorkspaceStore()
-const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
+const { isDesktop } = usePlatform()
 
 // 面包屑当前视图名：按 activeView 映射中文，切视图跟随（ribbon 点哪 Crumb 显哪）。
 const VIEW_LABELS: Record<string, string> = {
@@ -22,7 +23,7 @@ const viewLabel = computed(() => VIEW_LABELS[ws.activeView] ?? '编辑')
 </script>
 
 <template>
-  <div class="view-header" :class="{ 'is-drag': hasDesktop }">
+  <div class="view-header" :class="{ 'is-drag': isDesktop }">
     <div class="crumbs">
       <span class="crumb">{{ bookName }}</span>
       <span class="crumb-sep">›</span>

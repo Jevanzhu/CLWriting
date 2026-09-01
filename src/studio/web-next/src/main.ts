@@ -12,6 +12,11 @@ import './styles/base.css'
 import './components/ui/settings-shared.css'
 
 // 启动：boot 取 token → 加载全局偏好（.clwriting/global.json）→ 挂载应用。
+// html 根挂平台标记（win32/mac/…），供全局 CSS 按平台分支（如 win 字体栈适配）。
+// 浏览器版无 clwritingDesktop → 不设，CSS 走平台无关默认。
+if (window.clwritingDesktop?.platform) {
+  document.documentElement.dataset.platform = window.clwritingDesktop.platform
+}
 // top-level await：ESM 入口支持，确保渲染前 token + 偏好就位。
 await boot()
 

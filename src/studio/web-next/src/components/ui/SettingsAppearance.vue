@@ -25,6 +25,20 @@ const hasDesktop = computed(() => typeof window !== 'undefined' && !!window.clwr
         </div>
       </div>
     </div>
+    <div class="setting-item">
+      <div class="setting-item-info">
+        <div class="setting-item-name">字号</div>
+        <div class="setting-item-desc">界面文字整体大小（两平台通用）</div>
+      </div>
+      <div class="setting-item-control">
+        <div class="seg">
+          <button :class="{ on: prefs.uiFontSizeStep === -1 }" @click="prefs.setUiFontSizeStep(-1)">小</button>
+          <button :class="{ on: prefs.uiFontSizeStep === 0 }" @click="prefs.setUiFontSizeStep(0)">标准</button>
+          <button :class="{ on: prefs.uiFontSizeStep === 1 }" @click="prefs.setUiFontSizeStep(1)">大</button>
+          <button :class="{ on: prefs.uiFontSizeStep === 2 }" @click="prefs.setUiFontSizeStep(2)">特大</button>
+        </div>
+      </div>
+    </div>
     <div v-if="hasDesktop" class="setting-item">
       <div class="setting-item-info">
         <div class="setting-item-name">界面字体</div>

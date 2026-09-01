@@ -48,14 +48,21 @@ export const useWordsStore = defineStore('words', () => {
       todayDelta.value = null
       ready.value = false
     }
+    // R33-76（三十三轮）：入参书的全书字数在首个 await 前快照——原在 await 后读活源
+    // tree.totalWords，「B 树已落定、B 的 ensureBaseline 尚未推代」间隙内 A 书迟到响应
+    // 会把 B 的总字数 POST 成 A 的当日基线（服务端 words-diary 污染，前端自愈但脏写）。
+    const bookTotalWords = tree.totalWords
     try {
       const r = await getWordsDiary(name)
       if (gen !== reqGen) return
       // E-6（二十九轮）：跨零点守卫——响应的 date 由服务端在响应生成时刻打（今日），
       // 若它已 ≠ 前端当前本地日期，说明响应生成于零点前（慢响应跨日竞态）：baseline/delta
       // 属昨日，不能拿来当「今日」。以当前已写重记今日基线，再重取一次对齐服务端新日记录。
+      //（重记基线取 R33-76（三十三轮 win 线）的首个 await 前快照 bookTotalWords——
+      // await 后读活源 tree.totalWords 会拿进「B 树已落定、B 的 ensureBaseline 尚未
+      // 推代」间隙的别书总字数。）
       if (r.date !== localToday()) {
-        baseline.value = tree.totalWords
+        baseline.value = bookTotalWords
         await postBaseline(name, baseline.value)
         if (gen !== reqGen) return
         const r2 = await getWordsDiary(name)
@@ -67,7 +74,7 @@ export const useWordsStore = defineStore('words', () => {
         date.value = r.date
         todayDelta.value = r.delta
         if (r.baseline === null) {
-          baseline.value = tree.totalWords
+          baseline.value = bookTotalWords
           // R-23（第十六轮）：postBaseline 后查代——await 期间切书（旧书 ensureBaseline
           // 被 reqGen++ 作废）时旧书迟到响应不落盘（对齐同库其他 store 的 gen 模式）
           await postBaseline(name, baseline.value)

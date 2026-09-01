@@ -513,6 +513,10 @@ export async function runTask<T>(opts: {
     if (u.cacheWriteTokens !== undefined) {
       attemptsUsage.cacheWriteTokens = (attemptsUsage.cacheWriteTokens ?? 0) + u.cacheWriteTokens
     }
+    // R33-20（三十三轮）：reasoningTokens 同口径累计（responses 线观测位此前漏计）
+    if (u.reasoningTokens !== undefined) {
+      attemptsUsage.reasoningTokens = (attemptsUsage.reasoningTokens ?? 0) + u.reasoningTokens
+    }
     if (u.estimated) attemptsUsage.estimated = true // R73-1 协同：任一估计 attempt 污染整体标记
   }
   const recordUsageSafe = (usage: TokenUsage | null): void => {
