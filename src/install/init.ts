@@ -10,7 +10,7 @@
 import { existsSync, mkdirSync, readdirSync, statSync, type Dirent } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { matchGenreLeads } from './data.js'
-import { appendBook, writeActive, readBooks, bookStoragePath, isInvalidBookName, BOOK_NAME_MAX_BYTES } from './books.js'
+import { appendBook, appendBookAsync, writeActive, readBooks, bookStoragePath, isInvalidBookName, BOOK_NAME_MAX_BYTES } from './books.js'
 import { scaffoldBookRepo, findGitAncestor } from './scaffold.js'
 import type { LeadType } from '../format/types.js'
 
@@ -37,13 +37,67 @@ export type InitResult =
   | { ok: true; workDir: string; bookRoot: string; bookName: string; bookPath: string }
   | { ok: false; reason: string }
 
+/** 登记前步骤的结果：失败带人话 reason；可登记则带注册/回显所需的全部字段。 */
+type InitStepOutcome =
+  | { ok: false; reason: string; ready?: false }
+  | {
+      ready: true
+      workDir: string
+      bookRoot: string
+      bookName: string
+      bookPath: string
+      kind: 'long' | 'short'
+    }
+
 const CLWRITING_DIR = '.clwriting'
 
 /**
  * init 主流程（#30 第 5 节 9 步，CLI 退场后收敛为：骨架 + scaffold + 登记）。
  * 非交互：调用方已收集 name/genre/leads；交互式逃生由 CLI 层处理（本函数纯逻辑）。
+ *
+ * R36-9/R36-26（三十六轮）：主体拆出 doInitSteps（校验/幂等/骨架/scaffold 全同步
+ * 瞬时段），登记段（books.lock）收口为独立步骤——同步版 doInit 经 appendBook、
+ * 异步孪生 doInitAsync 经 appendBookAsync（AcquireAsync：事件循环不阻塞）。
+ * GUI 建书端点统一走 doInitAsync；本同步版保留供测试/CLI 残余合法同步面。
  */
 export function doInit(opts: InitOptions): InitResult {
+  const step = doInitSteps(opts)
+  if (!step.ready) return step
+  const appendRes = appendBook(step.workDir, {
+    name: step.bookName,
+    path: step.bookPath,
+    kind: step.kind,
+    created_at: new Date().toISOString(),
+  })
+  if (!appendRes.ok) return appendRes
+  writeActive(step.workDir, step.bookName)
+  return { ok: true, workDir: step.workDir, bookRoot: step.bookRoot, bookName: step.bookName, bookPath: step.bookPath }
+}
+
+/**
+ * doInit 的异步孪生（R36-9/R36-26）——登记段（books.jsonl 读改写）走 appendBookAsync
+ * （tryBooksLockAsync：setTimeout 轮询，事件循环不阻塞）。GUI 建书端点
+ * （POST /api/books）承载 SSE/全部接口，此前经同步 appendBook 的 Atomics.wait
+ * 在双进程争写窗口最坏停 5s（R36-26：CLI 建书同根漏网）。前置各步骤与同步版
+ * 逐位同源（doInitSteps 共用，结果恒等）；仅登记锁等待异步化。失败语义不变：
+ * { ok:false, reason 人话 }，永不 reject。
+ */
+export async function doInitAsync(opts: InitOptions): Promise<InitResult> {
+  const step = doInitSteps(opts)
+  if (!step.ready) return step
+  const appendRes = await appendBookAsync(step.workDir, {
+    name: step.bookName,
+    path: step.bookPath,
+    kind: step.kind,
+    created_at: new Date().toISOString(),
+  })
+  if (!appendRes.ok) return appendRes
+  writeActive(step.workDir, step.bookName)
+  return { ok: true, workDir: step.workDir, bookRoot: step.bookRoot, bookName: step.bookName, bookPath: step.bookPath }
+}
+
+/** doInit/doInitAsync 共用的登记前主流程（校验/幂等/骨架/scaffold；同步瞬时段）。 */
+function doInitSteps(opts: InitOptions): InitStepOutcome {
   const workDir = resolve(opts.workDir)
   const bookName = opts.name
   if (!bookName) return { ok: false, reason: '书名不能为空' }
@@ -131,17 +185,10 @@ export function doInit(opts: InitOptions): InitResult {
     return { ok: false, reason: `建书目录失败（${e instanceof Error ? e.message : String(e)}），请换更短的书名或更浅的书库位置后重试` }
   }
 
-  // 步骤 8：登记 books.jsonl + 设活动书
-  const appendRes = appendBook(workDir, {
-    name: bookName,
-    path: bookPath,
-    kind,
-    created_at: new Date().toISOString(),
-  })
-  if (!appendRes.ok) return appendRes
-  writeActive(workDir, bookName)
-
-  return { ok: true, workDir, bookRoot, bookName, bookPath }
+  // 步骤 8：登记 books.jsonl + 设活动书——由调用方（同步 doInit / 异步 doInitAsync）
+  // 完成：登记段持 books.lock（R63-2），同步/异步孪生按调用面分发（R36-9/R36-26
+  // 建书锁异步化：GUI 端点走 doInitAsync → appendBookAsync，事件循环不阻塞）
+  return { ready: true, workDir, bookRoot, bookName, bookPath, kind }
 }
 
 /** 步骤 5：工作目录骨架（非 git，幂等——已存在则复用）。 */

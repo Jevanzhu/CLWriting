@@ -113,6 +113,134 @@ function scanVersionsDir(
 
 // 全局保留策略读取器已上移 document/snapshot.ts（service.ts 写时清理也走同一三层链）
 
+// ── R36-7（三十六轮）：version-stats 全书快照统计 5s TTL 缓存 ─────────────────
+// 端点递归遍历 .版本 全目录（含 pinned 判定逐文件 fm 读 + parse）+ manifest 全表，
+// 进页/轮询/刷新反复触发。手法对齐 search.ts R35-7（mtime 探针 + TTL）：递归
+// mtime/size 探针（symlink 跳过，与 scanVersionsDir R-15 同口径）——命中即跳过
+// 逐文件 fm 读 + manifest 整读；TTL 5s 兜底探针不可见的变化（mtime 粒度粗/同拍同
+// 尺寸重写）。写侧另挂同文件失效点（prune/restore 落盘后 forgetVersionStatsCache）；
+// 保存/定稿等外部快照写（documents.ts/service.ts 不在本批允许清单）靠探针见
+// （新快照文件/新目录即变）与 TTL 兜底。
+const VERSION_STATS_TTL_MS = 5000
+const VERSION_STATS_MAX = 32
+
+interface VersionStatsResult {
+  snapshotBytes: number
+  snapshotCount: number
+  pinnedCount: number
+  finalizedDocs: number
+}
+const versionStatsCache = new Map<string, { result: VersionStatsResult; sig: string; ts: number }>()
+let versionStatsTtlMs: number | null = null
+/** R36-7：TTL 测试注入口（先例同 __setSearchCacheTtlForTest）。仅测试用。 */
+export function __setVersionStatsTtlForTest(ms: number | null): void {
+  versionStatsTtlMs = ms
+}
+/** R36-7：写侧失效挂点——prune/restore 落盘后调用（本文件内写路径）。 */
+export function forgetVersionStatsCache(bookRoot: string): void {
+  versionStatsCache.delete(bookRoot)
+}
+/** R36-7 回归观测钩子（生产零调用；先例同 __searchScanCountForTest）：缓存 MISS →
+ *  全量重算计数。 */
+let versionStatsScanCount = 0
+export function __versionStatsScanCountForTest(): number {
+  return versionStatsScanCount
+}
+export function __resetVersionStatsScanCountForTest(): void {
+  versionStatsScanCount = 0
+}
+
+/** stat 的 size:mtimeMs 签名（缺失 → '-'；读失败按缺失处理）。
+ *  mtimeMs 保留亚毫秒小数（同 search.ts dirSignature 口径），降低同毫秒重写漏探针概率。 */
+function sigStatFor(fp: string): string {
+  try {
+    const st = statSync(fp)
+    return `${st.size}:${st.mtimeMs}`
+  } catch {
+    return '-'
+  }
+}
+
+/** R36-7：version-stats 的盘面签名——manifest size:mtime + .版本 递归每条目
+ *  name:size:mtime（读侧内容全部由签名覆盖：命中即跳过逐文件 fm 读 + manifest 整读）。
+ *  AppleDouble 伴生文件不计、symlink 跳过，口径与 scanVersionsDir 逐位一致。 */
+function versionStatsSignature(bookRoot: string): string {
+  const parts: string[] = [`m:${sigStatFor(join(bookRoot, '项目', '文档清单.jsonl'))}`]
+  const versionsDir = join(bookRoot, '工作区', '.版本')
+  if (!existsSync(versionsDir)) {
+    parts.push('-')
+    return parts.join(',')
+  }
+  const walk = (d: string, prefix: string): void => {
+    let names: string[]
+    try {
+      names = readdirSync(d).sort()
+    } catch {
+      if (prefix) parts.push(`d:${prefix}:<unreadable>`)
+      else parts.push('<unreadable>')
+      return
+    }
+    for (const n of names) {
+      if (n.startsWith('._')) continue
+      const p = join(d, n)
+      let st
+      try {
+        st = lstatSync(p)
+      } catch {
+        continue
+      }
+      if (st.isSymbolicLink()) continue // R-15：不跟随（目录环/外指逃逸同防线）
+      const rel = prefix ? `${prefix}/${n}` : n
+      if (st.isDirectory()) {
+        parts.push(`d:${rel}:${st.mtimeMs}`)
+        walk(p, rel)
+      } else {
+        parts.push(`f:${rel}:${st.size}:${st.mtimeMs}`)
+      }
+    }
+  }
+  walk(versionsDir, '')
+  return parts.join(',')
+}
+
+/** R36-7：version-stats 计算体（原 handler 内联逻辑原样下沉，行为不变）。 */
+function computeVersionStats(bookRoot: string): VersionStatsResult {
+  const versionsDir = join(bookRoot, '工作区', '.版本')
+  const scan = scanVersionsDir(versionsDir)
+  // 定稿章节数：manifest 中 finalizedRevision 非空的文档条目数
+  const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
+  let finalizedDocs = 0
+  for (const e of manifest.entries.values()) {
+    if (e.nodeType === 'document' && e.finalizedRevision) finalizedDocs++
+  }
+  return {
+    snapshotBytes: scan.bytes,
+    snapshotCount: scan.count,
+    pinnedCount: scan.pinnedCount,
+    finalizedDocs,
+  }
+}
+
+/** R36-7：version-stats 聚合查询（递归 mtime 探针 + 5s TTL 缓存壳）。导出供回归
+ *  测试直测（同 searchBookCached 口径）。 */
+export function getVersionStatsCached(bookRoot: string): VersionStatsResult {
+  const now = Date.now()
+  const sig = versionStatsSignature(bookRoot)
+  const cached = versionStatsCache.get(bookRoot)
+  if (cached && cached.sig === sig && now - cached.ts < (versionStatsTtlMs ?? VERSION_STATS_TTL_MS)) {
+    return cached.result
+  }
+  versionStatsScanCount += 1
+  const result = computeVersionStats(bookRoot)
+  // 简单 FIFO 淘汰（Map 保插入序）：超上限丢最旧条目，防长期运行的书库累积
+  if (versionStatsCache.size >= VERSION_STATS_MAX) {
+    const oldest = versionStatsCache.keys().next().value
+    if (oldest !== undefined) versionStatsCache.delete(oldest)
+  }
+  versionStatsCache.set(bookRoot, { result, sig, ts: now })
+  return result
+}
+
 export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
   // 版本统计（改动 10b）：全书快照占用 / 总数 / 定稿章节数 / 定稿版本数
   defineRoute('books.version-stats', {
@@ -121,21 +249,15 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
     handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
-      const bookRoot = r.bookRoot
-      const versionsDir = join(bookRoot, '工作区', '.版本')
-      const scan = scanVersionsDir(versionsDir)
-      // 定稿章节数：manifest 中 finalizedRevision 非空的文档条目数
-      const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
-      let finalizedDocs = 0
-      for (const e of manifest.entries.values()) {
-        if (e.nodeType === 'document' && e.finalizedRevision) finalizedDocs++
-      }
+      // R36-7：递归 mtime 探针 + 5s TTL 缓存壳（命中即跳过 .版本 逐文件 fm 读 +
+      // manifest 整读；计算体见 computeVersionStats，行为与改前逐位一致）
+      const st = getVersionStatsCached(r.bookRoot)
       reply(res, 200, {
         ok: true,
-        snapshotBytes: scan.bytes,
-        snapshotCount: scan.count,
-        pinnedCount: scan.pinnedCount,
-        finalizedDocs,
+        snapshotBytes: st.snapshotBytes,
+        snapshotCount: st.snapshotCount,
+        pinnedCount: st.pinnedCount,
+        finalizedDocs: st.finalizedDocs,
       })
     },
   })
@@ -194,6 +316,8 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
             /* 单文档清理失败不阻断全书 */
           }
         }
+        // R36-7：快照被删 → version-stats 缓存失效（探针/TTL 兜底）
+        forgetVersionStatsCache(bookRoot)
         reply(res, 200, { ok: true, removed })
       } finally {
         release()
@@ -269,6 +393,9 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
       // 回复体是编辑器缓冲区的文本视图：utf-8 档即原文；字节档为失真视图（编辑器
       // 世界是 utf-8 文本，后续保存由 M-5 防线拦截提示先转码——不产生静默覆写）
       const view = typeof content === 'string' ? content : content.toString('utf-8')
+      // R36-7：恢复即新快照（maybeSnapshot restore 分支强制不节流）→ version-stats
+      // 缓存失效（探针/TTL 兜底）
+      forgetVersionStatsCache(r.bookRoot)
       reply(res, 200, { ok: true, revision: outcome.revision, content: view })
     },
   })

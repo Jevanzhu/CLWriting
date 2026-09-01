@@ -14,7 +14,7 @@
  * 失败按退出码 → 人话收口（#16 第 3 节原则：对作者永不出 git 命令、SHA、堆栈）。
  */
 
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, readdirSync, type Dirent } from 'node:fs'
 import { join } from 'node:path'
 import { log } from '../log/index.js'
@@ -30,8 +30,18 @@ export type GitResult =
  * git 单次调用超时（P2-30）：仓库锁 / 交互提示 / 挂载盘无响应时 spawnSync 会永久阻塞
  * 调用线程——statusPorcelain 在 server 启动链路（migrate 反推）会拖死启动。超时后
  * kill 子进程并按失败返回（fail-closed：调用方不能把「未完成」当「成功/干净」）。
+ * R36-5：gitAsync（异步路径）共用同一超时档；测试经 __setGitAsyncTimeoutForTest 缩短。
  */
-const GIT_TIMEOUT_MS = 15_000
+export const GIT_TIMEOUT_MS = 15_000
+
+/** R36-5：异步路径超时档生效值（模块内可变，仅测试注入口可改；先例同
+ *  search.ts __setSearchCacheTtlForTest / books.ts __setBooksLockTimeoutForTest）。 */
+let gitAsyncTimeoutMs = GIT_TIMEOUT_MS
+
+/** R36-5：测试注入口（null/缺省恢复默认；生产零调用）。 */
+export function __setGitAsyncTimeoutForTest(ms: number | null): void {
+  gitAsyncTimeoutMs = ms ?? GIT_TIMEOUT_MS
+}
 
 /**
  * R66-22（十四轮）：git 子进程输出缓冲上限。spawnSync 默认 1MB——大书
@@ -85,6 +95,131 @@ export function git(args: string[], cwd: string, opts?: { encoding?: 'utf-8'; in
           : `git 操作失败（${args.join(' ')}）：${humanizeGitError(args, stderr)}`,
     stderr,
   }
+}
+
+/**
+ * R36-5（三十六轮）：git 异步执行路径——child_process.spawn 包 promise，供服务进程
+ * 事件循环上的调用链（recordAiVersionAsync 的 hash-object/update-ref 等）使用。
+ * R36-5 机理：同一 try 块紧邻注释宣称「保存锁等待不再冻结事件循环」，但 recordAiVersion
+ * 仍是两次同步 spawnSync（父子进程全双工管道数据驱动，无响应时 spawnSync 阻塞当前
+ * 线程直到超时）——git 无响应（网盘挂载 .git/杀软锁）每次阻塞事件循环最长 15s×2，
+ * 保存/改稿/连写链（self-heal 每章一次）全被拖住。
+ *
+ * 语义与 git() 逐位对齐：数组形式不走 shell（免注入/免转义）、超时 kill 子进程并按
+ * 失败返回（fail-closed——调用方不能把「未完成」当成功）、ENOENT/ENOBUFS 特判同源、
+ * 输出缓冲上限同 GIT_MAX_BUFFER（超限按 ENOBUFS 失败）。超时有界（gitAsyncTimeoutMs），
+ * 绝不挂起：spawn 后立即挂起 setTimeout，超时即 SIGTERM（best-effort）并随即按失败
+ * resolve——不依赖子进程 'close' 收口（忽略 SIGTERM / 不可中断态的进程也保证有界）。
+ * opts.signal：外部取消（AbortSignal）——取消同样 kill 子进程并按「已中止」失败返回。
+ * 本函数永不 reject（错误一律 resolve ok:false）——调用方 await 不会落到未捕获异常。
+ */
+export function gitAsync(
+  args: string[],
+  cwd: string,
+  opts?: { encoding?: 'utf-8'; input?: string; signal?: AbortSignal },
+): Promise<GitResult> {
+  return new Promise<GitResult>((resolve) => {
+    const child = spawn('git', args, { cwd, stdio: ['pipe', 'pipe', 'pipe'] })
+    const stdoutParts: string[] = []
+    const stderrParts: string[] = []
+    // R66-22 同款缓冲上限：只收满上限为止（stream 继续排空，防子进程写阻塞在后挂 SIGPIPE）
+    let buffered = 0
+    let overBuffer = false
+    let settled = false
+
+    const settle = (r: GitResult): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      try {
+        opts?.signal?.removeEventListener('abort', onAbort)
+      } catch {
+        /* best-effort */
+      }
+      resolve(r)
+    }
+
+    const timer = setTimeout(() => {
+      if (settled) return
+      // 超时（P2-30 同款语义）：kill 子进程（best-effort）并**直接**按失败 settle——
+      // 不依赖 'close' 收口：进程忽略 SIGTERM / 不可中断态（D-state）等 kill 不生效
+      // 形态下也保证超时严格有界（调用方绝不被挂起）
+      child.kill('SIGTERM')
+      settle({
+        ok: false,
+        humanMsg: `git 操作超时（${args.join(' ')}）：git 进程无响应，已中止`,
+        stderr: stderrParts.join(''),
+      })
+    }, gitAsyncTimeoutMs)
+    // 子进程自身持事件循环上界，兜底定时器不拖延进程退出
+    timer.unref()
+
+    const onAbort = (): void => {
+      if (settled) return
+      child.kill('SIGTERM')
+      settle({
+        ok: false,
+        humanMsg: `git 操作已中止（${args.join(' ')}）：请求被取消`,
+        stderr: stderrParts.join(''),
+      })
+    }
+    if (opts?.signal) {
+      if (opts.signal.aborted) onAbort()
+      else opts.signal.addEventListener('abort', onAbort, { once: true })
+    }
+
+    const collect = (dst: string[], chunk: Buffer | string): void => {
+      if (overBuffer) return
+      buffered += Buffer.byteLength(chunk)
+      if (buffered > GIT_MAX_BUFFER) {
+        overBuffer = true
+        return
+      }
+      dst.push(String(chunk))
+    }
+    child.stdout.setEncoding('utf-8')
+    child.stderr.setEncoding('utf-8')
+    child.stdout.on('data', (c) => collect(stdoutParts, c))
+    child.stderr.on('data', (c) => collect(stderrParts, c))
+
+    if (opts?.input !== undefined) {
+      child.stdin.on('error', () => {
+        /* EPIPE 等：子进程提前退出时忽略（close 分支已收口失败语义） */
+      })
+      child.stdin.write(opts.input)
+    }
+    child.stdin.end()
+
+    child.on('error', (err) => {
+      if (settled) return
+      const code = (err as NodeJS.ErrnoException).code
+      settle({
+        ok: false,
+        // R77-3 同款：ENOENT（找不到 git 可执行）特判人话
+        humanMsg:
+          code === 'ENOENT'
+            ? '未检测到 Git（未安装或不在 PATH）——请安装 Git（Windows 推荐 Git for Windows）后重启应用'
+            : `git 操作失败（${args.join(' ')}）：${err.message}`,
+        stderr: err.message,
+      })
+    })
+
+    child.on('close', (code) => {
+      if (settled) return
+      const stderr = stderrParts.join('')
+      if (code === 0 && !overBuffer) {
+        settle({ ok: true, stdout: stdoutParts.join('') })
+        return
+      }
+      settle({
+        ok: false,
+        humanMsg: overBuffer
+          ? `git 输出超限（${args.join(' ')}）：仓库改动量过大，输出超出缓冲上限，请分批处理或清理仓库`
+          : `git 操作失败（${args.join(' ')}）：${humanizeGitError(args, stderr)}`,
+        stderr,
+      })
+    })
+  })
 }
 
 /** 把 git 原始报错翻成人话（#16 第 3 节，零机器味）。

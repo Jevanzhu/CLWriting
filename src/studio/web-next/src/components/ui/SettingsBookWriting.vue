@@ -9,6 +9,7 @@ import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
 import { usePrefsStore } from '../../stores/prefs'
 import { getConfig } from '../../api/books'
+import { parseNumericInput } from '../../shared/numeric-input'
 import { SAVE_CONFIG_KEY } from './settings-context'
 
 const ui = useUiStore()
@@ -139,17 +140,20 @@ function onBookVolumeSizeInput(e: Event): void {
   })
 }
 function onBookTargetWordsInput(e: Event): void {
-  const raw = Number((e.target as HTMLInputElement).value)
-  // 0 = 显式未设（清目标但保留覆盖），空/非法 = 清键回跟随
-  bookTargetWords.value = Number.isFinite(raw) && raw >= 0 ? Math.round(raw) : null
+  // R36-20（三十六轮）：接 R72-11 helper（全库数值输入唯一偏离点）——原 `Number('')===0`
+  // 穿过 `>= 0` 闸把清空输入写成 0，注释自称「空/非法 = 清键回跟随」与行为相反。
+  // 空/非法 → null → 清键回跟随全局；合法数字（含 0 = 显式未设）维持原语义。
+  const raw = parseNumericInput(e)
+  bookTargetWords.value = raw !== null && raw >= 0 ? Math.round(raw) : null
   void saveConfig((c) => {
     if (!c.book) c.book = {}
     c.book.target_words = bookTargetWords.value ?? undefined
   })
 }
 function onBookChapterTargetInput(e: Event): void {
-  const raw = Number((e.target as HTMLInputElement).value)
-  bookChapterTargetWords.value = Number.isFinite(raw) && raw >= 0 ? Math.round(raw) : null
+  // R36-20：同 onBookTargetWordsInput——空输入清键而非写 0（R72-11 helper 统一口径）
+  const raw = parseNumericInput(e)
+  bookChapterTargetWords.value = raw !== null && raw >= 0 ? Math.round(raw) : null
   void saveConfig((c) => {
     if (!c.book) c.book = {}
     c.book.chapter_target_words = bookChapterTargetWords.value ?? undefined

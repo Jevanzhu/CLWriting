@@ -118,7 +118,8 @@ export function buildReviewPacket(input: {
 
   const outDir = join(input.workDir, '三审')
 
-  // 合审：三视角合并成单个分包（宿主单次调用覆盖三视角）
+  // 合审：全部视角合并成单个分包（宿主单次调用覆盖全部视角，数量随任务书动态——
+  // 长篇 3 已有布线/短篇 5/无布线最小 2，见 buildCombinedPacket）
   const packets: ReviewLensPacket[] =
     decision.tier === 'combined'
       ? [buildCombinedPacket(tasks, input.body, input.chapter)]
@@ -157,7 +158,7 @@ function taskToPacket(task: ReviewTask, body: string, chapter: number): ReviewLe
   }
 }
 
-/** 合审档位：三视角焦点 + 账本/清单核对合并成单个分包。 */
+/** 合审档位：全部视角焦点（数量随任务书视角数动态）+ 账本/清单核对合并成单个分包。 */
 function buildCombinedPacket(tasks: ReviewTask[], body: string, chapter: number): ReviewLensPacket {
   // 长篇：账本清单恒属设定校对（continuity）；短篇：清单核对恒属设定收尾审（payoff）
   const continuity = tasks.find((t) => t.lens === 'continuity')
@@ -166,7 +167,9 @@ function buildCombinedPacket(tasks: ReviewTask[], body: string, chapter: number)
   const listChecks = payoff?.list_checks ?? []
   // 合审锚定 lens：长篇 continuity（账本核对不丢）/ 短篇 payoff（清单核对不丢）
   const anchor = payoff ?? continuity ?? tasks[0]!
-  const focus = ['合审：覆盖三视角'].concat(tasks.flatMap((t) => t.focus.map((f) => `[${t.title}] ${f}`)))
+  // R36-29（三十六轮）：焦点首条不再硬编码「覆盖三视角」——合审视角数随任务书动态
+  // （长篇 3 / 短篇 5 / 无布线最小 2），按 tasks.length 生成，文案与实际一致
+  const focus = [`合审：覆盖${tasks.length}视角`].concat(tasks.flatMap((t) => t.focus.map((f) => `[${t.title}] ${f}`)))
   return {
     lens: anchor.lens,
     title: '三审合审',
@@ -349,13 +352,13 @@ export function collectReviewIssues(input: {
     // 文件存在即视为该视角已回收（空数组 = 合法的「没问题」结论，不算缺失）
     rawIssues.push(...lensIssues)
     collectedLenses.add(expected.lens)
-    // 合审单文件覆盖三视角（长短各三，按 packet.lenses_run 标记）
+    // 合审单文件覆盖全部视角（长短篇视角数随任务书动态，按 packet.lenses_run 标记）
     if (input.packet.tier === 'combined') {
       for (const l of input.packet.lenses_run) collectedLenses.add(l)
     }
   }
 
-  // 期望视角：独立档按 lenses_run；合审档 lenses_run 已含三视角（长短各三，buildReviewPacket 决定）
+  // 期望视角：独立档按 lenses_run；合审档 lenses_run 已含全部视角（长短篇视角数随任务书动态，buildReviewPacket 决定）
   // R73-26（二十一轮·登记裁定）：合审档「单文件存在即记全部视角已回收」的最小覆盖闸
   // ——经核实**本批不可落**：生产链 submit_issues 工具 schema（src/ai/contract/review.ts，
   // B 域禁改范围）没有 lens 字段、审稿 prompt（resources/prompts/review-*.md）也不要求

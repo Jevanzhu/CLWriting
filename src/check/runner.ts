@@ -379,11 +379,16 @@ function collectPieceListChecks(list: PieceList): NonNullable<CheckReport['bypro
     })
   }
   for (const payoff of list.伏笔回收) {
+    // R36-30（三十六轮）：payoff 条目 detail 不再无条件复制 location——清单.md 伏笔回收
+    // 仅承载 伏笔/回收位置/未回收 三字段，无独立「证据指向」列；detail 缺省时回退
+    // location（渲染侧既有 c.detail 口径兜底即可），两字段不再强制同值。未回收条目
+    // location 为空，detail 显式标记状态（唯一非空信息点）。
+    const location = payoff.回收位置
     checks.push({
       type: 'payoff',
       subject: payoff.伏笔,
-      location: payoff.回收位置,
-      detail: payoff.未回收 ? '未回收' : payoff.回收位置,
+      location,
+      detail: payoff.未回收 ? '未回收' : location,
     })
   }
   return checks

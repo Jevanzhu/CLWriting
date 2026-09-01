@@ -149,7 +149,8 @@ describe('kk-P2-15：书级 prefs 错误分支', () => {
     writeFileSync(join(workDir, 'books/坏prefs/.clwriting/prefs.json'), '{oops 不是 json')
     const r = await req({ method: 'GET', path: `/api/books/${encodeURIComponent('坏prefs')}/prefs` })
     expect(r.status).toBe(200)
-    expect(r.json).toEqual({ prefs: {} })
+    // R36-24：书级 prefs 对齐全局 revision 保留键口径——损坏降级空偏好 + revision 0
+    expect(r.json).toEqual({ prefs: {}, revision: 0 })
   })
 
   it('PUT body 非法 JSON → 400 BAD_INPUT（readJson 兜底信封）', async () => {

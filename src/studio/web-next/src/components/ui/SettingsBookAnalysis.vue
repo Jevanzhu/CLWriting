@@ -356,15 +356,28 @@ function stopRagPolling(): void {
 // dd-P2：SettingsModal 用 keep-alive 包 tab——关弹窗只 deactivated 不 unmount，
 // 此前轮询挂 onUnmounted = 关窗后 1.5s interval 继续打旧书 status 直到构建结束；
 // 改 deactivate 停表 / activate 续表（回窗时刷新状态，仍构建中才续轮询）
-onDeactivated(stopRagPolling)
+// R36-21（三十六轮）：续轮询补「仍激活」复检——onActivated 的 refreshRagStatus 在途
+// 期间关窗（deactivated 先跑 stopRagPolling），.then 续拍仍会以 ragBuilding=true 新起
+// 轮询，关窗后后台持续打旧书 status。标记随 activate/deactivate/unmount 置位，
+// 续拍前复检吞掉（初值 true = 非常驻 keep-alive 挂载下组件本就处于激活态）。
+let ragActive = true
+onDeactivated(() => {
+  ragActive = false
+  stopRagPolling()
+})
 onActivated(() => {
+  ragActive = true
   const name = ws.bookName
   if (!name) return
   void refreshRagStatus(name).then(() => {
+    if (!ragActive) return // R36-21：刷新在途期间已关窗 → 不续轮询
     if (ragBuilding.value) void pollRagStatus(name)
   })
 })
-onUnmounted(stopRagPolling)
+onUnmounted(() => {
+  ragActive = false
+  stopRagPolling()
+})
 </script>
 
 <template>

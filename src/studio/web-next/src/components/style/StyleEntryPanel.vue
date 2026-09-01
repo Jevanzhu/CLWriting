@@ -47,6 +47,10 @@ async function submitAdd(): Promise<void> {
     return
   }
   if (submitting.value) return // R73-62：在途锁（双击第二笔在入口丢弃）
+  // R36-22（三十六轮）：await 前捕获书名（同域 StyleCandidateBox 复检模式）——
+  // 入库在途切书后（StyleView :key 重建，死实例闭包滞留旧书），成功 toast/表单复位
+  // 均不得落 B 书界面/改动新书 store 状态
+  const book = style.bookName
   submitting.value = true
   try {
     await style.add({
@@ -55,10 +59,12 @@ async function submitAdd(): Promise<void> {
       ...(draft.value.场景.trim() ? { 场景: draft.value.场景.trim() } : {}),
       ...(draft.value.说明.trim() ? { 说明: draft.value.说明.trim() } : {}),
     })
+    if (style.bookName !== book) return // R36-22：在途切书 → 不 toast、不复位表单
     ui.toast('已存入条目库', 'success')
     adding.value = false
     draft.value = { 类型: '手法', 场景: '', 说明: '', 正文: '' }
   } catch (e) {
+    if (style.bookName !== book) return // R36-22：在途切书 → 失败 toast 不落 B 书界面
     ui.toast(friendlyError(e), 'error')
   } finally {
     submitting.value = false // R73-62：成败都解锁（失败停留表单可重试）
@@ -78,8 +84,12 @@ async function onRemove(path: string, text: string): Promise<void> {
   if (style.bookName !== book) return
   try {
     await style.remove(path)
+    // R36-22：await 后补复检（原仅在删除前有）——删除在途切书后旧书成功 toast
+    // 不得落 B 书界面（store.remove 前检查只覆盖弹窗滞留窗，不覆盖删除请求窗）
+    if (style.bookName !== book) return
     ui.toast('已删除', 'success')
   } catch (e) {
+    if (style.bookName !== book) return
     ui.toast(friendlyError(e), 'error')
   }
 }

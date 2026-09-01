@@ -639,9 +639,9 @@ export interface RecallHit {
 /**
  * R73-12（二十一轮 A-12）：召回结果结构化出口——truncated 标记上抛。
  * 召回池超 10 万块（RAG_CHUNK_WARN_THRESHOLD）被硬截断时，旧口径仅 log.warn 留痕、
- * 前端/消费面无感。本结构把截断事实作为数据返回，供消费方在 prompt 组装等处留痕
- * （前端 UI 面不在 A 域，消费接入由对应域批次跟进——materials.ts 现有消费面走
- * 兼容包装 recall()，零改动）。
+ * 前端/消费面无感。本结构把截断事实作为数据返回，供消费方在 prompt 组装等处留痕。
+ * R36-16（三十六轮）：materials.ts 已切本结构化出口消费（ragTruncated/ragNote 透出），
+ * 兼容包装 recall() 仅服务存量测试面。
  */
 export interface RecallResult {
   hits: RecallHit[]
@@ -778,7 +778,9 @@ export async function recallDetailed(
 }
 
 /** 兼容包装（R73-12）：既有消费面（materials.ts 等）签名与返回不变；截断等结构化
- *  信息走 recallDetailed（消费面接入由对应域批次跟进，见 RecallResult 注） */
+ *  信息走 recallDetailed（R36-16（三十六轮）：materials.ts 已切 recallDetailed 消费
+ *  并透出 truncated 信号——本包装仅服务存量测试/签名兼容消费面，丢弃 meta 属有意
+ *  取舍，生产召回链路不再经此丢失截断信号） */
 export async function recall(
   bookRoot: string,
   config: RagConfig,

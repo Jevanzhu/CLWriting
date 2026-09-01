@@ -259,6 +259,11 @@ export function createOpenAIResponsesProvider(
             // 顺序相邻，队头即当前项），续片归并最近兜底键
             let idxlessSeq = 0
             const idxlessQueue: string[] = []
+            // R36-15（三十六轮）：兜底 tool id 流级单调计数——原 `call_${toolAccum.size}`
+            // 随 done 删键非单调（同流两段工具调用 map.size 可同为 1 → 重号，撞历史已有
+            // id 致下轮 tool_result 关联错配）；对齐 openai 线 fallbackToolSeq 口径，
+            // 跨 output_item.done 段不重号
+            let fallbackToolSeq = 0
             // A-5（二十九轮）：本 attempt 加密推理项计数——gen.ts 对 reasoning_item 是
             // 覆盖式收集（只留末条），多条时前 N-1 条被丢弃；流尾按计数一次性汇总留痕
             //（逐条 warn 会刷屏，丢弃必须可感知 → 汇总一条）
@@ -341,7 +346,8 @@ export function createOpenAIResponsesProvider(
                     // R33D-12（三十三轮）：done 项 call_id/id 双缺（R65-10 只兜了 delta 缺
                     // item_id 的拼装面）→ 空 callId 回灌历史成 tool_use{id:''}，下轮组装
                     // function_call_output{call_id:''} 严格网关 400。兜底序号 id 对齐另两线。
-                    acc.callId = item.call_id ?? (itemId || `call_${toolAccum.size}`)
+                    // R36-15（三十六轮）：序号流级单调（原 map.size 非单调，同流重号）
+                    acc.callId = item.call_id ?? (itemId || `call_${fallbackToolSeq++}`)
                     acc.name = item.name
                     acc.args = acc.args || item.arguments || ''
                     toolAccum.delete(accKey)

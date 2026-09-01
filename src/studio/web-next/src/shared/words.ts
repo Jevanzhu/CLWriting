@@ -21,12 +21,17 @@ export function stripFrontmatter(content: string): string {
 /**
  * 合并 fm 头与新 body（stripFrontmatter 的逆）：保留 full 原有 fm，拼接 body。
  * 编辑区剥离 fm 后，用户改 body → patch 时用它拼回全文（fm 不动）。
- * 无 fm 或 fm 未闭合 → 返回 body；body 去前导空行（fm/body 分隔空行），本体原样保留（含末尾换行，往返一致）。
+ * 无 fm 或 fm 未闭合 → 返回 body；本体原样保留（含末尾换行，往返一致）。
+ * stripLeading：默认 true（剥 body 前导空行——fm/body 分隔空行不重复，供加载/粘贴/
+ * 对账等「明确来源」写入口径）；编辑路径必须传 { stripLeading: false } 保前导（R36-6：
+ * 编辑器展示的 body 已剥分隔空行，其前导空行全部是用户有意输入，剥了即造成首次后续
+ * 键入时前导被拽回）。
  */
-export function mergeFm(full: string, body: string): string {
+export function mergeFm(full: string, body: string, opts?: { stripLeading?: boolean }): string {
   const split = splitFrontMatter(full)
   if (!split) return body
-  return `---\n${split.fmRaw}\n---\n\n${body.replace(/^\n+/, '')}`
+  const part = opts?.stripLeading === false ? body : body.replace(/^\n+/, '')
+  return `---\n${split.fmRaw}\n---\n\n${part}`
 }
 
 /**

@@ -28,7 +28,7 @@ const tsRecommendedRules = tseslint.configs.recommended.reduce(
 
 export default [
   {
-    // 生成产物与参考资料不入口：coverage/test-results/playwright-report 为工具输出，
+    // 生成产物与参考资料不入口：coverage/test-results/playwright-report/tmp 为工具输出，
     // dist 为构建产物，Dev/ 为第三方参考项目（只读语料）。
     // R32-11（三十二轮）：web-next 不再整体忽略——TS 面接入 lint 门（原「子包独立
     // 自治」口径收窄为「.vue SFC 仍由 vue-tsc 管」）；工具输出目录保留排除。
@@ -38,6 +38,7 @@ export default [
       'test-results/**',
       'playwright-report/**',
       'Dev/**',
+      'tmp/**', // R36-27（三十六轮）：本地脚本临时产物（gates-*.sh/log 等），防未来 .js 入 lint
       'src/studio/web-next/node_modules/**',
       'src/studio/web-next/test-results/**',
       'src/studio/web-next/dist/**',

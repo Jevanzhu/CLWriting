@@ -20,7 +20,7 @@ import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { saveDraft, buildDraftPrompt } from '../../../process/draft-pipeline.js'
 import { isSelfHealRunning } from '../../../ai/orchestrate/self-heal.js'
 import { recordAuthorSignal } from '../../../ai/author-signal.js'
-import { recordAiVersion } from '../../../git/ai-track.js'
+import { recordAiVersionAsync } from '../../../git/ai-track.js'
 import { log } from '../../../log/index.js'
 
 // re-export（P1-8 下沉兼容：既有 import 方零感知）
@@ -62,7 +62,10 @@ export function registerDraftRoutes(ctx: DraftCtx): void {
       saved = await saveDraft(bookRoot, chapter, content, { userDataPath: ctx.userDataPath })
       // 文风改稿轨迹（P1-ARCH-1：从 saveDraft 内部提取到调用方，消除 process→ai 向上依赖）
       await recordAuthorSignal(bookRoot, saved.docId, content, 'draft-save', ctx.userDataPath ?? undefined)
-      recordAiVersion(bookRoot, saved.docId, content)
+      // R36-5（三十六轮）：recordAiVersion 迁异步孪生——原同步 spawnSync git 两连
+      // （hash-object+update-ref）在 git 无响应时拖住事件循环最长 15s×2（R32-5 注释
+      // 宣称异步化的同 try 块漏网点现收口）；失败 resolve null 不阻断落盘
+      await recordAiVersionAsync(bookRoot, saved.docId, content)
     } catch (e) {
       log.error('api', `落盘失败（章 ${chapter}）`, e)
       return replyError(res, 500, 'IO_ERROR', '落盘失败')

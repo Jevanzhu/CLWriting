@@ -19,7 +19,7 @@
 
 import { existsSync, readdirSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
-import { git } from './exec.js'
+import { git, gitAsync } from './exec.js'
 import { ulid } from '../document/stable-id.js'
 import {
   writeVersion,
@@ -134,6 +134,34 @@ export function recordAiVersion(bookRoot: string, docId: string, content: string
   if (!sha) return null
   const ref = `${REF_ROOT}/${encodeRefSegment(docId)}/${ulid()}`
   const updR = git(['update-ref', ref, sha], bookRoot)
+  return updR.ok ? ref : null
+}
+
+/**
+ * recordAiVersion 的异步孪生（R36-5，三十六轮）——git 路径改用 gitAsync
+ * （spawn + 有界超时，事件循环不冻结）：同步版两次 spawnSync 在 git 无响应（网盘
+ * 挂载 .git/杀软锁）时每次阻塞调用线程最长 15s×2，而本函数挂在服务事件循环的
+ * 保存/改稿/连写链（api/draft.ts、api/rewrite.ts、self-heal.ts 每章一次）。
+ * 版本档案路径（无 git 书库）无锁无子进程，与同步版天然同源（写版本文件瞬时）。
+ * 语义与同步版逐位对齐：失败一律 resolve null（永不 reject——await 不落未捕获
+ * 异常），轨迹是旁路证据，绝不阻断落盘主流程（self-heal 连写失败降级语义不变）。
+ * @returns ref 全名 / 版本 id；失败 → null（不阻断调用方）
+ */
+export async function recordAiVersionAsync(bookRoot: string, docId: string, content: string): Promise<string | null> {
+  if (!content.trim()) return null
+  if (!hasGitBackend(bookRoot)) {
+    try {
+      return writeVersion(versionsDir(bookRoot), docId, content, { origin: 'ai' })
+    } catch {
+      return null
+    }
+  }
+  const hashR = await gitAsync(['hash-object', '-w', '--stdin'], bookRoot, { input: content })
+  if (!hashR.ok) return null
+  const sha = hashR.stdout.trim()
+  if (!sha) return null
+  const ref = `${REF_ROOT}/${encodeRefSegment(docId)}/${ulid()}`
+  const updR = await gitAsync(['update-ref', ref, sha], bookRoot)
   return updR.ok ? ref : null
 }
 

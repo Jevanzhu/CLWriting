@@ -24,7 +24,7 @@ import { REWRITE_SPEC } from '../../../ai/tasks/specs.js'
 import { readDraft } from '../../../format/draft.js'
 import { isSelfHealRunning } from '../../../ai/orchestrate/self-heal.js'
 import { isSpawnRunning } from '../../../ai/orchestrate/spawn-registry.js'
-import { recordAiVersion } from '../../../git/ai-track.js'
+import { recordAiVersionAsync } from '../../../git/ai-track.js'
 import {
   buildRewritePrompt,
   buildAppendPrompt,
@@ -160,7 +160,10 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
     const reqBody = await readJson(req)
     const content = typeof reqBody['content'] === 'string' ? (reqBody['content'] as string) : ''
     if (!content.trim()) return replyError(res, 400, 'BAD_INPUT', 'content 为空')
-    const ref = recordAiVersion(r.bookRoot, params['docId'] ?? '', content)
+    // R36-5（三十六轮）：recordAiVersion 迁异步孪生——同步 spawnSync git 在请求
+    // 事件循环上可冻 15s×2（git 无响应）；异步版失败 resolve null，语义不变（轨迹
+    // 是旁路证据，失败静默，不阻断「接受改写」）
+    const ref = await recordAiVersionAsync(r.bookRoot, params['docId'] ?? '', content)
     reply(res, 200, { ok: true, recorded: ref !== null })
   },
   })

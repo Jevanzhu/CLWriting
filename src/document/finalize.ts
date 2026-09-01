@@ -16,8 +16,11 @@
  *
  * R30-6（三十轮）：锁等待异步化。finalizeRevisionAsync 为异步孪生（布线预取锁与清单
  * 锁等待用 setTimeout 轮询原语，事件循环不阻塞，供服务进程调用链用）；finalizeRevision
- * 同步孪生保留原签名与同步等待（Atomics 微睡）——存量调用方（studio API / 批量定稿）
- * 契约不变，两孪生共享同一持锁核心与锁序，语义逐位对齐。
+ * 同步孪生保留原签名与同步等待（Atomics 微睡）——R36-11 复核：生产调用方已全部迁异步
+ * 孪生（studio API 单条/批量定稿 documents.ts 均走 finalizeRevisionAsync），同步版现
+ * 生产零调用，仅测试直调（finalize/r30-lock-order/finalize-lead-gate/r69-outline/
+ * process-summary 五族）与无异步上下文的 CLI/脚本侧预留；两孪生共享同一持锁核心与
+ * 锁序，语义逐位对齐。
  */
 import { join } from 'node:path'
 import { existsSync, readFileSync } from 'node:fs'
@@ -223,8 +226,10 @@ function finalizeLockedCore(pre: FinalizePrepared): FinalizeOutcome {
 /**
  * 定稿确认：写 pinned 定稿版本 + manifest 更新定稿基线 → 回 final。
  *
- * 同步孪生（签名与既有调用方契约不变）：锁等待为同步原语（Atomics 微睡）。
- * 服务进程调用链请改用 finalizeRevisionAsync（R30-6，等待期不阻塞事件循环）。
+ * 同步孪生（签名不变）：锁等待为同步原语（Atomics 微睡）。R36-11 复核——生产调用方
+ * 已全部迁至 finalizeRevisionAsync（studio API 单条/批量定稿），本版生产零调用，
+ * 仅测试直调与无异步上下文的 CLI/脚本侧预留；服务进程一律走 finalizeRevisionAsync
+ * （R30-6，等待期不阻塞事件循环）。
  *
  * @param bookRoot 书仓库根
  * @param docId 目标文档 id

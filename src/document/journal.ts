@@ -12,7 +12,7 @@
  * 依赖），已结算行整段丢弃；原子替换，压缩窗口崩溃则原文件不动，无净损失。
  */
 import { appendFileSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, statSync } from 'node:fs'
-import { tryAcquireCrossProcessLock, acquireCrossProcessLockWithTimeout, acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
+import { tryAcquireCrossProcessLock, acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 import { log } from '../log/index.js'
 import { dirname } from 'node:path'
 import { ulid } from './stable-id.js'
@@ -129,39 +129,6 @@ export async function appendSettled(
   maybeCompactJournal(journalPath)
 }
 
-/** appendAborted 的同步孪生——同 appendSettledSync 语境限制（R33D-5）。
- *  R35-5 后生产零调用（最后调用方 healMovePending 已迁异步孪生）：仅保留给确无
- *  异步上下文的 CLI/脚本侧，服务进程一律走 async 版。 */
-export function appendAbortedSync(journalPath: string, opId: string, reason: string): void {
-  const entry: JournalAborted = {
-    opId,
-    ts: new Date().toISOString(),
-    status: 'aborted',
-    reason,
-  }
-  appendLine(journalPath, JSON.stringify(entry))
-  maybeCompactJournal(journalPath)
-}
-
-/** appendSettled 的同步孪生——同步 Atomics.wait 锁等待原语，仅限真无异步上下文的
- *  CLI/脚本侧使用；服务进程（承载 SSE/全部接口）一律走 async 版（R33D-5）。
- *  R35-5：原唯一生产调用方 state.ts healMovePending 已迁异步孪生（其 HTTP 可达面
- *  的锁等待曾可冻结服务事件循环），本函数现生产零调用。 */
-export function appendSettledSync(
-  journalPath: string,
-  opId: string,
-  newRevision: `sha256:${string}`,
-): void {
-  const entry: JournalSettled = {
-    opId,
-    ts: new Date().toISOString(),
-    status: 'settled',
-    newRevision,
-  }
-  appendLine(journalPath, JSON.stringify(entry))
-  maybeCompactJournal(journalPath)
-}
-
 /** 追加 aborted 行，标记某 opId 保存失败（不落盘）。 */
 export async function appendAborted(journalPath: string, opId: string, reason: string): Promise<void> {
   const entry: JournalAborted = {
@@ -221,34 +188,13 @@ export function findUnsettled(journalPath: string): JournalAnyPending[] {
   return [...pending.values()]
 }
 
-/** 追加一行 jsonl + fsync（防丢字：确保崩溃前已落盘）。
- *  J7（2026-08-23）：与 compact 共享 `${filePath}.lock` 跨进程锁——append 是
- *  崩溃恢复唯一依据，锁超时降级裸写（append 本身近似原子，丢数据比等锁更糟），
- *  log.warn 留痕。 */
-function appendLine(filePath: string, line: string, degradedLine?: string): void {
-  mkdirSync(dirname(filePath), { recursive: true })
-  const release = acquireCrossProcessLockWithTimeout(`${filePath}.lock`, journalLockTimeoutMs)
-  if (release) {
-    try {
-      appendFileSync(filePath, line + '\n', 'utf-8')
-      fsyncFile(filePath)
-    } finally {
-      release()
-    }
-    return
-  }
-  log.warn('journal', `跨进程锁超时，降级裸写（${filePath}）——与 compact 的互斥窗口回到守卫口径`)
-  // R31-21（三十一轮）：调用方提供精简降级行（如 pending 剥离全文快照）时降级写精简版，
-  // 防大快照行超原子 append 窗与另一进程同拍降级行交错损坏。
-  appendFileSync(filePath, (degradedLine ?? line) + '\n', 'utf-8')
-  fsyncFile(filePath)
-}
-
 /**
  * R33D-5（三十三轮）：appendLine 的异步孪生——executeSave/saveDraft 服务进程保存链
  * 每笔 2-3 次 journal 追加，此前走同步 Atomics.wait 锁等待（双进程争用冻结事件循环
  * 最长 2s）。降级语义原样平移（锁超时 → 精简降级行裸写）；R35-5 后服务进程全部
- * journal 写路径（含 healMovePending 自愈回写）均走本异步版。
+ * journal 写路径（含 healMovePending 自愈回写）均走本异步版。原同步 appendLine 随
+ * appendSettledSync/appendAbortedSync 一并删除（R36-11：生产零调用死码，自 R35-5
+ * 起无任何调用方）。
  */
 async function appendLineAsync(filePath: string, line: string, degradedLine?: string): Promise<void> {
   mkdirSync(dirname(filePath), { recursive: true })

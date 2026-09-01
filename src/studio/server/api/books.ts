@@ -38,7 +38,7 @@ import { readBookConfig, setTopSectionKey } from '../../../format/yaml.js'
 import { clearChapterDirCacheForBook } from '../../../format/chapters.js'
 import { stringifyValue } from '../../../format/frontmatter.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
-import { doInit } from '../../../install/init.js'
+import { doInitAsync } from '../../../install/init.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { computeBookSummary, invalidateBookSummary } from './progress.js'
 import { migrateBookSession, bookHash } from '../../../events/store.js'
@@ -57,6 +57,12 @@ import { forgetStateCache } from './state.js'
 import { forgetTreeIssuesCache } from './check.js'
 // R35-7（三十五轮）：全书搜索 TTL 结果缓存同挂点收编
 import { forgetSearchCache } from './search.js'
+// R36-12（三十六轮）：设定一致规则 TTL 缓存同挂点收编（AI 热路径设定目录读取缓存）
+import { forgetSettingCache } from '../../../ai/rules/setting-rule.js'
+// R36-7（三十六轮）：analysis-overview / version-stats TTL 缓存同族收编——批 C 已
+// 挂同文件写侧失效，删/改名生命周期清理由主评审补接本家族（防同名重建书读陈聚合）
+import { forgetAnalysisOverviewCache } from './analysis.js'
+import { forgetVersionStatsCache } from './snapshots.js'
 import { log } from '../../../log/index.js'
 
 /** R67-15：删书/改名共用的书键缓存清理（书键 TTL 结果缓存族——内存卫生，防删书后
@@ -71,6 +77,11 @@ function forgetBookKeyedCaches(bookRoot: string): void {
   forgetTreeIssuesCache(bookRoot)
   // R35-7：全书搜索缓存同族清理
   forgetSearchCache(bookRoot)
+  // R36-12：设定一致规则设定目录 TTL 缓存同族清理（删/改名后同名重建书不读陈设定）
+  forgetSettingCache(bookRoot)
+  // R36-7：analysis-overview / version-stats 书键聚合缓存同族清理（主评审补接）
+  forgetAnalysisOverviewCache(bookRoot)
+  forgetVersionStatsCache(bookRoot)
 }
 
 interface BookCtx {
@@ -234,7 +245,11 @@ export function registerBookRoutes(ctx: BookCtx): void {
         : undefined
     // 简介（可选，落 简介.md）
     const brief = typeof body.brief === 'string' ? body.brief.trim() : undefined
-    const result = doInit({
+    // R36-9/R36-26（三十六轮）：建书迁 doInitAsync——doInit 经 appendBook 的同步
+    // books.lock（Atomics.wait 最坏 5s）残留在承载 SSE/全部接口的请求事件循环上
+    // （原 install/books.ts「余面均不在请求窗口」登记失实，GUI 建书正是窗口内漏网点）；
+    // 异步孪生经 appendBookAsync（setTimeout 轮询），失败语义不变（reason 人话）
+    const result = await doInitAsync({
       workDir: ctx.workDir,
       name,
       genre: genre || undefined,

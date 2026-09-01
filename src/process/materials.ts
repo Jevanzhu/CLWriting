@@ -24,7 +24,7 @@ import { selfHealRecentChapterSummaries, selfHealVolumeSummary } from './summary
 import { readRagConfig } from '../rag/config.js'
 import { resolveRag } from '../rag/resolve.js'
 import { loadProviders, resolveTier } from '../ai/provider/index.js'
-import { recall, type RecallHit } from '../rag/index.js'
+import { recallDetailed, RAG_CHUNK_WARN_THRESHOLD, type RecallHit, type RecallResult } from '../rag/index.js'
 import { log } from '../log/index.js'
 import { embed } from '../rag/embed.js'
 import { findWorkDir } from '../install/books.js'
@@ -90,6 +90,9 @@ export interface PrepareMaterialsOptions {
   sampleScene?: string | string[]
   /** 召回 topK（默认 5） */
   topK?: number
+  /** R36-16（三十六轮）：召回池告警/硬截断阈值（测试注入用；缺省 RAG_CHUNK_WARN_THRESHOLD）——
+   *  与 recallDetailed 同参，截断事实经 ragTruncated/ragNote 透出 */
+  warnThreshold?: number
   /** R76-5（二十四轮 A 域）：编排级中断信号（Z-P1-1 同款）——内部补漏 LLM 调用
    *  （selfHealRecentChapterSummaries/selfHealVolumeSummary）透传收口，中断即时生效。 */
   signal?: AbortSignal
@@ -104,6 +107,9 @@ export interface PrepareMaterialsResult extends PrepareResult {
   ragHitCount: number
   /** 降级原因（召回失败/未配 key 等留痕；无降级则空） */
   ragNote?: string
+  /** R36-16（三十六轮）：本轮召回池超上限被硬截断（recall 兼容包装此前丢弃 truncated
+   *  信号，消费面无感——接线后透出，供上层留痕/决策；truncated=false 时缺省） */
+  ragTruncated?: boolean
   /** 文风留痕（G3）：声明了场景却查无样章时提示去 learn 补；无声明/有样章则空 */
   styleNote?: string
   /** C1（批 2）：自愈补漏实际生成/重生成的章摘要（相对书根路径；空 = 无补漏） */
@@ -204,15 +210,34 @@ export async function prepareMaterials(
   // 召回（失败/空命中 → 降级，不崩）。embedFn 可注入桩（测试），默认调真实 embed。
   // candidate_depth 从书级 ragConfig 显式透传（此前召回点重造字面量漏带该键，
   // book.yaml 配了 rag.candidate_depth 恒不生效——缺省 20 静默兜底）；
-  // embed_timeout_ms 同款透传（R62-27，缺省回落 embed.ts 内置 30s）
-  let hits: RecallHit[] = []
+  // embed_timeout_ms 同款透传（R62-27，缺省回落 embed.ts 内置 30s）。
+  // R36-16（三十六轮）：消费面从兼容包装 recall() 切到结构化出口 recallDetailed——
+  // 原包装把 truncated/totalBlocks 丢弃（截断仅 log.warn 留痕，消费面无感），
+  // 接线后截断事实经 ragTruncated + ragNote 透出（目标场景 ~3.5 万块未触界，
+  // warnThreshold 仅测试注入压低触发）
+  const ragWarnThreshold = opts.warnThreshold ?? RAG_CHUNK_WARN_THRESHOLD
+  let rec: RecallResult | null = null
   let ragNote: string | undefined
   try {
-    hits = await recall(bookRoot, { enabled: true, endpoint: resolved.endpoint, model: resolved.model, candidate_depth: ragConfig.candidate_depth, embed_timeout_ms: ragConfig.embed_timeout_ms }, resolved.apiKey, query, opts.topK ?? 5, opts.embedFn ?? embed)
+    rec = await recallDetailed(
+      bookRoot,
+      { enabled: true, endpoint: resolved.endpoint, model: resolved.model, candidate_depth: ragConfig.candidate_depth, embed_timeout_ms: ragConfig.embed_timeout_ms },
+      resolved.apiKey,
+      query,
+      opts.topK ?? 5,
+      opts.embedFn ?? embed,
+      ragWarnThreshold,
+    )
   } catch {
-    hits = []
+    rec = null
     ragNote = 'RAG 召回异常（降级回落精准读取）'
   }
+  const hits: RecallHit[] = rec?.hits ?? []
+  // R36-16：截断信号透出——recallDetailed 硬截断（池超上限保读出序前缀）时留痕
+  const ragTruncated = rec?.truncated ?? false
+  const truncNote = ragTruncated
+    ? `RAG 召回池超上限被硬截断（${rec!.totalBlocks} 块仅取前 ${ragWarnThreshold} 块参与召回，topK 可能不满额）`
+    : undefined
 
   if (hits.length === 0) {
     // 低-1（第十轮）：writingChapter 与另两处调用点对齐——无命中降级也走 L-P3
@@ -223,7 +248,8 @@ export async function prepareMaterials(
       ragUsed: false,
       ragHitCount: 0,
       summaryGenerated,
-      ragNote: ragNote ?? 'RAG 召回无命中（降级回落精准读取）',
+      ...(ragTruncated ? { ragTruncated } : {}),
+      ragNote: ragNote ?? truncNote ?? 'RAG 召回无命中（降级回落精准读取）',
       ...styleNoteOf(declaredScenes, base),
     }
   }
@@ -236,6 +262,8 @@ export async function prepareMaterials(
     ragUsed: true,
     ragHitCount: hits.length,
     summaryGenerated,
+    ...(ragTruncated ? { ragTruncated } : {}),
+    ...(truncNote ? { ragNote: truncNote } : {}),
     ...styleNoteOf(declaredScenes, base),
   }
 }

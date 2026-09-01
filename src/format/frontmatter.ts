@@ -424,7 +424,11 @@ export interface ParsedRealmSystem {
 
 export function parseRealmSystems(fmRaw: string): ParsedRealmSystem[] {
   const systems: ParsedRealmSystem[] = []
-  const lines = fmRaw.split('\n')
+  // R36-3（三十六轮）：CRLF 行尾归一（与 leads.ts parseHistory R36-1 同口径）——
+  // 名称/序列两处正则对原始行 `$` 锚定匹配且无 m 标志，`\r` 前不认行尾 → CRLF 境界
+  // 体系段整体解析为空（成长线境界跳跃/回退红闸失效 + settings-context 注入失明）。
+  // 只剥行尾单个 `\r`，不动内容侧空格。
+  const lines = fmRaw.split('\n').map((l) => (l.endsWith('\r') ? l.slice(0, -1) : l))
   let current: ParsedRealmSystem | null = null
   let inRealms = false
 

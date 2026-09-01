@@ -151,9 +151,12 @@ export function writeBooks(workDir: string, books: BookEntry[]): void {
  *  异步化级联不成比例，争用本身是毫秒级文件 IO（Atomics.wait 最坏停 5s 仅双进程
  *  争写同一 books.jsonl 窗口），与 journal/manifest 已登记口径同族。
  *  残留清偿批（三十四轮）登记收窄：服务事件循环面**归零**——端点内嵌 RMW（改名流
- *  与删书 removeBookEntryAsync）全走 tryBooksLockAsync；同步版余面 = CLI init
- *  （appendBook）/ 启动段 pre-listen（repairBooks，见 server/index.ts 登记注）/
- *  测试，均不在请求处理窗口内。 */
+ *  与删书 removeBookEntryAsync）全走 tryBooksLockAsync；
+ *  R36-9/R36-26（三十六轮）：建书面收口——GUI 建书端点（POST /api/books →
+ *  doInitAsync）与 CLI 建书（appendBookAsync）均走异步孪生，原「同步版余面 = CLI
+ *  init（appendBook）…均不在请求处理窗口内」登记失实（GUI 建书正是请求窗口内
+ *  消费 appendBook 的漏网点）；同步版余面 = 启动段 pre-listen（repairBooks，见
+ *  server/index.ts 登记注）/ 测试，均不在请求处理窗口内。 */
 export const BOOKS_LOCK_TIMEOUT_MS = 5_000
 
 /** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改。 */
@@ -182,9 +185,10 @@ export function tryBooksLock(workDir: string): (() => void) | null {
 
 /** R34D-19（三十四轮）：tryBooksLock 的异步孪生——锁等待走 acquireCrossProcessLockAsync
  *  （setTimeout 轮询，事件循环不阻塞），锁文件/超时/降级语义与同步版逐位同源。
- *  服务进程事件循环上的**端点内嵌 RMW 面**（books.ts 改名端点登记段）专用；
- *  mutator 族（append/remove/repair/rename 26 处调用跨 CLI/桌面/测试三面）维持
- *  同步版不动（上方登记口径）。 */
+ *  服务进程事件循环上的**端点内嵌 RMW 面**专用：改名端点登记段（books.ts）、
+ *  删书 removeBookEntryAsync，以及 R36-9/R36-26 收口的建书面（appendBookAsync /
+ *  doInitAsync，GUI 端点与 CLI 建书共用）；mutator 族余下同步版（remove/repair/
+ *  rename 等 CLI/桌面/测试面）维持不动（上方登记口径）。 */
 export async function tryBooksLockAsync(workDir: string): Promise<(() => void) | null> {
   mkdirSync(join(workDir, CLWRITING_DIR), { recursive: true })
   return acquireCrossProcessLockAsync(join(workDir, CLWRITING_DIR, 'books.lock'), booksLockTimeoutMs)
@@ -196,26 +200,57 @@ export function appendBook(
   entry: BookEntry,
 ): { ok: true } | { ok: false; reason: string } {
   // R63-2：读改写整段进跨进程锁——CLI 与桌面并发建书不交错覆盖丢登记
+  // R36-9/R36-26：GUI 建书端点与 CLI 建书统一走下方异步孪生 appendBookAsync
+  //（本同步版保留供 CLI 残余/测试合法同步面，R32-18 窄面登记口径）
   const release = tryBooksLock(workDir)
   if (!release) {
     return { ok: false, reason: '书库登记锁获取超时（另一进程正在改写 books.jsonl），本轮不建书——请稍后重试' }
   }
   try {
-    // DA-3（第七轮）：读失败（null）拒绝重写——降级空表会让 writeBooks 只写进新书一行，
-    // 其余登记全被清掉（repairBooks 扫盘可重建兜底，但期间书架丢书）
-    const books = readBooksStrict(workDir)
-    if (books === null) {
-      return { ok: false, reason: 'books.jsonl 读取失败（权限或磁盘故障），已拒绝改写以防清空书库登记——请修复后重试' }
-    }
-    if (books.some((b) => b.name === entry.name)) {
-      return { ok: false, reason: `已有一本叫「${entry.name}」的书，换个名字或先删掉旧的` }
-    }
-    books.push(entry)
-    writeBooks(workDir, books)
-    return { ok: true }
+    return appendBookLocked(workDir, entry)
   } finally {
     release()
   }
+}
+
+/**
+ * appendBook 的异步孪生（R36-9/R36-26，三十六轮）——建书锁等待走 tryBooksLockAsync
+ * （acquireCrossProcessLockAsync：setTimeout 轮询，事件循环不阻塞）。同步版
+ * tryBooksLock 的 Atomics.wait 在双进程争写窗口最坏停 5s；GUI 建书端点（/api/books
+ * POST → doInitAsync）承载 SSE/全部接口，此前经 doInit → appendBook 在请求事件
+ * 循环上同步睡（R36-26 指出的 CLI 建书同根漏网：install/books.ts 注释登记「余面
+ * 均不在请求窗口」与 GUI 建书事实矛盾）。锁文件/超时档/超时降级/DA-3 读失败拒
+ * 重写语义与同步版逐位对齐。
+ */
+export async function appendBookAsync(
+  workDir: string,
+  entry: BookEntry,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const release = await tryBooksLockAsync(workDir)
+  if (!release) {
+    return { ok: false, reason: '书库登记锁获取超时（另一进程正在改写 books.jsonl），本轮不建书——请稍后重试' }
+  }
+  try {
+    return appendBookLocked(workDir, entry)
+  } finally {
+    release()
+  }
+}
+
+/** 持锁后的追加主体（R63-2 拆出——同步/异步获取者共用，结果语义单源）。 */
+function appendBookLocked(workDir: string, entry: BookEntry): { ok: true } | { ok: false; reason: string } {
+  // DA-3（第七轮）：读失败（null）拒绝重写——降级空表会让 writeBooks 只写进新书一行，
+  // 其余登记全被清掉（repairBooks 扫盘可重建兜底，但期间书架丢书）
+  const books = readBooksStrict(workDir)
+  if (books === null) {
+    return { ok: false, reason: 'books.jsonl 读取失败（权限或磁盘故障），已拒绝改写以防清空书库登记——请修复后重试' }
+  }
+  if (books.some((b) => b.name === entry.name)) {
+    return { ok: false, reason: `已有一本叫「${entry.name}」的书，换个名字或先删掉旧的` }
+  }
+  books.push(entry)
+  writeBooks(workDir, books)
+  return { ok: true }
 }
 
 /**

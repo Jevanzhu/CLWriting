@@ -164,7 +164,8 @@ export function writeAnalysis(
 /** R34D-19（三十四轮）：writeAnalysis 的异步孪生——锁等待走 acquireCrossProcessLockAsync
  *  （setTimeout 轮询，事件循环不阻塞），服务进程调用链（review/analysis 端点）专用；
  *  超时降级裸写 + warn 留痕口径与同步版逐位同源。RMW 本体抽 writeAnalysisLocked 共用
- *  （防两版漂移）。同步版保留供测试等合法同步面。 */
+ *  （防两版漂移）。同步版 writeAnalysis 保留——生产零调用（review/analysis 均已切异步
+ *  孪生，R36-11 复核），仅测试直调与无异步上下文的 CLI/脚本侧预留。 */
 export async function writeAnalysisAsync(
   bookRoot: string,
   docId: string,
@@ -222,6 +223,23 @@ function writeAnalysisLocked(fp: string, bookRoot: string, docId: string, kind: 
     }
 }
 
+/** R36-4（三十六轮）：withAnalysisLock 的异步孪生——锁等待走 acquireCrossProcessLockAsync
+ *  （setTimeout 轮询，事件循环不阻塞），服务进程调用链（analyze-style 全书信封落盘）专用；
+ *  超时降级裸写 + warn 留痕口径与同步版逐位同源。同步版 withAnalysisLock 保留——随
+ *  writeAnalysis（生产零调用）仅测试直调使用。 */
+async function withAnalysisLockAsync<T>(filePath: string, fn: () => T): Promise<T> {
+  const release = await acquireCrossProcessLockAsync(`${filePath}.lock`, ANALYSIS_LOCK_TIMEOUT_MS)
+  if (!release) {
+    log.warn('analysis', `分析锁超时，降级裸写（${filePath}）——并发合并写窗口回到无锁口径`)
+    return fn()
+  }
+  try {
+    return fn()
+  } finally {
+    release()
+  }
+}
+
 /** 读全书级某 kind 信封（项目/分析/__book__.json；无文件/无 kind/损坏 → null）。 */
 export function readBookAnalysis(bookRoot: string, kind: AnalysisKind): Envelope | null {
   const fp = analysisBookPath(bookRoot)
@@ -235,14 +253,19 @@ export function readBookAnalysis(bookRoot: string, kind: AnalysisKind): Envelope
   }
 }
 
-/** 写全书级某 kind 信封（合并写：其他 kind 保留；B-15：同款跨进程短锁）。 */
-export function writeBookAnalysis(
+/** R36-4（三十六轮）：写全书级某 kind 信封（合并写：其他 kind 保留；B-15 同款跨进程
+ *  短锁）的异步孪生——锁等待走 acquireCrossProcessLockAsync（setTimeout 轮询，事件循环
+ *  不阻塞）。原同步版 writeBookAnalysis 的 Atomics.wait ≤5s 曾冻结服务事件循环（HTTP
+ *  热路径唯一调用点 analyze-style 落盘，R36-4 迁移本版）；同步版已无任何调用方
+ *  （R36-11 复核 src/scripts/test 全零）→ 删除，不留双版漂移面。超时降级裸写 + warn
+ *  留痕口径与 writeAnalysisAsync 逐位同源。 */
+export async function writeBookAnalysisAsync(
   bookRoot: string,
   kind: AnalysisKind,
   envelope: Envelope,
-): void {
+): Promise<void> {
   const fp = analysisBookPath(bookRoot)
-  withAnalysisLock(fp, () => {
+  await withAnalysisLockAsync(fp, () => {
     let raw: Record<string, unknown> = {}
     if (existsSync(fp)) {
       try {

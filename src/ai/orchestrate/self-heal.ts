@@ -42,7 +42,7 @@ import { resolveModelPricing, computeCallCost } from '../pricing.js'
 import { collectRuleViolations } from '../rules/index.js'
 import { recordRuleHits } from '../rule-hits.js'
 import { recordAuthorSignal } from '../author-signal.js'
-import { recordAiVersion } from '../../git/ai-track.js'
+import { recordAiVersionAsync } from '../../git/ai-track.js'
 import { writeBatchPause, clearBatchPause } from '../../state/batch-pause.js'
 import { log } from '../../log/index.js'
 
@@ -493,7 +493,10 @@ function mkTerminal(opts: SelfHealOpts, ctx: ChapterCtx, loop: HealLoop): Chapte
   const persistFinal = async () => {
     const final = await ctx.save(ctx.bookRoot, chapter, loop.current, { snapshotOrigin: 'self-heal' })
     await recordAuthorSignal(ctx.bookRoot, final.docId, loop.current, 'self-heal', opts.userDataPath ?? undefined)
-    recordAiVersion(ctx.bookRoot, final.docId, loop.current)
+    // R36-5（三十六轮）：recordAiVersion 迁异步孪生——连写链每章一次，原同步
+    // spawnSync git 在 git 无响应时逐章冻 15s×2；异步版失败 resolve null，
+    // 既有失败降级语义（记日志/静默按现状）逐位不变，不阻断终稿落盘
+    await recordAiVersionAsync(ctx.bookRoot, final.docId, loop.current)
     return final
   }
   return { persistFinal, writeTodos, writeGoal }

@@ -11,7 +11,7 @@
  * 规则层只做确定性字面匹配（不调 AI）——引号内 2-4 字中文片段不在已知名称
  * 集合或名册全文中即报黄。语义判断（别名/化名/代称）留给审稿 AI。
  */
-import { readdirSync, existsSync, readFileSync } from 'node:fs'
+import { readdirSync, existsSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { readFile, parseFlat, splitFrontMatter } from '../../format/frontmatter.js'
 import type { WritingRule, RuleViolation } from './types.js'
@@ -22,6 +22,86 @@ const SETTING_DIR = '设定'
 const ROLE_DIR = join(SETTING_DIR, '角色')
 const ITEM_DIR = join(SETTING_DIR, '物品')
 const ROSTER_FILE = join(SETTING_DIR, '名册.md')
+
+// ── R36-12（三十六轮）：设定目录读取 TTL 缓存 ─────────────────────────────
+// setting-rule 挂在 AI 热路径（self-heal/spawn-write/rewrite 的 toPrompt/check 每章
+// 反复调用），此前每次全量 readdirSync + readFileSync 读设定目录（角色卡/物品卡逐
+// 文件 parse front matter）。手法对齐 R35-7 search 缓存（书键 Map + TTL + 目录 mtime
+// 结构探针 + 测试注入口/计数观察口）：探针让新增/删除/改名等目录结构变化即时失效；
+// 名册.md 内容改写不触碰目录 mtime，单独探针（一次 stat）让名册更新即时失效；
+// TTL（缺省 5s）只兜「同 mtime 内容改写」的最坏可见窗。规则变更后不缓存陈旧。
+// 删书/改名经 books.ts forgetBookKeyedCaches 的 forgetSettingCache 挂点清理（同
+// forgetSearchCache 口径）。
+const SETTING_CACHE_TTL_MS = 5000
+const SETTING_CACHE_MAX = 16
+
+interface SettingCacheEntry {
+  data: SettingData
+  ts: number
+  sig: string
+}
+
+const settingCache = new Map<string, SettingCacheEntry>()
+
+let settingTtlMs: number | null = null
+/** TTL 测试注入口（null 还原默认；先例同 search.ts __setSearchCacheTtlForTest）。 */
+export function __setSettingCacheTtlForTest(ms: number | null): void {
+  settingTtlMs = ms
+}
+
+let settingLoadCountForTest = 0
+/** 底层实际读目录计数观察口（验证缓存命中/失效；生产零调用）。 */
+export function __settingLoadCountForTest(): number {
+  return settingLoadCountForTest
+}
+export function __resetSettingLoadCountForTest(): void {
+  settingLoadCountForTest = 0
+}
+
+/** R36-12：删书/改名失效挂点（同 forgetSearchCache 口径——书键清理；本缓存键即
+ *  bookRoot 本身，精确删除即可——绝对路径前缀无歧义）。 */
+export function forgetSettingCache(bookRoot: string): void {
+  settingCache.delete(bookRoot)
+}
+
+/** 设定目录 + 名册文件的 mtime 签名（缺失计 '-'）：每次命中前重算，4 次 stat 换
+ *  免全量重读。必须在读取**前**取值——读取期间落盘的变更会使签名失配，下次按失效
+ *  重读（宁多读不脏读，同 R35-7 口径）。 */
+function settingDirSignature(bookRoot: string): string {
+  const parts: string[] = []
+  for (const p of [SETTING_DIR, ROLE_DIR, ITEM_DIR]) {
+    try {
+      parts.push(String(statSync(join(bookRoot, p)).mtimeMs))
+    } catch {
+      parts.push('-') // 目录不存在
+    }
+  }
+  // 名册.md：内容改写不改目录 mtime，单独探针即时失效（不只靠 TTL）
+  try {
+    parts.push(String(statSync(join(bookRoot, ROSTER_FILE)).mtimeMs))
+  } catch {
+    parts.push('-')
+  }
+  return parts.join(',')
+}
+
+/** R36-12：带缓存的设定数据读取（替代规则层直调 loadSettingData）。 */
+function loadSettingDataCached(bookRoot: string): SettingData {
+  const sig = settingDirSignature(bookRoot)
+  const cached = settingCache.get(bookRoot)
+  if (cached && cached.sig === sig && Date.now() - cached.ts < (settingTtlMs ?? SETTING_CACHE_TTL_MS)) {
+    return cached.data
+  }
+  settingLoadCountForTest += 1
+  const data = loadSettingData(bookRoot)
+  // 简单 FIFO 淘汰（Map 保插入序）：超上限丢最旧条目，防长期书架累积死重
+  if (settingCache.size >= SETTING_CACHE_MAX) {
+    const oldest = settingCache.keys().next().value
+    if (oldest !== undefined) settingCache.delete(oldest)
+  }
+  settingCache.set(bookRoot, { data, ts: Date.now(), sig })
+  return data
+}
 
 /** 引号内 2-4 字中文片段正则（参考 check/count.ts checkNewNames） */
 const QUOTED_NAME_RE = /[「『"]([^」』"]{2,4})[」』"]/g
@@ -98,13 +178,15 @@ export const settingConsistencyRule: WritingRule = {
   tasks: ['self-heal', 'spawn-write', 'rewrite'],
 
   toPrompt(ctx): string | null {
-    const data = loadSettingData(ctx.bookRoot)
+    // R36-12：经 TTL+探针缓存读取（AI 热路径不再每章全量读设定目录）
+    const data = loadSettingDataCached(ctx.bookRoot)
     if (isEmpty(data)) return null
     return '设定一致：文中人物/物品名称须与书库设定一致——已有角色卡和物品卡登记的名称不可篡改，新出场专名须有对应设定卡，不可凭空捏造'
   },
 
   check(body, ctx): RuleViolation[] {
-    const data = loadSettingData(ctx.bookRoot)
+    // R36-12：同上——缓存读取，规则变更（目录结构/名册内容）后探针失效不缓存陈旧
+    const data = loadSettingDataCached(ctx.bookRoot)
     if (isEmpty(data)) return []
 
     const violations: RuleViolation[] = []

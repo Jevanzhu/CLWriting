@@ -86,8 +86,11 @@ export default defineConfig({
       exclude: ['src/**/*.d.ts', 'src/studio/web-next/vite.config.ts', 'src/studio/web-next/src/{components,types}/**', 'src/studio/web-next/src/{main,router}.ts'],
       thresholds: {
         // 主代码单桶（brace+extglob 组合 = 除 web-next 外的全部，池化口径与旧全局门一致；
-        // 首次实测 2026-08-20：lines 89.45 / branches 82.89 / functions 95.9）
-        'src/{!(studio),studio/!(web-next)}/**': { statements: 82, branches: 78, functions: 93, lines: 82 },
+        // R36-17（三十六轮）：阈值随实测重算——区段注释口径曾停在 2026-08-20
+        //（89.45/82.89/95.9），拆桶时未同步收基线，防线弱于宣称口径；2026-09-01 全量
+        // coverage-summary 实测 statements 91.19 / branches 85.10 / functions 97.44 /
+        // lines 91.19 → −2pp 向下取整 89 / 83 / 95 / 89（同 R66-41 子桶规则）
+        'src/{!(studio),studio/!(web-next)}/**': { statements: 89, branches: 83, functions: 95, lines: 89 },
         // R66-41（十四轮）：主桶上叠三个域级子桶——聚合均值仍可稀释新增低覆盖文件
         //（主桶池化 ~90% 均值，新文件 10% 也推不动门）；vitest 多桶语义为「匹配多桶的
         // 文件须过所有桶」，子桶与主桶并存 = 域级基线门叠加全局防回退门，两不误。

@@ -345,10 +345,14 @@ function scoreReversalQuality(coreReversal: string, list: PieceList | null, body
   }
 }
 
-function collectBodyAnchors(body: string): string[] {
+/** R36-1 同族（三十六轮，第四处）：CRLF 行尾容忍——body 按 '\n' split 后行尾残留 \r，
+ *  `$` 锚定正则无 m 标志不认 \r 前行尾，CRLF 章文件的 `##` 锚点被静默全量丢弃
+ *  （anchoredSetupCount 虚报 0 + 「铺垫正文锚点回指不足」假 issue，评分/报告误判）。
+ *  `\r?` 显式容忍（对齐 check/count.ts:916 R33-1 口径）。导出供 CRLF 回归直测。 */
+export function collectBodyAnchors(body: string): string[] {
   return body
     .split('\n')
-    .map((line) => line.match(/^##\s+(.+)$/)?.[1]?.trim() ?? '')
+    .map((line) => line.match(/^##\s+(.+)\r?$/)?.[1]?.trim() ?? '')
     .filter(Boolean)
 }
 

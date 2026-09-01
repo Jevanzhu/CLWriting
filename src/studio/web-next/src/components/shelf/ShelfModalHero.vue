@@ -2,6 +2,8 @@
 /**
  * 书架弹层「继续写作」hero 卡（hh §八-16 自 ShelfModal.vue 拆出，纯搬家）。
  * 弹层专属横版单行卡（grid 视图，进度右置）+ 紧凑单行（list 视图）——全屏页竖版在 ShelfHeroCard。
+ * R36-23（三十六轮）：role/tabindex/keydown 补键盘可达（原仅 @click，R72-12 只修了
+ * ShelfHeroCard 漏此）；Enter/Space 与点击同一手势处理，语义不变。
  */
 import { ArrowRight } from 'lucide-vue-next'
 import type { BookEntry } from '../../api/shelf'
@@ -21,8 +23,12 @@ const emit = defineEmits<{
   <section
     v-if="viewMode === 'grid'"
     class="hero-card"
+    role="button"
+    tabindex="0"
     @mousemove="onCardMove"
     @click="emit('open', book.name)"
+    @keydown.enter.prevent="emit('open', book.name)"
+    @keydown.space.prevent="emit('open', book.name)"
   >
     <div class="hero-left">
       <span class="hero-label">继续写作</span>
@@ -46,8 +52,12 @@ const emit = defineEmits<{
   <section
     v-else
     class="hero-list"
+    role="button"
+    tabindex="0"
     @mousemove="onCardMove"
     @click="emit('open', book.name)"
+    @keydown.enter.prevent="emit('open', book.name)"
+    @keydown.space.prevent="emit('open', book.name)"
   >
     <span class="hero-list-label">继续写作</span>
     <span class="hero-list-name">{{ book.title ?? book.name }}</span>

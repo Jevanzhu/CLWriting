@@ -46,8 +46,13 @@ export function checkGrowth(
   if (!realmDoc || realmDoc.体系.length === 0) {
     items.push({
       checkId: 'growth-realm-sequence-missing',
+      // R36-3（三十六轮）：维持 red——境界体系解析失败 = 序列不可用（sequence 全程
+      // null），realm-miss/regress/span-exceed 全部静默跳过，成长线红闸整体失效；
+      // red 打回自动写章迫使作者修复（fail-closed，与 R29-6「体系缺失红项语义不同，
+      // 维持红」口径一致）。文案改为如实描述：文件可能明明有内容（如 CRLF 换行/格式
+      // 异常），旧文案「没有可解析的 front matter」误导排障。
       level: 'red',
-      message: '已启用成长线，但 设定/境界体系.md 没有可解析的「体系/序列」front matter，境界跳跃/回退检测未生效。',
+      message: '已启用成长线，但未解析出有效的境界体系（设定/境界体系.md 缺少「体系/序列」，或 front matter 内容/换行格式异常），境界跳跃/回退检测未生效。',
     })
   }
 

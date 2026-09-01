@@ -3,7 +3,7 @@
 // 只读审计——展示「模型看到的 vs 人类看到的」差异，以及每本书的事件流与血缘引用。
 // AA-P2-1：长书 >500 条事件分页续页——后端按 limit/offset 截断，前端「加载更多」累积追加
 // 并显式提示「已显示 X / N」（此前无翻页入口，>500 条旧事件结构上永远不可见）。
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import {
   ScrollText, EyeOff, GitBranch, RefreshCw, AlertCircle,
   ChevronRight, ChevronDown, MoreHorizontal,
@@ -49,6 +49,15 @@ const hasMoreWorkflow = computed(() => workflowEvents.value.length < workflowTot
 const convoCapHit = computed(() => !hasMoreConvo.value && convoEvents.value.length >= RENDER_CAP && convoEvents.value.length < convoTotal.value)
 const workflowCapHit = computed(() => !hasMoreWorkflow.value && workflowEvents.value.length >= RENDER_CAP && workflowEvents.value.length < workflowTotal.value)
 
+// R36-25（三十六轮）：script 层代守卫——load/loadMore 的 await 回调当前被模板禁用态
+// （:disabled="loading"）封死（刷新在途时按钮不可点），但禁用态只是 UI 耦合；实例卸载
+// 后迟到的响应仍会回写 refs。置 unmounted 标记，异步回调落点前复检吞掉（对将来
+// 模板移除禁用态/新增自动刷新均不失守）。
+let alive = true
+onUnmounted(() => {
+  alive = false
+})
+
 async function load(): Promise<void> {
   loading.value = true
   err.value = null
@@ -64,6 +73,7 @@ async function load(): Promise<void> {
   expanded.value = new Set()
   try {
     const v = await getAudit(props.bookName, { limit: PAGE_LIMIT, offset: 0 })
+    if (!alive) return // R36-25：卸载后迟到响应不回写
     conversation.value = v.conversation
     convoEvents.value = v.conversation?.events ?? []
     convoTotal.value = v.conversation?.eventsTotal ?? 0
@@ -74,8 +84,10 @@ async function load(): Promise<void> {
     goals.value = v.goals ?? []
     todos.value = v.todos ?? []
   } catch (e) {
+    if (!alive) return // R36-25
     err.value = friendlyError(e)
   } finally {
+    if (!alive) return // R36-25：卸载后不再回写 loading
     loading.value = false
   }
 }
@@ -87,6 +99,7 @@ async function loadMoreConvo(): Promise<void> {
   err.value = null
   try {
     const v = await getAudit(props.bookName, { limit: PAGE_LIMIT, offset: convoOffset.value })
+    if (!alive) return // R36-25：卸载后迟到续页不回写
     if (conversation.value === null) conversation.value = v.conversation
     const seen = new Set(convoEvents.value.map((e) => e.seq))
     const fresh = (v.conversation?.events ?? []).filter((e) => !seen.has(e.seq))
@@ -96,6 +109,7 @@ async function loadMoreConvo(): Promise<void> {
     convoEvents.value.push(...fresh)
     convoOffset.value += fresh.length > 0 ? fresh.length : pageLen
   } catch (e) {
+    if (!alive) return // R36-25
     err.value = friendlyError(e)
   } finally {
     convoLoadingMore.value = false
@@ -109,6 +123,7 @@ async function loadMoreWorkflow(): Promise<void> {
   err.value = null
   try {
     const v = await getAudit(props.bookName, { limit: PAGE_LIMIT, offset: workflowOffset.value })
+    if (!alive) return // R36-25：卸载后迟到续页不回写
     const seen = new Set(workflowEvents.value.map((e) => e.seq))
     const fresh = (v.workflowEvents ?? []).filter((e) => !seen.has(e.seq))
     // R62-50：同 convo——整页撞重复时 fresh 空、页非空，按返回条数强制推进防空转。
@@ -116,6 +131,7 @@ async function loadMoreWorkflow(): Promise<void> {
     workflowEvents.value.push(...fresh)
     workflowOffset.value += fresh.length > 0 ? fresh.length : pageLen
   } catch (e) {
+    if (!alive) return // R36-25
     err.value = friendlyError(e)
   } finally {
     workflowLoadingMore.value = false

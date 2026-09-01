@@ -245,6 +245,18 @@ interface WireUsage {
 }
 
 /**
+ * R36-14（三十六轮）：空 usage 对象（{} 或缺两主字段）不算真实计量。
+ * 此前逐 truthy 判定：网关下发 `usage:{}` 空对象时 latestUsage 落 `{}`，流末
+ * toUsage({}) 按 0/0 入账，绕过 R73-1 估计兜底（预算闸 tokens/cost 对该类端点
+ * 再次失效、成本报表系统性偏低）。此处把空对象等价于「无 usage」——与
+ * responses/anthropic 线口径一致（无终止事件时的估计兜底照常生效，estimated 标记
+ * 区分估计口径）；末见 wins 语义也顺带防住「真实 usage 后再来空对象」的覆盖。
+ */
+function isRealUsage(u: WireUsage | null | undefined): u is WireUsage {
+  return u !== null && u !== undefined && (u.prompt_tokens !== undefined || u.completion_tokens !== undefined)
+}
+
+/**
  * usage 线格式 → TokenUsage（D4：prompt_tokens_details.cached_tokens → cacheReadTokens）。
  * M-1：prompt_tokens **已含** cache 命中部分，边界处扣减归一成「inputTokens 不含 cache 读」
  * 的统一口径（Anthropic 语义），下游计价/预算四档分计公式对两协议同时成立；
@@ -330,7 +342,8 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
               if (!choice) {
                 // usage-only chunk（最后一个 chunk 只含 usage）
                 // R26-3：不再此处即席 emit——usage 记入 latestUsage，流末统一取最新值 emit
-                if (effectiveUsage) latestUsage = effectiveUsage
+                // R36-14：空 usage 对象不覆盖真实计量（isRealUsage 闸，见其注）
+                if (isRealUsage(effectiveUsage)) latestUsage = effectiveUsage
                 continue
               }
 
@@ -408,7 +421,8 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
                 sawFinishReason = true
                 // finish_reason chunk 自带 usage（非 include_usage 模式）→ 记入 latestUsage
                 //（R26-3：done 延后到流末统一 emit，见循环后注）
-                if (effectiveUsage) latestUsage = effectiveUsage
+                // R36-14：空 usage 对象不覆盖真实计量（isRealUsage 闸，见其注）
+                if (isRealUsage(effectiveUsage)) latestUsage = effectiveUsage
                 // 无 usage → 等 usage-only chunk；若不来由 stream 结束兜底
               }
             }
@@ -429,7 +443,9 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
             // R33D-2（三十三轮）：content_filter 不是正常完成——finish_reason 归一未覆盖
             // 该值，原样透传时被过滤的半截正文按成功 done 落稿（responses 线 R1 缺口 2
             // 同因判 error，三线分叉）。error 出场（retryable:false，usage 随错上抛）。
-            if (latestUsage && sawFinishReason) {
+            // R36-14：latestUsage 为空的兜底闸——空 usage 对象已在上游 isRealUsage 拦截，
+            // 此处双保险防未来赋值面漏网；为空则落下方 R73-1 估计兜底分支
+            if (isRealUsage(latestUsage) && sawFinishReason) {
               if (pendingStopReason === 'content_filter') {
                 yield {
                   type: 'error',

@@ -105,7 +105,13 @@ export function headingEndsSection(
  */
 export function parseHistory(body: string): LeadEntry[] {
   const entries: LeadEntry[] = []
-  const lines = body.split('\n')
+  // R36-1（三十六轮）：CRLF 行尾归一——HISTORY_ENTRY_RE / LOOSE_RE 对原始行 `$` 锚定
+  // 匹配且无 m 标志，`\r` 前不认行尾 → CRLF 账本的履历条目全量落「形似条目」分支被
+  // log.warn 丢弃，随后定稿回写 writeLead 按 stringifyHistory 整文件重序列化 → 既有
+  // 全部履历物理清空、不可恢复（防吃书账本整体失真）。此处仅剥每行行尾单个 `\r`
+  // （endsWith 守卫，不动条目内容侧空格，stringifyHistory 往返语义不变）；heading
+  // 判节前瞻（headingEndsSection 的 isEntry）共用本数组，同一条防线覆盖。
+  const lines = body.split('\n').map((l) => (l.endsWith('\r') ? l.slice(0, -1) : l))
   let inHistory = false
 
   for (let i = 0; i < lines.length; i++) {

@@ -88,13 +88,19 @@ async function toggleRulesEdit(): Promise<void> {
     editingRules.value = false
     return
   }
+  // R36-22（三十六轮）：await 前捕获书名（同文件 onFreeze/saveRules 的 M-4/R72-11 模式，
+  // 与 R28-25 的 armed+bookName 双门同口径）——铁律读取在途切书后，旧书内容不得
+  // 回填表单状态、失败 toast 不得落 B 书界面（原状态更新与 toast 均无复检）
+  const book = props.bookName
   rulesMissing.value = false
   try {
     const r = await getContentRevisioned(props.bookName, RULES_PATH)
+    if (!armed(book) || style.bookName !== book) return // R36-22：在途切书 → 不回填
     rulesText.value = r.content
     rulesOrig.value = r.content
     rulesBaseRev.value = r.revision
   } catch (e) {
+    if (!armed(book) || style.bookName !== book) return // R36-22：在途切书 → 不 toast/不置缺失态
     if (e instanceof ApiError && e.status === 404) {
       rulesMissing.value = true
       rulesText.value = ''

@@ -5,6 +5,12 @@
  * auth 决定发 x-api-key（官方）还是 Bearer（中转，authToken）。
  *
  * effort 翻译为 output_config.effort；thinking 不发（走模型默认 adaptive）。
+ * R36-2（三十六轮）：claude 原生 + effort 组合显式禁思考（thinking:{type:'disabled'}）——
+ * 扩展思考块若产出，多轮工具链要求回传带签名块（Anthropic 硬要求，零回传 400）。
+ * 流侧对 thinking/signature/redacted_thinking 全弃是历史缺口：现在 thinking 文本以
+ * reasoning 事件透出（三线口径对齐 openai/responses），块（含签名）在流内缓存；
+ * 完整回传（带签名块进 ChatMsg）受类型扩展击穿 usage-estimate 所限留待跨批
+ *（见 toParams 禁思考注 / toAnthropicMessage 注）。
  * tool_use 是契约层核心——content_block_delta 的 InputJSONDelta 增量拼装。
  */
 import Anthropic from '@anthropic-ai/sdk'
@@ -20,7 +26,7 @@ import type {
 } from './types.js'
 import type { ProviderStore } from './store.js'
 import { modelConfOf } from './store.js'
-import { quirksFor } from './model-quirks.js'
+import { quirksFor, detectFamily } from './model-quirks.js'
 import { anthropicClientOpts } from './models.js'
 import { makeToErrorEvent, buildDegradeAttempts, isMidChain400, markStructuredDegrade } from './adapter-errors.js'
 import { estimateInputTokens, estimateOutputTokens } from './usage-estimate.js'
@@ -82,6 +88,11 @@ function toAnthropicMessage(m: ChatMsg): Anthropic.MessageParam | null {
     // R72-12（二十轮 A-11）记档：正确性依赖上游 sanitizeHistory 先剥离——若未来上游
     // 防线移除，此处丢弃即最后一道（仅丢回传推理文本，不损对话内容，风险可接受）
     if (b.type === 'reasoning') return []
+    // R36-2（三十六轮）注：Anthropic 扩展思考块的完整回传（带签名 thinking 块）需要
+    // 在 ContentBlock 增加 thinking/redacted_thinking 变体 + gen/turns 侧签名载道——
+    // 类型扩展会击穿 usage-estimate.flattenMsgContent 的 exhaust 分支（该文件不在本轮
+    // 可修清单），故回传侧零透传维持；防 400 由 toParams 的 claude+effort 显式禁思考
+    //（主防线）+ 上一条 reasoning 块丢弃（次防线）承担，完整回传留待跨批接通。
     if (b.type === 'tool_use') return [{ type: 'tool_use', id: b.id, name: b.name, input: b.input as Record<string, unknown> }]
     // tool_result: Anthropic 要求挂在 user 消息里，toolUseId → tool_use_id
     return [{ type: 'tool_result', tool_use_id: b.toolUseId, content: b.content, ...(b.isError ? { is_error: true } : {}) }]
@@ -155,6 +166,19 @@ function toParams(conf: ProviderConf, req: GenRequest): Anthropic.MessageCreateP
   if (req.effort && q.anthropicEffortWire === 'output_config') {
     const mapped = q.effortMap?.[req.effort] ?? req.effort
     params['output_config'] = { effort: mapped }
+    // R36-2（三十六轮，保守路径）：
+    // claude 原生 + effort 组合下模型默认 adaptive 思考会产出 thinking 块；而扩展思考
+    // 多轮工具链要求回传带签名 thinking 块（Anthropic 硬要求），当前事件链路
+    // （GenResult → chat 历史 → ChatMsg）尚无签名载道（gen/turns 批次外），零回传会
+    // 400 触发 buildDegradeAttempts 剥工具重发（每轮翻倍请求 + 静默失去工具能力）。
+    // 显式 thinking:{type:'disabled'} → 模型不产出思考块 → 无签名回传义务，多轮工具链
+    // 不再 400。取舍：claude 在 effort 档下失去思考（体验影响经 reasoning 事件口径
+    // 与 openai 线对齐的回退面收窄）；仅限 claude 家族——deepseek 的 anthropic 端点
+    // 同为 output_config wire，但无 thinking 参数语义，禁发防未知 400。待 gen/turns
+    // 批接通签名回传后此禁可收窄或移除（真机验证登记：400 实际频率待验证）。
+    if (detectFamily(conf.model ?? '') === 'claude') {
+      params['thinking'] = { type: 'disabled' }
+    }
   }
   // structured → output_config.format，按表 structuredMode 翻译（表驱动重构 §6.1）：
   // json_schema → format.json_schema；json_object → format.json_object（deepseek 只认这个）；
@@ -245,6 +269,12 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
         // tool_use input 增量拼装：content_block_start 记 tool name，
         // input_json_delta 增量拼 JSON 字符串，content_block_stop 时整体解析
         const toolBlocks = new Map<number, { id: string; name: string; jsonBuf: string }>()
+        // R36-2（三十六轮）：扩展思考块流内缓存——此前 thinking/signature/redacted_thinking
+        // 全弃（思考文本无感 + 多轮工具链回传缺签名）。思考文本即时以 reasoning 事件透出
+        // （三线口径对齐 openai reasoning_content / responses reasoning_text）；块整体（含
+        // 签名）暂存流内——完整回传依赖上游把块带进 ChatMsg（见 toAnthropicMessage 注，
+        // gen/turns 批次外）。redacted_thinking 的 data 在 content_block_start 整体下发。
+        const thinkingBlocks = new Map<number, { thinking: string; signature: string } | { redacted: string }>()
         // R73-1：产出累计（text_delta 串联 + tool jsonBuf）——网关吞 usage 时按此折算
         // 估计用量（usage-estimate.ts 同源系数），不再按 0 输出入账
         const outText: string[] = []
@@ -270,6 +300,12 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
                 // 低级项（第六轮）：非官方兼容端点可能不发 id——空 id 进历史会被
                 // tool_result 关联拒绝，按块 index 生成兜底（对齐 OpenAI 线 P3-Q5）
                 toolBlocks.set(event.index, { id: block.id || `toolu_${event.index}`, name: block.name, jsonBuf: '' })
+              } else if (block.type === 'thinking') {
+                // R36-2：思考块开（text 由 thinking_delta 增量下发）
+                thinkingBlocks.set(event.index, { thinking: '', signature: '' })
+              } else if (block.type === 'redacted_thinking') {
+                // R36-2：密文块 data 在 start 事件整体下发（SDK 无 redacted_thinking_delta）
+                thinkingBlocks.set(event.index, { redacted: block.data })
               }
               break
             }
@@ -281,6 +317,20 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
               } else if (delta.type === 'input_json_delta') {
                 const tb = toolBlocks.get(event.index)
                 if (tb) tb.jsonBuf += delta.partial_json
+              } else if (delta.type === 'thinking_delta') {
+                // R36-2：思考增量即刻以 reasoning 事件透出（对齐 openai 线
+                // reasoning_content / responses 线 reasoning_text 口径）；文本入产出
+                // 累计（思考 token 也是真实计费面，R73-1 估计入账与 Anthropic
+                // output_tokens 含思考 token 的口径一致）
+                const tb = thinkingBlocks.get(event.index)
+                if (tb && 'thinking' in tb) tb.thinking += delta.thinking
+                outText.push(delta.thinking)
+                yield { type: 'reasoning', delta: delta.thinking }
+              } else if (delta.type === 'signature_delta') {
+                // R36-2：签名在 thinking 块末尾单独 delta 下发——附到对应块供回传侧
+                // 使用（Anthropic「思考+工具必须回传带签名块」的签名来源）
+                const tb = thinkingBlocks.get(event.index)
+                if (tb && 'thinking' in tb) tb.signature = delta.signature
               }
               break
             }

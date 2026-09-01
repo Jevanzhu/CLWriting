@@ -64,27 +64,29 @@ afterAll(async () => {
 })
 
 describe('GET/PUT /api/books/:name/prefs', () => {
-  it('GET 无文件 → {prefs:{}}；坏 JSON 同样降级不 500', async () => {
+  it('GET 无文件 → {prefs:{}, revision:0}；坏 JSON 同样降级不 500', async () => {
     const r = await req('GET', `/api/books/${encodeURIComponent(BOOK)}/prefs`)
     expect(r.status).toBe(200)
-    expect(r.json).toEqual({ prefs: {} })
+    // R36-24：书级 prefs 对齐全局 prefs 的 revision 保留键口径——GET 剥离保留键单独回传
+    expect(r.json).toEqual({ prefs: {}, revision: 0 })
 
     const fp = join(bookRoot, '.clwriting', 'prefs.json')
     mkdirSync(join(bookRoot, '.clwriting'), { recursive: true })
     writeFileSync(fp, '{oops')
     const bad = await req('GET', `/api/books/${encodeURIComponent(BOOK)}/prefs`)
     expect(bad.status).toBe(200)
-    expect(bad.json).toEqual({ prefs: {} })
+    expect(bad.json).toEqual({ prefs: {}, revision: 0 })
   })
 
-  it('PUT 合法对象 → 落盘 + GET 读回一致（嵌套布局字段保留）', async () => {
+  it('PUT 合法对象 → 落盘（含服务端管理的 revision 保留键）+ GET 读回一致（剥离 revision）', async () => {
     const prefs = { pageWidth: 720, leftWidth: 260, treeExpanded: ['卷一', '卷二'], activeDocId: null }
     const put = await req('PUT', `/api/books/${encodeURIComponent(BOOK)}/prefs`, { prefs })
     expect(put.status).toBe(200)
-    expect(put.json).toEqual({ ok: true })
-    expect(JSON.parse(readFileSync(join(bookRoot, '.clwriting', 'prefs.json'), 'utf8'))).toEqual(prefs)
+    // R36-24：响应带自增 revision（存量文件损坏视作 0 → 本次 1）；expectedRevision 不带则直通
+    expect(put.json).toEqual({ ok: true, revision: 1 })
+    expect(JSON.parse(readFileSync(join(bookRoot, '.clwriting', 'prefs.json'), 'utf8'))).toEqual({ ...prefs, revision: 1 })
     const get = await req('GET', `/api/books/${encodeURIComponent(BOOK)}/prefs`)
-    expect(get.json).toEqual({ prefs })
+    expect(get.json).toEqual({ prefs, revision: 1 })
   })
 
   it('PUT prefs 缺失/数组 → 400 BAD_INPUT 信封；未知书 GET → 404 NOT_FOUND', async () => {

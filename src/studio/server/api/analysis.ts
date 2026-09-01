@@ -12,7 +12,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, relative } from 'node:path'
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
 import { resolveBook, resolveDocEntry } from '../book-context.js'
@@ -25,7 +25,7 @@ import { runSpec } from '../../../ai/tasks/spec.js'
 import { analysisSpec } from '../../../ai/tasks/specs.js'
 import { resolveTier } from '../../../ai/provider/index.js'
 import type { AnalysisKind as ContractKind } from '../../../ai/contract/index.js'
-import { readAnalysis, readAnalysisKinds, writeAnalysisAsync, readBookAnalysis, writeBookAnalysis, sourceHashOf, type AnalysisKind } from '../../../document/analysis.js'
+import { readAnalysis, readAnalysisKinds, writeAnalysisAsync, readBookAnalysis, writeBookAnalysisAsync, sourceHashOf, type AnalysisKind } from '../../../document/analysis.js'
 import { mapAnalysisToCandidates, persistCandidates } from '../../../format/style-candidate.js'
 import { localDayKey } from '../../../log/index.js' // R76-31：候选日键本地日（同 overview/日记口径）
 import { safeManifestPath } from '../../../fs/safe-path.js'
@@ -58,6 +58,184 @@ export function __setStyleCorpusTtlForTest(ms: number | null): void {
   styleCorpusTtlMs = ms
 }
 const STYLE_CORPUS_MAX = 32
+
+// ── R36-7（三十六轮）：analysis-overview 全书聚合 5s TTL 缓存 ─────────────────
+// 端点遍历 manifest + 分析目录全部信封（长书同步 IO 数百次），工作台进页/轮询/刷新
+// 反复触发。手法对齐 search.ts R35-7（mtime 探针 + TTL）：**每文件 mtime/size 探针**
+// （方案偏离记档：R35-7 只探目录集 mtime，但 overview 信封是内容写——改写既有文件不
+// 触碰目录 mtime，dir-only 探针会让「直写盘后立即 GET 断言新鲜度」的既有测试（低-5
+// 坏形状 / R66-27 守卫）退化为 5s 可见窗）；TTL 5s 兜底探针不可见的变化（mtime 粒度
+// 粗 / 同拍同尺寸重写 / 计算期间的外部写）。写侧另挂同文件失效点（analyze /
+// analyze-style 落盘后 forgetAnalysisOverviewCache）；删书/改名生命周期清理按
+// forgetBookKeyedCaches 家族约定导出（books.ts 接线不在本批允许清单内，TTL 兜底自愈）。
+const ANALYSIS_OVERVIEW_TTL_MS = 5000
+const ANALYSIS_OVERVIEW_MAX = 32
+
+interface AnalysisOverviewResult {
+  scoreTrend: { 章号: number; 标题: string; score: number; dims: Record<string, number> }[]
+  emotionTrend: { 章号: number; 标题: string; emotion: number; label: string }[]
+  hooksTrend: { 章号: number; 标题: string; density: string; hookCount: number }[]
+  allChapters: { 章号: number; docId: string }[]
+  style: unknown
+}
+const analysisOverviewCache = new Map<string, { result: AnalysisOverviewResult; sig: string; ts: number }>()
+let analysisOverviewTtlMs: number | null = null
+/** R36-7：TTL 测试注入口（先例同 __setStyleCorpusTtlForTest）。仅测试用。 */
+export function __setAnalysisOverviewTtlForTest(ms: number | null): void {
+  analysisOverviewTtlMs = ms
+}
+/** R36-7：写侧失效挂点——analyze/analyze-style 信封落盘后调用（本文件内写路径）。 */
+export function forgetAnalysisOverviewCache(bookRoot: string): void {
+  analysisOverviewCache.delete(bookRoot)
+}
+/** R36-7 回归观测钩子（生产零调用；先例同 __searchScanCountForTest）：缓存 MISS →
+ *  全量重算计数。 */
+let analysisOverviewScanCount = 0
+export function __analysisOverviewScanCountForTest(): number {
+  return analysisOverviewScanCount
+}
+export function __resetAnalysisOverviewScanCountForTest(): void {
+  analysisOverviewScanCount = 0
+}
+
+/** stat 的 size:mtimeMs 签名（缺失/占位文件 → '-'；Read 失败按缺失处理）。
+ *  mtimeMs 保留亚毫秒小数（同 search.ts dirSignature 口径），降低同毫秒重写漏探针概率。 */
+function sigStatFor(fp: string): string {
+  try {
+    const st = statSync(fp)
+    return `${st.size}:${st.mtimeMs}`
+  } catch {
+    return '-'
+  }
+}
+
+/** R36-7：overview 的盘面签名——manifest size:mtime + 分析目录每个 json 文件的
+ *  name:size:mtime（读侧内容全部由签名覆盖：命中即跳过 manifest 整读 + 信封全读）。
+ *  目录缺失/被文件占位（R66-27 形态）→ 固定标记，下次仍按 miss 重算（不缓存错形状）。 */
+function analysisOverviewSignature(bookRoot: string): string {
+  const parts: string[] = [`m:${sigStatFor(join(bookRoot, '项目', '文档清单.jsonl'))}`]
+  const analysisDir = join(bookRoot, '项目', '分析')
+  let names: string[]
+  try {
+    names = readdirSync(analysisDir).filter((f) => f.endsWith('.json')) // 含 __book__.json（style 信封同属读面）
+  } catch {
+    parts.push('<unreadable>')
+    return parts.join(',')
+  }
+  for (const f of names.sort()) {
+    parts.push(`${f}:${sigStatFor(join(analysisDir, f))}`)
+  }
+  return parts.join(',')
+}
+
+/** R36-7：analysis-overview 聚合查询（mtime 探针 + 5s TTL 缓存壳；compute 体原样下沉）。
+ *  导出供回归测试直测（同 searchBookCached 口径）。 */
+export function getAnalysisOverviewCached(bookRoot: string): AnalysisOverviewResult {
+  const now = Date.now()
+  const sig = analysisOverviewSignature(bookRoot)
+  const cached = analysisOverviewCache.get(bookRoot)
+  if (cached && cached.sig === sig && now - cached.ts < (analysisOverviewTtlMs ?? ANALYSIS_OVERVIEW_TTL_MS)) {
+    return cached.result
+  }
+  analysisOverviewScanCount += 1
+  const result = computeAnalysisOverview(bookRoot)
+  // 简单 FIFO 淘汰（Map 保插入序）：超上限丢最旧条目，防长期运行的书库累积
+  if (analysisOverviewCache.size >= ANALYSIS_OVERVIEW_MAX) {
+    const oldest = analysisOverviewCache.keys().next().value
+    if (oldest !== undefined) analysisOverviewCache.delete(oldest)
+  }
+  analysisOverviewCache.set(bookRoot, { result, sig, ts: now })
+  return result
+}
+
+/** R36-7：overview 计算体（原 handler 内联逻辑原样下沉，行为不变）。 */
+function computeAnalysisOverview(bookRoot: string): AnalysisOverviewResult {
+  const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
+  const analysisDir = join(bookRoot, '项目', '分析')
+
+  const scoreTrend: { 章号: number; 标题: string; score: number; dims: Record<string, number> }[] = []
+  const emotionTrend: { 章号: number; 标题: string; emotion: number; label: string }[] = []
+  const hooksTrend: { 章号: number; 标题: string; density: string; hookCount: number }[] = []
+  // 所有正文章节章号→docId 映射（供前端逐章/批量分析）
+  const allChapters: { 章号: number; docId: string }[] = []
+
+  // 先收集 allChapters（遍历 manifest 正文档档）
+  for (const [id, me] of manifest.entries) {
+    if (me.nodeType !== 'document' || !me.path.startsWith('写作/正文/')) continue
+    const filename = me.path.split('/').pop() ?? ''
+    const numMatch = filename.match(/^(\d+)-/)
+    if (!numMatch) continue
+    allChapters.push({ 章号: parseInt(numMatch[1]!, 10), docId: id })
+  }
+  allChapters.sort((a, b) => a.章号 - b.章号)
+
+  if (existsSync(analysisDir)) {
+    // R66-27（十四轮）：existsSync→readdir 间竞态（目录被移/删）会让 ENOENT/ENOTDIR
+    // 裸穿端点 500——包守卫降级为空趋势（信封缺失本就跳过，口径一致）
+    let files: string[]
+    try {
+      files = readdirSync(analysisDir).filter((f) => f.endsWith('.json') && f !== '__book__.json')
+    } catch {
+      files = []
+    }
+    for (const file of files) {
+      const docId = file.replace(/\.json$/, '')
+      const me = manifest.entries.get(docId)
+      if (!me || !me.path.startsWith('写作/正文/')) continue
+      // 从文件名 NN-标题.md 提取章号/标题
+      const filename = me.path.split('/').pop() ?? ''
+      const numMatch = filename.match(/^(\d+)-/)
+      if (!numMatch) continue
+      const 章号 = parseInt(numMatch[1]!, 10)
+      const 标题 = filename.replace(/^\d+-/, '').replace(/\.md$/, '')
+
+      // R69-27（十七轮）：三 kind 合一次读盘（此前每 kind 各整读同一 JSON 一遍，
+      // 长书 overview 同步 IO 上千次阻塞事件循环秒级）
+      const envs = readAnalysisKinds(bookRoot, docId, ['score', 'emotion', 'hooks'])
+      const scoreEnv = envs['score']
+      if (scoreEnv?.payload) {
+        // 低-5（第十轮）：形状守卫（对齐同函数 hooks 的 X-P3a 口径）——score 缺失/
+        // 非数字、dims 非对象时跳过该章，不让坏信封把 NaN/undefined 塞进趋势
+        const p = scoreEnv.payload as { score?: unknown; dims?: unknown }
+        if (typeof p.score === 'number' && typeof p.dims === 'object' && p.dims !== null && !Array.isArray(p.dims)) {
+          scoreTrend.push({ 章号, 标题, score: p.score, dims: p.dims as Record<string, number> })
+        }
+      }
+      const emotionEnv = envs['emotion']
+      if (emotionEnv?.payload) {
+        // tool_use 后 payload 为 { segments: [...] }；兼容旧版裸数组
+        // 低-5（第十轮）：形状守卫（对齐 hooks 的 X-P3a 口径）——segments 非数组、
+        // 末段 emotion 非数字/label 非字符串时跳过该章，防 NaN 进趋势
+        const raw = emotionEnv.payload
+        const arr = Array.isArray(raw)
+          ? (raw as { emotion: unknown; label: unknown }[])
+          : (Array.isArray((raw as { segments?: unknown }).segments)
+            ? ((raw as { segments: { emotion: unknown; label: unknown }[] }).segments)
+            : [])
+        const last = arr.length > 0 ? arr[arr.length - 1]! : undefined // 末段值（章末情绪 = 下章起点）
+        if (last && typeof last.emotion === 'number' && typeof last.label === 'string') {
+          emotionTrend.push({ 章号, 标题, emotion: last.emotion, label: last.label })
+        }
+      }
+      const hooksEnv = envs['hooks']
+      if (hooksEnv?.payload) {
+        // X-P3a：形状守卫——坏信封（hooks 非数组/density 缺失）跳过该章，
+        // 不让一章的坏数据 TypeError 拖垮整个 overview 端点
+        const p = hooksEnv.payload as { hooks?: unknown; density?: unknown }
+        if (Array.isArray(p.hooks) && typeof p.density === 'string') {
+          hooksTrend.push({ 章号, 标题, density: p.density, hookCount: p.hooks.length })
+        }
+      }
+    }
+  }
+
+  scoreTrend.sort((a, b) => a.章号 - b.章号)
+  emotionTrend.sort((a, b) => a.章号 - b.章号)
+  hooksTrend.sort((a, b) => a.章号 - b.章号)
+
+  const styleEnv = readBookAnalysis(bookRoot, 'style')
+  return { scoreTrend, emotionTrend, hooksTrend, allChapters, style: styleEnv?.payload ?? null }
+}
 
 /** 跑一次 analyst 生成（runSpec 统一编排；mock 与真实同走 decode）。 */
 async function runAnalyst(
@@ -176,6 +354,8 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
         }
         // R34D-19（三十四轮）：写信封走异步孪生（锁等待不阻塞服务事件循环）
         await writeAnalysisAsync(bookRoot, docId, kind, envelope)
+        // R36-7：信封落盘 → overview 缓存失效（探针/TTL 兜底）
+        forgetAnalysisOverviewCache(bookRoot)
         reply(res, 200, { ok: true, envelope })
       } finally {
         release()
@@ -303,92 +483,17 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
     handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
-      const bookRoot = r.bookRoot
-      const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
-      const analysisDir = join(bookRoot, '项目', '分析')
-
-      const scoreTrend: { 章号: number; 标题: string; score: number; dims: Record<string, number> }[] = []
-      const emotionTrend: { 章号: number; 标题: string; emotion: number; label: string }[] = []
-      const hooksTrend: { 章号: number; 标题: string; density: string; hookCount: number }[] = []
-      // 所有正文章节章号→docId 映射（供前端逐章/批量分析）
-      const allChapters: { 章号: number; docId: string }[] = []
-
-      // 先收集 allChapters（遍历 manifest 正文档档）
-      for (const [id, me] of manifest.entries) {
-        if (me.nodeType !== 'document' || !me.path.startsWith('写作/正文/')) continue
-        const filename = me.path.split('/').pop() ?? ''
-        const numMatch = filename.match(/^(\d+)-/)
-        if (!numMatch) continue
-        allChapters.push({ 章号: parseInt(numMatch[1]!, 10), docId: id })
-      }
-      allChapters.sort((a, b) => a.章号 - b.章号)
-
-      if (existsSync(analysisDir)) {
-        // R66-27（十四轮）：existsSync→readdir 间竞态（目录被移/删）会让 ENOENT/ENOTDIR
-        // 裸穿端点 500——包守卫降级为空趋势（信封缺失本就跳过，口径一致）
-        let files: string[]
-        try {
-          files = readdirSync(analysisDir).filter((f) => f.endsWith('.json') && f !== '__book__.json')
-        } catch {
-          files = []
-        }
-        for (const file of files) {
-          const docId = file.replace(/\.json$/, '')
-          const me = manifest.entries.get(docId)
-          if (!me || !me.path.startsWith('写作/正文/')) continue
-          // 从文件名 NN-标题.md 提取章号/标题
-          const filename = me.path.split('/').pop() ?? ''
-          const numMatch = filename.match(/^(\d+)-/)
-          if (!numMatch) continue
-          const 章号 = parseInt(numMatch[1]!, 10)
-          const 标题 = filename.replace(/^\d+-/, '').replace(/\.md$/, '')
-
-          // R69-27（十七轮）：三 kind 合一次读盘（此前每 kind 各整读同一 JSON 一遍，
-          // 长书 overview 同步 IO 上千次阻塞事件循环秒级）
-          const envs = readAnalysisKinds(bookRoot, docId, ['score', 'emotion', 'hooks'])
-          const scoreEnv = envs['score']
-          if (scoreEnv?.payload) {
-            // 低-5（第十轮）：形状守卫（对齐同函数 hooks 的 X-P3a 口径）——score 缺失/
-            // 非数字、dims 非对象时跳过该章，不让坏信封把 NaN/undefined 塞进趋势
-            const p = scoreEnv.payload as { score?: unknown; dims?: unknown }
-            if (typeof p.score === 'number' && typeof p.dims === 'object' && p.dims !== null && !Array.isArray(p.dims)) {
-              scoreTrend.push({ 章号, 标题, score: p.score, dims: p.dims as Record<string, number> })
-            }
-          }
-          const emotionEnv = envs['emotion']
-          if (emotionEnv?.payload) {
-            // tool_use 后 payload 为 { segments: [...] }；兼容旧版裸数组
-            // 低-5（第十轮）：形状守卫（对齐 hooks 的 X-P3a 口径）——segments 非数组、
-            // 末段 emotion 非数字/label 非字符串时跳过该章，防 NaN 进趋势
-            const raw = emotionEnv.payload
-            const arr = Array.isArray(raw)
-              ? (raw as { emotion: unknown; label: unknown }[])
-              : (Array.isArray((raw as { segments?: unknown }).segments)
-                ? ((raw as { segments: { emotion: unknown; label: unknown }[] }).segments)
-                : [])
-            const last = arr.length > 0 ? arr[arr.length - 1]! : undefined // 末段值（章末情绪 = 下章起点）
-            if (last && typeof last.emotion === 'number' && typeof last.label === 'string') {
-              emotionTrend.push({ 章号, 标题, emotion: last.emotion, label: last.label })
-            }
-          }
-          const hooksEnv = envs['hooks']
-          if (hooksEnv?.payload) {
-            // X-P3a：形状守卫——坏信封（hooks 非数组/density 缺失）跳过该章，
-            // 不让一章的坏数据 TypeError 拖垮整个 overview 端点
-            const p = hooksEnv.payload as { hooks?: unknown; density?: unknown }
-            if (Array.isArray(p.hooks) && typeof p.density === 'string') {
-              hooksTrend.push({ 章号, 标题, density: p.density, hookCount: p.hooks.length })
-            }
-          }
-        }
-      }
-
-      scoreTrend.sort((a, b) => a.章号 - b.章号)
-      emotionTrend.sort((a, b) => a.章号 - b.章号)
-      hooksTrend.sort((a, b) => a.章号 - b.章号)
-
-      const styleEnv = readBookAnalysis(bookRoot, 'style')
-      reply(res, 200, { ok: true, scoreTrend, emotionTrend, hooksTrend, style: styleEnv?.payload ?? null, allChapters })
+      // R36-7：mtime 探针 + 5s TTL 缓存壳（命中即跳过 manifest 整读 + 信封全读；
+      // 计算体见 computeAnalysisOverview，行为与改前逐位一致）
+      const ov = getAnalysisOverviewCached(r.bookRoot)
+      reply(res, 200, {
+        ok: true,
+        scoreTrend: ov.scoreTrend,
+        emotionTrend: ov.emotionTrend,
+        hooksTrend: ov.hooksTrend,
+        style: ov.style,
+        allChapters: ov.allChapters,
+      })
     },
   })
 
@@ -472,7 +577,11 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
           sourceHash: sourceHashOf(sampleText),
           payload,
         }
-        writeBookAnalysis(bookRoot, 'style', envelope)
+        // R36-4（三十六轮）：全书信封落盘走异步孪生——锁等待 setTimeout 轮询不阻塞事件
+        // 循环（原同步版 Atomics.wait ≤5s 冻结整进程，见 document/analysis.ts 头注）
+        await writeBookAnalysisAsync(bookRoot, 'style', envelope)
+        // R36-7：全书信封落盘 → overview 缓存失效（探针/TTL 兜底）
+        forgetAnalysisOverviewCache(bookRoot)
 
         // 源3 接线（文风系统重整）：口癖→禁词候选、建议→手法候选；查重闸防重复骚扰
         let styleCandidates = 0

@@ -10,7 +10,7 @@ import { useTreeStore } from '../stores/tree'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useUiStore } from '../stores/ui'
 import { getConfig } from '../api/books'
-import { stripFrontmatter, mergeFm, parseFmFields, formKindOf, isBodyKind, countWords, splitFrontmatter } from '../shared/words'
+import { mergeFm, parseFmFields, formKindOf, isBodyKind, countWords, splitFrontmatter } from '../shared/words'
 import CmHost from '../editor/CmHost.vue'
 import EditorDocHead from '../components/editor/EditorDocHead.vue'
 import ContextMenu from '../components/ui/ContextMenu.vue'
@@ -60,7 +60,14 @@ watch(
 const hasForm = computed(() => (entry.value ? formKindOf(entry.value.path) !== null : false))
 const body = computed(() => {
   const c = entry.value?.content ?? ''
-  return hasForm.value ? stripFrontmatter(c).replace(/^\n+/, '') : c
+  if (!hasForm.value) return c
+  const split = splitFrontmatter(c)
+  if (!split) return c
+  // R36-6（三十六轮）：只剥 fm/body 分隔的首个换行（mergeFm 恒产出 `---\n\n${body}`，
+  // splitFrontmatter 的 body 自带该分隔换行）——作者有意保留的正文前空行原样展示。
+  // 旧 `.replace(/^\n+/, '')` 把用户留白一并剥掉：补笔后 store 已记录前导空行，首次
+  // 后续键入走 mergeFm 剥前导 → body computed 变化 → CmHost 全量替换把前导回车拽回。
+  return split.body.replace(/^\n/, '')
 })
 function onBodyChange(next: string): void {
   const e = entry.value
@@ -69,7 +76,11 @@ function onBodyChange(next: string): void {
     doc.patch(e.docId, next)
     return
   }
-  const merged = mergeFm(e.content, next)
+  // R36-6（三十六轮）：编辑路径显式保前导——body computed 已只剥 fm/body 分隔首换行，
+  // next 的前导空行全部是用户输入；mergeFm 默认剥前导属「加载/粘贴等明确来源」的
+  // 写入口径（rewrite 接受 / refresh 对账走默认），此处关掉——否则补笔后首次后续键入
+  // store 前导被剥 → body 变化 → CmHost 全量替换把作者刻意留的正文前留白拽回
+  const merged = mergeFm(e.content, next, { stripLeading: false })
   if (merged !== e.content) {
     doc.patch(e.docId, merged)
     return
@@ -78,6 +89,8 @@ function onBodyChange(next: string): void {
   //——正文首行回车是 ghost（CM6 有行、store/磁盘永不记录，外部同步/切文档时视觉跳回）。
   // 按编辑器为准补笔：typed 前导换行作为正文真实内容原样落（fm 分隔照常单行收敛），
   // store 与 CM6 一致，重载后 ghost 不再消失（展示层剥前导空行的既有口径不变）。
+  // R36-6 起编辑路径不再剥前导，本分支仅剩兜底：merged === content 即 next 与当前
+  // body 逐字一致，此处 patch 的是同串（doc.patch 对同内容 no-op），无行为残留。
   if (next.startsWith('\n')) {
     const fm = splitFrontmatter(e.content)
     if (fm) doc.patch(e.docId, `---\n${fm.fmRaw}\n---\n\n${next}`)

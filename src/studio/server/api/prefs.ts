@@ -2,8 +2,9 @@
  * 偏好端点：
  *
  * 书级布局（.clwriting/prefs.json，跟随书）：
- *   GET  /api/books/:name/prefs             → { prefs: BookPrefs }
- *   PUT  /api/books/:name/prefs  body {prefs} → 写 .clwriting/prefs.json → {ok}
+ *   GET  /api/books/:name/prefs             → { prefs: BookPrefs, revision }
+ *   PUT  /api/books/:name/prefs  body {prefs, expectedRevision?}
+ *                                          → 写 .clwriting/prefs.json → {ok, revision}
  *
  * 全局编辑器偏好（userData/global.json，APP 级，跨书库共享）：
  *   GET  /api/library/prefs                 → { prefs: GlobalPrefs, revision }
@@ -15,6 +16,13 @@
  * 不带则放行（旧客户端/脚本向后兼容）。此前两面板同时保存后写静默覆盖先写，revision 形同虚设。
  * 其余读 global.json 的模块（global-defaults / 快照保留策略 / rag 配置）按键读取，
  * 忽略 revision 保留键，读路径不受影响。
+ *
+ * R36-24（三十六轮）：书级 prefs.json 同款乐观并发守卫（PUT /api/books/:name/prefs）——
+ * 此前无锁并发整份覆盖，与全局 prefs 409 恢复链防御不对称（仅布局类数据，按「轻修」
+ * 口径收口，参照全局 prefs 实现逐位对齐：revision 保留键 + revisionError + 409
+ * REVISION_CONFLICT + GET 从 prefs 剥离单独回传；expectedRevision 可选，旧客户端/
+ * 脚本不带则直通向后兼容）。当前唯一客户端（web 前端 workspace 保存链）尚未带
+ * expectedRevision——守卫契约先收口、冲突回归在，后续前端接线即可生效。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, dirname } from 'node:path'
@@ -60,17 +68,21 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
     handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     const r = prefsPath(params['name']!)
     if (!r.ok) return replyError(res, r.code, r.errCode, r.error)
-    if (!existsSync(r.path)) return reply(res, 200, { prefs: {} })
+    if (!existsSync(r.path)) return reply(res, 200, { prefs: {}, revision: 0 })
     try {
       const parsed: unknown = JSON.parse(readFileSync(r.path, 'utf8'))
       // L-S1（第八轮）：GET 侧形状校验——PUT 侧第七轮已防（坏形状不再扩散），此处对齐：
       // 数组/标量损坏形状原先裸 as 直接回显出网一轮，现回空对象
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        return reply(res, 200, { prefs: {} })
+        return reply(res, 200, { prefs: {}, revision: 0 })
       }
-      reply(res, 200, { prefs: parsed as BookPrefs })
+      // R36-24：revision 是服务端管理的保留键——从 prefs 剥离单独回传（不混入布局语义），
+      // 供客户端下次 PUT 带 expectedRevision；存量文件无该键视为 0（对齐全局 prefs 口径）
+      const raw = parsed as Record<string, unknown>
+      const { revision, ...prefs } = raw
+      reply(res, 200, { prefs: prefs as BookPrefs, revision: typeof revision === 'number' ? revision : 0 })
     } catch {
-      reply(res, 200, { prefs: {} })
+      reply(res, 200, { prefs: {}, revision: 0 })
     }
   },
   })
@@ -98,9 +110,16 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
           disk = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {}
         } catch { /* 文件损坏视作空：本次整体重写（与原直写行为一致） */ }
       }
+      // R36-24：内容版本乐观锁——revision 保留键（存量无 → 0，每次 PUT +1）比对
+      // expectedRevision（可选，缺失直通向后兼容），失配 409 — 参照全局 prefs 409 链
+      const current = typeof disk.revision === 'number' ? disk.revision : 0
+      const revErr = revisionError(body['expectedRevision'], current, '本书布局')
+      if (revErr) return replyError(res, 409, 'REVISION_CONFLICT', revErr)
+      const next = current + 1
       mkdirSync(dirname(r.path), { recursive: true })
-      atomicWriteFile(r.path, JSON.stringify({ ...disk, ...prefs }, null, 2) + '\n')
-      reply(res, 200, { ok: true })
+      // revision 由服务端计算覆盖（客户端传入的同名键不采信），随布局一起落盘
+      atomicWriteFile(r.path, JSON.stringify({ ...disk, ...prefs, revision: next }, null, 2) + '\n')
+      reply(res, 200, { ok: true, revision: next })
     } catch (e) {
       log.error('api', '写 prefs 失败', e)
       replyError(res, 500, 'IO_ERROR', '写 prefs 失败')
