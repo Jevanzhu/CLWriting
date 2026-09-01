@@ -12,7 +12,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest'
-import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 import { log } from '../../src/log/index.js'
 
 /** 注入开关（vi.hoisted 保证 vi.mock 工厂可见） */
@@ -49,8 +49,7 @@ beforeAll(async () => {
   mkdirSync(join(bookAbs, '写作', '正文'), { recursive: true })
   writeFileSync(join(bookAbs, 'book.yaml'), `spec_version: 1\nkind: long\nbook:\n  title: ${BOOK}\nhost: cc\n`, 'utf-8')
 
-  server = startServer({ port: 0, workDir, userDataPath: userDataDir })
-  await new Promise<void>((r) => server!.once('listening', r))
+  server = await startServerSafe({ port: 0, workDir, userDataPath: userDataDir })
   baseUrl = `http://127.0.0.1:${(server!.address() as AddressInfo).port}`
   const boot = await fetch(`${baseUrl}/api/boot`)
   token = ((await boot.json()) as { token: string }).token

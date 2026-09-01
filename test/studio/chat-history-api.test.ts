@@ -11,7 +11,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 import { openSessionStore } from '../../src/events/store.js'
 import { userMessageEvent, assistantMessageEvent, toolResultEvent } from '../../src/events/chat-bridge.js'
 
@@ -55,8 +55,7 @@ beforeAll(async () => {
   mkdirSync(join(bookRoot, '项目'), { recursive: true })
   writeFileSync(join(bookRoot, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 历史测试书\n  genre: 玄幻\nhost: cc\n')
 
-  server = startServer({ port: 0, workDir, userDataPath })
-  await new Promise<void>((r) => server!.once('listening', r))
+  server = await startServerSafe({ port: 0, workDir, userDataPath })
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
 })
 

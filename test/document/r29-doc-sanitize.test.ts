@@ -60,7 +60,11 @@ describe('C-3 / rename 消毒', () => {
 })
 
 describe('C-3 / 回收站落名消毒', () => {
-  it('登记路径含非法字符 → .trash 落名消毒，TrashEntry.trashedPath 记真实落位', async () => {
+  // win 适配（阶段 21 真机回归）：夹具要在盘上真实写出含 `?` 的文件名——POSIX 合法、
+  // Windows 物理不可能（夹具第一步 writeFileSync 即 ENOENT），「清单登记未消毒名且盘上
+  // 同名文件存在」这一前提在 win 上不可构造。skipIf 不修语义：消毒落名逻辑由纯函数
+  // 单测（format/filename）与本用例的 mac/Linux CI 腿覆盖。
+  it.skipIf(process.platform === 'win32')('登记路径含非法字符 → .trash 落名消毒，TrashEntry.trashedPath 记真实落位', async () => {
     // 手工造一个未消毒名的登记文档（POSIX 盘上合法 `?`；清单可篡改数据面不保证消毒）
     const dir = join(bookRoot, '笔记')
     mkdirSync(dir, { recursive: true })

@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 
 const BOOK = '保存测试书'
@@ -86,8 +86,7 @@ beforeAll(async () => {
       '{"id":"doc_ro","nodeType":"document","path":"定稿/摘要/0001.md","parentId":null}',
     ].join('\n') + '\n',
   )
-  server = startServer({ port: 0, workDir })
-  await new Promise<void>((r) => server!.once('listening', r))
+  server = await startServerSafe({ port: 0, workDir })
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const r = await fetch(`${baseUrl}/api/boot`)
   token = ((await r.json()) as { token: string }).token

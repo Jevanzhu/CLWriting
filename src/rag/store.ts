@@ -155,12 +155,25 @@ export function deleteRagDbFiles(bookRoot: string): void {
 /** 打开 per-book RAG 库（.cache/rag.db，书仓库内派生缓存区） */
 export function openRagDb(bookRoot: string): DatabaseSync {
   const db = new DatabaseSync(resolveRagDbPath(bookRoot))
-  // P2-2：WAL 模式 + 忙等 5s，防并发写入 SQLITE_BUSY
-  db.exec('PRAGMA journal_mode = WAL')
-  db.exec('PRAGMA busy_timeout = 5000')
-  createRagTables(db)
-  // A3（批 7）：norm 列惰性迁移 + 存量回填（幂等——列在/范数齐 → no-op）
-  ensureNormColumn(db)
+  // win 适配（阶段 21 真机回归）：初始化语句在损坏库（SQLITE_NOTADB 等）上抛时必须
+  // close 后再上抛——`new DatabaseSync` 对垃圾字节文件照样开成功（文件头惰性读取），
+  // 句柄若泄漏，win 上 unlink/rm 全撞 EBUSY/EPERM（deleteRagDbFiles 删库自愈链、
+  // 测试 afterEach 清理皆死）；posix unlink 虽可带句柄删除，fd 泄漏同样是伤。
+  try {
+    // P2-2：WAL 模式 + 忙等 5s，防并发写入 SQLITE_BUSY
+    db.exec('PRAGMA journal_mode = WAL')
+    db.exec('PRAGMA busy_timeout = 5000')
+    createRagTables(db)
+    // A3（批 7）：norm 列惰性迁移 + 存量回填（幂等——列在/范数齐 → no-op）
+    ensureNormColumn(db)
+  } catch (e) {
+    try {
+      db.close()
+    } catch {
+      /* 已被引擎自行关闭（如 NOTADB 后句柄失效）——尽力而为，原错误优先上抛 */
+    }
+    throw e
+  }
   return db
 }
 

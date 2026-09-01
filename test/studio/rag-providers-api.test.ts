@@ -11,7 +11,7 @@ import type { AddressInfo } from 'node:net'
 import { mkdtempSync, rmSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 
 // 桩 embed：embedFails 翻转成功/失败（test 路由探测用）
 let embedFails = false
@@ -33,8 +33,7 @@ function api(path: string, init?: RequestInit): Promise<{ status: number; json: 
 
 beforeAll(async () => {
   userData = mkdtempSync(join(tmpdir(), 'clwriting-rag-prov-'))
-  server = startServer({ port: 0, workDir: null, userDataPath: userData })
-  await new Promise<void>((r) => server!.once('listening', r))
+  server = await startServerSafe({ port: 0, workDir: null, userDataPath: userData })
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const boot = await fetch(`${baseUrl}/api/boot`)
   token = ((await boot.json()) as { token: string }).token

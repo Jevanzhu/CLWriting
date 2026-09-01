@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 // R75-D-P3b（批 D）：/tree-issues 已有 5s TTL 结果缓存——本测验证「verdict 落盘后立即可见」，
 // 注入 TTL=0 关缓存保住原即时语义（缓存三态由 r75-state-tree-issues-ttl.test.ts 覆盖）
 import { __setTreeIssuesTtlForTest } from '../../src/studio/server/api/check.js'
@@ -109,8 +109,7 @@ beforeAll(async () => {
   // tree-issues 后端跳过定稿态（final/published）；无 finalizedRevision → 树红点聚合仍机检
   //（去 git：不再用 git init + staged 制造 dirty；draft 态即被聚合覆盖）
 
-  server = startServer({ port: 0, workDir })
-  await new Promise<void>((r) => server!.once('listening', r))
+  server = await startServerSafe({ port: 0, workDir })
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const r = await fetch(`${baseUrl}/api/boot`)
   token = ((await r.json()) as { token: string }).token

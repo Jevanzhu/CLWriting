@@ -17,7 +17,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from 'node:
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest'
-import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 import { forgetRagBuildTask } from '../../src/studio/server/api/rag.js' // 删书/改名侧清理入口（books.ts 同款）
 
 const R26 = vi.hoisted(() => ({
@@ -86,8 +86,7 @@ beforeAll(async () => {
   writeFileSync(join(workDir, '.clwriting', 'rag.secret'), 'sk-r26-legacy-key\n', 'utf8')
   registerBook()
 
-  server = startServer({ port: 0, workDir })
-  await new Promise<void>((r) => server!.once('listening', r))
+  server = await startServerSafe({ port: 0, workDir })
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   token = ((await (await fetch(`${baseUrl}/api/boot`)).json()) as { token: string }).token
 })

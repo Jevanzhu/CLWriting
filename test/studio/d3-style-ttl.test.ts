@@ -12,7 +12,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 import { __setStyleScanTtlForTest } from '../../src/studio/server/api/health.js'
 import { __setStyleCorpusTtlForTest } from '../../src/studio/server/api/analysis.js'
 
@@ -80,8 +80,7 @@ beforeAll(async () => {
   // 假红；1000ms 给足裕量，到期侧睡 TTL+500 不受影响。
   __setStyleScanTtlForTest(1000)
   __setStyleCorpusTtlForTest(1000)
-  server = startServer({ port: 0, workDir })
-  await new Promise<void>((r) => server!.once('listening', r))
+  server = await startServerSafe({ port: 0, workDir })
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const r = await fetch(`${baseUrl}/api/boot`)
   token = ((await r.json()) as { token: string }).token

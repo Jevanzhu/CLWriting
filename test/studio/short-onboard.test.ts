@@ -9,10 +9,10 @@ import { mkdtempSync, rmSync, readFileSync, existsSync, mkdirSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 
 let workDir = ''
-let server: Awaited<ReturnType<typeof startServer>> | undefined
+let server: Awaited<ReturnType<typeof startServerSafe>> | undefined
 let baseUrl = ''
 let token = ''
 
@@ -20,8 +20,7 @@ beforeAll(async () => {
   workDir = mkdtempSync(join(tmpdir(), 'clw-short-onboard-'))
   mkdirSync(join(workDir, '.clwriting'), { recursive: true })
   writeFileSync(join(workDir, '.clwriting', 'books.jsonl'), '')
-  server = startServer({ port: 0, workDir })
-  await new Promise<void>((r) => server!.once('listening', r))
+  server = await startServerSafe({ port: 0, workDir })
   baseUrl = `http://127.0.0.1:${(server.address() as { port: number }).port}`
   const boot = (await (await fetch(`${baseUrl}/api/boot`)).json()) as { token: string }
   token = boot.token

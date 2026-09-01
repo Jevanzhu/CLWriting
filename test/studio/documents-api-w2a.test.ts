@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execSync } from 'node:child_process'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 import { __clearDocumentServices } from '../../src/studio/server/api/documents.js'
 
 const BOOK = '文件树测试书'
@@ -89,8 +89,7 @@ beforeAll(async () => {
   writeFileSync(join(bookRoot, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 文件树测试书\n  genre: 玄幻\nhost: cc\n')
   execSync('git init && git config user.email t@t.com && git config user.name t && git config commit.gpgsign false && git add -A && git commit -m init', { cwd: bookRoot, stdio: 'pipe' })
 
-  server = startServer({ port: 0, workDir })
-  await new Promise<void>((r) => server!.once('listening', r))
+  server = await startServerSafe({ port: 0, workDir })
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const r = await fetch(`${baseUrl}/api/boot`)
   token = ((await r.json()) as { token: string }).token

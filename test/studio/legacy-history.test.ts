@@ -11,7 +11,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 import { legacyId } from '../../src/document/stable-id.js'
 import { computeRevision } from '../../src/document/revision.js'
 
@@ -77,8 +77,7 @@ beforeAll(async () => {
   mkdirSync(join(bookRoot, '项目'), { recursive: true })
   writeFileSync(join(bookRoot, '项目', '文档清单.jsonl'), '{"version":1,"type":"header"}\n')
 
-  server = startServer({ port: 0, workDir })
-  await new Promise<void>((r) => server!.once('listening', r))
+  server = await startServerSafe({ port: 0, workDir })
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const r = await fetch(`${baseUrl}/api/boot`)
   token = ((await r.json()) as { token: string }).token

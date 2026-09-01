@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import type { ServerResponse } from 'node:http'
-import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 import { replyError } from '../../src/studio/server/http.js'
 import { orchestrationBusyFor } from '../../src/studio/server/api/task-gate.js'
 import { __setSelfHealRunningForTest } from '../../src/ai/orchestrate/self-heal.js'
@@ -57,8 +57,7 @@ beforeAll(async () => {
   writeFileSync(join(bookRoot, 'book.yaml'), ['spec_version: 1', 'book:', `  title: ${BOOK}`, '  genre: 玄幻'].join('\n') + '\n', 'utf-8')
   // R70-5：auto-write/chat 端点要求 ctx.userDataPath（缺省 400 NO_USERDATA 先于闸检查）
   mkdirSync(join(workDir, 'userData'), { recursive: true })
-  server = startServer({ port: 0, workDir, userDataPath: join(workDir, 'userData') })
-  await new Promise<void>((r) => server!.once('listening', r))
+  server = await startServerSafe({ port: 0, workDir, userDataPath: join(workDir, 'userData') })
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const boot = await (await fetch(`${baseUrl}/api/boot`)).json()
   token = boot.token
