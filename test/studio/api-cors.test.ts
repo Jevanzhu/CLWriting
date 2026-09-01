@@ -10,7 +10,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 
 let workDir = ''
 let server: http.Server | undefined
@@ -42,8 +42,7 @@ beforeAll(async () => {
   writeFileSync(join(bookRoot, 'book.yaml'), 'spec_version: 1\nbook:\n  title: 测试书\n  genre: 仙侠\nkind: long\nhost: cc\n')
   writeFileSync(join(bookRoot, '大纲', '总纲.md'), '# 总纲')
 
-  server = startServer({ port: 0, workDir })
-  await new Promise<void>((r) => server!.once('listening', r))
+  server = await startServerSafe({ port: 0, workDir })
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   // T2-3：GET 读端点要求 token（boot 取）；GET 行为断言（放行/ACAO）不受凭据影响
   const r = await fetch(`${baseUrl}/api/boot`)

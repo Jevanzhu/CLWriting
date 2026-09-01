@@ -8,7 +8,7 @@ import type { AddressInfo } from 'node:net'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 import { legacyId } from '../../src/document/stable-id.js'
 import { recordAiVersion } from '../../src/git/ai-track.js'
 import { git } from '../../src/git/exec.js'
@@ -52,8 +52,7 @@ beforeAll(async () => {
   // git 仓库（源1 轨迹用）
   git(['init'], bookRoot)
 
-  server = startServer({ port: 0, workDir })
-  await new Promise<void>((r) => server!.once('listening', r))
+  server = await startServerSafe({ port: 0, workDir })
   baseUrl = `http://127.0.0.1:${(server!.address() as AddressInfo).port}`
   const r = await fetch(`${baseUrl}/api/boot`)
   token = ((await r.json()) as { token: string }).token

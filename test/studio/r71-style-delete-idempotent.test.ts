@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from 'node:
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 
 const BOOK = 'R71删条目书'
 let workDir = ''
@@ -50,8 +50,7 @@ beforeAll(async () => {
     'spec_version: 1\nkind: long\nbook:\n  title: R71删条目书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
     'utf-8',
   )
-  server = startServer({ port: 0, workDir })
-  await new Promise<void>((r) => server!.once('listening', r))
+  server = await startServerSafe({ port: 0, workDir })
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const boot = await (await fetch(`${baseUrl}/api/boot`)).json()
   token = boot.token

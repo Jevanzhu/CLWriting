@@ -12,7 +12,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readdirSync,
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { snapshotBeforeOverwrite } from '../../src/studio/server/api/draft.js'
-import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 import { legacyId, generateDocId } from '../../src/document/stable-id.js'
 import { encodeDocDirName } from '../../src/document/version.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
@@ -124,8 +124,7 @@ beforeAll(async () => {
     'spec_version: 1\nkind: long\nbook:\n  title: 草稿测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
     'utf8',
   )
-  server = startServer({ port: 0, workDir })
-  await new Promise<void>((r) => server!.once('listening', r))
+  server = await startServerSafe({ port: 0, workDir })
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const r = await fetch(`${baseUrl}/api/boot`)
   token = ((await r.json()) as { token: string }).token

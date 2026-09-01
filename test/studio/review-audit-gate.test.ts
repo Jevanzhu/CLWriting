@@ -14,7 +14,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, it, expect } from 'vitest'
-import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 import { __setReviewRunning } from '../../src/studio/server/api/review.js'
 import { acquireTaskGate } from '../../src/studio/server/api/task-gate.js'
 
@@ -63,8 +63,7 @@ function req(method: string, path: string, body?: unknown): Promise<{ status: nu
 beforeAll(async () => {
   workDir = mkdtempSync(join(tmpdir(), 'clwriting-review-gate-'))
   userDataDir = mkdtempSync(join(tmpdir(), 'clwriting-review-gate-ud-'))
-  server = startServer({ port: 0, workDir, userDataPath: userDataDir })
-  await new Promise<void>((r) => server!.once('listening', r))
+  server = await startServerSafe({ port: 0, workDir, userDataPath: userDataDir })
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const boot = await fetch(`${baseUrl}/api/boot`)
   token = ((await boot.json()) as { token: string }).token

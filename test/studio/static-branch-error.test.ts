@@ -14,7 +14,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest'
-import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 
 const mode = { throw: 'sync' as 'sync' | 'after-end' | 'none' }
 
@@ -48,8 +48,7 @@ let unhandled: unknown[] = []
 beforeAll(async () => {
   root = mkdtempSync(join(tmpdir(), 'clwriting-static-catch-'))
   writeFileSync(join(root, 'index.html'), '<!doctype html><title>Studio</title>')
-  server = startServer({ port: 0, workDir: root, staticDir: root })
-  await new Promise<void>((r) => server!.once('listening', r))
+  server = await startServerSafe({ port: 0, workDir: root, staticDir: root })
   baseUrl = `http://127.0.0.1:${(server!.address() as AddressInfo).port}`
   unhandled = []
   process.on('unhandledRejection', recordUnhandled)

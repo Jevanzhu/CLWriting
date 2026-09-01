@@ -13,7 +13,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 
 let staticDir = ''
 let workDir = ''
@@ -31,8 +31,7 @@ beforeAll(async () => {
   writeFileSync(join(staticDir, 'index.html'), '<!doctype html><title>SPA</title>', 'utf-8')
   workDir = mkdtempSync(join(tmpdir(), 'clwriting-r35-api-work-'))
   mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  server = startServer({ port: 0, workDir, userDataPath: null, staticDir })
-  await new Promise<void>((r) => server!.once('listening', r))
+  server = await startServerSafe({ port: 0, workDir, userDataPath: null, staticDir })
   baseUrl = `http://127.0.0.1:${(server!.address() as AddressInfo).port}`
   const boot = await fetch(`${baseUrl}/api/boot`)
   token = ((await boot.json()) as { token: string }).token

@@ -19,7 +19,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
 
@@ -76,8 +76,7 @@ beforeAll(async () => {
     join(bookRoot, 'book.yaml'),
     'spec_version: 1\nkind: long\nbook:\n  title: 读稿守卫测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
   )
-  server = startServer({ port: 0, workDir })
-  await new Promise<void>((r) => server!.once('listening', r))
+  server = await startServerSafe({ port: 0, workDir })
   baseUrl = `http://127.0.0.1:${(server!.address() as AddressInfo).port}`
   const boot = (await (await fetch(`${baseUrl}/api/boot`)).json()) as { token: string }
   token = boot.token

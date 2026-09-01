@@ -12,7 +12,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 import { acquireTaskGate } from '../../src/studio/server/api/task-gate.js'
 
 const BOOK = '导出闸测试书'
@@ -53,8 +53,7 @@ beforeAll(async () => {
   mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
   writeFileSync(join(bookRoot, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 导出闸测试书\n  genre: 玄幻\nhost: cc\n')
   writeFileSync(join(bookRoot, '写作', '正文', '1-第一章.md'), '---\n章号: 1\n标题: 第一章\n---\n雪落在了城墙上。')
-  server = startServer({ port: 0, workDir })
-  await new Promise<void>((r) => server!.once('listening', r))
+  server = await startServerSafe({ port: 0, workDir })
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const r = await fetch(`${baseUrl}/api/boot`)
   token = ((await r.json()) as { token: string }).token

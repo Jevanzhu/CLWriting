@@ -15,7 +15,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 import { enter } from '../../src/state/state.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
@@ -105,8 +105,7 @@ beforeAll(async () => {
     'utf8',
   )
 
-  server = startServer({ port: 0, workDir, userDataPath })
-  await new Promise<void>((r) => server!.once('listening', r))
+  server = await startServerSafe({ port: 0, workDir, userDataPath })
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   // T2-3：GET 读端点要求 token（boot 取）
   const r = await fetch(`${baseUrl}/api/boot`)

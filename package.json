@@ -17,7 +17,7 @@
     "build:web": "npm --prefix src/studio/web-next run build",
     "build:all": "tsup && npm --prefix src/studio/web-next run build",
     "prepack": "npm run build:all",
-    "dev": "tsup --watch",
+    "dev": "tsup --watch src",
     "dev:api": "npx tsx scripts/dev-api.ts",
     "generate:catalog": "tsx scripts/generate-model-catalog.ts",
     "dev:app": "cross-env CLW_DEV_UI=1 node node_modules/electron/cli.js .",

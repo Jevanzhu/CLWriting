@@ -14,7 +14,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, symlinkSync, readFileSyn
 import { tmpdir } from 'node:os'
 import { join, dirname, basename, sep } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 import { drainFilePutChainsUnder, __filePutChainKeysForTest } from '../../src/studio/server/api/files.js'
 
 const BOOK = 'R71排空书'
@@ -55,8 +55,7 @@ beforeAll(async () => {
   const bookRoot = join(realRoot, BOOK)
   mkdirSync(join(bookRoot, '设定'), { recursive: true })
   writeFileSync(join(bookRoot, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: R71排空书\n  genre: 玄幻\nhost: cc\n')
-  server = startServer({ port: 0, workDir: linkRoot })
-  await new Promise<void>((r) => server!.once('listening', r))
+  server = await startServerSafe({ port: 0, workDir: linkRoot })
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const boot = await (await fetch(`${baseUrl}/api/boot`)).json()
   token = boot.token

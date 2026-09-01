@@ -13,7 +13,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, readdirSyn
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 
 const BOOK = 'R74细纲快照书'
 const OLD_CONTENT = '# 作者手改版细纲\n\n本章改成双线并行，别按旧纲写。'
@@ -74,8 +74,7 @@ beforeAll(async () => {
     'spec_version: 1\nkind: long\nbook:\n  title: R74细纲快照书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
     'utf-8',
   )
-  server = startServer({ port: 0, workDir, userDataPath })
-  await new Promise<void>((r) => server!.once('listening', r))
+  server = await startServerSafe({ port: 0, workDir, userDataPath })
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const boot = await (await fetch(`${baseUrl}/api/boot`)).json()
   token = boot.token

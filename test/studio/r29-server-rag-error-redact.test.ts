@@ -16,7 +16,7 @@ import type { AddressInfo } from 'node:net'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 
 // buildIndex 桩：reject 错误夹带两种凭据形态（query param key + 裸 sk- key）——
 // 修复前两者原文明文进 lastResult.error；修复后 redactSecret 入库前清洗
@@ -72,8 +72,7 @@ beforeAll(async () => {
     `spec_version: 1\nkind: long\nbook:\n  title: ${BOOK}\n  genre: 玄幻\nhost: cc\n`,
     'utf8',
   )
-  server = startServer({ port: 0, workDir, userDataPath: userData })
-  await new Promise<void>((r) => server!.once('listening', r))
+  server = await startServerSafe({ port: 0, workDir, userDataPath: userData })
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const boot = await fetch(`${baseUrl}/api/boot`)
   token = ((await boot.json()) as { token: string }).token

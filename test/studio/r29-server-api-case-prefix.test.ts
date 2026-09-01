@@ -12,7 +12,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 
 const BOOK = 'R29大写前缀书'
 let workDir = ''
@@ -61,8 +61,7 @@ beforeAll(async () => {
   // 前端 dist 桩：只有 index.html——SPA fallback 可观测（miss 路径回 200 HTML）
   staticDir = mkdtempSync(join(tmpdir(), 'clw-r29-api-case-dist-'))
   writeFileSync(join(staticDir, 'index.html'), '<!doctype html><html><body>SPA</body></html>')
-  server = startServer({ port: 0, workDir, staticDir })
-  await new Promise<void>((r) => server!.once('listening', r))
+  server = await startServerSafe({ port: 0, workDir, staticDir })
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const r = await fetch(`${baseUrl}/api/boot`)
   token = ((await r.json()) as { token: string }).token

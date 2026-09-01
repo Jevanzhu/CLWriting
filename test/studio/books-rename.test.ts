@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 import { __setSpawnRunning } from '../../src/studio/server/api/stream.js' // R26-58：spawn 闸测试夹具
 import { acquireTaskGate } from '../../src/studio/server/api/task-gate.js' // R26-58：任务闸真实占位
 
@@ -64,8 +64,7 @@ beforeAll(async () => {
   mkdirSync(otherRoot, { recursive: true })
   writeFileSync(join(otherRoot, 'book.yaml'), bookYaml('别的书'))
 
-  server = startServer({ port: 0, workDir })
-  await new Promise<void>((r) => server!.once('listening', r))
+  server = await startServerSafe({ port: 0, workDir })
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const boot = await fetch(`${baseUrl}/api/boot`)
   token = ((await boot.json()) as { token: string }).token

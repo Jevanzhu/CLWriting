@@ -17,7 +17,7 @@ import type { AddressInfo } from 'node:net'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 import * as providerIndex from '../../src/ai/provider/index.js'
 
 // saveProviders 桩（双态可控）；loadProviders 等其余导出保持真实现。
@@ -90,8 +90,7 @@ function seedRagProvider(id: string): void {
 
 beforeAll(async () => {
   userData = mkdtempSync(join(tmpdir(), 'clw-r29-prov-write-'))
-  server = startServer({ port: 0, workDir: null, userDataPath: userData })
-  await new Promise<void>((r) => server!.once('listening', r))
+  server = await startServerSafe({ port: 0, workDir: null, userDataPath: userData })
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const boot = await fetch(`${baseUrl}/api/boot`)
   token = ((await boot.json()) as { token: string }).token

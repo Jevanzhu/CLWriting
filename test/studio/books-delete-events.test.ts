@@ -11,7 +11,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from 'node:
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
 import { registerBackgroundTask } from '../../src/ai/orchestrate/background.js'
 
@@ -68,8 +68,7 @@ beforeAll(async () => {
   store!.appendEvents(wsSid, [{ type: 'session/start', data: { reason: 'workspace' } }])
   store!.close()
 
-  server = startServer({ port: 0, workDir, userDataPath: userDataDir })
-  await new Promise<void>((r) => server!.once('listening', r))
+  server = await startServerSafe({ port: 0, workDir, userDataPath: userDataDir })
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const boot = await fetch(`${baseUrl}/api/boot`)
   token = ((await boot.json()) as { token: string }).token

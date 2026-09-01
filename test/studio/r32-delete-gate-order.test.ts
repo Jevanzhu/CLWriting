@@ -14,7 +14,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, beforeEach, describe, it, expect, vi } from 'vitest'
-import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 import { acquireTaskGate } from '../../src/studio/server/api/task-gate.js'
 import { abortChat } from '../../src/ai/orchestrate/chat.js'
 import { abortSelfHeal } from '../../src/ai/orchestrate/self-heal.js'
@@ -61,8 +61,7 @@ beforeAll(async () => {
   const bookRoot = join(workDir, BOOK)
   mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
   writeFileSync(join(bookRoot, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 删书闸序测试书\nhost: cc\n', 'utf-8')
-  server = startServer({ port: 0, workDir, userDataPath })
-  await new Promise<void>((r) => server!.once('listening', r))
+  server = await startServerSafe({ port: 0, workDir, userDataPath })
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const boot = await fetch(`${baseUrl}/api/boot`)
   token = ((await boot.json()) as { token: string }).token

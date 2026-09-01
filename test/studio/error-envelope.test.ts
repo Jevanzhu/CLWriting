@@ -14,6 +14,7 @@ import type { ServerResponse } from 'node:http'
 import { replyError } from '../../src/studio/server/http.js'
 import { resolveDocEntry } from '../../src/studio/server/book-context.js'
 import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
 
@@ -62,8 +63,7 @@ describe('resolveDocEntry（hh §八-12 docId 样板公共化）', () => {
 
 describe('SSE 错误路径走 JSON 信封（不再裸文本）', () => {
   it('无工作目录 → 400 {code: NO_WORKDIR}（fetch 可读体判别；R64-27 鉴权前移须带 token 到达）', async () => {
-    server = startServer({ port: 0, workDir: null, studioToken: 'envelope-test-token' })
-    await new Promise<void>((r) => server!.once('listening', r))
+    server = await startServerSafe({ port: 0, workDir: null, studioToken: 'envelope-test-token' })
     baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
 
     // R64-27（十二轮）：SSE 鉴权前移——无凭据先吃 403，带 token 才到达 workDir 判定

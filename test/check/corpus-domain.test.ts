@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url'
 
 // R62-58：仓库根按 import.meta.url 解析（此前 execSync 用 cwd 相对脚本路径，非根目录跑即 ENOENT）
 const REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url))
-import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
 import { deriveLeakKeywords } from '../../src/check/leak-derive.js'
 import { cutExcerpt } from '../../src/studio/server/api/check.js'
@@ -128,8 +128,7 @@ describe('B1 误报标记端点', () => {
     const targetRoot = join(workDir, '语料测试书')
     const ud = tmpDir('clw-fp-ud-')
 
-    const server = startServer({ port: 0, workDir, userDataPath: ud })
-    await new Promise<void>((r) => server.once('listening', r))
+    const server = await startServerSafe({ port: 0, workDir, userDataPath: ud })
     const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
     const token = ((await (await fetch(`${base}/api/boot`)).json()) as { token: string }).token
     try {

@@ -8,7 +8,7 @@ import http from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { rmSync } from 'node:fs'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 import { makeDualTrackWorkdir, LONG_BOOK, SHORT_BOOK } from './fixtures.js'
 
 let workDir = ''
@@ -17,8 +17,7 @@ let baseUrl = ''
 
 beforeAll(async () => {
   workDir = makeDualTrackWorkdir()
-  server = startServer({ port: 0, workDir })
-  await new Promise<void>((r) => server!.once('listening', r))
+  server = await startServerSafe({ port: 0, workDir })
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
 })
 

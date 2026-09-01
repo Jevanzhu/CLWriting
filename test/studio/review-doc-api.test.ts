@@ -10,7 +10,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
 
@@ -92,8 +92,7 @@ beforeAll(async () => {
   // global→fallback 覆盖）——预算用例改经 global.json 驱动，server 须传 userDataPath
   userDataDir = mkdtempSync(join(tmpdir(), 'clwriting-review-doc-ud-'))
   writeFileSync(join(userDataDir, 'global.json'), '{}', 'utf8')
-  server = startServer({ port: 0, workDir, userDataPath: userDataDir })
-  await new Promise<void>((r) => server!.once('listening', r))
+  server = await startServerSafe({ port: 0, workDir, userDataPath: userDataDir })
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const r = await fetch(`${baseUrl}/api/boot`)
   token = ((await r.json()) as { token: string }).token

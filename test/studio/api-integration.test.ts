@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 import { readBooks } from '../../src/install/books.js'
 
 const BOOK = '测试书'
@@ -50,8 +51,7 @@ beforeAll(async () => {
     '---\n章号: 1\n标题: 初入宗门\n---\n\n林远踏入宗门。',
   )
 
-  server = startServer({ port: 0, workDir })
-  await new Promise<void>((r) => server!.once('listening', r))
+  server = await startServerSafe({ port: 0, workDir })
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const bootR = await fetch(`${baseUrl}/api/boot`)
   token = ((await bootR.json()) as { token: string }).token

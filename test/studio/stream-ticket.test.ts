@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 import { createStreamTicketStore, type StreamTicketStore } from '../../src/studio/server/api/stream-ticket.js'
 
 const BOOK = '凭据测试书'
@@ -101,8 +102,7 @@ beforeAll(async () => {
     join(bookRoot, 'book.yaml'),
     'spec_version: 1\nkind: long\nbook:\n  title: 凭据测试书\n  genre: 玄幻\nhost: cc\n',
   )
-  server = startServer({ port: 0, workDir, userDataPath })
-  await new Promise<void>((r) => server!.once('listening', r))
+  server = await startServerSafe({ port: 0, workDir, userDataPath })
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const r = await fetch(`${baseUrl}/api/boot`)
   token = ((await r.json()) as { token: string }).token

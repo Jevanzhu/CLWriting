@@ -94,10 +94,12 @@ npm run dev:api            # 只起 Studio API :7878（配合 dev:app / dev:web�
 npm run dev:web            # Vite HMR :5173（配合 dev:api）
 npm run dev:app            # 桌面应用（HMR；需先有 dev:api，见「安装和上手」）
 npm run dev:electron       # 构建后起 Electron（非 HMR）
-npm run build:desktop      # electron-builder 打包 dmg
+npm run build:desktop      # electron-builder 打包（mac 出 dmg / win 出 NSIS exe）
 npm run lint               # ESLint（JS/MJS 最小门：no-unused-vars / no-undef）
 npm run check:counts       # 核对 README 里的测试数和实际是否一致
 ```
+
+Windows 在 cmd/PowerShell 里直接跑同一套 npm 命令即可（环境变量写法已由 cross-env 统一，脚本无 POSIX 专属语法；`dev:app` / `dev:electron` 走 Electron 官方入口，工作区路径含 `^` 等特殊字符也正常）。Node 建议 24 或 26 LTS。
 
 前端子包 `src/studio/web-next` 有自己的 `package.json` 和二级 `node_modules`（CodeMirror 等钉在那里，根目录的 `npm install` 不会带下来）。新克隆后要先补装上面第一行（CI 同款命令；本地改前端依赖时把 `ci` 换成 `install`）——不装的话 `npm test` 会在打字机相关用例上报模块解析失败，`build:web` / `dev:web` 也起不来。
 

@@ -13,7 +13,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, chmodSync } from 'node:f
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 
 const GOOD = '正常书'
 const BAD = '坏书'
@@ -37,8 +37,7 @@ beforeAll(async () => {
   mkdirSync(join(workDir, BAD, '写作', '草稿'), { recursive: true })
   chmodSync(join(workDir, BAD, '写作', '草稿'), 0o000)
 
-  server = startServer({ port: 0, workDir, userDataPath })
-  await new Promise<void>((r) => server!.once('listening', r))
+  server = await startServerSafe({ port: 0, workDir, userDataPath })
 })
 
 afterAll(async () => {
