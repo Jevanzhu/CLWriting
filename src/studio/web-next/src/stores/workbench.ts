@@ -80,7 +80,7 @@ let droppedLogCount = 0
 export const useWorkbenchStore = defineStore('workbench', () => {
   /** 事件日志（按序追加，右栏事件流消费）。 */
   let seq = 0 // R33-87：入队序号（稳定 key）
-const log = ref<SseEvent[]>([])
+  const log = ref<SseEvent[]>([])
   /** 生成正文聚合（text 事件拼接，草稿保存源）。init/role_spawn 清空（新生成）。 */
   const textOut = ref('')
   /** 生成中（init/role_spawn→true，done/interrupted/error→false）。 */

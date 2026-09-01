@@ -8,6 +8,7 @@
  */
 import { join } from 'node:path'
 import { readdirSync, readFileSync, existsSync, statSync, realpathSync } from 'node:fs'
+import { readdir, readFile, stat, realpath } from 'node:fs/promises'
 import { isWithinRoot } from '../fs/safe-path.js'
 import { finalizedPathSet } from '../document/manifest.js'
 import { clipByCodePoints } from './summary.js'
@@ -100,13 +101,7 @@ export function searchBook(bookRoot: string, q: string, scope?: string): SearchO
 }
 
 /** 行级 includes 匹配（大小写不敏感），返回匹配行（行号 + 截断文本）。 */
-function searchFile(fp: string, lower: string): SearchMatch[] {
-  let text: string
-  try {
-    text = readFileSync(fp, 'utf-8')
-  } catch {
-    return []
-  }
+function matchLines(text: string, lower: string): SearchMatch[] {
   const out: SearchMatch[] = []
   const lines = text.split('\n')
   for (let i = 0; i < lines.length; i++) {
@@ -117,6 +112,17 @@ function searchFile(fp: string, lower: string): SearchMatch[] {
     }
   }
   return out
+}
+
+/** 行级 includes 匹配（大小写不敏感）+ 读文件；读失败（消失/权限）按无命中降级。 */
+function searchFile(fp: string, lower: string): SearchMatch[] {
+  let text: string
+  try {
+    text = readFileSync(fp, 'utf-8')
+  } catch {
+    return []
+  }
+  return matchLines(text, lower)
 }
 
 /**
@@ -164,6 +170,96 @@ function walkMd(dir: string, bookRoot: string): string[] {
     }
   }
   walk(dir)
+  return out
+}
+
+/**
+ * searchBook 的异步孪生（R35-7，三十五轮）——HTTP 全书搜索端点专用：全链 fs.promises
+ * （readdir/readFile/stat/realpath，realpath 语义逐位保留），扫描期间事件循环可响应
+ * SSE 心跳/保存等其他请求（同步版 readFileSync/walkMd 全程阻塞，端点上不再使用）。
+ * 匹配/排序/截断/排除目录/symlink 纪律与同步版逐位同源（matchLines 单源共享）；
+ * 同步版保留给 AI book_search 工具（子进程面，无事件循环冻结问题），不复制逻辑漂移。
+ */
+export async function searchBookAsync(bookRoot: string, q: string, scope?: string): Promise<SearchOutcome> {
+  // 归一/过滤/截断口径与 searchBook 逐位对齐（见同步版各行注释，此处不重复）
+  const root = normalizeBookRoot(bookRoot)
+  const query = (q ?? '').trim()
+  if (!query) return { results: [] }
+  const dirs = SEARCH_SCOPE_DIRS[scope ?? 'all'] ?? SEARCH_ALL_DIRS
+  const finalizedPaths = scope === '定稿' ? finalizedPathSet(root) : null
+  const lower = query.toLowerCase()
+  const results: SearchHit[] = []
+  for (const dir of dirs) {
+    const abs = join(root, dir)
+    if (!existsSync(abs)) continue
+    // 顺序 await（非并发池）：保住同步版「排序后按序截断」的确定性口径
+    for (const fp of await walkMdAsync(abs, root)) {
+      const matches = await searchFileAsync(fp, lower)
+      if (matches.length === 0) continue
+      const rel = fp.slice(root.length + 1).split('\\').join('/')
+      if (finalizedPaths !== null && dir === '写作/正文' && !finalizedPaths.has(rel)) continue
+      results.push({
+        path: rel,
+        matches: matches.slice(0, MAX_MATCHES_PER_FILE),
+        ...(matches.length > MAX_MATCHES_PER_FILE ? { hasMore: true } : {}),
+      })
+      if (results.length >= MAX_RESULTS) {
+        return { results, truncated: true }
+      }
+    }
+  }
+  return { results }
+}
+
+/** searchFile 异步孪生：读失败（消失/权限）同款按无命中降级。 */
+async function searchFileAsync(fp: string, lower: string): Promise<SearchMatch[]> {
+  let text: string
+  try {
+    text = await readFile(fp, 'utf-8')
+  } catch {
+    return []
+  }
+  return matchLines(text, lower)
+}
+
+/**
+ * walkMd 异步孪生：排除点前缀/node_modules/导出、realpath 环剪枝、越界 symlink
+ * fail-closed、显式排序——纪律逐位同源（见同步版注释）。
+ */
+async function walkMdAsync(dir: string, bookRoot: string): Promise<string[]> {
+  const out: string[] = []
+  const visited = new Set<string>()
+  const walk = async (d: string): Promise<void> => {
+    let real: string
+    try {
+      real = await realpath(d)
+    } catch {
+      return
+    }
+    if (visited.has(real)) return
+    visited.add(real)
+    let entries: string[]
+    try {
+      entries = await readdir(d)
+    } catch {
+      return
+    }
+    entries.sort()
+    for (const name of entries) {
+      if (name.startsWith('.') || name === 'node_modules' || name === '导出') continue
+      const p = join(d, name)
+      let s
+      try {
+        s = await stat(p)
+      } catch {
+        continue
+      }
+      if (!isWithinRoot(bookRoot, p)) continue // 越界 symlink 跳过（fail-closed）
+      if (s.isDirectory()) await walk(p)
+      else if (name.endsWith('.md')) out.push(p)
+    }
+  }
+  await walk(dir)
   return out
 }
 

@@ -343,9 +343,22 @@ export const useDocStore = defineStore('doc', () => {
   /** E-4（二十九轮）：树刷新后的 clean 缓存新鲜度对账（tree store load 成功处调用）——
    *  打开时记录的树版本（treeRev）与当前树版本不一致、且非 dirty/conflict/saving 的
    *  缓存项静默重拉，内容对齐磁盘（外部改动的冲突不必拖到保存才暴露）。LRU/驱逐语义
-   *  不变：命中项就地更新、不重排 Map 迭代序（重排会扰动 F7 的访问序 LRU）。 */
+   *  不变：命中项就地更新、不重排 Map 迭代序（重排会扰动 F7 的访问序 LRU）。
+   *  R35-32：路径对账——他窗 rename/move 后树已刷新而缓存 entry 仍记旧路径，按 docId
+   *  命中新节点即回填 path/name/role/mode：否则本次 refresh 按旧路径 404 静默失败、
+   *  后续保存的树字数局部更新 updateWordCount(旧path) 永远 no-op。 */
   async function syncCleanWithTree(book: string, curRev: string): Promise<void> {
     if (!curRev || bookName.value !== book) return
+    const tree = useTreeStore()
+    for (const e of docs.value.values()) {
+      const node = tree.byDocId.get(e.docId)
+      if (node && node.path !== e.path) {
+        e.path = node.path
+        e.name = node.name
+        e.role = node.role
+        e.mode = modeOf(node.path)
+      }
+    }
     const stale = [...docs.value.values()].filter(
       (e) => e.treeRev !== curRev && !e.dirty && !e.conflict && !e.saving,
     )

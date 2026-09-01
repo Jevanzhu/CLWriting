@@ -364,6 +364,23 @@ export function createOpenAIResponsesProvider(
                 case 'response.completed': {
                   terminal = 'completed'
                   const r = event.response
+                  // R35-18：伪流式网关（接受 stream 只回终态、delta 事件全缺）——completed
+                  // 的 message item 是唯一产出，回填 text（一次性 yield）使该形态可用；
+                  // 有 delta 流出时不回填（防重复增量），回填后仍无产出走下方空产出报错不变
+                  if (outText.length === 0) {
+                    const backfill: string[] = []
+                    for (const it of r.output ?? []) {
+                      if (it.type !== 'message') continue
+                      for (const part of it.content ?? []) {
+                        if (part.type === 'output_text' && part.text) backfill.push(part.text)
+                      }
+                    }
+                    if (backfill.length > 0) {
+                      const full = backfill.join('')
+                      outText.push(full) // R74-1：产出累计口径一致
+                      yield { type: 'text', delta: full }
+                    }
+                  }
                   // R1 判空（EMPTY_RESPONSE 语义，学 dsh）：completed 但无 message/function_call
                   // 产出且未 yield 过 tool → 退化完成判错不判成功。判据限定 output item 类型，
                   // probe（「回复OK」）与结构化产出（message item）不受影响。

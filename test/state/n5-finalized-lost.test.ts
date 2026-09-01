@@ -13,10 +13,10 @@ import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
 
 const FAST_CHAPTER_FIXTURE = { commitEach: false }
 
-test('N5: 已定稿章文件被外部删除 → 态 1（finalizedLost issue，先于态 3/7 判定）', () => {
+test('N5: 已定稿章文件被外部删除 → 态 1（finalizedLost issue，先于态 3/7 判定）', async () => {
   const root = makeGitBookWithChapters(3, FAST_CHAPTER_FIXTURE)
   unlinkSync(join(root, '写作', '正文', '0002-第2章.md'))
-  const d = detectState(root, DEFAULT_CONFIG)
+  const d = await detectState(root, DEFAULT_CONFIG)
   expect(d.state).toBe(1)
   if (d.state !== 1) return
   const lost = d.issues.find((i) => i.kind === 'finalizedLost')
@@ -29,7 +29,7 @@ test('N5: 已定稿章文件被外部删除 → 态 1（finalizedLost issue，�
   rmSync(root, { recursive: true, force: true })
 })
 
-test('N5: 定稿条目 path 被篡改为越出书仓库 → 同样报 finalizedLost（不静默）', () => {
+test('N5: 定稿条目 path 被篡改为越出书仓库 → 同样报 finalizedLost（不静默）', async () => {
   const root = makeGitBookWithChapters(2, FAST_CHAPTER_FIXTURE)
   // 篡改清单：某定稿条目 path 指向书仓库外（safeManifestPath 拒 → abs===null 分支）
   const manifestPath = join(root, '项目', '文档清单.jsonl')
@@ -43,16 +43,16 @@ test('N5: 定稿条目 path 被篡改为越出书仓库 → 同样报 finalizedL
     return l
   })
   writeFileSync(manifestPath, rewritten.join('\n') + '\n', 'utf8')
-  const d = detectState(root, DEFAULT_CONFIG)
+  const d = await detectState(root, DEFAULT_CONFIG)
   expect(d.state).toBe(1)
   if (d.state !== 1) return
   expect(d.issues.some((i) => i.kind === 'finalizedLost' && i.files?.includes('写作/正文/../../../outside.md'))).toBe(true)
   rmSync(root, { recursive: true, force: true })
 })
 
-test('N5: 全部定稿文件在盘 → 无 finalizedLost（不误报）', () => {
+test('N5: 全部定稿文件在盘 → 无 finalizedLost（不误报）', async () => {
   const root = makeGitBookWithChapters(3, FAST_CHAPTER_FIXTURE)
-  const d = detectState(root, DEFAULT_CONFIG)
+  const d = await detectState(root, DEFAULT_CONFIG)
   // R26-111（二十六轮）：原 if/else（state===1 才验「无 finalizedLost」，否则放行
   // [2,3,4,5,7]）在健康书上整体空转——finalizedLost 只在态 1（健康检查，文件丢失
   // 才进）出现，全在盘的健康书恒为态 7（起草新章，无 issues 字段），if 分支永不

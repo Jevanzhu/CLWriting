@@ -10,6 +10,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { rmSync, renameSync, existsSync, readdirSync, readFileSync, statSync, mkdirSync } from 'node:fs'
+import { rm } from 'node:fs/promises'
 import { join, basename, dirname } from 'node:path'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
@@ -54,9 +55,11 @@ import { forgetLearnCache } from './knowledge.js'
 // R75-D-P3b（批 D）：/state 与 /tree-issues 两个书键 TTL 结果缓存同挂点收编
 import { forgetStateCache } from './state.js'
 import { forgetTreeIssuesCache } from './check.js'
+// R35-7（三十五轮）：全书搜索 TTL 结果缓存同挂点收编
+import { forgetSearchCache } from './search.js'
 import { log } from '../../../log/index.js'
 
-/** R67-15：删书/改名共用的书键缓存清理（TTL 结果缓存四件——内存卫生，防删书后
+/** R67-15：删书/改名共用的书键缓存清理（书键 TTL 结果缓存族——内存卫生，防删书后
  *  5s 内残留概览/体检数据被同名重建书读到）。 */
 function forgetBookKeyedCaches(bookRoot: string): void {
   forgetStyleScanCache(bookRoot)
@@ -66,6 +69,8 @@ function forgetBookKeyedCaches(bookRoot: string): void {
   // R75-D-P3b：判态/树红点缓存同族清理
   forgetStateCache(bookRoot)
   forgetTreeIssuesCache(bookRoot)
+  // R35-7：全书搜索缓存同族清理
+  forgetSearchCache(bookRoot)
 }
 
 interface BookCtx {
@@ -82,6 +87,29 @@ interface BookCtx {
 }
 
 let initialBook: string | undefined
+
+// R73-34（二十一轮 D-1）：删书墓地——workDir 根下点前缀目录（与 .journal/.旧版 同族，
+// 书架扫描与启动 repair 不触达），同盘 rename 保证原子性
+const DELETE_GRAVEYARD_DIR = '.删书墓地'
+
+// R35-6（三十五轮）：墓地清理移出请求路径——全部书共享本服务进程（SSE/心跳/保存），
+// 大书含 .git 的同步递归 rm 可达秒级事件循环冻结。热路径只保留原子改名（改完即可响应），
+// rm 走 fs.promises 后台执行；失败仅留痕（数据在墓地可手工恢复，删除语义不变）。
+// 本仓无墓地自动清扫兜底（启动/healthCheck 均不扫 .删书墓地），残留靠错误日志发现。
+const defaultGraveyardCleanup = (graveAbs: string): Promise<void> => rm(graveAbs, { recursive: true, force: true })
+let graveyardCleanup = defaultGraveyardCleanup
+/** R35-6：在途墓地清理句柄——handler 同步注册、响应先行不等 rm；测试等待钩子据此收口。 */
+const pendingGraveyardCleanups = new Set<Promise<void>>()
+
+/** R35-6：测试注入口（null 还原默认；生产零调用）——注入受控清理以断言端点不被 rm 阻塞。 */
+export function __setGraveyardCleanupForTest(fn: ((graveAbs: string) => Promise<void>) | null): void {
+  graveyardCleanup = fn ?? defaultGraveyardCleanup
+}
+
+/** R35-6：等待全部在途墓地后台清理收尾（含失败）——测试确定性断言用，生产零调用。 */
+export function __waitForGraveyardCleanupForTest(): Promise<void> {
+  return Promise.allSettled([...pendingGraveyardCleanups]).then(() => {})
+}
 
 /** #7：等被 abort 的在途编排（chat / self-heal / M-2 后台任务）真正收尾。abort 只是异步
  * 信号——straggler 编排要跑到下一个 await 点才解旋，其收尾写库/flush 若在关库或目录搬移
@@ -224,11 +252,7 @@ export function registerBookRoutes(ctx: BookCtx): void {
   },
   })
 
-  // R73-34（二十一轮 D-1）：删书墓地——workDir 根下点前缀目录（与 .journal/.旧版 同族，
-  // 书架扫描与启动 repair 不触达），同盘 rename 保证原子性
-  const DELETE_GRAVEYARD_DIR = '.删书墓地'
-
-  // 删书（物理删除：rmSync 书目录 + 移 books.jsonl 登记 + 清 active 指针）
+  // 删书（物理删除：书目录原子改名入墓地 + 后台清理 + 移 books.jsonl 登记 + 清 active 指针）
   defineRoute('books.delete', {
     method: 'DELETE',
     path: '/api/books/:name',
@@ -287,7 +311,7 @@ export function registerBookRoutes(ctx: BookCtx): void {
     if (recheck) {
       return replyError(res, 409, 'BUSY', recheck.error)
     }
-      // 删书目录（递归，含 git 历史）
+      // 删书目录：整目录原子改名入墓地（含 git 历史）；物理清理移交后台（R35-6）
       const bookAbs = join(ctx.workDir, entry.path)
       // symlink/越出校验：防 entry.path 中间组件是符号链接或 .. → rmSync 删到书库外。
       // 批 6 统一：resolveWithinRoot（防穿越 + symlink 双侧 realpath；书路径 = workDir 自身
@@ -308,11 +332,15 @@ export function registerBookRoutes(ctx: BookCtx): void {
         replyError(res, 500, 'IO_ERROR', '删除书目录失败（书未受影响，可重试）')
         return
       }
-      try {
-        rmSync(graveAbs, { recursive: true, force: true })
-      } catch (e) {
-        log.error('api', `删书墓地清理失败（${name}，留档待手工处理：${graveAbs}）`, e)
-      }
+      // R35-6：墓地清理后台执行（不 await——响应不被递归 rm 阻塞）；在途句柄先注册再挂
+      // finally（防等待钩子读到已删集合漏等），失败仅留痕
+      const cleanupDone = graveyardCleanup(graveAbs).catch((e) => {
+        log.error('api', `删书墓地后台清理失败（${name}，留档待手工处理：${graveAbs}）`, e)
+      })
+      pendingGraveyardCleanups.add(cleanupDone)
+      void cleanupDone.finally(() => {
+        pendingGraveyardCleanups.delete(cleanupDone)
+      })
     // 移 books.jsonl 登记 + 清活动书指针（残留清偿批：同步 removeBookEntry 的
     // Atomics.wait 锁等待改异步孪生——mutator 族服务面落点至此归零）
     await removeBookEntryAsync(ctx.workDir, name)

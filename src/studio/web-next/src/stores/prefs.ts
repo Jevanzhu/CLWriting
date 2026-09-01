@@ -142,6 +142,9 @@ export const usePrefsStore = defineStore('prefs', () => {
   let persistTimer: ReturnType<typeof setTimeout> | null = null
   /** R32-27：在途写回句柄（单飞排队判据；finally 复位） */
   let putInFlight: Promise<void> | null = null
+  /** R35-8：最近一次成功落盘的服务端快照（PUT 的入参快照）——409 恢复时判定
+   *  「本窗已改未落盘字段」的基线（当前 refs ≠ 此快照的字段即本窗脏字段）。 */
+  let lastPersisted: GlobalPrefs | null = null
 
   /** 并发修订号（GG-P2-7）：PUT /api/library/prefs 的 expectedRevision 依据。
    *  GET/写成功响应回传时同步（照 provider store P4 的维护方式），非响应式——仅供写路径用。
@@ -171,11 +174,13 @@ export const usePrefsStore = defineStore('prefs', () => {
     // workspace 侧已修口径），防旧残值在后续 API 不可达时再度触发伪迁移。
     if (apiOk && Object.keys(prefs).length === 0 && migrateFromLocalStorage()) {
       prefs = buildCache()
+      lastPersisted = prefs // R35-8：迁移写内容即基线（迁移 PUT 失败时脏字段判定仍成立）
       clearLegacyLocalStorage()
       // GG-P2-7：迁移写会 bump 服务端 revision——同步回存，否则首个用户保存带陈旧号 409
       void putGlobalPrefs(prefs).then((r) => { revision = r.revision; revisionKnown = true }).catch(() => {})
     } else {
       applyPrefs(prefs)
+      lastPersisted = buildCache() // R35-8：初始服务端态即基线
     }
 
     applyTheme()
@@ -328,31 +333,59 @@ export const usePrefsStore = defineStore('prefs', () => {
     }, 500)
   }
 
-  /** R33D-24：实际 PUT 段抽直（占位逻辑外提；409 处理并入 win 线 R33-73 回读合并） */
+  /** R33D-24：实际 PUT 段抽直（占位逻辑外提）；409 恢复见 recoverFromConflict（R35-8 改写
+   *  R33-73 的「整体采纳远端」口径）。 */
   async function doPersistPut(): Promise<void> {
-    {
+    // 快照先于 PUT：await 窗口内的新 setter 不属于本次落盘内容，成功后按快照记基线
+    const cache = buildCache()
+    try {
       // GG-P2-7：带 expectedRevision 乐观并发——两面板同时保存时后写收 409 而非静默覆盖先写
-      await putGlobalPrefs(buildCache(), revision)
-        .then((r) => { revision = r.revision; revisionKnown = true })
-        .catch(async (e) => {
-          if (!(e instanceof ApiError) || e.status !== 409) return /* 其他错误静默（离线等，与原口径一致） */
-          // 冲突处理 + revision 必须追上服务端（否则后续保存永久卡在陈旧号静默失败）。
-          // R33-73（三十三轮 win 线）：回读合并——GET 服务端最新偏好 applyPrefs 进本窗
-          // refs 后再重试一次 PUT：原只刷 revision 不回读，下一次写用本窗陈旧 refs
-          // 整文件覆盖，静默清掉他窗刚保存的字段（多窗真实可现；toast「请刷新后重试」
-          // 与实际语义不符）。
-          try {
-            const remote = await getGlobalPrefs()
-            revision = remote.revision
-            revisionKnown = true
-            applyPrefs(remote.prefs)
-            void putGlobalPrefs(buildCache(), revision)
-              .then((r) => { revision = r.revision; revisionKnown = true })
-              .catch(() => { /* 重试仍失败：保持已合并 refs，等下次 schedulePersist */ })
-          } catch { /* 网络不可达保持现值 */ }
-          useUiStore().toast('全局偏好已在其他窗口被修改，已同步最新值', 'info')
-        })
+      const r = await putGlobalPrefs(cache, revision)
+      revision = r.revision
+      revisionKnown = true
+      lastPersisted = cache
+    } catch (e) {
+      if (!(e instanceof ApiError) || e.status !== 409) return /* 其他错误静默（离线等，与原口径一致） */
+      await recoverFromConflict(cache)
     }
+  }
+
+  /** 本窗脏字段键集：当前值与最近成功落盘快照不一致的键（R35-8 脏字段判定源）。 */
+  function dirtyKeysOf(local: GlobalPrefs): string[] {
+    if (!lastPersisted) return Object.keys(local)
+    const out: string[] = []
+    for (const k of Object.keys(local)) {
+      if (local[k] !== lastPersisted[k]) out.push(k)
+    }
+    return out
+  }
+
+  /** R35-8：409 恢复——远端值垫底 + 本窗未落盘修改重放（原 R33-73 口径 applyPrefs 整体
+   *  采纳远端，本窗未落盘的修改被静默丢弃）。重试 PUT 经 await 并入调用方的 putInFlight
+   *  单飞：恢复窗口内的新保存排队到重试完成后发出，不再带陈旧 revision 再吃 409。 */
+  async function recoverFromConflict(localCache: GlobalPrefs): Promise<void> {
+    let remote: Awaited<ReturnType<typeof getGlobalPrefs>>
+    try {
+      remote = await getGlobalPrefs()
+    } catch {
+      return /* 网络不可达保持现值，等下次 schedulePersist */
+    }
+    revision = remote.revision
+    revisionKnown = true
+    // 远端值垫底，本窗脏字段重放本地值（合并经 applyPrefs 的逐键类型/范围守卫落 refs）
+    const merged: GlobalPrefs = { ...remote.prefs }
+    for (const k of dirtyKeysOf(localCache)) merged[k] = localCache[k]
+    applyPrefs(merged)
+    const retryCache = buildCache()
+    try {
+      const r = await putGlobalPrefs(retryCache, revision)
+      revision = r.revision
+      revisionKnown = true
+      lastPersisted = retryCache
+    } catch {
+      /* 重试仍失败：已合并 refs 保留（本窗脏修改仍在，等下次 schedulePersist） */
+    }
+    useUiStore().toast('全局偏好已在其他窗口被修改，已保留本窗修改并合并最新值', 'warning')
   }
 
   // ── apply（直写 :root CSS 变量）──

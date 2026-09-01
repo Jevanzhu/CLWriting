@@ -164,6 +164,9 @@ export function parseFlat(
     // stripInlineComment 都作用在切分后的值侧，不受切分点改判影响。
     const colonIdx = firstKeyColon(line)
     if (colonIdx === -1) {
+      // R35-22（三十五轮）：无冒号残行 warn 留痕（对齐 yaml.ts R64-24 口径）——此前
+      // 静默跳过，手写残句/续行「写了但不生效」无迹可查。warn 不中断解析。
+      log.warn('frontmatter', `front matter 无冒号行被丢弃：${trimmed.slice(0, 40)}`)
       i++
       continue
     }

@@ -225,16 +225,16 @@ export function appendBook(
  * 端点）；本同步版保留供 CLI/测试合法同步面（R32-18 窄面登记收口）。
  */
 export function removeBookEntry(workDir: string, name: string): void {
-  // R63-2：读改写整段进跨进程锁；超时跳过留痕（与读失败同口径——登记留盘由
-  // repairBooks 扫盘兜底，文件系统侧删除照常进行）
+  // R63-2：读改写整段进跨进程锁；超时跳过留痕（与读失败同口径——登记留盘由启动
+  // repairBooks 报告 missing，但不自动清除（R35-28 如实口径），文件系统侧删除照常进行）
   const release = tryBooksLock(workDir)
   if (!release) {
-    log.warn('books', `books.jsonl 登记锁获取超时，跳过移除「${name}」登记（登记留盘，自愈兜底）`)
+    log.warn('books', `books.jsonl 登记锁获取超时，跳过移除「${name}」登记（登记留盘，成为幽灵条目需人工清理）`)
     return
   }
   try {
     // DA-3（第七轮）：读失败拒绝重写——降级空表会让 writeBooks 清掉其余登记；
-    // 登记留在盘上由 repairBooks 扫盘兜底（文件系统侧删除照常进行）
+    // 登记留在盘上成为幽灵条目（repairBooks 只报告 missing 不清除，R35-28），文件系统侧删除照常进行
     const books = readBooksStrict(workDir)
     if (books === null) return
     writeBooks(workDir, books.filter((b) => b.name !== name))
@@ -257,12 +257,12 @@ export function removeBookEntry(workDir: string, name: string): void {
 export async function removeBookEntryAsync(workDir: string, name: string): Promise<void> {
   const release = await tryBooksLockAsync(workDir)
   if (!release) {
-    log.warn('books', `books.jsonl 登记锁获取超时，跳过移除「${name}」登记（登记留盘，自愈兜底）`)
+    log.warn('books', `books.jsonl 登记锁获取超时，跳过移除「${name}」登记（登记留盘，成为幽灵条目需人工清理）`)
     return
   }
   try {
     // DA-3（第七轮）：读失败拒绝重写——降级空表会让 writeBooks 清掉其余登记；
-    // 登记留在盘上由 repairBooks 扫盘兜底（文件系统侧删除照常进行）
+    // 登记留在盘上成为幽灵条目（repairBooks 只报告 missing 不清除，R35-28），文件系统侧删除照常进行
     const books = readBooksStrict(workDir)
     if (books === null) return
     writeBooks(workDir, books.filter((b) => b.name !== name))
@@ -420,6 +420,13 @@ export interface RepairResult {
    *  非标准深度登记）——此时其余字段为空、changed=false，调用方应告警而非报告自愈；
    *  R63-2（十一轮）：登记锁超时同款跳过（另一进程持锁改写中，扫盘整写会与之交错） */
   skipped?: 'read-failed' | 'lock-timeout'
+  /** R35-28（三十五轮）：幽灵条目（登记在册、目录确认缺失且无法重关联）的可操作修复
+   *  提示——自愈只报告不清除（数据安全优先），作者需按提示人工处理；missing 为空时
+   *  不带该键。 */
+  missingHint?: string
+  /** R35-28：显式清除（opts.purgeConfirmedMissing=true）时移除的幽灵登记条目——
+   *  仅含「目录确认不存在（ENOENT）」者；瞬态不可读（网络盘离线等 EACCES/EIO）保留。 */
+  purged?: BookEntry[]
 }
 
 /**
@@ -428,22 +435,39 @@ export interface RepairResult {
  * - 已有登记：检查 path 是否在磁盘存在，不存在的标 missing（提示重关联）
  *
  * 真源是磁盘上的书仓库本身；books.jsonl 是「可从扫描重建的派生登记」（类比 .cache）。
+ * R35-28（三十五轮）：missing 只报告不清除（幽灵登记处理提示见 missingHint）；要清除
+ * 必须显式传 opts.purgeConfirmedMissing（默认关），且仅清「目录确认不存在（ENOENT）」
+ * 的条目——瞬态不可读（网络盘离线等 EACCES/EIO）不误清，逐条留日志。
  */
-export function repairBooks(workDir: string): RepairResult {
+export function repairBooks(
+  workDir: string,
+  opts?: { purgeConfirmedMissing?: boolean },
+): RepairResult {
   // R63-2：读→扫→写整段进跨进程锁；超时跳过本轮（幂等，下次启动重试）
   const release = tryBooksLock(workDir)
   if (!release) {
     return { rebuilt: [], missing: [], relinked: [], changed: false, skipped: 'lock-timeout' }
   }
   try {
-    return repairBooksLocked(workDir)
+    return repairBooksLocked(workDir, opts?.purgeConfirmedMissing ?? false)
   } finally {
     release()
   }
 }
 
+/** R35-28：目录「确认不存在」（stat ENOENT）才可显式清除——EACCES/EIO 等瞬态不可读
+ *  （网络盘离线、权限故障等）不得误判为已删（existsSync 对一切错误都返 false，不够用）。 */
+function isDirConfirmedMissing(abs: string): boolean {
+  try {
+    statSync(abs)
+    return false
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === 'ENOENT'
+  }
+}
+
 /** repairBooks 的持锁主体（R63-2 拆出——锁获取/超时降级在 repairBooks 收口）。 */
-function repairBooksLocked(workDir: string): RepairResult {
+function repairBooksLocked(workDir: string, purgeConfirmedMissing: boolean): RepairResult {
   // M-8（第八轮）：读失败（EACCES 等）跳过本轮自愈——DA-3（第七轮）只收口了
   // append/remove/rename 三个写点，本函数自称「兜底」却用降级空表起建：EACCES 挡
   // readFileSync 不挡 atomicWriteFile 的 tmp+rename，扫盘整写会立即落盘；而
@@ -516,14 +540,48 @@ function repairBooksLocked(workDir: string): RepairResult {
   rebuilt.push(...scanned)
 
   // 只剩无法重关联的缺失登记进入 missing；已重关联的用 relinked 报告。
-  const missing = rebuilt.filter((b) => !existsSync(join(workDir, b.path)))
-  const changed = updated || scanned.length > 0 || relinked.length > 0 || missing.length > 0
+  let missing = rebuilt.filter((b) => !existsSync(join(workDir, b.path)))
+  // R35-28（三十五轮）：显式清除幽灵登记（默认关，见 repairBooks 头注）——仅清 ENOENT
+  // 确认缺失者，瞬态不可读保留登记；逐条留痕供审计。
+  const purged: BookEntry[] = []
+  if (purgeConfirmedMissing && missing.length > 0) {
+    const transient: BookEntry[] = []
+    for (const b of missing) {
+      if (isDirConfirmedMissing(join(workDir, b.path))) {
+        purged.push(b)
+        log.warn('books', `自愈清除幽灵登记「${b.name}」（${b.path} 目录确认不存在；显式清除参数开启）`)
+      } else {
+        transient.push(b)
+      }
+    }
+    if (purged.length > 0) {
+      const purgedSet = new Set(purged)
+      for (let i = rebuilt.length - 1; i >= 0; i--) {
+        if (purgedSet.has(rebuilt[i]!)) rebuilt.splice(i, 1)
+      }
+      missing = transient
+    }
+  }
+  const changed = updated || scanned.length > 0 || relinked.length > 0 || missing.length > 0 || purged.length > 0
 
   if (changed) {
     writeBooks(workDir, rebuilt)
   }
 
-  return { rebuilt, missing, relinked, changed }
+  // R35-28：幽灵条目的可操作提示（missing 非空才带）——自愈不自动清除（避免把「暂时
+  // 读不到」误判为已删而静默丢书），作者按提示二选一自救。
+  const hint =
+    missing.length > 0
+      ? `缺失登记（目录已不在）的书架卡将标「损坏」且无法经端点删除——可把书目录移回原位（自愈自动重关联），或确认书已不要后手工编辑 .clwriting/books.jsonl 移除对应行`
+      : undefined
+  return {
+    rebuilt,
+    missing,
+    relinked,
+    changed,
+    ...(hint ? { missingHint: hint } : {}),
+    ...(purged.length > 0 ? { purged } : {}),
+  }
 }
 
 function scanBookCandidates(workDir: string): string[] {

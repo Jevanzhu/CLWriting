@@ -51,7 +51,10 @@ export const useWordsStore = defineStore('words', () => {
     // R33-76（三十三轮）：入参书的全书字数在首个 await 前快照——原在 await 后读活源
     // tree.totalWords，「B 树已落定、B 的 ensureBaseline 尚未推代」间隙内 A 书迟到响应
     // 会把 B 的总字数 POST 成 A 的当日基线（服务端 words-diary 污染，前端自愈但脏写）。
-    const bookTotalWords = tree.totalWords
+    // R35-10：属主校验——新书 load 失败时 tree.raw 滞留旧书（ownerBook ≠ 目标书），
+    // 旧书总字数不得充当目标书基线源：置 null，落基线分支整体跳过（今日字数显示 0），
+    // 等树加载成功后的下一次 ensureBaseline（ChapterTreePanel 侧 R35-10 短路为主）。
+    const bookTotalWords = tree.ownerBook === name ? tree.totalWords : null
     try {
       const r = await getWordsDiary(name)
       if (gen !== reqGen) return
@@ -62,24 +65,28 @@ export const useWordsStore = defineStore('words', () => {
       // await 后读活源 tree.totalWords 会拿进「B 树已落定、B 的 ensureBaseline 尚未
       // 推代」间隙的别书总字数。）
       if (r.date !== localToday()) {
-        baseline.value = bookTotalWords
-        await postBaseline(name, baseline.value)
-        if (gen !== reqGen) return
-        const r2 = await getWordsDiary(name)
-        if (gen !== reqGen) return
-        date.value = r2.date
-        todayDelta.value = r2.delta
-        baseline.value = r2.baseline ?? baseline.value
+        // R35-10：属主不匹配（bookTotalWords=null）时无基线源可重记——跳过重记/重取，
+        // 不落基线（今日 0），等树就绪后的下一次 ensureBaseline
+        if (bookTotalWords !== null) {
+          baseline.value = bookTotalWords
+          await postBaseline(name, baseline.value)
+          if (gen !== reqGen) return
+          const r2 = await getWordsDiary(name)
+          if (gen !== reqGen) return
+          date.value = r2.date
+          todayDelta.value = r2.delta
+          baseline.value = r2.baseline ?? baseline.value
+        }
       } else {
         date.value = r.date
         todayDelta.value = r.delta
-        if (r.baseline === null) {
+        if (r.baseline === null && bookTotalWords !== null) {
           baseline.value = bookTotalWords
           // R-23（第十六轮）：postBaseline 后查代——await 期间切书（旧书 ensureBaseline
           // 被 reqGen++ 作废）时旧书迟到响应不落盘（对齐同库其他 store 的 gen 模式）
           await postBaseline(name, baseline.value)
           if (gen !== reqGen) return
-        } else {
+        } else if (r.baseline !== null) {
           baseline.value = r.baseline
         }
       }
@@ -89,7 +96,8 @@ export const useWordsStore = defineStore('words', () => {
       // 优先级高于 baseline 回退，今日字数显示的是别人（旧书）的增量
       todayDelta.value = null
       date.value = null
-      baseline.value = tree.totalWords // 失败降级：今日 0
+      // R35-10：降级基线同过属主校验——树滞留旧书时不取旧总值（今日 0 展示）
+      baseline.value = bookTotalWords
     } finally {
       if (gen === reqGen) ready.value = true
     }

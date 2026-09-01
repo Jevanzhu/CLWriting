@@ -10,7 +10,9 @@ vi.mock('../../../src/studio/web-next/src/api/books', () => ({
   postBaseline: vi.fn(),
 }))
 vi.mock('../../../src/studio/web-next/src/stores/tree', () => ({
-  useTreeStore: () => ({ totalWords: 100 }),
+  // R35-10：ensureBaseline 取树总字数前过属主校验（ownerBook === 目标书）——本文件
+  // 用例均为 bookA 口径，属主钉 bookA；属主不匹配分支由 r35-tree-load-fail-baseline 专测
+  useTreeStore: () => ({ totalWords: 100, ownerBook: 'bookA' }),
 }))
 
 import { getWordsDiary, postBaseline } from '../../../src/studio/web-next/src/api/books'

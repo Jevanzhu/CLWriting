@@ -121,6 +121,10 @@ export const useTreeStore = defineStore('tree', () => {
     }
   }
 
+  /** R35-10：raw 当前属主书名（load 成功时置，clear 清）——新书 load 失败时 raw 滞留
+   *  旧书树，words.ensureBaseline 等聚合消费方据此确认字数口径归属，不误用旧树总值。 */
+  const ownerBook = ref('')
+
   /** 拉树。refresh=true 让服务端重扫盘（切书 / 手动刷新 / 窗口回前台）；
    *  结构性操作后不必传——后端 mutation 已 invalidate 缓存。 */
   let loadGen = 0
@@ -133,6 +137,7 @@ export const useTreeStore = defineStore('tree', () => {
       if (gen !== loadGen) return // 连切/并发刷新：慢响应后到，防旧树覆盖新树
       raw.value = r.nodes ?? []
       revision.value = r.revision ?? ''
+      ownerBook.value = name // R35-10：raw 与属主同窗更新（失败路径不清，见 load catch）
       // E-4（二十九轮）：树刷新成功即对账 doc 缓存新鲜度——树版本推进（重扫盘/结构性
       // mutation 重建）后，打开时记录旧版本的 clean 缓存项可能已过期（外部改动），
       // 静默重拉对齐（fire-and-forget，不阻塞树渲染）
@@ -159,6 +164,7 @@ export const useTreeStore = defineStore('tree', () => {
     error.value = null
     issues.value = {}
     issuesWarning.value = null
+    ownerBook.value = '' // R35-10：树清空即无属主
   }
 
   return {
@@ -171,6 +177,7 @@ export const useTreeStore = defineStore('tree', () => {
     revision,
     loading,
     error,
+    ownerBook,
     load,
     clear,
     issues,

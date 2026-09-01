@@ -235,11 +235,13 @@ function toOpenAITool(tool: ToolDef): Record<string, unknown> {
   }
 }
 
-/** OpenAI 兼容线 usage 形态（prompt_tokens_details 非所有中转都发，可选） */
+/** OpenAI 兼容线 usage 形态（*_tokens_details 非所有中转都发，可选） */
 interface WireUsage {
   prompt_tokens?: number
   completion_tokens?: number
   prompt_tokens_details?: { cached_tokens?: number }
+  /** R35-19：推理 token 观测位——responses 线已读（output_tokens_details），Chat 线对齐 */
+  completion_tokens_details?: { reasoning_tokens?: number }
 }
 
 /**
@@ -250,10 +252,12 @@ interface WireUsage {
  */
 function toUsage(u: WireUsage | undefined | null): TokenUsage {
   const cached = u?.prompt_tokens_details?.cached_tokens
+  const reasoning = u?.completion_tokens_details?.reasoning_tokens
   return {
     inputTokens: Math.max(0, (u?.prompt_tokens ?? 0) - (cached ?? 0)),
     outputTokens: u?.completion_tokens ?? 0,
     ...(cached ? { cacheReadTokens: cached } : {}),
+    ...(reasoning ? { reasoningTokens: reasoning } : {}),
   }
 }
 

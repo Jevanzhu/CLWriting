@@ -76,13 +76,18 @@ export function urlPathOnly(url: string | undefined): string {
   return i === -1 ? url : url.slice(0, i)
 }
 
+/** R35-30（三十五轮）：req.url 解析 base 单源——本文件 parseRequestUrl 与 server/index.ts
+ *  apiPathname 共用（此前两处字面量数值等价但各自漂移，如 'http://local'）。base 只作
+ *  relative 解析锚（pathname 提取不受 host 拼写影响），统一常量仅为消漂移点。 */
+export const URL_PARSE_BASE = 'http://localhost'
+
 /** R-19（第十六轮）：req.url → URL 的统一安全解析（Q-1/N-3 口径收编）。llhttp 接受
  *  absolute-form 等畸形请求行（如 `GET http://[bad HTTP/1.1`），new URL 抛 TypeError
  *  ——各 handler 此前六处裸调各管各。畸形 URL 返 null，调用方回 400 BAD_INPUT 信封
  *  （与 static.ts Q-1 同款）。 */
 export function parseRequestUrl(req: IncomingMessage): URL | null {
   try {
-    return new URL(req.url ?? '/', 'http://localhost')
+    return new URL(req.url ?? '/', URL_PARSE_BASE)
   } catch {
     return null
   }

@@ -303,17 +303,21 @@ export function withManifestLock<T>(manifestPath: string, fn: () => T): T {
  * 不阻塞），供承载 SSE/全部接口的服务进程保存链（executeSave → maybeUpdateManifest）
  * 在双进程争用窗口内保持可响应。语义与同步版逐位对齐：超时档（2 轮 × 生效档 + 50ms
  * 间隔）不变、fail-closed 抛错不变、错误文案同源、锁文件同源（同步/异步获取者互通互斥）。
- * 进程内重入沿用 heldManifestLocks 计数：持锁后执行的 fn 与同步版同样**全程同步无
- * await**（读改写为同步 FS 调用），单线程下持锁段不会与他调用交错，重入计数语义不变；
- * await 只出现在取锁等待期（此刻未持锁、未登记 map，不产生伪重入）。
+ * 进程内重入沿用 heldManifestLocks 计数，重入键同同步版走 manifestLockKey 归一
+ *（R35-26：原实现以原始路径串为键，等价路径变体再入被误判「他锁」抢物理锁自锁）。
+ * R35-25：fn 允许 async（T | Promise<T>），执行器在锁内 await fn()——原 `return fn()`
+ * 在 fn 返回 promise 即触发 finally 释放锁，async fn 的互斥静默失效；await 后跨进程
+ * 锁覆盖 fn 整个执行期。同进程并发同 key 调用在首个 fn await 期间仍按重入计数放行
+ * （与同步版一致，进程内串行化仍是调用方责任）。
  * 其余不在异步链上的调用方保持同步版不动。
  */
-export async function withManifestLockAsync<T>(manifestPath: string, fn: () => T): Promise<T> {
-  const held = heldManifestLocks.get(manifestPath)
+export async function withManifestLockAsync<T>(manifestPath: string, fn: () => T | Promise<T>): Promise<T> {
+  const lockKey = manifestLockKey(manifestPath)
+  const held = heldManifestLocks.get(lockKey)
   if (held) {
     held.depth++
     try {
-      return fn()
+      return await fn()
     } finally {
       held.depth--
     }
@@ -322,11 +326,11 @@ export async function withManifestLockAsync<T>(manifestPath: string, fn: () => T
   for (let attempt = 0; ; attempt++) {
     const release = await acquireCrossProcessLockAsync(lockPath, manifestLockTimeoutMs)
     if (release) {
-      heldManifestLocks.set(manifestPath, { depth: 1, release })
+      heldManifestLocks.set(lockKey, { depth: 1, release })
       try {
-        return fn()
+        return await fn()
       } finally {
-        heldManifestLocks.delete(manifestPath)
+        heldManifestLocks.delete(lockKey)
         release()
       }
     }

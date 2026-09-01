@@ -131,11 +131,14 @@ export function readChapterBody(chapter: ChapterMeta): string | null {
   return r.body
 }
 
-/** 句长方差（与 count.ts checkSentenceLength 同口径：按 。！？\n 切句算方差） */
+/** 句长方差（与 count.ts checkSentenceLength 同口径：按 。！？\n 切句算方差）。
+ *  R35-23（三十五轮）：句长改码点口径（R73-19/R75-1 同家族）——UTF-16 .length 对
+ *  astral 字符一符计 2、句长虚高，与同文件 charCount（码点）及 count.ts 超长句判定
+ *  单位分裂；基线与实时检查须同 metric 同单位。 */
 export function computeSentenceLenVariance(body: string): number {
   const sentences = splitSentences(body)
   if (sentences.length === 0) return 0
-  const lens = sentences.map((s) => s.length)
+  const lens = sentences.map((s) => charCountOf(s))
   const mean = lens.reduce((a, b) => a + b, 0) / lens.length
   const variance = lens.reduce((sum, len) => sum + (len - mean) ** 2, 0) / lens.length
   return variance

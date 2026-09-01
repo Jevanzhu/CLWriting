@@ -124,6 +124,11 @@ export function checkGrowth(
         })
       }
       if (GROWTH_TRANSITION_VERBS.has(h.verb) && sequence) {
+        // R35-3（三十五轮）：回填条目不入跃迁序列——回填 seq 必然靠后（后补录），按
+        // seq 序做单调性/跨度判定会把后补的早期低阶跃迁误判成 growth-regress /
+        // growth-span-exceed 假红（回退红项驱动自愈打回没问题的正文）。对齐 leads.ts
+        // 账本三检的 `!entry.回填` 豁免口径（动词合法性黄项不豁免，见上方）。
+        if (h.backfill) continue
         // 从证据提取境界：如「突破至筑基」→ 筑基
         const realm = extractExactRealmFromEvidence(h.evidence, sequence)
         if (realm) {

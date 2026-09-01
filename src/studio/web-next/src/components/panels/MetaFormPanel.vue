@@ -135,6 +135,10 @@ const fields = ref<Record<string, string>>({})
 // 编辑中输入被覆盖丢失。对齐 EditorView F2 titleEditing 的编辑中保护思路，但以
 // 脏键比对实现——焦点守卫挡不住「失焦后数秒才到的迟到刷新」）。
 const parsedSnapshot = ref<Record<string, string>>({})
+// R35-35：数值字段非法输入的字段级错误（对齐 R70-28 口径）——此前非有限数字被静默
+// continue 丢弃仍 toast「已保存」；改为标错 + 错误 toast + 不发 PUT（不发半截保存）。
+// 声明须在下方 watch 之前：immediate 首跑即引用（TDZ）。
+const numErrors = ref<Record<string, string>>({})
 
 watch(
   // R65-52（E-4）：doc store 对 content 是原位变更（refresh/静默同步改 e.content、对象引用
@@ -144,6 +148,7 @@ watch(
     if (!e || !kind.value) {
       fields.value = {}
       parsedSnapshot.value = {}
+      numErrors.value = {} // R35-35：切走文档不留前文档的字段错误
       return
     }
     const parsed = parseFmFields(e.content)
@@ -162,6 +167,7 @@ watch(
       // 共享同一对象时，v-model 写 fields 即同步改快照，「用户改过」永不可判。
       parsedSnapshot.value = { ...out }
       fields.value = out
+      numErrors.value = {} // R35-35：换文档错误不跨文档携带
     }
   },
   { immediate: true },
@@ -208,6 +214,7 @@ watch(
 )
 
 const saving = ref(false)
+
 async function onSave(): Promise<void> {
   // 低级项（第六轮）：上下文入口捕获——保存期间（两个 await 窗口）activeDocId/书名可能
   // 已切走，await 后重读会 refresh 他 doc（refresh 内部按当前书名拼路径，旧 docId + 新书
@@ -215,6 +222,22 @@ async function onSave(): Promise<void> {
   const book = props.bookName
   const docId = ws.activeDocId
   if (!entry.value || !docId || !kind.value) return
+  // R35-35：先全量校验数值字段——非法即中止（本次不发任何 PUT）
+  const errs: Record<string, string> = {}
+  const invalidLabels: string[] = []
+  for (const f of FIELD_DEFS[kind.value] ?? []) {
+    if (f.type !== 'number') continue
+    const v = fields.value[f.key] ?? ''
+    if (v !== '' && !Number.isFinite(Number(v))) {
+      errs[f.key] = '须为数字'
+      invalidLabels.push(f.label)
+    }
+  }
+  numErrors.value = errs
+  if (invalidLabels.length > 0) {
+    ui.toast(`「${invalidLabels.join('、')}」不是有效数字，请修正后再保存`, 'error')
+    return
+  }
   saving.value = true
   try {
     const meta: Record<string, unknown> = {}
@@ -224,11 +247,10 @@ async function onSave(): Promise<void> {
       // 已保存」的静默谎言。查证服务端（PATCH op=fm → updateDocMeta → patchFlatFm）：'' 是
       // 合法清空值（落 `key: ""`，读回 ''），数值字段落 "" 后消费侧 Number('""')=NaN 按
       // 未设处理（chapters 字数目标跳键 / foreshadow parsePositiveInt → null），安全。
-      // 数值字段非空时仍须有限数字：NaN 经 JSON 序列化成 null 落盘（fm 出现 `key: null`）
+      // 数值字段非空时已由 R35-35 前置校验保证有限数字：NaN 经 JSON 序列化成 null 落盘
+      //（fm 出现 `key: null`）的路径不再可达
       if (f.type === 'number' && v !== '') {
-        const n = Number(v)
-        if (!Number.isFinite(n)) continue
-        meta[f.key] = n
+        meta[f.key] = Number(v)
       } else {
         // 多行值由 stringifyFlat 用块标量 key: | 存储（fm 多行已根治）
         meta[f.key] = v
@@ -281,8 +303,11 @@ async function onSave(): Promise<void> {
           v-model="fields[f.key]"
           :type="f.type"
           :placeholder="f.key === '字数目标' && globalChapterTarget ? globalChapterTarget.toLocaleString() : f.placeholder"
-          class="field-input"
+          :class="['field-input', { 'field-input-err': numErrors[f.key] }]"
+          @input="delete numErrors[f.key]"
         />
+        <!-- R35-35：数值字段非法输入的字段级错误（保存中止时标记，改正输入即清除） -->
+        <div v-if="numErrors[f.key]" class="field-err-msg">{{ numErrors[f.key] }}</div>
       </div>
       <button class="save-btn" :disabled="saving" @click="onSave">
         {{ saving ? '保存中…' : '保存' }}
@@ -363,6 +388,14 @@ async function onSave(): Promise<void> {
   resize: vertical;
   min-height: 60px;
   line-height: 1.6;
+}
+/* R35-35：字段级错误（数值非法被保存拦截） */
+.field-input-err {
+  border-color: var(--text-error);
+}
+.field-err-msg {
+  font-size: var(--font-size-xs);
+  color: var(--text-error);
 }
 select.field-input {
   cursor: pointer;

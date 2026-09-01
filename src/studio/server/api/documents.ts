@@ -396,7 +396,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       const result = await svc.copyDocument({ docId, relPath: body.relPath })
       // Q-7（第十五轮）：失败走 replyError 统一信封（原裸 result 违反 schema.ts 信封约定）
       if (result.ok) {
-        recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev)
+        await recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev)
         reply(res, 201, result)
       } else replyError(res, structStatus(result.code), result.code, result.reason)
     },

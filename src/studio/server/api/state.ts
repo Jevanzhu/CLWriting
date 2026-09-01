@@ -56,7 +56,7 @@ export function registerStateRoutes(ctx: StateCtx): void {
   defineRoute('books.state', {
     method: 'GET',
     path: '/api/books/:name/state',
-    handler: ({ params }, _req, res) => {
+    handler: async ({ params }, _req, res) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
 
@@ -81,7 +81,8 @@ export function registerStateRoutes(ctx: StateCtx): void {
       const config = applyGlobalDefaults(cfgResult.config, ctx.userDataPath)
       const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
       // 与 enter() 同序：判态 → 路由 → 近况复述（manifest 只读一次复用，P2-BE-4）
-      const detected = detectState(bookRoot, config, manifest)
+      // R35-5：detectState 异步化——healMovePending 自愈链的锁等待不再阻塞事件循环
+      const detected = await detectState(bookRoot, config, manifest)
       const act = routeState(detected)
       const recap = buildRecap(bookRoot, config, detected, manifest)
       // 下一个该写的章号：态 7→nextChapter；态 4（工作区未完成）→续写那章；其余→recap.nextChapter

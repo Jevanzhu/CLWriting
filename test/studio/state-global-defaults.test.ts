@@ -120,8 +120,8 @@ afterAll(async () => {
 })
 
 describe('GG-P2-5：状态机入口的全局托底（enter 前后对比）', () => {
-  it('前（对照）：内核 enter() 用原始 config——卷大小回落 50，第 20 章非卷末 → 态 7', () => {
-    const r = enter(bookRoot)
+  it('前（对照）：内核 enter() 用原始 config——卷大小回落 50，第 20 章非卷末 → 态 7', async () => {
+    const r = await enter(bookRoot)
     expect(r.detected.state).toBe(7)
     expect(r.detected).toMatchObject({ state: 7, nextChapter: CHAPTERS + 1 })
   })

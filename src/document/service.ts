@@ -460,7 +460,10 @@ export class DocumentService {
             countWords(existing ? bodyOf(readFileSync(absPath, 'utf-8')) : '')
 
         // 步骤 5：按策略建 snapshot（修改前版本留底）
-        this.maybeSnapshot(docId, relPath, absPath, input, currentRev)
+        // R35-4：byteRestore 是非 UTF-8 档唯一合法覆写通道，留底须传原始字节——缺省
+        // utf-8 文本读会把 GBK 盘上内容解码成 U+FFFD 写入 .版本（假留底，原字节此后
+        // 无任何副本；同 doMoveOrRename/doTrash 的原字节直存口径）
+        this.maybeSnapshot(docId, relPath, absPath, input, currentRev, byteRestore ? readFileSync(absPath) : undefined)
         // 步骤 6-7：atomic write + fsync + rename + fsync 父目录
         // R26-49（二十六轮）：新建路径（expectedRevision=null）不再裸 rename——基线校验
         // （文件不存在）与落盘之间无互斥，他进程并发新建同名文件时 atomicWriteFile 的
@@ -563,7 +566,8 @@ export class DocumentService {
     absPath: string,
     input: SaveDocumentInput,
     baseRevision: Revision,
-    diskContent?: string,
+    // R35-4：Buffer = 调用方已按原始字节整读（byteRestore 恢复链）——字节保真留底
+    diskContent?: string | Buffer,
   ): void {
     let reason: string | undefined
     if (input.origin === 'restore' || input.origin === 'external-merge') {

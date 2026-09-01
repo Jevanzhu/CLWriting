@@ -209,6 +209,7 @@ describe('E-6: 今日字数跨零点重记基线', () => {
     const node = makeNode('d1')
     node.wordCount = 300
     tree.raw = [node] // totalWords = 300
+    tree.ownerBook = '书A' // R35-10：属主对齐（重记基线的字数口径属本测试书）
     const yesterday = dateStr(new Date(Date.now() - 86_400_000))
     const today = dateStr(new Date())
     mocks.getWordsDiary

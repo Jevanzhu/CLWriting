@@ -165,7 +165,8 @@ export async function runSpec(
       onReset: opts.onReset,
       onRetry: opts.onRetry,
       ...(mock?.kind === 'tool' ? { mockTool: mock.toolName } : {}),
-      ...(mock?.kind === 'text' ? { mockText: { input: null, text: mock.text, stopReason: 'mock' } as unknown as SpecOutput } : {}),
+      // R35-20：字面量直接满足 SpecOutput，无需 as unknown as 双重断言
+      ...(mock?.kind === 'text' ? { mockText: { input: null, text: mock.text, stopReason: 'mock' } } : {}),
       run: async (provider, signal, tier) => {
         if (spec.genMode === 'tool' && tool) {
           const r = await generateTool(

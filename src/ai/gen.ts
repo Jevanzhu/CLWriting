@@ -147,11 +147,8 @@ export async function generate(
   signal: AbortSignal,
   onText?: (delta: string) => void,
 ): Promise<GenResult> {
-  // #6（表驱动重构）：模型不支持工具调用（chat 路径直调 generate）→ 剥掉 tools，
-  // 防不支持工具的模型收到 tools 数组 → 400 或静默忽略（学 canModelConsumeTools）
-  // Responses 启用批 R2a 缺口 5：意图翻译按协议视图查表，requireTool 在 responses 线不再静默丢弃
-  const q = provider.conf.protocol === 'openai-responses' ? responsesQuirksFor(provider.conf.model ?? '') : quirksFor(provider.conf.model ?? '')
-  const effective: GenRequest = !q.toolUse && req.tools?.length ? { ...req, tools: undefined } : req
+  // R35-14：quirks 表七家族 toolUse 恒 true，「不支持工具先剥 tools」的前置拦截不存在——
+  // 真防线在适配器 400 降级链末端「剥 tools → 纯文本」兜底（adapter-errors buildDegradeAttempts）
   let text = ''
   const reasoning: string[] = []
   // Responses 线缺口 11：加密推理项收集（reasoning_item 事件）——chat.ts 组装 reasoning 块入历史，
@@ -174,7 +171,7 @@ export async function generate(
   else signal.addEventListener('abort', onOuterAbort)
   try {
     for await (const ev of withFirstByteTimeout(
-      provider.stream(effective, attempt.signal),
+      provider.stream(req, attempt.signal),
       resolveFirstByteTimeoutMs(),
       () => attempt.abort(),
     )) {
@@ -252,10 +249,8 @@ export async function generateTool(
   // 表驱动重构 §5.3：能力判据从 modelCaps 探测换成静态表（#1 根治）
   // Responses 启用批 R2a 缺口 5：意图翻译按协议视图查表，requireTool 在 responses 线不再静默丢弃
   const q = provider.conf.protocol === 'openai-responses' ? responsesQuirksFor(provider.conf.model ?? '') : quirksFor(provider.conf.model ?? '')
-  // P0-2：模型不支持工具调用 → 提前拒绝（避免进入生成阶段拿不到 tool_use 再降级失败浪费 token）
-  if (!q.toolUse) {
-    throw new GenError('该模型不支持工具调用（tool_use），不能用于写作/审稿/分析。请在设置中更换支持工具调用的模型。', false, { code: 'UNSUPPORTED' })
-  }
+  // R35-14：quirks 表七家族 toolUse 恒 true，P0-2「不支持工具提前拒绝」为死分支已删——
+  // 实际防线 = 适配器 400 降级链（剥 tools 纯文本兜底），此处 q 只服务 toolChoiceMode 翻译
   // 意图翻译：requireTool=true 表示「必须产出工具调用」，按表 toolChoiceMode 落实际参数
   let effective: GenRequest = req
   if (req.requireTool && req.toolName) {

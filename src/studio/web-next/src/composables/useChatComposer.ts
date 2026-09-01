@@ -60,11 +60,14 @@ export function useChatComposer(
   // E1a（steer）：对话在跑即可显示停止按钮（interrupt）——停止与禁发语义分离：
   // 运行中追加消息走入队（不禁发），但仍可显式停止当前对话
   const chatRunning = computed(() => chat.running)
-  const selectedChapter = ref<number | undefined>(currentChapter())
+  // R35-11：章号语境单一事实源在 chat store（dock/工作台双 composer 实例 +
+  // ChatMessages regenerate 共用；本组件不再私有一份）
+  const selectedChapter = computed(() => chat.selectedChapter)
 
-  watch(currentChapter, (v) => {
-    if (v !== undefined) selectedChapter.value = v
-  })
+  // 首挂/编辑器换章跟随：仅本书无显式选择记忆时（R35-11——手动选择后不再被覆盖，
+  // 切书由 chat.clear 复位到该书记忆）。setup 直调一次保持原「初值 = 当前章」行为
+  chat.followChatChapter(bookName(), currentChapter())
+  watch(currentChapter, (v) => chat.followChatChapter(bookName(), v))
 
   async function handleSend(): Promise<void> {
     const text = input.value.trim()
@@ -122,7 +125,8 @@ export function useChatComposer(
   }
 
   function selectChapter(ch: number | undefined): void {
-    selectedChapter.value = ch
+    // R35-11：写经 chat store（落本书记忆），双实例与 regenerate 同源可见
+    chat.selectChatChapter(bookName(), ch)
     chapterMenuOpen.value = false
   }
 

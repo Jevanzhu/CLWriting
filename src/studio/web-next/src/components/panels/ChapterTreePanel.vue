@@ -122,6 +122,10 @@ watch(
     // treeExpanded（按落定时的 grouped 算默认展开）与 ensureBaseline('A')（words 的
     // reqGen 后调者胜——A 反客为主覆盖 B 的今日字数）都会打到 B 头上
     if (props.bookName !== name) return
+    // R35-10：load 失败短路——load catch 只置 error 不清 raw，旧书树滞留时若继续走
+    // 首开展开/基线，会用旧书总字数给新书 POST 今日基线（words-diary 脏写）。留空错误
+    // 提示（模板 err 分支），等窗口回前台重扫或手动刷新恢复。
+    if (tree.error) return
     // 首次打开（显式 per-book 标记，见 R26-74 注释）→ 一级目录 + 写作/正文
     if (consumeFirstOpen(name)) {
       ws.treeExpanded = defaultExpandedDirs(tree.grouped)

@@ -45,6 +45,15 @@ function listSrcTs(dir: string): string[] {
   return out
 }
 
+/**
+ * 配置侧阈值桶键提取（R35-45：缩进宽松 `[ \t]*`——此前锚定 8 空格，vitest.config.ts
+ * 重排/缩进调整即静默零匹配，「配置新增桶未入 EXPECTED」方向单向降级（与 check-packaging
+ * 同型教训）。键形 `'glob': {` 全文件唯 thresholds 块所有，宽松缩进不引入误匹配面。
+ */
+function extractThresholdKeys(cfgText: string): string[] {
+  return [...cfgText.matchAll(/^[ \t]*'([^']+)':\s*\{/gm)].map((m) => m[1]!)
+}
+
 describe('coverage 阈值桶 glob 守护（R65-58）', () => {
   it('EXPECTED 清单与 vitest.config.ts 的阈值桶双向一致', () => {
     const cfgText = readFileSync(join(root, 'vitest.config.ts'), 'utf8')
@@ -52,12 +61,23 @@ describe('coverage 阈值桶 glob 守护（R65-58）', () => {
     for (const g of EXPECTED_GLOBS) {
       if (!cfgText.includes(`'${g}'`)) drift.push(`配置缺桶：${g}`)
     }
-    // 配置侧多出的桶（照抄 thresholds 块的键行）
-    const cfgKeys = [...cfgText.matchAll(/^        '([^']+)':\s*\{/gm)].map((m) => m[1])
-    for (const k of cfgKeys) {
+    // 配置侧多出的桶（thresholds 块的键行，缩进宽松提取）
+    for (const k of extractThresholdKeys(cfgText)) {
       if (k && !EXPECTED_GLOBS.includes(k)) drift.push(`配置新增桶未入 EXPECTED：${k}（请同步本测试）`)
     }
     expect(drift, '\n' + drift.join('\n')).toEqual([])
+  })
+
+  it('R35-45：配置整体重排（缩进变化）后键提取仍生效——门不随排版静默失效', () => {
+    const cfgText = readFileSync(join(root, 'vitest.config.ts'), 'utf8')
+    // 整体 +6 空格重排（原锚定 8 空格的正则在此输入下恒零匹配 = 双向锁单侧失明）
+    const reindented = cfgText
+      .split('\n')
+      .map((line) => (line.trim() === '' ? line : '      ' + line))
+      .join('\n')
+    expect(extractThresholdKeys(reindented)).toEqual(extractThresholdKeys(cfgText))
+    // 重排后仍能取全 EXPECTED 全部桶（双向锁继续有效）
+    expect(extractThresholdKeys(reindented)).toEqual(EXPECTED_GLOBS)
   })
 
   it('每个阈值桶 glob 至少命中 1 个入口文件（空桶 = 阈值门静默失效）', () => {

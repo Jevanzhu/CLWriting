@@ -15,7 +15,7 @@ import { createHash } from 'node:crypto'
 import { readChapterDir } from '../format/chapters.js'
 import { readFile } from '../format/frontmatter.js'
 import { parseChapterFileName } from '../format/words.js'
-import { openRagDb, storeChunk, readAllChunks, readAllChapterFingerprints, getRagMeta, setRagMeta, deleteRagMeta, deleteChunksByChapter, getIndexedChapterNumbers, l2Norm, cosineSimilarity, type RagChunk } from './store.js'
+import { openRagDb, storeChunk, readAllChunks, readAllChapterFingerprints, getRagMeta, setRagMeta, deleteRagMeta, deleteChunksByChapter, getIndexedChapterNumbers, l2Norm, cosineSimilarity, isRagDbCorruptionError, deleteRagDbFiles, type RagChunk } from './store.js'
 import { embed, type EmbedOptions } from './embed.js'
 import type { RagConfig } from './config.js'
 import type { DatabaseSync } from 'node:sqlite'
@@ -171,6 +171,31 @@ function readChapterFingerprint(ch: ChapterMeta): string | null {
 }
 
 /**
+ * R35-43（三十五轮）：重复章号确定性归一——cache/foreshadow 侧均承认可产生两文件同
+ * 章号的数据态。精准读取（materials readChapterBodyByNumber → walkMdFind）按章号取
+ * 目录序首个匹配文件；索引侧若把两文件的块都挂同章号入库，后者文件的偏移切片会落在
+ * 首个文件正文上（错位片段）。策略：每章号只保留路径字典序最小的文件（跨进程可复现，
+ * 与「保留首个」读取语义对齐的确定性近似），其余跳过并交由调用方告警留痕。
+ */
+function dedupeChaptersByNumber(chapters: ChapterMeta[]): { chapters: ChapterMeta[]; dropped: ChapterMeta[] } {
+  const kept = new Map<number, ChapterMeta>()
+  const dropped: ChapterMeta[] = []
+  for (const ch of chapters) {
+    const prev = kept.get(ch.章号)
+    if (!prev) {
+      kept.set(ch.章号, ch)
+    } else if ((ch._path ?? '') < (prev._path ?? '')) {
+      kept.set(ch.章号, ch)
+      dropped.push(prev)
+    } else {
+      dropped.push(ch)
+    }
+  }
+  const keptSet = new Set(kept.values())
+  return { chapters: chapters.filter((ch) => keptSet.has(ch)), dropped }
+}
+
+/**
  * A3（批 7）惰性指纹校验的单章口径（recall 候选子集用）。
  * 章 meta 缺失（正文文件不在了）→ false；指纹元数据缺失/不符 → false。
  * 不合格只剔除该章（老口径整批拒绝——倒序校验后语义为过滤闸，见 recall）。
@@ -203,7 +228,19 @@ export interface BuildIndexResult {
  * 幂等：空库再清一次无害；失败回滚可重试。由 rag/rebuild 端点在建索引任务闸内调用。
  */
 export function resetRagIndex(bookRoot: string): void {
-  const db = openRagDb(bookRoot)
+  // R35-13（三十五轮）：文件级损坏（断电/磁盘故障/杀软半写后的非 SQLite 字节流，
+  // SQLITE_NOTADB 等）清表救不了——本函数「清表不删文件」对文件级损坏无效，专为
+  // 兜底失配而设的重建入口在损坏场景同死。派生缓存可弃可重建：确认损坏后删库
+  //（连 -wal/-shm）全新建；busy/IO 等可重试错误原样上抛，绝不误删
+  let db: DatabaseSync
+  try {
+    db = openRagDb(bookRoot)
+  } catch (e) {
+    if (!isRagDbCorruptionError(e)) throw e
+    log.warn('rag', `RAG 索引库文件损坏（${errStr(e)}），删除后全新重建`)
+    deleteRagDbFiles(bookRoot)
+    db = openRagDb(bookRoot)
+  }
   try {
     db.exec('BEGIN IMMEDIATE')
     try {
@@ -241,9 +278,18 @@ export async function buildIndex(
   if (!existsSync(bodyDir)) {
     return { ok: false, chunkCount: 0, chapterCount: 0, error: '没有定稿正文可索引。' }
   }
-  const { chapters, errors } = readChapterDir(bodyDir)
-  if (chapters.length === 0) {
+  const { chapters: chaptersFromDir, errors } = readChapterDir(bodyDir)
+  if (chaptersFromDir.length === 0) {
     return { ok: false, chunkCount: 0, chapterCount: 0, error: '没有定稿正文可索引。' }
+  }
+  // R35-43（三十五轮）：重复章号去重（保路径字典序首个）+ 告警——无告警时两文件
+  // 同章号的块全入库，召回偏移对精准读取可错位
+  const { chapters, dropped } = dedupeChaptersByNumber(chaptersFromDir)
+  if (dropped.length > 0) {
+    log.warn(
+      'rag',
+      `检测到重复章号（${dropped.map((ch) => `第 ${ch.章号} 章（${basename(ch._path ?? '')}）`).join('、')}）——每章号仅保留路径字典序首个文件参与索引，重复文件不建索引（其偏移会与精准读取错位），请修复章号后重跑`,
+    )
   }
   // A-9（二十九轮）：frontmatter 解析失败章号集——文件名仍带章号（<章号>-<标题>.md），
   // 按 basename 反推；名字也不可解析的（无章号前缀）无从保护，退回原口径。
@@ -628,8 +674,10 @@ export async function recallDetailed(
   /** O-3：块数告警阈值（测试注入用，默认 RAG_CHUNK_WARN_THRESHOLD） */
   warnThreshold = RAG_CHUNK_WARN_THRESHOLD,
 ): Promise<RecallResult> {
-  const empty: RecallResult = { hits: [], truncated: false, totalBlocks: 0 }
-  if (!config.enabled || !config.endpoint || !config.model) return empty
+  // R35-41（三十五轮）：空结果每出口返回新字面量——共享同一可变对象会被消费方
+  // 改动污染（进程内后续空召回带着被塞进的脏 hits/truncated）
+  const emptyResult = (): RecallResult => ({ hits: [], truncated: false, totalBlocks: 0 })
+  if (!config.enabled || !config.endpoint || !config.model) return emptyResult()
 
   // 下界钳制（2026-08-21 低级项）：书里配 0/负数时首轮 `verdict.size >= 0` 恒 break，
   // 召回恒空静默降级为「无 RAG」且无告警——读侧已拒非法值，这里再兜一层防直调/测试路径
@@ -647,10 +695,10 @@ export async function recallDetailed(
   let chapterByNumber!: Map<number, ChapterMeta>
   try {
     const indexedModel = getRagMeta(db, 'embedding_model')
-    if (indexedModel && indexedModel !== config.model) return empty
+    if (indexedModel && indexedModel !== config.model) return emptyResult()
 
     chunks = readAllChunks(db)
-    if (chunks.length === 0) return empty // 空库：无向量可召回，先判空不烧 API
+    if (chunks.length === 0) return emptyResult() // 空库：无向量可召回，先判空不烧 API
     // O-3（第十三轮）：块数超已知可用区间（十万块，见 store.ts readAllChunks 量化注释）
     // 时告警；T2 批起同时硬截断到上限——超区间线性扫描延迟已超交互预期，防单次召回
     // 无界膨胀（截断取读出序前缀 + warn 留痕，配额数值与告警阈值同一常量）
@@ -665,10 +713,12 @@ export async function recallDetailed(
     // A3：指纹元数据整表读内存（单 SELECT 零文件 IO），闭库后候选子集校验用
     indexedFingerprints = readAllChapterFingerprints(db)
     // 章号 → meta（readChapterDir 有 stat 级缓存，热路径零文件读；校验只读候选章文件）
+    // R35-43：与 buildIndex 同口径去重（保路径字典序首个）——不去重时 Map 后者覆盖，
+    // 指纹校验读到重复章号的另一文件，与已存指纹永远错配，该章命中被整体误杀
     const bodyDir = join(bookRoot, '写作', '正文')
     const chapterNumbers = new Set(chunks.map((c) => c.章号))
     chapterByNumber = new Map(
-      readChapterDir(bodyDir)
+      dedupeChaptersByNumber(readChapterDir(bodyDir).chapters)
         .chapters.filter((ch) => chapterNumbers.has(ch.章号))
         .map((ch) => [ch.章号, ch] as const),
     )
@@ -678,17 +728,17 @@ export async function recallDetailed(
 
   // 网络段（无 db 句柄）
   const qVec = await embedFn(config.endpoint, config.model, apiKey, [query], embedOptionsFor(bookRoot, config))
-  if (qVec === null || qVec.length === 0) return empty
+  if (qVec === null || qVec.length === 0) return emptyResult()
   const queryVec = Float32Array.from(qVec[0]!)
   // R34D-32（三十四轮）：查询向量同走 double→Float32 收窄——溢出分量（有限 double
   // 物化后 ±Infinity）会把对全库的相似度算成 NaN、topK 排序整体失真（与入库侧
   // commitIndexBatch 同款洞的召回半边）；降级返回空（fail-closed，与端点失败口径一致）
   if (queryVec.some((x) => !Number.isFinite(x))) {
     log.warn('rag', 'embedding 查询向量含 Float32 溢出分量（double 有限但物化后非有限）——本轮召回降级为空')
-    return empty
+    return emptyResult()
   }
 
-  if (indexedDim && Number(indexedDim) !== queryVec.length) return empty
+  if (indexedDim && Number(indexedDim) !== queryVec.length) return emptyResult()
 
   const qNorm = l2Norm(queryVec)
   const hits: RecallHit[] = chunks
@@ -709,14 +759,16 @@ export async function recallDetailed(
 
   // A3 倒序校验：按分数序逐章校验指纹，fresh 章 chunk 直接收，stale 章 chunk 剔除、
   // 顺位递补；已判章不重复校验（同章多块只读一次文件）。候选章数达 K' 仍未凑满
-  // topK（重 staleness 场景）→ 返回已凑到的（宁缺毋滥，不放宽校验）
+  // topK（重 staleness 场景）→ 未验证章不收（宁缺毋滥，不放宽校验）。
+  // R35-42（三十五轮）：深度耗尽只停「校验新章」（continue 跳过未验证章）——原 break
+  // 把断点后已验证 fresh 章的高分命中一并丢弃，topK 可能填不满
   const verdict = new Map<number, boolean>()
   const out: RecallHit[] = []
   for (const h of hits) {
     if (out.length >= topK) break
     let fresh = verdict.get(h.章号)
     if (fresh === undefined) {
-      if (verdict.size >= candidateDepth) break
+      if (verdict.size >= candidateDepth) continue
       fresh = chapterFingerprintFresh(chapterByNumber.get(h.章号), indexedFingerprints)
       verdict.set(h.章号, fresh)
     }

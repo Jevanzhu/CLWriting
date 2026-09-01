@@ -105,6 +105,11 @@ watch(
 )
 
 const { aiActions, runAiAssist } = useAiAssist()
+// R35-37：右键 AI 动作按指令 key 取用——原按下标硬编码（aiActions[0..3]）与指令表
+// 顺序隐式耦合，重排即静默错动作。零行为变更（当前顺序下动作映射不变）。
+const aiActionByKey: Map<string, (typeof aiActions)[number]> = new Map(
+  aiActions.map((a) => [a.key, a]),
+)
 
 type CmHostExposed = {
   insertText: (t: string) => void
@@ -157,6 +162,12 @@ function buildCtxItems(hasSel: boolean): MenuItem[] {
 }
 
 async function onCtxSelect(key: string): Promise<void> {
+  // R35-37：AI 子菜单项 key 形如 `ai-<指令key>`，按 key 查指令表取动作
+  if (key.startsWith('ai-')) {
+    const action = aiActionByKey.get(key.slice(3))
+    if (action) void runAiAssist(action)
+    return
+  }
   switch (key) {
     case 'cut': await cmHost.value?.clipboardCut(); break
     case 'copy': await cmHost.value?.clipboardCopy(); break
@@ -165,10 +176,6 @@ async function onCtxSelect(key: string): Promise<void> {
     case 'redo': cmHost.value?.redoAction(); break
     case 'selectAll': cmHost.value?.selectAll(); break
     case 'find': cmHost.value?.openSearch(); break
-    case 'ai-expand': void runAiAssist(aiActions[0]); break
-    case 'ai-condense': void runAiAssist(aiActions[1]); break
-    case 'ai-polish': void runAiAssist(aiActions[2]); break
-    case 'ai-continue': void runAiAssist(aiActions[3]); break
   }
 }
 

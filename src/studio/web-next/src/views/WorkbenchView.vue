@@ -164,6 +164,7 @@ const outlinePending = ref(false)
 const leadUpdatesPending = ref(false)
 const autoPending = ref(false)
 const saveDraftPending = ref(false) // R73-63：存草稿在途锁（同族兄弟动作均有，此前漏网）
+const interruptPending = ref(false) // R35-39：中断在途锁（R69-29 家族同款收口）
 const genBusy = computed(
   () => spawnPending.value || outlinePending.value || leadUpdatesPending.value || autoPending.value || wb.running,
 )
@@ -201,11 +202,15 @@ async function onSpawn(): Promise<void> {
   }
 }
 async function onInterrupt(): Promise<void> {
+  if (interruptPending.value) return // R35-39：在途锁（双击重复 POST 中断）
+  interruptPending.value = true
   try {
     await interrupt(props.bookName)
     ui.toast('已中断', 'info')
   } catch (e) {
     err.value = friendlyError(e)
+  } finally {
+    interruptPending.value = false
   }
 }
 
@@ -372,7 +377,7 @@ async function onSaveDraft(): Promise<void> {
           @keydown.enter="onPromptEnter"
         />
         <button v-if="!genBusy" class="btn primary" :disabled="ui.aiAvailable === false || spawnPending" @click="onSpawn">生成</button>
-        <button v-else class="btn danger" @click="onInterrupt">中断</button>
+        <button v-else class="btn danger" :disabled="interruptPending" @click="onInterrupt">中断</button>
         <button
           class="btn"
           :disabled="genBusy || ui.aiAvailable === false"

@@ -362,7 +362,7 @@ export function collectTreeIssues(
   bookRoot: string,
   readReviewVerdict: (docId: string) => { approved: boolean } | undefined,
   userDataPath?: string | null,
-): { issues: Record<string, { hasRed: boolean; verdictRejected: boolean }>; rebuildFailed: boolean; leadsBookDegraded: boolean; chaptersDegraded: number } {
+): { issues: Record<string, { hasRed: boolean; verdictRejected: boolean }>; rebuildFailed: boolean; leadsBookDegraded: boolean; chaptersDegraded: number; /** R35-24：正文目录解析失败章计数（章号损坏章对树红点隐形，>0 = 本轮树不完整） */ chaptersParseDegraded: number } {
   // B-P2-7：检查 .ok，损坏时 warn 留诊断（config 回落 DEFAULT_CONFIG，不阻断）
   // R29-5（二十九轮）：树聚合路径降级只 warn 不产黄项——树红点聚合只吃 hasRed
   // （issues 只记 {hasRed, verdictRejected}，黄项无处落），逐章注入黄项既不可见又会
@@ -431,7 +431,18 @@ export function collectTreeIssues(
     // batch（H-1 新增消费方；不共用会把 readChapterDir 调用次数抬高回去，CC-P1-3 的
     // 调用次数回归锚会红）。P5-管线（第七轮）：bodyChapters 列表直接传入
     // maxWrittenChapterOf——原实现内部重扫一遍正文（「一次预扫」注释与实现漂移）
-    const bodyChapters = existsSync(bodyDir) ? readChapterDir(bodyDir).chapters : []
+    // R35-24（三十五轮）：正文目录解析错误不再静默丢弃——章号损坏/缺章号的章进不了
+    // chapters 列表，树红点对其完全隐形（损坏越重越安静）。errors 逐条 warn 留痕并以
+    // 计数透出（chaptersParseDegraded，与 chaptersDegraded 同款降级口径）；章级黄项
+    // 无处落（issues 只存 hasRed/verdictRejected 布尔，见上方 R29-5 注），可见性由
+    // 计数标志 + warn 承担。
+    const bodyDirScan = existsSync(bodyDir) ? readChapterDir(bodyDir) : null
+    const bodyChapters = bodyDirScan?.chapters ?? []
+    let chaptersParseDegraded = 0
+    for (const pe of bodyDirScan?.errors ?? []) {
+      chaptersParseDegraded++
+      log.warn('check', `章文件解析失败（树红点对该章失明）：${pe.file}——${pe.message}`)
+    }
     const maxWritten = maxWrittenChapterOf(bookRoot, bodyChapters)
     let leadsBookRed = false
     // R62-7：账本全书性红项计算失败的可视标志——此前静默降级为「无红」，持续性失败
@@ -602,7 +613,7 @@ export function collectTreeIssues(
         }
       }
     }
-    return { issues, rebuildFailed, leadsBookDegraded, chaptersDegraded }
+    return { issues, rebuildFailed, leadsBookDegraded, chaptersDegraded, chaptersParseDegraded }
   } finally {
     if (db) db.close()
   }

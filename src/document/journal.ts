@@ -129,7 +129,9 @@ export async function appendSettled(
   maybeCompactJournal(journalPath)
 }
 
-/** appendAborted 的同步孪生——同 appendSettledSync 语境限制（R33D-5）。 */
+/** appendAborted 的同步孪生——同 appendSettledSync 语境限制（R33D-5）。
+ *  R35-5 后生产零调用（最后调用方 healMovePending 已迁异步孪生）：仅保留给确无
+ *  异步上下文的 CLI/脚本侧，服务进程一律走 async 版。 */
 export function appendAbortedSync(journalPath: string, opId: string, reason: string): void {
   const entry: JournalAborted = {
     opId,
@@ -141,8 +143,10 @@ export function appendAbortedSync(journalPath: string, opId: string, reason: str
   maybeCompactJournal(journalPath)
 }
 
-/** appendSettled 的同步孪生——仅供 state.ts healMovePending 崩溃自愈链（真同步语境）
- *  使用；服务进程保存链一律走 async 版（R33D-5）。 */
+/** appendSettled 的同步孪生——同步 Atomics.wait 锁等待原语，仅限真无异步上下文的
+ *  CLI/脚本侧使用；服务进程（承载 SSE/全部接口）一律走 async 版（R33D-5）。
+ *  R35-5：原唯一生产调用方 state.ts healMovePending 已迁异步孪生（其 HTTP 可达面
+ *  的锁等待曾可冻结服务事件循环），本函数现生产零调用。 */
 export function appendSettledSync(
   journalPath: string,
   opId: string,
@@ -243,8 +247,8 @@ function appendLine(filePath: string, line: string, degradedLine?: string): void
 /**
  * R33D-5（三十三轮）：appendLine 的异步孪生——executeSave/saveDraft 服务进程保存链
  * 每笔 2-3 次 journal 追加，此前走同步 Atomics.wait 锁等待（双进程争用冻结事件循环
- * 最长 2s）。降级语义原样平移（锁超时 → 精简降级行裸写）；同步版保留给真同步语境
- * （state.ts healMovePending 崩溃自愈链）。
+ * 最长 2s）。降级语义原样平移（锁超时 → 精简降级行裸写）；R35-5 后服务进程全部
+ * journal 写路径（含 healMovePending 自愈回写）均走本异步版。
  */
 async function appendLineAsync(filePath: string, line: string, degradedLine?: string): Promise<void> {
   mkdirSync(dirname(filePath), { recursive: true })

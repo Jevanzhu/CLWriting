@@ -132,6 +132,27 @@ export const useChatStore = defineStore('chat', () => {
   /** G1：重新生成的书名（chat_done 时 best-effort 刷新分支列表用） */
   let regenBook: string | null = null
 
+  // ── R35-11：章号语境（对话作用于「全书」还是某章）单一事实源 ──
+  // 此前 ChatDock 与 ChatPanel 各建一份 useChatComposer 实例（dock 开窗时双实例并存），
+  // selectedChapter 互不同步：「重新生成」按 ChatPanel 那份带错章号语境。上提到本 store：
+  // dock 输入框 / 工作台输入区 / ChatMessages regenerate 三处消费同一份；按书记忆
+  // （显式选择过才记，切书换到目标书的记忆值），显式选择后 currentChapter 不再覆盖。
+  const selectedChapter = ref<number | undefined>(undefined)
+  /** 显式选择记忆（书 → 章；含显式「全书」=undefined）。有记忆即视为手动选择态。 */
+  const chapterMemo = new Map<string, number | undefined>()
+
+  /** 显式选定章号语境（章节菜单入口；同时落本书记忆） */
+  function selectChatChapter(book: string, ch: number | undefined): void {
+    chapterMemo.set(book, ch)
+    selectedChapter.value = ch
+  }
+
+  /** 跟随编辑器当前章——仅本书无显式选择记忆时；有记忆（含显式「全书」）不覆盖 */
+  function followChatChapter(book: string, current: number | undefined): void {
+    if (chapterMemo.has(book)) return
+    if (current !== undefined) selectedChapter.value = current
+  }
+
   /** 是否有消息 */
   const hasMessages = computed(() => messages.value.length > 0)
 
@@ -573,6 +594,11 @@ export const useChatStore = defineStore('chat', () => {
     branches.value = []
     regenPending = false
     regenBook = null
+    // R35-11：切书在此收口（Book.vue 切书链统一调 clear）——章号语境换到目标书的
+    // 显式记忆值（无记忆 = 「全书」，随后的 currentChapter 跟随照常）；同书清空对话
+    // 时记忆值即当前值，选择不丢。记忆 Map 不清：按书记忆跨切书保留
+    const book = wsBookName()
+    selectedChapter.value = book ? chapterMemo.get(book) : undefined
   }
 
   // Q-8：在途回合收尾（running 翻 false）自动补种登记中的书——切书窗口内被 clear
@@ -595,6 +621,9 @@ export const useChatStore = defineStore('chat', () => {
     hasMessages,
     activeBranchId,
     branches,
+    selectedChapter,
+    selectChatChapter,
+    followChatChapter,
     dispatch,
     pushUser,
     popUser,

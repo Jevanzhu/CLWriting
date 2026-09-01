@@ -3,7 +3,8 @@
  * 对话消息流（hh §八-16 自 ChatPanel.vue 拆出，纯搬家）。
  * 无气泡感消息流（用户浅卡片右对齐 / AI 纯文本全宽）+ 工具卡确认闸 + G1 变体切换与
  * 重新生成 + 滚动跟随（rAF 节流）。输入区留在 ChatPanel（dock 拆分场景只挂本件时由
- * hideComposer 控制）。selectedChapter 经 props 传入（regenerate 的章号语境）。
+ * hideComposer 控制）。R35-11：章号语境直读 chat store 单一事实源（原经 ChatPanel 的
+ * composer 实例 props 传入，dock 双实例下与用户实际选择分裂）。
  */
 import { ref, computed, watch, onBeforeUnmount, nextTick } from 'vue'
 import { PenLine, ShieldCheck, AlertCircle, Loader2, MessageSquareText, RefreshCw, ChevronLeft, ChevronRight, Info } from 'lucide-vue-next'
@@ -14,8 +15,6 @@ import { useUiStore } from '../../../stores/ui'
 
 const props = defineProps<{
   bookName: string
-  /** 重新生成的章号语境（来自 ChatPanel 的 useChatComposer 选择态） */
-  selectedChapter?: number
 }>()
 
 const chat = useChatStore()
@@ -113,9 +112,10 @@ const lastDoneAssistant = computed(() => {
   return last && last.role === 'assistant' && last.done ? last : null
 })
 
-/** 重新生成最后一条回复（服务端以新 branchId 落库，SSE 回流新变体） */
+/** 重新生成最后一条回复（服务端以新 branchId 落库，SSE 回流新变体）。
+ *  R35-11：章号语境直读 chat store（与 dock/工作台输入区的章节选择同一份） */
 function handleRegenerate(): void {
-  void chat.regenerate(props.bookName, props.selectedChapter)
+  void chat.regenerate(props.bookName, chat.selectedChapter)
 }
 
 /**

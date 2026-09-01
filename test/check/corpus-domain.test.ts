@@ -296,6 +296,10 @@ describe('R63-13/R63-11：corpus:commit checkId 消毒与存量保护', () => {
         '### checkId: sub/dir-check',
         '- [x] 章号 1 ｜ 判定：幸存 ｜ 摘录："穿越正文"（注）',
         '',
+        // R35-12：`a\b` 是本用例标题既有承诺——fixture 此前漏了反斜杠样本
+        '### checkId: a\\b',
+        '- [x] 章号 1 ｜ 判定：幸存 ｜ 摘录："穿越正文"（注）',
+        '',
         '### checkId: body-parts',
         '- [x] 章号 2 ｜ 判定：幸存 ｜ 摘录："眼睛正文"（注）',
         '',
@@ -310,6 +314,9 @@ describe('R63-13/R63-11：corpus:commit checkId 消毒与存量保护', () => {
     // 穿越目标不落盘：outDir/../../evil.json 与 outDir 下的子目录形态都不存在
     expect(existsSync(join(outDir, '..', 'evil.json'))).toBe(false)
     expect(existsSync(join(outDir, 'sub'))).toBe(false)
+    // 反斜杠形态零落盘：win 分隔符解释下的子目录与字面名都不存在（R35-12 前者漏网）
+    expect(existsSync(join(outDir, 'a'))).toBe(false)
+    expect(existsSync(join(outDir, 'a\\b.json'))).toBe(false)
   })
 
   it('R63-11：存量 .json 解析失败 → 跳过合并且原文件保持原样（不静默清空既有回归门）', () => {
@@ -364,6 +371,38 @@ describe('R63-13/R63-11：corpus:commit checkId 消毒与存量保护', () => {
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('无勾选条目')
     expect(existsSync(join(outDir, 'body-parts.json'))).toBe(false)
+  })
+
+  // R35-12（三十五轮）：字符类转义错误使 `\` 实际漏拦（注释/报错文案/用例标题三方虚账，
+  // 主评审 node 实验证实 `a\b` → reject false）——win 上 `a\b.json` 建子目录落盘而语料门
+  // 非递归装载永远看不到；保留设备名整串判定可被 `sub\CON` 形态绕过
+  it('R35-12：反斜杠与分量级保留设备名拒绝（a\\b、sub/CON、con），合法 id 口径不变', () => {
+    const root = makeCandidateBook(
+      [
+        '### checkId: a\\b',
+        '- [x] 章号 1 ｜ 判定：幸存 ｜ 摘录："反斜杠正文"（注）',
+        '',
+        '### checkId: sub/CON',
+        '- [x] 章号 1 ｜ 判定：幸存 ｜ 摘录："穿越正文"（注）',
+        '',
+        '### checkId: con',
+        '- [x] 章号 1 ｜ 判定：幸存 ｜ 摘录："设备名正文"（注）',
+        '',
+        '### checkId: body-parts',
+        '- [x] 章号 2 ｜ 判定：幸存 ｜ 摘录："眼睛正文"（注）',
+        '',
+      ].join('\n'),
+    )
+    const outDir = tmpDir('clw-corpus-r3512-')
+    const r = runCommit(root, outDir)
+    expect(r.stderr).toContain('拒绝入库')
+    expect(r.status).toBe(1)
+    // 反斜杠形态零落盘：字面名与（win 分隔符解释下的）子目录形态都不存在
+    expect(existsSync(join(outDir, 'a\\b.json'))).toBe(false)
+    expect(existsSync(join(outDir, 'a'))).toBe(false)
+    expect(existsSync(join(outDir, 'CON.json'))).toBe(false)
+    // 合法 checkId 不受误伤，照常入库
+    expect(existsSync(join(outDir, 'body-parts.json'))).toBe(true)
   })
 })
 

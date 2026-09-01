@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createRouteTable, dispatch, withRouteTable, type RouteTable } from './router.js'
-import { safeTokenCompare, replyError, urlPathOnly } from './http.js'
+import { safeTokenCompare, replyError, urlPathOnly, URL_PARSE_BASE } from './http.js'
 import { readBooks, repairBooks } from '../../install/books.js'
 import { migrateLayoutV2 } from '../../install/migrate-layout-v2.js'
 import { migrateLayoutV3 } from '../../install/migrate-layout-v3.js'
@@ -208,13 +208,16 @@ export function startServer(opts: StudioServerOptions): http.Server {
         log.warn('repair-books', `${why}，本轮跳过书库自愈（登记未动）`)
         sink.add('repair-books', `${why}，本轮跳过书库自愈（登记未动）`)
       } else if (r.changed) {
+        // R35-28（三十五轮）：missing 有幽灵条目时随通告带回可操作提示（自愈只报告
+        // 不清除，作者按提示人工修复或移回原位）
+        const hint = r.missingHint ? `\n${r.missingHint}` : ''
         log.warn(
           'repair-books',
-          `书库登记已自愈：登记 ${r.rebuilt.length} 条、缺失 ${r.missing.length} 条、重关联 ${r.relinked.length} 条`,
+          `书库登记已自愈：登记 ${r.rebuilt.length} 条、缺失 ${r.missing.length} 条、重关联 ${r.relinked.length} 条${hint}`,
         )
         sink.add(
           'repair-books',
-          `书库登记已自愈：重建 ${r.rebuilt.length} 条、缺失 ${r.missing.length} 条、重关联 ${r.relinked.length} 条`,
+          `书库登记已自愈：重建 ${r.rebuilt.length} 条、缺失 ${r.missing.length} 条、重关联 ${r.relinked.length} 条${hint}`,
         )
       }
     } catch (e) {
@@ -369,7 +372,9 @@ export function startServer(opts: StudioServerOptions): http.Server {
     // 路径判定之前不受影响；SSE 豁免路径自带凭据闸。
     const apiPathname = (() => {
       try {
-        return new URL(req.url ?? '/', 'http://local').pathname
+        // R35-30（三十五轮）：base 单源化——引 http.ts URL_PARSE_BASE（原 'http://local'
+        // 与 parseRequestUrl 的 'http://localhost' 数值等价但字面量漂移）
+        return new URL(req.url ?? '/', URL_PARSE_BASE).pathname
       } catch {
         return '/'
       }
@@ -417,7 +422,10 @@ export function startServer(opts: StudioServerOptions): http.Server {
     // 小写化口径兜一道：任意大小写的 /api/ 前缀未匹配任何路由 → 统一 404 JSON 错误信封
     // （与 /api/ 未命中同款 replyError），不再落 SPA。排空钩子对齐上方 api 分支（POST
     // /API/* 带 body 被 404 时 keep-alive 连接的未消费请求体照常排空，R64-28 同款）。
-    if (apiPathname.toLowerCase().startsWith('/api/')) {
+    // R35-30（三十五轮）：裸 /api（无尾斜杠，任意大小写）同口径兜 404——startsWith('/api/')
+    // 不含精确 '/api'，此前落 SPA 回 200 HTML；API 前缀约定的自然延伸。
+    const apiLower = apiPathname.toLowerCase()
+    if (apiLower === '/api' || apiLower.startsWith('/api/')) {
       res.on('finish', () => {
         if (!req.readableEnded) req.resume()
       })

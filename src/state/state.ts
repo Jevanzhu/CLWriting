@@ -25,7 +25,7 @@ import { join, relative } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { scanCloudCopies } from '../git/exec.js'
 import { sweepAbandonedTmpFiles } from '../fs/atomic.js'
-import { appendAbortedSync, appendSettledSync, findUnsettled, isMovePending, type JournalAnyPending, type JournalMovePending } from '../document/journal.js'
+import { appendAborted, appendSettled, findUnsettled, isMovePending, type JournalAnyPending, type JournalMovePending } from '../document/journal.js'
 import { decodeDocDirName } from '../document/version.js'
 import { readTrashManifest } from '../document/trash.js'
 import { rebuild } from '../cache/rebuild.js'
@@ -34,7 +34,7 @@ import { splitFrontMatter, parseFlat } from '../format/frontmatter.js'
 import { assembleStatus } from '../process/assemble.js'
 import { readChapterDir } from '../format/chapters.js'
 import { parseChapterFileName } from '../format/words.js'
-import { readManifest, readManifestStrict, writeManifest, finalizedChapterNumbers, finalizedChapterSetOfBook, withManifestLock, type Manifest } from '../document/manifest.js'
+import { readManifest, readManifestStrict, writeManifest, finalizedChapterNumbers, finalizedChapterSetOfBook, withManifestLockAsync, type Manifest } from '../document/manifest.js'
 import { computeRevision } from '../document/revision.js'
 import { probeCachedRevision } from '../document/tree.js'
 import { safeManifestPath } from '../fs/safe-path.js'
@@ -96,13 +96,17 @@ export type RouterActionKind =
 /**
  * 进门状态判定（#15 第 2 节，按序命中即返回）。
  * 全程零 AI：健康检查 / 全量重建收错 / 指纹比对 / 工作区文件 / 章号推算，全是确定性脚本。
+ * R35-5：异步化——healthCheck → healMovePending 的崩溃自愈链含清单锁与 journal 锁
+ * 等待，服务进程 HTTP 路径（/api/state、/api/overview）在此前同步版（Atomics.wait）
+ * 下可冻结事件循环最坏 ≈12s；全部锁等待改异步孪生（withManifestLockAsync +
+ * appendSettled/appendAborted），锁内临界段保持同步 FS。
  */
-export function detectState(bookRoot: string, config: BookConfig, manifest?: Manifest): DetectedState {
+export async function detectState(bookRoot: string, config: BookConfig, manifest?: Manifest): Promise<DetectedState> {
   // 入口读一次 manifest，传入各子函数（单次 detectState 调用链原先读盘 4 次；enter() 传入复用避免双读，P2-BE-4）
   const m = manifest ?? readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
 
   // #1 健康检查（journal 崩溃恢复 + 网盘副本扫描）
-  const issues = healthCheck(bookRoot, m)
+  const issues = await healthCheck(bookRoot, m)
   if (issues.length > 0) {
     return { state: 1, issues }
   }
@@ -213,8 +217,9 @@ export interface HealthIssue {
   files?: string[]
 }
 
-/** 态 1：journal 崩溃恢复 + 网盘副本扫描（不再依赖 git 半提交/冲突/锁——无 git 即无此类异常）。 */
-function healthCheck(bookRoot: string, manifest: Manifest): HealthIssue[] {
+/** 态 1：journal 崩溃恢复 + 网盘副本扫描（不再依赖 git 半提交/冲突/锁——无 git 即无此类异常）。
+ *  R35-5：异步化（healMovePending 自愈链的清单/journal 锁等待改异步孪生）。 */
+async function healthCheck(bookRoot: string, manifest: Manifest): Promise<HealthIssue[]> {
   const issues: HealthIssue[] = []
 
   // ① journal 崩溃恢复：扫 工作区/.journal/*.jsonl，找 pending 未 settled 的写操作。
@@ -247,7 +252,7 @@ function healthCheck(bookRoot: string, manifest: Manifest): HealthIssue[] {
         const pending = findUnsettled(journalFile)
         const unresolved: JournalAnyPending[] = []
         for (const p of pending) {
-          if (!isMovePending(p) || !healMovePending(bookRoot, docId, p, manifest, journalFile)) unresolved.push(p)
+          if (!isMovePending(p) || !(await healMovePending(bookRoot, docId, p, manifest, journalFile))) unresolved.push(p)
         }
         if (unresolved.length > 0) {
           // R76-25（二十四轮 C 域）：报文补文档路径——此前只报 docId（doc_…/legacy:…
@@ -378,14 +383,17 @@ function healthCheck(bookRoot: string, manifest: Manifest): HealthIssue[] {
  * - 新路径在、旧路径不在 → rename 已发生、清单未跟上 → 补清单 + settled（幂等：清单已对齐时只补 settled）
  * - 旧路径在、新路径不在 → rename 未发生 → 悬置 pending 标 aborted（无实际效果待恢复）
  * - 两端都在 / 都不在 / 路径越出书仓库 → 不可自动判定，返回 false 交作者
+ * R35-5：异步化——清单 RMW 锁等待改 withManifestLockAsync、journal 回写改 appendSettled/
+ * appendAborted 异步孪生（原同步版 Atomics.wait 在服务进程 HTTP 路径可冻结事件循环
+ * 最坏 ≈12s）；锁内/锁外临界段保持同步 FS，自愈语义逐位不变。
  */
-function healMovePending(
+async function healMovePending(
   bookRoot: string,
   docId: string,
   p: JournalMovePending,
   manifestMirror?: Manifest,
   journalFile?: string,
-): boolean {
+): Promise<boolean> {
   const oldAbs = safeManifestPath(bookRoot, p.oldPath)
   const newAbs = safeManifestPath(bookRoot, p.newPath)
   if (!oldAbs || !newAbs) return false
@@ -410,7 +418,8 @@ function healMovePending(
         // Y-4（第五十七轮）：RMW 持清单锁（X-5 单源漏网点）——悬置 pending 自愈与
         // 他进程清单写（CLI batch-finalize / GUI 保存）并发时，裸 read→write 会用
         // 陈旧镜像整文件重写吞掉刚落的 finalizedRevision（定稿防线失守）
-        withManifestLock(manifestPath, () => {
+        // R35-5：锁等待异步化（withManifestLockAsync）
+        await withManifestLockAsync(manifestPath, () => {
           const m = readManifestStrict(manifestPath) // R27-40：RMW strict 读——读失败上抛走外层 best-effort，保旧清单
           const entry = m.entries.get(docId)
           if (entry && entry.path !== p.newPath) {
@@ -428,11 +437,11 @@ function healMovePending(
       }
       // R69-3（十七轮）：settled/aborted 回写沿用被扫 journal 文件（传入路径）——
       // 不再用 docId 重拼（mac 存量字面名文件会写到编码新文件、pending 永不消）。
-      appendSettledSync(journalFile ?? join(journalDir(bookRoot), `${encodeOrLiteralNames(docId)[0]}.jsonl`), p.opId, computeRevision(newAbs))
+      await appendSettled(journalFile ?? join(journalDir(bookRoot), `${encodeOrLiteralNames(docId)[0]}.jsonl`), p.opId, computeRevision(newAbs))
       return true
     }
     if (oldExists && !newExists) {
-      appendAbortedSync(journalFile ?? join(journalDir(bookRoot), `${encodeOrLiteralNames(docId)[0]}.jsonl`), p.opId, '恢复扫描判定：rename 未发生，清除悬置 pending')
+      await appendAborted(journalFile ?? join(journalDir(bookRoot), `${encodeOrLiteralNames(docId)[0]}.jsonl`), p.opId, '恢复扫描判定：rename 未发生，清除悬置 pending')
       return true
     }
   } catch {
@@ -835,8 +844,9 @@ export interface EnterResult {
 /**
  * 进门入口（#15 第 3 节）。
  * 串：判态 → 路由 → 近况复述。无 hook 等价入口（SessionStart 真 hook M4 接同一结构化结果）。
+ * R35-5：随 detectState 异步化（enter 调用方需 await）。
  */
-export function enter(bookRoot: string): EnterResult {
+export async function enter(bookRoot: string): Promise<EnterResult> {
   const cfgPath = join(bookRoot, 'book.yaml')
   const cfgResult = readBookConfig(cfgPath)
   // P3-2：book.yaml 损坏时静默降级到默认配置——至少留下诊断痕迹
@@ -846,7 +856,7 @@ export function enter(bookRoot: string): EnterResult {
   const { config } = cfgResult
   // manifest 只读一次，detectState + buildRecap 复用（P2-BE-4：原先同一调用链读两次）
   const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
-  const detected = detectState(bookRoot, config, manifest)
+  const detected = await detectState(bookRoot, config, manifest)
   const route = routeState(detected)
   const recap = buildRecap(bookRoot, config, detected, manifest)
   return { recap, detected, route, kind: config.kind ?? 'long' }

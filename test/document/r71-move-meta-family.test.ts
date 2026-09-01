@@ -119,7 +119,7 @@ describe('R71-7: move/rename 落盘防覆盖', () => {
     expect(existsSync(join(bookRoot, oldRel))).toBe(true)
     expect(existsSync(join(bookRoot, newRel))).toBe(true)
 
-    const d = detectState(bookRoot, DEFAULT_CONFIG)
+    const d = await detectState(bookRoot, DEFAULT_CONFIG)
     if (d.state === 1) {
       expect(d.issues.some((i) => i.kind === 'crashedWrite')).toBe(false) // 自愈不门禁
     }

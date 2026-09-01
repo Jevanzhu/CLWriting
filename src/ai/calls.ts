@@ -129,7 +129,15 @@ function readRecord(bookRoot: string): { rec: CallRecord | null; corrupt: boolea
     }
     // 新格式
     const chapter = raw['chapter'] as ChapterUsage | undefined
-    if (!chapter || typeof chapter.num !== 'number' || typeof chapter.used !== 'number') {
+    // R35-16：inputTokens/outputTokens 坏值与 tasks 块同判 corrupt（此前静默归 0，
+    // 与 tasks 块 X-P3a 判损坏的读校验不对称——坏值归 0 是静默烂账）
+    if (
+      !chapter ||
+      typeof chapter.num !== 'number' ||
+      typeof chapter.used !== 'number' ||
+      typeof chapter.inputTokens !== 'number' ||
+      typeof chapter.outputTokens !== 'number'
+    ) {
       return { rec: null, corrupt: true }
     }
     // D4：cache 记账字段可选——存在则必须是数字（与 X-P3a 同口径，坏条目按损坏处理）
@@ -171,8 +179,8 @@ function readRecord(bookRoot: string): { rec: CallRecord | null; corrupt: boolea
         chapter: {
           num: chapter.num,
           used: chapter.used,
-          inputTokens: typeof chapter.inputTokens === 'number' ? chapter.inputTokens : 0,
-          outputTokens: typeof chapter.outputTokens === 'number' ? chapter.outputTokens : 0,
+          inputTokens: chapter.inputTokens,
+          outputTokens: chapter.outputTokens,
           ...(chapterCr !== undefined ? { cacheReadTokens: chapterCr } : {}),
           ...(chapterCw !== undefined ? { cacheWriteTokens: chapterCw } : {}),
           ...(chapterCost !== undefined ? { costAccum: chapterCost } : {}),

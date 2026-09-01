@@ -47,11 +47,7 @@ const {
 
 <template>
   <section class="chat-panel">
-    <ChatMessages
-      ref="messagesRef"
-      :book-name="props.bookName"
-      :selected-chapter="selectedChapter"
-    />
+    <ChatMessages ref="messagesRef" :book-name="props.bookName" />
 
     <!-- 输入区：Codex 风格——章节左下 + 模型/推理等级右下 + 发送 -->
     <div v-if="!hideComposer" class="chat-composer">

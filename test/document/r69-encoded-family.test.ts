@@ -135,7 +135,7 @@ test.skipIf(process.platform === 'win32')( // R70-8：字面冒号文件/目录�
   // R70-33：无条件锚——journal 已随 purge 删除（恒可断言）；detectState 路由态取决于
   // fixture 其余形状（无正文章会走他态），「无幽灵」保持条件断言但锚已防恒空过
   expect(existsSync(join(root, '工作区', '.journal', 'legacy_purge.jsonl'))).toBe(false)
-  const d = detectState(root, DEFAULT_CONFIG)
+  const d = await detectState(root, DEFAULT_CONFIG)
   if (d.state === 1) {
     expect(d.issues.some((i) => i.kind === 'crashedWrite')).toBe(false)
   }
@@ -166,7 +166,7 @@ async function makeLegacyMovePendingBook(pos: 'new' | 'old'): Promise<{ root: st
 test('legacy move pending（编码名 journal）：自愈补清单 + settled 落在被扫的编码名文件', async () => {
   const { root: b, docId, journalName } = await makeLegacyMovePendingBook('new')
   try {
-    const d = detectState(b, DEFAULT_CONFIG)
+    const d = await detectState(b, DEFAULT_CONFIG)
     // 清单键 = 真实 legacy:xxx（此前不反解时 heal 对清单全 miss：不补路径仍标 settled）
     expect(readManifest(join(b, '项目', '文档清单.jsonl')).entries.get(docId)?.path).toBe('写作/正文/0002-新.md')
     if (d.state === 1) expect(d.issues.some((i) => i.kind === 'crashedWrite')).toBe(false)
@@ -199,7 +199,8 @@ test.skipIf(process.platform === 'win32')( // R70-8：字面冒号文件/目录�
     mkdirSync(join(b, '工作区', '.journal'), { recursive: true })
     await appendMovePending(literalJournal, docId, oldRel, newRel)
 
-    detectState(b, DEFAULT_CONFIG)
+    const d = await detectState(b, DEFAULT_CONFIG)
+    if (d.state === 1) expect(d.issues.some((i) => i.kind === 'crashedWrite')).toBe(false)
     expect(readManifest(manifestPath).entries.get(docId)?.path).toBe(newRel)
     expect(findUnsettled(literalJournal)).toHaveLength(0) // settled 落在被扫字面文件
     expect(existsSync(join(b, '工作区', '.journal', 'legacy_lit1.jsonl'))).toBe(false) // 未分流到编码新文件
@@ -217,7 +218,7 @@ test('孤儿 journal（清单无登记 + move 两端都不在）→ 归档 .orph
   writeManifest(join(root, '项目', '文档清单.jsonl'), readManifest(join(root, '项目', '文档清单.jsonl')))
   const j = join(root, '工作区', '.journal', 'legacy_ghost.jsonl')
   await appendMovePending(j, 'legacy:ghost', '写作/正文/0001-已删.md', '写作/正文/0002-也没了.md')
-  const d = detectState(root, DEFAULT_CONFIG)
+  const d = await detectState(root, DEFAULT_CONFIG)
   if (d.state === 1) expect(d.issues.some((i) => i.kind === 'crashedWrite')).toBe(false)
   expect(existsSync(j)).toBe(false)
   expect(readdirSync(join(root, '工作区', '.journal')).some((f) => f.startsWith('legacy_ghost.jsonl.orphaned-'))).toBe(true)
@@ -229,7 +230,7 @@ test('孤儿判定保守面：save pending（无路径字段无法证实无主�
   writeManifest(join(root, '项目', '文档清单.jsonl'), readManifest(join(root, '项目', '文档清单.jsonl')))
   const j = join(root, '工作区', '.journal', 'legacy_save.jsonl')
   await appendPending(j, 'legacy:save', 'sha256:x', '全文快照')
-  const d = detectState(root, DEFAULT_CONFIG)
+  const d = await detectState(root, DEFAULT_CONFIG)
   expect(d.state).toBe(1)
   if (d.state === 1) {
     expect(d.issues.some((i) => i.kind === 'crashedWrite')).toBe(true)

@@ -21,13 +21,13 @@ const FAST_CHAPTER_FIXTURE = { commitEach: false }
 
 // ── 态 1: 健康检查（journal 崩溃 + 网盘副本）──────────────────
 
-test('detectState: 网盘副本残留 → 态 1（体检优先）', () => {
+test('detectState: 网盘副本残留 → 态 1（体检优先）', async () => {
   const root = trackTempDir(makeGitBook())
   // 造 Dropbox 风格冲突副本（纯 fs，不依赖 git；X-P2-20 起需同名母本共存才算副本）
   writeFileSync(join(root, '写作', '正文', '某章.md'), '母本', 'utf-8')
   writeFileSync(join(root, '写作', '正文', '某章 2.md'), '副本内容', 'utf-8')
 
-  const d = detectState(root, DEFAULT_CONFIG)
+  const d = await detectState(root, DEFAULT_CONFIG)
   expect(d.state).toBe(1)
   if (d.state === 1) {
     expect(d.issues.length).toBeGreaterThan(0)
@@ -38,12 +38,12 @@ test('detectState: 网盘副本残留 → 态 1（体检优先）', () => {
 
 // ── 态 2: 源文件解析失败 ────────────────────────────
 
-test('detectState: 源文件解析失败 → 态 2', () => {
+test('detectState: 源文件解析失败 → 态 2', async () => {
   const root = trackTempDir(makeGitBook())
   // 写一个坏账本文件（裸文件无 front matter，rebuild 会收 ParseError）
   writeFileSync(join(root, '布线', '悬念', '悬念-099-坏.md'), '这是个坏文件没有 front matter', 'utf-8')
 
-  const d = detectState(root, DEFAULT_CONFIG)
+  const d = await detectState(root, DEFAULT_CONFIG)
   expect(d.state).toBe(2)
   if (d.state === 2) {
     expect(d.parseErrors.length).toBeGreaterThan(0)
@@ -53,7 +53,7 @@ test('detectState: 源文件解析失败 → 态 2', () => {
 
 // ── 态 3: 未入账手改 ────────────────────────────────
 
-test('detectState: 已定稿文件有手改 → 态 3', () => {
+test('detectState: 已定稿文件有手改 → 态 3', async () => {
   const root = trackTempDir(makeGitBook())
   // 造一章定稿（登记 manifest + 设基线）+ 手改正文
   const bodyPath = join(root, '写作', '正文', '0001-开篇.md')
@@ -77,7 +77,7 @@ test('detectState: 已定稿文件有手改 → 态 3', () => {
   // 手改正文（指纹 ≠ 基线）→ 态 3
   writeFileSync(bodyPath, '---\n章号: 1\n标题: 开篇\n---\n\n作者手改的正文。\n', 'utf-8')
 
-  const d = detectState(root, DEFAULT_CONFIG)
+  const d = await detectState(root, DEFAULT_CONFIG)
   expect(d.state).toBe(3)
   if (d.state === 3) {
     expect(d.handEdits.some((f) => f.includes('0001-开篇'))).toBe(true)
@@ -87,11 +87,11 @@ test('detectState: 已定稿文件有手改 → 态 3', () => {
 
 // ── 态 4: 工作区未完成 ──────────────────────────────
 
-test('detectState: 工作区有草稿+确认未定稿 → 态 4', () => {
+test('detectState: 工作区有草稿+确认未定稿 → 态 4', async () => {
   const root = trackTempDir(makeGitBook())
   stageIncompleteChapter(root, 1) // 写草稿+细纲+.confirm，不 commit
 
-  const d = detectState(root, DEFAULT_CONFIG)
+  const d = await detectState(root, DEFAULT_CONFIG)
   expect(d.state).toBe(4)
   if (d.state === 4) {
     expect(d.chapterNum).toBe(1)
@@ -101,10 +101,10 @@ test('detectState: 工作区有草稿+确认未定稿 → 态 4', () => {
 
 // ── 态 5: 卷末 ─────────────────────────────────────
 
-test('detectState: 写满一卷（50 章）→ 态 5 卷末', () => {
+test('detectState: 写满一卷（50 章）→ 态 5 卷末', async () => {
   const root = trackTempDir(makeGitBookWithChapters(50, FAST_CHAPTER_FIXTURE)) // 50 章 = 第 1 卷末
 
-  const d = detectState(root, DEFAULT_CONFIG)
+  const d = await detectState(root, DEFAULT_CONFIG)
   expect(d.state).toBe(5)
   if (d.state === 5) {
     expect(d.volume).toBe(1)
@@ -112,11 +112,11 @@ test('detectState: 写满一卷（50 章）→ 态 5 卷末', () => {
   rmSync(root, { recursive: true, force: true })
 })
 
-test('detectState: book.volume_size 覆盖每卷章数', () => {
+test('detectState: book.volume_size 覆盖每卷章数', async () => {
   const root = trackTempDir(makeGitBookWithChapters(10, FAST_CHAPTER_FIXTURE))
   const config = { ...DEFAULT_CONFIG, book: { ...DEFAULT_CONFIG.book, volume_size: 10 } }
 
-  const d = detectState(root, config)
+  const d = await detectState(root, config)
   expect(d.state).toBe(5)
   if (d.state === 5) {
     expect(d.volume).toBe(1)
@@ -124,7 +124,7 @@ test('detectState: book.volume_size 覆盖每卷章数', () => {
   rmSync(root, { recursive: true, force: true })
 })
 
-test('detectState: 正文含「章号: N」字样不干扰章号提取（ii 批 fm 块内解析）', () => {
+test('detectState: 正文含「章号: N」字样不干扰章号提取（ii 批 fm 块内解析）', async () => {
   const root = trackTempDir(makeGitBook())
   stageIncompleteChapter(root, 1)
   // 正文里出现「章号: 999」（作者手记/引用）——旧全文正则会抢先命中，工作区未完成报 999 章
@@ -134,7 +134,7 @@ test('detectState: 正文含「章号: N」字样不干扰章号提取（ii 批 
     'utf-8',
   )
 
-  const d = detectState(root, DEFAULT_CONFIG)
+  const d = await detectState(root, DEFAULT_CONFIG)
   expect(d.state).toBe(4)
   if (d.state === 4) {
     expect(d.chapterNum).toBe(1)
@@ -144,9 +144,9 @@ test('detectState: 正文含「章号: N」字样不干扰章号提取（ii 批 
 
 // ── 态 7: 起草新章（兜底）──────────────────────────
 
-test('detectState: 一切干净的空书 → 态 7 起草新章', () => {
+test('detectState: 一切干净的空书 → 态 7 起草新章', async () => {
   const root = trackTempDir(makeGitBook())
-  const d = detectState(root, DEFAULT_CONFIG)
+  const d = await detectState(root, DEFAULT_CONFIG)
   expect(d.state).toBe(7)
   if (d.state === 7) {
     expect(d.nextChapter).toBe(1) // 空书下一章 = 1
@@ -154,9 +154,9 @@ test('detectState: 一切干净的空书 → 态 7 起草新章', () => {
   rmSync(root, { recursive: true, force: true })
 })
 
-test('detectState: 写了 3 章干净书 → 态 7 下一章 = 4', () => {
+test('detectState: 写了 3 章干净书 → 态 7 下一章 = 4', async () => {
   const root = trackTempDir(makeGitBookWithChapters(3, FAST_CHAPTER_FIXTURE))
-  const d = detectState(root, DEFAULT_CONFIG)
+  const d = await detectState(root, DEFAULT_CONFIG)
   expect(d.state).toBe(7)
   if (d.state === 7) {
     expect(d.nextChapter).toBe(4)
@@ -166,47 +166,47 @@ test('detectState: 写了 3 章干净书 → 态 7 下一章 = 4', () => {
 
 // ── 判定顺序：健康异常优先 ────────────────────────
 
-test('detectState: 健康异常优先（网盘副本 + 工作区未完成 → 先报态 1）', () => {
+test('detectState: 健康异常优先（网盘副本 + 工作区未完成 → 先报态 1）', async () => {
   const root = trackTempDir(makeGitBook())
   stageIncompleteChapter(root, 1) // 工作区未完成（态 4）
   // 再造健康问题（态 1；X-P2-20：副本需同名母本）
   writeFileSync(join(root, '写作', '正文', '冲突副本.md'), '母本', 'utf-8')
   writeFileSync(join(root, '写作', '正文', '冲突副本 2.md'), '副本', 'utf-8')
 
-  const d = detectState(root, DEFAULT_CONFIG)
+  const d = await detectState(root, DEFAULT_CONFIG)
   expect(d.state).toBe(1) // 态 1 优先于态 4
   rmSync(root, { recursive: true, force: true })
 })
 
 // ── 路由（routeState）──────────────────────────────
 
-test('routeState: 各态路由动作 + needsAI 标记', () => {
+test('routeState: 各态路由动作 + needsAI 标记', async () => {
   // 态 1 不需 AI、态 2/3 需 AI（M3 桩）、态 4/7 不需 AI
   const root1 = trackTempDir(makeGitBook())
   writeFileSync(join(root1, '写作', '正文', '副本.md'), '母本', 'utf-8')
   writeFileSync(join(root1, '写作', '正文', '副本 2.md'), '副本', 'utf-8')
-  expect(routeState(detectState(root1, DEFAULT_CONFIG)).state).toBe(1)
+  expect(routeState(await detectState(root1, DEFAULT_CONFIG)).state).toBe(1)
   rmSync(root1, { recursive: true, force: true })
 
   const root7 = trackTempDir(makeGitBook())
-  const r7 = routeState(detectState(root7, DEFAULT_CONFIG))
+  const r7 = routeState(await detectState(root7, DEFAULT_CONFIG))
   expect(r7.action).toBe('write-new-chapter')
   expect(r7.humanMsg).toContain('第 1 章')
   rmSync(root7, { recursive: true, force: true })
 })
 
-test('routeState: 态 7 统一写章入口（CLI 退场，写章收敛到全自动/编辑器）', () => {
+test('routeState: 态 7 统一写章入口（CLI 退场，写章收敛到全自动/编辑器）', async () => {
   // 缺省 config → 一律 write-new-chapter（写章收敛到全自动/编辑器；旧「手写/严格」分流已随 CLI 退场）
   const root7 = trackTempDir(makeGitBook())
-  expect(routeState(detectState(root7, DEFAULT_CONFIG)).action).toBe('write-new-chapter')
+  expect(routeState(await detectState(root7, DEFAULT_CONFIG)).action).toBe('write-new-chapter')
   rmSync(root7, { recursive: true, force: true })
 })
 
 // ── enter 单入口 + 近况复述 ─────────────────────────
 
-test('enter: 干净书 → recap + route 结构正确', () => {
+test('enter: 干净书 → recap + route 结构正确', async () => {
   const root = trackTempDir(makeGitBookWithChapters(3, FAST_CHAPTER_FIXTURE))
-  const { recap, route } = enter(root)
+  const { recap, route } = await enter(root)
 
   expect(recap.currentChapter).toBe(3)
   expect(recap.gitClean).toBe(true)
@@ -215,12 +215,12 @@ test('enter: 干净书 → recap + route 结构正确', () => {
   rmSync(root, { recursive: true, force: true })
 })
 
-test('enter: 健康异常且缓存缺失 → 不崩，返回态 1 路由', () => {
+test('enter: 健康异常且缓存缺失 → 不崩，返回态 1 路由', async () => {
   const root = trackTempDir(makeGitBook())
   writeFileSync(join(root, '写作', '正文', '副本.md'), '母本', 'utf-8')
   writeFileSync(join(root, '写作', '正文', '副本 2.md'), '副本', 'utf-8')
 
-  const result = enter(root)
+  const result = await enter(root)
   expect(result.recap.state).toBe(1)
   expect(result.recap.currentChapter).toBe(0)
   expect(result.route.state).toBe(1)
@@ -229,7 +229,7 @@ test('enter: 健康异常且缓存缺失 → 不崩，返回态 1 路由', () =>
 
 test('enter: 写满一卷 → recap 显示态 5 卷末', async () => {
   const root = trackTempDir(makeGitBookWithChapters(50, FAST_CHAPTER_FIXTURE))
-  const { recap, route } = enter(root)
+  const { recap, route } = await enter(root)
   expect(recap.state).toBe(5)
   expect(route.action).toBe('volume-review')
   rmSync(root, { recursive: true, force: true })
@@ -267,7 +267,7 @@ async function makeMovePendingBook(fileExists: 'old' | 'new' | 'none'): Promise<
 
 test('P3-10 自愈: 文件已到新路径、清单未跟上 → 补清单 + settled，不拦进门', async () => {
   const { root, docId, newRel, jPath } = await makeMovePendingBook('new')
-  const d = detectState(root, DEFAULT_CONFIG)
+  const d = await detectState(root, DEFAULT_CONFIG)
   // 不因 move pending 报 crashedWrite（确定性自愈，不门禁）
   if (d.state === 1) expect(d.issues.some((i) => i.kind === 'crashedWrite')).toBe(false)
   // 清单已对齐新路径
@@ -280,7 +280,7 @@ test('P3-10 自愈: 文件已到新路径、清单未跟上 → 补清单 + sett
 
 test('P3-10 自愈: 文件仍在旧路径（rename 未发生）→ abort 悬置，清单不动', async () => {
   const { root, docId, oldRel, jPath } = await makeMovePendingBook('old')
-  const d = detectState(root, DEFAULT_CONFIG)
+  const d = await detectState(root, DEFAULT_CONFIG)
   if (d.state === 1) expect(d.issues.some((i) => i.kind === 'crashedWrite')).toBe(false)
   const after = readManifest(join(root, '项目', '文档清单.jsonl'))
   expect(after.entries.get(docId)?.path).toBe(oldRel)
@@ -290,7 +290,7 @@ test('P3-10 自愈: 文件仍在旧路径（rename 未发生）→ abort 悬置�
 
 test('P3-10 自愈: 两端都不在（异常态）→ 不可自动判定，报 crashedWrite 交作者', async () => {
   const { root, jPath } = await makeMovePendingBook('none')
-  const d = detectState(root, DEFAULT_CONFIG)
+  const d = await detectState(root, DEFAULT_CONFIG)
   expect(d.state).toBe(1)
   if (d.state === 1) {
     expect(d.issues.some((i) => i.kind === 'crashedWrite')).toBe(true)
@@ -329,7 +329,7 @@ test('R65-30: 已定稿章 move-pending 愈合（rename 已发生）→ 同次 d
   mkdirSync(join(root, '工作区', '.journal'), { recursive: true })
   await appendMovePending(jPath, docId, oldRel, newRel)
 
-  const d = detectState(root, DEFAULT_CONFIG)
+  const d = await detectState(root, DEFAULT_CONFIG)
   // 同次进门：愈合生效且不再误报 finalizedLost（修复前此处 state===1 且含 finalizedLost）
   if (d.state === 1) {
     expect(d.issues.some((i) => i.kind === 'finalizedLost')).toBe(false)

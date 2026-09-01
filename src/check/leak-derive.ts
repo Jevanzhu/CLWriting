@@ -56,14 +56,16 @@ export function deriveLeakKeywords(bookRoot: string): string[] {
           const lines = fm.split('\n')
           for (let i = 0; i < lines.length; i++) {
             const line = stripInlineComment(lines[i]!)
-            const inline = /^leak_keywords:\s*\[(.*)\]\s*$/.exec(line)
+            // R35-21（三十五轮）：键位冒号双认 `:`/`：`（R31-2/R34D-10 同族纪律）——
+            // 此前只认半角冒号，手写全角冒号的 leak_keywords 整条静默漏收（假绿）
+            const inline = /^leak_keywords[:：]\s*\[(.*)\]\s*$/.exec(line)
             if (inline) {
               // ① 单行数组：leak_keywords: [甲, 乙]——引号内逗号不劈（复用 frontmatter
               //    splitInlineArray，K17 同构：["玉佩,旧案", 乙] 的「玉佩,旧案」是一个词）
               for (const item of splitInlineArray(inline[1]!)) collect(item.trim().replace(/^['"]|['"]$/g, ''))
               break
             }
-            if (/^leak_keywords:\s*$/.test(line)) {
+            if (/^leak_keywords[:：]\s*$/.test(line)) {
               for (let j = i + 1; j < lines.length; j++) {
                 const m = /^\s+-\s*(.+?)\s*$/.exec(stripInlineComment(lines[j]!))
                 if (!m) break

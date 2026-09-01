@@ -19,13 +19,13 @@ import type { BookConfig } from '../../src/format/types.js'
 
 const SHORT_CONFIG: BookConfig = { ...DEFAULT_CONFIG, kind: 'short', book: { title: '夜语集', genre: '悬疑' } }
 
-test('R29-8: 长篇书（kind 缺省 long）布线目录缺失 → 态 1 wiringMissing 健康项', () => {
+test('R29-8: 长篇书（kind 缺省 long）布线目录缺失 → 态 1 wiringMissing 健康项', async () => {
   const root = mkdtempTracked(join(tmpdir(), 'r29-wiring-missing-'))
   try {
     writeBookConfig(join(root, 'book.yaml'), DEFAULT_CONFIG)
     mkdirSync(join(root, '写作', '正文'), { recursive: true })
     // 不建 布线/
-    const d = detectState(root, DEFAULT_CONFIG)
+    const d = await detectState(root, DEFAULT_CONFIG)
     expect(d.state).toBe(1)
     if (d.state !== 1) return
     const issue = d.issues.find((i) => i.kind === 'wiringMissing')
@@ -39,12 +39,12 @@ test('R29-8: 长篇书（kind 缺省 long）布线目录缺失 → 态 1 wiringM
   }
 })
 
-test('R29-8: 短篇书（kind: short）无布线 → 不报 wiringMissing（正常形态，不误报）', () => {
+test('R29-8: 短篇书（kind: short）无布线 → 不报 wiringMissing（正常形态，不误报）', async () => {
   const root = mkdtempTracked(join(tmpdir(), 'r29-short-nowiring-'))
   try {
     writeBookConfig(join(root, 'book.yaml'), SHORT_CONFIG)
     mkdirSync(join(root, '写作', '正文'), { recursive: true })
-    const d = detectState(root, SHORT_CONFIG)
+    const d = await detectState(root, SHORT_CONFIG)
     // 短篇无布线走短篇分支落态 7，且健康检查干净（无 issues 字段）
     expect(d.state).toBe(7)
     expect('issues' in d).toBe(false)
@@ -53,10 +53,10 @@ test('R29-8: 短篇书（kind: short）无布线 → 不报 wiringMissing（正�
   }
 })
 
-test('R29-8: 长篇书布线目录在位 → 不报 wiringMissing（既有健康书不回归）', () => {
+test('R29-8: 长篇书布线目录在位 → 不报 wiringMissing（既有健康书不回归）', async () => {
   const root = makeGitBookWithChapters(1, { commitEach: false })
   try {
-    const d = detectState(root, DEFAULT_CONFIG)
+    const d = await detectState(root, DEFAULT_CONFIG)
     expect(d.state).toBe(7)
     expect('issues' in d).toBe(false)
   } finally {

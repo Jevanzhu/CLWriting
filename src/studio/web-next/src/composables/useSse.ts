@@ -201,6 +201,7 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
     es?.close()
     es = null
     errorCount = 0
+    backoffStep = 0 // R35-31：退避阶数随连接纪元复位——上本书积累的退避（最长 60s）不得带入下一次首连
     wb.setConnected(false)
   }
 

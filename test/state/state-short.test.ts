@@ -49,14 +49,14 @@ function finalizePiece(root: string, num: number, title: string): void {
   writeManifest(manifestPath, m)
 }
 
-test('short 态 3: 写作/正文/ 有未 commit 改动 → 态 3（看 写作/正文/，不看 设定/大纲/）', () => {
+test('short 态 3: 写作/正文/ 有未 commit 改动 → 态 3（看 写作/正文/，不看 设定/大纲/）', async () => {
   const root = makeShortBook()
   try {
     // 改已定稿篇的正文（未 commit）→ 态 3 手改
     finalizePiece(root, 1, '雪夜')
     writeFileSync(join(root, '写作', '正文', '第一卷', '001-雪夜.md'), '---\n章号: 1\n标题: 雪夜\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n改过的正文。\n', 'utf-8')
 
-    const d = detectState(root, SHORT_CONFIG)
+    const d = await detectState(root, SHORT_CONFIG)
     expect(d.state).toBe(3)
     if (d.state === 3) {
       expect(d.handEdits.some((p) => p.startsWith('写作/正文/'))).toBe(true)
@@ -66,7 +66,7 @@ test('short 态 3: 写作/正文/ 有未 commit 改动 → 态 3（看 写作/�
   }
 })
 
-test('short 态 4: 工作区有半截草稿（正文草稿+细纲+.confirm）但未定稿 → 态 4 pre-finalize', () => {
+test('short 态 4: 工作区有半截草稿（正文草稿+细纲+.confirm）但未定稿 → 态 4 pre-finalize', async () => {
   const root = makeShortBook()
   try {
     const workDir = join(root, '工作区')
@@ -75,7 +75,7 @@ test('short 态 4: 工作区有半截草稿（正文草稿+细纲+.confirm）但
     writeFileSync(join(root, '写作', '正文', '第一卷', '002-草稿.md'), '第2章草稿', 'utf-8')
     writeFileSync(join(workDir, '.confirm.json'), JSON.stringify({ chapter: 2, outline_hash: 'sha256:x', confirmed_at: '2026-06-19T00:00:00Z', mode: 'manual' }), 'utf-8')
 
-    const d = detectState(root, SHORT_CONFIG)
+    const d = await detectState(root, SHORT_CONFIG)
     expect(d.state).toBe(4)
     if (d.state === 4) {
       expect(d.chapterNum).toBe(2)
@@ -86,7 +86,7 @@ test('short 态 4: 工作区有半截草稿（正文草稿+细纲+.confirm）但
   }
 })
 
-test('short 态 4: 工作区半截草稿 + 已定稿 → 态 4 post-finalize-residue', () => {
+test('short 态 4: 工作区半截草稿 + 已定稿 → 态 4 post-finalize-residue', async () => {
   const root = makeShortBook()
   try {
     finalizePiece(root, 2, '旧伞') // 第 2 章已定稿（manifest 基线存在）
@@ -95,7 +95,7 @@ test('short 态 4: 工作区半截草稿 + 已定稿 → 态 4 post-finalize-res
     writeFileSync(join(workDir, '细纲.md'), '第2章细纲', 'utf-8')
     writeFileSync(join(workDir, '.confirm.json'), JSON.stringify({ chapter: 2, outline_hash: 'sha256:x', confirmed_at: '2026-06-19T00:00:00Z', mode: 'manual' }), 'utf-8')
 
-    const d = detectState(root, SHORT_CONFIG)
+    const d = await detectState(root, SHORT_CONFIG)
     expect(d.state).toBe(4)
     if (d.state === 4) {
       expect(d.chapterNum).toBe(2)
@@ -106,10 +106,10 @@ test('short 态 4: 工作区半截草稿 + 已定稿 → 态 4 post-finalize-res
   }
 })
 
-test('short 态 7: 空短篇集（无篇）→ 起草第 1 章（篇号 = 0 + 1）', () => {
+test('short 态 7: 空短篇集（无篇）→ 起草第 1 章（篇号 = 0 + 1）', async () => {
   const root = makeShortBook()
   try {
-    const d = detectState(root, SHORT_CONFIG)
+    const d = await detectState(root, SHORT_CONFIG)
     expect(d.state).toBe(7)
     if (d.state === 7) {
       expect(d.nextChapter).toBe(1) // 写作/正文/ 空 → 第 1 章
@@ -119,13 +119,13 @@ test('short 态 7: 空短篇集（无篇）→ 起草第 1 章（篇号 = 0 + 1�
   }
 })
 
-test('short 态 7: 已有 2 章定稿 → 起草第 3 章（篇号 = 扫 写作/正文/ 数 + 1）', () => {
+test('short 态 7: 已有 2 章定稿 → 起草第 3 章（篇号 = 扫 写作/正文/ 数 + 1）', async () => {
   const root = makeShortBook()
   try {
     finalizePiece(root, 1, '雪夜')
     finalizePiece(root, 2, '旧伞')
 
-    const d = detectState(root, SHORT_CONFIG)
+    const d = await detectState(root, SHORT_CONFIG)
     expect(d.state).toBe(7)
     if (d.state === 7) {
       expect(d.nextChapter).toBe(3) // 写作/正文/ 有 2 章 → 第 3 章
@@ -135,7 +135,7 @@ test('short 态 7: 已有 2 章定稿 → 起草第 3 章（篇号 = 扫 写作/
   }
 })
 
-test('short 态 7 (V-P1-3): 坏 fm 草稿占位 → 态 4 拦截续写，nextChapter 不回指已定稿章', () => {
+test('short 态 7 (V-P1-3): 坏 fm 草稿占位 → 态 4 拦截续写，nextChapter 不回指已定稿章', async () => {
   const root = makeShortBook()
   try {
     finalizePiece(root, 1, '雪夜')
@@ -146,7 +146,7 @@ test('short 态 7 (V-P1-3): 坏 fm 草稿占位 → 态 4 拦截续写，nextCha
     // 不会把 nextChapter 回指到已定稿的第 3 章。
     writeFileSync(join(root, '写作', '正文', '第一卷', '004-坏草稿.md'), '没有 front matter 的正文', 'utf-8')
 
-    const d = detectState(root, SHORT_CONFIG)
+    const d = await detectState(root, SHORT_CONFIG)
     expect(d.state).toBe(4)
     if (d.state === 4) {
       expect(d.chapterNum).toBe(4)
@@ -157,7 +157,7 @@ test('short 态 7 (V-P1-3): 坏 fm 草稿占位 → 态 4 拦截续写，nextCha
   }
 })
 
-test('RB-KN-P1-3: short recap 坏 fm 草稿占位 → nextChapter 不回指已定稿篇（与态 7 同口径）', () => {
+test('RB-KN-P1-3: short recap 坏 fm 草稿占位 → nextChapter 不回指已定稿篇（与态 7 同口径）', async () => {
   const root = makeShortBook()
   try {
     finalizePiece(root, 1, '雪夜')
@@ -165,7 +165,7 @@ test('RB-KN-P1-3: short recap 坏 fm 草稿占位 → nextChapter 不回指已�
     finalizePiece(root, 3, '空巷')
     writeFileSync(join(root, '写作', '正文', '第一卷', '004-坏草稿.md'), '没有 front matter 的正文', 'utf-8')
 
-    const d = detectState(root, SHORT_CONFIG)
+    const d = await detectState(root, SHORT_CONFIG)
     const recap = buildRecap(root, SHORT_CONFIG, d)
     // 修复前：公式算出 currentChapter = 3 - 1(坏草稿占未定稿位) = 2 → nextChapter=3 回指已定稿第 3 篇
     expect(recap.currentChapter).toBe(3)
@@ -175,19 +175,19 @@ test('RB-KN-P1-3: short recap 坏 fm 草稿占位 → nextChapter 不回指已�
   }
 })
 
-test('short 不触发态 5/6: 已有多个章节也不判卷末/体检（无长程概念）', () => {
+test('short 不触发态 5/6: 已有多个章节也不判卷末/体检（无长程概念）', async () => {
   const root = makeShortBook()
   try {
     // 造 3 篇（足够验证不误判；态 5 要 50 章、态 6 要 30 章，短篇即使凑数也不触发）
     for (let i = 1; i <= 3; i++) finalizePiece(root, i, `章${i}`)
-    const d = detectState(root, SHORT_CONFIG)
+    const d = await detectState(root, SHORT_CONFIG)
     expect(d.state).toBe(7) // 直接落态 7，不进 5/6
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
 })
 
-test('long 回归: 同一 detectState 长篇分支不受 short 改动影响', () => {
+test('long 回归: 同一 detectState 长篇分支不受 short 改动影响', async () => {
   const root = mkdtempTracked(join(tmpdir(), '长篇-'))
   try {
     writeBookConfig(join(root, 'book.yaml'), DEFAULT_CONFIG) // 无 kind = long
@@ -197,7 +197,7 @@ test('long 回归: 同一 detectState 长篇分支不受 short 改动影响', ()
     mkdirSync(join(root, '.cache'), { recursive: true })
 
     // 长篇空书 → 态 7（有布线目录走长篇分支；无布线的短篇才走 readChapterDir 计数）
-    const d = detectState(root, DEFAULT_CONFIG)
+    const d = await detectState(root, DEFAULT_CONFIG)
     expect(d.state).toBe(7)
   } finally {
     rmSync(root, { recursive: true, force: true })

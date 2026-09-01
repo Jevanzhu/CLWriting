@@ -6,7 +6,7 @@
  */
 
 import { DatabaseSync } from 'node:sqlite'
-import { existsSync, mkdirSync, renameSync } from 'node:fs'
+import { existsSync, mkdirSync, renameSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { createRagTables } from './schema.js'
 import { log } from '../log/index.js'
@@ -122,6 +122,36 @@ export function resolveRagDbPath(bookRoot: string): string {
   return dbPath
 }
 
+/**
+ * R35-13（三十五轮）：库级损坏识别——窄匹配 SQLITE_NOTADB（errcode 26）/ SQLITE_CORRUPT
+ *（errcode 11，含扩展码取低 8 位）及其确定性 message 形态；BUSY(5)/IO(10)/约束等绝不
+ * 误判为损坏（误判 + 删库 = 把可重试故障升级成整库重嵌）。有 errcode 时只认 errcode，
+ * message 兜底仅用于无 errcode 的宿主差异。
+ */
+export function isRagDbCorruptionError(e: unknown): boolean {
+  const err = e as { errcode?: unknown; message?: unknown }
+  if (typeof err.errcode === 'number') {
+    const primary = err.errcode & 0xff
+    return primary === 26 || primary === 11
+  }
+  const msg = typeof err.message === 'string' ? err.message : ''
+  return /file is not a database|database disk image is malformed/i.test(msg)
+}
+
+/**
+ * R35-13（三十五轮）：删除 RAG 库文件（连同 -wal/-shm 侧车）。文件级损坏（断电/磁盘
+ * 故障/杀软半写后的非 SQLite 字节流）清表救不了，只能删库重建——.cache/rag.db 是派生
+ * 缓存区（schema.ts 自述），可弃可重建语义下删库不丢真数据（重嵌成本除外）。调用方
+ * 必须先经 isRagDbCorruptionError 确认损坏，绝不对 busy/IO 等可重试错误删库。
+ */
+export function deleteRagDbFiles(bookRoot: string): void {
+  const dbPath = resolveRagDbPath(bookRoot)
+  for (const suffix of ['', '-wal', '-shm']) {
+    const fp = dbPath + suffix
+    if (existsSync(fp)) unlinkSync(fp)
+  }
+}
+
 /** 打开 per-book RAG 库（.cache/rag.db，书仓库内派生缓存区） */
 export function openRagDb(bookRoot: string): DatabaseSync {
   const db = new DatabaseSync(resolveRagDbPath(bookRoot))
@@ -153,7 +183,13 @@ export function l2Norm(vec: Float32Array): number {
 export function ensureNormColumn(db: DatabaseSync): void {
   const cols = db.prepare('PRAGMA table_info(chunks)').all() as Array<{ name: string }>
   if (!cols.some((c) => c.name === 'norm')) {
-    db.exec('ALTER TABLE chunks ADD COLUMN norm REAL')
+    try {
+      db.exec('ALTER TABLE chunks ADD COLUMN norm REAL')
+    } catch (e) {
+      // R35-44（三十五轮）：双进程并发首升——PRAGMA 探测到 ALTER 之间他进程已加列，
+      // 本进程 ALTER 撞 duplicate column 视为升级完成（幂等）；其他错误原样上抛
+      if (!isDuplicateColumnError(e)) throw e
+    }
   }
   const rows = db
     .prepare('SELECT id, embedding FROM chunks WHERE norm IS NULL')
@@ -170,6 +206,13 @@ export function ensureNormColumn(db: DatabaseSync): void {
     db.exec('ROLLBACK')
     throw e
   }
+}
+
+/** R35-44：duplicate column 错误判定（node:sqlite message「duplicate column name: …」；
+ *  窄匹配——其他 ALTER 失败如磁盘满/锁不上当） */
+function isDuplicateColumnError(e: unknown): boolean {
+  const msg = (e as { message?: unknown }).message
+  return typeof msg === 'string' && /duplicate column/i.test(msg)
 }
 
 /** 存一个块（embedding 序列化为 BLOB；A3 同步预算 L2 范数——余弦退化为点积）。
@@ -212,20 +255,42 @@ export function readAllChunks(db: DatabaseSync): RagChunk[] {
   // ~260MB 双份驻留（测试反复调 recall 叠加为 GB 级峰值）；逐行读每行 BLOB 用完即可
   // 回收，峰值约减半。语义不变：产出与原实现逐项一致。
   const out: RagChunk[] = []
+  // R35-40（三十五轮）：存量毒行读取闸——R34D-32 只防新写入，历史毒行召回时余弦恒
+  // NaN/失真挤占 topK。两种毒形都剔 + 一次性 warn 留痕（不阻断）：
+  // ① norm 非有限（按发现口径留防——node:sqlite 对非有限 REAL 绑定/读回都转 null，
+  //    此形当前实际不可达，纯前向防御）；
+  // ② norm=NULL 且 embedding 含非有限分量（**实际可达形态**：毒行的 l2Norm=±Inf，
+  //    ensureNormColumn 回填时绑定 Inf→NULL 永久存不进，行态停留 NULL；召回侧对
+  //    null norm 现算兜底得 ±Inf → 余弦 NaN/0）。全量逐维扫描太贵（热路径），只在
+  //    norm=NULL 的稀行上扫——正常行零额外成本。norm=null 且向量干净不是毒：照常
+  //    交召回侧现算兜底（见 index.ts）。
+  let poisonRows = 0
   for (const r of stmt.iterate() as Iterable<{
     id: number; 章号: number; start_offset: number; end_offset: number
     embedding: Uint8Array; norm: number | null; model: string; indexed_at: string
   }>) {
+    if (r.norm !== null && !Number.isFinite(r.norm)) {
+      poisonRows++
+      continue
+    }
+    const embedding = bufferToFloat32(r.embedding)
+    if (r.norm === null && embedding.some((x) => !Number.isFinite(x))) {
+      poisonRows++
+      continue
+    }
     out.push({
       id: r.id,
       章号: r.章号,
       start_offset: r.start_offset,
       end_offset: r.end_offset,
-      embedding: bufferToFloat32(r.embedding),
+      embedding,
       norm: r.norm,
       model: r.model,
       indexed_at: r.indexed_at,
     })
+  }
+  if (poisonRows > 0) {
+    log.warn('rag', `RAG 库含 ${poisonRows} 行毒向量块（历史 Float32 溢出入库：norm 非有限或 norm=NULL 且向量含非有限分量）——已剔除不参与召回，建议重建索引（POST /rag/rebuild）清根`)
   }
   return out
 }

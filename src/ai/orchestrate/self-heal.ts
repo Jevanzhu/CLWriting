@@ -851,6 +851,9 @@ async function runGenerate(
   })
 
   if (!out.ok) {
+    // R35-17：abort/终态失败 attempt 的真实消耗已由 runner recordUsageSafe 按次入账
+    // ai-calls，但 TaskErr 封套未携 attemptsUsage，done 事件取不到——纯展示面与账本
+    // 口径分叉在此登记；对齐需 runner 失败封套补字段（另行立项）
     if (out.code === 'ABORTED' || state.ctrl.signal.aborted) return { status: 'aborted' }
     return { status: 'error', error: out.error }
   }

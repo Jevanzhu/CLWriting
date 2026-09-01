@@ -7,7 +7,7 @@
  * - finalizeHistory / summarizeCheckpoint：B1+B2 溢出时 checkpoint 压缩优先，
  *   失败回落 F1-P1 硬截断（trim 遮蔽语义不变）。
  */
-import type { ChatMsg } from '../../provider/types.js'
+import type { ChatMsg, TokenUsage } from '../../provider/types.js'
 import { modelConfOf } from '../../provider/store.js'
 import { generate } from '../../gen.js'
 import { runTask } from '../../runner.js'
@@ -86,7 +86,9 @@ async function summarizeCheckpoint(
     .join('\n')}`
   // Q-13（第十五轮）：run 返回壳对象以透传 resolvedMaxTokens（runner 提取落 llm/call）——
   // 摘要调用自带 clamp cap（P8），重放口径必须记 resolve 后终值
-  const out = await runTask<{ text: string | null; resolvedMaxTokens?: number }>({
+  // R35-2：usage + stopReason 同壳透传——摘要调用是长对话中输入最大的真实计费调用，
+  // 此前两字段被整链丢弃（usage null 不进账、截断时 stopReason 谎记 end_turn）
+  const out = await runTask<{ text: string | null; resolvedMaxTokens?: number; usage: TokenUsage; stopReason: string }>({
     userDataPath: opts.userDataPath,
     tierKind: 'chat',
     task: 'chat',
@@ -119,10 +121,10 @@ async function summarizeCheckpoint(
         },
         signal,
       )
-      if (r.stopReason === 'max_tokens' || r.toolCalls.length > 0) return { text: null, resolvedMaxTokens: r.resolvedMaxTokens, degraded: r.degraded }
+      if (r.stopReason === 'max_tokens' || r.toolCalls.length > 0) return { text: null, resolvedMaxTokens: r.resolvedMaxTokens, degraded: r.degraded, usage: r.usage, stopReason: r.stopReason }
       const t = r.text.trim()
       // B-2（第六十轮）：degraded 透传（两分支同补——runner extractDegraded 落 llm/call）
-      return { text: t === '' ? null : t, resolvedMaxTokens: r.resolvedMaxTokens, degraded: r.degraded }
+      return { text: t === '' ? null : t, resolvedMaxTokens: r.resolvedMaxTokens, degraded: r.degraded, usage: r.usage, stopReason: r.stopReason }
     },
   })
   return out.ok ? out.data.text : null

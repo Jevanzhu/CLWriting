@@ -132,7 +132,7 @@ test('R76-25: crashedWrite 健康报文以清单路径为首要标识（不再�
   upsertEntry(m, { id: 'doc_r25', nodeType: 'document', path: '设定/人物.md', parentId: null })
   writeManifest(mp, m)
   await appendPending(join(bookRoot, '工作区', '.journal', 'doc_r25.jsonl'), 'doc_r25', null, 'lost content')
-  const d = detectState(bookRoot, DEFAULT_CONFIG)
+  const d = await detectState(bookRoot, DEFAULT_CONFIG)
   expect(d.state).toBe(1)
   if (d.state !== 1) return
   const crashed = d.issues.find((i) => i.kind === 'crashedWrite')

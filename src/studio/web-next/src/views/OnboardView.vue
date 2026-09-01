@@ -75,6 +75,9 @@ const lastGenerated = ref('')
 const saving = ref(false)
 const err = ref<string | null>(null)
 const lastWords = ref(0)
+// R35-34：gen/save 函数级在途锁（域内 R69-29/R73-63 自设纪律）——双击在下一拍渲染
+// 前仍可双触发，双生成双计费；loading 相位的按钮置换只覆盖渲染后的窗口
+const genPending = ref(false)
 
 function selectStep(step: OnboardStep): void {
   if (phase.value === 'loading') return
@@ -85,7 +88,18 @@ function selectStep(step: OnboardStep): void {
 }
 
 async function gen(): Promise<void> {
+  if (genPending.value) return // R35-34：在途锁
   if (!active.value) return
+  const step = active.value
+  genPending.value = true
+  try {
+    await doGen(step)
+  } finally {
+    genPending.value = false
+  }
+}
+
+async function doGen(step: OnboardStep): Promise<void> {
   // M-4（X-27 补齐）：同 save——入口捕获 + await 后复检，生成在途切书后死实例的
   // 迟到 toast/面板状态不再落到新书界面（旧书结果本就该作废）
   const book = props.bookName
@@ -103,13 +117,13 @@ async function gen(): Promise<void> {
   err.value = null
   content.value = ''
   try {
-    const r = await onboardAi(book, { step: active.value, premise: storyPremise.value })
+    const r = await onboardAi(book, { step, premise: storyPremise.value })
     if (!stillOn(book)) return
     content.value = r.content
     lastGenerated.value = r.content
     lastWords.value = r.words
     phase.value = 'result'
-    ui.toast(`${STEP_LABEL[active.value]} 生成（${r.words} 字）`, 'success')
+    ui.toast(`${STEP_LABEL[step]} 生成（${r.words} 字）`, 'success')
   } catch (e) {
     if (!stillOn(book)) return
     err.value = friendlyError(e)
@@ -119,6 +133,7 @@ async function gen(): Promise<void> {
 }
 
 async function save(): Promise<void> {
+  if (saving.value) return // R35-34：函数级在途锁（按钮 disabled 之外的同拍双触发兜底）
   if (!active.value) return
   // M-4：入口捕获 + await 后复检——落盘在途切书后，死实例的 tree.load(旧书) 会把
   // 旧书目录写进共享 tree store（新书工作台显示旧书章节树）

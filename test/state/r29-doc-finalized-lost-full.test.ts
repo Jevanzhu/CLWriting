@@ -29,12 +29,12 @@ function registerFinalizedOutsidePrefixes(root: string, rel: string): void {
   writeManifest(manifestPath, m)
 }
 
-test('C-5: 四前缀之外的定稿登记丢失 → finalizedLost（旧前缀过滤下零出口）', () => {
+test('C-5: 四前缀之外的定稿登记丢失 → finalizedLost（旧前缀过滤下零出口）', async () => {
   const root = makeGitBookWithChapters(2, { commitEach: false })
   try {
     registerFinalizedOutsidePrefixes(root, '附录/旧稿.md')
     expect(existsSync(join(root, '附录', '旧稿.md'))).toBe(false)
-    const d = detectState(root, DEFAULT_CONFIG)
+    const d = await detectState(root, DEFAULT_CONFIG)
     expect(d.state).toBe(1)
     if (d.state !== 1) return
     const lost = d.issues.find((i) => i.kind === 'finalizedLost')
@@ -46,14 +46,14 @@ test('C-5: 四前缀之外的定稿登记丢失 → finalizedLost（旧前缀过
   }
 })
 
-test('C-5: 探测出错（ENOTDIR：父段是普通文件）→ 同样计入 lost（不静默）', () => {
+test('C-5: 探测出错（ENOTDIR：父段是普通文件）→ 同样计入 lost（不静默）', async () => {
   const root = makeGitBookWithChapters(2, { commitEach: false })
   try {
     // 「附录」是普通文件而非目录 → statSync('附录/旧稿.md') 抛 ENOTDIR（非 ENOENT，
     // 走 stat 错误分支：计入 lost + warn 留痕）
     writeFileSync(join(root, '附录'), '占位：同名普通文件', 'utf-8')
     registerFinalizedOutsidePrefixes(root, '附录/旧稿.md')
-    const d = detectState(root, DEFAULT_CONFIG)
+    const d = await detectState(root, DEFAULT_CONFIG)
     expect(d.state).toBe(1)
     if (d.state !== 1) return
     const lost = d.issues.find((i) => i.kind === 'finalizedLost')
@@ -64,7 +64,7 @@ test('C-5: 探测出错（ENOTDIR：父段是普通文件）→ 同样计入 los
   }
 })
 
-test('C-5: 定稿文件全在盘 → 无 finalizedLost（全量核对不误报）', () => {
+test('C-5: 定稿文件全在盘 → 无 finalizedLost（全量核对不误报）', async () => {
   const root = makeGitBookWithChapters(2, { commitEach: false })
   try {
     // 四前缀之外但文件在盘的定稿登记 → 不报
@@ -81,7 +81,7 @@ test('C-5: 定稿文件全在盘 → 无 finalizedLost（全量核对不误报�
       finalizedAt: new Date().toISOString(),
     })
     writeManifest(manifestPath, m)
-    const d = detectState(root, DEFAULT_CONFIG)
+    const d = await detectState(root, DEFAULT_CONFIG)
     if (d.state === 1) {
       expect(d.issues.some((i) => i.kind === 'finalizedLost')).toBe(false)
     }

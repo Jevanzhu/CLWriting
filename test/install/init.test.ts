@@ -238,14 +238,14 @@ test('init: P2-27 非法书名（路径分隔符/特殊路径段）→ 逻辑层
   }
 })
 
-test('init 出的空书: enter 干净落态 7（起草新章）—— M5 核心出口', () => {
+test('init 出的空书: enter 干净落态 7（起草新章）—— M5 核心出口', async () => {
   const wd = mkdtempTracked(join(tmpdir(), 'init5-'))
   const r = doInit({ workDir: wd, name: '空书测试', genre: '玄幻' })
   expect(r.ok).toBe(true)
   if (!r.ok) return
 
   // 进空书：enter 应干净通过到态 7
-  const result = enter(r.bookRoot)
+  const result = await enter(r.bookRoot)
   expect(result.route.state).toBe(7) // 起草新章
   expect(result.route.humanMsg).toContain('第 1 章')
 

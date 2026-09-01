@@ -93,7 +93,9 @@ test('repairBooks: 书目录丢失且无法重关联 → 标 missing 并保留�
   expect(result.missing).toHaveLength(1)
   expect(result.missing[0]!.name).toBe('书X')
   expect(result.relinked).toHaveLength(0)
-  // missing 登记保留，避免静默丢书；由 CLI 提示作者重关联
+  // missing 登记保留，避免静默丢书；由启动通告 missingHint 提示作者处理（R35-28：
+  // 自愈只报告不清除，显式清除走 purgeConfirmedMissing 且仅限目录确认缺失）
+  expect(result.missingHint).toContain('books.jsonl')
   expect(result.rebuilt.find((b) => b.name === '书X')?.name).toBe('书X')
   expect(readBooks(wd).find((b) => b.name === '书X')?.name).toBe('书X')
 

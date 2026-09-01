@@ -600,7 +600,9 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
     }
     history.push({ role: 'assistant', content: asstBlocks })
     // F1-P1：assistant 事件（tool_use 在载荷里）+ tool/call 审计事件
-    seqs.pendingMsgSeqs.push(recorder.add(assistantMessageEvent(asstBlocks, out.usage ?? undefined, stopReason, lineageIdx, turnBranch)))
+    // R35-1：与上方无工具路径（R34D-9）同款 attemptsUsage 优先的合并口径——工具轮
+    // 截断重试时 out.usage 只是末 attempt 单次值，事件用量与 ai-calls 按次入账分裂
+    seqs.pendingMsgSeqs.push(recorder.add(assistantMessageEvent(asstBlocks, (out.attemptsUsage ?? out.usage) ?? undefined, stopReason, lineageIdx, turnBranch)))
     for (const c of toolCalls) recorder.add(toolCallEvent(c.id, c.name, c.input))
 
     // 执行工具 + 结果按 tool_result block 回填

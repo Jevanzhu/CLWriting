@@ -32,6 +32,9 @@ export function useHotkeys(): void {
       e.preventDefault()
       if (ws.activeDocId) void doc.save(ws.activeDocId, 'manual')
     } else if (k === 'p' && !e.shiftKey) {
+      // R35-38：任一弹层打开时让渡——面板与弹层同 z-index 时后者后挂载压住前者，
+      // 再开命令面板会成被遮住的「隐形面板」（对齐上方 Esc 的让渡名单）
+      if (overlayOpen) return
       e.preventDefault()
       ui.openPalette()
     }

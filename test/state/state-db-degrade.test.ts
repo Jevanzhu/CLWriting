@@ -20,7 +20,7 @@ vi.mock('../../src/process/assemble.js', () => ({
 const { detectState } = await import('../../src/state/state.js')
 const { DEFAULT_CONFIG, writeBookConfig } = await import('../../src/format/yaml.js')
 
-test('RB-KN-P2-1: 缓存读取段故障 → 降级态 2（不抛出崩 enter）', () => {
+test('RB-KN-P2-1: 缓存读取段故障 → 降级态 2（不抛出崩 enter）', async () => {
   const root = mkdtempTracked(join(tmpdir(), 'clw-db-degrade-'))
   try {
     writeBookConfig(join(root, 'book.yaml'), DEFAULT_CONFIG)
@@ -29,7 +29,7 @@ test('RB-KN-P2-1: 缓存读取段故障 → 降级态 2（不抛出崩 enter）'
     mkdirSync(join(root, '写作', '正文'), { recursive: true })
     mkdirSync(join(root, '工作区'), { recursive: true })
 
-    const d = detectState(root, DEFAULT_CONFIG)
+    const d = await detectState(root, DEFAULT_CONFIG)
     expect(d.state).toBe(2)
     if (d.state === 2) {
       expect(d.parseErrors.some((p) => p.message.includes('缓存读取失败'))).toBe(true)

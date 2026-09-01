@@ -43,7 +43,7 @@ function finalizePiece(root: string, num: number): string {
 }
 
 // Windows 无 POSIX 权限位/需开发者模式，symlinkSync 直建 EPERM，该守卫语义由 macOS/Linux CI 腿覆盖
-test.skipIf(process.platform === 'win32')('N2: 正文区 symlink 环（a→b、b→a）不无限递归——detectState 正常判定不崩', () => {
+test.skipIf(process.platform === 'win32')('N2: 正文区 symlink 环（a→b、b→a）不无限递归——detectState 正常判定不崩', async () => {
   const root = makeShortBook()
   finalizePiece(root, 1)
   // 造环：写作/正文/a → b，b → a
@@ -52,21 +52,21 @@ test.skipIf(process.platform === 'win32')('N2: 正文区 symlink 环（a→b、b
   symlinkSync(join(root, '写作', '正文', 'a'), join(root, '写作', '正文', 'b', 'a'))
   // 旧实现：findUnfinishedChapter/unfinishedPieceNames/maxFileNameChapter 的裸
   // statSync 跟随 symlink 递归 a→b→a → RangeError 崩进门；新口径剪枝后正常返回
-  const d = detectState(root, SHORT_CONFIG)
+  const d = await detectState(root, SHORT_CONFIG)
   expect(d.state).toBe(7)
   if (d.state === 7) expect(d.nextChapter).toBe(2)
   rmSync(root, { recursive: true, force: true })
 })
 
 // Windows 无 POSIX 权限位/需开发者模式，symlinkSync 直建 EPERM，该守卫语义由 macOS/Linux CI 腿覆盖
-test.skipIf(process.platform === 'win32')('N2: 正文区指向书外的 symlink 章（.md 直链）不参与章号推算（根界 fail-closed）', () => {
+test.skipIf(process.platform === 'win32')('N2: 正文区指向书外的 symlink 章（.md 直链）不参与章号推算（根界 fail-closed）', async () => {
   const root = makeShortBook()
   finalizePiece(root, 1)
   // 书外目录放一个高章号章（旧实现跟随 symlink 整读 → maxFileNameChapter 抬到 9）
   const outside = mkdtempTracked(join(tmpdir(), 'n2-outside-'))
   writeFileSync(join(outside, '009-外链.md'), '---\n章号: 9\n标题: 外链\n---\n书外内容', 'utf-8')
   symlinkSync(join(outside, '009-外链.md'), join(root, '写作', '正文', '009-外链.md'))
-  const d = detectState(root, SHORT_CONFIG)
+  const d = await detectState(root, SHORT_CONFIG)
   expect(d.state).toBe(7)
   if (d.state === 7) expect(d.nextChapter).toBe(2) // 书外 symlink 不抬高章号
   rmSync(root, { recursive: true, force: true })

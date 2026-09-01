@@ -195,10 +195,12 @@ export function createFileExclusive(
  * EPERM/ENOSYS/EACCES（win 非 NTFS 典型形态；EACCES 覆盖 win FAT 权限变体）——
  * 此前调用方各自特判 EEXIST、其余上抛，新建/移动落位/回收站还原在这些卷上全线失败。
  * 降级语义（逐点论证）：目标已存在 → 'exists'（放弃独占探测，existsSync→rename 之间
- * 存在窄窗竞态——宁窄窗回归 rename 旧语义，不可整域不可用）；否则 renameSync 落位
+ * 存在窄窗竞态——宁窄窗回归 rename 旧语义，不可整域不可用）；否则 rename 落位
  * （tmp 场景等价原子写；源文件场景等价移动，调用方后续 rmSync force 对已搬走源为
  * no-op）。降级发生时 log.warn 一次留痕（诊断「为何无硬链接保障」）。其余错误码
  * （ENOENT/EIO 等）原样上抛，不扩大降级面。
+ * R35-27：降级 rename 走 renameWithRetry——降级分支恰发生在 exFAT/SMB 等杀软/占用
+ * 高发环境，此前裸 renameSync 无 EPERM/EBUSY 退避（主路径 atomicWriteFile R77-3 已有）。
  */
 export function linkOrRenameExclusive(src: string, dst: string): 'created' | 'exists' {
   try {
@@ -210,7 +212,7 @@ export function linkOrRenameExclusive(src: string, dst: string): 'created' | 'ex
     if (code !== 'EPERM' && code !== 'ENOSYS' && code !== 'EACCES') throw e
     if (existsSync(dst)) return 'exists'
     log.warn('fs', `当前文件系统不支持硬链接（link ${code}），已降级为非原子创建（无独占探测保障）：${dst}`)
-    renameSync(src, dst)
+    renameWithRetry(src, dst)
     return 'created'
   }
 }

@@ -94,7 +94,6 @@ export function sanitizeFullFileName(name: string): string {
   const m = /^([\s\S]*?)(\.[^./\\]*)?$/.exec(pre)
   const rawStem = m?.[1] ?? pre
   const ext = (m?.[2] ?? '').replace(/[\\/]/g, '_')
-  // eslint-disable-next-line no-control-regex
   const stem = (rawStem
     .replace(/[\u0000-\u001f\u007f]/g, '')
     .replace(/[\\/:*?"<>|]/g, '_')

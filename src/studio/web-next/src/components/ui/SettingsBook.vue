@@ -133,6 +133,13 @@ async function doBookTitleChange(): Promise<void> {
     return
   }
   if (next === titleBaseline.value) return
+  // R35-9：带未决冲突的脏文档不在 flushDirty 清单内（doc store 过滤 conflict 项）也不落盘
+  // ——放行改名后 Z-8「留在本书」回退到已搬走的旧书目录，树/心跳/保存全 404。前置拦截。
+  const conflicted = doc.conflictedDirtyDocs()
+  if (conflicted.length > 0) {
+    ui.toast(`有 ${conflicted.length} 篇文档存在未解决的修改冲突，请先处理（重载或覆盖）后再改名`, 'error')
+    return
+  }
   // 改名 = 磁盘目录+登记+active 一起搬；先落盘未保存的正文编辑，
   // 防目录搬家后旧名 URL 404 导致编辑丢失
   // R66-34（十四轮）：冲排失败必须中止改名——flushDirty 返回保存失败的 docId 清单，此前

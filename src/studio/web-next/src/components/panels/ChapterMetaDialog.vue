@@ -3,6 +3,7 @@
 // 长/短篇统一用「章号」作正文编号字段（无「篇号」概念）。
 import { ref, watch } from 'vue'
 import { isImeComposing } from '../../shared/ime'
+import { useFocusTrap } from '../../composables/useFocusTrap'
 
 const props = defineProps<{
   modelValue: boolean
@@ -51,11 +52,21 @@ function onSave(): void {
 const numLabel = () => '章号'
 const dlgTitle = () => (props.isPiece ? '篇章信息' : '章节信息')
 
+// R35-36：焦点圈（域内既有惯例 useFocusTrap——B-9/R61-3 同族的弹窗可及性配套）：
+// 打开时焦点入首个控件，Tab 循环锁在弹窗内，关闭归还焦点
+const dlgRef = ref<HTMLElement | null>(null)
+useFocusTrap(dlgRef)
+
 function onKeySave(e: KeyboardEvent): void {
   // R61-3（第六十一轮）：IME 组合期确认候选的 Enter 让渡（组合期 v-model 是旧值，
   // 放行会以缺字标题保存并触发 rename）
   if (isImeComposing(e)) return
   onSave()
+}
+// R35-36：IME 组合期 Esc 让渡（B-9 同族）——组合中按 Esc 是收输入法候选框，放行会误关弹窗
+function onKeyEsc(e: KeyboardEvent): void {
+  if (isImeComposing(e)) return
+  emit('update:modelValue', false)
 }
 </script>
 
@@ -63,9 +74,11 @@ function onKeySave(e: KeyboardEvent): void {
   <teleport to="body">
     <div v-if="modelValue" class="meta-mask" @click.self="emit('update:modelValue', false)">
       <div
+        ref="dlgRef"
         class="meta-dialog"
+        tabindex="-1"
         @keydown.enter="onKeySave"
-        @keydown.esc="emit('update:modelValue', false)"
+        @keydown.esc="onKeyEsc"
       >
         <div class="side-title">{{ dlgTitle() }}</div>
         <label class="field">

@@ -3,8 +3,8 @@
  *
  * GET /api/books/:name/overview → 身份 + 进度 + 状态机位置 + 卷结构
  *
- * 状态机经 detectState（自包含：内部 rebuild index.db 幂等 + git 检查 + assembleStatus）。
- * 失败不崩（返 state:0 + 错误）。
+ * 状态机经 detectState（自包含：内部 rebuild index.db 幂等 + journal 崩溃自愈 + assembleStatus；
+ * R35-5 起异步，调用方 await）。失败不崩（返 state:0 + 错误）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, relative } from 'node:path'
@@ -44,7 +44,7 @@ export function registerOverviewRoutes(ctx: OverviewCtx): void {
   defineRoute('books.overview', {
     method: 'GET',
     path: '/api/books/:name/overview',
-    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
+    handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     const entry = r.entry
@@ -66,7 +66,8 @@ export function registerOverviewRoutes(ctx: OverviewCtx): void {
       state = cachedState.result
     } else {
       try {
-        const detected = detectState(bookRoot, config)
+        // R35-5：detectState 异步化——healMovePending 自愈链的锁等待不再阻塞事件循环
+        const detected = await detectState(bookRoot, config)
         state = { state: detected.state, name: STATE_NAMES[detected.state], detail: detected }
       } catch (e) {
         state = {

@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { startServer } from '../../src/studio/server/index.js'
+import { __waitForGraveyardCleanupForTest } from '../../src/studio/server/api/books.js'
 
 const GRAVEYARD = '.删书墓地'
 const isRoot = typeof process.getuid === 'function' && process.getuid() === 0
@@ -65,14 +66,15 @@ afterAll(async () => {
 })
 
 describe('R73-34 删书墓地', () => {
-  it('正常删书：原位目录消失、登记移除、墓地副本清干净', async () => {
+  it('正常删书：原位目录消失、登记移除、墓地副本最终清干净', async () => {
     const bookAbs = makeBook('墓地正常删')
     const del = await req('DELETE', `/api/books/${encodeURIComponent('墓地正常删')}`)
     expect(del.status).toBe(200)
     expect(existsSync(bookAbs)).toBe(false)
     const registry = JSON.parse('[' + readBooksJsonl().trim().split('\n').join(',') + ']') as Array<{ name?: string }>
     expect(registry.some((e) => e.name === '墓地正常删')).toBe(false)
-    // 墓地副本清理成功 → 墓地空（或目录未残留条目）
+    // R35-6：墓地清理已后台化——端点返回不等 rm，等待在途清理收尾后断言最终清空
+    await __waitForGraveyardCleanupForTest()
     const graveDir = join(workDir, GRAVEYARD)
     expect(existsSync(graveDir) ? readdirSync(graveDir) : []).toEqual([])
   })
@@ -90,6 +92,8 @@ describe('R73-34 删书墓地', () => {
       expect(existsSync(bookAbs)).toBe(false) // 原位无半删态
       const registry = JSON.parse('[' + readBooksJsonl().trim().split('\n').join(',') + ']') as Array<{ name?: string }>
       expect(registry.some((e) => e.name === name)).toBe(false)
+      // R35-6：后台 rm 对 r-x 子目录 unlink EACCES 收尾后断言终态
+      await __waitForGraveyardCleanupForTest()
       const graveDir = join(workDir, GRAVEYARD)
       const left = readdirSync(graveDir)
       expect(left).toHaveLength(1) // 副本留档待手工恢复

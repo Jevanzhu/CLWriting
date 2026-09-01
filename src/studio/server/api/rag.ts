@@ -17,6 +17,7 @@
  * 避免长 HTTP 请求挂死前端 fetch。任务单飞（同书同一时刻仅一个，重入 409，RB-SV-P2-2）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import type { DatabaseSync } from 'node:sqlite'
 import { defineRoute } from './schema.js'
 import { reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
@@ -24,7 +25,7 @@ import { readRagConfig } from '../../../rag/config.js'
 import { resolveRag, type RagProviderRef } from '../../../rag/resolve.js'
 import { loadProviders } from '../../../ai/provider/index.js'
 import { buildIndex, resetRagIndex, type BuildIndexResult } from '../../../rag/index.js'
-import { openRagDb, getRagMeta, ragDbExists } from '../../../rag/store.js'
+import { openRagDb, getRagMeta, ragDbExists, isRagDbCorruptionError } from '../../../rag/store.js'
 import { acquireTaskGate } from './task-gate.js'
 // D-2（二十九轮）：建索引失败信息与 replyError 同源的脱敏单源（http.ts 同款 import）——
 // embed 上游报错 message 可能夹带完整 URL（key 在 query）/ Authorization 痕迹
@@ -160,7 +161,22 @@ export function registerRagRoutes(ctx: RagCtx): void {
     // hh §八-11：库已迁 .cache/rag.db；存在性探测走 openRagDb 同源 helper——
     // 旧库还在未迁移时也不误报「未建索引」（随后 openRagDb 内完成迁移）
     if (ragDbExists(bookRoot)) {
-      const db = openRagDb(bookRoot)
+      // R35-13（三十五轮）：库文件级损坏（断电/磁盘故障/杀软半写后的非 SQLite 字节流）
+      // 此前 openRagDb 原样上抛 → dispatch 兜底裸 500，作者无从得知出路；回结构化
+      // 错误 + 重建指引（rebuild 端点的 resetRagIndex 已能删库自愈）。busy/IO 等非
+      // 损坏错误不吞，照旧走兜底
+      let db: DatabaseSync
+      try {
+        db = openRagDb(bookRoot)
+      } catch (e) {
+        if (!isRagDbCorruptionError(e)) throw e
+        return replyError(
+          res,
+          500,
+          'RAG_DB_CORRUPT',
+          'RAG 索引库文件损坏，已无法读取——请执行重建索引（POST /api/books/:name/rag/rebuild），将从当前正文全新建库',
+        )
+      }
       try {
         chunkCount = (db.prepare('SELECT COUNT(*) AS n FROM chunks').get() as { n: number }).n
         model = getRagMeta(db, 'embedding_model')

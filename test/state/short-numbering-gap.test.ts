@@ -50,10 +50,10 @@ function makeShortBookWithFinalized(nums: number[]): string {
   return root
 }
 
-test('CC-P1-6:定稿 1、2、5 断档 → nextChapter=6 而非回指已定稿 5', () => {
+test('CC-P1-6:定稿 1、2、5 断档 → nextChapter=6 而非回指已定稿 5', async () => {
   const root = makeShortBookWithFinalized([1, 2, 5])
   try {
-    const d = detectState(root, SHORT_CONFIG)
+    const d = await detectState(root, SHORT_CONFIG)
     expect(d.state).toBe(7)
     if (d.state === 7) {
       // 旧算式：max(3+1, 5)=5 → 回指已定稿第 5 篇；修复后跳过 5
@@ -69,10 +69,10 @@ test('CC-P1-6:定稿 1、2、5 断档 → nextChapter=6 而非回指已定稿 5'
   }
 })
 
-test('CC-P1-6:连续定稿 1、2、3 → nextChapter=4（零断档零跳号，行为不变）', () => {
+test('CC-P1-6:连续定稿 1、2、3 → nextChapter=4（零断档零跳号，行为不变）', async () => {
   const root = makeShortBookWithFinalized([1, 2, 3])
   try {
-    const d = detectState(root, SHORT_CONFIG)
+    const d = await detectState(root, SHORT_CONFIG)
     expect(d.state).toBe(7)
     if (d.state === 7) expect(d.nextChapter).toBe(4)
   } finally {
@@ -80,12 +80,12 @@ test('CC-P1-6:连续定稿 1、2、3 → nextChapter=4（零断档零跳号，�
   }
 })
 
-test('CC-P1-6:V-P1-3 语义保留——坏 fm 草稿占号走态 4 续写覆盖，不被跳号', () => {
+test('CC-P1-6:V-P1-3 语义保留——坏 fm 草稿占号走态 4 续写覆盖，不被跳号', async () => {
   const root = makeShortBookWithFinalized([1, 2, 3])
   try {
     // 坏 fm 草稿占 004（无 front matter，readChapterDir 不计入 chapters 但文件名占号）
     writeFileSync(join(root, '写作', '正文', '004-坏草稿.md'), '没有 front matter 的草稿', 'utf-8')
-    const d = detectState(root, SHORT_CONFIG)
+    const d = await detectState(root, SHORT_CONFIG)
     // 草稿在正文 → detectIncompleteWorkdir 捕获，走态 4 续写（覆盖草稿的恢复语义在态 4 通道）
     expect(d.state).toBe(4)
     if (d.state === 4) {
@@ -98,10 +98,10 @@ test('CC-P1-6:V-P1-3 语义保留——坏 fm 草稿占号走态 4 续写覆盖�
   }
 })
 
-test('CC-P1-6:buildRecap 提示号与 detectState 执行号同口径（断档 → 6）', () => {
+test('CC-P1-6:buildRecap 提示号与 detectState 执行号同口径（断档 → 6）', async () => {
   const root = makeShortBookWithFinalized([1, 2, 5])
   try {
-    const d = detectState(root, SHORT_CONFIG)
+    const d = await detectState(root, SHORT_CONFIG)
     const recap = buildRecap(root, SHORT_CONFIG, d)
     // 旧口径：currentChapter=4 → 提示「开始写第 5 章」回指定稿；修复后与执行号一致
     expect(recap.nextChapter).toBe(6)

@@ -92,7 +92,11 @@ export interface ResponsesWireQuirks {
 export interface FamilyQuirks {
   // ── 能力维度（模型支持什么）──
 
-  /** 支持原生 function calling；false → 装配层不挂 tools，走 prompt 引导 */
+  /**
+   * 支持原生 function calling。现状（R35-14）：七家族全为 true——gen 层曾有的
+   * 「false → 剥 tools / 提前拒绝」前置拦截已删（死分支），不支持工具的实际防线
+   * 是适配器 400 降级链（剥 tools 纯文本兜底）；本字段现仅供目录生成消费。
+   */
   toolUse: boolean
   /**
    * tool_choice 表达力：
@@ -306,7 +310,9 @@ export function quirksFor(model: string): FamilyQuirks {
         maxTokensKey: 'max_completion_tokens', // 已弃用 max_tokens
         reasoningEffort: k3 ? (e) => e : () => null,
         thinkingWithEffort: false,
-        trimStop: (s) => s.slice(0, 5), // 最多 5 个且各 ≤32 字节
+        // R35-15：官方上限「≤5 条且各 ≤32 字节」只实现了前者——字节裁剪未实现；
+        // stopSequences 现无生产调用方（仅适配器读），接线前须先补字节裁剪
+        trimStop: (s) => s.slice(0, 5),
         emitStreamOptions: true,
         structuredMode: 'json_schema', // MFJS 方言，strict 默认 true
         anthropicEffortWire: null, // anthropic 端点零参数级文档 → 保守不发
