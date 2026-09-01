@@ -82,8 +82,8 @@ const recent = computed(() => wb.log.slice(-200))
         <div class="stream">
           <EmptyState v-if="!recent.length" :icon="Activity" text="无事件，点「生成」开始" size="compact" />
           <div
-            v-for="(ev, i) in recent"
-            :key="i"
+            v-for="ev in recent"
+            :key="ev._seq"
             class="ev"
             :class="evKind(ev)"
           >

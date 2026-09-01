@@ -36,13 +36,15 @@ const menuEl = ref<HTMLElement>()
 const flipX = ref(false)
 const flipY = ref(false)
 
-/** Electron accelerator → macOS 可读文本（"CmdOrCtrl+X" → "⌘X"） */
+/** Electron accelerator → 平台可读文本（"CmdOrCtrl+X" → mac "⌘X" / win·linux "Ctrl+X"）。
+ *  R33-83（三十三轮）：原无条件映射 ⌘，win 浏览器/dev 回退菜单显示 mac 符号。 */
 function accelLabel(accel?: string): string {
   if (!accel) return ''
+  const isMac = navigator.platform.toLowerCase().includes('mac')
   return accel
-    .replace(/CmdOrCtrl\+/g, '⌘')
-    .replace(/Shift\+/g, '⇧')
-    .replace(/Alt\+/g, '⌥')
+    .replace(/CmdOrCtrl\+/g, isMac ? '⌘' : 'Ctrl+')
+    .replace(/Shift\+/g, isMac ? '⇧' : 'Shift+')
+    .replace(/Alt\+/g, isMac ? '⌥' : 'Alt+')
 }
 
 watch(

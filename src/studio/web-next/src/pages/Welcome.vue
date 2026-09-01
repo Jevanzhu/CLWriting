@@ -49,7 +49,7 @@ async function switchTo(path: string): Promise<void> {
 </script>
 
 <template>
-  <div class="welcome" :class="{ 'has-traffic': isMac }">
+  <div class="welcome" :class="{ 'has-traffic': isMac, 'is-drag': hasDesktop }">
     <!-- 环境背景：多层渐变 + 呼吸光晕（签名氛围层） -->
     <div class="ambient">
       <div class="glow glow-tr"></div>
@@ -154,6 +154,10 @@ async function switchTo(path: string): Promise<void> {
   height: var(--size-tabbar);
   flex-shrink: 0;
 }
+.welcome.is-drag .welcome-titlebar {
+  -webkit-app-region: drag;
+}
+/* R33-14（三十三轮）：win 拖拽区（同 Shelf.vue 注） */
 .welcome.has-traffic .welcome-titlebar {
   -webkit-app-region: drag;
 }

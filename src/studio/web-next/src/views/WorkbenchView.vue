@@ -323,7 +323,10 @@ async function onSaveDraft(): Promise<void> {
 
     <!-- 对话 tab -->
     <div v-if="prefs.chatEnabled && activeTab === 'chat'" class="wb-chat-wrap">
-      <ChatPanel :book-name="bookName" :current-chapter="chapter" />
+      <!-- R33-15（三十三轮）：:key 重建实例（对齐 ChatDock R27-76）——切书后消息区
+         已重播种而输入框残留 A 书草稿，Enter 会把 A 书草稿发进 B 书；重建顺带复位
+         selectedChapter（切书窗口内带错章号上下文） -->
+      <ChatPanel :key="bookName" :book-name="bookName" :current-chapter="chapter" />
     </div>
 
     <!-- 写作 tab（默认） -->

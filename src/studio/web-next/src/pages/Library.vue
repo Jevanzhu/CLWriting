@@ -64,7 +64,7 @@ function openDir(): void {
 </script>
 
 <template>
-  <div class="library" :class="{ 'has-traffic': isMac }">
+  <div class="library" :class="{ 'has-traffic': isMac, 'is-drag': hasDesktop }">
     <!-- 环境背景：呼吸光晕（与 Welcome 同语言） -->
     <div class="ambient">
       <div class="glow glow-tr"></div>
@@ -156,6 +156,10 @@ function openDir(): void {
   flex-shrink: 0;
 }
 .library.has-traffic .lib-titlebar {
+  -webkit-app-region: drag;
+}
+/* R33-14（三十三轮）：win 拖拽区（同 Shelf.vue 注） */
+.library.is-drag .lib-titlebar {
   -webkit-app-region: drag;
 }
 

@@ -299,9 +299,20 @@ export const usePrefsStore = defineStore('prefs', () => {
         .catch(async (e) => {
           if (!(e instanceof ApiError) || e.status !== 409) return /* 其他错误静默（离线等，与原口径一致） */
           // 冲突：本次改动放弃落盘，提示刷新（与 provider store 同口径，不自动覆盖他窗改动）；
-          // 但 revision 必须追上服务端，否则后续保存永久卡在陈旧号静默失败
-          useUiStore().toast('全局偏好已在其他窗口被修改，请刷新后重试', 'error')
-          try { revision = (await getGlobalPrefs()).revision } catch { /* 网络不可达保持现值 */ }
+          // 但 revision 必须追上服务端，否则后续保存永久卡在陈旧号静默失败。
+          // R33-73（三十三轮）：回读合并——GET 服务端最新偏好 applyPrefs 进本窗 refs
+          // 后再重试一次 PUT：原只刷 revision 不回读，下一次写用本窗陈旧 refs 整文件
+          // 覆盖，静默清掉他窗刚保存的字段（多窗真实可现；toast「请刷新后重试」与
+          // 实际语义不符）。
+          try {
+            const remote = await getGlobalPrefs()
+            revision = remote.revision
+            applyPrefs(remote.prefs)
+            void putGlobalPrefs(buildCache(), revision)
+              .then((r) => { revision = r.revision })
+              .catch(() => { /* 重试仍失败：保持已合并 refs，等下次 schedulePersist */ })
+          } catch { /* 网络不可达保持现值 */ }
+          useUiStore().toast('全局偏好已在其他窗口被修改，已同步最新值', 'info')
         })
     }, 500)
   }

@@ -413,7 +413,13 @@ export function useChapterTreeActions(deps: {
     if (deps.bookName() !== book) return
     try {
       await deleteDoc(book, node.docId)
-      if (deps.bookName() === book) await tree.load(book)
+      // R33-13（三十三轮）：删除成功即丢弃 doc 缓存条目——删除前刚键入（autosave 窗口内）
+      // 或本就 dirty 的文档软删后 entry 若仍驻留，autosaveTick 会对已删 docId 无限重试
+      // （404 后 dirty 不清），且切书 flushDirty 失败触发「保存失败将永久丢弃」假警报
+      if (deps.bookName() === book) {
+        doc.discard(node.docId)
+        await tree.load(book)
+      }
     } catch (e) {
       deps.openError.value = friendlyError(e)
     }

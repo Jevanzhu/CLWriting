@@ -94,7 +94,9 @@ const currentAction = computed<{ label: string } | null>(() => {
   font-size: var(--font-size-s);
   color: var(--text-muted);
   line-height: 1.6;
-  border-left: 2px solid var(--border-color);
+  /* R33-80（三十三轮）：--border-color 全库无定义（computed-value 无效回落 none），
+     连写暂停提示的左强调条此前静默消失；改用实际存在的边框 token */
+  border-left: 2px solid var(--background-modifier-border);
   padding-left: 8px;
 }
 .action-row {

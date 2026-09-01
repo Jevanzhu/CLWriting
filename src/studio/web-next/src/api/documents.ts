@@ -211,6 +211,7 @@ export async function batchFinalizeDocs(name: string, docIds: string[]): Promise
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ docIds }),
     },
+    120_000, // R33-77（三十三轮）：慢档对齐 clearAudit——批量定稿逐章 git 提交可达数秒/章，30s 默认档必假超时（服务端继续成功、前端报超时不刷树）
   )
 }
 

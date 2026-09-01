@@ -40,13 +40,17 @@ export const useWordsStore = defineStore('words', () => {
       todayDelta.value = null
       ready.value = false
     }
+    // R33-76（三十三轮）：入参书的全书字数在首个 await 前快照——原在 await 后读活源
+    // tree.totalWords，「B 树已落定、B 的 ensureBaseline 尚未推代」间隙内 A 书迟到响应
+    // 会把 B 的总字数 POST 成 A 的当日基线（服务端 words-diary 污染，前端自愈但脏写）。
+    const bookTotalWords = tree.totalWords
     try {
       const r = await getWordsDiary(name)
       if (gen !== reqGen) return
       date.value = r.date
       todayDelta.value = r.delta
       if (r.baseline === null) {
-        baseline.value = tree.totalWords
+        baseline.value = bookTotalWords
         // R-23（第十六轮）：postBaseline 后查代——await 期间切书（旧书 ensureBaseline
         // 被 reqGen++ 作废）时旧书迟到响应不落盘（对齐同库其他 store 的 gen 模式）
         await postBaseline(name, baseline.value)

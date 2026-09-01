@@ -60,6 +60,10 @@ function onInsert(text: string): void {
         v-for="s in settings"
         :key="s.docId"
         class="setting-item"
+        role="button"
+        tabindex="0"
+        @keydown.enter.prevent="open(s)"
+        @keydown.space.prevent="open(s)"
         @click="open(s)"
       >
         <span class="setting-name">{{ s.name }}</span>

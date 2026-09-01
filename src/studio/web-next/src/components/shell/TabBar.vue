@@ -50,8 +50,22 @@ function onDocClick(e: MouseEvent): void {
   const t = e.target as HTMLElement
   if (!t.closest('.new-dropdown') && !t.closest('.tb-caret')) dropdownOpen.value = false
 }
-onMounted(() => document.addEventListener('click', onDocClick))
-onUnmounted(() => document.removeEventListener('click', onDocClick))
+function onDocKeydown(e: KeyboardEvent): void {
+  // R33-90（三十三轮）：新建下拉补 Esc 关闭路径（原只能点击外部关闭，键盘不可达）
+  if (e.key === 'Escape' && dropdownOpen.value) {
+    e.preventDefault()
+    dropdownOpen.value = false
+    caretRef.value?.focus()
+  }
+}
+onMounted(() => {
+  document.addEventListener('click', onDocClick)
+  document.addEventListener('keydown', onDocKeydown)
+})
+onUnmounted(() => {
+  document.removeEventListener('click', onDocClick)
+  document.removeEventListener('keydown', onDocKeydown)
+})
 </script>
 
 <template>

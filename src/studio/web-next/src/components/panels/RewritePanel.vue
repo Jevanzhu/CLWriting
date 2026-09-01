@@ -31,6 +31,15 @@ const instruction = ref('')
 // 禁用改写按钮阻断新文档；正文相同的文档（复制章/空章）基线校验能过，可跨文档误接受
 // 旧文档的改写结果
 watch(docId, () => rewrite.clear())
+// R33-89（三十三轮）：切书清指令（跨文档残留同 P2-2 家族；跨文档由上方 R63-9 保留——
+// 同书换章改写意图常延续，跨书意图不再适用）
+watch(
+  () => props.bookName,
+  () => {
+    instruction.value = ''
+    rewrite.clear()
+  },
+)
 
 const diffStats = computed(() => {
   const d = rewrite.result?.diff ?? []

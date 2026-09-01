@@ -11,6 +11,7 @@ import { getConfig, putConfig, type BookConfig } from '../../api/books'
 import { friendlyError } from '../../shared/error'
 import { useFocusTrap } from '../../composables/useFocusTrap'
 import { SAVE_CONFIG_KEY } from './settings-context'
+import { isImeComposing } from '../../shared/ime' // R33-82
 // settings-shared.css 已提升至 main.ts 全局装载——.val/.save-btn 等共享类被设置域外
 // 组件（右栏面板/导出弹窗等）消费，依赖本组件被静态 import 才生效过于脆弱。
 import BetaBadge from './BetaBadge.vue'
@@ -89,6 +90,9 @@ provide(SAVE_CONFIG_KEY, saveConfig)
 // Esc 关闭（ConfirmPrompt 打开时让位——层级更高，先关它再关设置）
 function onKeydown(e: KeyboardEvent): void {
   if (e.key !== 'Escape' || !ui.settingsOpen) return
+  // R33-82（三十三轮）：IME 组合期让渡（对齐 CommandPalette R61-3）——组合期收候选的
+  // Esc 不应连带关闭设置弹层
+  if (isImeComposing(e)) return
   if (ui.confirmState) return
   ui.closeSettings()
   // Z-23（第五十八轮）：本层消费了 Esc → preventDefault——useHotkeys 的专注模式退出

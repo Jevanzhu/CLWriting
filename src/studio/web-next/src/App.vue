@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { getLastInitialBook } from './api/client'
 import { useAppActions } from './composables/useAppActions'
@@ -13,11 +13,16 @@ onMounted(() => {
   // 书架独立窗口（win=shelf）：不 redirect，保持书架页
   const isShelfWin = new URLSearchParams(location.search).get('win') === 'shelf'
   // 主窗口接收书架窗口的导航（选书 → 主进程转发 → router.push）
-  window.clwritingDesktop?.onNavigate((path) => {
+  // R33-88（三十三轮）：监听句柄成对清理（根组件常驻无实害，防御性收口对齐全库口径）
+  const offNavigate = window.clwritingDesktop?.onNavigate((path) => {
     router.push(path)
   })
   // 系统菜单 click → 主进程转发 actionKey → dispatch 到 store 动作（与命令面板同源）
-  window.clwritingDesktop?.onMenuAction((key) => dispatchAction(key))
+  const offMenuAction = window.clwritingDesktop?.onMenuAction((key) => dispatchAction(key))
+  onBeforeUnmount(() => {
+    offNavigate?.()
+    offMenuAction?.()
+  })
   if (isShelfWin) return
   // 主窗口启动：initialBook（--book）> lastBook（localStorage）> 默认 /shelf
   let startBook: string | null = getLastInitialBook()

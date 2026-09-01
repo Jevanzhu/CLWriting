@@ -27,6 +27,11 @@ const DEV_API_BASE: string = (import.meta.env.VITE_DEV_API_BASE as string | unde
  *  ?token= 旧通道（e2e 依赖 SSE，服务端未上线前靠此回退保绿）。除 404 外的失败
  *  （网络/5xx）同样回退旧通道：尽力而为，不让 ticket 层故障单独打断 SSE。 */
 async function fetchStreamTicket(token: string, base: string): Promise<string | null> {
+  // R33-70（三十三轮）：8s abort（对齐 probeSseBusy R26-78 口径）——ticket 请求无超时
+  // 时，挂死（半开连接）期间 doConnect 永久停摆（无 ES、无 onerror、退避链冻结），
+  // 自愈全靠服务端 300s requestTimeout。
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), 8_000)
   try {
     // R62-49：dev 下 ticket 与 SSE 统一走 DEV_API_BASE 直连同一实例——此前相对路径走
     // Vite proxy target，可能与 SSE 直连的 127.0.0.1:7878 指向不同 server（脚本起多实例
@@ -34,12 +39,15 @@ async function fetchStreamTicket(token: string, base: string): Promise<string | 
     const r = await fetch(`${base}/api/stream-ticket`, {
       method: 'POST',
       headers: { 'x-studio-token': token },
+      signal: ctrl.signal,
     })
     if (!r.ok) return null
     const data = (await r.json().catch(() => null)) as { ticket?: unknown } | null
     return typeof data?.ticket === 'string' && data.ticket ? data.ticket : null
   } catch {
     return null
+  } finally {
+    clearTimeout(timer)
   }
 }
 

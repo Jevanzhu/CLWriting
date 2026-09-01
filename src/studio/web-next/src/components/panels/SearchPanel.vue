@@ -34,13 +34,14 @@ let runGen = 0
 async function run(): Promise<void> {
   // RB-FE-P2-6：连续搜索竞态——只渲染最后一次查询的结果，旧慢响应不覆盖新结果
   const gen = ++runGen
+  // R33-85（三十三轮）：空查询路径同清错误态（原只在有查询路径清，错误残留到下一次搜索）
+  err.value = null
   if (!q.value.trim()) {
     results.value = []
     truncated.value = false
     return
   }
   loading.value = true
-  err.value = null
   try {
     const r = await search(props.bookName, q.value, scope.value)
     if (gen !== runGen) return
@@ -111,7 +112,16 @@ async function open(path: string): Promise<void> {
       <div v-if="truncated" class="hint">结果过多，请缩小搜索范围</div>
       <div v-if="q && !results.length" class="hint">无匹配</div>
       <div class="results">
-        <div v-for="hit in results" :key="hit.path" class="result" @click="open(hit.path)">
+        <div
+          v-for="hit in results"
+          :key="hit.path"
+          class="result"
+          role="button"
+          tabindex="0"
+          @keydown.enter.prevent="open(hit.path)"
+          @keydown.space.prevent="open(hit.path)"
+          @click="open(hit.path)"
+        >
           <div class="result-path">{{ hit.path }}</div>
           <div
             v-for="(m, i) in hit.matches.slice(0, 3)"
