@@ -210,6 +210,10 @@ function writeRecord(bookRoot: string, rec: CallRecord): void {
 // 「记完即读」语义保持不变；存在在途段时排队为微任务执行，杜绝交错覆盖。
 // J7（2026-08-23）：本互斥队列之上叠加跨进程真锁（见下 AI_CALLS_MUTEX_SCOPE_NOTE），
 // 多进程（CLI+桌面）同书并发写已闭合。
+// R33-17（三十三轮）现状校正：J7 锁获取为**同步阻塞**（Atomics.wait 轮询）——空闲
+// 快路同步完成、控制流不归还，「排队为微任务」分支实际不可达（writeChains 从不置位，
+// 见 calls-migration-selflock.test.ts 旧注释的同款误解）。保留排队代码作为未来锁
+// 异步化（acquireCrossProcessLockAsync 已在树）的现成接管面。
 const writeChains = new Map<string, Promise<unknown>>()
 
 /** Y-1（第五十七轮）：当前是否处于某次记账写段（writeWithCrossProcessLock 的 doWrite）

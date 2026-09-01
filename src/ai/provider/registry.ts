@@ -126,11 +126,21 @@ export function providerCacheSize(): number {
  * 未命中 → 路由 protocol → create（conf 浅拷贝绑定）→ 入缓存。
  * 降级记忆的新鲜度经 store.lookupDegraded 通道保证（见 store.ts 注释），
  * 不依赖缓存实例捕获的 store 快照。
+ *
+ * R33-21（三十三轮）：`opts.bypassCache` 供一次性旁路调用（流式探测把 model 换成
+ * 列表首项，若入缓存会以「正常生成永不使用的 key」挤占 LRU 容量，把正常实例挤出
+ * 重建）——探测等临时实例读缓存仍命中但不写入、不驱逐既有条目。
  */
-export function createProvider(conf: ProviderConf, store?: ProviderStore): ModelProvider {
+export function createProvider(
+  conf: ProviderConf,
+  store?: ProviderStore,
+  opts?: { bypassCache?: boolean },
+): ModelProvider {
   const hash = settingsHash(conf)
-  const cached = cacheGet(hash)
-  if (cached) return cached
+  if (!opts?.bypassCache) {
+    const cached = cacheGet(hash)
+    if (cached) return cached
+  }
 
   const entry = resolveAdapter(conf.protocol)
   if (!entry) {
@@ -143,6 +153,6 @@ export function createProvider(conf: ProviderConf, store?: ProviderStore): Model
   //（缓存失效判定与实例状态脱钩）。数组新建浅拷元素（元素被视为不可变值）。
   const bound: ProviderConf = { ...conf, ...(conf.models ? { models: [...conf.models] } : {}) }
   const provider = entry.create(bound, store)
-  cachePut(hash, provider)
+  if (!opts?.bypassCache) cachePut(hash, provider)
   return provider
 }

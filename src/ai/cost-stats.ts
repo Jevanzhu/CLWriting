@@ -132,6 +132,8 @@ export function aggregateCost(userDataPath: string | null | undefined, bookRoot:
 
   stats.enabled = pricedSeen.size > 0
   if (currency) stats.currency = currency
-  stats.unpricedModels = [...unpriced].filter((m) => !pricedSeen.has(m)).sort()
+  // R33-24（三十三轮）：定价解析按 model 缓存且确定性——入 unpriced 者必先 continue
+  // 不可能再入 pricedSeen，原 filter 恒真条件为不可达冗余，径直展开。
+  stats.unpricedModels = [...unpriced].sort()
   return stats
 }
