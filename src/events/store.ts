@@ -294,6 +294,9 @@ function releaseOpenMarker(dbPath: string): void {
  *  聚合（自愈类故障按本文件 warn 风格留诊断），全部失败才上抛（系统性故障让打开方
  *  感知，与旧 throw 语义兼容）。导出供回归测试直接驱动。 */
 export function repairOrphanSessions(db: DatabaseSync, skip: ReadonlySet<string>): void {
+  // R33-37（三十三轮）：键集分批（500/批）——原单条聚合 SELECT 无 LIMIT，超大库每次
+  // 惰性修复全表 GROUP BY；按 session_id 有序键集翻页，单批 IO 有界，修复语义不变。
+  const BATCH_SIZE = 500
   const stmt = db.prepare(
     `SELECT e.session_id,
             SUM(CASE WHEN e.type = 'session/start' THEN 1 ELSE 0 END) AS starts,
@@ -301,9 +304,11 @@ export function repairOrphanSessions(db: DatabaseSync, skip: ReadonlySet<string>
             MAX(e.created_at) AS last_at
      FROM events e
      WHERE e.session_id IN (SELECT DISTINCT session_id FROM events WHERE type = 'session/start')
-     GROUP BY e.session_id`
+       AND e.session_id > ?
+     GROUP BY e.session_id
+     ORDER BY e.session_id
+     LIMIT ${BATCH_SIZE}`
   );
-  const orphans = stmt.all() as Array<{ session_id: string; starts: number; ends: number; last_at: number | null }>
   const ins = db.prepare(
     `INSERT INTO events (session_id, type, data, replace_generation, created_at)
      VALUES (?, 'session/end', ?, 0, ?)`
@@ -328,7 +333,12 @@ export function repairOrphanSessions(db: DatabaseSync, skip: ReadonlySet<string>
   const now = Date.now()
   let attempted = 0
   const errors: Array<{ session_id: string; err: unknown }> = []
-  for (const o of orphans) {
+  let lastSessionId = ''
+  for (;;) {
+    const orphans = stmt.all(lastSessionId) as Array<{ session_id: string; starts: number; ends: number; last_at: number | null }>
+    if (orphans.length === 0) break
+    lastSessionId = orphans[orphans.length - 1]!.session_id
+    for (const o of orphans) {
     if (o.starts > o.ends && !skip.has(o.session_id)) {
       // 新近活跃（可能是另一进程进行中的会话）或时间不可得 → 不补虚假 end
       if (o.last_at === null || now - o.last_at < ORPHAN_GRACE_MS) continue
@@ -357,12 +367,15 @@ export function repairOrphanSessions(db: DatabaseSync, skip: ReadonlySet<string>
         errors.push({ session_id: o.session_id, err })
       }
     }
+    }
+    if (orphans.length < BATCH_SIZE) break
   }
   if (errors.length > 0) {
     const summary = errors.map((e) => `${e.session_id}: ${e.err instanceof Error ? e.err.message : String(e.err)}`).join('；')
     if (attempted > 0 && errors.length === attempted) {
-      // 全部失败 = 系统性故障（库损坏/磁盘满）——上抛让打开方感知（旧语义）
-      throw errors[0]!.err
+      // 全部失败 = 系统性故障（库损坏/磁盘满）——上抛让打开方感知（旧语义）。
+      // R33-38（三十三轮）：聚合上抛——原只抛首个病因，N 个会话的 N 种病因被降级单条。
+      throw new Error(`孤儿会话修复全部失败（${errors.length}/${attempted}）：${summary}`)
     }
     log.warn('repair-orphan-sessions', `孤儿会话修复 ${errors.length}/${attempted} 个失败（其余已补齐）：${summary}`)
   }

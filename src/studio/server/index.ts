@@ -351,8 +351,22 @@ export function startServer(opts: StudioServerOptions): http.Server {
     // R65-46（总六十五轮）：HEAD 与 GET 同读语义，一并入闸——原只判 GET，HEAD /api/*
     // 绕过 token 校验（当前无 HEAD 路由无实害，口径不一致留缺口；响应头同会泄漏
     // 资源元数据）。
-    if ((req.method === 'GET' || req.method === 'HEAD') && req.url.startsWith('/api/')) {
-      const path = urlPathOnly(req.url)
+    // API 优先
+    // R72-10（二十轮 D-8）：/api/ 判定统一用规范化 pathname——原 raw url startsWith
+    // 与 dispatch 的 URL 解析口径双轨（query/编码段/绝对 URI 形态下判定面不一致）。
+    // R33-11（三十三轮）：apiPathname 解析上移到 GET/HEAD token 闸**之前**，闸条件改用
+    // 归一化 pathname——此前闸用 raw url 前缀、dispatch 用 new URL 归一化，`GET /../api/books`
+    // 等点段/编码变体 raw 不含 /api/ 整体跳闸、归一化后照常命中 handler（实测 200 无凭据
+    // 读全部读端点）。写闸在一切路径判定之前不受影响；SSE 豁免路径自带凭据闸。
+    const apiPathname = (() => {
+      try {
+        return new URL(req.url ?? '/', 'http://local').pathname
+      } catch {
+        return '/'
+      }
+    })()
+    if ((req.method === 'GET' || req.method === 'HEAD') && apiPathname.startsWith('/api/')) {
+      const path = apiPathname
       if (!GET_TOKEN_EXEMPT_PATHS.some((re) => re.test(path))) {
         // S7（五十九轮）：query token 通道收窄——原 `?token=` 对全部非豁免 GET 通用，
         // token 进 URL 的暴露面（进程列表/代理/服务器日志）比「EventSource 不能带头」
@@ -366,17 +380,6 @@ export function startServer(opts: StudioServerOptions): http.Server {
       }
     }
 
-    // API 优先
-    // R72-10（二十轮 D-8）：/api/ 判定统一用规范化 pathname——原 raw url startsWith
-    // 与 dispatch 的 URL 解析口径双轨（query/编码段/绝对 URI 形态下判定面不一致；
-    // token 闸在先无绕过，此为口径统一）。解析失败按非 API 处理。
-    const apiPathname = (() => {
-      try {
-        return new URL(req.url ?? '/', 'http://local').pathname
-      } catch {
-        return '/'
-      }
-    })()
     if (apiPathname.startsWith('/api/')) {
       // R64-28（十二轮）：finish 后统一排空未消费请求体——无 body POST（heartbeat/
       // style/rag/chat-branches 等）handler 不读 body 也不 resume，脚本客户端带 body
@@ -404,14 +407,14 @@ export function startServer(opts: StudioServerOptions): http.Server {
     // R-8（第十六轮）：静态分支补兜底 catch——对齐 /api 分支口径。createStaticHandler
     // 是 async（返回 promise），对已销毁连接 writeHead 抛 ERR_STREAM_ALREADY_FINISHED
     // 等异步异常此前变成 unhandledRejection（Node ≥15 默认 throw 即进程崩溃）；
-    // 若响应尚未结束则 500 IO_ERROR 收尾，重复写头由 headersSent/writableEnded 守卫。
+    // 若响应尚未结束则 500 'IO' 收尾（R33-58 统一错误码），重复写头由 headersSent/writableEnded 守卫。
     if (serveStatic) {
       try {
         await serveStatic(req, res)
       } catch (e) {
         log.error('static', 'unhandled error: ' + req.method + ' ' + urlPathOnly(req.url), e)
         if (!res.headersSent && !res.writableEnded && !res.destroyed) {
-          replyError(res, 500, 'IO_ERROR', '服务器内部错误')
+          replyError(res, 500, 'IO', '服务器内部错误') // R33-58：对齐 R31-26 'IO' 单一口径
         }
       }
       return

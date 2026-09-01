@@ -31,6 +31,7 @@ import { buildReviewPacket, collectReviewIssues, COMBINED_ISSUES_FILE } from '..
 import type { ReviewLensPacket } from '../../../review/run.js'
 import type { ReviewTier } from '../../../review/contract.js'
 import { writeAnalysis, readAnalysis, sourceHashOf } from '../../../document/analysis.js'
+import { encodeDocDirName } from '../../../document/version.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
 import { reviewSpec } from '../../../ai/tasks/specs.js'
 import { resolveTier } from '../../../ai/provider/index.js'
@@ -182,7 +183,12 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
         const draftHash = createHash('sha256').update(draftBuf).digest('hex')
   
         // buildReviewPacket（O-a 直读：out_dir 用 .cache 临时目录不污染工作区；sourcePath 不绑草稿）
-        const reviewOutDir = join(bookRoot, '.cache', `review-${docId}`)
+        // R33-2（三十三轮）：docId 段过 encodeDocDirName——legacy id 含 `:`（`legacy:<sha>`），
+        // win 目录名非法，原样拼路径 mkdir 恒 ENOENT → legacy 书三审整体 500（e2e
+        // short-full-flow 红根因）。编码口径与 version.ts/analysis.ts 单源一致；清扫
+        // （sweepStaleReviewDirs 的 review-* 前缀匹配）与逐次预清理（rmSync reviewOutDir）
+        // 对编码名照常工作，无需反解。
+        const reviewOutDir = join(bookRoot, '.cache', `review-${encodeDocDirName(docId)}`)
         // W-P2-12：high_risk 不再恒 false——机检红项即高风险章（正文有硬伤），
         // 触发 selectReviewTier 的「风险章禁止降级满审」闸（此前该分支是死参数，仅测试独享）。
         const built = buildReviewPacket({

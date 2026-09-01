@@ -168,14 +168,14 @@ test.skipIf(process.platform === 'win32')('M-9: root 内部 symlink（合法用�
 
 // N-3（第十二轮）：errno 分流——存在文件读失败（EACCES 等 IO 错误）不再混叠成 SPA 200
 // Windows 无 POSIX 权限位（chmod 为 no-op/仅映射只读位），该守卫语义由 macOS/Linux CI 腿覆盖
-test.skipIf(process.platform === 'win32')('N-3: 存在的文件读失败（EACCES）→ 500 IO_ERROR；不存在路由仍 SPA fallback 200', async () => {
+test.skipIf(process.platform === 'win32')('N-3: 存在的文件读失败（EACCES）→ 500 IO 信封（R33-62：err.code 不出网）；不存在路由仍 SPA fallback 200', async () => {
   writeFileSync(join(root, 'blocked.js'), 'console.log(1)')
   chmodSync(join(root, 'blocked.js'), 0o000) // stat 过、readFile 拒——模拟权限/IO 故障
 
   const res = await fetch(`${baseUrl}/blocked.js`)
   expect(res.status).toBe(500)
   const body = await res.text()
-  expect(JSON.parse(body)).toEqual({ code: 'IO_ERROR', error: expect.stringContaining('EACCES') })
+  expect(JSON.parse(body)).toEqual({ code: 'IO', error: '静态文件读取失败' })
   expect(body).not.toContain('<title>Studio</title>') // 修复前：静默换成 SPA 入口 200
 
   // 对照：ENOENT 语义不变——不存在的路由仍回 index.html

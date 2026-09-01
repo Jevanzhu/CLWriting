@@ -601,7 +601,13 @@ async function bootstrap(): Promise<void> {
   // 纵深防御监听与 dev 代理已由 createSecureWindow 统一挂载；此处 await 一次保证
   // 主窗首载前代理确定生效（工厂内是 fire-and-forget，此处 loadURL 前须确定）
   if (devUi) {
-    await mainWindow.webContents.session.setProxy({ proxyRules: 'direct://' })
+    // R33-65（三十三轮）：失败降级继续（对齐 createSecureWindow 工厂内 catch 口径）——
+    // 原 reject 穿透 bootstrap 触发 app.quit，与工厂「代理失败不致命」口径相反（dev-only）。
+    try {
+      await mainWindow.webContents.session.setProxy({ proxyRules: 'direct://' })
+    } catch (e) {
+      log.warn('desktop', `dev 代理设置失败（忽略，继续直连）：${e instanceof Error ? e.message : String(e)}`)
+    }
   }
   await mainWindow.loadURL(needsWelcome ? `${appUrl}/welcome` : appUrl)
   // L1（二轮复审）：改走 logger——打包态 mirrorConsole=false，console.log 此前在生产
@@ -821,8 +827,10 @@ function buildMenu(): void {
    *  actionKey 须与 web-next/src/composables/useAppActions.ts 的 id 一致。 */
   function action(key: string): Pick<MenuItemConstructorOptions, 'click'> {
     return {
+      // R33-66（三十三轮）：点击瞬间无聚焦窗口时回退主窗派发——原 getFocusedWindow()
+      // 为空静默丢失动作（菜单在窗口失焦时仍可点击）。
       click: () =>
-        BrowserWindow.getFocusedWindow()?.webContents.send('desktop:menu-action', key),
+        (BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0])?.webContents.send('desktop:menu-action', key),
     }
   }
   const macAppMenu: MenuItemConstructorOptions = {
