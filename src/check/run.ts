@@ -16,7 +16,7 @@ import { runAllChecks, hasRed, enabledLeadTypes } from './runner.js'
 import { outlineDeclarationForChapter } from './outline-leads.js'
 import {
   leadEvidenceMatchesBody,
-  readChapterUpdatesForChapter,
+  readChapterUpdatesForChapterChecked,
   readLeadUpdatesAt,
   readLeadUpdateChapterTag,
   LEAD_UPDATES_FILE,
@@ -224,10 +224,17 @@ export function checkWithDb(
     // 本章时）+ 工作区/.账本推进暂存/第N章.md，内含 in-scope 判定）——此前只读主文件：
     // 批量连写书的归档章推进被无视，误报 lead-declared-not-done 红（定稿闸与履历回写
     // 自 ff-P1-1 已统一本函数，机检是最后缺口）。batch 预扫闭包同口径（CC-P1-3 消每章重读）
+    // R33-5（三十三轮）：兑现侧读失败 ≠ 未兑现——actualLeadIds 传 undefined 跳过两端
+    // 闭合（对齐声明侧 R69-2 known:false 口径；读失败按空曾产假红硬拦定稿）。
+    const batchUpdates = batch?.leadUpdatesForChapter?.(draft.chapter.章号)
+    const actualRead =
+      batchUpdates !== undefined
+        ? ({ ok: true as const, updates: batchUpdates } as const)
+        : readChapterUpdatesForChapterChecked(bookRoot, draft.chapter.章号)
     const actualLeadIds = useLeads
-      ? (batch?.leadUpdatesForChapter?.(draft.chapter.章号) ?? readChapterUpdatesForChapter(bookRoot, draft.chapter.章号))
-          .filter((u) => leadEvidenceMatchesBody(draft.body, u.证据))
-          .map((u) => u.leadId)
+      ? actualRead.ok
+        ? actualRead.updates.filter((u) => leadEvidenceMatchesBody(draft.body, u.证据)).map((u) => u.leadId)
+        : undefined
       : undefined
     // W-P2-11：word-count 黄项数据源接线——章纲（大纲/章纲/）fm 字数目标 已入 ChapterMeta，
     // 正文 ChapterMeta 无此字段（宿主写稿不产），按章号查同章章纲取 字数目标 作 targetWords。

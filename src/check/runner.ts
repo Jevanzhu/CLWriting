@@ -80,9 +80,10 @@ export interface CheckInput {
 }
 
 /** 已启用账本类 = 基础两类 + book.yaml leads.enabled（与 rebuild.ts BASE_LEAD_TYPES 同口径；
- *  树红点聚合的全书性红项计算共用，防三处手抄漂移）。 */
+ *  树红点聚合的全书性红项计算共用，防三处手抄漂移）。R33-41（三十三轮）：去重——
+ *  book.yaml 重复登记类此前产生重复 IN 参数（无害但脏）。 */
 export function enabledLeadTypes(config: BookConfig): string[] {
-  return ['悬念', '感情线', ...config.leads.enabled]
+  return [...new Set(['悬念', '感情线', ...config.leads.enabled])]
 }
 
 /**

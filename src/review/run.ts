@@ -227,6 +227,9 @@ function incompleteReviewIssue(reasons: string[], lens: ReviewLens): ReviewIssue
 export function collectReviewIssues(input: {
   packet: ReviewExecutionPacket
 }): CollectedReview {
+  // R33-42（三十三轮）：首视角标签单点收敛——原两处各自 `lenses_run[0] ?? 'continuity'`
+  // 双兜底；lenses_run 由 lens 决策表产出恒非空，兜底纯防御，收敛为一处具名常量。
+  const primaryLens: ReviewLens = input.packet.lenses_run[0] ?? 'continuity'
   // R61-13（第六十一轮）：draft_hash 一致性实装——字段自第五轮声明并随包透传，但
   // collect 从不校验（死字段）：回收期间草稿漂移（作者回改正文）会让 issues 指向
   // 已不存在的文本。hash 不符/不可读 → 审稿单不成立（同缺视角/坏条目口径）。
@@ -246,7 +249,7 @@ export function collectReviewIssues(input: {
         issues: [
           incompleteReviewIssue(
             ['草稿在审阅期间已变更或不可读（draft_hash 不符），审稿单不成立'],
-            input.packet.lenses_run[0] ?? 'continuity',
+            primaryLens,
           ),
         ],
         summary: '',
@@ -282,7 +285,7 @@ export function collectReviewIssues(input: {
 
   const expectedFiles: { lens: ReviewLens; file: string }[] =
     input.packet.tier === 'combined'
-      ? [{ lens: input.packet.lenses_run[0] ?? 'continuity', file: COMBINED_ISSUES_FILE }]
+      ? [{ lens: primaryLens, file: COMBINED_ISSUES_FILE }]
       : input.packet.lenses_run.map((lens) => ({ lens, file: lensIssuesFileName(lens) }))
 
   const rawIssues: ReviewIssue[] = []

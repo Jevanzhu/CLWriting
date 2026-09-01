@@ -69,6 +69,11 @@ function isLeadUpdateEntryLine(line: string): boolean {
 export function parseLeadUpdateLines(text: string): ChapterLeadUpdate[] {
   const out: ChapterLeadUpdate[] = []
   const lines = text.split('\n')
+  // R33-6（三十三轮）：分组标题段前折叠抑制——分组标题（后随仍有条目）跳过后，标题
+  // 与首个后随条目之间的普通备注行不得折入上一条证据。R75-2 只护住标题行本身：备注
+  // 折入会把「证据一」污染成「证据一 手工内容」，evidenceNeedles 必败产「声明了没兑现」
+  // 假红，且经 lead-finalize 把污染证据持久写进履历（lead-evidence-missing 转持久红）。
+  let skipFoldUntilEntry = false
   for (let i = 0; i < lines.length; i++) {
     // R28-10（二十八轮）：rawLine 保留原始缩进——嵌套子列表行（真条目的子项）须凭
     // 缩进识别，trimmed 后与顶层格式错行无法区分（见下方 warn 收窄）
@@ -76,16 +81,19 @@ export function parseLeadUpdateLines(text: string): ChapterLeadUpdate[] {
     const line = rawLine.trim()
     if (ATX_HEADING_RE.test(line)) {
       if (headingEndsSection(lines, i, isLeadUpdateEntryLine)) break
+      skipFoldUntilEntry = true
       continue
     }
     if (!line.startsWith('-')) {
-      // R73-23：非列表行折入上一条证据（换行归一空格；条目前无折入对象，忽略）
-      if (out.length > 0 && line !== '') {
+      // R73-23：非列表行折入上一条证据（换行归一空格；条目前无折入对象，忽略；
+      // R33-6：分组标题段前备注行不折入）
+      if (!skipFoldUntilEntry && out.length > 0 && line !== '') {
         const prev = out[out.length - 1]!
         prev.证据 = `${prev.证据} ${line}`.trim()
       }
       continue
     }
+    skipFoldUntilEntry = false
     // - <编号> <动词>：<证据>
     const m = line.match(/^-\s*(\S+)\s+([^\s:：]+)[:：]\s*(.+)$/)
     if (m) {
@@ -161,6 +169,33 @@ export function readChapterUpdatesForChapter(bookRoot: string, chapterNo: number
     ...(mainIsThisChapter ? readLeadUpdatesAt(mainPath) : []),
     ...readLeadUpdatesAt(archivePath),
   ]
+}
+
+/**
+ * R33-5（三十三轮）：兑现侧三态读（对齐声明侧 R69-2/R70-15）——读失败（瞬态占用/
+ * 权限/IO，win 上编辑器/杀软占用是已登记现实威胁）≠「明确无推进」：空数组在两端
+ * 闭合语义下恰等于「声明了没做」，会产 lead-declared-not-done 假红并经 LEAD_GATE
+ * 硬拦定稿（把瞬态故障当作者过错）。ok:false 时调用方应跳过两端闭合比对（fail-open
+ * 向黄；定稿闸与机检两消费方同口径）。文件不存在仍属「已读、无推进」已知态。
+ */
+export function readChapterUpdatesForChapterChecked(
+  bookRoot: string,
+  chapterNo: number,
+): { ok: true; updates: ChapterLeadUpdate[] } | { ok: false; updates: [] } {
+  const { mainPath, archivePath, mainIsThisChapter } = chapterUpdateSources(bookRoot, chapterNo)
+  const parts: ChapterLeadUpdate[][] = []
+  const readOne = (p: string): boolean => {
+    if (!existsSync(p)) return true
+    try {
+      parts.push(parseLeadUpdateLines(readFileSync(p, 'utf-8')))
+      return true
+    } catch {
+      return false
+    }
+  }
+  if (mainIsThisChapter && !readOne(mainPath)) return { ok: false, updates: [] }
+  if (!readOne(archivePath)) return { ok: false, updates: [] }
+  return { ok: true, updates: parts.flat() }
 }
 
 /** 账本证据核心必须非空且在正文命中，避免 includes('') 把空证据误判为兑现。
