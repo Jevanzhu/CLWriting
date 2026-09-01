@@ -14,6 +14,12 @@ import { resolveWithinRoot } from '../fs/safe-path.js'
 export const KNOWLEDGE_DIR = '知识层'
 export const KNOWLEDGE_MANIFEST = '知识层/_manifest.json'
 
+// R33-97（三十三轮）：win 大小写不敏感 FS 上 `知识层/A.md` 与 `知识层/a.md` 落同一物理文件，
+// 精确字符串判重会放行双登记（同 document/manifest.ts R33-54 lockKey 同款口径）——win 折叠判重
+function caseFoldKey(p: string): string {
+  return process.platform === 'win32' ? p.toLowerCase() : p
+}
+
 export interface KnowledgeManifestEntry {
   target: string
   source: string
@@ -96,10 +102,10 @@ function validateEntry(
     issues.push({ path: entry.target, message: 'target 必须位于知识层/ 内，且不能路径穿越' })
     return
   }
-  if (seen.has(entry.target)) {
+  if (seen.has(caseFoldKey(entry.target))) {
     issues.push({ path: entry.target, message: 'target 在 manifest 中重复' })
   }
-  seen.add(entry.target)
+  seen.add(caseFoldKey(entry.target))
 
   if (!entry.source || !entry.license) {
     issues.push({ path: entry.target, message: 'source 与 license 必填' })

@@ -18,6 +18,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
+import { acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
 import {
   KNOWLEDGE_DIR,
   KNOWLEDGE_MANIFEST,
@@ -146,6 +147,22 @@ export interface CommitKnowledgeOpts {
  * manifest 读取失败 / 定稿文件不在盘。返回登记后的对账结果（caller 应要求 ok）。
  */
 export function commitKnowledgeFile(projectRoot: string, opts: CommitKnowledgeOpts): KnowledgeManifestReport {
+  // R33-92（三十三轮）：登记整段（读 manifest → 注入 fm → 重写 manifest → 对账）跨进程互斥——
+  // 双实例并发登记 READ-modify-WRITE 互相覆盖丢条目（check-knowledge 反向扫描可检出非静默）；
+  // 5s 超时 fail-closed 报「在途」交调用方重试（与 R69-15 learn 收割同款先例）。
+  const release = acquireCrossProcessLockWithTimeout(join(projectRoot, KNOWLEDGE_DIR, '.commit.lock'), 5000)
+  if (!release) {
+    return { ok: false, issues: [{ path: KNOWLEDGE_MANIFEST, message: '知识文件登记在途（另一进程正在登记），请稍后重试。' }] }
+  }
+  try {
+    return commitKnowledgeFileLocked(projectRoot, opts)
+  } finally {
+    release()
+  }
+}
+
+/** 登记主体（已被 commitKnowledgeFile 的跨进程锁保护，不单独导出）。 */
+function commitKnowledgeFileLocked(projectRoot: string, opts: CommitKnowledgeOpts): KnowledgeManifestReport {
   const read = readKnowledgeManifest(projectRoot)
   if (!read.ok || read.manifest === undefined) return read
   // R73-4（二十一轮 A-4）：手编 manifest 缺 entries 字段（readKnowledgeManifest 只验

@@ -295,7 +295,12 @@ function probeFile(bookRoot: string, rel: string): FileProbe | null {
 function parsePublishedValue(fmRaw: string): boolean | string | undefined {
   const m = fmRaw.match(/^已发布[:：]\s*(.+?)\s*$/m)
   if (!m) return undefined
-  const v = m[1]!.trim().replace(/^["'](.*)["']$/s, '$1')
+  // R33-48（三十三轮）：剥引号改「配对才剥」——原 `^["'](.*)["']$` 把 `"true'`
+  // （首尾引号不配对）也剥成 true，与 parseFlat 的 unquote 口径偏差（后者配对判定）。
+  const v0 = m[1]!.trim()
+  const q = v0[0]
+  const v =
+    (q === '"' || q === "'") && v0.length >= 2 && v0.endsWith(q) ? v0.slice(1, -1) : v0
   return v === 'true' ? true : v
 }
 

@@ -20,7 +20,7 @@ import { safeManifestPath, safeDocId } from '../fs/safe-path.js'
 import { hashBytes } from '../fs/hash.js'
 import { applyLeadUpdates } from './lead-finalize.js'
 import { outlineDeclarationForChapter } from '../check/outline-leads.js'
-import { readChapterUpdatesForChapter, leadEvidenceMatchesBody } from '../check/lead-updates.js'
+import { readChapterUpdatesForChapterChecked, leadEvidenceMatchesBody } from '../check/lead-updates.js'
 import { leadClosureItems } from '../check/leads.js'
 import { readDraft } from '../format/draft.js'
 
@@ -192,7 +192,11 @@ function finalGateBlockers(bookRoot: string, absPath: string, chapterNo: number)
     if (!declaration.known) return [] // 声明未知：闭合比对不可判定，跳过（R69-2）
     const draft = readDraft(absPath)
     if (!draft.ok) return []
-    const actual = readChapterUpdatesForChapter(bookRoot, chapterNo)
+    // R33-5（三十三轮）：兑现侧三态——读失败 ≠ 未兑现（对齐上方 declaration.known 口径），
+    // 按空曾产 lead-declared-not-done 假红硬拦定稿。
+    const actualRead = readChapterUpdatesForChapterChecked(bookRoot, chapterNo)
+    if (!actualRead.ok) return []
+    const actual = actualRead.updates
       .filter((u) => leadEvidenceMatchesBody(draft.body, u.证据))
       .map((u) => u.leadId)
     return leadClosureItems(declaration.leads, actual, chapterNo).map((i) => i.message)

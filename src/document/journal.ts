@@ -205,7 +205,11 @@ function appendLine(filePath: string, line: string): void {
 function fsyncFile(filePath: string): void {
   let fd: number | undefined
   try {
-    fd = openSync(filePath, 'r')
+    // R33-7（三十三轮）：'r' → 'r+'——win FlushFileBuffers 要求句柄具写访问权，只读
+    // fd 调 fsyncSync 恒抛 EPERM 被下方 catch 吞掉：fsync 纪律（模块头注「确保崩溃前
+    // 已落盘」）在主力平台从未生效（实测 win32：'r'→EPERM、'r+'→OK）。'r+' 不截断，
+    // 追加后刷盘语义不变。
+    fd = openSync(filePath, 'r+')
     fsyncSync(fd)
   } catch {
     // 平台/权限问题——best-effort

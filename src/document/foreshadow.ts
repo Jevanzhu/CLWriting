@@ -128,7 +128,11 @@ export function migrateLegacyForeshadows(bookRoot: string): MigrateResult {
     if (created === 'exists') {
       // Y-19（第五十七轮）：上次「写成功 → rmSync 旧源」之间崩溃的续跑形态（含并发
       // 双跑先到者已落位）——目标已在，视为已迁：不重写（作者可能已编辑新文件，
-      // 无条件覆盖会吞掉修改），只补删旧源
+      // 无条件覆盖会吞掉修改），只补删旧源。
+      // R33-52（三十三轮·改判登记维持）：曾试以 byte-equal 守卫区分「续跑/作者已编辑」
+      // 与「净化名撞名（不同内容）」，但内容判别无法区分两者且打破 Y-19/R73-39 既有
+      // 契约；撞名要求两伏笔 sanitize 后 `编号-标题` 全同，编号前缀唯一性使其在单次
+      // 迁移目录内实际不可达，维持原续跑语义（旧源补删）。
       rmSync(oldPath, { force: true })
       result.migrated++
       result.details.push(`${lead.编号} → ${title}（${status}，续跑补删旧源）`)

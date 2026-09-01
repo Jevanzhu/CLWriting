@@ -39,7 +39,7 @@ import { appendWordsDelta, todayDate } from './words-diary.js'
 import { countWords, chapterFilePrefix } from '../format/words.js'
 // R26-55（二十六轮）：createDocument 的 relPath 逐段消毒同源（sanitizeChapterTitle 是
 // 同函数的章标题别名）
-import { sanitizeChapterTitle, sanitizeFileNamePart } from '../format/filename.js'
+import { sanitizeChapterTitle, sanitizeFileNamePart, sanitizeFullFileName } from '../format/filename.js'
 import { encodeDocDirName, decodeDocDirName } from './version.js'
 import { acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
 import { readBookConfig } from '../format/yaml.js'
@@ -931,9 +931,20 @@ export class DocumentService {
       if (toDir === null) {
         return { ok: false, code: 'BAD_INPUT', reason: '目标目录非法（前导斜杠或空目录不被接受）' }
       }
-      newPath = `${toDir}/${basename(oldPath)}`
+      // R33-9（三十三轮）：toDir 逐段消毒（补 doCreate/updateChapterMeta 单源纪律缺口）——
+      // 段已存在则保持原样（不破坏既有目录身份，mac 存量 '备注.' 类名不受影响）；
+      // 不存在（本次 mkdir 将创建）过 sanitizeFileNamePart，防 win 尾点/尾空格落盘自动剥
+      // 致盘上名 ≠ manifest path（REVISION_CONFLICT 族）与保留设备名/非法字符裸 errno。
+      const segs = toDir.split('/')
+      const safeSegs = segs.map((seg, idx) =>
+        existsSync(join(this.bookRoot, ...segs.slice(0, idx + 1))) ? seg : sanitizeFileNamePart(seg),
+      )
+      newPath = `${safeSegs.join('/')}/${basename(oldPath)}`
     } else {
-      newPath = `${dirname(oldPath)}/${op.newName}`
+      // R33-9（三十三轮）：newName 过 sanitizeFileNamePart（单一真相源）——win 尾点/
+      // 尾空格落盘自动剥致盘上名 ≠ manifest path → 该 docId 后续保存恒 REVISION_CONFLICT；
+      // 保留设备名（CON/nul 段）、非法字符裸 errno 同族收口。
+      newPath = `${dirname(oldPath)}/${sanitizeFullFileName(op.newName)}`
     }
     if (newPath === oldPath) return { ok: true, docId, path: newPath } // 无变化，幂等
 
@@ -991,7 +1002,17 @@ export class DocumentService {
       if (placed === 'exists') {
         throw Object.assign(new Error('目标已存在'), { code: 'ALREADY_EXISTS' })
       }
-      rmSync(oldSafe, { force: true })
+      // R33-43（三十三轮）：删源撞 EBUSY（win 文件被占用）时回收已落位的新位硬链接，
+      // 恢复「源在旧位、目标位空」的预操作状态——否则本次按 WRITE_ERROR 收口后重试
+      // 恒 ALREADY_EXISTS，需手工清理。回收失败仍留孤儿副本（硬链接同数据，无丢失）。
+      try {
+        rmSync(oldSafe, { force: true })
+      } catch (rmErr) {
+        try {
+          rmSync(newSafe, { force: true })
+        } catch { /* 新位残留孤儿副本：内容无损，重试前需手工清理 */ }
+        throw rmErr
+      }
     } catch (e) {
       // pending 本身没写进去（opId 未赋值）时无从 abort——journal 里没有悬置记录
       // 低-4（第十轮）：appendAborted 自身失败（journal 目录被删/磁盘满/权限）不再穿透——
@@ -1085,15 +1106,19 @@ export class DocumentService {
   private doCopy(input: CopyDocumentInput): CopyResult {
     const srcPath = this.lookupPathByDocId(input.docId)
     if (!srcPath) return { ok: false, code: 'NOT_FOUND', reason: `源文档 ${input.docId} 未在清单登记` }
+    // R33-9（三十三轮）：目标文件段过 sanitizeFileNamePart（补单源纪律缺口——目录段
+    // 既有身份不动，只净化本次创建的文件名；win 尾点/尾空格/保留设备名同族收口）
+    const relSegs = input.relPath.split('/')
+    const copyRelPath = [...relSegs.slice(0, -1), sanitizeFullFileName(relSegs[relSegs.length - 1]!)].join('/')
     // 能力：源 copy + 目标 write（与 create 同步实现，靠单线程微任务不交错）
     if (!layoutOf(srcPath).capabilities.copy) {
       return { ok: false, code: 'CAPABILITY_DENIED', reason: '该文档不可复制' }
     }
-    if (!layoutOf(input.relPath).capabilities.write) {
+    if (!layoutOf(copyRelPath).capabilities.write) {
       return { ok: false, code: 'CAPABILITY_DENIED', reason: '目标位置只读' }
     }
     const srcSafe = this.resolveSafePath(srcPath)
-    const dstSafe = this.resolveSafePath(input.relPath)
+    const dstSafe = this.resolveSafePath(copyRelPath)
     if (!srcSafe || !dstSafe) return { ok: false, code: 'PATH_ESCAPE', reason: '路径越出书仓库' }
     if (!existsSync(srcSafe)) return { ok: false, code: 'NOT_FOUND', reason: '源文件不存在' }
     // R61-11（第六十一轮）：existsSync 预检与 atomicWriteFile 落盘之间无互斥（TOCTOU），
@@ -1114,12 +1139,12 @@ export class DocumentService {
     const newDocId = generateDocId()
     // R70-17（十八轮）：登记收编（同 doCreate——半成品由树扫描自愈，不误报完全失败）
     try {
-      this.upsertManifestEntry(newDocId, input.relPath)
+      this.upsertManifestEntry(newDocId, copyRelPath)
     } catch (e) {
-      log.warn('document', `复制后清单登记失败（${input.relPath}，树扫描将自愈收编）：${errMsg(e)}`)
+      log.warn('document', `复制后清单登记失败（${copyRelPath}，树扫描将自愈收编）：${errMsg(e)}`)
     }
     invalidateTreeIndex(this.bookRoot, true)
-    return { ok: true, docId: newDocId, path: input.relPath, revision: computeRevision(dstSafe) }
+    return { ok: true, docId: newDocId, path: copyRelPath, revision: computeRevision(dstSafe) }
   }
 
   /** 软删文档（snapshot + 回收站登记 + 移 .trash + 清单 removeEntry + invalidate；
