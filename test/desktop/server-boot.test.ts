@@ -19,6 +19,7 @@ import {
   bootServerFromArgs,
   describeBootError,
   deriveStaticDir,
+  resolveEnvPort,
 } from '../../src/desktop/server-boot.js'
 import type { StudioServerOptions } from '../../src/studio/server/index.js'
 
@@ -231,5 +232,28 @@ describe('批 U1：deriveStaticDir', () => {
     const main = pathToFileURL(resolve('dist', 'desktop', 'server-main.js')).href
     expect(deriveStaticDir(ut)).toBe(join(dirname(dirname(fileURLToPath(ut))), 'web'))
     expect(deriveStaticDir(main)).toBe(join(dirname(dirname(fileURLToPath(main))), 'web'))
+  })
+})
+
+describe('R39-9（三十九轮）：resolveEnvPort（env 侧端口校验，与 argv 侧 R26-94/R28-19 同口径）', () => {
+  it('未设 → 7878；合法值透传（0 与 65535 边界含，首尾空白容忍）', () => {
+    expect(resolveEnvPort({})).toBe(7878)
+    expect(resolveEnvPort({ CLWRITING_PORT: '7878' })).toBe(7878)
+    expect(resolveEnvPort({ CLWRITING_PORT: '0' })).toBe(0)
+    expect(resolveEnvPort({ CLWRITING_PORT: '65535' })).toBe(65535)
+    expect(resolveEnvPort({ CLWRITING_PORT: ' 9000 ' })).toBe(9000)
+  })
+
+  it('非法值走 fatal 人话通道并回落缺省（注入件不退出口径），NaN/空串不再透传 listen', () => {
+    const fatals: string[] = []
+    const fatal = (msg: string): void => {
+      fatals.push(msg)
+    }
+    for (const bad of ['abc', '', '-1', '65536', '78.5']) {
+      expect(resolveEnvPort({ CLWRITING_PORT: bad }, { fatal })).toBe(7878)
+    }
+    expect(fatals).toHaveLength(5)
+    expect(fatals[0]).toContain('CLWRITING_PORT')
+    expect(fatals[0]).toContain('0–65535')
   })
 })

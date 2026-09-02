@@ -69,4 +69,21 @@ describe('R26-86：isBoundsVisibleOnAnyDisplay', () => {
       expect(isBoundsVisibleOnAnyDisplay({ x: 50, y: 50, width: 1500, height: 900 }, [PRIMARY])).toBe(true)
     })
   })
+
+  describe('R39-8（三十九轮）：宽度红线按显示器收口（窄屏合法存档不再判损坏）', () => {
+    const small = { x: 0, y: 0, width: 1024, height: 768 } // 工作区 <1208px：创建缺省宽 = 1024-80 = 944
+
+    it('1024 宽屏：944px 合法存档恢复有效（修复前被 1200 硬红线判损坏整体丢弃）', () => {
+      expect(isBoundsVisibleOnAnyDisplay({ x: 0, y: 0, width: 944, height: 600 }, [small])).toBe(true)
+    })
+
+    it('正常屏口径不变：仍按 1200 红线（<1200 判损坏）', () => {
+      expect(isBoundsVisibleOnAnyDisplay({ x: 0, y: 0, width: 1000, height: 700 }, [PRIMARY])).toBe(false)
+      expect(isBoundsVisibleOnAnyDisplay({ x: 0, y: 0, width: 1200, height: 700 }, [PRIMARY])).toBe(true)
+    })
+
+    it('小屏真越界仍丢弃（containment 判定照旧兜底）', () => {
+      expect(isBoundsVisibleOnAnyDisplay({ x: 5000, y: 5000, width: 944, height: 600 }, [small])).toBe(false)
+    })
+  })
 })

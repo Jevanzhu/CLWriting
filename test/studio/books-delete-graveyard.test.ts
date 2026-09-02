@@ -104,6 +104,22 @@ describe('R73-34 删书墓地', () => {
       chmodDirTree(join(workDir, GRAVEYARD))
     }
   })
+
+  it('R39-16（三十九轮）：登记在册但目录已失（并发删书第二请求形态）→ 404 NOT_FOUND 而非 500', async () => {
+    // 只写登记不建目录 = 模拟「第一请求已把书 rename 入墓地、第二请求过完全部闸才摸到
+    // ENOENT」的并发窗（登记移除前）——原口径回 500「书未受影响，可重试」与事实（书
+    // 已删成功）矛盾，用户照文案重试得 404 语义打架。resolveBook 命中登记、
+    // resolveWithinRoot 对缺失目标按 Y-5 祖先锚定放行 → renameWithRetry ENOENT → 新
+    // ENOENT 分支回 404 NOT_FOUND（与登记缺失形态同一用户语义）
+    writeFileSync(
+      join(workDir, '.clwriting', 'books.jsonl'),
+      JSON.stringify({ name: '幽灵登记书', path: '长篇/幽灵登记书', kind: 'long', created_at: '2026-01-01T00:00:00.000Z' }) + '\n',
+      'utf-8',
+    )
+    const del = await req('DELETE', `/api/books/${encodeURIComponent('幽灵登记书')}`)
+    expect(del.status).toBe(404)
+    expect((del.json as { code?: string }).code).toBe('NOT_FOUND')
+  })
 })
 
 /** 递归还原目录权限（测试清理用：r-x 副本会卡住 afterAll 的 rmSync） */

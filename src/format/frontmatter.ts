@@ -359,7 +359,14 @@ export function patchFlatFm(
 /** 包裹 front matter + 正文为完整 markdown */
 export function joinFrontMatter(fmText: string, body: string): string {
   if (fmText === '') return body
-  return `---\n${fmText}\n---\n${body}`
+  // R39-10（三十九轮）：fence/接缝行尾按内容主导行尾——MP2-4 已把 patch 新渲染行按
+  // 原文主导行尾，但本函数三处 fence/接缝拼死 \n，CRLF 文件（记事本/autocrlf 形态）
+  // 经元数据 PATCH 写回后 fence/接缝行尾混排（同步盘 diff 噪声）。fmText/body 检测到
+  // \r\n 即用 CRLF；LF 文件不含 \r\n → 逐字节不变（回归锚）。解析端 \r 双认
+  // （Y-6/R36-1），读侧无损。已知边界：writeLead/stringifyFlat 族整体重生成路径的
+  // fm 段恒 LF（R38-11 彼批已收 writeLead 主导行尾；style-entry 等仍 LF——登记维持）。
+  const eol = /\r\n/.test(fmText) || /\r\n/.test(body) ? '\r\n' : '\n'
+  return `---${eol}${fmText}${eol}---${eol}${body}`
 }
 
 // ── 读取/写入文件（容错入口）────────────────────
@@ -373,7 +380,7 @@ import { atomicWriteFile } from '../fs/atomic.js'
 export function readFile(
   filePath: string,
   content?: string,
-): { ok: true; fmRaw: string; body: string } | { ok: false; error: ParseError } {
+): { ok: true; fmRaw: string; body: string; bom: boolean } | { ok: false; error: ParseError } {
   let text: string
   if (content !== undefined) {
     text = content
@@ -408,7 +415,10 @@ export function readFile(
       },
     }
   }
-  return { ok: true, fmRaw: split.fmRaw, body: split.body }
+  // R39-10：BOM 记账——splitFrontMatter 读侧剥 BOM（frontmatter-core），写回链此前
+  // 不补，CRLF+BOM 文件经一次 meta PATCH 即 BOM 静默丢失。ok 回执带 bom 标记，
+  // 持原文的写回点（service meta 三处）据此前缀补回；裸用 fmRaw/body 的调用方不受影响。
+  return { ok: true, fmRaw: split.fmRaw, body: split.body, bom: text.startsWith('\uFEFF') }
 }
 
 /** 写入 front matter + 正文到文件（opts 透传 atomicWriteFile——ee-P1-6 账本写点用 fsync） */

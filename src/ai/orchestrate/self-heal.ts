@@ -178,6 +178,14 @@ export function runSelfHeal(opts: SelfHealOpts): Promise<SelfHealOutcome> {
 
 async function runSelfHealInner(opts: SelfHealOpts): Promise<SelfHealOutcome> {
   const state: RunState = { ctrl: new AbortController(), usage: { outputTokens: 0, cost: 0 }, ...(opts.embedded ? { embedded: true } : {}) }
+  // R39-14（三十九轮）：并发不变量固化——running.set 此前无条件覆盖，若调用方绕过
+  // isSelfHealRunning 闸并发调起，旧运行 ctrl 被静默顶掉失去中断通道（abortSelfHeal
+  // 只能中止新运行，settling 表项被覆盖）。当前全部生产调用方「先查后调」且检查与
+  // 调用间无 await（单线程无 TOCTOU），此守卫正常不可达——命中即守卫失效，fail-fast
+  // 暴露而不是静默顶掉（runChatInner 同款）。
+  if (running.has(opts.bookName)) {
+    throw new Error(`self-heal 并发守卫失效：${opts.bookName} 已有一轮在跑（isSelfHealRunning 闸被绕过）`)
+  }
   running.set(opts.bookName, state)
   let result: SelfHealOutcome
   try {

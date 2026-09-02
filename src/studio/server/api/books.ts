@@ -36,6 +36,7 @@ import { clearChatHistory, abortChat, isChatRunning, waitChatSettled } from '../
 import { abortSelfHeal, isSelfHealRunning, waitSelfHealSettled } from '../../../ai/orchestrate/self-heal.js'
 import { waitBackgroundTasks, hasBackgroundTasks } from '../../../ai/orchestrate/background.js'
 import { readBookConfig, setTopSectionKey } from '../../../format/yaml.js'
+import type { BookConfig } from '../../../format/types.js'
 import { clearChapterDirCacheForBook } from '../../../format/chapters.js'
 import { stringifyValue } from '../../../format/frontmatter.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
@@ -83,6 +84,50 @@ function forgetBookKeyedCaches(bookRoot: string): void {
   // R36-7：analysis-overview / version-stats 书键聚合缓存同族清理（主评审补接）
   forgetAnalysisOverviewCache(bookRoot)
   forgetVersionStatsCache(bookRoot)
+  // R39-16：书架守卫/配置缓存同族清理（删/改名后同名重建书不读陈 book.yaml；
+  // 缓存按 workDir+path 键，整表清扫语义与「该书键失效」等价——书键族口径）
+  shelfGuardCache.clear()
+}
+
+// ── R39-16（三十九轮）：书架守卫/配置 TTL 缓存 ──────────────────
+// resolveWithinRoot（双侧 realpath + existsSync 链）与 readBookConfig（读盘 + YAML
+// 解析）此前每请求每书全量重跑，不受 30s 摘要缓存保护——书库大 + 书架页高频刷新/
+// 多窗口时每轮数百次同步 stat。与书架摘要同 TTL 口径：book.yaml 变更/书被外部移动
+// 最迟 30s 可见（与摘要 staleness 语义一致）；应用内删书/改名经 forgetBookKeyedCaches
+// 即时失效。容量 FIFO 128 对齐 probeCache 惯例（书数常态远小于此，仅防异常增长）。
+type ShelfGuardValue =
+  | { damaged: true }
+  | { damaged: false; bookRoot: string; config: BookConfig }
+const SHELF_GUARD_TTL_MS = 30_000
+const SHELF_GUARD_MAX = 128
+const shelfGuardCache = new Map<string, { ts: number; value: ShelfGuardValue }>()
+
+function getShelfGuard(workDir: string, path: string): ShelfGuardValue {
+  const key = `${workDir}\u0000${path}`
+  const cached = shelfGuardCache.get(key)
+  if (cached && Date.now() - cached.ts < SHELF_GUARD_TTL_MS) return cached.value
+  let value: ShelfGuardValue
+  const within = resolveWithinRoot(workDir, path)
+  if (!within) {
+    value = { damaged: true }
+  } else {
+    try {
+      const cfgResult = readBookConfig(join(within.abs, 'book.yaml'))
+      // 低-3（第十轮）：book.yaml 损坏/缺失显式标 damaged——readBookConfig 容错不抛，
+      // 此前回落默认骨架的空 title 混进列表装作正常书，与单书端点 500 口径分叉。
+      // 前端按 damaged 展示可后续轮次接线（R36-24 既有登记）
+      value = cfgResult.ok ? { damaged: false, bookRoot: within.abs, config: cfgResult.config } : { damaged: true }
+    } catch {
+      // 书仓库读盘异常：保留登记原样 + 显式损坏标记（原 try/catch 语义）
+      value = { damaged: true }
+    }
+  }
+  if (shelfGuardCache.size >= SHELF_GUARD_MAX) {
+    const oldest = shelfGuardCache.keys().next().value
+    if (oldest !== undefined) shelfGuardCache.delete(oldest)
+  }
+  shelfGuardCache.set(key, { ts: Date.now(), value })
+  return value
 }
 
 interface BookCtx {
@@ -173,30 +218,23 @@ export function registerBookRoutes(ctx: BookCtx): void {
     // R37-3（三十七轮）：逐书摘要改走 async 孪生 + 书与书之间让出——书库多书时同步
     // 逐书整树扫描单请求冻结事件循环（Electron 内嵌单进程服务 = 桌面卡死），摘要
     // TTL 缓存只降频不减峰（缓存 MISS 的首轮与失效后仍全量）。
+    // R39-16（三十九轮）：resolveWithinRoot + readBookConfig 收进 TTL 缓存（getShelfGuard，
+    // 与摘要同 30s 口径）——两者此前每请求每书重跑（数百次同步 stat/读盘），摘要有缓存
+    // 而守卫没有是半收口。
     const books = []
     for (const b of readBooks(ctx.workDir)) {
       await yieldToEventLoop() // R37-3：书与书之间让出（书内扫描的逐章让出见 computeBookSummaryAsync）
-      const within = resolveWithinRoot(ctx.workDir!, b.path)
-      if (!within) {
+      const guard = getShelfGuard(ctx.workDir!, b.path)
+      if (guard.damaged) {
         books.push({ ...b, damaged: true, createdAt: b.created_at })
         continue
       }
-      const bookRoot = within.abs
       try {
-        const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
-        // 低-3（第十轮）：book.yaml 损坏/缺失显式标 damaged——readBookConfig 容错不抛，
-        // 此前回落默认骨架的空 title 混进列表装作正常书，与单书端点 500 口径分叉
-        //（第九轮 L-1 只修了单书侧）。前端按 damaged 展示可后续轮次接线
-        if (!cfgResult.ok) {
-          books.push({ ...b, damaged: true, createdAt: b.created_at })
-          continue
-        }
-        const { config } = cfgResult
         // P2-BE-1：一次扫描算出进度+最近编辑+最新章节（消除三重 readChapterDir）。
         // 全局托底：targetWords 进度是喂运行时的有效值——书级未设回落 global.json
         // defaultTargetWords（无回落键，global 没有则保持未设 → 前端不显示完成度）
-        const effective = applyGlobalDefaults(config, ctx.userDataPath)
-        const summary = await computeBookSummaryAsync(bookRoot)
+        const effective = applyGlobalDefaults(guard.config, ctx.userDataPath)
+        const summary = await computeBookSummaryAsync(guard.bookRoot)
         books.push({
           ...b,
           title: effective.book.title,
@@ -358,6 +396,14 @@ export function registerBookRoutes(ctx: BookCtx): void {
         //（R77-3 原语），瞬时占用不再直接 500
         renameWithRetry(bookAbs, graveAbs)
       } catch (e) {
+        // R39-16（三十九轮）：并发删书第二请求的 ENOENT 如实回 404——删书无书级互斥闸
+        //（busyGate 只查任务闸），双击删除时第二请求经 resolveBook/全闸后在 drain 窗口
+        // 后 rename 已被第一请求搬走的 bookAbs 报 ENOENT：原 500 文案「书未受影响，
+        // 可重试」与事实（书已删成功）矛盾，用户照文案重试得 404 语义打架。
+        if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
+          replyError(res, 404, 'NOT_FOUND', `没有这本书：${name}（可能刚被删除）`)
+          return
+        }
         log.error('api', `删书移入墓地失败（${name}，书原样保留）`, e)
         replyError(res, 500, 'IO_ERROR', '删除书目录失败（书未受影响，可重试）')
         return

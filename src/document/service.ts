@@ -33,7 +33,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { safeDocId, resolveWithinRoot } from '../fs/safe-path.js'
 import { atomicWriteFile, createFileExclusive, linkOrRenameExclusive, renameWithRetry } from '../fs/atomic.js'
-import { computeRevision, type Revision } from './revision.js'
+import { computeRevision, computeRevisionBytes, type Revision } from './revision.js'
 import { layoutOf, roleOf, isInternalBookPath } from './layout.js'
 import { appendAborted, appendMovePending, appendPending, appendSettled } from './journal.js'
 import { writeSnapshot, DEFAULT_SNAPSHOT_POLICY, readGlobalSnapshotPolicy, type SnapshotPolicy } from './snapshot.js'
@@ -413,8 +413,15 @@ export class DocumentService {
         })
       }
       // 步骤 2：revision 校验（串行内执行，保证并发一致）
+      // R39-11（三十九轮）：单读派生——对齐 R73-40/R27-45 手法，锁内一次整读 Buffer，
+      // rev（computeRevisionBytes）/ UTF-8 闸（isUtf8Bytes）/ wordDelta 旧文 / 快照
+      // 留底（maybeSnapshot diskContent）四产物同源。此前 4 次独立整读（rev/UTF-8 闸/
+      // 旧文/快照各读一次），结构性操作不持 save 锁的窗口内文件被替换时判据与写回
+      // 错源（微 TOCTOU），且 2MB 章每笔保存 4× 全文 IO。读失败（win 瞬时锁等）走
+      // 外层 catch WRITE_ERROR「未落盘，可重试」，与原 computeRevision 抛错同语义。
       const existing = existsSync(absPath)
-      const currentRev: Revision = existing ? computeRevision(absPath) : null
+      const diskBytes: Buffer | null = existing ? readFileSync(absPath) : null
+      const currentRev: Revision = diskBytes ? computeRevisionBytes(diskBytes) : null
       if (input.expectedRevision !== currentRev) {
         const reason = existing
           ? `基线不符（期望 ${input.expectedRevision ?? 'null'}，磁盘 ${currentRev}）`
@@ -435,7 +442,8 @@ export class DocumentService {
       // 拦它等于剥夺 GBK 档唯一的无损恢复路径。
       const content = input.content
       const byteRestore = Buffer.isBuffer(content)
-      if (existing && !byteRestore && !isUtf8Bytes(readFileSync(absPath))) {
+      // R39-11：UTF-8 闸改判单读字节（原 :438 二次 readFileSync）
+      if (diskBytes !== null && !byteRestore && !isUtf8Bytes(diskBytes)) {
         return Promise.resolve(NON_UTF8_SAVE_REJECT)
       }
 
@@ -461,16 +469,31 @@ export class DocumentService {
         // 步骤 4.5：算字数 delta（E4）——须在 atomicWrite 前读旧内容；strip fm 口径（与前端 updateWordCount 一致）
         // R34D-18：字节档不记增量——GBK 字节无安全文本视图，失真视图的字数是伪值，
         // 字数日记宁缺毋错（delta 0）
+        // R39-11：旧文从单读派生（byteRestore 不产文本视图）
+        const oldBodyText = diskBytes !== null && !byteRestore ? diskBytes.toString('utf-8') : null
         const wordDelta = byteRestore
           ? 0
           : countWords(bodyOf(content)) -
-            countWords(existing ? bodyOf(readFileSync(absPath, 'utf-8')) : '')
+            countWords(oldBodyText !== null ? bodyOf(oldBodyText) : '')
 
         // 步骤 5：按策略建 snapshot（修改前版本留底）
         // R35-4：byteRestore 是非 UTF-8 档唯一合法覆写通道，留底须传原始字节——缺省
         // utf-8 文本读会把 GBK 盘上内容解码成 U+FFFD 写入 .版本（假留底，原字节此后
         // 无任何副本；同 doMoveOrRename/doTrash 的原字节直存口径）
-        this.maybeSnapshot(docId, relPath, absPath, input, currentRev, byteRestore ? readFileSync(absPath) : undefined)
+        // R39-11：留底同源单读——byteRestore 传原始字节（口径不变）；普通保存传单读
+        // 文本（原 :473 再读一次 / :596 兜底读消除）。连带修复：原 `byteRestore ?
+        // readFileSync(absPath) : undefined` 在「字节档恢复到尚不存在路径」时参数求值
+        // 即 ENOENT 抛 WRITE_ERROR（maybeSnapshot 的 !existsSync 自守够不到），改传
+        // diskBytes（不存在时 null→undefined）后该路径落 P5-数据层注释宣称的「无底可
+        // 留，跳过快照正常新建落盘」语义。
+        this.maybeSnapshot(
+          docId,
+          relPath,
+          absPath,
+          input,
+          currentRev,
+          byteRestore ? diskBytes ?? undefined : oldBodyText ?? undefined,
+        )
         // 步骤 6-7：atomic write + fsync + rename + fsync 父目录
         // R26-49（二十六轮）：新建路径（expectedRevision=null）不再裸 rename——基线校验
         // （文件不存在）与落盘之间无互斥，他进程并发新建同名文件时 atomicWriteFile 的
@@ -917,7 +940,9 @@ export class DocumentService {
       }
       try {
         // 元数据写入走原子写（P1-6A：防 writeFileSync 半截损坏不可恢复）
-        atomicWriteFile(abs, joinFrontMatter(patched.text, r.body), { fsync: true })
+        // R39-10：BOM 补回——读侧剥 BOM（splitFrontMatter）后写回不补会静默丢；
+        // r.bom 由 readFile 记账（原文是否带 BOM），LF 文件 false 前缀空串字节不变
+        atomicWriteFile(abs, (r.bom ? '\uFEFF' : '') + joinFrontMatter(patched.text, r.body), { fsync: true })
       } catch (e) {
         return { ok: false, code: 'WRITE_ERROR', reason: `元数据写入失败：${errMsg(e)}` }
       }
@@ -979,10 +1004,11 @@ export class DocumentService {
    *  读入的快照（r.fmRaw + r.body）原样回写，恢复 fm 与文件名一致；文件已不在原路径
    *  （doMoveOrRename 的「清单更新失败」路径——文件已 rename，新 fm 与新文件名一致）不
    *  回写，回写反而制造错配；回写自身失败维持 mismatch，机检兜底，不吞 rename 失败原因。 */
-  private rollbackMetaOnRenameFail(abs: string, original: { fmRaw: string; body: string }): void {
+  private rollbackMetaOnRenameFail(abs: string, original: { fmRaw: string; body: string; bom?: boolean }): void {
     if (!existsSync(abs)) return
     try {
-      atomicWriteFile(abs, joinFrontMatter(original.fmRaw, original.body), { fsync: true })
+      // R39-10：BOM 补回（同 updateChapterMetaLocked 写点——回写的是进入时快照，BOM 一并还原）
+      atomicWriteFile(abs, (original.bom ? '\uFEFF' : '') + joinFrontMatter(original.fmRaw, original.body), { fsync: true })
       invalidateTreeIndex(this.bookRoot, true)
     } catch {
       // 回写失败维持现状：fm-chapter-mismatch 由机检兜底
@@ -1145,7 +1171,9 @@ export class DocumentService {
         log.warn('document', `元数据修改前快照失败（fail-open 继续写入）：${errMsg(e)}`)
       }
       try {
-        atomicWriteFile(abs, joinFrontMatter(patched.text, body), { fsync: true })
+        // R39-10：BOM 补回——raw 为单读原文文本（R73-40 同源），splitFrontMatter 剥除的
+        // BOM 据此原样补回；无 BOM 时前缀空串字节不变（LF 回归锚）
+        atomicWriteFile(abs, (raw.startsWith('\uFEFF') ? '\uFEFF' : '') + joinFrontMatter(patched.text, body), { fsync: true })
       } catch (e) {
         return { ok: false, code: 'WRITE_ERROR', reason: `元数据写入失败：${errMsg(e)}` }
       }

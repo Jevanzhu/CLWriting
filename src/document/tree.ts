@@ -334,9 +334,23 @@ const INDEXES_CACHE_MAX = 16
 export function getBookTreeIndex(bookRoot: string, force = false): BookTreeIndex {
   const cached = force ? undefined : indexes.get(bookRoot)
   if (cached) return cached
+  const nodes = buildTree(bookRoot)
+  // R39-19（三十九轮）：force 重建内容不变则不 bump revision——窗口回前台拉全树
+  // （ChapterTreePanel 2s 节流 force）此前必 ++globalRevision，前端 doc store
+  // syncCleanWithTree 按 revision 判 stale → 全部 clean 文档缓存（上限 20）全量重拉
+  //（20 次 GET /file + sha256），「写作中频繁切窗查资料」场景对账永不收敛。结构化
+  // 变更（增删改/改名）走 invalidateTreeIndex 删缓存，重建必不等 → revision 照常
+  // 递增；外部编辑改动节点 mtime/size/摘要 → 序列化不等 → 照常递增。等价比较用
+  // JSON 序列化（同构建路径键序稳定；键序漂移只会退回「视为变更」旧行为，安全侧）；
+  // 千章树毫秒级，仅 force 路径付出。
+  const prev = indexes.get(bookRoot)
+  if (prev && JSON.stringify(prev.nodes) === JSON.stringify(nodes)) {
+    prev.validatedAt = new Date().toISOString()
+    return prev
+  }
   const index: BookTreeIndex = {
     bookRoot,
-    nodes: buildTree(bookRoot),
+    nodes,
     revision: ++globalRevision,
     validatedAt: new Date().toISOString(),
   }

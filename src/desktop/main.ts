@@ -899,7 +899,15 @@ function buildMenu(): void {
         {
           label: '打开书库目录…',
           accelerator: 'CmdOrCtrl+O',
-          click: () => void openLibraryAction(),
+          // R39-6（三十九轮）：async 工厂 promise 接日志——与上方 openShelfWindow/
+          // openLibraryWindow（R30-24 口径）同款；裸 void 调用下 dialog reject 成
+          // unhandledRejection（Node 15+ 默认 throw）→ uncaughtException exit(1)，
+          // 点一次菜单 = 应用静默退出
+          click: () => {
+            openLibraryAction().catch((e) => {
+              log.error('desktop', '打开书库目录失败', e)
+            })
+          },
         },
         { label: '导出…', accelerator: 'CmdOrCtrl+E', ...action('export') },
         { type: 'separator' },
@@ -943,7 +951,23 @@ function buildMenu(): void {
       label: '窗口',
       submenu: [
         { role: 'minimize' },
-        { role: 'zoom' },
+        // R39-7（三十九轮）：zoom 是 macOS 专属 role（NSWindow performZoom:）——
+        // win/linux 上是无动作死菜单项。非 mac 用最大化/还原 toggle 替代；目标窗
+        // 解析与上方 action() 同口径（mainWindow ?? 首窗，R32-22 不回退 getFocusedWindow）。
+        ...(isMac
+          ? [{ role: 'zoom' as const }]
+          : [
+              {
+                label: '最大化/还原',
+                click: () => {
+                  const win = mainWindow ?? BrowserWindow.getAllWindows()[0]
+                  if (win && !win.isDestroyed()) {
+                    if (win.isMaximized()) win.unmaximize()
+                    else win.maximize()
+                  }
+                },
+              } as MenuItemConstructorOptions,
+            ]),
         { type: 'separator' },
         // 书架/书库管理直接主进程开窗（不绕前端 dispatch）
         // R30-24（三十轮）：同 ipc handler 口径——async 工厂 promise 接日志防

@@ -107,3 +107,39 @@ describe('MP2-1：win 字体枚举 spawn 纪径（windowsHide + 数组参数直�
     await expect(listWindowsFonts({ platform: 'darwin' })).rejects.toThrow('只服务 win32')
   })
 })
+
+describe('R39-2/R39-5（三十九轮）：整流解码 + 超时兜底', () => {
+  it('跨 chunk 多字节字符整流解码（中文字体名被切在 chunk 边界不成 U+FFFD）', async () => {
+    let child: FakeChild | null = null
+    const spawnImpl: FontSpawn = (cmd, args, opts) => {
+      void cmd
+      void args
+      void opts
+      child = makeFakeChild()
+      return child
+    }
+    const promise = listWindowsFonts({ platform: 'win32', spawnImpl })
+    const c = child!
+    const so = c.stdout as PassThrough
+    const full = Buffer.from('"微软雅黑"\r\nSimSun\r\n', 'utf8')
+    // 修复前形态：多字节字符中段切两笔（软 = bytes 4-6，切点 5 落字中）——逐 chunk
+    // toString('utf8') 会把「软」劈成 U+FFFD；整流后逐字节还原
+    so.write(full.subarray(0, 5))
+    so.write(full.subarray(5))
+    so.end()
+    c.emitClose(0)
+    await expect(promise).resolves.toEqual(['SimSun', '微软雅黑'])
+  })
+
+  it('超时 kill + reject（PS 挂死不再永占 IPC/累积句柄；kill 缺席的假件仅放弃等待）', async () => {
+    let killed = 0
+    const child = makeFakeChild()
+    ;(child as FakeChild & { kill: (s?: string) => boolean }).kill = () => {
+      killed++
+      return true
+    }
+    const promise = listWindowsFonts({ platform: 'win32', spawnImpl: () => child, timeoutMs: 25 })
+    await expect(promise).rejects.toThrow(/25ms 未退出/)
+    expect(killed).toBe(1)
+  })
+})

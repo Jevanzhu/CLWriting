@@ -473,15 +473,25 @@ export function createOpenAIResponsesProvider(
             // R32-2（三十二轮）：截断兜底 error 的 usage 在 toolAccum flush/clear 之前
             // 估计（残留调用参数一并计入产出，clear 后再估就丢了）
             const truncUsage = terminal === 'none' ? estimateDoneUsage() : null
-            for (const [, t] of toolAccum) {
-              if (!t.name) continue
-              let input: unknown
-              try {
-                input = t.args ? JSON.parse(t.args) : {}
-              } catch {
-                input = { _raw: t.args }
+            // R39-13（三十九轮）：done 之后不再 flush 残留 tool——completed/incomplete 已
+            // emitDone（doneEmitted），网关某 function_call 只发 delta 未发 output_item.done
+            // 时原逻辑会在 done 之后补发 tool 事件（事件序畸形，违反「done 收尾」契约；
+            // gen 侧按类型收集会把 post-done tool 混入 toolCalls 且 stopReason 已定为
+            // 'stop'）。openai 线同位 flush 只在未 done 分支执行（openai-adapter.ts），三线
+            // 对齐；截断（terminal==='none'，此时必然未 done）路径的 flush 语义不变（R1
+            // 缺口 3：有 delta 无 done 项的残留调用仍随 error 前交出，truncUsage 估计
+            // 不受影响——estimate 在 flush/clear 之前）。
+            if (!doneEmitted) {
+              for (const [, t] of toolAccum) {
+                if (!t.name) continue
+                let input: unknown
+                try {
+                  input = t.args ? JSON.parse(t.args) : {}
+                } catch {
+                  input = { _raw: t.args }
+                }
+                yield { type: 'tool', id: t.callId, name: t.name, input }
               }
-              yield { type: 'tool', id: t.callId, name: t.name, input }
             }
             toolAccum.clear()
             // A-5（二十九轮）：多条加密推理项 → 流尾一次性汇总留痕丢弃条数
