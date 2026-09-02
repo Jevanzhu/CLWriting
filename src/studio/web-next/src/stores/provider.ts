@@ -209,6 +209,8 @@ export const useProviderStore = defineStore('provider', () => {
       currentId.value = r.currentId
       modelsByProvider.value.delete(id)
       probeModels.value.delete(id)
+      // MP-1（专项重评）：测试结果缓存随删清——防删提供方后 Map 残留（读侧按 id 键取不再命中，纯卫生）
+      testResults.value.delete(id)
       revision.value = r.revision
       ui.toast('已删除', 'success')
       return true
@@ -323,6 +325,8 @@ export const useProviderStore = defineStore('provider', () => {
     try {
       const r = await deleteRagProvider(id, revision.value)
       ragProviders.value = ragProviders.value.filter((p) => p.id !== id)
+      // MP-1（专项重评）：同 remove——删 RAG 配置清测试结果缓存，防 Map 残留
+      ragTestResults.value.delete(id)
       revision.value = r.revision
       ui.toast('已删除', 'success')
       return true

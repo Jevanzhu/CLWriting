@@ -33,13 +33,20 @@ vi.mock('../../../src/studio/web-next/src/stores/ui', () => ({
   useUiStore: vi.fn(() => ({ toast: vi.fn() })),
 }))
 
-import { testProvider, testRagProvider } from '../../../src/studio/web-next/src/api/providers'
+import {
+  testProvider,
+  testRagProvider,
+  deleteProvider,
+  deleteRagProvider,
+} from '../../../src/studio/web-next/src/api/providers'
 import { runLearnCommit } from '../../../src/studio/web-next/src/api/learn'
 import { useProviderStore } from '../../../src/studio/web-next/src/stores/provider'
 import { useLearnStore } from '../../../src/studio/web-next/src/stores/learn'
 
 const testMock = testProvider as ReturnType<typeof vi.fn>
 const testRagMock = testRagProvider as ReturnType<typeof vi.fn>
+const deleteMock = deleteProvider as ReturnType<typeof vi.fn>
+const deleteRagMock = deleteRagProvider as ReturnType<typeof vi.fn>
 const commitMock = runLearnCommit as ReturnType<typeof vi.fn>
 
 beforeEach(() => {
@@ -107,5 +114,29 @@ describe('Y-32: learn.commit 代守卫', () => {
     s.toggleSample(s.samples[0]!)
     await s.commit('bookA')
     expect(s.committing).toBe(false)
+  })
+})
+
+describe('MP-1（专项重评）: 删提供方/删 RAG 清测试结果缓存', () => {
+  it('remove() 后 testResults/modelsByProvider/probeModels 不再残留该 id', async () => {
+    deleteMock.mockResolvedValue({ currentId: null, revision: 2 })
+    const s = useProviderStore()
+    s.providers = [{ id: 'A' } as never]
+    s.testResults = new Map([['A', { ok: true }]])
+    s.modelsByProvider = new Map([['A', ['m1']]])
+    s.probeModels = new Map([['A', 'm1']])
+    await s.remove('A')
+    expect(s.testResults.has('A')).toBe(false) // 修复点：删提供方清测试结果缓存
+    expect(s.modelsByProvider.has('A')).toBe(false)
+    expect(s.probeModels.has('A')).toBe(false)
+  })
+
+  it('removeRag() 后 ragTestResults 不再残留该 id', async () => {
+    deleteRagMock.mockResolvedValue({ revision: 2 })
+    const s = useProviderStore()
+    s.ragProviders = [{ id: 'R' } as never]
+    s.ragTestResults = new Map([['R', { ok: true }]])
+    await s.removeRag('R')
+    expect(s.ragTestResults.has('R')).toBe(false) // 修复点：删 RAG 配置清测试结果缓存
   })
 })
