@@ -68,6 +68,9 @@ const STYLE_CORPUS_MAX = 32
 // 粗 / 同拍同尺寸重写 / 计算期间的外部写）。写侧另挂同文件失效点（analyze /
 // analyze-style 落盘后 forgetAnalysisOverviewCache）；删书/改名生命周期清理按
 // forgetBookKeyedCaches 家族约定导出（books.ts 接线不在本批允许清单内，TTL 兜底自愈）。
+// R37-17（三十七轮）：每文件 stat 签名之上再叠两级探针——第一级便宜目录指纹（见
+// analysisOverviewProbe）命中即跳过签名 walk 本身（前端 3s 轮询此前每 poll 全量
+// stat 重算签名）；指纹覆盖边界见该函数头注。
 const ANALYSIS_OVERVIEW_TTL_MS = 5000
 const ANALYSIS_OVERVIEW_MAX = 32
 
@@ -78,7 +81,7 @@ interface AnalysisOverviewResult {
   allChapters: { 章号: number; docId: string }[]
   style: unknown
 }
-const analysisOverviewCache = new Map<string, { result: AnalysisOverviewResult; sig: string; ts: number }>()
+const analysisOverviewCache = new Map<string, { probe: string; result: AnalysisOverviewResult; sig: string; ts: number }>()
 let analysisOverviewTtlMs: number | null = null
 /** R36-7：TTL 测试注入口（先例同 __setStyleCorpusTtlForTest）。仅测试用。 */
 export function __setAnalysisOverviewTtlForTest(ms: number | null): void {
@@ -96,6 +99,15 @@ export function __analysisOverviewScanCountForTest(): number {
 }
 export function __resetAnalysisOverviewScanCountForTest(): void {
   analysisOverviewScanCount = 0
+}
+/** R37-17（三十七轮）回归观测钩子（生产零调用）：全量签名（analysisOverviewSignature
+ *  每文件 stat walk）执行计数——两级探针命中时应不再增长。 */
+let analysisOverviewSigCount = 0
+export function __analysisOverviewSigCountForTest(): number {
+  return analysisOverviewSigCount
+}
+export function __resetAnalysisOverviewSigCountForTest(): void {
+  analysisOverviewSigCount = 0
 }
 
 /** stat 的 size:mtimeMs 签名（缺失/占位文件 → '-'；Read 失败按缺失处理）。
@@ -128,13 +140,48 @@ function analysisOverviewSignature(bookRoot: string): string {
   return parts.join(',')
 }
 
-/** R36-7：analysis-overview 聚合查询（mtime 探针 + 5s TTL 缓存壳；compute 体原样下沉）。
- *  导出供回归测试直测（同 searchBookCached 口径）。 */
+/** R37-17（三十七轮）：analysis-overview 两级探针的第一级——便宜目录指纹（先例
+ *  search.ts R35-7 dirSignature 的 statSync(dir).mtimeMs，按本端点全量签名的实际
+ *  读面设计构成）：
+ *  - manifest（项目/文档清单.jsonl）size:mtimeMs——manifest 是单文件内容写（原子
+ *    rename 重写、不改父目录条目集），目录 mtime 探不到，必须以文件 stat 入指纹；
+ *  - 项目/分析 目录 mtime——信封目录为平铺 json：增删改名可见；应用侧全部信封写
+ *    路径（writeAnalysis/writeBookAnalysisAsync）走 atomicWriteFile 同目录 rename
+ *    落盘——rename 替换目录条目会刷目录 mtime，故「重写既有信封（re-analyze）」
+ *    一级探针可见。
+ *  覆盖边界（如实）：目录 mtime 只反映直接子项增删/改名与同目录 rename 落盘——
+ *  「非 rename 的就地内容改写」（外部编辑器直写盘面）一级探针不可见，由 TTL 到期
+ *  （≤5s）走第二级全量签名重算兜底（与 R36-7「TTL 兜底探针不可见变化」既有口径
+ *  一致；R36-7 头注记档的每文件 stat 全量签名保留为第二级，就地直写的即时可见
+ *  语义由两级结构共同承担）。
+ */
+function analysisOverviewProbe(bookRoot: string): string {
+  return [
+    `m:${sigStatFor(join(bookRoot, '项目', '文档清单.jsonl'))}`,
+    `d:${sigStatFor(join(bookRoot, '项目', '分析'))}`,
+  ].join(',')
+}
+
+/** R37-17（三十七轮）：analysis-overview 聚合查询两级探针化（每文件 mtime/size
+ *  探针 + 5s TTL 缓存壳之上加便宜目录指纹）。前端 3s 轮询此前每 poll 都全量重算
+ *  每文件 stat 签名（长书数百次）；现在第一级 O(1) stat（manifest + 目录）未变即
+ *  复用，指纹变化才走第二级（R36-7 原全量签名），签名仍一致（指纹抖动，如原子写
+ *  tmp 中间态已消失）则回填指纹复用结果。导出供回归测试直测（同 searchBookCached
+ *  口径）。 */
 export function getAnalysisOverviewCached(bookRoot: string): AnalysisOverviewResult {
   const now = Date.now()
-  const sig = analysisOverviewSignature(bookRoot)
+  const ttl = analysisOverviewTtlMs ?? ANALYSIS_OVERVIEW_TTL_MS
   const cached = analysisOverviewCache.get(bookRoot)
-  if (cached && cached.sig === sig && now - cached.ts < (analysisOverviewTtlMs ?? ANALYSIS_OVERVIEW_TTL_MS)) {
+  // 第一级：便宜目录指纹未变（且 TTL 内）→ 直接复用，跳过每文件 stat 签名 walk
+  const probe = analysisOverviewProbe(bookRoot)
+  if (cached && now - cached.ts < ttl && cached.probe === probe) {
+    return cached.result
+  }
+  // 第二级：指纹变了才全量签名（R36-7 原口径）；签名一致 → 回填指纹、复用结果免重算
+  analysisOverviewSigCount += 1
+  const sig = analysisOverviewSignature(bookRoot)
+  if (cached && now - cached.ts < ttl && cached.sig === sig) {
+    cached.probe = probe
     return cached.result
   }
   analysisOverviewScanCount += 1
@@ -144,7 +191,7 @@ export function getAnalysisOverviewCached(bookRoot: string): AnalysisOverviewRes
     const oldest = analysisOverviewCache.keys().next().value
     if (oldest !== undefined) analysisOverviewCache.delete(oldest)
   }
-  analysisOverviewCache.set(bookRoot, { result, sig, ts: now })
+  analysisOverviewCache.set(bookRoot, { probe, sig, result, ts: now })
   return result
 }
 

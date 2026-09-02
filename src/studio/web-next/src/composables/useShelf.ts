@@ -5,6 +5,7 @@
 import { ref, computed } from 'vue'
 import { useShelfStore } from '../stores/shelf'
 import { usePrefsStore } from '../stores/prefs'
+import { useChatStore } from '../stores/chat'
 import { apiJson, ApiError } from '../api/client'
 import { deleteBook } from '../api/shelf'
 import { friendlyError } from '../shared/error'
@@ -212,6 +213,9 @@ export function useShelf(options?: {
         // R26-83（二十六轮，登记顺手补清）：一并清该书对话失败草稿残留（module 级 Map
         // 原无书删除出口）——同名重建书不回填旧书幽灵文本
         clearFailedDrafts(name)
+        // R37-28（三十七轮批E）：一并清该书章号显式记忆（chat store 按书记忆 Map 原无
+        // 删除出口，删书残留）——同名重建书不回填旧书的章号语境，其它书记忆不受牵连
+        useChatStore().clearChapterMemo(name)
         // R27-79（二十七轮）：连带清该书 localStorage 残留键——否则同名重建书继承已删书
         // 梗概（首启引导凭空带出旧稿设定）、且永不套章节树默认展开。两键均经
         // shared/storage-keys 与写入方同源拼键（R30-26（三十轮）：梗概键原硬编码冒号

@@ -203,6 +203,32 @@ export function listAiVersions(bookRoot: string, docId: string, metaCache?: Vers
 }
 
 /**
+ * listAiVersions 的异步孪生（R37-5，三十七轮）——git 路径改用 gitAsync（spawn +
+ * 有界超时，事件循环不冻结）。同步版的 for-each-ref 挂在服务 HTTP 请求链上
+ *（author-signal ← draft.ts 落盘端点 / self-heal 每章终稿三连），git 无响应
+ *（网盘挂载 .git/杀软锁）时同步 spawnSync 阻塞事件循环最长 15s——写侧
+ * recordAiVersion 已在 R36-5 异步化，读侧此处补齐。语义与同步版逐位对齐：
+ * 失败一律 resolve 空表（永不 reject），轨迹是旁路证据，绝不阻断落盘主流程。
+ * 版本档案路径（无 git 书库）无锁无子进程，原样走同步版（本地小文件读）。
+ */
+export async function listAiVersionsAsync(bookRoot: string, docId: string, metaCache?: VersionMetaCache): Promise<AiVersion[]> {
+  if (!hasGitBackend(bookRoot)) {
+    return listAiVersions(bookRoot, docId, metaCache)
+  }
+  const prefix = `${REF_ROOT}/${encodeRefSegment(docId)}/`
+  const r = await gitAsync(['for-each-ref', '--format=%(refname) %(objectname)', prefix], bookRoot)
+  if (!r.ok) return []
+  const out: AiVersion[] = []
+  for (const line of r.stdout.split('\n')) {
+    const [ref, sha] = line.trim().split(' ')
+    if (!ref || !sha) continue
+    out.push({ ref, ulid: ref.slice(prefix.length), sha })
+  }
+  out.sort((a, b) => (a.ulid < b.ulid ? -1 : 1))
+  return out
+}
+
+/**
  * 读某版内容。X-P2-3 起 sha 有两种形态：hex → git blob；ULID → 版本档案（需 docId 定位）。
  * 失败 null。
  */
@@ -212,6 +238,21 @@ export function readAiVersion(bookRoot: string, docId: string, sha: string): str
     return read ? read.content : null
   }
   const r = git(['cat-file', '-p', sha], bookRoot)
+  return r.ok ? r.stdout : null
+}
+
+/**
+ * readAiVersion 的异步孪生（R37-5，三十七轮）——git blob 读走 gitAsync（spawn +
+ * 有界超时），HTTP 请求链上不再同步 spawnSync（与 listAiVersionsAsync 同批收口，
+ * 写侧 R36-5 先例）。失败一律 resolve null（永不 reject），绝不阻断落盘主流程。
+ * ULID 形态（版本档案本地小文件）保持同步读不变。
+ */
+export async function readAiVersionAsync(bookRoot: string, docId: string, sha: string): Promise<string | null> {
+  if (isUlid(sha)) {
+    const read = readVersion(versionsDir(bookRoot), docId, sha)
+    return read ? read.content : null
+  }
+  const r = await gitAsync(['cat-file', '-p', sha], bookRoot)
   return r.ok ? r.stdout : null
 }
 

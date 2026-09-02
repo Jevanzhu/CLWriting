@@ -1,7 +1,9 @@
 <script setup lang="ts">
 // 删除确认弹窗（Shelf/ShelfModal 共享）：批量删除书名列表确认。
 // 状态由壳（useShelf composable）持有，本组件只做确认表单渲染与事件上抛。
+import { ref } from 'vue'
 import { Trash2 } from 'lucide-vue-next'
+import { useFocusTrap } from '../../composables/useFocusTrap'
 
 const props = defineProps<{
   names: string[]
@@ -12,12 +14,18 @@ const emit = defineEmits<{
   (e: 'confirm'): void
   (e: 'cancel'): void
 }>()
+
+// R37-33（三十七轮批E）：接域内既有焦点圈 useFocusTrap（CommandPrompt/ChapterMetaDialog
+// 同族）——Tab 循环不出弹窗、关闭归还焦点；trap 落焦到第一个可交互元素 = 取消按钮，
+// 危险操作默认聚焦安全项（回车/空格直接触发的是「取消」而非「确认删除」）
+const modalRef = ref<HTMLElement | null>(null)
+useFocusTrap(modalRef)
 </script>
 
 <template>
   <Teleport to="body">
     <div class="confirm-overlay" @click.self="emit('cancel')">
-      <div class="confirm-dialog">
+      <div ref="modalRef" class="confirm-dialog" role="dialog" aria-modal="true" aria-label="确认删除" tabindex="-1">
         <div class="confirm-head">
           <Trash2 :size="22" class="confirm-icon-danger" />
           <h3>确认删除</h3>

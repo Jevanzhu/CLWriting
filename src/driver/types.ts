@@ -25,7 +25,6 @@ export type DriverEvent =
   | { type: 'warning'; message: string }
   /** 非致命提示（AA-P3-1：如队列超容丢弃最旧消息——信息性告知，非警告） */
   | { type: 'notice'; message: string }
-  | { type: 'tool_use'; tool: string; input: unknown; role?: string }
   | { type: 'role_spawn'; role: string; parentToolUseId: string }
   | { type: 'usage'; tokens: number; cost?: number }
   | { type: 'error'; kind: string; message: string; recoverable: boolean }

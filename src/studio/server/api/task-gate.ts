@@ -27,6 +27,7 @@ import { isSelfHealRunning } from '../../../ai/orchestrate/self-heal.js'
 import { isChatRunning } from '../../../ai/orchestrate/chat.js'
 import { hasBackgroundTasks } from '../../../ai/orchestrate/background.js'
 import { isSpawnRunning } from '../../../ai/orchestrate/spawn-registry.js'
+import { log } from '../../../log/index.js' // R37-21：锁根覆盖告警留痕
 
 const running = new Set<string>()
 
@@ -39,11 +40,20 @@ const keyOf = (bookName: string, action: string): string => `${action}${SEP}${bo
 // ── T2-4：跨进程文件锁 ──────────────────────────────
 
 /** 模块级锁根目录（书库 .clwriting/task-gate/）——单 server 进程一个 workDir，
- *  startServer 启动时注入；null = 未配置（退化纯内存闸，与旧行为一致）。 */
+ *  startServer 启动时注入；null = 未配置（退化纯内存闸，与旧行为一致）。
+ *  契约（R37-21 如实记）：单进程单锁根——重复 configure 即覆盖，且覆盖非空旧值
+ *  时 log.warn 留痕（旧/新路径）。覆盖本身是合法操作（dev-api/脚本与测试重配
+ *  workDir 场景），但不该无声——startServer 只在启动时配一次，运行中再配多为
+ *  接线错误（旧锁根下已持有的锁文件从此查询/续期失联）。 */
 let lockRoot: string | null = null
 
-/** startServer 注入锁根目录（workDir 缺省 → null，纯内存闸）。 */
+/** startServer 注入锁根目录（workDir 缺省 → null，纯内存闸）。
+ *  R37-21（三十七轮）：覆盖非空旧值（且值实际变化）时 log.warn——此前静默覆盖，
+ *  锁根漂移无从察觉。 */
 export function configureTaskGateLockRoot(dir: string | null): void {
+  if (lockRoot !== null && lockRoot !== dir) {
+    log.warn('task-gate', `锁根目录被重复配置覆盖：${lockRoot} → ${dir}（单进程单锁根契约，运行中改配多为接线错误，旧锁根下在持锁文件将失联）`)
+  }
   lockRoot = dir
 }
 

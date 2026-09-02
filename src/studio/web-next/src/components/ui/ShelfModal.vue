@@ -44,7 +44,7 @@ const {
   },
 })
 
-const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
+// R37-30（三十七轮批E）：删 hasDesktop 死变量——J5 平台判断收敛到 usePlatform 后残留零消费
 const modalRef = ref<HTMLElement | null>(null)
 useFocusTrap(modalRef)
 

@@ -41,6 +41,8 @@ import { readPieceList } from '../format/manifest.js'
 // #10 项 7 数据源接线：高频意象内置种子表（三级供给的最底层）
 import { DEFAULT_IMAGERY_WORDS } from './imagery-seed.js'
 import type { ChapterMeta, BookConfig, RealmDoc, PieceList } from '../format/types.js'
+// R37-9：章纲目录 readdirSync 容错降级留痕（同 run.ts 口径）
+import { log } from '../log/index.js'
 
 /** 机检输入 */
 export interface CheckInput {
@@ -240,7 +242,21 @@ export function runAllChecks(input: CheckInput): CheckReport {
           const m = /^(\d+)[^\d]/.exec(f)
           return f.endsWith('.md') && m !== null && Number(m[1]) === chapter.章号
         }
-        const byName = readdirSync(outlineDir).find(prefixMatch)
+        // R37-9（三十七轮）：existsSync→readdirSync 间隙目录被瞬删/异常迁移（TOCTOU，
+        // 同 R65-16 口径）或路径被文件占用（ENOTDIR——existsSync 对文件同为 true）时
+        // 直穿炸整次机检——降级空列表 + warn 留痕（三口径都空 → 走既有 manifest
+        // 缺失黄项提示，不静默），其余错误码照旧抛（失败可见）
+        let byName: string | undefined
+        try {
+          byName = readdirSync(outlineDir).find(prefixMatch)
+        } catch (e) {
+          const code = (e as NodeJS.ErrnoException).code
+          if (code === 'ENOENT' || code === 'ENOTDIR') {
+            log.warn('check', `章纲目录读取失败（${outlineDir}，${code}），本轮按无章纲处理`)
+          } else {
+            throw e
+          }
+        }
         manifestPath = byName ? join(outlineDir, byName) : null
       } else {
         manifestPath = null // 大纲/章纲 目录整个不存在

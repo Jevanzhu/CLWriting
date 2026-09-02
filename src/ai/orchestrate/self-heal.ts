@@ -855,8 +855,24 @@ async function runGenerate(
 
   if (!out.ok) {
     // R35-17：abort/终态失败 attempt 的真实消耗已由 runner recordUsageSafe 按次入账
-    // ai-calls，但 TaskErr 封套未携 attemptsUsage，done 事件取不到——纯展示面与账本
-    // 口径分叉在此登记；对齐需 runner 失败封套补字段（另行立项）
+    // ai-calls；R37-7（三十七轮）收口：TaskErr 封套已携 attemptsUsage/model，失败前
+    // 已消耗的 token/成本随 done 事件并入（此前纯展示面与账本口径分叉——封套取不到
+    // 失败调用的用量，预算/成本统计漏记），并入写法与下方成功路径同源
+    const failU = out.attemptsUsage ?? null
+    if (failU) {
+      state.usage.outputTokens += failU.outputTokens
+      if (failU.estimated) state.usage.estimated = true
+      const failModel = out.model ?? null
+      const failPricing = failModel ? resolveModelPricing(opts.userDataPath, failModel) : null
+      if (failPricing) {
+        state.usage.cost += computeCallCost(failPricing, {
+          inputTokens: failU.inputTokens,
+          outputTokens: failU.outputTokens,
+          ...(failU.cacheReadTokens !== undefined ? { cacheReadTokens: failU.cacheReadTokens } : {}),
+          ...(failU.cacheWriteTokens !== undefined ? { cacheWriteTokens: failU.cacheWriteTokens } : {}),
+        }) ?? 0
+      }
+    }
     if (out.code === 'ABORTED' || state.ctrl.signal.aborted) return { status: 'aborted' }
     return { status: 'error', error: out.error }
   }

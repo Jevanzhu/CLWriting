@@ -4,8 +4,10 @@
  * 从「获取模型列表」探测结果勾选采纳——勾选集 picked 由父层持有（采纳/去重逻辑在父）。
  */
 import { X, Check } from 'lucide-vue-next'
+import { onMounted, onBeforeUnmount } from 'vue'
+import { isImeComposing } from '../../shared/ime'
 
-defineProps<{
+const props = defineProps<{
   show: boolean
   candidates: string[]
   /** 已勾选的模型 id 集（父层持有；toggle 事件上抛） */
@@ -17,6 +19,20 @@ const emit = defineEmits<{
   close: []
   adopt: []
 }>()
+
+// R37-36（三十七轮批E）：弹层内按 Esc 关闭自身且不外溢——原无任何 Esc 处理，按键直穿
+// 到 window 层的外层 Esc 链（useHotkeys 退专注/SettingsModal 关设置），内层未关外层
+// 先动。document capture + stopPropagation：先于外层 window 冒泡监听收口，本层消费后
+// 外层不再触发（对齐 ConfirmPrompt 的 capture 手法）；IME 组合期 Esc 归输入法（R75-E-P3e）
+function onKeydown(e: KeyboardEvent): void {
+  if (!props.show || e.key !== 'Escape') return
+  if (isImeComposing(e)) return
+  e.preventDefault()
+  e.stopPropagation()
+  emit('close')
+}
+onMounted(() => document.addEventListener('keydown', onKeydown, true))
+onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
 </script>
 
 <template>

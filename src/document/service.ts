@@ -9,11 +9,18 @@
  *     revision 校验 → journal pending → 按策略 snapshot → atomic write+fsync
  *     → 算新 revision → 条件性更新清单 → journal settled
  *
- * 结构性操作（W2A §7：create/move/rename）：
- *   同步实现（renameSync/mkdirSync + 同步清单写），靠 Node 单线程微任务不交错保证
- *   清单原子性；不走 queue（与同 docId 的 save 并发时，最坏 save 撞 REVISION_CONFLICT
- *   返回，不损坏数据）。事务顺序：预检查 → snapshot 留底 → fs 操作 → 清单同步 →
- *   invalidateTreeIndex。结构性操作触发旧书建清单（W0-1 §4.2）。
+ * 结构性操作（W2A §7：create/move/rename/trash）：
+ *   不走 queue（与同 docId 的排队 save 并发时，最坏 save 撞 REVISION_CONFLICT
+ *   返回，不损坏数据）。清单/journal/回收站登记的 RMW 原子性由跨进程锁承担
+ *  （withManifestLockAsync / journal 锁 / trash 清单锁）——R37-15（三十七轮）注释
+ *   如实化：旧称「同步实现（renameSync/mkdirSync + 同步清单写），靠 Node 单线程
+ *   微任务不交错保证清单原子性」是 R31-20/R34D-19 异步化与 P3-10/X-5/Z-5 加锁之前
+ *   的过时口径（结构性操作现已全异步，磁盘 IO 用同步原语、锁等待走异步轮询）。
+ *   移动/重命名带 journal move-pending 兜底（P3-10：pending → snapshot+rename →
+ *   清单更新 → settled，窗口内崩溃由进门 healthCheck 确定性收口）；软删按 GG-P2-6
+ *   「先登记后移文件」。事务顺序：预检查 → snapshot 留底 → fs 操作
+ *  （linkOrRenameExclusive 独占落位）→ 清单同步 → invalidateTreeIndex。结构性操作
+ *   触发旧书建清单（W0-1 §4.2）。
  *
  * 冲突 / 能力不足 / 落盘失败 → 不落盘、journal 标 aborted（save）/ 返回 {ok:false,code}。
  * 崩溃恢复面在 state.ts assembleStatus（findUnsettled + healMovePending + crashedWrite
@@ -22,7 +29,7 @@
  *
  * docId 是稳定 ID（队列/日志/清单 key），relPath 是落盘路径。
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { safeDocId, resolveWithinRoot } from '../fs/safe-path.js'
 import { atomicWriteFile, createFileExclusive, linkOrRenameExclusive } from '../fs/atomic.js'
@@ -35,7 +42,7 @@ import { SaveQueue } from './queue.js'
 import { generateDocId, legacyId } from './stable-id.js'
 import { invalidateTreeIndex, scanBookTree, type TreeNode } from './tree.js'
 import { readFile as readDoc, parseFlat, patchFlatFm, splitFrontMatter, joinFrontMatter, bodyOf } from '../format/frontmatter.js'
-import { appendTrashEntryAsync, readTrashManifest } from './trash.js'
+import { appendTrashEntryAsync, readTrashManifest, removeTrashEntryAsync } from './trash.js'
 import { log } from '../log/index.js'
 import { appendWordsDelta, todayDate } from './words-diary.js'
 import { countWords, chapterFilePrefix } from '../format/words.js'
@@ -684,7 +691,12 @@ export class DocumentService {
     return null
   }
 
-  // ── 结构性操作（W2A §7，同步实现）──────────────────
+  // ── 结构性操作（W2A §7）──────────────────
+  // R37-15（三十七轮）注释如实化：旧分隔注释「同步实现」是 R31-20/R34D-19 异步化之前
+  // 的过时口径——本区 create/move/rename/copy/trash 已全异步（磁盘 IO 用同步原语，
+  // 清单/journal/回收站锁等待走 withManifestLockAsync 等异步轮询），原子性由跨进程锁
+  // 与独占落位（createFileExclusive / linkOrRenameExclusive）承担，不靠「单线程微任务
+  // 不交错」（模块头注同轮同款收口）。
 
   /** 新建文档（分配 docId + 落盘 + 清单登记 + invalidate）。
    *  R34D-19（三十四轮）：doCreate 转异步——清单登记锁等待走 withManifestLockAsync
@@ -778,11 +790,16 @@ export class DocumentService {
   // R31-20（三十一轮）：meta PATCH 异步化——R30-6 只异步化了 executeSave/finalize，
   // 本方法与 updateDocMeta 的 save/布线/清单锁等待仍为 Atomics.wait 同步睡（最坏
   // ≈20s 冻结服务进程事件循环，与 R30-6 的异步化理由正面冲突）。改异步孪生：
-  // 取锁等待走 acquireCrossProcessLockAsync（setTimeout 轮询），锁内临界段保持
-  // 全同步 FS（与 executeSave 锁内段同纪律）；同进程同 docId 并发 PATCH 经
-  // chainDocMetaOp promise 链串行（锁等待让出事件循环后，第二请求会撞同进程
+  // 取锁等待走 acquireCrossProcessLockAsync（setTimeout 轮询）；同进程同 docId 并发
+  // PATCH 经 chainDocMetaOp promise 链串行（锁等待让出事件循环后，第二请求会撞同进程
   // pid 自锁语义——链串行保持旧同步版「单线程无交错」行为等价）。跨进程互斥
   // 仍由文件锁承担，锁序「save → 布线 → 清单」不变。
+  // R37-12（三十七轮）注释如实化：旧称「锁内临界段保持全同步 FS（与 executeSave
+  // 锁内段同纪律）」不实——本方法锁内尾部 await doMoveOrRename/syncRenamePieceList
+  //（内部再取 journal/清单锁），executeSave 锁内段同样含 await 点（appendPending/
+  // appendSettled 的 journal 锁等待、maybeUpdateManifest 的清单锁等待）与多次磁盘
+  // 写。两侧共同的真实纪律是：磁盘 IO 全走同步 FS 原语（毫秒级，事件循环只让出在
+  // 嵌套锁等待上），嵌套锁方向单向（save → 布线 → journal/清单）无环。
   updateChapterMeta(docId: string, meta: { 标题?: string; 章号?: number }): Promise<MoveResult> {
     return this.chainDocMetaOp(docId, () => this.updateChapterMetaLocked(docId, meta))
   }
@@ -804,8 +821,18 @@ export class DocumentService {
     // executeSave 同款跨进程保存锁（`<journal>.save.lock`，5s fail-closed，拿不到=
     // 未执行可重试，不降级裸写）。锁覆盖到尾部 doMoveOrRename：其内部嵌套拿
     // manifest/journal 锁，方向与 executeSave 内 maybeUpdateManifest 相同（单向无环）；
-    // 同进程同 docId 不会自锁（executeSave 锁内临界段全同步，JS 单线程不与本同步方法
-    // 交错；doMoveOrRename 不取 save 锁）。
+    // doMoveOrRename 不取 save 锁。
+    // R37-12（三十七轮）注释如实化：旧称「executeSave 锁内临界段全同步，JS 单线程
+    // 不与本同步方法交错，不会自锁」不实——executeSave 持锁段内有 await 点
+    //（appendPending/appendSettled 的 journal 锁等待、maybeUpdateManifest 的清单锁
+    // 等待、legacy 收编的清单锁）与多次磁盘写（UTF-8 探测读/快照留底/原子落盘/
+    // journal/清单 RMW/字数日记），本方法自身也是异步方法，交错确有可能。不会**死锁**
+    // 的真实依据：同进程嵌套获取同一锁表现为轮询等待（cross-process-lock.ts R30-6
+    // 注，异步形态轮询到超时），executeSave 持锁段常态毫秒级完成且 finally 必释放
+    // ——交错的同 docId 获取者（本方法或排队 executeSave）轮询等锁，常态毫秒级拿到，
+    // 极端（持锁段超 5s，如杀毒扫描拖慢 IO）fail-closed 返回 WRITE_ERROR 可重试；
+    // 同族操作另由 SaveQueue（save）/chainDocMetaOp（meta）按 docId 链串行，同进程
+    // 交错面只剩「save ↔ meta」这一跨族 await 窗口，如上受锁轮询兜底。
     const journalPath = join(this.journalDir, `${encodeDocDirName(docId)}.jsonl`)
     const docSaveLock = await acquireCrossProcessLockAsync(`${journalPath}.save.lock`, metaSaveLockTimeoutMs)
     if (!docSaveLock) {
@@ -969,7 +996,8 @@ export class DocumentService {
    *  指向旧路径的孤儿条目；tree 按旧 path 匹配 miss → docId 退化为 legacyId(新 path)，
    *  编辑器按 docId 挂的标签页/分析信封/工作区/.版本/<docId>/ 版本历史全断链。委托后
    *  journal + snapshot + 清单 path 更新 + 树索引失效与正文改名同一纪律。未登记（从未
-   *  做过结构性操作）时无条目可孤儿，保留裸 rename 回落。 */
+   *  做过结构性操作）时无条目可孤儿，保留无登记回落（R37-13：linkOrRenameExclusive
+   *  独占落位 + 时间戳后缀保双份，失败结构化 warn 不阻断正文 rename）。 */
   private async syncRenamePieceList(oldBodyRel: string, newName: string): Promise<void> {
     const oldListRel = `大纲/章纲/${basename(oldBodyRel)}`
     const newListRel = `大纲/章纲/${newName}`
@@ -988,16 +1016,41 @@ export class DocumentService {
     }
     try {
       mkdirSync(dirname(newSafe), { recursive: true })
-      // R70-18（十八轮）：目标已存在（手工副本/网盘副本）时不静默覆盖——POSIX rename
-      // 对已存在目标静默替换会无留底毁掉同名章纲；改名保双份（L-P6 同款时间戳后缀）
+      // R37-13（三十七轮）：fallback 落位改 linkOrRenameExclusive——原裸 renameSync 对
+      // 已存在目标静默替换（R70-18 的 existsSync 预检只挡慢路径，预检与 rename 之间的
+      // 并发落位窄窗仍在，无留底毁同名章纲）；link 独占探测无窗口，'exists'（预检漏网
+      // 的并发占用）沿用 R70-18 时间戳后缀保双份（L-P6 同款）。落位成功后删源（link
+      // 落位时源为同 inode 硬链接；linkOrRenameExclusive 内部降级 rename 落位时源已
+      // 搬走，rmSync force 为 no-op）——删源失败先回收新位再抛（doMoveOrRename R33-43
+      // 同款范式），失败收口走外层 warn。
       let dst = newSafe
-      if (existsSync(newSafe)) {
+      let placed = linkOrRenameExclusive(oldSafe, dst)
+      if (placed === 'exists') {
         dst = newSafe.replace(/\.md$/, `-旧稿-${Date.now()}.md`)
+        placed = linkOrRenameExclusive(oldSafe, dst)
       }
-      renameSync(oldSafe, dst)
+      if (placed === 'exists') {
+        // 目标名与后缀名均被持续占用：不覆盖、不上抛（正文已改名成功），warn 留痕
+        log.warn('document', `章纲同步重命名未落位（目标 ${newListRel} 被持续占用，正文已改名，章纲滞留旧名 ${oldListRel}）`)
+        return
+      }
+      try {
+        rmSync(oldSafe, { force: true })
+      } catch (rmErr) {
+        try {
+          rmSync(dst, { force: true })
+        } catch {
+          /* 新位残留孤儿副本：硬链接同数据，无丢失，重试前需手工清理 */
+        }
+        throw rmErr
+      }
       invalidateTreeIndex(this.bookRoot, true)
-    } catch {
-      // 清单同步失败不阻断正文 rename
+    } catch (e) {
+      // R37-13（三十七轮）：失败不再静默吞——本函数只在 doMoveOrRename 成功后调用，
+      // 按既有约定不阻断/不回滚正文 rename（改 Promise 不上抛），但零留痕吞掉会让
+      // 「章纲滞留旧名」不可见（作者无从得知为何章纲没跟上）；改结构化 warn 留痕
+      //（对齐 doCreate 登记失败 R70-17 / doTrash Z-6 的 warn 口径）。
+      log.warn('document', `章纲同步重命名失败（${oldListRel} → ${newListRel}，正文已改名，章纲滞留旧名）：${errMsg(e)}`)
     }
   }
 
@@ -1332,7 +1385,11 @@ export class DocumentService {
     // 既有身份不动，只净化本次创建的文件名；win 尾点/尾空格/保留设备名同族收口）
     const relSegs = input.relPath.split('/')
     const copyRelPath = [...relSegs.slice(0, -1), sanitizeFullFileName(relSegs[relSegs.length - 1]!)].join('/')
-    // 能力：源 copy + 目标 write（与 create 同步实现，靠单线程微任务不交错）
+    // 能力：源 copy + 目标 write。R37-15（三十七轮）注释如实化：旧括注「与 create
+    // 同步实现，靠单线程微任务不交错」失实——create/copy 均已异步（R34D-19），本方法
+    // 前段即有 await（lookupPathByDocIdAdoptAsync 的清单锁等待）。能力闸交错安全的
+    // 真实依据：layoutOf 是纯路径→布局查表（无 IO、无共享可变状态），前段 await 让出
+    // 事件循环不改变其判定；后续落位并发由 createFileExclusive 独占探测兜底（:1394）。
     if (!layoutOf(srcPath).capabilities.copy) {
       return { ok: false, code: 'CAPABILITY_DENIED', reason: '该文档不可复制' }
     }
@@ -1525,7 +1582,26 @@ export class DocumentService {
       }
       // link 落位后源仍在原位（同 inode 硬链接）——删源完成软删；降级 rename 落位时
       // 源已搬走，rmSync force 为 no-op。
-      rmSync(oldSafe, { force: true })
+      // R37-14（三十七轮）：删源失败（win EBUSY/EPERM 瞬时占用等）回滚回收站侧——对齐
+      // doMoveOrRename R33-43 删源失败回收新位的范式：此刻回收站已落位 + 条目已写入，
+      // 不回滚会留下「回收站有条目但源文件还在」的双份状态（restore 撞源位 OCCUPIED、
+      // purge 会把仍在原位的文件按不可逆语义清掉，恢复/清空语义被污染）。回滚 = 删已
+      // 落位的 finalTrashAbs + 移除刚写入的回收站条目（条目以 id 为键，同 id 旧条目已
+      // 被本次 appendTrashEntryAsync 替换，按 id 移除即移除本次写入者），再抛原错误
+      //（外层 catch 收口 WRITE_ERROR，文件原地未动、可重试）。回滚自身失败只 warn：
+      // 此时确有双份残留，但源未删、数据无损（硬链接同 inode），重试软删按 R73-34
+      // 后缀链继续保双份。
+      try {
+        rmSync(oldSafe, { force: true })
+      } catch (rmErr) {
+        try {
+          rmSync(finalTrashAbs, { force: true })
+          await removeTrashEntryAsync(this.bookRoot, docId)
+        } catch (rollbackErr) {
+          log.warn('document', `软删删源失败且回收站回滚不净（${oldPath}，源文件未删、回收站有残留，重试软删将按时间戳后缀保双份）：${errMsg(rollbackErr)}`)
+        }
+        throw rmErr
+      }
       // P1-S3：rename 成功后 manifest 更新改 best-effort——失败不阻断（文件已实质删除，
       // 回收站 manifest / 主清单不一致不影响数据安全，下次操作自然修复）
       try {

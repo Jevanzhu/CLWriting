@@ -209,6 +209,9 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
   if (kindNode) {
     const k = String(parseValue(kindNode.value))
     if (k === 'short' || k === 'long') cfg.kind = k
+    // R37-11（三十七轮）：坏值静默落默认补 warn 留痕——作者笔误（kind: shrt）时
+    // 短篇稿被静默路由长篇轨，无迹可查（对齐 :202 spec_version 的 warn 纪律）
+    else log.warn('book.yaml', `kind 值非法（「${kindNode.value.trim().slice(0, 40)}」），已按缺省 long 处理`)
   }
 
   // host（决策 12）：AI 宿主，缺省 cc；只认 cc/codex
@@ -216,6 +219,8 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
   if (hostNode) {
     const h = String(parseValue(hostNode.value))
     if (h === 'cc' || h === 'codex') cfg.host = h
+    // R37-11：同 kind——坏值静默回落 cc 无迹可查
+    else log.warn('book.yaml', `host 值非法（「${hostNode.value.trim().slice(0, 40)}」），已按缺省 cc 处理`)
   }
 
   // workflow（W0 §2 已废弃删除）：存量 book.yaml 里的 workflow 行是未知字段，
@@ -465,11 +470,16 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
     if (md) {
       const v = parseFiniteNumber(md.value, 0)
       if (v > 0) snapshotsConfig.max_days = v
+      // R37-11（三十七轮）：坏值静默吞补 warn 留痕——真实文件损坏（max_days: abc/0/-3）
+      // 时用户无感知（对齐 :292 budget 值非正数的 warn 文案口径）
+      else log.warn('book.yaml', `snapshots.max_days 值非正数（「${md.value.trim().slice(0, 40)}」），已忽略（按未设处理）`)
     }
     const mc = findChild(snapshots, "max_count")
     if (mc) {
       const v = parseFiniteNumber(mc.value, 0)
       if (v > 0) snapshotsConfig.max_count = v
+      // R37-11：同 max_days
+      else log.warn('book.yaml', `snapshots.max_count 值非正数（「${mc.value.trim().slice(0, 40)}」），已忽略（按未设处理）`)
     }
     if (Object.keys(snapshotsConfig).length > 0) cfg.snapshots = snapshotsConfig
   }
@@ -761,9 +771,13 @@ export function writeBookConfig(filePath: string, cfg: BookConfig): void {
  */
 /** Z-7（第五十八轮）：补丁族段定位的 CRLF 容忍——split('\n') 残留 \r 尾，无值段头
  *  （`book:\r`）两条件均不中会走追加分支在文件尾造重复段（解析取首个段 → 改动静默丢失）。
- *  统一剥 \r 后比对（md 侧 frontmatter 同族口径）。 */
+ *  统一剥 \r 后比对（md 侧 frontmatter 同族口径）。
+ *  R37-10（三十七轮）：再补行首 BOM 剥除（只剥一次）——文件首键行带 UTF-8 BOM
+ *  （\uFEFF）时段定位同样失明、误走追加分支造重复段（读侧先例 R33D-3；调用方均为
+ *  findIndex 直吃 raw 原文，上游无统一剥除点，故在本函数收口）。 */
 function matchesKeyLine(line: string, key: string): boolean {
-  const bare = line.endsWith('\r') ? line.slice(0, -1) : line
+  const noBom = line.startsWith('\uFEFF') ? line.slice(1) : line
+  const bare = noBom.endsWith('\r') ? noBom.slice(0, -1) : noBom
   return bare === `${key}:` || bare.startsWith(`${key}: `)
 }
 

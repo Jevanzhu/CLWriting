@@ -45,14 +45,8 @@ const form = ref(
 /** 模型行草稿（ModelListEditor 双向；挂载由 initial?.models 回填） */
 const modelDrafts = ref<ModelRowDraft[]>(dtoToModelDrafts(props.initial?.models))
 
-const detailsOpen = ref(false)
-
 const keyError = computed(() => apiKeyFailure(form.value.apiKey))
-/** 新增必填；编辑留空 = 保留原 key，此时不算错 */
-const keyRequiredError = computed(() => {
-  if (props.initial) return null
-  return apiKeyFailure(form.value.apiKey)
-})
+// R37-30（三十七轮批E）：删 detailsOpen / keyRequiredError 死变量——声明后零消费（校验职责已由 validate 链承接）
 
 /** 选协议类型——自动定认证策略（anthropic→anthropic 头，openai/openai-responses→bearer） */
 function selectProtocol(p: Protocol): void {

@@ -23,7 +23,7 @@ import { HANZI } from '../../../check/count.js' // R64-11：堆砌锚点汉字�
 import { checkFalsePositiveEvent } from '../../../events/chain-bridge.js'
 import {
   runCheckForDocument,
-  collectTreeIssues,
+  collectTreeIssuesAsync,
   checkOutcomeStatus,
 } from '../../../check/run.js'
 
@@ -175,7 +175,9 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
         return
       }
       // 聚合逻辑已下沉内核（P1-8）：扫正文 + 机检 + verdict 驳回，返回只有 issue 的 docId
-      const { issues, rebuildFailed, leadsBookDegraded, chaptersDegraded } = collectTreeIssues(bookRoot, (docId) => {
+      // R37-3（三十七轮）：改走 async 孪生——大书全书同步聚合此前单请求秒级冻结事件循环
+      //（Electron 内嵌单进程服务 = 桌面整体卡死），现章循环每 25 章让出一次
+      const { issues, rebuildFailed, leadsBookDegraded, chaptersDegraded } = await collectTreeIssuesAsync(bookRoot, (docId) => {
         const reviewEnv = readAnalysis(bookRoot, docId, 'review')
         const v = (reviewEnv?.payload as { verdict?: { approved: boolean } } | undefined)?.verdict
         return v ?? undefined

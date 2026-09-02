@@ -57,6 +57,15 @@ const isCreatingHere = () =>
   props.creatingDirPath === props.node.path && props.node.isDirectory && isOpen()
 const isRenaming = () => props.renamePath === props.node.path
 
+// R37-31（三十七轮批E）：原生拖拽必须在 dragstart 内同步写 dataTransfer——Firefox 等
+// 无 data 不启动拖拽（规范要求 drag data store 有项才进入拖拽会话）；同时命中区从
+// 14px caret / 8px dot 扩到整行（常规行内无 input，重命名态整行被输入框替换、天然
+// 不受影响，不破坏行内文本选择），path 同时作为 text/plain 供外部拖入
+function onDragStart(e: DragEvent): void {
+  e.dataTransfer?.setData('text/plain', props.node.path)
+  emit('dragstart', props.node.path)
+}
+
 // 多参数事件转发（递归子项 → 父）：$event 仅首个参数，不能索引，故用方法
 function forwardCtx(node: TreeNode, x: number, y: number): void {
   emit('contextmenu', node, x, y)
@@ -129,10 +138,13 @@ watch(
       :style="{ paddingLeft: `${depth * 14 + 8}px` }"
       role="button"
       tabindex="0"
+      draggable="true"
       @keydown.enter.prevent="node.isDirectory ? emit('toggle', node.path) : emit('select', node)"
       @keydown.space.prevent="node.isDirectory ? emit('toggle', node.path) : emit('select', node)"
       @click="node.isDirectory ? emit('toggle', node.path) : emit('select', node)"
       @contextmenu.prevent="emit('contextmenu', node, $event.clientX, $event.clientY)"
+      @dragstart="onDragStart"
+      @dragend="emit('dragend')"
       @dragover="node.isDirectory ? $event.preventDefault() : undefined"
       @drop="node.isDirectory ? (emit('drop', node.path), $event.preventDefault()) : undefined"
     >
@@ -141,19 +153,10 @@ watch(
         :size="14"
         class="caret"
         :class="{ 'caret-closed': !isOpen() }"
-        draggable="true"
-        @dragstart="emit('dragstart', node.path)"
-        @dragend="emit('dragend')"
         @click.stop="emit('toggle', node.path)"
       />
       <span v-else class="dot-slot">
-        <span
-          class="dot"
-          :class="dotClass(node.status)"
-          draggable="true"
-          @dragstart="emit('dragstart', node.path)"
-          @dragend="emit('dragend')"
-        ></span>
+        <span class="dot" :class="dotClass(node.status)"></span>
       </span>
       <span class="label">{{ node.name }}</span>
       <span v-if="node.status === 'published'" class="badge">·已发</span>

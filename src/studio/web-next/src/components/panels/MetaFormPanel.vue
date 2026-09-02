@@ -20,17 +20,7 @@ type FieldDef = {
   placeholder?: string
 }
 
-const TITLE: Record<string, string> = {
-  chapter: '章节',
-  'piece-body': '短篇',
-  'chapter-outline': '章纲',
-  'volume-outline': '卷纲',
-  synopsis: '总纲',
-  character: '角色',
-  worldview: '世界观',
-  item: '物品',
-  foreshadow: '伏笔',
-}
+// R37-30（三十七轮批E）：删 TITLE 死变量——表单标题职责移至 FIELD_DEFS/调用方后残留零消费
 
 const FIELD_DEFS: Record<string, FieldDef[]> = {
   // 章节（写作/正文）：fm 元数据走右栏；标题/章号不在表单（标题走顶部 inline-title 联动 rename，章号建章定）

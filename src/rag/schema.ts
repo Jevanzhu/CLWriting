@@ -8,7 +8,10 @@
 
 import type { DatabaseSync } from 'node:sqlite'
 
-/** chunks 表 + rag_meta 表 DDL */
+/** chunks 表 + rag_meta 表 DDL
+ *  R37-37（三十七轮）：内部常量，不再导出——全库（生产+测试）零消费方，导出面平白
+ *  扩大内部 schema 契约；schema 断言走真实建库路径 createRagTables（见
+ *  test/rag/r37-schema-ddl-unexport.test.ts）。 */
 const RAG_DDL = [
   `CREATE TABLE IF NOT EXISTS chunks (
     id           INTEGER PRIMARY KEY,
@@ -64,5 +67,3 @@ function isUniqueConstraintError(e: unknown): boolean {
     err.errcode === 2067
   )
 }
-
-export { RAG_DDL }

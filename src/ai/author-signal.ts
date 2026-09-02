@@ -8,7 +8,7 @@
  * 不做自由文本教训提取（那需要 AI 归纳，留第三波记忆层）。
  * 失败一律静默返回——信号是旁路证据，绝不阻断落盘主流程。
  */
-import { listAiVersions, readAiVersion } from '../git/ai-track.js'
+import { listAiVersionsAsync, readAiVersionAsync } from '../git/ai-track.js'
 import { collectRuleViolations } from './rules/index.js'
 import { recordRuleHits } from './rule-hits.js'
 import { openSessionStore, openSessionStoreAsync, bookHash } from '../events/store.js'
@@ -30,9 +30,12 @@ export async function recordAuthorSignal(
   task: string,
   userDataPath?: string,
 ): Promise<void> {
-  const versions = listAiVersions(bookRoot, docId)
+  // R37-5（三十七轮）：读侧改异步孪生——listAiVersions/readAiVersion 的同步版走
+  // spawnSync，本函数挂在服务 HTTP 链（draft.ts 落盘端点 / self-heal 终稿三连），
+  // git 无响应时阻塞事件循环最长 15s（写侧 R36-5 已异步化，此处补齐读侧）
+  const versions = await listAiVersionsAsync(bookRoot, docId)
   if (!versions.length) return
-  const prev = readAiVersion(bookRoot, docId, versions[versions.length - 1]!.sha)
+  const prev = await readAiVersionAsync(bookRoot, docId, versions[versions.length - 1]!.sha)
   if (!prev) return
 
   const deleted = deletedSegments(prev, currentContent)

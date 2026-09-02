@@ -211,7 +211,11 @@ function commitKnowledgeFileLocked(projectRoot: string, opts: CommitKnowledgeOpt
   manifest.generated_at = opts.now ?? localIsoTimestamp()
 
   try {
-    atomicWriteFile(join(projectRoot, KNOWLEDGE_MANIFEST), JSON.stringify(manifest, null, 2) + '\n')
+    // R37-43（三十七轮）：manifest 显式 fsync——_manifest.json 是知识层对账单源，
+    // 崩溃窗口丢清单 = 知识目录与清单失配。对齐高价值落盘显式口径先例
+    // （metrics/style.ts N-12 冻结基线、document/trash.ts P2-BE-5 回收站清单）；
+    // atomicWriteFile 缺省本就 fsync=true（T2-5），显式传参意图自明 + 防未来缺省漂移。
+    atomicWriteFile(join(projectRoot, KNOWLEDGE_MANIFEST), JSON.stringify(manifest, null, 2) + '\n', { fsync: true })
   } catch (e) {
     // R73-13：manifest 写失败 → 回滚 fm 注入（文件恢复原文）。回滚自身也失败（磁盘满等
     // 同源 IO 故障）时不再吞——报错文案注明残留状态，作者可手删 fm 两键后重试。

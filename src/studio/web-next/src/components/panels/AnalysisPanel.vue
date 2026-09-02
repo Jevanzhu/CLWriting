@@ -7,7 +7,7 @@ import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
 import { useDocStore } from '../../stores/doc'
 import { useUiStore } from '../../stores/ui'
-import { formKindOf, parseFmFields, isBodyKind, stripFrontmatter, mergeFm } from '../../shared/words'
+import { parseFmFields, isBodyKind } from '../../shared/words' // R37-30（三十七轮批E）：formKindOf/stripFrontmatter/mergeFm 零消费移除
 import { getAnalysisOverview, autotag, inferMeta, type AnalysisOverview } from '../../api/analysis'
 import { updateDocMeta } from '../../api/documents'
 import { friendlyError } from '../../shared/error'

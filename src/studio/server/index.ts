@@ -323,7 +323,11 @@ export function startServer(opts: StudioServerOptions): http.Server {
     // CORS:只对白名单 Origin 设 ACAO(跨站浏览器读被阻)
     if (origin && allowedOrigins.has(origin)) {
       res.setHeader('access-control-allow-origin', origin)
-      res.setHeader('access-control-allow-methods', 'GET,POST,PUT,DELETE,OPTIONS')
+      // R37-18（三十七轮）：allow-methods 补 PATCH——下方写闸（isWrite）本就把 PATCH
+      // 纳入 Origin/token 校验，但预检 allow-methods 清单漏了它：浏览器对 PATCH
+      //（非简单方法）先发预检，清单不含 PATCH → 预检通过后实际请求仍被浏览器按
+      // CORS 拒发（服务端放行口径与预检清单失配）
+      res.setHeader('access-control-allow-methods', 'GET,POST,PUT,DELETE,PATCH,OPTIONS')
       res.setHeader('access-control-allow-headers', 'content-type, x-studio-token')
       res.setHeader('vary', 'origin')
     }

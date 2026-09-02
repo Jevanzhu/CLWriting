@@ -150,7 +150,19 @@ export const useChatStore = defineStore('chat', () => {
   /** 跟随编辑器当前章——仅本书无显式选择记忆时；有记忆（含显式「全书」）不覆盖 */
   function followChatChapter(book: string, current: number | undefined): void {
     if (chapterMemo.has(book)) return
-    if (current !== undefined) selectedChapter.value = current
+    // R37-29（三十七轮批E）：补 undefined 分支——切到非正文文档（细纲/设定/总纲无章号，
+    // currentChapter() 为 undefined）时原只在有值时赋值，章号语境残留上一章，发送会把
+    // 对话挂到错误章上下文。非正文文档无章语境 → 显式回落「全书」
+    selectedChapter.value = current
+  }
+
+  /** R37-28（三十七轮批E）：删书时清理该书的章号显式记忆——chapterMemo 此前无书删除
+   *  出口，删除书的记忆常驻内存；同名重建书会回填旧书的章号语境（跨书残留）。
+   *  只清指定书（其它书记忆不受牵连），若清的是当前书，selectedChapter 随之回落
+   *  「全书」（与 clear 的复位口径一致）。 */
+  function clearChapterMemo(book: string): void {
+    chapterMemo.delete(book)
+    if (wsBookName() === book) selectedChapter.value = undefined
   }
 
   /** 是否有消息 */
@@ -624,6 +636,7 @@ export const useChatStore = defineStore('chat', () => {
     selectedChapter,
     selectChatChapter,
     followChatChapter,
+    clearChapterMemo,
     dispatch,
     pushUser,
     popUser,

@@ -127,8 +127,14 @@ function topSectionSpan(lines: string[], section: string): { start: number; end:
 }
 
 /** 行是否为段内直接子键 `key:`（恰好 childIndent 缩进 + key + 冒号；行尾可带值/注释） */
+/** R37-23（三十七轮）：剥行尾 \r 再判（同 matchesKeyLineCRLF 的 Z-7 口径）——CRLF 文件
+ *  split('\n') 残留 \r 尾，裸子键行（`  genre:\r`）的 === 比对失配、判定落空 → 删除
+ *  no-op 原样返回，迁移静默丢改（幂等重跑也无 diff，作者无感知）。带值形态
+ *  （`  genre: ''\r`）startsWith 分支不受行尾影响，本就命中。 */
 function isChildKeyLine(line: string, key: string, childIndent: number): boolean {
-  return line === ' '.repeat(childIndent) + `${key}:` || line.startsWith(' '.repeat(childIndent) + `${key}: `)
+  const bare = line.endsWith('\r') ? line.slice(0, -1) : line
+  const head = ' '.repeat(childIndent) + `${key}:`
+  return bare === head || bare.startsWith(`${head} `)
 }
 
 /**

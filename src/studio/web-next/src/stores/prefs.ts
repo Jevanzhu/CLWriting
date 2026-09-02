@@ -376,6 +376,12 @@ export const usePrefsStore = defineStore('prefs', () => {
     const merged: GlobalPrefs = { ...remote.prefs }
     for (const k of dirtyKeysOf(localCache)) merged[k] = localCache[k]
     applyPrefs(merged)
+    // R37-27（三十七轮批E）：合并结果只写 refs 不落样式——非本窗脏的字段采纳远端新值后，
+    // 排版 CSS 变量/主题 dataset/紧凑 class 仍停留在冲突前旧值，「已保留本窗修改并合并
+    // 最新值」的提示弹出但样式不生效。对齐 init() 的恢复链：applyPrefs 后接三连 apply
+    applyTheme()
+    applyCompact()
+    apply()
     const retryCache = buildCache()
     try {
       const r = await putGlobalPrefs(retryCache, revision)

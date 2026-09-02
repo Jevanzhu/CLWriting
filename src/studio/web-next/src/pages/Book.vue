@@ -78,8 +78,11 @@ let bookGen = 0
       workbench.clear() // 第五轮口径：clear 早于 flushDirty（防双 spawn 窗），此处照搬
       const failedEmpty = await doc.flushDirty()
       if (gen !== bookGen) return // 挂起期间路由又变：交新轮回处理
-      if (failedEmpty.length > 0) {
-        console.warn(`[Book] 脏路由离开时 ${failedEmpty.length} 个文档保存失败（编辑未落盘）: ${failedEmpty.join(', ')}`)
+      // R37-1（三十七轮批E）：flush 等待窗口内在途保存可能落成 conflict——这类条目不在
+      // failed 口径内（flushDirty 的扫描排除 conflict 项），一并留痕防静默
+      const conflictEmpty = doc.conflictedDirtyDocs()
+      if (failedEmpty.length > 0 || conflictEmpty.length > 0) {
+        console.warn(`[Book] 脏路由离开时 ${failedEmpty.length} 个文档保存失败（编辑未落盘）: ${failedEmpty.join(', ')}；${conflictEmpty.length} 个文档冲突未决: ${conflictEmpty.join(', ')}`)
       }
       lastBook = ''
       doc.setBook('')
@@ -101,6 +104,10 @@ let bookGen = 0
     // bookName 仍指 A），以其为回退源：重挂路径守卫照常跑（作者至少拿到决断权）。
     // doc.bookName 类型 string|null（null=未载入），守卫语义下 null 与 '' 同义
     const prevBook = lastBook || doc.bookName || ''
+    // R37-1（三十七轮批E）：Z-8 预检已决断「丢弃并切换」的 docId 台账——预检弹窗确认后
+    // 条目仍保持 conflict+dirty（flushDirty 不存 conflict 项），下方 flush 后复查须排除，
+    // 否则同一批文档二次弹窗（对同一决断重复提问）
+    const adjudicated = new Set<string>()
     if (prevBook !== '' && n !== prevBook) {
       const conflicted = doc.conflictedDirtyDocs()
       if (conflicted.length > 0) {
@@ -135,6 +142,8 @@ let bookGen = 0
           }
           return
         }
+        // 确认丢弃：登记已决断——flush 后复查不再对这批 conflict 二次弹窗
+        for (const id of conflicted) adjudicated.add(id)
       }
     }
     // 时序说明（R62-48 → R29-10 改写）——bookName 走 computed，路由一变新书 SSE/心跳
@@ -171,6 +180,40 @@ let bookGen = 0
         // R32-8：同 Z-8 取消分支——F1 await 窗（flushDirty + 确认弹窗）期间目标书 n 的
         // 事件已入各 store；回退重入被 R26-18 短路，不在此清污则残留至下次切书。
         // workbench 已在链首 clear（第五轮口径），此处清其余事件驱动 store。
+        check.clear()
+        review.clear()
+        learn.clear()
+        style.clear()
+        rewrite.clear()
+        chat.clear()
+        await router.replace(`/book/${encodeURIComponent(prevBook)}`)
+        if (gen === bookGen && bookName.value === prevBook) {
+          sse.resync()
+          void chat.seedHistory(prevBook)
+        }
+        return
+      }
+    }
+    // R37-1（三十七轮批E）：flush 等待窗口内复查冲突——上方 Z-8 守卫在 flushDirty 之前
+    // 查 conflictedDirtyDocs，等待期间在途保存可能落成 REVISION_CONFLICT（conflict=true、
+    // dirty=true），这类条目既不在 failed 内也不被 flushDirty 后续轮次重扫，不复查则
+    // setBook 清缓存即不可恢复丢失。走 Z-8 同款决断（文案/回退/清污口径与上方一致）；
+    // 预检已决断「丢弃」的批次（adjudicated）不二次弹窗。
+    const conflictedAfterFlush = doc.conflictedDirtyDocs().filter((id) => !adjudicated.has(id))
+    if (conflictedAfterFlush.length > 0 && prevBook !== '') {
+      const drop = await ui.ask({
+        title: `有 ${conflictedAfterFlush.length} 个文档存在未处理的修改冲突`,
+        message: '这些文档的本地修改从未保存，切换书将永久丢弃。建议先在编辑器处理（重载/覆盖）。仍要切换吗？',
+        confirmText: '丢弃并切换',
+        cancelText: '留在本书',
+        danger: true,
+      })
+      if (gen !== bookGen) return
+      if (!drop) {
+        // 取消 = 留在原书（R26-18 不变式同上方 F1 取消分支：lastBook 已指 n，恢复为
+        // prevBook 维持「lastBook ⟺ 当前路由书」；R32-8 同款清污——await 窗内目标书
+        // 事件已入各 store，回退重入被短路，须等效清掉再由 resync/seedHistory 重建）
+        lastBook = prevBook
         check.clear()
         review.clear()
         learn.clear()
@@ -253,8 +296,11 @@ onUnmounted(() => {
 // 无处再提示作者，至少留下可回溯的失败证据（.版本 快照是恢复底线）
 onUnmounted(() =>
   void doc.flushDirty().then((failed) => {
-    if (failed.length > 0) {
-      console.warn(`[Book] 卸载时 ${failed.length} 个文档保存失败（编辑未落盘）: ${failed.join(', ')}`)
+    // R37-1（三十七轮批E）：卸载路径无界面可弹——flush 等待窗口内落成的 conflict（不在
+    // failed 口径）一并留痕，与卸载时的 failed 同口径（组件已销毁，快照是恢复底线）
+    const conflict = doc.conflictedDirtyDocs()
+    if (failed.length > 0 || conflict.length > 0) {
+      console.warn(`[Book] 卸载时 ${failed.length} 个文档保存失败（编辑未落盘）: ${failed.join(', ')}；${conflict.length} 个文档冲突未决: ${conflict.join(', ')}`)
     }
   }),
 )

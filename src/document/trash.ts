@@ -196,6 +196,19 @@ export async function appendTrashEntryAsync(bookRoot: string, entry: TrashEntry)
   })
 }
 
+/** R37-14（三十七轮）：按 id 移除回收站条目（doTrash 删源失败回滚专用）——软删链
+ *  「先登记后移文件」的反向收口：删源失败时须把刚写入的条目摘掉，否则残留
+ *  「回收站有条目但源文件还在」的双份状态（restore 撞源位 OCCUPIED、purge 把仍在
+ *  原位的文件按不可逆语义清掉）。RMW 持锁同 appendTrashEntryAsync（Z-5 同源：
+ *  <trash-manifest>.lock + strict 读 + fsync 写回），幂等（无该 id 条目时写回等价
+ *  空操作）；条目以 id 为键，同 id 至多一条（append 即替换），按 id 移除即精确移除
+ *  本次写入者。 */
+export async function removeTrashEntryAsync(bookRoot: string, id: string): Promise<void> {
+  await withManifestLockAsync(trashManifestPath(bookRoot), () => {
+    writeTrashManifest(bookRoot, readTrashManifestStrict(bookRoot).filter((e) => e.id !== id))
+  })
+}
+
 /** 列回收站。 */
 export function listTrash(bookRoot: string): TrashEntry[] {
   return readTrashManifest(bookRoot)

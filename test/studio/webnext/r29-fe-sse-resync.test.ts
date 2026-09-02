@@ -233,20 +233,24 @@ describe('R29-10: 切书链尾 resync 强制重取 sync 快照', () => {
     // 书名又变 → 新链（C）接管：B 链 gen 作废
     routeHolder.route!.params.name = '书C'
     await nextTick()
-    await flushPromises()
     await settle()
-    // C 链无阻（d1 在 saving 被 flushDirty 跳过）→ 已走完：书C 即时连接 + 链尾 resync 两条
-    expect(MockES.instances.filter((e) => decodeURIComponent(e.url).includes('书C')).length).toBe(2)
-    expect(askSpy).not.toHaveBeenCalled() // C 链无失败弹窗（saving 项被 flushDirty 跳过）
+    // R37-1（三十七轮批E）语义更新：C 链的 flushDirty 先等在途保存落定（原「saving 项
+    // 直接跳过」即评审所定的静默丢编辑口径）——在途未落定前 C 链不收尾（仅即时连接）
+    expect(MockES.instances.filter((e) => decodeURIComponent(e.url).includes('书C')).length).toBe(1)
 
-    // 释放挂起的保存：B 链醒来 → gen 查代不过中止（不得对 B resync，也不得弹 F1）
+    // 释放挂起的保存：d1 落盘 → C 链走完（书C 链尾 resync）；B 链醒来 gen 查代不过中止
     releaseSave({ ok: true, revision: 'sha256:abc' })
     await flushPromises()
     await settle()
-    expect(askSpy).not.toHaveBeenCalled()
+    expect(askSpy).not.toHaveBeenCalled() // 在途保存成功落盘：无失败/冲突弹窗
     expect(MockES.instances.filter((e) => decodeURIComponent(e.url).includes('书B')).length).toBe(1) // B 无 resync 重连
-    expect(MockES.instances.filter((e) => decodeURIComponent(e.url).includes('书C')).length).toBe(2)
+    expect(MockES.instances.filter((e) => decodeURIComponent(e.url).includes('书C')).length).toBe(2) // C 即时 + 链尾 resync
     expect(doc.bookName).toBe('书C')
+    // R37-1：在途保存在切书收尾前落定（C 链等它走完才 setBook；修复前 saving 项被
+    // 跳过、setBook 清缓存即静默丢编辑）。落盘成功后缓存条目随 setBook 清除，此处
+    // 以「无失败弹窗 + C 链完整走完」为落盘证据链
+    expect(mocks.saveContent).toHaveBeenCalledTimes(1)
+    expect(doc.get('d1')).toBeUndefined()
     w.unmount()
   })
 

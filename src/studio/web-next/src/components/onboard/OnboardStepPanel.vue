@@ -6,13 +6,13 @@ import { useUiStore } from '../../stores/ui'
 import { useTreeStore } from '../../stores/tree'
 import { STEP_LABEL, STEP_PATH, STEP_DESC, type OnboardStep } from '../../api/onboard'
 
-const props = defineProps<{
+defineProps<{
   active: OnboardStep | null
   phase: 'detail' | 'loading' | 'result'
   lastWords: number
   saving: boolean
   err: string | null
-}>()
+}>() // R37-30（三十七轮批E）：props 绑定零消费改裸调用
 const content = defineModel<string>({ required: true })
 const emit = defineEmits<{ gen: []; save: [] }>()
 const ui = useUiStore()

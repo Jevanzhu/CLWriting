@@ -647,7 +647,8 @@ export interface RecallResult {
   hits: RecallHit[]
   /** 召回池超上限被硬截断（读出序前缀保留、尾部丢弃，非按相似度裁剪） */
   truncated: boolean
-  /** 截断前的全量块数（truncated=false 时 = 参与召回的块数） */
+  /** 截断前的全量块数（truncated=false 时 = 参与召回的块数；R37-38 起截断态封顶为
+   *  阈值+1——召回侧早停读 N+1 条即判 truncated，不再为计数全表读回） */
   totalBlocks: number
 }
 
@@ -697,7 +698,13 @@ export async function recallDetailed(
     const indexedModel = getRagMeta(db, 'embedding_model')
     if (indexedModel && indexedModel !== config.model) return emptyResult()
 
-    chunks = readAllChunks(db)
+    // R37-38（三十七轮）：召回读侧早停——此前全表读回只为算 totalBlocks 再 slice，
+    // 大库（数万行）白读。改传「告警阈值+1」：得 N+1 条 ⟺ 全量 > N（truncated 判定
+    // 恒等）；不足 N+1 条 ⟺ 全量 = 读得数（未触界路径 totalBlocks 仍精确）。代价：
+    // 截断态 totalBlocks 封顶为 N+1（不再精确全量）——消费面（materials.ts ragNote）
+    // 只需「超上限」事实与量级，截断前缀语义不变（早停序 = 全读 slice 序，见
+    // store.ts readAllChunks 的 rowid 序前提注释）。
+    chunks = readAllChunks(db, warnThreshold + 1)
     if (chunks.length === 0) return emptyResult() // 空库：无向量可召回，先判空不烧 API
     // O-3（第十三轮）：块数超已知可用区间（十万块，见 store.ts readAllChunks 量化注释）
     // 时告警；T2 批起同时硬截断到上限——超区间线性扫描延迟已超交互预期，防单次召回
@@ -777,10 +784,11 @@ export async function recallDetailed(
   return { hits: out, truncated, totalBlocks }
 }
 
-/** 兼容包装（R73-12）：既有消费面（materials.ts 等）签名与返回不变；截断等结构化
- *  信息走 recallDetailed（R36-16（三十六轮）：materials.ts 已切 recallDetailed 消费
- *  并透出 truncated 信号——本包装仅服务存量测试/签名兼容消费面，丢弃 meta 属有意
- *  取舍，生产召回链路不再经此丢失截断信号） */
+/** 兼容包装（R73-12）：签名与返回（RecallHit[]）保持不变。R37-40（三十七轮）头注
+ *  如实化——此前例举「既有消费面（materials.ts 等）」已失实：materials.ts 已于
+ *  R36-16 切 recallDetailed，现生产代码零调用方，本包装仅服务存量测试面
+ *  （test/rag/*、test/studio/* 的旧断言）。丢弃 truncated/totalBlocks 属有意取舍，
+ *  生产召回链路一律走 recallDetailed（截断信号不丢失）。 */
 export async function recall(
   bookRoot: string,
   config: RagConfig,

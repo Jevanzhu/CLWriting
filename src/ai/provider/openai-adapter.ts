@@ -363,8 +363,9 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
                 yield { type: 'reasoning', delta: reasoningDelta }
               }
 
-              // tool_calls 增量
-              if (delta.tool_calls) {
+              // tool_calls 增量（R37-2：delta 可能为 null——部分网关下发 delta:null 的空
+              // chunk（如纯 usage），与上方 content/reasoning 分支同款可选链兜底，防 TypeError 崩断整条流）
+              if (delta?.tool_calls) {
                 for (const tc of delta.tool_calls) {
                   // R65-9：key 决策——有 index 原样；缺 index 时新调用分片（带 id/name）
                   // 开新兜底键，续片归并最近兜底键（上一兜底键已被 finish_reason 清空则另开）

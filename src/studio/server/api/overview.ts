@@ -4,7 +4,17 @@
  * GET /api/books/:name/overview → 身份 + 进度 + 状态机位置 + 卷结构
  *
  * 状态机经 detectState（自包含：内部 rebuild index.db 幂等 + journal 崩溃自愈 + assembleStatus；
- * R35-5 起异步，调用方 await）。失败不崩（返 state:0 + 错误）。
+ * R35-5 起异步，调用方 await；G3 短时缓存 5s，且 R37-19 起只有成功结果落缓存）。失败不崩
+ *（返 state:0 + 错误，不落缓存）。
+ *
+ * R37-20（三十七轮）注释如实化：此前本文件注释给人「已缓存/无阻塞」的整体印象，实态是
+ * 只有 state 判定有缓存——timeline（逐章 statSync 按日聚合）/ progress（readChapterDir
+ * 全书扫描）/ recentDoc（再扫一遍正文目录）均无缓存、每请求全量算；卷列表 listVolumes
+ * 只扫一层目录（轻，非全书）。R37-3 起 timeline/progress 改走逐块让出的 async 扫描
+ *（statSync 循环每 25 章让出一次，原语共享 progress.ts），大书聚合期间其它请求/SSE
+ * 心跳可跑；但 readChapterDir 扫描段本身仍是单段同步（内核不在本批边界，热路径有
+ * CC-P1-3 stat 级元数据缓存兜住，冷路径变更章整读仍属该段）。投影缓存归 R37-16 批，
+ * 本文件不引入。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, relative } from 'node:path'
@@ -19,7 +29,7 @@ import { readChapterDir } from '../../../format/chapters.js'
 import { finalizedPathSet } from '../../../document/manifest.js'
 import { localDayKey } from '../../../log/index.js'
 import { detectState, STATE_NAMES, type DetectedState } from '../../../state/state.js'
-import { computeProgress } from './progress.js'
+import { computeProgressAsync, yieldToEventLoop, SCAN_YIELD_EVERY } from './progress.js'
 import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
 
 interface OverviewCtx {
@@ -31,6 +41,8 @@ interface OverviewCtx {
 // G3：state 判定结果短时缓存。detectState 内部全量 rebuild index.db（clearAllTables 清空重建），
 // overview 每次请求都触发会慢（大书几百 ms~秒级）。概览页 stale 5s 可接受；精确态走 /state 或 enter。
 // CC-P1-3：原单条目缓存多书交替访问永 miss（P3 观察项）——改多书 Map（key=bookRoot）+ FIFO 上限。
+// R37-19（三十七轮）：只有成功路径落缓存——此前 catch 降级态（state:0 + error）同样
+// 落缓存，TTL 内数据已修复的后续请求也被假空态挡住（缓存了「失败」而非「结果」）。
 type StateOutput = { state: number; name: string; detail: DetectedState | { error: string } }
 const stateCache = new Map<string, { result: StateOutput; ts: number }>()
 /** R67-15（十五轮）：删书/改名失效挂点（同 health.ts forgetStyleScanCache 口径）。 */
@@ -69,7 +81,16 @@ export function registerOverviewRoutes(ctx: OverviewCtx): void {
         // R35-5：detectState 异步化——healMovePending 自愈链的锁等待不再阻塞事件循环
         const detected = await detectState(bookRoot, config)
         state = { state: detected.state, name: STATE_NAMES[detected.state], detail: detected }
+        // R37-19（三十七轮）：写缓存收进 try 成功路径——catch 降级态（state:0 + error）
+        // 此前同样落缓存，TTL 内数据已修复的后续请求仍拿假空态
+        // 简单 FIFO 淘汰（Map 保插入序）：超上限丢最旧条目，防长期运行的书库累积
+        if (stateCache.size >= STATE_CACHE_MAX) {
+          const oldest = stateCache.keys().next().value
+          if (oldest !== undefined) stateCache.delete(oldest)
+        }
+        stateCache.set(bookRoot, { result: state, ts: now })
       } catch (e) {
+        // R37-19：失败态不落缓存——下一请求立即重试（而非被 TTL 挡住拿假空数据）
         state = {
           state: 0,
           name: '状态机判定失败',
@@ -77,15 +98,12 @@ export function registerOverviewRoutes(ctx: OverviewCtx): void {
           detail: { error: redactSecret(e instanceof Error ? e.message : String(e)) },
         }
       }
-      // 简单 FIFO 淘汰（Map 保插入序）：超上限丢最旧条目，防长期运行的书库累积
-      if (stateCache.size >= STATE_CACHE_MAX) {
-        const oldest = stateCache.keys().next().value
-        if (oldest !== undefined) stateCache.delete(oldest)
-      }
-      stateCache.set(bookRoot, { result: state, ts: now })
     }
 
-    const timeline = computeTimeline(bookRoot)
+    // R37-3（三十七轮）：timeline/progress 改走逐块让出的 async 扫描——此前是同步
+    // 全书遍历（statSync 逐章），大书单请求冻结事件循环；仍无缓存（缓存归 R37-16 批，
+    // 勿在此引入）
+    const timeline = await computeTimeline(bookRoot)
     const shortProfile = kind === 'short' ? extractShortProfile(config) : undefined
     reply(res, 200, {
       identity: {
@@ -97,7 +115,7 @@ export function registerOverviewRoutes(ctx: OverviewCtx): void {
         genre: config.book.genre,
         host: config.host ?? 'cc',
       },
-      progress: withTarget(computeProgress(bookRoot), config.book.target_words),
+      progress: withTarget(await computeProgressAsync(bookRoot), config.book.target_words),
       state,
       volumes: listVolumes(bookRoot),
       timeline,
@@ -140,14 +158,20 @@ function listVolumes(bookRoot: string): { name: string; path: string }[] {
  * 低级项（第六轮）：只统计已定稿章——写作中的草稿保存也会刷 mtime，原先被计入
  * 「定稿产出」，热力图/连续天数虚高且与字数日记口径打架。旧书无清单（无法判定）
  * 保持全量口径（与历史行为一致）。
+ * R37-3（三十七轮）：原地异步化（模块私有、唯一调用方 handler 已 await）——statSync
+ * 逐章循环每 SCAN_YIELD_EVERY（25）章让出一次事件循环；readChapterDir/finalizedPathSet
+ * 扫描段边界见文件头 R37-20 注。聚合结果与同步实现逐位一致（r37 回归锚以固定期望守护）。
  */
-function computeTimeline(bookRoot: string): { date: string; count: number }[] {
+async function computeTimeline(bookRoot: string): Promise<{ date: string; count: number }[]> {
   const files: string[] = []
   const { chapters } = readChapterDir(join(bookRoot, '写作', '正文'))
   for (const c of chapters) if (c._path) files.push(c._path)
   const finalized = finalizedPathSet(bookRoot)
   const byDay = new Map<string, number>()
+  let processed = 0
   for (const fp of files) {
+    // R37-3：悬停点——每 25 章（条）让出一次
+    if (++processed % SCAN_YIELD_EVERY === 0) await yieldToEventLoop()
     if (finalized && !finalized.has(relative(bookRoot, fp).replace(/\\/g, '/'))) continue
     let mtime: Date
     try {

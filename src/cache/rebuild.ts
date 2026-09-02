@@ -30,6 +30,81 @@ import { log } from '../log/index.js'
 /** 基础两类（恒启用，母本第 2.1 节） */
 const BASE_LEAD_TYPES = ['悬念', '感情线'] as const
 
+// ── R37-16（三十七轮）：章读 mtime+size 指纹缓存 ──────────────────────────
+// walkMdEach 遍历 textDir 对每章 readChapter 全量同步读（readFile + parseFlat +
+// countWords 全正文扫）——大书（≥500 章）全量重建时秒级阻塞事件循环，而绝大多数
+// 章自上次重建后未变。缓存挂**模块级**（跨 rebuild 调用共享才有收益；每次调用新建
+// Map 则永远 miss）。键=章文件绝对路径，值={指纹（mtimeMs/size/ino）, 解析结果}：
+// - stat 必须先于 read：stat→read 之间文件再变 → 缓存键记的是旧 mtime，下次 rebuild
+//   判 miss 重读自愈；反向（read→stat）会把新 mtime 配旧内容，脏缓存存活到下次变更
+//   ——故序不可换。
+// - 指纹 = mtimeMs + size + ino 三元组（实测 Node v25.9 运行时 Stats 亦无 mtimeNs
+//   字段、@types/node 24 同缺，不可用；mtimeMs 是 double，APFS 纳秒 / NTFS 100ns
+//   精度经 stat 落入小数毫秒位（如 …975.7954），子毫秒改写可区分；ino 防「同
+//   mtime 同尺寸原位替换」——新文件新 inode，三者全符才命中（口径对齐 search.ts
+//   R35-7 dirSignature 的「mtime 探针换免整书重扫」手法，粒度细化到单章；
+//   win 下 ino 恒 0 时退化为 mtimeMs+size 双条件，精度仍够）。
+// - parsed 结果对象跨 rebuild 复用：syncChapter 只读不写 chapter（sync.ts 已核），
+//   复用安全；错误分支同样缓存（坏文件未变时健康报告逐次等价）。
+// - 容量 2048 条（按「≥500 章大书」的 4 倍余量），超限逐出最旧（Map 插入序 FIFO：
+//   命中不重插不刷新位置，非严格 LRU——rebuild 是低频全量扫描、键集稳定，FIFO 零
+//   记账已够用；不选「超限整清」是避免一本大书反复触顶后每次 rebuild 全量 miss）。
+const CHAPTER_CACHE_MAX = 2048
+
+/** readChapter 结果（ok/错误两分支统一缓存）。 */
+type ChapterParseResult = ReturnType<typeof readChapter>
+
+/** 生效容量（测试可注入缩小；生产恒用 CHAPTER_CACHE_MAX）。 */
+let chapterCacheMax = CHAPTER_CACHE_MAX
+
+/** 模块级章读缓存（见上方块注释）。 */
+const chapterCache = new Map<
+  string,
+  { mtimeMs: number; size: number; ino: number; parsed: ChapterParseResult }
+>()
+
+/** 命中/未命中计数（测试断言用；生产只增不读）。 */
+const chapterCacheStats = { hits: 0, misses: 0 }
+
+/** R37-16：带指纹缓存的章读——命中复用上次解析结果，未命中 readChapter 后入缓存。 */
+function readChapterCached(fp: string): ChapterParseResult {
+  // stat 失败（readdir 与读之间被删的竞态）→ 绕过缓存直读，走 readChapter 既有错误契约
+  const st = statSync(fp, { throwIfNoEntry: false })
+  if (!st) return readChapter(fp)
+  const hit = chapterCache.get(fp)
+  if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size && hit.ino === st.ino) {
+    chapterCacheStats.hits++
+    return hit.parsed
+  }
+  const parsed = readChapter(fp)
+  chapterCache.set(fp, { mtimeMs: st.mtimeMs, size: st.size, ino: st.ino, parsed })
+  chapterCacheStats.misses++
+  while (chapterCache.size > chapterCacheMax) {
+    const oldest = chapterCache.keys().next().value
+    if (oldest === undefined) break
+    chapterCache.delete(oldest)
+  }
+  return parsed
+}
+
+/** R37-16：测试钩子（生产零调用；先例同 search.ts __resetSearchScanCountForTest /
+ *  web-next client.ts __testHooks）——清空章读缓存与计数，防测试间污染（模块级
+ *  缓存跨用例存活，同一绝对路径的命中会吃上一用例的指纹）。 */
+export const __testHooks = {
+  clearChapterCache(): void {
+    chapterCache.clear()
+    chapterCacheStats.hits = 0
+    chapterCacheStats.misses = 0
+  },
+  chapterCacheStats(): { hits: number; misses: number; entries: number } {
+    return { ...chapterCacheStats, entries: chapterCache.size }
+  },
+  /** 容量注入（null 还原默认；测淘汰用）。 */
+  setChapterCacheMaxForTest(n: number | null): void {
+    chapterCacheMax = n ?? CHAPTER_CACHE_MAX
+  },
+}
+
 /**
  * 源树根（与全量重建扫描范围精确一致）：
  * - 目录：布线 / 写作 / 定稿 / 大纲/关系线（关系线入库但物理在 大纲/ 下）
@@ -225,7 +300,9 @@ export function rebuild(
     const textDir = join(bookRoot, '写作', '正文')
     if (existsSync(textDir)) {
       walkMdEach(textDir, (fp) => {
-        const r = readChapter(fp)
+        // R37-16：章读接指纹缓存——正文未变的章命中后不再整读 + countWords（大书全量
+        // 重建的秒级事件循环阻塞大头），已变章（mtime/size/ino 任一不符）重读并刷新缓存
+        const r = readChapterCached(fp)
         if (r.ok) {
           syncChapter(db, r.chapter)
           chapterCount++

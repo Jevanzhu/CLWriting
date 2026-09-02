@@ -69,6 +69,8 @@ export function git(args: string[], cwd: string, opts?: { encoding?: 'utf-8'; in
     // R66-22（十四轮）：显式 maxBuffer——默认 1MB 下大书 git 输出超限即 ENOBUFS，
     // 与普通失败混在一起无留痕（listTrackedDocs 静默拿空 → 定稿基线迁移永久跳过）
     maxBuffer: GIT_MAX_BUFFER,
+    // R37-4（三十七轮）：win 上不闪控制台窗（Electron 桌面形态下每次 git 调用可见）
+    windowsHide: true,
   })
   if (r.status === 0) return { ok: true, stdout: String(r.stdout ?? '') }
 
@@ -119,7 +121,8 @@ export function gitAsync(
   opts?: { encoding?: 'utf-8'; input?: string; signal?: AbortSignal },
 ): Promise<GitResult> {
   return new Promise<GitResult>((resolve) => {
-    const child = spawn('git', args, { cwd, stdio: ['pipe', 'pipe', 'pipe'] })
+    // R37-4（三十七轮）：win 上不闪控制台窗（与同步 git() 同款）
+    const child = spawn('git', args, { cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
     const stdoutParts: string[] = []
     const stderrParts: string[] = []
     // R66-22 同款缓冲上限：只收满上限为止（stream 继续排空，防子进程写阻塞在后挂 SIGPIPE）

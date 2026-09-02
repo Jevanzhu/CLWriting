@@ -74,9 +74,12 @@ const CANDIDATE_DIR = '工作区/learn候选'
  * 候选打分（借 #10 机检，#38 第 3.2 节）。
  *
  * 基础 100 分，扣分项来自 #10：
- * - checkStyleMetrics 的 yellow 项每条 -5（对话标签/形容词堆叠/排比/总结体等 AI 味）
- * - checkRepeat 复读率超阈值 -10 * rate
+ * - checkStyleMetrics 项 red 每条 -15 / yellow 每条 -5（对话标签/形容词堆叠/排比/总结体等 AI 味）
+ * - checkRepeat 的 yellow 项每条 -10
  * 无加分项（避免硬编码关键词，口径归 #10 机检，作者调铁律阈值能直接影响打分）。
+ * R37-41（三十七轮）注释如实化：此前宣称「-10 * rate（复读率比率乘减）」与实现
+ * 不符——实现是扁平每条 -10（checkRepeat 双口径互斥，至多出 1 条 yellow），
+ * 扣分不随复读率数值缩放。
  */
 function scoreByChecks(body: string, rules: IronRules): number {
   let score = 100

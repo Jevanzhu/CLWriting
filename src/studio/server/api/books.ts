@@ -40,7 +40,7 @@ import { stringifyValue } from '../../../format/frontmatter.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { doInitAsync } from '../../../install/init.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
-import { computeBookSummary, invalidateBookSummary } from './progress.js'
+import { computeBookSummaryAsync, invalidateBookSummary, yieldToEventLoop } from './progress.js'
 import { migrateBookSession, bookHash } from '../../../events/store.js'
 import { heldTaskGatesFor, crossProcessHeldTaskGatesFor } from './task-gate.js'
 import { isReviewRunningForBook } from './review.js'
@@ -156,7 +156,7 @@ export function registerBookRoutes(ctx: BookCtx): void {
   defineRoute('books.get', {
     method: 'GET',
     path: '/api/books',
-    handler: (_, _req: IncomingMessage, res: ServerResponse) => {
+    handler: async (_, _req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.workDir) {
       reply(res, 200, {
         books: [],
@@ -169,23 +169,34 @@ export function registerBookRoutes(ctx: BookCtx): void {
     // R33-69（三十三轮）：entry.path 过 resolveWithinRoot——readBooks 已拒 `..`/绝对
     // 路径，此处补与删/改路径同强度的越界/symlink 校验（校验强度对称化）；不合法条目
     // 按损坏标记降级（不崩整列）。
-    const books = readBooks(ctx.workDir).map((b) => {
+    // R37-3（三十七轮）：逐书摘要改走 async 孪生 + 书与书之间让出——书库多书时同步
+    // 逐书整树扫描单请求冻结事件循环（Electron 内嵌单进程服务 = 桌面卡死），摘要
+    // TTL 缓存只降频不减峰（缓存 MISS 的首轮与失效后仍全量）。
+    const books = []
+    for (const b of readBooks(ctx.workDir)) {
+      await yieldToEventLoop() // R37-3：书与书之间让出（书内扫描的逐章让出见 computeBookSummaryAsync）
       const within = resolveWithinRoot(ctx.workDir!, b.path)
-      if (!within) return { ...b, damaged: true, createdAt: b.created_at }
+      if (!within) {
+        books.push({ ...b, damaged: true, createdAt: b.created_at })
+        continue
+      }
       const bookRoot = within.abs
       try {
         const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
         // 低-3（第十轮）：book.yaml 损坏/缺失显式标 damaged——readBookConfig 容错不抛，
         // 此前回落默认骨架的空 title 混进列表装作正常书，与单书端点 500 口径分叉
         //（第九轮 L-1 只修了单书侧）。前端按 damaged 展示可后续轮次接线
-        if (!cfgResult.ok) return { ...b, damaged: true, createdAt: b.created_at }
+        if (!cfgResult.ok) {
+          books.push({ ...b, damaged: true, createdAt: b.created_at })
+          continue
+        }
         const { config } = cfgResult
         // P2-BE-1：一次扫描算出进度+最近编辑+最新章节（消除三重 readChapterDir）。
         // 全局托底：targetWords 进度是喂运行时的有效值——书级未设回落 global.json
         // defaultTargetWords（无回落键，global 没有则保持未设 → 前端不显示完成度）
         const effective = applyGlobalDefaults(config, ctx.userDataPath)
-        const summary = computeBookSummary(bookRoot)
-        return {
+        const summary = await computeBookSummaryAsync(bookRoot)
+        books.push({
           ...b,
           title: effective.book.title,
           chapters: summary.chapters,
@@ -194,12 +205,12 @@ export function registerBookRoutes(ctx: BookCtx): void {
           targetWords: effective.book.target_words,
           latestChapter: summary.latestChapter,
           createdAt: b.created_at,
-        }
+        })
       } catch {
         // 书仓库损坏/缺 book.yaml：保留登记原样 + 显式损坏标记（前端容错）
-        return { ...b, damaged: true, createdAt: b.created_at }
+        books.push({ ...b, damaged: true, createdAt: b.created_at })
       }
-    })
+    }
     reply(res, 200, { books, workDir: true })
   },
   })

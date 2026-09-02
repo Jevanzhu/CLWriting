@@ -414,20 +414,45 @@ export const useDocStore = defineStore('doc', () => {
     }
   }
 
+  /** R37-1（三十七轮批E）：flushDirty 等待在途保存的纯等待轮次上限——防活锁（在途
+   *  promise 落定后又立刻出现新在途的极端交叠，如 ⌘S 链式重存反复叠加）。超限后仍
+   *  saving 的条目按原口径跳过（不进 failed）——autosaveTick 节拍 30s 级 vs flush
+   *  窗口 ms 级，真实撞上的概率极低；取舍：宁可极少见地留给快照兜底，不在切书路径
+   *  上引入无限等待。 */
+  const FLUSH_WAIT_INFLIGHT_MAX_ROUNDS = 3
+
   /** 切书前批量保存所有 dirty 文档（await 全部完成，防 setBook 清缓存致 <autosaveInterval 的编辑静默丢失）。
    *  Q-3（第十五轮）：改循环冲排——原一次性快照在 await 窗口内定格，保存期间的新键入
    *  （编辑器仍挂载旧书可继续输入）与「保存中收到的新击键」（快照排除 saving 项）都不在
    *  快照内，setBook 清缓存即静默丢失。每轮重扫直至无待存；保存失败（save 返 false 且
    *  仍 dirty）的文档本轮不再重试防死循环；冲突文档留作者决断。
    *  F1（五十九轮）：返回未落盘（保存失败仍 dirty）的 docId 列表——调用方（Book.vue
-   *  切书守卫 / 卸载留痕）据此决断，不再静默丢编辑。 */
+   *  切书守卫 / 卸载留痕）据此决断，不再静默丢编辑。
+   *  R37-1（三十七轮批E）：先落定在途保存——原过滤条件 !e.saving 把「saving 中的脏
+   *  条目」直接排除出扫描（本轮跳过、failed 也不含它），调用方（切书守卫）以为已落盘
+   *  即 setBook 清缓存，在途保存与其后链式重存（F8 manual 等待链）覆盖的编辑被静默
+   *  丢弃。改为：收集 saving 条目的在途 promise，allSettled 落定后重扫——落定后仍
+   *  dirty（快照后新键入/保存失败）自然进入下方扫描闭环。 */
   async function flushDirty(): Promise<string[]> {
     const failed = new Set<string>()
+    let waitRounds = 0
     for (;;) {
+      const inflight = [...docs.value.values()]
+        .filter((e) => e.saving && e.dirty)
+        .map((e) => inflightSaves.get(e.docId))
+        .filter((p): p is Promise<boolean> => !!p)
+      if (inflight.length > 0 && waitRounds < FLUSH_WAIT_INFLIGHT_MAX_ROUNDS) {
+        waitRounds++
+        // allSettled：单个在途保存 reject（doSave 内已 catch 转 return false，正常不
+        // reject；防御链式 save 的 inflight.catch 分支异常）不阻断其余落定
+        await Promise.allSettled(inflight)
+        continue
+      }
       const dirty = [...docs.value.values()].filter(
         (e) => e.dirty && !e.saving && !e.conflict && !failed.has(e.docId),
       )
       if (dirty.length === 0) return [...failed]
+      waitRounds = 0 // 本轮发生了实际保存：纯等待计数重新起算（连续纯等待才计上限）
       await Promise.all(
         dirty.map(async (e) => {
           const ok = await save(e.docId, 'autosave')
@@ -461,6 +486,10 @@ export const useDocStore = defineStore('doc', () => {
    *  会把页面卸载卡死在浏览器手里——超预算即放弃余下文档（尽力而为语义：同步 XHR 无法
    *  中断在途单次请求，只能在请求之间检查；放弃的文档由 autosave 历史快照兜底）。 */
   function flushSyncOnUnload(): void {
+    // R37-1（三十七轮批E·盲区注记）：本钩子是同步 unload 路径，无法像 flushDirty 那样
+    // 先 await 在途保存落定再扫——saving 中的条目照旧跳过（页面即将销毁，无等待窗口；
+    // 在途异步 PUT 与本同步 XHR 并行各自落盘，同 baselineRevision 重复写由服务端乐观锁
+    // 与 .版本 快照兜底）。与 flushDirty 的「先等在途再扫」是有意为之的口径差异。
     if (!bookName.value) return
     let token = getToken()
     // F3（五十九轮）：boot 失败后 token 为 null，无 token 的同步 PUT 必 401——关窗兜底

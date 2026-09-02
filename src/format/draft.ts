@@ -12,6 +12,8 @@ import { chapterFilePrefix } from './words.js'
 import { sanitizeChapterTitle } from './filename.js'
 import { readManifest } from '../document/manifest.js'
 import type { ChapterMeta } from './types.js'
+// R37-9：正文目录卷扫描 readdirSync 容错降级留痕（同 run.ts/runner.ts 口径）
+import { log } from '../log/index.js'
 
 export type ReadDraftResult =
   | { ok: true; chapter: ChapterMeta; body: string }
@@ -160,15 +162,29 @@ export function inferVolumeDir(bookRoot: string, chapter: number): string {
       const m = /^第([0-9一二三四五六七八九十百]+)卷$/.exec(name)
       return m ? cnVolumeNum(m[1]!) : null
     }
-    const vols = readdirSync(bodyDir, { withFileTypes: true })
-      .filter((e) => e.isDirectory())
-      .map((e) => e.name)
-      .sort((a, b) => {
-        const na = volNum(a)
-        const nb = volNum(b)
-        if (na !== null && nb !== null) return na - nb
-        return a.localeCompare(b, 'zh-Hans-CN')
-      })
+    // R37-9（三十七轮）：existsSync→readdirSync 间隙目录被瞬删/异常迁移（TOCTOU，同
+    // R65-16 口径）或路径被文件占用（ENOTDIR——existsSync 对文件同为 true）时 ENOENT/
+    // ENOTDIR 直穿炸整条写章链路——降级空列表 + warn 留痕（回落「第一卷」缺省，与
+    // bodyDir 不存在时同一出口），其余错误码照旧抛（失败可见）
+    let vols: string[] = []
+    try {
+      vols = readdirSync(bodyDir, { withFileTypes: true })
+        .filter((e) => e.isDirectory())
+        .map((e) => e.name)
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code
+      if (code === 'ENOENT' || code === 'ENOTDIR') {
+        log.warn('draft', `正文目录卷扫描失败（${bodyDir}，${code}），卷目录按缺省回落`)
+      } else {
+        throw e
+      }
+    }
+    vols = vols.sort((a, b) => {
+      const na = volNum(a)
+      const nb = volNum(b)
+      if (na !== null && nb !== null) return na - nb
+      return a.localeCompare(b, 'zh-Hans-CN')
+    })
     if (vols.length > 0) return vols[vols.length - 1]!
   }
   return '第一卷'

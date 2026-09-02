@@ -17,7 +17,7 @@ const RULE_LABEL: Record<string, string> = {
   'plot-consistency': '情节偏离',
 }
 
-const props = defineProps<{ ruleHits: RuleHitEntry[] }>()
+defineProps<{ ruleHits: RuleHitEntry[] }>() // R37-30（三十七轮批E）：props 绑定零消费改裸调用
 const wb = useWorkbenchStore()
 
 // 事件流渲染：按 type 归类显示

@@ -143,12 +143,52 @@ export function isRagDbCorruptionError(e: unknown): boolean {
  * 故障/杀软半写后的非 SQLite 字节流）清表救不了，只能删库重建——.cache/rag.db 是派生
  * 缓存区（schema.ts 自述），可弃可重建语义下删库不丢真数据（重嵌成本除外）。调用方
  * 必须先经 isRagDbCorruptionError 确认损坏，绝不对 busy/IO 等可重试错误删库。
+ *
+ * R37-39（三十七轮）：unlink 的 EBUSY/EPERM/EACCES 小退避重试——win 杀毒/索引器瞬时
+ * 占用 .cache/rag.db 时 unlinkSync 直接上抛会把删库自愈链变 500（瞬时占用毫秒级即
+ * 释放）。3 次重试 × 200ms 固定间隔；本函数在 resetRagIndex 同步链上（DatabaseSync
+ * 同步 API，不可异步化），同步退避先例同 fs/atomic.ts renameWithRetry（Atomics.wait
+ * 微睡 + unlink/sleep 可注入测试口，不动生产语义）。仅瞬时占用码进重试——ENOENT 等
+ * 确定性错误立即上抛。最终仍失败抛带结构化信息的错误（文件名+code+已重试次数），
+ * 上层 isRagDbCorruptionError/rebuild 自愈语义不变（错误不落损坏判定面）。
  */
-export function deleteRagDbFiles(bookRoot: string): void {
+export interface DeleteRagDbFilesOptions {
+  unlink?: (fp: string) => void
+  sleep?: (ms: number) => void
+  retries?: number
+  delayMs?: number
+}
+
+const RETRYABLE_UNLINK_CODES = new Set(['EBUSY', 'EPERM', 'EACCES'])
+
+export function deleteRagDbFiles(bookRoot: string, opts?: DeleteRagDbFilesOptions): void {
+  const doUnlink = opts?.unlink ?? ((fp: string) => unlinkSync(fp))
+  // Atomics.wait 同步微睡（Node 主线程合法；单次退避 200ms，不阻塞事件循环可观时长）
+  const sleep =
+    opts?.sleep ?? ((ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms))
+  const retries = opts?.retries ?? 3
+  const delayMs = opts?.delayMs ?? 200
   const dbPath = resolveRagDbPath(bookRoot)
   for (const suffix of ['', '-wal', '-shm']) {
     const fp = dbPath + suffix
-    if (existsSync(fp)) unlinkSync(fp)
+    if (!existsSync(fp)) continue
+    for (let attempt = 0; ; attempt++) {
+      try {
+        doUnlink(fp)
+        break
+      } catch (e) {
+        const code = (e as NodeJS.ErrnoException).code ?? ''
+        // 确定性错误（ENOENT 等）零重试原样上抛（先例同 renameWithRetry）
+        if (!RETRYABLE_UNLINK_CODES.has(code)) throw e
+        if (attempt >= retries) {
+          // R37-39：重试耗尽的结构化收口（文件名+code+已重试次数）
+          throw new Error(
+            `删除 RAG 库文件失败（${fp}，${code}，已重试 ${retries} 次）：文件被占用或权限不足，请关闭占用程序后重试重建索引`,
+          )
+        }
+        sleep(delayMs)
+      }
+    }
   }
 }
 
@@ -255,13 +295,15 @@ export function storeChunk(db: DatabaseSync, chunk: ChunkInput): void {
 
 /**
  * 读全部块（召回用，全表线性扫描——#37 第 5 节）。
+ * R37-38（三十七轮）：可选 maxChunks 早停——产出行数达到限额即停（毒行剔除不计额），
+ * 语义恒等于全量读后 slice(0, maxChunks)；缺省 undefined = 全读（既有口径不变）。
  * 规模量化（2026-08 实测，Apple Silicon，基准见 test/rag/scale.test.ts）：200 万字目标场景
  * 700 章 / 3.5 万块 / 1536 维（rag.db ~277MB）单次召回 ~320-350ms，含全表 BLOB 读回 +
  * 逐块余弦 + 700 章指纹校验；线性外推：1 万块 ~100ms、几千块几十 ms（原「单本几千块 ms 级」
  * 成立）。结论：十万块内线性扫描可用，超出或要求 <100ms 交互时再议 FTS/向量索引（RC，
  * 需先量化收益）——在界值测试退化失败前明确不引索引。
  */
-export function readAllChunks(db: DatabaseSync): RagChunk[] {
+export function readAllChunks(db: DatabaseSync, maxChunks?: number): RagChunk[] {
   const stmt = db.prepare('SELECT id, 章号, start_offset, end_offset, embedding, norm, model, indexed_at FROM chunks')
   // 内存闸（2026-08-24）：改游标逐行读（iterate）——原 stmt.all() 先把全部 embedding
   // BLOB 物化成数组、再 map 复制出第二份 Float32Array，2 万+ 块 × 1536 维时单次召回
@@ -282,6 +324,17 @@ export function readAllChunks(db: DatabaseSync): RagChunk[] {
     id: number; 章号: number; start_offset: number; end_offset: number
     embedding: Uint8Array; norm: number | null; model: string; indexed_at: string
   }>) {
+    // R37-38（三十七轮）：maxChunks 早停——产出行数达到限额即停，不再把全表 chunk
+    // 读进内存（召回调用方只为截断告警时传「告警阈值+1」即够判 truncated，大库数万
+    // 行白读）。语义恒等于全量读后 slice(0, maxChunks)，两个前提：
+    // ① 行序一致：无 ORDER BY 时 iterate 行序 = rowid 序 = 插入序（SQLite 扫表序），
+    //    早停取到的恰是全量读的前缀；
+    // ② 限额只数**产出行**（毒行剔除不计额）——slice 作用在剔毒后的数组上，早停
+    //    计数口径必须同为剔毒后。副作用：早停时未读尾段的毒行不计入 warn 计数
+    //    （留痕只覆盖已读前缀，截断语义本就丢弃尾段，可接受）。
+    // 边界：maxChunks=0/负数 → 直接空（首行即停，零产出）；undefined → 全读（既有
+    // 调用方/测试面口径不变）。
+    if (maxChunks !== undefined && out.length >= maxChunks) break
     if (r.norm !== null && !Number.isFinite(r.norm)) {
       poisonRows++
       continue

@@ -57,6 +57,15 @@ export interface TaskErr {
   ok: false
   code: TaskCode
   error: string
+  /**
+   * R37-7（三十七轮）：失败封套同样携带全 attempt 可得用量累计（recordUsageSafe 已按
+   * 次入账 ai-calls，但封套不带则 done 事件消费方拿不到——self-heal 失败分支的
+   * 预算/成本统计漏记失败调用）。口径与 TaskOk.attemptsUsage 一致（R73-10）；无任何
+   * attempt 带回 usage 时为 null。取 provider 失败（未跑 attempt）路径不设此字段。
+   */
+  attemptsUsage?: TokenUsage | null
+  /** R37-7：失败时实际使用的模型 id（tier.model 快照，计价用——与 TaskOk.model 同源） */
+  model?: string | null
 }
 
 export interface TaskOk<T> {
@@ -533,10 +542,12 @@ export async function runTask<T>(opts: {
     }
   }
 
+  // R37-7（三十七轮）：中断/超时封套也带 attemptsUsage——X-P2-10 中断路径已按次入账，
+  // 封套同步透出（下游 done 事件失败分支并入 usage，不再漏记）
   const timeoutAbort = (): TaskErr =>
     abortedByUser()
-      ? { ok: false, code: 'ABORTED', error: '已中断' }
-      : { ok: false, code: 'TIMEOUT_TOTAL', error: `生成超时（超过 ${timeoutMs / 60_000} 分钟）` }
+      ? { ok: false, code: 'ABORTED', error: '已中断', attemptsUsage, model: tier.model }
+      : { ok: false, code: 'TIMEOUT_TOTAL', error: `生成超时（超过 ${timeoutMs / 60_000} 分钟）`, attemptsUsage, model: tier.model }
 
   try {
     for (let attempt = 0; ; attempt++) {
@@ -608,10 +619,13 @@ export async function runTask<T>(opts: {
               errCode: 'RETRY_AFTER_OVER_CAP',
             })
             stepReason = 'error'
+            // R37-7：Retry-After 终态封套携带 attemptsUsage/model（同终态失败分支口径）
             return {
               ok: false,
               code: 'GEN_FAIL',
               error: `服务端要求等待 ${Math.round(e.retryAfterMs! / 1000)}s 后重试（超过 ${RETRY_POLICY.maxDelayMs / 1000}s 上限），已停止重试：${e.message}`,
+              attemptsUsage,
+              model: tier.model,
             }
           }
           // W-P2-8：重试也是真实 API 消耗——按次入账，
@@ -652,7 +666,9 @@ export async function runTask<T>(opts: {
           errCode: (e instanceof GenError && e.code) || 'GEN_FAIL',
         })
         stepReason = 'error'
-        return { ok: false, code: 'GEN_FAIL', error: e instanceof Error ? e.message : String(e) }
+        // R37-7（三十七轮）：终态失败封套携带 attemptsUsage/model——recordUsageSafe 已按
+        // 次入账 ai-calls，封套同步透出供下游（self-heal 失败分支）并入 done 事件用量
+        return { ok: false, code: 'GEN_FAIL', error: e instanceof Error ? e.message : String(e), attemptsUsage, model: tier.model }
       }
     }
   } finally {

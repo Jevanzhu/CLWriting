@@ -12,7 +12,13 @@ import { join } from 'node:path'
 import { readFileSync } from 'node:fs'
 import { buildTree, type TreeNode } from '../document/tree.js'
 import { splitFrontMatter, parseFlat } from '../format/frontmatter.js'
-import { listTrackedDocs, listAiVersions, readAiVersion } from '../git/ai-track.js'
+import {
+  listTrackedDocs,
+  listAiVersions,
+  readAiVersion,
+  listAiVersionsAsync,
+  readAiVersionAsync,
+} from '../git/ai-track.js'
 import {
   aggregateSignals,
   mapDriftsToCandidates,
@@ -44,6 +50,34 @@ export function collectDocSignals(
   const last = versions[versions.length - 1]
   if (!last) return null
   const aiText = readAiVersion(bookRoot, docId, last.sha)
+  if (aiText === null) return null
+  const r = compareVersions(aiText, currentText)
+  return {
+    docId,
+    ...(章号 !== undefined ? { 章号 } : {}),
+    gapParas: r.paras
+      .filter((p) => p.tier === 'gap' && p.authorPara.length >= MIN_SAMPLE_PARA)
+      .map((p) => ({ authorPara: p.authorPara, aiPara: p.aiPara, sim: p.sim })),
+    missing: r.missing,
+  }
+}
+
+/**
+ * collectDocSignals 的异步孪生（R37-5 延伸，三十七轮批 A 收口）：读侧走
+ * listAiVersionsAsync/readAiVersionAsync（gitAsync spawn + 有界超时）——本函数
+ * 挂在服务 HTTP 链（style.ts harvest 端点 → harvestStyleCandidatesAsync），同步
+ * spawnSync 在 git 无响应时阻塞事件循环最长 15s。语义与同步版一致：旁路证据静默。
+ */
+export async function collectDocSignalsAsync(
+  bookRoot: string,
+  docId: string,
+  currentText: string,
+  章号?: number,
+): Promise<DocSignals | null> {
+  const versions = await listAiVersionsAsync(bookRoot, docId)
+  const last = versions[versions.length - 1]
+  if (!last) return null
+  const aiText = await readAiVersionAsync(bookRoot, docId, last.sha)
   if (aiText === null) return null
   const r = compareVersions(aiText, currentText)
   return {
@@ -94,6 +128,62 @@ export function harvestStyleCandidates(
       const body = split ? split.body : raw
       const chNum = split ? Number(parseFlat(split.fmRaw).get('章号')) : NaN
       const s = collectDocSignals(
+        bookRoot,
+        docId,
+        body,
+        Number.isInteger(chNum) && chNum > 0 ? chNum : undefined,
+      )
+      if (s) signals.push(s)
+    }
+    candidates.push(...aggregateSignals(signals, today))
+  }
+
+  // ── 源2 · 机检漂移（复用趋势聚合，与体检报告同源）──
+  const samples = scanChapters(bookRoot)
+  const trend = aggregateStyleTrend(samples, kind, readBaseline(bookRoot))
+  candidates.push(...mapDriftsToCandidates(trend.drifts, today))
+
+  return persistCandidates(bookRoot, candidates)
+}
+
+/**
+ * harvestStyleCandidates 的异步孪生（R37-5 延伸，三十七轮批 A 收口）：源1 逐 doc
+ * 的轨迹读走 collectDocSignalsAsync（gitAsync），HTTP 链不再同步 spawnSync。同步版
+ * 保留供存量测试与等价性对照。
+ */
+export async function harvestStyleCandidatesAsync(
+  bookRoot: string,
+  kind: 'long' | 'short',
+  today: string,
+): Promise<{ created: string[]; skipped: number }> {
+  const candidates = []
+
+  // ── 源1 · 改稿轨迹（docId → 树反查路径；文档已删的悬空轨迹跳过）──
+  const tracked = listTrackedDocs(bookRoot)
+  if (tracked.length > 0) {
+    const byDocId = new Map<string, string>()
+    const walk = (nodes: TreeNode[]): void => {
+      for (const n of nodes) {
+        if (n.docId) byDocId.set(n.docId, n.path)
+        if (n.children.length > 0) walk(n.children)
+      }
+    }
+    walk(buildTree(bookRoot))
+    const signals: DocSignals[] = []
+    for (const docId of tracked) {
+      const rel = byDocId.get(docId)
+      if (!rel) continue
+      // 容错读：无 front matter 的文档整文件即正文（手写草稿常态）
+      let raw: string
+      try {
+        raw = readFileSync(join(bookRoot, rel), 'utf-8')
+      } catch {
+        continue
+      }
+      const split = splitFrontMatter(raw)
+      const body = split ? split.body : raw
+      const chNum = split ? Number(parseFlat(split.fmRaw).get('章号')) : NaN
+      const s = await collectDocSignalsAsync(
         bookRoot,
         docId,
         body,

@@ -197,7 +197,21 @@ function scanChapterUpdatesByChapter(bookRoot: string): (chapterNo: number) => C
   const archiveByChapter = new Map<number, ChapterUpdatesResult>()
   const archiveDir = join(bookRoot, LEAD_UPDATES_ARCHIVE_DIR)
   if (existsSync(archiveDir)) {
-    for (const f of readdirSync(archiveDir)) {
+    // R37-9（三十七轮）：existsSync→readdirSync 间隙目录被瞬删/异常迁移（TOCTOU，同
+    // R65-16 口径）时 ENOENT 直穿炸整条批量机检链路（端点 500）——降级空列表 + warn
+    // 留痕（归档账本暂不进预扫，主文件口径不受影响），ENOTDIR（路径被文件占用）同降级
+    let archivedFiles: string[] = []
+    try {
+      archivedFiles = readdirSync(archiveDir)
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code
+      if (code === 'ENOENT' || code === 'ENOTDIR') {
+        log.warn('check', `归档目录读取失败（${archiveDir}，${code}），本轮归档账本推进按空处理`)
+      } else {
+        throw e
+      }
+    }
+    for (const f of archivedFiles) {
       const m = f.match(/^第(\d+)章\.md$/)
       if (!m) continue // 非本章归档命名（含 ._ 资源文件）不入预扫
       const read = readLeadUpdatesAtChecked(join(archiveDir, f))
@@ -343,6 +357,24 @@ export function checkOutcomeStatus(code: 'NOT_CHAPTER' | 'REBUILD_FAIL' | 'CHECK
   return 500
 }
 
+// ── R37-3（三十七轮）：树红点聚合 async 孪生的逐块让出 ──────────────────────
+// 服务是 Electron 主进程内嵌的单进程 HTTP 服务，collectTreeIssues 同步遍历全书
+//（rebuild + 全章扫描 + 逐章机检）在 ≥500 章大书上单请求秒级冻结事件循环 = 桌面
+// 整体卡死；既有 5s TTL 缓存只降频不减峰。异步让出范式同 learn/index.ts R72-2
+//（setImmediate 级让出，块与块之间其它请求/SSE 心跳可跑）。让出窗口内的并发由既有
+// 防护兜底：db busy_timeout 5s（与同进程 rebuild 并发等锁，见下方开库注释）、单章
+// 失败 fail-open 不落缓存（R65-5）、写前纪元复核（R70-14/R71-20/R32-14——聚合窗口
+// 内输入变更整批丢弃缓存行）——同步版这些防护本就面向跨进程并发，async 版让出后的
+// 同进程并发同享这套口径。
+// 实现取「生成器核心 + 双驱动」而非复制体：逻辑单源零漂移（同步版驱到尾 = 与修复前
+// 逐位等价的纯同步执行，存量测试调用方零感知），async 版在每个悬停点让出。
+// 边界如实记：rebuild/预扫段（readChapterDir×2 + 账本预扫）仍是单段同步块——其内核
+//（src/cache/rebuild.ts、src/format/chapters.ts）不在本批允许清单，热路径有 stat 级
+// 缓存（CC-P1-3）与增量 rebuild 兜住；本批切的是章循环（大书的主要阻塞段）。
+const yieldToEventLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
+/** R37-3：章循环的让出粒度——每处理 25 章让出一次（块内单章 stat/机检为毫秒级）。 */
+const TREE_ISSUES_YIELD_EVERY = 25
+
 /** R62-7 测试注入：强制账本全书性红项计算抛错——验证 leadsBookDegraded 透出路径
  *  （真实损坏多被 readLeadsBookRed 自愈吞掉,难确定性触发）。生产恒 false。 */
 let __leadsBookDegradeForTest = false
@@ -357,12 +389,60 @@ export function __setChapterCheckDegradeForTest(v: boolean): void {
   __chapterCheckDegradeForTest = v
 }
 
-/** 树红点聚合：扫正文章节，返回 { docId: { hasRed, verdictRejected } }（仅含有 issue 的 docId）。 */
+/** R37-3（三十七轮）：树红点聚合结果形状（同步/async 孪生共用）。 */
+export interface TreeIssuesResult {
+  issues: Record<string, { hasRed: boolean; verdictRejected: boolean }>
+  rebuildFailed: boolean
+  leadsBookDegraded: boolean
+  chaptersDegraded: number
+  /** R35-24：正文目录解析失败章计数（章号损坏章对树红点隐形，>0 = 本轮树不完整） */
+  chaptersParseDegraded: number
+}
+
+/**
+ * 树红点聚合：扫正文章节，返回 { docId: { hasRed, verdictRejected } }（仅含有 issue 的 docId）。
+ * R37-3（三十七轮）：HTTP 路径改走 async 孪生 collectTreeIssuesAsync；本同步版保留——
+ * 存量测试调用方（test/check/ 下十余个回归文件）与等价性对照基准仍用同步口径。
+ */
 export function collectTreeIssues(
   bookRoot: string,
   readReviewVerdict: (docId: string) => { approved: boolean } | undefined,
   userDataPath?: string | null,
-): { issues: Record<string, { hasRed: boolean; verdictRejected: boolean }>; rebuildFailed: boolean; leadsBookDegraded: boolean; chaptersDegraded: number; /** R35-24：正文目录解析失败章计数（章号损坏章对树红点隐形，>0 = 本轮树不完整） */ chaptersParseDegraded: number } {
+): TreeIssuesResult {
+  // R37-3：同步驱动——生成器 yield 只把控制权交还本驱动，随即 next() 续跑，
+  // 净效果与修复前的纯同步执行逐位一致（无事件循环参与）
+  const it = collectTreeIssuesCore(bookRoot, readReviewVerdict, userDataPath)
+  for (;;) {
+    const r = it.next()
+    if (r.done) return r.value
+  }
+}
+
+/**
+ * R37-3（三十七轮）：collectTreeIssues 的 async 孪生——生成器核心的每个章循环悬停点
+ *（每 TREE_ISSUES_YIELD_EVERY 章）await setImmediate 让出事件循环，大书聚合期间
+ * 其它请求/SSE 心跳可跑（服务热路径纪律：禁止同步长段，让出范式同 learn/index.ts
+ * R72-2）。并发防护口径见上方 R37-3 注释块——与同步版共享，无新增差异面。
+ */
+export async function collectTreeIssuesAsync(
+  bookRoot: string,
+  readReviewVerdict: (docId: string) => { approved: boolean } | undefined,
+  userDataPath?: string | null,
+): Promise<TreeIssuesResult> {
+  const it = collectTreeIssuesCore(bookRoot, readReviewVerdict, userDataPath)
+  for (;;) {
+    const r = it.next()
+    if (r.done) return r.value
+    await yieldToEventLoop()
+  }
+}
+
+/** R37-3：树红点聚合的实现体（生成器，单源供同步/async 双驱动）。 */
+function* collectTreeIssuesCore(
+  bookRoot: string,
+  readReviewVerdict: (docId: string) => { approved: boolean } | undefined,
+  userDataPath?: string | null,
+): Generator<void, TreeIssuesResult, unknown> {
   // B-P2-7：检查 .ok，损坏时 warn 留诊断（config 回落 DEFAULT_CONFIG，不阻断）
   // R29-5（二十九轮）：树聚合路径降级只 warn 不产黄项——树红点聚合只吃 hasRed
   // （issues 只记 {hasRed, verdictRejected}，黄项无处落），逐章注入黄项既不可见又会
@@ -510,8 +590,12 @@ export function collectTreeIssues(
         verdictFp: string | null
         value: { hasRed: boolean; verdictRejected: boolean }
       }> = []
+      // R37-3：章循环悬停计数（async 驱动每 TREE_ISSUES_YIELD_EVERY 章让出一次）
+      let chaptersProcessed = 0
       for (const ch of chapters) {
         if (!ch._path) continue
+        // R37-3：悬停点——同步驱动无感续跑；async 驱动在此让出事件循环
+        if (++chaptersProcessed % TREE_ISSUES_YIELD_EVERY === 0) yield
         // M-4（第六轮）：同上归一——entryByPath/pathToDocId 的键与 manifest/树同用正斜杠
         const relPath = relative(bookRoot, ch._path).replace(/\\/g, '/')
         // 定稿态跳过——不在树上打扰已确认的章节

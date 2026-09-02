@@ -50,7 +50,7 @@ function dismiss(): void {
     <div class="sn-body">
       <p class="sn-title">启动自检发现 {{ visible.length }} 条通告</p>
       <ul class="sn-list">
-        <li v-for="(n, i) in visible" :key="`${n.kind}@${n.ts}`">
+        <li v-for="n in visible" :key="`${n.kind}@${n.ts}`">
           <span class="sn-kind">{{ n.kind }}</span>
           <span class="sn-msg">{{ n.message }}</span>
         </li>

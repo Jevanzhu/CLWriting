@@ -10,7 +10,7 @@
  * hh §八-16 拆分：行卡片 → ModelRow.vue，候选弹窗 → ModelPicker.vue（纯搬家，
  * DOM 结构不变）；本件留行状态/探测/采纳编排。
  */
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { Plus, RefreshCw, Loader2 } from 'lucide-vue-next'
 import type { Protocol } from '../../api/providers'
 import { fetchModels } from '../../api/providers'
@@ -40,8 +40,37 @@ type LocalRow = ModelRowDraft & { _key: number }
 let keySeq = 0
 const rows = ref<LocalRow[]>(props.modelValue.map((r) => ({ ...r, _key: ++keySeq })))
 
+// R37-34（三十七轮批E）：外部 modelValue 变更（如恢复默认/父层整体重置草稿）须重建行
+// 列表——原只在 setup 取初值，外部改 props 后行列表纹丝不动。与「最近一次 emit 的值」
+// 逐行比较（lastEmitted 缓存）：自身 emit 经 v-model 回流的同值不重建，防行内编辑态
+// （展开/输入焦点）被无谓的重建打断
+let lastEmitted: ModelRowDraft[] | null = null
+function sameRows(a: ModelRowDraft[], b: ModelRowDraft[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every((r, i) => {
+      const o = b[i]!
+      return (
+        r.id === o.id &&
+        r.name === o.name &&
+        r.contextWindowText === o.contextWindowText &&
+        r.maxTokensText === o.maxTokensText
+      )
+    })
+  )
+}
+watch(
+  () => props.modelValue,
+  (v) => {
+    if (lastEmitted && sameRows(v, lastEmitted)) return // 自身 emit 的回流：不重建
+    rows.value = v.map((r) => ({ ...r, _key: ++keySeq }))
+  },
+)
+
 function sync(): void {
-  emit('update:modelValue', rows.value.map(({ _key, ...rest }) => rest))
+  const out = rows.value.map(({ _key, ...rest }) => rest)
+  lastEmitted = out
+  emit('update:modelValue', out)
 }
 
 function addRow(): void {

@@ -37,10 +37,21 @@ const flipX = ref(false)
 const flipY = ref(false)
 
 /** Electron accelerator → 平台可读文本（"CmdOrCtrl+X" → mac "⌘X" / win·linux "Ctrl+X"）。
- *  R33-83（三十三轮）：原无条件映射 ⌘，win 浏览器/dev 回退菜单显示 mac 符号。 */
+ *  R33-83（三十三轮）：原无条件映射 ⌘，win 浏览器/dev 回退菜单显示 mac 符号。
+ *  R37-35（三十七轮批E）：平台探测三级兜底——navigator.userAgentData?.platform 是
+ *  Chromium-only API，老 WebView/非 Chromium 内核无该成员；其后回落 navigator.platform
+ *  （已废弃但覆盖面广），再回落 navigator.userAgent 字符串嗅探，探测不再单源落空。 */
+function isMacPlatform(): boolean {
+  const uad = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData
+    ?.platform
+  if (uad) return uad.toLowerCase().includes('mac')
+  if (navigator.platform) return navigator.platform.toLowerCase().includes('mac')
+  return navigator.userAgent.toLowerCase().includes('mac')
+}
+
 function accelLabel(accel?: string): string {
   if (!accel) return ''
-  const isMac = navigator.platform.toLowerCase().includes('mac')
+  const isMac = isMacPlatform()
   return accel
     .replace(/CmdOrCtrl\+/g, isMac ? '⌘' : 'Ctrl+')
     .replace(/Shift\+/g, isMac ? '⇧' : 'Shift+')

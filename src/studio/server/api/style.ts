@@ -38,7 +38,7 @@ import {
   CANDIDATES_DIR,
 } from '../../../format/style-candidate.js'
 import { migrateStyleLibrary } from '../../../format/style-migrate.js'
-import { harvestStyleCandidates } from '../../../process/style-harvest.js'
+import { harvestStyleCandidatesAsync } from '../../../process/style-harvest.js'
 import { readKind, resolveBook } from '../book-context.js'
 import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
 import { localDayKey } from '../../../log/index.js' // R76-31：候选日键与 overview/日记同口径（本地日）
@@ -240,10 +240,12 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
   defineRoute('books.style.harvest', {
     method: 'POST',
     path: '/api/books/:name/style/harvest',
-    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
+    // R37-5 延伸（三十七轮批 A）：切异步孪生——源1 逐 doc 轨迹读走 gitAsync（spawn
+    // + 有界超时），git 无响应不再同步阻塞事件循环最长 15s
+    handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     const bookRoot = resolveStyleBook(res, params)
     if (!bookRoot) return
-    const r = harvestStyleCandidates(bookRoot, readKind(bookRoot), today())
+    const r = await harvestStyleCandidatesAsync(bookRoot, readKind(bookRoot), today())
     reply(res, 200, { ok: true, created: r.created.length, skipped: r.skipped })
   },
   })

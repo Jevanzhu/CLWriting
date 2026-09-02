@@ -10,7 +10,6 @@ import { useUiStore } from '../../stores/ui'
 import { isBodyKind } from '../../shared/words'
 import { friendlyError } from '../../shared/error'
 import BetaBadge from '../ui/BetaBadge.vue'
-import type { ReviewIssueFE } from '../../api/review'
 
 const props = defineProps<{ bookName: string }>()
 const review = useReviewStore()

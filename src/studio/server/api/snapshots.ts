@@ -121,6 +121,9 @@ function scanVersionsDir(
 // 尺寸重写）。写侧另挂同文件失效点（prune/restore 落盘后 forgetVersionStatsCache）；
 // 保存/定稿等外部快照写（documents.ts/service.ts 不在本批允许清单）靠探针见
 // （新快照文件/新目录即变）与 TTL 兜底。
+// R37-17（三十七轮）：递归签名之上再叠两级探针——第一级便宜目录指纹（见
+// versionStatsProbe）命中即跳过递归签名 walk 本身（前端 3s 轮询此前每 poll 全量
+// stat 重算签名）；指纹覆盖边界见该函数头注。
 const VERSION_STATS_TTL_MS = 5000
 const VERSION_STATS_MAX = 32
 
@@ -130,7 +133,7 @@ interface VersionStatsResult {
   pinnedCount: number
   finalizedDocs: number
 }
-const versionStatsCache = new Map<string, { result: VersionStatsResult; sig: string; ts: number }>()
+const versionStatsCache = new Map<string, { probe: string; result: VersionStatsResult; sig: string; ts: number }>()
 let versionStatsTtlMs: number | null = null
 /** R36-7：TTL 测试注入口（先例同 __setSearchCacheTtlForTest）。仅测试用。 */
 export function __setVersionStatsTtlForTest(ms: number | null): void {
@@ -148,6 +151,15 @@ export function __versionStatsScanCountForTest(): number {
 }
 export function __resetVersionStatsScanCountForTest(): void {
   versionStatsScanCount = 0
+}
+/** R37-17（三十七轮）回归观测钩子（生产零调用）：全量签名（versionStatsSignature
+ *  递归 walk）执行计数——两级探针命中时应不再增长。 */
+let versionStatsSigCount = 0
+export function __versionStatsSigCountForTest(): number {
+  return versionStatsSigCount
+}
+export function __resetVersionStatsSigCountForTest(): void {
+  versionStatsSigCount = 0
 }
 
 /** stat 的 size:mtimeMs 签名（缺失 → '-'；读失败按缺失处理）。
@@ -221,13 +233,59 @@ function computeVersionStats(bookRoot: string): VersionStatsResult {
   }
 }
 
-/** R36-7：version-stats 聚合查询（递归 mtime 探针 + 5s TTL 缓存壳）。导出供回归
- *  测试直测（同 searchBookCached 口径）。 */
+/** R37-17（三十七轮）：version-stats 两级探针的第一级——便宜目录指纹（先例
+ *  search.ts R35-7 dirSignature 的 statSync(dir).mtimeMs，按本端点全量签名的实际
+ *  读面设计构成）：
+ *  - manifest（项目/文档清单.jsonl）size:mtimeMs——manifest 是单文件内容写（原子
+ *    rename 重写、不改父目录条目集），目录 mtime 探不到，必须以文件 stat 入指纹；
+ *  - .版本 顶层目录 mtime——doc 子目录增删改名可见；
+ *  - .版本 每个直接子目录的 mtime——快照 .md 在其 doc 目录内的增删/原子重写可见
+ *    （快照档写后不改：应用侧变更 = 新增落盘（同目录 rename / exclusive create）、
+ *    prune 删除、新 doc 目录，均刷对应目录 mtime；r36 回归「写进既有 doc 目录的
+ *    新快照即时失效」必须由子目录 mtime 承担——顶层 stat 探不到）。
+ *  覆盖边界（如实）：目录 mtime 只反映直接子项增删/改名与同目录 rename 落盘——
+ *  外部进程对快照文件的「非 rename 就地内容改写」一级探针不可见，由 TTL 到期
+ *  （≤5s）走第二级全量签名重算兜底（与 R36-7「TTL 兜底探针不可见变化」既有口径
+ *  一致）；.版本 更深层嵌套（>1 层子目录，现行布局无此形态）同理由 TTL 兜底。
+ */
+function versionStatsProbe(bookRoot: string): string {
+  const parts: string[] = [`m:${sigStatFor(join(bookRoot, '项目', '文档清单.jsonl'))}`]
+  const versionsDir = join(bookRoot, '工作区', '.版本')
+  try {
+    parts.push(`d:${statSync(versionsDir).mtimeMs}`)
+    for (const n of readdirSync(versionsDir).sort()) {
+      if (n.startsWith('._')) continue // AppleDouble 伴生不计（与全量签名 walk 同口径）
+      try {
+        parts.push(`${n}:${statSync(join(versionsDir, n)).mtimeMs}`)
+      } catch {
+        parts.push(`${n}:-`) // 子项竞态消失：按变化论（≠上次指纹必 miss → 走全量签名）
+      }
+    }
+  } catch {
+    parts.push('-') // .版本 不存在/不可读——与全量签名的缺席分支同语义
+  }
+  return parts.join(',')
+}
+
+/** R37-17（三十七轮）：version-stats 聚合查询两级探针化（递归 mtime 探针 + 5s TTL
+ *  缓存壳之上加便宜目录指纹）。前端 3s 轮询此前每 poll 都全量重算递归签名（大书
+ *  数千次 lstat）；现在第一级 O(子目录数) stat 未变即复用，指纹变化才走第二级
+ *  （R36-7 原全量签名），签名仍一致（指纹抖动，如原子写 tmp 中间态已消失）则回填
+ *  指纹复用结果。导出供回归测试直测（同 searchBookCached 口径）。 */
 export function getVersionStatsCached(bookRoot: string): VersionStatsResult {
   const now = Date.now()
-  const sig = versionStatsSignature(bookRoot)
+  const ttl = versionStatsTtlMs ?? VERSION_STATS_TTL_MS
   const cached = versionStatsCache.get(bookRoot)
-  if (cached && cached.sig === sig && now - cached.ts < (versionStatsTtlMs ?? VERSION_STATS_TTL_MS)) {
+  // 第一级：便宜目录指纹未变（且 TTL 内）→ 直接复用，跳过全量递归签名 walk
+  const probe = versionStatsProbe(bookRoot)
+  if (cached && now - cached.ts < ttl && cached.probe === probe) {
+    return cached.result
+  }
+  // 第二级：指纹变了才全量签名（R36-7 原口径）；签名一致 → 回填指纹、复用结果免重算
+  versionStatsSigCount += 1
+  const sig = versionStatsSignature(bookRoot)
+  if (cached && now - cached.ts < ttl && cached.sig === sig) {
+    cached.probe = probe
     return cached.result
   }
   versionStatsScanCount += 1
@@ -237,7 +295,7 @@ export function getVersionStatsCached(bookRoot: string): VersionStatsResult {
     const oldest = versionStatsCache.keys().next().value
     if (oldest !== undefined) versionStatsCache.delete(oldest)
   }
-  versionStatsCache.set(bookRoot, { result, sig, ts: now })
+  versionStatsCache.set(bookRoot, { probe, sig, result, ts: now })
   return result
 }
 
