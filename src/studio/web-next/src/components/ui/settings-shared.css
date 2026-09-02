@@ -708,9 +708,47 @@
   flex: 1 1 12em;
 }
 :root[data-platform='win32'] .setting-item-control {
-  flex: 0 0 auto;
+  /* J5 win：字体对（双下拉 font-pair）行内最大内容 ~435px，win 字号 +1px 后信息列
+   * flex-basis 12em 变大 → 整行放不下必须折行；放行 control 收缩（下拉有 min-width:0
+   * 可收窄），行保持单行。 */
+  flex: 0 1 auto;
+  min-width: 0;
   max-width: 100%;
 }
 :root[data-platform='win32'] .setting-item-control select {
-  max-width: 220px;
+  max-width: 280px;
+}
+/* 字体对（双下拉）行：mac 单行靠 info 收缩容纳（nowrap 默认）；win 加 wrap 后控件的
+ * max-content（双下拉 ~435px）超过剩余行宽 → 整行控件被折到第二行（界面字体/编辑器
+ * 字体「错位」主因）。该行放开 nowrap，与 mac 同形态；control 可收缩（见上文）。 */
+:root[data-platform='win32'] .setting-item:has(.font-pair) {
+  flex-wrap: nowrap;
+}
+/* win 自绘字体下拉按钮（FontPicker）：flex 容器的内在尺寸按子项 max-content 计算，
+ * 按钮内容只有中文名+箭头（~97px），flex-basis 180 不参与内在贡献 → 对变窄。
+ * min-width 180 同时抬升内在贡献与收缩下限，双下拉维持可读宽度（focus 条无
+ * .font-pair 不受影响） */
+:root[data-platform='win32'] .font-pair .font-picker {
+  flex: 1 1 180px;
+  min-width: 180px;
+}
+
+/* J5 win（2026-09-02）：800px 面板在 win 字号 +1px 下，行控件合计恰好超出内容区
+ * （实测 532 vs 530，每行都触发 flex-wrap 折两行 → 整页「错位」）→ win 限定把面板
+ * 放大一档 + 控件写死宽度同步放宽，多数行回到单行；折行规则保留作小窗口兜底。 */
+:root[data-platform='win32'] .settings-modal {
+  width: min(880px, calc(100vw - 40px));
+  height: min(840px, calc(100vh - 40px));
+}
+:root[data-platform='win32'] .val-input {
+  width: 68px;
+}
+:root[data-platform='win32'] .num-input {
+  width: 124px;
+}
+:root[data-platform='win32'] .text-input {
+  width: 260px;
+}
+:root[data-platform='win32'] .setting-item input[type='range'] {
+  width: 184px;
 }

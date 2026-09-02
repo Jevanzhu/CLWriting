@@ -3,7 +3,8 @@
 import { computed } from 'vue'
 import { usePrefsStore } from '../../stores/prefs'
 import { useTheme } from '../../composables/useTheme'
-import { useSystemFonts, selValue } from '../../composables/useSystemFonts'
+import { useSystemFonts } from '../../composables/useSystemFonts'
+import FontPicker from './FontPicker.vue'
 
 const prefs = usePrefsStore()
 const { theme, setTheme } = useTheme()
@@ -46,14 +47,8 @@ const hasDesktop = computed(() => typeof window !== 'undefined' && !!window.clwr
       </div>
       <div class="setting-item-control">
         <div class="font-pair">
-          <select class="font-select" :value="prefs.uiFontCn" :style="{ fontFamily: prefs.uiFontCn || 'inherit' }" @change="prefs.setUiFontCn(selValue($event))">
-            <option value="">中文 · 默认</option>
-            <option v-for="f in chineseFonts" :key="'cn-' + f" :value="f" :style="{ fontFamily: f }">{{ fontDisplayName(f) }}</option>
-          </select>
-          <select class="font-select" :value="prefs.uiFontEn" :style="{ fontFamily: prefs.uiFontEn || 'inherit' }" @change="prefs.setUiFontEn(selValue($event))">
-            <option value="">英文 · 默认</option>
-            <option v-for="f in englishFonts" :key="'en-' + f" :value="f" :style="{ fontFamily: f }">{{ fontDisplayName(f) }}</option>
-          </select>
+          <FontPicker class="font-select" :value="prefs.uiFontCn" :fonts="chineseFonts" placeholder="中文 · 默认" :display="fontDisplayName" @change="prefs.setUiFontCn($event)" />
+          <FontPicker class="font-select" :value="prefs.uiFontEn" :fonts="englishFonts" placeholder="英文 · 默认" :display="fontDisplayName" @change="prefs.setUiFontEn($event)" />
         </div>
       </div>
     </div>

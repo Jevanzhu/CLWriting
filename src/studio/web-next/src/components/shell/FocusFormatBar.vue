@@ -8,7 +8,8 @@
 // 让渡名单，Esc 保持「退出专注」单一语义。
 import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
 import { usePrefsStore } from '../../stores/prefs'
-import { useSystemFonts, selValue } from '../../composables/useSystemFonts'
+import { useSystemFonts } from '../../composables/useSystemFonts'
+import FontPicker from '../ui/FontPicker.vue'
 
 const prefs = usePrefsStore()
 const { chineseFonts, englishFonts, fontDisplayName } = useSystemFonts()
@@ -50,16 +51,8 @@ function onPageWidthInput(v: number): void {
     <!-- 字体区：依赖桌面桥取系统字体列表，浏览器/dev 无桥时整区隐藏 -->
     <template v-if="hasDesktop">
       <div class="ffb-sep" />
-      <select class="ffb-select" :value="prefs.proseFontCn" :style="{ fontFamily: prefs.proseFontCn || 'inherit' }"
-        @change="prefs.setProseFontCn(selValue($event))">
-        <option value="">中文 · 默认</option>
-        <option v-for="f in chineseFonts" :key="'cn-' + f" :value="f" :style="{ fontFamily: f }">{{ fontDisplayName(f) }}</option>
-      </select>
-      <select class="ffb-select" :value="prefs.proseFontEn" :style="{ fontFamily: prefs.proseFontEn || 'inherit' }"
-        @change="prefs.setProseFontEn(selValue($event))">
-        <option value="">英文 · 默认</option>
-        <option v-for="f in englishFonts" :key="'en-' + f" :value="f" :style="{ fontFamily: f }">{{ fontDisplayName(f) }}</option>
-      </select>
+      <FontPicker class="ffb-select" :value="prefs.proseFontCn" :fonts="chineseFonts" placeholder="中文 · 默认" :display="fontDisplayName" @change="prefs.setProseFontCn($event)" />
+      <FontPicker class="ffb-select" :value="prefs.proseFontEn" :fonts="englishFonts" placeholder="英文 · 默认" :display="fontDisplayName" @change="prefs.setProseFontEn($event)" />
     </template>
   </aside>
 </template>

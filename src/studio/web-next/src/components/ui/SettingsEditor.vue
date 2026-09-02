@@ -3,7 +3,8 @@
 import { computed } from 'vue'
 import { usePrefsStore } from '../../stores/prefs'
 import { parseNumericInput } from '../../shared/numeric-input'
-import { useSystemFonts, selValue } from '../../composables/useSystemFonts'
+import { useSystemFonts } from '../../composables/useSystemFonts'
+import FontPicker from './FontPicker.vue'
 
 const prefs = usePrefsStore()
 const { chineseFonts, englishFonts, fontDisplayName } = useSystemFonts()
@@ -40,14 +41,8 @@ function numInput(min: number, max: number, setter: (v: number) => void, e: Even
       </div>
       <div class="setting-item-control">
         <div class="font-pair">
-          <select class="font-select" :value="prefs.proseFontCn" :style="{ fontFamily: prefs.proseFontCn || 'inherit' }" @change="prefs.setProseFontCn(selValue($event))">
-            <option value="">中文 · 默认</option>
-            <option v-for="f in chineseFonts" :key="'pcn-' + f" :value="f" :style="{ fontFamily: f }">{{ fontDisplayName(f) }}</option>
-          </select>
-          <select class="font-select" :value="prefs.proseFontEn" :style="{ fontFamily: prefs.proseFontEn || 'inherit' }" @change="prefs.setProseFontEn(selValue($event))">
-            <option value="">英文 · 默认</option>
-            <option v-for="f in englishFonts" :key="'pen-' + f" :value="f" :style="{ fontFamily: f }">{{ fontDisplayName(f) }}</option>
-          </select>
+          <FontPicker class="font-select" :value="prefs.proseFontCn" :fonts="chineseFonts" placeholder="中文 · 默认" :display="fontDisplayName" @change="prefs.setProseFontCn($event)" />
+          <FontPicker class="font-select" :value="prefs.proseFontEn" :fonts="englishFonts" placeholder="英文 · 默认" :display="fontDisplayName" @change="prefs.setProseFontEn($event)" />
         </div>
       </div>
     </div>
