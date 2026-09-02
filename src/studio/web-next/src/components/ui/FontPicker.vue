@@ -177,6 +177,9 @@ onBeforeUnmount(() => {
   box-shadow: var(--shadow-l);
 }
 .fp-item {
+  /* flex 列布局下默认 flex-shrink:1 会把整表项压进 max-height（46 项→每项 12px，
+   * 文字被竖直压扁/裁掉）——禁收缩，超高走 overflow 滚动 */
+  flex-shrink: 0;
   padding: 6px 10px;
   font-size: var(--font-size-s);
   text-align: left;
