@@ -9,8 +9,7 @@
  * finalizedFiles——独立扫描版早被 computeBookSummary 取代，已 grep 复核零引用）。
  */
 import { join } from 'node:path'
-import { statSync } from 'node:fs'
-import { readChapterDir } from '../../../format/chapters.js'
+import { readChapterDir, readChapterDirSummary } from '../../../format/chapters.js'
 
 /** 进度：正文章数+字数（长短统一）。 */
 export function computeProgress(bookRoot: string): { chapters: number; words: number } {
@@ -47,9 +46,12 @@ export function invalidateBookSummary(bookRoot: string): void {
 }
 
 /** V-P2-27：摘要 TTL 缓存——GET /api/books 对每本书同步整树扫描（读全部章节文件），
- *  书多时阻塞事件循环拖慢书架与 SSE 心跳。书架卡允许秒级滞后，缓存 5s；
- *  内存上限防长期运行的书库累积。 */
-const SUMMARY_TTL_MS = 5000
+ *  书多时阻塞事件循环拖慢书架与 SSE 心跳。书架卡允许秒级滞后，缓存 30s；
+ *  内存上限防长期运行的书库累积。TTL 30s（win 平台专项 2026-09-02）：5s 过短——
+ *  刷新页面间隔超 5s 就必重扫一次全书库；保存路径（documents.ts invalidateBookSummary）
+ *  已即时失效，书架卡不会因此变陈旧，30s 只压低「无改动也重扫」的频率。
+ *  扫描成本已由 chapters.ts scanChapterDir 单轮 stat 共享（摘要不再二次 statSync）。 */
+const SUMMARY_TTL_MS = 30_000
 const SUMMARY_CACHE_MAX = 64
 const summaryCache = new Map<string, { at: number; value: ReturnType<typeof computeBookSummaryUncached> }>()
 
@@ -59,31 +61,9 @@ function computeBookSummaryUncached(bookRoot: string): {
   lastEdited: string | null
   latestChapter: string | null
 } {
-  let items: ReturnType<typeof readChapterDir>['chapters']
   try {
-    items = readChapterDir(join(bookRoot, '写作', '正文')).chapters
+    return readChapterDirSummary(join(bookRoot, '写作', '正文'))
   } catch {
     return { chapters: 0, words: 0, lastEdited: null, latestChapter: null }
-  }
-  const words = items.reduce((sum, c) => sum + (c._wordCount ?? 0), 0)
-  let latestMtime = 0
-  let latestTitle: string | null = null
-  for (const it of items) {
-    if (!it._path) continue
-    try {
-      const m = statSync(it._path).mtimeMs
-      if (m > latestMtime) {
-        latestMtime = m
-        latestTitle = it.标题
-      }
-    } catch {
-      // 文件消失忽略
-    }
-  }
-  return {
-    chapters: items.length,
-    words,
-    lastEdited: latestMtime > 0 ? new Date(latestMtime).toISOString() : null,
-    latestChapter: latestTitle,
   }
 }

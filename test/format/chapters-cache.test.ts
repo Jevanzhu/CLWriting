@@ -18,7 +18,7 @@ import { describe, it, expect, afterEach } from 'vitest'
 import { rmSync, mkdirSync, writeFileSync, statSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { readChapterDir, clearChapterDirCache, clearChapterDirCacheForBook } from '../../src/format/chapters.js'
+import { readChapterDir, readChapterDirSummary, clearChapterDirCache, clearChapterDirCacheForBook } from '../../src/format/chapters.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 describe('readChapterDir stat 级缓存（CC-P1-3）', () => {
@@ -135,6 +135,91 @@ describe('readChapterDir stat 级缓存（CC-P1-3）', () => {
     // 未变：第二次内容指纹一致（缓存命中）
     const second = readChapterDir(bodyDir)
     expect(second.chapters.map((c) => c._wordCount)).toEqual(first.chapters.map((c) => c._wordCount))
+  })
+})
+
+// ── win 平台专项（2026-09-02）：readChapterDirSummary 单轮扫描摘要 ────
+// 书架摘要（GET /api/books 每本书）原先在 readChapterDir 之后对每章二次 statSync 算
+// 最近编辑——同步系统调用在 win 上很贵（书多章多时列表刷新可达数百 ms 级）。单轮扫描
+// 版与 readChapterDir 共享同一轮 stat 判定，摘要从同一轮 stat 顺带得出。
+// 断言口径：摘要字段正确、与 readChapterDir 同轮缓存共享（二次调用不整读）、目录空兜底。
+
+describe('readChapterDirSummary 单轮扫描摘要（win 平台专项）', () => {
+  let dir: string
+  afterEach(() => {
+    if (dir) rmSync(dir, { recursive: true, force: true })
+    clearChapterDirCache()
+  })
+
+  function makeDir(): string {
+    dir = mkdtempTracked(join(tmpdir(), 'chapters-summary-'))
+    mkdirSync(join(dir, '正文'), { recursive: true })
+    return join(dir, '正文')
+  }
+
+  function writeChapter(no: number, title: string, body: string): string {
+    const fp = join(dir, '正文', `${String(no).padStart(3, '0')}-${title}.md`)
+    writeFileSync(fp, `---\n章号: ${no}\n标题: ${title}\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n${body}\n`, 'utf8')
+    return fp
+  }
+
+  it('章数/字数/最近编辑/最新章节 与文件实际一致', () => {
+    const bodyDir = makeDir()
+    const fp1 = writeChapter(1, '第一章', '山门。')
+    const fp2 = writeChapter(2, '第二章', '弟子林远。')
+    // 显式用 utimes 拉开 mtime：紧挨写两个文件在 NTFS 精度下 mtime 可能相同（`latest` 首见
+    // 者胜，断言产生竞态）。让「第二章」严格更晚，保证「最新章节=第二章」确定成立。
+    const early = new Date('2020-01-01T00:00:00Z')
+    const later = new Date('2020-02-01T00:00:00Z')
+    utimesSync(fp1, early, early)
+    utimesSync(fp2, later, later)
+    const sum = readChapterDirSummary(bodyDir)
+    expect(sum.chapters).toBe(2)
+    expect(sum.words).toBeGreaterThan(0)
+    const l = statSync(join(dir, '正文', '002-第二章.md')).mtimeMs
+    expect(new Date(sum.lastEdited!).getTime()).toBeCloseTo(l, -1)
+    expect(sum.latestChapter).toBe('第二章')
+  })
+
+  it('最近编辑取 mtime 最大的章（utimes 显式拉开）', () => {
+    const bodyDir = makeDir()
+    const fp1 = writeChapter(1, '一章', '一。')
+    const fp2 = writeChapter(2, '二章', '二。')
+    const t1 = new Date('2020-01-01T00:00:00Z')
+    const t2 = new Date('2020-02-01T00:00:00Z')
+    utimesSync(fp1, t1, t1)
+    utimesSync(fp2, t2, t2)
+    const sum = readChapterDirSummary(bodyDir)
+    expect(sum.latestChapter).toBe('二章')
+    expect(sum.lastEdited).toBe(t2.toISOString())
+  })
+
+  it('递归卷子目录计入摘要', () => {
+    const bodyDir = makeDir()
+    mkdirSync(join(dir, '正文', '卷一'), { recursive: true })
+    writeFileSync(
+      join(dir, '正文', '卷一', '010-卷内章.md'),
+      '---\n章号: 10\n标题: 卷内章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n卷内正文。\n',
+      'utf8',
+    )
+    const sum = readChapterDirSummary(bodyDir)
+    expect(sum.chapters).toBe(1)
+    expect(sum.latestChapter).toBe('卷内章')
+  })
+
+  it('空目录/不存在目录 → 全零兜底', () => {
+    const bodyDir = makeDir()
+    expect(readChapterDirSummary(join(bodyDir, '不存在'))).toEqual({ chapters: 0, words: 0, lastEdited: null, latestChapter: null })
+  })
+
+  it('与 readChapterDir 共享同一轮 stat 缓存：未变文件摘要不整读（内容变化后跟随）', () => {
+    const bodyDir = makeDir()
+    writeChapter(1, '第一章', '旧正文。')
+    const first = readChapterDirSummary(bodyDir)
+    readChapterDir(bodyDir) // 预热缓存（同一轮口径）
+    writeChapter(1, '第一章', '新正文很长很长很长很长很长。')
+    const after = readChapterDirSummary(bodyDir)
+    expect(after.words).not.toBe(first.words)
   })
 })
 
