@@ -144,15 +144,45 @@ export function readChapterDir(
   includeBody?: boolean,
 ): { chapters: ChapterMeta[]; errors: ParseError[] } {
   // includeBody=true（导出/短篇索引等低频「meta+body 都要」路径）：正文原文不驻留缓存，
-  // 走现读原实现，避免缓存大 body 占内存。默认（false）走 stat 级缓存热路径。
+  // 走现读原实现，避免缓存大 body 占内存。默认（false）走 stat 级缓存热路径（scanChapterDir）。
   if (includeBody) return readChapterDirUncached(dirPath, includeBody)
+  const { chapters, errors } = scanChapterDir(dirPath)
+  return { chapters, errors }
+}
 
-  // CC-P1-3：stat 级章节元数据缓存——热路径（GET /books、GET /overview、机检、树红点聚合等）
-  // 对数百章大书每轮全量 readFile+parse+countWords 会秒级阻塞事件循环。此处按 (mtimeNs,size)
-  // 判定：文件未变（绝大多数）→ 跳过整读，只 stat；变化/新增/删除由每轮 walk 自愈。
-  // R62-35：bigint stat 取 mtimeNs——与 document/tree.ts probeCache 同口径（同 ms 内改回
-  // 同长内容的撞车窗口收窄到 ns 级，注释同步）。
-  // 返回数组与章对象均为新引用（防调用方 sort/mutate 污染缓存）。
+/**
+ * 书架摘要单轮扫描版：章数/字数/最近编辑/最新章节一次 walk 算出。
+ * 与 readChapterDir 共享 scanChapterDir 的同一轮 stat 判定——书架摘要不再对每章
+ * 二次 statSync（win 平台专项：同步系统调用是 GET /api/books 列表延迟的瓶颈）。
+ */
+export function readChapterDirSummary(dirPath: string): {
+  chapters: number
+  words: number
+  lastEdited: string | null
+  latestChapter: string | null
+} {
+  const { chapters, latest } = scanChapterDir(dirPath)
+  const words = chapters.reduce((sum, c) => sum + (c._wordCount ?? 0), 0)
+  return {
+    chapters: chapters.length,
+    words,
+    lastEdited: latest ? new Date(latest.mtimeMs).toISOString() : null,
+    latestChapter: latest ? latest.title : null,
+  }
+}
+
+/**
+ * stat 级章节元数据缓存核心（CC-P1-3）：热路径（GET /books、GET /overview、机检、
+ * 树红点聚合等）对数百章大书每轮全量 readFile+parse+countWords 会秒级阻塞事件循环。
+ * 此处按 (mtimeNs,size) 判定：文件未变（绝大多数）→ 跳过整读，只 stat；变化/新增/删除
+ * 由每轮 walk 自愈。R62-35：bigint stat 取 mtimeNs——与 document/tree.ts probeCache 同口径
+ * （同 ms 内改回同长内容的撞车窗口收窄到 ns 级，注释同步）。
+ * 返回数组与章对象均为新引用（防调用方 sort/mutate 污染缓存）；latest 在同一轮 stat 里
+ * 顺带跟踪最新 mtime 的章（readChapterDirSummary 消费），不产生第二次 stat。
+ */
+function scanChapterDir(
+  dirPath: string,
+): { chapters: ChapterMeta[]; errors: ParseError[]; latest: { mtimeMs: number; title: string } | null } {
   const cache = chapterDirCache.get(dirPath) ?? new Map<string, ChapterDirEntry>()
   // R70-21：FIFO 上限——超限逐出最旧书目录（Map 插入序），防多书长跑无界缓涨
   if (!chapterDirCache.has(dirPath) && chapterDirCache.size >= CHAPTER_DIR_CACHE_MAX) {
@@ -163,6 +193,7 @@ export function readChapterDir(
   const chapters: ChapterMeta[] = []
   const errors: ParseError[] = []
   const seen = new Set<string>()
+  let latest: { mtimeMs: number; title: string } | null = null
   // N2（五十九轮）：walk 族收口——裸 statSync（跟随 symlink）+ 无 visited 递归改走
   // walk-md 共享口径（Dirent 不跟随 symlink + realpath 剪枝 + 根界）
   walkMdEach(dirPath, (fp) => {
@@ -172,26 +203,30 @@ export function readChapterDir(
     } catch {
       return
     }
+    const mtimeMs = Number(st.mtimeNs) / 1e6
     const hit = cache.get(fp)
+    let chapter: ChapterMeta
     if (hit && hit.mtimeNs === st.mtimeNs && hit.size === st.size) {
-      chapters.push(cloneChapter(hit.chapter)) // Z-21：_raw 一并深拷贝——嵌套 mutate 不污染缓存
+      chapter = cloneChapter(hit.chapter) // Z-21：_raw 一并深拷贝——嵌套 mutate 不污染缓存
     } else {
       const r = readChapter(fp)
-      if (r.ok) {
-        cache.set(fp, { mtimeNs: st.mtimeNs, size: st.size, chapter: r.chapter })
-        chapters.push(cloneChapter(r.chapter))
-      } else {
+      if (!r.ok) {
         errors.push(r.error)
         cache.delete(fp) // 读失败不缓存；稳定坏文件每轮重读（错误文件罕见，可接受）
+        return
       }
+      cache.set(fp, { mtimeNs: st.mtimeNs, size: st.size, chapter: r.chapter })
+      chapter = cloneChapter(r.chapter)
     }
+    chapters.push(chapter)
+    if (latest === null || mtimeMs > latest.mtimeMs) latest = { mtimeMs, title: chapter.标题 }
     seen.add(fp)
   })
   // 清理已删除文件条目（结构变化自愈：删章/移章下一轮 walk 即失效）
   for (const key of cache.keys()) {
     if (!seen.has(key)) cache.delete(key)
   }
-  return { chapters, errors }
+  return { chapters, errors, latest }
 }
 
 /**

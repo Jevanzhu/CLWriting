@@ -11,8 +11,7 @@
  * 的 computeTimeline / books.ts 书架循环同源引用）。
  */
 import { join } from 'node:path'
-import { statSync } from 'node:fs'
-import { readChapterDir } from '../../../format/chapters.js'
+import { readChapterDir, readChapterDirSummary } from '../../../format/chapters.js'
 
 // ── R37-3（三十七轮）：服务热路径全书扫描的逐块让出 ──────────────────────
 // 服务是 Electron 主进程内嵌的单进程 HTTP 服务，同步全书扫描在大书上单请求冻结事件
@@ -70,11 +69,15 @@ export interface BookSummary {
 }
 
 /**
- * R37-3（三十七轮）：computeBookSummary 的 async 孪生——books 书架列表端点逐书改走
- * 此路径（缓存命中口径与同步版一致：5s TTL + FIFO + invalidateBookSummary 失效挂点
- * 共享同一 summaryCache，双版本互通）。未命中路径的 mtime 扫描循环每 SCAN_YIELD_EVERY
- * 章让出一次；readChapterDir 扫描段边界同 computeProgressAsync 头注。结果与同步版
- * 逐位一致（r37 回归锚守护）。
+ * R37-3（三十七轮）+ win 书架性能专项（2026-09-02）双线合并：computeBookSummary
+ * 的 async 孪生——books 书架列表端点逐书走此路径（缓存命中口径与同步版一致：
+ * 30s TTL + FIFO + invalidateBookSummary 失效挂点共享同一 summaryCache，双版本
+ * 互通）。未命中路径经 readChapterDirSummary（win 单轮化：scanChapterDir 同轮
+ * stat 跟踪 latest，摘要不再逐章二次 statSync）算出后保留扫描后单次让出——
+ * R37-3 原让出点在 mtime 扫描循环（每 25 章），单轮化后该循环消失，单次让出
+ * 维持「端点 handler 不是无让出的整段同步链」性质（r37-scan-async-twins 心跳
+ * 插队用例锚定 ≥1 次）。扫描段本身仍是单段同步（边界同 computeProgressAsync
+ * 头注——内核 CC-P1-3 stat 级缓存兜底）。结果与同步版逐位一致（r37 回归锚守护）。
  */
 export async function computeBookSummaryAsync(bookRoot: string): Promise<BookSummary> {
   const cached = summaryCache.get(bookRoot)
@@ -94,72 +97,42 @@ export function invalidateBookSummary(bookRoot: string): void {
 }
 
 /** V-P2-27：摘要 TTL 缓存——GET /api/books 对每本书同步整树扫描（读全部章节文件），
- *  书多时阻塞事件循环拖慢书架与 SSE 心跳。书架卡允许秒级滞后，缓存 5s；
- *  内存上限防长期运行的书库累积。 */
-const SUMMARY_TTL_MS = 5000
+ *  书多时阻塞事件循环拖慢书架与 SSE 心跳。书架卡允许秒级滞后，缓存 30s；
+ *  内存上限防长期运行的书库累积。TTL 30s（win 平台专项 2026-09-02）：5s 过短——
+ *  刷新页面间隔超 5s 就必重扫一次全书库；保存路径（documents.ts invalidateBookSummary）
+ *  已即时失效，书架卡不会因此变陈旧，30s 只压低「无改动也重扫」的频率。
+ *  扫描成本已由 chapters.ts scanChapterDir 单轮 stat 共享（摘要不再二次 statSync）。 */
+const SUMMARY_TTL_MS = 30_000
 const SUMMARY_CACHE_MAX = 64
 const summaryCache = new Map<string, { at: number; value: BookSummary }>()
 
+/** win 书架性能专项（2026-09-02）+ R37-3 双线合并：同步版未命中路径——readChapterDirSummary
+ *  单轮算出（scanChapterDir 同轮 stat 跟踪 latest，不再逐章二次 statSync）。 */
 function computeBookSummaryUncached(bookRoot: string): BookSummary {
-  let items: ReturnType<typeof readChapterDir>['chapters']
   try {
-    items = readChapterDir(join(bookRoot, '写作', '正文')).chapters
+    return readChapterDirSummary(join(bookRoot, '写作', '正文'))
   } catch {
     return { chapters: 0, words: 0, lastEdited: null, latestChapter: null }
-  }
-  const words = items.reduce((sum, c) => sum + (c._wordCount ?? 0), 0)
-  let latestMtime = 0
-  let latestTitle: string | null = null
-  for (const it of items) {
-    if (!it._path) continue
-    try {
-      const m = statSync(it._path).mtimeMs
-      if (m > latestMtime) {
-        latestMtime = m
-        latestTitle = it.标题
-      }
-    } catch {
-      // 文件消失忽略
-    }
-  }
-  return {
-    chapters: items.length,
-    words,
-    lastEdited: latestMtime > 0 ? new Date(latestMtime).toISOString() : null,
-    latestChapter: latestTitle,
   }
 }
 
-/** R37-3：computeBookSummaryUncached 的逐块让出版（循环体与同步版逐位一致 + 每 25 章让出）。 */
+/**
+ * R37-3：computeBookSummaryUncached 的 async 孪生。win 单轮化（readChapterDirSummary）
+ * 后原「每 SCAN_YIELD_EVERY 章让出的 mtime 扫描循环」整体消失——改在同步扫描段
+ * **前后各让出一次**（setImmediate 级包夹）：前置让出给调用方紧随其后排入的回调
+ *（心跳/其它请求）先得槽位，后置让出保证扫描段期间排队的回调在 promise 落定前
+ * 先跑——「端点 handler 不是无让出的整段同步链」性质维持（r37-scan-async-twins
+ * 心跳插队用例锚定：probe 在首个让出之后入队，须在后置让出获得槽位）。结果与
+ * 同步版逐位一致。
+ */
 async function computeBookSummaryUncachedAsync(bookRoot: string): Promise<BookSummary> {
-  let items: ReturnType<typeof readChapterDir>['chapters']
+  await yieldToEventLoop()
+  let value: BookSummary
   try {
-    items = readChapterDir(join(bookRoot, '写作', '正文')).chapters
+    value = readChapterDirSummary(join(bookRoot, '写作', '正文'))
   } catch {
-    return { chapters: 0, words: 0, lastEdited: null, latestChapter: null }
+    value = { chapters: 0, words: 0, lastEdited: null, latestChapter: null }
   }
-  const words = items.reduce((sum, c) => sum + (c._wordCount ?? 0), 0)
-  let latestMtime = 0
-  let latestTitle: string | null = null
-  let processed = 0
-  for (const it of items) {
-    if (!it._path) continue
-    // R37-3：悬停点——mtime 扫描循环每 SCAN_YIELD_EVERY 章让出一次
-    if (++processed % SCAN_YIELD_EVERY === 0) await yieldToEventLoop()
-    try {
-      const m = statSync(it._path).mtimeMs
-      if (m > latestMtime) {
-        latestMtime = m
-        latestTitle = it.标题
-      }
-    } catch {
-      // 文件消失忽略
-    }
-  }
-  return {
-    chapters: items.length,
-    words,
-    lastEdited: latestMtime > 0 ? new Date(latestMtime).toISOString() : null,
-    latestChapter: latestTitle,
-  }
+  await yieldToEventLoop()
+  return value
 }
