@@ -38,6 +38,8 @@ import {
   testRagProvider,
   deleteProvider,
   deleteRagProvider,
+  getProviders,
+  getRagProviders,
 } from '../../../src/studio/web-next/src/api/providers'
 import { runLearnCommit } from '../../../src/studio/web-next/src/api/learn'
 import { useProviderStore } from '../../../src/studio/web-next/src/stores/provider'
@@ -47,6 +49,8 @@ const testMock = testProvider as ReturnType<typeof vi.fn>
 const testRagMock = testRagProvider as ReturnType<typeof vi.fn>
 const deleteMock = deleteProvider as ReturnType<typeof vi.fn>
 const deleteRagMock = deleteRagProvider as ReturnType<typeof vi.fn>
+const getProvidersMock = getProviders as ReturnType<typeof vi.fn>
+const getRagProvidersMock = getRagProviders as ReturnType<typeof vi.fn>
 const commitMock = runLearnCommit as ReturnType<typeof vi.fn>
 
 beforeEach(() => {
@@ -138,5 +142,42 @@ describe('MP-1（专项重评）: 删提供方/删 RAG 清测试结果缓存', (
     s.ragTestResults = new Map([['R', { ok: true }]])
     await s.removeRag('R')
     expect(s.ragTestResults.has('R')).toBe(false) // 修复点：删 RAG 配置清测试结果缓存
+  })
+})
+
+describe('MP2-2（专项重评二轮）: refresh/refreshRag 按存活列表收敛缓存 Map', () => {
+  it('refresh() 后另一窗口删除的提供方缓存键被修剪（跨窗残留面收口）', async () => {
+    getProvidersMock.mockResolvedValue({
+      providers: [{ id: 'A' }],
+      currentId: 'A',
+      currentModel: 'm1',
+      tiers: { creative: { model: 'm1', effort: 'low' }, assistant: null, chat: null },
+      revision: 3,
+    })
+    const s = useProviderStore()
+    s.providers = [{ id: 'A' }, { id: 'B' }] as never
+    s.testResults = new Map([['A', { ok: true }], ['B', { ok: false }]])
+    s.probeModels = new Map([['A', 'm1'], ['B', 'm2']])
+    s.modelsByProvider = new Map([['A', ['m1']], ['B', ['m2', 'm3']]])
+
+    await s.refresh() // 服务器列表已无 B（另一窗口删除）
+
+    expect(s.testResults.has('A')).toBe(true)
+    expect(s.testResults.has('B')).toBe(false) // 修复点：跨窗删除的 B 随列表刷新修剪
+    expect(s.probeModels.has('B')).toBe(false)
+    expect(s.modelsByProvider.has('B')).toBe(false)
+    expect(s.modelsByProvider.get('A')).toEqual(['m1']) // 存活键原值不动
+  })
+
+  it('refreshRag() 后 ragTestResults 收敛到存活 RAG 配置', async () => {
+    getRagProvidersMock.mockResolvedValue({ ragProviders: [{ id: 'R1' }], revision: 2 })
+    const s = useProviderStore()
+    s.ragProviders = [{ id: 'R1' }, { id: 'R2' }] as never
+    s.ragTestResults = new Map([['R1', { ok: true }], ['R2', { ok: false }]])
+
+    await s.refreshRag()
+
+    expect(s.ragTestResults.has('R1')).toBe(true)
+    expect(s.ragTestResults.has('R2')).toBe(false) // 修复点
   })
 })

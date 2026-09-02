@@ -13,9 +13,9 @@
  * 路径安全（P1 修复）：originalPath/trashedPath 来自 manifest 文件，须经 safePathWithin 校验，
  * 防 manifest 被篡改后 restore/purge 的 rename/rmSync 越出 bookRoot。
  */
-import { existsSync, readFileSync, renameSync, rmSync, mkdirSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync, mkdirSync, statSync } from 'node:fs'
 import { join, dirname } from 'node:path'
-import { atomicWriteFile, linkOrRenameExclusive } from '../fs/atomic.js'
+import { atomicWriteFile, linkOrRenameExclusive, renameWithRetry } from '../fs/atomic.js'
 import { resolveWithinRoot, safeDocId } from '../fs/safe-path.js'
 import { readManifestStrict, writeManifest, upsertEntry, withManifestLock, withManifestLockAsync, type ManifestEntry } from './manifest.js'
 import { VERSIONS_DIR_NAME, encodeDocDirName } from './version.js'
@@ -285,7 +285,10 @@ export async function restoreTrash(bookRoot: string, id: string): Promise<Restor
         return { ok: false, code: 'WRITE_ERROR', reason: '恢复失败：回收站文件已丢失' }
       }
       if (origIsDir) {
-        renameSync(trashAbs, origAbs)
+        // MP2-3（专项重评二轮修复批）：目录 rename 同样吃 win 瞬时锁（杀软/索引器
+        // EPERM/EBUSY），收编 renameWithRetry（R77-3 同款 3×50ms 退避；确定性错误
+        // 原样上抛走 WRITE_ERROR 语义不变）
+        renameWithRetry(trashAbs, origAbs)
       } else {
         // R26-7（二十六轮）：落位改 linkOrRenameExclusive——EPERM/ENOSYS/EACCES
         // （exFAT/FAT32/部分 SMB 不支持硬链接）降级 rename 还原（'exists' 判定语义

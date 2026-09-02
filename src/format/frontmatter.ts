@@ -262,6 +262,10 @@ export function patchFlatFm(
   fmRaw: string,
   updates: Record<string, unknown>,
 ): { ok: true; text: string } | { ok: false; reason: string } {
+  // MP2-4（专项重评二轮修复批）：新渲染键行按 fm 原文行尾——CRLF 文件（win 记事本/
+  // autocrlf）的键行替换/追加此前一律 LF，写回混合行尾（未触碰行原样保留口径不变）。
+  const cr = fmRaw.includes('\r\n') ? '\r' : ''
+  const nl = (ls: string[]): string[] => (cr ? ls.map((l) => l + cr) : ls)
   const lines = fmRaw === '' ? [] : fmRaw.split('\n')
   const renderKeyLine = (key: string, val: unknown): string[] => {
     if (typeof val === 'string' && val.includes('\n')) {
@@ -334,14 +338,22 @@ export function patchFlatFm(
       }
     }
     // 块标量整体重渲染（含跨空行内容）；普通键只换键行，段内空行原位保留
-    out.push(...renderKeyLine(key, val), ...(isBlockScalar ? [] : span))
+    out.push(...nl(renderKeyLine(key, val)), ...(isBlockScalar ? [] : span))
     i = j
   }
   // 未命中的键追加到末尾（保持既有行序不变）
   for (const [key, val] of Object.entries(updates)) {
-    if (!done.has(key)) out.push(...renderKeyLine(key, val))
+    if (done.has(key)) continue
+    // MP2-4：原文尾随换行的 split 占位 '' 在追加后从「终止符占位」变为「分隔空行」
+    // ——首个追加键把它升级为 CRLF 空行（\r），否则追加段前混入裸 \n；无追加则
+    // 占位保持 ''（join 仍还原尾随换行）。LF 文件占位 '' 不变，零介入。
+    if (cr !== '' && out.length > 0 && out[out.length - 1] === '') out[out.length - 1] = '\r'
+    out.push(...nl(renderKeyLine(key, val)))
   }
-  return { ok: true, text: out.join('\n') }
+  // MP2-4：追加键行落在末元素时悬挂裸 \r——按「末行不带终止符」惯例剥掉（LF 侧
+  // 追加末行本就不带终止符，此修补只对齐形态；键行替换/中部追加不受影响）
+  const text = out.join('\n')
+  return { ok: true, text: cr !== '' && text.endsWith('\r') ? text.slice(0, -1) : text }
 }
 
 /** 包裹 front matter + 正文为完整 markdown */

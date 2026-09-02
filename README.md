@@ -5,7 +5,7 @@
 一本书就是一个普通文件夹，里面全是 Markdown 和 YAML，放在你自己的磁盘上。设计目标是长篇写到两百万字量级还不崩设定、不吃书——这事不指望 AI 自觉，靠账本核对、伏笔追踪、版本快照这些机制兜底。
 
 [![Node](https://img.shields.io/badge/Node-%E2%89%A524-339933?logo=node.js&logoColor=white)](https://nodejs.org)
-[![Test](https://img.shields.io/badge/tests-5267%20all%20green-4FC08D?logo=vitest&logoColor=white)](#开发)
+[![Test](https://img.shields.io/badge/tests-5291%20all%20green-4FC08D?logo=vitest&logoColor=white)](#开发)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 ## 写一本书的流程
@@ -44,6 +44,14 @@ Windows 包（NSIS x64）是第一版，几件事提前说清：
 - **书库别放在 OneDrive、坚果云等同步盘里。** 应用的保存与检索要独占锁文件和 SQLite 索引，同步盘的实时同步会与之冲突，还可能造出「冲突副本」文件。坚果云式冲突副本能自动检测提醒；OneDrive 式副本（文件名带计算机名后缀）认不出来，只能靠你避开。
 - **路径别太深。** Windows 对超长路径支持有限，书库放在浅层目录、总路径 200 字符以内最稳。
 - **应用数据在** `%APPDATA%\CLWriting`（供应商配置、全局设置、事件记录），和书稿分开，升级/重装不动书稿。
+
+## macOS 版使用须知
+
+macOS 包（dmg）与 Windows 版一样是第一版，几件事提前说清：
+
+- **安装包未做开发者签名与公证（ad-hoc 签名）。** 把 dmg 里的应用拖进「应用程序」后首次打开，macOS 可能提示「无法打开，因为它来自身份不明的开发者」，个别版本提示「应用已损坏」——这是无正式证书分发的正常提示，不是文件损坏。处理：在访达里**右键点应用图标 →「打开」→ 再点「打开」**；仍提示「已损坏」时，终端执行 `xattr -cr /Applications/CLWriting.app` 后再打开。
+- **没有自动更新。** 新版本同样手动下载 dmg，先退出应用再拖入覆盖。
+- **书库放在默认磁盘上，别放在手动格式化成「大小写敏感 APFS」的卷。** 大小写敏感卷上能造出仅大小写不同的书名/文件名（「Book」与「book」并存），整库拷到 Windows 或默认 macOS 后会被系统合并成同一个，内容以一边为准；Windows 与默认 macOS 的书库互拷不受影响。
 
 ## 书在磁盘上长什么样
 
@@ -88,7 +96,7 @@ GET 读接口不校验令牌，这是有意的设计：令牌防的是远端网�
 npm --prefix src/studio/web-next ci   # 装前端子包依赖（CodeMirror 等；新克隆必跑，见下）
 npm run typecheck          # tsc --noEmit
 npm run build:all          # 桌面主进程 + 前端构建
-npm test                   # 5267 单测
+npm test                   # 5291 单测
 npm run test:e2e           # Playwright e2e（mock 驱动，29 specs / 45 用例）（其中常规命令跑 43，另 2 个发布 smoke 需 CLWRITING_E2E_RELEASE）
 npm run dev:api            # 只起 Studio API :7878（配合 dev:app / dev:web）
 npm run dev:web            # Vite HMR :5173（配合 dev:api）
@@ -103,11 +111,11 @@ Windows 在 cmd/PowerShell 里直接跑同一套 npm 命令即可（环境变量
 
 前端子包 `src/studio/web-next` 有自己的 `package.json` 和二级 `node_modules`（CodeMirror 等钉在那里，根目录的 `npm install` 不会带下来）。新克隆后要先补装上面第一行（CI 同款命令；本地改前端依赖时把 `ci` 换成 `install`）——不装的话 `npm test` 会在打字机相关用例上报模块解析失败，`build:web` / `dev:web` 也起不来。
 
-改完代码至少跑 `npm test`：747 个测试文件 / 5267 单测全绿是合入门槛，CI 里的 check:counts 会核对 README 声称的数字，对不上直接红。单测数是 macOS/Linux 口径——win 上平台门（`skipIf(win32)`）的用例不进 vitest 收集（阶段 21 J3，2026-08-28 实测差 56），win 腿的 check:counts 只对账文件数与 e2e 数，单测数由 macos/ubuntu 腿核对。动了前端就再跑 `vue-tsc` 和 e2e。e2e 的 29 个 spec 按固有顺序跑（前一个建的书/写的内容供后一个用），其中主链共享单一临时 workDir（少数 spec 如 usage-card 各持独立 server+workDir 实例，见 test/e2e/e2e-ports.ts）——勿加并行或改动 spec 顺序，否则隐式依赖会静默错。
+改完代码至少跑 `npm test`：750 个测试文件 / 5291 单测全绿是合入门槛，CI 里的 check:counts 会核对 README 声称的数字，对不上直接红。单测数是 macOS/Linux 口径——win 上平台门（`skipIf(win32)`）的用例不进 vitest 收集（阶段 21 J3，2026-08-28 实测差 56），win 腿的 check:counts 只对账文件数与 e2e 数，单测数由 macos/ubuntu 腿核对。动了前端就再跑 `vue-tsc` 和 e2e。e2e 的 29 个 spec 按固有顺序跑（前一个建的书/写的内容供后一个用），其中主链共享单一临时 workDir（少数 spec 如 usage-card 各持独立 server+workDir 实例，见 test/e2e/e2e-ports.ts）——勿加并行或改动 spec 顺序，否则隐式依赖会静默错。
 
 ## 技术栈
 
-Node 24+，TypeScript strict。前端 Vue 3 + Pinia + Vite，编辑器 CodeMirror 6，桌面壳 Electron；存储是 node:sqlite（RAG 索引）加 JSON/YAML 配置；AI 侧三个协议适配器（Anthropic、OpenAI Chat、OpenAI Responses）统一走 runTask 编排，重试、超时、用量都归它管；测试 vitest（5267 单测）+ Playwright（29 specs / 45 用例）（常规命令跑 43，2 个发布 smoke 需 CLWRITING_E2E_RELEASE 环境变量）。
+Node 24+，TypeScript strict。前端 Vue 3 + Pinia + Vite，编辑器 CodeMirror 6，桌面壳 Electron；存储是 node:sqlite（RAG 索引）加 JSON/YAML 配置；AI 侧三个协议适配器（Anthropic、OpenAI Chat、OpenAI Responses）统一走 runTask 编排，重试、超时、用量都归它管；测试 vitest（5291 单测）+ Playwright（29 specs / 45 用例）（常规命令跑 43，2 个发布 smoke 需 CLWRITING_E2E_RELEASE 环境变量）。
 
 代码上有几条一直守着的规矩：作者数据不被升级覆盖；定稿走原子写入加指纹校验；api_key 不进 git；服务端不 spawn 任何 CLI 子进程，要用的内核模块直接 import；对话和工作流的事件 append-only 全量落库（每本书一个 SQLite，在 userData 下），要清理去「事件审计」视图里手动删。
 

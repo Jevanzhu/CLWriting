@@ -116,6 +116,12 @@ export const useProviderStore = defineStore('provider', () => {
         chat: d.tiers.chat ? { ...d.tiers.chat } : null,
       }
       revision.value = d.revision
+      // MP2-2（专项重评二轮修复批）：列表收敛——另一窗口删除的提供方，本窗缓存键随
+      // 刷新修剪（本地删除路径 MP-1 已随删清；跨窗删除此前残留到重启，KB 级卫生）。
+      const alive = new Set(d.providers.map((p) => p.id))
+      for (const id of [...testResults.value.keys()]) if (!alive.has(id)) testResults.value.delete(id)
+      for (const id of [...probeModels.value.keys()]) if (!alive.has(id)) probeModels.value.delete(id)
+      for (const id of [...modelsByProvider.value.keys()]) if (!alive.has(id)) modelsByProvider.value.delete(id)
     } catch {
       /* 设置页加载失败静默（面板显示空 + 可重试） */
     } finally {
@@ -132,6 +138,9 @@ export const useProviderStore = defineStore('provider', () => {
       if (gen !== refreshRagGen) return // 后发 refreshRag 已生效：旧响应不回填
       ragProviders.value = d.ragProviders
       revision.value = d.revision
+      // MP2-2：RAG 侧同款收敛（跨窗删除的 ragTestResults 键随列表修剪）
+      const aliveRag = new Set(d.ragProviders.map((p) => p.id))
+      for (const id of [...ragTestResults.value.keys()]) if (!aliveRag.has(id)) ragTestResults.value.delete(id)
     } catch {
       /* 静默 */
     } finally {

@@ -43,6 +43,7 @@ import { createBootstrapRunner } from './bootstrap-runner.js' // O-4：生命周
 import { isBoundsVisibleOnAnyDisplay } from './window-state.js' // R26-86：多屏 bounds 校验纯函数
 import { getFonts as getSystemFontList } from 'font-list'
 import { createSystemFontCache } from './font-cache.js' // R77-1（二十五轮批 A）：系统字体 IPC 缓存
+import { listWindowsFonts } from './win-fonts.js' // MP2-1（专项重评二轮）：win 自绘枚举（windowsHide，不经 cmd）
 import {
   parseStore,
   setCurrent,
@@ -699,10 +700,17 @@ function registerIpc(): void {
     void shell.openPath(safe.abs)
   })
   // 枚举系统已装字体（设置弹窗字体下拉用；font-list 跨平台封装系统命令，disableQuoting 返回裸名便于直拼 CSS）
-  // R77-1（二十五轮批 A）：TTL 缓存降半档——系统字体枚举是跨平台系统命令（mac osascript /
-  // win 注册表），渲染层重载（设置弹窗重开）/第二窗口重复 invoke 会逐次重跑；主进程侧补
-  // 60s TTL + 在途合并（font-cache.ts）。失败不缓存，此处 catch 返回 [] 的兜底语义不变。
-  const loadSystemFonts = createSystemFontCache(() => getSystemFontList({ disableQuoting: true }))
+  // R77-1（二十五轮批 A）：TTL 缓存降半档——系统字体枚举是跨平台系统命令（mac 自带
+  // 二进制 / win PowerShell），渲染层重载（设置弹窗重开）/第二窗口重复 invoke 会逐次
+  // 重跑；主进程侧补 60s TTL + 在途合并（font-cache.ts）。失败不缓存，此处 catch 返回
+  // [] 的兜底语义不变。
+  // MP2-1（专项重评二轮修复批）：win 走自绘枚举——font-list 上游 getByPowerShell 经
+  // cmd.exe exec 未设 windowsHide，win 打包态打开字体下拉闪控制台黑窗；win-fonts.ts
+  // 以 spawn('powershell.exe', [args], { windowsHide: true }) 直起（口径对齐 font-list
+  // 的 disableQuoting 裸名），mac/linux 维持 font-list（无闪窗面）。
+  const loadFontList = () =>
+    process.platform === 'win32' ? listWindowsFonts() : getSystemFontList({ disableQuoting: true })
+  const loadSystemFonts = createSystemFontCache(loadFontList)
   ipcMain.handle('desktop:get-system-fonts', async () => {
     try {
       return await loadSystemFonts()

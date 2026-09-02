@@ -9,8 +9,8 @@
  * finalize 时回写布线履历并清空）。
  */
 import { join, relative, sep } from 'node:path'
-import { existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs'
-import { atomicWriteFile } from '../fs/atomic.js'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { atomicWriteFile, renameWithRetry } from '../fs/atomic.js'
 import { snapshotBeforeOverwrite } from './draft-pipeline.js' // R74-4：覆盖留底单源复用
 import { acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 import { readChapterDir } from '../format/chapters.js'
@@ -181,7 +181,9 @@ export function archivePendingLeadUpdates(bookRoot: string, forChapter: number):
   // （POSIX renameSync 对已存在文件静默替换）；追加纳秒时间戳保全两代
   let dst = join(dir, `第${tag}章.md`)
   if (existsSync(dst)) dst = join(dir, `第${tag}章-${Date.now()}.md`)
-  renameSync(file, dst)
+  // MP2-3（专项重评二轮修复批）：归档 rename 收编 renameWithRetry——win 瞬时锁
+  // （EPERM/EBUSY）退避后再失败仍上抛（调用方 WRITE_ERROR 可重试，语义不变）
+  renameWithRetry(file, dst)
 }
 
 /**

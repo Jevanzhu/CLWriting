@@ -11,9 +11,9 @@
  * - 净化：每章 `# {标题}\n\n{body}`，完全不输出 front matter
  */
 
-import { existsSync, mkdirSync, readdirSync, renameSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync } from 'node:fs'
 import { join, relative } from 'node:path'
-import { atomicWriteFile, atomicWriteStream } from '../fs/atomic.js'
+import { atomicWriteFile, atomicWriteStream, renameWithRetry } from '../fs/atomic.js'
 import { readChapterDir } from '../format/chapters.js'
 import { readFile } from '../format/frontmatter.js'
 import { readBookConfig } from '../format/yaml.js'
@@ -103,7 +103,10 @@ function purifyBody(body: string): string {
         // `#` 前是空白但前面有正文的行中字面量保留。
         const i = line.indexOf('#%')
         const isMarker = i !== -1 && (line.slice(0, i).trim() === '' || !/\s/.test(line[i - 1]!))
-        const out = !isMarker ? line : line.slice(0, i).replace(/\s+$/, '')
+        // MP2-4（专项重评二轮修复批）：截断行保留原行尾——replace(/\s+$/) 会把 \r 一并
+        // 剥掉，CRLF 正文的截断行此前落成 LF 混行尾（保留行原样带 \r，口径对齐）
+        const hadCr = line.endsWith('\r')
+        const out = !isMarker ? line : line.slice(0, i).replace(/\s+$/, '') + (hadCr ? '\r' : '')
         return { keep: out.trim() !== '', out }
       })
       .filter((r) => r.keep)
@@ -146,7 +149,10 @@ function archiveOldExport(exportDir: string, oldName: string, warnings: string[]
     let dstName = oldName
     let n = 2
     while (existsSync(join(archiveDir, dstName))) dstName = `${stem}-${n++}${ext}`
-    renameSync(join(exportDir, oldName), join(archiveDir, dstName))
+    // MP2-3（专项重评二轮修复批）：归档 rename 收编 renameWithRetry——win 杀软/索引器
+    // 瞬时锁（EPERM/EBUSY）不再直接滑进 warning 分支（3×50ms 退避；确定性错误仍走
+    // catch 保留原位 + 提示手动移入，语义不变）
+    renameWithRetry(join(exportDir, oldName), join(archiveDir, dstName))
   } catch {
     warnings.push(`旧产物 ${oldName} 归档失败（已保留原位，请手动移入 ${OLD_EXPORT_DIR}/）`)
   }
@@ -330,7 +336,9 @@ export function exportBook(options: ExportOptions): ExportResult {
         let dstName = '分章'
         let n = 2
         while (existsSync(join(archiveDir, dstName))) dstName = `分章-${n++}`
-        renameSync(splitDir, join(archiveDir, dstName))
+        // MP2-3：分章目录归档同族收编 renameWithRetry（win 瞬时锁退避；确定性错误仍走
+        // catch 改写带序号新目录，R33-8「不覆写原目录」语义不变）
+        renameWithRetry(splitDir, join(archiveDir, dstName))
       } catch {
         let n = 2
         while (existsSync(join(exportDir, `分章-${n}`))) n++

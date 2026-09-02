@@ -783,14 +783,28 @@ function matchesKeyLine(line: string, key: string): boolean {
   return bare === `${key}:` || bare.startsWith(`${key}: `)
 }
 
+/** MP2-4：join 只补 \n 不补 \r\n——末元素是 CRLF 渲染行（含段尾空行占位的 `\r`）时
+ *  结果悬挂裸 \r。补 \n 会凭空多一个空行（EOF 空行占位本代表「尾随换行」），按
+ *  「末行不带终止符」惯例剥 \r 才与 LF 侧末元素（''）形态一致。cr 为 '' 恒零介入。 */
+function joinEol(lines: string[], cr: string): string {
+  const joined = lines.join('\n')
+  return cr !== '' && joined.endsWith('\r') ? joined.slice(0, -1) : joined
+}
+
 export function patchTopSection(raw: string, section: string, body: string): string {
+  // MP2-4（专项重评二轮修复批）：新渲染行按原文行尾——CRLF 文件（win 记事本/autocrlf
+  // 形态）此前新段行一律 LF、未触碰行保留 \r\n，写回成混合行尾（功能无损，保真度/
+  // 同步盘 diff 噪声）。未触碰行原样保留（含其原行尾），仅新行跟随主导行尾。
+  const cr = raw.includes('\r\n') ? '\r' : ''
   const lines = raw.split('\n')
   const start = lines.findIndex((l) => matchesKeyLine(l, section))
   if (start === -1) {
-    // 追加：空文件直接写；有内容则补齐结尾换行 + 空行分隔（对齐 stringify 的段间风格）
-    if (raw === '') return `${section}:\n${body}\n`
-    const prefix = raw.endsWith('\n') ? raw : raw + '\n'
-    return `${prefix}\n${section}:\n${body}\n`
+    // 追加：空文件直接写；有内容则补齐结尾换行 + 空行分隔（对齐 stringify 的段间风格）。
+    // 终结符裸 \n：末元素已带 \r 尾，再拼 ${cr} 会双 \r（LF 下与原字节一致）
+    const sectionLines = [`${section}:`, ...body.split('\n')].map((l) => l + cr)
+    if (raw === '') return `${sectionLines.join('\n')}\n`
+    const prefix = raw.endsWith('\n') ? raw : raw + `${cr}\n`
+    return `${prefix}${cr}\n${sectionLines.join('\n')}\n`
   }
   // 段区间末尾 = 下一个顶层 key（非缩进、非注释、非空行）之前
   let end = lines.length
@@ -807,13 +821,16 @@ export function patchTopSection(raw: string, section: string, body: string): str
     if (lines[i]!.trim() === '') blanks++
     else break
   }
-  return [
-    ...lines.slice(0, start),
-    `${section}:`,
-    ...body.split('\n'),
-    ...Array.from({ length: blanks }, () => ''),
-    ...lines.slice(end),
-  ].join('\n')
+  return joinEol(
+    [
+      ...lines.slice(0, start),
+      `${section}:${cr}`,
+      ...body.split('\n').map((l) => l + cr),
+      ...Array.from({ length: blanks }, () => cr),
+      ...lines.slice(end),
+    ],
+    cr,
+  )
 }
 
 /**
@@ -829,13 +846,16 @@ export function patchTopSection(raw: string, section: string, body: string): str
  * 罕见带注释，接受；整段保注释的目标由「其余行不动」达成）。
  */
 export function setTopSectionKey(raw: string, section: string, key: string, value: string): string {
+  // MP2-4（专项重评二轮修复批）：新/替换键行按原文行尾渲染（patchTopSection 同款）
+  const cr = raw.includes('\r\n') ? '\r' : ''
   const lines = raw.split('\n')
   const start = lines.findIndex((l) => matchesKeyLine(l, section))
   const keyLine = (indent: number): string => ' '.repeat(indent) + `${key}: ${value}`
   if (start === -1) {
-    if (raw === '') return `${section}:\n${keyLine(2)}\n`
-    const prefix = raw.endsWith('\n') ? raw : raw + '\n'
-    return `${prefix}\n${section}:\n${keyLine(2)}\n`
+    const sectionLines = [`${section}:`, keyLine(2)].map((l) => l + cr)
+    if (raw === '') return `${sectionLines.join('\n')}\n`
+    const prefix = raw.endsWith('\n') ? raw : raw + `${cr}\n`
+    return `${prefix}${cr}\n${sectionLines.join('\n')}\n`
   }
   let end = lines.length
   for (let i = start + 1; i < lines.length; i++) {
@@ -855,8 +875,8 @@ export function setTopSectionKey(raw: string, section: string, key: string, valu
   }
   if (childIndent === -1) {
     // 段体无内容行 → 键插在段头后
-    lines.splice(start + 1, 0, keyLine(2))
-    return lines.join('\n')
+    lines.splice(start + 1, 0, keyLine(2) + cr)
+    return joinEol(lines, cr)
   }
   const pad = ' '.repeat(childIndent)
   // R71-4：键行匹配剥 \r（上方 matchesKeyLine 同口径，Z-7 同族）——CRLF book.yaml 的
@@ -868,13 +888,13 @@ export function setTopSectionKey(raw: string, section: string, key: string, valu
   }
   for (let i = start + 1; i < end; i++) {
     if (isKeyLine(lines[i]!)) {
-      lines[i] = keyLine(childIndent)
-      return lines.join('\n')
+      lines[i] = keyLine(childIndent) + cr // MP2-4：替换行带回原行尾（CRLF 保真）
+      return joinEol(lines, cr)
     }
   }
   // 键不在段内 → 插在段头后首行（先于既有子键，与 stringify 的 title 首位习惯一致）
-  lines.splice(start + 1, 0, keyLine(childIndent))
-  return lines.join('\n')
+  lines.splice(start + 1, 0, keyLine(childIndent) + cr)
+  return joinEol(lines, cr)
 }
 
 // ── kk-P1-5：PUT /config 的文本级补丁写 ──────────
@@ -896,14 +916,17 @@ export function setSectionKeyBlock(
   keyLine: string | null,
   blockLines: string[] = [],
 ): string {
+  // MP2-4 同族连带：本函数同渲染新键行/块行，此前只收 patchTopSection/setTopSectionKey
+  // 两函数时这里仍裸 LF——同一 book.yaml 改 thresholds/块列表依旧混排。同款收口。
+  const cr = raw.includes('\r\n') ? '\r' : ''
   const lines = raw.split('\n')
   const start = lines.findIndex((l) => matchesKeyLine(l, section))
   if (start === -1) {
     if (keyLine === null) return raw
-    const body = [`  ${keyLine}`, ...blockLines.map((l) => `    ${l}`)]
-    if (raw === '') return `${section}:\n${body.join('\n')}\n`
-    const prefix = raw.endsWith('\n') ? raw : raw + '\n'
-    return `${prefix}\n${section}:\n${body.join('\n')}\n`
+    const body = [`  ${keyLine}`, ...blockLines.map((l) => `    ${l}`)].map((l) => l + cr)
+    if (raw === '') return `${section}:${cr}\n${body.join('\n')}\n`
+    const prefix = raw.endsWith('\n') ? raw : raw + `${cr}\n`
+    return `${prefix}${cr}\n${section}:${cr}\n${body.join('\n')}\n`
   }
   let end = lines.length
   for (let i = start + 1; i < lines.length; i++) {
@@ -941,31 +964,35 @@ export function setSectionKeyBlock(
         else break
       }
       const replacement =
-        keyLine === null ? [] : [pad + keyLine, ...blockLines.map((l) => pad + '  ' + l)]
+        keyLine === null
+          ? []
+          : [pad + keyLine, ...blockLines.map((l) => pad + '  ' + l)].map((l) => l + cr)
       lines.splice(i, blockEnd - i, ...replacement)
-      return lines.join('\n')
+      return joinEol(lines, cr)
     }
   }
   // 键不在段内：插入模式插在段头后；删除模式无键可删，原样返回
   if (keyLine === null) return raw
-  lines.splice(start + 1, 0, pad + keyLine, ...blockLines.map((l) => pad + '  ' + l))
-  return lines.join('\n')
+  lines.splice(start + 1, 0, ...[pad + keyLine, ...blockLines.map((l) => pad + '  ' + l)].map((l) => l + cr))
+  return joinEol(lines, cr)
 }
 
 /** 顶层标量键（spec_version/kind/host）的替换/删除/插入（无缩进，含锚定插入） */
 function setTopScalarKey(raw: string, key: string, line: string | null): string {
+  // MP2-4 同族连带：新渲染行按原文行尾（setSectionKeyBlock 同款）
+  const cr = raw.includes('\r\n') ? '\r' : ''
   const lines = raw.split('\n')
   const idx = lines.findIndex((l) => matchesKeyLine(l, key))
   if (idx !== -1) {
     if (line === null) lines.splice(idx, 1)
-    else lines[idx] = line
-    return lines.join('\n')
+    else lines[idx] = line + cr
+    return joinEol(lines, cr)
   }
   if (line === null) return raw
   // 插在 spec_version 行后（文件头惯例位置）；无则文件首行
   const anchor = lines.findIndex((l) => matchesKeyLine(l, 'spec_version'))
-  lines.splice(anchor === -1 ? 0 : anchor + 1, 0, line)
-  return lines.join('\n')
+  lines.splice(anchor === -1 ? 0 : anchor + 1, 0, line + cr)
+  return joinEol(lines, cr)
 }
 
 /** 补丁叶子：段内单键 + 取有效值（undefined = 该键不落行——归一口径对齐 stringifyBookConfig） */

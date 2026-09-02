@@ -31,9 +31,11 @@ import { log } from '../../../log/index.js' // R37-21：锁根覆盖告警留痕
 
 const running = new Set<string>()
 
-// dd-P2 自查修正：书名可含 ":"（isInvalidBookName 只禁 \/ 与路径段），action:book 冒号拼接
-// 在 heldTaskGatesFor 的后缀匹配下有歧义（闸"分析:A"会让书"A"误判持闸）。
-// NUL 做分隔——书名经 isInvalidBookName 不含 \0，action 是代码字面量亦然，键无歧义。
+// dd-P2 自查修正：action:book 冒号拼接在 heldTaskGatesFor 的后缀匹配下有歧义（闸
+// "分析:A"会让书"A"误判持闸）。MP2-11（专项重评二轮顺修）注释勘误：首句「书名可含
+// ':'」已过时——isInvalidBookName 现禁 \\/:*?"<>| 全集（win 非法字符集批）；分隔符
+// 不回退冒号，NUL 分隔不依赖上游校验演进（改名规则再放宽也零歧义），书名/action
+// 均不含 \0，键恒无歧义。
 const SEP = '\u0000'
 const keyOf = (bookName: string, action: string): string => `${action}${SEP}${bookName}`
 

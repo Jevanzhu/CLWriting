@@ -36,9 +36,14 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
       // startServer 由调用方管 error（见其头注），这里补监听后 reject 让 globalSetup 明确失败。
       server!.once('error', (err: NodeJS.ErrnoException) => {
         if (err.code === 'EADDRINUSE') {
+          // MP2-11（专项重评二轮顺修）：排障提示补 win 分支——只给 lsof 在 win 上是死指引
+          const probe =
+            process.platform === 'win32'
+              ? `netstat -ano | findstr :${E2E_PORT_BASE} 查占用 PID 后 taskkill /PID <pid> /F`
+              : `lsof -i :${E2E_PORT_BASE} 查占用进程并 kill`
           console.error(
             `[e2e global-setup] 端口 ${E2E_PORT_BASE} 已被占用——通常是上一次 e2e 未退干净，或本地有 dev 服务占了同端口。\n` +
-              `排查：lsof -i :${E2E_PORT_BASE} 查占用进程并 kill，或停掉本地 dev:api/dev:web 后重跑；` +
+              `排查：${probe}，或停掉本地 dev:api/dev:web 后重跑；` +
               `整族端口被争用时可用 CLW_E2E_PORT_BASE=<基址> 整套平移（R73-75）。`,
           )
         }
