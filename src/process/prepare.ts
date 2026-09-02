@@ -43,7 +43,9 @@ function findChapterByNumber(bookRoot: string, chapterNo: number): string | null
       return null
     }
     for (const name of entries) {
-      if (!name.endsWith('.md') || name.startsWith('._')) continue
+      // R2W-8（win 平台专项复审 R2）：扩展名大小写不敏感（R34D-11 家族补齐，对齐
+      // walk-md 口径）——资源管理器改名 .MD 的章此前对前章正文结尾配段隐形
+      if (name.slice(-3).toLowerCase() !== '.md' || name.startsWith('._')) continue
       const parsed = parseChapterFileName(name)
       if (parsed && parsed.章号 === chapterNo) return join(dir, name)
     }

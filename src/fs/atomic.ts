@@ -30,6 +30,22 @@ export interface RenameRetryOptions {
 
 const RETRYABLE_RENAME_CODES = new Set(['EPERM', 'EBUSY'])
 
+/**
+ * R1W-1（win 平台专项复审 R1）：清理路径 rmSync 防护——删除「刚关闭的 tmp」恰是
+ * 杀软/索引器瞬时锁定窗口（EBUSY/EPERM），裸 rmSync 抛错会把成功写反转为失败
+ * （createFileExclusive 的 finally 抛错吞掉 return 'created' → 调用方报 WRITE_ERROR、
+ * 作者重试撞 ALREADY_EXISTS），或掩盖 catch 分支的原始错误。本原语静默放弃：
+ * 残留 tmp 命名匹配 ABANDONED_TMP_RE，交 sweepAbandonedTmpFiles 兜底清扫，可自愈。
+ */
+export function rmQuietly(path: string, opts?: { rm?: (p: string) => void }): void {
+  const doRm = opts?.rm ?? ((p: string) => rmSync(p, { force: true }))
+  try {
+    doRm(path)
+  } catch {
+    /* 瞬时占用/权限等：残留交 sweep 清扫（宁残留勿反转成功语义） */
+  }
+}
+
 export function renameWithRetry(from: string, to: string, opts?: RenameRetryOptions): void {
   const doRename = opts?.rename ?? ((src: string, dst: string) => renameSync(src, dst))
   // Atomics.wait 同步微睡（Node 主线程合法；单次退避 ≤200ms，不阻塞事件循环可观时长）
@@ -82,7 +98,7 @@ export function atomicWriteFile(
     renameWithRetry(tmpPath, filePath)
     if (doFsync) fsyncDir(dir)
   } catch (e) {
-    rmSync(tmpPath, { force: true })
+    rmQuietly(tmpPath)
     throw e
   }
 }
@@ -117,7 +133,7 @@ export function atomicWriteStream(
     } catch {
       /* best-effort */
     }
-    rmSync(tmpPath, { force: true })
+    rmQuietly(tmpPath)
     throw e
   }
   // R72-6（二十轮 B-7）：closeSync 并入错误清理——close 抛错（EIO 等罕见态）时原实现
@@ -125,19 +141,19 @@ export function atomicWriteStream(
   try {
     closeSync(fd)
   } catch (e) {
-    rmSync(tmpPath, { force: true })
+    rmQuietly(tmpPath)
     throw e
   }
   try {
     // R26-53（二十六轮）：发布裁定——回调方判零产出时删 tmp 不 rename（目标不落盘）
     if (opts?.publish && !opts.publish()) {
-      rmSync(tmpPath, { force: true })
+      rmQuietly(tmpPath)
       return
     }
     renameWithRetry(tmpPath, filePath)
     fsyncDir(dir)
   } catch (e) {
-    rmSync(tmpPath, { force: true })
+    rmQuietly(tmpPath)
     throw e
   }
 }
@@ -182,8 +198,10 @@ export function createFileExclusive(
     return 'created'
   } finally {
     // link 成功：tmp 是目标的硬链接，unlink 后仅剩目标；link 失败/EEXIST/降级 rename
-    // 成功（tmp 已搬走）：rmSync force 对已不存在路径为 no-op，仅清真残留
-    rmSync(tmpPath, { force: true })
+    // 成功（tmp 已搬走）：rmQuietly 对已不存在路径为 no-op，仅清真残留。
+    // R1W-1：改 rmQuietly——finally 内清理抛错会吞掉上方 return 'created'（目标已
+    // 成功建成却对调用方报失败，重试撞 ALREADY_EXISTS）；瞬时占用残留交 sweep 清扫。
+    rmQuietly(tmpPath)
   }
 }
 

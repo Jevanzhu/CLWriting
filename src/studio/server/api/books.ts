@@ -9,7 +9,8 @@
  * workDir 由 server 启动时 findWorkDir(cwd) 注入；为 null 时书架空 + 提示（不崩）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { rmSync, renameSync, existsSync, readdirSync, readFileSync, statSync, mkdirSync } from 'node:fs'
+import { rmSync, existsSync, readdirSync, readFileSync, statSync, mkdirSync } from 'node:fs'
+import { renameWithRetry } from '../../../fs/atomic.js'
 import { rm } from 'node:fs/promises'
 import { join, basename, dirname } from 'node:path'
 import { defineRoute } from './schema.js'
@@ -352,7 +353,10 @@ export function registerBookRoutes(ctx: BookCtx): void {
       const graveAbs = join(ctx.workDir, DELETE_GRAVEYARD_DIR, `${Date.now()}-${basename(entry.path)}`)
       try {
         mkdirSync(dirname(graveAbs), { recursive: true })
-        renameSync(bookAbs, graveAbs)
+        // R2W-3（win 平台专项复审 R2）：整目录 rename 是全应用对杀软/索引器最敏感的
+        // 操作（要求整棵子树无句柄持有）——收编 renameWithRetry 的 EPERM/EBUSY 退避
+        //（R77-3 原语），瞬时占用不再直接 500
+        renameWithRetry(bookAbs, graveAbs)
       } catch (e) {
         log.error('api', `删书移入墓地失败（${name}，书原样保留）`, e)
         replyError(res, 500, 'IO_ERROR', '删除书目录失败（书未受影响，可重试）')
@@ -574,7 +578,8 @@ export function registerBookRoutes(ctx: BookCtx): void {
       // 大小写不敏感 FS 上登记与盘互访不受影响）
       if (!caseOnly) {
         try {
-          renameSync(oldRoot, newRoot)
+          // R2W-3：同上——改目录名收编 EPERM/EBUSY 退避
+          renameWithRetry(oldRoot, newRoot)
         } catch (e) {
           log.error('api', `rename: 改目录名失败（${oldName} → ${newName}）`, e)
           replyError(res, 500, 'IO_ERROR', '改目录名失败')

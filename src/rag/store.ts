@@ -139,18 +139,52 @@ export function isRagDbCorruptionError(e: unknown): boolean {
 }
 
 /**
+ * R1W-11（win 平台专项复审 R1）unlink 退避原语：3×50ms 指数退避后仍失败原样上抛
+ *（调用方按失败收口，不静默吞）。unlink/sleep 可注入（测试用）。
+ * R37-39（三十七轮）同旨独立实现（见 deleteRagDbFiles：固定 200ms 间隔 + 耗尽
+ * 结构化错误，注入口不同族）——双线合并后两 API 面各自保留，测试面分别锁定。
+ * 重试码集为两线并集：EPERM/EBUSY（R1W-11）+ EACCES（R37-39，win FAT 权限变体）。
+ */
+const RETRYABLE_UNLINK_CODES = new Set(['EPERM', 'EBUSY', 'EACCES'])
+
+export function unlinkWithRetry(
+  fp: string,
+  opts?: { unlink?: (p: string) => void; sleep?: (ms: number) => void; retries?: number; baseDelayMs?: number },
+): void {
+  const doUnlink = opts?.unlink ?? ((p: string) => unlinkSync(p))
+  const sleep =
+    opts?.sleep ?? ((ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms))
+  const retries = opts?.retries ?? 3
+  const base = opts?.baseDelayMs ?? 50
+  let attempt = 0
+  for (;;) {
+    try {
+      return doUnlink(fp)
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code ?? ''
+      if (attempt >= retries || !RETRYABLE_UNLINK_CODES.has(code)) throw e
+      sleep(base * 2 ** attempt)
+      attempt++
+    }
+  }
+}
+
+/**
  * R35-13（三十五轮）：删除 RAG 库文件（连同 -wal/-shm 侧车）。文件级损坏（断电/磁盘
  * 故障/杀软半写后的非 SQLite 字节流）清表救不了，只能删库重建——.cache/rag.db 是派生
  * 缓存区（schema.ts 自述），可弃可重建语义下删库不丢真数据（重嵌成本除外）。调用方
  * 必须先经 isRagDbCorruptionError 确认损坏，绝不对 busy/IO 等可重试错误删库。
  *
- * R37-39（三十七轮）：unlink 的 EBUSY/EPERM/EACCES 小退避重试——win 杀毒/索引器瞬时
- * 占用 .cache/rag.db 时 unlinkSync 直接上抛会把删库自愈链变 500（瞬时占用毫秒级即
- * 释放）。3 次重试 × 200ms 固定间隔；本函数在 resetRagIndex 同步链上（DatabaseSync
- * 同步 API，不可异步化），同步退避先例同 fs/atomic.ts renameWithRetry（Atomics.wait
- * 微睡 + unlink/sleep 可注入测试口，不动生产语义）。仅瞬时占用码进重试——ENOENT 等
- * 确定性错误立即上抛。最终仍失败抛带结构化信息的错误（文件名+code+已重试次数），
- * 上层 isRagDbCorruptionError/rebuild 自愈语义不变（错误不落损坏判定面）。
+ * R37-39（三十七轮）/ R1W-11（win 平台专项复审 R1）双线同旨合并——unlink 的
+ * EBUSY/EPERM/EACCES 小退避重试：win 杀毒/索引器瞬时占用 .cache/rag.db 时
+ * unlinkSync 直接上抛会把删库自愈链变 500（瞬时占用毫秒级即释放）。本函数取
+ * R37-39 实现：3 次重试 × 200ms 固定间隔，本函数在 resetRagIndex 同步链上
+ *（DatabaseSync 同步 API，不可异步化），同步退避先例同 fs/atomic.ts
+ * renameWithRetry（Atomics.wait 微睡 + unlink/sleep 可注入测试口，不动生产语义）。
+ * 仅瞬时占用码进重试——ENOENT 等确定性错误立即上抛。最终仍失败抛带结构化信息的
+ * 错误（文件名+code+已重试次数），上层 isRagDbCorruptionError/rebuild 自愈语义
+ * 不变（错误不落损坏判定面）。R1W-11 的 unlinkWithRetry 原语（指数退避、原样
+ * 上抛）同文件共存，生产消费方仅其测试面。
  */
 export interface DeleteRagDbFilesOptions {
   unlink?: (fp: string) => void
@@ -158,8 +192,6 @@ export interface DeleteRagDbFilesOptions {
   retries?: number
   delayMs?: number
 }
-
-const RETRYABLE_UNLINK_CODES = new Set(['EBUSY', 'EPERM', 'EACCES'])
 
 export function deleteRagDbFiles(bookRoot: string, opts?: DeleteRagDbFilesOptions): void {
   const doUnlink = opts?.unlink ?? ((fp: string) => unlinkSync(fp))

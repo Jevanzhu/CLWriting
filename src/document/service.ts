@@ -32,7 +32,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { safeDocId, resolveWithinRoot } from '../fs/safe-path.js'
-import { atomicWriteFile, createFileExclusive, linkOrRenameExclusive } from '../fs/atomic.js'
+import { atomicWriteFile, createFileExclusive, linkOrRenameExclusive, renameWithRetry } from '../fs/atomic.js'
 import { computeRevision, type Revision } from './revision.js'
 import { layoutOf, roleOf, isInternalBookPath } from './layout.js'
 import { appendAborted, appendMovePending, appendPending, appendSettled } from './journal.js'
@@ -1046,10 +1046,11 @@ export class DocumentService {
       }
       invalidateTreeIndex(this.bookRoot, true)
     } catch (e) {
-      // R37-13（三十七轮）：失败不再静默吞——本函数只在 doMoveOrRename 成功后调用，
-      // 按既有约定不阻断/不回滚正文 rename（改 Promise 不上抛），但零留痕吞掉会让
-      // 「章纲滞留旧名」不可见（作者无从得知为何章纲没跟上）；改结构化 warn 留痕
-      //（对齐 doCreate 登记失败 R70-17 / doTrash Z-6 的 warn 口径）。
+      // R37-13（三十七轮）/ R1W-4（win 平台专项复审 R1）双线同旨合并：失败不再静默吞
+      // ——本函数只在 doMoveOrRename 成功后调用，按既有约定不阻断/不回滚正文 rename
+      //（改 Promise 不上抛），但零留痕吞掉会让「章纲滞留旧名」不可见（win 上章纲被
+      // 编辑器占用 EBUSY/EPERM 的典型形态，正文/章纲文件名无痕分叉）；改结构化 warn
+      // 留痕（对齐 doCreate 登记失败 R70-17 / doTrash Z-6 的 warn 口径）。
       log.warn('document', `章纲同步重命名失败（${oldListRel} → ${newListRel}，正文已改名，章纲滞留旧名）：${errMsg(e)}`)
     }
   }
@@ -1227,7 +1228,13 @@ export class DocumentService {
     const newSafe = this.resolveSafePath(newPath)
     if (!oldSafe || !newSafe) return { ok: false, code: 'PATH_ESCAPE', reason: '路径越出书仓库' }
     if (!existsSync(oldSafe)) return { ok: false, code: 'NOT_FOUND', reason: '源文件不存在' }
-    if (existsSync(newSafe)) return { ok: false, code: 'ALREADY_EXISTS', reason: '目标已存在' }
+    // R2W-1（win 平台专项复审 R2）：纯大小写改名在大小写不敏感 FS（win NTFS/mac APFS）
+    // 上 newSafe 与 oldSafe 是**同一物理文件**——恒走 ALREADY_EXISTS，作者无法只改标题
+    // 大小写。对齐书级改名 R71-8 口径：目标存在但与源 dev+ino 相等 → 放行（落位侧走
+    // 原位 renameSync 大小写变体）；inode 不等才是真冲突，照常 409。
+    if (existsSync(newSafe) && !isSamePhysicalFile(oldSafe, newSafe)) {
+      return { ok: false, code: 'ALREADY_EXISTS', reason: '目标已存在' }
+    }
 
     // P3-10：journal 兜底移动/重命名的非原子窗口——pending → snapshot+rename → 清单更新 → settled。
     // 窗口内崩溃：进门 healthCheck 按磁盘现状确定性收口（new 在 old 不在 → 补清单；old 在 new 不在 → abort）。
@@ -1264,20 +1271,31 @@ export class DocumentService {
       // R26-7（二十六轮）：接入 linkOrRenameExclusive——EPERM/ENOSYS/EACCES（exFAT/
       // FAT32/部分 SMB 不支持硬链接）降级 rename 落位（'exists' 判定语义不变），非
       // NTFS 卷上移动/重命名不再全线失败。
-      const placed = linkOrRenameExclusive(oldSafe, newSafe)
-      if (placed === 'exists') {
-        throw Object.assign(new Error('目标已存在'), { code: 'ALREADY_EXISTS' })
-      }
-      // R33-43（三十三轮）：删源撞 EBUSY（win 文件被占用）时回收已落位的新位硬链接，
-      // 恢复「源在旧位、目标位空」的预操作状态——否则本次按 WRITE_ERROR 收口后重试
-      // 恒 ALREADY_EXISTS，需手工清理。回收失败仍留孤儿副本（硬链接同数据，无丢失）。
-      try {
-        rmSync(oldSafe, { force: true })
-      } catch (rmErr) {
+      // R2W-1：目标位已有文件时——预检已放行「同一物理文件」（纯大小写变体），此处
+      // 复核防 TOCTOU 窗内被换成语义不同的他文件（inode 不等 → 与 link-EEXIST 同语义
+      // 收口）；原位 renameSync 落大小写变体（win MoveFileEx/mac APFS 均支持；posix 上
+      // 同 dev+ino 仅硬链接形态可达，rename 合并同名链接同数据无损）。
+      if (existsSync(newSafe)) {
+        if (!isSamePhysicalFile(oldSafe, newSafe)) {
+          throw Object.assign(new Error('目标已存在'), { code: 'ALREADY_EXISTS' })
+        }
+        renameWithRetry(oldSafe, newSafe)
+      } else {
+        const placed = linkOrRenameExclusive(oldSafe, newSafe)
+        if (placed === 'exists') {
+          throw Object.assign(new Error('目标已存在'), { code: 'ALREADY_EXISTS' })
+        }
+        // R33-43（三十三轮）：删源撞 EBUSY（win 文件被占用）时回收已落位的新位硬链接，
+        // 恢复「源在旧位、目标位空」的预操作状态——否则本次按 WRITE_ERROR 收口后重试
+        // 恒 ALREADY_EXISTS，需手工清理。回收失败仍留孤儿副本（硬链接同数据，无丢失）。
         try {
-          rmSync(newSafe, { force: true })
-        } catch { /* 新位残留孤儿副本：内容无损，重试前需手工清理 */ }
-        throw rmErr
+          rmSync(oldSafe, { force: true })
+        } catch (rmErr) {
+          try {
+            rmSync(newSafe, { force: true })
+          } catch { /* 新位残留孤儿副本：内容无损，重试前需手工清理 */ }
+          throw rmErr
+        }
       }
     } catch (e) {
       // pending 本身没写进去（opId 未赋值）时无从 abort——journal 里没有悬置记录
@@ -1383,8 +1401,14 @@ export class DocumentService {
     if (!srcPath) return { ok: false, code: 'NOT_FOUND', reason: `源文档 ${input.docId} 未在清单登记` }
     // R33-9（三十三轮）：目标文件段过 sanitizeFileNamePart（补单源纪律缺口——目录段
     // 既有身份不动，只净化本次创建的文件名；win 尾点/尾空格/保留设备名同族收口）
+    // R2W-5（win 平台专项复审 R2）：目录段补 R33-9 同族纪律——仅对「当前不存在（本次
+    // mkdir 将创建）」的段过 sanitizeFileNamePart（既有段保持身份不动，与 move 侧
+    // 1146 行口径一致），防 win 非法字符/尾点尾空格/保留设备名目录段 mkdir EINVAL 裸 500。
     const relSegs = input.relPath.split('/')
-    const copyRelPath = [...relSegs.slice(0, -1), sanitizeFullFileName(relSegs[relSegs.length - 1]!)].join('/')
+    const safeDirSegs = relSegs.slice(0, -1).map((seg, idx) =>
+      existsSync(join(this.bookRoot, ...relSegs.slice(0, idx + 1))) ? seg : sanitizeFileNamePart(seg),
+    )
+    const copyRelPath = [...safeDirSegs, sanitizeFullFileName(relSegs[relSegs.length - 1]!)].join('/')
     // 能力：源 copy + 目标 write。R37-15（三十七轮）注释如实化：旧括注「与 create
     // 同步实现，靠单线程微任务不交错」失实——create/copy 均已异步（R34D-19），本方法
     // 前段即有 await（lookupPathByDocIdAdoptAsync 的清单锁等待）。能力闸交错安全的
@@ -1582,15 +1606,16 @@ export class DocumentService {
       }
       // link 落位后源仍在原位（同 inode 硬链接）——删源完成软删；降级 rename 落位时
       // 源已搬走，rmSync force 为 no-op。
-      // R37-14（三十七轮）：删源失败（win EBUSY/EPERM 瞬时占用等）回滚回收站侧——对齐
+      // R37-14（三十七轮）/ R1W-3（win 平台专项复审 R1）双线同旨合并：删源失败（win
+      // 编辑器/同步盘占用正文文件 → EBUSY/EPERM 瞬时占用）回滚回收站侧——对齐
       // doMoveOrRename R33-43 删源失败回收新位的范式：此刻回收站已落位 + 条目已写入，
       // 不回滚会留下「回收站有条目但源文件还在」的双份状态（restore 撞源位 OCCUPIED、
       // purge 会把仍在原位的文件按不可逆语义清掉，恢复/清空语义被污染）。回滚 = 删已
       // 落位的 finalTrashAbs + 移除刚写入的回收站条目（条目以 id 为键，同 id 旧条目已
-      // 被本次 appendTrashEntryAsync 替换，按 id 移除即移除本次写入者），再抛原错误
-      //（外层 catch 收口 WRITE_ERROR，文件原地未动、可重试）。回滚自身失败只 warn：
-      // 此时确有双份残留，但源未删、数据无损（硬链接同 inode），重试软删按 R73-34
-      // 后缀链继续保双份。
+      // 被本次 appendTrashEntryAsync 替换，按 id 移除即移除本次写入者）。回滚自身失败
+      // 只 warn：此时确有双份残留，但源未删、数据无损（硬链接同 inode），重试软删按
+      // R73-34 后缀链继续保双份。收口：throw 经外层 catch 统一 WRITE_ERROR（R37-14
+      // 形状），文案取 R1W-3 人话「被占用」（原错误信息保留在尾部，win 真机臂断言）。
       try {
         rmSync(oldSafe, { force: true })
       } catch (rmErr) {
@@ -1600,7 +1625,7 @@ export class DocumentService {
         } catch (rollbackErr) {
           log.warn('document', `软删删源失败且回收站回滚不净（${oldPath}，源文件未删、回收站有残留，重试软删将按时间戳后缀保双份）：${errMsg(rollbackErr)}`)
         }
-        throw rmErr
+        throw new Error(`正文文件被占用无法删除（可能正被编辑器/同步盘打开），文件未动请重试：${errMsg(rmErr)}`)
       }
       // P1-S3：rename 成功后 manifest 更新改 best-effort——失败不阻断（文件已实质删除，
       // 回收站 manifest / 主清单不一致不影响数据安全，下次操作自然修复）
@@ -1632,6 +1657,19 @@ export class DocumentService {
 /** 错误信息提取（避免重复 try/catch 样板）。 */
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
+}
+
+/** R2W-1：同物理文件判定（win NTFS/mac APFS 大小写不敏感 FS 的纯大小写改名识别）——
+ *  dev+ino 口径对齐 api/books.ts R71-8。stat 失败（EACCES 等）按「非同文件」保守处理，
+ *  走既有冲突收口。 */
+function isSamePhysicalFile(a: string, b: string): boolean {
+  try {
+    const sa = statSync(a)
+    const sb = statSync(b)
+    return sa.dev === sb.dev && sa.ino === sb.ino
+  } catch {
+    return false
+  }
 }
 
 /** R26-55（二十六轮）：createDocument 的单段消毒——文件段带 .md 扩展名时只消毒标题段

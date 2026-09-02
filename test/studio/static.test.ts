@@ -77,6 +77,20 @@ test('Q-1: 畸形 absolute-form 请求行（new URL 抛错路径）→ 400 信�
   expect(await ok.text()).toContain('<title>Studio</title>')
 })
 
+// R1W-12（win 平台专项复审 R1）：win 保留设备名请求拦截——/CON 等（含扩展名/尾点/
+// 大小写/深层路径形态）在 win 上 stat/readFile 可解析到设备（readFile 挂起等待输入），
+// 统一 404；合法名（同前缀非保留名）不受误伤。
+test('R1W-12: win 保留设备名请求 → 404，合法同前缀名放行', async () => {
+  for (const p of ['/con', '/NUL', '/aux.txt', '/com1.md', '/deep/dir/prn', '/nul.']) {
+    const r = await fetch(`${baseUrl}${p}`)
+    expect(r.status).toBe(404)
+    expect(JSON.parse(await r.text())).toEqual({ code: 'NOT_FOUND', error: 'not found' })
+  }
+  writeFileSync(join(root, 'conan.md'), 'ok')
+  const okRes = await fetch(`${baseUrl}/conan.md`)
+  expect(okRes.status).toBe(200)
+})
+
 test('cache-control: assets 下内容 hash 产物 immutable，其余 no-cache（Y-P2-7）', async () => {
   mkdirSync(join(root, 'assets'), { recursive: true })
   // 文件名带内容 hash 是 vite 产物惯例，判定只看路径在 assets/ 下

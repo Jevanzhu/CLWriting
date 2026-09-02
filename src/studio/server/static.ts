@@ -62,6 +62,20 @@ export function createStaticHandler(rootDir: string) {
       return
     }
 
+    // R1W-12（win 平台专项复审 R1）：win 保留设备名请求拦截（/CON、/nul.txt 等）——
+    // win 上 stat/readFile 可解析到设备（dev 有控制台形态 readFile 挂起等待输入）。
+    // 判定口径与 filename.ts/books.ts 保留名族一致（首段 + 尾点尾空格剥离）；打包态
+    // vite 产物名恒带内容 hash 永不命中，拦截零误伤。
+    const lastSeg = decodedPathname.split(/[\\/]/).pop() ?? ''
+    const stem = lastSeg
+      .replace(/[. ]+$/, '')
+      .split('.')[0]!
+      .toUpperCase()
+    if (/^(CON|PRN|AUX|NUL|CLOCK\$|COM[1-9]|LPT[1-9])$/.test(stem)) {
+      replyError(res, 404, 'NOT_FOUND', 'not found')
+      return
+    }
+
     // 防路径穿越：normalize 后必须在 root 内
     const rel = normalize(decodedPathname).replace(/^(\.\.[/\\])+/, '')
     const abs = join(root, rel)

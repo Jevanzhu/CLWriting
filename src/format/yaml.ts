@@ -772,9 +772,11 @@ export function writeBookConfig(filePath: string, cfg: BookConfig): void {
 /** Z-7（第五十八轮）：补丁族段定位的 CRLF 容忍——split('\n') 残留 \r 尾，无值段头
  *  （`book:\r`）两条件均不中会走追加分支在文件尾造重复段（解析取首个段 → 改动静默丢失）。
  *  统一剥 \r 后比对（md 侧 frontmatter 同族口径）。
- *  R37-10（三十七轮）：再补行首 BOM 剥除（只剥一次）——文件首键行带 UTF-8 BOM
- *  （\uFEFF）时段定位同样失明、误走追加分支造重复段（读侧先例 R33D-3；调用方均为
- *  findIndex 直吃 raw 原文，上游无统一剥除点，故在本函数收口）。 */
+ *  R37-10（三十七轮）/ R2W-6（win 平台专项复审 R2）双线同旨合并：再补行首 BOM 剥除
+ *  （只剥一次）——文件首键行带 UTF-8 BOM（\uFEFF，记事本「UTF-8 with BOM」保存形态）
+ *  时段定位同样失明、误走追加分支造重复段/重复键（下次解析撞 fail-loud 重复守卫，
+ *  全书配置降级默认；读侧先例 R33D-3；调用方均为 findIndex 直吃 raw 原文，上游无
+ *  统一剥除点，故在本函数收口）。 */
 function matchesKeyLine(line: string, key: string): boolean {
   const noBom = line.startsWith('\uFEFF') ? line.slice(1) : line
   const bare = noBom.endsWith('\r') ? noBom.slice(0, -1) : noBom

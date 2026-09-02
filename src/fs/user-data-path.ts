@@ -26,3 +26,14 @@ export function defaultUserDataPath(): string {
   const xdg = process.env['XDG_CONFIG_HOME']
   return xdg ? join(xdg, APP_DIR_NAME) : join(homedir(), '.config', APP_DIR_NAME)
 }
+
+/**
+ * R1W-7（win 平台专项复审 R1）：路径同一性判定——win 路径大小写不敏感（盘符/目录
+ * 大小写经启动器/手工输入可漂移），win32 双侧 toLowerCase 后比较；posix 全等。
+ * document/manifest.ts:250 与 knowledge/manifest.ts:20 既有降口径的同族原语，
+ * 供 --book 直达路径匹配 / isLibraryDir 等跨来源路径比较点收编。
+ */
+export function samePath(a: string, b: string): boolean {
+  if (process.platform !== 'win32') return a === b
+  return a.toLowerCase() === b.toLowerCase()
+}

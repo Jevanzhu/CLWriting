@@ -74,9 +74,17 @@ export function isInvalidBookName(name: string): boolean {
   if (Buffer.byteLength(name, 'utf8') > BOOK_NAME_MAX_BYTES) return true
   // Z-22（第五十八轮）：Windows 保留设备名（CON/NUL/COM1-9/LPT1-9 等）——win 上
   // mkdir 对这些名字直接失败，提前以人话校验拒绝（mac 不受影响，为阶段 21 预铺）；
-  // 尾点/尾空格同拒（win 落盘时被剥引发读写名不一致）
-  const bare = name.replace(/\.+$/, '').replace(/\s+$/, '').toUpperCase()
-  if (/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/.test(bare)) return true
+  // 尾点/尾空格同拒（win 落盘时被剥引发读写名不一致）。
+  // R1W-5（win 平台专项复审 R1）：保留名判定改取首段（对齐 format/filename.ts
+  // winCompatNamePart 的 split('.')[0] 口径）——「CON.md」「aux.txt」与裸名同为
+  // win 保留设备名（CreateDirectoryW 报 ERROR_INVALID_NAME），此前只剥尾点/尾空格
+  // 放行了带扩展名形态。CLOCK$ 随单一真相源补齐。
+  const bare = name
+    .replace(/\.+$/, '')
+    .replace(/\s+$/, '')
+    .split('.')[0]!
+    .toUpperCase()
+  if (/^(CON|PRN|AUX|NUL|CLOCK\$|COM[1-9]|LPT[1-9])$/.test(bare)) return true
   return /[.\s]$/.test(name)
 }
 

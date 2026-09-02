@@ -63,14 +63,17 @@ export function git(args: string[], cwd: string, opts?: { encoding?: 'utf-8'; in
   const r = spawnSync('git', args, {
     cwd,
     stdio: 'pipe',
+    // R1W-8（win 平台专项复审 R1）/ R37-4（三十七轮）双线同旨合并：windowsHide——
+    // git.exe 是控制台程序，打包态 GUI（无控制台）下不设此项会为每次调用新建可见
+    // 控制台窗（启动迁移链/保存链高频调用连续闪窗）；隐藏窗口不影响 stdio 管道，
+    // dev 有控制台形态行为不变。
+    windowsHide: true,
     encoding: opts?.encoding ?? 'utf-8',
     ...(opts?.input !== undefined ? { input: opts.input } : {}),
     timeout: GIT_TIMEOUT_MS,
     // R66-22（十四轮）：显式 maxBuffer——默认 1MB 下大书 git 输出超限即 ENOBUFS，
     // 与普通失败混在一起无留痕（listTrackedDocs 静默拿空 → 定稿基线迁移永久跳过）
     maxBuffer: GIT_MAX_BUFFER,
-    // R37-4（三十七轮）：win 上不闪控制台窗（Electron 桌面形态下每次 git 调用可见）
-    windowsHide: true,
   })
   if (r.status === 0) return { ok: true, stdout: String(r.stdout ?? '') }
 
@@ -121,7 +124,8 @@ export function gitAsync(
   opts?: { encoding?: 'utf-8'; input?: string; signal?: AbortSignal },
 ): Promise<GitResult> {
   return new Promise<GitResult>((resolve) => {
-    // R37-4（三十七轮）：win 上不闪控制台窗（与同步 git() 同款）
+    // R1W-8 / R37-4（双线同旨合并）：windowsHide 同步补齐——异步路径与同步路径
+    // 同频闪窗，与同步 git() 同款收口
     const child = spawn('git', args, { cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
     const stdoutParts: string[] = []
     const stderrParts: string[] = []

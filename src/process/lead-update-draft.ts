@@ -168,7 +168,10 @@ export function archivePendingLeadUpdates(bookRoot: string, forChapter: number):
   }
   const hasEntries = raw.split('\n').some((l) => l.trim().startsWith('-'))
   if (!hasEntries) return
-  const m = (raw.split('\n', 1)[0] ?? '').match(/^#\s*第(\d+)章/)
+  // R2W-2（win 平台专项复审 R2）：剥首行 BOM——记事本「UTF-8 with BOM」保存后 ^# 不中
+  // → 误判「无标签旧格式」跳过归档 → 他章待确认推进草稿被下次生成静默覆盖丢失
+  // （读侧孪生 check/lead-updates.ts readLeadUpdateChapterTag 的 R33D-3 同族写侧补齐）。
+  const m = (raw.replace(/^\uFEFF/, '').split('\n', 1)[0] ?? '').match(/^#\s*第(\d+)章/)
   if (!m) return // 无标签旧格式 → 视为当前章，保持覆盖语义
   const tag = Number(m[1])
   if (tag === forChapter) return
