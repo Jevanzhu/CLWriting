@@ -93,10 +93,23 @@ export function registerChatHistoryRoutes(ctx: ChatHistoryCtx): void {
       const rawLimit = Number(url.searchParams.get('limit'))
       const limit = Number.isInteger(rawLimit) && rawLimit >= 1 ? Math.min(rawLimit, 1000) : undefined
       // userDataPath 非空已确认 → store 必建库（openSessionStoreAsync 非惰性）
-      // R62-43：库损坏/权限等极端下 openSessionStore 仍可能返回 null——不再用 ! 断言，
-      // 显式错误信封（此前静默 TypeError 崩路由）
+      // R62-43：userDataPath 空返回 null（上方已分流）；极端下仍可能 null → 显式错误
+      // 信封（不再 ! 断言，此前静默 TypeError 崩路由）
+      // IR-8（独立重评 2026-09-02）勘误：库损坏/权限等首开失败是**抛错**不是返回 null
+      //（原注释失实，裸抛落 defineRoute 兜底 500 泛化文案）→ 显式收编结构化 500，
+      // e.message 人话透传（含 IR-2 损坏分类的可行动指引；经统一脱敏出口）
       // R34D-19（三十四轮）：开库走异步孪生（首开锁等待不阻塞服务事件循环）
-      const store = await openSessionStoreAsync(ctx.userDataPath, bookRoot)
+      let store: SessionStore | null
+      try {
+        store = await openSessionStoreAsync(ctx.userDataPath, bookRoot)
+      } catch (e) {
+        return replyError(
+          res,
+          500,
+          'STORE_UNAVAILABLE',
+          `事件库不可用（无法打开会话存储）：${e instanceof Error ? e.message : String(e)}`,
+        )
+      }
       if (!store) return replyError(res, 500, 'STORE_UNAVAILABLE', '事件库不可用（无法打开会话存储）')
       try {
         reply(res, 200, buildChatHistoryView(store, bookName, branch, limit))

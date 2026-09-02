@@ -495,6 +495,16 @@ export async function openSessionStoreAsync(
  *  残留清偿批（三十四轮）复核维持：busy_timeout=5000 本身使 db.exec 在 SQLite
  *  内部同步等待——微睡异步化不消除真阻塞源（node:sqlite 无异步 API），双轨化只
  *  增 DDL 漂移面。此为本链同步残留登记中唯一的「不可异步化」架构项。 */
+/** IR-2（独立重评 2026-09-02）：SQLite 库文件损坏类错误判据——node:sqlite 对
+ *  SQLITE_NOTADB/CORRUPT 抛英文裸 message 且各版本措辞有差，按已知短语集匹配；
+ *  宁可漏判走原样上抛，不误判把 BUSY/IOERR 包装成「损坏」。 */
+function isDbCorruptionError(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e)
+  return /file is not a database|database disk image is malformed|malformed database image|unsupported file format/i.test(
+    msg,
+  )
+}
+
 function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionStore {
   let db: DatabaseSync
   // R71-24：开口标记续期定时器（首开成功后启动；打开期抛错保持 null）
@@ -549,6 +559,9 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
             lastErr = null
             break
           } catch (err) {
+            // IR-2：库损坏是确定性错误，退避重试只会空转 8×（busy_timeout 5s 内部
+            // 等待 + 微睡）——立即上抛走外层分类包装（含可行动指引）
+            if (isDbCorruptionError(err)) throw err
             lastErr = err
             const mode = (db.prepare('PRAGMA journal_mode').get() as { journal_mode?: string } | undefined)?.journal_mode
             if (mode === 'wal') {
@@ -601,6 +614,17 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
         db.close()
       } catch {
         /* best-effort：close 自身失败不再遮蔽原始错误 */
+      }
+      // IR-2（独立重评 2026-09-02）：库文件损坏原样上抛裸 SQLite 码（「file is not
+      // a database」），调用方降级 null 后用户只看到「事件库不可用」无任何可行动
+      // 线索。事件是对话史/审计产品数据，不做静默删库自愈——换含路径与恢复指引的
+      // 人话错误（原始错误挂 cause 保诊断链），经 chat-history 族结构化 500 透传。
+      if (isDbCorruptionError(e)) {
+        throw new Error(
+          `事件库文件损坏（${dbPath}），对话史/审计/链路事件暂不可读。` +
+            `请先备份并移走该文件后重试——应用将重建空库（旧事件记录不会自动恢复）`,
+          { cause: e },
+        )
       }
       throw e
     }

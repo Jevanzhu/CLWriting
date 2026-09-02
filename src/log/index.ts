@@ -166,27 +166,48 @@ export function initLogging(opts: { logsDir: string | null; mirrorConsole?: bool
   }
 }
 
-/** R72-9（二十轮 C-10）：兜底脱敏——常见 API key 形态掩码（sk- 前缀 / Bearer 头）。
- *  纵深一层：现状防线靠调用方「不把密钥记进日志」的纪律，此处兜底层不替代纪律，
- *  只收 1 命中即 8+ 字符的常见形态（不含 sk- 短前缀普通词，误伤面极小）。
- *  R31-27（三十一轮）：词表与 log/redact.ts 全词表对齐——补齐智谱（32hex.32hex）与
- *  Gemini（AIza+35）两无前缀形态，此前只被 API 出口层（redactSecret）掩，SDK 报错经
- *  本层落 app-*.jsonl（留存 7 天）时漏掩；本函数维持「保留前缀/尾 4 位」形貌层
- *  （R26-95 契约，不串联 redactSecret——其全 ***REDACTED*** 形态会破坏对账形貌）。 */
-const KEY_MASK_RE = /(sk-[A-Za-z0-9_-]{8,}|Bearer\s+[A-Za-z0-9._-]{8,}|\b[0-9a-fA-F]{32}\.[0-9a-fA-F]{32}\b|\bAIza[A-Za-z0-9_\-]{35}\b)/g
+/** IR-1（独立重评修复批）：兜底脱敏——常见 API key 形态掩码。纵深一层：现状防线靠
+ *  调用方「不把密钥记进日志」的纪律，此处兜底层不替代纪律；本函数维持「保留前缀/
+ *  尾 4 位」形貌层（R26-95 契约，不串联 redactSecret——其全 ***REDACTED*** 形态会
+ *  破坏对账形貌）。
+ *  R31-27（三十一轮）：补齐智谱（32hex.32hex）与 Gemini（AIza+35）两无前缀形态。
+ *  IR-1 修复：原实现只覆盖 4 形态（sk-/Bearer/智谱/Gemini），注释却宣称「与
+ *  redact.ts 全词表对齐」——xai-/sk_/gsk_/hf_/glpat-/ghp_ 前缀、x-api-key 头、URL
+ *  query 凭据三类实测 9/9 穿透（子代理样本 + 主评审复核）。现拆两族真对齐：
+ *  - 头/查询族（case-insensitive，对齐 redactSecret 同款 /gi）：Bearer 头（值字符
+ *    类补 +/=~——原 [A-Za-z0-9._-] 在 base64pad 形态中途截断漏掩）、x-api-key 头、
+ *    URL query 凭据（api_key/key/token/access_key/authorization=，掩值保留参数名）；
+ *  - 裸 key 族（大小写敏感，对齐 redactSecret）：前缀族 sk-/xai-/sk_/gsk_/hf_/
+ *    glpat-/ghp_（sk- 长度阈值维持 {8,}——取两源更严者，16+ 之外的短 key 也掩）+
+ *    智谱 + Gemini。 */
+const KEY_MASK_HEADER_RE =
+  /(bearer\s+[A-Za-z0-9\-._~+/=]{8,}|x-api-key[:\s]+[A-Za-z0-9\-._~+/=]{8,}|[?&](?:api[_-]?key|key|token|access[_-]?key|authorization)=[^&\s#]+)/gi
+const KEY_MASK_BARE_RE =
+  /((?:sk-|xai-|sk_|gsk_|hf_|glpat-|ghp_)[A-Za-z0-9\-_]{8,}|\b[0-9a-fA-F]{32}\.[0-9a-fA-F]{32}\b|\bAIza[A-Za-z0-9_\-]{35}\b)/g
 /**
  * R72-9 引入、R26-95（二十六轮）修正：key 掩码。Bearer 形态改为「token 部分掩码」——
  * 原实现 m.slice(0,5) 对 Bearer 产出「Beare***」破损外观（前缀被截断、token 一位未掩），
  * 现保留 Bearer 前缀 + 全掩 + 末 4 位（末 4 位足够人工对账定位，不构成可用凭据）；
- * sk- 形态维持原口径（保留前 5 字符 + ***）。导出供直测（掩码是安全语义，锁形貌）。
+ * 裸 key 形态维持原口径（保留前 5 字符 + ***）；x-api-key 头同 Bearer 口径；URL query
+ * 凭据保留参数名 + ****（值 ≥8 才保留末 4 位——短值全掩防单字符回显）。导出供直测
+ * （掩码是安全语义，锁形貌）。
  */
 export function maskKeys(s: string): string {
-  return s.replace(KEY_MASK_RE, (m) => {
-    const wsAt = m.search(/\s/)
-    if (wsAt === -1) return m.slice(0, 5) + '***' // sk- 形态：无空白分隔，原口径
-    const token = m.slice(wsAt).trim()
-    return `Bearer ****${token.slice(-4)}`
+  const header = s.replace(KEY_MASK_HEADER_RE, (m) => {
+    if (/^bearer/i.test(m)) {
+      const token = m.slice(m.search(/\s/)).trim()
+      return `Bearer ****${token.slice(-4)}`
+    }
+    if (/^x-api-key/i.test(m)) {
+      const token = m.slice(m.search(/[:\s]/)).trim()
+      return `x-api-key ****${token.slice(-4)}`
+    }
+    // URL query 凭据：保留「参数名=」，值全掩（长值保留末 4 位供对账）
+    const eq = m.indexOf('=')
+    const value = m.slice(eq + 1)
+    return `${m.slice(0, eq + 1)}****${value.length >= 8 ? value.slice(-4) : ''}`
   })
+  return header.replace(KEY_MASK_BARE_RE, (m) => m.slice(0, 5) + '***')
 }
 
 /** R76-30：镜像面 err 掩码——Error 实例重建（message/stack 过 KEY_MASK_RE，name
@@ -271,19 +292,45 @@ function enqueueWrite(line: string): void {
         // D2 实施期定谳（startup-notices 全量红回归）：泵可能先于「新目录的 mkdir 链」
         // 执行——emit → initLogging(新目录) 同步序列会把本泵排在新 mkdir 之前；或前
         // 一轮泵在途时新行入队 + 换目录 init，在途泵继续排空时 state.logsDir 已指向
-        // 新目录（mkdir 排在本泵之后）→ appendFile ENOENT 降级丢行。泵首幂等 mkdir
-        // （recursive，已存在时一次廉价 stat 直过）兜底两类交错；init 的 mkdir 链保留。
-        if (state.logsDir) await mkdir(state.logsDir, { recursive: true }).catch(() => {})
+        // 新目录（mkdir 排在本泵之后）→ appendFile ENOENT 降级丢行。
+        // IR-9（独立重评 2026-09-02）根因收口：上述第二类的「泵首 mkdir」兜底不完备
+        // ——在途泵不重启（pumping=true），泵首 mkdir 只做一次且目标还可能是**旧目录**
+        //（泵首落在后续 init 之后时甚至直接指错新目录）；排空跨 init 换目录时目标目录
+        // 此刻可能未建（init 的 mkdir 链排在本泵完成之后），appendFile ENOENT
+        // fail-open 丢行 + 空目录假象（startup-notices「日志同步落痕」全量偶红即此
+        // 形态：目录在、jsonl 无、单跑恒绿）。改泵内**逐行盯目录**：目标目录与上次
+        // 实际落盘目录不符即幂等 mkdir（含泵首），全部交错形态覆盖。回归锁
+        // test/log/log-dir-switch.test.ts（对旧实现确定性红、对本实现确定性绿）。
+        let pumpedDir: string | null = null
         while (state.pending.length) {
           const pending = state.pending.shift()!
+          // IR-10（独立重评 2026-09-02）：initLogging(null)（无 userDataPath 的
+          // startServer 只镜像不落盘）可落在排空循环中间——此前 dayFile(null) 抛
+          // ERR_INVALID_ARG_TYPE 被 fail-open 吞掉，真实丢弃原因被错误形态掩盖。
+          // 每行开头快照目标目录：logsDir=null 语义 = 「此后不再落盘」，在途剩余行
+          // 按 fail-open 降级 console 后丢弃（resetLoggingForTest 同语义：旧目录可能
+          // 已被测试清理，续写只会复活目录制造 ENOENT 噪音）；快照同时保证同一行的
+          // mkdir 与 appendFile 不会被两个 await 之间的 init 置空撕开。
+          const targetDir = state.logsDir
+          if (!targetDir) {
+            console.error(`[log] logsDir 已置空（initLogging(null)/reset），在途行降级 console：${pending}`)
+            continue
+          }
           try {
+            if (targetDir !== pumpedDir) {
+              await mkdir(targetDir, { recursive: true }).catch((e) => {
+                // mkdir 失败不再静默：appendFile 的 ENOENT 常源于此，错误码必须可观测
+                console.error(`[log] mkdir(${targetDir}) 失败：${e instanceof Error ? e.message : String(e)}`)
+              })
+              pumpedDir = targetDir
+            }
             // 第九轮 L-6：日期文件在 flush 时重取——入队时取会在跨本地零点排队时把
             // 日志行写进前一天的文件（轮转边界错位）
-            await appendFile(dayFile(state.logsDir!), pending + '\n', 'utf8')
-          } catch {
+            await appendFile(dayFile(targetDir), pending + '\n', 'utf8')
+          } catch (e) {
             // fail-open：落盘失败（磁盘满/目录被删）降级 console 保这条留痕可见；
-            // 泵继续（catch 已吞），后续写入照常尝试
-            console.error(`[log] 落盘失败，降级 console：${pending}`)
+            // 泵继续（catch 已吞），后续写入照常尝试。错误码随行带出（丢行可归因）。
+            console.error(`[log] 落盘失败（${e instanceof Error ? (e as NodeJS.ErrnoException).code ?? e.message : String(e)}），降级 console：${pending}`)
           }
         }
       } finally {

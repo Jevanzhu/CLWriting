@@ -101,14 +101,42 @@ describe('GET /api/startup-notices（A4 批 0）', () => {
     dirs.push(userData)
     await bootReady(workDir, userData)
     // startServer 内 log.error 排队异步落盘。R63-16/O1 起两代以轮询窗口等待（5s→10s
-    // →20s），全量并行争用下 fs 线程池饥饿仍可越窗假红（单跑恒绿、log 泵无丢行路径
-    // 亲验）——窗口加宽是对症不对根。残留清偿批定稿：改确定性排空钩子 flushLogsForTest
-    //（await 串行泵 tail，含在途 appendFile 完成后 tail 才决议），断言不再依赖时间窗。
-    await flushLogsForTest()
+    // →20s），全量并行争用下 fs 线程池饥饿仍可越窗假红（单跑恒绿）——窗口加宽是对症
+    // 不对根。残留清偿批定稿：改确定性排空钩子 flushLogsForTest（await 串行泵 tail，
+    // 含在途 appendFile 完成后 tail 才决议），断言不再依赖时间窗。
+    // IR-9（独立重评 2026-09-02）：flush 钩子后仍偶红的真根因在 log 泵自身——前测
+    // 泵在途 + 本测 initLogging 换目录，在途泵排空跨目录时新目录未建（init mkdir 链
+    // 排在泵完成之后）→ appendFile ENOENT fail-open 丢行 + 空目录假象。已在泵内
+    // 逐行盯目录幂等 mkdir 收口（src/log/index.ts），回归锁 test/log/log-dir-switch。
+    // IR-10（独立重评 2026-09-02）：mkdir 收口后全量仍偶红——泵排空与 init(null)/
+    // reset 的交错另有两路 fail-open 丢行（dayFile(null) 的 ERR_INVALID_ARG_TYPE、
+    // mkdir 父目录竞态 ENOENT，均已在泵内收口/留痕 errno）；本测断言改 flush 后
+    // 短轮询重排空，吸收 fs 争用下的排空滞后残余窗口（见下方循环）。
+    // IR-10（独立重评 2026-09-02）：flush 后短轮询重排空（5 轮 × 100ms）——全量 fs
+    // 线程池争用下，泵排空可滞后于 tail 链解析（实测同毫秒批量 fail-open 丢行，
+    // flush 单等一轮仍有残余窗口）。多轮 flush 吸收在途 appendFile；真丢行时泵的
+    // fail-open 会在 console 留 [log] 落盘失败（errno） 可归因。
     const { readdirSync, readFileSync: rf } = await import('node:fs')
     let found = false
-    for (const f of readdirSync(join(userData, 'logs')).filter((f) => f.endsWith('.jsonl'))) {
-      if (rf(join(userData, 'logs', f), 'utf8').includes('migrate-layout-v2')) found = true
+    let diagnose = ''
+    for (let round = 0; round < 5 && !found; round++) {
+      // 首轮不等：行在 flush 前已入队（同步链），排空即可读；等待只属于重试轮
+      if (round > 0) await new Promise((r) => setTimeout(r, 100))
+      await flushLogsForTest()
+      diagnose = ''
+      try {
+        for (const f of readdirSync(join(userData, 'logs')).filter((f) => f.endsWith('.jsonl'))) {
+          const c = rf(join(userData, 'logs', f), 'utf8')
+          diagnose += `\n--- ${f}: ${JSON.stringify(c.slice(0, 300))}`
+          if (c.includes('migrate-layout-v2')) found = true
+        }
+      } catch {
+        diagnose = ` logs 目录未建（round ${round}）`
+      }
+    }
+    if (!found) {
+      const { debugLogQueueForTest } = await import('../../src/log/index.js')
+      console.log(`[diagnose] found=false queue=${JSON.stringify(debugLogQueueForTest())}${diagnose}`)
     }
     expect(found).toBe(true)
   })

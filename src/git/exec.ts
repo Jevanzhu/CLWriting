@@ -44,6 +44,37 @@ export function __setGitAsyncTimeoutForTest(ms: number | null): void {
 }
 
 /**
+ * IR-3（独立重评 2026-09-02）：SIGTERM → SIGKILL 升级 kill。SIGTERM 是 best-effort
+ *（git 可捕获忽略 / 不可中断态 D-state 下不生效），裸 TERM 后子进程可能滞留——
+ * 网盘 .git 句柄/锁文件不释放，残留进程累积。先礼后兵：TERM 立即发，宽限期
+ * GIT_KILL_ESCALATION_MS 后仍不退 → SIGKILL 强制收口。升级定时器 unref 不持事件
+ * 循环；对已退出进程 kill 是无害 no-op（返回 false / ESRCH 均吞）。settle 语义不变
+ *（不等待 close——调用方绝不被挂起）。
+ * 导出仅为单测注入假 child（IR-7 同款已登记结构债：生产消费方仅 gitAsync 两处）。
+ */
+export const GIT_KILL_ESCALATION_MS = 2_000
+
+export function killWithEscalation(
+  child: { kill: (signal: NodeJS.Signals) => boolean },
+  delayMs: number = GIT_KILL_ESCALATION_MS,
+): () => void {
+  try {
+    child.kill('SIGTERM')
+  } catch {
+    /* 已退出/权限：升级定时器照设，KILL 再兜一次 */
+  }
+  const t = setTimeout(() => {
+    try {
+      child.kill('SIGKILL')
+    } catch {
+      /* 已退出：no-op */
+    }
+  }, delayMs)
+  t.unref()
+  return () => clearTimeout(t)
+}
+
+/**
  * R66-22（十四轮）：git 子进程输出缓冲上限。spawnSync 默认 1MB——大书
  * `ls-files` / `status --porcelain -uall`（数千 tracked 文件 × 中文路径）输出
  * 超限即 ENOBUFS 失败，此前与普通失败无日志区分地静默降级（listTrackedDocs
@@ -113,8 +144,9 @@ export function git(args: string[], cwd: string, opts?: { encoding?: 'utf-8'; in
  * 语义与 git() 逐位对齐：数组形式不走 shell（免注入/免转义）、超时 kill 子进程并按
  * 失败返回（fail-closed——调用方不能把「未完成」当成功）、ENOENT/ENOBUFS 特判同源、
  * 输出缓冲上限同 GIT_MAX_BUFFER（超限按 ENOBUFS 失败）。超时有界（gitAsyncTimeoutMs），
- * 绝不挂起：spawn 后立即挂起 setTimeout，超时即 SIGTERM（best-effort）并随即按失败
- * resolve——不依赖子进程 'close' 收口（忽略 SIGTERM / 不可中断态的进程也保证有界）。
+ * 绝不挂起：spawn 后立即挂起 setTimeout，超时即 kill（SIGTERM→2s 宽限 SIGKILL 升级，
+ * IR-3——忽略 TERM 的滞留进程不再无限占锁/句柄）并随即按失败
+ * resolve——不依赖子进程 'close' 收口（忽略信号 / 不可中断态的进程也保证有界）。
  * opts.signal：外部取消（AbortSignal）——取消同样 kill 子进程并按「已中止」失败返回。
  * 本函数永不 reject（错误一律 resolve ok:false）——调用方 await 不会落到未捕获异常。
  */
@@ -148,10 +180,12 @@ export function gitAsync(
 
     const timer = setTimeout(() => {
       if (settled) return
-      // 超时（P2-30 同款语义）：kill 子进程（best-effort）并**直接**按失败 settle——
-      // 不依赖 'close' 收口：进程忽略 SIGTERM / 不可中断态（D-state）等 kill 不生效
-      // 形态下也保证超时严格有界（调用方绝不被挂起）
-      child.kill('SIGTERM')
+      // 超时（P2-30 同款语义）：kill 子进程并**直接**按失败 settle——
+      // 不依赖 'close' 收口：进程忽略信号 / 不可中断态（D-state）等 kill 不生效
+      // 形态下也保证超时严格有界（调用方绝不被挂起）。
+      // IR-3：裸 SIGTERM 对忽略该信号的 git 不生效（进程滞留占网盘句柄/锁）——
+      // 升级链先 TERM、2s 宽限后 KILL（killWithEscalation），settle 语义不变。
+      killWithEscalation(child)
       settle({
         ok: false,
         humanMsg: `git 操作超时（${args.join(' ')}）：git 进程无响应，已中止`,
@@ -163,7 +197,8 @@ export function gitAsync(
 
     const onAbort = (): void => {
       if (settled) return
-      child.kill('SIGTERM')
+      // IR-3：同超时路径——TERM 后升级 KILL，取消不再依赖子进程对 TERM 的配合
+      killWithEscalation(child)
       settle({
         ok: false,
         humanMsg: `git 操作已中止（${args.join(' ')}）：请求被取消`,

@@ -75,32 +75,46 @@ interface ExportUnit {
  *  N-6（第五十四轮）：markdown fenced 代码块（``` 围栏）内的 `#%` 是代码字面量
  *  （注释语法/字符串常量常见），围栏内整段跳过剥除——行级状态机跟踪 ``` 开闭。
  *  只处理 ``` fenced：~~~ 围栏与缩进代码块不扩大识别范围（定稿正文惯例 ```）。
- *  权衡登记：`正文 #% 批注`（# 前带空白的贴附写法）与正文字面 `#%` 无法区分，
- *  维持现状不剥（泄漏形态留待批注语法下线后随 W0 收口统一消除），避免误伤正文。 */
+ *  IR-5（独立重评 2026-09-02）：围栏**未闭合**（奇数个 ``` 行/作者忘收口）时首遍
+ *  状态机把其后全部行当「围栏内」整段跳过——作者批注从围栏行起成串泄漏进导出稿，
+ *  「围栏内是代码字面量」的前提已不成立。两遍收口：首遍照常；末态仍在围栏内则对
+ *  原文再跑一遍关围栏感知（围栏内 `#%` 也按批注剥）。权衡登记：坏围栏章节内的
+ *  代码字面 `#%` 会被误剥——宁误剥字面不泄漏批注（批注可能含剧透/内部备注，
+ *  代码字面截断只损失代码展示，二者不对等）。
+ *  权衡登记（存留）：`正文 #% 批注`（# 前带空白的贴附写法）与正文字面 `#%` 无法
+ *  区分，维持现状不剥（泄漏形态留待批注语法下线后随 W0 收口统一消除），避免误伤正文。 */
 function purifyBody(body: string): string {
-  let inFence = false
-  return body
-    .split('\n')
-    .map((line) => {
-      // N-6：fenced 代码块围栏行翻转状态；块内行原样保留（#% 是代码字面量非批注）
-      if (line.trimStart().startsWith('```')) {
-        inFence = !inFence
-        return { keep: true, out: line }
-      }
-      if (inFence) return { keep: true, out: line }
-      if (line.trim() === '') return { keep: true, out: line } // 原空行保留（分段）
-      // E-9f：仅内部标记形态才作为批注起点——①`#%` 前只有空白（含行首）；
-      // ②紧贴正文（前一个字符非空白，即 `正文#%批注` 贴附写法）。
-      // `#` 前是空白但前面有正文的行中字面量保留。
-      const i = line.indexOf('#%')
-      const isMarker = i !== -1 && (line.slice(0, i).trim() === '' || !/\s/.test(line[i - 1]!))
-      const out = !isMarker ? line : line.slice(0, i).replace(/\s+$/, '')
-      return { keep: out.trim() !== '', out }
-    })
-    .filter((r) => r.keep)
-    .map((r) => r.out)
-    .join('\n')
-    .trim()
+  /** 单遍剥除。respectFence=false 时忽略围栏状态（IR-5 未闭合回退遍用）。
+   *  返回 unclosed = 遍历结束后仍处围栏内（有未闭合围栏）。 */
+  const strip = (respectFence: boolean): { text: string; unclosed: boolean } => {
+    let inFence = false
+    const text = body
+      .split('\n')
+      .map((line) => {
+        // N-6：fenced 代码块围栏行翻转状态；块内行原样保留（#% 是代码字面量非批注）
+        if (respectFence && line.trimStart().startsWith('```')) {
+          inFence = !inFence
+          return { keep: true, out: line }
+        }
+        if (respectFence && inFence) return { keep: true, out: line }
+        if (line.trim() === '') return { keep: true, out: line } // 原空行保留（分段）
+        // E-9f：仅内部标记形态才作为批注起点——①`#%` 前只有空白（含行首）；
+        // ②紧贴正文（前一个字符非空白，即 `正文#%批注` 贴附写法）。
+        // `#` 前是空白但前面有正文的行中字面量保留。
+        const i = line.indexOf('#%')
+        const isMarker = i !== -1 && (line.slice(0, i).trim() === '' || !/\s/.test(line[i - 1]!))
+        const out = !isMarker ? line : line.slice(0, i).replace(/\s+$/, '')
+        return { keep: out.trim() !== '', out }
+      })
+      .filter((r) => r.keep)
+      .map((r) => r.out)
+      .join('\n')
+      .trim()
+    return { text, unclosed: inFence }
+  }
+  const first = strip(true)
+  // IR-5：首遍末态仍处围栏内 = 存在未闭合围栏 → 按无围栏重剥（批注零泄漏优先）
+  return first.unclosed ? strip(false).text : first.text
 }
 
 /** 净化文件名：替换路径分隔符为 _，杜绝 ../ 越出导出目录；超长截断（X-P2-4 码位 + FF-F3 字节双封顶）。

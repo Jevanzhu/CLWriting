@@ -45,4 +45,48 @@ describe('R26-95：maskKeys 密钥形态掩码', () => {
     const out = maskKeys(`Gemini failed with ${gem}`)
     expect(out).not.toContain(gem)
   })
+
+  // ── IR-1（独立重评修复批）：词表真对齐 redactSecret——原 4 形态外 9 类实测穿透 ──
+  it('IR-1: 无前缀裸 key 族（xai-/sk_/gsk_/hf_/glpat-/ghp_）逐一掩码', () => {
+    const samples = [
+      ['xai-', 'x'],
+      ['sk_', 's'],
+      ['gsk_', 'g'],
+      ['hf_', 'h'],
+      ['glpat-', 'p'],
+      ['ghp_', 'q'],
+    ] as const
+    for (const [prefix, ch] of samples) {
+      const key = `${prefix}${ch.repeat(20)}`
+      const out = maskKeys(`SDK error: ${key}`)
+      expect(out, prefix).not.toContain(key)
+      expect(out, prefix).toContain('***')
+    }
+  })
+
+  it('IR-1: x-api-key 头掩码（保留头名 + 末 4 位）', () => {
+    const out = maskKeys('x-api-key: abcd1234efgh5678')
+    expect(out).toBe('x-api-key ****5678')
+    expect(out).not.toContain('abcd1234')
+  })
+
+  it('IR-1: URL query 凭据掩码（保留参数名，值全掩；长值留末 4 位）', () => {
+    const long = maskKeys('GET /v1/messages?api_key=abcd1234efgh5678&x=1')
+    expect(long).toContain('api_key=****5678')
+    expect(long).not.toContain('abcd1234')
+    const short = maskKeys('failed: http://gw.test/chat?key=abc')
+    expect(short).toContain('key=****')
+    expect(short).not.toBe('failed: http://gw.test/chat?key=abc')
+  })
+
+  it('IR-1: Bearer 值含 base64 pad（+/=）不再中途截断漏掩', () => {
+    const out = maskKeys('Authorization: Bearer abcd1234+efg/h5678==')
+    expect(out).not.toContain('abcd1234')
+    expect(out).toContain('Bearer ****')
+  })
+
+  it('IR-1: 大小写变体（BEARER / X-API-KEY）同样命中（头/查询族 /gi 对齐）', () => {
+    expect(maskKeys('BEARER abcd1234efgh5678')).not.toContain('abcd1234')
+    expect(maskKeys('X-API-KEY: abcd1234efgh5678')).not.toContain('abcd1234')
+  })
 })

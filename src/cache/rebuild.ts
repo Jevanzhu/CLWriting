@@ -16,7 +16,7 @@
  */
 
 import { DatabaseSync } from 'node:sqlite'
-import { existsSync, readdirSync, statSync, mkdirSync } from 'node:fs'
+import { existsSync, readdirSync, statSync, mkdirSync, rmSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { createAllTables, clearAllTables } from './schema.js'
 import { syncLead, syncChapter, syncSummary, setMeta, getMeta } from './sync.js'
@@ -263,6 +263,20 @@ export function rebuild(
   const cacheDir = dirname(cachePath)
   if (!existsSync(cacheDir)) mkdirSync(cacheDir, { recursive: true })
 
+  // IR-4（独立重评 2026-09-02）：孤儿 WAL 侧车清理——index.db 被手动删除（状态机报错
+  // 文案「可删 .cache/index.db 重试」就是这么指引的）而 -wal/-shm 残留时，裸新建库会
+  // 让 SQLite 把孤儿 WAL 回放进**新库**（内容错乱/损坏）。派生缓存全量可重建，孤儿
+  // 侧车无保留价值——建库前直接清除。库在位时不清理：打开时恢复 WAL 是正确行为。
+  if (!existsSync(cachePath)) {
+    for (const side of [cachePath + '-wal', cachePath + '-shm']) {
+      try {
+        rmSync(side, { force: true })
+      } catch {
+        /* 占用/权限：留原地——打开按损坏自愈或重建失败上报，不在缓存路径上放大错误 */
+      }
+    }
+  }
+
   // 建库（如果 db 文件不存在，DatabaseSync 会创建）
   const db = new DatabaseSync(cachePath)
   try {
@@ -270,6 +284,21 @@ export function rebuild(
     // R65-22（十三轮）：PRAGMA 挪进 try 守卫——此前在 try 外，exec 抛错（库损坏/锁）
     // 时连接泄漏（RB-IF-P2-8 只盖住了 BEGIN 失败路径）
     db.exec('PRAGMA busy_timeout = 5000')
+    // IR-4（独立重评 2026-09-02）：补 WAL——index.db 此前默认 delete 日志：进门/机检
+    // 高频读（增量探测只读开库、状态机/AI 工具读账本）与重建写全互斥，掉电残留
+    // -journal 热账本还要全量回滚。与事件库（store.ts N3）同款收益：读写不互堵、
+    // 崩溃自愈面一致。journal_mode 是持久属性——一次设置后所有后续打开（含只读
+    // 消费方）沿用；busy_timeout 仍须在前（N3 口径）。并发窗内切换撞 SQLITE_BUSY
+    //（N3 同款偶发）不阻断重建：回退 delete 语义照旧（busy_timeout 已设），仅损失
+    // 并发面，warn 留痕可定位。
+    try {
+      db.exec('PRAGMA journal_mode = WAL')
+    } catch (walErr) {
+      log.warn(
+        'rebuild',
+        `index.db WAL 切换失败（并发锁窗），回退默认日志模式重建：${walErr instanceof Error ? walErr.message : String(walErr)}`,
+      )
+    }
     db.exec('BEGIN') // 原子重建
   } catch (e) {
     // RB-IF-P2-8：BEGIN/PRAGMA 失败（库损坏/busy 超时耗尽）也要关连接——原先此路径泄漏 file handle + WAL
