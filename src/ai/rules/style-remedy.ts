@@ -7,6 +7,7 @@
  */
 
 import { splitSentences } from '../../format/sentences.js'
+import { clipByCodePoints, codePointLength } from '../../process/summary.js'
 
 /** 总结体开头词 */
 const SUMMARY_KEYWORDS = ['总之', '综上', '总而言之', '由此可见', '这一切', '如此看来', '说到底']
@@ -58,12 +59,15 @@ export function extractRepeatPhrases(body: string): string[] {
  * maxLen 默认 40（如 IronRules 有 maxSentenceLen 可由调用方传入）。
  */
 export function extractLongSentences(body: string, maxLen = DEFAULT_MAX_SENTENCE_LEN): string[] {
+  // R41-4（四十一轮）：长度与截断改码位口径（clipByCodePoints/codePointLength）——
+  // 原 UTF-16 .length/.slice 在增补平面字符（emoji 等 4 字节码点）边界会把代理对
+  // 劈成孤立 U+FFFD（与 summary 裁剪 R64-6/R72-7 同族，本处漏网）
   const overlong = splitSentences(body)
-    .filter((s) => s.length > maxLen)
+    .filter((s) => codePointLength(s) > maxLen)
   // 按长度降序取前 3
-  const top3 = overlong.sort((a, b) => b.length - a.length).slice(0, 3)
+  const top3 = overlong.sort((a, b) => codePointLength(b) - codePointLength(a)).slice(0, 3)
   // 截断到 30 字 + ……
-  return top3.map((s) => (s.length > LONG_SENTENCE_TRUNCATE ? `${s.slice(0, LONG_SENTENCE_TRUNCATE)}……` : s))
+  return top3.map((s) => (codePointLength(s) > LONG_SENTENCE_TRUNCATE ? `${clipByCodePoints(s, LONG_SENTENCE_TRUNCATE)}……` : s))
 }
 
 /**
@@ -81,7 +85,8 @@ export function extractSummaryEnding(body: string): string | null {
   const sentences = splitSentences(tail)
   for (const s of sentences) {
     if (SUMMARY_KEYWORDS.some((kw) => s.startsWith(kw))) {
-      return s.length > SUMMARY_TRUNCATE ? `${s.slice(0, SUMMARY_TRUNCATE)}……` : s
+      // R41-4：同上码位口径
+      return codePointLength(s) > SUMMARY_TRUNCATE ? `${clipByCodePoints(s, SUMMARY_TRUNCATE)}……` : s
     }
   }
   return null

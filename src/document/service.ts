@@ -31,7 +31,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
-import { safeDocId, resolveWithinRoot, relPathKey } from '../fs/safe-path.js'
+import { safeDocId, resolveWithinRoot, docJoinKey } from '../fs/safe-path.js'
 import { atomicWriteFile, createFileExclusive, linkOrRenameExclusive, renameWithRetry } from '../fs/atomic.js'
 import { canonicalizeText, bufferNeedsCanonical } from '../fs/text-canonical.js'
 import { computeRevision, computeRevisionBytes, type Revision } from './revision.js'
@@ -315,7 +315,7 @@ export class DocumentService {
         reason: `保存前清单查询失败（未执行保存，可重试）：${e instanceof Error ? e.message : String(e)}`,
       })
     }
-    if (registered !== null && relPathKey(registered) !== relPathKey(relPath)) { // R38-14：win 大小写折叠
+    if (registered !== null && docJoinKey(registered) !== docJoinKey(relPath)) { // R38-14 win 折叠 + R41-2 NFC 归一
       return Promise.resolve({
         ok: false,
         code: 'REVISION_CONFLICT',
@@ -396,7 +396,7 @@ export class DocumentService {
       // R31-19（三十一轮）：legacy 收编链改走异步清单锁孪生（R30-6 全异步化口径的
       // 残留收口——非 legacy docId 行为不变，仅清单命中读）
       const registeredNow = await this.lookupPathByDocIdAdoptAsync(docId)
-      if (registeredNow !== null && relPathKey(registeredNow) !== relPathKey(relPath)) { // R38-14
+      if (registeredNow !== null && docJoinKey(registeredNow) !== docJoinKey(relPath)) { // R38-14 + R41-2
         return Promise.resolve({
           ok: false,
           code: 'REVISION_CONFLICT',

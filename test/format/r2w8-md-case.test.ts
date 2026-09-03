@@ -12,6 +12,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readEntries } from '../../src/format/style-entry.js'
+import { readCandidates } from '../../src/format/style-candidate.js'
 
 describe('.md 过滤大小写不敏感（R2W-8）', () => {
   it('.MD 文件进入 readEntries 扫描面（errors 可见即证明被扫到）', () => {
@@ -24,6 +25,24 @@ describe('.md 过滤大小写不敏感（R2W-8）', () => {
       const { errors } = readEntries(dir, '样章')
       // 占位内容不是合法条目 → 必有解析错误；错误里含该文件名 = 扫描器未漏掉 .MD
       expect(errors.some((e) => e.file.includes('样例.MD') || e.file.includes('样例.md'))).toBe(true)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+// ── R41-16（四十一轮）：style-candidate readCandidates 同口径 ──────────────
+
+describe('.md 过滤大小写不敏感（R41-16：候选箱）', () => {
+  it('.MD 候选进入 readCandidates 扫描面（errors 可见即证明被扫到）', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'clw-r41-mdcase-'))
+    try {
+      const candDir = join(dir, '候选')
+      mkdirSync(candDir, { recursive: true })
+      // 占位内容缺「类型」字段 → 必产解析错误；错误含该文件名 = 扫描器未漏掉 .MD
+      writeFileSync(join(candDir, '收割-01H.MD'), '---\n说明: 占位\n---\n占位正文', 'utf-8')
+      const { errors } = readCandidates(candDir)
+      expect(errors.some((e) => e.file.includes('收割-01H.MD'))).toBe(true)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

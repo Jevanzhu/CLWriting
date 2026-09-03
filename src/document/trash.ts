@@ -243,7 +243,18 @@ export async function restoreTrash(bookRoot: string, id: string): Promise<Restor
   if (!origAbs || !trashAbs) {
     return { ok: false, code: 'NOT_FOUND', reason: '回收站条目路径非法（越出书仓库）' }
   }
-  if (!existsSync(trashAbs)) return { ok: false, code: 'NOT_FOUND', reason: '回收站文件已丢失' }
+  if (!existsSync(trashAbs)) {
+    // R41-9（四十一轮）：R33-10 承诺的续传闭环堵漏——上次「文件已回原位 + 删 .trash
+    // 成功 + 清单 upsert 失败」的中间态，重试在原入口恒 NOT_FOUND（回收站文件已
+    // 丢失），条目永久悬置、docId 身份断链无法自愈。原位文件在 → 物理恢复已完成
+    //（.trash 侧已无物可比对/可搬），跳过搬运直走清单补录 + 条目移除收口。
+    if (!existsSync(origAbs)) {
+      return { ok: false, code: 'NOT_FOUND', reason: '回收站文件已丢失' }
+    }
+    await finishRestoreBookkeeping(bookRoot, entry)
+    invalidateTreeIndex(bookRoot, true)
+    return { ok: true, id, path: entry.originalPath }
+  }
   // R65-36：目标位已占用先比对内容——上次「link 成功 → 删源」之间崩溃的续跑（目标位
   // 与 .trash 双份），一致则视为已完成恢复，跳过搬运继续走删源+清单收口；不一致才是
   // 真占用（作者另建了文件），仍报 OCCUPIED（不自动改，§17 决策④）
@@ -311,6 +322,19 @@ export async function restoreTrash(bookRoot: string, id: string): Promise<Restor
     return { ok: false, code: 'WRITE_ERROR', reason: `恢复失败：${errMsg(e)}` }
   }
 
+  // R41-9：主路径收尾提取共用（续传分支同款）——清单补录 best-effort + 成功后移除条目
+  await finishRestoreBookkeeping(bookRoot, entry)
+  invalidateTreeIndex(bookRoot, true)
+  return { ok: true, id, path: entry.originalPath }
+}
+
+/** R41-9（四十一轮）：恢复收尾——主路径（搬运/删源完成后）与续传补录路径
+ *  （R33-10 中间态：文件已在原位、.trash 侧已清）共用。逻辑自原 restoreTrash
+ *  尾段原样提取：清单 upsert best-effort（Y-17 断链 warn）→ 成功才移除回收站
+ *  条目（R33-10 自愈通道）。 */
+async function finishRestoreBookkeeping(bookRoot: string, entry: TrashEntry): Promise<void> {
+  const id = entry.id
+
   // P2-BE-4：rename 成功后 manifest 更新改 best-effort（与 doTrash 一致——失败不致文件失踪）
   let manifestUpserted = false
   try {
@@ -359,8 +383,6 @@ export async function restoreTrash(bookRoot: string, id: string): Promise<Restor
     } catch { /* trash manifest 写失败：条目残留，下次恢复报 NOT_FOUND，无害 */
     }
   }
-  invalidateTreeIndex(bookRoot, true)
-  return { ok: true, id, path: entry.originalPath }
 }
 
 /** 永久删：物理删 .trash 文件 + 移除 trash 条目（不可逆，前端二次确认）。

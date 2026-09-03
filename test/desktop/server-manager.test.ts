@@ -305,6 +305,25 @@ describe('批 U1：studioToken（U-6 A / 二轮 F-5）', () => {
       vi.unstubAllEnvs()
     }
   })
+
+  // R41-7（四十一轮）：env 大小写清除面补 CLW_LOG_STDOUT——下方注入 CLW_LOG_STDOUT=1，
+  // 残留混写变体（clw_log_stdout）同样双键穿透，child 日志形态被旧值劫持
+  it('R41-7：宿主残留 clw_log_stdout 变体 → child env 无双重键，仅受控 CLW_LOG_STDOUT=1', async () => {
+    vi.stubEnv('clw_log_stdout', 'stale-log-residue')
+    try {
+      const { forkRecords, manager } = mkHarness()
+      const p = manager.start({ workDir: null, userDataPath: mkUserData() })
+      const env = forkRecords[0]!.options['env'] as Record<string, string | undefined>
+      const logKeys = Object.keys(env).filter((k) => k.toUpperCase() === 'CLW_LOG_STDOUT')
+      expect(logKeys).toEqual(['CLW_LOG_STDOUT'])
+      expect(env['CLW_LOG_STDOUT']).toBe('1')
+      forkRecords[0]!.child.emit('message', { type: 'ready', port: 3 })
+      await p
+      await manager.stopChild()
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
 })
 
 describe('批 U1：旧 child 清理与 stopChild（L-3 换轨）', () => {

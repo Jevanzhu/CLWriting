@@ -570,9 +570,15 @@ describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
     expect(win.webContents.sent[n0 + 1]?.[1]).toBe(false)
   })
 
-  it('switch-library：非书库目录拒绝；合法目录持久化 current 并触发 relaunch', async () => {
-    const bad = await M.ipcHandle['desktop:switch-library']!(null, mkTmp('not-a-lib-'))
-    expect(bad).toEqual({ ok: false, reason: '目录无效或不是书库' })
+  it('switch-library：不存在路径/他库子目录拒绝；合法目录持久化 current 并触发 relaunch', async () => {
+    // R41-1（四十一轮）契约演进：守卫由 isLibraryDir（要求自身含 .clwriting/）改
+    // canSwitchLibraryDir（bootstrap 接受面 = 目录存在即可）——原「非书库目录拒绝」
+    // 用例的空目录输入从拒绝转为放行（待建空书库正是本修复要救活的形态），拒绝面
+    // 改由「不存在路径」与「另一书库的子目录」承载
+    const bad = await M.ipcHandle['desktop:switch-library']!(null, mkTmp('not-a-lib-') + '/不存在')
+    expect(bad).toEqual({ ok: false, reason: '目录无效或是另一书库的子目录' })
+    const sub = await M.ipcHandle['desktop:switch-library']!(null, join(libA, 'books'))
+    expect(sub).toEqual({ ok: false, reason: '目录无效或是另一书库的子目录' })
     const good = mkLibrary()
     const before = M.relaunchCalls
     const r = await M.ipcHandle['desktop:switch-library']!(null, good)
@@ -582,6 +588,19 @@ describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
     // setTimeout(relaunch, 100) 延迟重启——等它生效
     await vi.waitFor(() => expect(M.relaunchCalls).toBeGreaterThan(before))
     // 还原 current，避免影响后续用例的 readStore
+    writeFileSync(join(M.userData, 'workdir.json'), JSON.stringify({ current: libA, recent: [] }))
+  })
+
+  it('R41-1: switch-library 接受待建空书库——pickLibrary「在此新建」落库的空目录不再成死条目', async () => {
+    // 修复前：空目录无 .clwriting → isLibraryDir 拒 → 最近列表点回恒败（永久死条目）；
+    // 修复后：目录存在 + 无祖先书库 → 放行（bootstrap 同语义）
+    const empty = mkTmp('clw-empty-lib-')
+    const before = M.relaunchCalls
+    const r = await M.ipcHandle['desktop:switch-library']!(null, empty)
+    expect(r).toEqual({ ok: true })
+    const stored = JSON.parse(readFileSync(join(M.userData, 'workdir.json'), 'utf8')) as { current: string }
+    expect(stored.current).toBe(empty)
+    await vi.waitFor(() => expect(M.relaunchCalls).toBeGreaterThan(before))
     writeFileSync(join(M.userData, 'workdir.json'), JSON.stringify({ current: libA, recent: [] }))
   })
 

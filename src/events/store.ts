@@ -18,7 +18,7 @@ import type { ChatEvent, EventType, SurfaceOp } from './types.js'
 import { SURFACE_EVENT_TYPES } from './types.js'
 import { log } from '../log/index.js'
 import { acquireCrossProcessLockWithTimeout, acquireCrossProcessLockAsync, isProcessAlive, processBootTime } from '../fs/cross-process-lock.js'
-import { renameWithRetry } from '../fs/atomic.js'
+import { renameWithRetry, atomicWriteFile } from '../fs/atomic.js'
 
 /** 书 hash：sha256(bookRoot) 前 16 hex——稳定，不落原文路径。
  *  B-18（第六十轮补修）：哈希前 resolve 归一化——尾分隔符 / '.'/'..' 段变体不再
@@ -580,7 +580,16 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
       try {
         to = (JSON.parse(readFileSync(dbPath + MIGRATED_EXT, 'utf-8')) as { to?: unknown }).to
       } catch {
-        /* 墓碑损坏：视同无指向，走过期清除 */
+        // R41-11（四十一轮）：墓碑不可解析（写中途进程死留下的半截 JSON——写侧已改
+        // atomicWriteFile 杜绝新发，此为存量/外因形态）不当作「无墓碑」清除放行：
+        // 清除后本处按正常缺库重建空库，事件流在新旧两路径分裂（R71-25 要防的正是
+        // 这个）。保留墓碑 + fail-closed 拒建，走调用方既有 catch 降级 null；作者按
+        // 告警人工核对迁移目标（修复墓碑 JSON 或确认旧库确已废弃后手删）。
+        log.error(
+          'events',
+          `事件库迁移墓碑不可解析（${dbPath + MIGRATED_EXT}）——保留墓碑并拒绝在旧路径重建空库，请人工核对迁移目标（合法形：${'{ to: <新库绝对路径>, at: <毫秒> }'}）`,
+        )
+        throw new Error(`事件库迁移墓碑不可解析（${dbPath + MIGRATED_EXT}）——拒绝在旧路径重建空库，请人工核对/修复墓碑后重试`)
       }
       if (!existsSync(bookRoot) && typeof to === 'string' && to !== '' && existsSync(to)) {
         throw new Error(
@@ -1166,7 +1175,11 @@ export async function migrateBookSession(
     //    一个文件都还没动 → 整体放弃（比 POST-COMMIT 失败不回滚的旧态更安全）。
     try {
       rmSync(newDb + MIGRATED_EXT, { force: true })
-      writeFileSync(oldDb + MIGRATED_EXT, JSON.stringify({ to: newDb, at: Date.now() }), 'utf-8')
+      // R41-11（四十一轮）：墓碑改原子写——裸 writeFileSync 写中途进程死会留半截 JSON，
+      // 消费侧（firstOpenStore 墓碑分支）此前按「无指向」清除放行 → 迟来首开在旧路径
+      // 重建空库、事件流分裂。原子写保证墓碑要么完整要么不在；消费侧对不可解析墓碑
+      // 亦已改保留 + fail-closed（双防线）。
+      atomicWriteFile(oldDb + MIGRATED_EXT, JSON.stringify({ to: newDb, at: Date.now() }))
     } catch (e) {
       log.error('events', `事件库迁移墓碑预写失败（${oldDb + MIGRATED_EXT}）——整体放弃，源库原地完整`, e)
       return false

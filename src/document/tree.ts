@@ -10,7 +10,7 @@
  */
 import { readdirSync, readFileSync, statSync, type Dirent } from 'node:fs'
 import { join } from 'node:path'
-import { safeManifestPath } from '../fs/safe-path.js'
+import { safeManifestPath, docJoinKey } from '../fs/safe-path.js'
 import { createHash } from 'node:crypto'
 import { roleOf, type DocumentRole } from './layout.js'
 import { readManifest, type ManifestEntry } from './manifest.js'
@@ -140,9 +140,11 @@ function stripMd(name: string): string {
 export function buildTree(bookRoot: string): TreeNode[] {
   const nodes = scanBookTree(bookRoot)
   const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
+  // R41-2（四十一轮）：join 键改 docJoinKey（win32 大小写折叠 + NFC 归一）——原精确
+  // 字符串 join 在外部 case-only 改名 / NFD 文件名后失配，docId 落 legacyId 兜底
   const entryByPath = new Map<string, ManifestEntry>()
   for (const e of manifest.entries.values()) {
-    if (e.nodeType === 'document') entryByPath.set(e.path, e)
+    if (e.nodeType === 'document') entryByPath.set(docJoinKey(e.path), e)
   }
   const volumeStems = collectVolumeOutlineStems(bookRoot)
   annotate(nodes, bookRoot, entryByPath, volumeStems)
@@ -171,7 +173,7 @@ function annotate(
 ): void {
   for (const n of nodes) {
     if (!n.isDirectory) {
-      const entry = entryByPath.get(n.path)
+      const entry = entryByPath.get(docJoinKey(n.path)) // R41-2：join 键与 set 侧同口径
       n.docId = entry?.id ?? legacyId(n.path)
       // W-P2-4：一次读文件得到 rev + wordCount + published（原 computeRevision/countWordsOf/readPublished 三读合一）
       const probe = probeFile(bookRoot, n.path)

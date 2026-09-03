@@ -283,6 +283,21 @@ function isLibraryDir(dir: string): boolean {
   return found !== null && samePath(found, resolve(dir))
 }
 
+/** R41-1（四十一轮）：switch-library 的接受面 = bootstrap 语义（目录存在即可，含
+ *  pickLibrary「在此新建」落库的待建空书库），不再要求自身含 .clwriting/——原守卫
+ *  直接复用 isLibraryDir 与 bootstrap 分叉：空书库入 recent 后未建首书即退出，最近
+ *  列表点回恒被拒，成永久死条目。唯一额外防线：不能是另一书库的子目录（findWorkDir
+ *  命中祖先而非自身——防误把书内目录挂成书库根）。 */
+function canSwitchLibraryDir(dir: string): boolean {
+  try {
+    if (!statSync(dir).isDirectory()) return false
+  } catch {
+    return false
+  }
+  const found = findWorkDir(dir)
+  return found === null || samePath(found, resolve(dir))
+}
+
 // ── 目录选择 + 切换 ────────────────────────────────────
 
 /**
@@ -703,8 +718,10 @@ function registerIpc(): void {
   })
   // 切换到最近列表中的书库
   ipcMain.handle('desktop:switch-library', async (_e, path: unknown) => {
-    if (typeof path !== 'string' || !isLibraryDir(path)) {
-      return { ok: false as const, reason: '目录无效或不是书库' }
+    // R41-1：守卫改 canSwitchLibraryDir（bootstrap 接受面 + 他库子目录防线）——
+    // 待建空书库不再被误拒（原 reason「目录无效或不是书库」的分叉口径随行废止）
+    if (typeof path !== 'string' || !canSwitchLibraryDir(path)) {
+      return { ok: false as const, reason: '目录无效或是另一书库的子目录' }
     }
     // 平台规范化批 E：切书库同过大小写敏感卷警告（探测失败 fail-open 不拦）
     if (await warnIfCaseSensitive(path)) {

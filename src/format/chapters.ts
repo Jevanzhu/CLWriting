@@ -78,12 +78,24 @@ export function readChapter(
   requireEnum('钩子强弱')
   requireEnum('情绪定位')
 
+  // R41-14（四十一轮）：枚举默认值改 `||`——`??` 接不住空串，`钩子类型: ''`（手写空
+  // 值）在 requireEnum 侧已记 fm-missing，值侧却穿透空串 → validateEnums 再报
+  // fm-enum 越界，同字段双红矛盾（机检消费方对「缺」与「非法」的改法互斥）。空串
+  // 一律落默认，红项只由 fm-missing 承载。枚举合法值均非空串，`||` 语义面精确。
+  // R41-15（四十一轮）：标题单行化——块标量（`标题: |`）多行值直落会让 \n 渗进
+  // ChapterMeta.标题 的全部消费面（导出载荷标题行、前端展示、警告文案；文件名侧
+  // 虽有 sanitize 剥控制字符兜底，其余消费面无兜底）。读取侧各行 trim 后空格连接
+  // 单行收口（folded `>` 形 parseFlat 已折成单行，literal `|` 形在此归一）。
   const chapter: ChapterMeta = {
     章号,
-    标题: String(map.get('标题') ?? ''),
-    钩子类型: (map.get('钩子类型') as HookType) ?? '悬念钩',
-    钩子强弱: (map.get('钩子强弱') as HookLevel) ?? '中',
-    情绪定位: (map.get('情绪定位') as Emotion) ?? '铺垫',
+    标题: String(map.get('标题') ?? '')
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .join(' '),
+    钩子类型: (map.get('钩子类型') as HookType) || '悬念钩',
+    钩子强弱: (map.get('钩子强弱') as HookLevel) || '中',
+    情绪定位: (map.get('情绪定位') as Emotion) || '铺垫',
     ...(Object.keys(_raw).length > 0 ? { _raw } : {}),
     ...(fmMissing.length > 0 ? { _fmMissing: fmMissing } : {}),
     _path: filePath,

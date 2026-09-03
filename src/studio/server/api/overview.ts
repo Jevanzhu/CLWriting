@@ -27,7 +27,7 @@ import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import type { BookConfig } from '../../../format/types.js'
 import { readChapterDir } from '../../../format/chapters.js'
 import { finalizedPathSet } from '../../../document/manifest.js'
-import { relPathKey } from '../../../fs/safe-path.js'
+import { docJoinKey } from '../../../fs/safe-path.js'
 import { localDayKey } from '../../../log/index.js'
 import { detectState, STATE_NAMES, type DetectedState } from '../../../state/state.js'
 import { computeProgressAsync, yieldToEventLoop, SCAN_YIELD_EVERY } from './progress.js'
@@ -170,13 +170,13 @@ async function computeTimeline(bookRoot: string): Promise<{ date: string; count:
   const finalized = finalizedPathSet(bookRoot)
   // R38-14（三十八轮）：定稿集身份折叠（win 大小写不敏感 FS 外部 case-only 改名后
   // 精确匹配失配）；posix 恒等
-  const finalizedKeys = finalized === null ? new Set<string>() : new Set([...finalized].map(relPathKey))
+  const finalizedKeys = finalized === null ? new Set<string>() : new Set([...finalized].map(docJoinKey)) // R41-2：升 docJoinKey（+NFC 归一）
   const byDay = new Map<string, number>()
   let processed = 0
   for (const fp of files) {
     // R37-3：悬停点——每 25 章（条）让出一次
     if (++processed % SCAN_YIELD_EVERY === 0) await yieldToEventLoop()
-    if (finalized && !finalizedKeys.has(relPathKey(relative(bookRoot, fp)))) continue
+    if (finalized && !finalizedKeys.has(docJoinKey(relative(bookRoot, fp)))) continue
     let mtime: Date
     try {
       mtime = statSync(fp).mtime

@@ -18,9 +18,9 @@ import { canonicalizeText } from '../fs/text-canonical.js'
 import { readChapterDir } from '../format/chapters.js'
 import { readFile } from '../format/frontmatter.js'
 import { readBookConfig } from '../format/yaml.js'
-import { sanitizeFileNamePart } from '../format/filename.js'
+import { sanitizeFileNamePart, isMdFileName } from '../format/filename.js'
 import { finalizedPathSet } from '../document/manifest.js'
-import { relPathKey } from '../fs/safe-path.js'
+import { docJoinKey } from '../fs/safe-path.js'
 
 /** R38-17（三十八轮）：非 UTF-8 字节判定（与 document/service.ts isUtf8Bytes 同口径——
  *  TextDecoder fatal；就地声明避免把 document/service 整链拉进导出依赖图）。 */
@@ -96,6 +96,13 @@ interface ExportUnit {
  *  代码字面截断只损失代码展示，二者不对等）。
  *  权衡登记（存留）：`正文 #% 批注`（# 前带空白的贴附写法）与正文字面 `#%` 无法
  *  区分，维持现状不剥（泄漏形态留待批注语法下线后随 W0 收口统一消除），避免误伤正文。 */
+/** R41-3（四十一轮）：CJK 字符类与「内容以 CJK 起」判定（批注形态收紧用）。
+ *  覆盖：CJK 统一区/部首/注音假名（2E80-9FFF 含 3000-30FF）、谚文（1100-11FF、
+ *  AC00-D7AF）、相容表意（F900-FAFF）、全角形式（FF00-FFEF）。 */
+const CJK_CHAR_RE = /[\u1100-\u11ff\u2e80-\u9fff\uac00-\ud7af\uf900-\ufaff\uff00-\uffef]/
+/** `#%` 后允许前导空白再接 CJK（紧贴分支用：`x = 1#% 中文批注` 形态；`#%E5…` URL 片段不中）。 */
+const CJK_LEAD_RE = /^\s*[\u1100-\u11ff\u2e80-\u9fff\uac00-\ud7af\uf900-\ufaff\uff00-\uffef]/
+
 function purifyBody(body: string): string {
   /** 单遍剥除。respectFence=false 时忽略围栏状态（IR-5 未闭合回退遍用）。
    *  返回 unclosed = 遍历结束后仍处围栏内（有未闭合围栏）。 */
@@ -114,8 +121,20 @@ function purifyBody(body: string): string {
         // E-9f：仅内部标记形态才作为批注起点——①`#%` 前只有空白（含行首）；
         // ②紧贴正文（前一个字符非空白，即 `正文#%批注` 贴附写法）。
         // `#` 前是空白但前面有正文的行中字面量保留。
+        // R41-3（四十一轮）：②由「前置非空白」收紧为「前置 CJK，或前置非空白且
+        // 批注内容以 CJK 起」——AI 贴附批注的正文与批注内容均为中文；ASCII 紧贴
+        // 且 ASCII 内容的 `#%`（URL 片段 `…/wiki/#%E5%88%86%E7%B1%BB`、代码字面
+        // `a#%b`）不是批注，原「非空白即剥」把 URL 从 `#%` 起整段静默截断。
+        // 内容判定只作用于紧贴分支：`#` 前带空白的行中字面（`达标线 #%=95%` /
+        // IR-5 `const a = 1  #% 松散字面`）维持 E-9f 登记口径一律保留；紧贴分支
+        // 的 `x = 1#% 中文批注`（前置 ASCII、内容中文）仍按批注剥——宁误剥字面
+        // 不泄漏批注的 IR-5 口径不回退。
         const i = line.indexOf('#%')
-        const isMarker = i !== -1 && (line.slice(0, i).trim() === '' || !/\s/.test(line[i - 1]!))
+        const isMarker =
+          i !== -1 &&
+          (line.slice(0, i).trim() === '' ||
+            (!/\s/.test(line[i - 1]!) &&
+              (CJK_CHAR_RE.test(line[i - 1]!) || CJK_LEAD_RE.test(line.slice(i + 2)))))
         // MP2-4（专项重评二轮修复批）：截断行保留原行尾——replace(/\s+$/) 会把 \r 一并
         // 剥掉，CRLF 正文的截断行此前落成 LF 混行尾（保留行原样带 \r，口径对齐）
         const hadCr = line.endsWith('\r')
@@ -232,14 +251,14 @@ export function exportBook(options: ExportOptions): ExportResult {
   const finalizedPaths = finalizedPathSet(bookRoot)
   // R38-14（三十八轮）：定稿集身份折叠（win 大小写不敏感 FS 外部 case-only 改名后
   // 精确匹配失配，定稿章被当草稿跳过）；posix 恒等
-  const finalizedKeys = finalizedPaths === null ? null : new Set([...finalizedPaths].map(relPathKey))
+  const finalizedKeys = finalizedPaths === null ? null : new Set([...finalizedPaths].map(docJoinKey)) // R41-2：升 docJoinKey（+NFC 归一）
   let skippedDrafts = 0
   const filtered: ExportUnit[] =
     finalizedPaths !== null
       ? units.filter((u) => {
           // RB-KN-P2-3：relative() 在 Windows 产反斜杠而 manifest path 是正斜杠——
           // 不归一会把全部章误判未定稿、导出为空（对齐 state.ts 既有 slash 归一口径）
-          if (finalizedKeys?.has(relPathKey(relative(bookRoot, u.path)))) return true
+          if (finalizedKeys?.has(docJoinKey(relative(bookRoot, u.path)))) return true
           skippedDrafts++
           return false
         })
@@ -336,7 +355,8 @@ export function exportBook(options: ExportOptions): ExportResult {
     // EACCES 时裸异常上抛破坏 {ok:false} 信封契约（同上方 mkdir 收编口径，口径照抄 R70-4）。
     try {
       for (const old of readdirSync(exportDir)) {
-        if (old.startsWith('全本-') && old.endsWith('.md') && old !== mergedFileName) {
+        // R41-16：.md 判定改 isMdFileName（大小写不敏感）——.MD 家族漏网点
+        if (old.startsWith('全本-') && isMdFileName(old) && old !== mergedFileName) {
           archiveOldExport(exportDir, old, warnings)
         }
       }
@@ -543,7 +563,8 @@ export function exportBook(options: ExportOptions): ExportResult {
         .map(([k, t]) => submissionNameOf(k, t.label)),
     )
     for (const old of readdirSync(exportDir)) {
-      if (!old.startsWith('投稿视图-') || !old.endsWith('.md') || old === submissionName) continue
+      // R41-16：同上 isMdFileName 口径
+      if (!old.startsWith('投稿视图-') || !isMdFileName(old) || old === submissionName) continue
       if (protectedNames.has(old)) continue
       // R65-27：旧产物归档不删（作者手改过的投稿稿不可静默销毁）
       archiveOldExport(exportDir, old, warnings)

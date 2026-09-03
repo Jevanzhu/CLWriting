@@ -118,6 +118,37 @@ test('restoreTrash: 回收站无此 id → NOT_FOUND', async () => {
   rmSync(root, { recursive: true, force: true })
 })
 
+test('R41-9: 续传补录——文件已回原位且 .trash 侧已清的中间态，重试补清单并清条目（不再恒 NOT_FOUND）', async () => {
+  const { root, svc } = makeBookWithChapter()
+  await svc.trashDocument({ docId: 'doc_ch01' })
+  // 构造 R33-10 中间态：物理恢复已完成（文件移回原位、.trash 侧无文件），但上次
+  // 清单 upsert 失败 → 清单仍无 doc_ch01、回收站条目仍在。修复前重试恒
+  // NOT_FOUND「回收站文件已丢失」→ 条目永久悬置、docId 断链无法自愈
+  const { renameSync } = await import('node:fs')
+  renameSync(join(root, '工作区/.trash/doc_ch01-0001-开篇.md'), join(root, '写作/正文/第一卷/0001-开篇.md'))
+  const r = await restoreTrash(root, 'doc_ch01')
+  expect(r.ok).toBe(true)
+  if (!r.ok) return
+  expect(r.path).toBe('写作/正文/第一卷/0001-开篇.md')
+  // 清单补录到位 + 条目移除 + 原位文件原样
+  expect(readFileSync(join(root, '项目', '文档清单.jsonl'), 'utf-8')).toContain('doc_ch01')
+  expect(listTrash(root)).toHaveLength(0)
+  expect(existsSync(join(root, '写作/正文/第一卷/0001-开篇.md'))).toBe(true)
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('R41-9: 中间态之外——原位也无文件 → 仍 NOT_FOUND（不凭空补录）', async () => {
+  const { root, svc } = makeBookWithChapter()
+  await svc.trashDocument({ docId: 'doc_ch01' })
+  rmSync(join(root, '工作区/.trash/doc_ch01-0001-开篇.md'))
+  const r = await restoreTrash(root, 'doc_ch01')
+  expect(r.ok).toBe(false)
+  if (r.ok) return
+  expect(r.code).toBe('NOT_FOUND')
+  expect(listTrash(root)).toHaveLength(1) // 条目保留（无从判定恢复完成）
+  rmSync(root, { recursive: true, force: true })
+})
+
 test('purgeTrash: 永久删 → 物理删文件 + manifest 移除', async () => {
   const { root, svc } = makeBookWithChapter()
   await svc.trashDocument({ docId: 'doc_ch01' })

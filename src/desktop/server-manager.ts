@@ -236,8 +236,11 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
     // R1W-6（win 平台专项复审 R1）：win 环境变量名不区分大小写、保序保留——裸 delete
     // 认不到宿主残留的小写/混写变体（clw_studio_token），子进程 env block 会出现
     // 双重键、取值未指定（命中旧值 = 全请求 403）。逐键大小写不敏感清除后再注入。
+    // R41-7（四十一轮）：清除面补 CLW_LOG_STDOUT——下方注入 CLW_LOG_STDOUT=1，若宿主
+    // 残留混写变体（clw_log_stdout）同样双键穿透，child 日志形态被旧值劫持。
     for (const k of Object.keys(childEnv)) {
-      if (k.toUpperCase() === 'CLW_STUDIO_TOKEN') delete childEnv[k]
+      const ku = k.toUpperCase()
+      if (ku === 'CLW_STUDIO_TOKEN' || ku === 'CLW_LOG_STDOUT') delete childEnv[k]
     }
     childEnv['CLW_STUDIO_TOKEN'] = tokenInMemory
     childEnv['CLW_LOG_STDOUT'] = '1'

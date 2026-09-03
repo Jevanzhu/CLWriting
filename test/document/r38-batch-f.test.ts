@@ -92,10 +92,12 @@ describe('R38-18: 启动迁移链退避收编（静态站点扫描）', () => {
     }
   })
 
-  it('R38-14 消费点静态扫描：service/export/overview 身份比较走 relPathKey', () => {
+  it('R38-14 消费点静态扫描：service/export/overview 身份比较走折叠键（R41-2 起为 docJoinKey）', () => {
+    // R41-2（四十一轮）契约演进：三处身份比较由 relPathKey 升 docJoinKey
+    //（relPathKey 折叠 + NFC 归一，safe-path.ts 单源）——静态断言随行改扫 docJoinKey
     for (const f of ['document/service.ts', 'export/index.ts', 'studio/server/api/overview.ts']) {
       const src = readFileSync(join(srcRoot, f), 'utf-8')
-      expect(src.includes('relPathKey'), `${f} 缺 relPathKey 收编`).toBe(true)
+      expect(src.includes('docJoinKey'), `${f} 缺 docJoinKey 收编`).toBe(true)
     }
   })
 })

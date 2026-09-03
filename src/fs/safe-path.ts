@@ -10,6 +10,7 @@
  */
 import { relative, isAbsolute, resolve, dirname, basename, join } from 'node:path'
 import { existsSync, realpathSync } from 'node:fs'
+import { toNfcName } from './text-canonical.js'
 
 export interface ResolvedWithinRoot {
   /** 绝对路径；目标存在时为 realpath（symlink 已解析），不存在时为 resolve 结果 */
@@ -122,4 +123,14 @@ export function safeManifestPath(bookRoot: string, rel: string): string | null {
 export function relPathKey(p: string): string {
   const norm = p.replace(/\\/g, '/')
   return process.platform === 'win32' ? norm.toLowerCase() : norm
+}
+
+/** 文档身份 join 键（R41-2，四十一轮）：relPathKey 折叠（win32 大小写 + 分隔符归一）
+ *  叠加 NFC 归一（平台规范化批 toNfcName 语义收编——此前零消费）。供「树扫描路径
+ *  vs 清单登记路径 / 定稿集」的 join 点使用：外部 case-only 改名（win）或 NFD
+ *  文件名（mac APFS 惯存分解形）后，精确字符串 join 会让 docId 落 legacyId、
+ *  定稿章显示回草稿、findUnfinishedChapter 永久误判。NFC 对整段相对路径归一是
+ *  安全的（分隔符 / 不受组合字符影响，等效逐段归一文件名）。 */
+export function docJoinKey(p: string): string {
+  return relPathKey(toNfcName(p))
 }

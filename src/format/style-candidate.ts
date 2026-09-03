@@ -17,6 +17,7 @@ import { readFile, writeFile, parseFlat, stringifyFlat } from './frontmatter.js'
 import { addEntry, readEntries, ENTRIES_DIR } from './style-entry.js'
 import { ulid } from '../fs/id.js'
 import { resolveWithinRoot } from '../fs/safe-path.js'
+import { isMdFileName } from './filename.js'
 import type { StyleEntry, EntryKind, EntrySource, ParseError } from './types.js'
 
 /** 书内候选箱相对路径 */
@@ -119,7 +120,9 @@ export function readCandidates(candidatesDir: string): {
   const errors: ParseError[] = []
   let files: string[]
   try {
-    files = readdirSync(candidatesDir).filter((f) => f.endsWith('.md') && !f.startsWith('._'))
+    // R41-16（四十一轮）：.md 判定改 isMdFileName（大小写不敏感）——.MD 家族
+    // （R38-9 收编 7 处后）漏网点：win 手改扩展名 .MD 后候选箱对该条目静默失明
+    files = readdirSync(candidatesDir).filter((f) => isMdFileName(f) && !f.startsWith('._'))
   } catch {
     return { candidates, errors }
   }

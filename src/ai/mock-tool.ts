@@ -7,7 +7,9 @@
  */
 import type { TokenUsage } from './provider/types.js'
 
-const MOCK_USAGE: TokenUsage = { inputTokens: 100, outputTokens: 50 }
+/** R41-5（四十一轮）：导出供 runner 文本 mock 快路对齐口径——工具快路 trace/TaskOk
+ *  携带 100/50（B-11），文本快路此前记 null，同一 mock 会话两种计量口径分叉。 */
+export const MOCK_USAGE: TokenUsage = { inputTokens: 100, outputTokens: 50 }
 
 /** 各 tool 的 mock input（按 toolName 分发）。
  *  R26-27（二十六轮）：导出供治理测试对账（test/governance/mock-tool-zero-billing.test.ts

@@ -514,6 +514,66 @@ test('exportBook: 行中带空白的字面 #% 保留；行首/紧贴正文的批
   }
 })
 
+// ── R41-3（四十一轮）：紧贴形态收紧为 CJK 前置——URL `#%XX` 片段不再误剥 ──────
+
+test('R41-3: exportBook: 含 #%% 片段的 URL 原样导出（# 前是 / 非 CJK 不再当批注截断）', () => {
+  const root = makeLongBook('链接保留')
+  const url = 'https://zh.example.org/wiki/#%E5%88%86%E7%B1%BB'
+  writeLongChapter(root, 1, '链接测试', `参见分类页 ${url}。\n正文甲#%贴附批注\n正常正文`)
+  try {
+    exportBook({ bookRoot: root, format: 'merged' })
+    const merged = readFileSync(join(root, '工作区', '导出', '全本-链接保留.md'), 'utf-8')
+    // 修复前：`#` 前是 `/`（非空白）被当贴附批注 → URL 从 `#%` 起整段静默截断
+    expect(merged).toContain(url)
+    // 同文件内真批注（CJK 紧贴）仍剥——收紧不放松批注面
+    expect(merged).toContain('正文甲')
+    expect(merged).not.toContain('贴附批注')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// ── R41-15 / R41-16（四十一轮）：多行标题导出 + 旧产物 .MD 归档 ─────────────
+
+test('R41-15: exportBook: 块标量多行标题 → 文件名无换行、载荷标题行单行', () => {
+  const root = makeLongBook('多行标题')
+  // 源文件手写块标量标题（writeLongChapter 的平铺形态写不进 \n）
+  writeFileSync(
+    join(root, '写作', '正文', '0001-双线.md'),
+    ['---', '章号: 1', '标题: |', '  双线标题上', '  双线标题下', '---', '正文一句。'].join('\n'),
+    'utf-8',
+  )
+  try {
+    exportBook({ bookRoot: root, format: 'split' })
+    const splitDir = join(root, '工作区', '导出', '分章')
+    const names = readdirSync(splitDir)
+    expect(names).toHaveLength(1)
+    expect(names[0]!.includes('\n')).toBe(false) // 文件名不渗换行
+    expect(names[0]!).toBe('0001-双线标题上 双线标题下.md') // 单行化标题（空格连接）
+    const payload = readFileSync(join(splitDir, names[0]!), 'utf-8')
+    expect(payload.startsWith('# 双线标题上 双线标题下\n')).toBe(true) // 载荷标题行不被 \n 劈开
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('R41-16: exportBook: 旧产物 .MD 大写扩展名也归档清位（isMdFileName 口径）', () => {
+  const root = makeLongBook('归档大写')
+  writeLongChapter(root, 1, '一章', '正文一句。')
+  const exportDir = join(root, '工作区', '导出')
+  mkdirSync(exportDir, { recursive: true })
+  writeFileSync(join(exportDir, '全本-旧书名.MD'), '旧稿（win 资源管理器改名形态）', 'utf-8')
+  try {
+    exportBook({ bookRoot: root, format: 'merged' })
+    // 修复前：.MD 大写被 endsWith('.md') 漏掉 → 残留导出目录，作者可能拿错稿
+    expect(existsSync(join(exportDir, '全本-旧书名.MD'))).toBe(false)
+    expect(existsSync(join(exportDir, '.旧版', '全本-旧书名.MD'))).toBe(true)
+    expect(existsSync(join(exportDir, '全本-归档大写.md'))).toBe(true)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 // ── N-6（第五十四轮）：fenced 代码块内 #% 不剥 ─────────────────
 
 test('exportBook: fenced 代码块（``` 围栏）内的 #% 原样保留；块外批注仍滤净', () => {

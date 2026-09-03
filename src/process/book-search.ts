@@ -3,7 +3,8 @@
  *
  * 从 server/api/search.ts 抽取的服务层：行级 includes 匹配（大小写不敏感），
  * 每文件限行、总限文件防大；排除点前缀系统目录（.版本 快照/.trash 回收站/.journal）、
- * 导出/ 与 node_modules（V-P2-25，防全书搜索被历史版本与已删文件污染）。
+ * 导出/ 与 node_modules（V-P2-25，防全书搜索被历史版本与已删文件污染）、spills/（R41-8
+ * 防 AI 全文快照副本双出处命中）；.md 判定大小写不敏感（R41-6，.MD 漏网）。
  * 对话助手 book_search 工具与 /api/books/:name/search 端点共用，不复制逻辑。
  */
 import { join } from 'node:path'
@@ -156,7 +157,9 @@ function walkMd(dir: string, bookRoot: string): string[] {
     // 「同一书库不同机器搜出不同前 50 条」；排序后截断结果确定
     entries.sort()
     for (const name of entries) {
-      if (name.startsWith('.') || name === 'node_modules' || name === '导出') continue
+      // R41-8（四十一轮）：排除 spills——工作区全文快照（AI 会话临时副本，哈希文件名）
+      // 与正本同文，全书搜索会双出处命中且其一指向内部缓存路径
+      if (name.startsWith('.') || name === 'node_modules' || name === '导出' || name === 'spills') continue
       const p = join(d, name)
       let s
       try {
@@ -166,7 +169,7 @@ function walkMd(dir: string, bookRoot: string): string[] {
       }
       if (!isWithinRoot(bookRoot, p)) continue // 越界 symlink 跳过（fail-closed）
       if (s.isDirectory()) walk(p)
-      else if (name.endsWith('.md')) out.push(p)
+      else if (name.slice(-3).toLowerCase() === '.md') out.push(p) // R41-6：.MD 大写漏网（win 手改扩展名常态）
     }
   }
   walk(dir)
@@ -246,7 +249,8 @@ async function walkMdAsync(dir: string, bookRoot: string): Promise<string[]> {
     }
     entries.sort()
     for (const name of entries) {
-      if (name.startsWith('.') || name === 'node_modules' || name === '导出') continue
+      // R41-8/R41-6：与同步版同口径（spills 排除 + .md 大小写不敏感）
+      if (name.startsWith('.') || name === 'node_modules' || name === '导出' || name === 'spills') continue
       const p = join(d, name)
       let s
       try {
@@ -256,7 +260,7 @@ async function walkMdAsync(dir: string, bookRoot: string): Promise<string[]> {
       }
       if (!isWithinRoot(bookRoot, p)) continue // 越界 symlink 跳过（fail-closed）
       if (s.isDirectory()) await walk(p)
-      else if (name.endsWith('.md')) out.push(p)
+      else if (name.slice(-3).toLowerCase() === '.md') out.push(p)
     }
   }
   await walk(dir)

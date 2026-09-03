@@ -37,7 +37,7 @@ import { parseChapterFileName } from '../format/words.js'
 import { readManifest, readManifestStrict, writeManifest, finalizedChapterNumbers, finalizedChapterSetOfBook, withManifestLockAsync, type Manifest } from '../document/manifest.js'
 import { computeRevision } from '../document/revision.js'
 import { probeCachedRevision } from '../document/tree.js'
-import { safeManifestPath } from '../fs/safe-path.js'
+import { safeManifestPath, docJoinKey } from '../fs/safe-path.js'
 import { walkMdEach } from '../fs/walk-md.js'
 import { readBatchPause } from './batch-pause.js'
 import type { BookConfig, ParseError } from '../format/types.js'
@@ -364,7 +364,12 @@ async function healthCheck(bookRoot: string, manifest: Manifest): Promise<Health
     } catch {
       readable = false // 读失败（EACCES/EBUSY 瞬态）：与 M-13 口径一致不误报
     }
-    const docEntries = [...manifest.entries.values()].filter((e) => e.nodeType === 'document').length
+    // R41-10（四十一轮）：空判改按**当次实际读到的清单**重解析——原先沿用 enter()
+    // 传入的镜像，本函数先行的自愈写（healMovePending 补清单等）与锁内他方写入
+    // 均不可见，镜像零条 → 已补录的书误报 manifestEmpty 红项
+    const docEntries = readable
+      ? [...readManifest(manifestPath).entries.values()].filter((e) => e.nodeType === 'document').length
+      : 0
     if (readable && docEntries === 0 && maxFileNameChapter(join(bookRoot, '写作', '正文')) > 0) {
       issues.push({
         kind: 'manifestEmpty',
@@ -569,7 +574,9 @@ function findUnfinishedChapter(bookRoot: string, manifest: Manifest): number | n
   const finalizedStems = new Set<string>()
   for (const e of manifest.entries.values()) {
     if (e.nodeType !== 'document' || !e.finalizedRevision) continue
-    finalizedStems.add(e.path)
+    // R41-2（四十一轮）：定稿集改 docJoinKey 键（win32 折叠 + NFC）——外部 case-only
+    // 改名 / NFD 文件名后精确匹配失配，定稿章被误判「未完成」→ 进门恒报中断
+    finalizedStems.add(docJoinKey(e.path))
   }
   const bodyDir = join(bookRoot, '写作', '正文')
   if (!existsSync(bodyDir)) return null
@@ -579,7 +586,7 @@ function findUnfinishedChapter(bookRoot: string, manifest: Manifest): number | n
   walkMdEach(bodyDir, (fp, name) => {
     if (found !== null) return
     const rel = relativePath(bookRoot, fp)
-    if (finalizedStems.has(rel)) return // 已定稿，不算未完成
+    if (finalizedStems.has(docJoinKey(rel))) return // 已定稿，不算未完成（R41-2 同口径键）
     const no = chapterFromFile(fp, name)
     if (no > 0) found = no
   })

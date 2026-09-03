@@ -11,7 +11,7 @@
  *      P1-2：/spawn 等 fire-and-forget 链路可真正中断）。
  */
 import { createProvider, loadProviders, saveProviders, registerDegradedPersist, registerDegradedLookup, tierFromStore, type ModelProvider, type TierSlot, type TokenUsage } from './provider/index.js'
-import { tryMockTool } from './mock-tool.js'
+import { tryMockTool, MOCK_USAGE } from './mock-tool.js'
 import { GenError, resolveFirstByteTimeoutMs } from './gen.js'
 import { MODEL_QUIRKS_VERSION } from './provider/model-quirks.js'
 import { newRunId, promptMeta, toTraceUsage } from './trace.js'
@@ -446,9 +446,11 @@ export async function runTask<T>(opts: {
   }
   // mock 快路（文本型）：CLWRITING_DRIVER=mock 时直接返回预定值（守卫位置与 tryMockTool 对称，P0-1）
   if (opts.mockText !== undefined && process.env['CLWRITING_DRIVER'] === 'mock') {
-    trace({ model: 'mock', attempt: 0, stopReason: 'mock', usage: null, ok: true })
+    // R41-5（四十一轮）：usage 对齐工具快路 MOCK_USAGE（B-11 口径）——此前文本快路
+    // trace/TaskOk 均记 null，同一 mock 会话两路计量口径分叉（预算闸/成本聚合假零）
+    trace({ model: 'mock', attempt: 0, stopReason: 'mock', usage: MOCK_USAGE, ok: true })
     finishMock()
-    return { ok: true, data: opts.mockText, ctrl: new AbortController(), usage: null, attemptsUsage: null, runId, model: null }
+    return { ok: true, data: opts.mockText, ctrl: new AbortController(), usage: MOCK_USAGE, attemptsUsage: MOCK_USAGE, runId, model: null }
   }
 
   const r = resolveProvider(opts.userDataPath, tierKind)
