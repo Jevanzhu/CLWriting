@@ -221,6 +221,14 @@ async function runChatInner(opts: ChatOpts): Promise<void> {
     state.timedOut = true
     state.ctrl.abort()
   }, deadlineMs)
+  // R39-14（三十九轮）：并发不变量固化（self-heal runSelfHealInner 同款）——绕过
+  // isChatRunning 闸的并发调起此前会静默顶掉旧运行 ctrl（中断通道丢失），fail-fast
+  // 暴露守卫失效。当前生产调用方「先查后调」无 await 间隙，正常不可达；守卫命中时
+  // 清掉刚设的 deadline 定时器再抛（防泄漏）。
+  if (running.has(opts.bookName)) {
+    clearTimeout(deadlineTimer)
+    throw new Error(`chat 并发守卫失效：${opts.bookName} 已有一场对话在跑（isChatRunning 闸被绕过）`)
+  }
   running.set(opts.bookName, state)
   // E1a：正常完成（emit chat_done）才续链；abort/error/超时丢弃队列
   let completedOk = false

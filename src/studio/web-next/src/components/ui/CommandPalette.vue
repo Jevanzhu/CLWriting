@@ -54,7 +54,16 @@ const q = ref('')
 const sel = ref(0)
 const filtered = computed(() => {
   const k = q.value.trim().toLowerCase()
-  return k ? cmds.value.filter((c) => c.label.toLowerCase().includes(k)) : cmds.value
+  if (!k) return cmds.value
+  // R39-18（三十九轮）：章号参与过滤——`no` 为补零形态（"0345"），同时命中补零
+  // 前缀与去零前缀（输「345」跳 0345 章 / 输「03」匹配 03xx 章族）；k 全零时去零
+  // 退化为空串前缀 = 全章匹配，无害。动作项无 no，仅走 label
+  const kNorm = k.replace(/^0+/, '')
+  return cmds.value.filter(
+    (c) =>
+      c.label.toLowerCase().includes(k) ||
+      (c.no !== undefined && (c.no.startsWith(k) || c.no.replace(/^0+/, '').startsWith(kNorm))),
+  )
 })
 // 内存核查（2026-08-25 M-P3-13）：渲染上限——空查询时全书每章一条全量渲染为 DOM
 // （千章级千行节点，原仅靠 max-height 视觉滚动裁剪不减节点）；cmds 数据生成不动，

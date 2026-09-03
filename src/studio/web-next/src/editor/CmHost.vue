@@ -167,7 +167,13 @@ onMounted(() => {
       readonlyConf.of(EditorState.readOnly.of(props.readonly ?? false)),
       modeConf.of(props.mode === 'md' ? [markdown()] : []),
       EditorView.updateListener.of((u) => {
-        if (u.docChanged) emit('update:modelValue', u.state.doc.toString())
+        // R39-20（三十九轮）：单次 toString 复用——emit 值与同文档外部同步判据
+        //（lastLocalEmit，见下方 watch）取同一字符串，此前 emit 一次 + watch 里
+        // doc.toString() 再一次，每击键 2× 全文拷贝（超大单文件可感）
+        if (u.docChanged) {
+          lastLocalEmit = u.state.doc.toString()
+          emit('update:modelValue', lastLocalEmit)
+        }
         if (u.selectionSet || u.focusChanged) emit('selectionChange')
       }),
       // F5（五十九轮）：组合态标记 + 组合结束后（延迟一拍让 CM6 先冲排组合文本插入）
@@ -230,6 +236,9 @@ watch(
 // 落盘污染；undo 后切换时 redo 栈的边界插入事件亦残留。isolateHistory('full') 只切断新旧
 // 事件编组，不承担清栈。
 let lastHistoryKey: string | undefined = props.historyKey
+// R39-20：本视图最近一次 emit 的正文串（与 emit 同源赋值）——同文档外部同步判据，
+// 初始化为挂载时 modelValue（首拍外部同值变化不误判为外部变更触发全量替换）
+let lastLocalEmit: string | null = props.modelValue
 // F5（五十九轮）：IME 组合态守卫——外部全量替换（refresh/SSE 同步）落在组合输入中
 // 会吞掉正在组合的中文（组合文本被整段替换打断）。组合标记本地维护
 // （compositionstart/end 事件对）+ view.composing 双判：CM6 的 composing>0 要等组合期
@@ -258,7 +267,12 @@ watch(
     lastHistoryKey = key
     if (!docSwitch) {
       // 同文档外部同步：仅差异时替换，避免光标跳（此分支不得恒替换）
-      if (v !== view.state.doc.toString()) {
+      // R39-20：判据改 lastLocalEmit（本视图最近一次 emit 的同一字符串）——本视图
+      // emit 引起的变化 v 恒等于 lastLocalEmit（免 doc.toString() 全文拷贝）；外部
+      // 变化（SSE/refresh/store patch）v 是新串 → 走替换。doc 与 lastLocalEmit 的
+      // 不变式由两条更新路径共同维持（本视图 emit / applyExternalReplace 后的
+      // update 监听都会刷新 lastLocalEmit）
+      if (v !== lastLocalEmit) {
         // F5（五十九轮）：组合输入中不立即替换——挂起到 compositionend 后
         //（B-1：挂起登记仅标记「有待应用的外部变更」，应用时取当下最新 modelValue）
         if (view.composing || composing) {

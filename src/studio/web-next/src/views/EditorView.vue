@@ -98,7 +98,21 @@ function onBodyChange(next: string): void {
 }
 // R64-33（十二轮）：字数与服务端/右栏同源（countWords：码点计数 + 剥 markdown 标记）——
 // 旧「去空白 UTF-16 计数」与右栏同屏可稳定不一致（markdown 标记/代理对字符）
-const wordCount = computed(() => countWords(body.value))
+// R39-20（三十九轮）：字数统计防抖 150ms——countWords 全文正则 + 码点展开每击键
+// O(n)（超大单文件可感），显示延迟一拍无感；初值取当拍 body（首屏/切文档即时），
+// 卸载清定时器
+const wordCount = ref(countWords(body.value))
+let wordCountTimer: ReturnType<typeof setTimeout> | null = null
+watch(body, (b) => {
+  if (wordCountTimer) clearTimeout(wordCountTimer)
+  wordCountTimer = setTimeout(() => {
+    wordCount.value = countWords(b)
+    wordCountTimer = null
+  }, 150)
+})
+onUnmounted(() => {
+  if (wordCountTimer) clearTimeout(wordCountTimer)
+})
 
 const isChapter = computed(() => isBodyKind(entry.value?.path ?? ''))
 const titleModel = ref('')

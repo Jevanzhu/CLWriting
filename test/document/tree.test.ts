@@ -143,6 +143,30 @@ test('getBookTreeIndex: 缓存同引用；invalidate 后重建 + revision 递增
   rmSync(root, { recursive: true, force: true })
 })
 
+test('R39-19（三十九轮）：force 重建内容不变不 bump revision；内容变化/invalidate 才递增', () => {
+  const root = mkdtempTracked(join(tmpdir(), 'w2a-tree-r39-'))
+  try {
+    mkdirSync(join(root, '写作', '正文'), { recursive: true })
+    writeFileSync(join(root, '写作', '正文', '0001-开篇.md'), '---\n章号: 1\n标题: 开篇\n---\n正文', 'utf-8')
+    const r1 = getBookTreeIndex(root)
+    // 窗口回前台 force 全树重扫（内容未变）——不再 ++globalRevision（前端 doc store
+    // syncCleanWithTree 按 revision 对账，不因空转重扫把 clean 缓存全量重拉）
+    const r1b = getBookTreeIndex(root, true)
+    expect(r1b).toBe(r1)
+    expect(r1b.revision).toBe(r1.revision)
+    // 外部编辑改动章内容 → 重建不等 → revision 照常递增（外部改动仍可被检出）
+    writeFileSync(join(root, '写作', '正文', '0001-开篇.md'), '---\n章号: 1\n标题: 开篇\n---\n正文改', 'utf-8')
+    const r2 = getBookTreeIndex(root, true)
+    expect(r2.revision).not.toBe(r1.revision)
+    // invalidate（结构化变更路径删缓存）→ 重建 → 照常递增（原语义不变）
+    invalidateTreeIndex(root, true)
+    const r3 = getBookTreeIndex(root)
+    expect(r3.revision).not.toBe(r2.revision)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('getBookTreeIndex(force): 外部直接写盘的文件——缓存刷不出，force 重扫刷得出', () => {
   const root = makeBook()
   const idx1 = getBookTreeIndex(root)

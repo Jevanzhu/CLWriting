@@ -92,6 +92,32 @@ export function parseServerArgs(
   }
 }
 
+/**
+ * R39-9（三十九轮）：env 侧端口解析（server-main 形态专用）——argv 侧 --port 已有
+ * R26-94/R28-19 校验（0–65535 整数 + fatal 人话通道），env CLWRITING_PORT 此前
+ * Number() 直透：'abc' → NaN 落 listen(NaN) 同步抛 RangeError 绕开 boot-error
+ * 信封；'' → Number('')===0 静默起在随机端口（R26-94 反对的「起在意外端口」同型）。
+ * 口径与 argv 侧一致；env 未设 → 7878 缺省（拆分前逐字不变）。
+ */
+export function resolveEnvPort(
+  env: Record<string, string | undefined>,
+  opts?: { fatal?: (msg: string) => void },
+): number {
+  const raw = env['CLWRITING_PORT']
+  if (raw === undefined) return 7878
+  const n = Number(raw)
+  if (raw.trim() === '' || !Number.isFinite(n) || !Number.isInteger(n) || n < 0 || n > 65535) {
+    const msg = `环境变量 CLWRITING_PORT 的值「${raw}」不是合法端口号：请传 0–65535 的整数，或删除该变量以使用缺省端口 7878`
+    if (opts?.fatal) {
+      opts.fatal(msg)
+      return 7878 // 注入件不退出时与 parseServerArgs 的 fatal 注入口径一致，回落缺省
+    }
+    console.error(msg)
+    process.exit(2)
+  }
+  return n
+}
+
 /** boot-error 信封：EADDRINUSE 给可读中文（server-main.ts 拆分前口径原样保留）。 */
 export interface BootErrorEnvelope {
   code: string

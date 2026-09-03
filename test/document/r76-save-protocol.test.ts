@@ -176,7 +176,7 @@ test('R76-26: snapshotBeforeOverwrite 按 global.json snapMaxCount 修剪；缺�
 
 // ── R76-27：锁残留卫生 ──────────────────────────────────────────
 
-test('R76-27: purge 连删 journal + 无人持有的锁残留；在持锁跳过', async () => {
+test('R76-27→R39-12: purge 删 journal；锁残留一律不删（陈锁清扫归 sweep 确定性判据）', async () => {
   const id = 'doc_r27'
   const jdir = join(bookRoot, '工作区', '.journal')
   mkdirSync(jdir, { recursive: true })
@@ -195,8 +195,13 @@ test('R76-27: purge 连删 journal + 无人持有的锁残留；在持锁跳过'
   const p1 = await purgeTrash(bookRoot, id)
   expect(p1.ok).toBe(true)
   expect(existsSync(journalFile)).toBe(false)
-  expect(existsSync(lockResidue)).toBe(false)
-  // 在持锁：purge 删 journal 但不删在持锁（删在持锁 = 互斥失效）
+  // R39-12（三十九轮）：purge 不再自删锁残留——原「queryLockHeld → rmSync」有 µs 级
+  // TOCTOU（判「不在持」与删之间他进程恰完成取锁复核，删在持锁 = 互斥失效）。孤儿锁
+  // 归 sweepAbandonedTmpFiles 的 .lock 分支确定性判据（合法锁指纹 + pid 死亡 + 10min
+  // 超龄，healthCheck 接线）清扫，宁慢勿错；本例死 pid 但 mtime 年轻，sweep 也不清，
+  // 残留无害
+  expect(existsSync(lockResidue)).toBe(true)
+  // 在持锁：同样不删（「在持跳过」语义由「一律不删」自然包含）
   writeFileSync(journalFile, '')
   const release = acquireCrossProcessLockWithTimeout(lockResidue, 0)
   expect(release).not.toBeNull()

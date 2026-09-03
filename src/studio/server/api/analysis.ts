@@ -30,6 +30,7 @@ import { mapAnalysisToCandidates, persistCandidates } from '../../../format/styl
 import { localDayKey } from '../../../log/index.js' // R76-31：候选日键本地日（同 overview/日记口径）
 import { safeManifestPath } from '../../../fs/safe-path.js'
 import { acquireTaskGate, orchestrationBusyFor } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
+import { yieldToEventLoop, SCAN_YIELD_EVERY } from './progress.js' // R39-15：MISS 读循环逐块让出（R37-3 范式）
 
 interface AnalysisCtx {
   workDir: string | null
@@ -579,6 +580,12 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
         } else {
           const allBodies: string[] = []
           const recentBodies: string[] = []
+          // R39-15（三十九轮）：读循环每 SCAN_YIELD_EVERY（25）章让出一次事件循环——
+          // 此前 MISS 时同步逐章整读 + 全书 join，数百万字大书上单请求冻结事件循环
+          // 1-3s（全部书的 SSE 心跳/保存停摆）；对齐 R37-3 在 search/overview/progress
+          // 的逐块让出范式。computeFullStats 仍为单段同步 CPU（全书全文正则 stats），
+          // 下沉 worker 改动面大——登记维持，缓存命中路径（D3）不受影响。
+          let scanned = 0
           for (const ch of sorted) {
             if (!ch._path) continue
             const draft = readDraft(ch._path)
@@ -587,6 +594,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
             if (recent.includes(ch)) {
               recentBodies.push(`### 第${ch.章号}章 ${ch.标题}\n\n${draft.body}`)
             }
+            if (++scanned % SCAN_YIELD_EVERY === 0) await yieldToEventLoop()
           }
           fullStats = computeFullStats(allBodies.join('\n\n'), rules)
           sampleText = recentBodies.join('\n\n---\n\n')

@@ -15,12 +15,13 @@
  * 环境变量照常透传（CLWRITING_DRIVER=mock 可脱离大模型跑通全链路）。
  */
 import process from 'node:process'
-import { parseServerArgs, bootServerFromArgs, describeBootError, deriveStaticDir } from './server-boot.js'
+import { parseServerArgs, bootServerFromArgs, describeBootError, deriveStaticDir, resolveEnvPort } from './server-boot.js'
 import { defaultUserDataPath } from '../fs/user-data-path.js'
 import { log } from '../log/index.js'
 
 // node 直跑形态缺省与拆分前逐字一致：--port > CLWRITING_PORT > 7878
-const parsed = parseServerArgs(process.argv, { portDefault: Number(process.env['CLWRITING_PORT'] ?? 7878) })
+// R39-9：env 值经 resolveEnvPort 校验（非法 fatal 人话退出），NaN/'' 不再透传 listen
+const parsed = parseServerArgs(process.argv, { portDefault: resolveEnvPort(process.env) })
 // dd-P3（C-P3-16）：APP 级数据目录与 Electron 态同源（providers/全局偏好/RAG 提供方都在这里），
 // 缺省时 startServer 视为未定位 → 发布冒烟读不到真实配置，验证面就窄了一截
 if (parsed.userDataPath === null) parsed.userDataPath = defaultUserDataPath()

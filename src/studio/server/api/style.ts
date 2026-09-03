@@ -67,7 +67,16 @@ function relPath(bookRoot: string, p: string | undefined): string {
 
 /** 相对路径是否落在指定书内目录（防穿越：拒绝 ..、绝对路径、NUL 字节） */
 function insideDir(rel: string, dir: string): boolean {
-  return rel.startsWith(`${dir}/`) && !rel.includes('..') && !rel.includes('\0') && !isAbsolute(rel)
+  // R39-17（三十九轮）：'..' 判定改段级——整串 includes('..') 把文件名含「..」子串的
+  // 合法条目（safe-path 口径合法，如 `条目/a..b.md`）误杀成 400（删/确认/忽略全不可
+  // 用，fail-closed 方向安全但与 safe-path.ts 段级口径漂移）；穿越只可能由独立的
+  // 「..」段构成，下方 resolveWithinRoot 仍兜底双侧 realpath。
+  return (
+    rel.startsWith(`${dir}/`) &&
+    !rel.split('/').includes('..') &&
+    !rel.includes('\0') &&
+    !isAbsolute(rel)
+  )
 }
 
 export function registerStyleRoutes(ctx: StyleCtx): void {

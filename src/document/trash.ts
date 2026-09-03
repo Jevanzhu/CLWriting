@@ -19,7 +19,6 @@ import { atomicWriteFile, linkOrRenameExclusive, renameWithRetry } from '../fs/a
 import { resolveWithinRoot, safeDocId } from '../fs/safe-path.js'
 import { readManifestStrict, writeManifest, upsertEntry, withManifestLock, withManifestLockAsync, type ManifestEntry } from './manifest.js'
 import { VERSIONS_DIR_NAME, encodeDocDirName } from './version.js'
-import { queryLockHeld } from '../fs/cross-process-lock.js'
 import { analysisPathCandidates } from './analysis.js'
 import { type DocumentRole } from './layout.js'
 import { invalidateTreeIndex } from './tree.js'
@@ -408,20 +407,12 @@ export async function purgeTrash(bookRoot: string, id: string): Promise<PurgeRes
       for (const name of names) {
         const journalFile = safePathWithin(bookRoot, `工作区/.journal/${name}.jsonl`)
         if (journalFile && existsSync(journalFile)) rmSync(journalFile, { force: true })
-        // R76-27（二十四轮 C 域）：同名锁残留连删（best-effort）——purge 删 journal 但留
-        // `<journal>.save.lock`/`<journal>.lock`，文档已永久删、该锁再无获取者，孤儿锁
-        // 永久堆积。在持（他进程恰在写该 doc）则跳过——删在持锁 = 互斥失效；残留留给
-        // 下次 purge 或 healthCheck 的陈锁清扫（atomic.ts sweepAbandonedTmpFiles）。
-        for (const suffix of ['.save.lock', '.lock']) {
-          const lockResidue = journalFile ? `${journalFile}${suffix}` : null
-          if (!lockResidue || !existsSync(lockResidue)) continue
-          if (queryLockHeld(lockResidue)) continue
-          try {
-            rmSync(lockResidue, { force: true })
-          } catch {
-            /* 占用等跳过 */
-          }
-        }
+        // R76-27（二十四轮 C 域）登记的孤儿锁堆积改由陈锁清扫统一收口——R39-12（三十九轮）：
+        // 此前 purge 侧「queryLockHeld → rmSync」自删存在 µs 级 TOCTOU（判「不在持」与删
+        // 之间他进程恰完成取锁复核 → 删掉在持锁 = 互斥失效，lost update 形态），且与
+        // sweepAbandonedTmpFiles 的 .lock 分支功能重复（后者为确定性判据：合法锁指纹 JSON
+        // + 持有 pid 已死 + 10min 超龄，atomic.ts；healthCheck 已接线 state.ts）。文档已
+        // 永久删、该锁再无获取者——残留交下一次 healthCheck 清扫，宁慢勿错。
       }
     }
   } catch (e) {

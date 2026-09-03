@@ -159,4 +159,16 @@ describe('R61-3/R61-16: IME 组合期让渡与键盘导航渲染上限', () => {
     expect(openSpy).toHaveBeenCalledWith(expect.objectContaining({ docId: 'doc-100' }))
     openSpy.mockRestore()
   })
+
+  it('R39-18（三十九轮）：章号参与过滤——补零前缀与去零前缀都命中（输「345」跳 0345 章）', async () => {
+    mountPalette(1000)
+    // label = 「北境第N节」不含章号 → 命中只能来自 no 字段：0345 去零 345 以「345」前缀命中
+    await palette().find('input.palette-input').setValue('345')
+    const items = palette().findAll('.palette-item')
+    expect(items.length).toBe(1)
+    expect(items[0]!.text()).toContain('北境第345节')
+    // 补零前缀：034 命中 0034 + 0340-0349 共 11 章（0034 同时命中去零分支）
+    await palette().find('input.palette-input').setValue('034')
+    expect(palette().findAll('.palette-item').length).toBe(11)
+  })
 })

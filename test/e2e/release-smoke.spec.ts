@@ -29,8 +29,24 @@ test.skip(!process.env['CLWRITING_E2E_RELEASE'], '发布 smoke：用 npm run tes
 let child: ChildProcess | undefined
 let smokeWorkDir = ''
 
-test.afterAll(() => {
-  if (child && child.exitCode === null) child.kill('SIGTERM')
+test.afterAll(async () => {
+  // R39-21（三十九轮）：kill 后等退出再删 workDir——Windows 上 kill 是异步收尾，
+  // 立刻 rmSync 时 server-main 可能仍持有书库内 SQLite/文件句柄（EBUSY/EPERM 偶发，
+  // force 只豁免 ENOENT）；对齐 global-setup 先 close 再删的既有口径。7s 兜底防
+  // 子进程僵死拖挂 afterAll（与 graceful-shutdown 总超时同量级）。
+  if (child && child.exitCode === null) {
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        child?.kill('SIGKILL')
+        resolve()
+      }, 7_000)
+      child!.once('close', () => {
+        clearTimeout(timer)
+        resolve()
+      })
+      child!.kill('SIGTERM')
+    })
+  }
   if (smokeWorkDir) rmSync(smokeWorkDir, { recursive: true, force: true })
 })
 

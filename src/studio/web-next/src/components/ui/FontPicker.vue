@@ -48,18 +48,31 @@ function pick(f: string): void {
   close()
 }
 function onKey(e: KeyboardEvent): void {
-  if (e.key === 'Escape') close()
+  if (e.key !== 'Escape' || !open.value) return
+  // R39-4（三十九轮）：open 态本层消费 Esc——capture 注册先于 useHotkeys（后者在
+  // WorkspaceShell setup 期挂、bubble 派发按注册序先跑，此处 preventDefault 对它
+  // 迟到），对齐 ContextMenu/SettingsModal/ExportDialog 的 Z-23「本层消费防同键退
+  // 专注」口径且不依赖挂载时序；未 open 时不消费（Esc 落到 useHotkeys）
+  e.preventDefault()
+  e.stopPropagation()
+  close()
 }
-function onScrollOrResize(): void {
-  if (open.value) close()
+function onScrollOrResize(e: Event): void {
+  if (!open.value) return
+  // R39-3（三十九轮）：浮层自身滚动不算锚位失效——捕获监听会收到 target=菜单的
+  // scroll（列表溢出滚动是常态），原逻辑首个滚动 tick 即关闭，第 13 项及以后的
+  // 字体永远选不到；只有浮层外的滚动/窗口 resize 才关闭
+  const t = e.target
+  if (t instanceof Node && menu.value && (t === menu.value || menu.value.contains(t))) return
+  close()
 }
 onMounted(() => {
-  window.addEventListener('keydown', onKey)
+  window.addEventListener('keydown', onKey, true)
   window.addEventListener('resize', onScrollOrResize)
   window.addEventListener('scroll', onScrollOrResize, true)
 })
 onBeforeUnmount(() => {
-  window.removeEventListener('keydown', onKey)
+  window.removeEventListener('keydown', onKey, true)
   window.removeEventListener('resize', onScrollOrResize)
   window.removeEventListener('scroll', onScrollOrResize, true)
 })

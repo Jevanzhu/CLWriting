@@ -12,9 +12,16 @@
  * （main.ts 的 font-cache loader）拿到的形态与 font-list({ disableQuoting: true })
  * 一致，前端消费方零改动。
  *
- * 失败语义：spawn 失败 / 非 0 退出 → 抛错（与 font-list 抛错同口径），由调用方
+ * 失败语义：spawn 失败 / 非 0 退出 / 超时 → 抛错（与 font-list 抛错同口径），由调用方
  * catch 返回 []（font-cache 不缓存失败）。win 实机闪窗形态复验挂账（本机 macOS
  * 静态实证 + 上游源码核实，见二轮报告 §九）。
+ *
+ * R39-2（三十九轮）：stdout/stderr 改 Buffer[] 收集 + close 时整流一次解码——逐
+ * chunk toString('utf8') 会把被切在 chunk 边界上的多字节字符（CJK 字体族名 3 字节/字）
+ * 各自解成 U+FFFD，中文字体名乱码且无报错；对齐 server-manager.ts splitLines 的
+ * setEncoding 跨边界安全口径。R39-5：10s 超时兜底——PS 挂死（PSModulePath 损坏/
+ * 杀软拦截）时 Promise 永不结算且失败不入缓存（font-cache），每次重开字体下拉再
+ * spawn 一个 powershell，句柄累积；超时 kill + reject。
  */
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
@@ -35,6 +42,8 @@ export interface FontSpawnChild {
   stderr?: { on(event: 'data', cb: (d: Buffer) => void): unknown } | null
   on(event: 'error', cb: (err: Error) => void): unknown
   on(event: 'close', cb: (code: number | null) => void): unknown
+  /** 超时强杀用（R39-5）；生产 ChildProcess 自带，测试假件可不实现（无 kill 时仅放弃等待）。 */
+  kill?(signal?: NodeJS.Signals): boolean | undefined
 }
 
 export type FontSpawn = (cmd: string, args: string[], opts: { windowsHide: boolean }) => FontSpawnChild
@@ -44,6 +53,8 @@ export interface ListWindowsFontsDeps {
   platform?: NodeJS.Platform
   /** spawn 注入（测试用）。 */
   spawnImpl?: FontSpawn
+  /** 枚举超时毫秒（R39-5，测试注入用）；缺省 10s。超时 kill 子进程并 reject。 */
+  timeoutMs?: number
 }
 
 /** font-list standardize 的 disableQuoting 移植：\uXXXX 解码 + 剥包裹引号。 */
@@ -75,22 +86,39 @@ export async function listWindowsFonts(deps: ListWindowsFontsDeps = {}): Promise
   // → 调用方 catch 得空字体表（静默降级）。SystemRoot 恒在（Windows 系统必需环境变量），
   // 据此拼绝对路径兜底；解析优先级：绝对路径存在 → 用之，否则回退 PATH 裸名。
   const psExe = resolvePowershellExe()
+  const timeoutMs = deps.timeoutMs ?? 10_000
   return await new Promise<string[]>((resolve, reject) => {
     // windowsHide: true = libuv CREATE_NO_WINDOW——GUI 子系统主进程起控制台程序的
     // 闪窗治本位（与 git/exec.ts R1W-8 同纪律）；数组参数免 shell，不经 cmd.exe。
     const child = doSpawn(psExe, ['-NoProfile', '-NonInteractive', '-Command', PS_FONT_SCRIPT], {
       windowsHide: true,
     })
-    let out = ''
-    let err = ''
+    // R39-2：整流解码——收 Buffer[] 拼接后一次 toString，防多字节字符跨 chunk 边界劈成 U+FFFD
+    const outParts: Buffer[] = []
+    const errParts: Buffer[] = []
     child.stdout?.on('data', (d) => {
-      out += d.toString('utf8')
+      outParts.push(d)
     })
     child.stderr?.on('data', (d) => {
-      err += d.toString('utf8')
+      errParts.push(d)
     })
-    child.on('error', reject)
+    // R39-5：超时兜底（kill 缺席的测试假件仅放弃等待，Promise 仍按 reject 结算）
+    const timer = setTimeout(() => {
+      try {
+        child.kill?.()
+      } catch {
+        /* 已退出 */
+      }
+      reject(new Error(`powershell 字体枚举超过 ${timeoutMs}ms 未退出，已中止`))
+    }, timeoutMs)
+    child.on('error', (err) => {
+      clearTimeout(timer)
+      reject(err)
+    })
     child.on('close', (code) => {
+      clearTimeout(timer)
+      const out = Buffer.concat(outParts).toString('utf8')
+      const err = Buffer.concat(errParts).toString('utf8')
       if (code !== 0) {
         reject(new Error(`powershell 字体枚举退出码 ${code ?? 'null'}${err ? `：${err.trim().slice(0, 200)}` : ''}`))
         return
