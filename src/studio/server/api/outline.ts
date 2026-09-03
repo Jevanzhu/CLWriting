@@ -41,11 +41,13 @@ async function runOutline(
   prompt: string,
   bookRoot?: string,
   promptFiles: string[] = [],
-): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
+): Promise<{ ok: true; text: string } | { ok: false; code: string; error: string }> {
   const out = await runSpec(OUTLINE_SPEC, { userDataPath, bookRoot, userPrompt: prompt, promptFiles })
-  if (!out.ok) return { ok: false, error: out.error }
+  // R43-24（四十三轮）：code 透传（不再坍缩 'GEN_FAIL'）——NO_* 配置缺失族此前被
+  // 500 GEN_FAIL 掩蔽成因，路由按 code 映射状态码
+  if (!out.ok) return { ok: false, code: out.code, error: out.error }
   const text = out.data.text.trim()
-  if (!text) return { ok: false, error: 'AI 产出为空' }
+  if (!text) return { ok: false, code: 'GEN_FAIL', error: 'AI 产出为空' }
   return { ok: true, text }
 }
 
@@ -79,7 +81,14 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
 
       // generateText 纯文本产出（prompt 自含任务说明，system prompt 为空）
       const result = await runOutline(ctx.userDataPath, prompt, bookRoot, files)
-      if (!result.ok) return replyError(res, 500, 'GEN_FAIL', result.error)
+      // R43-24（四十三轮）：按透传 code 映射状态（rewrite.ts 同款）——NO_* 族（配置
+      // 缺失）→ 400；ABORTED（用户中断）→ 499（请求被取消语义，api/ 无既有先例，
+      // 错误信封 {code,error} 形状不变）；其余维持 500 + 透传 code。错误文案一律不变
+      if (!result.ok) {
+        if (result.code.startsWith('NO_')) return replyError(res, 400, result.code, result.error)
+        if (result.code === 'ABORTED') return replyError(res, 499, result.code, result.error)
+        return replyError(res, 500, result.code, result.error)
+      }
 
       // 平台规范化批：AI 产出写前归一（在 withFm 拼接与快照比对之前——快照/落盘/指纹同源）
       const content = canonicalizeText(result.text)

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, chmodSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { readManifest, readManifestStrict, writeManifest, upsertEntry, removeEntry, finalizedChapterSetOfBook, finalizedPathSet } from '../../src/document/manifest.js'
+import { readManifest, readManifestStrict, writeManifest, upsertEntry, removeEntry, finalizedChapterSetOfBook, finalizedPathSet, finalizedChapterNumbers } from '../../src/document/manifest.js'
 
 describe('manifest', () => {
   let dir: string
@@ -188,5 +188,26 @@ describe('R27-40（二十七轮）P1：RMW 写路径 strict 读——读失败�
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
+  })
+})
+
+// ── R43-13（四十三轮）：finalizedChapterNumbers 章号提取 isSafeInteger 守卫 ──
+
+describe('R43-13: finalizedChapterNumbers 失真章号不入集合', () => {
+  it('16+ 位数字名（Number 解析超 2^53 失真）不入定稿章号集合；安全整数照常提取', () => {
+    const entries = new Map([
+      ['doc_ok', { id: 'doc_ok', nodeType: 'document' as const, path: '写作/正文/0003-雨夜.md', parentId: null, finalizedRevision: 'sha256:a' }],
+      // 17 位数字：Number('12345678901234567') → 12345678901234568（失真且非安全整数）
+      ['doc_bad', { id: 'doc_bad', nodeType: 'document' as const, path: '写作/正文/12345678901234567-超长数字名.md', parentId: null, finalizedRevision: 'sha256:b' }],
+      // 15 位数字：仍在 2^53 内，安全整数照常入集合（守卫不误伤边界内的合法章号）
+      ['doc_edge', { id: 'doc_edge', nodeType: 'document' as const, path: '写作/正文/999999999999999-边界.md', parentId: null, finalizedRevision: 'sha256:c' }],
+      // 未定稿文档不入集合（既有口径对照）
+      ['doc_draft', { id: 'doc_draft', nodeType: 'document' as const, path: '写作/正文/0004-草稿.md', parentId: null }],
+    ])
+    const s = finalizedChapterNumbers({ version: 1, entries })
+    expect(s.has(3)).toBe(true)
+    expect(s.has(999999999999999)).toBe(true)
+    expect(s.has(Number('12345678901234567'))).toBe(false) // 失真值不入
+    expect(s.size).toBe(2) // 只有安全整数的两条
   })
 })

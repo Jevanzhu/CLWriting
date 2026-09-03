@@ -108,6 +108,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       const ps = usePrefsStore()
       ps.bookPageWidth = null
       ps.bookAutosaveInterval = null
+      // R43-14（四十三轮）：清了书级覆盖值但缺 apply()——refs 清空只改 store 态，
+      // --page-width 等 :root CSS 变量仍滞留 A 书覆盖值，B 书正文宽度沿用前书设置
+      // 直至下次成功加载/全局偏好变更才被冲掉。
+      ps.apply()
       return
     }
 

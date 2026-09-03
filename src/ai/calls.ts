@@ -294,12 +294,20 @@ function serializedWrite(bookRoot: string, doWrite: () => void): void | Promise<
   })
 }
 
-/** J7 锁等待超时（毫秒）——可注入缩短保测试快；争用为文件 IO 级毫秒，5s 已极保守。 */
-export let AI_CALLS_LOCK_TIMEOUT_MS = 5_000
+/**
+ * J7 锁等待超时（毫秒）——可注入缩短保测试快；争用为文件 IO 级毫秒，5s 已极保守。
+ * R43-5（四十三轮）R30-18 收口口径：export let 可被任一 import 方静默改写（同
+ * events/store.ts R26-105 的收口认定；manifest/lead-finalize 等六处于 R30-18 已收口，
+ * 本处漏网）——改 const + 内部可变生效值，测试只能经注入钩子改档，生产恒用常量。
+ */
+export const AI_CALLS_LOCK_TIMEOUT_MS = 5_000
+
+/** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改。 */
+let aiCallsLockTimeoutMs = AI_CALLS_LOCK_TIMEOUT_MS
 
 /** 测试注入钩子（生产零调用）。 */
 export function __setAiCallsLockTimeoutForTest(ms: number): void {
-  AI_CALLS_LOCK_TIMEOUT_MS = ms
+  aiCallsLockTimeoutMs = ms
 }
 
 /** R30-3（三十轮）：跨进程锁获取——无争用快路同步持锁直行（tryAcquire 即得，写段为
@@ -324,7 +332,8 @@ function writeWithCrossProcessLock(bookRoot: string, doWrite: () => void): void 
       fast()
     }
   }
-  return acquireCrossProcessLockAsync(lockPath, AI_CALLS_LOCK_TIMEOUT_MS).then((release) => {
+  // R43-5（四十三轮）：消费点改读内部生效值（导出常量只是默认档）
+  return acquireCrossProcessLockAsync(lockPath, aiCallsLockTimeoutMs).then((release) => {
     if (!release) {
       throw new Error(`ai-calls 跨进程锁获取超时（${lockPath}）——本轮账目未记，避免与其他进程交错覆盖丢账`)
     }

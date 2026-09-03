@@ -4,7 +4,7 @@
  * - R40-9：writeBookConfig 全量重生成行尾口径（批一翻转：保真→规范形 LF）
  * - R40-10/11：.MD 大写扩展名口径统一（words.stripMd / leads.parseLeadFileName /
  *   readLeadDir 扫描侧，mac 敏感卷 + win 手工改名形态）
- * - R40-14：事件库 bookHash win32 大小写漂移归一（realpathSync 真实大小写）
+ * - R40-14：事件库 bookHash win32 大小写漂移归一（trueCasePath readdir 逐段真实大小写）
  * - R40-15：lead-finalize 布线锁键 win32 折叠（与 service 侧 wiringFileLockKey 对称）
  * - R40-18/19：rmWithRetry 瞬时锁退避原语（EPERM/EBUSY 3×50ms；确定性错误直抛）
  */
@@ -78,9 +78,12 @@ describe('R40-10/11: .MD 大写扩展名口径', () => {
 })
 
 describe('R40-14: bookHash win32 大小写漂移归一', () => {
-  it.skipIf(process.platform !== 'win32')('真实目录的大小写变体同哈希（realpathSync 归一）', () => {
+  // R43-28（四十三轮）：文案对齐现实现——bookHash 归一早已换 trueCasePath（readdir
+  //  逐段匹配盘上真名，events/store.ts R40-14 同批注记），非 realpathSync（win32 实测
+  //  不改写大小写）；只改标题/头注，断言不动。
+  it.skipIf(process.platform !== 'win32')('真实目录的大小写变体同哈希（trueCasePath（readdir 逐段）归一（events/store.ts R40-14））', () => {
     const root = tempDir('clw-r40-hash-')
-    // mkdtemp 尾段为真实盘上大小写；变体改最后一段大小写 → realpath 归一同键
+    // mkdtemp 尾段为真实盘上大小写；变体改最后一段大小写 → trueCasePath 逐段归一同键
     const seg = root.split(/[\\/]/).pop()!
     const drifted = root.slice(0, root.length - seg.length) + seg.toUpperCase()
     // mkdtemp 尾段可能本就含大写（hex 小写字母数字，toUpperCase 恒变化）——变体必须真的不同形

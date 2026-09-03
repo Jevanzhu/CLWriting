@@ -25,6 +25,25 @@ import { join, relative } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { scanCloudCopies } from '../git/exec.js'
 import { sweepAbandonedTmpFiles } from '../fs/atomic.js'
+
+// R43-2（四十三轮）：sweep 每书 TTL 节流表（内存态，key = bookRoot；书数量级小无上限
+// 忧虑）。导出 reset 钩子供测试复位节流窗。
+const SWEEP_THROTTLE_MS = 6 * 3600_000
+const sweepLastAt = new Map<string, number>()
+
+/** @internal 测试钩子：复位节流表（构造「TTL 窗内第二次 detectState 不再全树扫」臂）。 */
+export function __resetSweepThrottleForTest(): void {
+  sweepLastAt.clear()
+}
+
+function sweepAbandonedTmpFilesThrottled(bookRoot: string): number {
+  const now = Date.now()
+  const last = sweepLastAt.get(bookRoot)
+  if (last !== undefined && now - last < SWEEP_THROTTLE_MS) return 0
+  const swept = sweepAbandonedTmpFiles(bookRoot)
+  sweepLastAt.set(bookRoot, now)
+  return swept
+}
 import { appendAborted, appendSettled, findUnsettled, isMovePending, type JournalAnyPending, type JournalMovePending } from '../document/journal.js'
 import { decodeDocDirName } from '../document/version.js'
 import { readTrashManifest } from '../document/trash.js'
@@ -330,7 +349,13 @@ async function healthCheck(bookRoot: string, manifest: Manifest): Promise<Health
   const cloudCopies = scanCloudCopies(bookRoot)
   // Y-24（第五十七轮）：顺手清扫 atomicWriteFile 崩溃残留 tmp（`.name.pid.uuid.tmp`，
   // 5 分钟年龄门槛防误删他进程在途写）——不产 issue，纯卫生，留痕即可
-  const sweptTmp = sweepAbandonedTmpFiles(bookRoot)
+  // R43-2（四十三轮）：清扫改每书 TTL 节流——sweep 全树同步扫（readdirSync+statSync
+  // 逐文件，.版本 快照目录成百上千文件），此前每次 detectState（5s 缓存过期后）都在
+  // 请求路径重扫，SMB/坚果云卷上每文件 statSync 5-50ms，事件循环冻结数百 ms-秒级
+  //（R35-5/R35-6 同族纪律漏网点）。节流后清扫仍会发生（每书每 6h 至少一次），请求
+  // 路径成本有界；.trash 不入跳过表（trash-manifest 本身是 atomicWriteFile 目标，
+  // 其崩溃 tmp 落在 .trash/ 内，须在清扫面）。
+  const sweptTmp = sweepAbandonedTmpFilesThrottled(bookRoot)
   if (sweptTmp > 0) {
     log.info('state', `已清扫 ${sweptTmp} 个崩溃残留的临时文件（atomicWrite 半途崩溃遗留）`)
   }
@@ -557,8 +582,14 @@ function detectIncompleteWorkdir(bookRoot: string, manifest: Manifest): number |
   // 章号源优先：.confirm.json.chapter（写作中断时确认过细纲）> 正文区未定稿草稿
   if (hasConfirm) {
     try {
-      const rec = JSON.parse(readFileSync(join(workDir, '.confirm.json'), 'utf-8')) as { chapter?: number }
-      chapterNum = rec.chapter ?? 0
+      const rec = JSON.parse(readFileSync(join(workDir, '.confirm.json'), 'utf-8')) as { chapter?: unknown }
+      // R43-12（四十三轮）：chapter 三连守卫（typeof + isSafeInteger + >0）——此前裸 as
+      // 强转，手改 `"chapter": "12"` 让字符串穿透（:566 宽松比较放行、严格等判定恒
+      // false），`3.5` 非整数照收；对齐全库章号入口口径（format/chapters.ts:58）
+      chapterNum =
+        typeof rec.chapter === 'number' && Number.isSafeInteger(rec.chapter) && rec.chapter > 0
+          ? rec.chapter
+          : 0
     } catch {
       // 坏的 .confirm.json 不影响判定（当无章号）
     }

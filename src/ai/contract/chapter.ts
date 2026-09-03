@@ -6,6 +6,7 @@
  * 格式漂移从根上消失。
  */
 import type { ToolDef } from '../provider/types.js'
+import { stringifyValue } from '../../format/frontmatter.js'
 
 /** 章节写作工具——定义 front matter 结构化字段 + 正文 */
 export function submitChapter(): ToolDef {
@@ -99,22 +100,27 @@ export function assembleChapter(
 
   // fm 单行字段 sanitize：去首尾空白 + 内部换行转空格（换行破坏 fm 按行解析，P2-8）
   const fmVal = (v: unknown): string => String(v ?? '').trim().replace(/[\r\n]+/g, ' ')
+  // R43-3（四十三轮）：值侧再过 stringifyValue 单源——AI 产出的自由文本（标题/目标情绪/
+  // 核心反转等）含 `#`（被行内注释剥离截断）、`[`/`,`（解析成数组）、`|`/`>`（命中块标量
+  // 分支吞后续 fm 行）、纯数字（解析成 number）时此前原样落盘，读回即静默损坏（与系统
+  // 正规写侧 frontmatter.ts:276 的 escape-unquote 对称口径在此闭环）。
+  const fmLine = (key: string, v: string): string => `${key}: ${stringifyValue(v)}`
   const lines: string[] = []
   lines.push(`章号: ${chapter}`)
   const 标题 = fmVal(o['标题'])
-  if (标题) lines.push(`标题: ${标题}`)
+  if (标题) lines.push(fmLine('标题', 标题))
   const 钩子类型 = fmVal(o['钩子类型'])
-  if (钩子类型) lines.push(`钩子类型: ${钩子类型}`)
+  if (钩子类型) lines.push(fmLine('钩子类型', 钩子类型))
   const 钩子强弱 = fmVal(o['钩子强弱'])
-  if (钩子强弱) lines.push(`钩子强弱: ${钩子强弱}`)
+  if (钩子强弱) lines.push(fmLine('钩子强弱', 钩子强弱))
   const 情绪定位 = fmVal(o['情绪定位'])
-  if (情绪定位) lines.push(`情绪定位: ${情绪定位}`)
+  if (情绪定位) lines.push(fmLine('情绪定位', 情绪定位))
   const 场景 = fmVal(o['场景'])
-  if (场景) lines.push(`场景: ${场景}`)
+  if (场景) lines.push(fmLine('场景', 场景))
   const 目标情绪 = fmVal(o['目标情绪'])
-  if (目标情绪) lines.push(`目标情绪: ${目标情绪}`)
+  if (目标情绪) lines.push(fmLine('目标情绪', 目标情绪))
   const 核心反转 = fmVal(o['核心反转'])
-  if (核心反转) lines.push(`核心反转: ${核心反转}`)
+  if (核心反转) lines.push(fmLine('核心反转', 核心反转))
 
   const fmText = lines.join('\n')
   return { ok: true, content: `---\n${fmText}\n---\n${正文}` }

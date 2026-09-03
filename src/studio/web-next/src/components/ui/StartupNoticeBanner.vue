@@ -12,7 +12,11 @@ const DISMISS_KEY = 'clw-startup-notices-dismissed'
 function loadDismissed(): string[] {
   try {
     const raw = localStorage.getItem(DISMISS_KEY)
-    return raw ? (JSON.parse(raw) as string[]) : []
+    // R43-11（四十三轮）：解析值验数组 + 元素验 string（对齐 stores/check.ts loadFlagged
+    // 先例）——手改/损坏的 localStorage（对象/数字元素）此前整包 as string[] 透传，
+    // 脏值进 dismissed 后 includes 比对失真且 dismiss 回写把脏值固化。
+    const arr = raw ? (JSON.parse(raw) as unknown) : []
+    return Array.isArray(arr) ? arr.filter((x): x is string => typeof x === 'string') : []
   } catch {
     return []
   }

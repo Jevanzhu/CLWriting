@@ -293,6 +293,17 @@ export function applyLeadUpdatesLocked(
       if (verbs.drop.includes(u.动词)) lead.状态 = '已放弃'
       else if (verbs.resolve.includes(u.动词) && leadType !== '成长线') lead.状态 = '已收尾'
     }
+    // R43-7（四十三轮）：writeLead 落位前对旧路径 existsSync 复核——跨进程结构性移动
+    //（doMoveOrRename 的 link+rm）恰在「持锁读到 C0 → writeLead」毫秒窗内搬走源文件时，
+    // writeLead → atomicWriteFile 的 mkdir recursive 会在旧路径复活幽灵线索文件（同编号
+    // 双文件：新路径真身 + 旧路径复活壳，findLeadFile/后续回写命中不确定）。复核不存在
+    // → 放弃本条按既有 not-found 分支处理（留源不写，下次定稿重解析自动重试）。复核与
+    // writeLead 之间仍残留同进程同步段内的最后一次盘面检查微窗，登记残窗收敛：从
+    // 「持锁读 → 写」整窗收敛到「复核 → 写」毫秒级微窗。
+    if (!existsSync(filePath)) {
+      unresolved.push({ u, why: 'not-found' })
+      continue
+    }
     writeLead(filePath, lead)
     applied++
   }

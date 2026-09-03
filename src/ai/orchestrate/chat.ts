@@ -19,6 +19,7 @@
  * - 持 CHAT_SPEC 元数据直调 runTask（不走 runSpec，messages 是累积数组）
  */
 import type { Session, StudioDriver } from '../../driver/types.js'
+import { redactSecret } from '../provider/redact.js' // R43-19（四十三轮）：SSE 错误事件脱敏第二层
 import { openSessionStore, openSessionStoreAsync } from '../../events/store.js'
 import type { SessionRecorder } from '../../events/chat-bridge.js'
 import { emit, type ChatRunState, AGENT_DEADLINE_MS } from './chat/state.js'
@@ -141,10 +142,12 @@ export function sendChatMessage(opts: ChatOpts): 'started' | 'queued' | 'rejecte
     return 'queued'
   }
   void runChat(opts).catch((e) => {
+    // R43-19（四十三轮）：e.message 直发 SSE 前过 redactSecret（与 stream.ts:216 R26-8
+    // 同款）——逃逸异常 message 可带 endpoint/凭据痕迹
     opts.driver.emit?.(opts.mainSession, {
       type: 'error',
       kind: 'chat',
-      message: e instanceof Error ? e.message : String(e),
+      message: redactSecret(e instanceof Error ? e.message : String(e)),
       recoverable: false,
     })
   })
@@ -174,10 +177,11 @@ function drainNextChat(base: ChatOpts, completedOk: boolean): void {
     chapter: next.chapter,
     regenerate: next.regenerate,
   }).catch((e) => {
+    // R43-19（四十三轮）：同 sendChatMessage 外层 catch——e.message 过 redactSecret 再发
     base.driver.emit?.(base.mainSession, {
       type: 'error',
       kind: 'chat',
-      message: e instanceof Error ? e.message : String(e),
+      message: redactSecret(e instanceof Error ? e.message : String(e)),
       recoverable: false,
     })
   })

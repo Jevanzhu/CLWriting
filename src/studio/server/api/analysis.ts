@@ -213,7 +213,11 @@ function computeAnalysisOverview(bookRoot: string): AnalysisOverviewResult {
     const filename = me.path.split('/').pop() ?? ''
     const numMatch = filename.match(/^(\d+)-/)
     if (!numMatch) continue
-    allChapters.push({ 章号: parseInt(numMatch[1]!, 10), docId: id })
+    // R43-13（四十三轮）：16+ 位数字文件名 parseInt 失真（超 2^53 浮点化）不入趋势
+    // 数据——非安全整数按无章号处理（对齐 words.ts parseChapterFileName R64-20 口径）
+    const 章号 = parseInt(numMatch[1]!, 10)
+    if (!Number.isSafeInteger(章号)) continue
+    allChapters.push({ 章号, docId: id })
   }
   allChapters.sort((a, b) => a.章号 - b.章号)
 
@@ -235,6 +239,9 @@ function computeAnalysisOverview(bookRoot: string): AnalysisOverviewResult {
       const numMatch = filename.match(/^(\d+)-/)
       if (!numMatch) continue
       const 章号 = parseInt(numMatch[1]!, 10)
+      // R43-13（四十三轮）：同上 allChapters 收集处——非安全整数（16+ 位数字名失真值）
+      // 按无章号跳过，不入 score/emotion/hooks 趋势
+      if (!Number.isSafeInteger(章号)) continue
       const 标题 = filename.replace(/^\d+-/, '').replace(/\.md$/, '')
 
       // R69-27（十七轮）：三 kind 合一次读盘（此前每 kind 各整读同一 JSON 一遍，

@@ -38,6 +38,7 @@ import { buildRewritePrompt } from '../../process/rewrite-prompt.js'
 import { assembleChapter } from '../contract/index.js'
 import { runSpec } from '../tasks/spec.js'
 import { selfHealSpec } from '../tasks/specs.js'
+import { redactSecret } from '../provider/redact.js' // R43-19（四十三轮）：SSE 错误事件脱敏第二层
 import { checkAiCallBudget } from '../calls.js'
 import { resolveModelPricing, computeCallCost } from '../pricing.js'
 import { collectRuleViolations } from '../rules/index.js'
@@ -338,14 +339,20 @@ async function orchestrateBatch(
   // R33D-1（三十三轮）：writeBatchPause/clearBatchPause 异步化（锁等待 Async 孪生）——
   // recordPause 保持 fire-and-forget 语义（void + catch 吞 rejection）；开批清暂停 await。
   const recordPause = (atChapter: number, reason: string, detail: string): void => {
-    void writeBatchPause(opts.bookRoot, { atChapter, reason, detail }).catch(() => {
+    void writeBatchPause(opts.bookRoot, { atChapter, reason, detail }).catch((e) => {
       // 暂停记录失败不影响连写结果与回报
+      // R43-20（四十三轮）：空 catch 补留痕（对齐 chain-bridge R66-4 口径）——静默吞掉
+      // 后「连写暂停在第 N 章」的进书近况提示缺位且无从排查；带 atChapter/reason 因果
+      log.warn('self-heal', `连写暂停记录失败（第 ${atChapter} 章，${reason}）：${e instanceof Error ? e.message : String(e)}`)
     })
   }
   try {
     await clearBatchPause(opts.bookRoot)
-  } catch {
+  } catch (e) {
     // 同上
+    // R43-20（四十三轮）：同款留痕——开批清旧暂停失败静默时，上一轮的暂停提示会残留
+    // 到本轮（readBatchPause 仍读到旧记录），误导作者以为本轮又停
+    log.warn('self-heal', `开批清理旧连写暂停记录失败（上一轮暂停提示可能残留）：${e instanceof Error ? e.message : String(e)}`)
   }
   for (let i = 0; i < total; i++) {
     const ch = chapters[i]!
@@ -855,10 +862,12 @@ async function runGenerate(
     onReset: () => emit(opts, { type: 'self_heal_reset' }),
     onText: (delta) => emit(opts, { type: 'text', text: delta }),
     // Bug C：provider 重试（429/5xx）时推 warning——前端可见「响应异常，重试中」，不再静默卡死
+    // R43-19（四十三轮）：error 拼接前过 redactSecret（与 stream.ts:216 R26-8 同款）——
+    // provider 异常 message 可带 endpoint/Authorization 痕迹，SSE 直发前端即脱敏
     onRetry: (attempt, error) =>
       emit(opts, {
         type: 'warning',
-        message: `AI 响应异常（${error}），第 ${attempt + 1} 次重试中…`,
+        message: `AI 响应异常（${redactSecret(error)}），第 ${attempt + 1} 次重试中…`,
       }),
   })
 
@@ -970,7 +979,9 @@ function emitResult(opts: SelfHealOpts, result: SelfHealOutcome, usage: RunState
         ? { type: 'self_heal_result', outcome: 'escalate', reds: result.reds, docId: result.docId, path: result.path }
         : result.outcome === 'aborted'
           ? { type: 'self_heal_result', outcome: 'aborted' }
-          : { type: 'self_heal_result', outcome: 'failed', error: result.error }
+          // R43-19（四十三轮）：failed 的 error 过 redactSecret（与 stream.ts:216 R26-8
+          // 同款）——error 源头是 out.error（provider 异常 message），可含凭据痕迹
+          : { type: 'self_heal_result', outcome: 'failed', error: redactSecret(result.error) }
   emit(opts, ev)
   emit(opts, {
     type: 'done',

@@ -31,7 +31,12 @@ function currentSpecOrder(): string[] {
   return readdirSync(e2eDir, { withFileTypes: true })
     .filter((entry) => entry.isFile() && entry.name.endsWith('.spec.ts'))
     .map((entry) => entry.name)
-    .sort((a, b) => a.localeCompare(b))
+    // R43-29（四十三轮）：钉显式 locale 'en'——快照序按 en collation 锁定，与 Playwright
+    // 收集序的镜像假设不再随宿主默认 locale（zh-CN/en/…）漂移分叉。排查同款排序：
+    // grep localeCompare 于 scripts/check-counts.mjs 仅命中注释，其 diffSpecOrder 用
+    // 默认 .sort() 且 added/removed 按成员判定（序不进结果），无 localeCompare 调用，
+    // 不需对齐。现快照全为小写 ASCII+连字符名，en 与原默认序一致，重拍前后不变。
+    .sort((a, b) => a.localeCompare(b, 'en'))
 }
 
 it('e2e spec 顺序契约：*.spec.ts 序列与快照一致（E2E_SPEC_ORDER_SNAPSHOT）', () => {

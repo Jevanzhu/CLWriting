@@ -155,7 +155,13 @@ export function finalizedChapterNumbers(m: Manifest): Set<number> {
     if (e.nodeType !== 'document' || !e.finalizedRevision) continue
     const base = e.path.split('/').pop() ?? ''
     const g = base.match(/^(\d+)-/)
-    if (g) out.add(Number(g[1]))
+    // R43-13（四十三轮）：16+ 位数字名 Number() 解析成超 2^53 的失真值（1e20 级
+    // 浮点）不入定稿章号集合——Number.isSafeInteger 守卫，对齐 format/words.ts
+    // parseChapterFileName 的 R64-20 口径
+    if (g) {
+      const no = Number(g[1])
+      if (Number.isSafeInteger(no)) out.add(no)
+    }
   }
   return out
 }
@@ -199,7 +205,11 @@ export function writeManifest(filePath: string, manifest: Manifest): void {
     if (existsSync(filePath)) {
       // 字节级快照旧内容（不解析——坏行也原样留底，恢复口径最全）
       const previous = readFileSync(filePath)
-      atomicWriteFile(`${filePath}.bak`, previous, { fsync: false })
+      // R43-6（四十三轮）：.bak 影子写删 `{ fsync: false }`（回 atomicWriteFile 默认
+      // fsync:true）——.bak 是主清单损坏后的恢复源，掉电撕裂恰在兜底场景失守（R34D-4
+      // 落地时按「高频低价值写」口径关了 fsync，但 .bak 低频〔随主写一次〕高价值〔唯一
+      // 恢复源〕，该口径在此不成立）。
+      atomicWriteFile(`${filePath}.bak`, previous)
     }
   } catch {
     /* R34D-4：.bak 影子失败不阻断主写（best-effort） */
@@ -310,11 +320,24 @@ export function withManifestLock<T>(manifestPath: string, fn: () => T): T {
  * 锁覆盖 fn 整个执行期。同进程并发同 key 调用在首个 fn await 期间仍按重入计数放行
  * （与同步版一致，进程内串行化仍是调用方责任）。
  * 其余不在异步链上的调用方保持同步版不动。
+ * R43-10（四十三轮）不变量声明（注释收口，未装断言）：**重入分支（含正常分支）的同
+ * 进程互斥要求 fn 体零 await（同步返回）**——fn 一旦返回 Promise，其在途期间
+ * heldManifestLocks 仍登记在册（重入计数未清），同进程同 key 的并发调用会按「重入」
+ * 放行并在 fn 的 await 点交错执行，同进程互斥静默失效（跨进程锁仍覆盖 fn 整个执行期，
+ * R35-25）。原拟装「fn 返回值 thenable 即抛错」的 fail-loud dev 断言，但 grep 核实
+ * 现有调用方并非全部同步返回——test/document/r35-manifest-lock-async.test.ts 的
+ * R35-25 回归用例显式传入 async fn（断言锁覆盖 fn 整个执行期），断言会推翻既有裁定；
+ * 生产调用方（service/trash/state/finalize/draft-pipeline）经 grep 全部为同步 fn。
+ * 后续新增调用方应保持「fn 体零 await」纪律；确需 async fn 时须自行承担同进程
+ * 串行化责任（本注释即该不变量的声明处）。
  */
 export async function withManifestLockAsync<T>(manifestPath: string, fn: () => T | Promise<T>): Promise<T> {
   const lockKey = manifestLockKey(manifestPath)
   const held = heldManifestLocks.get(lockKey)
   if (held) {
+    // R43-10（四十三轮）：重入分支不变量——fn 体必须零 await（同步返回）。fn 返回
+    // Promise 期间重入计数仍在册，同 key 并发调用会按重入放行交错执行（见函数头注
+    // R43-10 段：grep 发现 R35-25 测试用例合法使用 async fn，故只做注释收口不设断言）。
     held.depth++
     try {
       return await fn()

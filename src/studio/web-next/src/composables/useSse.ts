@@ -169,7 +169,7 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
         // 立即重连；失败仍持续则自第 2 档起 4s/8s/… 指数退避（不造重试风暴）。429 连接
         // 数上限同走首档立即试一次——服务端预检拒绝代价低，probeSseBusy 已另行指引。
         const delay = backoffStep === 1 ? 0 : Math.min(BASE_BACKOFF_MS * 2 ** (backoffStep - 1), MAX_BACKOFF_MS)
-        reconnectTimer = setTimeout(doConnect, delay)
+        reconnectTimer = setTimeout(safeDoConnect, delay)
         if (failClosed) void probeSseBusy() // R73-67：fail-closed（429/403/404 族）→ 探测区分 429 出指引
       }
     }
@@ -190,12 +190,20 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
     }
   }
 
+  // R43-8（四十三轮）：doConnect 浮空调用的防御 catch——今日体内各 await
+  //（rebootstrap / fetchStreamTicket）均自带 catch 不可达 reject，纯防御未来 await 化：
+  // 裸 floating promise 一旦 reject 即渲染层 unhandledRejection，退避重连链被静默掐断
+  //（连接既不建立也无 onerror 接管）。async fn 签名不动，调用点统一走本包装。
+  const safeDoConnect = (): void => {
+    void doConnect().catch(() => {})
+  }
+
   function connect(name: string): void {
     if (!name) return
     currentName = name
     busy429Notified = false // R73-67：切书新连接纪元，429 指引可再提示
     disconnect()
-    doConnect()
+    safeDoConnect()
   }
 
   function disconnect(): void {

@@ -194,10 +194,18 @@ onMounted(() => {
           setTimeout(() => {
             // R72-12（二十轮 E-4）：复检组合态——两段组合间隙 <1 帧时，上段 end 排队的
             // 回调会在新组合已开始后才执行，applyExternalReplace 会打断新组合。与下方
-            // update 回调（composing || composing 双判）同口径：组合期丢弃本次应用，
-            // 等组合结束后由 watch 再触发
-            if (!view || composing || view.composing) return
+            // update 回调（composing || composing 双判）同口径：组合期不应用
+            if (!view) return
             const latest = props.modelValue
+            // R43-15（四十三轮）：丢弃分支改保留挂起——原纯 return 后 pendingExternal 已
+            // 清空，若新组合期间无新的外部变更（watch 的 v === lastLocalEmit 不触发挂起），
+            // 上段组合期到达的外部替换被永久丢弃（refresh/SSE 同步静默失效）。回填
+            // pendingExternal = latest 让下一次 compositionend 的既有消费路径再触发
+            //（自愈链）；不引入双应用——应用前有 latest === doc 等值检查兜底。
+            if (composing || view.composing) {
+              pendingExternal = latest
+              return
+            }
             if (latest === view.state.doc.toString()) return
             applyExternalReplace(latest)
           }, 0)

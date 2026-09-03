@@ -102,7 +102,10 @@ async function onRestore(e: SnapshotEntry): Promise<void> {
   if (cur.dirty) {
     const saved = await doc.save(docId, 'manual')
     if (props.bookName !== book || ws.activeDocId !== docId) return
-    if (!saved) {
+    // R43-4（四十三轮）：F8 契约性 false 复检——manual 保存在途时排队等落定，dirty 已清
+    // 即返 false（内容实际已在盘），此前被误判「保存失败」错误中止恢复（对齐 R34D-22
+    // rewrite.ts 同型调用点口径）；仅「false 且仍 dirty」才是真失败
+    if (!saved && doc.get(docId)?.dirty) {
       ui.toast('有未保存的编辑且保存失败，请先处理（重载/覆盖）再恢复历史版本', 'error')
       return
     }

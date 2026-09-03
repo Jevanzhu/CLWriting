@@ -53,7 +53,9 @@ async function runRewriter(
   // Z-4（第五十八轮）：chapter 透传 runSpec → runTask chapter 记账块——编辑器侧整章改写
   // 与 chat 侧同受章预算三口径熔断（P3-8 口径，此前端点侧绕过）
   const out = await runSpec(REWRITE_SPEC, { userDataPath, bookRoot, userPrompt: prompt, ...(chapter !== undefined ? { chapter } : {}), promptFiles })
-  if (!out.ok) return { ok: false, code: 'GEN_FAIL', error: out.error }
+  // R43-24（四十三轮）：code 透传（不再坍缩 'GEN_FAIL'）——NO_PROVIDER/NO_MODEL 等
+  // 配置缺失族此前被 500 GEN_FAIL 掩蔽成因，路由按 code 映射状态码
+  if (!out.ok) return { ok: false, code: out.code, error: out.error }
   const { input, text } = out.data
   // tool_use 产出 → input.正文
   if (input && typeof input === 'object') {
@@ -130,7 +132,15 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
         ? buildAppendPrompt(original, instruction)
         : buildRewritePrompt('local', original, selection, instruction, [], draft.chapter.章号, readKind(bookRoot))
       const result = await runRewriter(ctx.userDataPath, prompt, bookRoot, draft.chapter.章号, [m.path])
-      if (!result.ok) return replyError(res, 500, result.code, result.error)
+      // R43-24（四十三轮）：按透传 code 映射状态——NO_* 族（NO_USERDATA/NO_PROVIDER/
+      // NO_MODEL，配置缺失）是客户端可处置的 400；ABORTED（用户中断）回 499（请求被
+      // 取消语义；api/ 无既有先例，错误信封 {code,error} 形状不变）；其余（GEN_FAIL/
+      // TIMEOUT_TOTAL/EMPTY_OUTPUT 等）维持 500 + 透传 code。错误文案一律不变
+      if (!result.ok) {
+        if (result.code.startsWith('NO_')) return replyError(res, 400, result.code, result.error)
+        if (result.code === 'ABORTED') return replyError(res, 499, result.code, result.error)
+        return replyError(res, 500, result.code, result.error)
+      }
       const produced = result.produced
       // 按定位替换（保留选区外首尾空白；替代 replace 的首个出现语义）
       const rewritten =

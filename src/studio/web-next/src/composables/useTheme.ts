@@ -57,18 +57,26 @@ function withThemeTransition(event: MouseEvent | undefined, fn: () => void): voi
   )
   prefs.beginOverlaySweep()
   const t = doc.startViewTransition(() => fn())
-  t.ready.then(() => {
-    document.documentElement.animate(
-      { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${endRadius}px at ${x}px ${y}px)`] },
-      {
-        duration: SWEEP_MS,
-        easing: 'cubic-bezier(0.4, 0, 0.2, 1)',
-        pseudoElement: '::view-transition-new(root)',
-      },
-    )
-    prefs.syncOverlayDelayed(sweepArrivalMs(x, y, endRadius))
-  })
-  t.finished.finally(() => prefs.endOverlaySweep())
+  // R43-9（四十三轮）：ready/finished 补防御 catch——ViewTransition 被抢占（过渡中再切
+  // 主题/skipTransition 等）时两 promise 按 API 约定 reject：ready 的浮空 .then 成为
+  // unhandledRejection；finished 不 settle 到 finally 则 endOverlaySweep 不执行，
+  // overlaySweep 滞留 true 压制 applyTheme 的窗控色同步（窗控色从此不跟主题）。
+  t.ready
+    .then(() => {
+      document.documentElement.animate(
+        { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${endRadius}px at ${x}px ${y}px)`] },
+        {
+          duration: SWEEP_MS,
+          easing: 'cubic-bezier(0.4, 0, 0.2, 1)',
+          pseudoElement: '::view-transition-new(root)',
+        },
+      )
+      prefs.syncOverlayDelayed(sweepArrivalMs(x, y, endRadius))
+    })
+    .catch(() => {})
+  t.finished
+    .catch(() => {})
+    .finally(() => prefs.endOverlaySweep())
 }
 
 export function useTheme() {

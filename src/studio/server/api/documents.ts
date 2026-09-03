@@ -23,6 +23,7 @@ import { listTrash, restoreTrash, purgeTrash } from '../../../document/trash.js'
 import { readForeshadows, type ForeshadowEntry } from '../../../document/foreshadow.js'
 import { openSessionStoreAsync, bookHash } from '../../../events/store.js'
 import { recordForeshadowChanges } from '../../../events/chain-bridge.js'
+import { log } from '../../../log/index.js' // R43-23（四十三轮）：伏笔观测层失败留痕
 
 interface DocumentCtx {
   workDir: string | null
@@ -76,12 +77,16 @@ export async function drainDocumentSaves(bookRoot: string, timeoutMs = 2_000): P
 // 快照-差分模式：变更前抓 设定/伏笔/ 全量状态（非伏笔路径 null 免读），变更后
 // recordForeshadowChanges 差分落 workspace 会话（与 step/llm 链路事件同会话）。
 
-/** 变更前快照：path 落在 设定/伏笔/ 才读（其余文档零开销直通 null）。 */
-function foreshadowSnapshot(bookRoot: string, path: string | null): ForeshadowEntry[] | null {
+/** 变更前快照：path 落在 设定/伏笔/ 才读（其余文档零开销直通 null）。
+ *  R43-23（四十三轮）：docId 仅作失败留痕的因果标注（对齐 R67-7）。 */
+function foreshadowSnapshot(bookRoot: string, path: string | null, docId: string): ForeshadowEntry[] | null {
   if (!path || !path.startsWith('设定/伏笔/')) return null
   try {
     return readForeshadows(bookRoot)
-  } catch {
+  } catch (e) {
+    // R43-23（四十三轮）：空 catch 补留痕——快照失败静默返回 null 时本轮变更不落
+    // foreshadow/change 事件且无从排查（观测层缺一段差分）；带 docId 因果
+    log.warn('api', `伏笔快照读取失败（docId=${docId}），本轮变更不落 foreshadow/change 事件：${e instanceof Error ? e.message : String(e)}`)
     return null
   }
 }
@@ -93,6 +98,8 @@ async function recordForeshadowDelta(
   userDataPath: string | null,
   bookRoot: string,
   prev: ForeshadowEntry[] | null,
+  /** R43-23（四十三轮）：失败留痕的因果标注（对齐 R67-7） */
+  docId: string,
 ): Promise<void> {
   if (!prev || !userDataPath) return
   try {
@@ -106,8 +113,11 @@ async function recordForeshadowDelta(
       // 超时）不 close 则 refs 永不归零，连接泄漏；同文件其他调用方均为 try/finally 配对
       store.close()
     }
-  } catch {
+  } catch (e) {
     // 观测层：写失败不炸文档操作
+    // R43-23（四十三轮）：空 catch 补留痕——差分落库失败静默时本轮伏笔事件缺失
+    // 无从排查（文档操作本身已成功，事件链断在观测层）；带 docId 因果
+    log.warn('api', `伏笔差分落事件失败（docId=${docId}，本轮伏笔变更未记录）：${e instanceof Error ? e.message : String(e)}`)
   }
 }
 
@@ -136,13 +146,13 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       }
 
       // Z-P2-6：伏笔快照先于保存（差分需要变更前状态）
-      const fsPrev = foreshadowSnapshot(r.bookRoot, path)
+      const fsPrev = foreshadowSnapshot(r.bookRoot, path, docId) // R43-23：docId 留痕因果
       const outcome = await svc.save(docId, path, input)
       if (outcome.ok) {
         // V-P2-27：字数变了 → 书架摘要即时失效（不等 5s TTL）
         invalidateBookSummary(r.bookRoot)
         // Z-P2-6：伏笔内容保存（fm 状态变更）→ foreshadow/change 事件
-        await recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev)
+        await recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev, docId) // R43-23：docId 留痕因果
         reply(res, 200, { ok: true, revision: outcome.revision, superseded: outcome.superseded })
         return
       }
@@ -300,13 +310,13 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
         return
       }
       const svc = getOrCreateService(r.bookRoot, ctx.userDataPath)
-      // Z-P2-6：新建伏笔（create）前快照
-      const fsPrev = foreshadowSnapshot(r.bookRoot, body.relPath)
+      // Z-P2-6：新建伏笔（create）前快照（R43-23：新建前无 docId，以 relPath 作留痕因果标注）
+      const fsPrev = foreshadowSnapshot(r.bookRoot, body.relPath, body.relPath)
       const result = await svc.createDocument({
         relPath: body.relPath,
         content: typeof body.content === 'string' ? body.content : undefined,
       })
-      if (result.ok) await recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev)
+      if (result.ok) await recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev, result.docId) // R43-23：docId 留痕因果
       // Q-7（第十五轮）：失败收编 replyError 统一信封（原裸 result——前端 toast 直显机器码，reason 人话永不见）
       if (result.ok) reply(res, 201, result)
       else replyError(res, structStatus(result.code), result.code, result.reason)
@@ -324,7 +334,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       const body = await readJson(req)
       const svc = getOrCreateService(r.bookRoot, ctx.userDataPath)
       // Z-P2-6：伏笔快照先于变更（rename/move/meta/fm 都可能改 设定/伏笔/ 状态）
-      const fsPrev = foreshadowSnapshot(r.bookRoot, await svc.resolvePathAsync(docId))
+      const fsPrev = foreshadowSnapshot(r.bookRoot, await svc.resolvePathAsync(docId), docId) // R43-23：docId 留痕因果
       let result
       if (body.op === 'rename') {
         if (typeof body.newName !== 'string') {
@@ -368,7 +378,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
         replyError(res, 400, 'BAD_INPUT', '未知 op（rename/move/meta/fm）')
         return
       }
-      if (result.ok) await recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev)
+      if (result.ok) await recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev, docId) // R43-23：docId 留痕因果
       // Q-7（第十五轮）：同上——失败走 replyError 统一信封
       if (result.ok) reply(res, 200, result)
       else replyError(res, structStatus(result.code), result.code, result.reason)
@@ -392,11 +402,11 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       // R-17（第十六轮）：copy 目标落在伏笔域（设定/伏笔/）时同 create/patch 接伏笔
       // 差分事件——此前 copy 绕过 foreshadowSnapshot → recordForeshadowDelta，伏笔
       // md 复制出的新条目不落 foreshadow/change{create}（观测层丢事件）
-      const fsPrev = foreshadowSnapshot(r.bookRoot, body.relPath)
+      const fsPrev = foreshadowSnapshot(r.bookRoot, body.relPath, docId) // R43-23：源 docId 作留痕因果
       const result = await svc.copyDocument({ docId, relPath: body.relPath })
       // Q-7（第十五轮）：失败走 replyError 统一信封（原裸 result 违反 schema.ts 信封约定）
       if (result.ok) {
-        await recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev)
+        await recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev, result.docId) // R43-23：新 docId 留痕因果
         reply(res, 201, result)
       } else replyError(res, structStatus(result.code), result.code, result.reason)
     },
@@ -412,9 +422,9 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       const docId = params['docId'] ?? ''
       const svc = getOrCreateService(r.bookRoot, ctx.userDataPath)
       // Z-P2-6：软删伏笔（clear 事件）前快照
-      const fsPrev = foreshadowSnapshot(r.bookRoot, await svc.resolvePathAsync(docId))
+      const fsPrev = foreshadowSnapshot(r.bookRoot, await svc.resolvePathAsync(docId), docId) // R43-23：docId 留痕因果
       const result = await svc.trashDocument({ docId })
-      if (result.ok) await recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev)
+      if (result.ok) await recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev, docId) // R43-23：docId 留痕因果
       // Q-7（第十五轮）：同上——失败走 replyError 统一信封
       if (result.ok) reply(res, 200, result)
       else replyError(res, structStatus(result.code), result.code, result.reason)

@@ -12,6 +12,7 @@ import { createHash } from 'node:crypto'
 import type { ChatMsg, ContentBlock, TokenUsage } from '../../provider/types.js'
 import { generate } from '../../gen.js'
 import { runTask } from '../../runner.js'
+import { redactSecret } from '../../provider/redact.js' // R43-19（四十三轮）：SSE 错误事件脱敏第二层
 import { chatTools, TOOL_RISK } from '../../contract/chat.js'
 // 工具面扩展：注册表分派（book_search/chapter_status/树操作/改写/账本/文风）
 import { TOOL_EXECUTORS, type ToolContext } from '../../tools/index.js'
@@ -490,8 +491,9 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
       register: (c) => opts.driver.registerCtrl?.(opts.mainSession, c, `chat:${opts.bookName}`),
       onReset: () => emit(opts, { type: 'chat_reset' }),
       // P1-R3：provider 429/5xx 重试时推 warning（与 self-heal.ts:496 对齐，Bug C 同类补齐）
+      // R43-19（四十三轮）：error 拼接前过 redactSecret（与 stream.ts:216 R26-8 同款）
       onRetry: (attempt, error) =>
-        emit(opts, { type: 'warning', message: `AI 响应异常（${error}），第 ${attempt + 1} 次重试中…` }),
+        emit(opts, { type: 'warning', message: `AI 响应异常（${redactSecret(error)}），第 ${attempt + 1} 次重试中…` }),
       run: async (provider, signal, tier) => {
         // 发送前历史消毒（§6.4 第二道防线）：多轮 tool 往返/中断回滚后历史可能
         // 出现非法序列（空 content / 连续同 role / 孤儿 tool_result / 首条非 user）→ 400。

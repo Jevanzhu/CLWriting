@@ -288,7 +288,14 @@ export function ensureNormColumn(db: DatabaseSync): void {
     }
     db.exec('COMMIT')
   } catch (e) {
-    db.exec('ROLLBACK')
+    // R43-18（四十三轮）：R61-10 同款加固（events/store.ts 模板）——SQLite 部分错误
+    //（SQLITE_FULL/IOERR 等）已自动回亡事务，再 ROLLBACK 抛 "no transaction is
+    // active" 掩蔽原始写错误；吞 ROLLBACK 自身异常、原样上抛
+    try {
+      db.exec('ROLLBACK')
+    } catch {
+      /* 已自动回亡 */
+    }
     throw e
   }
 }

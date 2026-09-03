@@ -102,11 +102,16 @@ describe('POST /outline（大纲生成）', () => {
     expect(existsSync(join(bookRoot, '工作区', '细纲.md'))).toBe(true)
   })
 
-  it('outline 非 mock + 无 provider → 500（mockText 不短路，P0-1 回归）', async () => {
+  it('outline 非 mock + 无 provider → 400 NO_PROVIDER（mockText 不短路，P0-1 回归；R43-24 code 映射）', async () => {
     delete process.env['CLWRITING_DRIVER']
     const r = await req('POST', `/api/books/${encodeURIComponent(BOOK)}/outline`, { chapter: 1 })
-    expect(r.status).toBe(500)
-    expect((r.json as { error: string }).error).toContain('未配置')
+    // R43-24（四十三轮）：outline 失败封套透传 TaskCode——NO_PROVIDER 族由 500 GEN_FAIL
+    // 改映射 400（配置缺失是客户端可处置），文案不变；P0-1 回归语义仍在（非 mock
+    // 不走 mockText 短路，真实走到 provider 解析失败）
+    expect(r.status).toBe(400)
+    const j = r.json as { code: string; error: string }
+    expect(j.code).toBe('NO_PROVIDER')
+    expect(j.error).toContain('未配置')
     // 恢复 mock 环境
     process.env['CLWRITING_DRIVER'] = 'mock'
   })

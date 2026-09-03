@@ -8,12 +8,13 @@
  * 路径防穿越：resolve + relative 判定，必须落在 bookRoot 内。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { basename, sep } from 'node:path'
+import { basename, sep, join } from 'node:path'
 import { readFile as readFileAsync } from 'node:fs/promises'
 import { realpathSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { resolveWithinRoot } from '../../../fs/safe-path.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
+import { acquireCrossProcessLockAsync } from '../../../fs/cross-process-lock.js'
 import { canonicalizeText } from '../../../fs/text-canonical.js'
 import { isMdFileName } from '../../../format/filename.js'
 import { defineRoute } from './schema.js'
@@ -119,6 +120,30 @@ export function registerFileRoutes(ctx: FileCtx): void {
       // await）——per-file Promise 链把临界段在进程内串行化，后到者重读基线即见先写者
       // 指纹 → 409；跨进程双开的残窗如实记档（锁基建可后续收口）。
       const outcome = await enqueueFilePut(safe, async () => {
+        // R43-1（四十三轮）：布线/关系线文件先取同名布线锁（与保存/定稿链同锁文件互斥），
+        // 超时 fail-closed 拒写可重试（裸写正是本锁要闭合的覆盖形态）——此前 PUT 直写
+        // 绕过布线锁协议，跨进程定稿履历回写可无痕覆盖 PUT 刚落的内容
+        const wiringKey = wiringLockKeyForPut(r.bookRoot, putRel)
+        let wiringRelease: (() => void) | null = null
+        if (wiringKey) {
+          try {
+            wiringRelease = await acquireCrossProcessLockAsync(wiringKey, 5_000)
+          } catch (e) {
+            return {
+              status: 409,
+              code: 'WRITE_ERROR',
+              error: `布线文件锁获取失败（未执行保存，可重试）：${e instanceof Error ? e.message : String(e)}`,
+            } as const
+          }
+          if (!wiringRelease) {
+            return {
+              status: 409,
+              code: 'WRITE_ERROR',
+              error: '保存等待超时：另一进程正在回写此布线文件（5 秒未让出），请重试',
+            } as const
+          }
+        }
+        try {
         // S4：异步读取基线（原 existsSync + hashFile 同步整读；ENOENT 统一 404）
         const baseline = await readFileHashed(safe)
         if (!baseline) return { status: 404, code: 'NOT_FOUND', error: '文件不存在' } as const
@@ -153,6 +178,9 @@ export function registerFileRoutes(ctx: FileCtx): void {
         // 否则 PUT 设定/大纲后树字数过期，只能靠前端 refresh=1 自愈
         invalidateTreeIndex(r.bookRoot)
         return { revision: hashContent(content) } as const
+        } finally {
+          wiringRelease?.()
+        }
       })
       if ('status' in outcome) return replyError(res, outcome.status, outcome.code, outcome.error)
       reply(res, 200, { ok: true, revision: outcome.revision })
@@ -250,5 +278,20 @@ function writablePath(bookRoot: string, file: string): { rel: string; abs: strin
   const allowed = EDIT_DIRS.some(({ dir }) => safe.rel === dir || safe.rel.startsWith(`${dir}/`))
   if (!allowed && !WORKDIR_EDITABLE.has(safe.rel)) return null
   return { rel: safe.rel, abs: safe.abs }
+}
+
+/** R43-1（四十三轮）：PUT /file 的布线锁键——与 DocumentService.wiringFileLockKey /
+ *  lead-finalize wiringFileLockKeyOf 同口径（前缀过滤 + join(bookRoot, rel) + win32 折叠），
+ *  保证 PUT 直写与保存/定稿履历回写取到**同一个锁文件**（互斥成立）。此前 PUT 白名单
+ *  放行 布线/大纲/关系线/ 但临界段不取锁：跨进程下 CLI 定稿持锁 RMW 与 PUT 直写交错，
+ *  writeLead 以旧读内容覆盖 PUT 刚落的新内容——无痕丢更新（快照留底的是覆写前旧内容）。 */
+function wiringLockKeyForPut(bookRoot: string, rel: string): string | null {
+  const p = rel.replace(/\\/g, '/')
+  if (p.startsWith('布线/') || p.startsWith('大纲/关系线/')) {
+    const key = `${join(bookRoot, rel)}.lock`
+    // R38-14 同款 win32 折叠——与两侧既有实现逐位一致（回归锚定同键）
+    return process.platform === 'win32' ? key.toLowerCase() : key
+  }
+  return null
 }
 

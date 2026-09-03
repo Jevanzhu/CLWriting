@@ -3,11 +3,13 @@
  *
  * 覆盖：recordAiCall 落账 + tokens 累加、checkAiCallBudget 超限判定、换章重置。
  */
-import { rmSync, readFileSync, writeFileSync, mkdirSync, statSync, chmodSync } from 'node:fs'
+import { rmSync, readFileSync, writeFileSync, mkdirSync, statSync, chmodSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
-import { recordAiCall, checkAiCallBudget, recordTaskUsage, AI_CALLS_MUTEX_SCOPE_NOTE } from '../../src/ai/calls.js'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { recordAiCall, checkAiCallBudget, recordTaskUsage, AI_CALLS_MUTEX_SCOPE_NOTE, AI_CALLS_LOCK_TIMEOUT_MS, __setAiCallsLockTimeoutForTest } from '../../src/ai/calls.js'
+import * as callsMod from '../../src/ai/calls.js'
+import { tryAcquireCrossProcessLock } from '../../src/fs/cross-process-lock.js'
 import type { BookConfig } from '../../src/format/types.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
@@ -19,6 +21,7 @@ function tempBook(): string {
 }
 afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
+  __setAiCallsLockTimeoutForTest(5_000) // R43-5：防超时注入泄漏到他用例（r30-batch-a 同款）
 })
 
 const CONFIG = { budget: { calls_per_chapter: 3 } } as unknown as BookConfig
@@ -304,9 +307,48 @@ describe('D4 cache token 记账累计', () => {
     writeFileSync(
       join(root, '.cache', 'ai-calls.json'),
       JSON.stringify({ chapter: { num: 1, used: 1, inputTokens: 10, outputTokens: 5, cacheReadTokens: 'x' }, tasks: {} }),
-      'utf8',
+      'utf-8',
     )
     const b = checkAiCallBudget(root, 1, CONFIG)
     expect(b.ok).toBe(false)
+  })
+})
+
+// ── R43-5（四十三轮）：锁超时档常量化（R30-18 收口口径，r30-timeout-consts 同款验证） ──
+
+describe('R43-5：AI_CALLS_LOCK_TIMEOUT_MS 常量化 + 注入钩子驱动生效值', () => {
+  it('导出档恒为生产默认 5000，外部赋值不可达生效路径', () => {
+    // ESM 只读绑定下赋值抛 TypeError；vitest 转译层可能吞掉抛错——两种形态都不允许改到值
+    try {
+      ;(callsMod as unknown as Record<string, number>)['AI_CALLS_LOCK_TIMEOUT_MS'] = 1
+    } catch {
+      /* 预期形态之一 */
+    }
+    expect(AI_CALLS_LOCK_TIMEOUT_MS).toBe(5_000)
+    expect(callsMod.AI_CALLS_LOCK_TIMEOUT_MS).toBe(5_000)
+  })
+
+  it('注入钩子驱动生效值：锁在持时按注入档快速超时（warn 留痕、不落盘）', async () => {
+    const root = tempBook()
+    const fp = join(root, '.cache', 'ai-calls.json')
+    __setAiCallsLockTimeoutForTest(80) // 注入短超时保测试快
+    // 模拟另一进程持锁（同源锁原语，测试进程自身持有 = 对记账写段表现为「他者在持」）
+    const release = tryAcquireCrossProcessLock(`${fp}.lock`)
+    expect(release).not.toBeNull()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      // 锁被占 → 异步轮询等待，无同步抛；注入档生效时 ~80ms 后超时失败旁挂 warn
+      expect(() => recordAiCall(root, 3, null)).not.toThrow()
+      // 若注入失效（吃 5s 默认档），3s 内 warn 不会出现 → waitFor 超时判负
+      await vi.waitFor(() => {
+        const warnText = warn.mock.calls.map((a) => a.map(String).join(' ')).join('\n')
+        expect(warnText).toContain('超时')
+      }, 3_000)
+      expect(existsSync(fp)).toBe(false) // 超时口径：本轮账目未记（不交错覆盖丢账）
+    } finally {
+      warn.mockRestore()
+      release!()
+      __setAiCallsLockTimeoutForTest(5_000)
+    }
   })
 })

@@ -125,3 +125,26 @@ describe('R36-7 analysis-overview 缓存', () => {
     expect((after.style as { 口癖?: string[] })?.口癖).toEqual(['嗯'])
   })
 })
+
+// ── R43-13（四十三轮）：16+ 位数字文件名的失真章号不入趋势数据 ────────────
+
+describe('R43-13: 失真章号（非安全整数）不入 allChapters / 三类趋势', () => {
+  it('17 位数字名章不入 allChapters 与 score 趋势；正常章照常入列', () => {
+    const root = mkdtempSync(join(tmpdir(), 'r43-ana-guard-'))
+    roots.push(root)
+    const manifestPath = join(root, '项目', '文档清单.jsonl')
+    const m = readManifest(manifestPath)
+    const docIdOk = generateDocId()
+    const docIdBad = generateDocId()
+    upsertEntry(m, { id: docIdOk, nodeType: 'document', path: '写作/正文/0005-正常章.md', parentId: null })
+    // 17 个 9：parseInt → 1e17（超 2^53 失真浮点，非安全整数）
+    upsertEntry(m, { id: docIdBad, nodeType: 'document', path: `写作/正文/${'9'.repeat(17)}-超长数字名.md`, parentId: null })
+    writeManifest(manifestPath, m)
+    writeAnalysis(root, docIdOk, 'score', env({ score: 8, dims: { 爽点: 8 } }))
+    writeAnalysis(root, docIdBad, 'score', env({ score: 6, dims: { 爽点: 6 } }))
+    const ov = getAnalysisOverviewCached(root)
+    // 失真章号按无章号处理：不进逐章映射，也不进趋势（对齐 words.ts R64-20 口径）
+    expect(ov.allChapters.map((c) => c.章号)).toEqual([5])
+    expect(ov.scoreTrend.map((t) => t.章号)).toEqual([5])
+  })
+})

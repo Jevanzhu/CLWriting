@@ -8,6 +8,7 @@
  *   失败回落 F1-P1 硬截断（trim 遮蔽语义不变）。
  */
 import type { ChatMsg, TokenUsage } from '../../provider/types.js'
+import { redactSecret } from '../../provider/redact.js' // R43-19（四十三轮）：SSE 错误事件脱敏第二层
 import { modelConfOf } from '../../provider/store.js'
 import { generate } from '../../gen.js'
 import { runTask } from '../../runner.js'
@@ -53,7 +54,10 @@ export function finishTurn(
   } catch (e) {
     log.warn('chat', `失败收尾遮蔽落库失败（终态 ${spec.mask}，本会话事件待修复后重放）：${e instanceof Error ? e.message : String(e)}`)
   }
-  emit(opts, { type: 'chat_error', error: spec.message })
+  // R43-19（四十三轮）：chat_error 文案过 redactSecret（与 stream.ts:216 R26-8 同款）——
+  // {error} 分支的 message 源自 out.error（provider 异常），可含凭据痕迹；固定文案
+  //（超时/中断/截断）不匹配凭据模式，幂等无变化
+  emit(opts, { type: 'chat_error', error: redactSecret(spec.message) })
 }
 
 // ── 收尾压缩（B1+B2 升级 F1-P1 的 trim 遮蔽点） ──────

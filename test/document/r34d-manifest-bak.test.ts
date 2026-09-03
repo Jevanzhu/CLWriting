@@ -79,3 +79,21 @@ describe('writeManifest .bak 影子（R34D-4）', () => {
     expect(readManifest(f).entries.get('doc_9')?.path).toBe('i.md')
   })
 })
+
+// ── R43-6（四十三轮）：.bak 影子写不再关 fsync ───────────────────────────
+
+describe('R43-6: .bak 影子写 fsync 口径（兜底恢复源不掉电失守）', () => {
+  it('writeManifest 的 .bak 调用点源码不含 fsync: false（静态断言——回默认 fsync:true）', () => {
+    const src = readFileSync(new URL('../../src/document/manifest.ts', import.meta.url), 'utf-8')
+    // 提取 writeManifest 函数段，锚定 .bak 影子写调用点（fsync 行为面无法从外部观测，
+    // 静态断言该调用点不再显式关闭 fsync——R34D-4 落地时的 { fsync: false } 已删）
+    const fnSrc = src.slice(
+      src.indexOf('export function writeManifest'),
+      src.indexOf('export const MANIFEST_LOCK_TIMEOUT_MS'),
+    )
+    const bakCall = /atomicWriteFile\(`\$\{filePath\}\.bak`[^)]*\)/.exec(fnSrc)?.[0]
+    expect(bakCall).toBeTruthy() // 锚到调用点本身（防函数被改名/搬移后断言空转）
+    expect(bakCall).toContain('previous') // 仍是字节级快照旧内容的语义
+    expect(bakCall).not.toMatch(/fsync\s*:\s*false/)
+  })
+})

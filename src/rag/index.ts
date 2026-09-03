@@ -257,7 +257,14 @@ export function resetRagIndex(bookRoot: string): void {
       setRagMeta(db, RAG_RESET_MARKER_KEY, new Date().toISOString())
       db.exec('COMMIT')
     } catch (e) {
-      db.exec('ROLLBACK')
+      // R43-18（四十三轮）：R61-10 同款加固——SQLite 部分错误（SQLITE_FULL/IOERR 等）
+      // 已自动回亡事务，再 ROLLBACK 抛 "no transaction is active" 掩蔽原始写错误；
+      // 吞 ROLLBACK 自身异常、原始错误上抛
+      try {
+        db.exec('ROLLBACK')
+      } catch {
+        /* 已自动回亡 */
+      }
       throw new Error(`清空 RAG 索引失败（已回滚，可重试）：${errStr(e)}`)
     }
   } finally {
@@ -390,7 +397,14 @@ export async function buildIndex(
             }
             db.exec('COMMIT')
           } catch (e) {
-            db.exec('ROLLBACK')
+            // R43-18（四十三轮）：R61-10 同款加固——SQLite 部分错误已自动回亡事务，
+            // 再 ROLLBACK 抛 "no transaction is active" 掩蔽原始写错误；吞 ROLLBACK
+            // 自身异常、原始错误进返回文案
+            try {
+              db.exec('ROLLBACK')
+            } catch {
+              /* 已自动回亡 */
+            }
             return {
               ok: false,
               chunkCount: 0,
@@ -611,7 +625,15 @@ async function commitIndexBatch(
         // 之和=真实新嵌总数
         salvagedChunks = complete.reduce((n, [, span]) => n + (span ? span.end - span.start : 0), 0)
       } catch {
-        db.exec('ROLLBACK') // 续传失败不致命：回到旧行为（整体重跑），错误文案不带续传字样
+        // 续传失败不致命：回到旧行为（整体重跑），错误文案不带续传字样。
+        // R43-18（四十三轮）：R61-10 同款加固——吞 ROLLBACK 自身异常（部分错误已
+        // 自动回亡事务，再 ROLLBACK 抛 "no transaction is active"），保持「整体重跑」
+        // 降级语义不因回滚句柄抖动旁生枝节
+        try {
+          db.exec('ROLLBACK')
+        } catch {
+          /* 已自动回亡 */
+        }
       }
     }
     return {
@@ -672,7 +694,14 @@ async function commitIndexBatch(
     }
     db.exec('COMMIT')
   } catch (e) {
-    db.exec('ROLLBACK')
+    // R43-18（四十三轮）：R61-10 同款加固——SQLite 部分错误已自动回亡事务，再
+    // ROLLBACK 抛 "no transaction is active" 掩蔽原始写错误；吞 ROLLBACK 自身异常、
+    // 原始错误进返回文案
+    try {
+      db.exec('ROLLBACK')
+    } catch {
+      /* 已自动回亡 */
+    }
     return {
       ok: false,
       chunkCount: 0,

@@ -28,6 +28,7 @@ import { finalizedPathSet } from '../document/manifest.js'
 import { docJoinKey } from '../fs/safe-path.js'
 import { checkStyleMetrics, checkRepeat } from '../check/count.js'
 import { readIronRules } from '../metrics/style.js'
+import { log } from '../log/index.js' // R43-22（四十三轮）：候选目录清理失败留痕
 import type { IronRules } from '../format/iron-rules.js'
 
 /** 样章候选 */
@@ -254,7 +255,14 @@ export async function learnFromBook(bookRoot: string): Promise<LearnResult> {
   }
   try {
     // 清旧候选（重跑覆盖）
-    try { rmSync(candidateRoot, { recursive: true, force: true }) } catch { /* 不存在无所谓 */ }
+    // R43-22（四十三轮）：注释改真实口径——force:true 下 ENOENT 不抛（目录不存在是
+    // 正常态），真正会抛的是 EBUSY/EPERM 半删态（候选 md 被编辑器占用/杀软扫描锁）。
+    // 失败留痕：半删目录残留下轮收割覆盖前仍可见，可能含上轮过期候选混入本轮审阅面
+    try {
+      rmSync(candidateRoot, { recursive: true, force: true })
+    } catch (e) {
+      log.warn('learn', `候选目录未清空，可能含上轮残留（${e instanceof Error ? e.message : String(e)}）`)
+    }
     mkdirSync(candidateRoot, { recursive: true })
 
     // 样章候选：样章/<场景>-候选-NN.md（拟入 front matter）

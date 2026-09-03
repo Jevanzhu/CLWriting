@@ -238,9 +238,24 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
     // 双重键、取值未指定（命中旧值 = 全请求 403）。逐键大小写不敏感清除后再注入。
     // R41-7（四十一轮）：清除面补 CLW_LOG_STDOUT——下方注入 CLW_LOG_STDOUT=1，若宿主
     // 残留混写变体（clw_log_stdout）同样双键穿透，child 日志形态被旧值劫持。
+    // R43-26（四十三轮）：清除面再补 CLW_DEV_UI / CLW_DEV_CORS / CLWRITING_RESOURCES_DIR
+    // ——防宿主残留泄漏进打包 child：前两者会让 child 的 Origin 白名单放宽放行 5173
+    // （server/index.ts dev 注入面，本应只属于 scripts/dev-api.ts 的独立进程）；后者
+    // 会把 child 捆绑资源根钉到宿主目录（fs/resources.ts 无 electron 依赖、打包态检查
+    // 不可达，fork 前剥除 = child 回落模块相对推导 asar 内资源）。合法 dev 链路不经本
+    // manager 携带这些变量（devUi 态 main 不 fork server；dev:api 是独立进程自带 env），
+    // 剥除无旁损。
     for (const k of Object.keys(childEnv)) {
       const ku = k.toUpperCase()
-      if (ku === 'CLW_STUDIO_TOKEN' || ku === 'CLW_LOG_STDOUT') delete childEnv[k]
+      if (
+        ku === 'CLW_STUDIO_TOKEN' ||
+        ku === 'CLW_LOG_STDOUT' ||
+        ku === 'CLW_DEV_UI' ||
+        ku === 'CLW_DEV_CORS' ||
+        ku === 'CLWRITING_RESOURCES_DIR'
+      ) {
+        delete childEnv[k]
+      }
     }
     childEnv['CLW_STUDIO_TOKEN'] = tokenInMemory
     childEnv['CLW_LOG_STDOUT'] = '1'

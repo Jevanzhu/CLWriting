@@ -54,8 +54,16 @@ export function syncLead(db: DatabaseSync, lead: Lead): void {
     })
     db.exec('RELEASE sync_lead_history')
   } catch (err) {
-    db.exec('ROLLBACK TO sync_lead_history')
-    db.exec('RELEASE sync_lead_history')
+    // R43-18（四十三轮）：R61-10 同款加固——SAVEPOINT 语义与裸 ROLLBACK 不同：
+    // SQLITE_FULL/IOERR 等自动回亡外层事务时连 SAVEPOINT 一并销毁，此时
+    // ROLLBACK TO / RELEASE 均抛 "no such savepoint"，会掩蔽原始写错误。
+    // 两步整对包裹（首步抛 ⟺ savepoint 已销毁，RELEASE 无从成功）、原始错误上抛
+    try {
+      db.exec('ROLLBACK TO sync_lead_history')
+      db.exec('RELEASE sync_lead_history')
+    } catch {
+      /* SAVEPOINT 已随自动回亡销毁 */
+    }
     throw err
   }
 }

@@ -244,6 +244,11 @@ export const useDocStore = defineStore('doc', () => {
       if (bookName.value === book) {
         // 局部更新 tree 字数（避免重拉整树）
         useTreeStore().updateWordCount(e.path, countWords(stripFrontmatter(snapshot)))
+        // R43-16（四十三轮）：save 成功对齐 treeRev 至当前树版本——dirty 期间错过的树刷新
+        //（syncCleanWithTree 跳过 dirty 项不回填）让 treeRev 停在旧版，下一次树刷新会把
+        // 自客户端保存当外部变更整批重拉（每文档 GET + sha256 白耗）；乐观锁已保证落盘
+        // 基线为最新，按当前树版本视作新鲜。
+        e.treeRev = useTreeStore().revision
         // E4：刷新今日字数增量（fire-and-forget 重 GET delta）
         void useWordsStore().ensureBaseline(book)
         if (origin === 'manual') useUiStore().toast('已保存', 'success')

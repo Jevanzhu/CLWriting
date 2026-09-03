@@ -103,7 +103,18 @@ function onBodyChange(next: string): void {
 // 卸载清定时器
 const wordCount = ref(countWords(body.value))
 let wordCountTimer: ReturnType<typeof setTimeout> | null = null
-watch(body, (b) => {
+watch([body, () => props.docId], ([b, id], old) => {
+  // R43-17（四十三轮）：切 docId 即刻重算字数再进 150ms 防抖——切文档顶栏此前沿防抖
+  // 窗口滞留旧文档字数（切文档非高频路径，无防抖成本顾虑）；同步作废旧文档排定的
+  // 防抖定时器（其回调携带旧 body）。同文档键入照旧走防抖。
+  if (old !== undefined && old[1] !== id) {
+    if (wordCountTimer) {
+      clearTimeout(wordCountTimer)
+      wordCountTimer = null
+    }
+    wordCount.value = countWords(b)
+    return
+  }
   if (wordCountTimer) clearTimeout(wordCountTimer)
   wordCountTimer = setTimeout(() => {
     wordCount.value = countWords(b)

@@ -464,7 +464,10 @@ function createSecureWindow(opts: BrowserWindowConstructorOptions): BrowserWindo
   // R67-16：渲染崩溃自愈随工厂挂载（三窗同享；原先只挂主窗，书架/书库白屏无自愈）
   attachRendererCrashSelfHeal(win, opts.title ?? '窗口')
   // dev 模式:不经系统代理（防 clash/surge 类 HTTP 代理 buffer SSE 长连接 → driver events 断流）
-  if (process.env['CLW_DEV_UI']) { // R62-45：bracket 统一风格
+  // R43-26（四十三轮）：dev 环境变量防线——本文件全部 CLW_DEV_UI 读取统一收紧为
+  // 「!!env && !app.isPackaged」形态：宿主 shell 残留的 CLW_DEV_UI=1 在打包态不得再
+  // 触发 dev 代理（setProxy direct:// 属开发期行为，与 HMR 同源同门）
+  if (!!process.env['CLW_DEV_UI'] && !app.isPackaged) { // R62-45：bracket 统一风格
     // R72-10（二十轮 D-7）：记账供 loadURL 前 await（同值幂等，重复设置无害）
     // R74-16（七十四轮批 D）：setProxy 返回 promise 此前无人 catch——设置失败成
     // unhandledRejection 丢诊断（且 await 方拿到 rejected promise 会二次炸穿书架/
@@ -574,7 +577,9 @@ async function bootstrap(): Promise<void> {
 
   // HMR 开发模式：CLW_DEV_UI=1 时加载 Vite dev server（localhost:5173），前端改动实时热更新；
   // 不起 server，API 由独立 dev:api(7878) 提供（Vite proxy 转发）。IPC/preload 照常，桌面能力完整。
-  const devUi = !!process.env['CLW_DEV_UI'] // R62-45：bracket 统一风格
+  // R43-26（四十三轮）：dev 环境变量防线——devUi 真值判断要求非打包态（app.isPackaged）：
+  // 打包应用吃到宿主残留 CLW_DEV_UI=1 不再切 HMR 形态（localhost:5173 + 跳过 server fork）
+  const devUi = !!process.env['CLW_DEV_UI'] && !app.isPackaged // R62-45：bracket 统一风格
   if (devUi) {
     appUrl = 'http://localhost:5173'
   } else {
@@ -1069,7 +1074,9 @@ function buildMenu(): void {
 if (gotSingleInstanceLock) {
   app.whenReady().then(() => {
     // 生产模式注入 CSP（开发 HMR 模式跳过——Vite 依赖 unsafe-eval/unsafe-inline）
-    if (!process.env['CLW_DEV_UI']) { // R62-45：bracket 统一风格
+    // R43-26（四十三轮）：CSP 注入条件同步收紧——与 devUi 同形（!!env && !app.isPackaged）
+    // 取反：打包态恒注入 CSP，宿主残留 CLW_DEV_UI 不再放行跳过（Vite 需要的豁免只属于真 dev）
+    if (!(!!process.env['CLW_DEV_UI'] && !app.isPackaged)) { // R62-45：bracket 统一风格
       session.defaultSession.webRequest.onHeadersReceived((_d, cb) => {
         cb({
           responseHeaders: {

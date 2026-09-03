@@ -16,6 +16,17 @@ vi.mock('../../../src/studio/web-next/src/api/client', () => ({
 vi.mock('../../../src/studio/web-next/src/stores/ui', () => ({
   useUiStore: () => ({ toast: vi.fn() }),
 }))
+// R43-14（四十三轮）：loadBookPrefs 失败分支新增 ps.apply()（清书级覆盖值后同步 CSS 变量）
+//——本文件 node 环境无 DOM，prefs store 的 apply 直写 document 会抛；对齐 r29-fe-e3-e6-stores
+// 先例 stub 掉（本文件不测 CSS 注入）。下方 R64-32 用例的 getBookPrefs 走真实 api（node 下
+// 相对 URL fetch 必失败）恰好进失败分支。
+vi.mock('../../../src/studio/web-next/src/stores/prefs', () => ({
+  usePrefsStore: () => ({
+    bookPageWidth: null,
+    bookAutosaveInterval: null,
+    apply: vi.fn(),
+  }),
+}))
 
 import { getContent } from '../../../src/studio/web-next/src/api/documents'
 import { useDocStore } from '../../../src/studio/web-next/src/stores/doc'

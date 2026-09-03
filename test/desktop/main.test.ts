@@ -1080,4 +1080,35 @@ describe('kk-P2-8：退出与边界分支', () => {
       vi.useRealTimers()
     }
   })
+
+  // R43-26（四十三轮）：dev 环境变量防线——打包态（mock app.isPackaged=true）吃到宿主残留
+  // CLW_DEV_UI=1 必须失效：devUi 真值判断要求非打包态（仍 fork server + loadURL 本地回传
+  // 端口，不切 localhost:5173 HMR），CSP 注入条件同步收紧（打包态恒注入，不再被残留值跳过）。
+  // fresh module 手法同上（resetModules 会重绑 ipcHandle，置于文件尾）。
+  it('R43-26：打包态宿主残留 CLW_DEV_UI=1 → devUi 失效（仍 fork 本地 server）+ CSP 恒注入', async () => {
+    const windows0 = M.windows.length
+    const forks0 = M.forkChildren.length
+    M.headersCb = null // 清掉首实例的注册，重导后 truthy 即「本轮新注册」
+    vi.stubEnv('CLW_DEV_UI', '1')
+    try {
+      vi.resetModules()
+      await import('../../src/desktop/main.js')
+      await new Promise((r) => setImmediate(r))
+      await new Promise((r) => setImmediate(r))
+      // devUi 门（!!env && !isPackaged）：打包残留不切 HMR——照常 fork + 加载 ready 回传端口
+      expect(M.forkChildren.length).toBe(forks0 + 1)
+      expect(M.windows.at(-1)!.loaded[0]).toBe('http://127.0.0.1:45678')
+      // CSP 门（!(!!env && !isPackaged)）：打包态恒注入，残留 CLW_DEV_UI 不再放行跳过
+      expect(M.headersCb, '打包态 CSP 应恒注入').toBeTruthy()
+      let cbArg: unknown
+      M.headersCb!({ responseHeaders: { 'content-type': ['text/html'] } }, (r) => (cbArg = r))
+      const csp = (cbArg as { responseHeaders: Record<string, string[]> }).responseHeaders[
+        'Content-Security-Policy'
+      ]![0]!
+      expect(csp).toContain("default-src 'self'")
+      expect(M.windows.length).toBe(windows0 + 1)
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
 })

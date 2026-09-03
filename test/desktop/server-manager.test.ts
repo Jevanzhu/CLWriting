@@ -324,6 +324,30 @@ describe('批 U1：studioToken（U-6 A / 二轮 F-5）', () => {
       vi.unstubAllEnvs()
     }
   })
+
+  // R43-26（四十三轮）：剥除面补 dev/资源定位变量——宿主残留 CLW_DEV_UI / CLW_DEV_CORS /
+  // CLWRITING_RESOURCES_DIR（含 win 混写变体）不得穿透进 child env：dev 双变量会让打包
+  // child 的 Origin 白名单放行 5173，资源变量会让 asar 内捆绑资源被宿主残留目录劫持
+  //（resources.ts 无打包态检查，剥除即回落模块相对推导）。
+  it('R43-26：宿主残留 CLW_DEV_UI/CLW_DEV_CORS/CLWRITING_RESOURCES_DIR（含混写变体）→ child env 全剥除', async () => {
+    vi.stubEnv('CLW_DEV_UI', '1')
+    vi.stubEnv('clw_dev_cors', '1') // 混写变体（win 大小写不敏感残留形态）同剥
+    vi.stubEnv('CLWRITING_RESOURCES_DIR', '/stale/host/resources')
+    try {
+      const { forkRecords, manager } = mkHarness()
+      const p = manager.start({ workDir: null, userDataPath: mkUserData() })
+      const env = forkRecords[0]!.options['env'] as Record<string, string | undefined>
+      expect(Object.keys(env).filter((k) => k.toUpperCase() === 'CLW_DEV_UI')).toEqual([])
+      expect(Object.keys(env).filter((k) => k.toUpperCase() === 'CLW_DEV_CORS')).toEqual([])
+      expect(Object.keys(env).filter((k) => k.toUpperCase() === 'CLWRITING_RESOURCES_DIR')).toEqual([])
+      expect(Object.values(env)).not.toContain('/stale/host/resources')
+      forkRecords[0]!.child.emit('message', { type: 'ready', port: 4 })
+      await p
+      await manager.stopChild()
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
 })
 
 describe('批 U1：旧 child 清理与 stopChild（L-3 换轨）', () => {

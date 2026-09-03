@@ -10,7 +10,8 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
-import { readJson, reply, replyError, parseRequestUrl } from '../http.js'
+import { readJson, reply, replyError, parseRequestUrl, urlPathOnly } from '../http.js'
+import { log } from '../../../log/index.js' // R43-21（四十三轮）：SSE 流异常诊断留痕
 import { resolveBook } from '../book-context.js'
 import { ensureSession, getDriver, getSession } from '../../../driver/index.js'
 import type { DriverEvent, Session, StudioDriver } from '../../../driver/index.js'
@@ -380,6 +381,9 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     try {
       iter = driver.stream(session) as AsyncGenerator<DriverEvent>
     } catch (e) {
+      // R43-21（四十三轮）：补诊断日志（对齐 router.ts:104 纪律——只进错误事件不留痕
+      // 时排障无从下手；urlPathOnly 只记路径段，SSE token 走 query 不落日志）
+      log.error('api', 'sse stream error: ' + urlPathOnly(req.url), e)
       safeWrite(
         `data: ${JSON.stringify({
           type: 'error',
@@ -398,6 +402,9 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
         safeWrite(`data: ${JSON.stringify(ev)}\n\n`)
       }
     } catch (e) {
+      // R43-21（四十三轮）：补诊断日志（对齐 router.ts:104 纪律；urlPathOnly 只记路径段，
+      // SSE token 走 query 不落日志）——流中断只进错误事件时排障无从下手
+      log.error('api', 'sse stream error: ' + urlPathOnly(req.url), e)
       safeWrite(
         `data: ${JSON.stringify({
           type: 'error',

@@ -31,7 +31,14 @@ const EXPECTED_GLOBS = [
 ]
 /** 各桶排除时留下注释标记便于人读；include/exclude 口径抄自 vitest.config.ts */
 const INCLUDE = ['src/**/*.ts']
-const EXCLUDE = ['src/**/*.d.ts', 'src/studio/web-next/src/{components,types}/**', 'src/studio/web-next/src/{main,router}.ts']
+// R43-27（四十三轮）：EXCLUDE 抄本补 'src/studio/web-next/vite.config.ts'——与
+// vitest.config.ts coverage.exclude（R33D-36 入列）对齐，消除抄本与配置的口径漂移
+const EXCLUDE = [
+  'src/**/*.d.ts',
+  'src/studio/web-next/vite.config.ts',
+  'src/studio/web-next/src/{components,types}/**',
+  'src/studio/web-next/src/{main,router}.ts',
+]
 
 /** 递归收集 src 下 .ts 文件（.vue 不入口径——coverage include 仅收 .ts） */
 function listSrcTs(dir: string): string[] {
