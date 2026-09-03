@@ -31,7 +31,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
-import { safeDocId, resolveWithinRoot } from '../fs/safe-path.js'
+import { safeDocId, resolveWithinRoot, relPathKey } from '../fs/safe-path.js'
 import { atomicWriteFile, createFileExclusive, linkOrRenameExclusive, renameWithRetry } from '../fs/atomic.js'
 import { computeRevision, type Revision } from './revision.js'
 import { layoutOf, roleOf, isInternalBookPath } from './layout.js'
@@ -314,7 +314,7 @@ export class DocumentService {
         reason: `保存前清单查询失败（未执行保存，可重试）：${e instanceof Error ? e.message : String(e)}`,
       })
     }
-    if (registered !== null && registered !== relPath) {
+    if (registered !== null && relPathKey(registered) !== relPathKey(relPath)) { // R38-14：win 大小写折叠
       return Promise.resolve({
         ok: false,
         code: 'REVISION_CONFLICT',
@@ -395,7 +395,7 @@ export class DocumentService {
       // R31-19（三十一轮）：legacy 收编链改走异步清单锁孪生（R30-6 全异步化口径的
       // 残留收口——非 legacy docId 行为不变，仅清单命中读）
       const registeredNow = await this.lookupPathByDocIdAdoptAsync(docId)
-      if (registeredNow !== null && registeredNow !== relPath) {
+      if (registeredNow !== null && relPathKey(registeredNow) !== relPathKey(relPath)) { // R38-14
         return Promise.resolve({
           ok: false,
           code: 'REVISION_CONFLICT',
@@ -686,7 +686,10 @@ export class DocumentService {
   private wiringFileLockKey(relPath: string): string | null {
     const p = relPath.replace(/\\/g, '/')
     if (p.startsWith('布线/') || p.startsWith('大纲/关系线/')) {
-      return `${join(this.bookRoot, relPath)}.lock`
+      const key = `${join(this.bookRoot, relPath)}.lock`
+      // R38-14（三十八轮）：win32 大小写折叠（对齐 manifestLockKey R33-54）——外部
+      // case-only 改名后 save 链与 lead-finalize 链此前会取不同锁文件，互斥静默失效
+      return process.platform === 'win32' ? key.toLowerCase() : key
     }
     return null
   }

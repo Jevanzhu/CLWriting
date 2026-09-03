@@ -11,6 +11,7 @@ import { log } from '../log/index.js'
 // R73-15（二十一轮）：parseBannedWordsLine 移驻 style-entry（readBannedEntryWords 拆词
 // 复用同套清洗；本文件原已单向 import style-entry，反向会成环——函数随消费方迁移）
 import { readBannedEntryWords, parseBannedWordsLine } from './style-entry.js'
+import { isMdFileName } from './filename.js'
 
 /** 文风铁律可量化硬约束（parseIronRules 输出） */
 export interface IronRules {
@@ -145,7 +146,7 @@ function ironRulesFp(bookRoot: string): string {
   const dir = join(bookRoot, '文风', '条目', '禁词')
   let entriesFp = 'no-entries'
   try {
-    const names = readdirSync(dir).filter((f) => f.endsWith('.md') && !f.startsWith('._')).sort()
+    const names = readdirSync(dir).filter((f) => isMdFileName(f) && !f.startsWith('._')).sort() // R38-9：.MD 变更须失效缓存（指纹侧同步收口）
     let size = 0n
     let maxMtime = 0n
     let nameHash = 0x811c9dc5

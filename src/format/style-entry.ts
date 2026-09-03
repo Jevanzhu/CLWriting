@@ -12,7 +12,7 @@
 import { readdirSync, statSync, mkdirSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { createFileExclusive } from '../fs/atomic.js'
-import { sanitizeChapterTitle } from './filename.js'
+import { sanitizeChapterTitle, isMdFileName } from './filename.js'
 import { readFile, writeFile, parseFlat, stringifyFlat, joinFrontMatter } from './frontmatter.js'
 import { parseSampleFileName } from './style.js'
 import type { StyleEntry, EntryKind, EntrySource, ParseError } from './types.js'
@@ -171,7 +171,7 @@ export function nextEntrySeq(entriesDir: string, kind: EntryKind, scene: string)
   if (!existsSync(dir)) return 1
   let maxSeq = 0
   for (const f of readdirSync(dir)) {
-    if (!f.endsWith('.md') || f.startsWith('._')) continue
+    if (!isMdFileName(f) || f.startsWith('._')) continue // R38-9：.MD 不再失明
     const parsed = parseSampleFileName(f)
     if (parsed && parsed.场景 === scene && parsed.序号 > maxSeq) maxSeq = parsed.序号
   }

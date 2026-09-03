@@ -15,12 +15,14 @@ mac:
   category: public.app-category.productivity
   target:
     - dmg
-  # MP2-5（专项重评二轮修复批）：mac 侧显式 identity: null = ad-hoc 签名——与 win 侧
-  # D4「首版 unsigned + README 披露」对称收口：无证书环境下构建行为确定（不撞
-  # 「找不到签名身份」），本地构建可正常运行；分发给他人的 Gatekeeper「无法验证开发者/
-  # 已损坏」提示与右键打开指引见根 README「macOS 版使用须知」。正式签名/公证
-  # （Developer ID + notarytool）留待作者购证后启用。
-  identity: null
+  # MP2-5 + R38-3（三十八轮修复批）：mac 侧 `identity: "-"` = 真 ad-hoc 签名——上游
+  # app-builder-lib 语义：`identity: null` 走 handleNullIdentity() **完全跳过签名**
+  #（MP2-5 原注释「null = ad-hoc」系误读，三十八轮经上游源码 + 实包 codesign 核实：
+  # 跳签产物 Sealed Resources=none、spctl 拒、Gatekeeper「已损坏」概率大增）；`"-"`
+  # 走 IdentityClass("-") 密封路径，无证书环境本地构建必成、行为确定。分发 Gatekeeper
+  # 「无法验证开发者」提示与右键打开指引见根 README「macOS 版使用须知」。正式签名/
+  # 公证（Developer ID + notarytool）留待作者购证后启用。
+  identity: "-"
   # D2（2026-08-23 拍板，阶段 21 J0 落地）：图标本轮补全——build/icon.png 512×512 单真相源
   # （「笔+书」中文风，作者实物验收制）；ico/icns 由 electron-builder（app-builder）从 png
   # 自动派生，icns 不必手做。二十轮 H-1「仓内零图标/不代选」口径随之废止。

@@ -212,8 +212,9 @@ function scanChapterUpdatesByChapter(bookRoot: string): (chapterNo: number) => C
       }
     }
     for (const f of archivedFiles) {
-      const m = f.match(/^第(\d+)章\.md$/)
-      if (!m) continue // 非本章归档命名（含 ._ 资源文件）不入预扫
+      const m = f.match(/^第(\d+)章\.md$/i)
+      // R38-9：i 标志——归档文件 .MD 大写扩展名不再漏配对（其余命名如 ._ 资源文件照旧不入）
+      if (!m) continue
       const read = readLeadUpdatesAtChecked(join(archiveDir, f))
       archiveByChapter.set(Number(m[1]), { updates: read ?? [], unreadable: read === null })
     }

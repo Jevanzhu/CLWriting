@@ -285,6 +285,16 @@ export function createOpenAIResponsesProvider(
                 estimated: true,
               }
             }
+            // R38-8（三十八轮）：空 usage 对象（{} truthy 但无计量字段）等价「无 usage」——
+            // 原判定 `r.usage ? toUsage(r.usage) : estimate` 让 {} 走 toUsage 得 0/0 假计量，
+            // 绕过本线的估计兜底（R74-1），预算闸/成本对非标网关系统性偏低。对齐 openai 线
+            // isRealUsage（R36-14）口径：至少一个计量字段在位才采信，否则走估计（标 estimated）。
+            const usageOrEstimate = (u: OpenAI.Responses.ResponseUsage | null | undefined): TokenUsage => {
+              if (u !== null && u !== undefined && (u.input_tokens !== undefined || u.output_tokens !== undefined)) {
+                return toUsage(u)
+              }
+              return estimateDoneUsage()
+            }
 
             // ── R1 事件循环：终止事件契约 ──
             // 流必须以 completed / incomplete / failed 之一收尾；无终止事件 = 传输截断。
@@ -349,7 +359,11 @@ export function createOpenAIResponsesProvider(
                     // R36-15（三十六轮）：序号流级单调（原 map.size 非单调，同流重号）
                     acc.callId = item.call_id ?? (itemId || `call_${fallbackToolSeq++}`)
                     acc.name = item.name
-                    acc.args = acc.args || item.arguments || ''
+                    // R38-7（三十八轮）：权威值优先——done 事件携带的 item.arguments 是
+                    // 服务端完整串；原 `acc.args || item.arguments` 让 delta 累计优先，
+                    // 网关 delta 丢片时残缺 JSON 静默回退空对象 {}（工具参数丢失）。
+                    // done 项完整值在位时覆盖累计，缺失才回落累计（旧口径保留面）。
+                    acc.args = item.arguments || acc.args || ''
                     toolAccum.delete(accKey)
                     outToolText.push(acc.name + acc.args) // R74-1：tool 参数计入产出累计
                     let input: unknown
@@ -404,13 +418,13 @@ export function createOpenAIResponsesProvider(
                       type: 'error',
                       message: '模型返回空产出（Responses completed 无内容项）',
                       retryable: false,
-                      usage: r.usage ? toUsage(r.usage) : estimateDoneUsage(),
+                      usage: usageOrEstimate(r.usage),
                     }
                     return
                   }
                   // R74-1：completed 无 usage（网关不回 usage）→ 估计入账兜底，
                   // estimated 标记估计口径（修复前 toUsage(null) 恒 0/0 入账）
-                  const ev = emitDone(r.usage ? toUsage(r.usage) : estimateDoneUsage(), toolYielded ? 'tool_use' : 'stop')
+                  const ev = emitDone(usageOrEstimate(r.usage), toolYielded ? 'tool_use' : 'stop')
                   if (ev) yield ev
                   break
                 }
@@ -420,7 +434,7 @@ export function createOpenAIResponsesProvider(
                   const reason = r.incomplete_details?.reason
                   if (reason === 'max_output_tokens') {
                     // R74-1：incomplete 同款估计兜底（截断场景网关更常缺 usage）
-                    const ev = emitDone(r.usage ? toUsage(r.usage) : estimateDoneUsage(), 'max_tokens')
+                    const ev = emitDone(usageOrEstimate(r.usage), 'max_tokens')
                     if (ev) yield ev
                   } else {
                     // R1（缺口 2）：content_filter 等其他截断原因不得伪装成正常 stop
@@ -430,7 +444,7 @@ export function createOpenAIResponsesProvider(
                       type: 'error',
                       message: `响应不完整：${reason ?? 'unknown'}`,
                       retryable: false,
-                      usage: r.usage ? toUsage(r.usage) : estimateDoneUsage(),
+                      usage: usageOrEstimate(r.usage),
                     }
                     return
                   }
@@ -453,7 +467,7 @@ export function createOpenAIResponsesProvider(
                     message: redactSecret(msg),
                     retryable: false,
                     code: 'PROTOCOL',
-                    usage: event.response.usage ? toUsage(event.response.usage) : estimateDoneUsage(),
+                    usage: usageOrEstimate(event.response.usage),
                   }
                   return
                 }

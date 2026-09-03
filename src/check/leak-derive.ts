@@ -9,6 +9,7 @@
 import { readdirSync, existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { splitInlineArray } from '../format/frontmatter.js'
+import { isMdFileName } from '../format/filename.js'
 import { splitFrontMatter, stripInlineComment } from '../format/frontmatter-core.js'
 
 /**
@@ -40,7 +41,7 @@ export function deriveLeakKeywords(bookRoot: string): string[] {
       const fp = join(dir, e.name)
       if (e.isDirectory()) {
         walk(fp)
-      } else if (e.isFile() && e.name.endsWith('.md')) {
+      } else if (e.isFile() && isMdFileName(e.name)) { // R38-9：.MD 账本 fm 不再漏收
         try {
           const raw = readFileSync(fp, 'utf8')
           // Q-14（第十五轮）：改走 frontmatter-core 统一提取——手写正则不处理 BOM/CRLF，

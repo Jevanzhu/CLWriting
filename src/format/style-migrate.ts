@@ -17,7 +17,7 @@ import { readSamplesByScene } from './style.js'
 import { writeEntryExclusive, readEntries, ENTRIES_DIR } from './style-entry.js'
 import { parseIronRules } from './iron-rules.js'
 import { atomicWriteFile } from '../fs/atomic.js'
-import { sanitizeChapterTitle } from './filename.js'
+import { sanitizeChapterTitle, isMdFileName } from './filename.js'
 import type { StyleEntry, EntryKind, EntrySource, SampleSource } from './types.js'
 
 /** 迁移结果（伏笔迁移同构 + 类型分布供 toast） */
@@ -257,7 +257,7 @@ export function migrateStyleLibrary(bookRoot: string): StyleMigrateResult {
   if (existsSync(quoteDir)) {
     let files: string[] = []
     try {
-      files = readdirSync(quoteDir).filter((f) => f.endsWith('.md') && !f.startsWith('._'))
+      files = readdirSync(quoteDir).filter((f) => isMdFileName(f) && !f.startsWith('._')) // R38-9：.MD 不再失明
     } catch {
       /* 读失败按空 */
     }

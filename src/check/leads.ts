@@ -155,7 +155,10 @@ export function checkLeadsBookItems(
       if (!entry.回填) prevChapter = Math.max(prevChapter, entry.章号)
 
       // #2 引文命中：证据须在该章正文 grep 命中
-      if (!entry.回填 && entry.证据) {
+      // R38-10（三十八轮）：空字符串证据（手写账本「- 第2章 埋下：」冒号后无内容）
+      // 不再被 truthy 门径整条跳过——落 needles.length===0 的 R76-19 unverifiable
+      // 黄项（fail-noisy），与 format/leads.ts 头注「空证据条目照常入模型」宣称对齐
+      if (!entry.回填) {
         const text = chapterTextOf(entry.章号)
         // R63-8：匹配走多候选针串任一命中（单针串的内部闭引号会整组 miss，见 evidenceNeedles 头注）；
         // evidenceCore 仅供红项文案展示

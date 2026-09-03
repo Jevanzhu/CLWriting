@@ -21,7 +21,12 @@ export const APP_DIR_NAME = 'CLWriting'
 export function defaultUserDataPath(): string {
   const p = process.platform
   if (p === 'darwin') return join(homedir(), 'Library', 'Application Support', APP_DIR_NAME)
-  if (p === 'win32') return join(homedir(), 'AppData', 'Roaming', APP_DIR_NAME)
+  // R38-22（三十八轮）：win 优先取 %APPDATA%（Electron/系统语义同源；企业域文件夹
+  // 重定向场景不再脱节），env 未设（极端裁剪环境）回退原硬拼保持确定性。
+  if (p === 'win32') {
+    const appdata = process.env['APPDATA']
+    return appdata ? join(appdata, APP_DIR_NAME) : join(homedir(), 'AppData', 'Roaming', APP_DIR_NAME)
+  }
   // Linux：XDG_CONFIG_HOME 优先（Electron 同规则），缺省 ~/.config
   const xdg = process.env['XDG_CONFIG_HOME']
   return xdg ? join(xdg, APP_DIR_NAME) : join(homedir(), '.config', APP_DIR_NAME)

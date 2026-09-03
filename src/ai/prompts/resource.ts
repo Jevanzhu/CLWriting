@@ -28,9 +28,13 @@ export function promptHash(text: string): string {
   return createHash('sha256').update(text, 'utf8').digest('hex').slice(0, 16)
 }
 
-/** 规范化：剥掉恰一个结尾换行（文件体带尾换行入库，内存规范文本不带） */
+/** 规范化：剥 BOM 前缀 + 恰一个结尾换行（文件体带尾换行入库，内存规范文本不带）。
+ *  R38-6（三十八轮）：win 老版记事本/部分中文编辑器把 overlay 存成 UTF-8-BOM——
+ *  \uFEFF 混进 system prompt 首字符，且 overlay 哈希与内置永不相等 → matchBuiltinPrompt
+ *  永判「用户已改」、overlay 永不收口。剥 BOM 后两态合一。 */
 function canonicalize(raw: string): string {
-  return raw.endsWith('\n') ? raw.slice(0, -1) : raw
+  const noBom = raw.startsWith('\uFEFF') ? raw.slice(1) : raw
+  return noBom.endsWith('\n') ? noBom.slice(0, -1) : noBom
 }
 
 export interface PromptResource {

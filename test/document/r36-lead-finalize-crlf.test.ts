@@ -62,8 +62,10 @@ test('R36-1: CRLF 账本经定稿回写——既有履历保留 + 新条目追�
       expect(r.lead.履历[1]).toEqual({ 章号: 20, 动词: '递进', 证据: '管家提到狗没叫。' })
       expect(r.lead.履历[2]).toEqual({ 章号: 30, 动词: '递进', 证据: '门前雪地脚印。' })
     }
-    // 回写文件规整为 LF（writeLead 序列化输出天然 LF，无 \r 残留）
-    expect(readFileSync(join(root, '布线', '悬念', '悬念-001-灭门真凶.md'), 'utf-8').includes('\r')).toBe(false)
+    // R38-11（三十八轮）契约演进：写侧主导行尾保真——本文件源为 CRLF，回写保持 CRLF
+    //（旧断言「规整为 LF 无 \r 残留」固化的是修复前的 LF 重生成口径）；履历完整性
+    // 语义与 R36-1 不变。LF 账本字节不变的锚见 test/format/r38-batch-e.test.ts。
+    expect(readFileSync(join(root, '布线', '悬念', '悬念-001-灭门真凶.md'), 'utf-8').includes('\r\n')).toBe(true)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

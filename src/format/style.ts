@@ -10,6 +10,7 @@
 import { readdirSync, statSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { readFile, writeFile, parseFlat, stringifyFlat } from './frontmatter.js'
+import { isMdFileName } from './filename.js'
 import { log } from '../log/index.js'
 import type { StyleSample, SampleSource, ParseError } from './types.js'
 
@@ -101,7 +102,7 @@ export function readSamplesByScene(
   try {
     // 低级项（第六轮）：显式排序——readdir 顺序随平台/文件系统漂移，注入与冻结基线
     // 需跨平台可复现（同一书在不同机器产出同一 prompt/基线）
-    files = readdirSync(sceneDir).filter((f) => f.endsWith('.md') && !f.startsWith('._')).sort()
+    files = readdirSync(sceneDir).filter((f) => isMdFileName(f) && !f.startsWith('._')).sort() // R38-9：.MD 大写扩展名不再失明
   } catch {
     return { samples, errors } // 场景目录不存在，空
   }
@@ -127,7 +128,9 @@ export function readSamplesByScene(
 export function parseSampleFileName(
   fileName: string,
 ): { 场景: string; 序号: number } | null {
-  const base = basename(fileName, '.md')
+  // R38-9（三十八轮）：扩展名剥离大小写不敏感——'.MD' 改名条目的序号此前解析不出
+  //（nextEntrySeq 同场景编号割裂，靠 O_EXCL 自愈但新旧编号断裂）
+  const base = fileName.replace(/\.[mM][dD]$/, '')
   const m = base.match(/^(.+)-(\d{3})$/)
   if (!m) return null
   return { 场景: m[1]!, 序号: Number(m[2]!) }

@@ -33,6 +33,7 @@ import {
 // RB-KN-P1-1：改用合并版 readIronRules（铁律 + 条目库禁词）——S5 迁移把禁词知识
 // 搬进条目库并瘦身铁律，私有版只读铁律会让迁移书的禁词红项恒空。
 import { readIronRules } from '../format/iron-rules.js'
+import { isMdFileName } from '../format/filename.js'
 import { deriveLeakKeywords } from './leak-derive.js'
 import { checkPieceListForm } from './manifest-check.js'
 import { readRealmDoc } from '../format/realms.js'
@@ -240,7 +241,7 @@ export function runAllChecks(input: CheckInput): CheckReport {
       } else if (existsSync(outlineDir)) {
         const prefixMatch = (f: string): boolean => {
           const m = /^(\d+)[^\d]/.exec(f)
-          return f.endsWith('.md') && m !== null && Number(m[1]) === chapter.章号
+          return isMdFileName(f) && m !== null && Number(m[1]) === chapter.章号 // R38-9：.MD 章纲不漏配
         }
         // R37-9（三十七轮）：existsSync→readdirSync 间隙目录被瞬删/异常迁移（TOCTOU，
         // 同 R65-16 口径）或路径被文件占用（ENOTDIR——existsSync 对文件同为 true）时

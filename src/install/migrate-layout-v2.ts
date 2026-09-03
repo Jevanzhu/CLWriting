@@ -17,7 +17,8 @@
  * 幂等：v2 结构已存在 → no-op。server 启动时对每本书库调用一次。
  * 同模式：renameSync 原子、目标存在跳过、返回 { migrated, errors }。
  */
-import { existsSync, readdirSync, renameSync, mkdirSync, rmdirSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, mkdirSync, rmdirSync, statSync } from 'node:fs'
+import { renameWithRetry } from '../fs/atomic.js'
 import { join, dirname } from 'node:path'
 import { readManifestStrict, writeManifest, withManifestLock } from '../document/manifest.js'
 
@@ -146,7 +147,8 @@ function moveTree(
   if (!existsSync(newPath)) {
     mkdirSync(dirname(newPath), { recursive: true })
     try {
-      renameSync(oldPath, newPath)
+      // R38-18（三十八轮）：收编退避——win 瞬时锁不再让启动迁移报错横幅（幂等可重试）
+      renameWithRetry(oldPath, newPath)
       // R30-22：整搬成功 → 旧目录整棵子树都已在新路径，按子树根登记（内部文件
       // 经 movedSubtree 前缀匹配覆盖，无需枚举）
       moved.push(oldRel)
@@ -187,7 +189,7 @@ function moveTree(
         continue
       }
       try {
-        renameSync(src, dst)
+        renameWithRetry(src, dst) // R38-18：退避收编
         // R30-22：单搬成功（文件或子目录整体 rename）→ 按旧相对路径登记子树根
         moved.push(`${oldRel}/${name}`)
         count++
@@ -235,7 +237,7 @@ function moveDrafts(bookRoot: string, errors: string[], moved: string[]): number
       }
       try {
         mkdirSync(dstDir, { recursive: true })
-        renameSync(src, dst)
+        renameWithRetry(src, dst) // R38-18：退避收编
         moved.push(`工作区/${name}`) // R30-22：实际搬移成功才登记
         count++
       } catch (e) {

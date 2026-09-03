@@ -7,7 +7,8 @@
  *
  * 细纲/本章写作材料/首章细纲 已在任务1改路径引用，此处做磁盘搬迁兜底。
  */
-import { existsSync, readdirSync, renameSync, rmdirSync, readFileSync, mkdirSync } from 'node:fs'
+import { existsSync, readdirSync, rmdirSync, readFileSync, mkdirSync } from 'node:fs'
+import { renameWithRetry } from '../fs/atomic.js'
 import { join, dirname } from 'node:path'
 import { resolveDraftPath } from '../format/draft.js'
 import { readManifestStrict, writeManifest, withManifestLock, removeEntry } from '../document/manifest.js'
@@ -51,7 +52,7 @@ function trashDraft(bookRoot: string, srcAbs: string, name: string, originalRel:
     trashedAt: new Date().toISOString(),
     role: roleOf(originalRel),
   })
-  renameSync(srcAbs, join(trashDir, dstName))
+  renameWithRetry(srcAbs, join(trashDir, dstName))
 }
 
 export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: string[] } {
@@ -72,7 +73,7 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
       if (!existsSync(dst)) {
         try {
           mkdirSync(dirname(dst), { recursive: true })
-          renameSync(srcAbs, dst)
+          renameWithRetry(srcAbs, dst)
           migrated++
         } catch (e) { errors.push(`${name}: ${e instanceof Error ? e.message : String(e)}`) }
       } else {
@@ -90,7 +91,7 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
       if (!existsSync(dst)) {
         try {
           mkdirSync(dirname(dst), { recursive: true })
-          renameSync(srcAbs, dst)
+          renameWithRetry(srcAbs, dst)
           migrated++
           pathRemap.set(`写作/草稿/${name}`, `大纲/${dstName}`)
         } catch (e) { errors.push(`${name}: ${e instanceof Error ? e.message : String(e)}`) }
@@ -149,7 +150,7 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
     }
     try {
       mkdirSync(dirname(dstAbs), { recursive: true })
-      renameSync(srcAbs, dstAbs)
+      renameWithRetry(srcAbs, dstAbs)
       migrated++
       pathRemap.set(`写作/草稿/${name}`, dstRel)
     } catch (e) {

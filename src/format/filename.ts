@@ -103,3 +103,12 @@ export function sanitizeFullFileName(name: string): string {
   const compat = winCompatNamePart(stem)
   return (compat === '' ? '未命名' : compat) + ext
 }
+
+/** Markdown 扩展名判定（大小写不敏感）。
+ *  R38-9（三十八轮）：`.MD` 大写扩展名家族修复（R34D-11/R2W-8）此前只覆盖 readEntries
+ *  一处——样章/金句/禁词指纹/账本 fm 扫描/归档配对/章纲定位共 7 处扫描点仍大小写敏感，
+ *  win 资源管理器改名 `.MD` 后对相应消费者静默失明（禁词指纹侧还会让缓存陈旧结果
+ *  持续生效）。本 helper 为该家族的单一判定源。 */
+export function isMdFileName(name: string): boolean {
+  return name.toLowerCase().endsWith('.md')
+}

@@ -69,8 +69,15 @@ function normalizeOpenAIBaseUrl(baseUrl: string): string {
  * （openai-responses 协议线由 responses-adapter.ts 独立承载，经 registry 路由——2026-08-17 启用批回接。）
  * 参数差异由 model-quirks 表驱动（方案 §4.1）。
  */
-export function createOpenAIProvider(conf: ProviderConf, client?: OpenAI): ModelProvider {
-  return createOpenAIProviderChat(conf, client)
+export function createOpenAIProvider(
+  conf: ProviderConf,
+  client?: OpenAI,
+  // R38-5（三十八轮）：兼容导出补透传 store/userDataPath——原薄壳丢两形参，经此入口
+  // 创建的 provider 降级记忆持久化（400 学习写回 providers.json）静默失效
+  store?: ProviderStore,
+  userDataPath?: string,
+): ModelProvider {
+  return createOpenAIProviderChat(conf, client, store, userDataPath)
 }
 
 /**

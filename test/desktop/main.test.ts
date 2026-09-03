@@ -513,6 +513,10 @@ describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
     expect(h({ sender: wc }, { color: '#GGGGGG' })).toMatchObject({ ok: false })
     expect(h({ sender: wc }, { symbolColor: '#12' })).toMatchObject({ ok: false })
     expect(h({ sender: wc }, { color: 12345 })).toMatchObject({ ok: false })
+    // R38-20（三十八轮）：5/7 位非法 hex 拒绝——原 {3,8} 放行后 Electron 内部校验
+    // 抛错被 catch 吞、深浅色切换静默失效；收紧为 CSS 合法位数集合 3/4/6/8
+    expect(h({ sender: wc }, { color: '#12345' })).toMatchObject({ ok: false })
+    expect(h({ sender: wc }, { symbolColor: '#1234567' })).toMatchObject({ ok: false })
     // 合法 hex（3/6/8 位）放行：返回非错误；win32 下转发 setTitleBarOverlay（mac 上
     // 平台守卫 no-op，仅验校验面）
     expect(h({ sender: wc }, { color: '#f6f6f6', symbolColor: '#666' })).toBeUndefined()

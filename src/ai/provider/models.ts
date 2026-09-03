@@ -85,7 +85,9 @@ export async function listModels(
       throw e
     }
   }
-  const client = new OpenAI({ baseURL: url, apiKey })
+  // R38-4（三十八轮）：补 maxRetries: 0 对齐 anthropic 分支（:46-47）——SDK 内建重试
+  // 会破坏单层重试决策，探测最坏 3 倍耗时且退避消耗 abort 窗口
+  const client = new OpenAI({ baseURL: url, apiKey, maxRetries: 0 })
   try {
     const list = await client.models.list(signal ? { signal } : undefined)
     return list.data.map((m) => m.id).sort()

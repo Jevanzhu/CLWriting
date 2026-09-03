@@ -11,7 +11,7 @@
  * - 净化：每章 `# {标题}\n\n{body}`，完全不输出 front matter
  */
 
-import { existsSync, mkdirSync, readdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { atomicWriteFile, atomicWriteStream, renameWithRetry } from '../fs/atomic.js'
 import { readChapterDir } from '../format/chapters.js'
@@ -19,6 +19,18 @@ import { readFile } from '../format/frontmatter.js'
 import { readBookConfig } from '../format/yaml.js'
 import { sanitizeFileNamePart } from '../format/filename.js'
 import { finalizedPathSet } from '../document/manifest.js'
+import { relPathKey } from '../fs/safe-path.js'
+
+/** R38-17（三十八轮）：非 UTF-8 字节判定（与 document/service.ts isUtf8Bytes 同口径——
+ *  TextDecoder fatal；就地声明避免把 document/service 整链拉进导出依赖图）。 */
+function isUtf8ExportBytes(buf: Buffer): boolean {
+  try {
+    new TextDecoder('utf-8', { fatal: true }).decode(buf)
+    return true
+  } catch {
+    return false
+  }
+}
 import {
   formatShortSubmissionView,
   scanShortCollection,
@@ -211,13 +223,16 @@ export function exportBook(options: ExportOptions): ExportResult {
   // 态7 流水线刚写出的在写章/坏 fm 草稿不再混进全本/分章/投稿视图）。
   // 判定收敛到 manifest.finalizedPathSet 单一真相（learn 收割 H-1 同款，防两处漂移）
   const finalizedPaths = finalizedPathSet(bookRoot)
+  // R38-14（三十八轮）：定稿集身份折叠（win 大小写不敏感 FS 外部 case-only 改名后
+  // 精确匹配失配，定稿章被当草稿跳过）；posix 恒等
+  const finalizedKeys = finalizedPaths === null ? null : new Set([...finalizedPaths].map(relPathKey))
   let skippedDrafts = 0
   const filtered: ExportUnit[] =
     finalizedPaths !== null
       ? units.filter((u) => {
           // RB-KN-P2-3：relative() 在 Windows 产反斜杠而 manifest path 是正斜杠——
           // 不归一会把全部章误判未定稿、导出为空（对齐 state.ts 既有 slash 归一口径）
-          if (finalizedPaths.has(relative(bookRoot, u.path).replace(/\\/g, '/'))) return true
+          if (finalizedKeys?.has(relPathKey(relative(bookRoot, u.path)))) return true
           skippedDrafts++
           return false
         })
@@ -231,7 +246,23 @@ export function exportBook(options: ExportOptions): ExportResult {
    *  （与本文件上方 finalizedPaths 的归一化同款，2026-08-31 整体检查补）。 */
   const relPosix = (p: string): string => relative(bookRoot, p).replace(/\\/g, '/')
   const readUnitBody = (u: ExportUnit): string | null => {
-    const r = readFile(u.path)
+    // R38-17（三十八轮）：导出链补非 UTF-8 防线——save/finalize 链均有 isUtf8Bytes 闸
+    //（document/service.ts:71 同款 TextDecoder fatal 口径），导出此前 utf-8 文本直读，
+    // GBK 章产出 U+FFFD 乱码且零警告、照常计入 chapterCount。现按字节先验：非 UTF-8
+    // 记警告按读取失败同口径跳过（源文件只读不动，作者转码后可再导出）。
+    let bytes: Buffer
+    try {
+      bytes = readFileSync(u.path)
+    } catch (e) {
+      warnings.push(`${relPosix(u.path)}: 正文读取失败（${e instanceof Error ? e.message : String(e)}），已跳过`)
+      return null
+    }
+    if (!isUtf8ExportBytes(bytes)) {
+      warnings.push(`${relPosix(u.path)}: 正文不是 UTF-8 编码（如 GBK 旧档），导出会产生乱码，已跳过——请先转码为 UTF-8 再导出`)
+      return null
+    }
+    // 字节已验 UTF-8，toString 无损；复用同份内容走 readFile 解析（避免双读竞态）
+    const r = readFile(u.path, bytes.toString('utf-8'))
     if (!r.ok) {
       warnings.push(`${relPosix(u.path)}: 正文读取失败（${r.error.message}），已跳过`)
       return null
@@ -409,6 +440,13 @@ export function exportBook(options: ExportOptions): ExportResult {
   try {
     if (doMerged) {
       let first = true
+      // R38-2（三十八轮）：同名产物先归档再覆盖——上方清旧循环只归档「其它名字」，
+      // 当前同名被跳过后被 atomicWriteStream 直接覆盖；作者手改过的导出稿（R65-27
+      // 分章侧已定性「不可挽回」）就此静默销毁。归档不删哲学补齐同名族；归档失败
+      // （archiveOldExport 内部已降级为 warning 保留原位）不阻断导出，覆盖照旧。
+      if (existsSync(join(exportDir, mergedFileName))) {
+        archiveOldExport(exportDir, mergedFileName, warnings)
+      }
       atomicWriteStream(
         join(exportDir, mergedFileName),
         (append) => {
@@ -505,6 +543,10 @@ export function exportBook(options: ExportOptions): ExportResult {
     // V-P2-2：投稿视图同口径滤未定稿（entries 按 R73-37 实际产出章号对齐）
     const exportableNums = writtenNums
     const entries = scanShortCollection(bookRoot).filter((e) => exportableNums.has(e.num))
+    // R38-2（三十八轮）：同名投稿视图先归档再覆盖（与 merged 同族修法，R65-27 哲学补齐）
+    if (existsSync(join(exportDir, submissionName))) {
+      archiveOldExport(exportDir, submissionName, warnings)
+    }
     atomicWriteFile(
       join(exportDir, submissionName),
       formatShortSubmissionView(entries, cfg.ok ? cfg.config.short : undefined, bookTitle, platform),

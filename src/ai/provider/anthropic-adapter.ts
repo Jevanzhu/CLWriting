@@ -354,7 +354,11 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
               // R27-2（二十七轮）：「末见 wins」——此前 message_delta 即席 emitDone（幂等门锁
               // 首个 usage），逐 delta 回 usage 的网关被记成早期部分值、末 delta 完整值被丢，
               // 与 openai 线 R26-3 末见口径分叉；现只记 latestUsage，流末统一 emit（下同）
-              if (event.usage) {
+              // R38-8（三十八轮）：空 usage 对象（{} truthy 但无计量字段）等价「无 usage」
+              // ——原样进 merge 会把 latestUsage 置成 input=message_start 兜底、output=0
+              // 的假计量，流末 done 走实测分支绕过估计兜底。对齐 openai 线 isRealUsage
+              // （R36-14）口径：至少一个计量字段在位才采信，{} 落到流末估计分支（R73-1）。
+              if (event.usage && (event.usage.input_tokens !== undefined || event.usage.output_tokens !== undefined)) {
                 const cacheRead = event.usage.cache_read_input_tokens ?? cacheReadFromStart
                 const cacheWrite = event.usage.cache_creation_input_tokens ?? cacheWriteFromStart
                 // R33-4（三十三轮）：末见 wins 改逐字段 merge——此前 input 有

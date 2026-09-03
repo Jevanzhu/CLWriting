@@ -17,6 +17,8 @@
  * 静态实证 + 上游源码核实，见二轮报告 §九）。
  */
 import { spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 
 /** PowerShell 枚举脚本（对齐 font-list getByPowerShell：chcp 65001 + UTF-8 输出编码）。 */
 const PS_FONT_SCRIPT = [
@@ -53,16 +55,30 @@ function bareFontName(rawLine: string): string {
   return unescaped
 }
 
+/** R38-21：SystemRoot 绝对路径兜底（SystemRoot 是 Windows 系统必需环境变量，恒在）。 */
+function resolvePowershellExe(): string {
+  const sysRoot = process.env['SystemRoot'] ?? process.env['windir']
+  if (sysRoot) {
+    const abs = join(sysRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+    if (existsSync(abs)) return abs
+  }
+  return 'powershell.exe'
+}
+
 export async function listWindowsFonts(deps: ListWindowsFontsDeps = {}): Promise<string[]> {
   const platform = deps.platform ?? process.platform
   if (platform !== 'win32') {
     throw new Error(`listWindowsFonts 只服务 win32（收到 ${platform}）——非 win 平台由调用方走 font-list`)
   }
   const doSpawn: FontSpawn = deps.spawnImpl ?? ((cmd, args, opts) => spawn(cmd, args, opts))
+  // R38-21（三十八轮）：powershell.exe 依赖 PATH 解析——异常裁剪的 PATH 环境下 ENOENT
+  // → 调用方 catch 得空字体表（静默降级）。SystemRoot 恒在（Windows 系统必需环境变量），
+  // 据此拼绝对路径兜底；解析优先级：绝对路径存在 → 用之，否则回退 PATH 裸名。
+  const psExe = resolvePowershellExe()
   return await new Promise<string[]>((resolve, reject) => {
     // windowsHide: true = libuv CREATE_NO_WINDOW——GUI 子系统主进程起控制台程序的
     // 闪窗治本位（与 git/exec.ts R1W-8 同纪律）；数组参数免 shell，不经 cmd.exe。
-    const child = doSpawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', PS_FONT_SCRIPT], {
+    const child = doSpawn(psExe, ['-NoProfile', '-NonInteractive', '-Command', PS_FONT_SCRIPT], {
       windowsHide: true,
     })
     let out = ''

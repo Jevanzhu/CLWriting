@@ -819,11 +819,13 @@ function registerIpc(): void {
     (event, o: { color?: unknown; symbolColor?: unknown; dark?: unknown }) => {
       // R74-21（七十四轮批 D）：颜色格式白名单——此前只验 typeof，任意长/任意内容
       // 字符串直达 Electron setTitleBarOverlay 靠内部抛错兜底（catch 吞掉无痕）。
-      // 只认 #RGB/#RGBA/#RRGGBB/#RRGGBBAA 形态（3-8 位十六进制）+ 字面量 'transparent'
+      // 只认 #RGB/#RGBA/#RRGGBB/#RRGGBBAA 形态 + 字面量 'transparent'
       // （2026-08-31 窗控底色改透明后主题切换仍需合法通过），白名单外回显式错误；
       // 校验置于平台守卫前，与 isInvalidBookName 的「跨平台统一拒绝」口径一致
       //（mac 上也拦，行为一致更简单且可测）
-      const hexColor = /^#[0-9a-fA-F]{3,8}$/
+      // R38-20（三十八轮）：原 {3,8} 放行 5/7 位非法 hex（如 #12345——Electron 内部
+      // 校验抛错被 catch 吞、深浅色切换静默失效），收紧为 CSS 合法位数集合 3/4/6/8。
+      const hexColor = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/
       const validColor = (v: unknown): v is string =>
         v === 'transparent' || (typeof v === 'string' && hexColor.test(v))
       if (o?.color !== undefined && !validColor(o.color)) {
@@ -1025,13 +1027,22 @@ if (gotSingleInstanceLock) {
   // R1W-9（win 平台专项复审 R1）：进程级退出兜底——dev 控制台 Ctrl+C（SIGINT）/
   // Ctrl+Break（SIGBREAK）此前直接硬杀，跳过 before-quit 优雅停机链；改为走
   // app.quit() 复用既有幂等链（quitViaShutdown 门防重入，重复信号安全）。
+  // R38-19（三十八轮）：补 SIGTERM——`kill <pid>`/进程管理器/IDE 停止按钮的默认
+  // 信号（mac/linux）同属「硬杀跳过优雅停机链」的 R1W-9 动机面，与 SIGINT 同款一行。
   process.on('SIGINT', () => app.quit())
   process.on('SIGBREAK', () => app.quit())
+  process.on('SIGTERM', () => app.quit())
   // 主进程未捕获异常：打包态 GUI 的 stderr 无人可见——先留痕 JSONL 日志（延迟一拍
   // 让日志泵落盘），再保持与默认崩溃等价的退出语义（不吞、不续跑半坏状态）。
   process.on('uncaughtException', (err) => {
     log.error('desktop', '主进程未捕获异常，即将退出', err)
     setTimeout(() => process.exit(1), 200)
+  })
+  // R38-23（三十八轮）：unhandledRejection 最后防线——各调用点已有 .catch 纪律，
+  // 本兜底只 log 不退出（漏网 rejection 不再静默无痕；退出语义维持 uncaughtException
+  // 独占，避免把可自愈的异步失败升级成崩溃）。
+  process.on('unhandledRejection', (reason) => {
+    log.error('desktop', '主进程未处理的 promise rejection（已记录，不退出）', reason)
   })
 
   // RB-SV-P2-6：优雅退出。O-4：shutdownStarted 归 runner.beginShutdown（幂等，二次

@@ -114,3 +114,12 @@ export function safeDocId(docId: string): boolean {
 export function safeManifestPath(bookRoot: string, rel: string): string | null {
   return resolveWithinRoot(bookRoot, rel)?.abs ?? null
 }
+
+/** relPath 身份键（R38-14，三十八轮）：分隔符归一为 /；win32 追加大小写折叠
+ *  （FS 大小写不敏感，对齐 manifestLockKey R33-54 / samePath 先例）。供「清单登记
+ *  路径 vs 请求路径 / 扫描路径」的身份比较面收编——外部 case-only 改名后，大小写
+ *  敏感比较会让保存恒 REVISION_CONFLICT、定稿集失配、布线锁互斥静默失效。 */
+export function relPathKey(p: string): string {
+  const norm = p.replace(/\\/g, '/')
+  return process.platform === 'win32' ? norm.toLowerCase() : norm
+}

@@ -16,10 +16,10 @@
  * 2. 节流：同一文档窗口内只留一个（force 时跳过，如删除/改名前留底）
  * 3. 分层保留：写入后顺带 prune，越近越细越远越粗（pinned 跳过）
  */
-import { existsSync, readdirSync, renameSync, unlinkSync, openSync, readSync, closeSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, unlinkSync, openSync, readSync, closeSync, readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { join, dirname } from 'node:path'
-import { atomicWriteFile } from '../fs/atomic.js'
+import { atomicWriteFile, renameWithRetry } from '../fs/atomic.js'
 import { safeDocId } from '../fs/safe-path.js'
 import { ulid, decodeUlidTime } from './stable-id.js'
 import { readFile, parseFlat, splitFrontMatter, stringifyValue } from '../format/frontmatter.js'
@@ -636,7 +636,9 @@ export function migrateVersionsDir(bookRoot: string): boolean {
   if (!existsSync(legacy)) return false
   if (existsSync(target)) return false
   try {
-    renameSync(legacy, target)
+    // R38-13（三十八轮）：收编 renameWithRetry——win 瞬时占用（杀软/索引器/同步盘）
+    // 整目录 rename EPERM/EBUSY 时 3×50ms 退避自愈；失败语义不变（warn + false 幂等重试）
+    renameWithRetry(legacy, target)
     return true
   } catch (e) {
     // R29-n/C-6（二十九轮）：迁移失败补 warn 留痕——原静默 return false。

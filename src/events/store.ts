@@ -11,13 +11,14 @@
  */
 import { DatabaseSync } from 'node:sqlite'
 import { createHash } from 'node:crypto'
-import { mkdirSync, existsSync, renameSync, readdirSync, readFileSync, rmSync, writeFileSync, statSync, utimesSync } from 'node:fs'
+import { mkdirSync, existsSync, readdirSync, readFileSync, rmSync, writeFileSync, statSync, utimesSync } from 'node:fs'
 import { join, resolve, basename } from 'node:path'
 import { ulid } from '../document/stable-id.js'
 import type { ChatEvent, EventType, SurfaceOp } from './types.js'
 import { SURFACE_EVENT_TYPES } from './types.js'
 import { log } from '../log/index.js'
 import { acquireCrossProcessLockWithTimeout, acquireCrossProcessLockAsync, isProcessAlive, processBootTime } from '../fs/cross-process-lock.js'
+import { renameWithRetry } from '../fs/atomic.js'
 
 /** 书 hash：sha256(bookRoot) 前 16 hex——稳定，不落原文路径。
  *  B-18（第六十轮补修）：哈希前 resolve 归一化——尾分隔符 / '.'/'..' 段变体不再
@@ -928,12 +929,21 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
       if (entry.refs <= 0) {
         entry.closed = true
         openStores.delete(dbPath)
-        db.close()
         // R71-24：先停续期再注销——反序会让注销后的下一个 tick 重新写出标记（自愈路径
         // 把「已关库」又声明成「在位」，迁移扫描误拒）。
+        // R38-15（三十八轮）：停表/注销再提前到 db.close() 之前，且 close 包 try/catch——
+        // 原序 db.close() 一旦抛错（node:sqlite 罕见但可能）下方两行不可达：markerTimer
+        // 永久续期把开口标记持续「复活」，sweepOpenMarkers 的超龄判死永不触发，该书
+        // 迁移被无限期拒。
         if (entry.markerTimer) clearInterval(entry.markerTimer)
         // R67-2：引用归零真关库 → 注销开口标记（迁移扫描从此看不见本进程）
         releaseOpenMarker(dbPath)
+        try {
+          db.close()
+        } catch (e) {
+          // close 失败只留痕：停表/注销已正确收口，句柄由进程退出兜底回收
+          log.warn('events', `事件库关闭异常（${dbPath}）：${e instanceof Error ? e.message : String(e)}`)
+        }
       }
     },
   }
@@ -1106,7 +1116,11 @@ export async function migrateBookSession(
       const from = oldDb + suffix
       const to = newDb + suffix
       if (existsSync(from)) {
-        renameSync(from, to)
+        // R38-1（三十八轮）：收编 renameWithRetry——win 杀软/索引器瞬时锁（EPERM/EBUSY）
+        // 下裸 renameSync 直接失败会触发回滚链；同一瞬时锁未释放时回滚 rename 同样失败，
+        // 叠加下方「回滚失败仍撤墓碑」即拆掉 R71-25 防线（旧位 .db 与 .migrated 双缺 →
+        // 迟来首开重建空库、事件流分裂）。3×50ms 退避让毫秒级瞬时占用在搬移段自愈。
+        renameWithRetry(from, to)
         moves.push({ from, to })
       }
     }
@@ -1121,11 +1135,18 @@ export async function migrateBookSession(
     return true
   } catch (e) {
     // 整体放弃：逆序把已搬文件搬回源位——源库原地完整、可读、可重试
+    // R38-1（三十八轮）：回滚同样收编 renameWithRetry，且**回滚存在失败项时保留墓碑**——
+    // 原实现回滚失败仅记日志、随后无条件 rmSync 撤碑：瞬时锁同时打断搬移与回滚时，
+    // 旧位 .db 与 .migrated 双缺，迟来首开按「正常缺库」重建空库（R71-25 要防的事件流
+    // 分裂就此发生）。碑 + 半回滚态并存只影响下次迁移重试的预写覆盖，不影响旧库打开
+    // 判定面（墓碑分支只在 .db 缺失时走）——fail-closed 保留碑是安全侧。
+    let rollbackFailed = false
     for (let i = moves.length - 1; i >= 0; i--) {
       const m = moves[i]!
       try {
-        renameSync(m.to, m.from)
+        renameWithRetry(m.to, m.from)
       } catch (e2) {
+        rollbackFailed = true
         // 回滚单文件失败属 OS 级异常（权限/磁盘满）：如实记日志供人工找回，
         // 不在回滚路径里再抛新异常掩盖原始失败原因
         log.error('events', `迁移回滚失败（${m.to} → ${m.from}），需人工找回`, e2)
@@ -1134,10 +1155,16 @@ export async function migrateBookSession(
     // R71-25：撤预写墓碑——回滚完成后旧位是完整活库，3.5) 前置的碑必须撤（残留碑 +
     // 活库并存对 openSessionStore 无功能影响——墓碑分支只在 .db 缺失时走——但会把
     // 下次迁移的墓碑预写变成覆盖旧值，语义漂移；best-effort + 留痕）。
-    try {
-      rmSync(oldDb + MIGRATED_EXT, { force: true })
-    } catch (e2) {
-      log.error('events', `迁移回滚后墓碑清除失败（${oldDb + MIGRATED_EXT}）——残留碑不影响旧库打开，下次迁移时覆盖`, e2)
+    // R38-1：回滚存在失败项时**不撤碑**——旧位可能缺 .db，碑在才能让迟来首开走
+    // fail-closed 分支拒建空库（数据在 newDb 成孤儿但不分裂）。
+    if (!rollbackFailed) {
+      try {
+        rmSync(oldDb + MIGRATED_EXT, { force: true })
+      } catch (e2) {
+        log.error('events', `迁移回滚后墓碑清除失败（${oldDb + MIGRATED_EXT}）——残留碑不影响旧库打开，下次迁移时覆盖`, e2)
+      }
+    } else {
+      log.error('events', `迁移回滚不完整，保留墓碑（${oldDb + MIGRATED_EXT}）——迟来首开将 fail-closed 拒建空库，请人工核对 ${oldDb} 与 ${newDb}`)
     }
     log.error('events', '事件库迁移失败（已回滚，源库原地完整可找回）', e)
     return false

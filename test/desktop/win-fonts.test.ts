@@ -6,7 +6,10 @@
  * 本测试对修复面（spawn 直起 + windowsHide: true + 数组参数）与解析面逐项断言。
  * 平台/spawn 均注入，不依赖真 win 环境（win 实机闪窗形态复验挂账，报告 §九）。
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi, afterEach } from 'vitest'
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { listWindowsFonts, type FontSpawn, type FontSpawnChild } from '../../src/desktop/win-fonts.js'
 
@@ -64,7 +67,15 @@ function run(stdout: string, opts?: { code?: number; stderr?: string }) {
 }
 
 describe('MP2-1：win 字体枚举 spawn 纪径（windowsHide + 数组参数直起）', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
   it('spawn powershell.exe 数组参数且 windowsHide: true（不经 cmd、CREATE_NO_WINDOW）', async () => {
+    // R38-21：SystemRoot 兜底解析——本用例钉 PATH 裸名形态，清空 SystemRoot/windir
+    //（win CI 实机 SystemRoot 恒在会解析出绝对路径，破坏裸名断言）
+    vi.stubEnv('SystemRoot', '')
+    vi.stubEnv('windir', '')
     const { promise, calls } = run('Arial\n')
     await promise
     expect(calls).toHaveLength(1)
@@ -78,6 +89,25 @@ describe('MP2-1：win 字体枚举 spawn 纪径（windowsHide + 数组参数直�
     expect(calls[0]!.args[3]).toContain("GetLanguage('en-us')")
     expect(calls[0]!.args[3]).toContain('[System.Text.Encoding]::UTF8')
     expect(calls[0]!.opts.windowsHide).toBe(true) // 修复点：闪窗治本位
+  })
+
+  it('R38-21: SystemRoot 绝对路径兜底——System32/WindowsPowerShell/v1.0/powershell.exe 存在即用之（PATH 裁剪环境不再 ENOENT 空表）', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'psroot-'))
+    const psDir = join(root, 'System32', 'WindowsPowerShell', 'v1.0')
+    mkdirSync(psDir, { recursive: true })
+    writeFileSync(join(psDir, 'powershell.exe'), '')
+    vi.stubEnv('SystemRoot', root)
+    const { promise, calls } = run('Arial\n')
+    await promise
+    expect(calls[0]!.cmd).toBe(join(root, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'))
+    expect(calls[0]!.opts.windowsHide).toBe(true)
+  })
+
+  it('R38-21: SystemRoot 指向不存在目录 → 回退 PATH 裸名（确定性降级）', async () => {
+    vi.stubEnv('SystemRoot', join(tmpdir(), 'psroot-missing-xx'))
+    const { promise, calls } = run('Arial\n')
+    await promise
+    expect(calls[0]!.cmd).toBe('powershell.exe')
   })
 
   it('解析口径 = font-list disableQuoting 移植：\\uXXXX 解码 + 剥引号 + 大小写不敏感排序', async () => {

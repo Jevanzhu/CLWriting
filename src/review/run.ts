@@ -230,6 +230,14 @@ function incompleteReviewIssue(reasons: string[], lens: ReviewLens): ReviewIssue
   }
 }
 
+// R33-42（三十三轮）宣称的「单点收敛」落成现实（R38-12，三十八轮）——原注释宣称
+// 收敛为一处具名常量，实际 unsoundCollect 与主函数 incomplete 装配两处仍各自内联
+// `lenses_run[0] ?? 'continuity'`（注释-实现漂移）。提取模块级 helper 供三处共用。
+/** 首视角标签：lenses_run 由 lens 决策表产出恒非空，兜底纯防御。 */
+function primaryLensOf(packet: ReviewExecutionPacket): ReviewLens {
+  return packet.lenses_run[0] ?? 'continuity'
+}
+
 /** R29-B11（二十九轮）：漂移阻断返回的共用装配——stale（hash 不符）与「draft_path/
  *  draft_hash 恰缺一」（打包半接线）同构：注入阻断 issue + bad_entries 留痕 + ok:false。 */
 function unsoundCollect(
@@ -241,7 +249,7 @@ function unsoundCollect(
   const stale: ReviewResult = {
     // R63-4：注入阻断级 issue（原空 issues → 空判据假 passed:true，见 incompleteReviewIssue 头注）
     issues: [
-      incompleteReviewIssue([reason], packet.lenses_run[0] ?? 'continuity'),
+      incompleteReviewIssue([reason], primaryLensOf(packet)),
     ],
     summary: '',
     meta: {
@@ -271,9 +279,8 @@ function unsoundCollect(
 export function collectReviewIssues(input: {
   packet: ReviewExecutionPacket
 }): CollectedReview {
-  // R33-42（三十三轮）：首视角标签单点收敛——原两处各自 `lenses_run[0] ?? 'continuity'`
-  // 双兜底；lenses_run 由 lens 决策表产出恒非空，兜底纯防御，收敛为一处具名常量。
-  const primaryLens: ReviewLens = input.packet.lenses_run[0] ?? 'continuity'
+  // R33-42（三十三轮）：首视角标签单点收敛——落 R38-12 的 primaryLensOf helper。
+  const primaryLens: ReviewLens = primaryLensOf(input.packet)
   // R61-13（第六十一轮）：draft_hash 一致性实装——字段自第五轮声明并随包透传，但
   // collect 从不校验（死字段）：回收期间草稿漂移（作者回改正文）会让 issues 指向
   // 已不存在的文本。hash 不符/不可读 → 审稿单不成立（同缺视角/坏条目口径）。
@@ -383,7 +390,7 @@ export function collectReviewIssues(input: {
   if (badEntries.length > 0) incompleteReasons.push(...badEntries.map((b) => `损坏：${b.path}（${b.reason}）`))
 
   const result: ReviewResult = {
-    issues: ok ? rawIssues : [...rawIssues, incompleteReviewIssue(incompleteReasons, input.packet.lenses_run[0] ?? 'continuity')],
+    issues: ok ? rawIssues : [...rawIssues, incompleteReviewIssue(incompleteReasons, primaryLensOf(input.packet))],
     summary: '',
     meta: {
       requested_tier: input.packet.requested_tier,

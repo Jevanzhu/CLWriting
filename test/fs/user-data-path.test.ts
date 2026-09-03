@@ -39,10 +39,18 @@ describe('defaultUserDataPath 跨平台统一', () => {
     expect(defaultUserDataPath()).toBe(join('/Users/jevanzhu', 'Library', 'Application Support', 'CLWriting'))
   })
 
-  it('win32 → AppData/Roaming/CLWriting', () => {
+  it('win32 无 APPDATA → AppData/Roaming/CLWriting（确定性回退）', () => {
     mockPlatform('win32')
+    vi.stubEnv('APPDATA', '')
     vi.mocked(os.homedir).mockReturnValue('C:\\Users\\Jevan')
     expect(defaultUserDataPath()).toBe(join('C:\\Users\\Jevan', 'AppData', 'Roaming', 'CLWriting'))
+  })
+
+  it('R38-22: win32 有 APPDATA → $APPDATA/CLWriting（系统语义同源；域重定向场景不再脱节）', () => {
+    mockPlatform('win32')
+    vi.stubEnv('APPDATA', 'D:\\Redirected\\Roaming')
+    vi.mocked(os.homedir).mockReturnValue('C:\\Users\\Jevan')
+    expect(defaultUserDataPath()).toBe(join('D:\\Redirected\\Roaming', 'CLWriting'))
   })
 
   it('linux 无 XDG → ~/.config/CLWriting', () => {

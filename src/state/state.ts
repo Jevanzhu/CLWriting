@@ -815,7 +815,13 @@ function readRecapSnapshot(
   } catch {
     return fallbackRecapSnapshot(detected, volumeSizeOf(config))
   } finally {
-    db?.close()
+    // R38-15（三十八轮）同族：close 包 try/catch——finally 内 close 抛错会顶替 catch
+    // 的降级返回值直接上抛（node:sqlite close 极少抛错，防御级）。
+    try {
+      db?.close()
+    } catch {
+      /* 句柄由进程退出兜底回收 */
+    }
   }
 }
 
