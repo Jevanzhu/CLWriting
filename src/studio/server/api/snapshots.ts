@@ -27,6 +27,7 @@ import { readManifest } from '../../../document/manifest.js'
 import { safeDocId } from '../../../fs/safe-path.js' // P3-1：docId 白名单校验共享（不内联手写）
 import { isUtf8Bytes } from '../../../document/service.js' // R34D-18：字节档判定共享（M-5 防线同源口径）
 import { readFile, parseFlat } from '../../../format/frontmatter.js'
+import { isMdFileName } from '../../../format/filename.js'
 import { countWords } from '../../../format/words.js'
 import { ulid } from '../../../fs/id.js'
 import { getOrCreateService } from './documents.js'
@@ -91,7 +92,9 @@ function scanVersionsDir(
       if (st.isSymbolicLink()) continue
       if (st.isDirectory()) {
         walk(p)
-      } else if (n.endsWith('.md')) {
+      } else if (isMdFileName(n)) {
+        // R42-39（四十二轮）：.md 判定收敛 isMdFileName（大小写不敏感）——.MD 版本
+        // 文件此前不计数/不计字节/不参与 pinned 判定；`._` 前缀跳过条件不变
         count++
         bytes += st.size
         // pinned 判定：front matter「永久: true」（finalize 定稿版本）

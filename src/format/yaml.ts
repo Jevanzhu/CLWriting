@@ -591,7 +591,14 @@ export function parseBookConfig(
   file = '<text>',
 ): { ok: true; config: BookConfig } | { ok: false; config: BookConfig; error: ParseError } {
   try {
-    const roots = parseSections(text)
+    // R42-34（四十二轮）：解析最外层文本入口剥前导 BOM 一次（窄剥——不引 canonicalizeText，
+    // 它会连带归一行尾，而解析器对 CRLF 已容忍〔逐行 trim 剥 \r 尾〕，不必徒增行为面）。
+    // 此前首行 \uFEFF 全凭 trim() 恰好剥 ZWNBSP 才不出键名事故，且首行缩进被多计 1
+    // （trimStart 剥 BOM 计入缩进字符数）——首个段的 1 空格/tab 缩进子行被弹栈提为
+    // 顶层键后静默丢弃。同缺陷族先例：frontmatter-core.ts splitFrontMatter /
+    // install/books.ts readBooksStrict（R40-25）/ 本文件 matchesKeyLine（R37-10），
+    // 解析器本体在此收口。
+    const roots = parseSections(text.replace(/^\uFEFF/, ''))
     return { ok: true, config: sectionsToConfig(roots) }
   } catch (e) {
     return {

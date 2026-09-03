@@ -133,7 +133,9 @@ export async function aggregateCost(userDataPath: string | null | undefined, boo
   }
 
   stats.enabled = pricedSeen.size > 0
-  if (currency) stats.currency = currency
+  // R42-22（四十二轮）：currency 缺省 'USD' 落地接口注释承诺——前端消费方（WbUsageCard）
+  // 同款 ?? 'USD' 兜底，服务端补缺省后两侧一致；无事件的空壳早返，保持无字段（无计价语境）
+  stats.currency = currency ?? 'USD'
   // R33-24（三十三轮）：定价解析按 model 缓存且确定性——入 unpriced 者必先 continue
   // 不可能再入 pricedSeen，原 filter 恒真条件为不可达冗余，径直展开。
   stats.unpricedModels = [...unpriced].sort()

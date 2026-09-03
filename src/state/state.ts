@@ -643,7 +643,10 @@ function chapterFromRelPath(relPath: string): number {
 function unfinishedPieceNames(bookRoot: string, manifest: Manifest): Set<string> {
   const finalized = new Set<string>()
   for (const e of manifest.entries.values()) {
-    if (e.nodeType === 'document' && e.finalizedRevision) finalized.add(e.path)
+    // R42-8（四十二轮）：定稿集改 docJoinKey 键（同文件 findUnfinishedChapter R41-2
+    // 先例）——外部 case-only 改名 / NFD 文件名后精确匹配失配，定稿章被误列「未定稿」
+    // → 已写章数被低估（态 7 分支/recap 口径漂移）
+    if (e.nodeType === 'document' && e.finalizedRevision) finalized.add(docJoinKey(e.path))
   }
   const out = new Set<string>()
   const bodyDir = join(bookRoot, '写作', '正文')
@@ -652,7 +655,7 @@ function unfinishedPieceNames(bookRoot: string, manifest: Manifest): Set<string>
   walkMdEach(bodyDir, (fp, name) => {
     if (!/^\d+-/.test(name)) return
     const rel = relativePath(bookRoot, fp)
-    if (!finalized.has(rel)) out.add(rel.slice('写作/正文/'.length))
+    if (!finalized.has(docJoinKey(rel))) out.add(rel.slice('写作/正文/'.length)) // R42-8：双侧同键（扫描路径侧折叠）
   })
   return out
 }

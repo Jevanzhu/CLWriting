@@ -28,6 +28,7 @@ import { readManifest } from '../document/manifest.js'
 import { deriveStatus } from '../document/status.js'
 import { probeCachedRevision, probeCachedPublished } from '../document/tree.js'
 import { existingAnalysisPath } from '../document/analysis.js'
+import { docJoinKey } from '../fs/safe-path.js'
 import { syncTreeIssuesEpoch, readTreeIssuesCache, writeTreeIssuesCacheBatch, computeLeadsBookFp, readLeadsBookRed, writeLeadsBookRed, computeTreeIssuesGlobalFp } from './tree-issues-cache.js'
 import { checkLeadsBookItems } from './leads.js'
 import type { CheckReport } from './types.js'
@@ -140,7 +141,9 @@ function maxWrittenChapterOf(bookRoot: string, preScanned?: ChapterMeta[]): numb
   const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
   const finalized = new Set<string>()
   for (const e of manifest.entries.values()) {
-    if (e.nodeType === 'document' && e.finalizedRevision) finalized.add(e.path)
+    // R42-5（四十二轮）：join 键折叠（win32 大小写 + NFC）——外部 case-only 改名 /
+    // NFD 文件名后精确串失配，定稿章被当草稿 → maxWritten 基准低估 → 账本「未来章」假红
+    if (e.nodeType === 'document' && e.finalizedRevision) finalized.add(docJoinKey(e.path))
   }
   let max = 0
   for (const ch of chapters) {
@@ -148,7 +151,7 @@ function maxWrittenChapterOf(bookRoot: string, preScanned?: ChapterMeta[]): numb
     // M-4（第六轮）：relative() 在 Windows 产反斜杠而 manifest 键是正斜杠——不归一
     // 全部章误判未定稿（同款已修：export/index.ts RB-KN-P2-3、state.ts relativePath）
     const rel = relative(bookRoot, ch._path).replace(/\\/g, '/')
-    if (!finalized.has(rel)) continue
+    if (!finalized.has(docJoinKey(rel))) continue // R42-5：双侧同键（扫描路径侧折叠）
     if (ch.章号 > max) max = ch.章号
   }
   if (max > 0) return max
@@ -482,7 +485,9 @@ function* collectTreeIssuesCore(
   try {
     const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries
     const pathToDocId = new Map<string, string>()
-    for (const [docId, m] of manifest) pathToDocId.set(m.path, docId)
+    // R42-5（四十二轮）：join 键折叠（win32 大小写 + NFC）——盘上扫描路径与清单登记
+    // 路径仅大小写/组合形异时 docId 仍可追溯（下方 .get 侧同键）
+    for (const [docId, m] of manifest) pathToDocId.set(docJoinKey(m.path), docId)
     const issues: Record<string, { hasRed: boolean; verdictRejected: boolean }> = {}
     const bodyDir = join(bookRoot, '写作', '正文')
     // A1（批 1）：增量缓存——只重查指纹变过的章。仅对有布线的书启用（长篇才是
@@ -558,7 +563,9 @@ function* collectTreeIssuesCore(
       // 定稿态（final/published）= 作者已确认，不参与树红点聚合（根本性解决）：
       // 跳过机检 + verdict 检查；作者仍可通过 CheckPanel 单章主动查看机检。
       const entryByPath = new Map<string, import('../document/manifest.js').ManifestEntry>()
-      for (const m of manifest.values()) entryByPath.set(m.path, m)
+      // R42-5（四十二轮）：join 键折叠（win32 大小写 + NFC）——case-only 改名章的
+      // manifest 条目仍可命中（定稿态跳过判定不失明），下方 .get 侧同键
+      for (const m of manifest.values()) entryByPath.set(docJoinKey(m.path), m)
       // B-P1-1：统一用 maxWrittenChapterOf（仅计已定稿章），与单章 checkWithDb 端点一致。
       // 旧实现遍历所有 chapters（含未定稿草稿），导致树红点聚合与单章机检的"最高已写章号"基准不一致。
       // CC-P1-3：三项预扫提升到循环外——此前每章 checkWithDb 内各现扫一遍（大纲/章纲 全量
@@ -600,7 +607,7 @@ function* collectTreeIssuesCore(
         // M-4（第六轮）：同上归一——entryByPath/pathToDocId 的键与 manifest/树同用正斜杠
         const relPath = relative(bookRoot, ch._path).replace(/\\/g, '/')
         // 定稿态跳过——不在树上打扰已确认的章节
-        const entry = entryByPath.get(relPath) ?? null
+        const entry = entryByPath.get(docJoinKey(relPath)) ?? null // R42-5：折叠键（与 set 侧成对）
         // CC-P1-3：字节指纹走 probeCache（stat 级命中零读零哈希，与树 W-P2-4 同口径），
         // 替代每章 computeRevision 整读 + SHA-256
         const rev = probeCachedRevision(bookRoot, relPath)
@@ -610,7 +617,7 @@ function* collectTreeIssuesCore(
         const base = deriveStatus(relPath, entry, rev)
         const st = base === 'final' && probeCachedPublished(bookRoot, relPath) ? 'published' : base
         if (st === 'final' || st === 'published') continue
-        const docId = pathToDocId.get(relPath)
+        const docId = pathToDocId.get(docJoinKey(relPath)) // R42-5：折叠键（与 set 侧成对）
         if (!docId) continue
         // A1（批 1）：章级指纹 = 正文 stat + 裁决信封 stat（信封改动=verdict 变，
         // 自动失效；无信封=verdict_fp NULL）。全中 → 直接取缓存聚合，零机检零重读。

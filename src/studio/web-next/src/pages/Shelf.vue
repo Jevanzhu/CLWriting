@@ -71,7 +71,9 @@ function openBook(name: string): void {
   // 书架独立窗口（win=shelf）：IPC 通知主窗口打开 + 关闭书架窗口；主窗口内：路由跳转
   const isShelfWin = new URLSearchParams(location.search).get('win') === 'shelf'
   if (isShelfWin && window.clwritingDesktop) {
-    void window.clwritingDesktop.openBook(name)
+    // R42-31（四十二轮）：IPC reject（主窗已关/桥断）补 catch——裸 void 的 rejected
+    // promise 会以 unhandledrejection 噪音上报
+    void window.clwritingDesktop.openBook(name).catch((e) => console.warn('openBook IPC 失败', e))
   } else {
     router.push(`/book/${encodeURIComponent(name)}`)
   }

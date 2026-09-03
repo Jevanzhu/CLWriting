@@ -12,6 +12,8 @@ import { createServer } from 'node:http'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { runTask, resolveProvider, NO_USERDATA_MSG, NO_PROVIDER_MSG, degradedPersistCallbacksForTest } from '../../src/ai/runner.js'
 import { persistDegraded, registerDegradedPersist, resetDegradedChannels } from '../../src/ai/provider/store.js'
+import { createProvider } from '../../src/ai/provider/probe.js'
+import { openSessionStore, bookHash } from '../../src/events/store.js'
 import { checkAiCallBudget } from '../../src/ai/calls.js'
 import type { BookConfig } from '../../src/format/types.js'
 import { tryMockTool } from '../../src/ai/mock-tool.js'
@@ -368,6 +370,44 @@ describe('runTask B-1 指数退避重试', () => {
     expect(calls).toBe(1) // 不重试
   })
 
+  // R42-20（四十二轮）：退避 sleep 期间 abort——同 attempt 的 llm/call 事件只有一条
+  //（重试分支已落的 'error' 事件）；修复前此处再落一条 ABORTED，trace-stats/cost-stats
+  // 对同一 attempt 双计（llm/call 是历史聚合唯一真源）
+  it('R42-20：退避 sleep 中 abort → llm/call 事件该 attempt 只有一条', async () => {
+    const ud = tempUserData()
+    writeProviders(ud)
+    const bookRoot = mkdtempSync(join(tmpdir(), 'clwriting-runner-r42ab-'))
+    try {
+      const ctrl = new AbortController()
+      // Retry-After 60ms 给出确定性退避时长；20ms 中断落在 sleep 窗口内
+      setTimeout(() => ctrl.abort(), 20)
+      const out = await runTask<string>({
+        userDataPath: ud,
+        bookRoot,
+        task: 'self-heal',
+        ctrl,
+        run: () => {
+          throw new GenError('429 limit', true, { code: 'RATE_LIMIT', retryAfterMs: 60 })
+        },
+      })
+      expect(out).toMatchObject({ ok: false, code: 'ABORTED' })
+      const es = openSessionStore(ud, bookRoot)!
+      try {
+        const calls = es.listEvents(bookHash(bookRoot), undefined, undefined, 'llm/call')
+        // 修复前 2 条（'error' + 'ABORTED' 双计）；现仅重试分支的 'error' 一条
+        expect(calls).toHaveLength(1)
+        const d = calls[0]!.data as { attempt: number; ok: boolean; errCode?: string }
+        expect(d.attempt).toBe(0)
+        expect(d.ok).toBe(false)
+        expect(d.errCode).toBe('RATE_LIMIT')
+      } finally {
+        es.close()
+      }
+    } finally {
+      rmSync(bookRoot, { recursive: true, force: true })
+    }
+  }, 10_000)
+
   it('Bug C 回归: 可重试错误时 onRetry 回调触发（带 attempt 编号 + 错误文案）', async () => {
     const ud = tempUserData()
     writeProviders(ud)
@@ -598,4 +638,41 @@ describe('W-P2-9：降级记忆去重（同一 key 只落盘一次）', () => {
     persistDegraded('a/b')
     expect(calls).toEqual(['a/b', 'a/b']) // 失败一次 + 重试成功一次
   })
+})
+
+describe('R42-24（四十二轮）：探测实例降级记忆按目标库路由', () => {
+  it('双库场景：按探测侧形态（createProvider 显式 path）建实例 → 降级记忆落目标库 B，活跃库 A 不被误写', async () => {
+    const udA = tempUserData()
+    writeProviders(udA)
+    const udB = tempUserData()
+    writeProviders(udB)
+    // 双库各注册（Map 常驻两 path 回调），活跃 path 切回 A——模拟「生成活跃库 A、探测目标库 B」
+    expect(resolveProvider(udA).ok).toBe(true)
+    expect(resolveProvider(udB).ok).toBe(true)
+    expect(resolveProvider(udA).ok).toBe(true)
+    // 探测侧建实例形态（probe.ts R42-24：createProvider 携目标库 path + bypassCache）；
+    // 适配器降级写 persistDegraded(key, plan.userDataPath) → 显式 path 分发（R30-4 通道）
+    createProvider(
+      { id: 'prov-test', name: 'test', protocol: 'openai', auth: 'bearer', baseUrl: REFUSED_BASE_URL, apiKey: 'sk-test', caps: null, model: 'gpt-4o' },
+      undefined,
+      udB,
+      { bypassCache: true },
+    )
+    persistDegraded('prov-test/gpt-4o', udB)
+    // persist 内 load→改→save 排队落盘（异步 promise）——轮询至文件可见（上限 3s）
+    const deadline = Date.now() + 3000
+    let landed = false
+    while (Date.now() < deadline) {
+      const rawB = JSON.parse(readFileSync(join(udB, 'providers.json'), 'utf8')) as { modelCaps?: Record<string, unknown> }
+      if (rawB.modelCaps?.['prov-test/gpt-4o'] !== undefined) {
+        landed = true
+        break
+      }
+      await new Promise((r) => setTimeout(r, 20))
+    }
+    expect(landed).toBe(true)
+    expect(JSON.parse(readFileSync(join(udB, 'providers.json'), 'utf8')).modelCaps?.['prov-test/gpt-4o']).toEqual({ structured: false })
+    // 活跃库 A（修复前 undefined 回落活跃 path 的误写目标）不被写入
+    expect(JSON.parse(readFileSync(join(udA, 'providers.json'), 'utf8')).modelCaps?.['prov-test/gpt-4o']).toBeUndefined()
+  }, 10_000)
 })

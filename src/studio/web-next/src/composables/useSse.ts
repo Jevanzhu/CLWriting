@@ -159,10 +159,16 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
         es.close()
         es = null
         // R26-66（二十六轮）复核：429 拒绝即 fail-closed，已并入下方同一指数退避通道
-        // （backoffStep 2s→4s→…→60s 封顶，r73-sse-429-guide/sse-reconnect 有回归），
-        // 无需另接退避线——本批仅补 probeSseBusy 超时（R26-78），退避机制零改动
+        // （r73-sse-429-guide/sse-reconnect 有回归），无需另接退避线——本批仅补
+        // probeSseBusy 超时（R26-78），退避机制零改动。
         backoffStep += 1
-        const delay = Math.min(BASE_BACKOFF_MS * 2 ** (backoffStep - 1), MAX_BACKOFF_MS)
+        // R42-1（四十二轮）：fail-closed 首档改 0ms 立即换票重连——「清空对话」服务端按
+        // 设计销毁本书全部在途连接（S2），浏览器以同 URL（含已消费的一次性 ticket）
+        // 自连必 403 fail-closed，原首档 2s 让每次清空对话事件流断流 3-5s（徽章闪灰、
+        // 事件丢失到重连 sync）。403 票失效类换票即愈：doConnect 每轮重取新票，首档
+        // 立即重连；失败仍持续则自第 2 档起 4s/8s/… 指数退避（不造重试风暴）。429 连接
+        // 数上限同走首档立即试一次——服务端预检拒绝代价低，probeSseBusy 已另行指引。
+        const delay = backoffStep === 1 ? 0 : Math.min(BASE_BACKOFF_MS * 2 ** (backoffStep - 1), MAX_BACKOFF_MS)
         reconnectTimer = setTimeout(doConnect, delay)
         if (failClosed) void probeSseBusy() // R73-67：fail-closed（429/403/404 族）→ 探测区分 429 出指引
       }

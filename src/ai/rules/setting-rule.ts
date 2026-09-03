@@ -14,6 +14,7 @@
 import { readdirSync, existsSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { readFile, parseFlat, splitFrontMatter } from '../../format/frontmatter.js'
+import { isMdFileName } from '../../format/filename.js'
 import type { WritingRule, RuleViolation } from './types.js'
 import { ruleStripFm } from './types.js'
 
@@ -127,7 +128,9 @@ function loadSettingData(bookRoot: string): SettingData {
   const roleDir = join(bookRoot, ROLE_DIR)
   if (existsSync(roleDir)) {
     for (const f of readdirSync(roleDir)) {
-      if (!f.endsWith('.md')) continue
+      // R42-39（四十二轮）：.md 判定收敛 isMdFileName（大小写不敏感）——.MD 角色卡
+      // 此前被静默跳过（姓名不进离散名称集合）
+      if (!isMdFileName(f)) continue
       const parsed = readFile(join(roleDir, f))
       if (!parsed.ok) continue
       const name = parseFlat(parsed.fmRaw).get('姓名')
@@ -139,7 +142,9 @@ function loadSettingData(bookRoot: string): SettingData {
   const itemDir = join(bookRoot, ITEM_DIR)
   if (existsSync(itemDir)) {
     for (const f of readdirSync(itemDir)) {
-      if (!f.endsWith('.md')) continue
+      // R42-39（四十二轮）：.md 判定收敛 isMdFileName（大小写不敏感）——.MD 物品卡
+      // 此前被静默跳过（名称不进离散名称集合）
+      if (!isMdFileName(f)) continue
       const parsed = readFile(join(itemDir, f))
       if (!parsed.ok) continue
       const name = parseFlat(parsed.fmRaw).get('名称')

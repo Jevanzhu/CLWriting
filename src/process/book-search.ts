@@ -10,7 +10,7 @@
 import { join } from 'node:path'
 import { readdirSync, readFileSync, existsSync, statSync, realpathSync } from 'node:fs'
 import { readdir, readFile, stat, realpath } from 'node:fs/promises'
-import { isWithinRoot } from '../fs/safe-path.js'
+import { isWithinRoot, docJoinKey } from '../fs/safe-path.js'
 import { finalizedPathSet } from '../document/manifest.js'
 import { clipByCodePoints } from './summary.js'
 
@@ -76,6 +76,10 @@ export function searchBook(bookRoot: string, q: string, scope?: string): SearchO
   // 定稿基线管辖，不过滤）；清单缺失/不可读（null）无法判定 → 保持全量兜底（与
   // finalizedPathSet 的 M-2/PL-2 降级哲学一致）。
   const finalizedPaths = scope === '定稿' ? finalizedPathSet(root) : null
+  // R42-6/R42-33（四十二轮）：定稿集消费侧折叠键集（win32 大小写 + NFC，overview.ts
+  // R41-2 同款范式——set 构建一次）——case-only 改名 / NFD 文件名后精确串失配，定稿章
+  // 从「定稿」scope 结果里漏掉（AI 引用面失真）
+  const finalizedKeys = finalizedPaths === null ? null : new Set([...finalizedPaths].map(docJoinKey))
   const lower = query.toLowerCase()
   const results: SearchHit[] = []
   for (const dir of dirs) {
@@ -86,7 +90,7 @@ export function searchBook(bookRoot: string, q: string, scope?: string): SearchO
       if (matches.length === 0) continue
       const rel = fp.slice(root.length + 1).split('\\').join('/')
       // R73-42：定稿 scope 下，写作/正文 中未登记定稿基线的章（在写草稿）不进结果
-      if (finalizedPaths !== null && dir === '写作/正文' && !finalizedPaths.has(rel)) continue
+      if (finalizedKeys !== null && dir === '写作/正文' && !finalizedKeys.has(docJoinKey(rel))) continue // R42-6：折叠键比较
       // R72-9（二十轮 C-8）：文件内命中超上限时附 hasMore 标记（截断不再静默）
       results.push({
         path: rel,
@@ -190,6 +194,8 @@ export async function searchBookAsync(bookRoot: string, q: string, scope?: strin
   if (!query) return { results: [] }
   const dirs = SEARCH_SCOPE_DIRS[scope ?? 'all'] ?? SEARCH_ALL_DIRS
   const finalizedPaths = scope === '定稿' ? finalizedPathSet(root) : null
+  // R42-6/R42-33（四十二轮）：同 searchBook 折叠键集（同步/异步逐位同源）
+  const finalizedKeys = finalizedPaths === null ? null : new Set([...finalizedPaths].map(docJoinKey))
   const lower = query.toLowerCase()
   const results: SearchHit[] = []
   for (const dir of dirs) {
@@ -200,7 +206,7 @@ export async function searchBookAsync(bookRoot: string, q: string, scope?: strin
       const matches = await searchFileAsync(fp, lower)
       if (matches.length === 0) continue
       const rel = fp.slice(root.length + 1).split('\\').join('/')
-      if (finalizedPaths !== null && dir === '写作/正文' && !finalizedPaths.has(rel)) continue
+      if (finalizedKeys !== null && dir === '写作/正文' && !finalizedKeys.has(docJoinKey(rel))) continue // R42-6：折叠键比较
       results.push({
         path: rel,
         matches: matches.slice(0, MAX_MATCHES_PER_FILE),

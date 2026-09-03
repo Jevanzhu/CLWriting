@@ -11,6 +11,7 @@ import { existsSync, readdirSync, rmdirSync, readFileSync, mkdirSync } from 'nod
 import { renameWithRetry } from '../fs/atomic.js'
 import { join, dirname } from 'node:path'
 import { resolveDraftPath } from '../format/draft.js'
+import { isMdFileName } from '../format/filename.js'
 import { readManifestStrict, writeManifest, withManifestLock, removeEntry } from '../document/manifest.js'
 import { appendTrashEntry } from '../document/trash.js'
 import { ulid } from '../fs/id.js'
@@ -107,7 +108,9 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
       // R72-9（二十轮 C-9）：非隐藏的非 .md 认识文件不再静默跳过——v3 布局已退役草稿
       // 目录，未识别文件将永久滞留。errors 提示作者手动处置（隐藏文件/.DS_Store 等照旧
       // 忽略，不制造噪音）。
-      if (!name.startsWith('.') && name.endsWith('.md')) {
+      // R42-39（四十二轮）：.md 判定收敛 isMdFileName（大小写不敏感）——语义从「跳过」
+      // 变「纳入」：.MD 遗留文件此前静默滞留，现在同样进 errors 提示手动处置
+      if (!name.startsWith('.') && isMdFileName(name)) {
         errors.push(`${name}: 草稿目录遗留的未识别文件，v3 布局不再使用 写作/草稿/，请手动移入 大纲/ 或 设定/ 等目标目录`)
       }
       continue

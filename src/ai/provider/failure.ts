@@ -21,7 +21,9 @@ export function httpStatusToCode(status: number | undefined, message: string): G
   if (status === 400) {
     // 超窗各家文案不一：Anthropic "prompt is too long"、OpenAI "context_length_exceeded"、
     // DeepSeek "maximum context length"——统一归 CONTEXT_WINDOW_EXCEEDED（改提示词信号）
-    if (/context|too long|token.{0,24}(limit|maximum|exceed)|exceed.{0,24}context/i.test(message)) {
+    // R42-25（四十二轮）：正则收紧为短语级——此前裸 "context" 一词命中会把
+    // 「invalid context id」「context is required」等无关 400 误归超窗（shrink-prompt 信号失真）
+    if (/context.{0,24}(length|exceed|too long|window|limit)|prompt is too long|too long|token.{0,24}(limit|maximum|exceed)/i.test(message)) {
       return 'CONTEXT_WINDOW_EXCEEDED'
     }
     return 'BAD_REQUEST'

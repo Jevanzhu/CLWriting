@@ -22,7 +22,9 @@ function fitSelect(el: HTMLSelectElement | null): void {
   const cs = getComputedStyle(el)
   const span = document.createElement('span')
   span.style.cssText = `font:${cs.font};letter-spacing:${cs.letterSpacing};white-space:nowrap;position:absolute;visibility:hidden;padding:0 4px;`
-  span.textContent = el.value || '选择模型'
+  // R42-28（四十二轮）：测宽取选中项显示文本——value 是模型 id（slug），胶囊实际渲染
+  // 的是 option 的显示文案（label = 显示名），按 value 测宽与真实渲染宽度脱节
+  span.textContent = el.selectedOptions[0]?.textContent ?? el.value ?? '选择模型'
   document.body.appendChild(span)
   el.style.width = `${span.offsetWidth + parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight)}px`
   document.body.removeChild(span)

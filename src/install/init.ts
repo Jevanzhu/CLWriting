@@ -101,7 +101,9 @@ function doInitSteps(opts: InitOptions): InitStepOutcome {
   const workDir = resolve(opts.workDir)
   // 平台规范化批（2026-09-03）：书名 NFC 归一——书名直接用作目录名（books.jsonl 的
   // name/path 同源），mac 侧输入的 NFD 形态名跨机即「找不到文件」；归一在全部校验与
-  // 拼接之前，登记与目录天然一致。存量 NFD 目录由启动迁移 v4 改名归一。
+  // 拼接之前，登记与目录天然一致。存量 NFD 目录无自动归一通路——原注释所称「由启动
+  // 迁移 v4 改名归一」的 v4 已拆除（R42-41 四十二轮更正此失效表述），跨机失联时需
+  // 手工改名回 NFC 形态。
   const bookName = opts.name.normalize('NFC')
   if (!bookName) return { ok: false, reason: '书名不能为空' }
   // R74-11（七十四轮批 D）：书名 UTF-8 字节上限显式校验——超长名 mkdir ENAMETOOLONG

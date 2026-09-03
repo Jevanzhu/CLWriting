@@ -32,7 +32,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { safeDocId, resolveWithinRoot, docJoinKey } from '../fs/safe-path.js'
-import { atomicWriteFile, createFileExclusive, linkOrRenameExclusive, renameWithRetry } from '../fs/atomic.js'
+import { atomicWriteFile, createFileExclusive, linkOrRenameExclusive, renameWithRetry, rmWithRetry } from '../fs/atomic.js'
 import { canonicalizeText, bufferNeedsCanonical } from '../fs/text-canonical.js'
 import { computeRevision, computeRevisionBytes, type Revision } from './revision.js'
 import { layoutOf, roleOf, isInternalBookPath } from './layout.js'
@@ -43,7 +43,9 @@ import { SaveQueue } from './queue.js'
 import { generateDocId, legacyId } from './stable-id.js'
 import { invalidateTreeIndex, scanBookTree, type TreeNode } from './tree.js'
 import { readFile as readDoc, parseFlat, patchFlatFm, splitFrontMatter, joinFrontMatter, bodyOf } from '../format/frontmatter.js'
-import { appendTrashEntryAsync, readTrashManifest, removeTrashEntryAsync } from './trash.js'
+// R42-7（四十二轮）：Z-6 守卫读改 strict——readTrashManifest 容错版只供只读展示面
+// （X-P3a：读失败按「无回收站」处理），本文件不再使用容错版。
+import { appendTrashEntryAsync, readTrashManifestStrict, removeTrashEntryAsync } from './trash.js'
 import { log } from '../log/index.js'
 import { appendWordsDelta, todayDate } from './words-diary.js'
 import { countWords, chapterFilePrefix } from '../format/words.js'
@@ -327,7 +329,21 @@ export class DocumentService {
     //（expectedRevision=null 的保存按「文件不存在=新建」通过基线校验 → 旧路径复活已删文件，
     // 且随后 restoreTrash 报 OCCUPIED 还原受阻）。改为：回收站认领该 docId 且
     //（未登记 或 目标文件不在盘）即拒。
-    if (readTrashManifest(this.bookRoot).some((t) => t.id === docId) && (registered === null || !existsSync(absPath))) {
+    // R42-7（四十二轮）：守卫读换 readTrashManifestStrict（trash.ts R27-40，restoreTrash
+    // 入口先例）——原容错版读失败按空表（X-P3a 只读展示面口径）= 判定面静默放行复活窗；
+    // strict 读失败上抛，此处按保守拒绝收口（fail-closed：WRITE_ERROR、未落盘、可重试，
+    // 对齐本文件错误信封），ENOENT 仍合法空（无回收站的新书不受影响）。
+    let trashClaimed: boolean
+    try {
+      trashClaimed = readTrashManifestStrict(this.bookRoot).some((t) => t.id === docId)
+    } catch (e) {
+      return Promise.resolve({
+        ok: false,
+        code: 'WRITE_ERROR',
+        reason: `回收站清单读取失败（复活守卫按保守拒绝，未执行保存，可重试）：${errMsg(e)}`,
+      })
+    }
+    if (trashClaimed && (registered === null || !existsSync(absPath))) {
       return Promise.resolve({
         ok: false,
         code: 'REVISION_CONFLICT',
@@ -403,8 +419,11 @@ export class DocumentService {
           reason: `文档已移动或重命名（现路径 ${registeredNow}），本次保存目标 ${relPath} 已失效，请刷新后重试`,
         })
       }
+      // R42-7（四十二轮）：锁内复核同款 strict 读——读失败上抛走外层 catch 的
+      // WRITE_ERROR「未落盘，可重试」（R28-5 既有收口；此刻尚未 appendPending，
+      // 无孤儿可标 aborted），fail-closed 拒绝复活窗，不静默放行。
       if (
-        readTrashManifest(this.bookRoot).some((t) => t.id === docId) &&
+        readTrashManifestStrict(this.bookRoot).some((t) => t.id === docId) &&
         (registeredNow === null || !existsSync(absPath))
       ) {
         return Promise.resolve({
@@ -1100,7 +1119,10 @@ export class DocumentService {
         return
       }
       try {
-        rmSync(oldSafe, { force: true })
+        // R42-10（四十二轮）：删源收编 rmWithRetry（fs/atomic.ts R40-19，trash.ts :287
+        // 先例）——win 杀毒/索引器瞬时锁（EPERM/EBUSY）下裸 rmSync 直败会让章纲同步
+        // 无谓滞留旧名；退避后仍失败照走既有「回收新位再抛」回滚链（R37-13 语义不变）
+        rmWithRetry(oldSafe)
       } catch (rmErr) {
         try {
           rmSync(dst, { force: true })
@@ -1355,8 +1377,11 @@ export class DocumentService {
         // R33-43（三十三轮）：删源撞 EBUSY（win 文件被占用）时回收已落位的新位硬链接，
         // 恢复「源在旧位、目标位空」的预操作状态——否则本次按 WRITE_ERROR 收口后重试
         // 恒 ALREADY_EXISTS，需手工清理。回收失败仍留孤儿副本（硬链接同数据，无丢失）。
+        // R42-10（四十二轮）：删源收编 rmWithRetry（fs/atomic.ts R40-19，trash.ts :287
+        // 先例）——瞬时锁退避后仍失败才走既有回收+报错链，语义不变（默认 rm 即
+        // rmSync(p,{force:true})，与原裸调逐位同源）。
         try {
-          rmSync(oldSafe, { force: true })
+          rmWithRetry(oldSafe)
         } catch (rmErr) {
           try {
             rmSync(newSafe, { force: true })
@@ -1687,7 +1712,11 @@ export class DocumentService {
       // R73-34 后缀链继续保双份。收口：throw 经外层 catch 统一 WRITE_ERROR（R37-14
       // 形状），文案取 R1W-3 人话「被占用」（原错误信息保留在尾部，win 真机臂断言）。
       try {
-        rmSync(oldSafe, { force: true })
+        // R42-10（四十二轮）：删源收编 rmWithRetry（fs/atomic.ts R40-19，trash.ts :287
+        // 先例）——win 编辑器/同步盘瞬时锁（EPERM/EBUSY）下裸 rmSync 直败会误触发下方
+        // 回收站回滚（软删无谓失败）；退避后仍失败才走既有回滚+报错链（R37-14/R1W-3
+        // 语义不变）。
+        rmWithRetry(oldSafe)
       } catch (rmErr) {
         try {
           rmSync(finalTrashAbs, { force: true })

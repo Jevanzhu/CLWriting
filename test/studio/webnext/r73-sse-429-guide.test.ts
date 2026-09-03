@@ -72,7 +72,21 @@ beforeEach(() => {
   vi.stubGlobal('EventSource', MockES)
 })
 
-afterEach(() => {
+afterEach(async () => {
+  // R42-1（四十二轮）：fail-closed 首档退避 2s→0ms 立即换票重连——卸桩前多轮排干
+  // 「宏任务定时器 → doConnect 异步链（换票 fetch → new EventSource）」级联，防 unstub
+  // 后触发 new EventSource 抛 unhandled rejection（此前首档 2s 在测试生命周期内不触发）
+  if (vi.isFakeTimers()) {
+    vi.runOnlyPendingTimers()
+    await settle()
+    vi.runOnlyPendingTimers()
+    await settle()
+  } else {
+    for (let i = 0; i < 3; i++) {
+      await new Promise((r) => setTimeout(r, 10))
+      await settle()
+    }
+  }
   vi.unstubAllGlobals()
   vi.useRealTimers()
 })

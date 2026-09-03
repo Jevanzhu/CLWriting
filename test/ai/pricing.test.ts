@@ -161,6 +161,50 @@ describe('D2 pricing 解析与金额计算', () => {
     saveProviders(ud, mk('gone'))
     expect(resolveModelPricing(ud, 'model-x')).toBeNull()
   })
+
+  // R42-2（四十二轮）：双 provider 挂同模型 id 不同价——归属查表先看当前启用 provider，
+  // 按启用方计价；此前全局首归属 find 固定命中数组靠前者，切 currentId 后计价不换
+  it('R42-2：双 provider 同模型 id 不同价、当前启用 B → 按 B 计价（切回 A → 按 A）', async () => {
+    const ud = tmpDir('clw-pricing-r42-')
+    const mk = (currentId: string): ProviderStore =>
+      ({
+        providers: [
+          {
+            id: 'pa', name: 'A', protocol: 'openai', auth: 'bearer', baseUrl: 'https://a.local', apiKey: 'sk-a',
+            pricing: { inputPerMTok: 1 },
+            models: [{ id: 'shared-model', pricing: { inputPerMTok: 1 } }],
+          },
+          {
+            id: 'pb', name: 'B', protocol: 'openai', auth: 'bearer', baseUrl: 'https://b.local', apiKey: 'sk-b',
+            pricing: { inputPerMTok: 5 },
+            models: [{ id: 'shared-model', pricing: { inputPerMTok: 5 } }],
+          },
+        ],
+        currentId,
+        tiers: { creative: { model: 'shared-model', effort: 'high' }, assistant: null, chat: null },
+        currentModel: 'shared-model',
+        revision: 0,
+        modelCaps: {},
+      }) as unknown as ProviderStore
+    saveProviders(ud, mk('pb'))
+    // 当前启用 B（数组靠后）→ 按 B 的 5 计价，不再按全局首归属 A 的 1
+    expect(resolveModelPricing(ud, 'shared-model')).toEqual({ inputPerMTok: 5 })
+    saveProviders(ud, mk('pa'))
+    expect(resolveModelPricing(ud, 'shared-model')).toEqual({ inputPerMTok: 1 })
+  })
+
+  // R42-23（四十二轮）：行 pricing 仅设 currency（无单价）——currency 参与浅合并生效
+  // （此前 isPriced 判定把整行丢弃，currency 永不生效）；但合并后无单价 → 不计费
+  it('R42-23：currency-only 行 override 参与合并（currency 生效）；provider 无价时行 currency-only 仍不计费', async () => {
+    // provider 级有单价 + 行仅设 currency → 浅合并：currency 生效、单价继承 provider 级
+    const merged = pricingForProvider(
+      baseProvider({ pricing: { inputPerMTok: 3, outputPerMTok: 15 }, models: [{ id: 'm1', pricing: { currency: 'EUR' } }] }),
+      'm1',
+    )
+    expect(merged).toEqual({ inputPerMTok: 3, outputPerMTok: 15, currency: 'EUR' })
+    // provider 级无价 + 行仅设 currency → 合并后仍无单价 → null（宁缺毋滥，不拿 0 冒充成本）
+    expect(pricingForProvider(baseProvider({ models: [{ id: 'm1', pricing: { currency: 'EUR' } }] }), 'm1')).toBeNull()
+  })
 })
 
 // ── D3 预算双口径 ────────────────────────────────────────────────────
@@ -387,6 +431,53 @@ describe('D2 cost-stats 聚合', () => {
     expect(stats.unpricedModels).toEqual(['m'])
     // 空事件库同样 enabled:false
     expect((await aggregateCost(ud, tmpDir('clw-cost-empty-'))).enabled).toBe(false)
+  })
+
+  // R42-22（四十二轮）：价格表未配 currency → stats.currency 缺省 'USD'（接口注释承诺落地；
+  // 前端 WbUsageCard 同款 ?? 'USD' 兜底，两侧口径一致）
+  it('R42-22：无 currency 价格表 → stats.currency === "USD"', async () => {
+    const ud = tmpDir('clw-cost-r42-')
+    const root = tmpDir('clw-cost-r42-book-')
+    const store: ProviderStore = {
+      providers: [
+        {
+          id: 'p1', name: 'A', protocol: 'openai', auth: 'bearer', baseUrl: 'https://a.local', apiKey: 'sk-a',
+          pricing: { inputPerMTok: 3 },
+        },
+      ],
+      currentId: 'p1',
+      tiers: { creative: { model: 'model-x', effort: 'high' }, assistant: null, chat: null },
+      currentModel: 'model-x',
+      revision: 0,
+      modelCaps: {},
+    } as unknown as ProviderStore
+    saveProviders(ud, store)
+    const es = openSessionStore(ud, root)!
+    try {
+      const sessionId = es.createSession(bookHash(root))
+      es.appendEvents(sessionId, [
+        { type: 'llm/call', data: { runId: 'r1', task: 'self-heal', tierKind: 'creative', model: 'model-x', attempt: 0, stopReason: 'end', usage: { input: 1_000_000, output: 0 }, durationMs: 1, ok: true } },
+      ])
+    } finally {
+      es.close()
+    }
+    const stats = await aggregateCost(ud, root)
+    expect(stats.enabled).toBe(true)
+    expect(stats.currency).toBe('USD')
+    // 显式 currency 优先（缺省不覆盖）
+    const ud2 = tmpDir('clw-cost-r42b-')
+    const root2 = tmpDir('clw-cost-r42b-book-')
+    saveProviders(ud2, { ...store, providers: [{ ...store.providers[0]!, pricing: { inputPerMTok: 3, currency: 'EUR' } }] })
+    const es2 = openSessionStore(ud2, root2)!
+    try {
+      const sessionId = es2.createSession(bookHash(root2))
+      es2.appendEvents(sessionId, [
+        { type: 'llm/call', data: { runId: 'r1', task: 'self-heal', tierKind: 'creative', model: 'model-x', attempt: 0, stopReason: 'end', usage: { input: 1_000_000, output: 0 }, durationMs: 1, ok: true } },
+      ])
+    } finally {
+      es2.close()
+    }
+    expect((await aggregateCost(ud2, root2)).currency).toBe('EUR')
   })
 })
 

@@ -15,6 +15,7 @@ import { createHash } from 'node:crypto'
 import { resolveWithinRoot } from '../../../fs/safe-path.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { canonicalizeText } from '../../../fs/text-canonical.js'
+import { isMdFileName } from '../../../format/filename.js'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError, parseRequestUrl } from '../http.js'
 import { resolveBook } from '../book-context.js'
@@ -227,7 +228,9 @@ function queryParams(req: IncomingMessage): URLSearchParams | null {
  *  防穿越批 6 统一：resolveWithinRoot（resolve+relative 防穿越 + symlink 双侧 realpath 校验，
  *  目标存在时返回 realpath；fail-closed）——安全判定与 rel 提取共用同一次解析结果。 */
 function editablePath(bookRoot: string, file: string): string | null {
-  if (!file.endsWith('.md') || basename(file).startsWith('._')) return null
+  // R42-39（四十二轮）：.md 判定收敛 isMdFileName（大小写不敏感）——.MD 编辑对象
+  // 此前被读写双侧白名单拒绝；basename `._` 前缀跳过条件不变
+  if (!isMdFileName(file) || basename(file).startsWith('._')) return null
   const safe = resolveWithinRoot(bookRoot, file)
   if (!safe) return null
   const allowed = EDIT_DIRS.some(({ dir }) => safe.rel === dir || safe.rel.startsWith(`${dir}/`))
@@ -241,7 +244,8 @@ function editablePath(bookRoot: string, file: string): string | null {
 function writablePath(bookRoot: string, file: string): { rel: string; abs: string } | null {
   const safe = resolveWithinRoot(bookRoot, file)
   if (!safe) return null
-  if (!file.endsWith('.md') || basename(file).startsWith('._')) return null
+  // R42-39（四十二轮）：.md 判定收敛 isMdFileName（大小写不敏感，与 editablePath 同批）
+  if (!isMdFileName(file) || basename(file).startsWith('._')) return null
   if (safe.rel === '写作/正文' || safe.rel.startsWith('写作/正文/')) return null
   const allowed = EDIT_DIRS.some(({ dir }) => safe.rel === dir || safe.rel.startsWith(`${dir}/`))
   if (!allowed && !WORKDIR_EDITABLE.has(safe.rel)) return null

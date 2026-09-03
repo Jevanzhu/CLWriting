@@ -420,6 +420,10 @@ export async function purgeTrash(bookRoot: string, id: string): Promise<PurgeRes
       const names = entry.id === encodeDocDirName(entry.id) ? [entry.id] : [entry.id, encodeDocDirName(entry.id)]
       for (const name of names) {
         const verDir = safePathWithin(bookRoot, `工作区/${VERSIONS_DIR_NAME}/${name}`)
+        // R42-40（四十二轮）记档：此递归删未收编 rmWithRetry——fs/atomic.ts 现签名默认
+        // rm 为 rmSync(p, {force:true})（非递归，目录删需 recursive，误收编会恒抛
+        // ERR_FS_EISDIR 直败），rm 注入口的文档口径是测试注入不动生产语义；待 rmWithRetry
+        // 增设 recursive 档后，此处随 :411 主文件 / 分析信封 / journal 一并收编。
         if (verDir && existsSync(verDir)) rmSync(verDir, { recursive: true, force: true })
       }
       // R69-4（十七轮）：分析信封双候选 + journal 双名连删——purge「不可逆」承诺下
@@ -429,12 +433,15 @@ export async function purgeTrash(bookRoot: string, id: string): Promise<PurgeRes
       const analysisCandidates = analysisPathCandidates(bookRoot, entry.id)
       if (analysisCandidates) {
         for (const fp of analysisCandidates) {
-          if (existsSync(fp)) rmSync(fp, { force: true })
+          // R42-40（四十二轮）：删源收编 rmWithRetry（:411 主文件同款先例）——退避后
+          // 仍失败上抛走既有 WRITE_ERROR 收口（不可逆承诺下如实报错，不静默留隐私残迹）
+          if (existsSync(fp)) rmWithRetry(fp)
         }
       }
       for (const name of names) {
         const journalFile = safePathWithin(bookRoot, `工作区/.journal/${name}.jsonl`)
-        if (journalFile && existsSync(journalFile)) rmSync(journalFile, { force: true })
+        // R42-40：同上收编（journal 清理与主文件/分析信封同族删源点）
+        if (journalFile && existsSync(journalFile)) rmWithRetry(journalFile)
         // R76-27（二十四轮 C 域）登记的孤儿锁堆积改由陈锁清扫统一收口——R39-12（三十九轮）：
         // 此前 purge 侧「queryLockHeld → rmSync」自删存在 µs 级 TOCTOU（判「不在持」与删
         // 之间他进程恰完成取锁复核 → 删掉在持锁 = 互斥失效，lost update 形态），且与

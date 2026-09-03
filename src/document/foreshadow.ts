@@ -10,12 +10,12 @@
  * - 风险阈值按重要性：高=30 章 / 中=60 章 / 低=100 章
  */
 
-import { readdirSync, statSync, existsSync, mkdirSync, rmSync } from 'node:fs'
+import { readdirSync, statSync, existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { readFile, parseFlat , stringifyValue } from '../format/frontmatter.js'
 import { readLead } from '../format/leads.js'
 import { sanitizeFileNamePart } from '../format/filename.js'
-import { createFileExclusive } from '../fs/atomic.js'
+import { createFileExclusive, rmWithRetry } from '../fs/atomic.js'
 import { walkMdEach } from '../fs/walk-md.js'
 import { log } from '../log/index.js'
 
@@ -133,12 +133,18 @@ export function migrateLegacyForeshadows(bookRoot: string): MigrateResult {
       // 与「净化名撞名（不同内容）」，但内容判别无法区分两者且打破 Y-19/R73-39 既有
       // 契约；撞名要求两伏笔 sanitize 后 `编号-标题` 全同，编号前缀唯一性使其在单次
       // 迁移目录内实际不可达，维持原续跑语义（旧源补删）。
-      rmSync(oldPath, { force: true })
+      // R42-40（四十二轮）：删源收编 rmWithRetry——fs/atomic.ts 头注自 R40-18/19 起
+      // 宣称收编「伏笔归档清理」的删源点，实现此前未到（仍裸 rmSync）；win 杀软/
+      // 索引器瞬时锁（EPERM/EBUSY）下直败会让已落位的迁移残旧源（下次迁移 Y-19
+      // 续跑补删自愈，但迁后首屏旧目录滞留）。退避后仍失败上抛走调用方（启动迁移链
+      // 的既有 catch/日志收口），语义与裸 rmSync 时代一致。
+      rmWithRetry(oldPath)
       result.migrated++
       result.details.push(`${lead.编号} → ${title}（${status}，续跑补删旧源）`)
       continue
     }
-    rmSync(oldPath, { force: true })
+    // R42-40：同上收编（主路径删源）
+    rmWithRetry(oldPath)
     result.migrated++
     result.details.push(`${lead.编号} → ${title}（${status}）`)
   }

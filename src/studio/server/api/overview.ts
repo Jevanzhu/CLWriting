@@ -24,6 +24,7 @@ import { reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
+import { isMdFileName } from '../../../format/filename.js'
 import type { BookConfig } from '../../../format/types.js'
 import { readChapterDir } from '../../../format/chapters.js'
 import { finalizedPathSet } from '../../../document/manifest.js'
@@ -144,8 +145,10 @@ function listVolumes(bookRoot: string): { name: string; path: string }[] {
   const out: { name: string; path: string }[] = []
   try {
     for (const f of readdirSync(dir)) {
-      if (!f.endsWith('.md') || f.startsWith('._')) continue
-      out.push({ name: f.replace(/\.md$/, ''), path: `大纲/卷纲/${f}` })
+      // R42-39（四十二轮）：.md 判定收敛 isMdFileName（大小写不敏感），剥尾正则同步加 /i
+      // ——win 资源管理器改 .MD 后卷列表静默失明；`._` 前缀跳过条件不变。
+      if (!isMdFileName(f) || f.startsWith('._')) continue
+      out.push({ name: f.replace(/\.md$/i, ''), path: `大纲/卷纲/${f}` })
     }
   } catch {
     // 无卷纲目录

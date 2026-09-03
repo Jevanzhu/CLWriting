@@ -23,6 +23,12 @@ test('httpStatusToCode: 状态码 → 错误码全表', () => {
     [400, "This model's maximum context length is 4096 tokens", 'CONTEXT_WINDOW_EXCEEDED'],
     [400, 'prompt is too long: 200000 tokens > 200000 maximum', 'CONTEXT_WINDOW_EXCEEDED'],
     [400, 'context_length_exceeded', 'CONTEXT_WINDOW_EXCEEDED'],
+    // R42-25（四十二轮）：正则收紧为短语级——裸 "context" 不再命中，无关 400 不误归超窗
+    [400, 'invalid context id', 'BAD_REQUEST'],
+    [400, 'context is required', 'BAD_REQUEST'],
+    // 短语级正例补充：context window / token limit 变体仍归超窗
+    [400, 'request exceeds the context window limit', 'CONTEXT_WINDOW_EXCEEDED'],
+    [400, 'maximum token limit reached', 'CONTEXT_WINDOW_EXCEEDED'],
     [undefined, '', 'UNKNOWN'],
   ]
   for (const [status, msg, want] of cases) {

@@ -117,4 +117,18 @@ describe('probeCapabilities', () => {
     expect(r.caps).toEqual({ connected: true, streaming: true })
     expect(r.details.join()).toContain('Responses 线')
   })
+
+  // R42-24（四十二轮）：探测目标库 userDataPath 透传——探测实例的降级记忆
+  // （persistDegraded/lookupDegraded）按显式 path 分发落目标库（路由输入 = 适配器
+  // 工厂第三参，与 runner.test.ts 的双库路由用例拼接为完整链路）
+  it('R42-24：userDataPath 透传给探测实例（适配器工厂第四参）；缺省不传保持旧形态', async () => {
+    vi.mocked(listModels).mockResolvedValue(['m1'])
+    vi.mocked(createAnthropicProvider).mockReturnValue(fakeProvider([{ type: 'text' }]))
+    await probeCapabilities(conf(), '/tmp/clw-probe-target-ud')
+    // 工厂签名 (conf, client, store, userDataPath)——注册表条目以 (bound, undefined, store, path) 转发
+    expect(vi.mocked(createAnthropicProvider).mock.calls.at(-1)![3]).toBe('/tmp/clw-probe-target-ud')
+    // 缺省（旧调用形态）→ undefined：回落 runner 侧活跃 path，兼容不变
+    await probeCapabilities(conf())
+    expect(vi.mocked(createAnthropicProvider).mock.calls.at(-1)![3]).toBeUndefined()
+  })
 })

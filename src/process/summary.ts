@@ -531,6 +531,15 @@ function volumeChainFingerprint(chain: Map<number, string>): string {
   return `sha256:${h.digest('hex')}`
 }
 
+/** R42-36（四十二轮）：卷摘要 sourceHash 提取收口——先 splitFrontMatter 再只在 fmRaw 里搜，
+ *  不再对整文件 grep（对齐同文件章摘要侧 chapterSummaryState 先例）：正文含行首
+ *  `sourceHash: …`（引用/示例文本）此前会顶替 fm 指纹位——fm 缺指纹的手写产物被误判
+ *  程序生成（M-7 作者优先失守）、fresh/stale 判定被正文污染。无 fm / fm 无指纹 → null。 */
+function volumeSourceHash(volRaw: string): RegExpExecArray | null {
+  const split = splitFrontMatter(volRaw)
+  return split ? /^sourceHash:\s*(\S+)/m.exec(split.fmRaw) : null
+}
+
 /**
  * C2（批 3）生成第 volume 卷摘要：输入 = 该卷完整章摘要链（N × summary_chapter_max 字）。
  * 链不全 → 不强行生成（fail-closed，留痕 missing 章），返回 {ok:false}。
@@ -578,7 +587,8 @@ export async function generateVolumeSummary(opts: {
       } catch (e) {
         log.warn('summary', `卷摘要读取失败（第 ${volume} 卷，按缺失降级重生成）：${e instanceof Error ? e.message : String(e)}`)
       }
-      const m = volRaw !== null ? /^sourceHash:\s*(\S+)/m.exec(volRaw) : null
+      // R42-36（四十二轮）：指纹只认 fm 段——正文行首 sourceHash 不再参与 skipped 判定
+      const m = volRaw !== null ? volumeSourceHash(volRaw) : null
       if (m && m[1] === fingerprint) return { ok: true, path: fp, skipped: true }
     }
     const chainText = [...chain.keys()]
@@ -657,7 +667,9 @@ export async function selfHealVolumeSummary(
     } catch (e) {
       log.warn('summary', `卷摘要读取失败（第 ${targetVolume} 卷，按手写产物跳过不动）：${e instanceof Error ? e.message : String(e)}`)
     }
-    const m = volRaw !== null ? /^sourceHash:\s*(\S+)/m.exec(volRaw) : null
+    // R42-36（四十二轮）：指纹只认 fm 段——正文行首 sourceHash 不再把无 fm 手写产物
+    // 伪装成程序生成（M-7 作者优先甄别回归 fm 事实）
+    const m = volRaw !== null ? volumeSourceHash(volRaw) : null
     if (!m) return null
     const { chain } = volumeChainState(bookRoot, targetVolume, volumeSize)
     // R27-107（二十七轮）：链不全时链指纹无从计算（既不能证新也不能证旧），此前与
@@ -689,7 +701,8 @@ export function volumeSummaryProvablyStale(bookRoot: string, volume: number, vol
   } catch {
     return false // 读失败无法证明过期（R65-31 同款保守：宁注入路径自行降级，不在这里下判）
   }
-  const m = /^sourceHash:\s*(\S+)/m.exec(volRaw)
+  // R42-36（四十二轮）：指纹只认 fm 段——正文行首 sourceHash 不再触发误判「可证明过期」
+  const m = volumeSourceHash(volRaw)
   if (!m) return false // 手写产物：作者优先，不按程序指纹判旧
   const { chain } = volumeChainState(bookRoot, volume, volumeSize)
   if (chain === null || chain.size === 0) return false // 链不全/空链：无法证明过期

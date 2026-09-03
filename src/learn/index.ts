@@ -25,6 +25,7 @@ import { readFile } from '../format/frontmatter.js'
 import { sanitizeFileNamePart } from '../format/filename.js'
 import { readBookConfig } from '../format/yaml.js'
 import { finalizedPathSet } from '../document/manifest.js'
+import { docJoinKey } from '../fs/safe-path.js'
 import { checkStyleMetrics, checkRepeat } from '../check/count.js'
 import { readIronRules } from '../metrics/style.js'
 import type { IronRules } from '../format/iron-rules.js'
@@ -151,13 +152,17 @@ export async function learnFromBook(bookRoot: string): Promise<LearnResult> {
   // 素材）。判定与导出 V-P2-2 同一函数（manifest.finalizedPathSet，曾定稿=过）；
   // 旧书无清单 → null 无法判定，保持全量（与导出降级一致）
   const finalized = finalizedPathSet(bookRoot)
+  // R42-6（四十二轮）：定稿集消费侧建折叠键集（win32 大小写 + NFC，overview.ts R41-2
+  // 同款范式——set 构建一次、比较双侧 docJoinKey）——外部 case-only 改名 / NFD 文件名
+  // 后精确串失配，定稿章被误跳「草稿」流出候选池（H-1 红线破口）
+  const finalizedKeys = finalized === null ? null : new Set([...finalized].map(docJoinKey))
   let skippedDrafts = 0
   const chapterBodies: Array<{ 章号: number; 标题: string; body: string }> = []
   for (const ch of chapters) {
     await yieldToEventLoop() // R72-2：每章让出事件循环，长书收割不再阻塞同进程其他会话
     const path = ch._path
     if (!path) continue
-    if (finalized && !finalized.has(relative(bookRoot, path).replace(/\\/g, '/'))) {
+    if (finalizedKeys && !finalizedKeys.has(docJoinKey(relative(bookRoot, path)))) { // R42-6：折叠键比较（relPathKey 已归一分隔符）
       skippedDrafts++
       continue
     }

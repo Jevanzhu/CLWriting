@@ -530,7 +530,21 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
 
     if (!out.ok) {
       // CC-P2-2：deadline 定时器在 generate 期间触发 → 按超时收口（与轮首 aborted 分支同文案）
-      finishTurn(opts, history, baseLen, recorder, state.timedOut ? 'timeout' : { error: out.error })
+      // R42-26（四十二轮）：终态 mask 按 out.code 分流（对齐轮首 :427 口径）——
+      // ABORTED（用户中断）→ 'interrupted'、TIMEOUT_TOTAL（档位超时）→ 'timeout'；
+      // 此前两类终断除 deadline 外一律落 { error }（mask 'error'），session/end 终态与
+      // 遮蔽实参失真；其余（GEN_FAIL/NO_* 等）维持 error 出口透传 out.error 文案
+      finishTurn(
+        opts,
+        history,
+        baseLen,
+        recorder,
+        state.timedOut || out.code === 'TIMEOUT_TOTAL'
+          ? 'timeout'
+          : out.code === 'ABORTED'
+            ? 'interrupted'
+            : { error: out.error },
+      )
       return false
     }
 

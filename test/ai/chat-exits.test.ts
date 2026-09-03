@@ -17,6 +17,7 @@ import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it, vi } 
 import { createFakeProvider, type FakeProvider } from './fake-provider.js'
 import { withFakeProvider, tempUserData, makeDualTrackWorkdir } from '../studio/fixtures.js'
 import { runChat, abortChat, getHistory } from '../../src/ai/orchestrate/chat.js'
+import { loadProviders, saveProviders } from '../../src/ai/provider/store.js'
 import { SessionRecorder } from '../../src/events/chat-bridge.js'
 import { openSessionStore } from '../../src/events/store.js'
 import type { DriverEvent, Session, StudioDriver } from '../../src/driver/types.js'
@@ -327,5 +328,57 @@ describe('hh §八-16 出口走查：finishTurn 单一出口', () => {
     expect(err?.error).toContain('事件记录落库失败')
     expect(events.some((e) => e.type === 'error')).toBe(false)
     expect(getHistory('exit-flush-always').length).toBe(0)
+  })
+
+  // ── R42-26（四十二轮）：!ok 出口终态 mask 按 out.code 分流 ─────────────
+  // generate 在途的中断/档位超时此前一律落 { error }（mask 'error'），与轮首 :427 口径
+  //（timeout/interrupted）失真；现 ABORTED→'interrupted'、TIMEOUT_TOTAL→'timeout'
+
+  it('R42-26：generate 在途用户中断（out.code=ABORTED）→ interrupted 终态 + 已中断文案', { timeout: 10_000 }, async () => {
+    fake.setScript([{ type: 'text', content: '慢响应', delayMs: 10_000 }])
+    const ud = setup()
+    const events: DriverEvent[] = []
+    const p = runChat({
+      driver: makeDriver(events),
+      mainSession: { id: 's1', cwd: bookRoot, closed: false },
+      userDataPath: ud,
+      bookRoot,
+      bookName: 'exit-r42-aborted',
+      message: '出口走查',
+    })
+    // 请求已在途（generate 进行中）→ 用户中断 → runTask ABORTED → finishTurn 'interrupted'
+    await waitFor(() => fake.requestCount() > 0)
+    abortChat('exit-r42-aborted')
+    await p
+
+    const err = events.find((e) => e.type === 'chat_error') as { error: string } | undefined
+    expect(err?.error).toBe('已中断')
+    const store = openSessionStore(ud, bookRoot)!
+    try {
+      const evs = store.listEvents('exit-r42-aborted')
+      expect((evs.find((e) => e.type === 'session/end') as { data: { reason: string } } | undefined)?.data.reason).toBe('interrupted')
+    } finally {
+      store.close()
+    }
+    expect(getHistory('exit-r42-aborted').length).toBe(0)
+  })
+
+  it('R42-26：档位超时（out.code=TIMEOUT_TOTAL）→ timeout 出口（mask aborted）+ 超时文案', { timeout: 10_000 }, async () => {
+    // chat 档位带 60ms 总超时——runTask 档位超时返回 TIMEOUT_TOTAL（非 chat deadline 的
+    // timedOut 路径），finishTurn 按 out.code 分流到 'timeout'
+    const ud = tempUserData()
+    dirs.push(ud)
+    withFakeProvider(ud, fake.url)
+    const s = loadProviders(ud)
+    s.tiers.chat = { model: 'fake-model', effort: 'medium', timeoutMs: 60 }
+    saveProviders(ud, s)
+
+    fake.setScript([{ type: 'text', content: '慢响应', delayMs: 10_000 }])
+    await assertExit(
+      'exit-r42-tier-timeout',
+      ud,
+      (msg) => expect(msg).toBe('对话超时（超过 30 分钟），已停止'),
+      'aborted', // CHAT_EXIT_SPEC.timeout 的 mask（timeout 出口终态）
+    )
   })
 })

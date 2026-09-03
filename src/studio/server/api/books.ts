@@ -11,6 +11,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { rmSync, existsSync, readdirSync, readFileSync, statSync, mkdirSync } from 'node:fs'
 import { renameWithRetry } from '../../../fs/atomic.js'
+import { ulid } from '../../../fs/id.js' // R42-14（四十二轮）：删书墓地名唯一后缀
 import { rm } from 'node:fs/promises'
 import { join, basename, dirname } from 'node:path'
 import { defineRoute } from './schema.js'
@@ -388,7 +389,11 @@ export function registerBookRoutes(ctx: BookCtx): void {
       // 未清的 books.jsonl 登记（启动 repair 只兜底整目录缺失，半删态登记悬空且不可逆）。
       // 改先整体 rename 进删书墓地（同盘 rename 原子：成功即原位不存在半删态），墓地副本
       // 清理失败仅留痕不阻断——数据在墓地可手工恢复，登记照常移除（与作者删除意图一致）。
-      const graveAbs = join(ctx.workDir, DELETE_GRAVEYARD_DIR, `${Date.now()}-${basename(entry.path)}`)
+      // R42-14（四十二轮）：墓地名追加 ULID 后缀——`${Date.now()}-${basename}` 在同毫秒
+      // 并发双删同一书时撞出同一路径，第二请求 rename 落 ENOTEMPTY → 500（文案「书未
+      // 受影响，可重试」与事实矛盾）；ULID 的 80bit 随机段保证墓地名恒唯一，双删各自
+      // 落独立墓地副本（时间戳前缀保留，肉眼排序/排查语义不变）。
+      const graveAbs = join(ctx.workDir, DELETE_GRAVEYARD_DIR, `${Date.now()}-${basename(entry.path)}-${ulid()}`)
       try {
         mkdirSync(dirname(graveAbs), { recursive: true })
         // R2W-3（win 平台专项复审 R2）：整目录 rename 是全应用对杀软/索引器最敏感的
@@ -400,7 +405,11 @@ export function registerBookRoutes(ctx: BookCtx): void {
         //（busyGate 只查任务闸），双击删除时第二请求经 resolveBook/全闸后在 drain 窗口
         // 后 rename 已被第一请求搬走的 bookAbs 报 ENOENT：原 500 文案「书未受影响，
         // 可重试」与事实（书已删成功）矛盾，用户照文案重试得 404 语义打架。
-        if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
+        // R42-14（四十二轮）：ENOTEMPTY/EEXIST 同口径收口 404（双保险）——墓地目标
+        // 已被占同样意味着「另一并发删除已推进过改名」（ULID 后缀已使撞名几乎不可能，
+        // 此处兜底墓地名生成前后的极端竞态与历史残留的同名墓地目录）。
+        const graveCode = (e as NodeJS.ErrnoException).code
+        if (graveCode === 'ENOENT' || graveCode === 'ENOTEMPTY' || graveCode === 'EEXIST') {
           replyError(res, 404, 'NOT_FOUND', `没有这本书：${name}（可能刚被删除）`)
           return
         }
@@ -473,7 +482,10 @@ export function registerBookRoutes(ctx: BookCtx): void {
     path: '/api/books/:name/rename',
     parse: (raw) => {
       const body = (raw ?? {}) as Record<string, unknown>
-      const name = typeof body['name'] === 'string' ? body['name'].trim() : ''
+      // R42-41（四十二轮）：新书名 NFC 归一——与建书（init.ts 平台规范化批）同口径；
+      // mac 侧输入的 NFD 形态名直接落目录/登记，跨机到 NFC 惯例卷（win）即「找不到
+      // 文件」。归一在 trim 后、全部校验之前，登记名/目录名/title 天然一致。
+      const name = typeof body['name'] === 'string' ? body['name'].trim().normalize('NFC') : ''
       // dd-P3：书名校验复用单一真相源（isInvalidBookName，与建书/删书同源）——
       // 此前内联复制规则，两处将来会漂移
       if (!name) throw new Error('书名不能为空')

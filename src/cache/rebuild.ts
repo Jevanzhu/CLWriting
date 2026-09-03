@@ -23,6 +23,7 @@ import { syncLead, syncChapter, syncSummary, setMeta, getMeta } from './sync.js'
 import { readLeadDir } from '../format/leads.js'
 import { readBookConfig } from '../format/yaml.js'
 import { readChapter } from '../format/chapters.js'
+import { isMdFileName } from '../format/filename.js' // R42-38（四十二轮）：.md 判定大小写不敏感单一真相源
 import type { ParseError } from '../format/types.js'
 import { walkMdEach } from '../fs/walk-md.js'
 import { log } from '../log/index.js'
@@ -391,7 +392,11 @@ function scanSummaries(
 ): number {
   if (!existsSync(dir)) return 0
   let count = 0
-  const files = readdirSync(dir).filter((f) => f.endsWith('.md') && !f.startsWith('._'))
+  // R42-38（四十二轮）：.endsWith('.md') → isMdFileName（大小写不敏感）——win 资源
+  // 管理器改出的 .MD/.Md 摘要此前在目录过滤处即被静默丢弃（既不入库也不进健康报告，
+  // 「摘要不生效」无从定位）；现在进入下方命名白名单判定，合法 <数字>.MD 入库、
+  // 白名单外形态照常 errors 留痕。
+  const files = readdirSync(dir).filter((f) => isMdFileName(f) && !f.startsWith('._'))
   for (const f of files) {
     const fp = join(dir, f)
     // readdir 与 stat 之间文件可能被删（回收站/用户操作竞态）——无守卫 ENOENT 会把整个
@@ -405,12 +410,14 @@ function scanSummaries(
     // R73-47（二十一轮）：白名单外命名追加 log.warn 留痕——errors 只进 meta 健康报告
     // （下次增量跳过重建时不可见），操作日志即时留痕方便定位「摘要不生效」类问题；
     // 命名契约本身不动（<数字>.md 仍是唯一入库形态）。
-    if (!/^\d+$/.test(f.replace(/\.md$/, ''))) {
+    // R42-38（四十二轮）：剥尾改大小写不敏感（\.[mM][dD]$）——与 isMdFileName 过滤
+    // 口径配套，.MD 入库时章号提取不再残留 .MD 尾巴误落白名单外分支。
+    if (!/^\d+$/.test(f.replace(/\.[mM][dD]$/, ''))) {
       log.warn('rebuild', `摘要文件名「${f}」不是 <章号或卷号>.md 形式，未入库（${dir}）`)
       errors.push({ file: fp, line: 0, message: `摘要文件名「${f}」不是 <章号或卷号>.md 形式，未入库` })
       continue
     }
-    const ref = Number(f.replace(/\.md$/, ''))
+    const ref = Number(f.replace(/\.[mM][dD]$/, ''))
     syncSummary(db, scope, ref, fp)
     count++
   }

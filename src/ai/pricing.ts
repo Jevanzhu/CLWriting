@@ -33,12 +33,29 @@ export function isPriced(p: PricingConf | undefined | null): p is PricingConf {
   )
 }
 
+/** R42-23（四十二轮）：行 pricing 是否含任一已知键（单价族或 currency）——参与浅合并的
+ *  判定，与 isPriced（是否计价）解耦：仅设 currency 的行参与合并（currency 生效）但
+ *  不单独构成计价。 */
+function hasAnyPricingKey(p: PricingConf | undefined | null): boolean {
+  if (!p) return false
+  return (
+    p.inputPerMTok !== undefined ||
+    p.outputPerMTok !== undefined ||
+    p.cacheReadPerMTok !== undefined ||
+    p.cacheWritePerMTok !== undefined ||
+    p.currency !== undefined
+  )
+}
+
 /** 模型行 → 价格表合并（models[].pricing 覆盖 provider 级同名键） */
 export function pricingForProvider(provider: ProviderConf | undefined, model: string): PricingConf | null {
   if (!provider) return null
   const base = isPriced(provider.pricing) ? provider.pricing : {}
   const row: ModelConf | undefined = provider.models?.find((m) => m.id === model)
-  const override = isPriced(row?.pricing) ? row!.pricing : undefined
+  // R42-23（四十二轮）：行 override 判定放宽——行 pricing 含任一已知键（单价族或 currency）
+  // 即参与浅合并。此前 isPriced(row.pricing) 才认，「仅设 currency 无单价」的行被整行丢弃，
+  // currency 永不生效；最终仍以 isPriced(merged) 决定计价——只有 currency 的行不计费
+  const override = hasAnyPricingKey(row?.pricing) ? row!.pricing : undefined
   const merged = { ...base, ...(override ?? {}) }
   return isPriced(merged) ? merged : null
 }
@@ -55,9 +72,14 @@ export function resolveModelPricing(userDataPath: string | null | undefined, mod
   if (!userDataPath || !model) return null
   try {
     const store = loadProviders(userDataPath)
-    const owner = store.providers.find((p) => p.models?.some((m) => m.id === model))
-    if (owner) return pricingForProvider(owner, model)
+    // R42-2（四十二轮）：归属查表先在当前启用 provider 的 models[] 内找归属行——双
+    // provider 挂同模型 id 不同价时按当前启用的那家计价（此前全局首归属 find 固定命中
+    // 数组靠前的 provider，切 currentId 后计价不换）；未命中再回落全局首归属 find
     const current = store.providers.find((p) => p.id === store.currentId)
+    const owner = current?.models?.some((m) => m.id === model)
+      ? current
+      : store.providers.find((p) => p.models?.some((m) => m.id === model))
+    if (owner) return pricingForProvider(owner, model)
     return current ? pricingForProvider(current, model) : null
   } catch {
     return null

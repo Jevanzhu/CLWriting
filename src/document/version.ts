@@ -23,6 +23,7 @@ import { atomicWriteFile, renameWithRetry } from '../fs/atomic.js'
 import { safeDocId } from '../fs/safe-path.js'
 import { ulid, decodeUlidTime } from './stable-id.js'
 import { readFile, parseFlat, splitFrontMatter, stringifyValue } from '../format/frontmatter.js'
+import { isMdFileName } from '../format/filename.js'
 import type { Revision } from './revision.js'
 import { log } from '../log/index.js'
 
@@ -330,7 +331,10 @@ export function listVersions(versionsDir: string, docId: string): VersionInfo[] 
       continue
     }
     for (const name of names) {
-      if (name.startsWith('._') || !name.endsWith('.md')) continue
+      // R42-39（四十二轮）：.md 判定收敛 isMdFileName（大小写不敏感）——win 资源管理器
+      // 改 .MD 后版本档案列表静默失明；AppleDouble `._` 前缀跳过条件不变。
+      // 下方 slice(0, -3) 剥 '.MD' 同为 3 字符，无需改。
+      if (name.startsWith('._') || !isMdFileName(name)) continue
       const id = name.slice(0, -3)
       // 同 id 理论上只在一侧（写入恒编码）；防手搬/复制出双份时重复列
       if (seen.has(id)) continue

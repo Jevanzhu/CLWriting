@@ -14,6 +14,7 @@ import { join, dirname, relative } from 'node:path'
 import { readChapterDir } from '../format/chapters.js'
 import { splitSentences, ngramRepeatRate } from '../format/sentences.js'
 import { finalizedPathSet } from '../document/manifest.js'
+import { docJoinKey } from '../fs/safe-path.js'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { readSamplesByScene } from '../format/style.js'
 import { readEntries, ENTRIES_DIR } from '../format/style-entry.js'
@@ -184,10 +185,13 @@ export function scanChapters(bookRoot: string): ChapterSample[] {
   const textDir = join(bookRoot, '写作', '正文')
   const rules = readIronRules(bookRoot)
   const finalized = finalizedPathSet(bookRoot)
+  // R42-6（四十二轮）：定稿集消费侧折叠键集（win32 大小写 + NFC，overview.ts R41-2
+  // 同款范式）——case-only 改名 / NFD 文件名后精确串失配，定稿章被误跳 → 文风样本缺章
+  const finalizedKeys = finalized === null ? null : new Set([...finalized].map(docJoinKey))
   const { chapters } = readChapterDir(textDir)
   const samples: ChapterSample[] = []
   for (const ch of chapters) {
-    if (finalized && ch._path && !finalized.has(relative(bookRoot, ch._path).replace(/\\/g, '/'))) continue
+    if (finalizedKeys && ch._path && !finalizedKeys.has(docJoinKey(relative(bookRoot, ch._path)))) continue // R42-6：折叠键比较（relPathKey 已归一分隔符）
     const body = readChapterBody(ch)
     if (body === null) continue
     samples.push({ num: ch.章号, title: ch.标题, stats: computeFullStats(body, rules) })
@@ -210,11 +214,13 @@ export async function scanChaptersAsync(bookRoot: string): Promise<ChapterSample
   const textDir = join(bookRoot, '写作', '正文')
   const rules = readIronRules(bookRoot)
   const finalized = finalizedPathSet(bookRoot)
+  // R42-6（四十二轮）：同 scanChapters 折叠键集（语义与同步版逐字段一致）
+  const finalizedKeys = finalized === null ? null : new Set([...finalized].map(docJoinKey))
   const { chapters } = readChapterDir(textDir)
   const samples: ChapterSample[] = []
   let scanned = 0
   for (const ch of chapters) {
-    if (finalized && ch._path && !finalized.has(relative(bookRoot, ch._path).replace(/\\/g, '/'))) continue
+    if (finalizedKeys && ch._path && !finalizedKeys.has(docJoinKey(relative(bookRoot, ch._path)))) continue // R42-6：折叠键比较
     const body = readChapterBody(ch)
     if (body === null) continue
     samples.push({ num: ch.章号, title: ch.标题, stats: computeFullStats(body, rules) })

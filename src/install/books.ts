@@ -17,6 +17,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node
 import { resolve, join, dirname, basename, isAbsolute } from 'node:path'
 import { readBookConfig } from '../format/yaml.js'
 import { atomicWriteFile } from '../fs/atomic.js'
+import { samePath } from '../fs/user-data-path.js' // R42-35（四十二轮）：登记目录占用判重（win32 折叠比较）
 import { acquireCrossProcessLockWithTimeout, acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 import { log } from '../log/index.js'
 
@@ -258,6 +259,14 @@ function appendBookLocked(workDir: string, entry: BookEntry): { ok: true } | { o
   }
   if (books.some((b) => b.name === entry.name)) {
     return { ok: false, reason: `已有一本叫「${entry.name}」的书，换个名字或先删掉旧的` }
+  }
+  // R42-35（四十二轮）：登记名判重外补目录占用判重——大小写不敏感卷（win）上 Foo/foo
+  // 两个名字 join 后指向同一书目录，仅名字判重会放行成「双登记同库」形态（书架两张卡
+  // 互踩、删一张殃及另一张的登记面）。samePath 在 win32 双侧 toLowerCase 折叠比较
+  //（posix 全等，不误伤大小写敏感卷上的合法异名库）；文案点名占用书与既有冲突同义。
+  const occupying = books.find((b) => samePath(join(workDir, b.path), join(workDir, entry.path)))
+  if (occupying) {
+    return { ok: false, reason: `已有一本叫「${occupying.name}」的书占用了目录「${entry.path}」（win 上仅大小写不同的书名视为同库），换个名字或先删掉旧的` }
   }
   books.push(entry)
   writeBooks(workDir, books)

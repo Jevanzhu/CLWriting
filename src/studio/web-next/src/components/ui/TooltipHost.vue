@@ -7,6 +7,17 @@ import { ref, onMounted, onBeforeUnmount } from 'vue'
 
 interface TipState { text: string; x: number; y: number; dir: string }
 
+/** R42-29（四十二轮）：tooltip 估宽按码位分类累加——全角（CJK 区段 >0x2e80）每字约
+ *  13px、其它（ASCII/半角）约 7px，另加 padding 16px（font-size-s≈12px 口径不变）。
+ *  原 text.length*13 一律按全角计，ASCII 文案估宽虚高近一倍，边缘检测过早收边。 */
+function estimateTipWidth(text: string): number {
+  let w = 16
+  for (const ch of text) {
+    w += (ch.codePointAt(0) ?? 0) > 0x2e80 ? 13 : 7
+  }
+  return w
+}
+
 const tip = ref<TipState | null>(null)
 let showTimer: ReturnType<typeof setTimeout> | null = null
 let lastTarget: HTMLElement | null = null
@@ -35,8 +46,8 @@ function onOver(e: MouseEvent): void {
     const text = el.dataset.tip!
     const dir = el.dataset.tipDir || 'top'
     const r = el.getBoundingClientRect()
-    // 预估 tooltip 尺寸（font-size-s≈12px，中文每字约 13px + padding 16px；高约 24px）
-    const tw = text.length * 13 + 16
+    // 预估 tooltip 尺寸（估宽见 estimateTipWidth；高约 24px→26 占位）
+    const tw = estimateTipWidth(text)
     const th = 26
     const vw = window.innerWidth
     const vh = window.innerHeight

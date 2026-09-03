@@ -603,7 +603,10 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
             const oldest = styleCorpusCache.keys().next().value
             if (oldest !== undefined) styleCorpusCache.delete(oldest)
           }
-          styleCorpusCache.set(bookRoot, { result: { fullStats, sampleText }, ts: now })
+          // R42-16（四十二轮）：ts 记 set 当刻 Date.now()——MISS 分支的读循环含逐块让出
+          //（每 25 章一次 setImmediate），大书扫描可跨数百 ms；此前记扫描前取的 now，
+          // 缓存「出生即折旧」TTL 窗被扫描时长吃掉，极端时刚 set 完就已过期。
+          styleCorpusCache.set(bookRoot, { result: { fullStats, sampleText }, ts: Date.now() })
         }
 
         const prompt = [

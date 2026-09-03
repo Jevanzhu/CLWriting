@@ -5,6 +5,16 @@ import { getLastInitialBook } from './api/client'
 import { useAppActions } from './composables/useAppActions'
 import ErrorBoundary from './components/ui/ErrorBoundary.vue'
 import StartupNoticeBanner from './components/ui/StartupNoticeBanner.vue'
+// R42-3/R42-4（四十二轮）：反馈层与三模态上移根组件全局挂载——此前仅挂 WorkspaceShell，
+// /welcome、/library、书库独立窗口上 ui.toast 静默失效（switchLibrary 取消原因/
+// openLibraryDir 失败无渲染点）、系统菜单「设置/新建书/导出」（CmdOrCtrl+, / Cmd+N /
+// Cmd+E 经 useAppActions 只置 store 标志位）在非工作区路由整面静默空操作。五件均
+// Teleport to body / fixed 定位、store 驱动无 props，全局挂载零布局影响。
+import Toast from './components/ui/Toast.vue'
+import ConfirmPrompt from './components/ui/ConfirmPrompt.vue'
+import SettingsModal from './components/ui/SettingsModal.vue'
+import ShelfModal from './components/ui/ShelfModal.vue'
+import ExportDialog from './components/ui/ExportDialog.vue'
 
 // 根组件：路由出口 + 启动 initialBook 直进工作区（/api/boot 返回时）。
 const router = useRouter()
@@ -43,5 +53,11 @@ onMounted(() => {
   <ErrorBoundary>
     <StartupNoticeBanner />
     <router-view />
+    <!-- R42-3/R42-4：全局反馈层与模态（Teleport 到 body；离开工作区路由也活着） -->
+    <Toast />
+    <ConfirmPrompt />
+    <SettingsModal />
+    <ShelfModal />
+    <ExportDialog />
   </ErrorBoundary>
 </template>

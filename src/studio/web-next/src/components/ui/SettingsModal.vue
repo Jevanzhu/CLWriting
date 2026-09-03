@@ -98,6 +98,10 @@ function onKeydown(e: KeyboardEvent): void {
   // Esc 不应连带关闭设置弹层
   if (isImeComposing(e)) return
   if (ui.confirmState) return
+  // R42-30（四十二轮）：其它 overlay 开着则让渡——对齐 useHotkeys 的 overlayOpen 名单
+  // 口径（palette/设置/书架/导出；确认已在上行让位）：压在设置上方的顶层弹层的 Esc 归
+  // 自身处理，本层不处理不 preventDefault（防设置下方的弹层被 Esc 连带关掉）
+  if (ui.paletteOpen || ui.exportOpen || ui.shelfOpen) return
   ui.closeSettings()
   // Z-23（第五十八轮）：本层消费了 Esc → preventDefault——useHotkeys 的专注模式退出
   // 走 defaultPrevented 让渡口，同一按键不再双效（关弹层连带退专注）

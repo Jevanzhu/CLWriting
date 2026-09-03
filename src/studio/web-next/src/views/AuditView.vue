@@ -326,7 +326,10 @@ async function doClear(): Promise<void> {
 
 <style scoped>
 /* 变量纪律：只引 tokens.css 既有 token（此前 --text-dim/--bg-elev/--border/--bg/--text
- * 等短名变量全库无定义，静默回退 initial——已按语义映射到 Obsidian 命名体系）。 */
+ * 等短名变量全库无定义，静默回退 initial——已按语义映射到 Obsidian 命名体系）。
+ * R42-27（四十二轮）：style 段硬编码 rem 字号全部就近映射 UI 字号档（tokens.css
+ * --font-size-*）——≤0.75rem→xs、0.76-0.85rem→s、0.86-1.0rem→m、>1.0rem→l
+ * （1.35rem 标题→l）；只换字号变量，间距/圆角等布局度量不动。 */
 .audit-scroll {
   max-width: 980px;
   margin: 0 auto;
@@ -347,7 +350,7 @@ async function doClear(): Promise<void> {
   flex-wrap: wrap;
 }
 .audit-title {
-  font-size: 1.35rem;
+  font-size: var(--font-size-l);
   margin: 0;
 }
 .shadow-hint {
@@ -355,7 +358,7 @@ async function doClear(): Promise<void> {
   align-items: center;
   gap: 4px;
   color: var(--text-muted);
-  font-size: 0.8rem;
+  font-size: var(--font-size-s);
 }
 .reload-btn {
   display: inline-flex;
@@ -367,7 +370,7 @@ async function doClear(): Promise<void> {
   background: var(--background-secondary);
   color: var(--text-normal);
   cursor: pointer;
-  font-size: 0.82rem;
+  font-size: var(--font-size-s);
 }
 .reload-btn:disabled { opacity: 0.5; cursor: default; }
 .head-actions {
@@ -380,7 +383,7 @@ async function doClear(): Promise<void> {
 .reload-btn.danger { color: var(--text-error); border-color: var(--text-error); }
 .clear-hint {
   color: var(--text-error);
-  font-size: 0.8rem;
+  font-size: var(--font-size-s);
 }
 .spin { animation: clw-spin 0.8s linear infinite; }
 
@@ -406,7 +409,7 @@ async function doClear(): Promise<void> {
   background: var(--background-secondary);
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 0.85rem;
+  font-size: var(--font-size-s);
 }
 .tabbar button.on {
   background: var(--interactive-accent);
@@ -414,7 +417,7 @@ async function doClear(): Promise<void> {
 }
 .tab-total {
   margin-left: 5px;
-  font-size: 0.72rem;
+  font-size: var(--font-size-xs);
   opacity: 0.85;
 }
 .sec { margin-bottom: var(--size-4-5); }
@@ -429,7 +432,7 @@ async function doClear(): Promise<void> {
 }
 .pager-hint {
   color: var(--text-muted);
-  font-size: 0.78rem;
+  font-size: var(--font-size-s);
 }
 .load-more {
   display: inline-flex;
@@ -441,14 +444,14 @@ async function doClear(): Promise<void> {
   background: var(--background-secondary);
   color: var(--text-normal);
   cursor: pointer;
-  font-size: 0.8rem;
+  font-size: var(--font-size-s);
 }
 .load-more:disabled { opacity: 0.55; cursor: default; }
 .sec-title {
   display: flex;
   align-items: center;
   gap: var(--size-4-3);
-  font-size: 1rem;
+  font-size: var(--font-size-m);
   margin: 0 0 var(--size-4-3);
   flex-wrap: wrap;
 }
@@ -470,7 +473,7 @@ async function doClear(): Promise<void> {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 0.82rem;
+  font-size: var(--font-size-s);
   flex-wrap: wrap;
   /* 列表渲染上限（起步方案）：「加载更多」跨页累积无上限，长书几千行全量布局会卡；
    * content-visibility 让视口外行跳过渲染，进视口按需恢复。30px ≈ 未展开行的
@@ -491,11 +494,11 @@ async function doClear(): Promise<void> {
 .ev-type {
   font-family: var(--font-monospace);
   color: var(--text-accent);
-  font-size: 0.74rem;
+  font-size: var(--font-size-xs);
 }
 .ev-type.shadowed { color: var(--text-muted); text-decoration: line-through; }
 .ev-op {
-  font-size: 0.68rem;
+  font-size: var(--font-size-xs);
   padding: 1px 6px;
   border-radius: 5px;
   border: 1px solid var(--background-modifier-border);
@@ -506,7 +509,7 @@ async function doClear(): Promise<void> {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  font-size: 0.7rem;
+  font-size: var(--font-size-xs);
   color: var(--text-muted);
 }
 .ev-shadow { color: var(--text-error); }
@@ -518,14 +521,14 @@ async function doClear(): Promise<void> {
   margin: 0;
   max-height: 200px;
   overflow: auto;
-  font-size: 0.72rem;
+  font-size: var(--font-size-xs);
   background: var(--background-primary);
   border-radius: 6px;
   padding: 8px;
   white-space: pre-wrap;
   word-break: break-all;
 }
-.lineage-note { font-size: 0.72rem; color: var(--text-muted); margin: 4px 0 0; }
-.empty { color: var(--text-muted); font-size: 0.82rem; padding: 8px; }
+.lineage-note { font-size: var(--font-size-xs); color: var(--text-muted); margin: 4px 0 0; }
+.empty { color: var(--text-muted); font-size: var(--font-size-s); padding: 8px; }
 .empty.big { padding: 40px; text-align: center; }
 </style>

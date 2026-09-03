@@ -205,8 +205,11 @@ function registerDegradedCallbacks(userDataPath: string): void {
     const s = loadProviders(userDataPath)
     return s.modelCaps[key]?.structured === false ? true : undefined
   })
-  // R65-6：分发器随注册重装（同一模块级函数引用——幂等；resetDegradedChannels 清槽
-  // 后下一次 resolve 也能重新接上，不因「装过即跳过」脱钩）
+  // R65-6：分发器随注册重装（同一模块级函数引用——幂等）。R42-21（四十二轮）注释对齐
+  // 实况：resetDegradedChannels 清掉 store 槽后，只有「换 userDataPath 的下一次 resolve」
+  // 会走到本函数重接注册（resolveProvider 侧 `degradedActivePath !== userDataPath` 守卫
+  // 对同 path 直接跳过，槽保持空——同 path 不重接）；测试需要同 path 重接时直接重新
+  // import 本模块或另行暴露钩子。生产路径不调 reset，运行时行为零影响
   registerDegradedPersist(degradedPersistDispatch)
   registerDegradedLookup(degradedLookupDispatch)
 }
@@ -646,8 +649,9 @@ export async function runTask<T>(opts: {
           chain?.flush() // Z-P2-7：批缓冲下显式落盘，保住「先落库后等待」语义
           await sleep(delay, ctrl.signal)
           if (ctrl.signal.aborted) {
-            trace({ model: tier.model, attempt, stopReason: abortedByUser() ? 'aborted' : 'timeout', usage: null, ok: false, errCode: abortedByUser() ? 'ABORTED' : 'TIMEOUT_TOTAL' })
-            // AA-P3-4：同第一处——超时 'interrupted' vs 用户中断 'aborted'
+            // R42-20（四十二轮）：此处不再 trace——上方（N5/A5 处）已对同 attempt 落过
+            // 'error' 事件，再落 ABORTED 会让 trace-stats/cost-stats 对同一 attempt 双计
+            // （llm/call 是历史聚合唯一真源）；保留 stepReason 终态与 timeoutAbort() 收口
             stepReason = abortedByUser() ? 'aborted' : 'interrupted'
             return timeoutAbort()
           }

@@ -11,6 +11,8 @@
 import { readdirSync, readFileSync, statSync, type Dirent } from 'node:fs'
 import { join } from 'node:path'
 import { safeManifestPath, docJoinKey } from '../fs/safe-path.js'
+import { toNfcName } from '../fs/text-canonical.js'
+import { isMdFileName } from '../format/filename.js'
 import { createHash } from 'node:crypto'
 import { roleOf, type DocumentRole } from './layout.js'
 import { readManifest, type ManifestEntry } from './manifest.js'
@@ -151,17 +153,24 @@ export function buildTree(bookRoot: string): TreeNode[] {
   return nodes
 }
 
-/** 收集 大纲/卷纲/*.md 的 stem（卷目录关联用）。无该目录 → 空集。 */
-function collectVolumeOutlineStems(bookRoot: string): Set<string> {
-  const set = new Set<string>()
+/** 收集 大纲/卷纲/*.md 的 stem（卷目录关联用）。无该目录 → 空集。
+ *  R42-12（四十二轮）：① .md 判定改 isMdFileName 单源（大小写不敏感，R38-9 家族
+ *  漏网点）——win 资源管理器手改 .MD 的卷纲此前对卷目录关联静默失明；② stem 以
+ *  toNfcName（fs/text-canonical.ts，docJoinKey R41-2 同族）NFC 归一为 join 键——
+ *  mac APFS 存 NFD、win/NTFS 惯 NFC，NFD 卷目录名 ↔ NFC 卷纲文件名（或反向）
+ *  互认。返回 Map：NFC 归一 stem → 盘上原始文件名——关联落 volumeOutlinePath 时
+ *  用真实名（NFD/NFC 形态与 .MD 大小写都不硬拼出盘上不存在的路径）。 */
+function collectVolumeOutlineStems(bookRoot: string): Map<string, string> {
+  const map = new Map<string, string>()
   try {
     for (const f of readdirSync(join(bookRoot, '大纲', '卷纲'))) {
-      if (f.endsWith('.md')) set.add(f.slice(0, -3))
+      // isMdFileName 大小写不敏感，但扩展名恒 3 字符——剥尾恒 slice(0, -3)
+      if (isMdFileName(f)) map.set(toNfcName(f.slice(0, -3)), f)
     }
   } catch {
-    // 无 大纲/卷纲 目录 → 空集（短篇 / 旧书）
+    // 无 大纲/卷纲 目录 → 空（短篇 / 旧书）
   }
-  return set
+  return map
 }
 
 /** 递归填 docId/status/volumeOutlinePath。W-P2-4：单次读探针（哈希+字数+published 一次带出）。 */
@@ -169,7 +178,7 @@ function annotate(
   nodes: TreeNode[],
   bookRoot: string,
   entryByPath: Map<string, ManifestEntry>,
-  volumeStems: Set<string>,
+  volumeStems: Map<string, string>,
 ): void {
   for (const n of nodes) {
     if (!n.isDirectory) {
@@ -185,8 +194,13 @@ function annotate(
       }
     } else {
       const volName = matchVolumeName(n.path)
-      if (volName && volumeStems.has(volName)) {
-        n.volumeOutlinePath = `大纲/卷纲/${volName}.md`
+      // R42-12（四十二轮）：两侧 NFC 归一后比对——matchVolumeName 产出的卷名与
+      // collectVolumeOutlineStems 登记的 stem 各自 toNfcName 后 join（NFD 卷目录 ↔
+      // NFC 卷纲互认）；命中取盘上原始文件名构造关联 path，而非 volName+'.md' 硬拼
+      //（NFD/NFC、.MD 大小写形态下硬拼会指向不存在的路径）。
+      if (volName) {
+        const hit = volumeStems.get(toNfcName(volName))
+        if (hit !== undefined) n.volumeOutlinePath = `大纲/卷纲/${hit}`
       }
     }
     if (n.children.length > 0) {

@@ -93,10 +93,20 @@ export function rebootstrap(): Promise<void> {
  *  token 未变或重放仍 401/403 则原样透传错误。注意：init.body 须可重放（字符串/
  *  undefined；现有调用方均如此）。
  *  SSE 走 getToken() 拼 URL（stream.ts），不经此路径，不受影响。 */
+/** R42-15（四十二轮）：apiJson 超时计时的暂停/重启句柄——401/403 → rebootstrap 等待期
+ *  （boot 自带 5s×3 次重试退避，最长可 ~16s）不计入本次超时预算；等待结束重启满额
+ *  计时（重放是新的 fetch，不吃剩余预算），保持对外 TIMEOUT 语义：真实 fetch 阶段
+ *  超时才报。仅本模块内部传参，apiFetch 外部调用面（心跳等）不受影响。 */
+interface TimeoutGauge {
+  pause: () => void
+  resume: () => void
+}
+
 export async function apiFetch(
   path: string,
   init: RequestInit = {},
   _retried = false,
+  _gauge?: TimeoutGauge,
 ): Promise<Response> {
   const method = (init.method ?? 'GET').toUpperCase()
   const headers = new Headers(init.headers)
@@ -111,7 +121,9 @@ export async function apiFetch(
     // token 规避）同样走 re-boot 恢复通道；**token 变化才重放**——re-boot 拿回同一枚
     // 说明 401/403 另有原因（Origin/权限类），透传不空转（同一请求最多重试一次）
     const used = token
+    _gauge?.pause() // R42-15（四十二轮）：进 rebootstrap 等待先停表（等待期不计时）
     await rebootstrap()
+    _gauge?.resume() // R42-15（四十二轮）：等待结束重启满额计时（重放 fetch/读体同受保护）
     if (token !== null && token !== used) {
       // R26-81（二十六轮）：重放前取消首个响应的未读流——重放后旧响应体不再被消费，
       // 不 cancel 会占住连接直到 GC（浏览器每 host 连接数有限，re-boot 窗口内并发请求
@@ -121,7 +133,7 @@ export async function apiFetch(
       // 无条件 cancel 把响应体提前作废，信封解析失败被伪造成「本地服务未连接」，
       // 掩盖服务端真实错误。
       r.body?.cancel().catch(() => {})
-      return apiFetch(path, init, true)
+      return apiFetch(path, init, true, _gauge)
     }
   }
   return r
@@ -146,6 +158,18 @@ export async function apiJson<T>(
   // 在请求结束后仍挂在调用方 signal 上（长期复用的 signal 会累积闭包引用的 controller）
   let unlinkExternalSignal: (() => void) | undefined
   timer = setTimeout(() => { timedOut = true; controller.abort() }, timeoutMs)
+  // R42-15（四十二轮）：计时句柄——401/403 → rebootstrap 等待期停表（boot 重试退避可
+  // 达 ~16s，计入会让慢恢复被伪报 TIMEOUT 408）；等待结束重启满额计时
+  const gauge: TimeoutGauge = {
+    pause: () => {
+      if (timer) clearTimeout(timer)
+      timer = undefined
+    },
+    resume: () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => { timedOut = true; controller.abort() }, timeoutMs)
+    },
+  }
   // 外部 signal 联动：外部 abort → 内部也 abort。第九轮 L-4：abort 事件只在 abort() 时刻
   // 派发一次——调用前已 abort 的 signal 不会再发，须预检补发，否则请求不超时也不取消
   if (init?.signal?.aborted) controller.abort()
@@ -160,7 +184,7 @@ export async function apiJson<T>(
     // 是死代码（controller 恒已创建，左侧永真）——删除。外部 init.signal 的取消语义已由
     // 上方联动机制完整覆盖（外部 abort → controller.abort，settle 后摘监听器），apiFetch
     // 收到的恒是内部 signal，不存「未传 controller 就透传原 signal」的分支。
-    const r = await apiFetch(path, { ...init, signal: controller.signal })
+    const r = await apiFetch(path, { ...init, signal: controller.signal }, false, gauge)
     // 错误信封判别（dv-01）：服务端错误统一走 {code, error} JSON 信封（error-envelope 门禁）。
     // 检出空体/裸文本 5xx（dev Vite proxy 在 7878 未起时返回 502 空体；反代口子同形态）——
     // 这类「本地 API 服务未连接」不是 AI 提供方故障，不能套 friendlyError 的 AI 文案

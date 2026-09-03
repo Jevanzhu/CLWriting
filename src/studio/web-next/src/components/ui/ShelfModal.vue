@@ -71,6 +71,10 @@ function onKeydown(e: KeyboardEvent): void {
   // 候选框的 Esc 不应关浮层/收批量（isComposing || keyCode 229 单源判据）
   if (isImeComposing(e)) return
   if (e.key !== 'Escape') return
+  // R42-30（四十二轮）：其它 overlay 开着则让渡——对齐 useHotkeys 的 overlayOpen 名单
+  // 口径（palette/全局确认/设置/导出；书架自身除外）：压在书架上方的顶层弹层先收 Esc，
+  // 本层子态（删除确认/新建/批量）与收层全部不动、不 preventDefault
+  if (ui.paletteOpen || ui.confirmState !== null || ui.settingsOpen || ui.exportOpen) return
   // 本组件常驻挂载（WorkspaceShell 无 v-if）——只有实际消费（书架开或子态在）才
   // preventDefault；否则让 Esc 落到 useHotkeys（专注模式退出），同一按键不双效
   let consumed = false

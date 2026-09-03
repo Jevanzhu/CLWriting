@@ -23,8 +23,12 @@ export { createProvider }
  * caps 拆两级后服务级在此探测——不需要模型（listModels 即验证连通 + 认证），
  * 流式取列表首个模型发极简请求（流式能力属服务传输层，不依赖具体模型）。
  * 模型级能力（tool_use / tool_choice）由 model-quirks 静态表判定。
+ * R42-24（四十二轮）：userDataPath = 探测目标库的配置目录——透传给探测实例
+ * （createProvider 第三参），适配器降级记忆（persistDegraded/lookupDegraded）按显式
+ * path 分发，落探测目标库的 providers.json 而非「活跃库」（此前 undefined 回落
+ * runner 侧活跃 path，双库时探测读写错库）。缺省不传 = 旧形态（回落活跃 path，兼容）。
  */
-export async function probeCapabilities(conf: ProviderConf): Promise<ProbeResult> {
+export async function probeCapabilities(conf: ProviderConf, userDataPath?: string | null): Promise<ProbeResult> {
   // mock 快路：e2e / 前端开发不真探——测试连接按钮在 mock 下可用
   if (process.env['CLWRITING_DRIVER'] === 'mock') {
     return {
@@ -64,7 +68,8 @@ export async function probeCapabilities(conf: ProviderConf): Promise<ProbeResult
     let gotDelta = false
     // R33-21（三十三轮）：bypassCache——探测实例的 model 被换成列表首项，正常生成
     // 永不以此 key 命中；入缓存只会挤占 LRU 容量把正常实例挤出重建。
-    const provider = createProvider({ ...conf, model: probeModel }, undefined, undefined, { bypassCache: true })
+    // R42-24（四十二轮）：userDataPath 透传（探测目标库）——降级记忆按显式 path 分发
+    const provider = createProvider({ ...conf, model: probeModel }, undefined, userDataPath ?? undefined, { bypassCache: true })
     const ctrl = new AbortController()
     const timeout = setTimeout(() => ctrl.abort(), 30_000)
     try {

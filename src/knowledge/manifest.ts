@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import { splitFrontMatter } from '../format/frontmatter.js'
+import { isMdFileName } from '../format/filename.js'
 import { resolveWithinRoot } from '../fs/safe-path.js'
 
 export const KNOWLEDGE_DIR = '知识层'
@@ -138,7 +139,9 @@ function validateEntry(
       issues.push({ path: entry.target, message: `sha256 不匹配，manifest=${entry.sha256} actual=${actual}` })
     }
 
-    if (entry.target.endsWith('.md')) {
+    // R42-39（四十二轮）：.md target 判定收敛 isMdFileName（大小写不敏感）——语义从
+    // 「跳过」变「纳入」：.MD target 此前不做 fm 元数据（source/license）校验，现在同进
+    if (isMdFileName(entry.target)) {
       validateMarkdownMetadata(filePath, entry, issues)
     }
   } catch (e) {

@@ -16,6 +16,7 @@ import { resolveBook } from '../book-context.js'
 import { readRealmDoc } from '../../../format/realms.js'
 import { readLeadDir } from '../../../format/leads.js'
 import { readFile, parseFlat } from '../../../format/frontmatter.js'
+import { isMdFileName } from '../../../format/filename.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
 import { RELATION_MINE_SPEC } from '../../../ai/tasks/specs.js'
@@ -27,15 +28,23 @@ interface SettingsCtx {
   userDataPath: string | null
 }
 
+/** R42-39（四十二轮）：md 词干剥尾（大小写不敏感）——basename(x, '.md') 只剥精确小写，
+ *  .MD 时兜底名会带扩展名（.MD 文件此前还被本文件三处扫描过滤静默失明，一并收敛）。
+ *  对齐 leads.ts R40-11 口径。 */
+function mdStem(name: string): string {
+  return isMdFileName(name) ? name.slice(0, -3) : basename(name, '.md')
+}
+
 /** 轻量读目录下 md 文件的 fm 字段名（编辑器补全用，不读正文） */
 function readFmNames(dir: string, field: string): string[] {
   const names: string[] = []
   if (!existsSync(dir)) return names
   try {
-    for (const f of readdirSync(dir).filter((x) => x.endsWith('.md') && !x.startsWith('._'))) {
+    // R42-39（四十二轮）：.md 判定收敛 isMdFileName（大小写不敏感）；`._` 前缀跳过不变
+    for (const f of readdirSync(dir).filter((x) => isMdFileName(x) && !x.startsWith('._'))) {
       const r = readFile(join(dir, f))
       const map = r.ok ? parseFlat(r.fmRaw) : new Map<string, unknown>()
-      const n = String(map.get(field) ?? basename(f, '.md'))
+      const n = String(map.get(field) ?? mdStem(f))
       if (n) names.push(n)
     }
   } catch { /* 目录读取失败 → 空列表 */ }
@@ -265,7 +274,8 @@ function listMdRecursive(dir: string): string[] {
   if (!existsSync(dir)) return out
   for (const f of readdirSync(dir, { recursive: true })) {
     if (typeof f !== 'string') continue
-    if (!f.endsWith('.md') || f.startsWith('._')) continue
+    // R42-39（四十二轮）：.md 判定收敛 isMdFileName（大小写不敏感）；`._` 前缀跳过不变
+    if (!isMdFileName(f) || f.startsWith('._')) continue
     const fp = join(dir, f)
     if (existsSync(fp)) out.push(fp)
   }
@@ -324,7 +334,8 @@ function scanFreeMd(dirPath: string): { 标题: string; 摘要: string }[] {
   if (!existsSync(dirPath)) return out
   let files: string[]
   try {
-    files = readdirSync(dirPath).filter((f) => f.endsWith('.md') && !f.startsWith('._'))
+    // R42-39（四十二轮）：.md 判定收敛 isMdFileName（大小写不敏感）；`._` 前缀跳过不变
+    files = readdirSync(dirPath).filter((f) => isMdFileName(f) && !f.startsWith('._'))
   } catch {
     return out
   }
@@ -339,10 +350,12 @@ function readFreeMd(filePath: string): { 标题: string; 摘要: string } {
   try {
     text = readFileSync(filePath, 'utf8')
   } catch {
-    return { 标题: basename(filePath, '.md'), 摘要: '' }
+    // R42-39（四十二轮）：剥尾走 mdStem（大小写不敏感，.MD 兜底标题不再带扩展名）
+    return { 标题: mdStem(filePath), 摘要: '' }
   }
   const m = text.match(/^#\s+(.+)$/m)
-  const 标题 = m ? m[1]!.trim() : basename(filePath, '.md')
+  // R42-39（四十二轮）：剥尾走 mdStem（大小写不敏感，.MD 兜底标题不再带扩展名）
+  const 标题 = m ? m[1]!.trim() : mdStem(filePath)
   const body = text.replace(/^#[^\n]*\n?/m, '').trim()
   const 摘要 = body.slice(0, 120).trim()
   return { 标题, 摘要 }

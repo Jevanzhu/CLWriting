@@ -9,12 +9,9 @@ import StatusBar from './StatusBar.vue'
 import ChatDock from './ChatDock.vue'
 import FocusFormatBar from './FocusFormatBar.vue'
 import FocusStatsBar from './FocusStatsBar.vue'
-import ConfirmPrompt from '../ui/ConfirmPrompt.vue'
+// R42-3/R42-4（四十二轮）：ConfirmPrompt/SettingsModal/ShelfModal/ExportDialog/Toast
+// 五件上移 App.vue 全局挂载（非工作区路由/书库独立窗口也需要），此处不再重复挂载
 import CommandPalette from '../ui/CommandPalette.vue'
-import SettingsModal from '../ui/SettingsModal.vue'
-import ShelfModal from '../ui/ShelfModal.vue'
-import ExportDialog from '../ui/ExportDialog.vue'
-import Toast from '../ui/Toast.vue'
 import TooltipHost from '../ui/TooltipHost.vue'
 import { useHotkeys } from '../../composables/useHotkeys'
 import { usePlatform } from '../../composables/usePlatform'
@@ -174,12 +171,8 @@ onUnmounted(() => {
       </div>
     </div>
     <StatusBar v-show="!ws.focusMode" :book-name="bookName" />
-    <ConfirmPrompt />
+    <!-- R42-3/R42-4：Toast/ConfirmPrompt/SettingsModal/ShelfModal/ExportDialog 已上移 App.vue -->
     <CommandPalette />
-    <SettingsModal />
-    <ShelfModal />
-    <ExportDialog />
-    <Toast />
     <TooltipHost />
   </div>
 </template>

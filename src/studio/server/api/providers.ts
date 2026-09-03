@@ -39,8 +39,10 @@ import { log } from '../../../log/index.js'
 // R75-D-P3c（批 D）：探测函数替换口（默认真探测）——回归测试注入受控延迟/结果的
 // 探测函数，复现「探测 10s+ 窗口内配置被改」竞态（mock driver 的快路探测瞬时完成，
 // 无法天然开出竞态窗）。仅测试用，勿在生产路径调用。
-let __probeForTest: ((conf: ProviderConf) => Promise<ProbeResult>) | null = null
-export function __setProbeCapabilitiesForTest(fn: ((conf: ProviderConf) => Promise<ProbeResult>) | null): void {
+// R42-24（四十二轮）：签名补第二参 userDataPath（探测目标库）——真探测透传给探测
+// 实例做降级记忆路由；注入函数少参可赋（TS 逆变兼容，存量 mock 不受影响）
+let __probeForTest: ((conf: ProviderConf, userDataPath?: string | null) => Promise<ProbeResult>) | null = null
+export function __setProbeCapabilitiesForTest(fn: ((conf: ProviderConf, userDataPath?: string | null) => Promise<ProbeResult>) | null): void {
   __probeForTest = fn
 }
 
@@ -424,7 +426,9 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
       // 同源；name/models 改动不影响服务级 caps，不误伤）。
       const probeFp = probeFingerprint(conf)
       const probe = __probeForTest ?? realProbeCapabilities
-      const { caps, details } = await probe({ ...conf, model: probeModel })
+      // R42-24（四十二轮）：透传探测目标库 userDataPath——探测实例降级记忆落目标库
+      // providers.json，不再回落「活跃库」（双库时写错库）
+      const { caps, details } = await probe({ ...conf, model: probeModel }, ctx.userDataPath)
       // 写回探测结果——重载 + 重找（探测期间 provider 可能被编辑/删除；丢了不硬写旧克隆）
       const s2 = loadProviders(ctx.userDataPath)
       const target = s2.providers.find((p) => p.id === id)
