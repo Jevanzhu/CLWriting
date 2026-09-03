@@ -269,6 +269,10 @@ export function startServer(opts: StudioServerOptions): http.Server {
       noticeOrLog('migrate-defaults', `书级默认值迁移整体失败：${e instanceof Error ? e.message : String(e)}`, e)
     }
   }
+  // 平台规范化批（2026-09-03）：v4 存量规范形迁移**已裁决拆除**——RC 阶段无存量用户
+  // 书库（唯一测试库实测已全规范），写路径收口 + 读侧容忍 + NFC 创建点已覆盖全部保证；
+  // 「启动即改写用户数据」的长期风险面大于无受众的收益。裁决记档见
+  // Dev/Main/02-执行/书库平台规范化-实施方案-2026-09-03.md §一 D。
   // RB-SV-P1-1：Origin 白名单只含实际监听 origin（下方 listening 补，同源放行）；
   // dev Vite(5173) 仅 CLW_DEV_UI/CLW_DEV_CORS 显式开启时注入（scripts/dev-api.ts 设 env，
   // dev:web/dev:app 链路保持可用）——生产态不再放行本地任意监听 5173 的页面。

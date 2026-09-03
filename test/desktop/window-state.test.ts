@@ -86,4 +86,24 @@ describe('R26-86：isBoundsVisibleOnAnyDisplay', () => {
       expect(isBoundsVisibleOnAnyDisplay({ x: 5000, y: 5000, width: 944, height: 600 }, [small])).toBe(false)
     })
   })
+
+  // R40-30（四十轮）：高度红线同款收口——R39-8 只收了宽度侧，高度仍 600 硬编码；
+  // 创建侧 minHeight = Math.min(760, wa.height-8)（main.ts），超小屏+高 DPI（工作区
+  // <608）上 600 硬红线把合法存档判「损坏」整体丢弃（窗口记忆永不生效）。
+  describe('R40-30（四十轮）：高度红线按显示器收口（超小屏合法存档不再判损坏）', () => {
+    const tiny = { x: 0, y: 0, width: 1920, height: 500 } // 工作区高 500：创建侧 minHeight = 500-8 = 492
+
+    it('500 高工作区：492px 合法存档恢复有效（修复前被 600 硬红线判损坏整体丢弃）', () => {
+      expect(isBoundsVisibleOnAnyDisplay({ x: 0, y: 0, width: 1200, height: 492 }, [tiny])).toBe(true)
+    })
+
+    it('正常屏口径不变：仍按 600 红线（<600 判损坏）', () => {
+      expect(isBoundsVisibleOnAnyDisplay({ x: 0, y: 0, width: 1200, height: 500 }, [PRIMARY])).toBe(false)
+      expect(isBoundsVisibleOnAnyDisplay({ x: 0, y: 0, width: 1200, height: 600 }, [PRIMARY])).toBe(true)
+    })
+
+    it('小屏真越界仍丢弃（containment 判定照旧兜底）', () => {
+      expect(isBoundsVisibleOnAnyDisplay({ x: 5000, y: 5000, width: 1200, height: 492 }, [tiny])).toBe(false)
+    })
+  })
 })

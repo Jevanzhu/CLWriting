@@ -33,6 +33,7 @@ import {
 } from '../api/providers'
 import { useUiStore } from './ui'
 import { friendlyError } from '../shared/error'
+import { ApiError } from '../api/client'
 
 /** 档位下拉选项：value = 模型 id（写回档位），label = 显示名（已配置行 name ?? id；拉取行 = id） */
 export interface ModelOption {
@@ -149,6 +150,20 @@ export const useProviderStore = defineStore('provider', () => {
   }
 
   /**
+   * R40-39（四十轮）：写端点 409（多窗 expectedRevision 冲突）恢复链——轻量：重新 GET
+   * 刷新 providers/ragProviders/revision（后续写不再吃陈旧 409）+ 明确提示（对齐 prefs
+   * 的 recoverFromConflict 思路但不自动合并/重放：provider 配置整体以远端为准，本窗
+   * 表单未提交内容仍在编辑器里，由作者确认后重试）。返回 true = 已按 409 收口（调用
+   * 方不再叠通用错误 toast）。
+   */
+  async function recover409(e: unknown): Promise<boolean> {
+    if (!(e instanceof ApiError) || e.status !== 409) return false
+    await refreshAll() // GET 两族端点：revision 对齐远端（内部静默，网络不可达不叠加噪声）
+    ui.toast('AI 配置已在其他窗口被修改，已刷新为最新配置，请重试本次操作', 'warning')
+    return true
+  }
+
+  /**
    * 拉取提供方模型清单（幂等去重 + 探测模型回落 + 手动重试）。
    * @param opts.fallbackModel 全局当前模型在清单内时优先作探测默认
    * @param opts.force 已有缓存也重拉（「获取模型列表」手动重试）
@@ -190,6 +205,7 @@ export const useProviderStore = defineStore('provider', () => {
       ui.toast('已保存', 'success')
       return r.provider.id
     } catch (e) {
+      if (await recover409(e)) return null // R40-39：409 多窗冲突走刷新恢复链
       ui.toast(errText(e), 'error')
       return null
     }
@@ -205,6 +221,7 @@ export const useProviderStore = defineStore('provider', () => {
       ui.toast('已保存', 'success')
       return true
     } catch (e) {
+      if (await recover409(e)) return false // R40-39：409 多窗冲突走刷新恢复链
       ui.toast(errText(e), 'error')
       return false
     }
@@ -224,6 +241,7 @@ export const useProviderStore = defineStore('provider', () => {
       ui.toast('已删除', 'success')
       return true
     } catch (e) {
+      if (await recover409(e)) return false // R40-39：409 多窗冲突走刷新恢复链
       ui.toast(errText(e), 'error')
       return false
     }
@@ -240,6 +258,7 @@ export const useProviderStore = defineStore('provider', () => {
       if (typeof r.revision === 'number') revision.value = r.revision
       return true
     } catch (e) {
+      if (await recover409(e)) return false // R40-39：409 多窗冲突走刷新恢复链
       ui.toast(errText(e), 'error')
       return false
     }
@@ -286,6 +305,7 @@ export const useProviderStore = defineStore('provider', () => {
       revision.value = r.revision
       return true
     } catch (e) {
+      if (await recover409(e)) return false // R40-39：409 多窗冲突走刷新恢复链
       ui.toast(errText(e), 'error')
       return false
     }
@@ -298,6 +318,7 @@ export const useProviderStore = defineStore('provider', () => {
       tiers.value = { ...tiers.value, chat: r.tiers.chat ? { ...r.tiers.chat } : null }
       revision.value = r.revision
     } catch (e) {
+      if (await recover409(e)) return // R40-39：409 多窗冲突走刷新恢复链（回落提示语义不再适用）
       ui.toast(`档位保存失败，重开后将回落旧档：${errText(e)}`, 'error')
     }
   }
@@ -311,6 +332,7 @@ export const useProviderStore = defineStore('provider', () => {
       ui.toast('已保存', 'success')
       return true
     } catch (e) {
+      if (await recover409(e)) return false // R40-39：409 多窗冲突走刷新恢复链
       ui.toast(errText(e), 'error')
       return false
     }
@@ -325,6 +347,7 @@ export const useProviderStore = defineStore('provider', () => {
       ui.toast('已保存', 'success')
       return true
     } catch (e) {
+      if (await recover409(e)) return false // R40-39：409 多窗冲突走刷新恢复链
       ui.toast(errText(e), 'error')
       return false
     }
@@ -340,6 +363,7 @@ export const useProviderStore = defineStore('provider', () => {
       ui.toast('已删除', 'success')
       return true
     } catch (e) {
+      if (await recover409(e)) return false // R40-39：409 多窗冲突走刷新恢复链
       ui.toast(errText(e), 'error')
       return false
     }

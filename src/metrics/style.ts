@@ -195,6 +195,34 @@ export function scanChapters(bookRoot: string): ChapterSample[] {
   return samples.sort((a, b) => a.num - b.num)
 }
 
+// R40-4（四十轮）：scanChapters 的异步孪生——读循环每 25 章让出一次事件循环。
+// 对齐 R39-15（analysis.ts MISS 读循环）/R72-2（learn 章级让出）范式：health 缓存
+// miss 与收割源2 挂在 HTTP 链上此前同步整树扫描，200 万字大书秒级冻结事件循环
+// （SSE 心跳/保存/全部 API 同停）。章正文读有 R66-24 stat 指纹缓存，但 miss 首扫
+// 与逐章 computeFullStats 仍为热点。yield 助手本地定义（learn/index.ts 同款先例：
+// metrics 层不向上引 studio/server/api/progress，防反向依赖）。
+const SCAN_YIELD_EVERY = 25
+const yieldToEventLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
+
+/** scanChapters 的异步孪生（R40-4）——语义与同步版逐字段一致（等价性对照测试锚定），
+ *  供 HTTP 链（health miss / 收割源2）使用；同步版保留供存量测试与非 HTTP 调用方。 */
+export async function scanChaptersAsync(bookRoot: string): Promise<ChapterSample[]> {
+  const textDir = join(bookRoot, '写作', '正文')
+  const rules = readIronRules(bookRoot)
+  const finalized = finalizedPathSet(bookRoot)
+  const { chapters } = readChapterDir(textDir)
+  const samples: ChapterSample[] = []
+  let scanned = 0
+  for (const ch of chapters) {
+    if (finalized && ch._path && !finalized.has(relative(bookRoot, ch._path).replace(/\\/g, '/'))) continue
+    const body = readChapterBody(ch)
+    if (body === null) continue
+    samples.push({ num: ch.章号, title: ch.标题, stats: computeFullStats(body, rules) })
+    if (++scanned % SCAN_YIELD_EVERY === 0) await yieldToEventLoop()
+  }
+  return samples.sort((a, b) => a.num - b.num)
+}
+
 /**
  * 跨章聚合 + 漂移判定。
  * 漂移判定原则（只报趋势不下判决）：单点偶发不报，连续/趋势才报。

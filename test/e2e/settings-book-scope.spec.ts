@@ -15,7 +15,7 @@ test('设置：仅本书入口移本书页 —— 编辑器页无「仅本书」
   await page.locator('.doc-page').waitFor()
 
   // 打开设置 → 编辑器排版页
-  await page.locator('[data-tip="设置（⌘,）"]').click()
+  await page.locator('[data-tip^="设置（"]').click()
   await page.locator('.settings-modal').waitFor()
   await page.locator('.settings-nav button', { hasText: '编辑器排版' }).click()
 

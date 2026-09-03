@@ -14,6 +14,7 @@ import { realpathSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { resolveWithinRoot } from '../../../fs/safe-path.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
+import { canonicalizeText } from '../../../fs/text-canonical.js'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError, parseRequestUrl } from '../http.js'
 import { resolveBook } from '../book-context.js'
@@ -107,7 +108,9 @@ export function registerFileRoutes(ctx: FileCtx): void {
         return
       }
       // B-22 串行链闭包内使用——属性窄化不跨闭包，先钉成不可变局部
-      const content: string = body.content
+      // 平台规范化批：PUT 白名单 .md 直写不经 DocumentService.save，此处自收口——
+      // 请求体内容（外部编辑器粘贴/同步盘形态）写前归一规范形，快照比对与指纹同源
+      const content: string = canonicalizeText(body.content)
       // M-3（第六轮）：可选乐观锁——expectedRevision 与盘上字节指纹不符 → 409。缺省时保持
       // 旧「后写为准」语义（存量调用方零改动）；成功响应回新指纹供客户端滚动基线。
       // B-22（第六十轮）：乐观锁挡的是「基线不符」，挡不住两标签页同 expectedRevision

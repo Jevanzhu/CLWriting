@@ -19,11 +19,17 @@
  *
  * 健壮性：幂等（二跑无 diff——目标键已删，解析值不再等于旧默认，全部 no-op）、
  * 每本书独立 try/catch（单本失败 log.warn 不阻断）、汇总 log.info。
+ *
+ * 平台规范化批·评审补翻（2026-09-03）：整输出再经 canonicalizeText 归一（LF 无 BOM）——
+ * 此前自有删行补丁器只做删行，未触碰行的 CRLF 残尾原样保留（与 yaml.ts 补丁族的分叉，
+ * 方案 §四 曾记「语义不变」，评审 P3-1 收口改翻）；CRLF/BOM 存量 book.yaml 自此随启动
+ * 迁移自愈（解析失败的原样返回分支不动——无法安全改写坏文件）。
  */
 
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
+import { canonicalizeText } from '../fs/text-canonical.js'
 import { readBooks } from './books.js'
 import { parseBookConfig } from '../format/yaml.js'
 import { log } from '../log/index.js'
@@ -53,7 +59,7 @@ export function migrateBookDefaults(workDir: string): MigrateBookDefaultsResult 
       if (after !== before) {
         atomicWriteFile(yamlPath, after)
         changed++
-        log.warn('migrate-defaults', `${book.name}: 已清理书级默认值键（全局托底生效）`)
+        log.warn('migrate-defaults', `${book.name}: 已改写 book.yaml（键清理/行尾归一，全局托底生效）`)
       }
     } catch (e) {
       // 单本失败不阻断：迁移是「锦上添花」的清理，宁可留着旧默认也不能挡启动
@@ -99,7 +105,8 @@ function migrateBookYamlText(raw: string): string {
   ) {
     out = deleteTopSection(out, 'rag')
   }
-  return out
+  // 平台规范化批·评审补翻：整输出归一规范形（LF 无 BOM）——与 yaml.ts 补丁族同款闭环
+  return canonicalizeText(out)
 }
 
 // ── 文本操作（照 yaml.ts patchTopSection 的段区间口径）────────

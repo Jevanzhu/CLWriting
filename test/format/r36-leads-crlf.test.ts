@@ -110,14 +110,14 @@ test('R36-1: CRLF 账本 readLead→writeLead 往返条目全部保留（定稿�
     writeLead(fp, r.lead)
 
     const out = readFileSync(fp, 'utf-8')
-    // 4 条（3 旧 + 1 新）全部物化。R38-11（三十八轮）契约演进：写侧主导行尾保真——
-    // 本文件源为 CRLF，回写保持 CRLF（此前整文件被 LF 重生成归一，git 全文件 diff
-    // 噪声）；条目完整性语义与 R36-1 不变。LF 账本字节不变的锚见 r38 测试文件。
+    // 4 条（3 旧 + 1 新）全部物化。行尾契约演进：R38-11（三十八轮）曾为「主导行尾
+    // 保真」；平台规范化批一（2026-09-03）推翻为规范形 LF——CRLF 源回写归一 LF
+    //（跨机互拷差异归零），条目完整性语义与 R36-1 不变。LF 账本字节不变的锚见 r38 测试。
     expect(out).toContain('- 第012章 埋下：林家祠堂的焦痕。')
     expect(out).toContain('- 第020章 递进：管家提到狗没叫。')
     expect(out).toContain('- 第030章 递进：门前雪地脚印。')
     expect(out).toContain('- 第040章 揭晓：真凶伏法。')
-    expect((out.match(/\r\n/g) ?? []).length).toBeGreaterThan(0)
+    expect(out.includes('\r')).toBe(false) // 规范形：无 \r 残留
 
     // 重读幂等：条目全部仍在
     const r2 = readLead(fp)

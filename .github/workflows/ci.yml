@@ -86,9 +86,13 @@ jobs:
 
       # 复评P2：npm 包清单实跑门——本机 Node 25/npm 11 pack 无具体错误退出 1 悬而未决，
       # 在发布底座 Node 24 上以退出码实证 files 清单可打包（dry-run 不产 tarball）
+      # R40-49（四十轮）：--ignore-scripts 复用本 job 上方「构建（build:all）」产物——
+      # package.json 的 prepack=build:all，pack 默认生命周期钩子会把同 job 已建产物整轮
+      # 重复构建（CI 时长浪费，无正确性影响）。清单门只验 files 清单与产物在位；产物由
+      # 同 job 同命令（build:all）产出，门语义不变，不改 job 依赖/矩阵
       - name: npm pack 清单门（Node 24）
         if: matrix.node == 24
-        run: npm pack --dry-run
+        run: npm pack --dry-run --ignore-scripts
 
       # dd-P2（E-P2-1）：覆盖率阈值门接线——vitest.config 的 thresholds（语句/分支/函数/行）
       # 此前只在本地 test:coverage 生效，CI 从不跑 → 门名存实亡。单腿跑覆盖（v8 插桩有开销），

@@ -21,6 +21,7 @@ import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
 import { friendlyError } from '../../shared/error'
 import { usePlatform } from '../../composables/usePlatform'
+import { modComboLabel } from '../../shared/mod-key'
 
 // Ribbon（~44px 图标列）：上部 章节树/搜索/总览/工作台/开书；底部 导出/书架/设置/亮暗。
 // macOS 交通灯占顶部 ~28px：桌面版顶部留白 40px（图标下移避让）+ 顶部空白可拖动窗口（参考 Obsidian）。
@@ -28,7 +29,10 @@ import { usePlatform } from '../../composables/usePlatform'
 const { theme, toggle } = useTheme()
 const ws = useWorkspaceStore()
 const ui = useUiStore()
-const { isMac } = usePlatform()
+const { isMac, platform } = usePlatform()
+// R40-42（四十轮）：tooltip 组合键平台文案（win → Ctrl+；原静态写死 ⌘B/⌘,）
+const treeTip = `章节树（${modComboLabel('Mod+B', platform)}）`
+const settingsTip = `设置（${modComboLabel('Mod+,', platform)}）`
 
 // 书架：主窗口内浮层（与设置统一；不再弹独立窗口）
 function openShelf(): void {
@@ -49,7 +53,7 @@ function openLibraryManager(): void {
       <button
         class="rbtn" data-tip-dir="right"
         :class="{ on: ws.leftPanel === 'tree' }"
-        data-tip="章节树（⌘B）"
+        :data-tip="treeTip"
         @click="ws.setLeftPanel('tree')"
       >
         <ListTree :size="20" :stroke-width="1.6" />
@@ -133,7 +137,7 @@ function openLibraryManager(): void {
         <Library :size="20" :stroke-width="1.6" />
       </button>
       <div class="ribbon-sep" />
-      <button class="rbtn" data-tip-dir="right" data-tip="设置（⌘,）" @click="ui.openSettings()">
+      <button class="rbtn" data-tip-dir="right" :data-tip="settingsTip" @click="ui.openSettings()">
         <Settings :size="20" :stroke-width="1.6" />
       </button>
       <button

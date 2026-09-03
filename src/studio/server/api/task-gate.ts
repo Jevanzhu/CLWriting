@@ -174,6 +174,7 @@ export const KNOWN_ACTIONS: readonly string[] = [
   'relations-mine',
   'review',
   'rewrite',
+  'style-harvest', // R40-4（四十轮）：收割端点（style.ts POST /style/harvest）——整树扫描任务闸
   'versions-prune', // R26-67（二十六轮）：快照清理端点（snapshots.ts POST /versions/prune）
 ]
 

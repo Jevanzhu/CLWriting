@@ -388,10 +388,15 @@ export const usePrefsStore = defineStore('prefs', () => {
       revision = r.revision
       revisionKnown = true
       lastPersisted = retryCache
+      // R40-41（四十轮）：三态告知之「成功」——合并 + 重试落盘都成功才按现行口径提示
+      useUiStore().toast('全局偏好已在其他窗口被修改，已保留本窗修改并合并最新值', 'warning')
     } catch {
-      /* 重试仍失败：已合并 refs 保留（本窗脏修改仍在，等下次 schedulePersist） */
+      /* R40-41：三态告知之「已刷新+重试失败」——refs 已合并保留（本窗脏修改仍在，
+       * lastPersisted 未推进 → 下次 schedulePersist 自动重试），但不得再按成功口径
+       * 提示「已合并」误导作者（原实现 catch 静默 + 无条件成功 toast）。第三态
+       * （GET 失败）维持上方静默：本窗值未动、无成功假象，等下次保存自动再走恢复链。 */
+      useUiStore().toast('全局偏好已在其他窗口被修改，已合并最新值，但重试保存失败——本窗修改已保留，将随下次改动自动重试', 'error')
     }
-    useUiStore().toast('全局偏好已在其他窗口被修改，已保留本窗修改并合并最新值', 'warning')
   }
 
   // ── apply（直写 :root CSS 变量）──

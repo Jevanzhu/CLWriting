@@ -7,11 +7,14 @@ import { FilePlus, ChevronDown, Focus, PanelRight, PanelLeft } from 'lucide-vue-
 import { useWorkspaceStore, type CreateKind } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
 import { usePlatform } from '../../composables/usePlatform'
+import { modComboLabel } from '../../shared/mod-key'
 
 defineProps<{ bookName: string }>()
 const ws = useWorkspaceStore()
 const tree = useTreeStore()
-const { isDesktop, isMac, isWin } = usePlatform()
+const { isDesktop, isMac, isWin, platform } = usePlatform()
+// R40-42（四十轮）：专注按钮 tip 组合键平台文案（win → Ctrl+Shift+F；原写死 ⌘⇧F）
+const focusKey = modComboLabel('Mod+Shift+F', platform)
 // 左栏可见性（含专注模式覆盖）：关闭/专注时 ws-main 左移到交通灯区，lead 需避让
 const leftVisible = computed(() => ws.leftOpen && !ws.focusMode)
 // 右栏可见性：关闭时 tabbar-actions 贴窗口右上角，需避让 win 窗控 overlay（J5）；
@@ -107,7 +110,7 @@ onUnmounted(() => {
       <button
         class="tb-btn"
         :class="{ active: ws.focusMode }"
-        :data-tip="ws.focusMode ? '退出专注（⌘⇧F）' : '专注模式（⌘⇧F）'"
+        :data-tip="ws.focusMode ? `退出专注（${focusKey}）` : `专注模式（${focusKey}）`"
         data-tip-dir="bottom"
         @click="ws.toggleFocus()"
       >

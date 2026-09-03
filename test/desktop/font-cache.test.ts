@@ -5,7 +5,12 @@
  * now 注入假时钟，测试零真实等待。
  */
 import { describe, expect, it } from 'vitest'
-import { createSystemFontCache } from '../../src/desktop/font-cache.js'
+import {
+  createSystemFontCache,
+  fontListWithTimeout,
+  FONT_LIST_TIMEOUT_MS,
+  __setFontListTimeoutForTest,
+} from '../../src/desktop/font-cache.js'
 
 describe('createSystemFontCache（R77-1 批 A）', () => {
   it('TTL 内命中缓存：两次调用 loader 只跑一次', async () => {
@@ -77,5 +82,60 @@ describe('createSystemFontCache（R77-1 批 A）', () => {
     await expect(get()).resolves.toEqual([])
     await expect(get()).resolves.toEqual([])
     expect(calls).toBe(1)
+  })
+})
+
+// R40-28（四十轮）：mac/linux font-list 超时包裹——osascript/系统命令挂起时 Promise
+// 永不结算（字体下拉悬死）；超时 reject（font-list 不暴露子进程句柄，不 kill）；
+// 晚到结算吞掉不成 unhandledRejection；快路径 clearTimeout 正常 resolve / 错误透传。
+describe('R40-28：fontListWithTimeout（font-list 超时包裹）', () => {
+  it('hang 的 loader：超时 reject（注入缩短超时，文案含档位）', async () => {
+    __setFontListTimeoutForTest(20)
+    try {
+      await expect(
+        fontListWithTimeout(() => new Promise<string[]>(() => {})), // 永不结算（osascript 挂起形态）
+      ).rejects.toThrow('font-list 字体枚举超过 20ms 未返回')
+    } finally {
+      __setFontListTimeoutForTest(FONT_LIST_TIMEOUT_MS) // 还原档位，不外溢后续用例
+    }
+  })
+
+  it('快路径：超时前返回正常 resolve；loader 错误原样透传', async () => {
+    __setFontListTimeoutForTest(5_000)
+    try {
+      await expect(fontListWithTimeout(async () => ['PingFang SC'])).resolves.toEqual(['PingFang SC'])
+      await expect(
+        fontListWithTimeout(async () => {
+          throw new Error('系统命令失败')
+        }),
+      ).rejects.toThrow('系统命令失败')
+    } finally {
+      __setFontListTimeoutForTest(FONT_LIST_TIMEOUT_MS)
+    }
+  })
+
+  it('超时后 loader 晚到 reject 不成 unhandledRejection（已接住）', async () => {
+    const unhandled: unknown[] = []
+    const onUnhandled = (e: unknown): void => {
+      unhandled.push(e)
+    }
+    process.on('unhandledRejection', onUnhandled)
+    let lateReject!: (e: Error) => void
+    __setFontListTimeoutForTest(10)
+    try {
+      const p = fontListWithTimeout(
+        () =>
+          new Promise<string[]>((_res, rej) => {
+            lateReject = rej
+          }),
+      )
+      await expect(p).rejects.toThrow('font-list 字体枚举超过 10ms')
+      lateReject(new Error('晚到的 osascript 失败'))
+      await new Promise((r) => setTimeout(r, 30)) // 让晚到 rejection 有落地窗口
+      expect(unhandled).toEqual([])
+    } finally {
+      __setFontListTimeoutForTest(FONT_LIST_TIMEOUT_MS)
+      process.off('unhandledRejection', onUnhandled)
+    }
   })
 })

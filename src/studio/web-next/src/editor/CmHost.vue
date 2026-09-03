@@ -347,21 +347,6 @@ function getSelection(): string {
   const sel = view.state.selection.main
   return sel.from === sel.to ? '' : view.state.sliceDoc(sel.from, sel.to)
 }
-/** 取选区矩形（视口坐标），失焦或空选区返回 null（浮动工具栏定位用）*/
-function getSelectionRect(): { left: number; top: number; right: number; bottom: number } | null {
-  if (!view || !view.hasFocus) return null
-  const sel = view.state.selection.main
-  if (sel.from === sel.to) return null
-  const a = view.coordsAtPos(sel.from)
-  const b = view.coordsAtPos(sel.to)
-  if (!a || !b) return null
-  return {
-    left: Math.min(a.left, b.left),
-    right: Math.max(a.right, b.right),
-    top: Math.min(a.top, b.top),
-    bottom: Math.max(a.bottom, b.bottom),
-  }
-}
 /** 是否有非空选区（右键菜单判断剪切/复制启用） */
 function hasSelection(): boolean {
   if (!view) return false
@@ -426,7 +411,9 @@ function openSearch(): void {
   openSearchPanel(view)
   view.focus()
 }
-defineExpose({ insertText, getSelection, getSelectionRect, hasSelection, clipboardCut, clipboardCopy, clipboardPaste, selectAll, undoAction, redoAction, openSearch })
+// R40-45（四十轮）：getSelectionRect 移除——浮动工具栏方案未落地，全库零消费方
+//（迁移残留死导出，eslint 存量 warn 关联项随触碰顺清）；落地时按本批 git 史取回。
+defineExpose({ insertText, getSelection, hasSelection, clipboardCut, clipboardCopy, clipboardPaste, selectAll, undoAction, redoAction, openSearch })
 
 // B-25（第六十轮）：销毁后置 null——compositionend 已排定的 setTimeout 与挂起的
 // watch 回调靠 `if (!view) return` 短路，不留对 destroyed view 的 dispatch

@@ -13,8 +13,9 @@
  * 幂等：定稿 skipped（指纹未变）时不重复回写；回写后再定稿同一章（内容已改）时
  * 账本推进.md 已被清空 → 无新条目 → 天然不重复追加。
  */
-import { existsSync, rmSync, readFileSync } from 'node:fs'
-import { atomicWriteFile } from '../fs/atomic.js'
+import { existsSync, readFileSync } from 'node:fs'
+import { atomicWriteFile, rmWithRetry } from '../fs/atomic.js'
+import { canonicalizeText } from '../fs/text-canonical.js'
 import { join } from 'node:path'
 import { readLead, readLeadDir, writeLead, LEAD_TYPES, LEAD_VERBS } from '../format/leads.js'
 import { acquireCrossProcessLockWithTimeout, acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
@@ -104,15 +105,25 @@ export function resolveLeadUpdateTargets(bookRoot: string, chapterNo: number): L
  * 自取锁包装——异步等待期 setTimeout 轮询，不阻塞事件循环。
  */
 
+/** R40-15（四十轮）：布线锁键的 win32 折叠——service.ts wiringFileLockKey 的 R38-14
+ *  口径已对 save 侧锁键 casefold，本侧（回写链）此前用盘上扫描路径原样拼 `.lock`，
+ *  两侧折叠不对称：外部 case-only 改名后 manifest 侧名（已折叠）与盘上真实名（未
+ *  折叠）派生出不同锁文件，互斥静默失效（并发防线开窗）。键构造仍为 R29-7 的
+ *  join(bookRoot, rel) 词法路径 + '.lock'（不经 realpath，防 symlink 根下键名漂移），
+ *  仅补 win32 casefold 与 service 侧逐位对齐。导出供回归测试锚定两侧同键。 */
+export function wiringFileLockKeyOf(absFile: string): string {
+  return `${process.platform === 'win32' ? absFile.toLowerCase() : absFile}.lock`
+}
+
 /** 同步预取：全部成功 → release 列表；任一失败 → 释放已取得者并返回 null。 */
 export function acquireLeadFileLocksSync(files: Iterable<string>): (() => void)[] | null {
   const releases: (() => void)[] = []
   for (const f of [...new Set(files)].sort()) {
     let release: (() => void) | null
     try {
-      release = acquireCrossProcessLockWithTimeout(`${f}.lock`, leadFinalizeLockTimeoutMs)
+      release = acquireCrossProcessLockWithTimeout(wiringFileLockKeyOf(f), leadFinalizeLockTimeoutMs)
     } catch (e) {
-      log.warn('lead-finalize', `布线锁获取失败（${f}.lock）：${e instanceof Error ? e.message : String(e)}`)
+      log.warn('lead-finalize', `布线锁获取失败（${wiringFileLockKeyOf(f)}）：${e instanceof Error ? e.message : String(e)}`)
       release = null
     }
     if (!release) {
@@ -130,9 +141,9 @@ export async function acquireLeadFileLocksAsync(files: Iterable<string>): Promis
   for (const f of [...new Set(files)].sort()) {
     let release: (() => void) | null
     try {
-      release = await acquireCrossProcessLockAsync(`${f}.lock`, leadFinalizeLockTimeoutMs)
+      release = await acquireCrossProcessLockAsync(wiringFileLockKeyOf(f), leadFinalizeLockTimeoutMs)
     } catch (e) {
-      log.warn('lead-finalize', `布线锁获取失败（${f}.lock）：${e instanceof Error ? e.message : String(e)}`)
+      log.warn('lead-finalize', `布线锁获取失败（${wiringFileLockKeyOf(f)}）：${e instanceof Error ? e.message : String(e)}`)
       release = null
     }
     if (!release) {
@@ -288,14 +299,18 @@ export function applyLeadUpdatesLocked(
         try {
           // dd-P3：统一原子写（目标虽是清空，也走 tmp+rename 消裸写窗口）
           // ee-P1-6：对齐账本写点 fsync 纪律（掉电回退由履历去重兜底，fsync 消除该窗口）
-          atomicWriteFile(targets.mainPath, residue, { fsync: true })
+          // 平台规范化批：残留透传文本规范形写（可携原文 \r 残尾）
+          atomicWriteFile(targets.mainPath, canonicalizeText(residue), { fsync: true })
         } catch {
           /* 清空失败不阻断定稿主流程 */
         }
       }
       if (existsSync(targets.archivePath)) {
         try {
-          rmSync(targets.archivePath, { force: true })
+          // R40-18（四十轮）：删源收编 rmWithRetry——win 杀软/索引器瞬时锁（EPERM/EBUSY）
+          // 下裸 rmSync 直败中断迁移链清理段（renameWithRetry 家族漏网面，R38-18 同型）；
+          // 退避后仍失败维持「不阻断定稿主流程」吞掉语义（残留归档交下次定稿重试）
+          rmWithRetry(targets.archivePath)
         } catch {
           /* 归档清理失败不阻断定稿主流程 */
         }
@@ -304,8 +319,10 @@ export function applyLeadUpdatesLocked(
       // 主文件载有其他章待确认内容（X-P2-6）——主文件不动；本章归档全兑现则删，
       // 有查无此线残留则改写为警告文本（不丢条目）
       try {
-        if (residue) atomicWriteFile(targets.archivePath, residue, { fsync: true })
-        else rmSync(targets.archivePath, { force: true })
+        // 平台规范化批：残留警告文本规范形写（同上方主文件写点）
+        if (residue) atomicWriteFile(targets.archivePath, canonicalizeText(residue), { fsync: true })
+        // R40-18：同上删源退避（失败语义不变：吞掉不阻断主流程）
+        else rmWithRetry(targets.archivePath)
       } catch {
         /* 同上：失败不阻断定稿主流程 */
       }

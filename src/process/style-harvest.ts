@@ -28,6 +28,7 @@ import {
 import { compareVersions } from '../format/style-compare.js'
 import {
   scanChapters,
+  scanChaptersAsync,
   aggregateStyleTrend,
   readBaseline,
 } from '../metrics/style.js'
@@ -195,7 +196,9 @@ export async function harvestStyleCandidatesAsync(
   }
 
   // ── 源2 · 机检漂移（复用趋势聚合，与体检报告同源）──
-  const samples = scanChapters(bookRoot)
+  // R40-4（四十轮）：异步孪生内扫描同样切让出版——同步 scanChapters 在大书上秒级
+  // 冻结事件循环（R39-15 同族漏网点）；同步版上方保留供存量测试与等价性对照
+  const samples = await scanChaptersAsync(bookRoot)
   const trend = aggregateStyleTrend(samples, kind, readBaseline(bookRoot))
   candidates.push(...mapDriftsToCandidates(trend.drifts, today))
 

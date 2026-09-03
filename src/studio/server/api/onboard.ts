@@ -14,6 +14,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, dirname } from 'node:path'
 import { mkdirSync } from 'node:fs'
 import { atomicWriteFile } from '../../../fs/atomic.js'
+import { canonicalizeText } from '../../../fs/text-canonical.js'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
@@ -130,7 +131,8 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
       const result = await runOnboard(ctx.userDataPath, prompt, bookRoot)
       if (!result.ok) return replyError(res, 500, 'GEN_FAIL', result.error)
 
-      const content = result.text || '(空产出)'
+      // 平台规范化批：AI 产出写前归一（onboard 直写不经 DocumentService.save，自收口）
+      const content = canonicalizeText(result.text || '(空产出)')
       const relPath = STEP_PATH[step]
       // R71-9（总七十一轮）：覆盖前快照留底——onboard-ai（分钟级）与 onboard-save 的
       // 闸键不同互不阻挡，AI 生成期间作者手改同一文件，完成后的 atomicWriteFile 直接
@@ -168,7 +170,8 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
     const body = await readJson(req)
     const step = String(body['step'] ?? '') as OnboardStep
     if (!Object.hasOwn(STEP_PATH, step)) return replyError(res, 400, 'BAD_INPUT', `step 不支持:${step}`)
-    const content = typeof body['content'] === 'string' ? body['content'] : ''
+      // 平台规范化批：作者改后回存内容写前归一（同 onboard-ai 收口）
+      const content = canonicalizeText(typeof body['content'] === 'string' ? body['content'] : '')
     const bookRoot = r.bookRoot
     const relPath = STEP_PATH[step]
     // R69-26（十七轮）：并发闸——与 onboard-ai（:85）互斥面缺失：双窗口同 step 保存

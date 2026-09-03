@@ -23,9 +23,12 @@ import { bundledResource } from '../../fs/resources.js'
 import { atomicWriteFile } from '../../fs/atomic.js'
 import { log } from '../../log/index.js'
 
-/** 哈希 = sha256(规范文本) 前 16 位（内容寻址，与 spill 文件名同族） */
+/** 哈希 = sha256(规范文本) 前 16 位（内容寻址，与 spill 文件名同族）。
+ *  R40-6（四十轮）：哈希前内联 canonicalize——同文仅行尾异码（win 手编 CRLF vs LF
+ *  内置）此前仍可产出两个指纹（canonicalize 的调用方归一挡不住直呼 promptHash 的
+ *  路径）。canonicalize 幂等，存量指纹全部由 canonical 文本算得 → 值不变、缓存不失效。 */
 export function promptHash(text: string): string {
-  return createHash('sha256').update(text, 'utf8').digest('hex').slice(0, 16)
+  return createHash('sha256').update(canonicalize(text), 'utf8').digest('hex').slice(0, 16)
 }
 
 /** 规范化：剥 BOM 前缀 + 恰一个结尾换行（文件体带尾换行入库，内存规范文本不带）。
@@ -34,7 +37,14 @@ export function promptHash(text: string): string {
  *  永判「用户已改」、overlay 永不收口。剥 BOM 后两态合一。 */
 function canonicalize(raw: string): string {
   const noBom = raw.startsWith('\uFEFF') ? raw.slice(1) : raw
-  return noBom.endsWith('\n') ? noBom.slice(0, -1) : noBom
+  // R40-6（四十轮）：\r\n→\n 归一——win 手编 overlay（记事本/多数编辑器默认 CRLF）与
+  // LF 内置同文仅行尾异码时产出两个 prompt 指纹（:148 promptHash 与注入 text 同源本
+  // 函数，本机自洽、跨机对账分叉）。归一后同文同哈希；prompt 语义不变（\r\n/\n 对
+  // LLM 等价），纯跨平台确定化。存量指纹缓存一次性失效重建属预期：versions.json 历史
+  // 表内的 CRLF 形态哈希若存在将不再命中——CRLF overlay 此前本就永判「用户已改」，
+  // 归一后首次真正可比。
+  const lf = noBom.replace(/\r\n/g, '\n')
+  return lf.endsWith('\n') ? lf.slice(0, -1) : lf
 }
 
 export interface PromptResource {

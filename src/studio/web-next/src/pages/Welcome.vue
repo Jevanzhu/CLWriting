@@ -4,7 +4,9 @@
 import { ref, onMounted } from 'vue'
 import { Sparkles, FolderOpen, BookOpen, ArrowRight, Clock } from 'lucide-vue-next'
 import { usePlatform } from '../composables/usePlatform'
+import { useUiStore } from '../stores/ui'
 
+const ui = useUiStore()
 const { isDesktop: hasDesktop, isMac } = usePlatform()
 const recents = ref<{ path: string; label: string }[]>([])
 const loading = ref(true)
@@ -41,7 +43,10 @@ async function chooseLibrary(): Promise<void> {
 
 async function switchTo(path: string): Promise<void> {
   try {
-    await window.clwritingDesktop?.switchLibrary(path)
+    const r = await window.clwritingDesktop?.switchLibrary(path)
+    // P3-3（评审补修）：switchLibrary 返回 {ok:false, reason}（大小写敏感卷警告选「换个
+    // 目录」等）此前只 catch 抛错、返回值被静默吞掉——取消原因就地 toast 交代
+    if (r && !r.ok) ui.toast(r.reason, 'error')
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : String(e)
   }

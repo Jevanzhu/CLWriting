@@ -136,7 +136,11 @@ export const useDocStore = defineStore('doc', () => {
     try {
       await p
     } finally {
-      inflightOpens.delete(docId)
+      // R40-38（四十轮）：identity 删键——setBook 清台账（R33D-26）后新书同 docId 的
+      // 二次 open 已登记新 promise，旧 open 的 finally 无条件按 docId 删会把新条目
+      // 误删（去重失效微窗）；仅当 Map 内暂存仍是自身 promise 才删（对齐 inflightSaves
+      // 下方「get === p 才删」的 R33-12 口径）
+      if (inflightOpens.get(docId) === p) inflightOpens.delete(docId)
     }
   }
 

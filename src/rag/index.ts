@@ -15,7 +15,7 @@ import { createHash } from 'node:crypto'
 import { readChapterDir } from '../format/chapters.js'
 import { readFile } from '../format/frontmatter.js'
 import { parseChapterFileName } from '../format/words.js'
-import { openRagDb, storeChunk, readAllChunks, readAllChapterFingerprints, getRagMeta, setRagMeta, deleteRagMeta, deleteChunksByChapter, getIndexedChapterNumbers, l2Norm, cosineSimilarity, isRagDbCorruptionError, deleteRagDbFiles, type RagChunk } from './store.js'
+import { openRagDb, storeChunk, readAllChunks, readAllChapterFingerprints, getRagMeta, setRagMeta, deleteRagMeta, deleteChunksByChapter, getIndexedChapterNumbers, l2Norm, cosineSimilarity, isRagDbCorruptionError, deleteRagDbFiles, ragDbExists, type RagChunk } from './store.js'
 import { embed, type EmbedOptions } from './embed.js'
 import type { RagConfig } from './config.js'
 import type { DatabaseSync } from 'node:sqlite'
@@ -213,9 +213,11 @@ function chapterFingerprintFresh(
 
 export interface BuildIndexResult {
   ok: boolean
-  /** 本次新索引的块数 */
+  /** 本次新索引的块数。R40-51（四十轮）口径：= 本轮实际新嵌入并落库的块数——指纹
+   *  比对命中而跳过的既有章/块不计（toIndex 只收新章与失配章）；增量与续传（部分
+   *  成功后重跑）两轮计数之和即真实新嵌总数，UI 进度与实际嵌入数一致。 */
   chunkCount: number
-  /** 覆盖的章数 */
+  /** 覆盖的章数（同上口径：本轮实际提交指纹的章数，跳过章不计；零块章计章不计块） */
   chapterCount: number
   error?: string
 }
@@ -226,7 +228,13 @@ export interface BuildIndexResult {
  * 硬错、无程序化出路（只能手工删 .cache/rag.db）。取「清表不删文件」口径（优先级裁定）：
  * 保留 openRagDb 的建表/norm 迁移/WAL 语义，避开删库重建与并发开库的竞态窗口。
  * 幂等：空库再清一次无害；失败回滚可重试。由 rag/rebuild 端点在建索引任务闸内调用。
+ * R40-50（四十轮）：清表后同事务落 reset 标记——「清表不删文件」口径下清空库与「从未
+ * 建索引」（recall 对未建书 openRagDb 会落空建 db）凭内容不可区分；标记让 ragIndexState
+ * 能给出 cleared（已清空可用）而非 unbuilt。标记对既有消费者惰性（无一方读该键），
+ * buildIndex 内容落位后状态自然转 built，标记残留无害。
  */
+export const RAG_RESET_MARKER_KEY = 'reset_at'
+
 export function resetRagIndex(bookRoot: string): void {
   // R35-13（三十五轮）：文件级损坏（断电/磁盘故障/杀软半写后的非 SQLite 字节流，
   // SQLITE_NOTADB 等）清表救不了——本函数「清表不删文件」对文件级损坏无效，专为
@@ -246,11 +254,52 @@ export function resetRagIndex(bookRoot: string): void {
     try {
       db.exec('DELETE FROM chunks')
       db.exec('DELETE FROM rag_meta')
+      setRagMeta(db, RAG_RESET_MARKER_KEY, new Date().toISOString())
       db.exec('COMMIT')
     } catch (e) {
       db.exec('ROLLBACK')
       throw new Error(`清空 RAG 索引失败（已回滚，可重试）：${errStr(e)}`)
     }
+  } finally {
+    db.close()
+  }
+}
+
+/** R40-50（四十轮）：RAG 索引库三态（+损坏）探测口径——
+ *  - unbuilt：从未建索引（库文件不存在，或库可开但无任何索引内容且无 reset 标记；
+ *    recall 对未建书 openRagDb 落空建 db 后同此态）
+ *  - cleared：resetRagIndex 清表不删文件口径下的「已清空可用」态（reset 标记在位
+ *    且无任何索引内容）
+ *  - built：有索引内容（向量 / 章指纹 / 游标 / 模型任一在位——零块章建库只有指纹+
+ *    游标，也算 built）
+ *  - corrupt：库文件级损坏（openRagDb 抛 SQLITE_NOTADB 族；区别于 db 语义错误——
+ *    后者原样上抛）。供 status/recall 链路把「未建 / 已清空可用 / 损坏」透出，
+ *    未建书的空命中不再与损坏库混淆（排障面）。 */
+export type RagIndexState = 'unbuilt' | 'cleared' | 'built' | 'corrupt'
+
+/** 已开库的三态判定（recall 空库早退路径共享，免二次开库）。 */
+function ragIndexStateOfOpenDb(db: DatabaseSync): Exclude<RagIndexState, 'corrupt'> {
+  const hasContent =
+    getRagMeta(db, 'embedding_model') !== null ||
+    getRagMeta(db, 'indexed_max_chapter') !== null ||
+    readAllChapterFingerprints(db).size > 0 ||
+    getIndexedChapterNumbers(db).length > 0
+  if (hasContent) return 'built'
+  return getRagMeta(db, RAG_RESET_MARKER_KEY) !== null ? 'cleared' : 'unbuilt'
+}
+
+/** 独立开库的三态探测（status/probe 出口用；corrupt 收口为返回值而非抛错）。 */
+export function ragIndexState(bookRoot: string): RagIndexState {
+  if (!ragDbExists(bookRoot)) return 'unbuilt'
+  let db: DatabaseSync
+  try {
+    db = openRagDb(bookRoot)
+  } catch (e) {
+    if (isRagDbCorruptionError(e)) return 'corrupt'
+    throw e
+  }
+  try {
+    return ragIndexStateOfOpenDb(db)
   } finally {
     db.close()
   }
@@ -522,6 +571,7 @@ async function commitIndexBatch(
       if (!chapterSpans.has(ch)) complete.push([ch, null]) // 零块章
     }
     let salvaged = 0
+    let salvagedChunks = 0
     // 维度守护：与既有索引维度不一致时不续传（该错要求重建索引，续传无意义）
     const vectorDim = vectors[0]?.length
     const indexedDim = getRagMeta(db, 'embedding_dim')
@@ -555,14 +605,19 @@ async function commitIndexBatch(
         setRagMeta(db, 'embedding_dim', String(vectorDim))
         db.exec('COMMIT')
         salvaged = complete.length
+        // R40-51（四十轮）：续传计数=本事务实际新嵌落库的块数（complete 章 span 覆盖的
+        // 块；零块章计 0 块）——此前恒报 0/0，部分成功落库的章/块不进进度（UI 进度与
+        // 实际嵌入数偏差）；重跑时已续传章经指纹比对跳过、不计入 toIndex，两轮计数
+        // 之和=真实新嵌总数
+        salvagedChunks = complete.reduce((n, [, span]) => n + (span ? span.end - span.start : 0), 0)
       } catch {
         db.exec('ROLLBACK') // 续传失败不致命：回到旧行为（整体重跑），错误文案不带续传字样
       }
     }
     return {
       ok: false,
-      chunkCount: 0,
-      chapterCount: 0,
+      chunkCount: salvagedChunks,
+      chapterCount: salvaged,
       error:
         salvaged > 0
           ? `embedding 端点调用失败（已降级，未阻断主路径）；前序已成功章节已续传落库（${salvaged} 章），重跑将从断点继续、不再整批重 embed`
@@ -650,6 +705,11 @@ export interface RecallResult {
   /** 截断前的全量块数（truncated=false 时 = 参与召回的块数；R37-38 起截断态封顶为
    *  阈值+1——召回侧早停读 N+1 条即判 truncated，不再为计数全表读回） */
   totalBlocks: number
+  /** R40-50（四十轮）：空库态附带的索引三态（unbuilt=从未建索引 / cleared=重建已清空），
+   *  仅空库早退路径携带——有命中即已建（built），其余空结果出口（未配置/端点失败/模型
+   *  失配等）不带本字段（语义属配置/网络面，非库状态面）。消费方可据此把「未建索引」
+   *  与「建了但无命中」区分开。 */
+  indexState?: 'unbuilt' | 'cleared'
 }
 
 /**
@@ -705,7 +765,12 @@ export async function recallDetailed(
     // 只需「超上限」事实与量级，截断前缀语义不变（早停序 = 全读 slice 序，见
     // store.ts readAllChunks 的 rowid 序前提注释）。
     chunks = readAllChunks(db, warnThreshold + 1)
-    if (chunks.length === 0) return emptyResult() // 空库：无向量可召回，先判空不烧 API
+    if (chunks.length === 0) {
+      // R40-50：空库早退附索引三态——「从未建索引」（unbuilt）与「重建清空后可用」
+      //（cleared）可区分（此前两者同样静默空手，与损坏库（开库即抛）在消费方视角
+      // 不可分辨，排障无从下手）；不烧 API 调用的早退语义不变
+      return { hits: [], truncated: false, totalBlocks: 0, indexState: ragIndexStateOfOpenDb(db) === 'cleared' ? 'cleared' : 'unbuilt' }
+    }
     // O-3（第十三轮）：块数超已知可用区间（十万块，见 store.ts readAllChunks 量化注释）
     // 时告警；T2 批起同时硬截断到上限——超区间线性扫描延迟已超交互预期，防单次召回
     // 无界膨胀（截断取读出序前缀 + warn 留痕，配额数值与告警阈值同一常量）

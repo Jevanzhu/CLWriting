@@ -10,6 +10,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, relative } from 'node:path'
 import { mkdirSync, readFileSync, existsSync } from 'node:fs'
 import { atomicWriteFile } from '../../../fs/atomic.js'
+import { canonicalizeText } from '../../../fs/text-canonical.js'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
@@ -80,7 +81,8 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
       const result = await runOutline(ctx.userDataPath, prompt, bookRoot, files)
       if (!result.ok) return replyError(res, 500, 'GEN_FAIL', result.error)
 
-      const content = result.text
+      // 平台规范化批：AI 产出写前归一（在 withFm 拼接与快照比对之前——快照/落盘/指纹同源）
+      const content = canonicalizeText(result.text)
       const outlineDir = join(bookRoot, '工作区')
       const relPath = `工作区/细纲.md` // 当前章细纲（覆盖写，self-heal 写稿前读此文件为语境）
       // V-P2-14：确定性前置章号 front matter（AI 产出不带章号）——机检两端闭合据此

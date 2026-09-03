@@ -58,10 +58,12 @@ test('R37-10: BOM 在非目标行（spec_version 首行）不碍事，rag 段照
 test('R37-10: setTopSectionKey 在 BOM+CRLF 首段头下原位替换单键（同 matchesKeyLine 调用面）', () => {
   const raw = '\uFEFFbook:\r\n  title: 旧书\r\n'
   // 修复前：book 段定位失明 → start=-1 走追加分支，文件尾多出 book: 段成两处。
-  // 段头行含 BOM，正则行首断言需容 BOM（setTopSectionKey 不重写段头行，BOM 原样保留）
+  // 段头行含 BOM，正则行首断言需容 BOM；平台规范化批一：输出经 canonicalizeText
+  // 收口——BOM 剥除、CRLF 归一 LF（写侧规范形，读侧容忍不变）。
   const out = setTopSectionKey(raw, 'book', 'title', '新书')
   expect(out.match(/^(\uFEFF)?book:/gm)).toHaveLength(1)
   expect(out).toContain('title: 新书')
   expect(out).not.toContain('title: 旧书')
-  expect(out.startsWith('\uFEFFbook:')).toBe(true)
+  expect(out.startsWith('book:')).toBe(true) // BOM 随规范形写回收口剥除
+  expect(out.includes('\r')).toBe(false) // CRLF 宿主归一 LF
 })

@@ -23,11 +23,70 @@ import { renameWithRetry } from '../fs/atomic.js'
 /** 书 hash：sha256(bookRoot) 前 16 hex——稳定，不落原文路径。
  *  B-18（第六十轮补修）：哈希前 resolve 归一化——尾分隔符 / '.'/'..' 段变体不再
  *  同书分裂两库（原先 sha256 原样入参，路径形态敏感）。存量安全：调用点路径源于
- *  books.json 单源的绝对无尾斜杠形态，resolve 对其恒等 → 存量库键不变、无孤儿化；
- *  大小写不做归一（Linux 大小写敏感文件系统上大小写变体是不同路径，且收编会
- *  重键存量 macOS 库）。 */
+ *  books.json 单源的绝对无尾斜杠形态，resolve 对其恒等 → 存量库键不变、无孤儿化。
+ *  R40-14（四十轮）：win32 上大小写漂移收口——书路径大小写漂移（盘符大小写/手工改名
+ *  残留/注册时序不同）此前可开出第二个事件库文件（对话史/审计视图「丢史」假象）。
+ *  归一手段是**逐段 readdirSync 大小写不敏感匹配盘上真名**（trueCasePath，memo 化）：
+ *  初版用 fs.realpathSync，但 Node 在 win32 的 realpath 实测**不改写大小写**
+ *  （返回入参形态，四十轮修复批当机复验），对漂移变体是无效修复——readdir 逐段匹配
+ *  才拿得到盘上真实形态。正确大小写的存量路径逐段命中自身 → 键不变（不迁移）；
+ *  漂移变体归一到真名后与正库同键合流。仅 win32 生效——mac/Linux 维持 B-18 既有
+ *  口径（Linux 大小写变体是不同路径；mac 折叠语义与卷敏感性脱钩属 R40-23 登记，
+ *  且 blanket 启用会重键存量库）。段消失/不可读（规划中的新建书等）→ 回落 resolve
+ *  词法形态，语义同旧；UNC（\\\\server\\share）首层无盘符可依，同样回落。 */
 export function bookHash(bookRoot: string): string {
-  return createHash('sha256').update(resolve(bookRoot)).digest('hex').slice(0, 16)
+  let root = resolve(bookRoot)
+  if (process.platform === 'win32') {
+    root = trueCasePath(root)
+  }
+  return createHash('sha256').update(root).digest('hex').slice(0, 16)
+}
+
+/** R40-14：win32 盘上真实大小写归一（逐段 readdir 匹配 + memo）。 */
+const trueCaseCache = new Map<string, string>()
+const TRUE_CASE_CACHE_MAX = 512
+
+function trueCasePath(abs: string): string {
+  const lower = abs.toLowerCase()
+  const hit = trueCaseCache.get(lower)
+  if (hit !== undefined) return hit
+  const segs = abs.split(/[\\/]/).filter((s) => s !== '')
+  let cur = ''
+  let ok = true
+  for (let i = 0; i < segs.length && ok; i++) {
+    const seg = segs[i]!
+    if (cur === '') {
+      // 首段：盘符统一大写并带根（'c:' → 'C:\'，readdirSync('C:') 是驱动器相对路径
+      // 不可用）；UNC 首段为主机名（'\\server\share\…' → '\\\\server'，可 readdir 列共享）
+      cur = seg.endsWith(':') ? seg.toUpperCase() + '\\' : '\\\\' + seg
+      continue
+    }
+    let next: string | null = null
+    try {
+      for (const entry of readdirSync(cur)) {
+        if (entry.toLowerCase() === seg.toLowerCase()) {
+          next = entry
+          break
+        }
+      }
+    } catch {
+      ok = false
+      break
+    }
+    if (next === null) {
+      ok = false
+      break
+    }
+    cur = cur.endsWith('\\') ? cur + next : `${cur}\\${next}`
+  }
+  if (!ok || cur === '') cur = abs // 段消失/不可读/空路径：回落词法形态（语义同旧）
+  // FIFO 淘汰（书数量级小，上限为防御性口径，对齐库内缓存族惯例）
+  if (trueCaseCache.size >= TRUE_CASE_CACHE_MAX) {
+    const oldest = trueCaseCache.keys().next().value
+    if (oldest !== undefined) trueCaseCache.delete(oldest)
+  }
+  trueCaseCache.set(lower, cur)
+  return cur
 }
 
 export interface SessionRow {

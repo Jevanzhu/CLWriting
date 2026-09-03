@@ -51,14 +51,22 @@ export function isBoundsVisibleOnAnyDisplay(
   // R39-8（三十九轮）：宽度红线按显示器收口——创建侧 minWidth 取 Math.min(1200,
   // wa.width-8)、缺省宽取 Math.min(1532, wa.width-80)（main.ts），窄屏（工作区
   // <1208px，如 1024×768）机器的合法存档（944px）此前被 1200 硬红线判「损坏」整体
-  // 丢弃，窗口记忆永不生效（R1W-10 只收了高度侧，宽度侧漏）。红线放低到「任一
+  // 丢弃，窗口记忆永不生效（R1W-10 只收了高度侧下限常量，宽度侧漏）。红线放低到「任一
   // 显示器可产出的最小合法宽」（wa.width-80 与创建缺省口径一致；正常屏 ≥1280 时
   // 仍为 1200，行为不变）。位置越界 containment 判定照旧兜底；空 displays（理论
   // 不可达）维持 1200 原口径。
   const minAllowedWidth = displays.length
     ? Math.min(WIN_MIN_WIDTH, ...displays.map((wa) => Math.max(0, wa.width - 80)))
     : WIN_MIN_WIDTH
-  if (!(width >= minAllowedWidth && height >= WIN_MIN_HEIGHT)) return false
+  // R40-30（四十轮）：高度红线同款收口（R39-8 只收了宽度侧，高度仍 600 硬编码）——
+  // 创建侧 minHeight = Math.min(760, wa.height-8)（main.ts），超小屏+高 DPI 缩放
+  //（工作区 <608）上 600 硬红线把合法存档判「损坏」整体丢弃。红线放低到「任一显示器
+  // 可产出的最小合法高」（wa.height-8 与创建侧下限口径一致；正常屏工作区 ≥608 时
+  // 仍为 600，行为不变）；空 displays 维持 600 原口径。
+  const minAllowedHeight = displays.length
+    ? Math.min(WIN_MIN_HEIGHT, ...displays.map((wa) => Math.max(0, wa.height - 8)))
+    : WIN_MIN_HEIGHT
+  if (!(width >= minAllowedWidth && height >= minAllowedHeight)) return false
   return displays.some(
     (wa) =>
       x >= wa.x - tolerance && y >= wa.y - tolerance &&

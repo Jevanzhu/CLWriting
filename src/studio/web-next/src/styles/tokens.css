@@ -119,13 +119,22 @@
 :root[data-platform='win32'] {
   /* 原生系统栈（2026-08-31，ZCode 同款）：Segoe UI + 雅黑 UI——win 原生观感。
    * 内嵌字体（MiSans/Noto）试用后全部撤：渲染质量由行高/字号/字重/对齐体系保证，
-   * 包体 -29MB。文字主色微提亮：#222 在 ClearType 下偏黑闷。 */
+   * 包体 -29MB。 */
   --font-ui: 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', system-ui, sans-serif;
   --font-monospace: Consolas, ui-monospace, 'SF Mono', Menlo, monospace;
-  --text-normal: #2e2e2e;
   /* UI 字号档基准：win 比 mac 基准 +1px（ClearType 小字 hinting 差一档），
    * 用户可在外观设置再 ±调节（prefs 写 html 内联 --font-size-step 覆盖此处）。 */
   --font-size-step: 1px;
+}
+
+/* R40-1（四十轮）：win 亮色档 ClearType 文字主色提亮（#222 在 ClearType 下偏黑闷，
+ * J5 段原注迁移至此）——限非暗色。原值定义在 :root[data-platform='win32']（特异度
+ * 0,2,0）内，恒压过 [data-theme='dark']（0,1,0）的 --text-normal:#dadada：平台与
+ * 主题两属性同挂 html 根（main.ts 挂 data-platform / prefs.ts 挂 data-theme），
+ * win+暗色组合下正文 #2e2e2e 落在暗底 #1e1e1e 上不可读。:not([data-theme='dark'])
+ * 使暗色下本规则整体不命中、暗色块接管；亮色（无 data-theme 或 'light'）观感不变。 */
+:root[data-platform='win32']:not([data-theme='dark']) {
+  --text-normal: #2e2e2e;
 }
 
 :root[data-platform='darwin'] {

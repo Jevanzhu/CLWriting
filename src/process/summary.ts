@@ -38,6 +38,7 @@ import { readBookConfig } from '../format/yaml.js'
 import type { BookConfig } from '../format/types.js'
 import { log } from '../log/index.js'
 import { atomicWriteFile } from '../fs/atomic.js'
+import { canonicalizeText } from '../fs/text-canonical.js'
 import { acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
 
 // N-7（第五十四轮）：预算兜底显式声明——summary_chapter_max / summary_volume_max 不在
@@ -299,7 +300,8 @@ export async function generateChapterSummary(opts: GenerateChapterSummaryOpts): 
     if (!out.ok) return { ok: false, error: out.error }
 
     // 硬截断到预算（确定性上限；模型超长不信任）
-    let text = out.data.text.trim()
+    // 平台规范化批：AI 产出写前归一（章摘要在库内 .md，规范形收口）
+    let text = canonicalizeText(out.data.text.trim())
     // R-11（十五轮登记销账）：截断按码位——slice 按 UTF-16 码元，增补平面字符（生僻
     // 字/emoji）在边界处被切成半个代理对落盘；全库截断口径 code point（P-7/filename 同源）
     // E-9e（第五十三轮）：预算比较也按码位——此前 UTF-16 length 与码位预算混用，含
@@ -600,7 +602,8 @@ export async function generateVolumeSummary(opts: {
       promptFiles: [...chain.keys()].sort((a, b) => a - b).map((ch) => chapterSummaryRelPath(ch)),
     })
     if (!out.ok) return { ok: false, error: out.error }
-    let text = out.data.text.trim()
+    // 平台规范化批：AI 产出写前归一（卷摘要在库内 .md，规范形收口）
+    let text = canonicalizeText(out.data.text.trim())
     // R-11（十五轮登记销账）：同章摘要——码位截断，不切半个代理对
     // E-9e（第五十三轮）：预算比较也按码位——此前 UTF-16 length 与码位预算混用，含
     // 增补平面字符时 length 偏大、截断点略偏（截断本身已是码位口径 clipByCodePoints）

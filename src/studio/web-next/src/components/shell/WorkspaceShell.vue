@@ -17,6 +17,8 @@ import ExportDialog from '../ui/ExportDialog.vue'
 import Toast from '../ui/Toast.vue'
 import TooltipHost from '../ui/TooltipHost.vue'
 import { useHotkeys } from '../../composables/useHotkeys'
+import { usePlatform } from '../../composables/usePlatform'
+import { modComboLabel } from '../../shared/mod-key'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { usePrefsStore } from '../../stores/prefs'
 import { useTreeStore } from '../../stores/tree'
@@ -34,6 +36,9 @@ const prefs = usePrefsStore()
 const tree = useTreeStore()
 const ui = useUiStore()
 useHotkeys()
+// R40-42（四十轮）：专注退出按钮组合键平台文案（win → Ctrl+Shift+F；原 title 写死 ⌘⇧F，
+// 与 EditorDocHead/TabBar/Ribbon×2 四处 data-tip 同族，共 5 处经 mod-key 单源）
+const focusExitTitle = `退出专注模式（Esc / ${modComboLabel('Mod+Shift+F', usePlatform().platform)}）`
 
 // B-3：max_tokens 截断等非致命警告 → toast 提示。
 // R27-77（二十七轮）：消费面从 WorkbenchView 上移到本常驻层——原 watch 挂在工作台视图，
@@ -142,7 +147,7 @@ onUnmounted(() => {
           v-if="ws.focusMode"
           class="ws-focus-exit"
           type="button"
-          title="退出专注模式（Esc / ⌘⇧F）"
+          :title="focusExitTitle"
           @click="ws.toggleFocus()"
         >
           退出专注

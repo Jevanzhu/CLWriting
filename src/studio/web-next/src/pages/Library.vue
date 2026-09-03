@@ -54,7 +54,10 @@ async function chooseLibrary(): Promise<void> {
 async function switchTo(path: string): Promise<void> {
   if (path === current.value) return
   try {
-    await window.clwritingDesktop?.switchLibrary(path)
+    const r = await window.clwritingDesktop?.switchLibrary(path)
+    // P3-3（评审补修）：switchLibrary 返回 {ok:false, reason}（大小写敏感卷警告选「换个
+    // 目录」等）此前只 catch 抛错、返回值被静默吞掉——取消原因就地 toast 交代
+    if (r && !r.ok) ui.toast(r.reason, 'error')
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : String(e)
   }

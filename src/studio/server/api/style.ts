@@ -18,6 +18,7 @@ import { join, relative, isAbsolute } from 'node:path'
 import { rmSync, existsSync, readFileSync , statSync } from 'node:fs'
 import { defineRoute } from './schema.js'
 import { reply, replyError, readJson } from '../http.js'
+import { acquireTaskGate } from './task-gate.js' // R40-4：收割端点任务闸
 import { resolveWithinRoot } from '../../../fs/safe-path.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
@@ -251,11 +252,22 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
     path: '/api/books/:name/style/harvest',
     // R37-5 延伸（三十七轮批 A）：切异步孪生——源1 逐 doc 轨迹读走 gitAsync（spawn
     // + 有界超时），git 无响应不再同步阻塞事件循环最长 15s
+    // R40-4（四十轮）：补任务闸（learn R66-28 同族）——零 AI 但整树扫描 + 落盘候选箱，
+    // 重复点击双跑双扫互踩查重闸口径；acquireTaskGate 同款 409 BUSY（action 已登记
+    // task-gate KNOWN_ACTIONS，跨进程可见）
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     const bookRoot = resolveStyleBook(res, params)
     if (!bookRoot) return
-    const r = await harvestStyleCandidatesAsync(bookRoot, readKind(bookRoot), today())
-    reply(res, 200, { ok: true, created: r.created.length, skipped: r.skipped })
+    const releaseGate = acquireTaskGate(params['name']!, 'style-harvest')
+    if (!releaseGate) {
+      return replyError(res, 409, 'BUSY', '本书风格收割进行中，请等它完成后再点')
+    }
+    try {
+      const r = await harvestStyleCandidatesAsync(bookRoot, readKind(bookRoot), today())
+      reply(res, 200, { ok: true, created: r.created.length, skipped: r.skipped })
+    } finally {
+      releaseGate()
+    }
   },
   })
 

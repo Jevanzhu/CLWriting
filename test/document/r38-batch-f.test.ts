@@ -63,6 +63,9 @@ describe('R38-13: migrateVersionsDir 穿透 win 瞬时锁', () => {
 
 describe('R38-14: relPathKey 平台语义', () => {
   it('posix：分隔符归一为 /，大小写保持', () => {
+    // R40-3（四十轮）：posix 语义须显式钉平台——原无守卫，win 宿主上按 win32 折叠
+    // 语义跑「大小写保持」断言恒红（四十轮门禁基线唯一确定性败；对齐下方 win32 用例同款 mock）
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
     expect(relPathKey('写作\\正文\\01-章.md')).toBe('写作/正文/01-章.md')
     expect(relPathKey('写作/正文/01-章.md')).toBe('写作/正文/01-章.md')
     expect(relPathKey('写作/A.md')).not.toBe('写作/a.md')

@@ -82,6 +82,10 @@ export function useChatComposer(
     // onPushed 的 await 一并纳入 try，任何抛错走 finally 复位，sending 不再可能永真
     sending.value = true
     chat.pushUser(text)
+    // R40-37（四十轮）：捕获本次推送的幽灵气泡 id——失败回滚按 id 定位，防「切走又
+    // 切回」（书名复检通过但上下文已被 clear+重播种换代）时 popUser 盲弹重播种历史
+    // 的末条 user；也防双入口（ChatDock+工作台）并发时误弹对方的在途回滚位
+    const ghostId = chat.messages[chat.messages.length - 1]?.id ?? null
     try {
       if (onPushed) await onPushed()
       const result = await sendChat(book, {
@@ -90,12 +94,19 @@ export function useChatComposer(
       })
       // E1a（steer）：入队成功提示（消息已入队，当前对话结束后处理）
       if (result.queued) {
+        // R40-36（四十轮）：成功分支书名复检——await 窗口切书后 chat 上下文已换代为
+        // B 书，A 书的入队提示/清错写入 B 对话区（对齐失败分支第五轮守卫族口径）
+        if (bookName() !== book) return
         chat.error = null // 清历史错误态
         chat.notice = '已加入队列——当前对话结束后会自动处理这条消息。'
       }
     } catch (e) {
       if (bookName() === book) {
-        chat.popUser()
+        // R40-37：末条仍是本次幽灵气泡才回滚——直接 popUser 弹「当前末条」在上下文
+        // 换代后会误弹历史末条；错误文案用闭包内捕获的本次错误 e（非 store 暂存的
+        // 「最近一次错误」）
+        const last = chat.messages[chat.messages.length - 1]
+        if (last && last.id === ghostId) chat.popUser()
         chat.error = e instanceof Error ? e.message : String(e)
       } else {
         // R66-33（十四轮）：失败时已切书——回滚被书名守卫拦下（popUser 会误弹 B 书末条），
@@ -136,8 +147,25 @@ export function useChatComposer(
     }
   }
 
-  onMounted(() => document.addEventListener('click', onDocClick))
-  onUnmounted(() => document.removeEventListener('click', onDocClick))
+  // R40-47（四十轮）：菜单开时 Esc 关闭自身且不外溢——对齐 ModelPicker R37-36 手法
+  //（document capture + stopPropagation：先于外层 window 冒泡监听收口，本层消费后
+  // 外层 Esc 链（useHotkeys 退专注/SettingsModal 关设置）不再触发）；IME 组合期 Esc
+  // 归输入法候选框，不让渡外层（R75-E-P3e 同口径）
+  function onDocKeydown(e: KeyboardEvent): void {
+    if (!chapterMenuOpen.value || e.key !== 'Escape' || isImeComposing(e)) return
+    e.preventDefault()
+    e.stopPropagation()
+    chapterMenuOpen.value = false
+  }
+
+  onMounted(() => {
+    document.addEventListener('click', onDocClick)
+    document.addEventListener('keydown', onDocKeydown, true)
+  })
+  onUnmounted(() => {
+    document.removeEventListener('click', onDocClick)
+    document.removeEventListener('keydown', onDocKeydown, true)
+  })
 
   async function stopChat(): Promise<void> {
     try { await interrupt(bookName()) } catch { /* 忽略 */ }

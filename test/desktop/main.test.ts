@@ -391,8 +391,37 @@ describe('kk-P2-8：主进程启动链（安全配置 / CSP / 内嵌 server）',
       expect(w.opts.titleBarStyle).toBe('hidden')
       expect(w.opts.titleBarOverlay).toEqual({ color: '#f6f6f6', symbolColor: '#666666', height: 31 })
       expect(w.menuBarVisibility).toBe(false)
-    } else {
+    } else if (process.platform === 'darwin') {
       expect(w.opts.titleBarStyle).toBe('hiddenInset')
+    } else {
+      // R40-32（四十轮）：linux 走默认系统标题栏（hiddenInset 非 Electron 支持值）
+      expect(w.opts.titleBarStyle).toBeUndefined()
+    }
+  })
+
+  // R40-32（四十轮）：titleBarStyle 平台分支——win 宿主经平台 mock 驱动新开窗口断言
+  //（createSecureWindow 读当下 process.platform，主窗已按真实平台创建，改走
+  // desktop:open-shelf 新开书架窗口；Object.defineProperty 手法对齐
+  // test/document/r38-batch-f.test.ts:39-42）。
+  it('R40-32: linux 新开窗不带 hiddenInset（默认标题栏）；darwin 保持 hiddenInset', async () => {
+    const ORIG = process.platform
+    const n0 = M.windows.length
+    try {
+      Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
+      M.ipcHandle['desktop:open-shelf']!({} as never)
+      await new Promise((r) => setImmediate(r))
+      const linuxWin = M.windows[n0]!
+      expect(linuxWin.opts.titleBarStyle).toBeUndefined() // 非支持值不外发
+      expect(linuxWin.opts.titleBarOverlay).toBeUndefined()
+      linuxWin.close() // 'closed' → shelfWindow 置空，单例让位下一轮
+
+      Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+      M.ipcHandle['desktop:open-shelf']!({} as never)
+      await new Promise((r) => setImmediate(r))
+      const macWin = M.windows[n0 + 1]!
+      expect(macWin.opts.titleBarStyle).toBe('hiddenInset')
+    } finally {
+      Object.defineProperty(process, 'platform', { value: ORIG, configurable: true })
     }
   })
 
@@ -818,6 +847,27 @@ describe('kk-P2-8：退出与边界分支', () => {
     const e3 = { preventDefault: vi.fn() }
     h(e3)
     expect(e3.preventDefault).not.toHaveBeenCalled()
+  })
+
+  // R40-29（四十轮）：session-end（win 关机/注销）此前只停服务不存窗口状态——窗口
+  // 位置/尺寸不落盘，下次开窗回默认位。修复后停机前补一次 saveWinState。fresh 模块
+  // 复刻 R65-48 手法（此前用例已把首实例的 child 停机消耗掉，postMessage 断言需新 child）。
+  it('R40-29: session-end 停机前补存窗口状态（bounds/maximized 落盘），停机指令仍下发', async () => {
+    vi.resetModules()
+    await import('../../src/desktop/main.js')
+    await new Promise((r) => setImmediate(r))
+    await new Promise((r) => setImmediate(r))
+    const win = M.windows.at(-1)!
+    const child = M.forkChildren.at(-1)!
+    const fp = join(M.userData, 'window-state.json')
+    // 既有 state 文件无 maximized 键——置 true 后 session-end 触发的新写可与之区分
+    win.maximized = true
+    win.emit('session-end')
+    const saved = JSON.parse(readFileSync(fp, 'utf-8')) as { bounds: Record<string, number>; maximized?: boolean }
+    expect(saved.maximized).toBe(true) // 本次新写（preset 无此键）
+    expect(saved.bounds).toMatchObject({ x: 50, y: 50, width: 1500, height: 900 }) // 恢复的存量 bounds 落盘
+    // R1W-9 主语义不回归：停机指令照发（shutdown 指令非裸 kill）
+    await vi.waitFor(() => expect(child['posted']).toContainEqual({ type: 'shutdown' }))
   })
 
   // 批 U3：崩溃风暴接线——manager 退避（默认 0/5s/15s，fake timers 快进）+ main 的

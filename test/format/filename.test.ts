@@ -5,7 +5,7 @@
  * 「mac 同样执行，保持数据面跨平台一致」口径在所有平台生效）。
  */
 import { describe, expect, it } from 'vitest'
-import { RESERVED_WIN, sanitizeChapterTitle, sanitizeFileNamePart } from '../../src/format/filename.js'
+import { RESERVED_WIN, sanitizeChapterTitle, sanitizeFileNamePart, sanitizeFullFileName } from '../../src/format/filename.js'
 
 describe('非法字符与穿越', () => {
   it('win 非法字符集全替换 _（含路径分隔符，防 ../ 越出 bookRoot）', () => {
@@ -81,5 +81,24 @@ describe('sanitizeChapterTitle：单源委托等值', () => {
     for (const s of ['雨夜:追杀', 'CON', '终章...  ', '一'.repeat(80), '[[伏笔]]']) {
       expect(sanitizeChapterTitle(s)).toBe(sanitizeFileNamePart(s))
     }
+  })
+})
+
+describe('NFC 归一（平台规范化批一 C）', () => {
+  it('NFD 文件名段入口即归一 NFC（创建面生而规范；兼容字符保留不越权改内容）', () => {
+    const nfc = '가'
+    const nfd = nfc.normalize('NFD')
+    expect(nfd).not.toBe(nfc)
+    expect(sanitizeFileNamePart(`1-${nfd}`)).toBe(`1-${nfc}`)
+    expect(sanitizeFileNamePart(`1-${nfc}`)).toBe(`1-${nfc}`)
+    // 兼容分解字符（ﷺ U+FDFA 等）NFC 不分解——归一只做 NFC，不做 NFKC（防越权改义）
+    expect(sanitizeFileNamePart('ﷺ')).toBe('ﷺ')
+  })
+
+  it('sanitizeFullFileName 同口径 NFC + 尾点清理次序（NFC 在前，清理不受影响）', () => {
+    const nfc = '가'
+    const nfd = nfc.normalize('NFD')
+    expect(sanitizeFullFileName(`章${nfd}.md`)).toBe(`章${nfc}.md`)
+    expect(sanitizeFullFileName(`章${nfc}..`)).toBe(`章${nfc}`)
   })
 })

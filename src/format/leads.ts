@@ -7,10 +7,11 @@
  * 容错（#3 第 8 节）：未知字段保留、回写不重排、坏文件返回结构化错误不崩。
  */
 
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { readdirSync, statSync } from 'node:fs'
 import { join, basename } from 'node:path'
 // R34D-2（三十四轮）：履历畸形行抢救失败时的 log.warn 留痕（对齐 lead-updates R26-32 手法）
 import { log } from '../log/index.js'
+import { isMdFileName } from './filename.js'
 import {
   readFile,
   parseFlat,
@@ -356,19 +357,6 @@ function leadToMap(lead: Lead): Map<string, unknown> {
 }
 
 /** 写入账本 md（front matter + 履历段） */
-/** 主导行尾探测（R38-11）：盘上文件 \r\n 行数 ≥ LF-only 行数即判 CRLF；
- *  文件不存在/读失败 → LF（新文件维持旧口径，存量 LF 账本字节不变——回归锚）。 */
-function dominantEolOf(filePath: string): '\r\n' | '\n' {
-  try {
-    const raw = readFileSync(filePath, 'utf8')
-    const crlf = (raw.match(/\r\n/g) ?? []).length
-    const lfAll = (raw.match(/\n/g) ?? []).length
-    return crlf > 0 && crlf >= lfAll - crlf ? '\r\n' : '\n'
-  } catch {
-    return '\n'
-  }
-}
-
 export function writeLead(filePath: string, lead: Lead): void {
   const fmText = stringifyFlat(leadToMap(lead))
   const historyText = stringifyHistory(lead.履历)
@@ -380,12 +368,10 @@ export function writeLead(filePath: string, lead: Lead): void {
   const body = `\n${parts.join('\n\n')}\n`
   // ee-P1-6：账本是防吃书根基，写入与 manifest/version/journal 同级 fsync——tmp+rename
   // 防半截文件，但不防掉电时 rename 元数据先于内容持久化（账本整体回退旧状态的窗口）
-  // R38-11（三十八轮）：主导行尾保真——CRLF 账本（win 手编/autocrlf）此前整文件被
-  // LF 全量重生成归一（git 全文件 diff 噪声、同步盘 churn；读侧本就 CRLF 兼容，纯
-  // 卫生面）。按盘上主导行尾回写渲染产物；LF 文件顺带归一保留段内的杂散 \r（此前
-  // 保留段可携 \r\n 混入 LF 写出）。与 MP2-4 补丁路径的行尾保真同族（全量重生成版）。
-  const eol = dominantEolOf(filePath)
-  const full = joinFrontMatter(fmText, body).replace(/\r?\n/g, eol)
+  // 平台规范化批（2026-09-03）：恒 LF——R38-11 的「按盘上主导行尾渲染」（dominantEolOf
+  // 探测随之移除）随规范形拍板翻转；joinFrontMatter 整体规范化连带归一保留段内杂散
+  // \r（R38-11 LF 侧既有行为的延续）。CRLF 存量账本由启动迁移 v4 归一。
+  const full = joinFrontMatter(fmText, body)
   atomicWriteFile(filePath, full, { fsync: true })
 }
 
@@ -404,8 +390,10 @@ export function readLeadDir(
   let files: string[]
   try {
     // R34D-11（三十四轮）：扩展名匹配大小写不敏感（win 手工改名 .MD 不再对账本扫描隐形）；
-    // slice(-3) 只对小尾串做一次 toLowerCase，免全名分配
-    files = readdirSync(dirPath).filter((f) => f.slice(-3).toLowerCase() === '.md' && !f.startsWith('._'))
+    // R40-11（四十轮）：判定收口 filename.isMdFileName 单源（与 parseLeadFileName 剥尾
+    // 侧同口径——此前扫描侧认 .MD 而解析侧 basename('.md') 剥不掉，构造/扫描两口径分裂，
+    // .MD 条目标题残留扩展名尾）
+    files = readdirSync(dirPath).filter((f) => isMdFileName(f) && !f.startsWith('._'))
   } catch {
     // 目录不存在（未启用的扩展类）→ 空结果，不报错（母本第 2.1 节）
     return { leads, errors }
@@ -440,9 +428,12 @@ export function readLeadDir(
   return { leads, errors }
 }
 
-/** 从文件名提取编号（#3 第 2 节：<编号>-<标题>.md） */
+/** 从文件名提取编号（#3 第 2 节：<编号>-<标题>.md）
+ *  R40-11（四十轮）：扩展名剥除大小写不敏感——basename(fileName, '.md') 只剥精确小写
+ *  尾，.MD 条目（扫描侧 R34D-11 起已收）标题残留 .MD 尾，构造/扫描两口径分裂。与
+ *  readLeadDir 扫描侧同走 isMdFileName 单源（mac 敏感卷上 .MD 也是合法账本文件）。 */
 export function parseLeadFileName(fileName: string): { 编号: string; 标题: string } | null {
-  const base = basename(fileName, '.md')
+  const base = isMdFileName(fileName) ? fileName.slice(0, -3) : basename(fileName, '.md')
   // 编号格式：类型-三位序号（如 悬念-031），标题在编号之后
   const m = base.match(/^(.+?-\d{3})-(.+)$/)
   if (!m) return null

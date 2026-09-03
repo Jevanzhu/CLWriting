@@ -764,7 +764,10 @@ describe('批次2 reasoning 思维链（方案 §4.2）', () => {
     expect(evs.filter((e) => e.type === 'reasoning')).toEqual([{ type: 'reasoning', delta: '思考中…' }])
   })
 
-  it('chat 适配器：assistant 消息的 reasoning 块 → 写回 reasoning_content 字段', async () => {
+  it('chat 适配器：assistant 消息的 reasoning 块 → 写回 reasoning_content 字段（echoReasoning=true 族）', async () => {
+    // R40-2（四十轮）：回写档位化后本用例改钉 deepseek 族（echoReasoning=true）——
+    // 原 CONF 'test-model' 属 unknown 族（false），旧断言锚的是无条件回写行为
+    const conf = { ...CONF, model: 'deepseek-chat' } as ProviderConf
     let sentParams: Record<string, unknown> | undefined
     const client = {
       chat: {
@@ -791,7 +794,7 @@ describe('批次2 reasoning 思维链（方案 §4.2）', () => {
         },
       ],
     }
-    await collect(createOpenAIProvider(CONF, client), req)
+    await collect(createOpenAIProvider(conf, client), req)
     const asstMsg = (sentParams?.messages as Record<string, unknown>[])[0]
     expect(asstMsg).toMatchObject({
       role: 'assistant',

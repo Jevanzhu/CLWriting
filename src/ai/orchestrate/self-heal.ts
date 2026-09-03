@@ -21,6 +21,7 @@ import { evaluateRetry, redSetKey, buildStrategyReminder } from '../../process/r
 import { prepareMaterials } from '../../process/materials.js'
 import { readOutlineLeads } from '../../check/outline-leads.js'
 import { atomicWriteFile } from '../../fs/atomic.js'
+import { canonicalizeText } from '../../fs/text-canonical.js'
 import { getRedItems } from '../../check/types.js'
 import { openSessionStore, openSessionStoreAsync, bookHash } from '../../events/store.js'
 import { ChainRecorder, checkReportEvent, retryAttemptEvent, goalChangeEvent, todoWriteEvent } from '../../events/chain-bridge.js'
@@ -430,7 +431,7 @@ async function prepareChapterMaterials(
       // 时分钟级白烧 token、running 迟迟不释放。
       ...(signal ? { signal } : {}),
     })
-    atomicWriteFile(join(ctx.bookRoot, '工作区', '本章写作材料.md'), r.text, { fsync: true })
+    atomicWriteFile(join(ctx.bookRoot, '工作区', '本章写作材料.md'), canonicalizeText(r.text), { fsync: true })
     promptFiles = ['工作区/本章写作材料.md', ...r.injectedSummaryFiles]
   } catch {
     // 备料失败静默降级——写稿主线不被备料拖死（RAG 召回失败已在 materials 内部降级留痕）。

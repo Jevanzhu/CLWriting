@@ -15,6 +15,7 @@
 
 import type { ParseError } from './types.js'
 import { log } from '../log/index.js'
+import { canonicalizeText } from '../fs/text-canonical.js'
 import { splitFrontMatter, bodyOf, stripInlineComment, firstKeyColon } from './frontmatter-core.js'
 // splitFrontMatter 已拆到 frontmatter-core.ts（零 Node 依赖，浏览器共用）；此处 re-export 保持兼容
 export { splitFrontMatter, bodyOf }
@@ -262,10 +263,8 @@ export function patchFlatFm(
   fmRaw: string,
   updates: Record<string, unknown>,
 ): { ok: true; text: string } | { ok: false; reason: string } {
-  // MP2-4（专项重评二轮修复批）：新渲染键行按 fm 原文行尾——CRLF 文件（win 记事本/
-  // autocrlf）的键行替换/追加此前一律 LF，写回混合行尾（未触碰行原样保留口径不变）。
-  const cr = fmRaw.includes('\r\n') ? '\r' : ''
-  const nl = (ls: string[]): string[] => (cr ? ls.map((l) => l + cr) : ls)
+  // 平台规范化批（2026-09-03）：输出整体规范形（见函数尾 canonicalizeText）——MP2-4
+  // 的「按 fm 原文行尾渲染」语义随规范形拍板翻转；未触碰行携带的 CRLF 残尾一并归一。
   const lines = fmRaw === '' ? [] : fmRaw.split('\n')
   const renderKeyLine = (key: string, val: unknown): string[] => {
     if (typeof val === 'string' && val.includes('\n')) {
@@ -338,35 +337,28 @@ export function patchFlatFm(
       }
     }
     // 块标量整体重渲染（含跨空行内容）；普通键只换键行，段内空行原位保留
-    out.push(...nl(renderKeyLine(key, val)), ...(isBlockScalar ? [] : span))
+    out.push(...renderKeyLine(key, val), ...(isBlockScalar ? [] : span))
     i = j
   }
-  // 未命中的键追加到末尾（保持既有行序不变）
+  // 未命中的键追加到末尾（保持既有行序不变；原文尾随换行的 split 占位 '' 随追加
+  // 成为分隔空行）。返回整体规范形（剥 BOM、归一 LF）——与 yaml.ts 补丁族口径
+  // 一致；MP2-4 的「按原文行尾渲染」语义随规范形拍板废止。
   for (const [key, val] of Object.entries(updates)) {
     if (done.has(key)) continue
-    // MP2-4：原文尾随换行的 split 占位 '' 在追加后从「终止符占位」变为「分隔空行」
-    // ——首个追加键把它升级为 CRLF 空行（\r），否则追加段前混入裸 \n；无追加则
-    // 占位保持 ''（join 仍还原尾随换行）。LF 文件占位 '' 不变，零介入。
-    if (cr !== '' && out.length > 0 && out[out.length - 1] === '') out[out.length - 1] = '\r'
-    out.push(...nl(renderKeyLine(key, val)))
+    out.push(...renderKeyLine(key, val))
   }
-  // MP2-4：追加键行落在末元素时悬挂裸 \r——按「末行不带终止符」惯例剥掉（LF 侧
-  // 追加末行本就不带终止符，此修补只对齐形态；键行替换/中部追加不受影响）
-  const text = out.join('\n')
-  return { ok: true, text: cr !== '' && text.endsWith('\r') ? text.slice(0, -1) : text }
+  return { ok: true, text: canonicalizeText(out.join('\n')) }
 }
 
 /** 包裹 front matter + 正文为完整 markdown */
 export function joinFrontMatter(fmText: string, body: string): string {
-  if (fmText === '') return body
-  // R39-10（三十九轮）：fence/接缝行尾按内容主导行尾——MP2-4 已把 patch 新渲染行按
-  // 原文主导行尾，但本函数三处 fence/接缝拼死 \n，CRLF 文件（记事本/autocrlf 形态）
-  // 经元数据 PATCH 写回后 fence/接缝行尾混排（同步盘 diff 噪声）。fmText/body 检测到
-  // \r\n 即用 CRLF；LF 文件不含 \r\n → 逐字节不变（回归锚）。解析端 \r 双认
-  // （Y-6/R36-1），读侧无损。已知边界：writeLead/stringifyFlat 族整体重生成路径的
-  // fm 段恒 LF（R38-11 彼批已收 writeLead 主导行尾；style-entry 等仍 LF——登记维持）。
-  const eol = /\r\n/.test(fmText) || /\r\n/.test(body) ? '\r\n' : '\n'
-  return `---${eol}${fmText}${eol}---${eol}${body}`
+  // 平台规范化批（2026-09-03）：整体输出规范形（剥 BOM、行尾归一 LF）——R39-10 的
+  // 「fence/接缝按内容主导行尾」语义随规范形拍板翻转。本函数是 fm+正文写回族的
+  // 统一规范闸（service meta 三写点 / writeLead / style-entry / knowledge 注入）：
+  // fm/正文携带的 \r\n（外部编辑器造出的 CRLF 文件）随整输出归一——读侧双认容忍
+  // 维持不动，「容忍读 + 规范写」= 存量自愈式收敛。
+  if (fmText === '') return canonicalizeText(body)
+  return canonicalizeText(`---\n${fmText}\n---\n${body}`)
 }
 
 // ── 读取/写入文件（容错入口）────────────────────
@@ -380,7 +372,7 @@ import { atomicWriteFile } from '../fs/atomic.js'
 export function readFile(
   filePath: string,
   content?: string,
-): { ok: true; fmRaw: string; body: string; bom: boolean } | { ok: false; error: ParseError } {
+): { ok: true; fmRaw: string; body: string } | { ok: false; error: ParseError } {
   let text: string
   if (content !== undefined) {
     text = content
@@ -415,10 +407,10 @@ export function readFile(
       },
     }
   }
-  // R39-10：BOM 记账——splitFrontMatter 读侧剥 BOM（frontmatter-core），写回链此前
-  // 不补，CRLF+BOM 文件经一次 meta PATCH 即 BOM 静默丢失。ok 回执带 bom 标记，
-  // 持原文的写回点（service meta 三处）据此前缀补回；裸用 fmRaw/body 的调用方不受影响。
-  return { ok: true, fmRaw: split.fmRaw, body: split.body, bom: text.startsWith('\uFEFF') }
+  // 平台规范化批：R39-10 的 BOM 记账（ok 回执带 bom 标记供写回点补回）随规范形拍板
+  // 移除——书库内文本一律无 BOM，带 BOM 的存量/外部文件经写回族（joinFrontMatter
+  // 整体规范化）自愈剥除；splitFrontMatter 读侧剥 BOM 容忍维持。
+  return { ok: true, fmRaw: split.fmRaw, body: split.body }
 }
 
 /** 写入 front matter + 正文到文件（opts 透传 atomicWriteFile——ee-P1-6 账本写点用 fsync） */

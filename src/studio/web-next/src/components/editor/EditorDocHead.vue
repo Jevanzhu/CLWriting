@@ -14,6 +14,8 @@ import { parseFmFields, formKindOf, isBodyKind } from '../../shared/words'
 import { useAiAssist } from '../../composables/useAiAssist'
 import { friendlyError } from '../../shared/error'
 import { isImeComposing } from '../../shared/ime'
+import { usePlatform } from '../../composables/usePlatform'
+import { modComboLabel } from '../../shared/mod-key'
 
 const props = defineProps<{
   docId: string | null
@@ -29,6 +31,8 @@ const tree = useTreeStore()
 const ws = useWorkspaceStore()
 const ui = useUiStore()
 const rewrite = useRewriteStore()
+// R40-42（四十轮）：保存按钮 tip 组合键平台文案（win → Ctrl+S；原写死 ⌘S）
+const saveTip = `保存（${modComboLabel('Mod+S', usePlatform().platform)}）`
 
 const entry = computed(() => (props.docId ? doc.get(props.docId) : undefined))
 
@@ -258,7 +262,7 @@ async function onTitleCommit(): Promise<void> {
               class="save-btn"
               :class="saveStatus.cls"
               :disabled="entry?.saving || entry?.conflict || (!entry?.dirty && !entry?.error)"
-              data-tip="保存（⌘S）"
+              :data-tip="saveTip"
               data-tip-dir="bottom"
               @click="onSave"
             >

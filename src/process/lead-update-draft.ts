@@ -11,6 +11,7 @@
 import { join, relative, sep } from 'node:path'
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { atomicWriteFile, renameWithRetry } from '../fs/atomic.js'
+import { canonicalizeText } from '../fs/text-canonical.js'
 import { snapshotBeforeOverwrite } from './draft-pipeline.js' // R74-4：覆盖留底单源复用
 import { acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 import { readChapterDir } from '../format/chapters.js'
@@ -144,7 +145,8 @@ async function generateLeadUpdateDraftInner(
       } catch (e) {
         log.warn('lead-update-draft', `账本推进覆盖前快照失败（第${chapter}章，fail-open 继续落盘）`, e)
       }
-      atomicWriteFile(join(bookRoot, LEAD_UPDATES_FILE), content)
+      // 平台规范化批：拼装内容规范形写（updates 的证据段源自库内文本，可能携 \r 残尾）
+      atomicWriteFile(join(bookRoot, LEAD_UPDATES_FILE), canonicalizeText(content))
     })
   } catch (e) {
     return { ok: false, code: 'failed', error: '落盘:' + (e instanceof Error ? e.message : String(e)) }

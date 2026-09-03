@@ -24,7 +24,7 @@ import { resolveBook } from '../book-context.js'
 import { readRagConfig } from '../../../rag/config.js'
 import { resolveRag, type RagProviderRef } from '../../../rag/resolve.js'
 import { loadProviders } from '../../../ai/provider/index.js'
-import { buildIndex, resetRagIndex, type BuildIndexResult } from '../../../rag/index.js'
+import { buildIndex, resetRagIndex, RAG_RESET_MARKER_KEY, type BuildIndexResult } from '../../../rag/index.js'
 import { openRagDb, getRagMeta, ragDbExists, isRagDbCorruptionError } from '../../../rag/store.js'
 import { acquireTaskGate } from './task-gate.js'
 // D-2（二十九轮）：建索引失败信息与 replyError 同源的脱敏单源（http.ts 同款 import）——
@@ -158,6 +158,11 @@ export function registerRagRoutes(ctx: RagCtx): void {
     let indexedChapters = 0
     let chunkCount = 0
     let model: string | null = null
+    // R40-50（四十轮）：索引三态透出——unbuilt（从未建/recall 落空建的空库）/ cleared
+    //（resetRagIndex 清表不删文件的「已清空可用」）/ built（有任一索引内容）。损坏态
+    // 走下方 500 RAG_DB_CORRUPT（本就不混淆）；前端可据 unbuilt vs cleared 引导不同
+    // 文案（「未建索引去建」vs「已重置可重建」）
+    let indexState: 'unbuilt' | 'cleared' | 'built' = 'unbuilt'
     // hh §八-11：库已迁 .cache/rag.db；存在性探测走 openRagDb 同源 helper——
     // 旧库还在未迁移时也不误报「未建索引」（随后 openRagDb 内完成迁移）
     if (ragDbExists(bookRoot)) {
@@ -182,6 +187,14 @@ export function registerRagRoutes(ctx: RagCtx): void {
         model = getRagMeta(db, 'embedding_model')
         const maxCh = getRagMeta(db, 'indexed_max_chapter')
         indexedChapters = maxCh ? Number(maxCh) : 0
+        // R40-50：与 rag/index.ts ragIndexStateOfOpenDb 同口径（块/模型/游标任一在位 =
+        // built；否则 reset 标记区分 cleared/unbuilt）——不引 ragIndexState 二次开库，
+        // 本处已持打开的 db 就地判（零块章建库只有指纹+游标也算 built）
+        if (chunkCount > 0 || model !== null || indexedChapters > 0) {
+          indexState = 'built'
+        } else if (getRagMeta(db, RAG_RESET_MARKER_KEY) !== null) {
+          indexState = 'cleared'
+        }
       } finally {
         db.close()
       }
@@ -199,6 +212,7 @@ export function registerRagRoutes(ctx: RagCtx): void {
       indexedChapters,
       chunkCount,
       model,
+      indexState,
       ragConfig,
       providerName: resolved?.providerName ?? null,
       legacy: resolved?.legacy ?? false,

@@ -42,3 +42,43 @@ export function createSystemFontCache(
     return inflight
   }
 }
+
+// ── R40-28（四十轮）：mac/linux font-list 调用超时 ─────────────────────
+
+/** R40-28：font-list 枚举超时（毫秒）——10s 对齐 win-fonts R39-5 的缺省超时档
+ *  （win 走 listWindowsFonts 自带超时 + kill，不经本包裹）。 */
+export const FONT_LIST_TIMEOUT_MS = 10_000
+
+/** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改（rule-hits R63-6 同口径）。 */
+let fontListTimeoutMs = FONT_LIST_TIMEOUT_MS
+
+/** 测试注入钩子（生产零调用）。 */
+export function __setFontListTimeoutForTest(ms: number): void {
+  fontListTimeoutMs = ms
+}
+
+/**
+ * R40-28（四十轮）：font-list 调用的超时包裹——mac/linux 分支（main.ts loadFontList）
+ * 此前裸调 getSystemFontList，osascript/系统命令挂起时 Promise 永不结算，字体下拉
+ * 悬死且（font-cache 失败不缓存）每次重开再起一个挂起命令。超时即 reject：font-list
+ * 不暴露子进程句柄，**超时不 kill**（挂起进程自灭，残留记档）——与 win-fonts R39-5
+ * 的「超时 kill」差一口径，属上游 API 面限制。晚到的 loader 结算被吞（超时后 resolve/
+ * reject 均为 no-op，且 rejection 已接住不会成 unhandledRejection）。
+ */
+export function fontListWithTimeout(load: () => Promise<string[]>): Promise<string[]> {
+  return new Promise<string[]>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`font-list 字体枚举超过 ${fontListTimeoutMs}ms 未返回，已放弃等待`))
+    }, fontListTimeoutMs)
+    load().then(
+      (fonts) => {
+        clearTimeout(timer)
+        resolve(fonts)
+      },
+      (err) => {
+        clearTimeout(timer)
+        reject(err)
+      },
+    )
+  })
+}

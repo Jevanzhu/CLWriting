@@ -13,10 +13,14 @@ export function countWords(body: string): number {
   return [...body.replace(/[#>*_`~\-\[\]()!\s]/g, '')].length
 }
 
-/** 去目录 + 去 .md 扩展（替代 node:path.basename，零 Node 依赖）。 */
+/** 去目录 + 去 .md 扩展（替代 node:path.basename，零 Node 依赖）。
+ *  R40-10（四十轮）：扩展名剥除大小写不敏感——.MD 大写章文件名（mac 敏感卷/win 手工
+ *  改名形态）此前标题派生残留 .MD 尾，parseChapterFileName 的 路径/标题 派生错位。
+ *  与 filename.ts isMdFileName（R38-9 单源）同口径；本文件须零 Node 依赖供 web-next
+ *  浏览器 import（filename.ts 依赖 Buffer 全局），就地 toLowerCase 判定，口径注释互指。 */
 function stripMd(fileName: string): string {
   const last = fileName.split('/').pop() ?? fileName
-  return last.endsWith('.md') ? last.slice(0, -3) : last
+  return last.toLowerCase().endsWith('.md') ? last.slice(0, -3) : last
 }
 
 /** 从文件名提取章号（写作/正文/152-北境的雪.md → {章号:152, 标题:'北境的雪'}）。 */

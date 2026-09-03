@@ -35,6 +35,7 @@ import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { findWorkDir, readBooks } from '../install/books.js'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { resolveWithinRoot } from '../fs/safe-path.js'
+import { probeCaseSensitive } from '../fs/case-probe.js' // 平台规范化批 E：大小写敏感卷探测
 import { defaultUserDataPath, samePath } from '../fs/user-data-path.js'
 import { initialBookArg, initialBookArgvOnly, resolveInitialBook } from './initial-book.js' // RB-SV-P2-4：--book 直进
 import { parseContextMenuSpecs, type ContextMenuSpec } from './context-menu.js' // RB-SV-P2-5：IPC 载荷净化
@@ -42,7 +43,7 @@ import { createStudioServerManager, ServerBootError } from './server-manager.js'
 import { createBootstrapRunner } from './bootstrap-runner.js' // O-4：生命周期 runner 可测
 import { isBoundsVisibleOnAnyDisplay } from './window-state.js' // R26-86：多屏 bounds 校验纯函数
 import { getFonts as getSystemFontList } from 'font-list'
-import { createSystemFontCache } from './font-cache.js' // R77-1（二十五轮批 A）：系统字体 IPC 缓存
+import { createSystemFontCache, fontListWithTimeout } from './font-cache.js' // R77-1（二十五轮批 A）：系统字体 IPC 缓存；R40-28：font-list 超时包裹
 import { listWindowsFonts } from './win-fonts.js' // MP2-1（专项重评二轮）：win 自绘枚举（windowsHide，不经 cmd）
 import {
   parseStore,
@@ -292,6 +293,32 @@ function isLibraryDir(dir: string): boolean {
  * @returns 校验通过的目录绝对路径；取消/超限返回 null
  */
 const PICK_LIBRARY_MAX_ATTEMPTS = 10 // E-9c：目录选择循环封顶
+
+/**
+ * 平台规范化批 E（2026-09-03）：大小写敏感卷警告——探测目录所在卷敏感性，敏感
+ * （mac 大小写敏感 APFS / Linux 常态 / win 按目录敏感标记）时弹确认。书库跨机互拷
+ * 依赖「大小写不敏感」前提（win/默认 mac 卷均如此），敏感卷上两台机器各自创建的仅
+ * 大小写异名文件会劈裂双存。返回 true = 用户选择换个目录（调用方回选择循环/中止切换）。
+ */
+async function warnIfCaseSensitive(dir: string): Promise<boolean> {
+  // 探测失败（null）fail-open：探测本身不挡书库选择主流程
+  if (probeCaseSensitive(dir) !== true) return false
+  const parent = mainWindow ?? undefined
+  const msgOpts: MessageBoxOptions = {
+    type: 'warning',
+    title: '该目录在大小写敏感的卷上',
+    message: `「${basename(dir)}」所在卷区分文件名大小写`,
+    detail:
+      'Windows 与 macOS 默认卷均不区分大小写；在大小写敏感卷上使用书库，跨机器互拷时可能出现仅大小写不同的重名文件劈裂（两台机器各留一份），不建议在此使用。',
+    buttons: ['仍要使用', '换个目录'],
+    defaultId: 1,
+    cancelId: 1,
+  }
+  const choice = parent
+    ? await dialog.showMessageBox(parent, msgOpts)
+    : await dialog.showMessageBox(msgOpts)
+  return choice.response === 1
+}
 async function pickLibrary(): Promise<string | null> {
   // E-9c：递归改循环 + 封顶——超限退出并报错，不再无限弹窗
   for (let attempt = 1; attempt <= PICK_LIBRARY_MAX_ATTEMPTS; attempt++) {
@@ -305,7 +332,11 @@ async function pickLibrary(): Promise<string | null> {
       : await dialog.showOpenDialog(openOpts)
     const dir = result.canceled ? null : result.filePaths[0]
     if (!dir) return null
-    if (isLibraryDir(dir)) return dir
+    if (isLibraryDir(dir)) {
+      // 平台规范化批 E：大小写敏感卷警告（探测失败 fail-open 不拦）——换目录回循环顶
+      if (await warnIfCaseSensitive(dir)) continue
+      return dir
+    }
     // 非书库目录 —— 决策②：二次确认是否在此新建书库
     const msgOpts: MessageBoxOptions = {
       type: 'question',
@@ -319,7 +350,11 @@ async function pickLibrary(): Promise<string | null> {
     const choice = parent
       ? await dialog.showMessageBox(parent, msgOpts)
       : await dialog.showMessageBox(msgOpts)
-    if (choice.response === 0) return dir // 确认在此新建（待建空目录，由调用方持久化 + 重启）
+    if (choice.response === 0) {
+      // 新建同样过大小写敏感卷警告（敏感卷上新建 = 后续跨机劈裂的源头）
+      if (await warnIfCaseSensitive(dir)) continue
+      return dir // 确认在此新建（待建空目录，由调用方持久化 + 重启）
+    }
     if (choice.response === 1) continue // 重新选择（E-9c：回到循环顶，受封顶约束）
     return null // 取消
   }
@@ -362,7 +397,10 @@ function createSecureWindow(opts: BrowserWindowConstructorOptions): BrowserWindo
   // defaultSession，各窗 loadURL 前 await 此 promise——原子窗 fire-and-forget 在
   // 「子窗先于主窗完成设置」的时序下会带着未生效代理加载（SSE 经系统代理 buffer 断流）
   const win = new BrowserWindow({
-    titleBarStyle: 'hiddenInset',
+    // R40-32（四十轮）：hiddenInset 是 darwin 专属值——linux 上非支持值（行为未
+    // 定义，纯 dev 形态卫生项），走默认系统标题栏；win 由下方 WCO 分支覆盖为
+    // 'hidden'+overlay（分支不动），mac 形态不变。
+    ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const } : {}),
     backgroundColor: '#f5f5f5',
     // J5+merge（win→dev 合流，2026-08-29）：autoHideMenuBar 显式平台口径——win true
     //（配合下方 setMenuBarVisibility(false) 双保险），mac/win 外显式 false（Electron
@@ -581,6 +619,15 @@ async function bootstrap(): Promise<void> {
   // 随进程硬死（在途 session/end 落库全失，靠 10min 孤儿会话宽限兜底）。尽力下发
   // 停机指令（shutdown 内部有 3.5s 总超时，不会拖住 OS 收尾）。
   mainWindow.on('session-end', () => {
+    // R40-29（四十轮）：停机前补存窗口状态——OS 关机/注销走 session-end，主窗
+    // close 事件不保证收到（此前窗口位置/尺寸不落盘，下次开窗回默认位）。存状态是
+    // 一次内存读 + 原子写，毫秒级不挤占停机窗口；saveWinState 内部已吞错，外层
+    // try/catch 双保险（收尾期 Electron getter 可抛），失败不阻断停机。
+    try {
+      saveWinState()
+    } catch {
+      /* 存状态失败不阻断停机（窗口状态非关键数据，宁可丢状态也要下发停机指令） */
+    }
     void serverManager.shutdown().catch((err) => log.error('desktop', 'session-end 停机失败（OS 即将收尾）', err))
   })
   // 书库管理窗口「用完即走」：主窗口获焦 = 用户已切回，关闭书库窗口释放资源
@@ -659,6 +706,10 @@ function registerIpc(): void {
     if (typeof path !== 'string' || !isLibraryDir(path)) {
       return { ok: false as const, reason: '目录无效或不是书库' }
     }
+    // 平台规范化批 E：切书库同过大小写敏感卷警告（探测失败 fail-open 不拦）
+    if (await warnIfCaseSensitive(path)) {
+      return { ok: false as const, reason: '已取消：目录在大小写敏感的卷上（如需使用请重新切换并选择「仍要使用」）' }
+    }
     saveCurrent(path)
     setTimeout(relaunch, RELAUNCH_DELAY_MS)
     return { ok: true as const }
@@ -708,8 +759,11 @@ function registerIpc(): void {
   // cmd.exe exec 未设 windowsHide，win 打包态打开字体下拉闪控制台黑窗；win-fonts.ts
   // 以 spawn('powershell.exe', [args], { windowsHide: true }) 直起（口径对齐 font-list
   // 的 disableQuoting 裸名），mac/linux 维持 font-list（无闪窗面）。
+  // R40-28（四十轮）：mac/linux 的 font-list 调用包超时（win 已走 win-fonts 自带
+  // 10s 超时 + kill，R39-5）——osascript/系统命令挂起时字体下拉悬死；font-list 不
+  // 暴露子进程句柄，超时只 reject 不 kill（残留记档见 font-cache.ts 头注）。
   const loadFontList = () =>
-    process.platform === 'win32' ? listWindowsFonts() : getSystemFontList({ disableQuoting: true })
+    process.platform === 'win32' ? listWindowsFonts() : fontListWithTimeout(() => getSystemFontList({ disableQuoting: true }))
   const loadSystemFonts = createSystemFontCache(loadFontList)
   ipcMain.handle('desktop:get-system-fonts', async () => {
     try {

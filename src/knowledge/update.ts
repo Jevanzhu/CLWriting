@@ -18,10 +18,12 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
+import { canonicalizeText } from '../fs/text-canonical.js'
 import { acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
 import {
   KNOWLEDGE_DIR,
   KNOWLEDGE_MANIFEST,
+  caseFoldKey,
   hashFileSha256,
   isSafeKnowledgeTarget,
   readKnowledgeManifest,
@@ -30,7 +32,8 @@ import {
   type KnowledgeManifestEntry,
   type KnowledgeManifestReport,
 } from './manifest.js'
-import { splitFrontMatter } from '../format/frontmatter.js'
+import { splitFrontMatter, joinFrontMatter } from '../format/frontmatter.js'
+import { log } from '../log/index.js'
 
 /** 语料回归域单 checkId 的误报/命中汇总 */
 export interface FalsePositiveSummary {
@@ -177,8 +180,27 @@ function commitKnowledgeFileLocked(projectRoot: string, opts: CommitKnowledgeOpt
   if (!isSafeKnowledgeTarget(projectRoot, opts.target)) {
     return { ok: false, issues: [{ path: opts.target, message: `target 必须位于 ${KNOWLEDGE_DIR}/ 内（拒绝越界/绝对路径）` }] }
   }
-  if (manifest.entries.some((e) => e.target === opts.target)) {
-    return { ok: false, issues: [{ path: opts.target, message: 'target 已在 manifest 中（不得重复登记）' }] }
+  // R40-16（四十轮）：判重改走 win32 casefold 键（caseFoldKey，R33-97 校验器单源）——
+  // 此前精确字符串比较与校验器口径分裂：win 大小写漂移（`知识层/A.md` vs `知识层/a.md`
+  // 同一物理文件）下判重失效，同文件可重登成 manifest 双条目（校验器随后才报重复）。
+  // 坏形状行（null/非对象/非字符串 target，手编半写形态）不参与比较：此前 null 条目在
+  // `e.target` 处直接 TypeError 崩整个登记；对齐库内坏行跳过降级惯例（document/manifest
+  // parseManifestText / events store listEvents R65-20），跳过须 warn 留痕（不静默），
+  // 条目本身原样保留进下方全量重写（登记语义不变，坏行仍由 validateKnowledgeManifest
+  // 按 issue 上报，不在写入侧静默增删改）。
+  const targetKey = caseFoldKey(opts.target)
+  let badRows = 0
+  for (const e of manifest.entries) {
+    if (e === null || typeof e !== 'object' || typeof e.target !== 'string') {
+      badRows++
+      continue
+    }
+    if (caseFoldKey(e.target) === targetKey) {
+      return { ok: false, issues: [{ path: opts.target, message: 'target 已在 manifest 中（不得重复登记）' }] }
+    }
+  }
+  if (badRows > 0) {
+    log.warn('knowledge', `知识层 manifest 存在 ${badRows} 条坏形状条目（null/缺字符串 target），判重已跳过这些行——条目原样保留，待 validateKnowledgeManifest 上报修复`)
   }
   const filePath = join(projectRoot, opts.target)
   if (!existsSync(filePath)) {
@@ -240,19 +262,20 @@ function commitKnowledgeFileLocked(projectRoot: string, opts: CommitKnowledgeOpt
   return validateKnowledgeManifest(projectRoot)
 }
 
-/** md 顶层 front matter 注入/改写标量键（值原样写行尾；无 fm 则新建块；既有其余键与正文不动） */
+/** md 顶层 front matter 注入/改写标量键（值原样写行尾；无 fm 则新建块；既有其余键与正文不动）。
+ *  平台规范化批（2026-09-03）：R40-17 的宿主行尾/BOM 保真语义随规范形拍板翻转——
+ *  输出恒 LF 无 BOM（joinFrontMatter 整体规范化，含正文携带的 \r\n 归一）；CRLF/BOM
+ *  存量由启动迁移 v4 归一，外部编辑产物经此写自愈。 */
 function injectFrontMatterKeys(filePath: string, keys: Record<string, string>): void {
-  const text = readFileSync(filePath, 'utf8')
-  const split = splitFrontMatter(text)
-  if (!split) {
-    const fm = ['---', ...Object.entries(keys).map(([k, v]) => `${k}: ${v}`), '---', ''].join('\n')
-    atomicWriteFile(filePath, fm + '\n' + text)
-    return
-  }
-  const kept = split.fmRaw.split('\n').filter((raw) => {
-    const t = raw.trim()
+  // 读入即归一（剥 BOM、CRLF→LF）——无 fm 宿主的 BOM 若不在此剥，joinFrontMatter
+  // 拼接后 BOM 落在 fence 之后的串中部，仅剥前导的 canonicalizeText 够不着
+  const raw = canonicalizeText(readFileSync(filePath, 'utf8'))
+  const split = splitFrontMatter(raw)
+  const kept = (split ? split.fmRaw.split('\n') : []).filter((l) => {
+    const t = l.trim()
     return !Object.keys(keys).some((k) => t.startsWith(`${k}:`))
   })
-  const fm = ['---', ...kept, ...Object.entries(keys).map(([k, v]) => `${k}: ${v}`), '---', ''].join('\n')
-  atomicWriteFile(filePath, fm + '\n' + split.body)
+  const fmText = [...kept, ...Object.entries(keys).map(([k, v]) => `${k}: ${v}`)].join('\n')
+  // joinFrontMatter 整体规范（fence/接缝恒 LF、无 BOM；无 fm 时正文即全文）
+  atomicWriteFile(filePath, joinFrontMatter(fmText, split ? split.body : raw))
 }

@@ -101,8 +101,11 @@ export function readBooksStrict(workDir: string): BookEntry[] | null {
   } catch {
     return null
   }
+  // R40-25（四十轮）：剥 BOM 前缀——win 记事本「UTF-8 with BOM」保存后首行变
+  // `\uFEFF{"name":…}`，JSON.parse 首条即抛 → 该书静默从书架消失（catch continue
+  // 吞掉，无痕）。剥后首条正常解析；无 BOM 文件首字符不受影响（replace 无命中）
   const books: BookEntry[] = []
-  const lines = text.split('\n')
+  const lines = text.replace(/^\uFEFF/, '').split('\n')
   for (const line of lines) {
     const trimmed = line.trim()
     if (trimmed === '') continue

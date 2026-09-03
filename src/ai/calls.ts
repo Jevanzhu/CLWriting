@@ -392,6 +392,18 @@ export function checkAiCallBudget(bookRoot: string, chapter: number, config: Boo
       reason: 'AI 调用记账文件 .cache/ai-calls.json 损坏，已保守阻断。可删除该文件重试（计数从零开始），但请先确认磁盘健康。',
     }
   }
+  // R40-8（四十轮）：显式 0/负数 = 「一次都不许调」——`??` 全局托底只兜 undefined/null
+  // （0 非 nullish 原样透传），首调路径（无记录/换章重置）此前早于 used>=limit 判定放行，
+  // 与常量语义分叉。fail-loud 可读文案（镜像下方超限文案风格），病态配置显式拒绝。
+  if (limit <= 0) {
+    const used = rec && rec.chapter.num === chapter ? rec.chapter.used : 0
+    return {
+      ok: false,
+      used,
+      limit,
+      reason: `本章 AI 调用上限为 ${limit}（budget.calls_per_chapter），按「一次都不许调」拦截。如需恢复调用请把 book.yaml 的 budget.calls_per_chapter 调回正数`,
+    }
+  }
   if (!rec || rec.chapter.num !== chapter) {
     // 无记录或已换章 → 计数从零开始
     return { ok: true, used: 0, limit }
@@ -456,7 +468,9 @@ export function checkAiCallBudget(bookRoot: string, chapter: number, config: Boo
 export function effectiveRemainingCalls(bookRoot: string, chapter: number, config: BookConfig): number {
   const limit = config.budget.calls_per_chapter ?? GLOBAL_FALLBACK_DEFAULTS.callsPerChapter
   // limit ≤ 0（病态配置 calls_per_chapter: 0）→ 0：0/0 会产出 NaN，下游一切比较恒
-  // false 等同额度无限；次数上限本身就是「不可调用」，直接归 0
+  // false 等同额度无限；次数上限本身就是「不可调用」，直接归 0。R40-8（四十轮）起
+  // checkAiCallBudget 同口径首调即拦（可读文案），此处守卫语义保持——防 ratios 除法
+  // NaN 的最后防线，不依赖上游闸的先验
   if (limit <= 0) return 0
   const check = checkAiCallBudget(bookRoot, chapter, config)
   // 超限/损坏 → 保守剩余 0（与 checkAiCallBudget 的拦截语义一致；此前误提前返回

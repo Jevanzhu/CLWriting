@@ -69,7 +69,7 @@ test('添加→测试→双供应商切换→工作台解灰 全流程', async (
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
 
   // 打开设置 → 服务提供方 tab（提供方面板在「AI 提供方」tab，非「AI 功能」tab）
-  await page.locator('.rbtn[data-tip="设置（⌘,）"]').click()
+  await page.locator('.rbtn[data-tip^="设置（"]').click()
   await page.locator('.settings-nav button', { hasText: '服务提供方' }).click()
 
   // 空态 → 添加第一个供应商（DSH 编辑器：主字段 = API Key；「自定义设置」折叠内含名称/API 地址）
@@ -167,7 +167,7 @@ test('Responses 协议三选一：添加 openai-responses 供应商保存成功'
   await page.goto(`${BASE}/`)
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
 
-  await page.locator('.rbtn[data-tip="设置（⌘,）"]').click()
+  await page.locator('.rbtn[data-tip^="设置（"]').click()
   await page.locator('.settings-nav button', { hasText: '服务提供方' }).click()
   await page.locator('.ai-service-panel > .group-title .add-btn', { hasText: '添加' }).click()
   const addCard = page.locator('.ai-service-panel .add-provider-card')

@@ -16,7 +16,9 @@ export const KNOWLEDGE_MANIFEST = '知识层/_manifest.json'
 
 // R33-97（三十三轮）：win 大小写不敏感 FS 上 `知识层/A.md` 与 `知识层/a.md` 落同一物理文件，
 // 精确字符串判重会放行双登记（同 document/manifest.ts R33-54 lockKey 同款口径）——win 折叠判重
-function caseFoldKey(p: string): string {
+// R40-16（四十轮）：导出复用——commitKnowledgeFile 登记侧判重（update.ts）此前仍是
+// 精确比较（校验器折叠/登记器不折叠的口径分裂），大小写漂移下同文件可重登双条目
+export function caseFoldKey(p: string): string {
   return process.platform === 'win32' ? p.toLowerCase() : p
 }
 
@@ -82,6 +84,14 @@ export function validateKnowledgeManifest(projectRoot: string): KnowledgeManifes
 
   const seen = new Set<string>()
   for (const entry of manifest.entries) {
+    // R40-16（四十轮）：坏形状行（null/非对象）在此前 entry.target 处直接 TypeError
+    // 崩整个对账（commitKnowledgeFile 末尾就走这里——判重侧的坏行跳过被对账侧裸崩
+    // 抵消，手编半写形态仍登不进）。对齐登记侧降级口径：报 issue 不崩，后续字段校验
+    // 对坏行无意义，跳过（条目本身仍原样保留，写入侧不静默增删改）。
+    if (entry === null || typeof entry !== 'object') {
+      issues.push({ path: KNOWLEDGE_MANIFEST, message: '存在坏形状条目（null/非对象），请修复 manifest' })
+      continue
+    }
     validateEntry(projectRoot, entry, seen, issues)
   }
 

@@ -6,6 +6,10 @@
  * 判「key 行不在」原样返回，迁移静默丢改（changed 计数与幂等重跑都看不出异常）。
  * 带值形态（`  genre: ''\r`）startsWith 从行首比、不受行尾 \r 影响，本就命中。
  * 修复：剥行尾 \r 再判（同文件 matchesKeyLineCRLF 的 Z-7 口径）。
+ *
+ * 平台规范化批·评审补翻（2026-09-03）：输出恒 LF——删除判定仍剥 \r（读侧容忍不变），
+ * 但 migrateBookYamlText 整输出另经 canonicalizeText 归一（未触碰行的 CRLF 残尾一并
+ * 剥除，与 yaml.ts 补丁族对齐）；本文件 CRLF 保真断言随翻（见各用例「归一 LF」注）。
  */
 import { test, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from 'node:fs'
@@ -52,8 +56,9 @@ test('R37-23: CRLF 裸子键行（`  genre:\\r`）删除生效（修复前 isChi
   expect(r).toEqual({ books: 1, changed: 1, failed: 0 })
   const after = read(fp)
   expect(after).not.toContain('genre')
-  // 其余行零触碰：CRLF 行尾原样保留（文本级补丁红线）
-  expect(after).toContain('title: 裸键书\r\n')
+  // 归一 LF（评审补翻）：整输出规范化，未触碰行 CRLF 残尾一并剥除
+  expect(after).not.toContain('\r')
+  expect(after).toContain('title: 裸键书\n')
 })
 
 test('R37-23: CRLF 裸子键 + 带值子键混合形态（带值 startsWith 本就命中，两键都删净）', () => {
@@ -71,6 +76,7 @@ test('R37-23: CRLF 裸子键 + 带值子键混合形态（带值 startsWith 本�
   const after = read(fp)
   expect(after).not.toContain('genre')
   expect(after).not.toContain('calls_per_chapter')
+  expect(after).not.toContain('\r') // 归一 LF（评审补翻）
 })
 
 test('R37-23: CRLF 下带值子键删除 + 段变空整段删不回归（matchesKeyLineCRLF 既有口径）', () => {
@@ -93,6 +99,7 @@ test('R37-23: CRLF 下带值子键删除 + 段变空整段删不回归（matches
   expect(after).not.toContain('style:')
   expect(after).not.toContain('injection')
   expect(after).toContain('realm_span_max: 2')
+  expect(after).not.toContain('\r') // 归一 LF（评审补翻）
 })
 
 test('R37-23: LF 对照不回归（裸子键照删）', () => {
@@ -118,6 +125,7 @@ test('R37-23: CRLF 裸子键删除后二跑幂等（字节级无 diff）', () =>
   ].join('\r\n'))
   migrateBookDefaults(tmp)
   const once = read(fp)
+  expect(once).not.toContain('\r') // 归一 LF（评审补翻）：一次迁移即剥净
   const r2 = migrateBookDefaults(tmp)
   expect(r2.changed).toBe(0)
   expect(read(fp)).toBe(once)

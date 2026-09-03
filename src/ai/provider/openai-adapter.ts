@@ -87,8 +87,16 @@ export function createOpenAIProvider(
  * - assistant 的 tool_use → tool_calls 数组（arguments 须 JSON.stringify）
  * - user 的 tool_result → **独立** role:'tool' 消息（每个 tool_call 一条）
  * - 同一条 user 含 N 个 tool_result → 展开 N 条 role:'tool'
+ *
+ * R40-2（四十轮）：echoReasoning 档位消费——历史 assistant 的 reasoning 块是否回写
+ * reasoning_content 由家族表决定（true=DeepSeek/Kimi/GLM 思考模型多轮硬要求；
+ * false=多数族端点无此字段、严格校验入参的会 400）。此前无条件回写：会话中途从
+ * true 族端点切到 false 族（OpenAI 官方等），历史回显携带非法字段 → 每次请求持久
+ * 400 会话死锁。与 responses 线 responsesWire.echoReasoning（strip/encrypted/none）
+ * 对称，本线为布尔两态。reasoning 块本体在 ChatMsg 内保留（AI 链路守则：模型可见
+ * ⟺ 已记录），此处只管 wire 序列化形态。
  */
-function toOpenAIMessages(m: ChatMsg): Record<string, unknown>[] {
+function toOpenAIMessages(m: ChatMsg, echoReasoning: boolean): Record<string, unknown>[] {
   if (typeof m.content === 'string') return [{ role: m.role, content: m.content }]
 
   // block 数组：分离 text/tool_use(tool_calls) 和 tool_result
@@ -118,9 +126,10 @@ function toOpenAIMessages(m: ChatMsg): Record<string, unknown>[] {
   // assistant 消息：text + reasoning_content + tool_calls
   if (m.role === 'assistant') {
     const msg: Record<string, unknown> = { role: 'assistant', content: textParts.join('') || null }
-    // 思维链往返（DeepSeek/Kimi 思考模型硬要求，见方案 §4.2）——reasoning 块写回 reasoning_content
+    // 思维链往返（DeepSeek/Kimi 思考模型硬要求，见方案 §4.2）——reasoning 块写回
+    // reasoning_content；档位由 toParams 按家族表注入（R40-2，见函数头注）
     const reasoning = (m.content as ContentBlock[]).filter((b) => b.type === 'reasoning').map((b) => b.text).join('')
-    if (reasoning) msg['reasoning_content'] = reasoning
+    if (reasoning && echoReasoning) msg['reasoning_content'] = reasoning
     if (toolCalls.length > 0) msg['tool_calls'] = toolCalls
     out.push(msg)
   } else {
@@ -136,17 +145,17 @@ function toOpenAIMessages(m: ChatMsg): Record<string, unknown>[] {
 
 /** GenRequest → OpenAI ChatCompletionCreateParamsStreaming */
 function toParams(conf: ProviderConf, req: GenRequest): Record<string, unknown> {
+  // 参数翻译由 quirks 表驱动（方案 §4.1）——检测不出系列则保守省略可选参数。
+  // R40-2：上移到消息组装前——历史回写侧（reasoning_content 档位）同样查表
+  const q = quirksFor(conf.model ?? '')
   const messages: Record<string, unknown>[] = []
   // P3-Q7：实发 role:'system'（OpenAI 官方兼容别名；developer 角色为更激进约定，暂不采用）
   if (req.systemPrompt) {
     messages.push({ role: 'system', content: req.systemPrompt })
   }
   for (const m of req.messages) {
-    messages.push(...toOpenAIMessages(m))
+    messages.push(...toOpenAIMessages(m, q.echoReasoning))
   }
-
-  // 参数翻译由 quirks 表驱动（方案 §4.1）——检测不出系列则保守省略可选参数
-  const q = quirksFor(conf.model ?? '')
 
   const params: Record<string, unknown> = {
     // B-P2-6：conf.model 可能为 null/undefined（未选模型时），兜底空串防 SDK 报参数错

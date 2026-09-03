@@ -9,7 +9,7 @@
 import { defineRoute } from './schema.js'
 import { reply, replyError } from '../http.js'
 import { readKind, resolveBook } from '../book-context.js'
-import { scanChapters, aggregateStyleTrend, readBaseline, type ChapterSample } from '../../../metrics/style.js'
+import { scanChaptersAsync, aggregateStyleTrend, readBaseline, type ChapterSample } from '../../../metrics/style.js'
 
 interface HealthCtx {
   workDir: string | null
@@ -48,7 +48,7 @@ export function registerHealthRoutes(ctx: HealthCtx): void {
   defineRoute('books.health.style', {
     method: 'GET',
     path: '/api/books/:name/health/style',
-    handler: ({ params }, _req, res) => {
+    handler: async ({ params }, _req, res) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     const kind = readKind(r.bookRoot)
@@ -60,7 +60,9 @@ export function registerHealthRoutes(ctx: HealthCtx): void {
     if (cached && now - cached.ts < ttl) {
       samples = cached.samples
     } else {
-      samples = scanChapters(r.bookRoot)
+      // R40-4（四十轮）：miss 扫描切异步孪生——同步 scanChapters 在 200 万字大书上
+      // 秒级冻结事件循环（R39-15 同族漏网点），逐 25 章让出对齐 analysis/learn 范式
+      samples = await scanChaptersAsync(r.bookRoot)
       // 简单 FIFO 淘汰（Map 保插入序）：超上限丢最旧条目，防长期运行的书库累积
       if (styleScanCache.size >= STYLE_SCAN_MAX) {
         const oldest = styleScanCache.keys().next().value

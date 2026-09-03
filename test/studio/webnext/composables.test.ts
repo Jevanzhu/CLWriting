@@ -74,7 +74,9 @@ describe('useChatComposer', () => {
     sendMock.mockRejectedValue(new Error('网络错误'))
     const c = useChatComposer(() => '书', () => undefined)
     const chat = (await import('../../../src/studio/web-next/src/stores/chat')).useChatStore()
-    chat.pushUser = vi.fn()
+    // R40-37 契约演进：失败回滚按幽灵气泡 id 定位（popUser 仅当末条=本次幽灵气泡）。
+    // pushUser 走真 store 动作落真实幽灵气泡（mock 掉它气泡就不存在，回滚按契约不弹）；
+    // popUser 换 spy 观察回滚调用。
     chat.popUser = vi.fn()
     c.input.value = 'hi'
     await c.handleSend()

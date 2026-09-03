@@ -19,8 +19,10 @@ import { join, relative } from 'node:path'
 import { readChapterDir } from '../format/chapters.js'
 import { splitSentences } from '../format/sentences.js'
 import { atomicWriteFile } from '../fs/atomic.js'
+import { canonicalizeText } from '../fs/text-canonical.js'
 import { acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 import { readFile } from '../format/frontmatter.js'
+import { sanitizeFileNamePart } from '../format/filename.js'
 import { readBookConfig } from '../format/yaml.js'
 import { finalizedPathSet } from '../document/manifest.js'
 import { checkStyleMetrics, checkRepeat } from '../check/count.js'
@@ -251,12 +253,16 @@ export async function learnFromBook(bookRoot: string): Promise<LearnResult> {
     mkdirSync(candidateRoot, { recursive: true })
 
     // 样章候选：样章/<场景>-候选-NN.md（拟入 front matter）
+    // 平台规范化批 C：场景值收编单源消毒（此前未经 sanitize 直拼文件名——win 非法字符/
+    // 保留设备名/超长场景值直落盘，与 filename.ts 单一真相源口径漂移）；候选目录是人类
+    // 审阅面（无按名反推的读侧），改名无配对面。B：产出内容规范形写（正文源自库内
+    // 文本，可携 \r 残尾）。
     const sampleDir = join(candidateRoot, '样章')
     mkdirSync(sampleDir, { recursive: true })
     topSamples.forEach((c, i) => {
-      const fileName = `${c.场景}-候选-${String(i + 1).padStart(2, '0')}.md`
+      const fileName = `${sanitizeFileNamePart(c.场景)}-候选-${String(i + 1).padStart(2, '0')}.md`
       const fm = [`场景: ${c.场景}`, `来源: 作者原作`, `出处: ${c.出处}`, `打分: ${c.打分}`].join('\n')
-      atomicWriteFile(join(sampleDir, fileName), `---\n${fm}\n---\n\n${c.正文}`)
+      atomicWriteFile(join(sampleDir, fileName), canonicalizeText(`---\n${fm}\n---\n\n${c.正文}`))
     })
 
     // 金句候选：金句/<场景>.md（逐条列表）
@@ -270,7 +276,7 @@ export async function learnFromBook(bookRoot: string): Promise<LearnResult> {
     }
     for (const [scene, quotes] of quotesByScene) {
       const content = quotes.map((q) => `- ${q.正文}  \n  ——${q.出处}`).join('\n\n')
-      atomicWriteFile(join(quoteDir, `${scene}.md`), content)
+      atomicWriteFile(join(quoteDir, `${sanitizeFileNamePart(scene)}.md`), canonicalizeText(content))
     }
   } finally {
     releaseHarvest()

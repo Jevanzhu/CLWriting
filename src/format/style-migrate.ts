@@ -17,6 +17,7 @@ import { readSamplesByScene } from './style.js'
 import { writeEntryExclusive, readEntries, ENTRIES_DIR } from './style-entry.js'
 import { parseIronRules } from './iron-rules.js'
 import { atomicWriteFile } from '../fs/atomic.js'
+import { canonicalizeText } from '../fs/text-canonical.js'
 import { sanitizeChapterTitle, isMdFileName } from './filename.js'
 import type { StyleEntry, EntryKind, EntrySource, SampleSource } from './types.js'
 
@@ -334,7 +335,8 @@ export function migrateStyleLibrary(bookRoot: string): StyleMigrateResult {
     if (banned.length > 0) result.details.push(`铁律反和解段 → ${banned.length} 条禁词`)
     if (flavorCount > 0) result.details.push(`铁律 AI 味表 → ${flavorCount} 条禁词（标签: AI味）`)
     // 瘦身写回（机检禁词已由 readIronRules 合并条目库，不缺失）
-    const slimmed = slimIronRules(rulesText)
+    // 平台规范化批：写回内容规范形（原文 CRLF 时 slim 产物可携 \r 残尾）
+    const slimmed = canonicalizeText(slimIronRules(rulesText))
     if (slimmed !== rulesText) {
       atomicWriteFile(rulesFile, slimmed)
       result.details.push('铁律瘦身为纯配置（禁词知识归条目库）')

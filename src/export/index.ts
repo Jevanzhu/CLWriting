@@ -14,6 +14,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { atomicWriteFile, atomicWriteStream, renameWithRetry } from '../fs/atomic.js'
+import { canonicalizeText } from '../fs/text-canonical.js'
 import { readChapterDir } from '../format/chapters.js'
 import { readFile } from '../format/frontmatter.js'
 import { readBookConfig } from '../format/yaml.js'
@@ -207,8 +208,14 @@ export function exportBook(options: ExportOptions): ExportResult {
   }
   // X-P2-4：单个坏章（解析失败）不再拖垮整本导出——记入 warnings 跳过，仍有可导章则继续
   const warnings: string[] = []
+  /** R73-37：相对路径统一正斜杠——win 的 relative() 产反斜杠，消费方/测试按 / 匹配
+   *  （与本文件下方 finalizedPaths 的归一化同款，2026-08-31 整体检查补）。
+   *  R40-21（四十轮）：声明前移至首个消费点（readChapterDir 解析错误警告）之前——
+   *  原先 :211 坏章警告用裸 relative() 插值，win 反斜杠漏进警告文案（relPosix 已有
+   *  却定义在其后，漏网面）；本函数内全部 warnings 路径插值自此单源走它。 */
+  const relPosix = (p: string): string => relative(bookRoot, p).replace(/\\/g, '/')
   const { chapters, errors } = readChapterDir(bodyDir)
-  for (const e of errors) warnings.push(`${relative(bookRoot, e.file)}: ${e.message}`)
+  for (const e of errors) warnings.push(`${relPosix(e.file)}: ${e.message}`)
   const units: ExportUnit[] = chapters.flatMap((ch) =>
     ch._path ? [{ num: ch.章号, title: ch.标题, path: ch._path }] : [],
   )
@@ -241,10 +248,7 @@ export function exportBook(options: ExportOptions): ExportResult {
   // 记警告跳过，不再整本失败；零可写章在下方按 writtenCount 收口
   const exportable: ExportUnit[] = filtered
   /** R73-37：逐章现读正文（frontmatter.readFile 单源，剥 fm 取 body）。
-   *  返回 null = 读取失败/正文为空（已记 warnings，调用方跳过该章）。
-   *  警告里的相对路径统一正斜杠——win 的 relative() 产反斜杠，消费方/测试按 / 匹配
-   *  （与本文件上方 finalizedPaths 的归一化同款，2026-08-31 整体检查补）。 */
-  const relPosix = (p: string): string => relative(bookRoot, p).replace(/\\/g, '/')
+   *  返回 null = 读取失败/正文为空（已记 warnings，调用方跳过该章）。 */
   const readUnitBody = (u: ExportUnit): string | null => {
     // R38-17（三十八轮）：导出链补非 UTF-8 防线——save/finalize 链均有 isUtf8Bytes 闸
     //（document/service.ts:71 同款 TextDecoder fatal 口径），导出此前 utf-8 文本直读，
@@ -408,17 +412,20 @@ export function exportBook(options: ExportOptions): ExportResult {
     // 此前 atomicWriteFile 直写同路径幂等替换，chapterCount 与 files 却计两次，两章只
     // 留一章且无提示；改为追加序号后缀保双份并计入 warnings，作者可手动取舍。
     let fileName = `${prefix}${baseName}.md`
+    // 平台规范化批：导出产物规范形写（正文源自库内章，CRLF 存量可携 \r 残尾——归一后
+    // 两台机器的导出产物字节一致，作者侧 diff/比对有基准）
+    const payloadOf = (title: string, body: string): string => canonicalizeText(`# ${title}\n\n${body}`)
     if (splitUsed.has(fileName)) {
       let n = 2
       while (splitUsed.has(`${prefix}${baseName}-${n}.md`)) n++
       const dedupName = `${prefix}${baseName}-${n}.md`
       splitUsed.add(dedupName)
       warnings.push(`分章 ${unit.num}「${unit.title}」与已导出产物撞名，已另存为 ${dedupName}——若为同名重复章请手动核对/清理`)
-      atomicWriteFile(join(exportDir, splitTargetDirName, dedupName), `# ${unit.title}\n\n${body}`)
+      atomicWriteFile(join(exportDir, splitTargetDirName, dedupName), payloadOf(unit.title, body))
       files.push(`工作区/导出/${splitTargetDirName}/${dedupName}`)
     } else {
       splitUsed.add(fileName)
-      atomicWriteFile(join(exportDir, splitTargetDirName, fileName), `# ${unit.title}\n\n${body}`)
+      atomicWriteFile(join(exportDir, splitTargetDirName, fileName), payloadOf(unit.title, body))
       files.push(`工作区/导出/${splitTargetDirName}/${fileName}`)
     }
    } catch (e) {
@@ -456,7 +463,8 @@ export function exportBook(options: ExportOptions): ExportResult {
             const body = purifyBody(raw)
             if (!first) append('\n\n---\n\n')
             first = false
-            append(`# ${unit.title}\n\n${body}`)
+            // 平台规范化批：全本产物规范形写（同分章/投稿视图收口）
+            append(canonicalizeText(`# ${unit.title}\n\n${body}`))
             if (doSplit) writeSplit(unit, body)
             writtenCount++
             writtenNums.add(unit.num)
@@ -547,9 +555,10 @@ export function exportBook(options: ExportOptions): ExportResult {
     if (existsSync(join(exportDir, submissionName))) {
       archiveOldExport(exportDir, submissionName, warnings)
     }
+    // 平台规范化批：投稿视图规范形写（同分章产物收口）
     atomicWriteFile(
       join(exportDir, submissionName),
-      formatShortSubmissionView(entries, cfg.ok ? cfg.config.short : undefined, bookTitle, platform),
+      canonicalizeText(formatShortSubmissionView(entries, cfg.ok ? cfg.config.short : undefined, bookTitle, platform)),
     )
     files.push(`工作区/导出/${submissionName}`)
   }

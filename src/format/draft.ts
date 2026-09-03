@@ -4,12 +4,12 @@
  * 读正文区文件 → ChapterMeta + body，供 finalize/check/review/chat 共用。
  * 长短篇统一 readChapter（ChapterMeta 含可选 目标情绪/核心反转）。
  */
-import { existsSync, readdirSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { relative, join } from 'node:path'
 import { readFile, splitFrontMatter, parseFlat } from './frontmatter.js'
 import { readChapter, readChapterDir } from './chapters.js'
 import { chapterFilePrefix } from './words.js'
-import { sanitizeChapterTitle } from './filename.js'
+import { sanitizeChapterTitle, isMdFileName } from './filename.js'
 import { readManifest } from '../document/manifest.js'
 import type { ChapterMeta } from './types.js'
 // R37-9：正文目录卷扫描 readdirSync 容错降级留痕（同 run.ts/runner.ts 口径）
@@ -26,12 +26,24 @@ export type ReadDraftResult =
  * 取 buffer 后，hash 与机检 body 从同一快照派生；existsSync 守卫仅对真读文件生效。
  */
 export function readDraft(draftPath: string, content?: string): ReadDraftResult {
-  if (content === undefined && !existsSync(draftPath)) {
-    return { ok: false, reason: `找不到文件：${draftPath}` }
+  // R40-13（四十轮）：无 content 参时单读派生（R39-11 同族手法）——此前 readChapter 与
+  // readFile 各自 readFileSync 同一文件（双盘 IO；两读间隙文件被并发改写还会产出
+  // chapter meta 与 body 不同快照的微窗）。一次读盘取文本后同喂两解析器，快照同源；
+  // 读失败文案与 readFile 内联口径逐字一致（经 draftParseReason 原样透传）。
+  let text = content
+  if (text === undefined) {
+    if (!existsSync(draftPath)) {
+      return { ok: false, reason: `找不到文件：${draftPath}` }
+    }
+    try {
+      text = readFileSync(draftPath, 'utf-8')
+    } catch (e) {
+      return { ok: false, reason: `无法读取文件：${e instanceof Error ? e.message : String(e)}` }
+    }
   }
-  const chapter = readChapter(draftPath, undefined, content)
+  const chapter = readChapter(draftPath, undefined, text)
   if (!chapter.ok) return { ok: false, reason: draftParseReason(chapter.error.message) }
-  const file = readFile(draftPath, content)
+  const file = readFile(draftPath, text)
   if (!file.ok) return { ok: false, reason: draftParseReason(file.error.message) }
   return { ok: true, chapter: chapter.chapter, body: file.body }
 }
@@ -154,7 +166,10 @@ export function inferVolumeDir(bookRoot: string, chapter: number): string {
     const prev = chapters.find((c) => c.章号 === chapter - 1)
     if (prev?._path) {
       const seg = slashRelative(bodyDir, prev._path).split('/')[0]
-      if (seg && !seg.endsWith('.md')) return seg
+      // R40-10（四十轮）：章文件判定走 isMdFileName（大小写不敏感）——.MD 章文件直挂
+      // 正文根（无卷层）时，此前 seg='0001-x.MD' 不命中小写 endsWith('.md') 被误当
+      // 卷目录返回，新章路径派生进不存在的「0001-x.MD/」目录（路径派生错位）
+      if (seg && !isMdFileName(seg)) return seg
     }
     // Z-18（第五十八轮）：「第N卷」按数值序取末位——字典序会得「第十一卷 < 第四卷」
     //（汉字码位），跳章回退时新章落错卷；非数字卷名回落中文 locale 字典序

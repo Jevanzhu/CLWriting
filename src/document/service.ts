@@ -33,6 +33,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { safeDocId, resolveWithinRoot, relPathKey } from '../fs/safe-path.js'
 import { atomicWriteFile, createFileExclusive, linkOrRenameExclusive, renameWithRetry } from '../fs/atomic.js'
+import { canonicalizeText, bufferNeedsCanonical } from '../fs/text-canonical.js'
 import { computeRevision, computeRevisionBytes, type Revision } from './revision.js'
 import { layoutOf, roleOf, isInternalBookPath } from './layout.js'
 import { appendAborted, appendMovePending, appendPending, appendSettled } from './journal.js'
@@ -440,7 +441,8 @@ export class DocumentService {
       // R34D-18（三十四轮）：Buffer 内容放行——该防线的威胁模型是「文本往返失真覆写」，
       // 字节档恢复（readSnapshotRaw 原字节透传）正是把原始字节写回盘上的反悔通道，
       // 拦它等于剥夺 GBK 档唯一的无损恢复路径。
-      const content = input.content
+      const content =
+        typeof input.content === 'string' ? canonicalizeText(input.content) : input.content
       const byteRestore = Buffer.isBuffer(content)
       // R39-11：UTF-8 闸改判单读字节（原 :438 二次 readFileSync）
       if (diskBytes !== null && !byteRestore && !isUtf8Bytes(diskBytes)) {
@@ -504,6 +506,25 @@ export class DocumentService {
         if (existing) {
           atomicWriteFile(absPath, content, { fsync: true })
         } else {
+          // R40-24（四十轮）：新建路径消毒闸——save 新建分支（expectedRevision=null 且文件
+          // 不在盘）此前不经单源消毒器（词法越界已被 resolveSafePath 拦，但 win 保留设备
+          // 名/尾点/尾空格/控制字符/非法字符段直落盘：win 上 EINVAL 裸 WRITE_ERROR 或读写
+          // 名不一致），create/copy/rename 均已收编单源（R26-55/R33-9/R2W-5），本分支为
+          // R33-9 同族漏网点。弃暗拒明（fail-closed）：任一待建段「消毒后会改写」即拒
+          // ——不静默改写落盘（docId↔relPath 由调用方绑定，改写即造「清单≠盘上名」分裂，
+          // 正是 R33-9 当年修的缺陷形态）；已存在文件的覆写不铸新名，不走本闸。
+          if (!isSanitizedCreatePath(relPath)) {
+            try {
+              await appendAborted(journalPath, opId, '新建路径段不合消毒规则（保留名/尾点/尾空格/非法字符）')
+            } catch {
+              // journal 留痕失败吞掉（best-effort）：必须保住 {ok:false} 契约
+            }
+            return Promise.resolve({
+              ok: false,
+              code: 'PATH_ESCAPE',
+              reason: `新建路径 ${relPath} 含不合消毒规则的段（Windows 保留设备名/尾点/尾空格/控制字符/非法字符），已拒绝——请改用合法文件名（或经新建文档入口，将自动消毒）`,
+            })
+          }
           const created = createFileExclusive(absPath, content, { fsync: true })
           if (created === 'exists') {
             try {
@@ -519,7 +540,15 @@ export class DocumentService {
           }
         }
         // 步骤 8：新 revision
-        const newRev = computeRevision(absPath)
+        // R40-20（四十轮）：单写派生（R39-10/11 单读派生同族）——此前 computeRevision(absPath)
+        // 落盘后再读一次盘：写完成与快照读之间他窗并发写（同 docId 保存已被队列/save 锁
+        // 串行，但结构性操作/外部编辑器不持 save 锁）读到的可能是别窗内容，revision 代际
+        // 标注短暂失真（journal 可对账自愈，影响面=快照标注）；且每笔保存多一次全文 IO。
+        // 刚写入的字节即 content（string→utf8 / Buffer 原样，atomicWriteFile 零转换），
+        // 直接 computeRevisionBytes 派生，与盘上最终态恒等。
+        const newRev = computeRevisionBytes(
+          typeof content === 'string' ? Buffer.from(content, 'utf-8') : content,
+        )
         // 步骤 9：条件性更新清单（书已有清单才更新；保存不建清单，W0-1 §4.2）
         // R75-4（二十三轮）：清单刷新转 best-effort——此时文件已原子落盘，清单只是可
         // 重建索引（树扫盘/repairBooks 自愈收编）；此前它抛（清单锁超时/磁盘满）会落
@@ -712,6 +741,9 @@ export class DocumentService {
       const key = `${join(this.bookRoot, relPath)}.lock`
       // R38-14（三十八轮）：win32 大小写折叠（对齐 manifestLockKey R33-54）——外部
       // case-only 改名后 save 链与 lead-finalize 链此前会取不同锁文件，互斥静默失效
+      // R40-15（四十轮）：lead-finalize 侧锁键已同口径折叠（wiringFileLockKeyOf）——
+      // 本侧此前单侧折叠构成不对称，现两侧逐位一致（回归测试锚定同键；不为收口单一
+      // 真相源引入 service↔lead-finalize 循环 import——后者已反向 import isUtf8Bytes）
       return process.platform === 'win32' ? key.toLowerCase() : key
     }
     return null
@@ -756,7 +788,9 @@ export class DocumentService {
       return { ok: false, code: 'CAPABILITY_DENIED', reason: '该位置只读，不可新建' }
     }
     const docId = generateDocId()
-    const content = input.content ?? this.defaultContent()
+    // 平台规范化批：新建内容规范形收口（模板缺省本就 LF，零介入；显式传入内容
+    // （API/测试夹具）统一归一——新库生而规范）
+    const content = canonicalizeText(input.content ?? this.defaultContent())
     try {
       mkdirSync(dirname(safe), { recursive: true })
       // B-6（第六十轮）：tmp + linkSync 独占创建——上方 existsSync 与落盘之间无跨进程
@@ -943,9 +977,9 @@ export class DocumentService {
       }
       try {
         // 元数据写入走原子写（P1-6A：防 writeFileSync 半截损坏不可恢复）
-        // R39-10：BOM 补回——读侧剥 BOM（splitFrontMatter）后写回不补会静默丢；
-        // r.bom 由 readFile 记账（原文是否带 BOM），LF 文件 false 前缀空串字节不变
-        atomicWriteFile(abs, (r.bom ? '\uFEFF' : '') + joinFrontMatter(patched.text, r.body), { fsync: true })
+        // 平台规范化批：R39-10 BOM 补回移除（规范形无 BOM），行尾/BOM 由 joinFrontMatter
+        // 整体规范化（原文带 BOM/CRLF 的外部编辑产物经此写自愈归一）
+        atomicWriteFile(abs, joinFrontMatter(patched.text, r.body), { fsync: true })
       } catch (e) {
         return { ok: false, code: 'WRITE_ERROR', reason: `元数据写入失败：${errMsg(e)}` }
       }
@@ -1004,14 +1038,16 @@ export class DocumentService {
   /** M-2（第十一轮）：updateChapterMeta rename 失败回写旧 fm——两步非原子（先原子写 fm
    *  新章号/标题，后 rename 文件名），rename 失败不回写会留「fm 章号≠文件名章号」孤儿态
    *  （仅靠机检 fm-chapter-mismatch 报红兜底，按章号三口径定位会 miss）。按进入本方法时
-   *  读入的快照（r.fmRaw + r.body）原样回写，恢复 fm 与文件名一致；文件已不在原路径
-   *  （doMoveOrRename 的「清单更新失败」路径——文件已 rename，新 fm 与新文件名一致）不
-   *  回写，回写反而制造错配；回写自身失败维持 mismatch，机检兜底，不吞 rename 失败原因。 */
-  private rollbackMetaOnRenameFail(abs: string, original: { fmRaw: string; body: string; bom?: boolean }): void {
+   *  读入的快照（r.fmRaw + r.body）回写——平台规范化批语义：经 joinFrontMatter 整体规范
+   *  （LF 无 BOM；CRLF/BOM 原件回写即归一，非字节原样，恢复语义不变），恢复 fm 与文件名
+   *  一致；文件已不在原路径（doMoveOrRename 的「清单更新失败」路径——文件已 rename，
+   *  新 fm 与新文件名一致）不回写，回写反而制造错配；回写自身失败维持 mismatch，机检
+   *  兜底，不吞 rename 失败原因。 */
+  private rollbackMetaOnRenameFail(abs: string, original: { fmRaw: string; body: string }): void {
     if (!existsSync(abs)) return
     try {
-      // R39-10：BOM 补回（同 updateChapterMetaLocked 写点——回写的是进入时快照，BOM 一并还原）
-      atomicWriteFile(abs, (original.bom ? '\uFEFF' : '') + joinFrontMatter(original.fmRaw, original.body), { fsync: true })
+      // 平台规范化批：R39-10 BOM 补回移除——joinFrontMatter 整体规范（规范形无 BOM）
+      atomicWriteFile(abs, joinFrontMatter(original.fmRaw, original.body), { fsync: true })
       invalidateTreeIndex(this.bookRoot, true)
     } catch {
       // 回写失败维持现状：fm-chapter-mismatch 由机检兜底
@@ -1174,9 +1210,9 @@ export class DocumentService {
         log.warn('document', `元数据修改前快照失败（fail-open 继续写入）：${errMsg(e)}`)
       }
       try {
-        // R39-10：BOM 补回——raw 为单读原文文本（R73-40 同源），splitFrontMatter 剥除的
-        // BOM 据此原样补回；无 BOM 时前缀空串字节不变（LF 回归锚）
-        atomicWriteFile(abs, (raw.startsWith('\uFEFF') ? '\uFEFF' : '') + joinFrontMatter(patched.text, body), { fsync: true })
+        // 平台规范化批：R39-10 BOM 补回移除（规范形无 BOM）——raw 若带 BOM（外部编辑
+        // 产物）由 joinFrontMatter 整体规范化剥除
+        atomicWriteFile(abs, joinFrontMatter(patched.text, body), { fsync: true })
       } catch (e) {
         return { ok: false, code: 'WRITE_ERROR', reason: `元数据写入失败：${errMsg(e)}` }
       }
@@ -1463,8 +1499,11 @@ export class DocumentService {
     try {
       // P5-数据层（第七轮）：按原始字节复制——原 utf-8 文本读写在非 UTF-8 源上会产出
       // 乱码副本（M-5 同族防线未覆盖复制路径；原件无损但副本即损坏）
+      // 平台规范化批：合法 UTF-8 源按规范形复制（CRLF/BOM 归一——副本是新建文件，
+      // 生而规范）；非 UTF-8 源维持字节级复制（P5 防线不动）
       const raw = readFileSync(srcSafe)
-      const created = createFileExclusive(dstSafe, raw, { fsync: true })
+      const payload = isUtf8Bytes(raw) && bufferNeedsCanonical(raw) ? canonicalizeText(raw.toString('utf-8')) : raw
+      const created = createFileExclusive(dstSafe, payload, { fsync: true })
       if (created === 'exists') return { ok: false, code: 'ALREADY_EXISTS', reason: '目标已存在' }
     } catch (e) {
       return { ok: false, code: 'WRITE_ERROR', reason: `复制失败：${errMsg(e)}` }
@@ -1711,6 +1750,16 @@ function sanitizeCreateSegment(seg: string): string {
     return sanitizeFileNamePart(seg.slice(0, -3)) + seg.slice(-3)
   }
   return sanitizeFileNamePart(seg)
+}
+
+/** R40-24（四十轮）：save 新建路径的消毒闸判定——任一**非空**段经 sanitizeCreateSegment
+ *  （R26-55 单源）会改写即不合规（保留设备名/尾点/尾空格/控制字符/非法字符段）。
+ *  空段跳过（'a//b.md' 类冗余分隔符由 resolve 词法折叠，铸名无害，不误拒）；两种
+ *  分隔符都切（win 反斜杠 relPath 变体与 posix 口径同判）。 */
+function isSanitizedCreatePath(relPath: string): boolean {
+  return relPath
+    .split(/[\\/]/)
+    .every((seg) => seg === '' || sanitizeCreateSegment(seg) === seg)
 }
 
 /** 短篇正文（写作/正文/ + 书级 kind=short）——标题编辑联动文件名 rename + 清单同步。 */

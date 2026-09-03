@@ -58,11 +58,13 @@ function winCompatNamePart(name: string): string {
  * 非空兜底（`未命名`）。供正文/风格库/伏笔/树工具/导出等所有拼文件名点收敛。
  */
 export function sanitizeFileNamePart(title: string, maxCp?: number, maxBytes?: number): string {
-  // R31-17（三十一轮）备案：本函数不做 NFC/NFD 归一与大小写折叠——macOS NFD 与
-  // 「ABC/abc」碰撞由调用方章号前缀（数字段区分）与 O_EXCL 序号兜底，未观察到实害；
-  // 收敛归一须同步存量文件迁移，超出本轮。
+  // R31-17（三十一轮）备案的 NFC 收敛已随平台规范化批（2026-09-03）落地：入口归一 NFC
+  //（mac APFS 存 NFD、win/NTFS 惯 NFC，同名不同形跨机即「找不到文件」；存量文件由
+  // 启动迁移 v4 改名归一）。大小写折叠仍不做——碰撞由调用方章号前缀与 O_EXCL 序号
+  // 兜底（R31-17 原判据维持）。
 
   const cleaned = title
+    .normalize('NFC')
     // 控制字符（含换行/回车/制表，块标量多行标题会带出）一律剥除
     // （R32-41：此处历史 eslint-disable no-control-regex 指令已清——规则未启用，指令失效）
     .replace(/[\u0000-\u001f\u007f]/g, '')
@@ -90,7 +92,9 @@ export function sanitizeChapterTitle(title: string): string {
  */
 export function sanitizeFullFileName(name: string): string {
   // 先整体剥尾点/尾空格（win 落盘自动剥；防下方 ext 捕获组把尾点吞进扩展名）
-  const pre = name.replace(/[. ]+$/, '')
+  // 平台规范化批：入口归一 NFC（sanitizeFileNamePart 同款——本函数是 rename/copy
+  // 目标名专用，NFC 收敛与标题段单源同口径）
+  const pre = name.normalize('NFC').replace(/[. ]+$/, '')
   const m = /^([\s\S]*?)(\.[^./\\]*)?$/.exec(pre)
   const rawStem = m?.[1] ?? pre
   const ext = (m?.[2] ?? '').replace(/[\\/]/g, '_')

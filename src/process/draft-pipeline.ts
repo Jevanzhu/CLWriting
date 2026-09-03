@@ -9,6 +9,7 @@
 import { join, basename, dirname, relative, isAbsolute } from 'node:path'
 import { mkdirSync, existsSync, readFileSync } from 'node:fs'
 import { atomicWriteFile } from '../fs/atomic.js'
+import { canonicalizeText } from '../fs/text-canonical.js'
 import { readChapterDir } from '../format/chapters.js'
 import { countWords } from '../format/words.js'
 import { bodyOf, parseFlat, readFile } from '../format/frontmatter.js'
@@ -123,6 +124,10 @@ export async function saveDraft(
   content: string,
   opts?: { snapshotOrigin?: string; userDataPath?: string | null },
 ): Promise<{ relPath: string; docId: string; words: number; snapshotted: boolean }> {
+  // 平台规范化批：草稿链（AI 写稿/self-heal/rewrite）不经 DocumentService.save，此处
+  // 自收口——路径派生/快照比对/journal pending/落盘/字数全链吃同一份规范形内容
+  const canonical = canonicalizeText(content)
+  content = canonical
   const { relPath } = resolveDraftPath(bookRoot, chapter, content)
   const absPath = join(bookRoot, relPath)
   // Y-3（第五十七轮）：回收站双认领守卫——目标文件在盘且回收站登记仍认领同一路径

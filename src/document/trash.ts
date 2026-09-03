@@ -15,7 +15,7 @@
  */
 import { existsSync, readFileSync, rmSync, mkdirSync, statSync } from 'node:fs'
 import { join, dirname } from 'node:path'
-import { atomicWriteFile, linkOrRenameExclusive, renameWithRetry } from '../fs/atomic.js'
+import { atomicWriteFile, linkOrRenameExclusive, renameWithRetry, rmWithRetry } from '../fs/atomic.js'
 import { resolveWithinRoot, safeDocId } from '../fs/safe-path.js'
 import { readManifestStrict, writeManifest, upsertEntry, withManifestLock, withManifestLockAsync, type ManifestEntry } from './manifest.js'
 import { VERSIONS_DIR_NAME, encodeDocDirName } from './version.js'
@@ -270,7 +270,10 @@ export async function restoreTrash(bookRoot: string, id: string): Promise<Restor
     mkdirSync(dirname(origAbs), { recursive: true })
     if (alreadyLinked) {
       // R65-36：续跑补删源（目标位内容已比对一致 = 上次 link 已完成）
-      rmSync(trashAbs, { force: true })
+      // R40-19（四十轮）：删源收编 rmWithRetry——win 杀软/索引器瞬时锁（EPERM/EBUSY）
+      // 下裸 rmSync 直败（MP2-3 只收编了本文件 rename 面，rm 面漏网）；退避后仍失败
+      // 上抛走既有 WRITE_ERROR 收口（语义不变：作者重试经 byte-equal 幂等续跑）
+      rmWithRetry(trashAbs)
     } else {
       // R64-21（十二轮）：existsSync→renameSync 的 TOCTOU 窗口内原位被跨进程新建 →
       // POSIX rename 静默覆盖占位文件（不可逆）。文件改 linkSync 原子探测：EEXIST →
@@ -300,7 +303,8 @@ export async function restoreTrash(bookRoot: string, id: string): Promise<Restor
             reason: `原位 ${entry.originalPath} 已被占用，请先重命名或删除现有文件`,
           }
         }
-        rmSync(trashAbs, { force: true })
+        // R40-19：删源退避（同 :273 口径——退避后仍失败上抛走 WRITE_ERROR，重试幂等续跑）
+        rmWithRetry(trashAbs)
       }
     }
   } catch (e) {
@@ -380,7 +384,9 @@ export async function purgeTrash(bookRoot: string, id: string): Promise<PurgeRes
   try {
     const trashAbs = safePathWithin(bookRoot, entry.trashedPath)
     if (!trashAbs) return { ok: false, code: 'NOT_FOUND', reason: '回收站条目路径非法（越出书仓库）' }
-    if (existsSync(trashAbs)) rmSync(trashAbs, { force: true })
+    // R40-19：永久删主文件同款退避（purge 不可逆承诺下退避后仍失败须如实报错，
+    // 不静默留 .trash 残迹——R64-13 隐私残留口径）
+    if (existsSync(trashAbs)) rmWithRetry(trashAbs)
     // R64-13（十二轮）：版本目录连删——purge 语义是「永久删（不可逆）」，此前只删
     // .trash 文件，工作区/.版本/<docId>/ 快照残留（pinned 定稿版永久保留），内容仍可
     // 经版本 API 读出，与 UI 的不可逆承诺冲突（隐私残留）。docId 走 safeDocId 同守卫

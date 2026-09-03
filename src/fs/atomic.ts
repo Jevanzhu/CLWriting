@@ -46,6 +46,44 @@ export function rmQuietly(path: string, opts?: { rm?: (p: string) => void }): vo
   }
 }
 
+/** R40-18/19（四十轮）：删除数据文件的 EPERM/EBUSY 小退避重试——renameWithRetry
+ *  （R77-3）收编了 rename 面，rm 面此前只有两个「放弃型」原语：rmQuietly（不重试、
+ *  静默，面向可残留自愈的 tmp）与 cross-process-lock 的 rmWithRetryQuiet（重试后
+ *  静默放弃 + 锁文件清扫文案）。「确实要删」的删源点（回收站还原删 .trash 源/
+ *  伏笔归档清理/永久删）瞬时锁下静默放弃会留不可回收的孤儿残迹或误报成功，需要
+ *  退避后仍失败**上抛**的变体：交调用方既有错误收口（WRITE_ERROR 信封等），语义
+ *  与该调用点裸 rmSync 时代完全一致，仅消掉毫秒级瞬时占用直败。退避口径与
+ *  renameWithRetry 同款（3×50ms 指数退避，仅 EPERM/EBUSY 进重试，ENOENT 等确定性
+ *  错误立即上抛）。rm/sleep 可注入（测试用，不动生产语义）。 */
+export function rmWithRetry(
+  path: string,
+  opts?: {
+    rm?: (p: string) => void
+    sleep?: (ms: number) => void
+    retries?: number
+    baseDelayMs?: number
+  },
+): void {
+  const doRm = opts?.rm ?? ((p: string) => rmSync(p, { force: true }))
+  // Atomics.wait 同步微睡（与 renameWithRetry 同口径；单次退避 ≤200ms）
+  const sleep =
+    opts?.sleep ?? ((ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms))
+  const retries = opts?.retries ?? 3
+  const base = opts?.baseDelayMs ?? 50
+  let attempt = 0
+  for (;;) {
+    try {
+      doRm(path)
+      return
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code ?? ''
+      if (attempt >= retries || !RETRYABLE_RENAME_CODES.has(code)) throw e
+      sleep(base * 2 ** attempt)
+      attempt++
+    }
+  }
+}
+
 export function renameWithRetry(from: string, to: string, opts?: RenameRetryOptions): void {
   const doRename = opts?.rename ?? ((src: string, dst: string) => renameSync(src, dst))
   // Atomics.wait 同步微睡（Node 主线程合法；单次退避 ≤200ms，不阻塞事件循环可观时长）

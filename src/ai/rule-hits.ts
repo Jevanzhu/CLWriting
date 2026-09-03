@@ -119,9 +119,36 @@ export async function recordRuleHits(bookRoot: string, violations: RuleViolation
   }
 }
 
-/** 读规则命中统计（按 hits 降序） */
+/** R40-7（四十轮）：单条命中统计的形状校验——.cache/rule-hits.json 无守门（可被手编/
+ *  半写），readRuleHits 结果经 trace-stats 端点直透前端渲染，坏形状（hits 非数、
+ *  recentMessages 非字符串数组等）此前原样上抛，渲染层炸未防御。对齐 readHits 既有
+ *  容错惯例（整体 parse 失败 → {} 静默空）：坏条目跳过 + warn 留痕，不抛——统计是
+ *  观测旁路，不该打断 trace-stats 聚合主链。 */
+function isRuleHitEntry(v: unknown): v is RuleHitEntry {
+  if (v === null || typeof v !== 'object') return false
+  const e = v as Record<string, unknown>
+  return (
+    typeof e['ruleId'] === 'string' &&
+    typeof e['hits'] === 'number' &&
+    Number.isFinite(e['hits']) &&
+    e['hits'] >= 0 &&
+    typeof e['lastHit'] === 'string' &&
+    Array.isArray(e['recentMessages']) &&
+    e['recentMessages'].every((m) => typeof m === 'string')
+  )
+}
+
+/** 读规则命中统计（按 hits 降序）。R40-7：出口逐条形状校验，坏条目跳过 + warn 留痕。 */
 export function readRuleHits(bookRoot: string): RuleHitEntry[] {
-  return Object.values(readHits(bookRoot)).sort((a, b) => b.hits - a.hits)
+  const out: RuleHitEntry[] = []
+  for (const [key, entry] of Object.entries(readHits(bookRoot))) {
+    if (isRuleHitEntry(entry)) {
+      out.push(entry)
+    } else {
+      log.warn('rule-hits', `rule-hits 条目形状非法，已跳过（key：${key}）——.cache/rule-hits.json 可能被手编或半写`)
+    }
+  }
+  return out.sort((a, b) => b.hits - a.hits)
 }
 
 /** 取 Top-N 高频违规（B4 前置注入用）。无命中 / 文件不存在 → 空数组。 */

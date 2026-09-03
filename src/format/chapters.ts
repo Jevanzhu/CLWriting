@@ -182,7 +182,7 @@ export function readChapterDirSummary(dirPath: string): {
  */
 function scanChapterDir(
   dirPath: string,
-): { chapters: ChapterMeta[]; errors: ParseError[]; latest: { mtimeMs: number; title: string } | null } {
+): { chapters: ChapterMeta[]; errors: ParseError[]; latest: { mtimeMs: number; no: number; title: string } | null } {
   const cache = chapterDirCache.get(dirPath) ?? new Map<string, ChapterDirEntry>()
   // R70-21：FIFO 上限——超限逐出最旧书目录（Map 插入序），防多书长跑无界缓涨
   if (!chapterDirCache.has(dirPath) && chapterDirCache.size >= CHAPTER_DIR_CACHE_MAX) {
@@ -193,7 +193,7 @@ function scanChapterDir(
   const chapters: ChapterMeta[] = []
   const errors: ParseError[] = []
   const seen = new Set<string>()
-  let latest: { mtimeMs: number; title: string } | null = null
+  let latest: { mtimeMs: number; no: number; title: string } | null = null
   // N2（五十九轮）：walk 族收口——裸 statSync（跟随 symlink）+ 无 visited 递归改走
   // walk-md 共享口径（Dirent 不跟随 symlink + realpath 剪枝 + 根界）
   walkMdEach(dirPath, (fp) => {
@@ -219,7 +219,12 @@ function scanChapterDir(
       chapter = cloneChapter(r.chapter)
     }
     chapters.push(chapter)
-    if (latest === null || mtimeMs > latest.mtimeMs) latest = { mtimeMs, title: chapter.标题 }
+    // R40-53（四十轮）：latest 决胜加章号 tie-break——快速建书/批量写章时相邻章 mtime
+    // 常落同一时钟刻（win 计时器粒度），原严格 > 使先枚举者（章号小）占住 latest，
+    // 「最新章」非确定（书架卡显示第59章而全书 60 章的间歇假象）。同刻按章号取大，
+    // 语义即「同时刻改动的章里取最新一章」，枚举序无关。
+    if (latest === null || mtimeMs > latest.mtimeMs || (mtimeMs === latest.mtimeMs && chapter.章号 > latest.no))
+      latest = { mtimeMs, no: chapter.章号, title: chapter.标题 }
     seen.add(fp)
   })
   // 清理已删除文件条目（结构变化自愈：删章/移章下一轮 walk 即失效）
