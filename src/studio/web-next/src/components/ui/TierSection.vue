@@ -240,10 +240,14 @@ function onTimeout(slot: TierSlot, ev: Event): void {
   padding-right: 0;
 }
 
-/* ── 档位网格：白色小卡（与提供方行卡同卡片语言）；列宽下限 300 保证单行放得下 ── */
+/* ── 档位网格：白色小卡（与提供方行卡同卡片语言）──
+ * 列宽下限 340 = 满配行（创作档：模型标签 20 + 下拉收缩下限 100 + 超时/推理组
+ * ~176 + gap 15 ≈ 311）+ 卡内边距 20 + 余量——低于此值行必然溢出卡缘（推理组
+ * flex-shrink:0 顶破右缘）。容器不足两列（≥696）时 auto-fit 自然单列，宽容器
+ * 仍两列且每列放得下满配行。 */
 .tier-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
   gap: var(--size-4-3) var(--size-4-4);
 }
 .tier-card {
@@ -312,12 +316,15 @@ function onTimeout(slot: TierSlot, ev: Event): void {
   flex-shrink: 0;
 }
 
-/* ── 字段行：永不换行（模型收缩兜底）；三控件统一 28px 高 + 同描边 ── */
+/* ── 字段行：永不换行（模型收缩兜底）；三控件统一 28px 高 + 同描边 ──
+ * 满配行（创作档）四件最小合计须 ≤ 两列卡内容区 ~320px：模型下拉 100 +
+ * 超时组 ~85 + 推理组 ~80 + 标签 26 + 三个 gap 5×3——超 1px 即推理组
+ * （flex-shrink:0）被顶出卡右缘截字，压缩时以「占位文字完整显示」为下限。 */
 .tier-fields {
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
 }
 /* 停用档字段：整组退灰不可点——开关开/关一眼有别 */
 .tier-fields.dim {
@@ -360,7 +367,7 @@ function onTimeout(slot: TierSlot, ev: Event): void {
    * 故右内边距 = 左内边距 + 17px，两侧视觉间距严格相等 */
   flex: 0 1 auto;
   width: auto;
-  min-width: 120px;
+  min-width: 100px;
   max-width: 100%;
   padding: 0 25px 0 8px;
   text-align: center;
@@ -385,10 +392,10 @@ function onTimeout(slot: TierSlot, ev: Event): void {
 .tier-timeout {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   height: 24px;
   box-sizing: border-box;
-  padding: 0 8px;
+  padding: 0 6px;
   flex-shrink: 0;
   background: var(--background-secondary);
   border: 1px solid var(--background-modifier-border);
@@ -407,7 +414,7 @@ function onTimeout(slot: TierSlot, ev: Event): void {
   white-space: nowrap;
 }
 .tier-timeout-input {
-  width: 36px;
+  width: 32px;
   height: 22px;
   line-height: 22px;
   padding: 0;
@@ -425,10 +432,10 @@ function onTimeout(slot: TierSlot, ev: Event): void {
 .tier-effort {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   height: 24px;
   box-sizing: border-box;
-  padding: 0 2px 0 7px;
+  padding: 0 2px 0 6px;
   flex-shrink: 0;
   background: var(--background-secondary);
   border: 1px solid var(--background-modifier-border);
@@ -445,8 +452,8 @@ function onTimeout(slot: TierSlot, ev: Event): void {
   -webkit-appearance: none;
   height: 22px;
   line-height: 22px;
-  /* 同模型下拉：居中基准到箭头左缘（箭头 10px 贴右），右内边距 = 左 + 10 */
-  padding: 0 12px 0 2px;
+  /* 同模型下拉：居中基准到箭头左缘（箭头 10px 贴右），右内边距 = 左 + 9 */
+  padding: 0 11px 0 2px;
   font-size: var(--font-size-xs);
   color: var(--text-normal);
   background-color: transparent;

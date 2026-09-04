@@ -18,9 +18,8 @@ export function useHotkeys(): void {
     //（preventDefault 但事件仍冒泡到 window），不重复消费——关面板的同时不能退出专注
     if (e.defaultPrevented) return
     // Esc 退出专注：任一弹层（命令面板/确认框/设置等）打开时让渡——它们的 Esc 归自身处理
-    const overlayOpen =
-      ui.paletteOpen || ui.confirmState !== null || ui.settingsOpen || ui.exportOpen || ui.shelfOpen
-    if (e.key === 'Escape' && ws.focusMode && !overlayOpen) {
+    // （overlayOpen 单源判据在 ui store，名单口径与所有消费点共用）
+    if (e.key === 'Escape' && ws.focusMode && !ui.overlayOpen) {
       e.preventDefault()
       ws.toggleFocus()
       return
@@ -33,8 +32,8 @@ export function useHotkeys(): void {
       if (ws.activeDocId) void doc.save(ws.activeDocId, 'manual')
     } else if (k === 'p' && !e.shiftKey) {
       // R35-38：任一弹层打开时让渡——面板与弹层同 z-index 时后者后挂载压住前者，
-      // 再开命令面板会成被遮住的「隐形面板」（对齐上方 Esc 的让渡名单）
-      if (overlayOpen) return
+      // 再开命令面板会成被遮住的「隐形面板」（同上方 Esc 的让渡口径）
+      if (ui.overlayOpen) return
       e.preventDefault()
       ui.openPalette()
     }

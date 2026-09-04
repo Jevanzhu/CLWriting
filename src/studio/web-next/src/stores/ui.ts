@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { getAiStatus } from '../api/ai-status'
 import { usePrefsStore } from './prefs'
 
@@ -12,6 +12,23 @@ export interface ToastItem {
   kind: 'info' | 'success' | 'error' | 'warning'
 }
 let seq = 0
+
+// ── J5 窗控压暗：全屏遮罩浓度表（2026-09-04）──
+// 各弹窗遮罩浓度不同（设置 .45 / 书架·导出·确认框 .35 / 命令面板 .25），窗控压暗色
+// 必须按「当前开着的遮罩」实时合成而非一档写死（写死 .45 时书架 .35 遮罩下窗控深一档
+// 即作者反馈的「颜色不统一」）。下列数值与组件 CSS 镜像——j5-overlay-dim.test.ts
+// 逐文件读 CSS 锁死防漂移，改遮罩透明度须两处同步。
+export const MASK_ALPHA = {
+  palette: 0.25, // CommandPalette .palette-mask
+  settings: 0.45, // settings-shared.css .modal-mask
+  export: 0.35, // ExportDialog .modal-mask
+  shelf: 0.35, // ShelfModal .shelf-mask
+  confirm: 0.35, // ConfirmPrompt .cp-mask
+} as const
+export type OverlayKey = keyof typeof MASK_ALPHA
+/** 书架子弹窗遮罩（叠在书架遮罩之上）：ConfirmDeleteModal .confirm-overlay .5、
+ *  CreateBookModal .create-overlay .3——ShelfModal 私有态，经 setShelfDeepAlpha 上报。 */
+export const SHELF_DEEP_ALPHA = { confirmDelete: 0.5, create: 0.3 } as const
 
 /** E-5（二十九轮）：探测失败重试间隔——指数退避（5s 起步 ×2 封顶 60s）。原 5s 固定
  *  轮询在 AI 长期不可达时永久打点（无退避上限）；available:true 成功即停并复位阶数。 */
@@ -46,12 +63,9 @@ export const useUiStore = defineStore('ui', () => {
   }
   function openSettings(): void {
     settingsOpen.value = true
-    // J5 win：弹窗遮罩压暗页面时同步压暗系统窗控条（否则亮块钉在暗页面上）
-    usePrefsStore().setOverlayDimmed(true)
   }
   function closeSettings(): void {
     settingsOpen.value = false
-    usePrefsStore().setOverlayDimmed(false)
   }
   function openExport(): void {
     exportOpen.value = true
@@ -65,6 +79,50 @@ export const useUiStore = defineStore('ui', () => {
   function closeShelf(): void {
     shelfOpen.value = false
   }
+  // ── 全屏遮罩弹层单源判据（2026-09-04）──
+  function overlayStates(): Array<{ key: OverlayKey; open: boolean; alpha: number }> {
+    return [
+      { key: 'palette', open: paletteOpen.value, alpha: MASK_ALPHA.palette },
+      { key: 'settings', open: settingsOpen.value, alpha: MASK_ALPHA.settings },
+      { key: 'export', open: exportOpen.value, alpha: MASK_ALPHA.export },
+      { key: 'shelf', open: shelfOpen.value, alpha: MASK_ALPHA.shelf },
+      { key: 'confirm', open: confirmState.value !== null, alpha: MASK_ALPHA.confirm },
+    ]
+  }
+  /** 「其它遮罩层是否开着」：Esc 让渡判定用（useHotkeys 专注退出 / SettingsModal /
+   *  ShelfModal 各自收层）——层自身开着时不应把自己算进让渡名单，传自身 key 剔除。
+   *  OR 名单此前在 useHotkeys（Esc 让渡 + Ctrl+P 守卫）与两个弹窗各抄一份，注释写着
+   *  「对齐名单口径」纯人肉同步——新增遮罩弹窗漏改一处就出新 bug（R42-30 即此类）。
+   *  新增带全屏遮罩的弹窗：状态 ref 建在本 store + 加进 overlayStates 即可，消费点自动跟上。 */
+  function overlayOpenExcept(self?: OverlayKey): boolean {
+    return overlayStates().some((s) => s.open && s.key !== self)
+  }
+  /** 任一全屏遮罩弹层开着（palette/设置/导出/书架/确认框）——单源判据。 */
+  const overlayOpen = computed(() => overlayOpenExcept())
+  /** 书架子弹窗遮罩浓度（ShelfModal 经 setShelfDeepAlpha 上报；只在书架开着时并入
+   *  maskAlpha——书架关闭期间残留值不生效，重开书架若子弹窗仍在则继续匹配）。 */
+  const shelfDeepAlpha = ref(0)
+  function setShelfDeepAlpha(a: number): void {
+    shelfDeepAlpha.value = a
+  }
+  /** 当前有效遮罩浓度：开着的遮罩按 1-Π(1-α) 复合（书架里叠确认框/子弹窗会加深），
+   *  0 = 无遮罩。窗控压暗色由 prefs 按该值实时合成（此前 .45 一档写死，.35 遮罩下
+   *  窗控偏深一档即作者反馈的「颜色不统一」）。 */
+  const maskAlpha = computed(() => {
+    const alphas: number[] = []
+    for (const s of overlayStates()) if (s.open) alphas.push(s.alpha)
+    if (shelfOpen.value && shelfDeepAlpha.value > 0) alphas.push(shelfDeepAlpha.value)
+    if (alphas.length === 0) return 0
+    return 1 - alphas.reduce((transmit, a) => transmit * (1 - a), 1)
+  })
+  // J5 窗控遮罩联动（win）：有效遮罩浓度变化 → prefs 按浓度合成压暗色并单拍瞬切
+  // （WCO 是 DWM 窗口属性不进网页合成器，逐帧拼过渡=闪烁+延迟，色值与口径见
+  //  prefs.setOverlayDimmed）。按浓度而非布尔：弹窗叠开（书架里删书叠确认框）时
+  //  浓度复合加深，关上层回到下层浓度，不误还原。原先只有设置弹窗手挂且一档写死，
+  //  书架/导出/命令面板/确认框漏联、浓度错档。
+  watch(maskAlpha, (a) => {
+    usePrefsStore().setOverlayDimmed(a > 0, a)
+  })
   /** 命令式确认（替代原生 confirm）。await 返回 true/false；mask 点击视为取消。 */
   function ask(opts: {
     title: string
@@ -182,6 +240,9 @@ export const useUiStore = defineStore('ui', () => {
     aiAvailable,
     aiDriver,
     probeAiStatus,
+    overlayOpen,
+    overlayOpenExcept,
+    setShelfDeepAlpha,
     openPalette,
     closePalette,
     openSettings,
