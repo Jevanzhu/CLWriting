@@ -345,7 +345,6 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       // 生成后台跑完，重连经 sync 快照 + ring buffer 迟到回放（E1b）恢复现场。
       // 显式停止仍走 POST /interrupt（用户主动取消）。
     })
-    // session.cwd = workDir(角色 agents 在 workDir/.claude/agents,init generateRoleShells 生成处)
     const session = await ensureSession(params['name']!, ctx.workDir)
     // 第五轮：ensureSession 的 await 窗口内客户端断开（页面刷新可触发）——close 回调
     // 跑空（heartbeat/iter 尚未赋值）。若照常挂载：30s 心跳 interval + channel consumer
@@ -596,7 +595,6 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     }
     const chapters = batchSize > 1 ? Array.from({ length: batchSize }, (_, i) => chapter + i) : undefined
 
-    // session.cwd = workDir(角色 agents 在 workDir/.claude/agents)
     const mainSession = await ensureSession(bookName, ctx.workDir!)
     // 二次检查（await 期间可能另一个请求已启动）——N4 TOCTOU 收窄；chat/spawn 闸同款补查
     if (isSelfHealRunning(bookName)) {

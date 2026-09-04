@@ -52,7 +52,6 @@ function sampleRaw(): TreeNode[] {
     ]),
     // 根级散文件（后端未过滤，前端应过滤）
     leaf('book.yaml', ''),
-    leaf('AGENTS.md', ''),
     leaf('.gitignore', ''),
   ]
 }
@@ -70,7 +69,7 @@ describe('tree · load', () => {
     expect(tree.loading).toBe(false)
     expect(tree.error).toBeNull()
     expect(tree.revision).toBe('r1')
-    expect(tree.raw).toHaveLength(7)
+    expect(tree.raw).toHaveLength(6)
   })
 
   it('getTree 失败 → error 记录', async () => {
@@ -121,10 +120,9 @@ describe('tree · groupTree 分组（v2 直透）', () => {
     expect(JSON.stringify(tree.grouped)).not.toContain('设定/名册.md')
   })
 
-  it('根级散文件（book.yaml/AGENTS.md/.gitignore）过滤', async () => {
+  it('根级散文件（book.yaml/.gitignore）过滤', async () => {
     const tree = await setup()
     expect(tree.grouped.some((g) => g.path === 'book.yaml')).toBe(false)
-    expect(tree.grouped.some((g) => g.path === 'AGENTS.md')).toBe(false)
     expect(tree.grouped.some((g) => g.path === '.gitignore')).toBe(false)
   })
 })

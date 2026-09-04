@@ -190,15 +190,15 @@ export const useTreeStore = defineStore('tree', () => {
 /**
  * 分组 transform：v2 后端已返回最终目录树，直接透传（过滤根级散文件 + 设定/名册.md）。
  * - 保留真实目录：写作 / 大纲 / 设定 / 布线（均为根级真实目录，groupTree 不再虚拟重组）
- * - 根级散文件（book.yaml/AGENTS.md/.gitignore/简介.md）过滤：非文档资产，不进写作树
+ * - 根级散文件（book.yaml/.gitignore/简介.md）过滤：非文档资产，不进写作树
  * - 设定/名册.md（机检「新专名候选」比对源，check/count.ts 直读路径，作者无编辑面）
  *   撤出写作树（对标文风：幕后资产不暴露给作者）——后端未过滤，此处继续过滤
  * - 工作区/文风/定稿 已由后端 SKIP_DIRS 排除，不进树
  */
 /** 根级散文件（非文档资产，后端未过滤，前端剔除）。 */
-const ROOT_TRASH = new Set(['book.yaml', 'AGENTS.md', '.gitignore', '简介.md'])
+const ROOT_TRASH = new Set(['book.yaml', '.gitignore', '简介.md'])
 function groupTree(rawNodes: TreeNode[]): TreeNode[] {
-  // 根级散文件（后端未过滤）：剔除 book.yaml/AGENTS.md/.gitignore/简介.md
+  // 根级散文件（后端未过滤）：剔除 book.yaml/.gitignore/简介.md
   const nodes = rawNodes.filter((n) => n.isDirectory || !ROOT_TRASH.has(n.path))
   const stripLedger = (ns: TreeNode[]): TreeNode[] => {
     const out: TreeNode[] = []

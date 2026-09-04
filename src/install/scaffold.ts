@@ -2,10 +2,10 @@
  * 书仓库 scaffold —— 从 init.ts 提取的共享模块（M7 #36 复用边界）。
  *
  * init（#30）和 import（#36）都通过这里建书仓库，保证 6.2 目录树、
- * 文风铁律模板、书级 AGENTS.md 完全一致（去 git 版本系统 W0 后不再 git init）。
+ * 文风铁律模板完全一致（去 git 版本系统 W0 后不再 git init）。
  *
  * 行为契约：本模块只负责「建书仓库骨架」，不含工作目录 scaffold、
- * 不装角色壳、不登记 books.jsonl（那些是 doInit 编排层的事）。
+ * 不登记 books.jsonl（那些是 doInit 编排层的事）。
  */
 
 import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
@@ -41,7 +41,7 @@ export interface BookScaffoldOpts {
 /**
  * 建书仓库骨架（book.yaml + 6.2 目录 + 文风冷启动 + 初始 manifest）。
  *
- * 产物：book.yaml、AGENTS.md、定稿/大纲/文风/工作区 全套目录、
+ * 产物：book.yaml、定稿/大纲/文风/工作区 全套目录、
  * 初始文档清单（去 git：不再 git init——状态机/定稿由 fingerprint + manifest 自管）。
  */
 export function scaffoldBookRepo(bookRoot: string, opts: BookScaffoldOpts): void {

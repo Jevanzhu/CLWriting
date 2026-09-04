@@ -1,6 +1,6 @@
 /**
  * Y-P2-4 治理测试：「模型可见 ⟺ 已记录」校验器 verifyVisibleRecorded 的管线级回归锚
- * （CLAUDE.md AI 链路守则第一条的落地；模式同 dependency-direction.test.ts 的常驻守护）。
+ * （AGENTS.md AI 链路守则第一条的落地；模式同 dependency-direction.test.ts 的常驻守护）。
  *
  * 背景：src/events/lineage.ts 的 verifyVisibleRecorded 此前零生产调用（y 轮评审发现）。
  * 拍板：不接运行时，接成测试门——用真实管线（fake provider 驱动 runChat，事件落

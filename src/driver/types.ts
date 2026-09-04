@@ -67,7 +67,7 @@ export type DriverEvent =
 
 /** driver 接口(SSE 基础设施,窄化) */
 export interface StudioDriver {
-  /** 起会话(带项目上下文;不注入 SKILL.md) */
+  /** 起会话(cwd=工作目录;provider 直连无 CLI 注入语义) */
   startSession(cwd: string, opts?: SessionOptions): Promise<Session>
   /** 流式事件(持续;done 事件表示单次生成完,不断流) */
   stream(session: Session): AsyncIterable<DriverEvent>
