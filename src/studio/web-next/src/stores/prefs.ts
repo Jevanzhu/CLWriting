@@ -427,52 +427,79 @@ export const usePrefsStore = defineStore('prefs', () => {
 
   // ── 窗控 overlay 色（win）──
   // WCO 能力上限 = 实色 + 主题跟随（'transparent' 不被 Chromium 接受、按钮底色也不跟
-  // nativeTheme，2026-08-31 实测）。色值 = 两档 --background-secondary（= 顶栏底）；
-  // 遮罩压暗期间用被 rgba(0,0,0,.45) 压暗后的等效色（实测 light 246→135、dark 38→21），
-  // 否则暗页面顶着一列亮窗控（作者反馈「窗控突兀」）。
-  let overlayDimmed = false
-  /** View Transition 圆形扩散进行中——applyTheme 暂不改窗控色，由 useTheme 在扩散
-   *  前沿扫过窗控区的时刻经 syncOverlayDelayed 切换（否则特效 400ms 内窗控先跳色）。 */
-  let overlaySweep = false
+  // nativeTheme，2026-08-31 实测）。基础色 = 两档 --background-secondary（= 顶栏底，
+  // light 0xF6 / dark 0x26，灰通道三值同）。遮罩压暗期间的色 = 顶栏底被遮罩吸收后的
+  // 等效色：round(bg × (1-α))，α = 当前有效遮罩浓度——各弹窗遮罩浓度不同（设置 .45、
+  // 书架/导出/确认 .35、命令面板 .25，名单在 ui store MASK_ALPHA 与组件 CSS 镜像、
+  // j5-overlay-dim.test.ts 锁死；多层叠开按 1-Π(1-α) 复合）。此前只有 .45 一档标定值
+  // （light #878787 / dark #151515），书架等 .35 遮罩下窗控深一档即「颜色不统一」。
+  /** 当前有效遮罩浓度（0 = 无遮罩，窗控还原基础色）。 */
+  let overlayAlpha = 0
 
-  function syncOverlayNow(): void {
-    // 测试环境（node，无 window）与其他非桌面上下文直接短路
-    if (typeof window === 'undefined') return
-    const d = window.clwritingDesktop
-    if (d?.platform !== 'win32') return
+  function overlayColorsFor(alpha: number): { color: string; symbolColor: string; dark: boolean } {
     const dark = theme.value === 'dark'
-    void d.setTitleBarOverlay(
-      overlayDimmed
-        ? { color: dark ? '#151515' : '#878787', symbolColor: dark ? '#c8c8c8' : '#666666', dark }
-        : { color: dark ? '#262626' : '#f6f6f6', symbolColor: dark ? '#c8c8c8' : '#666666', dark },
-    )
+    const bg = dark ? 0x26 : 0xf6
+    const ch = Math.round(bg * (1 - alpha)).toString(16).padStart(2, '0')
+    return { color: `#${ch}${ch}${ch}`, symbolColor: dark ? '#c8c8c8' : '#666666', dark }
   }
-
-  /** 主题切换圆形扩散扫过窗控区的时刻由 useTheme 计算并延迟调用（ms）。 */
-  function syncOverlayDelayed(delayMs: number): void {
-    setTimeout(() => syncOverlayNow(), Math.max(0, Math.round(delayMs)))
+  /** 下发窗控色。非 win32 短路（测试/浏览器态）。 */
+  function applyOverlayAlpha(alpha: number): void {
+    const d = typeof window === 'undefined' ? undefined : window.clwritingDesktop
+    if (d?.platform !== 'win32') return
+    void d.setTitleBarOverlay(overlayColorsFor(alpha))
   }
-  function beginOverlaySweep(): void {
-    overlaySweep = true
-  }
-  function endOverlaySweep(): void {
-    overlaySweep = false
+  /** 瞬切到当前应有色（遮罩开关 / 主题落定）。为什么不做过渡：WCO 色是 DWM
+   *  窗口属性（实色、无 alpha），不在网页合成器里——CSS/View Transition 的
+   *  时间线管不到它，「跟随渐变」只能逐帧 IPC 改属性拼（2026-09-04 试过 8 帧 ×
+   *  25ms：帧距被 IPC/主进程时延拉散即闪烁，整体拖过遮罩自身淡入即延迟，作者
+   *  实测打回）。mac hiddenInset 交通灯没有这个问题：按钮是透明底浮在网页上方，
+   *  底下像素随遮罩/主题特效逐帧自然变，无需联动——win 的等价能力只有放弃原生
+   *  窗控自绘 HTML 一条路，此处维持原生 + 单拍瞬切；主题切换同理（win 不做
+   *  扩散特效，见 useTheme.withThemeTransition，applyTheme 与页面同拍落定）。 */
+  function syncOverlayNow(): void {
+    if (typeof window === 'undefined') return
+    applyOverlayAlpha(overlayAlpha)
   }
 
   /**
    * 弹窗遮罩联动窗控色（win）：全屏遮罩压暗页面时，系统绘制的窗控条不会被压暗——
-   * 暗页面顶着一列亮块即作者反馈的「窗控突兀」。开启期间窗控色用压暗等效色，关闭还原。
+   * 暗页面顶着一列亮块即作者反馈的「窗控突兀」。alpha = 有效遮罩浓度（0 = 还原）。
+   * 与遮罩起始同刻单拍落终值（不做逐帧过渡，缘由见 syncOverlayNow）。
    */
-  function setOverlayDimmed(open: boolean): void {
-    overlayDimmed = open
+  function setOverlayDimmed(open: boolean, alpha = 0): void {
+    overlayAlpha = open ? alpha : 0
     syncOverlayNow()
   }
 
   function applyTheme(): void {
     document.documentElement.dataset.theme = theme.value
-    // 窗控色：非特效路径即时同步；圆形扩散路径由 useTheme 延迟到扫过窗控的时刻
-    // （overlaySweep 挂起中，防止特效开始就跳色导致的不同步）
-    if (!overlaySweep) syncOverlayNow()
+    // 窗控色与主题同一（同步）拍落定即「一起变」——win 已不做扩散特效
+    //（useTheme.withThemeTransition 瞬切），原「特效期间挂起、前沿到达再切」的
+    // overlaySweep 编排随 2026-09-04 拍板删除（其唯一有效平台就是 win）。
+    // win 翻转拍压制全局过渡：按钮/链接基线 hover transition（--dur-fast）会在
+    // 主题翻转时让全页面颜色渐变 120ms+，与瞬切的窗控条错位（作者反馈「切换
+    // 配色不同步」）；翻转帧绘制完成后摘除，日常 hover 过渡不受影响。mac/浏览器
+    // 走 VT 新旧快照翻转（base.css ::view-transition-*），页面本就单帧换血。
+    const d = typeof window === 'undefined' ? undefined : window.clwritingDesktop
+    if (d?.platform === 'win32') {
+      const rootEl = document.documentElement
+      rootEl.classList.add('theme-instant')
+      // 窗控色延到页面新色扫描输出之后再落（双 rAF = 下一帧帧首，翻转帧已
+      // present）：144Hz 帧预算 6.9ms，整页 restyle 必超预算——pre-flush 发送会让
+      // 窗控恒定领先页面 1-2 帧（角落先变 = 「抢跑」，作者反馈「切换配色不同
+      // 步」）。改为页面先变、窗控随即跟上（落后 ≤1 帧），跟随方向与直觉一致。
+      // 遮罩路径（setOverlayDimmed）不照抄：遮罩帧已轻量化到单帧预算内
+      // （ShelfModal/SettingsModal contentReady 分帧），pre-flush 发送即与遮罩
+      // 同帧扫描输出，才是真同步。
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          rootEl.classList.remove('theme-instant')
+          syncOverlayNow()
+        }),
+      )
+      return
+    }
+    syncOverlayNow()
   }
 
   /** 紧凑模式：给 <html> 挂 .compact，全局 CSS 用该选择器收窄间距 */
@@ -679,9 +706,6 @@ export const usePrefsStore = defineStore('prefs', () => {
     applyTheme,
     applyCompact,
     setOverlayDimmed,
-    syncOverlayDelayed,
-    beginOverlaySweep,
-    endOverlaySweep,
     setThemeValue,
     setSize,
     setLh,

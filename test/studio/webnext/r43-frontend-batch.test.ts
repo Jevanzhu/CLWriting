@@ -3,7 +3,7 @@
  * R43（四十三轮）前端批回归：
  * - R43-11：StartupNoticeBanner localStorage 脏值容错（非数组不炸 + 非 string 元素过滤）。
  * - R43-9：useTheme ViewTransition 被抢占（ready/finished reject）→ 无 unhandledRejection
- *   且 overlaySweep 复位（后续 applyTheme 的窗控色同步不再被压制）。
+ *   （win 已瞬切不进 VT〔2026-09-04 拍板〕，抢占面在 mac/浏览器腿）。
  * - R43-15：CmHost 双组合间隙 <1 帧的丢弃分支保留挂起（自愈链：下一次 compositionend
  *   的既有消费路径再触发应用，修复前挂起被清后外部替换永久丢失）。
  * - R43-16：doc store save 成功对齐 treeRev 至当前树版本（dirty 窗口错过的树刷新不再把
@@ -48,7 +48,7 @@ vi.mock('../../../src/studio/web-next/src/api/books', () => ({
 vi.mock('../../../src/studio/web-next/src/api/settings', () => ({
   getCompletionNames: mocks.getCompletionNames,
 }))
-// prefs API mock：useTheme 测试走真 prefs store（applyTheme/overlaySweep 语义在测），
+// prefs API mock：useTheme 测试走真 prefs store（applyTheme 语义在测），
 // 持久化通道 mock 掉防落盘副作用；getBookPrefs 供 workspace store（EditorView 图内）。
 vi.mock('../../../src/studio/web-next/src/api/prefs', () => ({
   getGlobalPrefs: vi.fn(async () => ({ prefs: {}, revision: 'r0' })),
@@ -61,7 +61,6 @@ import StartupNoticeBanner from '../../../src/studio/web-next/src/components/ui/
 import CmHost from '../../../src/studio/web-next/src/editor/CmHost.vue'
 import EditorView from '../../../src/studio/web-next/src/views/EditorView.vue'
 import { useTheme } from '../../../src/studio/web-next/src/composables/useTheme'
-import { usePrefsStore } from '../../../src/studio/web-next/src/stores/prefs'
 import { useDocStore } from '../../../src/studio/web-next/src/stores/doc'
 import { useTreeStore } from '../../../src/studio/web-next/src/stores/tree'
 import type { TreeNode } from '../../../src/studio/web-next/src/types/tree'
@@ -150,7 +149,7 @@ describe('R43-11: StartupNoticeBanner localStorage 脏值容错', () => {
 // ── R43-9：useTheme ViewTransition 抢占防御 ────────────────────────────────────
 
 describe('R43-9: useTheme ViewTransition 被抢占（ready/finished reject）', () => {
-  it('无 unhandledRejection 逃逸，且 overlaySweep 复位（后续窗控色同步可达）', async () => {
+  it('无 unhandledRejection 逃逸（win 已瞬切不走 VT，抢占面在 mac/浏览器腿）', async () => {
     vi.useFakeTimers()
     // happy-dom 缺 matchMedia 时补最小替身（只读 .matches）
     if (typeof window.matchMedia !== 'function') {
@@ -166,7 +165,7 @@ describe('R43-9: useTheme ViewTransition 被抢占（ready/finished reject）', 
     const prevAnimate = docEl.animate
     try {
       win.clwritingDesktop = {
-        platform: 'win32',
+        platform: 'darwin', // win 已瞬切不进 VT（2026-09-04 拍板）；抢占防御在 mac/浏览器腿
         setTitleBarOverlay: overlay,
       }
       docEl.animate = vi.fn() // happy-dom 无 Element.animate
@@ -179,16 +178,12 @@ describe('R43-9: useTheme ViewTransition 被抢占（ready/finished reject）', 
         }
       }
 
-      const prefs = usePrefsStore()
       const { toggle } = useTheme()
       toggle()
-      // 微任务冲排：ready.catch / finished.catch → finally（endOverlaySweep）执行
+      // 微任务冲排：ready.catch / finished.catch 执行
       await vi.advanceTimersByTimeAsync(0)
-      // R43-9 核心：浮空 ready.then / 无 catch 的 finished.finally 链不产生 unhandledRejection
+      // R43-9 核心：浮空 ready.then / 无 catch 的 finished 链不产生 unhandledRejection
       expect(unhandled).toEqual([])
-      // sweep 已复位：直接落主题 → applyTheme 不再被 overlaySweep 压制 → 窗控同步被调用
-      prefs.setThemeValue('dark')
-      expect(overlay).toHaveBeenCalled()
     } finally {
       process.off('unhandledRejection', onUnhandled)
       vtDoc.startViewTransition = undefined

@@ -3,12 +3,13 @@
 // 容器：管理 tab 切换 + 提供 saveConfig（串行化读写 book.yaml）。
 // 各 tab 内容拆分到 Settings*.vue 子组件；设置域共享样式在 settings-shared.css
 //（hh §八-16 自本件 <style> 原样搬出——全局样式，全部 Settings* 子件共用）。
-import { ref, computed, onMounted, onBeforeUnmount, provide } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, provide } from 'vue'
 import { X, Palette, Type, NotebookPen, Sparkles, ScanSearch, History, BookOpen, Server } from 'lucide-vue-next'
 import { useUiStore } from '../../stores/ui'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { getConfigWithRevision, putConfig, type BookConfig } from '../../api/books'
 import { friendlyError } from '../../shared/error'
+import { afterPaint } from '../../shared/after-paint'
 import { useFocusTrap } from '../../composables/useFocusTrap'
 import { SAVE_CONFIG_KEY } from './settings-context'
 import { isImeComposing } from '../../shared/ime' // R33-82
@@ -28,6 +29,21 @@ const ui = useUiStore()
 const ws = useWorkspaceStore()
 const modalRef = ref<HTMLElement | null>(null)
 useFocusTrap(modalRef)
+
+// J5 win 同步拍（2026-09-04）：设置弹窗整树挂载实测 ~22ms（8 个 tab 组件静态导入 +
+// 外观页组件树），144Hz 帧预算仅 6.9ms——遮罩与窗控压暗（主进程 ~2ms）必然差 2-3 帧，
+// 即作者感知的「打开设置不同步」。遮罩独占轻帧先上屏（与窗控同帧扫描输出），modal
+// 主体下一帧再挂（1 帧 6.9ms 不可感知）。分帧原语必须 afterPaint——初版单 rAF 实测
+// 无效（rAF 回调的微任务仍在本帧渲染管线内，面板照样拖慢该帧）。焦点陷阱
+// watch(modalRef) 对延迟出现的元素照常聚焦；关闭即复位，重开重新走延帧。
+const contentReady = ref(false)
+watch(
+  () => ui.settingsOpen,
+  (open) => {
+    contentReady.value = false
+    if (open) afterPaint(() => (contentReady.value = true))
+  },
+)
 
 // IA 重组：全局默认按选项类别拆 4 个独立一级页（写作默认/AI 写作/智能分析/版本保留），
 // 「本书」收敛为单页（书名 + 各领域的本书独立设定覆盖组 + 定稿版本 + 存储）——共 8 项导航。
@@ -98,10 +114,10 @@ function onKeydown(e: KeyboardEvent): void {
   // Esc 不应连带关闭设置弹层
   if (isImeComposing(e)) return
   if (ui.confirmState) return
-  // R42-30（四十二轮）：其它 overlay 开着则让渡——对齐 useHotkeys 的 overlayOpen 名单
-  // 口径（palette/设置/书架/导出；确认已在上行让位）：压在设置上方的顶层弹层的 Esc 归
-  // 自身处理，本层不处理不 preventDefault（防设置下方的弹层被 Esc 连带关掉）
-  if (ui.paletteOpen || ui.exportOpen || ui.shelfOpen) return
+  // R42-30（四十二轮）：其它 overlay 开着则让渡（单源判据 ui.overlayOpenExcept，
+  // 剔除自身；确认已在上行让位）：压在设置上方的顶层弹层的 Esc 归自身处理，本层
+  // 不处理不 preventDefault（防设置下方的弹层被 Esc 连带关掉）
+  if (ui.overlayOpenExcept('settings')) return
   ui.closeSettings()
   // Z-23（第五十八轮）：本层消费了 Esc → preventDefault——useHotkeys 的专注模式退出
   // 走 defaultPrevented 让渡口，同一按键不再双效（关弹层连带退专注）
@@ -114,7 +130,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 <template>
   <Teleport to="body">
     <div v-if="ui.settingsOpen" class="modal-mask" @click.self="ui.closeSettings">
-      <div ref="modalRef" class="settings-modal" role="dialog" aria-modal="true" aria-label="设置" tabindex="-1">
+      <div v-if="contentReady" ref="modalRef" class="settings-modal" role="dialog" aria-modal="true" aria-label="设置" tabindex="-1">
         <div class="modal-head">
           <div class="modal-heading">
             <span class="modal-title">设置</span>

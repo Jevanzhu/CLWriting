@@ -110,6 +110,45 @@ button:disabled {
   }
 }
 
+/* win 桌面：遮罩不渐变（2026-09-04 实测收口）。win 窗控条是 DWM 实色属性、只能
+   瞬切（实测全链路 IPC+主进程 2ms、遮罩首绘 9ms，错位全在遮罩 200ms 渐变期——
+   渐变期内页面与窗控色阶对不上，即作者感知的「窗控延迟」）；遮罩改瞬切后两者同
+   为单帧跳变，与主题切换（win 已瞬切）同拍一致。mac 交通灯透明底浮在网页上、
+   底下像素随特效逐帧自然变，保留渐变。新增全屏遮罩类须加入下方名单
+   （j5-overlay-dim.test.ts 读本文件锁死名单覆盖）。 */
+:root[data-platform='win32'] .modal-mask,
+:root[data-platform='win32'] .shelf-mask,
+:root[data-platform='win32'] .palette-mask,
+:root[data-platform='win32'] .cp-mask,
+:root[data-platform='win32'] .picker-mask,
+:root[data-platform='win32'] .confirm-overlay,
+:root[data-platform='win32'] .create-overlay {
+  animation: none;
+}
+
+/* win 独立整页（书库/首启/书架窗）拖拽区须有实色底带（2026-09-05）。窗控条基础色
+   = --background-secondary（prefs.overlayColorsFor），实色带只与同色底贴合——这
+   三页的 titlebar 原为透明、透出页面 --background-primary 渐变，两档 token 恒差
+   一级（light #f6f6f6 对 #ffffff、dark #262626 对 #1e1e1e），即作者反馈的「书库
+   管理窗控颜色不同步」。主窗口 TabBar 顶带本就是 secondary，故无缝。mac 交通灯
+   浮在网页上、底下像素自然变，不上底带（j5-overlay-dim.test.ts 读本文件锁名单）。 */
+:root[data-platform='win32'] .lib-titlebar,
+:root[data-platform='win32'] .welcome-titlebar,
+:root[data-platform='win32'] .shelf-titlebar {
+  background: var(--background-secondary);
+}
+
+/* win 主题翻转拍：压制全部 transition（2026-09-04）。按钮/链接基线 hover 过渡
+   （--dur-fast）在主题翻转时让全页颜色渐变百余毫秒，与瞬切窗控条错位（作者反馈
+   「切换配色不同步」）——prefs.applyTheme 在 win 翻转拍挂 .theme-instant、下一帧
+   摘除，页面与窗控同为单帧跳变；日常 hover 过渡不受影响。mac/浏览器走 VT 新旧
+   快照单帧换血，无此问题。 */
+html.theme-instant *,
+html.theme-instant *::before,
+html.theme-instant *::after {
+  transition: none !important;
+}
+
 /* Awwwards 冲击面：空态图标浮动呼吸（EmptyState full 档用）。克制——5px 位移。*/
 @keyframes clw-float {
   0%,

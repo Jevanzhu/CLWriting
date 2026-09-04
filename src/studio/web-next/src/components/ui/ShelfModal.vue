@@ -2,13 +2,14 @@
 // 书架浮层（ShelfGrid 去重 P2-5）：主窗口内 Teleport 浮层，长篇/短篇左右并排。
 // 共享逻辑走 useShelf composable，书卡/弹层走 ShelfGrid 组件，hero 卡走 components/shelf/；
 // 本组件只保留浮层布局 + 关闭逻辑。
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { X, BookOpen, LayoutGrid, List, Sun, Moon, Plus, Trash2, CheckSquare } from 'lucide-vue-next'
 import { useShelf } from '../../composables/useShelf'
-import { useUiStore } from '../../stores/ui'
+import { useUiStore, SHELF_DEEP_ALPHA } from '../../stores/ui'
 import { useTheme } from '../../composables/useTheme'
 import { isImeComposing } from '../../shared/ime'
+import { afterPaint } from '../../shared/after-paint'
 import { useFocusTrap } from '../../composables/useFocusTrap'
 import ShelfGrid from './ShelfGrid.vue'
 import ShelfModalHero from '../shelf/ShelfModalHero.vue'
@@ -48,6 +49,30 @@ const {
 const modalRef = ref<HTMLElement | null>(null)
 useFocusTrap(modalRef)
 
+// J5 win 同步拍（2026-09-04）：书架面板整树挂载 ~14ms，144Hz 帧预算仅 6.9ms——与
+// 遮罩同帧挂载必然把遮罩拖出单帧预算、落后窗控 1-2 帧（作者感知「书架延迟」；进程
+// 冷缓存时更糟）。遮罩独占轻帧先上屏（与窗控压暗同帧扫描输出），书卡面板下一帧再
+// 挂（1 帧 6.9ms 不可感知）。分帧原语必须 afterPaint——单 rAF 的微任务仍在同帧渲染
+// 管线内，等于没分。焦点陷阱 watch(modalRef) 对延迟出现的元素照常聚焦。
+const contentReady = ref(false)
+watch(
+  () => ui.shelfOpen,
+  (open) => {
+    contentReady.value = false
+    if (open) afterPaint(() => (contentReady.value = true))
+  },
+)
+
+// J5 窗控压暗浓度上报：删除确认/新建子弹窗是本组件私有态，其全屏遮罩叠在书架遮罩
+// 之上（浓度见 SHELF_DEEP_ALPHA，与组件 CSS 镜像）——上报后 ui store 并入有效遮罩
+// 浓度，窗控色才能跟上叠层加深。confirmTarget 持续到取消/确认，书架关闭期间上报值
+// 由 maskAlpha 侧按 shelfOpen 折叠，无需在此清理。
+watch([confirmTarget, showCreate], () => {
+  ui.setShelfDeepAlpha(
+    confirmTarget.value ? SHELF_DEEP_ALPHA.confirmDelete : showCreate.value ? SHELF_DEEP_ALPHA.create : 0,
+  )
+})
+
 // 卡片点击：批量模式 toggle 选中，否则打开书
 function handleCardClick(name: string): void {
   if (batchMode.value) toggleSelect(name)
@@ -71,10 +96,10 @@ function onKeydown(e: KeyboardEvent): void {
   // 候选框的 Esc 不应关浮层/收批量（isComposing || keyCode 229 单源判据）
   if (isImeComposing(e)) return
   if (e.key !== 'Escape') return
-  // R42-30（四十二轮）：其它 overlay 开着则让渡——对齐 useHotkeys 的 overlayOpen 名单
-  // 口径（palette/全局确认/设置/导出；书架自身除外）：压在书架上方的顶层弹层先收 Esc，
-  // 本层子态（删除确认/新建/批量）与收层全部不动、不 preventDefault
-  if (ui.paletteOpen || ui.confirmState !== null || ui.settingsOpen || ui.exportOpen) return
+  // R42-30（四十二轮）：其它 overlay 开着则让渡（单源判据 ui.overlayOpenExcept，
+  // 剔除自身）：压在书架上方的顶层弹层先收 Esc，本层子态（删除确认/新建/批量）与
+  // 收层全部不动、不 preventDefault
+  if (ui.overlayOpenExcept('shelf')) return
   // 本组件常驻挂载（WorkspaceShell 无 v-if）——只有实际消费（书架开或子态在）才
   // preventDefault；否则让 Esc 落到 useHotkeys（专注模式退出），同一按键不双效
   let consumed = false
@@ -94,7 +119,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 <template>
   <Teleport to="body">
     <div v-if="ui.shelfOpen" class="shelf-mask" @click.self="ui.closeShelf">
-      <div ref="modalRef" class="shelf-modal" role="dialog" aria-modal="true" aria-label="书库" tabindex="-1">
+      <div v-if="contentReady" ref="modalRef" class="shelf-modal" role="dialog" aria-modal="true" aria-label="书库" tabindex="-1">
         <header class="modal-head">
           <div class="head-left">
             <h2 class="head-title">书架</h2>

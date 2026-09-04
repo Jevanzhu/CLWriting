@@ -49,6 +49,8 @@ const uiMock = {
   settingsOpen: false,
   closeSettings: vi.fn(),
   confirmState: null as unknown,
+  // 遮罩单源判据（ui store 收编后 SettingsModal 的 Esc 让渡走此口）：false = 无其它弹层
+  overlayOpenExcept: vi.fn(() => false),
 }
 vi.mock('../../../src/studio/web-next/src/stores/ui', () => ({
   useUiStore: vi.fn(() => uiMock),

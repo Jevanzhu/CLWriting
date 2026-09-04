@@ -17,32 +17,19 @@ type VTDoc = Document & {
 /** Awwwards 冲击面：主题切换圆形扩散时长（ms）——与下方 animate duration 同源。 */
 const SWEEP_MS = 400
 
-/** 圆形扩散前沿到达 WCO 窗控区（右上角 137×31 系统条）的时刻（ms）。
- *  系统窗控无法参与渐变（瞬切），若在特效开始就切色会先于整体 400ms 渐变——
- *  作者反馈「不同步」。解法：按扩散前沿扫到窗控区的时刻延迟切色，视觉上窗控
- *  恰在光圈波及它时跟随变化。缓动 cubic-bezier(.4,0,.2,1) 的纵曲线为 3t²-2t³
- *  （控制点 y1=0,y2=1），反解时间占比 t 即得延迟。 */
-function sweepArrivalMs(x: number, y: number, endRadius: number): number {
-  const left = window.innerWidth - 137
-  const dx = Math.max(left - x, 0, x - window.innerWidth)
-  const dy = Math.max(-y, 0, y - 31)
-  const d = Math.hypot(dx, dy)
-  const p = Math.min(1, d / endRadius)
-  if (p <= 0) return 0
-  let t = 0.5
-  for (let i = 0; i < 12; i++) {
-    const f = 3 * t * t - 2 * t * t * t - p
-    const df = 6 * t - 6 * t * t
-    t = Math.min(1, Math.max(0, t - f / (df || 1e-6)))
-  }
-  return Math.round(t * SWEEP_MS)
-}
-
 /** Awwwards 冲击面：主题切换圆形扩散。
  *  支持且未减弱动效时，新主题从点击点 clip-path 圆形扩散（400ms ease-std）；
- *  否则瞬切。event 缺省时圆心取视口中心。窗控色由 prefs 延迟到扩散扫过时刻。*/
+ *  否则瞬切。event 缺省时圆心取视口中心。
+ *  win 桌面不走特效（2026-09-04 作者拍板）：WCO 窗控条是 DWM 实色带、进不了
+ *  网页合成器，扩散期间窗控色只能按「前沿到达时刻」编排单拍切，帧级错位两轮
+ *  实测被打回（先闪烁/延迟、修准反解后仍滞后）——win 放弃特效整体瞬切，窗控
+ *  色经 applyTheme→syncOverlayNow 与页面同一刻落定即「一起变」。mac（hiddenInset
+ *  交通灯透明底浮在网页上，底下像素随特效逐帧自然变）与纯浏览器保留特效。 */
 function withThemeTransition(event: MouseEvent | undefined, fn: () => void): void {
-  const prefs = usePrefsStore()
+  if (window.clwritingDesktop?.platform === 'win32') {
+    fn()
+    return
+  }
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   const doc = document as VTDoc
   if (!doc.startViewTransition || reduceMotion) {
@@ -55,12 +42,11 @@ function withThemeTransition(event: MouseEvent | undefined, fn: () => void): voi
     Math.max(x, window.innerWidth - x),
     Math.max(y, window.innerHeight - y),
   )
-  prefs.beginOverlaySweep()
   const t = doc.startViewTransition(() => fn())
   // R43-9（四十三轮）：ready/finished 补防御 catch——ViewTransition 被抢占（过渡中再切
   // 主题/skipTransition 等）时两 promise 按 API 约定 reject：ready 的浮空 .then 成为
-  // unhandledRejection；finished 不 settle 到 finally 则 endOverlaySweep 不执行，
-  // overlaySweep 滞留 true 压制 applyTheme 的窗控色同步（窗控色从此不跟主题）。
+  // unhandledRejection。窗控色同步已随 win 瞬切收口（applyTheme 无条件 syncOverlayNow，
+  // 原 overlaySweep 挂起机制删除），此处只剩特效自身的异常面。
   t.ready
     .then(() => {
       document.documentElement.animate(
@@ -71,12 +57,9 @@ function withThemeTransition(event: MouseEvent | undefined, fn: () => void): voi
           pseudoElement: '::view-transition-new(root)',
         },
       )
-      prefs.syncOverlayDelayed(sweepArrivalMs(x, y, endRadius))
     })
     .catch(() => {})
-  t.finished
-    .catch(() => {})
-    .finally(() => prefs.endOverlaySweep())
+  t.finished.catch(() => {})
 }
 
 export function useTheme() {
