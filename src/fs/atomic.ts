@@ -54,7 +54,12 @@ export function rmQuietly(path: string, opts?: { rm?: (p: string) => void }): vo
  *  退避后仍失败**上抛**的变体：交调用方既有错误收口（WRITE_ERROR 信封等），语义
  *  与该调用点裸 rmSync 时代完全一致，仅消掉毫秒级瞬时占用直败。退避口径与
  *  renameWithRetry 同款（3×50ms 指数退避，仅 EPERM/EBUSY 进重试，ENOENT 等确定性
- *  错误立即上抛）。rm/sleep 可注入（测试用，不动生产语义）。 */
+ *  错误立即上抛）。rm/sleep 可注入（测试用，不动生产语义）。
+ *
+ *  R42-40（四十二轮挂账 → 2026-09-05 收编）：recursive 档——目录树删源点（回收站
+ *  purge 版本目录连删）同享退避。为 true 时默认 rm 换 rmSync({ force, recursive })，
+ *  rm 注入口优先级不变（注入即完全接管，测试语义不动）；缺省非递归形态原样保留
+ *  （目录传入恒 EISDIR 上抛，防误用既有防线）。 */
 export function rmWithRetry(
   path: string,
   opts?: {
@@ -62,9 +67,12 @@ export function rmWithRetry(
     sleep?: (ms: number) => void
     retries?: number
     baseDelayMs?: number
+    recursive?: boolean
   },
 ): void {
-  const doRm = opts?.rm ?? ((p: string) => rmSync(p, { force: true }))
+  const doRm =
+    opts?.rm ??
+    ((p: string) => rmSync(p, opts?.recursive ? { force: true, recursive: true } : { force: true }))
   // Atomics.wait 同步微睡（与 renameWithRetry 同口径；单次退避 ≤200ms）
   const sleep =
     opts?.sleep ?? ((ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms))

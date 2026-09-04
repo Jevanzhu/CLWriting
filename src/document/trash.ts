@@ -13,7 +13,7 @@
  * 路径安全（P1 修复）：originalPath/trashedPath 来自 manifest 文件，须经 safePathWithin 校验，
  * 防 manifest 被篡改后 restore/purge 的 rename/rmSync 越出 bookRoot。
  */
-import { existsSync, readFileSync, rmSync, mkdirSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, mkdirSync, statSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { atomicWriteFile, linkOrRenameExclusive, renameWithRetry, rmWithRetry } from '../fs/atomic.js'
 import { resolveWithinRoot, safeDocId } from '../fs/safe-path.js'
@@ -420,11 +420,11 @@ export async function purgeTrash(bookRoot: string, id: string): Promise<PurgeRes
       const names = entry.id === encodeDocDirName(entry.id) ? [entry.id] : [entry.id, encodeDocDirName(entry.id)]
       for (const name of names) {
         const verDir = safePathWithin(bookRoot, `工作区/${VERSIONS_DIR_NAME}/${name}`)
-        // R42-40（四十二轮）记档：此递归删未收编 rmWithRetry——fs/atomic.ts 现签名默认
-        // rm 为 rmSync(p, {force:true})（非递归，目录删需 recursive，误收编会恒抛
-        // ERR_FS_EISDIR 直败），rm 注入口的文档口径是测试注入不动生产语义；待 rmWithRetry
-        // 增设 recursive 档后，此处随 :411 主文件 / 分析信封 / journal 一并收编。
-        if (verDir && existsSync(verDir)) rmSync(verDir, { recursive: true, force: true })
+        // R42-40（四十二轮挂账 → 2026-09-05 收编）：rmWithRetry 增设 recursive 档后，
+        // 版本目录递归删随 :411 主文件 / 分析信封 / journal 一并收编——win 同步盘瞬时
+        // 占用（EPERM/EBUSY）不再直败，退避后仍失败上抛走既有 WRITE_ERROR 收口
+        // （不可逆承诺下如实报错，不静默留隐私残迹）。
+        if (verDir && existsSync(verDir)) rmWithRetry(verDir, { recursive: true })
       }
       // R69-4（十七轮）：分析信封双候选 + journal 双名连删——purge「不可逆」承诺下
       // 此前漏清两处：项目/分析/<docId>.json（review/score 载荷 = 隐私残留，字面+编码
