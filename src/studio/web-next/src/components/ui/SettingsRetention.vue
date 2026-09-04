@@ -27,7 +27,7 @@ function onGlobalSnapInput(which: 'days' | 'count', e: Event): void {
       <div class="setting-item">
         <div class="setting-item-info">
           <div class="setting-item-name">保留天数</div>
-          <div class="setting-item-desc">未单独设定的书使用此规则</div>
+          <div class="setting-item-desc">所有书统一按此规则保留（无书级覆盖）</div>
         </div>
         <div class="setting-item-control">
           <input class="num-input" type="number" min="1" max="365" aria-label="保留天数（全局默认）" :value="prefs.snapDays" @change="onGlobalSnapInput('days', $event)" />
@@ -37,7 +37,7 @@ function onGlobalSnapInput(which: 'days' | 'count', e: Event): void {
       <div class="setting-item">
         <div class="setting-item-info">
           <div class="setting-item-name">保留数量</div>
-          <div class="setting-item-desc">每章历史版本的数量上限</div>
+          <div class="setting-item-desc">每章历史版本的数量上限（所有书统一）</div>
         </div>
         <div class="setting-item-control">
           <input class="num-input" type="number" min="1" max="200" aria-label="保留数量（全局默认）" :value="prefs.snapCount" @change="onGlobalSnapInput('count', $event)" />

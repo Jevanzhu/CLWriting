@@ -1,5 +1,6 @@
 <script setup lang="ts">
-// 设置 · 编辑器 tab：编辑器字体、排版（字号/行距）、纸张（宽度/自动保存）。
+// 设置 · 编辑器 tab：正文字体/字号/行距为全局正文排版——编辑区、开书对话、草稿卡等
+// 所有正文编辑框同步（2026-09-05 作者确认全局一致）；纸张（宽度/自动保存）。
 import { computed } from 'vue'
 import { usePrefsStore } from '../../stores/prefs'
 import { parseNumericInput } from '../../shared/numeric-input'
@@ -36,8 +37,8 @@ function numInput(min: number, max: number, setter: (v: number) => void, e: Even
   <section v-if="hasDesktop" class="cfg-card">
     <div class="setting-item">
       <div class="setting-item-info">
-        <div class="setting-item-name">编辑器字体</div>
-        <div class="setting-item-desc">正文编辑区文字</div>
+        <div class="setting-item-name">正文字体</div>
+        <div class="setting-item-desc">编辑区、开书对话、草稿卡等所有正文编辑框</div>
       </div>
       <div class="setting-item-control">
         <div class="font-pair">
@@ -53,7 +54,7 @@ function numInput(min: number, max: number, setter: (v: number) => void, e: Even
     <div class="setting-item">
       <div class="setting-item-info">
         <div class="setting-item-name">正文字号</div>
-        <div class="setting-item-desc">编辑区字体大小</div>
+        <div class="setting-item-desc">所有正文编辑框文字大小</div>
       </div>
       <div class="setting-item-control">
         <input type="range" min="13" max="24" :value="prefs.proseSize" @input="prefs.setSize(Number(($event.target as HTMLInputElement).value))" />
@@ -64,7 +65,7 @@ function numInput(min: number, max: number, setter: (v: number) => void, e: Even
     <div class="setting-item">
       <div class="setting-item-info">
         <div class="setting-item-name">行距</div>
-        <div class="setting-item-desc">行间距倍数</div>
+        <div class="setting-item-desc">所有正文编辑框行间距倍数</div>
       </div>
       <div class="setting-item-control">
         <input type="range" min="1.4" max="2.4" step="0.05" :value="prefs.proseLh" @input="prefs.setLh(Number(($event.target as HTMLInputElement).value))" />

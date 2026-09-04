@@ -128,7 +128,7 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
   })
 
   // ── 全局编辑器偏好（userData/global.json，APP 级）──
-  // 跨书库共享的外观设置（主题/字体/字号/行距/段距/纸张宽度/自动保存）。
+  // 跨书库共享的外观设置（主题/字体/字号/行距/纸张宽度/自动保存）。
   // 放在 APP 数据目录（非书库目录），切书库不受影响——对齐 Obsidian 全局配置位置。
 
   function globalPath(): { ok: true; path: string } | { ok: false; code: number; errCode: string; error: string } {

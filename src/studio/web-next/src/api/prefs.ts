@@ -44,7 +44,7 @@ export interface GlobalPrefs {
   shelfView?: 'grid' | 'list'
   chatEnabled?: boolean
   compact?: boolean
-  /** 版本保留全局默认（未单独设定的书使用此规则；生效链 book.yaml → 此处 → 硬编码 14 天 / 30 个） */
+  /** 版本保留全局默认（所有书统一，无书级覆盖；生效链 global.json → 硬编码 14 天 / 30 个） */
   snapMaxDays?: number
   snapMaxCount?: number
   // ── 书级设定 · 全局托底（书级写作默认。生效链 book.yaml 对应键 → 此处 → 硬编码回落，服务端合并同链）──

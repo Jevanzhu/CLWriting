@@ -1,7 +1,7 @@
 <script setup lang="ts">
-// 设置 · AI 写作页（全局）：AI 对话（对话助手）+ AI 写作全局默认（文风注入/自动确认细纲/批量章数/单章上限）。
-// IA 重组后独立成页——本页只承载全局层（不依赖当前书），本书独立设定在「本书」页的 AI 写作组：
-// 生效链 book.yaml 对应键 → global.json（prefs store）→ 硬编码回落。
+// 设置 · AI 写作页（全局）：AI 对话（对话助手）+ AI 写作（文风注入/自动确认细纲/批量章数/单章上限）。
+// 本页只承载全局层（不依赖当前书）；AI 写作四项 2026-08-19 起已砍书级覆盖（所有书统一），
+// 生效链 global.json（prefs store）→ 硬编码回落，无书级覆盖——不出现于「本书」页。
 // 分析侧在「智能分析」页；提供方在「服务提供方」页。
 import { usePrefsStore } from '../../stores/prefs'
 import { parseNumericInput } from '../../shared/numeric-input'
@@ -51,7 +51,7 @@ function onGlobalCallsInput(e: Event): void {
       <div class="setting-item">
         <div class="setting-item-info">
           <div class="setting-item-name">文风注入</div>
-          <div class="setting-item-desc">AI 写正文时遵循文风铁律的强度</div>
+          <div class="setting-item-desc">AI 写正文时遵循文风铁律的强度（所有书统一）</div>
         </div>
         <div class="setting-item-control">
           <div class="seg">
@@ -63,7 +63,7 @@ function onGlobalCallsInput(e: Event): void {
       <div class="setting-item">
         <div class="setting-item-info">
           <div class="setting-item-name">自动确认细纲 <span class="tag-soon">即将支持</span></div>
-          <div class="setting-item-desc">AI 生成细纲后自动确认，无需手动点确认</div>
+          <div class="setting-item-desc">AI 生成细纲后自动确认，无需手动点确认（所有书统一）</div>
         </div>
         <div class="setting-item-control">
           <label class="switch">
@@ -75,7 +75,7 @@ function onGlobalCallsInput(e: Event): void {
       <div class="setting-item">
         <div class="setting-item-info">
           <div class="setting-item-name">批量写作章数</div>
-          <div class="setting-item-desc">一次自动写作流程连续写的章数，中途红项触顶会停在当前章</div>
+          <div class="setting-item-desc">一次自动写作流程连续写的章数，中途红项触顶会停在当前章（所有书统一）</div>
         </div>
         <div class="setting-item-control">
           <input class="num-input" type="number" min="1" max="20" step="1" aria-label="批量写作章数（全局默认）" :value="prefs.aiBatchSize" @change="onGlobalBatchInput($event)" />
@@ -85,7 +85,7 @@ function onGlobalCallsInput(e: Event): void {
       <div class="setting-item">
         <div class="setting-item-info">
           <div class="setting-item-name">单章调用上限</div>
-          <div class="setting-item-desc">每章 AI 辅助的最大调用次数，防止成本失控</div>
+          <div class="setting-item-desc">每章 AI 辅助的最大调用次数，防止成本失控（所有书统一）</div>
         </div>
         <div class="setting-item-control">
           <input class="num-input" type="number" min="1" max="50" step="1" aria-label="单章调用上限（全局默认）" :value="prefs.callsPerChapter" @change="onGlobalCallsInput($event)" />

@@ -75,11 +75,13 @@
   --size-4-12: 48px;
   --size-4-14: 56px;
   --size-4-16: 64px;
-  /* 正文排版偏好（与 UI 皮肤解耦，写作偏好；SettingsModal 滑块直写 :root）。
-     J5：win 无霞鹜/思源时落宋体（衬线观感对齐 mac），不落浏览器 serif 默认 */
+  /* 正文排版（与 UI 皮肤解耦，写作偏好；2026-09-05 作者确认全局同步、不拆编辑器
+     专属作用域——设置「编辑器 → 排版」作用于所有正文编辑框：编辑区、开书对话
+     （梗概/步骤编辑）、草稿卡）。J5：win 无霞鹜/思源时落宋体（衬线观感对齐 mac），
+     不落浏览器 serif 默认 */
   --prose-font: 'LXGW WenKai', 'Noto Serif SC', 'SimSun', serif;
   --prose-size: 17px;
-  --prose-lh: 1.85;
+  --prose-lh: 1.5;
   /* P3 质感与动效 —— shadow 跨主题（暗块覆盖深一档）；字号 / 缓动跨主题一致 */
   --shadow-s: 0 1px 3px rgba(0, 0, 0, 0.06);
   --shadow-m: 0 4px 12px rgba(0, 0, 0, 0.08);

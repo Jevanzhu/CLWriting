@@ -1,23 +1,24 @@
 /**
  * 设置页书级覆盖归属（2026-08-27）：纸张宽度/自动保存的「仅本书」入口从全局「编辑器
  * 排版」页移到「本书」页——
- *  - 编辑器排版页：只保留全局默认，不再出现「仅本书」按钮，滑杆绑定全局默认
+ *  - 字体与排版页（原「编辑器排版」，2026-09-05 随正文全局化更名）：只保留全局默认，
+ *    不再出现「仅本书」按钮，滑杆绑定全局默认
  *  - 本书页：新增「编辑排版」覆盖组（纸张宽度/自动保存），用「本书独立设定」开关切换书级覆盖
  */
 import { test, expect } from '@playwright/test'
 import { attachPageErrorBaseline } from './page-error-baseline.js'
 
-test('设置：仅本书入口移本书页 —— 编辑器页无「仅本书」，本书页可开关书级覆盖', async ({ page }) => {
+test('设置：仅本书入口移本书页 —— 字体与排版页无「仅本书」，本书页可开关书级覆盖', async ({ page }) => {
   attachPageErrorBaseline(page, 'settings-book-scope')
   await page.goto('/')
   await page.locator('.book-title', { hasText: '长篇测试书' }).click()
   await page.getByText('初入宗门').first().click()
   await page.locator('.doc-page').waitFor()
 
-  // 打开设置 → 编辑器排版页
+  // 打开设置 → 字体与排版页
   await page.locator('[data-tip^="设置（"]').click()
   await page.locator('.settings-modal').waitFor()
-  await page.locator('.settings-nav button', { hasText: '编辑器排版' }).click()
+  await page.locator('.settings-nav button', { hasText: '字体与排版' }).click()
 
   // 编辑器页：纸张宽度/自动保存在，但没有「仅本书」按钮（书级入口已移走）
   await expect(page.locator('.settings-content .setting-item-name', { hasText: '纸张宽度' })).toBeVisible()

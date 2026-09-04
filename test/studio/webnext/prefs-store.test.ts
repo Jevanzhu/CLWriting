@@ -145,7 +145,7 @@ describe('prefs: setter 应用 + 持久化调度', () => {
     expect(putGlobalPrefsMock).toHaveBeenCalledTimes(1)
   })
 
-  it('setSize → apply() 写 CSS 变量', () => {
+  it('setSize → apply() 写 CSS 变量（全局正文排版：--prose-* 作用于所有正文编辑框）', () => {
     const prefs = usePrefsStore()
     prefs.setSize(20)
     expect(document.documentElement.style.getPropertyValue('--prose-size')).toBe('20px')

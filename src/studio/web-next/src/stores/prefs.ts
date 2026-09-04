@@ -17,11 +17,12 @@ import type { ThemeId } from '../types/theme'
  * 书级覆盖的持久化由 workspace store 统一写入 prefs.json（避免双写冲突）。
  *
  * 版本保留全局默认（snapDays/snapCount → 持久化为 global.json 的 snapMaxDays/snapMaxCount）：
- * 生效链 book.yaml snapshots → 此处 → 硬编码 14 天 / 30 个（服务端 prune 同链）。
- * 书级覆盖存 book.yaml 的 snapshots 段（「本书」页写），不进本 store。
+ * 生效链 global.json → 硬编码 14 天 / 30 个（服务端 prune 同链）；所有书统一，
+ * book.yaml snapshots 书级覆盖已于 2026-08-19 砍掉。
  *
- * 书级设定全局托底（13 键，同 snapMax* 模式）：题材/每卷章数/目标字数/每章字数/短篇严格/
- * 文风注入/自动确认细纲/批量章数/单章上限/自动梳理/增量阈值/启用检索/检索提供方。
+ * 书级设定全局托底（同 snapMax* 模式，2026-08-19 修正口径）：题材/每卷章数/目标字数/
+ * 每章字数/短篇严格/自动梳理/增量阈值/启用检索/检索提供方 可被书覆盖；文风注入/自动
+ * 确认细纲/批量章数/单章上限（AI 写作组）与版本保留已砍书级，所有书统一。
  * 生效链 book.yaml 对应键 → 此处 → 硬编码回落（ref 初值即回落，服务端合并同链）；
  * 书级覆盖存 book.yaml（「本书」页各领域的「本书使用独立设定」组开关写），不进本 store。
  *
@@ -31,7 +32,7 @@ import type { ThemeId } from '../types/theme'
 const DEFAULTS = {
   theme: 'light' as ThemeId,
   proseSize: 17,
-  proseLh: 1.85,
+  proseLh: 1.5,
   pageWidth: 1020,
   autosaveInterval: 30,
   shelfView: 'grid' as 'grid' | 'list',
@@ -98,7 +99,7 @@ export const usePrefsStore = defineStore('prefs', () => {
   const chatEnabled = ref(DEFAULTS.chatEnabled)
   /** 紧凑模式：收窄侧栏间距 / 减小列表行高（默认关闭） */
   const compact = ref(DEFAULTS.compact)
-  /** 版本保留全局默认（天数/数量；持久化为 snapMaxDays/snapMaxCount，未单独设定的书使用） */
+  /** 版本保留全局默认（天数/数量；持久化为 snapMaxDays/snapMaxCount，所有书统一） */
   const snapDays = ref(DEFAULTS.snapDays)
   const snapCount = ref(DEFAULTS.snapCount)
 
@@ -401,6 +402,9 @@ export const usePrefsStore = defineStore('prefs', () => {
   }
 
   // ── apply（直写 :root CSS 变量）──
+  // 正文排版三件（字体/字号/行距）为全局正文偏好：设置「编辑器 → 排版」写 --prose-*，
+  // 编辑区与开书对话/草稿卡等所有正文编辑框同步（2026-09-05 作者确认全局一致，
+  // 不设编辑器专属作用域）。
 
   function apply(): void {
     const r = document.documentElement
@@ -589,12 +593,12 @@ export const usePrefsStore = defineStore('prefs', () => {
     applyCompact()
     schedulePersist()
   }
-  /** 版本保留全局默认 · 保留天数（clamp 1-365；未单独设定的书使用） */
+  /** 版本保留全局默认 · 保留天数（clamp 1-365；所有书统一） */
   function setSnapDays(v: number): void {
     snapDays.value = Math.min(365, Math.max(1, Math.round(v)))
     schedulePersist()
   }
-  /** 版本保留全局默认 · 保留数量（clamp 1-200；未单独设定的书使用） */
+  /** 版本保留全局默认 · 保留数量（clamp 1-200；所有书统一） */
   function setSnapCount(v: number): void {
     snapCount.value = Math.min(200, Math.max(1, Math.round(v)))
     schedulePersist()

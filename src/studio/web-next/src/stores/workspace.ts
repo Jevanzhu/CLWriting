@@ -20,7 +20,7 @@ export type CreateKind =
  * 工作区状态：面板折叠态 + 当前文档 + 持久化恢复。
  *
  * 三级配置架构（A+B，对齐 Obsidian）：
- * - 全局偏好（主题/字体/字号/行距/段距）→ .clwriting/global.json（跨书共享）
+ * - 全局偏好（主题/字体/字号/行距）→ .clwriting/global.json（跨书共享）
  * - 书级偏好（面板布局/最后文档）→ .clwriting/prefs.json（跟随书）
  * - 章节级（标题/标签）→ frontmatter（不变）
  *

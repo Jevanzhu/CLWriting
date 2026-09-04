@@ -61,7 +61,7 @@ function onGlobalThresholdInput(e: Event): void {
       <div class="setting-item">
         <div class="setting-item-info">
           <div class="setting-item-name">短篇严格模式</div>
-          <div class="setting-item-desc">把短篇专属黄项（字数/身体部位词/比喻/五段节数/开头钩子/反转线索/情绪曲线）提升为红项——机检红项会打回重写，过不了不交稿；仅作用于短篇书</div>
+          <div class="setting-item-desc">把短篇专属黄项（字数/身体部位词/比喻/五段节数/开头钩子/反转线索/情绪曲线）提升为红项——机检红项会打回重写，过不了不交稿；仅作用于短篇书；未单独设定的书使用此默认</div>
         </div>
         <div class="setting-item-control">
           <label class="switch">
@@ -77,7 +77,7 @@ function onGlobalThresholdInput(e: Event): void {
       <div class="setting-item">
         <div class="setting-item-info">
           <div class="setting-item-name">自动梳理</div>
-          <div class="setting-item-desc">打开关系图时，若新增章节达到阈值则自动 AI 梳理</div>
+          <div class="setting-item-desc">打开关系图时，若新增章节达到阈值则自动 AI 梳理；未单独设定的书使用此默认</div>
         </div>
         <div class="setting-item-control">
           <label class="switch">
@@ -89,7 +89,7 @@ function onGlobalThresholdInput(e: Event): void {
       <div class="setting-item">
         <div class="setting-item-info">
           <div class="setting-item-name">章节增量阈值</div>
-          <div class="setting-item-desc">自上次梳理后新增多少章触发自动梳理</div>
+          <div class="setting-item-desc">自上次梳理后新增多少章触发自动梳理；未单独设定的书使用此默认</div>
         </div>
         <div class="setting-item-control">
           <input class="num-input" type="number" min="1" max="20" step="1" aria-label="章节增量阈值（全局默认）" :value="prefs.relationMineThreshold" @change="onGlobalThresholdInput($event)" />
@@ -103,7 +103,7 @@ function onGlobalThresholdInput(e: Event): void {
       <div class="setting-item">
         <div class="setting-item-info">
           <div class="setting-item-name">启用检索</div>
-          <div class="setting-item-desc">开启后 AI 可检索已有章节作为上下文</div>
+          <div class="setting-item-desc">开启后 AI 可检索已有章节作为上下文；未单独设定的书使用此默认</div>
         </div>
         <div class="setting-item-control">
           <label class="switch">

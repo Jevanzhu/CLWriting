@@ -54,11 +54,11 @@ const activeTab = ref<Tab>('appearance')
 /** 顶栏副标题：当前 tab 的一句话说明（列出该页包含的设置项） */
 const TAB_SUBTITLES: Record<Tab, string> = {
   appearance: '主题、界面字体、紧凑模式与书架视图',
-  editor: '编辑器字体、排版（字号/行距/段距）、纸张与自动保存',
+  editor: '正文字体、排版（字号/行距）作用于所有正文编辑框；纸张与自动保存为全局默认',
   writing: '题材、每卷章数、目标字数、每章字数的全局默认——未单独设定的书使用',
-  ai: '对话助手与 AI 写作默认：文风注入、批量章数、调用上限',
-  analysis: 'AI 机检、关系图、知识检索的全局默认',
-  retention: '版本保留全局默认：天数与数量上限',
+  ai: '对话助手与 AI 写作设置（所有书统一）：文风注入、批量章数、调用上限',
+  analysis: 'AI 机检、关系图、知识检索的全局默认——未单独设定的书使用',
+  retention: '版本保留全局规则：天数与数量上限（所有书统一）',
   book: '书名与各领域的本书独立设定、定稿版本、存储',
   providers: 'AI 与 RAG 提供方增删、测试连接与任务档位',
 }
@@ -150,7 +150,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
               <Palette :size="16" /><span>外观与主题</span>
             </button>
             <button :class="{ active: activeTab === 'editor' }" @click="activeTab = 'editor'">
-              <Type :size="16" /><span>编辑器排版</span>
+              <Type :size="16" /><span>字体与排版</span>
             </button>
             <div class="nav-section-label">写作</div>
             <button :class="{ active: activeTab === 'writing' }" @click="activeTab = 'writing'">
