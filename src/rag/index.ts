@@ -486,7 +486,15 @@ export async function buildIndex(
 
     const committed = await commitIndexBatch(db, config, allChunks, chapterHashes, cursorTarget, embedFn, apiKey, embedOptionsFor(bookRoot, config))
     if (!committed.ok && readFailAt !== null) {
-      return committed
+      // R44-21（四十四轮）：读失败与 embed 失败叠加时并列两成因——此前直接透传
+      // embed 失败信封，「第 N 章正文读取失败」被丢弃（作者只见 embed 报错，修好端点
+      // 重跑又撞读失败，第二成因无从预期）。只拼文案：ok/章块计数沿用 committed
+      // （含续传口径），自愈游标纪律不变——游标仍不越失败章（commitIndexBatch 失败
+      // 路径已按已提交章收口，本分支不动游标）。
+      return {
+        ...committed,
+        error: `第 ${readFailAt} 章正文读取失败（可能被占用）；同轮另有索引失败：${committed.error}`,
+      }
     }
     if (readFailAt !== null) {
       // 部分成功：失败章之前的章已提交，游标停在失败章前，下轮重试补齐

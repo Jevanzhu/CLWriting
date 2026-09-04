@@ -169,7 +169,7 @@ function analysisOverviewProbe(bookRoot: string): string {
  *  复用，指纹变化才走第二级（R36-7 原全量签名），签名仍一致（指纹抖动，如原子写
  *  tmp 中间态已消失）则回填指纹复用结果。导出供回归测试直测（同 searchBookCached
  *  口径）。 */
-export function getAnalysisOverviewCached(bookRoot: string): AnalysisOverviewResult {
+export async function getAnalysisOverviewCached(bookRoot: string): Promise<AnalysisOverviewResult> {
   const now = Date.now()
   const ttl = analysisOverviewTtlMs ?? ANALYSIS_OVERVIEW_TTL_MS
   const cached = analysisOverviewCache.get(bookRoot)
@@ -186,18 +186,26 @@ export function getAnalysisOverviewCached(bookRoot: string): AnalysisOverviewRes
     return cached.result
   }
   analysisOverviewScanCount += 1
-  const result = computeAnalysisOverview(bookRoot)
+  // R44-10：MISS 计算体异步分批让出（原同步 computeAnalysisOverview 在指纹变化
+  //——保存/分析落盘后首查——时 2000 章级同步读单 tick 冻结事件循环）
+  const result = await computeAnalysisOverviewAsync(bookRoot)
   // 简单 FIFO 淘汰（Map 保插入序）：超上限丢最旧条目，防长期运行的书库累积
   if (analysisOverviewCache.size >= ANALYSIS_OVERVIEW_MAX) {
     const oldest = analysisOverviewCache.keys().next().value
     if (oldest !== undefined) analysisOverviewCache.delete(oldest)
   }
-  analysisOverviewCache.set(bookRoot, { probe, sig, result, ts: now })
+  // R44-10：ts 记 set 当刻 Date.now()（R42-16 口径——计算体含逐块让出跨多个 tick）
+  analysisOverviewCache.set(bookRoot, { probe, sig, result, ts: Date.now() })
   return result
 }
 
-/** R36-7：overview 计算体（原 handler 内联逻辑原样下沉，行为不变）。 */
-function computeAnalysisOverview(bookRoot: string): AnalysisOverviewResult {
+/** R36-7：overview 计算体（原 handler 内联逻辑原样下沉，行为不变）。
+ *  R44-10（四十四轮）：改异步分批让出——readManifest 整读 + allChapters 收集为
+ *  轻量同步段，与逐信封读段之间让出一次（computeProgressAsync 口径）；逐 doc
+ *  readAnalysisKinds 读循环每 SCAN_YIELD_EVERY（25）doc 让出一次（R39-15 同款，
+ *  对齐 overview/progress 既有纪律）——两级探针已把常态压 O(1)，指纹变化（保存/
+ *  分析落盘后首查）即 2000 章级同步读单 tick 的问题收敛。结果与同步版逐位一致。 */
+async function computeAnalysisOverviewAsync(bookRoot: string): Promise<AnalysisOverviewResult> {
   const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
   const analysisDir = join(bookRoot, '项目', '分析')
 
@@ -220,6 +228,8 @@ function computeAnalysisOverview(bookRoot: string): AnalysisOverviewResult {
     allChapters.push({ 章号, docId: id })
   }
   allChapters.sort((a, b) => a.章号 - b.章号)
+  // R44-10：manifest 段与逐信封读段之间让出（段间让出口径）
+  await yieldToEventLoop()
 
   if (existsSync(analysisDir)) {
     // R66-27（十四轮）：existsSync→readdir 间竞态（目录被移/删）会让 ENOENT/ENOTDIR
@@ -230,7 +240,10 @@ function computeAnalysisOverview(bookRoot: string): AnalysisOverviewResult {
     } catch {
       files = []
     }
+    let processed = 0
     for (const file of files) {
+      // R44-10：每 25 doc 让出一次（含跳过项——计数按目录条目，不按实际读数）
+      if (++processed % SCAN_YIELD_EVERY === 0) await yieldToEventLoop()
       const docId = file.replace(/\.json$/, '')
       const me = manifest.entries.get(docId)
       if (!me || !me.path.startsWith('写作/正文/')) continue
@@ -535,12 +548,14 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
   defineRoute('books.analysis-overview', {
     method: 'GET',
     path: '/api/books/:name/analysis-overview',
-    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
+    handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       // R36-7：mtime 探针 + 5s TTL 缓存壳（命中即跳过 manifest 整读 + 信封全读；
-      // 计算体见 computeAnalysisOverview，行为与改前逐位一致）
-      const ov = getAnalysisOverviewCached(r.bookRoot)
+      // 计算体见 computeAnalysisOverviewAsync，行为与改前逐位一致）
+      // R44-10：MISS 计算体异步分批让出，handler 相应 async（同文件 analyze 等
+      // async handler 同款，dispatch try/catch 兜底 → 500）
+      const ov = await getAnalysisOverviewCached(r.bookRoot)
       reply(res, 200, {
         ok: true,
         scoreTrend: ov.scoreTrend,

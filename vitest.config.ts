@@ -78,6 +78,10 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html', 'json-summary'],
+      // R44-4（四十四轮）：vitest 3.2.7 默认 coverage.reportOnFailure=false——用例红时
+      // 不产出报告目录，CI 工件化（R72-14）在阈值红+用例红形态都无现场可传。显式
+      // 打开：报告产出与测试成败解耦，红了也有 html/json-summary 可查。
+      reportOnFailure: true,
       include: ['src/**/*.ts'],
       // 二轮复审（批 5）：web-next/src 顶层 main.ts/router.ts 显式排除——纯应用
       // 引导/路由装配（createApp/use/plug），单测不可达；此前它们不落任何阈值桶

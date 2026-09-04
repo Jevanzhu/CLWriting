@@ -995,6 +995,53 @@ describe('B-7: 停机中 start 反向窗口 fail-closed 拒绝', () => {
   })
 })
 
+// R44-12（四十四轮）：shutdown 等 settleStarting 的短预算——裸 await 在握手挂起时
+// 最坏 30s 握手超时 + kill 升级 2s×2 才收口（用户点退出 ~41s「关不掉」）。修复后
+// 预算内未收口即放弃等握手、对在途 fork 就地 kill（握手期 server 未 ready、无在途
+// 编排可丢，硬杀无语义损失）；正常路径语义不变（S1 既有用例覆盖）。
+describe('R44-12: shutdown 短预算放弃挂起握手', () => {
+  it('握手挂起 + 预算耗尽 → 就地 kill 在途 fork（不等 30s 握手超时），无优雅指令面', async () => {
+    const { forkRecords, manager } = mkHarness({
+      shutdownSettleBudgetMs: 50,
+      killWaitMs: 50,
+      shutdownTotalMs: 200,
+    })
+    const ud = mkUserData()
+    const starting = manager.start({ workDir: '/w', userDataPath: ud })
+    const child = forkRecords[0]!.child
+    // ready 永不到达（握手挂起）时触发 shutdown——修复前裸 await settleStarting 卡满
+    const t0 = Date.now()
+    await manager.shutdown()
+    const elapsed = Date.now() - t0
+    expect(elapsed).toBeLessThan(5_000) // 修复前 ≥ HANDSHAKE_TIMEOUT_MS(30s)
+    expect(child.killed).toBeGreaterThanOrEqual(1) // 在途 fork 被 kill 收口（不成孤儿）
+    expect(child.posted).not.toContainEqual({ type: 'shutdown' }) // 握手未完成，无优雅指令面
+    // kill 后 start 链经 exit 落定（启动途中 exit reject 形态）：接住防未处理拒绝
+    await expect(starting).rejects.toThrow()
+    expect(forkRecords.length).toBe(1) // 停机门置位，无重启 fork
+  })
+
+  it('对照：握手在预算内收口 → 语义不变，对 active child 走优雅停机链', async () => {
+    const { forkRecords, manager } = mkHarness({
+      shutdownSettleBudgetMs: 5_000,
+      shutdownTotalMs: 200,
+      killWaitMs: 50,
+    })
+    const ud = mkUserData()
+    const starting = manager.start({ workDir: '/w', userDataPath: ud })
+    const child = forkRecords[0]!.child
+    const shuttingDown = manager.shutdown()
+    child.emit('message', { type: 'ready', port: 46010 })
+    await expect(starting).resolves.toBe(46010)
+    await flushMicrotasks()
+    expect(child.posted).toContainEqual({ type: 'shutdown' }) // 优雅指令（非 kill）
+    child.emit('message', { type: 'shutdown-done' })
+    child.emit('exit', 0)
+    await shuttingDown
+    expect(child.killed).toBe(0) // 回执路径不 kill
+  })
+})
+
 afterAll(() => {
   for (const d of tmpDirs) rmSync(d, { recursive: true, force: true })
 })

@@ -131,6 +131,11 @@ async function onFinalize(): Promise<void> {
 const { aiActions, runAiAssist } = useAiAssist()
 
 const titleSaving = ref(false)
+// R44-20（四十四轮）：标题提交在途排队——保存进行中（updateChapterMetaDoc + 大书
+// tree.load 可达秒级）再 blur/Enter 提交时，旧实现直接 return 把二次修改静默丢弃
+//（收尾 titleEditing=false 后父层回写把输入框拽回已落盘旧标题）。改为记 pending 值，
+// 当前保存收尾时自动续提一次（同一保存链），数据不丢。
+const titlePending = ref<string | null>(null)
 function onTitleKeydown(e: KeyboardEvent): void {
   // R61-3（第六十一轮）：IME 组合期 Enter 让渡——组合期 v-model 是旧标题，放行会以
   // 缺字标题触发 rename 落盘；守卫通过才 preventDefault（组合期 Enter 归输入法）
@@ -144,7 +149,13 @@ async function onTitleCommit(): Promise<void> {
     emit('update:titleEditing', false) // 无可提交对象也要脱离编辑态（防守卫永久卡住回写）
     return
   }
-  if (titleSaving.value) return
+  // R44-20（四十四轮）：在途 → 记 pending 返回（后到者胜），由 finally 收尾时续提。
+  // 此处不 emit(false)：续提未落定前保持编辑态，父层 titleModel 回写守卫继续生效，
+  // 输入框不闪回已落盘的旧标题；续提自身在途时再 blur 也走此分支继续排队（防重入）
+  if (titleSaving.value) {
+    titlePending.value = title.value
+    return
+  }
   // dd-P2：入口捕获 docId——await（updateChapterMetaDoc + tree.load 大书较慢）期间
   // 切 tab 后 ws.activeDocId 已指向新文档，届时取 fresh 回填会把新文档的 path/name
   // 写进旧文档缓存条目（标题栏错乱）并对错误文档 refresh
@@ -191,6 +202,17 @@ async function onTitleCommit(): Promise<void> {
     if (doc.bookName === book) ui.toast(friendlyError(err), 'error')
   } finally {
     titleSaving.value = false
+    // R44-20（四十四轮）：排队续提——取出在途期间排队的二次修改，发起同一保存链。
+    // 已切文档/切书则放弃（父层 watch 已把 titleModel 重写为别文档标题，续提会把
+    // 新文档改名成旧文档的 pending 值）；pending 与已落盘值相同时续提链内的
+    //「未变化」早退兜住，不产生多余请求
+    const pending = titlePending.value
+    titlePending.value = null
+    if (pending !== null && ws.activeDocId === id && doc.bookName === book) {
+      title.value = pending // 续提以排队时刻捕获的值为准（防窗口期模型被改写）
+      void onTitleCommit()
+      return // 编辑态交由续提链的 finally 收尾
+    }
     emit('update:titleEditing', false) // F2（五十九轮）：提交收尾脱离编辑态（父层恢复回写）
   }
 }

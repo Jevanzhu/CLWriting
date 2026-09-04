@@ -417,9 +417,21 @@ export function useChapterTreeActions(deps: {
     // FE-1（第七轮）：书名入口捕获（M-8 类横向收敛）——legacy docId 纯路径派生不分书，
     // 弹窗滞留期间跨窗切书后，A 书的确认会命中 B 书同路径文件（错书删除）
     const book = deps.bookName()
+    // R44-3（四十四轮）：确认前先落盘脏内容——原链确认→deleteDoc→discard 对
+    // autosave 窗口内的脏章直接丢弃内存 entry，「可从回收站恢复」对脏章失实（回收
+    // 站只有最后已保存版本）。先尽力 manual 保存（saving 中由 F8 在途链落定后排队
+    // 续存）；保存失败/冲突未决时换如实文案（conflict 项本就无法自动保存，需作者
+    // 决断重载/覆盖）。
+    const entry = doc.get(node.docId)
+    let unsaved = false
+    if (entry && entry.dirty) {
+      unsaved = entry.conflict ? true : !(await doc.save(node.docId, 'manual'))
+    }
     const ok = await ui.ask({
       title: '删除章节',
-      message: `确认删除「${node.name}」？可从回收站恢复。`,
+      message: unsaved
+        ? `确认删除「${node.name}」？该章有未保存的修改将一并丢失（回收站只保留最后已保存的版本）。`
+        : `确认删除「${node.name}」？可从回收站恢复。`,
       confirmText: '删除',
       danger: true,
     })

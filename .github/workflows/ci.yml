@@ -107,8 +107,12 @@ jobs:
 
       # R72-14（二十轮 H-11）：coverage 腿报告工件化——阈值红时 html/json-summary 有现场
       # 可查（此前只跑门不留档，复现只能在本地另跑）
+      # R44-4（四十四轮）：补 always()——隐式 success() 使工件恰在阈值红（其设计场景）
+      # 时不传，与注释宣称相反；同文件 playwright trace 的 if: failure() / desktop.yml
+      # 的 if: always() && … 为仓内正确先例。vitest.config 已同步补 reportOnFailure: true
+      #（用例红形态下 coverage/ 目录也要产出，见 R44-4 注记）。
       - name: 上传覆盖率报告（ubuntu·24 腿）
-        if: matrix.os == 'ubuntu-latest' && matrix.node == 24
+        if: ${{ always() && matrix.os == 'ubuntu-latest' && matrix.node == 24 }}
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report

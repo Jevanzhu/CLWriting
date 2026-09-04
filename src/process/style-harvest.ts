@@ -14,6 +14,7 @@ import { buildTree, type TreeNode } from '../document/tree.js'
 import { splitFrontMatter, parseFlat } from '../format/frontmatter.js'
 import {
   listTrackedDocs,
+  listTrackedDocsAsync,
   listAiVersions,
   readAiVersion,
   listAiVersionsAsync,
@@ -149,8 +150,9 @@ export function harvestStyleCandidates(
 
 /**
  * harvestStyleCandidates 的异步孪生（R37-5 延伸，三十七轮批 A 收口）：源1 逐 doc
- * 的轨迹读走 collectDocSignalsAsync（gitAsync），HTTP 链不再同步 spawnSync。同步版
- * 保留供存量测试与等价性对照。
+ * 的轨迹读走 collectDocSignalsAsync（gitAsync）。R44-13（四十四轮）补齐源1 顶部的
+ * 轨迹枚举（listTrackedDocsAsync）——git 后端 for-each-ref 的同步 spawnSync 漏网
+ * 已清零，HTTP 链全程不再同步 spawnSync。同步版保留供存量测试与等价性对照。
  */
 export async function harvestStyleCandidatesAsync(
   bookRoot: string,
@@ -160,7 +162,10 @@ export async function harvestStyleCandidatesAsync(
   const candidates = []
 
   // ── 源1 · 改稿轨迹（docId → 树反查路径；文档已删的悬空轨迹跳过）──
-  const tracked = listTrackedDocs(bookRoot)
+  // R44-13（四十四轮）：轨迹枚举改走 listTrackedDocsAsync——git 后端 for-each-ref
+  // 的同步 spawnSync 是 R36-5/R37-5 同族漏网（本函数顶部最后一次同步 spawn，注释
+  // 「HTTP 链不再同步 spawnSync」此前名不副实）；结果语义与同步版单源对齐。
+  const tracked = await listTrackedDocsAsync(bookRoot)
   if (tracked.length > 0) {
     const byDocId = new Map<string, string>()
     const walk = (nodes: TreeNode[]): void => {

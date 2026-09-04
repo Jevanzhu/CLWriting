@@ -33,6 +33,7 @@ import { join, dirname, resolve, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { findWorkDir, readBooks } from '../install/books.js'
+import { findGitAncestor } from '../install/scaffold.js' // R44-14：git-ancestor 防线与 init（doInitSteps）同源判定
 import { atomicWriteFile } from '../fs/atomic.js'
 import { resolveWithinRoot } from '../fs/safe-path.js'
 import { probeCaseSensitive } from '../fs/case-probe.js' // 平台规范化批 E：大小写敏感卷探测
@@ -181,6 +182,12 @@ let mainWindow: BrowserWindow | null = null
 let shelfWindow: BrowserWindow | null = null
 let libraryWindow: BrowserWindow | null = null
 let appUrl = '' // 主窗口加载的 url（dev:5173 / packaged server）；书架窗口复用
+/** R44-2（四十四轮）：关窗拦截的全局避让旗。session-end（OS 关机/注销）时间窗有限，
+ *  close 拦截只会白拖 OS 收尾（停机兜底由 session-end 处理器负责）；退出链
+ *  （before-quit）自行先行 flush 并在收口 destroy 全窗，close 事件再拦截是重复动作。
+ *  两旗分别由 session-end / before-quit 链路置位，bootstrap() 内的 close 拦截读它们。 */
+let sessionEnding = false
+let appTearingDown = false
 /** 阶段 22 批 U1-U3：studio server 已拆至 utilityProcess 子进程（dev HMR 态不起）；
  *  批 U3 起崩溃退避自动重启，3 次自动重启耗尽转原生对话框（U-2：重启服务/退出） */
 const serverManager = createStudioServerManager({
@@ -287,7 +294,12 @@ function isLibraryDir(dir: string): boolean {
  *  pickLibrary「在此新建」落库的待建空书库），不再要求自身含 .clwriting/——原守卫
  *  直接复用 isLibraryDir 与 bootstrap 分叉：空书库入 recent 后未建首书即退出，最近
  *  列表点回恒被拒，成永久死条目。唯一额外防线：不能是另一书库的子目录（findWorkDir
- *  命中祖先而非自身——防误把书内目录挂成书库根）。 */
+ *  命中祖先而非自身——防误把书内目录挂成书库根）。
+ *  R44-14（四十四轮）：git-ancestor 防线同步——待建空书库（自身及祖先均无
+ *  .clwriting/）位于 git 仓库内时，建第一本书会被 doInitSteps 恒拒（init 的 B1
+ *  口径），点回即落空壳死胡同，与 pickLibrary「在此新建」同源拒绝。已建成的书库
+ *  （findWorkDir 命中自身）不拦：书籍读写不受影响，拦了反而把 R41-1 救活的
+ *  recent 条目重新变死条目。 */
 function canSwitchLibraryDir(dir: string): boolean {
   try {
     if (!statSync(dir).isDirectory()) return false
@@ -295,7 +307,9 @@ function canSwitchLibraryDir(dir: string): boolean {
     return false
   }
   const found = findWorkDir(dir)
-  return found === null || samePath(found, resolve(dir))
+  if (found !== null && !samePath(found, resolve(dir))) return false
+  if (found === null && findGitAncestor(dir)) return false
+  return true
 }
 
 // ── 目录选择 + 切换 ────────────────────────────────────
@@ -366,6 +380,19 @@ async function pickLibrary(): Promise<string | null> {
       ? await dialog.showMessageBox(parent, msgOpts)
       : await dialog.showMessageBox(msgOpts)
     if (choice.response === 0) {
+      // R44-14（四十四轮）：git-ancestor 防线前移——init 的 doInitSteps 对 git 仓库内
+      // 工作目录恒拒绝建书（书文件会被外层 git 版本控制吞掉），此处放行会让作者把
+      // 待建空书库落库并重启后，到「建第一本书」才被拒——空壳死胡同（书架恒空、建书
+      // 恒拒、recent 里的它也无处可去）。与 init 同源判定（findGitAncestor），命中即
+      // 原生错误框明确反馈并留在选择循环重选，不落死胡同。
+      const gitRoot = findGitAncestor(dir)
+      if (gitRoot) {
+        dialog.showErrorBox(
+          '所选位置在 git 仓库内',
+          `「${basename(dir)}」位于 git 仓库（${gitRoot}）内，不能作为书库——书文件会被外层 git 的版本控制吞掉，建书将被拒绝。请选择 git 仓库外的目录。`,
+        )
+        continue
+      }
       // 新建同样过大小写敏感卷警告（敏感卷上新建 = 后续跨机劈裂的源头）
       if (await warnIfCaseSensitive(dir)) continue
       return dir // 确认在此新建（待建空目录，由调用方持久化 + 重启）
@@ -485,7 +512,11 @@ function createSecureWindow(opts: BrowserWindowConstructorOptions): BrowserWindo
 async function openShelfWindow(): Promise<void> {
   // Y-12（第五十七轮）：appUrl 就绪守卫——fork+握手期间（打包冷启动可达秒级）原生
   // 菜单已可点，loadURL 无 scheme 相对路径会以 ERR_INVALID_URL 开出加载失败白窗
-  if (!appUrl) return
+  // R44-16（四十四轮）：命中不再静默——冷启动握手期点菜单的 no-op 留痕，可诊断
+  if (!appUrl) {
+    log.info('desktop', '书架窗口请求早于服务就绪（冷启动握手期），本次打开已忽略')
+    return
+  }
   if (shelfWindow && !shelfWindow.isDestroyed()) {
     shelfWindow.focus()
     return
@@ -494,8 +525,10 @@ async function openShelfWindow(): Promise<void> {
   shelfWindow = createSecureWindow({
     width: Math.min(920, wa.width - 80),
     height: Math.min(640, wa.height - 80),
-    minWidth: 760,
-    minHeight: 500,
+    // R44-15（四十四轮）：下限按工作区钳制（R1W-10 主窗先例同款 -8 余量）——小屏/
+    // 高 DPI 工作区不足 760×500 时原硬下限让子窗出生即超工作区压任务栏
+    minWidth: Math.min(760, wa.width - 8),
+    minHeight: Math.min(500, wa.height - 8),
     title: '书架',
   })
   await devProxyApplied // R72-10（二十轮 D-7）：代理生效后再加载
@@ -512,8 +545,11 @@ async function openShelfWindow(): Promise<void> {
 
 /** 打开独立书库管理窗口（切换/最近/新建书库；单例聚焦）。*/
 async function openLibraryWindow(): Promise<void> {
-  // Y-12：同 openShelfWindow 的 appUrl 就绪守卫
-  if (!appUrl) return
+  // Y-12：同 openShelfWindow 的 appUrl 就绪守卫（R44-16：命中留痕不静默）
+  if (!appUrl) {
+    log.info('desktop', '书库窗口请求早于服务就绪（冷启动握手期），本次打开已忽略')
+    return
+  }
   if (libraryWindow && !libraryWindow.isDestroyed()) {
     libraryWindow.focus()
     return
@@ -534,8 +570,9 @@ async function openLibraryWindow(): Promise<void> {
     height: libH,
     x,
     y,
-    minWidth: 560,
-    minHeight: 440,
+    // R44-15（四十四轮）：同书架窗——下限按工作区钳制（R1W-10 主窗先例同款 -8 余量）
+    minWidth: Math.min(560, wa.width - 8),
+    minHeight: Math.min(440, wa.height - 8),
     title: '书库',
   })
   await devProxyApplied // R72-10（二十轮 D-7）：代理生效后再加载
@@ -546,6 +583,49 @@ async function openLibraryWindow(): Promise<void> {
   libraryWindow.on('closed', () => {
     libraryWindow = null
   })
+}
+
+/** R44-2：close/quit 拦截里渲染层 flush 的总预算——本机服务下保存链毫秒级，预算只兜
+ *  渲染层挂起/死循环（executeJavaScript 永不 resolve）不拖死关窗与退出。 */
+const CLOSE_FLUSH_BUDGET_MS = 4_000
+
+/** R44-2（四十四轮）：关窗/退出前渲染层兜底 flush——主进程拦下 close/quit 后经
+ *  executeJavaScript 调渲染层 window.__clwFlushBeforeClose（Book 页注册，页面未进
+ *  卸载、异步保存链全通；Chromium ≥M80 在页面卸载路径整体禁同步 XHR，原渲染层
+ *  beforeunload 内同步 XHR 兜底经双 Electron 实验实证零字节到达，已随本钩子移除）。
+ *  返回 null＝钩子不在或渲染层不可达（非编辑页无 dirty 状态，无兜底可做）。 */
+async function flushRendererBeforeClose(target: BrowserWindow): Promise<{ conflict: string[]; failed: string[] } | null> {
+  if (target.isDestroyed()) return null
+  try {
+    const r = (await target.webContents.executeJavaScript(
+      'typeof window.__clwFlushBeforeClose === "function" ? window.__clwFlushBeforeClose() : Promise.resolve(null)',
+    )) as unknown
+    if (r && typeof r === 'object') {
+      const pick = (v: unknown): string[] =>
+        Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+      return { conflict: pick((r as { conflict?: unknown }).conflict), failed: pick((r as { failed?: unknown }).failed) }
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+/** R44-2/R44-19（四十四轮）：冲突未决的原生确认——Electron 不渲染浏览器 Leave-site
+ *  确认框，渲染层 preventDefault 是无反馈死关窗；冲突项又无法代存（autosave/flush
+ *  均跳过 conflict 项）。返回 true＝放弃未保存的本地修改继续关/退。 */
+function confirmDiscardConflicts(parent: BrowserWindow, count: number): boolean {
+  return (
+    dialog.showMessageBoxSync(parent, {
+      type: 'warning',
+      title: 'CLWriting',
+      message: `有 ${count} 个文档存在未解决的保存冲突，未保存的本地修改将丢失。`,
+      detail: '冲突需要在应用内选择「重载」或「覆盖」后才能自动保存。',
+      buttons: ['放弃修改并继续', '取消'],
+      defaultId: 1,
+      cancelId: 1,
+    }) === 0
+  )
 }
 
 async function bootstrap(): Promise<void> {
@@ -631,14 +711,48 @@ async function bootstrap(): Promise<void> {
     title: 'CLWriting',
   })
   if (saved?.maximized) mainWindow.maximize()
-  mainWindow.on('close', () => {
+  // R44-2（四十四轮）：关窗兜底——首轮 close 先 preventDefault，经渲染层钩子异步
+  // flush（页面未死，异步保存链全通）落定/短超时后 destroy() 真正关窗（destroy 不再
+  // 触发 beforeunload，链路单次不循环）。退出链（before-quit）已先行 flush 并在收口
+  // destroy 全窗，session-end 时间窗有限，两者都直接放行。destroy 后 'close' 不再
+  // 触发，closeFlushInFlight 兼作「cancel 决断后允许下次正常关窗」的复位闸。
+  let closeFlushInFlight = false
+  mainWindow.on('close', (e) => {
     saveWinState()
+    if (closeFlushInFlight || sessionEnding || appTearingDown) return
+    e.preventDefault()
+    closeFlushInFlight = true
+    void (async () => {
+      const win = mainWindow
+      if (!win || win.isDestroyed()) return
+      const res = await Promise.race([
+        flushRendererBeforeClose(win),
+        new Promise<null>((resolve) => setTimeout(resolve, CLOSE_FLUSH_BUDGET_MS)),
+      ])
+      if (res && res.conflict.length > 0 && !win.isDestroyed()) {
+        // R44-19（四十四轮）收口：冲突未决的本地修改无法代存，原生确认给作者最后一念
+        if (!confirmDiscardConflicts(win, res.conflict.length)) {
+          closeFlushInFlight = false
+          return
+        }
+      }
+      try {
+        if (!win.isDestroyed()) win.destroy()
+      } catch (err) {
+        // 收尾期 destroy 可抛（平台/生命周期边角）：吞掉防 async 链成未处理拒绝，
+        // 窗口交由 Electron 退出流程兜底收口
+        log.error('desktop', '关窗兜底 flush 后 destroy 异常（交退出流程兜底）', err)
+      }
+    })()
   })
   // R1W-9（win 平台专项复审 R1）：win 会话收尾兜底——OS 关机/重启/注销对主窗发
   // session-end（不可阻止，时间窗有限），此前整条优雅停机链被跳过、utility child
   // 随进程硬死（在途 session/end 落库全失，靠 10min 孤儿会话宽限兜底）。尽力下发
   // 停机指令（shutdown 内部有 3.5s 总超时，不会拖住 OS 收尾）。
   mainWindow.on('session-end', () => {
+    // R44-2（四十四轮）：OS 关机/注销窗口有限——置旗让上方 close 拦截放行直关，
+    // 不在有限窗口里白等渲染层 flush（本条链路的停机兜底以 server 停机指令为准）
+    sessionEnding = true
     // R40-29（四十轮）：停机前补存窗口状态——OS 关机/注销走 session-end，主窗
     // close 事件不保证收到（此前窗口位置/尺寸不落盘，下次开窗回默认位）。存状态是
     // 一次内存读 + 原子写，毫秒级不挤占停机窗口；saveWinState 内部已吞错，外层
@@ -1138,6 +1252,16 @@ if (gotSingleInstanceLock) {
   // 让日志泵落盘），再保持与默认崩溃等价的退出语义（不吞、不续跑半坏状态）。
   process.on('uncaughtException', (err) => {
     log.error('desktop', '主进程未捕获异常，即将退出', err)
+    // R44-17（四十四轮）：200ms 窗内对 server child best-effort kill——父进程崩溃硬退
+    // 时 utilityProcess 子进程不被连带收尸（win 上成孤儿继续持端口/会话锁，原全靠
+    // 事件库 10min 孤儿宽限兜底）；kill 同步下发、不等回执不 await（等也等不起），
+    // 200ms 后 process.exit 兜底收口。stopChild 幂等且 child 已死形态安全，失败不
+    // 影响退出语义（账面级缺口由 10min 宽限与 .版本 快照兜底，正文无损）。
+    try {
+      void serverManager.stopChild().catch(() => {})
+    } catch {
+      /* child 不在（未起/已收口）等形态：直接走退出 */
+    }
     setTimeout(() => process.exit(1), 200)
   })
   // R38-23（三十八轮）：unhandledRejection 最后防线——各调用点已有 .catch 纪律，
@@ -1158,29 +1282,80 @@ if (gotSingleInstanceLock) {
   // 会统一 app.quit() 收口。beginShutdown 不复位（runner 生命周期语义），为防拦掉
   // 自己的 quit 成死循环，用本地 quitViaShutdown 区分「finally 里我们自己发起的
   // quit」放行直通。
+  // R44-2（四十四轮）：退出链先行渲染层 flush——原顺序 shutdown 先杀 server 再隐式
+  // 关窗，渲染层任何保存（含 close 拦截兜底）都打向已死端口必失败，最后一个
+  // autosave 间隔内的键入随退出静默丢失。改为 flush（≤CLOSE_FLUSH_BUDGET_MS）→
+  // 冲突未决可原生确认取消退出（不 beginShutdown，窗口/server 原样保留）→
+  // beginShutdown → shutdown → 收口 destroy 全窗（app.quit() 的隐式关窗会走渲染层
+  // beforeunload，preventDefault 类守卫在无监听方时拦死退出链）→ quitViaShutdown
+  // 放行 quit。
   let quitViaShutdown = false
+  let quitFlushInFlight = false
   app.on('before-quit', (e) => {
     if (quitViaShutdown) return // 收口 quit 放行直通
     e.preventDefault()
-    if (!bootstrapRunner.beginShutdown()) return // 已在优雅停机在途：拦下等 finally 统一收口
-    // R65-40（总六十五轮）：shutdown() 可能 reject（child 已死时 postMessage/kill
-    // 抛错等）——原 `void …finally` 无 catch：rejection 成 unhandledRejection（丢
-    // 现场）；quit 收口也悬空。包 try/catch + .catch 记日志，finally 仍 quit——
-    // 退出收口不因停机失败而挂死。
-    try {
-      void serverManager
-        .shutdown()
-        .catch((err) => log.error('desktop', '优雅停机 shutdown 失败（继续退出）', err))
-        .finally(() => {
-          quitViaShutdown = true
-          app.quit()
-        })
-    } catch (err) {
-      // 防御：shutdown 同步抛（当前为 async fn 不可达，防将来重构回归同型挂死）
-      log.error('desktop', '优雅停机 shutdown 同步抛错（继续退出）', err)
-      quitViaShutdown = true
-      app.quit()
-    }
+    // flush 在途（本轮已拦）或停机在途（等 finally 统一收口）都只拦不动作
+    if (quitFlushInFlight || bootstrapRunner.shuttingDown) return
+    quitFlushInFlight = true
+    void (async () => {
+      try {
+        const win = mainWindow
+        if (win && !win.isDestroyed()) {
+          const res = await Promise.race([
+            flushRendererBeforeClose(win),
+            new Promise<null>((resolve) => setTimeout(resolve, CLOSE_FLUSH_BUDGET_MS)),
+          ])
+          if (res && res.conflict.length > 0 && !win.isDestroyed()) {
+            // R44-19（四十四轮）收口：冲突未决给原生确认，取消即中止退出（应用原样保留）
+            if (!confirmDiscardConflicts(win, res.conflict.length)) {
+              quitFlushInFlight = false
+              return
+            }
+          }
+        }
+      } catch (err) {
+        log.error('desktop', '退出前渲染层 flush 异常（继续退出）', err)
+      }
+      appTearingDown = true
+      if (!bootstrapRunner.beginShutdown()) {
+        quitFlushInFlight = false
+        return // 已在优雅停机在途：本 async 流退出，等在途流程的 finally 统一收口
+      }
+      // R65-40（总六十五轮）：shutdown() 可能 reject（child 已死时 postMessage/kill
+      // 抛错等）——原 `void …finally` 无 catch：rejection 成 unhandledRejection（丢
+      // 现场）；quit 收口也悬空。包 try/catch + .catch 记日志，finally 仍 quit——
+      // 退出收口不因停机失败而挂死。
+      try {
+        void serverManager
+          .shutdown()
+          .catch((err) => log.error('desktop', '优雅停机 shutdown 失败（继续退出）', err))
+          .finally(() => {
+            // R44-2：destroy 直关全部窗口——绕过渲染层 beforeunload（防守卫类
+            // preventDefault 拦死隐式关窗）；收尾期 destroy 可抛，逐窗隔离不阻断退出
+            for (const w of [mainWindow, shelfWindow, libraryWindow]) {
+              try {
+                if (w && !w.isDestroyed()) w.destroy()
+              } catch {
+                /* 单窗销毁失败不阻断其余窗口与退出收口 */
+              }
+            }
+            quitViaShutdown = true
+            app.quit()
+          })
+      } catch (err) {
+        // 防御：shutdown 同步抛（当前为 async fn 不可达，防将来重构回归同型挂死）
+        log.error('desktop', '优雅停机 shutdown 同步抛错（继续退出）', err)
+        for (const w of [mainWindow, shelfWindow, libraryWindow]) {
+          try {
+            if (w && !w.isDestroyed()) w.destroy()
+          } catch {
+            /* 同上：单窗销毁失败不阻断退出收口 */
+          }
+        }
+        quitViaShutdown = true
+        app.quit()
+      }
+    })()
   })
 
   app.on('activate', () => {

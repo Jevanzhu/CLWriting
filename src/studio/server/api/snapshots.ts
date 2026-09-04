@@ -32,6 +32,7 @@ import { countWords } from '../../../format/words.js'
 import { ulid } from '../../../fs/id.js'
 import { getOrCreateService } from './documents.js'
 import { acquireTaskGate } from './task-gate.js' // R26-67（二十六轮）：prune 书级任务闸
+import { yieldToEventLoop, SCAN_YIELD_EVERY } from './progress.js' // R44-9：MISS 计算体逐块让出（R37-3 范式）
 import type { Revision } from '../../../document/revision.js'
 
 interface SnapshotCtx {
@@ -64,15 +65,20 @@ async function resolveDoc(
 /** 递归统计某目录下 .md 文件：数量 + 字节总量 + pinned（front matter 含「永久: true」）。
  *  R-15（第十六轮）：symlink 环防护——lstatSync 判定（不跟随 symlink），symlink 条目
  *  （目录/文件）按 M-9 同族口径跳过。原 statSync 跟随链接，指向祖先目录的 symlink
- *  会让 walk 无限递归栈溢出挂死端点。 */
-function scanVersionsDir(
+ *  会让 walk 无限递归栈溢出挂死端点。
+ *  R44-9（四十四轮）：改异步 walk，每 SCAN_YIELD_EVERY（25）条让出一次事件循环
+ *  （R37-3 范式，先例 analysis.ts R39-15 读循环）——此前 MISS 时递归 lstat + 逐快照
+ *  .md 同步整读判 pinned，大书数千快照单 tick 冻结事件循环（SSE 心跳/保存同停）。
+ *  统计口径与同步版逐位一致。 */
+async function scanVersionsDirAsync(
   dir: string,
-): { count: number; bytes: number; pinnedCount: number } {
+): Promise<{ count: number; bytes: number; pinnedCount: number }> {
   let count = 0
   let bytes = 0
   let pinnedCount = 0
   if (!existsSync(dir)) return { count, bytes, pinnedCount }
-  const walk = (d: string): void => {
+  let processed = 0
+  const walk = async (d: string): Promise<void> => {
     let names: string[]
     try {
       names = readdirSync(d)
@@ -91,7 +97,7 @@ function scanVersionsDir(
       // R-15：symlink 一律跳过（不跟随——防目录环，也防外指 symlink 逃逸统计面）
       if (st.isSymbolicLink()) continue
       if (st.isDirectory()) {
-        walk(p)
+        await walk(p)
       } else if (isMdFileName(n)) {
         // R42-39（四十二轮）：.md 判定收敛 isMdFileName（大小写不敏感）——.MD 版本
         // 文件此前不计数/不计字节/不参与 pinned 判定；`._` 前缀跳过条件不变
@@ -108,9 +114,11 @@ function scanVersionsDir(
           /* 读 FAIL 不算 pinned */
         }
       }
+      // R44-9：每 25 条让出一次（含目录条目——大书 doc 目录数同量级）
+      if (++processed % SCAN_YIELD_EVERY === 0) await yieldToEventLoop()
     }
   }
-  walk(dir)
+  await walk(dir)
   return { count, bytes, pinnedCount }
 }
 
@@ -119,7 +127,7 @@ function scanVersionsDir(
 // ── R36-7（三十六轮）：version-stats 全书快照统计 5s TTL 缓存 ─────────────────
 // 端点递归遍历 .版本 全目录（含 pinned 判定逐文件 fm 读 + parse）+ manifest 全表，
 // 进页/轮询/刷新反复触发。手法对齐 search.ts R35-7（mtime 探针 + TTL）：递归
-// mtime/size 探针（symlink 跳过，与 scanVersionsDir R-15 同口径）——命中即跳过
+// mtime/size 探针（symlink 跳过，与 scanVersionsDirAsync R-15 同口径）——命中即跳过
 // 逐文件 fm 读 + manifest 整读；TTL 5s 兜底探针不可见的变化（mtime 粒度粗/同拍同
 // 尺寸重写）。写侧另挂同文件失效点（prune/restore 落盘后 forgetVersionStatsCache）；
 // 保存/定稿等外部快照写（documents.ts/service.ts 不在本批允许清单）靠探针见
@@ -136,7 +144,11 @@ interface VersionStatsResult {
   pinnedCount: number
   finalizedDocs: number
 }
-const versionStatsCache = new Map<string, { probe: string; result: VersionStatsResult; sig: string; ts: number }>()
+/** R44-9：缓存条目加 probeTs——探针取值时刻（节流窗起点，见 getVersionStatsCached）。 */
+const versionStatsCache = new Map<
+  string,
+  { probe: string; probeTs: number; result: VersionStatsResult; sig: string; ts: number }
+>()
 let versionStatsTtlMs: number | null = null
 /** R36-7：TTL 测试注入口（先例同 __setSearchCacheTtlForTest）。仅测试用。 */
 export function __setVersionStatsTtlForTest(ms: number | null): void {
@@ -154,6 +166,15 @@ export function __versionStatsScanCountForTest(): number {
 }
 export function __resetVersionStatsScanCountForTest(): void {
   versionStatsScanCount = 0
+}
+/** R44-9（四十四轮）回归观测钩子（生产零调用）：versionStatsProbe 实际执行计数——
+ *  探针节流命中（TTL 窗内复用）时应不再增长。 */
+let versionStatsProbeCount = 0
+export function __versionStatsProbeCountForTest(): number {
+  return versionStatsProbeCount
+}
+export function __resetVersionStatsProbeCountForTest(): void {
+  versionStatsProbeCount = 0
 }
 /** R37-17（三十七轮）回归观测钩子（生产零调用）：全量签名（versionStatsSignature
  *  递归 walk）执行计数——两级探针命中时应不再增长。 */
@@ -218,10 +239,14 @@ function versionStatsSignature(bookRoot: string): string {
   return parts.join(',')
 }
 
-/** R36-7：version-stats 计算体（原 handler 内联逻辑原样下沉，行为不变）。 */
-function computeVersionStats(bookRoot: string): VersionStatsResult {
+/** R36-7：version-stats 计算体（原 handler 内联逻辑原样下沉，行为不变）。
+ *  R44-9（四十四轮）：改异步——.版本 递归扫描逐块让出（scanVersionsDirAsync），
+ *  manifest 整读与计数为轻量同步段，与扫描段之间让出一次（computeProgressAsync
+ *  口径：端点 handler 不是无让出的整段同步链）。 */
+async function computeVersionStatsAsync(bookRoot: string): Promise<VersionStatsResult> {
   const versionsDir = join(bookRoot, '工作区', '.版本')
-  const scan = scanVersionsDir(versionsDir)
+  const scan = await scanVersionsDirAsync(versionsDir)
+  await yieldToEventLoop()
   // 定稿章节数：manifest 中 finalizedRevision 非空的文档条目数
   const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
   let finalizedDocs = 0
@@ -252,6 +277,7 @@ function computeVersionStats(bookRoot: string): VersionStatsResult {
  *  一致）；.版本 更深层嵌套（>1 层子目录，现行布局无此形态）同理由 TTL 兜底。
  */
 function versionStatsProbe(bookRoot: string): string {
+  versionStatsProbeCount += 1 // R44-9：观测口（生产语义零影响）
   const parts: string[] = [`m:${sigStatFor(join(bookRoot, '项目', '文档清单.jsonl'))}`]
   const versionsDir = join(bookRoot, '工作区', '.版本')
   try {
@@ -274,13 +300,30 @@ function versionStatsProbe(bookRoot: string): string {
  *  缓存壳之上加便宜目录指纹）。前端 3s 轮询此前每 poll 都全量重算递归签名（大书
  *  数千次 lstat）；现在第一级 O(子目录数) stat 未变即复用，指纹变化才走第二级
  *  （R36-7 原全量签名），签名仍一致（指纹抖动，如原子写 tmp 中间态已消失）则回填
- *  指纹复用结果。导出供回归测试直测（同 searchBookCached 口径）。 */
-export function getVersionStatsCached(bookRoot: string): VersionStatsResult {
+ *  指纹复用结果。导出供回归测试直测（同 searchBookCached 口径）。
+ *  R44-9（四十四轮）：①探针本身纳入 TTL 节流——versionStatsProbe 原在 TTL 判断
+ *  之前每次执行（缓存命中也重付 readdirSync + 逐 doc statSync，前端 3s 轮询本端点
+ *  每 poll 照付）；现 TTL 窗内复用上次探针值，命中路径零系统调用。指纹时效语义
+ *  如下收敛（如实记档）：探针省的是「TTL 未到也重付」那部分，TTL 一到必须重新探
+ *  （probeTs 超窗 → 现取指纹走两级判定）——TTL 窗内的目录结构变化（新增/删除/改
+ *  名快照）从「下一次调用即时可见」变为「TTL 到期（≤5s）重探后可见」，与就地内容
+ *  改写的既有兜底窗口一致；本文件写路径（prune/restore）仍走 forgetVersionStatsCache
+ *  即时失效。②MISS 计算体异步分批让出（scanVersionsDirAsync），本函数与 handler
+ *  相应 async 化（dispatch 兜底 try/catch → 500，Promise 不悬空）。 */
+export async function getVersionStatsCached(bookRoot: string): Promise<VersionStatsResult> {
   const now = Date.now()
   const ttl = versionStatsTtlMs ?? VERSION_STATS_TTL_MS
   const cached = versionStatsCache.get(bookRoot)
+  // R44-9：探针节流——TTL 窗内复用上次探针值（probeTs ≤ ts，复用窗 ⊆ 缓存 TTL 窗，
+  // 不出现「探针仍新鲜而缓存已过期」的倒挂）；超窗现取（TTL 到了必须重新探）
+  let probe: string
+  if (cached && now - cached.probeTs < ttl) {
+    probe = cached.probe
+  } else {
+    probe = versionStatsProbe(bookRoot)
+    if (cached) cached.probeTs = now
+  }
   // 第一级：便宜目录指纹未变（且 TTL 内）→ 直接复用，跳过全量递归签名 walk
-  const probe = versionStatsProbe(bookRoot)
   if (cached && now - cached.ts < ttl && cached.probe === probe) {
     return cached.result
   }
@@ -292,13 +335,16 @@ export function getVersionStatsCached(bookRoot: string): VersionStatsResult {
     return cached.result
   }
   versionStatsScanCount += 1
-  const result = computeVersionStats(bookRoot)
+  const result = await computeVersionStatsAsync(bookRoot)
   // 简单 FIFO 淘汰（Map 保插入序）：超上限丢最旧条目，防长期运行的书库累积
   if (versionStatsCache.size >= VERSION_STATS_MAX) {
     const oldest = versionStatsCache.keys().next().value
     if (oldest !== undefined) versionStatsCache.delete(oldest)
   }
-  versionStatsCache.set(bookRoot, { probe, sig, result, ts: now })
+  // R44-9：ts 记 set 当刻 Date.now()（R42-16 口径——MISS 计算体含逐块让出，跨多个
+  // tick，「出生即折旧」会把 TTL 窗吃掉）；probeTs 记探针取值时刻 now（更早，节流
+  // 窗更保守——宁多探不少探）
+  versionStatsCache.set(bookRoot, { probe, probeTs: now, sig, result, ts: Date.now() })
   return result
 }
 
@@ -307,12 +353,14 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
   defineRoute('books.version-stats', {
     method: 'GET',
     path: '/api/books/:name/version-stats',
-    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
+    handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       // R36-7：递归 mtime 探针 + 5s TTL 缓存壳（命中即跳过 .版本 逐文件 fm 读 +
-      // manifest 整读；计算体见 computeVersionStats，行为与改前逐位一致）
-      const st = getVersionStatsCached(r.bookRoot)
+      // manifest 整读；计算体见 computeVersionStatsAsync，行为与改前逐位一致）
+      // R44-9：MISS 计算体异步分批让出，handler 相应 async（同文件 restore 等
+      // async handler 同款，dispatch try/catch 兜底 → 500）
+      const st = await getVersionStatsCached(r.bookRoot)
       reply(res, 200, {
         ok: true,
         snapshotBytes: st.snapshotBytes,

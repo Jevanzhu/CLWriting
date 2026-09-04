@@ -11,6 +11,7 @@ import { join, basename, relative, sep } from 'node:path'
 import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs'
 import { readFile, parseFlat } from '../format/frontmatter.js'
 import { readRealmDoc } from '../format/realms.js'
+import { isMdFileName } from '../format/filename.js'
 import type { SettingsLayer } from './settings-injection.js'
 
 /** 角色卡(P2 结构化):front matter 姓名/身份/目标/境界 + 正文(自由描述) */
@@ -54,7 +55,9 @@ export function readCharacterCards(dirPath: string, bookRoot: string): Character
   if (!existsSync(dirPath)) return out
   let files: string[]
   try {
-    files = readdirSync(dirPath).filter((f) => f.endsWith('.md') && !f.startsWith('._'))
+    // R44-7（四十四轮）：.md 判定收敛 isMdFileName（大小写不敏感，R38-9 家族）——
+    // .MD 角色卡不进 AI 上下文（本函数是写稿/对话 prompt 设定注入的唯一数据源）
+    files = readdirSync(dirPath).filter((f) => isMdFileName(f) && !f.startsWith('._'))
   } catch {
     return out
   }

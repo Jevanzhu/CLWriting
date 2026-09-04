@@ -255,25 +255,57 @@ watch(
   [() => tree.byDocId.size, bookName],
   () => ws.validate(new Set(tree.byDocId.keys())),
 )
-// V-P1-2：关窗/重载兜底——beforeunload 窗口内同步落盘 dirty 文档（autosave 间隔内的编辑不再静默丢失）
-function flushOnUnload(): void {
-  doc.flushSyncOnUnload()
+// R44-2（四十四轮）：关窗/刷新兜底改双路。①关窗：主进程在 close 拦截后经
+// executeJavaScript 调 window.__clwFlushBeforeClose（页面未死，异步保存链全通），
+// 落定/短超时后 destroy——Chromium ≥M80 在页面卸载路径整体禁同步 XHR，原渲染层
+// 同步 XHR 兜底经双 Electron 实验实证零字节到达（四十四轮报告 §3.1），已删。
+// ②刷新/导航：beforeunload preventDefault 挡下（页面未死）→ 异步 flushDirty →
+// 全部落净后带一次性标记重放刷新；未落净（保存失败/冲突未决）不自动重放，toast
+// 告知后由作者处理（R71-6 冲突守卫并入本监听；R44-19：Electron 不渲染浏览器
+// Leave-site 确认框，静默挡下＝无反馈死刷新）。纯浏览器形态下关窗走原生确认，
+// 确认离开时 flush 未竟部分有丢失窗口——生产形态是 Electron 壳，关窗由①负责。
+const RELOAD_FLUSH_FLAG = 'clw:reload-after-flush'
+function consumeFreshReloadFlag(): boolean {
+  const v = sessionStorage.getItem(RELOAD_FLUSH_FLAG)
+  if (v === null) return false
+  sessionStorage.removeItem(RELOAD_FLUSH_FLAG)
+  // 标记只认 10s 内的（flush 后立即重放）：崩溃/中断残留的陈标记不作数，下次刷新照常兜底
+  return Date.now() - Number(v) < 10_000
 }
-onMounted(() => window.addEventListener('beforeunload', flushOnUnload))
-onUnmounted(() => window.removeEventListener('beforeunload', flushOnUnload))
-
-// R71-6（七十一轮）：关窗守卫（第二个 beforeunload 监听，与 flush 兜底互不干扰）——
-// 「冲突未决 + dirty」文档的本地修改从未落盘（autosave 跳过 conflict 项、上方
-// flushSyncOnUnload 也跳过），关窗即不可恢复丢失且此前全程静默；切书路径已有 Z-8
-// 确认弹窗拦同一形态，关窗至少 preventDefault 让浏览器原生确认留住作者一念
-function guardConflictOnUnload(e: BeforeUnloadEvent): void {
-  if (doc.conflictedDirtyDocs().length > 0) {
-    e.preventDefault()
-    e.returnValue = '' // 旧 Chrome/Safari 惯例位（preventDefault 之外的兼容）
-  }
+function hasUnsavedWork(): boolean {
+  // R44-2（四十四轮）：口径只看 dirty——conflict && !dirty 是已决断残留态（overwrite/
+  // reload/discard 都会清 conflict，残留不可丢失），拦刷新只会无谓卡死；losable 面
+  // 与 flushDirty 的扫描面（dirty && !saving && !conflict）∪（dirty && conflict 守卫面）一致
+  for (const e of doc.docs.values()) if (e.dirty) return true
+  return false
 }
-onMounted(() => window.addEventListener('beforeunload', guardConflictOnUnload))
-onUnmounted(() => window.removeEventListener('beforeunload', guardConflictOnUnload))
+function flushOnUnload(e: BeforeUnloadEvent): void {
+  if (consumeFreshReloadFlag()) return // flush 落定后的重放刷新：放行
+  if (!hasUnsavedWork()) return
+  e.preventDefault()
+  e.returnValue = '' // 旧 Chrome/Safari 惯例位（preventDefault 之外的兼容）
+  void doc.flushDirty().then(() => {
+    if (!hasUnsavedWork()) {
+      sessionStorage.setItem(RELOAD_FLUSH_FLAG, String(Date.now()))
+      location.reload()
+      return
+    }
+    ui.toast('有修改尚未安全落盘（保存失败或冲突未决），已阻止刷新——请在编辑器内处理后重试', 'warning')
+  })
+}
+type CloseFlushWindow = Window & {
+  __clwFlushBeforeClose?: () => Promise<{ failed: string[]; conflict: string[] }>
+}
+onMounted(() => {
+  window.addEventListener('beforeunload', flushOnUnload)
+  // 主进程 close/before-quit 拦截的调用面（钩子与页面同生命周期注册/注销；不在编辑页
+  // 时无 dirty 状态，主进程拿不到钩子即直接关，无兜底需求）
+  ;(window as CloseFlushWindow).__clwFlushBeforeClose = () => doc.flushBeforeClose()
+})
+onUnmounted(() => {
+  window.removeEventListener('beforeunload', flushOnUnload)
+  delete (window as CloseFlushWindow).__clwFlushBeforeClose
+})
 
 // Q-9（第十五轮）：自动保存节拍上移 Book 层——此前绑 EditorView 挂载，切到工作台/
 // 总览等视图后编辑器卸载、interval 被清，store 里的 dirty 文档停止自动保存（丢失窗口

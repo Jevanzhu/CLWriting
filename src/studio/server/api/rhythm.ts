@@ -7,6 +7,7 @@
  * planned.targetWords 求和自 ChapterMeta.字数目标。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { statSync } from 'node:fs'
 import { join } from 'node:path'
 import { defineRoute } from './schema.js'
 import { reply, replyError } from '../http.js'
@@ -25,6 +26,87 @@ const HOOK_LEVELS: readonly HookLevel[] = ['强', '中', '弱']
 const EMOTIONS: readonly Emotion[] = ['压抑', '铺垫', '小爽', '大爽', '转折']
 const SCENE_TYPES: readonly SceneType[] = ['战斗', '对话', '抒情', '叙事铺陈', '爽点高潮']
 
+// ── R44-8（四十四轮）：rhythm 全书扫描「目录指纹 + TTL」缓存壳 ────────────────
+// 手法对齐 search.ts R35-7（探针 + 纯 TTL + FIFO 上限 + 书键 forget 挂点）：端点原
+// 每请求 readBookConfig + rhythmLong 双 readChapterDir（写作/正文 + 大纲/章纲）——
+// 章节元数据虽有 CC-P1-3 stat 级缓存，冷路径（首查/有章变更）仍整读全部章节全文，
+// 节奏面板打开/轮询/切换反复触发。指纹按本端点实际读面构成（versionStatsProbe
+// R37-17 同思路）：book.yaml size:mtime（kind 决定响应形状，单文件内容写不改目录
+// mtime，必须以文件 stat 入指纹）+ 写作/正文、大纲/章纲 两目录 mtime（增删改名/
+// 同目录 rename 落盘可见）；目录内就地内容改写由 TTL 5s 兜底（宁多扫不脏读）。
+// 计算是同步单段（无在途并发窗口），缓存壳取 getVersionStatsCached 同款同步形态。
+const RHYTHM_CACHE_TTL_MS = 5000
+const RHYTHM_CACHE_MAX = 32
+const rhythmCache = new Map<string, { result: unknown; ts: number; sig: string }>()
+let rhythmTtlMs: number | null = null
+/** R44-8：TTL 测试注入口（先例同 __setSearchCacheTtlForTest）。仅测试用。 */
+export function __setRhythmCacheTtlForTest(ms: number | null): void {
+  rhythmTtlMs = ms
+}
+/** R44-8：删书/改名失效挂点（books.ts forgetBookKeyedCaches 家族同款）。 */
+export function forgetRhythmCache(bookRoot: string): void {
+  rhythmCache.delete(bookRoot)
+}
+/** R44-8 回归观测钩子（生产零调用；先例同 __searchScanCountForTest）：缓存 MISS →
+ *  全量重算（readBookConfig + readChapterDir×2）计数。 */
+let rhythmScanCount = 0
+export function __rhythmScanCountForTest(): number {
+  return rhythmScanCount
+}
+export function __resetRhythmScanCountForTest(): void {
+  rhythmScanCount = 0
+}
+
+/** stat 的 size:mtimeMs 签名（缺失 → '-'；先例同 snapshots.ts sigStatFor）。 */
+function rhythmSigStatFor(fp: string): string {
+  try {
+    const st = statSync(fp)
+    return `${st.size}:${st.mtimeMs}`
+  } catch {
+    return '-'
+  }
+}
+
+/** rhythm 读面指纹：book.yaml + 写作/正文 + 大纲/章纲。 */
+function rhythmSignature(bookRoot: string): string {
+  return [
+    rhythmSigStatFor(join(bookRoot, 'book.yaml')),
+    (() => {
+      try {
+        return String(statSync(join(bookRoot, '写作', '正文')).mtimeMs)
+      } catch {
+        return '-'
+      }
+    })(),
+    (() => {
+      try {
+        return String(statSync(join(bookRoot, '大纲', '章纲')).mtimeMs)
+      } catch {
+        return '-'
+      }
+    })(),
+  ].join(',')
+}
+
+/** R44-8：rhythm 聚合查询（目录指纹 + TTL 缓存壳）。导出供回归测试直测。 */
+export function getRhythmCached(bookRoot: string): unknown {
+  const sig = rhythmSignature(bookRoot)
+  const cached = rhythmCache.get(bookRoot)
+  if (cached && cached.sig === sig && Date.now() - cached.ts < (rhythmTtlMs ?? RHYTHM_CACHE_TTL_MS)) {
+    return cached.result
+  }
+  rhythmScanCount += 1
+  const { config } = readBookConfig(join(bookRoot, 'book.yaml'))
+  const result: unknown = config.kind === 'short' ? rhythmShort(bookRoot, config) : rhythmLong(bookRoot)
+  // 简单 FIFO 淘汰（Map 保插入序）：超上限丢最旧条目，防长期运行的书库累积
+  if (rhythmCache.size >= RHYTHM_CACHE_MAX) {
+    const oldest = rhythmCache.keys().next().value
+    if (oldest !== undefined) rhythmCache.delete(oldest)
+  }
+  rhythmCache.set(bookRoot, { result, ts: Date.now(), sig })
+  return result
+}
+
 export function registerRhythmRoutes(ctx: RhythmCtx): void {
   defineRoute('books.rhythm', {
     method: 'GET',
@@ -33,9 +115,8 @@ export function registerRhythmRoutes(ctx: RhythmCtx): void {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
 
-    const bookRoot = r.bookRoot
-    const { config } = readBookConfig(join(bookRoot, 'book.yaml'))
-    reply(res, 200, config.kind === 'short' ? rhythmShort(bookRoot, config) : rhythmLong(bookRoot))
+    // R44-8：全书扫描走缓存壳（命中即跳过 readBookConfig + 双 readChapterDir）
+    reply(res, 200, getRhythmCached(r.bookRoot))
   },
   })
 }

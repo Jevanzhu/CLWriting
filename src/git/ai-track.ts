@@ -76,7 +76,11 @@ export function decodeRefSegment(seg: string): string {
  *  单次调用内只读一次）；缓存值即 readVersionMeta 原样返回值，结果与逐版直读恒等。 */
 type VersionMetaCache = Map<string, ReturnType<typeof readVersionMeta>>
 
-/** 列全书有轨迹的 docId（候选收割遍历用；无轨迹 → 空） */
+/** 列全书有轨迹的 docId（候选收割遍历用；无轨迹 → 空）。
+ *  R44-13（四十四轮）双轨口径：同步消费面仅收割同步版 harvestStyleCandidates（存量
+ *  测试与等价性对照用）；服务 HTTP 链（style.ts harvest 端点）走异步孪生
+ *  listTrackedDocsAsync——git 后端的 for-each-ref 同步 spawnSync 在 git 无响应时
+ *  阻塞事件循环最长 15s（R36-5/R37-5 同族），新增消费者按所挂链路选对应孪生。 */
 export function listTrackedDocs(bookRoot: string): string[] {
   if (hasGitBackend(bookRoot)) {
     const r = git(['for-each-ref', '--format=%(refname)', `${REF_ROOT}/`], bookRoot)
@@ -112,6 +116,31 @@ export function listTrackedDocs(bookRoot: string): string[] {
     if (listAiVersions(bookRoot, name, metaCache).length > 0) out.add(decodeDocDirName(name))
   }
   return [...out]
+}
+
+/**
+ * listTrackedDocs 的异步孪生（R44-13，四十四轮）——git 路径的 for-each-ref 改走
+ * gitAsync（spawn + 有界超时，事件循环不冻结）。同步版此前挂在收割异步链顶部
+ * （style.ts harvest 端点 → harvestStyleCandidatesAsync 源1），是 R36-5（写侧
+ * recordAiVersion）/R37-5（读侧 listAiVersions/readAiVersion）同族漏网：git 无响应
+ * （网盘挂载 .git/杀软锁）时同步 spawnSync 阻塞事件循环最长 15s。语义与同步版逐位
+ * 对齐：失败一律 resolve 空表（永不 reject），轨迹是旁路证据，绝不阻断主流程；
+ * 版本档案路径（无 git 书库）无子进程，原样委托同步版（本地小文件读）。
+ */
+export async function listTrackedDocsAsync(bookRoot: string): Promise<string[]> {
+  if (!hasGitBackend(bookRoot)) {
+    return listTrackedDocs(bookRoot)
+  }
+  const r = await gitAsync(['for-each-ref', '--format=%(refname)', `${REF_ROOT}/`], bookRoot)
+  if (!r.ok) return []
+  const docIds = new Set<string>()
+  for (const line of r.stdout.split('\n')) {
+    const ref = line.trim()
+    if (!ref.startsWith(`${REF_ROOT}/`)) continue
+    const seg = ref.slice(REF_ROOT.length + 1).split('/')[0]
+    if (seg) docIds.add(decodeRefSegment(seg))
+  }
+  return [...docIds]
 }
 
 /**

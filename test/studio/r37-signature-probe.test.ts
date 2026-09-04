@@ -14,6 +14,11 @@
  *   会刷目录 mtime，一级探针可见（「内容修改仍能探出」的正路径）；
  * - 外部进程「非 rename 就地直写」一级探针不可见——由 TTL 到期兜底重算（边界用例
  *   固化：直写后探针命中旧缓存，TTL=0 注入后走全量签名见新值）。
+ *
+ * R44-9（四十四轮）适配：version-stats 的探针纳入 TTL 节流（命中不再每 poll 重付
+ * readdir+stat）——rename 类结构变化在 TTL 窗内同样命中旧值，可见性统一由「TTL 到期
+ * 重探」承担（分析侧 analysisOverviewProbe 未节流，行为不变）。getVersionStatsCached
+ * 同步转 async（MISS 计算体分批让出），调用点补 await。
  */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -88,26 +93,33 @@ afterEach(() => {
 })
 
 describe('R37-17 version-stats 两级探针', () => {
-  it('未修改期间第二次调用命中一级探针：全量签名与重算都不再执行', () => {
+  it('未修改期间第二次调用命中一级探针：全量签名与重算都不再执行', async () => {
     const root = makeSnapshotBook()
     __setVersionStatsTtlForTest(60_000)
-    const r1 = getVersionStatsCached(root)
+    const r1 = await getVersionStatsCached(root)
     expect(__versionStatsSigCountForTest()).toBe(1)
     expect(__versionStatsScanCountForTest()).toBe(1)
     expect(r1.snapshotCount).toBe(1)
-    const r2 = getVersionStatsCached(root)
+    const r2 = await getVersionStatsCached(root)
     expect(__versionStatsSigCountForTest()).toBe(1) // 一级命中：递归签名 walk 未跑
     expect(__versionStatsScanCountForTest()).toBe(1)
     expect(r2).toEqual(r1)
   })
 
-  it('快照内容原子重写（同目录 rename）→ 一级探针失配 → 全量签名 + 重算见新值', async () => {
+  it('快照内容原子重写（同目录 rename）：TTL 窗内探针节流命中；TTL 到期重探失配 → 全量签名 + 重算见新值', async () => {
     const root = makeSnapshotBook()
     __setVersionStatsTtlForTest(60_000)
-    const before = getVersionStatsCached(root)
+    const before = await getVersionStatsCached(root)
     await sleep(5)
     atomicWriteFile(join(root, '工作区', '.版本', 'doc_1', 'a.md'), '---\n来源: manual\n永久: true\n---\n更长的新定稿内容若干字若干字\n')
-    const after = getVersionStatsCached(root)
+    // R44-9：探针节流——rename 已刷 doc_1 目录 mtime，但 TTL 窗内不重探 → 命中旧缓存
+    const throttled = await getVersionStatsCached(root)
+    expect(__versionStatsSigCountForTest()).toBe(1)
+    expect(__versionStatsScanCountForTest()).toBe(1)
+    expect(throttled.snapshotBytes).toBe(before.snapshotBytes)
+    // TTL 到期 → 必须重新探 → 指纹失配 → 全量签名 + 重算见新值
+    __setVersionStatsTtlForTest(0)
+    const after = await getVersionStatsCached(root)
     expect(__versionStatsSigCountForTest()).toBe(2) // 指纹失配 → 全量签名跑了
     expect(__versionStatsScanCountForTest()).toBe(2) // 签名变化 → 重算
     expect(after.snapshotBytes).toBeGreaterThan(before.snapshotBytes)
@@ -116,16 +128,16 @@ describe('R37-17 version-stats 两级探针', () => {
   it('边界：非 rename 就地直写探针不可见（命中旧缓存）；TTL 到期兜底重算见新值', async () => {
     const root = makeSnapshotBook()
     __setVersionStatsTtlForTest(60_000)
-    const before = getVersionStatsCached(root)
+    const before = await getVersionStatsCached(root)
     await sleep(5)
     // 就地直写（外部进程形态：writeFileSync 覆写、不经 rename）——目录 mtime 不变
     writeFileSync(join(root, '工作区', '.版本', 'doc_1', 'a.md'), '---\n来源: manual\n永久: true\n---\n短\n', 'utf-8')
-    const stale = getVersionStatsCached(root)
+    const stale = await getVersionStatsCached(root)
     expect(__versionStatsSigCountForTest()).toBe(1) // 一级探针未察觉：签名未跑
     expect(stale.snapshotBytes).toBe(before.snapshotBytes) // 命中旧缓存（边界如实固化）
     // TTL 到期 → 跳过一级 → 全量签名 → 失配 → 重算见新值（兜底闭环）
     __setVersionStatsTtlForTest(0)
-    const fresh = getVersionStatsCached(root)
+    const fresh = await getVersionStatsCached(root)
     expect(__versionStatsSigCountForTest()).toBe(2)
     expect(__versionStatsScanCountForTest()).toBe(2)
     expect(fresh.snapshotBytes).toBeLessThan(before.snapshotBytes)
@@ -133,14 +145,14 @@ describe('R37-17 version-stats 两级探针', () => {
 })
 
 describe('R37-17 analysis-overview 两级探针', () => {
-  it('未修改期间第二次调用命中一级探针：全量签名与重算都不再执行', () => {
+  it('未修改期间第二次调用命中一级探针：全量签名与重算都不再执行', async () => {
     const root = makeAnalysisBook()
     __setAnalysisOverviewTtlForTest(60_000)
-    const r1 = getAnalysisOverviewCached(root)
+    const r1 = await getAnalysisOverviewCached(root)
     expect(__analysisOverviewSigCountForTest()).toBe(1)
     expect(__analysisOverviewScanCountForTest()).toBe(1)
     expect(r1.scoreTrend).toHaveLength(1)
-    const r2 = getAnalysisOverviewCached(root)
+    const r2 = await getAnalysisOverviewCached(root)
     expect(__analysisOverviewSigCountForTest()).toBe(1) // 一级命中：每文件 stat 签名未跑
     expect(__analysisOverviewScanCountForTest()).toBe(1)
     expect(r2).toEqual(r1)
@@ -151,11 +163,11 @@ describe('R37-17 analysis-overview 两级探针', () => {
     __setAnalysisOverviewTtlForTest(60_000)
     const manifestPath = join(root, '项目', '文档清单.jsonl')
     const docId = readManifest(manifestPath).entries.keys().next().value as string
-    const before = getAnalysisOverviewCached(root)
+    const before = await getAnalysisOverviewCached(root)
     expect(before.scoreTrend[0]!.score).toBe(8)
     await sleep(5)
     writeAnalysis(root, docId, 'score', envOf({ score: 3, dims: { 爽点: 3 } }))
-    const after = getAnalysisOverviewCached(root)
+    const after = await getAnalysisOverviewCached(root)
     expect(__analysisOverviewSigCountForTest()).toBe(2)
     expect(__analysisOverviewScanCountForTest()).toBe(2)
     expect(after.scoreTrend[0]!.score).toBe(3)
@@ -166,18 +178,18 @@ describe('R37-17 analysis-overview 两级探针', () => {
     __setAnalysisOverviewTtlForTest(60_000)
     const manifestPath = join(root, '项目', '文档清单.jsonl')
     const docId = readManifest(manifestPath).entries.keys().next().value as string
-    const before = getAnalysisOverviewCached(root)
+    const before = await getAnalysisOverviewCached(root)
     expect(before.scoreTrend[0]!.score).toBe(8)
     await sleep(5)
     // 就地直写（外部编辑器形态：writeFileSync 覆写信封、不经 rename）——目录 mtime 不变。
     // 落盘形状与 writeAnalysis 同构（kind 键嵌套：{ score: Envelope }）
     writeFileSync(join(root, '项目', '分析', `${docId}.json`), JSON.stringify({ score: envOf({ score: 1, dims: { 爽点: 1 } }) }, null, 2), 'utf-8')
-    const stale = getAnalysisOverviewCached(root)
+    const stale = await getAnalysisOverviewCached(root)
     expect(__analysisOverviewSigCountForTest()).toBe(1) // 一级探针未察觉：签名未跑
     expect(stale.scoreTrend[0]!.score).toBe(8) // 命中旧缓存（边界如实固化）
     // TTL 到期 → 跳过一级 → 全量签名 → 失配 → 重算见新值（兜底闭环）
     __setAnalysisOverviewTtlForTest(0)
-    const fresh = getAnalysisOverviewCached(root)
+    const fresh = await getAnalysisOverviewCached(root)
     expect(__analysisOverviewSigCountForTest()).toBe(2)
     expect(__analysisOverviewScanCountForTest()).toBe(2)
     expect(fresh.scoreTrend[0]!.score).toBe(1)

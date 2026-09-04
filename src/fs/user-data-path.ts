@@ -12,6 +12,7 @@
  *  - 无 Electron 的脚本（scripts/dev-api.ts）：直接调用本函数。
  */
 import { homedir } from 'node:os'
+import { statSync } from 'node:fs'
 import { join } from 'node:path'
 
 /** 统一目录名（大写，与 electron-builder.yml productName 一致）。 */
@@ -41,4 +42,24 @@ export function defaultUserDataPath(): string {
 export function samePath(a: string, b: string): boolean {
   if (process.platform !== 'win32') return a === b
   return a.toLowerCase() === b.toLowerCase()
+}
+
+/**
+ * R44-11（四十四轮）：路径物理同一性判定（dev+ino）——samePath 的物理身份升级版。
+ * 大小写不敏感卷（win NTFS / mac APFS 默认）上仅大小写不同的两条路径指向同一物理
+ * 目录，但 samePath 的字符串口径在 posix 全等不折叠（mac 默认卷恰是「字符串异形、
+ * 物理同库」形态，win32 折叠只是凑巧覆盖）。对齐书级改名 R71-8（api/books.ts）与
+ * 文档移动 R2W-1（document/service.ts）的 dev+inode 口径：两侧 statSync 成功且
+ * dev+ino 相等 → 同一物理位置；大小写敏感卷上的异名路径 stat 必给出不同 ino，
+ * 天然放行合法异名库。stat 任一失败（ENOENT/EACCES 等）回退 samePath 字符串
+ * 口径——磁盘不可探测时维持既有判重面（不比字符串口径更宽）。
+ */
+export function samePhysicalPath(a: string, b: string): boolean {
+  try {
+    const sa = statSync(a)
+    const sb = statSync(b)
+    return sa.dev === sb.dev && sa.ino === sb.ino
+  } catch {
+    return samePath(a, b)
+  }
 }

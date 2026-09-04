@@ -60,6 +60,8 @@ const M = vi.hoisted(() => ({
   // ── 阶段 22 批 U3：封顶对话框捕获面（0=重启服务 / 1=退出应用，缺省退出） ──
   msgBoxSync: [] as Array<Record<string, unknown>>,
   msgBoxSyncChoice: 1,
+  // R44-15（四十四轮）：子窗尺寸钳制断言用——小工作区形态可注入（screen 桩读此值）
+  workArea: { width: 1920, height: 1080 },
 }))
 
 vi.mock('electron', () => {
@@ -86,6 +88,14 @@ vi.mock('electron', () => {
     }
     reload(): void {
       this.reloaded++
+    }
+    // R44-2（四十四轮）：close/before-quit 拦截的渲染层 flush 通道——记录调用 + 可配
+    // 返回值（execJsResult：null=无钩子 / {conflict,failed} 信封）
+    execJs: string[] = []
+    execJsResult: unknown = null
+    executeJavaScript(code: string): Promise<unknown> {
+      this.execJs.push(code)
+      return Promise.resolve(this.execJsResult)
     }
     // X-26：render-process-gone 封顶路径经 webContents.loadURL 载提示页——委托 win 层
     // 记录（win.loaded 断言 data: URL 用），与 BrowserWindow.loadURL 同构
@@ -126,6 +136,11 @@ vi.mock('electron', () => {
       if (this.closed) return
       this.closed = true
       for (const fn of this.handlers['closed'] ?? []) fn()
+    }
+    // R44-2（四十四轮）：关窗兜底收口动作——destroy 直关（不触发 beforeunload）；
+    // 与 close 分离（close 置 closed 但语义上是「可拦截关」，destroy 是「真关」）
+    destroy(): void {
+      this.closed = true
     }
     isDestroyed(): boolean {
       return this.closed
@@ -242,7 +257,8 @@ vi.mock('electron', () => {
     screen: {
       getPrimaryDisplay: () => ({
         bounds: { x: 0, y: 0, width: 1920, height: 1080 },
-        workAreaSize: { width: 1920, height: 1080 },
+        // R44-15（四十四轮）：workAreaSize 可注入（小工作区形态断言子窗钳制）
+        workAreaSize: { ...M.workArea },
       }),
       // R26-86：loadWinState 校验扩为 getAllDisplays 任一包含——mock 与主屏同款单屏面
       getAllDisplays: () => [{ bounds: { x: 0, y: 0, width: 1920, height: 1080 } }],
@@ -261,8 +277,9 @@ vi.mock('electron', () => {
         return M.dialogOpen
       },
       showMessageBox: async () => ({ response: M.msgResponse }),
-      showMessageBoxSync: (o: Record<string, unknown>) => {
-        M.msgBoxSync.push(o)
+      showMessageBoxSync: (a: Record<string, unknown>, maybeOpts?: Record<string, unknown>) => {
+        // R44-2（四十四轮）：真 API 双参重载 (parentWindow, options)——单参形态 (options) 兼容
+        M.msgBoxSync.push(maybeOpts ?? a)
         return M.msgBoxSyncChoice
       },
       showErrorBox: (title: string, msg: string) => {
@@ -1110,5 +1127,204 @@ describe('kk-P2-8：退出与边界分支', () => {
     } finally {
       vi.unstubAllEnvs()
     }
+  })
+})
+
+// ── R44-2（四十四轮）：关窗/退出兜底——主进程拦截 + 渲染层异步 flush ──────────────
+// 契约：Chromium ≥M80 在卸载路径整体禁同步 XHR（渲染层同步兜底实证零字节到达），
+// 改主进程 close/before-quit 拦截 → executeJavaScript 调渲染层钩子 → 落定/超时后
+// destroy 直关；冲突未决弹原生确认可取消。fresh module 手法同 kk-P2-8。
+describe('R44-2: 关窗/退出兜底（close 拦截 + flush 钩子 + 冲突确认）', () => {
+  async function freshModule(): Promise<(typeof M.windows)[number]> {
+    vi.resetModules()
+    await import('../../src/desktop/main.js')
+    await new Promise((r) => setImmediate(r))
+    await new Promise((r) => setImmediate(r))
+    return M.windows.at(-1)!
+  }
+
+  it('close 首轮拦截 → 渲染层钩子 flush → destroy 直关（不再触发 beforeunload）', async () => {
+    const win = await freshModule()
+    win.webContents.execJsResult = { conflict: [], failed: [] }
+    const e = { preventDefault: vi.fn() }
+    win.emit('close', e)
+    expect(e.preventDefault).toHaveBeenCalledTimes(1) // 修复点：拦下等 flush
+    await new Promise((r) => setImmediate(r))
+    expect(win.webContents.execJs).toHaveLength(1)
+    expect(win.webContents.execJs[0]).toContain('__clwFlushBeforeClose')
+    expect(win.isDestroyed()).toBe(true) // flush 落定后 destroy 收口
+  })
+
+  it('close + 冲突未决 + 作者取消 → 不 destroy 可再关；确认放弃 → destroy', async () => {
+    const win = await freshModule()
+    win.webContents.execJsResult = { conflict: ['d1'], failed: [] }
+    const box0 = M.msgBoxSync.length
+    M.msgBoxSyncChoice = 1 // 取消
+    let e = { preventDefault: vi.fn() }
+    win.emit('close', e)
+    await new Promise((r) => setImmediate(r))
+    expect(e.preventDefault).toHaveBeenCalledTimes(1)
+    expect(M.msgBoxSync.length).toBe(box0 + 1) // R44-19：原生确认替代无反馈死关窗
+    expect(String(M.msgBoxSync.at(-1)!.message)).toContain('保存冲突')
+    expect(win.isDestroyed()).toBe(false) // 取消：窗口保留
+    M.msgBoxSyncChoice = 0 // 放弃修改并继续
+    e = { preventDefault: vi.fn() }
+    win.emit('close', e)
+    await new Promise((r) => setImmediate(r))
+    expect(win.isDestroyed()).toBe(true)
+  })
+
+  it('close + 渲染层无钩子（execJsResult=null）→ 零等待直关', async () => {
+    const win = await freshModule()
+    win.webContents.execJsResult = null
+    const e = { preventDefault: vi.fn() }
+    win.emit('close', e)
+    await new Promise((r) => setImmediate(r))
+    expect(e.preventDefault).toHaveBeenCalledTimes(1)
+    expect(win.isDestroyed()).toBe(true) // 无 dirty 可救：不拖关窗
+  })
+
+  it('session-end 后 close 放行直关（OS 收尾窗口不白等 flush）', async () => {
+    const win = await freshModule()
+    win.emit('session-end', {})
+    const e = { preventDefault: vi.fn() }
+    win.emit('close', e)
+    expect(e.preventDefault).not.toHaveBeenCalled()
+    expect(win.webContents.execJs).toHaveLength(0)
+  })
+
+  it('before-quit：flush 先于 shutdown（先存后停服）；收口 destroy 全窗', async () => {
+    const quit0 = M.quitCalls
+    const win = await freshModule()
+    win.webContents.execJsResult = { conflict: [], failed: [] }
+    const child = M.forkChildren.at(-1)!
+    const e = { preventDefault: vi.fn() }
+    M.appOn['before-quit']!.at(-1)!(e)
+    expect(e.preventDefault).toHaveBeenCalledTimes(1)
+    await vi.waitFor(() => expect(M.quitCalls).toBe(quit0 + 1))
+    // 修复点：渲染层 flush 已先于 server shutdown 发生（顺序敏感——停服后保存必失败）
+    expect(win.webContents.execJs.length).toBeGreaterThanOrEqual(1)
+    expect(child.posted).toContainEqual({ type: 'shutdown' })
+    expect(win.isDestroyed()).toBe(true) // 收口 destroy 直关（不走渲染层 beforeunload）
+  })
+
+  it('before-quit + 冲突未决 + 取消 → 不停服不退出；二次 quit 重走 flush 可再确认', async () => {
+    const quit0 = M.quitCalls
+    const win = await freshModule()
+    win.webContents.execJsResult = { conflict: ['d1'], failed: [] }
+    const child = M.forkChildren.at(-1)!
+    M.msgBoxSyncChoice = 1 // 取消退出
+    const e1 = { preventDefault: vi.fn() }
+    M.appOn['before-quit']!.at(-1)!(e1)
+    await new Promise((r) => setImmediate(r))
+    expect(e1.preventDefault).toHaveBeenCalledTimes(1)
+    expect(child.posted).not.toContainEqual({ type: 'shutdown' }) // 未 beginShutdown
+    expect(M.quitCalls).toBe(quit0)
+    expect(win.isDestroyed()).toBe(false)
+    // 二次 quit：flush 闸已复位 → 重走完整链，确认放弃后正常退出
+    M.msgBoxSyncChoice = 0
+    const e2 = { preventDefault: vi.fn() }
+    M.appOn['before-quit']!.at(-1)!(e2)
+    await vi.waitFor(() => expect(M.quitCalls).toBe(quit0 + 1))
+    expect(child.posted).toContainEqual({ type: 'shutdown' })
+  })
+})
+
+// ── R44-15/R44-17（四十四轮）：子窗尺寸钳制 + 崩溃期 child best-effort kill ──────
+describe('R44-15/R44-17: 子窗工作区钳制 + uncaughtException 停机兜底', () => {
+  async function freshModule(): Promise<(typeof M.windows)[number]> {
+    vi.resetModules()
+    await import('../../src/desktop/main.js')
+    await new Promise((r) => setImmediate(r))
+    await new Promise((r) => setImmediate(r))
+    return M.windows.at(-1)!
+  }
+
+  // R44-15：小屏/高 DPI 工作区（600×400）下书架/书库子窗的 minWidth/minHeight 硬下限
+  //（760×500 / 560×440）出生即超工作区——修复后按 R1W-10 主窗先例（-8 余量）钳制。
+  it('R44-15: 小工作区下书架/书库子窗 minWidth/minHeight 按工作区钳制', async () => {
+    M.workArea = { width: 600, height: 400 }
+    try {
+      await freshModule()
+      await M.ipcHandle['desktop:open-shelf']!({})
+      await new Promise((r) => setImmediate(r))
+      const shelf = [...M.windows].reverse().find((w) => w.opts.title === '书架')!
+      expect(shelf.opts.minWidth).toBe(592) // Math.min(760, 600-8)——修复前 760
+      expect(shelf.opts.minHeight).toBe(392) // Math.min(500, 400-8)——修复前 500
+      await M.ipcHandle['desktop:open-library-window']!({})
+      await new Promise((r) => setImmediate(r))
+      const lib = [...M.windows].reverse().find((w) => w.opts.title === '书库')!
+      expect(lib.opts.minWidth).toBe(560) // Math.min(560, 600-8)——大下限不因大工作区放大
+      expect(lib.opts.minHeight).toBe(392) // Math.min(440, 400-8)——修复前 440
+    } finally {
+      M.workArea = { width: 1920, height: 1080 } // 还原共享桩，不污染后续用例
+    }
+  })
+
+  // R44-17：主进程 uncaughtException → 200ms 后硬退的原语义保留，但窗内对 server
+  // child 同步 best-effort 下发 kill（原实现零动作 → win 上孤儿 child 持端口/会话锁
+  // 靠 10min 宽限才释放）。注册与 200ms 定时都拦下（真注册 + 真定时 = process.exit
+  // 杀死测试进程），只断言行为序列。
+  it('R44-17: uncaughtException → 窗内同步 kill server child + 200ms 退出兜底保留', async () => {
+    const registered: Record<string, Array<(...a: unknown[]) => void>> = {}
+    const onSpy = vi
+      .spyOn(process, 'on')
+      .mockImplementation(((evt: string | symbol, fn: (...a: unknown[]) => void) => {
+        ;(registered[String(evt)] ??= []).push(fn)
+        return process
+      }) as never)
+    try {
+      await freshModule()
+      const child = M.forkChildren.at(-1)!
+      const killed0 = child.killed
+      const handler = registered['uncaughtException']?.at(-1)
+      expect(handler).toBeTruthy()
+      const timers: number[] = []
+      const tSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((_fn: unknown, ms?: number) => {
+        timers.push(Number(ms))
+        return 0 as unknown as ReturnType<typeof setTimeout>
+      }) as never)
+      try {
+        handler!(new Error('测试崩溃'))
+      } finally {
+        tSpy.mockRestore()
+      }
+      await new Promise((r) => setImmediate(r)) // stopChild 链：settle → kill 落拍
+      expect(child.killed).toBeGreaterThan(killed0) // kill 已下发（不等回执）
+      expect(timers).toContain(200) // 原「留痕一拍再退」语义保留
+      const crashLogs = M.logErrors.filter((l) => String((l as unknown[])[1]).includes('未捕获异常'))
+      expect(crashLogs.length).toBeGreaterThan(0) // JSONL 留痕不丢
+    } finally {
+      onSpy.mockRestore()
+    }
+  })
+})
+
+// R44-14（四十四轮）：书库接受面与 git-ancestor 防线合流——pickLibrary「在此新建」
+// 原无 git 检查，git 仓库内落库的待建空书库到建第一本书才被 init 恒拒（空壳死胡同：
+// 书架恒空、建书恒拒、recent 里的它无处可去）。修复后与 init 同源判定（findGitAncestor），
+// 命中原生错误框反馈并留在选择循环。
+describe('R44-14: pickLibrary「在此新建」的 git-ancestor 防线', () => {
+  it('git 仓库内的目录 → 原生错误框拒绝，不落库不重启（选择循环内重选）', async () => {
+    const gitRepo = mkdtempSync(join(tmpdir(), 'clw-gitlib-'))
+    mkdirSync(join(gitRepo, '.git'))
+    writeFileSync(join(gitRepo, '.git', 'HEAD'), 'ref: refs/heads/main\n') // isGitMarker 判定面
+    const inner = join(gitRepo, '待建书库')
+    mkdirSync(inner)
+    tmpDirs.push(gitRepo)
+    vi.resetModules()
+    await import('../../src/desktop/main.js')
+    await new Promise((r) => setImmediate(r))
+    await new Promise((r) => setImmediate(r))
+    M.dialogOpen = { canceled: false, filePaths: [inner] }
+    M.msgResponse = 0 // 每轮都点「在此新建」→ 每轮都被 git 防线拦回
+    const err0 = M.errorBox.length
+    const relaunch0 = M.relaunchCalls
+    const r = (await M.ipcHandle['desktop:open-library']!({}, {})) as { ok: boolean; canceled?: boolean }
+    expect(r).toEqual({ ok: false, canceled: true }) // 封顶退出（E-9c），未选定
+    const rejects = M.errorBox.slice(err0).filter(([t]) => String(t).includes('git'))
+    expect(rejects.length).toBeGreaterThanOrEqual(1) // 原生错误框反馈（非静默 continue）
+    expect(String(rejects[0]![1])).toContain('不能作为书库')
+    expect(M.relaunchCalls).toBe(relaunch0) // 未落库未重启（saveCurrent/relaunch 未触）
   })
 })

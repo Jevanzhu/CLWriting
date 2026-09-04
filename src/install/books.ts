@@ -17,7 +17,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node
 import { resolve, join, dirname, basename, isAbsolute } from 'node:path'
 import { readBookConfig } from '../format/yaml.js'
 import { atomicWriteFile } from '../fs/atomic.js'
-import { samePath } from '../fs/user-data-path.js' // R42-35（四十二轮）：登记目录占用判重（win32 折叠比较）
+import { samePhysicalPath } from '../fs/user-data-path.js' // R42-35/R44-11：登记目录占用判重（dev+ino 物理身份，stat 失败回退 samePath）
 import { acquireCrossProcessLockWithTimeout, acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 import { log } from '../log/index.js'
 
@@ -191,8 +191,18 @@ export function __setBooksLockTimeoutForTest(ms: number): void {
  * 再调本函数或其它持锁写点。
  */
 export function tryBooksLock(workDir: string): (() => void) | null {
-  mkdirSync(join(workDir, CLWRITING_DIR), { recursive: true })
-  return acquireCrossProcessLockWithTimeout(join(workDir, CLWRITING_DIR, 'books.lock'), booksLockTimeoutMs)
+  // R44-18（四十四轮）：获取段整段收编——首行 mkdirSync（.clwriting 建不出：EACCES/
+  // 只读卷/磁盘满）与 acquire 内部非冲突类故障（open 'wx' 权限错等上抛形态）此前裸穿，
+  // 而全部调用方的 null 检查只预期「超时拿不到锁」一种失败语义（append 拒改写、
+  // remove/repair 跳过留痕——都是「失败不裸抛」收口），throw 直接炸穿。收编为获取
+  // 锁失败语义（返回 null，公共签名/降级口径不变），EACCES 类留 warn 供诊断。
+  try {
+    mkdirSync(join(workDir, CLWRITING_DIR), { recursive: true })
+    return acquireCrossProcessLockWithTimeout(join(workDir, CLWRITING_DIR, 'books.lock'), booksLockTimeoutMs)
+  } catch (e) {
+    log.warn('books', `books.jsonl 登记锁获取失败（${e instanceof Error ? e.message : String(e)}），本轮跳过改写`)
+    return null
+  }
 }
 
 /** R34D-19（三十四轮）：tryBooksLock 的异步孪生——锁等待走 acquireCrossProcessLockAsync
@@ -202,8 +212,15 @@ export function tryBooksLock(workDir: string): (() => void) | null {
  *  doInitAsync，GUI 端点与 CLI 建书共用）；mutator 族余下同步版（remove/repair/
  *  rename 等 CLI/桌面/测试面）维持不动（上方登记口径）。 */
 export async function tryBooksLockAsync(workDir: string): Promise<(() => void) | null> {
-  mkdirSync(join(workDir, CLWRITING_DIR), { recursive: true })
-  return acquireCrossProcessLockAsync(join(workDir, CLWRITING_DIR, 'books.lock'), booksLockTimeoutMs)
+  // R44-18（四十四轮）：同 tryBooksLock 的获取段收编（异步孪生同步堵）——mkdirSync
+  // 可抛面与调用方 null 降级口径同源（GUI 建书/删书/改名端点都在请求事件循环上）
+  try {
+    mkdirSync(join(workDir, CLWRITING_DIR), { recursive: true })
+    return await acquireCrossProcessLockAsync(join(workDir, CLWRITING_DIR, 'books.lock'), booksLockTimeoutMs)
+  } catch (e) {
+    log.warn('books', `books.jsonl 登记锁获取失败（${e instanceof Error ? e.message : String(e)}），本轮跳过改写`)
+    return null
+  }
 }
 
 /** 追加一本书到 books.jsonl（不改 active）。同名已存在则报冲突。 */
@@ -262,11 +279,15 @@ function appendBookLocked(workDir: string, entry: BookEntry): { ok: true } | { o
   }
   // R42-35（四十二轮）：登记名判重外补目录占用判重——大小写不敏感卷（win）上 Foo/foo
   // 两个名字 join 后指向同一书目录，仅名字判重会放行成「双登记同库」形态（书架两张卡
-  // 互踩、删一张殃及另一张的登记面）。samePath 在 win32 双侧 toLowerCase 折叠比较
-  //（posix 全等，不误伤大小写敏感卷上的合法异名库）；文案点名占用书与既有冲突同义。
-  const occupying = books.find((b) => samePath(join(workDir, b.path), join(workDir, entry.path)))
+  // 互踩、删一张殃及另一张的登记面）。
+  // R44-11（四十四轮）：占用判重从纯字符串 samePath 升级为 dev+ino 物理身份判定
+  //（R71-8 同款，win 侧孪生漏修收编）——mac 默认 APFS（大小写不敏感）上字符串口径
+  // posix 全等看不见《Foo》/《foo》同物理目录形态；dev+ino 不同即放行，天然不误伤
+  // 大小写敏感卷上的合法异名库；stat 任一失败回退 R42-35 的 samePath 字符串口径。
+  // 文案点名占用书，与既有冲突同义。
+  const occupying = books.find((b) => samePhysicalPath(join(workDir, b.path), join(workDir, entry.path)))
   if (occupying) {
-    return { ok: false, reason: `已有一本叫「${occupying.name}」的书占用了目录「${entry.path}」（win 上仅大小写不同的书名视为同库），换个名字或先删掉旧的` }
+    return { ok: false, reason: `已有一本叫「${occupying.name}」的书占用了目录「${entry.path}」（大小写不敏感的卷上仅大小写不同的书名视为同库），换个名字或先删掉旧的` }
   }
   books.push(entry)
   writeBooks(workDir, books)
@@ -550,6 +571,15 @@ function repairBooksLocked(workDir: string, purgeConfirmedMissing: boolean): Rep
     const existingPathIndex = rebuilt.findIndex((b) => b.path === relPath)
     if (existingPathIndex >= 0) {
       const entry = rebuilt[existingPathIndex]!
+      // R44-6（四十四轮）：path 命中改名分支补重名检查——本分支以 book.yaml title
+      // 直接覆写登记名，撞上 rebuilt 中另一条目同名时会落成同名双登记（resolveBook
+      // 首匹配遮蔽其一、removeBookEntry 按名过滤连删两条）；R74-10 同款跳过留痕：
+      // 原条目整体保留（kind/created_at 也不半更新——部分更新无法表达「名不可改」的
+      // 拒绝语义），作者按日志手动消歧
+      if (entry.name !== bookName && rebuilt.some((b) => b !== entry && b.name === bookName)) {
+        log.warn('books', `扫盘发现「${relPath}」的 book.yaml 书名「${bookName}」与已登记的另一本书同名，跳过改名、保留原登记名「${entry.name}」——请手动确认两处书名哪个是要保留的`)
+        continue
+      }
       const nextEntry = {
         ...entry,
         name: bookName,

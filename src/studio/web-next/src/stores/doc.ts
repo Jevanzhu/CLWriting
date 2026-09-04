@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { getContent, saveContent, finalizeDoc } from '../api/documents'
-import { ApiError, getToken } from '../api/client'
+import { ApiError } from '../api/client'
 import { sha256Revision, newOperationId } from '../shared/revision'
 import { useUiStore } from './ui'
 import { useTreeStore } from './tree'
@@ -48,27 +48,10 @@ export interface DocEntry {
   treeRev?: string
 }
 
-/** 卸载兜底同步落盘的总预算（ms）：串行同步 XHR 超预算即放弃余下文档（尽力而为）。 */
-const FLUSH_SYNC_BUDGET_MS = 2_000
-
 /** F7（五十九轮）：clean 文档 LRU 上限——长会话翻几十章全部常驻内存；超出后从最旧
  *  开始驱逐非 active、非 dirty 的 entry（dirty/conflict/saving 永不驱逐——未落盘
  *  编辑/未决冲突不可丢，被驱逐的 clean 文档切回时重读即可）。 */
 const MAX_CACHED_DOCS = 20
-
-/** F3（五十九轮）：卸载窗口内的同步 re-boot——GET /api/boot（免鉴权端点）取新 token。
- *  同步 XHR（对应异步通道 rebootstrap 的卸载版）：失败/无 token 返 null，由调用方留痕放弃。 */
-function bootTokenSync(): string | null {
-  try {
-    const xhr = new XMLHttpRequest()
-    xhr.open('GET', '/api/boot', false)
-    xhr.send()
-    const data = JSON.parse(xhr.responseText || '{}') as { token?: unknown }
-    return typeof data.token === 'string' && data.token ? data.token : null
-  } catch {
-    return null
-  }
-}
 
 export const useDocStore = defineStore('doc', () => {
   const docs = ref<Map<string, DocEntry>>(new Map())
@@ -488,56 +471,16 @@ export const useDocStore = defineStore('doc', () => {
     }
   }
 
-  /** 卸载兜底（V-P1-2）：beforeunload 窗口内异步 fetch 不保证送达，改用同步 XHR 尽力落盘。
-   *  只处理 dirty 且无冲突且不在保存中的文档；失败静默——最近 autosave/手动保存 + 服务端
-   *  .版本 快照仍是恢复底线。页面即将销毁，不回写 store 状态。
-   *  总预算上限（FLUSH_SYNC_BUDGET_MS）：串行同步 XHR 每次都可能阻塞，多文档无限串行
-   *  会把页面卸载卡死在浏览器手里——超预算即放弃余下文档（尽力而为语义：同步 XHR 无法
-   *  中断在途单次请求，只能在请求之间检查；放弃的文档由 autosave 历史快照兜底）。 */
-  function flushSyncOnUnload(): void {
-    // R37-1（三十七轮批E·盲区注记）：本钩子是同步 unload 路径，无法像 flushDirty 那样
-    // 先 await 在途保存落定再扫——saving 中的条目照旧跳过（页面即将销毁，无等待窗口；
-    // 在途异步 PUT 与本同步 XHR 并行各自落盘，同 baselineRevision 重复写由服务端乐观锁
-    // 与 .版本 快照兜底）。与 flushDirty 的「先等在途再扫」是有意为之的口径差异。
-    if (!bookName.value) return
-    let token = getToken()
-    // F3（五十九轮）：boot 失败后 token 为 null，无 token 的同步 PUT 必 401——关窗兜底
-    // 形同虚设。boot 端点免鉴权：先同步 XHR 重新取 token（异步 rebootstrap 的 fetch 在
-    // 卸载窗口不保证送达，此处必须同步），失败 console.warn 留痕后放弃——发必 401 的
-    // 请求只会白阻塞卸载窗口。
-    if (token === null) {
-      token = bootTokenSync()
-      if (token === null) {
-        console.warn('[flushSyncOnUnload] token 缺失且同步 re-boot 失败，卸载兜底落盘未执行（编辑由 .版本 快照兜底）')
-        return
-      }
-    }
-    const deadline = Date.now() + FLUSH_SYNC_BUDGET_MS
-    for (const e of docs.value.values()) {
-      if (!e.dirty || e.saving || e.conflict) continue
-      // 预算耗尽：放弃余下文档（卸载路径尽力而为，不阻塞页面销毁）
-      if (Date.now() > deadline) break
-      try {
-        const xhr = new XMLHttpRequest()
-        xhr.open(
-          'PUT',
-          `/api/books/${encodeURIComponent(bookName.value)}/documents/${encodeURIComponent(e.docId)}/content`,
-          false,
-        )
-        xhr.setRequestHeader('Content-Type', 'application/json')
-        if (token) xhr.setRequestHeader('x-studio-token', token)
-        xhr.send(
-          JSON.stringify({
-            content: e.content,
-            expectedRevision: e.baselineRevision,
-            operationId: newOperationId(),
-            origin: 'autosave',
-          }),
-        )
-      } catch {
-        /* 卸载路径尽力而为 */
-      }
-    }
+  /** R44-2（四十四轮）：关窗/退出兜底——主进程在 close/before-quit 拦截后经
+   *  executeJavaScript 调本钩子，此时页面未进卸载、异步保存链全通（Chromium ≥M80
+   *  在页面卸载路径整体禁同步 XHR，原 beforeunload 内同步 PUT 兜底经双 Electron
+   *  实验实证零字节到达，已随本钩子移除）。conflict 项不代存（autosave/flushDirty
+   *  均跳过，需作者在应用内决断重载/覆盖），原样上抛给主进程弹原生确认（R44-19：
+   *  渲染层 beforeunload preventDefault 在 Electron 是无反馈死关窗）。token 缺失由
+   *  apiJson 的 401→rebootstrap 自动重取（R42-15），无需旧同步 re-boot 通道。 */
+  async function flushBeforeClose(): Promise<{ failed: string[]; conflict: string[] }> {
+    const failed = await flushDirty()
+    return { failed, conflict: conflictedDirtyDocs() }
   }
 
   /** R33-13（三十三轮）：显式丢弃缓存条目（删除文档后调用）——清 entry + 在途登记，
@@ -547,5 +490,5 @@ export const useDocStore = defineStore('doc', () => {
     inflightSaves.delete(docId)
   }
 
-  return { docs, bookName, setBook, get, open, patch, save, reloadFromRemote, overwriteRemote, refresh, syncCleanWithTree, finalize, conflictedDirtyDocs, flushDirty, flushSyncOnUnload, autosaveTick, discard }
+  return { docs, bookName, setBook, get, open, patch, save, reloadFromRemote, overwriteRemote, refresh, syncCleanWithTree, finalize, conflictedDirtyDocs, flushDirty, flushBeforeClose, autosaveTick, discard }
 })

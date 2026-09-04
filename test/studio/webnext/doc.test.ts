@@ -8,7 +8,7 @@
  *
  * 复用根 vitest（node 环境）；shared/revision 真实跑 WebCrypto 以验证对拍口径。
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
 vi.mock('../../../src/studio/web-next/src/api/documents', () => ({
@@ -249,59 +249,53 @@ describe('doc store · 5b9c888 审阅修复', () => {
   })
 })
 
-describe('doc store · V-P1-2 卸载兜底（flushSyncOnUnload）', () => {
-  interface XhrCall { method: string; url: string; headers: Record<string, string>; body: string }
-  const calls: XhrCall[] = []
-  class FakeXHR {
-    method = ''
-    url = ''
-    headers: Record<string, string> = {}
-    open(method: string, url: string): void { this.method = method; this.url = url }
-    setRequestHeader(k: string, v: string): void { this.headers[k] = v }
-    send(body: string): void { calls.push({ method: this.method, url: this.url, headers: this.headers, body }) }
-  }
-
-  beforeEach(() => {
-    calls.length = 0
-    vi.stubGlobal('XMLHttpRequest', FakeXHR)
-  })
-  afterEach(() => vi.unstubAllGlobals())
-
-  it('dirty 文档 → 同步 XHR PUT（正确 URL/token/乐观锁负载）', async () => {
+describe('doc store · R44-2 关窗/退出兜底（flushBeforeClose，主进程钩子面）', () => {
+  // 契约演进（R44-2）：V-P1-2 的 beforeunload 内同步 XHR 兜底在 Chromium ≥M80 的
+  // 卸载路径被整体禁用（双 Electron 实验实证零字节到达），改为渲染层暴露
+  // flushBeforeClose 钩子由主进程 close/before-quit 拦截后调用——页面未死，走
+  // 正常异步保存链（saveContent）。引擎级保证见 r44-close-flush-electron 实机回归。
+  it('dirty 文档 → 异步保存链落盘 + 返回零失败零冲突', async () => {
     const doc = await openDoc('d1', '写作/正文/第1章.md', 'a')
     doc.patch('d1', '未保存内容')
     const base = doc.get('d1')!.baselineRevision
-    expect(() => doc.flushSyncOnUnload()).not.toThrow()
-    expect(calls).toHaveLength(1)
-    const call = calls[0]!
-    expect(call.method).toBe('PUT')
-    expect(call.url).toBe('/api/books/test-book/documents/d1/content')
-    expect(call.headers['x-studio-token']).toBe('test-token')
-    const payload = JSON.parse(call.body) as { content: string; expectedRevision: string; origin: string }
+    vi.mocked(saveContent).mockResolvedValueOnce({ ok: true, revision: 'sha256:new', superseded: false } as SaveOk)
+    const res = await doc.flushBeforeClose()
+    expect(res).toEqual({ failed: [], conflict: [] })
+    expect(saveContent).toHaveBeenCalledTimes(1)
+    const [book, docId, payload] = vi.mocked(saveContent).mock.calls[0]! as unknown as [
+      string,
+      string,
+      { content: string; expectedRevision: string },
+    ]
+    expect(book).toBe(BOOK)
+    expect(docId).toBe('d1')
     expect(payload.content).toBe('未保存内容')
     expect(payload.expectedRevision).toBe(base)
-    expect(payload.origin).toBe('autosave')
+    expect(doc.get('d1')!.dirty).toBe(false)
   })
 
-  it('clean / 冲突未决文档 → 跳过不发', async () => {
+  it('clean / 冲突未决文档 → 冲突项不代存原样上抛，clean 项零请求', async () => {
     const doc = await openDoc('d1', '写作/正文/第1章.md', 'a')
-    doc.flushSyncOnUnload() // 非 dirty
+    const res0 = await doc.flushBeforeClose() // 非 dirty
+    expect(res0).toEqual({ failed: [], conflict: [] })
+    expect(saveContent).not.toHaveBeenCalled()
     const doc2 = await openDoc('d2', '写作/正文/第2章.md', 'a')
     doc2.patch('d2', 'b')
-    doc2.get('d2')!.conflict = true // 冲突未决：同步盲写只会再 409
-    doc2.flushSyncOnUnload()
-    expect(calls).toHaveLength(0)
+    doc2.get('d2')!.conflict = true // 冲突未决：盲写只会再 409，交主进程原生确认决断
+    const res = await doc2.flushBeforeClose()
+    expect(res.conflict).toEqual(['d2'])
+    expect(res.failed).toEqual([]) // 冲突项在 flushDirty 扫描即被跳过（不盲写不重试），零请求零假失败
+    expect(saveContent).not.toHaveBeenCalled()
   })
 
-  it('XHR 抛异常 → 不中断其余文档的兜底', async () => {
-    vi.stubGlobal('XMLHttpRequest', class {
-      open(): void {}
-      setRequestHeader(): void {}
-      send(): void { throw new Error('页面正在销毁') }
-    })
+  it('保存失败（非冲突异常）→ failed 上抛给主进程，异常不外泄', async () => {
     const doc = await openDoc('d1', '写作/正文/第1章.md', 'a')
     doc.patch('d1', 'b')
-    expect(() => doc.flushSyncOnUnload()).not.toThrow()
+    vi.mocked(saveContent).mockRejectedValueOnce(new Error('网络断了'))
+    const res = await doc.flushBeforeClose()
+    expect(res.failed).toEqual(['d1'])
+    expect(res.conflict).toEqual([])
+    expect(doc.get('d1')!.dirty).toBe(true) // 未落盘事实保留在 store（主进程按需留痕）
   })
 })
 

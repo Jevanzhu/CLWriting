@@ -14,7 +14,7 @@ import { readdirSync, statSync, existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { readFile, parseFlat , stringifyValue } from '../format/frontmatter.js'
 import { readLead } from '../format/leads.js'
-import { sanitizeFileNamePart } from '../format/filename.js'
+import { sanitizeFileNamePart, isMdFileName } from '../format/filename.js'
 import { createFileExclusive, rmWithRetry } from '../fs/atomic.js'
 import { walkMdEach } from '../fs/walk-md.js'
 import { log } from '../log/index.js'
@@ -69,7 +69,10 @@ export function migrateLegacyForeshadows(bookRoot: string): MigrateResult {
 
   let files: string[]
   try {
-    files = readdirSync(oldDir).filter((f) => f.endsWith('.md') && !f.startsWith('._'))
+    // R44-7（四十四轮）：.md 判定收敛 isMdFileName（大小写不敏感，R38-9 家族）——
+    // 大写扩展名（.MD）的迁移源被字面过滤滤掉会永久滞留旧目录（迁移是删旧目录数据的
+    // 一次性链路，漏迁无自愈通路）
+    files = readdirSync(oldDir).filter((f) => isMdFileName(f) && !f.startsWith('._'))
   } catch {
     return { migrated: 0, skipped: 0, details: [] }
   }
@@ -162,7 +165,9 @@ export function readForeshadows(bookRoot: string): ForeshadowEntry[] {
 
   let files: string[]
   try {
-    files = readdirSync(dir).filter((f) => f.endsWith('.md') && !f.startsWith('._'))
+    // R44-7（四十四轮）：.md 判定收敛 isMdFileName（大小写不敏感，R38-9 家族）——
+    // .MD 伏笔对面板隐形（readForeshadows 是伏笔面板/足迹扫描的唯一数据源）
+    files = readdirSync(dir).filter((f) => isMdFileName(f) && !f.startsWith('._'))
   } catch {
     return []
   }
@@ -468,7 +473,7 @@ export interface ForeshadowSearchHit {
  * 伏笔足迹检索：按标题 / 关联词 / 命中片段过滤 scanForeshadowTrails 结果。
  *
  * query 为空 → 全量（按末次命中降序，最近提及在前）。
- * 匹配维度（F3/DSH-7 FTS 语义）：标题、关联词、命中词、命中片段上下文。
+ * 匹配维度（F3/DSH-7 FTS 语义）：标题、关联词、命中词、命中片段上下文（大小写不敏感）。
  *
  * @param bookRoot 书库根
  * @param query 检索词（可选；大小写不敏感）
@@ -476,6 +481,19 @@ export interface ForeshadowSearchHit {
 export function searchForeshadowTrails(bookRoot: string, query?: string): ForeshadowSearchHit[] {
   const entries = readForeshadows(bookRoot)
   const trails = scanForeshadowTrails(bookRoot, entries)
+  return filterForeshadowTrails(entries, trails, query)
+}
+
+/**
+ * R44-8（四十四轮）：searchForeshadowTrails 的过滤体拆出——api/foreshadows.ts 的
+ * 「目录指纹 + TTL」缓存壳命中后在已算好的（entries, trails）快照上做 ?q= 过滤，
+ * 不再全量重扫；过滤维度/排序与拆出前逐位一致（同一实现双入口，不复制逻辑）。
+ */
+export function filterForeshadowTrails(
+  entries: ForeshadowEntry[],
+  trails: Map<string, ForeshadowTrail>,
+  query?: string,
+): ForeshadowSearchHit[] {
   const q = (query ?? '').trim().toLowerCase()
   const results: ForeshadowSearchHit[] = []
   for (const e of entries) {

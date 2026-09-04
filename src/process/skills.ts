@@ -13,6 +13,7 @@
 import { join, basename } from 'node:path'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { readFile, parseFlat } from '../format/frontmatter.js'
+import { isMdFileName } from '../format/filename.js'
 import { bundledResource } from '../fs/resources.js'
 import { log } from '../log/index.js'
 
@@ -37,7 +38,9 @@ function scanRoot(dir: string, source: SkillMeta['source']): SkillMeta[] {
   let files: string[]
   try {
     // 过滤口径同 readCharacterCards：只收 .md，跳过 macOS 资源叉 ._*
-    files = readdirSync(dir).filter((f) => f.endsWith('.md') && !f.startsWith('._'))
+    // R44-7（四十四轮）：.md 判定收敛 isMdFileName（大小写不敏感，R38-9 家族）——
+    // .MD 技巧包不入索引（模型看不到目录即无从 read_skill 取用）
+    files = readdirSync(dir).filter((f) => isMdFileName(f) && !f.startsWith('._'))
   } catch {
     return []
   }

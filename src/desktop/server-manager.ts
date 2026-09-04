@@ -44,6 +44,15 @@ const KILL_WAIT_TIMEOUT_MS = 2_000
  * 测试经 shutdownTotalMs 注入缩短，不依赖本值保快。
  */
 export const SHUTDOWN_TOTAL_TIMEOUT_MS = 3_500
+/**
+ * R44-12（四十四轮）：shutdown 等 settleStarting（在途 start/自动重启握手落定）的
+ * 短预算——此前裸 await 无预算，握手挂起（child 模块加载卡死等）最坏
+ * HANDSHAKE_TIMEOUT_MS(30s) + kill 升级 2s×2 才落定，用户点退出最坏 ~41s「关不掉」。
+ * 预算内未收口 → 放弃等握手，对在途 fork 直接 kill 收口（握手期 server 未 ready、
+ * 无在途编排可丢，硬杀无语义损失）；正常路径（握手毫秒级落定）语义不变。测试经
+ * shutdownSettleBudgetMs 注入缩短，不依赖本值保快。
+ */
+const SHUTDOWN_SETTLE_BUDGET_MS = 2_000
 /** 崩溃退避序列（第 1/2/3 次自动重启前的等待；U-2 建议立即/5s/15s） */
 const RESTART_BACKOFF_MS: readonly number[] = [0, 5_000, 15_000]
 /** 自动重启次数上限：第 3 次重启后的再崩溃不再自动重启，转 onRestartExhausted 决断 */
@@ -96,6 +105,9 @@ export interface ServerManagerDeps {
   logger?: LogLike
   /** shutdown 总超时（指令下发到强杀兜底前）；测试注入缩短保快 */
   shutdownTotalMs?: number
+  /** R44-12（四十四轮）：shutdown 等 settleStarting 的短预算（超时即放弃等握手、
+   *  kill 在途 fork）；缺省 2s，测试注入缩短保快 */
+  shutdownSettleBudgetMs?: number
   /** kill 后等退出的上限；测试注入缩短保快 */
   killWaitMs?: number
   /** 退避序列（第 1/2/3 次重启前等待）；缺省 [0, 5000, 15000]，测试注入缩短保快 */
@@ -138,6 +150,8 @@ export interface StudioServerManager {
   /**
    * 优雅停机（before-quit 收尾）：下发 shutdown 指令 → shutdownStudio 落定 →
    * shutdown-done 回执 / 总超时（3.5s，E-1）/ exit 三路先到为准；窗口内未退则 kill 兜底。
+   * R44-12（四十四轮）：等在途启动（settleStarting）设短预算（缺省 2s），超时放弃等
+   * 握手、直接 kill 在途 fork，不让用户点退出最坏挂 ~41s。
    * 幂等；与 stopChild 同属主动停机——均置 shutdownStarted（S-5，批 U3 重启门消费）。
    */
   shutdown(): Promise<void>
@@ -183,6 +197,8 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
     utilityProcess.fork(modulePath, args, options))
   const logger = deps.logger ?? log
   const shutdownTotalMs = deps.shutdownTotalMs ?? SHUTDOWN_TOTAL_TIMEOUT_MS
+  // R44-12（四十四轮）：shutdown 等 settleStarting 的短预算（缺省见 SHUTDOWN_SETTLE_BUDGET_MS 头注）
+  const shutdownSettleBudgetMs = deps.shutdownSettleBudgetMs ?? SHUTDOWN_SETTLE_BUDGET_MS
   const killWaitMs = deps.killWaitMs ?? KILL_WAIT_TIMEOUT_MS
   const backoffMs = deps.backoffMs ?? RESTART_BACKOFF_MS
   const stabilityResetMs = deps.stabilityResetMs ?? STABILITY_RESET_MS
@@ -191,6 +207,10 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
   // E-9a（第五十三轮）：在途 start 的关键 opts 快照——并发 start 复用同一轮前校验
   // 一致性，不一致 fail-closed 直接 reject（不静默吞没后到调用方的配置）
   let startingOpts: StartStudioServerOptions | null = null
+  /** R44-12（四十四轮）：在途 start/自动重启的 fork 句柄——握手未完成时 active 尚空，
+   *  shutdown 短预算耗尽后 kill 链靠它够得着这个 child（不登记则只能等 30s 握手
+   *  超时或 app 退出连带硬杀）。随 starting 通道同置同清。 */
+  let startingProc: UtilityProcessLike | null = null
   let tokenInMemory: string | null = null // F-5：启动读入一次，此后 fork 一律复用内存值
   // S-5 互斥门：主动停机（shutdown/stopChild）置位，child exit 属预期不触发重启；
   // start/shutdown/stopChild 均取消挂起重启——退出/换轮途中 fork 新 child 即孤儿。
@@ -272,6 +292,9 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
       proc.kill()
       throw new ServerBootError('SHUTDOWN', 'studio server 启动途中收到停机指令，已中止新 child')
     }
+    // R44-12（四十四轮）：在途 fork 句柄登记（与 starting 通道同生命周期，start/
+    // doRestart 的 finally 同步清空）——shutdown 短预算耗尽时 kill 链经此够到它
+    startingProc = proc
     forwardChildStdio(proc, logger) // 握手前接线——boot 期日志不丢
     const port = await handshake(proc, logger)
     // 稳定窗口计时（unref 不拖退出）：到点仍是他为 active 才清零
@@ -336,6 +359,7 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
     } finally {
       starting = null
       startingOpts = null
+      startingProc = null // R44-12：与 starting 通道同清
     }
   }
 
@@ -442,6 +466,7 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
       } finally {
         starting = null
         startingOpts = null
+        startingProc = null // R44-12：与 starting 通道同清
       }
     },
     async stopChild(): Promise<void> {
@@ -464,11 +489,33 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
       try {
         shutdownStarted = true // 先置位后下发：exit 早于 shutdown-done 到达也不误判崩溃（S-5）
         // S1（五十九轮）：在途 start/自动重启先落定——launch 的 fork 后检查（shutdownStarted
-        // 已置位）会即杀新 child，此处等 handshake 收口拿到 active 走优雅停机链
-        await settleStarting('shutdown')
+        // 已置位）会即杀新 child，此处等 handshake 收口拿到 active 走优雅停机链。
+        // R44-12（四十四轮）：settleStarting 纳入短预算 race——裸 await 在握手挂起时最坏
+        // 30s + kill 升级 2s×2 才落定（用户点退出最坏 ~41s 关不掉）。预算内收口（正常
+        // 握手毫秒级）语义不变，后续优雅停机总窗仍由既有 race（shutdownTotalMs）兜底；
+        // 超时即放弃等握手，下方对在途 fork 直接 kill 收口。settleStarting 内部 catch
+        // 握手失败永不 reject，输掉的分支在后台自行落定、无未处理拒绝面。
+        const settled = await Promise.race([
+          settleStarting('shutdown').then(() => true),
+          delay(shutdownSettleBudgetMs).then(() => false),
+        ])
         cancelPendingRestart() // 退避等待期退出：挂起重启作废（不 fork 孤儿）
         const current = active
-        if (!current) return
+        if (!current) {
+          // R44-12（四十四轮）：预算耗尽且握手未收口——在途 fork 不再等 30s 握手超时，
+          // 就地 kill + 等退出收口（killProcAwaitEscalating 纪律原样复用：killWaitMs
+          // 等待 + SIGKILL 升级，本段不新增等待语义）。settled=true 的空 active 属
+          // 握手已失败/child 已退形态，其自身路径已收口，此处无需动作。
+          if (!settled && startingProc) {
+            const proc = startingProc
+            const exited = new Promise<void>((resolveExit) => {
+              proc.once('exit', () => resolveExit())
+            })
+            proc.kill()
+            await killProcAwaitEscalating(proc, exited, 'shutdown 在途 fork 收口', killWaitMs, logger)
+          }
+          return
+        }
         current.proc.postMessage({ type: 'shutdown' })
       // 竞速三路：shutdown-done 回执 / 自然退出 / 总超时。回执后真实 child 立即
       // exit(0)，但 exit 事件与回执之间有异步缝——by 区分：回执到达再让渡一拍等

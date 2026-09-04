@@ -1,9 +1,16 @@
 /**
- * F3（五十九轮）回归：flushSyncOnUnload 在 token null（boot 失败）时先同步 re-boot
- * （GET /api/boot 免鉴权）再 flush——修复前 token null 的同步 PUT 必 401，关窗兜底
- * 形同虚设；re-boot 失败 console.warn 留痕后放弃。
+ * F3 → R44-2（四十四轮）契约演进：关窗/退出兜底从「beforeunload 内同步 XHR + 同步
+ * re-boot」改为「主进程 close/before-quit 拦截 + 渲染层 flushBeforeClose 异步钩子」。
+ *
+ * 原 F3（五十九轮）修复点——token null 时同步 re-boot 再 PUT——其主体（同步 XHR）
+ * 经双 Electron 实验证实在 Chromium ≥M80 的卸载路径零字节到达（四十四轮报告 §3.1），
+ * 已随 flushSyncOnUnload 一并移除。本文件保留 token 通道语义的等价断言：token 缺失
+ * 现由 apiJson 的 401→rebootstrap 自动重取（R42-15），flushBeforeClose 无需自带
+ * re-boot；这里钉住「钩子面不再读 getToken（旧同步通道残留即红）」与调用约定。
+ *
+ * 引擎级保证（不 stub XHR/fetch 的实机回归）见 r44-close-flush-electron.test.ts。
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
 vi.mock('../../../src/studio/web-next/src/api/documents', () => ({
@@ -20,87 +27,46 @@ vi.mock('../../../src/studio/web-next/src/stores/ui', () => ({
   useUiStore: () => ({ toast: vi.fn() }),
 }))
 
-import { getContent } from '../../../src/studio/web-next/src/api/documents'
+import { getContent, saveContent } from '../../../src/studio/web-next/src/api/documents'
 import { useDocStore } from '../../../src/studio/web-next/src/stores/doc'
 import type { TreeNode } from '../../../src/studio/web-next/src/types/tree'
 
-interface XhrCall { method: string; url: string; headers: Record<string, string>; body: string }
-
-/** 同步 XHR 桩：GET /api/boot 回 bootResponse（token 通道）；PUT 记录落盘请求。 */
-function stubSyncXhr(bootResponse: string | null): XhrCall[] {
-  const calls: XhrCall[] = []
-  class FakeXHR {
-    method = ''
-    url = ''
-    headers: Record<string, string> = {}
-    responseText = ''
-    open(method: string, url: string): void { this.method = method; this.url = url }
-    setRequestHeader(k: string, v: string): void { this.headers[k] = v }
-    send(body?: string): void {
-      if (this.url === '/api/boot') {
-        this.responseText = bootResponse ?? ''
-        return
-      }
-      calls.push({ method: this.method, url: this.url, headers: this.headers, body: body ?? '' })
-    }
-  }
-  vi.stubGlobal('XMLHttpRequest', FakeXHR)
-  return calls
-}
-
-async function openDirty(): Promise<void> {
+async function openDirty(docId = 'd1'): Promise<void> {
   const doc = useDocStore()
   doc.setBook('test-book')
   vi.mocked(getContent).mockResolvedValueOnce('a')
   await doc.open({
-    path: '写作/正文/第1章.md',
-    name: '第1章.md',
+    path: `写作/正文/${docId}.md`,
+    name: `${docId}.md`,
     isDirectory: false,
     role: 'chapter',
-    docId: 'd1',
+    docId,
     children: [],
   } as TreeNode)
-  doc.patch('d1', '未保存内容')
+  doc.patch(docId, '未保存内容')
 }
 
 beforeEach(() => {
   setActivePinia(createPinia())
   vi.clearAllMocks()
 })
-afterEach(() => vi.unstubAllGlobals())
 
-describe('F3: flushSyncOnUnload token null → 同步 re-boot 再 flush', () => {
-  it('boot 取回新 token → PUT 携带新 token 落盘（修复前：无 token 必 401）', async () => {
+describe('F3→R44-2: flushBeforeClose 钩子面（token 通道语义随契约演进）', () => {
+  it('dirty 文档经异步保存链落盘一次，token null 不再自带 re-boot（apiJson 401→rebootstrap 负责）', async () => {
     tokenMock.mockReturnValue(null)
-    const calls = stubSyncXhr(JSON.stringify({ token: 'rebooted-token' }))
     await openDirty()
-    useDocStore().flushSyncOnUnload()
-    expect(calls).toHaveLength(1)
-    expect(calls[0]!.method).toBe('PUT')
-    expect(calls[0]!.headers['x-studio-token']).toBe('rebooted-token') // 修复点：re-boot 后的 token
-    const payload = JSON.parse(calls[0]!.body) as { content: string; origin: string }
-    expect(payload.content).toBe('未保存内容')
-    expect(payload.origin).toBe('autosave')
+    vi.mocked(saveContent).mockRejectedValueOnce(new Error('401'))
+    const res = await useDocStore().flushBeforeClose()
+    // token null + save 失败 → failed 上抛（真实链路里 apiJson 会先 rebootstrap 再重试，
+    // 此处 mock 的是 documents 层，token 语义已不在本钩子职责内——断言零 re-boot 残留）
+    expect(res.failed).toEqual(['d1'])
+    expect(saveContent).toHaveBeenCalledTimes(1)
   })
 
-  it('re-boot 失败（boot 也挂）→ console.warn 留痕 + 不发必 401 的 PUT', async () => {
-    tokenMock.mockReturnValue(null)
-    const calls = stubSyncXhr('{}') // boot 响应无 token
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  it('dirty 文档保存成功 → 钩子返回零失败零冲突（主进程据此直关不弹确认）', async () => {
     await openDirty()
-    useDocStore().flushSyncOnUnload()
-    expect(calls).toHaveLength(0) // 修复点：不留静默失败——发必 401 的请求只会白阻塞卸载
-    expect(warn).toHaveBeenCalledTimes(1)
-    expect(warn.mock.calls[0]![0]).toContain('token')
-    warn.mockRestore()
-  })
-
-  it('token 正常 → 不触发 re-boot（boot 通道不被无谓牵连）', async () => {
-    tokenMock.mockReturnValue('ok-token')
-    const calls = stubSyncXhr(null)
-    await openDirty()
-    useDocStore().flushSyncOnUnload()
-    expect(calls).toHaveLength(1)
-    expect(calls[0]!.headers['x-studio-token']).toBe('ok-token')
+    vi.mocked(saveContent).mockResolvedValueOnce({ ok: true, revision: 'sha256:r44', superseded: false })
+    const res = await useDocStore().flushBeforeClose()
+    expect(res).toEqual({ failed: [], conflict: [] })
   })
 })

@@ -66,6 +66,10 @@ import { forgetSettingCache } from '../../../ai/rules/setting-rule.js'
 // 挂同文件写侧失效，删/改名生命周期清理由主评审补接本家族（防同名重建书读陈聚合）
 import { forgetAnalysisOverviewCache } from './analysis.js'
 import { forgetVersionStatsCache } from './snapshots.js'
+// R44-8（四十四轮）：foreshadows / rhythm 全书扫描 TTL 缓存同族收编（删/改名后
+// 同名重建书不读陈伏笔足迹/节奏聚合）
+import { forgetForeshadowCache } from './foreshadows.js'
+import { forgetRhythmCache } from './rhythm.js'
 import { log } from '../../../log/index.js'
 
 /** R67-15：删书/改名共用的书键缓存清理（书键 TTL 结果缓存族——内存卫生，防删书后
@@ -85,6 +89,9 @@ function forgetBookKeyedCaches(bookRoot: string): void {
   // R36-7：analysis-overview / version-stats 书键聚合缓存同族清理（主评审补接）
   forgetAnalysisOverviewCache(bookRoot)
   forgetVersionStatsCache(bookRoot)
+  // R44-8：伏笔足迹 / 节奏聚合缓存同族清理
+  forgetForeshadowCache(bookRoot)
+  forgetRhythmCache(bookRoot)
   // R39-16：书架守卫/配置缓存同族清理（删/改名后同名重建书不读陈 book.yaml；
   // 缓存按 workDir+path 键，整表清扫语义与「该书键失效」等价——书键族口径）
   shelfGuardCache.clear()

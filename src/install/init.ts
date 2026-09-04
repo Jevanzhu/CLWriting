@@ -12,6 +12,8 @@ import { join, resolve } from 'node:path'
 import { matchGenreLeads } from './data.js'
 import { appendBook, appendBookAsync, writeActive, readBooks, bookStoragePath, isInvalidBookName, BOOK_NAME_MAX_BYTES } from './books.js'
 import { scaffoldBookRepo, findGitAncestor } from './scaffold.js'
+import { isMdFileName } from '../format/filename.js'
+import { samePhysicalPath } from '../fs/user-data-path.js'
 import type { LeadType } from '../format/types.js'
 
 export interface InitOptions {
@@ -70,7 +72,10 @@ export function doInit(opts: InitOptions): InitResult {
     created_at: new Date().toISOString(),
   })
   if (!appendRes.ok) return appendRes
-  writeActive(step.workDir, step.bookName)
+  // R44-18（四十四轮）：writeActive 调用点收编（孪生同步面，与 doInitAsync 同堵）——
+  // 见 writeActiveGuarded 头注
+  const activeFail = writeActiveGuarded(step.workDir, step.bookName)
+  if (activeFail) return activeFail
   return { ok: true, workDir: step.workDir, bookRoot: step.bookRoot, bookName: step.bookName, bookPath: step.bookPath }
 }
 
@@ -92,8 +97,31 @@ export async function doInitAsync(opts: InitOptions): Promise<InitResult> {
     created_at: new Date().toISOString(),
   })
   if (!appendRes.ok) return appendRes
-  writeActive(step.workDir, step.bookName)
+  // R44-18（四十四轮）：writeActive 调用点收编——appendBookAsync 成功（登记已落盘）
+  // 后写 active 指针此前无 try/catch：mkdirSync/atomicWriteFile 抛 EACCES 等直接
+  // reject，建书端点 500，且作者重试同名会撞「已有一本叫…」误导性拒绝。收编按登记
+  // 面真实状态给 reason（见 writeActiveGuarded 头注），契约「永不 reject」闭合。
+  const activeFail = writeActiveGuarded(step.workDir, step.bookName)
+  if (activeFail) return activeFail
   return { ok: true, workDir: step.workDir, bookRoot: step.bookRoot, bookName: step.bookName, bookPath: step.bookPath }
+}
+
+/**
+ * R44-18（四十四轮）：writeActive 的受控包装——失败时按「登记在、active 未写」的
+ * 真实状态给可行动 reason。appendBookLocked 对已登记名恒拒（「已有一本叫…」），
+ * 此形态下重试建书无用且误导；reason 明示书已建成登记、只需从书架手动启用。
+ * 返回 null = 写入成功；调用方（doInit/doInitAsync 两个孪生调用点）非 null 即短路。
+ */
+function writeActiveGuarded(workDir: string, bookName: string): { ok: false; reason: string } | null {
+  try {
+    writeActive(workDir, bookName)
+    return null
+  } catch (e) {
+    return {
+      ok: false,
+      reason: `书「${bookName}」已建成并登记成功，但设置当前活动书失败（${e instanceof Error ? e.message : String(e)}）——书已在书架中，从书架启用该书即可，无需重建（重跑同名建书会提示已存在）`,
+    }
+  }
 }
 
 /** doInit/doInitAsync 共用的登记前主流程（校验/幂等/骨架/scaffold；同步瞬时段）。 */
@@ -133,6 +161,18 @@ function doInitSteps(opts: InitOptions): InitStepOutcome {
   // 不再把用户卡死在「换个书名或先清空它」。
   const existingBooks = readBooks(workDir)
   const registered = existingBooks.some((b) => b.name === bookName)
+  // R44-11（四十四轮）：目录占用维度补 dev+ino 物理身份防线（appendBookLocked 同源）——
+  // mac 默认 APFS（大小写不敏感）上《Foo》建后未写正文（半成品）再建《foo》：名字
+  // 判重不命中（保严格 ===，书名唯一性语义不变），下方「目录存在但 isResumableHalfScaffold
+  // 放行」分支会让幂等 scaffold 覆写他书 book.yaml 后才在登记段被拒——盘面与登记已
+  // 撕裂。占用判定 stat 失败回退 samePath 字符串口径（posix 全等，不误伤大小写敏感
+  // 卷上的合法异名库）；同名条目不参与（名字维度由下方 registered 各档收口）。
+  const occupying = existingBooks.find(
+    (b) => b.name !== bookName && samePhysicalPath(join(workDir, b.path), bookRoot),
+  )
+  if (occupying) {
+    return { ok: false, reason: `已有一本叫「${occupying.name}」的书占用了目录「${bookPath}」（大小写不敏感的卷上仅大小写不同的书名视为同库），换个名字或先删掉旧的` }
+  }
   // P5-数据层（第七轮）：同名「文件」（非目录）时下方 readdirSync 裸抛 ENOTDIR 破坏
   // {ok:false,reason} 契约——先行判定给出可读原因
   // R62-39：existsSync/statSync 之间存在窗口——同步盘/并发 init 下目录恰在两次调用
@@ -221,7 +261,9 @@ function countMarkdownFiles(dir: string): number {
   let n = 0
   for (const e of entries) {
     if (e.isDirectory()) n += countMarkdownFiles(join(dir, e.name))
-    else if (e.name.endsWith('.md')) n += 1
+    // R44-7（四十四轮）：.md 判定收敛 isMdFileName（大小写不敏感，R38-9 家族）——
+    // .MD 正文不计数会让半成品判定漂移（有内容的书被当零正文半成品复跑幂等 scaffold）
+    else if (isMdFileName(e.name)) n += 1
   }
   return n
 }
