@@ -78,6 +78,39 @@ const STALE_TAKEOVER_JITTER_MS = 25
 const MAX_HELD_MS = 10 * 60_000
 
 /**
+ * R43-25 收口（2026-09-04 全量偶挂实测）：open 'wx' 的 win 瞬态重试包裹。
+ *
+ * 对手进程 rmSync 释放锁文件（正常释放或 stale 接管）后，Windows 的删除在途窗口
+ * （DELETE_PENDING）内对同路径的 'wx' 创建**不报 EEXIST 而报 EPERM/EACCES**；
+ * 杀软/索引器/备份扫描瞬时握住新文件同型（R1W-2 既有登记）。此前 EPERM 落
+ * 「非冲突类故障上抛」分支——calls-cross-process 双进程回归的子进程直接崩
+ * （worker 退出码 1），事件库首开/登记等全部锁调用方同面暴露。
+ *
+ * 处置：EPERM/EACCES 短微睡重试（总窗 ~50ms，远小于任何调用方超时档）——
+ * delete-pending 数十 µs~ms 级即消散，重试即得；窗口耗尽仍 EPERM 才上抛
+ * （真权限故障不吞，与既有「非冲突类故障原样上抛」语义兼容：只是把**瞬态**
+ * EPERM 与**持久** EPERM 分流）。EEXIST 照旧直抛给调用方的 stale 判定分支。
+ * 微睡用 Atomics.wait（本模块同步原语既有口径）。
+ */
+const OPEN_TRANSIENT_RETRY_MAX = 10
+const OPEN_TRANSIENT_RETRY_INTERVAL_MS = 5
+
+function openExclusiveWithTransientRetry(lockPath: string): number {
+  let lastErr: unknown
+  for (let i = 0; i < OPEN_TRANSIENT_RETRY_MAX; i++) {
+    try {
+      return openSync(lockPath, 'wx')
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code
+      if (code !== 'EPERM' && code !== 'EACCES') throw e
+      lastErr = e
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, OPEN_TRANSIENT_RETRY_INTERVAL_MS)
+    }
+  }
+  throw lastErr
+}
+
+/**
  * 锁状态判定（单次完整评估）：'held' = 活进程持有 / 年轻空锁（写 pid 在途），
  * 'stale' = 持有进程已死或超龄仍不可读，'gone' = 文件已不在（刚被释放——上层重试创建）。
  */
@@ -160,7 +193,7 @@ export function tryAcquireCrossProcessLock(
   for (let attempt = 0; attempt < 2; attempt++) {
     let fd: number | undefined
     try {
-      fd = openSync(lockPath, 'wx')
+      fd = openExclusiveWithTransientRetry(lockPath)
       // R65-35①（第六十五轮）：writeSync 单次调用可短写（ENOSPC 磁盘满/信号中断），
       // 半写残 JSON 锁文件会被对手判「坏锁」接管（双持锁）——循环写满为止
       const payload = JSON.stringify({ pid: process.pid, bootTime: processBootTime() })

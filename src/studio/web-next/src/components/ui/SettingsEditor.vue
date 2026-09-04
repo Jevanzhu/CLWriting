@@ -7,7 +7,7 @@ import { useSystemFonts } from '../../composables/useSystemFonts'
 import FontPicker from './FontPicker.vue'
 
 const prefs = usePrefsStore()
-const { chineseFonts, englishFonts, fontDisplayName } = useSystemFonts()
+const { chineseFonts, englishFonts, fontDisplayName, defaultProseFontCn, defaultProseFontEn } = useSystemFonts()
 const hasDesktop = computed(() => typeof window !== 'undefined' && !!window.clwritingDesktop)
 
 // 全局默认：纸张宽度 / 自动保存（书级覆盖现由「本书」页管理，全局页只设跨书共享默认）
@@ -41,8 +41,8 @@ function numInput(min: number, max: number, setter: (v: number) => void, e: Even
       </div>
       <div class="setting-item-control">
         <div class="font-pair">
-          <FontPicker class="font-select" :value="prefs.proseFontCn" :fonts="chineseFonts" placeholder="中文 · 默认" :display="fontDisplayName" @change="prefs.setProseFontCn($event)" />
-          <FontPicker class="font-select" :value="prefs.proseFontEn" :fonts="englishFonts" placeholder="英文 · 默认" :display="fontDisplayName" @change="prefs.setProseFontEn($event)" />
+          <FontPicker class="font-select" :value="prefs.proseFontCn" :fonts="chineseFonts" :default-font="defaultProseFontCn" placeholder="中文 · 默认" :display="fontDisplayName" @change="prefs.setProseFontCn($event)" />
+          <FontPicker class="font-select" :value="prefs.proseFontEn" :fonts="englishFonts" :default-font="defaultProseFontEn" placeholder="英文 · 默认" :display="fontDisplayName" @change="prefs.setProseFontEn($event)" />
         </div>
       </div>
     </div>

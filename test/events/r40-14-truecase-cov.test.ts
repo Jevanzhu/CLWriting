@@ -61,7 +61,11 @@ describe('R40-14: bookHash win32 trueCasePath 归一（钉 win32 + mock 盘上�
   })
 
   it('posix 不折叠（R41-13 维持口径）：大小写变体是不同路径', () => {
-    // 不钉 win32（mac/linux 本腿）——trueCasePath 不进，键 = resolve 词法形态
+    // 钉 linux（2026-09-04）：原「不钉平台」在 mac/linux 本腿跑词法分支，但 win 腿上
+    // process.platform='win32' → trueCasePath 折叠两个变体 → 同 hash，断言必挂
+    // （R43-25 同族：平台脆性用例收敛运行期形态）。钉平台后全平台确定性走 posix
+    // 词法分支；两路径盘上不存在 → 回落 resolve 词法形态，大小写敏感 hash 必异。
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
     expect(bookHash('/tmp-definitely-not-there/CaseA')).not.toBe(bookHash('/tmp-definitely-not-there/casea'))
   })
 })

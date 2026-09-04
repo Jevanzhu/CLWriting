@@ -51,6 +51,12 @@ describe('R42-35：appendBook 目录占用判重', () => {
   })
 
   it('posix：大小写异名不折叠（samePath 全等比较）——正常登记不受误伤', () => {
+    // 钉 linux（2026-09-04）：原「不钉平台」在 mac/linux 本腿跑 posix 全等分支，但
+    // win 腿上 process.platform='win32' → samePath 折叠比较 → foo 撞 Foo 目录占用
+    // 被拒，用例必挂（R43-25 同族：平台脆性用例收敛运行期形态）。钉平台后全平台
+    // 确定性走 posix 分支——join 产物是 OS 形态路径但 samePath 只做字符串全等，
+    // win 形态（反斜杠）不影响断言语义。
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
     const wd = mkWorkDirWithFoo()
     try {
       const res = appendBook(wd, { name: 'foo', path: '长篇/foo', kind: 'long' })

@@ -10,17 +10,41 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { chmodSync } from 'node:fs'
-import { describe, it, expect, afterAll } from 'vitest'
+import { describe, it, expect, afterAll, beforeEach, vi } from 'vitest'
 import {
   tryAcquireCrossProcessLock,
   acquireCrossProcessLockWithTimeout,
 } from '../../src/fs/cross-process-lock.js'
+
+// R43-25 收口回归（2026-09-04）：openSync 'wx' 的瞬态 EPERM 注入面——win delete-pending
+// 窗口/杀软瞬时握锁形态。mock 工厂透传全部原实现，仅 openSync 按计数器前 N 次 'wx'
+// 创建抛 EPERM（默认 0 = 全部用例原语义不受影响；用例内置数，beforeEach 归零）。
+const fsState = vi.hoisted(() => ({ epermLeft: 0 }))
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>()
+  return {
+    ...actual,
+    openSync: (p: string, flags: string | number, ...rest: unknown[]) => {
+      if (flags === 'wx' && fsState.epermLeft > 0) {
+        fsState.epermLeft--
+        const err = new Error(`EPERM: operation not permitted, open '${p}'`) as NodeJS.ErrnoException
+        err.code = 'EPERM'
+        throw err
+      }
+      return (actual.openSync as (...a: unknown[]) => number)(p, flags, ...rest)
+    },
+  }
+})
 
 const dir = mkdtempSync(join(tmpdir(), 'clwriting-cplock-'))
 afterAll(() => {
   rmSync(dir, { recursive: true, force: true })
 })
 const lp = (name: string): string => join(dir, `${name}.lock`)
+
+beforeEach(() => {
+  fsState.epermLeft = 0 // 瞬态注入计数归零（其余用例原语义零影响）
+})
 
 describe('tryAcquireCrossProcessLock', () => {
   it('空闲 → 占锁成功；持有期二次获取 → null；释放后可再占', () => {
@@ -90,6 +114,10 @@ describe('tryAcquireCrossProcessLock', () => {
 
   // Windows 无 POSIX 权限位（chmod 为 no-op/仅映射只读位）；锁模块 win 失败路径已由
   // mock isProcessAlive 覆盖，该 EACCES 用例保留给 macOS/Linux CI 腿
+  // R43-25 收口修订（2026-09-04）：openSync 的 EACCES/EPERM 现为瞬态重试面（win
+  // delete-pending 窗口，calls-cross-process 偶挂根因）——原语在重试窗耗尽后才上抛。
+  // chmod 造的是**持久**权限故障（目录只读，重试 10×5ms 不会自愈），上抛语义保持；
+  // 但等待窗拉长 ~50ms，原有「toThrow 即可」断言仍成立，用例保留原样。
   it.skipIf(process.platform === 'win32')('非冲突类故障（EACCES）原样上抛——不吞权限/磁盘错误', () => {
     const sub = join(dir, 'no-perm')
     mkdirSync(sub, { recursive: true })
@@ -99,6 +127,20 @@ describe('tryAcquireCrossProcessLock', () => {
     } finally {
       chmodSync(sub, 0o755)
     }
+  })
+
+  // R43-25 收口（2026-09-04）：win delete-pending/杀软瞬态——对手 rmSync 释放锁文件
+  // 后的删除在途窗口内，'wx' 创建报 EPERM/EACCES（非 EEXIST）。原语短微睡重试，窗口
+  // 消散后创建成功；真双进程回归（calls-cross-process）的子进程崩溃即此根因。
+  it('EPERM 瞬态（win delete-pending 窗口）→ 重试后占锁成功', () => {
+    const p = lp('transient-eperm')
+    // 前 3 次 'wx' 创建抛 EPERM（模拟对手 rmSync 后的删除在途窗），重试窗内消散
+    fsState.epermLeft = 3
+    const r = tryAcquireCrossProcessLock(p)
+    expect(r).not.toBeNull()
+    expect(fsState.epermLeft).toBe(0) // 3 次瞬态都被重试吸收
+    expect((JSON.parse(readFileSync(p, 'utf-8')) as { pid: number }).pid).toBe(process.pid)
+    r!()
   })
 })
 

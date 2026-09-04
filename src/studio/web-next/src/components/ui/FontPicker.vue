@@ -7,7 +7,7 @@
  * 视觉对齐 `.font-select`（padding/边框/背景由调用方 class 提供，本组件只补按钮
  * 语义与下拉箭头）；菜单项以各字体 fontFamily 预览显示名。
  */
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { usePlatform } from '../../composables/usePlatform'
 
 const props = defineProps<{
@@ -15,6 +15,8 @@ const props = defineProps<{
   fonts: string[]
   placeholder: string
   display: (f: string) => string
+  /** 本槽位默认字体的具体名（useSystemFonts 按已安装列表解析；空 = 无可显默认回落 placeholder） */
+  defaultFont?: string
 }>()
 const emit = defineEmits<{ (e: 'change', v: string): void }>()
 
@@ -22,10 +24,18 @@ const { isWin } = usePlatform()
 
 // ── win 自绘浮层状态 ──
 const open = ref(false)
+// 2026-09-04 作者反馈「下拉每次打开有延迟」：原 v-if="open" 每次全量重建字体项
+// （win 系统数百个按钮 + 各自 fontFamily shaping/布局）；字体列表一会话内不变，
+// 首开后常驻 DOM、v-show 复开，复开零重建。closed 契约由「元素存在但隐藏」改为
+// display:none（测试按可见性断言）。
+const rendered = ref(false)
 const btn = ref<HTMLElement | null>(null)
 const menu = ref<HTMLElement | null>(null)
 const pos = ref({ left: 0, top: 0, width: 0 })
 const listH = ref(320)
+
+/** 默认态展示名：默认字体名（如「微软雅黑」）；无可显默认回落 placeholder */
+const defaultLabel = computed(() => (props.defaultFont ? props.display(props.defaultFont) : props.placeholder))
 
 function toggle(): void {
   open.value ? close() : openMenu()
@@ -38,6 +48,7 @@ function openMenu(): void {
     width: Math.max(r.width, 240),
   }
   listH.value = Math.max(120, Math.min(360, window.innerHeight - pos.value.top - 12))
+  rendered.value = true
   open.value = true
 }
 function close(): void {
@@ -87,21 +98,22 @@ onBeforeUnmount(() => {
       class="font-picker"
       v-bind="$attrs"
       :class="{ open }"
-      :style="{ fontFamily: value || 'inherit' }"
+      :style="{ fontFamily: value || defaultFont || 'inherit' }"
       :aria-haspopup="'listbox'"
       :aria-expanded="open"
-      :title="value || placeholder"
+      :title="value || defaultLabel"
       @click="toggle"
     >
-      <span class="fp-label">{{ value ? display(value) : placeholder }}</span>
+      <span class="fp-label">{{ value ? display(value) : defaultLabel }}</span>
       <svg class="fp-caret" width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
         <path d="M3 6l5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
       </svg>
     </button>
     <Teleport to="body">
-      <div v-if="open" class="fp-mask" @mousedown.prevent.stop="close"></div>
+      <div v-if="rendered" v-show="open" class="fp-mask" @mousedown.prevent.stop="close"></div>
       <div
-        v-if="open"
+        v-if="rendered"
+        v-show="open"
         ref="menu"
         class="fp-menu"
         role="listbox"
@@ -115,7 +127,7 @@ onBeforeUnmount(() => {
           :aria-selected="value === ''"
           @click="pick('')"
         >
-          {{ placeholder }}
+          {{ defaultFont ? `默认 · ${display(defaultFont)}` : placeholder }}
         </button>
         <button
           v-for="f in fonts"
@@ -133,15 +145,15 @@ onBeforeUnmount(() => {
       </div>
     </Teleport>
   </template>
-  <!-- 非 win：原生 select（原样） -->
+  <!-- 非 win：原生 select（原样；默认项同步带默认字体名，闭合态即显示「默认 · X」） -->
   <select
     v-else
     v-bind="$attrs"
     :value="value"
-    :style="{ fontFamily: value || 'inherit' }"
+    :style="{ fontFamily: value || defaultFont || 'inherit' }"
     @change="emit('change', (($event.target) as HTMLSelectElement).value)"
   >
-    <option value="">{{ placeholder }}</option>
+    <option value="">{{ defaultFont ? `默认 · ${display(defaultFont)}` : placeholder }}</option>
     <option v-for="f in fonts" :key="f" :value="f" :style="{ fontFamily: f }">{{ display(f) }}</option>
   </select>
 </template>

@@ -8,7 +8,7 @@ import FontPicker from './FontPicker.vue'
 
 const prefs = usePrefsStore()
 const { theme, setTheme } = useTheme()
-const { chineseFonts, englishFonts, fontDisplayName } = useSystemFonts()
+const { chineseFonts, englishFonts, fontDisplayName, defaultUiFontCn, defaultUiFontEn } = useSystemFonts()
 const hasDesktop = computed(() => typeof window !== 'undefined' && !!window.clwritingDesktop)
 </script>
 
@@ -47,8 +47,8 @@ const hasDesktop = computed(() => typeof window !== 'undefined' && !!window.clwr
       </div>
       <div class="setting-item-control">
         <div class="font-pair">
-          <FontPicker class="font-select" :value="prefs.uiFontCn" :fonts="chineseFonts" placeholder="中文 · 默认" :display="fontDisplayName" @change="prefs.setUiFontCn($event)" />
-          <FontPicker class="font-select" :value="prefs.uiFontEn" :fonts="englishFonts" placeholder="英文 · 默认" :display="fontDisplayName" @change="prefs.setUiFontEn($event)" />
+          <FontPicker class="font-select" :value="prefs.uiFontCn" :fonts="chineseFonts" :default-font="defaultUiFontCn" placeholder="中文 · 默认" :display="fontDisplayName" @change="prefs.setUiFontCn($event)" />
+          <FontPicker class="font-select" :value="prefs.uiFontEn" :fonts="englishFonts" :default-font="defaultUiFontEn" placeholder="英文 · 默认" :display="fontDisplayName" @change="prefs.setUiFontEn($event)" />
         </div>
       </div>
     </div>

@@ -12,7 +12,7 @@ import { useSystemFonts } from '../../composables/useSystemFonts'
 import FontPicker from '../ui/FontPicker.vue'
 
 const prefs = usePrefsStore()
-const { chineseFonts, englishFonts, fontDisplayName } = useSystemFonts()
+const { chineseFonts, englishFonts, fontDisplayName, defaultProseFontCn, defaultProseFontEn } = useSystemFonts()
 const hasDesktop = computed(() => typeof window !== 'undefined' && !!window.clwritingDesktop)
 
 // R70-29（十八轮）：页宽设置 ≥ 视口宽时侧位 ≤0，条会压在正文上——隐藏（FocusStatsBar 同款）
@@ -51,8 +51,8 @@ function onPageWidthInput(v: number): void {
     <!-- 字体区：依赖桌面桥取系统字体列表，浏览器/dev 无桥时整区隐藏 -->
     <template v-if="hasDesktop">
       <div class="ffb-sep" />
-      <FontPicker class="ffb-select" :value="prefs.proseFontCn" :fonts="chineseFonts" placeholder="中文 · 默认" :display="fontDisplayName" @change="prefs.setProseFontCn($event)" />
-      <FontPicker class="ffb-select" :value="prefs.proseFontEn" :fonts="englishFonts" placeholder="英文 · 默认" :display="fontDisplayName" @change="prefs.setProseFontEn($event)" />
+      <FontPicker class="ffb-select" :value="prefs.proseFontCn" :fonts="chineseFonts" :default-font="defaultProseFontCn" placeholder="中文 · 默认" :display="fontDisplayName" @change="prefs.setProseFontCn($event)" />
+      <FontPicker class="ffb-select" :value="prefs.proseFontEn" :fonts="englishFonts" :default-font="defaultProseFontEn" placeholder="英文 · 默认" :display="fontDisplayName" @change="prefs.setProseFontEn($event)" />
     </template>
   </aside>
 </template>

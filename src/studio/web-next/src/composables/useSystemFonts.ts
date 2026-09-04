@@ -1,6 +1,7 @@
 // 系统字体加载（桌面版 IPC）。
 // 模块级单例：多个组件共享同一份字体列表，IPC 只调一次。
 import { ref, computed, onMounted } from 'vue'
+import { usePlatform } from './usePlatform'
 
 const CJK_RE = /[一-鿿㐀-䶿぀-ヿ가-힯]/
 // J5：补 Windows 系统中文字体关键词（微软雅黑/宋体/黑体系）——原表全 mac/思源系，
@@ -47,6 +48,21 @@ function fontDisplayName(name: string): string {
   return FONT_CN_LABEL[name] ?? name
 }
 
+// ── 默认字体解析（2026-09-04 作者反馈：字体下拉默认态只显「默认」，看不出默认
+// 究竟是什么字体——按 tokens.css 默认栈 + 已安装列表解析成具体字体名展示）──
+
+/** 正文默认栈（tokens.css --prose-font 首选序；与 prefs apply() 的回退栈同源） */
+export const PROSE_DEFAULT_STACK = ['LXGW WenKai', 'Noto Serif SC', 'SimSun'] as const
+/** 正文回退 CSS 串（prefs apply() 尾基座；由栈派生保同源） */
+export const PROSE_FONT_FALLBACK = `${PROSE_DEFAULT_STACK.map((f) => `'${f}'`).join(', ')}, serif`
+
+// UI 默认栈（tokens.css --font-ui 平台块的 CJK/拉丁首选；mac 拉丁 = system-ui
+// 无字体名可显，留空由调用方回落旧占位）
+const UI_DEFAULT_STACK = {
+  win: { cn: ['Microsoft YaHei UI', 'Microsoft YaHei'], en: ['Segoe UI'] },
+  mac: { cn: ['PingFang SC', 'Microsoft YaHei'], en: [] as string[] },
+} as const
+
 // 模块级单例
 const systemFonts = ref<string[]>([])
 let fontsLoaded = false
@@ -65,7 +81,23 @@ export function useSystemFonts() {
   const chineseFonts = computed(() => systemFonts.value.filter(isChineseFont))
   const englishFonts = computed(() => systemFonts.value.filter((f) => !isChineseFont(f)))
 
-  return { systemFonts, chineseFonts, englishFonts, fontDisplayName }
+  // 各槽位默认字体名：栈序即优先序，取第一个已安装的；全不在装退栈首（win 系统
+  // 必装雅黑/宋体，实际不触达）。列表加载完成前即有栈首可用，加载后按实装收敛。
+  const { isWin } = usePlatform()
+  function resolveDefault(stack: readonly string[]): string {
+    const installed = new Set(systemFonts.value)
+    return stack.find((f) => installed.has(f)) ?? stack[0] ?? ''
+  }
+  const defaultUiFontCn = computed(() => resolveDefault(isWin ? UI_DEFAULT_STACK.win.cn : UI_DEFAULT_STACK.mac.cn))
+  const defaultUiFontEn = computed(() => resolveDefault(isWin ? UI_DEFAULT_STACK.win.en : UI_DEFAULT_STACK.mac.en))
+  const defaultProseFont = computed(() => resolveDefault(PROSE_DEFAULT_STACK))
+
+  return {
+    systemFonts, chineseFonts, englishFonts, fontDisplayName,
+    defaultUiFontCn, defaultUiFontEn,
+    // 正文栈拉丁字形由 CJK 字体自带（霞鹜/思源含拉丁），中英两槽默认同源
+    defaultProseFontCn: defaultProseFont, defaultProseFontEn: defaultProseFont,
+  }
 }
 
 /** select change 事件取值 */

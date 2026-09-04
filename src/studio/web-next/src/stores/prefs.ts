@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { getGlobalPrefs, putGlobalPrefs, type GlobalPrefs } from '../api/prefs'
 import { ApiError } from '../api/client'
+import { PROSE_FONT_FALLBACK } from '../composables/useSystemFonts'
 import { useUiStore } from './ui'
 import type { ThemeId } from '../types/theme'
 
@@ -416,8 +417,9 @@ export const usePrefsStore = defineStore('prefs', () => {
       r.style.removeProperty('--font-ui')
     }
     if (proseFontCn.value || proseFontEn.value) {
-      // J5：基座回退带宋体（win 无霞鹜/思源时保持衬线观感，与 tokens.css 默认栈一致）
-      r.style.setProperty('--prose-font', buildFontFamily(proseFontEn.value, proseFontCn.value, "'LXGW WenKai', 'Noto Serif SC', 'SimSun', serif"))
+      // J5：基座回退带宋体（win 无霞鹜/思源时保持衬线观感，与 tokens.css 默认栈一致；
+      // 串值单源于 useSystemFonts 的 PROSE_FONT_FALLBACK）
+      r.style.setProperty('--prose-font', buildFontFamily(proseFontEn.value, proseFontCn.value, PROSE_FONT_FALLBACK))
     } else {
       r.style.removeProperty('--prose-font')
     }
