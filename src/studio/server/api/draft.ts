@@ -94,7 +94,13 @@ export function registerDraftRoutes(ctx: DraftCtx): void {
     if (!Number.isInteger(chapter) || chapter < 1) return replyError(res, 400, 'BAD_INPUT', 'chapter 需为正整数')
     const bookRoot = r.bookRoot
     // P1 接线：过全局托底合并后喂 buildDraftPrompt——每章字数与文风注入档随配置生效
-    const config = applyGlobalDefaults(readBookConfig(join(bookRoot, 'book.yaml')).config, ctx.userDataPath ?? null)
+    // R50-C-2（五十轮）：book.yaml 损坏静默降级留痕（对齐 state.ts P3-2 口径——
+    // readBookConfig 错误分支带 DEFAULT_CONFIG 骨架，未判 ok 直接用 .config 无声回落）
+    const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
+    if (!cfgResult.ok) {
+      log.warn('draft', `book.yaml 解析降级: ${cfgResult.error.message}`)
+    }
+    const config = applyGlobalDefaults(cfgResult.config, ctx.userDataPath ?? null)
     // Q-5（第十五轮）：files = prompt 实际注入源清单——前端随 prompt 回传 POST /spawn
     // 透传进 promptMeta.files，「模型可见⟺已记录」文件级溯源闭合
     const d = buildDraftPrompt(bookRoot, chapter, readKind(bookRoot), config)

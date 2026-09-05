@@ -214,3 +214,34 @@ describe('R34D-23 · 换票超时自愈', () => {
     expect(MockES.instances[0]!.url).not.toContain('ticket=')
   })
 })
+
+// R50-D2-2（五十轮）：换票失败回退 ?token= 旧通道把令牌拼进 URL，与契约「token 不进
+// URL」目标相悖且原实现无告警——回退行为不动（e2e 过渡期兼容依赖），补 console.warn
+// 留痕供诊断。
+describe('R50-D2-2 · 换票失败回退留痕', () => {
+  it('ticket 失败（404）→ URL 含 token 且 console.warn 留痕；换票成功不告警', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    /** useSse 在组件外调用会带一条 Vue onUnmounted 生命周期 warn（与本修复无关）——
+     *  断言收窄到本修复的 [sse] 前缀消息 */
+    const sseWarns = (): string[] => warnSpy.mock.calls.map((c) => String(c[0])).filter((m) => m.includes('[sse]'))
+    try {
+      // 先验成功路径不告警
+      stubTicketFetch(() => new Response(JSON.stringify({ ticket: 'OK1' }), { status: 200 }))
+      useSse(ref('书A'))
+      await settle()
+      expect(MockES.instances[0]!.url).toContain('?ticket=OK1')
+      expect(sseWarns()).toEqual([])
+
+      // 换桩：404 失败 → 回退 ?token=（行为保留）+ warn 留痕（修复点）
+      stubTicketFetch(() => new Response('Not Found', { status: 404 }))
+      useSse(ref('书B'))
+      await settle()
+      expect(MockES.instances).toHaveLength(2)
+      expect(MockES.instances[1]!.url).toContain('?token=T0')
+      expect(sseWarns()).toHaveLength(1)
+      expect(sseWarns()[0]).toContain('?token=')
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+})

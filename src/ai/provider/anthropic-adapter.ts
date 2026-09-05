@@ -7,10 +7,11 @@
  * effort 翻译为 output_config.effort；thinking 不发（走模型默认 adaptive）。
  * R36-2（三十六轮）：claude 原生 + effort 组合显式禁思考（thinking:{type:'disabled'}）——
  * 扩展思考块若产出，多轮工具链要求回传带签名块（Anthropic 硬要求，零回传 400）。
- * 流侧对 thinking/signature/redacted_thinking 全弃是历史缺口：现在 thinking 文本以
- * reasoning 事件透出（三线口径对齐 openai/responses），块（含签名）在流内缓存；
- * 完整回传（带签名块进 ChatMsg）受类型扩展击穿 usage-estimate 所限留待跨批
- *（见 toParams 禁思考注 / toAnthropicMessage 注）。
+ * 流侧 thinking 文本以 reasoning 事件透出（三线口径对齐 openai/responses）。
+ * R50-B-1（五十轮）：R36-2 曾把 thinking/redacted_thinking 块（含签名）缓存在流内
+ * Map（thinkingBlocks），但零后续消费（签名纯滞留）——死存储已移除；完整回传
+ * （带签名块进 ChatMsg）待跨批需求落地时按需重建（见 toParams 禁思考注 /
+ * toAnthropicMessage 注）。
  * tool_use 是契约层核心——content_block_delta 的 InputJSONDelta 增量拼装。
  */
 import Anthropic from '@anthropic-ai/sdk'
@@ -269,12 +270,11 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
         // tool_use input 增量拼装：content_block_start 记 tool name，
         // input_json_delta 增量拼 JSON 字符串，content_block_stop 时整体解析
         const toolBlocks = new Map<number, { id: string; name: string; jsonBuf: string }>()
-        // R36-2（三十六轮）：扩展思考块流内缓存——此前 thinking/signature/redacted_thinking
-        // 全弃（思考文本无感 + 多轮工具链回传缺签名）。思考文本即时以 reasoning 事件透出
-        // （三线口径对齐 openai reasoning_content / responses reasoning_text）；块整体（含
-        // 签名）暂存流内——完整回传依赖上游把块带进 ChatMsg（见 toAnthropicMessage 注，
-        // gen/turns 批次外）。redacted_thinking 的 data 在 content_block_start 整体下发。
-        const thinkingBlocks = new Map<number, { thinking: string; signature: string } | { redacted: string }>()
+        // R50-B-1（五十轮）：R36-2 的 thinkingBlocks 流内缓存已移除——六处引用全在
+        // 声明与累积内（start set / delta get 后累加文本与签名），零后续消费：thinking
+        // 文本已单独以 reasoning 事件透出（下见 thinking_delta 分支），签名无回传链路
+        // 纯滞留（toParams 的 claude+effort 显式禁思考是防 400 主防线）。签名回传待
+        // 跨批需求落地时按需重建。
         // R73-1：产出累计（text_delta 串联 + tool jsonBuf）——网关吞 usage 时按此折算
         // 估计用量（usage-estimate.ts 同源系数），不再按 0 输出入账
         const outText: string[] = []
@@ -300,13 +300,10 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
                 // 低级项（第六轮）：非官方兼容端点可能不发 id——空 id 进历史会被
                 // tool_result 关联拒绝，按块 index 生成兜底（对齐 OpenAI 线 P3-Q5）
                 toolBlocks.set(event.index, { id: block.id || `toolu_${event.index}`, name: block.name, jsonBuf: '' })
-              } else if (block.type === 'thinking') {
-                // R36-2：思考块开（text 由 thinking_delta 增量下发）
-                thinkingBlocks.set(event.index, { thinking: '', signature: '' })
-              } else if (block.type === 'redacted_thinking') {
-                // R36-2：密文块 data 在 start 事件整体下发（SDK 无 redacted_thinking_delta）
-                thinkingBlocks.set(event.index, { redacted: block.data })
               }
+              // R50-B-1：thinking / redacted_thinking 块 start 无操作——R36-2 的流内
+              // 缓存（thinkingBlocks）为死存储已移除；thinking 文本仍经下方
+              // thinking_delta 分支以 reasoning 事件透出，行为不变
               break
             }
             case 'content_block_delta': {
@@ -321,16 +318,10 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
                 // R36-2：思考增量即刻以 reasoning 事件透出（对齐 openai 线
                 // reasoning_content / responses 线 reasoning_text 口径）；文本入产出
                 // 累计（思考 token 也是真实计费面，R73-1 估计入账与 Anthropic
-                // output_tokens 含思考 token 的口径一致）
-                const tb = thinkingBlocks.get(event.index)
-                if (tb && 'thinking' in tb) tb.thinking += delta.thinking
+                // output_tokens 含思考 token 的口径一致）。
+                // R50-B-1：不再累积进流内块缓存（死存储已移除），事件透出路径不变
                 outText.push(delta.thinking)
                 yield { type: 'reasoning', delta: delta.thinking }
-              } else if (delta.type === 'signature_delta') {
-                // R36-2：签名在 thinking 块末尾单独 delta 下发——附到对应块供回传侧
-                // 使用（Anthropic「思考+工具必须回传带签名块」的签名来源）
-                const tb = thinkingBlocks.get(event.index)
-                if (tb && 'thinking' in tb) tb.signature = delta.signature
               }
               break
             }

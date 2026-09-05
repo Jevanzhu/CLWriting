@@ -16,6 +16,7 @@ import { readBookConfig } from '../../../format/yaml.js'
 import { readChapterDir } from '../../../format/chapters.js'
 import type { HookType, HookLevel, Emotion, SceneType, ChapterMeta, BookConfig } from '../../../format/types.js'
 import { classifyReversal } from '../../../format/reversal-types.js'
+import { log } from '../../../log/index.js'
 
 interface RhythmCtx {
   workDir: string | null
@@ -96,7 +97,14 @@ export function getRhythmCached(bookRoot: string): unknown {
     return cached.result
   }
   rhythmScanCount += 1
-  const { config } = readBookConfig(join(bookRoot, 'book.yaml'))
+  // R50-C-2（五十轮）：book.yaml 损坏静默降级留痕（对齐 state.ts P3-2 口径）——
+  // readBookConfig 错误分支带 DEFAULT_CONFIG 骨架（kind 缺省 'long'），未判 ok
+  // 直接解构 .config 会无声按长篇口径全量重算
+  const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
+  if (!cfgResult.ok) {
+    log.warn('rhythm', `book.yaml 解析降级: ${cfgResult.error.message}`)
+  }
+  const config = cfgResult.config
   const result: unknown = config.kind === 'short' ? rhythmShort(bookRoot, config) : rhythmLong(bookRoot)
   // 简单 FIFO 淘汰（Map 保插入序）：超上限丢最旧条目，防长期运行的书库累积
   if (rhythmCache.size >= RHYTHM_CACHE_MAX) {

@@ -30,7 +30,7 @@ import { readChapterDir } from '../../../format/chapters.js'
 import type { ChapterMeta } from '../../../format/types.js'
 import { finalizedPathSet } from '../../../document/manifest.js'
 import { docJoinKey } from '../../../fs/safe-path.js'
-import { localDayKey } from '../../../log/index.js'
+import { localDayKey, log } from '../../../log/index.js'
 import { detectState, STATE_NAMES, type DetectedState } from '../../../state/state.js'
 import { computeProgressAsync, yieldToEventLoop, SCAN_YIELD_EVERY } from './progress.js'
 import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
@@ -67,10 +67,13 @@ export function registerOverviewRoutes(ctx: OverviewCtx): void {
     const bookRoot = r.bookRoot
     // 总览喂运行时（genre 回显 / target_words 完成度 / volume_size 经状态机）：
     // readBookConfig 结果统一过 applyGlobalDefaults——书级未设回落 global.json → 硬编码
-    const config = applyGlobalDefaults(
-      readBookConfig(join(bookRoot, 'book.yaml')).config,
-      ctx.userDataPath,
-    )
+    // R50-C-2（五十轮）：book.yaml 损坏静默降级留痕（对齐 state.ts P3-2 口径）——
+    // 错误分支带 DEFAULT_CONFIG 骨架，未判 ok 直接用 .config 会无声回落默认身份
+    const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
+    if (!cfgResult.ok) {
+      log.warn('overview', `book.yaml 解析降级: ${cfgResult.error.message}`)
+    }
+    const config = applyGlobalDefaults(cfgResult.config, ctx.userDataPath)
     const kind = config.kind === 'short' ? 'short' : 'long'
 
     // 状态机（自包含；失败降级 state:0）。G3：命中短时缓存则跳过全量 rebuild

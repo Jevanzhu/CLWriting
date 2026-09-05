@@ -1,0 +1,126 @@
+/**
+ * R50-C-3（五十轮）回归：/relations/mine 空产出时 cached:false。
+ *
+ * 修复前 `if (!relations.length) return reply(res, 200, { ok: true, cached: true,
+ * relations: [] })`——该分支已真实跑完一次 AI 梳理（花钱）但结果为空，cached:true
+ * 会把「花了钱的空产出」误标为「本地缓存命中」。修复后 cached:false；空结果不落盘
+ * relations.json（下次 force=false 仍会真实重跑，语义诚实）。
+ *
+ * runSpec mock 注入空/非空产出（端点其余链路——互斥闸/材料收集/回复形状——全真）。
+ */
+import http from 'node:http'
+import type { AddressInfo } from 'node:net'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest'
+import { startServerSafe } from '../helpers/safe-port.js'
+import { runSpec } from '../../src/ai/tasks/spec.js'
+import type { SpecOutput } from '../../src/ai/tasks/spec.js'
+import type { TaskResult } from '../../src/ai/runner.js'
+
+vi.mock('../../src/ai/tasks/spec.js', () => ({
+  runSpec: vi.fn(),
+}))
+const runSpecMock = vi.mocked(runSpec)
+
+/** 构造 runSpec 成功产出（TaskOk 必填字段齐备；settings.ts 只消费 data.input）。 */
+function specOk(input: unknown): TaskResult<SpecOutput> {
+  return {
+    ok: true,
+    data: { input, text: '', stopReason: 'end_turn' },
+    ctrl: new AbortController(),
+    usage: null,
+    runId: 'r50-c3-test-run',
+    model: null,
+  }
+}
+
+const BOOK = 'R50空关系书'
+let workDir = ''
+let server: http.Server | undefined
+let baseUrl = ''
+let token = ''
+
+function post(path: string, body?: unknown): Promise<{ status: number; json: unknown }> {
+  return new Promise((resolve, reject) => {
+    const u = new URL(baseUrl)
+    const payload = body === undefined ? '' : JSON.stringify(body)
+    const headers: Record<string, string> = { origin: baseUrl, 'x-studio-token': token }
+    if (payload) {
+      headers['content-type'] = 'application/json'
+      headers['content-length'] = String(Buffer.byteLength(payload))
+    }
+    const req = http.request({ host: u.hostname, port: u.port, path, method: 'POST', headers }, (res) => {
+      let data = ''
+      res.on('data', (c) => (data += c.toString('utf8')))
+      res.on('end', () => {
+        let json: unknown = null
+        try {
+          json = JSON.parse(data)
+        } catch {
+          /* 非 JSON */
+        }
+        resolve({ status: res.statusCode ?? 0, json })
+      })
+    })
+    req.on('error', reject)
+    if (payload) req.write(payload)
+    req.end()
+  })
+}
+
+beforeAll(async () => {
+  workDir = mkdtempSync(join(tmpdir(), 'clw-r50-c3-'))
+  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
+  writeFileSync(
+    join(workDir, '.clwriting', 'books.jsonl'),
+    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
+  )
+  const bookRoot = join(workDir, BOOK)
+  mkdirSync(join(bookRoot, '设定'), { recursive: true })
+  writeFileSync(
+    join(bookRoot, 'book.yaml'),
+    'spec_version: 1\nkind: long\nbook:\n  title: R50空关系书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+  )
+  // 名册非空 → buildMineContext 有材料可梳理（过 400 BAD_INPUT 材料闸）
+  writeFileSync(join(bookRoot, '设定', '名册.md'), '- 林远：主角\n')
+  server = await startServerSafe({ port: 0, workDir })
+  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  const r = await fetch(`${baseUrl}/api/boot`)
+  token = ((await r.json()) as { token: string }).token
+})
+
+afterAll(async () => {
+  if (server) await new Promise<void>((r) => server!.close(() => r()))
+  if (workDir) rmSync(workDir, { recursive: true, force: true })
+})
+
+describe('R50-C-3：/relations/mine 空产出 → cached:false（非缓存命中）', () => {
+  it('AI 梳理产出空 relations → 200 + cached:false + 不落盘缓存（下次非 force 仍真实重跑）', async () => {
+    runSpecMock.mockResolvedValueOnce(specOk({ relations: [] }))
+    const r = await post(`/api/books/${encodeURIComponent(BOOK)}/relations/mine`, { force: true })
+    expect(r.status).toBe(200)
+    // 修复前此处 cached:true——空产出被误标为本地缓存命中（该次已真实付费跑完 AI）
+    expect(r.json).toEqual({ ok: true, cached: false, relations: [] })
+    // 空结果不落盘（cached 语义诚实：磁盘无缓存 → 下次 force=false 不走缓存分支）
+    expect(existsSync(join(workDir, BOOK, '.clwriting', 'relations.json'))).toBe(false)
+    expect(runSpecMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('对照：非空产出 → 200 + cached:false + 落盘；随后非 force 请求 → cached:true（真缓存命中）', async () => {
+    runSpecMock.mockResolvedValueOnce(specOk({ relations: [{ from: '林远', to: '赵衡', type: '仇敌' }] }))
+    const mined = await post(`/api/books/${encodeURIComponent(BOOK)}/relations/mine`, { force: true })
+    expect(mined.status).toBe(200)
+    expect((mined.json as { cached: boolean }).cached).toBe(false)
+    expect((mined.json as { relations: unknown[] }).relations).toHaveLength(1)
+    expect(existsSync(join(workDir, BOOK, '.clwriting', 'relations.json'))).toBe(true)
+
+    // 真·缓存命中分支不受本修复影响（cached:true 语义仍留给磁盘缓存复用）
+    const hit = await post(`/api/books/${encodeURIComponent(BOOK)}/relations/mine`, {})
+    expect(hit.status).toBe(200)
+    expect((hit.json as { cached: boolean }).cached).toBe(true)
+    // 累计两次（本测 force 梳理一次）——缓存命中未再跑 AI
+    expect(runSpecMock).toHaveBeenCalledTimes(2)
+  })
+})

@@ -42,7 +42,7 @@ import { migrateStyleLibrary } from '../../../format/style-migrate.js'
 import { harvestStyleCandidatesAsync } from '../../../process/style-harvest.js'
 import { readKind, resolveBook } from '../book-context.js'
 import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
-import { localDayKey } from '../../../log/index.js' // R76-31：候选日键与 overview/日记同口径（本地日）
+import { localDayKey, log } from '../../../log/index.js' // R76-31：候选日键与 overview/日记同口径（本地日）
 import type { EntryKind, EntrySource, StyleEntry } from '../../../format/types.js'
 
 interface StyleCtx {
@@ -283,8 +283,14 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
     const rulesFile = join(bookRoot, '文风', '文风铁律.md')
     const rules = existsSync(rulesFile) ? parseIronRules(readFileSync(rulesFile, 'utf-8')) : {}
     const baseline = readBaseline(bookRoot)
-    const cfg = readBookConfig(join(bookRoot, 'book.yaml'))
-    const injection = applyGlobalDefaults(cfg.config, ctx.userDataPath).style.injection
+    // R50-C-2（五十轮）：book.yaml 损坏静默降级留痕（对齐 state.ts P3-2 口径）——
+    // readBookConfig 错误分支带 DEFAULT_CONFIG 骨架，未判 ok 直接用 .config 会
+    // 无声按硬编码 'light' 回显注入强度
+    const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
+    if (!cfgResult.ok) {
+      log.warn('style', `book.yaml 解析降级: ${cfgResult.error.message}`)
+    }
+    const injection = applyGlobalDefaults(cfgResult.config, ctx.userDataPath).style.injection
     reply(res, 200, {
       ok: true,
       rules,

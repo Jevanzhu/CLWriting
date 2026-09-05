@@ -9,6 +9,7 @@
  */
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { usePlatform } from '../../composables/usePlatform'
+import { isImeComposing } from '../../shared/ime'
 
 const props = defineProps<{
   value: string
@@ -60,6 +61,9 @@ function pick(f: string): void {
 }
 function onKey(e: KeyboardEvent): void {
   if (e.key !== 'Escape' || !open.value) return
+  // R50-D1-1（五十轮）：IME 组合期 Esc 让渡输入法（isImeComposing 单源判据，对齐
+  // ModelPicker/SettingsModal 等先例）——组合期收候选的 Esc 不应连带关闭字体下拉
+  if (isImeComposing(e)) return
   // R39-4（三十九轮）：open 态本层消费 Esc——capture 注册先于 useHotkeys（后者在
   // WorkspaceShell setup 期挂、bubble 派发按注册序先跑，此处 preventDefault 对它
   // 迟到），对齐 ContextMenu/SettingsModal/ExportDialog 的 Z-23「本层消费防同键退

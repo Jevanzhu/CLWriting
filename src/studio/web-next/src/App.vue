@@ -43,8 +43,16 @@ onMounted(() => {
       /* 忽略 */
     }
   }
-  if (startBook && location.pathname === '/') {
-    router.replace(`/book/${encodeURIComponent(startBook)}`)
+  // R50-D1-2（五十轮）：lastBook 恢复直进改以路由态为判据——裸 location.pathname 在
+  // onMounted 时刻与路由初始导航（'/' redirect '/shelf'）有竞态（初始导航完成前后读值
+  // 不一）；isReady 后读 currentRoute.path 才是权威路径。保留原语义：仅根路径时恢复直进
+  if (startBook) {
+    const book = startBook
+    void router.isReady().then(() => {
+      if (router.currentRoute.value.path === '/') {
+        router.replace(`/book/${encodeURIComponent(book)}`)
+      }
+    })
   }
 })
 </script>

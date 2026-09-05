@@ -368,9 +368,15 @@ function mkLibrary(bookName?: string, bookRel?: string): string {
 
 let libA: string
 const prevInitialEnv = process.env['CLWRITING_INITIAL_BOOK']
+// R50-A-1（五十轮）：session-end 观察窗默认 5s——本文件多处 emit session-end，若用
+// 真定时器默认值，陈旧模块的观察窗会在后续用例执行中途触发并 fork 假 child（污染
+// forkChildren 计数/`.at(-1)` 锚定）。文件级抬到 1h 关掉该路径；自愈回归用例自带
+// 覆盖（fake timers + 小值注入）。
+const prevRecoveryEnv = process.env['CLW_SESSION_END_RECOVERY_MS']
 
 beforeAll(async () => {
   delete process.env['CLWRITING_INITIAL_BOOK']
+  process.env['CLW_SESSION_END_RECOVERY_MS'] = '3600000'
   M.userData = mkTmp('clw-main-ud-')
   libA = mkLibrary('书A', 'books/a')
   // 预置持久化 current（合法书库）+ 合法 window-state → bootstrap 走确定路径
@@ -387,6 +393,8 @@ beforeAll(async () => {
 afterAll(() => {
   if (prevInitialEnv === undefined) delete process.env['CLWRITING_INITIAL_BOOK']
   else process.env['CLWRITING_INITIAL_BOOK'] = prevInitialEnv
+  if (prevRecoveryEnv === undefined) delete process.env['CLW_SESSION_END_RECOVERY_MS']
+  else process.env['CLW_SESSION_END_RECOVERY_MS'] = prevRecoveryEnv
   for (const d of tmpDirs) rmSync(d, { recursive: true, force: true })
 })
 
@@ -1201,6 +1209,50 @@ describe('R44-2: 关窗/退出兜底（close 拦截 + flush 钩子 + 冲突确�
     win.emit('close', e)
     expect(e.preventDefault).not.toHaveBeenCalled()
     expect(win.webContents.execJs).toHaveLength(0)
+  })
+
+  // R50-A-1（五十轮）：win 取消关机自愈——session-end 置旗 + shutdown 后，观察窗
+  // 到点进程仍存活 = OS 收尾没带走进程（关机被取消/被拒）→ sessionEnding 复位
+  // （close 重走 flush 拦截，编辑不静默丢失）+ server 钉住首启端口拉回（origin 不变）。
+  // fake timers 快进观察窗；时长经 CLW_SESSION_END_RECOVERY_MS 注入（beforeAll 文件级
+  // 抬 1h 关掉其他用例的陈旧观察窗，本用例自带小值覆盖）。
+  it('R50-A-1: session-end 观察窗到点（关机被取消）→ 复位直关旗 + server 钉住端口恢复', async () => {
+    const prevRecovery = process.env['CLW_SESSION_END_RECOVERY_MS']
+    process.env['CLW_SESSION_END_RECOVERY_MS'] = '5000'
+    try {
+      vi.useFakeTimers()
+      vi.resetModules()
+      await import('../../src/desktop/main.js')
+      await vi.advanceTimersByTimeAsync(0) // bootstrap + 首个 child ready 落定
+      const win = M.windows.at(-1)!
+      const child = M.forkChildren.at(-1)!
+      win.emit('session-end')
+      // 窗口内旧语义不回归：close 直关放行（不拦不等 flush）+ 停机指令已下发收口
+      const e1 = { preventDefault: vi.fn() }
+      win.emit('close', e1)
+      expect(e1.preventDefault).not.toHaveBeenCalled()
+      expect(win.webContents.execJs).toHaveLength(0)
+      await vi.advanceTimersByTimeAsync(0) // mock child 自动回执 shutdown-done + exit
+      expect(child.posted).toContainEqual({ type: 'shutdown' })
+      // 观察窗到点：sessionEnding 复位 + server 拉回（fork+1，--port 钉住首启端口）
+      const forks0 = M.forkChildren.length
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(M.forkChildren.length).toBe(forks0 + 1)
+      const forkArgs = M.forkCalls.at(-1)!.args
+      expect(forkArgs[forkArgs.indexOf('--port') + 1]).toBe('45678') // S-1 钉住端口（前端 origin 不动）
+      // 复位后 close 不再直关：拦下走渲染层 flush（「编辑永不静默丢失」红线恢复）
+      win.webContents.execJsResult = { conflict: [], failed: [] }
+      const e2 = { preventDefault: vi.fn() }
+      win.emit('close', e2)
+      expect(e2.preventDefault).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(win.webContents.execJs.length).toBeGreaterThanOrEqual(1)
+      expect(win.isDestroyed()).toBe(true) // flush 落定 destroy 收口
+    } finally {
+      vi.useRealTimers()
+      if (prevRecovery === undefined) delete process.env['CLW_SESSION_END_RECOVERY_MS']
+      else process.env['CLW_SESSION_END_RECOVERY_MS'] = prevRecovery
+    }
   })
 
   it('before-quit：flush 先于 shutdown（先存后停服）；收口 destroy 全窗', async () => {

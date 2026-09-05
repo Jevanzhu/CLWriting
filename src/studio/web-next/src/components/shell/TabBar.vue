@@ -8,6 +8,7 @@ import { useWorkspaceStore, type CreateKind } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
 import { usePlatform } from '../../composables/usePlatform'
 import { modComboLabel } from '../../shared/mod-key'
+import { isImeComposing } from '../../shared/ime'
 
 defineProps<{ bookName: string }>()
 const ws = useWorkspaceStore()
@@ -56,6 +57,9 @@ function onDocClick(e: MouseEvent): void {
 function onDocKeydown(e: KeyboardEvent): void {
   // R33-90（三十三轮）：新建下拉补 Esc 关闭路径（原只能点击外部关闭，键盘不可达）
   if (e.key === 'Escape' && dropdownOpen.value) {
+    // R50-D1-1（五十轮）：IME 组合期 Esc 让渡输入法（isImeComposing 单源判据，对齐
+    // ModelPicker/SettingsModal/CommandPalette 等先例）——组合期收候选的 Esc 不应连带关闭下拉
+    if (isImeComposing(e)) return
     e.preventDefault()
     dropdownOpen.value = false
     caretRef.value?.focus()

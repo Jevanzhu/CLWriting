@@ -41,8 +41,11 @@ test('checkFrontMatter: 章号与文件名不一致 → 红', () => {
     章号: 153, 标题: '北境的雪', 钩子类型: '悬念钩', 钩子强弱: '强', 情绪定位: '转折',
   }
   const r = checkFrontMatter(ch, '152-北境的雪.md')
-  expect(r.items.some((i) => i.checkId === 'fm-chapter-mismatch')).toBe(true)
-  expect(r.items[0]!.level).toBe('red')
+  // R50-G-3（五十轮）：去数组序依赖——r.items[0] 假定 mismatch 项恒为首位，检查项
+  // 增删/重排即脆断；改按 checkId 定位后断言其级别（集合语义，断言语义不变）
+  const mismatch = r.items.find((i) => i.checkId === 'fm-chapter-mismatch')
+  expect(mismatch).toBeDefined()
+  expect(mismatch!.level).toBe('red')
 })
 
 // ── 禁词（#10 项 4，红）──────────────────────────

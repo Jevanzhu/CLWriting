@@ -135,7 +135,9 @@ describe('P0 session token(写端点 defense-in-depth)', () => {
       'content-type': 'application/json',
       'x-studio-token': token,
     }, JSON.stringify({ op: 'rename', newName: 'y' }))
-    expect(r.status).not.toBe(403)
+    // R50-G-1（五十轮）：负向弱断言收紧——not.toBe(403) 连 500/502 都放行；对齐同文件
+    // :109-111 PUT 用例已收紧口径，显式圈定过门后的合法状态集（书 'x' 不存在 → 404）
+    expect([400, 404, 422]).toContain(r.status)
   })
 
   // T2-3：GET /api/* 读端点同样要求 token——此前只拦写，读端点可无凭据全量读取
@@ -176,7 +178,10 @@ describe('P0 session token(写端点 defense-in-depth)', () => {
 
   it('R65-46 对照: HEAD 对 token → 非 403（过闸进 dispatch，无匹配路由 404）', async () => {
     const r = await rawRequest('HEAD', '/api/books', { 'x-studio-token': token })
-    expect(r.status).not.toBe(403)
+    // R50-G-1（五十轮）：负向弱断言收紧——not.toBe(403) 连 500/502 都放行；对齐同文件
+    // :109-111 已收紧口径。HEAD 语义圈定：当前路由表无 HEAD 路由 → dispatch 404；
+    // 若后续 HEAD 接通读端点则 200 亦合法（两态之外的 5xx/403 均不得出现）
+    expect([200, 404]).toContain(r.status)
   })
 
   it('POST 超过 JSON body 上限 → 413', async () => {

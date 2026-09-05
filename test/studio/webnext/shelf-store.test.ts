@@ -194,5 +194,62 @@ describe('shelf: 加载书架', () => {
       expect(s.error).not.toBeNull()
       expect(s.loading).toBe(false)
     })
+
+    // R50-D2-3（五十轮）：readCache 逐条校验——坏条目（null/数字/缺 name/title 非
+    // string）在消费点 (b.title ?? b.name).toLowerCase() 抛 TypeError 整页白屏；
+    // 修后逐条丢弃、好条目保留（全坏 → 空表，有快照路径立即渲染空列表再后台刷新）。
+    it('R50-D2-3: 快照含坏条目 → 逐条丢弃好条目保留，消费点口径 filter+toLowerCase 不抛', async () => {
+      stubLocalStorage({
+        [CACHE_KEY]: JSON.stringify({
+          books: [
+            { name: '好书', kind: 'long' },
+            null,
+            42,
+            '坏字符串元素',
+            { title: '只有title缺name' },
+            { name: 123 },
+            { name: 'title非字符串', title: 7 },
+          ],
+          workDirMissing: false,
+          hint: null,
+        }),
+      })
+      let resolveSlow!: (v: unknown) => void
+      listMock.mockImplementationOnce(
+        () =>
+          new Promise((r) => {
+            resolveSlow = r
+          }),
+      )
+      const s = useShelfStore()
+      const p = s.load()
+      // 灌入仅含合法条目（坏条目全部丢弃），白屏消费点（useShelf filteredBooks 口径）安全执行
+      expect(s.books.map((b) => b.title ?? b.name)).toEqual(['好书'])
+      expect(s.books.filter((b) => (b.title ?? b.name).toLowerCase().includes('好'))).toHaveLength(1)
+      expect(s.loading).toBe(false) // 有快照路径：不卡「加载中…」
+      resolveSlow({ books: [{ name: '最新书', kind: 'long' }], workDir: true })
+      await p
+      expect(s.books.map((b) => b.name)).toEqual(['最新书']) // 后台刷新照常覆盖
+    })
+
+    it('R50-D2-3: 快照全坏条目 → 空表缓存（非 null），书架走有快照路径渲染空列表不白屏', async () => {
+      stubLocalStorage({
+        [CACHE_KEY]: JSON.stringify({ books: [null, 42, 'x'], workDirMissing: false, hint: null }),
+      })
+      let resolveSlow!: (v: unknown) => void
+      listMock.mockImplementationOnce(
+        () =>
+          new Promise((r) => {
+            resolveSlow = r
+          }),
+      )
+      const s = useShelfStore()
+      const p = s.load()
+      expect(s.books).toEqual([]) // 全坏 → 空表（好于白屏；后台刷新拉权威列表）
+      expect(s.loading).toBe(false)
+      resolveSlow({ books: [{ name: '最新书', kind: 'long' }], workDir: true })
+      await p
+      expect(s.books.map((b) => b.name)).toEqual(['最新书'])
+    })
   })
 })

@@ -274,6 +274,36 @@ describe('R66-4: ChainRecorder 写失败留痕（丢事件 = 丢「已记录」�
   })
 })
 
+describe('R50-A-3: ChainRecorder close 后迟到 add 早退（守卫只挡 closed=true 之后）', () => {
+  it('close 后 add 不入 buffer：无新落库事务、warn 一次性留痕（后续迟到静默防刷屏）', () => {
+    const warn = vi.spyOn(log, 'warn').mockReturnValue()
+    try {
+      const calls: unknown[][] = []
+      const store = {
+        appendEvents: (_sid: string, events: unknown[]) => { calls.push(events); return events.map((_, i) => i + 1) },
+        close: () => {},
+      } as never
+      const r = new ChainRecorder(store, 'ws-x')
+      // close 前最后一批合法 add：照常缓冲并由 close 的 best-effort flush 落库（不被误伤）
+      r.add(stepStartEvent('chat', 'chat'))
+      r.close()
+      expect(calls).toHaveLength(1)
+      expect((calls[0]! as { type: string }[]).map((e) => e.type)).toEqual(['step/start'])
+      // close 后迟到 add：不入 buffer（store 已关再无落库事务）+ 首条 warn 留痕
+      r.add(llmRetryEvent({ attempt: 9, delayMs: 100 }))
+      r.add(checkReportEvent({ chapter: 1, reds: ['x'] }))
+      expect(calls).toHaveLength(1) // 无新事务（修复前：滞留 buffer，close 后再无 flush 时机）
+      expect(warn).toHaveBeenCalledTimes(1) // 一次性：第二条迟到静默
+      const [scope, msg] = warn.mock.calls[0]!
+      expect(scope).toBe('events')
+      expect(String(msg)).toContain('ChainRecorder close 后收到迟到链路事件')
+      expect(String(msg)).toContain('llm/retry') // 首条类型留痕
+    } finally {
+      warn.mockRestore()
+    }
+  })
+})
+
 describe('F1-P3 血缘事件构造器', () => {
   it('revision/ref + settings/snapshot 载荷', () => {
     expect(revisionRefEvent({ chapter: 3, revision: 'r9', path: '写作/正文/3.md' })).toEqual({

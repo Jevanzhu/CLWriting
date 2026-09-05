@@ -90,6 +90,24 @@ export function problemsForElectronBuilderFiles(files) {
   return found
 }
 
+/**
+ * F-2（五十轮评审批）：TOCTOU 容错的目录列举——existsSync 判定后 readdir 前目录被
+ * 并发移走（ENOENT）/被换成文件（ENOTDIR）时记 console.warn 返回空数组（跳过只损
+ * 该侧对账诊断，失败方向 fail-closed 不变——不假绿也不吞真故障）；其余错误照抛。
+ * 导出供 test/desktop/r50-f2-check-scripts-toctou.test.ts 直测。
+ */
+export function readDirTolerant(dir) {
+  try {
+    return readdirSync(dir)
+  } catch (e) {
+    if (e.code === 'ENOENT' || e.code === 'ENOTDIR') {
+      console.warn(`check:packaging 跳过不可读目录（${e.code}）：${dir}`)
+      return []
+    }
+    throw e
+  }
+}
+
 function checkPackaging() {
   const pkgPath = join(root, 'package.json')
   let pkg
@@ -136,8 +154,11 @@ function checkPackaging() {
           }
         }
         // 盘上有文件、表里无名 → 该 prompt 永远走不到版本化链路（静默漂移）
+        // F-2（五十轮评审批）：TOCTOU 容错——existsSync 后目录被并发移走（ENOENT）/
+        // 被换成文件（ENOTDIR）不再裸抛炸脚本（跳过只损该侧对账诊断，失败方向不变）；
+        // 其余错误照抛。导出 readDirTolerant 供直测。
         const listed = new Set(Object.keys(versions))
-        for (const f of readdirSync(promptsDir)) {
+        for (const f of readDirTolerant(promptsDir)) {
           if (f.endsWith('.md') && !listed.has(f)) {
             problems.push(`resources/prompts/${f} 存在但 versions.json 未登记`)
           }
@@ -146,7 +167,7 @@ function checkPackaging() {
     }
   }
   if (existsSync(skillsDir)) {
-    const skillFiles = readdirSync(skillsDir).filter((f) => f.endsWith('.md'))
+    const skillFiles = readDirTolerant(skillsDir).filter((f) => f.endsWith('.md'))
     if (skillFiles.length === 0) problems.push('resources/skills/ 下无任何 .md 技巧包')
   }
 

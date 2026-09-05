@@ -176,7 +176,17 @@ export function createStaticHandler(rootDir: string) {
       }
       // SPA fallback：非文件路径回 index.html（前端路由接管；B-21：HEAD 同口径补长度不发 body）
       try {
-        const data = await readFile(join(root, 'index.html'))
+        // R50-C-4（五十轮）：fallback 同过 M-9 canonical 判界——此前裸
+        // readFile(join(root, 'index.html')) 绕过主路径 resolveWithinRoot 防线，
+        // dist/index.html 被换成外指 symlink 时 fallback 直接跟随（主路径 403、
+        // fallback 200 放行的分歧行为）；null（外指/断链/realpath 失败）按主路径
+        // 口径回 403 fail-closed（index.html 整体缺失仍走下方 catch 的 404 建站提示）
+        const safe = resolveWithinRoot(root, 'index.html')
+        if (!safe) {
+          replyError(res, 403, 'BAD_PATH', 'forbidden')
+          return
+        }
+        const data = await readFile(safe.abs)
         res.writeHead(200, {
           'content-type': 'text/html; charset=utf-8',
           // R30-23（三十轮）：SPA fallback 分支同加 nosniff（所有静态响应头统一处）

@@ -9,7 +9,7 @@ import { useChatStore } from '../stores/chat'
 import { apiJson, ApiError } from '../api/client'
 import { deleteBook } from '../api/shelf'
 import { friendlyError } from '../shared/error'
-import { clearFalsePositiveMarks } from '../stores/check'
+import { clearFalsePositiveMarks, fpBookPrefix } from '../stores/check'
 import { clearFailedDrafts, migrateFailedDrafts } from './useChatComposer'
 import { treeFirstOpenKey, onboardPremiseKey } from '../shared/storage-keys'
 
@@ -27,9 +27,12 @@ export function migrateBookKeyedState(oldName: string, newName: string): void {
   useChatStore().migrateChapterMemo(oldName, newName)
   migrateFailedDrafts(oldName, newName)
   try {
-    // 误报灰显键族 `clw-fp:<书>:<文档>`——前缀枚举逐键搬家（stores/check fpKey 同构）
-    const oldPrefix = `clw-fp:${oldName}:`
-    const newPrefix = `clw-fp:${newName}:`
+    // 误报灰显键族 `clw-fp:<书>\u0000<文档>`——前缀枚举逐键搬家。R50-D2-1（五十轮）：
+    // 前缀改从 stores/check fpBookPrefix 单源取——R49-27 把分隔符从冒号改 \u0000 时
+    // 本分支漏随（仍拼旧冒号前缀），现行键永不匹配、改名迁移整链空转；单源后两侧
+    // 不再漂移。存量冒号旧键（R49-27 前写入）本就不迁移，失配即弃与其口径一致。
+    const oldPrefix = fpBookPrefix(oldName)
+    const newPrefix = fpBookPrefix(newName)
     // length/key(i) 枚举（浏览器原生形态；Object.keys 对测试桩/隐私模式实现不稳）
     const n = localStorage.length
     for (let i = n - 1; i >= 0; i--) {

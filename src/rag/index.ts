@@ -909,7 +909,11 @@ export async function recallDetailed(
  *  如实化——此前例举「既有消费面（materials.ts 等）」已失实：materials.ts 已于
  *  R36-16 切 recallDetailed，现生产代码零调用方，本包装仅服务存量测试面
  *  （test/rag/*、test/studio/* 的旧断言）。丢弃 truncated/totalBlocks 属有意取舍，
- *  生产召回链路一律走 recallDetailed（截断信号不丢失）。 */
+ *  生产召回链路一律走 recallDetailed（截断信号不丢失）。
+ *  @internal test-only（R50-B-2，五十轮）：本应随生产零调用方删除，但存量测试消费面
+ *  实测 10 文件 34 处调用（test/rag 8 + test/studio 1 + test/check 1）超本轮「>5 文件
+ *  可降级」闸——登记维持：形状转换平凡（r.hits 透传，无维护风险），生产 import 面
+ *  已零引用；后续批次改造存量断言为 recallDetailed 时随改造一并删除本包装。 */
 export async function recall(
   bookRoot: string,
   config: RagConfig,

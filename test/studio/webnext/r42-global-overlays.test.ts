@@ -23,7 +23,14 @@ vi.mock('../../../src/studio/web-next/src/api/client', async (importOriginal) =>
 // 双路径 vue-router mock（App/useAppActions/ShelfModal 消费 useRouter；模板 router-view 置 stub）。
 // 工厂内不得引用顶层变量（vi.mock 提升语义）——route/router 经 hoisted 持有者共享。
 const holder = vi.hoisted(() => ({
-  router: { push: vi.fn(), replace: vi.fn() },
+  // R50-D1-2：App.vue lastBook 恢复直进改读 router.isReady()/currentRoute——mock
+  // 契约补全（本文件用例无 lastBook，不触达该分支，仅为 mount 契约完整防脆断）
+  router: {
+    push: vi.fn(),
+    replace: vi.fn(),
+    isReady: vi.fn(async () => {}),
+    currentRoute: { value: { path: '/' } },
+  },
   route: null as unknown as { params: Record<string, string>; path: string },
 }))
 vi.mock('vue-router', async () => {

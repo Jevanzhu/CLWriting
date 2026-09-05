@@ -376,7 +376,10 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
   defineRoute('books.versions.prune', {
     method: 'POST',
     path: '/api/books/:name/versions/prune',
-    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
+    // R50-C-1（五十轮）：handler 改 async——prune 循环逐块让出（见下方 R50-C-1 注），
+    // reply 在全部 prune 完成后才发出（dispatch await handler，同文件 version-stats
+    // 等 async handler 同款，dispatch try/catch 兜底 → 500）
+    handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       // R26-67（二十六轮）：书级任务闸全程持闸——prune 批量删除 .版本 快照，与生成类
@@ -416,7 +419,14 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
         }
 
         let removed = 0
+        // R50-C-1（五十轮）：全书 prune 循环改 async 逐块让出——pruneSnapshots 内部
+        // readdirSync + 逐 meta 读 + 逐 unlink 均同步，大书数百 docId 单 tick 冻结事件
+        // 循环（SSE 心跳/保存同停）；让出口径对齐同文件 scanVersionsDirAsync（R44-9
+        // 范式：每 SCAN_YIELD_EVERY（25）项 await yieldToEventLoop() 一次）。清理结果
+        // 与同步版逐位一致（ids 集合遍历序不变、逐项 try/catch 语义不变）。
+        let processed = 0
         for (const docId of ids) {
+          if (++processed % SCAN_YIELD_EVERY === 0) await yieldToEventLoop()
           // P3-1：docId 白名单校验共享（防 manifest 篡改导致的路径穿越删除）
           if (!safeDocId(docId)) continue
           try {

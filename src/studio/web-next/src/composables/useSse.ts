@@ -134,9 +134,16 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
       const ticket = await fetchStreamTicket(t, base)
       // 换 ticket 期间被 disconnect/切书重连接管：不再开连（防悬挂旧连接）
       if (gen !== connectGen) return
-      query = ticket
-        ? `?ticket=${encodeURIComponent(ticket)}`
-        : `?token=${encodeURIComponent(t)}`
+      if (ticket) {
+        query = `?ticket=${encodeURIComponent(ticket)}`
+      } else {
+        // R50-D2-2（五十轮）：换票失败回退 ?token= 旧通道——令牌拼进 URL 与契约
+        // 「token 不进 URL」目标相悖且原实现无告警；回退行为本身不动（删除回退通道
+        // 超本轮范围，e2e 过渡期兼容依赖它），补 console.warn 留痕：ticket 通道故障
+        //（服务端未上线/网络/超时）临时降级，本地单机面可接受，供诊断
+        console.warn('[sse] stream-ticket 换票失败，临时回退 ?token= 查询参数通道（token 进 URL，留痕供诊断）')
+        query = `?token=${encodeURIComponent(t)}`
+      }
     }
     es = new EventSource(`${base}/api/books/${encodeURIComponent(currentName)}/stream${query}`)
     es.onopen = () => {

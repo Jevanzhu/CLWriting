@@ -207,13 +207,36 @@ export function missingPageErrorWiring(entries, exempt = PAGEERROR_WIRING_EXEMPT
  * 等卷上为每个真实文件旁生成 `._<name>` 副本，含 `._x.test.ts` 形态）——与 vitest
  * exclude 的 `._*` 通配同口径（vitest.config.ts），否则外置卷工作区跑门禁时副本虚增
  * 测试文件计数。此处显式注记，防后续把点前缀跳过误当普通 dotfile 卫生而收窄。
+ * F-2（五十轮评审批）：TOCTOU 容错——readdir/stat 与条目 stat 之间目录/条目被并发
+ * 移走（ENOENT）或目录被换成文件（ENOTDIR）时不再裸抛炸脚本（失败方向 fail-closed
+ * 不变：跳过只损诊断面）；其余错误照抛（不吞真故障、不假绿）。导出供直测。
  */
-function walk(dir, pred, out = []) {
-  for (const name of readdirSync(dir)) {
+export function walk(dir, pred, out = []) {
+  let names
+  try {
+    names = readdirSync(dir)
+  } catch (e) {
+    if (e.code === 'ENOENT' || e.code === 'ENOTDIR') {
+      console.warn(`check:counts walk 跳过不可读目录（${e.code}）：${dir}`)
+      return out
+    }
+    throw e
+  }
+  for (const name of names) {
     // `._*`（AppleDouble）以 `.` 开头，随 dotfile 一并跳过（对齐 vitest 收集口径）
     if (name === 'node_modules' || name.startsWith('.')) continue
     const fp = join(dir, name)
-    const st = statSync(fp)
+    let st
+    try {
+      st = statSync(fp)
+    } catch (e) {
+      // F-2（五十轮评审批）：readdir 后条目被并发移走/路径段被换（断链 symlink 同形态）
+      if (e.code === 'ENOENT' || e.code === 'ENOTDIR') {
+        console.warn(`check:counts walk 跳过消失条目（${e.code}）：${fp}`)
+        continue
+      }
+      throw e
+    }
     if (st.isDirectory()) walk(fp, pred, out)
     else if (pred(name)) out.push(fp)
   }

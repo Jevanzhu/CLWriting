@@ -705,6 +705,64 @@ describe('D1: stdio 转发接线（manager 全链路）', () => {
   })
 })
 
+// ── R50-A-4（五十轮）：exit 冲刷残留半行 ──
+// 子进程崩溃时尾行常无换行（最后诊断/堆栈恰卡半行），只挂 'data' 的切分缓冲随进程
+// 死亡丢弃——恰是最关键取证线索。修复：splitLines 返回切分器句柄，forwardChildStdio
+// 在 child exit 时对两路缓冲各强制冲刷一次再弃。
+describe('R50-A-4: splitLines exit 冲刷（纯函数直测）', () => {
+  it('半行残留经 flush() 出行；幂等（二次冲刷无产出）；冲后正常行口径不变', async () => {
+    const out = new PassThrough()
+    const lines: string[] = []
+    const splitter = splitLines(out, (l) => lines.push(l))
+    out.write('half line without newline') // 无换行：data 到达但不出行
+    await flushStreams()
+    expect(lines).toHaveLength(0)
+    splitter.flush()
+    expect(lines).toEqual(['half line without newline'])
+    splitter.flush() // 幂等：缓冲已清，不重复出行
+    expect(lines).toHaveLength(1)
+    out.write('next\n') // 冲刷后正常换行行照常切分
+    await flushStreams()
+    expect(lines).toEqual(['half line without newline', 'next'])
+  })
+})
+
+describe('R50-A-4: exit 冲刷接线（manager 全链路）', () => {
+  it('主动停机（stopChild → kill → exit）：stdout/stderr 两路无换行尾行仍进日志', async () => {
+    const cap = mkLogCapture()
+    const { forkRecords, manager } = mkHarness({ logger: cap.logger })
+    const p = manager.start({ workDir: null, userDataPath: mkUserData() })
+    const child = forkRecords[0]!.child
+    child.emit('message', { type: 'ready', port: 1 })
+    await p
+    child.stdout.write(JSON.stringify({ level: 'error', tag: 'boot', msg: 'half json line no newline' }))
+    child.stderr.write('FATAL: heap out of memory') // 崩溃取证主线索形态：stderr 无换行尾行
+    await flushStreams() // data 已入切分缓冲（无换行未出行）
+    expect(cap.lines).toHaveLength(0) // 修复前形态锚定：无换行不出行
+    await manager.stopChild() // kill → exit → 两路 flush
+    const errLine = cap.lines.find((l) => l.level === 'error' && l.tag === 'boot')
+    expect(errLine?.msg).toBe('half json line no newline') // stdout 半行 JSON 照常按 level 重发
+    const stderrLine = cap.lines.find((l) => l.level === 'warn' && l.tag === 'server-proc')
+    expect(stderrLine?.msg).toBe('FATAL: heap out of memory') // stderr 半行整行 warn 进档（修复前随进程死亡丢弃）
+  })
+
+  it('子进程崩溃（非主动 exit）：残留半行仍进日志；挂起重启被收口取消', async () => {
+    const cap = mkLogCapture()
+    // 大退避防 0ms 立即重启 fork 干扰断言（收尾 stopChild 取消挂起重启）
+    const { forkRecords, manager } = mkHarness({ logger: cap.logger, backoffMs: [999_000, 999_000, 999_000] })
+    const p = manager.start({ workDir: null, userDataPath: mkUserData() })
+    const child = forkRecords[0]!.child
+    child.emit('message', { type: 'ready', port: 1 })
+    await p
+    child.stderr.write('(node:4242) FATAL: segmentation fault')
+    await flushStreams()
+    child.emit('exit', 1) // 崩溃退出：exit 处理路径 flush
+    await flushMicrotasks()
+    expect(cap.lines.some((l) => l.level === 'warn' && l.tag === 'server-proc' && l.msg === '(node:4242) FATAL: segmentation fault')).toBe(true)
+    await manager.stopChild() // 取消挂起重启（timer unref 不拖 worker，显式收口保净）
+  })
+})
+
 describe('批 U3：崩溃退避自动重启（U-2/S-1/S-5/S-9）', () => {
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 

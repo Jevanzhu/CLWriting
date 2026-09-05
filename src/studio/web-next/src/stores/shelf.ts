@@ -30,6 +30,17 @@ export const useShelfStore = defineStore('shelf', () => {
     hint: string | null
   }
 
+  /** R50-D2-3（五十轮）：shelf 条目逐条形状校验——name 为 BookEntry 必填 string、
+   * title 存在时须 string/null/undefined（消费面 BookCard/useShelf 的
+   * b.title ?? b.name 直呼 .toLowerCase()/.localeCompare，非 string 即 TypeError 白屏）。
+   * 口径对齐 workspace.loadBookPrefs 的 filter((x): x is string => ...) 逐条校验。 */
+  function isBookEntry(x: unknown): x is BookEntry {
+    if (typeof x !== 'object' || x === null) return false
+    const b = x as { name?: unknown; title?: unknown }
+    if (typeof b.name !== 'string') return false
+    return b.title === undefined || b.title === null || typeof b.title === 'string'
+  }
+
   function readCache(): ShelfCache | null {
     if (typeof localStorage === 'undefined') return null
     try {
@@ -37,7 +48,11 @@ export const useShelfStore = defineStore('shelf', () => {
       if (!raw) return null
       const parsed = JSON.parse(raw) as ShelfCache
       if (!Array.isArray(parsed['books'])) return null
-      return parsed
+      // R50-D2-3（五十轮）：books 只验 Array.isArray 不够——坏条目（null/数字元素等）
+      // 在消费点 (b.title ?? b.name).toLowerCase() 抛 TypeError 整页白屏。逐条校验：
+      // 坏条目丢弃、好条目保留（全坏 → 空表，走「有快照」路径立即渲染空列表后台刷新）
+      const books = parsed['books'].filter(isBookEntry)
+      return { books, workDirMissing: parsed.workDirMissing, hint: parsed.hint }
     } catch {
       return null
     }

@@ -343,8 +343,13 @@ export function volumeProgressOf(
   // 低-4（第十轮）：卷长过 applyGlobalDefaults 取生效值——书级未设 volume_size 时回落
   // global.json defaultVolumeSize（与其他读配置口径对齐，见 state.ts/overview.ts 先例）；
   // 此前 raw 读 + `?? 50`，全局非 50 且书级未设时会按错卷长注入卷摘要
-  const volumeSize =
-    applyGlobalDefaults(readBookConfig(join(bookRoot, 'book.yaml')).config, userDataPath).book.volume_size ?? 50
+  // R50-C-2（五十轮）：book.yaml 损坏静默降级留痕（对齐 state.ts P3-2 口径）——
+  // 错误分支带 DEFAULT_CONFIG 骨架，未判 ok 直接用 .config 会无声按默认卷长取卷
+  const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
+  if (!cfgResult.ok) {
+    log.warn('outline', `book.yaml 解析降级: ${cfgResult.error.message}`)
+  }
+  const volumeSize = applyGlobalDefaults(cfgResult.config, userDataPath).book.volume_size ?? 50
   const vol = Math.ceil(chapter / volumeSize) - 1
   if (vol < 1) return { section: null, file: null }
   const fp = join(bookRoot, '定稿', '摘要', '卷摘要', `${vol}.md`)

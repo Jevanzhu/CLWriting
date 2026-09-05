@@ -155,6 +155,15 @@ export interface StudioServerManager {
    * 幂等；与 stopChild 同属主动停机——均置 shutdownStarted（S-5，批 U3 重启门消费）。
    */
   shutdown(): Promise<void>
+  /**
+   * R50-A-1（五十轮）：session-end 观察窗自愈入口——win 上 OS 关机/注销被取消时
+   * 进程仍存活，session-end 链已 shutdown 的 server 需显式拉回。复刻 doRestart 的
+   * 钉住端口重启（S-1 前端恢复链同源：origin 不变，存活渲染层无缝续用），但作为
+   * 显式新生命周期先复位「主动 kill 标记」shutdownStarted（与 start IIFE 首行同
+   * 语义——那是防「停机途中崩溃自动重启复活」的挡板，不该挡显式恢复）。
+   * 无历史 fork 面（从未 start 过）或停机流程仍在途 → null，由调用方留痕。
+   */
+  restartPinned(): Promise<number | null>
   /** 是否有已握手完成的 child 在跑 */
   isRunning(): boolean
   /** 是否有崩溃退避后排程、尚未落地的挂起自动重启（P3：main 侧「关旧」判据补充——
@@ -586,6 +595,31 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
     isRunning(): boolean {
       return active !== null
     },
+    async restartPinned(): Promise<number | null> {
+      const opts = lastOpts
+      const port = pinnedPort
+      if (!opts || port === null) return null // 从未成功 start 过：无钉住面可复刻
+      if (shuttingDown) return null // 停机流程仍在途：不抢生命周期（观察窗时长已覆盖正常收尾）
+      if (starting) return starting // 在途轮复用（X-3 同款互斥通道语义）
+      // 显式新生命周期：复位主动 kill 标记 + 退避计数清零（与 start IIFE 同口径，
+      // 恢复不计入崩溃退避）——launch 前置位，防 fork 后检查即杀新 child
+      shutdownStarted = false
+      restartCount = 0
+      startingOpts = opts
+      starting = (async () => launch(opts, String(port)))()
+      try {
+        const got = await starting
+        logger.info('server-manager', `studio server 已恢复（session-end 观察窗自愈，端口 ${got} 钉住）`)
+        return got
+      } catch (e) {
+        logger.error('server-manager', 'session-end 自愈重启握手失败（API 不可用，建议重启应用）', e)
+        return null
+      } finally {
+        starting = null
+        startingOpts = null
+        startingProc = null // R44-12：与 starting 通道同清
+      }
+    },
     hasPendingRestart(): boolean {
       return restartTimer !== null
     },
@@ -613,18 +647,33 @@ function forwardChildStdio(proc: UtilityProcessLike, logger: LogLike): void {
   // 内存闸（2026-08-24 审计 D1）：单行超限强制截断的计数告警（stdout/stderr 同口径）
   const warnForced = (side: 'stdout' | 'stderr') => (count: number) =>
     logger.warn('server-manager', `child ${side} 单行超 ${MAX_LINE_CHARS >> 20}MB 无换行，已强制截断出行（累计 ${count} 次）`)
-  splitLines(proc.stdout, (line) => forwardLogLine(line, logger), warnForced('stdout'))
-  splitLines(proc.stderr, (line) => logger.warn('server-proc', line), warnForced('stderr'))
+  const stdoutSplitter = splitLines(proc.stdout, (line) => forwardLogLine(line, logger), warnForced('stdout'))
+  const stderrSplitter = splitLines(proc.stderr, (line) => logger.warn('server-proc', line), warnForced('stderr'))
+  // R50-A-4（五十轮）：子进程退出时强制冲刷两路切分缓冲的残留半行——崩溃尾行常无
+  // 换行（stderr 崩溃堆栈恰是最关键取证线索），原先随进程死亡丢弃。exit 后流不再有
+  // data，冲一次即弃（flush 幂等；kill/崩溃/自然退出三路 exit 均经此收口）。
+  proc.once('exit', () => {
+    stdoutSplitter.flush()
+    stderrSplitter.flush()
+  })
 }
 
 /** （导出供测试直测解析口径）child 输出 → 行切分。
- *  onWarn：每次强制截断出行时回调（入参为累计次数），缺省不告警。 */
+ *  onWarn：每次强制截断出行时回调（入参为累计次数），缺省不告警。
+ *  R50-A-4（五十轮）：返回切分器句柄——exit 冲刷接口见 flush()，接线见 forwardChildStdio。 */
+export interface LineSplitter {
+  /** 强制冲刷残留缓冲的半行（无换行尾行）：子进程 exit 路径调用一次，弃缓冲。
+   *  幂等（缓冲已空再调无产出）；冲刷后残余 data 到达照常累积（极窄竞态窗，尽力而为）。 */
+  flush(): void
+}
+
 export function splitLines(
   out: NodeJS.ReadableStream | null | undefined,
   onLine: (line: string) => void,
   onWarn?: (forcedCount: number) => void,
-): void {
-  if (!out) return
+): LineSplitter {
+  // R50-A-4：空流无可冲刷缓冲，返回空句柄保调用方接线统一
+  if (!out) return { flush: () => {} }
   try {
     out.setEncoding?.('utf8')
   } catch {
@@ -652,6 +701,16 @@ export function splitLines(
     }
   })
   out.on('error', () => {}) // 流异常不反噬 main：转发尽力而为，丢行不丢进程
+  // R50-A-4（五十轮）：崩溃取证——子进程异常退出时尾行常无换行（最后一条诊断/堆栈
+  // 恰卡半行），只挂 'data' 的切分缓冲随进程死亡丢弃。返回 flush 供 exit 处理路径
+  // 强制冲一次残留半行再弃（trim 后非空才出行，与正常行口径一致）。
+  return {
+    flush() {
+      const line = buf.trim()
+      buf = ''
+      if (line) onLine(line)
+    },
+  }
 }
 
 /** 单行转发（导出供测试直测解析口径）；level 不可辨识与解析失败同走原文兜底。 */

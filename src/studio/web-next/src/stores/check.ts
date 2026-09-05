@@ -13,8 +13,15 @@ import { friendlyError } from '../shared/error'
  *  书名自身含冒号时前缀歧义：clearFalsePositiveMarks('A') 的 `clw-fp:A:` 前缀会连带
  *  命中书 'A:B' 的键。存量冒号旧键不迁移（展示态 best-effort，自然失配即弃），
  *  删书清理处顺手清旧键。 */
+/** R50-D2-1（五十轮）：书名前缀单源导出——useShelf.migrateBookKeyedState 的改名迁移
+ *  分支此前仍拼旧冒号前缀（R49-27 改 \u0000 时的连带漏改），现行键永不匹配、改名迁移
+ *  整链空转。迁移/清理统一从本处取前缀，防两侧再漂移。 */
+export function fpBookPrefix(name: string): string {
+  return `clw-fp:${name}\u0000`
+}
+
 function fpKey(name: string, docId: string): string {
-  return `clw-fp:${name}\u0000${docId}`
+  return fpBookPrefix(name) + docId
 }
 
 export const useCheckStore = defineStore('check', () => {

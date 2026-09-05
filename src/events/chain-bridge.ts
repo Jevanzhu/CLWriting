@@ -155,6 +155,21 @@ export class ChainRecorder {
 
   add(ev: NewEvent): void {
     if (!this.store || !this.sessionId) return
+    // R50-A-3（五十轮）：closed 置位后的迟到 add 早退丢弃——close 路径已 best-effort
+    // flush 且 store 已关，此后的 add 再无落库时机，照常入 buffer 只会滞留堆积
+    //（至上限后被无声蒸发），flush 若被外部误调还会对已关句柄反复失败 warn。
+    // 丢弃并 warn 一次性留痕（丢事件 = 丢「已记录」凭据，铁律①视角须可定位）；
+    // 守卫只认 closed=true——close 前最后一批合法 add 不受影响（close 自身 flush 收口）。
+    if (this.closed) {
+      if (!this.closedAddWarned) {
+        this.closedAddWarned = true
+        log.warn(
+          'events',
+          `ChainRecorder close 后收到迟到链路事件（首个：${ev.type}）——已丢弃：录制器已关、store 已关，无落库时机`,
+        )
+      }
+      return
+    }
     this.buffer.push(ev)
     if (this.buffer.length >= CHAIN_FLUSH_THRESHOLD) this.flush()
   }
@@ -187,6 +202,8 @@ export class ChainRecorder {
    *  refs 提前归零真关库，其他仍持有引用的 recorder 后续写入打到已关句柄（L-5 同族）。
    *  当前调用方靠 chain = null 自律防双调，本闸把纪律下沉到 API 自身。 */
   private closed = false
+  /** R50-A-3（五十轮）：closed 后迟到 add 的一次性 warn 标记——首条留痕、后续静默防刷屏 */
+  private closedAddWarned = false
 
   close(): void {
     if (this.closed) return

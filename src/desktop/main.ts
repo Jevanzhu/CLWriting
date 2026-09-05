@@ -207,6 +207,15 @@ let appUrl = '' // 主窗口加载的 url（dev:5173 / packaged server）；书�
  *  两旗分别由 session-end / before-quit 链路置位，bootstrap() 内的 close 拦截读它们。 */
 let sessionEnding = false
 let appTearingDown = false
+/** R50-A-1（五十轮）：session-end 观察窗自愈——win 上 OS 关机/注销被取消（其他应用
+ *  拒绝关机、用户反悔等）时进程存活但 sessionEnding 永真 + server 已 shutdown：close
+ *  拦截从此直关放行（渲染层 flush 链失效，编辑增量丢失面）、API 全断且无重启链路。
+ *  session-end 置旗后起观察窗，定时器居然触发 = OS 收尾没带走进程 → 复位
+ *  sessionEnding + 经 manager 钉住原端口拉回 server（渲染层 origin 不动，无缝续用）。
+ *  真关机路径进程活不到窗口到点（Windows 会话收尾宽限秒级），unref 不拖收尾；
+ *  时长可经 CLW_SESSION_END_RECOVERY_MS 注入（回归测试快进用）。 */
+let sessionEndRecoveryTimer: ReturnType<typeof setTimeout> | null = null
+const SESSION_END_RECOVERY_MS = Number(process.env['CLW_SESSION_END_RECOVERY_MS']) || 5_000
 /** R49-5（评审四十九轮）：close/quit 两 flush 链的在途旗——原 closeFlushInFlight 居
  *  bootstrap() 闭包、quitFlushInFlight 居生命周期 if 块，两链互不可见：close flush 在途
  *  时 Cmd+Q 会对同窗再起一次 flush（双 executeJavaScript、极端时序双确认框），反向
@@ -619,6 +628,12 @@ async function openLibraryWindow(): Promise<void> {
  *  渲染层挂起/死循环（executeJavaScript 永不 resolve）不拖死关窗与退出。 */
 const CLOSE_FLUSH_BUDGET_MS = 4_000
 
+/** R50-A-2（五十轮）：context-menu 取消补发延迟——macOS NSMenu 先关菜单再派发
+ *  action，click 可能晚于 popup 关闭回调不止一个宏任务拍（原 setTimeout(0) 的单拍
+ *  竞窗里 null 取消常先到，渲染层 once 只认第一条 → 菜单动作被吞）。放宽到 100ms
+ *  让 click 稳定抢先；取消回执晚 100ms 对渲染侧无感（只是收尾态）。 */
+const CONTEXT_MENU_CANCEL_DELAY_MS = 100
+
 /** R44-2（四十四轮）：关窗/退出前渲染层兜底 flush——主进程拦下 close/quit 后经
  *  executeJavaScript 调渲染层 window.__clwFlushBeforeClose（Book 页注册，页面未进
  *  卸载、异步保存链全通；Chromium ≥M80 在页面卸载路径整体禁同步 XHR，原渲染层
@@ -710,6 +725,9 @@ async function bootstrap(): Promise<void> {
   // R43-26（四十三轮）：dev 环境变量防线——devUi 真值判断要求非打包态（app.isPackaged）：
   // 打包应用吃到宿主残留 CLW_DEV_UI=1 不再切 HMR 形态（localhost:5173 + 跳过 server fork）
   const devUi = !!process.env['CLW_DEV_UI'] && !app.isPackaged // R62-45：bracket 统一风格
+  // R50-A-1（五十轮）：本 bootstrap 轮是否 fork 了 studio server——session-end 观察
+  // 窗自愈据它判「dev HMR 态只复位旗、不拉服务」（dev 态 API 由独立 dev:api 进程供给）
+  let serverStarted = false
   if (devUi) {
     appUrl = 'http://localhost:5173'
   } else {
@@ -731,6 +749,7 @@ async function bootstrap(): Promise<void> {
         book: initialName,
         mirrorConsole: !app.isPackaged,
       })
+      serverStarted = true // R50-A-1：session-end 观察窗自愈的「有服务可拉回」判据
     } catch (e) {
       // 时序 2（仅首次启动）：boot-error（如 EADDRINUSE）→ 原生错误对话框（复用
       // server-main 拆分前中文口径）→ 上抛走 onError app.quit()
@@ -853,6 +872,24 @@ async function bootstrap(): Promise<void> {
       /* 存状态失败不阻断停机（窗口状态非关键数据，宁可丢状态也要下发停机指令） */
     }
     void serverManager.shutdown().catch((err) => log.error('desktop', 'session-end 停机失败（OS 即将收尾）', err))
+    // R50-A-1（五十轮）：观察窗（语义见旗声明处注释）——OS 真收尾时进程活不到到点
+    // （timer 无从触发）；到点仍存活即关机被取消/被拒，复位直关旗并拉回 server。
+    // 重复 session-end 重臂不叠窗；unref 不拖真收尾。
+    if (sessionEndRecoveryTimer) clearTimeout(sessionEndRecoveryTimer)
+    sessionEndRecoveryTimer = setTimeout(() => {
+      sessionEndRecoveryTimer = null
+      if (appTearingDown) return // 真退出链已接管（closed → app.quit → before-quit）
+      sessionEnding = false
+      log.info('desktop', 'session-end 观察窗到点进程仍存活——判定 OS 关机未收尾（被取消/被拒），复位 close 直关旗')
+      if (!serverStarted) return // dev HMR 态无 server（API 由独立 dev:api 进程供给）
+      if (!mainWindow || mainWindow.isDestroyed()) return // 窗已不在：退出链接管，不白 fork
+      void serverManager.restartPinned().then((recoveredPort) => {
+        if (recoveredPort === null) {
+          log.error('desktop', 'session-end 自愈：studio server 恢复失败（编辑仍在渲染层，API 不可用——建议重启应用）')
+        }
+      })
+    }, SESSION_END_RECOVERY_MS)
+    sessionEndRecoveryTimer.unref()
   })
   // 书库管理窗口「用完即走」：主窗口获焦 = 用户已切回，关闭书库窗口释放资源
   // （与书架窗口 desktop:open-book 主动 close 行为对齐）
@@ -1073,13 +1110,14 @@ function registerIpc(): void {
     }
     const menu = Menu.buildFromTemplate(items.map(build))
     // popup 非阻塞：菜单关闭走 callback，点选走 click。macOS 下 NSMenu 先关
-    // 菜单再派发 action，click 可能晚于 callback —— 故 callback 里延后一拍
-    // 才补发 null（取消），给 click 抢先 sendOnce 的机会。渲染侧是
+    // 菜单再派发 action，click 可能晚于 callback——callback 里延迟补发 null（取消），
+    // 给 click 抢先 sendOnce 的机会（延迟宽度见 CONTEXT_MENU_CANCEL_DELAY_MS 头注，
+    // R50-A-2：0ms 单拍竞窗实测可被 NSMenu 迟派发穿透）。渲染侧是
     // ipcRenderer.once，只认第一条消息，抢先发 null 会吞掉整个菜单动作。
     menu.popup({
       window: win,
       callback: () => {
-        setTimeout(() => sendOnce(null), 0)
+        setTimeout(() => sendOnce(null), CONTEXT_MENU_CANCEL_DELAY_MS)
       },
     })
   })

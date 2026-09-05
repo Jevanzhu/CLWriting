@@ -186,7 +186,7 @@ describe('B1 误报标记端点', () => {
 
 describe('B2 自举脚本（幸存者判定）与 corpus:commit', () => {
   it('幸存（误报候选）/ 被改掉（命中候选）两路 + 误报率统计 + 勾选入库 round-trip', () => {
-    const root = makeBook(2)
+    const root = makeBook(3)
     const docId = docIdOf(root, '001-第1章.md')
     const versionsDir = join(root, '工作区', VERSIONS_DIR_NAME)
     // 版本 A（旧稿）：身体部位词堆砌（眼睛×6）
@@ -207,6 +207,20 @@ describe('B2 自举脚本（幸存者判定）与 corpus:commit', () => {
       join(root, '写作', '正文', '002-第2章.md'),
       `---\n章号: 2\n标题: 第2章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n${kept}`,
     )
+    // 第三章：意象种子词堆砌（空气仿佛凝固×4 > 3 阈）→ imagery-overuse 命中，定稿
+    // 清光 → 「被改掉」。R50-F-1（五十轮）：此前统计 checkId 比对 'imagery' 恒失配、
+    // 误报率统计表永空，本用例钉住「统计表真出数据行」防再退化
+    const docId3 = docIdOf(root, '003-第3章.md')
+    writeVersion(
+      versionsDir,
+      docId3,
+      '空气仿佛凝固，他没动。空气仿佛凝固，她也没动。空气仿佛凝固到第三次，灯闪了。空气仿佛凝固到第四次，有人先开了口。\n',
+      { origin: 'ai-draft', reason: '旧稿' },
+    )
+    writeFileSync(
+      join(root, '写作', '正文', '003-第3章.md'),
+      '---\n章号: 3\n标题: 第3章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n屋里的气氛沉了下来，他先开了口。\n',
+    )
 
     execSync(`npx tsx "${join(REPO_ROOT, 'scripts', 'harvest-corpus.ts')}" "${root}"`, { stdio: 'pipe' })
     const fp = join(root, '工作区', '语料候选', '误报候选.md')
@@ -221,8 +235,13 @@ describe('B2 自举脚本（幸存者判定）与 corpus:commit', () => {
     expect(hitText).toContain('checkId: body-parts')
     expect(hitText).toContain('章号 1')
     expect(hitText).toContain('判定：改掉')
-    // 误报率统计产出
-    expect(existsSync(join(root, '工作区', '语料候选', '误报率统计.md'))).toBe(true)
+    // 误报率统计产出。R50-F-1：此前 checkId 失配恒空表（只存在性断言掩盖），
+    // 现钉住数据行——第三章种子词命中 1 次、被改掉 1 次、误报率 0%
+    const statPath = join(root, '工作区', '语料候选', '误报率统计.md')
+    expect(existsSync(statPath)).toBe(true)
+    const statText = readFileSync(statPath, 'utf8')
+    expect(statText).toContain('| 空气仿佛凝固 | 1 | 1 | 0% | 保留 |')
+    expect(statText).not.toContain('（无 imagery 命中样本）')
 
     // 勾选两行 → corpus:commit 入库（tmp 输出目录）
     const outDir = tmpDir('clw-corpus-out-')

@@ -158,8 +158,10 @@ try {
               versionOrigin: r.meta.origin,
             })
             // imagery 种子短语误报率（同短语同章多版本去重：每版本各计一次口径，
-            // 统计的是「检查器叫了多少次、作者认了多少次」）
-            if (item.checkId === 'imagery' && (DEFAULT_IMAGERY_WORDS as readonly string[]).includes(kw)) {
+            // 统计的是「检查器叫了多少次、作者认了多少次」）。R50-F-1（五十轮）：
+            // checkId 对齐生产侧 count.ts 实际产出的 'imagery-overuse'——原比对
+            // 'imagery' 恒不匹配，误报率统计表永为「无 imagery 命中样本」空表
+            if (item.checkId === 'imagery-overuse' && (DEFAULT_IMAGERY_WORDS as readonly string[]).includes(kw)) {
               const s = imageryStats.get(kw) ?? { survived: 0, removed: 0 }
               if (survived) s.survived++
               else s.removed++
