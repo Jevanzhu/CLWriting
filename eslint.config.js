@@ -10,7 +10,10 @@
  * R28-30（二十八轮）：scripts 目录 .ts 接入（实测 9 文件 0 错，零修复纳管）。
  * R30-28（三十轮）：test 目录接入——扩进 TS 块 files（与 src/scripts 同规则族，
  * 规则表逐位未动），存量 45 错机械清偿（31 处 no-explicit-any + 14 处
- * no-unused-vars，2026-08-30 实测口径），无需对 test/ 降任何单条规则为 warn。
+ * no-unused-vars，2026-08-30 实测口径）；其中 no-explicit-any 后续单独降档
+ * （三十轮末降 warn → R45-4 降 off，见下方 test 块）。
+ * R45-4（四十五轮）：test/ 侧 no-explicit-any 显式降为 off——31 处存量 warning
+ * 归零，此后 `npx eslint .` 口径为 0 error / 0 warning。
  *
  * 刻意不做的：
  * - 风格类规则（引号/分号等）：无 prettier 依赖，不预设口径，避免一次性海量 diff。
@@ -120,9 +123,12 @@ export default [
     // 52 处动态属性直取，补真类型须对全断言链逐点 cast——非机械改动（>10 同类
     // 阈值），且测试假件本就允许宽松取用。降 warn 留痕（0 error 验收口径允许），
     // 其余规则（含 no-unused-vars 15 处存量）一律 error 清零。src/scripts 不受本块影响。
+    // R45-4（四十五轮）：warn 显式降为 off——mock 类型 any 属测试常态，31 处存量
+    // warning 长期占据警告通道（门只卡 error，新增 warning 会被存量噪音淹没），
+    // tsc 仍对 test/ 全量类型检查兜底。降级后警告通道归零（0 error / 0 warning）。
     files: ['test/**/*.ts'],
     rules: {
-      '@typescript-eslint/no-explicit-any': 'warn',
+      '@typescript-eslint/no-explicit-any': 'off',
     },
   },
 ]

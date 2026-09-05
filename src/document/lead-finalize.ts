@@ -16,6 +16,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { atomicWriteFile, rmWithRetry } from '../fs/atomic.js'
 import { canonicalizeText } from '../fs/text-canonical.js'
+import { platformCaseFold } from '../fs/safe-path.js'
 import { join } from 'node:path'
 // R42-11（四十二轮）：readLead 不再直接调用（改单读派生孪生 readLeadFromBytes，见下）；
 // parseHistory/ATX_HEADING_RE/headingEndsSection 为该孪生的同源解析件（leads.ts 导出）
@@ -114,9 +115,11 @@ export function resolveLeadUpdateTargets(bookRoot: string, chapterNo: number): L
  *  两侧折叠不对称：外部 case-only 改名后 manifest 侧名（已折叠）与盘上真实名（未
  *  折叠）派生出不同锁文件，互斥静默失效（并发防线开窗）。键构造仍为 R29-7 的
  *  join(bookRoot, rel) 词法路径 + '.lock'（不经 realpath，防 symlink 根下键名漂移），
- *  仅补 win32 casefold 与 service 侧逐位对齐。导出供回归测试锚定两侧同键。 */
+ *  仅补 win32 casefold 与 service 侧逐位对齐。导出供回归测试锚定两侧同键。
+ *  R45-2（四十五轮）：折叠改委托 safe-path platformCaseFold 单源（join 词法路径 +
+ *  '.lock' 拼接不变，键字节不变）。 */
 export function wiringFileLockKeyOf(absFile: string): string {
-  return `${process.platform === 'win32' ? absFile.toLowerCase() : absFile}.lock`
+  return `${platformCaseFold(absFile)}.lock`
 }
 
 /** 同步预取：全部成功 → release 列表；任一失败 → 释放已取得者并返回 null。 */

@@ -12,7 +12,7 @@ import { basename, sep, join } from 'node:path'
 import { readFile as readFileAsync } from 'node:fs/promises'
 import { realpathSync } from 'node:fs'
 import { createHash } from 'node:crypto'
-import { resolveWithinRoot } from '../../../fs/safe-path.js'
+import { resolveWithinRoot, platformCaseFold } from '../../../fs/safe-path.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { acquireCrossProcessLockAsync } from '../../../fs/cross-process-lock.js'
 import { canonicalizeText } from '../../../fs/text-canonical.js'
@@ -292,7 +292,9 @@ function wiringLockKeyForPut(bookRoot: string, rel: string): string | null {
   if (p.startsWith('布线/') || p.startsWith('大纲/关系线/')) {
     const key = `${join(bookRoot, rel)}.lock`
     // R38-14 同款 win32 折叠——与两侧既有实现逐位一致（回归锚定同键）
-    return process.platform === 'win32' ? key.toLowerCase() : key
+    // R45-2（四十五轮）：折叠改委托 safe-path platformCaseFold 单源（前缀过滤/join/
+    // '.lock' 管线不变，键字节不变；r45-casefold-keys.test.ts 静态扫描锁定本委托）
+    return platformCaseFold(key)
   }
   return null
 }

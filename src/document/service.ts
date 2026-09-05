@@ -31,7 +31,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
-import { safeDocId, resolveWithinRoot, docJoinKey } from '../fs/safe-path.js'
+import { safeDocId, resolveWithinRoot, docJoinKey, platformCaseFold } from '../fs/safe-path.js'
 import { atomicWriteFile, createFileExclusive, linkOrRenameExclusive, renameWithRetry, rmWithRetry } from '../fs/atomic.js'
 import { canonicalizeText, bufferNeedsCanonical } from '../fs/text-canonical.js'
 import { computeRevision, computeRevisionBytes, type Revision } from './revision.js'
@@ -768,7 +768,9 @@ export class DocumentService {
       // R40-15（四十轮）：lead-finalize 侧锁键已同口径折叠（wiringFileLockKeyOf）——
       // 本侧此前单侧折叠构成不对称，现两侧逐位一致（回归测试锚定同键；不为收口单一
       // 真相源引入 service↔lead-finalize 循环 import——后者已反向 import isUtf8Bytes）
-      return process.platform === 'win32' ? key.toLowerCase() : key
+      // R45-2（四十五轮）：折叠改委托 safe-path platformCaseFold 单源——safe-path 为
+      // 底层叶子模块，委托不引入循环 import；前缀过滤/join/'.lock' 管线不变，键字节不变
+      return platformCaseFold(key)
     }
     return null
   }

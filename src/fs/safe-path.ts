@@ -116,13 +116,28 @@ export function safeManifestPath(bookRoot: string, rel: string): string | null {
   return resolveWithinRoot(bookRoot, rel)?.abs ?? null
 }
 
+/**
+ * win32 平台大小写折叠单源（R45-2，四十五轮）：全仓六处布线/清单/身份键此前各自
+ * 手写 `process.platform === 'win32' ? x.toLowerCase() : x`，语义逐位一致但漂移无锁
+ * （某处漏折叠/多折叠即锁互斥静默失效或身份误判），收编本函数统一委托。
+ * 硬性不变量：**只做折叠**——不含分隔符归一 / NFC / resolve（各管线留在调用点原样），
+ * 折叠算法保持 `toLowerCase()` 原样——这些键派生磁盘上的真实锁文件名（`<路径>.lock`），
+ * 产出的键字节必须与收编前逐位一致（新旧版本进程混跑时锁互斥仍成立；既有回归
+ * 测试锚定精确键值）。本模块仅依赖 node:* 与 text-canonical（叶子），各层调用点
+ * 委托此处不构成循环 import。
+ */
+export function platformCaseFold(key: string): string {
+  return process.platform === 'win32' ? key.toLowerCase() : key
+}
+
 /** relPath 身份键（R38-14，三十八轮）：分隔符归一为 /；win32 追加大小写折叠
  *  （FS 大小写不敏感，对齐 manifestLockKey R33-54 / samePath 先例）。供「清单登记
  *  路径 vs 请求路径 / 扫描路径」的身份比较面收编——外部 case-only 改名后，大小写
- *  敏感比较会让保存恒 REVISION_CONFLICT、定稿集失配、布线锁互斥静默失效。 */
+ *  敏感比较会让保存恒 REVISION_CONFLICT、定稿集失配、布线锁互斥静默失效。
+ *  R45-2（四十五轮）：折叠改委托 platformCaseFold 单源（分隔符归一管线不变，键字节不变）。 */
 export function relPathKey(p: string): string {
   const norm = p.replace(/\\/g, '/')
-  return process.platform === 'win32' ? norm.toLowerCase() : norm
+  return platformCaseFold(norm)
 }
 
 /** 文档身份 join 键（R41-2，四十一轮）：relPathKey 折叠（win32 大小写 + 分隔符归一）

@@ -10,7 +10,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import { splitFrontMatter } from '../format/frontmatter.js'
 import { isMdFileName } from '../format/filename.js'
-import { resolveWithinRoot } from '../fs/safe-path.js'
+import { resolveWithinRoot, platformCaseFold } from '../fs/safe-path.js'
 
 export const KNOWLEDGE_DIR = '知识层'
 export const KNOWLEDGE_MANIFEST = '知识层/_manifest.json'
@@ -19,8 +19,10 @@ export const KNOWLEDGE_MANIFEST = '知识层/_manifest.json'
 // 精确字符串判重会放行双登记（同 document/manifest.ts R33-54 lockKey 同款口径）——win 折叠判重
 // R40-16（四十轮）：导出复用——commitKnowledgeFile 登记侧判重（update.ts）此前仍是
 // 精确比较（校验器折叠/登记器不折叠的口径分裂），大小写漂移下同文件可重登双条目
+// R45-2（四十五轮）：折叠改委托 safe-path platformCaseFold 单源（导出签名不变，
+// update.ts 零改动；纯折叠无分隔符归一，键字节不变）
 export function caseFoldKey(p: string): string {
-  return process.platform === 'win32' ? p.toLowerCase() : p
+  return platformCaseFold(p)
 }
 
 export interface KnowledgeManifestEntry {

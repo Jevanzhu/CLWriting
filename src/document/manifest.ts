@@ -10,6 +10,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { acquireCrossProcessLockWithTimeout, acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
+import { platformCaseFold } from '../fs/safe-path.js'
 
 /** 清单条目：身份 + 排序投影。folder 无 status。 */
 export interface ManifestEntry {
@@ -250,14 +251,16 @@ const heldManifestLocks = new Map<string, { depth: number; release: () => void }
 /** R33-54（三十三轮）：锁键归一化——重入计数原以原始路径字符串为键，同一锁文件经
  *  大小写（win 不敏感 FS）或分隔符漂移的等价路径再入时会被当「他锁」抢锁，同步
  *  Atomics.wait 自持锁等待至超时 fail-closed（而非复用持锁计数）。resolve + 分隔符
- *  归一 + win32 大小写折叠，让等价路径命中同一条目。 */
+ *  归一 + win32 大小写折叠，让等价路径命中同一条目。
+ *  R45-2（四十五轮）：折叠改委托 safe-path platformCaseFold 单源（resolve/分隔符
+ *  归一管线不变，键字节不变）。 */
 function manifestLockKey(manifestPath: string): string {
   let p = manifestPath
   try {
     p = resolve(manifestPath)
   } catch { /* resolve 失败保原值（畸形路径本就会在 acquire 处失败） */ }
   p = p.replace(/[\\/]+/g, '/')
-  return process.platform === 'win32' ? p.toLowerCase() : p
+  return platformCaseFold(p)
 }
 
 /**
