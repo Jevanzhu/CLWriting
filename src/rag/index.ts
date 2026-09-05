@@ -174,21 +174,19 @@ function readChapterFingerprint(ch: ChapterMeta): string | null {
  * R35-43（三十五轮）：重复章号确定性归一——cache/foreshadow 侧均承认可产生两文件同
  * 章号的数据态。精准读取（materials readChapterBodyByNumber → walkMdFind）按章号取
  * 目录序首个匹配文件；索引侧若把两文件的块都挂同章号入库，后者文件的偏移切片会落在
- * 首个文件正文上（错位片段）。策略：每章号只保留路径字典序最小的文件（跨进程可复现，
- * 与「保留首个」读取语义对齐的确定性近似），其余跳过并交由调用方告警留痕。
+ * 首个文件正文上（错位片段）。R48-61（四十八轮）：保留策略从「路径字典序最小」改为
+ * 「入序首个」（调用方 chapters 来自 readChapterDir 的 walk 序，与 walkMdFind 同源）
+ * ——两序不一致时字典序近似会让索引挂的文件与读取命中的文件不同，「防偏移错位」在
+ * 告警窗外依旧发生；首个命中策略下两侧恒同文件。跳过项照旧交调用方告警留痕。
  */
 function dedupeChaptersByNumber(chapters: ChapterMeta[]): { chapters: ChapterMeta[]; dropped: ChapterMeta[] } {
   const kept = new Map<number, ChapterMeta>()
   const dropped: ChapterMeta[] = []
   for (const ch of chapters) {
-    const prev = kept.get(ch.章号)
-    if (!prev) {
-      kept.set(ch.章号, ch)
-    } else if ((ch._path ?? '') < (prev._path ?? '')) {
-      kept.set(ch.章号, ch)
-      dropped.push(prev)
-    } else {
+    if (kept.has(ch.章号)) {
       dropped.push(ch)
+    } else {
+      kept.set(ch.章号, ch)
     }
   }
   const keptSet = new Set(kept.values())
@@ -577,6 +575,12 @@ async function commitIndexBatch(
       break
     }
     for (const v of materialized) vectors.push(v)
+    // R47-6（四十七轮）：批次文本早释放——batchTexts/materialized 落 vectors 后置空
+    // 对应 allChunks 槽位的 text（后文事务只读 章号/start/end，.text 零消费），全书
+    // 块文本不再跨分钟级 embed 网络窗驻留（200 万字 ≈数十 MB 无谓半份；向量半份系
+    // 2026-08-24 A2 闸的锁窗取舍保留，见上注）。
+    const batchEnd = Math.min(i + EMBED_BATCH_SIZE, allChunks.length)
+    for (let j = i; j < batchEnd; j++) allChunks[j]!.chunk.text = ''
   }
   if (failedAt >= 0) {
     // R73-5（二十一轮 A-5）：部分成功续传——此前任一批失败即整体失败、已成功批向量

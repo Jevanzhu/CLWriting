@@ -13,6 +13,8 @@
 import { readdirSync, statSync, existsSync, mkdirSync } from 'node:fs'
 import { join, sep } from 'node:path'
 import { readFile, parseFlat , stringifyValue } from '../format/frontmatter.js'
+import { splitFrontMatter } from '../format/frontmatter-core.js'
+import { readMdTextCached } from '../fs/md-text-cache.js'
 import { readLead } from '../format/leads.js'
 import { sanitizeFileNamePart, isMdFileName } from '../format/filename.js'
 import { createFileExclusive, rmWithRetry } from '../fs/atomic.js'
@@ -185,7 +187,9 @@ export function readForeshadows(bookRoot: string): ForeshadowEntry[] {
     const 关联词raw = String(map.get('关联词') ?? '')
     items.push({
       file: `设定/伏笔/${f}`,
-      标题: String(map.get('标题') ?? f.replace(/\.md$/, '')),
+      // R48-45（四十八轮）：剥尾判定单源 isMdFileName（大小写不敏感）——.MD 文件名
+      // 此前展示带尾巴（与 tree.ts stripMd 同族，判定侧 R34D-11 早已收编）
+      标题: String(map.get('标题') ?? (isMdFileName(f) ? f.slice(0, -3) : f)),
       状态: String(map.get('状态') ?? '未回收'),
       埋设章号: parsePositiveInt(map.get('埋设章号')),
       回收章号: parsePositiveInt(map.get('回收章号')),
@@ -283,6 +287,17 @@ export function scanForeshadowTrails(
   // 倒排索引：keyword → Map<章号, 位置[]>
   const index = buildKeywordIndex(chapters, foreshadows)
 
+  return aggregateTrails(chapters, foreshadows, index, latestChapter)
+}
+
+/** 足迹聚合（PM-1 批自 scanForeshadowTrails 提取——同步/异步孪生共用单源，防漂移）：
+ *  逐伏笔查倒排索引聚合命中片段 + 风险评级；同标题伏笔合并（mergeTrails）。 */
+function aggregateTrails(
+  chapters: Map<number, string>,
+  foreshadows: ForeshadowEntry[],
+  index: Map<string, Map<number, number[]>>,
+  latestChapter: number,
+): Map<string, ForeshadowTrail> {
   const result = new Map<string, ForeshadowTrail>()
   // 低-5（第十轮）：同标题伏笔合并写入，不再互相覆盖
   const setTrail = (title: string, trail: ForeshadowTrail): void => {
@@ -345,23 +360,8 @@ function buildKeywordIndex(
   foreshadows: ForeshadowEntry[],
 ): Map<string, Map<number, number[]>> {
   const index = new Map<string, Map<number, number[]>>()
-  const keywords = new Set<string>()
-
-  // 收集全部待扫关键词（去重）
-  for (const f of foreshadows) {
-    if (f.状态 === '已回收' || f.状态 === '已废弃') continue
-    const kws = f.关联词.length > 0 ? f.关联词 : [f.标题]
-    for (const kw of kws) if (kw) keywords.add(kw)
-  }
-  if (keywords.size === 0) return index
-
-  // 联合正则：`kw1|kw2|...`，一次扫描提取全部命中。
-  // P-4（第十四轮）：按长度降序拼接——正则交替左优先，Set 插入序下短词在前会
-  // 永久遮蔽同前缀长词（「玉佩」先匹配，「玉佩锁」无独立命中），风险评级漏检长关联词。
-  const re = new RegExp(
-    [...keywords].map(escapeRegExp).sort((a, b) => b.length - a.length).join('|'),
-    'g',
-  )
+  const re = buildTrailRegExp(foreshadows)
+  if (re === null) return index
   for (const [章号, text] of chapters) {
     if (text.length === 0) continue
     re.lastIndex = 0
@@ -390,38 +390,135 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+/** 待扫关键词收集（去重；已回收/废弃不计；缺关联词回落标题）——同步/异步索引共用单源。 */
+function collectTrailKeywords(foreshadows: ForeshadowEntry[]): Set<string> {
+  const keywords = new Set<string>()
+  for (const f of foreshadows) {
+    if (f.状态 === '已回收' || f.状态 === '已废弃') continue
+    const kws = f.关联词.length > 0 ? f.关联词 : [f.标题]
+    for (const kw of kws) if (kw) keywords.add(kw)
+  }
+  return keywords
+}
+
+/** 联合正则：`kw1|kw2|...`，一次扫描提取全部命中。无关键词 → null。
+ *  P-4（第十四轮）：按长度降序拼接——正则交替左优先，Set 插入序下短词在前会
+ *  永久遮蔽同前缀长词（「玉佩」先匹配，「玉佩锁」无独立命中），风险评级漏检长关联词。 */
+function buildTrailRegExp(foreshadows: ForeshadowEntry[]): RegExp | null {
+  const keywords = collectTrailKeywords(foreshadows)
+  if (keywords.size === 0) return null
+  return new RegExp(
+    [...keywords].map(escapeRegExp).sort((a, b) => b.length - a.length).join('|'),
+    'g',
+  )
+}
+
+// ── PM-1（性能与内存专项·2026-09-05）：足迹扫描异步孪生 ─────────
+// 动因：getForeshadowsCached 在缓存 MISS（首开面板/任一保存 bump 目录 mtime）时在
+// 请求线程同步跑全书联合正则扫（200 万字秒级阻塞事件循环，GUI 心跳/保存全被拖住）；
+// 异步孪生把 CPU 重段（buildKeywordIndex 逐章正则）切片让出事件循环（每 25 章
+// setImmediate，Node 请求线程可插步响应其他请求），正文读取段的磁盘 IO 由共享
+// md-text-cache 指纹表吸收（R47-27）。同步版原样保留（行为规格参照 + 回归测试钉），
+// 索引语义单源化在 collectTrailKeywords/buildTrailRegExp——两版扫描循环互为镜像，
+// 改动任一侧必须对另一侧做同款等价核对（等价性由 pm1 测试逐字段断言背书）。
+
+/** 事件循环让出原语：setImmediate 落到 libuv check 阶段，跨事件循环迭代（rAF 语义
+ *  在服务端无意义；process.nextTick 微任务不让出事件循环，等于没让）。 */
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve))
+}
+
+/** 每让出片的章数：25 章 ≈ 每片 10-15ms（数千字/章 × 联合正则），远低于一帧预算。 */
+const TRAILS_YIELD_EVERY = 25
+
+/** scanForeshadowTrails 的异步孪生：签名/返回/语义逐位一致（aggregateTrails 共用），
+ *  差异仅在索引构建按片让出事件循环（见上方 PM-1 块注）。 */
+export async function scanForeshadowTrailsAsync(
+  bookRoot: string,
+  foreshadows: ForeshadowEntry[],
+): Promise<Map<string, ForeshadowTrail>> {
+  // R48-46（四十八轮）：正文收集段改走异步孪生——索引构建已分片让出（PM-1），但
+  // collectChapterTexts 仍同步整段，冷缓存首开面板（正是 PM-1 动因场景）读取段照样
+  // 秒级阻塞请求线程；读取段同口径分片让出（下方同编号注）。
+  const chapters = await collectChapterTextsAsync(bookRoot)
+  const latestChapter = chapters.size > 0 ? Math.max(...chapters.keys()) : 0
+  const index = await buildKeywordIndexAsync(chapters, foreshadows)
+  return aggregateTrails(chapters, foreshadows, index, latestChapter)
+}
+
+/** collectChapterTexts 的异步孪生：签名/返回/语义逐位一致（目录枚举仍同步——只收集
+ *  路径不读正文，开销为 walk 本身），差异在正文读取段每 TRAILS_YIELD_EVERY 章让出
+ *  一次事件循环（R48-46，yieldToEventLoop 复用 PM-1 原语）；读盘由共享 md-text-cache
+ *  指纹表吸收（R47-27），热缓存近零成本。与 walkChapters 互为镜像：改动任一侧必须
+ *  对另一侧做同款等价核对（章号过滤/重复告警文案/读取口径逐位对齐）。 */
+async function collectChapterTextsAsync(bookRoot: string): Promise<Map<number, string>> {
+  const texts = new Map<number, string>()
+  const textDir = join(bookRoot, '写作', '正文')
+  if (!existsSync(textDir)) return texts
+  const files: { abs: string; name: string }[] = []
+  walkMdEach(textDir, (abs, name) => {
+    files.push({ abs, name })
+  })
+  let processed = 0
+  for (const { abs, name } of files) {
+    if (++processed % TRAILS_YIELD_EVERY === 0) await yieldToEventLoop()
+    const 章号 = parseChapterNoFromName(name)
+    if (章号 === null) continue
+    if (texts.has(章号)) {
+      log.warn('foreshadow', `正文存在重复章号 ${章号}（${name} 与先前已收集的同号章冲突，伏笔足迹按后扫文件计——请核对卷内章号规划）`)
+    }
+    texts.set(章号, readChapterBodyCached(abs))
+  }
+  return texts
+}
+
+/** buildKeywordIndex 的异步孪生：与同步版逐位同源（buildTrailRegExp 单源），章节循环
+ *  每 TRAILS_YIELD_EVERY 章让出一次事件循环（PM-1，见块注）。 */
+async function buildKeywordIndexAsync(
+  chapters: Map<number, string>,
+  foreshadows: ForeshadowEntry[],
+): Promise<Map<string, Map<number, number[]>>> {
+  const index = new Map<string, Map<number, number[]>>()
+  const re = buildTrailRegExp(foreshadows)
+  if (re === null) return index
+  let processed = 0
+  for (const [章号, text] of chapters) {
+    if (++processed % TRAILS_YIELD_EVERY === 0) await yieldToEventLoop()
+    if (text.length === 0) continue
+    re.lastIndex = 0
+    let m: RegExpExecArray | null
+    while ((m = re.exec(text)) !== null) {
+      const kw = m[0]
+      let byChapter = index.get(kw)
+      if (!byChapter) {
+        byChapter = new Map()
+        index.set(kw, byChapter)
+      }
+      let positions = byChapter.get(章号)
+      if (!positions) {
+        positions = []
+        byChapter.set(章号, positions)
+      }
+      positions.push(m.index)
+      if (m[0].length === 0) re.lastIndex++ // 防零宽匹配死循环（理论不会，防御）
+    }
+  }
+  return index
+}
+
 // ── 章节正文收集 ─────────────────────────────────
 
-/** R66-6（十四轮）：进程级章正文指纹缓存（abs path → mtimeNs+size 指纹 + 去 fm 正文）。
- *  伏笔足迹/搜索此前每次调用 walkMdEach + 逐章 readFile 整读全书正文（Node 请求线程
- *  同步执行，200 万字长篇开一次伏笔面板/搜一次即秒级阻塞事件循环，GUI 并发请求含
- *  心跳/保存全被拖住）；改 stat 指纹缓存后未变章节零重读。纪律对齐 document/tree.ts
- *  probeCache：bigint stat（mtimeNs + size，撞车窗口 ns 级）、Map 插入序 FIFO 上限
- *  （正文章数千级的 4 倍余量）、指纹失配/文件消失自动失效。 */
-const CHAPTER_TEXT_CACHE_MAX = 4096
-const chapterTextCache = new Map<string, { mtimeNs: bigint; size: bigint; body: string }>()
-
-/** 带指纹缓存的章正文读取：未变（stat 指纹一致）→ 复用缓存零读；变更/删除 → 重读或清条目。 */
+/** 章正文读取（stat 指纹缓存）。R66-6（十四轮）私有缓存（伏笔足迹/搜索此前每次
+ *  walkMdEach + 逐章 readFile 整读全书正文——200 万字长篇开一次面板即秒级阻塞请求
+ *  线程；改指纹缓存后未变章节零重读）于 R47-27（四十七轮）收敛进共享单源
+ *  fs/md-text-cache.ts：与 metrics/style.ts R66-24 同款双份驻留合并，check/leads 与
+ *  book_search 新消费方共用同一指纹表。降级口径逐字保持：读失败/无 fm/未闭合 fm
+ *  → ''（原 readFile !ok 同款）。 */
 function readChapterBodyCached(abs: string): string {
-  let st: { mtimeNs: bigint; size: bigint }
-  try {
-    st = statSync(abs, { bigint: true })
-  } catch {
-    // 文件消失（walk 与 read 之间被删）：清残留条目，按空正文降级（与原 readFile 失败口径一致）
-    chapterTextCache.delete(abs)
-    return ''
-  }
-  const hit = chapterTextCache.get(abs)
-  if (hit && hit.mtimeNs === st.mtimeNs && hit.size === st.size) return hit.body
-  const r = readFile(abs)
-  const body = r.ok ? r.body : ''
-  // FIFO 淘汰最旧（Map 保插入序，对齐 probeCache 防长跑无界）
-  if (chapterTextCache.size >= CHAPTER_TEXT_CACHE_MAX) {
-    const oldest = chapterTextCache.keys().next().value
-    if (oldest !== undefined) chapterTextCache.delete(oldest)
-  }
-  chapterTextCache.set(abs, { mtimeNs: st.mtimeNs, size: st.size, body })
-  return body
+  const text = readMdTextCached(abs)
+  if (text === null) return ''
+  const split = splitFrontMatter(text)
+  return split ? split.body : ''
 }
 
 /**

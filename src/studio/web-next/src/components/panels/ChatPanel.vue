@@ -42,7 +42,16 @@ const {
   // R72-11（二十轮 E-5）：发送后滚底传 force=true（无条件）——原无参调用在用户上滚
   // 读历史时距底超阈值不跟滚，与「发送后应见自己消息」的注释承诺相反
   async () => { await nextTick(); messagesRef.value?.scrollToBottom(true) },
+  // R48-97（四十八轮）：dock 场景（hideComposer）输入区由 ChatDock 自持——本面板
+  // 的 composer 退化为哑实例（单 composer 消双活监听，见 useChatComposer enabled 注）
+  !props.hideComposer,
 )
+
+// R48-96（四十八轮）：滚底转发——dock 场景发送入口在 dock 自持 composer，发送后经
+// 本转发调消息流强制滚底（ChatDock onPushed → panelRef.scrollToBottom(true)）
+defineExpose({
+  scrollToBottom: (force: boolean) => messagesRef.value?.scrollToBottom(force),
+})
 </script>
 
 <template>

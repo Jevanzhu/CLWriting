@@ -183,10 +183,18 @@ export function writeLeadsBookRed(db: DatabaseSync, fp: string, hasRed: boolean)
 /**
  * 纪元对齐：全局指纹变化（或首次）→ 清空缓存表并记录新纪元；返回 true 表示
  * 本次已清（调用方可用于诊断计数）。表结构缺失时补建（幂等）。
+ * R47-30（四十七轮）：新增可选 precomputedFp——调用方已算好的纪元指纹直接复用
+ * （collectTreeIssues 把首遍指纹前移后传入，省一遍全树递归 readdir+stat）；
+ * 不传则本函数自算，既有调用方/测试零感知。
  */
-export function syncTreeIssuesEpoch(db: DatabaseSync, bookRoot: string, userDataPath: string | null): boolean {
+export function syncTreeIssuesEpoch(
+  db: DatabaseSync,
+  bookRoot: string,
+  userDataPath: string | null,
+  precomputedFp?: string,
+): boolean {
   ensureTreeIssuesTables(db)
-  const fp = computeTreeIssuesGlobalFp(bookRoot, userDataPath)
+  const fp = precomputedFp ?? computeTreeIssuesGlobalFp(bookRoot, userDataPath)
   const row = db.prepare('SELECT value FROM tree_issues_meta WHERE key = ?').get('global_fp') as
     | { value: string }
     | undefined

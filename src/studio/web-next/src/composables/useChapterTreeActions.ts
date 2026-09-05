@@ -312,7 +312,7 @@ export function useChapterTreeActions(deps: {
     const name = sanitizeName(value)
     if (!name) {
       // R71-30（七十一轮）：文案补 Windows 保留名拒收项（sanitizeName 新增校验段）
-      deps.openError.value = '名称不能为空，或含 / \\ 或以 . 开头，或是 Windows 保留名（CON/NUL/COM1 等）'
+      deps.openError.value = '名称不能为空，或含 / \\ 或以 . 开头/结尾，或以空格结尾，或是 Windows 保留名（CON/NUL/COM1 等）'
       return
     }
     creating.value = null
@@ -330,6 +330,10 @@ export function useChapterTreeActions(deps: {
       const r = await createDoc(book, { relPath, ...(content ? { content } : {}) })
       if (deps.bookName() !== book) return // 已切书：文档已落 A 书，不动 B 界面
       await tree.load(book)
+      // R48-24（四十八轮）：tree.load（大书秒级）的 await 窗口切书 A→B 后，byPath 已是
+      // B 书树——按 A 书路径查找可能命中 B 书同名文件顶开其正开的活动文档。byPath.get
+      // 前补书名复检（doCopy 同步补）
+      if (deps.bookName() !== book) return
       const fresh = tree.byPath.get(r.path)
       if (fresh?.docId) {
         await doc.open(fresh)
@@ -419,9 +423,11 @@ export function useChapterTreeActions(deps: {
     const book = deps.bookName()
     // R44-3（四十四轮）：确认前先落盘脏内容——原链确认→deleteDoc→discard 对
     // autosave 窗口内的脏章直接丢弃内存 entry，「可从回收站恢复」对脏章失实（回收
-    // 站只有最后已保存版本）。先尽力 manual 保存（saving 中由 F8 在途链落定后排队
-    // 续存）；保存失败/冲突未决时换如实文案（conflict 项本就无法自动保存，需作者
-    // 决断重载/覆盖）。
+    // 站只有最后已保存版本）。先尽力保存（saving 中由 F8 在途链落定后排队续存）；
+    // 保存失败/冲突未决时换如实文案（conflict 项本就无法自动保存，需作者决断重载/覆盖）。
+    // R48-88（四十八轮）：内部落盘 origin 改 autosave——手动保存会弹「已保存」toast，
+    // 紧接「确认删除」弹窗语义突兀（这次保存只是删除前置步骤非作者动作）；autosave
+    // 静默落盘，留住 R44-3 的防丢语义不惊扰
     const entry = doc.get(node.docId)
     let unsaved = false
     if (entry && entry.dirty) {
@@ -430,9 +436,12 @@ export function useChapterTreeActions(deps: {
       // 「回收站只保留最后已保存的版本」承诺仍成立）；仅 save 返 false 且 dirty 仍在
       // （真保存失败）才换如实文案。此前无差别按失败处理，排队窗口内的删除确认误报
       // 「未保存的修改将一并丢失」。
+      // R48-88（四十八轮，合并批收编）：内部落盘 origin 用 autosave——manual 会弹
+      // 「已保存」toast，紧接「确认删除」弹窗语义突兀（保存只是删除前置步骤非作者
+      // 动作）；autosave 静默落盘，留住 R44-3 的防丢语义不惊扰。
       unsaved = entry.conflict
         ? true
-        : !(await doc.save(node.docId, 'manual')) && (doc.get(node.docId)?.dirty ?? false)
+        : !(await doc.save(node.docId, 'autosave')) && (doc.get(node.docId)?.dirty ?? false)
     }
     const ok = await ui.ask({
       title: '删除章节',
@@ -509,6 +518,7 @@ export function useChapterTreeActions(deps: {
       const r = await copyDoc(book, node.docId, relPath)
       if (deps.bookName() !== book) return
       await tree.load(book)
+      if (deps.bookName() !== book) return // R48-24：tree.load 窗口切书防御（onCreateCommit 同款注记）
       const fresh = tree.byPath.get(r.path)
       if (fresh?.docId) {
         await doc.open(fresh)

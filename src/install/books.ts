@@ -104,7 +104,9 @@ const booksReadCache = new Map<string, { mtimeNs: bigint; size: bigint; books: B
 /** 读 books.jsonl。写路径专用口径：缺文件 → 空表（新建合法）；读失败（EACCES/
  *  EISDIR 等）→ null——DA-3（第七轮）：写方据此拒绝重写，防「降级空表 × 后续整写」
  *  把其余登记清掉（EACCES 挡 readFileSync 不挡 atomicWriteFile 的 tmp+rename）。
- *  读路径容错请用 readBooks（失败降级空表，书架/resolveBook 不裸抛）。 */
+ *  读路径容错请用 readBooks（失败降级空表，书架/resolveBook 不裸抛）。
+ *  R47-8：stat 指纹缓存命中零读零解析（缓存的 null/[] 结果同口径复用——stat 与
+ *  readFileSync 失败面同族，'-' 签名合并为同一降级出口，语义不变）。 */
 export function readBooksStrict(workDir: string): BookEntry[] | null {
   // R46-11：缓存键含绝对路径（不同形态的 workDir 字符串指向同一文件时同键复用）
   const fp = resolve(workDir, BOOKS_FILE)
@@ -128,6 +130,7 @@ export function readBooksStrict(workDir: string): BookEntry[] | null {
   try {
     text = readFileSync(fp, 'utf-8')
   } catch {
+    cacheBooksSet(fp, sig, null)
     return null
   }
   // R40-25（四十轮）：剥 BOM 前缀——win 记事本「UTF-8 with BOM」保存后首行变
@@ -175,13 +178,22 @@ export function readBooksStrict(workDir: string): BookEntry[] | null {
   return books
 }
 
-/** 读 books.jsonl（容错：缺文件/读失败均返回空；坏行跳过不崩——读路径降级口径）。 */
+/** 读 books.jsonl（容错：缺文件/读失败均返回空；坏行跳过不崩——读路径降级口径）。
+ *  R47-8：经 readBooksStrict 指纹缓存。 */
 export function readBooks(workDir: string): BookEntry[] {
   return readBooksStrict(workDir) ?? []
 }
 
+/** R47-8：books.jsonl 指纹缓存测试钩子（生产零调用；口径同 rebuild.ts __testHooks）。 */
+export const __booksCacheTestHooks = {
+  clear(): void {
+    booksCache.clear()
+  },
+}
+
 /** 全量写 books.jsonl（一行一书）。物理写（无锁）——跨进程互斥由上层 mutator
- *  持 books.lock（R63-2）后调用；直接调用方需自证单写者。 */
+ *  持 books.lock（R63-2）后调用；直接调用方需自证单写者。
+ *  R47-8：写后清指纹缓存（双保险——写必 bump mtime，指纹本会自然失配）。 */
 export function writeBooks(workDir: string, books: BookEntry[]): void {
   // R46-11：解析缓存写前失效——append/remove/repair/改名端点的 books.jsonl 写全部
   // 经本函数落盘，单点失效即全覆盖；放开头保证 mkdir/物理写若抛出不留已失效缓存
@@ -190,6 +202,7 @@ export function writeBooks(workDir: string, books: BookEntry[]): void {
   const fp = join(workDir, BOOKS_FILE)
   const lines = books.map((b) => JSON.stringify(b)).join('\n')
   atomicWriteFile(fp, lines + (lines ? '\n' : ''))
+  booksCache.delete(fp)
 }
 
 /** R63-2（十一轮）：books.jsonl 锁等待超时（毫秒）——可注入缩短保测试快；
@@ -684,7 +697,10 @@ function repairBooksLocked(workDir: string, purgeConfirmedMissing: boolean): Rep
       missing = transient
     }
   }
-  const changed = updated || scanned.length > 0 || relinked.length > 0 || missing.length > 0 || purged.length > 0
+  // R48-60（四十八轮）：missing 不再计入 changed——幽灵条目自愈不自动清除（R35-28），
+  // 仅 missing>0 时 rebuilt 与盘上内容相同，计入 changed 只会每次启动整写相同
+  // books.jsonl（mtime 无谓抖动）；作者提示面（hint）不受影响
+  const changed = updated || scanned.length > 0 || relinked.length > 0 || purged.length > 0
 
   if (changed) {
     writeBooks(workDir, rebuilt)

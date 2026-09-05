@@ -20,6 +20,12 @@ export async function getBookPrefs(name: string): Promise<BookPrefs> {
   return r.prefs
 }
 
+/**
+ * R48-82（四十八轮）备案：书级 prefs 写入不带 expectedRevision（服务端 R36-24 守卫
+ * 契约已在，config/global 两级客户端均已接线）——刻意轻量取舍：书级 prefs 全为低价值
+ * 布局态（面板宽/开合/活动文档），双窗并发时后写者胜可接受，409 冲突链反而打扰；
+ * 若后续 prefs 承载高价值数据需加锁，另立批次接线（服务端零改动）。
+ */
 export async function putBookPrefs(name: string, prefs: BookPrefs): Promise<void> {
   await apiJson<{ ok: true }>(`/api/books/${encodeURIComponent(name)}/prefs`, {
     method: 'PUT',

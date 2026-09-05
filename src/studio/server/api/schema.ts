@@ -30,7 +30,13 @@ export interface RouteContext<I> {
 export interface RouteSchema<I = unknown> {
   method: string
   path: string
-  /** 输入解析器：POST 接 JSON body，GET 接 undefined；抛错 → 400 {code,error}。缺省透传 raw */
+  /**
+   * 输入解析器：POST 接 JSON body，GET 接 undefined；抛错 → 400 {code,error}。
+   * R48-78（四十八轮）如实化（原注「缺省透传 raw」与实现相反）：parse 缺省时**不读
+   * body**，handler 收到的 input 为 undefined——需要 body 的路由必须显式声明 parse
+   * （或 handler 内自行 readJson）。未消费的请求体由 dispatch 侧 finish 排空兜底
+   * （index.ts R64-28：req.resume()，keep-alive 连接不因残留 body 挂死）。
+   */
   parse?: (raw: unknown) => I
   handler: (ctx: RouteContext<I>, req: IncomingMessage, res: ServerResponse) => void | Promise<void>
 }

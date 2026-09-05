@@ -113,10 +113,19 @@ async function generateLeadUpdateDraftInner(
   // R-3（第十六轮）：promptFiles 登记真实注入源——prune 后本章正文 + 细纲（若在）。
   // 「进行中账本」段来自 布线/ 等目录聚合（多文件、按状态过滤），无逐文件实路径，
   // 不虚报登记。铁律：模型可见 ⟺ 已记录。
+  // R48-59（四十八轮）：细纲登记与水源同门禁——prompt 注入的是 readOutlineLeads 的
+  // 产物（声明段），细纲属他章/无声明时内容并未进 prompt，原「文件存在即登记」是
+  // 记录侧反向放宽（登记了不可见文件），promptMeta.files 与实际 prompt 分裂。
   const promptFiles = [relative(bookRoot, hit._path).split(sep).join('/')]
-  if (existsSync(join(bookRoot, '工作区', '细纲.md'))) promptFiles.push('工作区/细纲.md')
+  if (readOutlineLeads(bookRoot, chapter).length > 0 && existsSync(join(bookRoot, '工作区', '细纲.md'))) {
+    promptFiles.push('工作区/细纲.md')
+  }
   // Z-P1-1：signal 桥接进 runSpec——调用方（self-heal/chat）中断时本生成同步中止
-  const out = await runSpec(LEAD_UPDATE_SPEC, { userDataPath, bookRoot, userPrompt: prompt, signal, promptFiles })
+  // R48-26（四十八轮）：chapter 透传进预算闸——原 LEAD_UPDATE_SPEC 路径只进 task 块
+  // 不进 chapter 块（调用点又绕过 checkAiCallBudget），章内红补生成 + pass 后后台草稿
+  // 构成每章 ≤2 次的预算逃逸；对齐 summary.ts generateChapterSummary 的 budgetChapter
+  // 口径（runSpec opts.chapter → runTask chapter 块记账）
+  const out = await runSpec(LEAD_UPDATE_SPEC, { userDataPath, bookRoot, userPrompt: prompt, signal, promptFiles, chapter })
   if (!out.ok) return { ok: false, code: 'failed', error: out.error }
   const text = out.data.text.trim()
   if (!text) return { ok: false, code: 'failed', error: 'AI 产出为空' }

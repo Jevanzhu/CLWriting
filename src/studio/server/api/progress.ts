@@ -56,6 +56,9 @@ export async function computeProgressAsync(
 export function computeBookSummary(bookRoot: string): BookSummary {
   const cached = summaryCache.get(bookRoot)
   if (cached && Date.now() - cached.at < SUMMARY_TTL_MS) return cached.value
+  // R47-18（四十七轮）：过期条目顺手逐出——原只当 miss 用、条目驻留至 FIFO 触顶/
+  // invalidateBookSummary 才清；重算路径本就必走，delete 零成本零语义变更（set 原键覆写）
+  if (cached) summaryCache.delete(bookRoot)
   const value = computeBookSummaryUncached(bookRoot)
   // 简单 FIFO 淘汰（Map 保插入序）：超上限丢最旧条目
   if (summaryCache.size >= SUMMARY_CACHE_MAX) {
@@ -88,6 +91,9 @@ export interface BookSummary {
 export async function computeBookSummaryAsync(bookRoot: string): Promise<BookSummary> {
   const cached = summaryCache.get(bookRoot)
   if (cached && Date.now() - cached.at < SUMMARY_TTL_MS) return cached.value
+  // R47-18（四十七轮）：同同步版——过期条目顺手逐出（重算 await 窗内该键已过期本就
+  // 不可能命中，并发读者各自重算与原行为一致）
+  if (cached) summaryCache.delete(bookRoot)
   const value = await computeBookSummaryUncachedAsync(bookRoot)
   if (summaryCache.size >= SUMMARY_CACHE_MAX) {
     const oldest = summaryCache.keys().next().value

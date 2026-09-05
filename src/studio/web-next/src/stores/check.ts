@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { runCheck, markFalsePositive, type CheckReport, type CheckItem } from '../api/check'
 import { friendlyError } from '../shared/error'
+import { falsePositiveKey as fpKey, falsePositiveKeyPrefix } from '../shared/storage-keys'
 
 /**
  * 机检 store（M12 块3）：当前文档的机检报告。

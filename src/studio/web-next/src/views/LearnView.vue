@@ -8,7 +8,7 @@ import { computed, ref, watch } from 'vue'
 import { GraduationCap, Sparkles, PackageCheck, AlertCircle, Check, X } from 'lucide-vue-next'
 import { useLearnStore } from '../stores/learn'
 import { useTreeStore } from '../stores/tree'
-import { tierOf } from '../shared/learn-tier'
+import { scoreTierStats, tierOf } from '../shared/learn-tier'
 import EmptyState from '../components/ui/EmptyState.vue'
 import SampleCandidateList from '../components/learn/SampleCandidateList.vue'
 import QuoteCardGrid from '../components/learn/QuoteCardGrid.vue'
@@ -23,16 +23,8 @@ const chapterCount = computed(
 )
 
 // ── 打分分布统计 ──
-const scoreStats = computed(() => {
-  let a = 0, b = 0, c = 0
-  for (const s of learn.samples) {
-    const t = tierOf(s.打分)
-    if (t === 'a') a++
-    else if (t === 'b') b++
-    else c++
-  }
-  return { a, b, c, total: learn.samples.length }
-})
+// R48-90（四十八轮）：统计收敛 shared/learn-tier 单源（原与 SampleCandidateList 逐字双实现）
+const scoreStats = computed(() => scoreTierStats(learn.samples))
 
 // 场景覆盖数
 const sceneCount = computed(() => new Set(learn.samples.map((s) => s.场景)).size)

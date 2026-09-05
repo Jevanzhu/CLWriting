@@ -48,9 +48,59 @@ interface OverviewCtx {
 // 落缓存，TTL 内数据已修复的后续请求也被假空态挡住（缓存了「失败」而非「结果」）。
 type StateOutput = { state: number; name: string; detail: DetectedState | { error: string } }
 const stateCache = new Map<string, { result: StateOutput; ts: number }>()
-/** R67-15（十五轮）：删书/改名失效挂点（同 health.ts forgetStyleScanCache 口径）。 */
+
+// ── R47-7（四十七轮）：概览整包短缓存 ──────────────────────────────────────────
+// 同族端点（search/tree-issues/analysis-overview/version-stats/rhythm/foreshadows）
+// 的「目录指纹 + TTL」缓存壳此前唯 overview 漏网（R37-3 注释「缓存归 R37-16 批，
+// 勿在此引入」——该批未落地，本轮收口）：每次开/刷新总览页三路全书扫描（timeline
+// 逐定稿章 statSync + progress 正文目录扫 + recentDoc 再扫正文目录取章号最大），
+// 2000 章 ≈单请求 3 次目录扫 + ~2000 次 stat。口径对齐 rhythm.ts：stat 指纹
+//（book.yaml + 写作/正文 + 项目/文档清单.jsonl + 大纲/卷纲）+ 5s TTL + FIFO 32 +
+// forgetBookKeyedCaches 挂点（复用下方 forgetOverviewCache）。staleness 语义与
+// stateCache 的「概览页 stale 5s 可接受」一致。
+const OVERVIEW_CACHE_TTL_MS = 5000
+const OVERVIEW_CACHE_MAX = 32
+let overviewTtlMs: number | null = null
+/** R47-7：TTL 测试注入口（先例同 __setRhythmCacheTtlForTest）。仅测试用。 */
+export function __setOverviewCacheTtlForTest(ms: number | null): void {
+  overviewTtlMs = ms
+}
+const overviewCache = new Map<string, { result: unknown; ts: number; sig: string }>()
+/** R47-7 回归观测钩子（生产零调用；先例同 __rhythmScanCountForTest）：MISS → 三路重算计数。 */
+let overviewScanCount = 0
+export function __overviewScanCountForTest(): number {
+  return overviewScanCount
+}
+export function __resetOverviewScanCountForTest(): void {
+  overviewScanCount = 0
+}
+
+/** stat 的 size:mtimeMs 签名（缺失 → '-'；先例同 rhythm.ts rhythmSigStatFor）。 */
+function overviewSigStatFor(fp: string): string {
+  try {
+    const st = statSync(fp)
+    return `${st.size}:${st.mtimeMs}`
+  } catch {
+    return '-'
+  }
+}
+
+/** 概览读面指纹：book.yaml（kind/target）+ 写作/正文（timeline/progress/recentDoc）+
+ *  项目/文档清单.jsonl（finalizedPathSet 定稿集）+ 大纲/卷纲（volumes）。 */
+function overviewSignature(bookRoot: string): string {
+  return [
+    overviewSigStatFor(join(bookRoot, 'book.yaml')),
+    overviewSigStatFor(join(bookRoot, '写作', '正文')),
+    overviewSigStatFor(join(bookRoot, '项目', '文档清单.jsonl')),
+    overviewSigStatFor(join(bookRoot, '大纲', '卷纲')),
+  ].join(',')
+}
+
+/** R67-15（十五轮）：删书/改名失效挂点（同 health.ts forgetStyleScanCache 口径）。
+ *  R47-7：整包缓存同挂本函数（books.ts forgetBookKeyedCaches 家族零新挂点）。 */
 export function forgetOverviewCache(bookRoot: string): void {
   stateCache.delete(bookRoot)
+  overviewCache.delete(bookRoot)
 }
 const STATE_CACHE_TTL = 5000
 const STATE_CACHE_MAX = 32
@@ -65,25 +115,44 @@ export function registerOverviewRoutes(ctx: OverviewCtx): void {
     const entry = r.entry
 
     const bookRoot = r.bookRoot
+    // R47-7（四十七轮）：整包指纹+TTL 缓存——命中直接回包跳过三路全书扫描（缓存壳
+    // 注释见上）；过期条目顺手逐出（R47-18 同款）
+    const sig = overviewSignature(bookRoot)
+    const cachedOv = overviewCache.get(bookRoot)
+    const ovTtl = overviewTtlMs ?? OVERVIEW_CACHE_TTL_MS
+    if (cachedOv && cachedOv.sig === sig && Date.now() - cachedOv.ts < ovTtl) {
+      return reply(res, 200, cachedOv.result)
+    }
+    if (cachedOv && Date.now() - cachedOv.ts >= ovTtl) overviewCache.delete(bookRoot)
+    overviewScanCount += 1
     // 总览喂运行时（genre 回显 / target_words 完成度 / volume_size 经状态机）：
     // readBookConfig 结果统一过 applyGlobalDefaults——书级未设回落 global.json → 硬编码
-    const config = applyGlobalDefaults(
-      readBookConfig(join(bookRoot, 'book.yaml')).config,
-      ctx.userDataPath,
-    )
+    // R48-79（四十八轮）：读失败不再静默代答默认身份——此前 book.yaml 损坏/缺失时
+    // kind/genre 按默认值作答装作正常书（books.ts 低-3 已确立「读失败显式报错不代答」
+    // 口径，本处是全库唯一分叉口）；显式 500 可诊断，不落整包缓存（失败不缓存）
+    const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
+    if (!cfgResult.ok) {
+      return replyError(res, 500, 'IO_ERROR', `book.yaml 读取失败：${cfgResult.error.message}`)
+    }
+    const config = applyGlobalDefaults(cfgResult.config, ctx.userDataPath)
     const kind = config.kind === 'short' ? 'short' : 'long'
 
     // 状态机（自包含；失败降级 state:0）。G3：命中短时缓存则跳过全量 rebuild
     const now = Date.now()
     let state: StateOutput
+    // R47-7：state 成功路径标记——降级态（catch state:0）不落整包缓存（R37-19
+    //「不缓存失败」口径对整包内的 state 段同样适用）
+    let stateOk = false
     const cachedState = stateCache.get(bookRoot)
     if (cachedState && now - cachedState.ts < STATE_CACHE_TTL) {
       state = cachedState.result
+      stateOk = true
     } else {
       try {
         // R35-5：detectState 异步化——healMovePending 自愈链的锁等待不再阻塞事件循环
         const detected = await detectState(bookRoot, config)
         state = { state: detected.state, name: STATE_NAMES[detected.state], detail: detected }
+        stateOk = true
         // R37-19（三十七轮）：写缓存收进 try 成功路径——catch 降级态（state:0 + error）
         // 此前同样落缓存，TTL 内数据已修复的后续请求仍拿假空态
         // 简单 FIFO 淘汰（Map 保插入序）：超上限丢最旧条目，防长期运行的书库累积
@@ -110,7 +179,7 @@ export function registerOverviewRoutes(ctx: OverviewCtx): void {
     const { chapters: bodyChapters } = readChapterDir(join(bookRoot, '写作', '正文'))
     const timeline = await computeTimeline(bookRoot, bodyChapters)
     const shortProfile = kind === 'short' ? extractShortProfile(config) : undefined
-    reply(res, 200, {
+    const payload = {
       identity: {
         name: entry.name,
         kind: entry.kind,
@@ -127,7 +196,16 @@ export function registerOverviewRoutes(ctx: OverviewCtx): void {
       recentDoc: getRecentDoc(bookRoot, bodyChapters),
       streak: computeStreak(timeline),
       ...(shortProfile ? { shortProfile } : {}),
-    })
+    }
+    // R47-7：成功态落整包缓存（state 降级不落——R37-19 口径）；FIFO 淘汰同 stateCache
+    if (stateOk) {
+      if (overviewCache.size >= OVERVIEW_CACHE_MAX) {
+        const oldest = overviewCache.keys().next().value
+        if (oldest !== undefined) overviewCache.delete(oldest)
+      }
+      overviewCache.set(bookRoot, { result: payload, ts: Date.now(), sig })
+    }
+    reply(res, 200, payload)
   },
   })
 }

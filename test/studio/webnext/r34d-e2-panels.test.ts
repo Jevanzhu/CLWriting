@@ -264,6 +264,10 @@ describe('R34D-28: FocusStatsBar 切章不起钟 + 空章首笔计入 delta', ()
     doc.docs.set('d9', docEntry('d9', '一二三')) // 加载到位：0→3 是置位非动笔
     await nextTick()
     await nextTick()
+    // R47-3（四十七轮）：基线快照直读现算（置位当拍即锁 3），防抖 words 稳定窗口后
+    // 跳到同值——按置位跳变跳过，delta 归 0、钟不起
+    await new Promise((r) => setTimeout(r, 170))
+    await nextTick()
     expect(w.text()).toContain('+0 字')
     expect(w.text()).not.toContain('字/分')
     w.unmount()

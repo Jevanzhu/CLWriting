@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch, onUnmounted } from 'vue'
+import { computed, ref, watch, onBeforeUnmount, onUnmounted } from 'vue'
 import Ribbon from './Ribbon.vue'
 import SidebarLeft from './SidebarLeft.vue'
 import SidebarRight from './SidebarRight.vue'
@@ -68,12 +68,39 @@ const dockChapter = computed(() => {
 
 /** 拖拽调整左栏宽度（最小 180px 由 store setLeftWidth 兜底） */
 const leftDragging = ref(false)
-/** 右边缘 4px 热区：mousemove 切换 col-resize 光标，mousedown 启动拖拽 */
+// PM-9（性能与内存专项 2026-09-05）：右缘 4px 热区光标——原 mousemove 每事件
+// getBoundingClientRect() 强制同步布局（144Hz 鼠标 ≈ 144 次 reflow/秒）。改为缓存
+// rect：首次 mousemove 惰性读一次；失效时机 = window resize、scroll（capture 才能接住
+// .ws-view 等不冒泡的后代滚动容器）、mouseenter 重进（覆盖折叠/拖宽后宽度过渡不触发
+// resize/scroll 的场景）、拖拽结束 onUp。光标写入经 rAF 同帧合并取最后一次（值不变
+// 不写），绘制时机与同步写一致，交互/视觉逐位不变。
+let leftRect: DOMRect | null = null
+let leftCursorRaf = 0
+let leftCursorApplied = ''
+function invalidateLeftRect(): void {
+  leftRect = null
+}
+/** 右边缘 4px 热区：mousemove 切换 col-resize 光标（rect 走缓存 + rAF 合并），mousedown 启动拖拽 */
+function onLeftMouseEnter(): void {
+  invalidateLeftRect()
+}
 function onLeftMouseMove(e: MouseEvent): void {
   if (!leftVisible.value) return
   const el = e.currentTarget as HTMLElement
-  el.style.cursor = e.clientX >= el.getBoundingClientRect().right - 4 ? 'col-resize' : ''
+  if (!leftRect) leftRect = el.getBoundingClientRect()
+  const cursor = e.clientX >= leftRect.right - 4 ? 'col-resize' : ''
+  if (cursor === leftCursorApplied) return // 值不变不写，避免每事件重复样式失效
+  leftCursorApplied = cursor
+  if (leftCursorRaf) cancelAnimationFrame(leftCursorRaf) // 同帧合并：只保留最后一次判定
+  leftCursorRaf = requestAnimationFrame(() => {
+    leftCursorRaf = 0
+    el.style.cursor = cursor
+  })
 }
+// PM-9：rect 失效监听随外壳建立（passive 只读不阻塞滚动），卸载时成对移除
+window.addEventListener('resize', invalidateLeftRect, { passive: true })
+// capture：scroll 不冒泡，capture 才能接住 .ws-view 等后代滚动容器的滚动
+window.addEventListener('scroll', invalidateLeftRect, { capture: true, passive: true })
 function onLeftMouseDown(e: MouseEvent): void {
   if (!leftVisible.value) return
   const el = e.currentTarget as HTMLElement
@@ -96,6 +123,7 @@ function startResizeLeft(e: MouseEvent): void {
     document.body.style.cursor = ''
     document.body.style.userSelect = ''
     leftDragging.value = false
+    invalidateLeftRect() // PM-9：拖宽后 rect 已变，失效待下次 mousemove 重读
     resizeCleanup = null
   }
   document.addEventListener('mousemove', onMove)
@@ -116,6 +144,16 @@ onUnmounted(() => {
   resizeCleanup?.()
   stopFsWatch()
 })
+
+// PM-9：rect 失效监听与挂起 rAF 随卸载清理（window 级监听不随组件卸载自动移除）
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', invalidateLeftRect)
+  window.removeEventListener('scroll', invalidateLeftRect, true)
+  if (leftCursorRaf) {
+    cancelAnimationFrame(leftCursorRaf)
+    leftCursorRaf = 0
+  }
+})
 </script>
 
 <template>
@@ -128,6 +166,7 @@ onUnmounted(() => {
         :style="{ '--left-width': ws.leftWidth + 'px' }"
         @mousedown="onLeftMouseDown"
         @mousemove="onLeftMouseMove"
+        @mouseenter="onLeftMouseEnter"
       >
         <SidebarLeft :book-name="bookName" />
       </div>

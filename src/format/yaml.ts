@@ -506,7 +506,10 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
       if (v !== undefined) ragEnabled = v
       else warnBadBool('rag.enabled', en.value)
     }
-    if (en || pv || ep || md || (Number.isInteger(depth) && depth > 0)) cfg.rag = {
+    // R48-7（四十八轮）：触发条件补 embed_timeout_ms——手写 rag 段仅含该键时此前
+    // 整段不建、超时静默丢失回落 embed.ts 缺省，作者写了的配置无声失效（与 depth
+    // 同口径：正整数才收）
+    if (en || pv || ep || md || (Number.isInteger(depth) && depth > 0) || (Number.isInteger(embedTimeout) && embedTimeout > 0)) cfg.rag = {
       enabled: ragEnabled,
       ...(pv ? { provider: String(parseValue(pv.value)) } : {}),
       ...(ep ? { endpoint: String(parseValue(ep.value)) } : {}),

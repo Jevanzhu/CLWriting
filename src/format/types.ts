@@ -56,6 +56,8 @@ export interface Lead {
   _bodyBeforeHistory?: string
   /** 履历段之后的人工正文（备注/关联线索等，dd-P2：回写时保留——此前被静默删除） */
   _bodyAfterHistory?: string
+  /** 「## 履历」标题与首条条目之间的手写散文（R48-8：回写时原位还原——此前三路都不接住、回写即物理删除） */
+  _historyPreamble?: string
   /** 源 md 的 front matter 字段顺序（回写保序用，#3 第 8 节"不重排已有字段顺序"） */
   _fmOrder?: string[]
   /** 源 md 路径（重建时回填，非 front matter 字段） */

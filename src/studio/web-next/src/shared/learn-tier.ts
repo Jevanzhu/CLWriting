@@ -11,3 +11,23 @@ export function tierOf(score: number): 'a' | 'b' | 'c' {
   if (score >= TIER_B) return 'b'
   return 'c'
 }
+
+/** R48-90（四十八轮）：打分分布统计单源——原 LearnView（概览分布条）与
+ *  SampleCandidateList（头部统计）逐字双实现收编；档位口径随 tierOf 单源走。 */
+export function scoreTierStats(samples: readonly { 打分: number }[]): {
+  a: number
+  b: number
+  c: number
+  total: number
+} {
+  let a = 0
+  let b = 0
+  let c = 0
+  for (const s of samples) {
+    const t = tierOf(s.打分)
+    if (t === 'a') a++
+    else if (t === 'b') b++
+    else c++
+  }
+  return { a, b, c, total: samples.length }
+}

@@ -159,10 +159,13 @@ async function switchTo(path: string): Promise<void> {
   height: var(--size-tabbar);
   flex-shrink: 0;
 }
+/* R33-14（三十三轮）：win 拖拽区（is-drag = 桌面壳整条可拖；同 Shelf/Library 注）。
+   R48-87（四十八轮）：原「win 拖拽区」注错挂在下方 has-traffic（mac 交通灯态）选择器
+   上——Library/Shelf 同结构注释均在 is-drag 侧，随批归属更正 */
 .welcome.is-drag .welcome-titlebar {
   -webkit-app-region: drag;
 }
-/* R33-14（三十三轮）：win 拖拽区（同 Shelf.vue 注） */
+/* has-traffic = mac 交通灯态：红绿灯占位下 titlebar 保持可拖 */
 .welcome.has-traffic .welcome-titlebar {
   -webkit-app-region: drag;
 }

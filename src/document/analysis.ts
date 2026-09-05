@@ -193,16 +193,21 @@ function writeAnalysisLocked(fp: string, bookRoot: string, docId: string, kind: 
     const candidates = analysisPathCandidates(bookRoot, docId) ?? []
     // overlay 合并基：按候选序依次叠加（后读的编码文件键覆盖字面旧键）
     let raw: Record<string, unknown> = {}
+    // R48-49（四十八轮）：单候选常态（迁移收口后 candidates=[fp]）已在循环内读完，
+    // 下方不再整读+解析同一路径第二遍（fpConsumed 标记）；多候选/循环内读失败仍走
+    // 下方兜底读，语义不变。
+    let fpConsumed = false
     for (const cp of candidates) {
       if (cp === fp && candidates.length > 1) continue // 编码位在下方统一处理
       if (!existsSync(cp)) continue
       try {
         raw = { ...raw, ...(JSON.parse(readFileSync(cp, 'utf-8')) as Record<string, unknown>) }
+        if (cp === fp) fpConsumed = true
       } catch {
         // 本候选损坏 → 跳过（其他候选仍可作基；全损则重建）
       }
     }
-    if (existsSync(fp)) {
+    if (!fpConsumed && existsSync(fp)) {
       try {
         raw = { ...raw, ...(JSON.parse(readFileSync(fp, 'utf-8')) as Record<string, unknown>) }
       } catch {

@@ -19,8 +19,9 @@ import { canonicalizeText } from '../fs/text-canonical.js'
 import { platformCaseFold } from '../fs/safe-path.js'
 import { join } from 'node:path'
 // R42-11（四十二轮）：readLead 不再直接调用（改单读派生孪生 readLeadFromBytes，见下）；
-// parseHistory/ATX_HEADING_RE/headingEndsSection 为该孪生的同源解析件（leads.ts 导出）
-import { readLeadDir, writeLead, LEAD_TYPES, LEAD_VERBS, parseHistory, ATX_HEADING_RE, headingEndsSection } from '../format/leads.js'
+// parseHistoryWithPreamble/ATX_HEADING_RE/headingEndsSection 为该孪生的同源解析件
+// （leads.ts 导出；R48-8 改带 preamble 收集版，parseHistory 薄包装仍导出供旧调用方）
+import { readLeadDir, writeLead, LEAD_TYPES, LEAD_VERBS, parseHistoryWithPreamble, ATX_HEADING_RE, headingEndsSection } from '../format/leads.js'
 import { readFile, parseFlat } from '../format/frontmatter.js'
 import type { Lead, LeadType, ParseError } from '../format/types.js'
 import { acquireCrossProcessLockWithTimeout, acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
@@ -458,15 +459,18 @@ function readLeadFromBytes(
   // R75-2 同源：非有限数按「未写」处理，回落默认 0
   const 开启章Num = Number(map.get('开启章'))
 
+  // R48-8（四十八轮）：孪生读侧同收履历前散文（与 readLead 同口径，存在才带字段）
+  const hist = parseHistoryWithPreamble(r.body)
   const lead: Lead = {
     编号,
     标题: String(map.get('标题') ?? ''),
     类型: (map.get('类型') as LeadType) ?? '悬念',
     状态: (map.get('状态') as Lead['状态']) ?? '进行中',
     开启章: Number.isFinite(开启章Num) ? 开启章Num : 0,
-    履历: parseHistory(r.body),
+    履历: hist.entries,
     _bodyBeforeHistory: leadBodyBeforeHistory(r.body),
     _bodyAfterHistory: leadBodyAfterHistory(r.body),
+    ...(hist.preamble ? { _historyPreamble: hist.preamble } : {}),
     ...(Object.keys(_raw).length > 0 ? { _raw } : {}),
     _fmOrder: [...map.keys()],
     _path: filePath,

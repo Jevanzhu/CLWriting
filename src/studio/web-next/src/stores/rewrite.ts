@@ -78,7 +78,9 @@ export const useRewriteStore = defineStore('rewrite', () => {
       return false
     }
     void reportAiVersion(name, docId, r.rewritten).catch(() => {})
-    doc.patch(docId, mergeFm(e.content, r.rewritten))
+    // R48-22（四十八轮）：改写稿接入不剥前导空行（doc.refresh/EditorView 同款
+    // stripLeading:false——前导空行是排版的一部分，合并时不得静默剥除）
+    doc.patch(docId, mergeFm(e.content, r.rewritten, { stripLeading: false }))
     result.value = null
     return true
   }

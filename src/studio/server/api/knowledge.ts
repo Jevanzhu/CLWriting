@@ -75,6 +75,10 @@ export function registerKnowledgeRoutes(ctx: KnowledgeCtx): void {
       if (cached && now - cached.ts < (learnTtlMs ?? LEARN_CACHE_TTL)) {
         result = cached.result // R66-28：TTL 命中跳过全书重扫
       } else {
+        // R47-18（四十七轮）：过期条目顺手逐出——原只当 miss 用、条目驻留至 FIFO 触顶/
+        // 删书（forgetLearnCache）；重算路径本就必走，delete 零成本零语义变更（成功路径
+        // set 原键覆写；失败不落缓存，过期死条目不再占 FIFO 位）
+        if (cached) learnCache.delete(r.bookRoot)
         result = await learnFromBook(r.bookRoot)
         // 只缓存成功结果——失败（无定稿正文/解析失败）多为输入问题，重试应现算
         if (result.ok) {

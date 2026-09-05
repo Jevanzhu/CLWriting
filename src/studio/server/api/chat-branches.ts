@@ -25,6 +25,8 @@ export function buildBranchesView(
   store: SessionStore,
   bookName: string,
 ): { branches: BranchInfo[]; activeBranchId: string | null } {
+  // PM-10（2026-09-05 性能专项）核查：分支树须由全部消息事件构建（兄弟组/祖先链/最新组
+  // 判定都是全量结构语义），缺任一事件即错组错链——全量语义必需，不走尾读
   const tree = buildBranchTree(store.listEvents(bookName))
   return { branches: listBranches(tree), activeBranchId: defaultBranchId(tree) }
 }

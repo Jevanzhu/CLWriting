@@ -29,6 +29,10 @@ test('httpStatusToCode: 状态码 → 错误码全表', () => {
     // 短语级正例补充：context window / token limit 变体仍归超窗
     [400, 'request exceeds the context window limit', 'CONTEXT_WINDOW_EXCEEDED'],
     [400, 'maximum token limit reached', 'CONTEXT_WINDOW_EXCEEDED'],
+    // R48-34（四十八轮）：裸 "too long" 收紧——请求组装类 400 不再误归超窗
+    [400, 'stop sequence too long', 'BAD_REQUEST'],
+    [400, 'name too long', 'BAD_REQUEST'],
+    [400, 'input too long: 300000 tokens', 'CONTEXT_WINDOW_EXCEEDED'],
     [undefined, '', 'UNKNOWN'],
   ]
   for (const [status, msg, want] of cases) {

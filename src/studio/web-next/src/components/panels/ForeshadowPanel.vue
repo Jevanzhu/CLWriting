@@ -111,8 +111,13 @@ async function create(): Promise<void> {
   try {
     const r = await createDoc(book, { relPath: `设定/伏笔/${name}.md` })
     if (props.bookName !== book || doc.bookName !== book) return // 已切书：放弃后续写操作
-    await tree.load(props.bookName)
+    // R48-24（四十八轮）：书名守卫原只护第一个 await——tree.load（大书秒级）/load 的
+    // await 窗口切书后，byPath 已是新书树，按旧书路径查找可能命中同名文件顶开 B 书
+    // 正开的活动文档。tree.load/load 之后、byPath.get 之前各补一次复检
+    await tree.load(book)
+    if (props.bookName !== book || doc.bookName !== book) return // R48-24：已切书放弃
     await load()
+    if (props.bookName !== book || doc.bookName !== book) return // R48-24：同上
     const fresh = tree.byPath.get(r.path)
     if (fresh?.docId) {
       await doc.open(fresh)

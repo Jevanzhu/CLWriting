@@ -62,6 +62,8 @@ export function prepareChatRun(
   if (opts.regenerate && store) {
     // F1-P4：重新生成——总是从事件重建到触发 user（parentSeq）为止（不依赖内存历史，
     // 内存可能含旧分支或被截断的历史），沿分支路径
+    // PM-10（2026-09-05 性能专项）核查：selectBranchTo 需全量事件定祖先链可达性（parentSeq
+    // 可指向任意早期 seq），截尾会断链——全量语义必需，不走尾读
     const restored = loadHistoryWithSeqs(selectBranchTo(store.listEvents(opts.bookName), opts.regenerate.parentSeq))
     history.length = 0
     history.push(...restored.msgs)
@@ -70,6 +72,8 @@ export function prepareChatRun(
   } else if (store && history.length === 0) {
     // Z-P1-2：恢复走默认分支投影（最新变体组 + 线性兜底），与 GET /chat/history 视图同口径——
     // 全量投影会把兄弟变体顺序堆进模型上下文（regenerate 过的书重启后答非所问）
+    // PM-10（2026-09-05 性能专项）核查：默认分支判定（最新变体组）与线性兜底都是全量结构
+    // 语义，截尾会错选变体组/丢线性续聊——全量语义必需，不走尾读
     const restored = loadHistoryWithSeqs(selectBranch(store.listEvents(opts.bookName)))
     if (restored.msgs.length > 0) {
       history.push(...restored.msgs)

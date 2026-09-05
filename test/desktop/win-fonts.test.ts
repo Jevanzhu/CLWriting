@@ -6,12 +6,19 @@
  * 本测试对修复面（spawn 直起 + windowsHide: true + 数组参数）与解析面逐项断言。
  * 平台/spawn 均注入，不依赖真 win 环境（win 实机闪窗形态复验挂账，报告 §九）。
  */
-import { describe, expect, it, vi, afterEach } from 'vitest'
+import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { listWindowsFonts, type FontSpawn, type FontSpawnChild } from '../../src/desktop/win-fonts.js'
+import { __resetFontListBreakerForTest } from '../../src/desktop/font-cache.js'
+
+// R48-74（四十八轮）：listWindowsFonts 内部套进程级会话熔断（font-cache 模块级失败
+// 计数跨用例累积，阈值 2）——用例间清零并还原阈值档，失败类用例不污染后续用例。
+beforeEach(() => {
+  __resetFontListBreakerForTest()
+})
 
 interface FakeChild extends FontSpawnChild {
   emitClose(code: number | null): void
@@ -171,5 +178,38 @@ describe('R39-2/R39-5（三十九轮）：整流解码 + 超时兜底', () => {
     const promise = listWindowsFonts({ platform: 'win32', spawnImpl: () => child, timeoutMs: 25 })
     await expect(promise).rejects.toThrow(/25ms 未退出/)
     expect(killed).toBe(1)
+  })
+})
+
+// R48-74（四十八轮）：win 枚举套进程级会话熔断——PS 挂死连败达阈值后秒降级，不再
+// 每次重开下拉等满 10s（与 mac/linux 熔断面对齐）；自身超时 kill 行为不变。
+describe('R48-74：win 枚举套进程级会话熔断', () => {
+  it('连败 2 次达阈值 → 第三次调用秒拒熔断错（spawn 不再被触达）', async () => {
+    await expect(run('', { code: 1 }).promise).rejects.toThrow(/退出码 1/)
+    await expect(run('', { code: 1 }).promise).rejects.toThrow(/退出码 1/)
+    // 熔断态在 spawn 之前即拒：run 假件（同步 emitClose 流程）不适用，用计数 spawn 直证
+    let spawnCount = 0
+    const promise = listWindowsFonts({
+      platform: 'win32',
+      spawnImpl: () => {
+        spawnCount++
+        return makeFakeChild()
+      },
+    })
+    await expect(promise).rejects.toThrow(/连续失败 2 次.*熔断/)
+    expect(spawnCount).toBe(0)
+  })
+
+  it('成功清零计数——失败→成功→失败序列逐次真探（偶发失败不累积成熔断）', async () => {
+    await expect(run('', { code: 1 }).promise).rejects.toThrow(/退出码 1/)
+    await expect(run('Arial\n').promise).resolves.toEqual(['Arial'])
+    await expect(run('', { code: 1 }).promise).rejects.toThrow(/退出码 1/)
+  })
+
+  it('平台守卫抛错不消耗熔断计数（守卫在熔断判断之外）', async () => {
+    await expect(listWindowsFonts({ platform: 'darwin' })).rejects.toThrow('只服务 win32')
+    await expect(listWindowsFonts({ platform: 'darwin' })).rejects.toThrow('只服务 win32')
+    // 两次守卫抛错后计数仍为 0：真实失败一次即报原始错误（非熔断错）
+    await expect(run('', { code: 1 }).promise).rejects.toThrow(/退出码 1/)
   })
 })

@@ -26,6 +26,15 @@ const MIME: Record<string, string> = {
   '.map': 'application/json; charset=utf-8',
 }
 
+// R47-21（四十七轮）：SPA fallback 的 index.html 进程内单槽短缓存——此前每个 fallback
+// 请求都 readFile 整读入口页（前端路由深链/刷新常态走 fallback，多窗口高频热路径）。
+// TTL 5000ms：命中直接回缓存 Buffer 零读盘，过期/首读刷新读盘。staleness 口径：dev
+// 构建重建后 ≤5s 可见（与 api 层书键 TTL 缓存族同档可接受窗）；响应头逐字不变
+//（cache-control 仍 no-cache——浏览器照常回源验证，这里只省同进程重复读盘）。槽按
+// 入口绝对路径比对（不同 rootDir 实例/测试间不串页）；读失败（未构建等）不回填缓存。
+const SPA_INDEX_TTL_MS = 5000
+let spaIndexCache: { path: string; data: Buffer; ts: number } | null = null
+
 /** 创建静态托管 handler：rootDir 为前端 dist 绝对路径 */
 export function createStaticHandler(rootDir: string) {
   const root = normalize(rootDir)
@@ -175,8 +184,18 @@ export function createStaticHandler(rootDir: string) {
         return
       }
       // SPA fallback：非文件路径回 index.html（前端路由接管；B-21：HEAD 同口径补长度不发 body）
+      // R47-21：index.html 走单槽短缓存（见文件头 spaIndexCache 注释）——TTL 内零读盘
       try {
-        const data = await readFile(join(root, 'index.html'))
+        const indexPath = join(root, 'index.html')
+        const slot = spaIndexCache
+        let data: Buffer
+        if (slot && slot.path === indexPath && Date.now() - slot.ts < SPA_INDEX_TTL_MS) {
+          data = slot.data // 命中：同实例 Buffer 复用，零读盘
+        } else {
+          data = await readFile(indexPath)
+          // ts 记读完成当刻（R42-16 口径——异步读跨 tick，出生即折旧会白吃 TTL 窗）
+          spaIndexCache = { path: indexPath, data, ts: Date.now() }
+        }
         res.writeHead(200, {
           'content-type': 'text/html; charset=utf-8',
           // R30-23（三十轮）：SPA fallback 分支同加 nosniff（所有静态响应头统一处）

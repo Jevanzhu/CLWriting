@@ -69,6 +69,10 @@ export function registerStateRoutes(ctx: StateCtx): void {
       reply(res, 200, cached.payload)
       return
     }
+    // R47-18（四十七轮）：过期条目顺手逐出——原只当 miss 用、条目驻留至 FIFO 触顶/删书
+    //（forgetStateCache）；重算路径本就必走，delete 零成本零语义变更（下方成功路径 set
+    // 原键覆写；失败 500 路径不落缓存，过期死条目不再占 FIFO 位）
+    if (cached) stateCache.delete(bookRoot)
     try {
       // GG-P2-5：enter() 的等价展开（见文件头注释），差异仅在读出的 config 过
       // applyGlobalDefaults——态 5 卷末判定（currentChapter % volume_size）与 recap

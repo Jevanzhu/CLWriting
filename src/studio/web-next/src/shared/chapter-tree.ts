@@ -18,10 +18,15 @@ const WINDOWS_RESERVED_NAMES = new Set([
 /** 名称校验（原 FileTree.sanitizeName）：空/含路径分隔符/点开头/控制字符 → null。
  *  R71-30（七十一轮）：补 Windows 保留设备名拒收——书库目录可被 Windows 端同步/打开，
  *  保留名文件在 Win 不可建，落盘后跨端同步即失败；匹配主文件名（首个点前段，
- *  与 Win 实际语义对齐）：CON.md / Com1.tar.md 的主文件名均命中。 */
+ *  与 Win 实际语义对齐）：CON.md / Com1.tar.md 的主文件名均命中。
+ *  R48-81（四十八轮）：补尾随点/空格拒收——Win 文件/目录名不得以 . 或空格结尾
+ *  （创建时被系统静默剥除或直接失败），「新建卷」目录名跨端同步到 Win 失败（R71-30
+ *  同风险面漏项）。空格侧：上方 trim 已剥 ASCII 尾随空格（即输入容错），本行实际
+ *  拦「点结尾」；文案一并提示两种形态。 */
 export function sanitizeName(value: string): string | null {
   const v = value.trim()
   if (!v || /[\/\\]/.test(v) || v.startsWith('.') || /[\x00-\x1f]/.test(v)) return null
+  if (/[. ]$/.test(v)) return null
   // R71-30：保留名比对主文件名段（con.tar.md 的主文件名是 con），小写比对大小写不敏感
   const stem = v.split('.')[0]!.toLowerCase()
   if (WINDOWS_RESERVED_NAMES.has(stem)) return null

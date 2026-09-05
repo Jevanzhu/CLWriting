@@ -65,9 +65,85 @@ function wiringFingerprint(dir: string): string | null {
  * 扫描 布线/ 全部 md 账本的 front matter，收集 leak_keywords 数组值（去重、去空）。
  * fm 解析容错：坏文件/无 fm 跳过（派生是增强，不做故障源）。
  * 简单 YAML 单行数组（`leak_keywords: [甲, 乙]`）与逐行列表（`- 甲`）都收。
+ *
+ * R47-26（四十七轮）：进程级指纹缓存——runAllChecks 每章在入参/书级都没给
+ * leak_keywords 时都会调到本函数（runner.ts 三级供给的末级），此前每次调用都
+ * 全量重扫 布线/（递归 walk + 每文件 readFileSync 解析 fm），数百章书一次树
+ * 红点聚合是 O(章数×布线文件数) 的重复 IO。套用 readIronRules 的 R73-31
+ * （二十一轮）范式：(mtimeNs,size) bigint 指纹 + 目录 stat 摘要 + FIFO 上限
+ * ——结果只随布线 md 文件集变化，指纹失配自动重算；命中返回拷贝防调用方
+ * mutate 污染缓存（R27-27 口径）。
  */
 export function deriveLeakKeywords(bookRoot: string): string[] {
   const wiringDir = join(bookRoot, '布线')
+  const fp = wiringDirFp(wiringDir)
+  const hit = leakKeywordsCache.get(bookRoot)
+  if (hit && hit.fp === fp) return [...hit.keywords]
+  const keywords = scanLeakKeywords(wiringDir)
+  leakKeywordsCache.set(bookRoot, { fp, keywords })
+  // 容量纪律（R73-31 同款）：超上限 FIFO 修剪最旧书目录（Map 插入序）
+  while (leakKeywordsCache.size > LEAK_KEYWORDS_CACHE_MAX) {
+    const oldest = leakKeywordsCache.keys().next().value
+    if (oldest === undefined) break
+    leakKeywordsCache.delete(oldest)
+  }
+  return [...keywords]
+}
+
+/** R47-26：deriveLeakKeywords 进程级指纹缓存（bookRoot → 条目）。容量对齐
+ *  ironRulesCache 的 64 书目录纪律（R70-21/R73-31 同款）；指纹见 wiringDirFp。 */
+const LEAK_KEYWORDS_CACHE_MAX = 64
+const leakKeywordsCache = new Map<string, { fp: string; keywords: string[] }>()
+
+/**
+ * R47-26：布线目录树 stat 指纹 "count:size:maxMtimeNs:相对路径FNV"（递归 md 文件，
+ * 跳过 ._ 资源文件——与扫描面一致）。派生输出只由「全部 md 文件的 fm 内容」决定
+ * （文件名不入输出），但路径入 hash 对齐 tree-issues dirFp 口径（改名会多一次
+ * 重算，过度失效方向安全）；.md → 非 md 改名动 count（该文件本就移出扫描面）。
+ * 目录未装 = 'absent'（确定性空结果，仍缓存——ironRulesFp 同款）。指纹与实际
+ * 扫描之间的竞态（TOCTOU）由下轮指纹自然变化自愈，方向安全。
+ */
+function wiringDirFp(dir: string): string {
+  if (!existsSync(dir)) return 'absent'
+  let count = 0
+  let size = 0n
+  let maxMtime = 0n
+  let nameHash = 0x811c9dc5
+  const walk = (d: string, prefix: string): void => {
+    let entries
+    try {
+      entries = readdirSync(d, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const e of entries) {
+      if (e.name.startsWith('._')) continue
+      const fp = join(d, e.name)
+      if (e.isDirectory()) walk(fp, `${prefix}${e.name}/`)
+      else if (e.isFile() && isMdFileName(e.name)) {
+        try {
+          const st = statSync(fp, { bigint: true })
+          count++
+          size += st.size
+          if (st.mtimeNs > maxMtime) maxMtime = st.mtimeNs
+          const rel = `${prefix}${e.name}`
+          for (let i = 0; i < rel.length; i++) {
+            nameHash ^= rel.charCodeAt(i)
+            nameHash = Math.imul(nameHash, 0x01000193) >>> 0
+          }
+        } catch {
+          /* 竞态消失：下轮指纹自然变化 */
+        }
+      }
+    }
+  }
+  walk(dir, '')
+  return `${count}:${size}:${maxMtime}:${nameHash.toString(16)}`
+}
+
+/** R47-26：原扫描实现（逐字保留——坏文件/无 fm 跳过的降级语义不变），仅从
+ *  deriveLeakKeywords 拆出供 miss 路径调用。 */
+function scanLeakKeywords(wiringDir: string): string[] {
   if (!existsSync(wiringDir)) return []
   // R46-10：指纹命中直接回缓存结果（调用方拿到的是共享数组——机检消费面只读比对，
   // 无 mutate 面；保持共享零拷贝）

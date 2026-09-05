@@ -66,8 +66,18 @@ export function localIsoTimestamp(ms: number = Date.now(), offsetMinutes: number
 /** 扫语料回归域（<corpusDir>/*.json）：汇总各 checkId 的误报规律。无 silent 条目的 checkId 不出段。 */
 export function summarizeFalsePositives(corpusDir: string): FalsePositiveSummary[] {
   if (!existsSync(corpusDir)) return []
+  // R48-42（四十八轮）：目录 TOCTOU/权限容错——existsSync 与 readdirSync 之间目录被
+  // 瞬删或权限错误时降级返回 []（对齐 run.ts 归档目录降级口径：「坏文件跳过」的既有
+  // 口径同样适用于坏目录；update 是产草稿不是门禁，不因目录炸整轮）
+  let names: string[]
+  try {
+    names = readdirSync(corpusDir).filter((n) => n.endsWith('.json'))
+  } catch (e) {
+    log.warn('knowledge', `语料回归域目录读取失败，误报汇总跳过（产草稿非门禁）：${corpusDir}：${e instanceof Error ? e.message : String(e)}`)
+    return []
+  }
   const out: FalsePositiveSummary[] = []
-  for (const f of readdirSync(corpusDir).filter((n) => n.endsWith('.json')).sort()) {
+  for (const f of names.sort()) {
     const checkId = f.slice(0, -'.json'.length)
     let entries: CorpusEntry[]
     try {
@@ -216,7 +226,17 @@ function commitKnowledgeFileLocked(projectRoot: string, opts: CommitKnowledgeOpt
   // 写失败会留下「文件已注入 fm、manifest 无条目」的跨文件不一致窗口。两难评估：
   // manifest 先写不可行（sha256 须在注入后实算，先写必错哈希），故选错误面小的
   // 「注入后失败回滚 fm」——回滚后文件与 manifest 同回旧态，两文件保持一致。
-  const originalText = readFileSync(filePath, 'utf8')
+  // R48-39（四十八轮）：读失败（existsSync 后瞬删/权限）包信封返回——原裸抛穿透
+  // KnowledgeManifestReport 契约（调用方拿到的是未声明异常而非 {ok:false} 报告）
+  let originalText: string
+  try {
+    originalText = readFileSync(filePath, 'utf8')
+  } catch (e) {
+    return {
+      ok: false,
+      issues: [{ path: opts.target, message: `定稿文件读取失败（可能已被移动或删除）：${e instanceof Error ? e.message : String(e)}` }],
+    }
+  }
   injectFrontMatterKeys(filePath, { source, license })
 
   const entry: KnowledgeManifestEntry = {

@@ -9,6 +9,7 @@
  * 纯函数，不依赖 DB——单测直接喂事件数组。
  */
 import type { ChatEvent, GoalSnapshot, Todo } from './types.js'
+import { log } from '../log/index.js'
 
 /** goal/change 事件载荷的轻量读取（避免依赖 ChatEvent 泛型字段） */
 interface GoalChangePayload {
@@ -96,7 +97,14 @@ export function foldTodos(events: ChatEvent[]): Todo[] {
     if (ev.type !== 'todo/write') continue
     const d = ev.data as TodoWritePayload
     if (!Array.isArray(d['todos'])) continue
-    todos = d['todos'].map(asTodo).filter((t): t is Todo => t !== null)
+    const folded = d['todos'].map(asTodo).filter((t): t is Todo => t !== null)
+    // R48-62（四十八轮）：全脏载荷不覆盖——非空载荷折出空表与「显式清空」不可区分，
+    // 审计会误读为作者清空清单；warn 留痕后保留上一快照（部分脏仍按合法项收敛，不变）
+    if (d['todos'].length > 0 && folded.length === 0) {
+      log.warn('goal-state', `todo/write 载荷 ${d['todos'].length} 项全部无法解析，保留上一快照（不当作显式清空）`)
+      continue
+    }
+    todos = folded
   }
   return todos
 }

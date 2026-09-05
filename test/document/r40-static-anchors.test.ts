@@ -24,7 +24,12 @@ describe('R40 静态锚：document/export', () => {
   it('R40-20：executeSave 用 computeRevisionBytes 从写入字节派生新 revision', () => {
     const src = read('document', 'service.ts')
     expect(src).toMatch(/R40-20（四十轮）：单写派生/)
-    expect(src).toMatch(/computeRevisionBytes\(\s*typeof content === 'string'/)
+    // PM-4（性能与内存专项·2026-09-05）：单次 Buffer 化（contentBytes）与写盘共用同一份
+    // 字节——锚从「内联 typeof content 三元」改挂新形，意图不变：新 rev 派生自写入字节
+    // 而非写后重读盘。
+    expect(src).toMatch(/const contentBytes = typeof content === 'string' \? Buffer\.from\(content, 'utf-8'\) : content/)
+    expect(src).toMatch(/const newRev = computeRevisionBytes\(contentBytes\)/)
+    expect(src).not.toMatch(/computeRevisionBytes\(\s*typeof content === 'string'/)
   })
 
   it('R40-24：save 新建分支 PATH_ESCAPE 闸在位', () => {

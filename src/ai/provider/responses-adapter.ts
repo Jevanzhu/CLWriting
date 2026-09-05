@@ -481,10 +481,9 @@ export function createOpenAIResponsesProvider(
               }
             }
 
-            // 循环后兜底改写（R1 缺口 3）：toolAccum 残留 flush 保留（有 delta 无
-            // output_item.done 的截断场景，有 name 才构成完整调用）；删除「无 completed
+            // 循环后兜底改写（R1 缺口 3，R48-30（四十八轮）订正）：删除「无 completed
             // 兜底发 done{0/0,stop}」——无终止事件 = 传输截断，报错不发 done。
-            // R32-2（三十二轮）：截断兜底 error 的 usage 在 toolAccum flush/clear 之前
+            // R32-2（三十二轮）：截断兜底 error 的 usage 在 toolAccum clear 之前
             // 估计（残留调用参数一并计入产出，clear 后再估就丢了）
             const truncUsage = terminal === 'none' ? estimateDoneUsage() : null
             // R39-13（三十九轮）：done 之后不再 flush 残留 tool——completed/incomplete 已
@@ -492,21 +491,13 @@ export function createOpenAIResponsesProvider(
             // 时原逻辑会在 done 之后补发 tool 事件（事件序畸形，违反「done 收尾」契约；
             // gen 侧按类型收集会把 post-done tool 混入 toolCalls 且 stopReason 已定为
             // 'stop'）。openai 线同位 flush 只在未 done 分支执行（openai-adapter.ts），三线
-            // 对齐；截断（terminal==='none'，此时必然未 done）路径的 flush 语义不变（R1
-            // 缺口 3：有 delta 无 done 项的残留调用仍随 error 前交出，truncUsage 估计
-            // 不受影响——estimate 在 flush/clear 之前）。
-            if (!doneEmitted) {
-              for (const [, t] of toolAccum) {
-                if (!t.name) continue
-                let input: unknown
-                try {
-                  input = t.args ? JSON.parse(t.args) : {}
-                } catch {
-                  input = { _raw: t.args }
-                }
-                yield { type: 'tool', id: t.callId, name: t.name, input }
-              }
-            }
+            // 对齐。
+            // R48-30（四十八轮）：截断路径原「残留 flush」循环删除——物理不可达：
+            // toolAccum 条目的 name 只在 output_item.done 分支赋值（该分支随即 delete
+            // 条目），循环后残留条目的 name 恒为 ''，原 `if (!t.name) continue` 全部
+            // 跳过。即截断（terminal==='none'，必然未 done）时未到 done 的调用不交出，
+            // 其参数仅经 truncUsage（上方已按 clear 前时点估计）计入产出——如实记档
+            // 替代原「有 name 才构成完整调用」的失实承诺。
             toolAccum.clear()
             // A-5（二十九轮）：多条加密推理项 → 流尾一次性汇总留痕丢弃条数
             //（GenResult.reasoningEncrypted 覆盖式只留末条，前 N-1 条不再无感消失）

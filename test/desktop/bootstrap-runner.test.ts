@@ -10,13 +10,14 @@ import { describe, it, expect } from 'vitest'
 import { createBootstrapRunner } from '../../src/desktop/bootstrap-runner.js'
 
 function makeDeps() {
-  const state = { mainWindow: null as unknown, server: null as { close: () => void } | null }
+  // R48-75（四十八轮）：getMainWindow 死接线删除——deps 不再含窗口引用（R-14 后
+  // runner 判据为「存在旧 server 即关」，本测试的 mainWindow 状态注入随批清理）
+  const state = { server: null as { close: () => void } | null }
   const closed: string[] = []
   return {
     state,
     closed,
     deps: {
-      getMainWindow: () => state.mainWindow,
       getStudioServer: () => state.server,
       setStudioServer: (s: { close: () => void } | null) => { state.server = s },
     },
@@ -75,14 +76,12 @@ describe('O-4 createBootstrapRunner', () => {
     })
     // 第一次：startServer 之后失败（模拟）——滞留的 old server 在进门时即被清
     state.server = fakeServer('old')
-    state.mainWindow = { id: 1 }
     runner.runBootstrap()
     expect(closed).toEqual(['old'])
     expect(state.server).toBeNull()
     await new Promise((r) => setTimeout(r, 0))
     // 崩溃后重试进门（再次滞留的旧 server 同样先关再跑）
     fail = false
-    state.mainWindow = null
     state.server = fakeServer('old2')
     runner.runBootstrap()
     expect(closed).toEqual(['old', 'old2'])
@@ -98,7 +97,8 @@ describe('O-4 createBootstrapRunner', () => {
     const { deps, state, closed, fakeServer } = ctx
     const runner = createBootstrapRunner(deps, async () => {})
     state.server = fakeServer('live')
-    state.mainWindow = { id: 1 } // 修复前：窗口在 → 不关旧 server（泄漏）
+    // 修复前：窗口在（原 getMainWindow 注入）→ 不关旧 server（泄漏）；
+    // R48-75 后窗口引用已出接口，判据只剩「存在旧 server 即关」
     runner.runBootstrap()
     expect(closed).toEqual(['live'])
     expect(state.server).toBeNull()

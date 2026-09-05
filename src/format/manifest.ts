@@ -37,7 +37,11 @@ export function readPieceList(
   return { ok: true, list }
 }
 
-/** 写入章纲.md */
+/** 写入章纲.md。
+ *  R48-51（四十八轮）备案：生产零接线——全仓无生产调用方（测试除外），且本函数是
+ *  全量重生成写路径、不保未知段；piece-list-core 头注宣称的「上层文本级补丁路径」
+ *  尚未落地，接线前须先落地补丁式写路径（保注释保未知段），否则手写补遗会被
+ *  stringifyPieceList 静默清掉。 */
 export function writePieceList(filePath: string, list: PieceList): void {
   atomicWriteFile(filePath, stringifyPieceList(list))
 }

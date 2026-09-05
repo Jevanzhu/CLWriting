@@ -221,22 +221,32 @@ export function writeVersion(
   const fp = contentFingerprint(content)
 
   if (latest) {
+    // R48-47（四十八轮）：meta 一遍扫描共用——下方节流/缓存存活/去重三段循环此前
+    // 各自 readVersionMeta 重扫同一前缀（终止条件同族：首个同 origin / 首个不可读），
+    // 长档案高频留底最多 3×N 次头部开读；现一遍收集，三段决策逻辑逐位不变
+    //（扫描至首个同 origin 或首个不可读即止，恰为三段循环的可达上界）。
+    const metas: ReturnType<typeof readVersionMeta>[] = []
+    for (const s of existing) {
+      const m = readVersionMeta(versionsDir, docId, s.id)
+      metas.push(m)
+      if (!m || m.meta.origin === meta.origin) break
+    }
     // 节流：窗口内已有版本 → 跳过（force 时不限）
     if (!force && policy.throttleMinutes > 0) {
       // RB-KN-P2-6：节流按 origin 分域（与 X-P2-3 去重语义对齐）——原先按「最新任意
       // origin」版本判窗口，刚写过 finalize/ai 版本后窗口内的 autosave 修改前留底
       // 会被静默吞掉，跨 origin 误节流。
-      for (const s of existing) {
+      for (let i = 0; i < metas.length; i++) {
         // R66-19（十四轮）：节流判定只需 origin——整读 readVersion 把全文读进内存，
         // 长书高频 autosave 留底每次扫到最新同 origin 前触发多次全文读；改走 R62-36
         // 已建的 readVersionMeta 头部 bounded read（此三处当年漏迁移）。
-        const prevMeta = readVersionMeta(versionsDir, docId, s.id)
+        const prevMeta = metas[i]
         // R73-35（二十一轮）：meta 不可读（头部损坏/截断）视为**无法判定**——continue
         // 落到更旧版本会把窗口判定锚在错误锚点上（最新版可能恰在窗口内却节流失效/
         // 误节流），fail-open 不节流直接落写（留底宁多勿失，与下方去重循环同口径）。
         if (!prevMeta) break
         if (prevMeta.meta.origin !== meta.origin) continue
-        const age = Date.now() - decodeUlidTime(s.id)
+        const age = Date.now() - decodeUlidTime(existing[i]!.id)
         if (age < policy.throttleMinutes * 60_000) return null
         break // 最新同 origin 版本已出窗 → 不节流
       }
@@ -256,14 +266,15 @@ export function writeVersion(
     const cached = latestOriginHash.get(cacheKey)
     let cacheAlive = false
     if (cached !== undefined) {
-      for (const s of existing) {
-        if (s.id === cached.id) {
+      for (let i = 0; i < existing.length; i++) {
+        if (existing[i]!.id === cached.id) {
           cacheAlive = true // 途中无更新同 origin 版本 → 缓存仍指向最新同 origin
           break
         }
         // 新于缓存 id 的版本逐个验 origin：同 origin 已存在 → 缓存非最新；meta 不可读
         // → 同源与否无法判定（R73-35 口径）→ 一并按失效处理，回读盘比对兜底。
-        const m = readVersionMeta(versionsDir, docId, s.id)
+        //（R48-47：meta 取自上方一遍扫描结果，扫描止点外的下标视同不可读，语义不变）
+        const m = i < metas.length ? metas[i] : null
         if (!m || m.meta.origin === meta.origin) break
       }
     }
@@ -273,18 +284,19 @@ export function writeVersion(
       // 缓存已非最新同 origin（他进程覆写同源新版 / 指向版本已被删）→ 失效，回读盘比对
       latestOriginHash.delete(cacheKey)
     }
-    for (const s of existing) {
+    for (let i = 0; i < metas.length; i++) {
       // R66-19（十四轮）：origin 过滤先走 meta 头部读——跨 origin 版本不再整读全文
       //（ai/finalize/autosave 混排的长书，冷缓存落盘比对从 N 次全文读降到 1 次）；
       // 仅最新同 origin 版本需要正文比对才整读（去重语义不变）。
-      const prevMeta = readVersionMeta(versionsDir, docId, s.id)
+      //（R48-47：meta 取自上方一遍扫描结果，不再重读）
+      const prevMeta = metas[i]
       // R73-35（二十一轮）：meta 不可读（损坏）的同源候选不再 continue 落到更旧版本
       // 比对——恰等旧版时会跳写致快照链尾部失真（最新同 origin 版本的内容既没比对上、
       // 新版本又被吞）。meta 不可读 = 同源与否无法判定 = 去重无法判定，fail-open 直接
       // 落写（W0-1 留底纪律：宁多留一版，不可静默丢一版）。
       if (!prevMeta) break
       if (prevMeta.meta.origin !== meta.origin) continue
-      const prev = readVersion(versionsDir, docId, s.id)
+      const prev = readVersion(versionsDir, docId, existing[i]!.id)
       // R26-52 + R28-17（二十八轮注释口径修正）：字节档（Buffer）不走 readVersion 的
       // utf-8 文本回读比对——readVersion 的文本对非 UTF-8 原字节必然失配，比不中；
       // 但内容级去重并未缺席：上方指纹缓存路径（contentFingerprint 对 Buffer 同样
@@ -293,7 +305,7 @@ export function writeVersion(
       // 回读比对」这一条路径，W0-1 宁多勿失由 fail-open 分支（meta 不可读 → break
       // 落写）与缓存失效回读盘比对继续兜住。
       if (prev && !Buffer.isBuffer(content) && prev.content === content) {
-        setVersionCache(cacheKey, { id: s.id, fp })
+        setVersionCache(cacheKey, { id: existing[i]!.id, fp })
         return null
       }
       break

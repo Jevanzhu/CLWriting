@@ -141,6 +141,10 @@ function getShelfGuard(workDir: string, path: string): ShelfGuardValue {
   const key = `${workDir}\u0000${path}`
   const cached = shelfGuardCache.get(key)
   if (cached && Date.now() - cached.ts < SHELF_GUARD_TTL_MS) return cached.value
+  // R47-18（四十七轮）：过期条目顺手逐出——原只当 miss 用、条目驻留至 FIFO 触顶/
+  // forgetBookKeyedCaches 整表清扫；重算路径本就必走，delete 零成本零语义变更（下方
+  // set 原键覆写）
+  if (cached) shelfGuardCache.delete(key)
   let value: ShelfGuardValue
   const within = resolveWithinRoot(workDir, path)
   if (!within) {

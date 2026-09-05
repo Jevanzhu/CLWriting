@@ -97,7 +97,11 @@ export const styleConsistencyRule: WritingRule = {
 
     const rules = readIronRules(ctx.bookRoot)
     // 统计前剥 fm：fm 短行会污染句长/占比指纹（body 含 fm 是规则引擎契约，正文型规则各自剥）
-    const stats = computeFullStats(ruleStripFm(body), rules)
+    // R48-33（四十八轮）：剥一次全 check 统一用——原统计剥 fm 但 styleRemedy 证据
+    // 提取（dimMessage→extractLongSentences 等）传原始 body，fm 长行（摘要/备注）
+    // 会被引为「以下句子过长」的证据，产出与正文无关的反馈
+    const text = ruleStripFm(body)
+    const stats = computeFullStats(text, rules)
     const ref = baseline.overall
     const violations: RuleViolation[] = []
 
@@ -107,7 +111,7 @@ export const styleConsistencyRule: WritingRule = {
       { name: '句长方差', current: stats.sentenceLenVariance, ref: ref.sentenceLenVariance, fmt: (v) => v.toFixed(1), advice: '建议调整句式节奏' },
       { name: '复读率', current: stats.repeatRate, ref: ref.repeatRate, fmt: pct, advice: '建议替换重复句式' },
     ]
-    for (const dim of dims) checkDim(dim, violations, body)
+    for (const dim of dims) checkDim(dim, violations, text)
 
     // R75-1（批 A，量纲错配修复）：ref.overall 是全部样章 join('\n\n') 的拼接语料指纹，
     // 而本规则对比的是单章正文——计数维直接比原始值在样章库 ≥2 条时天然「偏低」
@@ -125,7 +129,7 @@ export const styleConsistencyRule: WritingRule = {
       checkDim(
         { name: '形容词堆叠', current: adjCur, ref: adjRef, fmt: fmtPerKChars, advice: '建议删减连续形容词' },
         violations,
-        body,
+        text,
       )
     }
 
@@ -139,7 +143,7 @@ export const styleConsistencyRule: WritingRule = {
       checkDim(
         { name: '排比连续度', current: stats.parallelStreakMax, ref: ref.parallelStreakMax, fmt: String, advice: '建议打散排比句式' },
         violations,
-        body,
+        text,
       )
     }
 
@@ -148,7 +152,7 @@ export const styleConsistencyRule: WritingRule = {
       checkDim(
         { name: '对话标签占比', current: stats.dialogueTagRatio, ref: ref.dialogueTagRatio, fmt: pct, advice: '建议调整对话标签写法' },
         violations,
-        body,
+        text,
       )
     }
 
@@ -157,7 +161,7 @@ export const styleConsistencyRule: WritingRule = {
       violations.push({
         ruleId: 'style-consistency',
         level: 'yellow',
-        message: `结尾总结体 正文命中但基线未命中，${styleRemedy('结尾总结体', 1, 0, body)}`,
+        message: `结尾总结体 正文命中但基线未命中，${styleRemedy('结尾总结体', 1, 0, text)}`,
       })
     }
 

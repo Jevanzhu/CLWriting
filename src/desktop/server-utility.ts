@@ -72,7 +72,9 @@ export function runUtilityEntry(parentPort: ParentPortLike, parsed: ParsedServer
  * 重启重路径且丢现场（无日志可查）。现经现有 stdout 日志通道（fork 注入
  * CLW_LOG_STDOUT=1 → src/log stdout-only 直写一行 JSON，main 收行转发落盘）记
  * error 后主动 process.exit(1)——记日志后主动退出，交给 restart 退避（server-manager
- * 的 0/5s/15s 三档 + 3 次封顶接管，非静默崩溃），现场可查。
+ * 的 0/5s/15s 三档 + 3 次封顶接管，非静默崩溃），现场可查。R48-18（四十八轮）：
+ * exit 改 setImmediate 让一轮（对齐 R71-13）——stdout pipe 异步写 flush 后再退，
+ * 崩溃诊断行不随进程消亡丢失。
  * 导出供测试直驱；仅真实 utility 形态（有 parentPort）在模块顶层接线，vitest
  * import 态不注册（防测试 worker 的无关 rejection 触发 exit 杀掉测试进程）。
  */
@@ -83,13 +85,16 @@ export function installFatalExitHandlers(): void {
   if (process.env['CLW_LOG_STDOUT'] === '1') {
     initLogging({ logsDir: null, mirrorConsole: false })
   }
+  // R48-18（四十八轮）：两 fatal 路径 exit 对齐 R71-13（onBootError/shutdown-done 同款
+  // 让轮）——log.error 经 stdout pipe 异步写，同步 exit 可能在行 flush 前随进程消亡，
+  // 崩溃现场唯一诊断来源丢失；setImmediate 让出一轮再退（restart 退避不差这一轮）
   process.on('uncaughtException', (err) => {
     log.error('server-utility', 'uncaughtException——记日志后主动退出，交给 restart 退避', err)
-    process.exit(1)
+    setImmediate(() => process.exit(1))
   })
   process.on('unhandledRejection', (reason) => {
     log.error('server-utility', 'unhandledRejection——记日志后主动退出，交给 restart 退避', reason)
-    process.exit(1)
+    setImmediate(() => process.exit(1))
   })
 }
 

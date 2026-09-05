@@ -315,7 +315,10 @@ export const useDocStore = defineStore('doc', () => {
       const content = await getContent(bookName.value!, e.path)
       if (e.dirty && e.content !== content) {
         // fm 以服务端为准（refresh 的目的），正文以本地为准（未保存编辑）
-        e.content = mergeFm(content, stripFrontmatter(e.content))
+        // R48-22（四十八轮）：本地正文本就完整保留——mergeFm 缺省 stripLeading 会剥掉
+        // 本地正文全部前导空行（编辑路径 EditorView 已显式 stripLeading:false，R36-6
+        // 同型问题换了触发源），此处同样显式关闭
+        e.content = mergeFm(content, stripFrontmatter(e.content), { stripLeading: false })
         e.baselineRevision = await sha256Revision(content)
         return true
       }

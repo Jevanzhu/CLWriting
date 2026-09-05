@@ -616,7 +616,8 @@ async function rewriteOnce(
 
   const ruleViolations = collectRuleViolations(loop.current, 'self-heal', ctx.bookRoot, chapterNo)
   // R32-13：随 recordRuleHits 异步化
-  await recordRuleHits(ctx.bookRoot, ruleViolations, opts.userDataPath ?? undefined)
+  // R48-29（四十八轮）：task 传 'self-heal'——重写链命中不再误归因 check
+  await recordRuleHits(ctx.bookRoot, ruleViolations, opts.userDataPath ?? undefined, 'self-heal')
   const allIssues = [
     ...redIssues.map((s) => `[必须] ${s}`),
     ...ruleViolations.map((v) => `[建议] ${v.message}`),

@@ -1,7 +1,8 @@
 /**
  * 二十七轮修复批 F 回归（R27-1 / 2 / 4 / 6）——根因-语义-测法：
  * - R27-1 llm/call durationMs 混入记账 IO：trace 内联 Date.now() 时 recordUsageSafe
- *   的记账耗时（含用量文件锁等待）被计入 attempt 时长 → mock recordTaskUsage 同步
+ *   的记账耗时（含用量文件锁等待）被计入 attempt 时长 → mock 记账入口（PM-11 起
+ *   为 recordUsageBoth 合并单笔（R46-21 起；合并批对齐文案）；原 recordTaskUsage）同步
  *   忙等 80ms，断言 durationMs 只含 run 窗口（<50ms）而墙钟 ≥80ms。
  * - R27-2 anthropic usage「首见即定」：多个 message_delta 带 usage 时 emitDone 幂等门
  *   锁首值、末 delta 完整值被丢，与 openai 线 R26-3 末见口径分叉 → 双 delta 流断言

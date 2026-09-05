@@ -210,6 +210,11 @@ export function registerRagProviderRoutes(ctx: RagProvidersCtx): void {
     reply(res, 200, {
       ok: connected,
       caps: { connected },
+      // R48-21（四十八轮）：探测写回 bump 了 revision 但响应不回传——前端本地 revision
+      // 滞后，紧接的任意 RAG 写必收 409 弹误导 toast（chat 侧同型已修，RAG 侧漏配）。
+      // 回传现行 revision：写回路径 s2 已含 bump；探测期间被并发写/删除未落盘路径，
+      // s2（写回前重载）同样如实反映服务端现行值
+      revision: s2.revision,
       ...(connected ? {} : { error: '嵌入端点调用失败：请检查地址 / API Key / 模型名' }),
     })
   },

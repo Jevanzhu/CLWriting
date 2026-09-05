@@ -10,6 +10,8 @@
  * 预算口径（D3）：cost 累计假设全书价格币种一致（currency 首个命中者为准，
  * 币种不同的价格表混用属配置错误，数值比较仍成立但金额不可加总展示）。
  */
+import { statSync } from 'node:fs'
+import { join } from 'node:path'
 import type { ProviderConf, ModelConf, TokenUsage } from './provider/types.js'
 import { loadProviders } from './provider/index.js'
 
@@ -50,7 +52,11 @@ function hasAnyPricingKey(p: PricingConf | undefined | null): boolean {
 /** 模型行 → 价格表合并（models[].pricing 覆盖 provider 级同名键） */
 export function pricingForProvider(provider: ProviderConf | undefined, model: string): PricingConf | null {
   if (!provider) return null
-  const base = isPriced(provider.pricing) ? provider.pricing : {}
+  // R48-28（四十八轮）：provider 级 base 判定与行侧 R42-23 对齐（hasAnyPricingKey）——
+  // 原 isPriced 把「仅声明 currency」的 provider 级价格表整块丢弃，provider 声明
+  // currency + 模型行只配单价时币种静默回落 USD（CostStats.currency 标错币种）；
+  // 最终计价仍由 isPriced(merged) 把关，仅 currency 不会单独构成计价
+  const base = hasAnyPricingKey(provider.pricing) ? provider.pricing : {}
   const row: ModelConf | undefined = provider.models?.find((m) => m.id === model)
   // R42-23（四十二轮）：行 override 判定放宽——行 pricing 含任一已知键（单价族或 currency）
   // 即参与浅合并。此前 isPriced(row.pricing) 才认，「仅设 currency 无单价」的行被整行丢弃，
@@ -68,8 +74,28 @@ export function pricingForProvider(provider: ProviderConf | undefined, model: st
  * currentId 失效或两级皆无 → null（未配价）。
  * 静默容错：providers.json 读失败 → null（价格是增强，不做故障源）。
  */
+// PM-11（性能与内存专项·2026-09-05）：解析结果 memo（providers.json mtime 指纹键控）。
+// loadProviders 自带 mtime 缓存已免重复读盘+解密，但每次仍整克隆 store（P2-SEC-4 副本
+// 纪律，不可共享引用）+ 线性归属查找；每次 token 记账都经此解析，memo 后命中路径仅一次
+// stat。失效：文件 mtime 变（saveProviders 落盘即 bump）；mtime 粒度内连续改写的陈旧窗
+// 与 loadProviders 缓存同级（既有口径）。文件名单源在 provider/store.ts FILE 常量（未
+// 导出，此处镜像维护——改文件名须两处联动）。FIFO 上限防多书库/多模型无界。
+const PRICING_MEMO_MAX = 32
+const pricingMemo = new Map<string, { sig: string; value: PricingConf | null }>()
+function providersPricingSig(userDataPath: string): string {
+  try {
+    return String(statSync(join(userDataPath, 'providers.json')).mtimeMs)
+  } catch {
+    return 'missing'
+  }
+}
+
 export function resolveModelPricing(userDataPath: string | null | undefined, model: string): PricingConf | null {
   if (!userDataPath || !model) return null
+  const memoKey = `${userDataPath}\u0000${model}`
+  const sig = providersPricingSig(userDataPath)
+  const memoHit = pricingMemo.get(memoKey)
+  if (memoHit && memoHit.sig === sig) return memoHit.value
   try {
     const store = loadProviders(userDataPath)
     // R42-2（四十二轮）：归属查表先在当前启用 provider 的 models[] 内找归属行——双
@@ -79,8 +105,17 @@ export function resolveModelPricing(userDataPath: string | null | undefined, mod
     const owner = current?.models?.some((m) => m.id === model)
       ? current
       : store.providers.find((p) => p.models?.some((m) => m.id === model))
-    if (owner) return pricingForProvider(owner, model)
-    return current ? pricingForProvider(current, model) : null
+    const resolved = owner
+      ? pricingForProvider(owner, model)
+      : current
+        ? pricingForProvider(current, model)
+        : null
+    if (pricingMemo.size >= PRICING_MEMO_MAX) {
+      const oldest = pricingMemo.keys().next().value
+      if (oldest !== undefined) pricingMemo.delete(oldest)
+    }
+    pricingMemo.set(memoKey, { sig, value: resolved })
+    return resolved
   } catch {
     return null
   }

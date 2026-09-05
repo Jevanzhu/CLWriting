@@ -174,6 +174,10 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
         reply(res, 200, cached.payload)
         return
       }
+      // R47-18（四十七轮）：过期条目顺手逐出——原只当 miss 用、条目驻留至 FIFO 触顶/
+      // 删书（forgetTreeIssuesCache）；重算路径本就必走，delete 零成本零语义变更
+      //（下方 set 原键覆写）
+      if (cached) treeIssuesCache.delete(bookRoot)
       // 聚合逻辑已下沉内核（P1-8）：扫正文 + 机检 + verdict 驳回，返回只有 issue 的 docId
       // R37-3（三十七轮）：改走 async 孪生——大书全书同步聚合此前单请求秒级冻结事件循环
       //（Electron 内嵌单进程服务 = 桌面整体卡死），现章循环每 25 章让出一次

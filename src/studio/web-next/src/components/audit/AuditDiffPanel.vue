@@ -63,17 +63,18 @@ const diffNodes = computed<AuditNodeFE[]>(() => {
 </template>
 
 <style scoped>
+/* R48-89（四十八轮）：字号随母视图 R42-27 迁 token（--font-size-*，映射见 AuditView 注）——拆分子组件时未随迁的硬编码 rem 不再跟随全局字号档。 */
 /* 区段基础（与 AuditView 同式） */
 .sec { margin-bottom: var(--size-4-5); }
 .sec-title {
   display: flex;
   align-items: center;
   gap: var(--size-4-3);
-  font-size: 1rem;
+  font-size: var(--font-size-m);
   margin: 0 0 var(--size-4-3);
   flex-wrap: wrap;
 }
-.empty { color: var(--text-muted); font-size: 0.82rem; padding: 8px; }
+.empty { color: var(--text-muted); font-size: var(--font-size-s); padding: 8px; }
 
 /* 与 settings-shared 全局 .seg 药丸同名异形，改名隔离防全局规则渗入 */
 .audit-seg {
@@ -91,7 +92,7 @@ const diffNodes = computed<AuditNodeFE[]>(() => {
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
 }
 .audit-seg button.on {
   background: var(--interactive-accent);
@@ -112,7 +113,7 @@ const diffNodes = computed<AuditNodeFE[]>(() => {
   border-radius: 7px;
   border: 1px solid var(--background-modifier-border);
   background: var(--background-secondary);
-  font-size: 0.82rem;
+  font-size: var(--font-size-s);
 }
 .diff-row.shadowed {
   opacity: 0.55;
@@ -128,15 +129,15 @@ const diffNodes = computed<AuditNodeFE[]>(() => {
   align-items: center;
   gap: 3px;
   text-transform: capitalize;
-  font-size: 0.72rem;
+  font-size: var(--font-size-xs);
 }
-.kind { color: var(--text-muted); font-size: 0.72rem; }
+.kind { color: var(--text-muted); font-size: var(--font-size-xs); }
 .preview { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .shadowed-mark {
   display: inline-flex;
   align-items: center;
   gap: 3px;
   color: var(--text-error);
-  font-size: 0.7rem;
+  font-size: var(--font-size-xs);
 }
 </style>
