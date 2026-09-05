@@ -231,12 +231,15 @@ watch(
 .tree-item.dragging {
   opacity: 0.4;
 }
-/* 顶级分组（写作/大纲/设定）— 弱化标签风格，与章节行拉开层级 */
+/* 顶级分组（写作/大纲/设定/布线）— 与章节行完全同权（2026-09-05 作者拍板：
+ * 四分区为固定目录骨架（位置恒定 + 折叠箭头 + 缩进已足），字号/字重/颜色三线
+ * 全部归零——去 600 加粗（反糊）、字号回 m 同号、色统一 --text-normal 同章行
+ * （muted #555 对比章节行发灰发糊，作者反馈统一）；仅留上间距 + 字距极弱分组感） */
 .tree-item.group-head {
   margin-top: 10px;
-  font-size: var(--font-size-s);
-  font-weight: 600;
-  color: var(--text-muted);
+  font-size: var(--font-size-m);
+  font-weight: normal;
+  color: var(--text-normal);
   letter-spacing: 0.04em;
 }
 .tree-item.group-head:first-child {

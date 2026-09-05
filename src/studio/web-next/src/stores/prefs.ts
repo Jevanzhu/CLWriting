@@ -411,9 +411,10 @@ export const usePrefsStore = defineStore('prefs', () => {
     r.style.setProperty('--prose-size', `${proseSize.value}px`)
     r.style.setProperty('--prose-lh', String(proseLh.value))
     r.style.setProperty('--page-width', `${effectivePageWidth.value}px`)
-    // J5：UI 字号档（外观「字号」设置，两平台通用）——在平台基准上叠用户选择
-    // （win 基准 +1px 见 tokens 平台块；内联值覆盖 CSS，故此处始终写平台合计值）
-    const baseStep = window.clwritingDesktop?.platform === 'win32' ? 1 : 0
+    // J5→F0（2026-09-05）：UI 字号档（外观「字号」设置，两平台通用）——win 隐藏基准
+    // 原 +1px 系 ClearType hinting 补偿（灰度时代），F0 找回原生子像素渲染后撤销归零，
+    // 与 tokens 平台块同步；用户步进直接叠 0 基（内联值覆盖 CSS，此处始终写合计值）
+    const baseStep = 0
     r.style.setProperty('--font-size-step', `${baseStep + uiFontSizeStep.value}px`)
     if (uiFontCn.value || uiFontEn.value) {
       r.style.setProperty('--font-ui', buildFontFamily(uiFontEn.value, uiFontCn.value, 'system-ui, sans-serif'))
