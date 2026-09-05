@@ -98,3 +98,29 @@ test('R34D-31: 干净书（零章级失败、零快照失败）→ 退出码 0 �
     rmSync(join(root, '..'), { recursive: true, force: true })
   }
 }, 60_000)
+
+// 重评-26（全库代码重评审 2026-09-05）回归：bookRoot 目录校验——此前入参只验
+// existsSync 不验目录，误传文件路径时校验放行，readBookConfig 以文件为根拼路径
+// 裸栈 ENOENT 崩穿。修复后 statSync + isDirectory 校验先拦：人话报错 + exit 1
+//（fail-closed，口径同 corpus-commit.ts / check-knowledge.ts 的显式报错出口）。
+// 手法沿用本文件既有 spawnSync 单次 tsx 冷启动形态（R62-61 多断言合并）。
+test('重评-26: bookRoot 误传文件路径 → 目录校验人话报错 + exit 1（不再裸栈 ENOENT）', () => {
+  const dir = mkdtempTracked(join(tmpdir(), 'harvest-corpus-'))
+  const filePath = join(dir, '不是目录.md')
+  writeFileSync(filePath, '占位', 'utf-8')
+  try {
+    const r = spawnSync('node', ['--import', 'tsx', script, filePath], {
+      cwd: repoRoot,
+      encoding: 'utf-8',
+      stdio: 'pipe',
+    })
+    expect(r.status).toBe(1)
+    // 人话报错：点名入参不是目录 + 给出用法（走 console.error → stderr）
+    expect(r.stderr).toContain('不是存在的目录')
+    expect(r.stderr).toContain('用法：npx tsx scripts/harvest-corpus.ts <bookRoot>')
+    // 校验先拦：不再以 readBookConfig 的裸栈 ENOENT 崩穿
+    expect(r.stderr).not.toContain('ENOENT')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}, 60_000)

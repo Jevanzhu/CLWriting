@@ -52,7 +52,10 @@ export function createStaticHandler(rootDir: string) {
       res.on('finish', () => {
         if (!req.readableEnded) req.resume()
       })
-      replyError(res, 405, 'BAD_INPUT', 'Method Not Allowed')
+      // 重评-6（全库代码重评审 2026-09-05）：405 信封 code 语义化——原借用泛化
+      // 'BAD_INPUT'，改 METHOD_NOT_ALLOWED（客户端可按 method 类错误判别；全库 grep
+      // 确认无测试/前端消费旧码，error 人话不变）
+      replyError(res, 405, 'METHOD_NOT_ALLOWED', 'Method Not Allowed')
       return
     }
     let decodedPathname: string
@@ -150,6 +153,11 @@ export function createStaticHandler(rootDir: string) {
           'content-length': String(size),
         })
         stream.pipe(res)
+        // 重评-4（全库代码重评审 2026-09-05）：客户端中途断连（弱网/关页）时流自身
+        // 'error' 收不到任何通知，createReadStream 的文件描述符滞留至 GC 才释放——
+        // res 'close' 在正常 finish 与异常断连时都会触发，统一 destroy 源流回收 FD；
+        // 已正常结束的流 destroy 是 no-op，无害。
+        res.on('close', () => stream.destroy())
       })
       stream.on('error', () => {
         if (res.headersSent) res.destroy()

@@ -647,6 +647,26 @@ function confirmDiscardConflicts(parent: BrowserWindow, count: number): boolean 
   )
 }
 
+/** 重评-1（全库代码重评审 2026-09-05）：保存失败的原生确认——flush 钩子返回的
+ *  failed（保存失败的 docId 列表，产出面 web-next stores/doc.ts flushBeforeClose）
+ *  与 conflict 同属「flush 未落净」：本链路无法代存，零消费＝编辑增量静默丢失
+ * （违背「编辑永不静默丢失」红线）。与 confirmDiscardConflicts 同款交互（type 用
+ *  error 区分失败/冲突语义），返回 true＝放弃失败的修改继续关/退；取消后作者可
+ *  重试保存或排查本地服务状态。 */
+function confirmDiscardFailed(parent: BrowserWindow, count: number): boolean {
+  return (
+    dialog.showMessageBoxSync(parent, {
+      type: 'error',
+      title: 'CLWriting',
+      message: `有 ${count} 个文档保存失败，这些文档里最近的修改尚未落盘。`,
+      detail: '可先取消，回到应用内重试保存或检查本地服务状态后再关闭；若继续，这些修改将被丢弃。',
+      buttons: ['放弃修改并继续', '取消'],
+      defaultId: 1,
+      cancelId: 1,
+    }) === 0
+  )
+}
+
 async function bootstrap(): Promise<void> {
   // 工作目录定位：持久化 current（合法书库 或 决策②待建空目录，目录存在即用）> findWorkDir(cwd)
   // 不再启动时弹原生选择器：无书库 → 主窗口加载 /welcome 起始页引导新建 / 打开。
@@ -770,6 +790,18 @@ async function bootstrap(): Promise<void> {
           closeFlushInFlight = false
           // R49-5：作者放弃关窗 → 待汇入的退出请求一并作废（与 quit 链自身 cancel
           // 「取消即中止退出、应用原样保留」语义一致）
+          quitDuringCloseFlush = false
+          return
+        }
+      }
+      if (res && res.failed.length > 0 && !win.isDestroyed()) {
+        // 重评-1（全库代码重评审 2026-09-05）：保存失败（failed = 保存失败的 docId
+        // 列表）与冲突同属「flush 未落净」——原实现 failed 零消费，保存失败恰逢
+        // 关窗时编辑增量静默丢失。先留痕失败清单（只是文档 id，供诊断），再弹原生
+        // 确认给作者最后一念；取消路径与冲突取消完全同款（旗复位 + 待汇入退出作废）
+        log.error('desktop', `关窗兜底 flush 有 ${res.failed.length} 个文档保存失败（${res.failed.join(', ')}），需作者确认是否放弃未落盘修改`)
+        if (!confirmDiscardFailed(win, res.failed.length)) {
+          closeFlushInFlight = false
           quitDuringCloseFlush = false
           return
         }
@@ -1364,6 +1396,16 @@ if (gotSingleInstanceLock) {
           if (res && res.conflict.length > 0 && !win.isDestroyed()) {
             // R44-19（四十四轮）收口：冲突未决给原生确认，取消即中止退出（应用原样保留）
             if (!confirmDiscardConflicts(win, res.conflict.length)) {
+              quitFlushInFlight = false
+              return
+            }
+          }
+          if (res && res.failed.length > 0 && !win.isDestroyed()) {
+            // 重评-1（全库代码重评审 2026-09-05）：保存失败与冲突同属「flush 未落净」
+            // ——原实现 failed 零消费，退出时编辑增量静默丢失。留痕失败清单后弹原生
+            // 确认（与 close 链对称），取消即中止退出、应用原样保留（与冲突取消同款）
+            log.error('desktop', `退出前 flush 有 ${res.failed.length} 个文档保存失败（${res.failed.join(', ')}），需作者确认是否放弃未落盘修改`)
+            if (!confirmDiscardFailed(win, res.failed.length)) {
               quitFlushInFlight = false
               return
             }

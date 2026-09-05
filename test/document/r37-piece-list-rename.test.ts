@@ -143,3 +143,56 @@ test('R37-13: 删源失败（rmSync EPERM）→ 回收新位 + warn 留痕，正
   // 结构化 warn 留痕（修复前 catch {} 整段静默）
   expect(warn).toHaveBeenCalledWith('document', expect.stringContaining('章纲滞留旧名'))
 })
+
+// ── 重评-13（全库代码重评审 2026-09-05）：删源失败回滚链「回收新位」收编退避删 ──
+
+test('重评-13: 回滚删新位撞瞬时 EPERM → 退避后回收干净，正文改名不受阻断', async () => {
+  const { root, svc, docId } = await makeShortBook()
+  const oldList = writeUnregisteredPieceList(root, '0001-旧标题.md')
+  const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
+
+  // 删源（章纲旧名）持续 EPERM → rmWithRetry 耗尽进回滚；回滚删新位首删 EPERM
+  // （win 瞬时锁形态，一次后放行）。匹配口径同上用例：realpath 归一禁全等，按
+  // 目录段+文件名；新位（001-新标题.md）与旧名不同名互不误伤。
+  let newListRmCalls = 0
+  vi.mocked(rmSyncMocked).mockImplementation((...args) => {
+    const p = args[0]
+    if (typeof p === 'string' && p.includes('章纲') && p.endsWith('0001-旧标题.md')) throw errOf('EPERM')
+    if (typeof p === 'string' && p.includes('章纲') && p.endsWith('001-新标题.md')) {
+      newListRmCalls++
+      if (newListRmCalls === 1) throw errOf('EPERM')
+    }
+    return actualFs.rmSync(...args)
+  })
+
+  const r = await svc.updateChapterMeta(docId, { 标题: '新标题' })
+  expect(r.ok).toBe(true) // 章纲同步失败不阻断正文 rename
+
+  // 回滚经退避后收净（收编前裸 rmSync 首删直败 → 新位孤儿副本滞留）
+  expect(newListRmCalls).toBe(2) // 首删 EPERM + 退避重试成功——退避链确被走
+  expect(existsSync(join(root, '大纲', '章纲', '001-新标题.md'))).toBe(false)
+  expect(readdirSync(join(root, '大纲', '章纲')).filter((f) => f.includes('旧稿'))).toHaveLength(0)
+  // 章纲滞留旧名 + 结构化 warn（R37-13 语义不变）
+  expect(existsSync(oldList)).toBe(true)
+  expect(warn).toHaveBeenCalledWith('document', expect.stringContaining('章纲滞留旧名'))
+})
+
+test('重评-13: 回滚删新位持续 EPERM → 重试耗尽吞错留孤儿副本 + warn（与裸删时代一致）', async () => {
+  const { root, svc, docId } = await makeShortBook()
+  const oldList = writeUnregisteredPieceList(root, '0001-旧标题.md')
+  const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
+
+  // 删源与回滚删新位均持续占用（非瞬时形态）
+  vi.mocked(rmSyncMocked).mockImplementation((...args) => {
+    const p = args[0]
+    if (typeof p === 'string' && p.includes('章纲')) throw errOf('EPERM')
+    return actualFs.rmSync(...args)
+  })
+
+  const r = await svc.updateChapterMeta(docId, { 标题: '新标题' })
+  expect(r.ok).toBe(true)
+  // 回滚退避耗尽仍失败 → 照旧 catch 吞掉：新位孤儿副本残留（硬链接同数据，无丢失）
+  expect(existsSync(join(root, '大纲', '章纲', '001-新标题.md'))).toBe(true)
+  expect(existsSync(oldList)).toBe(true)
+  expect(warn).toHaveBeenCalledWith('document', expect.stringContaining('章纲滞留旧名'))
+})

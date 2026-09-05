@@ -9,7 +9,9 @@
  * 修复后行为（本文件锁定，对齐 doMoveOrRename R33-43 删源失败回收新位范式）：
  * 1. 正常软删：源删、.trash 落位、条目在案（基线回归）；
  * 2. 删源失败（mock rmSync 注入 EPERM，r35-27 同款先例）：回收站副本删除 + 条目
- *    移除 + WRITE_ERROR 上抛，源文件原地未动、清单条目保留（可重试）。
+ *    移除 + WRITE_ERROR 上抛，源文件原地未动、清单条目保留（可重试）；
+ * 3. 重评-13（全库代码重评审 2026-09-05）：回滚删回收站副本收编 rmWithRetry——
+ *    回滚首删撞瞬时 EPERM 退避后回收干净；退避耗尽仍失败照旧 warn 留双份残留。
  */
 import { test, expect, afterEach, vi } from 'vitest'
 import { rmSync, mkdirSync, existsSync, readdirSync, readFileSync } from 'node:fs'
@@ -18,6 +20,7 @@ import { join } from 'node:path'
 import { DocumentService } from '../../src/document/service.js'
 import { listTrash } from '../../src/document/trash.js'
 import { readManifest } from '../../src/document/manifest.js'
+import { log } from '../../src/log/index.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 // actual 经 hoisted 容器带出——用例内 mockImplementation 需要真实现做 pass-through
@@ -95,4 +98,59 @@ test('R37-14: 删源失败（rmSync EPERM）→ 回收站回滚 + WRITE_ERROR，
   expect(listTrash(root).some((t) => t.id === docId)).toBe(false)
   // 清单条目保留（manifest 删除在删源之后，未执行）——文件未删则登记不除名，状态一致
   expect(readManifest(join(root, '项目', '文档清单.jsonl')).entries.has(docId)).toBe(true)
+})
+
+// ── 重评-13（全库代码重评审 2026-09-05）：回滚删回收站副本收编退避删 ──
+
+test('重评-13: 回滚删回收站副本撞瞬时 EPERM → 退避后回收干净（无副本/条目残留）', async () => {
+  const { root, svc, docId, bodyAbs } = await makeBookWithChapter()
+
+  // 删源（正文源路径）持续 EPERM → rmWithRetry 耗尽进回滚；回滚删 .trash 副本首删
+  // EPERM（瞬时锁形态，一次后放行）。匹配口径：正文源按目录段+文件名；回收站副本按
+  // .trash 目录段 + .md 后缀（登记/条目文件是 .jsonl、原子写 tmp 是 .tmp，均不误伤）。
+  let trashCopyRmCalls = 0
+  vi.mocked(rmSyncMocked).mockImplementation((...args) => {
+    const p = args[0]
+    if (typeof p === 'string' && p.includes('正文') && p.endsWith('0001-开篇.md')) throw errOf('EPERM')
+    if (typeof p === 'string' && p.includes('.trash') && p.endsWith('.md')) {
+      trashCopyRmCalls++
+      if (trashCopyRmCalls === 1) throw errOf('EPERM')
+    }
+    return actualFs.rmSync(...args)
+  })
+
+  const r = await svc.trashDocument({ docId })
+  expect(r.ok).toBe(false)
+  if (!r.ok) expect(r.code).toBe('WRITE_ERROR')
+
+  // 回滚经退避后收净（收编前裸 rmSync 首删直败 → 回滚不净 warn：副本+条目双残留）
+  expect(trashCopyRmCalls).toBe(2) // 首删 EPERM + 退避重试成功——退避链确被走
+  const trashDir = join(root, '工作区', '.trash')
+  const leftovers = existsSync(trashDir) ? readdirSync(trashDir).filter((f) => f.endsWith('.md')) : []
+  expect(leftovers).toHaveLength(0)
+  expect(listTrash(root).some((t) => t.id === docId)).toBe(false)
+  // 源与清单原地未动（可重试）
+  expect(existsSync(bodyAbs)).toBe(true)
+  expect(readManifest(join(root, '项目', '文档清单.jsonl')).entries.has(docId)).toBe(true)
+})
+
+test('重评-13: 回滚删回收站副本持续 EPERM → 重试耗尽 warn 留双份残留（与裸删时代一致）', async () => {
+  const { svc, docId, bodyAbs } = await makeBookWithChapter()
+  const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
+
+  // 删源与回滚删回收站副本均持续占用（非瞬时形态）
+  vi.mocked(rmSyncMocked).mockImplementation((...args) => {
+    const p = args[0]
+    if (typeof p === 'string' && ((p.includes('正文') && p.endsWith('0001-开篇.md')) || (p.includes('.trash') && p.endsWith('.md')))) {
+      throw errOf('EPERM')
+    }
+    return actualFs.rmSync(...args)
+  })
+
+  const r = await svc.trashDocument({ docId })
+  expect(r.ok).toBe(false)
+  if (!r.ok) expect(r.code).toBe('WRITE_ERROR')
+  // 回滚退避耗尽仍失败 → 照旧 warn 留痕：源未删、回收站有残留（重试软删按后缀链保双份）
+  expect(existsSync(bodyAbs)).toBe(true)
+  expect(warn).toHaveBeenCalledWith('document', expect.stringContaining('回滚不净'))
 })

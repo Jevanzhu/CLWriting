@@ -13,6 +13,7 @@ import {
   nextEntrySeq,
   addEntry,
   entryPolarity,
+  readBannedEntryWords,
   SOURCE_RANK,
   ENTRIES_DIR,
 } from '../../src/format/style-entry.js'
@@ -161,6 +162,63 @@ describe('readEntries / nextEntrySeq / addEntry', () => {
     // 靠 O_EXCL EEXIST 重试才落 002（白耗重试且编号割裂）；修复后扫描即命中
     const p2 = addEntry(root, { 类型: '样章', 场景: '战斗:夜', 来源: '作者标注', 正文: 'B' })
     expect(p2).toBe('文风/条目/样章/战斗_夜-002.md')
+  })
+})
+
+// ── 重评-20（全库代码重评审 2026-09-05）：标量「标签」往返不再丢失 ─────────────
+// 此前「标签」被 KNOWN_FM_KEYS 排除出 _raw，而模型字段只在数组形态（`标签: [a, b]`）
+// 承载——作者手写标量形态（`标签: 金句`）两处皆不收，经任一回写路径物理消失；
+// readBannedEntryWords 的 标签?.includes('AI味') 对标量失明（AI味软禁词条目误入硬禁词）。
+describe('重评-20：标量「标签」解析归一', () => {
+  it('① 标量 标签: 金句 → 模型字段 [金句]；不泄入 _raw', () => {
+    const fp = join(root, 'scalar-tag.md')
+    writeFileSync(fp, '---\n类型: 样章\n场景: 战斗\n标签: 金句\n---\n\n正文\n', 'utf-8')
+    const r = readEntry(fp)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.entry.标签).toEqual(['金句'])
+    expect(r.entry._raw?.['标签']).toBeUndefined() // 已知键不进 _raw（归一后也不重复收）
+  })
+
+  it('② 标量形态经 readEntry→writeEntry 往返后字段不丢（规范形归一为数组）', () => {
+    const fp = join(root, 'roundtrip.md')
+    writeFileSync(fp, '---\n类型: 手法\n场景: 对话\n标签: 短句\n---\n\n对话不用提示语\n', 'utf-8')
+    const r = readEntry(fp)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    writeEntry(fp, r.entry)
+    const raw = readFileSync(fp, 'utf-8')
+    expect(raw).toContain('标签: [短句]') // 写回侧无需感知：数组形态本就保真
+    const r2 = readEntry(fp)
+    expect(r2.ok && r2.entry.标签).toEqual(['短句'])
+  })
+
+  it('③ 标量 AI味 手写禁词条目 → readBannedEntryWords 识别为软禁词（不进硬禁词、不进 unparsed）', () => {
+    const dir = join(root, ENTRIES_DIR, '禁词')
+    mkdirSync(dir, { recursive: true })
+    const fp = join(dir, '通用-001.md')
+    // 修复前：标量标签不进模型 → AI味跳过分支失明 → 正文词误入硬禁词机检
+    writeFileSync(fp, '---\n类型: 禁词\n场景: 通用\n标签: AI味\n---\n\n深吸一口气\n', 'utf-8')
+    const r = readEntry(fp)
+    expect(r.ok && r.entry.标签).toEqual(['AI味'])
+    const { words, unparsed } = readBannedEntryWords(root)
+    expect(words).not.toContain('深吸一口气') // AI味软禁词只注入不机检（旧语义保持）
+    expect(unparsed).toEqual([]) // 被标签识别而跳过，不是解析失败
+  })
+
+  it("④ 数组形态原行为不变；空串/缺键不造 ['']", () => {
+    const fp = join(root, 'array-tag.md')
+    writeFileSync(fp, '---\n类型: 样章\n场景: 战斗\n标签: [金句, 锚点]\n---\n\n正文\n', 'utf-8')
+    const r = readEntry(fp)
+    expect(r.ok && r.entry.标签).toEqual(['金句', '锚点'])
+    const fp2 = join(root, 'empty-tag.md')
+    writeFileSync(fp2, '---\n类型: 样章\n场景: 战斗\n标签:\n---\n\n正文\n', 'utf-8')
+    const r2 = readEntry(fp2)
+    expect(r2.ok && r2.entry.标签).toBeUndefined()
+    const fp3 = join(root, 'no-tag.md')
+    writeFileSync(fp3, '---\n类型: 样章\n场景: 战斗\n---\n\n正文\n', 'utf-8')
+    const r3 = readEntry(fp3)
+    expect(r3.ok && r3.entry.标签).toBeUndefined()
   })
 })
 

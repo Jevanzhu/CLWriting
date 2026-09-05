@@ -40,8 +40,9 @@ jobs:
         # R69-6（十七轮，= 阶段 21 J4）：补 windows-latest 腿（仅 Node 24 控成本）——
         # 按 win 适配 D4 拍板口径「win 仅 typecheck+build+单测（e2e 仍 mac/ubuntu）」：
         # 本 job 其余步（lint/packaging/counts/knowledge/pack）纯 Node 脚本顺带背书。
-        # 45 处 skipIf(win32) 平台守卫 + R69-7 补的 3 文件已就位；win npm ci/构建较慢，
-        # 20 分钟超时为首跑观察值（J0 打包前以本腿为 win 持续门），F-7 已放宽到 30。
+        # 重评-35（全库代码重评审 2026-09-05）：win 平台守卫 skipIf(win32) 家族随测试批
+        # 演进增减，数量以全库实测为准，勿在注释钉值（旧注释钉「45 处」已账实漂移）；
+        # win npm ci/构建较慢，20 分钟超时为首跑观察值（J0 打包前以本腿为 win 持续门），F-7 已放宽到 30。
         os: [ubuntu-latest, macos-latest, windows-latest]
         # 24=LTS / 26=Current（25 奇数线已 EOL）。engines >=24；node:sqlite 自 v23.4.0 起免 flag，两版均零 flag 可用。
         node: [24, 26]

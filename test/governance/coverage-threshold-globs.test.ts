@@ -25,7 +25,9 @@ const EXPECTED_GLOBS = [
   'src/events/**',
   'src/studio/server/**',
   'src/studio/web-next/src/api/**',
-  'src/studio/web-next/src/{composables,editor,shared,stores}/**',
+  // 重评-2（全库代码重评审 2026-09-05）：聚合桶扩面收编 components/types 下仅有的
+  // 非 SFC 纯 TS 运行时文件（settings-context.ts / theme.ts），沿 R62-23 阈值不变先例
+  'src/studio/web-next/src/{components,composables,editor,shared,stores,types}/**',
   // R29-12（二十九轮批 F）：stores 单列域级子桶（基线 −2pp → 89/88，与聚合桶并存叠加）
   'src/studio/web-next/src/stores/**',
 ]
@@ -33,10 +35,13 @@ const EXPECTED_GLOBS = [
 const INCLUDE = ['src/**/*.ts']
 // R43-27（四十三轮）：EXCLUDE 抄本补 'src/studio/web-next/vite.config.ts'——与
 // vitest.config.ts coverage.exclude（R33D-36 入列）对齐，消除抄本与配置的口径漂移
+// 重评-2（全库代码重评审 2026-09-05）：原 '{components,types}/**' 整目录抄本收窄为
+// 点名 'src/studio/web-next/src/types/tree.ts'（纯类型声明零运行时语句）——两目录下的
+// 非 SFC 运行时文件（settings-context.ts/theme.ts）不再排除，抄本与配置同步收窄
 const EXCLUDE = [
   'src/**/*.d.ts',
   'src/studio/web-next/vite.config.ts',
-  'src/studio/web-next/src/{components,types}/**',
+  'src/studio/web-next/src/types/tree.ts',
   'src/studio/web-next/src/{main,router}.ts',
 ]
 

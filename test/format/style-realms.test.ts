@@ -1,5 +1,5 @@
 import { test, expect, vi } from 'vitest'
-import { rmSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs'
+import { rmSync, mkdirSync, symlinkSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readSample, writeSample, readSamplesByScene, parseSampleFileName } from '../../src/format/style.js'
@@ -28,6 +28,28 @@ test('readSample + writeSample: 往返（含标签数组）', () => {
     expect(r.sample.正文).toContain('刀光')
   }
   rmSync(dir, { recursive: true, force: true })
+})
+
+// 重评-20（全库代码重评审 2026-09-05）：样章库同款修法——标量「标签」此前两处皆不收
+//（_raw 排除 KNOWN_FM_KEYS + 模型字段仅认数组形态），样章库回写物理丢失；归一后
+// 写回文件形态从标量变数组属规范形归一（数组形态本就保真）
+test('readSample: 手写标量 标签: 快节奏 → 归一 [快节奏]，往返不丢', () => {
+  const dir = mkdtempTracked(join(tmpdir(), '北境往事-'))
+  try {
+    const fp = join(dir, '战斗-001.md')
+    writeFileSync(fp, '---\n场景: 战斗\n来源: 作者原作\n标签: 快节奏\n---\n\n刀光没入雪雾。', 'utf-8')
+    const r = readSample(fp)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.sample.标签).toEqual(['快节奏'])
+    expect(r.sample._raw?.['标签']).toBeUndefined() // 已知键不进 _raw（归一后也不重复收）
+    writeSample(fp, r.sample)
+    expect(readFileSync(fp, 'utf-8')).toContain('标签: [快节奏]')
+    const r2 = readSample(fp)
+    expect(r2.ok && r2.sample.标签).toEqual(['快节奏'])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test('readSamplesByScene: 按场景取、容错', () => {

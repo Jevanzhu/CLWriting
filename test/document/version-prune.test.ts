@@ -1,18 +1,42 @@
 /**
  * pruneVersions pinned 保留策略测试（P1-T1）：
  * 验证定稿里程碑（pinned=true）在超期/maxCount 兜底时恒保留。
+ *
+ * 重评-14（全库代码重评审 2026-09-05）：逐版本删除收编退避删 rmWithRetry 的回归——
+ * win 杀软/索引器瞬时锁（EPERM/EBUSY）下首删直败曾让旧版本滞留/伴生文件残留。
  */
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   writeVersion,
   pruneVersions,
   listVersions,
   readVersion,
+  encodeDocDirName,
   DEFAULT_VERSION_POLICY,
 } from '../../src/document/version.js'
+
+// actual 经 hoisted 容器带出——用例内 mockImplementation 需要真实现做 pass-through
+// （r42-40 / r37 系同款手法：按文件名注入一次性/持续 EPERM，其余全透传零影响）
+const actualFs = vi.hoisted(() => ({
+  unlinkSync: undefined as unknown as typeof import('node:fs').unlinkSync,
+}))
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>()
+  actualFs.unlinkSync = actual.unlinkSync
+  return { ...actual, unlinkSync: vi.fn(actual.unlinkSync) }
+})
+
+import { unlinkSync as unlinkSyncMocked } from 'node:fs'
+
+const errOf = (code: string): NodeJS.ErrnoException => Object.assign(new Error(`mock ${code}`), { code })
+
+/** 取路径末段文件名——精确匹配防 `._<id>.md` 伴生名对 `<id>.md` 主名的后缀误伤 */
+function baseName(p: unknown): string {
+  return typeof p === 'string' ? p.replace(/\\/g, '/').split('/').pop()! : ''
+}
 
 let dir: string
 const docId = 'doc_test'
@@ -22,6 +46,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.mocked(unlinkSyncMocked).mockReset()
+  vi.mocked(unlinkSyncMocked).mockImplementation((...args) => actualFs.unlinkSync(...args))
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -130,5 +156,64 @@ describe('pruneVersions pinned 保留', () => {
 
   it('空目录 → 返回 0', () => {
     expect(pruneVersions(dir, '不存在的doc', DEFAULT_VERSION_POLICY)).toBe(0)
+  })
+})
+
+// ── 重评-14（全库代码重评审 2026-09-05）：逐版本删除收编退避删 rmWithRetry ──
+
+describe('pruneVersions 退避删（重评-14）', () => {
+  it('主删撞瞬时 EPERM（win 杀软/索引器）→ 退避后删净', () => {
+    const victim = writeVersion(dir, docId, '超期旧稿', { origin: 'autosave' })
+    expect(victim).not.toBeNull()
+    let calls = 0
+    vi.mocked(unlinkSyncMocked).mockImplementation((...args) => {
+      if (baseName(args[0]) === `${victim}.md`) {
+        calls++
+        if (calls === 1) throw errOf('EPERM') // 瞬时锁形态：一次后放行
+      }
+      return actualFs.unlinkSync(...args)
+    })
+
+    const future = Date.now() + 100 * 24 * 60 * 60 * 1000
+    const removed = pruneVersions(dir, docId, DEFAULT_VERSION_POLICY, future)
+    expect(removed).toBe(1)
+    expect(calls).toBe(2) // 首删 EPERM + 退避重试成功——退避链确被走（裸删时代此处直败滞留）
+    expect(exists(victim)).toBe(false)
+  })
+
+  it('退避耗尽仍删不动 → 跳过该版本不阻断其余清理（prune 幂等，下次写重扫自愈）', () => {
+    const stuck = writeVersion(dir, docId, '被占用旧稿', { origin: 'autosave' })
+    const free = writeVersion(dir, docId, '正常旧稿', { origin: 'autosave' })
+    vi.mocked(unlinkSyncMocked).mockImplementation((...args) => {
+      if (baseName(args[0]) === `${stuck}.md`) throw errOf('EPERM') // 持续占用（非瞬时）
+      return actualFs.unlinkSync(...args)
+    })
+
+    const future = Date.now() + 100 * 24 * 60 * 60 * 1000
+    const removed = pruneVersions(dir, docId, DEFAULT_VERSION_POLICY, future)
+    expect(removed).toBe(1) // 仅 free 计入删除；stuck 耗尽跳过（catch-continue 语义不变）
+    expect(exists(stuck)).toBe(true)
+    expect(exists(free)).toBe(false)
+  })
+
+  it('AppleDouble 伴生删除撞瞬时 EPERM → 退避后一并清理', () => {
+    const victim = writeVersion(dir, docId, '伴生清理', { origin: 'autosave' })
+    // 手工放置伴生文件（macOS 拷贝形态）
+    const adPath = join(dir, encodeDocDirName(docId), `._${victim}.md`)
+    writeFileSync(adPath, 'resource fork', 'utf-8')
+    let adCalls = 0
+    vi.mocked(unlinkSyncMocked).mockImplementation((...args) => {
+      if (baseName(args[0]) === `._${victim}.md`) {
+        adCalls++
+        if (adCalls === 1) throw errOf('EPERM')
+      }
+      return actualFs.unlinkSync(...args)
+    })
+
+    const future = Date.now() + 100 * 24 * 60 * 60 * 1000
+    const removed = pruneVersions(dir, docId, DEFAULT_VERSION_POLICY, future)
+    expect(removed).toBe(1)
+    expect(adCalls).toBe(2) // 伴生首删 EPERM + 退避重试成功
+    expect(existsSync(adPath)).toBe(false)
   })
 })

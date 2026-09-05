@@ -29,7 +29,7 @@
  *
  * docId 是稳定 ID（队列/日志/清单 key），relPath 是落盘路径。
  */
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { safeDocId, resolveWithinRoot, docJoinKey, platformCaseFold } from '../fs/safe-path.js'
 import { atomicWriteFile, createFileExclusive, linkOrRenameExclusive, renameWithRetry, rmWithRetry } from '../fs/atomic.js'
@@ -1134,7 +1134,10 @@ export class DocumentService {
         rmWithRetry(oldSafe)
       } catch (rmErr) {
         try {
-          rmSync(dst, { force: true })
+          // 重评-13（全库代码重评审 2026-09-05）：回滚删新位收编 rmWithRetry——win
+          // 瞬时锁（EPERM/EBUSY）下裸 rmSync 直败会把「可回收的回滚」劣化成孤儿残留；
+          // 退避后仍失败照走 catch 留痕（孤儿副本硬链接同数据，语义不变）
+          rmWithRetry(dst)
         } catch {
           /* 新位残留孤儿副本：硬链接同数据，无丢失，重试前需手工清理 */
         }
@@ -1397,7 +1400,9 @@ export class DocumentService {
           rmWithRetry(oldSafe)
         } catch (rmErr) {
           try {
-            rmSync(newSafe, { force: true })
+            // 重评-13（全库代码重评审 2026-09-05）：回滚删新位硬链接收编 rmWithRetry
+            //（同上 :1137 处）——瞬时锁退避自愈，退避后仍失败照旧吞错留孤儿副本
+            rmWithRetry(newSafe)
           } catch { /* 新位残留孤儿副本：内容无损，重试前需手工清理 */ }
           throw rmErr
         }
@@ -1735,7 +1740,10 @@ export class DocumentService {
         rmWithRetry(oldSafe)
       } catch (rmErr) {
         try {
-          rmSync(finalTrashAbs, { force: true })
+          // 重评-13（全库代码重评审 2026-09-05）：回滚删回收站副本收编 rmWithRetry
+          //（同 :1137 处）——瞬时锁退避自愈，退避后仍失败照走 catch warn（回滚不净
+          // 双份残留留痕，语义不变）
+          rmWithRetry(finalTrashAbs)
           await removeTrashEntryAsync(this.bookRoot, docId)
         } catch (rollbackErr) {
           log.warn('document', `软删删源失败且回收站回滚不净（${oldPath}，源文件未删、回收站有残留，重试软删将按时间戳后缀保双份）：${errMsg(rollbackErr)}`)

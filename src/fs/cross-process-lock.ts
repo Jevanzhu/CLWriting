@@ -26,6 +26,7 @@
 import { mkdirSync, openSync, writeSync, closeSync, rmSync, readFileSync, statSync, utimesSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { log } from '../log/index.js'
+import { rmWithRetry } from './atomic.js'
 
 /** 本进程启动时刻（epoch ms，由 uptime 反推）——锁文件诊断字段（未来 pid 复用判别依据）。
  *  R71-24（十九轮）导出复用：events 开口标记内容同样落 pid+bootTime。 */
@@ -250,7 +251,13 @@ export function tryAcquireCrossProcessLock(
       // （下轮重试创建，按新持有者重新评估）。窗口收窄到 µs 级，残余窗口见模块头注。
       if (judgeStaleLock(lockPath, isAlive, grace, maxHeld) !== 'stale') continue
       // 持有进程已死（或超龄仍不可读——创建即崩溃的半写兜底）：接管清理重试
-      rmSync(lockPath, { force: true })
+      // 重评-12（全库代码重评审 2026-09-05）：接管清理删除收编 fs/atomic.ts rmWithRetry
+      //（R42-10 trash.ts 先例、本文件 rmWithRetryQuiet 同族）——win 杀软/索引器对死进程
+      // 遗留锁文件的瞬时锁定（EPERM/EBUSY）下裸 rmSync 直败会让陈锁接管无谓失败（调用
+      // 方超时降级/上抛）。退避口径同款（3×50ms 指数退避，仅 EPERM/EBUSY 进重试；缺省
+      // rm 即 rmSync force，与原裸调逐位同源）；退避后仍失败照旧上抛——接管语义不吞错，
+      // 调用方超时降级面不变。
+      rmWithRetry(lockPath)
     } finally {
       if (fd !== undefined) {
         try {

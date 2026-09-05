@@ -49,11 +49,23 @@ export function readSample(
     log.warn('style', `样章 ${basename(filePath)} 来源值非法（「${String(rawSource)}」，合法：${KNOWN_SOURCES.join('/')}），按「作者原作」处理`)
   }
 
+  // 重评-20（全库代码重评审 2026-09-05）：标量「标签」归一为单元素数组——与
+  // style-entry readEntry 同款修法：「标签」在 KNOWN_FM_KEYS 里被排除出 _raw，而模型
+  // 字段此前只在数组形态承载，作者手写标量形态（`标签: 快节奏`）两处皆不收，样章库
+  // 回写物理丢失。归一只发生在解析侧，写回后标量变数组属规范形归一；空串/缺键不造
+  // 空数组；「技法指令」维持 map.has 标量保真口径不动。
+  const rawTags = map.get('标签')
+  const 标签 = Array.isArray(rawTags)
+    ? (rawTags as string[])
+    : rawTags != null && rawTags !== ''
+      ? [String(rawTags)]
+      : undefined
+
   const sample: StyleSample = {
     场景,
     来源: 来源 ?? '作者原作',
     ...(map.has('出处') ? { 出处: String(map.get('出处')) } : {}),
-    ...(Array.isArray(map.get('标签')) ? { 标签: map.get('标签') as string[] } : {}),
+    ...(标签 ? { 标签 } : {}),
     ...(map.has('技法指令') ? { 技法指令: String(map.get('技法指令')) } : {}),
     正文: r.body.trim(),
     ...(Object.keys(_raw).length > 0 ? { _raw } : {}),

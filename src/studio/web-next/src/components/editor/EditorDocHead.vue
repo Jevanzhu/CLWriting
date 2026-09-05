@@ -108,6 +108,32 @@ function onSave(): void {
   void doc.save(e.docId, 'manual')
 }
 
+// 重评-29（全库代码重评审 2026-09-05）：「覆盖」是全库唯一单击即静默丢弃远端版本的
+// 入口（对照出路①重载丢的是可重拉的远端内容、删章进回收站可恢复），与库内危险操作
+// 确认惯例不一致——useChatComposer 清空对话 / useChapterTreeActions 删章均为
+// ui.ask danger 二次确认后才执行。补同款确认：文案说清「以本地内容为准、丢弃服务器
+// 远端版本」，确认通过才调 doc.overwriteRemote。
+const overwriting = ref(false)
+async function onOverwrite(): Promise<void> {
+  // docId 入口捕获（同 onTitleCommit 的 dd-P2 口径）——await 弹窗期间切换文档后，
+  // 确认结果仍作用于发起时那条冲突，不写别文档
+  const e = entry.value
+  if (!e || overwriting.value) return // 确认/覆盖全程防重复触发（连点只开一次弹窗）
+  overwriting.value = true
+  try {
+    const ok = await ui.ask({
+      title: '覆盖远端版本',
+      message: '覆盖将以当前本地内容为准写回服务器，服务器上的远端版本将被丢弃（仅存 .版本 快照可找回）。确定覆盖吗？',
+      confirmText: '覆盖',
+      danger: true,
+    })
+    if (!ok) return
+    await doc.overwriteRemote(e.docId)
+  } finally {
+    overwriting.value = false
+  }
+}
+
 // 定稿确认：正文区 draft（从未定稿）可首次定稿、revision（定稿后改动）可重新定稿；
 // final 已定稿不显（草稿区/待定稿在 工作区/ 非正文区，由 path 前缀排除）。
 const isFinalizable = computed(() => {
@@ -249,9 +275,11 @@ async function onTitleCommit(): Promise<void> {
           <span v-if="chapterStatus" class="doc-status" :class="statusCls">{{ chapterStatus }}</span>
           <template v-if="entry?.conflict">
             <!-- R32-33（三十二轮）：saving 窗口禁用——重载/覆盖入口对 saving 在途静默 no-op
-                 （doc store saving 守卫），按钮此前可点但毫无反应（死按钮残余点） -->
+                 （doc store saving 守卫），按钮此前可点但毫无反应（死按钮残余点）。
+                 重评-29：覆盖改走 onOverwrite（danger 确认后才落 doc.overwriteRemote）；
+                 overwriting 覆盖确认弹窗开启 + 覆盖在途全程禁用，防连点重复触发 -->
             <button class="conflict-btn" :disabled="entry.saving" @click="doc.reloadFromRemote(entry.docId)">重载</button>
-            <button class="conflict-btn danger" :disabled="entry.saving" @click="doc.overwriteRemote(entry.docId)">覆盖</button>
+            <button class="conflict-btn danger" :disabled="entry.saving || overwriting" @click="onOverwrite">覆盖</button>
           </template>
           <div v-if="isReviewable" class="ai-group">
             <button

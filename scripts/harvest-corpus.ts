@@ -14,7 +14,7 @@
  *   工作区/语料候选/误报候选.md / 命中候选.md（`- [ ]` 勾选行）
  *   工作区/语料候选/误报率统计.md（imagery-seed 种子短语误报率，>30% 列剔除候选）
  */
-import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
 import { join, basename, relative } from 'node:path'
 import process from 'node:process'
 import { DatabaseSync } from 'node:sqlite'
@@ -29,9 +29,19 @@ import { rebuild } from '../src/cache/rebuild.js'
 import { DEFAULT_IMAGERY_WORDS } from '../src/check/imagery-seed.js'
 import { bodyOf } from '../src/format/frontmatter-core.js'
 
+// 重评-26（全库代码重评审 2026-09-05）：入参此前只验 existsSync 不验目录——误传
+// 文件路径时校验放行，readBookConfig(join(bookRoot, 'book.yaml')) 以文件为根拼路径
+// 裸栈 ENOENT 崩穿。改 statSync + isDirectory 校验，失败打人话 usage 后 fail-closed
+// 退出（exit 1，口径同 corpus-commit.ts / check-knowledge.ts 的显式报错出口）。
 const bookRoot = process.argv[2]
-if (!bookRoot || !existsSync(bookRoot)) {
+if (!bookRoot) {
   console.error('用法：npx tsx scripts/harvest-corpus.ts <bookRoot>')
+  console.error('  <bookRoot>：书目录路径（含 book.yaml 的目录），不是文件。')
+  process.exit(1)
+}
+if (!existsSync(bookRoot) || !statSync(bookRoot).isDirectory()) {
+  console.error(`[harvest-corpus] 错误：<bookRoot> 不是存在的目录：${bookRoot}`)
+  console.error('用法：npx tsx scripts/harvest-corpus.ts <bookRoot>（指向含 book.yaml 的书目录）')
   process.exit(1)
 }
 

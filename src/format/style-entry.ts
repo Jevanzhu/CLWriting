@@ -76,13 +76,26 @@ export function readEntry(
   }
 
   const rawSource = map.get('来源')
+  // 重评-20（全库代码重评审 2026-09-05）：标量「标签」归一为单元素数组——「标签」在
+  // KNOWN_FM_KEYS 里被排除出 _raw，而模型字段此前只在数组形态（`标签: [a, b]`）承载，
+  // 作者手写标量形态（`标签: 金句`）两处皆不收：经任一回写路径（writeEntry/addEntry
+  // /样章库回写）物理消失，readBannedEntryWords 的 标签?.includes('AI味') 对标量失明
+  //（AI味软禁词条目误入硬禁词机检）。归一只发生在解析侧，写回后标量变数组属规范形
+  // 归一（数组形态本就保真）；空串/缺键不造空数组；技法指令等标量字段走 map.has
+  // 保真口径，不受影响。
+  const rawTags = map.get('标签')
+  const 标签 = Array.isArray(rawTags)
+    ? (rawTags as string[])
+    : rawTags != null && rawTags !== ''
+      ? [String(rawTags)]
+      : undefined
   const entry: StyleEntry = {
     类型: kind,
     场景,
     来源: isEntrySource(rawSource) ? rawSource : '作者标注',
     ...(map.has('说明') ? { 说明: String(map.get('说明')) } : {}),
     ...(map.has('出处') ? { 出处: String(map.get('出处')) } : {}),
-    ...(Array.isArray(map.get('标签')) ? { 标签: map.get('标签') as string[] } : {}),
+    ...(标签 ? { 标签 } : {}),
     正文: r.body.trim(),
     ...(Object.keys(_raw).length > 0 ? { _raw } : {}),
     _path: filePath,

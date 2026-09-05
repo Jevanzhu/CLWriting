@@ -79,6 +79,9 @@ test('冲突 → 覆盖远端（丢远端写本地）', async ({ page }) => {
   await provokeConflict(page, CHAPTER_2(), '玉佩突然爆发灵光')
 
   await page.locator('.conflict-btn.danger').click()
+  // 重评-29（全库代码重评审 2026-09-05）：「覆盖」补 danger 二次确认（ui.ask→ConfirmPrompt，
+  // 与清空对话/删章惯例对齐）——e2e 契约随行：点确认弹窗内 danger 确认键后才落 overwriteRemote
+  await page.locator('.cp-modal .cp-actions .btn.danger').click()
 
   // 保存回正常态
   await expect(page.locator('.save-group .save-btn')).toContainText('已保存', { timeout: 5_000 })

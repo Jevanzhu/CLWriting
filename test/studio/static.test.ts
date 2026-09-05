@@ -1,11 +1,13 @@
 import http from 'node:http'
 import net from 'node:net'
 import type { AddressInfo } from 'node:net'
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, createReadStream, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { PassThrough } from 'node:stream'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import type { MockInstance } from 'vitest'
 import { createStaticHandler } from '../../src/studio/server/static.js'
 
 // M-P3-09（内存核查 2026-08-25）：透传式 spy——只计数不改行为，断言 HEAD 分支不再 readFile 整读
@@ -14,6 +16,14 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   return { ...actual, readFile: vi.fn(actual.readFile) }
 })
 const readFileMock = vi.mocked(readFile)
+
+// 重评-4（全库代码重评审 2026-09-05）：createReadStream 透传 spy——默认行为与原实现
+// 一致（既有用例零感知），仅供断连 destroy 用例注入受控实现观测源流销毁
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>()
+  return { ...actual, createReadStream: vi.fn(actual.createReadStream) }
+})
+const createReadStreamMock = vi.mocked(createReadStream)
 
 let root = ''
 let server: http.Server | undefined
@@ -286,6 +296,47 @@ test('R65-47: 405 后请求体被排空——keep-alive 连接可复用', async 
   } finally {
     agent.destroy()
   }
+})
+
+// 重评-6（全库代码重评审 2026-09-05）：405 分支信封 code 语义化——原借用泛化
+// 'BAD_INPUT'，改 METHOD_NOT_ALLOWED。全库 grep（src/ + test/ 含 e2e + web-next）
+// 确认旧码无消费面；error 人话不变。
+test('重评-6: 405 分支信封 code 为 METHOD_NOT_ALLOWED（非泛化 BAD_INPUT）', async () => {
+  const res = await fetch(`${baseUrl}/`, { method: 'POST', body: 'x' })
+  expect(res.status).toBe(405)
+  expect(JSON.parse(await res.text())).toEqual({ code: 'METHOD_NOT_ALLOWED', error: 'Method Not Allowed' })
+})
+
+// 重评-4（全库代码重评审 2026-09-05）：静态流式响应此前只监听流自身 'error'——客户端
+// 中途断连（弱网/关页）时流收不到任何通知，createReadStream 的文件描述符滞留至 GC
+// 才释放。修复：res 'close'（正常 finish 与异常断连都会触发）统一 destroy 源流回收
+// FD；已正常结束的流 destroy 是 no-op（既有 GET 全量用例即无害性回归）。
+// 注入：mock req/res 直调 handler（res 用真 Duplex 承接 pipe，writeHead 桩替身），
+// 源流 spy destroy——res 发 'close' 断言源流被销毁。
+test('重评-4: 客户端中途断连（res close）→ 源流 destroy（FD 不滞留至 GC）', async () => {
+  writeFileSync(join(root, 'big.js'), 'x'.repeat(256 * 1024))
+  const { createReadStream: realCreateReadStream } =
+    await vi.importActual<typeof import('node:fs')>('node:fs')
+  let source: import('node:fs').ReadStream | undefined
+  let destroySpy: MockInstance | undefined
+  createReadStreamMock.mockImplementationOnce((path, options) => {
+    source = realCreateReadStream(path, options)
+    destroySpy = vi.spyOn(source, 'destroy')
+    return source
+  })
+
+  const res = new PassThrough() as unknown as http.ServerResponse
+  const writeHeadSpy = vi.fn()
+  ;(res as unknown as { writeHead: unknown }).writeHead = writeHeadSpy
+  const req = { method: 'GET', url: '/big.js' } as unknown as http.IncomingMessage
+  await createStaticHandler(root)(req, res)
+
+  // 等 open→writeHead→pipe 落位（close 监听在 pipe 之后注册）；open 后同 tick 即注册
+  await vi.waitFor(() => expect(writeHeadSpy).toHaveBeenCalled())
+  res.emit('close')
+
+  expect(destroySpy).toHaveBeenCalledTimes(1)
+  expect(source?.destroyed).toBe(true)
 })
 
 // R30-23（三十轮）：静态响应统一 nosniff——三条产出路径（HEAD / GET / SPA fallback）

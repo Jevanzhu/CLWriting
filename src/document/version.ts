@@ -19,7 +19,7 @@
 import { existsSync, readdirSync, unlinkSync, openSync, readSync, closeSync, readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { join, dirname } from 'node:path'
-import { atomicWriteFile, renameWithRetry } from '../fs/atomic.js'
+import { atomicWriteFile, renameWithRetry, rmWithRetry } from '../fs/atomic.js'
 import { safeDocId } from '../fs/safe-path.js'
 import { ulid, decodeUlidTime } from './stable-id.js'
 import { readFile, parseFlat, splitFrontMatter, stringifyValue } from '../format/frontmatter.js'
@@ -641,10 +641,17 @@ export function pruneVersions(
   for (const s of all) {
     if (keep.has(s.id)) continue
     try {
-      unlinkSync(s.path)
+      // 重评-14（全库代码重评审 2026-09-05）：逐版本删除收编 rmWithRetry（fs/atomic.ts
+      // R40-19，R42-10 trash.ts 先例）——win 杀软/索引器瞬时锁（EPERM/EBUSY）下裸
+      // unlinkSync 直败会让本该清掉的旧版本滞留（磁盘占用逐次累积）。rm 注入 unlinkSync
+      // 与原裸调逐位同源：ENOENT（已被别处删掉）等确定性错误照旧直抛走 catch，仅
+      // EPERM/EBUSY 进 3×50ms 指数退避。
+      rmWithRetry(s.path, { rm: (p) => unlinkSync(p) })
       removed++
     } catch {
-      continue // 已被别处删掉无妨
+      // 已被别处删掉（ENOENT）无妨；退避后仍删不动（持续占用）同样跳过——单版本失败
+      // 不阻断其余 prune，prune 幂等（下次写入触发重扫再删），届时自愈
+      continue
     }
     // 失效指向被删版本的指纹缓存条目（此前未实现：残留缓存会让「内容恰好等于被删
     // 版本」的强制留底被去重吞掉，违背 W0-1 留底纪律——虽有读盘比对第一道防线，
@@ -654,7 +661,9 @@ export function pruneVersions(
     }
     // macOS AppleDouble 伴生文件一并清理
     try {
-      unlinkSync(join(dirname(s.path), `._${s.id}.md`))
+      // 重评-14：伴生删除同收编退避版（rm 注入 unlinkSync 同主删口径——瞬时锁退避
+      // 自愈，ENOENT「没有就算了」语义不变；退避后仍失败伴生文件无害，随下次 prune 重试）
+      rmWithRetry(join(dirname(s.path), `._${s.id}.md`), { rm: (p) => unlinkSync(p) })
     } catch {
       /* 没有就算了 */
     }

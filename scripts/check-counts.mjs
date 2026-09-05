@@ -229,8 +229,9 @@ function walk(dir, pred, out = []) {
 // 改为直读快照文件（缺失/解析失败/行形不合规一律 fail-closed 报人话），按 spec 裸
 // 文件名比对（快照由守卫写入 entry.name，e2e 扁平目录下锁名即锁序）：
 // 新增/改名/删除任何 spec 都会改变名单或序位 → 失配红，逼改动者显式确认「插序是否
-// 破坏前序 spec 的落盘依赖」后用 CLW_UPDATE_SPEC_ORDER_SNAPSHOT=1 重拍快照（序为
-// localeCompare，镜像 Playwright 收集序，见 spec-order.guard.test.ts R28-27）。
+// 破坏前序 spec 的落盘依赖」后经两步闸重拍快照（重评-3）：CLW_UPDATE_SPEC_ORDER_SNAPSHOT=1
+// 预览（守卫失败并列出新顺序）→ 同命令追加 CLW_UPDATE_SPEC_ORDER_SNAPSHOT_CONFIRM=1
+// 确认写入（序为 localeCompare，镜像 Playwright 收集序，见 spec-order.guard.test.ts R28-27）。
 const SPEC_ORDER_SNAPSHOT_PATH = join(root, 'test', 'e2e', 'spec-order.snapshot.txt')
 
 /**
@@ -248,7 +249,7 @@ function loadSpecOrderSnapshot() {
     console.error('\ncheck:counts 失败：spec 顺序快照缺失/不可读（R28-28 fail-closed）——')
     console.error(`  唯一真相源：${SPEC_ORDER_SNAPSHOT_PATH}`)
     console.error(`  读失败原因：${e.message ?? String(e)}`)
-    console.error('  若为首次建立或有意重排，先跑守卫重拍：CLW_UPDATE_SPEC_ORDER_SNAPSHOT=1 npx vitest run test/e2e/spec-order.guard.test.ts')
+    console.error('  若为首次建立或有意重排，跑守卫两步闸重拍（重评-3）：CLW_UPDATE_SPEC_ORDER_SNAPSHOT=1 预览 → 同命令追加 CLW_UPDATE_SPEC_ORDER_SNAPSHOT_CONFIRM=1 确认写入（npx vitest run test/e2e/spec-order.guard.test.ts）')
     process.exit(1)
   }
   const lines = raw
@@ -258,7 +259,7 @@ function loadSpecOrderSnapshot() {
   if (lines.length === 0) {
     console.error('\ncheck:counts 失败：spec 顺序快照为空，当不了契约基线（R28-28 fail-closed）——')
     console.error(`  唯一真相源：${SPEC_ORDER_SNAPSHOT_PATH}`)
-    console.error('  重拍：CLW_UPDATE_SPEC_ORDER_SNAPSHOT=1 npx vitest run test/e2e/spec-order.guard.test.ts')
+    console.error('  重拍两步闸（重评-3）：CLW_UPDATE_SPEC_ORDER_SNAPSHOT=1 预览 → 同命令追加 CLW_UPDATE_SPEC_ORDER_SNAPSHOT_CONFIRM=1 确认写入（npx vitest run test/e2e/spec-order.guard.test.ts）')
     process.exit(1)
   }
   const bad = lines.filter((line) => !/^[\w.-]+\.spec\.ts$/.test(line))
@@ -335,7 +336,7 @@ function main() {
     console.error('\ncheck:counts 失败：e2e spec 名单/顺序与快照失配（R66-37）——')
     console.error('  spec 按 workers:1 localeCompare 序串行跑且共享单一 workDir，顺序是隐式契约（README「勿改动 spec 顺序」）。')
     console.error('  唯一真相源 = test/e2e/spec-order.snapshot.txt；新增/改名 spec 前请确认其序位不破坏前序 spec 的落盘依赖，再重拍快照：')
-    console.error('  CLW_UPDATE_SPEC_ORDER_SNAPSHOT=1 npx vitest run test/e2e/spec-order.guard.test.ts')
+    console.error('  重拍走守卫两步闸（重评-3）：CLW_UPDATE_SPEC_ORDER_SNAPSHOT=1 预览 → 同命令追加 CLW_UPDATE_SPEC_ORDER_SNAPSHOT_CONFIRM=1 确认写入（npx vitest run test/e2e/spec-order.guard.test.ts）')
     for (const p of specAdded) console.error('  + 新增（当前在跑，快照缺）: ' + p)
     for (const p of specRemoved) console.error('  - 移除（快照有，当前缺）: ' + p)
     process.exit(1)

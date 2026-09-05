@@ -19,7 +19,9 @@ import {
 // R43-25 收口回归（2026-09-04）：openSync 'wx' 的瞬态 EPERM 注入面——win delete-pending
 // 窗口/杀软瞬时握锁形态。mock 工厂透传全部原实现，仅 openSync 按计数器前 N 次 'wx'
 // 创建抛 EPERM（默认 0 = 全部用例原语义不受影响；用例内置数，beforeEach 归零）。
-const fsState = vi.hoisted(() => ({ epermLeft: 0 }))
+// 重评-12（全库代码重评审 2026-09-05）：同手法补 rmSync 注入面——陈锁接管的清理删除
+// 已收编 rmWithRetry，用例按计数注入 EPERM 验证退避重试与耗尽上抛两面。
+const fsState = vi.hoisted(() => ({ epermLeft: 0, rmEpermLeft: 0 }))
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>()
   return {
@@ -33,6 +35,15 @@ vi.mock('node:fs', async (importOriginal) => {
       }
       return (actual.openSync as (...a: unknown[]) => number)(p, flags, ...rest)
     },
+    rmSync: (p: string, opts?: { force?: boolean; recursive?: boolean }) => {
+      if (fsState.rmEpermLeft > 0) {
+        fsState.rmEpermLeft--
+        const err = new Error(`EPERM: operation not permitted, unlink '${p}'`) as NodeJS.ErrnoException
+        err.code = 'EPERM'
+        throw err
+      }
+      return (actual.rmSync as (...a: unknown[]) => void)(p, opts)
+    },
   }
 })
 
@@ -44,6 +55,7 @@ const lp = (name: string): string => join(dir, `${name}.lock`)
 
 beforeEach(() => {
   fsState.epermLeft = 0 // 瞬态注入计数归零（其余用例原语义零影响）
+  fsState.rmEpermLeft = 0
 })
 
 describe('tryAcquireCrossProcessLock', () => {
@@ -141,6 +153,31 @@ describe('tryAcquireCrossProcessLock', () => {
     expect(fsState.epermLeft).toBe(0) // 3 次瞬态都被重试吸收
     expect((JSON.parse(readFileSync(p, 'utf-8')) as { pid: number }).pid).toBe(process.pid)
     r!()
+  })
+
+  // 重评-12（全库代码重评审 2026-09-05）：陈锁接管的清理删除收编 fs/atomic.ts
+  // rmWithRetry——win 杀软/索引器对死进程遗留锁文件瞬时锁定（EPERM/EBUSY）下裸
+  // rmSync 直败会让接管无谓失败。
+  it('重评-12：陈锁接管删除撞瞬时 EPERM → 退避重试后接管成功', () => {
+    const p = lp('stale-takeover-eperm')
+    writeFileSync(p, JSON.stringify({ pid: 4194303, bootTime: 0 }))
+    fsState.rmEpermLeft = 1 // 接管清理首删撞瞬时锁（一次后放行——瞬时占用形态）
+    const r = tryAcquireCrossProcessLock(p, { isProcessAlive: () => false, staleTakeoverJitterMs: 0 })
+    expect(r).not.toBeNull()
+    expect(fsState.rmEpermLeft).toBe(0) // 一次性瞬时锁被退避重试吸收（裸删时代此处直败）
+    expect((JSON.parse(readFileSync(p, 'utf-8')) as { pid: number }).pid).toBe(process.pid)
+    r!()
+  })
+
+  it('重评-12：接管删除持续 EPERM → 重试耗尽仍上抛（不吞错，调用方超时降级面不变）', () => {
+    const p = lp('stale-takeover-eperm-exhaust')
+    writeFileSync(p, JSON.stringify({ pid: 4194303, bootTime: 0 }))
+    fsState.rmEpermLeft = 99 // 持续占用（非瞬时形态）
+    expect(() =>
+      tryAcquireCrossProcessLock(p, { isProcessAlive: () => false, staleTakeoverJitterMs: 0 }),
+    ).toThrowError(/EPERM/)
+    fsState.rmEpermLeft = 0 // 收尾放行，手工清走残留锁文件
+    rmSync(p, { force: true })
   })
 })
 

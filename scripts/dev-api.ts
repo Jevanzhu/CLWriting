@@ -76,7 +76,22 @@ server.on('listening', () => {
 })
 
 // 优雅退出
-process.on('SIGINT', () => {
-  console.log('\n  ⏹  Stopping API server…')
-  server.close(() => process.exit(0))
-})
+// 重评-25（全库代码重评审 2026-09-05）：此前 SIGINT 只 `server.close(() => exit(0))`
+// 无兜底——close 对 SSE/keep-alive 长连接会悬置回调（graceful-shutdown 同因，M-8 判例），
+// dev 页面开着 SSE 时 Ctrl+C 进程挂在信号上杀不掉。搬 src/desktop/server-main.ts 的
+// M-8 同款：exiting 幂等旗 + 2s 定时兜底强退；定时器 unref——close 顺利先到时不作为
+// 活跃句柄拖慢退出，幂等防双信号双触发。
+let exiting = false
+const exitNow = (): void => {
+  if (exiting) return
+  exiting = true
+  process.exit(0)
+}
+for (const sig of ['SIGINT', 'SIGTERM'] as const) {
+  process.on(sig, () => {
+    console.log('\n  ⏹  Stopping API server…')
+    server.close(exitNow)
+    const t = setTimeout(exitNow, 2_000)
+    t.unref()
+  })
+}

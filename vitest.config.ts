@@ -87,7 +87,15 @@ export default defineConfig({
       // 引导/路由装配（createApp/use/plug），单测不可达；此前它们不落任何阈值桶
       // 却进报告，分区口径留有「桶外文件」暗区
       // R33D-36（三十三轮）：vite.config.ts 入 exclude（进报告无阈值桶的桶外暗区收口）
-      exclude: ['src/**/*.d.ts', 'src/studio/web-next/vite.config.ts', 'src/studio/web-next/src/{components,types}/**', 'src/studio/web-next/src/{main,router}.ts'],
+      // 重评-2（全库代码重评审 2026-09-05）：原 '{components,types}/**' 整目录排除宽于
+      // 口径——两目录下混有非 SFC 纯 TS 运行时文件（components/ui/settings-context.ts：
+      // SAVE_CONFIG_KEY = Symbol 装配，7+ 单测直接 import 执行；types/theme.ts：THEMES
+      // 数组装配，经 composables/useTheme.ts 运行时 import 执行），却游离在报告与门禁外。
+      // 收窄：仅点名排除 types/tree.ts——纯 `export interface TreeNode` 类型声明，零运行
+      // 时语句，全部消费方 import type 编译期擦除，无覆盖语义可计；.vue 组件层由 include
+      // 'src/**/*.ts' 天然不入口径（vue-tsc/构建链自管），不再用 exclude 表达；两运行时
+      // 文件随聚合桶 glob 扩面纳管（见 thresholds，同 R62-23「收暗区、阈值不变」先例）。
+      exclude: ['src/**/*.d.ts', 'src/studio/web-next/vite.config.ts', 'src/studio/web-next/src/types/tree.ts', 'src/studio/web-next/src/{main,router}.ts'],
       thresholds: {
         // 主代码单桶（brace+extglob 组合 = 除 web-next 外的全部，池化口径与旧全局门一致；
         // R36-17（三十六轮）：阈值随实测重算——区段注释口径曾停在 2026-08-20
@@ -115,7 +123,12 @@ export default defineConfig({
         'src/studio/web-next/src/api/**': { lines: 87, branches: 93 },
         // R62-23：editor/ 并入——typewriter.ts（运行时逻辑 19 行）此前不落任何桶，
         // 进报告却是「桶外暗区」；并入三桶后纳入门禁（阈值不变）
-        'src/studio/web-next/src/{composables,editor,shared,stores}/**': { lines: 43, branches: 81 },
+        // 重评-2（全库代码重评审 2026-09-05）：components/types 并入聚合桶（沿 R62-23
+        // 「收暗区、阈值不变」先例）——整目录 exclude 收窄后两处仅有的非 SFC 纯 TS 运行时
+        // 文件（components/ui/settings-context.ts、types/theme.ts）回到报告与门禁；.vue
+        // 不在 coverage include（src/**/*.ts）内，此 glob 实际命中的只是两目录下 .ts；
+        // 纯类型声明 types/tree.ts 已在 exclude 点名（零运行时语句，无覆盖语义）
+        'src/studio/web-next/src/{components,composables,editor,shared,stores,types}/**': { lines: 43, branches: 81 },
         // R29-12（二十九轮批 F）：stores 单列子桶——stores（纯逻辑层，实测最厚）此前与
         // composables（实测 lines 76.70）同池，域内回退被聚合均值稀释、对门不可见；
         // 阈值 = 2026-08-30 全量 coverage-summary 实测基线（lines 91.82 / branches

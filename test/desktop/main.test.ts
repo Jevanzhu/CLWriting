@@ -1344,6 +1344,88 @@ describe('R49-5: close/quit flush 链互斥', () => {
   })
 })
 
+// ── 重评-1（全库代码重评审 2026-09-05）：关窗/退出兜底 failed 消费 ────────────────
+// flush 钩子返回 { conflict, failed }（failed = 保存失败的 docId 列表，产出面
+// web-next stores/doc.ts flushBeforeClose），主进程原实现只判 conflict：failed 零
+// 消费 → 保存失败恰逢关窗/退出时编辑增量静默丢失，违背「编辑永不静默丢失」红线。
+// 修复后 close/quit 两链先留痕失败清单再弹原生确认（confirmDiscardFailed），取消 =
+// 应用原样保留。fresh module 手法与 mock 基建同 R44-2/R49-5。
+describe('重评-1: 关窗/退出兜底 failed（保存失败）消费——留痕 + 原生确认', () => {
+  async function freshModule(): Promise<(typeof M.windows)[number]> {
+    vi.resetModules()
+    await import('../../src/desktop/main.js')
+    await new Promise((r) => setImmediate(r))
+    await new Promise((r) => setImmediate(r))
+    return M.windows.at(-1)!
+  }
+
+  it('close 链 failed 非空 → error 留痕含 docId 清单 + 原生确认（message 含「保存失败」）；确认放弃 → destroy 收口', async () => {
+    const win = await freshModule()
+    win.webContents.execJsResult = { conflict: [], failed: ['doc-1', 'doc-2'] }
+    M.msgBoxSyncChoice = 0 // 放弃修改并继续
+    const box0 = M.msgBoxSync.length
+    const err0 = M.logErrors.length
+    const e = { preventDefault: vi.fn() }
+    win.emit('close', e)
+    expect(e.preventDefault).toHaveBeenCalledTimes(1) // 拦下等 flush
+    await new Promise((r) => setImmediate(r))
+    // failed 非空必弹原生确认（修复前零消费直关 = 静默丢失）
+    expect(M.msgBoxSync.length).toBe(box0 + 1)
+    const box = M.msgBoxSync.at(-1)!
+    expect(String(box.message)).toContain('保存失败') // 文案区别于「保存冲突」
+    expect(String(box.message)).toContain('2') // 计数入文案
+    expect(box.buttons).toEqual(['放弃修改并继续', '取消'])
+    expect(box.defaultId).toBe(1)
+    expect(box.cancelId).toBe(1)
+    // 留痕：error 日志带 failed docId 清单（文档 id 非敏感，供诊断）
+    const failLogs = M.logErrors.slice(err0).filter((l) => String((l as unknown[])[1]).includes('doc-1'))
+    expect(failLogs.length).toBeGreaterThanOrEqual(1)
+    expect(String((failLogs[0] as unknown[])[1])).toContain('doc-2')
+    expect(win.isDestroyed()).toBe(true) // 确认放弃 → destroy 收口
+  })
+
+  it('close 链 failed 非空 + 取消 → 窗口保留、在途旗复位（二次 close 重走完整链）', async () => {
+    const win = await freshModule()
+    win.webContents.execJsResult = { conflict: [], failed: ['doc-1'] }
+    M.msgBoxSyncChoice = 1 // 取消
+    const e1 = { preventDefault: vi.fn() }
+    win.emit('close', e1)
+    await new Promise((r) => setImmediate(r))
+    expect(M.msgBoxSync.at(-1)!.message).toContain('保存失败')
+    expect(win.isDestroyed()).toBe(false) // 取消：窗口原样保留
+    // 在途旗已复位：二次 close 重走完整链（若旗未复位，此处只被拦不起第二链）
+    M.msgBoxSyncChoice = 0
+    const e2 = { preventDefault: vi.fn() }
+    win.emit('close', e2)
+    expect(e2.preventDefault).toHaveBeenCalledTimes(1)
+    await vi.waitFor(() => expect(win.isDestroyed()).toBe(true))
+    expect(win.webContents.execJs.length).toBe(2) // 第二链正常发起（旗复位锚点）
+  })
+
+  it('quit 链 failed 非空：取消 → 不停机不退出（shutdown 未下发）；确认放弃 → 正常退出收口', async () => {
+    const quit0 = M.quitCalls
+    const win = await freshModule()
+    const child = M.forkChildren.at(-1)!
+    win.webContents.execJsResult = { conflict: [], failed: ['doc-1'] }
+    M.msgBoxSyncChoice = 1 // 取消退出
+    const e1 = { preventDefault: vi.fn() }
+    M.appOn['before-quit']!.at(-1)!(e1)
+    await new Promise((r) => setImmediate(r))
+    expect(e1.preventDefault).toHaveBeenCalledTimes(1)
+    expect(M.msgBoxSync.at(-1)!.message).toContain('保存失败') // quit 链同弹保存失败确认
+    expect(child.posted).not.toContainEqual({ type: 'shutdown' }) // 未 beginShutdown（不进入停机）
+    expect(M.quitCalls).toBe(quit0) // 不退出
+    expect(win.isDestroyed()).toBe(false) // 应用原样保留
+    // 二次 quit：flush 闸已复位 → 重走完整链，确认放弃后正常退出收口
+    M.msgBoxSyncChoice = 0
+    const e2 = { preventDefault: vi.fn() }
+    M.appOn['before-quit']!.at(-1)!(e2)
+    await vi.waitFor(() => expect(M.quitCalls).toBe(quit0 + 1))
+    expect(child.posted).toContainEqual({ type: 'shutdown' }) // 停机指令照发（先存后停）
+    expect(win.isDestroyed()).toBe(true) // 收口 destroy 全窗
+  })
+})
+
 // ── R44-15/R44-17（四十四轮）：子窗尺寸钳制 + 崩溃期 child best-effort kill ──────
 describe('R44-15/R44-17: 子窗工作区钳制 + uncaughtException 停机兜底', () => {
   async function freshModule(): Promise<(typeof M.windows)[number]> {

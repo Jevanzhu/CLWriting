@@ -21,6 +21,18 @@ export class HttpError extends Error {
   }
 }
 
+/** 重评-7（全库代码重评审 2026-09-05）：客户端断连错误形状——readJson 在请求体读取
+ * 中途识别到客户端断开（ECONNRESET/EPIPE）时给原始错误打的显式标记（不换壳，保留
+ * 原始 errno 信息），供 dispatch 兜底判别日志级别。 */
+export interface ClientAbortError extends Error {
+  clientAbort: true
+}
+
+/** 判定错误是否带客户端断连标记（重评-7）——显式判 true，不误伤伪造形状。 */
+export function isClientAbort(e: unknown): e is ClientAbortError {
+  return typeof e === 'object' && e !== null && (e as { clientAbort?: unknown }).clientAbort === true
+}
+
 export function reply(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
   res.end(JSON.stringify(body))
@@ -154,6 +166,14 @@ export function readJson(
       }
       resolve(parsed as Record<string, unknown>)
     })
-    req.on('error', (e) => reject(e))
+    req.on('error', (e) => {
+      // 重评-7（全库代码重评审 2026-09-05）：请求体读取中客户端断连（ECONNRESET/
+      // EPIPE）是客户端行为非服务端故障——给原始错误打 clientAbort 标记（不换壳，
+      // errno 信息保留），dispatch 兜底据此把 log.error 降 log.info；错误本体与
+      // 上层处理路径零变更（不带标记的错误原样透传）。
+      const code = (e as NodeJS.ErrnoException | undefined)?.code
+      if (code === 'ECONNRESET' || code === 'EPIPE') (e as ClientAbortError).clientAbort = true
+      reject(e)
+    })
   })
 }
