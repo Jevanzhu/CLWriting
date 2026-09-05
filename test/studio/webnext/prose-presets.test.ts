@@ -19,9 +19,9 @@ describe('正文排版预设', () => {
     }
   })
 
-  it('预设组 = 作者拍板的四套（默认·衬线 / 无衬线·清爽 / 思源黑体·均衡 / 宋体·经典）', () => {
+  it('预设组 = 作者拍板的三套（默认·雅黑 / 思源黑体·均衡 / 宋体·经典；无衬线·清爽与默认重复已移除）', () => {
     const ids = PROSE_PRESETS.map((p) => p.id).sort()
-    expect(ids).toEqual(['default', 'noto-sans', 'sans', 'songti'])
+    expect(ids).toEqual(['default', 'noto-sans', 'songti'])
   })
 
   it('预设值均在设置滑杆钳制域内（字号 13-24 / 行距 1.4-2.4）', () => {
@@ -33,11 +33,16 @@ describe('正文排版预设', () => {
     }
   })
 
-  it('默认预设 = 出厂值（空字体槽 + 17px + 1.5）', () => {
+  it('默认预设 = 雅黑定档（作者「C 不错」唯一亲验本体；出厂空槽衬线态脱钩落「自定义」）', () => {
     const def = PROSE_PRESETS.find((p) => p.id === 'default')
     expect(def).toBeTruthy()
-    expect(def!.values).toEqual(FACTORY)
-    expect(matchProsePreset(FACTORY)).toBe('default')
+    expect(def!.values).toEqual({
+      proseFontCn: 'Microsoft YaHei',
+      proseFontEn: '',
+      proseSize: 17,
+      proseLh: 1.5,
+    })
+    expect(matchProsePreset(FACTORY)).toBe('custom')
   })
 
   it('四字段全等才命中：每个预设可被自身值命中', () => {
@@ -52,9 +57,8 @@ describe('正文排版预设', () => {
     expect(matchProsePreset({ ...FACTORY, proseFontCn: 'SimHei' })).toBe('custom')
   })
 
-  it('预设只动声明字段：sans 预设 CN=雅黑且 EN 槽留空（拉丁由 CJK 字体自带）', () => {
-    const sans = PROSE_PRESETS.find((p) => p.id === 'sans')!
-    expect(sans.values.proseFontCn).toBe('Microsoft YaHei')
-    expect(sans.values.proseFontEn).toBe('')
+  it('预设只动声明字段：默认预设 CN=雅黑且 EN 槽留空（拉丁由 CJK 字体自带）', () => {
+    const def = PROSE_PRESETS.find((p) => p.id === 'default')!
+    expect(def.values.proseFontEn).toBe('')
   })
 })

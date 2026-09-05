@@ -113,7 +113,7 @@ Windows 在 cmd/PowerShell 里直接跑同一套 npm 命令即可（环境变量
 
 前端子包 `src/studio/web-next` 有自己的 `package.json` 和二级 `node_modules`（CodeMirror 等钉在那里，根目录的 `npm install` 不会带下来）。新克隆后要先补装上面第一行（CI 同款命令；本地改前端依赖时把 `ci` 换成 `install`）——不装的话 `npm test` 会在打字机相关用例上报模块解析失败，`build:web` / `dev:web` 也起不来。
 
-改完代码至少跑 `npm test`：826 个测试文件 / 5720 单测全绿是合入门槛，CI 里的 check:counts 会核对 README 声称的数字，对不上直接红。单测数是 macOS/Linux 口径——win 上平台门（`skipIf(win32)`）的用例不进 vitest 收集（阶段 21 J3；2026-09-05 四十六轮 win 实跑口径：813 文件 / 5572 过 + 70 跳，实测差 67 恒定），win 腿的 check:counts 只对账文件数与 e2e 数，单测数由 macos/ubuntu 腿核对。动了前端就再跑 `vue-tsc` 和 e2e。e2e 的 29 个 spec 按固有顺序跑（前一个建的书/写的内容供后一个用），其中主链共享单一临时 workDir（少数 spec 如 usage-card 各持独立 server+workDir 实例，见 test/e2e/e2e-ports.ts）——勿加并行或改动 spec 顺序，否则隐式依赖会静默错。
+改完代码至少跑 `npm test`：826 个测试文件 / 5720 单测全绿是合入门槛，CI 里的 check:counts 会核对 README 声称的数字，对不上直接红。单测数是 macOS/Linux 口径——win 上平台门（`skipIf(win32)`）的用例不进 vitest 收集（阶段 21 J3；2026-09-05 四十六轮 win 实跑口径：814 文件 / 5580 过 + 70 跳，实测差 67 恒定），win 腿的 check:counts 只对账文件数与 e2e 数，单测数由 macos/ubuntu 腿核对。动了前端就再跑 `vue-tsc` 和 e2e。e2e 的 29 个 spec 按固有顺序跑（前一个建的书/写的内容供后一个用），其中主链共享单一临时 workDir（少数 spec 如 usage-card 各持独立 server+workDir 实例，见 test/e2e/e2e-ports.ts）——勿加并行或改动 spec 顺序，否则隐式依赖会静默错。
 
 ## 技术栈
 
