@@ -106,7 +106,17 @@ export function headingEndsSection(
  * body 是 front matter 之后的正文，含 `## 履历` 标题。
  */
 export function parseHistory(body: string): LeadEntry[] {
+  return parseHistoryWithPreamble(body).entries
+}
+
+/** R48-8（四十八轮）：解析履历段并收集「## 履历」标题与首条条目之间的手写散文
+ *  （_historyPreamble）——此前散文三路都不接住（不进 entries/不进 bodyBefore/
+ *  bodyAfter），writeLead 重建时物理删除。原样行收集（不 trim），由 stringifyHistory
+ *  在标题与首条之间原位还原；节终无条目时标题与节终标题之间的散文同样在此收
+ *  （bodyAfterHistory 只保节终标题之后的内容，两区天然不重叠）。 */
+export function parseHistoryWithPreamble(body: string): { entries: LeadEntry[]; preamble: string } {
   const entries: LeadEntry[] = []
+  const preamble: string[] = []
   // R36-1（三十六轮）：CRLF 行尾归一——HISTORY_ENTRY_RE / LOOSE_RE 对原始行 `$` 锚定
   // 匹配且无 m 标志，`\r` 前不认行尾 → CRLF 账本的履历条目全量落「形似条目」分支被
   // log.warn 丢弃，随后定稿回写 writeLead 按 stringifyHistory 整文件重序列化 → 既有
@@ -172,16 +182,24 @@ export function parseHistory(body: string): LeadEntry[] {
       // R64-17（十二轮）：多行证据续行——手写/编辑器折行的证据第二行不匹配条目正则，
       // 此前被静默丢弃（下次回写物理丢失）。续行折空格并入上一条证据（换行归一）。
       // R75-2：标题行已在上方分流（分组跳过/节终终断），到达此处的必为普通续行文本。
+      // R48-55（四十八轮）：折叠前剥行首列表标记（`- `/`* `）——普通 bullet 续行
+      // 此前原样折入，证据物化成「…… - 备注」且回写不可逆污染。
       const prev = entries[entries.length - 1]!
-      prev.证据 = `${prev.证据} ${t}`.trim()
+      prev.证据 = `${prev.证据} ${t.replace(/^[*-]\s+/, '')}`.trim()
+    } else if (t !== '') {
+      // R48-8（四十八轮）：首条条目前的手写散文 → preamble（原样行收集），
+      // 不再静默穿透后被 writeLead 物理删除。
+      preamble.push(line)
     }
   }
-  return entries
+  return { entries, preamble: preamble.join('\n') }
 }
 
-/** 履历段 → markdown 文本 */
-export function stringifyHistory(entries: LeadEntry[]): string {
+/** 履历段 → markdown 文本；preamble 非空时在标题与首条之间原位还原（R48-8） */
+export function stringifyHistory(entries: LeadEntry[], preamble?: string): string {
   const lines: string[] = ['## 履历', '']
+  const pre = preamble?.trim()
+  if (pre) lines.push(pre, '')
   for (const e of entries) {
     const suffix = e.回填 ? '（回填·卷摘要级）' : ''
     lines.push(`- 第${String(e.章号).padStart(3, '0')}章 ${e.动词}：${e.证据}${suffix}`)
@@ -280,15 +298,19 @@ export function readLead(
   // 非有限数按「未写」处理，回落默认 0（缺字段/空串语义不变）。
   const 开启章Num = Number(map.get('开启章'))
 
+  // R48-8（四十八轮）：履历段解析改带 preamble 收集——标题与首条条目间的手写
+  // 散文原样带回（存在才带字段），writeLead 经 stringifyHistory 原位还原
+  const hist = parseHistoryWithPreamble(r.body)
   const lead: Lead = {
     编号,
     标题: String(map.get('标题') ?? ''),
     类型: (map.get('类型') as LeadType) ?? '悬念',
     状态: (map.get('状态') as Lead['状态']) ?? '进行中',
     开启章: Number.isFinite(开启章Num) ? 开启章Num : 0,
-    履历: parseHistory(r.body),
+    履历: hist.entries,
     _bodyBeforeHistory: bodyBeforeHistory(r.body),
     _bodyAfterHistory: bodyAfterHistory(r.body),
+    ...(hist.preamble ? { _historyPreamble: hist.preamble } : {}),
     ...(Object.keys(_raw).length > 0 ? { _raw } : {}),
     _fmOrder: [...map.keys()],
     _path: filePath,
@@ -356,10 +378,12 @@ function leadToMap(lead: Lead): Map<string, unknown> {
   return map
 }
 
-/** 写入账本 md（front matter + 履历段） */
+/** 写入账本 md（front matter + 履历段）。 */
 export function writeLead(filePath: string, lead: Lead): void {
   const fmText = stringifyFlat(leadToMap(lead))
-  const historyText = stringifyHistory(lead.履历)
+  // R48-8（四十八轮）：履历前散文（_historyPreamble）原位还原——此前 stringifyHistory
+  // 只认条目，手写在标题与首条之间的散文每次回写都被物理删除
+  const historyText = stringifyHistory(lead.履历, lead._historyPreamble)
   const preserved = lead._bodyBeforeHistory?.trim()
   // dd-P2：履历段后的人工正文（备注/关联线索）一并保留——此前任意一次账本回写
   // 都会把作者手写在 ## 履历 之后的内容静默删掉

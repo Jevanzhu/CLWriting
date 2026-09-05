@@ -65,17 +65,31 @@ const UI_DEFAULT_STACK = {
 
 // 模块级单例
 const systemFonts = ref<string[]>([])
-let fontsLoaded = false
+let fontsPending: Promise<void> | null = null
+
+function loadOnce(): Promise<void> {
+  if (!window.clwritingDesktop) return Promise.resolve()
+  if (!fontsPending) {
+    // R48-84（四十八轮）：挂载并发去重——原 fontsLoaded 在 await 后才置位，两组件
+    // 同拍挂载（设置弹窗与外壳同帧消费单例）双双通过入口守卫，getSystemFonts IPC
+    // 被并发调两次，违背头注「IPC 只调一次」。改 in-flight promise 去重（对齐 doc
+    // store inflightOpens 惯例）；失败清 pending 保留「下次挂载可重试」原语义。
+    fontsPending = window.clwritingDesktop
+      .getSystemFonts()
+      .then((fonts) => {
+        systemFonts.value = fonts
+      })
+      .catch((e: unknown) => {
+        console.error('加载系统字体失败：', e)
+        fontsPending = null
+      })
+  }
+  return fontsPending
+}
 
 export function useSystemFonts() {
-  onMounted(async () => {
-    if (fontsLoaded || !window.clwritingDesktop) return
-    try {
-      systemFonts.value = await window.clwritingDesktop.getSystemFonts()
-      fontsLoaded = true
-    } catch (e) {
-      console.error('加载系统字体失败：', e)
-    }
+  onMounted(() => {
+    void loadOnce()
   })
 
   const chineseFonts = computed(() => systemFonts.value.filter(isChineseFont))

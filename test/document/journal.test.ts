@@ -36,7 +36,7 @@ vi.mock('node:fs', async (importOriginal) => {
   }
 })
 
-import { appendAborted, appendMovePending, appendPending, appendSettled, findUnsettled, type JournalPending } from '../../src/document/journal.js'
+import { __setJournalCompactBytesForTest, appendAborted, appendMovePending, appendPending, appendSettled, findUnsettled, JOURNAL_COMPACT_BYTES, type JournalPending } from '../../src/document/journal.js'
 
 const SHA = (s: string) => s as `sha256:${string}`
 
@@ -100,13 +100,18 @@ describe('journal compact（U-P2-9）', () => {
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'journal-compact-'))
     j = join(dir, 'doc_1.jsonl')
+    // PM-3 批（性能与内存专项·2026-09-05）：pending 快照超 256KB 即降级（content:''），
+    // MB 级全文撑破 2MB 阈值的旧建仓路径不复存在——compact 用例改走注入低阈值 + 小
+    // 内容，压缩语义断言不变；afterEach 恢复常量防跨 describe 污染（R30-18 口径）。
+    __setJournalCompactBytesForTest(1024)
   })
   afterEach(() => {
+    __setJournalCompactBytesForTest(JOURNAL_COMPACT_BYTES)
     rmSync(dir, { recursive: true, force: true })
   })
 
   it('超阈值的全结算 journal → settle 后压缩为空文件', async () => {
-    const big = '雪'.repeat(700 * 1024) // 单条 pending ≈ 0.7MB
+    const big = '雪'.repeat(240) // 单条 pending ≈ 0.8KB
     for (let i = 0; i < 4; i++) {
       const opId = await appendPending(j, 'doc_1', null, big)
       await appendSettled(j, opId, SHA(`sha256:s${i}`))
@@ -116,19 +121,19 @@ describe('journal compact（U-P2-9）', () => {
   })
 
   it('压缩保留未结算 pending（崩溃恢复资产不丢）', async () => {
-    const big = '雨'.repeat(700 * 1024)
-    const settled1 = await appendPending(j, 'doc_1', null, big)
-    await appendSettled(j, settled1, SHA('sha256:a')) // 1.4MB，未到阈值
-    const alive = await appendPending(j, 'doc_1', null, big + '尾巴') // 未结算
-    const settled3 = await appendPending(j, 'doc_1', null, big)
-    await appendSettled(j, settled3, SHA('sha256:b')) // 3.5MB → 触发压缩
+    const alive = await appendPending(j, 'doc_1', null, '雨'.repeat(200) + '尾巴') // 未结算（快路径先行落盘）
+    const settled1 = await appendPending(j, 'doc_1', null, '雨'.repeat(100))
+    await appendSettled(j, settled1, SHA('sha256:a')) // 跨阈值 → 触发压缩
+    const settled3 = await appendPending(j, 'doc_1', null, '雨'.repeat(100))
+    await appendSettled(j, settled3, SHA('sha256:b')) // 二次触发（幂等）
     const u = findUnsettled(j)
     expect(u).toHaveLength(1)
     expect(u[0]!.opId).toBe(alive)
-    expect((u[0] as JournalPending).content).toBe(big + '尾巴')
+    expect((u[0] as JournalPending).content).toBe('雨'.repeat(200) + '尾巴')
   })
 
   it('阈值以下不压缩（防高频重写 O(n²)）', async () => {
+    __setJournalCompactBytesForTest(1024 * 1024) // 显式高阈值：小文件不触发
     const opId = await appendPending(j, 'doc_1', null, '小内容')
     await appendSettled(j, opId, SHA('sha256:c'))
     const text = readFileSync(j, 'utf-8')
@@ -137,7 +142,7 @@ describe('journal compact（U-P2-9）', () => {
   })
 
   it('aborted 配对同样参与压缩', async () => {
-    const big = '风'.repeat(1100 * 1024)
+    const big = '风'.repeat(400) // ≈1.3KB > 阈值
     const opId = await appendPending(j, 'doc_1', null, big)
     await appendAborted(j, opId, '模拟磁盘满')
     expect(statSync(j).size).toBe(0)
@@ -147,14 +152,14 @@ describe('journal compact（U-P2-9）', () => {
   // ── KN-H-1（2026-08-23）：compact 读→替换窗口吞他进程 pending 的竞态守卫 ──
 
   it('KN-H-1: compact 读期间他进程追加 pending → 守卫弃本轮压缩，并发行不丢', async () => {
-    // 3 对 ASCII 结算对（每对 ~0.65MB）压在阈值下建仓，第 4 次 settle 跨阈值触发压缩
-    const big = 'a'.repeat(650 * 1024)
-    for (let i = 0; i < 3; i++) {
+    // 两对 ASCII 结算对（每对 ~0.44KB）压在阈值下建仓，第 3 次 settle 跨阈值触发压缩
+    const big = 'a'.repeat(250)
+    for (let i = 0; i < 2; i++) {
       const opId = await appendPending(j, 'doc_1', null, big)
       await appendSettled(j, opId, SHA(`sha256:pre${i}`))
     }
-    expect(statSync(j).size).toBeLessThan(2 * 1024 * 1024) // 前置：未触发过早压缩
-    const last = await appendPending(j, 'doc_1', null, big) // ~2.6MB，跨阈值
+    expect(statSync(j).size).toBeLessThan(1024) // 前置：未触发过早压缩
+    const last = await appendPending(j, 'doc_1', null, big) // 跨阈值
 
     RACE.journalPath = j
     RACE.inject = true // 下一次 findUnsettled 读 journal 时注入他进程 append
@@ -164,22 +169,22 @@ describe('journal compact（U-P2-9）', () => {
     const text = readFileSync(j, 'utf-8')
     expect(text).toContain('RACE-CONCURRENT-01')
     expect(text).toContain('写作/正文/concurrent.md')
-    expect(statSync(j).size).toBeGreaterThan(2 * 1024 * 1024) // 未压缩（原文件原样保留）
+    expect(text).toContain('"status":"settled"') // 原文件原样保留（含已结算行，未压缩）
     const u = findUnsettled(j)
     expect(u).toHaveLength(1)
     expect(u[0]!.opId).toBe('RACE-CONCURRENT-01')
   })
 
   it('KN-H-1: 无并发追加（守卫不发火）→ 压缩照常进行（守卫不误伤正常路径）', async () => {
-    const big = 'b'.repeat(650 * 1024)
-    for (let i = 0; i < 3; i++) {
+    const big = 'b'.repeat(250)
+    for (let i = 0; i < 2; i++) {
       const opId = await appendPending(j, 'doc_1', null, big)
       await appendSettled(j, opId, SHA(`sha256:quiet${i}`))
     }
     RACE.journalPath = j
     RACE.inject = false // mock 透传：读期间无他进程写
     const last = await appendPending(j, 'doc_1', null, big)
-    await appendSettled(j, last, SHA('sha256:quiet-last')) // 触发压缩，守卫两 stat 一致 → 放行
+    await appendSettled(j, last, SHA('sha256:quiet-last')) // 跨阈值触发压缩，守卫两 stat 一致 → 放行
 
     expect(statSync(j).size).toBe(0) // 全结算 → 压缩为空（原行为不变）
     expect(findUnsettled(j)).toHaveLength(0)

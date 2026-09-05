@@ -239,6 +239,9 @@ export interface RagTestResult {
   ok: boolean
   caps?: RagProviderCaps
   error?: string
+  /** R48-21（四十八轮）：探测写回 caps 会 bump 服务端 revision——写回发生时随响应
+   *  回传（未写回/探测窗口内配置已变时服务端也回传现行值），前端同步防后续写 409。 */
+  revision?: number
 }
 
 /** 测试连接：真实 embed 一次 'ping'（15s） */

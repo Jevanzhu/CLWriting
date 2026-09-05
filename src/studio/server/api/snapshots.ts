@@ -327,6 +327,9 @@ export async function getVersionStatsCached(bookRoot: string): Promise<VersionSt
   if (cached && now - cached.ts < ttl && cached.probe === probe) {
     return cached.result
   }
+  // R47-18（四十七轮）：TTL 已过的条目两级判定均不可能再命中（两级均含 now-ts<ttl），
+  // 顺手逐出防驻留至 FIFO 触顶/写侧 forget——重算路径本就必走，零成本零语义变更
+  if (cached && now - cached.ts >= ttl) versionStatsCache.delete(bookRoot)
   // 第二级：指纹变了才全量签名（R36-7 原口径）；签名一致 → 回填指纹、复用结果免重算
   versionStatsSigCount += 1
   const sig = versionStatsSignature(bookRoot)

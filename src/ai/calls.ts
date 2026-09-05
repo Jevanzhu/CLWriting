@@ -107,7 +107,15 @@ function readRecord(bookRoot: string): { rec: CallRecord | null; corrupt: boolea
         try {
           const inflight = serializedWrite(bookRoot, () => {
             try {
-              writeRecord(bookRoot, migrated)
+              // R48-2（四十八轮）：段内重读文件，仅当仍是旧格式才落盘迁移——原闭包写
+              // enqueue 前的 migrated@T0 无账快照；锁外 read（checkAiCallBudget 等）入队
+              // 的迁移写排在先行记账写 A 之后时（链 [A, M]），A 段内已内联迁移+记账落盘，
+              // M 用 T0 快照覆盖 A 刚落的账（丢一次账）。Y-1 消灭的是「锁内 readRecord
+              // 再嵌套入队」那半，此处闭合「锁外读入队」的另一半。
+              const cur = JSON.parse(readFileSync(budgetPath(bookRoot), 'utf8')) as Record<string, unknown>
+              if (typeof cur['chapter'] === 'number') {
+                writeRecord(bookRoot, migrateOldFormat(cur as unknown as OldFormat))
+              }
             } catch (err) {
               migratedRoots.delete(bookRoot)
               throw err
@@ -507,7 +515,9 @@ export function effectiveRemainingCalls(bookRoot: string, chapter: number, confi
 /**
  * 记一次 chapter 维度 AI 调用（预算闸用；换章重置）。
  *
- * 由 runTask 在 self-heal 场景（传了 chapter 参数）自动调用。
+ * R48-25（四十八轮）头注如实化（合并批收编，指向 dev 侧 R46-21 同题实现）：生产路径已由 recordUsageBoth 取代（R46-21 合并后
+ * runner 单锁记账），本函数生产零调用，保留为测试记账辅助入口（8 个测试文件在用，
+ * 删除需改写约 40 处调用不成比例）。
  * D3（批 5）：costUsd 由 runner 按价格表现算传入（未配价不传——cost 口径静默不生效）。
  */
 export function recordAiCall(bookRoot: string, chapter: number, usage: TokenUsage | null, costUsd?: number): void {

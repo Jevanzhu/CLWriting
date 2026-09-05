@@ -29,7 +29,9 @@ import { splitFrontMatter } from '../format/frontmatter-core.js'
 import { readDraft } from '../format/draft.js'
 import { computeRevision } from '../document/revision.js'
 import { readManifest } from '../document/manifest.js'
-import { rebuild } from '../cache/rebuild.js'
+// R48-11：全量 rebuild 的 worker 卸载层（摘要自愈路径消费；同步 rebuild 内核在
+// ../cache/rebuild.ts 原样保留，供其余进程内调用方）
+import { runRebuildAsync } from '../cache/run-rebuild-async.js'
 import { runSpec } from '../ai/tasks/spec.js'
 import { registerBackgroundTask } from '../ai/orchestrate/background.js'
 import { SUMMARY_CHAPTER_SPEC, SUMMARY_VOLUME_SPEC } from '../ai/tasks/specs.js'
@@ -459,8 +461,11 @@ export async function selfHealRecentChapterSummaries(
   if (generated.length > 0) {
     // 新摘要文件落盘 → rebuild 同步进 index.db（定稿/ 在 rebuild 源范围内，全量重建由
     // 其三元组基准自动触发）；失败不阻断备料（prepare 只是无这段近章结尾）
+    // R48-11（四十八轮）：全量 rebuild 挪 worker 线程（run-rebuild-async.ts，B-24 导出
+    // 同款范式）——原服务进程直调，清库重扫全书期间事件循环秒级冻结（SSE/保存停摆）；
+    // 失败信封与降级口径不变（catch warn 后照常返回 generated）
     try {
-      rebuild(bookRoot, join(bookRoot, '.cache', 'index.db'))
+      await runRebuildAsync({ bookRoot, cachePath: join(bookRoot, '.cache', 'index.db') })
     } catch (e) {
       log.warn('summary', `摘要 rebuild 失败（备料降级无近章结尾段）：${e instanceof Error ? e.message : String(e)}`)
     }

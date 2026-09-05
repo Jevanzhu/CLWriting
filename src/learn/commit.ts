@@ -30,8 +30,15 @@ function existingSampleFps(bookRoot: string): Map<string, string> {
     const { entries } = readEntries(`${bookRoot}/${ENTRIES_DIR}`, '样章')
     for (const e of entries) {
       if (e.来源 !== '收割') continue // 只对收割条目去重——作者手建条目内容撞车是合法并存
+      // R48-41（四十八轮）：_path 缺失跳过入表并留痕——原入表存空串，下方 `hit !== ''`
+      // 把它当未命中，同内容条目绕过去重静默再入库（幂等宣称失效、条目库重复计权且
+      // 零留痕）；对齐本函数族 R28-7 去重命中留痕口径
+      if (!e._path) {
+        log.warn('learn', `样章条目缺 _path，该条指纹未入去重表（同内容再入库不去重）：${e.场景 || e.说明 || '(未知条目)'}`)
+        continue
+      }
       const kind = Array.isArray(e.标签) && e.标签.includes('金句') ? '句' : '样'
-      fps.set(contentFp(kind, e.场景, e.正文), e._path ?? '')
+      fps.set(contentFp(kind, e.场景, e.正文), e._path)
     }
   } catch {
     /* 条目库不存在/不可读 → 无既有指纹，全部照常入库 */

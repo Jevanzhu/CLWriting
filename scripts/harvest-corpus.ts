@@ -45,7 +45,14 @@ if (!existsSync(bookRoot) || !statSync(bookRoot).isDirectory()) {
   process.exit(1)
 }
 
-const config = applyGlobalDefaults(readBookConfig(join(bookRoot, 'book.yaml')).config, null)
+// R48-69（四十八轮）：人话守卫——book.yaml 缺失/损坏此前静默回落默认配置继续跑
+//（收割面口径无声漂移），同目录脚本均有人话守卫口径
+const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
+if (!cfgResult.ok) {
+  console.error(`book.yaml 不可用（${cfgResult.error.message}）——语料收割依赖书级配置（账本启用类等），请先补齐 book.yaml 后重试`)
+  process.exit(1)
+}
+const config = applyGlobalDefaults(cfgResult.config, null)
 const hasWiring = existsSync(join(bookRoot, '布线'))
 
 // 有布线的书需要 db（账本检查）——rebuild 一次拿现行索引
@@ -98,7 +105,14 @@ try {
     rebuild(bookRoot, cachePath)
     db = new DatabaseSync(cachePath, { readOnly: true })
   }
-  const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
+  const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
+  // R48-69（四十八轮）：清单缺失人话守卫——此前 readManifest 容错空表默默零候选，
+  // 「候选 0 条」假成功无从归因
+  if (!existsSync(manifestPath)) {
+    console.error(`文档清单缺失（${manifestPath}）——请先在应用中打开一次本书生成清单后重试`)
+    process.exit(1)
+  }
+  const manifest = readManifest(manifestPath)
   const versionsDir = join(bookRoot, '工作区', VERSIONS_DIR_NAME)
   // R30-29（三十轮）：errors 并入批级 failedChapters（原 `const { chapters } = …` 把
   // 章级解析失败静默丢弃）

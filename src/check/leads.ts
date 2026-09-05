@@ -9,7 +9,6 @@
  * 状态闭合（#3 第 5 节）：状态 ⟷ 履历末条动词一致。
  */
 
-import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { walkMdEach } from '../fs/walk-md.js'
 import type { DatabaseSync } from 'node:sqlite'
@@ -18,6 +17,7 @@ import { readLeadHistory } from '../format/read.js'
 import { LEAD_TYPES, LEAD_VERBS } from '../format/leads.js'
 import { QUOTE_OPEN_LENIENT, QUOTE_CLOSE_LENIENT } from './quotes.js'
 import { bodyOf } from '../format/frontmatter-core.js'
+import { readMdTextCached } from '../fs/md-text-cache.js'
 
 /**
  * 账本形式三检。
@@ -103,6 +103,9 @@ export function checkLeadsBookItems(
     }
     return chapterPathMap.get(chapter) ?? null
   }
+  // R47-10（四十七轮）：正文读取改走 fs/md-text-cache.ts stat 指纹缓存（此前仅本次
+  // 调用内 Map——每次机检/三审打包按线索履历章号集全量重读各章正文，成熟长篇等效
+  // 整读全书）。保留调用内 memo（章号 → body）避免同一章多条履历条目重复 bodyOf。
   const chapterTextCache = new Map<number, string | null>()
   const chapterTextOf = (chapter: number): string | null => {
     if (chapterTextCache.has(chapter)) return chapterTextCache.get(chapter) ?? null
@@ -111,14 +114,13 @@ export function checkLeadsBookItems(
     // 视同缺失走 lead-evidence-unverifiable 黄项提示作者，而非异常上抛拦截全部检查
     let text: string | null = null
     if (path !== null) {
-      try {
+      const raw = readMdTextCached(path)
+      if (raw !== null) {
         // R26-30（二十六轮）：引文 grep 面改剥 front matter 的 body（与 lead-updates.ts
         // leadEvidenceMatchesBody 吃 body 同口径）——证据按 spec 只须在正文命中，原文
         // 全文 grep 会把 fm 里的标题/枚举值误当命中（假阴性，红闸失明），也会因证据
         // 恰含「章号: 12」等 fm 形态误判命中。bodyOf 对裸 md 原样返回，无 fm 章不受影响。
-        text = bodyOf(readFileSync(path, 'utf-8'))
-      } catch {
-        text = null
+        text = bodyOf(raw)
       }
     }
     chapterTextCache.set(chapter, text)

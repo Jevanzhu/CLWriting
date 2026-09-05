@@ -45,7 +45,8 @@ export async function recordAuthorSignal(
   const violations = collectRuleViolations(deleted, task, bookRoot)
     .filter((v) => SIGNAL_RULE_IDS.has(v.ruleId))
   // R32-13（三十二轮）：随 recordRuleHits 异步化（锁等待不再冻结服务事件循环）
-  await recordRuleHits(bookRoot, violations, userDataPath)
+  // R48-29（四十八轮）：task 传 'author-signal'——作者删除信号命中不再误归因 check
+  await recordRuleHits(bookRoot, violations, userDataPath, 'author-signal')
   // P3 事件化（author/signal）：作者删除信号入事件流（观测层静默）
   if (userDataPath && violations.length > 0) {
     let store: ReturnType<typeof openSessionStore> | null = null

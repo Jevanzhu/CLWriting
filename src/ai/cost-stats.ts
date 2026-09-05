@@ -65,6 +65,8 @@ async function readLlmCalls(userDataPath: string | null | undefined, bookRoot: s
     if (!store) return []
     try {
       // B1（2026-08-24 内存闸）：type SQL 下推（同 trace-stats——只取 llm/call 行）
+      // PM-10（2026-09-05 性能专项）核查：成本聚合须折算全部 llm/call 行（预算闸口径按
+      // 全量账目算），全量语义必需、无尾读空间（type 已 SQL 下推，对话正文不再陪载）
       const events = store.listEvents(bookHash(bookRoot), undefined, undefined, 'llm/call')
       const out: CallEntry[] = []
       for (const e of events) {

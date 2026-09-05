@@ -207,9 +207,9 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
       if (!out.ok) return replyError(res, 500, 'GEN_FAIL', `AI 梳理失败:${out.error}`)
       const input = out.data.input as { relations?: { from: string; to: string; type: string; note?: string }[] } | null
       const relations = input?.relations ?? []
-      // R50-C-3（五十轮）：空结果非缓存命中——该分支已真实跑完一次 AI 梳理（付费），
-      // cached 回 true 会让调用方把「花了钱的空产出」误当「本地缓存复用」
-      if (!relations.length) return reply(res, 200, { ok: true, cached: false, relations: [] })
+      // R48-77（四十八轮）：零关系也是合法产出——此前空结果不落缓存，下次请求重新
+      // 烧一遍 AI 费用；且该分支返回 cached:true 语义失真（实为新鲜产出非缓存命中）。
+      // 空数组同样落盘，与有产出共用下方写路径，本请求如实标 cached:false
       try {
         mkdirSync(dirname(cachePath), { recursive: true })
         atomicWriteFile(cachePath, JSON.stringify({ relations, chapterCount: countChapters(bookRoot) }, null, 2))

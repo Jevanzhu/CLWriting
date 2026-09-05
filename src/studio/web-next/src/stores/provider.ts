@@ -373,6 +373,9 @@ export const useProviderStore = defineStore('provider', () => {
     ragTesting.value = id
     try {
       const r = await testRagProvider(id)
+      // R48-21（四十八轮）：探测写回 bump 服务端 revision——同步本地防后续 RAG 写
+      // 以滞后 revision 必收 409（误导 toast）
+      if (typeof r.revision === 'number') revision.value = r.revision
       const m = new Map(ragTestResults.value)
       m.set(id, r)
       ragTestResults.value = m

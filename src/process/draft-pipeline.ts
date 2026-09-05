@@ -293,8 +293,8 @@ function findChapterOutlinePath(bookRoot: string, chapter: number): string | nul
   return chapters.find((c) => c.章号 === chapter)?._path ?? null
 }
 
-/** 读本章章纲（大纲/章纲/000N-*.md，按章号匹配文件名前缀）——AI 写稿的情节依据；
- *  Q-5 后由 buildDraftPrompt 直接持路径（readSafe + relative 进 files 清单） */
+// R48-58（四十八轮）：被删函数（读本章章纲）的孤儿 docstring 原悬空于此，删除——
+// 章纲读取现由 findChapterOutlinePath（上方）与 buildDraftPrompt 直接持路径两路承担
 
 /**
  * front matter「场景」值 → 场景数组（水源①章纲/②正文共用的解析端）。

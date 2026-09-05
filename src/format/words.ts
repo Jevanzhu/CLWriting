@@ -8,9 +8,43 @@
 /** 计算正文字数（中文按字符计，#7 第 2 节）：剥 markdown 标记后按字符计。frontmatter 由调用方先剥。
  *  R31-11（三十一轮）口径备案：剥除集不含标点——对白密集章计数值系统性高于「汉字感」
  *  口径（实测可 +38%），但 _wordCount/短篇字数/字数曲线全链同源自洽，targetWords 为
- *  AI 语义给数（阈值留有弹性），维持现状不改口径（改口径需全链联动与存量曲线迁移）。 */
+ *  AI 语义给数（阈值留有弹性），维持现状不改口径（改口径需全链联动与存量曲线迁移）。
+ *
+ *  PM-2（性能与内存专项·2026-09-05）：改单遍零分配计数——原 `[...body.replace(...)].length`
+ *  两步全量分配（剥标记副本 + 码点数组；中文每字符独立 SeqTwoByteString，200 万字单次
+ *  调用瞬时垃圾 ≈70-90MB，服务端保存链 ×2/次 + 前端每击键防抖后 1 次，为全链最高频
+ *  内存抖动源）。口径逐位不变：剥除集 `[#>*_`~\-\[\]()!\s]` 全部为 BMP 字符（\s 按
+ *  ECMAScript 白名单全集展开为下方码点集），代理对按 1 码点计（原 `[...]` 码点迭代
+ *  语义，含「高代理越过剥除字符与低代理拼对」的先剥后迭代并档行为与孤立代理各计 1
+ *  的 ill-formed 行为）。等价性由 test/format/pm2-count-words-equivalence.test.ts 内嵌
+ *  旧实现逐位断言钉死（200 轮混合模糊 + 大文档冒烟）。 */
+const STRIP_CODE_SET: ReadonlySet<number> = new Set<number>([
+  0x23, 0x3e, 0x2a, 0x5f, 0x60, 0x7e, 0x2d, 0x5b, 0x5d, 0x28, 0x29, 0x21, // #>*_`~-[]()!
+  0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x20, // \t\n\v\f\r 与空格
+  0xa0, 0x1680, // \s：NBSP / OGHAM SPACE MARK
+  0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006, 0x2007, 0x2008, 0x2009, 0x200a, // \s：EN QUAD..HAIR SPACE（注意 0x200b-0x200d 零宽符不在 \s，勿混入）
+  0x2028, 0x2029, 0x202f, 0x205f, 0x3000, 0xfeff, // \s：LS / PS / NNBSP / MATHEMATICAL SPACE / IDEOGRAPHIC SPACE / BOM
+])
+
 export function countWords(body: string): number {
-  return [...body.replace(/[#>*_`~\-\[\]()!\s]/g, '')].length
+  let n = 0
+  for (let i = 0; i < body.length; i++) {
+    const c = body.charCodeAt(i)
+    if (STRIP_CODE_SET.has(c)) continue
+    // 代理对（含 emoji/CJK 扩展）按 1 码点计。语义精确复刻旧实现「先剥后迭代」：高代理
+    // 会越过剥除字符向前找低代理（旧实现剥掉中间字符后两侧恰拼成一对即并档 1 码点），
+    // 孤立高代理（前方无低代理）各计 1、不吞后继字符——ill-formed 行为由等价测试钉死。
+    if (c >= 0xd800 && c <= 0xdbff) {
+      let j = i + 1
+      while (j < body.length && STRIP_CODE_SET.has(body.charCodeAt(j))) j++
+      if (j < body.length) {
+        const lo = body.charCodeAt(j)
+        if (lo >= 0xdc00 && lo <= 0xdfff) i = j
+      }
+    }
+    n++
+  }
+  return n
 }
 
 /** 去目录 + 去 .md 扩展（替代 node:path.basename，零 Node 依赖）。

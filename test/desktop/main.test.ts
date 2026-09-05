@@ -1586,3 +1586,36 @@ describe('R44-14: pickLibrary「在此新建」的 git-ancestor 防线', () => {
     expect(M.relaunchCalls).toBe(relaunch0) // 未落库未重启（saveCurrent/relaunch 未触）
   })
 })
+
+// ── R47-9（四十七轮）：readStore 内存缓存（写时失效）──────────────────────────
+
+describe('R47-9：readStore 内存缓存——welcome/常态 IPC 不再逐调全量读盘', () => {
+  it('get-recent 命中缓存：外部改写 workdir.json 不再被感知（应用管理文件语义），switch-library 后刷新', async () => {
+    vi.resetModules()
+    await import('../../src/desktop/main.js')
+    await new Promise((r) => setImmediate(r))
+    await new Promise((r) => setImmediate(r))
+    const recent0 = M.ipcHandle['desktop:get-recent']!({}, {}) as Array<{ path: string }>
+    // 外部手改 workdir.json（缓存语义下对 readStore 不可见——应用管理文件，重启可见）
+    const fp = join(M.userData, 'workdir.json')
+    const raw0 = JSON.parse(readFileSync(fp, 'utf-8')) as { current: string | null; recent: Array<{ path: string }> }
+    writeFileSync(fp, JSON.stringify({ ...raw0, recent: [{ path: '/external/imposter' }] }))
+    const recent1 = M.ipcHandle['desktop:get-recent']!({}, {}) as Array<{ path: string }>
+    expect(recent1).toEqual(recent0) // 缓存命中，未读盘未重过滤
+    expect(recent1.some((r) => r.path === '/external/imposter')).toBe(false)
+    // 写路径（writeStore）刷新缓存：switch-library 合法目录后，currentWorkDir 的
+    // ?? 兜底（welcome 态 bootstrappedWorkDir=null）经缓存读到新 current——零盘 IO
+    const libNew = join(M.userData, 'r47-lib-new')
+    mkdirSync(join(libNew, '.clwriting'), { recursive: true }) // isLibraryDir 判定面（同 libA 夹具）
+    tmpDirs.push(libNew)
+    const r2 = await M.ipcHandle['desktop:switch-library']!(null, libNew)
+    expect(r2).toBeTruthy()
+    // relaunch 由 harness 拦截；get-current 走 M-3「bootstrap 实际值优先」仍回 libA
+    //（语义不变），writeStore 刷新的缓存经 get-recent 可见——旧 current 已入 recent
+    const recent2 = M.ipcHandle['desktop:get-recent']!({}, {}) as Array<{ path: string }>
+    expect(recent2.some((r) => r.path === raw0.current)).toBe(true)
+    // 还原 workdir.json（后续用例）
+    writeFileSync(fp, JSON.stringify({ current: raw0.current, recent: raw0.recent }))
+    vi.resetModules()
+  })
+})

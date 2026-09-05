@@ -32,10 +32,10 @@ watch(
     const gen = ++configGen
     // R34D-27（三十四轮）：切书先清上一书错误——原实现只在失败分支写 err、成功路径
     // 不清，A 书的 getConfig 失败信息会粘滞到 B 书（面板常驻不随切书重建）；清掉后
-    // 新错误只由本次请求的 catch 按代守卫落位
+    // 新错误只由本次请求的 catch 按代守卫落位（R33-84 同点位；R48-95（四十八轮）：
+    // 连续两次 err.value=null 死代码随批删一处保注释）
     err.value = null
     if (!n) return
-    err.value = null // R33-84（三十三轮）：换书即清上一本的错误行（瞬时失败不得跨书残留）
     try {
       const c = await getConfig(n)
       if (gen !== configGen) return

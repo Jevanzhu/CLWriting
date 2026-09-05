@@ -13,6 +13,8 @@
  * 三段，其余未知段直接丢弃（PieceList._raw 字段从不填充）；未知段的保形由上层
  * 文本级补丁路径负责（如 config/migrate-defaults 的补丁式写回，见其「保注释保
  * 未知段」红线），本模块 stringifyPieceList 是全量重生成，经它往返不保未知段。
+ * R48-51（四十八轮）备案：该「上层文本级补丁路径」生产尚未接线（writePieceList
+ * 同样零接线，见 manifest.ts 同编号注）——接线前未知段实际无保形通道，生产勿直连。
  */
 import type { PieceList, ReversalLead, PayoffEntry, SetupPoint, EmotionCurvePoint } from './types.js'
 

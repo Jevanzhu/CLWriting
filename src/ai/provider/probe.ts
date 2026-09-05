@@ -80,14 +80,18 @@ export async function probeCapabilities(conf: ProviderConf, userDataPath?: strin
         },
         ctrl.signal,
       )) {
-        if (ev.type === 'text') gotDelta = true
+        // R48-35（四十八轮）：gotDelta 同时认 reasoning 增量——思考模型极简探测常先吐
+        // 思维链，只认 text 会把真流式误判为非流式
+        if (ev.type === 'text' || ev.type === 'reasoning') gotDelta = true
         else if (ev.type === 'error') throw new Error(ev.message)
         else if (ev.type === 'done') break
       }
     } finally {
       clearTimeout(timeout)
     }
-    caps.streaming = true
+    // R48-35（四十八轮）：streaming 布尔与字段语义（「流式产出（逐字增量可用）」）及
+    // 紧邻 detail 文案对齐——原无条件 true 让伪流式网关（只回终态无 delta）自相矛盾
+    caps.streaming = gotDelta
     details.push(gotDelta ? '流式产出正常' : '非流式产出（UI 无逐字显示）')
   } catch (e) {
     // 不阻塞——connected=true 已说明服务可用，流式失败可能只是探测模型不支持 chat

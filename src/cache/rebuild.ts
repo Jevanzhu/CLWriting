@@ -90,7 +90,8 @@ function readChapterCached(fp: string): ChapterParseResult {
 
 /** R37-16：测试钩子（生产零调用；先例同 search.ts __resetSearchScanCountForTest /
  *  web-next client.ts __testHooks）——清空章读缓存与计数，防测试间污染（模块级
- *  缓存跨用例存活，同一绝对路径的命中会吃上一用例的指纹）。 */
+ *  缓存跨用例存活，同一绝对路径的命中会吃上一用例的指纹）。R47-11 追加源树扫描
+ *  节流的复位/计数钩子（同款口径）。 */
 export const __testHooks = {
   clearChapterCache(): void {
     chapterCache.clear()
@@ -103,6 +104,14 @@ export const __testHooks = {
   /** 容量注入（null 还原默认；测淘汰用）。 */
   setChapterCacheMaxForTest(n: number | null): void {
     chapterCacheMax = n ?? CHAPTER_CACHE_MAX
+  },
+  /** R47-11：源树扫描节流复位 + 实际扫描计数（测试断言用，口径同 chapterCacheStats）。 */
+  clearSourceProbeThrottle(): void {
+    sourceProbeLastScan.clear()
+    sourceProbeStats.scans = 0
+  },
+  sourceProbeScanCount(): number {
+    return sourceProbeStats.scans
   },
 }
 
@@ -135,11 +144,14 @@ export function forgetChapterParseCacheForBook(bookRoot: string): number {
 const SOURCE_SUBDIRS = ['布线', '写作', '定稿', join('大纲', '关系线')] as const
 
 /** 源树统计：mtime 基准 + 文件数 + 总字节（X-P2-1：三者合判，删文件/改配置也能检出；
- *  R-13：min mtime 检出 mtime 倒退 + 同尺寸原位替换） */
+ *  R-13：min mtime 检出 mtime 倒退 + 同尺寸原位替换；R48-13：mtime 总和收敛互补抵消漏检窗） */
 interface SourceStats {
   maxMtime: number
   /** R-13（第十六轮）：源树最小 mtime——检出「同尺寸文件原位覆盖且 mtime 更早」的倒退改写 */
   minMtime: number
+  /** R48-13（四十八轮）：源树 mtime 总和——同尺寸原位替换 + mtime 回拨到区间中值时
+   *  max/min/count/size 四项全过；总和把漏检窗收敛到「多文件 mtime 精确互补抵消」零概率面 */
+  sumMtime: number
   count: number
   size: number
 }
@@ -149,9 +161,10 @@ interface SourceStats {
  * 比全量重建轻几个数量级（200 万字书也只做 readdir+stat）。
  * X-P2-1：max mtime 之外同时累计 count/size——纯删除不抬 max mtime，旧基准漏检删章；
  * book.yaml（非 .md）单独计入（leads.enabled 变更改变扫描范围）。
+ * R47-11（四十七轮）：每次真实扫描同步刷新节流条目 + 计数（见下方节流块注）。
  */
 function walkSourceStats(bookRoot: string): SourceStats {
-  const stats: SourceStats = { maxMtime: 0, minMtime: Infinity, count: 0, size: 0 }
+  const stats: SourceStats = { maxMtime: 0, minMtime: Infinity, sumMtime: 0, count: 0, size: 0 }
   const bump = (fp: string): void => {
     try {
       const st = statSync(fp)
@@ -160,6 +173,8 @@ function walkSourceStats(bookRoot: string): SourceStats {
       if (st.mtimeMs > stats.maxMtime) stats.maxMtime = st.mtimeMs
       // R-13：同步记 min——外部工具原位覆盖常回拨 mtime（保留源时间戳），倒退即视为有变
       if (st.mtimeMs < stats.minMtime) stats.minMtime = st.mtimeMs
+      // R48-13：同步累计 mtime 总和（合判见接口注）
+      stats.sumMtime += st.mtimeMs
     } catch {
       /* stat 失败忽略 */
     }
@@ -173,7 +188,39 @@ function walkSourceStats(bookRoot: string): SourceStats {
     const dir = join(bookRoot, d)
     if (existsSync(dir)) walkMdEach(dir, (fp) => bump(fp), visited)
   }
+  sourceProbeLastScan.set(bookRoot, { at: Date.now(), stats })
+  sourceProbeStats.scans++
   return stats
+}
+
+// ── R47-11（四十七轮）：增量探测源树扫描的 per-book 短 TTL 节流 ──────────────────
+// 动机：单章机检链（runCheckForDocument → rebuild → tryIncrementalRebuild）每调
+// 一次就对四棵源树逐文件 readdir+stat——本地 SSD 毫秒级无感，SMB/网盘卷上单次
+// 全树 stat 扫描秒级，作者面板连查/三审轮询把扫描成本按请求次数放大。照抄
+// state.ts sweepLastAt（R43-2）纪律：Map 键 bookRoot + 时间戳，TTL 窗内直接回
+// 上次扫描结果。口径：
+// ① TTL 只缓存 stat 扫描结果——db 打开/meta 读取保持每调执行（便宜且正确性
+//    相关：R62-30 元数据失联自愈等闸不受节流影响）；
+// ② 默认不节流——直连 rebuild 的既有调用方（状态机/树聚合/摘要/自愈）零行为
+//    变化，增量基准「源变立即可见」的语义被 test/cache/rebuild.test.ts 的
+//    X-P2-1/R-13 系列锚定；仅单章机检链（rebuild opts.throttleSourceProbe）
+//    opt-in，该链接受 ≤3s 的源变更可见延迟（登记取舍：窗内改动最迟 TTL 过后
+//    下一次探测可见——方向 = 延后一次全量重建自愈，不会永久跳过变化）；
+// ③ walkSourceStats 每次真实扫描都刷新节流条目（含未节流调用方的全量重建），
+//    让条目随任何真实扫描保持新鲜，缩小 ② 的误跳窗。
+const SOURCE_PROBE_TTL_MS = 3000
+const sourceProbeLastScan = new Map<string, { at: number; stats: SourceStats }>()
+
+/** R47-11：实际扫描计数（测试断言用；生产只增不读——口径同 chapterCacheStats）。 */
+const sourceProbeStats = { scans: 0 }
+
+/** R47-11：TTL 节流版探测扫描——窗内回上次结果（零 readdir/stat），过期/首调真实
+ *  重扫。返回的 stats 对象跨调用共享引用（SourceStats 为只读消费，未节流路径与
+ *  节流路径同享一份，无 mutate 面）。 */
+function walkSourceStatsThrottled(bookRoot: string): SourceStats {
+  const hit = sourceProbeLastScan.get(bookRoot)
+  if (hit && Date.now() - hit.at < SOURCE_PROBE_TTL_MS) return hit.stats
+  return walkSourceStats(bookRoot)
 }
 
 /**
@@ -181,8 +228,17 @@ function walkSourceStats(bookRoot: string): SourceStats {
  * → 跳过全量重建，从 meta 恢复 counts/errors（语义等价：源没变 → db 内容必然没变）。
  * X-P2-1：基准为 (max mtime, 文件数, 总字节) 三元组——任一不符（含纯删除/book.yaml 变更）
  * → null（走全量重建，正好满足「删了能建回」）；旧库无新基准字段 → 首次全量。
+ * R47-11：opts.throttleSourceProbe = 单章机检链 opt-in 的 3s TTL 节流（见节流块注②
+ * ——db 打开/meta 读取不受节流，仍每调执行）。
  */
-function tryIncrementalRebuild(bookRoot: string, cachePath: string): RebuildResult | null {
+function tryIncrementalRebuild(
+  bookRoot: string,
+  cachePath: string,
+  opts?: { throttleSourceProbe?: boolean },
+  // R48-14（四十八轮）：探测扫描结果透传 holder——未命中走全量时 rebuild 复用本次
+  // stats（SMB/网盘卷免二次全树 stat）；探测在扫描前即退出时 holder 保持空
+  scannedStats?: { stats?: SourceStats },
+): RebuildResult | null {
   if (!existsSync(cachePath)) return null
   let db: DatabaseSync
   try {
@@ -199,14 +255,21 @@ function tryIncrementalRebuild(bookRoot: string, cachePath: string): RebuildResu
     const recordedCount = getMeta(db, 'source_file_count')
     const recordedSize = getMeta(db, 'source_total_size')
     const recordedMin = getMeta(db, 'source_min_mtime')
-    if (recorded === null || recordedCount === null || recordedSize === null || recordedMin === null) return null // 旧库无基准（含 R-13 前无 min）→ 首次全量
-    const stats = walkSourceStats(bookRoot)
+    const recordedSum = getMeta(db, 'source_sum_mtime')
+    // 旧库无基准（含 R-13 前 min/R48-13 前 sum）→ 首次全量
+    if (recorded === null || recordedCount === null || recordedSize === null || recordedMin === null || recordedSum === null) return null
+    // R47-11：节流旗只在探测扫描处分流——meta 读取（上方 getMeta）保持每调执行
+    const stats = opts?.throttleSourceProbe === true ? walkSourceStatsThrottled(bookRoot) : walkSourceStats(bookRoot)
+    if (scannedStats) scannedStats.stats = stats // R48-14：透传（增量命中时上游不会消费）
     if (
       stats.maxMtime > Number(recorded) ||
       stats.count !== Number(recordedCount) ||
       stats.size !== Number(recordedSize) ||
       // R-13：存在比基准更旧的文件（mtime 倒退 + 同尺寸原位替换，max/count/size 三元组全不报）
-      stats.minMtime < Number(recordedMin)
+      stats.minMtime < Number(recordedMin) ||
+      // R48-13（四十八轮）：mtime 总和合判——同尺寸原位替换 + mtime 回拨到区间中值时
+      // 四项全过（一回拨一同移精确互补抵消）；总和令漏检需多文件 mtime 精确互补，零概率面
+      stats.sumMtime !== Number(recordedSum)
     ) {
       return null // 源有变化（含删除/配置变更/mtime 倒退）→ 全量
     }
@@ -253,13 +316,20 @@ export interface RebuildResult {
  *
  * @param bookRoot 书仓库根目录（含 book.yaml、大纲/、定稿/）
  * @param cachePath .cache/index.db 路径
+ * @param opts.throttleSourceProbe R47-11：增量探测走 3s TTL 节流（单章机检链
+ *   opt-in；取舍与口径见节流块注——其余调用方默认不节流，行为不变）
  */
 export function rebuild(
   bookRoot: string,
   cachePath: string,
+  opts?: { throttleSourceProbe?: boolean },
 ): RebuildResult {
   // W-P2-4 增量：进门/机检高频路径，源树未变则跳过全量重建（stat 级检测，语义等价）
-  const incremental = tryIncrementalRebuild(bookRoot, cachePath)
+  // R48-14（四十八轮）：增量探测未命中时复用其已扫源树 stats——原路径 tryIncrementalRebuild
+  // 内 walkSourceStats 全树 stat 一遍、miss 后此处再扫一遍，SMB/网盘卷成本翻倍；
+  // 探测在扫描前即退出（库打不开/旧基准缺失）时 holder 为空，照旧实扫
+  const scannedStats: { stats?: SourceStats } = {}
+  const incremental = tryIncrementalRebuild(bookRoot, cachePath, opts, scannedStats)
   if (incremental) return incremental
 
   const errors: ParseError[] = []
@@ -267,7 +337,7 @@ export function rebuild(
   let chapterCount = 0
   let summaryCount = 0
   // W-P2-4 + X-P2-1：本次重建的源树基准（count/size 防纯删除漏检），重建后写 meta
-  const sourceStats = walkSourceStats(bookRoot)
+  const sourceStats = scannedStats.stats ?? walkSourceStats(bookRoot)
   // Q-18（第十五轮）：存精确 maxMtime——此前 ceil+1 的「缓冲」方向反了：把增量跳过的
   // 接受窗从精确 mtime 扩大到 ceil+1（同尺寸原位改写最长近 2ms 漏检）；JS number 的
   // String 往返无损，精确比较即精确接受窗（同毫秒改写是 stat 粒度固有限制，不靠缓冲解决）
@@ -374,6 +444,7 @@ export function rebuild(
     setMeta(db, 'source_file_count', String(sourceStats.count)) // X-P2-1 删除检测
     setMeta(db, 'source_total_size', String(sourceStats.size)) // X-P2-1 删除检测
     setMeta(db, 'source_min_mtime', String(sourceStats.minMtime)) // R-13 mtime 倒退检测
+    setMeta(db, 'source_sum_mtime', String(sourceStats.sumMtime)) // R48-13 mtime 总和合判
     setMeta(db, 'lead_count', String(leadCount))
     setMeta(db, 'chapter_count', String(chapterCount))
     setMeta(db, 'summary_count', String(summaryCount))
@@ -416,7 +487,15 @@ function scanSummaries(
   // 管理器改出的 .MD/.Md 摘要此前在目录过滤处即被静默丢弃（既不入库也不进健康报告，
   // 「摘要不生效」无从定位）；现在进入下方命名白名单判定，合法 <数字>.MD 入库、
   // 白名单外形态照常 errors 留痕。
-  const files = readdirSync(dir).filter((f) => isMdFileName(f) && !f.startsWith('._'))
+  // R48-65（四十八轮）：目录形态留痕——摘要目录下误建子目录时其中 .md 全体静默不入库
+  //（「摘要不生效」无从定位）；对齐白名单外口径 log.warn 留痕（._/. 开头仍豁免）。
+  const dirents = readdirSync(dir, { withFileTypes: true })
+  for (const d of dirents) {
+    if (d.isDirectory() && !d.name.startsWith('._')) {
+      log.warn('rebuild', `摘要目录下存在子目录「${d.name}」（${dir}），其中内容不入摘要索引——如为误建请移出或删除`)
+    }
+  }
+  const files = dirents.map((d) => d.name).filter((f) => isMdFileName(f) && !f.startsWith('._'))
   for (const f of files) {
     const fp = join(dir, f)
     // readdir 与 stat 之间文件可能被删（回收站/用户操作竞态）——无守卫 ENOENT 会把整个

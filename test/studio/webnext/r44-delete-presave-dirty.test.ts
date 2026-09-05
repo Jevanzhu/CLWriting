@@ -99,12 +99,14 @@ beforeEach(() => {
 })
 
 describe('R44-3: doDelete 确认前先落盘脏内容', () => {
-  it('dirty 章：确认弹窗前先 manual 保存成功 → 文案保持「可从回收站恢复」且删除照常', async () => {
+  it('dirty 章：确认弹窗前先落盘保存成功 → 文案保持「可从回收站恢复」且删除照常', async () => {
     await openDirtyDoc('d1')
     saveMock.mockResolvedValueOnce({ ok: true, revision: 'r', superseded: false })
     const actions = useChapterTreeActions({ bookName: () => currentBook, openError })
     await actions.doDelete(node('写作/正文/d1.md', 'd1'))
-    // 修复点：删除链前先把脏内容落盘（manual 语义，非 autosave 盲写）
+    // 修复点：删除链前先把脏内容落盘。R48-88（四十八轮）origin 改 autosave——原
+    // manual 会弹「已保存」toast、紧接「确认删除」弹窗语义突兀（内部前置落盘非作者
+    // 动作）；autosave 静默落盘，R44-3 防丢语义不变
     expect(saveMock).toHaveBeenCalledTimes(1)
     const [book, docId, payload] = saveMock.mock.calls[0]! as unknown as [
       string,
@@ -114,7 +116,7 @@ describe('R44-3: doDelete 确认前先落盘脏内容', () => {
     expect(book).toBe('书A')
     expect(docId).toBe('d1')
     expect(payload.content).toBe('确认前新键入的段落')
-    expect(payload.origin).toBe('manual')
+    expect(payload.origin).toBe('autosave')
     expect(askMessage()).toContain('可从回收站恢复') // 已落净 → 承诺如实
     expect(deleteMock).toHaveBeenCalledWith('书A', 'd1')
   })

@@ -102,6 +102,9 @@ export function buildAuditView(
   paging: AuditPaging = { limit: DEFAULT_PAGE_LIMIT, offset: 0 },
 ): { conversation: AuditConversation | null; workflowEvents: AuditEvent[]; workflowTotal: number; goals: GoalSnapshot[]; todos: Todo[] } {
   // 对话会话（book = bookName）：surface 投影 + 遮蔽差异
+  // PM-10（2026-09-05 性能专项）核查：审计视图全量语义必需——eventsTotal/shadowedCount/
+  // 首屏 modelVisible/humanVisible 全量对照（SV-2）都依赖完整事件流；出网侧已由 P3-13
+  // 分页切片收口，不走尾读
   const convoEvents = store.listEvents(bookName)
   let conversation: AuditConversation | null = null
   if (convoEvents.length > 0) {
@@ -140,6 +143,8 @@ export function buildAuditView(
   }
 
   // 写作工作流（book = bookHash）：step/llm-call 链路事件（同上：先切片再投影）
+  // PM-10（2026-09-05 性能专项）核查：workflowTotal（分页总数）需全部链路行，全量语义
+  // 必需；出网已按页切片，不走尾读
   const wsEvents = store.listEvents(bookHash(bookRoot))
   const workflowEvents: AuditEvent[] = pageSlice(wsEvents, paging).map((e) => ({
     seq: e.seq,

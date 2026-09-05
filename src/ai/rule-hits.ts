@@ -64,6 +64,9 @@ export function __setRuleHitsLockTimeoutForTest(ms: number): void {
 }
 
 /** 记录一次规则违规命中（多条违规 → 多条统计）。落盘失败不炸流程（观测层）。
+ *  R48-29（四十八轮）：task 形参化（默认 'check' 保底）——本函数三类调用方（机检/
+ *  author-signal 作者删除信号/self-heal 重写前收集）共用，事件载荷 task 原硬编码
+ *  'check'，作者信号与自愈链命中被误归因到 check 任务（按任务聚合 rule/hit 口径失真）。
  *  R63-6（十一轮）：读改写整段进跨进程锁（.cache/rule-hits.json.lock，J7 同款）——
  *  原并发说明只覆盖进程内（同步段单线程天然原子）；CLI 机检与桌面端并发命中同书时
  *  双进程 RMW 交错覆盖丢计数。锁超时按观测层口径降级：warn 留痕跳过文件统计，
@@ -71,7 +74,7 @@ export function __setRuleHitsLockTimeoutForTest(ms: number): void {
  *  R32-13（三十二轮）：锁等待异步化（acquireCrossProcessLockAsync，calls.ts R30-3
  *  同口径）——本函数位于 draft-save/self-heal 热路径，同步 Atomics.wait 微睡会在双
  *  进程争用时冻结服务事件循环（SSE/HTTP 最坏停 5s）；锁内写段仍同步（文件 IO 级毫秒）。 */
-export async function recordRuleHits(bookRoot: string, violations: RuleViolation[], userDataPath?: string): Promise<void> {
+export async function recordRuleHits(bookRoot: string, violations: RuleViolation[], userDataPath?: string, task: string = 'check'): Promise<void> {
   if (!violations.length) return
   const release = await acquireCrossProcessLockAsync(`${hitsPath(bookRoot)}.lock`, ruleHitsLockTimeoutMs)
   if (!release) {
@@ -107,7 +110,7 @@ export async function recordRuleHits(bookRoot: string, violations: RuleViolation
         const sessionId = store.workspaceSession(bookHash(bookRoot))
         store.appendEvents(
           sessionId,
-          violations.map((v) => ruleHitEvent({ ruleId: v.ruleId, task: 'check', message: v.message })),
+          violations.map((v) => ruleHitEvent({ ruleId: v.ruleId, task, message: v.message })),
         )
       }
     } catch {

@@ -175,7 +175,8 @@ export function readBooksStrict(workDir: string): BookEntry[] | null {
   return books
 }
 
-/** 读 books.jsonl（容错：缺文件/读失败均返回空；坏行跳过不崩——读路径降级口径）。 */
+/** 读 books.jsonl（容错：缺文件/读失败均返回空；坏行跳过不崩——读路径降级口径）。
+ */
 export function readBooks(workDir: string): BookEntry[] {
   return readBooksStrict(workDir) ?? []
 }
@@ -684,7 +685,10 @@ function repairBooksLocked(workDir: string, purgeConfirmedMissing: boolean): Rep
       missing = transient
     }
   }
-  const changed = updated || scanned.length > 0 || relinked.length > 0 || missing.length > 0 || purged.length > 0
+  // R48-60（四十八轮）：missing 不再计入 changed——幽灵条目自愈不自动清除（R35-28），
+  // 仅 missing>0 时 rebuilt 与盘上内容相同，计入 changed 只会每次启动整写相同
+  // books.jsonl（mtime 无谓抖动）；作者提示面（hint）不受影响
+  const changed = updated || scanned.length > 0 || relinked.length > 0 || purged.length > 0
 
   if (changed) {
     writeBooks(workDir, rebuilt)

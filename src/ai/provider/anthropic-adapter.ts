@@ -104,7 +104,8 @@ function toAnthropicMessage(m: ChatMsg): Anthropic.MessageParam | null {
 }
 
 /** Q-13（第十五轮）：输出上限 resolve 单源——toParams 上线值与 done 事件透出值同源，
- *  防两处各写一份漂移（anthropic 线全链兜底：调用方 cap → 模型行 → quirks 表 → 8192） */
+ *  防两处各写一份漂移（anthropic 线全链兜底：调用方 cap → 模型行 → quirks 表 →
+ *  16384（MAX_TOKENS）；R48-32（四十八轮）：原「→ 8192」系 R73-3 上调后的注释漂移漏网） */
 function resolveMaxTokens(conf: ProviderConf, req: GenRequest): number {
   return req.maxTokens ?? modelConfOf(conf)?.maxTokens ?? quirksFor(conf.model ?? '').maxOutputTokens ?? MAX_TOKENS
 }

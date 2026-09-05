@@ -3,8 +3,9 @@
  *
  * 修复前 `if (!relations.length) return reply(res, 200, { ok: true, cached: true,
  * relations: [] })`——该分支已真实跑完一次 AI 梳理（花钱）但结果为空，cached:true
- * 会把「花了钱的空产出」误标为「本地缓存命中」。修复后 cached:false；空结果不落盘
- * relations.json（下次 force=false 仍会真实重跑，语义诚实）。
+ * 会把「花了钱的空产出」误标为「本地缓存命中」。修复后 cached:false。空结果是否落盘：
+ * dev←recover 合并批收编 R48-77——空产出也是合法产出，同样落盘 relations.json（下次
+ * force=false 走缓存不再重复付费；缓存随 chapterCount 变化失效，force 可强制重梳）。
  *
  * runSpec mock 注入空/非空产出（端点其余链路——互斥闸/材料收集/回复形状——全真）。
  */
@@ -97,14 +98,18 @@ afterAll(async () => {
 })
 
 describe('R50-C-3：/relations/mine 空产出 → cached:false（非缓存命中）', () => {
-  it('AI 梳理产出空 relations → 200 + cached:false + 不落盘缓存（下次非 force 仍真实重跑）', async () => {
+  it('AI 梳理产出空 relations → 200 + cached:false + 落盘缓存（R48-77 合流：空产出也是合法产出，防重复付费）', async () => {
     runSpecMock.mockResolvedValueOnce(specOk({ relations: [] }))
     const r = await post(`/api/books/${encodeURIComponent(BOOK)}/relations/mine`, { force: true })
     expect(r.status).toBe(200)
-    // 修复前此处 cached:true——空产出被误标为本地缓存命中（该次已真实付费跑完 AI）
+    // R50-C-3 语义保真：该次已真实付费跑完 AI——cached 如实 false（修复前误标 true）
     expect(r.json).toEqual({ ok: true, cached: false, relations: [] })
-    // 空结果不落盘（cached 语义诚实：磁盘无缓存 → 下次 force=false 不走缓存分支）
-    expect(existsSync(join(workDir, BOOK, '.clwriting', 'relations.json'))).toBe(false)
+    // R48-77（dev←recover 合并批收编）：空结果同样落盘——下次非 force 走缓存不再烧 AI
+    expect(existsSync(join(workDir, BOOK, '.clwriting', 'relations.json'))).toBe(true)
+    const hit = await post(`/api/books/${encodeURIComponent(BOOK)}/relations/mine`, {})
+    expect(hit.status).toBe(200)
+    expect((hit.json as { cached: boolean }).cached).toBe(true)
+    expect((hit.json as { relations: unknown[] }).relations).toHaveLength(0)
     expect(runSpecMock).toHaveBeenCalledTimes(1)
   })
 

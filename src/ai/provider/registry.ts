@@ -136,7 +136,9 @@ export function providerCacheSize(): number {
  *
  * R33-21（三十三轮）：`opts.bypassCache` 供一次性旁路调用（流式探测把 model 换成
  * 列表首项，若入缓存会以「正常生成永不使用的 key」挤占 LRU 容量，把正常实例挤出
- * 重建）——探测等临时实例读缓存仍命中但不写入、不驱逐既有条目。
+ * 重建）——旁路只跳过写入、不驱逐既有条目；读缓存仍命中（R48-31（四十八轮）：
+ * 原实现连 cacheGet 一并跳过，与本注承诺相反，改为注释/实现一致——同 key 已有
+ * 实例时无需重建，读命中语义更优）。
  */
 export function createProvider(
   conf: ProviderConf,
@@ -145,10 +147,8 @@ export function createProvider(
   opts?: { bypassCache?: boolean },
 ): ModelProvider {
   const hash = settingsHash(conf, userDataPath)
-  if (!opts?.bypassCache) {
-    const cached = cacheGet(hash)
-    if (cached) return cached
-  }
+  const cached = cacheGet(hash)
+  if (cached) return cached
 
   const entry = resolveAdapter(conf.protocol)
   if (!entry) {

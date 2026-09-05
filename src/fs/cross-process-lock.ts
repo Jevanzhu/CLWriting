@@ -26,7 +26,7 @@
 import { mkdirSync, openSync, writeSync, closeSync, rmSync, readFileSync, statSync, utimesSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { log } from '../log/index.js'
-import { rmWithRetry } from './atomic.js'
+import { rmWithRetry, retryOnTransientFsError, fsBackoffSleep } from './atomic.js'
 
 /** 本进程启动时刻（epoch ms，由 uptime 反推）——锁文件诊断字段（未来 pid 复用判别依据）。
  *  R71-24（十九轮）导出复用：events 开口标记内容同样落 pid+bootTime。 */
@@ -325,8 +325,6 @@ function readHolderPid(lockPath: string): number | null {
   }
 }
 
-const RM_RETRYABLE_CODES = new Set(['EPERM', 'EBUSY'])
-
 /**
  * R1W-2（win 平台专项复审 R1）：锁文件释放删除的瞬时占用防护。release 普遍在
  * 调用方 finally 中执行——锁文件「创建+关闭」后的杀软/索引器瞬时锁定（EBUSY/EPERM）
@@ -335,6 +333,8 @@ const RM_RETRYABLE_CODES = new Set(['EPERM', 'EBUSY'])
  * 静默放弃 + warn 留痕：残留锁带本进程活 pid 判 held，超龄（MAX_HELD_MS 无续期）
  * 走 stale 接管、进程死后由 sweepAbandonedTmpFiles 的 .lock 分支清扫——可自愈，
  * 绝不反噬调用方。rm/sleep 可注入（测试用，不动生产语义）。
+ * R48-70（四十八轮）：循环体收编 atomic.retryOnTransientFsError 单实现（薄壳，
+ * 口径逐位不变；接管面 R48-15 同批接入本函数）。
  */
 export function rmWithRetryQuiet(
   path: string,
@@ -346,23 +346,12 @@ export function rmWithRetryQuiet(
   },
 ): void {
   const doRm = opts?.rm ?? ((p: string) => rmSync(p, { force: true }))
-  const sleep =
-    opts?.sleep ?? ((ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms))
-  const retries = opts?.retries ?? 3
-  const base = opts?.baseDelayMs ?? 50
-  let attempt = 0
-  for (;;) {
-    try {
-      doRm(path)
-      return
-    } catch (e) {
-      const code = (e as NodeJS.ErrnoException).code ?? ''
-      if (attempt >= retries || !RM_RETRYABLE_CODES.has(code)) {
-        log.warn('fs', `锁文件释放删除失败（已放弃，残留交陈锁接管/清扫路径自愈）：${path}`)
-        return
-      }
-      sleep(base * 2 ** attempt)
-      attempt++
-    }
-  }
+  retryOnTransientFsError(() => doRm(path), {
+    sleep: opts?.sleep ?? fsBackoffSleep,
+    retries: opts?.retries ?? 3,
+    baseDelayMs: opts?.baseDelayMs ?? 50,
+    onExhausted: () => {
+      log.warn('fs', `锁文件释放删除失败（已放弃，残留交陈锁接管/清扫路径自愈）：${path}`)
+    },
+  })
 }

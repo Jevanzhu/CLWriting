@@ -476,6 +476,10 @@ export const usePrefsStore = defineStore('prefs', () => {
     syncOverlayNow()
   }
 
+  /** R48-86（四十八轮）：theme-instant 压制代数——applyTheme 每次自增，rAF 回调据
+   *  此判最新性（快速连切防旧回调提前摘新回调的压制 class，详见 applyTheme 注）。 */
+  let themeInstantGen = 0
+
   function applyTheme(): void {
     document.documentElement.dataset.theme = theme.value
     // 窗控色与主题同一（同步）拍落定即「一起变」——win 已不做扩散特效
@@ -489,6 +493,11 @@ export const usePrefsStore = defineStore('prefs', () => {
     if (d?.platform === 'win32') {
       const rootEl = document.documentElement
       rootEl.classList.add('theme-instant')
+      // R48-86（四十八轮）：快速连切时两次 applyTheme 叠加——第一次的 rAF 回调会把第二
+      // 次刚挂上的 theme-instant 提前摘掉（第二拍 restyle 退回渐变、与窗控错位）。回调
+      // 带序号守卫：非最新代不摘 class（摘除权归最新回调），只 syncOverlayNow 让窗控
+      // 色即时跟随当前主题（幂等重发无害）
+      const gen = ++themeInstantGen
       // 窗控色延到页面新色扫描输出之后再落（双 rAF = 下一帧帧首，翻转帧已
       // present）：144Hz 帧预算 6.9ms，整页 restyle 必超预算——pre-flush 发送会让
       // 窗控恒定领先页面 1-2 帧（角落先变 = 「抢跑」，作者反馈「切换配色不同
@@ -498,6 +507,10 @@ export const usePrefsStore = defineStore('prefs', () => {
       // 同帧扫描输出，才是真同步。
       requestAnimationFrame(() =>
         requestAnimationFrame(() => {
+          if (gen !== themeInstantGen) {
+            syncOverlayNow()
+            return
+          }
           rootEl.classList.remove('theme-instant')
           syncOverlayNow()
         }),

@@ -23,7 +23,10 @@ export function httpStatusToCode(status: number | undefined, message: string): G
     // DeepSeek "maximum context length"——统一归 CONTEXT_WINDOW_EXCEEDED（改提示词信号）
     // R42-25（四十二轮）：正则收紧为短语级——此前裸 "context" 一词命中会把
     // 「invalid context id」「context is required」等无关 400 误归超窗（shrink-prompt 信号失真）
-    if (/context.{0,24}(length|exceed|too long|window|limit)|prompt is too long|too long|token.{0,24}(limit|maximum|exceed)/i.test(message)) {
+    // R48-34（四十八轮）：同款收紧补漏——裸备选 "too long" 会把 "stop sequence too
+    // long"/"name too long" 等请求组装类 400 误归超窗（A7 接线自动缩输入后将错触发
+    // 缩窗）；收敛为 prompt/input too long 级短语
+    if (/context.{0,24}(length|exceed|too long|window|limit)|prompt is too long|input too long|token.{0,24}(limit|maximum|exceed)/i.test(message)) {
       return 'CONTEXT_WINDOW_EXCEEDED'
     }
     return 'BAD_REQUEST'

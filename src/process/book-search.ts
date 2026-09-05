@@ -7,10 +7,11 @@
  * 防 AI 全文快照副本双出处命中）；.md 判定大小写不敏感（R41-6，.MD 漏网）。
  * 对话助手 book_search 工具与 /api/books/:name/search 端点共用，不复制逻辑。
  */
-import { join } from 'node:path'
-import { readdirSync, readFileSync, existsSync, statSync, realpathSync } from 'node:fs'
-import { readdir, readFile, stat, realpath } from 'node:fs/promises'
+import { join, relative } from 'node:path'
+import { readdirSync, existsSync, statSync, realpathSync } from 'node:fs'
+import { readdir, stat, realpath } from 'node:fs/promises'
 import { isWithinRoot, docJoinKey } from '../fs/safe-path.js'
+import { readMdTextCached, readMdTextCachedAsync } from '../fs/md-text-cache.js'
 import { finalizedPathSet } from '../document/manifest.js'
 import { clipByCodePoints } from './summary.js'
 
@@ -88,7 +89,10 @@ export function searchBook(bookRoot: string, q: string, scope?: string): SearchO
     for (const fp of walkMd(abs, root)) {
       const matches = searchFile(fp, lower)
       if (matches.length === 0) continue
-      const rel = fp.slice(root.length + 1).split('\\').join('/')
+      // R48-12（四十八轮）：rel 改 relative 派生——`slice(root.length + 1)` 算术对根形态
+      //（'/'、'C:\'，R26-104 特意保留不归一）恒吃掉 rel 首字符（命中路径截断残串）；
+      // relative 语义对全部根形态正确，常规形态产出逐字节不变
+      const rel = relative(root, fp).split('\\').join('/')
       // R73-42：定稿 scope 下，写作/正文 中未登记定稿基线的章（在写草稿）不进结果
       if (finalizedKeys !== null && dir === '写作/正文' && !finalizedKeys.has(docJoinKey(rel))) continue // R42-6：折叠键比较
       // R72-9（二十轮 C-8）：文件内命中超上限时附 hasMore 标记（截断不再静默）
@@ -119,14 +123,14 @@ function matchLines(text: string, lower: string): SearchMatch[] {
   return out
 }
 
-/** 行级 includes 匹配（大小写不敏感）+ 读文件；读失败（消失/权限）按无命中降级。 */
+/** 行级 includes 匹配（大小写不敏感）+ 读文件；读失败（消失/权限）按无命中降级。
+ *  R47-5（四十七轮）：裸 readFileSync 改走 fs/md-text-cache.ts stat 指纹缓存——
+ *  无命中/未凑满上限时此前仍要读完全书所有 .md（200 万字 ≈8MB/冷查询），缓存后
+ *  同指纹二次查询（chat 工具多轮复用同一书）零读盘；异步孪生 searchFileAsync
+ *  共享同一指纹表（端点路径保持全 async，R37-5 语义不回退）。 */
 function searchFile(fp: string, lower: string): SearchMatch[] {
-  let text: string
-  try {
-    text = readFileSync(fp, 'utf-8')
-  } catch {
-    return []
-  }
+  const text = readMdTextCached(fp)
+  if (text === null) return []
   return matchLines(text, lower)
 }
 
@@ -207,7 +211,8 @@ export async function searchBookAsync(bookRoot: string, q: string, scope?: strin
     for (const fp of await walkMdAsync(abs, root)) {
       const matches = await searchFileAsync(fp, lower)
       if (matches.length === 0) continue
-      const rel = fp.slice(root.length + 1).split('\\').join('/')
+      // R48-12（四十八轮）：rel 改 relative 派生（同上方同步版同编号注）
+      const rel = relative(root, fp).split('\\').join('/')
       if (finalizedKeys !== null && dir === '写作/正文' && !finalizedKeys.has(docJoinKey(rel))) continue // R42-6：折叠键比较
       results.push({
         path: rel,
@@ -224,12 +229,10 @@ export async function searchBookAsync(bookRoot: string, q: string, scope?: strin
 
 /** searchFile 异步孪生：读失败（消失/权限）同款按无命中降级。 */
 async function searchFileAsync(fp: string, lower: string): Promise<SearchMatch[]> {
-  let text: string
-  try {
-    text = await readFile(fp, 'utf-8')
-  } catch {
-    return []
-  }
+  // R47-5：异步孪生同走指纹缓存（stat/读盘全 async，与同步版共享指纹表）——读失败
+  // 按无命中降级口径不变
+  const text = await readMdTextCachedAsync(fp)
+  if (text === null) return []
   return matchLines(text, lower)
 }
 

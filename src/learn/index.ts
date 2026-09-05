@@ -78,7 +78,9 @@ const CANDIDATE_DIR = '工作区/learn候选'
  * 候选打分（借 #10 机检，#38 第 3.2 节）。
  *
  * 基础 100 分，扣分项来自 #10：
- * - checkStyleMetrics 项 red 每条 -15 / yellow 每条 -5（对话标签/形容词堆叠/排比/总结体等 AI 味）
+ * - checkStyleMetrics 项每条 -5（对话标签/形容词堆叠/排比/总结体等 AI 味；
+ *   R48-38（四十八轮）注释如实化：checkStyleMetrics 产出的 6 类 item level 恒为
+ *   yellow，原「red 每条 -15」分支永不可达，统一 -5）
  * - checkRepeat 的 yellow 项每条 -10
  * 无加分项（避免硬编码关键词，口径归 #10 机检，作者调铁律阈值能直接影响打分）。
  * R37-41（三十七轮）注释如实化：此前宣称「-10 * rate（复读率比率乘减）」与实现
@@ -89,9 +91,8 @@ function scoreByChecks(body: string, rules: IronRules): number {
   let score = 100
 
   const styleResult = checkStyleMetrics(body, rules)
-  for (const item of styleResult.items) {
-    score -= item.level === 'red' ? 15 : 5
-  }
+  // R48-38（四十八轮）：统一每条 -5——checkStyleMetrics 六类 item level 恒 yellow
+  score -= styleResult.items.length * 5
 
   const repeatResult = checkRepeat(body)
   for (const item of repeatResult.items) {

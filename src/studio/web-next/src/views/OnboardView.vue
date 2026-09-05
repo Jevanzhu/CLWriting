@@ -167,6 +167,13 @@ onMounted(async () => {
   }
   if (!stillOn(book)) return
   await tree.load(book)
+  // R48-91（四十八轮）：tree.load 失败不再静默继续——树空时已落盘设定显示 0/N
+  // 「未生成」态，诱导作者重跑生成覆盖已有文件（与「错误必达用户」口径不符）。
+  // 置错误态（走 OnboardStepPanel 既有 err 红条）并跳过预选
+  if (tree.error) {
+    if (stillOn(book)) err.value = tree.error
+    return
+  }
   const first = ALL_STEPS.value.find((s) => !isGenerated(s))
   if (first) selectStep(first)
 })

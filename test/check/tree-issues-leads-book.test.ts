@@ -22,6 +22,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { collectTreeIssues, __setLeadsBookDegradeForTest, __setChapterCheckDegradeForTest } from '../../src/check/run.js'
 import { rebuild } from '../../src/cache/rebuild.js'
 import { checkLeadsBookItems } from '../../src/check/leads.js'
+import { __mdTextCacheTestHooks } from '../../src/fs/md-text-cache.js'
 import { readManifest, writeManifest, upsertEntry, type ManifestEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
 
@@ -190,19 +191,46 @@ describe('collectTreeIssues 账本全书性红项（H-1 跨章陈旧修复）', 
   })
 
   // Windows 无 POSIX 权限位（chmod 为 no-op/仅映射只读位），该守卫语义由 macOS/Linux CI 腿覆盖
-  it.skipIf(process.platform === 'win32')('低级项（第六轮）：章文件在但读失败（权限）→ 不崩三检，落 unverifiable 黄项', () => {
+  // R47-10（四十七轮）契约演进：章文读取改走 fs/md-text-cache.ts stat 指纹缓存后，
+  // 「chmod 权限故障但内容未变（mtime/size 指纹不变）」的章由缓存正文服务——引文校验
+  // 面向的正文数据与磁盘逐字一致，校验结果等价，不再落 unverifiable 黄项（编辑器开/
+  // 存该章会独立暴露权限故障，黄项失去二次诊断意义）；黄项保留给「正文真正不可得」
+  // 形态——文件删除/TOCTOU（上一用例：章文件缺失）与首读即权限故障（无缓存可用）。
+  it.skipIf(process.platform === 'win32')('低级项（第六轮；R47-10 语义演进）：章文件在但读失败（权限）→ 不崩三检；已缓存指纹一致 → 缓存正文服务等价校验、无黄项', () => {
     const { root } = makeBook(true)
     const ch2 = join(root, '写作', '正文', '002-第2章.md')
     try {
-      collectTreeIssues(root, () => undefined) // 建库（缓存/布线），文件此刻可读
-      chmodSync(ch2, 0o000) // 读侧故障模拟：findChapterFile 找得到、readFileSync 抛 EACCES
+      collectTreeIssues(root, () => undefined) // 建库（缓存/布线），文件此刻可读（ch2 正文已入指纹缓存）
+      chmodSync(ch2, 0o000) // 读侧故障模拟：stat 仍成功且指纹不变 → 缓存命中，校验照常完成
       const db = new DatabaseSync(join(root, '.cache', 'index.db'), { readOnly: true })
       try {
-        // 修复前：chapterTextOf 的裸 readFileSync 把 EACCES 上抛，整个三检 500
+        // 修复前（六轮）：裸 readFileSync 把 EACCES 上抛，整个三检 500——不崩语义仍锚定
+        const items = checkLeadsBookItems(db, root, 3, ['悬念'])
+        const unverifiable = items.filter((i) => i.checkId === 'lead-evidence-unverifiable')
+        expect(unverifiable).toHaveLength(0) // 指纹一致 → 缓存正文校验，不误报不可核验
+        expect(items.some((i) => i.checkId === 'lead-evidence-miss')).toBe(false)
+      } finally {
+        db.close()
+      }
+    } finally {
+      chmodSync(ch2, 0o644)
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  // R47-10 语义演进的补面：无缓存可用（首读即权限故障）→ 读失败降级原口径不变，落黄项
+  it.skipIf(process.platform === 'win32')('低级项（第六轮，R47-10 补面）：无缓存可用时读失败（权限）→ 仍落 unverifiable 黄项', () => {
+    const { root } = makeBook(true)
+    const ch2 = join(root, '写作', '正文', '002-第2章.md')
+    try {
+      collectTreeIssues(root, () => undefined) // 建库
+      __mdTextCacheTestHooks.clear() // 清指纹缓存 → 下轮首读即碰 EACCES（无缓存可用）
+      chmodSync(ch2, 0o000)
+      const db = new DatabaseSync(join(root, '.cache', 'index.db'), { readOnly: true })
+      try {
         const items = checkLeadsBookItems(db, root, 3, ['悬念'])
         const unverifiable = items.filter((i) => i.checkId === 'lead-evidence-unverifiable')
         expect(unverifiable).toHaveLength(1)
-        expect(items.some((i) => i.checkId === 'lead-evidence-miss')).toBe(false)
       } finally {
         db.close()
       }

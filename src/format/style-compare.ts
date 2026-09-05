@@ -19,11 +19,15 @@ function hanRuns(text: string): string[] {
 export function charNgrams(text: string, n: number): Set<string> {
   const grams = new Set<string>()
   for (const run of hanRuns(text)) {
-    if (run.length < n) {
+    // R48-53（四十八轮）：按码位取窗——.length/.slice 是 UTF-16 码元口径，扩展 B 区
+    // 生僻字（代理对占 2 码元）会被劈成孤立代理对落进 n-gram，落盘禁词在正文
+    // includes 永不命中（红闸静默失效）。Array.from 按码位切窗（对齐 R72-7/R41-4）。
+    const cps = Array.from(run)
+    if (cps.length < n) {
       grams.add(run)
       continue
     }
-    for (let i = 0; i + n <= run.length; i++) grams.add(run.slice(i, i + n))
+    for (let i = 0; i + n <= cps.length; i++) grams.add(cps.slice(i, i + n).join(''))
   }
   return grams
 }
@@ -37,7 +41,9 @@ export function missingNgrams(aiText: string, authorText: string): string[] {
   for (let n = 5; n >= 2; n--) {
     const authorGrams = charNgrams(authorText, n)
     for (const gram of charNgrams(aiText, n)) {
-      if (gram.length !== n) continue // 短 run 兜底项不作候选
+      // R48-53（四十八轮）：兜底项判定同步码位口径——含扩展 B 区字的 n-gram 其
+      // UTF-16 length 是 2n，原 `.length !== n` 会把合法 gram 误当兜底项滤掉
+      if (Array.from(gram).length !== n) continue // 短 run 兜底项不作候选
       if (authorGrams.has(gram)) continue
       if (out.some((s) => s.includes(gram))) continue // 已被更长缺失项覆盖
       out.push(gram)

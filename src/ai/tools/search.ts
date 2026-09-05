@@ -21,11 +21,10 @@ export async function bookSearch(ctx: ToolContext, input: Record<string, unknown
   const lines = out.results.slice(0, 10).map((hit) => {
     const first = hit.matches[0]!;
     // R75-A-P3c：slice(0,60) 按 UTF-16 码元截断——emoji 等增补平面字符恰在边界时被切出
-    // 半个代理对（下游渲染乱码）；clipByCodePoints 按码位截 60（与 searchBook 的
+    // 半个代理对（下游渲染乱码）；clipByCodePoints 按码位截 60（与 book-search 的
     // MATCH_LINE_SLICE=200 同口径，R-11 家族）
     return '· ' + hit.path + '（第' + first.line + '行）：' + clipByCodePoints(first.text, 60)
   })
   const more = out.results.length > 10 ? '……（共 ' + out.results.length + ' 处命中，仅展示前 10）' : ''
   return { ok: true, summary: '找到 ' + out.results.length + ' 处包含「' + q + '」的命中：\n' + lines.join('\n') + more }
 }
-

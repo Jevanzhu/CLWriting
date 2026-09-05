@@ -78,9 +78,10 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
 
   // R73-67（D 域移交前端面）：per-book SSE 连接数上限（第 6 个标签页 429 BUSY）的前端展示面。
   // EventSource 不暴露状态码/body——非 2xx 一律 fail-closed，无法与 403/404 区分。借 fetch
-  // 探测拿状态码：走 ?token= 旧通道（服务端只做凭据比对，不消费一次性 ticket、不烧票），
-  // 且服务端 429 判定在连接登记之前（429 响应不占连接槽）。取到状态码即 abort，不留存活
-  // 探测流连接；仅在 fail-closed 接管退避前探测一次，网络抖动/每轮退避不重复探测。
+  // 探测拿状态码：R31-32（三十一轮）起探测走 x-studio-token 头，不拼 ?token= 进 URL、
+  // 不消费一次性 ticket、不烧票；服务端 429 判定在连接登记之前（429 响应不占连接槽）。
+  // 取到状态码即 abort，不留存活探测流连接；仅在 fail-closed 接管退避前探测一次，
+  // 网络抖动/每轮退避不重复探测。
   async function probeSseBusy(): Promise<void> {
     if (probing429) return
     const t = getToken()

@@ -96,6 +96,10 @@ export function getRhythmCached(bookRoot: string): unknown {
   if (cached && cached.sig === sig && Date.now() - cached.ts < (rhythmTtlMs ?? RHYTHM_CACHE_TTL_MS)) {
     return cached.result
   }
+  // R47-18（四十七轮）：过期条目顺手逐出——原只当 miss 用、条目驻留至 FIFO 触顶/删书
+  //（forgetRhythmCache）；重算路径本就必走且 set 原键覆写，零成本零语义变更。sig 失配
+  // 但未过期的条目不在此次清（本函数同步单段，下方 set 必覆写同键）
+  if (cached && Date.now() - cached.ts >= (rhythmTtlMs ?? RHYTHM_CACHE_TTL_MS)) rhythmCache.delete(bookRoot)
   rhythmScanCount += 1
   // R50-C-2（五十轮）：book.yaml 损坏静默降级留痕（对齐 state.ts P3-2 口径）——
   // readBookConfig 错误分支带 DEFAULT_CONFIG 骨架（kind 缺省 'long'），未判 ok
