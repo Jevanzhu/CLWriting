@@ -132,24 +132,29 @@ export function createStaticHandler(rootDir: string) {
       // 时 s 是目录 stat、size 无意义，补一次 stat 取实发文件尺寸——与 HEAD 分支同口径）。
       // 流错误处理：流是异步出错（外层 try/catch 接不到）——已写头（headersSent）则
       // destroy(res) 断连（Content-Length 已承诺完整长度，半截响应不能再改状态码）；
-      // 未写头则按 N-3 口径回 500 IO。SPA fallback 的 index.html 保留 readFile（低频
-      // 小文件，且 fallback 语义依赖 throw 进外层 catch）。
+      // 未写头则按 N-3 口径回 500 IO。writeHead 必须等流 'open' 成功后再发——open 阶段
+      // 失败（EACCES 等）时头未落盘才轮得到 500 信封；先 writeHead 后 pipe 会让
+      // headersSent 恒真、N-3 的 500 分支成死代码（mac 腿实测挂，win 腿 skipIf 拦不到）。
+      // SPA fallback 的 index.html 保留 readFile（低频小文件，且 fallback 语义依赖
+      // throw 进外层 catch）。
       const size = s.isDirectory() ? (await stat(safe.abs)).size : s.size
-      res.writeHead(200, {
-        'content-type': MIME[extname(file)] ?? 'application/octet-stream',
-        // R30-23（三十轮）：同 HEAD 分支——nosniff 统一加（所有静态响应头统一处）
-        'x-content-type-options': 'nosniff',
-        'cache-control': cacheable
-          ? 'public, max-age=31536000, immutable'
-          : 'no-cache',
-        'content-length': String(size),
-      })
       const stream = createReadStream(safe.abs)
+      stream.on('open', () => {
+        res.writeHead(200, {
+          'content-type': MIME[extname(file)] ?? 'application/octet-stream',
+          // R30-23（三十轮）：同 HEAD 分支——nosniff 统一加（所有静态响应头统一处）
+          'x-content-type-options': 'nosniff',
+          'cache-control': cacheable
+            ? 'public, max-age=31536000, immutable'
+            : 'no-cache',
+          'content-length': String(size),
+        })
+        stream.pipe(res)
+      })
       stream.on('error', () => {
         if (res.headersSent) res.destroy()
         else replyError(res, 500, 'IO', '静态文件读取失败')
       })
-      stream.pipe(res)
     } catch (e) {
       // N-3（第十二轮）：errno 分流——只有 ENOENT/ENOTDIR（路径不存在/非目录段）才走
       // SPA fallback；其余 IO 错误（EACCES/EMFILE/盘满等）此前一律混叠成 200 index.html
