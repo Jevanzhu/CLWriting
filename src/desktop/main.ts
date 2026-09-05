@@ -58,6 +58,17 @@ import { initLogging, log } from '../log/index.js'
 
 const here = dirname(fileURLToPath(import.meta.url)) // dist/desktop/
 
+// win 渲染锐度（F 线 2026-09-05）：GPU 光栅化的合成层（滚动内容/textarea）上 Chromium
+// 强制灰度 AA——base.css F0 的 subpixel-antialiased 在 CSS 计算值上正确继承（getComputedStyle
+// 已验），但只要走 GPU tile 光栅就被压成灰度，这是「编辑区比浏览器样张糊」的根因。
+// 关 GPU 光栅让文本回 CPU 光栅路径，ClearType 子像素恢复（真机放大对比实证：笔画
+// 彩边回来、正文明显变实）。win 门：mac 无 ClearType，文本本就灰度渲染，关了只有
+// 性能代价无收益（本文件平台分支惯例：titleBarStyle/autoHideMenuBar/字体枚举等同门）；
+// 文本为主的写作界面 CPU 光栅代价可忽略，滚动性能留作者真机复核，异常再评估按需白名单。
+if (process.platform === 'win32') {
+  app.commandLine.appendSwitch('disable-gpu-rasterization')
+}
+
 /** 生产模式 CSP：限定所有资源走本地 origin，防渲染层注入外部脚本/样式 */
 const CLW_CSP = [
   "default-src 'self'",

@@ -1,11 +1,10 @@
 /**
  * 正文排版预设（F 线 2026-09-05 作者指令：不做默认翻转，做预设组合一键切换——
- * 「在字体那增加一个预设选项，几种我们预设好的组合选择」）。2026-09-05 晚
- * 作者拍板「只保留我觉得好看的预设」——按目测评结论精简为两套（默认 · 衬线 +
- * 无衬线 · 清爽）；旋即再要两套，样张页 A-D 四候选过目判「右边的好点」，按会话
- * 推荐落地 A+C：思源黑体 · 均衡（Noto Sans SC 400）+ 宋体 · 经典（SimSun）；
- * 文楷（D4 证伪糊）/ 思源宋（400 未亲验）/ 疏朗（未评测）/ 等线（备选未选）/
- * 西文编辑部（微调型未选）留设计稿记录可回。
+ * 「在字体那增加一个预设选项，几种我们预设好的组合选择」）。预设组演进：
+ * 两套（只留好看）→ 四套（按「右边的好点」补思源黑体/宋体）→ 2026-09-05 白底
+ * 锐度专项后作者判定「思源宋白底糊是字体本体原因」（横细画 + 弱 hinting，F0b
+ * ClearType 回归后显形）——默认预设字体槽改雅黑（作者样张「C 不错」唯一亲验
+ * 正本体），与出厂空槽（衬线栈）脱钩；「无衬线 · 清爽」与默认重复随之移除。
  *
  * 每个预设 = 正文中英字体槽 + 字号 + 行距的命名组合，值与 prefs prose* 四字段
  * 一一对应：应用即逐项走既有 setter（setSize/setLh/setProseFontCn/setProseFontEn），
@@ -33,14 +32,8 @@ export interface ProsePreset {
 export const PROSE_PRESETS: ProsePreset[] = [
   {
     id: 'default',
-    label: '默认 · 衬线',
-    desc: '霞鹜文楷 → 思源宋 → 宋体，17px · 1.5',
-    values: { proseFontCn: '', proseFontEn: '', proseSize: 17, proseLh: 1.5 },
-  },
-  {
-    id: 'sans',
-    label: '无衬线 · 清爽',
-    desc: '微软雅黑（mac 落苹方），17px · 1.5',
+    label: '默认 · 雅黑',
+    desc: '微软雅黑，屏显最稳（17px · 1.5）',
     values: { proseFontCn: 'Microsoft YaHei', proseFontEn: '', proseSize: 17, proseLh: 1.5 },
   },
   {

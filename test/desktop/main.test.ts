@@ -35,6 +35,7 @@ const M = vi.hoisted(() => ({
   whenReadyCalls: 0,
   setPaths: {} as Record<string, string>,
   appOn: {} as Record<string, Array<(...a: unknown[]) => void>>,
+  commandLineSwitches: [] as Array<string[]>, // win 渲染锐度（F 线）：main.ts 模块加载期注册的命令行开关
   headersCb: null as null | ((d: unknown, cb: (r: unknown) => void) => void),
   ipcHandle: {} as Record<string, (e: unknown, ...a: unknown[]) => unknown>,
   ipcOn: {} as Record<string, (e: unknown, ...a: unknown[]) => void>,
@@ -233,6 +234,11 @@ vi.mock('electron', () => {
         M.whenReadyCalls++
         return Promise.resolve()
       },
+      commandLine: {
+        appendSwitch: (...a: string[]) => {
+          M.commandLineSwitches.push(a)
+        },
+      },
       isPackaged: true,
       name: 'CLWriting',
       getAppPath: () => '/fake/app',
@@ -391,6 +397,10 @@ function mainWin(): Record<string, any> {
 }
 
 describe('kk-P2-8：主进程启动链（安全配置 / CSP / 内嵌 server）', () => {
+  it.skipIf(process.platform !== 'win32')('win 渲染锐度：模块加载即注册 disable-gpu-rasterization（GPU 光栅层强制灰度 AA，压掉 F0 子像素——编辑区糊根因；mac 无 ClearType 不注册）', () => {
+    expect(M.commandLineSwitches).toContainEqual(['disable-gpu-rasterization'])
+  })
+
   it('安全五件套：contextIsolation+sandbox+nodeIntegration:false+preload（ii 批工厂基线）', () => {
     const wp = mainWin().opts.webPreferences
     expect(wp.contextIsolation).toBe(true)
