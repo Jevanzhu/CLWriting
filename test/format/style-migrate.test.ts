@@ -10,6 +10,7 @@ import {
   migrateStyleLibrary,
   parseQuoteEntries,
   parseAiFlavorRows,
+  slimIronRules,
 } from '../../src/format/style-migrate.js'
 import { readEntries, ENTRIES_DIR } from '../../src/format/style-entry.js'
 import { writeSample } from '../../src/format/style.js'
@@ -222,5 +223,63 @@ describe('解析纯函数', () => {
       { 词: '缓缓 / 微微', 替换: '删，或给具体幅度' },
     ])
     expect(parseAiFlavorRows('# 无此段')).toEqual([])
+  })
+})
+
+describe('R49-13: 遗留段判定精确段名锚定（作者同关键词段不再误删）', () => {
+  // 散文行：无引号/无冒号/无顿号等分隔符且超 24 字——parseBannedWordsLine 拆不出词，
+  // 迁移提取面（parseIronRules）对该段零产出，用例只锚定「段保留」本身
+  const AUTHOR_NOTE = '写和解不等于和稀泥这一段是作者自己的创作笔记用来提醒自己别把冲突写崩'
+  const MIXED_RULES = [
+    '# 文风铁律',
+    '',
+    '## 反和解段（AI 味防御）',
+    '',
+    '- 「势不两立」',
+    '',
+    '## 反和解心得',
+    '',
+    AUTHOR_NOTE,
+    '',
+    '## AI 味替换参考',
+    '',
+    '| AI 味表达 | 替换方向 |',
+    '|---|---|',
+    '| 深吸一口气 | 具体动作或删 |',
+    '',
+  ].join('\n')
+
+  it('slimIronRules：作者「## 反和解心得」段保留，旧模板两段照删', () => {
+    const slim = slimIronRules(MIXED_RULES)
+    expect(slim).toContain('## 反和解心得')
+    expect(slim).toContain(AUTHOR_NOTE)
+    expect(slim).not.toContain('势不两立')
+    expect(slim).not.toContain('AI 味替换参考')
+    expect(slim).toContain('# 文风铁律')
+  })
+
+  it('migrateStyleLibrary：作者段整段保留；旧模板段照常提取（禁词 2 条）+ 瘦身', () => {
+    writeFileSync(join(root, '文风', '文风铁律.md'), MIXED_RULES, 'utf-8')
+    const r = migrateStyleLibrary(root)
+    // 旧模板段照常提取：硬禁词「势不两立」+ AI 味「深吸一口气」；作者段散文零产出
+    expect(r.byKind['禁词']).toBe(2)
+    const { entries } = readEntries(join(root, ENTRIES_DIR), '禁词')
+    expect(entries.map((e) => e.正文).sort()).toEqual(['势不两立', '深吸一口气'])
+    // 瘦身：旧模板段删，作者段一字不动保留
+    const slim = readFileSync(join(root, '文风', '文风铁律.md'), 'utf-8')
+    expect(slim).toContain('## 反和解心得')
+    expect(slim).toContain(AUTHOR_NOTE)
+    expect(slim).not.toContain('势不两立')
+    expect(slim).not.toContain('AI 味替换参考')
+  })
+
+  it('幂等闸同口径：瘦身后仅剩作者段（无遗留段）→ 第二次迁移 no-op', () => {
+    writeFileSync(join(root, '文风', '文风铁律.md'), MIXED_RULES, 'utf-8')
+    expect(migrateStyleLibrary(root).byKind['禁词']).toBe(2)
+    const second = migrateStyleLibrary(root)
+    expect(second.migrated).toBe(0)
+    expect(Object.keys(second.byKind)).toHaveLength(0)
+    const { entries } = readEntries(join(root, ENTRIES_DIR), '禁词')
+    expect(entries).toHaveLength(2) // 不因作者段关键词重复提取
   })
 })

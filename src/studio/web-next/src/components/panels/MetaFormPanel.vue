@@ -7,7 +7,8 @@ import { useDocStore } from '../../stores/doc'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
 import { usePrefsStore } from '../../stores/prefs'
-import { parseFmFields, formKindOf } from '../../shared/words'
+import { formKindOf } from '../../shared/words'
+import { useDebouncedFmFields } from '../../composables/useDebouncedWordCount'
 import { updateDocMeta } from '../../api/documents'
 import { getConfig } from '../../api/books'
 import { friendlyError } from '../../shared/error'
@@ -130,18 +131,25 @@ const parsedSnapshot = ref<Record<string, string>>({})
 // 声明须在下方 watch 之前：immediate 首跑即引用（TDZ）。
 const numErrors = ref<Record<string, string>>({})
 
+// R49-30（四十九轮）：fm 解析走 useDebouncedFmFields 150ms 防抖共享源（AnalysisPanel/
+// EditorView/WritingInfoPanel 同款，此处是最后漏网消费）——watch 直连 parseFmFields
+// 每键 O(n) 全文两趟大分配；防抖核保证 docId 切换即刻重算（R43-17：防抖窗不滞留旧
+// 文档值）。watch 重灌与 tagValues 只读展示共用此源，不再各自解析。
+const { fields: fmFields } = useDebouncedFmFields(() => entry.value?.content, () => ws.activeDocId)
+
 watch(
   // R65-52（E-4）：doc store 对 content 是原位变更（refresh/静默同步改 e.content、对象引用
-  // 不换）——单 watch entry 引用时 AI 写回/refresh 后表单不重解析，停留在旧值。源加 content
-  [entry, () => entry.value?.content],
-  ([e], [prev]) => {
+  // 不换）——单 watch entry 引用时 AI 写回/refresh 后表单不重解析，停留在旧值。R49-30 起
+  // 解析源换防抖 fmFields（content 变化进 150ms 防抖窗，同文档回填延迟一拍）；
+  // entry 引用变化（切文档）仍即刻分辨走整体重灌分支。
+  [entry, fmFields],
+  ([e, parsed], [prev]) => {
     if (!e || !kind.value) {
       fields.value = {}
       parsedSnapshot.value = {}
       numErrors.value = {} // R35-35：切走文档不留前文档的字段错误
       return
     }
-    const parsed = parseFmFields(e.content)
     const out: Record<string, string> = {}
     for (const f of FIELD_DEFS[kind.value] ?? []) out[f.key] = parsed[f.key] ?? ''
     if (prev === e) {
@@ -175,9 +183,10 @@ const TAG_FIELDS_BY_KIND: Record<string, Array<{ key: string; label: string }>> 
   ],
 }
 const tagFields = computed(() => (kind.value ? TAG_FIELDS_BY_KIND[kind.value] ?? [] : []))
+// R49-30：解析走上方 useDebouncedFmFields 防抖源（原 computed 内每键全文 parseFmFields）
 const tagValues = computed<Record<string, string>>(() => {
   if (!entry.value) return {}
-  const parsed = parseFmFields(entry.value.content)
+  const parsed = fmFields.value
   const out: Record<string, string> = {}
   for (const f of tagFields.value) out[f.key] = parsed[f.key] ?? ''
   return out

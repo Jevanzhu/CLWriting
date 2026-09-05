@@ -55,7 +55,9 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
   defineRoute('books.outline', {
     method: 'POST',
     path: '/api/books/:name/outline',
-    handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
+    // R49-8（评审 R49）：本 handler 实际消费请求体（readJson）——参数名去 `_` 前缀
+    //（本仓约定 `_` 前缀 = 未使用参数）；按位置传参，注册点无关，纯改名零行为。
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     // R67-13（十五轮）：编排互斥矩阵补角——写稿系编排在途（self-heal/对话/后台收尾）
@@ -66,7 +68,7 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
     const release = acquireTaskGate(params['name']!, 'outline')
     if (!release) return replyError(res, 409, 'BUSY', '本书正在生成细纲，请等待完成后再试')
     try {
-      const body = await readJson(_req)
+      const body = await readJson(req)
       const chapter = Number(body['chapter'])
       if (!Number.isInteger(chapter) || chapter < 1) return replyError(res, 400, 'BAD_INPUT', 'chapter 需为正整数')
 

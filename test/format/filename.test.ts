@@ -102,3 +102,20 @@ describe('NFC 归一（平台规范化批一 C）', () => {
     expect(sanitizeFullFileName(`章${nfc}..`)).toBe(`章${nfc}`)
   })
 })
+
+describe('sanitizeFullFileName：纯点文件（R49-14）', () => {
+  it('纯点名（.gitignore）按「无扩展名的完整名」处理——原样通过，不再产出 未命名.gitignore', () => {
+    expect(sanitizeFullFileName('.gitignore')).toBe('.gitignore')
+    expect(sanitizeFullFileName('.md')).toBe('.md')
+  })
+
+  it('常规多点/带扩展名/兜底行为不回退（stem 非空时扩展名照常保留）', () => {
+    expect(sanitizeFullFileName('.foo.bar')).toBe('.foo.bar')
+    expect(sanitizeFullFileName('章.md')).toBe('章.md')
+    expect(sanitizeFullFileName('第一章.序')).toBe('第一章.序')
+    expect(sanitizeFullFileName('终章...')).toBe('终章')
+    // 全点/空串仍走「未命名」兜底（pre 已剥成空串，不在纯点豁免之列）
+    expect(sanitizeFullFileName('')).toBe('未命名')
+    expect(sanitizeFullFileName('...')).toBe('未命名')
+  })
+})

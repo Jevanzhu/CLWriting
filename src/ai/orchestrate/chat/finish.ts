@@ -110,8 +110,9 @@ async function summarizeCheckpoint(
     // 分槽互不抢占、同书同槽幂等语义不变。
     register: (c) => opts.driver.registerCtrl?.(opts.mainSession, c, `chat:${opts.bookName}`),
     onReset: () => emit(opts, { type: 'chat_reset' }),
+    // R49-1：error 拼接前过 redactSecret（R43-19 口径，对齐 turns.ts onRetry 同款）
     onRetry: (attempt, error) =>
-      emit(opts, { type: 'warning', message: `历史压缩摘要生成异常（${error}），第 ${attempt + 1} 次重试中…` }),
+      emit(opts, { type: 'warning', message: `历史压缩摘要生成异常（${redactSecret(error)}），第 ${attempt + 1} 次重试中…` }),
     run: async (provider, signal, tier) => {
       const r = await generate(
         provider,

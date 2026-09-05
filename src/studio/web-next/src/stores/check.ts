@@ -8,9 +8,13 @@ import { friendlyError } from '../shared/error'
  * run 触发即算即显（不落信封）；红/黄项 computed 分组供面板渲染。
  * 文档切换时由调用方 clear（报告与 docId 绑定，不跨文档残留）。
  */
-/** 误报灰显 localStorage 键单一事实源（模块级：store 内与清理接口共用同源拼法）。 */
+/** 误报灰显 localStorage 键单一事实源（模块级：store 内与清理接口共用同源拼法）。
+ *  R49-27（四十九轮）：分隔符用 \u0000（learn.ts sampleKey 同款手法）——冒号拼接在
+ *  书名自身含冒号时前缀歧义：clearFalsePositiveMarks('A') 的 `clw-fp:A:` 前缀会连带
+ *  命中书 'A:B' 的键。存量冒号旧键不迁移（展示态 best-effort，自然失配即弃），
+ *  删书清理处顺手清旧键。 */
 function fpKey(name: string, docId: string): string {
-  return `clw-fp:${name}:${docId}`
+  return `clw-fp:${name}\u0000${docId}`
 }
 
 export const useCheckStore = defineStore('check', () => {
@@ -130,11 +134,15 @@ export const useCheckStore = defineStore('check', () => {
   }
 })
 
-/** R-5（十五轮登记销账）：删书成功后清该书全部误报灰显键（`clw-fp:<书>:<文档>`）。
+/** R-5（十五轮登记销账）：删书成功后清该书全部误报灰显键（`clw-fp:<书>\u0000<文档>`）。
  *  模块级导出（不依赖 store 实例）——useShelf 删除流程直接调用；同名重建书不继承
- *  旧灰显态（checkId 是检查器级 id 跨书同名，残留会让新书的误报按钮被禁用）。 */
+ *  旧灰显态（checkId 是检查器级 id 跨书同名，残留会让新书的误报按钮被禁用）。
+ *  R49-27：前缀带 \u0000 分隔符——书名含冒号时旧式 `clw-fp:A:` 前缀会连带命中
+ *  书 'A:B' 的键（\u0000 后书名段无法被更长书名前缀匹配）。存量冒号旧键不做清理：
+ *  旧前缀 `clw-fp:A:` 本身就是新书 'A:B' 键的前缀，顺手清会重蹈覆辙；展示态
+ *  best-effort，旧键自然失配即弃。 */
 export function clearFalsePositiveMarks(bookName: string): void {
-  const prefix = `clw-fp:${bookName}:`
+  const prefix = `clw-fp:${bookName}\u0000`
   try {
     // 倒序扫描：removeItem 不影响未访问下标
     for (let i = localStorage.length - 1; i >= 0; i--) {

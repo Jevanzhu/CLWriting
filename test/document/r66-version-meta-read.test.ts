@@ -28,6 +28,7 @@ import {
   writeVersion,
   pruneVersions,
   listVersions,
+  listVersionEntries,
   readVersion,
   DEFAULT_VERSION_POLICY,
 } from '../../src/document/version.js'
@@ -88,5 +89,31 @@ describe('R66-19: version meta 判定走头部读（整读次数收敛）', () =
     expect(READS.count).toBe(0) // pinned 判定走 meta 头读，零整读
     expect(readVersion(dir, docId, pinnedId!)?.meta.pinned).toBe(true)
     expect(listVersions(dir, docId).length).toBe(1)
+  })
+
+  it('R49-12: listVersionEntries 展示信息走 meta 头读——有字数零整读；无字数旧版回落整读现算（契约不变）', () => {
+    const countWords = (t: string) => t.length
+    const withWordsId = writeVersion(dir, docId, '新版正文有字数', { origin: 'autosave', words: 42 })
+    const noWordsId = writeVersion(dir, docId, '旧版正文无字数字段', { origin: 'manual' }) // 未传 words → 无「字数」fm
+    expect(listVersions(dir, docId).length).toBe(2)
+    READS.count = 0
+    const entries = listVersionEntries(dir, docId, countWords)
+    expect(entries).toHaveLength(2)
+    // 有字数版本零整读（meta 头部 bounded read）；无字数旧版本回落整读 1 次现算
+    expect(READS.count).toBe(1)
+    // 对外 VersionEntry 字段与整读时代口径一致
+    expect(entries.find((e) => e.id === withWordsId)).toMatchObject({
+      id: withWordsId,
+      origin: 'autosave',
+      reason: '',
+      words: 42,
+      pinned: false,
+    })
+    expect(entries.find((e) => e.id === noWordsId)).toMatchObject({
+      id: noWordsId,
+      origin: 'manual',
+      words: countWords('旧版正文无字数字段'),
+    })
+    for (const e of entries) expect(e.time).toBeLessThanOrEqual(Date.now())
   })
 })

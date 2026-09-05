@@ -155,21 +155,33 @@ function readTextSafe(p: string): string | null {
   }
 }
 
+/**
+ * R49-13（评审 R49）：旧模板遗留段标题的**精确整行锚定**——旧实现两处均为子串匹配
+ * （`/^##[^\n]*(反和解|AI\s*味替换)/m` 与逐行 `/反和解|AI\s*味替换/.test(line)`），
+ * 作者自建的「## 反和解心得」等含关键词标题的段会被误判为遗留段删除（docstring
+ * 「保守：未知段一律保留」失实）。旧模板确切标题原文以 install/scaffold.ts 旧版
+ * （git 5aa8222b）与既有测试 fixture 为准：「## 反和解段（AI 味防御）」「## AI 味替换
+ * 参考」（AI 后空格容忍 `AI\s*`——子串版旧口径本就容忍无空格写法，整行锚定后不放宽
+ * 匹配面）。幂等闸（hasLegacyRulesSection）与瘦身 dropping（slimIronRules）同口径。
+ */
+const LEGACY_RULES_HEADING_RE = /^##\s*(?:反和解段（AI 味防御）|AI\s*味替换参考)\s*$/m
+
 /** RB-KN-P2-4：铁律是否仍含待迁移段（反和解 / AI 味替换）——幂等闸的续跑判定输入 */
 function hasLegacyRulesSection(text: string): boolean {
-  return /^##[^\n]*(反和解|AI\s*味替换)/m.test(text)
+  return LEGACY_RULES_HEADING_RE.test(text)
 }
 
 /**
  * 铁律瘦身（S5）：删「反和解段」「AI 味替换参考」段（知识已入条目库），
- * 保留头部引言、可量化约束、删除分级及作者自加段（保守：未知段一律保留）。
+ * 保留头部引言、可量化约束、删除分级及作者自加段（保守：未知段一律保留——
+ * R49-13：段名判定按旧模板标题整行精确锚定，作者同关键词标题段不再误删）。
  */
 export function slimIronRules(text: string): string {
   const out: string[] = []
   let dropping = false
   for (const line of text.split('\n')) {
     if (/^##\s/.test(line)) {
-      dropping = /反和解|AI\s*味替换/.test(line)
+      dropping = LEGACY_RULES_HEADING_RE.test(line)
     }
     if (!dropping) out.push(line)
   }

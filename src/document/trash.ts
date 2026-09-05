@@ -389,7 +389,16 @@ async function finishRestoreBookkeeping(bookRoot: string, entry: TrashEntry): Pr
  *  R33D-21（三十三轮）：restore/purge 锁等待异步化（withManifestLockAsync，R30-3
  *  服务进程纪律）——端点本就 async，同步 Atomics.wait 最坏 2×5s 冻结事件循环。 */
 export async function purgeTrash(bookRoot: string, id: string): Promise<PurgeResult> {
-  const entries = readTrashManifest(bookRoot)
+  // R49-16（评审 R49）：条目定位读改 strict（与 restoreTrash 入口/purge RMW 段 R27-40
+  // 同口径）——容错版 readTrashManifest 读失败返 []，瞬态读失败（EBUSY/EACCES）会把
+  // 在册条目误判 NOT_FOUND（作者以为没删成、条目悬置成幽灵）。strict 读失败按
+  // WRITE_ERROR 信封如实上报（物理删除未发生，不可逆动作未成，重试即续）。
+  let entries: TrashEntry[]
+  try {
+    entries = readTrashManifestStrict(bookRoot)
+  } catch (e) {
+    return { ok: false, code: 'WRITE_ERROR', reason: `回收站清单读取失败：${errMsg(e)}` }
+  }
   const entry = entries.find((e) => e.id === id)
   if (!entry) return { ok: false, code: 'NOT_FOUND', reason: `回收站无 ${id}` }
   // Y-18：与 restoreTrash 同款 .trash 前缀校验（防篡改清单借 purge 删书内任意文件）

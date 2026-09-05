@@ -17,6 +17,7 @@ import { atomicWriteFile, atomicWriteStream, renameWithRetry } from '../fs/atomi
 import { canonicalizeText } from '../fs/text-canonical.js'
 import { readChapterDir } from '../format/chapters.js'
 import { readFile } from '../format/frontmatter.js'
+import { matchFenceLine } from '../format/fence.js'
 import { readBookConfig } from '../format/yaml.js'
 import { sanitizeFileNamePart, isMdFileName } from '../format/filename.js'
 import { finalizedPathSet } from '../document/manifest.js'
@@ -88,6 +89,9 @@ interface ExportUnit {
  *  N-6（第五十四轮）：markdown fenced 代码块（``` 围栏）内的 `#%` 是代码字面量
  *  （注释语法/字符串常量常见），围栏内整段跳过剥除——行级状态机跟踪 ``` 开闭。
  *  只处理 ``` fenced：~~~ 围栏与缩进代码块不扩大识别范围（定稿正文惯例 ```）。
+ *  R49-2：围栏行识别与机检 checkSectionCount 收编 format/fence 单源（CommonMark
+ *  0-3 空格缩进）——缩进代码块（4+ 空格）内的 ``` 行不再误当围栏开关（此前
+ *  trimStart 全缩进翻转，误开栏成对闭合时其间真实 `#%` 批注漏进导出稿）。
  *  IR-5（独立重评 2026-09-02）：围栏**未闭合**（奇数个 ``` 行/作者忘收口）时首遍
  *  状态机把其后全部行当「围栏内」整段跳过——作者批注从围栏行起成串泄漏进导出稿，
  *  「围栏内是代码字面量」的前提已不成立。两遍收口：首遍照常；末态仍在围栏内则对
@@ -112,11 +116,20 @@ function purifyBody(body: string): string {
       .split('\n')
       .map((line) => {
         // N-6：fenced 代码块围栏行翻转状态；块内行原样保留（#% 是代码字面量非批注）
-        if (respectFence && line.trimStart().startsWith('```')) {
-          inFence = !inFence
-          return { keep: true, out: line }
+        // R49-2：围栏行识别收编 format/fence 单源（CommonMark 0-3 空格缩进口径，与
+        // 机检 checkSectionCount 同源）——原 trimStart().startsWith('```') 对任意缩进
+        // 翻转，缩进代码块（4+ 空格）内的 ``` 行被误当围栏开关，误开栏成对闭合时其
+        // 间真实 `#%` 批注被当围栏内容整段保留漏进导出稿。只认反引号围栏（~~~ 不扩
+        // 大识别范围，N-6 口径不变）：单源只共享「围栏行识别」，开/闭栏语义两侧各自
+        // 保留（机检侧同类同长才闭栏，本侧简单翻转）。
+        if (respectFence) {
+          const fence = matchFenceLine(line)
+          if (fence !== null && fence.ch === '`') {
+            inFence = !inFence
+            return { keep: true, out: line }
+          }
+          if (inFence) return { keep: true, out: line }
         }
-        if (respectFence && inFence) return { keep: true, out: line }
         if (line.trim() === '') return { keep: true, out: line } // 原空行保留（分段）
         // E-9f：仅内部标记形态才作为批注起点——①`#%` 前只有空白（含行首）；
         // ②紧贴正文（前一个字符非空白，即 `正文#%批注` 贴附写法）。

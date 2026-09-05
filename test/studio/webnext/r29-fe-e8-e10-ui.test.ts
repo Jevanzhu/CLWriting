@@ -168,17 +168,17 @@ describe('E-9: textOut 清空 → draftSaved 徽标随清', () => {
 // ── E-10 ─────────────────────────────────────────────────────
 describe('E-10: 删章清理误报灰显键（只清匹配前缀）', () => {
   it('clearFalsePositiveMarksForDoc 只删该书该文档的键', () => {
-    localStorage.setItem('clw-fp:书A:d1', '["ck1"]')
-    localStorage.setItem('clw-fp:书A:d2', '["ck2"]')
-    localStorage.setItem('clw-fp:书B:d1', '["ck3"]')
+    localStorage.setItem('clw-fp:书A\u0000d1', '["ck1"]')
+    localStorage.setItem('clw-fp:书A\u0000d2', '["ck2"]')
+    localStorage.setItem('clw-fp:书B\u0000d1', '["ck3"]')
     clearFalsePositiveMarksForDoc('书A', 'd1')
-    expect(localStorage.getItem('clw-fp:书A:d1')).toBeNull()
-    expect(localStorage.getItem('clw-fp:书A:d2')).toBe('["ck2"]') // 他章不动
-    expect(localStorage.getItem('clw-fp:书B:d1')).toBe('["ck3"]') // 他书不动
+    expect(localStorage.getItem('clw-fp:书A\u0000d1')).toBeNull()
+    expect(localStorage.getItem('clw-fp:书A\u0000d2')).toBe('["ck2"]') // 他章不动
+    expect(localStorage.getItem('clw-fp:书B\u0000d1')).toBe('["ck3"]') // 他书不动
   })
 
   it('删章动作接线：doDelete 成功 → 该章灰显键被清', async () => {
-    localStorage.setItem('clw-fp:书A:d1', '["ck1"]')
+    localStorage.setItem('clw-fp:书A\u0000d1', '["ck1"]')
     const ui = useUiStore()
     vi.spyOn(ui, 'ask').mockResolvedValue(true)
     const actions = useChapterTreeActions({ bookName: () => '书A', openError: ref(null) })
@@ -193,6 +193,6 @@ describe('E-10: 删章清理误报灰显键（只清匹配前缀）', () => {
     await actions.doDelete(node)
     await flushPromises()
     expect(mocks.deleteDoc).toHaveBeenCalledWith('书A', 'd1')
-    expect(localStorage.getItem('clw-fp:书A:d1')).toBeNull() // 修复点：删章即清灰显键
+    expect(localStorage.getItem('clw-fp:书A\u0000d1')).toBeNull() // 修复点：删章即清灰显键
   })
 })

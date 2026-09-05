@@ -514,7 +514,11 @@ export function readVersionRaw(
   return { content: split.body, meta: metaFromMap(parseFlat(split.fmRaw), id) }
 }
 
-/** 列版本（对外：含时间/来源/原因/字数/永久，供 UI 展示）。 */
+/** 列版本（对外：含时间/来源/原因/字数/永久，供 UI 展示）。
+ *  R49-12（评审 R49）：展示信息此前逐版本整读 readVersion（含全文入内存），而 UI 列表
+ *  只需 meta——改走 readVersionMeta 头部 bounded read（R62-36/R66-19 同族收编）；仅
+ *  meta 头读失败（头部损坏/截断，整读兜底与原口径一致）或 meta 无「字数」字段（旧版本
+ *  未记，需 countWords 现算）时才回落整读。对外 VersionEntry 字段与取值口径不变。 */
 export function listVersionEntries(
   versionsDir: string,
   docId: string,
@@ -522,6 +526,18 @@ export function listVersionEntries(
 ): VersionEntry[] {
   const out: VersionEntry[] = []
   for (const s of listVersions(versionsDir, docId)) {
+    const meta = readVersionMeta(versionsDir, docId, s.id)
+    if (meta && meta.meta.words !== undefined) {
+      out.push({
+        id: s.id,
+        time: meta.meta.time,
+        origin: meta.meta.origin,
+        reason: meta.meta.reason ?? '',
+        words: meta.meta.words,
+        pinned: meta.meta.pinned ?? false,
+      })
+      continue
+    }
     const read = readVersion(versionsDir, docId, s.id)
     if (!read) continue
     out.push({

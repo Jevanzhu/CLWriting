@@ -8,8 +8,6 @@
  * pageerror 事件为零——升级条件成熟：
  * - pageerror → 直接 throw（Playwright 将事件监听器内异常记为用例失败）：
  *   渲染层未捕获异常从此红，不再被断言偶然通过掩盖。
- * - pageerror → 直接 throw（Playwright 将事件监听器内异常记为用例失败）：
- *   渲染层未捕获异常从此红，不再被断言偶然通过掩盖。
  * - console error → R29-14（二十九轮批 F）升红：滤除「Failed to load resource:」开头的
  *   资源加载日志（HTTP 语义已由各 spec 对状态码/响应体的显式断言覆盖，属负路径用例的
  *   预期产物，非渲染层缺陷）后，其余真实应用 console.error（Vue 报错、逻辑分支 error

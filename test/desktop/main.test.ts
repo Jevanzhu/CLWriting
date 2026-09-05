@@ -1230,6 +1230,120 @@ describe('R44-2: 关窗/退出兜底（close 拦截 + flush 钩子 + 冲突确�
   })
 })
 
+// ── R49-5（评审四十九轮）：close/quit 两 flush 链互斥——同窗不双 executeJavaScript ──
+// closeFlushInFlight（close 链）与 quitFlushInFlight（before-quit 链）原互不感知：
+// close flush 在途时 Cmd+Q 会对同窗再起一次 flush（双 executeJavaScript、极端时序
+// 双确认框）。修复后两链入口互查对方在途旗，只拦不起第二链；close 链在途时到达的
+// 退出请求由 close 链收尾统一汇入 app.quit()（destroy 后补发，不丢 flush）。
+describe('R49-5: close/quit flush 链互斥', () => {
+  async function freshModule(): Promise<(typeof M.windows)[number]> {
+    vi.resetModules()
+    await import('../../src/desktop/main.js')
+    await new Promise((r) => setImmediate(r))
+    await new Promise((r) => setImmediate(r))
+    return M.windows.at(-1)!
+  }
+
+  /** 让 flush 停在在途（两链竞争窗）：executeJavaScript 挂在手动闸上，返回放行函数 */
+  function gateFlush(win: (typeof M.windows)[number]): () => void {
+    let release!: (v: unknown) => void
+    const gate = new Promise((r) => {
+      release = r
+    })
+    win.webContents.executeJavaScript = (code: string) => {
+      win.webContents.execJs.push(code)
+      return gate
+    }
+    return () => release({ conflict: [], failed: [] })
+  }
+
+  it('close flush 在途时 before-quit → 只拦不起第二链（单次 executeJavaScript）；close 链收尾汇入 quit', async () => {
+    const quit0 = M.quitCalls
+    const win = await freshModule()
+    const child = M.forkChildren.at(-1)!
+    const releaseFlush = gateFlush(win)
+    // 1) close 链先行：拦截 + flush 挂起（在途窗口）
+    const e1 = { preventDefault: vi.fn() }
+    win.emit('close', e1)
+    expect(e1.preventDefault).toHaveBeenCalledTimes(1)
+    await new Promise((r) => setImmediate(r))
+    expect(win.webContents.execJs).toHaveLength(1)
+    // 2) close flush 在途时 Cmd+Q：只拦不第二链（修复前此处会对同窗再起一链）
+    const e2 = { preventDefault: vi.fn() }
+    M.appOn['before-quit']!.at(-1)!(e2)
+    expect(e2.preventDefault).toHaveBeenCalledTimes(1)
+    expect(win.webContents.execJs).toHaveLength(1) // 仍单次 flush
+    expect(M.quitCalls).toBe(quit0) // 不放行退出（在途 flush 未落定）
+    // 3) flush 落定 → close 链 destroy 收尾 → 待汇入退出请求补发 app.quit()
+    releaseFlush()
+    await vi.waitFor(() => expect(M.quitCalls).toBe(quit0 + 1))
+    expect(win.isDestroyed()).toBe(true)
+    // 4) 补发 quit 再进 before-quit（Electron 语义）：窗已毁不再 flush（仍单次），走
+    //    正常停机链收口（汇入路径 = 正常退出链，非第二 flush 链）
+    const e3 = { preventDefault: vi.fn() }
+    M.appOn['before-quit']!.at(-1)!(e3)
+    expect(win.webContents.execJs).toHaveLength(1) // 汇入链不重复 flush
+    await vi.waitFor(() => expect(child.posted).toContainEqual({ type: 'shutdown' }))
+    await vi.waitFor(() => expect(M.quitCalls).toBe(quit0 + 2))
+  })
+
+  it('close flush 在途时 before-quit + 冲突取消 → 待汇入退出请求一并作废（应用原样保留，旗复位可再关）', async () => {
+    const quit0 = M.quitCalls
+    const win = await freshModule()
+    let release!: (v: unknown) => void
+    const gate = new Promise((r) => {
+      release = r
+    })
+    win.webContents.executeJavaScript = (code: string) => {
+      win.webContents.execJs.push(code)
+      return gate
+    }
+    M.msgBoxSyncChoice = 1 // 作者取消
+    const box0 = M.msgBoxSync.length
+    const e1 = { preventDefault: vi.fn() }
+    win.emit('close', e1)
+    await new Promise((r) => setImmediate(r))
+    const e2 = { preventDefault: vi.fn() }
+    M.appOn['before-quit']!.at(-1)!(e2) // Cmd+Q 撞上 close flush 在途
+    release({ conflict: ['d1'], failed: [] })
+    await new Promise((r) => setImmediate(r))
+    // 原生确认弹一次（非双确认框）+ 作者取消 → 窗口保留、不退出
+    expect(M.msgBoxSync.length).toBe(box0 + 1)
+    expect(win.isDestroyed()).toBe(false)
+    expect(M.quitCalls).toBe(quit0)
+    // 旗已复位：可再正常关（重走完整链），不因在途旗卡死（劫持通道仍在——闸已决，
+    // 冲突载荷回放，确认改选「放弃修改并继续」放行 destroy）
+    M.msgBoxSyncChoice = 0
+    const e3 = { preventDefault: vi.fn() }
+    win.emit('close', e3)
+    expect(e3.preventDefault).toHaveBeenCalledTimes(1)
+    await vi.waitFor(() => expect(win.isDestroyed()).toBe(true))
+    expect(win.webContents.execJs.length).toBe(2) // 第二链正常发起（未被在途旗拦死）
+  })
+
+  it('quit flush 在途时 close → 只拦不起第二链；quit 链收口统一 destroy 全窗', async () => {
+    const quit0 = M.quitCalls
+    const win = await freshModule()
+    const child = M.forkChildren.at(-1)!
+    const releaseFlush = gateFlush(win)
+    // quit 链先行：flush 挂起（在途窗口）
+    const e1 = { preventDefault: vi.fn() }
+    M.appOn['before-quit']!.at(-1)!(e1)
+    await new Promise((r) => setImmediate(r))
+    expect(win.webContents.execJs).toHaveLength(1)
+    // close 事件撞上 quit flush 在途：只拦不第二链（修复前会再起一链双 flush）
+    const e2 = { preventDefault: vi.fn() }
+    win.emit('close', e2)
+    expect(e2.preventDefault).toHaveBeenCalledTimes(1)
+    expect(win.webContents.execJs).toHaveLength(1)
+    // flush 落定 → quit 链收口：shutdown → destroy 全窗 → quit（close 拦下不丢链）
+    releaseFlush()
+    await vi.waitFor(() => expect(child.posted).toContainEqual({ type: 'shutdown' }))
+    await vi.waitFor(() => expect(M.quitCalls).toBe(quit0 + 1))
+    expect(win.isDestroyed()).toBe(true)
+  })
+})
+
 // ── R44-15/R44-17（四十四轮）：子窗尺寸钳制 + 崩溃期 child best-effort kill ──────
 describe('R44-15/R44-17: 子窗工作区钳制 + uncaughtException 停机兜底', () => {
   async function freshModule(): Promise<(typeof M.windows)[number]> {

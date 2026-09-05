@@ -45,6 +45,7 @@ export default [
       'src/studio/web-next/node_modules/**',
       'src/studio/web-next/test-results/**',
       'src/studio/web-next/dist/**',
+      'dist-electron/**', // R49-35：本地 build:desktop:dir 出包的解包产物（lint 不扫假红；CI 不受影响）
     ],
   },
   {

@@ -196,6 +196,17 @@ let appUrl = '' // 主窗口加载的 url（dev:5173 / packaged server）；书�
  *  两旗分别由 session-end / before-quit 链路置位，bootstrap() 内的 close 拦截读它们。 */
 let sessionEnding = false
 let appTearingDown = false
+/** R49-5（评审四十九轮）：close/quit 两 flush 链的在途旗——原 closeFlushInFlight 居
+ *  bootstrap() 闭包、quitFlushInFlight 居生命周期 if 块，两链互不可见：close flush 在途
+ *  时 Cmd+Q 会对同窗再起一次 flush（双 executeJavaScript、极端时序双确认框），反向
+ *  同理。提为模块级互查互斥（两链入口均拦下对方在途窗，不起第二链）；
+ *  quitDuringCloseFlush 记「close flush 在途时到达的退出请求」，由 close 链收尾统一
+ *  汇入 app.quit()（不直接放行 quit——在途 flush 会被退出连带打断丢保存）。
+ *  复位纪律：随各自链路收尾复位（close 链 destroy/cancel、quit 链 destroy/cancel），
+ *  跨 re-bootstrap 不残留。 */
+let closeFlushInFlight = false
+let quitFlushInFlight = false
+let quitDuringCloseFlush = false
 /** 阶段 22 批 U1-U3：studio server 已拆至 utilityProcess 子进程（dev HMR 态不起）；
  *  批 U3 起崩溃退避自动重启，3 次自动重启耗尽转原生对话框（U-2：重启服务/退出） */
 const serverManager = createStudioServerManager({
@@ -722,17 +733,33 @@ async function bootstrap(): Promise<void> {
   // R44-2（四十四轮）：关窗兜底——首轮 close 先 preventDefault，经渲染层钩子异步
   // flush（页面未死，异步保存链全通）落定/短超时后 destroy() 真正关窗（destroy 不再
   // 触发 beforeunload，链路单次不循环）。退出链（before-quit）已先行 flush 并在收口
-  // destroy 全窗，session-end 时间窗有限，两者都直接放行。destroy 后 'close' 不再
-  // 触发，closeFlushInFlight 兼作「cancel 决断后允许下次正常关窗」的复位闸。
-  let closeFlushInFlight = false
+  // destroy 全窗，session-end 时间窗有限，两者都直接放行。
+  // R49-5（评审四十九轮）：在途旗（closeFlushInFlight/quitFlushInFlight）与 quit 汇入
+  // 旗（quitDuringCloseFlush）为模块级——原 closeFlushInFlight 居本闭包、quit 链旗居
+  // 生命周期 if 块，两链互不可见才撞出双 flush；复位闸从「cancel 路径手工复位」改为
+  // 链路收尾统一复位（destroy 后 close 不再触发，复位无副作用），并兼作 quit 汇入点。
   mainWindow.on('close', (e) => {
     saveWinState()
-    if (closeFlushInFlight || sessionEnding || appTearingDown) return
+    // R44-2（四十四轮）：OS 收尾（session-end）/退出收尾（appTearingDown，退出链自行
+    // flush+destroy 全窗）期直关放行——时间窗有限，不在窗口里白等渲染层 flush
+    if (sessionEnding || appTearingDown) return
+    // R49-5（评审四十九轮）：close/quit 任一 flush 链在途——只拦不再起第二链（同窗
+    // 双 executeJavaScript、极端时序双确认框），在途链自会收口（close 链 destroy 收尾
+    // / quit 链统一 destroy 全窗）；拦下而非放行，防在途 flush 写到一半窗口被原生
+    // close 走 beforeunload 关死（保存链半途丢失）。
+    if (closeFlushInFlight || quitFlushInFlight) {
+      e.preventDefault()
+      return
+    }
     e.preventDefault()
     closeFlushInFlight = true
     void (async () => {
       const win = mainWindow
-      if (!win || win.isDestroyed()) return
+      if (!win || win.isDestroyed()) {
+        // R49-5：退化形态（窗口先于本链销毁）也复位，防在途旗卡死后续 quit 汇入
+        closeFlushInFlight = false
+        return
+      }
       const res = await Promise.race([
         flushRendererBeforeClose(win),
         new Promise<null>((resolve) => setTimeout(resolve, CLOSE_FLUSH_BUDGET_MS)),
@@ -741,6 +768,9 @@ async function bootstrap(): Promise<void> {
         // R44-19（四十四轮）收口：冲突未决的本地修改无法代存，原生确认给作者最后一念
         if (!confirmDiscardConflicts(win, res.conflict.length)) {
           closeFlushInFlight = false
+          // R49-5：作者放弃关窗 → 待汇入的退出请求一并作废（与 quit 链自身 cancel
+          // 「取消即中止退出、应用原样保留」语义一致）
+          quitDuringCloseFlush = false
           return
         }
       }
@@ -750,6 +780,15 @@ async function bootstrap(): Promise<void> {
         // 收尾期 destroy 可抛（平台/生命周期边角）：吞掉防 async 链成未处理拒绝，
         // 窗口交由 Electron 退出流程兜底收口
         log.error('desktop', '关窗兜底 flush 后 destroy 异常（交退出流程兜底）', err)
+      }
+      // R49-5：复位闸移到链路收尾（destroy 后 close 不再触发，复位无副作用）；
+      // close flush 在途时到达的退出请求由此统一汇入 app.quit()——多窗态下
+      // window-all-closed 不触发，只能这里补发；单窗态与 window-all-closed 双发
+      // 在 before-quit 幂等收敛（quitFlushInFlight/quitViaShutdown 门）。
+      closeFlushInFlight = false
+      if (quitDuringCloseFlush) {
+        quitDuringCloseFlush = false
+        app.quit()
       }
     })()
   })
@@ -1297,11 +1336,20 @@ if (gotSingleInstanceLock) {
   // beginShutdown → shutdown → 收口 destroy 全窗（app.quit() 的隐式关窗会走渲染层
   // beforeunload，preventDefault 类守卫在无监听方时拦死退出链）→ quitViaShutdown
   // 放行 quit。
+  // R49-5：quitViaShutdown 是 quit 链私有收口旗（区分「finally 里我们自己发起的
+  // quit」放行直通，R65-48），不与 close 链共享；两链共享的在途旗见模块级 R49-5 声明处。
   let quitViaShutdown = false
-  let quitFlushInFlight = false
   app.on('before-quit', (e) => {
     if (quitViaShutdown) return // 收口 quit 放行直通
     e.preventDefault()
+    // R49-5（评审四十九轮）：close 链 flush 在途——只拦不另起第二链（同窗双
+    // executeJavaScript、极端时序双确认框），置位待 close 链收尾统一汇入 app.quit()
+    // （close 链 destroy 后补发；单窗态 window-all-closed 同样触发，幂等收敛）。
+    // 不直接放行 quit：在途 flush 会被退出连带打断（保存写一半），丢 flush。
+    if (closeFlushInFlight) {
+      quitDuringCloseFlush = true
+      return
+    }
     // flush 在途（本轮已拦）或停机在途（等 finally 统一收口）都只拦不动作
     if (quitFlushInFlight || bootstrapRunner.shuttingDown) return
     quitFlushInFlight = true

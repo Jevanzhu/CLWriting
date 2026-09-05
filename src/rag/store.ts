@@ -371,7 +371,10 @@ export function storeChunk(db: DatabaseSync, chunk: ChunkInput): void {
 }
 
 /**
- * 读全部块（召回用，全表线性扫描——#37 第 5 节）。
+ * 读全部块（全表线性扫描——#37 第 5 节）。
+ * R49-19（四十九轮）：头注如实化——生产召回自 R46-9 起走 streamChunkScores（流式打分，
+ * 向量 BLOB 用完即弃），本函数 src 内零生产调用方，现存消费面仅测试（断言/盘点原语，
+ * 同 unlinkWithRetry「生产消费方仅其测试面」登记先例）；勿再把它接回召回热路径。
  * R37-38（三十七轮）：可选 maxChunks 早停——产出行数达到限额即停（毒行剔除不计额），
  * 语义恒等于全量读后 slice(0, maxChunks)；缺省 undefined = 全读（既有口径不变）。
  * 规模量化（2026-08 实测，Apple Silicon，基准见 test/rag/scale.test.ts）：200 万字目标场景
@@ -460,18 +463,24 @@ export interface ChunkScoreRow {
  * - 毒行剔除不计产出额（R37-38 早停口径一致，毒行 warn 由调用方按计数留痕）；
  * - model/维度不匹配行计入 produced（totalBlocks 口径不变）但不产元组；
  * - maxRows 语义 = 产出行数上限（探针行含在产出内，截断剔除由调用方 pop）。
+ *   R49-20（评审 R49）：produced 计数先于 model/维度过滤——探针行（第 maxRows 个
+ *   产出行）可以是不匹配行而**不入 rows**，故附 `lastProducedWasMatch` 供调用方
+ *   精确剔除（仅当最后产出行确为命中才 pop，不得盲 pop）。
  */
 export function streamChunkScores(
   db: DatabaseSync,
   queryVec: Float32Array,
   model: string,
   maxRows: number,
-): { rows: ChunkScoreRow[]; produced: number; poisonRows: number } {
+): { rows: ChunkScoreRow[]; produced: number; poisonRows: number; lastProducedWasMatch: boolean } {
   const stmt = db.prepare('SELECT 章号, start_offset, end_offset, embedding, norm, model FROM chunks')
   const qNorm = l2Norm(queryVec)
   const rows: ChunkScoreRow[] = []
   let produced = 0
   let poisonRows = 0
+  // R49-20：最后一条产出行是否为 model/维度匹配行（真入 rows）——不匹配行只计数
+  // 不产元组，截断态下调用方据本标记判定探针行是否占位 rows
+  let lastProducedWasMatch = false
   for (const r of stmt.iterate() as Iterable<{
     章号: number; start_offset: number; end_offset: number
     embedding: Uint8Array; norm: number | null; model: string
@@ -487,7 +496,10 @@ export function streamChunkScores(
       continue
     }
     produced++
-    if (r.model !== model || embedding.length !== queryVec.length) continue
+    if (r.model !== model || embedding.length !== queryVec.length) {
+      lastProducedWasMatch = false
+      continue
+    }
     // R64-45 同款：预存范数复用，norm 异常缺失现算兜底
     const cNorm = r.norm !== null && r.norm > 0 ? r.norm : l2Norm(embedding)
     rows.push({
@@ -496,8 +508,9 @@ export function streamChunkScores(
       end_offset: r.end_offset,
       score: cosineSimilarity(queryVec, embedding, { normA: qNorm, normB: cNorm }),
     })
+    lastProducedWasMatch = true
   }
-  return { rows, produced, poisonRows }
+  return { rows, produced, poisonRows, lastProducedWasMatch }
 }
 
 /** A3（批 7）：全部章指纹元数据一次读进内存（章号 → indexed hash）——惰性校验的

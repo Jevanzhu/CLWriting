@@ -61,6 +61,9 @@ function onKeySave(e: KeyboardEvent): void {
   // R61-3（第六十一轮）：IME 组合期确认候选的 Enter 让渡（组合期 v-model 是旧值，
   // 放行会以缺字标题保存并触发 rename）
   if (isImeComposing(e)) return
+  // R49-29（四十九轮）：Enter 目标是按钮时让渡原生激活——容器级 @keydown.enter
+  // 此前抢在按钮 click 前保存，焦点在「取消」钮上按 Enter 变成先保存后取消
+  if ((e.target as HTMLElement | null)?.closest('button')) return
   onSave()
 }
 // R35-36：IME 组合期 Esc 让渡（B-9 同族）——组合中按 Esc 是收输入法候选框，放行会误关弹窗

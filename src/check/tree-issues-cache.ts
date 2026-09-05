@@ -208,27 +208,33 @@ export function syncTreeIssuesEpoch(db: DatabaseSync, bookRoot: string, userData
   return true
 }
 
-/** 章级缓存读：三元组 + verdict 指纹全中才命中（NULL 信封按 IS NULL 匹配）。 */
+/** 章级缓存读：三元组 + verdict 指纹全中才命中（NULL 信封按 IS NULL 匹配）。
+ *  R49-23：mtimeUs 是正文文件 mtime 的**微秒**整数（run.ts 以 mtimeNs/1000n 传入）。
+ *  SQLite 列名 `mtime_ms` 是建表初期的毫秒命名遗留，量纲以本注释为准——存量
+ *  index.db 持久于书仓 .cache/ 且 DDL 只有 CREATE TABLE IF NOT EXISTS（无迁移面），
+ *  改列名会令旧库读写静默全失败，故列名不动只正 TS 命名；旧代毫秒行与 µs 值量级
+ *  隔离必 miss（R29-B8 口径），无脏读面。 */
 export function readTreeIssuesCache(
   db: DatabaseSync,
   relPath: string,
-  mtimeMs: number,
+  mtimeUs: number,
   size: number,
   verdictFp: string | null,
 ): TreeIssueEntry | null {
   try {
+    // mtime_ms 列实存 µs（R49-23，量纲见函数注释；列名不动防存量库静默失效）
     const row = (
       verdictFp === null
         ? db
             .prepare(
               'SELECT report_json FROM tree_issues_cache WHERE rel_path = ? AND mtime_ms = ? AND size = ? AND verdict_fp IS NULL',
             )
-            .get(relPath, mtimeMs, size)
+            .get(relPath, mtimeUs, size)
         : db
             .prepare(
               'SELECT report_json FROM tree_issues_cache WHERE rel_path = ? AND mtime_ms = ? AND size = ? AND verdict_fp = ?',
             )
-            .get(relPath, mtimeMs, size, verdictFp)
+            .get(relPath, mtimeUs, size, verdictFp)
     ) as { report_json: string } | undefined
     if (!row) return null
     const parsed = JSON.parse(row.report_json) as TreeIssueEntry
@@ -238,19 +244,21 @@ export function readTreeIssuesCache(
   }
 }
 
-/** 章级缓存写（INSERT OR REPLACE：同章新指纹覆盖旧行，不留废行）。 */
+/** 章级缓存写（INSERT OR REPLACE：同章新指纹覆盖旧行，不留废行）。
+ *  R49-23：mtimeUs 量纲 µs（同 readTreeIssuesCache 注：mtime_ms 列名遗留不动）。 */
 export function writeTreeIssuesCache(
   db: DatabaseSync,
   relPath: string,
-  mtimeMs: number,
+  mtimeUs: number,
   size: number,
   verdictFp: string | null,
   entry: TreeIssueEntry,
 ): void {
   try {
+    // mtime_ms 列实存 µs（R49-23，量纲见函数注释；列名不动防存量库静默失效）
     db.prepare(
       'INSERT OR REPLACE INTO tree_issues_cache (rel_path, mtime_ms, size, verdict_fp, report_json) VALUES (?, ?, ?, ?, ?)',
-    ).run(relPath, mtimeMs, size, verdictFp, JSON.stringify(entry))
+    ).run(relPath, mtimeUs, size, verdictFp, JSON.stringify(entry))
   } catch {
     /* 写失败（锁/磁盘）：缓存只是加速，静默放弃本行（下次 miss 重算） */
   }

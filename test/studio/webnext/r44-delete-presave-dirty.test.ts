@@ -119,6 +119,19 @@ describe('R44-3: doDelete 确认前先落盘脏内容', () => {
     expect(deleteMock).toHaveBeenCalledWith('书A', 'd1')
   })
 
+  it('R49-25：save 返 false 但 dirty 已清（F8 排队落盘，内容已在磁盘）→ 不误报「未保存」', async () => {
+    await openDirtyDoc('d5')
+    // F8 排队时序：在途保存已把全部内容落盘、dirty 已清——此后 manual save 按
+    // 「无需重存」返 false（doc.save 对非 dirty 直接短路，不触 saveContent）
+    useDocStore().get('d5')!.dirty = false
+    const actions = useChapterTreeActions({ bookName: () => currentBook, openError })
+    await actions.doDelete(node('写作/正文/d5.md', 'd5'))
+    // 修复前：save 返 false 无差别判 unsaved → 误报「未保存的修改将一并丢失」；
+    // 修复后（对齐 rewrite R34D-22 口径）：dirty 已清 → 文案保持「可从回收站恢复」
+    expect(askMessage()).toContain('可从回收站恢复')
+    expect(deleteMock).toHaveBeenCalledWith('书A', 'd5')
+  })
+
   it('dirty 章保存失败 → 换如实文案「未保存的修改将一并丢失」再进删除链', async () => {
     await openDirtyDoc('d2')
     saveMock.mockRejectedValueOnce(new Error('服务开小差'))

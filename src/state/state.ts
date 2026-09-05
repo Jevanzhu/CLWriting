@@ -24,7 +24,7 @@ import { existsSync, readFileSync, readdirSync, renameSync, statSync, rmSync } f
 import { join, relative } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { scanCloudCopies } from '../git/exec.js'
-import { sweepAbandonedTmpFiles } from '../fs/atomic.js'
+import { sweepAbandonedTmpFiles, rmWithRetry } from '../fs/atomic.js'
 
 // R43-2（四十三轮）：sweep 每书 TTL 节流表（内存态，key = bookRoot；书数量级小无上限
 // 忧虑）。导出 reset 钩子供测试复位节流窗。
@@ -452,7 +452,11 @@ async function healMovePending(
       const so = statSync(oldAbs)
       const sn = statSync(newAbs)
       if (so.ino !== sn.ino || so.dev !== sn.dev) return false
-      rmSync(oldAbs, { force: true })
+      // R49-15（评审 R49）：删旧硬链收编 rmWithRetry（R40-18「确实要删」原语）——
+      // 同 inode 中间态的删旧恰是 win 杀软/索引器瞬时锁高发点（文件刚被落位），裸
+      // rmSync 直败走下方 catch 报 crashedWrite 误报；退避后仍失败仍上抛走同一 catch
+      //（自愈失败语义不变，仅消瞬时锁误报）。
+      rmWithRetry(oldAbs)
       oldLive = false
     }
     if (newExists && !oldLive) {

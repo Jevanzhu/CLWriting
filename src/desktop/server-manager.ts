@@ -470,9 +470,35 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
       }
     },
     async stopChild(): Promise<void> {
+      // R49-4（评审四十九轮）：主动停机门先置位（同 shutdown 入口形态）——在途 fork
+      // 若恰在预算窗内完成握手后被就地 kill，其 exit 不会误触自动重启（doRestart
+      // catch 的 scheduleRestart 与 launch 的 exit 监听都消费此门）。幂等：stopActiveChild
+      // 的置位与 start IIFE 首行的复位语义不受影响（stopChild 后的 start 换轮照常放行）。
+      shutdownStarted = true
       // S1（五十九轮）：在途 start/自动重启先落定（catch 握手失败）再判 active——
-      // 握手窗口内 active===null，只看 active 会让刚 fork 的 child 漏杀成孤儿
-      await settleStarting('stopChild')
+      // 握手窗口内 active===null，只看 active 会让刚 fork 的 child 漏杀成孤儿。
+      // R49-4（评审四十九轮）：settleStarting 纳入短预算 race，与 shutdown 的 R44-12
+      // 形态对齐——此前裸 await 在握手挂起时最坏 HANDSHAKE_TIMEOUT_MS(30s) + kill
+      // 升级 2s×2 才落定（崩溃重启链上的 bootstrap 重试最坏阻塞用户 ~34s 无响应）。
+      // 预算内收口（正常握手毫秒级）语义不变；超时即放弃等握手，下方对在途 fork
+      // 直接 kill 收口。settleStarting 内部 catch 握手失败永不 reject，输掉的分支在
+      // 后台自行落定、无未处理拒绝面。
+      const settled = await Promise.race([
+        settleStarting('stopChild').then(() => true),
+        delay(shutdownSettleBudgetMs).then(() => false),
+      ])
+      // R49-4（评审四十九轮）：预算耗尽且握手未收口——在途 fork 不再等 30s 握手超时，
+      // 就地 kill + 等退出收口（killProcAwaitEscalating 纪律原样复用：killWaitMs 等待
+      // + SIGKILL 升级，本段不新增等待语义）。settled=true 的空 active 属握手已失败/
+      // child 已退形态，其自身路径已收口，此处无需动作。
+      if (!settled && startingProc) {
+        const proc = startingProc
+        const exited = new Promise<void>((resolveExit) => {
+          proc.once('exit', () => resolveExit())
+        })
+        proc.kill()
+        await killProcAwaitEscalating(proc, exited, 'stopChild 在途 fork 收口', killWaitMs, logger)
+      }
       await stopActiveChild()
     },
     async shutdown(): Promise<void> {

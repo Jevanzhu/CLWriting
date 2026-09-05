@@ -126,12 +126,13 @@ describe('check: 误报标记（M-1 持久化 + 跨文档隔离）', () => {
     await s.flagFalsePositive('book1', 'doc_1', 'r1')
     expect(s.flagged.has('r1')).toBe(true)
     expect(s.flagging).toBeNull()
-    expect(JSON.parse(store.get('clw-fp:book1:doc_1')!)).toEqual(['r1'])
+    // R49-27：键拼法改 \u0000 分隔（书名含冒号防前缀歧义）
+    expect(JSON.parse(store.get('clw-fp:book1\u0000doc_1')!)).toEqual(['r1'])
   })
 
   it('run 时 localStorage 已有标记 → 灰显态回填', async () => {
     const store = stubLocalStorage()
-    store.set('clw-fp:book1:doc_1', JSON.stringify(['r1', 'w2']))
+    store.set('clw-fp:book1\u0000doc_1', JSON.stringify(['r1', 'w2']))
     checkMock.mockResolvedValue({ ok: true, hasRed: false, report: { sections: [] } })
     const s = useCheckStore()
 
@@ -189,7 +190,7 @@ describe('check: 误报标记（M-1 持久化 + 跨文档隔离）', () => {
     // 修复前：checkId 'r1' 被追加进 B 的灰显集，且 B 场景下把污染集写进 A 的 localStorage 键
     expect(s.flagged.size).toBe(0)
     expect(s.flagged.has('r1')).toBe(false)
-    expect(store.get('clw-fp:book1:doc_1')).toBeUndefined()
+    expect(store.get('clw-fp:book1\u0000doc_1')).toBeUndefined()
     expect(s.flagging).toBeNull()
     expect(s.flagError).toBeNull()
   })
@@ -202,7 +203,7 @@ describe('check: 误报标记（M-1 持久化 + 跨文档隔离）', () => {
     await s.run('book1', 'doc_1')
     await s.flagFalsePositive('book1', 'doc_1', 'r1')
     expect(s.flagged.has('r1')).toBe(true)
-    expect(JSON.parse(store.get('clw-fp:book1:doc_1')!)).toEqual(['r1'])
+    expect(JSON.parse(store.get('clw-fp:book1\u0000doc_1')!)).toEqual(['r1'])
   })
 })
 
@@ -231,18 +232,30 @@ describe('check: R-1 clear 在途 run 不卡 loading', () => {
 describe('check: R-5 删书清误报灰显键', () => {
   it('clearFalsePositiveMarks 只清该书前缀键，他书与无关键不受影响', () => {
     const store = stubLocalStorage()
-    store.set('clw-fp:书甲:doc_1', '["r1"]')
-    store.set('clw-fp:书甲:doc_2', '["w1","r2"]')
-    store.set('clw-fp:书乙:doc_1', '["r1"]') // checkId 跨书同名——必须不动
-    store.set('clw-fp:书甲子:doc_1', '["x"]') // 前缀陷阱：书甲的键不该匹配到书甲子
+    store.set('clw-fp:书甲\u0000doc_1', '["r1"]')
+    store.set('clw-fp:书甲\u0000doc_2', '["w1","r2"]')
+    store.set('clw-fp:书乙\u0000doc_1', '["r1"]') // checkId 跨书同名——必须不动
+    store.set('clw-fp:书甲子\u0000doc_1', '["x"]') // 前缀陷阱：书甲的键不该匹配到书甲子
     store.set('clw-other:key', '1')
 
     clearFalsePositiveMarks('书甲')
 
-    expect(store.has('clw-fp:书甲:doc_1')).toBe(false)
-    expect(store.has('clw-fp:书甲:doc_2')).toBe(false)
-    expect(store.has('clw-fp:书乙:doc_1')).toBe(true)
-    expect(store.has('clw-fp:书甲子:doc_1')).toBe(true)
+    expect(store.has('clw-fp:书甲\u0000doc_1')).toBe(false)
+    expect(store.has('clw-fp:书甲\u0000doc_2')).toBe(false)
+    expect(store.has('clw-fp:书乙\u0000doc_1')).toBe(true)
+    expect(store.has('clw-fp:书甲子\u0000doc_1')).toBe(true)
     expect(store.has('clw-other:key')).toBe(true)
+  })
+
+  it('R49-27：书名含冒号——清书 A 不连带清书 A:B 的键（\\u0000 分隔防前缀歧义）', () => {
+    const store = stubLocalStorage()
+    store.set('clw-fp:A\u0000d1', '["r1"]')
+    store.set('clw-fp:A:B\u0000d1', '["r2"]')
+    clearFalsePositiveMarks('A')
+    expect(store.has('clw-fp:A\u0000d1')).toBe(false)
+    // 修复前冒号拼法 `clw-fp:A:` 前缀连带命中书 'A:B' 的键；\u0000 分隔后不再歧义
+    expect(store.has('clw-fp:A:B\u0000d1')).toBe(true)
+    clearFalsePositiveMarks('A:B')
+    expect(store.has('clw-fp:A:B\u0000d1')).toBe(false) // 各书各清，互不越界
   })
 })

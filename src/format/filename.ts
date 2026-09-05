@@ -96,8 +96,17 @@ export function sanitizeFullFileName(name: string): string {
   // 目标名专用，NFC 收敛与标题段单源同口径）
   const pre = name.normalize('NFC').replace(/[. ]+$/, '')
   const m = /^([\s\S]*?)(\.[^./\\]*)?$/.exec(pre)
-  const rawStem = m?.[1] ?? pre
-  const ext = (m?.[2] ?? '').replace(/[\\/]/g, '_')
+  let rawStem = m?.[1] ?? pre
+  let ext = (m?.[2] ?? '').replace(/[\\/]/g, '_')
+  // R49-14（评审 R49）：纯点文件（.gitignore 类）——惰性 stem 匹配空串、ext 捕获整名，
+  // stem 净化后为空 → 落「未命名」兜底，产出「未命名.gitignore」。stem 为空 = 整名无
+  // 词干，按「无扩展名的完整名」处理（stem=pre、ext=''），后续净化/保留名检查/兜底
+  // 管线照走（.gitignore 非保留名 → 原样通过）；pre 已剥成空串（''/'...'）不在此列，
+  // 仍走「未命名」兜底。常规多点文件（.foo.bar）stem 非空，不受影响。
+  if (rawStem === '' && pre !== '') {
+    rawStem = pre
+    ext = ''
+  }
   const stem = (rawStem
     .replace(/[\u0000-\u001f\u007f]/g, '')
     .replace(/[\\/:*?"<>|]/g, '_')

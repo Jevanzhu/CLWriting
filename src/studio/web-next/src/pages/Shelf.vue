@@ -235,13 +235,16 @@ function openBook(name: string): void {
       color-mix(in srgb, var(--interactive-accent) 4%, var(--background-primary)),
       var(--background-primary));
   /* 紧凑模式：独立书架窗口缩小后，字号/间距 token 同比例缩 ~0.85，
-     子元素 var() 自动继承；硬编码 px（卡片 min-height / grid minmax）单独改 */
-  --font-size-2xl: 20px;
-  --font-size-xl: 15px;
-  --font-size-l: 13px;
-  --font-size-m: 12px;
-  --font-size-s: 11px;
-  --font-size-xs: 10px;
+     子元素 var() 自动继承；硬编码 px（卡片 min-height / grid minmax）单独改。
+     R49-31（四十九轮）：字号覆盖改 calc(NNpx + step) 形态（对齐 tokens.css 字号档）——
+     固定 px 会整段切断「界面字号档」与 win +1px 基准；各值 = 原固定 px + step，
+     保持本页相对他页的缩小档差不变。未覆盖的 xxs/root-size 沿用全局（本页未用）。 */
+  --font-size-2xl: calc(20px + var(--font-size-step));
+  --font-size-xl: calc(15px + var(--font-size-step));
+  --font-size-l: calc(13px + var(--font-size-step));
+  --font-size-m: calc(12px + var(--font-size-step));
+  --font-size-s: calc(11px + var(--font-size-step));
+  --font-size-xs: calc(10px + var(--font-size-step));
   --size-4-1: 3px;
   --size-4-2: 7px;
   --size-4-3: 10px;

@@ -425,7 +425,14 @@ export function useChapterTreeActions(deps: {
     const entry = doc.get(node.docId)
     let unsaved = false
     if (entry && entry.dirty) {
-      unsaved = entry.conflict ? true : !(await doc.save(node.docId, 'manual'))
+      // R49-25（四十九轮）：对齐 rewrite R34D-22 口径——F8 排队落盘时序下 manual save
+      // 返 false ≠ 保存失败（在途保存已把全部内容落盘、dirty 已清，内容实已在磁盘，
+      // 「回收站只保留最后已保存的版本」承诺仍成立）；仅 save 返 false 且 dirty 仍在
+      // （真保存失败）才换如实文案。此前无差别按失败处理，排队窗口内的删除确认误报
+      // 「未保存的修改将一并丢失」。
+      unsaved = entry.conflict
+        ? true
+        : !(await doc.save(node.docId, 'manual')) && (doc.get(node.docId)?.dirty ?? false)
     }
     const ok = await ui.ask({
       title: '删除章节',

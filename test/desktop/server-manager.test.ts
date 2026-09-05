@@ -1042,6 +1042,58 @@ describe('R44-12: shutdown 短预算放弃挂起握手', () => {
   })
 })
 
+// R49-4（评审四十九轮）：stopChild 等 settleStarting 的短预算——与 shutdown 的 R44-12
+// 形态对齐。病理链：崩溃自动重启（doRestart）的握手挂起时 bootstrap 重试触发
+// stopChild，原裸 await 最坏 HANDSHAKE_TIMEOUT_MS(30s) + kill 升级 2s×2 ≈ 34s 无响应。
+// 修复后预算内未收口即放弃等握手、对在途 fork 就地 kill（同 shutdown 收口原语）；
+// 正常路径（握手毫秒级）语义不变（S1 既有用例覆盖）。
+describe('R49-4: stopChild 短预算放弃挂起握手', () => {
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+  it('崩溃重启链：重启握手挂起时 stopChild 在预算内收口（kill 在途 fork，不排程新重启）', async () => {
+    const { forkRecords, manager } = mkHarness({
+      shutdownSettleBudgetMs: 50,
+      killWaitMs: 50,
+      backoffMs: [0, 5000, 15000],
+    })
+    const ud = mkUserData()
+    // 第一轮正常起来（后续崩溃走自动重启链）
+    const first = manager.start({ workDir: '/w', userDataPath: ud })
+    const c1 = forkRecords[0]!.child
+    c1.emit('message', { type: 'ready', port: 46100 })
+    await first
+    // 崩溃 → backoff[0]=0 立即 doRestart：第二轮 fork 握手挂起（ready 永不到达）
+    c1.emit('exit', 1)
+    await vi.waitFor(() => expect(forkRecords.length).toBe(2), { timeout: 300 })
+    const c2 = forkRecords[1]!.child
+    // 修复前：此处裸 await settleStarting 卡满 30s 握手超时 + kill 升级 ≈ 34s
+    const t0 = Date.now()
+    await manager.stopChild()
+    const elapsed = Date.now() - t0
+    expect(elapsed).toBeLessThan(5_000) // 预算(50ms) + kill 收口窗内返回
+    expect(c2.killed).toBeGreaterThanOrEqual(1) // 在途重启 fork 被 kill 收口（不成孤儿）
+    expect(c2.posted).not.toContainEqual({ type: 'shutdown' }) // 握手未完成，无优雅指令面
+    // 主动停机门（同 shutdown 先置位）：kill 的 exit 不误触新重启（封 fork 数锚定）
+    await sleep(40)
+    expect(forkRecords.length).toBe(2)
+    expect(manager.isRunning()).toBe(false)
+    expect(manager.hasPendingRestart()).toBe(false) // 挂起重启不作废外溢
+  })
+
+  it('预算耗尽 kill 在途 fork → start 链按「启动途中退出」落定（reject 可接住，无未处理拒绝面）', async () => {
+    const { forkRecords, manager } = mkHarness({ shutdownSettleBudgetMs: 50, killWaitMs: 50 })
+    const ud = mkUserData()
+    const starting = manager.start({ workDir: '/w', userDataPath: ud })
+    const child = forkRecords[0]!.child
+    // 握手挂起（ready 未发）时 stopChild：预算耗尽就地 kill
+    await manager.stopChild()
+    expect(child.killed).toBeGreaterThanOrEqual(1)
+    // kill → exit → 启动途中退出 reject 形态（settleStarting 输掉分支后台 catch，双收口）
+    await expect(starting).rejects.toThrow(ServerBootError)
+    expect(forkRecords.length).toBe(1) // 停机门置位，无重启 fork
+  })
+})
+
 afterAll(() => {
   for (const d of tmpDirs) rmSync(d, { recursive: true, force: true })
 })

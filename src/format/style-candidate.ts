@@ -11,10 +11,11 @@
  * 过期：待确认满 30 天 → 呈现为已忽略（effectiveStatus 读时判定，文件不动，可翻出）
  */
 
-import { readdirSync, statSync, mkdirSync, rmSync, existsSync } from 'node:fs'
+import { readdirSync, statSync, mkdirSync, existsSync } from 'node:fs'
 import { join, basename } from 'node:path'
 import { readFile, writeFile, parseFlat, stringifyFlat } from './frontmatter.js'
 import { addEntry, readEntries, ENTRIES_DIR } from './style-entry.js'
+import { rmWithRetry } from '../fs/atomic.js'
 import { ulid } from '../fs/id.js'
 import { resolveWithinRoot } from '../fs/safe-path.js'
 import { isMdFileName } from './filename.js'
@@ -200,7 +201,10 @@ export function confirmCandidate(bookRoot: string, candidateRelPath: string): st
     dup?._path !== undefined
       ? `${ENTRIES_DIR}/${c.类型}/${basename(dup._path)}`
       : addEntry(bookRoot, entry)
-  rmSync(fp, { force: true })
+  // R49-15（评审 R49）：删候选收编 rmWithRetry（R40-18「确实要删」原语）——win 杀软/
+  // 索引器对刚落盘条目旁的候选文件瞬时锁（EPERM/EBUSY）下裸 rmSync 直败，会把已入库
+  // 的确认反转为调用方失败；退避后仍失败仍上抛（错误路径语义不变，仅消瞬时锁误报）。
+  rmWithRetry(fp)
   return entryPath
 }
 

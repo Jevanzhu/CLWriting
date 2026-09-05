@@ -102,13 +102,15 @@ export function registerForeshadowRoutes(ctx: ForeshadowCtx): void {
   defineRoute('books.foreshadows', {
     method: 'GET',
     path: '/api/books/:name/foreshadows',
-    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
+    // R49-8（评审 R49）：本 handler 实际消费请求 URL（parseRequestUrl）——参数名去
+    // `_` 前缀（本仓约定 `_` 前缀 = 未使用参数）；按位置传参，注册点无关，纯改名零行为。
+    handler: ({ params }, req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     const bookRoot = r.bookRoot
     // F1-P3：?q= 走伏笔足迹 FTS 检索（标题/关联词/命中片段）；缺省全量 + 足迹
     // R-19（第十六轮）：parseRequestUrl 统一解析（Q-1/N-3 口径）——畸形 URL → 400 BAD_INPUT
-    const url = parseRequestUrl(_req)
+    const url = parseRequestUrl(req)
     if (!url) return replyError(res, 400, 'BAD_INPUT', 'bad request')
     const q = url.searchParams.get('q') ?? undefined
     // R44-8：全量扫描走缓存壳；?q= 在快照上过滤（缓存命中不重扫）

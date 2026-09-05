@@ -61,3 +61,47 @@ describe('低-3（第十轮）：章号必须为正整数', () => {
     expect(wrapper!.emitted('update:modelValue')).toEqual([[false]])
   })
 })
+
+// R49-29（四十九轮）：容器级 @keydown.enter 吞掉按钮上的 Enter——焦点在「取消」钮
+// 上按 Enter 会先触发容器保存再触发按钮 click（先保存后取消）。修复：onKeySave 对
+// target 命中 button 的让渡（按钮走原生 click 激活）。
+describe('R49-29：Enter 落点在按钮上让渡，不在输入框上照常保存', () => {
+  it('keydown 目标是「取消」按钮 → 不触发 save（按钮语义归原生 click）', async () => {
+    const cancelBtn = dialog().findAll('button').find((b) => b.text() === '取消')!
+    cancelBtn.element.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+    )
+    await flushPromises()
+
+    expect(wrapper!.emitted('save')).toBeUndefined()
+    expect(wrapper!.emitted('update:modelValue')).toBeUndefined()
+  })
+
+  it('keydown 目标是「保存」按钮 → 同样不重复触发 save（原生 click 才是唯一入口）', async () => {
+    await dialog().find('input[type="number"]').setValue('4')
+    const saveBtn = dialog().findAll('button').find((b) => b.text() === '保存')!
+    saveBtn.element.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+    )
+    await flushPromises()
+
+    // 容器守卫让渡后，此 keydown 本身不产生 save（无原生激活的测试环境下零 emit）
+    expect(wrapper!.emitted('save')).toBeUndefined()
+    // 对照：同一状态下按钮原生 click 仍正常保存（守卫不误伤按钮点击链）
+    await saveBtn.trigger('click')
+    await flushPromises()
+    expect(wrapper!.emitted('save')).toEqual([[{ 标题: '开篇', num: 4 }]])
+  })
+
+  it('对照：Enter 在输入框上（target 非 button）→ 照常保存', async () => {
+    const num = dialog().find('input[type="number"]')
+    await num.setValue('4')
+    num.element.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+    )
+    await flushPromises()
+
+    expect(wrapper!.emitted('save')).toEqual([[{ 标题: '开篇', num: 4 }]])
+    expect(wrapper!.emitted('update:modelValue')).toEqual([[false]])
+  })
+})

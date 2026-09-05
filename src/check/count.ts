@@ -12,6 +12,8 @@ import type { CheckSectionResult, CheckItem } from './types.js'
 import type { ChapterMeta } from '../format/types.js'
 import { validateEnums } from '../format/chapters.js'
 import { splitSentences, ngramRepeatRate } from '../format/sentences.js'
+// R49-2：围栏行识别单源（与导出 purifyBody 共享「识别」一步，开/闭栏语义各自保留）
+import { matchFenceLine, type FenceLineMatch } from '../format/fence.js'
 import { QUOTED_SPAN_RE, stripQuotedSpans, QUOTE_OPEN, QUOTE_CLOSE, SPAN_PUNCT } from './quotes.js'
 // P2-A1：IronRules 类型下沉到 format 层（format/iron-rules.ts），消除 format→check 循环依赖
 import type { IronRules } from '../format/iron-rules.js'
@@ -942,24 +944,23 @@ export function checkSectionCount(
   // 提前闭合（反之亦然）；② 围栏内的 ~~~/``` 内容行被误当闭栏；③ 带信息串的闭栏行
   // （如 ```js）在围栏内应属内容却被当闭栏。改记开栏字符+长度，闭栏行须三者皆符；
   // 开栏语义不变（非围栏态 ``` / ~~~ 行照旧开栏，信息串允许）。
-  let fence: { ch: string; len: number } | null = null
+  let fence: { ch: FenceLineMatch['ch']; len: number } | null = null
   const stripped = body
     .split('\n')
     .filter((ln) => {
-      // R33-1（三十三轮）：尾部 `\r?` 容忍——CRLF 文件按 \n 切行后行尾残留 \r，而
-      // `.` 不匹配 \r 且本正则无 m 标志（$ 只认串尾），原样下 "```\r"/"```js\r" 匹配
-      // 恒失败 → fence 恒 null → 围栏内 ## 全部计入节数，R27-25 语义在 win 主平台
-      // 整体反转（短篇 strict 假红硬拦定稿）。标题行正则带 m 标志（JS 多行模式视 \r
-      // 为行终止符）不受影响，只修本处。
-      const m = ln.match(/^\s{0,3}(`{3,}|~{3,})(.*)\r?$/)
+      // R33-1（三十三轮）：尾部 `\r?` 容忍（CRLF 文件按 \n 切行后行尾残留 \r 不破
+      // 匹配，围栏内 ## 才不整体反转计入节数）——该容忍随围栏正则 R49-2 收编
+      // format/fence 单源（此前本处手写正则与导出 purifyBody 各自为政、口径漂移）；
+      // ch/len/info 即原 m[1][0]/m[1].length/m[2]，本函数开/闭栏语义不变。
+      const m = matchFenceLine(ln)
       if (fence === null) {
         // 非围栏态：```/~~~ 行（信息串可选）= 开栏（R27-25 语义不变），开栏行剥除
-        if (m) fence = { ch: m[1]![0]!, len: m[1]!.length }
+        if (m) fence = { ch: m.ch, len: m.len }
         return !m
       }
       // 围栏态：仅同类同长且其后只有空白的行 = 闭栏；其余（异类/更短/带信息串）
       // 是围栏内容，照旧剥除不计
-      if (m && m[1]![0]! === fence.ch && m[1]!.length >= fence.len && m[2]!.trim() === '') {
+      if (m && m.ch === fence.ch && m.len >= fence.len && m.info.trim() === '') {
         fence = null
       }
       return false
