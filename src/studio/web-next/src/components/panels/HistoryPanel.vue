@@ -8,6 +8,7 @@ import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
 import { listSnapshots, restoreSnapshot, type SnapshotEntry } from '../../api/snapshots'
 import { countWords, stripFrontmatter } from '../../shared/words'
+import { useDebouncedSource } from '../../composables/useDebouncedSource'
 import { friendlyError } from '../../shared/error'
 
 const props = defineProps<{ bookName: string }>()
@@ -21,8 +22,11 @@ const err = ref<string | null>(null)
 const restoring = ref<string | null>(null)
 
 const current = computed(() => (ws.activeDocId ? doc.get(ws.activeDocId) : undefined))
+// R47-1（四十七轮）：全文计数防抖（WritingInfoPanel 同链）——currentWords 的
+// countWords+stripFrontmatter 每击键两次全文物化；对照快照字数无击键级精度需求。
+const debContent = useDebouncedSource(() => current.value?.content ?? '', { key: () => ws.activeDocId })
 const currentWords = computed(() =>
-  current.value ? countWords(stripFrontmatter(current.value.content)) : 0,
+  current.value ? countWords(stripFrontmatter(debContent.value)) : 0,
 )
 
 /** 来源人话（origin 是机器值，界面不露）。 */

@@ -16,7 +16,7 @@
 import type { ParseError } from './types.js'
 import { log } from '../log/index.js'
 import { canonicalizeText } from '../fs/text-canonical.js'
-import { splitFrontMatter, bodyOf, stripInlineComment, firstKeyColon } from './frontmatter-core.js'
+import { splitFrontMatter, bodyOf, stripInlineComment, firstKeyColon, hasOpenFrontMatterFence } from './frontmatter-core.js'
 // splitFrontMatter 已拆到 frontmatter-core.ts（零 Node 依赖，浏览器共用）；此处 re-export 保持兼容
 export { splitFrontMatter, bodyOf }
 
@@ -191,7 +191,10 @@ export function parseFlat(
       while (i < lines.length) {
         const bl = lines[i]!
         if (bl.trim() === '') {
-          block.push('')
+          // R48-54（四十八轮）：纯空白行不再一律归一真空行——literal 保留原貌
+          //（去缩进按 minIndent 截断，行内缩进空白不丢）；folded 的空白行按 YAML
+          // 语义仍是段落边界（foldSegs 以真空行分段），维持 ''。
+          block.push(folded ? '' : (bl.endsWith('\r') ? bl.slice(0, -1) : bl))
           i++
           continue
         }
@@ -397,7 +400,9 @@ export function readFile(
     // 「缺少 front matter」豁免（无 fm 旧稿/迁移存量合法）regex 恰好把未闭合 fm 也一并
     // 豁免（坏 fm 静默过闸）。区分文案：未闭合改「front matter 未闭合（缺少结尾 ---）」
     // （不再命中豁免，须修复）；无起始的旧文案逐字不变（豁免语义不回归）。
-    const hasOpenFence = /^---\r?(?:\n|$)/.test(text.replace(/^﻿/, ''))
+    // R48-52（四十八轮）：未闭合判定收口 frontmatter-core.hasOpenFrontMatterFence
+    // 单源（原手写同款正则双源，core 判定漂移时坏 fm 重新混过豁免闸）
+    const hasOpenFence = hasOpenFrontMatterFence(text)
     return {
       ok: false,
       error: {

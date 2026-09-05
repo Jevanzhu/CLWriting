@@ -7,6 +7,7 @@
 
 import type { DatabaseSync } from 'node:sqlite'
 import type { Lead, LeadEntry, ChapterMeta } from '../format/types.js'
+import { log } from '../log/index.js'
 
 // ── 账本入库（#4 第 6 节映射表）──────────────────
 
@@ -111,13 +112,14 @@ export function loadLeadFromCache(
 export function syncChapter(db: DatabaseSync, ch: ChapterMeta): void {
   // R26-54（二十六轮）：重复章号入库留痕——chapters.number 是 PRIMARY KEY，INSERT OR
   // REPLACE 静默后者胜（legacy 双目录/复制章场景），章节索引与文档树从此漂移且零可见
-  // 性。console.warn 而非 log 模块：本文件保持模块头注「运行时零依赖」约束（与
-  // format 零依赖件对 log 的取舍一致）。
+  // 性。R48-64（四十八轮）：console.warn 改 log.warn——Electron 生产 console 不被采集
+  //（R66-10 已认定），关键告警回到静默状态（rebuild.ts 同域先例）；头注「运行时零依赖」
+  // 指中英映射不引数据/域依赖，log 观测面不在此列。
   const prev = db.prepare('SELECT path FROM chapters WHERE number = ?').get(ch.章号) as
     | { path: string }
     | undefined
   if (prev && prev.path !== (ch._path ?? '')) {
-    console.warn(`[cache] 章号 ${ch.章号} 重复入库：${prev.path} 将被 ${ch._path ?? ''} 覆盖（后者胜）——请核对章节目录是否含重复章号`)
+    log.warn('cache', `章号 ${ch.章号} 重复入库：${prev.path} 将被 ${ch._path ?? ''} 覆盖（后者胜）——请核对章节目录是否含重复章号`)
   }
   db.prepare(
     `INSERT OR REPLACE INTO chapters

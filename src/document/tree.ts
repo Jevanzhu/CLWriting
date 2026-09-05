@@ -128,9 +128,10 @@ function compareNode(a: TreeNode, b: TreeNode): number {
   return a.path.localeCompare(b.path, 'zh-Hans-CN')
 }
 
-/** basename 去 .md 后缀（文件展示名）。 */
+/** basename 去 .md 后缀（文件展示名）。R48-45（四十八轮）：判定单源 isMdFileName
+ *  （大小写不敏感）——.MD 文件名此前展示带尾巴，与判定侧（R34D-11 收编）两链不一致。 */
 function stripMd(name: string): string {
-  return name.endsWith('.md') ? name.slice(0, -3) : name
+  return isMdFileName(name) ? name.slice(0, -3) : name
 }
 
 /**

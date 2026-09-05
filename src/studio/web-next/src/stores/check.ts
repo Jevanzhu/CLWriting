@@ -2,16 +2,15 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { runCheck, markFalsePositive, type CheckReport, type CheckItem } from '../api/check'
 import { friendlyError } from '../shared/error'
+import { falsePositiveKey as fpKey, falsePositiveKeyPrefix } from '../shared/storage-keys'
 
 /**
  * 机检 store（M12 块3）：当前文档的机检报告。
  * run 触发即算即显（不落信封）；红/黄项 computed 分组供面板渲染。
  * 文档切换时由调用方 clear（报告与 docId 绑定，不跨文档残留）。
  */
-/** 误报灰显 localStorage 键单一事实源（模块级：store 内与清理接口共用同源拼法）。 */
-function fpKey(name: string, docId: string): string {
-  return `clw-fp:${name}:${docId}`
-}
+/** 误报灰显 localStorage 键单一事实源：shared/storage-keys.ts（R48-83 收编——原模块内
+ *  裸拼 `clw-fp:${name}:${docId}`，书名含 `:` 时段边界歧义跨书污染，拼键转义随批迁入）。 */
 
 export const useCheckStore = defineStore('check', () => {
   const report = ref<CheckReport | null>(null)
@@ -134,7 +133,7 @@ export const useCheckStore = defineStore('check', () => {
  *  模块级导出（不依赖 store 实例）——useShelf 删除流程直接调用；同名重建书不继承
  *  旧灰显态（checkId 是检查器级 id 跨书同名，残留会让新书的误报按钮被禁用）。 */
 export function clearFalsePositiveMarks(bookName: string): void {
-  const prefix = `clw-fp:${bookName}:`
+  const prefix = falsePositiveKeyPrefix(bookName) // R48-83：段转义前缀（删书清扫不串书）
   try {
     // 倒序扫描：removeItem 不影响未访问下标
     for (let i = localStorage.length - 1; i >= 0; i--) {

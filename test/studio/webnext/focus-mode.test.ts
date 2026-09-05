@@ -457,14 +457,18 @@ describe('FocusStatsBar: 专注统计浮动条', () => {
     expect(stat(w, 2)).toContain('2/2,000')
 
     // 输入 +3 字：本次 +3；同刻起算无时长 → 速度仍 —
+    // R47-3（四十七轮）：FocusStatsBar 全文统计改 150ms 防抖——两笔间隔 >150ms 保
+    // 证中间态可观测（窗口内连续键入合并为末次值，防抖语义本体）
     const doc = useDocStore()
     doc.patch('d1', '---\n标题: 标题\n---\n\n正文六七八')
+    await new Promise((r) => setTimeout(r, 170))
     await nextTick()
     expect(stat(w, 0)).toBe('+3 字')
     expect(stat(w, 1)).toBe('—')
     // 再一笔（隔 ≥2ms 有时长）：速度起算
     await new Promise((r) => setTimeout(r, 3))
     doc.patch('d1', '---\n标题: 标题\n---\n\n正文六七八九')
+    await new Promise((r) => setTimeout(r, 170))
     await nextTick()
     expect(stat(w, 0)).toBe('+4 字')
     expect(stat(w, 1)).toMatch(/字\/分$/)
@@ -508,6 +512,8 @@ describe('FocusStatsBar: 专注统计浮动条', () => {
     await nextTick()
     expect(stat(w, 0)).toBe('+0 字')
     useDocStore().patch('d1', '---\n标题: 标题\n---\n\n正文六七八')
+    // R47-3（四十七轮）：统计改 150ms 防抖——稳定窗口后再断言增量与退出 toast
+    await new Promise((r) => setTimeout(r, 170))
     await nextTick()
     expect(stat(w, 0)).toBe('+3 字')
     ws.setFocus(false)

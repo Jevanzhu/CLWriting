@@ -8,6 +8,7 @@ import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
 import { usePrefsStore } from '../../stores/prefs'
 import { parseFmFields, formKindOf } from '../../shared/words'
+import { useDebouncedSource } from '../../composables/useDebouncedSource'
 import { updateDocMeta } from '../../api/documents'
 import { getConfig } from '../../api/books'
 import { friendlyError } from '../../shared/error'
@@ -118,6 +119,11 @@ const kind = computed(() => {
 })
 const defs = computed<FieldDef[]>(() => (kind.value ? (FIELD_DEFS[kind.value] ?? []) : []))
 
+// R47-1（四十七轮）：content 源防抖——下方 watch 的 parseFmFields 全文行数组分配每
+// 击键触发（表单重解析只由外部 content 变化驱动：refresh/AI 写回，无击键级精度需求）；
+// 切文档（activeDocId 变）即刻取新值，watch 的 entry 身份分支当拍判定的语义不变。
+const debContent = useDebouncedSource(() => entry.value?.content ?? '', { key: () => ws.activeDocId })
+
 const fields = ref<Record<string, string>>({})
 // R69-5（十七轮）：最近一次服务端解析快照——「用户改过但未保存」的键（fields ≠ 快照）
 // 在异步 refresh 重灌时保留用户值，不被服务端旧值静默清空（顶栏标题 blur 即提交 →
@@ -129,22 +135,29 @@ const parsedSnapshot = ref<Record<string, string>>({})
 // continue 丢弃仍 toast「已保存」；改为标错 + 错误 toast + 不发 PUT（不发半截保存）。
 // 声明须在下方 watch 之前：immediate 首跑即引用（TDZ）。
 const numErrors = ref<Record<string, string>>({})
+// R48-94（四十八轮）：上一拍 dirty 档存——dirty true→false 且 entry 未换 = 本地已被
+// 丢弃/落定（conflict 重载或保存成功），此时「用户改过」脏键不再权威（重载把本地
+// 丢了，合并分支若保脏键，此后保存会把已弃旧值写回），走整体重灌
+let lastDirty = false
 
 watch(
   // R65-52（E-4）：doc store 对 content 是原位变更（refresh/静默同步改 e.content、对象引用
   // 不换）——单 watch entry 引用时 AI 写回/refresh 后表单不重解析，停留在旧值。源加 content
-  [entry, () => entry.value?.content],
+  //（R47-1：content 源用防抖版 debContent）
+  [entry, debContent],
   ([e], [prev]) => {
     if (!e || !kind.value) {
       fields.value = {}
       parsedSnapshot.value = {}
       numErrors.value = {} // R35-35：切走文档不留前文档的字段错误
+      lastDirty = false
       return
     }
-    const parsed = parseFmFields(e.content)
+    const localDiscarded = lastDirty && !e.dirty
+    const parsed = parseFmFields(debContent.value)
     const out: Record<string, string> = {}
     for (const f of FIELD_DEFS[kind.value] ?? []) out[f.key] = parsed[f.key] ?? ''
-    if (prev === e) {
+    if (prev === e && !localDiscarded) {
       // 同文档 content 变化（refresh/AI 写回回填）：干净键取服务端新值，脏键保用户输入
       const merged: Record<string, string> = {}
       for (const k of Object.keys(out)) {
@@ -153,12 +166,14 @@ watch(
       parsedSnapshot.value = out
       fields.value = merged
     } else {
-      // 切文档：整体重灌（上一文档的脏键不跨文档携带）。快照必须克隆——与 fields
-      // 共享同一对象时，v-model 写 fields 即同步改快照，「用户改过」永不可判。
+      // 切文档 / 本地已被丢弃（R48-94：conflict 重载等）：整体重灌（脏键不跨状态携带，
+      // 上一文档的脏键不跨文档携带同理）。快照必须克隆——与 fields 共享同一对象时，
+      // v-model 写 fields 即同步改快照，「用户改过」永不可判。
       parsedSnapshot.value = { ...out }
       fields.value = out
       numErrors.value = {} // R35-35：换文档错误不跨文档携带
     }
+    lastDirty = e.dirty
   },
   { immediate: true },
 )
@@ -177,7 +192,7 @@ const TAG_FIELDS_BY_KIND: Record<string, Array<{ key: string; label: string }>> 
 const tagFields = computed(() => (kind.value ? TAG_FIELDS_BY_KIND[kind.value] ?? [] : []))
 const tagValues = computed<Record<string, string>>(() => {
   if (!entry.value) return {}
-  const parsed = parseFmFields(entry.value.content)
+  const parsed = parseFmFields(debContent.value)
   const out: Record<string, string> = {}
   for (const f of tagFields.value) out[f.key] = parsed[f.key] ?? ''
   return out

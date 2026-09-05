@@ -5,7 +5,11 @@
  * 全局输入变动清表后全书 miss，数百章书一次聚合数百次全树遍历（同步路径性能回退）。
  * 修复后（R71-20）：基线 1 次（epochFp0）+ 轮内缓存 1 次（epochFpNow），与章数解耦。
  * R32-14（三十二轮）：章缓存写入推迟到循环后并终核纪元再落盘（窗口内全局输入变更
- * 不再落陈旧行）——有落盘的聚合再加终核 1 次 = 固定 3 次，仍与章数解耦（O(1)/请求）。
+ * 不再落陈旧行）——有落盘的聚合再加终核 1 次，仍与章数解耦（O(1)/请求）。
+ * R47-30（四十七轮）：中间两遍消重——epochFp0 前移传入 syncTreeIssuesEpoch 复用
+ * （sync 内部不再自算），轮前复核遍 epochFpNow 删除（职责由循环后终核统一承担，
+ * 瞬时漂移盲区与循环内同类同口径）。全书 miss 的聚合从 3 次收敛为首（epochFp0，
+ * 兼作 sync 纪元）+ 尾（epochFpEnd 终核）固定 2 次；全缓存命中的聚合仅首遍 1 次。
  */
 import { describe, it, expect, vi } from 'vitest'
 import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
@@ -63,16 +67,16 @@ function makeBook(chapterCount: number): string {
 }
 
 describe('R71-20：写前纪元复核轮内缓存（调用次数与章数解耦）', () => {
-  it('全书 miss 的一次聚合 → computeTreeIssuesGlobalFp 全书固定 3 次（R32-14：+终核；修复前 1+N=6）', () => {
+  it('全书 miss 的一次聚合 → computeTreeIssuesGlobalFp 全书固定 2 次（R47-30 首尾口径；R71 前为 3，逐章复核时代 1+N=6）', () => {
     const root = makeBook(5)
     try {
       fpMock.mockClear()
       const { issues } = collectTreeIssues(root, () => undefined)
       // 5 章全部未定稿且缓存全 miss → 逐章走到写前复核点（红源命中证明机检真跑了）
       expect(Object.keys(issues)).toHaveLength(5)
-      // 基线（epochFp0）×1 + 轮内缓存（epochFpNow）×1 + 循环后终核（R32-14 落盘前
-      // 复核）×1；修复前每 miss 章各 1 次全树遍历
-      expect(fpMock.mock.calls.length).toBe(3)
+      // 首（epochFp0，兼作 syncTreeIssuesEpoch 纪元）×1 + 循环后终核（R32-14 落盘前
+      // 复核）×1；R47-30 消掉了 sync 内部遍与轮前复核遍
+      expect(fpMock.mock.calls.length).toBe(2)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -84,7 +88,7 @@ describe('R71-20：写前纪元复核轮内缓存（调用次数与章数解耦�
       fpMock.mockClear()
       const { issues } = collectTreeIssues(root, () => undefined)
       expect(Object.keys(issues)).toHaveLength(10)
-      expect(fpMock.mock.calls.length).toBe(3)
+      expect(fpMock.mock.calls.length).toBe(2)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -102,8 +106,8 @@ describe('R71-20：写前纪元复核轮内缓存（调用次数与章数解耦�
       // 二次聚合零正文整读证明行真实落盘）
       expect(readDraftMock.mock.calls.length).toBe(0)
       expect(second.issues).toEqual(first.issues)
-      // 二次聚合全部缓存命中 → 无待落盘章 → R32-14 终核不触发：基线 ×1 + 轮内缓存 ×1 = 2
-      expect(fpMock.mock.calls.length).toBe(2)
+      // 二次聚合全部缓存命中 → 无待落盘章 → R32-14 终核不触发：只剩首遍（epochFp0）×1
+      expect(fpMock.mock.calls.length).toBe(1)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

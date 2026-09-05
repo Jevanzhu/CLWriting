@@ -7,10 +7,11 @@
  * 防 AI 全文快照副本双出处命中）；.md 判定大小写不敏感（R41-6，.MD 漏网）。
  * 对话助手 book_search 工具与 /api/books/:name/search 端点共用，不复制逻辑。
  */
-import { join } from 'node:path'
-import { readdirSync, readFileSync, existsSync, statSync, realpathSync } from 'node:fs'
-import { readdir, readFile, stat, realpath } from 'node:fs/promises'
+import { join, relative } from 'node:path'
+import { readdirSync, existsSync, statSync, realpathSync } from 'node:fs'
+import { readdir, stat, realpath } from 'node:fs/promises'
 import { isWithinRoot, docJoinKey } from '../fs/safe-path.js'
+import { readMdTextCached, readMdTextCachedAsync } from '../fs/md-text-cache.js'
 import { finalizedPathSet } from '../document/manifest.js'
 import { clipByCodePoints } from './summary.js'
 
@@ -88,7 +89,10 @@ export function searchBook(bookRoot: string, q: string, scope?: string): SearchO
     for (const fp of walkMd(abs, root)) {
       const matches = searchFile(fp, lower)
       if (matches.length === 0) continue
-      const rel = fp.slice(root.length + 1).split('\\').join('/')
+      // R48-12（四十八轮）：rel 改 relative 派生——`slice(root.length + 1)` 算术对根形态
+      //（'/'、'C:\'，R26-104 特意保留不归一）恒吃掉 rel 首字符（命中路径截断残串）；
+      // relative 语义对全部根形态正确，常规形态产出逐字节不变
+      const rel = relative(root, fp).split('\\').join('/')
       // R73-42：定稿 scope 下，写作/正文 中未登记定稿基线的章（在写草稿）不进结果
       if (finalizedKeys !== null && dir === '写作/正文' && !finalizedKeys.has(docJoinKey(rel))) continue // R42-6：折叠键比较
       // R72-9（二十轮 C-8）：文件内命中超上限时附 hasMore 标记（截断不再静默）
@@ -119,14 +123,14 @@ function matchLines(text: string, lower: string): SearchMatch[] {
   return out
 }
 
-/** 行级 includes 匹配（大小写不敏感）+ 读文件；读失败（消失/权限）按无命中降级。 */
+/** 行级 includes 匹配（大小写不敏感）+ 读文件；读失败（消失/权限）按无命中降级。
+ *  R47-5（四十七轮）：裸 readFileSync 改走 fs/md-text-cache.ts stat 指纹缓存——
+ *  无命中/未凑满上限时此前仍要读完全书所有 .md（200 万字 ≈8MB/冷查询），缓存后
+ *  同指纹二次查询（chat 工具多轮复用同一书）零读盘；异步孪生 searchFileAsync
+ *  共享同一指纹表（端点路径保持全 async，R37-5 语义不回退）。 */
 function searchFile(fp: string, lower: string): SearchMatch[] {
-  let text: string
-  try {
-    text = readFileSync(fp, 'utf-8')
-  } catch {
-    return []
-  }
+  const text = readMdTextCached(fp)
+  if (text === null) return []
   return matchLines(text, lower)
 }
 
@@ -181,11 +185,15 @@ function walkMd(dir: string, bookRoot: string): string[] {
 }
 
 /**
- * searchBook 的异步孪生（R35-7，三十五轮）——HTTP 全书搜索端点专用：全链 fs.promises
- * （readdir/readFile/stat/realpath，realpath 语义逐位保留），扫描期间事件循环可响应
- * SSE 心跳/保存等其他请求（同步版 readFileSync/walkMd 全程阻塞，端点上不再使用）。
- * 匹配/排序/截断/排除目录/symlink 纪律与同步版逐位同源（matchLines 单源共享）；
- * 同步版保留给 AI book_search 工具（子进程面，无事件循环冻结问题），不复制逻辑漂移。
+ * searchBook 的异步孪生（R35-7，三十五轮）——HTTP 全书搜索端点与 AI book_search 工具
+ * 共用：全链 fs.promises（readdir/readFile/stat/realpath，realpath 语义逐位保留），
+ * 扫描期间事件循环可响应 SSE 心跳/保存等其他请求（同步版 readFileSync/walkMd 全程
+ * 阻塞）。匹配/排序/截断/排除目录/symlink 纪律与同步版逐位同源（matchLines 单源共享）。
+ * RC-3（性能与内存专项·2026-09-05）勘误：原注「同步版保留给 AI book_search 工具
+ * （子进程面，无事件循环冻结问题）」不实——工具实为 in-process TOOL_EXECUTORS 分派
+ * （orchestrate/chat/turns.ts），同步扫冻结的是服务进程事件循环；AI 工具当轮已切
+ * searchBookAsync（R35-7 同族漏网收编）。同步版自此仅测试消费方在用（行为规格参照），
+ * 生产零调用；R47-5 后两侧 searchFile 共享 md-text-cache 指纹表，缓存语义不分叉。
  */
 export async function searchBookAsync(bookRoot: string, q: string, scope?: string): Promise<SearchOutcome> {
   // 归一/过滤/截断口径与 searchBook 逐位对齐（见同步版各行注释，此处不重复）
@@ -205,7 +213,8 @@ export async function searchBookAsync(bookRoot: string, q: string, scope?: strin
     for (const fp of await walkMdAsync(abs, root)) {
       const matches = await searchFileAsync(fp, lower)
       if (matches.length === 0) continue
-      const rel = fp.slice(root.length + 1).split('\\').join('/')
+      // R48-12（四十八轮）：rel 改 relative 派生（同上方同步版同编号注）
+      const rel = relative(root, fp).split('\\').join('/')
       if (finalizedKeys !== null && dir === '写作/正文' && !finalizedKeys.has(docJoinKey(rel))) continue // R42-6：折叠键比较
       results.push({
         path: rel,
@@ -222,12 +231,10 @@ export async function searchBookAsync(bookRoot: string, q: string, scope?: strin
 
 /** searchFile 异步孪生：读失败（消失/权限）同款按无命中降级。 */
 async function searchFileAsync(fp: string, lower: string): Promise<SearchMatch[]> {
-  let text: string
-  try {
-    text = await readFile(fp, 'utf-8')
-  } catch {
-    return []
-  }
+  // R47-5：异步孪生同走指纹缓存（stat/读盘全 async，与同步版共享指纹表）——读失败
+  // 按无命中降级口径不变
+  const text = await readMdTextCachedAsync(fp)
+  if (text === null) return []
   return matchLines(text, lower)
 }
 

@@ -60,6 +60,10 @@ export function registerHealthRoutes(ctx: HealthCtx): void {
     if (cached && now - cached.ts < ttl) {
       samples = cached.samples
     } else {
+      // R47-18（四十七轮）：过期条目顺手逐出——原只当 miss 用、条目驻留至 FIFO 触顶/
+      // 删书（forgetStyleScanCache）；重算路径本就必走，delete 零成本零语义变更
+      //（下方 set 原键覆写）
+      if (cached) styleScanCache.delete(r.bookRoot)
       // R40-4（四十轮）：miss 扫描切异步孪生——同步 scanChapters 在 200 万字大书上
       // 秒级冻结事件循环（R39-15 同族漏网点），逐 25 章让出对齐 analysis/learn 范式
       samples = await scanChaptersAsync(r.bookRoot)

@@ -101,6 +101,9 @@ describe('F2: 标题编辑期间 content 变化不回写 titleModel', () => {
 
     doc.patch('d1', '---\n标题: 更新的标题\n---\n\n正文')
     await flushPromises()
+    // R47-1（四十七轮）：标题派生改 150ms 防抖——稳定窗口后再断言回写恢复
+    await new Promise((r) => setTimeout(r, 170))
+    await flushPromises()
     expect(w.find('.page-title').text()).toBe('更新的标题') // 守卫已解除，回写恢复
     w.unmount()
   })
@@ -112,6 +115,9 @@ describe('F2: 标题编辑期间 content 变化不回写 titleModel', () => {
     const w = mount(EditorView, { props: { docId: 'd1' } })
     await flushPromises()
     doc.patch('d1', '---\n标题: 外部改的标题\n---\n\n正文')
+    await flushPromises()
+    // R47-1（四十七轮）：回写经 150ms 防抖——稳定窗口后再断言
+    await new Promise((r) => setTimeout(r, 170))
     await flushPromises()
     expect(w.find('.page-title').text()).toBe('外部改的标题')
     w.unmount()

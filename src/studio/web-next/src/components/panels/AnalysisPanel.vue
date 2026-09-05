@@ -8,6 +8,7 @@ import { useTreeStore } from '../../stores/tree'
 import { useDocStore } from '../../stores/doc'
 import { useUiStore } from '../../stores/ui'
 import { parseFmFields, isBodyKind } from '../../shared/words' // R37-30（三十七轮批E）：formKindOf/stripFrontmatter/mergeFm 零消费移除
+import { useDebouncedSource } from '../../composables/useDebouncedSource'
 import { getAnalysisOverview, autotag, inferMeta, type AnalysisOverview } from '../../api/analysis'
 import { updateDocMeta } from '../../api/documents'
 import { friendlyError } from '../../shared/error'
@@ -21,6 +22,9 @@ const doc = useDocStore()
 const docId = computed(() => ws.activeDocId)
 const entry = computed(() => (docId.value ? doc.get(docId.value) : undefined))
 const node = computed(() => (docId.value ? tree.byDocId.get(docId.value) : undefined))
+// R47-1（四十七轮）：全文派生防抖（WritingInfoPanel 同链）——tagValues/metaValues
+// 的 parseFmFields 每击键全文行数组分配改 150ms 防抖；切文档即刻取新值。
+const debContent = useDebouncedSource(() => entry.value?.content ?? '', { key: () => docId.value })
 const isReviewable = computed(() => {
   if (!node.value) return false
   return isBodyKind(node.value.path)
@@ -66,7 +70,7 @@ const TAG_FIELDS = [
 ] as const
 const tagValues = computed<Record<string, string>>(() => {
   if (!entry.value) return {}
-  const parsed = parseFmFields(entry.value.content)
+  const parsed = parseFmFields(debContent.value)
   const out: Record<string, string> = {}
   for (const f of TAG_FIELDS) out[f.key] = parsed[f.key] ?? ''
   return out
@@ -79,7 +83,7 @@ const META_FIELDS = [
 ] as const
 const metaValues = computed<Record<string, string>>(() => {
   if (!entry.value) return {}
-  const parsed = parseFmFields(entry.value.content)
+  const parsed = parseFmFields(debContent.value)
   const out: Record<string, string> = {}
   for (const f of META_FIELDS) out[f.key] = parsed[f.key] ?? ''
   return out

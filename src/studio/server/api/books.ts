@@ -70,6 +70,8 @@ import { forgetVersionStatsCache } from './snapshots.js'
 // 同名重建书不读陈伏笔足迹/节奏聚合）
 import { forgetForeshadowCache } from './foreshadows.js'
 import { forgetRhythmCache } from './rhythm.js'
+// R47-24（四十七轮）：ai-calls 旧格式迁移标记 Set（migratedRoots 只增不减）的释放口
+import { forgetMigratedRoots } from '../../../ai/calls.js'
 import { log } from '../../../log/index.js'
 
 /** R67-15：删书/改名共用的书键缓存清理（书键 TTL 结果缓存族——内存卫生，防删书后
@@ -92,6 +94,9 @@ function forgetBookKeyedCaches(bookRoot: string): void {
   // R44-8：伏笔足迹 / 节奏聚合缓存同族清理
   forgetForeshadowCache(bookRoot)
   forgetRhythmCache(bookRoot)
+  // R47-24（四十七轮）：ai-calls 旧格式迁移标记同族清理（migratedRoots 只增不减的
+  // 释放口——删书/改名后旧书根键精确清除，非 TTL 缓存但同属书键内存卫生）
+  forgetMigratedRoots(bookRoot)
   // R39-16：书架守卫/配置缓存同族清理（删/改名后同名重建书不读陈 book.yaml；
   // 缓存按 workDir+path 键，整表清扫语义与「该书键失效」等价——书键族口径）
   shelfGuardCache.clear()
@@ -114,6 +119,10 @@ function getShelfGuard(workDir: string, path: string): ShelfGuardValue {
   const key = `${workDir}\u0000${path}`
   const cached = shelfGuardCache.get(key)
   if (cached && Date.now() - cached.ts < SHELF_GUARD_TTL_MS) return cached.value
+  // R47-18（四十七轮）：过期条目顺手逐出——原只当 miss 用、条目驻留至 FIFO 触顶/
+  // forgetBookKeyedCaches 整表清扫；重算路径本就必走，delete 零成本零语义变更（下方
+  // set 原键覆写）
+  if (cached) shelfGuardCache.delete(key)
   let value: ShelfGuardValue
   const within = resolveWithinRoot(workDir, path)
   if (!within) {

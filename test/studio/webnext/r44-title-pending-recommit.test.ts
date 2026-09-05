@@ -128,6 +128,9 @@ describe('R44-20（四十四轮）：标题提交在途二次修改排队续提'
     // 续提链收尾后编辑态解除，父层回写守卫恢复正常
     doc.patch('d1', '---\n标题: 第三次标题\n---\n\n正文')
     await flushPromises()
+    // R47-1（四十七轮）：标题派生改 150ms 防抖——稳定窗口后再断言
+    await new Promise((r) => setTimeout(r, 170))
+    await flushPromises()
     expect(w.find('.page-title').text()).toBe('第三次标题')
     w.unmount()
   })
@@ -202,6 +205,9 @@ describe('R44-20（四十四轮）：标题提交在途二次修改排队续提'
 
     // 早退路径也脱离编辑态（守卫恢复）
     doc.patch('d1', '---\n标题: 外部改的标题\n---\n\n正文')
+    await flushPromises()
+    // R47-1（四十七轮）：回写经 150ms 防抖——稳定窗口后再断言
+    await new Promise((r) => setTimeout(r, 170))
     await flushPromises()
     expect(w.find('.page-title').text()).toBe('外部改的标题')
     w.unmount()

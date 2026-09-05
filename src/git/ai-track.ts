@@ -17,7 +17,8 @@
  * 失败一律返回 null/空——轨迹是旁路证据，绝不阻断落盘主流程。
  */
 
-import { existsSync, readdirSync, unlinkSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
+import { rmWithRetry } from '../fs/atomic.js'
 import { join } from 'node:path'
 import { git, gitAsync } from './exec.js'
 import { ulid } from '../document/stable-id.js'
@@ -299,8 +300,10 @@ export function deleteAiVersions(bookRoot: string, docId: string): number {
     return deleted
   }
   for (const v of versions) {
+    // R48-68（四十八轮）：裸 unlinkSync 换 rmWithRetry——trash.ts 同批文件删除已收编
+    // 退避（win 杀软瞬时锁此处漏网）；确定性错误仍上抛交调用方既有 catch
     try {
-      unlinkSync(v.ref)
+      rmWithRetry(v.ref)
       deleted++
     } catch {
       /* 已删无妨 */

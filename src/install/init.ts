@@ -9,7 +9,7 @@
 
 import { existsSync, mkdirSync, readdirSync, statSync, type Dirent } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { matchGenreLeads } from './data.js'
+import { matchGenreLeads, sanitizeLeadsEnabled } from './data.js'
 import { appendBook, appendBookAsync, writeActive, readBooks, bookStoragePath, isInvalidBookName, BOOK_NAME_MAX_BYTES } from './books.js'
 import { scaffoldBookRepo, findGitAncestor } from './scaffold.js'
 import { isMdFileName } from '../format/filename.js'
@@ -212,7 +212,9 @@ function doInitSteps(opts: InitOptions): InitStepOutcome {
   const leadsEnabled: LeadType[] = kind === 'short'
     ? []
     : opts.leads
-      ? sanitizeToExtendedLeads(opts.leads)
+      // R48-57（四十八轮）：收编 data.ts sanitizeLeadsEnabled 单源（原本地副本逐位同，
+      // 单源侧却「生产零调用反挂测试上」两相反）；opts.leads 为 readonly，展开传参
+      ? sanitizeLeadsEnabled([...opts.leads])
       : opts.genre
         ? matchGenreLeads(opts.genre)
         : []
@@ -268,17 +270,5 @@ function countMarkdownFiles(dir: string): number {
   return n
 }
 
-/** 把字符串数组收敛为合法扩展账本类（剔除基础类/未知类/去重）。 */
-function sanitizeToExtendedLeads(raw: readonly string[]): LeadType[] {
-  const extended = new Set<LeadType>(['布局线', '设定线', '成长线', '关系线'])
-  const seen = new Set<LeadType>()
-  const out: LeadType[] = []
-  for (const r of raw) {
-    const t = r as LeadType
-    if (extended.has(t) && !seen.has(t)) {
-      seen.add(t)
-      out.push(t)
-    }
-  }
-  return out
-}
+/** 把字符串数组收敛为合法扩展账本类（剔除基础类/未知类/去重）。
+ *  R48-57（四十八轮）：本地副本删除，收编 data.ts sanitizeLeadsEnabled 单源（见上方调用点注）。 */

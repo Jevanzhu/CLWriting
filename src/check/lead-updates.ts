@@ -109,6 +109,14 @@ export function parseLeadUpdateLines(text: string): ChapterLeadUpdate[] {
       }
       continue
     }
+    // R28-10 形态先行（R48-4（四十八轮）重排）：`---` 分隔线（`-` 连字符串）与嵌套
+    // 子列表行（原始行带缩进）以 `-` 开头却不构成条目，静默跳过。原实现先无条件重置
+    // skipFoldUntilEntry 再判条目，`---` 恰在重置后才 continue——序列「条目 → ATX
+    // 标题（skipFold=true）→ --- → 普通备注行」中备注折入上一节证据（R33-6 守卫被
+    // 绕过：evidenceNeedles 命中必败 → lead-declared-not-done 假红硬阻断定稿，且
+    // lead-finalize 把污染证据持久写进履历）。重置收窄到真条目/顶层格式错条目，
+    // 两个静默跳过形态维持 skipFold 现值。
+    if (/^-+$/.test(line) || /^\s/.test(rawLine)) continue
     skipFoldUntilEntry = false
     // - <编号> <动词>：<证据>
     const m = line.match(/^-\s*(\S+)\s+([^\s:：]+)[:：]\s*(.+)$/)
@@ -117,11 +125,6 @@ export function parseLeadUpdateLines(text: string): ChapterLeadUpdate[] {
       if (!evidence) continue
       out.push({ leadId: m[1]!.trim(), 动词: m[2]!.trim(), 证据: evidence })
     } else {
-      // R28-10（二十八轮）：R26-32 的「格式不符」warn 收窄——只对形似账本条目的顶层
-      // 列表行告警。`---` 分隔线（`-` 连字符串）与嵌套子列表行（原始行带缩进，真条目
-      // 的子项）同样以 `-` 开头却不匹配条目正则，此前被一并误告警刷屏；两者恢复静默
-      // 跳过（不折入证据，与既有列表行语义一致），顶层真条目格式错仍留痕。
-      if (/^-+$/.test(line) || /^\s/.test(rawLine)) continue
       // R26-32（二十六轮）：列表行但条目格式不符（缺「编号 动词：证据」结构）此前
       // 静默丢弃——作者写了推进声明却因格式错误整条失效无迹可查（「声明了没兑现」
       // 假红的隐性来源）。warn 留痕不中断解析（对齐 yaml.ts 无冒号行同款手法）。

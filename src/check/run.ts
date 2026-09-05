@@ -68,7 +68,10 @@ export function runCheckForDocument(
     // M-9（2026-08-21）：rebuild/开库硬异常归 REBUILD_FAIL 出口（此前穿透成 500 裸异常，
     // 端点契约本就为这类失败预留了 code）
     try {
-      const rebuilt = rebuild(bookRoot, cachePath)
+      // R47-11（四十七轮）：单章机检链的增量探测 opt-in 3s TTL 节流——四棵源树逐文件
+      // readdir+stat 在 SMB/网盘卷上单遍秒级，连查/轮询按请求次数放大；取舍与口径见
+      // rebuild.ts 节流块注（树聚合 collectTreeIssuesCore 的 rebuild 不节流，见下）
+      const rebuilt = rebuild(bookRoot, cachePath, { throttleSourceProbe: true })
       if (rebuilt.errors.length > 0) {
         return {
           ok: false,
@@ -500,8 +503,12 @@ function* collectTreeIssuesCore(
     let epochFp0: string | null = null
     if (db) {
       try {
-        syncTreeIssuesEpoch(db, bookRoot, userDataPath ?? null)
+        // R47-30（四十七轮）：纪元指纹首遍前移——先算 fp 再传入 syncTreeIssuesEpoch
+        // 复用（原实现 sync 内部自算一遍、epochFp0 紧随其后又算一遍，纯重复的全树
+        // 递归 readdir+stat）。首尾口径（R32-14 既定）不变：首 = 此处一遍，
+        // 尾 = 循环后终核一遍；传入的 fp 与落表 global_fp 同源（基线即纪元）。
         epochFp0 = computeTreeIssuesGlobalFp(bookRoot, userDataPath ?? null)
+        syncTreeIssuesEpoch(db, bookRoot, userDataPath ?? null, epochFp0)
         cacheEnabled = true
       } catch {
         cacheEnabled = false
@@ -543,12 +550,11 @@ function* collectTreeIssuesCore(
         if (cachedRed !== null) {
           leadsBookRed = cachedRed
         } else {
-          // 第五轮：零定稿章（新书/清单损坏）时 maxWritten 为 null——回退全书最高现存
-          // 章号，与单章侧 futureBaselineChapter ?? chapter.章号 同向；此前 ?? 0 会把
-          // 新书预写的全部非回填履历报 lead-chapter-future（聚合全树红 vs 单章面板
-          // 无红的口径分裂，首轮定稿后才自愈）
-          const maxExisting = bodyChapters.reduce((m, c) => Math.max(m, c.章号), 0)
-          leadsBookRed = checkLeadsBookItems(db, bookRoot, maxWritten ?? maxExisting, enabledLeadTypes(config)).some(
+          // R69-17：零定稿章（新书/清单损坏）的回退已内置 maxWrittenChapterOf
+          //（bodyChapters 全空时以 0 为基准）；R48-37（四十八轮）：原 `?? maxExisting`
+          // 死回退与「回退全书最高现存章号」注释删除——maxWritten 为 undefined 仅当
+          // bodyChapters 为空，此时 maxExisting 恒 0，真回退在上移的函数内完成
+          leadsBookRed = checkLeadsBookItems(db, bookRoot, maxWritten ?? 0, enabledLeadTypes(config)).some(
             (i) => i.level === 'red',
           )
           writeLeadsBookRed(db, leadsFp, leadsBookRed)
@@ -584,12 +590,15 @@ function* collectTreeIssuesCore(
       }
       // R71-20：写前纪元复核改轮内缓存——原实现每 miss 章重算一次 computeTreeIssuesGlobalFp
       // （递归 readdir+stat 全输入树），任一全局输入变动清表后全书 miss，数百章书一次聚合
-      // 数百次全树遍历（同步路径性能回退）。循环前算一次即可：轮前值与轮首一致才允许
-      // 入列。R32-14（三十二轮）修正口径：轮前一次**弱于**逐章复核——窗口内全局输入
-      // 变更仍会落陈旧行；章缓存写入因此全部推迟到循环后，经一次终核纪元再落盘（漂移 →
-      // 整批丢弃下轮重算），每请求仅两次全树指纹（O(1)/请求的 R71-20 口径保留）。
+      // 数百次全树遍历（同步路径性能回退）。R32-14（三十二轮）修正口径：轮前一次**弱于**
+      // 逐章复核——窗口内全局输入变更仍会落陈旧行；章缓存写入因此全部推迟到循环后，经一次
+      // 终核纪元再落盘（漂移 → 整批丢弃下轮重算），每请求仅首尾两次全树指纹（O(1)/请求的
+      // R71-20 口径保留）。
+      // R47-30（四十七轮）：轮前复核遍（epochFpNow）消重——其「检测聚合窗口内源漂移」的
+      // 职责由循环后终核（epochFpEnd）统一承担：轮前漂移若持续到循环后必被终核检出（整批
+      // 丢弃），瞬时漂移（改回原状）与循环内同类盲区同口径（R32-14 既定取舍）。一次聚合的
+      // 全树纪元指纹从最多 4 遍（sync 内 + 基线 + 轮前 + 终核）收敛为首尾各一遍。
       // epochFp0 为 null（纪元同步失败、缓存禁用）时不入列。
-      const epochFpNow = epochFp0 === null ? null : computeTreeIssuesGlobalFp(bookRoot, userDataPath ?? null)
       // R32-14：待落盘章缓存（循环后统一终核纪元再写）
       const pendingCacheWrites: Array<{
         relPath: string
@@ -682,18 +691,19 @@ function* collectTreeIssuesCore(
         // 后续请求直命中坏缓存；不写则下轮重试。verdict 与缓存互不连带。
         // 注意写入的是章作用域 hasRed（不含 leadsBookRed），合并只在展示层发生。
         // R70-14：窗口内纪元变了则本轮不落缓存（下轮重算）。R71-20：比较用轮内缓存值。
-        // R32-14：直接写改入列——落盘推迟到循环后终核纪元（见 pendingCacheWrites 段注）
-        const epochStable = epochFp0 !== null && epochFpNow === epochFp0
-        if (!checkFailed && cacheEnabled && db && epochStable) {
+        // R32-14：直接写改入列——落盘推迟到循环后终核纪元（见 pendingCacheWrites 段注）。
+        // R47-30：轮内缓存值即基线 epochFp0（轮前复核遍已消重），入列闸 = 基线存在。
+        if (!checkFailed && cacheEnabled && db && epochFp0 !== null) {
           pendingCacheWrites.push({ relPath, chapterFp, size: chapterSt.size, verdictFp, value: { hasRed, verdictRejected } })
         }
         const mergedRed = hasRed || leadsBookRed
         if (mergedRed || verdictRejected) issues[docId] = { hasRed: mergedRed, verdictRejected }
       }
       // R32-14（三十二轮）：循环后终核纪元再落盘——聚合窗口内全局输入（大纲/章纲/布线）
-      // 变更时轮前 epochFpNow 已陈旧，直接落会把旧纪元判定固化成缓存行（单轮错、下轮
+      // 变更时轮内各章的纪元判定已陈旧，直接落会把旧纪元判定固化成缓存行（单轮错、下轮
       // 自愈，但窗口内各章红点口径前后不一致）。漂移 → 整批丢弃（本轮零落缓存，下轮
-      // 全部重算），每请求只多一次全树指纹计算。
+      // 全部重算），每请求只多一次全树指纹计算。R47-30（四十七轮）：此终核遍是聚合的
+      // 「尾」遍（首遍 = 开头的 epochFp0，两遍之间不再有中间遍）。
       // R33D-17（三十三轮）：落盘改单事务包批（writeTreeIssuesCacheBatch）——数百章书
       // 纪元失效后一轮聚合此前逐行独立 commit（WAL 放大）。
       if (pendingCacheWrites.length > 0 && db && epochFp0 !== null) {

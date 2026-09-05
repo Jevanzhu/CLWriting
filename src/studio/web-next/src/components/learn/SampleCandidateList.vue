@@ -7,7 +7,7 @@
 import { computed, ref } from 'vue'
 import { Check } from 'lucide-vue-next'
 import { useLearnStore } from '../../stores/learn'
-import { TIER_A, tierOf } from '../../shared/learn-tier'
+import { TIER_A, scoreTierStats, tierOf } from '../../shared/learn-tier'
 import type { SampleCandidateFE } from '../../api/learn'
 
 const learn = useLearnStore()
@@ -16,16 +16,8 @@ const learn = useLearnStore()
 const filter = ref<'all' | 'a'>('all')
 
 // ── 打分分布统计 ──
-const scoreStats = computed(() => {
-  let a = 0, b = 0, c = 0
-  for (const s of learn.samples) {
-    const t = tierOf(s.打分)
-    if (t === 'a') a++
-    else if (t === 'b') b++
-    else c++
-  }
-  return { a, b, c, total: learn.samples.length }
-})
+// R48-90（四十八轮）：统计收敛 shared/learn-tier 单源（原与 LearnView 逐字双实现）
+const scoreStats = computed(() => scoreTierStats(learn.samples))
 
 // ── 样章按场景分组（筛选后、组内打分降序、组间均分降序）──
 const sampleGroups = computed(() => {
@@ -51,6 +43,20 @@ const sampleGroups = computed(() => {
     })
     .sort((a, b) => b.avg - a.avg)
 })
+
+// ── R47-16（四十七轮）：分组渲染上限──
+// 候选每卡含整段正文（reactive 数组 + DOM 双吃），服务端返回量不受前端控制；每组
+// 默认渲染前 50 条，超出「显示剩余 N 条」按需展开（勾选/统计/全选仍面向全量 items，
+// 仅渲染面截断——大书收割数千候选时 DOM 不失控）。
+const GROUP_RENDER_CAP = 50
+const expandedGroups = ref(new Set<string>())
+function visibleItems(g: { 场景: string; items: SampleCandidateFE[] }): SampleCandidateFE[] {
+  if (expandedGroups.value.has(g.场景) || g.items.length <= GROUP_RENDER_CAP) return g.items
+  return g.items.slice(0, GROUP_RENDER_CAP)
+}
+function expandGroup(scene: string): void {
+  expandedGroups.value.add(scene)
+}
 
 // ── 批量操作 ──
 function selectAllTierA(): void {
@@ -101,7 +107,7 @@ function clearAllPicks(): void {
       </div>
       <div class="cand-list">
         <div
-          v-for="s in g.items"
+          v-for="s in visibleItems(g)"
           :key="`${s.出处}\u0000${s.正文}`"
           class="cand-card"
           :class="[tierOf(s.打分), { picked: learn.isSamplePicked(s) }]"
@@ -119,6 +125,14 @@ function clearAllPicks(): void {
           <p class="cand-body">{{ s.正文 }}</p>
           <p v-if="s.技法指令" class="cand-tech">技法 · {{ s.技法指令 }}</p>
         </div>
+        <!-- R47-16：分组渲染上限的展开钮（勾选/全选/统计仍面向全量 g.items） -->
+        <button
+          v-if="g.items.length > GROUP_RENDER_CAP && !expandedGroups.has(g.场景)"
+          class="text-btn expand-more"
+          @click="expandGroup(g.场景)"
+        >
+          显示剩余 {{ g.items.length - GROUP_RENDER_CAP }} 条
+        </button>
       </div>
     </div>
   </section>

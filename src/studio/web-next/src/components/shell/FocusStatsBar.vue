@@ -11,6 +11,7 @@ import { useUiStore } from '../../stores/ui'
 import { usePrefsStore } from '../../stores/prefs'
 import { getConfig, type BookConfig } from '../../api/books'
 import { countWords, stripFrontmatter, parseFmFields } from '../../shared/words'
+import { useDebouncedSource } from '../../composables/useDebouncedSource'
 
 const ws = useWorkspaceStore()
 const doc = useDocStore()
@@ -31,7 +32,13 @@ const sideRoomTooSmall = computed(() => vw.value < prefs.effectivePageWidth)
 
 const docId = computed(() => ws.activeDocId)
 const entry = computed(() => (docId.value ? doc.get(docId.value) : undefined))
-const words = computed(() => (entry.value ? countWords(stripFrontmatter(entry.value.content)) : 0))
+// R47-3（四十七轮）：全文统计防抖（WritingInfoPanel R47-1 同链）——words/chapterTarget
+// 每击键全文 countWords/parseFmFields 与右栏面板叠成双重计数；速度显示本就 5s 心跳
+// 刷新（下述 ticker），无击键级精度消费方。切文档（docId 变）即刻取新值——
+// resetSession 的基线快照（watch entry）与 wordsAtReset 判定（R34D-28）语义不变
+//（值序列相同，仅整体延迟 ≤150ms）。
+const debContent = useDebouncedSource(() => entry.value?.content ?? '', { key: () => docId.value })
+const words = computed(() => (entry.value ? countWords(stripFrontmatter(debContent.value)) : 0))
 
 // ── 会话快照（每章口径；重进专注各重开一段会话）──
 /** 基线：文档到位时锁存当前字数（空章留 null——首笔从旧字数 0 锁，见 words watch） */
@@ -49,11 +56,18 @@ const speed = computed(() => {
   return minutes <= 0 ? null : Math.round(delta.value / minutes)
 })
 
-/** 重开一段会话：以当前字数为新基线（空章留 null 待首笔从 0 锁） */
+/** 重开一段会话：以当前字数为新基线（空章留 null 待首笔从 0 锁）。
+ *  R47-3（四十七轮）：基线/置位快照直读 entry.content 现算——同拍源变化下本回调与
+ *  防抖源的 flush 调度序不保证（watch entry 可先于 useDebouncedSource 内部 watch
+ *  执行，读 debounced words 会拿到旧文档残值且快照不再修正，把 R34D-28 的「切章
+ *  置位跳变」重新误判成首笔起钟）；切文档是低频路径，一次 O(n) 现算可接受。
+ *  wordsAtReset 同取现算值——随后防抖 words 跳到同一值时仍按置位跳变跳过，动笔
+ *  首变（N→N±k）照常起钟，语义不变。 */
 function resetSession(): void {
-  baseline.value = words.value > 0 ? words.value : null
+  const w = entry.value ? countWords(stripFrontmatter(entry.value.content)) : 0
+  baseline.value = w > 0 ? w : null
   firstChangeAt = null
-  wordsAtReset = words.value
+  wordsAtReset = w
 }
 // R34D-28（三十四轮）：会话重开改盯 entry 对象身份——换章必伴随 entry 换对象
 //（切到未加载章先变 undefined、加载完落新对象），作者打字只改 content 不换对象。
@@ -99,7 +113,7 @@ watch(
 )
 const chapterTarget = computed(() => {
   if (entry.value) {
-    const v = parseFmFields(entry.value.content)['字数目标']
+    const v = parseFmFields(debContent.value)['字数目标']
     // R32-32（三十二轮）：isFinite 守卫同 WritingInfoPanel——脏 fm 手填不产 NaN 目标
     if (v && Number.isFinite(Number(v))) return Number(v)
   }
@@ -118,11 +132,16 @@ watch(
       resetSession()
       return
     }
-    if (delta.value <= 0) return
-    ui.toast(
-      `专注结束：本次 +${delta.value} 字${speed.value !== null ? ` · 平均 ${speed.value} 字/分` : ''}`,
-      'success',
-    )
+    if (baseline.value === null) return
+    // R48-93（四十八轮）：退出成果直读 entry.content 现算（对齐 resetSession 口径）——
+    // 防抖值滞后 ≤150ms，退出前最后 ≤150ms 的击键此前被系统性少计且永不修正（一次性
+    // 读取面 ≠ 持续显示面；退出专注是低频路径，一次 O(n) 现算可接受）
+    const w = entry.value ? countWords(stripFrontmatter(entry.value.content)) : 0
+    const finalDelta = w - baseline.value
+    if (finalDelta <= 0) return
+    const minutes = firstChangeAt !== null ? (Date.now() - firstChangeAt) / 60000 : 0
+    const spd = minutes > 0 ? Math.round(finalDelta / minutes) : null
+    ui.toast(`专注结束：本次 +${finalDelta} 字${spd !== null ? ` · 平均 ${spd} 字/分` : ''}`, 'success')
   },
 )
 </script>

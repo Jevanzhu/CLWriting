@@ -29,7 +29,9 @@ export interface JournalPending {
   /** R31-21（三十一轮）：true = 本行在跨进程锁超时后降级裸写、快照已剥离——
    *  大快照 append 超文件系统原子窗，双进程同拍降级可交错损坏（坏行被
    *  findUnsettled 容错跳过 → 恢复失据）。恢复消费方只读 opId（state 健康
-   *  扫描）不受空快照影响；正文恢复以 .版本 留底/磁盘现状为准。 */
+   *  扫描）不受空快照影响；正文恢复以 .版本 留底/磁盘现状为准。
+   *  PM-3（性能与内存专项）：快照超 JOURNAL_PENDING_SNAPSHOT_MAX_BYTES 的主动
+   *  降级同置本位（同样快照剥离、行短；见 appendPending 注释）。 */
   degraded?: boolean
 }
 
@@ -89,7 +91,20 @@ export async function appendPending(
   // R31-21（三十一轮）：锁超时降级时剥离全文快照（行长收敛回原子窗）——
   // 带全快照的降级裸写是本轮评审实证的交错损坏面。
   const degradedFallback = JSON.stringify({ ...entry, content: '', degraded: true })
-  await appendLineAsync(journalPath, JSON.stringify(entry), degradedFallback)
+  // PM-3（性能与内存专项·2026-09-05）：超大快照主动降级——快照超阈值时直接落降级行
+  // （与锁超时同款 content:''+degraded:true 形态），不再追加全文。动因：恢复消费方
+  // （state.ts assembleStatus）只读 opId——pending.content 全仓零程序性消费方（R31-21
+  // 已实证），作者侧恢复路径是版本历史/磁盘现状；而全量快照进 journal 的代价是每笔
+  // 保存 IO 翻倍（大章 2MB 快照 = 正文写 2MB + journal 追加 2MB + fsync ×2），且
+  // journal 一笔即越过 2MB compact 阈值 → 每笔保存触发整文件重读+逐行重解析（含对
+  // 兆级行的 JSON.parse）。阈值取 256KB：常规章（数千至数万字）全文照旧完整入
+  // journal；仅超大文档（10 万字级）降级，崩窗内丢的是「无任何消费方读的快照」，
+  // 实际防线不变（磁盘现状 + .版本 留底）。
+  const line =
+    Buffer.byteLength(content, 'utf-8') > JOURNAL_PENDING_SNAPSHOT_MAX_BYTES
+      ? degradedFallback
+      : JSON.stringify(entry)
+  await appendLineAsync(journalPath, line, degradedFallback)
   return entry.opId
 }
 
@@ -238,8 +253,23 @@ function fsyncFile(filePath: string): void {
 
 // ── 膨胀治理（U-P2-9）────────────────────────────
 
-/** compact 阈值：journal 字节数超过此值时在 settle/abort 后压缩（只留未结算 pending）。 */
+/** compact 阈值：journal 字节数超过此值时在 settle/abort 后压缩（只留未结算 pending）。
+ *  R30-18 口径：export const + 模块内可变生效值 + 注入钩子——测试经钩子改档
+ *  （PM-3 批起 compact 用例以低阈值+小内容建仓，不再依赖 MB 级 pending 全文撑破
+ *  2MB——快照超 256KB 已被 appendPending 降级，撑不破），生产恒用常量。 */
 export const JOURNAL_COMPACT_BYTES = 2 * 1024 * 1024
+
+/** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改。 */
+let journalCompactBytes = JOURNAL_COMPACT_BYTES
+
+/** 测试注入钩子（生产零调用）。 */
+export function __setJournalCompactBytesForTest(bytes: number): void {
+  journalCompactBytes = bytes
+}
+
+/** PM-3：pending 全文快照尺寸闸——超过此字节数的快照不进 journal（降级行替代），
+ *  见 appendPending 注释。测试可经注入钩子改档（生产恒用常量，R30-18 口径）。 */
+export const JOURNAL_PENDING_SNAPSHOT_MAX_BYTES = 256 * 1024
 
 /**
  * 超阈值时压缩 journal：已结算（settled/aborted 配对完成）的行全部丢弃，
@@ -267,7 +297,7 @@ export const JOURNAL_COMPACT_BYTES = 2 * 1024 * 1024
 function maybeCompactJournal(journalPath: string): void {
   try {
     if (!existsSync(journalPath)) return
-    if (statSync(journalPath).size < JOURNAL_COMPACT_BYTES) return
+    if (statSync(journalPath).size < journalCompactBytes) return
     // J7：跨进程锁（append 侧同锁）——持锁期间他进程 append 被阻塞。非阻塞占锁
     // （best-effort：拿不到直接弃本轮）。
     const release = tryAcquireCrossProcessLock(`${journalPath}.lock`)
@@ -275,7 +305,7 @@ function maybeCompactJournal(journalPath: string): void {
     try {
       // N4：锁内基线 stat（行数以 size 折算——任何 append 必改 size，等价且免二次全读）
       const before = statSync(journalPath)
-      if (before.size < JOURNAL_COMPACT_BYTES) return
+      if (before.size < journalCompactBytes) return
       const unsettled = findUnsettled(journalPath)
       // N4：rename 前重 stat 复核——读算期间若被他进程（锁超时降级裸写的 append 路径）
       // 追加新行（size 变 = 有新行），放弃本轮压缩，新行随原文件完整保留

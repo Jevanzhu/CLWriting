@@ -16,6 +16,7 @@ import { resolveBook } from '../book-context.js'
 import {
   readForeshadows,
   scanForeshadowTrails,
+  scanForeshadowTrailsAsync,
   filterForeshadowTrails,
   type ForeshadowEntry,
   type ForeshadowTrail,
@@ -33,8 +34,14 @@ interface ForeshadowCtx {
 // 伏笔 fm 整读每请求照付）。指纹覆盖被扫两目录（设定/伏笔 + 写作/正文）的 mtime：
 // 新增/删除/改名即时失效；目录内就地内容改写不触碰目录 mtime，由 TTL 5s 兜底（与
 // search.ts 同口径——宁多扫不脏读）。?q= 过滤在缓存命中后的快照上做（filter-
-// ForeshadowTrails），不全量重扫。扫描是同步单段（无在途并发窗口），去重不存在
-// searchBookAsync 那样的在途去重需求，缓存壳取 getVersionStatsCached 同款同步形态。
+// ForeshadowTrails），不全量重扫。
+// PM-1（性能与内存专项·2026-09-05）：原「扫描是同步单段、无在途去重需求」的判定随
+// 异步化失效——端点改走 getForeshadowsCachedAsync（scanForeshadowTrailsAsync 切片
+// 让出 + in-flight 去重，search.ts inFlightSearches 同款）；MISS 时并发请求只扫一次。
+// 同步版 getForeshadowsCached 原样保留（回归测试直测面 + 行为规格参照）。
+// R48-19（四十八轮）：PM-1 交付时只落了函数、handler 未随迁（收口声称失实，§七已
+// 勘误）——handler 改 async 调 getForeshadowsCachedAsync，上述「端点改走 async」
+// 自此真实生效。
 const FORESHADOW_CACHE_TTL_MS = 5000
 const FORESHADOW_CACHE_MAX = 32
 
@@ -84,6 +91,10 @@ export function getForeshadowsCached(bookRoot: string): ForeshadowSnapshot {
   if (cached && cached.sig === sig && Date.now() - cached.ts < (foreshadowTtlMs ?? FORESHADOW_CACHE_TTL_MS)) {
     return cached.snapshot
   }
+  // R47-18（四十七轮）：过期条目顺手逐出——原只当 miss 用、条目驻留至 FIFO 触顶/删书
+  //（forgetForeshadowCache）；重算路径本就必走且 set 原键覆写，零成本零语义变更。sig
+  // 失配但未过期的条目不在此次清（本函数同步单段，下方 set 必覆写同键）
+  if (cached && Date.now() - cached.ts >= (foreshadowTtlMs ?? FORESHADOW_CACHE_TTL_MS)) foreshadowCache.delete(bookRoot)
   foreshadowScanCount += 1
   const entries = readForeshadows(bookRoot)
   const trails = scanForeshadowTrails(bookRoot, entries)
@@ -97,12 +108,50 @@ export function getForeshadowsCached(bookRoot: string): ForeshadowSnapshot {
   return snapshot
 }
 
+/** PM-1：in-flight 去重表（search.ts inFlightSearches 同款）——同书并发 MISS 只扫一次，
+ *  后到者 await 同一 Promise；job 收尾（成功或失败）自清。 */
+const foreshadowInFlight = new Map<string, Promise<ForeshadowSnapshot>>()
+
+/** R44-8 缓存壳的异步孪生（PM-1，端点生产路径）：命中语义与同步版逐位一致（同缓存
+ *  同 TTL 同签名），MISS 时经 scanForeshadowTrailsAsync 切片让出事件循环（200 万字
+ *  全书正则扫不再整段冻结请求线程），并以 in-flight 去重合并并发 MISS。 */
+export function getForeshadowsCachedAsync(bookRoot: string): Promise<ForeshadowSnapshot> {
+  const sig = foreshadowDirSignature(bookRoot)
+  const cached = foreshadowCache.get(bookRoot)
+  if (cached && cached.sig === sig && Date.now() - cached.ts < (foreshadowTtlMs ?? FORESHADOW_CACHE_TTL_MS)) {
+    return Promise.resolve(cached.snapshot)
+  }
+  // R47-18 过期逐出口径同步版同款：过期条目先清（异步扫描窗口长，驻留无意义）；sig
+  // 失配未过期的条目留给扫描完成后的 set 原键覆写
+  if (cached && Date.now() - cached.ts >= (foreshadowTtlMs ?? FORESHADOW_CACHE_TTL_MS)) foreshadowCache.delete(bookRoot)
+  const inFlight = foreshadowInFlight.get(bookRoot)
+  if (inFlight) return inFlight
+  const job = (async (): Promise<ForeshadowSnapshot> => {
+    foreshadowScanCount += 1
+    const entries = readForeshadows(bookRoot)
+    const trails = await scanForeshadowTrailsAsync(bookRoot, entries)
+    const snapshot: ForeshadowSnapshot = { entries, trails }
+    // FIFO 淘汰与同步版同款（Map 保插入序）
+    if (foreshadowCache.size >= FORESHADOW_CACHE_MAX) {
+      const oldest = foreshadowCache.keys().next().value
+      if (oldest !== undefined) foreshadowCache.delete(oldest)
+    }
+    foreshadowCache.set(bookRoot, { snapshot, ts: Date.now(), sig })
+    return snapshot
+  })()
+  foreshadowInFlight.set(bookRoot, job)
+  // 收尾自清（catch 先落避免 job 被拒时清理链 unhandled rejection；原 job 的拒绝仍
+  // 按常送达真实调用方——路由层有统一错误面）
+  job.catch(() => {}).then(() => foreshadowInFlight.delete(bookRoot))
+  return job
+}
+
 export function registerForeshadowRoutes(ctx: ForeshadowCtx): void {
   // 伏笔列表（fm 字段 + 正文足迹 + 风险评估）
   defineRoute('books.foreshadows', {
     method: 'GET',
     path: '/api/books/:name/foreshadows',
-    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
+    handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     const bookRoot = r.bookRoot
@@ -112,7 +161,10 @@ export function registerForeshadowRoutes(ctx: ForeshadowCtx): void {
     if (!url) return replyError(res, 400, 'BAD_INPUT', 'bad request')
     const q = url.searchParams.get('q') ?? undefined
     // R44-8：全量扫描走缓存壳；?q= 在快照上过滤（缓存命中不重扫）
-    const snapshot = getForeshadowsCached(bookRoot)
+    // R48-19（四十八轮）：PM-1 只交付了 getForeshadowsCachedAsync 函数，本 handler
+    // 此前仍调同步版——「端点改走 async」的收口声称失实，随批补齐（异步切片让出 +
+    // in-flight 去重自此真正上路；router dispatch 对 async handler 已有 catch 兜底）
+    const snapshot = await getForeshadowsCachedAsync(bookRoot)
     if (q) {
       reply(res, 200, filterForeshadowTrails(snapshot.entries, snapshot.trails, q))
       return

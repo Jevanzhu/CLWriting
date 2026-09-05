@@ -89,17 +89,57 @@ export function isInvalidBookName(name: string): boolean {
   return /[.\s]$/.test(name)
 }
 
+// ── R47-8（四十七轮）：books.jsonl 指纹缓存 ──────────────────────────────────────
+// 所有书域端点每请求 resolveBook 都全量读盘 + 逐行 JSON.parse（20s 心跳读改写、自动
+// 保存链等常态触发）。stat 指纹（size:mtimeMs）缓存——写必 bump mtime 自然失效，
+// 无需写路径挂钩（writeBooks 仍主动清一道作双保险）；命中零 IO 零解析。
+// 拷贝出仓：BookEntry 若被调用方原位改写（RMW mutator 族），共享引用会污染缓存
+// ——浅拷 entry 出仓（books 量级几十，拷贝 µs 级）。
+const BOOKS_CACHE_MAX = 8
+const booksCache = new Map<string, { sig: string; books: BookEntry[] | null }>()
+
+function booksStatSig(fp: string): string {
+  try {
+    const st = statSync(fp)
+    return `${st.size}:${st.mtimeMs}`
+  } catch {
+    return '-'
+  }
+}
+
+function copyBooks(list: BookEntry[]): BookEntry[] {
+  return list.map((b) => ({ ...b }))
+}
+
+/** R47-8：缓存落位（FIFO 淘汰同族口径）。books 可为 null（读失败降级出口同缓存）。 */
+function cacheBooksSet(fp: string, sig: string, books: BookEntry[] | null): void {
+  if (!booksCache.has(fp) && booksCache.size >= BOOKS_CACHE_MAX) {
+    const oldest = booksCache.keys().next().value
+    if (oldest !== undefined) booksCache.delete(oldest)
+  }
+  booksCache.set(fp, { sig, books })
+}
+
 /** 读 books.jsonl。写路径专用口径：缺文件 → 空表（新建合法）；读失败（EACCES/
  *  EISDIR 等）→ null——DA-3（第七轮）：写方据此拒绝重写，防「降级空表 × 后续整写」
  *  把其余登记清掉（EACCES 挡 readFileSync 不挡 atomicWriteFile 的 tmp+rename）。
- *  读路径容错请用 readBooks（失败降级空表，书架/resolveBook 不裸抛）。 */
+ *  读路径容错请用 readBooks（失败降级空表，书架/resolveBook 不裸抛）。
+ *  R47-8：stat 指纹缓存命中零读零解析（缓存的 null/[] 结果同口径复用——stat 与
+ *  readFileSync 失败面同族，'-' 签名合并为同一降级出口，语义不变）。 */
 export function readBooksStrict(workDir: string): BookEntry[] | null {
   const fp = join(workDir, BOOKS_FILE)
-  if (!existsSync(fp)) return []
+  const sig = booksStatSig(fp)
+  const hit = booksCache.get(fp)
+  if (hit && hit.sig === sig) return hit.books === null ? null : copyBooks(hit.books)
+  if (!existsSync(fp)) {
+    cacheBooksSet(fp, sig, [])
+    return []
+  }
   let text: string
   try {
     text = readFileSync(fp, 'utf-8')
   } catch {
+    cacheBooksSet(fp, sig, null)
     return null
   }
   // R40-25（四十轮）：剥 BOM 前缀——win 记事本「UTF-8 with BOM」保存后首行变
@@ -138,21 +178,36 @@ export function readBooksStrict(workDir: string): BookEntry[] | null {
       // 坏行跳过（容错，不崩）
     }
   }
-  return books
+  // R47-8：解析结果落缓存（主本驻留，调用方拿拷贝）
+  // R48-9（四十八轮）：miss 路径补同款拷贝（与上方缓存命中路径 copyBooks 对齐）——
+  // 原样返回缓存主本时，appendBookLocked push 后写盘失败会让幽灵书滞留缓存
+  //（书架显示不存在的书、同名重建误拒）
+  cacheBooksSet(fp, sig, books)
+  return copyBooks(books)
 }
 
-/** 读 books.jsonl（容错：缺文件/读失败均返回空；坏行跳过不崩——读路径降级口径）。 */
+/** 读 books.jsonl（容错：缺文件/读失败均返回空；坏行跳过不崩——读路径降级口径）。
+ *  R47-8：经 readBooksStrict 指纹缓存。 */
 export function readBooks(workDir: string): BookEntry[] {
   return readBooksStrict(workDir) ?? []
 }
 
+/** R47-8：books.jsonl 指纹缓存测试钩子（生产零调用；口径同 rebuild.ts __testHooks）。 */
+export const __booksCacheTestHooks = {
+  clear(): void {
+    booksCache.clear()
+  },
+}
+
 /** 全量写 books.jsonl（一行一书）。物理写（无锁）——跨进程互斥由上层 mutator
- *  持 books.lock（R63-2）后调用；直接调用方需自证单写者。 */
+ *  持 books.lock（R63-2）后调用；直接调用方需自证单写者。
+ *  R47-8：写后清指纹缓存（双保险——写必 bump mtime，指纹本会自然失配）。 */
 export function writeBooks(workDir: string, books: BookEntry[]): void {
   mkdirSync(join(workDir, CLWRITING_DIR), { recursive: true })
   const fp = join(workDir, BOOKS_FILE)
   const lines = books.map((b) => JSON.stringify(b)).join('\n')
   atomicWriteFile(fp, lines + (lines ? '\n' : ''))
+  booksCache.delete(fp)
 }
 
 /** R63-2（十一轮）：books.jsonl 锁等待超时（毫秒）——可注入缩短保测试快；
@@ -647,7 +702,10 @@ function repairBooksLocked(workDir: string, purgeConfirmedMissing: boolean): Rep
       missing = transient
     }
   }
-  const changed = updated || scanned.length > 0 || relinked.length > 0 || missing.length > 0 || purged.length > 0
+  // R48-60（四十八轮）：missing 不再计入 changed——幽灵条目自愈不自动清除（R35-28），
+  // 仅 missing>0 时 rebuilt 与盘上内容相同，计入 changed 只会每次启动整写相同
+  // books.jsonl（mtime 无谓抖动）；作者提示面（hint）不受影响
+  const changed = updated || scanned.length > 0 || relinked.length > 0 || purged.length > 0
 
   if (changed) {
     writeBooks(workDir, rebuilt)

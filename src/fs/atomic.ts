@@ -2,6 +2,8 @@ import { closeSync, existsSync, fsyncSync, linkSync, mkdirSync, openSync, readdi
 import { basename, dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { log } from '../log/index.js'
+// R48-71（四十八轮）：存活探测收编单源（原 isPidAlive 私抄副本删除）
+import { isProcessAlive } from './cross-process-lock.js'
 
 export interface AtomicWriteOptions {
   /** 落盘保证：写完 fsync 文件内容 + rename 后 fsync 父目录（元数据）。默认 true
@@ -28,7 +30,46 @@ export interface RenameRetryOptions {
   baseDelayMs?: number
 }
 
-const RETRYABLE_RENAME_CODES = new Set(['EPERM', 'EBUSY'])
+/** R48-70（四十八轮）：EPERM/EBUSY 瞬时占用指数退避**单实现**——rmWithRetry /
+ *  renameWithRetry（本文件）与 cross-process-lock.rmWithRetryQuiet 的三份手抄循环、
+ *  两份 retryable 字面量收敛此处（R48-15 接管面的退避缺口正是重复导致的视野遗漏）。
+ *  退避口径不变：3×50ms 指数，仅集合内错误码重试，其余确定性错误立即终局。 */
+export const RETRYABLE_FS_CODES: ReadonlySet<string> = new Set(['EPERM', 'EBUSY'])
+
+/** Atomics.wait 同步微睡（Node 主线程合法；单次退避 ≤200ms，不阻塞事件循环可观时长） */
+export function fsBackoffSleep(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
+
+/** R48-70：参数化退避核心。onExhausted 缺省上抛（throwing 壳语义）；传入则按消费
+ *  语义收口（Quiet 壳 warn 后吞，返回值不使用）。 */
+export function retryOnTransientFsError<T>(
+  op: () => T,
+  opts: {
+    sleep: (ms: number) => void
+    retries: number
+    baseDelayMs: number
+    onExhausted?: (e: unknown) => void
+  },
+): T {
+  let attempt = 0
+  for (;;) {
+    try {
+      return op()
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code ?? ''
+      if (attempt >= opts.retries || !RETRYABLE_FS_CODES.has(code)) {
+        if (opts.onExhausted) {
+          opts.onExhausted(e)
+          return undefined as T
+        }
+        throw e
+      }
+      opts.sleep(opts.baseDelayMs * 2 ** attempt)
+      attempt++
+    }
+  }
+}
 
 /**
  * R1W-1（win 平台专项复审 R1）：清理路径 rmSync 防护——删除「刚关闭的 tmp」恰是
@@ -73,43 +114,23 @@ export function rmWithRetry(
   const doRm =
     opts?.rm ??
     ((p: string) => rmSync(p, opts?.recursive ? { force: true, recursive: true } : { force: true }))
-  // Atomics.wait 同步微睡（与 renameWithRetry 同口径；单次退避 ≤200ms）
-  const sleep =
-    opts?.sleep ?? ((ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms))
-  const retries = opts?.retries ?? 3
-  const base = opts?.baseDelayMs ?? 50
-  let attempt = 0
-  for (;;) {
-    try {
-      doRm(path)
-      return
-    } catch (e) {
-      const code = (e as NodeJS.ErrnoException).code ?? ''
-      if (attempt >= retries || !RETRYABLE_RENAME_CODES.has(code)) throw e
-      sleep(base * 2 ** attempt)
-      attempt++
-    }
-  }
+  // R48-70：退避循环收编 retryOnTransientFsError 单实现（口径不变：3×50ms 指数，
+  // 仅 EPERM/EBUSY 重试，其余上抛）
+  retryOnTransientFsError(() => doRm(path), {
+    sleep: opts?.sleep ?? fsBackoffSleep,
+    retries: opts?.retries ?? 3,
+    baseDelayMs: opts?.baseDelayMs ?? 50,
+  })
 }
 
 export function renameWithRetry(from: string, to: string, opts?: RenameRetryOptions): void {
   const doRename = opts?.rename ?? ((src: string, dst: string) => renameSync(src, dst))
-  // Atomics.wait 同步微睡（Node 主线程合法；单次退避 ≤200ms，不阻塞事件循环可观时长）
-  const sleep =
-    opts?.sleep ?? ((ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms))
-  const retries = opts?.retries ?? 3
-  const base = opts?.baseDelayMs ?? 50
-  let attempt = 0
-  for (;;) {
-    try {
-      return doRename(from, to)
-    } catch (e) {
-      const code = (e as NodeJS.ErrnoException).code ?? ''
-      if (attempt >= retries || !RETRYABLE_RENAME_CODES.has(code)) throw e
-      sleep(base * 2 ** attempt)
-      attempt++
-    }
-  }
+  // R48-70：退避循环收编 retryOnTransientFsError 单实现（同 rmWithRetry 注）
+  retryOnTransientFsError(() => doRename(from, to), {
+    sleep: opts?.sleep ?? fsBackoffSleep,
+    retries: opts?.retries ?? 3,
+    baseDelayMs: opts?.baseDelayMs ?? 50,
+  })
 }
 
 /** 同目录临时文件 + rename，避免 JSON/manifest 中断后留下半截目标文件。
@@ -310,17 +331,8 @@ function fsyncDir(dir: string): void {
  *  持有进程存活探测，防误清他进程在途写。 */
 const ABANDONED_TMP_RE = /^\..+\.(\d+)\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp$/
 
-/** R65-37：进程存活探测（与 fs/cross-process-lock.ts 同口径）——process.kill(pid,0)
- *  不发信号只查存在性：ESRCH=死；EPERM=存在但属他人，按存活保守处理。 */
-function isPidAlive(pid: number): boolean {
-  if (!Number.isInteger(pid) || pid <= 0) return false
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (e) {
-    return (e as NodeJS.ErrnoException).code === 'EPERM'
-  }
-}
+/** R65-37：进程存活探测——R48-71（四十八轮）收编 cross-process-lock.isProcessAlive
+ *  单源（原私抄同语义副本；import 形成的 atomic↔lock 环仅为函数级互引，运行时安全）。 */
 
 /** Y-24：清扫 atomicWriteFile 崩溃残留的 tmp 文件（rename 前进程崩溃时 catch 清理
  *  不可达，`.<name>.<pid>.<uuid>.tmp` 永久留盘累积占空间）。
@@ -372,7 +384,7 @@ export function sweepAbandonedTmpFiles(rootDir: string, opts?: { now?: number; m
       try {
         const holder = JSON.parse(readFileSync(full, 'utf-8')) as { pid?: unknown }
         if (typeof holder.pid !== 'number' || !Number.isInteger(holder.pid) || holder.pid <= 0) continue
-        if (isPidAlive(holder.pid)) continue
+        if (isProcessAlive(holder.pid)) continue
         if (now - Math.floor(statSync(full).mtimeMs) < STALE_LOCK_MIN_AGE_MS) continue
         rmSync(full, { force: true })
         removed++
@@ -387,7 +399,7 @@ export function sweepAbandonedTmpFiles(rootDir: string, opts?: { now?: number; m
       if (now - Math.floor(st.mtimeMs) < minAge) continue // 可能在途——不动
       // R65-37：pid 仍存活 → 他进程在途写（年龄门外的双进程保护），永不清
       const pid = Number(ABANDONED_TMP_RE.exec(ent.name)?.[1])
-      if (Number.isInteger(pid) && pid > 0 && isPidAlive(pid)) continue
+      if (Number.isInteger(pid) && pid > 0 && isProcessAlive(pid)) continue
       rmSync(full, { force: true })
       removed++
     } catch {

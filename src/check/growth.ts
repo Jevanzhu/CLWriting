@@ -157,17 +157,10 @@ export function checkGrowth(
       for (const t of transitions) {
         const idx = realmIndex(sequence, t.realm)
 
-        // #1 命中：跃迁境界在序列内
-        if (idx === -1) {
-          items.push({
-            checkId: 'growth-realm-miss',
-            level: 'red',
-            message: `${id} 第${t.chapter}章跃迁至「${t.realm}」，不在序列中`,
-            leadId: id,
-            chapter: t.chapter,
-          })
-          continue
-        }
+        // R48-36（四十八轮）：原「idx === -1 → growth-realm-miss 红项」分支删除——
+        // invariant：transitions 的 realm 全部来自 extractExactRealmFromEvidence(·, sequence)
+        // （上方构造处），返回值恒在序列内，realmIndex 不可能 -1，该红项永不可达
+        // （提取失败另有 growth-evidence-no-realm 黄项兜底）。
 
         // #2 单调性：不递减
         if (prevIdx !== -1 && idx < prevIdx) {

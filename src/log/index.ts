@@ -337,6 +337,10 @@ function enqueueWrite(line: string): void {
         state.pumping = false
       }
     })
+    // R48-67（四十八轮）：泵链尾补 .catch——逐行 try/catch 已覆盖落盘面，但 then 回调
+    // 内未预期异常（finally 重置类的意外）穿出即 unhandled rejection 崩进程 + 泵标记
+    // 卡死日志永久哑火，与「日志永不成为新故障源」契约相悖；initLogging 同款兜底。
+    state.tail = state.tail.catch(() => {})
   }
 }
 

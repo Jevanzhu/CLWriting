@@ -107,7 +107,15 @@ function readRecord(bookRoot: string): { rec: CallRecord | null; corrupt: boolea
         try {
           const inflight = serializedWrite(bookRoot, () => {
             try {
-              writeRecord(bookRoot, migrated)
+              // R48-2（四十八轮）：段内重读文件，仅当仍是旧格式才落盘迁移——原闭包写
+              // enqueue 前的 migrated@T0 无账快照；锁外 read（checkAiCallBudget 等）入队
+              // 的迁移写排在先行记账写 A 之后时（链 [A, M]），A 段内已内联迁移+记账落盘，
+              // M 用 T0 快照覆盖 A 刚落的账（丢一次账）。Y-1 消灭的是「锁内 readRecord
+              // 再嵌套入队」那半，此处闭合「锁外读入队」的另一半。
+              const cur = JSON.parse(readFileSync(budgetPath(bookRoot), 'utf8')) as Record<string, unknown>
+              if (typeof cur['chapter'] === 'number') {
+                writeRecord(bookRoot, migrateOldFormat(cur as unknown as OldFormat))
+              }
             } catch (err) {
               migratedRoots.delete(bookRoot)
               throw err
@@ -219,6 +227,15 @@ function migrateOldFormat(old: OldFormat): CallRecord {
 
 /** E-4（第五十三轮）：旧格式迁移已完成的书库标记（防迁移写落地前并发 read 重复入队） */
 const migratedRoots = new Set<string>()
+
+/** R47-24（四十七轮）：migratedRoots 只增不减的释放口——删书/改名时精确清键（books.ts
+ *  forgetBookKeyedCaches 家族同位接线）。纯内存卫生：标记只防「迁移写落地前的并发
+ *  read 重复入队」，书根已随生命周期废弃后旧键不再被读到；清键对盘面/行为零影响
+ *  （若书根被同名重建，清键反而正确——重建书若再遇旧格式文件应重新走迁移而非被
+ *  陈旧标记短路）。 */
+export function forgetMigratedRoots(bookRoot: string): void {
+  migratedRoots.delete(bookRoot)
+}
 
 /** 原子写记录（atomicWriteFile + fsync；mode 0600 随临时文件创建即生效——
  *  CC-P2-3：此前先默认权限写再补 chmodSync，既有短暂全局可读窗口，且裸调用无防护、
@@ -499,7 +516,9 @@ export function effectiveRemainingCalls(bookRoot: string, chapter: number, confi
 /**
  * 记一次 chapter 维度 AI 调用（预算闸用；换章重置）。
  *
- * 由 runTask 在 self-heal 场景（传了 chapter 参数）自动调用。
+ * R48-25（四十八轮）头注如实化：生产路径已由 recordUsageCombined 取代（PM-11 合并后
+ * runner 单锁记账），本函数生产零调用，保留为测试记账辅助入口（8 个测试文件在用，
+ * 删除需改写约 40 处调用不成比例）。
  * D3（批 5）：costUsd 由 runner 按价格表现算传入（未配价不传——cost 口径静默不生效）。
  */
 export function recordAiCall(bookRoot: string, chapter: number, usage: TokenUsage | null, costUsd?: number): void {
@@ -545,6 +564,59 @@ function applyCall(rec: CallRecord, usage: TokenUsage | null, costUsd?: number):
   if (typeof costUsd === 'number' && Number.isFinite(costUsd)) {
     rec.chapter.costAccum = Math.round(((rec.chapter.costAccum ?? 0) + costUsd) * 1e10) / 1e10
   }
+}
+
+/** PM-11（性能与内存专项·2026-09-05）：task + chapter 两块记账合并为**单次持锁读改写**。
+ *  原 runner recordUsageSafe 依次调 recordTaskUsage + recordAiCall，各自独立
+ *  serializedWrite——同一笔 usage 两次「整读+JSON.parse → 改 → stringify+原子写+fsync」，
+ *  每次生成双份全量文件 IO。合并后单段内先改 task 位再改 chapter 位，一次写盘。
+ *  语义与两分身串行执行逐位一致：corrupt 整体跳过（同口径 error）、rec 缺失建新档
+ *  （task 位并入新档 tasks，等价原「第二段 fresh.tasks = rec.tasks」）、换章重置仅动
+ *  chapter 块（tasks 保留）。单块调用方（rag-embed 等）继续用两分身，不迁移。 */
+export function recordUsageCombined(
+  bookRoot: string,
+  opts: { task?: string; chapter?: number; usage: TokenUsage | null; costUsd?: number },
+): void {
+  if (opts.task === undefined && opts.chapter === undefined) return
+  serializedWrite(bookRoot, () => recordUsageCombinedLocked(bookRoot, opts))
+}
+
+function recordUsageCombinedLocked(
+  bookRoot: string,
+  opts: { task?: string; chapter?: number; usage: TokenUsage | null; costUsd?: number },
+): void {
+  const { rec, corrupt } = readRecord(bookRoot)
+  if (corrupt) {
+    log.error('calls', '.cache/ai-calls.json 损坏，本次记账跳过（保守阻断保持）')
+    return
+  }
+  const base: CallRecord =
+    rec ?? { chapter: { num: opts.chapter ?? 0, used: 0, inputTokens: 0, outputTokens: 0 }, tasks: {} }
+  // task 位（与 recordTaskUsageLocked 逐位同源）
+  if (opts.task !== undefined) {
+    const t = base.tasks[opts.task] ?? { used: 0, inputTokens: 0, outputTokens: 0 }
+    t.used += 1
+    if (opts.usage) {
+      t.inputTokens += opts.usage.inputTokens
+      t.outputTokens += opts.usage.outputTokens
+      if (opts.usage.cacheReadTokens !== undefined) {
+        t.cacheReadTokens = (t.cacheReadTokens ?? 0) + opts.usage.cacheReadTokens
+      }
+      if (opts.usage.cacheWriteTokens !== undefined) {
+        t.cacheWriteTokens = (t.cacheWriteTokens ?? 0) + opts.usage.cacheWriteTokens
+      }
+      if (opts.usage.estimated) t.estimated = true
+    }
+    base.tasks[opts.task] = t
+  }
+  // chapter 位（与 recordAiCallLocked 逐位同源：!rec || 换章 → 块重建，tasks 保留）
+  if (opts.chapter !== undefined) {
+    if (!rec || base.chapter.num !== opts.chapter) {
+      base.chapter = { num: opts.chapter, used: 0, inputTokens: 0, outputTokens: 0 }
+    }
+    applyCall(base, opts.usage, opts.costUsd)
+  }
+  writeRecord(bookRoot, base)
 }
 
 /**

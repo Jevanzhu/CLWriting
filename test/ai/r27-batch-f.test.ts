@@ -1,7 +1,8 @@
 /**
  * 二十七轮修复批 F 回归（R27-1 / 2 / 4 / 6）——根因-语义-测法：
  * - R27-1 llm/call durationMs 混入记账 IO：trace 内联 Date.now() 时 recordUsageSafe
- *   的记账耗时（含用量文件锁等待）被计入 attempt 时长 → mock recordTaskUsage 同步
+ *   的记账耗时（含用量文件锁等待）被计入 attempt 时长 → mock 记账入口（PM-11 起
+ *   为 recordUsageCombined 合并单笔；原 recordTaskUsage）同步
  *   忙等 80ms，断言 durationMs 只含 run 窗口（<50ms）而墙钟 ≥80ms。
  * - R27-2 anthropic usage「首见即定」：多个 message_delta 带 usage 时 emitDone 幂等门
  *   锁首值、末 delta 完整值被丢，与 openai 线 R26-3 末见口径分叉 → 双 delta 流断言
@@ -27,12 +28,15 @@ import { httpStatusToCode, failureAction } from '../../src/ai/provider/failure.j
 import type { GenEvent, GenRequest, ModelProvider, ProviderConf } from '../../src/ai/provider/index.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
-// R27-1：把记账入口换成同步忙等——runner 对 recordTaskUsage 的调用耗时可观测
+// R27-1：把记账入口换成同步忙等——runner 对记账入口的调用耗时可观测。
+// PM-11（性能与内存专项·2026-09-05）：runner 记账入口由 recordTaskUsage/recordAiCall
+// 两笔合并为 recordUsageCombined 单笔——忙等 mock 随之挂到新入口（原断言意图不变：
+// 记账 IO 不进 durationMs、墙钟含之）。
 vi.mock('../../src/ai/calls.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/ai/calls.js')>()
   return {
     ...actual,
-    recordTaskUsage: vi.fn(() => {
+    recordUsageCombined: vi.fn(() => {
       const end = Date.now() + 80
       while (Date.now() < end) { /* 同步忙等：制造可断言的记账 IO 延迟 */ }
     }),

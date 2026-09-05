@@ -31,6 +31,11 @@ export function useChatComposer(
   currentChapter: () => number | undefined,
   /** pushUser 后、sendChat 前的额外操作（ChatPanel: scrollToBottom, ChatDock: chatOpen=true） */
   onPushed?: () => void | Promise<void>,
+  /** R48-97（四十八轮）：enabled=false = 哑实例——不注册草稿回填/章节跟随 watch、
+   *  不挂 document click/keydown 监听、动作入口静默 return。dock 场景 ChatPanel
+   * （hideComposer）传入 false：输入区由 ChatDock 自持，面板内隐藏的完整 composer
+   *  双活监听（document 级 ×2 + watch ×2）是「后续加逻辑静默双跑」的潜伏陷阱。 */
+  enabled = true,
 ) {
   const chat = useChatStore()
   const wb = useWorkbenchStore()
@@ -51,8 +56,10 @@ export function useChatComposer(
   // R66-33：消费入口两条——随书重建的实例（ChatDock 挂 :key=bookName，R27-76 起）靠
   // setup 时取；切书仍常驻的实例（工作台 tab 内 ChatPanel，WorkbenchView 无 :key）靠 watch。
   // 重建实例的 watch 随销毁失效，两条并存不重复回填
-  restoreFailedDraft(bookName())
-  watch(bookName, (nb) => restoreFailedDraft(nb))
+  if (enabled) {
+    restoreFailedDraft(bookName())
+    watch(bookName, (nb) => restoreFailedDraft(nb))
+  }
   const sending = ref(false)
   // E1a（steer）：对话运行中允许继续发消息（后端入队，当前轮结束自动续链）；
   // 仅写稿/自愈编排运行（wb.running）时禁发，避免生成中改稿并发
@@ -66,10 +73,13 @@ export function useChatComposer(
 
   // 首挂/编辑器换章跟随：仅本书无显式选择记忆时（R35-11——手动选择后不再被覆盖，
   // 切书由 chat.clear 复位到该书记忆）。setup 直调一次保持原「初值 = 当前章」行为
-  chat.followChatChapter(bookName(), currentChapter())
-  watch(currentChapter, (v) => chat.followChatChapter(bookName(), v))
+  if (enabled) {
+    chat.followChatChapter(bookName(), currentChapter())
+    watch(currentChapter, (v) => chat.followChatChapter(bookName(), v))
+  }
 
   async function handleSend(): Promise<void> {
+    if (!enabled) return // R48-97：哑实例动作面不可达（模板不渲染），防御性静默
     const text = input.value.trim()
     if (!text || busy.value || sending.value) return
     // 第五轮：书名入口捕获——onPushed await 后（以及错误慢返回时）bookName() 可能已
@@ -119,6 +129,7 @@ export function useChatComposer(
   }
 
   function handleKeydown(e: KeyboardEvent): void {
+    if (!enabled) return
     // R61-3（第六十一轮）：IME 组合期确认候选的 Enter 让渡——此时 v-model 尚未同步
     // 组合文本，放行会以组合前旧值发送不完整消息
     if (e.key === 'Enter' && !e.shiftKey && !isImeComposing(e)) {
@@ -132,10 +143,12 @@ export function useChatComposer(
   const chapterWrapRef = ref<HTMLElement | null>(null)
 
   function toggleChapterMenu(): void {
+    if (!enabled) return
     chapterMenuOpen.value = !chapterMenuOpen.value
   }
 
   function selectChapter(ch: number | undefined): void {
+    if (!enabled) return
     // R35-11：写经 chat store（落本书记忆），双实例与 regenerate 同源可见
     chat.selectChatChapter(bookName(), ch)
     chapterMenuOpen.value = false
@@ -158,20 +171,24 @@ export function useChatComposer(
     chapterMenuOpen.value = false
   }
 
-  onMounted(() => {
-    document.addEventListener('click', onDocClick)
-    document.addEventListener('keydown', onDocKeydown, true)
-  })
-  onUnmounted(() => {
-    document.removeEventListener('click', onDocClick)
-    document.removeEventListener('keydown', onDocKeydown, true)
-  })
+  if (enabled) {
+    onMounted(() => {
+      document.addEventListener('click', onDocClick)
+      document.addEventListener('keydown', onDocKeydown, true)
+    })
+    onUnmounted(() => {
+      document.removeEventListener('click', onDocClick)
+      document.removeEventListener('keydown', onDocKeydown, true)
+    })
+  }
 
   async function stopChat(): Promise<void> {
+    if (!enabled) return
     try { await interrupt(bookName()) } catch { /* 忽略 */ }
   }
 
   async function handleClear(): Promise<void> {
+    if (!enabled) return
     // M-8（第六轮）：书名入口捕获——确认弹窗 await 期间书可能已切换（弹窗可跨书滞留）。
     // 弹窗按发起时的书提问，确认时已不在该书 → 中止：不删错书的服务端历史、不清错书的前端对话区
     const book = bookName()

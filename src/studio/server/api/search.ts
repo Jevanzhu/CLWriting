@@ -81,6 +81,10 @@ export async function searchBookCached(bookRoot: string, q: string, scope?: stri
   if (cached && cached.sig === sig && Date.now() - cached.ts < (searchTtlMs ?? SEARCH_CACHE_TTL_MS)) {
     return cached.outcome
   }
+  // R47-18（四十七轮）：过期条目顺手逐出——原只当 miss 用、条目驻留至 FIFO 触顶/删书
+  //（forgetSearchCache）；重算路径本就必走，零成本零语义变更（扫描完成 set 原键覆写；
+  // 在途去重走 inFlightSearches 不经 searchCache，不受影响；过期条目本就永不再命中）
+  if (cached && Date.now() - cached.ts >= (searchTtlMs ?? SEARCH_CACHE_TTL_MS)) searchCache.delete(key)
   const inFlight = inFlightSearches.get(key)
   if (inFlight) return inFlight // 在途去重：同参数并发只跑一次
   scanCountForTest += 1

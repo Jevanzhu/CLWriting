@@ -6,6 +6,7 @@ import { computed } from 'vue'
 import { CircleCheck } from 'lucide-vue-next'
 import { useWorkbenchStore } from '../../stores/workbench'
 import { countWords } from '../../shared/words' // R64-33：字数与编辑器头/右栏同源（码点+剥标记）
+import { useDebouncedSource } from '../../composables/useDebouncedSource'
 import BetaBadge from '../ui/BetaBadge.vue'
 
 defineProps<{
@@ -15,7 +16,12 @@ defineProps<{
 }>()
 const emit = defineEmits<{ save: [] }>()
 const wb = useWorkbenchStore()
-const draftWords = computed(() => countWords(wb.textOut))
+// R47-14（四十七轮）：流式期间每 SSE text 事件的全文 countWords（两次全文物化）改
+// 150ms 防抖——字数展示无 chunk 级精度需求（正文 <pre> 渲染照旧逐 chunk，属流式展示
+// 本体）。:disabled 判空保持直读 wb.textOut（O(n) trim 单次、无物化，且启用及时性
+// 由 playwright 自动等待兜底，不并入防抖）。
+const debTextOut = useDebouncedSource(() => wb.textOut)
+const draftWords = computed(() => countWords(debTextOut.value))
 </script>
 
 <template>

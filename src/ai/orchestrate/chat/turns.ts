@@ -421,6 +421,9 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
     }
   }
 
+  // R48-27（四十八轮）：最近一轮用量快照——轮数触顶收尾的 chat_done 同无工具路径带上
+  // usage（触顶场景整场对话原本没有任何带用量的 done，SSE 侧用量统计恒缺）
+  let lastTurnUsage: { inputTokens: number; outputTokens: number } | undefined
   for (let turn = 0; turn < MAX_AGENT_TURNS; turn++) {
     if (state.ctrl.signal.aborted) {
       // P1-S4 回滚 + F1-P1 遮蔽在 finishTurn 内；CC-P2-2：deadline 定时器触发的 abort
@@ -551,6 +554,8 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
     }
 
     const { text, toolCalls, stopReason, reasoning, reasoningEncrypted, reasoningItemId } = out.data
+    // R48-27（四十八轮）：逐轮保存合并口径用量（attemptsUsage 优先，同 R27-3），触顶收尾透出
+    lastTurnUsage = (out.attemptsUsage ?? out.usage) ?? undefined
 
     // max_tokens → 工具入参可能被截断，绝不执行；半截文本不入 history（K12）；
     // P1-R1a：回滚 user 消息（与 !out.ok 路径一致），防下次对话连续 user → Anthropic 400
@@ -690,7 +695,12 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
   // 此前记 MAX_AGENT_TURNS-1 会把循环内已记 completed 的最后一轮再关一次，同轮双终态
   recorder.add(turnEndEvent(MAX_AGENT_TURNS, 'max-turns'))
   if (!flushTurnEvents()) return false
-  emit(opts, { type: 'chat_done' })
+  // R48-27（四十八轮）：触顶收尾的 chat_done 同无工具路径（:589 R27-3 口径）带用量——
+  // 工具轮不 emit done，无此补齐则触顶对话整场无带用量的 done，用量统计恒缺
+  emit(opts, {
+    type: 'chat_done',
+    ...(lastTurnUsage ? { inputTokens: lastTurnUsage.inputTokens, outputTokens: lastTurnUsage.outputTokens } : {}),
+  })
   deps.markCompleted()
   // Z-P1-2：轮数触顶收尾也属正常完成——同口径激活新分支
   if (opts.regenerate) activeBranchByBook.set(opts.bookName, opts.regenerate.branchId)

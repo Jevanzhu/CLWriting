@@ -23,7 +23,7 @@ import type { BookConfig } from '../format/types.js'
 import { readForeshadows, scanForeshadowTrails } from '../document/foreshadow.js'
 import { finalizedChapterSetOfBook } from '../document/manifest.js'
 import { isWithinRoot } from '../fs/safe-path.js'
-import { volumeSummaryProvablyStale } from './summary.js'
+import { volumeSummaryProvablyStale, volumeSummaryPath, codePointLength } from './summary.js'
 import { log } from '../log/index.js'
 
 /**
@@ -126,24 +126,9 @@ export const TOKEN_COEFFICIENTS: Record<string, number> = {
 /** 全局兜底系数（校准前的既有口径：中文约 0.6 token/字） */
 export const DEFAULT_TOKEN_COEFF = 0.6
 
-/** N-14 同款（src/process/summary.ts codePointLength 的非分配版实现）：码位计数——
- *  自增计数器逐码点数，替代 Array.from(text).length 全量展开数组只为取个数的写法。
- *  此处不直接 import summary.ts：其依赖链拖入 AI 编排栈（runSpec/background），备料
- *  模块保持轻依赖。口径严格不变：代理对（高低各一码元）算一个码位，孤立代理项各算
- *  一个，与展开结果一致。 */
-function codePointLength(text: string): number {
-  let n = 0
-  for (let i = 0; i < text.length; i++) {
-    const c = text.charCodeAt(i)
-    // 高代理项后随低代理项 → 成对算一个码位，跳过低代理项
-    if (c >= 0xd800 && c <= 0xdbff && i + 1 < text.length) {
-      const d = text.charCodeAt(i + 1)
-      if (d >= 0xdc00 && d <= 0xdfff) i++
-    }
-    n++
-  }
-  return n
-}
+// R48-56（四十八轮）：codePointLength 收编 summary.js 单源——原注释「不直接 import
+// summary.ts：其依赖链拖入 AI 编排栈」已失实（本文件 26 行起早已 import summary.js），
+// 双实现纯漂移面；summary.js 侧实现同为非分配码位计数，口径严格一致。
 
 /** token 粗估（#12 第 5 节）：按模型查实测系数表，未命中回落 0.6。
  *  P-7（第十四轮）：长度按 code points 计（非分配计数器）——与 spill/compaction 全库
@@ -258,12 +243,21 @@ function buildEndingsSections(
     const parts: string[] = []
     const files: string[] = []
     for (const r of recentEndings) {
-      if (existsSync(r.path) && isWithinRoot(bookRoot, r.path)) {
-        const raw = readFileSync(r.path, 'utf-8').trim()
-        const split = splitFrontMatter(raw)
-        parts.push(`【第${r.ref}章结尾】\n${(split ? split.body : raw).trim()}`)
-        files.push(relative(bookRoot, r.path).replace(/\\/g, '/')) // M-4 收口：审计记录统一正斜杠口径
+      // R48-10（四十八轮）：existsSync→readFileSync TOCTOU 无守卫——readFileSync 抛出
+      //（win 瞬态 EBUSY/文件刚被删）此前穿上游 catch{} 零留痕，prompt 无声瘦身；
+      // 包 try/catch 降级为「无此文件」+ log.warn（R65-31 口径）
+      if (!isWithinRoot(bookRoot, r.path)) continue
+      let raw: string
+      try {
+        if (!existsSync(r.path)) continue
+        raw = readFileSync(r.path, 'utf-8').trim()
+      } catch (e) {
+        log.warn('prepare', `近章结尾摘要读取失败（${relative(bookRoot, r.path)}，降级为无此文件）：${e instanceof Error ? e.message : String(e)}`)
+        continue
       }
+      const split = splitFrontMatter(raw)
+      parts.push(`【第${r.ref}章结尾】\n${(split ? split.body : raw).trim()}`)
+      files.push(relative(bookRoot, r.path).replace(/\\/g, '/')) // M-4 收口：审计记录统一正斜杠口径
     }
     if (parts.length > 0) {
       sections.push({
@@ -333,11 +327,21 @@ function buildStyleSections(
   } else {
     const ironPath = join(bookRoot, '文风', '文风铁律.md')
     if (existsSync(ironPath)) {
-      sections.push({
-        title: '文风铁律',
-        content: readFileSync(ironPath, 'utf-8').trim(),
-        essential: true,
-      })
+      // R48-10（四十八轮）：读盘包 try/catch + warn（同近章结尾同编号注）——瞬态读
+      // 失败此前穿上游 catch{} 零留痕（prompt 无声丢刚需段）；降级为无此段
+      let iron: string | null = null
+      try {
+        iron = readFileSync(ironPath, 'utf-8').trim()
+      } catch (e) {
+        log.warn('prepare', `文风铁律读取失败（未迁移书降级无此段）：${e instanceof Error ? e.message : String(e)}`)
+      }
+      if (iron !== null) {
+        sections.push({
+          title: '文风铁律',
+          content: iron,
+          essential: true,
+        })
+      }
     }
   }
 
@@ -432,7 +436,9 @@ function buildOutlookSections(
   // N=volumeSize+1 时本章就要上卷摘要，快照口径会晚一章
   const outlookVolume = Math.ceil((writingChapter ?? snapshot.currentChapter) / volumeSize)
   if (outlookVolume > 1) {
-    const volSummaryPath = join(bookRoot, '定稿', '摘要', '卷摘要', `${outlookVolume - 1}.md`)
+    // R48-56（四十八轮）：路径收口 volumeSummaryPath 单源（原手搓同款字面量，单源
+    // 改目录时此处漂移）；codePointLength 同批收编（见文件头 import）
+    const volSummaryPath = volumeSummaryPath(bookRoot, outlookVolume - 1)
     if (existsSync(volSummaryPath)) {
       // R27-107（二十七轮）：备料陈旧闸——程序生成（fm 带 sourceHash）且指纹落后于当前
       // 章摘要链 = 可证明过期，不再注入 prompt（宁缺段降级，不喂过期剧情误导续写）；
@@ -443,15 +449,23 @@ function buildOutlookSections(
       } else {
         // M-7（第六轮）：卷摘要剥 fm 再注入（程序生成的 volume/generatedAt/model/sourceHash
         // 是元数据非内容）——与近章结尾同口径；注入文件随段登记（整段被裁时随段回收）
-        const raw = readFileSync(volSummaryPath, 'utf-8').trim()
-        const split = splitFrontMatter(raw)
-        sections.push({
-          title: `第${outlookVolume - 1}卷摘要`,
-          content: (split ? split.body : raw).trim(),
-          essential: false,
-          flexibleRank: 3,
-          summaryFiles: [relative(bookRoot, volSummaryPath).replace(/\\/g, '/')],
-        })
+        // R48-10（四十八轮）：读盘包 try/catch + warn（同前两处同编号注）；降级为无此段
+        let raw: string | null = null
+        try {
+          raw = readFileSync(volSummaryPath, 'utf-8').trim()
+        } catch (e) {
+          log.warn('prepare', `第 ${outlookVolume - 1} 卷摘要读取失败（降级无此段）：${e instanceof Error ? e.message : String(e)}`)
+        }
+        if (raw !== null) {
+          const split = splitFrontMatter(raw)
+          sections.push({
+            title: `第${outlookVolume - 1}卷摘要`,
+            content: (split ? split.body : raw).trim(),
+            essential: false,
+            flexibleRank: 3,
+            summaryFiles: [relative(bookRoot, volSummaryPath).replace(/\\/g, '/')],
+          })
+        }
       }
     }
   }

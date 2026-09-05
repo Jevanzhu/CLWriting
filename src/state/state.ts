@@ -613,15 +613,16 @@ function findUnfinishedChapter(bookRoot: string, manifest: Manifest): number | n
   if (!existsSync(bodyDir)) return null
   // N2（五十九轮）：裸 statSync（跟随 symlink）+ 无 visited 递归改走 walk-md 共享
   // 口径（Dirent 不跟随 symlink + realpath 剪枝 + 根界）——循环 symlink 不再进门崩。
-  let found: number | null = null
+  // R48-63（四十八轮）：未定稿草稿取最小章号——原遍历序首个（readdir 序平台漂移，
+  // 多草稿并存时态 4 报告与 resumePoint 判定随平台漂移）；收集全部取最小确定性收敛。
+  const draftChapters: number[] = []
   walkMdEach(bodyDir, (fp, name) => {
-    if (found !== null) return
     const rel = relativePath(bookRoot, fp)
     if (finalizedStems.has(docJoinKey(rel))) return // 已定稿，不算未完成（R41-2 同口径键）
     const no = chapterFromFile(fp, name)
-    if (no > 0) found = no
+    if (no > 0) draftChapters.push(no)
   })
-  return found
+  return draftChapters.length > 0 ? Math.min(...draftChapters) : null
 }
 
 /** 从文件 frontmatter 章号 或 文件名数字提取章号。

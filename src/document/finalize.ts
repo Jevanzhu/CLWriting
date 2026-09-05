@@ -78,7 +78,8 @@ function leadLockFailError(targets: LeadUpdateTargets, detail: string): string {
 }
 
 /**
- * 锁外前置段：全部失败形态为 NOT_FOUND（原语义逐位保留）。
+ * 锁外前置段：结构失败形态为 NOT_FOUND（原语义逐位保留）；指纹读盘失败（win 瞬态
+ * 占用）按 R48-5 转 WRITE_ERROR 信封，不再裸抛穿批。
  * P1-BE-1：computeRevision 对不存在文件抛 ENOENT，需前置校验（batch-finalize 单条缺失不应中断整批）。
  */
 function prepareFinalize(bookRoot: string, docId: string): FinalizePrepared | Extract<FinalizeOutcome, { ok: false }> {
@@ -97,7 +98,14 @@ function prepareFinalize(bookRoot: string, docId: string): FinalizePrepared | Ex
 
   // 当前内容指纹
   if (!existsSync(absPath)) return { ok: false, code: 'NOT_FOUND', error: '文档不存在' }
-  const currentRev = computeRevision(absPath)
+  // R48-5（四十八轮）：读盘包信封——computeRevision 裸抛（win 瞬态 EBUSY/EACCES）
+  // 此前穿 FinalizeOutcome 信封整批定稿中断丢汇总；转 WRITE_ERROR（定稿未生效可重试）
+  let currentRev: ReturnType<typeof computeRevision>
+  try {
+    currentRev = computeRevision(absPath)
+  } catch (e) {
+    return { ok: false, code: 'WRITE_ERROR', error: `定稿前指纹读取失败（文档瞬态占用？可重试）：${e instanceof Error ? e.message : String(e)}` }
+  }
 
   // 章号 + 标题（版本元信息用）；解析失败从文件名推断（R30-5：移到锁外，纯读）
   const rd = readChapter(absPath)
@@ -130,7 +138,16 @@ function finalizeLockedCore(pre: FinalizePrepared): FinalizeOutcome {
   // readFileSync」两次读盘之间他进程仍可插入落盘，pinned 版本内容与基线指纹错拍；
   // 现指纹与版本内容同源于同一次读取（hashBytes 单源 fs/hash.ts）。读取失败按外部
   // 已移除处理，沿用锁外基线（原 X-5 兜底语义），后续写版本若也失败走 WRITE_ERROR。
-  const fileBytes = existsSync(absPath) ? readFileSync(absPath) : null
+  // R48-5（四十八轮）：锁内读盘包信封——readFileSync 裸抛（win 瞬态 EBUSY/EACCES）
+  // 此前穿 FinalizeOutcome 信封整批定稿中断丢汇总；转 WRITE_ERROR（清单未动可重试）
+  let fileBytes: Buffer | null = null
+  if (existsSync(absPath)) {
+    try {
+      fileBytes = readFileSync(absPath)
+    } catch (e) {
+      return { ok: false, code: 'WRITE_ERROR', error: `定稿锁内指纹重算读盘失败（已拒绝，可重试）：${e instanceof Error ? e.message : String(e)}` }
+    }
+  }
   const rev = fileBytes ? (hashBytes(fileBytes) as `sha256:${string}`) : pre.currentRev
   // 幂等：当前指纹 == 已记录的定稿基线 → skipped，不重复写版本。
   // R27-40（二十七轮）：strict 读——瞬态读失败原会当「无基线」走补建分支，空表
@@ -235,7 +252,7 @@ function finalizeLockedCore(pre: FinalizePrepared): FinalizeOutcome {
  * @param docId 目标文档 id
  * @returns 是否成功 + 结果状态。
  */
-export function finalizeRevision(bookRoot: string, docId: string): FinalizeOutcome {
+function finalizeRevisionImpl(bookRoot: string, docId: string): FinalizeOutcome {
   const pre = prepareFinalize(bookRoot, docId)
   if ('ok' in pre) return pre
   // R30-5：统一锁序「布线锁 → 清单锁」——布线正文章先预取全部目标布线锁，再进清单锁；
@@ -254,12 +271,23 @@ export function finalizeRevision(bookRoot: string, docId: string): FinalizeOutco
   return withManifestLock(pre.manifestPath, () => finalizeLockedCore(pre))
 }
 
+/** R48-5（四十八轮）：最外层兜底——prepareFinalize/锁预取段任何未预期裸抛
+ *  （readChapter/resolveLeadUpdateTargets 等）不再穿信封致批量定稿整批中断丢汇总，
+ *  统一收口 WRITE_ERROR（定稿未生效：版本未写、清单未动，可重试）。 */
+export function finalizeRevision(bookRoot: string, docId: string): FinalizeOutcome {
+  try {
+    return finalizeRevisionImpl(bookRoot, docId)
+  } catch (e) {
+    return { ok: false, code: 'WRITE_ERROR', error: `定稿内部错误（已拒绝，可重试）：${e instanceof Error ? e.message : String(e)}` }
+  }
+}
+
 /**
  * R30-6（三十轮）：finalizeRevision 的异步孪生——布线预取锁与清单锁等待全部走
  * setTimeout 轮询原语（事件循环不阻塞），语义（超时档/fail-closed/锁序）与同步孪生
  * 逐位对齐。错误文案中同步/异步原语同档（5s），仅等待机制不同。
  */
-export async function finalizeRevisionAsync(bookRoot: string, docId: string): Promise<FinalizeOutcome> {
+async function finalizeRevisionImplAsync(bookRoot: string, docId: string): Promise<FinalizeOutcome> {
   const pre = prepareFinalize(bookRoot, docId)
   if ('ok' in pre) return pre
   if (pre.isWiredChapter && pre.wiringTargets && pre.wiringTargets.updates.length > 0) {
@@ -274,6 +302,15 @@ export async function finalizeRevisionAsync(bookRoot: string, docId: string): Pr
     }
   }
   return withManifestLockAsync(pre.manifestPath, () => finalizeLockedCore(pre))
+}
+
+/** R48-5（四十八轮）：异步孪生同挂最外层兜底（语义与同步孪生逐位对齐）。 */
+export async function finalizeRevisionAsync(bookRoot: string, docId: string): Promise<FinalizeOutcome> {
+  try {
+    return await finalizeRevisionImplAsync(bookRoot, docId)
+  } catch (e) {
+    return { ok: false, code: 'WRITE_ERROR', error: `定稿内部错误（已拒绝，可重试）：${e instanceof Error ? e.message : String(e)}` }
+  }
 }
 
 /**

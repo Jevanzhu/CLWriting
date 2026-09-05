@@ -224,10 +224,12 @@ describe('P3：无 parentPort 探针区分（vitest 测试态 vs 误用直跑）
 })
 
 // R65-41（总六十五轮）：顶层 fatal 兜底——unhandledRejection / uncaughtException 经
-// stdout 日志通道记 error 后 process.exit(1)（记日志后主动退出，交给 restart 退避）。
+// stdout 日志通道记 error 后 exit(1)（记日志后主动退出，交给 restart 退避）。
+// R48-18（四十八轮）：exit 改 setImmediate 让一轮（对齐 R71-13）——stdout pipe 异步
+// 写 flush 后再退，崩溃诊断行不随进程消亡丢失。
 // vitest import 态（无 parentPort）不注册：防测试 worker 的无关 rejection 触发 exit。
 describe('R65-41：installFatalExitHandlers（fatal 记日志后 exit(1)）', () => {
-  it('两个 handler 各自：log.error 留痕（tag=server-utility）+ process.exit(1)', () => {
+  it('两个 handler 各自：log.error 留痕（tag=server-utility）+ 让一轮后 exit(1)', async () => {
     const captured: Record<string, (reasonOrErr: unknown) => void> = {}
     const onSpy = vi
       .spyOn(process, 'on')
@@ -245,6 +247,10 @@ describe('R65-41：installFatalExitHandlers（fatal 记日志后 exit(1)）', ()
 
       const boom = new Error('异步炸了')
       captured['unhandledRejection']!(boom)
+      // R48-18 回归锚：exit 推迟到 setImmediate 轮（同步退出会截断 stdout pipe 的
+      // 诊断行 flush——老实现此处已调用）
+      expect(exitSpy).not.toHaveBeenCalled()
+      await new Promise((r) => setImmediate(r))
       expect(exitSpy).toHaveBeenCalledWith(1)
       // log 未 init 时 console.error 镜像一行 `[tag] msg` + err——断言首参含 tag 与事件名
       expect(
@@ -254,6 +260,8 @@ describe('R65-41：installFatalExitHandlers（fatal 记日志后 exit(1)）', ()
       exitSpy.mockClear()
       errSpy.mockClear()
       captured['uncaughtException']!(boom)
+      expect(exitSpy).not.toHaveBeenCalled()
+      await new Promise((r) => setImmediate(r))
       expect(exitSpy).toHaveBeenCalledWith(1)
       expect(
         errSpy.mock.calls.some(([line]) => String(line).includes('server-utility') && String(line).includes('uncaughtException')),

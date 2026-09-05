@@ -5,8 +5,43 @@
  * 仅含 --- 分隔逻辑；值类型推断（parseValue/parseFlat）留在 frontmatter.ts（服务端专用）。
  */
 
+// R47-4（四十七轮）：2-slot 引用 memo——编辑链每击键此前对同一文档内容跑 3 次全文
+// split（EditorView body computed / onBodyChange 的 mergeFm / titleModel watch 的
+// parseFmFields），几十万字文档每次 split = 全文行数组 + 两次 slice/join 物化；同一
+// 击键周期内三处消费的是同一/相邻两个字符串（旧 content 与 patch 后的新 content），
+// 2-slot（上一击键的新 content + 本击键待合并的旧 content 轮转覆盖）即可把每键全文
+// split 收敛到 ≤1 次。调用方全部只读（全仓无 .fmRaw=/.body= 改写面，grep 核验），
+// 共享返回对象安全（本函数纯函数，值等价命中同样正确）；服务端高频读（清单/树/
+// 机检链的 bodyOf 族）同享收益。有界：仅驻留 2 份 (输入串引用, 结果)。长度预过滤
+// 先于 === 值比较——击键流里相邻两个 content 几乎必差 1 字符（添/删），长度不等即
+// 免掉整串 memcmp；同引用命中走引擎指针快路径（O(1)）。
+const SPLIT_MEMO_SLOTS = 2
+const splitMemoInput: Array<string | null> = new Array<string | null>(SPLIT_MEMO_SLOTS).fill(null)
+const splitMemoLen: number[] = new Array<number>(SPLIT_MEMO_SLOTS).fill(-1)
+const splitMemoOut: Array<{ fmRaw: string; body: string } | null> = new Array<{ fmRaw: string; body: string } | null>(SPLIT_MEMO_SLOTS).fill(null)
+
 /** 从 markdown 文本提取 front matter 段（--- 之间）与正文。无 fm 或未闭合 → null */
 export function splitFrontMatter(
+  content: string,
+): { fmRaw: string; body: string } | null {
+  for (let i = 0; i < SPLIT_MEMO_SLOTS; i++) {
+    if (splitMemoLen[i] === content.length && splitMemoInput[i] === content) {
+      return splitMemoOut[i] ?? null // 值等价命中（同引用 O(1) 快路径；null 结果同缓存）
+    }
+  }
+  const result = splitFrontMatterUncached(content)
+  // 轮转覆盖：淘汰最旧 slot（数组 [1] 让位给 [0] 的现行值，新结果落 [0]）
+  splitMemoInput[1] = splitMemoInput[0] ?? null
+  splitMemoLen[1] = splitMemoLen[0] ?? -1
+  splitMemoOut[1] = splitMemoOut[0] ?? null
+  splitMemoInput[0] = content
+  splitMemoLen[0] = content.length
+  splitMemoOut[0] = result
+  return result
+}
+
+/** 原始实现（memo 未命中路径；拆出保持 memo 层零语义漂移）。 */
+function splitFrontMatterUncached(
   content: string,
 ): { fmRaw: string; body: string } | null {
   // 去 UTF-8 BOM：带 BOM 的文件 startsWith('---') 失败 → frontmatter 整段丢失（章号/枚举/机检 fm 项全失效）
@@ -30,6 +65,20 @@ export function splitFrontMatter(
   const fmRaw = lines.slice(1, endIdx).join('\n')
   const body = lines.slice(endIdx + 1).join('\n')
   return { fmRaw, body }
+}
+
+/** R48-52（四十八轮）：「有起始 --- 但无闭合」判定单源——frontmatter.ts readFile 的
+ *  未闭合文案分支此前手写同款正则（双源），本模块起始/闭合判定将来漂移时坏 fm 会
+ *  重新混过 draft.ts 的无 fm 豁免闸。与 splitFrontMatterUncached 同口径：去 BOM →
+ *  起始整行精确 ---（容忍 \r 尾）→ 找零缩进闭合 ---。 */
+export function hasOpenFrontMatterFence(content: string): boolean {
+  const src = content.replace(/^﻿/, '')
+  if (!/^---\r?(?:\n|$)/.test(src)) return false
+  const lines = src.split('\n')
+  for (let i = 1; i < lines.length; i++) {
+    if (/^---\r?$/.test(lines[i]!)) return false
+  }
+  return true
 }
 
 /** 剥 frontmatter 取正文（countWords 口径要求纯正文；裸 md 无 fm 原样返回）。 */

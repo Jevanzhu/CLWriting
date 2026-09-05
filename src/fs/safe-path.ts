@@ -9,7 +9,7 @@
  * safePath 变体统一引用，确保防护行为一致（fail-closed）。
  */
 import { relative, isAbsolute, resolve, dirname, basename, join } from 'node:path'
-import { existsSync, realpathSync } from 'node:fs'
+import { existsSync, lstatSync, realpathSync } from 'node:fs'
 import { toNfcName } from './text-canonical.js'
 
 export interface ResolvedWithinRoot {
@@ -65,6 +65,19 @@ export function resolveWithinRoot(bookRoot: string, relPath: string): ResolvedWi
     if (parent === anchor) break // 走到根仍未存在——交由下方 realpath 失败拒
     suffix.unshift(basename(anchor))
     anchor = parent
+  }
+  // R48-66（四十八轮）：suffix 各段 lstat——断链 symlink 终段（existsSync=false 恰落入
+  // 本分支）此前从不探测，词法 join 过检后调用方可经该 symlink 在书外创建文件（防御
+  // 纵深破口；现行主写面 rename 语义无逃逸）。任一段是 symlink 即 null（fail-closed）；
+  // lstat 竞态失败交下方既有链路语义。
+  let probe = anchor
+  for (const seg of suffix) {
+    probe = join(probe, seg)
+    try {
+      if (lstatSync(probe).isSymbolicLink()) return null
+    } catch {
+      /* 竞态删除：不作判定 */
+    }
   }
   try {
     const realRoot = realpathSync(root)

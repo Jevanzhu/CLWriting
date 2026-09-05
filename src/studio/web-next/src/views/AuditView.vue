@@ -58,7 +58,14 @@ onUnmounted(() => {
   alive = false
 })
 
+// R48-23（四十八轮）：共享代数守卫（库内 loadGen 惯例）——「加载更多」在途时点「刷新」，
+// load() 清列表归零 offset，迟到续页此前按旧 offset push 进已重置列表且 offset 漂移
+//（原注释自称不失守恰恰失守：alive 只护卸载不护刷新）。续页开工时拍代数，回写前
+// 复核；load 开工递增代数使全部在途续页作废。
+let loadGen = 0
+
 async function load(): Promise<void> {
+  const gen = ++loadGen
   loading.value = true
   err.value = null
   conversation.value = null
@@ -73,7 +80,7 @@ async function load(): Promise<void> {
   expanded.value = new Set()
   try {
     const v = await getAudit(props.bookName, { limit: PAGE_LIMIT, offset: 0 })
-    if (!alive) return // R36-25：卸载后迟到响应不回写
+    if (!alive || gen !== loadGen) return // R36-25：卸载后迟到响应不回写；R48-23：被更新刷新作废
     conversation.value = v.conversation
     convoEvents.value = v.conversation?.events ?? []
     convoTotal.value = v.conversation?.eventsTotal ?? 0
@@ -84,10 +91,10 @@ async function load(): Promise<void> {
     goals.value = v.goals ?? []
     todos.value = v.todos ?? []
   } catch (e) {
-    if (!alive) return // R36-25
+    if (!alive || gen !== loadGen) return // R36-25
     err.value = friendlyError(e)
   } finally {
-    if (!alive) return // R36-25：卸载后不再回写 loading
+    if (!alive || gen !== loadGen) return // R36-25：卸载后不再回写 loading
     loading.value = false
   }
 }
@@ -95,11 +102,13 @@ async function load(): Promise<void> {
 /** 追加下一页对话事件（offset = 已载条数；seq 去重防 sync/重复请求混入） */
 async function loadMoreConvo(): Promise<void> {
   if (convoLoadingMore.value || !hasMoreConvo.value) return
+  const gen = loadGen // R48-23：拍代数——开工后发生刷新则本页作废
   convoLoadingMore.value = true
   err.value = null
   try {
     const v = await getAudit(props.bookName, { limit: PAGE_LIMIT, offset: convoOffset.value })
     if (!alive) return // R36-25：卸载后迟到续页不回写
+    if (gen !== loadGen) return // R48-23：刷新已重置列表，旧 offset 续页不得拼入
     if (conversation.value === null) conversation.value = v.conversation
     const seen = new Set(convoEvents.value.map((e) => e.seq))
     const fresh = (v.conversation?.events ?? []).filter((e) => !seen.has(e.seq))
@@ -119,11 +128,13 @@ async function loadMoreConvo(): Promise<void> {
 /** 追加下一页工作流事件（对称实现；长自愈批的链路事件也可能超 500） */
 async function loadMoreWorkflow(): Promise<void> {
   if (workflowLoadingMore.value || !hasMoreWorkflow.value) return
+  const gen = loadGen // R48-23：同 convo——开工后发生刷新则本页作废
   workflowLoadingMore.value = true
   err.value = null
   try {
     const v = await getAudit(props.bookName, { limit: PAGE_LIMIT, offset: workflowOffset.value })
     if (!alive) return // R36-25：卸载后迟到续页不回写
+    if (gen !== loadGen) return // R48-23：刷新已重置列表，旧 offset 续页不得拼入
     const seen = new Set(workflowEvents.value.map((e) => e.seq))
     const fresh = (v.workflowEvents ?? []).filter((e) => !seen.has(e.seq))
     // R62-50：同 convo——整页撞重复时 fresh 空、页非空，按返回条数强制推进防空转。

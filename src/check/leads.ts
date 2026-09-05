@@ -9,7 +9,6 @@
  * 状态闭合（#3 第 5 节）：状态 ⟷ 履历末条动词一致。
  */
 
-import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { walkMdEach } from '../fs/walk-md.js'
 import type { DatabaseSync } from 'node:sqlite'
@@ -18,6 +17,17 @@ import { readLeadHistory } from '../format/read.js'
 import { LEAD_TYPES, LEAD_VERBS } from '../format/leads.js'
 import { QUOTE_OPEN_LENIENT, QUOTE_CLOSE_LENIENT } from './quotes.js'
 import { bodyOf } from '../format/frontmatter-core.js'
+import { readMdTextCached } from '../fs/md-text-cache.js'
+
+// R47-33（四十七轮）：R26-47「循环内 new RegExp 提升为模块级常量」纪律的漏网收口——
+// 引号字符集（quotes.ts）是模块常量，以下 RegExp 源串恒定，预编译一次即可；此前
+// extractEvidenceCore/evidenceNeedles 每次调用 new RegExp×6，机检热路径（每条履历
+// 条目 × 每次机检 + lead-updates 每条推进声明）大书单轮数千次重复编译。
+const RE_QUOTED_CORE = new RegExp(`[${QUOTE_OPEN_LENIENT}]([^${QUOTE_CLOSE_LENIENT}]{4,})[${QUOTE_CLOSE_LENIENT}]`)
+const RE_EDGE_STRIP_CORE = new RegExp(`^[${QUOTE_OPEN_LENIENT}]|[${QUOTE_CLOSE_LENIENT}]$`, 'g')
+const RE_ALL_STRIP = new RegExp(`[${QUOTE_OPEN_LENIENT}${QUOTE_CLOSE_LENIENT}]`, 'g')
+const RE_QUOTED_NEEDLE = new RegExp(`[${QUOTE_OPEN_LENIENT}]([^${QUOTE_CLOSE_LENIENT}]+)[${QUOTE_CLOSE_LENIENT}]`)
+const RE_EDGE_STRIP_NEEDLE = new RegExp(`^[${QUOTE_OPEN_LENIENT}]+|[${QUOTE_CLOSE_LENIENT}]+$`, 'g')
 
 /**
  * 账本形式三检。
@@ -103,6 +113,9 @@ export function checkLeadsBookItems(
     }
     return chapterPathMap.get(chapter) ?? null
   }
+  // R47-10（四十七轮）：正文读取改走 fs/md-text-cache.ts stat 指纹缓存（此前仅本次
+  // 调用内 Map——每次机检/三审打包按线索履历章号集全量重读各章正文，成熟长篇等效
+  // 整读全书）。保留调用内 memo（章号 → body）避免同一章多条履历条目重复 bodyOf。
   const chapterTextCache = new Map<number, string | null>()
   const chapterTextOf = (chapter: number): string | null => {
     if (chapterTextCache.has(chapter)) return chapterTextCache.get(chapter) ?? null
@@ -111,14 +124,13 @@ export function checkLeadsBookItems(
     // 视同缺失走 lead-evidence-unverifiable 黄项提示作者，而非异常上抛拦截全部检查
     let text: string | null = null
     if (path !== null) {
-      try {
+      const raw = readMdTextCached(path)
+      if (raw !== null) {
         // R26-30（二十六轮）：引文 grep 面改剥 front matter 的 body（与 lead-updates.ts
         // leadEvidenceMatchesBody 吃 body 同口径）——证据按 spec 只须在正文命中，原文
         // 全文 grep 会把 fm 里的标题/枚举值误当命中（假阴性，红闸失明），也会因证据
         // 恰含「章号: 12」等 fm 形态误判命中。bodyOf 对裸 md 原样返回，无 fm 章不受影响。
-        text = bodyOf(readFileSync(path, 'utf-8'))
-      } catch {
-        text = null
+        text = bodyOf(raw)
       }
     }
     chapterTextCache.set(chapter, text)
@@ -295,16 +307,16 @@ export function extractEvidenceCore(evidence: string): string {
   // 此前这里只认 ASCII 直引号，中文弯引号/直角引号包裹的证据全部走 slice 兜底，
   // 截断片段致 lead-evidence-miss 误报）。R62-8：宽容字符集收编 quotes.ts 单源导出
   //（证据面宁宽勿漏是设计口径；正文 span 检测不收 ASCII 引号，两口径并存见 quotes.ts）
-  const quoted = evidence.match(new RegExp(`[${QUOTE_OPEN_LENIENT}]([^${QUOTE_CLOSE_LENIENT}]{4,})[${QUOTE_CLOSE_LENIENT}]`))
+  const quoted = evidence.match(RE_QUOTED_CORE)
   if (quoted?.[1]) return quoted[1]
   // 否则取前 8 个字符（够 grep）。Y-22（第五十七轮）：短引号证据（如「雪落」3 字，
   // 不满 {4,}）走此兜底——先剥首尾引号再截，带引号字符去 grep 正文会整组 miss
   // （正文写无引号的「雪落」时误报 lead-evidence-miss）
   const stripped = evidence
-    .replace(new RegExp(`^[${QUOTE_OPEN_LENIENT}]|[${QUOTE_CLOSE_LENIENT}]$`, 'g'), '')
+    .replace(RE_EDGE_STRIP_CORE, '')
     // R33-33（三十三轮）：内部残引一并剥除——「雪落」无声 的中段闭引号此前残留进展示
     // 文案（首/尾剥只处理串端，中间引号漏网）
-    .replace(new RegExp(`[${QUOTE_OPEN_LENIENT}${QUOTE_CLOSE_LENIENT}]`, 'g'), '')
+    .replace(RE_ALL_STRIP, '')
   return (stripped || evidence).slice(0, 8)
 }
 
@@ -320,9 +332,9 @@ export function extractEvidenceCore(evidence: string): string {
  * ③ 全剥引号串（混合短引的正身：雪落无声）
  */
 export function evidenceNeedles(evidence: string): string[] {
-  const inner = new RegExp(`[${QUOTE_OPEN_LENIENT}]([^${QUOTE_CLOSE_LENIENT}]+)[${QUOTE_CLOSE_LENIENT}]`).exec(evidence)?.[1]
-  const edgeStripped = evidence.replace(new RegExp(`^[${QUOTE_OPEN_LENIENT}]+|[${QUOTE_CLOSE_LENIENT}]+$`, 'g'), '')
-  const allStripped = evidence.replace(new RegExp(`[${QUOTE_OPEN_LENIENT}${QUOTE_CLOSE_LENIENT}]`, 'g'), '')
+  const inner = RE_QUOTED_NEEDLE.exec(evidence)?.[1]
+  const edgeStripped = evidence.replace(RE_EDGE_STRIP_NEEDLE, '')
+  const allStripped = evidence.replace(RE_ALL_STRIP, '')
   const candidates = [...new Set([inner, edgeStripped, allStripped].filter((s): s is string => typeof s === 'string' && s.trim().length > 0).map((s) => s.trim()))]
   // R31-13（三十一轮）：针串最短 2 码位——1 字针串（如证据「雪」无声 → inner='雪'）
   // 在正文几乎恒命中，兑现判定/引文命中 trivially 通过（防吃书红线漏报向）。候选全被

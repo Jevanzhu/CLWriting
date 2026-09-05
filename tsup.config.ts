@@ -27,6 +27,10 @@ export default defineConfig([
       'server-main': 'src/desktop/server-main.ts',
       'server-utility': 'src/desktop/server-utility.ts',
       'export-worker': 'src/export/export-worker.ts',
+      // R48-11：rebuild 内核 worker 线程独立入口——server bundle 内联
+      // run-rebuild-async.ts 后以 import.meta.url 同伴解析 dist/desktop/
+      // rebuild-worker.js，必须与 server bundle 同目录独立成件（同 export-worker）
+      'rebuild-worker': 'src/cache/rebuild-worker.ts',
     },
     external: ['electron'], // electron 由 Electron 运行时提供,不 bundle
     format: ['esm'],

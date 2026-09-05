@@ -38,13 +38,14 @@ function goalStateLabel(s: string): string {
 </template>
 
 <style scoped>
+/* R48-89（四十八轮）：字号随母视图 R42-27 迁 token（--font-size-*，映射见 AuditView 注）——拆分子组件时未随迁的硬编码 rem 不再跟随全局字号档。 */
 /* 区段基础（与 AuditView 同式） */
 .sec { margin-bottom: var(--size-4-5); }
 .sec-title {
   display: flex;
   align-items: center;
   gap: var(--size-4-3);
-  font-size: 1rem;
+  font-size: var(--font-size-m);
   margin: 0 0 var(--size-4-3);
   flex-wrap: wrap;
 }
@@ -64,11 +65,11 @@ function goalStateLabel(s: string): string {
   border-radius: 7px;
   border: 1px solid var(--background-modifier-border);
   background: var(--background-secondary);
-  font-size: 0.82rem;
+  font-size: var(--font-size-s);
   flex-wrap: wrap;
 }
 .goal-state {
-  font-size: 0.72rem;
+  font-size: var(--font-size-xs);
   padding: 1px 8px;
   border-radius: 9px;
   border: 1px solid var(--background-modifier-border);
@@ -79,14 +80,14 @@ function goalStateLabel(s: string): string {
 .goal-state[data-state='blocked'] { color: var(--text-error); border-color: var(--text-error); }
 .goal-state[data-state='complete'] { color: var(--dv-good); border-color: var(--dv-good); }
 .goal-title { font-weight: 600; }
-.goal-meta { color: var(--text-muted); font-size: 0.75rem; }
+.goal-meta { color: var(--text-muted); font-size: var(--font-size-xs); }
 .todo-list {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
 .todo-item {
-  font-size: 0.78rem;
+  font-size: var(--font-size-s);
   padding: 3px 10px;
   border-radius: 7px;
   border: 1px solid var(--background-modifier-border);

@@ -178,6 +178,9 @@ export async function getAnalysisOverviewCached(bookRoot: string): Promise<Analy
   if (cached && now - cached.ts < ttl && cached.probe === probe) {
     return cached.result
   }
+  // R47-18（四十七轮）：TTL 已过的条目两级探针都不可能再命中（两级判定均含 now-ts<ttl），
+  // 顺手逐出防驻留至 FIFO 触顶/删书——重算路径本就必走，零成本零语义变更（set 原键覆写）
+  if (cached && now - cached.ts >= ttl) analysisOverviewCache.delete(bookRoot)
   // 第二级：指纹变了才全量签名（R36-7 原口径）；签名一致 → 回填指纹、复用结果免重算
   analysisOverviewSigCount += 1
   const sig = analysisOverviewSignature(bookRoot)
@@ -409,6 +412,10 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
         const { body, chapter } = draft
         const sourceHash = sourceHashOf(draftText)
 
+        // R48-80（四十八轮）：模型档位在 AI 调用前快照——信封 model 原在完成后二次
+        // resolve，分钟级分析期间切档则溯源失真（stream.ts R70-11 已确立请求时刻
+        // 快照口径，此处对齐）
+        const modelAtRequest = process.env['CLWRITING_DRIVER'] === 'mock' ? 'mock' : resolveTier(ctx.userDataPath, 'assistant').model
         const prompt = buildAnalystPrompt(kind, body, chapter, bookRoot)
         const result = await runAnalyst(ctx.userDataPath, kind as ContractKind, prompt, bookRoot, [m.path])
         if (!result.ok) return replyError(res, 500, result.code, result.error)
@@ -416,7 +423,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
 
         const envelope = {
           generatedAt: new Date().toISOString(),
-          model: process.env['CLWRITING_DRIVER'] === 'mock' ? 'mock' : resolveTier(ctx.userDataPath, 'assistant').model,
+          model: modelAtRequest,
           sourceHash, // 进 prompt 时的稿（见上）——与 payload 同源，不重读
           payload,
         }
@@ -454,7 +461,15 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
         if (!absPath) return replyError(res, 400, 'BAD_PATH', '文档路径不合法')
         if (!existsSync(absPath)) return replyError(res, 404, 'NOT_FOUND', `文档不存在：${m.path}`)
 
-        const draft = readDraft(absPath)
+        // R48-76（四十八轮）：existsSync→readDraft 之间的 TOCTOU（文件恰被移动/删除时
+        // readDraft 裸抛 → dispatch 兜底 500 泛化「内部错误」丢现场语义）——对齐同文件
+        // analyze 端点 R66-26 模式：IO 失败落 500 IO_ERROR 人话文案
+        let draft: ReturnType<typeof readDraft>
+        try {
+          draft = readDraft(absPath)
+        } catch {
+          return replyError(res, 500, 'IO_ERROR', '读不到正文文件（可能已被移动或删除），请刷新后再试')
+        }
         if (!draft.ok) return replyError(res, 400, 'NOT_CHAPTER', draft.reason)
         const { body, chapter } = draft
 
@@ -514,7 +529,13 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
         if (!absPath) return replyError(res, 400, 'BAD_PATH', '文档路径不合法')
         if (!existsSync(absPath)) return replyError(res, 404, 'NOT_FOUND', `文档不存在：${m.path}`)
 
-        const draft = readDraft(absPath)
+        // R48-76（四十八轮）：同 autotag——existsSync→readDraft TOCTOU 兜底（R66-26 模式）
+        let draft: ReturnType<typeof readDraft>
+        try {
+          draft = readDraft(absPath)
+        } catch {
+          return replyError(res, 500, 'IO_ERROR', '读不到正文文件（可能已被移动或删除），请刷新后再试')
+        }
         if (!draft.ok) return replyError(res, 400, 'NOT_CHAPTER', draft.reason)
         const { body, chapter } = draft
 
@@ -600,6 +621,10 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
         if (cached && now - cached.ts < (styleCorpusTtlMs ?? STYLE_CORPUS_TTL)) { // R62-21：测试注入优先
           ;({ fullStats, sampleText } = cached.result)
         } else {
+          // R47-18（四十七轮）：过期条目顺手逐出——原只当 miss 用、条目驻留至 FIFO 触顶/
+          // 删书（forgetStyleCorpusCache）；重算路径本就必走，delete 零成本零语义变更
+          //（下方 set 原键覆写）
+          if (cached) styleCorpusCache.delete(bookRoot)
           const allBodies: string[] = []
           const recentBodies: string[] = []
           // R39-15（三十九轮）：读循环每 SCAN_YIELD_EVERY（25）章让出一次事件循环——
@@ -620,6 +645,12 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
           }
           fullStats = computeFullStats(allBodies.join('\n\n'), rules)
           sampleText = recentBodies.join('\n\n---\n\n')
+          // R47-22（四十七轮）：MISS 路径双份整书正文驻留即时释放——fullStats/sampleText
+          // 已由 join 产物算出，allBodies（整书逐章正文引用）与 recentBodies（近 10 章采样）
+          // 此刻起再无读者（缓存条目只存 stats 与采样串），清空数组释放章正文引用（数百万
+          // 字大书此前的驻留要等请求作用域结束才回收）；零语义变更（下方不再引用两数组）
+          allBodies.length = 0
+          recentBodies.length = 0
           // 简单 FIFO 淘汰（Map 保插入序）：超上限丢最旧条目，防长期运行的书库累积
           if (styleCorpusCache.size >= STYLE_CORPUS_MAX) {
             const oldest = styleCorpusCache.keys().next().value
@@ -631,6 +662,9 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
           styleCorpusCache.set(bookRoot, { result: { fullStats, sampleText }, ts: Date.now() })
         }
 
+        // R48-80（四十八轮）：同 analyze——模型档位调用前快照（完成后二次 resolve 在
+        // 分钟级分析期间切档则信封溯源失真，R70-11 请求时刻口径）
+        const modelAtRequest = process.env['CLWRITING_DRIVER'] === 'mock' ? 'mock' : resolveTier(ctx.userDataPath, 'assistant').model
         const prompt = [
           '[kind:style]',
           '',
@@ -653,7 +687,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
 
         const envelope = {
           generatedAt: new Date().toISOString(),
-          model: process.env['CLWRITING_DRIVER'] === 'mock' ? 'mock' : resolveTier(ctx.userDataPath, 'assistant').model,
+          model: modelAtRequest,
           sourceHash: sourceHashOf(sampleText),
           payload,
         }

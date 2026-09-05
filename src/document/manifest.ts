@@ -6,7 +6,7 @@
  * - 写：原子重写整文件（追加 + 重写，atomicWriteFile）。
  * - order：章由文件名编号派生顺序，**省略 order 字段**；自由区文档与文件夹才有 order。
  */
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { acquireCrossProcessLockWithTimeout, acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
@@ -41,20 +41,89 @@ const DEFAULT_VERSION = 1
 /** jsonl 一行的宽松形状（解析后逐字段校验）。 */
 type RawLine = { [k: string]: unknown }
 
+// ── R47-8（四十七轮）：文档清单指纹缓存 ──────────────────────────────────────────
+// 所有 docId 端点（check/review/rewrite/analyze/snapshots/documents 保存等）每请求
+// 全量读盘 + O(N) 解析（自动保存 ≥5s 一次链内 2-3 遍，2000 文档 ≈数百 KB）。stat
+// 指纹（size:mtimeMs）缓存——写必 bump mtime 自然失效，writeManifest 仍主动清一道
+// 双保险；命中零 IO 零解析。**拷贝出仓**：RMW 消费方原位改 entry（maybeUpdateManifest
+// 改 path、upsert 改 tags 等），共享引用会污染缓存——Map + entry 浅拷（tags 数组
+// 随拷，唯一嵌套面）。strict 读失败上抛语义保留：stat 非 ENOENT 失败时绕过缓存走
+// 原路径（其 readFileSync 同族失败会上抛，R27-40 防丢闸不受缓存影响）。
+const MANIFEST_CACHE_MAX = 32
+const manifestCache = new Map<string, { sig: string; manifest: Manifest }>()
+
+/** stat 签名：ENOENT → 'absent'（合法空态可缓存）；其他 stat 失败 → null（绕过缓存，
+ *  交原路径判读——读失败面与 stat 失败面同族）。 */
+function manifestStatSig(filePath: string): string | null {
+  try {
+    const st = statSync(filePath)
+    return `${st.size}:${st.mtimeMs}`
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === 'ENOENT' ? 'absent' : null
+  }
+}
+
+/** R47-8：拷贝出仓（主本驻留缓存，调用方各拿独立副本）。 */
+function copyManifest(m: Manifest): Manifest {
+  const entries = new Map<string, ManifestEntry>()
+  for (const [k, e] of m.entries) {
+    entries.set(k, e.tags ? { ...e, tags: [...e.tags] } : { ...e })
+  }
+  return { version: m.version, entries }
+}
+
+function manifestCacheSet(filePath: string, sig: string, manifest: Manifest): void {
+  if (!manifestCache.has(filePath) && manifestCache.size >= MANIFEST_CACHE_MAX) {
+    const oldest = manifestCache.keys().next().value
+    if (oldest !== undefined) manifestCache.delete(oldest)
+  }
+  manifestCache.set(filePath, { sig, manifest })
+}
+
+/** R47-8：清单指纹缓存测试钩子（生产零调用；口径同 rebuild.ts __testHooks）。 */
+export const __manifestCacheTestHooks = {
+  clear(): void {
+    manifestCache.clear()
+  },
+}
+
 /** 读清单（W0-1 §4.2）——读侧容错版（树扫描/查询/哨兵等只读消费面用）。
  *  - 文件不存在 → 空清单（version 默认 1）。
  *  - 非法 JSON 行 / 缺关键字段的行跳过（损坏降级，不阻断）。
- *  - 读失败（EACCES/EBUSY/EIO 瞬态）→ 空清单（M-13：读侧哨兵/全量兜底承接）。 */
+ *  - 读失败（EACCES/EBUSY/EIO 瞬态）→ 空清单（M-13：读侧哨兵/全量兜底承接）。
+ *  R47-8：stat 指纹缓存命中零读零解析（返回副本）。 */
 export function readManifest(filePath: string): Manifest {
+  const sig = manifestStatSig(filePath)
+  if (sig !== null) {
+    const hit = manifestCache.get(filePath)
+    if (hit && hit.sig === sig) return copyManifest(hit.manifest)
+  }
+  const r = readManifestCore(filePath)
+  // 读失败（ok:false）不落缓存——防毒化 strict 版（见 readManifestCore 注）
+  if (r.ok && sig !== null) manifestCacheSet(filePath, sig, r.manifest)
+  return r.ok
+    ? copyManifest(r.manifest)
+    : { version: DEFAULT_VERSION, entries: new Map<string, ManifestEntry>() }
+}
+
+/** R47-8：读核心（容错/strict 共用）——ok:false = 读失败（非 ENOENT），两版分立处理
+ *  （容错→空清单不落缓存；strict→上抛不落缓存），防「容错版的降级空表」经共享缓存
+ *  毒化 strict 版的防丢闸（R27-40）。ENOENT（含 existsSync 与 read 间竞态删）两版
+ *  同为合法空态，可缓存。 */
+type ManifestCoreResult = { ok: true; manifest: Manifest } | { ok: false; code?: string }
+
+function readManifestCore(filePath: string): ManifestCoreResult {
   const entries = new Map<string, ManifestEntry>()
-  if (!existsSync(filePath)) return { version: DEFAULT_VERSION, entries }
+  if (!existsSync(filePath)) return { ok: true, manifest: { version: DEFAULT_VERSION, entries } }
   let text: string
   try {
     text = readFileSync(filePath, 'utf-8')
-  } catch {
-    return { version: DEFAULT_VERSION, entries }
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code
+    if (code === 'ENOENT') return { ok: true, manifest: { version: DEFAULT_VERSION, entries } }
+    return { ok: false, code }
   }
-  return parseManifestText(text, entries)
+  return { ok: true, manifest: parseManifestText(text, entries) }
 }
 
 /** R27-40（二十七轮）P1：读清单——RMW 写路径专用 strict 版。
@@ -66,19 +135,21 @@ export function readManifest(filePath: string): Manifest {
  *  语义：ENOENT（含 existsSync 与 read 之间被并发删的竞态）= 合法空态，与无清单同；
  *  其余读错误上抛——调用方的既有 catch（WRITE_ERROR 信封 / best-effort warn /
  *  GG-P2-6 登记不成则删不成）自然收口为「拒写保旧文件」。解析级损坏（坏行跳过）
- *  维持降级不变——那是内容问题不是可读性问题，与既有口径一致。 */
+ *  维持降级不变——那是内容问题不是可读性问题，与既有口径一致。
+ *  R47-8：stat 指纹缓存命中返回副本（零读零解析）；stat 非 ENOENT 失败绕过缓存走
+ *  原路径保抛错（'absent' 与容错版共用签名词汇，无互踩）。 */
 export function readManifestStrict(filePath: string): Manifest {
-  const entries = new Map<string, ManifestEntry>()
-  if (!existsSync(filePath)) return { version: DEFAULT_VERSION, entries }
-  let text: string
-  try {
-    text = readFileSync(filePath, 'utf-8')
-  } catch (e) {
-    const code = (e as NodeJS.ErrnoException).code
-    if (code === 'ENOENT') return { version: DEFAULT_VERSION, entries }
-    throw new Error(`文档清单读取失败（${code ?? '未知错误'}）：${filePath}——已拒绝以空清单重写整文件（R27-40 防丢登记）`)
+  const sig = manifestStatSig(filePath)
+  if (sig !== null) {
+    const hit = manifestCache.get(filePath)
+    if (hit && hit.sig === sig) return copyManifest(hit.manifest)
   }
-  return parseManifestText(text, entries)
+  const r = readManifestCore(filePath)
+  if (r.ok) {
+    if (sig !== null) manifestCacheSet(filePath, sig, r.manifest)
+    return copyManifest(r.manifest)
+  }
+  throw new Error(`文档清单读取失败（${r.code ?? '未知错误'}）：${filePath}——已拒绝以空清单重写整文件（R27-40 防丢登记）`)
 }
 
 /** 文本 → Manifest（readManifest/readManifestStrict 共用解析体） */
@@ -133,13 +204,11 @@ function parseEntry(obj: RawLine): ManifestEntry {
 export function finalizedPathSet(bookRoot: string): Set<string> | null {
   const fp = join(bookRoot, '项目', '文档清单.jsonl')
   if (!existsSync(fp)) return null
-  try {
-    readFileSync(fp)
-  } catch {
-    return null
-  }
-  const entries = [...readManifest(fp).entries.values()]
-  const docs = entries.filter((e) => e.nodeType === 'document')
+  // R48-44（四十八轮）：单读——原 readFileSync 全文探测 + readManifest 二读对全文
+  // 双读；改消费 readManifestCore 结果（读失败 → null 走全量兜底，M-2 语义不变）
+  const r = readManifestCore(fp)
+  if (!r.ok) return null
+  const docs = [...r.manifest.entries.values()].filter((e) => e.nodeType === 'document')
   if (docs.length === 0) return new Set()
   const set = new Set<string>()
   for (const e of docs) if (e.finalizedRevision) set.add(e.path)
@@ -177,12 +246,11 @@ export function finalizedChapterNumbers(m: Manifest): Set<number> {
 export function finalizedChapterSetOfBook(bookRoot: string): Set<number> | undefined {
   const fp = join(bookRoot, '项目', '文档清单.jsonl')
   if (!existsSync(fp)) return undefined
-  try {
-    readFileSync(fp)
-  } catch {
-    return undefined
-  }
-  return finalizedChapterNumbers(readManifest(fp))
+  // R48-44（四十八轮）：单读——同 finalizedPathSet 同编号注（读失败 → undefined
+  // 全量兜底，M-13 语义不变）
+  const r = readManifestCore(fp)
+  if (!r.ok) return undefined
+  return finalizedChapterNumbers(r.manifest)
 }
 
 export function upsertEntry(manifest: Manifest, entry: ManifestEntry): void {
@@ -219,6 +287,8 @@ export function writeManifest(filePath: string, manifest: Manifest): void {
     lines.push(JSON.stringify(e))
   }
   atomicWriteFile(filePath, lines.join('\n') + '\n', { fsync: true })
+  // R47-8：写后清指纹缓存（双保险——写必 bump mtime，指纹本会自然失配）
+  manifestCache.delete(filePath)
 }
 
 // ── X-5（第五十六轮）：清单 RMW 跨进程互斥 ────────────────────────

@@ -77,6 +77,8 @@ function readLlmCalls(
       try {
         // B1（2026-08-24 内存闸）：type SQL 下推——只取 llm/call 行（原全量投影再内存过滤，
         // 全部对话正文一起 JSON.parse，峰值随书龄线性增长无上限）
+        // PM-10（2026-09-05 性能专项）核查：轨迹聚合须全部 llm/call 行，全量语义必需、
+        // 无尾读空间（type 已 SQL 下推）
         const events = store.listEvents(bookHash(bookRoot), undefined, undefined, 'llm/call')
         const out: {
           task: string

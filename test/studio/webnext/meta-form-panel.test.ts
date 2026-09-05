@@ -83,6 +83,9 @@ describe('MetaFormPanel: content 原位变更重解析（R65-52）', () => {
     // 经 docs Map 的响应式代理改，对象引用不变）
     doc.get('d1')!.content = '---\n钩子类型: 悬念钩\n字数目标: 4500\n---\n章纲正文'
     await nextTick()
+    // R47-1（四十七轮）：content 源改 150ms 防抖——稳定窗口后再断言重解析
+    await new Promise((r) => setTimeout(r, 170))
+    await nextTick()
     // 修复前：watch 源只有 entry 引用 → 不触发，钩子停留在 危机钩、字数目标空
     const selects = w.findAll('select')
     expect(selects.some((s) => s.element.value === '悬念钩')).toBe(true)
@@ -103,6 +106,9 @@ describe('MetaFormPanel: 编辑中脏键保护（R69-5）', () => {
     await num.setValue('5000')
     // 异步 refresh 迟到（如顶栏标题 blur 提交触发 doc.refresh）：content 原位变更
     doc.get('d1')!.content = '---\n钩子类型: 悬念钩\n字数目标: 3000\n---\n章纲正文'
+    await nextTick()
+    // R47-1（四十七轮）：content 源改 150ms 防抖——稳定窗口后再断言
+    await new Promise((r) => setTimeout(r, 170))
     await nextTick()
     // 脏键保用户输入；干净键取服务端新值
     expect((w.find('input[type="number"]').element as HTMLInputElement).value).toBe('5000')

@@ -226,6 +226,10 @@ describe('R34D-28: FocusStatsBar 切章不起钟 + 空章首笔计入 delta', ()
     // 修复前钟自切章时刻起算（10 字/1 分 = 10 字/分）
     vi.advanceTimersByTime(60_000)
     doc.patch('d2', '一二三四五六七八九十一二三四五六十七') // 8+10=18 字
+    // R47-3（四十七轮）：统计改 150ms 防抖——先泵一拍让 watch 回调落定（创建防抖
+    // 定时器），再推进假定时器过窗口，最后泵一拍让 words watch/渲染收敛
+    await nextTick()
+    vi.advanceTimersByTime(170)
     await nextTick()
     expect(w.text()).toContain('+10 字')
     expect(w.text()).not.toContain('字/分') // 修复点：切章不起钟
@@ -243,6 +247,8 @@ describe('R34D-28: FocusStatsBar 切章不起钟 + 空章首笔计入 delta', ()
     expect(w.text()).toContain('+0 字')
 
     doc.patch('e1', '好') // 首笔 1 字
+    // R47-3（四十七轮）：统计改 150ms 防抖——稳定窗口后再断言
+    await new Promise((r) => setTimeout(r, 170))
     await nextTick()
     expect(w.text()).toContain('+1 字') // 修复点：基线按旧值 0 锁，首字计入
     w.unmount()
@@ -259,6 +265,10 @@ describe('R34D-28: FocusStatsBar 切章不起钟 + 空章首笔计入 delta', ()
 
     doc.docs.set('d9', docEntry('d9', '一二三')) // 加载到位：0→3 是置位非动笔
     await nextTick()
+    await nextTick()
+    // R47-3（四十七轮）：基线快照直读现算（置位当拍即锁 3），防抖 words 稳定窗口后
+    // 跳到同值——按置位跳变跳过，delta 归 0、钟不起
+    await new Promise((r) => setTimeout(r, 170))
     await nextTick()
     expect(w.text()).toContain('+0 字')
     expect(w.text()).not.toContain('字/分')

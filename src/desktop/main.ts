@@ -134,6 +134,15 @@ function attachRendererCrashSelfHeal(win: BrowserWindow, label: string): void {
     }, RENDERER_CRASH_STABILITY_RESET_MS)
     stabilityTimer.unref?.()
   })
+  // R47-36（四十七轮）：窗口销毁清稳定窗计时器——计时器 unref + 5min 自灭 +
+  // isDestroyed 守卫均已 在位（有界滞留非泄露），此为纯防御收口：closed 后闭包不再
+  // 持已销毁窗口的 JS 包装引用（书架/书库子窗高频开关场景每次少留一个 5min 句柄）
+  win.on('closed', () => {
+    if (stabilityTimer) {
+      clearTimeout(stabilityTimer)
+      stabilityTimer = null
+    }
+  })
 }
 
 // userData 强制统一到定值（大写 CLWriting）。
@@ -265,16 +274,33 @@ function storePath(): string {
   return join(app.getPath('userData'), 'workdir.json')
 }
 
-/** 读 store（含失效 recent 清理）；缺失/损坏 → 空存储。 */
+/** 读 store（含失效 recent 清理）；缺失/损坏 → 空存储。
+ *  R47-9（四十七轮）：内存缓存（写时失效）——此前每次调用全量读盘 + filterValidRecent
+ *  逐 recent 项 existsSync+statSync：welcome 态 currentWorkDir 的 ?? 兜底使每次相关
+ *  IPC 都重踩，书库在失联网络卷（NAS/SMB「挂载点在而服务器无响应」态）上时同步
+ *  阻塞主进程数秒（三窗口输入/IPC 全冻结）。缓存后常态零盘 IO；recent 有效性过滤
+ *  只在首读一次执行（workdir.json 系应用管理文件，外部手改重启可见，可接受）。
+ *  R48-73（四十八轮）备案（取舍补记）：首读过滤后运行期不再复验——会话内被外部
+ *  （或本应用他路径）删除的书库目录会残留展示至重启，R47-9 注释只声明了「外部手改
+ *  重启可见」一半。接受依据：点切换有 canSwitchLibraryDir 守卫拦截兜底（失效目录
+ *  拒切），残留只污展示面不产行为错；逐次复验即回到 R47-9 要治的 NAS/SMB 同步阻塞。
+ *  返回共享引用——调用方（setCurrent/saveCurrent）均为纯函数式建新对象，无 mutate 面。 */
+let storeCache: WorkDirStore | null = null
 function readStore(): WorkDirStore {
+  if (storeCache) return storeCache
   const fp = storePath()
-  if (!existsSync(fp)) return emptyStore()
-  return filterValidRecent(parseStore(readFileSync(fp, 'utf-8')))
+  if (!existsSync(fp)) {
+    storeCache = emptyStore()
+    return storeCache
+  }
+  storeCache = filterValidRecent(parseStore(readFileSync(fp, 'utf-8')))
+  return storeCache
 }
 
-/** 原子写 store。 */
+/** 原子写 store。R47-9：写后同步刷新缓存（写后即读一致）。 */
 function writeStore(store: WorkDirStore): void {
   atomicWriteFile(storePath(), serializeStore(store))
+  storeCache = store
 }
 
 /** 设新 current（旧入 recent）+ 持久化。 */
@@ -522,7 +548,13 @@ async function openShelfWindow(): Promise<void> {
     return
   }
   const wa = screen.getPrimaryDisplay().workAreaSize
-  shelfWindow = createSecureWindow({
+  // R48-16（四十八轮）：createSecureWindow 后即捕获局部引用——closed 监听与 await 后
+  // 复验均用局部，不再读模块变量。两处交错此前都踩模块变量：① dev 态 setProxy 窗口期
+  // 本窗关闭，closed 监听把模块变量置 null，await 后 shelfWindow.isDestroyed() 变
+  // null 上抛 TypeError；② 两次并发 open 的交错形态，旧栈 await 恢复后读模块变量拿到
+  // 新窗重复 loadURL（旧窗 closed 还会把指向新窗的模块变量误置 null）。局部引用 +
+  // 「仍指向本窗才置 null」守卫两形态同收。
+  const win = createSecureWindow({
     width: Math.min(920, wa.width - 80),
     height: Math.min(640, wa.height - 80),
     // R44-15（四十四轮）：下限按工作区钳制（R1W-10 主窗先例同款 -8 余量）——小屏/
@@ -531,15 +563,20 @@ async function openShelfWindow(): Promise<void> {
     minHeight: Math.min(500, wa.height - 8),
     title: '书架',
   })
+  shelfWindow = win
+  // R47-35（四十七轮）：closed 监听先于 await 挂接——dev 态 setProxy 耗时数十 ms，
+  // 恰在此窗关窗则 closed 先于挂接触发，悬空引用已销毁窗口（isDestroyed 自愈重建
+  // 兜底在，纯防御收口）；await 后复验存活再 loadURL（R48-16 起复验用局部引用）
+  win.on('closed', () => {
+    if (shelfWindow === win) shelfWindow = null
+  })
   await devProxyApplied // R72-10（二十轮 D-7）：代理生效后再加载
+  if (win.isDestroyed()) return
   // R74-16（七十四轮批 D）：loadURL promise 此前无人 catch——server 恰在此刻崩溃/
   // 端口失效时 rejection 成 unhandledRejection 丢诊断（与 child 侧 fatal 兜底口径
   // 不对称）；接日志留痕（窗口崩溃另有 R67-16 自愈，此处只补诊断）
-  shelfWindow.loadURL(`${appUrl}/shelf?win=shelf`).catch((e) => {
+  win.loadURL(`${appUrl}/shelf?win=shelf`).catch((e) => {
     log.error('desktop', `书架窗口加载失败（${appUrl}/shelf）`, e)
-  })
-  shelfWindow.on('closed', () => {
-    shelfWindow = null
   })
 }
 
@@ -565,7 +602,9 @@ async function openLibraryWindow(): Promise<void> {
     x = Math.round(b.x + (b.width - libW) / 2)
     y = Math.round(b.y + (b.height - libH) / 2)
   }
-  libraryWindow = createSecureWindow({
+  // R48-16（四十八轮）：同 openShelfWindow——createSecureWindow 后即捕获局部引用，
+  // closed 监听（仍指向本窗才置 null）与 await 后复验均用局部
+  const win = createSecureWindow({
     width: libW,
     height: libH,
     x,
@@ -575,13 +614,17 @@ async function openLibraryWindow(): Promise<void> {
     minHeight: Math.min(440, wa.height - 8),
     title: '书库',
   })
+  libraryWindow = win
+  // R47-35（四十七轮）：closed 监听先于 await 挂接（openShelfWindow 同款——dev 态
+  // setProxy 窗口内关窗的悬空引用防御收口）；await 后复验存活再 loadURL
+  win.on('closed', () => {
+    if (libraryWindow === win) libraryWindow = null
+  })
   await devProxyApplied // R72-10（二十轮 D-7）：代理生效后再加载
   // R74-16（七十四轮批 D）：同 openShelfWindow——loadURL promise 接日志防丢诊断
-  libraryWindow.loadURL(`${appUrl}/library?win=library`).catch((e) => {
+  if (win.isDestroyed()) return
+  win.loadURL(`${appUrl}/library?win=library`).catch((e) => {
     log.error('desktop', `书库窗口加载失败（${appUrl}/library）`, e)
-  })
-  libraryWindow.on('closed', () => {
-    libraryWindow = null
   })
 }
 
@@ -652,6 +695,8 @@ async function bootstrap(): Promise<void> {
   // readStore().current，store.current 为 null/失效而 workDir 由 findWorkDir 发现时，
   // 退出拿到 null：不 abort 任何在途 chat/self-heal、不等后台任务（孤儿会话只能靠
   // 10 分钟宽限修复）。退出以启动时实际值优先，store 回读兜底
+  // R47-9（四十七轮）：welcome 态 workDir 可为 null，currentWorkDir 的 ?? 兜底因此
+  // 走 readStore——缓存（见 readStore 注）就位后该兜底零盘 IO，null/'' 语义维持原状
   bootstrappedWorkDir = workDir
   const needsWelcome = !workDir
 
@@ -850,6 +895,8 @@ function registerIpc(): void {
     setTimeout(relaunch, RELAUNCH_DELAY_MS)
     return { ok: true as const }
   })
+  // R48-73（四十八轮）：recent 缓存首读过滤后运行期不复验（取舍备案见 readStore 头
+  // 注——失效目录残留展示至重启，切换守卫 canSwitchLibraryDir 拦截兜底）
   ipcMain.handle('desktop:get-recent', () => readStore().recent)
   // Y-11（第五十七轮）：M-3 第五入口漏网——改走 currentWorkDir()（bootstrap 实际值
   // 优先），否则 store.current 为 null/失效而 bootstrap 跑在 findWorkDir 发现的书库上时，
@@ -898,6 +945,10 @@ function registerIpc(): void {
   // R40-28（四十轮）：mac/linux 的 font-list 调用包超时（win 已走 win-fonts 自带
   // 10s 超时 + kill，R39-5）——osascript/系统命令挂起时字体下拉悬死；font-list 不
   // 暴露子进程句柄，超时只 reject 不 kill（残留记档见 font-cache.ts 头注）。
+  // R48-17（四十八轮）备案：本处不传 deps——PM-12 的「超时必杀」（deps.command 自管
+  // spawn）生产不可达，mac/linux 超时仍只放弃等待、孤儿进程残留未收口，接线待台账
+  // PM-12 拍板（mac asar 路径需打包态验证），不代办拍板项；会话级熔断生产已生效
+  //（fontListWithTimeout 缺省路径即包裹，R48-74 起 win 侧 listWindowsFonts 亦套用）。
   const loadFontList = () =>
     process.platform === 'win32' ? listWindowsFonts() : fontListWithTimeout(() => getSystemFontList({ disableQuoting: true }))
   const loadSystemFonts = createSystemFontCache(loadFontList)
@@ -1221,7 +1272,8 @@ if (gotSingleInstanceLock) {
   // S-4（批 U1）：deps 换轨——「重试前关旧 server」经 legacyStopHandle 停旧 child
   const bootstrapRunner = createBootstrapRunner(
     {
-      getMainWindow: () => mainWindow,
+      // R48-75（四十八轮）：getMainWindow 死接线删除——R-14 后 runner 判据为「存在旧
+      // server 即关」，窗口引用不再被读取（接口谎称有用的残留随批清理）
       // P3（打包修复批）：child 已崩但退避重启在途时 isRunning() 为 false——原判据
       // 会漏取 legacyStopHandle，既不关旧也不取消挂起重启（S-5 语义旁路）；补
       // hasPendingRestart() 使「重试前关旧」覆盖重启在途窗口

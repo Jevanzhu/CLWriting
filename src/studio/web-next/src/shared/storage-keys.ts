@@ -23,3 +23,22 @@ export const ONBOARD_PREMISE_KEY_PREFIX = 'clwriting:onboard-premise:'
 export function onboardPremiseKey(book: string): string {
   return ONBOARD_PREMISE_KEY_PREFIX + book
 }
+
+/** R48-83（四十八轮）：误报灰显键单源（原 check.ts 模块内 fpKey 收编）+ 段转义——
+ *  书名/docId 含 `:` 时 `clw-fp:a:b` 段边界歧义，跨书键互相污染/误清（书名带冒号
+ *  并非病态输入）。段内 `%`→`%25`、`:`→`%3A`（先转义 % 防二次解码歧义）；无此类
+ *  字符的书产出键串与旧格式逐字相同，存量 localStorage 键零迁移。键只作相等/前缀
+ *  比对，无解码侧。 */
+function escFpSegment(s: string): string {
+  return s.replace(/%/g, '%25').replace(/:/g, '%3A')
+}
+
+/** 拼某书某文档的误报灰显键（store 读写与删章清扫共用） */
+export function falsePositiveKey(bookName: string, docId: string): string {
+  return `clw-fp:${escFpSegment(bookName)}:${escFpSegment(docId)}`
+}
+
+/** 拼某书的误报灰显键前缀（删书清扫用——段转义后前缀匹配不串书） */
+export function falsePositiveKeyPrefix(bookName: string): string {
+  return `clw-fp:${escFpSegment(bookName)}:`
+}

@@ -400,6 +400,82 @@ export function readAllChunks(db: DatabaseSync, maxChunks?: number): RagChunk[] 
   return out
 }
 
+/**
+ * R47-2（四十七轮）：流式打分——召回不再经 readAllChunks 把全库 embedding 物化进
+ * 返回数组（200 万字 ≈3.5 万块 × 1536 维 × 4B ≈ 215MB 单次驻留尖峰；打分只需向量
+ * 于打分当刻，打完即可弃）。游标逐行「解码 → 打分 → 存轻量命中 {章号, offsets,
+ * score}」，峰值从 O(全库向量) 降为 O(命中元数据)（≈数 MB）。
+ *
+ * 语义与 readAllChunks(N+1)+index.ts 旧打分路径逐位同构：
+ * - 早停于第 N+1 个**有效**行（毒行剔除不计额，行序 = rowid 序前提同 readAllChunks）
+ *   ⟺ 全量 > N（truncated 判定恒等）；截断态只保留前 N 行参与打分（= 旧 slice）；
+ *   totalBlocks 同旧口径封顶 N+1；
+ * - 毒行双形态判定与 warn 留痕同 readAllChunks（R35-40）；
+ * - model/维度过滤同旧 index.ts 内联 filter（不过滤行的有效额照计——早停前缀不变）；
+ * - norm 预存复用 + 缺失现算兜底同 R64-45。
+ */
+export function scoreAllChunks(
+  db: DatabaseSync,
+  queryVec: Float32Array,
+  model: string,
+  /** 告警阈值 N：断于第 N+1 个有效行（确立 truncated），前 N 行参与打分 */
+  warnThreshold: number,
+  queryNorm?: number,
+): {
+  hits: Array<{ 章号: number; start_offset: number; end_offset: number; score: number }>
+  truncated: boolean
+  totalBlocks: number
+  chapterNumbers: Set<number>
+} {
+  const qNorm = queryNorm ?? l2Norm(queryVec)
+  // 早停界 = N+1（同旧 readAllChunks(N+1)：得 N+1 条 ⟺ 全量 > N；totalBlocks 封顶 N+1）
+  const earlyStop = warnThreshold + 1
+  const stmt = db.prepare('SELECT id, 章号, start_offset, end_offset, embedding, norm, model, indexed_at FROM chunks')
+  const hits: Array<{ 章号: number; start_offset: number; end_offset: number; score: number }> = []
+  const chapterNumbers = new Set<number>()
+  let validRows = 0
+  let truncated = false
+  let poisonRows = 0
+  for (const r of stmt.iterate() as Iterable<{
+    id: number; 章号: number; start_offset: number; end_offset: number
+    embedding: Uint8Array; norm: number | null; model: string; indexed_at: string
+  }>) {
+    // 早停：已计满 N+1 个有效行即知全量 > N，无需再读（= 旧 readAllChunks(N+1) 上限）
+    if (validRows >= earlyStop) break
+    // R35-40 毒行双形态（同 readAllChunks）：norm 非有限 / norm=NULL 且向量含非有限分量
+    if (r.norm !== null && !Number.isFinite(r.norm)) {
+      poisonRows++
+      continue
+    }
+    const embedding = bufferToFloat32(r.embedding)
+    if (r.norm === null && embedding.some((x) => !Number.isFinite(x))) {
+      poisonRows++
+      continue
+    }
+    validRows++
+    // 第 N+1 个有效行：计数当刻即确立全量 > N（truncated，= 旧 chunks.length > N 判定），
+    // 只计额不进打分集（= 旧 slice(0, N) 前缀）
+    if (validRows > warnThreshold) {
+      truncated = true
+      continue
+    }
+    // model/维度过滤（旧 index.ts 内联 filter 同款；不过滤行照计有效额保早停前缀）
+    if (r.model !== model || embedding.length !== queryVec.length) continue
+    const cNorm = r.norm !== null && r.norm > 0 ? r.norm : l2Norm(embedding)
+    hits.push({
+      章号: r.章号,
+      start_offset: r.start_offset,
+      end_offset: r.end_offset,
+      score: cosineSimilarity(queryVec, embedding, { normA: qNorm, normB: cNorm }),
+    })
+    chapterNumbers.add(r.章号)
+  }
+  if (poisonRows > 0) {
+    log.warn('rag', `RAG 库含 ${poisonRows} 行毒向量块（历史 Float32 溢出入库：norm 非有限或 norm=NULL 且向量含非有限分量）——已剔除不参与召回，建议重建索引（POST /rag/rebuild）清根`)
+  }
+  return { hits, truncated, totalBlocks: validRows, chapterNumbers }
+}
+
 /** A3（批 7）：全部章指纹元数据一次读进内存（章号 → indexed hash）——惰性校验的
  *  元数据源（召回闭库后子集校验用；单 SELECT，零文件 IO）。 */
 export function readAllChapterFingerprints(db: DatabaseSync): Map<number, string> {

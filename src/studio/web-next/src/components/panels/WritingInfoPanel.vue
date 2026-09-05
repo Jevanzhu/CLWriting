@@ -8,6 +8,7 @@ import { useTreeStore } from '../../stores/tree'
 import { usePrefsStore } from '../../stores/prefs'
 import { getConfig, type BookConfig } from '../../api/books'
 import { countWords, stripFrontmatter, parseFmFields } from '../../shared/words'
+import { useDebouncedSource } from '../../composables/useDebouncedSource'
 import type { TreeNode } from '../../types/tree'
 import { friendlyError } from '../../shared/error'
 
@@ -21,6 +22,12 @@ const prefs = usePrefsStore()
 const entry = computed(() => (ws.activeDocId ? doc.get(ws.activeDocId) : undefined))
 const node = computed(() => (ws.activeDocId ? tree.byDocId.get(ws.activeDocId) : undefined))
 
+// R47-1（四十七轮）：全文派生防抖——words/chapterTarget 的 countWords/parseFmFields
+// 是全文 O(n) 扫描（countWords 两次全文物化 + splitFrontMatter 全文行数组），此前每
+// 击键重算（右栏默认展开 + 折叠/专注仍挂载），几十万字文档上可感迟滞；切文档
+// （activeDocId 变）即刻取新值（沿 EditorView wordCount R39-20/R43-17 防抖口径）。
+const debContent = useDebouncedSource(() => entry.value?.content ?? '', { key: () => ws.activeDocId })
+
 const config = ref<BookConfig>({})
 const err = ref<string | null>(null)
 // M-11：代守卫（reqGen 同款）——本面板常驻右侧栏（不随切书重建），快速切书 A→B 时
@@ -32,10 +39,10 @@ watch(
     const gen = ++configGen
     // R34D-27（三十四轮）：切书先清上一书错误——原实现只在失败分支写 err、成功路径
     // 不清，A 书的 getConfig 失败信息会粘滞到 B 书（面板常驻不随切书重建）；清掉后
-    // 新错误只由本次请求的 catch 按代守卫落位
+    // 新错误只由本次请求的 catch 按代守卫落位（R33-84 同点位；R48-95（四十八轮）：
+    // 连续两次 err.value=null 死代码随批删一处保注释）
     err.value = null
     if (!n) return
-    err.value = null // R33-84（三十三轮）：换书即清上一本的错误行（瞬时失败不得跨书残留）
     try {
       const c = await getConfig(n)
       if (gen !== configGen) return
@@ -49,7 +56,7 @@ watch(
   { immediate: true },
 )
 
-const words = computed(() => (entry.value ? countWords(stripFrontmatter(entry.value.content)) : 0))
+const words = computed(() => (entry.value ? countWords(stripFrontmatter(debContent.value)) : 0))
 const volumeWords = computed(() => {
   if (!node.value) return 0
   const m = node.value.path.match(/^写作\/正文\/([^/]+)\//)
@@ -71,7 +78,7 @@ const volumeWords = computed(() => {
 // 「NaN%」隐患；isFinite 过滤后落到书级/全局默认，三级链不受脏 fm 牵连。
 const chapterTarget = computed(() => {
   if (entry.value) {
-    const v = parseFmFields(entry.value.content)['字数目标']
+    const v = parseFmFields(debContent.value)['字数目标']
     if (v && Number.isFinite(Number(v))) return Number(v)
   }
   return config.value.book?.chapter_target_words ?? prefs.defaultChapterTargetWords

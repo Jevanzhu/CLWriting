@@ -4,7 +4,7 @@
  * 「对话」按钮未开时在输入框上方 6px；打开时融入对话框头部左上角（胶囊标签）。
  * 输入框为 Codex 风格（与工作台对话一致）：章节左下 + 模型/推理等级/清空/发送右下。
  */
-import { ref } from 'vue'
+import { ref, nextTick } from 'vue'
 import { MessageCircle, ChevronUp, ChevronDown, X, Send, BookOpen, Trash2, Square } from 'lucide-vue-next'
 import ChatPanel from '../panels/ChatPanel.vue'
 import ModelEffortBar from '../ui/ModelEffortBar.vue'
@@ -18,6 +18,9 @@ const props = defineProps<{
 }>()
 
 const chat = useChatStore()
+
+/** 消息面板句柄——发送后强制滚底（R48-96：经 ChatPanel 转发调 ChatMessages） */
+const panelRef = ref<InstanceType<typeof ChatPanel> | null>(null)
 
 /** 输入框是否展开 */
 const fabOpen = ref(false)
@@ -34,7 +37,13 @@ const {
 } = useChatComposer(
   () => props.bookName,
   () => props.currentChapter,
-  () => { chatOpen.value = true },
+  // R48-96（四十八轮）：发送后强制滚底——原回调只开框不滚（R72-11 只接了 ChatPanel
+  // 面板路径），dock 场景消息落入视口下方不跟随；开框 + nextTick 后经面板转发滚底
+  async () => {
+    chatOpen.value = true
+    await nextTick()
+    panelRef.value?.scrollToBottom(true)
+  },
 )
 
 /** FAB toggle：开 → 收（收起时对话框一并收起） */
@@ -56,7 +65,7 @@ function onExpandChat(): void {
       <!-- 头部占位：对话按钮融入此处左上角 -->
       <div class="window-head"></div>
       <div class="window-body">
-        <ChatPanel :book-name="bookName" :current-chapter="currentChapter" hide-composer />
+        <ChatPanel ref="panelRef" :book-name="bookName" :current-chapter="currentChapter" hide-composer />
       </div>
     </div>
 

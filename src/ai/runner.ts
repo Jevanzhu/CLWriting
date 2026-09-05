@@ -15,7 +15,7 @@ import { tryMockTool, MOCK_USAGE } from './mock-tool.js'
 import { GenError, resolveFirstByteTimeoutMs } from './gen.js'
 import { MODEL_QUIRKS_VERSION } from './provider/model-quirks.js'
 import { newRunId, promptMeta, toTraceUsage } from './trace.js'
-import { recordAiCall, recordTaskUsage } from './calls.js'
+import { recordUsageCombined } from './calls.js'
 import { resolveModelPricing, computeCallCost } from './pricing.js'
 import { openSessionStoreAsync, bookHash } from '../events/store.js'
 import { ChainRecorder, layerForTask, stepStartEvent, stepEndEvent, llmCallEvent, llmRetryEvent } from '../events/chain-bridge.js'
@@ -506,7 +506,7 @@ export async function runTask<T>(opts: {
     ctrl.abort()
   }, timeoutMs)
 
-  // 二轮复审（M 项）：记账 IO 防护——recordTaskUsage/recordAiCall 写库抛错（磁盘满/库锁/
+  // 二轮复审（M 项）：记账 IO 防护——recordUsageCombined（PM-11 前为 task/chapter 两笔）写库抛错（磁盘满/库锁/
   // 库损坏）不应吞掉已到手的生成结果或改写错误语义（成功路径抛错会把 ok 变 GEN_FAIL
   // 触发重试，同一次产出双重计费）。降级为日志留痕；少记一次的账目由预算闸的保守口径
   // 与事件库可重算性兜底。五处调用（成功/中断/Retry-After 终态/重试/终态失败）统一走本助手。
@@ -537,10 +537,20 @@ export async function runTask<T>(opts: {
     accumulateAttemptsUsage(usage)
     if (!bookRoot) return
     try {
-      if (task) recordTaskUsage(bookRoot, task, usage)
-      if (opts.chapter !== undefined) {
-        const cost = usage ? computeCallCost(resolveModelPricing(opts.userDataPath, tier.model), usage) : undefined
-        recordAiCall(bookRoot, opts.chapter, usage, cost ?? undefined)
+      // PM-11（性能与内存专项·2026-09-05）：原 task/chapter 两笔各自 serializedWrite
+      // （同一 usage 两次整读+两次原子写+双 fsync），合并为单次持锁读改写——语义与
+      // 两分身串行逐位一致（calls.ts recordUsageCombined 注）；单块调用方不变。
+      if (task || opts.chapter !== undefined) {
+        const cost =
+          usage && opts.chapter !== undefined
+            ? computeCallCost(resolveModelPricing(opts.userDataPath, tier.model), usage)
+            : undefined
+        recordUsageCombined(bookRoot, {
+          task: task ?? undefined,
+          chapter: opts.chapter,
+          usage,
+          costUsd: cost ?? undefined,
+        })
       }
     } catch (e) {
       log.warn('runner', `任务记账写库失败（${task ?? '未知任务'}，本轮账目缺失）：${e instanceof Error ? e.message : String(e)}`)

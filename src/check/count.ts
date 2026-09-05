@@ -309,10 +309,11 @@ const ROSTER_NAME_RE = new RegExp(`^[${HANZI}]{2,4}$`)
  * R30-2（三十轮）：名册文本 → 已登记名字数组（checkNewNames 精确判重专用）。
  *
  * 单源指向：grep src/check/ 无现成名册解析器（checkNewNames 此前直接对名册**全文**
- * 做 includes 粗匹配；src/ai/rules/setting-rule.ts 的名册面同为全文粗匹配口径），
+ * 做 includes 粗匹配；src/ai/rules/setting-rule.ts 的名册面当年同为全文粗匹配口径），
  * 故按名册格式（行/顿号分隔，兼容 `已登记：A、B`、`- 已登记：A、B`、`### A` 等仓内
- * 既有形态）在本文件局部实现本解析，作为 check 域名册判重单源；setting-rule 的
- * 粗匹配口径不属本批可改范围，维持现状。
+ * 既有形态）在本文件局部实现本解析，作为 check 域名册判重单源（R48-3（四十八轮）
+ * 起 setting-rule 名册面按「只读参照」抄定本解析为 parseRosterNamesLocal，双域同
+ * 口径，对白守卫族同步对齐）。
  *
  * 逐行剥 ATX 标题/列表前缀/括注（「云澈（主角）」→「云澈」），再按顿号/逗号/分号/
  * 冒号/斜杠/空白劈分；只收 2-4 字纯汉字 token（与候选抽取窗一致，说明性词汇
@@ -502,6 +503,8 @@ export interface StyleStats {
   /** 已分句结果（供 checkStyleMetrics 复用，避免重复 split；P2-BE-2） */
   _sentences?: string[]
   _sentencesWithColon?: string[]
+  /** 形容词堆叠命中串列表（供 checkStyleMetrics 复用，避免重复全文匹配；R48-40（四十八轮），_sentences 同款口径） */
+  _adjStackHits?: string[]
 }
 
 /** 纯统计函数：对正文算文风 5 维数值指纹，不产 CheckItem（文风方案 §4.2） */
@@ -519,10 +522,13 @@ export function computeStyleMetrics(body: string, rules: IronRules): StyleStats 
     }
   }
 
-  // 形容词堆叠去重命中数
+  // 形容词堆叠去重命中数（R48-40（四十八轮）：命中串列表随 `_sentences` 同款口径
+  // 挂内部字段，checkStyleMetrics 复用免二次全文匹配）
   let adjStackHits = 0
+  let adjStackHitList: string[] = []
   if (rules.maxAdjStack && rules.maxAdjStack > 0) {
-    adjStackHits = matchAdjStackHits(body, rules.maxAdjStack).length
+    adjStackHitList = matchAdjStackHits(body, rules.maxAdjStack)
+    adjStackHits = adjStackHitList.length
   }
 
   // 对话标签占比（分母=对话行数）
@@ -573,6 +579,7 @@ export function computeStyleMetrics(body: string, rules: IronRules): StyleStats 
     _dialogueLines: dialogueLines.length,
     _sentences: sentences,
     _sentencesWithColon: sentencesWithColon,
+    _adjStackHits: adjStackHitList,
   }
 }
 
@@ -605,7 +612,10 @@ export function checkStyleMetrics(
 
   // 形容词连续堆叠：去重后逐个推（保持原行为）
   if (rules.maxAdjStack && rules.maxAdjStack > 0) {
-    for (const h of matchAdjStackHits(body, rules.maxAdjStack)) {
+    // R48-40（四十八轮）：复用 computeStyleMetrics 已算的命中串（computeFullStats/
+    // checkStyleMetrics 委托链各跑一遍全文匹配的重复消除）
+    const hits = stats._adjStackHits ?? matchAdjStackHits(body, rules.maxAdjStack)
+    for (const h of hits) {
       items.push({
         checkId: 'style-adj-stack',
         level: 'yellow',
