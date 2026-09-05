@@ -24,7 +24,7 @@ import { readTrashManifest } from '../document/trash.js'
 import { writeSnapshot, readGlobalSnapshotPolicy, DEFAULT_SNAPSHOT_POLICY } from '../document/snapshot.js'
 import { legacyId } from '../document/stable-id.js'
 import { isUtf8Bytes } from '../document/service.js'
-import { invalidateTreeIndex } from '../document/tree.js'
+import { invalidateTreeIndexForContent } from '../document/tree.js'
 import { appendAborted, appendPending, appendSettled } from '../document/journal.js'
 import { appendWordsDelta, todayDate } from '../document/words-diary.js'
 import { computeRevision } from '../document/revision.js'
@@ -212,8 +212,11 @@ export async function saveDraft(
       }
       throw e
     }
-    // 新文件落盘会改变树结构 → 失效树缓存（前端保存后重拉树能看到新草稿）
-    invalidateTreeIndex(bookRoot)
+    // 新文件落盘会改变树结构 → 失效树缓存（前端保存后重拉树能看到新草稿）。
+    // R46-8（四十六轮）：改走单键失效——indexes.delete 已保证树重建收编新草稿，
+    // probeCache 只清本章键（新文件为 no-op），不再整书清空（每次 AI 写章保存后
+    // 下一次树请求全书重读+重哈希是纯浪费）
+    invalidateTreeIndexForContent(bookRoot, relPath)
     // R73-32：新文件登记 manifest（结构性操作触发建清单，W0-1 §4.2 口径，service
     // adoptLegacyDoc/doCreate 同款 upsert）——此前 AI 新建草稿不入清单，docId 永远是
     // legacy 临时身份。登记失败不阻断（文件已落盘，树扫描 adoptLegacyDoc 自愈收口，
@@ -369,8 +372,9 @@ function scenesOfOutlineBody(body: string): string[] {
  * 全空 → ['通用']（仅通用场景候选——旧样章库路径按场景读目录，空场景列表连「通用」目录
  * 都不会碰，须显式点名；条目库路径两写法等价）。
  */
-export function readChapterScenes(bookRoot: string, chapter: number): string[] {
-  const declared = readDeclaredChapterScenes(bookRoot, chapter)
+export function readChapterScenes(bookRoot: string, chapter: number, outlinePath?: string | null): string[] {
+  // R46-25：outlinePath 透传（已解析章纲路径复用，见 readDeclaredChapterScenes 注）
+  const declared = readDeclaredChapterScenes(bookRoot, chapter, outlinePath)
   return declared.length > 0 ? declared : ['通用']
 }
 
@@ -379,11 +383,14 @@ export function readChapterScenes(bookRoot: string, chapter: number): string[] {
  * materials 的 G3 留痕只对「作者/AI 声明了场景」负责——三级全空（冷启动）时不提示补样章；
  * 与 readChapterScenes 的 ['通用'] 兜底分离，避免「兜底也被当声明」的误留痕。
  */
-export function readDeclaredChapterScenes(bookRoot: string, chapter: number): string[] {
+export function readDeclaredChapterScenes(bookRoot: string, chapter: number, outlinePath?: string | null): string[] {
   // 水源①：本章章纲 front matter「场景」
-  const outlinePath = findChapterOutlinePath(bookRoot, chapter)
-  if (outlinePath) {
-    const r = readFile(outlinePath)
+  // R46-25（四十六轮）：outlinePath 入参可携带已解析的章纲路径（null = 已知不存在，
+  // 跳过解析）——buildDraftPrompt 单次组稿此前在这里与自身各调一次 findChapterOutlinePath
+  // （章纲目录 walk 2 次）；传参复用后整条组稿链只 walk 一次章纲目录 + 一次正文目录
+  const resolved = outlinePath !== undefined ? outlinePath : findChapterOutlinePath(bookRoot, chapter)
+  if (resolved) {
+    const r = readFile(resolved)
     if (r.ok) {
       const scenes = scenesOfFmValue(parseFlat(r.fmRaw).get('场景'))
       if (scenes.length > 0) return scenes
@@ -462,9 +469,11 @@ function buildStyleSampleInjection(
   bookRoot: string,
   chapter: number,
   config: BookConfig | undefined,
+  outlinePath?: string | null,
 ): { text: string; sources: string[] } {
   const maxTotal = (config?.style?.injection ?? 'light') === 'heavy' ? 3 : 1
-  const picked = pickStyleSamplesWithSources(bookRoot, readChapterScenes(bookRoot, chapter), maxTotal)
+  // R46-25：outlinePath 由 buildDraftPrompt 传入复用（场景水源①不再二次 walk 章纲目录）
+  const picked = pickStyleSamplesWithSources(bookRoot, readChapterScenes(bookRoot, chapter, outlinePath), maxTotal)
   if (picked.length === 0) return { text: '', sources: [] }
   const sources = picked.map((s) => s.path).filter((p): p is string => p !== undefined)
   return { text: `## 文风样章(模仿其叙事语感与节奏,不抄情节)\n${picked.map((s) => s.text).join('\n\n')}`, sources }
@@ -516,7 +525,9 @@ export function buildDraftPrompt(
   const chapterOutline = chapterOutlinePath ? readSafe(chapterOutlinePath) : ''
   const worldView = readSafe(join(bookRoot, '设定', '世界观.md'))
   const settingsInjection = buildSettingsInjection(bookRoot, worldView)
-  const styleSampleInjection = buildStyleSampleInjection(bookRoot, chapter, config)
+  // R46-25：chapterOutlinePath 下传复用——样章场景水源①不再重复 walk 章纲目录
+  // （单次组稿：章纲目录 1 walk + 正文目录 1 walk）
+  const styleSampleInjection = buildStyleSampleInjection(bookRoot, chapter, config, chapterOutlinePath)
   const range = wordRange(kind, config?.book?.chapter_target_words)
   // Q-5：注入序源文件清单（各段非空才计——空段 = 该源未入 prompt，不得登记）
   // files 契约"相对书根"（posix / 归一）：mix 自有物理反斜杠（relative/sources 在 win

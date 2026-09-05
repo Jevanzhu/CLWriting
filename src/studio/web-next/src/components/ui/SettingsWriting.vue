@@ -2,6 +2,7 @@
 // 设置 · 写作默认页（全局）：题材/每卷章数/目标字数/每章字数的全局默认。
 // IA 重组后从「本书」页的书籍与目标子页拆出独立成页——本页只承载全局默认组（不依赖当前书），
 // 本书独立设定在「本书」页的写作默认组；生效链 book.yaml book 段对应键 → 此处 → 硬编码回落。
+import { LibraryBig } from 'lucide-vue-next'
 import { usePrefsStore } from '../../stores/prefs'
 import { parseNumericInput } from '../../shared/numeric-input'
 
@@ -41,7 +42,10 @@ function onGlobalChapterTargetInput(e: Event): void {
           <div class="setting-item-desc">未单独设定的书使用此默认题材，用于 AI 设定生成与总览回显</div>
         </div>
         <div class="setting-item-control">
-          <input class="text-input" type="text" placeholder="题材" aria-label="题材（全局默认）" :value="prefs.defaultGenre" @change="onGlobalGenreInput($event)" />
+          <label class="genre-field">
+            <LibraryBig :size="14" aria-hidden="true" />
+            <input class="text-input" type="text" placeholder="如：东方玄幻、都市异能" aria-label="题材（全局默认）" :value="prefs.defaultGenre" @change="onGlobalGenreInput($event)" />
+          </label>
         </div>
       </div>
       <div class="setting-item">

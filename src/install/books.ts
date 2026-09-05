@@ -89,13 +89,41 @@ export function isInvalidBookName(name: string): boolean {
   return /[.\s]$/.test(name)
 }
 
+// ── R46-11（四十六轮）：books.jsonl 解析结果的 (mtimeNs,size) 指纹缓存 ──────────
+// 动机：resolveBook 是全部书键端点的统一入口（studio/server 面 70+ 处调用点），每请求
+// 经 readBooks → readBooksStrict 对同一 books.jsonl readFileSync 整读 + 逐行
+// JSON.parse——服务进程高峰期同一文件每秒重复解析数十次。指纹缓存（R46-10 名册缓存
+// 同款范式）：stat (mtimeNs,size) 命中直接回缓存解析结果，命中只付 1 次 statSync，
+// 精度 mtimeNs 无陈旧窗口；键含 books.jsonl 绝对路径；FIFO 上限 16（工作目录数常态
+// 个位数）。写侧失效收口在 writeBooks 开头（append/remove/repair/改名端点全部经它
+// 落盘）——就地先失效保证即便后续物理写抛出，也不留被调用方 mutated 过的缓存数组。
+// 缺文件/读失败不缓存失败值（各按原口径返回，下次照常重试）。
+const BOOKS_READ_CACHE_MAX = 16
+const booksReadCache = new Map<string, { mtimeNs: bigint; size: bigint; books: BookEntry[] }>()
+
 /** 读 books.jsonl。写路径专用口径：缺文件 → 空表（新建合法）；读失败（EACCES/
  *  EISDIR 等）→ null——DA-3（第七轮）：写方据此拒绝重写，防「降级空表 × 后续整写」
  *  把其余登记清掉（EACCES 挡 readFileSync 不挡 atomicWriteFile 的 tmp+rename）。
  *  读路径容错请用 readBooks（失败降级空表，书架/resolveBook 不裸抛）。 */
 export function readBooksStrict(workDir: string): BookEntry[] | null {
-  const fp = join(workDir, BOOKS_FILE)
-  if (!existsSync(fp)) return []
+  // R46-11：缓存键含绝对路径（不同形态的 workDir 字符串指向同一文件时同键复用）
+  const fp = resolve(workDir, BOOKS_FILE)
+  // R46-11：原 existsSync 判存合并进指纹 stat——一次调用同时承担「缺文件 → 空表」
+  // 判定与缓存指纹采集（stat 的一切失败形态与 existsSync 吞错返 false 的原口径一致
+  // 归空表；stat 成功但文件是目录时走下方 readFileSync EISDIR → null 原路径不变）
+  let mtimeNs: bigint
+  let size: bigint
+  try {
+    const st = statSync(fp, { bigint: true })
+    mtimeNs = st.mtimeNs
+    size = st.size
+  } catch {
+    return []
+  }
+  // R46-11：同指纹直接回缓存解析结果（调用方只读或经 writeBooks 收口的 mutate，
+  // 共享数组无旁路污染——见上方缓存头注）
+  const hit = booksReadCache.get(fp)
+  if (hit && hit.mtimeNs === mtimeNs && hit.size === size) return hit.books
   let text: string
   try {
     text = readFileSync(fp, 'utf-8')
@@ -138,6 +166,12 @@ export function readBooksStrict(workDir: string): BookEntry[] | null {
       // 坏行跳过（容错，不崩）
     }
   }
+  // R46-11：仅成功解析入缓存（缺文件/读失败不缓存失败值）；FIFO 淘汰最旧键
+  if (booksReadCache.size >= BOOKS_READ_CACHE_MAX) {
+    const oldest = booksReadCache.keys().next().value
+    if (oldest !== undefined) booksReadCache.delete(oldest)
+  }
+  booksReadCache.set(fp, { mtimeNs, size, books })
   return books
 }
 
@@ -149,6 +183,9 @@ export function readBooks(workDir: string): BookEntry[] {
 /** 全量写 books.jsonl（一行一书）。物理写（无锁）——跨进程互斥由上层 mutator
  *  持 books.lock（R63-2）后调用；直接调用方需自证单写者。 */
 export function writeBooks(workDir: string, books: BookEntry[]): void {
+  // R46-11：解析缓存写前失效——append/remove/repair/改名端点的 books.jsonl 写全部
+  // 经本函数落盘，单点失效即全覆盖；放开头保证 mkdir/物理写若抛出不留已失效缓存
+  booksReadCache.delete(resolve(workDir, BOOKS_FILE))
   mkdirSync(join(workDir, CLWRITING_DIR), { recursive: true })
   const fp = join(workDir, BOOKS_FILE)
   const lines = books.map((b) => JSON.stringify(b)).join('\n')

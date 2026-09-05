@@ -9,7 +9,7 @@
  *
  * 同步 API（node:sqlite DatabaseSync，同 rag/store.ts 模式）。
  */
-import { DatabaseSync } from 'node:sqlite'
+import { DatabaseSync, type StatementSync } from 'node:sqlite'
 import { createHash } from 'node:crypto'
 import { mkdirSync, existsSync, readdirSync, readFileSync, rmSync, writeFileSync, statSync, utimesSync } from 'node:fs'
 import { join, resolve, basename } from 'node:path'
@@ -176,6 +176,31 @@ function rowToEvent(r: Row): ChatEvent {
     replaceGeneration: r.replace_generation,
     createdAt: r.created_at,
   }
+}
+
+// ── R46-42（四十六轮）：连接级 prepared 语句缓存 ─────────────────────────
+// node:sqlite 的 StatementSync 与连接实例绑定，但 db.prepare 每次调用都重新编译同一
+// 条 SQL——热路径（appendEvents 每批 2 条、listEvents 每读、workspaceSession 每链路
+// 事件写）此前对固定 SQL 反复 prepare，纯白付编译开销。按 db 实例（WeakMap 键）+
+// SQL 串双键缓存编译产物：连接 close 后缓存条目随 GC 消失，无悬挂执行面（重开库是
+// 新实例、新缓存，天然隔离）。低频迁移/一次性语句（DDL、孤儿修复、钥匙改写、PRAGMA）
+// 不走本帮手——缓存面只进恒定不变的高频 SQL。listEvents 的可选 type/limit 拼出的
+// SQL 变体以 SQL 串本身为键，各自独立缓存（变体数有界）。
+const preparedByDb = new WeakMap<DatabaseSync, Map<string, StatementSync>>()
+
+/** R46-42：按 (db, sql) 取缓存的 prepared 语句；未见过则编译一次入缓存。 */
+function prepared(db: DatabaseSync, sql: string): StatementSync {
+  let bySql = preparedByDb.get(db)
+  if (bySql === undefined) {
+    bySql = new Map()
+    preparedByDb.set(db, bySql)
+  }
+  let stmt = bySql.get(sql)
+  if (stmt === undefined) {
+    stmt = db.prepare(sql)
+    bySql.set(sql, stmt)
+  }
+  return stmt
 }
 
 /** 孤儿会话补 end 的宽限期：最后活动距今不足该值视为「可能仍在进行」，不补（RB-IF-P2-2）。
@@ -717,7 +742,9 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
       maybeRepairOrphans()
       const sid = ulid()
       const now = Date.now()
-      db.prepare(
+      // R46-42：固定 SQL 走连接级 prepared 缓存（每会话一条，编译一次复用）
+      prepared(
+        db,
         `INSERT INTO sessions (session_id, format_version, book, header, created_at, updated_at)
          VALUES (?, 1, ?, ?, ?, ?)`
       ).run(sid, book, JSON.stringify(header ?? {}), now, now)
@@ -728,11 +755,13 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
       const now = Date.now()
       // RB-IF-P1-2：INSERT RETURNING 取真实 seq——close() 写 compaction 事件后据此
       // 定位 archiveSeq，不再 lastSeq()+2 推算（多窗口并发写时可错链到别窗事件）
-      const ins = db.prepare(
+      // R46-42：每批热路径的固定 SQL 改 prepared 缓存（原每批重编译 INSERT+UPDATE 两条）
+      const ins = prepared(
+        db,
         `INSERT INTO events (session_id, turn, step, type, data, surface_op, shadow_start, shadow_end, source_seqs, replace_generation, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?) RETURNING seq`
       );
-      const touch = db.prepare('UPDATE sessions SET updated_at = ? WHERE session_id = ?')
+      const touch = prepared(db, 'UPDATE sessions SET updated_at = ? WHERE session_id = ?')
       // P3-9：sessions.updated_at 挪进主事务——此前在 COMMIT 之后单独 UPDATE，若失败会
       // 误报「写失败」且客户端重试产生重复事件；现在与事件落库同事务，要么都成功要么都回滚。
       db.exec('BEGIN')
@@ -764,12 +793,14 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
     appendEventsResolveLineage(sessionId: string, evs: NewEvent[]): number[] {
       maybeRepairOrphans()
       const now = Date.now()
-      const ins = db.prepare(
+      // R46-42：同 appendEvents——三条固定 SQL 改 prepared 缓存
+      const ins = prepared(
+        db,
         `INSERT INTO events (session_id, turn, step, type, data, surface_op, shadow_start, shadow_end, source_seqs, replace_generation, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, ?) RETURNING seq`
       )
-      const upd = db.prepare('UPDATE events SET source_seqs = ? WHERE session_id = ? AND seq = ?')
-      const touch = db.prepare('UPDATE sessions SET updated_at = ? WHERE session_id = ?')
+      const upd = prepared(db, 'UPDATE events SET source_seqs = ? WHERE session_id = ? AND seq = ?')
+      const touch = prepared(db, 'UPDATE sessions SET updated_at = ? WHERE session_id = ?')
       db.exec('BEGIN')
       try {
         const seqs: number[] = []
@@ -848,7 +879,9 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
         const args: Array<string | number> = [sessionId]
         if (type !== undefined) args.push(type)
         if (cap !== undefined) args.push(cap)
-        const rows = db.prepare(
+        // R46-42：读热路径固定/有界变体 SQL 走 prepared 缓存（变体以 SQL 串为键独立缓存）
+        const rows = prepared(
+          db,
           `SELECT * FROM events WHERE session_id = ? ${type !== undefined ? 'AND type = ?' : ''} ORDER BY seq ASC ${cap !== undefined ? 'LIMIT ?' : ''}`
         ).iterate(...args) as unknown as Iterable<Row>
         for (const r of rows) {
@@ -860,7 +893,8 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
       const args: Array<string | number> = [book]
       if (type !== undefined) args.push(type)
       if (cap !== undefined) args.push(cap)
-      const rows = db.prepare(
+      const rows = prepared(
+        db,
         `SELECT * FROM events
          WHERE session_id IN (SELECT session_id FROM sessions WHERE book = ?) ${type !== undefined ? 'AND type = ?' : ''}
          ORDER BY seq ASC ${cap !== undefined ? 'LIMIT ?' : ''}`
@@ -880,7 +914,9 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
       // 索引会破坏「不动既有库」边界），事务串行化已闭合分裂窗口。
       db.exec('BEGIN IMMEDIATE')
       try {
-        const row = db.prepare(
+        // R46-42：SELECT+INSERT 固定对走 prepared 缓存（每链路事件写均经此）
+        const row = prepared(
+          db,
           `SELECT session_id FROM sessions WHERE book = ? AND session_id LIKE 'ws-%' LIMIT 1`
         ).get(book) as { session_id: string } | undefined
         if (row) {
@@ -889,7 +925,8 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
         }
         const sid = `ws-${ulid()}`
         const now = Date.now()
-        db.prepare(
+        prepared(
+          db,
           `INSERT INTO sessions (session_id, format_version, book, header, created_at, updated_at)
            VALUES (?, 1, ?, ?, ?, ?)`
         ).run(sid, book, JSON.stringify({ kind: 'workspace' }), now, now)
@@ -918,7 +955,8 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
       return r ?? null
     },
     lastSeq(): number {
-      const row = db.prepare('SELECT MAX(seq) AS m FROM events').get() as { m: number | null }
+      // R46-42：recorder 写前算区间的固定查询走 prepared 缓存
+      const row = prepared(db, 'SELECT MAX(seq) AS m FROM events').get() as { m: number | null }
       return row.m ?? 0
     },
     maskSelfCheckData(from: number, to: number) {

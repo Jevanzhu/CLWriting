@@ -11,7 +11,7 @@
  */
 
 import { readdirSync, statSync, existsSync, mkdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { readFile, parseFlat , stringifyValue } from '../format/frontmatter.js'
 import { readLead } from '../format/leads.js'
 import { sanitizeFileNamePart, isMdFileName } from '../format/filename.js'
@@ -422,6 +422,26 @@ function readChapterBodyCached(abs: string): string {
   }
   chapterTextCache.set(abs, { mtimeNs: st.mtimeNs, size: st.size, body })
   return body
+}
+
+/**
+ * R46-40（四十六轮）：删书/改名的生命周期失效挂点（books.ts forgetBookKeyedCaches
+ * 接线）——章正文缓存按绝对文件路径键控且存整章正文字符串（KB 级/条），删书后全书
+ * 条目成死重、改名后旧前缀键永不再命中。前缀匹配用 bookRoot + sep：缓存键由
+ * walkMdEach 自 join(bookRoot, '写作', '正文') 派生（未 resolve），两侧同源字节对齐
+ * （format/chapters.ts clearChapterDirCacheForBook 同款口径）。返回清除条目数；清后
+ * 键惰性重建，无正确性影响。
+ */
+export function forgetChapterTextCacheForBook(bookRoot: string): number {
+  const prefix = bookRoot + sep
+  let removed = 0
+  for (const key of chapterTextCache.keys()) {
+    if (key.startsWith(prefix)) {
+      chapterTextCache.delete(key)
+      removed++
+    }
+  }
+  return removed
 }
 
 /** 收集 写作/正文/ 下所有章节 md（递归含卷子目录）的 { 章号 → 正文（去 fm） } */

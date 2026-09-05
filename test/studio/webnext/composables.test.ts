@@ -235,6 +235,22 @@ describe('useChatTier', () => {
     expect(t.chatTier).toEqual({ model: 'new-model', effort: 'low' })
     expect(setTierMock).toHaveBeenCalledWith({ model: 'new-model', effort: 'low' }, undefined)
   })
+
+  it('R46-34（四十六轮）：60s TTL 门——成功刷新后 60s 内非强制跳过重拉，force 穿透', async () => {
+    // 带 providers 的成功响应才占 TTL 窗（冷启动拉失败不占，下次切书可重试自愈）
+    getProvidersMock.mockResolvedValue({
+      tiers: { chat: { model: 'm1', effort: 'high' }, creative: { model: 'm2', effort: 'low' } },
+      currentId: 'prov-1',
+      providers: [{ id: 'prov-1' }],
+    })
+    const t = useChatTier()
+    await t.refresh()
+    const after = getProvidersMock.mock.calls.length
+    await t.refresh() // 距成功 <60s 且非强制 → 跳过（切书链不再重复 GET /api/providers）
+    expect(getProvidersMock.mock.calls.length).toBe(after)
+    await t.refresh(true) // 强制（需要新数据的入口）→ 穿透重拉
+    expect(getProvidersMock.mock.calls.length).toBe(after + 1)
+  })
 })
 
 describe('useNativeMenu', () => {

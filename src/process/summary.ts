@@ -500,22 +500,23 @@ export interface VolumeChainState {
  */
 export function volumeChainState(bookRoot: string, volume: number, volumeSize: number): VolumeChainState {
   const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
+  // R46-24（四十六轮）：单趟 O(entries) 建「章号→已定稿」集合再按卷区间查——此前
+  // 每章内层全量遍历 manifest.entries（O(卷章数×清单条目)，一次备料最多 3 调用
+  // ≈10 万次条目访问）；写法对齐同函数 selfHealRecentChapterSummaries 的单趟 Map
+  // 先例（:429 finalizedByChapter）。Set 收敛后 L-P4 的「同章多条定稿条目只计一次」
+  // 天然成立（原内层「匹配首条即跳出」≡ 集合存在性判定）。
+  const finalizedChapters = new Set<number>()
+  for (const e of manifest.entries.values()) {
+    if (e.nodeType !== 'document' || !e.finalizedRevision) continue
+    if (!e.path.startsWith('写作/正文/')) continue
+    const m = /^(\d+)-/.exec(e.path.split('/').pop() ?? '')
+    if (m) finalizedChapters.add(Number(m[1]))
+  }
   const { from, to } = volumeChapterRange(volume, volumeSize)
   const chain = new Map<number, string>()
   const missing: number[] = []
   for (let ch = from; ch <= to; ch++) {
-    // L-P4（第八轮）：同章多条定稿条目（改名重定稿等）只计一次——原先每条都 push
-    // missing，错误文案重复；匹配到首条即跳出内层循环
-    let finalized = false
-    for (const e of manifest.entries.values()) {
-      if (e.nodeType !== 'document' || !e.finalizedRevision) continue
-      if (!e.path.startsWith('写作/正文/')) continue
-      const m = /^(\d+)-/.exec(e.path.split('/').pop() ?? '')
-      if (!m || Number(m[1]) !== ch) continue
-      finalized = true
-      break
-    }
-    if (!finalized) continue
+    if (!finalizedChapters.has(ch)) continue
     // 该章已定稿：必须有章摘要
     const body = readChapterSummaryBody(bookRoot, ch)
     if (body === null) missing.push(ch)

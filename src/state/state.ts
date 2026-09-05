@@ -36,6 +36,13 @@ export function __resetSweepThrottleForTest(): void {
   sweepLastAt.clear()
 }
 
+/** R46-40（四十六轮）：删书/改名的生命周期失效挂点（books.ts forgetBookKeyedCaches
+ *  接线）——sweepLastAt 键为 bookRoot，删书后条目成死重；改名后旧键永不再命中。
+ *  不清无正确性影响（同名重建书最多延迟到下个 6h TTL 窗才首次清扫），纯内存卫生。 */
+export function forgetStateSweepStamp(bookRoot: string): void {
+  sweepLastAt.delete(bookRoot)
+}
+
 function sweepAbandonedTmpFilesThrottled(bookRoot: string): number {
   const now = Date.now()
   const last = sweepLastAt.get(bookRoot)
@@ -246,6 +253,12 @@ async function healthCheck(bookRoot: string, manifest: Manifest): Promise<Health
   // 仅路径变，按磁盘现状收口清单，不惊动作者；save 类才可能丢字，仍走作者提示。
   const journalDir = join(bookRoot, '工作区', '.journal')
   if (existsSync(journalDir)) {
+    // R46-7（四十六轮）：孤儿判定三重证实的「盘上清单/回收站」快照上提循环头——此前
+    // isOrphanJournal 对每个 journal 文件各整读+整解析一次清单与回收站清单（500 章书
+    // = 500 次全清单解析，/state 与 /overview 均 5s TTL 后重算反复支付，SMB/网盘卷放大）。
+    // 循环体毫秒级完成，循环头读一次即保「以盘上为准」同等时效（他进程注册后崩溃的
+    // 复核窗口不放大）；快照读失败沿用原「不确定 → 不归档」保守口径（整轮跳过归档）。
+    const orphanSnapshot = readOrphanSnapshot(bookRoot)
     try {
       for (const name of readdirSync(journalDir)) {
         if (name.startsWith('._') || !name.endsWith('.jsonl')) continue
@@ -258,7 +271,7 @@ async function healthCheck(bookRoot: string, manifest: Manifest): Promise<Health
         // pending 两端路径都不在盘（purge/外部删除后的残骸），对其报 crashedWrite 是
         // 永久幽灵红且含全文快照的内容级残留；改判 .orphaned 保留数据可手工恢复。
         // save 类 pending 无路径字段无法证实无主，保守维持原报红（ genuine 崩溃不静默）。
-        if (isOrphanJournal(bookRoot, docId, journalFile)) {
+        if (isOrphanJournal(bookRoot, docId, journalFile, orphanSnapshot)) {
           const dst = `${journalFile}.orphaned-${Date.now()}`
           try {
             renameSync(journalFile, dst)
@@ -514,22 +527,41 @@ function sweepOrphanedJournalArchives(bookRoot: string, now: number = Date.now()
   return removed
 }
 
+/** R46-7（四十六轮）：孤儿判定用的盘上快照——healthCheck 循环头读一次循环内共享。
+ *  读失败标记沿用原「不确定 → 不归档」保守口径（对全部 journal 生效，整轮跳过归档）。 */
+interface OrphanSnapshot {
+  manifestFailed: boolean
+  manifestIds: Set<string>
+  trashFailed: boolean
+  trashIds: Set<string>
+}
+
+function readOrphanSnapshot(bookRoot: string): OrphanSnapshot {
+  const snap: OrphanSnapshot = { manifestFailed: false, manifestIds: new Set(), trashFailed: false, trashIds: new Set() }
+  const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
+  try {
+    if (existsSync(manifestPath)) snap.manifestIds = new Set(readManifest(manifestPath).entries.keys())
+  } catch {
+    snap.manifestFailed = true // 清单读失败：不确定 → 不归档
+  }
+  try {
+    snap.trashIds = new Set(readTrashManifest(bookRoot).map((e) => e.id))
+  } catch {
+    snap.trashFailed = true // 回收站清单读失败：不确定 → 不归档
+  }
+  return snap
+}
+
 /** R69-4（十七轮）：判定 journal 是否孤儿（对其报红 = 永久幽灵）。保守三重证实：
  *  docId 不在清单 && 不在回收站 && move pending 两端路径均不在盘（save 类无路径
- *  字段，无法证实 → 永远返回 false 维持报红，防 genuine 崩溃被静默）。 */
-function isOrphanJournal(bookRoot: string, docId: string, journalFile: string): boolean {
-  // 清单镜像只反映进门时点；盘上清单可能已更新（他进程注册后崩溃），以盘上为准复核
-  try {
-    const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
-    if (existsSync(manifestPath) && readManifest(manifestPath).entries.has(docId)) return false
-  } catch {
-    return false // 清单读失败：不确定 → 不归档
-  }
-  try {
-    if (readTrashManifest(bookRoot).some((e) => e.id === docId)) return false
-  } catch {
-    return false // 回收站清单读失败：不确定 → 不归档
-  }
+ *  字段，无法证实 → 永远返回 false 维持报红，防 genuine 崩溃被静默）。
+ *  R46-7（四十六轮）：清单/回收站改用循环头快照——此前每个 journal 文件各整读一次，
+ *  O(journal 数 × 清单条目数) 全同步；快照语义 = 原「以盘上为准」的循环头时点。 */
+function isOrphanJournal(bookRoot: string, docId: string, journalFile: string, snapshot: OrphanSnapshot): boolean {
+  if (snapshot.manifestFailed) return false // 清单读失败：不确定 → 不归档
+  if (snapshot.manifestIds.has(docId)) return false
+  if (snapshot.trashFailed) return false // 回收站清单读失败：不确定 → 不归档
+  if (snapshot.trashIds.has(docId)) return false
   const pending = findUnsettled(journalFile)
   if (pending.length === 0) return false // 无未结算项：不在报红路径上，无需归档
   return pending.every((p) => {

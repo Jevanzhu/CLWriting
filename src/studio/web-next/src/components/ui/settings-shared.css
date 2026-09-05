@@ -567,6 +567,39 @@
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 18%, transparent);
 }
 
+/* ── 题材输入（genre-field）：text-input 套壳加内置类目图标——
+   图标沉在框内左缘，hover 框缘提亮、聚焦时图标染强调色（label 包裹点图标即聚焦）；
+   placeholder 换示例提示（原「题材」与行名重复），色压到注释级作纯提示 ── */
+.genre-field {
+  position: relative;
+  display: inline-flex;
+  cursor: text;
+}
+.genre-field > svg {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-faint);
+  pointer-events: none;
+  transition: color var(--dur-fast) var(--ease-out);
+}
+.genre-field .text-input {
+  padding-left: 30px;
+  /* 窄框：题材是短词（如「东方玄幻」），260px 满宽在行内压迫说明文字（贴着灰字换行）
+     且与相邻数字输入（104/124px）失衡；收窄后左缘离说明文字自然拉开 */
+  width: 180px;
+}
+.genre-field .text-input::placeholder {
+  color: var(--text-faint);
+}
+.genre-field:hover .text-input {
+  border-color: var(--background-modifier-border-active);
+}
+.genre-field:focus-within > svg {
+  color: var(--interactive-accent);
+}
+
 /* ── RAG 显式保存行 ── */
 .save-btn {
   padding: 7px 18px;
@@ -748,6 +781,10 @@
 }
 :root[data-platform='win32'] .text-input {
   width: 260px;
+}
+/* 题材窄框同步收 win 档（须压过上方 260px 通则：:root[data-platform] 前缀对齐特异性） */
+:root[data-platform='win32'] .genre-field .text-input {
+  width: 200px;
 }
 :root[data-platform='win32'] .setting-item input[type='range'] {
   width: 184px;

@@ -165,6 +165,19 @@ export const useChatStore = defineStore('chat', () => {
     if (wsBookName() === book) selectedChapter.value = undefined
   }
 
+  /** R46-6（四十六轮）：改名迁移章号显式记忆——改名路径此前零迁移（删除路径有
+   *  clearChapterMemo），旧名条目常驻内存且新名侧章号语境清零；值搬家不丢状态。 */
+  function migrateChapterMemo(oldName: string, newName: string): void {
+    if (oldName === newName || !chapterMemo.has(oldName)) return
+    chapterMemo.set(newName, chapterMemo.get(oldName))
+    chapterMemo.delete(oldName)
+  }
+
+  /** R46-6 配套：章号显式记忆只读访问器（迁移链回归测试面；无记忆 = undefined）。 */
+  function chatChapterMemoFor(book: string): number | undefined {
+    return chapterMemo.get(book)
+  }
+
   /** 是否有消息 */
   const hasMessages = computed(() => messages.value.length > 0)
 
@@ -637,6 +650,8 @@ export const useChatStore = defineStore('chat', () => {
     selectChatChapter,
     followChatChapter,
     clearChapterMemo,
+    migrateChapterMemo,
+    chatChapterMemoFor,
     dispatch,
     pushUser,
     popUser,

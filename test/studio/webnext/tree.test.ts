@@ -79,6 +79,40 @@ describe('tree · load', () => {
     expect(tree.error).toBe('网络断')
     expect(tree.loading).toBe(false)
   })
+
+  it('R46-35（四十六轮）：同书并发 load 合并为一次 GET，settle 后台账清（后续调用重新发请求）', async () => {
+    vi.mocked(getTree).mockResolvedValue({ nodes: sampleRaw(), revision: 'r1', validatedAt: '' })
+    const tree = useTreeStore()
+    const p1 = tree.load(BOOK)
+    const p2 = tree.load(BOOK)
+    await Promise.all([p1, p2])
+    expect(getTree).toHaveBeenCalledTimes(1) // 合并为一次请求（原两次且前者被 gen 丢弃）
+    expect(tree.revision).toBe('r1')
+    await tree.load(BOOK) // settle 后在途清：非永久缓存，再调重发
+    expect(getTree).toHaveBeenCalledTimes(2)
+  })
+
+  it('R46-35（四十六轮）：在途 refresh=0 时 refresh=1 不搭车（后发者胜）；在途 refresh=1 时后来者搭车', async () => {
+    // 在途缓存读（refresh=0）挂起，重扫（refresh=1）并发到达
+    let releaseCache!: (v: { nodes: TreeNode[]; revision: string; validatedAt: string }) => void
+    vi.mocked(getTree).mockImplementationOnce(() => new Promise((r) => { releaseCache = r }))
+    vi.mocked(getTree).mockResolvedValueOnce({ nodes: sampleRaw(), revision: 'r2', validatedAt: '' })
+    const tree = useTreeStore()
+    const pCache = tree.load(BOOK)
+    const pScan = tree.load(BOOK, true) // 不合并：缓存响应满足不了重扫语义，独立发请求
+    releaseCache({ nodes: [], revision: 'r-stale', validatedAt: '' })
+    await Promise.all([pCache, pScan])
+    expect(getTree).toHaveBeenCalledTimes(2)
+    expect(tree.revision).toBe('r2') // 重扫响应胜出，迟到的缓存响应被 gen 丢弃
+
+    // 反向：在途是重扫（refresh=1），后来的 refresh=0 直接搭车（重扫响应至少与缓存一样新）
+    vi.mocked(getTree).mockResolvedValueOnce({ nodes: sampleRaw(), revision: 'r3', validatedAt: '' })
+    const pScan2 = tree.load(BOOK, true)
+    const pCache2 = tree.load(BOOK)
+    await Promise.all([pScan2, pCache2])
+    expect(getTree).toHaveBeenCalledTimes(3) // 搭车未发新请求
+    expect(tree.revision).toBe('r3')
+  })
 })
 
 describe('tree · groupTree 分组（v2 直透）', () => {

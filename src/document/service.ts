@@ -41,7 +41,7 @@ import { writeSnapshot, DEFAULT_SNAPSHOT_POLICY, readGlobalSnapshotPolicy, type 
 import { readManifest, readManifestStrict, writeManifest, upsertEntry, withManifestLockAsync, type ManifestEntry } from './manifest.js'
 import { SaveQueue } from './queue.js'
 import { generateDocId, legacyId } from './stable-id.js'
-import { invalidateTreeIndex, scanBookTree, type TreeNode } from './tree.js'
+import { invalidateTreeIndex, invalidateTreeIndexForContent, scanBookTree, type TreeNode } from './tree.js'
 import { readFile as readDoc, parseFlat, patchFlatFm, splitFrontMatter, joinFrontMatter, bodyOf } from '../format/frontmatter.js'
 // R42-7（四十二轮）：Z-6 守卫读改 strict——readTrashManifest 容错版只供只读展示面
 // （X-P3a：读失败按「无回收站」处理），本文件不再使用容错版。
@@ -580,6 +580,11 @@ export class DocumentService {
         } catch (e) {
           log.warn('document', `保存后清单刷新失败（${relPath}，树扫描将自愈收编）：${e instanceof Error ? e.message : String(e)}`)
         }
+        // R46-8（四十六轮）：保存后树缓存失效统一口径——此前 executeSave 完全不失效
+        // （树 wordCount/status 靠 stat 指纹自愈 + 前端 refresh=1 兜底），与 files.ts PUT /
+        // draft-pipeline 的「过度失效」两极分叉；三链路统一为单键失效（indexes 重建 +
+        // 只清本次改写文件的 probe 键）
+        invalidateTreeIndexForContent(this.bookRoot, relPath)
         // 步骤 10：journal settled。
         // R27-44（二十七轮）：settled 失败不误报——此刻正文已原子落盘、清单已刷新，
         // 原裸调用落入下方 catch 会返回 WRITE_ERROR（编辑器误报失败、重试必撞
@@ -1002,6 +1007,8 @@ export class DocumentService {
       } catch (e) {
         return { ok: false, code: 'WRITE_ERROR', reason: `元数据写入失败：${errMsg(e)}` }
       }
+      // R46-8（四十六轮）：meta PATCH 同文件整写——与 executeSave 同款单键失效
+      invalidateTreeIndexForContent(this.bookRoot, path)
       // R71-22（十九轮）：标题三级回落——显式传标题（meta.标题）→ fm 标题 → 现有文件名
       // 标题段（剥章号数字前缀与 .md）。此前章号-only PATCH 且 fm 缺标题时直落「未命名」，
       // 作者手建的 `0001-我的章节.md` 改一次章号就被静默改成 `000N-未命名.md`（用户自选
@@ -1341,11 +1348,15 @@ export class DocumentService {
       // U+FFFD 失真快照（假留底：移动覆盖后原字节任何形式不可恢复）。writeVersion 支持
       // 原字节直存（front matter utf-8 + 原字节拼接），快照即字节档。
       const oldContent = readFileSync(oldSafe)
+      // R46-39（四十六轮）：留底补传 policy（this.snapshotPolicy()）——此前缺省走
+      // DEFAULT_VERSION_POLICY（14 天/30 个），global.json 的 snapMax* 覆盖对移动/重命名
+      // 前留底不生效，与同文件 maybeSnapshot/updateChapterMeta/updateDocMeta 写法漂移；
+      // 留底是"必须留"时刻，force 与既有缺省（true）一致，显式写明。
       writeSnapshot(this.snapshotsDir, docId, oldContent, {
         origin: 'manual',
         reason: op.kind === 'move' ? '移动前留底' : '重命名前留底',
         baseRevision: baseRev,
-      })
+      }, { policy: this.snapshotPolicy(), force: true })
       mkdirSync(dirname(newSafe), { recursive: true })
       // R71-7（十九轮）：existsSync→renameSync 的 TOCTOU 窗口内目标位被跨进程并发落位
       // → POSIX rename / win MOVEFILE(REPLACE_EXISTING) 均静默覆盖（双方调用都返回成功，
@@ -1594,11 +1605,14 @@ export class DocumentService {
       // GBK 等非 UTF-8 源产出失真快照，删除落位后原字节不可恢复；writeVersion 支持
       // 原字节直存，快照即字节档。
       const content = readFileSync(oldSafe)
+      // R46-39（四十六轮）：同 doMoveOrRename——删除前留底补传 policy，global.json 的
+      // snapMax* 覆盖此前对软删留底不生效（缺省 14 天/30 个硬编码）；force 显式 true
+      // （留底必留，与缺省一致）。
       writeSnapshot(this.snapshotsDir, docId, content, {
         origin: 'manual',
         reason: '删除前留底',
         baseRevision: baseRev,
-      })
+      }, { policy: this.snapshotPolicy(), force: true })
       // 移到 工作区/.trash/<docId>-<basename>
       const trashAbs = this.resolveSafePath(trashedRel)
       if (!trashAbs) return { ok: false, code: 'PATH_ESCAPE', reason: '回收站路径越出书仓库' }

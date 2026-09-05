@@ -134,6 +134,14 @@ function attachRendererCrashSelfHeal(win: BrowserWindow, label: string): void {
     }, RENDERER_CRASH_STABILITY_RESET_MS)
     stabilityTimer.unref?.()
   })
+  // R46-19（四十六轮）：窗口 closed 即撤 stabilityTimer——计时器闭包持有 win 引用，
+  // 窗口销毁后至多 5 分钟才随计时器到期释放（回调的 isDestroyed 守卫只防崩不防滞留）。
+  win.on('closed', () => {
+    if (stabilityTimer) {
+      clearTimeout(stabilityTimer)
+      stabilityTimer = null
+    }
+  })
 }
 
 // userData 强制统一到定值（大写 CLWriting）。

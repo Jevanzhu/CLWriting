@@ -174,6 +174,26 @@ function setVersionCache(cacheKey: string, entry: VersionFpCacheEntry): void {
 }
 
 /**
+ * R46-40（四十六轮）：删书/改名的生命周期失效挂点（books.ts forgetBookKeyedCaches
+ * 接线）——指纹缓存键为 `${versionsDir}\u0000${docId}\u0000${origin}`，versionsDir 由
+ * 调用方 join(bookRoot, '工作区', VERSIONS_DIR_NAME) 构造（未 resolve），故按
+ * `join(bookRoot, …) + \u0000` 前缀清理即字节对齐（pruneVersions 的 cacheScope 同款
+ * 键口径）。删书后条目成死重、改名后旧前缀键永不再命中；残留条目只会被同 fp 写入
+ * 命中后经「缓存指向版本不在盘」校验自愈，但清掉更干净。返回清除条目数。
+ */
+export function forgetVersionFpCacheForBook(bookRoot: string): number {
+  const scope = join(bookRoot, '工作区', VERSIONS_DIR_NAME) + '\u0000'
+  let removed = 0
+  for (const key of latestOriginHash.keys()) {
+    if (key.startsWith(scope)) {
+      latestOriginHash.delete(key)
+      removed++
+    }
+  }
+  return removed
+}
+
+/**
  * 建版本：全文 + front matter 元信息（来源/原因/基线/字数/永久）。
  * 返回版本 id；被去重或节流跳过时返回 null。写入成功后顺带 prune（不引定时器）。
  */

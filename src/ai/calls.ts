@@ -220,6 +220,14 @@ function migrateOldFormat(old: OldFormat): CallRecord {
 /** E-4（第五十三轮）：旧格式迁移已完成的书库标记（防迁移写落地前并发 read 重复入队） */
 const migratedRoots = new Set<string>()
 
+/** R46-23（四十六轮）：删书/改名失效挂点（books.ts forgetBookKeyedCaches 家族，同
+ *  forgetSettingCache 口径）——migratedRoots 只增不减：删书重建同名书（或还原旧格式
+ * 备份）后旧标记会让旧格式迁移在本进程内永不重试（read 每次都走旧格式分支但被标记
+ * 去重短路，写回永不再入队）。键即 bookRoot 本身，精确删除即可。 */
+export function forgetMigratedRoots(bookRoot: string): void {
+  migratedRoots.delete(bookRoot)
+}
+
 /** 原子写记录（atomicWriteFile + fsync；mode 0600 随临时文件创建即生效——
  *  CC-P2-3：此前先默认权限写再补 chmodSync，既有短暂全局可读窗口，且裸调用无防护、
  *  成功路径同步抛错可反转 GEN_FAIL；mode 选项两问同解，chmodSync 删除） */
@@ -565,7 +573,14 @@ function recordTaskUsageLocked(bookRoot: string, task: string, usage: TokenUsage
     return
   }
   const base: CallRecord = rec ?? { chapter: { num: 0, used: 0, inputTokens: 0, outputTokens: 0 }, tasks: {} }
-  const t = base.tasks[task] ?? { used: 0, inputTokens: 0, outputTokens: 0 }
+  applyTaskUsage(base, task, usage)
+  writeRecord(bookRoot, base)
+}
+
+/** task 计数 +1 并累计 tokens（R46-21 自 recordTaskUsageLocked 拆出的单源突变段，
+ *  与 recordUsageBothLocked 共用——两入口写入语义逐字段一致，防手抄漂移） */
+function applyTaskUsage(rec: CallRecord, task: string, usage: TokenUsage | null): void {
+  const t = rec.tasks[task] ?? { used: 0, inputTokens: 0, outputTokens: 0 }
   t.used += 1
   if (usage) {
     t.inputTokens += usage.inputTokens
@@ -579,6 +594,54 @@ function recordTaskUsageLocked(bookRoot: string, task: string, usage: TokenUsage
     // A-6（二十九轮）：同 applyCall——估计口径粘性标记
     if (usage.estimated) t.estimated = true
   }
-  base.tasks[task] = t
+  rec.tasks[task] = t
+}
+
+/**
+ * R46-21（四十六轮）：runner 每 attempt 的 task/chapter 双块记账合并单写段——此前
+ * recordTaskUsage 与 recordAiCall 先后各走一次「跨进程锁 + readRecord + writeRecord
+ * （+fsync）」，同账本两段 RMW 纯增争用窗口与 IO。本函数一次锁 + 一次读 + 一次原子写
+ * 同改两块：task 块经 applyTaskUsage（= recordTaskUsageLocked 逐字段），chapter 块经
+ * applyCall + 换章 fresh 重置（= recordAiCallLocked 逐字段，含「无记录/换章重置 +
+ * tasks 保留」口径）；损坏保守跳过同口径（合并后只 log 一次）。原两函数保留不动
+ * （rag/index.ts 等其它调用方与测试面零改动）。task/chapter 双缺省 = 无可记块，
+ * 不进写段（与旧「两 if 各自跳过」等价）。
+ */
+export function recordUsageBoth(
+  bookRoot: string,
+  task: string | undefined,
+  chapter: number | undefined,
+  usage: TokenUsage | null,
+  costUsd?: number,
+): void {
+  if (task === undefined && chapter === undefined) return
+  serializedWrite(bookRoot, () => recordUsageBothLocked(bookRoot, task, chapter, usage, costUsd))
+}
+
+function recordUsageBothLocked(
+  bookRoot: string,
+  task: string | undefined,
+  chapter: number | undefined,
+  usage: TokenUsage | null,
+  costUsd?: number,
+): void {
+  const { rec, corrupt } = readRecord(bookRoot)
+  if (corrupt) {
+    log.error('calls', '.cache/ai-calls.json 损坏，本次记账跳过（保守阻断保持）')
+    return
+  }
+  const base: CallRecord = rec ?? { chapter: { num: 0, used: 0, inputTokens: 0, outputTokens: 0 }, tasks: {} }
+  // task 块（与 recordTaskUsageLocked 逐字段一致）
+  if (task !== undefined) applyTaskUsage(base, task, usage)
+  // chapter 块（与 recordAiCallLocked 逐字段一致：换章 fresh 重置 chapter、tasks 保留）
+  if (chapter !== undefined) {
+    if (!rec || rec.chapter.num !== chapter) {
+      const fresh: CallRecord = { chapter: { num: chapter, used: 0, inputTokens: 0, outputTokens: 0 }, tasks: base.tasks }
+      applyCall(fresh, usage, costUsd)
+      writeRecord(bookRoot, fresh)
+      return
+    }
+    applyCall(base, usage, costUsd)
+  }
   writeRecord(bookRoot, base)
 }

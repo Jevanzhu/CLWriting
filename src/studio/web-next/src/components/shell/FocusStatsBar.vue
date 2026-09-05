@@ -10,7 +10,7 @@ import { useDocStore } from '../../stores/doc'
 import { useUiStore } from '../../stores/ui'
 import { usePrefsStore } from '../../stores/prefs'
 import { getConfig, type BookConfig } from '../../api/books'
-import { countWords, stripFrontmatter, parseFmFields } from '../../shared/words'
+import { useDebouncedWordCount, useDebouncedFmFields } from '../../composables/useDebouncedWordCount'
 
 const ws = useWorkspaceStore()
 const doc = useDocStore()
@@ -31,7 +31,10 @@ const sideRoomTooSmall = computed(() => vw.value < prefs.effectivePageWidth)
 
 const docId = computed(() => ws.activeDocId)
 const entry = computed(() => (docId.value ? doc.get(docId.value) : undefined))
-const words = computed(() => (entry.value ? countWords(stripFrontmatter(entry.value.content)) : 0))
+// R46-5（四十六轮）：字数与 fm 字段 150ms 防抖（EditorView R39-20 同款——专注条常驻，
+// 此前每击键全文重算；首笔起钟 words watch 随防抖延一拍，会话计时精度无感）
+const { count: words, flush: flushWords } = useDebouncedWordCount(() => entry.value?.content, () => docId.value)
+const { fields: fmFields } = useDebouncedFmFields(() => entry.value?.content, () => docId.value)
 
 // ── 会话快照（每章口径；重进专注各重开一段会话）──
 /** 基线：文档到位时锁存当前字数（空章留 null——首笔从旧字数 0 锁，见 words watch） */
@@ -49,8 +52,11 @@ const speed = computed(() => {
   return minutes <= 0 ? null : Math.round(delta.value / minutes)
 })
 
-/** 重开一段会话：以当前字数为新基线（空章留 null 待首笔从 0 锁） */
+/** 重开一段会话：以当前字数为新基线（空章留 null 待首笔从 0 锁）。 */
 function resetSession(): void {
+  // R46-5：防抖下切章/重进先冲刷——基线必须锁「当拍」字数，防 150ms 窗内基线滞留
+  // 旧文档字数（置位跳变被误判为动笔，速度起算提前）
+  flushWords()
   baseline.value = words.value > 0 ? words.value : null
   firstChangeAt = null
   wordsAtReset = words.value
@@ -99,7 +105,7 @@ watch(
 )
 const chapterTarget = computed(() => {
   if (entry.value) {
-    const v = parseFmFields(entry.value.content)['字数目标']
+    const v = fmFields.value['字数目标']
     // R32-32（三十二轮）：isFinite 守卫同 WritingInfoPanel——脏 fm 手填不产 NaN 目标
     if (v && Number.isFinite(Number(v))) return Number(v)
   }
@@ -118,6 +124,8 @@ watch(
       resetSession()
       return
     }
+    // R46-5：退出汇报前冲刷在途字数防抖——退出落在 150ms 防抖窗内时本次增量不被低估
+    flushWords()
     if (delta.value <= 0) return
     ui.toast(
       `专注结束：本次 +${delta.value} 字${speed.value !== null ? ` · 平均 ${speed.value} 字/分` : ''}`,

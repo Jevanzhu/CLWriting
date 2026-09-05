@@ -7,7 +7,7 @@ import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
 import { usePrefsStore } from '../../stores/prefs'
 import { getConfig, type BookConfig } from '../../api/books'
-import { countWords, stripFrontmatter, parseFmFields } from '../../shared/words'
+import { useDebouncedWordCount, useDebouncedFmFields } from '../../composables/useDebouncedWordCount'
 import type { TreeNode } from '../../types/tree'
 import { friendlyError } from '../../shared/error'
 
@@ -49,7 +49,11 @@ watch(
   { immediate: true },
 )
 
-const words = computed(() => (entry.value ? countWords(stripFrontmatter(entry.value.content)) : 0))
+// R46-5（四十六轮）：字数与 fm 字段 150ms 防抖——右栏「信息」tab 常驻（三折叠区默认
+// 展开），此前每击键全文 countWords + parseFmFields 重算（EditorView wordCount
+// R39-20 已防抖的同族成本，右栏链路漏配）；切文档（activeDocId 变）即刻重算
+const { count: words } = useDebouncedWordCount(() => entry.value?.content, () => ws.activeDocId)
+const { fields: fmFields } = useDebouncedFmFields(() => entry.value?.content, () => ws.activeDocId)
 const volumeWords = computed(() => {
   if (!node.value) return 0
   const m = node.value.path.match(/^写作\/正文\/([^/]+)\//)
@@ -71,7 +75,7 @@ const volumeWords = computed(() => {
 // 「NaN%」隐患；isFinite 过滤后落到书级/全局默认，三级链不受脏 fm 牵连。
 const chapterTarget = computed(() => {
   if (entry.value) {
-    const v = parseFmFields(entry.value.content)['字数目标']
+    const v = fmFields.value['字数目标']
     if (v && Number.isFinite(Number(v))) return Number(v)
   }
   return config.value.book?.chapter_target_words ?? prefs.defaultChapterTargetWords

@@ -11,11 +11,37 @@
  * frontmatter 复用 format/frontmatter 的 readFile/parseFlat（平铺 key: value）。
  */
 import { join, basename } from 'node:path'
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { readFile, parseFlat } from '../format/frontmatter.js'
 import { isMdFileName } from '../format/filename.js'
 import { bundledResource } from '../fs/resources.js'
 import { log } from '../log/index.js'
+
+// ── R46-26（四十六轮）：技巧包文件级 mtime 缓存 ────────────────────────
+// listSkills 此前三根全量 readFileSync+parse（chat 每轮组 system prompt 索引都扫），
+// loadSkill 又经由 listSkills 只为按名找一条、找到后再 readFileSync 重读一遍正文。
+// 每文件 (mtimeNs,size) 指纹 → 已解析条目（meta + 剥 fm 正文）：指纹命中免读免解析，
+// 文件任何改写（指纹必变）即时失效，无需 TTL（setting-rule R36-12 同思路、更细粒度）。
+// 读失败不缓存（R74-12「不可读不入索引」口径保持）；命中返回 meta 浅拷贝（调用方
+// 改字段不污染缓存）。FIFO 上限防用户库增长无界缓涨（chapters.ts chapterDirCache
+// 同款纪律；技能包个位数、上限只兜异常形态）。
+interface SkillFileEntry {
+  sig: string
+  meta: SkillMeta
+  content: string
+}
+const SKILL_FILE_CACHE_MAX = 256
+const skillFileCache = new Map<string, SkillFileEntry>()
+
+/** 单文件 (mtimeNs,size) 指纹（stat 失败 = null，调用方按未缓存处理，下轮重试） */
+function skillFileSig(fp: string): string | null {
+  try {
+    const st = statSync(fp, { bigint: true })
+    return `${st.mtimeNs},${st.size}`
+  } catch {
+    return null
+  }
+}
 
 /** 技巧包元信息（索引级；正文按需加载） */
 export interface SkillMeta {
@@ -47,6 +73,16 @@ function scanRoot(dir: string, source: SkillMeta['source']): SkillMeta[] {
   const out: SkillMeta[] = []
   for (const f of files) {
     const fp = join(dir, f)
+    // R46-26：指纹命中 → 免读免解析（一次 stat 换 readFileSync+parse；stat 失败按
+    // 未缓存处理走现读，读失败会 warn 跳过——不缓存失败，下轮重试）
+    const sig = skillFileSig(fp)
+    if (sig !== null) {
+      const hit = skillFileCache.get(fp)
+      if (hit && hit.sig === sig) {
+        out.push({ ...hit.meta })
+        continue
+      }
+    }
     // R74-12（七十四轮批 D）：索引先试读——readFile 的 {ok:false} 混装「读失败」与
     // 「无 front matter」两种形态，此前一律按裸 md 降级收录：不可读文件（权限/竞态
     // 删除/IO 故障）也进索引，而 loadSkill 对它恒 null——模型见目录取不到包。现读
@@ -71,6 +107,16 @@ function scanRoot(dir: string, source: SkillMeta['source']): SkillMeta[] {
     } else {
       // 无 front matter 降级（用户随手丢的裸 md）：name=文件名，全文即正文，不拒之门外
       out.push({ name: basename(f, '.md'), description: '', whenToUse: '', source, path: fp })
+    }
+    // R46-26：读成功才入缓存（meta 存独立副本，返回值与缓存不共享引用；content 与
+    // loadSkill 的剥 fm 口径一致：有 fm 取 body.trim()，裸 md 取全文 trim()）
+    if (sig !== null) {
+      const meta = out[out.length - 1]!
+      if (skillFileCache.size >= SKILL_FILE_CACHE_MAX) {
+        const oldest = skillFileCache.keys().next().value
+        if (oldest !== undefined) skillFileCache.delete(oldest)
+      }
+      skillFileCache.set(fp, { sig, meta: { ...meta }, content: r.ok ? r.body.trim() : text.trim() })
     }
   }
   return out
@@ -100,6 +146,11 @@ export function listSkills(roots: SkillRoots): SkillMeta[] {
 export function loadSkill(name: string, roots: SkillRoots): { meta: SkillMeta; content: string } | null {
   const meta = listSkills(roots).find((m) => m.name === name)
   if (!meta) return null
+  // R46-26：正文直查文件级缓存（读前重验指纹——listSkills 建索引与 read_skill 取
+  // 正文之间可能隔整轮对话，作者中途改包须取到新文；指纹失配/竞态删除落回现读）
+  const sig = skillFileSig(meta.path)
+  const hit = sig !== null ? skillFileCache.get(meta.path) : undefined
+  if (hit && hit.sig === sig) return { meta, content: hit.content }
   const r = readFile(meta.path)
   if (r.ok) return { meta, content: r.body.trim() }
   // 裸 md（无 front matter）：全文即正文（与 scanRoot 降级口径一致）

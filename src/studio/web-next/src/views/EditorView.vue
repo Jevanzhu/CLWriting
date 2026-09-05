@@ -10,7 +10,8 @@ import { useTreeStore } from '../stores/tree'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useUiStore } from '../stores/ui'
 import { getConfig } from '../api/books'
-import { mergeFm, parseFmFields, formKindOf, isBodyKind, countWords, splitFrontmatter } from '../shared/words'
+import { mergeFm, formKindOf, isBodyKind, countWords, splitFrontmatter } from '../shared/words'
+import { useDebouncedFmFields } from '../composables/useDebouncedWordCount'
 import CmHost from '../editor/CmHost.vue'
 import EditorDocHead from '../components/editor/EditorDocHead.vue'
 import ContextMenu from '../components/ui/ContextMenu.vue'
@@ -127,17 +128,20 @@ onUnmounted(() => {
 
 const isChapter = computed(() => isBodyKind(entry.value?.path ?? ''))
 const titleModel = ref('')
+// R46-5（四十六轮）：标题 fm 解析 150ms 防抖（parseFmFields 每击键全文 split/join
+// 两趟大分配——wordCount R39-20 同族）；F2 编辑守卫与切文档即时语义不变
+const { fields: titleFmFields } = useDebouncedFmFields(() => entry.value?.content, () => props.docId)
 // F2（五十九轮）：标题编辑守卫——标题框聚焦（新标题未提交）或提交在途期间，watch 源
 // entry.content 的任何变化（正文键入/refresh）不得回写 titleModel，否则未提交的新标题
 // 被静默覆盖。切文档时强制脱离编辑态（输入框随文档切换失效，提交通道已不可能）。
 const titleEditing = ref(false)
 watch(
-  [() => entry.value?.content, () => props.docId],
-  ([c, id], old) => {
+  [titleFmFields, () => props.docId],
+  ([f, id], old) => {
     if (old === undefined || old[1] !== id) titleEditing.value = false
     if (titleEditing.value) return
     const e = entry.value
-    titleModel.value = e ? (parseFmFields(c ?? '').标题 ?? e.name) : ''
+    titleModel.value = e ? (f['标题'] ?? e.name) : ''
   },
   { immediate: true },
 )

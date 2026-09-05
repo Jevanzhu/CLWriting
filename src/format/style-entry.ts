@@ -125,15 +125,112 @@ export function writeEntryExclusive(filePath: string, e: StyleEntry): boolean {
   return createFileExclusive(filePath, text) === 'created'
 }
 
+// ── R46-20（四十六轮）：条目库读取 TTL+mtime 探针缓存 ─────────────────────
+// 消费面是写稿热路径：book-rules loadAiFlavorRule → rulesPromptParts/applicableRules
+// （每章每轮 2-4 次）此前每次全量 readdir+stat+readFile+parse 四类条目目录。手法照抄
+// 同路径先例 setting-rule R36-12（TTL + 探针 + FIFO 上限 + forget 挂点）。探针取
+// 「每文件 (mtimeNs,size) 清单」而非目录 mtime——条目常被整文件就地改写（作者编辑器
+// 保存多为 in-place，目录 mtime 不动会漏），r38-batch-e 回归正是「改内容须失效」钉住
+// 的形态（iron-rules 侧指纹同为文件级 mtimeMs/size）；TTL（缺省 5s）只兜「同指纹内容
+// 改写」的最坏可见窗（同 mtimeNs+size 的撞窗，chapters.ts 缓存同款取舍）。命中返回
+// entries/errors 数组浅拷贝（调用方 sort/mutate 不污染缓存）；条目对象只读共享。
+const ENTRIES_CACHE_TTL_MS = 5000
+const ENTRIES_CACHE_MAX = 32
+
+interface EntriesCacheEntry {
+  entries: StyleEntry[]
+  errors: ParseError[]
+  ts: number
+  sig: string
+}
+
+const entriesCache = new Map<string, EntriesCacheEntry>()
+
+let entriesTtlMs: number | null = null
+/** TTL 测试注入口（null 还原默认；先例同 setting-rule __setSettingCacheTtlForTest）。 */
+export function __setEntriesCacheTtlForTest(ms: number | null): void {
+  entriesTtlMs = ms
+}
+
+let entriesLoadCountForTest = 0
+/** 底层实际读目录计数观察口（验证缓存命中/失效；生产零调用）。 */
+export function __entriesLoadCountForTest(): number {
+  return entriesLoadCountForTest
+}
+export function __resetEntriesLoadCountForTest(): void {
+  entriesLoadCountForTest = 0
+}
+
+/** R46-20：删书/改名失效挂点（books.ts forgetBookKeyedCaches 家族，同 forgetSettingCache
+ *  口径）——缓存键为 `<entriesDir>\u0000<kind|*>`，按 join(bookRoot, ENTRIES_DIR) 前缀
+ *  精确清除该书全部 kind 变体（绝对路径前缀无歧义）。 */
+export function forgetEntriesCache(bookRoot: string): void {
+  const prefix = join(bookRoot, ENTRIES_DIR) + '\u0000'
+  for (const k of entriesCache.keys()) {
+    if (k.startsWith(prefix)) entriesCache.delete(k)
+  }
+}
+
+/** R46-20：kinds 各目录的「文件名:mtimeNs:size」签名（目录缺失计 '-'；单文件 stat
+ *  失败〔扫描竞态删除〕计不稳定标记，永不与下次相等 → 强制重读，宁多读不脏读）。 */
+function entriesDirSignature(entriesDir: string, kinds: readonly EntryKind[]): string {
+  const parts: string[] = []
+  for (const k of kinds) {
+    const dir = join(entriesDir, k)
+    let files: string[]
+    try {
+      // 过滤口径与 readEntries 本体逐字一致（探针漏看一个文件 = 该文件改写不失效）
+      files = readdirSync(dir).filter((f) => f.slice(-3).toLowerCase() === '.md' && !f.startsWith('._')).sort()
+    } catch {
+      parts.push('-') // 类型目录不存在
+      continue
+    }
+    const fps: string[] = []
+    for (const f of files) {
+      try {
+        const st = statSync(join(dir, f), { bigint: true })
+        fps.push(`${f}:${st.mtimeNs}:${st.size}`)
+      } catch {
+        return `unstable-${Date.now()}-${Math.random()}` // 竞态删除：整签名作废强制重读
+      }
+    }
+    parts.push(fps.join(','))
+  }
+  return parts.join('|')
+}
+
 /**
  * 读条目库（entriesDir = <bookRoot>/文风/条目）。
  * kind 省略 → 全部四类；目录不存在 → 空（老书未迁移时的正常形态）。
+ * R46-20：经 TTL+mtime 探针缓存读取（写稿热路径不再每章每轮全量重读条目目录）。
  */
 export function readEntries(
   entriesDir: string,
   kind?: EntryKind,
 ): { entries: StyleEntry[]; errors: ParseError[] } {
   const kinds = kind ? [kind] : ENTRY_KINDS
+  const key = `${entriesDir}\u0000${kind ?? '*'}`
+  const sig = entriesDirSignature(entriesDir, kinds)
+  const cached = entriesCache.get(key)
+  if (cached && cached.sig === sig && Date.now() - cached.ts < (entriesTtlMs ?? ENTRIES_CACHE_TTL_MS)) {
+    return { entries: cached.entries.slice(), errors: cached.errors.slice() }
+  }
+  entriesLoadCountForTest += 1
+  const r = readEntriesUncached(entriesDir, kinds)
+  // 简单 FIFO 淘汰（Map 保插入序）：超上限丢最旧条目，防长期书架累积死重（setting 先例）
+  if (entriesCache.size >= ENTRIES_CACHE_MAX) {
+    const oldest = entriesCache.keys().next().value
+    if (oldest !== undefined) entriesCache.delete(oldest)
+  }
+  entriesCache.set(key, { entries: r.entries, errors: r.errors, ts: Date.now(), sig })
+  return r
+}
+
+/** readEntries 原实现（R46-20 拆出为缓存未命中的实读路径，逻辑逐字未动） */
+function readEntriesUncached(
+  entriesDir: string,
+  kinds: readonly EntryKind[],
+): { entries: StyleEntry[]; errors: ParseError[] } {
   const entries: StyleEntry[] = []
   const errors: ParseError[] = []
   for (const k of kinds) {

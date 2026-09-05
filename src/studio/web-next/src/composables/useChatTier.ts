@@ -35,8 +35,18 @@ function _createChatTier() {
   /** 当前生效推理等级 */
   const activeEffort = computed<EffortLevel>(() => store.chatActiveEffort)
 
-  async function refresh(): Promise<void> {
+  // R46-34（四十六轮）：refresh 60s TTL 门——切书链（Book.vue）每次无条件 GET /api/providers
+  // （chatEnabled=false 亦然），频繁切书纯浪费；距上次成功刷新 <60s 且非强制时跳过重拉。
+  // 设置页 AiProvider 面板直走 stores/provider.refreshAll（独立路径），不经过此门不受影响。
+  // 成功信号取「providers 非空」近似——store.refresh 静默吞错无法直接分辨，冷启动拉失败
+  // （空列表）不占 TTL 窗，下次切书仍可重试自愈。
+  const REFRESH_TTL_MS = 60_000
+  let lastRefreshOkAt = 0
+  async function refresh(force = false): Promise<void> {
+    if (!force && Date.now() - lastRefreshOkAt < REFRESH_TTL_MS) return
     await store.refresh()
+    // ?. 容错：测试桩的 getProviders 响应可缺 providers 字段（store 落 undefined）
+    if ((store.providers?.length ?? 0) > 0) lastRefreshOkAt = Date.now()
   }
 
   /** 切换模型/推理等级 → 立即生效（写对话档；未配则从创作档继承创建） */

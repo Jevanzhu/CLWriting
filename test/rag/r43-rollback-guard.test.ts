@@ -60,9 +60,10 @@ describe('R43-18: ensureNormColumn——norm 回填事务同款加固', () => {
       exec(sql: string): void {
         if (sql === 'ROLLBACK') throw new Error(`SQLite error: ${ROLLBACK_SELF_ERR}`)
       },
-      prepare(sql: string): { all?: () => unknown[]; run?: (...a: unknown[]) => unknown } {
+      prepare(sql: string): { all?: () => unknown[]; iterate?: () => Iterable<{ id: number; embedding: Uint8Array }>; run?: (...a: unknown[]) => unknown } {
         if (sql.startsWith('PRAGMA table_info')) return { all: () => [{ name: 'norm' }] }
-        if (sql.includes('SELECT id, embedding')) return { all: () => [{ id: 1, embedding: new Uint8Array(8) }] }
+        // R46-51：SELECT 改游标 iterate 逐行后，mock 语句形态同步（数组本身可迭代）
+        if (sql.includes('SELECT id, embedding')) return { iterate: () => [{ id: 1, embedding: new Uint8Array(8) }] }
         if (sql.startsWith('UPDATE chunks SET norm')) {
           return { run: () => { throw new Error('SQLITE_IOERR: disk I/O error') } }
         }

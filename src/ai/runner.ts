@@ -15,7 +15,7 @@ import { tryMockTool, MOCK_USAGE } from './mock-tool.js'
 import { GenError, resolveFirstByteTimeoutMs } from './gen.js'
 import { MODEL_QUIRKS_VERSION } from './provider/model-quirks.js'
 import { newRunId, promptMeta, toTraceUsage } from './trace.js'
-import { recordAiCall, recordTaskUsage } from './calls.js'
+import { recordUsageBoth } from './calls.js'
 import { resolveModelPricing, computeCallCost } from './pricing.js'
 import { openSessionStoreAsync, bookHash } from '../events/store.js'
 import { ChainRecorder, layerForTask, stepStartEvent, stepEndEvent, llmCallEvent, llmRetryEvent } from '../events/chain-bridge.js'
@@ -31,7 +31,12 @@ import { log } from '../log/index.js'
 const degradedPersistedKeys = new Set<string>()
 
 /** T2 批：换 userDataPath 时清理他 path 的降级标记——旧 path 键留着只会让进程切回
- *  旧库时误判「已写一次」跳过落盘（他进程/磁盘可能已改），键空间生命周期与注册槽对齐 */
+ * 旧库时误判「已写一次」跳过落盘（他进程/磁盘可能已改），键空间生命周期与注册槽对齐。
+ *  R46-22（四十六轮）复审澄清：本清理只及 memo Set——两个回调 Map 的键是注册闭包
+ *  （非「已写一次」标记），按 R65-6/R30-4 的双库并存设计须常驻：B 活跃期间 A 库
+ *  provider 的降级记忆仍须经显式 path 路由落 A 的 providers.json，随本函数清键会让
+ *  该写静默丢失（分发 miss）。Map 键空间 = 进程内出现过的 userDataPath 数（生产
+ *  单进程单 path；测试为个位数临时目录），一项一个闭包，天然有界。 */
 function pruneDegradedKeys(activePath: string): void {
   const prefix = activePath + '\u0000'
   for (const k of degradedPersistedKeys) {
@@ -145,12 +150,15 @@ function extractDegraded(data: unknown): boolean {
 /** R65-6（总六十五轮）：降级回调注册记录由模块级单值改 Map（key=userDataPath）——
  *  同进程先后以两个 userDataPath 各建 provider 时，后注册者不再覆盖前者的降级
  *  持久化回调（旧 provider 触发 persistDegraded 会读写另一个配置目录的 providers.json）。
- *  各 path 的回调闭包常驻 Map、只建一次；store 单槽承载稳定分发器（模块级函数引用，
+ *  各 path 的回调闭包入 Map；store 单槽承载稳定分发器（模块级函数引用，
  *  重装幂等）。R30-4（三十轮）：分发器升级为显式 path 优先路由——适配器实例由
  *  resolveProvider 注入来源 path（经 createProvider 贯穿至降级链），persistDegraded/
  *  lookupDegraded 调用时显式携带，双库并发生成互不劫持（旧实现按「最近 resolve 的
  *  活跃 path」路由，后 resolve 的库会劫持先库的降级读写）；未传 path（旧形态/单测
- *  直调）回落活跃 path（进程内口径 = 活跃库优先，兼容不变）。 */
+ *  直调）回落活跃 path（进程内口径 = 活跃库优先，兼容不变）。
+ *  R46-22（四十六轮）复审确认：Map 常驻「只建一次」是设计面而非遗漏——双库并存
+ *  （R30-4 锁定）要求他 path 的闭包在换 path 后仍可经显式 path 路由命中，故
+ *  pruneDegradedKeys 不清理两 Map（详见该函数注）。 */
 const degradedPersistByPath = new Map<string, (key: string) => void>()
 const degradedLookupByPath = new Map<string, (key: string) => boolean | undefined>()
 let degradedActivePath: string | null = null
@@ -506,7 +514,8 @@ export async function runTask<T>(opts: {
     ctrl.abort()
   }, timeoutMs)
 
-  // 二轮复审（M 项）：记账 IO 防护——recordTaskUsage/recordAiCall 写库抛错（磁盘满/库锁/
+  // 二轮复审（M 项）：记账 IO 防护——记账写库（R46-21 起为 recordUsageBoth 单写段，
+  // 此前 recordTaskUsage/recordAiCall 两段）抛错（磁盘满/库锁/
   // 库损坏）不应吞掉已到手的生成结果或改写错误语义（成功路径抛错会把 ok 变 GEN_FAIL
   // 触发重试，同一次产出双重计费）。降级为日志留痕；少记一次的账目由预算闸的保守口径
   // 与事件库可重算性兜底。五处调用（成功/中断/Retry-After 终态/重试/终态失败）统一走本助手。
@@ -537,11 +546,15 @@ export async function runTask<T>(opts: {
     accumulateAttemptsUsage(usage)
     if (!bookRoot) return
     try {
-      if (task) recordTaskUsage(bookRoot, task, usage)
-      if (opts.chapter !== undefined) {
-        const cost = usage ? computeCallCost(resolveModelPricing(opts.userDataPath, tier.model), usage) : undefined
-        recordAiCall(bookRoot, opts.chapter, usage, cost ?? undefined)
-      }
+      // R46-21（四十六轮）：task/chapter 两块合并单写段（recordUsageBoth 一次
+      // 「锁+读+写+fsync」同改两块）——此前 recordTaskUsage 与 recordAiCall 先后
+      // 各一段 RMW，同账本双写纯增争用窗口；cost 仅 chapter 块需要（配价才算，
+      // 未配价 undefined=口径不生效，与旧 recordAiCall 调用点一致）
+      const cost =
+        opts.chapter !== undefined && usage
+          ? computeCallCost(resolveModelPricing(opts.userDataPath, tier.model), usage)
+          : undefined
+      recordUsageBoth(bookRoot, task, opts.chapter, usage, cost ?? undefined)
     } catch (e) {
       log.warn('runner', `任务记账写库失败（${task ?? '未知任务'}，本轮账目缺失）：${e instanceof Error ? e.message : String(e)}`)
     }

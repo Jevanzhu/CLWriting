@@ -2,10 +2,9 @@
 // 工作台生成正文卡（巨石批 7a 拆分，M4 默认主区：作者看到的是文章，不是事件日志）。
 // 正文与字数读 workbench store；「存草稿并编辑」动作与 draftSaved 提示态留在父层
 // （切 tab 重挂不丢已存提示，行为与拆分前一致）。
-import { computed } from 'vue'
 import { CircleCheck } from 'lucide-vue-next'
 import { useWorkbenchStore } from '../../stores/workbench'
-import { countWords } from '../../shared/words' // R64-33：字数与编辑器头/右栏同源（码点+剥标记）
+import { useDebouncedWordCount } from '../../composables/useDebouncedWordCount' // R46-4：字数防抖（口径与编辑器头同源 countWords）
 import BetaBadge from '../ui/BetaBadge.vue'
 
 defineProps<{
@@ -15,7 +14,11 @@ defineProps<{
 }>()
 const emit = defineEmits<{ save: [] }>()
 const wb = useWorkbenchStore()
-const draftWords = computed(() => countWords(wb.textOut))
+// R46-4（四十六轮）：流式期每个 text 事件向 textOut 追加后 computed 全文重算——
+// 一章从 0 流式长到 N 字的总成本 O(N²/chunk)（全文正则替换 + 码点展开，与 <pre> 全文
+// 插值同帧）；改 150ms 防抖（EditorView wordCount R39-20 同款先例），与流式渲染解耦。
+// textOut 为裸生成文本（无 fm），stripFm:false
+const { count: draftWords } = useDebouncedWordCount(() => wb.textOut, undefined, { stripFm: false })
 </script>
 
 <template>

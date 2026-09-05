@@ -343,6 +343,13 @@ const SWEEP_SKIP_DIRS = new Set(['.git', 'node_modules'])
  *  （10 分钟），超龄且持有 pid 已死才清（见 sweepAbandonedTmpFiles 的 .lock 分支）。 */
 const STALE_LOCK_MIN_AGE_MS = 10 * 60_000
 
+/** R46-48（四十六轮）：自身 pid 名下 tmp 的废弃年龄门（毫秒）——导出 worker terminate
+ *  后 tmp 逃逸（worker_threads 与主进程共享 pid，pid 存活守卫对自身 pid 恒真，会话期
+ *  内永不清）；导出超时上限 120s < 5min，本进程名下的合法原子写（创建→rename 毫秒级
+ *  相邻）不可能超龄，超龄只可能是逃逸残留。独立常量不复用可注入的 minAge，防测试
+ *  注入缩小年龄门时连带给自身 pid 判定放水。 */
+const SELF_TMP_MIN_AGE_MS = 5 * 60_000
+
 export function sweepAbandonedTmpFiles(rootDir: string, opts?: { now?: number; minAgeMs?: number }): number {
   const now = opts?.now ?? Date.now()
   const minAge = opts?.minAgeMs ?? 5 * 60_000
@@ -387,7 +394,12 @@ export function sweepAbandonedTmpFiles(rootDir: string, opts?: { now?: number; m
       if (now - Math.floor(st.mtimeMs) < minAge) continue // 可能在途——不动
       // R65-37：pid 仍存活 → 他进程在途写（年龄门外的双进程保护），永不清
       const pid = Number(ABANDONED_TMP_RE.exec(ent.name)?.[1])
-      if (Number.isInteger(pid) && pid > 0 && isPidAlive(pid)) continue
+      if (Number.isInteger(pid) && pid > 0 && isPidAlive(pid)) {
+        // R46-48（四十六轮）：例外——pid == 自身且超 5 分钟也视为废弃（机理见
+        // SELF_TMP_MIN_AGE_MS 常量注：worker terminate 逃逸 tmp 与主进程共享 pid，
+        // 守卫对自身恒真；合法写者不可能超龄）。他进程 pid 维持 R65-37 永不清口径。
+        if (pid !== process.pid || now - Math.floor(st.mtimeMs) < SELF_TMP_MIN_AGE_MS) continue
+      }
       rmSync(full, { force: true })
       removed++
     } catch {

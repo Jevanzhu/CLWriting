@@ -101,7 +101,7 @@ describe('F2: 标题编辑期间 content 变化不回写 titleModel', () => {
 
     doc.patch('d1', '---\n标题: 更新的标题\n---\n\n正文')
     await flushPromises()
-    expect(w.find('.page-title').text()).toBe('更新的标题') // 守卫已解除，回写恢复
+    await vi.waitFor(() => expect(w.find('.page-title').text()).toBe('更新的标题')) // 守卫已解除，回写恢复 // R46-5（四十六轮）契约演进：标题 fm 解析 150ms 防抖，回写断言改 waitFor
     w.unmount()
   })
 
@@ -113,7 +113,7 @@ describe('F2: 标题编辑期间 content 变化不回写 titleModel', () => {
     await flushPromises()
     doc.patch('d1', '---\n标题: 外部改的标题\n---\n\n正文')
     await flushPromises()
-    expect(w.find('.page-title').text()).toBe('外部改的标题')
+    await vi.waitFor(() => expect(w.find('.page-title').text()).toBe('外部改的标题')) // R46-5（四十六轮）契约演进：标题 fm 解析 150ms 防抖，回写断言改 waitFor
     w.unmount()
   })
 })

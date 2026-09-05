@@ -20,7 +20,7 @@ import { isMdFileName } from '../../../format/filename.js'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError, parseRequestUrl } from '../http.js'
 import { resolveBook } from '../book-context.js'
-import { invalidateTreeIndex } from '../../../document/tree.js'
+import { invalidateTreeIndexForContent } from '../../../document/tree.js'
 import { snapshotBeforeOverwrite } from '../../../process/draft-pipeline.js' // R26-9（二十六轮）：覆盖留底单源复用（R71-9/R74-4 同款）
 import { log } from '../../../log/index.js'
 
@@ -175,8 +175,10 @@ export function registerFileRoutes(ctx: FileCtx): void {
         }
         atomicWriteFile(safe, content)
         // U-P2-8：与 DocumentService 写路径同口径——失效树索引缓存（wordCount/status），
-        // 否则 PUT 设定/大纲后树字数过期，只能靠前端 refresh=1 自愈
-        invalidateTreeIndex(r.bookRoot)
+        // 否则 PUT 设定/大纲后树字数过期，只能靠前端 refresh=1 自愈。
+        // R46-8（四十六轮）：改走单键失效——只清本次改写文件的 probe 键，不再整书清空
+        // 哈希缓存（否则每次编辑器保存后下一次树请求全书重读+重哈希）
+        invalidateTreeIndexForContent(r.bookRoot, putRel)
         return { revision: hashContent(content) } as const
         } finally {
           wiringRelease?.()

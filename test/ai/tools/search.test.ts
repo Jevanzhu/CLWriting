@@ -1,5 +1,6 @@
 /**
- * 工具面扩展单测：book_search。
+ * 工具面扩展单测：book_search。R46-3（四十六轮）：工具切 searchBookAsync 后
+ * 本文件用例改 async/await（结果断言不变）。
  */
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -25,37 +26,37 @@ function ctx(): ToolContext {
 }
 
 describe('book_search', () => {
-  it('命中正文关键词', () => {
-    const r = bookSearch(ctx(), { query: '玉佩' })
+  it('命中正文关键词', async () => {
+    const r = await bookSearch(ctx(), { query: '玉佩' })
     expect(r.ok).toBe(true)
     expect(r.summary).toContain('玉佩')
     expect(r.summary).toContain('0001-初入宗门')
   })
-  it('scope=设定 只搜设定目录', () => {
-    const r = bookSearch(ctx(), { query: '玉佩', scope: '设定' })
+  it('scope=设定 只搜设定目录', async () => {
+    const r = await bookSearch(ctx(), { query: '玉佩', scope: '设定' })
     expect(r.ok).toBe(true)
     expect(r.summary).toContain('设定/伏笔/玉佩线索')
     expect(r.summary).not.toContain('0001-初入宗门')
   })
-  it('无命中 → ok 且提示未找到', () => {
-    const r = bookSearch(ctx(), { query: '不存在的词xyz' })
+  it('无命中 → ok 且提示未找到', async () => {
+    const r = await bookSearch(ctx(), { query: '不存在的词xyz' })
     expect(r.ok).toBe(true)
     expect(r.summary).toContain('未找到')
   })
-  it('缺 query → 拒绝', () => {
-    const r = bookSearch(ctx(), {})
+  it('缺 query → 拒绝', async () => {
+    const r = await bookSearch(ctx(), {})
     expect(r.ok).toBe(false)
   })
 
   // R75-A-P3c（批 A）：命中行截断按码位不按 UTF-16 码元——slice(0,60) 在增补平面
   // 字符（emoji）边界切出半个代理对（下游渲染乱码）。
-  it('R75-A-P3c: 含 emoji 的命中行按码位截断（不切出半个代理对）', () => {
+  it('R75-A-P3c: 含 emoji 的命中行按码位截断（不切出半个代理对）', async () => {
     // 4 个汉字 + 80 个 emoji：UTF-16 第 60 个码元恰落在第 29 个 emoji 的高代理项上——
     // slice(0,60) 截出孤立高代理项；码位截断 = 4 汉字 + 56 个完整 emoji（60 码位）
     const line = '独有词条' + '😀'.repeat(80)
     mkdirSync(join(bookRoot, '设定'), { recursive: true })
     writeFileSync(join(bookRoot, '设定', 'emoji-线索.md'), line + '\n', 'utf-8')
-    const r = bookSearch(ctx(), { query: '独有词条' })
+    const r = await bookSearch(ctx(), { query: '独有词条' })
     expect(r.ok).toBe(true)
     // 取 '· ' 打点的命中行（首行「找到 N 处…」头部也含搜索词，不能作截断对象）
     const row = r.summary.split('\n').find((l) => l.startsWith('· ') && l.includes('emoji-线索'))!

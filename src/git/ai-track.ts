@@ -293,10 +293,19 @@ export function deleteAiVersions(bookRoot: string, docId: string): number {
   const versions = listAiVersions(bookRoot, docId)
   let deleted = 0
   if (hasGitBackend(bookRoot)) {
-    for (const v of versions) {
-      if (git(['update-ref', '-d', v.ref], bookRoot).ok) deleted++
-    }
-    return deleted
+    // R46-49（四十六轮）：循环内每版本一次 git(['update-ref','-d',...]) 进程（百版
+    // 轨迹 = 百次 spawn，win 每进程 30-80ms 白付）→ 改 update-ref --stdin 单进程批删：
+    // delete 命令逐行拼 stdin——ref 段为 [A-Za-z0-9_-]（encodeRefSegment）+ ULID，
+    // 无空格/换行/引号，行协议安全零转义；git() 的 opts.input 是既有能力（hash-object
+    // --stdin 先例），exec.ts 零改动。ref 集来自刚列的 for-each-ref，delete 对已消失
+    // ref 与命令行 -d 同口径（成功 no-op）；整批失败（git 不可用等）按 0 报，中途
+    // 部分应用无法逐条计数的边角以「删除后复验列表」兜底（消费方均为测试口径）。
+    // 写侧 recordAiVersion 每保存 2 进程维持不动（R36-5 已登记取舍）。
+    if (versions.length === 0) return 0
+    const r = git(['update-ref', '--stdin'], bookRoot, {
+      input: versions.map((v) => `delete ${v.ref}`).join('\n') + '\n',
+    })
+    return r.ok ? versions.length : 0
   }
   for (const v of versions) {
     try {

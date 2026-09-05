@@ -5,6 +5,7 @@
 // 父组件（本书页）已用 v-if="hasBook" 保证有书打开；本组件独立拉 config（raw watch），
 // 设置打开时本书页四个子组件共 4 次 getConfig——不引入父级统一状态（KISS）。
 import { ref, computed, watch, inject } from 'vue'
+import { LibraryBig } from 'lucide-vue-next'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
 import { usePrefsStore } from '../../stores/prefs'
@@ -184,7 +185,10 @@ function onBookChapterTargetInput(e: Event): void {
           <div class="setting-item-name">题材</div>
         </div>
         <div class="setting-item-control">
-          <input v-model="bookGenre" class="text-input" type="text" placeholder="题材" aria-label="题材" @change="onBookGenreChange" />
+          <label class="genre-field">
+            <LibraryBig :size="14" aria-hidden="true" />
+            <input v-model="bookGenre" class="text-input" type="text" placeholder="如：东方玄幻、都市异能" aria-label="题材" @change="onBookGenreChange" />
+          </label>
         </div>
       </div>
       <div v-if="bookKind !== 'short'" class="setting-item sub">

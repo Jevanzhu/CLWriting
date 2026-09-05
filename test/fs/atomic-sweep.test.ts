@@ -12,7 +12,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { rmSync, mkdirSync, writeFileSync, utimesSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { sweepAbandonedTmpFiles } from '../../src/fs/atomic.js'
 import { extractEvidenceCore, evidenceNeedles } from '../../src/check/leads.js'
 import { leadEvidenceMatchesBody } from '../../src/check/lead-updates.js'
@@ -24,6 +24,15 @@ function deadPid(): number {
   const r = spawnSync(process.execPath, ['-e', 'process.exit(0)'])
   const pid = r.pid ?? 0
   return pid > 0 ? pid : 999_999 // spawn 失败兜底：极高位 pid 几乎必死
+}
+
+/** R46-48：确定性**他进程活 pid**——起一个存活的子进程取其 pid。R65-37 的「pid 存活
+ *  永不清」保护面是**他进程**在途写；此前用 process.pid 冒充「存活 pid」，R46-48 起
+ *  自身 pid + 超 5 分钟改判废弃（worker terminate 逃逸 tmp），本测试须用真他进程。 */
+function liveOtherPid(): { pid: number; stop: () => void } {
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 60000)'], { stdio: 'ignore' })
+  child.unref()
+  return { pid: child.pid ?? deadPid(), stop: () => { try { child.kill() } catch { /* 已退出 */ } } }
 }
 
 let root: string
@@ -97,19 +106,41 @@ describe('Y-24: sweepAbandonedTmpFiles', () => {
     expect(existsSync(normal)).toBe(true)
   })
 
-  // R65-37（第六十五轮）：tmp 命名自带 pid 段——pid 存活 = 他进程在途写（CLI/GUI
-  // 双进程长时间大文件写会超 5 分钟年龄门），永不清；死 pid 才交年龄门清走。
-  it('R65-37: pid 仍存活的超龄 tmp 不清（双进程在途保护）；死 pid 的超龄 tmp 照清', () => {
-    const alive = join(root, `.大产物.md.${process.pid}.aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.tmp`)
-    const dead = join(root, `.大产物2.md.${deadPid()}.aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.tmp`)
-    writeFileSync(alive, '在途')
-    writeFileSync(dead, '残留')
+  // R65-37（第六十五轮）：tmp 命名自带 pid 段——**他进程** pid 存活 = 在途写
+  //（CLI/GUI 双进程长时间大文件写会超 5 分钟年龄门），永不清；死 pid 才交年龄门清走。
+  // R46-48（四十六轮）：自身 pid 例外——worker_threads 与主进程共享 pid，导出 worker
+  //  terminate 逃逸的 tmp 对 pid 守卫恒「存活」，会话期内永不清；改判「自身 pid 且
+  //  超 5 分钟也废弃」（导出超时上限 120s < 5min，合法写者不可能超龄）。
+  it('R65-37: 他进程 pid 存活的超龄 tmp 不清；死 pid 超龄照清', () => {
+    const live = liveOtherPid()
+    try {
+      const alive = join(root, `.大产物.md.${live.pid}.aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.tmp`)
+      const dead = join(root, `.大产物2.md.${deadPid()}.aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.tmp`)
+      writeFileSync(alive, '在途')
+      writeFileSync(dead, '残留')
+      const now = Date.now()
+      utimesSync(alive, new Date(now - 30 * 60_000), new Date(now - 30 * 60_000)) // 远超年龄门
+      utimesSync(dead, new Date(now - 30 * 60_000), new Date(now - 30 * 60_000))
+      const removed = sweepAbandonedTmpFiles(root, { now })
+      expect(removed).toBe(1)
+      expect(existsSync(alive)).toBe(true) // 他进程 pid 存活 → 不清（R65-37 语义保持）
+      expect(existsSync(dead)).toBe(false) // 死 pid 超龄 → 清
+    } finally {
+      live.stop()
+    }
+  })
+
+  it('R46-48: 自身 pid 的超龄 tmp 视为废弃（worker 逃逸）；年轻的自身 pid tmp 仍受年龄门保护', () => {
+    const escaped = join(root, `.导出.md.${process.pid}.aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.tmp`)
+    const inFlight = join(root, `.导出2.md.${process.pid}.aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.tmp`)
+    writeFileSync(escaped, 'worker terminate 逃逸')
+    writeFileSync(inFlight, '在途')
     const now = Date.now()
-    utimesSync(alive, new Date(now - 30 * 60_000), new Date(now - 30 * 60_000)) // 远超年龄门
-    utimesSync(dead, new Date(now - 30 * 60_000), new Date(now - 30 * 60_000))
+    utimesSync(escaped, new Date(now - 30 * 60_000), new Date(now - 30 * 60_000)) // 远超 5min 自身门
+    utimesSync(inFlight, new Date(now - 60_000), new Date(now - 60_000)) // 1min：低于年龄门
     const removed = sweepAbandonedTmpFiles(root, { now })
     expect(removed).toBe(1)
-    expect(existsSync(alive)).toBe(true) // 本进程 pid 存活 → 不清
-    expect(existsSync(dead)).toBe(false) // 死 pid 超龄 → 清
+    expect(existsSync(escaped)).toBe(false) // 自身 pid + 超 5min → 废弃清走
+    expect(existsSync(inFlight)).toBe(true) // 年轻（<5min）→ 在途保护不动
   })
 })

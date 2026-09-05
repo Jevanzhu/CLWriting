@@ -128,7 +128,24 @@ export const useTreeStore = defineStore('tree', () => {
   /** 拉树。refresh=true 让服务端重扫盘（切书 / 手动刷新 / 窗口回前台）；
    *  结构性操作后不必传——后端 mutation 已 invalidate 缓存。 */
   let loadGen = 0
-  async function load(name: string, refresh = false): Promise<void> {
+  // R46-35（四十六轮）：同书在途 load 台账（手法对齐 doc.ts inflightOpens）——同书并发
+  // 调用（切书链 + 结构性 mutation 后重载 + 窗口回前台重扫）合并为一次 GET /tree。
+  // 值带 refresh 标志做合并判定：在途是重扫（refresh=1）时任何后来者都可搭车（重扫响应
+  // 至少与缓存一样新）；在途是缓存读（refresh=0）而本次要求重扫时不合并——缓存响应满足
+  // 不了重扫语义，照旧发新请求，loadGen 后发者胜把旧响应丢弃（refresh=1 优先，与既有
+  // 并发竞态口径一致）。
+  const inflightLoads = new Map<string, { p: Promise<void>; refresh: boolean }>()
+  function load(name: string, refresh = false): Promise<void> {
+    const running = inflightLoads.get(name)
+    if (running && (running.refresh || !refresh)) return running.p
+    const p = doLoad(name, refresh).finally(() => {
+      // identity 删键：clear 清台账 / refresh=1 顶位后，旧 settled 不得误删新登记条目
+      if (inflightLoads.get(name)?.p === p) inflightLoads.delete(name)
+    })
+    inflightLoads.set(name, { p, refresh })
+    return p
+  }
+  async function doLoad(name: string, refresh: boolean): Promise<void> {
     const gen = ++loadGen
     loading.value = true
     error.value = null
@@ -158,6 +175,9 @@ export const useTreeStore = defineStore('tree', () => {
   function clear(): void {
     loadGen++
     issuesGen++
+    // R46-35（四十六轮）：在途台账一并清——clear 已推代，在途共享 promise 落定时被 gen 守卫
+    // 丢弃（不回填树）；不清则 clear 后同书首调会搭上这条「死」promise，树渲染永远空
+    inflightLoads.clear()
     raw.value = []
     revision.value = ''
     loading.value = false

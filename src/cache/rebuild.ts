@@ -17,7 +17,7 @@
 
 import { DatabaseSync } from 'node:sqlite'
 import { existsSync, readdirSync, statSync, mkdirSync, rmSync } from 'node:fs'
-import { join, dirname } from 'node:path'
+import { join, dirname, sep } from 'node:path'
 import { createAllTables, clearAllTables } from './schema.js'
 import { syncLead, syncChapter, syncSummary, setMeta, getMeta } from './sync.js'
 import { readLeadDir } from '../format/leads.js'
@@ -104,6 +104,26 @@ export const __testHooks = {
   setChapterCacheMaxForTest(n: number | null): void {
     chapterCacheMax = n ?? CHAPTER_CACHE_MAX
   },
+}
+
+/**
+ * R46-40（四十六轮）：删书/改名的生命周期失效挂点（books.ts forgetBookKeyedCaches
+ * 接线）——模块级章读缓存按绝对文件路径键控，删书后全书条目成死重、改名后旧前缀
+ * 键永不再命中（FIFO 上限 2048 之外的多书残留）。前缀匹配用 bookRoot + sep：缓存键
+ * 由 walkMdEach 自 join(bookRoot, '写作', …) 派生（未 resolve），两侧同源字节对齐
+ * （format/chapters.ts clearChapterDirCacheForBook 同款口径）。返回清除条目数（测试
+ * 断言用）；清后键惰性重建，无正确性影响。
+ */
+export function forgetChapterParseCacheForBook(bookRoot: string): number {
+  const prefix = bookRoot + sep
+  let removed = 0
+  for (const key of chapterCache.keys()) {
+    if (key.startsWith(prefix)) {
+      chapterCache.delete(key)
+      removed++
+    }
+  }
+  return removed
 }
 
 /**

@@ -68,6 +68,10 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  // R46-12（四十六轮）：静态 GET 改 createReadStream 后 keep-alive 连接不再随
+  // res.end 即刻回收，afterAll 的 server.close() 会等满 keepAlive 超时（hook 10s 红门）
+  // ——先 closeAllConnections 再 close（static-branch-error.test 同款收尾）
+  server?.closeAllConnections?.()
   if (server) await new Promise<void>((r) => server!.close(() => r()))
   if (workDir) rmSync(workDir, { recursive: true, force: true })
   if (staticDir) rmSync(staticDir, { recursive: true, force: true })

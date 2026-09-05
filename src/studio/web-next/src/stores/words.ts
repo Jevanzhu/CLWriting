@@ -36,7 +36,21 @@ export const useWordsStore = defineStore('words', () => {
   /** 打开书 / save 后刷新：GET baseline + delta；baseline 缺 → 记当前已写为基线。需 tree.load 后调。 */
   let reqGen = 0
   let loadedFor: string | null = null
-  async function ensureBaseline(name: string): Promise<void> {
+  // R46-33（四十六轮）：同书在途合并台账（手法对齐 doc.ts inflightOpens）——批量落盘 N 文档
+  // 并发 save settle 各调一次 ensureBaseline(同书)，原样发 N 次 GET /words-diary 而 N-1 次
+  // 纯浪费；合并后同书并发调用共享同一请求。settle 后 identity 删键，reset 清台账。
+  const inflightBaselines = new Map<string, Promise<void>>()
+  function ensureBaseline(name: string): Promise<void> {
+    const running = inflightBaselines.get(name)
+    if (running) return running
+    const p = doEnsureBaseline(name).finally(() => {
+      // identity 删键：reset 清台账后同书二次调用已登记新 promise，旧 settled 不得误删新条目
+      if (inflightBaselines.get(name) === p) inflightBaselines.delete(name)
+    })
+    inflightBaselines.set(name, p)
+    return p
+  }
+  async function doEnsureBaseline(name: string): Promise<void> {
     // RB-FE-P2-5：请求代守卫——切书后旧书慢响应不污染今日字数基线（后调者胜）
     const gen = ++reqGen
     // R65-49（E-1）：切书入口清态——tree.totalWords 已是新书而 baseline/delta 还是旧书时，
@@ -109,6 +123,9 @@ export const useWordsStore = defineStore('words', () => {
   function reset(): void {
     reqGen++
     loadedFor = null
+    // R46-33（四十六轮）：在途台账一并清——reset 已推代，在途共享 promise 落定时被 gen 守卫
+    // 丢弃（不回填数据）；不清则 reset 后同书首调会搭上这条「死」promise，今日字数永不落定
+    inflightBaselines.clear()
     date.value = null
     baseline.value = null
     todayDelta.value = null

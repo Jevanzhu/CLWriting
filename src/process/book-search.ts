@@ -181,11 +181,13 @@ function walkMd(dir: string, bookRoot: string): string[] {
 }
 
 /**
- * searchBook 的异步孪生（R35-7，三十五轮）——HTTP 全书搜索端点专用：全链 fs.promises
- * （readdir/readFile/stat/realpath，realpath 语义逐位保留），扫描期间事件循环可响应
- * SSE 心跳/保存等其他请求（同步版 readFileSync/walkMd 全程阻塞，端点上不再使用）。
- * 匹配/排序/截断/排除目录/symlink 纪律与同步版逐位同源（matchLines 单源共享）；
- * 同步版保留给 AI book_search 工具（子进程面，无事件循环冻结问题），不复制逻辑漂移。
+ * searchBook 的异步孪生（R35-7，三十五轮）——原 HTTP 全书搜索端点专用，R46-3（四十六轮）
+ * 起 AI book_search 工具同用（chat 工具在 studio 服务进程事件循环内执行，同步版会冻结
+ * 同进程全部书的 SSE/保存）：全链 fs.promises（readdir/readFile/stat/realpath，realpath
+ * 语义逐位保留），扫描期间事件循环可响应 SSE 心跳/保存等其他请求。匹配/排序/截断/排除
+ * 目录/symlink 纪律与同步版逐位同源（matchLines 单源共享）。
+ * 同步版 searchBook 现仅测试面/CLI 面消费，生产读路径一律走本异步版（R46-3 口径更正：
+ * 旧注「同步版保留给 AI book_search 工具（子进程面）」是 spawn CLI 时代的过时口径）。
  */
 export async function searchBookAsync(bookRoot: string, q: string, scope?: string): Promise<SearchOutcome> {
   // 归一/过滤/截断口径与 searchBook 逐位对齐（见同步版各行注释，此处不重复）

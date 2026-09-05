@@ -36,11 +36,17 @@ export function computeProgress(bookRoot: string): { chapters: number; words: nu
  * 与归并段之间，保证端点 handler 不再是「无让出的整段同步链」。结果与同步版逐位
  * 一致（r37 回归锚守护）。
  */
-export async function computeProgressAsync(bookRoot: string): Promise<{ chapters: number; words: number }> {
-  const { chapters } = readChapterDir(join(bookRoot, '写作', '正文'))
+export async function computeProgressAsync(
+  bookRoot: string,
+  /** R46-1（四十六轮）：可选复用调用方已扫出的章列表（overview 单趟三投影共享）——
+   *  传入则跳过本函数自己的 readChapterDir（该 handler 此前 timeline/progress/recentDoc
+   *  各扫一遍章目录，三连全扫）。不传行为不变（兼容既有测试直调）。 */
+  chapters?: { _wordCount?: number }[],
+): Promise<{ chapters: number; words: number }> {
+  const list = chapters ?? readChapterDir(join(bookRoot, '写作', '正文')).chapters
   await yieldToEventLoop()
-  const words = chapters.reduce((sum, c) => sum + (c._wordCount ?? 0), 0)
-  return { chapters: chapters.length, words }
+  const words = list.reduce((sum, c) => sum + (c._wordCount ?? 0), 0)
+  return { chapters: list.length, words }
 }
 
 /**

@@ -290,21 +290,34 @@ export function leadClosureItems(
 
 /** 提取证据的核心片段（引号内的内容优先，否则取前 N 字）。export 供 cli/check 当前章引文命中复用同口径。
  *  仅用于展示（红项文案）；正文命中匹配走 evidenceNeedles（R63-8 多候选，见下）。 */
+
+// R46-47（四十六轮）：证据引号正则模块常量化（循 R26-47 / R33-31 先例）——
+// extractEvidenceCore / evidenceNeedles 在履历循环里每条证据重编译 2-4 枚，内容只依赖
+// 模块常量（quotes.ts 宽容引号集）与入参无关。带 g 的三枚仅用于 replace（每次重置
+// lastIndex，无跨调用消费态），共享安全；edge 单枚（^单开|单闭$）与 many 枚（^开+|闭+$）
+// 语义不同（剥单层边引 vs 剥多层边引），各自独立保留。
+const EVIDENCE_QUOTED_CORE_RE = new RegExp(`[${QUOTE_OPEN_LENIENT}]([^${QUOTE_CLOSE_LENIENT}]{4,})[${QUOTE_CLOSE_LENIENT}]`)
+const EVIDENCE_EDGE_SINGLE_RE = new RegExp(`^[${QUOTE_OPEN_LENIENT}]|[${QUOTE_CLOSE_LENIENT}]$`, 'g')
+const EVIDENCE_ALL_QUOTES_RE = new RegExp(`[${QUOTE_OPEN_LENIENT}${QUOTE_CLOSE_LENIENT}]`, 'g')
+const EVIDENCE_QUOTED_INNER_RE = new RegExp(`[${QUOTE_OPEN_LENIENT}]([^${QUOTE_CLOSE_LENIENT}]+)[${QUOTE_CLOSE_LENIENT}]`)
+const EVIDENCE_EDGE_MANY_RE = new RegExp(`^[${QUOTE_OPEN_LENIENT}]+|[${QUOTE_CLOSE_LENIENT}]+$`, 'g')
+
 export function extractEvidenceCore(evidence: string): string {
   // 优先取引号内的内容（V-P2-12：统一走 quotes.ts 双体系引号 + 保留 ASCII 直引号——
   // 此前这里只认 ASCII 直引号，中文弯引号/直角引号包裹的证据全部走 slice 兜底，
   // 截断片段致 lead-evidence-miss 误报）。R62-8：宽容字符集收编 quotes.ts 单源导出
   //（证据面宁宽勿漏是设计口径；正文 span 检测不收 ASCII 引号，两口径并存见 quotes.ts）
-  const quoted = evidence.match(new RegExp(`[${QUOTE_OPEN_LENIENT}]([^${QUOTE_CLOSE_LENIENT}]{4,})[${QUOTE_CLOSE_LENIENT}]`))
+  // R46-47：消费模块常量（原每调用 new RegExp 三枚）
+  const quoted = evidence.match(EVIDENCE_QUOTED_CORE_RE)
   if (quoted?.[1]) return quoted[1]
   // 否则取前 8 个字符（够 grep）。Y-22（第五十七轮）：短引号证据（如「雪落」3 字，
   // 不满 {4,}）走此兜底——先剥首尾引号再截，带引号字符去 grep 正文会整组 miss
   // （正文写无引号的「雪落」时误报 lead-evidence-miss）
   const stripped = evidence
-    .replace(new RegExp(`^[${QUOTE_OPEN_LENIENT}]|[${QUOTE_CLOSE_LENIENT}]$`, 'g'), '')
+    .replace(EVIDENCE_EDGE_SINGLE_RE, '')
     // R33-33（三十三轮）：内部残引一并剥除——「雪落」无声 的中段闭引号此前残留进展示
     // 文案（首/尾剥只处理串端，中间引号漏网）
-    .replace(new RegExp(`[${QUOTE_OPEN_LENIENT}${QUOTE_CLOSE_LENIENT}]`, 'g'), '')
+    .replace(EVIDENCE_ALL_QUOTES_RE, '')
   return (stripped || evidence).slice(0, 8)
 }
 
@@ -320,9 +333,10 @@ export function extractEvidenceCore(evidence: string): string {
  * ③ 全剥引号串（混合短引的正身：雪落无声）
  */
 export function evidenceNeedles(evidence: string): string[] {
-  const inner = new RegExp(`[${QUOTE_OPEN_LENIENT}]([^${QUOTE_CLOSE_LENIENT}]+)[${QUOTE_CLOSE_LENIENT}]`).exec(evidence)?.[1]
-  const edgeStripped = evidence.replace(new RegExp(`^[${QUOTE_OPEN_LENIENT}]+|[${QUOTE_CLOSE_LENIENT}]+$`, 'g'), '')
-  const allStripped = evidence.replace(new RegExp(`[${QUOTE_OPEN_LENIENT}${QUOTE_CLOSE_LENIENT}]`, 'g'), '')
+  // R46-47：消费模块常量（原每调用 new RegExp 三枚；ALL_QUOTES_RE 与上方兜底共用）
+  const inner = EVIDENCE_QUOTED_INNER_RE.exec(evidence)?.[1]
+  const edgeStripped = evidence.replace(EVIDENCE_EDGE_MANY_RE, '')
+  const allStripped = evidence.replace(EVIDENCE_ALL_QUOTES_RE, '')
   const candidates = [...new Set([inner, edgeStripped, allStripped].filter((s): s is string => typeof s === 'string' && s.trim().length > 0).map((s) => s.trim()))]
   // R31-13（三十一轮）：针串最短 2 码位——1 字针串（如证据「雪」无声 → inner='雪'）
   // 在正文几乎恒命中，兑现判定/引文命中 trivially 通过（防吃书红线漏报向）。候选全被

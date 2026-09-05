@@ -27,15 +27,18 @@ import { httpStatusToCode, failureAction } from '../../src/ai/provider/failure.j
 import type { GenEvent, GenRequest, ModelProvider, ProviderConf } from '../../src/ai/provider/index.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
-// R27-1：把记账入口换成同步忙等——runner 对 recordTaskUsage 的调用耗时可观测
+// R27-1：把记账入口换成同步忙等——runner 对记账调用（R46-21 起为 recordUsageBoth
+// 单写段；mock 随之改挂新入口，recordTaskUsage mock 保留防其它路径回归）的耗时可观测
 vi.mock('../../src/ai/calls.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/ai/calls.js')>()
+  const busyWait = vi.fn(() => {
+    const end = Date.now() + 80
+    while (Date.now() < end) { /* 同步忙等：制造可断言的记账 IO 延迟 */ }
+  })
   return {
     ...actual,
-    recordTaskUsage: vi.fn(() => {
-      const end = Date.now() + 80
-      while (Date.now() < end) { /* 同步忙等：制造可断言的记账 IO 延迟 */ }
-    }),
+    recordTaskUsage: busyWait,
+    recordUsageBoth: busyWait,
   }
 })
 

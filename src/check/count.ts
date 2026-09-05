@@ -7,7 +7,7 @@
  * 全部零 token 脚本判定。
  */
 
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, existsSync, statSync } from 'node:fs'
 import type { CheckSectionResult, CheckItem } from './types.js'
 import type { ChapterMeta } from '../format/types.js'
 import { validateEnums } from '../format/chapters.js'
@@ -306,6 +306,16 @@ export const DIALOGUE_TAG_RE = new RegExp(
 const ROSTER_NAME_RE = new RegExp(`^[${HANZI}]{2,4}$`)
 
 /**
+ * R46-10（四十六轮）：名册解析结果的 (mtimeNs,size) 指纹缓存——runAllChecks 每章调
+ * checkNewNames，此前每章 readFileSync 整读名册 + 逐行正则解析（大书名册数百名 ×
+ * 数百章的重复同步 IO）；指纹命中只付 1 次 statSync（ironRulesFp 同款范式，精度
+ * mtimeNs 无陈旧窗口）。键按 rosterPath（含 bookRoot 绝对路径），FIFO 上限对齐
+ * 章节元数据缓存 32 书纪律。
+ */
+const ROSTER_CACHE_MAX = 32
+const rosterNamesCache = new Map<string, { mtimeNs: bigint; size: bigint; names: string[] }>()
+
+/**
  * R30-2（三十轮）：名册文本 → 已登记名字数组（checkNewNames 精确判重专用）。
  *
  * 单源指向：grep src/check/ 无现成名册解析器（checkNewNames 此前直接对名册**全文**
@@ -350,10 +360,23 @@ export function checkNewNames(
   const items: CheckItem[] = []
   if (!existsSync(rosterPath)) return { name: '新专名候选', items }
   // R65-16（十三轮）：existsSync→readFileSync 间隙名册被瞬删（TOCTOU）时 ENOENT 直穿
-  // 炸整次机检——照 R62-9（runner.ts readPieceList）同款降级：黄项提示本轮未跑，不静默消失
-  let roster: string
+  // 炸整次机检——照 R62-9（runner.ts readPieceList）同款降级：黄项提示本轮未跑，不静默消失。
+  // R46-10（四十六轮）：解析结果走指纹缓存——命中只付 1 次 statSync，未变名册不再
+  // 每章整读+整解析（stat/读失败仍走原 R65-16 黄项降级路径，降级值不缓存）
+  let registeredNames: string[]
   try {
-    roster = readFileSync(rosterPath, 'utf-8')
+    const st = statSync(rosterPath, { bigint: true })
+    const hit = rosterNamesCache.get(rosterPath)
+    if (hit && hit.mtimeNs === st.mtimeNs && hit.size === st.size) {
+      registeredNames = hit.names
+    } else {
+      registeredNames = parseRosterNames(readFileSync(rosterPath, 'utf-8'))
+      if (rosterNamesCache.size >= ROSTER_CACHE_MAX) {
+        const oldest = rosterNamesCache.keys().next().value
+        if (oldest !== undefined) rosterNamesCache.delete(oldest)
+      }
+      rosterNamesCache.set(rosterPath, { mtimeNs: st.mtimeNs, size: st.size, names: registeredNames })
+    }
   } catch (e) {
     return {
       name: '新专名候选',
@@ -366,8 +389,6 @@ export function checkNewNames(
       ],
     }
   }
-  // R30-2（三十轮）：名册文本解析为已登记名字数组（精确判重，见 parseRosterNames）
-  const registeredNames = parseRosterNames(roster)
   // 粗抽：2-4 字中文专名候选——候选仅出自引号 span（QUOTED_SPAN_RE 命中段；
   // R31-12（三十一轮）注释如实化：叙述行裸名不入候选，扩裸名会引入高误报面，超出本轮）
   const candidates = new Set<string>()
@@ -685,6 +706,28 @@ function adjStackRegex(maxAdjStack: number): RegExp {
   return new RegExp(`(?:[${HANZI}]{1,6}的(?:[、，,]\\s*)?){${maxAdjStack + 1},}`, 'gu')
 }
 
+/**
+ * R46-46（四十六轮）：adjStack 的「的」长游程切段守卫——的 ∈ [HANZI]，纯「的」
+ * 长串（如 40 连发）可被 `(?:[汉字]{1,6}的){N,}` 以多种 {1,6} 分段方式匹配，失败
+ * 回溯随游程长指数增长（R27-23 已把 N clamp 到 [0,20]，但游程长在正文侧无界，
+ * 粘贴事故/生成体正文可拖死检查）。预扫描按 ≥8 连发「的」的游程切段丢弃——段内
+ * 匹配本属垃圾（合法堆叠每单元是「≤6 汉字+的」，8 连「的」不可能是合法定语
+ * 堆叠），对切段逐一跑原正则、命中取并集；<8 的短游程不受影响照常检查。
+ */
+const DE_RUN_SPLIT_RE = /的{8,}/
+
+/** 形容词堆叠命中（去重 + R73-18 领属链豁免）——computeStyleMetrics 与 checkStyleMetrics 共用单源 */
+function matchAdjStackHits(body: string, maxAdjStack: number): string[] {
+  const re = adjStackRegex(maxAdjStack)
+  const hits: string[] = []
+  // R46-46：切「的」长游程后逐段匹配（String.match 对 /g 正则重置 lastIndex，段间共享安全）
+  for (const seg of body.split(DE_RUN_SPLIT_RE)) {
+    hits.push(...(seg.match(re) ?? []))
+  }
+  if (hits.length === 0) return []
+  return [...new Set(hits)].filter((h) => !isPossessiveChain(h))
+}
+
 /** R26-47（二十六轮）：排比前缀匹配——原 computeStyleMetrics/checkStyleMetrics 两处
  *  循环体内逐句 new RegExp(`^[汉字]{2}`)，提升为模块级常量（内容循环不变）。 */
 const PARALLEL_PREFIX_RE = new RegExp(`^[${HANZI}]{2}`, 'u')
@@ -714,13 +757,6 @@ function isPossessiveChain(hit: string): boolean {
     if (POSSESSIVE_HEADS.has(m[1]!)) return true
   }
   return false
-}
-
-/** 形容词堆叠命中（去重 + R73-18 领属链豁免）——computeStyleMetrics 与 checkStyleMetrics 共用单源 */
-function matchAdjStackHits(body: string, maxAdjStack: number): string[] {
-  const hits = body.match(adjStackRegex(maxAdjStack))
-  if (!hits) return []
-  return [...new Set(hits)].filter((h) => !isPossessiveChain(h))
 }
 
 function summaryEndingRegex(): RegExp {

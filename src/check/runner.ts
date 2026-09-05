@@ -204,8 +204,10 @@ export function runAllChecks(input: CheckInput): CheckReport {
     sections.push(checkNewNames(body, rosterPath))
     // 信息差三级供给（B4 批 6，P6-①）：入参 > book.yaml checks.leak_keywords >
     // 账本 front matter leak_keywords 派生；无内置默认（逐书的秘密无通用词表），
-    // 三级都空 = 空表静默不启用（X-P2-22 语义不变）。账本扫描每章一次（布线目录
-    // 小、md 数十级，stat+读 fm 成本可忽略；跨请求结果只随账本编辑变化）
+    // 三级都空 = 空表静默不启用（X-P2-22 语义不变）。
+    // R46-10（四十六轮）：派生与名册解析均已按 stat 指纹缓存（leak-derive.ts /
+    // count.ts）——旧注「布线目录小、md 数十级」与成熟书数百账本的实况漂移，此前
+    // 每章整读全部账本 md × 数百章 = 数万次重复文件读；现未变账本只付树级 stat
     sections.push(checkInfoLeak(body, input.leakKeywords ?? config.checks?.leak_keywords ?? deriveLeakKeywords(bookRoot)))
   }
 

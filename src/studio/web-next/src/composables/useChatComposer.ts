@@ -26,6 +26,25 @@ export function clearFailedDrafts(book: string): void {
   failedDrafts.delete(book)
 }
 
+/** R46-6（四十六轮）：改名迁移失败草稿——与 clearFailedDrafts 删除出口同族，改名路径
+ *  此前零迁移（旧名条目常驻 + 新名侧「发送失败找回」失效）；值搬家不丢草稿。 */
+export function migrateFailedDrafts(oldBook: string, newBook: string): void {
+  if (oldBook === newBook) return
+  const v = failedDrafts.get(oldBook)
+  if (v === undefined) return
+  failedDrafts.set(newBook, v)
+  failedDrafts.delete(oldBook)
+}
+
+/** R46-6 配套：失败草稿读写访问器——与 clear/migrate 同族的模块级四件套
+ *  （写点在 sendChat 失败分支 / 读点在 composer 挂载回填，此处导出测试与诊断面）。 */
+export function rememberFailedDraft(book: string, text: string): void {
+  failedDrafts.set(book, text)
+}
+export function getFailedDraft(book: string): string | undefined {
+  return failedDrafts.get(book)
+}
+
 export function useChatComposer(
   bookName: () => string,
   currentChapter: () => number | undefined,

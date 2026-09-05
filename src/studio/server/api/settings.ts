@@ -9,7 +9,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, basename, relative, dirname } from 'node:path'
-import { readFileSync, readdirSync, existsSync, mkdirSync } from 'node:fs'
+import { readFileSync, readdirSync, existsSync, mkdirSync, statSync } from 'node:fs'
 import { defineRoute } from './schema.js'
 import { reply, readJson, HttpError, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
@@ -57,6 +57,84 @@ import { log } from '../../../log/index.js'
 
 export type { CharacterCard } from '../../../process/settings-context.js'
 
+// ── R46-16（四十六轮）：settings 全书扫描「目录指纹 + TTL」缓存壳 ────────────
+// 手法照抄同族先例 rhythm.ts / foreshadows.ts（R44-8：探针 + 纯 TTL + FIFO 上限 +
+// 书键 forget 挂点）：GET /settings 此前每请求全量重算 settingsLong——境界体系读取 +
+// 角色卡目录整读 + 时间线 md 扫描 + 关系线账本 + relations.json + countChapters 递归
+// 列正文目录，设定台面板打开/轮询反复触发。指纹按本端点实际读面构成：境界体系.md 与
+// .clwriting/relations.json 两单文件 size:mtime（单文件内容写不改任何目录 mtime，必须
+// 以文件 stat 入指纹）+ 设定/角色、设定/时间线、大纲/关系线、写作/正文 四目录 mtime
+//（增删改名/同目录 rename 落盘可见）；目录内就地内容改写由 TTL 5s 兜底（宁多扫不脏读，
+// TTL 与先例同值）。计算是同步单段（无在途并发窗口），缓存壳取先例同款同步形态。
+const SETTINGS_CACHE_TTL_MS = 5000
+const SETTINGS_CACHE_MAX = 32
+const settingsCache = new Map<string, { result: unknown; ts: number; sig: string }>()
+let settingsTtlMs: number | null = null
+/** R46-16：TTL 测试注入口（先例同 __setRhythmCacheTtlForTest）。仅测试用。 */
+export function __setSettingsCacheTtlForTest(ms: number | null): void {
+  settingsTtlMs = ms
+}
+/** R46-16：删书/改名失效挂点（books.ts forgetBookKeyedCaches 家族同款）。 */
+export function forgetSettingsCache(bookRoot: string): void {
+  settingsCache.delete(bookRoot)
+}
+/** R46-16 回归观测钩子（生产零调用；先例同 __rhythmScanCountForTest）：缓存 MISS →
+ *  全量重算（settingsLong）计数。 */
+let settingsScanCount = 0
+export function __settingsScanCountForTest(): number {
+  return settingsScanCount
+}
+export function __resetSettingsScanCountForTest(): void {
+  settingsScanCount = 0
+}
+
+/** 读面单文件成员的 size:mtimeMs 签名（缺失 → '-'；先例同 rhythm.ts rhythmSigStatFor）。 */
+function settingsSigStatFor(fp: string): string {
+  try {
+    const st = statSync(fp)
+    return `${st.size}:${st.mtimeMs}`
+  } catch {
+    return '-'
+  }
+}
+
+/** settings 读面指纹：境界体系.md + relations.json（单文件）+ 角色/时间线/关系线/正文（目录 mtime）。 */
+function settingsSignature(bookRoot: string): string {
+  const dirSig = (...dir: string[]): string => {
+    try {
+      return String(statSync(join(bookRoot, ...dir)).mtimeMs)
+    } catch {
+      return '-'
+    }
+  }
+  return [
+    settingsSigStatFor(join(bookRoot, '设定', '境界体系.md')),
+    settingsSigStatFor(join(bookRoot, '.clwriting', 'relations.json')),
+    dirSig('设定', '角色'),
+    dirSig('设定', '时间线'),
+    dirSig('大纲', '关系线'),
+    dirSig('写作', '正文'),
+  ].join(',')
+}
+
+/** R46-16：settings 聚合查询（目录指纹 + TTL 缓存壳）。导出供回归测试直测。 */
+export function getSettingsCached(bookRoot: string): unknown {
+  const sig = settingsSignature(bookRoot)
+  const cached = settingsCache.get(bookRoot)
+  if (cached && cached.sig === sig && Date.now() - cached.ts < (settingsTtlMs ?? SETTINGS_CACHE_TTL_MS)) {
+    return cached.result
+  }
+  settingsScanCount += 1
+  const result: unknown = settingsLong(bookRoot)
+  // 简单 FIFO 淘汰（Map 保插入序）：超上限丢最旧条目，防长期运行的书库累积
+  if (settingsCache.size >= SETTINGS_CACHE_MAX) {
+    const oldest = settingsCache.keys().next().value
+    if (oldest !== undefined) settingsCache.delete(oldest)
+  }
+  settingsCache.set(bookRoot, { result, ts: Date.now(), sig })
+  return result
+}
+
 export function registerSettingsRoutes(ctx: SettingsCtx): void {
   defineRoute('books.settings', {
     method: 'GET',
@@ -66,7 +144,8 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
 
     const bookRoot = r.bookRoot
-    reply(res, 200, settingsLong(bookRoot))
+    // R46-16：全书扫描走缓存壳（命中即跳过 settingsLong 的全量重算）
+    reply(res, 200, getSettingsCached(bookRoot))
   },
   })
 

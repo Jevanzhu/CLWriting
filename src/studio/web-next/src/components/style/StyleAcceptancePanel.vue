@@ -139,7 +139,9 @@ function fmtDate(iso: string): string {
             <span>总结体结尾 {{ style.trend.summaryEndingChapters.length }}{{ unit }}</span>
           </div>
           <div v-if="style.trend.drifts.length > 0" class="drift-list">
-            <div v-for="(d, i) in style.trend.drifts" :key="i" class="drift-item"><TriangleAlert :size="11" /> {{ d.message }}</div>
+            <!-- R46-30（四十六轮）：漂移项 key 改 metric——后端每个 metric 至多产出一条漂移
+              （metrics/style.ts detectConsecutiveOver 单发 + 固定推送各一次），metric 即行身份 -->
+            <div v-for="d in style.trend.drifts" :key="d.metric" class="drift-item"><TriangleAlert :size="11" /> {{ d.message }}</div>
           </div>
           <div v-else class="ab-ok">未发现文风偏差</div>
         </template>

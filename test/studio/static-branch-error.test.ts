@@ -60,7 +60,15 @@ function recordUnhandled(e: unknown): void {
 
 afterAll(async () => {
   process.off('unhandledRejection', recordUnhandled)
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
+  if (server) {
+    // R46-12（四十六轮）：GET 改 createReadStream 后 res finish 比客户端收完 body 晚
+    // 一拍——紧随 fetch 调 close() 时连接仍在「在途」态（close 只收割调用时已空闲的
+    // 连接），会等满 startServer 的 keepAliveTimeout 30s 才回调（>10s hookTimeout 假红；
+    // 生产同型面由 server-main.ts SIGINT 链的 2s exitNow 兜底覆盖）。收尾补一刀
+    // closeAllConnections（测试用例均已 await fetch，无在途请求可误伤）。
+    server.closeAllConnections()
+    await new Promise<void>((r) => server!.close(() => r()))
+  }
   if (root) rmSync(root, { recursive: true, force: true })
 })
 

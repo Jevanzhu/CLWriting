@@ -30,6 +30,7 @@ import { acquireTaskGate } from './task-gate.js'
 // D-2（二十九轮）：建索引失败信息与 replyError 同源的脱敏单源（http.ts 同款 import）——
 // embed 上游报错 message 可能夹带完整 URL（key 在 query）/ Authorization 痕迹
 import { redactSecret } from '../../../ai/provider/redact.js'
+import { log } from '../../../log/index.js'
 
 interface RagCtx {
   workDir: string | null
@@ -41,6 +42,12 @@ const ragBuildTasks = new Map<
   string,
   { running: boolean; startedAt: string; lastResult?: BuildIndexResult }
 >()
+
+// R46-15（四十六轮）：后台 rag-build 总时长 watchdog 上限（10min）——io.ts R27-62
+// export waiter 先例口径：建索引是分钟级长任务，10min 已极宽。buildIndex 挂死（上游
+// embed 接口僵死不超时/磁盘 IO 停摆）时闸段无限期不释放，后续 build/rebuild 恒 409、
+// status 永远「运行中」且无出口；超限即放闸 + 任务表标 failed + warn 留痕。
+const RAG_BUILD_WATCHDOG_MS = 10 * 60_000
 
 /** 清某书的索引任务表项（dd-P3：删书/改名时调用——任务表挂模块级，不随书清理会留死状态；运行中任务的收尾 set 无害落空） */
 export function forgetRagBuildTask(bookName: string): void {
@@ -112,6 +119,23 @@ function startRagBuild(
     if (opts?.resetIndexFirst) resetRagIndex(bookRoot)
 
     ragBuildTasks.set(bookName, { running: true, startedAt: new Date().toISOString() })
+    // R46-15（四十六轮）：总时长 watchdog——超 RAG_BUILD_WATCHDOG_MS 未收尾即放闸 + 任务表
+    // 标 failed + warn 留痕；不 kill 底层 buildIndex（它可能仍持跨进程锁，强杀会留陈锁，
+    // 任其自然收尾/落库），闸释放后作者可重试/重启。release 幂等（task-gate released 门），
+    // 迟到 .finally 的二次 release 无害；watchdog 触发后 build 若迟到落定，下方 then/catch
+    // 照常覆盖任务表（failed 占位 → 真实结果），状态优于停在 failed。unref 不拖进程退出。
+    const watchdog = setTimeout(() => {
+      release()
+      if (bookAlive()) {
+        ragBuildTasks.set(bookName, {
+          running: false,
+          startedAt: '',
+          lastResult: { ok: false, chunkCount: 0, chapterCount: 0, error: `建索引超时（超过 ${RAG_BUILD_WATCHDOG_MS / 60_000} 分钟未收尾），并发闸已释放——底层任务未中断、可能稍后仍会落库；可重试或重启` },
+        })
+      }
+      log.warn('rag', `「${bookName}」建索引超过 ${RAG_BUILD_WATCHDOG_MS / 60_000} 分钟未收尾，已释放任务闸并标记失败（底层任务不中断，迟到结果会覆盖本标记）——可重试或重启`)
+    }, RAG_BUILD_WATCHDOG_MS)
+    watchdog.unref?.()
     // R62-27：embed_timeout_ms 从书级 ragConfig 透传（此前字面量漏带，书里配了超时恒不生效）
     void buildIndex(bookRoot, { enabled: true, endpoint: resolved.endpoint, model: resolved.model, embed_timeout_ms: config.embed_timeout_ms }, resolved.apiKey)
       .then((result) => {
@@ -131,6 +155,7 @@ function startRagBuild(
         }
       })
       .finally(() => {
+        clearTimeout(watchdog) // R46-15：正常收尾撤 watchdog（timer + finally clear）
         release()
       })
     handedOff = true

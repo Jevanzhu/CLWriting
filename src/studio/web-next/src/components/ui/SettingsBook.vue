@@ -14,6 +14,7 @@ import { useUiStore } from '../../stores/ui'
 import { useDocStore } from '../../stores/doc'
 import { getConfig, renameBook } from '../../api/books'
 import { friendlyError } from '../../shared/error'
+import { migrateBookKeyedState } from '../../composables/useShelf' // R46-6：改名迁移按书键控状态
 import { parseNumericInput } from '../../shared/numeric-input'
 import { usePrefsStore } from '../../stores/prefs'
 import SettingsBookWriting from './SettingsBookWriting.vue'
@@ -160,6 +161,10 @@ async function doBookTitleChange(): Promise<void> {
       ui.toast('已保存', 'success')
     }
     if (res.renamed && res.name !== name) {
+      // R46-6（四十六轮）：改名迁移渲染层按书键控状态——删除链（useShelf deleteBooks）
+      // 同族五件的「清理旧名 + 值搬家」：章号记忆 / 失败草稿 / 误报灰显 / 梗概 / 首开
+      // 标记（此前改名零迁移，旧名条目成孤儿 + 新名侧功能丢失）
+      migrateBookKeyedState(name, res.name)
       // 全量切换：路由换新名 → Book.vue watch 统一清 store / 载 prefs / seed 对话
       router.replace(`/book/${encodeURIComponent(res.name)}`)
     }

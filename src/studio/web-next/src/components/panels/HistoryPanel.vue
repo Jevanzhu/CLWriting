@@ -7,7 +7,7 @@ import { useDocStore } from '../../stores/doc'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
 import { listSnapshots, restoreSnapshot, type SnapshotEntry } from '../../api/snapshots'
-import { countWords, stripFrontmatter } from '../../shared/words'
+import { useDebouncedWordCount } from '../../composables/useDebouncedWordCount'
 import { friendlyError } from '../../shared/error'
 
 const props = defineProps<{ bookName: string }>()
@@ -21,9 +21,9 @@ const err = ref<string | null>(null)
 const restoring = ref<string | null>(null)
 
 const current = computed(() => (ws.activeDocId ? doc.get(ws.activeDocId) : undefined))
-const currentWords = computed(() =>
-  current.value ? countWords(stripFrontmatter(current.value.content)) : 0,
-)
+// R46-5（四十六轮）：当前字数 150ms 防抖（EditorView R39-20 同款；此前每击键全文
+// 重算并经 delta() 联动快照列表渲染）
+const { count: currentWords } = useDebouncedWordCount(() => current.value?.content, () => ws.activeDocId)
 
 /** 来源人话（origin 是机器值，界面不露）。 */
 const ORIGIN_LABEL: Record<string, string> = {

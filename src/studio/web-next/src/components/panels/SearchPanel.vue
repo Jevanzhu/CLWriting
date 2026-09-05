@@ -127,9 +127,11 @@ async function open(path: string): Promise<void> {
           @click="open(hit.path)"
         >
           <div class="result-path">{{ hit.path }}</div>
+          <!-- R46-30（四十六轮）：命中行 key 改行号——后端按行逐条推送（book-search 一行一 match），
+            行号在单文件命中列表内唯一；原索引 key 在结果更新时错位复用 DOM -->
           <div
-            v-for="(m, i) in hit.matches.slice(0, 3)"
-            :key="i"
+            v-for="m in hit.matches.slice(0, 3)"
+            :key="m.line"
             class="result-line"
           >
             <span class="ln">{{ m.line }}</span>

@@ -10,8 +10,49 @@ import { apiJson, ApiError } from '../api/client'
 import { deleteBook } from '../api/shelf'
 import { friendlyError } from '../shared/error'
 import { clearFalsePositiveMarks } from '../stores/check'
-import { clearFailedDrafts } from './useChatComposer'
+import { clearFailedDrafts, migrateFailedDrafts } from './useChatComposer'
 import { treeFirstOpenKey, onboardPremiseKey } from '../shared/storage-keys'
+
+/**
+ * R46-6（四十六轮）：书名改名的渲染层按书键控状态迁移——删除路径有完整清理链
+ * （deleteBooks 内联五件：R-5 误报灰显 / R26-83 失败草稿 / R37-28 章号记忆 /
+ * R27-79 梗概+首开键），改名路径此前为零：旧名条目全部成孤儿（内存 Map 条目常驻
+ * 至进程重启、localStorage 键永驻），且新名侧功能性丢失（章号语境记忆清零、发送
+ * 失败草稿找回失效、机检误报灰显丢失、首开标记重套）。本函数 = 同族五件的
+ * 「清理旧名 + 值搬家到新名」；localStorage 不可用（隐私模式）静默忽略——与删除
+ * 链同口径。磁盘/登记/事件库的迁移由 renameBook API 负责，不在本层。
+ */
+export function migrateBookKeyedState(oldName: string, newName: string): void {
+  if (oldName === newName) return
+  useChatStore().migrateChapterMemo(oldName, newName)
+  migrateFailedDrafts(oldName, newName)
+  try {
+    // 误报灰显键族 `clw-fp:<书>:<文档>`——前缀枚举逐键搬家（stores/check fpKey 同构）
+    const oldPrefix = `clw-fp:${oldName}:`
+    const newPrefix = `clw-fp:${newName}:`
+    // length/key(i) 枚举（浏览器原生形态；Object.keys 对测试桩/隐私模式实现不稳）
+    const n = localStorage.length
+    for (let i = n - 1; i >= 0; i--) {
+      const k = localStorage.key(i)
+      if (k === null || !k.startsWith(oldPrefix)) continue
+      const v = localStorage.getItem(k)
+      if (v !== null) {
+        localStorage.setItem(newPrefix + k.slice(oldPrefix.length), v)
+        localStorage.removeItem(k)
+      }
+    }
+    // 梗概 + 首开标记（shared/storage-keys 与写入方同源拼键）
+    for (const keyOf of [onboardPremiseKey, treeFirstOpenKey]) {
+      const v = localStorage.getItem(keyOf(oldName))
+      if (v !== null) {
+        localStorage.setItem(keyOf(newName), v)
+        localStorage.removeItem(keyOf(oldName))
+      }
+    }
+  } catch {
+    /* localStorage 不可用时忽略 */
+  }
+}
 
 /** 字数千分位 + 万字简写（书卡紧凑展示）*/
 export function formatWords(n?: number): string {

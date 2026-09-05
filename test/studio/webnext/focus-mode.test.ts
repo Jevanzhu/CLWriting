@@ -460,13 +460,13 @@ describe('FocusStatsBar: 专注统计浮动条', () => {
     const doc = useDocStore()
     doc.patch('d1', '---\n标题: 标题\n---\n\n正文六七八')
     await nextTick()
-    expect(stat(w, 0)).toBe('+3 字')
+    await vi.waitFor(() => expect(stat(w, 0)).toBe('+3 字')) // R46-5：字数 150ms 防抖
     expect(stat(w, 1)).toBe('—')
     // 再一笔（隔 ≥2ms 有时长）：速度起算
     await new Promise((r) => setTimeout(r, 3))
     doc.patch('d1', '---\n标题: 标题\n---\n\n正文六七八九')
     await nextTick()
-    expect(stat(w, 0)).toBe('+4 字')
+    await vi.waitFor(() => expect(stat(w, 0)).toBe('+4 字')) // R46-5：字数 150ms 防抖
     expect(stat(w, 1)).toMatch(/字\/分$/)
     w.unmount()
   })
@@ -509,7 +509,7 @@ describe('FocusStatsBar: 专注统计浮动条', () => {
     expect(stat(w, 0)).toBe('+0 字')
     useDocStore().patch('d1', '---\n标题: 标题\n---\n\n正文六七八')
     await nextTick()
-    expect(stat(w, 0)).toBe('+3 字')
+    await vi.waitFor(() => expect(stat(w, 0)).toBe('+3 字')) // R46-5：字数 150ms 防抖（退出汇报前组件 flush）
     ws.setFocus(false)
     await nextTick()
     expect(ui.toasts.some((t) => t.msg.includes('专注结束') && t.msg.includes('+3 字'))).toBe(true)

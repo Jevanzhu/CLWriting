@@ -6,6 +6,7 @@
  * 走 Vite dev server（5173），proxy /api 到后端，不经此处理。
  */
 import { readFile, stat } from 'node:fs/promises'
+import { createReadStream } from 'node:fs' // R46-12（四十六轮）：GET 静态文件整读改流式
 import { join, normalize, extname, sep, relative } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { replyError } from './http.js'
@@ -125,7 +126,15 @@ export function createStaticHandler(rootDir: string) {
         res.end()
         return
       }
-      const data = await readFile(safe.abs)
+      // R46-12（四十六轮）：GET 整读改流式——readFile 先把整个文件驻入内存再 res.end，
+      // MB 级 js/字体产物在并发请求下峰值线性叠加；createReadStream 边读边发，内存占用
+      // 与文件大小解耦。Content-Length 取已有 stat 的 size（abs 为目录实发 index.html
+      // 时 s 是目录 stat、size 无意义，补一次 stat 取实发文件尺寸——与 HEAD 分支同口径）。
+      // 流错误处理：流是异步出错（外层 try/catch 接不到）——已写头（headersSent）则
+      // destroy(res) 断连（Content-Length 已承诺完整长度，半截响应不能再改状态码）；
+      // 未写头则按 N-3 口径回 500 IO。SPA fallback 的 index.html 保留 readFile（低频
+      // 小文件，且 fallback 语义依赖 throw 进外层 catch）。
+      const size = s.isDirectory() ? (await stat(safe.abs)).size : s.size
       res.writeHead(200, {
         'content-type': MIME[extname(file)] ?? 'application/octet-stream',
         // R30-23（三十轮）：同 HEAD 分支——nosniff 统一加（所有静态响应头统一处）
@@ -133,9 +142,14 @@ export function createStaticHandler(rootDir: string) {
         'cache-control': cacheable
           ? 'public, max-age=31536000, immutable'
           : 'no-cache',
-        'content-length': String(data.length),
+        'content-length': String(size),
       })
-      res.end(data)
+      const stream = createReadStream(safe.abs)
+      stream.on('error', () => {
+        if (res.headersSent) res.destroy()
+        else replyError(res, 500, 'IO', '静态文件读取失败')
+      })
+      stream.pipe(res)
     } catch (e) {
       // N-3（第十二轮）：errno 分流——只有 ENOENT/ENOTDIR（路径不存在/非目录段）才走
       // SPA fallback；其余 IO 错误（EACCES/EMFILE/盘满等）此前一律混叠成 200 index.html

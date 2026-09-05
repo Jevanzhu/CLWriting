@@ -15,7 +15,7 @@ import { createHash } from 'node:crypto'
 import { readChapterDir } from '../format/chapters.js'
 import { readFile } from '../format/frontmatter.js'
 import { parseChapterFileName } from '../format/words.js'
-import { openRagDb, storeChunk, readAllChunks, readAllChapterFingerprints, getRagMeta, setRagMeta, deleteRagMeta, deleteChunksByChapter, getIndexedChapterNumbers, l2Norm, cosineSimilarity, isRagDbCorruptionError, deleteRagDbFiles, ragDbExists, type RagChunk } from './store.js'
+import { openRagDb, storeChunk, readAllChapterFingerprints, getRagMeta, setRagMeta, deleteRagMeta, deleteChunksByChapter, getIndexedChapterNumbers, streamChunkScores, type ChunkScoreRow, isRagDbCorruptionError, deleteRagDbFiles, ragDbExists } from './store.js'
 import { embed, type EmbedOptions } from './embed.js'
 import type { RagConfig } from './config.js'
 import type { DatabaseSync } from 'node:sqlite'
@@ -784,7 +784,6 @@ export async function recallDetailed(
   // P1-31：先取数后联网——db 数据（chunks/元信息/指纹元数据）全部在 close 前完成，
   // embed 网络往返（≤30s）不再持有 db 句柄；空库直接返回不烧 API 调用。
   const db = openRagDb(bookRoot)
-  let chunks!: RagChunk[]
   // R73-12：截断事实随结构化出口上抛（旧口径仅 log.warn，前端无感）
   let truncated = false
   let totalBlocks = 0
@@ -795,42 +794,22 @@ export async function recallDetailed(
     const indexedModel = getRagMeta(db, 'embedding_model')
     if (indexedModel && indexedModel !== config.model) return emptyResult()
 
-    // R37-38（三十七轮）：召回读侧早停——此前全表读回只为算 totalBlocks 再 slice，
-    // 大库（数万行）白读。改传「告警阈值+1」：得 N+1 条 ⟺ 全量 > N（truncated 判定
-    // 恒等）；不足 N+1 条 ⟺ 全量 = 读得数（未触界路径 totalBlocks 仍精确）。代价：
-    // 截断态 totalBlocks 封顶为 N+1（不再精确全量）——消费面（materials.ts ragNote）
-    // 只需「超上限」事实与量级，截断前缀语义不变（早停序 = 全读 slice 序，见
-    // store.ts readAllChunks 的 rowid 序前提注释）。
-    chunks = readAllChunks(db, warnThreshold + 1)
-    if (chunks.length === 0) {
+    // R46-9（四十六轮）：召回改流式打分——此前 readAllChunks 把全部块向量（1536 维
+    // Float32Array ≈6KB/块）整池读回，全池跨下方 embed 网络往返窗（≤30s）驻留：3.5 万
+    // 块（200 万字口径）≈215MB，硬截断上限 10 万块档 ≈590-615MB，2-3 路并发召回即
+    // OOM/长 GC 风险（E-1 内存账：100K 阈值旧注只记延迟账）。改两段式：本段只做元
+    // 数据预检（模型失配/空库早退不烧 API 调用），embed 后重开库流式逐行打分——
+    // embedding BLOB 用完即弃，只留轻量命中元组（≈40B/块，10 万块档 ≈4MB）。
+    // 打分语义与「全量读回 → filter(model/维度) → map 余弦 → 稳定 sort」逐位等价
+    //（rowid 行序 + 元组按行序追加，并列分数的次序不变），见 store.ts streamChunkScores。
+    const hasRow = db.prepare('SELECT EXISTS(SELECT 1 FROM chunks LIMIT 1) AS has').get() as { has: number }
+    if (hasRow.has === 0) {
       // R40-50：空库早退附索引三态——「从未建索引」（unbuilt）与「重建清空后可用」
       //（cleared）可区分（此前两者同样静默空手，与损坏库（开库即抛）在消费方视角
       // 不可分辨，排障无从下手）；不烧 API 调用的早退语义不变
       return { hits: [], truncated: false, totalBlocks: 0, indexState: ragIndexStateOfOpenDb(db) === 'cleared' ? 'cleared' : 'unbuilt' }
     }
-    // O-3（第十三轮）：块数超已知可用区间（十万块，见 store.ts readAllChunks 量化注释）
-    // 时告警；T2 批起同时硬截断到上限——超区间线性扫描延迟已超交互预期，防单次召回
-    // 无界膨胀（截断取读出序前缀 + warn 留痕，配额数值与告警阈值同一常量）
-    totalBlocks = chunks.length
-    if (chunks.length >= warnThreshold) {
-      truncated = chunks.length > warnThreshold
-      if (truncated) chunks = chunks.slice(0, warnThreshold)
-      log.warn('rag', `召回块数超已知可用区间（${warnThreshold}）——线性扫描延迟可能超预期，建议评估 FTS/向量索引${truncated ? `；已硬截断至 ${warnThreshold} 块` : ''}`)
-    }
-
     indexedDim = getRagMeta(db, 'embedding_dim')
-    // A3：指纹元数据整表读内存（单 SELECT 零文件 IO），闭库后候选子集校验用
-    indexedFingerprints = readAllChapterFingerprints(db)
-    // 章号 → meta（readChapterDir 有 stat 级缓存，热路径零文件读；校验只读候选章文件）
-    // R35-43：与 buildIndex 同口径去重（保路径字典序首个）——不去重时 Map 后者覆盖，
-    // 指纹校验读到重复章号的另一文件，与已存指纹永远错配，该章命中被整体误杀
-    const bodyDir = join(bookRoot, '写作', '正文')
-    const chapterNumbers = new Set(chunks.map((c) => c.章号))
-    chapterByNumber = new Map(
-      dedupeChaptersByNumber(readChapterDir(bodyDir).chapters)
-        .chapters.filter((ch) => chapterNumbers.has(ch.章号))
-        .map((ch) => [ch.章号, ch] as const),
-    )
   } finally {
     db.close()
   }
@@ -849,20 +828,57 @@ export async function recallDetailed(
 
   if (indexedDim && Number(indexedDim) !== queryVec.length) return emptyResult()
 
-  const qNorm = l2Norm(queryVec)
-  const hits: RecallHit[] = chunks
-    .filter((c) => c.model === config.model && c.embedding.length === queryVec.length)
-    .map((c) => {
-      // R64-45（十二轮）：召回内联余弦合流到 store.ts 单源——预存范数（最终 L2 口径）
-      // 经 precomputed 复用免重算；norm 异常缺失时现算兜底（不因迁移残缺弃块）
-      const cNorm = c.norm !== null && c.norm > 0 ? c.norm : l2Norm(c.embedding)
-      return {
-        章号: c.章号,
-        start_offset: c.start_offset,
-        end_offset: c.end_offset,
-        score: cosineSimilarity(queryVec, c.embedding, { normA: qNorm, normB: cNorm }),
+  // 流式打分段（R46-9）：重开库逐行算余弦——段内无网络等待，句柄随段开关（P1-31
+  // 纪律不变）。重开间隙索引被重建换模型的竞态 → 二次模型校验 fail-closed 回空。
+  let rows: ChunkScoreRow[]
+  {
+    const db2 = openRagDb(bookRoot)
+    try {
+      const indexedModel2 = getRagMeta(db2, 'embedding_model')
+      if (indexedModel2 && indexedModel2 !== config.model) return emptyResult()
+      // R37-38（三十七轮）：读侧早Stop传「告警阈值+1」——得 N+1 条 ⟺ 全量 > N
+      //（truncated 判定恒等）；不足 N+1 条 ⟺ 全量 = 读得数（totalBlocks 仍精确）。
+      // O-3：块数超已知可用区间（十万块，见 store.ts 量化注释）时告警 + 硬截断
+      //（截断取读出序前缀 + warn 留痕，配额数值与告警阈值同一常量）
+      const scanned = streamChunkScores(db2, queryVec, config.model, warnThreshold + 1)
+      if (scanned.poisonRows > 0) {
+        log.warn('rag', `RAG 库含 ${scanned.poisonRows} 行毒向量块（历史 Float32 溢出入库：norm 非有限或 norm=NULL 且向量含非有限分量）——已剔除不参与召回，建议重建索引（POST /rag/rebuild）清根`)
       }
-    })
+      totalBlocks = scanned.produced
+      if (scanned.produced >= warnThreshold) {
+        truncated = scanned.produced > warnThreshold
+        // 探针行（第 N+1 个产出，追加序最末）照旧例从命中集中剔除——旧实现
+        // slice(0, warnThreshold) 作用在读回数组上，语义 = 截断后不参与排序
+        if (truncated) scanned.rows.pop()
+        log.warn('rag', `召回块数超已知可用区间（${warnThreshold}）——线性扫描延迟可能超预期，建议评估 FTS/向量索引${truncated ? `；已硬截断至 ${warnThreshold} 块` : ''}`)
+      }
+      rows = scanned.rows
+      // A3：指纹元数据整表读内存（单 SELECT 零文件 IO），闭库后候选子集校验用
+      indexedFingerprints = readAllChapterFingerprints(db2)
+    } finally {
+      db2.close()
+    }
+  }
+
+  // 章号 → meta（readChapterDir 有 stat 级缓存，热路径零文件读；校验只读候选章文件）。
+  // R35-43：与 buildIndex 同口径去重（保路径字典序首个）——不去重时 Map 后者覆盖，
+  // 指纹校验读到重复章号的另一文件，与已存指纹永远错配，该章命中被整体误杀。
+  // R46-9：章号集合只按命中元组收窄（此前按全部读回块，流式下命中集 ⊆ 读回集，
+  // 校验面等价——chapterByNumber 只被命中章消费）
+  const bodyDir = join(bookRoot, '写作', '正文')
+  const chapterNumbers = new Set(rows.map((r) => r.章号))
+  chapterByNumber = new Map(
+    dedupeChaptersByNumber(readChapterDir(bodyDir).chapters)
+      .chapters.filter((ch) => chapterNumbers.has(ch.章号))
+      .map((ch) => [ch.章号, ch] as const),
+  )
+
+  const hits: RecallHit[] = rows.map((r) => ({
+    章号: r.章号,
+    start_offset: r.start_offset,
+    end_offset: r.end_offset,
+    score: r.score,
+  }))
 
   hits.sort((a, b) => b.score - a.score)
 

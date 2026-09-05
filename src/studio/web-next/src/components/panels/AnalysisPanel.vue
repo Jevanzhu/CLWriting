@@ -7,7 +7,8 @@ import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
 import { useDocStore } from '../../stores/doc'
 import { useUiStore } from '../../stores/ui'
-import { parseFmFields, isBodyKind } from '../../shared/words' // R37-30（三十七轮批E）：formKindOf/stripFrontmatter/mergeFm 零消费移除
+import { isBodyKind } from '../../shared/words' // R37-30（三十七轮批E）：formKindOf/stripFrontmatter/mergeFm 零消费移除
+import { useDebouncedFmFields } from '../../composables/useDebouncedWordCount'
 import { getAnalysisOverview, autotag, inferMeta, type AnalysisOverview } from '../../api/analysis'
 import { updateDocMeta } from '../../api/documents'
 import { friendlyError } from '../../shared/error'
@@ -64,11 +65,12 @@ const TAG_FIELDS = [
   { key: '情绪定位', label: '情绪定位' },
   { key: '场景', label: '场景' },
 ] as const
+// R46-5（四十六轮）：fm 解析 150ms 防抖（此前每击键 parseFmFields 全文两趟大分配）
+const { fields: fmFields } = useDebouncedFmFields(() => entry.value?.content, () => docId.value)
 const tagValues = computed<Record<string, string>>(() => {
   if (!entry.value) return {}
-  const parsed = parseFmFields(entry.value.content)
   const out: Record<string, string> = {}
-  for (const f of TAG_FIELDS) out[f.key] = parsed[f.key] ?? ''
+  for (const f of TAG_FIELDS) out[f.key] = fmFields.value[f.key] ?? ''
   return out
 })
 
@@ -79,9 +81,8 @@ const META_FIELDS = [
 ] as const
 const metaValues = computed<Record<string, string>>(() => {
   if (!entry.value) return {}
-  const parsed = parseFmFields(entry.value.content)
   const out: Record<string, string> = {}
-  for (const f of META_FIELDS) out[f.key] = parsed[f.key] ?? ''
+  for (const f of META_FIELDS) out[f.key] = fmFields.value[f.key] ?? ''
   return out
 })
 const inferring = ref(false)

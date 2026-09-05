@@ -573,6 +573,7 @@ describe('R65-6（总六十五轮）降级回调注册 Map 化', () => {
     expect(resolveProvider(udA).ok).toBe(true)
     expect(resolveProvider(udB).ok).toBe(true)
     // 直测 Map 行为：两 path 的回调闭包并存，后注册者不再覆盖前者
+    //（R46-22 复审确认常驻是设计面——双库并存时他 path 闭包须可经显式 path 路由命中）
     const registry = degradedPersistCallbacksForTest()
     const cbA = registry.get(udA)
     const cbB = registry.get(udB)

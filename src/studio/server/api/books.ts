@@ -70,6 +70,21 @@ import { forgetVersionStatsCache } from './snapshots.js'
 // 同名重建书不读陈伏笔足迹/节奏聚合）
 import { forgetForeshadowCache } from './foreshadows.js'
 import { forgetRhythmCache } from './rhythm.js'
+// R46-16（四十六轮）：settings 全书扫描 TTL 缓存同族收编（删/改名后同名重建书不读
+// 陈设定台聚合——境界/角色卡/时间线/账本/relations）
+import { forgetSettingsCache } from './settings.js'
+// R46-40（四十六轮）：四个无 TTL 的模块级路径键缓存（sweep 节流戳/章读解析/章正文
+// /版本指纹）同挂点收编——删书后全书条目成死重、改名后旧前缀键永不再命中
+import { forgetStateSweepStamp } from '../../../state/state.js'
+import { forgetChapterParseCacheForBook } from '../../../cache/rebuild.js'
+import { forgetChapterTextCacheForBook } from '../../../document/foreshadow.js'
+import { forgetVersionFpCacheForBook } from '../../../document/version.js'
+// R46-20（四十六轮）：条目库读取 TTL+mtime 探针缓存同族收编（AI 写稿热路径的
+// readEntries 不再每章每轮全量重读 文风/条目/；删/改名后同名重建书不读陈条目）
+import { forgetEntriesCache } from '../../../format/style-entry.js'
+// R46-23（四十六轮）：ai-calls 旧格式迁移标记同族收编——migratedRoots 只增不减，
+// 删书重建同名书后旧标记会让旧格式迁移在本进程内永不重试
+import { forgetMigratedRoots } from '../../../ai/calls.js'
 import { log } from '../../../log/index.js'
 
 /** R67-15：删书/改名共用的书键缓存清理（书键 TTL 结果缓存族——内存卫生，防删书后
@@ -92,6 +107,18 @@ function forgetBookKeyedCaches(bookRoot: string): void {
   // R44-8：伏笔足迹 / 节奏聚合缓存同族清理
   forgetForeshadowCache(bookRoot)
   forgetRhythmCache(bookRoot)
+  // R46-16：设定台聚合缓存同族清理
+  forgetSettingsCache(bookRoot)
+  // R46-40：无 TTL 模块级路径键缓存同族清理（sweep 节流戳 / 章读解析 / 章正文 /
+  // 版本指纹——前缀删旧书键，新书键惰性重建）
+  forgetStateSweepStamp(bookRoot)
+  forgetChapterParseCacheForBook(bookRoot)
+  forgetChapterTextCacheForBook(bookRoot)
+  forgetVersionFpCacheForBook(bookRoot)
+  // R46-20：条目库读取缓存同族清理（按书前缀清全部 kind 变体键）
+  forgetEntriesCache(bookRoot)
+  // R46-23：ai-calls 旧格式迁移标记同族清理（删书重建后迁移可重试）
+  forgetMigratedRoots(bookRoot)
   // R39-16：书架守卫/配置缓存同族清理（删/改名后同名重建书不读陈 book.yaml；
   // 缓存按 workDir+path 键，整表清扫语义与「该书键失效」等价——书键族口径）
   shelfGuardCache.clear()

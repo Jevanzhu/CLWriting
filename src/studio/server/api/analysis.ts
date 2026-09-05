@@ -27,10 +27,11 @@ import { resolveTier } from '../../../ai/provider/index.js'
 import type { AnalysisKind as ContractKind } from '../../../ai/contract/index.js'
 import { readAnalysis, readAnalysisKinds, writeAnalysisAsync, readBookAnalysis, writeBookAnalysisAsync, sourceHashOf, type AnalysisKind } from '../../../document/analysis.js'
 import { mapAnalysisToCandidates, persistCandidates } from '../../../format/style-candidate.js'
-import { localDayKey } from '../../../log/index.js' // R76-31：候选日键本地日（同 overview/日记口径）
+import { log, localDayKey } from '../../../log/index.js' // R76-31：候选日键本地日（同 overview/日记口径）；R46-2：worker 回落 warn 留痕
 import { safeManifestPath } from '../../../fs/safe-path.js'
 import { acquireTaskGate, orchestrationBusyFor } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
-import { yieldToEventLoop, SCAN_YIELD_EVERY } from './progress.js' // R39-15：MISS 读循环逐块让出（R37-3 范式）
+import { yieldToEventLoop, SCAN_YIELD_EVERY } from './progress.js' // R39-15：MISS 读循环逐块让出（R37-3 范式；R46-2 起主路径下沉 worker，此为回落面）
+import { runStyleScanAsync, type StyleScanJob } from './style-scan-async.js' // R46-2：全书扫描 worker 卸载
 
 interface AnalysisCtx {
   workDir: string | null
@@ -600,26 +601,38 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
         if (cached && now - cached.ts < (styleCorpusTtlMs ?? STYLE_CORPUS_TTL)) { // R62-21：测试注入优先
           ;({ fullStats, sampleText } = cached.result)
         } else {
-          const allBodies: string[] = []
-          const recentBodies: string[] = []
-          // R39-15（三十九轮）：读循环每 SCAN_YIELD_EVERY（25）章让出一次事件循环——
-          // 此前 MISS 时同步逐章整读 + 全书 join，数百万字大书上单请求冻结事件循环
-          // 1-3s（全部书的 SSE 心跳/保存停摆）；对齐 R37-3 在 search/overview/progress
-          // 的逐块让出范式。computeFullStats 仍为单段同步 CPU（全书全文正则 stats），
-          // 下沉 worker 改动面大——登记维持，缓存命中路径（D3）不受影响。
-          let scanned = 0
-          for (const ch of sorted) {
-            if (!ch._path) continue
-            const draft = readDraft(ch._path)
-            if (!draft.ok) continue
-            allBodies.push(draft.body)
-            if (recent.includes(ch)) {
-              recentBodies.push(`### 第${ch.章号}章 ${ch.标题}\n\n${draft.body}`)
-            }
-            if (++scanned % SCAN_YIELD_EVERY === 0) await yieldToEventLoop()
+          // R46-2（四十六轮）：扫描+统计下沉 worker 线程（export B-24 同款先例）——
+          // computeFullStats 对全书大串（join 又是一次同步大分配）的单段同步 CPU 正是
+          // 0.1-1s 级事件循环停摆面（原注「下沉 worker 改动面大——登记维持」随本批
+          // 清偿：读循环让出 R39-15 只覆盖了读段）。worker 失败/超时回落进程内同步
+          // （保可用性——退化形态即旧行为，不产生新的失败面）
+          const scanJob: StyleScanJob = {
+            chapters: sorted
+              .filter((ch) => ch._path)
+              .map((ch) => ({ path: ch._path!, 章号: ch.章号, 标题: ch.标题, recent: recent.includes(ch) })),
+            rules,
           }
-          fullStats = computeFullStats(allBodies.join('\n\n'), rules)
-          sampleText = recentBodies.join('\n\n---\n\n')
+          try {
+            ;({ fullStats, sampleText } = await runStyleScanAsync(scanJob))
+          } catch (e) {
+            log.warn('api', `文风全书扫描 worker 失败，回落进程内同步路径：${e instanceof Error ? e.message : String(e)}`)
+            const allBodies: string[] = []
+            const recentBodies: string[] = []
+            // R39-15（三十九轮）：回落面的读循环逐块让出（R37-3 范式）
+            let scanned = 0
+            for (const ch of sorted) {
+              if (!ch._path) continue
+              const draft = readDraft(ch._path)
+              if (!draft.ok) continue
+              allBodies.push(draft.body)
+              if (recent.includes(ch)) {
+                recentBodies.push(`### 第${ch.章号}章 ${ch.标题}\n\n${draft.body}`)
+              }
+              if (++scanned % SCAN_YIELD_EVERY === 0) await yieldToEventLoop()
+            }
+            fullStats = computeFullStats(allBodies.join('\n\n'), rules)
+            sampleText = recentBodies.join('\n\n---\n\n')
+          }
           // 简单 FIFO 淘汰（Map 保插入序）：超上限丢最旧条目，防长期运行的书库累积
           if (styleCorpusCache.size >= STYLE_CORPUS_MAX) {
             const oldest = styleCorpusCache.keys().next().value

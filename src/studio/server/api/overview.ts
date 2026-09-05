@@ -27,6 +27,7 @@ import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { isMdFileName } from '../../../format/filename.js'
 import type { BookConfig } from '../../../format/types.js'
 import { readChapterDir } from '../../../format/chapters.js'
+import type { ChapterMeta } from '../../../format/types.js'
 import { finalizedPathSet } from '../../../document/manifest.js'
 import { docJoinKey } from '../../../fs/safe-path.js'
 import { localDayKey } from '../../../log/index.js'
@@ -102,10 +103,12 @@ export function registerOverviewRoutes(ctx: OverviewCtx): void {
       }
     }
 
-    // R37-3（三十七轮）：timeline/progress 改走逐块让出的 async 扫描——此前是同步
-    // 全书遍历（statSync 逐章），大书单请求冻结事件循环；仍无缓存（缓存归 R37-16 批，
-    // 勿在此引入）
-    const timeline = await computeTimeline(bookRoot)
+    // R46-1（四十六轮）：本 handler 的三个全书投影（timeline / progress / recentDoc）
+    // 此前各自 readChapterDir 扫一遍章目录（三连全扫，2000 章书每次打开总览 = 3 次目录
+    // 遍历 + 2000+ statSync）——改单趟扫描结果三处复用；timeline 的逐章 statSync 让出
+    // 纪律不变。投影缓存（R37-16 登记）仍不引入（指纹壳的成本/一致性权衡未拍板）。
+    const { chapters: bodyChapters } = readChapterDir(join(bookRoot, '写作', '正文'))
+    const timeline = await computeTimeline(bookRoot, bodyChapters)
     const shortProfile = kind === 'short' ? extractShortProfile(config) : undefined
     reply(res, 200, {
       identity: {
@@ -115,13 +118,13 @@ export function registerOverviewRoutes(ctx: OverviewCtx): void {
         ...(entry.created_at ? { created_at: entry.created_at } : {}),
         title: config.book.title,
         genre: config.book.genre,
-        host: config.host ?? 'cc',
+        host: entry.host ?? 'cc',
       },
-      progress: withTarget(await computeProgressAsync(bookRoot), config.book.target_words),
+      progress: withTarget(await computeProgressAsync(bookRoot, bodyChapters), config.book.target_words),
       state,
       volumes: listVolumes(bookRoot),
       timeline,
-      recentDoc: getRecentDoc(bookRoot),
+      recentDoc: getRecentDoc(bookRoot, bodyChapters),
       streak: computeStreak(timeline),
       ...(shortProfile ? { shortProfile } : {}),
     })
@@ -166,9 +169,8 @@ function listVolumes(bookRoot: string): { name: string; path: string }[] {
  * 逐章循环每 SCAN_YIELD_EVERY（25）章让出一次事件循环；readChapterDir/finalizedPathSet
  * 扫描段边界见文件头 R37-20 注。聚合结果与同步实现逐位一致（r37 回归锚以固定期望守护）。
  */
-async function computeTimeline(bookRoot: string): Promise<{ date: string; count: number }[]> {
+async function computeTimeline(bookRoot: string, chapters: ChapterMeta[]): Promise<{ date: string; count: number }[]> {
   const files: string[] = []
-  const { chapters } = readChapterDir(join(bookRoot, '写作', '正文'))
   for (const c of chapters) if (c._path) files.push(c._path)
   const finalized = finalizedPathSet(bookRoot)
   // R38-14（三十八轮）：定稿集身份折叠（win 大小写不敏感 FS 外部 case-only 改名后
@@ -194,9 +196,8 @@ async function computeTimeline(bookRoot: string): Promise<{ date: string; count:
     .sort((a, b) => a.date.localeCompare(b.date))
 }
 
-/** 最近一章（按章号最大）—— 供总览页"继续写作"入口 */
-function getRecentDoc(bookRoot: string): { no: number; 标题: string; path: string } | null {
-  const { chapters } = readChapterDir(join(bookRoot, '写作', '正文'))
+/** 最近一章（按章号最大）—— 供总览页"继续写作"入口。R46-1：章列表由调用方单趟传入。 */
+function getRecentDoc(bookRoot: string, chapters: ChapterMeta[]): { no: number; 标题: string; path: string } | null {
   if (chapters.length === 0) return null
   const sorted = [...chapters].sort((a, b) => (b.章号 ?? 0) - (a.章号 ?? 0))
   const last = sorted[0]

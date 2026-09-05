@@ -5,7 +5,7 @@
  * 纯 node:sqlite + 纯 JS 余弦（零依赖，不引向量索引库）。
  */
 
-import { DatabaseSync } from 'node:sqlite'
+import { DatabaseSync, type StatementSync } from 'node:sqlite'
 import { existsSync, mkdirSync, renameSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { createRagTables } from './schema.js'
@@ -249,6 +249,29 @@ export function openRagDb(bookRoot: string): DatabaseSync {
   return db
 }
 
+// ── R46-45（四十六轮）：连接级 prepared 语句缓存 ─────────────────────────
+// 与 events/store.ts R46-42 同手法（模块独立性优先，本文件内自持一份小帮手）：
+// node:sqlite 的 db.prepare 每次重编译同一条 SQL——全书重建索引 3.5 万次 storeChunk
+// 即 3.5 万次编译同一 INSERT，纯白付。按 db 实例（WeakMap 键）+ SQL 串双键缓存编译
+// 产物：连接 close 后条目随 GC 消失，无悬挂执行面。建库/迁移/探测类一次性语句
+//（DDL、PRAGMA、checkpoint、存在性探测）不走本帮手。
+const preparedByDb = new WeakMap<DatabaseSync, Map<string, StatementSync>>()
+
+/** R46-45：按 (db, sql) 取缓存的 prepared 语句；未见过则编译一次入缓存。 */
+function prepared(db: DatabaseSync, sql: string): StatementSync {
+  let bySql = preparedByDb.get(db)
+  if (bySql === undefined) {
+    bySql = new Map()
+    preparedByDb.set(db, bySql)
+  }
+  let stmt = bySql.get(sql)
+  if (stmt === undefined) {
+    stmt = db.prepare(sql)
+    bySql.set(sql, stmt)
+  }
+  return stmt
+}
+
 /** 向量 L2 范数（A3 预存范数：余弦退化为点积，召回数学量减半） */
 export function l2Norm(vec: Float32Array): number {
   let sum = 0
@@ -264,6 +287,12 @@ export function l2Norm(vec: Float32Array): number {
  *（无 NULL 时只读不开写事务，不再多扫一遍 COUNT）；回填事务改 BEGIN IMMEDIATE
  *（与 commitIndexBatch 口径一致——deferred BEGIN 到首个 UPDATE 才升写锁，并发开库
  * 仍有 SQLITE_BUSY 窗口；IMMEDIATE 在 busy_timeout 内排队拿写锁）。
+ * R46-51（四十六轮）：NULL 行集改 stmt.iterate() 游标逐行（readAllChunks R37-38/
+ * 内存闸同款降峰先例）——原 .all() 先把全部待回填行（含 embedding BLOB，200 万字
+ * 书 3.5 万块 × 6KB ≈ 200MB 级）整表物化后才开写，迁移窗内峰值驻留白付；逐行读
+ * 每行 BLOB 用完即可回收。游标内 UPDATE 已过行不回访：表按 rowid 序扫，UPDATE 保
+ * rowid 原位、被改行已落在游标身后（再访也被 WHERE norm IS NULL 滤掉）；行级 UPDATE
+ * 语句并入 R46-45 prepared 缓存（固定 SQL，循环外取一次）。
  */
 export function ensureNormColumn(db: DatabaseSync): void {
   const cols = db.prepare('PRAGMA table_info(chunks)').all() as Array<{ name: string }>
@@ -276,25 +305,32 @@ export function ensureNormColumn(db: DatabaseSync): void {
       if (!isDuplicateColumnError(e)) throw e
     }
   }
-  const rows = db
-    .prepare('SELECT id, embedding FROM chunks WHERE norm IS NULL')
-    .all() as Array<{ id: number; embedding: Uint8Array }>
-  if (rows.length === 0) return
-  const update = db.prepare('UPDATE chunks SET norm = ? WHERE id = ?')
-  db.exec('BEGIN IMMEDIATE')
+  const rows = prepared(db, 'SELECT id, embedding FROM chunks WHERE norm IS NULL')
+    .iterate() as unknown as Iterable<{ id: number; embedding: Uint8Array }>
+  const update = prepared(db, 'UPDATE chunks SET norm = ? WHERE id = ?')
+  // R65-13：首行才开写事务（无 NULL 行 → 只读不开 BEGIN IMMEDIATE）；R46-51：for...of
+  // 游标逐行（break/异常路径自动收口迭代器，readAllChunks 同款）
+  let began = false
   try {
     for (const r of rows) {
+      if (!began) {
+        db.exec('BEGIN IMMEDIATE')
+        began = true
+      }
       update.run(l2Norm(bufferToFloat32(r.embedding)), r.id)
     }
-    db.exec('COMMIT')
+    if (began) db.exec('COMMIT')
   } catch (e) {
     // R43-18（四十三轮）：R61-10 同款加固（events/store.ts 模板）——SQLite 部分错误
     //（SQLITE_FULL/IOERR 等）已自动回亡事务，再 ROLLBACK 抛 "no transaction is
-    // active" 掩蔽原始写错误；吞 ROLLBACK 自身异常、原样上抛
-    try {
-      db.exec('ROLLBACK')
-    } catch {
-      /* 已自动回亡 */
+    // active" 掩蔽原始写错误；吞 ROLLBACK 自身异常、原样上抛。began=false（首行
+    // 读/开事务前抛）无事务可回，跳过。
+    if (began) {
+      try {
+        db.exec('ROLLBACK')
+      } catch {
+        /* 已自动回亡 */
+      }
     }
     throw e
   }
@@ -317,7 +353,9 @@ export function storeChunk(db: DatabaseSync, chunk: ChunkInput): void {
   if (chunk.embedding.some((x) => !Number.isFinite(x))) {
     throw new Error('storeChunk: embedding 含非有限分量（Float32 溢出/NaN），拒绝入库')
   }
-  const stmt = db.prepare(
+  // R46-45：全书重建 3.5 万次调用的 INSERT 走连接级 prepared 缓存（原每块重编译一次）
+  const stmt = prepared(
+    db,
     `INSERT OR REPLACE INTO chunks (章号, start_offset, end_offset, embedding, model, indexed_at, norm)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
   )
@@ -400,6 +438,68 @@ export function readAllChunks(db: DatabaseSync, maxChunks?: number): RagChunk[] 
   return out
 }
 
+/** R46-9（四十六轮）：流式召回扫描的轻量命中元组（不含 embedding——余弦算完即弃）。 */
+export interface ChunkScoreRow {
+  章号: number
+  start_offset: number
+  end_offset: number
+  score: number
+}
+
+/**
+ * R46-9（四十六轮）：召回的流式打分扫描——逐行读 chunks、当场算余弦、只保留轻量
+ * 元组（embedding BLOB 用完即可回收），替代「readAllChunks 全量读回 → 全池驻留」。
+ * 内存峰值 O(产出元组 × ≈40B)：10 万块截断档 ≈4MB（此前全池向量 590-615MB 跨
+ * embed 网络窗（≤30s）驻留，2-3 路并发召回即 OOM/长 GC 风险——100K 阈值的内存账
+ * 随延迟账一并入注，见 index.ts R46-9）。
+ *
+ * 语义与旧链路「readAllChunks(maxRows) → filter(model/维度) → map 余弦（R64-45
+ * 单源 + 预存范数兜底）→ 稳定 sort」逐位等价：
+ * - 行序同为无 ORDER BY 的 rowid 扫表序；元组按行序追加（调用方 sort 的并列分数
+ *   次序与旧数组稳定排序一致）；
+ * - 毒行剔除不计产出额（R37-38 早停口径一致，毒行 warn 由调用方按计数留痕）；
+ * - model/维度不匹配行计入 produced（totalBlocks 口径不变）但不产元组；
+ * - maxRows 语义 = 产出行数上限（探针行含在产出内，截断剔除由调用方 pop）。
+ */
+export function streamChunkScores(
+  db: DatabaseSync,
+  queryVec: Float32Array,
+  model: string,
+  maxRows: number,
+): { rows: ChunkScoreRow[]; produced: number; poisonRows: number } {
+  const stmt = db.prepare('SELECT 章号, start_offset, end_offset, embedding, norm, model FROM chunks')
+  const qNorm = l2Norm(queryVec)
+  const rows: ChunkScoreRow[] = []
+  let produced = 0
+  let poisonRows = 0
+  for (const r of stmt.iterate() as Iterable<{
+    章号: number; start_offset: number; end_offset: number
+    embedding: Uint8Array; norm: number | null; model: string
+  }>) {
+    if (produced >= maxRows) break
+    if (r.norm !== null && !Number.isFinite(r.norm)) {
+      poisonRows++
+      continue
+    }
+    const embedding = bufferToFloat32(r.embedding)
+    if (r.norm === null && embedding.some((x) => !Number.isFinite(x))) {
+      poisonRows++
+      continue
+    }
+    produced++
+    if (r.model !== model || embedding.length !== queryVec.length) continue
+    // R64-45 同款：预存范数复用，norm 异常缺失现算兜底
+    const cNorm = r.norm !== null && r.norm > 0 ? r.norm : l2Norm(embedding)
+    rows.push({
+      章号: r.章号,
+      start_offset: r.start_offset,
+      end_offset: r.end_offset,
+      score: cosineSimilarity(queryVec, embedding, { normA: qNorm, normB: cNorm }),
+    })
+  }
+  return { rows, produced, poisonRows }
+}
+
 /** A3（批 7）：全部章指纹元数据一次读进内存（章号 → indexed hash）——惰性校验的
  *  元数据源（召回闭库后子集校验用；单 SELECT，零文件 IO）。 */
 export function readAllChapterFingerprints(db: DatabaseSync): Map<number, string> {
@@ -416,24 +516,28 @@ export function readAllChapterFingerprints(db: DatabaseSync): Map<number, string
 
 /** rag_meta 读写（记维度/模型/已索引章号） */
 export function getRagMeta(db: DatabaseSync, key: string): string | null {
-  const stmt = db.prepare('SELECT value FROM rag_meta WHERE key = ?')
+  // R46-45：固定 SQL 走 prepared 缓存
+  const stmt = prepared(db, 'SELECT value FROM rag_meta WHERE key = ?')
   const row = stmt.get(key) as { value: string } | undefined
   return row?.value ?? null
 }
 
 export function setRagMeta(db: DatabaseSync, key: string, value: string): void {
-  const stmt = db.prepare('INSERT OR REPLACE INTO rag_meta (key, value) VALUES (?, ?)')
+  // R46-45：同上
+  const stmt = prepared(db, 'INSERT OR REPLACE INTO rag_meta (key, value) VALUES (?, ?)')
   stmt.run(key, value)
 }
 
 /** 删 rag_meta 单键（P1-28：清理已删除章的指纹残留） */
 export function deleteRagMeta(db: DatabaseSync, key: string): void {
-  db.prepare('DELETE FROM rag_meta WHERE key = ?').run(key)
+  // R46-45：同上
+  prepared(db, 'DELETE FROM rag_meta WHERE key = ?').run(key)
 }
 
 /** 删某章全部向量块（P1-28：已索引章被删后清理残留，防其向量继续参与召回） */
 export function deleteChunksByChapter(db: DatabaseSync, 章号: number): void {
-  db.prepare('DELETE FROM chunks WHERE 章号 = ?').run(章号)
+  // R46-45：同上
+  prepared(db, 'DELETE FROM chunks WHERE 章号 = ?').run(章号)
 }
 
 /** 已索引过的章号集合（chunks 去重；P1-28 删除检测用） */

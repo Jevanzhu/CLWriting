@@ -339,6 +339,17 @@ function matchVolumeName(path: string): string | null {
 let globalRevision = 0
 const indexes = new Map<string, BookTreeIndex>()
 
+/** R46-41（四十六轮）：indexes 条目的上次 JSON 序列化串（bookRoot → string）——force
+ *  重建的「未变化不 bump」等价比较此前每次对 prev.nodes 与新 nodes 各整树 stringify
+ *  一遍（R39-19 双串对比），窗口回前台 2s 节流 force 轮询反复支付两份千章树序列化；
+ *  改存上次结果后热路径只 stringify 新 nodes 一份与缓存串比对。不变量：缓存串（若在）
+ *  === stringify(indexes.get(bookRoot).nodes)——invalidateTreeIndex 删索引条目时同步
+ *  删（残留陈串会在「磁盘改回旧形态」时误判未变化，返回旧 nodes 的 index）；FIFO
+ *  淘汰同步删。冷缓存（fresh 构建不预付序列化，保持 R39-19「仅 force 路径付出」纪律）
+ *  首次 force 付一次种子串（与旧双串等价），此后恒单串。内存≈树序列化串 ×16 书上限，
+ *  与 indexes 条目本体同量级。 */
+const indexSigCache = new Map<string, string>()
+
 /** 内存闸（2026-08-24）：树索引按 bookRoot 缓存整树、无上限——长跑桌面/服务进程
  *  多书切换逐书累积无界（单书 MB 级）；FIFO 上限对齐 probeCache 口径，取多书同开
  *  常态（8）的 2 倍余量；淘汰后下次 get 重建即可，无正确性影响。 */
@@ -352,17 +363,30 @@ export function getBookTreeIndex(bookRoot: string, force = false): BookTreeIndex
   if (cached) return cached
   const nodes = buildTree(bookRoot)
   // R39-19（三十九轮）：force 重建内容不变则不 bump revision——窗口回前台拉全树
-  // （ChapterTreePanel 2s 节流 force）此前必 ++globalRevision，前端 doc store
+  //（ChapterTreePanel 2s 节流 force）此前必 ++globalRevision，前端 doc store
   // syncCleanWithTree 按 revision 判 stale → 全部 clean 文档缓存（上限 20）全量重拉
   //（20 次 GET /file + sha256），「写作中频繁切窗查资料」场景对账永不收敛。结构化
   // 变更（增删改/改名）走 invalidateTreeIndex 删缓存，重建必不等 → revision 照常
   // 递增；外部编辑改动节点 mtime/size/摘要 → 序列化不等 → 照常递增。等价比较用
   // JSON 序列化（同构建路径键序稳定；键序漂移只会退回「视为变更」旧行为，安全侧）；
   // 千章树毫秒级，仅 force 路径付出。
+  // R46-41（四十六轮）：双整树 stringify 改缓存串对比——只序列化新 nodes 一份，
+  // 与 indexSigCache 存的上次串比对（冷缓存首 force 付一次 prev 侧种子串，与旧双串
+  // 等价）；相等沿用 prev（不 bump），不等则以新串更新缓存（见顶部 indexSigCache
+  // 不变量注释）。
   const prev = indexes.get(bookRoot)
-  if (prev && JSON.stringify(prev.nodes) === JSON.stringify(nodes)) {
-    prev.validatedAt = new Date().toISOString()
-    return prev
+  if (prev) {
+    const newSig = JSON.stringify(nodes)
+    let prevSig = indexSigCache.get(bookRoot)
+    if (prevSig === undefined) {
+      prevSig = JSON.stringify(prev.nodes)
+      indexSigCache.set(bookRoot, prevSig)
+    }
+    if (prevSig === newSig) {
+      prev.validatedAt = new Date().toISOString()
+      return prev
+    }
+    indexSigCache.set(bookRoot, newSig)
   }
   const index: BookTreeIndex = {
     bookRoot,
@@ -370,10 +394,14 @@ export function getBookTreeIndex(bookRoot: string, force = false): BookTreeIndex
     revision: ++globalRevision,
     validatedAt: new Date().toISOString(),
   }
-  // FIFO 淘汰最旧（Map 保插入序，与 probeCache 同口径）
+  // FIFO 淘汰最旧（Map 保插入序，与 probeCache 同口径）；R46-41：sig 缓存随条目同步
+  // 淘汰（保「缓存串 ⇔ indexes 条目」不变量，防他书陈串残留）
   if (indexes.size >= INDEXES_CACHE_MAX) {
     const oldest = indexes.keys().next().value
-    if (oldest !== undefined) indexes.delete(oldest)
+    if (oldest !== undefined) {
+      indexes.delete(oldest)
+      indexSigCache.delete(oldest)
+    }
   }
   indexes.set(bookRoot, index)
   return index
@@ -386,9 +414,17 @@ export function getBookTreeIndex(bookRoot: string, force = false): BookTreeIndex
  * ——树红点缓存表按 rel_path 键控，旧行成垃圾，整表清空回收（残留不致错——
  * 新路径必 miss——只是防膨胀）。内容保存（draft-pipeline/files）不传：章级
  * (mtime,size) 指纹自会失效对应行，整表连坐会把「改 1 章只重查 1 章」打回全书。
+ *
+ * R46-8（四十六轮）：内容保存路径（能定位改动文件者）改走 invalidateTreeIndexForContent
+ * （probeCache 单键失效）——本函数的整书 probeCache 清理保留给结构性 mutation 与无法
+ * 定位改动文件的调用面（finalize 等）。
  */
 export function invalidateTreeIndex(bookRoot: string, structural = false): void {
   indexes.delete(bookRoot)
+  // R46-41（四十六轮）：序列化串缓存随索引条目同步删——条目已删而陈串残留时，磁盘
+  // 改回旧形态会让 force 对比误命中（返回旧 nodes 的 prev，不 bump 且不重建），见
+  // 顶部 indexSigCache 不变量注释。
+  indexSigCache.delete(bookRoot)
   // W-P2-4：文件内容可能已变（保存/回滚/定稿）→ 哈希缓存一并失效，防 mtime 撞车后复用旧哈希。
   // 2026-08-21：按书前缀清理（缓存键本就带 bookRoot）——此前 clearProbeCache() 全局清空，
   // 任一书保存会让其他书首次树聚合退化为全量读（多书同开时的无谓读放大）
@@ -397,4 +433,19 @@ export function invalidateTreeIndex(bookRoot: string, structural = false): void 
     if (key.startsWith(prefix)) probeCache.delete(key)
   }
   if (structural) clearTreeIssuesCacheForBook(bookRoot)
+}
+
+/**
+ * R46-8（四十六轮）：内容保存的单键失效——indexes 照常整书重建（树 wordCount/status
+ * 投影要刷新），但 probeCache 只删本次改写文件的键。此前内容保存走 invalidateTreeIndex
+ * 把该书 probeCache 整书清空，下一次树请求（前台 2s 节流 force）对全书 md 文件重读+
+ * 重哈希（200 万字书 100-300ms/次，网盘卷秒级）——而其余文件的 (mtimeNs,size) 指纹
+ * 未变、复用安全，W-P2-4 的防撞车口径只对本次改写文件必要。新文件落盘时键本不存在，
+ * delete 为 no-op（indexes.delete 已保证树重建收编新文件）。
+ */
+export function invalidateTreeIndexForContent(bookRoot: string, relPath: string): void {
+  indexes.delete(bookRoot)
+  // R46-41：sig 缓存随条目同步删（同 invalidateTreeIndex，不变量见顶部注释）
+  indexSigCache.delete(bookRoot)
+  probeCache.delete(bookRoot + '|' + relPath)
 }

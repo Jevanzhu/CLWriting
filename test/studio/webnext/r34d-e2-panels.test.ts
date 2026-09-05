@@ -226,6 +226,10 @@ describe('R34D-28: FocusStatsBar 切章不起钟 + 空章首笔计入 delta', ()
     // 修复前钟自切章时刻起算（10 字/1 分 = 10 字/分）
     vi.advanceTimersByTime(60_000)
     doc.patch('d2', '一二三四五六七八九十一二三四五六十七') // 8+10=18 字
+    // R46-5（四十六轮）契约演进：字数 150ms 防抖——先 nextTick 让 watcher 排定
+    // 防抖定时器，再假时钟推进 200ms 冲刷后断言（行为语义不变）
+    await nextTick()
+    vi.advanceTimersByTime(200)
     await nextTick()
     expect(w.text()).toContain('+10 字')
     expect(w.text()).not.toContain('字/分') // 修复点：切章不起钟
@@ -243,8 +247,8 @@ describe('R34D-28: FocusStatsBar 切章不起钟 + 空章首笔计入 delta', ()
     expect(w.text()).toContain('+0 字')
 
     doc.patch('e1', '好') // 首笔 1 字
-    await nextTick()
-    expect(w.text()).toContain('+1 字') // 修复点：基线按旧值 0 锁，首字计入
+    // R46-5（四十六轮）契约演进：字数 150ms 防抖（本用例真时钟）——断言改 waitFor
+    await vi.waitFor(() => expect(w.text()).toContain('+1 字')) // 修复点：基线按旧值 0 锁，首字计入
     w.unmount()
   })
 

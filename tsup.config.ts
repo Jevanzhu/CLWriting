@@ -27,6 +27,10 @@ export default defineConfig([
       'server-main': 'src/desktop/server-main.ts',
       'server-utility': 'src/desktop/server-utility.ts',
       'export-worker': 'src/export/export-worker.ts',
+      // R46-2（四十六轮）：analyze-style 全书文风扫描 worker 线程独立入口（export-worker
+      // 同款：server bundle 内联 style-scan-async.ts 后以 import.meta.url 同伴解析
+      // dist/desktop/analysis-worker.js，必须与 server bundle 同目录独立成件）
+      'analysis-worker': 'src/studio/server/api/analysis-worker.ts',
     },
     external: ['electron'], // electron 由 Electron 运行时提供,不 bundle
     format: ['esm'],

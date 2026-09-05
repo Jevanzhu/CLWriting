@@ -87,6 +87,36 @@ describe('words: R-23 postBaseline 前后代守卫', () => {
   })
 })
 
+describe('words: R46-33（四十六轮）同书在途合并', () => {
+  it('同书并发 ensureBaseline → 共享一次 GET（批量落盘 N 文档并发 save settle 只打一次 /words-diary）', async () => {
+    let release!: (v: { date: string; delta: number | null; baseline: number | null }) => void
+    diaryMock.mockImplementationOnce(() => new Promise((r) => { release = r }))
+    const s = useWordsStore()
+    const p1 = s.ensureBaseline('bookA')
+    const p2 = s.ensureBaseline('bookA')
+    release({ date: TODAY, delta: 7, baseline: 80 })
+    await Promise.all([p1, p2])
+    expect(diaryMock).toHaveBeenCalledTimes(1) // 合并为一次请求
+    expect(s.todayDelta).toBe(7)
+    expect(s.ready).toBe(true)
+  })
+
+  it('reset 清在途台账——推代后的死 promise 不被复用，同书重调发新请求且旧迟到响应不污染', async () => {
+    let release!: (v: { date: string; delta: number | null; baseline: number | null }) => void
+    diaryMock.mockImplementationOnce(() => new Promise((r) => { release = r }))
+    const s = useWordsStore()
+    const p1 = s.ensureBaseline('bookA')
+    s.reset() // E-7 脏路由离开：推代 + 清台账
+    diaryMock.mockResolvedValueOnce({ date: TODAY, delta: 4, baseline: 40 })
+    const p2 = s.ensureBaseline('bookA') // 不搭被推代作废的死 promise
+    release({ date: TODAY, delta: 99, baseline: 999 }) // 旧响应迟到（gen 丢弃）
+    await Promise.all([p1, p2])
+    expect(diaryMock).toHaveBeenCalledTimes(2)
+    expect(s.todayDelta).toBe(4)
+    expect(s.baseline).toBe(40)
+  })
+})
+
 describe('words: R65-49（E-1）切书清态 + 失败降级清 delta', () => {
   it('切书入口清态：B 书响应在途时旧书的 delta/baseline 不再参与今日字数（不互减）', async () => {
     // A 书先成功载入（delta=12, baseline=80）

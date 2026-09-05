@@ -238,10 +238,11 @@ test('M-P3-09: HEAD 不整读文件（readFile 0 次）且 content-length=字节
   expect(readFileMock).not.toHaveBeenCalled()
   expect(Number(dirHead.headers.get('content-length'))).toBe(Buffer.byteLength('<!doctype html><title>Studio</title>'))
 
-  // GET 行为不变：照常 readFile 整读发 body
+  // GET 行为不变：body 照常完整送达。R46-12（四十六轮）：GET 改 createReadStream
+  // 流式发送后不再 readFile 整读（计数 1 → 0，仅 SPA fallback 的 index.html 仍走 readFile）
   readFileMock.mockClear()
   const get = await fetch(`${baseUrl}/app.js`)
-  expect(readFileMock).toHaveBeenCalledTimes(1)
+  expect(readFileMock).not.toHaveBeenCalled()
   expect(await get.text()).toBe('console.log(1)')
 })
 
