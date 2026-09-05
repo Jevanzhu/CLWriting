@@ -78,7 +78,8 @@
   /* 正文排版（与 UI 皮肤解耦，写作偏好；2026-09-05 作者确认全局同步、不拆编辑器
      专属作用域——设置「编辑器 → 排版」作用于所有正文编辑框：编辑区、开书对话
      （梗概/步骤编辑）、草稿卡）。J5：win 无霞鹜/思源时落宋体（衬线观感对齐 mac），
-     不落浏览器 serif 默认 */
+     不落浏览器 serif 默认。F 线（2026-09-05）：正文预设组上线（编辑器→排版顶部
+     一键切换），默认栈保持原样不翻转 */
   --prose-font: 'LXGW WenKai', 'Noto Serif SC', 'SimSun', serif;
   --prose-size: 17px;
   --prose-lh: 1.5;
@@ -122,11 +123,18 @@
   /* 原生系统栈（2026-08-31，ZCode 同款）：Segoe UI + 雅黑 UI——win 原生观感。
    * 内嵌字体（MiSans/Noto）试用后全部撤：渲染质量由行高/字号/字重/对齐体系保证，
    * 包体 -29MB。 */
-  --font-ui: 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', system-ui, sans-serif;
+  /* F 线（2026-09-05）：拉丁首选升 Segoe UI Variable（Win11 Fluent 现代变体，
+   * 本机 SegUIVar.ttf 实证在位；小字号光学尺寸可变，笔画比老 Segoe UI 精致）——
+   * Win10 无此族自动落回 'Segoe UI'，零风险渐进增强。栈尾补 'Segoe UI Emoji'
+   * 显式兜底（原栈无 emoji 声明，彩色 emoji 走系统枚举不可控）。 */
+  --font-ui: 'Segoe UI Variable', 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', system-ui,
+    'Segoe UI Emoji', sans-serif;
   --font-monospace: Consolas, ui-monospace, 'SF Mono', Menlo, monospace;
-  /* UI 字号档基准：win 比 mac 基准 +1px（ClearType 小字 hinting 差一档），
-   * 用户可在外观设置再 ±调节（prefs 写 html 内联 --font-size-step 覆盖此处）。 */
-  --font-size-step: 1px;
+  /* UI 字号档基准：win 与 mac 同基准 0px——J5 曾 +1px 作 ClearType hinting 补偿
+   * （灰度渲染时代小字发虚），F0（2026-09-05）找回 win 原生子像素渲染后撤销，
+   * 字号观感回「一套视觉」同口径；用户仍可在外观设置 ±调节（prefs 写内联
+   * --font-size-step 覆盖此处，其 win 隐藏基准已同步归零）。 */
+  --font-size-step: 0px;
 }
 
 /* R40-1（四十轮）：win 亮色档 ClearType 文字主色提亮（#222 在 ClearType 下偏黑闷，

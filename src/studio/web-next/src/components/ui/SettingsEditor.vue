@@ -5,11 +5,24 @@ import { computed } from 'vue'
 import { usePrefsStore } from '../../stores/prefs'
 import { parseNumericInput } from '../../shared/numeric-input'
 import { useSystemFonts } from '../../composables/useSystemFonts'
+import { PROSE_PRESETS, matchProsePreset, type ProsePreset } from '../../shared/prose-presets'
 import FontPicker from './FontPicker.vue'
 
 const prefs = usePrefsStore()
 const { chineseFonts, englishFonts, fontDisplayName, defaultProseFontCn, defaultProseFontEn } = useSystemFonts()
 const hasDesktop = computed(() => typeof window !== 'undefined' && !!window.clwritingDesktop)
+
+// 正文排版预设（F 线 2026-09-05）：激活态由四字段派生，手动改任一项即落「自定义」；
+// 应用 = 逐项走既有 setter（apply()/持久化链路复用，无新持久化键）
+const activePresetId = computed(() =>
+  matchProsePreset({ proseFontCn: prefs.proseFontCn, proseFontEn: prefs.proseFontEn, proseSize: prefs.proseSize, proseLh: prefs.proseLh }),
+)
+function applyPreset(p: ProsePreset): void {
+  prefs.setProseFontCn(p.values.proseFontCn)
+  prefs.setProseFontEn(p.values.proseFontEn)
+  prefs.setSize(p.values.proseSize)
+  prefs.setLh(p.values.proseLh)
+}
 
 // 全局默认：纸张宽度 / 自动保存（书级覆盖现由「本书」页管理，全局页只设跨书共享默认）
 function onPageWidthInput(v: number): void {
@@ -34,8 +47,30 @@ function numInput(min: number, max: number, setter: (v: number) => void, e: Even
   <!-- 单根包裹：见 SettingsBook.vue 说明 -->
   <div class="settings-tab">
   <div class="cfg-card-head">字体</div>
-  <section v-if="hasDesktop" class="cfg-card">
+  <section class="cfg-card">
     <div class="setting-item">
+      <div class="setting-item-info">
+        <div class="setting-item-name">排版预设</div>
+        <div class="setting-item-desc">成组方案一键切换；手动调整任一项后变为自定义</div>
+      </div>
+      <div class="setting-item-control">
+        <div class="preset-row" role="group" aria-label="正文排版预设">
+          <button
+            v-for="p in PROSE_PRESETS"
+            :key="p.id"
+            type="button"
+            class="preset-chip"
+            :class="{ active: activePresetId === p.id }"
+            :title="p.desc"
+            @click="applyPreset(p)"
+          >
+            {{ p.label }}
+          </button>
+          <span v-if="activePresetId === 'custom'" class="preset-chip custom">自定义</span>
+        </div>
+      </div>
+    </div>
+    <div v-if="hasDesktop" class="setting-item">
       <div class="setting-item-info">
         <div class="setting-item-name">正文字体</div>
         <div class="setting-item-desc">编辑区、开书对话、草稿卡等所有正文编辑框</div>
@@ -106,3 +141,37 @@ function numInput(min: number, max: number, setter: (v: number) => void, e: Even
   </section>
   </div>
 </template>
+
+<style scoped>
+/* 排版预设 chips（F 线 2026-09-05）：胶囊排布，激活态 accent 描边浅底；
+ * 标签用 --text-normal（win 反糊口径：小字号不挂 muted 灰） */
+.preset-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.preset-chip {
+  padding: 3px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-normal);
+  font-size: var(--font-size-s);
+  line-height: 1.6;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
+}
+.preset-chip:hover {
+  border-color: var(--interactive-accent);
+}
+.preset-chip.active {
+  border-color: var(--interactive-accent);
+  background: color-mix(in srgb, var(--interactive-accent) 12%, transparent);
+}
+.preset-chip.custom {
+  cursor: default;
+  color: var(--text-faint);
+  border-style: dashed;
+}
+</style>

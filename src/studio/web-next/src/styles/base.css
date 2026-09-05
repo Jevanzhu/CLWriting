@@ -22,6 +22,15 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* F0（2026-09-05 渲染适配，作者拍板「win 平台就用 win 原生」）：body 全局
+ * antialiased 在 win Chromium 强制灰度 AA、丢 ClearType 子像素（非 HiDPI 小字号
+ * 发糊，2026-09-05 真机样张左右栏对比实证）；win 分支改回原生 subpixel-antialiased。
+ * mac 苹方体系灰度即系统正解，保持默认不动。J5「应用不补偿字形渲染」注记语境是
+ * 数值补偿（不减字号不加锐化），此处是让 win 回到浏览器原生渲染模式，不冲突。 */
+:root[data-platform='win32'] body {
+  -webkit-font-smoothing: subpixel-antialiased;
+}
+
 /* J5 win（2026-08-31，解剖 ZCode 后定稿）：雅黑只有 400/700 两档，全项目 88 处
  * weight:600 / 41 处 500 全走浏览器合成伪粗（涂抹发虚）——ZCode 同为系统栈却
  * 700×549 次用真实 Bold 所以锐利。font-synthesis-weight:none 禁合成后，按字体
