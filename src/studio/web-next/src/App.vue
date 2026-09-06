@@ -3,6 +3,7 @@ import { onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { getLastInitialBook } from './api/client'
 import { useAppActions } from './composables/useAppActions'
+import { usePrefsStore } from './stores/prefs'
 import ErrorBoundary from './components/ui/ErrorBoundary.vue'
 import StartupNoticeBanner from './components/ui/StartupNoticeBanner.vue'
 // R42-3/R42-4（四十二轮）：反馈层与三模态上移根组件全局挂载——此前仅挂 WorkspaceShell，
@@ -19,20 +20,28 @@ import ExportDialog from './components/ui/ExportDialog.vue'
 // 根组件：路由出口 + 启动 initialBook 直进工作区（/api/boot 返回时）。
 const router = useRouter()
 const { dispatch: dispatchAction } = useAppActions()
+const prefs = usePrefsStore()
+// R58-A-1（五十八轮）：订阅句柄提升到 setup 顶层——onBeforeUnmount 此前注册在
+// onMounted 回调体内（该时机无活动组件实例，钩子永不绑定，off 清理成死代码且每次
+// 启动产「no active component instance」dev 告警）；句柄/清理同层注册，全库 on/off
+// 配对口径收齐。
+let offNavigate: (() => void) | undefined
+let offMenuAction: (() => void) | undefined
+type FlushPrefsWindow = Window & { __clwFlushPrefs?: () => void }
 onMounted(() => {
   // 书架独立窗口（win=shelf）：不 redirect，保持书架页
   const isShelfWin = new URLSearchParams(location.search).get('win') === 'shelf'
   // 主窗口接收书架窗口的导航（选书 → 主进程转发 → router.push）
   // R33-88（三十三轮）：监听句柄成对清理（根组件常驻无实害，防御性收口对齐全库口径）
-  const offNavigate = window.clwritingDesktop?.onNavigate((path) => {
+  offNavigate = window.clwritingDesktop?.onNavigate((path) => {
     router.push(path)
   })
   // 系统菜单 click → 主进程转发 actionKey → dispatch 到 store 动作（与命令面板同源）
-  const offMenuAction = window.clwritingDesktop?.onMenuAction((key) => dispatchAction(key))
-  onBeforeUnmount(() => {
-    offNavigate?.()
-    offMenuAction?.()
-  })
+  offMenuAction = window.clwritingDesktop?.onMenuAction((key) => dispatchAction(key))
+  // R58-B-2（五十八轮）：关窗前全局偏好冲刷钩子——主进程 flushRendererBeforeClose 的
+  // 同一 executeJavaScript 表达式内调用（Electron 卸载路径禁同步 XHR，不能靠 beforeunload）；
+  // 500ms 防抖窗内的最后一次改动随关窗落盘，不再丢。任何窗口（含书库/书架独立窗）都可用。
+  ;(window as FlushPrefsWindow).__clwFlushPrefs = () => prefs.flushPendingPersist()
   if (isShelfWin) return
   // 主窗口启动：initialBook（--book）> lastBook（localStorage）> 默认 /shelf
   let startBook: string | null = getLastInitialBook()
@@ -54,6 +63,11 @@ onMounted(() => {
       }
     })
   }
+})
+onBeforeUnmount(() => {
+  offNavigate?.()
+  offMenuAction?.()
+  delete (window as FlushPrefsWindow).__clwFlushPrefs
 })
 </script>
 

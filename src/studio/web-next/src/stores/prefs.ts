@@ -382,6 +382,32 @@ export const usePrefsStore = defineStore('prefs', () => {
     }
   }
 
+  /** R58-B-2（五十八轮）：关窗/退出前的立即冲刷——清 500ms 防抖窗直发一次 PUT
+   *  （主进程 flushRendererBeforeClose 经 window.__clwFlushPrefs 调用；revision 对齐与
+   *  409 自愈口径与 schedulePersist 相同）。在途 PUT 时放弃本次直发：在途收尾以届时
+   *  快照继续，防抖定时器仍在（照常完成），关窗场景优先送达而非叠发。 */
+  function flushPendingPersist(): void {
+    if (putInFlight) return
+    if (persistTimer) {
+      clearTimeout(persistTimer)
+      persistTimer = null
+    }
+    putInFlight = Promise.resolve()
+    void (async () => {
+      try {
+        if (!revisionKnown) {
+          try {
+            revision = (await getGlobalPrefs()).revision
+            revisionKnown = true
+          } catch { /* 网络不可达：照旧 PUT */ }
+        }
+        await doPersistPut()
+      } finally {
+        putInFlight = null
+      }
+    })()
+  }
+
   /** 本窗脏字段键集：当前值与最近成功落盘快照不一致的键（R35-8 脏字段判定源）。 */
   function dirtyKeysOf(local: GlobalPrefs): string[] {
     if (!lastPersisted) return Object.keys(local)
@@ -782,6 +808,7 @@ export const usePrefsStore = defineStore('prefs', () => {
     bookAutosaveInterval,
     effectivePageWidth,
     effectiveAutosaveInterval,
+    flushPendingPersist,
     init,
     apply,
     applyTheme,

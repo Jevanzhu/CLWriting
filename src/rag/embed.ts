@@ -27,6 +27,12 @@ function warnEmbedFailure(endpoint: string, reason: string): void {
   const now = Date.now()
   if (now - (lastWarnAt.get(endpoint) ?? 0) < 60_000) return
   lastWarnAt.set(endpoint, now)
+  // R58-B-7（五十八轮）：FIFO 上限——键为用户配置端点串，增删 provider 后旧键永驻；
+  // 64 个端点远覆盖现实配置，超限丢最旧（Map 保插入序）
+  if (lastWarnAt.size > 64) {
+    const oldest = lastWarnAt.keys().next().value
+    if (oldest !== undefined) lastWarnAt.delete(oldest)
+  }
   log.warn('rag', `embedding 端点调用失败（${reason}；endpoint=${endpoint}）——RAG 索引/召回降级`)
 }
 

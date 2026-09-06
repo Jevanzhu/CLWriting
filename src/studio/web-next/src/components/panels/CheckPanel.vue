@@ -93,7 +93,7 @@ async function flagFalsePositive(checkId: string): Promise<void> {
         </div>
         <div
           v-for="(it, i) in check.redItems"
-          :key="'r' + i"
+          :key="it.checkId"
           class="check-item check-item--red"
         >
           <div class="item-msg">{{ it.message }}</div>
@@ -117,7 +117,7 @@ async function flagFalsePositive(checkId: string): Promise<void> {
         </div>
         <div
           v-for="(it, i) in check.yellowItems"
-          :key="'y' + i"
+          :key="it.checkId"
           class="check-item check-item--yellow"
         >
           <div class="item-msg">{{ it.message }}</div>

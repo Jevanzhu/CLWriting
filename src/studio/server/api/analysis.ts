@@ -657,6 +657,14 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
             fullStats = computeFullStats(allBodies.join('\n\n'), rules)
             sampleText = recentBodies.join('\n\n---\n\n')
           }
+          // R58-B-10（五十八轮）：每写顺带清扫已过期条目（TTL 语义与读侧一致）——
+          // 此前过期条目只在被读/同书重算时逐出，未触达的书条目驻留至 FIFO 触顶，
+          // 多书场景陈旧语料（整书 join 大串 + 采样正文）可长期占内存
+          const sweepTtl = styleCorpusTtlMs ?? STYLE_CORPUS_TTL
+          const sweepNow = Date.now()
+          for (const [k, v] of styleCorpusCache) {
+            if (sweepNow - v.ts >= sweepTtl) styleCorpusCache.delete(k)
+          }
           // 简单 FIFO 淘汰（Map 保插入序）：超上限丢最旧条目，防长期运行的书库累积
           if (styleCorpusCache.size >= STYLE_CORPUS_MAX) {
             const oldest = styleCorpusCache.keys().next().value

@@ -307,11 +307,15 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
     forwardChildStdio(proc, logger) // 握手前接线——boot 期日志不丢
     const port = await handshake(proc, logger, killWaitMs)
     // 稳定窗口计时（unref 不拖退出）：到点仍是他为 active 才清零
-    setTimeout(() => {
+    // R58-B-1（五十八轮）：句柄留存 + exit 路径清除——此前不成对，child 提前退出后
+    // 定时器仍滞留 stabilityResetMs（5 分钟），闭包持死 proc 引用并空跑一次回调
+    const stabilityTimer = setTimeout(() => {
       if (active?.proc === proc) restartCount = 0
-    }, stabilityResetMs).unref()
+    }, stabilityResetMs)
+    stabilityTimer.unref()
     const exited = new Promise<void>((resolveExit) => {
       proc.once('exit', () => {
+        clearTimeout(stabilityTimer)
         const wasActive = active?.proc === proc
         if (wasActive) active = null
         resolveExit()

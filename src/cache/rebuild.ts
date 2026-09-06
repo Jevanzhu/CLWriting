@@ -132,6 +132,10 @@ export function forgetChapterParseCacheForBook(bookRoot: string): number {
       removed++
     }
   }
+  // R58-B-6（五十八轮）：sourceProbeLastScan 同挂点补删——此前删书/改名后该 3s TTL
+  // 节流表条目（键 = bookRoot）永驻（值仅 {at, stats}，纯内存卫生；同名重建书最多
+  // 延迟到首个 TTL 过期才真实重扫，无正确性影响）
+  sourceProbeLastScan.delete(bookRoot)
   return removed
 }
 
