@@ -1920,6 +1920,33 @@ describe('R51-A-4: saveCurrent 抛错不再绕过 {ok,reason} 契约', () => {
     await new Promise((r) => setImmediate(r))
     await new Promise((r) => setImmediate(r))
     M.ipcHandle['desktop:get-recent']!({}, {})
+    await drainCaptureSurface()
+  }
+
+  /**
+   * R56-P2-1：捕获面排水——前序用例成功路径排程的 `setTimeout(relaunch, 100)`
+   * （RELAUNCH_DELAY_MS 真实定时器）及其 before-quit 级联链（quit → shutdown →
+   * finally 二次 quit）在 `vi.resetModules()` 后仍持旧模块闭包继续跑（M 捕获面
+   * 模块级共享），win 慢盘时序下可漂入本组用例 quit0/rel0 捕获之后的窗口
+   * （win 全量首跑实测 +1 quit；mac 快时序不显现）。此处排到「捕获面静止」：
+   * 连续 3 拍（50ms 间隔）quit/relaunch 计数无新增即视为前序在途链清空，
+   * 2s 上限防挂死。须在 quit0/rel0 基线捕获**之前**调用（freshWithCache 尾部）。
+   */
+  async function drainCaptureSurface(): Promise<void> {
+    const deadline = Date.now() + 2000
+    let lastQ = M.quitCalls
+    let lastR = M.relaunchCalls
+    let stable = 0
+    while (stable < 3 && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 50))
+      if (M.quitCalls === lastQ && M.relaunchCalls === lastR) {
+        stable += 1
+      } else {
+        stable = 0
+        lastQ = M.quitCalls
+        lastR = M.relaunchCalls
+      }
+    }
   }
 
   /** 用同路径目录替换 workdir.json：writeStore 的 rename 目标是目录 → 必抛（EISDIR） */

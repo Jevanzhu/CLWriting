@@ -27,13 +27,16 @@ export interface StartupNoticeSink {
   add: (kind: string, message: string) => void
 }
 
-/** 每个 server 实例独立的通告收集器（startServer 闭包持有，随实例生命周期）。 */
+/** 每个 server 实例独立的通告收集器（startServer 闭包持有，随实例生命周期）。
+ *  R58-B-9（五十八轮）：环形上限 100——通告来源（启动迁移/改名失败等）量级极小，
+ *  但理论无界（请求期也可 push）；超限移出最旧保最新可见。 */
 export function createStartupNoticeSink(): StartupNoticeSink {
   const notices: StartupNotice[] = []
   return {
     notices,
     add(kind: string, message: string): void {
       notices.push({ ts: new Date().toISOString(), kind, message })
+      if (notices.length > 100) notices.shift()
     },
   }
 }

@@ -15,12 +15,25 @@ import { deriveMessages } from '../../src/events/projection.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const dirs: string[] = []
+const stores: SessionStore[] = []
 function openTmp(): { store: SessionStore; ud: string } {
   const d = mkdtempTracked(join(tmpdir(), 'r51-b4-'))
   dirs.push(d)
-  return { store: openSessionStore(d, '/books/a')!, ud: d }
+  const store = openSessionStore(d, '/books/a')!
+  stores.push(store)
+  return { store, ud: d }
 }
 afterEach(() => {
+  // R56-P2-4：先收口库句柄再删目录——win 上打开中的 SQLite 文件（含 WAL 伴生）
+  // 不可删除（posix 无此约束）；「多段遮蔽」用例此前不 close，afterEach rmSync
+  // 撞 EPERM（win 全量门禁红）。
+  for (const s of stores.splice(0)) {
+    try {
+      s.close()
+    } catch {
+      /* 已收口等形态：rm 不受影响 */
+    }
+  }
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
 })
 

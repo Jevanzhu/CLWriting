@@ -70,7 +70,10 @@ describe('R47-27：md 文本指纹缓存（fs/md-text-cache.ts）', () => {
     expect(readMdTextCached(fp)).toBeNull()
   })
 
-  it('读失败（权限，无缓存可用）→ 返 null 不抛', () => {
+  // R56-P2-5：win 上 chmodSync 仅操作只读位、不产生读拒绝（读照常成功）——
+  // 「权限失败 → null」验收面物理不可能成立（J3 批「chmod 13 文件」skipIf(win)
+  // 同族）；权限失败路径由 posix CI 腿守护。
+  it.skipIf(process.platform === 'win32')('读失败（权限，无缓存可用）→ 返 null 不抛', () => {
     chmodSync(fp, 0o000)
     try {
       expect(readMdTextCached(fp)).toBeNull()

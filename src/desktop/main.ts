@@ -820,12 +820,16 @@ const CONTEXT_MENU_CANCEL_DELAY_MS = 100
  *  executeJavaScript 调渲染层 window.__clwFlushBeforeClose（Book 页注册，页面未进
  *  卸载、异步保存链全通；Chromium ≥M80 在页面卸载路径整体禁同步 XHR，原渲染层
  *  beforeunload 内同步 XHR 兜底经双 Electron 实验实证零字节到达，已随本钩子移除）。
- *  返回 null＝钩子不在或渲染层不可达（非编辑页无 dirty 状态，无兜底可做）。 */
+ *  返回 null＝钩子不在或渲染层不可达（非编辑页无 dirty 状态，无兜底可做）。
+ *  R58-B-2（五十八轮）：同一表达式内先行冲刷全局偏好（window.__clwFlushPrefs，App.vue
+ *  注册，任何窗口可用）——prefs store 的 500ms 防抖窗内最后改动随关窗落盘；预冲刷失败
+ *  吞掉不阻断 doc flush 与关窗。保持单次 executeJavaScript（execJs 调用次数与返回形状
+ *  不变，main.test 断言锚定）。 */
 async function flushRendererBeforeClose(target: BrowserWindow): Promise<{ conflict: string[]; failed: string[] } | null> {
   if (target.isDestroyed()) return null
   try {
     const r = (await target.webContents.executeJavaScript(
-      'typeof window.__clwFlushBeforeClose === "function" ? window.__clwFlushBeforeClose() : Promise.resolve(null)',
+      '(async () => { try { await (typeof window.__clwFlushPrefs === "function" ? window.__clwFlushPrefs() : null) } catch {} return typeof window.__clwFlushBeforeClose === "function" ? window.__clwFlushBeforeClose() : Promise.resolve(null) })()',
     )) as unknown
     if (r && typeof r === 'object') {
       const pick = (v: unknown): string[] =>

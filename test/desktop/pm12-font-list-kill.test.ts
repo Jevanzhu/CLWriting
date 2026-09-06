@@ -77,7 +77,12 @@ describe('PM-12：fontListWithTimeout 超时必杀（自管 spawn 路径）', ()
       const settleMs = Date.now() - t0
       expect(count()).toBe(1)
       expect(settleMs).toBeLessThan(3000) // 不等默认 10s 档（实机 ~200ms，放宽 CI 抖动余量）
-      expect(await waitFor(marker, false, 2000)).toBe(true) // 超时后 ~300ms 内子进程已退出
+      // R56-P2-2：win 上 child.kill('SIGTERM') 是无条件终止（Node 无信号捕获语义，
+      // 处理器收不到）——子进程内 process.on('SIGTERM') 删桩退出的验收面物理不可能
+      // 成立，仅 posix 可验；win 侧 kill 结算时序（上方 settleMs < 3000）仍覆盖。
+      if (process.platform !== 'win32') {
+        expect(await waitFor(marker, false, 2000)).toBe(true) // 超时后 ~300ms 内子进程已退出
+      }
     } finally {
       if (existsSync(marker)) rmSync(marker, { force: true })
       __resetFontListBreakerForTest()

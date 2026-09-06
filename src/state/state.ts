@@ -31,16 +31,36 @@ import { sweepAbandonedTmpFiles, rmWithRetry } from '../fs/atomic.js'
 const SWEEP_THROTTLE_MS = 6 * 3600_000
 const sweepLastAt = new Map<string, number>()
 
+// R58-A-2（五十八轮）：网盘副本扫描每书 TTL 节流表（口径同 sweepLastAt 纪律）——
+// scanCloudCopies 是 readdirSync 全树同步递归 + 逐文件 existsSync 验母本，此前
+// detectState（/api/state 5s TTL）每轮请求都全扫；SMB/网盘卷上可冻结事件循环数百
+// ms~秒级（R43-2 同族纪律漏网点）。60s 窗内回上次结果；冲突副本检出延迟 ≤60s
+// （登记取舍：窗内新出现的副本最迟 TTL 过后下一次健康检查可见）。
+const CLOUD_SCAN_THROTTLE_MS = 60_000
+const cloudScanLastAt = new Map<string, number>()
+
+function scanCloudCopiesThrottled(bookRoot: string): string[] {
+  const now = Date.now()
+  const last = cloudScanLastAt.get(bookRoot)
+  if (last !== undefined && now - last < CLOUD_SCAN_THROTTLE_MS) return []
+  const copies = scanCloudCopies(bookRoot)
+  cloudScanLastAt.set(bookRoot, now)
+  return copies
+}
+
 /** @internal 测试钩子：复位节流表（构造「TTL 窗内第二次 detectState 不再全树扫」臂）。 */
 export function __resetSweepThrottleForTest(): void {
   sweepLastAt.clear()
+  cloudScanLastAt.clear()
 }
 
 /** R46-40（四十六轮）：删书/改名的生命周期失效挂点（books.ts forgetBookKeyedCaches
  *  接线）——sweepLastAt 键为 bookRoot，删书后条目成死重；改名后旧键永不再命中。
- *  不清无正确性影响（同名重建书最多延迟到下个 6h TTL 窗才首次清扫），纯内存卫生。 */
+ *  不清无正确性影响（同名重建书最多延迟到下个 6h TTL 窗才首次清扫），纯内存卫生。
+ *  R58-A-2：cloudScanLastAt 同挂点一并清除。 */
 export function forgetStateSweepStamp(bookRoot: string): void {
   sweepLastAt.delete(bookRoot)
+  cloudScanLastAt.delete(bookRoot)
 }
 
 function sweepAbandonedTmpFilesThrottled(bookRoot: string): number {
@@ -395,8 +415,9 @@ async function healthCheck(bookRoot: string, manifest: Manifest): Promise<Health
     }
   }
 
-  // ② 网盘副本扫描（纯 fs，不依赖 git）
-  const cloudCopies = scanCloudCopies(bookRoot)
+  // ② 网盘副本扫描（纯 fs，不依赖 git）；R58-A-2：60s TTL 节流（全树同步扫退到
+  // 每书每分钟至多一次，SMB/网盘卷请求路径成本有界）
+  const cloudCopies = scanCloudCopiesThrottled(bookRoot)
   // Y-24（第五十七轮）：顺手清扫 atomicWriteFile 崩溃残留 tmp（`.name.pid.uuid.tmp`，
   // 5 分钟年龄门槛防误删他进程在途写）——不产 issue，纯卫生，留痕即可
   // R43-2（四十三轮）：清扫改每书 TTL 节流——sweep 全树同步扫（readdirSync+statSync

@@ -950,13 +950,23 @@ async function runGenerate(
 }
 
 /** A2（五十九轮）：mock 快路的流式预览补发——12 码位/段逐段 emit。
- *  kk-P2：按码位切片（Array.from）——String.slice 按 UTF-16 code unit 会把 emoji/
- *  扩展区字符劈成两半，前端逐字渲染出现瞬时不合法字符（turns.ts read_chapter 同做法） */
+ *  kk-P2：按码位切片——String.slice 按 UTF-16 code unit 会把 emoji/
+ *  扩展区字符劈成两半，前端逐字渲染出现瞬时不合法字符（turns.ts read_chapter 同做法）
+ *  R58-B-5（五十八轮）：改码点流式分片——for…of 按码点迭代累积，不再 Array.from
+ *  全量物化数组（输出逐段等价：每 12 码位一段，尾段不足 12 也照发） */
 function emitMockPreview(opts: SelfHealOpts, body: string): void {
-  const chars = Array.from(body)
-  for (let i = 0; i < chars.length; i += 12) {
-    emit(opts, { type: 'text', text: chars.slice(i, i + 12).join('') })
+  let chunk = ''
+  let n = 0
+  for (const ch of body) {
+    chunk += ch
+    n++
+    if (n === 12) {
+      emit(opts, { type: 'text', text: chunk })
+      chunk = ''
+      n = 0
+    }
   }
+  if (chunk) emit(opts, { type: 'text', text: chunk })
 }
 
 function redMessages(outcome: CheckOutcome & { ok: true }): string[] {

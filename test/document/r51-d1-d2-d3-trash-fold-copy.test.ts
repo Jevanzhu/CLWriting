@@ -101,7 +101,10 @@ describe('R51-D-1: trash 前缀校验施加于规范化 rel（穿越/symlink 变
     }
   })
 
-  it('purge：.trash 内 symlink 指书内正文 → realpath 归一后 rel 不在 .trash，拒', async () => {
+  // R56-P2-3：win 非特权/非开发者模式进程 symlinkSync 物理不可能（EPERM）——
+  // J3 批「无防护 symlink 14 文件」skipIf(win) 同族；用例验证的 realpath 归一
+  // 防线由 posix CI 腿（macos/ubuntu）守护。
+  it.skipIf(process.platform === 'win32')('purge：.trash 内 symlink 指书内正文 → realpath 归一后 rel 不在 .trash，拒', async () => {
     const root = makeBook()
     try {
       mkdirSync(join(root, '工作区', '.trash'), { recursive: true })

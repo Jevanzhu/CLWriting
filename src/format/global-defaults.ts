@@ -145,6 +145,12 @@ export function readGlobalBookDefaults(userDataPath: string | null): GlobalBookD
       checkWordCountTolerance: posNum(raw['checkWordCountTolerance']),
     }
     defaultsCache.set(p, { mtimeNs: st.mtimeNs, size: Number(st.size), val })
+    // R58-B-8（五十八轮）：FIFO 上限——键为 userDataPath 全路径，多库/测试临时目录
+    // 场景只增不减；16 个缓存路径远覆盖现实并发，超限丢最旧（Map 保插入序）
+    if (defaultsCache.size > 16) {
+      const oldest = defaultsCache.keys().next().value
+      if (oldest !== undefined) defaultsCache.delete(oldest)
+    }
     return { ...val }
   } catch {
     // JSON 损坏 / 读失败 → 全空（逐项回落第三层），不阻断调用方

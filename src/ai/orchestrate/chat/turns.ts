@@ -259,6 +259,10 @@ export async function executeChatTool(
         // RB-AI-P2-5：超上限截断到头尾保留 + 注明截断量与正文文件路径（全文在草稿文件，
         // 作者可查）。不外置 spill：read_chapter 是 spill 取回通道，二次外置会 read→spill→read
         // 环（spill.ts 防环不变量）——上限取「能覆盖绝大多数整章、又不至数万字爆上下文」
+        // R58-B-4（五十八轮）：粗判先行——body.length（UTF-16 码元）≥ 码点数，未超限
+        // 直接返回，免 `Array.from` 全量物化（病理超长章瞬态巨型码点数组）；仅当码元
+        // 长度可能超限时才物化判精确值（语义等价，码点口径不变）
+        if (body.length <= READ_CHAPTER_MAX_CHARS) return { ok: true, summary: body }
         const chars = Array.from(body)
         if (chars.length <= READ_CHAPTER_MAX_CHARS) return { ok: true, summary: body }
         const kept = READ_CHAPTER_HEAD_CHARS + READ_CHAPTER_TAIL_CHARS
