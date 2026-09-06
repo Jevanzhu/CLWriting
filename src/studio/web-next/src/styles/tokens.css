@@ -126,15 +126,17 @@
   /* F 线（2026-09-05）：拉丁首选升 Segoe UI Variable（Win11 Fluent 现代变体，
    * 本机 SegUIVar.ttf 实证在位；小字号光学尺寸可变，笔画比老 Segoe UI 精致）——
    * Win10 无此族自动落回 'Segoe UI'，零风险渐进增强。栈尾补 'Segoe UI Emoji'
-   * 显式兜底（原栈无 emoji 声明，彩色 emoji 走系统枚举不可控）。 */
+   * 显式兜底（原栈无 emoji 声明，彩色 emoji 走系统枚举不可控）。
+   * 2026-09-06 评审实证：PresentationCore 枚举只见 Variable Display/Text/Small
+   * 变体、无裸族名，但 Electron/DirectWrite 侧 document.fonts.check('17px
+   * "Segoe UI Variable"') = true——CSS 族名可命中，首项有效，保留。 */
   --font-ui: 'Segoe UI Variable', 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', system-ui,
     'Segoe UI Emoji', sans-serif;
   --font-monospace: Consolas, ui-monospace, 'SF Mono', Menlo, monospace;
-  /* UI 字号档基准：win 与 mac 同基准 0px——J5 曾 +1px 作 ClearType hinting 补偿
-   * （灰度渲染时代小字发虚），F0（2026-09-05）找回 win 原生子像素渲染后撤销，
-   * 字号观感回「一套视觉」同口径；用户仍可在外观设置 ±调节（prefs 写内联
-   * --font-size-step 覆盖此处，其 win 隐藏基准已同步归零）。 */
-  --font-size-step: 0px;
+  /* UI 字号档基准与 :root 同 0px——J5 曾 +1px 作 ClearType hinting 补偿（灰度渲染
+   * 时代小字发虚），F0（2026-09-05）找回 win 原生子像素渲染后撤销，无平台偏移，
+   * 不再重复声明；用户仍可在外观设置 ±调节（prefs 写内联 --font-size-step 覆盖
+   * :root 基准）。 */
 }
 
 /* R40-1（四十轮）：win 亮色档 ClearType 文字主色提亮（#222 在 ClearType 下偏黑闷，

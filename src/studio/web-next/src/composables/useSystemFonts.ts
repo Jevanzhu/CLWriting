@@ -2,6 +2,7 @@
 // 模块级单例：多个组件共享同一份字体列表，IPC 只调一次。
 import { ref, computed, onMounted } from 'vue'
 import { usePlatform } from './usePlatform'
+import { isFontInstalled } from '../shared/font-names'
 
 const CJK_RE = /[一-鿿㐀-䶿぀-ヿ가-힯]/
 // J5：补 Windows 系统中文字体关键词（微软雅黑/宋体/黑体系）——原表全 mac/思源系，
@@ -56,6 +57,45 @@ export const PROSE_DEFAULT_STACK = ['LXGW WenKai', 'Noto Serif SC', 'SimSun'] as
 /** 正文回退 CSS 串（prefs apply() 尾基座；由栈派生保同源） */
 export const PROSE_FONT_FALLBACK = `${PROSE_DEFAULT_STACK.map((f) => `'${f}'`).join(', ')}, serif`
 
+/**
+ * 无衬线中文回退栈（衬线/书卷族之外的中文字体挂此尾——修「选思源黑体预设但未装
+ * Noto 时正文静默落宋体」的跨族翻转，F0c② 2026-09-05；win 必装雅黑，实际不触达）。
+ */
+export const PROSE_FONT_SANS_FALLBACK = `'Microsoft YaHei', 'DengXian', 'SimHei', sans-serif`
+
+/** 衬线/书卷族关键词：宋/仿宋/楷/明/思源宋/霞鹜文楷等归衬线回退，其余归无衬线。 */
+const CN_SERIF_RE =
+  /(宋|明|Song|Ming|Serif|SimSun|NSimSun|Kai|楷|FangSong|仿宋|WenKai|Songti|STSong|STKaiti|STFangsong|STZhongsong)/i
+
+/** 中文正文族判定（衬线/书卷 vs 无衬线）——prefs apply() 与测试共用 */
+export function isSerifCnFont(name: string): boolean {
+  return CN_SERIF_RE.test(name)
+}
+
+/**
+ * 正文回退尾（prefs apply() 拼 --prose-font）：CN 槽空时维持衬线基座（出厂空槽口径）；
+ * 指名中文为衬线/书卷族 → 衬线栈，其余（雅黑/等线/黑体/思源黑/苹方…）→ 无衬线栈。
+ */
+export function proseFallbackTail(cnFont: string): string {
+  return cnFont && !isSerifCnFont(cnFont) ? PROSE_FONT_SANS_FALLBACK : PROSE_FONT_FALLBACK
+}
+
+/** 拼字体族：英文字体优先（英文片段），中文字体兜底（中文），最后系统 fallback。
+ *  含空格的字体名自动加引号。prefs apply() 与设置预览样张共用（单源）。 */
+export function buildFontFamily(en: string, cn: string, fallback: string): string {
+  const parts: string[] = []
+  if (en) parts.push(en.includes(' ') ? `"${en}"` : en)
+  if (cn) parts.push(cn.includes(' ') ? `"${cn}"` : cn)
+  parts.push(fallback)
+  return parts.join(', ')
+}
+
+/** 正文 --prose-font 完整拼栈（prefs apply() 与设置预览样张共用，单源）：
+ *  英文优先 + 中文 + 按中文族分族的回退尾。 */
+export function buildProseFontStack(cn: string, en: string): string {
+  return buildFontFamily(en, cn, proseFallbackTail(cn))
+}
+
 // UI 默认栈（tokens.css --font-ui 平台块的 CJK/拉丁首选；mac 拉丁 = system-ui
 // 无字体名可显，留空由调用方回落旧占位）
 const UI_DEFAULT_STACK = {
@@ -65,12 +105,14 @@ const UI_DEFAULT_STACK = {
 
 // 模块级单例
 const systemFonts = ref<string[]>([])
+/** 字表已从主进程回（SettingsEditor 预设「未装」徽标据此判定，避免列表未回时误标） */
+const fontsLoaded = ref(false)
 let fontsPending: Promise<void> | null = null
 
 function loadOnce(): Promise<void> {
   if (!window.clwritingDesktop) return Promise.resolve()
   if (!fontsPending) {
-    // R48-84（四十八轮）：挂载并发去重——原 fontsLoaded 在 await 后才置位，两组件
+    // R48-84（四十八轮）：挂载并发去重——原布尔标志在 await 后才置位，两组件
     // 同拍挂载（设置弹窗与外壳同帧消费单例）双双通过入口守卫，getSystemFonts IPC
     // 被并发调两次，违背头注「IPC 只调一次」。改 in-flight promise 去重（对齐 doc
     // store inflightOpens 惯例）；失败清 pending 保留「下次挂载可重试」原语义。
@@ -78,6 +120,8 @@ function loadOnce(): Promise<void> {
       .getSystemFonts()
       .then((fonts) => {
         systemFonts.value = fonts
+        // F 线二批：成功后置响应式标志（未装徽标从「列表未回」翻「真未装」）
+        fontsLoaded.value = true
       })
       .catch((e: unknown) => {
         console.error('加载系统字体失败：', e)
@@ -98,16 +142,17 @@ export function useSystemFonts() {
   // 各槽位默认字体名：栈序即优先序，取第一个已安装的；全不在装退栈首（win 系统
   // 必装雅黑/宋体，实际不触达）。列表加载完成前即有栈首可用，加载后按实装收敛。
   const { isWin } = usePlatform()
+  // F 线④（2026-09-06）：已装判定走族键（zh-cn 枚举中文名/思源双产品异名同族），
+  // zh 系统上默认解析不再退栈首、能落到真实渲染的栈成员
   function resolveDefault(stack: readonly string[]): string {
-    const installed = new Set(systemFonts.value)
-    return stack.find((f) => installed.has(f)) ?? stack[0] ?? ''
+    return stack.find((f) => isFontInstalled(systemFonts.value, f)) ?? stack[0] ?? ''
   }
   const defaultUiFontCn = computed(() => resolveDefault(isWin ? UI_DEFAULT_STACK.win.cn : UI_DEFAULT_STACK.mac.cn))
   const defaultUiFontEn = computed(() => resolveDefault(isWin ? UI_DEFAULT_STACK.win.en : UI_DEFAULT_STACK.mac.en))
   const defaultProseFont = computed(() => resolveDefault(PROSE_DEFAULT_STACK))
 
   return {
-    systemFonts, chineseFonts, englishFonts, fontDisplayName,
+    systemFonts, fontsLoaded, chineseFonts, englishFonts, fontDisplayName,
     defaultUiFontCn, defaultUiFontEn,
     // 正文栈拉丁字形由 CJK 字体自带（霞鹜/思源含拉丁），中英两槽默认同源
     defaultProseFontCn: defaultProseFont, defaultProseFontEn: defaultProseFont,

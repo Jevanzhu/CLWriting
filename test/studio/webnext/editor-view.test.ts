@@ -9,7 +9,7 @@
  *
  * 本文件只测恢复竞态这一组件行为；doc store 逻辑（open/save/refresh）在 doc.test.ts。
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 
@@ -70,13 +70,25 @@ beforeEach(() => {
 })
 
 describe('EditorView: activeDocId 恢复竞态（CC-P1-4）', () => {
+  let w: ReturnType<typeof mount> | null = null
+
+  // 环境拆卸前排空：用例不 unmount 时 EditorView 留在树上，测试体内未排尽的 promise 链
+  // （doc.open → getContent → 状态回写 → nextTick patch）会在 happy-dom 拆卸后触发重渲染，
+  // 抛 unhandled ReferenceError: Document is not defined（全量 exit=1，单跑绿——并行调度
+  // 时序差，2026-09-06 win 全量实证）。卸载组件后微任务照常结算但不再 patch。
+  afterEach(async () => {
+    w?.unmount()
+    w = null
+    await flushPromises()
+  })
+
   it('prefs 恢复先于 tree.load 到达 → 树加载完成后补开，不停留空态', async () => {
     const doc = useDocStore()
     const tree = useTreeStore()
     doc.setBook(BOOK)
 
     // 场景前置：EditorView 已挂载（activeDocId 尚为 null）
-    const w = mount(EditorView, { props: { docId: null } })
+    w = mount(EditorView, { props: { docId: null } })
     await flushPromises()
 
     // prefs 恢复把 activeDocId 顶上——此时树还在路上（byDocId 空），无可打开
@@ -99,7 +111,7 @@ describe('EditorView: activeDocId 恢复竞态（CC-P1-4）', () => {
     doc.setBook(BOOK)
     tree.raw = [makeNode('d1')]
 
-    const w = mount(EditorView, { props: { docId: null } })
+    w = mount(EditorView, { props: { docId: null } })
     await flushPromises()
     await w.setProps({ docId: 'd1' })
     // 同上：waitFor 轮询替代固定 flush 次数（防并行负载下偶发未结算）
