@@ -235,6 +235,41 @@ describe('R62-10/R62-11：close 可重试性 + 空载荷遮蔽过滤', () => {
     rec.dispose()
   })
 
+  it('R53-B-1：close 第二段 appendEvents 失败 → ended 回滚 + 登记保留，重试凭 endPersisted 跳过首段直续遮蔽批（无双 end）', () => {
+    let failSecond = true
+    const appended: NewEvent[][] = []
+    const fake = {
+      appendEventsResolveLineage(_sid: string, evs: NewEvent[]): number[] {
+        appended.push(evs)
+        return evs.map((_, i) => 100 + i)
+      },
+      appendEvents(_sid: string, evs: NewEvent[]): number[] {
+        if (failSecond) {
+          failSecond = false
+          throw new Error('模拟遮蔽批 SQLITE_BUSY')
+        }
+        appended.push(evs)
+        return evs.map((_, i) => 200 + i)
+      },
+      maskSelfCheckData(): { intervals: unknown[]; rows: unknown[] } {
+        return { intervals: [], rows: [{ seq: 100 }] }
+      },
+    } as unknown as SessionStore
+    const rec = new SessionRecorder(fake, 's1')
+    rec.add(userMessageEvent('hi'))
+    rec.flush()
+    // 修复前：第二段失败 ended 未回滚 + finally dispose——重试被幂等闸吞（返回 null
+    // 且遮蔽批永不落库，与 R51-B-4 注释宣称不符）
+    expect(() => rec.close('completed', [100], '累计存档')).toThrow('模拟遮蔽批 SQLITE_BUSY')
+    // 重试续跑：archiveSeq = 遮蔽批内第 2 个 seq（存档节点）
+    expect(rec.close('completed', [100], '累计存档')).toBe(201)
+    const endWrites = appended.filter((b) => b.some((e) => e.type === 'session/end'))
+    expect(endWrites).toHaveLength(1) // session/end 恰一次（重试不重写，防双 end）
+    const last = appended.at(-1)!
+    expect(last.map((e) => e.type)).toEqual(['compaction/start', 'compaction/end']) // 遮蔽批重试落库
+    rec.dispose()
+  })
+
   it('R62-11：空载荷 assistant/message（usage 壳）不入遮蔽区间——closeMaskingAll 产出的流过 validateEventStream 无「未可见 seq」', () => {
     const { store } = openTmp()
     const sid = store.createSession('书A')

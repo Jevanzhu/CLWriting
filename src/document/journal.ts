@@ -25,13 +25,17 @@ export interface JournalPending {
   baseRevision: Revision
   ts: string
   status: 'pending'
-  content: string // 发起时的全文快照（防丢字）；降级落盘行为 ''（R31-21）
-  /** R31-21（三十一轮）：true = 本行在跨进程锁超时后降级裸写、快照已剥离——
+  content: string // 发起时的全文快照（防丢字）；降级落盘行为头尾截断快照（R53-D-2，原为 ''）
+  /** R31-21（三十一轮）：true = 本行在跨进程锁超时后降级裸写、快照经截断收敛行长——
    *  大快照 append 超文件系统原子窗，双进程同拍降级可交错损坏（坏行被
    *  findUnsettled 容错跳过 → 恢复失据）。恢复消费方只读 opId（state 健康
-   *  扫描）不受空快照影响；正文恢复以 .版本 留底/磁盘现状为准。
+   *  扫描）不受截断快照影响。
    *  PM-3（性能与内存专项）：快照超 JOURNAL_PENDING_SNAPSHOT_MAX_BYTES 的主动
-   *  降级同置本位（同样快照剥离、行短；见 appendPending 注释）。 */
+   *  降级同置本位（同样行短；见 appendPending 注释）。
+   *  R53-D-2（五十三轮）：降级快照从整段剥离（content:''）改为保头尾截断
+   *  （truncateSnapshotHeadTail）——空快照使崩窗内新内容零盘上副本（版本历史
+   *  只含已保存部分，磁盘是保存前旧文，「编辑永不静默丢失」红线在降级窗失守）；
+   *  截断后头部正文与尾部最新键入随行落盘，作者恢复有迹可考。 */
   degraded?: boolean
 }
 
@@ -73,6 +77,28 @@ export function isMovePending(p: JournalAnyPending): p is JournalMovePending {
 
 type RawLine = { [k: string]: unknown }
 
+/** R53-D-2（五十三轮）：降级快照头尾截断——超 2×keepBytes 的快照保头（正文开头）
+ *  尾（崩溃前最新键入）各 keepBytes，中段以省略标记替代；≤ 2×keepBytes 原样返回
+ *  （小快照锁超时降级不再无谓剥离——R31-21 的原子窗顾虑只在兆级行）。
+ *  切点按 UTF-8 续字节（0b10xxxxxx）回退到字符首字节，不劈多字节字符；降级行
+ *  JSON.parse 后 content 仍是合法 string（findUnsettled 字段校验兼容）。 */
+function truncateSnapshotHeadTail(content: string, keepBytes: number): string {
+  const buf = Buffer.from(content, 'utf-8')
+  if (buf.length <= keepBytes * 2) return content
+  const adjustBack = (i: number): number => {
+    while (i > 0 && (buf[i]! & 0xc0) === 0x80) i--
+    return i
+  }
+  const headEnd = adjustBack(keepBytes)
+  const tailStart = adjustBack(buf.length - keepBytes)
+  if (tailStart <= headEnd) return content // 防御：不可能（已过 2×keepBytes 闸）
+  return (
+    buf.subarray(0, headEnd).toString('utf-8') +
+    `\n…〔快照超长已截断：中段 ${tailStart - headEnd} 字节未随行保存，全文以磁盘现状/版本历史为准〕…\n` +
+    buf.subarray(tailStart).toString('utf-8')
+  )
+}
+
 /** 追加 pending 行（含全文快照）。返回 opId 供后续 appendSettled 配对。 */
 export async function appendPending(
   journalPath: string,
@@ -88,18 +114,24 @@ export async function appendPending(
     status: 'pending',
     content,
   }
-  // R31-21（三十一轮）：锁超时降级时剥离全文快照（行长收敛回原子窗）——
-  // 带全快照的降级裸写是本轮评审实证的交错损坏面。
-  const degradedFallback = JSON.stringify({ ...entry, content: '', degraded: true })
+  // R31-21（三十一轮）：锁超时降级收敛行长——降级行经 truncateSnapshotHeadTail 截断
+  // （≤ 2×KEEP + 标记 ≈64KB，回原子窗内；R31-21 的交错损坏顾虑只在兆级行），不再
+  // 整段剥离。R53-D-2（五十三轮）：content:'' 使崩窗内新内容零盘上副本——版本历史
+  // 只含已保存部分、磁盘是保存前旧文，降级窗「编辑永不静默丢失」失守；截断保头
+  // （正文开头）尾（最新键入），作者恢复有迹可考。
+  const degradedFallback = JSON.stringify({
+    ...entry,
+    content: truncateSnapshotHeadTail(content, journalDegradedKeepBytes),
+    degraded: true,
+  })
   // PM-3（性能与内存专项·2026-09-05）：超大快照主动降级——快照超阈值时直接落降级行
-  // （与锁超时同款 content:''+degraded:true 形态），不再追加全文。动因：恢复消费方
+  // （与锁超时同款 degraded:true 形态），不再追加全文。动因：恢复消费方
   // （state.ts assembleStatus）只读 opId——pending.content 全仓零程序性消费方（R31-21
   // 已实证），作者侧恢复路径是版本历史/磁盘现状；而全量快照进 journal 的代价是每笔
   // 保存 IO 翻倍（大章 2MB 快照 = 正文写 2MB + journal 追加 2MB + fsync ×2），且
   // journal 一笔即越过 2MB compact 阈值 → 每笔保存触发整文件重读+逐行重解析（含对
   // 兆级行的 JSON.parse）。阈值取 256KB：常规章（数千至数万字）全文照旧完整入
-  // journal；仅超大文档（10 万字级）降级，崩窗内丢的是「无任何消费方读的快照」，
-  // 实际防线不变（磁盘现状 + .版本 留底）。
+  // journal；仅超大文档（10 万字级）降级为头尾截断（R53-D-2，原为空快照）。
   const line =
     Buffer.byteLength(content, 'utf-8') > JOURNAL_PENDING_SNAPSHOT_MAX_BYTES
       ? degradedFallback
@@ -270,6 +302,20 @@ export function __setJournalCompactBytesForTest(bytes: number): void {
 /** PM-3：pending 全文快照尺寸闸——超过此字节数的快照不进 journal（降级行替代），
  *  见 appendPending 注释。测试可经注入钩子改档（生产恒用常量，R30-18 口径）。 */
 export const JOURNAL_PENDING_SNAPSHOT_MAX_BYTES = 256 * 1024
+
+/** R53-D-2（五十三轮）：降级行快照保留预算——头尾各保此字节数（UTF-8 安全切点）。
+ *  降级行总长 ≤ 2×预算 + 标记（≈64KB）：远小于 R31-21 的原子窗顾虑（兆级行交错
+ *  损坏），也不回到 PM-3 要消除的每笔保存 journal IO 翻倍（256KB 级）。
+ *  R30-18 口径：常量 + 模块内可变生效值 + 注入钩子（生产恒用常量）。 */
+export const JOURNAL_PENDING_DEGRADED_KEEP_BYTES = 32 * 1024
+
+/** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改。 */
+let journalDegradedKeepBytes = JOURNAL_PENDING_DEGRADED_KEEP_BYTES
+
+/** 测试注入钩子（生产零调用）。 */
+export function __setJournalDegradedKeepBytesForTest(bytes: number): void {
+  journalDegradedKeepBytes = bytes
+}
 
 /**
  * 超阈值时压缩 journal：已结算（settled/aborted 配对完成）的行全部丢弃，

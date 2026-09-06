@@ -4,7 +4,8 @@
  * cache/foreshadow 侧均承认可产生两文件同章号的数据态。此前 RAG 无告警：buildIndex
  * 把两文件的块全挂同章号入库（后者文件指纹覆盖前者、chapterSpans 跨文件合并），
  * 召回偏移对精准读取（materials readChapterBodyByNumber 按章号取首个匹配文件）可错位。
- * 修复：每章号只保留路径字典序首个文件（与「保留首个」读取语义对齐的确定性近似），
+ * 修复：每章号只保留目录序（walk 序）首个文件（R54-E-1 勘误口径：原记「路径字典序
+ * 首个」系 R48-61 改造前旧文案——「保留首个」读取语义的确定性近似），
  * 后者跳过 + log.warn 留痕；recallDetailed 指纹校验同口径去重（不去重则 Map 后者覆盖，
  * 校验读到另一文件、与已存指纹永远错配 → 该章命中被整体误杀）。
  */
@@ -27,14 +28,15 @@ function stubEmbed(_e: string, _m: string, _k: string, texts: string[]): Promise
   )
 }
 
-describe('R35-43：重复章号——保路径字典序首个 + warn + recall 指纹校验同口径', () => {
+describe('R35-43：重复章号——保目录序（walk 序）首个 + warn + recall 指纹校验同口径', () => {
   let bookRoot: string
   const config = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
 
   beforeEach(() => {
     bookRoot = join(tmpdir(), `rag-r35-dupch-${Date.now()}-${Math.random().toString(36).slice(2)}`)
     mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
-    // 同章号两文件：路径字典序 '1-乙卷.md' < '1-甲卷.md'（乙 U+4E59 < 甲 U+7532）→ 保留乙卷
+    // 同章号两文件：1-乙卷.md 先写盘 → 目录序（walk 序）在前 → 保留乙卷（R54-E-1
+    // 勘误：保留口径是目录序首个而非路径字典序——本例字典序乙<甲恰与 walk 序同向）
     const metaYi: ChapterMeta = {
       章号: 1, 标题: '乙卷', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
       _path: '', _wordCount: 100,
@@ -68,6 +70,9 @@ describe('R35-43：重复章号——保路径字典序首个 + warn + recall �
       // 告警可定位：点名被跳过的文件
       expect(spy.mock.calls.some((c) => c[1]!.includes('重复章号'))).toBe(true)
       expect(spy.mock.calls.some((c) => c[1]!.includes('1-甲卷.md'))).toBe(true)
+      // R54-E-1（五十四轮）：文案对齐 R48-61 实现口径（入序首个/walk 序）——
+      // 原「路径字典序首个」系改造前旧文案，误导排查方向
+      expect(spy.mock.calls.some((c) => c[1]!.includes('目录序（walk 序）'))).toBe(true)
       // 只 embed 保留文件的块——甲卷文本零入库（其偏移不会与精准读取错位）
       expect(embedded.some((t) => t.includes('乙卷'))).toBe(true)
       expect(embedded.some((t) => t.includes('甲卷'))).toBe(false)

@@ -32,6 +32,7 @@ import {
 import { join, dirname, resolve, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
+import { stat } from 'node:fs/promises' // R54-A-2：切库可达性预探（异步+超时，不冻主进程）
 import { findWorkDir, readBooks } from '../install/books.js'
 import { findGitAncestor } from '../install/scaffold.js' // R44-14：git-ancestor 防线与 init（doInitSteps）同源判定
 import { atomicWriteFile } from '../fs/atomic.js'
@@ -261,6 +262,10 @@ let appTearingDown = false
  *  时长可经 CLW_SESSION_END_RECOVERY_MS 注入（回归测试快进用）。 */
 let sessionEndRecoveryTimer: ReturnType<typeof setTimeout> | null = null
 const SESSION_END_RECOVERY_MS = Number(process.env['CLW_SESSION_END_RECOVERY_MS']) || 5_000
+/** R53-A-1（五十三轮）：session-end 并行 flush 的短预算——关机/注销窗口有限，预算只兜
+ *  渲染层挂起（executeJavaScript 永不 resolve），刻意小于 server shutdown 3.5s 总超时，
+ *  到点即放弃不拖 OS 收尾。可经 CLW_SESSION_END_FLUSH_BUDGET_MS 注入（回归测试快进用）。 */
+const SESSION_END_FLUSH_BUDGET_MS = Number(process.env['CLW_SESSION_END_FLUSH_BUDGET_MS']) || 2_000
 /** R49-5（评审四十九轮）：close/quit 两 flush 链的在途旗——原 closeFlushInFlight 居
  *  bootstrap() 闭包、quitFlushInFlight 居生命周期 if 块，两链互不可见：close flush 在途
  *  时 Cmd+Q 会对同窗再起一次 flush（双 executeJavaScript、极端时序双确认框），反向
@@ -429,6 +434,44 @@ function canSwitchLibraryDir(dir: string): boolean {
   if (found !== null && !samePath(found, resolve(dir))) return false
   if (found === null && findGitAncestor(dir)) return false
   return true
+}
+
+/** R54-A-2（五十四轮）：切库可达性预探超时——超过即按「目录暂不可达」契约化拒切，
+ *  不再进同步守卫（失联网络卷上 statSync 单点即可冻主进程数十秒）。可注入（测试快进）。 */
+const SWITCH_LIBRARY_PROBE_TIMEOUT_MS = Number(process.env['CLW_SWITCH_LIBRARY_PROBE_TIMEOUT_MS']) || 2_000
+
+/** 预探超时哨兵（Promise.race reject 载体——stat 的真实异常都带 errno code，唯超时无）。 */
+const PROBE_TIMEOUT = Symbol('switch-library-probe-timeout')
+
+type DirReachability = 'ok' | 'unreachable' | 'invalid'
+
+/**
+ * R54-A-2（五十四轮）：切库守卫前的可达性预探——recent 列表残留失联网络卷（挂载点
+ * 在服务器无响应态）时，canSwitchLibraryDir 的 statSync/findWorkDir 同步爬祖 +
+ * probeCaseSensitive 的写探针全在主进程同步执行，一点「切换」即冻结三窗 UI 数秒
+ *（R47-9 readStore 面已修的同族第三处）。先经 fs/promises stat 异步预探（超时
+ * SWITCH_LIBRARY_PROBE_TIMEOUT_MS），同步守卫只在活卷上执行（预探通过后拔线的
+ * TOCTOU 残窗仍在，但冻结从「恒现路径」收窄为「预探后瞬断」）。
+ * 三态分诊：'ok' = stat 通过；'unreachable' = 超时（失联卷挂死面，唯一冻结形态）；
+ * 'invalid' = stat 确定性快速失败（ENOENT/EACCES/ENOTDIR 等，不构成冻结面）——
+ * 交回同步守卫走原「目录无效」契约文案，不把普通坏路径误报成网络卷不可达。
+ */
+async function probeDirReachable(dir: string): Promise<DirReachability> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      stat(dir),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(PROBE_TIMEOUT), SWITCH_LIBRARY_PROBE_TIMEOUT_MS)
+      }),
+    ])
+    return 'ok'
+  } catch (e) {
+    return e === PROBE_TIMEOUT ? 'unreachable' : 'invalid'
+  } finally {
+    // R54-A-5 同款卫生：预探通过态清掉超时计时器，不空转滞留
+    if (timer) clearTimeout(timer)
+  }
 }
 
 // ── 目录选择 + 切换 ────────────────────────────────────
@@ -779,6 +822,33 @@ async function flushRendererBeforeClose(target: BrowserWindow): Promise<{ confli
   }
 }
 
+/** R54 复审顺手项①（五十四轮修复批复审）：close/quit/session-end 三链共用的「渲染层
+ *  flush + 预算」竞速单源——超时以哨兵 reject 分流（与 probeDirReachable 的
+ *  PROBE_TIMEOUT 同款，替代此前各链「旗 + null 双信号」），并以 FLUSH_BUDGET_TIMEOUT
+ *  哨兵回填结果，供调用方与 null（无钩子）分流、同权放行；race 落定即 clearTimeout
+ * （R54-A-5 计时器卫生收编于此）。flushRendererBeforeClose 自吞异常不 reject，catch
+ *  仅可能收到哨兵（非哨兵照抛，防御性）。 */
+const FLUSH_BUDGET_TIMEOUT = Symbol('flush-budget-timeout')
+async function flushRendererWithBudget(
+  target: BrowserWindow,
+  budgetMs: number,
+): Promise<{ conflict: string[]; failed: string[] } | null | typeof FLUSH_BUDGET_TIMEOUT> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      flushRendererBeforeClose(target),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(FLUSH_BUDGET_TIMEOUT), budgetMs)
+      }),
+    ])
+  } catch (e) {
+    if (e !== FLUSH_BUDGET_TIMEOUT) throw e
+    return FLUSH_BUDGET_TIMEOUT
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
 /** R44-2/R44-19（四十四轮）：冲突未决的原生确认——Electron 不渲染浏览器 Leave-site
  *  确认框，渲染层 preventDefault 是无反馈死关窗；冲突项又无法代存（autosave/flush
  *  均跳过 conflict 项）。返回 true＝放弃未保存的本地修改继续关/退。 */
@@ -861,7 +931,9 @@ async function bootstrap(): Promise<void> {
     // dev HMR 态不起 server，boot 由独立 dev-api 提供，此项不生效）
     let initialName: string | null = null
     if (workDir) {
-      const ref = initialBookArg(process.argv)
+      // R53-A-3（五十三轮）：env 回落仅非打包态生效——打包态宿主残留 CLWRITING_INITIAL_BOOK
+      // 不再让普通启动被意外直达（R43-26 devUi 防线同款口径）
+      const ref = initialBookArg(process.argv, { allowEnvFallback: !app.isPackaged })
       if (ref) initialName = resolveInitialBook(workDir, ref)
     }
     // 阶段 22 批 U1：fork server-utility 子进程 + ready 端口握手（时序等价拆分前的
@@ -917,6 +989,7 @@ async function bootstrap(): Promise<void> {
     saveWinState()
     // R44-2（四十四轮）：OS 收尾（session-end）/退出收尾（appTearingDown，退出链自行
     // flush+destroy 全窗）期直关放行——时间窗有限，不在窗口里白等渲染层 flush
+    //（session-end 链的 flush 已由 R53-A-1 改为处理器内并行尽力而为，此处保持直关）
     if (sessionEnding || appTearingDown) return
     // R49-5（评审四十九轮）：close/quit 任一 flush 链在途——只拦不再起第二链（同窗
     // 双 executeJavaScript、极端时序双确认框），在途链自会收口（close 链 destroy 收尾
@@ -935,10 +1008,19 @@ async function bootstrap(): Promise<void> {
         closeFlushInFlight = false
         return
       }
-      const res = await Promise.race([
-        flushRendererBeforeClose(win),
-        new Promise<null>((resolve) => setTimeout(resolve, CLOSE_FLUSH_BUDGET_MS)),
-      ])
+      // R54-A-1（五十四轮）：超时与「无钩子/渲染层不可达」此前同落 res===null 静默
+      // destroy——保存链慢盘/server 退避窗下超时窗内的最后键入静默丢失且零诊断线索
+      //（session-end 链 R53-A-1 已有留痕，三链不对称可证非设计）；超时态补 warn。
+      // R54 复审顺手项①：race 收敛 flushRendererWithBudget 单源（哨兵分流超时 +
+      // 落定即清理计时器——R54-A-5 卫生随函数收编），超时/无钩子两态日志见下；
+      // 哨兵归一化回 null 后进下游（conflict/failed 守卫沿用 null 假值语义）。
+      const raced = await flushRendererWithBudget(win, CLOSE_FLUSH_BUDGET_MS)
+      const res = raced === FLUSH_BUDGET_TIMEOUT ? null : raced
+      if (raced === FLUSH_BUDGET_TIMEOUT) {
+        log.warn('desktop', `关窗兜底 flush 超时（≥${CLOSE_FLUSH_BUDGET_MS}ms）未落定即关窗——超时窗内未保存的键入可能丢失`)
+      } else if (raced === null) {
+        log.info('desktop', '关窗兜底 flush 无钩子/渲染层不可达（非编辑页常态），直接关窗')
+      }
       if (res && res.conflict.length > 0 && !win.isDestroyed()) {
         // R44-19（四十四轮）收口：冲突未决的本地修改无法代存，原生确认给作者最后一念
         if (!confirmDiscardConflicts(win, res.conflict.length)) {
@@ -987,6 +1069,33 @@ async function bootstrap(): Promise<void> {
     // R44-2（四十四轮）：OS 关机/注销窗口有限——置旗让上方 close 拦截放行直关，
     // 不在有限窗口里白等渲染层 flush（本条链路的停机兜底以 server 停机指令为准）
     sessionEnding = true
+    // R53-A-1（五十三轮）：close/quit 两链在关窗/退出前都有渲染层 flush，唯 session-end
+    // 链「能 flush 而不 flush」——win 关机/注销是高频日常动作，自动保存节拍内（默认
+    // 30s）的最后键入在此链原样静默丢失（「编辑永不静默丢失」红线）。渲染层此刻未死：
+    // 与停机指令并行尽力下发一次 flush（≤SESSION_END_FLUSH_BUDGET_MS，小于 shutdown
+    // 3.5s 总超时）——落净即赚到；超时/不可达即放弃，不等待不重试（R44-2「不在有限
+    // 窗口里白等」的直关语义保持，本 flush 是并行尽力而为，不是等待）。conflict 项
+    // 本就无法代存、failed 停机窗口内无人在场可答，两者只留痕不弹窗（原生确认框会
+    // 反把进程钉死在收尾期）。
+    void (async () => {
+      const win = mainWindow
+      if (!win || win.isDestroyed()) return
+      // R54 复审顺手项①：race 收敛 flushRendererWithBudget 单源（超时哨兵/落定清理，
+      // R54-A-5 卫生随函数收编）；未落定（无钩子/超时）恒 info，尽力而为不拖停机。
+      const res = await flushRendererWithBudget(win, SESSION_END_FLUSH_BUDGET_MS)
+      if (res === null || res === FLUSH_BUDGET_TIMEOUT) {
+        log.info('desktop', 'session-end 渲染层 flush 未落定（钩子缺失/超时，尽力而为不拖停机）')
+        return
+      }
+      if (res.conflict.length > 0 || res.failed.length > 0) {
+        log.error(
+          'desktop',
+          `session-end 渲染层 flush 落定但未落净：冲突 ${res.conflict.length} 个、保存失败 ${res.failed.length} 个（停机窗口内无人可确认，仅留痕）`,
+        )
+        return
+      }
+      log.info('desktop', 'session-end 渲染层 flush 落净')
+    })()
     // R40-29（四十轮）：停机前补存窗口状态——OS 关机/注销走 session-end，主窗
     // close 事件不保证收到（此前窗口位置/尺寸不落盘，下次开窗回默认位）。存状态是
     // 一次内存读 + 原子写，毫秒级不挤占停机窗口；saveWinState 内部已吞错，外层
@@ -1091,9 +1200,17 @@ function registerIpc(): void {
   })
   // 切换到最近列表中的书库
   ipcMain.handle('desktop:switch-library', async (_e, path: unknown) => {
+    // R54-A-2（五十四轮）：可达性预探先行——失联网络卷残留条目不再冻结主进程（见
+    // probeDirReachable 注）；超时态契约化拒切，确定性失败交回同步守卫走原契约文案
+    if (typeof path !== 'string') {
+      return { ok: false as const, reason: '目录无效或是另一书库的子目录' }
+    }
+    if ((await probeDirReachable(path)) === 'unreachable') {
+      return { ok: false as const, reason: '目录暂不可达（可能是网络卷无响应或已断开），请稍后重试' }
+    }
     // R41-1：守卫改 canSwitchLibraryDir（bootstrap 接受面 + 他库子目录防线）——
     // 待建空书库不再被误拒（原 reason「目录无效或不是书库」的分叉口径随行废止）
-    if (typeof path !== 'string' || !canSwitchLibraryDir(path)) {
+    if (!canSwitchLibraryDir(path)) {
       return { ok: false as const, reason: '目录无效或是另一书库的子目录' }
     }
     // 平台规范化批 E：切书库同过大小写敏感卷警告（探测失败 fail-open 不拦）
@@ -1580,10 +1697,17 @@ if (gotSingleInstanceLock) {
       try {
         const win = mainWindow
         if (win && !win.isDestroyed()) {
-          const res = await Promise.race([
-            flushRendererBeforeClose(win),
-            new Promise<null>((resolve) => setTimeout(resolve, CLOSE_FLUSH_BUDGET_MS)),
-          ])
+          // R54-A-1（五十四轮）：与 close 链同款留痕（超时态 warn/无钩子态 info，此前
+          // res===null 静默继续退出）；R54 复审顺手项①：race 收敛 flushRendererWithBudget
+          // 单源（哨兵分流超时 + 落定清理计时器——R54-A-5 卫生随函数收编）；哨兵归一化
+          // 回 null 后进下游（conflict/failed 守卫沿用 null 假值语义）。
+          const raced = await flushRendererWithBudget(win, CLOSE_FLUSH_BUDGET_MS)
+          const res = raced === FLUSH_BUDGET_TIMEOUT ? null : raced
+          if (raced === FLUSH_BUDGET_TIMEOUT) {
+            log.warn('desktop', `退出前 flush 超时（≥${CLOSE_FLUSH_BUDGET_MS}ms）未落定即退出——超时窗内未保存的键入可能丢失`)
+          } else if (raced === null) {
+            log.info('desktop', '退出前 flush 无钩子/渲染层不可达（非编辑页常态），继续退出')
+          }
           if (res && res.conflict.length > 0 && !win.isDestroyed()) {
             // R44-19（四十四轮）收口：冲突未决给原生确认，取消即中止退出（应用原样保留）
             if (!confirmDiscardConflicts(win, res.conflict.length)) {

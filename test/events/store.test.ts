@@ -344,6 +344,41 @@ describe('F1-P1 启动修复', () => {
       vi.useRealTimers()
     }
   })
+
+  it('R53-B-3: appendEvents 热路径不再触发孤儿修复（TTL 过期也不扫，只随 createSession 走）', () => {
+    // 修复前：TTL 到期后任意一笔事件写入都要先扛完整的分页扫描 + 逐孤儿事务（热路径
+    // 写放大）——本现场旧代码会在 sidB 的 appendEvents 里顺手把超宽限的 sidA 补 end。
+    // 修复后修复触发点收敛到 createSession：appendEvents 只写事件不扫描。
+    const ud = tmpRoot()
+    const t0 = Date.now()
+    vi.useFakeTimers({ now: t0 })
+    try {
+      const store = openSessionStore(ud, '/books/a')!
+      const sidA = store.createSession('书A')
+      const sidB = store.createSession('书A')
+      store.appendEvent(sidA, { type: 'session/start', data: {} })
+      store.appendEvent(sidB, { type: 'session/start', data: {} })
+      store.close()
+      // 重开：两会话最后活动 = t0（宽限期内）→ 打开修复跳过；TTL 基线 = 重开时刻
+      const store2 = openSessionStore(ud, '/books/a')!
+      vi.setSystemTime(t0 + 33 * 60 * 1000)
+      const endsOf = (sid: string) =>
+        store2.listEvents('书A').filter((e) => e.type === 'session/end' && e.sessionId === sid)
+      // 核心断言：向 sidB 追加事件（刷新 sidB 自身 last_at，不影响 sidA）——sidA 超
+      // 宽限且不在活跃集，修复前此处会被顺手补 end；修复后 appendEvents 不触发修复
+      store2.appendEvent(sidB, { type: 'user/message', data: {}, surfaceOp: 'append' })
+      expect(endsOf(sidA)).toHaveLength(0)
+      // 自愈对照：createSession 仍触发惰性修复 → sidA 补上 interrupted end；
+      // sidB 刚被 append 刷新（last_at = now）仍在宽限期内不被补
+      store2.createSession('书A')
+      expect(endsOf(sidA)).toHaveLength(1)
+      expect(endsOf(sidA)[0]!.data['reason']).toBe('interrupted')
+      expect(endsOf(sidB)).toHaveLength(0)
+      store2.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
 
 

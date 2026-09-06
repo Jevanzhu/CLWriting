@@ -70,3 +70,25 @@ function mkdirFixtures(bodyDir: string): void {
     '',
   ].join('\n'))
 }
+
+// R54-D-1（五十四轮）：章纲在盘但读取失败 → warn 留痕——此前与「不存在」同落静默
+// null，reversalQuality/结构物件被系统性低估且零痕迹；warn 口径对齐 check/runner
+// R62-9 黄项。降级语义本身保留（扫描器不阻断，条目照常产出）。
+test('R54-D-1: 章纲在盘但读取失败 → warn 留痕点名文件；条目照常产出', () => {
+  const warnSpy = vi.spyOn(log, 'warn')
+  const root = mkdtempTracked(join(tmpdir(), 'r54-d1-'))
+  try {
+    const bodyDir = join(root, '写作', '正文')
+    mkdirFixtures(bodyDir)
+    // 触发形态：章纲路径被同书名目录占位（existsSync 过、readFileSync EISDIR，免权限注入）
+    mkdirSync(join(root, '大纲', '章纲', '0001-好章.md'), { recursive: true })
+    const entries = scanShortCollection(root)
+    expect(entries.map((e) => e.num)).toEqual([1, 2]) // 降级语义保留：条目照常产出（0002 坏章本用例无读失败注入，照常入索引）
+    const warned = warnSpy.mock.calls.map((c) => String(c[1] ?? c[0])).join('\n')
+    expect(warned).toContain('读取失败')
+    expect(warned).toContain('0001-好章.md')
+  } finally {
+    warnSpy.mockRestore()
+    rmSync(root, { recursive: true, force: true })
+  }
+})

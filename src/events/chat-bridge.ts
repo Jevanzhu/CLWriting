@@ -150,6 +150,10 @@ export class SessionRecorder {
   private surfaceSeqs: number[] = []
   /** close 已执行（幂等） */
   private ended = false
+  /** R53-B-1（五十三轮）：session/end 已落库分相闸——close 两段式（首段 session/end、
+   *  第二段遮蔽批）的重试续跑凭据：第二段失败回滚 ended 后，重试凭本闸跳过 session/end
+   *  重写（R62-10 防双 end 的关切不变）直接续跑遮蔽批 */
+  private endPersisted = false
   /** R62-10：close 首 flush 失败（session/end 未落库）——finally 不 dispose，
    *  保留 store 引用与活跃登记供重试；调用方放弃重试时其 finally 的 dispose() 兜底注销 */
   private closeFlushFailed = false
@@ -228,19 +232,24 @@ export class SessionRecorder {
     this.ended = true
     let archiveSeq: number | null = null
     try {
-      const endEv = sessionEndEvent(reason)
-      this.pending.push(endEv)
-      try {
-        this.flush()
-      } catch (e) {
-        // R62-10：session/end 尚未落库——回滚幂等闸保留 close 重试性（瞬态 SQLITE_BUSY
-        // 超时/磁盘满恢复后重试可补 session/end，不再只能依赖孤儿修复事后补 interrupted
-        // 与真实终止原因失真）；同时撤回本侧压入的 end 事件防重试双写。flush 成功后的
-        // 后续步骤失败不回滚——session/end 已在库，重试会写第二个 end。
-        this.ended = false
-        if (this.pending[this.pending.length - 1] === endEv) this.pending.pop()
-        this.closeFlushFailed = true
-        throw e
+      // R53-B-1（五十三轮）：首段（session/end）凭 endPersisted 闸只在未落库时执行——
+      // 第二段失败回滚 ended 后的重试不再重写 session/end（防双 end，R62-10 口径不变）
+      if (!this.endPersisted) {
+        const endEv = sessionEndEvent(reason)
+        this.pending.push(endEv)
+        try {
+          this.flush()
+        } catch (e) {
+          // R62-10：session/end 尚未落库——回滚幂等闸保留 close 重试性（瞬态 SQLITE_BUSY
+          // 超时/磁盘满恢复后重试可补 session/end，不再只能依赖孤儿修复事后补 interrupted
+          // 与真实终止原因失真）；同时撤回本侧压入的 end 事件防重试双写。flush 成功后的
+          // 后续步骤失败不回滚——session/end 已在库，重试会写第二个 end。
+          this.ended = false
+          if (this.pending[this.pending.length - 1] === endEv) this.pending.pop()
+          this.closeFlushFailed = true
+          throw e
+        }
+        this.endPersisted = true
       }
       if (!this.store || !shadowSeqs || shadowSeqs.length === 0) return null
       // 遮蔽区间：被裁 seq 应连续（每回合事件连续写）；不连续则逐段遮蔽
@@ -278,11 +287,14 @@ export class SessionRecorder {
       }
       // Y-P2-2：存档只在首个遮蔽段携带（一张累计存档取代全部被压内容）。
       // R51-B-4（五十一轮）：多遮蔽段并单事务——原逐段独立 appendEvents，第二段起
-      // 失败（SQLITE_BUSY 耗尽/磁盘满）会留「第一段已遮蔽、其余未遮蔽」的半态，且
-      // close 幂等闸（ended=true）已开不回滚，重试被关死只能靠调用方 dispose 兜底；
-      // 并单事务后要么全段遮蔽要么全不动（appendEvents 内部 BEGIN..COMMIT 原子面），
-      // 失败时 ended 回滚语义与首 flush 一致可重试。archiveSeq 取批内第 2 个 seq
-      // （首段 compaction/end = 存档节点，段序不变）。
+      // 失败（SQLITE_BUSY 耗尽/磁盘满）会留「第一段已遮蔽、其余未遮蔽」的半态；
+      // 并单事务后要么全段遮蔽要么全不动（appendEvents 内部 BEGIN..COMMIT 原子面）。
+      // archiveSeq 取批内第 2 个 seq（首段 compaction/end = 存档节点，段序不变）。
+      // R53-B-1（五十三轮）：第二段 appendEvents 失败此前不回滚 ended 且 finally
+      // dispose——重试被幂等闸吞（与 R51-B-4 注释宣称「失败时 ended 回滚语义与首
+      // flush 一致可重试」不符），遮蔽/存档永久缺尾。现同样回滚 ended + 保留登记
+      // 可重试；session/end 已在库不撤（防双 end），重试凭 endPersisted 跳过首段
+      // 直续遮蔽批。
       const batch: NewEvent[] = []
       let carried = false
       for (const s of segs) {
@@ -302,7 +314,14 @@ export class SessionRecorder {
       }
       // RB-IF-P1-2：seq 一律取数据库真实分配值（INSERT RETURNING），不 lastSeq() 推算
       //（多窗口并发写事件库时推算可错链到别窗事件，AA-P3-7 同理）
-      const seqs = this.store.appendEvents(this.sessionId, batch)
+      let seqs: number[]
+      try {
+        seqs = this.store.appendEvents(this.sessionId, batch)
+      } catch (e) {
+        this.ended = false
+        this.closeFlushFailed = true
+        throw e
+      }
       if (carried) archiveSeq = seqs[1]! // 批内第 2 个 = 首段 compaction/end（存档节点）
     } finally {
       // Y-P1-1：收尾注销活跃登记（异常路径由调用方 finally 调 dispose 兜底）；

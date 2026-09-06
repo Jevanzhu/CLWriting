@@ -346,6 +346,18 @@ vi.mock('../../src/log/index.js', () => ({
     },
   },
 }))
+// R54-A-2（五十四轮）：fs/promises stat 闸——失联卷预探超时用例把 stat 挂在手动闸上
+//（main.ts 依赖闭包内仅 main.ts 新增 stat 与已被 mock 的 log/index 消费 fs/promises，
+// 全量透传 actual 不伤他面）
+const fsPromisesMock = vi.hoisted(() => ({ statGate: null as null | (() => Promise<never>) }))
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return {
+    ...actual,
+    stat: (p: string, o?: Parameters<typeof actual.stat>[1]) =>
+      fsPromisesMock.statGate ? fsPromisesMock.statGate() : actual.stat(p, o),
+  }
+})
 vi.mock('font-list', () => ({ getFonts: async () => ['Mock Sans'] }))
 // 批 U1：main 不再直调 startServer/setInitialBook（下沉 child），mock 面随之删除
 
@@ -1214,13 +1226,76 @@ describe('R44-2: 关窗/退出兜底（close 拦截 + flush 钩子 + 冲突确�
     expect(win.isDestroyed()).toBe(true) // 无 dirty 可救：不拖关窗
   })
 
-  it('session-end 后 close 放行直关（OS 收尾窗口不白等 flush）', async () => {
+  it('session-end 后 close 放行直关（OS 收尾窗口不白等 flush）；session-end 本身已并行下发尽力 flush（R53-A-1）', async () => {
     const win = await freshModule()
     win.emit('session-end', {})
     const e = { preventDefault: vi.fn() }
     win.emit('close', e)
     expect(e.preventDefault).not.toHaveBeenCalled()
-    expect(win.webContents.execJs).toHaveLength(0)
+    // R53-A-1：session-end 处理器内并行 flush 已下发（executeJavaScript 调渲染层钩子），
+    // close 直关放行语义不变（不等待该 flush）
+    expect(win.webContents.execJs).toHaveLength(1)
+    expect(win.webContents.execJs[0]).toContain('__clwFlushBeforeClose')
+    await new Promise((r) => setImmediate(r))
+    expect(M.logInfos.some((l) => String((l as unknown[])[1]).includes('session-end 渲染层 flush'))).toBe(true)
+  })
+
+  // R53-A-1（五十三轮）：session-end 并行 flush 的三种结局——落净 / 未落净（冲突+失败
+  // 只留痕不弹窗）/ 钩子缺失。停机窗口内原生确认框会钉死进程，conflict/failed 只能留痕。
+  it('R53-A-1: session-end flush 落净 → info 留痕；未落净（冲突/失败）→ error 留痕零弹窗', async () => {
+    const win = await freshModule()
+    win.webContents.execJsResult = { conflict: ['d1'], failed: ['d2'] }
+    const box0 = M.msgBoxSync.length
+    const err0 = M.logErrors.length
+    win.emit('session-end')
+    await new Promise((r) => setImmediate(r))
+    expect(M.msgBoxSync.length).toBe(box0) // 停机窗口内不弹原生确认（无人可答）
+    const sessionErrs = M.logErrors.slice(err0).filter((l) => String((l as unknown[])[1]).includes('session-end 渲染层 flush 落定但未落净'))
+    expect(sessionErrs.length).toBe(1)
+    expect(String((sessionErrs[0] as unknown[])[1])).toContain('冲突 1 个')
+    expect(String((sessionErrs[0] as unknown[])[1])).toContain('保存失败 1 个')
+
+    const win2 = await freshModule()
+    win2.webContents.execJsResult = { conflict: [], failed: [] }
+    win2.emit('session-end')
+    await new Promise((r) => setImmediate(r))
+    expect(M.logInfos.some((l) => String((l as unknown[])[1]).includes('session-end 渲染层 flush 落净'))).toBe(true)
+  })
+
+  it('R53-A-1: session-end 渲染层挂起 → 短预算到点放弃（不拖停机；预算可注入快进）', async () => {
+    const prevBudget = process.env['CLW_SESSION_END_FLUSH_BUDGET_MS']
+    process.env['CLW_SESSION_END_FLUSH_BUDGET_MS'] = '500'
+    try {
+      // fake timers 下自建模块（对齐 R50-A-1 用法：freshModule 的 setImmediate 等待
+      // 会被 fake timers 冻结，不可用）；预算经 env 注入（模块级常量，import 前设好）
+      vi.useFakeTimers()
+      vi.resetModules()
+      await import('../../src/desktop/main.js')
+      await vi.advanceTimersByTimeAsync(0) // bootstrap + 首窗落定
+      const win = M.windows.at(-1)!
+      // flush 挂在手动闸上（模拟渲染层挂起：executeJavaScript 永不 resolve 直至放行）
+      let release!: (v: unknown) => void
+      const gate = new Promise((r) => {
+        release = r
+      })
+      win.webContents.executeJavaScript = (code: string) => {
+        win.webContents.execJs.push(code)
+        return gate
+      }
+      const info0 = M.logInfos.length
+      win.emit('session-end')
+      await vi.advanceTimersByTimeAsync(0) // flush 链进入 race（闸未放）
+      expect(win.webContents.execJs).toHaveLength(1)
+      await vi.advanceTimersByTimeAsync(500) // 预算到点：放弃等待（不拖停机）
+      expect(M.logInfos.length).toBeGreaterThan(info0)
+      expect(M.logInfos.some((l) => String((l as unknown[])[1]).includes('session-end 渲染层 flush 未落定'))).toBe(true)
+      release({ conflict: [], failed: [] }) // 收尾放闸（防悬挂句柄）
+      await vi.advanceTimersByTimeAsync(0)
+    } finally {
+      vi.useRealTimers()
+      if (prevBudget === undefined) delete process.env['CLW_SESSION_END_FLUSH_BUDGET_MS']
+      else process.env['CLW_SESSION_END_FLUSH_BUDGET_MS'] = prevBudget
+    }
   })
 
   // R50-A-1（五十轮）：win 取消关机自愈——session-end 置旗 + shutdown 后，观察窗
@@ -1239,11 +1314,12 @@ describe('R44-2: 关窗/退出兜底（close 拦截 + flush 钩子 + 冲突确�
       const win = M.windows.at(-1)!
       const child = M.forkChildren.at(-1)!
       win.emit('session-end')
-      // 窗口内旧语义不回归：close 直关放行（不拦不等 flush）+ 停机指令已下发收口
+      // 窗口内旧语义不回归：close 直关放行（不拦不等 flush）+ 停机指令已下发收口；
+      // R53-A-1：session-end 处理器内并行 flush 已先此下发（execJs 1 条）
       const e1 = { preventDefault: vi.fn() }
       win.emit('close', e1)
       expect(e1.preventDefault).not.toHaveBeenCalled()
-      expect(win.webContents.execJs).toHaveLength(0)
+      expect(win.webContents.execJs).toHaveLength(1)
       await vi.advanceTimersByTimeAsync(0) // mock child 自动回执 shutdown-done + exit
       expect(child.posted).toContainEqual({ type: 'shutdown' })
       // 观察窗到点：sessionEnding 复位 + server 拉回（fork+1，--port 钉住首启端口）
@@ -1898,5 +1974,119 @@ describe('R51-A-4: saveCurrent 抛错不再绕过 {ok,reason} 契约', () => {
       M.dialogOpen = { canceled: true, filePaths: [] }
     }
     vi.resetModules()
+  })
+})
+
+// ── R54-A-1/A-2（五十四轮）：flush 超时留痕 + 切库可达性预探 ──────────────────
+// A-1：close/quit 两链 res===null 此前静默 destroy/继续退出——超时态（保存链慢盘/
+// server 退避窗）与「无钩子（非编辑页常态）」不可区分且零诊断线索；修复后超时 warn/
+// 无钩子 info 留痕（session-end 链 R53-A-1 已有留痕，三链对称）。
+// A-2：switch-library 探测面全在主进程同步执行，失联网络卷残留条目一点切换即冻结
+// 三窗 UI；修复后 fs/promises stat 异步预探先行（超时契约化拒切，确定性失败交回同步
+// 守卫走原契约文案）。
+describe('R54-A-1/A-2: flush 超时留痕 + switch-library 可达性预探', () => {
+  async function freshModule(): Promise<(typeof M.windows)[number]> {
+    vi.resetModules()
+    await import('../../src/desktop/main.js')
+    await new Promise((r) => setImmediate(r))
+    await new Promise((r) => setImmediate(r))
+    return M.windows.at(-1)!
+  }
+
+  /** 让 flush 停在在途（超时态）：executeJavaScript 挂在手动闸上 */
+  function gateFlush(win: (typeof M.windows)[number]): (v: unknown) => void {
+    let release!: (v: unknown) => void
+    const gate = new Promise((r) => {
+      release = r
+    })
+    win.webContents.executeJavaScript = (code: string) => {
+      win.webContents.execJs.push(code)
+      return gate
+    }
+    return release
+  }
+
+  it('R54-A-1: close flush 超时 → warn 留痕后照常 destroy（不再静默）', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.resetModules()
+      await import('../../src/desktop/main.js')
+      await vi.advanceTimersByTimeAsync(0) // bootstrap + 首窗落定
+      const win = M.windows.at(-1)!
+      const release = gateFlush(win)
+      const warn0 = M.logWarns.length
+      const e = { preventDefault: vi.fn() }
+      win.emit('close', e)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(e.preventDefault).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(4_000) // CLOSE_FLUSH_BUDGET_MS 到点
+      expect(M.logWarns.length).toBeGreaterThan(warn0)
+      expect(M.logWarns.some((l) => String((l as unknown[])[1]).includes('关窗兜底 flush 超时'))).toBe(true)
+      expect(win.isDestroyed()).toBe(true) // 留痕不改变语义：超时后照常收口
+      release({ conflict: [], failed: [] }) // 收尾放闸（防悬挂句柄）
+      await vi.advanceTimersByTimeAsync(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('R54-A-1: close flush 无钩子 → info 留痕（与超时态可区分）', async () => {
+    const win = await freshModule()
+    win.webContents.execJsResult = null
+    const info0 = M.logInfos.length
+    const e = { preventDefault: vi.fn() }
+    win.emit('close', e)
+    await new Promise((r) => setImmediate(r))
+    expect(win.isDestroyed()).toBe(true)
+    expect(M.logInfos.slice(info0).some((l) => String((l as unknown[])[1]).includes('关窗兜底 flush 无钩子'))).toBe(true)
+  })
+
+  it('R54-A-1: quit flush 超时 → warn 留痕后照常收口退出', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.resetModules()
+      await import('../../src/desktop/main.js')
+      await vi.advanceTimersByTimeAsync(0)
+      const win = M.windows.at(-1)!
+      const child = M.forkChildren.at(-1)!
+      const release = gateFlush(win)
+      const e = { preventDefault: vi.fn() }
+      M.appOn['before-quit']!.at(-1)!(e)
+      expect(e.preventDefault).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(4_000) // CLOSE_FLUSH_BUDGET_MS 到点
+      expect(M.logWarns.some((l) => String((l as unknown[])[1]).includes('退出前 flush 超时'))).toBe(true)
+      // 超时不改变退出语义：收口链继续（停机指令下发 → 收口 destroy 全窗）
+      await vi.advanceTimersByTimeAsync(200)
+      expect(child.posted).toContainEqual({ type: 'shutdown' })
+      expect(win.isDestroyed()).toBe(true)
+      release({ conflict: [], failed: [] }) // 收尾放闸（防悬挂句柄）
+      await vi.advanceTimersByTimeAsync(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('R54-A-2: switch-library 失联卷预探超时 → 契约化拒切、不落库不退出', async () => {
+    const prev = process.env['CLW_SWITCH_LIBRARY_PROBE_TIMEOUT_MS']
+    process.env['CLW_SWITCH_LIBRARY_PROBE_TIMEOUT_MS'] = '150'
+    try {
+      await freshModule()
+      const good = mkTmp('clw-reach-lib-') // 存在的真实目录（stat 本应通过）
+      fsPromisesMock.statGate = () => new Promise(() => {}) // 模拟失联卷 stat 挂死
+      const r = (await M.ipcHandle['desktop:switch-library']!(null, good)) as { ok: boolean; reason?: string }
+      expect(r).toEqual({ ok: false, reason: '目录暂不可达（可能是网络卷无响应或已断开），请稍后重试' })
+      const stored = JSON.parse(readFileSync(join(M.userData, 'workdir.json'), 'utf8')) as { current: string }
+      expect(stored.current).not.toBe(good) // 拒切不落库（quitCalls 跨用例共享计数，先例 quit 会异步汇入不精确归因，不作断言面）
+    } finally {
+      fsPromisesMock.statGate = null
+      if (prev === undefined) delete process.env['CLW_SWITCH_LIBRARY_PROBE_TIMEOUT_MS']
+      else process.env['CLW_SWITCH_LIBRARY_PROBE_TIMEOUT_MS'] = prev
+    }
+  })
+
+  it('R54-A-2: 预探确定性失败（不存在路径）走原契约文案，不误报网络卷不可达', async () => {
+    await freshModule()
+    const r = (await M.ipcHandle['desktop:switch-library']!(null, mkTmp('not-a-lib-') + '/不存在')) as { ok: boolean; reason?: string }
+    expect(r).toEqual({ ok: false, reason: '目录无效或是另一书库的子目录' })
   })
 })

@@ -308,7 +308,9 @@ export async function generateChapterSummary(opts: GenerateChapterSummaryOpts): 
     // 字/emoji）在边界处被切成半个代理对落盘；全库截断口径 code point（P-7/filename 同源）
     // E-9e（第五十三轮）：预算比较也按码位——此前 UTF-16 length 与码位预算混用，含
     // 增补平面字符时 length 偏大、截断点略偏（截断本身已是码位口径 clipByCodePoints）
-    if (codePointLength(text) > budget) text = clipByCodePoints(text, budget) + '…'
+    // R53-B-2（五十三轮）：省略号计入预算——截至 budget-1 码位 + '…'，落盘总长恰
+    // ≤ budget（原 budget + '…' 超预算 1 码位，与提示词「总长 ≤ budget 字」口径不符）
+    if (codePointLength(text) > budget) text = clipByCodePoints(text, Math.max(0, budget - 1)) + '…'
     if (text.length === 0) return { ok: false, error: 'AI 产出为空' }
 
     mkdirSync(join(bookRoot, CHAPTER_SUMMARY_DIR), { recursive: true })
@@ -623,7 +625,8 @@ export async function generateVolumeSummary(opts: {
     // R-11（十五轮登记销账）：同章摘要——码位截断，不切半个代理对
     // E-9e（第五十三轮）：预算比较也按码位——此前 UTF-16 length 与码位预算混用，含
     // 增补平面字符时 length 偏大、截断点略偏（截断本身已是码位口径 clipByCodePoints）
-    if (codePointLength(text) > budget) text = clipByCodePoints(text, budget) + '…'
+    // R53-B-2（五十三轮）：省略号计入预算（同章摘要口径）
+    if (codePointLength(text) > budget) text = clipByCodePoints(text, Math.max(0, budget - 1)) + '…'
     if (text.length === 0) return { ok: false, error: 'AI 产出为空' }
     mkdirSync(join(bookRoot, VOLUME_SUMMARY_DIR), { recursive: true })
     const fm = [

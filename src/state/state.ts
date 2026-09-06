@@ -300,13 +300,21 @@ async function healthCheck(bookRoot: string, manifest: Manifest): Promise<Health
           issues.push({
             kind: 'crashedWrite',
             humanMsg: `上次写作时「${where}」的保存没完成，可能丢字。`,
-            fix: '确认内容是否完整，可从版本历史恢复，或忽略继续写作。',
+            // R53-D-2（五十三轮）：恢复指引如实化——原「可从版本历史恢复」误导：版本
+          // 历史只含已保存部分，崩溃窗内未保存的新键入不在其中（这正是本提示要防
+          // 的丢失面）；未保存部分的盘上残片在 journal 快照（降级行为头尾截断，
+          // R53-D-2 后有迹可考）。
+          fix: '版本历史与磁盘只保留已保存的内容，崩溃前未保存的新键入不在其中；可对照 工作区/.journal 下的快照残片补回，确认后忽略继续写作。',
             files: unresolved.map((p) => p.opId),
           })
         }
       }
-    } catch {
-      // journal 扫描异常不阻断进门（降级为无 journal 检查）
+    } catch (e) {
+      // R54-B-1（五十四轮）：降级不阻断进门，但必须留痕——原空体 catch 使循环内任一
+      // 意外异常（readdirSync EACCES 等）把整轮崩溃恢复检查静默归零，作者对上次崩溃
+      // 丢字零感知且无诊断线索；对齐同函数其他降级分支的 warn 口径（R53-D-2 恢复
+      // 报文如实化的观测侧孪生缝）。
+      log.warn('state', `journal 扫描异常，本轮崩溃恢复检查降级跳过：${e instanceof Error ? e.message : String(e)}`)
     }
   }
 

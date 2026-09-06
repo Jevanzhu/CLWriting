@@ -52,6 +52,14 @@ describe('initialBookArg', () => {
     expect(initialBookArg(['electron', '.'])).toBeUndefined()
     delete process.env['CLWRITING_INITIAL_BOOK']
   })
+
+  it('R53-A-3: allowEnvFallback:false（打包态）→ 只认 argv，宿主残留 env 不生效', () => {
+    process.env['CLWRITING_INITIAL_BOOK'] = '残留env书'
+    expect(initialBookArg(['electron', '.'], { allowEnvFallback: false })).toBeUndefined()
+    // argv 直达不受开关影响（打包态 --book 直进仍合法）
+    expect(initialBookArg(['electron', '.', '--book', 'argv书'], { allowEnvFallback: false })).toBe('argv书')
+    delete process.env['CLWRITING_INITIAL_BOOK']
+  })
 })
 
 describe('resolveInitialBook', () => {

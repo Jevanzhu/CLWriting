@@ -2,10 +2,11 @@
  * PM-3/4/6（性能与内存专项·2026-09-05）回归：保存链 journal 尺寸闸 + 副本收敛 + 版本字数。
  *
  * - PM-3：appendPending 快照尺寸闸——快照超 JOURNAL_PENDING_SNAPSHOT_MAX_BYTES（256KB）
- *   时落降级行（content:'' + degraded:true，R31-21 同款形态），journal 不再随超大章
- *   每笔翻倍 IO + 立即触发 compact 全量重读。恢复面契约不变：findUnsettled 仍报 opId
- *   （恢复消费方只读 opId，content 全仓零程序性消费方——R31-21 已实证）；常规章全文
- *   快照照旧完整入 journal。
+ *   时落降级行（degraded:true），journal 不再随超大章每笔翻倍 IO + 立即触发 compact
+ *   全量重读。恢复面契约不变：findUnsettled 仍报 opId（恢复消费方只读 opId，content
+ *   全仓零程序性消费方——R31-21 已实证）；常规章全文快照照旧完整入 journal。
+ *   R53-D-2（五十三轮）：降级行快照从 content:'' 改为头尾各 32KB 截断
+ *   （truncateSnapshotHeadTail）——空快照使崩窗内新内容零盘上副本，红线失守。
  * - PM-4：executeSave 副本收敛——wordDelta 的旧文字数走 revision 键控缓存
  *   （docWordsCache），连续保存/外部改动后 delta 仍逐次精确（缓存陈旧即在此暴露）；
  *   字数日记为外部可观测面。
@@ -50,20 +51,23 @@ describe('PM-3/4/6 保存链回归', () => {
 
   // ── PM-3：pending 快照尺寸闸 ───────────────────────────────
 
-  it('PM-3: 快照超 256KB → 降级行（content:""+degraded），findUnsettled 仍报 opId，保存成功', async () => {
-    const bigBody = '山'.repeat(JOURNAL_PENDING_SNAPSHOT_MAX_BYTES) // 256KB 正文（单字节重复，UTF-8 等长）
+  it('PM-3: 快照超 256KB → 降级行（degraded + 头尾截断，R53-D-2），findUnsettled 仍报 opId，保存成功', async () => {
+    const bigBody = '山'.repeat(JOURNAL_PENDING_SNAPSHOT_MAX_BYTES) // 256K 个「山」（UTF-8 计 768KB，超限）
     const big = '---\n标题: 开篇\n章号: 1\n---\n' + bigBody
     const r = await svc.save(docId, relPath, { content: big, expectedRevision: computeRevision(absPath), operationId: 'op-big-' + String(seq++), origin: 'manual' })
     expect(r.ok).toBe(true)
 
-    // journal pending 行已降级：无兆级行（文件远小于快照本体），行形态 = content:''+degraded:true
+    // journal pending 行已降级：无兆级行（文件远小于快照本体），行形态 = degraded:true
+    // + 头尾截断快照（R53-D-2：原 content:'' 使崩窗内新内容零盘上副本）
     const text = readFileSync(journalPath, 'utf-8')
     const pendingLine = text.split('\n').find((l) => l.includes('"pending"'))
     expect(pendingLine).toBeDefined()
     const parsed = JSON.parse(pendingLine!) as { content: string; degraded?: boolean }
-    expect(parsed.content).toBe('')
+    expect(parsed.content.startsWith('---\n标题: 开篇\n章号: 1\n---\n')).toBe(true) // 头部正文开头
+    expect(parsed.content.endsWith('山')).toBe(true) // 尾部最新键入
+    expect(parsed.content).toContain('快照超长已截断')
     expect(parsed.degraded).toBe(true)
-    expect(text.length).toBeLessThan(2048) // 降级行必须短（原实现此处会 ≈256KB）
+    expect(text.length).toBeLessThan(80 * 1024) // 降级行 ≤ 2×32KB 截断 + 标记（原全文形态此处会 ≈768KB）
 
     // 崩溃恢复契约不变：save 成功已 settled → 无未结算项；再手工追加一条超限 pending
     // 验证降级形态仍被 findUnsettled 识别（opId 可报，恢复面零缺口）
@@ -75,7 +79,9 @@ describe('PM-3/4/6 保存链回归', () => {
     expect(line2).toBeDefined()
     const parsed2 = JSON.parse(line2!) as { content: string; degraded?: boolean }
     expect(parsed2.degraded).toBe(true)
-    expect(parsed2.content).toBe('')
+    expect(parsed2.content.startsWith('x')).toBe(true)
+    expect(parsed2.content.endsWith('x')).toBe(true)
+    expect(parsed2.content).toContain('快照超长已截断')
   })
 
   it('PM-3: 常规章（< 阈值）全文快照照旧完整入 journal', async () => {

@@ -20,11 +20,15 @@ export function initialBookArgvOnly(argv: string[]): string | undefined {
   return t || undefined
 }
 
-/** 从 argv 取 --book 值；无则回落 CLWRITING_INITIAL_BOOK env（仅冷启动解析自进程 argv 用）。 */
-export function initialBookArg(argv: string[]): string | undefined {
+/** 从 argv 取 --book 值；无则回落 CLWRITING_INITIAL_BOOK env（仅冷启动解析自进程 argv 用）。
+ *  R53-A-3（五十三轮）：env 回落仅 dev（非打包态）生效——opts.allowEnvFallback=false
+ *  时只认 argv。动因：打包态吃到宿主 shell 残留的 CLWRITING_INITIAL_BOOK 会让作者
+ *  普通双击启动被意外直达某书（与 R43-26 的 CLW_DEV_UI 打包态防线同款风险）；dev
+ *  场景 env 是 `npm run dev` 的合法注入通道，保留。main 调用方传 !app.isPackaged。 */
+export function initialBookArg(argv: string[], opts?: { allowEnvFallback?: boolean }): string | undefined {
   const i = argv.indexOf('--book')
   const fromArg = i !== -1 && i + 1 < argv.length ? argv[i + 1] : undefined
-  const v = fromArg ?? process.env['CLWRITING_INITIAL_BOOK']
+  const v = fromArg ?? (opts?.allowEnvFallback === false ? undefined : process.env['CLWRITING_INITIAL_BOOK'])
   const t = typeof v === 'string' ? v.trim() : ''
   return t || undefined
 }

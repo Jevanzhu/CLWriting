@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import { ChevronDown } from 'lucide-vue-next'
 import type { TreeNode } from '../../types/tree'
 import { useTreeStore } from '../../stores/tree'
@@ -36,6 +36,17 @@ const emit = defineEmits<{
   dragend: []
   drop: [targetPath: string]
 }>()
+
+// R54-G-1（五十四轮）：渲染上限——展开目录子项 > RENDER_CAP 时只渲染前 RENDER_CAP 行
+// + 尾部省略提示行（对齐 CommandPalette RENDER_CAP=100 的内存核查口径，2026-08-25
+// M-P3-13）：默认展开「写作/正文」（defaultExpandedDirs）下 2000 章口径书开书即递归
+// 渲染 2000 行组件实例，max-height 滚动只裁视觉不减节点。数据不动（children 全量在
+// store，折叠/展开/拖拽语义不变），只裁渲染面；未渲染项经快开搜索或卷目录分层触达。
+const RENDER_CAP = 100
+const renderedChildren = computed<TreeNode[]>(() =>
+  props.node.children.length > RENDER_CAP ? props.node.children.slice(0, RENDER_CAP) : props.node.children,
+)
+const omittedCount = computed(() => Math.max(0, props.node.children.length - RENDER_CAP))
 
 // 六态角标（细案 §3）：final·published 绿 / revision 红 / draft 黄 / 其余灰
 function dotClass(status?: string): string {
@@ -182,7 +193,7 @@ watch(
         />
       </div>
       <ChapterTreeItem
-        v-for="c in node.children"
+        v-for="c in renderedChildren"
         :key="c.path"
         :node="c"
         :depth="depth + 1"
@@ -204,6 +215,14 @@ watch(
         @dragend="emit('dragend')"
         @drop="emit('drop', $event)"
       />
+      <!-- R54-G-1：RENDER_CAP 截断提示行（与 CommandPalette 尾部省略行同语义） -->
+      <div
+        v-if="omittedCount > 0"
+        class="tree-item tree-cap-hint"
+        :style="{ paddingLeft: `${(depth + 1) * 14 + 8}px` }"
+      >
+        … 其余 {{ omittedCount }} 项未渲染（可用快开搜索定位）
+      </div>
     </template>
   </div>
 </template>
@@ -230,6 +249,12 @@ watch(
 }
 .tree-item.dragging {
   opacity: 0.4;
+}
+/* R54-G-1：RENDER_CAP 截断提示行——纯展示不可点（弱化色 + 默认光标） */
+.tree-cap-hint {
+  color: var(--text-faint);
+  font-size: var(--font-size-s);
+  cursor: default;
 }
 /* 顶级分组（写作/大纲/设定/布线）— 与章节行完全同权（2026-09-05 作者拍板：
  * 四分区为固定目录骨架（位置恒定 + 折叠箭头 + 缩进已足），字号/字重/颜色三线

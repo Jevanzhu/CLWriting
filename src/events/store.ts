@@ -436,8 +436,9 @@ export function repairOrphanSessions(db: DatabaseSync, skip: ReadonlySet<string>
       // migrateBookSession 的 BEGIN/COMMIT + 失败回滚用法；事务内单会话两语句，
       // 失败回滚不影响已成功补齐的其他孤儿。
       // R31-22（三十一轮）：BEGIN 挪进 try——BEGIN IMMEDIATE 在 busy_timeout 耗尽时
-      // 抛错，此前会冲出本循环经 maybeRepairOrphans（挂在 appendEvents/createSession
-      // 头部）让无关的正常事件写入直接抛错；挪入后按单会话错误收集继续。
+      // 抛错，此前会冲出本循环经 maybeRepairOrphans（挂 createSession 头部；R53-B-3
+      // 起不再挂 appendEvents 热路径）让无关的正常写入直接抛错；挪入后按单会话错误
+      // 收集继续。
       try {
         db.exec('BEGIN IMMEDIATE')
         const fresh = recheck.get(o.session_id) as { starts: number | null; ends: number | null } | undefined
@@ -735,7 +736,14 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
   // 会重开双进程并发首开的重复建库窗口。勿改时序。
   const entry: StoreEntry = { store: null!, refs: 1, closed: false, lastOrphanRepairAt: Date.now(), markerTimer }
   /** 写路径惰性孤儿修复（TTL = ORPHAN_GRACE_MS，至多每 32 分钟一次）：打开时仍在
-   *  宽限期内的崩溃残留，宽限期过后随下一次会话写入补 end——无需等进程重开库。 */
+   *  宽限期内的崩溃残留，宽限期过后随下一次会话写入补 end——无需等进程重开库。
+   *  R53-B-3（五十三轮）：触发点收敛到 createSession——原挂在 createSession/
+   *  appendEvents/appendEventsResolveLineage 三处（每批事件都过 Date.now 闸，TTL
+   *  到期后的那一笔还要先扛完整的分页扫描 + 逐孤儿 BEGIN IMMEDIATE），热路径写放大
+   *  与锁持有面偏大。createSession 是低频用户可见动作（新开一次对话），修复语义
+   *  不变（打开期修一次 + 32 分钟 TTL 惰性续修）；代价：马拉松单会话数小时不新开
+   *  对话时，他进程崩溃残留的补 end 推迟到下次新开对话/重开库——审计收尾本就非
+   *  当前写正确性所系，取舍可接受（如实记档）。 */
   const maybeRepairOrphans = (): void => {
     if (Date.now() - entry.lastOrphanRepairAt < ORPHAN_GRACE_MS) return
     entry.lastOrphanRepairAt = Date.now()
@@ -756,7 +764,6 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
       return sid
     },
     appendEvents(sessionId: string, evs: NewEvent[]): number[] {
-      maybeRepairOrphans()
       const now = Date.now()
       // RB-IF-P1-2：INSERT RETURNING 取真实 seq——close() 写 compaction 事件后据此
       // 定位 archiveSeq，不再 lastSeq()+2 推算（多窗口并发写时可错链到别窗事件）
@@ -796,7 +803,6 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
     // AA-P3-7：INSERT RETURNING 取真实 seq，sourceIdxs 批内索引同事务回写解析——
     // 血缘不再依赖 lastSeq()+批内序号推算（多窗口并发写事件库时可能错链到别窗的 seq）
     appendEventsResolveLineage(sessionId: string, evs: NewEvent[]): number[] {
-      maybeRepairOrphans()
       const now = Date.now()
       // R46-42：同 appendEvents——三条固定 SQL 改 prepared 缓存
       const ins = prepared(

@@ -160,6 +160,58 @@ describe('chat.ts', () => {
     expect(cut.length).toBe(1)
   })
 
+  // ── R53-C-1（五十三轮）：回合金盲区收口 ──
+  // 工具重往返把回合撑肥（tool_result 是 user 块载荷、不算回合起点）时，历史 > 20 条
+  // 却凑不满 10 个纯文本 user 边界——旧实现 cutIdx=0 全量返回，静默全额携带。
+
+  it('R53-C-1：边界不足时按预算回落截断（切点对齐纯文本 user，不再全量携带）', () => {
+    const toolPair = (i: number): ChatMsg[] => [
+      { role: 'assistant', content: [{ type: 'tool_use', id: `t${i}`, name: 'x', input: {} }] },
+      { role: 'user', content: [{ type: 'tool_result', toolUseId: `t${i}`, content: `r${i}`.repeat(10) }] },
+    ]
+    // u0 + 30 对工具往返 + u1 + 30 对 + u2 + 收尾 = 124 条 > 20，纯文本边界仅 3 个
+    const msgs: ChatMsg[] = [
+      { role: 'user', content: 'u0' },
+      ...Array.from({ length: 30 }, (_, i) => toolPair(i)).flat(),
+      { role: 'user', content: 'u1' },
+      ...Array.from({ length: 30 }, (_, i) => toolPair(100 + i)).flat(),
+      { role: 'user', content: 'u2' },
+      { role: 'assistant', content: 'done' },
+    ]
+    const cut = trimHistory(msgs, 10)
+    expect(cut.length).toBeLessThan(msgs.length) // 修复前：=== msgs.length（slice(0) 全量）
+    expect(cut[0]!.content).toBe('u1') // 最早可容纳边界（预算内保尾最多；切点不劈 tool 配对）
+  })
+
+  it('R53-C-1：任一边界保尾都超预算 → 仍保最近一整回合（不空手发送）', () => {
+    const big = '长'.repeat(15_000)
+    const msgs: ChatMsg[] = [
+      { role: 'user', content: 'u0' },
+      { role: 'assistant', content: big },
+      { role: 'user', content: 'u1' },
+      { role: 'assistant', content: big },
+      { role: 'user', content: 'u2' },
+      { role: 'assistant', content: big },
+      ...Array.from({ length: 16 }, (_, i) => ({ role: 'assistant' as const, content: `f${i}` })),
+    ]
+    // 23 条 > 20；边界 u1/u2 的保尾后缀均 > 2 万码点 → 回落保最近一整回合（自 u2 起）
+    const cut = trimHistory(msgs, 10)
+    expect(cut[0]!.content).toBe('u2')
+    expect(cut.length).toBeLessThan(msgs.length)
+  })
+
+  it('R53-C-1：无任何可对齐边界（全是块载荷 user）→ 无法安全切，原样返回不硬劈', () => {
+    const msgs: ChatMsg[] = [
+      { role: 'assistant', content: 'a0' },
+      ...Array.from({ length: 12 }, (_, i) => [
+        { role: 'assistant' as const, content: [{ type: 'tool_use' as const, id: `t${i}`, name: 'x', input: {} }] },
+        { role: 'user' as const, content: [{ type: 'tool_result' as const, toolUseId: `t${i}`, content: `r${i}` }] },
+      ]).flat(),
+    ]
+    expect(msgs.length).toBeGreaterThan(20) // 越过首闸才会触达回落路径
+    expect(trimHistory(msgs, 10)).toBe(msgs) // 同引用原样返回（warn 留痕在 log 面）
+  })
+
   // ── sanitizeHistory（§6.4，治 #3a/#3b）──
 
   it('sanitizeHistory 剔除空 content 消息（#3a：reasoning-only 被过滤后）', () => {

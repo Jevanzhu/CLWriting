@@ -189,7 +189,8 @@ export function deriveMessages(events: ChatEvent[], prefixSeq?: number): Array<{
 
 /**
  * 校验链（F1 §四「校验链」，开发期 fail loud）：
- * - 非 surface 事件禁带 surfaceOp；surface 事件必须带 surfaceOp
+ * - 非 surface 事件禁带 surfaceOp；surface 事件必须带 surfaceOp；普通 surface 事件
+ *   禁带 replace（R54-B-3，载体仅 compaction/end）
  * - replace 的 shadowStart/shadowEnd 必须已可见且 start≤end
  * - sourceSeqs 必须完整覆盖每个被遮蔽节点、全部早于当前 seq、无重复
  * - seq 单调递增无重复
@@ -227,6 +228,13 @@ export function validateEventStream(events: ChatEvent[]): ValidationIssue[] {
     }
     if (isSurfaceType && ev.surfaceOp === undefined) {
       issues.push({ seq: ev.seq, message: 'surface 事件必须带 surfaceOp' })
+    }
+    // R54-B-3（五十四轮）：普通 surface 事件禁带 replace——replace 载体仅 compaction/end
+    // （遮蔽旧节点 + 存档原位插入的语义与 compaction 数据形状绑定）；生产构造器不产
+    // surface+replace 形态，此前该形态静默过闸成可见节点而遮蔽闭区间无消费方，投影/
+    // 审计口径劈裂，校验链补防。
+    if (isSurfaceType && ev.surfaceOp === 'replace') {
+      issues.push({ seq: ev.seq, message: '普通 surface 事件禁带 surfaceOp=replace（replace 载体仅 compaction/end）' })
     }
     if (isReplaceCarrier && ev.surfaceOp !== 'replace') {
       issues.push({ seq: ev.seq, message: 'compaction/end 必须带 surfaceOp=replace' })

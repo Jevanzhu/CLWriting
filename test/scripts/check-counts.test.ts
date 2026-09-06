@@ -209,3 +209,21 @@ describe('R76-6：e2e pageerror 接线静态门', () => {
     ).toEqual([])
   })
 })
+
+// R54-E-3（五十四轮）：常量真值形态补拒——`test.skip(true)` 语法上是条件式（首参
+// 非 `"`/`)`），语义上恒跳过（比零参更隐蔽的门禁假绿面）；`skip(false)` 恒跑无
+// 门禁风险不收，环境门表达式（`!process.env.X` 等）照旧豁免。
+describe('R54-E-3: 常量真值 test.skip(true) 检出', () => {
+  it('skip(true) 各家族检出；skip(false)/真表达式/前缀变量不误伤', () => {
+    expect(findOnlyOrSkipViolations("test.skip(true, '恒跳过')")).toEqual({ only: 0, uncondSkip: 1 })
+    expect(findOnlyOrSkipViolations('test.skip(true)')).toEqual({ only: 0, uncondSkip: 1 })
+    expect(findOnlyOrSkipViolations("it.skip(true, '恒跳过')")).toEqual({ only: 0, uncondSkip: 1 })
+    expect(findOnlyOrSkipViolations("describe.skip(true, 'g')")).toEqual({ only: 0, uncondSkip: 1 })
+    expect(findOnlyOrSkipViolations('test.skip(  true )')).toEqual({ only: 0, uncondSkip: 1 })
+    // skip(false) 恒跑（无门禁风险）；环境门与真表达式首参照旧豁免
+    expect(findOnlyOrSkipViolations("test.skip(false, '占位')")).toEqual({ only: 0, uncondSkip: 0 })
+    expect(findOnlyOrSkipViolations("test.skip(!process.env['X'], '环境门')")).toEqual({ only: 0, uncondSkip: 0 })
+    // `true` 前缀不误伤真变量（trueish 无词边界）
+    expect(findOnlyOrSkipViolations('test.skip(trueish, "x")')).toEqual({ only: 0, uncondSkip: 0 })
+  })
+})

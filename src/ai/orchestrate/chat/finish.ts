@@ -213,9 +213,18 @@ export async function finalizeHistory(
     histories.set(opts.bookName, outcome.history)
     return
   }
+  // R53-C-1（五十三轮）：plan=null（回合数 ≤ 窗口）≠ 历史 bounded——单个巨回合（工具
+  // 重往返把单回合撑肥，tool_result 不算回合起点）可把消息条数撑到数百而回合数不动，
+  // 压缩规划永 null、此路径此前零动作，历史全额随每次请求携带。回落 trimAndClose：
+  // trimHistory 的回合金盲区回落（同批修复）按码点预算对齐边界硬截；短历史（≤ window*2
+  // 条）在 trimHistory 首闸天然 no-op（cut=0 零遮蔽零截断），常规会话行为不变。
+  if (!outcome.wasOverLimit) {
+    trimAndClose()
+    return
+  }
   msgSeqMap.set(opts.bookName, msgSeqs)
-  // no-op 或摘要失败（fail-open 保留原历史，不遮蔽）；失败 → 置 suppress，下次溢出硬截断
-  if (outcome.wasOverLimit) compactionSuppressed.add(opts.bookName)
+  // 摘要失败（fail-open 保留原历史，不遮蔽）；置 suppress，下次溢出硬截断
+  compactionSuppressed.add(opts.bookName)
   try {
     recorder.close('completed') // R69-10：no-op close 同款收编（session/end 落库失败不炸收尾）
   } catch (e) {

@@ -269,7 +269,14 @@ export function formatShortSubmissionView(
 function readListIfExists(path: string): PieceList | null {
   if (!existsSync(path)) return null
   const r = readPieceList(path)
-  return r.ok ? r.list : null
+  // R54-D-1（五十四轮）：在盘但读取失败（占用/权限/瞬删竞态）不再与「不存在」同落
+  // 静默 null——reversalQuality/结构物件会被系统性低估且零痕迹；warn 口径对齐
+  // check/runner.ts R62-9 黄项（健康报告降级语义本身保留：扫描器不阻断）。
+  if (!r.ok) {
+    log.warn('metrics', `短篇章纲 ${basename(path)} 读取失败（${r.error.message}），本篇反转质量/结构物件按无章纲计（评估系统性低估）`)
+    return null
+  }
+  return r.list
 }
 
 function collectStructureObjects(list: PieceList | null): string[] {

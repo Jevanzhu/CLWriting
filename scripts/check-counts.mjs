@@ -166,7 +166,10 @@ export function findOnlyOrSkipViolations(src) {
   // R27-134（二十七轮）：plain 形态补零参——`test.skip()`（连条件都没有的无条件整用例
   // 跳过，比标题串形态更赤裸）此前 `\(\s*"` 只认标题串首参，零参漏放行；剥串后判定
   // `(` 紧跟 `"`（标题串）或 `)`（零参）均算无条件，其余首参（环境门表达式）照旧豁免
-  const skipPlain = clean.match(/(^|[^.\w])(?:it|test|describe)\.skip\s*\(\s*(?:"|\))/g)
+  // R54-E-3（五十四轮）：常量真值形态补拒——`test.skip(true)` 语法上是条件式（首参
+  // 非 `"`/`)`），语义上恒跳过（比零参更隐蔽的门禁假绿面）；`skip(false)` 恒跑无门禁
+  // 风险不收，环境门表达式（`!process.env.X` 等）不受影响
+  const skipPlain = clean.match(/(^|[^.\w])(?:it|test|describe)\.skip\s*\(\s*(?:"|\)|true\b)/g)
   const skipEach = clean.match(/(^|[^.\w])(?:it|test|describe)\.skip\.each\s*\([^)]*\)\s*\(\s*"/g)
   return { only: only ? only.length : 0, uncondSkip: (skipPlain?.length ?? 0) + (skipEach?.length ?? 0) }
 }

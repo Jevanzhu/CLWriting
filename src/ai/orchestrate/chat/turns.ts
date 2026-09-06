@@ -457,6 +457,14 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
     }
     emit(opts, { type: 'chat_turn', turn })
 
+    // 发送前历史消毒（§6.4 第二道防线）：多轮 tool 往返/中断回滚后历史可能出现非法
+    // 序列（空 content / 连续同 role / 孤儿 tool_result / 首条非 user）→ 400。
+    // R54-C-1（五十四轮）：消毒上提至任务前单源化——原 promptText 指纹取未消毒
+    // history、generate 用消毒副本，消毒实际生效时 llm/call 审计口径与真实输入脱钩，
+    // 违「模型可见⟺已记录」；消毒为确定性纯函数且 history 在任务期间不变，上提后
+    // 指纹与 messages 同源同物（正常流消毒为 no-op，指纹不变）。
+    const sanitized = sanitizeHistory(history)
+
     const out = await runTask<{
       text: string
       toolCalls: { id: string; name: string; input: unknown }[]
@@ -477,8 +485,9 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
       // 不带则同 user 消息不同书 hash 冲突
       systemPrompt: sys,
       // Q-11（第十五轮）：每轮取当轮末条消息（tool_result 轮为 blocks 序列化），
-      // 同组多轮 hash 各异，恢复「本次实际输入指纹」审计语义
-      promptText: lastMessageFingerprint(history),
+      // 同组多轮 hash 各异，恢复「本次实际输入指纹」审计语义——R54-C-1 起取消毒后
+      // 历史（与 generate 实发同源）
+      promptText: lastMessageFingerprint(sanitized),
       // T2-1：注入文件清单（章正文/spill）进 llm/call promptMeta.files——与写稿链
       //（self-heal promptFiles）同口径：记 hash+chars+files，不落 prompt 全文
       promptFiles: deps.promptFiles,
@@ -498,10 +507,8 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
       onRetry: (attempt, error) =>
         emit(opts, { type: 'warning', message: `AI 响应异常（${redactSecret(error)}），第 ${attempt + 1} 次重试中…` }),
       run: async (provider, signal, tier) => {
-        // 发送前历史消毒（§6.4 第二道防线）：多轮 tool 往返/中断回滚后历史可能
-        // 出现非法序列（空 content / 连续同 role / 孤儿 tool_result / 首条非 user）→ 400。
-        // 消毒产副本，不污染累积的 history（回滚仍按 baseLen 精确）。
-        const sanitized = sanitizeHistory(history)
+        // 消毒副本在 runTask 前统一产出（R54-C-1 上提，指纹同源）；消毒产副本不污染
+        // 累积的 history（回滚仍按 baseLen 精确）
         const r = await generate(
           provider,
           {

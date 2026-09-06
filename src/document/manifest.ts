@@ -54,11 +54,16 @@ const MANIFEST_CACHE_MAX = 32
 const manifestCache = new Map<string, { sig: string; manifest: Manifest }>()
 
 /** stat 签名：ENOENT → 'absent'（合法空态可缓存）；其他 stat 失败 → null（绕过缓存，
- *  交原路径判读——读失败面与 stat 失败面同族）。 */
+ *  交原路径判读——读失败面与 stat 失败面同族）。
+ *  R53-D-1（五十三轮）：mtimeMs（毫秒浮点）→ mtimeNs（bigint stat）——FAT/exFAT 的
+ *  mtime 2 秒粒度 + 同尺寸他进程写（外部编辑器改清单）此前指纹不变 → 缓存陈旧命中
+ *  → 后续 RMW 以旧表整文件回写把外部修改回滚。ns 粒度消同尺寸窗口；非 ns 原生的
+ *  文件系统上 Node 以低精度值填充 bigint 字段，不劣于现状（chapters.ts Z-21 /
+ *  tree.ts probeCache 同口径先例）。 */
 function manifestStatSig(filePath: string): string | null {
   try {
-    const st = statSync(filePath)
-    return `${st.size}:${st.mtimeMs}`
+    const st = statSync(filePath, { bigint: true })
+    return `${st.size}:${st.mtimeNs}`
   } catch (e) {
     return (e as NodeJS.ErrnoException).code === 'ENOENT' ? 'absent' : null
   }

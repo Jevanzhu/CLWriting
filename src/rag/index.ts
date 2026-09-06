@@ -336,13 +336,15 @@ export async function buildIndex(
   if (chaptersFromDir.length === 0) {
     return { ok: false, chunkCount: 0, chapterCount: 0, error: '没有定稿正文可索引。' }
   }
-  // R35-43（三十五轮）：重复章号去重（保路径字典序首个）+ 告警——无告警时两文件
-  // 同章号的块全入库，召回偏移对精准读取可错位
+  // R35-43（三十五轮）：重复章号去重 + 告警——无告警时两文件同章号的块全入库，召回
+  // 偏移对精准读取可错位。R54-E-1（五十四轮）：注释与告警文案对齐 R48-61 实现口径
+  // （保留「入序首个」，walk 序与 walkMdFind 同源）——原「路径字典序首个」系改造前
+  // 旧文案，误导排查方向。
   const { chapters, dropped } = dedupeChaptersByNumber(chaptersFromDir)
   if (dropped.length > 0) {
     log.warn(
       'rag',
-      `检测到重复章号（${dropped.map((ch) => `第 ${ch.章号} 章（${basename(ch._path ?? '')}）`).join('、')}）——每章号仅保留路径字典序首个文件参与索引，重复文件不建索引（其偏移会与精准读取错位），请修复章号后重跑`,
+      `检测到重复章号（${dropped.map((ch) => `第 ${ch.章号} 章（${basename(ch._path ?? '')}）`).join('、')}）——每章号仅保留目录序（walk 序）首个文件参与索引，重复文件不建索引（其偏移会与精准读取错位），请修复章号后重跑`,
     )
   }
   // A-9（二十九轮）：frontmatter 解析失败章号集——文件名仍带章号（<章号>-<标题>.md），

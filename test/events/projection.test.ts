@@ -240,3 +240,24 @@ describe('R26-103: seq 重复/乱序单告警', () => {
     expect(issues).toHaveLength(0)
   })
 })
+
+// ── R54-B-3（五十四轮）：普通 surface 事件禁带 replace ──────────────────────
+// replace 载体仅 compaction/end（遮蔽旧节点 + 存档原位插入的语义与其数据形状绑定）；
+// 生产构造器不产 surface+replace 形态，此前该形态静默过闸成可见节点而遮蔽闭区间无
+// 消费方（投影/审计口径劈裂），校验链补防。
+describe('R54-B-3: 普通 surface 事件禁带 replace', () => {
+  it('user/message 携带 surfaceOp=replace → issue 点名；compaction/end 载体不误伤', () => {
+    const illegal: ChatEvent[] = [
+      ev(1, 'user/message', { message: '非法 replace 形态' }, { surfaceOp: 'replace', shadowStart: 0, shadowEnd: 0 }),
+    ]
+    const issues = validateEventStream(illegal)
+    expect(issues.some((i) => i.message.includes('普通 surface 事件禁带 surfaceOp=replace'))).toBe(true)
+
+    // 合法载体（compaction/end replace）不受新闸影响——整流零 issue
+    const ok: ChatEvent[] = [
+      ev(1, 'user/message', { message: 'u' }, { surfaceOp: 'append' }),
+      ev(2, 'compaction/end', { reason: 'completed' }, { surfaceOp: 'replace', shadowStart: 1, shadowEnd: 1, sourceSeqs: [1] }),
+    ]
+    expect(validateEventStream(ok)).toEqual([])
+  })
+})

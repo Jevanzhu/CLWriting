@@ -18,6 +18,8 @@ import { bodyOf } from '../../format/frontmatter-core.js'
 // G2-2 链路侧接线：可见注入收集器用 events 层的指纹/类型（lineage 只依赖 node:crypto
 // 与自身 types，无环；ai 层引 events 与 orchestrate/chat.ts 既有方向一致）
 import { digest16, type VisibleInjection } from '../../events/lineage.js'
+// R53-C-1（五十三轮）：trimHistory 回合金盲区回落的 warn 留痕
+import { log } from '../../log/index.js'
 
 /** 对话上下文（注入 system prompt 的稳定前段） */
 export interface ChatContext {
@@ -172,7 +174,67 @@ export function trimHistory(history: ChatMsg[], maxTurns = 10): ChatMsg[] {
     }
   }
 
+  // R53-C-1（五十三轮）：回合金盲区收口——历史够长（> window*2 条）却凑不满 window
+  // 个纯文本 user 边界（工具重往返把回合撑肥：tool_result 是 user 角色 content block，
+  // 不算回合起点）时，原实现 cutIdx 停 0 → slice(0) 全量返回，历史静默全额随每次请求
+  // 携带（「200 万字不崩」的成本防线在此窗口失效）。回落：按码点预算对齐最新可切边界
+  // 保尾（切点永不落 tool_use/tool_result 配对中间的防线保持）；连一个可对齐边界都
+  // 没有的病态形态无法安全切，原样返回 + warn（可观测，不再静默）。
+  if (turnBoundaries < window) {
+    const cut = fallbackBudgetCut(history)
+    if (cut === null) {
+      log.warn('chat', `trimHistory：历史 ${history.length} 条无任何纯文本 user 边界可对齐，无法安全截断（全量携带）`)
+      return history
+    }
+    log.warn('chat', `trimHistory：纯文本 user 边界不足（${turnBoundaries}/${window}），按码点预算回落截断 ${history.length} → ${history.length - cut} 条`)
+    return history.slice(cut)
+  }
+
   return history.slice(cutIdx)
+}
+
+/** R53-C-1（五十三轮）：回合金盲区回落的保尾码点预算——约 2 万码点（≈2 万汉字）上下文，
+ *  与单次调用上下文预算同量级的保守兜底，非精确 token 计量。 */
+const TRIM_TAIL_BUDGET_POINTS = 20_000
+
+/** 码点计量（与 compaction.measureMessages 同口径的本地副本——该模块在
+ *  chat-finalize-order 等测试被整模块 mock，跨模块导入会被 mock 面缺导出绊倒） */
+function measurePoints(m: ChatMsg): number {
+  if (typeof m.content === 'string') return Array.from(m.content).length
+  let n = 0
+  for (const b of m.content) {
+    if (b.type === 'text' || b.type === 'reasoning') n += Array.from(b.text).length
+    else if (b.type === 'tool_result') n += Array.from(b.content).length
+    else n += 64
+  }
+  return n
+}
+
+/**
+ * R53-C-1：回合金盲区回落切点——凑不满 window 个纯文本 user 边界时，取「保尾后缀
+ * ≤ 预算的最早纯文本 user 边界」为切点（预算内保留最多上下文）；所有边界后缀都超
+ * 预算则保最近一整回合（必须发送内容）；历史无任何可对齐边界 → null（无法安全切）。
+ */
+function fallbackBudgetCut(history: ChatMsg[]): number | null {
+  const isTurnStart = (m: ChatMsg): boolean => m.role === 'user' && typeof m.content === 'string'
+  // 边界索引升序（i ≥ 1：切在 0 等于没切）
+  const bounds: number[] = []
+  for (let i = 1; i < history.length; i++) {
+    if (isTurnStart(history[i]!)) bounds.push(i)
+  }
+  if (bounds.length === 0) return null
+  // 后缀计量：从尾向前累加，边界处结算「自该边界起的保尾大小」
+  const suffixAt = new Map<number, number>()
+  let points = 0
+  for (let i = history.length - 1; i >= 1; i--) {
+    points += measurePoints(history[i]!)
+    if (isTurnStart(history[i]!)) suffixAt.set(i, points)
+  }
+  for (const b of bounds) {
+    const s = suffixAt.get(b)
+    if (s !== undefined && s <= TRIM_TAIL_BUDGET_POINTS) return b
+  }
+  return bounds[bounds.length - 1]! // 单回合即超预算：仍保最近一整回合
 }
 
 /** R69-12（十七轮）：消毒层合成占位文案（连续同 role 补位）。模型可见但无独立事件

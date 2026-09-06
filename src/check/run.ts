@@ -576,7 +576,17 @@ function* collectTreeIssuesCore(
           leadsBookRed = checkLeadsBookItems(db, bookRoot, maxWritten ?? 0, enabledLeadTypes(config)).some(
             (i) => i.level === 'red',
           )
-          writeLeadsBookRed(db, leadsFp, leadsBookRed)
+          // R53-E-1（五十三轮）：写前纪元终核（R70-14 章级行同款口径）——leadsFp 在
+          // 聚合开头计算，checkLeadsBookItems 全账本扫描期间外部编辑器/第二进程可改
+          // 纪元输入（大纲/章纲/布线/正文），旧行按新输入视角陈旧落表（该周期红点
+          // 错、下轮自愈）。写前复核 fp 未变才落缓存；漂移 → 本轮不固化（fail-open
+          // 不拦树，leadsBookRed 本轮值照常返回，仅缓存不写、下轮重算）。
+          const leadsFpNow = computeLeadsBookFp(bookRoot, userDataPath ?? null)
+          if (leadsFpNow === leadsFp) {
+            writeLeadsBookRed(db, leadsFp, leadsBookRed)
+          } else {
+            log.warn('check', '账本全书性红项聚合窗口内纪元漂移——本轮结果不落缓存（下轮重算）')
+          }
         }
       } catch (e) {
         leadsBookDegraded = true
