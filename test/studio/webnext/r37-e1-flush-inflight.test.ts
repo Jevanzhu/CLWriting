@@ -63,7 +63,12 @@ vi.mock('../../../src/studio/web-next/src/views/RelationsView.vue', () => ({ def
 vi.mock('../../../src/studio/web-next/src/views/LearnView.vue', () => ({ default: stub }))
 vi.mock('../../../src/studio/web-next/src/views/StyleView.vue', () => ({ default: stub }))
 vi.mock('../../../src/studio/web-next/src/views/AuditView.vue', () => ({ default: stub }))
-vi.mock('../../../src/studio/web-next/src/composables/useHeartbeat', () => ({ useHeartbeat: vi.fn() }))
+// R55-F-2（五十五轮）：Book.vue 另从本模块具名导入 heartbeatFailStreak（SSE 半开看门狗消费面）——
+// mock 需同形导出（真实 ref，保证 watch 源合法）；本文件不测心跳节拍，维持 useHeartbeat 桩。
+vi.mock('../../../src/studio/web-next/src/composables/useHeartbeat', async () => {
+  const { ref } = await import('vue')
+  return { useHeartbeat: vi.fn(), heartbeatFailStreak: ref(0) }
+})
 vi.mock('../../../src/studio/web-next/src/composables/useSse', () => ({ useSse: vi.fn(() => ({ resync: vi.fn() })) }))
 vi.mock('../../../src/studio/web-next/src/composables/useChatTier', () => ({ useChatTier: vi.fn(() => ({ refresh: vi.fn() })) }))
 

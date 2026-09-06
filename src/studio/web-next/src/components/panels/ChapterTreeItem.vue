@@ -37,15 +37,25 @@ const emit = defineEmits<{
   drop: [targetPath: string]
 }>()
 
-// R54-G-1（五十四轮）：渲染上限——展开目录子项 > RENDER_CAP 时只渲染前 RENDER_CAP 行
+// R54-G-1（五十四轮）：渲染上限——展开目录子项 > RENDER_CAP 时只渲染 RENDER_CAP 行
 // + 尾部省略提示行（对齐 CommandPalette RENDER_CAP=100 的内存核查口径，2026-08-25
 // M-P3-13）：默认展开「写作/正文」（defaultExpandedDirs）下 2000 章口径书开书即递归
 // 渲染 2000 行组件实例，max-height 滚动只裁视觉不减节点。数据不动（children 全量在
 // store，折叠/展开/拖拽语义不变），只裁渲染面；未渲染项经快开搜索或卷目录分层触达。
+// R55-G-2（五十五轮）：cap 窗口改含 active 项的滑窗——固定取前 100 时 >100 章平铺
+// 目录经命令面板/搜索打开第 150 章，选中行在树上不可见。口径：无 active 或 active
+// 落在前 RENDER_CAP 内保持现状（前 100，常规浏览零变化）；active 超出时窗口取
+// active 贴尾段（start = activeIdx - RENDER_CAP + 1，恒 ≤ len - CAP 不越界）——
+// 不做居中偏移（±50 是任意魔法数且窗口位置更难预期），实现最简且测试可钉。尾部
+// 省略提示行语义保持：omittedCount 按全量 - CAP 计，恰为任一窗口位置下的窗口外总数。
 const RENDER_CAP = 100
-const renderedChildren = computed<TreeNode[]>(() =>
-  props.node.children.length > RENDER_CAP ? props.node.children.slice(0, RENDER_CAP) : props.node.children,
-)
+const renderedChildren = computed<TreeNode[]>(() => {
+  const children = props.node.children
+  if (children.length <= RENDER_CAP) return children
+  const activeIdx = props.activePath ? children.findIndex((c) => c.path === props.activePath) : -1
+  const start = activeIdx >= RENDER_CAP ? activeIdx - RENDER_CAP + 1 : 0
+  return children.slice(start, start + RENDER_CAP)
+})
 const omittedCount = computed(() => Math.max(0, props.node.children.length - RENDER_CAP))
 
 // 六态角标（细案 §3）：final·published 绿 / revision 红 / draft 黄 / 其余灰

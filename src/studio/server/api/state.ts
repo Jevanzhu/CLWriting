@@ -86,7 +86,9 @@ export function registerStateRoutes(ctx: StateCtx): void {
       const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
       // 与 enter() 同序：判态 → 路由 → 近况复述（manifest 只读一次复用，P2-BE-4）
       // R35-5：detectState 异步化——healMovePending 自愈链的锁等待不再阻塞事件循环
-      const detected = await detectState(bookRoot, config, manifest)
+      // R55-B-N（五十五轮）：rebuild 走 worker 通道——大书 index.db 缺失/损坏首进门
+      // 的全量重建卸线程，utilityProcess 事件循环不再被同步内核秒级冻结
+      const detected = await detectState(bookRoot, config, manifest, { rebuildChannel: 'worker' })
       const act = routeState(detected)
       const recap = buildRecap(bookRoot, config, detected, manifest)
       // 下一个该写的章号：态 7→nextChapter；态 4（工作区未完成）→续写那章；其余→recap.nextChapter

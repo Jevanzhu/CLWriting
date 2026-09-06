@@ -118,7 +118,10 @@ async function loadMoreConvo(): Promise<void> {
     convoEvents.value.push(...fresh)
     convoOffset.value += fresh.length > 0 ? fresh.length : pageLen
   } catch (e) {
-    if (!alive) return // R36-25
+    // R57-F-1（五十七轮）：catch 补上方成功路径同款代数复检——续页在途时点刷新，
+    // load() 递增代数并清列表后，迟到失败此前仍会把错误态（err 回写）写到已被
+    // 新刷新取代的视图上（新代成功数据顶着旧错误横幅）。
+    if (!alive || gen !== loadGen) return // R36-25：卸载后不回写；R48-23：被刷新作废的续页不得置错
     err.value = friendlyError(e)
   } finally {
     convoLoadingMore.value = false
@@ -142,7 +145,9 @@ async function loadMoreWorkflow(): Promise<void> {
     workflowEvents.value.push(...fresh)
     workflowOffset.value += fresh.length > 0 ? fresh.length : pageLen
   } catch (e) {
-    if (!alive) return // R36-25
+    // R57-F-1（五十七轮）：同 loadMoreConvo——catch 补代数复检，被刷新作废的续页
+    // 迟到失败不把错误态回写到新代视图。
+    if (!alive || gen !== loadGen) return // R36-25：卸载后不回写；R48-23：被刷新作废的续页不得置错
     err.value = friendlyError(e)
   } finally {
     workflowLoadingMore.value = false

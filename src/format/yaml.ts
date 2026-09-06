@@ -185,10 +185,15 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
   // R73-21（二十一轮）：段内子键重复同样 fail-loud——顶层段重复已 fail-loud（R72-8 C-5），
   // 但段内同名子键 find 静默取首（作者复制粘贴出两个 `genre:` 时后值无声丢失），
   // 同文件两种容错策略口径统一为「宁可红不可错」。
+  // R57-D-1（五十七轮）：报错文案收口 dupChildError 单源——budget / leads.thresholds
+  // 两段（原直接遍历 children 取值，段内重复子键后值静默覆盖前值）同口径复用同一文案
+  // 模板，不自创第三种报错形态。
+  const dupChildError = (section: RawSection, key: string): Error =>
+    new Error(`顶层段「${section.key}」内子键「${key}」重复：同名子键只取首个会静默丢弃后值，请合并或删除重复键`)
   const findChild = (section: RawSection, key: string): RawSection | undefined => {
     const hits = section.children.filter((c) => c.key === key)
     if (hits.length > 1) {
-      throw new Error(`顶层段「${section.key}」内子键「${key}」重复：同名子键只取首个会静默丢弃后值，请合并或删除重复键`)
+      throw dupChildError(section, key)
     }
     return hits[0]
   }
@@ -280,7 +285,15 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
     const th = findChild(leads, "thresholds")
     if (th) {
       const thresholds: Record<string, number> = {}
+      // R57-D-1（五十七轮）：thresholds 子键为动态账本类名（无法逐键预枚举 findChild），
+      // 就地镜像 findChild（R73-21）的重复判定——段内同名子键此前按遍历序后值静默
+      // 覆盖前值，现 fail-loud（dupChildError 同一文案，经 parseBookConfig 捕获转错误信封）。
+      const seen = new Set<string>()
       for (const c of th.children) {
+        if (seen.has(c.key)) {
+          throw dupChildError(th, c.key)
+        }
+        seen.add(c.key)
         // R76-15（二十四轮 B 域）：空值/非正数拒收——`复读率:` 写空经 parseValue('')→
         // Number('')=0 混过 isFinite 静默落 0（阈值 0 = 全量误报），与「未设」语义
         // 割裂。正数才收，否则 warn 留痕按未设（回落全局链）。
@@ -297,14 +310,18 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
     // 全局托底：白名单键 + 坏值不设键（留 undefined 给合并层回落）。
     // 此前 `c.key in cfg.budget` 靠起步值里预填的键当白名单——calls_per_chapter
     // 摘出 DEFAULT_CONFIG 后 in 检查永远 false，旧行内值会被静默丢弃
-    for (const c of budget.children) {
-      if (BUDGET_KEYS.has(c.key)) {
-        // R76-15：预算键族空值/非正数拒收——`tokens_per_chapter:` 写空落 0 = 每次调用
-        // 都超限（预算 0 语义荒谬但消费侧无从区分）；warn 留痕按未设（回落全局链）。
-        const v = parsePositiveNumber(c.value)
-        if (v !== undefined) (cfg.budget as Record<string, number | undefined>)[c.key] = v
-        else log.warn('book.yaml', `budget.${c.key} 值非正数（「${c.value.trim()}」），已忽略（按未设处理）`)
-      }
+    // R57-D-1（五十七轮）：白名单逐键改走 findChild 取值（与 book/style 等段同口径）——
+    // 原先直接遍历 children，段内重复子键按遍历序后值静默覆盖前值；现重复即由
+    // findChild fail-loud（R73-21 / R72-8「宁可红不可错」，错误经 parseBookConfig
+    // 捕获转错误信封），白名单外未知键照旧静默跳过、面不扩大。
+    for (const key of BUDGET_KEYS) {
+      const c = findChild(budget, key)
+      if (!c) continue
+      // R76-15：预算键族空值/非正数拒收——`tokens_per_chapter:` 写空落 0 = 每次调用
+      // 都超限（预算 0 语义荒谬但消费侧无从区分）；warn 留痕按未设（回落全局链）。
+      const v = parsePositiveNumber(c.value)
+      if (v !== undefined) (cfg.budget as Record<string, number | undefined>)[key] = v
+      else log.warn('book.yaml', `budget.${key} 值非正数（「${c.value.trim()}」），已忽略（按未设处理）`)
     }
   }
 

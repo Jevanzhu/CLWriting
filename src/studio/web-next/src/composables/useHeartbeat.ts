@@ -9,6 +9,14 @@ import { apiFetch, getToken } from '../api/client'
 const online = ref(true)
 export const serverOnline = online
 
+/** R55-F-2（五十五轮）：连续失败拍数（模块级，同 serverOnline 惯例）——Book.vue 的 SSE
+ *  半开连接看门狗消费面：服务端「接受连接、回 200 头、此后不发数据也不关」时
+ *  EventSource 无 onerror、connected 冻结在 true，靠心跳连败检出后 resync 强制重连
+ *  （连续 ≥2 拍失败且 SSE 仍处 connected 态，见 Book.vue 接线）。成功拍复位；
+ *  stop（退书/切书）复位；触发侧（Book.vue）触发后同样复位去抖。 */
+const failStreak = ref(0)
+export const heartbeatFailStreak = failStreak
+
 /** R26-77（二十六轮）：单次 beat 超时档——apiFetch 无内建超时，对端挂死时 promise 永不
  *  settle，在线信号冻结在上一次结果（误显在线）且在途锁不释放（后续 beat 全被跳过）。 */
 const BEAT_TIMEOUT_MS = 10_000
@@ -40,8 +48,12 @@ export function useHeartbeat(getBookName: () => string | null): void {
         signal: ctrl.signal,
       })
       online.value = r.ok
+      // R55-F-2：任一失败形态（非 2xx / 网络异常 / 超时 abort）都计入连败；成功拍复位
+      if (r.ok) failStreak.value = 0
+      else failStreak.value++
     } catch {
       online.value = false
+      failStreak.value++
     } finally {
       clearTimeout(timeout)
       inFlight = false
@@ -63,6 +75,7 @@ export function useHeartbeat(getBookName: () => string | null): void {
     // 否则退书前最后一次 beat 失败的假阴性会挂到下次进书（StatusBar 误显离线），
     // 且退书后不再探测，无机会自愈。下次进书 start() 的首次 beat 会立即校正。
     online.value = true
+    failStreak.value = 0 // R55-F-2：连败计数随退书/切书一并复位（不带入下次进书）
   }
 
   async function leave(): Promise<void> {

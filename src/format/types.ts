@@ -171,7 +171,10 @@ export interface StyleSample {
   标签?: string[] // 可选，内联数组
   技法指令?: string // 可选：注入时提示重点学什么（M1 #5 新增吸收点）
   正文: string // 样章本身（front matter 之后的正文）
-  _raw?: Record<string, string>
+  // 容错：未知字段原样保留（#3 第 8 节；R55-D-1（五十五轮）：数组型按 string[] 原样
+  // 承载，对齐 Lead R64-17 / ChapterMeta R51-F-6 同族口径——此前 String(v) 把数组压成
+  // "a,b" 单串，回写 stringifyValue 按标量引号化后项内逗号错位）
+  _raw?: Record<string, string | string[]>
   _path?: string
 }
 
@@ -193,7 +196,10 @@ export interface StyleEntry {
   标签?: string[] // 金句 / 锚点 / AI味 / …
   正文: string // 样章正文 / 手法描述 / 反例正文 / 禁词
   证据?: EntryEvidence // 来源=改稿行为 时才有；运行期字段，条目文件不落盘（候选箱证据格式 S4 定义）
-  _raw?: Record<string, string>
+  // 容错：未知字段原样保留（#3 第 8 节；R55-D-1（五十五轮）：数组型按 string[] 原样
+  // 承载，对齐 Lead R64-17 / ChapterMeta R51-F-6 同族口径——此前 String(v) 把数组压成
+  // "a,b" 单串，回写 stringifyValue 按标量引号化后项内逗号错位）
+  _raw?: Record<string, string | string[]>
   _path?: string
 }
 

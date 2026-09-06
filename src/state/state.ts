@@ -55,6 +55,7 @@ import { appendAborted, appendSettled, findUnsettled, isMovePending, type Journa
 import { decodeDocDirName } from '../document/version.js'
 import { readTrashManifest } from '../document/trash.js'
 import { rebuild } from '../cache/rebuild.js'
+import { runRebuildAsync } from '../cache/run-rebuild-async.js'
 import { readBookConfig } from '../format/yaml.js'
 import { splitFrontMatter, parseFlat } from '../format/frontmatter.js'
 import { assembleStatus } from '../process/assemble.js'
@@ -126,8 +127,24 @@ export type RouterActionKind =
  * 等待，服务进程 HTTP 路径（/api/state、/api/overview）在此前同步版（Atomics.wait）
  * 下可冻结事件循环最坏 ≈12s；全部锁等待改异步孪生（withManifestLockAsync +
  * appendSettled/appendAborted），锁内临界段保持同步 FS。
+ * R55-B-N（五十五轮）：opts.rebuildChannel——'worker' 把布线书的全量 rebuild 卸到
+ * R48-11 worker 线程（runRebuildAsync，process/summary.ts 先例同款接线），服务进程
+ * 只等消息；缺省 'sync' 进程内同步（CLI enter/库形态/既有测试零变更）。结果结构
+ * 同构（RebuildResult），异常路径共用下方既有 catch → 降级态 2 报文语义。
  */
-export async function detectState(bookRoot: string, config: BookConfig, manifest?: Manifest): Promise<DetectedState> {
+export interface DetectStateOptions {
+  /** rebuild 执行通道：'sync'（缺省，进程内同步）/ 'worker'（R48-11 worker 线程，
+   *  HTTP 消费点 /api/state、/api/overview 专用——大书 index.db 缺失/损坏首进门
+   *  全量重建 readChapter×N 秒级冻结 utilityProcess 事件循环）。 */
+  rebuildChannel?: 'sync' | 'worker'
+}
+
+export async function detectState(
+  bookRoot: string,
+  config: BookConfig,
+  manifest?: Manifest,
+  opts?: DetectStateOptions,
+): Promise<DetectedState> {
   // 入口读一次 manifest，传入各子函数（单次 detectState 调用链原先读盘 4 次；enter() 传入复用避免双读，P2-BE-4）
   const m = manifest ?? readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
 
@@ -153,7 +170,13 @@ export async function detectState(bookRoot: string, config: BookConfig, manifest
   } else {
     // rebuild 仅在 db 层故障(磁盘满/权限/损坏)抛异常;catch 后降级态2,不崩整个 enter
     try {
-      rebuildResult = rebuild(bookRoot, cachePath)
+      // R55-B-N（五十五轮）：通道分流——缺省 'sync' 直调进程内 rebuild（既有行为）；
+      // 'worker' 走 R48-11 卸载层（同步内核原样搬线程，结果经 postMessage 回传，
+      // 结构同 RebuildResult；worker 超时 120s/崩溃/异常退出均 reject → 共用下方
+      // 既有 catch 降级态 2 报文，语义收敛不变）
+      rebuildResult = opts?.rebuildChannel === 'worker'
+        ? await runRebuildAsync({ bookRoot, cachePath })
+        : rebuild(bookRoot, cachePath)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       return {

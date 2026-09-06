@@ -70,9 +70,13 @@ export function readEntry(
     return { ok: false, error: { file: filePath, line: 0, message: '缺少必填字段：场景' } }
   }
 
-  const _raw: Record<string, string> = {}
+  // R55-D-1（五十五轮）：数组型未知字段按 string[] 原样承载（对齐 leads.ts R64-17 /
+  // chapters.ts R51-F-6 同族先例）——此前 String(v) 把手写未知数组键压成 "a,b" 单串，
+  // 经 writeEntry/addEntry 回写后 stringifyValue 按标量引号化，再解析项内逗号错位
+  // 不可逆；stringifyValue 原生支持数组逐项序列化，数组原样承载即往返保真。
+  const _raw: Record<string, string | string[]> = {}
   for (const [k, v] of map) {
-    if (!KNOWN_FM_KEYS.has(k)) _raw[k] = String(v)
+    if (!KNOWN_FM_KEYS.has(k)) _raw[k] = Array.isArray(v) ? v : String(v)
   }
 
   const rawSource = map.get('来源')

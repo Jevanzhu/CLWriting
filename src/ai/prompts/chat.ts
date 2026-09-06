@@ -197,10 +197,51 @@ export function trimHistory(history: ChatMsg[], maxTurns = 10): ChatMsg[] {
  *  与单次调用上下文预算同量级的保守兜底，非精确 token 计量。 */
 const TRIM_TAIL_BUDGET_POINTS = 20_000
 
+/** R57-B-2（五十七轮）：chat 单轮发送预算的窗口未知回退值——显式 fallback（非隐式
+ *  默认）：取 128k token 级模型窗口的 3/4（96k 码点）。理由：中文 ≈1 码点/token 的粗
+ *  口径下，历史消息至多约 9.6 万 token；余下 1/4 窗口留给 system prompt（设定摘要 +
+ *  章节预览 2000 字 + 技巧索引 800，万级 token）、15 个工具 schema（数千 token）、输出
+ *  上限与消息包装开销 + 安全余量。正常流 finalizeHistory（trimHistory/compaction）会在
+ *  收尾后控住体量，本预算只在单轮内重工具往返把历史撑肥（收尾防线未及）时兜底——是
+ *  发送面防线触发线，非精确 token 计量。R55-C-1（五十五轮）初设为硬编码常量；
+ *  R57-B-2 起降为 resolveChatSendBudget 的显式回退值（窗口已知的模型按窗收紧）。 */
+export const CHAT_SEND_BUDGET_POINTS = 96_000
+
+/**
+ * R57-B-2（五十七轮）：显式 resolve chat 单轮发送预算（「默认值显式 resolve」域规约——
+ * 同链 maxTokens 已按模型逐层 resolve，发送防线预算不再吃硬编码 96k）。
+ *
+ * - contextWindow 已知：min(96_000, ⌊窗口/2⌋)——按窗比例收紧，上限压到 ≤ 半窗：历史
+ *   + system prompt（R57-B-1 起计入同一预算）合计不越过半窗，给模型响应、工具 schema
+ *   与包装开销留足余量（64k 窗模型在旧硬编码 96k 下防线放行必超窗 → 400 卡死）。
+ * - 未知/非法（模型行未声明）：显式回落 CHAT_SEND_BUDGET_POINTS（96k，128k 级窗口
+ *   3/4 的既有校准值），fallback 在此单点声明、不散落调用方。
+ *
+ * @param contextWindow 模型上下文窗口（token，provider models 行声明）；缺省 = 未声明
+ */
+export function resolveChatSendBudget(contextWindow?: number): number {
+  if (typeof contextWindow !== 'number' || !Number.isFinite(contextWindow) || contextWindow <= 0) {
+    return CHAT_SEND_BUDGET_POINTS
+  }
+  return Math.min(CHAT_SEND_BUDGET_POINTS, Math.floor(contextWindow / 2))
+}
+
+/** R57-B-1（五十七轮）：发送预算扣除 system prompt 后「历史可用码点」的具名下限——
+ *  sys 超大（重设定书场景）把差额挤负时 clamp 到此值（与 TRIM_TAIL_BUDGET_POINTS 同
+ *  量级，约保一个回合），宁可切后总量仍超、走切后复查 warn（fail-open 语义），也不把
+ *  历史压成空手发送。 */
+export const CHAT_HISTORY_MIN_BUDGET_POINTS = 20_000
+
+/** R57-B-1（五十七轮）：纯文本码点计量——measurePoints 同族口径（中文 ≈1 码点/token
+ *  粗估）的文本入参形态；system prompt 不经 ChatMsg 包装，发送预算侧按同一口径计量。 */
+export function measureTextPoints(text: string): number {
+  return Array.from(text).length
+}
+
 /** 码点计量（与 compaction.measureMessages 同口径的本地副本——该模块在
  *  chat-finalize-order 等测试被整模块 mock，跨模块导入会被 mock 面缺导出绊倒） */
 function measurePoints(m: ChatMsg): number {
-  if (typeof m.content === 'string') return Array.from(m.content).length
+  if (typeof m.content === 'string') return measureTextPoints(m.content)
   let n = 0
   for (const b of m.content) {
     if (b.type === 'text' || b.type === 'reasoning') n += Array.from(b.text).length
@@ -214,8 +255,12 @@ function measurePoints(m: ChatMsg): number {
  * R53-C-1：回合金盲区回落切点——凑不满 window 个纯文本 user 边界时，取「保尾后缀
  * ≤ 预算的最早纯文本 user 边界」为切点（预算内保留最多上下文）；所有边界后缀都超
  * 预算则保最近一整回合（必须发送内容）；历史无任何可对齐边界 → null（无法安全切）。
+ *
+ * R55-C-1（五十五轮）：预算参数化并导出为 budgetTailCut——trimHistory 回落分支与
+ * chat 轮循环发送前体量防线（turns.ts）共用同一保尾口径（切点只取纯文本 user 边界，
+ * 永不落 tool_use/tool_result 配对中间），避免复制逻辑漂移。
  */
-function fallbackBudgetCut(history: ChatMsg[]): number | null {
+export function budgetTailCut(history: ChatMsg[], budget: number): number | null {
   const isTurnStart = (m: ChatMsg): boolean => m.role === 'user' && typeof m.content === 'string'
   // 边界索引升序（i ≥ 1：切在 0 等于没切）
   const bounds: number[] = []
@@ -232,9 +277,23 @@ function fallbackBudgetCut(history: ChatMsg[]): number | null {
   }
   for (const b of bounds) {
     const s = suffixAt.get(b)
-    if (s !== undefined && s <= TRIM_TAIL_BUDGET_POINTS) return b
+    if (s !== undefined && s <= budget) return b
   }
   return bounds[bounds.length - 1]! // 单回合即超预算：仍保最近一整回合
+}
+
+/** R53-C-1（五十三轮）trimHistory 回落口径——R55-C-1 起为 budgetTailCut 的薄包装
+ * （逻辑单源在 budgetTailCut，预算取 trimHistory 专用值）。 */
+function fallbackBudgetCut(history: ChatMsg[]): number | null {
+  return budgetTailCut(history, TRIM_TAIL_BUDGET_POINTS)
+}
+
+/** R55-C-1（五十五轮）：历史总码点计量（measurePoints 同口径逐条求和）——发送前
+ *  体量防线的预检（超预算才触发 budgetTailCut，预算内零改动零开销）。 */
+export function measureHistoryPoints(history: ChatMsg[]): number {
+  let n = 0
+  for (const m of history) n += measurePoints(m)
+  return n
 }
 
 /** R69-12（十七轮）：消毒层合成占位文案（连续同 role 补位）。模型可见但无独立事件

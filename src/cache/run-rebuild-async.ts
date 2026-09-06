@@ -29,6 +29,17 @@ export interface RebuildRunnerOptions {
 
 const DEFAULT_TIMEOUT_MS = 120_000
 
+/**
+ * R57-A-1（五十七轮）：同 cachePath 进程内 in-flight 合并。同步时代 rebuild() 阻塞
+ * 事件循环、并发 detectState 天然串行；worker 化后 await 让出事件循环，/state 与
+ * /overview 同拍首进门可各起一个 Worker 并发写同一 index.db——大书全量 >busy_timeout
+ * 时后到者 SQLITE_BUSY → catch 降级态 2 误报「缓存重建失败」。按 cachePath 合并为
+ * 单飞：并发调用共享同一 Promise（结果/失败同享，settle 即清除、下次调用重新起跑，
+ * 失败自愈语义不变）。以首调用参数为准（timeoutMs/workerUrl 仅测试态注入，合并窗内
+ * 后到者的注入项不生效——测试按单飞断言即验此语义）。
+ */
+const inFlight = new Map<string, Promise<RebuildResult>>()
+
 function resolveWorkerUrl(): URL {
   const self = new URL(import.meta.url)
   const ext = self.pathname.endsWith('.ts') ? 'ts' : 'js'
@@ -42,7 +53,7 @@ function workerExecArgv(url: URL): string[] | undefined {
   return url.pathname.endsWith('.ts') ? ['--import', 'tsx'] : undefined
 }
 
-export function runRebuildAsync(job: RebuildJob, opts: RebuildRunnerOptions = {}): Promise<RebuildResult> {
+function startRebuildWorker(job: RebuildJob, opts: RebuildRunnerOptions): Promise<RebuildResult> {
   return new Promise<RebuildResult>((resolve, reject) => {
     let settled = false
     const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
@@ -73,4 +84,17 @@ export function runRebuildAsync(job: RebuildJob, opts: RebuildRunnerOptions = {}
     )
     w.postMessage(job)
   })
+}
+
+export function runRebuildAsync(job: RebuildJob, opts: RebuildRunnerOptions = {}): Promise<RebuildResult> {
+  const key = job.cachePath
+  const existing = inFlight.get(key)
+  if (existing) return existing
+  // finally 派生 promise 即对外共享 promise：拒绝随共享链传给全部共享方（各消费点
+  // 均有 catch 降级），无游离未处理拒绝；settle 后清键，下次调用重新起跑
+  const shared = startRebuildWorker(job, opts).finally(() => {
+    inFlight.delete(key)
+  })
+  inFlight.set(key, shared)
+  return shared
 }

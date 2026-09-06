@@ -163,7 +163,9 @@ export function registerOverviewRoutes(ctx: OverviewCtx): void {
     } else {
       try {
         // R35-5：detectState 异步化——healMovePending 自愈链的锁等待不再阻塞事件循环
-        const detected = await detectState(bookRoot, config)
+        // R55-B-N（五十五轮）：rebuild 走 worker 通道（同 /api/state 接线）——大书
+        // 首进门全量重建卸线程，事件循环不再秒级冻结（SSE 心跳/保存停摆面）
+        const detected = await detectState(bookRoot, config, undefined, { rebuildChannel: 'worker' })
         state = { state: detected.state, name: STATE_NAMES[detected.state], detail: detected }
         stateOk = true
         // R37-19（三十七轮）：写缓存收进 try 成功路径——catch 降级态（state:0 + error）

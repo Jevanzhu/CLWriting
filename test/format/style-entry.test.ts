@@ -17,6 +17,7 @@ import {
   SOURCE_RANK,
   ENTRIES_DIR,
 } from '../../src/format/style-entry.js'
+import { readSample, writeSample } from '../../src/format/style.js'
 import type { StyleEntry } from '../../src/format/types.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
@@ -219,6 +220,46 @@ describe('重评-20：标量「标签」解析归一', () => {
     writeFileSync(fp3, '---\n类型: 样章\n场景: 战斗\n---\n\n正文\n', 'utf-8')
     const r3 = readEntry(fp3)
     expect(r3.ok && r3.entry.标签).toBeUndefined()
+  })
+})
+
+// ── R55-D-1（五十五轮）：样章/条目 _raw 数组型未知字段原样承载 ─────────────
+// 此前 String(v) 把手写未知数组键（`自定义: [a, b]`）压成 "a,b" 单串，经任一回写
+// 路径 stringifyValue 按标量引号化（含逗号加引号），再解析仍是 "a,b" 单串——项内
+// 逗号错位不可逆。对齐 Lead R64-17 / ChapterMeta R51-F-6 同族先例：数组按 string[]
+// 原样承载（stringifyValue 原生支持数组逐项序列化），标量行为不变。
+describe('R55-D-1：_raw 数组型未知字段往返保真', () => {
+  it('条目：未知数组键 → _raw 收 string[]；writeEntry 往返项内逗号不错位', () => {
+    const dir = join(root, ENTRIES_DIR, '样章')
+    mkdirSync(dir, { recursive: true })
+    const fp = join(dir, '战斗-001.md')
+    writeFileSync(
+      fp,
+      '---\n类型: 样章\n场景: 战斗\n自定义数组: [悬疑, 推理]\n自定义标量: 纯文本\n---\n\n正文\n',
+      'utf-8',
+    )
+    const r = readEntry(fp)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.entry._raw?.['自定义数组']).toEqual(['悬疑', '推理']) // 修复前落 '悬疑,推理' 单串
+    expect(r.entry._raw?.['自定义标量']).toBe('纯文本') // 标量行为不变
+    writeEntry(fp, r.entry)
+    const r2 = readEntry(fp)
+    expect(r2.ok && r2.entry._raw?.['自定义数组']).toEqual(['悬疑', '推理']) // 往返保真
+  })
+
+  it('样章：未知数组键 → _raw 收 string[]；writeSample 往返项内逗号不错位', () => {
+    const dir = join(root, '样章库', '战斗')
+    mkdirSync(dir, { recursive: true })
+    const fp = join(dir, '战斗-001.md')
+    writeFileSync(fp, '---\n场景: 战斗\n自定义数组: [快节奏, 短句]\n---\n\n他把烟摁灭。\n', 'utf-8')
+    const r = readSample(fp)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.sample._raw?.['自定义数组']).toEqual(['快节奏', '短句']) // 修复前落 '快节奏,短句' 单串
+    writeSample(fp, r.sample)
+    const r2 = readSample(fp)
+    expect(r2.ok && r2.sample._raw?.['自定义数组']).toEqual(['快节奏', '短句']) // 往返保真
   })
 })
 

@@ -280,6 +280,11 @@ let quitDuringCloseFlush = false
 /** 阶段 22 批 U1-U3：studio server 已拆至 utilityProcess 子进程（dev HMR 态不起）；
  *  批 U3 起崩溃退避自动重启，3 次自动重启耗尽转原生对话框（U-2：重启服务/退出） */
 const serverManager = createStudioServerManager({
+  // R55-A-1（五十五轮）：自愈等待期的退出探测——restartPinned 在 shuttingDown 态改
+  // 有界等停机收口（观察窗 5s 与停机链最坏预算失配的复合场景自愈拒绝修复），等待/
+  // 收口窗口内用户真退出（before-quit 链置位 appTearingDown）则放弃恢复，不在退出
+  // 链上 fork 新 child 成孤儿（S-5/S1 同向）
+  isProcessExiting: () => appTearingDown,
   onRestartExhausted: () => {
     // 同步对话框：崩溃风暴路径上无在途状态可等，用户决断即收口
     const choice = dialog.showMessageBoxSync({
@@ -394,7 +399,9 @@ function saveCurrent(dir: string): void {
  * 直达渲染层 invoke 的异常通道（切库静默无反馈、前端拿不到结构化失败）。返回 null =
  * 成功；字符串 = 人话失败原因（调用方转 `{ok:false, reason}`，且不触发 relaunch——
  * 落库失败的切库若照常重启，应用会带着旧 current 重启、用户操作看起来像被吞）。
- * 菜单链 openLibraryAction 不走本包装：其调用点已有 .catch 留痕兜底。
+ * 菜单链 openLibraryAction 同走本包装（R57-A-2，五十七轮）：落库失败弹一次性原生
+ * 错误框反馈并中止切换——原「调用点 .catch 留痕兜底」取舍废弃（日志留痕对用户
+ * 不可见，点菜单后切换静默失败）。
  */
 function saveCurrentSafe(dir: string): string | null {
   try {
@@ -605,11 +612,20 @@ function relaunch(): void {
   app.quit()
 }
 
-/** 打开书库（菜单/前端共用）：选 → 存 → 重启。返回是否已触发切换。 */
+/** 打开书库（菜单/前端共用）：选 → 存 → 重启。返回是否已触发切换。
+ *  R57-A-2（五十七轮）：落库改走 saveCurrentSafe 契约化包装——原裸 saveCurrent 可抛
+ * （磁盘满/权限/只读卷），异常仅被菜单调用点 .catch 记日志，用户点了菜单毫无反馈、
+ * 切换静默失败。失败改一次性原生错误框（对齐 switch-library 链 main.ts saveErr 的
+ * 契约化失败形态：菜单链无 {ok,reason} 信封可回，原生框即其反馈面），并中止切换
+ * （不 relaunch——落库失败若照常重启，应用带旧 current 重启，操作看似被吞）。 */
 async function openLibraryAction(): Promise<boolean> {
   const picked = await pickLibrary()
   if (!picked) return false
-  saveCurrent(picked)
+  const saveErr = saveCurrentSafe(picked)
+  if (saveErr) {
+    dialog.showErrorBox('打开书库目录失败', `${saveErr}\n\n当前书库未切换，应用将继续在原书库上运行。请检查磁盘空间/权限后重试。`)
+    return false
+  }
   relaunch()
   return true
 }

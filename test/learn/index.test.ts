@@ -158,3 +158,62 @@ test('R72-2: 收割期间定时器可插入（事件循环不再被长时阻塞�
   }
   expect(probes).toBeGreaterThan(0)
 }, 15_000)
+
+// ── R55-D-2（五十五轮）：收割打分 checkRepeat 透传书级阈值 ─────────────────
+// 头注口径「扣分项来自 #10 机检，作者调阈值能直接影响打分」此前对 checkRepeat 不成立：
+// scoreByChecks 裸调用落引擎默认 0.15/200（机检链 runner 同函数已透传书级阈值），作者
+// 在 book.yaml checks 调宽松阈值后收割打分仍按默认扣分漂移。fixture 用同一句重复 3 次
+// 的复读块（8-gram 重复率 ≈2/3，超引擎默认 0.15、不超放宽阈值 0.99）钉两阈值透传。
+const REPEAT_BODY = '他忽然感到一阵锥心之痛，仿佛有旧事在血里翻身。'.repeat(3)
+
+function makeBookWithChecks(checksYaml: string): string {
+  const root = mkdtempTracked(join(tmpdir(), 'learn-threshold-'))
+  mkdirSync(join(root, '写作', '正文'), { recursive: true })
+  mkdirSync(join(root, '项目'), { recursive: true })
+  writeFileSync(
+    join(root, 'book.yaml'),
+    `spec_version: 1\nkind: long\nbook:\n  title: 测试书\n${checksYaml}`,
+    'utf-8',
+  )
+  writeFileSync(
+    join(root, '写作', '正文', '0001-定稿章.md'),
+    `---\n章号: 1\n标题: 定稿章\n---\n${REPEAT_BODY}`,
+    'utf-8',
+  )
+  return root
+}
+
+test('R55-D-2: config 设宽松复读阈值 → 打分按书级阈值生效（不再按引擎默认扣分）', async () => {
+  const loose = makeBookWithChecks('checks:\n  repeat_threshold: 0.99\n  repeat_chars_threshold: 999999\n')
+  const strict = makeBookWithChecks('')
+  try {
+    const rLoose = await learnFromBook(loose)
+    const rStrict = await learnFromBook(strict)
+    expect(rLoose.ok && rStrict.ok).toBe(true)
+    if (!rLoose.ok || !rStrict.ok) return
+    // 同一正文：checkStyleMetrics 扣分两书相同，差值只来自 checkRepeat
+    expect(rStrict.samples).toHaveLength(1) // 复读率超引擎默认 0.15 → yellow 扣 10
+    expect(rLoose.samples).toHaveLength(1) // 宽松阈值下不复读扣分，仍过 60 分低分过滤
+    const looseScore = rLoose.samples?.[0]?.打分
+    const strictScore = rStrict.samples?.[0]?.打分
+    expect(strictScore).toBeDefined()
+    expect(looseScore).toBe(strictScore! + 10)
+  } finally {
+    rmSync(loose, { recursive: true, force: true })
+    rmSync(strict, { recursive: true, force: true })
+  }
+})
+
+test('R55-D-2: config 未设 checks → 引擎默认口径不变（复读块仍被扣 10 分）', async () => {
+  const root = makeBookWithChecks('')
+  try {
+    const r = await learnFromBook(root)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.samples).toHaveLength(1)
+    // 复读率 ≈2/3 超引擎默认 0.15 → -10；checkStyleMetrics 对该块零扣分 → 90
+    expect(r.samples?.[0]?.打分).toBe(90)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})

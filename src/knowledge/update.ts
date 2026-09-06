@@ -237,14 +237,53 @@ function commitKnowledgeFileLocked(projectRoot: string, opts: CommitKnowledgeOpt
       issues: [{ path: opts.target, message: `定稿文件读取失败（可能已被移动或删除）：${e instanceof Error ? e.message : String(e)}` }],
     }
   }
-  injectFrontMatterKeys(filePath, { source, license })
+  // R57-H-1（五十七轮）：fm 注入写与注入后哈希读是同一写入链上 manifest 写之前的两个
+  // 失败点——此前裸抛穿透 KnowledgeManifestReport 信封（R48-39 同款契约破坏），且哈希
+  // 读失败时文件已注入 fm、manifest 无条目（R73-13 同款跨文件不一致窗口）。收口口径
+  // 对齐 R73-13：注入失败时文件尚未变更（atomicWriteFile 同目录 tmp+rename 原子，
+  // 失败不留半截、亦无半程可回滚），信封报「两文件均保持原态，可重试」；哈希读失败
+  // 时已发生注入半程 → 回滚 fm 使文件回旧态，回滚亦失败（同源 IO 故障）不吞——如实
+  // 报告残留状态供作者手工还原，保持幂等可重试语义。
+  try {
+    injectFrontMatterKeys(filePath, { source, license })
+  } catch (e) {
+    return {
+      ok: false,
+      issues: [{ path: opts.target, message: `front matter 注入失败（两文件均保持原态，可重试）：${e instanceof Error ? e.message : String(e)}` }],
+    }
+  }
+
+  let sha256: string
+  try {
+    sha256 = hashFileSha256(filePath)
+  } catch (e) {
+    // R57-H-1：注入已落盘而 manifest 未写 → 回滚 fm 注入（文件恢复原文）；回滚自身
+    // 也失败时报错文案注明残留状态（文件含注入两键、manifest 无条目），作者手工还原后重试。
+    try {
+      atomicWriteFile(filePath, originalText)
+    } catch (e2) {
+      return {
+        ok: false,
+        issues: [
+          {
+            path: opts.target,
+            message: `注入后哈希计算失败且 fm 注入回滚亦失败（文件残留注入的 source/license 两键、manifest 无条目，请手工还原后重试）：${e instanceof Error ? e.message : String(e)}；回滚错误：${e2 instanceof Error ? e2.message : String(e2)}`,
+          },
+        ],
+      }
+    }
+    return {
+      ok: false,
+      issues: [{ path: opts.target, message: `注入后哈希计算失败，已回滚 front matter 注入（两文件均保持原态，可重试）：${e instanceof Error ? e.message : String(e)}` }],
+    }
+  }
 
   const entry: KnowledgeManifestEntry = {
     target: opts.target,
     source,
     ...(opts.sourceRef ? { source_ref: opts.sourceRef } : {}),
     license,
-    sha256: hashFileSha256(filePath),
+    sha256,
     category: opts.category ?? '方法论',
     ...(opts.note ? { note: opts.note } : {}),
   }

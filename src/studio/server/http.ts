@@ -211,6 +211,22 @@ export function readJson(
       if (code === 'ECONNRESET' || code === 'EPIPE') (e as ClientAbortError).clientAbort = true
       reject(e)
     })
-    req.once('close', clearIdle) // R51-G-2：连接收口（含客户端中途断开无 error 形态）即清
+    req.once('close', () => {
+      clearIdle() // R51-G-2：连接收口（含客户端中途断开无 error 形态）即清
+      // R55-E-N（五十五轮）：「断开无 error 形态」防御兜底——客户端发部分 body 后干净
+      // 半关闭（socket.end()，无 errno）时部分运行时/形态不触发 'error' 只触发 'close'，
+      // 此前 promise 永不 settle：按 CC-P2-9 在 readJson 前同步占书级闸的端点
+      //（api/stream.ts holdSpawnGate、api/io.ts acquireTaskGate+跨进程锁文件）try 块
+      // 永不退出，闸与锁文件（pid 活着不判 stale）悬挂到进程重启，同书全部写端点恒
+      // 409。body 未读完（!readableEnded）即以 clientAbort 标记 reject（对齐上方 error
+      // 路径重评-7 先例，dispatch 兜底据此把日志降为 info 而非 error）；正常收口（end
+      // 先到，readableEnded=true）不进此臂。promise 已 settle（413/408/error 先到）时
+      // reject 幂等无效，不另设 settled 闸（413 排空被 destroy 的收口形态即落此空操作臂）。
+      if (!req.readableEnded) {
+        const e = new Error('客户端在请求体读取中途断开连接') as ClientAbortError
+        e.clientAbort = true
+        reject(e)
+      }
+    })
   })
 }

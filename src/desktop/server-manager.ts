@@ -59,6 +59,18 @@ const RESTART_BACKOFF_MS: readonly number[] = [0, 5_000, 15_000]
 const RESTART_MAX_ATTEMPTS = 3
 /** ready 后稳定窗口：child 存活过此窗口即清零重启计数（U-2/S-9 偶发单崩不累计） */
 const STABILITY_RESET_MS = 5 * 60_000
+/**
+ * R55-A-1（五十五轮）：restartPinned 在 shuttingDown 态等停机收口的上限。session-end
+ * 观察窗（main 侧 SESSION_END_RECOVERY_MS，缺省 5s）与停机链最坏预算失配：
+ * SHUTDOWN_SETTLE_BUDGET_MS 2s + SHUTDOWN_TOTAL_TIMEOUT_MS 3.5s + KILL_WAIT_TIMEOUT_MS
+ * 2s×2 段 ≈ 慢而正常收尾 ~5.5s / child 挂死 ~9.5-11.5s（自 session-end 起算）——观察窗
+ * 到点时停机常仍在途，原「立即返 null」令自愈被拒（OS 关机被取消 + child 收尾偏慢的
+ * 复合场景下用户面对 API 不可用）。取独立常量 5s（与观察窗同长）：覆盖慢而正常收尾的
+ * 全部残余（窗口到点后仍余 ≥0.5s）与挂死形态的大部分（合计 ~10s），超出即放弃，保
+ * 「恢复失败」呈现有界、不把自愈拖成第二台常驻等待器。测试经 restartShutdownWaitMs
+ * 注入缩短，不依赖本值保快。
+ */
+const RESTART_SHUTDOWN_WAIT_MS = 5_000
 
 /** 启动失败（boot-error 信封 / 握手超时 / 启动途中退出）——main 首启弹对话框口径 */
 export class ServerBootError extends Error {
@@ -114,6 +126,13 @@ export interface ServerManagerDeps {
   backoffMs?: readonly number[]
   /** ready 后稳定窗口，届时重启计数清零（U-2/S-9）；缺省 5 分钟 */
   stabilityResetMs?: number
+  /** R55-A-1（五十五轮）：restartPinned 在 shuttingDown 态等停机收口的上限；
+   *  缺省 RESTART_SHUTDOWN_WAIT_MS（5s），测试注入缩短保快 */
+  restartShutdownWaitMs?: number
+  /** R55-A-1（五十五轮）：本进程退出探测（main 注入 appTearingDown 读数）——自愈
+   *  等待/收口窗口内用户真退出则放弃恢复（不在退出链上 fork 新 child 成孤儿，
+   *  S-5/S1 同向）；缺省恒 false（无接线不放弃） */
+  isProcessExiting?: () => boolean
   /**
    * 3 次自动重启耗尽后的用户决断（main 接原生对话框：重启服务/退出）：
    * 'restart' = 计数清零立即人工重启；'quit' = 不再重启（main 侧自行 app.quit）。
@@ -161,7 +180,10 @@ export interface StudioServerManager {
    * 钉住端口重启（S-1 前端恢复链同源：origin 不变，存活渲染层无缝续用），但作为
    * 显式新生命周期先复位「主动 kill 标记」shutdownStarted（与 start IIFE 首行同
    * 语义——那是防「停机途中崩溃自动重启复活」的挡板，不该挡显式恢复）。
-   * 无历史 fork 面（从未 start 过）或停机流程仍在途 → null，由调用方留痕。
+   * R55-A-1（五十五轮）：停机流程仍在途不再立即返 null——有界等待停机收口后重试
+   * 一次原路径（上限见 RESTART_SHUTDOWN_WAIT_MS / deps.restartShutdownWaitMs）；
+   * 等待中或收口时本进程已入退出链（deps.isProcessExiting）或等待超时 → null，
+   * 由调用方留痕。无历史 fork 面（从未 start 过）→ null。
    */
   restartPinned(): Promise<number | null>
   /** 是否有已握手完成的 child 在跑 */
@@ -211,6 +233,9 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
   const killWaitMs = deps.killWaitMs ?? KILL_WAIT_TIMEOUT_MS
   const backoffMs = deps.backoffMs ?? RESTART_BACKOFF_MS
   const stabilityResetMs = deps.stabilityResetMs ?? STABILITY_RESET_MS
+  // R55-A-1（五十五轮）：自愈等停机收口上限 + 本进程退出探测（缺省见常量/依赖注释）
+  const restartShutdownWaitMs = deps.restartShutdownWaitMs ?? RESTART_SHUTDOWN_WAIT_MS
+  const isProcessExiting = deps.isProcessExiting ?? (() => false)
   let active: ActiveChild | null = null
   let starting: Promise<number> | null = null
   // E-9a（第五十三轮）：在途 start 的关键 opts 快照——并发 start 复用同一轮前校验
@@ -227,6 +252,10 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
   /** B-7（第六十轮）：停机流程生命周期门（shutdown 入口置位 / 收口复位）——与
    *  shutdownStarted（主动 kill 标记，stopActiveChild 也置位且不随收口复位）分工。 */
   let shuttingDown = false
+  /** R55-A-1（五十五轮）：停机收口等待者——restartPinned 在 shuttingDown 态挂起等
+   *  停机收口，shutdown finally 复位 shuttingDown 时一次性唤醒（事件驱动，不轮询；
+   *  迟到的等待者由下一次收口唤醒，resolve 已落定 promise 为无害 no-op） */
+  let shutdownSettledWaiters: Array<() => void> = []
   // 批 U3 退避状态：restartCount = 已排程的自动重启次数（ready 后稳定窗口到点清零）；
   // lastOpts/pinnedPort 供内部重启复刻原 fork 面（钉住最近一次成功端口，S-1）。
   let restartCount = 0
@@ -590,6 +619,10 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
         // B-7：停机生命周期门复位——收口后允许下一轮 start（新生命周期；幂等 early-return
         // 的并发 shutdown 不经此处，由首调用方 finally 统一复位）
         shuttingDown = false
+        // R55-A-1（五十五轮）：唤醒停机收口等待者（restartPinned 自愈有界等待）
+        const waiters = shutdownSettledWaiters
+        shutdownSettledWaiters = []
+        for (const w of waiters) w()
       }
     },
     isRunning(): boolean {
@@ -599,7 +632,38 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
       const opts = lastOpts
       const port = pinnedPort
       if (!opts || port === null) return null // 从未成功 start 过：无钉住面可复刻
-      if (shuttingDown) return null // 停机流程仍在途：不抢生命周期（观察窗时长已覆盖正常收尾）
+      // R55-A-1（五十五轮）：shuttingDown 态不再立即拒自愈——观察窗（main 侧缺省 5s）
+      // 与停机链最坏预算失配（settle 2s + 总超时 3.5s + kill 2s×2，慢而正常收尾 ~5.5s /
+      // child 挂死 ~9.5-11.5s），OS 关机被取消 + child 收尾偏慢的复合场景下窗口到点时
+      // 停机仍在途，原「立即返 null」令用户面对 API 不可用手动恢复。改有界等待停机
+      // 收口（事件驱动：shutdown finally 复位 shuttingDown 时唤醒，不轮询），上限见
+      // RESTART_SHUTDOWN_WAIT_MS（可注入）；复位后重试一次原路径（下方流程原样）；
+      // 超时仍走原 null 返回（调用方既有「恢复失败」留痕不变）。
+      if (isProcessExiting()) {
+        logger.warn('server-manager', 'session-end 自愈：本进程已进入退出链，放弃恢复')
+        return null
+      }
+      if (shuttingDown) {
+        const settled = await Promise.race([
+          new Promise<void>((resolve) => {
+            shutdownSettledWaiters.push(resolve)
+          }).then(() => true),
+          delay(restartShutdownWaitMs).then(() => false),
+        ])
+        if (!settled) {
+          logger.warn(
+            'server-manager',
+            `session-end 自愈：停机流程 ${restartShutdownWaitMs}ms 内未收口，放弃恢复（API 不可用，建议重启应用）`,
+          )
+          return null
+        }
+        if (shuttingDown || isProcessExiting()) {
+          // 收口瞬间已被新一轮停机（session-end 重臂 / before-quit）或退出链接管：
+          // 本轮放弃——恢复面交给新的观察窗轮次，不在退出链上 fork 孤儿（S-5/S1 同向）
+          logger.warn('server-manager', 'session-end 自愈：停机收口时本进程已再次进入停机/退出链，放弃恢复')
+          return null
+        }
+      }
       if (starting) return starting // 在途轮复用（X-3 同款互斥通道语义）
       // R51-A-3（五十一轮）：作废挂起重启，与 start() 口径对称（start IIFE 首段
       // cancelPendingRestart 同款）——不取消则崩溃退避 restartTimer 仍武装，本函数
@@ -653,8 +717,23 @@ function forwardChildStdio(proc: UtilityProcessLike, logger: LogLike): void {
   // 内存闸（2026-08-24 审计 D1）：单行超限强制截断的计数告警（stdout/stderr 同口径）
   const warnForced = (side: 'stdout' | 'stderr') => (count: number) =>
     logger.warn('server-manager', `child ${side} 单行超 ${MAX_LINE_CHARS >> 20}MB 无换行，已强制截断出行（累计 ${count} 次）`)
-  const stdoutSplitter = splitLines(proc.stdout, (line) => forwardLogLine(line, logger), warnForced('stdout'))
-  const stderrSplitter = splitLines(proc.stderr, (line) => logger.warn('server-proc', line), warnForced('stderr'))
+  // R55-A-2（五十五轮）：流错误留痕——原先空回调零痕迹，child 日志链路断裂（流销毁/
+  // 管道错等）不可观测；附 err message（非 Error 形态按 String 兜底，同仓 git/ai-track
+  // 重评-15 先例）。不上抛不重试：转发尽力而为语义不变，丢行不丢进程。
+  const warnErrored = (side: 'stdout' | 'stderr') => (err: unknown) =>
+    logger.warn('server-manager', `child ${side} stdio 流异常，转发中止：${err instanceof Error ? err.message : String(err)}`)
+  const stdoutSplitter = splitLines(
+    proc.stdout,
+    (line) => forwardLogLine(line, logger),
+    warnForced('stdout'),
+    warnErrored('stdout'),
+  )
+  const stderrSplitter = splitLines(
+    proc.stderr,
+    (line) => logger.warn('server-proc', line),
+    warnForced('stderr'),
+    warnErrored('stderr'),
+  )
   // R50-A-4（五十轮）：子进程退出时强制冲刷两路切分缓冲的残留半行——崩溃尾行常无
   // 换行（stderr 崩溃堆栈恰是最关键取证线索），原先随进程死亡丢弃。exit 后流不再有
   // data，冲一次即弃（flush 幂等；kill/崩溃/自然退出三路 exit 均经此收口）。
@@ -666,6 +745,8 @@ function forwardChildStdio(proc: UtilityProcessLike, logger: LogLike): void {
 
 /** （导出供测试直测解析口径）child 输出 → 行切分。
  *  onWarn：每次强制截断出行时回调（入参为累计次数），缺省不告警。
+ *  onError：流 'error' 事件回调（R55-A-2（五十五轮）——原先空回调静默吞零留痕），
+ *  缺省维持静默吞（不反噬调用方，转发尽力而为语义不变）。
  *  R50-A-4（五十轮）：返回切分器句柄——exit 冲刷接口见 flush()，接线见 forwardChildStdio。 */
 export interface LineSplitter {
   /** 强制冲刷残留缓冲的半行（无换行尾行）：子进程 exit 路径调用一次，弃缓冲。
@@ -677,6 +758,7 @@ export function splitLines(
   out: NodeJS.ReadableStream | null | undefined,
   onLine: (line: string) => void,
   onWarn?: (forcedCount: number) => void,
+  onError?: (err: unknown) => void,
 ): LineSplitter {
   // R50-A-4：空流无可冲刷缓冲，返回空句柄保调用方接线统一
   if (!out) return { flush: () => {} }
@@ -706,7 +788,12 @@ export function splitLines(
       if (line) onLine(line)
     }
   })
-  out.on('error', () => {}) // 流异常不反噬 main：转发尽力而为，丢行不丢进程
+  out.on('error', (err: unknown) => {
+    // 流异常不反噬 main：转发尽力而为，丢行不丢进程。
+    // R55-A-2（五十五轮）：空吞改留痕——child 日志链路断裂原先零痕迹不可观测；
+    // 经 onError（forwardChildStdio 接 logger.warn）补一条，仍不上抛、行为不变
+    if (onError) onError(err)
+  })
   // R50-A-4（五十轮）：崩溃取证——子进程异常退出时尾行常无换行（最后一条诊断/堆栈
   // 恰卡半行），只挂 'data' 的切分缓冲随进程死亡丢弃。返回 flush 供 exit 处理路径
   // 强制冲一次残留半行再弃（trim 后非空才出行，与正常行口径一致）。

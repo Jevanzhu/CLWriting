@@ -61,9 +61,122 @@ export const useDocStore = defineStore('doc', () => {
   /** 切书代数：作废在途 open 的结果（参考 workspace.ts 的 bookGen 守卫） */
   let bookGen = 0
 
+  // ── R55-F-3（五十五轮）：dirty 正文节流镜像（渲染进程硬崩溃兜底）──
+  // 现状：docs 仅内存 Map，autosave 默认 30s（下限 5s），crash/OOM/kill -9 时
+  // 「上次保存→崩溃」窗口内的键入无声丢失（.版本 快照只随 save 产生，救不回）。
+  // 三面：①写侧——dirty/conflict entry 内容节流 ~2s 镜像进 localStorage（ Electron
+  // 渲染进程同源持久，重启可读，R57-E-1 起随存镜像时基线 baseRev）；②读侧——open
+  // 载入时镜像内容 ≠ 服务端内容且过时效门（R57-E-1：baseRev 仍等于当前基线，即自
+  // 崩溃点服务端未变过）→ 恢复为当前脏内容（沿用既有 dirty 语义 + 一次性 toast 告知）；
+  // 一致或时效失配/旧格式镜像只清不复活；③清理——保存成功/转
+  // clean/文档删除/切书清对应镜像。所有 localStorage 访问 try/catch 降级（node 测试
+  // 环境/隐私模式/quota 爆均退化为无镜像，autosave 与 .版本 快照仍是主兜底）。
+
+  /** 镜像 key：`clw:dirty-mirror:<book>:<docId>`（前缀扫描面 = 清前书镜像）。 */
+  const MIRROR_KEY_PREFIX = 'clw:dirty-mirror:'
+  /** 单条镜像上限（payload 字符数 ≈2MB）——超限跳过并 debug 留痕，防 localStorage quota 爆。 */
+  const MIRROR_MAX_CHARS = 2_000_000
+  /** 镜像节流间隔（ms，trailing）：编辑高峰不逐键写同步 IO，窗口内合并为最后一版。 */
+  const MIRROR_THROTTLE_MS = 2_000
+
+  /** pending 节流定时器（按 docId；2s 内多次 patch 只排一个 trailing 写）。 */
+  const mirrorTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+  function mirrorKey(book: string, docId: string): string {
+    return `${MIRROR_KEY_PREFIX}${book}:${docId}`
+  }
+
+  /** dirty/conflict entry 的节流镜像落盘（trailing：到点读 entry 当时内容）。 */
+  function scheduleDirtyMirror(docId: string): void {
+    if (mirrorTimers.has(docId)) return
+    mirrorTimers.set(
+      docId,
+      setTimeout(() => {
+        mirrorTimers.delete(docId)
+        writeDirtyMirror(docId)
+      }, MIRROR_THROTTLE_MS),
+    )
+  }
+
+  function writeDirtyMirror(docId: string): void {
+    const e = docs.value.get(docId)
+    const book = bookName.value
+    // await 窗口守卫：entry 已清/已转 clean/已切书 → 不再镜像
+    if (!e || !book || (!e.dirty && !e.conflict)) return
+    try {
+      const payload = JSON.stringify({
+        book,
+        docId,
+        content: e.content,
+        savedAt: Date.now(),
+        baseRev: e.baselineRevision, // R57-E-1：镜像时的服务端基线——复活时效门的判据
+      })
+      if (payload.length > MIRROR_MAX_CHARS) {
+        console.debug(`[doc] dirty 镜像超限（${payload.length} chars）跳过: ${book}/${docId}`)
+        return
+      }
+      localStorage.setItem(mirrorKey(book, docId), payload)
+    } catch (err) {
+      // quota/存储不可用降级为无镜像（留痕供诊断）
+      console.debug('[doc] dirty 镜像写入失败（降级为无镜像）', err)
+    }
+  }
+
+  /** 清镜像（含 pending 节流）。book 由调用方快照（防在途切书误删他书同 docId 键）。 */
+  function clearDirtyMirror(book: string | null, docId: string): void {
+    const t = mirrorTimers.get(docId)
+    if (t) {
+      clearTimeout(t)
+      mirrorTimers.delete(docId)
+    }
+    if (!book) return
+    try {
+      localStorage.removeItem(mirrorKey(book, docId))
+    } catch { /* 存储不可用降级 */ }
+  }
+
+  /** 读镜像（损坏/字段非法视为不存在）。baseRev 为镜像时的服务端基线（R57-E-1）；
+   *  旧格式镜像无此字段 → null，按陈旧处理只清不复活。 */
+  function readDirtyMirror(
+    book: string,
+    docId: string,
+  ): { content: string; savedAt: number; baseRev: string | null } | null {
+    try {
+      const raw = localStorage.getItem(mirrorKey(book, docId))
+      if (!raw) return null
+      const p = JSON.parse(raw) as { content?: unknown; savedAt?: unknown; baseRev?: unknown }
+      if (typeof p.content !== 'string') return null
+      return {
+        content: p.content,
+        savedAt: typeof p.savedAt === 'number' ? p.savedAt : 0,
+        baseRev: typeof p.baseRev === 'string' ? p.baseRev : null,
+      }
+    } catch {
+      return null
+    }
+  }
+
+  /** 清整本书的全部镜像（setBook 切书用：前缀扫描 + pending 节流一并清）。 */
+  function clearBookMirrors(book: string): void {
+    for (const t of mirrorTimers.values()) clearTimeout(t)
+    mirrorTimers.clear()
+    try {
+      const prefix = `${MIRROR_KEY_PREFIX}${book}:`
+      const doomed: string[] = []
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i)
+        if (k !== null && k.startsWith(prefix)) doomed.push(k)
+      }
+      for (const k of doomed) localStorage.removeItem(k)
+    } catch { /* 存储不可用降级 */ }
+  }
+
   /** 切书：清空缓存（不同书的 docId 不通用）。 */
   function setBook(name: string): void {
     if (bookName.value === name) return
+    // R55-F-3：切书即清前书全部镜像 + pending 节流——能走到 setBook 的 dirty 都已经过
+    // flushDirty/守卫决断（保存成功或作者确认丢弃），镜像留存只会造成陈旧复活与跨书累积
+    const prevBook = bookName.value
     bookName.value = name
     docs.value = new Map()
     // RB-FE-P2-1：清 loading 锁 + bump 代数——在途 open 的旧书响应不得注入新书缓存
@@ -77,6 +190,7 @@ export const useDocStore = defineStore('doc', () => {
     // 旧 settle 会误删新登记 → ⌘S 走进 e.saving 分支且 inflight 取不到 → 无闸
     // 同步尾递归（RangeError，保存静默失败）。
     inflightSaves.clear()
+    if (prevBook) clearBookMirrors(prevBook)
     bookGen++
   }
 
@@ -155,6 +269,31 @@ export const useDocStore = defineStore('doc', () => {
         treeRev: useTreeStore().revision,
       })
       evictLRU() // F7（五十九轮）：新 entry 落位后裁剪 clean 缓存至 LRU 上限
+      // R55-F-3：镜像复活——上次会话崩溃残留的未保存编辑：镜像内容 ≠ 服务端内容时
+      // 恢复为当前脏内容（baselineRevision 仍为服务端内容之哈希，乐观锁语义不变，
+      // autosave/⌘S 照常接管）并一次性 toast 告知；镜像与服务端一致（内容未丢）则
+      // 仅清陈旧镜像，不置脏不提示。
+      // R57-E-1：复活须过时效门——镜像记录镜像时的服务端基线（baseRev），自崩溃点
+      // 服务端未变过（baseRev === 当前基线）才许复活。崩溃后同文档被另一存活标签页/
+      // 外部编辑器更新过（基线已推进）时，陈旧镜像只清不复活——否则旧内容会以匹配的
+      // 新基线静默覆盖外部已保存内容（保存零冲突、toast 反报「已恢复」）。旧格式镜像
+      //（无 baseRev，升级残留）同按陈旧处理。
+      const mirror = readDirtyMirror(book, docId)
+      if (mirror) {
+        const entry = docs.value.get(docId)
+        if (
+          entry &&
+          mirror.content !== content &&
+          mirror.baseRev !== null &&
+          mirror.baseRev === baselineRevision
+        ) {
+          entry.content = mirror.content
+          entry.dirty = true
+          useUiStore().toast('检测到上次未保存的编辑，已恢复', 'info')
+        } else {
+          clearDirtyMirror(book, docId)
+        }
+      }
     } finally {
       // R33-71（三十三轮）：代守卫——切书后旧 open 的 finally 不得释放新书同 docId
       // 的在途加载锁（否则新书可重复 GET；结果注入有 gen 守卫，仅冗余请求面）
@@ -169,6 +308,9 @@ export const useDocStore = defineStore('doc', () => {
     e.content = content
     e.dirty = true
     e.error = null
+    // R55-F-3：dirty entry 节流镜像（~2s trailing）——crash/OOM/kill -9 时
+    // <autosave 间隔键入的本地兜底（见文件内 R55-F-3 块注释）
+    scheduleDirtyMirror(docId)
   }
 
   /** F8（五十九轮）：在途保存的 promise 台账——⌘S 遇在途保存时链式排队用（等在途
@@ -222,7 +364,10 @@ export const useDocStore = defineStore('doc', () => {
       })
       e.baselineRevision = r.revision
       e.conflict = false
-      if (e.content === snapshot) e.dirty = false
+      if (e.content === snapshot) {
+        if (e.dirty) clearDirtyMirror(book, docId) // R55-F-3：已落盘即清镜像（含 pending 节流）
+        e.dirty = false
+      }
       e.savedAt = Date.now()
       if (bookName.value === book) {
         // 局部更新 tree 字数（避免重拉整树）
@@ -248,6 +393,7 @@ export const useDocStore = defineStore('doc', () => {
         // 假警报。discard 同时清 inflightSaves（本 promise 正在 settle 链上，条件删兜底）。
         docs.value.delete(docId)
         // 本 promise 的在途登记由 save 的 finally 条件删收口（get === p）
+        clearDirtyMirror(book, docId) // R55-F-3：文档已删，镜像一并清（复活无主）
         if (origin === 'manual') useUiStore().toast('文档已删除，已清理本地缓存', 'info')
         return false
       } else {
@@ -275,6 +421,8 @@ export const useDocStore = defineStore('doc', () => {
       e.dirty = false
       e.conflict = false
       e.error = null
+      // R55-F-3：本地修改已按作者决断丢弃，镜像一并清除（防下次 open 误复活）
+      clearDirtyMirror(book, docId)
       if (bookName.value !== book) return
       useUiStore().toast('已加载最新版本', 'success')
     } catch (err) {
@@ -331,7 +479,10 @@ export const useDocStore = defineStore('doc', () => {
       // ee-P1-7：await 窗口内作者键入（patch 置 dirty）时不得清 dirty——否则 autosave/
       // beforeunload 双兜底同时被跳过，编辑静默丢失（CC-P2-15 只护住了上面的 dirty 分支）
       e.baselineRevision = rev
-      if (e.content === content) e.dirty = false
+      if (e.content === content) {
+        if (e.dirty) clearDirtyMirror(bookName.value, docId) // R55-F-3：转 clean 即清镜像
+        e.dirty = false
+      }
       // R51-H-3（五十一轮）：同上——clean 分支（refresh 的主路径）也推进，冗余重拉才真正收口
       e.treeRev = useTreeStore().revision
       return true
@@ -497,6 +648,7 @@ export const useDocStore = defineStore('doc', () => {
   function discard(docId: string): void {
     docs.value.delete(docId)
     inflightSaves.delete(docId)
+    clearDirtyMirror(bookName.value, docId) // R55-F-3：条目已弃，镜像一并清
   }
 
   return { docs, bookName, setBook, get, open, patch, save, reloadFromRemote, overwriteRemote, refresh, syncCleanWithTree, finalize, conflictedDirtyDocs, flushDirty, flushBeforeClose, autosaveTick, discard }

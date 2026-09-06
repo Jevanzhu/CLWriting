@@ -18,7 +18,7 @@ import { join } from 'node:path'
 import process from 'node:process'
 import { DatabaseSync } from 'node:sqlite'
 import { defaultUserDataPath } from '../src/fs/user-data-path.js'
-import { fitCoefficients, renderCalibrationReport, type CalibrationSample } from '../src/ai/token-calibration.js'
+import { fitCoefficients, renderCalibrationReport, isCalibratableCallRow, type CalibrationSample } from '../src/ai/token-calibration.js'
 
 function argValue(flag: string): string | null {
   const i = process.argv.indexOf(flag)
@@ -46,16 +46,21 @@ if (existsSync(sessionDir)) {
       for (const row of rows) {
         try {
           const ev = JSON.parse(row.data) as {
+            task?: string
             model?: string
             usage?: { input?: number; cacheRead?: number; cacheWrite?: number }
             promptMeta?: { chars?: number }
           }
-          if (!ev.model || !ev.usage?.input || !ev.promptMeta?.chars) continue
+          // R55-C-2（五十五轮）：采样过滤单源 isCalibratableCallRow——剔除 task==='chat'
+          // 样本（其 promptMeta.chars 自 Q-11 起只记当轮末条消息，多轮 chat 真实输入含
+          // 整段历史，chars 低估数个量级 → TOKEN_COEFFICIENTS 拟合虚高）与记账残缺行
+          //（原 continue 口径）；不做历史事件迁移
+          if (!isCalibratableCallRow(ev)) continue
           // M-1 归一后 usage.input 不含 cache 读/写——chars 是全 prompt 字数，
           // 重建全量输入对齐规模（2026-08-21 前的 OpenAI 旧事件 input 已含 cache，会偏高，
           // 由报告里 r 值与样本量体现，不做事件库迁移）
-          const fullInput = ev.usage.input + (ev.usage.cacheRead ?? 0) + (ev.usage.cacheWrite ?? 0)
-          samples.push({ model: ev.model, chars: ev.promptMeta.chars, inputTokens: fullInput })
+          const fullInput = ev.usage!.input! + (ev.usage!.cacheRead ?? 0) + (ev.usage!.cacheWrite ?? 0)
+          samples.push({ model: ev.model!, chars: ev.promptMeta!.chars!, inputTokens: fullInput })
         } catch {
           /* 单行损坏跳过 */
         }

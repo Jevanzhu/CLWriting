@@ -157,6 +157,11 @@ export const usePrefsStore = defineStore('prefs', () => {
   let revision = 0
   let revisionKnown = false
 
+  /** R55-F-7（五十五轮）：非 409 持久化失败的一次性提示去重标记——对齐 useSse 的
+   *  busy429Notified 惯例：同一失败窗只 warning 一次（离线改主题/排版此前全静默，
+   *  重启回退无提示），成功落盘后复位，恢复后再败可再提示。 */
+  let persistFailNotified = false
+
   /** 异步初始化：从 global.json 加载（替代 localStorage）。
    *  首次为空时从旧 localStorage 自动迁移。main.ts 在 mount 前调一次。 */
   async function init(): Promise<void> {
@@ -376,8 +381,18 @@ export const usePrefsStore = defineStore('prefs', () => {
       revision = r.revision
       revisionKnown = true
       lastPersisted = cache
+      persistFailNotified = false // R55-F-7：成功落盘复位——恢复后再失败可再提示
     } catch (e) {
-      if (!(e instanceof ApiError) || e.status !== 409) return /* 其他错误静默（离线等，与原口径一致） */
+      if (!(e instanceof ApiError) || e.status !== 409) {
+        // R55-F-7（五十五轮）：非 409 失败（离线/网络/5xx）不再全静默——原口径直接
+        // return，离线改主题/排版不落盘、重启回退且无提示。补一次性 warning（去重
+        // 见 persistFailNotified 注）；refs 已生效（展示不受影响），仅落盘滞后。
+        if (!persistFailNotified) {
+          persistFailNotified = true
+          useUiStore().toast('全局偏好暂时未能保存（网络/服务异常），恢复后将随下次改动自动重试', 'warning')
+        }
+        return /* 其他错误维持既有静默口径（提示去重后不打断） */
+      }
       await recoverFromConflict(cache)
     }
   }
@@ -420,6 +435,7 @@ export const usePrefsStore = defineStore('prefs', () => {
       revision = r.revision
       revisionKnown = true
       lastPersisted = retryCache
+      persistFailNotified = false // R55-F-7：成功落盘复位（与 doPersistPut 成功分支同口径）
       // R40-41（四十轮）：三态告知之「成功」——合并 + 重试落盘都成功才按现行口径提示
       useUiStore().toast('全局偏好已在其他窗口被修改，已保留本窗修改并合并最新值', 'warning')
     } catch {

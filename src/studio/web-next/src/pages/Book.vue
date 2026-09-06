@@ -10,7 +10,7 @@ import RelationsView from '../views/RelationsView.vue'
 import LearnView from '../views/LearnView.vue'
 import StyleView from '../views/StyleView.vue'
 import AuditView from '../views/AuditView.vue'
-import { useHeartbeat } from '../composables/useHeartbeat'
+import { useHeartbeat, heartbeatFailStreak } from '../composables/useHeartbeat'
 import { useSse } from '../composables/useSse'
 import { useChatTier } from '../composables/useChatTier'
 import { useDocStore } from '../stores/doc'
@@ -54,6 +54,18 @@ const prefs = usePrefsStore()
 // 切书：同步 doc 缓存 + 载入持久化 tabs + 清空各 store 旧状态
 const router = useRouter()
 const ui = useUiStore()
+// R55-F-2（五十五轮）：SSE 半开连接盲窗看门狗——服务端「接受连接、回 200 头、此后不
+// 发数据也不关」时 EventSource 无 onerror，useSse 的 connected 冻结在 true 直至服务端
+// requestTimeout（~300s），期间 AI 进度事件全丢而 UI 无感。心跳（20s 一拍的独立在线
+// 探测）连续 2 拍失败且 SSE 仍处 connected 态 → resync() 断开重连、重取连接级 sync
+// 快照自愈。去抖：触发即复位连败计数（下一拍重新起算，成功拍/useSse 侧 stop 也复位）。
+// SSE 非 connected 时不插手：断连重连已由 useSse 自身的 fail-closed 退避链接管。
+watch(heartbeatFailStreak, (n) => {
+  if (n >= 2 && workbench.connected) {
+    heartbeatFailStreak.value = 0
+    sse.resync()
+  }
+})
 let bookGen = 0
   // Z-8（第五十八轮）：上一本书名（冲突守卫取消时回退路由用）
   let lastBook = ''

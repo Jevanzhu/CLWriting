@@ -97,7 +97,10 @@ export function sanitizeFullFileName(name: string): string {
   const pre = name.normalize('NFC').replace(/[. ]+$/, '')
   const m = /^([\s\S]*?)(\.[^./\\]*)?$/.exec(pre)
   let rawStem = m?.[1] ?? pre
-  let ext = (m?.[2] ?? '').replace(/[\\/]/g, '_')
+  // R57-D-2（五十七轮）：ext 段消毒字符集对齐词干段同款 [\\/:*?"<>|]——原只替换
+  // 路径分隔符 \ /，win 保留字符落在最后一段点之后（如 a.md:2 的冒号）即漏网留存
+  // 进扩展名。ext 以点开头，首点不在替换集内，保留逻辑不动。
+  let ext = (m?.[2] ?? '').replace(/[\\/:*?"<>|]/g, '_')
   // R49-14（评审 R49）：纯点文件（.gitignore 类）——惰性 stem 匹配空串、ext 捕获整名，
   // stem 净化后为空 → 落「未命名」兜底，产出「未命名.gitignore」。stem 为空 = 整名无
   // 词干，按「无扩展名的完整名」处理（stem=pre、ext=''），后续净化/保留名检查/兜底

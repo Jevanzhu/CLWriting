@@ -11,7 +11,13 @@ import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import type { ChatMsg, ContentBlock, TokenUsage } from '../../provider/types.js'
 import { generate } from '../../gen.js'
-import { runTask } from '../../runner.js'
+// R57-B-2（五十七轮）：resolveProvider 复用既有 resolve 路径取档位模型 conf（只读
+// contextWindow；provider 实例本身仍由下方 runTask 自行 resolve，此调用无额外副作用面——
+// 同 path 幂等，loadProviders 有 mtime 缓存，runTask 每回合本就同参调用）
+import { resolveProvider, runTask } from '../../runner.js'
+// R57-B-2（五十七轮）：models 行 contextWindow 读取（与 finish.ts:124
+// clampCheckpointOutputTokens(modelConfOf(provider.conf)?.contextWindow) 同款先例）
+import { modelConfOf } from '../../provider/store.js'
 import { redactSecret } from '../../provider/redact.js' // R43-19（四十三轮）：SSE 错误事件脱敏第二层
 import { chatTools, TOOL_RISK } from '../../contract/chat.js'
 // 工具面扩展：注册表分派（book_search/chapter_status/树操作/改写/账本/文风）
@@ -27,6 +33,17 @@ import { acquireTaskGate } from '../../../studio/server/api/task-gate.js'
 // DSH-18：写作技巧包按需加载（read_skill 工具的执行通道）
 import { listSkills, loadSkill } from '../../../process/skills.js'
 import { sanitizeHistory, visibleInjectionsFromDigests } from '../../prompts/chat.js'
+// R55-C-1（五十五轮）：发送前体量防线——保尾预切与 trimHistory 回落分支同口径（单源 budgetTailCut）
+// R57-B-1/B-2（五十七轮）：预算按模型 contextWindow 显式 resolve（resolveChatSendBudget），
+// system prompt 计入预算（历史可用 = 预算 − sys 点数，下限 CHAT_HISTORY_MIN_BUDGET_POINTS）
+import {
+  budgetTailCut,
+  measureHistoryPoints,
+  measureTextPoints,
+  resolveChatSendBudget,
+  CHAT_HISTORY_MIN_BUDGET_POINTS,
+} from '../../prompts/chat.js'
+import { log } from '../../../log/index.js'
 // A1（五十九轮）：read_chapter 剥 fm 与 prompts/chat.ts 同源（bodyOf 单源导出复用）
 import { bodyOf } from '../../../format/frontmatter-core.js'
 import type { SessionRecorder } from '../../../events/chat-bridge.js'
@@ -111,7 +128,8 @@ export function waitConfirm(state: ChatRunState, callId: string, timeoutMs: numb
 
 // ── 工具执行 ──────────────────────────────────────
 
-async function executeChatTool(
+/** R55-C-4（五十五轮）：导出供单测直测兜底 catch 脱敏（仿 waitConfirm「导出供单测」先例）。 */
+export async function executeChatTool(
   call: { id: string; name: string; input: unknown },
   opts: ChatOpts,
   ctrl: AbortSignal,
@@ -281,7 +299,11 @@ async function executeChatTool(
         return { ok: false, summary: `未知工具：${call.name}` }
     }
   } catch (e) {
-    return { ok: false, summary: `执行失败：${e instanceof Error ? e.message : String(e)}` }
+    // R55-C-4（五十五轮）：兜底错误文案过 redactSecret——此处 summary 经 chat_tool_result
+    // SSE 直达前端并回填模型上下文，上游异常 message 可能携带 URL query param / Bearer /
+    // 裸 key 形态的凭据痕迹（与 :507 onRetry 的 R43-19 先例同款口径，全链最后一个
+    // 未脱敏错误出口补齐）。
+    return { ok: false, summary: `执行失败：${redactSecret(e instanceof Error ? e.message : String(e))}` }
   }
 }
 
@@ -465,6 +487,52 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
     // 指纹与 messages 同源同物（正常流消毒为 no-op，指纹不变）。
     const sanitized = sanitizeHistory(history)
 
+    // R55-C-1（五十五轮）：发送前体量防线——trimHistory/compaction 只在成功收尾后的
+    // finalizeHistory（finish.ts）执行，单轮发送前无任何体量闸：重工具会话（大
+    // tool_result 多轮累积）可一路撑到超窗 → provider 400（CONTEXT_WINDOW_EXCEEDED）
+    // 后无自动恢复（failure.ts 决策表 shrink-prompt 动作 A7 接线前无消费者），会话卡死。
+    // 按「resolved 发送预算 − system prompt 点数」（R57-B-1）对消毒后历史做保尾预切，
+    // 切点口径与 trimHistory 回落分支单源（budgetTailCut：只取纯文本 user 边界，永不落
+    // tool_use/tool_result 配对中间）。预切只改本轮发送副本 toSend，不改累积 history
+    // （中断回滚仍按 baseLen 精确）；下方 promptText 指纹取 toSend 末条（指纹与实发
+    // 同源，守「模型可见 ⟺ 已记录」）。零边界病态形态照 trimHistory 先例：无法安全切
+    // → 原样发送 + warn（可观测）。
+    // R57-B-2（五十七轮）：预算不再吃硬编码 96k——按当前档位模型的 contextWindow 显式
+    // resolve。窗口沿既有 resolve 路径取（resolveProvider → provider.conf → modelConfOf
+    // 的 models 行，与 finish.ts clampCheckpointOutputTokens 同款先例）；解析失败/未知
+    // 在 resolveChatSendBudget 内显式回落 96k 并单点声明 fallback。在 turns 层就地收口
+    // 是最小穿线：预算必须先于 runTask 定型（promptText 指纹取预切后 toSend 末条，
+    // R55-C-1「指纹与实发同源」不变量），而 provider 实例只在 run 回调内可得——落
+    // llm/call（runner trace 侧）拿不到切点时机，评审建议的「落 llm/call」在现有结构
+    // 下不可行，故偏离报告建议并在此声明。
+    const prov = resolveProvider(opts.userDataPath, 'chat')
+    const sendBudget = resolveChatSendBudget(prov.ok ? modelConfOf(prov.provider.conf)?.contextWindow : undefined)
+    // R57-B-1（五十七轮）：system prompt 计入发送预算——历史可用 = resolved 预算 − sys
+    // 点数（同族码点口径 measureTextPoints）；sys 超大（重设定书场景）把差额挤负时
+    // clamp 到具名下限 CHAT_HISTORY_MIN_BUDGET_POINTS（约保一个回合），宁可切后总量
+    // 仍超走下方复查 warn（fail-open），不把历史压成空手发送。
+    const sysPoints = measureTextPoints(sys)
+    const historyBudget = Math.max(CHAT_HISTORY_MIN_BUDGET_POINTS, sendBudget - sysPoints)
+    let toSend = sanitized
+    const sendPoints = measureHistoryPoints(sanitized)
+    if (sendPoints > historyBudget) {
+      const cut = budgetTailCut(sanitized, historyBudget)
+      if (cut === null) {
+        log.warn('chat', `chat 发送前体量防线：system prompt 约 ${sysPoints} + 历史 ${sanitized.length} 条约 ${sendPoints} 码点，超发送预算 ${sendBudget}（历史可用 ${historyBudget}），但无纯文本 user 边界可对齐、无法安全预切（原样发送）`)
+      } else {
+        toSend = sanitized.slice(cut)
+        log.warn('chat', `chat 发送前体量防线：system prompt 约 ${sysPoints} + 历史 ${sanitized.length} 条约 ${sendPoints} 码点，超发送预算 ${sendBudget}（历史可用 ${historyBudget}），保尾预切 → ${toSend.length} 条约 ${measureHistoryPoints(toSend)} 码点`)
+      }
+    }
+    // R57-B-1（五十七轮）：切后复查——sys 计入后仍有三形态可越线：sys 超大挤到下限、
+    // 单肥回合兜底保最近一整回合、零边界病态原样发送。复查不改发送行为（fail-open
+    // 语义不变；不给 failure.ts 加 shrink-prompt 消费者——A7 接线单独立项），只让
+    // warn 反映含 sys 的真实总量，超窗 400 卡死现场可观测。
+    const sentPoints = toSend === sanitized ? sendPoints : measureHistoryPoints(toSend)
+    if (sysPoints + sentPoints > sendBudget) {
+      log.warn('chat', `chat 发送前体量防线：切后复查——system prompt 约 ${sysPoints} + 实发历史 ${toSend.length} 条约 ${sentPoints} 码点，合计 ${sysPoints + sentPoints} 仍超发送预算 ${sendBudget}（fail-open 原样发送；shrink-prompt 消费者接线属 A7 单独立项）`)
+    }
+
     const out = await runTask<{
       text: string
       toolCalls: { id: string; name: string; input: unknown }[]
@@ -486,8 +554,9 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
       systemPrompt: sys,
       // Q-11（第十五轮）：每轮取当轮末条消息（tool_result 轮为 blocks 序列化），
       // 同组多轮 hash 各异，恢复「本次实际输入指纹」审计语义——R54-C-1 起取消毒后
-      // 历史（与 generate 实发同源）
-      promptText: lastMessageFingerprint(sanitized),
+      // 历史（与 generate 实发同源）；R55-C-1 起取预切后实际发送的 toSend 末条
+      //（指纹与实发同源，预切触发时指纹随实发收窄，不再对未发送的历史记账）
+      promptText: lastMessageFingerprint(toSend),
       // T2-1：注入文件清单（章正文/spill）进 llm/call promptMeta.files——与写稿链
       //（self-heal promptFiles）同口径：记 hash+chars+files，不落 prompt 全文
       promptFiles: deps.promptFiles,
@@ -508,12 +577,14 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
         emit(opts, { type: 'warning', message: `AI 响应异常（${redactSecret(error)}），第 ${attempt + 1} 次重试中…` }),
       run: async (provider, signal, tier) => {
         // 消毒副本在 runTask 前统一产出（R54-C-1 上提，指纹同源）；消毒产副本不污染
-        // 累积的 history（回滚仍按 baseLen 精确）
+        // 累积的 history（回滚仍按 baseLen 精确）。R55-C-1：实发取发送前预切后的
+        // toSend（超 resolved 发送预算时保尾收窄，防超窗 400 卡死；R57-B-1/B-2 起预算
+        // 按模型窗口 resolve 且 sys 计入，见上方防线注释）
         const r = await generate(
           provider,
           {
             systemPrompt: sys,
-            messages: sanitized,
+            messages: toSend,
             tools: chatTools,
             toolChoice: 'auto',
             effort: tier.effort,

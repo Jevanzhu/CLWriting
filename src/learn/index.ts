@@ -87,14 +87,23 @@ const CANDIDATE_DIR = '工作区/learn候选'
  * 不符——实现是扁平每条 -10（checkRepeat 双口径互斥，至多出 1 条 yellow），
  * 扣分不随复读率数值缩放。
  */
-function scoreByChecks(body: string, rules: IronRules): number {
+function scoreByChecks(
+  body: string,
+  rules: IronRules,
+  repeatThreshold?: number,
+  repeatCharsThreshold?: number,
+): number {
   let score = 100
 
   const styleResult = checkStyleMetrics(body, rules)
   // R48-38（四十八轮）：统一每条 -5——checkStyleMetrics 六类 item level 恒 yellow
   score -= styleResult.items.length * 5
 
-  const repeatResult = checkRepeat(body)
+  // R55-D-2（五十五轮）：书级复读阈值透传（签名口径照机检链 runner.ts 先例）——此前
+  // 裸调用落引擎默认 0.15/200，作者在 book.yaml checks 调阈值后收割打分仍按默认漂移，
+  // 与头注「口径归 #10 机检、作者调阈值能直接影响打分」不符。未设传 undefined →
+  // checkRepeat 默认参数落引擎默认，语义不变。
+  const repeatResult = checkRepeat(body, repeatThreshold, repeatCharsThreshold)
   for (const item of repeatResult.items) {
     if (item.level === 'yellow') score -= 10
   }
@@ -149,6 +158,11 @@ export async function learnFromBook(bookRoot: string): Promise<LearnResult> {
   // 铁律阈值 + 条目库禁词（S5 收口：统一走 readIronRules）
   const ironRules: IronRules = readIronRules(bookRoot)
 
+  // R55-D-2（五十五轮）：书级复读阈值解出一次、打分循环透传（learnFromBook 本就读
+  // book config）；config 读取失败同「未设」——传 undefined 落引擎默认。
+  const repeatThreshold = cfg.ok ? cfg.config.checks?.repeat_threshold : undefined
+  const repeatCharsThreshold = cfg.ok ? cfg.config.checks?.repeat_chars_threshold : undefined
+
   // 3. 读正文。H-1（二轮复审）：只收定稿正文（模块契约「从定稿正文产候选」）——
   // 未定稿草稿/在写章不进候选池（流水线刚写出的段会被勾选入库污染文风基准与注入
   // 素材）。判定与导出 V-P2-2 同一函数（manifest.finalizedPathSet，曾定稿=过）；
@@ -193,7 +207,7 @@ export async function learnFromBook(bookRoot: string): Promise<LearnResult> {
     })
     for (const block of blocks) {
       const trimmed = block.trim()
-      const score = scoreByChecks(trimmed, ironRules)
+      const score = scoreByChecks(trimmed, ironRules, repeatThreshold, repeatCharsThreshold)
       if (score < 60) continue // 低分过滤（避免收割平庸段）
       sampleCandidates.push({
         场景: '通用',

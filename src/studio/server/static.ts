@@ -151,7 +151,20 @@ export function createStaticHandler(rootDir: string) {
       // throw 进外层 catch）。
       const size = s.isDirectory() ? (await stat(safe.abs)).size : s.size
       const stream = createReadStream(safe.abs)
+      // 重评-4（全库代码重评审 2026-09-05）：客户端中途断连（弱网/关页）时流自身
+      // 'error' 收不到任何通知，createReadStream 的文件描述符滞留至 GC 才释放——
+      // res 'close'（正常 finish 与异常断连都会触发）统一 destroy 源流回收 FD；
+      // 已正常结束的流 destroy 是 no-op，无害。
+      // R57-C-1（五十七轮）：本监听必须在 open 回调外同步注册——原注册在 open 回调
+      // 内，res 在 open 触发前已 close（客户端拿到响应头前早断）时迟注册的监听永不
+      // 触发，读流 open 后无接管对象也无销毁通道 → FD 悬挂微竞态。同步注册后 close
+      // 先到也立即收口。
+      res.on('close', () => stream.destroy())
       stream.on('open', () => {
+        // R57-C-1：close 先至已收口的流不再写头/接管——真实 fs 流在 destroy-before-
+        // open 下本就不会再发 open，此守卫把该契约显式化（open 竞态迟到也不碰已断连
+        // 的 res；destroy 幂等，close/open 双到不产生双重销毁异常）
+        if (stream.destroyed) return
         res.writeHead(200, {
           'content-type': MIME[extname(file)] ?? 'application/octet-stream',
           // R30-23（三十轮）：同 HEAD 分支——nosniff 统一加（所有静态响应头统一处）
@@ -162,11 +175,6 @@ export function createStaticHandler(rootDir: string) {
           'content-length': String(size),
         })
         stream.pipe(res)
-        // 重评-4（全库代码重评审 2026-09-05）：客户端中途断连（弱网/关页）时流自身
-        // 'error' 收不到任何通知，createReadStream 的文件描述符滞留至 GC 才释放——
-        // res 'close' 在正常 finish 与异常断连时都会触发，统一 destroy 源流回收 FD；
-        // 已正常结束的流 destroy 是 no-op，无害。
-        res.on('close', () => stream.destroy())
       })
       stream.on('error', () => {
         if (res.headersSent) res.destroy()

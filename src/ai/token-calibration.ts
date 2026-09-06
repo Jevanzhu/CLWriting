@@ -17,6 +17,29 @@ export interface CalibrationSample {
   inputTokens: number
 }
 
+/**
+ * R55-C-2（五十五轮）：校准采样行过滤谓词（事件库 llm/call 原始 data 行 → 是否可入样）。
+ * 单源供 calibrate-tokens 脚本与单测共用。两个剔除面：
+ * - task === 'chat'：chat 轮 promptMeta.chars 自 Q-11 起只记当轮末条消息
+ *   （turns.ts lastMessageFingerprint），多轮 chat 真实输入含 system prompt + 整段
+ *   历史，chars 低估数个量级 → 拟合 coeff = Σ(c·t)/Σ(c²) 被系统性推高（虚高）。
+ *   多轮任务中唯 chat 如此（spec/finish 等任务 promptText 传全量 prompt），按 task
+ *   精准剔除、不做事件库迁移。实查口径：runner.ts trace 在无 task 时不落 llm/call
+ *   （事件 data.task 恒存在），历史事件若缺 task 字段按其余字段判（不过滤）。
+ * - model / usage.input / promptMeta.chars 任一缺失：记账残缺行（原脚本 continue 口径内联）。
+ */
+export interface LlmCallSampleRow {
+  task?: string
+  model?: string
+  usage?: { input?: number; cacheRead?: number; cacheWrite?: number }
+  promptMeta?: { chars?: number }
+}
+
+export function isCalibratableCallRow(row: LlmCallSampleRow): boolean {
+  if (row.task === 'chat') return false
+  return Boolean(row.model && row.usage?.input && row.promptMeta?.chars)
+}
+
 export interface CoefficientFit {
   /** 建议 coeff（样本不足/退化 → null） */
   coeff: number | null
