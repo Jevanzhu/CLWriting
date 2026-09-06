@@ -81,6 +81,17 @@ export interface GlobalPrefs {
   ragEnabled?: boolean
   /** 知识检索提供方默认（'' = 未设；书级 rag.provider，引用应用级 RAG 提供方 id） */
   ragProvider?: string
+  // ── R52-E-2：机检阈值全局托底五键（undefined = 未设，走引擎默认；书级 checks.* 未设才托底）──
+  /** 复读占比阈值（0-1 小数；书级 checks.repeat_threshold） */
+  checkRepeatThreshold?: number
+  /** 复读最小连续字数（正整数；书级 checks.repeat_chars_threshold） */
+  checkRepeatCharsThreshold?: number
+  /** 超长句判定长度（正整数；书级 checks.max_sentence_len） */
+  checkMaxSentenceLen?: number
+  /** 高频意象报黄次数阈值（正整数；书级 checks.imagery_threshold） */
+  checkImageryThreshold?: number
+  /** 字数容差百分比（正数；书级 checks.word_count_tolerance） */
+  checkWordCountTolerance?: number
   [k: string]: unknown
 }
 

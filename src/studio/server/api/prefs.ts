@@ -195,7 +195,10 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
       reply(res, 200, { ok: true, revision: next })
     } catch (e) {
       log.error('api', '写全局偏好失败', e)
-      replyError(res, 500, 'ERROR', '写全局偏好失败')
+      // R51-G-1（五十一轮）：错误码与书级 prefs 写失败（:125）统一 IO_ERROR——同一
+      // 失败形态（落盘 IO 异常）双端点码面漂移（全局 ERROR / 书级 IO_ERROR）使前端
+      // 按码分类的降级/提示路径分叉
+      replyError(res, 500, 'IO_ERROR', '写全局偏好失败')
     }
   },
   })

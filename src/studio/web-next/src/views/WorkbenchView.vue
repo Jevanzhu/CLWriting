@@ -103,6 +103,11 @@ watch(
     // RB-FE-P2-4：切书清残留——旧书的 prompt 输入与 draftSaved 提示不带进新书
     prompt.value = ''
     draftSaved.value = null
+    // R52-I-2（五十二轮）：旧书的错误条与状态卡同样不带进新书——err 是本窗动作失败
+    // 的落点（无清除路径，R51-I-1 注），残留即「新书界面挂旧书错误」；state 置空后
+    // 由下方 refreshState 立即拉新书状态（在途慢响应已有 stateGen 代守卫兜底）
+    err.value = null
+    state.value = null
     void refreshState()
   },
   { immediate: true },
@@ -192,6 +197,9 @@ async function onSpawn(): Promise<void> {
     if (props.bookName !== book) return
     // Q-5：注入源清单随 prompt 回传——服务端登记进 llm/call promptMeta.files（可见⟺已记录）
     await spawnRole(book, { role: 'writer', prompt: final, ...(files?.length ? { files } : {}) })
+    // R52-I-1（五十二轮）：成功 toast 同款 await 后复检（R70-10 家族收口到成功路径）——
+    // spawn POST 在途期间切书，A 书的「已开始生成」toast 不得落 B 书工作台
+    if (props.bookName !== book) return
     ui.toast('已开始生成', 'info')
   } catch (e) {
     if (props.bookName !== book) return // R70-10：A 书的失败 toast/err 不落 B 书界面
@@ -204,10 +212,16 @@ async function onSpawn(): Promise<void> {
 async function onInterrupt(): Promise<void> {
   if (interruptPending.value) return // R35-39：在途锁（双击重复 POST 中断）
   interruptPending.value = true
+  // R51-I-1（五十一轮）：书名入口捕获 + await 后复检（R70-10 家族，onSpawn/onAutoWrite
+  // 同款）——原实现裸用 props.bookName：A 书中断 POST 在途期间切到 B 书，失败 toast/
+  // err 落 B 书工作台且无清除路径（err 只在下一次本窗动作时覆写）
+  const book = props.bookName
   try {
-    await interrupt(props.bookName)
+    await interrupt(book)
+    if (props.bookName !== book) return // 切书后：成功 toast 也不落新书界面
     ui.toast('已中断', 'info')
   } catch (e) {
+    if (props.bookName !== book) return
     err.value = friendlyError(e)
   } finally {
     interruptPending.value = false
@@ -228,6 +242,9 @@ async function onAutoWrite(): Promise<void> {
     const batchSize = Math.max(1, Math.min(20, Math.floor(cfg.auto?.batch_size ?? prefs.aiBatchSize)))
     if (props.bookName !== book) return
     const r = await autoWrite(book, chapter.value, batchSize)
+    // R52-I-1：同 onSpawn——autoWrite POST 在途切书，A 书的「已开始全自动写稿」toast
+    // 不落 B 书界面（消息里的章号也是 A 书的，落 B 书更误导）
+    if (props.bookName !== book) return
     const msg = (r.batchSize ?? 1) > 1 ? `第 ${chapter.value} 章起连写 ${r.batchSize} 章已开始` : `第 ${chapter.value} 章已开始全自动写稿`
     ui.toast(msg, 'info')
   } catch (e) {
@@ -282,6 +299,15 @@ async function onLeadUpdates(): Promise<void> {
 
 // 存草稿并编辑（M3）：done 后把生成正文 textOut 存为当前章草稿 → 刷树 → 直接落进编辑器
 async function onSaveDraft(): Promise<void> {
+  // R51-I-4（五十一轮）：入口闸（口径对齐生成/中断按钮的 genBusy 门槛）——流式生成中
+  // textOut 只是半章，此前按钮与入口均不查 running，可存残稿并切离工作台（半章落盘
+  // 还会被后续整章生成/自愈覆盖）。草稿卡按钮禁用是第一道，此处兜底键盘/后续新入口
+  //（F4 不完整水印的既有双保险口径）；闸放在 textOut 判空前——生成初期正文为空，
+  // 「无正文可存」会误导真因。
+  if (genBusy.value) {
+    ui.toast('生成进行中，正文尚不完整，请等生成结束或先中断再存草稿', 'error')
+    return
+  }
   if (!wb.textOut.trim()) {
     ui.toast('无正文可存', 'error')
     return
@@ -412,7 +438,8 @@ async function onSaveDraft(): Promise<void> {
     <WbHealCard />
 
     <!-- 生成正文（M4 默认主区：作者看到的是文章，不是事件日志） -->
-    <WbDraftCard :draft-saved="draftSaved" :saving="saveDraftPending" @save="onSaveDraft" />
+    <!-- R51-I-4（五十一轮）：genBusy 下传禁存——流式生成中按钮不可存半章草稿（入口闸兜底见 onSaveDraft） -->
+    <WbDraftCard :draft-saved="draftSaved" :saving="saveDraftPending" :gen-busy="genBusy" @save="onSaveDraft" />
 
     <div v-if="err" class="err-msg">{{ err }}</div>
     </template>

@@ -149,6 +149,12 @@ function ensureChapterNotFinalized(bookRoot: string, relPath: string, chapter?: 
       throw new Error(`第 ${relPath} 章已定稿，拒绝覆盖写；如需重写请先回滚该章定稿或另立章号`)
     }
     if (chapter !== undefined) {
+      // R51-F-2（五十一轮）：章号数值匹配限正文路径——finalizedRevision 是全文档通用
+      // 语义（章纲/设定等非正文文档也可定稿，其文件名同样数字开头，如
+      // 大纲/章纲/0012-x.md）；不限路径时定稿章纲 0012 会把正文第 12 章的续写/连写
+      // 全量误拦「已定稿」。精确 path 分支（上方）不设限：对既定目标路径的覆盖拦截
+      // 与文档类型无关。清单 path 为 slash 形 rel（与上方 relPath 构造同源）。
+      if (!e.path.startsWith('写作/正文/')) continue
       const base = e.path.split('/').pop() ?? ''
       const m = base.match(/^(\d+)-/)
       if (m && Number(m[1]) === chapter) {

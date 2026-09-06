@@ -320,6 +320,10 @@ export const useDocStore = defineStore('doc', () => {
         // 同型问题换了触发源），此处同样显式关闭
         e.content = mergeFm(content, stripFrontmatter(e.content), { stripLeading: false })
         e.baselineRevision = await sha256Revision(content)
+        // R51-H-3（五十一轮）：refresh 成功同样推进 treeRev（对齐 doSave 成功分支口径）——
+        // 不推进则 syncCleanWithTree 的 stale 过滤（treeRev !== curRev）恒命中，refreshed
+        // 文档此后每次树刷新都被冗余重拉（每文档 GET + sha256 白耗）
+        e.treeRev = useTreeStore().revision
         return true
       }
       e.content = content
@@ -328,6 +332,8 @@ export const useDocStore = defineStore('doc', () => {
       // beforeunload 双兜底同时被跳过，编辑静默丢失（CC-P2-15 只护住了上面的 dirty 分支）
       e.baselineRevision = rev
       if (e.content === content) e.dirty = false
+      // R51-H-3（五十一轮）：同上——clean 分支（refresh 的主路径）也推进，冗余重拉才真正收口
+      e.treeRev = useTreeStore().revision
       return true
     } catch {
       // R30-7（三十轮）：保持既有静默吞错（best-effort 对齐磁盘），仅以 false 上报失败

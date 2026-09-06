@@ -129,8 +129,22 @@ export function registerOverviewRoutes(ctx: OverviewCtx): void {
     // readBookConfig 结果统一过 applyGlobalDefaults——书级未设回落 global.json → 硬编码
     // R50-C-2（五十轮）：book.yaml 损坏静默降级留痕（对齐 state.ts P3-2 口径）——
     // 错误分支带 DEFAULT_CONFIG 骨架，未判 ok 直接用 .config 会无声回落默认身份
-    const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
+    // R51-RED-2（五十一轮）：recover 合并失同步收口——R48-79 正本契约与 R50-C-2
+    // 既有契约按失败模式分流：book.yaml **缺失**（books.jsonl 在册而档案缺位，书
+    // 档案不完整）显式 500 拒绝以默认身份代答——静默代答会把假 kind/genre 渲染成
+    // 真书档案；**损坏**（存在但解析失败）保持 R50-C-2 口径 200 降级 + warn 留痕
+    //（r50-c2 回归钉），作者可见诊断、书不因局部损坏整体不可用。
+    const bookYamlPath = join(bookRoot, 'book.yaml')
+    const cfgResult = readBookConfig(bookYamlPath)
     if (!cfgResult.ok) {
+      if (!existsSync(bookYamlPath)) {
+        return replyError(
+          res,
+          500,
+          'IO_ERROR',
+          `book.yaml 缺失：${bookYamlPath}（书档案不完整，拒绝以默认配置代答）`,
+        )
+      }
       log.warn('overview', `book.yaml 解析降级: ${cfgResult.error.message}`)
     }
     const config = applyGlobalDefaults(cfgResult.config, ctx.userDataPath)

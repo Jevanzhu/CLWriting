@@ -324,7 +324,10 @@ export function patchFlatFm(
       continue
     }
     if (done.has(key)) {
-      // 重复同名顶层键（手写脏数据）：首个已改写，后续重复及其子行丢弃防解析歧义
+      // 重复同名顶层键（手写脏数据）：首个已改写，后续重复及其子行丢弃防解析歧义。
+      // R51-F-7（五十一轮）：静默丢弃补 warn 留痕（R76-15「写了但不生效无迹可查」
+      // 纪律）——作者第二处键值被丢弃后无从知晓，改配置「不生效」无诊断线索。
+      log.warn('frontmatter', `patchFlatFm 重复同名顶层键「${key}」：保留首个（已按 updates 改写），后续重复键及其子行已丢弃`)
       i = j
       continue
     }
@@ -450,6 +453,16 @@ export function parseRealmSystems(fmRaw: string): ParsedRealmSystem[] {
   const lines = fmRaw.split('\n').map((l) => (l.endsWith('\r') ? l.slice(0, -1) : l))
   let current: ParsedRealmSystem | null = null
   let inRealms = false
+  // R51-F-4（五十一轮）：块式序列留痕闸（每次解析至多 warn 一条，防多体系逐行刷屏）
+  let warnedBlockSeq = false
+  const warnBlockSeqOnce = (): void => {
+    if (warnedBlockSeq) return
+    warnedBlockSeq = true
+    log.warn(
+      'frontmatter',
+      '境界体系段含块式序列（标准 YAML 手写形态：`序列:` 逐行 `- 项`）——本解析器仅支持流式写法 `序列: [a, b]`，相关体系序列按空处理（成长线机检对该体系失明）',
+    )
+  }
 
   for (const line of lines) {
     // 体系: 段开始
@@ -470,12 +483,21 @@ export function parseRealmSystems(fmRaw: string): ParsedRealmSystem[] {
       continue
     }
 
+    // R51-F-4：块式序列内容行（`- 项` 且非 `- 名称:`）——不支持，warn 留痕后跳过
+    if (/^\s+-\s+\S/.test(line)) {
+      warnBlockSeqOnce()
+      continue
+    }
+
     // 序列: [a, b]（当前体系的序列）
     const seqMatch = line.match(/^\s*序列[：:]\s*(.*)$/)
     if (seqMatch && current) {
       const val = parseValue(seqMatch[1]!)
       if (Array.isArray(val)) {
         current.序列 = val.map(String)
+      } else if (seqMatch[1]!.trim() === '') {
+        // R51-F-4：`序列:` 空值 = 块式序列头——同样留痕（内容行由上方分支接住）
+        warnBlockSeqOnce()
       }
       continue
     }

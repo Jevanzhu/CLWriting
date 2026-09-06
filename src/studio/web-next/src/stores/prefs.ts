@@ -132,6 +132,18 @@ export const usePrefsStore = defineStore('prefs', () => {
   const ragEnabled = ref(DEFAULTS.ragEnabled)
   /** 知识检索提供方默认（'' = 未设；书级 rag.provider，引用应用级 RAG 提供方 id） */
   const ragProvider = ref(DEFAULTS.ragProvider)
+  // ── R52-E-2：机检阈值全局托底五键（undefined = 未设 = 走引擎默认；刻意不进 DEFAULTS、
+  // 无硬编码托底值——引擎默认参数即最终回落，与 defaultTargetWords 的「0 = 未设」不同源）──
+  /** 复读占比阈值默认（0-1 小数；书级 checks.repeat_threshold） */
+  const checkRepeatThreshold = ref<number | undefined>(undefined)
+  /** 复读最小连续字数默认（正整数；书级 checks.repeat_chars_threshold） */
+  const checkRepeatCharsThreshold = ref<number | undefined>(undefined)
+  /** 超长句判定长度默认（正整数；书级 checks.max_sentence_len） */
+  const checkMaxSentenceLen = ref<number | undefined>(undefined)
+  /** 高频意象报黄次数阈值默认（正整数；书级 checks.imagery_threshold） */
+  const checkImageryThreshold = ref<number | undefined>(undefined)
+  /** 字数容差百分比默认（正数；书级 checks.word_count_tolerance） */
+  const checkWordCountTolerance = ref<number | undefined>(undefined)
 
   // ── 书级覆盖（prefs.json；null = 用全局）──
   const bookPageWidth = ref<number | null>(null)
@@ -162,7 +174,11 @@ export const usePrefsStore = defineStore('prefs', () => {
     let apiOk = false
     try {
       const r = await getGlobalPrefs()
-      prefs = r.prefs
+      // R51-H-2（五十一轮）：200 但缺 prefs 字段（信封异常/旧网关代理截断）时 r.prefs 为
+      // undefined——赋值后 Object.keys(undefined) 抛 TypeError，沿 main.ts mount 前的
+      // top-level await 冒出，应用整体不挂载（白屏死）。`?? {}` 兜底为「空偏好」：走
+      // applyPrefs 逐键守卫全跳过 = 全默认值，与 catch 的「API 不可达用默认」同口径降级。
+      prefs = r.prefs ?? {}
       revision = r.revision
       revisionKnown = true
       apiOk = true
@@ -264,6 +280,23 @@ export const usePrefsStore = defineStore('prefs', () => {
     if (typeof p.relationMineThreshold === 'number' && p.relationMineThreshold >= 1) relationMineThreshold.value = Math.round(p.relationMineThreshold)
     if (typeof p.ragEnabled === 'boolean') ragEnabled.value = p.ragEnabled
     if (typeof p.ragProvider === 'string') ragProvider.value = p.ragProvider.trim()
+    // R52-E-2：机检阈值五键——占比守 (0,1]（>1 会把全书章节判复读），计数/容差守正数；
+    // 非法值保持现值（undefined = 未设 = 引擎默认）
+    if (typeof p.checkRepeatThreshold === 'number' && p.checkRepeatThreshold > 0 && p.checkRepeatThreshold <= 1) {
+      checkRepeatThreshold.value = p.checkRepeatThreshold
+    }
+    if (typeof p.checkRepeatCharsThreshold === 'number' && p.checkRepeatCharsThreshold > 0) {
+      checkRepeatCharsThreshold.value = Math.round(p.checkRepeatCharsThreshold)
+    }
+    if (typeof p.checkMaxSentenceLen === 'number' && p.checkMaxSentenceLen > 0) {
+      checkMaxSentenceLen.value = Math.round(p.checkMaxSentenceLen)
+    }
+    if (typeof p.checkImageryThreshold === 'number' && p.checkImageryThreshold > 0) {
+      checkImageryThreshold.value = Math.round(p.checkImageryThreshold)
+    }
+    if (typeof p.checkWordCountTolerance === 'number' && p.checkWordCountTolerance > 0) {
+      checkWordCountTolerance.value = p.checkWordCountTolerance
+    }
   }
 
   /** 从当前全局 ref 构建 GlobalPrefs 对象（不含书级覆盖） */
@@ -298,6 +331,13 @@ export const usePrefsStore = defineStore('prefs', () => {
       relationMineThreshold: relationMineThreshold.value,
       ragEnabled: ragEnabled.value,
       ragProvider: ragProvider.value,
+      // R52-E-2：机检阈值五键全量带上（undefined 序列化时被 JSON.stringify 丢弃 =
+      // 未设不覆盖盘上已有值，与服务端合并写语义一致）
+      checkRepeatThreshold: checkRepeatThreshold.value,
+      checkRepeatCharsThreshold: checkRepeatCharsThreshold.value,
+      checkMaxSentenceLen: checkMaxSentenceLen.value,
+      checkImageryThreshold: checkImageryThreshold.value,
+      checkWordCountTolerance: checkWordCountTolerance.value,
     }
   }
 
@@ -685,6 +725,32 @@ export const usePrefsStore = defineStore('prefs', () => {
     ragProvider.value = v.trim()
     schedulePersist()
   }
+  // ── R52-E-2：机检阈值五键 setter（clamp 后写 ref → schedulePersist 防抖落 global.json）──
+  /** AI 机检 · 复读占比阈值（clamp (0,1]，两位小数截断防浮点尾差入盘） */
+  function setCheckRepeatThreshold(v: number): void {
+    checkRepeatThreshold.value = Math.min(1, Math.max(0.01, Math.round(v * 100) / 100))
+    schedulePersist()
+  }
+  /** AI 机检 · 复读最小连续字数（clamp 2-1000 取整） */
+  function setCheckRepeatCharsThreshold(v: number): void {
+    checkRepeatCharsThreshold.value = Math.min(1000, Math.max(2, Math.round(v)))
+    schedulePersist()
+  }
+  /** AI 机检 · 超长句判定长度（clamp 10-500 取整） */
+  function setCheckMaxSentenceLen(v: number): void {
+    checkMaxSentenceLen.value = Math.min(500, Math.max(10, Math.round(v)))
+    schedulePersist()
+  }
+  /** AI 机检 · 高频意象次数阈值（clamp 1-100 取整） */
+  function setCheckImageryThreshold(v: number): void {
+    checkImageryThreshold.value = Math.min(100, Math.max(1, Math.round(v)))
+    schedulePersist()
+  }
+  /** AI 机检 · 字数容差百分比（clamp 1-500 取整） */
+  function setCheckWordCountTolerance(v: number): void {
+    checkWordCountTolerance.value = Math.min(500, Math.max(1, Math.round(v)))
+    schedulePersist()
+  }
 
   return {
     theme,
@@ -715,6 +781,11 @@ export const usePrefsStore = defineStore('prefs', () => {
     relationMineThreshold,
     ragEnabled,
     ragProvider,
+    checkRepeatThreshold,
+    checkRepeatCharsThreshold,
+    checkMaxSentenceLen,
+    checkImageryThreshold,
+    checkWordCountTolerance,
     bookPageWidth,
     bookAutosaveInterval,
     effectivePageWidth,
@@ -752,5 +823,10 @@ export const usePrefsStore = defineStore('prefs', () => {
     setRelationMineThreshold,
     setRagEnabled,
     setRagProvider,
+    setCheckRepeatThreshold,
+    setCheckRepeatCharsThreshold,
+    setCheckMaxSentenceLen,
+    setCheckImageryThreshold,
+    setCheckWordCountTolerance,
   }
 })

@@ -527,6 +527,12 @@ async function commitIndexBatch(
   //（100 块/批 ≈ 10 万字量级，对 8k~32k token 输入模型都留足余量）。任一批失败不再
   // 整体报废——R73-5（二十一轮 A-5）：已成功批按「整章」小事务续传落库（见下）。
   const EMBED_BATCH_SIZE = 100
+  // R51-E-N3（五十一轮）：既有索引维度进 embed 循环前先读——维度无法预知（同一模型
+  // 名在不同端点/供应商可出不同维度），只能在首批返回后比对；旧口径在全部批次烧完后
+  // 才检（下方收尾处），同模型名不同维的端点会把全书重嵌白烧完才报错。首批后即检：
+  // 已烧成本封顶一个批次；失配收口沿用 R26-16 口径（硬错 + 指向 rebuild 端点显式
+  // 重建，不自动清索引——网关维度抖动场景下自动清空会毁掉既有有效索引）。
+  const existingIndexedDim = getRagMeta(db, 'embedding_dim')
   // 内存闸（2026-08-24 审计 A2）：批结果即转 Float32Array 驻留——原实现以 number[][]
   // 全量累积（8B/维，200 万字书 ≈ 430MB）到 COMMIT 才逐条 BLOB 化；即转后峰值减半
   //（≈215MB，与召回侧 readAllChunks 单份口径一致）。刻意不做「事务内逐批 embed 逐批
@@ -558,6 +564,17 @@ async function commitIndexBatch(
     // 只觉召回变差无从排查。任一批条数与请求文本数不符、或任一行维度偏离基准 → 该批
     // 按 embed 失败同款收口（failedAt 续传路径：批前整章小事务提交，混维批零入库）。
     if (refDim === null) refDim = batchVec[0]?.length ?? null
+    // R51-E-N3（五十一轮）：首批后即检既有索引维度——R27-93 批内校验（混维/条数）
+    // 之后执行，批形异常仍归批失败路径；批形合法而维度对不上既有索引 → 当场硬错，
+    // 不再继续烧后续批次（信封与既有收尾检查同一文案，消费方零感知差异）。
+    if (existingIndexedDim && refDim !== null && Number(existingIndexedDim) !== refDim) {
+      return {
+        ok: false,
+        chunkCount: 0,
+        chapterCount: 0,
+        error: `embedding 维度与现有索引不一致（现有：${existingIndexedDim}，当前：${refDim}），请重建索引（POST /rag/rebuild）后重试。`,
+      }
+    }
     if (batchVec.length !== batchTexts.length || batchVec.some((v) => v.length !== refDim)) {
       log.warn('rag', `embedding 批响应条数/维度异常（期望 ${batchTexts.length} 行 × ${refDim ?? '?'} 维，实得 ${batchVec.length} 行）——该批起不入库，已成功部分续传`)
       failedAt = i

@@ -1601,6 +1601,13 @@ export class DocumentService {
     // mkdir 将创建）」的段过 sanitizeFileNamePart（既有段保持身份不动，与 move 侧
     // 1146 行口径一致），防 win 非法字符/尾点尾空格/保留设备名目录段 mkdir EINVAL 裸 500。
     const relSegs = input.relPath.split('/')
+    // R51-D-3（五十一轮）：`..` 目录段前置拒绝——下方目录段「已存在则原样保留」分支对
+    // `a/..` 恒命中（existsSync(join(root,'a','..')) 即 root 本身），`..` 原文进入
+    // copyRelPath 且原文登记清单（doCreate 侧有原始 relPath 的 PATH_ESCAPE 前置 +
+    // sanitizeCreateSegment 洗段，copy 侧两道皆无），物理落位（resolveSafePath 归一）
+    // 与清单登记（原文）路径不一致 → docId 身份分裂、保存恒 REVISION_CONFLICT。
+    // 口径对齐 doCreate 主评审核销注：位置合法化不放宽，复制无合法用例需要 `..` 段。
+    if (relSegs.includes('..')) return { ok: false, code: 'PATH_ESCAPE', reason: '路径越出书仓库' }
     const safeDirSegs = relSegs.slice(0, -1).map((seg, idx) =>
       existsSync(join(this.bookRoot, ...relSegs.slice(0, idx + 1))) ? seg : sanitizeFileNamePart(seg),
     )

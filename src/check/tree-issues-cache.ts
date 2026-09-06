@@ -23,6 +23,9 @@ import { existsSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { ensureTreeIssuesTables } from '../cache/schema.js'
 import { LEAD_UPDATES_ARCHIVE_DIR } from './lead-updates.js'
+// R51-E-N4（五十一轮）：.md 判定走单一真相源（R38-9 大小写不敏感口径，leak-derive/
+// iron-rules 消费侧同源）——.MD 大写扩展名同样是机检输入，不得因收窄误伤
+import { isMdFileName } from '../format/filename.js'
 
 /** 机检器代次：词表 / 阈值 / 规则语义演进时 bump（旧缓存整代表失效）。
  *  a1-v2（2026-08-21 H-1）：章级行不再含账本全书性条目（改独立缓存 leads_book_*），
@@ -48,7 +51,12 @@ function fileFp(p: string): string {
   }
 }
 
-/** 目录树指纹 "count:size:maxMtime:nameHash"（递归文件，跳过 ._ 资源文件）。
+/** 目录树指纹 "count:size:maxMtime:nameHash"（递归**只计 .md 文件**，跳过 ._ 资源文件）。
+ *  R51-E-N4（五十一轮）：只计 .md——本指纹的全部消费目录（布线/大纲/章纲/文风/暂存
+ *  归档/写作·正文）在机检侧均只吃 .md（rebuild walkMdEach、iron-rules/leak-derive 的
+ *  isMdFileName 同源判定），混入的临时文件（编辑器 swap/同步盘半写残留）不是机检输入，
+ *  计入只会无谓整表清空（增量缓存永久失效）。指纹串构成变化 → 存量 global_fp 一次性
+ *  失效重查（语义无损，R73-27 升级同款）。
  *  nameHash = 相对路径 FNV-1a（2026-08-21 四轮复审）：纯改名 count/size/mtime 全不变，
  *  但章节文件名是 findChapterFile 章号映射与引文 grep 的输入——改名不失效会让
  *  leads_book 缓存陈旧（含本指纹的纪元 dirFp 同享此修正，一次性整表失效无害）。
@@ -70,7 +78,7 @@ function dirFp(p: string): string {
       if (e.name.startsWith('._') || e.name === '.DS_Store') continue
       const fp = join(dir, e.name)
       if (e.isDirectory()) walk(fp, `${prefix}${e.name}/`)
-      else if (e.isFile()) {
+      else if (e.isFile() && isMdFileName(e.name)) {
         try {
           const st = statSync(fp, { bigint: true })
           count++

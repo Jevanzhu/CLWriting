@@ -75,6 +75,11 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
   // R73-67：429 指引一次连接纪元只提示一次（onopen 成功/切书复位）——退避重连期间不反复打扰
   let busy429Notified = false
   let probing429 = false
+  // R51-H-5（五十一轮）：换票失败回退 ?token= 的留痕告警去重——退避重连每轮 doConnect 都
+  // 重新换票，ticket 通道持续故障时原实现每连接一条 console.warn（分钟级刷屏）。对齐
+  // busy429Notified 惯例：同连接纪元只 warn 一次，onopen 成功/切书 connect 复位
+  //（恢复后再故障可再告，观测口不丢新事件）。
+  let ticketFallbackWarned = false
 
   // R73-67（D 域移交前端面）：per-book SSE 连接数上限（第 6 个标签页 429 BUSY）的前端展示面。
   // EventSource 不暴露状态码/body——非 2xx 一律 fail-closed，无法与 403/404 区分。借 fetch
@@ -141,8 +146,12 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
         // R50-D2-2（五十轮）：换票失败回退 ?token= 旧通道——令牌拼进 URL 与契约
         // 「token 不进 URL」目标相悖且原实现无告警；回退行为本身不动（删除回退通道
         // 超本轮范围，e2e 过渡期兼容依赖它），补 console.warn 留痕：ticket 通道故障
-        //（服务端未上线/网络/超时）临时降级，本地单机面可接受，供诊断
-        console.warn('[sse] stream-ticket 换票失败，临时回退 ?token= 查询参数通道（token 进 URL，留痕供诊断）')
+        //（服务端未上线/网络/超时）临时降级，本地单机面可接受，供诊断。
+        // R51-H-5（五十一轮）：同连接纪元只 warn 一次（复位点见 ticketFallbackWarned 注）
+        if (!ticketFallbackWarned) {
+          ticketFallbackWarned = true
+          console.warn('[sse] stream-ticket 换票失败，临时回退 ?token= 查询参数通道（token 进 URL，留痕供诊断）')
+        }
         query = `?token=${encodeURIComponent(t)}`
       }
     }
@@ -151,6 +160,7 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
       errorCount = 0
       backoffStep = 0
       busy429Notified = false // R73-67：连接成功后复位（下次 429 再提示）
+      ticketFallbackWarned = false // R51-H-5：连接成功后复位（恢复后再故障可再告）
       wb.setConnected(true)
     }
     es.onerror = () => {
@@ -210,6 +220,7 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
     if (!name) return
     currentName = name
     busy429Notified = false // R73-67：切书新连接纪元，429 指引可再提示
+    ticketFallbackWarned = false // R51-H-5：切书新连接纪元，换票告警可再提示
     disconnect()
     safeDoConnect()
   }

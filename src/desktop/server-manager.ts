@@ -305,7 +305,7 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
     // doRestart 的 finally 同步清空）——shutdown 短预算耗尽时 kill 链经此够到它
     startingProc = proc
     forwardChildStdio(proc, logger) // 握手前接线——boot 期日志不丢
-    const port = await handshake(proc, logger)
+    const port = await handshake(proc, logger, killWaitMs)
     // 稳定窗口计时（unref 不拖退出）：到点仍是他为 active 才清零
     setTimeout(() => {
       if (active?.proc === proc) restartCount = 0
@@ -601,6 +601,12 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
       if (!opts || port === null) return null // 从未成功 start 过：无钉住面可复刻
       if (shuttingDown) return null // 停机流程仍在途：不抢生命周期（观察窗时长已覆盖正常收尾）
       if (starting) return starting // 在途轮复用（X-3 同款互斥通道语义）
+      // R51-A-3（五十一轮）：作废挂起重启，与 start() 口径对称（start IIFE 首段
+      // cancelPendingRestart 同款）——不取消则崩溃退避 restartTimer 仍武装，本函数
+      // launch 在途时 doRestart 触发会复刻钉住端口再 fork（doRestart 不查 starting
+      // 直接覆写通道），双 child 竞逐 active、输者成孤儿。显式恢复即开新生命周期，
+      // 旧退避序列随之作废。
+      cancelPendingRestart()
       // 显式新生命周期：复位主动 kill 标记 + 退避计数清零（与 start IIFE 同口径，
       // 恢复不计入崩溃退避）——launch 前置位，防 fork 后检查即杀新 child
       shutdownStarted = false
@@ -783,8 +789,16 @@ async function killProcAwaitEscalating(
  * ready → resolve 端口；boot-error 信封 → ServerBootError；启动途中 exit → 同类错误；
  * 30s 超时兜底（child 挂起）→ kill+等退出+SIGKILL 升级后按启动失败收口。settle 后残余
  * 监听挂在 child 对象上随其消亡，无跨 child 泄漏（exit persistent 版本由 start 成功路径另挂）。
+ * R51-A-6（五十一轮）：kill 等待改经 killWaitMs 参数注入（缺省 = 模块常量，生产行为
+ * 不变）——超时 kill 链此前直用 KILL_WAIT_TIMEOUT_MS 字面量，测试注入 deps.killWaitMs
+ * 缩短等待的口径在握手超时路径不完备（kill 升级段仍按 2s 常量等，注入口径名存实亡）。
+ * launch 由工厂闭包调本函数，注入值随闭包 killWaitMs 透传。
  */
-function handshake(proc: UtilityProcessLike, logger: LogLike): Promise<number> {
+function handshake(
+  proc: UtilityProcessLike,
+  logger: LogLike,
+  killWaitMs: number = KILL_WAIT_TIMEOUT_MS,
+): Promise<number> {
   return new Promise<number>((resolveRaw, rejectRaw) => {
     let settled = false
     const settle = (finish: () => void): void => {
@@ -808,7 +822,7 @@ function handshake(proc: UtilityProcessLike, logger: LogLike): Promise<number> {
             proc,
             exited,
             'studio server 握手超时',
-            KILL_WAIT_TIMEOUT_MS,
+            killWaitMs,
             logger,
           ).finally(() =>
             rejectRaw(new ServerBootError('HANDSHAKE_TIMEOUT', 'studio server 子进程启动握手超时（30s 无 ready）')),

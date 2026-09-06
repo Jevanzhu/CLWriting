@@ -179,13 +179,22 @@ function hasLegacyRulesSection(text: string): boolean {
 export function slimIronRules(text: string): string {
   const out: string[] = []
   let dropping = false
+  // R51-F-5（五十一轮）：是否确有遗留段被删的标记——压缩 `\n{3,}` 只服务「删段后
+  // 收敛残留空行」这一目的，无段可删时不该动排版（作者手排三连空行被悄悄改写），
+  // 也避免调用方 `slimmed !== rulesText` 恒真把「铁律瘦身为纯配置」错记进 details。
+  let droppedAny = false
   for (const line of text.split('\n')) {
     if (/^##\s/.test(line)) {
       dropping = LEGACY_RULES_HEADING_RE.test(line)
     }
-    if (!dropping) out.push(line)
+    if (dropping) {
+      droppedAny = true
+      continue
+    }
+    out.push(line)
   }
-  return out.join('\n').replace(/\n{3,}/g, '\n\n')
+  // 无遗留段时 join 结果与原文逐字相等（每行原样收集），排版零改写
+  return droppedAny ? out.join('\n').replace(/\n{3,}/g, '\n\n') : out.join('\n')
 }
 
 /**

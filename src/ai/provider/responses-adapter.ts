@@ -101,8 +101,13 @@ function toParams(conf: ProviderConf, req: GenRequest): Record<string, unknown> 
       if (textParts.length > 0) input.push({ role: 'assistant', content: textParts.join('') })
       input.push(...toolUseItems)
     } else {
-      if (textParts.length > 0) input.push({ role: 'user', content: textParts.join('') })
+      // R51-C-2（五十一轮）：function_call_output 先出、text 后出，与 openai 线
+      // R31-6 块序对齐——Responses 语义 function_call_output 须紧跟其 function_call
+      //（跨轮历史里 assistant 的 function_call 在前，中间插 user text 会拆散关联对，
+      // 严格网关 400）。当前链路 tool_result 恒独占 user 消息不触发（R72-12 同注），
+      // 本序修正是防御性口径对齐，两线不再相反。
       input.push(...toolResultItems)
+      if (textParts.length > 0) input.push({ role: 'user', content: textParts.join('') })
     }
   }
 

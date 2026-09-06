@@ -1,5 +1,5 @@
 /**
- * 书级设定全局托底 —— global.json 13 键 + 硬编码回落（两层在 applyGlobalDefaults 合并）。
+ * 书级设定全局托底 —— global.json 全局默认键（含 D3 预算两键 + R52 机检阈值五键，共 20）+ 硬编码回落（两层在 applyGlobalDefaults 合并）。
  *
  * 三层链：book.yaml 书级 → global.json（应用级全局默认）→ GLOBAL_FALLBACK_DEFAULTS（硬编码）。
  * 与快照保留策略（snapshot.ts readGlobalSnapshotPolicy + service.ts snapshotPolicy）同一范式：
@@ -43,7 +43,7 @@ export const GLOBAL_FALLBACK_DEFAULTS: Readonly<{
   ragEnabled: false,
 }
 
-/** global.json 里 13 个全局默认键的合并视图（逐键校验后的部分对象——没写的键不在场） */
+/** global.json 各全局默认键的合并视图（逐键校验后的部分对象——没写的键不在场） */
 export interface GlobalBookDefaults {
   defaultGenre?: string
   defaultVolumeSize?: number
@@ -62,6 +62,18 @@ export interface GlobalBookDefaults {
   tokensPerChapter?: number
   /** D3（批 5）：单章金额预算全局默认（需配价格表才生效） */
   costPerChapter?: number
+  // ── R52-E-2：机检阈值全局托底五键（书级 checks.* 未设才托底；无硬编码回落——
+  // 都未设保持 undefined，runner 吃引擎默认参数值）──
+  /** 复读占比阈值（0-1 小数；书级 checks.repeat_threshold） */
+  checkRepeatThreshold?: number
+  /** 复读最小连续字数（正整数；书级 checks.repeat_chars_threshold） */
+  checkRepeatCharsThreshold?: number
+  /** 超长句判定长度（正整数；书级 checks.max_sentence_len） */
+  checkMaxSentenceLen?: number
+  /** 高频意象报黄次数阈值（正整数；书级 checks.imagery_threshold） */
+  checkImageryThreshold?: number
+  /** 字数容差百分比（正数；书级 checks.word_count_tolerance） */
+  checkWordCountTolerance?: number
 }
 
 /** R64-25（十二轮）：指纹缓存——readGlobalBookDefaults 是高频读侧
@@ -100,6 +112,9 @@ export function readGlobalBookDefaults(userDataPath: string | null): GlobalBookD
       typeof v === 'string' && v.trim().length > 0 ? v : undefined
     const posInt = (v: unknown): number | undefined =>
       typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : undefined
+    // R52-E-2：复读占比是 0-1 的比例语义（>1 = 比率口径永不命中，检查静默失效，视作非法）
+    const unitNum = (v: unknown): number | undefined =>
+      typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= 1 ? v : undefined
     // defaultVolumeSize：分卷章数下限 5（少于 5 章不成卷，过小值会让状态机卷判定失真）
     const intAtLeast = (v: unknown, min: number, max: number): number | undefined =>
       typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max ? v : undefined
@@ -121,6 +136,13 @@ export function readGlobalBookDefaults(userDataPath: string | null): GlobalBookD
       ragProvider: nonEmptyStr(raw['ragProvider']),
       tokensPerChapter: posNum(raw['tokensPerChapter']),
       costPerChapter: posNum(raw['costPerChapter']),
+      // R52-E-2：机检阈值五键——占比限 (0,1]（unitNum），计数类取正整数（posInt），
+      // 容差百分比取正数（posNum）
+      checkRepeatThreshold: unitNum(raw['checkRepeatThreshold']),
+      checkRepeatCharsThreshold: posInt(raw['checkRepeatCharsThreshold']),
+      checkMaxSentenceLen: posInt(raw['checkMaxSentenceLen']),
+      checkImageryThreshold: posInt(raw['checkImageryThreshold']),
+      checkWordCountTolerance: posNum(raw['checkWordCountTolerance']),
     }
     defaultsCache.set(p, { mtimeNs: st.mtimeNs, size: Number(st.size), val })
     return { ...val }
@@ -214,6 +236,27 @@ export function applyGlobalDefaults(cfg: BookConfig, userDataPath: string | null
   if (cfg.rag.provider === undefined && g.ragProvider !== undefined) {
     cfg.rag = { ...cfg.rag, provider: g.ragProvider }
   }
+
+  // R52-E-2：机检阈值五键——书级 checks.* 未设才托底 global（无硬编码回落，都未设
+  // 保持 undefined = runner 吃引擎默认参数）。只在有键要填时才实例化 checks 段，
+  // 不为空托底凭空造段；词表键（imagery_words/leak_keywords）不参与托底（无全局词表语义）
+  const checksFill: NonNullable<BookConfig['checks']> = {}
+  if (cfg.checks?.repeat_threshold === undefined && g.checkRepeatThreshold !== undefined) {
+    checksFill.repeat_threshold = g.checkRepeatThreshold
+  }
+  if (cfg.checks?.repeat_chars_threshold === undefined && g.checkRepeatCharsThreshold !== undefined) {
+    checksFill.repeat_chars_threshold = g.checkRepeatCharsThreshold
+  }
+  if (cfg.checks?.max_sentence_len === undefined && g.checkMaxSentenceLen !== undefined) {
+    checksFill.max_sentence_len = g.checkMaxSentenceLen
+  }
+  if (cfg.checks?.imagery_threshold === undefined && g.checkImageryThreshold !== undefined) {
+    checksFill.imagery_threshold = g.checkImageryThreshold
+  }
+  if (cfg.checks?.word_count_tolerance === undefined && g.checkWordCountTolerance !== undefined) {
+    checksFill.word_count_tolerance = g.checkWordCountTolerance
+  }
+  if (Object.keys(checksFill).length > 0) cfg.checks = { ...(cfg.checks ?? {}), ...checksFill }
 
   return cfg as EffectiveBookConfig
 }

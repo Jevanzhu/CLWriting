@@ -95,10 +95,19 @@ export function resolveWithinRoot(bookRoot: string, relPath: string): ResolvedWi
  * symlink realpath 二次校验（防符号链接指向 bookRoot 外）。
  *
  * fail-closed 策略：realpath 失败 → false（拒绝），与 resolveSafePath 一致。
- * 文件不存在（新建场景）→ true（只做路径校验即可）。
+ * R51-D-4（五十一轮）：目标不存在改词法校验（resolve 后 relative 段级判定，不用
+ * realpath——目标不存在时 realpath 必抛，词法面是此处唯一可得证据）；原实现
+ * `!existsSync → true` 无条件放行，`../外`、越盘绝对路径等形态即使不存在也判真
+ * （误用脚枪：把本函数当新建场景守卫的调用方会放行 root 外路径）。原头注
+ * 「文件不存在 → true（只做路径校验即可）」与实态不符（原实现不做任何校验），一并勘误。
+ * 现调用点均对存在路径校验（book-search/spill/prepare），本修为契约兜底不改生产行为。
  */
 export function isWithinRoot(bookRoot: string, abs: string): boolean {
-  if (!existsSync(abs)) return true
+  if (!existsSync(abs)) {
+    const rel = relative(resolve(bookRoot), resolve(abs))
+    // L-D1 同款段级判定：rel 空 = 目标即 root 放行；`..` 段/异盘绝对路径拒
+    return rel === '' || (!ESCAPE_SEGMENT_RE.test(rel) && !isAbsolute(rel))
+  }
   try {
     const realRoot = realpathSync(bookRoot)
     const real = realpathSync(abs)
@@ -138,9 +147,18 @@ export function safeManifestPath(bookRoot: string, rel: string): string | null {
  * 产出的键字节必须与收编前逐位一致（新旧版本进程混跑时锁互斥仍成立；既有回归
  * 测试锚定精确键值）。本模块仅依赖 node:* 与 text-canonical（叶子），各层调用点
  * 委托此处不构成循环 import。
+ *
+ * R51-D-2（五十一轮）：折叠面扩至 darwin——mac 默认卷 APFS 不敏感（字符串异形、
+ * 物理同库），此前 posix 臂不折叠使布线/清单锁键与文档身份键在 mac 上对 case 变体
+ * 失明（R40-23/R41-13/R44-5 三轮维持登记的同族观察本轮转正）；大小写敏感卷由启动
+ * 探测拒绝（产品不支持面，无「敏感卷上误折叠」语义）。linux 维持不折叠（敏感 FS
+ * 合法异名共存，r45/r41 钉值测试以 linux mock 为不折叠臂）。折叠面变更使键字节
+ * 在 mac 上与旧版本相差大小写——新旧进程混跑窗内跨版本锁互斥退化为文件名相异
+ * （APFS 物理同文件互斥仍兜底），单版本内一致性不受影响。
  */
 export function platformCaseFold(key: string): string {
-  return process.platform === 'win32' ? key.toLowerCase() : key
+  const foldFs = process.platform === 'win32' || process.platform === 'darwin'
+  return foldFs ? key.toLowerCase() : key
 }
 
 /** relPath 身份键（R38-14，三十八轮）：分隔符归一为 /；win32 追加大小写折叠

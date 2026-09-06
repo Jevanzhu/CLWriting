@@ -476,13 +476,18 @@ export function checkImagery(
     // 无视机检面板；数据源接线后空表只剩「作者明确关掉」一种来源，仍不产黄
     return { name: '高频意象', items }
   }
+  // R51-E-N5（五十一轮）：计数前剥对白引号 span——禁词（checkBannedWords R29-1①）/
+  // 开头（:1045）同文件均剥，唯本检查吃原文：意象词多为叙述套语，对白里角色说
+  // 「气氛」「空气」属人物语言非作者叙述套路，对白密集章逐句累加黄项刷屏。
+  // stripQuotedSpans 单源（quotes.ts）对齐。
+  const prose = stripQuotedSpans(body)
   for (const word of imageryWords) {
     if (!word) continue
     let count = 0
-    let idx = body.indexOf(word)
+    let idx = prose.indexOf(word)
     while (idx !== -1) {
       count++
-      idx = body.indexOf(word, idx + word.length)
+      idx = prose.indexOf(word, idx + word.length)
     }
     // R26-29（二十六轮）：阈值边界统一为 `>`（超过才报）——与 checkBodyParts/checkSimile
     // 的「≤阈 合法、>阈 报黄」语义一致（#27 第 5.3 节同款）；原 `>=` 让恰好踩线的
@@ -903,7 +908,10 @@ export function checkBodyParts(
 // 「石头像刀一样硬」等「X头像/X石像」明喻被一并漏计（漏报向安全）；「人像蝼蚁」
 // 类人字领明喻不排（人像的肖像义在散文里远低于明喻用法）。后排他集补「样」——
 // 「挺像样」「很像样」的「像样」非比喻。
-const SIMILE_RE = /(?<![相很好不像图偶摄入影照实音画映形印想虚镜显成雕塑石铜铁玉蜡金肖绣头佛神遗铸拟造圣群])(像)(?!他|她|你|我|这|那|样)[^，。！？；、：\s像]{1,12}(?:一样|似的|一般|般)?/gu
+// 导出（R51-J-1，五十一轮）：语料收割（scripts/harvest-corpus.ts）对 simile-density
+// 复用本正则直扫正文取真实比喻短语作幸存者判定锚——message 只报次数（「像…」是
+// 模板字面量），文案解析提不出锚。单一真相源，防两处正则漂移。
+export const SIMILE_RE = /(?<![相很好不像图偶摄入影照实音画映形印想虚镜显成雕塑石铜铁玉蜡金肖绣头佛神遗铸拟造圣群])(像)(?!他|她|你|我|这|那|样)[^，。！？；、：\s像]{1,12}(?:一样|似的|一般|般)?/gu
 
 export function checkSimile(
   body: string,

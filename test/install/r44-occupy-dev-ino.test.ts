@@ -91,17 +91,21 @@ describe('R44-11：appendBook 占用判重 dev+ino 物理身份', () => {
     }
   })
 
-  it('stat 失败回退 samePath：darwin 字符串全等 → 放行；win32 折叠 → 拒（R42-35 行为保持）', () => {
+  it('stat 失败回退 samePath：darwin/win32 折叠比较 → 均拒（R42-35 折叠口径；R51-D-2 起 darwin 同折）', () => {
     const wd = mkWorkDirWithFoo(100, 200)
     STAT.set(join(wd, '长篇', 'Foo'), 'throw')
     STAT.set(join(wd, '长篇', 'foo'), 'throw')
     try {
-      // posix：回退全等比较——大小写异名两字符串不等，放行
+      // R51-D-2（五十一轮）：samePath 平台折叠集收口 darwin（默认 APFS 卷大小写不敏感，
+      // Foo/foo 回退口径下亦视同库拒双登记）——原「darwin 字符串全等放行」期望过时；
+      // 大小写敏感卷上的合法异名库仍由上方 dev+ino 主路径放行（不同 ino 臂）
       Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
       const posixRes = appendBook(wd, { name: 'foo', path: '长篇/foo', kind: 'long' })
-      expect(posixRes.ok).toBe(true)
+      expect(posixRes.ok).toBe(false)
+      expect((posixRes as { ok: false; reason: string }).reason).toContain('「Foo」')
+      expect(readBooks(wd).map((b) => b.name)).toEqual(['Foo'])
 
-      // win32：回退折叠比较——Foo/foo 视为同库，拒（R42-35 口径不回退）
+      // win32：折叠比较——Foo/foo 视为同库，拒（R42-35 口径不回退）
       const wd2 = mkWorkDirWithFoo(100, 200)
       STAT.set(join(wd2, '长篇', 'Foo'), 'throw')
       STAT.set(join(wd2, '长篇', 'foo'), 'throw')

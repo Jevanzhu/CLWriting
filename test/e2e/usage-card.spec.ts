@@ -40,7 +40,17 @@ test.beforeAll(async () => {
   server = startServer({ port: PORT, workDir, userDataPath, staticDir: join(process.cwd(), 'dist', 'web') })
   await new Promise<void>((resolve, reject) => {
     server.once('listening', () => resolve())
-    server.once('error', (err) => reject(err))
+    // R51-J-6（五十一轮）：补 EADDRINUSE 人话提示（ai-provider/auto-write 等同批 spec
+    // 的 R64-40 口径——固定端口被占时裸 EADDRINUSE 只留栈，看不出该查谁）
+    server.once('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EADDRINUSE') {
+        console.error(
+          `[e2e usage-card] 端口 ${PORT} 已被占用——通常是上一次 e2e 未退干净或本地 dev 服务抢占。\n` +
+            `排查：lsof -i :${PORT} 查占用进程并 kill 后重跑。`,
+        )
+      }
+      reject(err)
+    })
   })
   // T2-3：写端点要求 token——boot 取一次
   const boot = await (await fetch(`${BASE}/api/boot`)).json()

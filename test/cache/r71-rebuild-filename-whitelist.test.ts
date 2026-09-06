@@ -1,7 +1,7 @@
 /**
  * R71-37（十九轮）回归：摘要文件名 Number() 过宽——`.md`→0、`0x10.md`→16、
  * `1e2.md`→100、`-3.md`→-3 此前都 Number.isFinite 入表（错章号/负章号污染摘要
- * 联查）；改 /^\d+$/ 严格白名单，不匹配计入 errors（对齐 R62-32 口径）。
+ * 联查）；改 /^\d+$/ 严格白名单，不匹配计入健康报告（对齐 R62-32 口径；R51-E-N1 起走 warnings 报告级桶）。
  */
 import { test, expect } from 'vitest'
 import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
@@ -29,7 +29,8 @@ test('R71-37: 十六进制/科学计数/负数/空名摘要文件 → 拒入表�
     writeFileSync(join(dir, '7.md'), '合法摘要', 'utf-8')
     const r = rebuild(root, join(root, '.cache', 'index.db'))
     expect(r.summaryCount).toBe(1) // 只有 7.md 入表
-    const badErrors = r.errors.filter((e) => e.message.includes('摘要文件名'))
+    // R51-E-N1：报告级分流——白名单外命名改入 warnings（可见性保持，不进硬闸 errors）
+    const badErrors = r.warnings.filter((e) => e.message.includes('摘要文件名'))
     expect(badErrors.length).toBe(4)
     for (const bad of ['0x10', '1e2', '-3', '.md']) {
       expect(badErrors.some((e) => e.message.includes(bad === '.md' ? '「.md」' : bad))).toBe(true)

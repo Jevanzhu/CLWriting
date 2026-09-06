@@ -32,6 +32,7 @@ const M = vi.hoisted(() => ({
   userData: '',
   quitCalls: 0,
   relaunchCalls: 0,
+  releaseLockCalls: 0, // R51-A-1：锁释放推迟到不可回头点——释放调用捕获面
   whenReadyCalls: 0,
   setPaths: {} as Record<string, string>,
   appOn: {} as Record<string, Array<(...a: unknown[]) => void>>,
@@ -217,7 +218,9 @@ vi.mock('electron', () => {
       getPath: (k: string) => (k === 'userData' ? M.userData : `/fake/${k}`),
       requestSingleInstanceLock: () => M.lock,
       // R27-96（二十七轮）：relaunch 显式交接释放锁——桩补同款方法（真实 Electron app 有）
+      // R51-A-1：捕获释放调用次数（武装时机推迟后仅在不可回头点发生）
       releaseSingleInstanceLock: () => {
+        M.releaseLockCalls++
         M.lock = true // 锁释放后锁位回归可获取态
         return true
       },
@@ -616,12 +619,17 @@ describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
     expect(sub).toEqual({ ok: false, reason: '目录无效或是另一书库的子目录' })
     const good = mkLibrary()
     const before = M.relaunchCalls
+    const quitBefore = M.quitCalls
     const r = await M.ipcHandle['desktop:switch-library']!(null, good)
     expect(r).toEqual({ ok: true })
     const stored = JSON.parse(readFileSync(join(M.userData, 'workdir.json'), 'utf8')) as { current: string }
     expect(stored.current).toBe(good)
-    // setTimeout(relaunch, 100) 延迟重启——等它生效
-    await vi.waitFor(() => expect(M.relaunchCalls).toBeGreaterThan(before))
+    // R51-A-1（五十一轮）：setTimeout(relaunch, 100) 只记切库意图并触发优雅退出
+    //（quitCalls+1），不再当场武装重启——relaunch/release 推迟到 before-quit 不可
+    // 回头点（A-1 专项用例验证武装与取消丢弃语义）
+    await vi.waitFor(() => expect(M.quitCalls).toBeGreaterThan(quitBefore))
+    expect(M.relaunchCalls).toBe(before)
+    expect(M.releaseLockCalls).toBe(0)
     // 还原 current，避免影响后续用例的 readStore
     writeFileSync(join(M.userData, 'workdir.json'), JSON.stringify({ current: libA, recent: [] }))
   })
@@ -631,11 +639,15 @@ describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
     // 修复后：目录存在 + 无祖先书库 → 放行（bootstrap 同语义）
     const empty = mkTmp('clw-empty-lib-')
     const before = M.relaunchCalls
+    const quitBefore = M.quitCalls
     const r = await M.ipcHandle['desktop:switch-library']!(null, empty)
     expect(r).toEqual({ ok: true })
     const stored = JSON.parse(readFileSync(join(M.userData, 'workdir.json'), 'utf8')) as { current: string }
     expect(stored.current).toBe(empty)
-    await vi.waitFor(() => expect(M.relaunchCalls).toBeGreaterThan(before))
+    // R51-A-1：意图 + quit（不当场武装，同上）
+    await vi.waitFor(() => expect(M.quitCalls).toBeGreaterThan(quitBefore))
+    expect(M.relaunchCalls).toBe(before)
+    expect(M.releaseLockCalls).toBe(0)
     writeFileSync(join(M.userData, 'workdir.json'), JSON.stringify({ current: libA, recent: [] }))
   })
 
@@ -1488,6 +1500,152 @@ describe('重评-1: 关窗/退出兜底 failed（保存失败）消费——留�
   })
 })
 
+// ── R51-A-1（五十一轮）：切库重启意图的武装时机——推迟到 before-quit 不可回头点 ──
+// 原实现 relaunch() 当场三连（relaunch+releaseSingleInstanceLock+quit 不可回滚），
+// flush 确认取消后应用带「已释放锁+已武装重启」续跑（真双开可抢入 + 后续退出变重启）。
+describe('R51-A-1: relaunch 武装时机（取消无后效，链通过才武装）', () => {
+  async function freshModule(): Promise<(typeof M.windows)[number]> {
+    vi.resetModules()
+    await import('../../src/desktop/main.js')
+    await new Promise((r) => setImmediate(r))
+    await new Promise((r) => setImmediate(r))
+    return M.windows.at(-1)!
+  }
+  function restoreStore(): void {
+    writeFileSync(join(M.userData, 'workdir.json'), JSON.stringify({ current: libA, recent: [] }))
+  }
+
+  it('flush failed 取消 → 不武装重启不释放锁，意图随取消丢弃（二次退出为普通退出）', async () => {
+    const win = await freshModule()
+    const child = M.forkChildren.at(-1)!
+    const rel0 = M.relaunchCalls
+    const lock0 = M.releaseLockCalls
+    const quit0 = M.quitCalls
+    // 切库（合法待建书库，R41-1 口径）：记意图 + 触发优雅退出，此刻不得武装
+    const r = await M.ipcHandle['desktop:switch-library']!(null, mkTmp('clw-r51-a1-lib-'))
+    expect(r).toEqual({ ok: true })
+    await vi.waitFor(() => expect(M.quitCalls).toBe(quit0 + 1)) // setTimeout(relaunch,100) 已触发
+    expect(M.relaunchCalls).toBe(rel0) // A-1 锚点：不再当场 app.relaunch()
+    expect(M.releaseLockCalls).toBe(lock0)
+    // flush failed + 取消：应用原样保留（重评-1 语义），意图被丢弃
+    win.webContents.execJsResult = { conflict: [], failed: ['doc-1'] }
+    M.msgBoxSyncChoice = 1
+    const e1 = { preventDefault: vi.fn() }
+    M.appOn['before-quit']!.at(-1)!(e1)
+    await new Promise((r2) => setImmediate(r2))
+    expect(e1.preventDefault).toHaveBeenCalledTimes(1)
+    expect(M.msgBoxSync.at(-1)!.message).toContain('保存失败')
+    expect(M.quitCalls).toBe(quit0 + 1) // 不退出
+    expect(win.isDestroyed()).toBe(false)
+    // 二次 quit 确认放弃后是**普通退出**——不重启、不释放锁（原实现两处 +1，回归红）
+    M.msgBoxSyncChoice = 0
+    const e2 = { preventDefault: vi.fn() }
+    M.appOn['before-quit']!.at(-1)!(e2)
+    await vi.waitFor(() => expect(M.quitCalls).toBe(quit0 + 2))
+    expect(child.posted).toContainEqual({ type: 'shutdown' })
+    expect(M.relaunchCalls).toBe(rel0)
+    expect(M.releaseLockCalls).toBe(lock0)
+    expect(win.isDestroyed()).toBe(true)
+    restoreStore()
+  })
+
+  it('flush 全过 → 不可回头点武装重启 + 交接释放锁（恰好一次），退出收口保持', async () => {
+    const win = await freshModule()
+    const rel0 = M.relaunchCalls
+    const lock0 = M.releaseLockCalls
+    const quit0 = M.quitCalls
+    const r = await M.ipcHandle['desktop:switch-library']!(null, mkTmp('clw-r51-a1-ok-'))
+    expect(r).toEqual({ ok: true })
+    await vi.waitFor(() => expect(M.quitCalls).toBe(quit0 + 1))
+    // flush 无冲突无失败（execJsResult 缺省 null）→ 链直通不可回头点
+    const e = { preventDefault: vi.fn() }
+    M.appOn['before-quit']!.at(-1)!(e)
+    await vi.waitFor(() => expect(M.quitCalls).toBe(quit0 + 2))
+    expect(e.preventDefault).toHaveBeenCalledTimes(1)
+    expect(M.relaunchCalls).toBe(rel0 + 1) // 恰好武装一次
+    expect(M.releaseLockCalls).toBe(lock0 + 1) // R27-96 交接释放同步兑现
+    expect(win.isDestroyed()).toBe(true) // 收口 destroy 全窗
+    restoreStore()
+  })
+})
+
+// ── R51-A-2（五十一轮）：主框架加载失败自愈——退避重试 + 预算封顶 + 稳定窗复位 ──
+// 自愈 reload 落在 server 退避重启窗时加载失败，did-fail-load 原无人处理 → 白屏滞留
+//（打包态无人工出口）。修复：主框架失败 2s 起倍增（15s 封顶）共 5 次重试。
+describe('R51-A-2: did-fail-load 自愈', () => {
+  async function freshModuleFake(): Promise<(typeof M.windows)[number]> {
+    vi.resetModules()
+    await import('../../src/desktop/main.js')
+    await vi.advanceTimersByTimeAsync(0) // bootstrap + 首窗创建落定（fake timers 下的微任务排空）
+    return M.windows.at(-1)!
+  }
+  type FailH = (e: unknown, code: number, desc: string, url: string, isMainFrame: boolean) => void
+
+  it('主框架失败 → 2s 退避后 reload；-3 / 子框架不重试', async () => {
+    vi.useFakeTimers()
+    try {
+      const win = await freshModuleFake()
+      const h = win.webContents.handlers['did-fail-load']!.at(-1)! as FailH
+      const r0 = win.webContents.reloaded
+      h({}, -3, 'ERR_ABORTED', 'http://x', true) // 新加载顶替旧加载：常态事件
+      h({}, -2, 'ERR_FAILED', 'http://x', false) // 子框架：随主框架重载收敛
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(win.webContents.reloaded).toBe(r0)
+      h({}, -2, 'ERR_FAILED', 'http://x', true)
+      expect(win.webContents.reloaded).toBe(r0) // 未到退避点
+      await vi.advanceTimersByTimeAsync(2_000)
+      expect(win.webContents.reloaded).toBe(r0 + 1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('连续失败倍增退避（2/4/8/15/15s）预算封顶——第 6 次起不再重试，封顶留痕', async () => {
+    vi.useFakeTimers()
+    try {
+      const win = await freshModuleFake()
+      const h = win.webContents.handlers['did-fail-load']!.at(-1)! as FailH
+      const r0 = win.webContents.reloaded
+      for (const d of [2_000, 4_000, 8_000, 15_000, 15_000]) {
+        h({}, -2, 'ERR_FAILED', 'http://x', true)
+        await vi.advanceTimersByTimeAsync(d)
+      }
+      expect(win.webContents.reloaded).toBe(r0 + 5)
+      const err0 = M.logErrors.length
+      h({}, -2, 'ERR_FAILED', 'http://x', true) // 第 6 次：预算耗尽
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(win.webContents.reloaded).toBe(r0 + 5)
+      expect(M.logErrors.length).toBeGreaterThan(err0) // 封顶留痕（等待人工处理）
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('成功载入 + 稳定窗活满 → 计数复位（预算耗尽后可再获整段预算）', async () => {
+    vi.useFakeTimers()
+    try {
+      const win = await freshModuleFake()
+      const h = win.webContents.handlers['did-fail-load']!.at(-1)! as FailH
+      const fin = win.webContents.handlers['did-finish-load']!.at(-1)!
+      const r0 = win.webContents.reloaded
+      for (const d of [2_000, 4_000, 8_000, 15_000, 15_000]) {
+        h({}, -2, 'ERR_FAILED', 'http://x', true)
+        await vi.advanceTimersByTimeAsync(d)
+      }
+      h({}, -2, 'ERR_FAILED', 'http://x', true)
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(win.webContents.reloaded).toBe(r0 + 5) // 预算耗尽
+      fin() // 成功载入
+      await vi.advanceTimersByTimeAsync(5 * 60_000) // 稳定窗活满 → crashes/loadFails 清零
+      h({}, -2, 'ERR_FAILED', 'http://x', true) // 复位后重新可自愈
+      await vi.advanceTimersByTimeAsync(2_000)
+      expect(win.webContents.reloaded).toBe(r0 + 6)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
 // ── R44-15/R44-17（四十四轮）：子窗尺寸钳制 + 崩溃期 child best-effort kill ──────
 describe('R44-15/R44-17: 子窗工作区钳制 + uncaughtException 停机兜底', () => {
   async function freshModule(): Promise<(typeof M.windows)[number]> {
@@ -1587,6 +1745,56 @@ describe('R44-14: pickLibrary「在此新建」的 git-ancestor 防线', () => {
   })
 })
 
+// R52-A-1（五十二轮）：pickLibrary「在此新建」的嵌套书库防线——目标位于既有书库
+// 内部（findWorkDir 命中祖先而非自身）时此前放行：内层 .clwriting/ 建成后抢占
+// workDir 判定，外层书库的 server 端口/锁根/task-gate 单进程单锁契约被篡改面。
+// 修复后与 canSwitchLibraryDir（switch-library 侧同款防线）口径对齐：命中原生错误框
+// 反馈并留在选择循环；书库外的普通目录放行不变。
+describe('R52-A-1: pickLibrary「在此新建」的嵌套书库防线', () => {
+  it('书库子目录点「在此新建」→ 原生错误框拒绝，不落库不重启（选择循环内重选至封顶）', async () => {
+    const lib = mkLibrary() // 既有书库（.clwriting/ 在位）
+    const inner = join(lib, '误建子目录')
+    mkdirSync(inner)
+    tmpDirs.push(lib)
+    vi.resetModules()
+    await import('../../src/desktop/main.js')
+    await new Promise((r) => setImmediate(r))
+    await new Promise((r) => setImmediate(r))
+    M.dialogOpen = { canceled: false, filePaths: [inner] }
+    M.msgResponse = 0 // 每轮都点「在此新建」→ 每轮被嵌套防线拦回
+    const err0 = M.errorBox.length
+    const relaunch0 = M.relaunchCalls
+    const r = (await M.ipcHandle['desktop:open-library']!({}, {})) as { ok: boolean; canceled?: boolean }
+    expect(r).toEqual({ ok: false, canceled: true }) // 封顶退出（E-9c），未选定
+    const rejects = M.errorBox.slice(err0).filter(([t]) => String(t).includes('书库内部'))
+    expect(rejects.length).toBeGreaterThanOrEqual(1) // 原生错误框反馈（非静默 continue）
+    expect(String(rejects[0]![1])).toContain('嵌套书库')
+    expect(M.relaunchCalls).toBe(relaunch0) // 未落库未重启（saveCurrent/relaunch 未触）
+    M.dialogOpen = { canceled: true, filePaths: [] }
+    vi.resetModules()
+  })
+
+  it('放行臂：书库外普通目录点「在此新建」照常落库重启（防线不误伤）', async () => {
+    const plain = mkTmp('clw-r52a1-plain-') // 无 .clwriting、无 .git、非任何书库子目录
+    vi.resetModules()
+    await import('../../src/desktop/main.js')
+    await new Promise((r) => setImmediate(r))
+    await new Promise((r) => setImmediate(r))
+    M.dialogOpen = { canceled: false, filePaths: [plain] }
+    M.msgResponse = 0 // 点「在此新建」
+    const err0 = M.errorBox.length
+    const r = (await M.ipcHandle['desktop:open-library']!({}, {})) as { ok: boolean }
+    expect(r).toEqual({ ok: true }) // 放行：落库成功
+    // 放行铁证 = workdir.json current 已持久化为该目录（relaunch 系 R51-A-1 意图制、
+    // 推迟到 before-quit 不可回头点，测试态不可达，不作断言面）
+    const stored = JSON.parse(readFileSync(join(M.userData, 'workdir.json'), 'utf-8')) as { current: string | null }
+    expect(stored.current).toBe(plain)
+    expect(M.errorBox.length).toBe(err0) // 零错误框（防线未误伤）
+    M.dialogOpen = { canceled: true, filePaths: [] }
+    vi.resetModules()
+  })
+})
+
 // ── R47-9（四十七轮）：readStore 内存缓存（写时失效）──────────────────────────
 
 describe('R47-9：readStore 内存缓存——welcome/常态 IPC 不再逐调全量读盘', () => {
@@ -1616,6 +1824,79 @@ describe('R47-9：readStore 内存缓存——welcome/常态 IPC 不再逐调全
     expect(recent2.some((r) => r.path === raw0.current)).toBe(true)
     // 还原 workdir.json（后续用例）
     writeFileSync(fp, JSON.stringify({ current: raw0.current, recent: raw0.recent }))
+    vi.resetModules()
+  })
+})
+
+// ── R51-A-4（五十一轮）：open/switch-library 落库失败转 {ok:false,reason} 契约 ──
+// saveCurrent → atomicWriteFile 可抛（磁盘满/权限/EISDIR），原实现裸抛绕过 {ok,reason}
+// 信封直达 invoke 异常通道，且 setTimeout(relaunch) 已排程——落库失败照常重启 = 带着
+// 旧 current 重启、用户操作像被吞。修后 saveCurrentSafe 包装：失败回结构化 reason 且
+// 不触发 relaunch/quit。
+describe('R51-A-4: saveCurrent 抛错不再绕过 {ok,reason} 契约', () => {
+  // fp 惰性求值：describe 收集期 M.userData 尚未由 beforeAll 赋值（模块级常量会得相对路径）
+  const storeFp = (): string => join(M.userData, 'workdir.json')
+
+  /** 重载模块 + 预热 readStore 缓存（真身文件仍在位时读一次——打断写路径后读盘全走缓存） */
+  async function freshWithCache(): Promise<void> {
+    vi.resetModules()
+    await import('../../src/desktop/main.js')
+    await new Promise((r) => setImmediate(r))
+    await new Promise((r) => setImmediate(r))
+    M.ipcHandle['desktop:get-recent']!({}, {})
+  }
+
+  /** 用同路径目录替换 workdir.json：writeStore 的 rename 目标是目录 → 必抛（EISDIR） */
+  function breakStoreFile(): () => void {
+    const fp = storeFp()
+    const raw = readFileSync(fp, 'utf-8')
+    rmSync(fp)
+    mkdirSync(fp)
+    return () => {
+      rmSync(fp, { recursive: true })
+      writeFileSync(fp, raw) // 还原真身（共享 M.userData，后续用例/批次依赖）
+    }
+  }
+
+  it('switch-library：落库抛错 → {ok:false,reason}，不 relaunch 不退出', async () => {
+    await freshWithCache()
+    const restore = breakStoreFile()
+    try {
+      const rel0 = M.relaunchCalls
+      const quit0 = M.quitCalls
+      const r = (await M.ipcHandle['desktop:switch-library']!(null, mkTmp('clw-r51-a4-lib-'))) as {
+        ok: boolean
+        reason?: string
+      }
+      expect(r.ok).toBe(false)
+      expect(String(r.reason)).toContain('workdir.json')
+      // 给潜在误排程的 setTimeout(relaunch,100) 两拍机会——若触发即红
+      await new Promise((r2) => setImmediate(r2))
+      await new Promise((r2) => setImmediate(r2))
+      expect(M.relaunchCalls).toBe(rel0) // 落库失败不重启（原实现已排程 relaunch）
+      expect(M.quitCalls).toBe(quit0)
+    } finally {
+      restore()
+    }
+    vi.resetModules()
+  })
+
+  it('open-library：选中书库后落库抛错 → {ok:false,reason}（非裸异常）', async () => {
+    await freshWithCache()
+    const restore = breakStoreFile()
+    try {
+      const lib = mkLibrary('书B', 'books/b')
+      M.dialogOpen = { canceled: false, filePaths: [lib] }
+      const rel0 = M.relaunchCalls
+      const r = (await M.ipcHandle['desktop:open-library']!({}, {})) as { ok: boolean; reason?: string }
+      expect(r.ok).toBe(false)
+      expect(String(r.reason)).toContain('workdir.json')
+      await new Promise((r2) => setImmediate(r2))
+      expect(M.relaunchCalls).toBe(rel0)
+    } finally {
+      restore()
+      M.dialogOpen = { canceled: true, filePaths: [] }
+    }
     vi.resetModules()
   })
 })

@@ -116,8 +116,9 @@ for (const [checkId, entries] of byCheck) {
   const fp = join(corpusDir, `${checkId}.json`)
   let existing: Entry[] = []
   if (existsSync(fp)) {
+    let parsed: unknown
     try {
-      existing = JSON.parse(readFileSync(fp, 'utf8')) as Entry[]
+      parsed = JSON.parse(readFileSync(fp, 'utf8'))
     } catch {
       // R63-11：存量解析失败不得按空数组整写覆盖（= 静默清空既有回归门条目）。
       // 跳过该 checkId 合并、原文件保持原样，作者手工修档后重跑
@@ -125,6 +126,15 @@ for (const [checkId, entries] of byCheck) {
       failedExisting++
       continue
     }
+    // R51-J-2（五十一轮）：合法 JSON 但非数组（手工编辑成对象/字符串等）同走 R63-11
+    // 口径——旧代码直透 `.map`，非数组裸 TypeError 崩整轮合并循环（后续 checkId 一并
+    // 不落盘），且崩溃栈无人话指引。防住后跳过本档、原样保留、计数进尾部标红哨兵。
+    if (!Array.isArray(parsed)) {
+      console.error(`[corpus:commit] 存量语料是合法 JSON 但不是数组（实为 ${parsed === null ? 'null' : typeof parsed}），跳过合并（原文件保持原样，请手工修档后重跑）：${fp}`)
+      failedExisting++
+      continue
+    }
+    existing = parsed as Entry[]
   }
   // 按 excerpt 去重合并（后到覆盖先到——重标以最近一次为准）
   const merged = new Map(existing.map((e) => [e.excerpt, e] as const))

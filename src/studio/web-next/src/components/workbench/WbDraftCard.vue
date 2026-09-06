@@ -11,6 +11,10 @@ defineProps<{
   draftSaved: { path?: string; words: number } | null
   /** 存草稿在途（R73-63）：父层 onSaveDraft 在途锁的可视面——禁按钮 + 文案反馈，挡双击重复提交 */
   saving?: boolean
+  /** 生成中（R51-I-4，五十一轮）：genBusy（本地在途锁 + wb.running）时禁存——流式生成中
+   *  textOut 是半章残稿，此前按钮不查 running，可存残稿并切离工作台；入口兜底闸在父层
+   *  onSaveDraft（F4 不完整水印的既有双保险口径） */
+  genBusy?: boolean
 }>()
 const emit = defineEmits<{ save: [] }>()
 const wb = useWorkbenchStore()
@@ -30,10 +34,13 @@ const { count: draftWords } = useDebouncedWordCount(() => wb.textOut, undefined,
     <pre class="draft-preview">{{ wb.textOut || '（无正文，点「生成」开始）' }}</pre>
     <div class="draft-actions">
       <!-- F4（五十九轮）：断连重连水印期间禁存——textOut 可能残缺，禁按钮 + 明示原因；
-           R73-63：存草稿在途同样禁存（父层在途锁） -->
-      <button class="btn primary" :disabled="!wb.textOut.trim() || wb.textIncomplete || saving" @click="emit('save')">
-        {{ saving ? '存草稿中…' : '存草稿并编辑' }}
-      </button>
+           R73-63：存草稿在途同样禁存（父层在途锁）；
+           R51-I-4（五十一轮）：生成中（genBusy）禁存——半章残稿不得落盘 -->
+      <button
+        class="btn primary"
+        :disabled="!wb.textOut.trim() || wb.textIncomplete || saving || genBusy"
+        @click="emit('save')"
+      >{{ genBusy ? '生成中，暂不能存草稿' : saving ? '存草稿中…' : '存草稿并编辑' }}</button>
       <span v-if="wb.textIncomplete" class="muted incomplete">重连同步中，正文可能不完整</span>
       <span v-if="draftSaved" class="muted"><CircleCheck :size="12" /> {{ draftSaved.words }} 字已存</span>
     </div>

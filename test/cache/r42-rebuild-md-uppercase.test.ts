@@ -33,8 +33,9 @@ describe('R42-38：.MD 大写扩展名摘要文件不再被静默过滤', () => 
       const r = rebuild(root, join(root, '.cache', 'index.db'))
       // 5.MD 与 9.md 均入库（修复前 5.MD 被过滤，summaryCount=1）
       expect(r.summaryCount).toBe(2)
-      // 手写草稿.MD 进入命名白名单判定 → errors 留痕（修复前被过滤吞掉，errors 空）
-      const badErrors = r.errors.filter((e) => e.message.includes('手写草稿.MD'))
+      // 手写草稿.MD 进入命名白名单判定 → 健康报告留痕（修复前被过滤吞掉）
+      // R51-E-N1：报告级分流——留痕面改 warnings（原 errors 触发硬闸消费面）
+      const badErrors = r.warnings.filter((e) => e.message.includes('手写草稿.MD'))
       expect(badErrors).toHaveLength(1)
       expect(badErrors[0]!.message).toContain('未入库')
     } finally {

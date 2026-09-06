@@ -231,15 +231,21 @@ export async function restoreTrash(bookRoot: string, id: string): Promise<Restor
   // `.trash/` 前缀，篡改条目可借 restore/purge 把清单本体搬离回收站（随后 writeTrashManifest
   // 以空读结果重建空清单，全部条目丢失）。Y-18 威胁模型（trash-manifest 是可篡改数据面）
   // 的残余缺口。
+  // R51-D-1（五十一轮）：前缀判定改用 resolveWithinRoot 的**规范化 rel**——原串
+  // startsWith 可被 `工作区/.trash/../正文/x.md` 绕过（词法前缀命中、resolve 消解 ..
+  // 后落书内任意路径，Y-18 横向搬/删复活）；.trash 内 symlink 指书内他处同被识破
+  //（realpath 后 rel 不在 .trash 下）。越出书仓库（null）同一并拒。
+  const resolvedTrash = resolveWithinRoot(bookRoot, entry.trashedPath)
   if (
-    !entry.trashedPath.replace(/\\/g, '/').startsWith(`${TRASH_DIR_REL}/`) ||
-    entry.trashedPath.replace(/\\/g, '/') === TRASH_MANIFEST_REL
+    !resolvedTrash ||
+    !resolvedTrash.rel.startsWith(`${TRASH_DIR_REL}/`) ||
+    resolvedTrash.rel === TRASH_MANIFEST_REL
   ) {
     return { ok: false, code: 'NOT_FOUND', reason: '回收站条目路径非法（不在 .trash 目录内）' }
   }
 
   const origAbs = safePathWithin(bookRoot, entry.originalPath)
-  const trashAbs = safePathWithin(bookRoot, entry.trashedPath)
+  const trashAbs = resolvedTrash.abs
   if (!origAbs || !trashAbs) {
     return { ok: false, code: 'NOT_FOUND', reason: '回收站条目路径非法（越出书仓库）' }
   }
@@ -406,14 +412,18 @@ export async function purgeTrash(bookRoot: string, id: string): Promise<PurgeRes
   // `.trash/` 前缀，篡改条目可借 restore/purge 把清单本体搬离回收站（随后 writeTrashManifest
   // 以空读结果重建空清单，全部条目丢失）。Y-18 威胁模型（trash-manifest 是可篡改数据面）
   // 的残余缺口。
+  // R51-D-1（五十一轮）：判定改用规范化 rel（restoreTrash 同款——原串 startsWith 可被
+  // `工作区/.trash/../` 穿越段绕过）。
+  const resolvedTrash = resolveWithinRoot(bookRoot, entry.trashedPath)
   if (
-    !entry.trashedPath.replace(/\\/g, '/').startsWith(`${TRASH_DIR_REL}/`) ||
-    entry.trashedPath.replace(/\\/g, '/') === TRASH_MANIFEST_REL
+    !resolvedTrash ||
+    !resolvedTrash.rel.startsWith(`${TRASH_DIR_REL}/`) ||
+    resolvedTrash.rel === TRASH_MANIFEST_REL
   ) {
     return { ok: false, code: 'NOT_FOUND', reason: '回收站条目路径非法（不在 .trash 目录内）' }
   }
   try {
-    const trashAbs = safePathWithin(bookRoot, entry.trashedPath)
+    const trashAbs = resolvedTrash.abs
     if (!trashAbs) return { ok: false, code: 'NOT_FOUND', reason: '回收站条目路径非法（越出书仓库）' }
     // R40-19：永久删主文件同款退避（purge 不可逆承诺下退避后仍失败须如实报错，
     // 不静默留 .trash 残迹——R64-13 隐私残留口径）

@@ -276,28 +276,34 @@ export class SessionRecorder {
           log.warn('events', `compaction 遮蔽区间 [${s.start},${s.end}] 内无任何曾可见（表面类）事件——违反遮蔽只盖「曾可见」节点契约`)
         }
       }
-      // Y-P2-2：存档只在首个遮蔽段携带（一张累计存档取代全部被压内容）
+      // Y-P2-2：存档只在首个遮蔽段携带（一张累计存档取代全部被压内容）。
+      // R51-B-4（五十一轮）：多遮蔽段并单事务——原逐段独立 appendEvents，第二段起
+      // 失败（SQLITE_BUSY 耗尽/磁盘满）会留「第一段已遮蔽、其余未遮蔽」的半态，且
+      // close 幂等闸（ended=true）已开不回滚，重试被关死只能靠调用方 dispose 兜底；
+      // 并单事务后要么全段遮蔽要么全不动（appendEvents 内部 BEGIN..COMMIT 原子面），
+      // 失败时 ended 回滚语义与首 flush 一致可重试。archiveSeq 取批内第 2 个 seq
+      // （首段 compaction/end = 存档节点，段序不变）。
+      const batch: NewEvent[] = []
       let carried = false
       for (const s of segs) {
         const carry = summary !== undefined && !carried
         if (carry) carried = true
-        // RB-IF-P1-2：archiveSeq 取数据库真实分配的 seq（appendEvents INSERT RETURNING），
-        // 不再 lastSeq()+2 推算——多窗口并发写事件库时推算可错链到别窗事件（AA-P3-7 同理）
-        const seqs = this.store.appendEvents(this.sessionId, [
-          { type: 'compaction/start', data: { count: s.end - s.start + 1 } },
-          {
-            type: 'compaction/end',
-            ...(carry && summary !== undefined
-              ? { data: { reason, message: summary } }
-              : { data: { reason } }),
-            surfaceOp: 'replace',
-            shadowStart: s.start,
-            shadowEnd: s.end,
-            sourceSeqs: Array.from({ length: s.end - s.start + 1 }, (_, i) => s.start + i),
-          },
-        ])
-        if (carry) archiveSeq = seqs[1]! // 批内第 2 个 = compaction/end（存档节点）
+        batch.push({ type: 'compaction/start', data: { count: s.end - s.start + 1 } })
+        batch.push({
+          type: 'compaction/end',
+          ...(carry && summary !== undefined
+            ? { data: { reason, message: summary } }
+            : { data: { reason } }),
+          surfaceOp: 'replace',
+          shadowStart: s.start,
+          shadowEnd: s.end,
+          sourceSeqs: Array.from({ length: s.end - s.start + 1 }, (_, i) => s.start + i),
+        })
       }
+      // RB-IF-P1-2：seq 一律取数据库真实分配值（INSERT RETURNING），不 lastSeq() 推算
+      //（多窗口并发写事件库时推算可错链到别窗事件，AA-P3-7 同理）
+      const seqs = this.store.appendEvents(this.sessionId, batch)
+      if (carried) archiveSeq = seqs[1]! // 批内第 2 个 = 首段 compaction/end（存档节点）
     } finally {
       // Y-P1-1：收尾注销活跃登记（异常路径由调用方 finally 调 dispose 兜底）；
       // R62-10：首 flush 失败路径不 dispose——保留 store/登记，close 重试才真正可落库

@@ -471,6 +471,9 @@ function readLeadFromBytes(
     _bodyBeforeHistory: leadBodyBeforeHistory(r.body),
     _bodyAfterHistory: leadBodyAfterHistory(r.body),
     ...(hist.preamble ? { _historyPreamble: hist.preamble } : {}),
+    // R51-F-1（五十一轮）：分组标题第三槽位（与 readLead 同口径——本孪生产物同样进
+    // writeLead 整段重序列化，不收即回写物理丢失）
+    ...(hist.groupHeadings.length > 0 ? { _historyGroupHeadings: hist.groupHeadings } : {}),
     ...(Object.keys(_raw).length > 0 ? { _raw } : {}),
     _fmOrder: [...map.keys()],
     _path: filePath,

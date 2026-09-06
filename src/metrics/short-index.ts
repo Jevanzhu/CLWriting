@@ -12,6 +12,7 @@ import { readChapterDir, countWords } from '../format/chapters.js'
 import { readPieceList } from '../format/manifest.js'
 import { classifyReversal } from '../format/reversal-types.js'
 import { readChapterBody } from './style.js'
+import { log } from '../log/index.js' // R51-B-3：跳章 warn 留痕
 import type { BookConfig, PieceList, SetupPoint } from '../format/types.js'
 export interface ShortPieceIndexEntry {
   num: number
@@ -185,8 +186,15 @@ export function scanShortCollection(bookRoot: string): ShortPieceIndexEntry[] {
     const name = basename(ch._path)
     const list = readListIfExists(join(章纲Dir, name))
     const coreReversal = firstReal(ch.核心反转, list?.反转线索表.核心反转)
-    // 读失败（TOCTOU）按空正文降级——旧通道同章解析失败会被 errors 分流，不拖垮整集
-    const body = readChapterBody(ch) ?? ''
+    // R51-B-3（五十一轮）：不可读章跳章 + warn 留痕，对齐同源助手（style.ts
+    // scanChapters 读失败 continue 跳章）——原 `?? ''` 降级会产 0 字假条目：章数/
+    // 均字数/平台画像（wordMin/wordMax 达标面）与反转分被空正文拉偏且无迹可查。
+    // warn 后 continue（report 消费方面对缺章而非假数据）；瞬时 TOCTOU 下次扫描自愈。
+    const body = readChapterBody(ch)
+    if (body === null) {
+      log.warn('metrics', `短篇集索引跳过不可读章：${name}（文件缺失/读失败或 fm 未闭合，不计入画像与反转分）`)
+      continue
+    }
     entries.push({
       num: ch.章号,
       title: ch.标题,

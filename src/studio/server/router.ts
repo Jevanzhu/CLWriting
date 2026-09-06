@@ -57,7 +57,11 @@ export function route(method: string, path: string, handler: Handler): void {
         keys.push(seg.slice(1))
         return '([^/]+)'
       }
-      return seg.replace(/[.*+?^${}|[\]\\]/g, '\\$&')
+      // R51-G-3（五十一轮）：转义集补 `(` `)`——括号在正则里是分组元字符，模板段含
+      // 括号（如字面段 `(已归档)`）此前会变成捕获组：字面 URL 匹配不上，且捕获组
+      // 左移 :param 的 m[i+1] 下标让参数错位。与同集 `[]{}` 同理，属防正则注入的
+      // 完备性收口（现网无含括号路由，纯埋雷排除）。
+      return seg.replace(/[.*+?^${}|[\]()\\]/g, '\\$&')
     })
     .join('/')
   activeRoutes.push({ method, regex: new RegExp(`^${pattern}$`), keys, handler })

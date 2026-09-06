@@ -12,7 +12,7 @@ import { readBookConfig } from '../format/yaml.js'
 import { applyGlobalDefaults } from '../format/global-defaults.js'
 import { readDraft } from '../format/draft.js'
 import { rebuild } from '../cache/rebuild.js'
-import { runAllChecks, hasRed, enabledLeadTypes } from './runner.js'
+import { runAllChecks, hasRed, enabledLeadTypes, promoteStrictShort } from './runner.js'
 import { outlineDeclarationForChapter, scanOutlineDeclarationMemo, type OutlineDeclaration } from './outline-leads.js'
 import {
   leadEvidenceMatchesBody,
@@ -122,6 +122,9 @@ export function runCheckForDocument(
           },
         ],
       })
+      // R51-E-N2（五十一轮）：后置推入不过 runner 的报告内升红路径——严格短篇下
+      // degraded 族同升红（「配置降级、机检未按书级口径跑」不可绿灯过定稿闸）
+      if (config.short?.strict === true) promoteStrictShort(outcome.report.sections.slice(-1))
     }
     return outcome
   } finally {
@@ -335,6 +338,8 @@ export function checkWithDb(
           },
         ],
       })
+      // R51-E-N2（五十一轮）：unreadable 族后置推入同升红（严格短篇，口径同上）
+      if (config.short?.strict === true) promoteStrictShort(report.sections.slice(-1))
     }
     // R33D-14（三十三轮）：声明侧读失败的黄项降级（对齐兑现侧 R31-3 fail-noisy 口径）
     // ——known:false 且 reason='read-failed' 时本章两端闭合同样被跳过，此前零留痕；
@@ -351,6 +356,8 @@ export function checkWithDb(
           },
         ],
       })
+      // R51-E-N2（五十一轮）：unreadable 族后置推入同升红（严格短篇，口径同上）
+      if (config.short?.strict === true) promoteStrictShort(report.sections.slice(-1))
     }
     return { ok: true, report, hasRed: hasRed(report), chapter: draft.chapter, body: draft.body }
   } catch (e) {
@@ -465,7 +472,20 @@ function* collectTreeIssuesCore(
   let rebuildFailed = false
   // R65-5（十三轮）：单章机检失败章计数（透出 warning，见下方 checkFailed 分支）
   let chaptersDegraded = 0
+  // R52-E-1（五十二轮）：纪元指纹基线再前移——rebuild **之前**。R47-30 的前移只到
+  // sync 之前，rebuild 内部扫源 stat 与 fp0 计算之间仍留头窗：窗口内源文件被改写时
+  // rebuild 读到旧库、其后计算的 fp0 已是新纪元 → 陈旧红值以新纪元落缓存（指纹自洽，
+  // 终核不再失效它，红点口径被固化到下纪元）。fp0 提前后终核（epochFpEnd）窗口覆盖
+  // 「fp0 → 聚合全程」：头窗内任何变更使 fpEnd≠fp0，整批写入按既有失效路径丢弃。
+  // fp 前算失败不阻断 rebuild：保持 null，sync 处 precomputedFp 缺省自算兜底（再败
+  // 则 cacheEnabled=false 走全量，降级口径不变）。
+  let epochFp0: string | null = null
   if (hasWiring) {
+    try {
+      epochFp0 = computeTreeIssuesGlobalFp(bookRoot, userDataPath ?? null)
+    } catch {
+      /* fp 前算失败：rebuild 照常，sync 处自算兜底 */
+    }
     // M-9（2026-08-21）：rebuild / 开库 / PRAGMA 的硬异常按 fail-open 降级（warn + 留痕），
     // 不再穿透成 500——与缓存层头注释「读写失败跳过缓存走全量路径」红线对齐。此前只有
     // 「rebuild 报错列表非空」这一种失败形态走了降级，库损坏/锁超时直接把树红点端点打挂。
@@ -500,15 +520,14 @@ function* collectTreeIssuesCore(
     // R70-14（十八轮）：纪元 fp 写前复核基线——fp 在聚合开头计算、行写入在其后，
     // 外部编辑器/第二进程恰在窗口内改纪元输入时旧行按新输入视角陈旧落表（单请求
     // 周期陈旧、下一聚合自愈，但该周期红点错）。写入前复核 fp 未变才落缓存。
-    let epochFp0: string | null = null
+    // R52-E-1：基线声明前移至 hasWiring 块（rebuild 之前计算，见上方注释）。
     if (db) {
       try {
-        // R47-30（四十七轮）：纪元指纹首遍前移——先算 fp 再传入 syncTreeIssuesEpoch
-        // 复用（原实现 sync 内部自算一遍、epochFp0 紧随其后又算一遍，纯重复的全树
-        // 递归 readdir+stat）。首尾口径（R32-14 既定）不变：首 = 此处一遍，
-        // 尾 = 循环后终核一遍；传入的 fp 与落表 global_fp 同源（基线即纪元）。
-        epochFp0 = computeTreeIssuesGlobalFp(bookRoot, userDataPath ?? null)
-        syncTreeIssuesEpoch(db, bookRoot, userDataPath ?? null, epochFp0)
+        // R47-30（四十七轮）：纪元指纹首遍前移——传入预计算 fp 复用（R52-E-1 起 fp0
+        // 在 rebuild 之前算得，sync 不再自算）；传入的 fp 与落表 global_fp 同源
+        // （基线即纪元）。首尾口径（R32-14 既定）不变：首 = rebuild 前一遍，
+        // 尾 = 循环后终核一遍。
+        syncTreeIssuesEpoch(db, bookRoot, userDataPath ?? null, epochFp0 ?? undefined)
         cacheEnabled = true
       } catch {
         cacheEnabled = false

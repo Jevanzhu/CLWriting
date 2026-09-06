@@ -727,7 +727,12 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
        核心自身无锁可放；空 finally 仅保留外层 try 的既有嵌套层级，内层 try/catch
        负责「打开期抛错先关句柄」（2026-08-24 审计 B3 内存闸）。 */
   }
-  // R66-12：登记/挂缓存段不碰库文件（纯内存），留在锁外——持锁面越小，迁移等待越短
+  // R66-12：登记/挂缓存段不碰库文件（纯内存，轻快）；R51-B-1（五十一轮）注释勘误——
+  // 本段实际仍在首开锁内执行（firstOpenStore 全程持 session 迁移锁，锁释放归开库壳
+  // finally，openStores.set 在本函数末尾、锁释放前）。原注「留在锁外」与实态相反，
+  // 会误导后续维护者：锁内登记正是异步壳拿锁后双检缓存（openSessionStoreAsync 拿锁
+  // 再查 openStores）能命中先到者的前提——若据此「锁外」表述把登记挪到锁外或删双检，
+  // 会重开双进程并发首开的重复建库窗口。勿改时序。
   const entry: StoreEntry = { store: null!, refs: 1, closed: false, lastOrphanRepairAt: Date.now(), markerTimer }
   /** 写路径惰性孤儿修复（TTL = ORPHAN_GRACE_MS，至多每 32 分钟一次）：打开时仍在
    *  宽限期内的崩溃残留，宽限期过后随下一次会话写入补 end——无需等进程重开库。 */

@@ -173,26 +173,31 @@ export function runAllChecks(input: CheckInput): CheckReport {
   }
   sections.push(bannedSection)
 
-  // 字数（黄）：有 config.short 用短篇阈值；否则用细纲目标
+  // 字数（黄）：有 config.short 用短篇阈值；否则用细纲目标。
+  // R52-E-2：容差百分比可配（book.yaml checks.word_count_tolerance → global 托底；
+  // undefined 直落引擎默认 30）
   if (short) {
     sections.push(checkPieceWordCount(chapter._wordCount ?? countWords(body), short.word_min, short.word_max))
   } else {
-    sections.push(checkWordCount(chapter._wordCount ?? countWords(body), input.targetWords ?? 0))
+    sections.push(checkWordCount(chapter._wordCount ?? countWords(body), input.targetWords ?? 0, config.checks?.word_count_tolerance))
   }
 
-  // #10 项 6 复读（黄）
-  sections.push(checkRepeat(body))
+  // #10 项 6 复读（黄）—— R52-E-2：占比/连续字数双阈值可配（同上生效链，undefined
+  // 直落引擎默认 0.15 / 200）
+  sections.push(checkRepeat(body, config.checks?.repeat_threshold, config.checks?.repeat_chars_threshold))
 
   // #10 项 7 高频意象（黄）—— 三级供给（数据源接线）：入参显式 > book.yaml
   // checks.imagery_words > 内置种子表（imagery-seed.ts）。?? 链上空数组非 nullish：
   // 入参/书级写了 []（显式关）就停在 [] 不回落种子表；书级非空词表整体替换不合并
   const imageryWords = input.imageryWords ?? config.checks?.imagery_words ?? DEFAULT_IMAGERY_WORDS
-  sections.push(checkImagery(body, imageryWords))
+  // R52-E-2：报黄次数阈值可配（undefined 直落引擎默认 3）
+  sections.push(checkImagery(body, imageryWords, config.checks?.imagery_threshold))
 
   // #10 项 8 句式体检（黄）—— X-P2-23：铁律已配 maxSentenceLen 时，逐句铁律项（项 9）已覆盖
-  // 超长句，汇总口径再跑一遍只是同一批句子两套黄项重复膨胀；铁律未配才兜底跑汇总
+  // 超长句，汇总口径再跑一遍只是同一批句子两套黄项重复膨胀；铁律未配才兜底跑汇总。
+  // R52-E-2：判定长度可配（checks.max_sentence_len 同链；undefined 直落引擎默认 60）
   if (!(ironRules.maxSentenceLen && ironRules.maxSentenceLen > 0)) {
-    sections.push(checkSentenceLength(body))
+    sections.push(checkSentenceLength(body, config.checks?.max_sentence_len))
   }
 
   // #10 项 9 文风可量化（黄）—— 读 文风铁律.md 的可量化硬约束阈值（#5 第 8 节）
@@ -311,7 +316,7 @@ export function runAllChecks(input: CheckInput): CheckReport {
   const report: CheckReport = { sections, byproducts }
   // R26-13：严格模式同样走统一后的 short 判定（kind==='short' 的书无 short 段时，
   // strict 由 applyGlobalDefaults 的保底实例化/defaultShortStrict 托底进来）
-  if (input.strictShort || short?.strict) promoteStrictShort(report)
+  if (input.strictShort || short?.strict) promoteStrictShort(report.sections)
   return report
 }
 
@@ -359,6 +364,13 @@ const STRICT_SHORT_CHECK_IDS = new Set([
   'piece-word-long',
   'body-parts',
   'simile-density',
+  // R52-E-2（五十二轮）：可配阈值三黄项——阈值改成可配后，写坏/误调（如复读占比配成
+  // 0.9）在普通模式只表现为「黄项消失」，严格模式下则必须升红拦闸：严格承诺是「机检
+  // 全绿才可过定稿闸」，这三项黄了同样不该绿灯放行。word-count 不在此列（长篇项，
+  // 严格模式只作用于短篇书，piece-word-* 已覆盖短篇字数语义）
+  'repeat',
+  'sentence-length',
+  'imagery-overuse',
   'section-count-heading-missing',
   'section-count',
   'opening-env',
@@ -369,10 +381,23 @@ const STRICT_SHORT_CHECK_IDS = new Set([
   'emotion-curve-strength',
   'emotion-curve-no-reversal',
   'emotion-curve-peak-low',
+  // R51-E-N2（五十一轮）：unreadable/degraded 族——「检查没跑成」（名册/线索表/
+  // 布线文件读不出）与「配置降级」（book.yaml 解析失败按默认配置执行）在严格短篇
+  // 下同样升红：严格模式的承诺是「机检全绿才可过定稿闸」，黄项语义（提示性）会让
+  // 没跑成的检查绿灯过闸。普通（非严格）模式维持黄项不动。
+  'roster-unreadable',
+  'piece-list-unreadable',
+  'lead-outline-unreadable',
+  'lead-updates-unreadable',
+  'book-config-degraded',
 ])
 
-function promoteStrictShort(report: CheckReport): void {
-  for (const section of report.sections) {
+/** R51-E-N2：升红函数导出——run.ts 的三处后置黄项（book-config-degraded /
+ *  lead-updates-unreadable / lead-outline-unreadable）在 report 组装完成**之后**推入，
+ *  不过本函数的报告内路径；后置推入点以同款条件（effective strict）调用本函数补齐
+ *  「检查没跑成不可绿灯过定稿闸」的严格承诺。 */
+export function promoteStrictShort(sections: CheckReport['sections']): void {
+  for (const section of sections) {
     for (const item of section.items) {
       if (item.level === 'yellow' && STRICT_SHORT_CHECK_IDS.has(item.checkId)) {
         item.level = 'red'

@@ -520,12 +520,24 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
                 // done——真实计费调用不得按成功 0 成本入账。
                 // R31-1（三十一轮）：已见 usage 时随错上抛（B-12 载荷通道）——runner 终态
                 // 失败按真实消耗入账，截断不再丢失已发生的计费。
+                // R51-C-1（五十一轮）：未见 usage 的传输截断同场景估计入账（anthropic
+                // :441-459 / responses 两线同场景恒带估计）——中转网关断流常连 usage 一并
+                // 截掉，此形态原走零入账，真实消耗记 0 使预算/报表系统性偏低；估计口径与
+                // 上方 R73-1 兄弟分支同源（input 按请求字符折算、output 按累计 delta 文本
+                // 折算、estimated 标记）。tool 残留事件仍不 flush 不计入（R26-25 取舍维持：
+                // gen 层遇 error 必弃事件，仅估计入账面按同源公式走）。
                 yield {
                   type: 'error',
                   message: '传输截断：流结束无终止事件',
                   retryable: true,
                   code: 'NETWORK',
-                  ...(latestUsage ? { usage: toUsage(latestUsage) } : {}),
+                  usage: latestUsage
+                    ? toUsage(latestUsage)
+                    : {
+                        inputTokens: estimateInputTokens(req, conf.model ?? undefined),
+                        outputTokens: estimateOutputTokens(outText.join(''), conf.model ?? undefined),
+                        estimated: true,
+                      },
                 }
               }
             }

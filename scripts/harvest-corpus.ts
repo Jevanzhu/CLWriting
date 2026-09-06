@@ -25,6 +25,9 @@ import { readChapterDir } from '../src/format/chapters.js'
 import { readManifest } from '../src/document/manifest.js'
 import { listVersions, readVersion, VERSIONS_DIR_NAME } from '../src/document/version.js'
 import { runAllChecks } from '../src/check/runner.js'
+// R51-J-1（五十一轮）：simile-density 的锚改用引擎同款正则直扫正文（message 只报
+// 次数不带命中文本，文案解析提不出锚）——单一真相源，防两处正则漂移
+import { SIMILE_RE } from '../src/check/count.js'
 import { rebuild } from '../src/cache/rebuild.js'
 import { DEFAULT_IMAGERY_WORDS } from '../src/check/imagery-seed.js'
 import { bodyOf } from '../src/format/frontmatter-core.js'
@@ -58,13 +61,29 @@ const hasWiring = existsSync(join(bookRoot, '布线'))
 // 有布线的书需要 db（账本检查）——rebuild 一次拿现行索引
 let db: DatabaseSync | null = null
 
-/** 命中词提取：message 里的「」/『』/“”引号片段（禁词/意象/复读等检查项带）
- *  + 「词×N」形态（身体部位/比喻等堆砌类 message：`眼睛×6`）。两形态都覆盖，
- *  摘录与幸存者判定才有锚点。 */
-function quotedOf(message: string): string[] {
+/** 命中词提取（R51-J-1 五十一轮重写，原 quotedOf）：message 里的「」/『』/“”引号
+ *  片段（禁词/意象等检查项带）+ 「词×N」形态（身体部位/比喻堆砌类：`眼睛×6`）。
+ *  与引擎 message 模板的两处漂移修复：
+ *  ① 截断前缀模板（style-sentence-overlong「前16字…」/style-parallel-streak「前缀…」）：
+ *     省略号在引号内，finalBody.includes(带…锚) 恒 false → 恒判「被改掉」。剥尾部
+ *     省略号后用前缀作锚（头缀幸存即计幸存的确定性采样口径）。
+ *  ② simile-density 的「像…」是模板字面量（message 只报次数）→ 改用引擎同款
+ *     SIMILE_RE 直扫被检正文取真实比喻短语作锚（结构化关键词优先于文案解析），
+ *     去重后逐短语判定。
+ *  另：剥省略号后退化为单字的锚（如未来模板再漂移出「X…」字面量）不可用——
+ *  includes 恒真会灌水幸存统计，丢弃之；合法的单字引号锚（无省略号）不受影响。 */
+function keywordsOf(item: { checkId: string; message: string }, body: string): string[] {
+  if (item.checkId === 'simile-density') {
+    return [...new Set([...body.matchAll(SIMILE_RE)].map((m) => m[0]))]
+  }
   const out: string[] = []
-  for (const m of message.matchAll(/[「『“]([^」』”]{1,40})[」』”]/g)) out.push(m[1]!)
-  for (const m of message.matchAll(/([\u4e00-\u9fffA-Za-z0-9·]{1,20})×\d+/g)) out.push(m[1]!)
+  for (const m of item.message.matchAll(/[「『“]([^」』”]{1,40})[」』”]/g)) {
+    const raw = m[1]!
+    const stripped = raw.replace(/(?:…+|\.{3})$/u, '')
+    if (stripped !== raw && [...stripped.trim()].length < 2) continue
+    out.push(stripped)
+  }
+  for (const m of item.message.matchAll(/([\u4e00-\u9fffA-Za-z0-9·]{1,20})×\d+/g)) out.push(m[1]!)
   return out
 }
 
@@ -87,6 +106,11 @@ interface Candidate {
 }
 
 const candidates: Candidate[] = []
+// R51-J-1：无锚命中计数（checkId → 条数）——repeat 等统计类消息无锚文本属已知
+// 形态；修复前静默零候选（采集面「候选 0 条」无从归因），现末尾人话告警。
+// 不设退出码哨兵：结构上无锚的检查项本就不参与幸存者判定，与 R63-14/R34D-31
+// 的「收割不完整」失败哨兵不同级。
+const unanchoredByCheck = new Map<string, number>()
 /** imagery 种子误报统计：短语 → {survived, removed} */
 const imageryStats = new Map<string, { survived: number; removed: number }>()
 // R63-14：单版快照失败计数与首错（catch-all 不再零告警——产出段统一告警）
@@ -159,7 +183,13 @@ try {
           fileName: basename(ch._path),
         })
         for (const item of report.sections.flatMap((s) => s.items)) {
-          for (const kw of quotedOf(item.message)) {
+          // R51-J-1：提取不到锚点的命中按 checkId 计数（末尾人话告警），不再静默
+          const kws = keywordsOf(item, checkedBody)
+          if (kws.length === 0) {
+            unanchoredByCheck.set(item.checkId, (unanchoredByCheck.get(item.checkId) ?? 0) + 1)
+            continue
+          }
+          for (const kw of kws) {
             if (!kw.trim()) continue
             const survived = finalBody.includes(kw)
             candidates.push({
@@ -262,4 +292,17 @@ if (failedChapters.length > 0) {
   // 口径统一。此前只 warn 不设 exitCode=1，收割部分失败仍绿（R30-29 修一半），
   // 脚本出口的调用方（作者/CI）无法以退出码感知「候选集不完整」
   process.exitCode = 1
+}
+
+// R51-J-1：无锚命中人话告警——repeat 等统计类消息无锚文本，修复前静默零候选；
+// 名单化后「哪些 checkId 没进幸存者判定」可归因（意外 checkId 出现 = 模板口径
+// 又漂移了，核对 count.ts 的 message 模板）。不设退出码：无锚检查项本就不参与
+// 幸存者判定，与上方「收割不完整」失败哨兵不同级。
+if (unanchoredByCheck.size > 0) {
+  const total = [...unanchoredByCheck.values()].reduce((a, b) => a + b, 0)
+  const parts = [...unanchoredByCheck.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([id, n]) => `${id}×${n}`)
+    .join('、')
+  console.warn(`[harvest-corpus] 警告：${total} 个机检命中提取不到关键词锚点，未参与幸存者判定（${parts}）——统计类消息无锚文本属已知形态，意外 checkId 请核对 count.ts message 模板口径`)
 }

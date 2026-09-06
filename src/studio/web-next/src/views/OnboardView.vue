@@ -111,7 +111,11 @@ async function doGen(step: OnboardStep): Promise<void> {
       message: '当前内容有你未保存的修改，重新生成将覆盖——继续？',
       confirmText: '重新生成',
     })
+    // R51-I-5（五十一轮）：ask 确认后复检 stillOn——确认弹窗是全局 ui store 态，滞留
+    // 期间切书（本实例已随 :key 重建而死亡）后点确认，死续体照旧走到 onboardAi 发出
+    // 旧书的计费请求。取消与切书同判：不以「已确认」豁免活体复检（M-4 既有口径）。
     if (!okToRegen) return
+    if (!stillOn(book)) return
   }
   phase.value = 'loading'
   err.value = null

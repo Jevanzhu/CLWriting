@@ -60,9 +60,12 @@ export function readChapter(
   }
 
   // 收集未知字段
-  const _raw: Record<string, string> = {}
+  // R51-F-6（五十一轮）：数组型未知字段按 string[] 原样承载（对齐 leads.ts R64-17
+  // 参照修法）——此前 String(v) 把数组压成 "a,b" 单串，回写 stringifyValue 按标量
+  // 引号化后项内逗号错位（`[a, b]` → `["a,b"]` 往返劈裂）。
+  const _raw: Record<string, string | string[]> = {}
   for (const [k, v] of map) {
-    if (!KNOWN_FM_KEYS.has(k)) _raw[k] = String(v)
+    if (!KNOWN_FM_KEYS.has(k)) _raw[k] = Array.isArray(v) ? v : String(v)
   }
 
   // R73-16（二十一轮 B-3）：必填枚举（钩子类型/钩子强弱/情绪定位）缺字段此前静默补

@@ -89,6 +89,16 @@ const RENDERER_CRASH_MAX_RELOADS = 3
  * 归零，长跑偶发 3 次崩溃后第 4 次误触发停摆页。
  */
 const RENDERER_CRASH_STABILITY_RESET_MS = 5 * 60_000
+/**
+ * R51-A-2（五十一轮）：主框架加载失败自愈预算与退避——渲染崩溃自愈的 reload 可能落在
+ * server 退避重启窗口（停机 3.5s 优雅窗/启动握手窗）：load 失败后 did-fail-load 无人
+ * 处理 → 白屏滞留，server 恢复后无人拉起（打包态无人工出口）。预算独立于渲染崩溃
+ * 计数（故障域不同：加载失败≠渲染崩溃），2s 起倍增、15s 封顶共 5 次，总覆盖窗 ≥44s，
+ * 足以跨过 server 退避重启全窗；成功载入活满稳定窗后与崩溃计数一并复位。
+ */
+const RENDERER_LOADFAIL_MAX_RETRIES = 5
+const RENDERER_LOADFAIL_BACKOFF_BASE_MS = 2_000
+const RENDERER_LOADFAIL_BACKOFF_CAP_MS = 15_000
 /** 崩溃封顶后的白屏提示页（data URL 自包含——渲染层/本地 server 均不可信时仍可展示） */
 const RENDERER_CRASH_NOTICE_HTML =
   '<!doctype html><meta charset="utf-8"><body style="font-family:system-ui;padding:40px;line-height:1.8;color:#333">' +
@@ -103,6 +113,9 @@ const RENDERER_CRASH_NOTICE_HTML =
  */
 function attachRendererCrashSelfHeal(win: BrowserWindow, label: string): void {
   let crashes = 0
+  // R51-A-2：主框架加载失败计数与重试计时器句柄（随窗口闭包走，新窗口归零）
+  let loadFails = 0
+  let failLoadTimer: NodeJS.Timeout | null = null
   // R27-91（二十七轮）：稳定窗口复位计时器的句柄——崩溃要撤销在途复位（互撤），重载要
   // 撤旧排新（不叠）。原实现计时器排定后裸跑：周期短于稳定窗的崩溃循环每次都被上一轮
   // 计时器清零，crashes 永远到不了封顶值（server-manager 同型的 active?.proc===proc
@@ -137,20 +150,52 @@ function attachRendererCrashSelfHeal(win: BrowserWindow, label: string): void {
   })
   // S6（五十九轮）：did-finish-load 后延迟复位崩溃计数——渲染层真正稳定（存活满
   // 稳定窗口且期间无崩溃，R27-91 互撤）才清零，长跑零星崩溃不累计到 3；unref 不拖退出。
+  // R51-A-2：加载失败计数同款复位（成功载入 + 稳定窗活满 = 故障域清零）。
   win.webContents.on('did-finish-load', () => {
     if (stabilityTimer) clearTimeout(stabilityTimer) // 上一轮计时器未跑就又重载：撤旧排新不叠
     stabilityTimer = setTimeout(() => {
       stabilityTimer = null
-      if (!win.isDestroyed()) crashes = 0
+      if (!win.isDestroyed()) {
+        crashes = 0
+        loadFails = 0
+      }
     }, RENDERER_CRASH_STABILITY_RESET_MS)
     stabilityTimer.unref?.()
   })
+  // R51-A-2（五十一轮）：主框架加载失败重试——自愈 reload 落在 server 退避重启窗时
+  // 加载失败 → did-fail-load 原无人处理 → 白屏滞留（打包态无人工出口）。-3
+  // （ERR_ABORTED）是新加载顶替旧加载的常态事件、子框架失败随主框架重载自然收敛，
+  // 均不重试；连败撤旧排新只留最新一个重试（预算计数仍累计到封顶）。
+  win.webContents.on('did-fail-load', (_e, errorCode: number, _desc: string, _url: string, isMainFrame: boolean) => {
+    if (!isMainFrame || errorCode === -3) return
+    if (failLoadTimer) {
+      clearTimeout(failLoadTimer)
+      failLoadTimer = null
+    }
+    loadFails++
+    if (loadFails > RENDERER_LOADFAIL_MAX_RETRIES) {
+      log.error('desktop', `主框架加载连续失败 ${RENDERER_LOADFAIL_MAX_RETRIES} 次重试后仍失败（${label}，code=${errorCode}），停止自动重试——等待人工处理`)
+      return
+    }
+    const delay = Math.min(RENDERER_LOADFAIL_BACKOFF_BASE_MS * 2 ** (loadFails - 1), RENDERER_LOADFAIL_BACKOFF_CAP_MS)
+    log.error('desktop', `主框架加载失败（${label}，code=${errorCode}），${delay}ms 后重载重试（第 ${loadFails}/${RENDERER_LOADFAIL_MAX_RETRIES} 次）`)
+    failLoadTimer = setTimeout(() => {
+      failLoadTimer = null
+      if (!win.isDestroyed()) win.webContents.reload()
+    }, delay)
+    failLoadTimer.unref?.()
+  })
   // R46-19（四十六轮）：窗口 closed 即撤 stabilityTimer——计时器闭包持有 win 引用，
   // 窗口销毁后至多 5 分钟才随计时器到期释放（回调的 isDestroyed 守卫只防崩不防滞留）。
+  // R51-A-2：加载失败重试计时器同款收口。
   win.on('closed', () => {
     if (stabilityTimer) {
       clearTimeout(stabilityTimer)
       stabilityTimer = null
+    }
+    if (failLoadTimer) {
+      clearTimeout(failLoadTimer)
+      failLoadTimer = null
     }
   })
 }
@@ -338,6 +383,24 @@ function saveCurrent(dir: string): void {
   writeStore(setCurrent(readStore(), dir))
 }
 
+/**
+ * R51-A-4（五十一轮）：saveCurrent 的契约化包装——IPC 端点响应面是 `{ok,reason}`
+ * 信封，而 saveCurrent → atomicWriteFile 可抛（磁盘满/权限/只读卷），裸抛会绕过契约
+ * 直达渲染层 invoke 的异常通道（切库静默无反馈、前端拿不到结构化失败）。返回 null =
+ * 成功；字符串 = 人话失败原因（调用方转 `{ok:false, reason}`，且不触发 relaunch——
+ * 落库失败的切库若照常重启，应用会带着旧 current 重启、用户操作看起来像被吞）。
+ * 菜单链 openLibraryAction 不走本包装：其调用点已有 .catch 留痕兜底。
+ */
+function saveCurrentSafe(dir: string): string | null {
+  try {
+    saveCurrent(dir)
+    return null
+  } catch (e) {
+    log.error('main', `workdir.json 持久化失败（切库中止）：${e instanceof Error ? e.message : String(e)}`, e)
+    return `书库目录落库失败（workdir.json 写入异常）：${e instanceof Error ? e.message : String(e)}`
+  }
+}
+
 /** 是否合法书库目录（自身含 .clwriting/）。复用 findWorkDir 的判定。
  *  R1W-7（win 平台专项复审 R1）：win 路径大小写不敏感——findWorkDir 返回值与
  *  resolve(dir) 的盘符/目录大小写可能漂移，全等比较会误判「非书库」。 */
@@ -436,6 +499,19 @@ async function pickLibrary(): Promise<string | null> {
       ? await dialog.showMessageBox(parent, msgOpts)
       : await dialog.showMessageBox(msgOpts)
     if (choice.response === 0) {
+      // R52-A-1（五十二轮）：嵌套书库防线——「在此新建」目标位于既有书库内部
+      //（findWorkDir 命中祖先而非自身）时此前放行：内层 .clwriting/ 建成后抢占
+      // workDir 判定（外层书库的 server 端口/锁根/task-gate 单进程单锁契约被内层
+      // 篡改面）。与 canSwitchLibraryDir（switch-library 侧同款防线）口径对齐；
+      // 命中即原生错误框明确反馈并留在选择循环重选，不落死胡同。
+      const foundWork = findWorkDir(dir)
+      if (foundWork !== null && !samePath(foundWork, resolve(dir))) {
+        dialog.showErrorBox(
+          '所选位置在另一书库内部',
+          `「${basename(dir)}」位于书库（${foundWork}）内部，不能作为独立书库——嵌套书库会使工作目录判定歧义（建书结构被外层书库吞并）。请选择该书库以外的目录。`,
+        )
+        continue
+      }
       // R44-14（四十四轮）：git-ancestor 防线前移——init 的 doInitSteps 对 git 仓库内
       // 工作目录恒拒绝建书（书文件会被外层 git 版本控制吞掉），此处放行会让作者把
       // 待建空书库落库并重启后，到「建第一本书」才被拒——空壳死胡同（书架恒空、建书
@@ -461,14 +537,27 @@ async function pickLibrary(): Promise<string | null> {
   return null
 }
 
-/** 重启进程以应用新 workDir（规避 server 路由单例，见方案 §3.1）。 */
-function relaunch(): void {
+/** 重启进程以应用新 workDir（规避 server 路由单例，见方案 §3.1）。
+ *  R51-A-1（五十一轮）：app.relaunch() 武装与 releaseSingleInstanceLock 均不可回滚——
+ *  原实现当场三连（relaunch+release+quit），后续 before-quit 链的 flush 冲突/失败
+ *  确认一旦取消（R44-19/重评-1「取消即中止退出、应用原样保留」），应用带着「已释放
+ *  单实例锁 + 已武装重启」续跑：真双开可抢入、后续任意一次退出被劫持成重启。改为只
+ *  记意图并走优雅退出；真正的武装与锁释放推迟到 before-quit 链的不可回头点
+ *  （armPendingRelaunchIfAny），取消路径同步丢弃意图。 */
+let pendingRelaunch = false
+
+/** R51-A-1：不可回头点武装——flush 确认全过、appTearingDown 置位处调用；切库意图
+ *  在此刻兑现（app.relaunch() + R27-96 显式交接释放锁，锁时序缝隙与最坏结果分析见
+ *  原 relaunch 注）。仅切库链带意图时动作，普通退出零副作用。 */
+function armPendingRelaunchIfAny(): void {
+  if (!pendingRelaunch) return
+  pendingRelaunch = false
   app.relaunch()
-  // R27-96（二十七轮）：显式释放单实例锁再退出——relaunch 的新实例在旧进程退出后
-  // 立即拉起并 requestSingleInstanceLock，而锁随进程退出释放存在时序缝隙：新实例
-  // 扑空 → 自我 app.quit() → 切书库后无任何实例存活（死局）。显式交接释放消除缝隙；
-  // 释放窗内用户恰好真双开的最坏结果也只是一方拿到锁退出另一方存活，无死局。
   app.releaseSingleInstanceLock()
+}
+
+function relaunch(): void {
+  pendingRelaunch = true
   // RB-SV-P2-6：走 before-quit 优雅清理（app.exit 会跳过 before-quit）
   app.quit()
 }
@@ -994,7 +1083,9 @@ function registerIpc(): void {
   ipcMain.handle('desktop:open-library', async () => {
     const picked = await pickLibrary()
     if (!picked) return { ok: false as const, canceled: true as const }
-    saveCurrent(picked)
+    // R51-A-4（五十一轮）：落库失败转契约化失败，不再裸抛绕过 {ok,reason} 信封
+    const saveErr = saveCurrentSafe(picked)
+    if (saveErr) return { ok: false as const, reason: saveErr }
     setTimeout(relaunch, RELAUNCH_DELAY_MS) // 延迟重启，让响应先回渲染进程
     return { ok: true as const }
   })
@@ -1009,7 +1100,9 @@ function registerIpc(): void {
     if (await warnIfCaseSensitive(path)) {
       return { ok: false as const, reason: '已取消：目录在大小写敏感的卷上（如需使用请重新切换并选择「仍要使用」）' }
     }
-    saveCurrent(path)
+    // R51-A-4（五十一轮）：落库失败转契约化失败（同 open-library），不触发 relaunch
+    const saveErr = saveCurrentSafe(path)
+    if (saveErr) return { ok: false as const, reason: saveErr }
     setTimeout(relaunch, RELAUNCH_DELAY_MS)
     return { ok: true as const }
   })
@@ -1464,7 +1557,13 @@ if (gotSingleInstanceLock) {
   // quit」放行直通，R65-48），不与 close 链共享；两链共享的在途旗见模块级 R49-5 声明处。
   let quitViaShutdown = false
   app.on('before-quit', (e) => {
-    if (quitViaShutdown) return // 收口 quit 放行直通
+    if (quitViaShutdown) {
+      // R51-A-1：收口放行前兑现迟到的切库意图（意图在不可回头点之后才置位的边角——
+      // 停机在途窗口内的 switch-library → relaunch → 二次 quit 被拦只记旗），
+      // 正常退出（无意图）零副作用
+      armPendingRelaunchIfAny()
+      return // 收口 quit 放行直通
+    }
     e.preventDefault()
     // R49-5（评审四十九轮）：close 链 flush 在途——只拦不另起第二链（同窗双
     // executeJavaScript、极端时序双确认框），置位待 close 链收尾统一汇入 app.quit()
@@ -1489,6 +1588,7 @@ if (gotSingleInstanceLock) {
             // R44-19（四十四轮）收口：冲突未决给原生确认，取消即中止退出（应用原样保留）
             if (!confirmDiscardConflicts(win, res.conflict.length)) {
               quitFlushInFlight = false
+              pendingRelaunch = false // R51-A-1：取消 = 丢弃切库意图（退出语义不被劫持成重启）
               return
             }
           }
@@ -1499,6 +1599,7 @@ if (gotSingleInstanceLock) {
             log.error('desktop', `退出前 flush 有 ${res.failed.length} 个文档保存失败（${res.failed.join(', ')}），需作者确认是否放弃未落盘修改`)
             if (!confirmDiscardFailed(win, res.failed.length)) {
               quitFlushInFlight = false
+              pendingRelaunch = false // R51-A-1：取消 = 丢弃切库意图（同上）
               return
             }
           }
@@ -1507,6 +1608,9 @@ if (gotSingleInstanceLock) {
         log.error('desktop', '退出前渲染层 flush 异常（继续退出）', err)
       }
       appTearingDown = true
+      // R51-A-1：不可回头点——flush 冲突/失败确认全过、停机将启，此刻兑现切库意图
+      //（武装重启 + 交接释放锁）；取消路径到不了这里，意图已在上方丢弃
+      armPendingRelaunchIfAny()
       if (!bootstrapRunner.beginShutdown()) {
         quitFlushInFlight = false
         return // 已在优雅停机在途：本 async 流退出，等在途流程的 finally 统一收口
@@ -1535,6 +1639,7 @@ if (gotSingleInstanceLock) {
       } catch (err) {
         // 防御：shutdown 同步抛（当前为 async fn 不可达，防将来重构回归同型挂死）
         log.error('desktop', '优雅停机 shutdown 同步抛错（继续退出）', err)
+        armPendingRelaunchIfAny() // R51-A-1：兜底收口同样过不可回头点，切库意图不失
         for (const w of [mainWindow, shelfWindow, libraryWindow]) {
           try {
             if (w && !w.isDestroyed()) w.destroy()

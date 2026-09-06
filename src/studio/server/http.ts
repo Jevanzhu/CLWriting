@@ -8,6 +8,14 @@ export const JSON_BODY_LIMIT_BYTES = 1024 * 1024
  * 发送方长期 dribble 占住 socket（信任域缓解，非安全边界）。 */
 export const PAYLOAD_GRACE_MS = 1500
 
+/** R51-G-2（五十一轮）：body 闲置超时——写端点普遍按 CC-P2-9 在 readJson 前**同步占
+ * 书级闸**（占闸先于首个 await 以覆盖 body 在途窗口），客户端发完 headers 后悬持
+ * body 不发时，该闸最长被悬到 server 层 requestTimeout（300s）才释放，同书全部写
+ * 端点在此窗内恒 409。取「闲置」而非「总时长」口径：回环正常 body 亚秒到齐、重存
+ * 大正文也远不到 1s，30s 内零字节推进只剩慢速攻击/半开连接——任何字节推进都重置
+ * 计时，正常客户端永不误伤。与 client.ts 的请求超时（408 'TIMEOUT'）同码同形。 */
+export const BODY_IDLE_TIMEOUT_MS = 30_000
+
 export class HttpError extends Error {
   /** 机器可判别错误码（信封 {code,error} 的 code；缺省 'ERROR' 兜底） */
   public code: string
@@ -114,6 +122,7 @@ export function readJson(
   req: IncomingMessage,
   limitBytes = JSON_BODY_LIMIT_BYTES,
   graceMs = PAYLOAD_GRACE_MS,
+  idleMs = BODY_IDLE_TIMEOUT_MS,
 ): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     // 缓冲按 Buffer 收集、一次性 concat 后再解码：逐 chunk toString 会把跨分块边界的
@@ -121,8 +130,32 @@ export function readJson(
     const chunks: Buffer[] = []
     let size = 0
     let tooLarge = false
+    // R51-G-2（五十一轮）：闲置计时器——readJson 前多路写端点已占书级闸（CC-P2-9），
+    // body 悬持即闸悬持。进函数即武装（覆盖「headers 到、body 零字节」形态），每个
+    // data 字节重置；到点 408 'TIMEOUT'（信封同 replyError 单一出口）+ 宽限 destroy
+    //（R-1 同款：给 408 响应留刷出窗口，close 即清——正常客户端响应送达即收口，
+    // 悬持方到点强制断，不占 FD）。413/error/end/close 各路径随手清计时器，防
+    // promise 已 settle 后定时器再武装出跨路径 destroy（会掐断 413 排空窗）。
+    let idleTimer: NodeJS.Timeout | null = null
+    const clearIdle = (): void => {
+      if (idleTimer !== null) {
+        clearTimeout(idleTimer)
+        idleTimer = null
+      }
+    }
+    const armIdle = (): void => {
+      clearIdle()
+      idleTimer = setTimeout(() => {
+        idleTimer = null
+        reject(new HttpError(408, '请求体读取超时（长时间无数据推进），请重试', 'TIMEOUT'))
+        const grace = setTimeout(() => { req.destroy() }, graceMs)
+        req.once('close', () => clearTimeout(grace))
+      }, idleMs)
+    }
+    armIdle()
     req.on('data', (c: Buffer) => {
       if (tooLarge) return
+      armIdle()
       size += c.byteLength
       if (size > limitBytes) {
         tooLarge = true
@@ -132,6 +165,7 @@ export function readJson(
         // 413 响应刷出前掐断 socket（客户端收到 ECONNRESET 而非 413）；排空让
         // 有限请求体自然到 end，连接随响应正常收口，同样不占 FD。
         reject(new HttpError(413, '请求体过大', 'BAD_INPUT'))
+        clearIdle() // R51-G-2：413 后计时职责移交 R-1 排空宽限，闲置 destroy 不得再插手
         req.removeAllListeners('data')
         req.resume()
         // R-1（十五轮登记销账）：排空只是让 413 响应先刷出的宽限，不是义务接收——
@@ -147,6 +181,7 @@ export function readJson(
     req.on('end', () => {
       // 超限已在 data 中 reject；此处仅防御（promise settle 后重复调用无效）
       if (tooLarge) return
+      clearIdle() // R51-G-2：body 收齐，闲置计时下班（后续 parse 错误走 400 信封）
       const data = Buffer.concat(chunks).toString('utf-8')
       let parsed: unknown
       try {
@@ -171,9 +206,11 @@ export function readJson(
       // EPIPE）是客户端行为非服务端故障——给原始错误打 clientAbort 标记（不换壳，
       // errno 信息保留），dispatch 兜底据此把 log.error 降 log.info；错误本体与
       // 上层处理路径零变更（不带标记的错误原样透传）。
+      clearIdle() // R51-G-2：断连/读错误后不再计时，防 settled 后跨路径 destroy
       const code = (e as NodeJS.ErrnoException | undefined)?.code
       if (code === 'ECONNRESET' || code === 'EPIPE') (e as ClientAbortError).clientAbort = true
       reject(e)
     })
+    req.once('close', clearIdle) // R51-G-2：连接收口（含客户端中途断开无 error 形态）即清
   })
 }

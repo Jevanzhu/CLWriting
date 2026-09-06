@@ -11,6 +11,10 @@
  */
 import { basename } from 'node:path'
 import { existsSync, statSync } from 'node:fs'
+// R51-A-5（五十一轮）：路径等值判定单源——win（NTFS）与 mac（默认 APFS）卷大小写
+// 不敏感，路径经启动器/手工输入/Finder 可 case-only 漂移，字符串全等会把同一书库
+// 劈成两条记录（展示面污染）。samePath 已在 darwin/win32 折叠（R51-D-2 单源）。
+import { samePath } from '../fs/user-data-path.js'
 
 export interface RecentItem {
   /** 书库绝对路径 */
@@ -44,6 +48,9 @@ function isRecentItem(v: unknown): v is RecentItem {
 /**
  * 解析 workdir.json 原文为 WorkDirStore（容错）。
  * 损坏 / 缺字段 / 类型不符 → 空存储，不抛异常。
+ * R51-A-5（五十一轮）：判重改 samePath 等值——win/mac 大小写不敏感卷上 case-only
+ * 漂移的同库双条目（如手工改写 workdir.json 或历史版本落盘的异形路径）不再双显；
+ * 大小写敏感卷（linux）维持精确全等，合法异名共存不受影响。
  */
 export function parseStore(raw: string): WorkDirStore {
   let obj: unknown
@@ -56,12 +63,13 @@ export function parseStore(raw: string): WorkDirStore {
   const o = obj as Record<string, unknown>
   const current = typeof o['current'] === 'string' ? (o['current'] as string) : null
   const recentRaw = Array.isArray(o['recent']) ? o['recent'] : []
-  const seen = new Set<string>()
+  const seen: string[] = []
   const recent = recentRaw
     .filter(isRecentItem)
     .filter((r) => {
-      if (seen.has(r.path)) return false
-      seen.add(r.path)
+      // R51-A-5：samePath 等值判重（上限 5 条，线性扫描无规模面）
+      if (seen.some((p) => samePath(p, r.path))) return false
+      seen.push(r.path)
       return true
     })
     .slice(0, MAX_RECENT)
@@ -72,19 +80,24 @@ export function parseStore(raw: string): WorkDirStore {
  * 切换 current：把 newCurrent 设为当前，旧 current（若与新不同）推入 recent 头部。
  * recent 去重（按 path）、剔除等于新 current 的项、截断 MAX_RECENT。
  * 同值切换是 no-op（不把自己塞进 recent）。
+ * R51-A-5（五十一轮）：三处等值判定（新旧 current 比较 / recent 剔除 / 判重）改
+ * samePath——win 大小写漂移下 current 与 recent 同库异形并存、切回时不剔除旧条目
+ * 的展示面污染同源收口。注意 current 仍按调用方原样字串落盘（不归一化改写用户数据，
+ * 物理身份判定另有 samePhysicalPath 消费面）。
  */
 export function setCurrent(store: WorkDirStore, newCurrent: string): WorkDirStore {
-  const oldCurrent = store.current && store.current !== newCurrent ? store.current : null
+  const oldCurrent = store.current && !samePath(store.current, newCurrent) ? store.current : null
   const candidates: RecentItem[] = [
     ...(oldCurrent ? [{ path: oldCurrent, label: basename(oldCurrent) }] : []),
     ...store.recent,
   ]
-  const seen = new Set<string>()
+  const seen: string[] = []
   const recent = candidates
-    .filter((r) => r.path !== newCurrent)
+    .filter((r) => !samePath(r.path, newCurrent))
     .filter((r) => {
-      if (seen.has(r.path)) return false
-      seen.add(r.path)
+      // R51-A-5：samePath 等值判重（同 parseStore）
+      if (seen.some((p) => samePath(p, r.path))) return false
+      seen.push(r.path)
       return true
     })
     .slice(0, MAX_RECENT)

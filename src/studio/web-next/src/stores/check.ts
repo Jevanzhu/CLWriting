@@ -149,7 +149,10 @@ export const useCheckStore = defineStore('check', () => {
  *  旧前缀 `clw-fp:A:` 本身就是新书 'A:B' 键的前缀，顺手清会重蹈覆辙；展示态
  *  best-effort，旧键自然失配即弃。 */
 export function clearFalsePositiveMarks(bookName: string): void {
-  const prefix = `clw-fp:${bookName}\u0000`
+  // R51-H-4（五十一轮）：前缀改取 fpBookPrefix 单源（R50-D2-1 口径）——原处内联重拼
+  // `clw-fp:<书>\u0000`，与 fpKey/fpBookPrefix 构成双源，键格式再演化（如分隔符调整）时
+  // 此处必成漏改点（R50-D2-1 修的正是 useShelf 侧同款漏改）。行为不变：同串前缀。
+  const prefix = fpBookPrefix(bookName)
   try {
     // 倒序扫描：removeItem 不影响未访问下标
     for (let i = localStorage.length - 1; i >= 0; i--) {

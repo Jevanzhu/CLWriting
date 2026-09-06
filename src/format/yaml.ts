@@ -242,16 +242,24 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
     }
     if (vs) {
       const volumeSize = parseFiniteNumber(vs.value, NaN)
+      // R51-F-3（五十一轮）：坏值静默忽略补 warn（R37-11 kind/host 与 R76-15 阈值族
+      // 同文件留痕纪律——「配置写了但不生效」须有迹可查，否则字数规划静默失真）
       if (Number.isSafeInteger(volumeSize) && volumeSize > 0) cfg.book.volume_size = volumeSize
+      else log.warn('book.yaml', `book.volume_size 值非法（「${vs.value.trim().slice(0, 40)}」），已忽略（按未设处理）`)
     }
     if (tw) {
       const targetWords = parseFiniteNumber(tw.value, NaN)
+      // R51-F-3：同 volume_size
       if (Number.isFinite(targetWords) && targetWords > 0) cfg.book.target_words = targetWords
+      else log.warn('book.yaml', `book.target_words 值非法（「${tw.value.trim().slice(0, 40)}」），已忽略（按未设处理）`)
     }
     const ctw = findChild(book, "chapter_target_words")
     if (ctw) {
       const v = parseFiniteNumber(ctw.value, 0)
+      // R51-F-3：同 volume_size（空值经 parseFiniteNumber 落 0，同样进 warn 分支——
+      // 「写了空」与「没写」的语义差须留痕）
       if (Number.isFinite(v) && v > 0) cfg.book.chapter_target_words = v
+      else log.warn('book.yaml', `book.chapter_target_words 值非法（「${ctw.value.trim().slice(0, 40)}」），已忽略（按未设处理）`)
     }
   }
 
@@ -459,6 +467,22 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
       } else {
         log.warn('book.yaml', `checks.${key} 值非数组（${node.value.trim()}），已忽略`)
       }
+    }
+    // R52-E-2（五十二轮）：机检阈值五键——此前解析面不认（作者手写被静默丢弃，按引擎
+    // 默认值执行，配置链路断裂）。正数校验 + 非法值 warn 按未设（R76-15 口径，回落
+    // 全局链/引擎默认即可，不 fail-loud：调参面写坏不阻断写作）
+    for (const key of [
+      'repeat_threshold',
+      'repeat_chars_threshold',
+      'max_sentence_len',
+      'imagery_threshold',
+      'word_count_tolerance',
+    ] as const) {
+      const node = findChild(checks, key)
+      if (!node) continue
+      const v = parsePositiveNumber(node.value)
+      if (v !== undefined) checksConfig[key] = v
+      else log.warn('book.yaml', `checks.${key} 值非正数（「${node.value.trim()}」），已忽略（按未设处理）`)
     }
     if (Object.keys(checksConfig).length > 0) cfg.checks = checksConfig
   }
@@ -732,6 +756,22 @@ export function stringifyBookConfig(cfg: BookConfig): string {
       : []),
     ...(cfg.checks?.leak_keywords !== undefined
       ? [`  leak_keywords: ${stringifyValue(cfg.checks.leak_keywords)}`]
+      : []),
+    // R52-E-2：机检阈值五键随段输出（键存在即输出，与词表同范式；未设不落行）
+    ...(cfg.checks?.repeat_threshold !== undefined
+      ? [`  repeat_threshold: ${cfg.checks.repeat_threshold}`]
+      : []),
+    ...(cfg.checks?.repeat_chars_threshold !== undefined
+      ? [`  repeat_chars_threshold: ${cfg.checks.repeat_chars_threshold}`]
+      : []),
+    ...(cfg.checks?.max_sentence_len !== undefined
+      ? [`  max_sentence_len: ${cfg.checks.max_sentence_len}`]
+      : []),
+    ...(cfg.checks?.imagery_threshold !== undefined
+      ? [`  imagery_threshold: ${cfg.checks.imagery_threshold}`]
+      : []),
+    ...(cfg.checks?.word_count_tolerance !== undefined
+      ? [`  word_count_tolerance: ${cfg.checks.word_count_tolerance}`]
       : []),
   ]
   if (checksLines.length > 0) lines.push('', 'checks:', ...checksLines)
@@ -1035,6 +1075,13 @@ const CONFIG_PATCH_LEAVES: readonly ConfigPatchLeaf[] = [
   { section: 'growth', key: 'realm_span_max', get: (c) => c.growth.realm_span_max },
   { section: 'checks', key: 'imagery_words', get: (c) => c.checks?.imagery_words },
   { section: 'checks', key: 'leak_keywords', get: (c) => c.checks?.leak_keywords },
+  // R52-E-2：机检阈值五键——此前漏登白名单，PUT /config 改这些键会静默不落盘
+  //（parse/stringify 两侧均已认这些键，补丁白名单同轮对齐）
+  { section: 'checks', key: 'repeat_threshold', get: (c) => c.checks?.repeat_threshold },
+  { section: 'checks', key: 'repeat_chars_threshold', get: (c) => c.checks?.repeat_chars_threshold },
+  { section: 'checks', key: 'max_sentence_len', get: (c) => c.checks?.max_sentence_len },
+  { section: 'checks', key: 'imagery_threshold', get: (c) => c.checks?.imagery_threshold },
+  { section: 'checks', key: 'word_count_tolerance', get: (c) => c.checks?.word_count_tolerance },
   { section: 'rag', key: 'enabled', get: (c) => c.rag?.enabled },
   { section: 'rag', key: 'provider', get: (c) => c.rag?.provider },
   { section: 'rag', key: 'endpoint', get: (c) => (c.rag?.provider ? undefined : c.rag?.endpoint) },

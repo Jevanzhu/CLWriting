@@ -38,9 +38,13 @@ export function defaultUserDataPath(): string {
  * 大小写经启动器/手工输入可漂移），win32 双侧 toLowerCase 后比较；posix 全等。
  * document/manifest.ts:250 与 knowledge/manifest.ts:20 既有降口径的同族原语，
  * 供 --book 直达路径匹配 / isLibraryDir 等跨来源路径比较点收编。
+ * R51-D-2（五十一轮）：折叠面扩至 darwin（与 safe-path.platformCaseFold 单源同批
+ * 同口径）——mac 默认卷 APFS 不敏感，字符串口径在 darwin 折叠后与物理语义一致；
+ * linux 维持全等（敏感 FS 合法异名共存）。
  */
 export function samePath(a: string, b: string): boolean {
-  if (process.platform !== 'win32') return a === b
+  const foldFs = process.platform === 'win32' || process.platform === 'darwin'
+  if (!foldFs) return a === b
   return a.toLowerCase() === b.toLowerCase()
 }
 

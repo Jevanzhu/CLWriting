@@ -51,6 +51,12 @@ function onGlobalThresholdInput(e: Event): void {
   const v = parseNumericInput(e)
   if (v !== null) prefs.setRelationMineThreshold(v)
 }
+// R52-E-2：机检阈值五键共用入口（空串/非数字不写 store，同 R72-11 口径；clamp 在
+// 各 setter）——setup store 的 action 是普通函数，模板传引用直接调用
+function onGlobalCheckNum(e: Event, set: (v: number) => void): void {
+  const v = parseNumericInput(e)
+  if (v !== null) set(v)
+}
 </script>
 
 <template>
@@ -68,6 +74,56 @@ function onGlobalThresholdInput(e: Event): void {
             <input type="checkbox" aria-label="短篇严格模式（全局默认）" :checked="prefs.defaultShortStrict" @change="prefs.setDefaultShortStrict(($event.target as HTMLInputElement).checked)" />
             <span class="switch-slider"></span>
           </label>
+        </div>
+      </div>
+      <!-- R52-E-2：机检阈值五键（全局托底；本书可在 book.yaml checks.* 单独覆盖） -->
+      <div class="setting-item">
+        <div class="setting-item-info">
+          <div class="setting-item-name">复读占比阈值</div>
+          <div class="setting-item-desc">重复字词占全章比例超过该值报黄（0-1 之间，如 0.15）；留空用内置默认 0.15；未单独设定的书使用此默认</div>
+        </div>
+        <div class="setting-item-control">
+          <input class="num-input" type="number" min="0.01" max="1" step="0.01" aria-label="复读占比阈值（全局默认）" placeholder="默认 0.15" :value="prefs.checkRepeatThreshold" @change="onGlobalCheckNum($event, prefs.setCheckRepeatThreshold)" />
+        </div>
+      </div>
+      <div class="setting-item">
+        <div class="setting-item-info">
+          <div class="setting-item-name">复读连续字数</div>
+          <div class="setting-item-desc">连续重复多少字以上才计入复读检查；留空用内置默认 200；未单独设定的书使用此默认</div>
+        </div>
+        <div class="setting-item-control">
+          <input class="num-input" type="number" min="2" max="1000" step="1" aria-label="复读连续字数（全局默认）" placeholder="默认 200" :value="prefs.checkRepeatCharsThreshold" @change="onGlobalCheckNum($event, prefs.setCheckRepeatCharsThreshold)" />
+          <span class="val-suffix">字</span>
+        </div>
+      </div>
+      <div class="setting-item">
+        <div class="setting-item-info">
+          <div class="setting-item-name">超长句判定长度</div>
+          <div class="setting-item-desc">单句超过多少字报黄（句式体检）；留空用内置默认 60，文风铁律单独配置时以铁律为准；未单独设定的书使用此默认</div>
+        </div>
+        <div class="setting-item-control">
+          <input class="num-input" type="number" min="10" max="500" step="1" aria-label="超长句判定长度（全局默认）" placeholder="默认 60" :value="prefs.checkMaxSentenceLen" @change="onGlobalCheckNum($event, prefs.setCheckMaxSentenceLen)" />
+          <span class="val-suffix">字</span>
+        </div>
+      </div>
+      <div class="setting-item">
+        <div class="setting-item-info">
+          <div class="setting-item-name">高频意象阈值</div>
+          <div class="setting-item-desc">同一意象词出现超过该次数报黄；留空用内置默认 3；未单独设定的书使用此默认</div>
+        </div>
+        <div class="setting-item-control">
+          <input class="num-input" type="number" min="1" max="100" step="1" aria-label="高频意象阈值（全局默认）" placeholder="默认 3" :value="prefs.checkImageryThreshold" @change="onGlobalCheckNum($event, prefs.setCheckImageryThreshold)" />
+          <span class="val-suffix">次</span>
+        </div>
+      </div>
+      <div class="setting-item">
+        <div class="setting-item-info">
+          <div class="setting-item-name">字数容差</div>
+          <div class="setting-item-desc">章节字数与目标偏差在容差内不报黄（百分比）；留空用内置默认 30，短篇书走短篇字数上下限；未单独设定的书使用此默认</div>
+        </div>
+        <div class="setting-item-control">
+          <input class="num-input" type="number" min="1" max="500" step="1" aria-label="字数容差（全局默认）" placeholder="默认 30" :value="prefs.checkWordCountTolerance" @change="onGlobalCheckNum($event, prefs.setCheckWordCountTolerance)" />
+          <span class="val-suffix">%</span>
         </div>
       </div>
     </section>

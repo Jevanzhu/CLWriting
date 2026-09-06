@@ -30,7 +30,8 @@ describe('R73-47 / 白名单外摘要命名 warn 留痕', () => {
     try {
       const r = rebuild(root, join(root, '.cache', 'index.db'))
       expect(r.summaryCount).toBe(1) // 12.md 入库
-      expect(r.errors.some((e) => e.message.includes('手写草稿.md'))).toBe(true) // 健康报告在册
+      // R51-E-N1：报告级分流——健康报告在册面改 warnings（原 errors 触发硬闸消费面）
+      expect(r.warnings.some((e) => e.message.includes('手写草稿.md'))).toBe(true)
       expect(warnSpy).toHaveBeenCalled()
       const warned = warnSpy.mock.calls.map((c) => String(c[1] ?? c[0])).join('\n')
       expect(warned).toContain('手写草稿.md')

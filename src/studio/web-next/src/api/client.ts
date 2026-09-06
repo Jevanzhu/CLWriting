@@ -202,8 +202,16 @@ export async function apiJson<T>(
       // R32-25（三十二轮）：超时若落在响应体读取期（r.json() 中途 abort），AbortError
       // 在本 catch 被吞成 body={}，r.ok 为真 → 「空对象成功」假完成。timedOut 在手
       // （fetch 头已到、体读取超时的形态）→ 补抛 408（外层 catch 只拦 DOMException，
-      // ApiError 原样穿透）。非超时的解析失败维持空体口径（304/204 等无体响应合法）。
+      // ApiError 原样穿透）。
       if (timedOut) throw new ApiError('请求超时，请稍后重试', 408, 'TIMEOUT')
+      // R51-H-1（五十一轮）：2xx + 非 JSON 体不再静默回 {}——本 API 面服务端统一
+      // JSON 信封、无 200-无体端点（原注「304/204 无体合法」与本面不符），静默 {}
+      // 使 getContent 得 content:undefined、sha256Revision('undefined') 成错误基线，
+      // 首存必吃 REVISION_CONFLICT。仅 204/304（HTTP 语义无体合法）维持空对象口径，
+      // 其余 2xx 坏体上抛 MALFORMED_RESPONSE；非 2xx 非 JSON 仍走下方 LOCAL_API_DOWN。
+      if (r.ok && r.status !== 204 && r.status !== 304) {
+        throw new ApiError('服务端返回了无法解析的响应体', r.status, 'MALFORMED_RESPONSE')
+      }
       body = {} as T & { error?: string; code?: string }
     }
     if (!r.ok) {

@@ -351,16 +351,24 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
               // 的假计量，流末 done 走实测分支绕过估计兜底。对齐 openai 线 isRealUsage
               // （R36-14）口径：至少一个计量字段在位才采信，{} 落到流末估计分支（R73-1）。
               if (event.usage && (event.usage.input_tokens !== undefined || event.usage.output_tokens !== undefined)) {
-                const cacheRead = event.usage.cache_read_input_tokens ?? cacheReadFromStart
-                const cacheWrite = event.usage.cache_creation_input_tokens ?? cacheWriteFromStart
+                // prevUsage 显式断言拓宽 TS 对 latestUsage 的 null 收窄（注解不拓宽
+                // const 初始化收窄；循环回边处真实类型是 TokenUsage | null）。
+                // R51-C-3：声明上移到 cache 行之前——cache 两档 fallback 链引用前值。
+                const prevUsage = latestUsage as TokenUsage | null
+                // R51-C-3（五十一轮）：cache 两档 fallback 链补先前 delta 值——原链只兜
+                // message_start（cacheReadFromStart/cacheWriteFromStart），非标网关三条件
+                // 叠加（message_start 缺 cache 字段 + 首条 message_delta 带 cache 计量 +
+                // 末条 delta 又缺）时先前 delta 已报的 cache 值被丢、latestUsage 整段无
+                // cache 计量（computeCallCost 缓存档计 0）。对齐本 merge 内 input/output
+                // 的「delta 值 ?? 前值 ?? 起始值」次序：delta 在位优先，缺失保留前值，
+                // message_start 兜底殿后。
+                const cacheRead = event.usage.cache_read_input_tokens ?? prevUsage?.cacheReadTokens ?? cacheReadFromStart
+                const cacheWrite = event.usage.cache_creation_input_tokens ?? prevUsage?.cacheWriteTokens ?? cacheWriteFromStart
                 // R33-4（三十三轮）：末见 wins 改逐字段 merge——此前 input 有
                 // inputTokensFromStart 兜底、cache 两档有 message_start 兜底，唯
                 // output_tokens 缺失直接 ?? 0：部分上游连发多条 message_delta（本文件
                 // :199 注释已认的 cc-switch 形态）且末条缺该字段时，此前 delta 已报的
                 // 正确 output 值被清零（computeCallCost 输出档计 0、预算闸少计）。
-                // prevUsage 显式断言拓宽 TS 对 latestUsage 的 null 收窄（注解不拓宽
-                // const 初始化收窄；循环回边处真实类型是 TokenUsage | null）。
-                const prevUsage = latestUsage as TokenUsage | null
                 latestUsage = {
                   inputTokens: event.usage.input_tokens ?? prevUsage?.inputTokens ?? inputTokensFromStart,
                   outputTokens: event.usage.output_tokens ?? prevUsage?.outputTokens ?? 0,

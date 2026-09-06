@@ -291,7 +291,19 @@ function tryIncrementalRebuild(
     // 「无错」返回——那会绕过 REBUILD_FAIL 闸让坏文件红点消失；return null 走全量
     // 重建自愈（重扫重记 errors，下轮恢复增量）
     if (errors === null || errors.length !== errCount) return null
-    return { leadCount, chapterCount, summaryCount, errors }
+    // R51-E-N1：warnings 恢复从宽（报告级不驱动硬闸，失联/旧库无键按空处理——
+    // 下次全量重建自愈重记；errors 的严格校验语义不适用于非闸面）
+    let warnings: ParseError[] = []
+    const warnCount = Number(getMeta(db, 'warning_count') ?? '0')
+    if (warnCount > 0) {
+      try {
+        const parsed = JSON.parse(getMeta(db, 'warnings') ?? '[]')
+        if (Array.isArray(parsed)) warnings = parsed as ParseError[]
+      } catch {
+        warnings = []
+      }
+    }
+    return { leadCount, chapterCount, summaryCount, errors, warnings }
   } catch {
     return null
   } finally {
@@ -307,8 +319,18 @@ export interface RebuildResult {
   chapterCount: number
   /** 入库摘要数 */
   summaryCount: number
-  /** 解析错误（健康报告） */
+  /** 解析错误（硬闸级：源文件解析失败——单章机检 REBUILD_FAIL / 树红点降级 /
+   *  state 进门 2 态的消费面按本桶判定） */
   errors: ParseError[]
+  /**
+   * R51-E-N1（五十一轮）：报告级警告（健康报告语义）——book.yaml 解析失败、摘要
+   * 命名不合规这类「重建照常完成、产物可用」的降级事实。此前混入 errors 使消费面
+   * （单章机检 REBUILD_FAIL 500、树红点机检全灭、进门 state 2）把它们当硬闸：一个
+   * 手放 `笔记.md` 即瘫单章机检 + 树红点 + 进门链；R29-5 book-config-degraded 黄项
+   * 因前置硬闸而稳态不可达。分流后 errors 只承载真「源文件解析失败」，warnings 走
+   * log 留痕 + meta 健康报告（不驱动任何红闸）。
+   */
+  warnings: ParseError[]
 }
 
 /**
@@ -333,6 +355,8 @@ export function rebuild(
   if (incremental) return incremental
 
   const errors: ParseError[] = []
+  // R51-E-N1：报告级桶——book.yaml 降级/摘要命名不合规进此处（不再触发硬闸消费面）
+  const warnings: ParseError[] = []
   let leadCount = 0
   let chapterCount = 0
   let summaryCount = 0
@@ -346,7 +370,9 @@ export function rebuild(
   // 读 book.yaml → 决定启用哪些账本类（#9 第 5 节）
   const bookYamlPath = join(bookRoot, 'book.yaml')
   const cfgResult = readBookConfig(bookYamlPath)
-  if (!cfgResult.ok) errors.push(cfgResult.error)
+  // R51-E-N1：解析失败是「按默认配置降级、重建照常」的报告级事实（R50-C-2 同款降级
+  // 语义）——原推 errors 使单章机检 REBUILD_FAIL 500 / 树红点全灭 / R29-5 黄项不可达
+  if (!cfgResult.ok) warnings.push(cfgResult.error)
   const enabledTypes = new Set<string>(BASE_LEAD_TYPES)
   for (const t of cfgResult.config.leads.enabled) enabledTypes.add(t)
 
@@ -434,8 +460,8 @@ export function rebuild(
 
     // #3 扫描摘要（定稿/摘要/章摘要/ + 卷摘要/）
     const summaryBase = join(bookRoot, '定稿', '摘要')
-    summaryCount += scanSummaries(db, join(summaryBase, '章摘要'), 'chapter', errors)
-    summaryCount += scanSummaries(db, join(summaryBase, '卷摘要'), 'volume', errors)
+    summaryCount += scanSummaries(db, join(summaryBase, '章摘要'), 'chapter', warnings)
+    summaryCount += scanSummaries(db, join(summaryBase, '卷摘要'), 'volume', warnings)
 
     // #4 写 meta
     setMeta(db, 'rebuilt_at', new Date().toISOString())
@@ -451,6 +477,11 @@ export function rebuild(
     setMeta(db, 'error_count', String(errors.length))
     if (errors.length > 0) {
       setMeta(db, 'errors', JSON.stringify(errors))
+    }
+    // R51-E-N1：报告级警告同样落 meta（增量命中时恢复，健康报告跨重建不丢）
+    setMeta(db, 'warning_count', String(warnings.length))
+    if (warnings.length > 0) {
+      setMeta(db, 'warnings', JSON.stringify(warnings))
     }
 
     db.exec('COMMIT')
@@ -469,17 +500,18 @@ export function rebuild(
   }
   db.close()
 
-  return { leadCount, chapterCount, summaryCount, errors }
+  return { leadCount, chapterCount, summaryCount, errors, warnings }
 }
 
 /** 扫描摘要目录，文件名 <数字>.md → scope/ref/path 入库。
- *  R62-32：不合命名形式的 .md（如手写草稿误落摘要目录）计入 errors 进健康报告
- *  ——此前静默 continue，坏文件既不入库也无任何可见性（_errors 死参数即为此欠账）。 */
+ *  R62-32：不合命名形式的 .md（如手写草稿误落摘要目录）计入健康报告——此前静默
+ *  continue，坏文件既不入库也无任何可见性（_errors 死参数即为此欠账）。
+ *  R51-E-N1：形参改收 warnings（报告级桶）——未入库不触发硬闸消费面。 */
 function scanSummaries(
   db: DatabaseSync,
   dir: string,
   scope: 'chapter' | 'volume',
-  errors: ParseError[],
+  warnings: ParseError[],
 ): number {
   if (!existsSync(dir)) return 0
   let count = 0
@@ -513,7 +545,9 @@ function scanSummaries(
     // 口径配套，.MD 入库时章号提取不再残留 .MD 尾巴误落白名单外分支。
     if (!/^\d+$/.test(f.replace(/\.[mM][dD]$/, ''))) {
       log.warn('rebuild', `摘要文件名「${f}」不是 <章号或卷号>.md 形式，未入库（${dir}）`)
-      errors.push({ file: fp, line: 0, message: `摘要文件名「${f}」不是 <章号或卷号>.md 形式，未入库` })
+      // R51-E-N1：未入库是重建照常完成的降级事实（报告级），原推 errors 使消费面
+      //（单章机检/树红点/进门 2 态）把一个手放笔记.md 当源文件损坏硬闸
+      warnings.push({ file: fp, line: 0, message: `摘要文件名「${f}」不是 <章号或卷号>.md 形式，未入库` })
       continue
     }
     const ref = Number(f.replace(/\.[mM][dD]$/, ''))

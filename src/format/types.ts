@@ -33,6 +33,15 @@ export interface LeadEntry {
   回填?: boolean // 显式回填例外（#3 第 4 节），章号机检放行
 }
 
+/** 履历段内分组标题（R51-F-1）：条目之间的 ATX 标题行（如 `### 第一卷`）——
+ *  挂靠其后首个条目的序号，回写时原位还原（此前 continue 三不管、回写即物理删除） */
+export interface LeadHistoryGroupHeading {
+  /** 挂靠条目下标（该标题位于 entries[beforeEntry] 之前；解析时 = 当时 entries.length） */
+  beforeEntry: number
+  /** 原始行（不 trim，保作者书写形态） */
+  line: string
+}
+
 /** 账本条目内存模型（#3 第 3-6 节，六类统一 + 各类特化字段可选） */
 export interface Lead {
   // 通用必填（#3 第 3 节）
@@ -58,6 +67,8 @@ export interface Lead {
   _bodyAfterHistory?: string
   /** 「## 履历」标题与首条条目之间的手写散文（R48-8：回写时原位还原——此前三路都不接住、回写即物理删除） */
   _historyPreamble?: string
+  /** 履历段内分组标题（R51-F-1：按挂靠条目序号回写原位还原——此前 continue 丢弃、回写即物理删除） */
+  _historyGroupHeadings?: LeadHistoryGroupHeading[]
   /** 源 md 的 front matter 字段顺序（回写保序用，#3 第 8 节"不重排已有字段顺序"） */
   _fmOrder?: string[]
   /** 源 md 路径（重建时回填，非 front matter 字段） */
@@ -134,7 +145,10 @@ export interface ChapterMeta {
   // 以下为通用可选字段（长短篇均可用，非"短篇专属"）
   目标情绪?: string // 读者体验目标（惊悚/温暖/心酸…）
   核心反转?: string // 本章核心反转点（有反转的章才填）
-  _raw?: Record<string, string>
+  // 容错：未知字段原样保留（#3 第 8 节；R51-F-6（五十一轮）：数组型按 string[]
+  // 原样承载，对齐 LeadMeta R64-17——此前 String(v) 把数组压成 "a,b" 单串，回写
+  // stringifyValue 按标量引号化，项内逗号错位）
+  _raw?: Record<string, string | string[]>
   _path?: string
   _wordCount?: number // 机检算的派生（#7 第 2 节，不入 front matter）
   /** W-P2-4：readChapterDir 传 includeBody 时带出正文原文（导出单次读用；默认缺省不驻留内存） */
@@ -301,6 +315,18 @@ export interface BookConfig {
     imagery_words?: string[]
     /** 信息差关键词。无内置默认（逐书的秘密无通用词表）；未设 = 静默不启用 */
     leak_keywords?: string[]
+    // ── R52-E-2：机检阈值五键（此前类型面就不存在，作者手写必被静默丢弃）──
+    // 未设 = 走 runner 直传引擎默认参数；生效链 book.yaml checks.* → global.json 托底 → 引擎默认
+    /** 复读占比阈值（0-1 小数；引擎默认 0.15） */
+    repeat_threshold?: number
+    /** 复读最小连续字数（正整数；引擎默认 200） */
+    repeat_chars_threshold?: number
+    /** 超长句判定长度（正整数；引擎默认 60；铁律配了 maxSentenceLen 时本键不生效——项 9 已覆盖） */
+    max_sentence_len?: number
+    /** 高频意象报黄次数阈值（正整数；引擎默认 3；语义为「> 阈才报」） */
+    imagery_threshold?: number
+    /** 字数容差百分比（正数；引擎默认 30；仅长篇 checkWordCount 消费，短篇走 short.word_min/max） */
+    word_count_tolerance?: number
   }
   /** 快照保留策略（单章版本回滚）；缺省 = 14 天 / 30 个。分层保留桶为内部规则，不暴露 */
   snapshots?: {

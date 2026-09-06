@@ -141,9 +141,15 @@ export async function detectState(bookRoot: string, config: BookConfig, manifest
   // 无布线（短篇）跳过 rebuild：无布线书不依赖 index.db 长程账本（态7 分支直接扫 写作/正文/ 目录），
   // rebuild 扫的是长篇结构（布线/账本 + 写作/正文），对无布线书是纯浪费；态2 解析错误检测对此类书无意义（真相源是 写作/正文/）。
   const cachePath = join(bookRoot, '.cache', 'index.db')
-  let rebuildResult: { leadCount: number; chapterCount: number; summaryCount: number; errors: ParseError[] }
+  let rebuildResult: {
+    leadCount: number
+    chapterCount: number
+    summaryCount: number
+    errors: ParseError[]
+    warnings?: ParseError[] // R51-E-N1：报告级桶（book.yaml 降级/摘要命名）——不驱动本文件 state 2 硬闸
+  }
   if (!existsSync(join(bookRoot, '布线'))) {
-    rebuildResult = { leadCount: 0, chapterCount: 0, summaryCount: 0, errors: [] }
+    rebuildResult = { leadCount: 0, chapterCount: 0, summaryCount: 0, errors: [], warnings: [] }
   } else {
     // rebuild 仅在 db 层故障(磁盘满/权限/损坏)抛异常;catch 后降级态2,不崩整个 enter
     try {

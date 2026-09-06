@@ -27,7 +27,17 @@ export const E2E_PORT_BASE =
   // 放行 65520+ 会让 e2ePort(16) 越 65535 起服必挂（违背「坏值回落缺省」自述意图）
   Number.isInteger(parsed) && parsed > 0 && parsed < 65536 - MAX_PORT_OFFSET ? parsed : DEFAULT_PORT_BASE
 
-/** 基址 + 偏移派生端口（独立 server spec 用；偏移表见头注） */
+/** 基址 + 偏移派生端口（独立 server spec 用；偏移表见头注）。
+ *  R51-J-5（五十一轮）：偏移上界改运行时断言——MAX_PORT_OFFSET 原先只在
+ *  E2E_PORT_BASE 的 env 校验里被引用（注释性守卫），调用方传超表偏移（新增独立
+ *  server 忘登偏移表/抄错号）会静默派生出与偏移表无关的端口：独立 server 相互
+ *  抢占、e2e 假红难排查。超界 fail-fast 抛人话错误，指路本文件偏移表。 */
 export function e2ePort(offset: number): number {
+  if (!Number.isInteger(offset) || offset < 0 || offset > MAX_PORT_OFFSET) {
+    throw new Error(
+      `e2ePort 偏移越界：${offset}（合法范围 0..${MAX_PORT_OFFSET}）。` +
+        `新独立 server 请在 test/e2e/e2e-ports.ts 头注偏移表登记并同步上调 MAX_PORT_OFFSET（同时核对 E2E_PORT_BASE 上界 65535 不越）`,
+    )
+  }
   return E2E_PORT_BASE + offset
 }

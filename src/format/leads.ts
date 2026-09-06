@@ -22,6 +22,7 @@ import { atomicWriteFile } from '../fs/atomic.js'
 import type {
   Lead,
   LeadEntry,
+  LeadHistoryGroupHeading,
   LeadType,
   ParseError,
 } from './types.js'
@@ -113,10 +114,20 @@ export function parseHistory(body: string): LeadEntry[] {
  *  （_historyPreamble）——此前散文三路都不接住（不进 entries/不进 bodyBefore/
  *  bodyAfter），writeLead 重建时物理删除。原样行收集（不 trim），由 stringifyHistory
  *  在标题与首条之间原位还原；节终无条目时标题与节终标题之间的散文同样在此收
- *  （bodyAfterHistory 只保节终标题之后的内容，两区天然不重叠）。 */
-export function parseHistoryWithPreamble(body: string): { entries: LeadEntry[]; preamble: string } {
+ *  （bodyAfterHistory 只保节终标题之后的内容，两区天然不重叠）。
+ *  R51-F-1（五十一轮）：条目间的分组标题（后随条目的 ATX 标题，如 `### 第一卷`）第三
+ *  槽位保真（_historyGroupHeadings）——此前分支 continue 三不管（不进 entries/preamble/
+ *  bodyAfterHistory），writeLead 整段重序列化即物理删除（P1：作者手写结构标记不可逆
+ *  丢失）。挂靠 beforeEntry = 解析当时 entries.length（其后首个条目），标题链（R76-21）
+ *  逐行各记一条、数组序即文件序；stringifyHistory 原位还原。 */
+export function parseHistoryWithPreamble(body: string): {
+  entries: LeadEntry[]
+  preamble: string
+  groupHeadings: LeadHistoryGroupHeading[]
+} {
   const entries: LeadEntry[] = []
   const preamble: string[] = []
+  const groupHeadings: LeadHistoryGroupHeading[] = []
   // R36-1（三十六轮）：CRLF 行尾归一——HISTORY_ENTRY_RE / LOOSE_RE 对原始行 `$` 锚定
   // 匹配且无 m 标志，`\r` 前不认行尾 → CRLF 账本的履历条目全量落「形似条目」分支被
   // log.warn 丢弃，随后定稿回写 writeLead 按 stringifyHistory 整文件重序列化 → 既有
@@ -144,6 +155,8 @@ export function parseHistoryWithPreamble(body: string): { entries: LeadEntry[]; 
     // `## ` 终断、一律折入证据，同本修收口。
     if (ATX_HEADING_RE.test(t)) {
       if (headingEndsSection(lines, i, (l) => HISTORY_ENTRY_RE.test(l))) break
+      // R51-F-1（五十一轮）：分组标题第三槽位保真（原 continue 即物理丢失）
+      groupHeadings.push({ beforeEntry: entries.length, line })
       continue
     }
 
@@ -192,17 +205,35 @@ export function parseHistoryWithPreamble(body: string): { entries: LeadEntry[]; 
       preamble.push(line)
     }
   }
-  return { entries, preamble: preamble.join('\n') }
+  return { entries, preamble: preamble.join('\n'), groupHeadings }
 }
 
-/** 履历段 → markdown 文本；preamble 非空时在标题与首条之间原位还原（R48-8） */
-export function stringifyHistory(entries: LeadEntry[], preamble?: string): string {
+/** 履历段 → markdown 文本；preamble 非空时在标题与首条之间原位还原（R48-8）；
+ *  groupHeadings 按挂靠条目序号原位还原（R51-F-1）——同槽多条（标题链）按数组序，
+ *  越界槽位（条目被删等）尾插兜底不静默丢弃。 */
+export function stringifyHistory(
+  entries: LeadEntry[],
+  preamble?: string,
+  groupHeadings?: LeadHistoryGroupHeading[],
+): string {
   const lines: string[] = ['## 履历', '']
   const pre = preamble?.trim()
   if (pre) lines.push(pre, '')
-  for (const e of entries) {
+  // 稳定排序保文件序：同 beforeEntry 的标题链顺序不变
+  const pending = [...(groupHeadings ?? [])].sort((a, b) => a.beforeEntry - b.beforeEntry)
+  let pi = 0
+  for (let i = 0; i < entries.length; i++) {
+    while (pi < pending.length && pending[pi]!.beforeEntry <= i) {
+      lines.push(pending[pi]!.line)
+      pi++
+    }
+    const e = entries[i]!
     const suffix = e.回填 ? '（回填·卷摘要级）' : ''
     lines.push(`- 第${String(e.章号).padStart(3, '0')}章 ${e.动词}：${e.证据}${suffix}`)
+  }
+  while (pi < pending.length) {
+    lines.push(pending[pi]!.line)
+    pi++
   }
   return lines.join('\n')
 }
@@ -311,6 +342,7 @@ export function readLead(
     _bodyBeforeHistory: bodyBeforeHistory(r.body),
     _bodyAfterHistory: bodyAfterHistory(r.body),
     ...(hist.preamble ? { _historyPreamble: hist.preamble } : {}),
+    ...(hist.groupHeadings.length > 0 ? { _historyGroupHeadings: hist.groupHeadings } : {}),
     ...(Object.keys(_raw).length > 0 ? { _raw } : {}),
     _fmOrder: [...map.keys()],
     _path: filePath,
@@ -383,7 +415,8 @@ export function writeLead(filePath: string, lead: Lead): void {
   const fmText = stringifyFlat(leadToMap(lead))
   // R48-8（四十八轮）：履历前散文（_historyPreamble）原位还原——此前 stringifyHistory
   // 只认条目，手写在标题与首条之间的散文每次回写都被物理删除
-  const historyText = stringifyHistory(lead.履历, lead._historyPreamble)
+  // R51-F-1（五十一轮）：分组标题（_historyGroupHeadings）同原位还原——P1 红线面
+  const historyText = stringifyHistory(lead.履历, lead._historyPreamble, lead._historyGroupHeadings)
   const preserved = lead._bodyBeforeHistory?.trim()
   // dd-P2：履历段后的人工正文（备注/关联线索）一并保留——此前任意一次账本回写
   // 都会把作者手写在 ## 履历 之后的内容静默删掉

@@ -105,6 +105,11 @@ const editorSetup: Extension[] = [
   EditorView.updateListener.of((u) => {
     // @ 触发角色名补全（CM6 默认 activateOnTyping 只认 \w，@ 不触发）
     if (!u.docChanged || !completionEntries.value.length) return
+    // R51-I-2（五十一轮）：userEvent 判别——仅用户输入事务（input.* 家族：键入/IME
+    // 组合/粘贴/拖放，CM6 全量标注 userEvent）才触发；外部全量替换（SSE sync /
+    // doc.refresh / 切文档）为程序事务、无 userEvent，此前 '@' 恰被替换到光标位时
+    // 后台同步也会自动弹补全浮层（无输入意图的 UI 打扰）。
+    if (!u.transactions.some((tr) => (tr.annotation(Transaction.userEvent) ?? '').startsWith('input'))) return
     const head = u.state.selection.main.head
     if (u.state.doc.sliceString(head - 1, head) === '@') startCompletion(u.view)
   }),
@@ -172,7 +177,11 @@ onMounted(() => {
         // doc.toString() 再一次，每击键 2× 全文拷贝（超大单文件可感）
         if (u.docChanged) {
           lastLocalEmit = u.state.doc.toString()
-          emit('update:modelValue', lastLocalEmit)
+          // R51-I-6（五十一轮）：切文档挂起窗口内不回写——父层 onBodyChange 按当前
+          // entry（已切到新章 docId）patch，挂起期间组合续打的旧章文本若照常 emit
+          // 会整段写进新章（跨章污染）。挂起窗口的输入只留在本视图，随切文档替换
+          // 丢弃（compositionend 消费挂起后 emit 恢复常态）。
+          if (pendingDocSwitch === null) emit('update:modelValue', lastLocalEmit)
         }
         if (u.selectionSet || u.focusChanged) emit('selectionChange')
       }),
@@ -184,7 +193,10 @@ onMounted(() => {
         },
         compositionend: () => {
           composing = false
-          if (pendingExternal === null || !view) return
+          // R51-I-6（五十一轮）：切文档挂起（pendingDocSwitch）与同文档外部替换挂起
+          //（pendingExternal）同在此消费，两槽皆空才短路
+          if (pendingExternal === null && pendingDocSwitch === null) return
+          if (!view) return
           pendingExternal = null
           // B-1（第六十轮）：应用「当下最新 modelValue」而非登记时的快照——组合期每次
           // emit 已把已组文本同步进 store（回写后 v === doc，watch 不再刷新挂起值），
@@ -202,8 +214,18 @@ onMounted(() => {
             // 上段组合期到达的外部替换被永久丢弃（refresh/SSE 同步静默失效）。回填
             // pendingExternal = latest 让下一次 compositionend 的既有消费路径再触发
             //（自愈链）；不引入双应用——应用前有 latest === doc 等值检查兜底。
+            // pendingDocSwitch 同此口径：新组合期间不清槽，留给下一次 compositionend。
             if (composing || view.composing) {
               pendingExternal = latest
+              return
+            }
+            // R51-I-6（五十一轮）：挂起的切文档优先消费——切文档必须走「卸载重挂
+            // history + 全量替换」的真重置路径（applyDocSwitch），不能落到下方
+            // applyExternalReplace（不重置 undo 栈、选区按同文档归位语义 clamp 也错）。
+            // 取当下最新 props（B-1 同款）：挂起期间可能又有新值乃至二次切章到达。
+            if (pendingDocSwitch !== null) {
+              lastHistoryKey = props.historyKey
+              applyDocSwitch(props.modelValue)
               return
             }
             if (latest === view.state.doc.toString()) return
@@ -255,6 +277,11 @@ let lastLocalEmit: string | null = props.modelValue
 // 在微任务里冲排组合文本插入，先于我们的全量替换才不会把组合文本算进替换 diff。
 let composing = false
 let pendingExternal: string | null = null
+// R51-I-6（五十一轮）：切文档挂起槽（对齐同文档分支 pendingExternal 守卫）——组合期
+// 切章时立即全量替换会打断 IME 组合丢字，改挂起待 compositionend 消费。登记 {v,key}
+// 原子对（props 一次 watch 回调同时到达；historyKey 可选 prop 故 key 含 undefined）；
+// 后续触发刷新槽值（取最新，B-1 同款口径）。
+let pendingDocSwitch: { v: string; key: string | undefined } | null = null
 /** 同文档外部全量替换的执行体（composing 守卫解耦出）。 */
 function applyExternalReplace(v: string): void {
   if (!view) return
@@ -277,11 +304,35 @@ function applyExternalReplace(v: string): void {
     annotations: Transaction.addToHistory.of(false),
   })
 }
+/** 切文档执行体（R51-I-6 抽出：组合期挂起后由 compositionend 消费同一路径）。
+ *  两步真重置历史（X-1）——reconfigure(history()) 对已存在 historyField 携带旧值不重建
+ *  （CM6 reconfigure 语义），实测两条残留路径：同内容切换无替换事务时旧 undo 栈整体
+ *  残留；切换前 undo 过一次时，redo 栈的文档边界插入事件不被全量替换的 addMapping 丢弃
+ *  （mapPos 边界存活，redo 仍可回灌）。故先卸载 history 扩展（字段随 compartment 移除、
+ *  旧值即丢弃），下一事务重挂——字段重新 init，栈必然为空；第二步恒派发全量替换
+ *  （同文亦替换，内容同步 + 二次保险），注解保持原口径。 */
+function applyDocSwitch(v: string): void {
+  pendingDocSwitch = null // 实际应用即清挂起槽（幂等：防消费回调与 watch 触发双应用）
+  if (!view) return
+  view.dispatch({ effects: historyConf.reconfigure([]) })
+  view.dispatch({
+    effects: historyConf.reconfigure(history()),
+    changes: { from: 0, to: view.state.doc.length, insert: v },
+    // R51-I-3（五十一轮）：切文档后光标锚定章首——全区间替换不显式给 selection 时，
+    // 旧光标被 mapPos 到替换区间边界（旧章末位置 → 新章末，R62-18 注释同源语义），
+    // 切章后光标落章末。对齐同文档路径的选区处理口径（applyExternalReplace 的
+    // R62-18/R50-D1-3 归位/保留）；切文档内容整体换血、旧位置无可归位，章首即自然
+    // 阅读起点。
+    selection: EditorSelection.cursor(0),
+    annotations: [Transaction.addToHistory.of(false), isolateHistory.of('full')],
+  })
+}
 watch(
   [() => props.modelValue, () => props.historyKey],
   ([v, key]) => {
     if (!view) return
     const docSwitch = key !== lastHistoryKey
+    const prevKey = lastHistoryKey
     lastHistoryKey = key
     if (!docSwitch) {
       // 同文档外部同步：仅差异时替换，避免光标跳（此分支不得恒替换）
@@ -301,18 +352,17 @@ watch(
       }
       return
     }
-    // 切文档：两步真重置历史（X-1）——reconfigure(history()) 对已存在 historyField 携带
-    // 旧值不重建（CM6 reconfigure 语义），实测两条残留路径：同内容切换无替换事务时旧
-    // undo 栈整体残留；切换前 undo 过一次时，redo 栈的文档边界插入事件不被全量替换的
-    // addMapping 丢弃（mapPos 边界存活，redo 仍可回灌）。故先卸载 history 扩展（字段随
-    // compartment 移除、旧值即丢弃），下一事务重挂——字段重新 init，栈必然为空；第二步
-    // 恒派发全量替换（同文亦替换，内容同步 + 二次保险），注解保持原口径。
-    view.dispatch({ effects: historyConf.reconfigure([]) })
-    view.dispatch({
-      effects: historyConf.reconfigure(history()),
-      changes: { from: 0, to: view.state.doc.length, insert: v },
-      annotations: [Transaction.addToHistory.of(false), isolateHistory.of('full')],
-    })
+    // R51-I-6（五十一轮）：组合期切章挂起（对齐上方同文档分支的 composing 守卫）——
+    // 不立即派发替换（打断 IME 组合丢字），登记挂起待 compositionend 消费；
+    // lastHistoryKey 回退旧 key：挂起未生效，后续触发仍按切文档判据刷新挂起值。
+    // 挂起窗口内本视图的输入 emit 已抑制（见 mount 侧 updateListener）——父层 entry
+    // 已指向新章，照常回写会把旧章文本整段写进新章（跨章污染）。
+    if (view.composing || composing) {
+      pendingDocSwitch = { v, key }
+      lastHistoryKey = prevKey
+      return
+    }
+    applyDocSwitch(v)
   },
 )
 

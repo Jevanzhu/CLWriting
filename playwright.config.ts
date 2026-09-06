@@ -13,8 +13,12 @@ export default defineConfig({
   testDir: './test/e2e',
   // R27-122（二十七轮）：顺序契约守卫 test/e2e/spec-order.guard.test.ts 是 vitest 用例
   // （R73-77 注释宣称的 E2E_SPEC_ORDER_SNAPSHOT 此前是幻影，本轮落地），但 *.test.ts
-  // 会命中 Playwright 默认 testMatch——不排除它会被收成第 30 个 spec，破坏 29-spec 契约
-  testIgnore: '**/spec-order.guard.test.ts',
+  // 会命中 Playwright 默认 testMatch——不排除它会被收成第 30 个 spec，破坏 29-spec 契约。
+  // R51（五十一轮）：从单点豁免泛化为「Playwright 只认 *.spec.ts」——e2e 目录里的
+  // vitest 单测（guard / r51-j5 端口偏移断言等）每加一个都要补豁免不可持续，且漏补
+  // 的形态是 runner 级崩溃（vitest import 在 playwright 进程无内部状态可访问），
+  // 整轮 e2e 静默没跑（管道 tail 还会掩盖退出码），比 30-spec 契约破坏更隐蔽
+  testIgnore: '**/*.test.ts',
   globalSetup: './test/e2e/global-setup.ts',
   // e2e 共享 globalSetup 的单一 workDir/server，必须串行跑避免 test 间磁盘并行污染
   workers: 1,

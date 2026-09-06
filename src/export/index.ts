@@ -303,7 +303,10 @@ export function exportBook(options: ExportOptions): ExportResult {
       warnings.push(`${relPosix(u.path)}: 正文读取失败（${r.error.message}），已跳过`)
       return null
     }
-    if (!r.body) {
+    // R51-F-7（五十一轮）：判空改 trim 口径——全空白正文（纯空行/空白符，非空串）
+    // 此前 `!r.body` 判不住，照常计入章数并在产物中产出空壳章节（分隔符 + 空段）。
+    // 净化管线（stripAuthorNotes 后 trim）本就会把它打成空串，此处提前同口径拦截。
+    if (r.body.trim() === '') {
       warnings.push(`${relPosix(u.path)}: 正文为空，已跳过`)
       return null
     }

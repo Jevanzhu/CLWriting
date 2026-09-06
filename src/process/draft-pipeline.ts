@@ -173,6 +173,14 @@ export async function saveDraft(
       if (e.id === finalDocId && e.path !== relPath) {
         throw new Error(`草稿保存目标已变（登记路径 ${e.path} ≠ ${relPath}，等待保存锁期间文档被移动/改名）——请刷新后重试`)
       }
+      // R51-B-2（五十一轮）：复核补反方向——等锁窗内他进程把**另一文档移入同路径**
+      // （异 id entry 已认领 relPath）时原复核放行：下方新文件登记分支照常 upsert，
+      // 清单出现两条 entry 认领同一路径（docId 反查歧义、树扫描重复节点）。反向命中
+      // 与正向同口径上抛拒绝（世界已变），存量清单若本就有重复路径（历史脏数据）则
+      // 该路径 fail-closed 拒写，交作者先清账。
+      if (e.id !== finalDocId && e.path === relPath) {
+        throw new Error(`草稿保存目标已被占用（清单中他文档 ${e.id} 已认领 ${relPath}，等待保存锁期间发生移动/并入）——请刷新后重试`)
+      }
     }
     // M1 覆写留底：已有文件且内容不同 → force 快照（作者手改不静默丢失；Y-3 IO 失败上抛）
     const snapshotId = snapshotBeforeOverwrite(bookRoot, relPath, content, opts?.snapshotOrigin, manifest, opts?.userDataPath)

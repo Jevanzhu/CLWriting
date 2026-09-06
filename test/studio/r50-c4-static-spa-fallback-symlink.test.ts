@@ -54,16 +54,24 @@ test.skipIf(process.platform === 'win32')('R50-C-4: index.html 被换成外指 s
   expect(body).not.toContain('EVIL-OUTSIDE-LEAK') // 修复前：fallback 跟随 symlink 吐出 root 外内容
 })
 
-// 断链 symlink：resolveWithinRoot 的 existsSync 跟随链接判在（断链 → 不存在）走 Y-5
-// 词法分支返回非 null，readFile ENOENT → 404 建站提示——与主路径对 /index.html 断链
-// 请求的处理逐位一致（均不外泄内容，fail-closed 方向不变）
-test.skipIf(process.platform === 'win32')('R50-C-4: index.html 为断链 symlink + 未知路由 → 404（与主路径断链口径一致，无内容外泄）', async () => {
+// 断链 symlink：R51-RED-3（五十一轮，2026-09-06 recover 合并整编失同步）契约随行——
+// merged 实现 fallback 走 R50-C-4 canonical 判界，resolveWithinRoot 对断链 realpath
+// 失败 fail-closed 返 null → 403 BAD_PATH（实现注释明钉「外指/断链/realpath 失败」
+// 同判）；主路径对断链 /index.html 亦 403（stat ENOENT → fallback → 同一守卫），
+// 「与主路径断链口径一致、无内容外泄」的原意由 403 如实恢复——原 404 期望系
+// pre-merge 词法分支行为（existsSync 判不在 → readFile ENOENT → 404），已不成立。
+test.skipIf(process.platform === 'win32')('R50-C-4: index.html 为断链 symlink + 未知路由 → 403 BAD_PATH（与主路径断链口径一致，无内容外泄）', async () => {
   unlinkSync(join(root, 'index.html'))
   symlinkSync(join(outside, 'never-exists.html'), join(root, 'index.html'))
 
   const res = await fetch(`${baseUrl}/some/unknown/route`)
-  expect(res.status).toBe(404)
-  expect((JSON.parse(await res.text()) as { error: string }).error).toContain('前端尚未构建')
+  expect(res.status).toBe(403)
+  const body = await res.text()
+  expect(JSON.parse(body)).toEqual({ code: 'BAD_PATH', error: 'forbidden' })
+  // 同一断链在主路径直请求同样 403（口径一致断言）
+  const direct = await fetch(`${baseUrl}/index.html`)
+  expect(direct.status).toBe(403)
+  expect(body).not.toContain('前端尚未构建')
 })
 
 test('R50-C-4 对照: 正常 index.html + 未知路由 → fallback 200 行为不变', async () => {

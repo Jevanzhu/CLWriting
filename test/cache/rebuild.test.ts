@@ -387,15 +387,18 @@ test('R62-30：errors 元数据失联 → 全量重建自愈（error_count 覆�
   rmSync(root, { recursive: true, force: true })
 })
 
-// R62-32：scanSummaries 补实装——不合命名形式的摘要文件计入 errors（健康报告可见），
+// R62-32：scanSummaries 补实装——不合命名形式的摘要文件计入健康报告（可见），
 // 此前 _errors 死参数、坏文件静默 continue。
-test('R62-32：摘要目录坏命名文件 → 计入 errors（不再静默跳过）', () => {
+// R51-E-N1（五十一轮）：报告级分流——摘要命名不合规改入 warnings（重建照常完成的
+// 降级事实），不再触发单章机检 REBUILD_FAIL / 树红点全灭 / 进门 state 2 硬闸。
+test('R62-32：摘要目录坏命名文件 → 计入 warnings（不再静默跳过，不进硬闸 errors）', () => {
   const root = makeBookFixture()
   try {
     writeFileSync(join(root, '定稿', '摘要', '章摘要', '草稿笔记.md'), '误落摘要目录的手写文件', 'utf-8')
     const cachePath = join(root, '.cache', 'index.db')
     const r = rebuild(root, cachePath)
-    expect(r.errors.some((e) => e.message.includes('摘要文件名') && e.message.includes('草稿笔记'))).toBe(true)
+    expect(r.warnings.some((e) => e.message.includes('摘要文件名') && e.message.includes('草稿笔记'))).toBe(true)
+    expect(r.errors.some((e) => e.message.includes('摘要文件名'))).toBe(false)
     expect(r.summaryCount).toBe(1) // 合法摘要照常入库
   } finally {
     rmSync(root, { recursive: true, force: true })
