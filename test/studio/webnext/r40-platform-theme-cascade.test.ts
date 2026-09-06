@@ -38,13 +38,14 @@ function ruleBody(sel: string): string | null {
 const PALETTE_DECL = /^\s*--(text|background|interactive|cat|shadow|dv|div|seq)-/m
 
 describe('R40-1: 平台块 × 主题层级联矩阵（tokens.css 结构不变式）', () => {
-  it('win32 平台块只含结构性变量（字体族/字号档），无任何色板变量', () => {
+  it('win32 平台块只含结构性变量（字体族），无任何色板变量', () => {
     const body = ruleBody(":root[data-platform='win32']")
     expect(body).not.toBeNull()
     expect(body!).not.toMatch(PALETTE_DECL)
-    // 结构性白名单仍在位（J5 段语义不回归）
+    // 结构性白名单仍在位（J5 段语义不回归）。字号档不在白名单内：F0（2026-09-05）
+    // 撤销 win +1px 补偿后平台块与 :root 同 0 基准，冗余声明已删（2026-09-06 评审⑤），
+    // 用户步进由 prefs 写内联 --font-size-step 覆盖 :root，不经平台块。
     expect(body!).toMatch(/--font-ui:/)
-    expect(body!).toMatch(/--font-size-step:/)
   })
 
   it('darwin 平台块同口径（只含字体族）', () => {

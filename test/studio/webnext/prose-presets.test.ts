@@ -1,7 +1,7 @@
 /**
  * 正文排版预设（prose-presets.ts）单测（F 线 2026-09-05 作者指令「增加预设选项，
  * 几种预设好的组合」）：激活态派生匹配 + 预设值不变式（滑杆钳制域 / id 唯一 /
- * 默认预设 = 出厂值）。
+ * 默认预设 = 出厂值）。2026-09-05② 追加：英文配对槽 + 光学等效字号锁定。
  */
 import { describe, expect, it } from 'vitest'
 import { PROSE_PRESETS, matchProsePreset } from '../../../src/studio/web-next/src/shared/prose-presets'
@@ -19,9 +19,9 @@ describe('正文排版预设', () => {
     }
   })
 
-  it('预设组 = 作者拍板的三套（默认·雅黑 / 思源黑体·均衡 / 宋体·经典；无衬线·清爽与默认重复已移除）', () => {
+  it('预设组 = 作者拍板的两套（默认·雅黑 / 思源黑体·均衡；宋体·经典 2026-09-06 移除，无衬线·清爽早已并默认）', () => {
     const ids = PROSE_PRESETS.map((p) => p.id).sort()
-    expect(ids).toEqual(['default', 'noto-sans', 'songti'])
+    expect(ids).toEqual(['default', 'noto-sans'])
   })
 
   it('预设值均在设置滑杆钳制域内（字号 13-24 / 行距 1.4-2.4）', () => {
@@ -38,7 +38,7 @@ describe('正文排版预设', () => {
     expect(def).toBeTruthy()
     expect(def!.values).toEqual({
       proseFontCn: 'Microsoft YaHei',
-      proseFontEn: '',
+      proseFontEn: 'Segoe UI',
       proseSize: 17,
       proseLh: 1.5,
     })
@@ -57,8 +57,28 @@ describe('正文排版预设', () => {
     expect(matchProsePreset({ ...FACTORY, proseFontCn: 'SimHei' })).toBe('custom')
   })
 
-  it('预设只动声明字段：默认预设 CN=雅黑且 EN 槽留空（拉丁由 CJK 字体自带）', () => {
-    const def = PROSE_PRESETS.find((p) => p.id === 'default')!
-    expect(def.values.proseFontEn).toBe('')
+  it('两套预设 EN 槽一律配对拉丁（雅黑→Segoe UI / 思源黑→Segoe UI；拉丁不再走 CJK 自带字形）', () => {
+    const en = Object.fromEntries(PROSE_PRESETS.map((p) => [p.id, p.values.proseFontEn]))
+    expect(en).toEqual({ default: 'Segoe UI', 'noto-sans': 'Segoe UI' })
+  })
+
+  it('两套预设同档字号/行距（17px · 1.5）：思源黑与雅黑无档差（2026-09-06⑤ 视评回 17）', () => {
+    const size = Object.fromEntries(PROSE_PRESETS.map((p) => [p.id, p.values.proseSize]))
+    const lh = Object.fromEntries(PROSE_PRESETS.map((p) => [p.id, p.values.proseLh]))
+    expect(size).toEqual({ default: 17, 'noto-sans': 17 })
+    expect(lh).toEqual({ default: 1.5, 'noto-sans': 1.5 })
+  })
+
+  it('宋体·经典已移除：SimSun/Georgia/18/1.6 组合落「自定义」，不再有预设命中', () => {
+    expect(matchProsePreset({ proseFontCn: 'SimSun', proseFontEn: 'Georgia', proseSize: 18, proseLh: 1.6 })).toBe('custom')
+    expect(PROSE_PRESETS.some((p) => p.values.proseFontCn === 'SimSun')).toBe(false)
+  })
+
+  it('族键身份匹配：异名同族命中（zh 中文名、思源/Noto 双产品均归同族）', () => {
+    expect(matchProsePreset({ proseFontCn: '微软雅黑', proseFontEn: 'Segoe UI', proseSize: 17, proseLh: 1.5 })).toBe('default')
+    expect(matchProsePreset({ proseFontCn: '思源黑体', proseFontEn: 'Segoe UI', proseSize: 17, proseLh: 1.5 })).toBe('noto-sans')
+    expect(matchProsePreset({ proseFontCn: 'Source Han Sans SC', proseFontEn: 'Segoe UI', proseSize: 17, proseLh: 1.5 })).toBe('noto-sans')
+    // 异族不误命中
+    expect(matchProsePreset({ proseFontCn: 'SimHei', proseFontEn: 'Segoe UI', proseSize: 17, proseLh: 1.5 })).toBe('custom')
   })
 })

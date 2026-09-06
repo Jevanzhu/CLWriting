@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { getGlobalPrefs, putGlobalPrefs, type GlobalPrefs } from '../api/prefs'
 import { ApiError } from '../api/client'
-import { PROSE_FONT_FALLBACK } from '../composables/useSystemFonts'
+import { buildFontFamily, buildProseFontStack } from '../composables/useSystemFonts'
 import { useUiStore } from './ui'
 import type { ThemeId } from '../types/theme'
 
@@ -68,16 +68,6 @@ const OLD_LS = {
   pageWidth: 'clw.pageWidth',
   autosaveInterval: 'clw.autosaveInterval',
   shelfView: 'clw-shelf-view',
-}
-
-/** 拼字体族：英文字体优先（英文片段），中文字体兜底（中文），最后系统 fallback。
- *  含空格的字体名自动加引号。 */
-function buildFontFamily(en: string, cn: string, fallback: string): string {
-  const parts: string[] = []
-  if (en) parts.push(en.includes(' ') ? `"${en}"` : en)
-  if (cn) parts.push(cn.includes(' ') ? `"${cn}"` : cn)
-  parts.push(fallback)
-  return parts.join(', ')
 }
 
 export const usePrefsStore = defineStore('prefs', () => {
@@ -422,9 +412,11 @@ export const usePrefsStore = defineStore('prefs', () => {
       r.style.removeProperty('--font-ui')
     }
     if (proseFontCn.value || proseFontEn.value) {
-      // J5：基座回退带宋体（win 无霞鹜/思源时保持衬线观感，与 tokens.css 默认栈一致；
-      // 串值单源于 useSystemFonts 的 PROSE_FONT_FALLBACK）
-      r.style.setProperty('--prose-font', buildFontFamily(proseFontEn.value, proseFontCn.value, PROSE_FONT_FALLBACK))
+      // J5→F0c②（2026-09-05）：回退尾按中文字体族归边——衬线/书卷（宋·仿宋·楷·思源宋·
+      // 文楷…）挂衬线基座带宋体，其余（雅黑/等线/黑体/思源黑…）挂无衬线基座——
+      // 修「选思源黑体预设但未装 Noto 时正文静默落宋体」的跨族翻转；CN 槽空维持
+      // 衬线基座（出厂空槽口径不变）。串值单源于 useSystemFonts 的 proseFallbackTail。
+      r.style.setProperty('--prose-font', buildProseFontStack(proseFontCn.value, proseFontEn.value))
     } else {
       r.style.removeProperty('--prose-font')
     }
