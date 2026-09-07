@@ -431,17 +431,23 @@ export function useChapterTreeActions(deps: {
     const entry = doc.get(node.docId)
     let unsaved = false
     if (entry && entry.dirty) {
-      // R49-25（四十九轮）：对齐 rewrite R34D-22 口径——F8 排队落盘时序下 manual save
-      // 返 false ≠ 保存失败（在途保存已把全部内容落盘、dirty 已清，内容实已在磁盘，
-      // 「回收站只保留最后已保存的版本」承诺仍成立）；仅 save 返 false 且 dirty 仍在
-      // （真保存失败）才换如实文案。此前无差别按失败处理，排队窗口内的删除确认误报
-      // 「未保存的修改将一并丢失」。
-      // R48-88（四十八轮，合并批收编）：内部落盘 origin 用 autosave——manual 会弹
-      // 「已保存」toast，紧接「确认删除」弹窗语义突兀（保存只是删除前置步骤非作者
-      // 动作）；autosave 静默落盘，留住 R44-3 的防丢语义不惊扰。
-      unsaved = entry.conflict
-        ? true
-        : !(await doc.save(node.docId, 'autosave')) && (doc.get(node.docId)?.dirty ?? false)
+      // R59 清偿批（R55-F-6）：在途保存窗口先落定再判——F8 契约下 doc.save(docId,
+      // 'autosave') 在 entry.saving 时直接返 false 不等待（节拍自会重扫），且 dirty
+      // 要到保存落定才清，原判式在窗口内必误报「未保存的修改将一并丢失」（内容其实
+      // 正在落盘）。先 await 在途保存（doc.waitInflightSave，flushDirty 同款台账
+      // 等待），落定后按最新 entry 态走既有判式：条目已清按无未保存处理，conflict
+      // 未决 / 真保存失败仍如实换文案（保守方向不回退）。
+      // R49-25：save 返 false 且 dirty 已清 ≠ 失败（内容已在磁盘）不误报——判式
+      // `!save && dirty` 的语义保留不变。R48-88（合并批收编）：内部落盘 origin 用
+      // autosave——manual 会弹「已保存」toast，紧接「确认删除」弹窗语义突兀；
+      // autosave 静默落盘，R44-3 防丢语义不惊扰。
+      await doc.waitInflightSave(node.docId)
+      const cur = doc.get(node.docId)
+      unsaved = !cur
+        ? false
+        : cur.conflict
+          ? true
+          : !(await doc.save(node.docId, 'autosave')) && (doc.get(node.docId)?.dirty ?? false)
     }
     const ok = await ui.ask({
       title: '删除章节',

@@ -169,8 +169,15 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
     // 注入书级覆盖到 prefs store（pageWidth / autosaveInterval）
     const ps = usePrefsStore()
-    ps.bookPageWidth = typeof prefs.pageWidth === 'number' ? prefs.pageWidth : null
-    ps.bookAutosaveInterval = typeof prefs.autosaveInterval === 'number' ? prefs.autosaveInterval : null
+    // R59 清偿批（R55-F-9）：两键补「正数有限」守卫（对齐 stores/prefs 迁移侧
+    // Number.isFinite(v) && v > 0 先例）——原 typeof number 单闸放行 0/负数/Infinity
+    //（服务端 JSON 可表达 1e999→Infinity；手改 prefs.json 可得 0/负数）：autosave
+    // 零/负间隔此前仅靠 Book.vue max(5,·) 事后兜底，pageWidth 非法值直产非法 CSS
+    // 宽度。非法值按「无书级覆盖」（null，全局值托底）处理，与字段缺失同口径。
+    const posNum = (v: unknown): number | null =>
+      typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : null
+    ps.bookPageWidth = posNum(prefs.pageWidth)
+    ps.bookAutosaveInterval = posNum(prefs.autosaveInterval)
     ps.apply()
 
     prefsLoaded = true
@@ -208,8 +215,14 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     )
   }
 
-  /** tree load 后校验：activeDocId 失效则清空（watch 自动持久化）。 */
-  function validate(validDocIds: Set<string>): void {
+  /** tree load 后校验：activeDocId 失效则清空（watch 自动持久化）。
+   *  R59 清偿批（R55-F-4）：ownerBook 属主校验——keyset 是某本书整树的 docId 集合，
+   *  切书窗内 tree 仍持旧书键集（byDocId/ownerBook 与 bookName 更不同窗，R35-10），
+   *  以旧键集校验新书恢复的 activeDocId 会误清（恢复文档被清，下次进书不再恢复；
+   *  无内容丢失，体验面）。ownerBook 与当前书名不一致时跳过校验；缺省（既有调用面/
+   *  存量测试口径）维持原行为不做属主比对。 */
+  function validate(validDocIds: Set<string>, ownerBook?: string): void {
+    if (ownerBook !== undefined && ownerBook !== bookName.value) return
     if (activeDocId.value && !validDocIds.has(activeDocId.value)) {
       activeDocId.value = null
     }

@@ -20,9 +20,9 @@ describe('R51-J-3：resolveDevApiPort（env 单源）', () => {
     expect(DEV_API_DEFAULT_PORT).toBe(7878)
   })
 
-  it('合法 0–65535 整数透传（含 0 随机端口与边界值）', () => {
+  it('合法 1–65535 整数透传（含边界值）', () => {
     expect(resolveDevApiPort({ [DEV_API_PORT_ENV]: '8081' })).toBe(8081)
-    expect(resolveDevApiPort({ [DEV_API_PORT_ENV]: '0' })).toBe(0)
+    expect(resolveDevApiPort({ [DEV_API_PORT_ENV]: '1' })).toBe(1)
     expect(resolveDevApiPort({ [DEV_API_PORT_ENV]: '65535' })).toBe(65535)
     expect(resolveDevApiPort({ [DEV_API_PORT_ENV]: ' 7878 ' })).toBe(7878) // 首尾空白容忍（R39-9 同口径）
   })
@@ -32,7 +32,9 @@ describe('R51-J-3：resolveDevApiPort（env 单源）', () => {
     const fatal = (msg: string): void => {
       fatals.push(msg)
     }
-    for (const bad of ['abc', '', '-1', '65536', '80.5']) {
+    // R59 清偿批（R55-E-3）：'0' 从合法集移入非法集——0 → listen 随机端口，与固定
+    // 7878 的 Vite 代理静默失联（详见 src/studio/server/dev-port.ts 内注）
+    for (const bad of ['abc', '', '-1', '0', '65536', '80.5']) {
       fatals.length = 0
       const port = resolveDevApiPort({ [DEV_API_PORT_ENV]: bad }, { fatal })
       expect(port).toBe(DEV_API_DEFAULT_PORT)

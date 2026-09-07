@@ -336,6 +336,19 @@ export const usePrefsStore = defineStore('prefs', () => {
     }
   }
 
+  /** R60-D-1（六十轮）：PUT 链占位单源——body 起跑即同步占位（R33D-24 单飞不变式：
+   *  赋值先于任何宏任务可观察点，后续防抖回落只见非空重排队），链尾守卫清位（只清
+   *  自己占据的占位——多路关窗冲刷/在途交叠时防误清对方的占位）。返回真链 Promise
+   *  （在途/冲刷两链的 finally 不再用已 resolve 的占位符——原占位 await 即穿透，
+   *  等不到 PUT 落定，flushPendingPersist 无从续链）。 */
+  function runPutChain(body: () => Promise<void>): Promise<void> {
+    const p = body().finally(() => {
+      if (putInFlight === p) putInFlight = null
+    })
+    putInFlight = p
+    return p
+  }
+
   /** debounce 写回 global.json（500ms）。
    *  R32-27（三十二轮）：快照移入定时器回调（此前防抖注册即捕快照，PUT 晚 500ms 发出，
    *  与在途 PUT 交叠时旧快照后到可丢改动）+ 在途单飞（在途时重走防抖排队，完成后以
@@ -347,26 +360,17 @@ export const usePrefsStore = defineStore('prefs', () => {
         schedulePersist() // 在途挂起排队：完成后重拍 500ms，快照届时重取
         return
       }
-      // R33D-24（三十三轮）：占位提前到 GET 之前——!revisionKnown 分支的 await 在
-      // putInFlight 赋值前，两次防抖回落进「500ms + GET 时延」窗口时第二个定时器
-      // 判空仍为 null → 双重 PUT 同 expectedRevision → 必 409 伪告警丢一笔。先占位
-      // 再补 GET，单飞不变式贯穿 revisionKnown 两种取值。
-      putInFlight = Promise.resolve()
-      void (async () => {
-        try {
-          // R32-26：revision 未知态（init 失败离线）首次 PUT 前重 GET 对齐——不再以 0
-          // 自伤 409；GET 不可达时照旧发 PUT，走既有 409/静默口径自愈
-          if (!revisionKnown) {
-            try {
-              revision = (await getGlobalPrefs()).revision
-              revisionKnown = true
-            } catch { /* 网络不可达：照旧 PUT */ }
-          }
-          await doPersistPut()
-        } finally {
-          putInFlight = null
+      runPutChain(async () => {
+        // R32-26：revision 未知态（init 失败离线）首次 PUT 前重 GET 对齐——不再以 0
+        // 自伤 409；GET 不可达时照旧发 PUT，走既有 409/静默口径自愈
+        if (!revisionKnown) {
+          try {
+            revision = (await getGlobalPrefs()).revision
+            revisionKnown = true
+          } catch { /* 网络不可达：照旧 PUT */ }
         }
-      })()
+        await doPersistPut()
+      })
     }, 500)
   }
 
@@ -399,28 +403,30 @@ export const usePrefsStore = defineStore('prefs', () => {
 
   /** R58-B-2（五十八轮）：关窗/退出前的立即冲刷——清 500ms 防抖窗直发一次 PUT
    *  （主进程 flushRendererBeforeClose 经 window.__clwFlushPrefs 调用；revision 对齐与
-   *  409 自愈口径与 schedulePersist 相同）。在途 PUT 时放弃本次直发：在途收尾以届时
-   *  快照继续，防抖定时器仍在（照常完成），关窗场景优先送达而非叠发。 */
-  function flushPendingPersist(): void {
-    if (putInFlight) return
+   *  409 自愈口径与 schedulePersist 相同）。
+   *  R60-D-1（六十轮）：在途 PUT 时原实现 `if (putInFlight) return` 空返回——关窗钩子
+   *  的返回值被主进程 executeJavaScript await，视为冲刷完成即放行销毁窗口，在途 PUT
+   *  快照之后的偏好改动（<500ms 防抖窗内）随定时器与窗口一同死亡。改为：等在途真链
+   *  落定（其失败已由 doPersistPut/恢复链内部消化，catch 兜底防御）后清防抖定时器、
+   *  按届时最新快照补一笔直发；整链作为返回 Promise 交主进程预算内等待
+   *  （flushRendererWithBudget 的 FLUSH_BUDGET_TIMEOUT 兜底，超时同权放行关窗）。 */
+  async function flushPendingPersist(): Promise<void> {
+    if (putInFlight) {
+      await putInFlight.catch(() => { /* 在途失败已消化，此处不重试 */ })
+    }
     if (persistTimer) {
       clearTimeout(persistTimer)
       persistTimer = null
     }
-    putInFlight = Promise.resolve()
-    void (async () => {
-      try {
-        if (!revisionKnown) {
-          try {
-            revision = (await getGlobalPrefs()).revision
-            revisionKnown = true
-          } catch { /* 网络不可达：照旧 PUT */ }
-        }
-        await doPersistPut()
-      } finally {
-        putInFlight = null
+    return runPutChain(async () => {
+      if (!revisionKnown) {
+        try {
+          revision = (await getGlobalPrefs()).revision
+          revisionKnown = true
+        } catch { /* 网络不可达：照旧 PUT */ }
       }
-    })()
+      await doPersistPut()
+    })
   }
 
   /** 本窗脏字段键集：当前值与最近成功落盘快照不一致的键（R35-8 脏字段判定源）。 */

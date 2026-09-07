@@ -36,6 +36,24 @@ describe('promptMeta 脱敏', () => {
     expect(promptMeta('ab', 'c').chars).toBe(3)
     expect(promptMeta('a', 'bc').chars).toBe(3)
   })
+
+  // R59 清偿批（R55-C-6）：tools 摘要键契约（可选键，旧事件/旧调用方无此键仍可解析）
+  it('R55-C-6: 未传 tools → 无 tools 键（向后兼容，hash/chars 契约不变）', () => {
+    const meta = promptMeta('sys', 'user')
+    expect('tools' in meta).toBe(false)
+    expect(meta.hash).toHaveLength(16)
+    expect(meta.chars).toBe(7)
+  })
+
+  it('R55-C-6: tools 去重排序（确定性可重放）；hash/chars 不受工具面扰动', () => {
+    const a = promptMeta('sys', 'user', [], ['write_chapter', 'book_search', 'book_search'])
+    const b = promptMeta('sys', 'user', [], ['book_search', 'write_chapter'])
+    expect(a.tools).toEqual(['book_search', 'write_chapter'])
+    expect(b.tools).toEqual(['book_search', 'write_chapter'])
+    const none = promptMeta('sys', 'user')
+    expect(a.hash).toBe(none.hash)
+    expect(a.chars).toBe(none.chars)
+  })
 })
 
 describe('runId 唯一性', () => {

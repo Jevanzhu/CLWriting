@@ -971,9 +971,16 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
       return row.m ?? 0
     },
     maskSelfCheckData(from: number, to: number) {
-      // R66-16（十四轮）：close 写 compaction 前的遮蔽区间自检数据源——O(1) 索引查询，
-      // 不做投影全量重放（validateEventStream 的生产接线最小面）。区间重叠判定：
+      // R66-16（十四轮）：close 写 compaction 前的遮蔽区间自检数据源——不做投影全量
+      // 重放（validateEventStream 的生产接线最小面）。区间重叠判定：
       // 既有 [s,e] 与 [from,to] 相交 ⟺ s <= to && e >= from
+      // R59 清偿批（R55-B-2）登记：上注原称「O(1) 索引查询」失实——events 表唯一索引
+      // 是 idx_events_session(session_id, seq)，本查询按 surface_op + shadow 区间过滤
+      // 无可用索引，实为全表扫（O(N)，N = 全库事件数）。不设新索引的取舍：随开库 DDL
+      // 加 partial index 需对存量用户库做开库期 schema 变更（首次建索引的写锁窗叠打开期
+      // 成本敏感面，见 N3 五十九轮并发首开注），而本查询仅在 close 写 compaction 前执行
+      // 一次（低频诊断面，毫秒级一次性窗）——性能收益不抵迁移风险，登记不修；后续若
+      // close 链实测成瓶颈再单立迁移项评估。
       const intervals = (
         db
           .prepare(

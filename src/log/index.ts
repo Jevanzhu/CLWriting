@@ -179,9 +179,14 @@ export function initLogging(opts: { logsDir: string | null; mirrorConsole?: bool
  *    URL query 凭据（api_key/key/token/access_key/authorization=，掩值保留参数名）；
  *  - 裸 key 族（大小写敏感，对齐 redactSecret）：前缀族 sk-/xai-/sk_/gsk_/hf_/
  *    glpat-/ghp_（sk- 长度阈值维持 {8,}——取两源更严者，16+ 之外的短 key 也掩）+
- *    智谱 + Gemini。 */
+ *    智谱 + Gemini。
+ *  R59 清偿批（R55-A-4）：URL 值类 `[^&\s#]+` → `[^\s&#\\"]+`——掩码在序列化后的
+ *  JSON 行上执行（emit），msg 值内引号是 `\"` 转义形态；值类含 `"`/`\` 时匹配越过
+ *  JSON 字符串边界（或保留末 4 位把裸 `"` 带回行内），单行 JSONL 即不可解析（诊断
+ *  日志整行报废）。值类排除 `\` 与 `"` 后最长匹配止于转义序列，行结构恒完整；URL
+ *  裸值本不含此两字符，常态掩码口径不变。过掩方向可接受（仅诊断日志面）。 */
 const KEY_MASK_HEADER_RE =
-  /(bearer\s+[A-Za-z0-9\-._~+/=]{8,}|x-api-key[:\s]+[A-Za-z0-9\-._~+/=]{8,}|[?&](?:api[_-]?key|key|token|access[_-]?key|authorization)=[^&\s#]+)/gi
+  /(bearer\s+[A-Za-z0-9\-._~+/=]{8,}|x-api-key[:\s]+[A-Za-z0-9\-._~+/=]{8,}|[?&](?:api[_-]?key|key|token|access[_-]?key|authorization)=[^\s&#\\"]+)/gi
 const KEY_MASK_BARE_RE =
   /((?:sk-|xai-|sk_|gsk_|hf_|glpat-|ghp_)[A-Za-z0-9\-_]{8,}|\b[0-9a-fA-F]{32}\.[0-9a-fA-F]{32}\b|\bAIza[A-Za-z0-9_\-]{35}\b)/g
 /**

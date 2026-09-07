@@ -91,10 +91,12 @@ describe('R33D-17：章缓存批量落盘单事务', () => {
       size: 100 + i,
       verdictFp: null,
       value: { hasRed: i % 2 === 0, verdictRejected: false },
+      // R59 清偿批（R55-D-3）：行级纪元戳（读写同锚即命中）
+      epochFp: 'ep-a',
     }))
     writeTreeIssuesCacheBatch(db, rows)
     for (const r of rows) {
-      const got = readTreeIssuesCache(db, r.relPath, r.chapterFp, r.size, r.verdictFp)
+      const got = readTreeIssuesCache(db, r.relPath, r.chapterFp, r.size, r.verdictFp, 'ep-a')
       expect(got).toEqual(r.value)
     }
     db.close()

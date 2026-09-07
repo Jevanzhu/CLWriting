@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { getLastInitialBook } from './api/client'
 import { useAppActions } from './composables/useAppActions'
 import { usePrefsStore } from './stores/prefs'
+import { LAST_BOOK_KEY } from './shared/storage-keys'
 import ErrorBoundary from './components/ui/ErrorBoundary.vue'
 import StartupNoticeBanner from './components/ui/StartupNoticeBanner.vue'
 // R42-3/R42-4（四十二轮）：反馈层与三模态上移根组件全局挂载——此前仅挂 WorkspaceShell，
@@ -27,7 +28,7 @@ const prefs = usePrefsStore()
 // 配对口径收齐。
 let offNavigate: (() => void) | undefined
 let offMenuAction: (() => void) | undefined
-type FlushPrefsWindow = Window & { __clwFlushPrefs?: () => void }
+type FlushPrefsWindow = Window & { __clwFlushPrefs?: () => void | Promise<void> } // R60-D-1：flushPendingPersist 返回改 Promise<void> 后的契约注记
 onMounted(() => {
   // 书架独立窗口（win=shelf）：不 redirect，保持书架页
   const isShelfWin = new URLSearchParams(location.search).get('win') === 'shelf'
@@ -47,7 +48,7 @@ onMounted(() => {
   let startBook: string | null = getLastInitialBook()
   if (!startBook) {
     try {
-      startBook = localStorage.getItem('clw-last-book')
+      startBook = localStorage.getItem(LAST_BOOK_KEY) // R60-D-4：键收敛 storage-keys 单源
     } catch {
       /* 忽略 */
     }

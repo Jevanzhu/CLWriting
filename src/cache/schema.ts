@@ -23,7 +23,8 @@ const TREE_ISSUES_DDL = [
     mtime_ms    INTEGER NOT NULL,   -- 正文文件指纹
     size        INTEGER NOT NULL,
     verdict_fp  TEXT,               -- 项目/分析/<docId>.json 的 "mtime:size"；NULL=无信封
-    report_json TEXT NOT NULL       -- {hasRed, verdictRejected}（聚合输出同构）
+    report_json TEXT NOT NULL,      -- {hasRed, verdictRejected}（聚合输出同构）
+    epoch_fp    TEXT                -- R59 清偿批（R55-D-3）：落行时全局纪元指纹；NULL=旧格式行（按 miss）
   )`,
   `CREATE TABLE IF NOT EXISTS tree_issues_meta (
     key   TEXT PRIMARY KEY,
@@ -92,9 +93,17 @@ const DDL_STATEMENTS = [
 ] as const
 
 /** A1：树红点缓存表独立 ensure——增量 rebuild 跳过路径不跑 createAllTables，
- *  旧库（本表缺席）按需补建（幂等，IF NOT EXISTS）。 */
+ *  旧库（本表缺席）按需补建（幂等，IF NOT EXISTS）。
+ *  R59 清偿批（R55-D-3）：存量库补 epoch_fp 列（ALTER ADD COLUMN，幂等）——
+ *  CREATE TABLE IF NOT EXISTS 对已存在的表不生效，旧库缺列时带列名读写会静默
+ *  全失败（读 catch 成恒 miss、写静默弃行 = 缓存永久失效）。补列后旧行该列为
+ *  NULL，读侧按「epoch 不匹配 = miss」处理，天然一次性失效重算（可接受）。 */
 export function ensureTreeIssuesTables(db: DatabaseSync): void {
   for (const stmt of TREE_ISSUES_DDL) db.exec(stmt)
+  const cols = db.prepare('PRAGMA table_info(tree_issues_cache)').all() as Array<{ name: string }>
+  if (!cols.some((c) => c.name === 'epoch_fp')) {
+    db.exec('ALTER TABLE tree_issues_cache ADD COLUMN epoch_fp TEXT')
+  }
 }
 
 /** 在给定 db 上建全部表（幂等，IF NOT EXISTS） */

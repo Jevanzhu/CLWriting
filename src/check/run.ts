@@ -635,6 +635,8 @@ function* collectTreeIssuesCore(
         size: number
         verdictFp: string | null
         value: { hasRed: boolean; verdictRejected: boolean }
+        // R59 清偿批（R55-D-3）：行级纪元戳——落行时带轮基线，读侧按行比对防混纪元
+        epochFp: string
       }> = []
       // R37-3：章循环悬停计数（async 驱动每 TREE_ISSUES_YIELD_EVERY 章让出一次）
       let chaptersProcessed = 0
@@ -684,8 +686,12 @@ function* collectTreeIssuesCore(
             verdictFp = null // 信封竞态消失：按无信封处理
           }
         }
-        if (cacheEnabled && db) {
-          const cached = readTreeIssuesCache(db, relPath, chapterFp, chapterSt.size, verdictFp)
+        // R59 清偿批（R55-D-3）：读侧加纪元锚校验（epochFp0 为轮基线，与 sync 落表
+        // global_fp 同源）——双进程并发且轮中全局输入变更时，他进程按新纪元清表写入
+        // 的新纪元行不再被本进程按章指纹误读（单轮混纪元口径的修复面）；基线缺席
+        // （epochFp0=null，纪元指纹前算失败）时一律按 miss（宁重算勿混纪元）。
+        if (cacheEnabled && db && epochFp0 !== null) {
+          const cached = readTreeIssuesCache(db, relPath, chapterFp, chapterSt.size, verdictFp, epochFp0)
           if (cached) {
             // 章级行只存章作用域 hasRed（H-1 拆分后），全书性红项在此合并展示
             const mergedRed = cached.hasRed || leadsBookRed
@@ -723,7 +729,7 @@ function* collectTreeIssuesCore(
         // R32-14：直接写改入列——落盘推迟到循环后终核纪元（见 pendingCacheWrites 段注）。
         // R47-30：轮内缓存值即基线 epochFp0（轮前复核遍已消重），入列闸 = 基线存在。
         if (!checkFailed && cacheEnabled && db && epochFp0 !== null) {
-          pendingCacheWrites.push({ relPath, chapterFp, size: chapterSt.size, verdictFp, value: { hasRed, verdictRejected } })
+          pendingCacheWrites.push({ relPath, chapterFp, size: chapterSt.size, verdictFp, value: { hasRed, verdictRejected }, epochFp: epochFp0 })
         }
         const mergedRed = hasRed || leadsBookRed
         if (mergedRed || verdictRejected) issues[docId] = { hasRed: mergedRed, verdictRejected }

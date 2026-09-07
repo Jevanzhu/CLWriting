@@ -263,9 +263,13 @@ let bookGen = 0
 // R33-72（三十三轮）：补书名触发源——原只 watch 树节点数，两书节点数相同时切书
 // 不校验，陈旧 activeDocId 滞留（编辑器空态且无「文档已不存在」提示）；回调内以
 // 当前树键集为准，失效 docId 一并剔除。
+// R59 清偿批（R55-F-4）：键集属主随行传入 + ownerBook 入 watch 源——切书窗内 tree
+// 仍持旧书键集，以旧键集校验会误清新书恢复的 activeDocId（validate 侧属主不符即
+// 跳过）；ownerBook 入源让新书树归位时必补一次属主匹配的校验（R33-72 语义在属主
+// 门后照常生效，等尺寸切书不再漏校验）。
 watch(
-  [() => tree.byDocId.size, bookName],
-  () => ws.validate(new Set(tree.byDocId.keys())),
+  [() => tree.byDocId.size, bookName, () => tree.ownerBook],
+  () => ws.validate(new Set(tree.byDocId.keys()), tree.ownerBook),
 )
 // R44-2（四十四轮）：关窗/刷新兜底改双路。①关窗：主进程在 close 拦截后经
 // executeJavaScript 调 window.__clwFlushBeforeClose（页面未死，异步保存链全通），

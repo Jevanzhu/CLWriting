@@ -198,12 +198,23 @@ export async function apiJson<T>(
         parsed !== null &&
         typeof parsed === 'object' &&
         (typeof parsed['error'] === 'string' || typeof parsed['code'] === 'string')
-    } catch {
+    } catch (err) {
       // R32-25（三十二轮）：超时若落在响应体读取期（r.json() 中途 abort），AbortError
       // 在本 catch 被吞成 body={}，r.ok 为真 → 「空对象成功」假完成。timedOut 在手
       // （fetch 头已到、体读取超时的形态）→ 补抛 408（外层 catch 只拦 DOMException，
-      // ApiError 原样穿透）。
+      // ApiError 原样穿透）。须先于下方 abort 判定——超时同样中止内部 signal。
       if (timedOut) throw new ApiError('请求超时，请稍后重试', 408, 'TIMEOUT')
+      // R59 清偿批（R55-F-5）：外部 signal 的 abort 落在响应体读取期——此刻 r.ok 已
+      // 为真，原实现把 AbortError 当坏体吞进本 catch 后误报 MALFORMED_RESPONSE（把
+      // 调用方主动取消伪造成服务端故障）。判定 abort（联动内部 signal 已中止，或
+      // 错误本身是 AbortError DOMException）→ 直通原 abort 语义，不伪造
+      // MALFORMED_RESPONSE。当前全库无调用方传 signal（纯理论面），此守卫保证未来
+      // 接线取消时不误报。
+      if (controller.signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) {
+        throw err instanceof DOMException
+          ? err
+          : new DOMException('This operation was aborted', 'AbortError')
+      }
       // R51-H-1（五十一轮）：2xx + 非 JSON 体不再静默回 {}——本 API 面服务端统一
       // JSON 信封、无 200-无体端点（原注「304/204 无体合法」与本面不符），静默 {}
       // 使 getContent 得 content:undefined、sha256Revision('undefined') 成错误基线，

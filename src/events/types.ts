@@ -225,7 +225,9 @@ export interface LlmCallData {
   durationMs: number
   ok: boolean
   errCode?: string
-  promptMeta?: { chars: number; files: string[]; hash: string }
+  // R59 清偿批（R55-C-6）：promptMeta 增可选 tools 摘要键（去重排序工具名——chat 每轮
+  // 15 个工具 schema 模型可见，铁律②「模型可见 ⟺ 已记录」契约层补全；旧事件无此键）
+  promptMeta?: { chars: number; files: string[]; hash: string; tools?: string[] }
   /** D2（批 5）：调用归属章号（runTask 传 chapter 时记录——cost-stats 按章归集用；
    *  旧事件无此键按无章归集） */
   chapter?: number

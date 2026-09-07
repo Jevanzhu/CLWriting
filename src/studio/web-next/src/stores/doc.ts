@@ -156,16 +156,30 @@ export const useDocStore = defineStore('doc', () => {
     }
   }
 
-  /** 清整本书的全部镜像（setBook 切书用：前缀扫描 + pending 节流一并清）。 */
+  /** 清整本书的全部镜像（setBook 切书用：属主精确判定 + pending 节流一并清）。
+   *  R59 清偿批（R57-E-3）：属主判定改读镜像 payload 的 book 字段精确比对，不再裸
+   *  前缀匹配 `${前缀}${book}:`——`:` 同时是键内书名与 docId 的分隔符，书名含 `:`
+   *  （mac/linux 目录名合法）时前缀越界：清《A》把《A:B》的镜像一并删掉（跨书误伤）。
+   *  取舍记档：①payload 自 R55-F-3 首版即含 book+docId，全量既有镜像兼容，键格式
+   *  不变、零迁移；②解析失败的损坏键无从判属主，保守不删（readDirtyMirror 同样
+   *  拒读，无复活面，仅存储残留）；③写侧同键碰撞（《A》+legacy docId「B:x」与
+   *  《A:B》+docId「x」拼出同一键）不在此修——需换转义键格式牵出迁移，且互覆只伤
+   *  崩溃镜像（不落盘数据），复活时效门（R57-E-1 baseRev 对拍）再兜一层。 */
   function clearBookMirrors(book: string): void {
     for (const t of mirrorTimers.values()) clearTimeout(t)
     mirrorTimers.clear()
     try {
-      const prefix = `${MIRROR_KEY_PREFIX}${book}:`
       const doomed: string[] = []
       for (let i = 0; i < localStorage.length; i++) {
         const k = localStorage.key(i)
-        if (k !== null && k.startsWith(prefix)) doomed.push(k)
+        if (k === null || !k.startsWith(MIRROR_KEY_PREFIX)) continue
+        try {
+          const p = JSON.parse(localStorage.getItem(k) ?? '') as { book?: unknown }
+          if (p.book !== book) continue
+        } catch {
+          continue // 损坏镜像：无从判属主，保守不删（见上方取舍②）
+        }
+        doomed.push(k)
       }
       for (const k of doomed) localStorage.removeItem(k)
     } catch { /* 存储不可用降级 */ }
@@ -412,12 +426,31 @@ export const useDocStore = defineStore('doc', () => {
     const e = docs.value.get(docId)
     if (!e || e.saving) return
     // X-28：书名快照（同 save 的 P5 前置守卫）——重载在途切书（setBook 清缓存）后，
-    // 迟到的成功/失败 toast 不落新书界面；结果写进已脱离缓存的旧 entry，无实害
+    // 迟到的成功/失败 toast 不落新书界面（R59 清偿批起迟到结果整体放弃写回，见下）
     const book = bookName.value!
+    // R59 清偿批（R57-E-2）：决断时刻内容快照——await 窗口内的新键入是「重载」决断
+    // 之后的新编辑，作者从未同意丢弃。同文件 refresh（CC-P2-15 / ee-P1-7）与
+    // syncCleanWithTree 均已有 await 窗口复检守卫，唯此处缺位：原实现直接覆盖
+    // content 并误清 dirty，窗口内键入静默丢失且 autosave/关窗冲刷双兜底同时失明。
+    const contentAtEntry = e.content
     try {
       const content = await getContent(book, e.path)
+      const rev = await sha256Revision(content)
+      // R59 清偿批（R57-E-2）：双窗口（fetch + sha256）后统一复检，命中任一即放弃
+      // 覆盖：①已切书（e 已脱离缓存，对齐 syncCleanWithTree 守卫）；②条目已被替换/
+      // 弃用（discard、LRU 驱逐后重开）；③在途保存（快照语义已被保存链接管）；
+      // ④窗口内新键入（content 偏离决断时刻快照）。放弃时 conflict 不清，冲突横幅
+      // 仍在，由作者对「新键入 + 远端已变」重新决断。
+      if (
+        bookName.value !== book ||
+        docs.value.get(docId) !== e ||
+        e.saving ||
+        e.content !== contentAtEntry
+      ) {
+        return
+      }
       e.content = content
-      e.baselineRevision = await sha256Revision(content)
+      e.baselineRevision = rev
       e.dirty = false
       e.conflict = false
       e.error = null
@@ -573,6 +606,19 @@ export const useDocStore = defineStore('doc', () => {
    *  上引入无限等待。 */
   const FLUSH_WAIT_INFLIGHT_MAX_ROUNDS = 3
 
+  /** R59 清偿批（R55-F-6）：等待指定文档的在途保存落定（无在途立即返回）。
+   *  删除确认预判用——F8 契约下 doc.save(docId,'autosave') 在 entry.saving 时直接
+   *  返 false 不等待（节拍自会重扫），且 dirty 要到保存落定才清：调用方若不先落定
+   *  在途就判 dirty，在途保存窗口内必误报「未保存的修改将一并丢失」。等待形态对齐
+   *  flushDirty 的台账轮询（同款有界轮次防活锁：落定后立刻又起新在途的极端交叠）。 */
+  async function waitInflightSave(docId: string): Promise<void> {
+    for (let i = 0; i < FLUSH_WAIT_INFLIGHT_MAX_ROUNDS; i++) {
+      const p = inflightSaves.get(docId)
+      if (!p) return
+      await p.catch(() => {})
+    }
+  }
+
   /** 切书前批量保存所有 dirty 文档（await 全部完成，防 setBook 清缓存致 <autosaveInterval 的编辑静默丢失）。
    *  Q-3（第十五轮）：改循环冲排——原一次性快照在 await 窗口内定格，保存期间的新键入
    *  （编辑器仍挂载旧书可继续输入）与「保存中收到的新击键」（快照排除 saving 项）都不在
@@ -651,5 +697,5 @@ export const useDocStore = defineStore('doc', () => {
     clearDirtyMirror(bookName.value, docId) // R55-F-3：条目已弃，镜像一并清
   }
 
-  return { docs, bookName, setBook, get, open, patch, save, reloadFromRemote, overwriteRemote, refresh, syncCleanWithTree, finalize, conflictedDirtyDocs, flushDirty, flushBeforeClose, autosaveTick, discard }
+  return { docs, bookName, setBook, get, open, patch, save, waitInflightSave, reloadFromRemote, overwriteRemote, refresh, syncCleanWithTree, finalize, conflictedDirtyDocs, flushDirty, flushBeforeClose, autosaveTick, discard }
 })

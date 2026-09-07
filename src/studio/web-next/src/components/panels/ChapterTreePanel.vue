@@ -139,6 +139,12 @@ watch(
 // 窗口回前台 → 重扫盘。外部编辑器 / CLI / AI 写的文件不经 invalidateTreeIndex，
 // 服务端树缓存不会自己失效；切回 app 是「想看到最新状态」的最强信号。
 // 节流 2s：避免频繁切窗口时反复触发全盘扫描（buildTree 含 git status + 字数统计）。
+// R59 清偿批（R55-G-3）：维持登记——探针需契约面，待立项。按「版本未变跳过重扫」
+// 降频不可行：服务端树 revision 是进程级计数（document/tree.ts getBookTreeIndex，
+// ++globalRevision），只在库内 mutation invalidate 重建时递增，外部改盘不推进它——
+// 拿它探「外部有没有改」恒判「没变」，恰好放走的正是本重扫要抓的场景；书根清单
+// mtime 同理（外部编辑器改的是正文章节文件）。无现成可用的轻量探针，自造需新增
+// 服务端端点 + store 契约（超本批最小面），维持现状并在原处登记。
 let lastRefresh = 0
 function onWindowFocus(): void {
   if (!props.bookName) return

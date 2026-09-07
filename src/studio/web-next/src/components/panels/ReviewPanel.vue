@@ -9,6 +9,7 @@ import { useTreeStore } from '../../stores/tree'
 import { useUiStore } from '../../stores/ui'
 import { isBodyKind } from '../../shared/words'
 import { friendlyError } from '../../shared/error'
+import { contentStableKeys, reviewIssueKeyBase } from '../../shared/issue-keys'
 import BetaBadge from '../ui/BetaBadge.vue'
 
 const props = defineProps<{ bookName: string }>()
@@ -40,6 +41,11 @@ watch(
 
 const blockers = computed(() => review.collected?.normalized.blockers ?? [])
 const warnings = computed(() => review.collected?.normalized.warnings ?? [])
+// R59 清偿批（R57-F-2）：意见列表 v-for 改稳定键——原用位置索引（'b'+i / 'w'+i），
+// 违库内稳定键惯例；意见条目无 id，以内容组合键替代（构造单源见 shared/issue-keys），
+// 同内容条目按出现序 #n 消歧
+const blockerKeys = computed(() => contentStableKeys(blockers.value.map(reviewIssueKeyBase)))
+const warningKeys = computed(() => contentStableKeys(warnings.value.map(reviewIssueKeyBase)))
 // R63-4（十一轮）：passed 必须查采集是否成立——此前只看 normalized.passed（空判据），
 // 采集失败（stale/缺视角/坏条目）被渲染成「三审通过，无阻断/警告」，作者按假通过
 // 放行从未真正审校的内容（刷新/重启依旧，已随信封持久化）。后端已同步注入阻断级
@@ -193,7 +199,7 @@ function severityLabel(s: string): string {
         </div>
         <div
           v-for="(it, i) in blockers"
-          :key="'b' + i"
+          :key="'b' + blockerKeys[i]"
           class="rev-item rev-item--red"
         >
           <div class="item-head">
@@ -214,7 +220,7 @@ function severityLabel(s: string): string {
         </div>
         <div
           v-for="(it, i) in warnings"
-          :key="'w' + i"
+          :key="'w' + warningKeys[i]"
           class="rev-item rev-item--yellow"
         >
           <div class="item-head">

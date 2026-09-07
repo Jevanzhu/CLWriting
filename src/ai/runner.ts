@@ -356,6 +356,10 @@ export async function runTask<T>(opts: {
   /** C1（批 2）：prompt 引用的材料文件（相对书根）——进 promptMeta.files，
    *  备料注入（章摘要等）「模型可见 ⟺ 已记录」的登记通道 */
   promptFiles?: string[]
+  /** R59 清偿批（R55-C-6）：模型可见工具名清单（run 内挂 tools 的调用传，如 chat 的
+   *  chatTools）——进 promptMeta.tools（去重排序摘要），工具 schema 面的重放口径登记；
+   *  旧调用方不传则无此键（向后兼容） */
+  promptTools?: string[]
   /** 章号（仅 self-heal 传；记账 chapter 块 + 预算闸用） */
   chapter?: number
 }): Promise<TaskResult<T>> {
@@ -411,7 +415,8 @@ export async function runTask<T>(opts: {
         ok: p.ok,
         ...(p.errCode ? { errCode: p.errCode } : {}),
         ...(opts.promptText
-          ? { promptMeta: promptMeta(opts.systemPrompt ?? '', opts.promptText, opts.promptFiles ?? []) }
+          ? // R59 清偿批（R55-C-6）：promptTools 并入 promptMeta（tools 摘要键）
+            { promptMeta: promptMeta(opts.systemPrompt ?? '', opts.promptText, opts.promptFiles ?? [], opts.promptTools ?? []) }
           : {}),
         ...(opts.chapter !== undefined ? { chapter: opts.chapter } : {}),
         ...(resolvedEffort !== undefined ? { effort: resolvedEffort } : {}),

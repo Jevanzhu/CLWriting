@@ -9,6 +9,7 @@ import { useShelf, formatWords, formatRelative } from '../composables/useShelf'
 import { useTheme } from '../composables/useTheme'
 import { usePlatform } from '../composables/usePlatform'
 import { isImeComposing } from '../shared/ime'
+import { LAST_BOOK_KEY } from '../shared/storage-keys'
 import ShelfGrid from '../components/ui/ShelfGrid.vue'
 import ShelfHeroCard from '../components/shelf/ShelfHeroCard.vue'
 import EmptyState from '../components/ui/EmptyState.vue'
@@ -62,9 +63,9 @@ onMounted(() => {
 onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
 function openBook(name: string): void {
-  // 记住最近打开的书（主窗口启动直进工作区用）
+  // 记住最近打开的书（主窗口启动直进工作区用）——R60-D-4：键收敛 storage-keys 单源
   try {
-    localStorage.setItem('clw-last-book', name)
+    localStorage.setItem(LAST_BOOK_KEY, name)
   } catch {
     /* localStorage 不可用时忽略 */
   }

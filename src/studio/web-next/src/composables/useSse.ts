@@ -15,6 +15,10 @@ const FAST_RETRY_LIMIT = 5
 const BASE_BACKOFF_MS = 2_000
 const MAX_BACKOFF_MS = 60_000
 
+/** R59 清偿批（R55-F-8）：dev 双基址失配诊断阈值——连续 N 次 401/403 fail-closed
+ *  才告警（1-2 次可能是 token 随 server 重启轮换等常态，不扰）。 */
+const DEV_AUTH_MISMATCH_STRIKES = 3
+
 /** dev 直连 API 基址：dev 下不走 Vite proxy（proxy + 系统代理会 buffer SSE 断流，旧版踩坑），
  *  直连本地 dev:api 端口。原为函数内硬编码 'http://127.0.0.1:7878'，提取为常量并支持
  *  VITE_DEV_API_BASE 覆盖（行为不变，仅可配置化）。生产同源相对路径（空串）。 */
@@ -80,6 +84,15 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
   // busy429Notified 惯例：同连接纪元只 warn 一次，onopen 成功/切书 connect 复位
   //（恢复后再故障可再告，观测口不丢新事件）。
   let ticketFallbackWarned = false
+  // R59 清偿批（R55-F-8）：dev 双基址失配的最小诊断面。boot/apiFetch 走 Vite proxy，
+  // SSE/ticket 直连 DEV_API_BASE（VITE_DEV_API_BASE 可覆盖）——两处指向不同实例
+  //（脚本起多实例 / 代理命中旧进程）时 SSE 侧 token 对不上，恒 401/403 fail-closed
+  // 退避且无任何诊断。EventSource 不暴露状态码，借 probeSseBusy 的 fetch 探测连记：
+  // 连续 ≥DEV_AUTH_MISMATCH_STRIKES 次 401/403 → console.warn 提示一次（对齐
+  // busy429Notified/ticketFallbackWarned「同纪元一次」惯例：连 v 纪元计数，非 401/403
+  // 探测复位计数，onopen 成功/切书 connect 复位计数与已告位）。只加诊断不改基址行为。
+  let devMismatchStrikes = 0
+  let devMismatchWarned = false
 
   // R73-67（D 域移交前端面）：per-book SSE 连接数上限（第 6 个标签页 429 BUSY）的前端展示面。
   // EventSource 不暴露状态码/body——非 2xx 一律 fail-closed，无法与 403/404 区分。借 fetch
@@ -110,6 +123,23 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
       if (r.status === 429 && !busy429Notified) {
         busy429Notified = true
         ui.toast('同一本书的标签页开太多啦，请关闭多余的标签页后重试', 'error')
+      }
+      // R59 清偿批（R55-F-8）：dev 双基址失配连记（仅 dev；生产同源无失配面）。
+      // 401/403 连续计数达阈值 warn 一次；非 401/403（含 429/404/200）说明基址可达、
+      // 失配不成立 → 计数复位（「连续」语义）。探测网络失败/超时（catch）不计不Reset——
+      // 无状态码证据，交回既有退避节奏。
+      if (import.meta.env.DEV) {
+        if (r.status === 401 || r.status === 403) {
+          devMismatchStrikes++
+          if (devMismatchStrikes >= DEV_AUTH_MISMATCH_STRIKES && !devMismatchWarned) {
+            devMismatchWarned = true
+            console.warn(
+              `[sse] dev 双基址可能失配：连续 ${devMismatchStrikes} 次 401/403 fail-closed——SSE/ticket 直连基址（DEV_API_BASE，可由 VITE_DEV_API_BASE 覆盖）与 boot/apiFetch 所走 Vite proxy 的目标可能不是同一实例（多实例/代理命中旧进程），请核对两处基址是否一致`,
+            )
+          }
+        } else {
+          devMismatchStrikes = 0
+        }
       }
     } catch {
       /* 探测失败/超时 abort 不提示——交回既有退避重连节奏 */
@@ -161,6 +191,8 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
       backoffStep = 0
       busy429Notified = false // R73-67：连接成功后复位（下次 429 再提示）
       ticketFallbackWarned = false // R51-H-5：连接成功后复位（恢复后再故障可再告）
+      devMismatchStrikes = 0 // R59 清偿批（R55-F-8）：连接成功即失配不成立，复位
+      devMismatchWarned = false // 同上：恢复后再持续 401/403 可再告
       wb.setConnected(true)
     }
     es.onerror = () => {
@@ -221,6 +253,8 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
     currentName = name
     busy429Notified = false // R73-67：切书新连接纪元，429 指引可再提示
     ticketFallbackWarned = false // R51-H-5：切书新连接纪元，换票告警可再提示
+    devMismatchStrikes = 0 // R59 清偿批（R55-F-8）：切书新连接纪元，失配计数/已告位复位
+    devMismatchWarned = false
     disconnect()
     safeDoConnect()
   }

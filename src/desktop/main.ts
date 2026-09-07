@@ -347,8 +347,11 @@ function saveWinState(): void {
     // 最大化时存正常（非最大化）bounds，恢复时按 maximized 标志决定是否最大化
     const bounds = maximized ? mainWindow.getNormalBounds() : mainWindow.getBounds()
     atomicWriteFile(stateFile, JSON.stringify({ bounds, maximized }))
-  } catch {
-    /* 忽略 */
+  } catch (e) {
+    // R60-B-3（六十轮）：持久化失败留痕——原 catch 零日志，磁盘满/权限/收尾期 getter
+    // 抛错全不可见（本文件其余忽略处均留痕，唯此处裸吞，违「失败留痕」纪律）。窗口
+    // 状态非关键数据，维持吞错不阻断关窗/停机，warn 级留诊断线索即可。
+    log.warn('desktop', `窗口状态持久化失败（window-state.json 未写入）：${e instanceof Error ? e.message : String(e)}`)
   }
 }
 
@@ -410,6 +413,49 @@ function saveCurrentSafe(dir: string): string | null {
   } catch (e) {
     log.error('main', `workdir.json 持久化失败（切库中止）：${e instanceof Error ? e.message : String(e)}`, e)
     return `书库目录落库失败（workdir.json 写入异常）：${e instanceof Error ? e.message : String(e)}`
+  }
+}
+
+// R59 清偿批（R55-A-3）：切库回滚基线——三条切库入口（open-library / switch-library /
+// 菜单 openLibraryAction）都是「先落库新 current，再 relaunch 走 before-quit 优雅退出」，
+// 而退出链的冲突/保存失败原生确认可被取消（R44-19「取消即中止退出、应用原样保留」）。
+// 取消后会话内继续跑旧库，workdir.json 却已指向新库——跨会话落入「已被取消」的新库。
+// 故切库落库前快照 store 作回滚基线：取消路径回写（rollbackCancelledSwitch），过不可
+// 回头点（armPendingRelaunchIfAny，退出既成、新库即用户所愿）即作废。store 对象为
+// 不可变更新（setCurrent 纯函数建新对象），持快照引用安全；快照到回滚之间无其他写方
+// （writeStore 仅切库链触达）。
+let switchRollbackStore: WorkDirStore | null = null
+
+/** 切库链专用落库：快照当前 store → saveCurrentSafe → 成功才武装回滚基线。
+ *  三入口共用本函数——武装点收敛一处，新增切库入口漏接即测试面缺口。
+ *  快照读失败按无基线处理（快照本身非切换要件）：readStore 原在 saveCurrentSafe
+ *  的 try 内（R51-A-4 契约化错误面），此处外提后若裸抛反而放宽了失败语义；
+ *  落库失败的契约返回由 saveCurrentSafe 内层 readStore（缓存）原样保住。 */
+function saveCurrentArmingRollback(dir: string): string | null {
+  let prev: WorkDirStore | null = null
+  try {
+    prev = readStore()
+  } catch {
+    prev = null
+  }
+  const err = saveCurrentSafe(dir)
+  if (err) return err
+  switchRollbackStore = prev
+  return null
+}
+
+/** 退出被取消路径调用：回写切库前 store，跨会话不残留被取消的新库。 */
+function rollbackCancelledSwitch(): void {
+  const prev = switchRollbackStore
+  switchRollbackStore = null
+  if (!prev) return
+  try {
+    writeStore(prev)
+    log.info('main', `切库的退出被作者取消：workdir.json 已回写为原书库（${prev.current ?? '未选'}），本会话与下次启动均维持原库`)
+  } catch (e) {
+    // 回滚写失败不另起错误面（退出取消路径），但必须留痕：持久化面仍指向被取消的
+    // 新库，「应用原样保留」跨会话已破——留诊断线索供排查（磁盘满/只读卷同因）
+    log.error('main', `切库的退出被取消，workdir.json 回写失败（跨会话仍指向被取消的新库）：${e instanceof Error ? e.message : String(e)}`, e)
   }
 }
 
@@ -600,6 +646,9 @@ let pendingRelaunch = false
  *  在此刻兑现（app.relaunch() + R27-96 显式交接释放锁，锁时序缝隙与最坏结果分析见
  *  原 relaunch 注）。仅切库链带意图时动作，普通退出零副作用。 */
 function armPendingRelaunchIfAny(): void {
+  // R59 清偿批（R55-A-3）：不可回头点之后新库即用户所愿，回滚基线作废（普通退出
+  // 无基线时本行为空操作）
+  switchRollbackStore = null
   if (!pendingRelaunch) return
   pendingRelaunch = false
   app.relaunch()
@@ -621,7 +670,8 @@ function relaunch(): void {
 async function openLibraryAction(): Promise<boolean> {
   const picked = await pickLibrary()
   if (!picked) return false
-  const saveErr = saveCurrentSafe(picked)
+  // R59 清偿批（R55-A-3）：落库改切库链专用包装（快照武装回滚基线），取消退出可回写
+  const saveErr = saveCurrentArmingRollback(picked)
   if (saveErr) {
     dialog.showErrorBox('打开书库目录失败', `${saveErr}\n\n当前书库未切换，应用将继续在原书库上运行。请检查磁盘空间/权限后重试。`)
     return false
@@ -1190,7 +1240,18 @@ async function bootstrap(): Promise<void> {
       log.warn('desktop', `dev 代理归零失败（继续首载）：${e instanceof Error ? e.message : String(e)}`)
     }
   }
-  await mainWindow.loadURL(needsWelcome ? `${appUrl}/welcome` : appUrl)
+  // R60-B-1（六十轮）：主窗 loadURL 本地留痕——ready 回传后、首载落定前 server 崩溃
+  //（退避重启窗）的窄竞 rejection 此前直穿 bootstrap reject，onError 只见「启动失败」
+  // 一行、缺首载 URL 现场（书架/书库窗 R74-16 均已 .catch 留痕，唯主窗裸奔，不对称）。
+  // 镜像补 catch 记日志后仍原样上抛——「bootstrap reject → 启动失败 + quit」为固化
+  // 设计路径（main.test 时序 2；bootstrap-runner 第九轮 L-3 亦按此失败面设计），不吞。
+  const mainUrl = needsWelcome ? `${appUrl}/welcome` : appUrl
+  try {
+    await mainWindow.loadURL(mainUrl)
+  } catch (e) {
+    log.error('desktop', `主窗口加载失败（${mainUrl}）`, e)
+    throw e
+  }
   // L1（二轮复审）：改走 logger——打包态 mirrorConsole=false，console.log 此前在生产
   // 完全不可见（终端无人看、又不进 JSONL 日志）
   log.info('desktop', `CLWriting ${devUi ? 'dev（HMR）' : '桌面版'}已启动 → ${appUrl}${needsWelcome ? '/welcome' : ''}`)
@@ -1213,7 +1274,8 @@ function registerIpc(): void {
     const picked = await pickLibrary()
     if (!picked) return { ok: false as const, canceled: true as const }
     // R51-A-4（五十一轮）：落库失败转契约化失败，不再裸抛绕过 {ok,reason} 信封
-    const saveErr = saveCurrentSafe(picked)
+    // R59 清偿批（R55-A-3）：改切库链专用包装——快照武装回滚基线（取消退出可回写）
+    const saveErr = saveCurrentArmingRollback(picked)
     if (saveErr) return { ok: false as const, reason: saveErr }
     setTimeout(relaunch, RELAUNCH_DELAY_MS) // 延迟重启，让响应先回渲染进程
     return { ok: true as const }
@@ -1238,7 +1300,8 @@ function registerIpc(): void {
       return { ok: false as const, reason: '已取消：目录在大小写敏感的卷上（如需使用请重新切换并选择「仍要使用」）' }
     }
     // R51-A-4（五十一轮）：落库失败转契约化失败（同 open-library），不触发 relaunch
-    const saveErr = saveCurrentSafe(path)
+    // R59 清偿批（R55-A-3）：改切库链专用包装——快照武装回滚基线（取消退出可回写）
+    const saveErr = saveCurrentArmingRollback(path)
     if (saveErr) return { ok: false as const, reason: saveErr }
     setTimeout(relaunch, RELAUNCH_DELAY_MS)
     return { ok: true as const }
@@ -1733,6 +1796,7 @@ if (gotSingleInstanceLock) {
             if (!confirmDiscardConflicts(win, res.conflict.length)) {
               quitFlushInFlight = false
               pendingRelaunch = false // R51-A-1：取消 = 丢弃切库意图（退出语义不被劫持成重启）
+              rollbackCancelledSwitch() // R59 清偿批（R55-A-3）：取消 = 回写旧库（跨会话不残留被取消的新库）
               return
             }
           }
@@ -1744,6 +1808,7 @@ if (gotSingleInstanceLock) {
             if (!confirmDiscardFailed(win, res.failed.length)) {
               quitFlushInFlight = false
               pendingRelaunch = false // R51-A-1：取消 = 丢弃切库意图（同上）
+              rollbackCancelledSwitch() // R59 清偿批（R55-A-3）：取消 = 回写旧库（同上）
               return
             }
           }

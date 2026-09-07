@@ -1088,7 +1088,15 @@ export class DocumentService {
         explicitTitle !== null
           ? explicitTitle
           : String(map.get('标题') ?? '') || (basename(path).match(/^(?:\d+-)?(.+)\.md$/)?.[1] ?? '')
-      invalidateTreeIndex(this.bookRoot, true)
+      // R59 清偿批（R57-G-1）：删去原此处 invalidateTreeIndex(bookRoot, true)——与
+      // rename 委托链尾 doMoveOrRename 的同参整书失效（本文件 :1526 附近）在同一操作
+      // 链上重复，保留链尾一处。分路径核实：rename 路径的结构性失效单源在链尾（成功
+      // 由 doMoveOrRename 尾部调用）；不 rename 路径 rel_path 集合不变，上方 R46-8 的
+      // invalidateTreeIndexForContent 已失效 indexes/indexSigCache/本章 probe 键，章级
+      // 机检行按 (mtime,size) 指纹自失效，无需 structural 整表清空——链中提前清反而把
+      // 未变章的有效缓存行连坐清掉（下轮聚合全章重算，纯性能损耗；本路径低频）。
+      // 时序上该调用先于 rename，本就防不住「失效后-重建-旧树」竞态，rename 后仍靠
+      // 链尾失效兜底，删除无正确性回退面。
 
       if (isPiece) {
         // 短篇：rename 文件名（章号3位-标题.md）+ 同步章纲同名文件

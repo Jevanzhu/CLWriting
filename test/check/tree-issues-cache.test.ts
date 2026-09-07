@@ -150,16 +150,19 @@ describe('tree-issues-cache 模块单元', () => {
       const db = new DatabaseSync(join(root, '.cache', 'index.db'))
       try {
         expect(syncTreeIssuesEpoch(db, root, null)).toBe(true) // 首次：清+记
-        writeTreeIssuesCache(db, '写作/正文/001-第1章.md', 111, 222, null, { hasRed: true, verdictRejected: false })
-        expect(readTreeIssuesCache(db, '写作/正文/001-第1章.md', 111, 222, null)).toEqual({ hasRed: true, verdictRejected: false })
+        // R59 清偿批（R55-D-3）：读写新增行级纪元锚参数（'ep-a' 任取非空串，读写同锚）
+        writeTreeIssuesCache(db, '写作/正文/001-第1章.md', 111, 222, null, { hasRed: true, verdictRejected: false }, 'ep-a')
+        expect(readTreeIssuesCache(db, '写作/正文/001-第1章.md', 111, 222, null, 'ep-a')).toEqual({ hasRed: true, verdictRejected: false })
         // 指纹不符（size 变）→ miss
-        expect(readTreeIssuesCache(db, '写作/正文/001-第1章.md', 111, 333, null)).toBeNull()
+        expect(readTreeIssuesCache(db, '写作/正文/001-第1章.md', 111, 333, null, 'ep-a')).toBeNull()
         // 有信封指纹查无信封行 → miss（NULL ≠ 值）
-        expect(readTreeIssuesCache(db, '写作/正文/001-第1章.md', 111, 222, '9:8')).toBeNull()
+        expect(readTreeIssuesCache(db, '写作/正文/001-第1章.md', 111, 222, '9:8', 'ep-a')).toBeNull()
+        // 纪元锚不符 → miss（行级纪元戳强制比对，R55-D-3）
+        expect(readTreeIssuesCache(db, '写作/正文/001-第1章.md', 111, 222, null, 'ep-b')).toBeNull()
         expect(syncTreeIssuesEpoch(db, root, null)).toBe(false) // 纪元未变 → no-op
         utimesSync(join(root, 'book.yaml'), new Date(), new Date())
         expect(syncTreeIssuesEpoch(db, root, null)).toBe(true) // 纪元变 → 清表
-        expect(readTreeIssuesCache(db, '写作/正文/001-第1章.md', 111, 222, null)).toBeNull()
+        expect(readTreeIssuesCache(db, '写作/正文/001-第1章.md', 111, 222, null, 'ep-a')).toBeNull()
       } finally {
         db.close()
       }
@@ -176,7 +179,7 @@ describe('tree-issues-cache 模块单元', () => {
       const db = new DatabaseSync(join(root, '.cache', 'index.db'))
       try {
         db.prepare("UPDATE tree_issues_cache SET report_json = '{broken'").run()
-        const hit = readTreeIssuesCache(db, '写作/正文/001-第1章.md', 1, 1, null)
+        const hit = readTreeIssuesCache(db, '写作/正文/001-第1章.md', 1, 1, null, 'ep-a')
         expect(hit).toBeNull() // 任意参数下损坏行都判 miss
       } finally {
         db.close()
@@ -288,7 +291,7 @@ describe('R64-7（十二轮）：事务自动回亡 → 吞 ROLLBACK、原始病
       const db = new DatabaseSync(join(root, '.cache', 'index.db'))
       try {
         syncTreeIssuesEpoch(db, root, null) // 建表 + 记纪元
-        writeTreeIssuesCache(db, '写作/正文/001-第1章.md', 1, 1, null, { hasRed: false, verdictRejected: false }) // 种一行：BEFORE DELETE 按行触发，空表不炸
+        writeTreeIssuesCache(db, '写作/正文/001-第1章.md', 1, 1, null, { hasRed: false, verdictRejected: false }, 'ep-a') // 种一行：BEFORE DELETE 按行触发，空表不炸
         // 触发器在事务首句（DELETE）抛 RAISE(ROLLBACK)——事务随之整体回亡，
         // 随后的 db.exec('ROLLBACK') 会抛 "no transaction is active"
         db.exec(

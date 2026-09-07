@@ -530,6 +530,13 @@ function scanSummaries(
     if (d.isDirectory() && !d.name.startsWith('._')) {
       log.warn('rebuild', `摘要目录下存在子目录「${d.name}」（${dir}），其中内容不入摘要索引——如为误建请移出或删除`)
     }
+    // R59 清偿批（R55-B-3）：非 `._` 前缀且非 .md 的普通文件此前静默跳过（不入库不
+    // 留痕），与同函数白名单外 .md 命名（R73-47 log.warn+warnings）/误建子目录（R48-65
+    // log.warn）两处留痕口径不一——补 log.warn 同款留痕（不入摘要索引的事实即时可见，
+    // 「摘要不生效」类定位不再漏看散落的非 .md 文件；命名契约不动，.md 仍是唯一入库形态）
+    if (d.isFile() && !d.name.startsWith('._') && !isMdFileName(d.name)) {
+      log.warn('rebuild', `摘要目录下存在非 .md 文件「${d.name}」（${dir}），未入摘要索引——如为误放请移出或删除`)
+    }
   }
   const files = dirents.map((d) => d.name).filter((f) => isMdFileName(f) && !f.startsWith('._'))
   for (const f of files) {

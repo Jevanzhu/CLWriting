@@ -100,6 +100,9 @@ async function summarizeCheckpoint(
     systemPrompt: sys,
     promptText: promptTextWithPrefix,
     promptFiles, // Z-11：摘要调用与轮循环同源登记（sys 内嵌章正文预览的源）
+    // R59 清偿批（R55-C-6）：摘要 generate 同挂 chatTools——工具名清单与轮循环同口径
+    // 进 promptMeta.tools（铁律②「模型可见 ⟺ 已记录」工具面登记）
+    promptTools: chatTools.map((t) => t.name),
     ctrl: state.ctrl,
     // 低-1（第十轮）：补 owner——对齐第八轮 M-1 的 owner 分槽口径（轮循环
     // turns.ts 的 register 同款）。此前漏带 owner 落无主 '' 槽：两本书共享 session 的

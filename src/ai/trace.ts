@@ -17,6 +17,12 @@ export interface PromptMeta {
   files: string[]
   /** prompt 内容 hash（SHA-256 前 16 位，用于去重/对比，不可逆推原文） */
   hash: string
+  /** R59 清偿批（R55-C-6）：模型可见工具面摘要——挂 tools 的调用登记工具名清单
+   *  （去重排序，确定性可重放）。铁律②「模型可见 ⟺ 已记录」：chat 每轮 15 个工具
+   *  schema 模型可见而 promptMeta 此前只记 prompt 文本面。可选字段（旧事件无此键
+   *  仍可解析）；未挂 tools 的调用不产此键。降级剥面（400 剥 tools）由 degraded
+   *  标记承载，此处登记的是请求挂载面 */
+  tools?: string[]
 }
 
 /** 生成新的 runId */
@@ -24,8 +30,8 @@ export function newRunId(): string {
   return randomUUID()
 }
 
-/** 计算 prompt 的脱敏元信息 */
-export function promptMeta(systemPrompt: string, userPrompt: string, files: string[] = []): PromptMeta {
+/** 计算 prompt 的脱敏元信息（tools：模型可见工具名清单，挂 tools 的调用传） */
+export function promptMeta(systemPrompt: string, userPrompt: string, files: string[] = [], tools: string[] = []): PromptMeta {
   const full = systemPrompt + userPrompt
   // R66-8（十四轮）：两段直接拼接进 hash 时 ("ab","c") 与 ("a","bc") 同 hash——相邻
   // 字段边界不可辨，审计指纹歧义。hash 输入前置 systemPrompt 长度前缀（len:full），
@@ -40,10 +46,14 @@ export function promptMeta(systemPrompt: string, userPrompt: string, files: stri
     chars++
     i += cp > 0xffff ? 2 : 1
   }
+  // R59 清偿批（R55-C-6）：tools 摘要独立成键（不并入 hash/chars——token-calibration
+  // 按 chars 拟合、消费面按 hash 对比，语义都不该被工具面扰动）；去重 + 排序保证
+  // 确定性可重放（调用方传序不影响指纹）
   return {
     chars,
     files,
     hash: createHash('sha256').update(hashInput).digest('hex').slice(0, 16),
+    ...(tools.length > 0 ? { tools: [...new Set(tools)].sort() } : {}),
   }
 }
 

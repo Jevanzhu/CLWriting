@@ -23,3 +23,8 @@ export const ONBOARD_PREMISE_KEY_PREFIX = 'clwriting:onboard-premise:'
 export function onboardPremiseKey(book: string): string {
   return ONBOARD_PREMISE_KEY_PREFIX + book
 }
+
+/** R60-D-4（六十轮）：最近打开的书（整键、无书名后缀）——App 启动恢复读取、Shelf /
+ *  ShelfModal 选书记入、ShelfModal 删当前书清扫四处此前各自硬编码同串（R28-3 点名的
+ *  键名断裂族：一侧改键名另一侧静默失配），收敛到本模块单一事实源杜绝再分叉。 */
+export const LAST_BOOK_KEY = 'clw-last-book'

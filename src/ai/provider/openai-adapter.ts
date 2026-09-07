@@ -526,6 +526,12 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
                 // 上方 R73-1 兄弟分支同源（input 按请求字符折算、output 按累计 delta 文本
                 // 折算、estimated 标记）。tool 残留事件仍不 flush 不计入（R26-25 取舍维持：
                 // gen 层遇 error 必弃事件，仅估计入账面按同源公式走）。
+                // R59 清偿批（R55-C-3）：估计折算面并入 toolAccum 残留（name+argsBuf，
+                // 对齐 anthropic jsonBuf / responses args 两线口径）——「未见 usage 的
+                // 传输截断 + 在途工具调用」复合形态下原只按 delta 文本折算，output 估计
+                // 系统性小幅低估；tool 事件本身仍不 flush（R26-25 取舍不变，只修估计入账面）。
+                let truncEstText = outText.join('')
+                for (const [, acc] of toolAccum) truncEstText += acc.name + acc.argsBuf
                 yield {
                   type: 'error',
                   message: '传输截断：流结束无终止事件',
@@ -535,7 +541,7 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
                     ? toUsage(latestUsage)
                     : {
                         inputTokens: estimateInputTokens(req, conf.model ?? undefined),
-                        outputTokens: estimateOutputTokens(outText.join(''), conf.model ?? undefined),
+                        outputTokens: estimateOutputTokens(truncEstText, conf.model ?? undefined),
                         estimated: true,
                       },
                 }

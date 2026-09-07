@@ -10,6 +10,7 @@ import { useUiStore, SHELF_DEEP_ALPHA } from '../../stores/ui'
 import { useTheme } from '../../composables/useTheme'
 import { isImeComposing } from '../../shared/ime'
 import { afterPaint } from '../../shared/after-paint'
+import { LAST_BOOK_KEY } from '../../shared/storage-keys'
 import { useFocusTrap } from '../../composables/useFocusTrap'
 import ShelfGrid from './ShelfGrid.vue'
 import ShelfModalHero from '../shelf/ShelfModalHero.vue'
@@ -31,14 +32,14 @@ const {
     router.push(`/book/${encodeURIComponent(name)}`)
   },
   // R65-54（E-6）：浮层内删掉当前打开的书 → 离开死路由（留在 /book/:name 上后续
-  // API 全 404），并清 clw-last-book（下次启动不再落进已删书）
+  // API 全 404），并清最近打开书键（下次启动不再落进已删书；R60-D-4 键收敛单源）
   onDeleted: (names) => {
     const current = router.currentRoute.value.params.name
     if (typeof current !== 'string') return
     const currentName = decodeURIComponent(current)
     if (!names.includes(currentName)) return
     try {
-      if (localStorage.getItem('clw-last-book') === currentName) localStorage.removeItem('clw-last-book')
+      if (localStorage.getItem(LAST_BOOK_KEY) === currentName) localStorage.removeItem(LAST_BOOK_KEY)
     } catch { /* 忽略 */ }
     ui.closeShelf()
     router.replace('/shelf')
@@ -79,10 +80,10 @@ function handleCardClick(name: string): void {
   else openBook(name)
 }
 
-// 选书：记 lastBook + 关浮层 + 路由跳转（主窗口内，无需跨窗口 IPC）
+// 选书：记 lastBook + 关浮层 + 路由跳转（主窗口内，无需跨窗口 IPC）——R60-D-4 键单源
 function openBook(name: string): void {
   try {
-    localStorage.setItem('clw-last-book', name)
+    localStorage.setItem(LAST_BOOK_KEY, name)
   } catch {
     /* 忽略 */
   }

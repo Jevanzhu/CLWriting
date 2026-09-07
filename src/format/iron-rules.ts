@@ -180,10 +180,27 @@ function parseRatio(raw: string): number {
   return text.endsWith('%') ? n / 100 : n > 1 ? n / 100 : n
 }
 
+// R59 清偿批（R57-D-3）：禁词段标题读取侧对齐 style-migrate.ts R49-13 删除侧的整行
+// 精确锚定口径——旧子串匹配（/反和解/、/硬禁词|禁词清单/）把作者自建的同关键词标题
+// 段（如「## 反和解心得」「## 硬禁词拾遗」）也当禁词段，段内笔记行经
+// parseBannedWordsLine 拆词（引号抽取/顿号劈分全认）混进 bannedWords 红闸误伤正文。
+// 现标题须整行为关键词短语本身（可带模板/清单后缀），仅收窄作者自建标题的误伤面；
+// 裸关键词标题（如「## 硬禁词」）仍命中，真禁词段检出不放宽。「反和解段」族取后缀
+// 可选锚定（主审复核批修正——初版要求全形「反和解段（AI 味防御）」，令 S5 以来
+// style-inject.test.ts 合并契约的裸形「## 反和解段」fixture 转红：裸形是旧子串时代
+// 在野合法形态，且删除侧 R49-13 不删裸形段，读取侧是该书禁词的唯一解析面，锚死全形
+// 即静默丢禁词）。可选后缀不回退本轮目标：「## 反和解心得」「## 反和解拾遗」仍不命中
+// （关键词短语本身须整行成立）；全形与删除侧 LEGACY_RULES_HEADING_RE 同字面（S5 迁移前
+// 旧模板标题，未迁移书仍靠本读取侧解析）；两族各一次 extractSection（同函数既有形态：
+// 同级的后一族标题会终断前段，单次扫描拿不到两段，见 checks.test.ts「反和解段解析为
+// 硬禁词」fixture）。
+const ANTI_RECON_HEADING_RE = /^##\s*反和解段(?:（AI 味防御）)?\s*$/
+const BANNED_LIST_HEADING_RE = /^##\s*(?:硬禁词清单|硬禁词|禁词清单|禁词)\s*$/
+
 function parseAntiReconciliationWords(text: string): string[] {
   const sections = [
-    extractSection(text, /反和解/),
-    extractSection(text, /硬禁词|禁词清单/),
+    extractSection(text, ANTI_RECON_HEADING_RE),
+    extractSection(text, BANNED_LIST_HEADING_RE),
   ].filter((section) => section.length > 0)
   if (sections.length === 0) return []
 

@@ -286,7 +286,17 @@ export function nextEntrySeq(entriesDir: string, kind: EntryKind, scene: string)
   const dir = join(entriesDir, kind)
   if (!existsSync(dir)) return 1
   let maxSeq = 0
-  for (const f of readdirSync(dir)) {
+  // R59 清偿批（R57-D-4）：existsSync→readdirSync 间隙类型目录被瞬删（TOCTOU）时
+  // ENOENT 裸抛炸调用链（addEntry 入库）——同文件 entriesDirSignature / readEntriesUncached
+  // 两处同形态 readdirSync 均有 try/catch 守卫（目录消失按空处理），唯此处漏防；补同款
+  // 守卫按空目录降级（序号从 1 起算；落盘真竞态由 addEntry 的 O_EXCL EEXIST 重试兜底）
+  let files: string[]
+  try {
+    files = readdirSync(dir)
+  } catch {
+    return 1
+  }
+  for (const f of files) {
     if (!isMdFileName(f) || f.startsWith('._')) continue // R38-9：.MD 不再失明
     const parsed = parseSampleFileName(f)
     if (parsed && parsed.场景 === scene && parsed.序号 > maxSeq) maxSeq = parsed.序号

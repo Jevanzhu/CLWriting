@@ -134,6 +134,22 @@ export async function executeChatTool(
   opts: ChatOpts,
   ctrl: AbortSignal,
 ): Promise<{ ok: boolean; summary: string }> {
+  // R60-A-1（六十轮）：input 空值/非对象守卫——与契约侧 assembleChapter
+  // （contract/chapter.ts「产出为空或非对象」）同款口径。模型可能产出
+  // input: null（工具 args 为字符串 "null" 等 JSON 解析产物）或字符串/数字等
+  // 非对象形态，此前 as Record 直接断言：null/undefined 在 switch 分支抛
+  // TypeError 落兜底 catch，回填「执行失败：Cannot read properties of null」
+  // ——模型与作者均不可诊断。此处显式拒收并给可诊断文案（含工具名与实际
+  // input 类型，模型可据此按 schema 重发对象形入参）；数组按契约侧口径放行
+  // （typeof 'object'，走各工具字段校验，守卫层不二次成形）。结果走既有
+  // { ok:false, summary } 路径，经轮循环 toolResultEvent 回填留痕（input
+  // 原文已由 toolCallEvent 事先登记），不新造记录通道。
+  if (!call.input || typeof call.input !== 'object') {
+    return {
+      ok: false,
+      summary: `工具入参为空或非对象（${call.name} 的 input 为 ${call.input === null ? 'null' : typeof call.input}），无法执行。`,
+    }
+  }
   const input = call.input as Record<string, unknown>
   try {
     // 工具面扩展：注册表分派（read_chapter/read_skill 等既有分支不走注册表）
@@ -564,6 +580,9 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
       // T2-1：注入文件清单（章正文/spill）进 llm/call promptMeta.files——与写稿链
       //（self-heal promptFiles）同口径：记 hash+chars+files，不落 prompt 全文
       promptFiles: deps.promptFiles,
+      // R59 清偿批（R55-C-6）：本轮 generate 挂载的 chatTools（15 个工具 schema 模型
+      // 可见）——工具名清单进 promptMeta.tools（铁律②「模型可见 ⟺ 已记录」工具面登记）
+      promptTools: chatTools.map((t) => t.name),
       ctrl: state.ctrl,
       // M-1（第八轮）：owner='chat:<book>'——driver 分槽防跨编排抢占（此前单槽「换新先
       // abort 旧」会掐断在途写稿）。R69-11（十七轮）注释校准：chat 与 self-heal/spawn 的并发

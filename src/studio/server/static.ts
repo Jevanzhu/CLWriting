@@ -18,10 +18,17 @@ const MIME: Record<string, string> = {
   '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  // R59 清偿批（R55-E-2）：补常见安全类型 .txt/.webp/.gif/.woff——此前回落
+  // application/octet-stream，浏览器对未知类型一律变下载。只加常见且无脚本执行面的
+  // 类型，映射用标准 MIME 值；.woff2/.svg/.ico 顺检已在表内，不重复。
+  '.txt': 'text/plain; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
   '.ico': 'image/x-icon',
+  '.woff': 'font/woff',
   '.woff2': 'font/woff2',
   '.map': 'application/json; charset=utf-8',
 }

@@ -9,6 +9,7 @@ import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
 import { useUiStore } from '../../stores/ui'
 import { isBodyKind } from '../../shared/words'
+import { contentStableKeys, checkItemKeyBase } from '../../shared/issue-keys'
 
 const props = defineProps<{ bookName: string }>()
 const check = useCheckStore()
@@ -21,6 +22,13 @@ const isCheckable = computed(() => {
   if (!node.value) return false
   return isBodyKind(node.value.path)
 })
+
+// R59 清偿批（R57-F-2）：红/黄项 v-for 改稳定键——原用 it.checkId 作键，而 checkId
+// 是检查器级 id（同检查器多条命中同 id，如 banned-word 多处命中各自成条目），多条
+// 命中时必撞 Vue 重复键；改内容组合键（checkId+消息+leadId+章号，构造单源见
+// shared/issue-keys），同内容条目按出现序 #n 消歧
+const redKeys = computed(() => contentStableKeys(check.redItems.map(checkItemKeyBase)))
+const yellowKeys = computed(() => contentStableKeys(check.yellowItems.map(checkItemKeyBase)))
 
 async function runCheck(): Promise<void> {
   if (!docId.value) return
@@ -93,7 +101,7 @@ async function flagFalsePositive(checkId: string): Promise<void> {
         </div>
         <div
           v-for="(it, i) in check.redItems"
-          :key="it.checkId"
+          :key="'r' + redKeys[i]"
           class="check-item check-item--red"
         >
           <div class="item-msg">{{ it.message }}</div>
@@ -117,7 +125,7 @@ async function flagFalsePositive(checkId: string): Promise<void> {
         </div>
         <div
           v-for="(it, i) in check.yellowItems"
-          :key="it.checkId"
+          :key="'y' + yellowKeys[i]"
           class="check-item check-item--yellow"
         >
           <div class="item-msg">{{ it.message }}</div>

@@ -14,6 +14,11 @@
  *    项目/文档清单.jsonl（maxWritten 基准 + final 跳过）。
  *    任一 stat 变化 → 整表清空重查（改配置/定稿/动账本是低频操作，可接受连坐）。
  *    章正文本身不在纪元里——改 1 章只破那 1 章的行指纹，这正是增量的意义。
+ * 3. R59 清偿批（R55-D-3）：行级纪元戳（tree_issues_cache.epoch_fp）——双进程并发
+ *    校验且轮中全局输入变更时，他进程可按新纪元 sync 清表并写入新纪元行，本进程
+ *    （基线仍是旧纪元）按章指纹读行会混入异纪元结果（单轮响应口径混纪元；持久层
+ *    由轮后终核兜住不毒化，下一轮自愈）。行记落行时纪元、读侧强制比对：不匹配
+ *    （含旧格式行 NULL 戳、读侧无锚）一律按 miss，向后兼容不抛错。
  *
  * 回退（红线）：表缺席 / 读写失败 → 抛出由调用方吞掉、跳过缓存走现行全量路径
  * （语义无损降级，只有性能回到从前）。
@@ -224,44 +229,55 @@ export function syncTreeIssuesEpoch(
   return true
 }
 
-/** 章级缓存读：三元组 + verdict 指纹全中才命中（NULL 信封按 IS NULL 匹配）。
+/** 章级缓存读：三元组 + verdict 指纹 + 纪元全中才命中（NULL 信封按 IS NULL 匹配）。
  *  R49-23：mtimeUs 是正文文件 mtime 的**微秒**整数（run.ts 以 mtimeNs/1000n 传入）。
  *  SQLite 列名 `mtime_ms` 是建表初期的毫秒命名遗留，量纲以本注释为准——存量
  *  index.db 持久于书仓 .cache/ 且 DDL 只有 CREATE TABLE IF NOT EXISTS（无迁移面），
  *  改列名会令旧库读写静默全失败，故列名不动只正 TS 命名；旧代毫秒行与 µs 值量级
- *  隔离必 miss（R29-B8 口径），无脏读面。 */
+ *  隔离必 miss（R29-B8 口径），无脏读面。
+ *  R59 清偿批（R55-D-3）：新增 epochFp 参数——双进程并发校验且轮中全局输入变更时
+ *  （他进程按新纪元 sync 清表后写入新纪元行），本进程按章指纹读行可混入异纪元结果
+ *  （单轮响应口径混纪元；持久层由轮后终核兜住，下一轮自愈）。行加 epoch_fp 戳后
+ *  读侧强制比对：epochFp 为 null（轮基线缺席，无法验证）→ 一律按 miss；不匹配 →
+ *  miss；旧格式行（列 NULL，存量库经 ensure 补列后的旧行）天然不匹配 → 一次性
+ *  失效重算。解析向后兼容：缺列/异常行走 catch 按 miss，不抛。 */
 export function readTreeIssuesCache(
   db: DatabaseSync,
   relPath: string,
   mtimeUs: number,
   size: number,
   verdictFp: string | null,
+  epochFp: string | null,
 ): TreeIssueEntry | null {
+  // R59 清偿批（R55-D-3）：无纪元锚不读缓存——无法验证行的纪元归属，宁 miss 勿混
+  if (epochFp === null) return null
   try {
     // mtime_ms 列实存 µs（R49-23，量纲见函数注释；列名不动防存量库静默失效）
     const row = (
       verdictFp === null
         ? db
             .prepare(
-              'SELECT report_json FROM tree_issues_cache WHERE rel_path = ? AND mtime_ms = ? AND size = ? AND verdict_fp IS NULL',
+              'SELECT report_json FROM tree_issues_cache WHERE rel_path = ? AND mtime_ms = ? AND size = ? AND verdict_fp IS NULL AND epoch_fp = ?',
             )
-            .get(relPath, mtimeUs, size)
+            .get(relPath, mtimeUs, size, epochFp)
         : db
             .prepare(
-              'SELECT report_json FROM tree_issues_cache WHERE rel_path = ? AND mtime_ms = ? AND size = ? AND verdict_fp = ?',
+              'SELECT report_json FROM tree_issues_cache WHERE rel_path = ? AND mtime_ms = ? AND size = ? AND verdict_fp = ? AND epoch_fp = ?',
             )
-            .get(relPath, mtimeUs, size, verdictFp)
+            .get(relPath, mtimeUs, size, verdictFp, epochFp)
     ) as { report_json: string } | undefined
     if (!row) return null
     const parsed = JSON.parse(row.report_json) as TreeIssueEntry
     return typeof parsed.hasRed === 'boolean' && typeof parsed.verdictRejected === 'boolean' ? parsed : null
   } catch {
-    return null // 损坏行/表异常：视为 miss，走重算回写（自愈）
+    return null // 损坏行/表异常（含旧库未补列）：视为 miss，走重算回写（自愈）
   }
 }
 
 /** 章级缓存写（INSERT OR REPLACE：同章新指纹覆盖旧行，不留废行）。
- *  R49-23：mtimeUs 量纲 µs（同 readTreeIssuesCache 注：mtime_ms 列名遗留不动）。 */
+ *  R49-23：mtimeUs 量纲 µs（同 readTreeIssuesCache 注：mtime_ms 列名遗留不动）。
+ *  R59 清偿批（R55-D-3）：epochFp 记落行时的全局纪元指纹（run.ts 传轮基线），
+ *  与读侧比对锚同源；旧行覆盖后即带戳，无需独立回填。 */
 export function writeTreeIssuesCache(
   db: DatabaseSync,
   relPath: string,
@@ -269,12 +285,13 @@ export function writeTreeIssuesCache(
   size: number,
   verdictFp: string | null,
   entry: TreeIssueEntry,
+  epochFp: string,
 ): void {
   try {
     // mtime_ms 列实存 µs（R49-23，量纲见函数注释；列名不动防存量库静默失效）
     db.prepare(
-      'INSERT OR REPLACE INTO tree_issues_cache (rel_path, mtime_ms, size, verdict_fp, report_json) VALUES (?, ?, ?, ?, ?)',
-    ).run(relPath, mtimeUs, size, verdictFp, JSON.stringify(entry))
+      'INSERT OR REPLACE INTO tree_issues_cache (rel_path, mtime_ms, size, verdict_fp, report_json, epoch_fp) VALUES (?, ?, ?, ?, ?, ?)',
+    ).run(relPath, mtimeUs, size, verdictFp, JSON.stringify(entry), epochFp)
   } catch {
     /* 写失败（锁/磁盘）：缓存只是加速，静默放弃本行（下次 miss 重算） */
   }
@@ -287,6 +304,8 @@ export interface TreeIssuesCacheRow {
   size: number
   verdictFp: string | null
   value: TreeIssueEntry
+  /** R59 清偿批（R55-D-3）：落行时全局纪元指纹（轮基线），读侧按行比对防混纪元 */
+  epochFp: string
 }
 
 /**
@@ -300,14 +319,14 @@ export function writeTreeIssuesCacheBatch(db: DatabaseSync, rows: TreeIssuesCach
   try {
     db.exec('BEGIN')
     const stmt = db.prepare(
-      'INSERT OR REPLACE INTO tree_issues_cache (rel_path, mtime_ms, size, verdict_fp, report_json) VALUES (?, ?, ?, ?, ?)',
+      'INSERT OR REPLACE INTO tree_issues_cache (rel_path, mtime_ms, size, verdict_fp, report_json, epoch_fp) VALUES (?, ?, ?, ?, ?, ?)',
     )
-    for (const r of rows) stmt.run(r.relPath, r.chapterFp, r.size, r.verdictFp, JSON.stringify(r.value))
+    for (const r of rows) stmt.run(r.relPath, r.chapterFp, r.size, r.verdictFp, JSON.stringify(r.value), r.epochFp)
     db.exec('COMMIT')
   } catch {
     // 批失败回退逐行（best-effort 口径不变）
     try { db.exec('ROLLBACK') } catch { /* 未开成功事务/已自动回滚：忽略 */ }
-    for (const r of rows) writeTreeIssuesCache(db, r.relPath, r.chapterFp, r.size, r.verdictFp, r.value)
+    for (const r of rows) writeTreeIssuesCache(db, r.relPath, r.chapterFp, r.size, r.verdictFp, r.value, r.epochFp)
   }
 }
 

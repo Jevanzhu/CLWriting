@@ -166,13 +166,21 @@ export function clearFalsePositiveMarks(bookName: string): void {
 
 /** E-10（二十九轮）：删章成功后清该章误报灰显键——legacy docId 由路径派生
  *  （legacyId(path)），同路径重建新章会复用同一 docId，残留键会把旧章的灰显态/
- *  禁用误报按钮带给新章。只清匹配前缀（该书该文档）的键，不动他章。 */
+ *  禁用误报按钮带给新章。只清属于该书该文档的键，不动他章。
+ *  R60-D-3（六十轮）：删键由前缀匹配改精确归属——docId 恰为另一 docId 的字符串
+ *  前缀时（如 `a.md`/`a.md2`），原 `startsWith(fpKey(...))` 会连带误删兄弟文档的
+ *  键；改为书前缀（\u0000 边界）命中后取 docId 段精确等值比较。 */
 export function clearFalsePositiveMarksForDoc(bookName: string, docId: string): void {
-  const prefix = fpKey(bookName, docId)
+  // R60-D-3：键形 `clw-fp:<书>\u0000<docId>`——书前缀带 \u0000 分隔（更长书名不误吞，
+  // R49-27 口径），其余段即 docId 段，精确等值才删（前缀兄弟键如 `a.md2` 存活）
+  const bookPrefix = fpBookPrefix(bookName)
   try {
+    // 倒序扫描：removeItem 不影响未访问下标
     for (let i = localStorage.length - 1; i >= 0; i--) {
       const k = localStorage.key(i)
-      if (k !== null && k.startsWith(prefix)) localStorage.removeItem(k)
+      if (k !== null && k.startsWith(bookPrefix) && k.slice(bookPrefix.length) === docId) {
+        localStorage.removeItem(k)
+      }
     }
   } catch {
     /* 配额/隐私模式：清不到就算了（灰显态本就是 best-effort 展示层） */

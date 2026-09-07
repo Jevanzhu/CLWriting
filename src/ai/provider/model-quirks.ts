@@ -17,8 +17,9 @@ export type ModelFamily = 'claude' | 'gpt' | 'grok' | 'deepseek' | 'glm' | 'kimi
 /** R-8（十五轮登记销账）：参数表 contentVersion——effort→wire 翻译、maxOutputTokens、
  *  系列前缀判定等表内容影响上线参数与重放口径，表改不 bump 会造成跨版本重放漂移且
  *  无从检测。**规则：本文件任何行为性变更（表项/前缀/翻译/兜底值）必须同步 bump 此
- *  版本号**（日期.序号格式）；版本随 llm/call 事件 quirksVersion 落库（runner 单源注入）。 */
-export const MODEL_QUIRKS_VERSION = '2026-08-23.1'
+ *  版本号**（日期.序号格式）；版本随 llm/call 事件 quirksVersion 落库（runner 单源注入）。
+ *  R59 清偿批（R55-C-7）：kimi trimStop 补齐「各 ≤32 字节」截断（行为性变更）→ bump。 */
+export const MODEL_QUIRKS_VERSION = '2026-09-07.1'
 
 /** 单个键形态上的前缀判定（不做白名单，识别不出即 unknown → 保守省略） */
 function familyByPrefix(m: string): ModelFamily {
@@ -45,6 +46,34 @@ export function detectFamily(model: string): ModelFamily {
     if (f !== 'unknown') return f
   }
   return 'unknown'
+}
+
+/**
+ * R59 清偿批（R55-C-7）：kimi stop 序列单条 ≤32 字节的 UTF-8 安全截断——按 UTF-16
+ * 码元 slice 会把多字节序列劈在中间（半字符字节流发给端点）。超限时按 32 字节截断，
+ * 截断点做序列完整性判定：恰落在完整序列末尾则原样保留、落在序列中间则丢弃该不
+ * 完整序列，保证输出恒为合法 UTF-8 且 ≤32 字节。仓内无「32 字节」截断先例（vault
+ * 的 randomBytes(32) 非截断；clipByCodePoints 是码位口径不保字节数），故按 Buffer
+ * 字节 + UTF-8 安全切点实现。
+ */
+function truncateUtf8Bytes32(s: string): string {
+  if (Buffer.byteLength(s, 'utf8') <= 32) return s
+  const buf = Buffer.from(s, 'utf8')
+  let end = 32
+  // 边界判定：从截断点向前找最后一个序列的 lead byte——截断点落在完整序列末尾
+  //（end-起点 == 序列全长）则原样保留；落在序列中间（不足全长）则丢弃该不完整序列
+  let i = end - 1
+  let back = 0
+  while (i >= 0 && back < 4 && (buf[i]! & 0xc0) === 0x80) {
+    i--
+    back++
+  }
+  if (i >= 0 && (buf[i]! & 0x80) !== 0) {
+    const lead = buf[i]!
+    const seqLen = lead >= 0xf0 ? 4 : lead >= 0xe0 ? 3 : 2
+    if (end - i < seqLen) end = i
+  }
+  return buf.subarray(0, end).toString('utf8')
 }
 
 /** GLM 仅 5.2+ 支持 reasoning_effort（4.x 发则 400） */
@@ -310,9 +339,10 @@ export function quirksFor(model: string): FamilyQuirks {
         maxTokensKey: 'max_completion_tokens', // 已弃用 max_tokens
         reasoningEffort: k3 ? (e) => e : () => null,
         thinkingWithEffort: false,
-        // R35-15：官方上限「≤5 条且各 ≤32 字节」只实现了前者——字节裁剪未实现；
-        // stopSequences 现无生产调用方（仅适配器读），接线前须先补字节裁剪
-        trimStop: (s) => s.slice(0, 5),
+        // R35-15 登记 / R59 清偿批（R55-C-7）：官方上限「≤5 条且各 ≤32 字节」补齐后者——
+        // 条数裁剪之外按 UTF-8 字节口径逐条截断（truncateUtf8Bytes32，见其注）；
+        // stopSequences 现无生产调用方（仅适配器读），接线前契约先补全
+        trimStop: (s) => s.slice(0, 5).map(truncateUtf8Bytes32),
         emitStreamOptions: true,
         structuredMode: 'json_schema', // MFJS 方言，strict 默认 true
         anthropicEffortWire: null, // anthropic 端点零参数级文档 → 保守不发
