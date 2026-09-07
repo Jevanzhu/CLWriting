@@ -2116,4 +2116,31 @@ describe('R54-A-1/A-2: flush 超时留痕 + switch-library 可达性预探', () 
     const r = (await M.ipcHandle['desktop:switch-library']!(null, mkTmp('not-a-lib-') + '/不存在')) as { ok: boolean; reason?: string }
     expect(r).toEqual({ ok: false, reason: '目录无效或是另一书库的子目录' })
   })
+
+  it('R61-B-1: open-library（pickLibrary）失联卷预探超时 → 原生错误框 + 不落库（与 switch-library 同款防线）', async () => {
+    const prev = process.env['CLW_SWITCH_LIBRARY_PROBE_TIMEOUT_MS']
+    process.env['CLW_SWITCH_LIBRARY_PROBE_TIMEOUT_MS'] = '150'
+    const dialogBase = M.dialogOpen
+    try {
+      await freshModule()
+      const good = mkTmp('clw-pick-reach-') // 真实存在的空目录（同步守卫本可立刻判定非书库——预探必须先于它拦下）
+      fsPromisesMock.statGate = () => new Promise(() => {}) // 模拟失联卷 stat 挂死
+      let opens = 0
+      // 首开返回失联目录，预探超时报错后留在选择循环；次开取消收口（避免 10 次封顶全跑）
+      Object.defineProperty(M, 'dialogOpen', {
+        configurable: true,
+        get: () => (opens++ === 0 ? { canceled: false, filePaths: [good] } : { canceled: true, filePaths: [] }),
+      })
+      const r = (await M.ipcHandle['desktop:open-library']!(null)) as { ok: boolean; canceled?: boolean }
+      expect(r).toEqual({ ok: false, canceled: true })
+      expect(M.errorBox.some(([, m]) => String(m).includes('暂不可达'))).toBe(true)
+      const stored = JSON.parse(readFileSync(join(M.userData, 'workdir.json'), 'utf8')) as { current: string }
+      expect(stored.current).not.toBe(good)
+    } finally {
+      Object.defineProperty(M, 'dialogOpen', { configurable: true, writable: true, value: dialogBase })
+      fsPromisesMock.statGate = null
+      if (prev === undefined) delete process.env['CLW_SWITCH_LIBRARY_PROBE_TIMEOUT_MS']
+      else process.env['CLW_SWITCH_LIBRARY_PROBE_TIMEOUT_MS'] = prev
+    }
+  })
 })

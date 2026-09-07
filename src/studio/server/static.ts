@@ -64,7 +64,10 @@ export function createStaticHandler(rootDir: string) {
       // hh §八-12：错误信封统一 {code,error}（原裸文本 'Method Not Allowed'）
       // R65-47（总六十五轮）：405 分支同样在 finish 后排空未消费请求体——写方法打到
       // 非 /api 路径时 handler 不读 body 也不 resume，keep-alive 连接因 body 滞留
-      // 被弃（与 index.ts /api 分支 R64-28 同口径）
+      // 被弃。R61-E-1 收口说明：经 index.ts 全量 server 的请求已由入口单挂点统一排空，
+      // 本地钩子不随之删除——createStaticHandler 还会被独立挂上 http.createServer
+      // 复用（static.test.ts R65-47 钉住该契约），单一职责归本模块自身，双重挂载下
+      // resume 幂等无副作用。
       res.on('finish', () => {
         if (!req.readableEnded) req.resume()
       })

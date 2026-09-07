@@ -119,11 +119,17 @@ export async function appendPending(
   // 整段剥离。R53-D-2（五十三轮）：content:'' 使崩窗内新内容零盘上副本——版本历史
   // 只含已保存部分、磁盘是保存前旧文，降级窗「编辑永不静默丢失」失守；截断保头
   // （正文开头）尾（最新键入），作者恢复有迹可考。
-  const degradedFallback = JSON.stringify({
-    ...entry,
-    content: truncateSnapshotHeadTail(content, journalDegradedKeepBytes),
-    degraded: true,
-  })
+  // R61-C-2（六十一轮）：惰性化——原在此处无条件预构造降级行（truncateSnapshotHeadTail
+  // 首行 Buffer.from 全文编码），常态（≤256KB，降级行几乎永不消费）每笔保存白付一次
+  // 全文 UTF-8 拷贝。现改闭包按需构造，仅两处消费点触发（下方超阈值判定 /
+  // appendLineAsync 锁超时降级兜底写）：常态零构造；超阈值或锁超时路径写出的内容
+  // 与预构造形态逐字节一致（entry 建后不变异，truncate 确定性）。
+  const degradedFallback = (): string =>
+    JSON.stringify({
+      ...entry,
+      content: truncateSnapshotHeadTail(content, journalDegradedKeepBytes),
+      degraded: true,
+    })
   // PM-3（性能与内存专项·2026-09-05）：超大快照主动降级——快照超阈值时直接落降级行
   // （与锁超时同款 degraded:true 形态），不再追加全文。动因：恢复消费方
   // （state.ts assembleStatus）只读 opId——pending.content 全仓零程序性消费方（R31-21
@@ -134,7 +140,7 @@ export async function appendPending(
   // journal；仅超大文档（10 万字级）降级为头尾截断（R53-D-2，原为空快照）。
   const line =
     Buffer.byteLength(content, 'utf-8') > JOURNAL_PENDING_SNAPSHOT_MAX_BYTES
-      ? degradedFallback
+      ? degradedFallback() // R61-C-2：仅超阈值才构造（常态不再白付全文拷贝）
       : JSON.stringify(entry)
   await appendLineAsync(journalPath, line, degradedFallback)
   return entry.opId
@@ -194,7 +200,15 @@ export function findUnsettled(journalPath: string): JournalAnyPending[] {
   let text: string
   try {
     text = readFileSync(journalPath, 'utf-8')
-  } catch {
+  } catch (e) {
+    // R61-C-1（六十一轮）：降级不阻断（返回 [] 语义不变——文件级读失败视同本轮恢复
+    // 检查跳过），但必须留痕——原空体 catch 使 journal 在盘却不可读（EACCES/EBUSY 等）
+    // 时崩溃恢复扫描静默归零，作者对丢字风险零感知且无诊断线索；对齐同链路 state.ts
+    // R54-B-1 循环级 warn 口径。
+    log.warn(
+      'journal',
+      `journal 读取失败，本轮崩溃恢复扫描降级跳过（${journalPath}）：${e instanceof Error ? e.message : String(e)}`,
+    )
     return []
   }
   const pending = new Map<string, JournalAnyPending>()
@@ -242,8 +256,15 @@ export function findUnsettled(journalPath: string): JournalAnyPending[] {
  * journal 写路径（含 healMovePending 自愈回写）均走本异步版。原同步 appendLine 随
  * appendSettledSync/appendAbortedSync 一并删除（R36-11：生产零调用死码，自 R35-5
  * 起无任何调用方）。
+ * R61-C-2（六十一轮）：degradedLine 允许传惰性 thunk（() => string）——appendPending
+ * 的降级行构造含全文 Buffer 编码，常态（锁正常拿到）永不消费，改按需构造（仅锁超时
+ * 降级分支触发）；传 string 的调用方行为不变。
  */
-async function appendLineAsync(filePath: string, line: string, degradedLine?: string): Promise<void> {
+async function appendLineAsync(
+  filePath: string,
+  line: string,
+  degradedLine?: string | (() => string),
+): Promise<void> {
   mkdirSync(dirname(filePath), { recursive: true })
   const release = await acquireCrossProcessLockAsync(`${filePath}.lock`, journalLockTimeoutMs)
   if (release) {
@@ -256,7 +277,8 @@ async function appendLineAsync(filePath: string, line: string, degradedLine?: st
     return
   }
   log.warn('journal', `跨进程锁超时，降级裸写（${filePath}）——与 compact 的互斥窗口回到守卫口径`)
-  appendFileSync(filePath, (degradedLine ?? line) + '\n', 'utf-8')
+  const degraded = typeof degradedLine === 'function' ? degradedLine() : degradedLine
+  appendFileSync(filePath, (degraded ?? line) + '\n', 'utf-8')
   fsyncFile(filePath)
 }
 

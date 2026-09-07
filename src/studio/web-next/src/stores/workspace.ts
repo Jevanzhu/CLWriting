@@ -101,6 +101,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     try {
       prefs = await getBookPrefs(bookName.value)
     } catch {
+      // R61-F-1：迟到失败先过切书代际守卫——「清残留」语义仅对当前书成立。A 书
+      // getBookPrefs 挂起窗内已切到 B 书（B 已成功回填书级覆盖）时，A 的迟到 reject
+      // 不得把 B 刚回填的 bookPageWidth/bookAutosaveInterval 清掉（对齐下方成功路径
+      // 同款 gen 守卫）。
+      if (gen !== bookGen) return
       // R-6（第十六轮）：拉取失败直接放弃——不置 prefsLoaded、不 startPersistWatch（下次进书重试），
       // 否则默认布局经持久化 watch 写回覆盖服务端已存的 prefs.json
       // R33-75（三十三轮）：放弃前清书级覆盖值——A 书的纸张宽度/自动保存间隔残留

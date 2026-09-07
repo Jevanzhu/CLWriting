@@ -686,9 +686,20 @@ export function registerBookRoutes(ctx: BookCtx): void {
       // 清内存对话态 + 迁移事件库（5.1-3：失败不再静默——migrate 返回 false 时源库
       // 原地完整可重试，但必须让用户看得见：改名后书在新目录，事件库却没跟过来，
       // 对话历史/审计在 UI 上无声消失）
-      // R34D-19（三十四轮）：migrateBookSession/clearChatSession 转异步——迁移锁对与
-      // 开库锁等待不再阻塞服务事件循环（双进程争用窗最坏 2×5s Atomics.wait 消除）
-      await clearChatHistory(oldName)
+      // R61-E-3：clearChatHistory 防御性收编——对齐删书路径（L-S4）的 try/catch +
+      // log.warn 降级口径。本调用位于 renameWithRetry 成功之后，目录已搬家**不可
+      // 回滚**：清史若裸奔抛错，已生效的改名被打成 500，客户端按失败重试只会撞上
+      // 目标名已存在的分叉状态。失败留痕后继续（事件库迁移失败的独立回传通道为
+      // 下方 eventsMigrated，不受本兜底影响；对话内存态残留由下次清史兜底）。
+      try {
+        // R34D-19（三十四轮）：migrateBookSession/clearChatSession 转异步——迁移锁对与
+        // 开库锁等待不再阻塞服务事件循环（双进程争用窗最坏 2×5s Atomics.wait 消除）
+        await clearChatHistory(oldName)
+      } catch (e) {
+        // 低-6（第十轮）同款：留痕走项目 logger（console 在打包态 mirrorConsole=false
+        // 无人看见也不进 JSONL），tag 与本文件其余降级留痕同源 'api'
+        log.warn('api', `改名清史失败（${oldName} → ${newName}，改名已生效不回滚，残留内存态待下次清史兜底）`, e)
+      }
       const eventsMigrated = await migrateBookSession(ctx.userDataPath, oldRoot, newRoot, oldName, newName)
       // 清缓存（service/driver 会话/树索引/书架摘要）
       forgetService(oldRoot)

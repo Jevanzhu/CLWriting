@@ -381,7 +381,21 @@ function readStore(): WorkDirStore {
     storeCache = emptyStore()
     return storeCache
   }
-  storeCache = filterValidRecent(parseStore(readFileSync(fp, 'utf-8')))
+  // R61-B-2（六十一轮评审）：文件级读失败容错——此前失败面不对称：parseStore 对内容
+  // 损坏已容错（返回 undefined 走默认）、loadWinState 对整个读过程 catch-all，唯
+  // readFileSync 本身抛错（权限 EACCES、杀毒/同步盘瞬时锁）无人捕获 → bootstrap 链
+  // 抛错 →「启动失败」退出。修复 = 读失败单独 try/catch，按「无存储」降级（与
+  // parseStore 失败同款形态：缓存 emptyStore，下次调用不再重读）+ warn 留痕（带路径
+  // 与原因）；启动可用性优先，不改变成功路径与缓存语义。
+  let raw: string
+  try {
+    raw = readFileSync(fp, 'utf-8')
+  } catch (e) {
+    log.warn('desktop', `workdir.json 读取失败（按无存储降级）：${fp} —— ${e instanceof Error ? e.message : String(e)}`)
+    storeCache = emptyStore()
+    return storeCache
+  }
+  storeCache = filterValidRecent(parseStore(raw))
   return storeCache
 }
 
@@ -576,6 +590,17 @@ async function pickLibrary(): Promise<string | null> {
       : await dialog.showOpenDialog(openOpts)
     const dir = result.canceled ? null : result.filePaths[0]
     if (!dir) return null
+    // R61-B-1（六十一轮）：可达性预探先行——失联网络卷不再经 isLibraryDir/findWorkDir
+    // 的同步 stat 爬升与 case-probe 同步写探针冻结主进程（与 switch-library 链 R54-A-2
+    // 同款防线补齐「打开书库」入口；probeDirReachable 唯一消费点此前仅在切库链）。
+    // 命中即原生错误框明确反馈并留在选择循环重选（E-9c 封顶兜底）。
+    if ((await probeDirReachable(dir)) === 'unreachable') {
+      dialog.showErrorBox(
+        '目录无响应',
+        `「${basename(dir)}」暂不可达（可能是网络卷无响应或已断开），请重新选择。`,
+      )
+      continue
+    }
     if (isLibraryDir(dir)) {
       // 平台规范化批 E：大小写敏感卷警告（探测失败 fail-open 不拦）——换目录回循环顶
       if (await warnIfCaseSensitive(dir)) continue

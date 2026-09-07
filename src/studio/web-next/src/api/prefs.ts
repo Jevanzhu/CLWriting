@@ -17,7 +17,12 @@ export async function getBookPrefs(name: string): Promise<BookPrefs> {
   const r = await apiJson<{ prefs: BookPrefs }>(
     `/api/books/${encodeURIComponent(name)}/prefs`,
   )
-  return r.prefs
+  // R61-F-2：200 空信封（缺 prefs 字段，信封异常/旧网关代理截断）兜底为空偏好——
+  // 原直返 r.prefs 会把 undefined 交给消费侧：workspace.loadBookPrefs 的
+  // Object.keys(prefs) 抛 TypeError，且该 rejection 在 setBook 的 void loadBookPrefs
+  // 浮空无人接（prefsLoaded 永不置位）。对齐全局侧 stores/prefs init 同款口径
+  //（R51-H-2 同族：缺字段按「空偏好」降级，走迁移/默认布局既有链，不抛不挂）。
+  return r.prefs ?? {}
 }
 
 /**

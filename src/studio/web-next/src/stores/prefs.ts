@@ -431,7 +431,13 @@ export const usePrefsStore = defineStore('prefs', () => {
 
   /** 本窗脏字段键集：当前值与最近成功落盘快照不一致的键（R35-8 脏字段判定源）。 */
   function dirtyKeysOf(local: GlobalPrefs): string[] {
-    if (!lastPersisted) return Object.keys(local)
+    // R61-F-3：无已持久化基线（lastPersisted 尚为 null——init 未完成/未调用态；
+    // 已核对 init 各完成路径——迁移分支/else 分支含 GET 失败降级——均置基线且此后
+    // 不再回 null，正常态此处不可达）时无从判定「本窗脏」，视为零脏字段：409 恢复
+    // 整体采纳远端。原 Object.keys(local) 会把全量本地值（含未改动的默认值）当本窗
+    // 修改回放、覆盖他窗配置 + toast「已保留本窗修改」与事实不符。409 恢复其余分支
+    // 语义不变。
+    if (!lastPersisted) return []
     const out: string[] = []
     for (const k of Object.keys(local)) {
       if (local[k] !== lastPersisted[k]) out.push(k)

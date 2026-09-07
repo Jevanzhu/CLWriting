@@ -226,6 +226,10 @@ watch(
 const saving = ref(false)
 
 async function onSave(): Promise<void> {
+  // R61-G-1：函数级在途锁——模板 :disabled 只拦鼠标主路径（且 saving 置位在数值校验
+  // 后），校验到置位间的快速连点/重入会并发两笔 updateDocMeta。对齐 OnboardView/
+  // WorkbenchView/HistoryPanel 同款惯例。
+  if (saving.value) return
   // 低级项（第六轮）：上下文入口捕获——保存期间（两个 await 窗口）activeDocId/书名可能
   // 已切走，await 后重读会 refresh 他 doc（refresh 内部按当前书名拼路径，旧 docId + 新书
   // 名 = 错文件）、「已保存」提示打在别的书上

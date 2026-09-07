@@ -306,6 +306,17 @@ export function startServer(opts: StudioServerOptions): http.Server {
   // 实际监听端口（listening 后缓存，供 Host 白名单校验；0 = 未监听）
   let listeningPort = 0
   const server = http.createServer(async (req: IncomingMessage, res: ServerResponse) => {
+    // R61-E-1：请求体排空钩子上提为入口单挂点。原 /api 分支（R64-28）与 /API/ 404
+    // 分支各自挂「finish 后排空未消费请求体」钩子，六处闸拒绝路径（bad request 400 /
+    // Host 403 / OPTIONS 204 / 写 Origin 403 / 写 token 403 / GET token 403）漏挂：
+    // 带 body 的请求被闸拒绝后 body 滞留，在无核心自动排空的运行时（Electron 内嵌
+    // Node / CI node 24；node ≥25 核心才在响应 finish 后自动 resume 未消费 body）上
+    // keep-alive 连接无法解析下一请求被整条弃掉（R64-28 同型）。单挂点必须先于任何
+    // replyError/return；readableEnded 守卫下只 resume 未消费的请求流，不改变任何
+    // 响应行为；收敛单挂点后全路径恰好挂一次，也消除多分支重复挂载的多次 resume。
+    res.on('finish', () => {
+      if (!req.readableEnded) req.resume()
+    })
     // X-20（第五十六轮）：请求行 URL 只收 origin-form（以 / 起始）。origin-form 是
     // node http 服务端唯一合法形态；absolute-form（GET http://…/api/*）此前绕过下方
     // /api 前缀判断落静态分支回 200 HTML——入口直接拒 400，不给绕前缀判断的形态留通道。
@@ -402,12 +413,7 @@ export function startServer(opts: StudioServerOptions): http.Server {
     }
 
     if (apiPathname.startsWith('/api/')) {
-      // R64-28（十二轮）：finish 后统一排空未消费请求体——无 body POST（heartbeat/
-      // style/rag/chat-branches 等）handler 不读 body 也不 resume，脚本客户端带 body
-      // 时 keep-alive 复用被弃（与 stream-ticket.ts 口径一致，收到 dispatch 层统一兜）
-      res.on('finish', () => {
-        if (!req.readableEnded) req.resume()
-      })
+      // R64-28（十二轮）的 finish 后排空钩子已上提为入口单挂点（R61-E-1，见回调顶部）
       try {
         const matched = await dispatch(req, res, routes)
         if (matched || res.headersSent) return
@@ -428,15 +434,12 @@ export function startServer(opts: StudioServerOptions): http.Server {
     // 小写 /api/ 匹配，/API/books 一路落进静态分支回 200 index.html（API 路径拿到 SPA
     // 页面，调用方按 JSON 解析报糊墙错误）。静态回退（含静态 miss 落 index.html）前按
     // 小写化口径兜一道：任意大小写的 /api/ 前缀未匹配任何路由 → 统一 404 JSON 错误信封
-    // （与 /api/ 未命中同款 replyError），不再落 SPA。排空钩子对齐上方 api 分支（POST
-    // /API/* 带 body 被 404 时 keep-alive 连接的未消费请求体照常排空，R64-28 同款）。
+    // （与 /api/ 未命中同款 replyError），不再落 SPA。POST /API/* 带 body 被 404 时
+    // keep-alive 连接的未消费请求体由入口单挂点排空（R61-E-1，R64-28 同口径）。
     // R35-30（三十五轮）：裸 /api（无尾斜杠，任意大小写）同口径兜 404——startsWith('/api/')
     // 不含精确 '/api'，此前落 SPA 回 200 HTML；API 前缀约定的自然延伸。
     const apiLower = apiPathname.toLowerCase()
     if (apiLower === '/api' || apiLower.startsWith('/api/')) {
-      res.on('finish', () => {
-        if (!req.readableEnded) req.resume()
-      })
       replyError(res, 404, 'NOT_FOUND', 'not found')
       return
     }
