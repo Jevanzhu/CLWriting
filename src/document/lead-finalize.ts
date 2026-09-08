@@ -18,12 +18,11 @@ import { atomicWriteFile, rmWithRetry } from '../fs/atomic.js'
 import { canonicalizeText } from '../fs/text-canonical.js'
 import { platformCaseFold } from '../fs/safe-path.js'
 import { join } from 'node:path'
-// R42-11（四十二轮）：readLead 不再直接调用（改单读派生孪生 readLeadFromBytes，见下）；
-// parseHistoryWithPreamble/ATX_HEADING_RE/headingEndsSection 为该孪生的同源解析件
-// （leads.ts 导出；R48-8 改带 preamble 收集版，parseHistory 薄包装仍导出供旧调用方）
-import { readLeadDir, writeLead, LEAD_TYPES, LEAD_VERBS, parseHistoryWithPreamble, ATX_HEADING_RE, headingEndsSection } from '../format/leads.js'
-import { readFile, parseFlat } from '../format/frontmatter.js'
-import type { Lead, LeadType, ParseError } from '../format/types.js'
+// R42-11（四十二轮）：readLead 不再直接调用（改单读派生孪生）。
+// R-P2-3（P2 评审修复批）：孪生 readLeadFromBytes 收编为 leads.ts 单源导出——消费侧
+// 五件同步副本（KNOWN_FM_KEYS/HISTORY_ENTRY_RE/leadBodyBeforeHistory/leadBodyAfterHistory/
+// readLeadFromBytes）整段坍缩（见文件尾原位注记），本文件只 import，格式链演进自动随动。
+import { readLeadDir, writeLead, LEAD_TYPES, LEAD_VERBS, readLeadFromBytes } from '../format/leads.js'
 import { acquireCrossProcessLockWithTimeout, acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 import { log } from '../log/index.js'
 import { isUtf8Bytes } from './service.js'
@@ -257,8 +256,8 @@ export function applyLeadUpdatesLocked(
     // 锁的写者：外部编辑器/转码工具）时 UTF-8 判据与写回模型错源：GBK 文件在第二读
     // 时已被转成 UTF-8 的形态下，字节判据放行 + 第一读的乱码模型被 writeLead 原子
     // 写回盘上，原始字节永久丢失（微 TOCTOU，且每条目双 IO）。现一次整读 Buffer，
-    // 判据与模型同源派生。readLead 不支持 content 注入（opts 仅 legacy，format 域
-    // 本轮禁改），就地最小解析——readLeadFromBytes 为其 content 注入孪生（函数注记）。
+    // 判据与模型同源派生。R-P2-3（P2 评审修复批）：readLeadFromBytes 已收编为
+    // leads.ts 单源导出（原消费侧就地副本坍缩），此处改 import 调用。
     let leadBytes: Buffer
     try {
       leadBytes = readFileSync(filePath)
@@ -366,128 +365,13 @@ export function applyLeadUpdatesLocked(
   return applied
 }
 
-// ── R42-11（四十二轮）：readLead 的 content 注入孪生（单读派生专用） ──────────
-
-/** 与 format/leads.ts 的 KNOWN_FM_KEYS 同集（未导出，同步副本）——区分已知/未知
- *  fm 字段，未知项经 _raw 容错保留回写（#3 第 8 节）。 */
-const KNOWN_FM_KEYS = new Set([
-  '编号', '标题', '类型', '状态', '开启章',
-  '境界体系', '当前境界', '父布局线', '欠方', '债主',
-])
-
-/** 与 format/leads.ts 的 HISTORY_ENTRY_RE 同步（未导出，同步副本）——履历条目行
- *  判定，bodyAfterHistory 的节界前瞻（isEntry 谓词）用。 */
-const HISTORY_ENTRY_RE = /^\s*-\s*第(\d+)章\s+(.+?)[：:](.*)$/
-
-/** 与 format/leads.ts bodyBeforeHistory 同步（未导出，同步副本）——## 履历 之前的
- *  正文（无履历段则整段 trim；writeLead 保真回写用）。 */
-function leadBodyBeforeHistory(body: string): string {
-  const lines = body.split('\n')
-  const idx = lines.findIndex((line) => /^##\s*履历/.test(line.trim()))
-  if (idx === -1) return body.trim()
-  return lines.slice(0, idx).join('\n').trim()
-}
-
-/** 与 format/leads.ts bodyAfterHistory 同步（未导出，同步副本）——履历段之后的
- *  人工正文（节终标题起到文末；无则空），dd-P2 回写保真用。 */
-function leadBodyAfterHistory(body: string): string {
-  const lines = body.split('\n')
-  let inHistory = false
-  for (let i = 0; i < lines.length; i++) {
-    const t = lines[i]!.trim()
-    if (!inHistory) {
-      if (/^##\s*履历/.test(t)) inHistory = true
-      continue
-    }
-    if (/^##\s*履历/.test(t)) continue
-    if (ATX_HEADING_RE.test(t) && headingEndsSection(lines, i, (l) => HISTORY_ENTRY_RE.test(l))) {
-      return lines.slice(i).join('\n').trim()
-    }
-  }
-  return ''
-}
-
-/**
- * R42-11（四十二轮）：readLead 的 content 注入孪生——fm/body 经 frontmatter.readFile
- * 的 content 通道（R63-7）从调用方整读的**同一份 Buffer** 派生，不再二次读盘（单读
- * 派生：UTF-8 判据与本模型同源，消除两读间外部改写错源窗）。readLead 本体不支持
- * content 注入（opts 仅 legacy，format 域本轮禁改），故在消费侧就地最小解析。
- *
- * **同步契约**：本函数与 format/leads.ts readLead 的非 legacy 路径逐位同源（必填/非法
- * 值校验、未知字段 _raw 保留、_fmOrder 保序、履历/前后段解析），产物直接进 writeLead
- * 全模型回写——任何口径漂移都会在回写时物化为文件损坏；leads.ts 解析语义演进时本
- * 函数必须同步。上游 readLead 若增设 content 参数，应即坍缩回单源调用并删除本节。
- */
-function readLeadFromBytes(
-  filePath: string,
-  buf: Buffer,
-): { ok: true; lead: Lead } | { ok: false; error: ParseError } {
-  const r = readFile(filePath, buf.toString('utf-8'))
-  if (!r.ok) return r
-
-  const map = parseFlat(r.fmRaw)
-
-  // 必填校验（#3 第 3 节）
-  const 编号 = map.get('编号')
-  if (typeof 编号 !== 'string' || !编号) {
-    return { ok: false, error: { file: filePath, line: 0, message: '缺少必填字段：编号' } }
-  }
-  // R73-22 同源：类型/状态写了非法值 fail-loud（缺字段维持默认回落，存量手写兼容）
-  const rawType = map.get('类型')
-  if (rawType !== undefined && rawType !== null && String(rawType) !== '' && !(LEAD_TYPES as readonly string[]).includes(String(rawType))) {
-    return {
-      ok: false,
-      error: { file: filePath, line: 0, message: `「类型」非法：「${String(rawType)}」（合法值：${LEAD_TYPES.join('/')}）` },
-    }
-  }
-  const rawStatus = map.get('状态')
-  if (rawStatus !== undefined && rawStatus !== null && String(rawStatus) !== '' && !['进行中', '已收尾', '已放弃'].includes(String(rawStatus))) {
-    return {
-      ok: false,
-      error: { file: filePath, line: 0, message: `「状态」非法：「${String(rawStatus)}」（合法值：进行中/已收尾/已放弃）` },
-    }
-  }
-
-  // 收集未知字段（容错保留；R64-17 同源：数组型原样保留防往返串化错位）
-  const _raw: Record<string, string | string[]> = {}
-  for (const [k, v] of map) {
-    if (!KNOWN_FM_KEYS.has(k)) {
-      _raw[k] = Array.isArray(v) ? v : String(v)
-    }
-  }
-
-  // R75-2 同源：非有限数按「未写」处理，回落默认 0
-  const 开启章Num = Number(map.get('开启章'))
-
-  // R48-8（四十八轮）：孪生读侧同收履历前散文（与 readLead 同口径，存在才带字段）
-  const hist = parseHistoryWithPreamble(r.body)
-  const lead: Lead = {
-    编号,
-    标题: String(map.get('标题') ?? ''),
-    类型: (map.get('类型') as LeadType) ?? '悬念',
-    状态: (map.get('状态') as Lead['状态']) ?? '进行中',
-    开启章: Number.isFinite(开启章Num) ? 开启章Num : 0,
-    履历: hist.entries,
-    _bodyBeforeHistory: leadBodyBeforeHistory(r.body),
-    _bodyAfterHistory: leadBodyAfterHistory(r.body),
-    ...(hist.preamble ? { _historyPreamble: hist.preamble } : {}),
-    // R51-F-1（五十一轮）：分组标题第三槽位（与 readLead 同口径——本孪生产物同样进
-    // writeLead 整段重序列化，不收即回写物理丢失）
-    ...(hist.groupHeadings.length > 0 ? { _historyGroupHeadings: hist.groupHeadings } : {}),
-    ...(Object.keys(_raw).length > 0 ? { _raw } : {}),
-    _fmOrder: [...map.keys()],
-    _path: filePath,
-  }
-
-  // 特化字段（仅当存在时赋值）
-  if (map.has('境界体系')) lead.境界体系 = String(map.get('境界体系'))
-  if (map.has('当前境界')) lead.当前境界 = String(map.get('当前境界'))
-  if (map.has('父布局线')) lead.父布局线 = String(map.get('父布局线'))
-  if (map.has('欠方')) lead.欠方 = String(map.get('欠方'))
-  if (map.has('债主')) lead.债主 = String(map.get('债主'))
-
-  return { ok: true, lead }
-}
+// ── R-P2-3（P2 评审修复批）：原 R42-11 消费侧副本整段坍缩 ─────────────────────
+// 此处原有五件自我声明的 format/leads.ts「同步副本」：KNOWN_FM_KEYS、HISTORY_ENTRY_RE、
+// leadBodyBeforeHistory（正本 bodyBeforeHistory）、leadBodyAfterHistory（正本
+// bodyAfterHistory）、readLeadFromBytes（正本 readLead 非 legacy 路径的 content 注入
+// 孪生）。2026-09 漂移核验五件与正本逐位一致后收编单源：readLeadFromBytes 导出 +
+// parseLeadModel 模块内共享解析体（leads.ts），本文件经 import 使用（上方
+// applyLeadUpdatesLocked 锁内重读点）。格式链演进只改 leads.ts，定稿链自动随动。
 
 /** M-6：未回写条目的写回文本——保住章节标签（chapterUpdateSources 仍归本章）+
  *  按原因分组的警告注释（非列表行，不会被 parseLeadUpdateLines 当推进条目）+ 原条目行。

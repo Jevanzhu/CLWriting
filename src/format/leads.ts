@@ -274,15 +274,19 @@ const KNOWN_FM_KEYS = new Set([
   '境界体系', '当前境界', '父布局线', '欠方', '债主',
 ])
 
-/** 读取一个账本 md → Lead 内存模型（容错） */
-export function readLead(
+/**
+ * R-P2-3（P2 评审修复批）：readLead 的解析主体抽为模块内单源 parseLeadModel——
+ * readLead（盘读）与 readLeadFromBytes（content 注入孪生，见下）共用同一解析体。
+ * 此前 document/lead-finalize.ts 对本函数非 legacy 路径持 60 行消费侧同步副本
+ *（R42-11 因 format 域禁改暂置消费侧；2026-09 漂移核验与正本逐位一致后按其预告坍缩），
+ * 格式链解析语义演进只改本函数，定稿链自动随动。 */
+function parseLeadModel(
   filePath: string,
+  fmRaw: string,
+  body: string,
   opts?: { legacy?: boolean },
 ): { ok: true; lead: Lead } | { ok: false; error: ParseError } {
-  const r = readFile(filePath)
-  if (!r.ok) return r
-
-  const map = parseFlat(r.fmRaw)
+  const map = parseFlat(fmRaw)
 
   // 必填校验（#3 第 3 节）
   const 编号 = map.get('编号')
@@ -331,7 +335,7 @@ export function readLead(
 
   // R48-8（四十八轮）：履历段解析改带 preamble 收集——标题与首条条目间的手写
   // 散文原样带回（存在才带字段），writeLead 经 stringifyHistory 原位还原
-  const hist = parseHistoryWithPreamble(r.body)
+  const hist = parseHistoryWithPreamble(body)
   const lead: Lead = {
     编号,
     标题: String(map.get('标题') ?? ''),
@@ -339,8 +343,8 @@ export function readLead(
     状态: (map.get('状态') as Lead['状态']) ?? '进行中',
     开启章: Number.isFinite(开启章Num) ? 开启章Num : 0,
     履历: hist.entries,
-    _bodyBeforeHistory: bodyBeforeHistory(r.body),
-    _bodyAfterHistory: bodyAfterHistory(r.body),
+    _bodyBeforeHistory: bodyBeforeHistory(body),
+    _bodyAfterHistory: bodyAfterHistory(body),
     ...(hist.preamble ? { _historyPreamble: hist.preamble } : {}),
     ...(hist.groupHeadings.length > 0 ? { _historyGroupHeadings: hist.groupHeadings } : {}),
     ...(Object.keys(_raw).length > 0 ? { _raw } : {}),
@@ -356,6 +360,33 @@ export function readLead(
   if (map.has('债主')) lead.债主 = String(map.get('债主'))
 
   return { ok: true, lead }
+}
+
+/** 读取一个账本 md → Lead 内存模型（容错） */
+export function readLead(
+  filePath: string,
+  opts?: { legacy?: boolean },
+): { ok: true; lead: Lead } | { ok: false; error: ParseError } {
+  const r = readFile(filePath)
+  if (!r.ok) return r
+  return parseLeadModel(filePath, r.fmRaw, r.body, opts)
+}
+
+/**
+ * R-P2-3：readLead 的 content 注入孪生（原 document/lead-finalize.ts 就地副本，本批
+ * 按 R42-11 预告坍缩回单源）——fm/body 经 frontmatter.readFile 的 content 通道（R63-7）
+ * 从调用方整读的同一份 Buffer 派生，不再二次读盘（单读派生：UTF-8 判据与本模型同源，
+ * 消除两读间外部改写错源窗；消费方 = 定稿回写链 applyLeadUpdatesLocked，布线锁内一次
+ * readFileSync 同时喂 isUtf8Bytes 判据与本函数）。不设 legacy 通道：消费方恒走六类
+ * 严格校验，与 readLead 非 legacy 路径逐位同源（共用 parseLeadModel）。
+ */
+export function readLeadFromBytes(
+  filePath: string,
+  buf: Buffer,
+): { ok: true; lead: Lead } | { ok: false; error: ParseError } {
+  const r = readFile(filePath, buf.toString('utf-8'))
+  if (!r.ok) return r
+  return parseLeadModel(filePath, r.fmRaw, r.body)
 }
 
 /** Lead 内存模型 → front matter Map（按源 md 原始字段顺序回写，#3 第 8 节"不重排"） */

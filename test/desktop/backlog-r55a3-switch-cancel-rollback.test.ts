@@ -127,6 +127,10 @@ vi.mock('electron', () => {
     isMaximized(): boolean {
       return false
     }
+    // win32 专属：main.ts createSecureWindow 在 win 宿主必调（linux CI 恒不走该
+    // 分支，假件此前缺它 → win 上 bootstrap 在 mainWindow 赋值前炸掉、退出链的
+    // flush 取消回滚整条失效）。补齐使 win 宿主与 CI 同态。
+    setMenuBarVisibility(_visible: boolean): void {}
     getBounds(): Record<string, number> {
       return this.opts as Record<string, number>
     }
@@ -260,8 +264,11 @@ async function freshMain(): Promise<void> {
   vi.resetModules()
   const wins0 = M.windows.length
   await import('../../src/desktop/main.js')
+  // win 慢任务队列（G: 盘 + 排队重的宿主）下 bootstrap 建窗可超默认/3s 窗：
+  // 统一放宽到 10s/50ms 轮询。超时到点仍未建窗依旧红，断言语义不弱化。
   await vi.waitFor(() => expect(M.windows.length, 'bootstrap 应已建主窗').toBe(wins0 + 1), {
-    timeout: 3000,
+    timeout: 10_000,
+    interval: 50,
   })
   await new Promise((r) => setImmediate(r))
 }
@@ -271,8 +278,10 @@ async function quitThenCancel(conflict: string[]): Promise<void> {
   win.webContents.execJsResult = { conflict, failed: [] }
   M.msgBoxSyncChoice = 1 // 取消（「应用原样保留」）
   M.appOn['before-quit']!.at(-1)!({ preventDefault: () => {} })
+  // win 慢任务队列下回写落定可超 2s：放宽到 10s/50ms（到点未回写仍红，语义不弱化）
   await vi.waitFor(() => expect(persistedCurrent(), '取消后应回写旧库').toBe(libA), {
-    timeout: 2000,
+    timeout: 10_000,
+    interval: 50,
   })
 }
 
@@ -340,7 +349,7 @@ describe('R59 清偿批（R55-A-3）: 切库退出被取消 → workdir.json 回
     win.webContents.execJsResult = { conflict: [], failed: ['d1'] }
     M.msgBoxSyncChoice = 1
     M.appOn['before-quit']!.at(-1)!({ preventDefault: () => {} })
-    await vi.waitFor(() => expect(persistedCurrent()).toBe(libA), { timeout: 2000 })
+    await vi.waitFor(() => expect(persistedCurrent()).toBe(libA), { timeout: 10_000, interval: 50 })
     expect(persistedCurrent()).toBe(libA)
   })
 
@@ -359,7 +368,7 @@ describe('R59 清偿批（R55-A-3）: 切库退出被取消 → workdir.json 回
     const libD = mkLibrary()
     M.dialogOpen = { canceled: false, filePaths: [libD] }
     openLibraryMenuItem().click()
-    await vi.waitFor(() => expect(persistedCurrent()).toBe(libD), { timeout: 2000 })
+    await vi.waitFor(() => expect(persistedCurrent()).toBe(libD), { timeout: 10_000, interval: 50 })
     await quitThenCancel(['d1'])
     expect(persistedCurrent()).toBe(libA)
   })
@@ -377,7 +386,7 @@ describe('R59 清偿批（R55-A-3）: 切库退出被取消 → workdir.json 回
     M.msgBoxSyncChoice = 0
     M.appOn['before-quit']!.at(-1)!({ preventDefault: () => {} })
     // relaunchCalls 仅由 armPendingRelaunchIfAny 的 app.relaunch 递增，判据确定
-    await vi.waitFor(() => expect(M.relaunchCalls).toBeGreaterThan(0), { timeout: 2000 })
+    await vi.waitFor(() => expect(M.relaunchCalls).toBeGreaterThan(0), { timeout: 10_000, interval: 50 })
     expect(persistedCurrent()).toBe(libB) // 新库即用户所愿，不回滚
   })
 })

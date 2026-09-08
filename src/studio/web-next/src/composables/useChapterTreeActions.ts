@@ -210,7 +210,12 @@ export function useChapterTreeActions(deps: {
     // 切书后提交，deps.bookName() 已是 B 书而 docId 属 A 书，会错书落 fm/rename
     const book = e.bookName
     try {
+      // R-P2-1（评审修复批）：op=meta 落 fm + 路径同步 rename（服务端按 docId 自愈
+      // legacy 身份，旧路径派生 id 孤儿化）——成功即弃旧身份脏镜像，同 onRenameCommit
+      // 取舍：直接丢弃不迁移，防同路径重建文档复用同 id 时误复活旧镜像。
+      // book 用开弹窗时捕获的 e.bookName（N-8），清理不随切书落空。
       await updateChapterMetaDoc(book, e.docId, { 标题: meta.标题, 章号: meta.num })
+      doc.clearDirtyMirror(book, e.docId)
       if (deps.bookName() !== book) return // 已切书：不动 B 书界面
       await tree.load(book)
       // 路径可能变（长篇/短篇文件名）→ 同步 doc entry.path
@@ -394,6 +399,14 @@ export function useChapterTreeActions(deps: {
     const book = deps.bookName()
     try {
       await renameDoc(book, node.docId, `${name}.md`)
+      // R-P2-1（评审修复批）：改名成功即弃该文档旧身份的脏镜像（直接丢弃、不迁移）——
+      // 镜像键含 docId，legacy 文档 id 按路径派生（legacy:<sha256(path)[:16]>，服务端
+      // 结构性操作自愈后旧 id 必然孤儿化），同路径重建新文档复用同 id 时 open 会误复活
+      // 旧镜像污染新文档。canonical 文档 docId 稳定（键不变），清了只是损失「改名后~
+      // 下次击键」的镜像空窗（下一击键/保存即重建，R55-F-3 本就是 best-effort 兜底），
+      // 统一直接丢弃，不为 canonical 单独分叉「保留重写」语义。book 用入口快照：清的
+      // 是被改名文档所属的旧书键，即便 await 期间切书清理也不落空。
+      doc.clearDirtyMirror(book, node.docId)
       // B-10（第六十轮）：await 后活源复检（对齐 doDelete/doCopy 双点守卫）——重命名
       // 在途切书后 tree.load(旧书) 会把 A 书整树覆盖进 B 书工作台（后调者胜写入）
       if (deps.bookName() !== book) return

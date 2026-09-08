@@ -16,6 +16,8 @@ const props = defineProps<{
   viewMode: 'grid' | 'list'
   batchMode: boolean
   selected: Set<string>
+  /** R-P3-4：每组渲染上限；不传 = 不裁（整页书架 Shelf.vue 维持全量渲染） */
+  renderCap?: number
 }>()
 
 const emit = defineEmits<{
@@ -27,6 +29,21 @@ const emit = defineEmits<{
 // 右键菜单：桌面端原生 Menu，浏览器回退 ContextMenu（与壳同构）
 const { isNative, menuVisible, menuX, menuY, menuItems, popup, onPopupSelect, onPopupClose } = useNativeMenu()
 const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
+
+// R-P3-4：大书架渲染上限——书卡树一次性全量挂载，数百书拖慢浮层挂载。对齐
+// CommandPalette RENDER_CAP=100 先例：数据面不动（props.groups 的搜索/排序/批量全选/
+// 分组计数仍面向全量），只裁渲染面——renderCap 传入时每组只渲染前 N 张书卡 + 尾部
+// 「已省略 N 部」提示行（上限数值由壳定，ShelfModal 传 100；不传即不裁，Shelf.vue
+// 行为不变）。搜索过滤后的命中 >上限时同样截断且提示行如实计数，缩小搜索词即可见
+// 全部命中。
+function shownBooks(grp: { books: BookEntry[] }): BookEntry[] {
+  if (props.renderCap === undefined || grp.books.length <= props.renderCap) return grp.books
+  return grp.books.slice(0, props.renderCap)
+}
+function omittedCount(grp: { books: BookEntry[] }): number {
+  if (props.renderCap === undefined) return 0
+  return Math.max(0, grp.books.length - props.renderCap)
+}
 
 function onCardContextmenu(e: MouseEvent, name: string): void {
   const items: MenuItem[] = [
@@ -55,7 +72,7 @@ function onCardContextmenu(e: MouseEvent, name: string): void {
       </header>
       <div v-if="props.viewMode === 'grid'" class="book-grid">
         <BookCard
-          v-for="(b, i) in grp.books"
+          v-for="(b, i) in shownBooks(grp)"
           :key="b.name"
           :book="b"
           variant="grid"
@@ -75,7 +92,7 @@ function onCardContextmenu(e: MouseEvent, name: string): void {
           <span class="col-edited">最近编辑</span>
         </div>
         <BookCard
-          v-for="b in grp.books"
+          v-for="b in shownBooks(grp)"
           :key="b.name"
           :book="b"
           variant="list"
@@ -85,6 +102,10 @@ function onCardContextmenu(e: MouseEvent, name: string): void {
           @click="emit('card-click', $event)"
           @contextmenu="onCardContextmenu($event, b.name)"
         />
+      </div>
+      <!-- R-P3-4：渲染上限截断提示行（与 CommandPalette 尾部省略行同语义；分组头计数仍显全量） -->
+      <div v-if="omittedCount(grp) > 0" class="cap-hint">
+        已省略 {{ omittedCount(grp) }} 部，搜索书名可缩小范围
       </div>
     </section>
   </div>
@@ -129,6 +150,12 @@ function onCardContextmenu(e: MouseEvent, name: string): void {
   font-size: var(--font-size-xs);
   color: var(--text-faint);
   font-variant-numeric: tabular-nums;
+}
+/* R-P3-4：渲染上限截断提示行——纯展示不可点（弱化色，对齐 ChapterTreeItem cap-hint 口径） */
+.cap-hint {
+  padding-top: var(--size-4-2);
+  font-size: var(--font-size-xs);
+  color: var(--text-faint);
 }
 .book-grid {
   display: grid;

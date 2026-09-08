@@ -21,6 +21,9 @@ import { openSessionStoreAsync, bookHash } from '../events/store.js'
 import { ChainRecorder, layerForTask, stepStartEvent, stepEndEvent, llmCallEvent, llmRetryEvent } from '../events/chain-bridge.js'
 import type { StepEndReason } from '../events/types.js'
 import { DEFAULT_RETRY_POLICY, backoffDelayMs, shouldRetryError } from './retry-policy.js'
+// R-P3-2：失败出口日志留痕需带「动作名」——直接取决策表现值（failure.ts 唯一事实源），
+// 不在 runner 侧维护第二份 code→action 映射（Z-P2-2 单口径化纪律）
+import { failureAction } from './provider/failure.js'
 import { log } from '../log/index.js'
 
 /** AA-P3-5：降级记忆「已写一次」per-key 内存标记（userDataPath 维度隔离，防跨库/跨测试污染）。
@@ -483,6 +486,10 @@ export async function runTask<T>(opts: {
       chain.close()
       chain = null
     }
+    // R-P3-2：配置类失败（NO_USERDATA/NO_PROVIDER/NO_MODEL）日志留痕——此前仅事件库
+    // trace（bookRoot+task 齐备才落），日志通道零线索；未触决策表（无 GenError），
+    // 不带 action 字段
+    log.warn('runner', JSON.stringify({ msg: 'AI 任务取 provider 失败（终态）', task: task ?? null, bookRoot: bookRoot ?? null, code: r.code, error: r.error }))
     return r
   }
 
@@ -567,10 +574,18 @@ export async function runTask<T>(opts: {
 
   // R37-7（三十七轮）：中断/超时封套也带 attemptsUsage——X-P2-10 中断路径已按次入账，
   // 封套同步透出（下游 done 事件失败分支并入 usage，不再漏记）
-  const timeoutAbort = (): TaskErr =>
-    abortedByUser()
-      ? { ok: false, code: 'ABORTED', error: '已中断', attemptsUsage, model: tier.model }
-      : { ok: false, code: 'TIMEOUT_TOTAL', error: `生成超时（超过 ${timeoutMs / 60_000} 分钟）`, attemptsUsage, model: tier.model }
+  const timeoutAbort = (): TaskErr => {
+    if (abortedByUser()) {
+      // 决策表 ABORTED → 'none'（主动中断非失败口径）——用户中断不记失败日志（高频操作，
+      // 记录即刷屏）；用户面由调用方 done 事件如实反映
+      return { ok: false, code: 'ABORTED', error: '已中断', attemptsUsage, model: tier.model }
+    }
+    // R-P3-2：总超时属真实失败（时间预算耗尽）——三处收口（成功边界 abort / catch abort /
+    // 退避 sleep 中 abort）共走本函数，日志单点留痕；task/bookRoot 缺省时事件库 llm/call
+    // 也不落（mkChain 返 null），本行是日志通道唯一线索
+    log.warn('runner', JSON.stringify({ msg: 'AI 任务总超时（终态）', task: task ?? null, bookRoot: bookRoot ?? null, code: 'TIMEOUT_TOTAL', timeoutMs }))
+    return { ok: false, code: 'TIMEOUT_TOTAL', error: `生成超时（超过 ${timeoutMs / 60_000} 分钟）`, attemptsUsage, model: tier.model }
+  }
 
   try {
     for (let attempt = 0; ; attempt++) {
@@ -641,6 +656,9 @@ export async function runTask<T>(opts: {
               ok: false,
               errCode: 'RETRY_AFTER_OVER_CAP',
             })
+            // R-P3-2：Retry-After 超封顶终态日志留痕——决策表判 'retry' 却被服务端等待值
+            // 否决的出口，此前仅事件库 trace；带决策表动作名 + 服务端值/封顶值可归因
+            log.warn('runner', JSON.stringify({ msg: 'Retry-After 超退避封顶，停止重试（终态）', task: task ?? null, bookRoot: bookRoot ?? null, attempt, action: failureAction(e), retryAfterMs: e.retryAfterMs, capMs: RETRY_POLICY.maxDelayMs, error: e.message }))
             stepReason = 'error'
             // R37-7：Retry-After 终态封套携带 attemptsUsage/model（同终态失败分支口径）
             return {
@@ -659,6 +677,10 @@ export async function runTask<T>(opts: {
           // N5：失败 attempt 入 trace（429/5xx 无 usage，但可审计重试链）
           // A5：errCode 细化——有结构化 code（RATE_LIMIT/SERVER_ERROR/TIMEOUT…）优先于笼统 RETRYABLE
           trace({ model: tier.model, attempt, stopReason: 'error', usage: retryUsage, ok: false, errCode: e.code ?? 'RETRYABLE' })
+          // R-P3-2：重试出口日志留痕（决策表 'retry' 动作执行点）——用户面 warning 走
+          // onRetry（调用方接线才生效，spawn 链未接），事件库 llm/retry 需 bookRoot+task
+          // 齐备；日志通道补底（task/bookRoot/attempt/动作/原因全带，退避风暴可归因）
+          log.warn('runner', JSON.stringify({ msg: 'AI 调用失败，按决策表退避重试', task: task ?? null, bookRoot: bookRoot ?? null, attempt, code: e.code ?? null, action: failureAction(e), delayMs: delay, error: e.message }))
           // Bug C：重试前通知调用方（前端可见「AI 响应异常，重试中」，不再静默卡死）
           opts.onRetry?.(attempt, e.message)
           opts.onReset?.()
@@ -690,6 +712,11 @@ export async function runTask<T>(opts: {
           errCode: (e instanceof GenError && e.code) || 'GEN_FAIL',
         })
         stepReason = 'error'
+        // R-P3-2：终态失败日志留痕——动作名取决策表现值（author / switch-provider /
+        // shrink-prompt 在 A7 接线前同归终态、重试耗尽时 action 仍为 'retry'，见
+        // failure.ts 决策表注释）；此前仅事件库 llm/call（chain 缺失时零线索），日志
+        // 通道无任何痕迹。非 GenError 异常按 GEN_FAIL 兜底口径记 action:'author'
+        log.warn('runner', JSON.stringify({ msg: 'AI 调用终态失败', task: task ?? null, bookRoot: bookRoot ?? null, attempt, code: (e instanceof GenError && e.code) || 'GEN_FAIL', action: e instanceof GenError ? failureAction(e) : 'author', error: e instanceof Error ? e.message : String(e) }))
         // R37-7（三十七轮）：终态失败封套携带 attemptsUsage/model——recordUsageSafe 已按
         // 次入账 ai-calls，封套同步透出供下游（self-heal 失败分支）并入 done 事件用量
         return { ok: false, code: 'GEN_FAIL', error: e instanceof Error ? e.message : String(e), attemptsUsage, model: tier.model }

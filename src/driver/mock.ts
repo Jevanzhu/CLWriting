@@ -21,6 +21,7 @@ import type {
   DriverEvent,
   StudioDriver,
 } from './types.js'
+import { replayNeedsResetAnchor, REPLAY_RESET } from './replay-anchor.js'
 
 /** 每 session 一个事件总线（广播到所有消费者）。
  *  B-19（第六十轮补修，与 cc.ts 同构）：cancelled——SSE 断开侧经 cancelStream
@@ -135,7 +136,9 @@ export const mockDriver: StudioDriver = {
       const ch = channel(session.id)
       ch.consumers.add(consumer)
       // 首个消费者接管无消费者期间暂存的事件（emit 在 stream 前的时序）
+      // R-P1-1（与 cc.ts 同构）：pre cap 溢出挤出头部 init 锚时回放以 text 起头，需补清屏锚
       if (!ch.preTaken && ch.pre.length > 0) {
+        if (replayNeedsResetAnchor(ch.pre)) consumer.queue.push(REPLAY_RESET)
         consumer.queue.push(...ch.pre)
         ch.pre.length = 0
         ch.preTaken = true

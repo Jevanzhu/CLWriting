@@ -217,3 +217,65 @@ test('R55-D-2: config 未设 checks → 引擎默认口径不变（复读块仍�
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+// ── R-P3-3（评审修复批）：chapterBodies 全书数组改单遍流式逐章消费 ──────────
+// 原实现把全书正文累积成数组、样章/金句两环各遍历一次（大书峰值内存 = 全书正文）；
+// 现合并为单遍：每章读一次、章内同完成两路提取。本用例在定稿/草稿交错的多章书上
+// 钉等价面：两路候选的章归属与正文内容逐章对应（章间零串染）、草稿跳过计数、
+// 金句 top5 章号倒序口径不变。内存峰值断言（heapUsed 差）受 GC 采样噪声影响
+// 不可靠，不加——流式化证据 = chapterBodies 数组已不存在 + 本等价面 + R72-2 大书
+// 事件循环用例走合并后单遍路径全绿。
+const CH1_MARK = '甲字号'
+const CH3_MARK = '丙字号'
+const DRAFT_MARK = '乙字号'
+
+/** 单章正文：样章合格段（≥50 字，含章标记）+ 金句合格句（10-50 字，钩子+情绪，含章标记） */
+function markedBody(mark: string): string {
+  const para = '林远踏出山门，暮色四合，青石阶尽头的灯火次第亮起。'.repeat(2) + `${mark}火光未熄。`
+  const quote = `${mark}之下，他忽然感到一阵锥心之痛。`
+  return `${para}\n\n${quote}`
+}
+
+test('R-P3-3: 单遍流式——多章混合书上两路候选逐章对应、草稿跳过、章间零串染', async () => {
+  const root = mkdtempTracked(join(tmpdir(), 'learn-stream-'))
+  try {
+    mkdirSync(join(root, '写作', '正文'), { recursive: true })
+    mkdirSync(join(root, '项目'), { recursive: true })
+    writeFileSync(join(root, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 测试书\n', 'utf-8')
+    // 第 1 章（定稿·甲）、第 2 章（草稿·乙）、第 3 章（定稿·丙）
+    writeFileSync(join(root, '写作', '正文', '0001-定稿章.md'), `---\n章号: 1\n标题: 定稿章\n---\n${markedBody(CH1_MARK)}`, 'utf-8')
+    writeFileSync(join(root, '写作', '正文', '0002-草稿章.md'), `---\n章号: 2\n标题: 草稿章\n---\n${markedBody(DRAFT_MARK)}`, 'utf-8')
+    writeFileSync(join(root, '写作', '正文', '0003-定稿章.md'), `---\n章号: 3\n标题: 定稿章\n---\n${markedBody(CH3_MARK)}`, 'utf-8')
+    writeFileSync(
+      join(root, '项目', '文档清单.jsonl'),
+      [
+        JSON.stringify({ version: 1, type: 'header' }),
+        JSON.stringify({ id: 'd1', nodeType: 'document', path: '写作/正文/0001-定稿章.md', parentId: null, finalizedRevision: 'sha256:x' }),
+        JSON.stringify({ id: 'd2', nodeType: 'document', path: '写作/正文/0002-草稿章.md', parentId: null }),
+        JSON.stringify({ id: 'd3', nodeType: 'document', path: '写作/正文/0003-定稿章.md', parentId: null, finalizedRevision: 'sha256:y' }),
+      ].join('\n') + '\n',
+      'utf-8',
+    )
+    const r = await learnFromBook(root)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.skippedDrafts).toBe(1)
+    // 两路候选均只出自定稿章，且候选正文携带所属章标记（单遍流式无章间串染）
+    const markOf = (n: number): string => (n === 1 ? CH1_MARK : n === 3 ? CH3_MARK : DRAFT_MARK)
+    expect(r.sampleCount).toBeGreaterThanOrEqual(2)
+    for (const s of r.samples ?? []) {
+      expect([1, 3]).toContain(s.章号)
+      expect(s.正文).toContain(markOf(s.章号))
+    }
+    expect(r.quoteCount).toBe(2)
+    for (const q of r.quotes ?? []) {
+      expect([1, 3]).toContain(q.章号)
+      expect(q.正文).toContain(markOf(q.章号))
+    }
+    // A5 口径保持：金句按章号倒序（最新章在前）
+    expect((r.quotes ?? []).map((q) => q.章号)).toEqual([3, 1])
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+

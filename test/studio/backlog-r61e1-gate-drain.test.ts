@@ -45,7 +45,10 @@ const origOn = http.ServerResponse.prototype.on
 const origOnce = http.ServerResponse.prototype.once
 
 function countAppFinishHook(): void {
-  const stack = new Error().stack ?? ''
+  // win 宿主 Error.stack 文件帧路径是反斜杠（本机 node 26 实测），正斜杠子串恒
+  // 匹配不上 → 应用层钩子恒计 0。先归一为正斜杠再 includes；mac/linux 栈本就
+  // 正斜杠，replace 恒等，跨平台无害。
+  const stack = (new Error().stack ?? '').replace(/\\/g, '/')
   if (stack.includes('studio/server/index.ts') || stack.includes('studio/server/static.ts')) appFinishHooks++
 }
 

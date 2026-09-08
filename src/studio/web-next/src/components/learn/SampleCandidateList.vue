@@ -20,6 +20,14 @@ const filter = ref<'all' | 'a'>('all')
 const scoreStats = computed(() => scoreTierStats(learn.samples))
 
 // ── 样章按场景分组（筛选后、组内打分降序、组间均分降序）──
+// R-P2-6：v-for key 原拼整段正文（`出处\u0000正文`）——巨串逐项比较放大列表 diff 开销，
+// 且同组「同出处+同正文」两条候选同 key（Vue duplicate key，diff 边角）。改数据内在键
+// `场景\u0000出处\u0000组内全量下标`：下标在分组 computed 内对排序后的全量 items 编号
+// （非 visibleItems 可见切片下标——展开前后切片恒为前缀延展，键随条目走不错位；下标
+// 本身保证组内唯一，同出处多条也不撞）。勾选翻转只触发 allPicked 重算（sort 稳定、
+// 下标不变，键稳定不引发 DOM 重建）；重跑收割整体替换 learn.samples 时键整体重建，
+// 与旧键的全量重渲染等价。
+type KeyedSample = { s: SampleCandidateFE; key: string }
 const sampleGroups = computed(() => {
   const list = filter.value === 'a'
     ? learn.samples.filter((s) => s.打分 >= TIER_A)
@@ -33,12 +41,16 @@ const sampleGroups = computed(() => {
   return [...map.entries()]
     .map(([场景, items]) => {
       items.sort((x, y) => y.打分 - x.打分)
+      const keyed: KeyedSample[] = items.map((s, i) => ({
+        s,
+        key: `${场景}\u0000${s.出处}\u0000${i}`,
+      }))
       return {
         场景,
-        items,
-        count: items.length,
-        avg: Math.round(items.reduce((s, x) => s + x.打分, 0) / items.length),
-        allPicked: items.every((s) => learn.isSamplePicked(s)),
+        items: keyed,
+        count: keyed.length,
+        avg: Math.round(keyed.reduce((n, x) => n + x.s.打分, 0) / keyed.length),
+        allPicked: keyed.every((x) => learn.isSamplePicked(x.s)),
       }
     })
     .sort((a, b) => b.avg - a.avg)
@@ -50,7 +62,7 @@ const sampleGroups = computed(() => {
 // 仅渲染面截断——大书收割数千候选时 DOM 不失控）。
 const GROUP_RENDER_CAP = 50
 const expandedGroups = ref(new Set<string>())
-function visibleItems(g: { 场景: string; items: SampleCandidateFE[] }): SampleCandidateFE[] {
+function visibleItems(g: { 场景: string; items: KeyedSample[] }): KeyedSample[] {
   if (expandedGroups.value.has(g.场景) || g.items.length <= GROUP_RENDER_CAP) return g.items
   return g.items.slice(0, GROUP_RENDER_CAP)
 }
@@ -64,10 +76,10 @@ function selectAllTierA(): void {
     if (s.打分 >= TIER_A && !learn.isSamplePicked(s)) learn.toggleSample(s)
   }
 }
-function toggleGroup(items: SampleCandidateFE[]): void {
-  const allIn = items.every((s) => learn.isSamplePicked(s))
-  for (const s of items) {
-    if (allIn === learn.isSamplePicked(s)) learn.toggleSample(s)
+function toggleGroup(items: KeyedSample[]): void {
+  const allIn = items.every((x) => learn.isSamplePicked(x.s))
+  for (const x of items) {
+    if (allIn === learn.isSamplePicked(x.s)) learn.toggleSample(x.s)
   }
 }
 function clearAllPicks(): void {
@@ -107,23 +119,23 @@ function clearAllPicks(): void {
       </div>
       <div class="cand-list">
         <div
-          v-for="s in visibleItems(g)"
-          :key="`${s.出处}\u0000${s.正文}`"
+          v-for="it in visibleItems(g)"
+          :key="it.key"
           class="cand-card"
-          :class="[tierOf(s.打分), { picked: learn.isSamplePicked(s) }]"
+          :class="[tierOf(it.s.打分), { picked: learn.isSamplePicked(it.s) }]"
         >
           <div class="cand-head">
-            <span class="score-badge">{{ s.打分 }}</span>
-            <span class="src">{{ s.出处 }}</span>
+            <span class="score-badge">{{ it.s.打分 }}</span>
+            <span class="src">{{ it.s.出处 }}</span>
             <input
               type="checkbox"
-              :checked="learn.isSamplePicked(s)"
-              @change="learn.toggleSample(s)"
+              :checked="learn.isSamplePicked(it.s)"
+              @change="learn.toggleSample(it.s)"
               @click.stop
             />
           </div>
-          <p class="cand-body">{{ s.正文 }}</p>
-          <p v-if="s.技法指令" class="cand-tech">技法 · {{ s.技法指令 }}</p>
+          <p class="cand-body">{{ it.s.正文 }}</p>
+          <p v-if="it.s.技法指令" class="cand-tech">技法 · {{ it.s.技法指令 }}</p>
         </div>
         <!-- R47-16：分组渲染上限的展开钮（勾选/全选/统计仍面向全量 g.items） -->
         <button

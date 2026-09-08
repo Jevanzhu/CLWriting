@@ -163,17 +163,28 @@ export async function learnFromBook(bookRoot: string): Promise<LearnResult> {
   const repeatThreshold = cfg.ok ? cfg.config.checks?.repeat_threshold : undefined
   const repeatCharsThreshold = cfg.ok ? cfg.config.checks?.repeat_chars_threshold : undefined
 
-  // 3. 读正文。H-1（二轮复审）：只收定稿正文（模块契约「从定稿正文产候选」）——
-  // 未定稿草稿/在写章不进候选池（流水线刚写出的段会被勾选入库污染文风基准与注入
-  // 素材）。判定与导出 V-P2-2 同一函数（manifest.finalizedPathSet，曾定稿=过）；
+  // 3. 流式逐章消费（R-P3-3）。H-1（二轮复审）：只收定稿正文（模块契约「从定稿正文产
+  // 候选」）——未定稿草稿/在写章不进候选池（流水线刚写出的段会被勾选入库污染文风基准
+  // 与注入素材）。判定与导出 V-P2-2 同一函数（manifest.finalizedPathSet，曾定稿=过）；
   // 旧书无清单 → null 无法判定，保持全量（与导出降级一致）
+  // R-P3-3（评审修复批）：chapterBodies 原把全书正文累积成数组、样章/金句两环各线性
+  // 遍历一次——大书收割峰值内存 = 全书正文同驻。两消费环均按章自足（产出互不依赖、
+  // 候选数组只增小对象），合并为单遍逐章处理：每章读一次（IO 不变），章内完成样章打分
+  // 与金句提取后正文即可回收，峰值从全书降为单章。产出等价：两候选数组的 push 序
+  // （章节升序 × 章内原序）与合并前逐一相同，后续排序/截断口径不变；错误语义不变
+  //（readFile 失败/草稿跳过口径同旧读环）。R72-2 的「每章让出事件循环」契约保持。
   const finalized = finalizedPathSet(bookRoot)
   // R42-6（四十二轮）：定稿集消费侧建折叠键集（win32 大小写 + NFC，overview.ts R41-2
   // 同款范式——set 构建一次、比较双侧 docJoinKey）——外部 case-only 改名 / NFD 文件名
   // 后精确串失配，定稿章被误跳「草稿」流出候选池（H-1 红线破口）
   const finalizedKeys = finalized === null ? null : new Set([...finalized].map(docJoinKey))
   let skippedDrafts = 0
-  const chapterBodies: Array<{ 章号: number; 标题: string; body: string }> = []
+  // R-P3-3：成功读入正文的章数（替代旧 chapterBodies.length 的空判据）
+  let readCount = 0
+  // 4. 提取样章候选（按段落分块 + #10 打分 + 低分过滤）
+  const sampleCandidates: SampleCandidate[] = []
+  // 5. 提取金句候选（短句 + 钩子/情绪/对比特征）
+  const quoteCandidates: QuoteCandidate[] = []
   for (const ch of chapters) {
     await yieldToEventLoop() // R72-2：每章让出事件循环，长书收割不再阻塞同进程其他会话
     const path = ch._path
@@ -184,24 +195,10 @@ export async function learnFromBook(bookRoot: string): Promise<LearnResult> {
     }
     const r = readFile(path)
     if (!r.ok) continue
-    chapterBodies.push({ 章号: ch.章号, 标题: ch.标题, body: r.body.trim() })
-  }
-  if (chapterBodies.length === 0) {
-    return {
-      ok: false,
-      sampleCount: 0,
-      quoteCount: 0,
-      candidateDir: '',
-      skippedDrafts,
-      error: '没有定稿正文可收割。',
-    }
-  }
-
-  // 4. 提取样章候选（按段落分块 + #10 打分 + 低分过滤）
-  const sampleCandidates: SampleCandidate[] = []
-  for (const ch of chapterBodies) {
-    await yieldToEventLoop() // R72-2：打分循环同为章级热点段
-    const blocks = ch.body.split(/\n\n+/).filter((b) => {
+    readCount++
+    const body = r.body.trim()
+    // 样章候选（同章内完成，body 出章即无引用——单遍流式的峰值单位）
+    const blocks = body.split(/\n\n+/).filter((b) => {
       const len = b.trim().length
       return len >= 50 && len <= 500
     })
@@ -217,18 +214,8 @@ export async function learnFromBook(bookRoot: string): Promise<LearnResult> {
         打分: score,
       })
     }
-  }
-
-  // 按打分降序取 top 10（场景不再分桶配额）
-  sampleCandidates.sort((a, b) => b.打分 - a.打分)
-  const topSamples: SampleCandidate[] = sampleCandidates.slice(0, 10)
-
-  // 5. 提取金句候选（短句 + 钩子/情绪/对比特征）
-  const quoteCandidates: QuoteCandidate[] = []
-  for (const ch of chapterBodies) {
-    await yieldToEventLoop() // R72-2
-    // 统一分句口径（原先少 \n，可能漏检跨行——P2-BE-6）
-    const sentences = splitSentences(ch.body).filter((s) => {
+    // 金句候选：统一分句口径（原先少 \n，可能漏检跨行——P2-BE-6）
+    const sentences = splitSentences(body).filter((s) => {
       return s.length >= 10 && s.length <= 50 && !s.startsWith('#')
     })
     for (const s of sentences) {
@@ -245,6 +232,21 @@ export async function learnFromBook(bookRoot: string): Promise<LearnResult> {
       }
     }
   }
+  if (readCount === 0) {
+    return {
+      ok: false,
+      sampleCount: 0,
+      quoteCount: 0,
+      candidateDir: '',
+      skippedDrafts,
+      error: '没有定稿正文可收割。',
+    }
+  }
+
+  // 按打分降序取 top 10（场景不再分桶配额）
+  sampleCandidates.sort((a, b) => b.打分 - a.打分)
+  const topSamples: SampleCandidate[] = sampleCandidates.slice(0, 10)
+
   // 取 top 5（场景不再分桶配额）
   // A5（五十九轮）：候选按章号倒序再取 top5——章节按章号升序遍历，直接 slice 取的是
   // 章节序最前 5 条，金句候选系统性偏旧；倒序取最新章节的候选（同章内保遍历序，稳定排序）

@@ -158,15 +158,16 @@ export function selectBranch(events: ChatEvent[], branchId?: string): ChatEvent[
     if (p !== undefined && !keep.has(p)) queue.push(p)
   }
   // 顶替槽（Q-6 抽共享）：selectBranch 与 selectBranchTo 同口径过滤
-  const slots = supersededSlots(tree)
+  // R-P2-4（评审修复批）：区间判定改二分助手——原逐事件 slots.some 线性扫描为
+  // O(events×slots) 平方级，长篇事件量数万级下保活判定成为热点。
+  const isSuperseded = supersededMatcher(supersededSlots(tree))
   // 线性兜底：槽外的「无分支」消息（普通对话消息/旧数据缺 parentSeq）都保留——
   // G1：分支后的普通续聊（seq > rootSeq、无 branchId）也在线性时间线上，
   // 只保 root 之前会把续聊丢出视图（刷新即消失），故不再按 seq 截断；
   // 其他变体（带 branchId）仍被组过滤排除，切换语义不受影响。
   for (const ev of seq) {
     if (ev.data['branchId'] !== undefined) continue
-    const superseded = slots.some(([p, root]) => ev.seq > p && ev.seq < root)
-    if (!superseded) keep.add(ev.seq)
+    if (!isSuperseded(ev.seq)) keep.add(ev.seq)
   }
   return seq.filter((e) => keep.has(e.seq))
 }
@@ -187,6 +188,46 @@ function supersededSlots(tree: BranchTree): Array<[number, number]> {
 }
 
 /**
+ * R-P2-4（评审修复批）：superseded 区间判定助手——把「逐事件 slots.some 线性扫描」
+ * （O(events×slots) 平方级保活判定）换成排序一次 + 逐 seq 二分。
+ * 预处理（每次调用各一次）：slots 按 p 升序排序 O(s log s) + root 前缀最大值 O(s)；
+ * 查询：每个 seq 二分定位「最后一个 p < seq 的区间」再比对前缀最大 root，O(log s)。
+ * 总复杂度 O(s log s + e log s)。
+ * 语义字节级保持：判定条件仍是严格不等号 seq > p && seq < root——seq==p、seq==root
+ * 均不裁。嵌套/重叠区间正确性：候选区间恰为「p < seq 的全部前缀区间」（p 升序保证），
+ * 其最大 root > seq ⟺ 存在区间满足 seq > p && seq < root——前缀最大值把「逐个比对
+ * 嵌套区间」收敛为单次比对，不会漏判被更小 p 的大槽覆盖的 seq。
+ */
+function supersededMatcher(slots: Array<[number, number]>): (seq: number) => boolean {
+  const sorted = [...slots].sort((a, b) => a[0] - b[0])
+  const s = sorted.length
+  // prefixMaxRoot[i] = 前 i+1 个区间（按 p 升序）中 root 的最大值——覆盖嵌套区间
+  const prefixMaxRoot = new Array<number>(s)
+  let max = -Infinity
+  for (let i = 0; i < s; i++) {
+    const root = sorted[i]![1]
+    if (root > max) max = root
+    prefixMaxRoot[i] = max
+  }
+  return (seq: number): boolean => {
+    // 二分找最后一个 p < seq 的区间下标（-1 = 无候选 → 不落任何开区间）
+    let lo = 0
+    let hi = s - 1
+    let idx = -1
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1
+      if (sorted[mid]![0] < seq) {
+        idx = mid
+        lo = mid + 1
+      } else {
+        hi = mid - 1
+      }
+    }
+    return idx >= 0 && prefixMaxRoot[idx]! > seq
+  }
+}
+
+/**
  * 恢复到指定 seq 的祖先路径（重新生成入口用）：该节点 + parentSeq 链 + 线性兜底。
  * 用于「重新生成 parentSeq 处的回复」时重建截止该 user 的消息序列。
  */
@@ -202,13 +243,13 @@ export function selectBranchTo(events: ChatEvent[], targetSeq: number): ChatEven
   // Q-6：同样过顶替槽——被 regenerate 顶替的原答案不得混入重生成上下文（与
   // selectBranch / 进程内「截断到 user 再答」同口径）。
   // B2（2026-08-24）：排序结果复用（原两次 sortEvents 两次拷贝）
-  const slots = supersededSlots(tree)
+  // R-P2-4（评审修复批）：同 selectBranch——slots.some 线性扫描换二分助手，语义不变。
+  const isSuperseded = supersededMatcher(supersededSlots(tree))
   const seq = sortEvents(events)
   for (const ev of seq) {
     if (ev.seq >= targetSeq) break
     if (ev.data['branchId'] !== undefined) continue
-    const superseded = slots.some(([p, root]) => ev.seq > p && ev.seq < root)
-    if (!superseded) keep.add(ev.seq)
+    if (!isSuperseded(ev.seq)) keep.add(ev.seq)
   }
   return seq.filter((e) => keep.has(e.seq) && e.seq <= targetSeq)
 }

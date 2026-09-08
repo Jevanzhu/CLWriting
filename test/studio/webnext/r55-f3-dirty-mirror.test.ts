@@ -112,7 +112,8 @@ describe('R55-F-3 ① 写侧：节流镜像', () => {
     await openDoc(doc, 'd1', '盘上')
     const dbg = vi.spyOn(console, 'debug').mockImplementation(() => {})
     doc.patch('d1', 'x'.repeat(2_100_000))
-    await vi.advanceTimersByTimeAsync(2_000)
+    // R-P2-2：>1M 大档节流间隔拉长到 8s——超限跳过语义不变，只随分档推迟到点
+    await vi.advanceTimersByTimeAsync(8_000)
     expect(localStorage.getItem(KEY('书A', 'd1'))).toBeNull()
     expect(dbg).toHaveBeenCalled() // debug 留痕
     dbg.mockRestore()

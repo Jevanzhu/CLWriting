@@ -50,6 +50,14 @@ const {
 const modalRef = ref<HTMLElement | null>(null)
 useFocusTrap(modalRef)
 
+// R-P3-4（评审修复批）：大书架渲染上限——浮层一次性全量挂载所有书卡，数百书拖慢挂载
+// （J5 分帧只拆遮罩/面板两帧，不防千书级面板本身超帧预算）。对齐 CommandPalette
+// RENDER_CAP=100 先例：数据面不动（useShelf groups 的搜索/排序/批量全选/头部总数仍
+// 面向全量），只裁渲染面——每组渲染前 100 张书卡 + 尾部「已省略 N 部」提示行（裁剪
+// 与提示行在 ShelfGrid 内实现，经 render-cap 传入；整页书架 Shelf.vue 不传即维持
+// 全量）。搜索过滤后命中 >100 同样截断且提示行如实计数，缩小搜索词即可见全部命中。
+const SHELF_RENDER_CAP = 100
+
 // J5 win 同步拍（2026-09-04）：书架面板整树挂载 ~14ms，144Hz 帧预算仅 6.9ms——与
 // 遮罩同帧挂载必然把遮罩拖出单帧预算、落后窗控 1-2 帧（作者感知「书架延迟」；进程
 // 冷缓存时更糟）。遮罩独占轻帧先上屏（与窗控压暗同帧扫描输出），书卡面板下一帧再
@@ -213,6 +221,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
             />
             <ShelfGrid
               :groups="groups"
+              :render-cap="SHELF_RENDER_CAP"
               :view-mode="viewMode"
               :batch-mode="batchMode"
               :selected="selected"

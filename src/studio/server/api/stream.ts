@@ -188,6 +188,10 @@ async function runWriterSpawn(opts: {
       },
       onReset: () => emit({ type: 'text_reset' }),
       onText: (delta) => emit({ type: 'text', text: delta, role: opts.role }),
+      // R-P3-2 移交项（己路由）：spawn 链此前未接 onRetry，重试对前端不可见
+      //（self-heal/chat/finish 均已接）——补同款 warning 事件（对齐 self-heal.ts:876 文案与脱敏口径）
+      onRetry: (attempt, error) =>
+        emit({ type: 'warning', message: `AI 响应异常（${redactSecret(error)}），第 ${attempt + 1} 次重试中…` }),
     })
 
     if (out.ok) {

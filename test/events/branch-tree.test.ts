@@ -10,6 +10,7 @@ import {
   selectBranch,
   selectBranchTo,
 } from '../../src/events/branch-tree.js'
+import type { BranchTree } from '../../src/events/branch-tree.js'
 import { assistantMessageEvent, userMessageEvent, toolResultEvent } from '../../src/events/chat-bridge.js'
 import type { ChatEvent } from '../../src/events/types.js'
 
@@ -235,5 +236,184 @@ describe('R26-102: 无 parentSeq 分支组的 isDefault（对齐 defaultBranchId
     expect(b1.isDefault).toBe(false) // 全局最新组是有 parent 的 g1，无 parent 组不抢默认位
     expect(g1.isDefault).toBe(true)
     expect(branches.find((b) => b.isDefault)?.branchId).toBe(defaultBranchId(tree))
+  })
+})
+
+// ── R-P2-4（评审修复批）：superseded 区间过滤二分化（原逐事件 slots.some 平方级扫描）──
+// 语义锁：判定条件严格不等号 seq > p && seq < root 不变——seq==p / seq==root 均不裁；
+// 空 slots / 相邻 / 嵌套区间行为不变；随机事件流与修复前朴素线性实现全量对拍。
+// 注：slot root 恒为组首节点（自带 branchId、走组保留路径，不进 branchless 循环），
+// 「branchless 事件 seq==root」在公开 API 面上结构性不可达——root 侧边界由对拍基准
+// （同一严格不等号谓词）的一致性兜底，嵌套用例另以 root-1 / root+1 邻位钉住。
+describe('R-P2-4: superseded 区间二分判定（语义等价）', () => {
+  it('空 slots 全量保留；seq==p 不裁、槽内严格裁剪', () => {
+    // 空 slots：无任何分支元数据 → 无顶替槽，全量原样
+    const linear = seqEvents([userMessageEvent('hi'), assistantMessageEvent('ok')])
+    expect(selectBranch(linear).map((e) => e.seq)).toEqual([1, 2])
+    expect(selectBranchTo(linear, 2).map((e) => e.seq)).toEqual([1, 2])
+    // 顶替槽 (1,3)：seq1（== p，触发 user 本身）不裁；seq2（p<2<3，被顶替原答案）裁
+    const evs = seqEvents([
+      userMessageEvent('q'), // 1 == p
+      assistantMessageEvent('旧答案'), // 2 ∈ (1,3)
+      assistantMessageEvent('b1', undefined, undefined, undefined, { parentSeq: 1, branchId: 'b1' }), // 3 = root
+      assistantMessageEvent('b2', undefined, undefined, undefined, { parentSeq: 1, branchId: 'b2' }), // 4 最新组
+    ])
+    expect(selectBranch(evs).map((e) => e.seq)).toEqual([1, 4])
+    expect(selectBranchTo(evs, 4).map((e) => e.seq)).toEqual([1, 4])
+  })
+
+  it('相邻区间：前槽 root == 后槽 p，两槽各裁各的、槽外保留', () => {
+    const evs = seqEvents([
+      userMessageEvent('q'), // 1 = 槽1 (1,3) 的 p
+      assistantMessageEvent('旧0'), // 2 ∈ 槽1
+      assistantMessageEvent('g1', undefined, undefined, undefined, { parentSeq: 1, branchId: 'g1' }), // 3 槽1 root == 槽2 p
+      assistantMessageEvent('旧1'), // 4 ∈ 槽2 (3,6)
+      assistantMessageEvent('旧2'), // 5 ∈ 槽2
+      assistantMessageEvent('g2', undefined, undefined, undefined, { parentSeq: 3, branchId: 'g2' }), // 6 槽2 root（最新组）
+      assistantMessageEvent('续聊'), // 7 槽外
+    ])
+    // 2 落槽1、4/5 落槽2 被裁；1（== 槽1 p）与槽外 7 保留（3 为槽2 p、组节点走组保留）
+    expect(selectBranch(evs).map((e) => e.seq)).toEqual([1, 3, 6, 7])
+    expect(selectBranchTo(evs, 7).map((e) => e.seq)).toEqual([1, 7])
+  })
+
+  it('嵌套区间：大槽 (1,10) 包小槽 (3,5)——小槽右侧 seq 仅被大槽覆盖时不漏判', () => {
+    const evs = seqEvents([
+      userMessageEvent('q'), // 1 = 大槽 p
+      assistantMessageEvent('x2'), // 2 ∈ (1,10)
+      assistantMessageEvent('x3'), // 3 ∈ (1,10)（且为小槽 p）
+      assistantMessageEvent('x4'), // 4 ∈ (3,5) ∩ (1,10)
+      assistantMessageEvent('gB', undefined, undefined, undefined, { parentSeq: 3, branchId: 'gB' }), // 5 小槽 root
+      assistantMessageEvent('x6'), // 6 ∈ (1,10)、∉ (3,5)——嵌套正确性关键位（p 更大侧）
+      assistantMessageEvent('x7'), // 7 同上
+      assistantMessageEvent('x8'), // 8 同上
+      assistantMessageEvent('x9'), // 9 ∈ (1,10)（大槽 root-1 邻位）
+      assistantMessageEvent('gA', undefined, undefined, undefined, { parentSeq: 1, branchId: 'gA' }), // 10 大槽 root（最新组）
+      assistantMessageEvent('续1'), // 11 大槽 root+1 邻位、槽外
+      assistantMessageEvent('续2'), // 12 槽外
+    ])
+    // 2/3/4/6/7/8/9 全部落大槽被裁——6-9 的「p < seq 最大者」是小槽 (3,5)，若二分只查
+    // 单槽将漏判（6-9 会被错误保留）；前缀最大 root 保证大槽生效。11/12 槽外保留。
+    expect(selectBranch(evs).map((e) => e.seq)).toEqual([1, 10, 11, 12])
+    expect(selectBranchTo(evs, 12).map((e) => e.seq)).toEqual([1, 11, 12])
+    // 小槽路径：恢复到 gB root(5)——祖先链 3 在大槽内但走组保留，4 落小槽被裁
+    expect(selectBranchTo(evs, 5).map((e) => e.seq)).toEqual([1, 3, 5])
+  })
+
+  // 对拍基准：修复前的朴素线性实现原样复刻（naive slots.some 全量扫描），作为语义基准
+  function naiveSupersededSlots(tree: BranchTree): Array<[number, number]> {
+    const firstRootByParent = new Map<number, number>()
+    for (const seqs of tree.groups.values()) {
+      const root = seqs[0]!
+      const p = tree.parents.get(root)
+      if (p === undefined) continue
+      const cur = firstRootByParent.get(p)
+      if (cur === undefined || root < cur) firstRootByParent.set(p, root)
+    }
+    return [...firstRootByParent]
+  }
+  function naiveSelectBranch(events: ChatEvent[], branchId?: string): ChatEvent[] {
+    const tree = buildBranchTree(events)
+    const target = branchId ?? defaultBranchId(tree)
+    const seq = [...events].sort((a, b) => a.seq - b.seq)
+    if (target === null) return seq
+    const group = tree.groups.get(target)
+    if (!group) return seq
+    const keep = new Set<number>()
+    const queue = [...group]
+    while (queue.length > 0) {
+      const seqNo = queue.pop()!
+      if (keep.has(seqNo)) continue
+      keep.add(seqNo)
+      const p = tree.parents.get(seqNo)
+      if (p !== undefined && !keep.has(p)) queue.push(p)
+    }
+    const slots = naiveSupersededSlots(tree)
+    for (const ev of seq) {
+      if (ev.data['branchId'] !== undefined) continue
+      const superseded = slots.some(([p, root]) => ev.seq > p && ev.seq < root)
+      if (!superseded) keep.add(ev.seq)
+    }
+    return seq.filter((e) => keep.has(e.seq))
+  }
+  function naiveSelectBranchTo(events: ChatEvent[], targetSeq: number): ChatEvent[] {
+    const tree = buildBranchTree(events)
+    const keep = new Set<number>()
+    let cur: number | undefined = targetSeq
+    while (cur !== undefined && !keep.has(cur)) {
+      keep.add(cur)
+      cur = tree.parents.get(cur)
+    }
+    const slots = naiveSupersededSlots(tree)
+    const seq = [...events].sort((a, b) => a.seq - b.seq)
+    for (const ev of seq) {
+      if (ev.seq >= targetSeq) break
+      if (ev.data['branchId'] !== undefined) continue
+      const superseded = slots.some(([p, root]) => ev.seq > p && ev.seq < root)
+      if (!superseded) keep.add(ev.seq)
+    }
+    return seq.filter((e) => keep.has(e.seq) && e.seq <= targetSeq)
+  }
+
+  /** mulberry32 固定种子伪随机——对拍可复现（同种子同序列） */
+  function mulberry32(seed: number): () => number {
+    let a = seed >>> 0
+    return () => {
+      a = (a + 0x6d2b79f5) | 0
+      let t = Math.imul(a ^ (a >>> 15), 1 | a)
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+    }
+  }
+
+  /** 随机事件流：线性 user/assistant/tool 与分支变体（parentSeq 随机回指、组池 4 个）混布 */
+  function randomEvents(rng: () => number, n: number): ChatEvent[] {
+    const evs: ReturnType<typeof userMessageEvent>[] = []
+    const groupPool = ['g1', 'g2', 'g3', 'g4']
+    for (let i = 1; i <= n; i++) {
+      let branch: { parentSeq?: number; branchId?: string } | undefined
+      const roll = rng()
+      if (i > 1 && roll < 0.55) {
+        branch = {
+          parentSeq: 1 + Math.floor(rng() * (i - 1)),
+          branchId: groupPool[Math.floor(rng() * groupPool.length)]!,
+        }
+      } else if (i > 1 && roll < 0.62) {
+        branch = { branchId: groupPool[Math.floor(rng() * groupPool.length)]! } // 无 parent 组（不产槽）
+      }
+      if (roll < 0.4) evs.push(userMessageEvent(`u${i}`, undefined, branch))
+      else if (roll < 0.85) evs.push(assistantMessageEvent(`a${i}`, undefined, undefined, undefined, branch))
+      else evs.push(toolResultEvent(`c${i}`, `r${i}`, undefined, branch))
+    }
+    return seqEvents(evs)
+  }
+
+  it('随机事件流对拍：与修复前朴素线性实现产出逐一相等（24 种子 × 乱序/有序 × 全分支/全目标）', () => {
+    let branchlessCut = 0 // 对拍非空转计数：确有 branchless 事件被槽裁剪
+    for (let seed = 1; seed <= 24; seed++) {
+      const rng = mulberry32(seed * 7919)
+      const evs = randomEvents(rng, 12 + Math.floor(rng() * 48)) // 12..59 事件
+      const shuffled = [...evs]
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(rng() * (i + 1))
+        ;[shuffled[i], shuffled[j]] = [shuffled[j]!, shuffled[i]!]
+      }
+      const groupIds = [...buildBranchTree(evs).groups.keys()]
+      for (const input of [evs, shuffled]) {
+        expect(selectBranch(input).map((e) => e.seq)).toEqual(naiveSelectBranch(input).map((e) => e.seq))
+        for (const id of groupIds) {
+          expect(selectBranch(input, id).map((e) => e.seq)).toEqual(naiveSelectBranch(input, id).map((e) => e.seq))
+        }
+        for (let t = 1; t <= evs.length; t++) {
+          expect(selectBranchTo(input, t).map((e) => e.seq)).toEqual(naiveSelectBranchTo(input, t).map((e) => e.seq))
+        }
+      }
+      const kept = new Set(naiveSelectBranch(evs).map((e) => e.seq))
+      for (const ev of evs) {
+        if (ev.data['branchId'] !== undefined) continue
+        if (!kept.has(ev.seq)) branchlessCut++
+      }
+    }
+    expect(branchlessCut).toBeGreaterThan(0) // 随机流确有顶替槽裁剪发生，对拍非空转
   })
 })

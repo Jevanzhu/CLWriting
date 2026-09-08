@@ -26,13 +26,16 @@ import type { DriverEvent } from '../../src/driver/types.js'
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 /** 推一个接管 pre 的消费者（拿走首事件后断开）——置 preTaken=true，使后续迟到
- *  消费者走 execRing 回放分支（模拟「首个消费者早已来过又走」的重连形态） */
+ *  消费者走 execRing 回放分支（模拟「首个消费者早已来过又走」的重连形态）
+ *  R-P1-1：pre 种子是 text 且无前导锚 → 接管序列 = 合成 text_reset + 暂存事件 */
 async function takePreThenLeave(session: Awaited<ReturnType<typeof ccDriver.startSession>>): Promise<void> {
   ccDriver.emit?.(session, { type: 'text', text: 'pre-seed' }) // 无消费者：进 pre（execActive=false 不入 ring）
   const first = ccDriver.stream(session) as AsyncGenerator<DriverEvent>
   const r = await first.next() // 启动生成器：注册 consumer + 接管 pre（preTaken=true）
   expect(r.done).toBe(false)
-  expect((r.value as { text: string }).text).toBe('pre-seed')
+  expect(r.value.type).toBe('text_reset') // R-P1-1：回放前导清屏锚
+  const r2 = await first.next()
+  expect((r2.value as { text: string }).text).toBe('pre-seed')
   ccDriver.cancelStream?.(first)
   await first.return(undefined) // finally 摘除 consumer（消费者清零，后续 emit 不进 pre 只进 ring/丢弃）
 }
@@ -49,6 +52,9 @@ describe('R50-B-3 b) E1b execRing 迟到回放（cc 专属）', () => {
       }
       // ring 曾装 chat_start + ev-0..ev-249（251 条）→ cap 200 → 恰好 [ev-50..ev-249]
       const late = ccDriver.stream(session) as AsyncGenerator<DriverEvent>
+      // R-P1-1：回放（裁剪后）以 text 起头且无锚 → 前导合成 text_reset
+      const head = await late.next()
+      expect(head.value.type).toBe('text_reset')
       const got: string[] = []
       for (let i = 0; i < MAX_EXEC_RING; i++) {
         const r = await late.next()
@@ -79,13 +85,15 @@ describe('R50-B-3 b) E1b execRing 迟到回放（cc 专属）', () => {
       for (const t of ['b1', 'b2', 'b3']) ccDriver.emit?.(session, { type: 'text', text: t })
       const late = ccDriver.stream(session) as AsyncGenerator<DriverEvent>
       const got: DriverEvent[] = []
-      for (let i = 0; i < 4; i++) {
+      for (let i = 0; i < 5; i++) {
         const r = await late.next()
         expect(r.done).toBe(false)
         got.push(r.value)
       }
+      // R-P1-1：回放以 text 起头（chat_start 非 workbench 清屏锚——chat_* 不进
+      // workbench.dispatch）→ 前导合成 text_reset，其后只见第二轮
       const types = got.map((e) => e.type)
-      expect(types).toEqual(['chat_start', 'text', 'text', 'text']) // 只见第二轮
+      expect(types).toEqual(['text_reset', 'chat_start', 'text', 'text', 'text'])
       expect(got.filter((e) => e.type === 'text').map((e) => (e as { text: string }).text)).toEqual(['b1', 'b2', 'b3'])
       expect(types).not.toContain('chat_done') // 第一轮终态已随 ring 清空丢弃
       await late.return(undefined)

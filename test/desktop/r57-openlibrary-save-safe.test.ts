@@ -109,6 +109,10 @@ vi.mock('electron', () => {
     isMaximized(): boolean {
       return false
     }
+    // win32 专属：main.ts createSecureWindow 在 win 宿主必调（linux CI 恒不走该
+    // 分支，假件此前缺它 → win 上 bootstrap 在 mainWindow 赋值前炸掉，runner 兜底
+    // app.quit() 迟落用例窗口打脏 quitCalls 计数）。补齐使 win 宿主与 CI 同态。
+    setMenuBarVisibility(_visible: boolean): void {}
     getBounds(): Record<string, number> {
       return this.opts as Record<string, number>
     }
@@ -261,6 +265,20 @@ function openLibraryMenuItem(): { click: () => void } {
   return item as unknown as { click: () => void }
 }
 
+/** 有界条件轮询：每拍 setImmediate + 50ms 宏任务交替，直到 cond 成立；超时抛错。
+ *  取代固定 2×setImmediate 冲刷——win 宿主（G: 盘 + 任务队列重）下点击异步链里
+ *  落库 rename 的 EPERM 入 3×50ms 瞬态退避（linux 为 EISDIR 即抛，无此拍），
+ *  固定冲刷在链走到断言锚点前就放行。超时到点条件仍未达成依旧红，语义不弱化。 */
+async function waitForCond(desc: string, cond: () => boolean, timeoutMs = 2000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    if (cond()) return
+    if (Date.now() >= deadline) throw new Error(`条件等待超时（${timeoutMs}ms）：${desc}`)
+    await new Promise((r) => setImmediate(r))
+    await new Promise((r) => setTimeout(r, 50))
+  }
+}
+
 describe('R57-A-2: 菜单链「打开书库目录…」落库失败不再静默', () => {
   it('落库成功路径不回归：选库 → 落库 → 触发重启，无原生错误框', async () => {
     const libB = mkLibrary()
@@ -268,8 +286,14 @@ describe('R57-A-2: 菜单链「打开书库目录…」落库失败不再静默'
     const box0 = M.errorBox.length
     const quit0 = M.quitCalls
     openLibraryMenuItem().click()
-    await new Promise((r) => setImmediate(r))
-    await new Promise((r) => setImmediate(r))
+    // 正向完成信号 = app.quit（落库成功才走到 relaunch→quit；失败即中止切换、
+    // quit 不发生 → 下方等待超时仍红，断言目标不变）
+    await waitForCond('成功链应触发一次 quit', () => M.quitCalls === quit0 + 1)
+    // 负断言（零错误框）无法正向等「不出现」：以 quit 为链完成信号后，再冲若干轮
+    // 宏任务给「本不该有的错误框」充分暴露窗。取舍：错误框只可能产生于 quit 之前的
+    // 落库步（失败即中止、不 quit），quit 已达成即落库已成功，迟达错误框无产生路径，
+    // 冲刷仅作纵深防御——极慢宿主上冲刷轮数是下限保证而非全量证明。
+    for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r))
     expect(M.errorBox.length).toBe(box0) // 成功路径零错误框
     // R51-A-1：relaunch() 只记意图 + app.quit()（武装推迟到 before-quit 不可回头点，
     // 本用例不驱动 before-quit）——app.quit 即「已触发切换」的可观测面
@@ -292,8 +316,9 @@ describe('R57-A-2: 菜单链「打开书库目录…」落库失败不再静默'
       const quit0 = M.quitCalls
       const err0 = M.logErrors.length
       openLibraryMenuItem().click()
-      await new Promise((r) => setImmediate(r))
-      await new Promise((r) => setImmediate(r))
+      // win 上 rename 对目录抛 EPERM 入 3×50ms 瞬态退避（linux 为 EISDIR 即抛）——
+      // 条件等错误框出现（win 专属退避拍 + 慢队列，2s 上限到点未现仍红）
+      await waitForCond('落库失败应弹一次性原生错误框', () => M.errorBox.length > box0, 2000)
       // 修复锚点：一次性原生错误框（修复前仅调用点 .catch 记日志，errorBox 零增量）
       expect(M.errorBox.length).toBe(box0 + 1)
       expect(M.errorBox[box0]![0]).toContain('打开书库目录失败')

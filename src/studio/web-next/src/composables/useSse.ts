@@ -223,15 +223,14 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
         if (failClosed) void probeSseBusy() // R73-67：fail-closed（429/403/404 族）→ 探测区分 429 出指引
       }
     }
-    // 批2-C（2026-09-07 全量代码重审 批2-C）维持登记：重连后 text 事件重复拼接——
-    // cc driver 的 E1b 迟到回放（src/driver/cc.ts stream()：活跃执行期间最近
-    // MAX_EXEC_RING=200 个协议单元对新消费者整段重放）会把断连前已送达的 text 增量
-    // 原样再发一遍，workbench.dispatch 盲追加（textOut += text）即重复拼接。前端无
-    // 凭据去重：text 事件无 id/seq 字段（src/driver/types.ts DriverEvent），SSE 帧无
-    // `id:` 行（stream.ts 仅 `data: <json>`，Last-Event-ID 机制不可用），重连 sync 快照
-    // 只含 running/chatRunning（无内容水位）；内容前缀对拍对正文重复子串不安全。修复
-    // 需服务端契约变更（事件级 seq 或回放锚点/text_reset），前端面维持登记不修——
-    // 现状靠 F4 水印（sync running=true 置 textIncomplete 阻存残文）兜底。
+    // R-P1-1（2026-09-08 全量代码重审 批1）：重连后 text 事件重复拼接已修——修在
+    // driver 回放侧（src/driver/cc.ts / mock.ts stream()）：E1b 迟到回放序列首个 text
+    // 增量之前无清屏锚（pre/execRing cap 溢出把自然锚 role_spawn/text_reset 挤出时）
+    // 先补发合成 text_reset，workbench.dispatch 清空 textOut 后重放文本从空重建，不再
+    // 与断连前已收内容重复（锚检测见 src/driver/replay-anchor.ts）。原批2-C 登记的四条
+    // 「前端无凭据去重」约束（text 无 id/seq、SSE 帧无 id: 行、sync 无水位、前缀对拍
+    // 不安全）即修复落服务端契约面的依据；前端零改动，F4 水印（sync running=true 置
+    // textIncomplete 阻存残文）语义不变，仍兜「锚插入前已丢失的增量」残缺面。
     es.onmessage = (e: MessageEvent) => {
       try {
         const data = JSON.parse(e.data)

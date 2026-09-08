@@ -71,38 +71,75 @@ export const useDocStore = defineStore('doc', () => {
   // 一致或时效失配/旧格式镜像只清不复活；③清理——保存成功/转
   // clean/文档删除/切书清对应镜像。所有 localStorage 访问 try/catch 降级（node 测试
   // 环境/隐私模式/quota 爆均退化为无镜像，autosave 与 .版本 快照仍是主兜底）。
+  // R-P2-1（评审修复批）：清理面补全——文档改名（旧身份键直接丢弃，useChapterTree
+  // 的 onRenameCommit/onSaveMeta 接线）/ doOpen 404（无主孤儿，本文件 doOpen 接线）/
+  // 删书（书级清扫，前端落点在 useShelf.confirmDelete，供一行接线）；书改名已被切书
+  // 链 setBook(新名) → clearBookMirrors(旧名) 覆盖（backlog-rp2-1 补表征测试钉住）。
+  // R-P2-2（评审修复批）：节流间隔按内容规模分档（2s/4s/8s）+ 到点内容未变跳过重写，
+  // MIRROR_MAX_CHARS 与崩溃恢复语义不变（见下方常量块注记）。
 
   /** 镜像 key：`clw:dirty-mirror:<book>:<docId>`（前缀扫描面 = 清前书镜像）。 */
   const MIRROR_KEY_PREFIX = 'clw:dirty-mirror:'
   /** 单条镜像上限（payload 字符数 ≈2MB）——超限跳过并 debug 留痕，防 localStorage quota 爆。 */
   const MIRROR_MAX_CHARS = 2_000_000
-  /** 镜像节流间隔（ms，trailing）：编辑高峰不逐键写同步 IO，窗口内合并为最后一版。 */
+  /** 镜像节流基档（ms，trailing）：编辑高峰不逐键写同步 IO，窗口内合并为最后一版。
+   *  R-P2-2（评审修复批）：到点是全量 JSON.stringify + localStorage.setItem 的同步
+   *  主线程开销，200 万字文档 2s 一拍即数十 ms 级 CPU 峰值——按规模分档拉长（见下），
+   *  崩溃窗口拉宽是 R55-F-3 既有取舍（镜像落后编辑 ≤ 一个节流间隔）的规模延伸：
+   *  镜像始终远快于 autosave（默认 30s）主兜底，R55-F-3 的取舍与回归测试不动。 */
   const MIRROR_THROTTLE_MS = 2_000
+  /** 节流分档阈值（按 entry 内容字符数，调度时刻定格）：>256K 拉到 4s、>1M 拉到 8s。
+   *  取舍：档距 2× 对应 stringify+setItem 开销近似线性随规模涨（2s 档数十 ms → 8s 档
+   *  摊平为同数量级均摊），再往上该档文档已近 MIRROR_MAX_CHARS 上限（超限不写）。 */
+  const MIRROR_TIER_LARGE = 256 * 1024
+  const MIRROR_TIER_HUGE = 1024 * 1024
+  const MIRROR_THROTTLE_LARGE_MS = 4_000
+  const MIRROR_THROTTLE_HUGE_MS = 8_000
 
-  /** pending 节流定时器（按 docId；2s 内多次 patch 只排一个 trailing 写）。 */
+  /** R-P2-2：按内容规模取节流间隔（调度时刻定格；窗口内跨档不重排——节流本就允许
+   *  ≤间隔 的滞后，重排只添复杂度）。 */
+  function mirrorThrottleMs(contentChars: number): number {
+    if (contentChars > MIRROR_TIER_HUGE) return MIRROR_THROTTLE_HUGE_MS
+    if (contentChars > MIRROR_TIER_LARGE) return MIRROR_THROTTLE_LARGE_MS
+    return MIRROR_THROTTLE_MS
+  }
+
+  /** pending 节流定时器（按 docId；间隔内多次 patch 只排一个 trailing 写）。 */
   const mirrorTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
   function mirrorKey(book: string, docId: string): string {
     return `${MIRROR_KEY_PREFIX}${book}:${docId}`
   }
 
-  /** dirty/conflict entry 的节流镜像落盘（trailing：到点读 entry 当时内容）。 */
-  function scheduleDirtyMirror(docId: string): void {
+  /** dirty/conflict entry 的节流镜像落盘（trailing：到点读 entry 当时内容）。
+   *  R-P2-2：间隔按调度时的内容规模分档取值。 */
+  function scheduleDirtyMirror(docId: string, contentChars: number): void {
     if (mirrorTimers.has(docId)) return
     mirrorTimers.set(
       docId,
       setTimeout(() => {
         mirrorTimers.delete(docId)
         writeDirtyMirror(docId)
-      }, MIRROR_THROTTLE_MS),
+      }, mirrorThrottleMs(contentChars)),
     )
   }
+
+  /** R-P2-2：上次实际落镜像的内容（按 docId）——节流到点先与 entry 内容做全等比对，
+   *  一致即跳过 stringify+setItem。取值级全等而非「长度+首尾采样」：JS 字符串全等对
+   *  同引用 O(1) 短路，异引用全量比对也远廉于 stringify 2MB，且无误跳过面（采样法有
+   *  「仅中段等长改动」漏检面，漏检 = 崩溃恢复丢末次编辑，不可取）；「改了又改回」的
+   *  净零编辑跳过是正确语义（镜像值即当前值，重写是纯浪费）。清理面（clearDirtyMirror /
+   *  clearBookMirrors）必须同步撤销登记，防「镜像已删而指纹滞留」把该写的镜像误跳过。 */
+  const lastMirroredContent = new Map<string, string>()
 
   function writeDirtyMirror(docId: string): void {
     const e = docs.value.get(docId)
     const book = bookName.value
     // await 窗口守卫：entry 已清/已转 clean/已切书 → 不再镜像
     if (!e || !book || (!e.dirty && !e.conflict)) return
+    // R-P2-2：内容未变不重写（比对在前、stringify 在后——大文档到点必 stringify 的
+    // 峰值开销在净零编辑/重复调度面上直接归零）
+    if (lastMirroredContent.get(docId) === e.content) return
     try {
       const payload = JSON.stringify({
         book,
@@ -113,22 +150,28 @@ export const useDocStore = defineStore('doc', () => {
       })
       if (payload.length > MIRROR_MAX_CHARS) {
         console.debug(`[doc] dirty 镜像超限（${payload.length} chars）跳过: ${book}/${docId}`)
-        return
+        return // 指纹不登记：内容缩回限内后下一拍照常落镜像（上限语义不变）
       }
       localStorage.setItem(mirrorKey(book, docId), payload)
+      lastMirroredContent.set(docId, e.content)
     } catch (err) {
       // quota/存储不可用降级为无镜像（留痕供诊断）
       console.debug('[doc] dirty 镜像写入失败（降级为无镜像）', err)
     }
   }
 
-  /** 清镜像（含 pending 节流）。book 由调用方快照（防在途切书误删他书同 docId 键）。 */
+  /** 清镜像（含 pending 节流）。book 由调用方快照（防在途切书误删他书同 docId 键）。
+   *  R-P2-1（评审修复批）：本函数与下方 clearBookMirrors 即「键族清理单源」——
+   *  docId 级精确删 + 书级前缀清扫两个入口，随 store 导出，供文档改名（op=rename /
+   *  op=meta 路径同步 rename）、doOpen 404、删书（useShelf.confirmDelete）等各链调用，
+   *  不再各链自拼 localStorage 键。 */
   function clearDirtyMirror(book: string | null, docId: string): void {
     const t = mirrorTimers.get(docId)
     if (t) {
       clearTimeout(t)
       mirrorTimers.delete(docId)
     }
+    lastMirroredContent.delete(docId) // R-P2-2：指纹随镜像同撤（方向安全：缺指纹 = 必写）
     if (!book) return
     try {
       localStorage.removeItem(mirrorKey(book, docId))
@@ -168,6 +211,9 @@ export const useDocStore = defineStore('doc', () => {
   function clearBookMirrors(book: string): void {
     for (const t of mirrorTimers.values()) clearTimeout(t)
     mirrorTimers.clear()
+    // R-P2-2：指纹台账全清（按 docId 记账不辨书；全清只会多一次冗余重写，滞留则可能
+    // 让跨书同 docId——legacy 按路径派生——的该写镜像被误跳过）
+    lastMirroredContent.clear()
     try {
       const doomed: string[] = []
       for (let i = 0; i < localStorage.length; i++) {
@@ -262,8 +308,20 @@ export const useDocStore = defineStore('doc', () => {
     // 防旧书 doc 注入新书缓存（后续 save 会用新书名写旧书内容）
     const gen = bookGen
     const book = bookName.value!
+    let content: string
     try {
-      const content = await getContent(book, node.path)
+      content = await getContent(book, node.path)
+    } catch (err) {
+      // R-P2-1（评审修复批）：打开即 404（文档已被外部删除/残留入口指向已删路径）→
+      // 顺手清该文档的脏镜像——崩溃残留镜像只认 book+docId，文档已不存在则镜像成无主
+      // 孤儿，同路径重建新文档（legacy docId 按路径派生，同 id 复用）时 open 会误复活
+      // 旧镜像污染新文档。其余错误（网络/5xx）不清——文档还在，镜像仍是有效兜底。
+      // 404 原样上抛，调用方既有错误面不变；清理走单源 clearDirtyMirror（内部
+      // try/catch 降级，存储不可用时静默）。
+      if (err instanceof ApiError && err.code === 'NOT_FOUND') clearDirtyMirror(book, docId)
+      throw err
+    }
+    try {
       const baselineRevision = await sha256Revision(content)
       if (gen !== bookGen) return
       docs.value.set(docId, {
@@ -322,9 +380,9 @@ export const useDocStore = defineStore('doc', () => {
     e.content = content
     e.dirty = true
     e.error = null
-    // R55-F-3：dirty entry 节流镜像（~2s trailing）——crash/OOM/kill -9 时
-    // <autosave 间隔键入的本地兜底（见文件内 R55-F-3 块注释）
-    scheduleDirtyMirror(docId)
+    // R55-F-3：dirty entry 节流镜像（trailing，间隔按内容规模分档见 R-P2-2）——
+    // crash/OOM/kill -9 时 <autosave 间隔键入的本地兜底（见文件内 R55-F-3 块注释）
+    scheduleDirtyMirror(docId, content.length)
   }
 
   /** F8（五十九轮）：在途保存的 promise 台账——⌘S 遇在途保存时链式排队用（等在途
@@ -707,5 +765,9 @@ export const useDocStore = defineStore('doc', () => {
     clearDirtyMirror(bookName.value, docId) // R55-F-3：条目已弃，镜像一并清
   }
 
-  return { docs, bookName, setBook, get, open, patch, save, waitInflightSave, reloadFromRemote, overwriteRemote, refresh, syncCleanWithTree, finalize, conflictedDirtyDocs, flushDirty, flushBeforeClose, autosaveTick, discard }
+  // R-P2-1（评审修复批）：清理单源随 store 导出——clearDirtyMirror（docId 级精确删）
+  // / clearBookMirrors（书级清扫，属主按 payload 精确判定）供文档改名（useChapterTree
+  // 的 onRenameCommit / onSaveMeta）、删书（useShelf.confirmDelete）等外部链调用，
+  // 键格式与降级惯例收敛在此，不再各链自拼 `clw:dirty-mirror:` 键
+  return { docs, bookName, setBook, get, open, patch, save, waitInflightSave, reloadFromRemote, overwriteRemote, refresh, syncCleanWithTree, finalize, conflictedDirtyDocs, flushDirty, flushBeforeClose, autosaveTick, discard, clearDirtyMirror, clearBookMirrors }
 })

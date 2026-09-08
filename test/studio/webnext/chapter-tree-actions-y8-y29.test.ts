@@ -35,6 +35,9 @@ const docMock = {
   refresh: vi.fn(async () => {}),
   save: vi.fn(async () => true),
   patch: vi.fn(),
+  // R-P2-1（评审修复批）：onRenameCommit/onSaveMeta 改名成功新增清脏镜像调用——
+  // mock 补齐防 TypeError 走 catch 吞掉后续 refresh/tree.load
+  clearDirtyMirror: vi.fn(),
 }
 vi.mock('../../../src/studio/web-next/src/stores/ui', () => ({
   useUiStore: vi.fn(() => ({ toast: vi.fn(), ask: vi.fn(async () => true) })),
