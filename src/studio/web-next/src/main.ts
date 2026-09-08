@@ -5,6 +5,7 @@ import router from './router'
 import { boot } from './api/client'
 import { usePrefsStore } from './stores/prefs'
 import { useUiStore } from './stores/ui'
+import { prewarmSystemFonts } from './composables/useSystemFonts'
 import './styles/tokens.css'
 import './styles/base.css'
 // 设置域共享类（.val/.save-btn/.seg 药丸等）被设置域外组件消费（右栏面板、导出弹窗），
@@ -34,3 +35,19 @@ app.config.errorHandler = (err, _instance, info) => {
   useUiStore().reportUnhandledError(err, info)
 }
 app.use(pinia).use(router).mount('#app')
+
+// 字体表启动预热（2026-09-08 作者反馈「字体下拉首开很慢，特别是第一次」）：win 枚举
+// 走 PowerShell + Add-Type PresentationCore（秒级），原先等首个消费组件挂载（设置
+// 弹窗/专注排版条）才发 IPC，首次打开字体下拉要现场等枚举完。启动后台提前拉入
+// useSystemFonts 单例，首开即全量。idle 调度（首帧渲染后空闲即跑，2s 兜底必跑）：
+// 比固定延迟更早覆盖「启动后很快开设置」，且不与启动关键路径抢时机（渲染侧只发
+// IPC，枚举在主进程子进程里跑）；期间用户先开设置则消费侧 loadOnce 先行，预热
+// 沦为共享同一在途 Promise 的 no-op——R48-84 去重；失败走既有空表降级，不影响
+// 启动。浏览器版无 desktop bridge，loadOnce 内自判空。
+const FONT_PREWARM_IDLE_TIMEOUT_MS = 2_000
+const prewarmFontList = (): void => void prewarmSystemFonts()
+if (typeof requestIdleCallback === 'function') {
+  requestIdleCallback(prewarmFontList, { timeout: FONT_PREWARM_IDLE_TIMEOUT_MS })
+} else {
+  setTimeout(prewarmFontList, FONT_PREWARM_IDLE_TIMEOUT_MS)
+}
