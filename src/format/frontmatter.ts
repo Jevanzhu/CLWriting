@@ -214,15 +214,20 @@ export function parseFlat(
       const dedented = block.map((bl) => (bl === '' ? '' : bl.slice(minIndent)))
       // Z-20（第五十八轮）：folded 空行 = 段落边界（YAML 语义空行应为换行）——此前
       // join(' ') 把多段值压平成一段；无空行时产出与旧行为一致
+      // 重审-07（2026-09-07 全量代码重审 §四.7）：去掉 join 后的双空格折叠
+      // （`replace(/  +/g, ' ')`）——YAML folded 语义只清**行尾**空白，行内多空格是
+      // 字面内容；旧折叠让读改写往返（parseFlat → stringifyFlat）篡改手写多行值。
+      // 行尾清理改为逐行 `replace(/ +$/, '')`（join 前剥，折为空格的换行不吞行尾
+      // 空白语义），segs.push 段尾 `replace(/ +$/, '')` 保留兜底（末行无 join 点）。
       const foldSegs = (bls: string[]): string => {
         const segs: string[] = []
         let cur: string[] = []
         for (const bl of bls) {
           if (bl === '') {
-            if (cur.length) { segs.push(cur.join(' ').replace(/  +/g, ' ').replace(/ +$/, '')); cur = [] }
-          } else cur.push(bl)
+            if (cur.length) { segs.push(cur.join(' ').replace(/ +$/, '')); cur = [] }
+          } else cur.push(bl.replace(/ +$/, ''))
         }
-        if (cur.length) segs.push(cur.join(' ').replace(/  +/g, ' ').replace(/ +$/, ''))
+        if (cur.length) segs.push(cur.join(' ').replace(/ +$/, ''))
         return segs.join('\n')
       }
       const value = folded ? foldSegs(dedented) : dedented.join('\n').replace(/\n+$/, '')

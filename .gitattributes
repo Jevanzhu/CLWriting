@@ -6,7 +6,10 @@
 * text=auto eol=lf
 *.bat text eol=crlf
 *.cmd text eol=crlf
-知识层/** text eol=lf
+# 批2-8（2026-09-07 全量代码重审 批2）：原单列行「知识层/** text eol=lf」已删——与
+# 全局 * text=auto eol=lf 对纯文本目录等价（text=auto 探测为文本 + eol=lf，入库归一/
+# 检出同口径），纯冗余；知识层现全为 md/json 文本，未来若入二进制资产由下方 binary
+# 后缀行兜底，且 text=auto 对二进制不强制归一（比显式 text 更安全）。
 *.png binary
 *.ico binary
 *.icns binary

@@ -202,6 +202,45 @@ describe('E-2: ChapterTreePanel.onSelect 在途切书 → 跳过 openTab', () =>
   })
 })
 
+// 重审-G17（2026-09-07 全量代码重审 §四.G17）：切书挂起期跨书守卫——切书链
+// （flushDirty/确认弹窗挂起段）route 已到新书、树组件 watch 已 load 新树，但
+// ws.bookName 链尾才 setBook；此窗口点新书树，E-2 快照基线取的是旧书名、open 落定
+// 复检「旧===旧」恒过 → 新书 docId 开进旧书工作区。修复：onSelect 前置
+// props.bookName !== ws.bookName 一致性守卫。
+describe('重审-G17: ChapterTreePanel 切书挂起期点树 → onSelect 前置一致守卫', () => {
+  it('props 已到新书而 ws.bookName 仍旧书（切换链挂起）→ 不把新书 docId 开进旧书工作区', async () => {
+    const ws = useWorkspaceStore()
+    ws.setBook('书A')
+
+    // route 已到 /book/书B（props 跟随）、树已按 B 重载渲染，但切书链挂起——ws 仍属 书A。
+    // doc.open 用缺省即时实现（不设一次性挂起闸——守卫拦截后 open 根本不发起，
+    // 挂起闸会泄漏给后续用例的首个 getContent 调用）
+    const w = mount(ChapterTreePanel, { props: { bookName: '书B' } })
+    await flushPromises() // immediate watch → tree.load('书B') 落定，B 树渲染
+    expect(w.findAll('.ci').length).toBe(1)
+
+    await w.find('.ci').trigger('click') // onSelect：树归属 B ≠ 工作区归属 A → 前置守卫拦下
+    await flushPromises()
+    await flushPromises()
+
+    expect(ws.activeDocId).toBeNull() // 修复点：E-2 快照基线是旧书名、复检恒过 → 前置守卫兜住
+    w.unmount()
+  })
+
+  it('稳态（props === ws.bookName）→ 正常 openTab（守卫不误伤）', async () => {
+    const ws = useWorkspaceStore()
+    ws.setBook('书A')
+    const w = mount(ChapterTreePanel, { props: { bookName: '书A' } })
+    await flushPromises()
+    await w.find('.ci').trigger('click')
+    // 两轮泵：doc.open 链上有 crypto.subtle.digest（宿主异步边界），单轮 flushPromises 不够
+    await flushPromises()
+    await flushPromises()
+    expect(ws.activeDocId).toBe('d1')
+    w.unmount()
+  })
+})
+
 describe('E-7: ChapterTreePanel 脏路由 name=\'\' → 清树/红点/今日字数展示态', () => {
   it('bookName 变 \'\' → tree.raw/issues 清空、words 展示态复位', async () => {
     const ws = useWorkspaceStore()

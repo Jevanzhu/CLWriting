@@ -66,6 +66,16 @@ watch(heartbeatFailStreak, (n) => {
     sse.resync()
   }
 })
+// 重审-3（2026-09-07 全量代码重审 §四.3）：主进程「服务已自动重启/自愈成功」广播
+// （desktop:server-restarted）——崩溃自动重启/session-end 自愈钉住端口拉回后，旧
+// SSE 连接已随 child 进程换代而死，EventSource 只能等自身退避重连；订阅广播主动
+// resync() 立即断旧连新 + 重取连接级 sync 快照，服务恢复对作者即时可感。浏览器版
+// 无此通道（window.clwritingDesktop 判空降级，desktop.d.ts 同步登记）。
+const offServerRestarted = window.clwritingDesktop?.onServerRestarted?.(() => {
+  sse.resync()
+  ui.toast('写作服务已自动恢复，正在重连', 'info')
+})
+onUnmounted(() => offServerRestarted?.())
 let bookGen = 0
   // Z-8（第五十八轮）：上一本书名（冲突守卫取消时回退路由用）
   let lastBook = ''

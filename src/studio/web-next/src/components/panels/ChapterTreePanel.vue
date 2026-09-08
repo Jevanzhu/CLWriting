@@ -55,6 +55,13 @@ function toggle(path: string): void {
 
 async function onSelect(node: TreeNode): Promise<void> {
   if (node.isDirectory || !node.docId) return
+  // 重审-G17（2026-09-07 全量代码重审 §四.G17）：切书挂起期跨书守卫——切书链
+  // （flushDirty/确认弹窗挂起段）route 已到新书、本组件 watch 已 load 新树并渲染，
+  // 但 ws.bookName 链尾才 setBook；此窗口点新书树，下方 E-2 快照基线取的是旧书名，
+  // open 落定复检「旧===旧」恒过，新书 docId 开进仍属旧书的工作区（activeDocId/
+  // tabs 跨书污染）。前置一致性守卫：树归属（props.bookName）与工作区归属
+  // （ws.bookName）不一致即忽略本次点击——链尾 setBook 落定后即可正常点击。
+  if (props.bookName !== ws.bookName) return
   openError.value = null
   // E-2（二十九轮）：await 前快照书名——doc.open 在途切书（新书同名路径命中旧书
   // docId）后不得把旧书文档开进新书工作区

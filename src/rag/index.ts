@@ -617,14 +617,24 @@ async function commitIndexBatch(
     }
     let salvaged = 0
     let salvagedChunks = 0
-    // 维度守护：与既有索引维度不一致时不续传（该错要求重建索引，续传无意义）
+    // 维度守护：与既有索引维度不一致时不续传（该错要求重建索引，续传无意义）——
+    // 重审-批2-4（2026-09-07 全量代码重审 §四P3/§六批2）：守护只约束「有向量待落库」
+    // （span 非 null）的章。首批即失败（failedAt=0、vectors 空、vectorDim undefined）时
+    // 原守卫 `complete.length > 0 && vectorDim && ...` 把仅含零块章的 complete 整体跳过
+    // ——零块章指纹（无向量写入、无维度依赖）持续缺失到端点恢复。修复：零块章无条件
+    // 可提交；vectors 空的事务不写 embedding_model/embedding_dim（与全成功路径
+    // 「allChunks.length===0 不写模型/维度」同口径——零向量面无维度事实可登记，下轮
+    // 有块章落库时自然补上；rebuild 清表对两类键一并清，无残留面）。章级不变量不变：
+    // 每个提交章的删旧块/写块/指纹仍在同一小事务内。
     const vectorDim = vectors[0]?.length
     const indexedDim = getRagMeta(db, 'embedding_dim')
-    if (complete.length > 0 && vectorDim && (!indexedDim || Number(indexedDim) === vectorDim)) {
+    const dimOk = vectorDim !== undefined && (!indexedDim || Number(indexedDim) === vectorDim)
+    const toCommit = complete.filter(([, span]) => span === null || dimOk)
+    if (toCommit.length > 0) {
       db.exec('BEGIN IMMEDIATE')
       try {
         let maxCommitted = 0
-        for (const [ch, span] of complete) {
+        for (const [ch, span] of toCommit) {
           // R26-15（二十六轮）：删旧块不分有块/零块章——零块章（正文改成全 <20 字短段）
           // 原口径只落指纹不删旧块：指纹刷新后旧向量被指纹闸判 fresh，召回永远返回指向
           // 旧正文的偏移。同事务先删后落指纹（本事务即续传小事务，分批不跨网络往返）。
@@ -646,15 +656,17 @@ async function commitIndexBatch(
         // 游标只推进到已提交章（不越过失败章）；不回退既有更高游标
         const prevCursor = Number(getRagMeta(db, 'indexed_max_chapter') ?? 0)
         if (maxCommitted > prevCursor) setRagMeta(db, 'indexed_max_chapter', String(maxCommitted))
-        setRagMeta(db, 'embedding_model', config.model!)
-        setRagMeta(db, 'embedding_dim', String(vectorDim))
+        if (dimOk) {
+          setRagMeta(db, 'embedding_model', config.model!)
+          setRagMeta(db, 'embedding_dim', String(vectorDim))
+        }
         db.exec('COMMIT')
-        salvaged = complete.length
+        salvaged = toCommit.length
         // R40-51（四十轮）：续传计数=本事务实际新嵌落库的块数（complete 章 span 覆盖的
         // 块；零块章计 0 块）——此前恒报 0/0，部分成功落库的章/块不进进度（UI 进度与
         // 实际嵌入数偏差）；重跑时已续传章经指纹比对跳过、不计入 toIndex，两轮计数
         // 之和=真实新嵌总数
-        salvagedChunks = complete.reduce((n, [, span]) => n + (span ? span.end - span.start : 0), 0)
+        salvagedChunks = toCommit.reduce((n, [, span]) => n + (span ? span.end - span.start : 0), 0)
       } catch {
         // 续传失败不致命：回到旧行为（整体重跑），错误文案不带续传字样。
         // R43-18（四十三轮）：R61-10 同款加固——吞 ROLLBACK 自身异常（部分错误已

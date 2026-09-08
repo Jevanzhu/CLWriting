@@ -361,6 +361,11 @@ export function checkWithDb(
     }
     return { ok: true, report, hasRed: hasRed(report), chapter: draft.chapter, body: draft.body }
   } catch (e) {
+    // 重审-11（2026-09-07 全量代码重审 §四.11）：异常转 CHECK_ERROR 信封时补 warn
+    // 留痕——树聚合路径对单章机检失败已有同款（collectTreeIssues 的「章机检失败（红点
+    // 可能缺失）」），单章端点此前静默：CHECK_ERROR 只存在于响应信封，服务日志零线索。
+    // tag 'check' 对齐本文件现有用法；带文档路径与异常信息。
+    log.warn('check', `单章机检失败（CHECK_ERROR，红点缺失）：${absPath}——${e instanceof Error ? e.message : String(e)}`)
     return { ok: false, code: 'CHECK_ERROR', error: e instanceof Error ? e.message : String(e) }
   }
 }

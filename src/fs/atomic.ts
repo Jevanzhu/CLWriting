@@ -312,8 +312,20 @@ function fsyncDir(dir: string): void {
   try {
     fd = openSync(dir, 'r')
     fsyncSync(fd)
-  } catch {
-    // 平台不支持 fsync 目录（win：fsyncSync EPERM，非 open 失败）—— 内容已 fsync
+  } catch (e) {
+    // 平台不支持 fsync 目录（win：fsyncSync EPERM，非 open 失败）—— 内容已 fsync，
+    // 静默忽略（文档化口径）。
+    // 重审-08（2026-09-07 全量代码重审 §四.8）前提核校：本 catch 原本就吞掉包括 EIO
+    // 在内的全部错误，评审所述「rename 成功后 fsyncDir 抛非 EPERM 上抛 → 目标已写入
+    // 却报假失败」在现行代码不成立（证伪留档；测试锁定「不抛 + 目标在」防回归）。
+    // 真实缺口是零留痕：EIO 类真实耐久性降级与平台限制同被静默吞掉。处置 = 非 EPERM
+    // 失败补 log.warn 留痕（log 模块仅依赖 node 内置，与 src/fs 无循环依赖；本文件
+    // R26-7 已有 log.warn('fs') 先例，故不用 console.warn），仍不抛——目录条目耐久性
+    // best-effort（文件内容已 fsync），抛出反而把已成功写入反转成假失败、诱发调用方
+    // 误判 WRITE_ERROR 重复写。
+    if ((e as NodeJS.ErrnoException).code !== 'EPERM') {
+      log.warn('fs', `目录 fsync 失败（${(e as NodeJS.ErrnoException).code ?? '未知错误'}），rename 元数据耐久性降级为 best-effort（文件内容已 fsync，不判失败）：${dir}`)
+    }
   } finally {
     if (fd !== undefined) {
       try {

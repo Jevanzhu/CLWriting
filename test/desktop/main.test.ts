@@ -352,10 +352,23 @@ vi.mock('../../src/log/index.js', () => ({
 const fsPromisesMock = vi.hoisted(() => ({ statGate: null as null | (() => Promise<never>) }))
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>()
+  const { statSync } = await import('node:fs')
   return {
     ...actual,
-    stat: (p: string, o?: Parameters<typeof actual.stat>[1]) =>
-      fsPromisesMock.statGate ? fsPromisesMock.statGate() : actual.stat(p, o),
+    // 重审-1：缺省路径改 statSync 同步垫底（ok/invalid 语义等价——真实文件系统判定，
+    // 不落线程池宏任务）——bootstrap 预探链全微任务化，既有「单次 setImmediate /
+    // fake-timer advanceTimersByTimeAsync(0) 即冲刷完 bootstrap」的时序假设保持成立；
+    // statGate 手动闸（失联卷挂死形态）语义不变。
+    stat: (p: string, o?: Parameters<typeof actual.stat>[1]) => {
+      if (fsPromisesMock.statGate) return fsPromisesMock.statGate()
+      return new Promise((resolve, reject) => {
+        try {
+          resolve(statSync(p, o as Parameters<typeof statSync>[1] | undefined))
+        } catch (e) {
+          reject(e as Error)
+        }
+      })
+    },
   }
 })
 vi.mock('font-list', () => ({ getFonts: async () => ['Mock Sans'] }))
@@ -680,38 +693,39 @@ describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
     }
   })
 
-  it('show-in-folder 穿越守卫：.. 逃逸 / NUL / 未登记书 全拒；合法路径 realpath 放行', () => {
+  // 重审-2：handler 改 async（失联卷预探）——本组调用统一 await 后断言
+  it('show-in-folder 穿越守卫：.. 逃逸 / NUL / 未登记书 全拒；合法路径 realpath 放行', async () => {
     const h = M.ipcHandle['desktop:show-in-folder']!
     const n0 = M.shell.show.length
-    h(null, '书A', '../escape.md')
-    h(null, '书A', '第1章-开篇.md\0evil')
-    h(null, '未登记', '第1章-开篇.md')
-    h(null, null, 'x')
+    await h(null, '书A', '../escape.md')
+    await h(null, '书A', '第1章-开篇.md\0evil')
+    await h(null, '未登记', '第1章-开篇.md')
+    await h(null, null, 'x')
     expect(M.shell.show.length).toBe(n0)
-    h(null, '书A', '第1章-开篇.md')
+    await h(null, '书A', '第1章-开篇.md')
     expect(M.shell.show.length).toBe(n0 + 1)
     expect(M.shell.show[n0]).toContain('第1章-开篇.md')
   })
 
-  it('show-in-folder 篡改守卫：books.jsonl entry.path 越出 workDir → 拒绝', () => {
+  it('show-in-folder 篡改守卫：books.jsonl entry.path 越出 workDir → 拒绝', async () => {
     const lib = mkLibrary()
     writeFileSync(join(lib, '.clwriting', 'books.jsonl'), `${JSON.stringify({ name: '坏书', path: '../outside' })}\n`)
     writeFileSync(join(M.userData, 'workdir.json'), JSON.stringify({ current: lib, recent: [] }))
     const n0 = M.shell.show.length
-    M.ipcHandle['desktop:show-in-folder']!(null, '坏书', 'any.md')
+    await M.ipcHandle['desktop:show-in-folder']!(null, '坏书', 'any.md')
     expect(M.shell.show.length).toBe(n0)
     writeFileSync(join(M.userData, 'workdir.json'), JSON.stringify({ current: libA, recent: [] }))
   })
 
-  it('open-book-dir 同口径：合法 realpath 放行、越出 workDir 拒绝', () => {
+  it('open-book-dir 同口径：合法 realpath 放行、越出 workDir 拒绝', async () => {
     const n0 = M.shell.open.length
-    M.ipcHandle['desktop:open-book-dir']!(null, '书A')
+    await M.ipcHandle['desktop:open-book-dir']!(null, '书A')
     expect(M.shell.open.length).toBe(n0 + 1)
     expect(M.shell.open[n0]).toContain(join('books', 'a'))
     const lib = mkLibrary()
     writeFileSync(join(lib, '.clwriting', 'books.jsonl'), `${JSON.stringify({ name: '坏书', path: '../outside' })}\n`)
     writeFileSync(join(M.userData, 'workdir.json'), JSON.stringify({ current: lib, recent: [] }))
-    M.ipcHandle['desktop:open-book-dir']!(null, '坏书')
+    await M.ipcHandle['desktop:open-book-dir']!(null, '坏书')
     expect(M.shell.open.length).toBe(n0 + 1)
     writeFileSync(join(M.userData, 'workdir.json'), JSON.stringify({ current: libA, recent: [] }))
   })
@@ -2141,6 +2155,87 @@ describe('R54-A-1/A-2: flush 超时留痕 + switch-library 可达性预探', () 
       fsPromisesMock.statGate = null
       if (prev === undefined) delete process.env['CLW_SWITCH_LIBRARY_PROBE_TIMEOUT_MS']
       else process.env['CLW_SWITCH_LIBRARY_PROBE_TIMEOUT_MS'] = prev
+    }
+  })
+
+  // ── 重审-1/2/3（2026-09-07 全量代码重审 §四.1/.2/.3）：bootstrap/三 IPC 失联卷
+  // 预探 + 服务重启成功广播（doRestart/restartPinned 两路径）──
+  it('重审-1: bootstrap 持久化 current 失联卷 → 预探超时拦下（errorBox + 回落引导页，不冻结）', async () => {
+    const prev = process.env['CLW_BOOTSTRAP_PROBE_TIMEOUT_MS']
+    process.env['CLW_BOOTSTRAP_PROBE_TIMEOUT_MS'] = '150'
+    try {
+      const err0 = M.errorBox.length
+      fsPromisesMock.statGate = () => new Promise(() => {}) // 模拟失联卷 stat 挂死
+      vi.resetModules()
+      await import('../../src/desktop/main.js')
+      await new Promise((r) => setTimeout(r, 500)) // 真定时器等两段预探（current + cwd）各 150ms 超时落定
+      const win = M.windows.at(-1)!
+      expect(win).toBeTruthy()
+      expect(win.loaded[0]).toContain('/welcome') // 不采信失联 current、不跑 findWorkDir 同步爬祖 → 引导页
+      expect(M.errorBox.slice(err0).some(([, m]) => String(m).includes('暂不可达'))).toBe(true)
+    } finally {
+      fsPromisesMock.statGate = null
+      if (prev === undefined) delete process.env['CLW_BOOTSTRAP_PROBE_TIMEOUT_MS']
+      else process.env['CLW_BOOTSTRAP_PROBE_TIMEOUT_MS'] = prev
+    }
+  })
+
+  it('重审-2: show-in-folder/open-book-dir/open-library-dir 失联卷 → 预探拦下（errorBox + 不触 shell）', async () => {
+    const prev = process.env['CLW_SWITCH_LIBRARY_PROBE_TIMEOUT_MS']
+    process.env['CLW_SWITCH_LIBRARY_PROBE_TIMEOUT_MS'] = '150'
+    try {
+      await freshModule()
+      const err0 = M.errorBox.length
+      const show0 = M.shell.show.length
+      const open0 = M.shell.open.length
+      fsPromisesMock.statGate = () => new Promise(() => {}) // 模拟失联卷 stat 挂死
+      await M.ipcHandle['desktop:show-in-folder']!(null, '书A', 'books/a/第1章-开篇.md')
+      await M.ipcHandle['desktop:open-book-dir']!(null, '书A')
+      await M.ipcHandle['desktop:open-library-dir']!(null)
+      expect(M.errorBox.length).toBe(err0 + 3) // 三入口各一框（修复前无预探不弹）
+      expect(M.errorBox.slice(err0).every(([, m]) => String(m).includes('暂不可达'))).toBe(true)
+      expect(M.shell.show.length).toBe(show0) // 未触文件管理器（修复前 readBooks 在活卷上照常放行）
+      expect(M.shell.open.length).toBe(open0)
+    } finally {
+      fsPromisesMock.statGate = null
+      if (prev === undefined) delete process.env['CLW_SWITCH_LIBRARY_PROBE_TIMEOUT_MS']
+      else process.env['CLW_SWITCH_LIBRARY_PROBE_TIMEOUT_MS'] = prev
+    }
+  })
+
+  it('重审-3: 崩溃自动重启成功 → 广播 desktop:server-restarted 到主窗（渲染层可即时 resync）', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.resetModules()
+      await import('../../src/desktop/main.js')
+      await vi.advanceTimersByTimeAsync(0) // bootstrap + 首窗落定
+      const win = M.windows.at(-1)!
+      const sent0 = win.webContents.sent.length
+      ;(M.forkChildren.at(-1) as unknown as { emit: (e: string, c: number) => void }).emit('exit', 1)
+      await vi.advanceTimersByTimeAsync(16_000) // 退避 0 → doRestart → 握手 ready → 广播
+      expect(win.webContents.sent.slice(sent0)).toContainEqual(['desktop:server-restarted', 45678])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('重审-3: session-end 自愈恢复成功 → 同款广播（restartPinned 路径）', async () => {
+    const prevRecovery = process.env['CLW_SESSION_END_RECOVERY_MS']
+    process.env['CLW_SESSION_END_RECOVERY_MS'] = '5000'
+    try {
+      vi.useFakeTimers()
+      vi.resetModules()
+      await import('../../src/desktop/main.js')
+      await vi.advanceTimersByTimeAsync(0)
+      const win = M.windows.at(-1)!
+      const sent0 = win.webContents.sent.length
+      win.emit('session-end')
+      await vi.advanceTimersByTimeAsync(5_000) // 观察窗到点 → restartPinned 钉住端口拉回 → 广播
+      expect(win.webContents.sent.slice(sent0)).toContainEqual(['desktop:server-restarted', 45678])
+    } finally {
+      vi.useRealTimers()
+      if (prevRecovery === undefined) process.env['CLW_SESSION_END_RECOVERY_MS'] = '3600000'
+      else process.env['CLW_SESSION_END_RECOVERY_MS'] = prevRecovery
     }
   })
 })

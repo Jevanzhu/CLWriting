@@ -61,7 +61,14 @@ function mkHarness(extra: ServerManagerDeps = {}): {
   return { forkRecords, manager }
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+/** 重审-18（2026-09-07 全量代码重审 §四.18）：墙钟越过危险窗的轮询等待——定长
+ *  sleep 与真实定时竞速（慢机/事件循环停滞下排程定时迟到即漏检）；小步 poll 持续
+ *  让出事件循环，迟到的定时一到期即被处理。since = 危险窗起点（崩溃/排程时刻），
+ *  越过 windowMs 后由调用方断言——forkRecords 只增不减，窗内任何时刻落地的多余
+ *  fork 都会被终检抓到（语义不弱化）；deadline 5s 到点未越窗即红（防假绿）。 */
+function elapseBeyond(since: number, windowMs: number): Promise<void> {
+  return vi.waitFor(() => expect(Date.now() - since).toBeGreaterThanOrEqual(windowMs), { timeout: 5_000, interval: 10 })
+}
 
 describe('R51-A-3: restartPinned 作废挂起重启', () => {
   it('崩溃退避排程在途时 restartPinned → 挂起重启作废 + 单轮恢复（无双 fork 竞逐）', async () => {
@@ -71,6 +78,7 @@ describe('R51-A-3: restartPinned 作废挂起重启', () => {
     const p1 = manager.start({ workDir: '/w', userDataPath: ud })
     forkRecords[0]!.child.emit('message', { type: 'ready', port: 47000 })
     await p1
+    const crashAt = Date.now() // 危险窗起点：挂起重启自此 400ms 后触发
     forkRecords[0]!.child.emit('exit', 1) // 崩溃 → 排程挂起重启（400ms 后）
     await Promise.resolve()
     expect(manager.hasPendingRestart()).toBe(true)
@@ -79,7 +87,9 @@ describe('R51-A-3: restartPinned 作废挂起重启', () => {
     expect(manager.hasPendingRestart()).toBe(false) // 修复前挂起重启仍武装
     forkRecords[1]!.child.emit('message', { type: 'ready', port: 47000 }) // 恢复轮钉住端口
     await expect(recovered).resolves.toBe(47000)
-    await sleep(600) // 越过挂起重启触发点：若未作废，doRestart 会在此窗口再 fork
+    // 重审-18（2026-09-07 全量代码重审 §四.18）：原 sleep(600) 定长越过 400ms 触发点
+    // ——改轮询越过危险窗；若未作废，doRestart 在窗内再 fork 会被终检抓到
+    await elapseBeyond(crashAt, 600)
     expect(forkRecords.length).toBe(2) // 首启 + 恢复，无第 3 次 fork（修复前 3）
     await manager.stopChild()
   })

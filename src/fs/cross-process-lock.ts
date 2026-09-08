@@ -237,7 +237,27 @@ export function tryAcquireCrossProcessLock(
       }
     } catch (e) {
       const code = (e as NodeJS.ErrnoException).code
-      if (code !== 'EEXIST') throw e // 非冲突类故障（权限/磁盘）上抛，由调用方定语义
+      if (code !== 'EEXIST') {
+        // 重审-10（2026-09-07 全量代码重审 §四.10）：open 'wx' 成功后 writeSync 失败
+        //（ENOSPC 半写等）——fd 在手 = 锁文件是本 attempt 刚创建的残锁，原样上抛后
+        // 残留依赖 STALE_GRACE_MS 500ms 宽限（宽限期内对不可读锁判 held，调用方无谓
+        // 空转重试到超时）+ 陈锁接管自愈，且零留痕。best-effort 删刚创建的残锁（删除
+        // 自身失败仍走既有宽限/接管自愈，不掩盖原始错误）+ warn 留痕后**原样上抛**
+        //（不吞错：权限/磁盘类故障语义仍由调用方定——与「非冲突类故障上抛」口径一致）。
+        if (fd !== undefined) {
+          let cleaned = true
+          try {
+            rmWithRetry(lockPath)
+          } catch {
+            cleaned = false // 清理失败：残留锁仍带活 pid（本进程），走宽限/接管自愈
+          }
+          log.warn(
+            'fs',
+            `锁文件写入 pid 失败（${code ?? '未知错误'}）${cleaned ? '，已清理刚创建的残锁' : '，残锁清理失败（残留交 500ms 宽限 + 陈锁接管自愈）'}：${lockPath}`,
+          )
+        }
+        throw e // 非冲突类故障（权限/磁盘）上抛，由调用方定语义
+      }
       const first = judgeStaleLock(lockPath, isAlive, grace, maxHeld)
       if (first === 'held') return null
       if (first === 'gone') continue // 刚被释放——下轮重试创建
@@ -250,6 +270,14 @@ export function tryAcquireCrossProcessLock(
       // 重建（新持有者在位 / 年轻空锁）。重判仍 stale 才删；判定翻转 → 放弃本轮重来
       // （下轮重试创建，按新持有者重新评估）。窗口收窄到 µs 级，残余窗口见模块头注。
       if (judgeStaleLock(lockPath, isAlive, grace, maxHeld) !== 'stale') continue
+      // 重审-10：陈锁接管留痕——持有进程已死/超龄不可读的锁被接管清理此前零 warn
+      //（自愈发生但无迹可查，双 contender/崩溃恢复场景无从诊断）；带原持有 pid（读取
+      // 失败容错为「pid 不可读」）后照旧清理重试。
+      const staleHolderPid = readHolderPid(lockPath)
+      log.warn(
+        'fs',
+        `陈锁接管：持有进程${staleHolderPid !== null ? `（pid=${staleHolderPid}）` : '（pid 不可读——超龄半写/损坏）'}已死或超龄，接管清理后重试创建：${lockPath}`,
+      )
       // 持有进程已死（或超龄仍不可读——创建即崩溃的半写兜底）：接管清理重试
       // 重评-12（全库代码重评审 2026-09-05）：接管清理删除收编 fs/atomic.ts rmWithRetry
       //（R42-10 trash.ts 先例、本文件 rmWithRetryQuiet 同族）——win 杀软/索引器对死进程

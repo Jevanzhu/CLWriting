@@ -29,6 +29,9 @@ declare global {
       setTitleBarOverlay: (o: { color?: string; symbolColor?: string; dark?: boolean }) => Promise<void>
       /** 订阅窗口全屏态变化（系统手势退出全屏时回调 false），返回退订函数 */
       onFullScreenChange: (cb: (fullscreen: boolean) => void) => () => void
+      /** 订阅「写作服务已自动重启/自愈成功」广播（参数=恢复的钉住端口；渲染层
+       *  sse.resync() 主动重连），返回退订函数 */
+      onServerRestarted: (cb: (port: number) => void) => () => void
       /** 弹原生右键菜单（items=菜单项定义；cb=选择回调，取消收到 null） */
       showContextMenu: (
         items: Array<{

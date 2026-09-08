@@ -70,10 +70,12 @@ describe('R30-3：ai-calls 跨进程锁等待改异步', () => {
     expect(() => recordAiCall(bookRoot, 3, { inputTokens: 1, outputTokens: 1 })).not.toThrow()
     await sleep(40)
     expect(timerFired).toBe(true) // 等待期间事件循环可响应
-    await sleep(120) // 越过 80ms 超时 → 写段失败
+    // 重审-18（2026-09-07 全量代码重审 §四.18）：原 sleep(120) 真实睡眠定长追赶注入的
+    // 80ms 锁超时——慢机/事件循环停滞下竞速翻车；改小步轮询直到超时 warn 留痕落地
+    // （deadline 2s 到点未达即红：「超时未触发」的回归仍能被抓到，语义不弱化）
+    const warnText = () => warn.mock.calls.map((a) => a.map(String).join(' ')).join('\n')
+    await vi.waitFor(() => expect(warnText()).toContain('超时'), { timeout: 2_000, interval: 5 })
     expect(existsSync(callsFp)).toBe(false) // 本轮账目未记（避免交错覆盖丢账的保守口径不变）
-    const warnText = warn.mock.calls.map((a) => a.map(String).join(' ')).join('\n')
-    expect(warnText).toContain('超时')
     release!()
     warn.mockRestore()
   }, 15_000)

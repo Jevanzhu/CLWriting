@@ -521,9 +521,14 @@ export function exportBook(options: ExportOptions): ExportResult {
       }
     }
   } catch (e) {
+    // 重审-09（2026-09-07 全量代码重审 §四.9）：错误信封回填已落盘产物——原 `files: []`
+    // 清零让 merged+split 双模式中途失败时盘上已落的部分产物无列表（调用方/作者无从
+    // 核对半产物）。回填累积的 files：split 项 push 紧随成功 atomicWriteFile 之后 ⟺
+    // 已落盘；merged 名仅在 atomicWriteStream 完整发布后 unshift（中途失败 tmp 自
+    // 清理、目标不在盘），不虚列。
     return {
       ok: false,
-      files: [],
+      files,
       chapterCount: 0,
       unit: '章',
       skippedDrafts,
@@ -600,9 +605,11 @@ export function exportBook(options: ExportOptions): ExportResult {
     files.push(`工作区/导出/${submissionName}`)
   }
   } catch (e) {
+    // 重审-09（2026-09-07 全量代码重审 §四.9）同族收口：投稿视图写失败时 merged/split
+    // 产物均已完整落盘，错误信封回填累积的 files（原 `files: []` 清零，同主写入 catch）。
     return {
       ok: false,
-      files: [],
+      files,
       chapterCount: 0,
       unit: '章',
       skippedDrafts,

@@ -86,16 +86,11 @@ function onBodyChange(next: string): void {
     doc.patch(e.docId, merged)
     return
   }
-  // R31-30（三十一轮）：mergeFm 吞前导空行造成「编辑器变了、store 不变」的静默丢失窗
-  //——正文首行回车是 ghost（CM6 有行、store/磁盘永不记录，外部同步/切文档时视觉跳回）。
-  // 按编辑器为准补笔：typed 前导换行作为正文真实内容原样落（fm 分隔照常单行收敛），
-  // store 与 CM6 一致，重载后 ghost 不再消失（展示层剥前导空行的既有口径不变）。
-  // R36-6 起编辑路径不再剥前导，本分支仅剩兜底：merged === content 即 next 与当前
-  // body 逐字一致，此处 patch 的是同串（doc.patch 对同内容 no-op），无行为残留。
-  if (next.startsWith('\n')) {
-    const fm = splitFrontmatter(e.content)
-    if (fm) doc.patch(e.docId, `---\n${fm.fmRaw}\n---\n\n${next}`)
-  }
+  // 批2-B（2026-09-07 全量代码重审 批2-B）：删除 R31-30 时代 `next.startsWith('\n')` 的
+  // 补笔兜底分支——R36-6 起编辑路径不剥前导后，落至此处即 merged === e.content，而该
+  // 分支构造串 `---\n${fmRaw}\n---\n\n${next}` 与 mergeFm(e.content, next,
+  // { stripLeading: false }) 逐字节同构（同源 splitFrontmatter + 同模板），patch 同串
+  // 恒为 no-op（doc.patch 对同内容早退），纯死代码。
 }
 // R64-33（十二轮）：字数与服务端/右栏同源（countWords：码点计数 + 剥 markdown 标记）——
 // 旧「去空白 UTF-16 计数」与右栏同屏可稳定不一致（markdown 标记/代理对字符）

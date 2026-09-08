@@ -100,6 +100,15 @@ describe('kk-P2-8：preload 订阅通道', () => {
     expect(M.removed.some(([ch]) => ch === 'desktop:menu-action')).toBe(true)
   })
 
+  it('onServerRestarted：回调收到恢复端口，退订生效（重审-3）', () => {
+    const got: number[] = []
+    const off = (M.exposed!['onServerRestarted']! as (cb: (p: number) => void) => () => void)((p) => got.push(p))
+    M.listeners['desktop:server-restarted']![0]!({}, 45678)
+    expect(got).toEqual([45678])
+    off()
+    expect(M.removed.some(([ch]) => ch === 'desktop:server-restarted')).toBe(true)
+  })
+
   it('showContextMenu：send 载荷 + once 回传 key', () => {
     const got: Array<string | null> = []
     ;(M.exposed!['showContextMenu']! as (

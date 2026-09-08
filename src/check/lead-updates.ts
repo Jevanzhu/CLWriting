@@ -115,8 +115,16 @@ export function parseLeadUpdateLines(text: string): ChapterLeadUpdate[] {
     // 标题（skipFold=true）→ --- → 普通备注行」中备注折入上一节证据（R33-6 守卫被
     // 绕过：evidenceNeedles 命中必败 → lead-declared-not-done 假红硬阻断定稿，且
     // lead-finalize 把污染证据持久写进履历）。重置收窄到真条目/顶层格式错条目，
-    // 两个静默跳过形态维持 skipFold 现值。
-    if (/^-+$/.test(line) || /^\s/.test(rawLine)) continue
+    // 两个静默跳过形态维持 skipFold 现值（R48-4 口径）。
+    // 重审-06（2026-09-07 全量代码重审 §四.6）：裸 `---` 分隔线升格为小节边界（与
+    // ATX 标题同待遇）——命中即置 skipFoldUntilEntry = true。R48-4 只堵了「标题→---」
+    // 序（分隔线维持守卫现值），条目直接 → `---` → 自由备注行仍折入上一条证据（同款
+    // 污染链路）。嵌套子列表行维持 R48-4 口径（守卫现值不变——真条目的子项语境）。
+    if (/^-+$/.test(line)) {
+      skipFoldUntilEntry = true
+      continue
+    }
+    if (/^\s/.test(rawLine)) continue
     skipFoldUntilEntry = false
     // - <编号> <动词>：<证据>
     const m = line.match(/^-\s*(\S+)\s+([^\s:：]+)[:：]\s*(.+)$/)

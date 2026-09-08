@@ -17,7 +17,7 @@
  *
  * 用法：npm run check:knowledge（退出码 1 = 失配，并列出问题）
  */
-import { existsSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, statSync, type Dirent, type Stats } from 'node:fs'
 import { join, relative, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { validateKnowledgeManifest, KNOWLEDGE_DIR, type KnowledgeManifest } from '../src/knowledge/manifest.js'
@@ -36,15 +36,46 @@ const root = fileURLToPath(new URL('..', import.meta.url))
  *  非知识资产（同迁移链「.DS_Store 等照旧忽略，不制造噪音」口径）。 */
 function collectKnowledgeAssetFiles(dir: string): string[] {
   const out: string[] = []
-  for (const en of readdirSync(dir, { withFileTypes: true })) {
+  let dirents: Dirent[]
+  try {
+    dirents = readdirSync(dir, { withFileTypes: true })
+  } catch (e) {
+    // 批2-6（2026-09-07 全量代码重审 批2）：TOCTOU 容错，对齐 check-counts.mjs
+    // F-2 口径——父目录 Dirent 判型后、递归 readdir 前目录被并发移走（ENOENT）或
+    // 路径段被换成文件（ENOTDIR）→ console.warn 留痕后跳过（失败方向 fail-closed
+    // 不变：跳过只损诊断面）；其余错误照抛（不吞真故障、不假绿）。
+    const code = (e as NodeJS.ErrnoException).code
+    if (code === 'ENOENT' || code === 'ENOTDIR') {
+      console.warn(`check:knowledge 反向扫描跳过不可读目录（${code}）：${dir}`)
+      return out
+    }
+    throw e
+  }
+  for (const en of dirents) {
     if (en.name.startsWith('.')) continue // 隐藏文件/目录：非知识资产（噪音豁免）
     const p = join(dir, en.name)
     if (en.isDirectory()) {
       out.push(...collectKnowledgeAssetFiles(p))
-    } else if (en.isSymbolicLink() && statSync(p).isDirectory()) {
-      // 指向目录的 symlink：反向扫描无法保证其子树资产可见（且环路/越界不可判）——
-      // fail-closed 拒绝；断链 symlink 的 statSync 抛错同样未捕获即非零退出
-      throw new Error(`知识层内发现指向目录的 symlink：${p}（反向扫描 fail-closed：请改为实体目录或删除后重跑）`)
+    } else if (en.isSymbolicLink()) {
+      let st: Stats
+      try {
+        st = statSync(p)
+      } catch (e) {
+        // 批2-6：同上 TOCTOU 容错——readdir 后条目被并发移走/路径段被换（永久断链
+        // symlink 同为 ENOENT 形态，随消失口径 warn 跳过留痕）；其余错误照抛
+        const code = (e as NodeJS.ErrnoException).code
+        if (code === 'ENOENT' || code === 'ENOTDIR') {
+          console.warn(`check:knowledge 反向扫描跳过消失条目（${code}）：${p}`)
+          continue
+        }
+        throw e
+      }
+      if (st.isDirectory()) {
+        // 指向目录的 symlink：反向扫描无法保证其子树资产可见（且环路/越界不可判）——
+        // fail-closed 拒绝
+        throw new Error(`知识层内发现指向目录的 symlink：${p}（反向扫描 fail-closed：请改为实体目录或删除后重跑）`)
+      }
+      out.push(p)
     } else {
       out.push(p)
     }

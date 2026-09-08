@@ -285,6 +285,16 @@ const serverManager = createStudioServerManager({
   // 收口窗口内用户真退出（before-quit 链置位 appTearingDown）则放弃恢复，不在退出
   // 链上 fork 新 child 成孤儿（S-5/S1 同向）
   isProcessExiting: () => appTearingDown,
+  // 重审-3（2026-09-07 全量代码重审 §四.3）：重启成功广播——崩溃自动重启
+  // （doRestart）/session-end 自愈（restartPinned）钉住端口拉回成功后，向全部存活
+  // 窗口发 desktop:server-restarted；渲染层（Book.vue 订阅）sse.resync() 立即断旧
+  // 连新 + 重取连接级 sync 快照。此前自愈成功 UI 无感知，SSE 只能等自身退避重连，
+  // 「服务已恢复但界面不动」的盲窗随退避时长展开。
+  onRestarted: (port) => {
+    for (const win of [mainWindow, shelfWindow, libraryWindow]) {
+      if (win && !win.isDestroyed()) win.webContents.send('desktop:server-restarted', port)
+    }
+  },
   onRestartExhausted: () => {
     // 同步对话框：崩溃风暴路径上无在途状态可等，用户决断即收口
     const choice = dialog.showMessageBoxSync({
@@ -507,6 +517,11 @@ function canSwitchLibraryDir(dir: string): boolean {
  *  不再进同步守卫（失联网络卷上 statSync 单点即可冻主进程数十秒）。可注入（测试快进）。 */
 const SWITCH_LIBRARY_PROBE_TIMEOUT_MS = Number(process.env['CLW_SWITCH_LIBRARY_PROBE_TIMEOUT_MS']) || 2_000
 
+/** 重审-1（2026-09-07 全量代码重审 §四.1）：bootstrap 工作目录定位预探超时——
+ *  store.current / 运行目录指向失联网络卷时，bootstrap 的 statSync / findWorkDir
+ *  同步扫描冻主进程（R54-A-2 切库同族的启动侧入口）。可注入（测试快进）。 */
+const BOOTSTRAP_PROBE_TIMEOUT_MS = Number(process.env['CLW_BOOTSTRAP_PROBE_TIMEOUT_MS']) || 2_000
+
 /** 预探超时哨兵（Promise.race reject 载体——stat 的真实异常都带 errno code，唯超时无）。 */
 const PROBE_TIMEOUT = Symbol('switch-library-probe-timeout')
 
@@ -522,14 +537,16 @@ type DirReachability = 'ok' | 'unreachable' | 'invalid'
  * 三态分诊：'ok' = stat 通过；'unreachable' = 超时（失联卷挂死面，唯一冻结形态）；
  * 'invalid' = stat 确定性快速失败（ENOENT/EACCES/ENOTDIR 等，不构成冻结面）——
  * 交回同步守卫走原「目录无效」契约文案，不把普通坏路径误报成网络卷不可达。
+ * 重审-1：timeoutMs 参数化——bootstrap 侧预探复用同一函数但走独立超时注入
+ * （CLW_BOOTSTRAP_PROBE_TIMEOUT_MS），与切库 knob 解耦。
  */
-async function probeDirReachable(dir: string): Promise<DirReachability> {
+async function probeDirReachable(dir: string, timeoutMs: number = SWITCH_LIBRARY_PROBE_TIMEOUT_MS): Promise<DirReachability> {
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     await Promise.race([
       stat(dir),
       new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(PROBE_TIMEOUT), SWITCH_LIBRARY_PROBE_TIMEOUT_MS)
+        timer = setTimeout(() => reject(PROBE_TIMEOUT), timeoutMs)
       }),
     ])
     return 'ok'
@@ -988,18 +1005,34 @@ async function bootstrap(): Promise<void> {
   let workDir: string | null = null
   // R72-10（二十轮 D-1）：持久化 workDir 由仅 existsSync 改目录校验——指向普通文件时
   // 原样采信会静默空书架无引导；失效回落 findWorkDir(cwd)，仍无 → /welcome 引导
-  const currentIsDir = (() => {
-    if (!store.current) return false
-    try {
-      return statSync(store.current).isDirectory()
-    } catch {
-      return false
+  // 重审-1（2026-09-07 全量代码重审 §四.1）：current 先经可达性预探——指向失联网络卷
+  // （挂载点在服务器无响应态）时，下方 statSync 单点即可同步冻主进程数十秒
+  // （R54-A-2 切库同族的启动侧入口）。'unreachable' 原生错误框留痕 + 回落发现链
+  // （不退出——作者可切到可用书库）；'invalid'（确定性坏路径）与预探通过后的瞬断
+  // 均维持原回落语义（TOCTOU 残窗与切库预探同口径收窄，非消灭）。
+  if (store.current) {
+    const reach = await probeDirReachable(store.current, BOOTSTRAP_PROBE_TIMEOUT_MS)
+    if (reach === 'ok') {
+      try {
+        if (statSync(store.current).isDirectory()) workDir = store.current
+      } catch {
+        /* 预探通过后的瞬断 → 走回落 */
+      }
+    } else if (reach === 'unreachable') {
+      dialog.showErrorBox(
+        '书库目录无响应',
+        `上次的书库目录暂不可达（可能是网络卷无响应或已断开）：\n${store.current}\n\n本次启动改为自动寻找可用书库；恢复挂载后可在「书库管理」切回。`,
+      )
     }
-  })()
-  if (store.current && currentIsDir) {
-    workDir = store.current
-  } else {
-    workDir = findWorkDir(process.cwd())
+  }
+  if (!workDir) {
+    // 重审-1 同款防线：findWorkDir 同步爬祖扫描——cwd 也在失联卷上时同样冻结主进程，
+    // 预探不可达即跳过发现（workDir 留 null → /welcome 引导，维持「启动零弹选择器」口径）
+    if ((await probeDirReachable(process.cwd(), BOOTSTRAP_PROBE_TIMEOUT_MS)) !== 'unreachable') {
+      workDir = findWorkDir(process.cwd())
+    } else {
+      dialog.showErrorBox('运行目录无响应', '应用运行目录暂不可达（可能位于已断开的网络卷），本次启动进入引导页；恢复挂载后重启应用即可。')
+    }
   }
   // P5-服务端（第七轮）：记录 bootstrap 实际采用的 workDir——before-quit 原先回读
   // readStore().current，store.current 为 null/失效而 workDir 由 findWorkDir 发现时，
@@ -1339,11 +1372,20 @@ function registerIpc(): void {
   // 书库管理窗口拿到与实际运行不一致的展示口径
   ipcMain.handle('desktop:get-current', () => currentWorkDir())
   // 在系统文件管理器中显示文档（electron only；浏览器版前端隐藏此项）
-  ipcMain.handle('desktop:show-in-folder', (_e, bookName: unknown, relPath: unknown) => {
+  // 重审-2（2026-09-07 全量代码重审 §四.2）：三入口（show-in-folder/open-book-dir/
+  // open-library-dir）readBooks/realpathSync 同步扫书库——书库在失联网络卷时一点
+  // 即冻主进程（R54-A-2/R61-B-1 切库链同款防线补齐）：handler 改 async，先经
+  // probeDirReachable 预探，'unreachable' 原生错误框 + return（'invalid' 落回原
+  // 静默守卫语义——readBooks/realpath 失败本就按「无物可开」收口）。
+  ipcMain.handle('desktop:show-in-folder', async (_e, bookName: unknown, relPath: unknown) => {
     if (typeof bookName !== 'string' || typeof relPath !== 'string') return
     if (relPath.includes('\0')) return
     const workDir = currentWorkDir() // M-3（第八轮）：bootstrap 实际值优先
     if (!workDir) return
+    if ((await probeDirReachable(workDir)) === 'unreachable') {
+      dialog.showErrorBox('目录无响应', '书库目录暂不可达（可能是网络卷无响应或已断开），请稍后重试。')
+      return
+    }
     const entry = readBooks(workDir).find((b) => b.name === bookName)
     if (!entry) return
     // 防路径穿越：relPath 必须落在 bookRoot 内（批 6 统一：resolveWithinRoot =
@@ -1357,10 +1399,15 @@ function registerIpc(): void {
     if (existsSync(safe.abs)) shell.showItemInFolder(safe.abs)
   })
   // 在系统文件管理器中打开书库根目录（设置弹窗「打开书库目录」入口；浏览器版前端隐藏）
-  ipcMain.handle('desktop:open-book-dir', (_e, bookName: unknown) => {
+  // 重审-2：同 show-in-folder——readBooks 同步扫书库前的失联卷预探
+  ipcMain.handle('desktop:open-book-dir', async (_e, bookName: unknown) => {
     if (typeof bookName !== 'string' || bookName.includes('\0')) return
     const workDir = currentWorkDir() // M-3（第八轮）：bootstrap 实际值优先
     if (!workDir) return
+    if ((await probeDirReachable(workDir)) === 'unreachable') {
+      dialog.showErrorBox('目录无响应', '书库目录暂不可达（可能是网络卷无响应或已断开），请稍后重试。')
+      return
+    }
     const entry = readBooks(workDir).find((b) => b.name === bookName)
     if (!entry) return
     // 路径校验：entry.path 来自 books.jsonl，防 `..`/symlink 越出 workDir 打开任意目录
@@ -1425,9 +1472,14 @@ function registerIpc(): void {
     })
   })
   // 在系统文件管理器中打开当前书库根目录
-  ipcMain.handle('desktop:open-library-dir', () => {
+  // 重审-2：同 show-in-folder——realpathSync 同步解析前的失联卷预探
+  ipcMain.handle('desktop:open-library-dir', async () => {
     const workDir = currentWorkDir() // M-3（第八轮）：bootstrap 实际值优先
     if (!workDir) return
+    if ((await probeDirReachable(workDir)) === 'unreachable') {
+      dialog.showErrorBox('目录无响应', '书库目录暂不可达（可能是网络卷无响应或已断开），请稍后重试。')
+      return
+    }
     // ii 批：与 open-book-dir 同口径——realpath 解析后再开（store.current 持久化值若被
     // 改成指向外部的 symlink/失效路径，不再原样透传给 shell.openPath）
     try {

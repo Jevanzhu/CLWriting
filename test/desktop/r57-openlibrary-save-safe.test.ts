@@ -52,6 +52,13 @@ vi.mock('electron', () => {
     on(evt: string, fn: (...a: unknown[]) => void): void {
       ;(this.handlers[evt] ??= []).push(fn)
     }
+    // 重审-1：launch 在 ready 后 proc.once('exit') 登记 exit 观察者（server-manager
+    // R58-B-1 稳定窗句柄清除）——本假件原先缺 once，bootstrap 在本文件其实一直
+    // 静默失败（TypeError → onError quit），仅因失败 quit 恒落在用例 quit 基线快照
+    // 之前被掩盖；bootstrap 预探引入真实 IO 后时序位移暴露。补齐让启动链真成功。
+    once(evt: string, fn: (...a: unknown[]) => void): void {
+      this.on(evt, fn)
+    }
     emit(evt: string, ...a: unknown[]): void {
       for (const fn of [...(this.handlers[evt] ?? [])]) fn(...a)
     }

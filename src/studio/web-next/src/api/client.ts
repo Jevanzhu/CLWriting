@@ -107,6 +107,10 @@ export async function apiFetch(
   init: RequestInit = {},
   _retried = false,
   _gauge?: TimeoutGauge,
+  /** 重审-15（2026-09-07 全量代码重审 §四.15）：「本响应来自重放」出参——apiJson 据此
+   *  区分「重放仍 401/403」（登录态失效，换统一文案）与「不重放透传」（r28-client-cancel
+   *  锁定的信封原样口径）。仅本模块内部传参，外部调用面不受影响。 */
+  _replayed?: { yes: boolean },
 ): Promise<Response> {
   const method = (init.method ?? 'GET').toUpperCase()
   const headers = new Headers(init.headers)
@@ -133,7 +137,9 @@ export async function apiFetch(
       // 无条件 cancel 把响应体提前作废，信封解析失败被伪造成「本地服务未连接」，
       // 掩盖服务端真实错误。
       r.body?.cancel().catch(() => {})
-      return apiFetch(path, init, true, _gauge)
+      // 重审-15（2026-09-07 全量代码重审 §四.15）：标记本请求发生过重放（出参带回 apiJson）
+      if (_replayed) _replayed.yes = true
+      return apiFetch(path, init, true, _gauge, _replayed)
     }
   }
   return r
@@ -145,6 +151,12 @@ export async function apiFetch(
  *  修复史同形态）。慢端点（AI 分析/收割/流式生成）均已显式配更大档（60s/120s/300s），
  *  显式值优先于默认；30s 对本地毫秒级操作是纯兜底，无误杀面。 */
 export const API_DEFAULT_TIMEOUT_MS = 30_000
+
+/** 重审-15（2026-09-07 全量代码重审 §四.15）：重放（re-boot 换新 token 后重发）仍
+ *  401/403 的统一友好文案——boot 重试与重放双失败说明登录态失效且自动恢复已尽力，
+ *  不再透传服务端原始错误串（「token 无效」等工程口径），由 apiJson 单点统一出口
+ *  （此前各调用方凭 friendlyError 分散兜底、文案不一）。 */
+const AUTH_BROKEN_MESSAGE = '本地服务连接异常（登录态失效），请刷新页面或重启应用'
 
 export async function apiJson<T>(
   path: string,
@@ -184,7 +196,10 @@ export async function apiJson<T>(
     // 是死代码（controller 恒已创建，左侧永真）——删除。外部 init.signal 的取消语义已由
     // 上方联动机制完整覆盖（外部 abort → controller.abort，settle 后摘监听器），apiFetch
     // 收到的恒是内部 signal，不存「未传 controller 就透传原 signal」的分支。
-    const r = await apiFetch(path, { ...init, signal: controller.signal }, false, gauge)
+    // 重审-15（2026-09-07 全量代码重审 §四.15）：重放标记出参——apiFetch 内部 token 变化
+    // 重发时置位，供下方 !r.ok 分支区分「重放仍 401/403」与「不重放透传」。
+    const replayed = { yes: false }
+    const r = await apiFetch(path, { ...init, signal: controller.signal }, false, gauge, replayed)
     // 错误信封判别（dv-01）：服务端错误统一走 {code, error} JSON 信封（error-envelope 门禁）。
     // 检出空体/裸文本 5xx（dev Vite proxy 在 7878 未起时返回 502 空体；反代口子同形态）——
     // 这类「本地 API 服务未连接」不是 AI 提供方故障，不能套 friendlyError 的 AI 文案
@@ -226,6 +241,15 @@ export async function apiJson<T>(
       body = {} as T & { error?: string; code?: string }
     }
     if (!r.ok) {
+      // 重审-15（2026-09-07 全量代码重审 §四.15）：重放后仍 401/403 → message 换统一
+      // 友好文案；status/code 原样保留（useSse 的 dev 诊断等上游 instanceof/状态码/
+      // 机器码分支依赖）。不重放路径（token 未变/为 null：Origin/权限类）不在本分支——
+      // 信封原样透传（r28-client-cancel 已锁）。friendlyError 对两形态均渲染统一文案：
+      // 有信封 code → 结构化优先直出 message；无信封（LOCAL_API_DOWN）→ TECH_PATTERNS
+      // 无命中原样透出。
+      if ((r.status === 401 || r.status === 403) && replayed.yes) {
+        throw new ApiError(AUTH_BROKEN_MESSAGE, r.status, hasEnvelope ? body.code : 'LOCAL_API_DOWN')
+      }
       // 有信封 → 沿用服务端人话/机器码；无信封 → 基础设施故障，给可行动提示（dev 提示先起 dev:api）
       const msg = hasEnvelope
         ? body.error ?? body.code ?? `HTTP ${r.status}`

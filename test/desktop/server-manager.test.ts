@@ -766,6 +766,15 @@ describe('R50-A-4: exit 冲刷接线（manager 全链路）', () => {
 describe('批 U3：崩溃退避自动重启（U-2/S-1/S-5/S-9）', () => {
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
+  /** 重审-18（2026-09-07 全量代码重审 §四.18）：墙钟越过危险窗的轮询等待——定长
+   *  sleep 与真实定时竞速（慢机/事件循环停滞下排程定时迟到即漏检）；小步 poll 持续
+   *  让出事件循环，迟到的定时一到期即被处理。since = 危险窗起点（崩溃/排程时刻），
+   *  越过 windowMs 后由调用方断言——forkRecords 只增不减，窗内任何时刻落地的多余
+   *  fork 都会被终检抓到（语义不弱化）；deadline 5s 到点未越窗即红（防假绿）。 */
+  function elapseBeyond(since: number, windowMs: number): Promise<void> {
+    return vi.waitFor(() => expect(Date.now() - since).toBeGreaterThanOrEqual(windowMs), { timeout: 5_000, interval: 10 })
+  }
+
   /** 起一个 child 并完成握手（fork 在 start 调用内同步发生，取件须在 start 之后） */
   async function bootAt(
     manager: ReturnType<typeof createStudioServerManager>,
@@ -880,10 +889,13 @@ describe('批 U3：崩溃退避自动重启（U-2/S-1/S-5/S-9）', () => {
   it('退避等待窗口内 shutdown：挂起重启作废（退出途中不 fork 孤儿）', async () => {
     const { forkRecords, manager } = mkHarness({ backoffMs: [80, 80, 80] })
     await bootAt(manager, forkRecords, 1)
+    const crashAt = Date.now() // 危险窗起点：挂起重启自此 80ms 后触发
     forkRecords[0]!.child.emit('exit', 1)
     await flushMicrotasks(2) // 排程已挂（80ms 后）
     await manager.shutdown() // active 已空：置门 + 取消挂起重启直通
-    await sleep(200)
+    // 重审-18（2026-09-07 全量代码重审 §四.18）：原 sleep(200) 定长越过 80ms 退避窗
+    // ——改轮询越过危险窗；若作废失效，窗内 fork 会被终检抓到
+    await elapseBeyond(crashAt, 200)
     expect(forkRecords.length).toBe(1)
   })
 
@@ -903,6 +915,7 @@ describe('批 U3：崩溃退避自动重启（U-2/S-1/S-5/S-9）', () => {
   it('显式 start 换轮作废挂起重启；新一轮端口回 0（非钉住）', async () => {
     const { forkRecords, manager } = mkHarness({ backoffMs: [80, 80, 80] })
     await bootAt(manager, forkRecords, 45555)
+    const crashAt = Date.now() // 危险窗起点：挂起重启自此 80ms 后触发
     forkRecords[0]!.child.emit('exit', 1)
     await flushMicrotasks(2) // 挂起 80ms 重启
     const p2 = manager.start({ workDir: '/w2', userDataPath: mkUserData() })
@@ -910,7 +923,9 @@ describe('批 U3：崩溃退避自动重启（U-2/S-1/S-5/S-9）', () => {
     await expect(p2).resolves.toBe(9)
     expect(argValue(forkRecords[1]!.args, '--port')).toBe('0') // 显式 start 永远 OS 分配
     expect(argValue(forkRecords[1]!.args, '--dir')).toBe('/w2')
-    await sleep(200) // 挂起重启已被作废
+    // 重审-18（2026-09-07 全量代码重审 §四.18）：原 sleep(200) 定长越过 80ms 退避窗
+    // ——改轮询越过危险窗；挂起重启若未被作废，窗内 fork 会被终检抓到
+    await elapseBeyond(crashAt, 200)
     expect(forkRecords.length).toBe(2)
   })
 
@@ -922,13 +937,16 @@ describe('批 U3：崩溃退避自动重启（U-2/S-1/S-5/S-9）', () => {
     expect(manager.hasPendingRestart()).toBe(false) // 初始无排程
     await bootAt(manager, forkRecords, 1)
     expect(manager.hasPendingRestart()).toBe(false)
+    const crashAt = Date.now() // 危险窗起点：挂起重启自此 80ms 后触发
     forkRecords[0]!.child.emit('exit', 1) // 崩溃：child 没了但重启已排程（80ms 后）
     await flushMicrotasks(2)
     expect(manager.isRunning()).toBe(false) // 原判据在此返 null → 漏关漏取消
     expect(manager.hasPendingRestart()).toBe(true)
     await manager.stopChild() // 无 active child：直通但必须取消挂起重启
     expect(manager.hasPendingRestart()).toBe(false)
-    await sleep(200)
+    // 重审-18（2026-09-07 全量代码重审 §四.18）：原 sleep(200) 定长越过 80ms 退避窗
+    // ——改轮询越过危险窗；若取消失效，孤儿 fork 会被终检抓到
+    await elapseBeyond(crashAt, 200)
     expect(forkRecords.length).toBe(1) // 重启未落地（无孤儿 fork）
   })
 

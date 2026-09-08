@@ -520,7 +520,11 @@ export const useDocStore = defineStore('doc', () => {
       e.treeRev = useTreeStore().revision
       return true
     } catch {
-      // R30-7（三十轮）：保持既有静默吞错（best-effort 对齐磁盘），仅以 false 上报失败
+      // R30-7（三十轮）：保持既有静默吞错语义的「不上抛」半边（best-effort 对齐磁盘），
+      // 仅以 false 上报失败。重审-16（2026-09-07 全量代码重审 §四.16）：补 UI 面——
+      // 「fm 以服务端为准」的关键对齐路径失败原先完全静默，作者对着过期内容继续操作
+      // 毫无感知；toast warning（同文案 + 同 kind 经 ui.toast 的合并去重天然防刷屏）。
+      useUiStore().toast('文档信息刷新失败，显示内容可能已过期', 'warning')
       return false
     }
   }
@@ -561,7 +565,13 @@ export const useDocStore = defineStore('doc', () => {
           e.baselineRevision = rev
           e.treeRev = curRev
         } catch {
-          /* 静默失败（best-effort 对齐磁盘）：下次树刷新再对账 */
+          /* 重审-16（2026-09-07 全量代码重审 §四.16）：best-effort 对齐磁盘的吞错语义
+             保留（不上抛、不中断其余条目），但不再零 UI 面——失败 toast warning 提示
+             「显示内容可能已过期」（同文案经 ui.toast 合并去重，多文档批量失败不刷屏）；
+             书名守卫防切书后旧书失败提示落新书界面（对齐上方 await 窗口复检）。 */
+          if (bookName.value === book) {
+            useUiStore().toast('文档信息刷新失败，显示内容可能已过期', 'warning')
+          }
         }
       }),
     )

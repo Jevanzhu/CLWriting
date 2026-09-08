@@ -334,7 +334,21 @@ export function __setAiCallsLockTimeoutForTest(ms: number): void {
  *  tryAcquireCrossProcessLock）。返回 undefined = 已同步完成（含同步抛错）；Promise =
  *  在途写段（超时/写失败以 rejection 表达， serializedWrite 旁挂留痕）。
  *  inWriteSegment 进程内串行化语义不变：标志在 doWrite 同步执行段两侧置/清，等待期
- *  （标志为 false）与执行段（标志为 true）对 readRecord 的可观测口径与旧实现一致。 */
+ *  （标志为 false）与执行段（标志为 true）对 readRecord 的可观测口径与旧实现一致。
+ *
+ * 重审-05（2026-09-07 全量代码重审 §四P3/§六批2）记档：R30-3 无争用快路的 doWrite
+ * 为全同步写段（load→mutate→writeRecord，atomicWriteFile 默认 fsync=true：文件内容 +
+ * 父目录两次 fsync）——慢盘/网络盘（SMB/NAS 挂载）上单次毫秒~百毫秒级阻塞事件循环，
+ * 承载 SSE 与全部接口的 studio 服务进程同步冻结，是**已知代价的既定取舍**，不按 bug
+ * 处理。权衡理由：①「记完即读」——recordTaskUsage/recordAiCall 返回即账已落盘，
+ * checkAiCallBudget 的锁内快照读（self-heal 首稿/重写两道闸）与 review.ts
+ * effectiveRemainingCalls 等 A 域外读方无需任何等待协议就能读到刚记的账；②同步错误
+ * 同步上抛——rag recordEmbedUsage / runner recordUsageSafe 的既有同步 try/catch
+ * 降级口径零改动。未来异步化的前置条件（满足前不动）：a. 盘点「记完即读」消费者
+ * 清单并逐一确认无「写返回后立即读必须见新值」依赖（或改等待句柄/版本号协议）；
+ * b. 全部写方（recordTaskUsage / recordAiCall / readRecord 锁内迁移写）统一改返回
+ * Promise 并上溯改造 runner/rag/self-heal 调用链的同步 catch 口径；c. R33-17 保留的
+ * writeChains 排队代码（acquireCrossProcessLockAsync 已在树）即现成接管面。 */
 function writeWithCrossProcessLock(bookRoot: string, doWrite: () => void): void | Promise<void> {
   const lockPath = `${budgetPath(bookRoot)}.lock`
   const fast = tryAcquireCrossProcessLock(lockPath)

@@ -324,6 +324,7 @@ type ChapterRun =
  * 章间 emit chapter_done（done/total）+ 下一章 chapter_start。
  * 任一章 escalate → 停后续章 + 发 self_heal_batch_progress（done=已完成章数, stoppedAt）。
  * 全绿 → 最后一章直接 return pass（不发多余 done 事件）。
+ * （重审-批2-2：abort 两分支同款发 batch_progress 终点，与 escalate/failed 对齐。）
  */
 async function orchestrateBatch(
   opts: SelfHealOpts,
@@ -357,12 +358,19 @@ async function orchestrateBatch(
   for (let i = 0; i < total; i++) {
     const ch = chapters[i]!
     if (state.ctrl.signal.aborted) {
+      // 重审-批2-2（2026-09-07 全量代码重审 §四P3/§六批2）：abort 两分支对齐 escalate/
+      // failed 补发 self_heal_batch_progress——前端批量进度（workbench 监听该事件）在
+      // 用户中止时缺终点悬停。事件形状与两停法分支一致（done=已完成章数, stoppedAt）；
+      // aborted 语义由 recordPause('aborted') 与 self_heal_result 承载，不新增状态枚举。
+      emit(opts, { type: 'self_heal_batch_progress', done: i, total, stoppedAt: ch })
       recordPause(ch, 'aborted', '用户中止连写')
       return { outcome: 'aborted' }
     }
 
     const run = await runChapter(opts, state, ctx, ch)
     if (run.outcome === 'aborted') {
+      // 重审-批2-2：同上——章内中止同样补发批量进度终点
+      emit(opts, { type: 'self_heal_batch_progress', done: i, total, stoppedAt: ch })
       recordPause(ch, 'aborted', '用户中止连写')
       return { outcome: 'aborted' }
     }

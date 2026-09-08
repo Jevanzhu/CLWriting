@@ -30,6 +30,7 @@
     "check:counts": "node scripts/check-counts.mjs",
     "check:packaging": "node scripts/check-packaging.mjs",
     "check:knowledge": "tsx scripts/check-knowledge.ts",
+    "verify:responses": "tsx scripts/verify-responses-relay.ts",
     "lint": "eslint .",
     "corpus:harvest": "tsx scripts/harvest-corpus.ts",
     "corpus:commit": "tsx scripts/corpus-commit.ts",

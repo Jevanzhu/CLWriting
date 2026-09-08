@@ -77,6 +77,15 @@ contextBridge.exposeInMainWorld('clwritingDesktop', {
       ipcRenderer.removeListener('desktop:fullscreen-change', handler)
     }
   },
+  /** 订阅「写作服务已自动重启/自愈成功」广播（重审-3：child 进程换代后渲染层
+   *  sse.resync() 主动重连续用钉住端口；参数=恢复的端口）。返回退订函数。 */
+  onServerRestarted: (cb: (port: number) => void): (() => void) => {
+    const handler = (_e: IpcRendererEvent, port: number): void => cb(port)
+    ipcRenderer.on('desktop:server-restarted', handler)
+    return () => {
+      ipcRenderer.removeListener('desktop:server-restarted', handler)
+    }
+  },
   /** 弹出原生右键菜单（macOS 原生外观）；选择时回调收到 key，取消收到 null。
    *  二轮复审（低级）：连开第二份菜单前摘掉上一份的 pending once 监听——channel 是
    *  窗口级广播，残留监听会收到新菜单的选择串到旧回调（首条消息双投递） */

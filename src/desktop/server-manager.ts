@@ -139,6 +139,11 @@ export interface ServerManagerDeps {
    * 缺省 'quit'——无接线不盲启（测试/降级态安全缺省）。
    */
   onRestartExhausted?: () => 'restart' | 'quit'
+  /** 重审-3（2026-09-07 全量代码重审 §四.3）：自动重启（doRestart）/session-end
+   *  自愈（restartPinned）钉住端口拉回成功后的广播钩子——main 接线后向存活渲染层
+   *  广播 desktop:server-restarted（渲染层 sse.resync() 主动重连续用同源）。
+   *  缺省无操作——无接线不广播（测试/降级态安全缺省）。 */
+  onRestarted?: (port: number) => void
 }
 
 export interface StartStudioServerOptions {
@@ -236,6 +241,8 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
   // R55-A-1（五十五轮）：自愈等停机收口上限 + 本进程退出探测（缺省见常量/依赖注释）
   const restartShutdownWaitMs = deps.restartShutdownWaitMs ?? RESTART_SHUTDOWN_WAIT_MS
   const isProcessExiting = deps.isProcessExiting ?? (() => false)
+  // 重审-3（2026-09-07 全量代码重审 §四.3）：重启成功广播钩子（缺省无操作）
+  const onRestarted = deps.onRestarted
   let active: ActiveChild | null = null
   let starting: Promise<number> | null = null
   // E-9a（第五十三轮）：在途 start 的关键 opts 快照——并发 start 复用同一轮前校验
@@ -394,6 +401,12 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
     try {
       const got = await starting
       logger.info('server-manager', `studio server 已自动重启（端口 ${got} 钉住）`)
+      // 重审-3：广播钩子隔离——钩子抛错不得伪装成「握手失败」再排一轮重启（服务实际已在跑）
+      try {
+        onRestarted?.(got)
+      } catch (e) {
+        logger.warn('server-manager', 'onRestarted 广播钩子抛错（已忽略）', e)
+      }
     } catch (e) {
       // 重启期握手失败（EXIT/EADDRINUSE 残留端口等）按退避继续（§3.4 时序 3）
       logger.error('server-manager', '自动重启握手失败，按退避序列继续', e)
@@ -684,6 +697,12 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
       try {
         const got = await starting
         logger.info('server-manager', `studio server 已恢复（session-end 观察窗自愈，端口 ${got} 钉住）`)
+        // 重审-3：与 doRestart 成功路径同款广播（钩子隔离同因——抛错不伪装握手失败）
+        try {
+          onRestarted?.(got)
+        } catch (e) {
+          logger.warn('server-manager', 'onRestarted 广播钩子抛错（已忽略）', e)
+        }
         return got
       } catch (e) {
         logger.error('server-manager', 'session-end 自愈重启握手失败（API 不可用，建议重启应用）', e)

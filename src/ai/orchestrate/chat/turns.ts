@@ -29,6 +29,19 @@ import { resolveDraftPath } from '../../../format/draft.js'
 // 低-2（第十轮）：chat 侧改写与 /rewrite 端点共用同一把 task-gate——闸表在
 // studio/server/api/task-gate.ts（纯内存模块、零依赖），从 ai 层引它是共用同一
 // 闸表的最小改（闸表搬层需动 src/studio 多文件，本轮禁区）
+//
+// 批2-5 注释（2026-09-07 全量代码重审 §四P3/§六批2）——分层债记档，维持最小改不修：
+// 债务内容：① 依赖方向倒置——ai 编排域（本文件 chat 改写工具）反向 import 表现层
+// 实现（studio/server/api/task-gate），分层上 ai 是底层、studio 是消费方；② 双向环
+// ——task-gate 的 orchestrationBusyFor 反向聚合 ai 层在途态（isSelfHealRunning/
+// isChatRunning/hasBackgroundTasks/isSpawnRunning），ai↔studio 模块级环（函数级互引、
+// ESM 运行时安全，先例 atomic↔cross-process-lock）；③ 上述「纯内存模块、零依赖」
+// 记账前提已失实——task-gate 现依赖 node:fs / fs/cross-process-lock / ai/log，搬层
+// 成本随其依赖面上升而上涨。重构触发条件（任一命中即搬层）：a. ai 层出现第二处
+// studio/server 反向 import（趋势化坐实分层穿透）；b. task-gate 需引入 studio 侧
+// 重依赖（server token/config 等）把 server 代码拖进 ai 链；c. ai 层出现 studio
+// 之外的第二消费方（如纯 CLI 链）需要同一把闸。届时闸表下沉中性层（闸=「任务并发
+// 状态」域，不属 HTTP 表现），studio 与 ai 两侧同改 import。
 import { acquireTaskGate } from '../../../studio/server/api/task-gate.js'
 // DSH-18：写作技巧包按需加载（read_skill 工具的执行通道）
 import { listSkills, loadSkill } from '../../../process/skills.js'
