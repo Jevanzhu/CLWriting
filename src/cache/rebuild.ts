@@ -27,9 +27,9 @@ import { isMdFileName } from '../format/filename.js' // R42-38（四十二轮）
 import type { ParseError } from '../format/types.js'
 import { walkMdEach } from '../fs/walk-md.js'
 import { log } from '../log/index.js'
-
-/** 基础两类（恒启用，母本第 2.1 节） */
-const BASE_LEAD_TYPES = ['悬念', '感情线'] as const
+// 重评-P2-3（2026-09-09 全量代码重评）：基础两类单源自 install/data.ts（该模块仅
+// type-only import format/types，无环），与 check/runner enabledLeadTypes 共用同一符号
+import { BASE_LEAD_TYPES } from '../install/data.js'
 
 // ── R37-16（三十七轮）：章读 mtime+size 指纹缓存 ──────────────────────────
 // walkMdEach 遍历 textDir 对每章 readChapter 全量同步读（readFile + parseFlat +

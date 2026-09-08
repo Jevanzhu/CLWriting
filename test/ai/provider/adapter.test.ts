@@ -80,6 +80,26 @@ describe('Anthropic 适配器', () => {
     expect(tool).toMatchObject({ type: 'tool', name: 'submit_chapter', input: { 标题: 'x', 正文: 'y' } })
   })
 
+  // 重评-P3-1（2026-09-09 全量代码重评）：非标网关对同一 index 重发 content_block_stop
+  // → stop 消费条目后只产出恰好一个 tool 事件（重复同 id tool_use 会写历史两条、回传 400）
+  it('重复 content_block_stop（同 index 两次）→ 恰好一个 tool 事件', async () => {
+    const client = {
+      messages: {
+        create: fakeSend([
+          { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', name: 'submit_chapter' } },
+          { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: '{"标题":"x"}' } },
+          { type: 'content_block_stop', index: 0 },
+          { type: 'content_block_stop', index: 0 },
+          { type: 'message_delta', usage: { input_tokens: 1, output_tokens: 1 }, delta: { stop_reason: 'tool_use' } },
+        ]),
+      },
+    } as unknown as Anthropic
+    const evs = await collect(createAnthropicProvider(CONF, client), REQ)
+    const tools = evs.filter((e) => e.type === 'tool')
+    expect(tools).toHaveLength(1)
+    expect(tools[0]).toMatchObject({ type: 'tool', name: 'submit_chapter', input: { 标题: 'x' } })
+  })
+
   // 低级项（第六轮）：兼容端点不发 tool_use id → 按 block index 生成兜底（空 id 进
   // 历史会被 tool_result 关联拒绝；对齐 OpenAI 线 P3-Q5 的 call_ 兜底）
   it('低级项：tool_use 缺 id → 兜底 toolu_<index>，不留空串', async () => {

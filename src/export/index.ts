@@ -99,7 +99,10 @@ interface ExportUnit {
  *  代码字面 `#%` 会被误剥——宁误剥字面不泄漏批注（批注可能含剧透/内部备注，
  *  代码字面截断只损失代码展示，二者不对等）。
  *  权衡登记（存留）：`正文 #% 批注`（# 前带空白的贴附写法）与正文字面 `#%` 无法
- *  区分，维持现状不剥（泄漏形态留待批注语法下线后随 W0 收口统一消除），避免误伤正文。 */
+ *  区分，维持现状不剥（泄漏形态留待批注语法下线后随 W0 收口统一消除），避免误伤正文。
+ *  重评-P3-19（2026-09-09 全量代码重评）：行内多个 `#%` 时取**首个满足上述标记形态
+ *  判定的出现位**截断——首处是保留的行中字面（`达标线 #%=95%`）不再掩护其后的紧贴
+ *  真批注；全部出现位均不满足才整行保留（上条存留口径不变）。 */
 /** R41-3（四十一轮）：CJK 字符类与「内容以 CJK 起」判定（批注形态收紧用）。
  *  覆盖：CJK 统一区/部首/注音假名（2E80-9FFF 含 3000-30FF）、谚文（1100-11FF、
  *  AC00-D7AF）、相容表意（F900-FAFF）、全角形式（FF00-FFEF）。 */
@@ -142,16 +145,25 @@ function purifyBody(body: string): string {
         // IR-5 `const a = 1  #% 松散字面`）维持 E-9f 登记口径一律保留；紧贴分支
         // 的 `x = 1#% 中文批注`（前置 ASCII、内容中文）仍按批注剥——宁误剥字面
         // 不泄漏批注的 IR-5 口径不回退。
-        const i = line.indexOf('#%')
-        const isMarker =
-          i !== -1 &&
-          (line.slice(0, i).trim() === '' ||
+        // 重评-P3-19（2026-09-09 全量代码重评）：遍历行内全部 `#%` 出现位，取**首个满足
+        // 上述标记形态判定的位置**截断——只看首个出现位时，首处是保留的行中字面量
+        // （`达标线 #%=95% 才放行正文甲#%批注`）会让整行原样保留，行内后续紧贴真批注
+        // 泄入导出稿；全部出现位均不满足则整行保留（E-9f 存留口径不变）。
+        let cut = -1
+        for (let i = line.indexOf('#%'); i !== -1; i = line.indexOf('#%', i + 1)) {
+          const marker =
+            line.slice(0, i).trim() === '' ||
             (!/\s/.test(line[i - 1]!) &&
-              (CJK_CHAR_RE.test(line[i - 1]!) || CJK_LEAD_RE.test(line.slice(i + 2)))))
+              (CJK_CHAR_RE.test(line[i - 1]!) || CJK_LEAD_RE.test(line.slice(i + 2))))
+          if (marker) {
+            cut = i
+            break
+          }
+        }
         // MP2-4（专项重评二轮修复批）：截断行保留原行尾——replace(/\s+$/) 会把 \r 一并
         // 剥掉，CRLF 正文的截断行此前落成 LF 混行尾（保留行原样带 \r，口径对齐）
         const hadCr = line.endsWith('\r')
-        const out = !isMarker ? line : line.slice(0, i).replace(/\s+$/, '') + (hadCr ? '\r' : '')
+        const out = cut === -1 ? line : line.slice(0, cut).replace(/\s+$/, '') + (hadCr ? '\r' : '')
         return { keep: out.trim() !== '', out }
       })
       .filter((r) => r.keep)
@@ -447,7 +459,7 @@ export function exportBook(options: ExportOptions): ExportResult {
     // R62-15：同章号+同标题（手工复制备份 / 网盘同步副本「xxx 2.md」形态）撞名——
     // 此前 atomicWriteFile 直写同路径幂等替换，chapterCount 与 files 却计两次，两章只
     // 留一章且无提示；改为追加序号后缀保双份并计入 warnings，作者可手动取舍。
-    let fileName = `${prefix}${baseName}.md`
+    const fileName = `${prefix}${baseName}.md`
     // 平台规范化批：导出产物规范形写（正文源自库内章，CRLF 存量可携 \r 残尾——归一后
     // 两台机器的导出产物字节一致，作者侧 diff/比对有基准）
     const payloadOf = (title: string, body: string): string => canonicalizeText(`# ${title}\n\n${body}`)

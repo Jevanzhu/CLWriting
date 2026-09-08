@@ -514,6 +514,47 @@ test('exportBook: 行中带空白的字面 #% 保留；行首/紧贴正文的批
   }
 })
 
+// ── 重评-P3-19（2026-09-09 全量代码重评）：行内多个 #% 取首个满足标记形态位截断 ──────
+
+test('重评-P3-19: 首处合法字面 #% 不掩护行内后续紧贴真批注（评审例）', () => {
+  const root = makeLongBook('混合行书')
+  // 评审例原样：首处 `#%=95%` 是 `#` 前带空白的保留字面，次处紧贴 CJK 是真批注
+  writeLongChapter(root, 1, '同行混合', '达标线 #%=95% 才放行正文甲#%批注\n正常正文')
+  try {
+    exportBook({ bookRoot: root, format: 'merged' })
+    const merged = readFileSync(join(root, '工作区', '导出', '全本-混合行书.md'), 'utf-8')
+    // 首处字面量保留、次处真批注起截断
+    expect(merged).toContain('达标线 #%=95% 才放行正文甲')
+    expect(merged).not.toContain('批注')
+    expect(merged).toContain('正常正文')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('重评-P3-19: 纯字面量多 #% 行不误剥；CRLF 行批注照剥且行尾不残 \\r', () => {
+  const root = makeLongBook('多字面书')
+  writeLongChapter(
+    root,
+    1,
+    '多字面',
+    '达标线 #%=95% 才放行\r\n正文甲#%贴附批注\r\n底线 #%=80% 保底',
+  )
+  try {
+    exportBook({ bookRoot: root, format: 'merged' })
+    const merged = readFileSync(join(root, '工作区', '导出', '全本-多字面书.md'), 'utf-8')
+    // 全字面行（无批注形态出现位）整行保留
+    expect(merged).toContain('达标线 #%=95% 才放行')
+    expect(merged).toContain('底线 #%=80% 保底')
+    // CRLF 行的紧贴批注照剥、正文保留；产物规范形 LF（hadCr 行尾保真 → canonicalize 归一）
+    expect(merged).not.toContain('贴附批注')
+    expect(merged).toContain('正文甲')
+    expect(merged).not.toContain('\r')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 // ── R41-3（四十一轮）：紧贴形态收紧为 CJK 前置——URL `#%XX` 片段不再误剥 ──────
 
 test('R41-3: exportBook: 含 #%% 片段的 URL 原样导出（# 前是 / 非 CJK 不再当批注截断）', () => {

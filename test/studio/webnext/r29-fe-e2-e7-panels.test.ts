@@ -124,10 +124,9 @@ describe('E-2: SearchPanel.open 在途切书 → 跳过 openTab', () => {
     await w.find('input').trigger('keydown.enter')
     await flushPromises()
     await w.find('.result').trigger('click')
-    // 两轮泵：doc.open 链上有 crypto.subtle.digest（宿主异步边界），单轮 flushPromises 不够
-    await flushPromises()
-    await flushPromises()
-    expect(ws.activeDocId).toBe('d1')
+    // 重评修复批（2026-09-09）：doc.open 链上的 crypto.subtle.digest 走真实线程池，
+    // 定值两轮泵在负载下欠泵（偶发 activeDocId 未落）——改轮询等待，越泵即断言成立
+    await vi.waitFor(() => expect(ws.activeDocId).toBe('d1'))
     w.unmount()
   })
 })
@@ -233,10 +232,8 @@ describe('重审-G17: ChapterTreePanel 切书挂起期点树 → onSelect 前置
     const w = mount(ChapterTreePanel, { props: { bookName: '书A' } })
     await flushPromises()
     await w.find('.ci').trigger('click')
-    // 两轮泵：doc.open 链上有 crypto.subtle.digest（宿主异步边界），单轮 flushPromises 不够
-    await flushPromises()
-    await flushPromises()
-    expect(ws.activeDocId).toBe('d1')
+    // 重评修复批（2026-09-09）：同上——crypto 线程池边界改轮询等待，不再赌泵数
+    await vi.waitFor(() => expect(ws.activeDocId).toBe('d1'))
     w.unmount()
   })
 })

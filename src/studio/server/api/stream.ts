@@ -15,7 +15,10 @@ import { log } from '../../../log/index.js' // R43-21（四十三轮）：SSE �
 import { resolveBook } from '../book-context.js'
 import { ensureSession, getDriver, getSession } from '../../../driver/index.js'
 import type { DriverEvent, Session, StudioDriver } from '../../../driver/index.js'
-import { abortSelfHeal, isSelfHealRunning, isChatEmbeddedSelfHealRunning, runSelfHeal } from '../../../ai/orchestrate/self-heal.js'
+// 重评-P3-7（2026-09-09 全量代码重评）：补 __setSelfHealRunningForTest——运行登记正本在
+// ai 层 running Map，watchdog 强释放需清登记；本批文件互斥纪律禁改 src/ai/orchestrate/，
+// 借该既有导出（= running.delete，幂等）完成登记清理（见下方 startStallWatchdog 消费点）
+import { abortSelfHeal, isSelfHealRunning, isChatEmbeddedSelfHealRunning, runSelfHeal, __setSelfHealRunningForTest } from '../../../ai/orchestrate/self-heal.js'
 import { hasBackgroundTasks } from '../../../ai/orchestrate/background.js'
 import { isChatRunning, abortChat, resolveChatConfirm, clearChatHistory, sendChatMessage } from '../../../ai/orchestrate/chat.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
@@ -143,10 +146,13 @@ export function createSseWriter(
  * fire-and-forget 写稿：产物经 runTask 统一编排（mock/provider/中断/错误文案），
  * text 增量经 driver.emit 推 SSE。替代旧 driver.spawnRole 路径。
  * P1-2：ctrl 经 registerCtrl 交给 driver——interrupt() 可 abort 真实请求，isRunning() 判在途。
+ * 重评-P3-7：导出供单测直调 watchdog 行为（同 createSseWriter「导出供单测注入假 res」先例）。
  */
-async function runWriterSpawn(opts: {
+export async function runWriterSpawn(opts: {
   driver: StudioDriver
   mainSession: Session
+  /** 重评-P3-7：watchdog 判定/文案用书名（闸正本 isSpawnRunning 在 ai 层 spawn-registry） */
+  bookName: string
   userDataPath: string | null
   bookRoot: string
   prompt: string
@@ -154,7 +160,35 @@ async function runWriterSpawn(opts: {
   /** Q-5（第十五轮）：GET /draft-prompt 回传的注入源清单 → promptMeta.files 登记 */
   promptFiles: string[]
 }): Promise<void> {
+  // 重评-P3-7：spawn 同款静默挂死兜底——闸正本在 ai 层 spawn-registry，其 hold/release
+  // 是生产导出，强释放直接走 releaseSpawnGate（与 self-heal 借 __set 测试导出不同）。
+  // 进度复位点 = 本地 emit 闭包（text 增量/usage/done/warning/error 全经此回流）。
+  const wd = startStallWatchdog({
+    bookName: opts.bookName,
+    label: '手动写稿',
+    gateHeld: () => isSpawnRunning(opts.bookName),
+    // 一段：既有用户中止路径（/interrupt 对 spawn 的动作 = abort 其在册 ctrl）
+    abortLikeUser: () => {
+      registeredCtrl?.abort()
+    },
+    // 二段：强释放——底层任务未中断，迟到结果按既有迟到覆盖口径处理（runWriterSpawn
+    // 终态 finally 的二次 releaseSpawnGate / unregisterCtrl 均幂等）
+    forceRelease: () => {
+      releaseSpawnGate(opts.bookName)
+      if (registeredCtrl) {
+        opts.driver.unregisterCtrl?.(opts.mainSession, registeredCtrl)
+        registeredCtrl = null
+      }
+      opts.driver.emit?.(opts.mainSession, {
+        type: 'warning',
+        message: '手动写稿长时间无进展，疑似挂起，并发闸已被服务端强制释放（底层任务未中断，迟到结果按既有迟到覆盖口径处理）',
+      })
+    },
+  })
+  // X-P2-11：登记的 ctrl 在终态注销——isRunning 归 false（此前 done 后仍登记，SSE 快照假报「生成中」）
+  let registeredCtrl: AbortController | null = null
   const emit = (ev: DriverEvent): void => {
+    wd.touch() // 重评-P3-7：进度复位（text 增量/usage/done 等一切事件单点经此）
     opts.driver.emit?.(opts.mainSession, ev)
   }
 
@@ -169,12 +203,11 @@ async function runWriterSpawn(opts: {
     }
     emit({ type: 'usage', cost: 0.0001, tokens: 120 })
     emit({ type: 'done', cost: 0.0001, usage: 120, reason: 'success' })
+    wd.cancel() // 重评-P3-7：mock 快路终态撤 watchdog（无泄漏）
     return
   }
 
   const kind = readKind(opts.bookRoot)
-  // X-P2-11：登记的 ctrl 在终态注销——isRunning 归 false（此前 done 后仍登记，SSE 快照假报「生成中」）
-  let registered: AbortController | null = null
   try {
     const out = await runSpec(streamSpec(opts.role, kind), {
       userDataPath: opts.userDataPath,
@@ -183,7 +216,8 @@ async function runWriterSpawn(opts: {
       // Q-5（第十五轮）：注入源清单随 prompt 透传 → llm/call promptMeta.files
       promptFiles: opts.promptFiles,
       register: (ctrl) => {
-        registered = ctrl
+        registeredCtrl = ctrl
+        wd.touch() // 重评-P3-7：ctrl 登记点亦复位
         opts.driver.registerCtrl?.(opts.mainSession, ctrl, 'spawn')
       },
       onReset: () => emit({ type: 'text_reset' }),
@@ -221,7 +255,8 @@ async function runWriterSpawn(opts: {
       emit({ type: 'error', kind: 'provider', message: redactSecret(out.error), recoverable: false })
     }
   } finally {
-    if (registered) opts.driver.unregisterCtrl?.(opts.mainSession, registered)
+    wd.cancel() // 重评-P3-7：终态撤 watchdog（成功/失败/中断统一，clearTimeout 无泄漏）
+    if (registeredCtrl) opts.driver.unregisterCtrl?.(opts.mainSession, registeredCtrl)
   }
 }
 
@@ -234,6 +269,95 @@ function emitSpawnError(driver: StudioDriver, session: Session, e: unknown): voi
     message: redactSecret(e instanceof Error ? e.message : String(e)),
     recoverable: false,
   })
+}
+
+// 重评-P3-7（2026-09-09 全量代码重评）：/auto-write（self-heal）与 /spawn 长任务闸的静默
+// 挂死兜底 watchdog——编排器内部 await 永不 settle 时 isSelfHealRunning / isSpawnRunning
+// 永真 → 本书全部写端点 + 删书/改名（busyGate 同口径）永久 409，仅重启可解。范式参照
+// rag.ts R46-15 watchdog，但不照抄其固定 10min 总时长：self-heal 批量连写合法运行可持续
+// 远超任何固定上限，改「进度复位式计时」——每个编排事件经广播/登记点复位计时，只有
+// 「无任何事件推进的静默时长」超限才判挂起。
+// 阈值推导：编排链静默上界 = 一次 runSpec 全链封套（runner.ts:103 DEFAULT_TIMEOUT_MS
+// = 600_000，tier.timeoutMs 可覆盖；重试 3 次 + 1s→30s 退避全部在该封套内，不叠加），
+// 流式另有 60s 首字节/流间隙超时（gen.ts）兜短，两次 runSpec 之间的本地工序（机检/
+// 落盘）秒级——即默认最大合法静默 ≈ 10min。取 2 × 600s = 20min（≥ 最大静默上界 2 倍）。
+// 作者把档位 timeoutMs 配到 >20min 且全程静默属配置面越界，误中止后果 = 等同作者主动
+// 中断的正常收尾，不破坏互斥语义。
+export const ORCH_STALL_WATCHDOG_MS = 20 * 60_000
+/** 重评-P3-7：中止后宽限期——abort 是异步信号，正常编排会在此内 settle 收尾放闸（无副
+ *  作用）；期满闸仍被占（中止也无法使其 settle，真挂死）才走二段强释放。60s ≫ 信号观察
+ *  回路的微任务/IO 级收尾时延，足够宽。 */
+export const ORCH_STALL_GRACE_MS = 60_000
+
+/** 重评-P3-7：watchdog 句柄——touch=进度推进复位（广播/登记点调用）；cancel=终态撤表
+ *  （双 timer clear，无泄漏；幂等，迟到 settle 的二次 cancel 无害）。 */
+interface StallWatchdog {
+  touch(): void
+  cancel(): void
+}
+
+/**
+ * 重评-P3-7：静默挂死 watchdog（两段式，保互斥优先）。
+ * 一段——静默超 ORCH_STALL_WATCHDOG_MS：走既有用户中止路径（等同作者点 /interrupt），
+ *   log.warn 留痕「疑似挂起已自动中止」；宽限期内闸正常释放则收尾，无副作用。
+ * 二段——宽限期满（ORCH_STALL_GRACE_MS）闸仍被占：rag 式强释放（放闸 + warn 留痕；
+ *   底层任务未中断，迟到结果按既有迟到覆盖口径处理）。
+ * 多次连续任务不叠加：每轮编排独立实例，终态 finally 统一 cancel；fire 时 gateHeld()
+ * 复核兜「已收尾但 finally 未跑」的竞态窗口。
+ */
+function startStallWatchdog(o: {
+  bookName: string
+  /** 日志文案用编排名（「全自动写章」/「手动写稿」） */
+  label: string
+  /** 闸仍占判定（两段共用口径：isSelfHealRunning / isSpawnRunning） */
+  gateHeld: () => boolean
+  /** 一段：既有用户中止路径（调用方对齐 /interrupt 的动作集） */
+  abortLikeUser: () => void
+  /** 二段：强释放（放闸 + 注销 ctrl + 前端告知） */
+  forceRelease: () => void
+}): StallWatchdog {
+  let stall: ReturnType<typeof setTimeout> | undefined
+  let grace: ReturnType<typeof setTimeout> | undefined
+  let aborted = false
+  let done = false
+  const clearStall = (): void => {
+    if (stall !== undefined) {
+      clearTimeout(stall)
+      stall = undefined
+    }
+  }
+  const arm = (): void => {
+    clearStall()
+    stall = setTimeout(() => {
+      stall = undefined
+      if (done || aborted || !o.gateHeld()) return // 已收尾/已中止（竞态兜底）
+      aborted = true
+      log.warn('api', `「${o.bookName}」${o.label}超过 ${ORCH_STALL_WATCHDOG_MS / 60_000} 分钟无任何进度事件，疑似编排器挂起，已自动中止（等同作者中断）；若 ${ORCH_STALL_GRACE_MS / 60_000}s 内仍不收尾将强制释放并发闸`)
+      o.abortLikeUser()
+      grace = setTimeout(() => {
+        grace = undefined
+        if (done || !o.gateHeld()) return // 宽限内已收尾放闸 → 无副作用
+        log.warn('api', `「${o.bookName}」${o.label}自动中止后仍占用并发闸（疑似挂死），已强制释放——底层任务未中断，迟到结果按既有迟到覆盖口径处理`)
+        o.forceRelease()
+      }, ORCH_STALL_GRACE_MS)
+      grace.unref?.()
+    }, ORCH_STALL_WATCHDOG_MS)
+    stall.unref?.()
+  }
+  arm()
+  return {
+    touch: (): void => {
+      if (!aborted && !done) arm() // 中止后事件不再复位（等正常收尾或宽限满强释放）
+    },
+    cancel: (): void => {
+      done = true
+      clearStall()
+      if (grace !== undefined) {
+        clearTimeout(grace)
+        grace = undefined
+      }
+    },
+  }
 }
 
 export function registerStreamRoutes(ctx: StreamCtx): void {
@@ -323,7 +447,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     sseConnections.set(sseName, bookConns)
     // close 回调注册前移至 ensureSession 之前：ensureSession 可抛异常，
     // 若 close 回调在其后才注册 → 计数器泄漏（连遭 DoS 上限）
-    let heartbeat: ReturnType<typeof setInterval> | undefined
+    let heartbeat: ReturnType<typeof setInterval> | undefined = undefined
     let iter: AsyncGenerator<DriverEvent> | undefined
     let clientGone = false
     req.on('close', () => {
@@ -501,6 +625,7 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       void runWriterSpawn({
         driver,
         mainSession,
+        bookName,
         userDataPath: ctx.userDataPath,
         bookRoot: r.bookRoot,
         prompt,
@@ -625,8 +750,49 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     // /interrupt 的 driver.interrupt() 也能直接 abort 在途请求（与 abortSelfHeal 双保险）。
     // X-P2-11：终态注销（finally）——防 done 后快照仍报「生成中」。
     let registered: AbortController | null = null
+    // 重评-P3-7：静默挂死 watchdog（进度复位式 + 两段式处置，设计详见 startStallWatchdog）。
+    const wd = startStallWatchdog({
+      bookName,
+      label: '全自动写章',
+      gateHeld: () => isSelfHealRunning(bookName),
+      // 一段：既有用户中止路径——/interrupt 的动作集同款（abortSelfHeal + driver.interrupt 双保险）
+      abortLikeUser: () => {
+        abortSelfHeal(bookName)
+        const s = getSession(bookName)
+        if (s) driver.interrupt?.(s)
+      },
+      // 二段：强释放。运行登记正本在 ai 层 running Map（本批文件互斥纪律禁改
+      // src/ai/orchestrate/），借其既有导出 __setSelfHealRunningForTest(name,false)
+      // （= running.delete，幂等）完成登记清理 + 同 ctrl 注销防 isRunning 假真；
+      // 迟到编排若日后 settle：其 finally 的 running.delete 同键幂等，迟到结果按
+      // 既有迟到覆盖口径处理。
+      forceRelease: () => {
+        __setSelfHealRunningForTest(bookName, false)
+        if (registered) {
+          driver.unregisterCtrl?.(mainSession, registered)
+          registered = null
+        }
+        driver.emit?.(mainSession, {
+          type: 'warning',
+          message: '全自动写章长时间无进展，疑似挂起，已被服务端强制收尾并释放并发闸（底层任务未中断，迟到结果按既有迟到覆盖口径处理）',
+        })
+      },
+    })
+    // 重评-P3-7：进度复位式计时——编排器一切事件（text/self_heal_*/warning/done…）
+    // 单点经 driver.emit 广播（self-heal.ts emit()），包装 emit 复位 watchdog；
+    // startSession/stream/dispose 为接口必需成员，本路径不触达，原样委托（不散播
+    // this 绑定风险）。
+    const watchedDriver: StudioDriver = {
+      startSession: (cwd, so) => driver.startSession(cwd, so),
+      stream: (s) => driver.stream(s),
+      dispose: (s) => driver.dispose(s),
+      emit: (s, ev) => {
+        wd.touch()
+        driver.emit?.(s, ev)
+      },
+    }
     void runSelfHeal({
-      driver,
+      driver: watchedDriver,
       mainSession,
       userDataPath: ctx.userDataPath!,
       cwd: ctx.workDir!,
@@ -636,11 +802,13 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       ...(chapters ? { chapters } : {}),
       register: (c) => {
         registered = c
+        wd.touch() // 重评-P3-7：ctrl 登记点亦复位
         driver.registerCtrl?.(mainSession, c, 'self-heal')
       },
     })
       .catch((e) => emitSpawnError(driver, mainSession, e))
       .finally(() => {
+        wd.cancel() // 重评-P3-7：终态撤 watchdog（正常完成/中止/失败统一，clearTimeout 无泄漏）
         if (registered) driver.unregisterCtrl?.(mainSession, registered)
       })
 

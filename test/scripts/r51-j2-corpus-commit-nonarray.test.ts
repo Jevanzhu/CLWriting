@@ -71,3 +71,75 @@ test('R51-J-2: 存量为合法数组 → 不受防御影响照常合并（防收
   const merged = JSON.parse(readFileSync(poisoned, 'utf-8')) as Array<{ excerpt: string; expect: string }>
   expect(merged).toEqual([{ excerpt: '雪落在了城墙上', expect: 'silent' }])
 }, 60_000)
+
+// ── 重评-P2-5（2026-09-09 全量代码重评）：R51-J-2 防的是整档非数组，P2-5 补到元素级──
+// 存量「是数组」但元素形状坏（null/字符串）此前在 `existing.map` 处零校验直透：null 元素
+// 裸 TypeError 崩整轮合并循环（无告警无退出哨兵）、字符串元素 excerpt=undefined 静默写回
+// 成回归门输入。口径：坏条丢弃 + 人话告警 + failedExisting 哨兵；全部坏则整档跳过、原文件
+// 保持原样（R51-J-2/R63-11 同款）。
+
+/** 数组毒档夹具：style-repeat 存量写 existingJson，simile-density 走新档（幸存锚点） */
+function setupArrayPoison(existingJson: string): { bookRoot: string; corpusDir: string; poisoned: string } {
+  const bookRoot = mkdtempTracked(join(tmpdir(), 'p25-book-'))
+  const corpusDir = mkdtempTracked(join(tmpdir(), 'p25-corpus-'))
+  const candidate = [
+    '### checkId: style-repeat',
+    '- [x] 章号 1 ｜ 判定：误报 ｜ 摘录："雪落在了城墙上"（第 1 段）',
+    '',
+    '### checkId: simile-density',
+    '- [x] 章号 1 ｜ 判定：误报 ｜ 摘录："纸像蝉翼一样薄"（第 2 段）',
+    '',
+  ].join('\n')
+  mkdirSync(join(bookRoot, '工作区', '语料候选'), { recursive: true })
+  writeFileSync(join(bookRoot, '工作区', '语料候选', '误报候选.md'), candidate, 'utf-8')
+  const poisoned = join(corpusDir, 'style-repeat.json')
+  writeFileSync(poisoned, existingJson, 'utf-8')
+  return { bookRoot, corpusDir, poisoned }
+}
+
+function runCommit(bookRoot: string, corpusDir: string) {
+  return spawnSync('node', ['--import', 'tsx', script, bookRoot, corpusDir], {
+    cwd: join(fileURLToPath(new URL('../../', import.meta.url))),
+    encoding: 'utf-8',
+    stdio: 'pipe',
+  })
+}
+
+test('重评-P2-5: 存量数组含 null 元素 → 不裸崩、人话告警、退出码标红，合法条目照常合并', () => {
+  const { bookRoot, corpusDir, poisoned } = setupArrayPoison(JSON.stringify([{ excerpt: '雪落在了城墙上', expect: 'fire' }, null]))
+  const r = runCommit(bookRoot, corpusDir)
+  // null 元素此前在此裸 TypeError 崩整轮循环——不再崩，且走 failedExisting 尾部哨兵标红
+  expect(r.status).toBe(1)
+  expect(r.stderr).toContain('形状异常')
+  expect(r.stderr).toContain('style-repeat.json')
+  expect(r.stderr).not.toContain('TypeError')
+  // 坏条（null）丢弃、合法条目保留并与新勾选合并（重标以最近一次为准）
+  expect(JSON.parse(readFileSync(poisoned, 'utf-8'))).toEqual([{ excerpt: '雪落在了城墙上', expect: 'silent' }])
+  expect(r.stdout).toContain('完成：2 条入库')
+}, 60_000)
+
+test('重评-P2-5: 存量数组含字符串元素 → 坏条不入库不写回（excerpt=undefined 不落回归门）', () => {
+  const { bookRoot, corpusDir, poisoned } = setupArrayPoison(
+    JSON.stringify(['手滑写坏的纯字符串', { excerpt: '雪落在了城墙上', expect: 'fire' }]),
+  )
+  const r = runCommit(bookRoot, corpusDir)
+  expect(r.status).toBe(1)
+  expect(r.stderr).toContain('形状异常')
+  const merged = JSON.parse(readFileSync(poisoned, 'utf-8')) as Array<{ excerpt: unknown }>
+  // 修复前：字符串元素以 {excerpt: undefined} 形态静默写回；修复后只剩合法条目
+  expect(merged).toEqual([{ excerpt: '雪落在了城墙上', expect: 'silent' }])
+  for (const e of merged) expect(typeof e.excerpt).toBe('string')
+}, 60_000)
+
+test('重评-P2-5: 存量元素全部坏 → 整档跳过原样保留（不静默清空），其余 checkId 照常入库', () => {
+  const { bookRoot, corpusDir, poisoned } = setupArrayPoison(JSON.stringify(['纯字符串', null]))
+  const before = readFileSync(poisoned, 'utf-8')
+  const r = runCommit(bookRoot, corpusDir)
+  expect(r.status).toBe(1)
+  expect(r.stderr).toContain('跳过合并（原文件保持原样')
+  // 毒档保持原样（同 R63-11 口径：不按「只剩新条目」整写覆盖既有回归门档）
+  expect(readFileSync(poisoned, 'utf-8')).toBe(before)
+  // 崩溃/跳过不殃及同轮其余 checkId
+  const sibling = join(corpusDir, 'simile-density.json')
+  expect(JSON.parse(readFileSync(sibling, 'utf-8'))).toEqual([{ excerpt: '纸像蝉翼一样薄', expect: 'silent' }])
+}, 60_000)

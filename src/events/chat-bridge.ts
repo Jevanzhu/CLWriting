@@ -181,7 +181,15 @@ export class SessionRecorder {
 
   /** 落库当前批 → 首尾区间 + 逐事件真实 seq 数组（与批事件一一对应）；无 store 或空批 → null */
   flush(): { first: number; last: number; seqs: number[] } | null {
-    if (!this.store || this.pending.length === 0) return null
+    // 重评-P3-2（2026-09-09 全量代码重评）：内存模式（store=null，openStore 失败降级
+    // 纯内存录制）flush 同样清批内累积——原先早退只返回 null，add 持续 push 的
+    // pending/pendingSurfaceIdx 整场滞留内存；返回 null 语义不变，有 store 路径零改动。
+    if (!this.store) {
+      this.pending = []
+      this.pendingSurfaceIdx = []
+      return null
+    }
+    if (this.pending.length === 0) return null
     // AA-P3-7：血缘 seq 不再用 lastSeq()+批内序号推算（多窗口并发写事件库时 lastSeq()
     // 与落库之间无原子性，可能错链到别的窗口）——INSERT RETURNING 取数据库真实分配的
     // seq，sourceIdxs 批内索引在同一事务内回写解析（R26-20：字段名与全局 seq 语义的

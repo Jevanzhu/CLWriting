@@ -389,11 +389,11 @@ export async function runTask<T>(opts: {
   // DEFAULT_TIMEOUT_MS 回落后的最终值）随 llm/call 落库，铁律②「默认值显式 resolve」
   // 的重放口径补全（此前 trace 仅落 model，重放无法精确重建档位/超时）。mock 快路与
   // 取 provider 失败路径在 resolve 之前，两值 undefined 不入事件
-  let resolvedEffort: string | undefined
-  let resolvedTimeoutMs: number | undefined
+  let resolvedEffort: string | undefined = undefined
+  let resolvedTimeoutMs: number | undefined = undefined
   // Q-13（第十五轮）：首字节超时 resolve 值（gen.generate 同源 resolver——env 纯函数，
   // 进程内确定性；mock 快路与取 provider 失败路径在 resolve 之前，undefined 不入事件）
-  let resolvedFirstByteTimeoutMs: number | undefined
+  let resolvedFirstByteTimeoutMs: number | undefined = undefined
   const trace = (p: {
     model: string
     attempt: number

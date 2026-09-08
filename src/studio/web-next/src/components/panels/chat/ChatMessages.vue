@@ -63,9 +63,11 @@ defineExpose({ scrollToBottom })
 
 // ── 工具确认 ────────────────────────────────────
 
-// R73-64：确认在途按 callId 记集合（Vue 对 Set.add/delete 不响应，重赋值触发——learn store
-// 同款惯例）。原 confirmingCallId 单值把所有待确认卡串行化：多张待确认卡并存时，第二张的
-// 点击被入口静默忽略（按钮虽未禁但毫无反应）；改为同卡防重、跨卡并行。
+// R73-64：确认在途按 callId 记集合（Vue 3 对 Set.add/delete 本身就有响应式插桩，
+// add/delete 直接触发依赖更新——SampleCandidateList 的 expandedGroups 即直接依赖；
+// 此处逐次重赋新 Set 属防御性惯例而非响应性必需）。原 confirmingCallId 单值把所有
+// 待确认卡串行化：多张待确认卡并存时，第二张的点击被入口静默忽略（按钮虽未禁但
+// 毫无反应）；改为同卡防重、跨卡并行。
 const confirmingCallIds = ref<Set<string>>(new Set())
 
 async function handleConfirm(callId: string, ok: boolean): Promise<void> {

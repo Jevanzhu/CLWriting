@@ -45,14 +45,14 @@ const lastEdited = computed(() => {
   return ts.length ? new Date(Math.max(...ts)).toISOString() : null
 })
 
-// Esc：确认弹窗 → 建书 → 批量模式（逐级收）
+// Esc：建书 → 批量模式（逐级收）；删除确认弹窗的 Esc 由组件自持（重评-P3-18，
+// capture 先于本 handler 且 stopPropagation，不会再落到这里）
 function onKeydown(e: KeyboardEvent): void {
   // R75-E-P3e：IME 组合期 Esc 让渡（CommandPalette R61-3 先例）——搜索框收输入法
   // 候选框的 Esc 不应收弹窗/退出批量（isComposing || keyCode 229 单源判据）
   if (isImeComposing(e)) return
   if (e.key === 'Escape') {
-    if (confirmTarget.value) cancelDelete()
-    else if (showCreate.value) showCreate.value = false
+    if (showCreate.value) showCreate.value = false
     else if (batchMode.value) exitBatch()
   }
 }

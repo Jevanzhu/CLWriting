@@ -810,24 +810,28 @@ describe('kk-P2-8：原生菜单与 second-instance', () => {
     expect(sent[1]).toBe('new-book')
   })
 
-  it('second-instance --book 直进：解析登记书 → 主窗导航 + 聚焦', () => {
+  // 重评-P3-11（2026-09-09 全量代码重评）：直进链补 probeDirReachable 预探——活卷上
+  // stat 走 statSync 同步垫底（微任务级），导航不再同步发生，断言前冲刷一拍
+  it('second-instance --book 直进：解析登记书 → 主窗导航 + 聚焦', async () => {
     const h = M.appOn['second-instance']![0]!
     const win = mainWin()
     const n0 = win.webContents.sent.length
     h({}, ['electron', '--book', '书A'])
+    await new Promise((r) => setImmediate(r)) // 预探微任务冲刷（statSync 垫底口径）
     const sent = win.webContents.sent[n0]!
     expect(sent[0]).toBe('desktop:navigate')
     expect(sent[1]).toBe(`/book/${encodeURIComponent('书A')}`)
-    expect(win.focused).toBeGreaterThan(0)
+    expect(win.focused).toBeGreaterThan(0) // 聚焦不受预探影响（handler 尾部同步执行）
   })
 
   // P3（打包修复批）：启动早期/书未登记时的 --book 忽略路径原为静默——必须留痕
-  it('second-instance --book 未匹配登记书：无导航 + info 留痕含书名（不再静默吞）', () => {
+  it('second-instance --book 未匹配登记书：无导航 + info 留痕含书名（不再静默吞）', async () => {
     const h = M.appOn['second-instance']![0]!
     const win = mainWin()
     const n0 = win.webContents.sent.length
     const infos0 = M.logInfos.length
     h({}, ['electron', '--book', '不存在的书'])
+    await new Promise((r) => setImmediate(r)) // 预探微任务冲刷
     expect(win.webContents.sent.length).toBe(n0) // 无导航（行为不变）
     const line = M.logInfos[infos0] as unknown[]
     expect(line![1]).toContain('不存在的书') // 留痕含被忽略的 --book 值
@@ -2236,6 +2240,40 @@ describe('R54-A-1/A-2: flush 超时留痕 + switch-library 可达性预探', () 
       vi.useRealTimers()
       if (prevRecovery === undefined) process.env['CLW_SESSION_END_RECOVERY_MS'] = '3600000'
       else process.env['CLW_SESSION_END_RECOVERY_MS'] = prevRecovery
+    }
+  })
+})
+
+// ── 重评-P3-11（2026-09-09 全量代码重评）：second-instance --book 直进链失联卷预探 ──
+// resolveInitialBook→readBooks 同步扫书库，书库在失联网络卷时冻主进程数秒（bootstrap
+// 重审-1 / switch-library R54-A-2 / show-in-folder 族重审-2 均有 probeDirReachable
+// 预探，唯此入口漏）。'unreachable' → log 留痕 + 忽略 book 引用（同族收口口径）。
+describe('重评-P3-11: second-instance --book 失联卷预探', () => {
+  it('书库失联卷（stat 挂死）→ 预探拦下：warn 留痕 + 无导航（readBooks 同步扫描不执行）', async () => {
+    const prev = process.env['CLW_SWITCH_LIBRARY_PROBE_TIMEOUT_MS']
+    process.env['CLW_SWITCH_LIBRARY_PROBE_TIMEOUT_MS'] = '150'
+    try {
+      vi.resetModules()
+      await import('../../src/desktop/main.js')
+      await new Promise((r) => setImmediate(r))
+      await new Promise((r) => setImmediate(r))
+      const win = M.windows.at(-1)!
+      const h = M.appOn['second-instance']!.at(-1)!
+      const n0 = win.webContents.sent.length
+      const infos0 = M.logInfos.length
+      fsPromisesMock.statGate = () => new Promise(() => {}) // 模拟失联卷 stat 挂死
+      h({}, ['electron', '--book', '书A'])
+      await new Promise((r) => setTimeout(r, 500)) // 真定时器等 150ms 预探超时落定（重审-1 用例同款）
+      expect(win.webContents.sent.length).toBe(n0) // 无导航：预探先于 readBooks 拦下（挂死形态下若漏探，readBooks 读真目录会照常放行导航）
+      const line = M.logWarns.at(-1) as unknown[]
+      expect(line![0]).toBe('main')
+      expect(String(line![1])).toContain('书A') // 留痕含被忽略的 --book 值
+      expect(String(line![1])).toContain('暂不可达')
+      expect(M.logInfos.length).toBe(infos0) // 与「无此登记书」留痕形态可区分
+    } finally {
+      fsPromisesMock.statGate = null
+      if (prev === undefined) delete process.env['CLW_SWITCH_LIBRARY_PROBE_TIMEOUT_MS']
+      else process.env['CLW_SWITCH_LIBRARY_PROBE_TIMEOUT_MS'] = prev
     }
   })
 })

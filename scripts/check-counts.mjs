@@ -317,6 +317,10 @@ export function diffSpecOrder(actualRelativePaths, snapshot) {
  * vitest list 的 spawn，本归一化是其漏网的另一半（win CI 腿落库后未实跑 check:counts 故未暴露）。
  */
 export function posixRelPath(root, fp) {
+  // 重评-P3-24①（2026-09-09 全量代码重评）：replace 剥根的正确性隐性依赖 root 以分隔符
+  // 结尾——调用面 root 出自 URL('..') 自带尾分隔符，直测/复用面无此保证（缺尾分隔符时
+  // 残留前导 `/`，快照比对假红）。入口归一：win 形态（含 `\`）补 `\`，posix 补 `/`。
+  if (!root.endsWith('/') && !root.endsWith('\\')) root += root.includes('\\') ? '\\' : '/'
   return fp.replace(root, '').replace(/\\/g, '/')
 }
 

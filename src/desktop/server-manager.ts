@@ -510,9 +510,12 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
           logger.warn('server-manager', 'start 时旧 child 仍在——先停旧再 fork')
           await stopActiveChild()
         }
-        // stopActiveChild 置位的停机门复位（换轮继续 launch）；并发 shutdown 已在
-        // settleStarting 等 starting 落定，不会在此窗漏网
-        shutdownStarted = false
+        // 重评-P3-8（2026-09-09 全量代码重评）：换轮清停机门改条件式——并发 shutdown
+        // 恰落在 stopActiveChild 的 kill 等待窗（已置 shuttingDown + shutdownStarted）
+        // 时，无条件清零会拆掉 launch 的 fork 后检查防线，退出链上 fork 出孤儿 child。
+        // 停机流程在途（shuttingDown）保持门置位：fork 后检查即杀新 child 按启动失败
+        // 收口（S1 同款），「shutdown 开始后绝不 fork 出存活 child」在任何交织下成立。
+        if (!shuttingDown) shutdownStarted = false
         restartCount = 0 // 显式 start 开新周期（bootstrap 语义，非崩溃续期）
         return await launch(opts, '0')
       })()

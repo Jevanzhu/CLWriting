@@ -20,6 +20,17 @@ describe('J0（win 适配）：posixRelPath 分隔符归一化', () => {
     // 快照语义：归一化后与 posix 快照名单可互相命中
     expect(['test/e2e/a.spec.ts']).toContain(posixRelPath('C:\\repo\\', 'C:\\repo\\test\\e2e\\a.spec.ts'))
   })
+
+  it('重评-P3-24①：root 无尾分隔符 → 入口归一补分隔符，剥根不残留前导 /', () => {
+    // 修复前：replace(root) 剥出 '/test/e2e/…'（前导 / 残留）→ 快照比对假红；
+    // 正确性此前隐性依赖调用面 URL('..') 自带尾分隔符
+    expect(posixRelPath('/home/u/repo', '/home/u/repo/test/e2e/c.spec.ts')).toBe('test/e2e/c.spec.ts')
+    // win 形态：root 含 `\` 缺尾分隔符时按 win 口径补 `\`（walk 产出平台原生分隔符）
+    expect(posixRelPath('C:\\repo', 'C:\\repo\\test\\e2e\\a.spec.ts')).toBe('test/e2e/a.spec.ts')
+    // 既有带尾分隔符口径不回归（posix 与 win 各锚一个）
+    expect(posixRelPath('/home/u/repo/', '/home/u/repo/test/e2e/c.spec.ts')).toBe('test/e2e/c.spec.ts')
+    expect(posixRelPath('C:\\repo\\', 'C:\\repo\\test\\e2e\\a.spec.ts')).toBe('test/e2e/a.spec.ts')
+  })
 })
 
 describe('R63-12：净化口径（X-32 语义锚定）', () => {

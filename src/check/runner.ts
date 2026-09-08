@@ -41,6 +41,8 @@ import { countWords, readChapterDir } from '../format/chapters.js'
 import { readPieceList } from '../format/manifest.js'
 // #10 项 7 数据源接线：高频意象内置种子表（三级供给的最底层）
 import { DEFAULT_IMAGERY_WORDS } from './imagery-seed.js'
+// 重评-P2-3（2026-09-09 全量代码重评）：基础两类单源自 install/data.ts，防手抄漂移
+import { BASE_LEAD_TYPES } from '../install/data.js'
 import type { ChapterMeta, BookConfig, RealmDoc, PieceList } from '../format/types.js'
 // R37-9：章纲目录 readdirSync 容错降级留痕（同 run.ts 口径）
 import { log } from '../log/index.js'
@@ -82,11 +84,20 @@ export interface CheckInput {
   skipLeadsBookChecks?: boolean
 }
 
-/** 已启用账本类 = 基础两类 + book.yaml leads.enabled（与 rebuild.ts BASE_LEAD_TYPES 同口径；
- *  树红点聚合的全书性红项计算共用，防三处手抄漂移）。R33-41（三十三轮）：去重——
- *  book.yaml 重复登记类此前产生重复 IN 参数（无害但脏）。 */
+/** 已启用账本类 = 基础两类 + book.yaml leads.enabled（基础两类单源自 install/data.ts
+ *  BASE_LEAD_TYPES，rebuild.ts 同源引用——重评-P2-3（2026-09-09 全量代码重评）：此前
+ *  三处各持手抄副本易漂移，现已收敛为单点；树红点聚合的全书性红项计算共用）。
+ *  R33-41（三十三轮）：去重——book.yaml 重复登记类此前产生重复 IN 参数（无害但脏）。 */
 export function enabledLeadTypes(config: BookConfig): string[] {
-  return [...new Set(['悬念', '感情线', ...config.leads.enabled])]
+  return [...new Set([...BASE_LEAD_TYPES, ...config.leads.enabled])]
+}
+
+/** 生效短篇配置：仅 kind === 'short' 时返回 short 段（无段给空对象，由各检查器的
+ *  缺省参数兜底阈值），否则 undefined。重评-P2-4（2026-09-09 全量代码重评）：run.ts
+ *  三处后置升红与本文件短篇判定共用本单点——长篇误写 short 段（含 short.strict）
+ *  不再触发短篇口径，对齐 R26-13 的 kind==='short' 单源判定。 */
+export function effectiveShort(config: BookConfig): BookConfig['short'] {
+  return config.kind === 'short' ? (config.short ?? {}) : undefined
 }
 
 /**
@@ -105,7 +116,8 @@ export function runAllChecks(input: CheckInput): CheckReport {
   // 全部走缺省阈值）短篇专属机检整体失明；长篇误写 short 段反而跑短篇机检。空对象
   // （无 short 段）时 word_min/word_max 等传 undefined，由 checkPieceWordCount 等
   // 的缺省参数兜底（8000–20000/5 段/300 字，与既有缺省值机制一致）。
-  const short = config.kind === 'short' ? (config.short ?? {}) : undefined
+  // 重评-P2-4（2026-09-09 全量代码重评）：判定收口到 effectiveShort，run.ts 后置升红同源。
+  const short = effectiveShort(config)
   const sections: CheckSectionResult[] = []
 
   // 未来章基准：默认取本章自身章号；调用方传了全书最高章号时用它

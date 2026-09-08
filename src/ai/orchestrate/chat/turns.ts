@@ -103,7 +103,7 @@ const REWRITE_GATE_TOOLS = new Set(['rewrite_chapter', 'rewrite_selection', 'app
 /** 等作者确认（导出供单测验证 abort 释放语义）。 */
 export function waitConfirm(state: ChatRunState, callId: string, timeoutMs: number): Promise<boolean> {
   return new Promise((resolve) => {
-    let timer: ReturnType<typeof setTimeout> | undefined
+    let timer: ReturnType<typeof setTimeout> | undefined = undefined
     // Z-P1-1：abort 也释放确认。abortChat 只放行「当时已挂起」的确认，其后循环里再挂起的
     // 确认若不监听 signal 会各空等满超时（默认 2 分钟），期间 running 锁被白占。
     // settle 后再触发一律 no-op（幂等：作者确认与 abort 可能先后到达同一确认）。
@@ -743,6 +743,20 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
     // 执行工具 + 结果按 tool_result block 回填
     const results: ContentBlock[] = []
     for (const call of toolCalls) {
+      // 重评-P3-3（2026-09-09 全量代码重评）：工具串行段补轮首级 abort 短路——本地只读
+      // 工具不接 signal，作者中止落在前序工具处理中时剩余工具原照跑到轮末；命中即对
+      // 剩余 call 逐个按既有取消口径回填后跳出（归因不扩第三态），轮终态仍由下一轮
+      // 轮首 aborted 检查按 'interrupted' 收口，写类/嵌套生成既有中止语义不动。
+      if (state.ctrl.signal.aborted) {
+        results.push({
+          type: 'tool_result',
+          toolUseId: call.id,
+          content: '作者取消了该操作。',
+          isError: true,
+        })
+        emit(opts, { type: 'chat_tool_result', callId: call.id, summary: '已取消', ok: false })
+        continue
+      }
       // R76-13（二十四轮 A 域）：未注册工具直接 isError 回填——TOOL_RISK 缺名时原先
       // 默认 'write' 从严弹确认卡，作者确认的却是一个必然失败的调用（executeChatTool
       // default 分支「未知工具」），确认卡失实。改为不弹卡直接回错误结果（风险面不变：

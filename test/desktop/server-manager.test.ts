@@ -1118,6 +1118,57 @@ describe('R44-12: shutdown 短预算放弃挂起握手', () => {
   })
 })
 
+// 重评-P3-8（2026-09-09 全量代码重评）：start 换轮路径的第二次 shutdownStarted = false
+// 原为无条件清零——并发 shutdown 恰落在 stopActiveChild 的 kill 等待窗（置 shuttingDown +
+// shutdownStarted）时门被拆，launch 的 fork 后检查失守，退出链上 fork 出存活新 child。
+// 修复后复位改条件式（if (!shuttingDown)）：停机在途则保持门置位，fork 后检查即杀新
+// child 按启动失败收口（S1 同款）。「shutdown 开始后绝不 fork 出存活 child」锁定。
+describe('重评-P3-8: 换轮 stopActiveChild 窗口内并发 shutdown 不清停机门', () => {
+  it('start-with-active 的 kill 等待窗内并发 shutdown → 新 child fork 即杀（SHUTDOWN reject），停机链上无存活 child', async () => {
+    const { forkRecords, manager } = mkHarness({ shutdownSettleBudgetMs: 5_000, shutdownTotalMs: 5_000, killWaitMs: 200 })
+    const ud = mkUserData()
+    // 1) 首启建 active child
+    const first = manager.start({ workDir: '/w', userDataPath: ud })
+    forkRecords[0]!.child.emit('message', { type: 'ready', port: 46100 })
+    await first
+    // 2) 换轮 start：IIFE 走到 await stopActiveChild（kill 已调，exit 待微任务）
+    const second = manager.start({ workDir: '/w2', userDataPath: ud })
+    expect(forkRecords).toHaveLength(1) // 尚未 fork 新 child（先停旧）
+    expect(forkRecords[0]!.child.killed).toBe(1)
+    // 3) 并发 shutdown 落在 kill 等待窗内（exit 尚未让渡）——置 shuttingDown + 门
+    const shuttingDown = manager.shutdown()
+    // 4) 旧 child 退出 → 换轮 IIFE 恢复：修复前此处无条件清门 → child2 存活挂握手，
+    //    直到 shutdown 预算兜底才以 EXIT 形态收场（≥5s）；修复后 fork 后检查命中即杀，
+    //    SHUTDOWN 信封微任务级 reject
+    const t0 = Date.now()
+    forkRecords[0]!.child.emit('exit', 0)
+    await expect(second).rejects.toThrow(/停机指令/)
+    expect(Date.now() - t0).toBeLessThan(2_000) // 快速收口（修复前 ≥ settle 预算 5s）
+    await flushMicrotasks()
+    expect(forkRecords).toHaveLength(2) // 仅换轮 fork 一次
+    expect(forkRecords[1]!.child.killed).toBeGreaterThanOrEqual(1) // 新 child fork 即杀（修复前存活）
+    expect(manager.isRunning()).toBe(false)
+    // 5) 停机链正常收口，无重启 fork（退出链上无第三个 child）
+    await expect(shuttingDown).resolves.toBeUndefined()
+    await flushMicrotasks()
+    expect(forkRecords).toHaveLength(2)
+  })
+
+  it('对照：无并发 shutdown 的换轮（stopChild 后 start）停机门照常复位，新 child 正常握手', async () => {
+    const { forkRecords, manager } = mkHarness()
+    const ud = mkUserData()
+    const first = manager.start({ workDir: '/w', userDataPath: ud })
+    forkRecords[0]!.child.emit('message', { type: 'ready', port: 46101 })
+    await first
+    await manager.stopChild() // 主动停机门置位（无 shuttingDown 生命周期门）
+    const second = manager.start({ workDir: '/w2', userDataPath: ud }) // 换轮放行（kill 标记 ≠ 停机门）
+    forkRecords[1]!.child.emit('message', { type: 'ready', port: 46102 })
+    await expect(second).resolves.toBe(46102) // 门已复位：fork 后检查不误杀
+    expect(manager.isRunning()).toBe(true)
+    await manager.stopChild()
+  })
+})
+
 // R49-4（评审四十九轮）：stopChild 等 settleStarting 的短预算——与 shutdown 的 R44-12
 // 形态对齐。病理链：崩溃自动重启（doRestart）的握手挂起时 bootstrap 重试触发
 // stopChild，原裸 await 最坏 HANDSHAKE_TIMEOUT_MS(30s) + kill 升级 2s×2 ≈ 34s 无响应。

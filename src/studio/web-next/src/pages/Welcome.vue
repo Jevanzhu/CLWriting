@@ -35,7 +35,11 @@ onMounted(() => void load())
 // P5-前端（第七轮）：交互路径 IPC 捕获（同 Library——加载路径第六轮已修，交互路径裸奔）
 async function chooseLibrary(): Promise<void> {
   try {
-    await window.clwritingDesktop?.openLibrary()
+    // P3-9（2026-09-09 全量代码重评）：openLibrary 落库失败返回 {ok:false,reason}
+    // （此前类型面缺失该变体、返回值被静默吞）——reason 失败就地 toast 交代（用户
+    // 取消 canceled 维持静默），对齐 switchLibrary 的 P3-3 处理写法
+    const r = await window.clwritingDesktop?.openLibrary()
+    if (r && !r.ok && 'reason' in r) ui.toast(r.reason, 'error')
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : String(e)
   }

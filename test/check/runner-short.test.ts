@@ -2,7 +2,8 @@ import { test, expect, beforeEach, afterEach } from 'vitest'
 import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, basename } from 'node:path'
-import { runAllChecks, hasRed } from '../../src/check/runner.js'
+import { runAllChecks, hasRed, enabledLeadTypes } from '../../src/check/runner.js'
+import { BASE_LEAD_TYPES } from '../../src/install/data.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import { writePieceList } from '../../src/format/manifest.js'
 import type { ChapterMeta, BookConfig, PieceList } from '../../src/format/types.js'
@@ -412,4 +413,33 @@ test('R26-13: kind:short 无 short 段 → 短篇机检项在位且缺省阈值�
   })
   expect(longR.sections.map((s) => s.name)).not.toContain('短篇字数')
   expect(hasRed(longR)).toBe(false)
+})
+
+// ── 重评-P2-3 / P2-4（2026-09-09 全量代码重评）回归 ──────────────
+
+// 重评-P2-3：基础两类单源自 install/data.ts BASE_LEAD_TYPES（值锁；符号同一性由
+// test/install/data.test.ts 的运行期注入探针锁定）
+test('enabledLeadTypes: 基础两类来自单源 BASE_LEAD_TYPES + enabled 去重', () => {
+  expect(enabledLeadTypes({ ...DEFAULT_CONFIG, leads: { enabled: [] } })).toEqual([...BASE_LEAD_TYPES])
+  expect(enabledLeadTypes({ ...DEFAULT_CONFIG, leads: { enabled: ['成长线', '成长线'] } })).toEqual([
+    ...BASE_LEAD_TYPES,
+    '成长线',
+  ])
+})
+
+// 重评-P2-4：strict 生效判定单源 effectiveShort（kind==='short' 门控）——长篇误写
+// short:{strict:true} 时报告内路径不得把升红集黄项（imagery-overuse）升红；
+// 短篇带同段升红已由上方「book.yaml short.strict 同样启用严格模式」用例锁定
+test('重评-P2-4: 长篇误写 short.strict → imagery-overuse 保持黄不升红', () => {
+  const ch: ChapterMeta = { 章号: 1, 标题: '雪夜', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫' }
+  const r = runAllChecks({
+    bookRoot: tmp,
+    config: { ...DEFAULT_CONFIG, short: { strict: true } },
+    chapter: ch,
+    body: '空气仿佛凝固了。空气仿佛凝固了。空气仿佛凝固了。空气仿佛凝固了。', // 种子词 ×4 > 阈值 3 → imagery-overuse 黄
+    fileName: '001-雪夜.md',
+  })
+  const item = r.sections.flatMap((s) => s.items).find((i) => i.checkId === 'imagery-overuse')
+  expect(item?.level).toBe('yellow')
+  expect(hasRed(r)).toBe(false)
 })

@@ -7,7 +7,9 @@ declare global {
     clwritingDesktop?: {
       /** 渲染进程平台标识（win 窗控 overlay 避让等平台分支用） */
       platform: string
-      openLibrary: () => Promise<{ ok: true } | { ok: false; canceled: true }>
+      /** 重评-P3-9（2026-09-09 全量代码重评）：失败面与 main 侧契约对称——canceled=用户
+       *  取消；reason=落库失败（切库链 switchLibrary 同款信封） */
+      openLibrary: () => Promise<{ ok: true } | { ok: false; canceled: true } | { ok: false; reason: string }>
       switchLibrary: (path: string) => Promise<{ ok: true } | { ok: false; reason: string }>
       getRecentLibraries: () => Promise<{ path: string; label: string }[]>
       getCurrentLibrary: () => Promise<string | null>

@@ -824,7 +824,6 @@ export async function recallDetailed(
   let totalBlocks = 0
   let indexedDim: string | null = null
   let indexedFingerprints!: Map<number, string>
-  let chapterByNumber!: Map<number, ChapterMeta>
   try {
     const indexedModel = getRagMeta(db, 'embedding_model')
     if (indexedModel && indexedModel !== config.model) return emptyResult()
@@ -905,7 +904,7 @@ export async function recallDetailed(
   // 校验面等价——chapterByNumber 只被命中章消费）
   const bodyDir = join(bookRoot, '写作', '正文')
   const chapterNumbers = new Set(rows.map((r) => r.章号))
-  chapterByNumber = new Map(
+  const chapterByNumber = new Map(
     dedupeChaptersByNumber(readChapterDir(bodyDir).chapters)
       .chapters.filter((ch) => chapterNumbers.has(ch.章号))
       .map((ch) => [ch.章号, ch] as const),

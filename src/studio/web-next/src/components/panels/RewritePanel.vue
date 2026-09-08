@@ -46,6 +46,13 @@ const diffStats = computed(() => {
   return { add: d.filter((x) => x.type === 'add').length, del: d.filter((x) => x.type === 'del').length }
 })
 
+// 重评-P3-16（2026-09-09 全量代码重评）：diff 渲染无上限——整章改写千行级 diff 全量
+// 挂 DOM（max-height 只裁视觉不减节点）。对齐 CommandPalette RENDER_CAP=100 域内惯例：
+// 数据面不动（diffStats 统计仍面向全量），只裁渲染面前 100 行 + 尾部省略提示行。
+const RENDER_CAP = 100
+const shownDiff = computed(() => (rewrite.result?.diff ?? []).slice(0, RENDER_CAP))
+const omittedLines = computed(() => Math.max(0, (rewrite.result?.diff ?? []).length - RENDER_CAP))
+
 async function runRewrite(): Promise<void> {
   if (!docId.value || !instruction.value.trim()) return
   // 读编辑器选区：非空→local 选段改写；空→whole 整章（后端按 selection 判模式）
@@ -106,7 +113,7 @@ function accept(): void {
         </div>
         <div class="rw-diff">
           <div
-            v-for="(line, i) in rewrite.result.diff"
+            v-for="(line, i) in shownDiff"
             :key="i"
             class="diff-line"
             :class="'diff-' + line.type"
@@ -116,6 +123,7 @@ function accept(): void {
             <span v-else class="diff-mark diff-mark--same" />
             <span class="diff-text">{{ line.text || ' ' }}</span>
           </div>
+          <div v-if="omittedLines > 0" class="cap-hint">已省略 {{ omittedLines }} 行</div>
         </div>
         <div class="rw-actions">
           <button class="rw-accept" @click="accept">
@@ -259,6 +267,13 @@ function accept(): void {
 }
 .diff-text {
   color: var(--text-normal);
+}
+/* P3-16：渲染上限省略提示行（对齐 CommandPalette pg-more 口径） */
+.cap-hint {
+  padding: 2px 6px;
+  font-size: var(--font-size-xxs);
+  color: var(--text-faint);
+  font-style: italic;
 }
 .rw-actions {
   display: flex;

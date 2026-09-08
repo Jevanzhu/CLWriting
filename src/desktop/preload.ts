@@ -15,9 +15,15 @@ let pendingMenuSelect: ((_e: IpcRendererEvent, key: string | null) => void) | nu
 contextBridge.exposeInMainWorld('clwritingDesktop', {
   /** 渲染进程平台标识（win 窗控 overlay 避让等平台分支用；浏览器版无此对象）。 */
   platform: process.platform,
-  /** 弹原生目录选择器选书库 → 选定则切换（relaunch）。取消返回 { ok:false, canceled:true }。 */
-  openLibrary: (): Promise<{ ok: true } | { ok: false; canceled: true }> =>
-    ipcRenderer.invoke('desktop:open-library'),
+  /**
+   * 弹原生目录选择器选书库 → 选定则切换（relaunch）。取消返回 { ok:false, canceled:true }。
+   * 重评-P3-9（2026-09-09 全量代码重评）：落库失败（saveCurrent 写盘错等）返回
+   * { ok:false, reason }——与 switchLibrary 的失败信封对称（main.ts open-library
+   * handler R51-A-4 起契约化失败，此前类型声明漏该变体）。
+   */
+  openLibrary: (): Promise<
+    { ok: true } | { ok: false; canceled: true } | { ok: false; reason: string }
+  > => ipcRenderer.invoke('desktop:open-library'),
   /** 切换到指定书库路径（来自最近列表）→ relaunch。 */
   switchLibrary: (
     path: string,

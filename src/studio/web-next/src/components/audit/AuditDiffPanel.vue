@@ -25,6 +25,13 @@ const diffNodes = computed<AuditNodeFE[]>(() => {
   if (!c) return []
   return diffMode.value === 'model' ? c.modelVisible : c.humanVisible
 })
+
+// 重评-P3-16（2026-09-09 全量代码重评）：节点列表渲染无上限——长会话全量挂 DOM。
+// 对齐 CommandPalette RENDER_CAP=100 域内惯例：数据面不动，只裁渲染面前 100 条 +
+// 尾部省略提示行（与 RewritePanel 同批同口径）。
+const RENDER_CAP = 100
+const shownNodes = computed(() => diffNodes.value.slice(0, RENDER_CAP))
+const omittedNodes = computed(() => Math.max(0, diffNodes.value.length - RENDER_CAP))
 </script>
 
 <template>
@@ -42,7 +49,7 @@ const diffNodes = computed<AuditNodeFE[]>(() => {
     </h2>
     <div class="diff-list">
       <div
-        v-for="n in diffNodes"
+        v-for="n in shownNodes"
         :key="n.seq"
         class="diff-row"
         :class="{ shadowed: n.shadowed }"
@@ -57,6 +64,7 @@ const diffNodes = computed<AuditNodeFE[]>(() => {
         <span class="preview">{{ n.preview || '（空）' }}</span>
         <span v-if="n.shadowed" class="shadowed-mark"><EyeOff :size="12" /> 被遮蔽</span>
       </div>
+      <div v-if="omittedNodes > 0" class="cap-hint">已省略 {{ omittedNodes }} 条</div>
       <div v-if="diffNodes.length === 0" class="empty">无可视消息</div>
     </div>
   </section>
@@ -75,6 +83,8 @@ const diffNodes = computed<AuditNodeFE[]>(() => {
   flex-wrap: wrap;
 }
 .empty { color: var(--text-muted); font-size: var(--font-size-s); padding: 8px; }
+/* P3-16：渲染上限省略提示行（对齐 CommandPalette pg-more 口径） */
+.cap-hint { color: var(--text-faint); font-size: var(--font-size-xs); padding: 2px 8px; font-style: italic; }
 
 /* 与 settings-shared 全局 .seg 药丸同名异形，改名隔离防全局规则渗入 */
 .audit-seg {

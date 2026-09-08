@@ -1,9 +1,10 @@
 <script setup lang="ts">
 // 删除确认弹窗（Shelf/ShelfModal 共享）：批量删除书名列表确认。
 // 状态由壳（useShelf composable）持有，本组件只做确认表单渲染与事件上抛。
-import { ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { Trash2 } from 'lucide-vue-next'
 import { useFocusTrap } from '../../composables/useFocusTrap'
+import { isImeComposing } from '../../shared/ime'
 
 const props = defineProps<{
   names: string[]
@@ -20,6 +21,20 @@ const emit = defineEmits<{
 // 危险操作默认聚焦安全项（回车/空格直接触发的是「取消」而非「确认删除」）
 const modalRef = ref<HTMLElement | null>(null)
 useFocusTrap(modalRef)
+
+// 重评-P3-18（2026-09-09 全量代码重评）：Esc 原外放宿主 onKeydown 代管——键盘面外放，
+// 组件单独挂载时 Esc 死键。对齐 ConfirmPrompt B-8 模式自持：document capture 监听
+// （capture 先于宿主 window bubble），Esc → cancel；stopPropagation 防宿主同键双效
+// （批量模式下确认弹窗的 Esc 不得连带退批量/收层）；IME 组合期让渡（R75-E-P3e 判据）。
+// 本组件由宿主 v-if 挂载 = 打开态，监听随挂载启停，无「未打开误伤」面。
+function onKeydown(e: KeyboardEvent): void {
+  if (e.key !== 'Escape' || isImeComposing(e)) return
+  e.preventDefault()
+  e.stopPropagation()
+  emit('cancel')
+}
+onMounted(() => document.addEventListener('keydown', onKeydown, true))
+onUnmounted(() => document.removeEventListener('keydown', onKeydown, true))
 </script>
 
 <template>

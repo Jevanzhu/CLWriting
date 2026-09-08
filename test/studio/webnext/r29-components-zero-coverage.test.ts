@@ -103,7 +103,7 @@ describe('R29-13 Toast 全局提示', () => {
     mountToast()
     ui.toast('保存成功', 'success')
     await nextTick()
-    let toast = document.querySelector('.toast')
+    const toast = document.querySelector('.toast')
     expect(toast?.textContent).toContain('保存成功')
     expect(toast?.classList.contains('success')).toBe(true)
     expect(document.querySelector('.toast-wrap')?.getAttribute('role')).toBe('status')

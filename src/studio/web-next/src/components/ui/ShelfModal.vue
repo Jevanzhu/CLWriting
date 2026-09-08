@@ -110,10 +110,11 @@ function onKeydown(e: KeyboardEvent): void {
   // 收层全部不动、不 preventDefault
   if (ui.overlayOpenExcept('shelf')) return
   // 本组件常驻挂载（WorkspaceShell 无 v-if）——只有实际消费（书架开或子态在）才
-  // preventDefault；否则让 Esc 落到 useHotkeys（专注模式退出），同一按键不双效
+  // preventDefault；否则让 Esc 落到 useHotkeys（专注模式退出），同一按键不双效。
+  // 删除确认弹窗的 Esc 已由组件自持（重评-P3-18：capture + stopPropagation，先于
+  // 本 handler 且不再落到这里），此处只剩建书/批量/收层
   let consumed = false
-  if (confirmTarget.value) { cancelDelete(); consumed = true }
-  else if (showCreate.value) { showCreate.value = false; consumed = true }
+  if (showCreate.value) { showCreate.value = false; consumed = true }
   else if (batchMode.value) { exitBatch(); consumed = true }
   else if (ui.shelfOpen) { ui.closeShelf(); consumed = true }
   if (consumed) e.preventDefault() // Z-23（第五十八轮）

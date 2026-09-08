@@ -228,9 +228,25 @@ if (!gotSingleInstanceLock) {
     const workDir = currentWorkDir() // M-3（第八轮）：bootstrap 实际值优先
     const ref = initialBookArgvOnly(argv)
     if (workDir && ref && mainWindow && !mainWindow.isDestroyed()) {
-      const name = resolveInitialBook(workDir, ref)
-      if (name) mainWindow.webContents.send('desktop:navigate', `/book/${encodeURIComponent(name)}`)
-      else log.info('main', `second-instance 带 --book=${ref}，但书库内无此登记书——已忽略直达`) // P3：忽略留痕
+      // 重评-P3-11（2026-09-09 全量代码重评）：resolveInitialBook→readBooks 同步扫书库，
+      // 书库在失联网络卷时冻主进程数秒（R54-A-2/重审-2 同族防线补齐此入口）——预探
+      // 先行，'unreachable' log 留痕 + 忽略 book 引用（同族「无物可开」收口口径，
+      // 不弹框打断前台应用）；聚焦不受预探影响，保持尾部同步执行。
+      void (async () => {
+        if ((await probeDirReachable(workDir)) === 'unreachable') {
+          log.warn('main', `second-instance 带 --book=${ref}，但书库目录暂不可达（可能是网络卷无响应或已断开）——已忽略直达`)
+          return
+        }
+        const name = resolveInitialBook(workDir, ref)
+        if (!name) {
+          log.info('main', `second-instance 带 --book=${ref}，但书库内无此登记书——已忽略直达`) // P3：忽略留痕
+          return
+        }
+        // 预探 await 期间窗口可能已关：导航前重验存活（同 open-book 的 isDestroyed 守卫）
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('desktop:navigate', `/book/${encodeURIComponent(name)}`)
+        }
+      })()
     } else if (ref) {
       // P3（打包修复批）：启动早期（bootstrappedWorkDir 未就绪/无持久化 current）或
       // 主窗不可用时原路径静默吞掉 --book——留痕含被忽略的值，双开排查不再靠猜

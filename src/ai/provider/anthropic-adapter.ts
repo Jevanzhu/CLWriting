@@ -336,6 +336,13 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
                   input = { _raw: tb.jsonBuf }
                 }
                 yield { type: 'tool', id: tb.id, name: tb.name, input }
+                // 重评-P3-1（2026-09-09 全量代码重评）：stop 即消费条目——非标网关对同一
+                // index 重发 content_block_stop 时原样滞留会重复产出同 id tool_use（下游
+                // 同 id 写历史两条，回传 400）。R73-1 的 tool 参数产出累计同步改在消费时
+                // 入 outToolText，流异常兜底（下方 toolBlocks 逐条推送只余未 stop 残块）
+                // 的折算口径与消费前一致。
+                outToolText.push(tb.name + tb.jsonBuf)
+                toolBlocks.delete(event.index)
               }
               break
             }

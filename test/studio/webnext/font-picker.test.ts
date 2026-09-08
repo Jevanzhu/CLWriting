@@ -53,6 +53,26 @@ function menuVisible(): boolean {
   return menuEl().style.display !== 'none'
 }
 
+/** 重评-P2-2：菜单项（与 optionValues 一一对应，首项 = 重置默认） */
+function items(): HTMLElement[] {
+  return Array.from(document.body.querySelectorAll('.fp-menu .fp-item')) as HTMLElement[]
+}
+
+/** 重评-P2-2：从当前焦点元素派发 keydown（真实键盘事件 target = 焦点元素） */
+function press(key: string, init: KeyboardEventInit = {}): KeyboardEvent {
+  const e = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init })
+  ;(document.activeElement ?? document.body).dispatchEvent(e)
+  return e
+}
+
+async function openPicker(props: Record<string, unknown> = {}): Promise<void> {
+  // attachTo：焦点断言需触发钮真实连接到 document（teleport 菜单天然在 body，
+  // 触发钮不挂 attachTo 则在游离子树，happy-dom focus() 静默不生效）
+  wrapper = mount(FontPicker, { props: { ...PROPS, ...props }, attachTo: document.body })
+  await wrapper.find('button.font-picker').trigger('click')
+  await Promise.resolve() // openMenu 的 nextTick 聚焦回调
+}
+
 beforeEach(() => {
   document.body.innerHTML = ''
 })
@@ -199,5 +219,92 @@ describe('R39-3/R39-4：FontPicker 滚动与 Esc', () => {
     expect(resolveInstalledFont(zh, 'Noto Sans SC')).toBe('思源黑体')
     expect(resolveInstalledFont(zh, 'Microsoft YaHei')).toBe('微软雅黑')
     expect(resolveInstalledFont(['Noto Sans SC'], 'Noto Sans SC')).toBe('Noto Sans SC')
+  })
+})
+
+describe('重评-P2-2：win 浮层键盘导航（roving tabindex，listbox 语义落实）', () => {
+  it('open 即焦点入列表落当前选中项：hl 高亮 + tabindex=0 渲染可见，其余 -1', async () => {
+    await openPicker({ value: 'Font3' })
+    expect(document.activeElement).toBe(items()[4]) // Font3 → 首项重置项 + 3
+    expect(items()[4]!.classList.contains('hl')).toBe(true)
+    expect(items()[4]!.getAttribute('tabindex')).toBe('0')
+    expect(items()[0]!.getAttribute('tabindex')).toBe('-1')
+    // 无选中（value=''）→ 落首项（重置默认）
+    await wrapper!.unmount()
+    await openPicker()
+    expect(document.activeElement).toBe(items()[0])
+  })
+
+  it('↓ 高亮下移、↑ 从首项循环回末项；Home/End 首尾', async () => {
+    await openPicker()
+    expect(document.activeElement).toBe(items()[0])
+    press('ArrowDown')
+    await Promise.resolve()
+    expect(document.activeElement).toBe(items()[1])
+    expect(items()[1]!.classList.contains('hl')).toBe(true)
+    // ↑ 循环：回到首项再 ↑ → 末项
+    press('ArrowUp')
+    await Promise.resolve()
+    press('ArrowUp')
+    await Promise.resolve()
+    expect(document.activeElement).toBe(items()[items().length - 1])
+    // ↓ 自末项循环回首项；Home/End 直达首尾
+    press('ArrowDown')
+    await Promise.resolve()
+    expect(document.activeElement).toBe(items()[0])
+    press('End')
+    await Promise.resolve()
+    expect(document.activeElement).toBe(items()[items().length - 1])
+    press('Home')
+    await Promise.resolve()
+    expect(document.activeElement).toBe(items()[0])
+  })
+
+  it('Enter 选中当前项：emit change + 关闭 + 焦点还触发钮', async () => {
+    await openPicker({ value: 'Font3' })
+    press('ArrowDown') // Font3 → Font4
+    await Promise.resolve()
+    press('Enter')
+    await Promise.resolve()
+    expect(wrapper!.emitted('change')).toEqual([['Font4']])
+    expect(menuVisible()).toBe(false)
+    expect(document.activeElement).toBe(wrapper!.find('button.font-picker').element)
+  })
+
+  it('Space 同 Enter 选中语义', async () => {
+    await openPicker()
+    press('ArrowDown')
+    await Promise.resolve()
+    press(' ')
+    await Promise.resolve()
+    expect(wrapper!.emitted('change')).toEqual([['Font0']])
+    expect(menuVisible()).toBe(false)
+  })
+
+  it('Esc 关闭且焦点还触发钮；IME 组合期 Esc 让渡不关闭', async () => {
+    await openPicker()
+    press('Escape', { isComposing: true })
+    await Promise.resolve()
+    expect(menuVisible()).toBe(true) // 组合期让渡（R50-D1-1 语义保留）
+    press('Escape')
+    await Promise.resolve()
+    expect(menuVisible()).toBe(false)
+    expect(document.activeElement).toBe(wrapper!.find('button.font-picker').element)
+  })
+
+  it('Tab 自然关闭且不消费（不 preventDefault，焦点走自然次序）', async () => {
+    await openPicker()
+    const e = press('Tab')
+    await Promise.resolve()
+    expect(menuVisible()).toBe(false)
+    expect(e.defaultPrevented).toBe(false)
+  })
+
+  it('未 open：方向键/Enter 不消费（落到页面既有键盘面）', async () => {
+    wrapper = mount(FontPicker, { props: PROPS })
+    for (const key of ['ArrowDown', 'Enter', 'Home']) {
+      const e = press(key)
+      expect(e.defaultPrevented).toBe(false)
+    }
   })
 })

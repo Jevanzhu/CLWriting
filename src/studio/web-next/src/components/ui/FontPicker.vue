@@ -7,7 +7,7 @@
  * 视觉对齐 `.font-select`（padding/边框/背景由调用方 class 提供，本组件只补按钮
  * 语义与下拉箭头）；菜单项以各字体 fontFamily 预览显示名。
  */
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { usePlatform } from '../../composables/usePlatform'
 import { isImeComposing } from '../../shared/ime'
 
@@ -34,6 +34,14 @@ const btn = ref<HTMLElement | null>(null)
 const menu = ref<HTMLElement | null>(null)
 const pos = ref({ left: 0, top: 0, width: 0 })
 const listH = ref(320)
+// 重评-P2-2（2026-09-09 全量代码重评）：win 浮层原只声明 role=listbox/option，键盘不可达
+// （onKey 只管 Esc）。补 roving tabindex 键盘导航（对齐 CommandPalette 的 sel 索引风格）：
+// 开启即把焦点移入列表（落当前选中项），↑/↓ 循环、Home/End 首尾、Enter/Space 选中、
+// Esc 关闭还焦触发钮、Tab 自然走焦关闭。高亮项渲染 .hl class + tabindex=0，ARIA 面转如实。
+/** 键盘高亮项索引：0 = 默认项（重置 ''），i≥1 = fonts[i-1]；-1 = 未初始化 */
+const activeIdx = ref(-1)
+/** 键盘导航域与渲染项一一对应（首项 = 重置默认 ''） */
+const optionValues = computed<string[]>(() => ['', ...props.fonts])
 
 /** 默认态展示名：默认字体名（如「微软雅黑」）；无可显默认回落 placeholder */
 const defaultLabel = computed(() => (props.defaultFont ? props.display(props.defaultFont) : props.placeholder))
@@ -51,26 +59,84 @@ function openMenu(): void {
   listH.value = Math.max(120, Math.min(360, window.innerHeight - pos.value.top - 12))
   rendered.value = true
   open.value = true
+  // P2-2：开启即把键盘焦点移入列表（roving tabindex，落当前选中项；无命中回落首项）
+  void nextTick(() => {
+    activeIdx.value = currentValueIdx()
+    focusActive()
+  })
 }
 function close(): void {
   open.value = false
+}
+function currentValueIdx(): number {
+  if (props.value === '') return 0
+  const i = props.fonts.indexOf(props.value)
+  return i === -1 ? 0 : i + 1
+}
+function focusActive(): void {
+  const items = menu.value?.querySelectorAll<HTMLElement>('.fp-item')
+  if (!items || items.length === 0) return
+  const idx = Math.min(Math.max(activeIdx.value, 0), items.length - 1)
+  items[idx]?.focus()
+}
+/** ↑/↓ 循环步进（P2-2） */
+function moveActive(delta: 1 | -1): void {
+  const n = optionValues.value.length
+  if (n === 0) return
+  const cur = activeIdx.value < 0 ? (delta > 0 ? -1 : 0) : activeIdx.value
+  activeIdx.value = (cur + delta + n) % n
+  focusActive()
 }
 function pick(f: string): void {
   emit('change', f)
   close()
 }
 function onKey(e: KeyboardEvent): void {
-  if (e.key !== 'Escape' || !open.value) return
+  if (!open.value) return
+  // P2-2：Tab 自然走焦关闭（不消费，焦点随 Tab 落到下一元素）
+  if (e.key === 'Tab') {
+    close()
+    return
+  }
   // R50-D1-1（五十轮）：IME 组合期 Esc 让渡输入法（isImeComposing 单源判据，对齐
-  // ModelPicker/SettingsModal 等先例）——组合期收候选的 Esc 不应连带关闭字体下拉
+  // ModelPicker/SettingsModal 等先例）——组合期收候选的 Esc 不应连带关闭字体下拉；
+  // P2-2 起方向键/Enter 同口径让渡
   if (isImeComposing(e)) return
-  // R39-4（三十九轮）：open 态本层消费 Esc——capture 注册先于 useHotkeys（后者在
-  // WorkspaceShell setup 期挂、bubble 派发按注册序先跑，此处 preventDefault 对它
-  // 迟到），对齐 ContextMenu/SettingsModal/ExportDialog 的 Z-23「本层消费防同键退
-  // 专注」口径且不依赖挂载时序；未 open 时不消费（Esc 落到 useHotkeys）
-  e.preventDefault()
-  e.stopPropagation()
-  close()
+  if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    e.stopPropagation()
+    moveActive(1)
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    e.stopPropagation()
+    moveActive(-1)
+  } else if (e.key === 'Home') {
+    e.preventDefault()
+    e.stopPropagation()
+    activeIdx.value = 0
+    focusActive()
+  } else if (e.key === 'End') {
+    e.preventDefault()
+    e.stopPropagation()
+    activeIdx.value = optionValues.value.length - 1
+    focusActive()
+  } else if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault()
+    e.stopPropagation()
+    const v = optionValues.value[Math.max(activeIdx.value, 0)]
+    if (v === undefined) return
+    pick(v)
+    btn.value?.focus() // P2-2：键盘选中后焦点还触发钮（原生 select 同款语义）
+  } else if (e.key === 'Escape') {
+    // R39-4（三十九轮）：open 态本层消费 Esc——capture 注册先于 useHotkeys（后者在
+    // WorkspaceShell setup 期挂、bubble 派发按注册序先跑，此处 preventDefault 对它
+    // 迟到），对齐 ContextMenu/SettingsModal/ExportDialog 的 Z-23「本层消费防同键退
+    // 专注」口径且不依赖挂载时序；未 open 时不消费（Esc 落到 useHotkeys）
+    e.preventDefault()
+    e.stopPropagation()
+    close()
+    btn.value?.focus() // P2-2：Esc 关闭后焦点还触发钮
+  }
 }
 function onScrollOrResize(e: Event): void {
   if (!open.value) return
@@ -123,28 +189,21 @@ onBeforeUnmount(() => {
         role="listbox"
         :style="{ left: pos.left + 'px', top: pos.top + 'px', width: pos.width + 'px', maxHeight: listH + 'px' }"
       >
+        <!-- P2-2：默认项 + 字体项合并为单一 v-for（与 optionValues 索引一一对应），
+             roving tabindex + .hl 键盘高亮；.on 仍标当前选中值 -->
         <button
+          v-for="(f, i) in optionValues"
+          :key="i === 0 ? '__default__' : f"
           type="button"
           class="fp-item"
-          :class="{ on: value === '' }"
-          role="option"
-          :aria-selected="value === ''"
-          @click="pick('')"
-        >
-          {{ defaultFont ? `默认 · ${display(defaultFont)}` : placeholder }}
-        </button>
-        <button
-          v-for="f in fonts"
-          :key="f"
-          type="button"
-          class="fp-item"
-          :class="{ on: f === value }"
-          :style="{ fontFamily: f }"
+          :class="{ on: f === value, hl: i === activeIdx }"
+          :style="f ? { fontFamily: f } : undefined"
           role="option"
           :aria-selected="f === value"
+          :tabindex="i === activeIdx ? 0 : -1"
           @click="pick(f)"
         >
-          {{ display(f) }}
+          {{ i === 0 ? (defaultFont ? `默认 · ${display(defaultFont)}` : placeholder) : display(f) }}
         </button>
       </div>
     </Teleport>
@@ -232,6 +291,13 @@ onBeforeUnmount(() => {
 }
 .fp-item:hover {
   background: var(--background-modifier-hover);
+}
+/* P2-2：键盘高亮项（roving tabindex 焦点所在），与 hover 同视觉 */
+.fp-item.hl {
+  background: var(--background-modifier-hover);
+}
+.fp-item:focus-visible {
+  outline: none;
 }
 .fp-item.on {
   color: var(--text-accent);
