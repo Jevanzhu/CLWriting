@@ -209,6 +209,15 @@ onBeforeUnmount(() => {
   /* flex 列布局下默认 flex-shrink:1 会把整表项压进 max-height（46 项→每项 12px，
    * 文字被竖直压扁/裁掉）——禁收缩，超高走 overflow 滚动 */
   flex-shrink: 0;
+  /* 2026-09-08（作者反馈「预热后首开/复开仍有延迟卡顿」）：win 系统字体数百项，
+   * 打开瞬间全量布局 + 每项各自 fontFamily 的文本首次 shaping 是主耗时（v-show
+   * display:none 复显每次重排全表；DOM 常驻只免了节点重建）。content-visibility:
+   * auto 令溢出视口的项跳过布局/绘制/shaping（字体文件也只在滚入时才加载），
+   * 打开与复开成本收敛到可视窗口 ~12 项；常驻 DOM 复用口径与全部交互语义不变。
+   * 屏外项以 contain-intrinsic-size 占位（项高统一 ≈30px；auto 前缀在首次真实
+   * 渲染后锁定实测值），滚动条高度稳定。 */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 30px;
   padding: 6px 10px;
   font-size: var(--font-size-s);
   text-align: left;

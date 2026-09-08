@@ -155,6 +155,19 @@ function loadOnce(): Promise<void> {
   return fontsPending
 }
 
+/**
+ * 启动预热（2026-09-08 作者反馈「字体下拉首开很慢，特别是第一次」）：win 枚举走
+ * PowerShell + Add-Type PresentationCore（秒级），此前等首个消费组件挂载（设置弹窗
+ * 外观页 / 专注排版条）才发 IPC，首次打开字体下拉要现场等枚举。启动后台提前拉入
+ * 本单例，消费时列表已就位。R48-84 在途去重语义保持：预热先起、消费后到即共享同
+ * 一在途 Promise，IPC 仍只跑一次。延迟接线在渲染入口 main.ts（避开启动 IO 高峰）；
+ * 浏览器版无 desktop bridge 由 loadOnce 自判空 no-op。失败走既有「清 pending 可重试
+ * + 空表降级」语义，不影响启动。
+ */
+export function prewarmSystemFonts(): Promise<void> {
+  return loadOnce()
+}
+
 export function useSystemFonts() {
   onMounted(() => {
     void loadOnce()
