@@ -6,12 +6,15 @@ import { usePrefsStore } from '../../stores/prefs'
 import { parseNumericInput } from '../../shared/numeric-input'
 import { useSystemFonts, buildProseFontStack } from '../../composables/useSystemFonts'
 import { isFontInstalled, resolveInstalledFont } from '../../shared/font-names'
-import { PROSE_PRESETS, matchProsePreset, type ProsePreset } from '../../shared/prose-presets'
+import { prosePresets, matchProsePreset, type ProsePreset } from '../../shared/prose-presets'
 import FontPicker from './FontPicker.vue'
 
 const prefs = usePrefsStore()
 const { chineseFonts, englishFonts, fontDisplayName, defaultProseFontCn, defaultProseFontEn, systemFonts, fontsLoaded } = useSystemFonts()
 const hasDesktop = computed(() => typeof window !== 'undefined' && !!window.clwritingDesktop)
+// 预设组按平台出（2026-09-08 mac 批）：win 雅黑/思源黑，mac 苹方/宋体-简——平台
+// 会话内不变，setup 时定一次
+const prosePresetList = prosePresets()
 
 // 正文排版预设（F 线 2026-09-05）：激活态由四字段派生，手动改任一项即落「自定义」；
 // 应用 = 逐项走既有 setter（apply()/持久化链路复用，无新持久化键）
@@ -85,7 +88,7 @@ function numInput(min: number, max: number, setter: (v: number) => void, e: Even
         <div class="preset-wrap">
           <div class="preset-row" role="group" aria-label="正文排版预设">
             <button
-              v-for="p in PROSE_PRESETS"
+              v-for="p in prosePresetList"
               :key="p.id"
               type="button"
               class="preset-chip"
@@ -98,7 +101,7 @@ function numInput(min: number, max: number, setter: (v: number) => void, e: Even
             <span v-if="activePresetId === 'custom'" class="preset-chip custom">自定义</span>
           </div>
           <div class="preset-preview" role="group" aria-label="排版预设样张">
-            <div v-for="p in PROSE_PRESETS" :key="'pv-' + p.id" class="preset-preview-row">
+            <div v-for="p in prosePresetList" :key="'pv-' + p.id" class="preset-preview-row">
               <span class="preset-preview-label">{{ p.label }}</span>
               <span class="preset-preview-sample" :style="previewStyle(p)">永和九年，岁在癸丑。ABCD 1234</span>
             </div>

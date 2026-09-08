@@ -153,6 +153,10 @@
   --font-ui: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
     'Microsoft YaHei', sans-serif;
   --font-monospace: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  /* 正文默认栈·mac（2026-09-08 mac 预设批）：:root 栈尾 SimSun 是 win 族（mac 不装），
+   * 此前 mac 空槽默认态经三个 win 死名裸落浏览器 serif 兜底；显式落 Songti SC（恒装）。
+   * 与 useSystemFonts PROSE_FONT_FALLBACK_MAC 单源同值，改一处同步另一处。 */
+  --prose-font: 'LXGW WenKai', 'Songti SC', serif;
 }
 
 [data-theme='dark'] {

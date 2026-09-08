@@ -26,8 +26,8 @@ vi.mock('../../../src/studio/web-next/src/composables/usePlatform', () => ({
 import FontPicker from '../../../src/studio/web-next/src/components/ui/FontPicker.vue'
 import {
   useSystemFonts,
-  PROSE_FONT_FALLBACK,
-  PROSE_FONT_SANS_FALLBACK,
+  PROSE_FONT_FALLBACK_WIN,
+  PROSE_FONT_SANS_FALLBACK_WIN,
   isSerifCnFont,
   proseFallbackTail,
 } from '../../../src/studio/web-next/src/composables/useSystemFonts'
@@ -166,8 +166,9 @@ describe('R39-3/R39-4：FontPicker 滚动与 Esc', () => {
     expect(defaultProseFontCn.value).toBe('Noto Serif SC')
     expect(defaultUiFontCn.value).toBe('Microsoft YaHei UI')
     expect(defaultUiFontEn.value).toBe('Segoe UI')
-    // 回退串由栈派生（prefs apply() 与 tokens.css 默认栈单源）
-    expect(PROSE_FONT_FALLBACK).toBe("'LXGW WenKai', 'Noto Serif SC', 'SimSun', serif")
+    // 回退串由栈派生（prefs apply() 与 tokens.css 默认栈单源；2026-09-08 双平台
+    // 拆分后本文件锁 win 腿，mac 腿串见 prose-presets-mac.test.ts）
+    expect(PROSE_FONT_FALLBACK_WIN).toBe("'LXGW WenKai', 'Noto Serif SC', 'SimSun', serif")
   })
 
   it('F0c②: 回退栈按中文字体族归边——衬线/书卷（宋·仿宋·楷·思源宋·文楷）挂衬线尾，其余挂无衬线尾', () => {
@@ -180,10 +181,10 @@ describe('R39-3/R39-4：FontPicker 滚动与 Esc', () => {
     expect(isSerifCnFont('DengXian')).toBe(false)
     expect(isSerifCnFont('Noto Sans SC')).toBe(false)
     // CN 槽空维持衬线基座（出厂空槽口径不因分族而变）
-    expect(proseFallbackTail('')).toBe(PROSE_FONT_FALLBACK)
-    expect(proseFallbackTail('SimSun')).toBe(PROSE_FONT_FALLBACK)
-    expect(proseFallbackTail('Noto Sans SC')).toBe(PROSE_FONT_SANS_FALLBACK)
-    expect(PROSE_FONT_SANS_FALLBACK).toBe("'Microsoft YaHei', 'DengXian', 'SimHei', sans-serif")
+    expect(proseFallbackTail('')).toBe(PROSE_FONT_FALLBACK_WIN)
+    expect(proseFallbackTail('SimSun')).toBe(PROSE_FONT_FALLBACK_WIN)
+    expect(proseFallbackTail('Noto Sans SC')).toBe(PROSE_FONT_SANS_FALLBACK_WIN)
+    expect(PROSE_FONT_SANS_FALLBACK_WIN).toBe("'Microsoft YaHei', 'DengXian', 'SimHei', sans-serif")
   })
 
   it('F 线④: 族键对齐——zh-cn 中文名/思源=Noto 双产品异名同族；已装判定与候补落地', () => {

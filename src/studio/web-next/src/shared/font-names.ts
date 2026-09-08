@@ -1,11 +1,12 @@
 /**
- * 中文字体族名对齐（2026-09-06，win 字体 F 线④）。
+ * 中文字体族名对齐（2026-09-06，win 字体 F 线④；2026-09-08 mac 预设批扩至双平台）。
  *
  * 背景：win 字体枚举（win-fonts.ts PS 脚本）按 font-list 口径 zh-cn 族名优先、
  * en-us 兜底——中文系统列表里是「微软雅黑/宋体/等线…」，而预设/默认栈存的是英文
  * 族名「Microsoft YaHei/SimSun…」。同一款字体的两个名字在字符串比对下互为「未装」
  * （「默认·雅黑」chip 曾误报未装）；思源/Noto 双产品系同理（思源黑体 = Source Han
- * Sans SC 与 Google Noto Sans SC 是两个产品名，CSS 互不匹配）。
+ * Sans SC 与 Google Noto Sans SC 是两个产品名，CSS 互不匹配）。mac 侧同理：中文
+ * 系统 font-list 枚举返回本地化名（宋体-简/楷体-简/苹方-简…），CSS 栈存英文名。
  *
  * 解法：规范族键（CN_FONT_CANON）——同族异名归一键；已装判定、预设身份匹配、
  * 点击预设时的候补落地三处共用，保证「徽标不误报、预览如实回退、点击即渲染真字体」。
@@ -44,6 +45,19 @@ export const CN_FONT_CANON: Record<string, string> = {
   霞鹜文楷: 'wenkai',
   'PingFang SC': 'pingfang',
   苹方: 'pingfang',
+  // mac 内置中文族（2026-09-08 mac 预设批）：mac 恒装；zh 系统下 font-list 枚举
+  // 返回本地化名（宋体-简/楷体-简/…），与 CSS 用的英文族名同字体互为异名
+  'Songti SC': 'songti-sc',
+  '宋体-简': 'songti-sc',
+  'Kaiti SC': 'kaiti-sc',
+  '楷体-简': 'kaiti-sc',
+  'Heiti SC': 'heiti-sc',
+  '黑体-简': 'heiti-sc',
+  // 冬青黑体：mac 中文系统完整本地化名「冬青黑体简体中文」，短名「冬青黑体」同键
+  'Hiragino Sans GB': 'hiragino-sans-gb',
+  冬青黑体: 'hiragino-sans-gb',
+  '冬青黑体简体中文': 'hiragino-sans-gb',
+  '苹方-简': 'pingfang',
 }
 
 /** 异名 → 规范族键；未知字体 = 自身 */
@@ -65,6 +79,11 @@ export const PROSE_FONT_COGNATES: Record<string, string[]> = {
   'Microsoft YaHei': ['Microsoft YaHei', '微软雅黑'],
   SimSun: ['SimSun', '宋体'],
   'LXGW WenKai': ['LXGW WenKai', '霞鹜文楷'],
+  // mac 预设指名族（2026-09-08）：英文族名在前（CSS 直命中），本地化枚举名兜底
+  'PingFang SC': ['PingFang SC', '苹方-简', '苹方'],
+  'Songti SC': ['Songti SC', '宋体-简'],
+  'Kaiti SC': ['Kaiti SC', '楷体-简'],
+  'Hiragino Sans GB': ['Hiragino Sans GB', '冬青黑体简体中文', '冬青黑体'],
 }
 
 /** 落地解析：返回系统里第一个已装候补的**实际族名**（点击预设时存进 proseFontCn，
