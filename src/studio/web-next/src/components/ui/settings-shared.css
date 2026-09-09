@@ -385,28 +385,6 @@
   margin-top: 3px;
   line-height: 1.4;
 }
-/* "仅本书"覆盖开关 */
-.scope-btn {
-  margin-left: 8px;
-  padding: 1px 8px;
-  font-size: var(--font-size-xxs);
-  font-weight: 600;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 99px;
-  background: transparent;
-  color: var(--text-faint);
-  cursor: pointer;
-  transition: all var(--dur-fast) var(--ease-out);
-}
-.scope-btn:hover {
-  color: var(--text-normal);
-  border-color: var(--background-modifier-border-active);
-}
-.scope-btn.on {
-  background: color-mix(in srgb, var(--interactive-accent) 22%, transparent);
-  border-color: transparent;
-  color: var(--text-on-accent);
-}
 .setting-item-control {
   display: flex;
   align-items: center;
@@ -700,6 +678,14 @@
 .switch input:checked + .switch-slider::before {
   transform: translateX(16px);
 }
+/* R8B-P2-2（2026-09-09 修复批）：.switch input 视觉隐藏但保留 Tab 序，滑块此前无
+ * focus-visible 焦点环——键盘焦点不可见（WCAG 2.4.7）。键盘环落在滑块上（保留
+ * inset 边线语义，与滑块圆角同形）；鼠标/触屏不触发（:focus-visible 语义） */
+.switch input:focus-visible + .switch-slider {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--interactive-accent) 55%, transparent),
+    0 0 0 3px color-mix(in srgb, var(--interactive-accent) 35%, transparent);
+}
 .switch-slider {
   box-shadow: inset 0 0 0 1px transparent;
 }
@@ -723,11 +709,6 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  line-height: 1;
-}
-:root[data-platform='win32'] .scope-btn {
-  display: inline-flex;
-  align-items: center;
   line-height: 1;
 }
 

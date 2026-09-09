@@ -21,6 +21,7 @@ import { isSelfHealRunning, runSelfHeal, type SelfHealOutcome } from '../../../s
 import { isSpawnRunning } from '../../../src/ai/orchestrate/spawn-registry.js'
 import { acquireTaskGate, isTaskGateHeld } from '../../../src/studio/server/api/task-gate.js'
 import type { DriverEvent, Session, StudioDriver } from '../../../src/driver/types.js'
+import { waitFor as waitForShared } from '../../helpers/wait-for.js'
 
 // R66-2（十四轮）：write_chapter 闸测需要精确控制 self-heal 在途窗口——runSelfHeal
 // 一并 mock（本文件其余用例走注册表工具，不经 self-heal，mock 不影响其行为）
@@ -82,13 +83,8 @@ function makeDriver(emitted: DriverEvent[]): StudioDriver {
   }
 }
 
-async function waitFor(fn: () => boolean, timeoutMs = 5000): Promise<void> {
-  const start = Date.now()
-  while (!fn()) {
-    if (Date.now() - start > timeoutMs) throw new Error(`waitFor timeout after ${timeoutMs}ms`)
-    await new Promise((r) => setTimeout(r, 20))
-  }
-}
+/** 等条件满足（带超时）——实现见 test/helpers/wait-for.ts（R9-P2-2 单源） */
+const waitFor = (fn: () => boolean, timeoutMs = 5000) => waitForShared(fn, timeoutMs)
 
 async function runConfirmedToolChat(script: unknown[]): Promise<DriverEvent[]> {
   const events: DriverEvent[] = []

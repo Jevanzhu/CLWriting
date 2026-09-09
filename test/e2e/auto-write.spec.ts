@@ -40,6 +40,11 @@ test.beforeAll(async () => {
             `排查：lsof -i :${PORT} 查占用进程并 kill 后重跑。`,
         )
       }
+      // R9-P2-4：listen 失败不留残——对齐 global-setup R27-124 口径（usage-card/ai-provider 同批）
+      if (userDataPath) rmSync(userDataPath, { recursive: true, force: true })
+      if (workDir) rmSync(workDir, { recursive: true, force: true })
+      if (prevDriver === undefined) delete process.env.CLWRITING_DRIVER
+      else process.env.CLWRITING_DRIVER = prevDriver
       reject(err)
     })
   })

@@ -44,8 +44,11 @@ vi.mock('electron', () => {
     handlers: Record<string, Array<(...a: unknown[]) => void>> = {}
     sent: Array<[string, ...unknown[]]> = []
     reloaded = 0
+    // R4-P2-1：顶层主帧 = 自身（isTrustedSender 的 senderFrame === sender.mainFrame 判定形态）
+    mainFrame: FakeWebContents
     constructor(win: Record<string, any>) {
       this.win = win
+      this.mainFrame = this
     }
     on(evt: string, fn: (...a: unknown[]) => void): void {
       ;(this.handlers[evt] ??= []).push(fn)
@@ -354,7 +357,9 @@ describe('R61-B-2: readStore 文件级读失败降级（不再启动即退）', 
       await freshMain()
       const warns0 = M.logWarns.length
       restore() // 恢复真身（current=libA）：若读失败路径会重读，此处将读到非空 recent/current
-      const recent = M.ipcHandle['desktop:get-recent']!({}, {}) as Array<{ path: string }>
+      // R4-P2-1：handler 直调须带受信渲染进程形态（main.test.ts 同款）
+      const wc = M.windows.at(-1)!.webContents
+      const recent = M.ipcHandle['desktop:get-recent']!({ sender: wc, senderFrame: wc.mainFrame }, {}) as Array<{ path: string }>
       expect(recent, '降级缓存命中：不再重读（parseStore 失败路径同款语义）').toEqual([])
       expect(M.logWarns.length, '缓存命中零盘 IO：无二次读 → 无二次 warn').toBe(warns0)
     } finally {

@@ -62,7 +62,7 @@ function onGlobalCallsInput(e: Event): void {
       </div>
       <div class="setting-item">
         <div class="setting-item-info">
-          <div class="setting-item-name">自动确认细纲 <span class="tag-soon">即将支持</span></div>
+          <div class="setting-item-name">自动确认细纲</div>
           <div class="setting-item-desc">AI 生成细纲后自动确认，无需手动点确认（所有书统一）</div>
         </div>
         <div class="setting-item-control">
@@ -97,12 +97,4 @@ function onGlobalCallsInput(e: Event): void {
 </template>
 
 <style scoped>
-.tag-soon {
-  padding: 1px 7px;
-  font-size: var(--font-size-xxs);
-  font-weight: 600;
-  border-radius: 99px;
-  background: var(--background-modifier-hover);
-  color: var(--text-faint);
-}
 </style>

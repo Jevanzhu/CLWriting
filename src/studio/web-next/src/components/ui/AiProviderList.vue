@@ -2,7 +2,7 @@
 // AI 提供方列表（阶段 14 I2 卡片化 + 单卡展开）。
 // 行卡壳用 ProviderRow（两行主区：首行身份/状态，次行地址/模型数）；
 // 展开槽 = 行内编辑（父层按 expandedId 互斥传入）；
-// 新增卡也由父层控制 addOpen，本组件只发 add 事件（列表区隐藏，新增空白编辑器由父层渲染）。
+// 新增卡打开由父层控制（与列表并列渲染），本组件只发 add 事件。
 // 共享控件语言（分组标题/徽章/胶囊按钮等）见 styles/providers.css。
 import { Plus, Trash2, Check, Zap, Loader2, Pencil, Bot } from 'lucide-vue-next'
 import type { ProviderConfDto, TestResult } from '../../api/providers'
@@ -19,8 +19,6 @@ defineProps<{
   testResults: Map<string, TestResult>
   /** 当前展开编辑的提供方 id（单卡互斥；null = 全收起） */
   expandedId: string | null
-  /** 新增卡是否打开（父层控制，打开时列表隐藏） */
-  addOpen: boolean
 }>()
 
 const emit = defineEmits<{

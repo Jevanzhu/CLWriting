@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { startServerSafe } from '../helpers/safe-port.js'
 import { writeChapter } from '../helpers/chapter.js'
+import { waitForAsync } from '../helpers/wait-for.js'
 import type { ChapterMeta } from '../../src/format/types.js'
 
 // 桩 embed（确定性向量，不联网）——RAG 引擎默认 embed 在这里被替换
@@ -40,18 +41,16 @@ function api(path: string, init?: RequestInit): Promise<{ status: number; json: 
   }).then(async (r) => ({ status: r.status, json: (await r.json()) as Record<string, unknown> }))
 }
 
-async function waitForStatus(
-  predicate: (s: Record<string, unknown>) => boolean,
-  timeoutMs = 4000,
-): Promise<Record<string, unknown>> {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    const r = await api('/rag/status')
-    if (predicate(r.json)) return r.json
-    await new Promise((r2) => setTimeout(r2, 50))
-  }
-  throw new Error('waitForStatus 超时')
-}
+const waitForStatus = (predicate: (s: Record<string, unknown>) => boolean, timeoutMs = 4000) =>
+  waitForAsync(
+    async () => {
+      const r = await api('/rag/status')
+      return predicate(r.json) ? r.json : undefined
+    },
+    timeoutMs,
+    50,
+    'waitForStatus 超时',
+  )
 
 async function putRagCfg(rag: Record<string, unknown>): Promise<void> {
   const get = await api('/config')

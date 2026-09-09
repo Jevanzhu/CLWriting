@@ -28,6 +28,9 @@ import {
   type OpenDialogOptions,
   type MessageBoxOptions,
   type BrowserWindowConstructorOptions,
+  type IpcMainInvokeEvent,
+  type IpcMainEvent,
+  type WebContents,
 } from 'electron'
 import { join, dirname, resolve, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -730,6 +733,31 @@ async function openLibraryAction(): Promise<boolean> {
  *  漂移风险，收敛到此。尺寸/标题/位置由 opts 传入，win 专属生命周期监听由调用方自挂。 */
 let devProxyApplied: Promise<void> = Promise.resolve()
 
+// R4-P2-1（2026-09-09 修复批，评审 §四.2）：IPC sender 统一校验——此前 14 个 handler
+// 不验 event.sender 身份，渲染层一旦被 XSS 注入即可驱动 open-library/switch-library/
+// context-menu/set-fullscreen 等（纵深缺口，CSP/隔离只是缓解不可依赖）。校验面 =
+// 白名单 webContents（createSecureWindow 创建时登记、closed 摘除）+ 顶层主帧
+//（senderFrame === sender.mainFrame，被注入 iframe 的帧中帧不满足；帧销毁期
+// senderFrame 为 null 亦拒）。拒绝即拒（不弹提示不回退上下文），防攻击面试探。
+const trustedSenders = new Set<WebContents>()
+function trackWindow(win: BrowserWindow): void {
+  trustedSenders.add(win.webContents)
+  win.on('closed', () => trustedSenders.delete(win.webContents))
+}
+function isTrustedSender(e: IpcMainInvokeEvent | IpcMainEvent | null): boolean {
+  // 事件对象缺失（帧销毁期形态/异常调用）一律拒——null 防御防 handler 层 TypeError
+  if (!e) return false
+  // senderFrame 为空（帧销毁期）一律拒；非顶层主帧（被注入 iframe 的帧中帧
+  // senderFrame ≠ sender.mainFrame）拒。
+  if (!e.senderFrame || e.senderFrame !== e.sender.mainFrame) return false
+  // 主判据：三窗白名单（createSecureWindow 登记、closed 摘除，快路径）。
+  if (trustedSenders.has(e.sender)) return true
+  // 兜底：Electron 全局反查——能反查到本进程存活窗口的 webContents 与白名单等强
+  //（本进程窗口的 webContents 不可能在别处出现）；防非工厂创建窗口的漏网面。
+  const win = BrowserWindow.fromWebContents(e.sender)
+  return !!win && !win.isDestroyed()
+}
+
 function createSecureWindow(opts: BrowserWindowConstructorOptions): BrowserWindow {
   // dev 代理记账 promise（R72-10 / 二十轮 D-7）：dev 态 direct:// 设置于窗口共享的
   // defaultSession，各窗 loadURL 前 await 此 promise——原子窗 fire-and-forget 在
@@ -784,6 +812,8 @@ function createSecureWindow(opts: BrowserWindowConstructorOptions): BrowserWindo
   // 防 CSP 被 XSS 绕过后子窗口被导航到外部）
   win.webContents.on('will-navigate', (e) => e.preventDefault())
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  // R4-P2-1：IPC 白名单登记——三窗共用本工厂，此处单点登记 + closed 摘除
+  trackWindow(win)
   // R67-16：渲染崩溃自愈随工厂挂载（三窗同享；原先只挂主窗，书架/书库白屏无自愈）
   attachRendererCrashSelfHeal(win, opts.title ?? '窗口')
   // dev 模式:不经系统代理（防 clash/surge 类 HTTP 代理 buffer SSE 长连接 → driver events 断流）
@@ -1328,7 +1358,8 @@ const RELAUNCH_DELAY_MS = 100
 
 function registerIpc(): void {
   // 弹选择器打开书库
-  ipcMain.handle('desktop:open-library', async () => {
+  ipcMain.handle('desktop:open-library', async (e) => {
+    if (!isTrustedSender(e)) return
     const picked = await pickLibrary()
     if (!picked) return { ok: false as const, canceled: true as const }
     // R51-A-4（五十一轮）：落库失败转契约化失败，不再裸抛绕过 {ok,reason} 信封
@@ -1339,7 +1370,8 @@ function registerIpc(): void {
     return { ok: true as const }
   })
   // 切换到最近列表中的书库
-  ipcMain.handle('desktop:switch-library', async (_e, path: unknown) => {
+  ipcMain.handle('desktop:switch-library', async (e, path: unknown) => {
+    if (!isTrustedSender(e)) return
     // R54-A-2（五十四轮）：可达性预探先行——失联网络卷残留条目不再冻结主进程（见
     // probeDirReachable 注）；超时态契约化拒切，确定性失败交回同步守卫走原契约文案
     if (typeof path !== 'string') {
@@ -1366,18 +1398,25 @@ function registerIpc(): void {
   })
   // R48-73（四十八轮）：recent 缓存首读过滤后运行期不复验（取舍备案见 readStore 头
   // 注——失效目录残留展示至重启，切换守卫 canSwitchLibraryDir 拦截兜底）
-  ipcMain.handle('desktop:get-recent', () => readStore().recent)
+  ipcMain.handle('desktop:get-recent', (e) => {
+    if (!isTrustedSender(e)) return
+    return readStore().recent
+  })
   // Y-11（第五十七轮）：M-3 第五入口漏网——改走 currentWorkDir()（bootstrap 实际值
   // 优先），否则 store.current 为 null/失效而 bootstrap 跑在 findWorkDir 发现的书库上时，
   // 书库管理窗口拿到与实际运行不一致的展示口径
-  ipcMain.handle('desktop:get-current', () => currentWorkDir())
+  ipcMain.handle('desktop:get-current', (e) => {
+    if (!isTrustedSender(e)) return
+    return currentWorkDir()
+  })
   // 在系统文件管理器中显示文档（electron only；浏览器版前端隐藏此项）
   // 重审-2（2026-09-07 全量代码重审 §四.2）：三入口（show-in-folder/open-book-dir/
   // open-library-dir）readBooks/realpathSync 同步扫书库——书库在失联网络卷时一点
   // 即冻主进程（R54-A-2/R61-B-1 切库链同款防线补齐）：handler 改 async，先经
   // probeDirReachable 预探，'unreachable' 原生错误框 + return（'invalid' 落回原
   // 静默守卫语义——readBooks/realpath 失败本就按「无物可开」收口）。
-  ipcMain.handle('desktop:show-in-folder', async (_e, bookName: unknown, relPath: unknown) => {
+  ipcMain.handle('desktop:show-in-folder', async (e, bookName: unknown, relPath: unknown) => {
+    if (!isTrustedSender(e)) return
     if (typeof bookName !== 'string' || typeof relPath !== 'string') return
     if (relPath.includes('\0')) return
     const workDir = currentWorkDir() // M-3（第八轮）：bootstrap 实际值优先
@@ -1400,7 +1439,8 @@ function registerIpc(): void {
   })
   // 在系统文件管理器中打开书库根目录（设置弹窗「打开书库目录」入口；浏览器版前端隐藏）
   // 重审-2：同 show-in-folder——readBooks 同步扫书库前的失联卷预探
-  ipcMain.handle('desktop:open-book-dir', async (_e, bookName: unknown) => {
+  ipcMain.handle('desktop:open-book-dir', async (e, bookName: unknown) => {
+    if (!isTrustedSender(e)) return
     if (typeof bookName !== 'string' || bookName.includes('\0')) return
     const workDir = currentWorkDir() // M-3（第八轮）：bootstrap 实际值优先
     if (!workDir) return
@@ -1435,7 +1475,8 @@ function registerIpc(): void {
   const loadFontList = () =>
     process.platform === 'win32' ? listWindowsFonts() : fontListWithTimeout(() => getSystemFontList({ disableQuoting: true }))
   const loadSystemFonts = createSystemFontCache(loadFontList)
-  ipcMain.handle('desktop:get-system-fonts', async () => {
+  ipcMain.handle('desktop:get-system-fonts', async (e) => {
+    if (!isTrustedSender(e)) return
     try {
       return await loadSystemFonts()
     } catch (e) {
@@ -1444,7 +1485,8 @@ function registerIpc(): void {
     }
   })
   // 打开独立书架窗口（ribbon 书架按钮调用）
-  ipcMain.handle('desktop:open-shelf', () => {
+  ipcMain.handle('desktop:open-shelf', (e) => {
+    if (!isTrustedSender(e)) return
     // R30-24（三十轮）：openShelfWindow 是 async（内部 await devProxyApplied）——此前
     // fire-and-forget 裸调，窗工厂早期抛错成主进程 unhandledRejection 丢诊断。对齐
     // R74-16 的 loadURL 口径：promise 接日志留痕（handler 同步返回，invoke 端不悬等待、
@@ -1454,7 +1496,8 @@ function registerIpc(): void {
     })
   })
   // 书架窗口选书 → 主窗口加载该书并聚焦，关闭书架窗口
-  ipcMain.handle('desktop:open-book', (_e, name: unknown) => {
+  ipcMain.handle('desktop:open-book', (e, name: unknown) => {
+    if (!isTrustedSender(e)) return
     if (typeof name !== 'string') return
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('desktop:navigate', `/book/${encodeURIComponent(name)}`)
@@ -1465,7 +1508,8 @@ function registerIpc(): void {
     }
   })
   // 打开独立书库管理窗口（ribbon 书库按钮调用）
-  ipcMain.handle('desktop:open-library-window', () => {
+  ipcMain.handle('desktop:open-library-window', (e) => {
+    if (!isTrustedSender(e)) return
     // R30-24（三十轮）：同 open-shelf——async 工厂 promise 接日志，防 unhandledRejection
     openLibraryWindow().catch((e) => {
       log.error('desktop', `书库管理窗口打开失败`, e)
@@ -1473,7 +1517,8 @@ function registerIpc(): void {
   })
   // 在系统文件管理器中打开当前书库根目录
   // 重审-2：同 show-in-folder——realpathSync 同步解析前的失联卷预探
-  ipcMain.handle('desktop:open-library-dir', async () => {
+  ipcMain.handle('desktop:open-library-dir', async (e) => {
+    if (!isTrustedSender(e)) return
     const workDir = currentWorkDir() // M-3（第八轮）：bootstrap 实际值优先
     if (!workDir) return
     if ((await probeDirReachable(workDir)) === 'unreachable') {
@@ -1490,6 +1535,7 @@ function registerIpc(): void {
   })
   // ── 原生右键菜单 ──
   ipcMain.on('desktop:context-menu', (event, specs: unknown) => {
+    if (!isTrustedSender(event)) return
     // R64-29（十二轮）：补 isDestroyed——fromWebContents 命中与 menu.popup 之间存在
     // 微窗口，窗口关闭后 popup 同步抛「Object has been destroyed」（对齐 663-664 行
     // set-fullscreen 守卫）
@@ -1537,6 +1583,7 @@ function registerIpc(): void {
   // 渲染层进入/退出专注时驱动原生全屏。不走 HTML5 Fullscreen API：菜单加速键路径
   // 在渲染层无用户手势会被拒，setFullScreen 无此限制。作用于发起调用的窗口本体。
   ipcMain.handle('desktop:set-fullscreen', (event, flag: unknown) => {
+    if (!isTrustedSender(event)) return
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win || win.isDestroyed()) return
     win.setFullScreen(flag === true)
@@ -1547,6 +1594,7 @@ function registerIpc(): void {
   ipcMain.handle(
     'desktop:set-titlebar-overlay',
     (event, o: { color?: unknown; symbolColor?: unknown; dark?: unknown }) => {
+      if (!isTrustedSender(event)) return
       // R74-21（七十四轮批 D）：颜色格式白名单——此前只验 typeof，任意长/任意内容
       // 字符串直达 Electron setTitleBarOverlay 靠内部抛错兜底（catch 吞掉无痕）。
       // 只认 #RGB/#RGBA/#RRGGBB/#RRGGBBAA 形态 + 字面量 'transparent'

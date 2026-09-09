@@ -4,8 +4,9 @@
  * 从「获取模型列表」探测结果勾选采纳——勾选集 picked 由父层持有（采纳/去重逻辑在父）。
  */
 import { X, Check } from 'lucide-vue-next'
-import { onMounted, onBeforeUnmount } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { isImeComposing } from '../../shared/ime'
+import { useFocusTrap } from '../../composables/useFocusTrap'
 
 const props = defineProps<{
   show: boolean
@@ -33,13 +34,20 @@ function onKeydown(e: KeyboardEvent): void {
 }
 onMounted(() => document.addEventListener('keydown', onKeydown, true))
 onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
+
+// R8B-P2-3（2026-09-09 修复批）：补齐弹窗族唯一缺口——焦点陷阱 + dialog 语义 +
+// 初始聚焦（对齐 ConfirmPrompt/SettingsModal/CreateBookModal R49-32 同族）。
+// 此前 Tab 直穿到背后表单；trap 落焦到首个可交互元素 = 关闭钮（右上角），
+// 与 ConfirmDeleteModal「危险操作默认聚焦安全项」同向。
+const modalRef = ref<HTMLElement | null>(null)
+useFocusTrap(modalRef)
 </script>
 
 <template>
   <!-- 候选弹窗：从已拉取清单勾选 -->
   <Teleport to="body">
     <div v-if="show" class="picker-mask" @click.self="emit('close')">
-      <div class="picker-pop">
+      <div class="picker-pop" ref="modalRef" role="dialog" aria-modal="true" aria-label="从模型清单选择" tabindex="-1">
         <div class="picker-head">
           <span>从模型清单选择</span>
           <button class="close-btn" @click="emit('close')"><X :size="15" /></button>

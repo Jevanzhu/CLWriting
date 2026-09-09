@@ -63,14 +63,8 @@ function makeDriver(emitted: DriverEvent[]): StudioDriver {
   }
 }
 
-/** 等条件满足（带超时） */
-async function waitFor(fn: () => boolean, timeoutMs = 3000): Promise<void> {
-  const start = Date.now()
-  while (!fn()) {
-    if (Date.now() - start > timeoutMs) throw new Error(`waitFor timeout after ${timeoutMs}ms`)
-    await new Promise((r) => setTimeout(r, 20))
-  }
-}
+/** 等条件满足（带超时）——实现见 test/helpers/wait-for.ts（R9-P2-2 单源） */
+import { waitFor } from '../helpers/wait-for.js'
 
 // ─── Z-P1-1：嵌套 rewrite 生成随 chat 中止（全链路） ──────────────
 

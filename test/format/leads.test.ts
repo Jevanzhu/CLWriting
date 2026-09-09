@@ -40,6 +40,31 @@ test('parseHistory: 回填标记（#3 第 4 节）', () => {
   expect(entries[0]!.证据).toBe('早期线索')
 })
 
+test('R1-P2-1: 非系统回填形态（作者手写「（回填…）」备注）保留原文零改写', () => {
+  // 修复前：正则 /（回填[^）]*）$/ 命中任意「（回填…）」结尾即剥离并改写为系统
+  //「（回填·卷摘要级）」——作者备注被无感知篡改。修复后仅精确识别系统生成标记。
+  const body = `## 履历
+
+- 第050章 埋下：早期线索（回填时补了细节）`
+  const entries = parseHistory(body)
+  expect(entries[0]!.回填).toBeUndefined()
+  expect(entries[0]!.证据).toBe('早期线索（回填时补了细节）')
+})
+
+test('R1-P2-1: 系统标记后跟作者备注——保守不剥（证据全量保留，不标回填不篡改）', () => {
+  // 精确锚点只认「行尾（回填·卷摘要级）」；标记后追加作者备注使行尾不再精确 →
+  // 宁可失去回填标注也不冒剥离风险（用户文本零改写优先）。规范单后缀行回填照常。
+  const body = `## 履历
+
+- 第050章 埋下：早期线索（回填·卷摘要级）（作者注：第二稿修订）
+- 第051章 埋下：另一线索（回填·卷摘要级）`
+  const entries = parseHistory(body)
+  expect(entries[0]!.回填).toBeUndefined()
+  expect(entries[0]!.证据).toBe('早期线索（回填·卷摘要级）（作者注：第二稿修订）')
+  expect(entries[1]!.回填).toBe(true)
+  expect(entries[1]!.证据).toBe('另一线索')
+})
+
 test('stringifyHistory + parseHistory 往返', () => {
   const entries = [
     { 章号: 12, 动词: '埋下', 证据: '焦痕' },

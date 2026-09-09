@@ -4,6 +4,7 @@
  * + localStorage 持久化恢复 + validate 失效清空 + 新建信号。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { nextTick } from 'vue'
 // flush：让 setBook 的异步 loadBookPrefs + debounce 500ms persist 落定
 const flush = () => vi.advanceTimersByTimeAsync(600)
 import { createPinia, setActivePinia } from 'pinia'
@@ -185,6 +186,25 @@ describe('workspace · 新建信号', () => {
     ws.triggerCreate('worldview')
     expect(ws.createKind).toBe('worldview')
     expect(ws.createTick).toBe(t1 + 1)
+  })
+
+  it('R8a-P2-1（2026-09-09 修复批）：非树面板下 triggerCreate → 先切回树面板，tick 延后一拍（面板挂载后再递增）', async () => {
+    const ws = useWorkspaceStore()
+    ws.leftPanel = 'search' // createTick 唯一消费者 ChapterTreePanel 只在树面板挂载
+    const before = ws.createTick
+    ws.triggerCreate()
+    expect(ws.leftPanel).toBe('tree') // 切面板即时（新建意图指向树，切面板即用户可见反馈）
+    expect(ws.createTick).toBe(before) // 未到 nextTick——此时递增必被零监听者错过
+    await nextTick()
+    expect(ws.createTick).toBe(before + 1)
+  })
+
+  it('R8a-P2-1：已在树面板 → tick 立即递增（延迟路径不误伤常规快径）', () => {
+    const ws = useWorkspaceStore()
+    const before = ws.createTick
+    ws.triggerCreate('character')
+    expect(ws.createTick).toBe(before + 1)
+    expect(ws.leftPanel).toBe('tree')
   })
 })
 

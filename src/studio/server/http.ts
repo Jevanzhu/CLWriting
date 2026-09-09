@@ -42,7 +42,10 @@ export function isClientAbort(e: unknown): e is ClientAbortError {
 }
 
 export function reply(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
+  // R5-P2-1（2026-09-09 修复批）：API 成功响应此前无 nosniff——静态面 R30-23 已统一、
+  // JSON API 面漏网（MIME 嗅探防线不全）。统一补齐后全部响应头（静态/API/SSE）收口
+  // 同一防线。
+  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'x-content-type-options': 'nosniff' })
   res.end(JSON.stringify(body))
 }
 
@@ -69,7 +72,8 @@ export function replyError(
   // 收进本出口后所有非 2xx error 文本一律过 redactSecret（幂等：已脱敏文本再过
   // 无变化，既有调用点的显式脱敏不受影响；中文人话不匹配凭据模式不受影响）
   const safeError = redactSecret(error)
-  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
+  // R5-P2-1（2026-09-09 修复批）：同 reply——错误信封统一补 nosniff
+  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'x-content-type-options': 'nosniff' })
   res.end(JSON.stringify({ code, error: safeError, ...(extra ?? {}) }))
 }
 

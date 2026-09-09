@@ -264,7 +264,10 @@ function onSelect(key: string): void {
   top: -5px;
   min-width: 160px;
   padding: 5px;
-  margin-left: 4px;
+  /* R8B-P2-1（2026-09-09 修复批）：悬停闪关根因——旧 margin-left:4px 把子菜单推出
+   * .cm-sub-wrap 边界之外：指针从父项滑向子菜单必经 4px 真空带 → mouseleave 触发
+   * openSub=null（子菜单同拍卸载），再进入时已无处可悬。贴 wrap 右缘后该 4px 视觉
+   * 间隙由 wrap 的 padding-right 承载（仍在悬停热区内），外观不变、真空带消除。 */
   border-radius: 8px;
 }
 </style>

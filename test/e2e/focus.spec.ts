@@ -156,7 +156,21 @@ test('专注统计条 + 浏览态全亮：输入渐隐 → 滚轮回看全亮 �
   // 会把有效视口重置到屏幕尺寸（与 1680 context 视口不同）；②左栏收拢有宽度过渡动画，
   // 未静置即测量会取到中途几何（本 spec 头部 1680 视口下公式恒 12px，中途值随机负）。
   await expect(page.locator('.ws-left')).toHaveClass(/collapsed/)
-  await page.waitForTimeout(500)
+  // R9-P2-5：固定裸睡改几何静置判定——CSS 过渡无事件可等，连续两帧几何一致即视为静置
+  //（消除慢机负窗：500ms 不够时旧写法取到中途几何仍会误测下限逼近）
+  await expect
+    .poll(
+      async () => {
+        const b1 = await statsBar.boundingBox()
+        await page.waitForTimeout(50)
+        const b2 = await statsBar.boundingBox()
+        return (
+          !!b1 && !!b2 && b1.x === b2.x && b1.y === b2.y && b1.width === b2.width && b1.height === b2.height
+        )
+      },
+      { timeout: 3_000, message: '专注统计条布局未静置' },
+    )
+    .toBe(true)
   // 左侧贴纸张左缘（与右侧排版条镜像）：条右缘应落在纸张左缘左侧 0~40px
   // （R69-8 产品侧配套：窄边距下条宽 clamp 收缩，全屏重置视口/窄屏也保 12px 间隙）
   const barBox = await statsBar.boundingBox()

@@ -28,6 +28,7 @@ const M = vi.hoisted(() => ({
   commandLineSwitches: [] as Array<string[]>,
   headersCb: null as null | ((d: unknown, cb: (r: unknown) => void) => void),
   ipcHandle: {} as Record<string, (e: unknown, ...a: unknown[]) => unknown>,
+  windows: [] as Array<Record<string, any>>,
   menuTemplate: null as null | Array<Record<string, unknown>>,
   dialogOpen: { canceled: true, filePaths: [] as string[] },
   msgResponse: 2,
@@ -71,8 +72,11 @@ vi.mock('electron', () => {
     win: Record<string, any>
     handlers: Record<string, Array<(...a: unknown[]) => void>> = {}
     sent: Array<[string, ...unknown[]]> = []
+    // R4-P2-1：顶层主帧 = 自身（isTrustedSender 的 senderFrame === sender.mainFrame 判定形态）
+    mainFrame: FakeWebContents
     constructor(win: Record<string, any>) {
       this.win = win
+      this.mainFrame = this
     }
     on(evt: string, fn: (...a: unknown[]) => void): void {
       ;(this.handlers[evt] ??= []).push(fn)
@@ -95,6 +99,7 @@ vi.mock('electron', () => {
     constructor(opts: Record<string, any>) {
       this.opts = opts
       this.webContents = new FakeWebContents(this)
+      M.windows.push(this as unknown as Record<string, any>)
     }
     loadURL(u: string): Promise<void> {
       this.loaded.push(u)
@@ -147,7 +152,10 @@ vi.mock('electron', () => {
       name: 'CLWriting',
       getAppPath: () => '/fake/app',
     },
-    BrowserWindow: FakeWin,
+    // R4-P2-1：isTrustedSender 兜底反查（白名单外窗口形态）+ 测试侧受信事件构造
+    BrowserWindow: Object.assign(class extends FakeWin {}, {
+      fromWebContents: (wc: unknown) => M.windows.find((w) => w.webContents === wc) ?? null,
+    }),
     session: {
       defaultSession: {
         webRequest: {
@@ -346,7 +354,12 @@ describe('R57-A-2: 菜单链「打开书库目录…」落库失败不再静默'
     mkdirSync(workdirFp())
     try {
       const relaunch0 = M.relaunchCalls
-      const r = (await M.ipcHandle['desktop:open-library']!(null)) as { ok: boolean; reason?: string }
+      // R4-P2-1：handler 直调须带受信渲染进程形态（main.test.ts 同款）
+      const wc = M.windows.at(-1)!.webContents
+      const r = (await M.ipcHandle['desktop:open-library']!({ sender: wc, senderFrame: wc.mainFrame })) as {
+        ok: boolean
+        reason?: string
+      }
       expect(r.ok).toBe(false)
       expect(r.reason).toContain('落库失败')
       expect(M.relaunchCalls).toBe(relaunch0)

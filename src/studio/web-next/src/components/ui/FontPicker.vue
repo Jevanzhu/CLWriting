@@ -35,6 +35,49 @@ const menu = ref<HTMLElement | null>(null)
 const pos = ref({ left: 0, top: 0, width: 0 })
 const listH = ref(320)
 
+// R8C-F3（2026-09-09 修复批）：win 自绘浮层补 listbox 键盘导航——此前 aria 声明
+// 完整 combobox/listbox/option 契约（"声明即承诺"），onKey 却只处理 Esc：「声明与
+// 实现不符」漂移。补 roving 光标（键盘焦点留在触发按钮，光标经 aria-activedescendant
+// 移动，标准 listbox 模式）：↑/↓ 逐项（APG：不环绕）、Home/End 首尾、Enter/Space
+// 选中当前项、可打印字符 typeahead（前缀累计 800ms 窗）、Tab 收菜单放行焦移。
+// mouseenter 与键盘光标同源（悬停即同步 roving 位，菜单内 hover/键盘态不打架）。
+let fpSeq = 0 // 每实例唯一 id 前缀（页面多处字体下拉并存，aria-activedescendant 需全局唯一）
+const uid = ++fpSeq
+const activeIdx = ref(0)
+const listNames = computed(() => [
+  props.defaultFont ? `默认 · ${props.display(props.defaultFont)}` : props.placeholder,
+  ...props.fonts.map((f) => props.display(f)),
+])
+const listCount = computed(() => props.fonts.length + 1)
+const optId = (i: number): string => `fp-${uid}-opt-${i}`
+/** 当前 roving 光标对应的字体值（0 = 默认项 → ''） */
+const activeFont = computed(() => (activeIdx.value === 0 ? '' : props.fonts[activeIdx.value - 1]!))
+let typeBuf = ''
+let typeTimer: ReturnType<typeof setTimeout> | undefined
+function startTypeahead(ch: string): void {
+  const needle = typeBuf + ch
+  // 惯例：自当前项之后绕回找前缀命中（罗盘式循环，未命中保持原位）
+  for (let step = 1; step <= listCount.value; step++) {
+    const i = (activeIdx.value + step) % listCount.value
+    if (listNames.value[i]!.toLowerCase().startsWith(needle.toLowerCase())) {
+      activeIdx.value = i
+      break
+    }
+  }
+  typeBuf = needle
+  clearTimeout(typeTimer)
+  typeTimer = setTimeout(() => {
+    typeBuf = ''
+  }, 800)
+}
+function revealActive(): void {
+  const m = menu.value
+  // 菜单子元素序 = 项序（默认项 + fonts 逐项，中间无分隔节点）；content-visibility
+  // 屏外项实测不影响 children 索引（跳过布局/绘制但节点在列）
+  const el = m?.children[activeIdx.value] as HTMLElement | undefined
+  el?.scrollIntoView?.({ block: 'nearest' })
+}
+
 /** 默认态展示名：默认字体名（如「微软雅黑」）；无可显默认回落 placeholder */
 const defaultLabel = computed(() => (props.defaultFont ? props.display(props.defaultFont) : props.placeholder))
 
@@ -51,6 +94,9 @@ function openMenu(): void {
   listH.value = Math.max(120, Math.min(360, window.innerHeight - pos.value.top - 12))
   rendered.value = true
   open.value = true
+  // R8C-F3：打开即定位 roving 光标到当前值对应项（无值 → 默认项 0）
+  const cur = props.value === '' ? 0 : props.fonts.indexOf(props.value) + 1
+  activeIdx.value = cur >= 1 ? cur : 0
 }
 function close(): void {
   open.value = false
@@ -60,17 +106,66 @@ function pick(f: string): void {
   close()
 }
 function onKey(e: KeyboardEvent): void {
-  if (e.key !== 'Escape' || !open.value) return
-  // R50-D1-1（五十轮）：IME 组合期 Esc 让渡输入法（isImeComposing 单源判据，对齐
-  // ModelPicker/SettingsModal 等先例）——组合期收候选的 Esc 不应连带关闭字体下拉
-  if (isImeComposing(e)) return
-  // R39-4（三十九轮）：open 态本层消费 Esc——capture 注册先于 useHotkeys（后者在
-  // WorkspaceShell setup 期挂、bubble 派发按注册序先跑，此处 preventDefault 对它
-  // 迟到），对齐 ContextMenu/SettingsModal/ExportDialog 的 Z-23「本层消费防同键退
-  // 专注」口径且不依赖挂载时序；未 open 时不消费（Esc 落到 useHotkeys）
-  e.preventDefault()
-  e.stopPropagation()
-  close()
+  if (e.key === 'Escape') {
+    if (!open.value) return // 未开不消费——Esc 落到 useHotkeys
+    // R50-D1-1（五十轮）：IME 组合期 Esc 让渡输入法（isImeComposing 单源判据，对齐
+    // ModelPicker/SettingsModal 等先例）——组合期收候选的 Esc 不应连带关闭字体下拉
+    if (isImeComposing(e)) return
+    // R39-4（三十九轮）：open 态本层消费 Esc——capture 注册先于 useHotkeys（后者在
+    // WorkspaceShell setup 期挂、bubble 派发按注册序先跑，此处 preventDefault 对它
+    // 迟到），对齐 ContextMenu/SettingsModal/ExportDialog 的 Z-23「本层消费防同键退
+    // 专注」口径且不依赖挂载时序
+    e.preventDefault()
+    e.stopPropagation()
+    close()
+    return
+  }
+  // R8C-F3：非 Esc 键仅 open 态且 win 自绘路径（非 win 原生 select 不拦）才收口
+  if (!open.value || !isWin) return
+  switch (e.key) {
+    case 'ArrowDown':
+      e.preventDefault()
+      e.stopPropagation()
+      if (activeIdx.value < listCount.value - 1) activeIdx.value++
+      revealActive()
+      break
+    case 'ArrowUp':
+      e.preventDefault()
+      e.stopPropagation()
+      if (activeIdx.value > 0) activeIdx.value--
+      revealActive()
+      break
+    case 'Home':
+      e.preventDefault()
+      e.stopPropagation()
+      activeIdx.value = 0
+      revealActive()
+      break
+    case 'End':
+      e.preventDefault()
+      e.stopPropagation()
+      activeIdx.value = listCount.value - 1
+      revealActive()
+      break
+    case 'Enter':
+    case ' ':
+      // Space 不拦会触发按钮默认激活 → toggle 反关菜单；Enter/Space 语义 = 选中当前项
+      e.preventDefault()
+      e.stopPropagation()
+      pick(activeFont.value)
+      break
+    case 'Tab':
+      close() // 收菜单放行焦移（不 preventDefault）
+      break
+    default:
+      // typeahead：非修饰组合的可打印字符
+      if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault()
+        e.stopPropagation()
+        startTypeahead(e.key)
+        revealActive()
+      }
+  }
 }
 function onScrollOrResize(e: Event): void {
   if (!open.value) return
@@ -105,6 +200,7 @@ onBeforeUnmount(() => {
       :style="{ fontFamily: value || defaultFont || 'inherit' }"
       :aria-haspopup="'listbox'"
       :aria-expanded="open"
+      :aria-activedescendant="open ? optId(activeIdx) : undefined"
       :title="value || defaultLabel"
       @click="toggle"
     >
@@ -126,23 +222,27 @@ onBeforeUnmount(() => {
         <button
           type="button"
           class="fp-item"
-          :class="{ on: value === '' }"
+          :class="{ on: value === '', active: 0 === activeIdx }"
+          :id="optId(0)"
           role="option"
           :aria-selected="value === ''"
           @click="pick('')"
+          @mouseenter="activeIdx = 0"
         >
           {{ defaultFont ? `默认 · ${display(defaultFont)}` : placeholder }}
         </button>
         <button
-          v-for="f in fonts"
+          v-for="(f, i) in fonts"
           :key="f"
           type="button"
           class="fp-item"
-          :class="{ on: f === value }"
+          :class="{ on: f === value, active: i + 1 === activeIdx }"
+          :id="optId(i + 1)"
           :style="{ fontFamily: f }"
           role="option"
           :aria-selected="f === value"
           @click="pick(f)"
+          @mouseenter="activeIdx = i + 1"
         >
           {{ display(f) }}
         </button>
@@ -236,5 +336,13 @@ onBeforeUnmount(() => {
 .fp-item.on {
   color: var(--text-accent);
   background: color-mix(in srgb, var(--interactive-accent) 12%, transparent);
+}
+/* R8C-F3：roving 光标（aria-activedescendant 指向项）——与 hover 同底色；
+ * 选中项上加叠更深的 accent 底，键盘光标与已选态同屏可辨 */
+.fp-item.active {
+  background: var(--background-modifier-hover);
+}
+.fp-item.active.on {
+  background: color-mix(in srgb, var(--interactive-accent) 22%, transparent);
 }
 </style>

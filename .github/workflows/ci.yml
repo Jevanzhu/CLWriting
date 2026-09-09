@@ -75,7 +75,8 @@ jobs:
 
       # R67-3（十五轮）：lint 门接线——package.json 的 lint 脚本此前只在本地跑，
       # ci.yml 全文无 lint 步骤，与 coverage 门「只在本地生效」同款名存实亡判例。
-      # 当前 eslint.config.js 射程仅 3 个 JS 文件（TS/Vue 扩射程另立账），步绿门在先。
+      # 射程现状（R9-P2-5 修账）：JS 块 + src/scripts/test/*.config.ts 的 TS 块；
+      # .vue 未纳入（另立账）。步绿门在先。
       - name: lint 门（eslint）
         run: npm run lint
 

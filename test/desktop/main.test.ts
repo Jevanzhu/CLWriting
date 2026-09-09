@@ -73,8 +73,12 @@ vi.mock('electron', () => {
     sent: Array<[string, ...unknown[]]> = []
     windowOpenHandler: ((...a: unknown[]) => { action: string }) | null = null
     reloaded = 0
+    // R4-P2-1：顶层主帧 = 自身（isTrustedSender 的 senderFrame === sender.mainFrame
+    // 判定形态；被注入 iframe 的帧才是不同的 frame 对象）
+    mainFrame: FakeWebContents
     constructor(win: Record<string, any>) {
       this.win = win
+      this.mainFrame = this
     }
     on(evt: string, fn: (...a: unknown[]) => void): void {
       ;(this.handlers[evt] ??= []).push(fn)
@@ -432,6 +436,13 @@ function mainWin(): Record<string, any> {
   return w as Record<string, any>
 }
 
+// R4-P2-1（2026-09-09 修复批）：handler 练习统一走「受信渲染进程」形态——senderFrame
+// 须等于 sender.mainFrame（顶层主帧）；null 事件与异帧/白名单外形态属拒绝面（拒绝
+// 测试单列）。
+function trustedEvent(wc: Record<string, any> = mainWin().webContents): Record<string, any> {
+  return { sender: wc, senderFrame: wc.mainFrame }
+}
+
 describe('kk-P2-8：主进程启动链（安全配置 / CSP / 内嵌 server）', () => {
   it.skipIf(process.platform !== 'win32')('win 渲染锐度：模块加载即注册 disable-gpu-rasterization（GPU 光栅层强制灰度 AA，压掉 F0 子像素——编辑区糊根因；mac 无 ClearType 不注册）', () => {
     expect(M.commandLineSwitches).toContainEqual(['disable-gpu-rasterization'])
@@ -471,7 +482,7 @@ describe('kk-P2-8：主进程启动链（安全配置 / CSP / 内嵌 server）',
     const n0 = M.windows.length
     try {
       Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
-      M.ipcHandle['desktop:open-shelf']!({} as never)
+      M.ipcHandle['desktop:open-shelf']!(trustedEvent())
       await new Promise((r) => setImmediate(r))
       const linuxWin = M.windows[n0]!
       expect(linuxWin.opts.titleBarStyle).toBeUndefined() // 非支持值不外发
@@ -479,7 +490,7 @@ describe('kk-P2-8：主进程启动链（安全配置 / CSP / 内嵌 server）',
       linuxWin.close() // 'closed' → shelfWindow 置空，单例让位下一轮
 
       Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
-      M.ipcHandle['desktop:open-shelf']!({} as never)
+      M.ipcHandle['desktop:open-shelf']!(trustedEvent())
       await new Promise((r) => setImmediate(r))
       const macWin = M.windows[n0 + 1]!
       expect(macWin.opts.titleBarStyle).toBe('hiddenInset')
@@ -573,17 +584,32 @@ describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
 
   it('set-fullscreen：按发起窗口 setFullScreen(flag===true)，非布尔收敛 false', () => {
     const calls: boolean[] = []
-    const wc = { sent: [], on(): void {}, isDestroyed(): boolean { return false } }
+    const wc = { sent: [], on(): void {}, isDestroyed(): boolean { return false }, mainFrame: null as unknown }
+    wc.mainFrame = wc // R4-P2-1：顶层主帧自引用（受信 sender 形态）
     const win = {
       webContents: wc,
       isDestroyed(): boolean { return false },
       setFullScreen(f: boolean): void { calls.push(f) },
     }
     M.windows.push(win as unknown as Record<string, any>)
-    M.ipcHandle['desktop:set-fullscreen']!({ sender: wc }, true)
-    M.ipcHandle['desktop:set-fullscreen']!({ sender: wc }, false)
-    M.ipcHandle['desktop:set-fullscreen']!({ sender: wc }, 'yes')
+    M.ipcHandle['desktop:set-fullscreen']!({ sender: wc, senderFrame: wc.mainFrame }, true)
+    M.ipcHandle['desktop:set-fullscreen']!({ sender: wc, senderFrame: wc.mainFrame }, false)
+    M.ipcHandle['desktop:set-fullscreen']!({ sender: wc, senderFrame: wc.mainFrame }, 'yes')
     expect(calls).toEqual([true, false, false])
+  })
+
+  // R4-P2-1（2026-09-09 修复批）：sender 校验拒绝面——缺 senderFrame（帧销毁期）、
+  // 异帧（senderFrame ≠ sender.mainFrame，被注入 iframe 的帧中帧形态）、白名单外
+  // webContents（无窗口反查）全部拒绝；受信形态照常工作（回归锚）。
+  it('R4-P2-1: IPC 非受信 sender 拒绝——null 事件/缺帧/异帧/裸 wc；受信形态仍工作', () => {
+    const h = M.ipcHandle['desktop:get-current']!
+    expect(h(null as never)).toBeUndefined() // 无事件对象（帧销毁期形态）
+    expect(h({ sender: mainWin().webContents } as never)).toBeUndefined() // 缺 senderFrame
+    expect(h({ sender: mainWin().webContents, senderFrame: { bogus: true } } as never)).toBeUndefined() // 异帧
+    const foreign = { sent: [], on(): void {}, mainFrame: null as unknown } // 白名单外裸 wc（无窗口反查）
+    foreign.mainFrame = foreign
+    expect(h({ sender: foreign, senderFrame: foreign } as never)).toBeUndefined()
+    expect(h(trustedEvent())).toBe(libA) // 受信形态回归锚（bootstrap 实际值）
   })
 
   // R74-21（七十四轮批 D）：overlay 颜色白名单——此前只验 typeof，任意长字符串直达
@@ -591,7 +617,8 @@ describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
   //（与 isInvalidBookName「跨平台统一拒绝」口径一致），mac 上亦可测。
   it('R74-21: set-titlebar-overlay 颜色白名单——非法色回错误、合法 hex 放行（不再只验 typeof）', () => {
     const calls: Array<Record<string, unknown>> = []
-    const wc = { sent: [], on(): void {}, isDestroyed(): boolean { return false } }
+    const wc = { sent: [], on(): void {}, isDestroyed(): boolean { return false }, mainFrame: null as unknown }
+    wc.mainFrame = wc // R4-P2-1：顶层主帧自引用（受信 sender 形态——color 校验面不受 sender 身份影响）
     const win = {
       webContents: wc,
       isDestroyed(): boolean { return false },
@@ -600,26 +627,26 @@ describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
     M.windows.push(win as unknown as Record<string, any>)
     const h = M.ipcHandle['desktop:set-titlebar-overlay']!
     // 非法：任意长字符串（修复前直达 Electron）、无 # 前缀、非 hex 字符、数字类型
-    expect(h({ sender: wc }, { color: 'x'.repeat(500) })).toMatchObject({ ok: false })
-    expect(h({ sender: wc }, { color: 'red' })).toMatchObject({ ok: false })
-    expect(h({ sender: wc }, { color: '#GGGGGG' })).toMatchObject({ ok: false })
-    expect(h({ sender: wc }, { symbolColor: '#12' })).toMatchObject({ ok: false })
-    expect(h({ sender: wc }, { color: 12345 })).toMatchObject({ ok: false })
+    expect(h({ sender: wc, senderFrame: wc.mainFrame }, { color: 'x'.repeat(500) })).toMatchObject({ ok: false })
+    expect(h({ sender: wc, senderFrame: wc.mainFrame }, { color: 'red' })).toMatchObject({ ok: false })
+    expect(h({ sender: wc, senderFrame: wc.mainFrame }, { color: '#GGGGGG' })).toMatchObject({ ok: false })
+    expect(h({ sender: wc, senderFrame: wc.mainFrame }, { symbolColor: '#12' })).toMatchObject({ ok: false })
+    expect(h({ sender: wc, senderFrame: wc.mainFrame }, { color: 12345 })).toMatchObject({ ok: false })
     // R38-20（三十八轮）：5/7 位非法 hex 拒绝——原 {3,8} 放行后 Electron 内部校验
     // 抛错被 catch 吞、深浅色切换静默失效；收紧为 CSS 合法位数集合 3/4/6/8
-    expect(h({ sender: wc }, { color: '#12345' })).toMatchObject({ ok: false })
-    expect(h({ sender: wc }, { symbolColor: '#1234567' })).toMatchObject({ ok: false })
+    expect(h({ sender: wc, senderFrame: wc.mainFrame }, { color: '#12345' })).toMatchObject({ ok: false })
+    expect(h({ sender: wc, senderFrame: wc.mainFrame }, { symbolColor: '#1234567' })).toMatchObject({ ok: false })
     // 合法 hex（3/6/8 位）放行：返回非错误；win32 下转发 setTitleBarOverlay（mac 上
     // 平台守卫 no-op，仅验校验面）
-    expect(h({ sender: wc }, { color: '#f6f6f6', symbolColor: '#666' })).toBeUndefined()
-    expect(h({ sender: wc }, { color: '#262626FF' })).toBeUndefined()
+    expect(h({ sender: wc, senderFrame: wc.mainFrame }, { color: '#f6f6f6', symbolColor: '#666' })).toBeUndefined()
+    expect(h({ sender: wc, senderFrame: wc.mainFrame }, { color: '#262626FF' })).toBeUndefined()
     if (process.platform === 'win32') {
       expect(calls).toEqual([{ color: '#f6f6f6', symbolColor: '#666' }, { color: '#262626FF' }])
     } else {
       expect(calls).toEqual([]) // 非 win 平台守卫 no-op，不应触达 setTitleBarOverlay
     }
     // 合法载荷后未销毁窗口上的既有空参形态维持 no-op（无字段 → undefined）
-    expect(h({ sender: wc }, {})).toBeUndefined()
+    expect(h({ sender: wc, senderFrame: wc.mainFrame }, {})).toBeUndefined()
   })
 
   it('专注全屏反向同步：enter/leave-full-screen → desktop:fullscreen-change 转发渲染层', () => {
@@ -638,14 +665,14 @@ describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
     // canSwitchLibraryDir（bootstrap 接受面 = 目录存在即可）——原「非书库目录拒绝」
     // 用例的空目录输入从拒绝转为放行（待建空书库正是本修复要救活的形态），拒绝面
     // 改由「不存在路径」与「另一书库的子目录」承载
-    const bad = await M.ipcHandle['desktop:switch-library']!(null, mkTmp('not-a-lib-') + '/不存在')
+    const bad = await M.ipcHandle['desktop:switch-library']!(trustedEvent(), mkTmp('not-a-lib-') + '/不存在')
     expect(bad).toEqual({ ok: false, reason: '目录无效或是另一书库的子目录' })
-    const sub = await M.ipcHandle['desktop:switch-library']!(null, join(libA, 'books'))
+    const sub = await M.ipcHandle['desktop:switch-library']!(trustedEvent(), join(libA, 'books'))
     expect(sub).toEqual({ ok: false, reason: '目录无效或是另一书库的子目录' })
     const good = mkLibrary()
     const before = M.relaunchCalls
     const quitBefore = M.quitCalls
-    const r = await M.ipcHandle['desktop:switch-library']!(null, good)
+    const r = await M.ipcHandle['desktop:switch-library']!(trustedEvent(), good)
     expect(r).toEqual({ ok: true })
     const stored = JSON.parse(readFileSync(join(M.userData, 'workdir.json'), 'utf8')) as { current: string }
     expect(stored.current).toBe(good)
@@ -665,7 +692,7 @@ describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
     const empty = mkTmp('clw-empty-lib-')
     const before = M.relaunchCalls
     const quitBefore = M.quitCalls
-    const r = await M.ipcHandle['desktop:switch-library']!(null, empty)
+    const r = await M.ipcHandle['desktop:switch-library']!(trustedEvent(), empty)
     expect(r).toEqual({ ok: true })
     const stored = JSON.parse(readFileSync(join(M.userData, 'workdir.json'), 'utf8')) as { current: string }
     expect(stored.current).toBe(empty)
@@ -677,8 +704,8 @@ describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
   })
 
   it('get-current / get-recent：读持久化 store', () => {
-    expect(M.ipcHandle['desktop:get-current']!(null)).toBe(libA)
-    expect(Array.isArray(M.ipcHandle['desktop:get-recent']!(null))).toBe(true)
+    expect(M.ipcHandle['desktop:get-current']!(trustedEvent())).toBe(libA)
+    expect(Array.isArray(M.ipcHandle['desktop:get-recent']!(trustedEvent()))).toBe(true)
   })
 
   it('Y-11（第五十七轮）：get-current 走 currentWorkDir——bootstrap 实际值优先于 store 回读', () => {
@@ -687,7 +714,7 @@ describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
     // 与实际运行书库不一致——书库管理窗口展示口径失真）
     writeFileSync(join(M.userData, 'workdir.json'), JSON.stringify({ current: '/tmp/别处书库', recent: [] }))
     try {
-      expect(M.ipcHandle['desktop:get-current']!(null)).toBe(libA)
+      expect(M.ipcHandle['desktop:get-current']!(trustedEvent())).toBe(libA)
     } finally {
       writeFileSync(join(M.userData, 'workdir.json'), JSON.stringify({ current: libA, recent: [] }))
     }
@@ -697,12 +724,12 @@ describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
   it('show-in-folder 穿越守卫：.. 逃逸 / NUL / 未登记书 全拒；合法路径 realpath 放行', async () => {
     const h = M.ipcHandle['desktop:show-in-folder']!
     const n0 = M.shell.show.length
-    await h(null, '书A', '../escape.md')
-    await h(null, '书A', '第1章-开篇.md\0evil')
-    await h(null, '未登记', '第1章-开篇.md')
-    await h(null, null, 'x')
+    await h(trustedEvent(), '书A', '../escape.md')
+    await h(trustedEvent(), '书A', '第1章-开篇.md\0evil')
+    await h(trustedEvent(), '未登记', '第1章-开篇.md')
+    await h(trustedEvent(), null, 'x')
     expect(M.shell.show.length).toBe(n0)
-    await h(null, '书A', '第1章-开篇.md')
+    await h(trustedEvent(), '书A', '第1章-开篇.md')
     expect(M.shell.show.length).toBe(n0 + 1)
     expect(M.shell.show[n0]).toContain('第1章-开篇.md')
   })
@@ -712,20 +739,20 @@ describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
     writeFileSync(join(lib, '.clwriting', 'books.jsonl'), `${JSON.stringify({ name: '坏书', path: '../outside' })}\n`)
     writeFileSync(join(M.userData, 'workdir.json'), JSON.stringify({ current: lib, recent: [] }))
     const n0 = M.shell.show.length
-    await M.ipcHandle['desktop:show-in-folder']!(null, '坏书', 'any.md')
+    await M.ipcHandle['desktop:show-in-folder']!(trustedEvent(), '坏书', 'any.md')
     expect(M.shell.show.length).toBe(n0)
     writeFileSync(join(M.userData, 'workdir.json'), JSON.stringify({ current: libA, recent: [] }))
   })
 
   it('open-book-dir 同口径：合法 realpath 放行、越出 workDir 拒绝', async () => {
     const n0 = M.shell.open.length
-    await M.ipcHandle['desktop:open-book-dir']!(null, '书A')
+    await M.ipcHandle['desktop:open-book-dir']!(trustedEvent(), '书A')
     expect(M.shell.open.length).toBe(n0 + 1)
     expect(M.shell.open[n0]).toContain(join('books', 'a'))
     const lib = mkLibrary()
     writeFileSync(join(lib, '.clwriting', 'books.jsonl'), `${JSON.stringify({ name: '坏书', path: '../outside' })}\n`)
     writeFileSync(join(M.userData, 'workdir.json'), JSON.stringify({ current: lib, recent: [] }))
-    await M.ipcHandle['desktop:open-book-dir']!(null, '坏书')
+    await M.ipcHandle['desktop:open-book-dir']!(trustedEvent(), '坏书')
     expect(M.shell.open.length).toBe(n0 + 1)
     writeFileSync(join(M.userData, 'workdir.json'), JSON.stringify({ current: libA, recent: [] }))
   })
@@ -733,7 +760,7 @@ describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
   it('open-book：主窗 desktop:navigate 编码转发 + 聚焦', () => {
     const win = mainWin()
     const n0 = win.webContents.sent.length
-    M.ipcHandle['desktop:open-book']!(null, '书A')
+    M.ipcHandle['desktop:open-book']!(trustedEvent(), '书A')
     const sent = win.webContents.sent[n0]!
     expect(sent[0]).toBe('desktop:navigate')
     expect(sent[1]).toBe(`/book/${encodeURIComponent('书A')}`)
@@ -744,9 +771,9 @@ describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
     const win = mainWin()
     const sender = win.webContents
     const built0 = M.menuBuilt
-    M.ipcOn['desktop:context-menu']!({ sender }, '不是数组')
+    M.ipcOn['desktop:context-menu']!({ sender, senderFrame: sender.mainFrame }, '不是数组')
     expect(M.menuBuilt).toBe(built0)
-    M.ipcOn['desktop:context-menu']!({ sender }, [{ label: '复制', key: 'copy', accelerator: 'CmdOrCtrl+C' }])
+    M.ipcOn['desktop:context-menu']!({ sender, senderFrame: sender.mainFrame }, [{ label: '复制', key: 'copy', accelerator: 'CmdOrCtrl+C' }])
     expect(M.menuBuilt).toBe(built0 + 1)
     const item = (M.menuTemplate![M.menuTemplate!.length - 1] as { click?: () => void })
     const n0 = win.webContents.sent.length
@@ -762,10 +789,12 @@ describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
       sent: [] as Array<[string, ...unknown[]]>,
       on(): void {},
       destroyed: false,
+      mainFrame: null as unknown,
       isDestroyed(): boolean {
         return this.destroyed
       },
     }
+    wc.mainFrame = wc // R4-P2-1：顶层主帧自引用（受信 sender 形态）
     const win = {
       webContents: wc,
       closed: false,
@@ -778,7 +807,7 @@ describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
       },
     }
     M.windows.push(win as unknown as Record<string, any>)
-    M.ipcOn['desktop:context-menu']!({ sender: wc }, [{ label: '删除', key: 'delete' }])
+    M.ipcOn['desktop:context-menu']!({ sender: wc, senderFrame: wc.mainFrame }, [{ label: '删除', key: 'delete' }])
     const item = (M.menuTemplate![M.menuTemplate!.length - 1] as { click?: () => void })
     win.close() // 菜单仍开着，窗口先关（isDestroyed → true）——点选晚到
     const n0 = wc.sent.length
@@ -1075,7 +1104,7 @@ describe('kk-P2-8：退出与边界分支', () => {
     M.msgResponse = 1
     const calls0 = M.dialogOpenCalls
     const err0 = M.logErrors.length
-    const r = await M.ipcHandle['desktop:open-library']!(null)
+    const r = await M.ipcHandle['desktop:open-library']!(trustedEvent())
     // 恰好 10 次（封顶退出，不无限弹窗）；封顶按取消收口 → { canceled: true }
     expect(M.dialogOpenCalls - calls0).toBe(10)
     expect(r).toEqual({ ok: false, canceled: true })
@@ -1612,7 +1641,7 @@ describe('R51-A-1: relaunch 武装时机（取消无后效，链通过才武装�
     const lock0 = M.releaseLockCalls
     const quit0 = M.quitCalls
     // 切库（合法待建书库，R41-1 口径）：记意图 + 触发优雅退出，此刻不得武装
-    const r = await M.ipcHandle['desktop:switch-library']!(null, mkTmp('clw-r51-a1-lib-'))
+    const r = await M.ipcHandle['desktop:switch-library']!(trustedEvent(), mkTmp('clw-r51-a1-lib-'))
     expect(r).toEqual({ ok: true })
     await vi.waitFor(() => expect(M.quitCalls).toBe(quit0 + 1)) // setTimeout(relaunch,100) 已触发
     expect(M.relaunchCalls).toBe(rel0) // A-1 锚点：不再当场 app.relaunch()
@@ -1644,7 +1673,7 @@ describe('R51-A-1: relaunch 武装时机（取消无后效，链通过才武装�
     const rel0 = M.relaunchCalls
     const lock0 = M.releaseLockCalls
     const quit0 = M.quitCalls
-    const r = await M.ipcHandle['desktop:switch-library']!(null, mkTmp('clw-r51-a1-ok-'))
+    const r = await M.ipcHandle['desktop:switch-library']!(trustedEvent(), mkTmp('clw-r51-a1-ok-'))
     expect(r).toEqual({ ok: true })
     await vi.waitFor(() => expect(M.quitCalls).toBe(quit0 + 1))
     // flush 无冲突无失败（execJsResult 缺省 null）→ 链直通不可回头点
@@ -1752,12 +1781,12 @@ describe('R44-15/R44-17: 子窗工作区钳制 + uncaughtException 停机兜底'
     M.workArea = { width: 600, height: 400 }
     try {
       await freshModule()
-      await M.ipcHandle['desktop:open-shelf']!({})
+      await M.ipcHandle['desktop:open-shelf']!(trustedEvent())
       await new Promise((r) => setImmediate(r))
       const shelf = [...M.windows].reverse().find((w) => w.opts.title === '书架')!
       expect(shelf.opts.minWidth).toBe(592) // Math.min(760, 600-8)——修复前 760
       expect(shelf.opts.minHeight).toBe(392) // Math.min(500, 400-8)——修复前 500
-      await M.ipcHandle['desktop:open-library-window']!({})
+      await M.ipcHandle['desktop:open-library-window']!(trustedEvent())
       await new Promise((r) => setImmediate(r))
       const lib = [...M.windows].reverse().find((w) => w.opts.title === '书库')!
       expect(lib.opts.minWidth).toBe(560) // Math.min(560, 600-8)——大下限不因大工作区放大
@@ -1826,7 +1855,7 @@ describe('R44-14: pickLibrary「在此新建」的 git-ancestor 防线', () => {
     M.msgResponse = 0 // 每轮都点「在此新建」→ 每轮都被 git 防线拦回
     const err0 = M.errorBox.length
     const relaunch0 = M.relaunchCalls
-    const r = (await M.ipcHandle['desktop:open-library']!({}, {})) as { ok: boolean; canceled?: boolean }
+    const r = (await M.ipcHandle['desktop:open-library']!(trustedEvent(), {})) as { ok: boolean; canceled?: boolean }
     expect(r).toEqual({ ok: false, canceled: true }) // 封顶退出（E-9c），未选定
     const rejects = M.errorBox.slice(err0).filter(([t]) => String(t).includes('git'))
     expect(rejects.length).toBeGreaterThanOrEqual(1) // 原生错误框反馈（非静默 continue）
@@ -1854,7 +1883,7 @@ describe('R52-A-1: pickLibrary「在此新建」的嵌套书库防线', () => {
     M.msgResponse = 0 // 每轮都点「在此新建」→ 每轮被嵌套防线拦回
     const err0 = M.errorBox.length
     const relaunch0 = M.relaunchCalls
-    const r = (await M.ipcHandle['desktop:open-library']!({}, {})) as { ok: boolean; canceled?: boolean }
+    const r = (await M.ipcHandle['desktop:open-library']!(trustedEvent(), {})) as { ok: boolean; canceled?: boolean }
     expect(r).toEqual({ ok: false, canceled: true }) // 封顶退出（E-9c），未选定
     const rejects = M.errorBox.slice(err0).filter(([t]) => String(t).includes('书库内部'))
     expect(rejects.length).toBeGreaterThanOrEqual(1) // 原生错误框反馈（非静默 continue）
@@ -1873,7 +1902,7 @@ describe('R52-A-1: pickLibrary「在此新建」的嵌套书库防线', () => {
     M.dialogOpen = { canceled: false, filePaths: [plain] }
     M.msgResponse = 0 // 点「在此新建」
     const err0 = M.errorBox.length
-    const r = (await M.ipcHandle['desktop:open-library']!({}, {})) as { ok: boolean }
+    const r = (await M.ipcHandle['desktop:open-library']!(trustedEvent(), {})) as { ok: boolean }
     expect(r).toEqual({ ok: true }) // 放行：落库成功
     // 放行铁证 = workdir.json current 已持久化为该目录（relaunch 系 R51-A-1 意图制、
     // 推迟到 before-quit 不可回头点，测试态不可达，不作断言面）
@@ -1893,12 +1922,12 @@ describe('R47-9：readStore 内存缓存——welcome/常态 IPC 不再逐调全
     await import('../../src/desktop/main.js')
     await new Promise((r) => setImmediate(r))
     await new Promise((r) => setImmediate(r))
-    const recent0 = M.ipcHandle['desktop:get-recent']!({}, {}) as Array<{ path: string }>
+    const recent0 = M.ipcHandle['desktop:get-recent']!(trustedEvent(), {}) as Array<{ path: string }>
     // 外部手改 workdir.json（缓存语义下对 readStore 不可见——应用管理文件，重启可见）
     const fp = join(M.userData, 'workdir.json')
     const raw0 = JSON.parse(readFileSync(fp, 'utf-8')) as { current: string | null; recent: Array<{ path: string }> }
     writeFileSync(fp, JSON.stringify({ ...raw0, recent: [{ path: '/external/imposter' }] }))
-    const recent1 = M.ipcHandle['desktop:get-recent']!({}, {}) as Array<{ path: string }>
+    const recent1 = M.ipcHandle['desktop:get-recent']!(trustedEvent(), {}) as Array<{ path: string }>
     expect(recent1).toEqual(recent0) // 缓存命中，未读盘未重过滤
     expect(recent1.some((r) => r.path === '/external/imposter')).toBe(false)
     // 写路径（writeStore）刷新缓存：switch-library 合法目录后，currentWorkDir 的
@@ -1906,11 +1935,11 @@ describe('R47-9：readStore 内存缓存——welcome/常态 IPC 不再逐调全
     const libNew = join(M.userData, 'r47-lib-new')
     mkdirSync(join(libNew, '.clwriting'), { recursive: true }) // isLibraryDir 判定面（同 libA 夹具）
     tmpDirs.push(libNew)
-    const r2 = await M.ipcHandle['desktop:switch-library']!(null, libNew)
+    const r2 = await M.ipcHandle['desktop:switch-library']!(trustedEvent(), libNew)
     expect(r2).toBeTruthy()
     // relaunch 由 harness 拦截；get-current 走 M-3「bootstrap 实际值优先」仍回 libA
     //（语义不变），writeStore 刷新的缓存经 get-recent 可见——旧 current 已入 recent
-    const recent2 = M.ipcHandle['desktop:get-recent']!({}, {}) as Array<{ path: string }>
+    const recent2 = M.ipcHandle['desktop:get-recent']!(trustedEvent(), {}) as Array<{ path: string }>
     expect(recent2.some((r) => r.path === raw0.current)).toBe(true)
     // 还原 workdir.json（后续用例）
     writeFileSync(fp, JSON.stringify({ current: raw0.current, recent: raw0.recent }))
@@ -1933,7 +1962,7 @@ describe('R51-A-4: saveCurrent 抛错不再绕过 {ok,reason} 契约', () => {
     await import('../../src/desktop/main.js')
     await new Promise((r) => setImmediate(r))
     await new Promise((r) => setImmediate(r))
-    M.ipcHandle['desktop:get-recent']!({}, {})
+    M.ipcHandle['desktop:get-recent']!(trustedEvent(), {})
     await drainCaptureSurface()
   }
 
@@ -1981,7 +2010,7 @@ describe('R51-A-4: saveCurrent 抛错不再绕过 {ok,reason} 契约', () => {
     try {
       const rel0 = M.relaunchCalls
       const quit0 = M.quitCalls
-      const r = (await M.ipcHandle['desktop:switch-library']!(null, mkTmp('clw-r51-a4-lib-'))) as {
+      const r = (await M.ipcHandle['desktop:switch-library']!(trustedEvent(), mkTmp('clw-r51-a4-lib-'))) as {
         ok: boolean
         reason?: string
       }
@@ -2005,7 +2034,7 @@ describe('R51-A-4: saveCurrent 抛错不再绕过 {ok,reason} 契约', () => {
       const lib = mkLibrary('书B', 'books/b')
       M.dialogOpen = { canceled: false, filePaths: [lib] }
       const rel0 = M.relaunchCalls
-      const r = (await M.ipcHandle['desktop:open-library']!({}, {})) as { ok: boolean; reason?: string }
+      const r = (await M.ipcHandle['desktop:open-library']!(trustedEvent(), {})) as { ok: boolean; reason?: string }
       expect(r.ok).toBe(false)
       expect(String(r.reason)).toContain('workdir.json')
       await new Promise((r2) => setImmediate(r2))
@@ -2114,7 +2143,7 @@ describe('R54-A-1/A-2: flush 超时留痕 + switch-library 可达性预探', () 
       await freshModule()
       const good = mkTmp('clw-reach-lib-') // 存在的真实目录（stat 本应通过）
       fsPromisesMock.statGate = () => new Promise(() => {}) // 模拟失联卷 stat 挂死
-      const r = (await M.ipcHandle['desktop:switch-library']!(null, good)) as { ok: boolean; reason?: string }
+      const r = (await M.ipcHandle['desktop:switch-library']!(trustedEvent(), good)) as { ok: boolean; reason?: string }
       expect(r).toEqual({ ok: false, reason: '目录暂不可达（可能是网络卷无响应或已断开），请稍后重试' })
       const stored = JSON.parse(readFileSync(join(M.userData, 'workdir.json'), 'utf8')) as { current: string }
       expect(stored.current).not.toBe(good) // 拒切不落库（quitCalls 跨用例共享计数，先例 quit 会异步汇入不精确归因，不作断言面）
@@ -2127,7 +2156,7 @@ describe('R54-A-1/A-2: flush 超时留痕 + switch-library 可达性预探', () 
 
   it('R54-A-2: 预探确定性失败（不存在路径）走原契约文案，不误报网络卷不可达', async () => {
     await freshModule()
-    const r = (await M.ipcHandle['desktop:switch-library']!(null, mkTmp('not-a-lib-') + '/不存在')) as { ok: boolean; reason?: string }
+    const r = (await M.ipcHandle['desktop:switch-library']!(trustedEvent(), mkTmp('not-a-lib-') + '/不存在')) as { ok: boolean; reason?: string }
     expect(r).toEqual({ ok: false, reason: '目录无效或是另一书库的子目录' })
   })
 
@@ -2145,7 +2174,7 @@ describe('R54-A-1/A-2: flush 超时留痕 + switch-library 可达性预探', () 
         configurable: true,
         get: () => (opens++ === 0 ? { canceled: false, filePaths: [good] } : { canceled: true, filePaths: [] }),
       })
-      const r = (await M.ipcHandle['desktop:open-library']!(null)) as { ok: boolean; canceled?: boolean }
+      const r = (await M.ipcHandle['desktop:open-library']!(trustedEvent())) as { ok: boolean; canceled?: boolean }
       expect(r).toEqual({ ok: false, canceled: true })
       expect(M.errorBox.some(([, m]) => String(m).includes('暂不可达'))).toBe(true)
       const stored = JSON.parse(readFileSync(join(M.userData, 'workdir.json'), 'utf8')) as { current: string }
@@ -2189,9 +2218,9 @@ describe('R54-A-1/A-2: flush 超时留痕 + switch-library 可达性预探', () 
       const show0 = M.shell.show.length
       const open0 = M.shell.open.length
       fsPromisesMock.statGate = () => new Promise(() => {}) // 模拟失联卷 stat 挂死
-      await M.ipcHandle['desktop:show-in-folder']!(null, '书A', 'books/a/第1章-开篇.md')
-      await M.ipcHandle['desktop:open-book-dir']!(null, '书A')
-      await M.ipcHandle['desktop:open-library-dir']!(null)
+      await M.ipcHandle['desktop:show-in-folder']!(trustedEvent(), '书A', 'books/a/第1章-开篇.md')
+      await M.ipcHandle['desktop:open-book-dir']!(trustedEvent(), '书A')
+      await M.ipcHandle['desktop:open-library-dir']!(trustedEvent())
       expect(M.errorBox.length).toBe(err0 + 3) // 三入口各一框（修复前无预探不弹）
       expect(M.errorBox.slice(err0).every(([, m]) => String(m).includes('暂不可达'))).toBe(true)
       expect(M.shell.show.length).toBe(show0) // 未触文件管理器（修复前 readBooks 在活卷上照常放行）

@@ -949,6 +949,16 @@ function handshake(
         settle(() =>
           rejectRaw(new ServerBootError(String(m.code ?? 'UNKNOWN'), String(m.message ?? 'server 启动失败'))),
         )
+        // R4-P2-2（2026-09-09 修复批）：boot-error 分支此前 settle 即 reject、无 kill 兜底——
+        // child 发完 boot-error 预期自退，但自退挂住（exit 被吞/清理逻辑没兜住）时无人
+        // 接管，滞留占端口/成孤儿直至 app 退出（超时分支 R27-90 同族纪律本节漏网）。
+        // 对齐超时分支：boot-error 后等退出（短窗），未退则 kill + SIGKILL 升级收口；
+        // 正常自退路径 exited 立即 resolve，kill 链零打扰。killWaitMs 随注入透传（与
+        // 超时分支同口径，测试可缩短等待）。
+        const exited = new Promise<void>((resolveExit) => proc.once('exit', () => resolveExit()))
+        void killProcAwaitEscalating(proc, exited, 'studio server boot-error 后未自退', killWaitMs, logger).catch(
+          () => {},
+        )
       }
     })
     proc.once('exit', (code: number) =>

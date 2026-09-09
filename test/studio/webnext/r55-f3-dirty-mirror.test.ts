@@ -71,10 +71,6 @@ async function openDoc(doc: ReturnType<typeof useDocStore>, docId: string, serve
   vi.mocked(getContent).mockResolvedValueOnce(serverContent)
   await doc.open(makeNode(docId))
 }
-/** 泵微任务（crypto.subtle digest 等）——预留排宏任务用，当前用例经 vi 推进即覆盖 */
-async function _pump(): Promise<void> {
-  for (let i = 0; i < 30; i++) await Promise.resolve()
-}
 
 beforeEach(() => {
   setActivePinia(createPinia())

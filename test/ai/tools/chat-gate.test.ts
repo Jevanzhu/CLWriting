@@ -11,6 +11,7 @@ import { createFakeProvider, type FakeProvider } from '../fake-provider.js'
 import { withFakeProvider, tempUserData, makeDualTrackWorkdir, LONG_BOOK } from '../../studio/fixtures.js'
 import { runChat, resolveChatConfirm } from '../../../src/ai/orchestrate/chat.js'
 import type { DriverEvent, Session, StudioDriver } from '../../../src/driver/types.js'
+import { waitFor } from '../../helpers/wait-for.js' // R9-P2-2 单源轮询助手
 
 let fake: FakeProvider
 const dirs: string[] = []
@@ -52,14 +53,6 @@ function makeDriver(emitted: DriverEvent[]): StudioDriver {
     emit(_s, ev): void {
       emitted.push(ev)
     },
-  }
-}
-
-async function waitFor(fn: () => boolean, timeoutMs = 3000): Promise<void> {
-  const start = Date.now()
-  while (!fn()) {
-    if (Date.now() - start > timeoutMs) throw new Error('waitFor timeout after ' + timeoutMs + 'ms')
-    await new Promise((r) => setTimeout(r, 20))
   }
 }
 

@@ -298,10 +298,21 @@ function applyExternalReplace(v: string): void {
   const prev = view.state.selection
   const len = v.length
   const ranges = prev.ranges.map((r) => EditorSelection.range(Math.min(r.anchor, len), Math.min(r.head, len)))
+  // R8B-P1-1（2026-09-09 修复批）：同文档外部全量替换（SSE sync/refresh/冲突取服务端版/
+  // AI 改写共用路径）此前只挂 addToHistory.of(false) 不清旧栈——撤销方向实测安全
+  //（全量替换的 addMapping 把旧插入事件降为 no-op），但 **redo 方向实测回灌**：替换前
+  // undo 过一次时，redo 栈的文档边界插入事件不被 addMapping 丢弃（mapPos 边界存活，
+  // ⇧⌘Z 把旧编辑重插入新内容——实测 DDD→DDDXYZ，与 applyDocSwitch X-1 头注同型污染）。
+  // 按 applyDocSwitch 同款两步真重置：先卸 history 字段（旧值即丢）、下一事务重挂
+  //（字段重新 init 栈必空），替换事务保持 addToHistory/false 不占用新栈；isolateHistory
+  // 同口径切断替换与后续编辑的编组。F-P1-3 的「标题提交后 ⌘Z 仍可回退」不受影响：
+  // 提交回写 v === lastLocalEmit 短路不触发本路径，仅内容真实外部变化时才清栈。
+  view.dispatch({ effects: historyConf.reconfigure([]) })
   view.dispatch({
+    effects: historyConf.reconfigure(history()),
     changes: { from: 0, to: view.state.doc.length, insert: v },
     selection: EditorSelection.create(ranges, prev.mainIndex),
-    annotations: Transaction.addToHistory.of(false),
+    annotations: [Transaction.addToHistory.of(false), isolateHistory.of('full')],
   })
 }
 /** 切文档执行体（R51-I-6 抽出：组合期挂起后由 compositionend 消费同一路径）。

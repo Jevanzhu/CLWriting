@@ -179,6 +179,7 @@ vi.mock('../../../src/studio/web-next/src/components/panels/ChapterMetaDialog.vu
 
 import ChapterTreePanel from '../../../src/studio/web-next/src/components/panels/ChapterTreePanel.vue'
 import { useDocStore } from '../../../src/studio/web-next/src/stores/doc'
+import { waitFor } from '../../helpers/wait-for.js'
 import { useWordsStore } from '../../../src/studio/web-next/src/stores/words'
 
 describe('E-2: ChapterTreePanel.onSelect 在途切书 → 跳过 openTab', () => {
@@ -233,10 +234,10 @@ describe('重审-G17: ChapterTreePanel 切书挂起期点树 → onSelect 前置
     const w = mount(ChapterTreePanel, { props: { bookName: '书A' } })
     await flushPromises()
     await w.find('.ci').trigger('click')
-    // 两轮泵：doc.open 链上有 crypto.subtle.digest（宿主异步边界），单轮 flushPromises 不够
-    await flushPromises()
-    await flushPromises()
-    expect(ws.activeDocId).toBe('d1')
+    // R9-P2-6：开链含 crypto.subtle.digest（libuv 线程池 → 宏任务回复），flushPromises
+    // 只泵微任务——并行负载下 digest 回复晚于两轮泵即断言失败（全量跑偶发红，隔离恒绿）。
+    // 改轮询判定等 activeDocId 落定（到点未落定仍红，断言语义不弱化）。
+    await waitFor(() => ws.activeDocId === 'd1')
     w.unmount()
   })
 })

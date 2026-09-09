@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, watch } from 'vue'
+import { ref, watch, nextTick } from 'vue'
 import { useDocStore } from './doc'
 import { usePrefsStore } from './prefs'
 import { getBookPrefs, putBookPrefs, type BookPrefs } from '../api/prefs'
@@ -243,9 +243,21 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     activeDocId.value = docId
   }
 
-  /** 触发新建（TabBar → ChapterTreePanel 监听 createTick 执行；kind 标记新建类型）。 */
+  /** 触发新建（TabBar → ChapterTreePanel 监听 createTick 执行；kind 标记新建类型）。
+   *  R8a-P2-1（2026-09-09 修复批）：左栏在搜索/回收站时点「新建」此前静默无响应——
+   *  createTick 唯一消费者 ChapterTreePanel 只在 leftPanel==='tree' 时挂载（SidebarLeft
+   *  v-if），信号发出时无监听者。修复：非树面板先切回章节树（新建意图指向树，切面板
+   *  即用户可见反馈），tick 递延到 nextTick——面板切换触发重新挂载，watch 注册晚于
+   *  tick++ 会错过信号（挂载期不 immediate），nextTick 再递一次让挂载后的 watch 收到。 */
   function triggerCreate(kind: CreateKind = 'chapter'): void {
     createKind.value = kind
+    if (leftPanel.value !== 'tree') {
+      leftPanel.value = 'tree'
+      nextTick(() => {
+        createTick.value++
+      })
+      return
+    }
     createTick.value++
   }
   /** 请求插入文本到编辑器光标（右栏速查「插入」用）。 */

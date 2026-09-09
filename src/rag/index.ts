@@ -827,7 +827,13 @@ export async function recallDetailed(
   let chapterByNumber!: Map<number, ChapterMeta>
   try {
     const indexedModel = getRagMeta(db, 'embedding_model')
-    if (indexedModel && indexedModel !== config.model) return emptyResult()
+    // R6-RAG-P2-1（2026-09-09 修复批）：模型失配静默空召回补 warn——消费方此前无从
+    // 区分「模型失配」与「无相关内容」，排障零线索（:860 溢出 / :878 poisonRows 等
+    // 降级出口均有留痕，本出口漏网）
+    if (indexedModel && indexedModel !== config.model) {
+      log.warn('rag', `RAG 索引模型失配（索引=${indexedModel} 配置=${config.model}）——本轮召回降级为空`)
+      return emptyResult()
+    }
 
     // R46-9（四十六轮）：召回改流式打分——此前 readAllChunks 把全部块向量（1536 维
     // Float32Array ≈6KB/块）整池读回，全池跨下方 embed 网络往返窗（≤30s）驻留：3.5 万
@@ -861,7 +867,11 @@ export async function recallDetailed(
     return emptyResult()
   }
 
-  if (indexedDim && Number(indexedDim) !== queryVec.length) return emptyResult()
+  if (indexedDim && Number(indexedDim) !== queryVec.length) {
+    // R6-RAG-P2-1（2026-09-09 修复批）：维度失配静默空召回补 warn（同模型失配出口）
+    log.warn('rag', `RAG 索引维度失配（索引=${indexedDim} 查询=${queryVec.length}）——本轮召回降级为空`)
+    return emptyResult()
+  }
 
   // 流式打分段（R46-9）：重开库逐行算余弦——段内无网络等待，句柄随段开关（P1-31
   // 纪律不变）。重开间隙索引被重建换模型的竞态 → 二次模型校验 fail-closed 回空。
@@ -870,7 +880,11 @@ export async function recallDetailed(
     const db2 = openRagDb(bookRoot)
     try {
       const indexedModel2 = getRagMeta(db2, 'embedding_model')
-      if (indexedModel2 && indexedModel2 !== config.model) return emptyResult()
+      if (indexedModel2 && indexedModel2 !== config.model) {
+        // R6-RAG-P2-1（2026-09-09 修复批）：重开库二次模型校验（索引竞态重建）同补 warn
+        log.warn('rag', `RAG 索引模型失配（二次校验：索引=${indexedModel2} 配置=${config.model}）——本轮召回降级为空`)
+        return emptyResult()
+      }
       // R37-38（三十七轮）：读侧早Stop传「告警阈值+1」——得 N+1 条 ⟺ 全量 > N
       //（truncated 判定恒等）；不足 N+1 条 ⟺ 全量 = 读得数（totalBlocks 仍精确）。
       // O-3：块数超已知可用区间（十万块，见 store.ts 量化注释）时告警 + 硬截断

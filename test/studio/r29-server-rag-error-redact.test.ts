@@ -17,6 +17,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { startServerSafe } from '../helpers/safe-port.js'
+import { waitForAsync } from '../helpers/wait-for.js'
 
 // buildIndex 桩：reject 错误夹带两种凭据形态（query param key + 裸 sk- key）——
 // 修复前两者原文明文进 lastResult.error；修复后 redactSecret 入库前清洗
@@ -46,16 +47,16 @@ function api(path: string, init?: RequestInit): Promise<{ status: number; json: 
 }
 
 /** 轮询 status 直到 lastResult 就绪（后台任务收尾） */
-async function waitForLastResult(timeoutMs = 4000): Promise<Record<string, unknown>> {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    const r = await api('/rag/status')
-    const last = r.json['lastResult'] as Record<string, unknown> | null
-    if (last) return last
-    await new Promise((r2) => setTimeout(r2, 50))
-  }
-  throw new Error('waitForLastResult 超时')
-}
+const waitForLastResult = (timeoutMs = 4000) =>
+  waitForAsync(
+    async () => {
+      const r = await api('/rag/status')
+      return (r.json['lastResult'] as Record<string, unknown> | null) ?? undefined
+    },
+    timeoutMs,
+    50,
+    'waitForLastResult 超时',
+  )
 
 beforeAll(async () => {
   workDir = mkdtempSync(join(tmpdir(), 'clw-r29-rag-redact-'))

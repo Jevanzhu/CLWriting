@@ -109,6 +109,12 @@ provide(SAVE_CONFIG_KEY, saveConfig)
 
 // Esc 关闭（ConfirmPrompt 打开时让位——层级更高，先关它再关设置）
 function onKeydown(e: KeyboardEvent): void {
+  // R8C-F1（2026-09-09 修复批）：让渡链补 defaultPrevented 检查——ConfirmPrompt 在
+  // document capture 期先消费 Esc（preventDefault + resolveConfirm），本处理器（window
+  // bubble 期）随后执行时 confirmState 已被同键清空，旧守卫 `if (ui.confirmState) return`
+  // 失效 → 一次 Esc 把确认框与设置弹窗双关。defaultPrevented 是让渡链在各层间的
+  // 通用判据（上层消费后本层不得再动作），首行短路即可封回。
+  if (e.defaultPrevented) return
   if (e.key !== 'Escape' || !ui.settingsOpen) return
   // R33-82（三十三轮）：IME 组合期让渡（对齐 CommandPalette R61-3）——组合期收候选的
   // Esc 不应连带关闭设置弹层

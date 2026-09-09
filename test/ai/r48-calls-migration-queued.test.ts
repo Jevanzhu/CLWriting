@@ -15,6 +15,7 @@ import { checkAiCallBudget, recordTaskUsage } from '../../src/ai/calls.js'
 import { acquireCrossProcessLockAsync } from '../../src/fs/cross-process-lock.js'
 import type { BookConfig } from '../../src/format/types.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { waitFor as waitForShared } from '../helpers/wait-for.js'
 
 const dirs: string[] = []
 function tempBook(): string {
@@ -31,13 +32,8 @@ const OLD = (chapter: number): string =>
   JSON.stringify({ chapter, used: 2, inputTokens: 100, outputTokens: 200 }) + '\n'
 
 /** 轮询等待文件满足判定（放锁后 A → M 依序微任务/异步轮询执行，无句柄可 await）。 */
-async function waitFor(pred: () => boolean, timeoutMs = 2000): Promise<void> {
-  const deadline = Date.now() + timeoutMs
-  while (!pred()) {
-    if (Date.now() > deadline) throw new Error('waitFor 超时：队列写未在时限内落盘')
-    await new Promise((r) => setTimeout(r, 10))
-  }
-}
+const waitFor = (pred: () => boolean, timeoutMs = 2000) =>
+  waitForShared(pred, timeoutMs, 10, 'waitFor 超时：队列写未在时限内落盘')
 
 describe('R48-2: 排队迁移写不覆盖先行记账写', () => {
   it('[A, M] 队列序下 task 账目保留（修复前被 T0 快照覆盖）', async () => {

@@ -79,12 +79,30 @@ const lastWords = ref(0)
 // 前仍可双触发，双生成双计费；loading 相位的按钮置换只覆盖渲染后的窗口
 const genPending = ref(false)
 
-function selectStep(step: OnboardStep): void {
-  if (phase.value === 'loading') return
+function applyStep(step: OnboardStep): void {
   active.value = step
   phase.value = 'detail'
   content.value = ''
   err.value = null
+}
+
+function selectStep(step: OnboardStep): void {
+  if (phase.value === 'loading') return
+  // R8a-P2-2（2026-09-09 修复批）：切步骤前脏守卫——result 相位手改未保存内容此前被
+  // 无条件清空丢稿（regenerate 路径 R70-27 有确认，本路径漏配）。有手改先确认
+  //（同 doGen 口径），取消则停留原步骤零改动。
+  if (content.value.trim() !== '' && content.value !== lastGenerated.value) {
+    void ui.ask({
+      title: '切换步骤将丢弃未保存修改',
+      message: '当前步骤的内容有你未保存的修改，切换到其他步骤将丢失——继续？',
+      confirmText: '丢弃修改',
+      danger: true,
+    }).then((ok) => {
+      if (ok) applyStep(step)
+    })
+    return
+  }
+  applyStep(step)
 }
 
 async function gen(): Promise<void> {

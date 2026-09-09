@@ -359,6 +359,8 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
 
     res.writeHead(200, {
       'content-type': 'text/event-stream; charset=utf-8',
+      // R5-P2-1（2026-09-09 修复批）：SSE 流响应此前亦无 nosniff——与 JSON API 面同批补齐
+      'x-content-type-options': 'nosniff',
       'cache-control': 'no-cache',
       connection: 'keep-alive',
       // ACAO 由全局 CORS 白名单统一设置(index.ts);不再覆写为 *,防跨站订阅 driver 流(创作内容泄露)

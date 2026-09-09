@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 删除确认弹窗（Shelf/ShelfModal 共享）：批量删除书名列表确认。
 // 状态由壳（useShelf composable）持有，本组件只做确认表单渲染与事件上抛。
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { Trash2 } from 'lucide-vue-next'
 import { useFocusTrap } from '../../composables/useFocusTrap'
 
@@ -20,6 +20,13 @@ const emit = defineEmits<{
 // 危险操作默认聚焦安全项（回车/空格直接触发的是「取消」而非「确认删除」）
 const modalRef = ref<HTMLElement | null>(null)
 useFocusTrap(modalRef)
+
+// R8B-P2-5（2026-09-09 修复批）：确认弹窗 chips 全量渲染防 DOM 膨胀（批量全选
+// 千本级时逐名渲染）——前 CHIP_CAP 个 + 尾部「…等 N 部」聚合 chip；顶部计数文案
+// 已是全量（「以下 N 本书」），所见与所删总数认知不受裁剪影响。
+const CHIP_CAP = 50
+const shownNames = computed(() => props.names.slice(0, CHIP_CAP))
+const hiddenCount = computed(() => Math.max(0, props.names.length - CHIP_CAP))
 </script>
 
 <template>
@@ -35,7 +42,8 @@ useFocusTrap(modalRef)
         </p>
         <div v-if="props.error" class="confirm-err">{{ props.error }}</div>
         <div class="confirm-names">
-          <span v-for="n in props.names" :key="n" class="confirm-name">{{ n }}</span>
+          <span v-for="n in shownNames" :key="n" class="confirm-name">{{ n }}</span>
+          <span v-if="hiddenCount" class="confirm-name more">…等 {{ hiddenCount }} 部</span>
         </div>
         <div class="confirm-actions">
           <button class="btn" @click="emit('cancel')" :disabled="props.deleting">取消</button>
@@ -106,6 +114,10 @@ useFocusTrap(modalRef)
   padding: 3px 8px;
   border-radius: var(--radius-s);
   background: var(--background-modifier-hover);
+}
+.confirm-name.more {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
 }
 .confirm-actions {
   display: flex;

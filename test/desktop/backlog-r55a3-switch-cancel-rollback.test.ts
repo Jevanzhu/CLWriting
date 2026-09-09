@@ -80,8 +80,11 @@ vi.mock('electron', () => {
     win: Record<string, any>
     handlers: Record<string, Array<(...a: unknown[]) => void>> = {}
     sent: Array<[string, ...unknown[]]> = []
+    // R4-P2-1：顶层主帧 = 自身（isTrustedSender 的 senderFrame === sender.mainFrame 判定形态）
+    mainFrame: FakeWebContents
     constructor(win: Record<string, any>) {
       this.win = win
+      this.mainFrame = this
     }
     on(evt: string, fn: (...a: unknown[]) => void): void {
       ;(this.handlers[evt] ??= []).push(fn)
@@ -272,6 +275,12 @@ async function freshMain(): Promise<void> {
   })
   await new Promise((r) => setImmediate(r))
 }
+// R4-P2-1（2026-09-09 修复批）：handler 直调须带受信渲染进程形态（main.test.ts 同款）
+function trustedEvent(): Record<string, unknown> {
+  const wc = M.windows.at(-1)!.webContents
+  return { sender: wc, senderFrame: wc.mainFrame }
+}
+
 /** before-quit 退出链驱动：flush 回 {conflict} 信封 + 确认框选取消，等回写落定 */
 async function quitThenCancel(conflict: string[]): Promise<void> {
   const win = M.windows.at(-1)!
@@ -324,7 +333,7 @@ describe('R59 清偿批（R55-A-3）: 切库退出被取消 → workdir.json 回
   it('缺陷前提：switch-library 落库成功即持久化新库（退出尚未发生）', async () => {
     await freshMain()
     const libB = mkLibrary()
-    const r = (await M.ipcHandle['desktop:switch-library']!(null, libB)) as { ok: boolean }
+    const r = (await M.ipcHandle['desktop:switch-library']!(trustedEvent(), libB)) as { ok: boolean }
     expect(r.ok).toBe(true)
     expect(persistedCurrent()).toBe(libB) // 落库即时持久化——取消回滚的对象正是这一步
   })
@@ -332,7 +341,7 @@ describe('R59 清偿批（R55-A-3）: 切库退出被取消 → workdir.json 回
   it('switch-library 切库后退出被取消（冲突确认取消）→ workdir.json 回写旧库', async () => {
     await freshMain()
     const libB = mkLibrary()
-    await M.ipcHandle['desktop:switch-library']!(null, libB)
+    await M.ipcHandle['desktop:switch-library']!(trustedEvent(), libB)
     expect(persistedCurrent()).toBe(libB)
     await quitThenCancel(['d1'])
     // 修复锚点：取消 = 应用原样保留，跨会话不得落入被取消的新库
@@ -342,7 +351,7 @@ describe('R59 清偿批（R55-A-3）: 切库退出被取消 → workdir.json 回
   it('switch-library 切库后退出被取消（保存失败确认取消）→ workdir.json 回写旧库', async () => {
     await freshMain()
     const libB = mkLibrary()
-    await M.ipcHandle['desktop:switch-library']!(null, libB)
+    await M.ipcHandle['desktop:switch-library']!(trustedEvent(), libB)
     expect(persistedCurrent()).toBe(libB)
     // failed 信封走 confirmDiscardFailed 取消点（与冲突取消点同属退出取消路径）
     const win = M.windows.at(-1)!
@@ -358,7 +367,7 @@ describe('R59 清偿批（R55-A-3）: 切库退出被取消 → workdir.json 回
     // 入口 2：IPC desktop:open-library（pickLibrary → 落库 → relaunch）
     const libC = mkLibrary()
     M.dialogOpen = { canceled: false, filePaths: [libC] }
-    const r = (await M.ipcHandle['desktop:open-library']!(null)) as { ok: boolean }
+    const r = (await M.ipcHandle['desktop:open-library']!(trustedEvent())) as { ok: boolean }
     expect(r.ok).toBe(true)
     expect(persistedCurrent()).toBe(libC)
     await quitThenCancel(['d1'])
@@ -376,7 +385,7 @@ describe('R59 清偿批（R55-A-3）: 切库退出被取消 → workdir.json 回
   it('对照：正常退出（确认放弃冲突继续退）→ workdir.json 保持新库，回滚基线在不可回头点作废', async () => {
     await freshMain()
     const libB = mkLibrary()
-    await M.ipcHandle['desktop:switch-library']!(null, libB)
+    await M.ipcHandle['desktop:switch-library']!(trustedEvent(), libB)
     expect(persistedCurrent()).toBe(libB)
     // 等 RELAUNCH_DELAY_MS（100ms）定时器把切库意图置位（生产时序：quit 晚于落库）
     await new Promise((r) => setTimeout(r, 150))

@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { startServerSafe } from '../helpers/safe-port.js'
 import { isTaskGateHeld } from '../../src/studio/server/api/task-gate.js'
+import { waitForAsync } from '../helpers/wait-for.js'
 import { recall } from '../../src/rag/index.js'
 import { writeChapter } from '../helpers/chapter.js'
 import type { ChapterMeta } from '../../src/format/types.js'
@@ -41,18 +42,16 @@ function api(path: string, init?: RequestInit): Promise<{ status: number; json: 
 }
 
 /** 轮询 status 直到谓词成立（后台 buildIndex 完成等待） */
-async function waitForStatus(
-  predicate: (s: Record<string, unknown>) => boolean,
-  timeoutMs = 4000,
-): Promise<Record<string, unknown>> {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    const r = await api('/rag/status')
-    if (predicate(r.json)) return r.json
-    await new Promise((r2) => setTimeout(r2, 50))
-  }
-  throw new Error('waitForStatus 超时')
-}
+const waitForStatus = (predicate: (s: Record<string, unknown>) => boolean, timeoutMs = 4000) =>
+  waitForAsync(
+    async () => {
+      const r = await api('/rag/status')
+      return predicate(r.json) ? r.json : undefined
+    },
+    timeoutMs,
+    50,
+    'waitForStatus 超时',
+  )
 
 /** PUT 全量 config（GET 现有完整 config → 改 rag → PUT） */
 async function putRagCfg(rag: Record<string, unknown>): Promise<void> {

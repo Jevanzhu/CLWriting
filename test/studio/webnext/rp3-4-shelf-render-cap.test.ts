@@ -108,4 +108,8 @@ describe('R-P3-4：ShelfModal 接线（源码文本锚定，j5-overlay-dim 先�
   it('数据面不动：分组/批量全选/头部计数仍来自 useShelf 全量 groups', () => {
     expect(src).toContain(':groups="groups"')
   })
+  it('R8B-P2-5：全选覆盖渲染上限之外时如实提示（所见 ≠ 所选全集认知差）', () => {
+    expect(src).toContain('selected.size === shelf.books.length && shelf.books.length > SHELF_RENDER_CAP')
+    expect(src).toContain('含列表显示上限之外')
+  })
 })

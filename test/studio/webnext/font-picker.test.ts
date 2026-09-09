@@ -18,6 +18,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { nextTick } from 'vue'
 
 vi.mock('../../../src/studio/web-next/src/composables/usePlatform', () => ({
   usePlatform: () => ({ isWin: true, isMac: false }),
@@ -199,5 +200,86 @@ describe('R39-3/R39-4：FontPicker 滚动与 Esc', () => {
     expect(resolveInstalledFont(zh, 'Noto Sans SC')).toBe('思源黑体')
     expect(resolveInstalledFont(zh, 'Microsoft YaHei')).toBe('微软雅黑')
     expect(resolveInstalledFont(['Noto Sans SC'], 'Noto Sans SC')).toBe('Noto Sans SC')
+  })
+})
+
+// R8C-F3（2026-09-09 修复批）：win 自绘浮层 listbox 键盘导航——此前 aria 声明
+// combobox/listbox/option 契约但 onKey 仅 Esc（「声明即承诺」漂移）：无方向键、
+// 无 aria-activedescendant。修复：roving 光标（键盘焦点留在触发按钮，光标经
+// aria-activedescendant 移动）+ ↑/↓（APG listbox 不环绕）/Home/End/Enter/Space
+// 选中/typeahead（800ms 窗前缀累计）/Tab 收菜单放行焦移。
+describe('R8C-F3: FontPicker win 自绘浮层键盘导航', () => {
+  async function pressKey(key: string, opts: KeyboardEventInit = {}): Promise<KeyboardEvent> {
+    const e = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...opts })
+    document.body.dispatchEvent(e)
+    await nextTick() // activeIdx/open 的反应式渲染 flush 后再断言
+    return e
+  }
+  function activeItem(): HTMLElement {
+    const el = document.body.querySelector('.fp-item.active')
+    if (!(el instanceof HTMLElement)) throw new Error('roving 光标项缺失')
+    return el
+  }
+
+  it('打开即定位当前值：aria-activedescendant 指向对应项；未开不消费', async () => {
+    wrapper = mount(FontPicker, { props: { ...PROPS, value: 'Font5' } })
+    await wrapper.find('button.font-picker').trigger('click')
+    const btn = wrapper.find('button.font-picker').element
+    const desc = btn.getAttribute('aria-activedescendant')
+    expect(desc).not.toBeNull()
+    expect(activeItem().id).toBe(desc) // 光标项 id 与 activedescendant 同源
+    const items = document.body.querySelectorAll<HTMLElement>('.fp-menu .fp-item')
+    expect(items[6]).toBe(activeItem()) // Font5 → 第 6 项（0 = 默认）
+    // 未 open 的方向键不消费（菜单关闭态按键自然流，无副作用）
+    await pressKey('ArrowDown')
+    expect(wrapper.emitted('change')).toBeUndefined()
+  })
+
+  it('↑/↓ 逐项移动且不环绕；Home/End 首尾；Tab 收菜单放行焦移', async () => {
+    wrapper = mount(FontPicker, { props: PROPS })
+    await wrapper.find('button.font-picker').trigger('click')
+    await pressKey('ArrowDown')
+    expect(activeItem().id.endsWith('-opt-1')).toBe(true) // Font0
+    await pressKey('ArrowDown')
+    expect(activeItem().id.endsWith('-opt-2')).toBe(true) // Font1
+    await pressKey('ArrowUp')
+    expect(activeItem().id.endsWith('-opt-1')).toBe(true)
+    await pressKey('ArrowUp')
+    await pressKey('ArrowUp') // 顶项再上 → 停住（APG listbox 不环绕）
+    expect(activeItem().id.endsWith('-opt-0')).toBe(true)
+    await pressKey('End')
+    expect(activeItem().id.endsWith(`-opt-${PROPS.fonts.length}`)).toBe(true) // 最末字体
+    await pressKey('Home')
+    expect(activeItem().id.endsWith('-opt-0')).toBe(true)
+    const t = await pressKey('Tab') // 收菜单、不 preventDefault（放行焦移）
+    expect(menuVisible()).toBe(false)
+    expect(t.defaultPrevented).toBe(false)
+  })
+
+  it('Enter/Space 选中 roving 光标项并关闭；Space 不再触发按钮反转', async () => {
+    wrapper = mount(FontPicker, { props: PROPS })
+    await wrapper.find('button.font-picker').trigger('click')
+    await pressKey('Enter') // 光标 0 = 默认项 → 重置
+    expect(wrapper.emitted('change')).toEqual([['']])
+    expect(menuVisible()).toBe(false)
+    await wrapper.find('button.font-picker').trigger('click') // 复开
+    await pressKey('ArrowDown')
+    await pressKey('ArrowDown')
+    await pressKey(' ') // Space = 选中当前（Font1）；若不拦会触发按钮默认激活反转菜单
+    expect(wrapper.emitted('change')?.at(-1)).toEqual(['Font1'])
+    expect(menuVisible()).toBe(false)
+  })
+
+  it('typeahead：可打印字符按前缀移动光标（累计窗）；未命中保持原位', async () => {
+    wrapper = mount(FontPicker, { props: PROPS })
+    await wrapper.find('button.font-picker').trigger('click')
+    await pressKey('f')
+    expect(activeItem().id.endsWith('-opt-1')).toBe(true) // f → Font0
+    await pressKey('o')
+    expect(activeItem().id.endsWith('-opt-2')).toBe(true) // fo → Font1（从当前之后找）
+    await pressKey('n')
+    expect(activeItem().id.endsWith('-opt-3')).toBe(true) // fon → Font2（累计前缀生效）
+    await pressKey('3') // fon3 无前缀命中 → 原位
+    expect(activeItem().id.endsWith('-opt-3')).toBe(true)
   })
 })

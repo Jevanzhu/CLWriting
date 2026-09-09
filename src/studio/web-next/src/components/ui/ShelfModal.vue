@@ -195,6 +195,12 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
             </template>
             <template v-else>
               <button class="btn" :disabled="!shelf.books.length" @click="selectAll">全选</button>
+              <span
+                v-if="batchMode && selected.size === shelf.books.length && shelf.books.length > SHELF_RENDER_CAP"
+                class="sel-all-hint"
+              >
+                已全选全部 {{ shelf.books.length }} 部（含列表显示上限之外——批量操作对全集生效）
+              </span>
               <button class="btn danger" :disabled="selected.size === 0" @click="requestDelete([...selected])">
                 <Trash2 :size="14" /> 删除<span v-if="selected.size" class="del-num">({{ selected.size }})</span>
               </button>
@@ -312,6 +318,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   display: flex;
   align-items: center;
   gap: var(--size-4-2);
+}
+/* R8B-P2-5（2026-09-09 修复批）：全选覆盖渲染上限之外的书时如实提示——列表按
+ * SHELF_RENDER_CAP 逐组省略，所见 ≠ 所选全集（删 N 部与列表显示的 M 部认知差） */
+.sel-all-hint {
+  font-size: var(--font-size-xs);
+  color: var(--text-faint);
+  white-space: nowrap;
 }
 /* ── 搜索 + 排序（P2-PROD-6）── */
 .shelf-search {

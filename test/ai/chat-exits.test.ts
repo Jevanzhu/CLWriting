@@ -66,13 +66,7 @@ function makeDriver(emitted: DriverEvent[]): StudioDriver {
   }
 }
 
-async function waitFor(fn: () => boolean, timeoutMs = 3000): Promise<void> {
-  const start = Date.now()
-  while (!fn()) {
-    if (Date.now() - start > timeoutMs) throw new Error(`waitFor timeout after ${timeoutMs}ms`)
-    await new Promise((r) => setTimeout(r, 20))
-  }
-}
+import { waitFor } from '../helpers/wait-for.js'
 
 /** 跑一轮并断言失败出口四件套：文案 / 终态 reason / surface 遮蔽 / 历史回滚 */
 async function assertExit(

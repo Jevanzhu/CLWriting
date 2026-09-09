@@ -53,13 +53,7 @@ function makeDriver(emitted: DriverEvent[]): StudioDriver {
   }
 }
 
-async function waitFor(fn: () => boolean, timeoutMs = 3000): Promise<void> {
-  const start = Date.now()
-  while (!fn()) {
-    if (Date.now() - start > timeoutMs) throw new Error(`waitFor timeout after ${timeoutMs}ms`)
-    await new Promise((r) => setTimeout(r, 20))
-  }
-}
+import { waitFor } from '../helpers/wait-for.js'
 
 describe('#7: waitChatSettled 收尾等待原语', () => {
   it('在途不 resolve；runChat 收尾后 resolve；无在途立即 resolve', { timeout: 10_000 }, async () => {

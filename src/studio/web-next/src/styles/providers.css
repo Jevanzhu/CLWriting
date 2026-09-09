@@ -101,7 +101,7 @@
 }
 /* 当前徽章：唯一保留的强调胶囊（accent 淡底） */
 .ai-service-panel .current-badge {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 500;
   line-height: 16px;
   color: var(--text-accent);
@@ -113,7 +113,7 @@
 /* 协议标签：按接口线着色（绿 = 日常推荐的 Chat Completions / 紫 = Responses 新线 /
  * 橙 = Anthropic Messages），淡底 + 同色描边，与连接徽章同一上色语言 */
 .ai-service-panel .tag {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 500;
   line-height: 16px;
   color: var(--text-muted);
@@ -168,7 +168,7 @@
   flex-shrink: 0;
 }
 .ai-service-panel .caps-badge {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 500;
   line-height: 16px;
   padding: 1px 7px;
