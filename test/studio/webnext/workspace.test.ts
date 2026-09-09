@@ -9,12 +9,17 @@ const flush = () => vi.advanceTimersByTimeAsync(600)
 import { createPinia, setActivePinia } from 'pinia'
 
 // doc store 用 hoisted mock：不同用例控制 get(dirty)/save(成败)
-const { docGet, docSave } = vi.hoisted(() => ({
+const { docGet, docSave, toastSpy } = vi.hoisted(() => ({
   docGet: vi.fn(),
   docSave: vi.fn(),
+  // 清偿-切换autosave失败可见化（2026-09-09 残留清偿批）：openTab 失败 toast 观察口
+  toastSpy: vi.fn(),
 }))
 vi.mock('../../../src/studio/web-next/src/stores/doc', () => ({
   useDocStore: () => ({ get: docGet, save: docSave }),
+}))
+vi.mock('../../../src/studio/web-next/src/stores/ui', () => ({
+  useUiStore: () => ({ toast: toastSpy }),
 }))
 
 // prefs API mock：内存 Map 模拟书级 prefs 持久化（配置重构后 localStorage → API）
@@ -66,6 +71,10 @@ beforeEach(() => {
   setActivePinia(createPinia())
   docGet.mockReturnValue(undefined)
   docSave.mockReset()
+  // 清偿批：默认 save 成功——真实 doc.save 吞错以 Promise<boolean> 落定（不 reject），
+  // openTab 现挂 .then 消费返回值，mock 须回 Promise（undefined 会 .then 崩）
+  docSave.mockResolvedValue(true)
+  toastSpy.mockClear()
 })
 afterEach(() => {
   vi.useRealTimers()
@@ -116,6 +125,50 @@ describe('workspace · 单文档打开切换', () => {
     ws.openTab('d1')
     expect(docSave).not.toHaveBeenCalled()
     expect(ws.activeDocId).toBe('d1')
+  })
+})
+
+// 清偿-切换autosave失败可见化（2026-09-09 残留清偿批）：openTab fire-and-forget 存旧文档
+// 失败零 UI 面 → 补 toast warning（迟到态不抛错不打断切换；在途切书后不落新书界面）
+describe('workspace · 清偿批：切换 autosave 失败可见化', () => {
+  it('旧文档 dirty 且 save 失败 → toast warning，切换本身不被打断', async () => {
+    const ws = useWorkspaceStore()
+    ws.setBook(BOOK)
+    ws.openTab('d1')
+    docGet.mockReturnValue({ dirty: true })
+    docSave.mockResolvedValueOnce(false)
+    ws.openTab('d2')
+    expect(ws.activeDocId).toBe('d2') // 切换先行完成
+    await Promise.resolve()
+    await Promise.resolve() // 迟到失败态（microtask 落定）
+    expect(toastSpy).toHaveBeenCalledWith('切换文档时自动保存失败，未保存内容仍保留', 'warning')
+  })
+
+  it('save 成功 → 不 toast', async () => {
+    const ws = useWorkspaceStore()
+    ws.setBook(BOOK)
+    ws.openTab('d1')
+    docGet.mockReturnValue({ dirty: true })
+    ws.openTab('d2')
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(docSave).toHaveBeenCalledWith('d1', 'autosave')
+    expect(toastSpy).not.toHaveBeenCalled()
+  })
+
+  it('save 失败但在途切书 → 迟到失败提示不落新书界面（入口书名快照守卫）', async () => {
+    const ws = useWorkspaceStore()
+    ws.setBook('A书')
+    ws.openTab('d1')
+    docGet.mockReturnValue({ dirty: true })
+    let resolveSave!: (v: boolean) => void
+    docSave.mockReturnValueOnce(new Promise<boolean>((r) => (resolveSave = r)))
+    ws.openTab('d2')
+    ws.setBook('B书') // save 在途切书
+    resolveSave(false)
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(toastSpy).not.toHaveBeenCalled()
   })
 })
 

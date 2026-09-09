@@ -72,8 +72,13 @@ contextBridge.exposeInMainWorld('clwritingDesktop', {
   setFullScreen: (flag: boolean): Promise<void> =>
     ipcRenderer.invoke('desktop:set-fullscreen', flag),
   /** 运行时更新 win 窗控 overlay 颜色（主题切换驱动；非 win 主进程 no-op）。
-   *  dark 额外同步 nativeTheme.themeSource——overlay 透明后按钮底色由系统按主题绘制。 */
-  setTitleBarOverlay: (o: { color?: string; symbolColor?: string; dark?: boolean }): Promise<void> =>
+   *  dark 额外同步 nativeTheme.themeSource——overlay 透明后按钮底色由系统按主题绘制。
+   *  清偿-titlebar注解对齐（2026-09-09 残留清偿批）：对齐 desktop.d.ts 正本（重评2-P3-④）
+   *  ——main 侧颜色白名单外回 {ok:false,reason}（openLibrary 失败信封同款）；成功/非 win
+   *  路径无返回值（undefined），如实标 void、不虚构 {ok:true} 态。 */
+  setTitleBarOverlay: (
+    o: { color?: string; symbolColor?: string; dark?: boolean },
+  ): Promise<{ ok: false; reason: string } | void> =>
     ipcRenderer.invoke('desktop:set-titlebar-overlay', o),
   /** 订阅窗口全屏态变化（系统手势退出全屏时回调 false）。返回退订函数。 */
   onFullScreenChange: (cb: (fullscreen: boolean) => void): (() => void) => {

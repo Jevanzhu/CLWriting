@@ -162,11 +162,15 @@ function fmtDate(iso: string): string {
         <template v-if="aiResult">
           <div class="ai-drift">{{ aiResult.drift }}</div>
           <div v-if="aiResult.口癖?.length" class="ai-tags">
-            <span v-for="(t, i) in aiResult.口癖" :key="i" class="ai-tag">{{ t }}</span>
+            <!-- 重评2-P3-4（2026-09-09 全量重评 GLM-5.3）：key 弃纯 index——口癖串可重复，
+                 改「值+序号」复合键（同 OverviewView 口癖 tags 形态）；aiResult 一次性整表
+                 替换、纯展示 span 无内部状态（无错位实害），零行为改动。 -->
+            <span v-for="(t, i) in aiResult.口癖" :key="t + '-' + i" class="ai-tag">{{ t }}</span>
           </div>
           <div v-if="aiResult.重复度评价" class="ai-line">{{ aiResult.重复度评价 }}</div>
           <div v-if="aiResult.建议?.length" class="ai-suggestions">
-            <div v-for="(s, i) in aiResult.建议" :key="i" class="ai-suggestion">{{ s }}</div>
+            <!-- 重评2-P3-4：同上——建议串可重复，复合键替代 index -->
+            <div v-for="(s, i) in aiResult.建议" :key="s + '-' + i" class="ai-suggestion">{{ s }}</div>
           </div>
         </template>
         <div v-else class="ab-empty">

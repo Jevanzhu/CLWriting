@@ -880,13 +880,19 @@ export async function recallDetailed(
       }
       totalBlocks = scanned.produced
       if (scanned.produced >= warnThreshold) {
-        truncated = scanned.produced > warnThreshold
         // 探针行（第 N+1 个产出，追加序最末）照旧例从命中集中剔除——旧实现
         // slice(0, warnThreshold) 作用在读回数组上，语义 = 截断后不参与排序
         // R49-20（评审 R49）：produced 计数先于 model/维度过滤（store.ts），探针行
         // 可以是不匹配行而**未入 rows**——仅当最后产出行确为命中
         //（lastProducedWasMatch）才 pop；盲 pop 会错删第 N 个合法命中
-        if (truncated && scanned.lastProducedWasMatch) scanned.rows.pop()
+        // 重评2-P3-4（2026-09-09 全量重评 GLM-5.3，RAG 域 P3-②）：truncated 判定
+        // 对齐 pop 侧口径改「确实丢弃命中行才 true」——旧判定 produced >
+        // warnThreshold 在「全表恰为 warnThreshold+1 行且探针行非命中」时误报
+        // （探针未入 rows、零命中被丢，消费方却被告知还有块被截掉）。与 pop 同
+        // 条件后：true ⟺ 本次确实从命中集中 pop 掉一行；超出扫描窗的未扫行
+        // 不翻转信号（早停语义已由 warn 日志承载）。
+        truncated = scanned.produced > warnThreshold && scanned.lastProducedWasMatch
+        if (truncated) scanned.rows.pop()
         log.warn('rag', `召回块数超已知可用区间（${warnThreshold}）——线性扫描延迟可能超预期，建议评估 FTS/向量索引${truncated ? `；已硬截断至 ${warnThreshold} 块` : ''}`)
       }
       rows = scanned.rows
@@ -898,8 +904,11 @@ export async function recallDetailed(
   }
 
   // 章号 → meta（readChapterDir 有 stat 级缓存，热路径零文件读；校验只读候选章文件）。
-  // R35-43：与 buildIndex 同口径去重（保路径字典序首个）——不去重时 Map 后者覆盖，
+  // R35-43：与 buildIndex 同口径去重（保入序首个）——不去重时 Map 后者覆盖，
   // 指纹校验读到重复章号的另一文件，与已存指纹永远错配，该章命中被整体误杀。
+  // 重评2-P3-3（2026-09-09 全量重评 GLM-5.3，RAG 域 P3-①）：原注「保路径字典序
+  // 首个」系 R48-61 改造前旧文案——dedupeChaptersByNumber 本体与 buildIndex 侧
+  // （上方两处）均已改「入序首个」，此处漏改；仅对齐注释，零行为改动。
   // R46-9：章号集合只按命中元组收窄（此前按全部读回块，流式下命中集 ⊆ 读回集，
   // 校验面等价——chapterByNumber 只被命中章消费）
   const bodyDir = join(bookRoot, '写作', '正文')

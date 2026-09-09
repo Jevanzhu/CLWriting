@@ -1221,6 +1221,39 @@ describe('R49-4: stopChild 短预算放弃挂起握手', () => {
   })
 })
 
+// ── 重评2-P3-①（2026-09-09 全量重评 GLM-5.3）：restartPinned 复用在途 start 的
+// reject 逃逸 ──
+// 原实现 `if (starting) return starting` 把在途 start 的 rejection 原样透传——违反
+// restartPinned「失败 resolve null」契约（其余路径均 catch 返 null），main 调用点无
+// .catch 即落全局兜底日志。修复：复用值包一层 catch，失败 warn 留痕后 resolve null；
+// 成功值原样透传（X-3 复用语义不变）。
+describe('重评2-P3-①: restartPinned 复用在途 start 失败不逃逸 reject', () => {
+  it('在途 start 握手失败（boot-error）→ restartPinned resolve null + warn 留痕（在途轮自身照常 reject）', async () => {
+    const cap = mkLogCapture()
+    // 大退避：start 失败后的自动重启排程不干扰断言（收尾 stopChild 一并取消）
+    const { forkRecords, manager } = mkHarness({ logger: cap.logger, backoffMs: [999_000, 999_000, 999_000] })
+    const ud = mkUserData()
+    // 首启成功：建立钉住端口面（restartPinned 的复刻前提）
+    const first = manager.start({ workDir: '/w', userDataPath: ud })
+    forkRecords[0]!.child.emit('message', { type: 'ready', port: 45200 })
+    await first
+    // 二次 start 在途（ready 未发）：starting 通道被占用
+    const second = manager.start({ workDir: '/w', userDataPath: ud })
+    await vi.waitFor(() => expect(forkRecords.length).toBe(2))
+    // 自愈恢复落在在途窗口内：复用在途轮（X-3 语义）——修复前 rp 会跟着在途轮 reject
+    const rp = manager.restartPinned()
+    // 在途轮握手失败（boot-error 信封 reject）
+    forkRecords[1]!.child.emit('message', { type: 'boot-error', code: 'EADDRINUSE', message: 'x' })
+    await expect(rp).resolves.toBeNull() // 修复后：对齐「失败 resolve null」契约
+    await expect(second).rejects.toBeInstanceOf(ServerBootError) // 在途轮自身 reject 语义不变
+    // 失败留痕：warn 一条含「自愈恢复在途 start 失败」（reject 不静默吞没）
+    const warns = cap.lines.filter((l) => l.level === 'warn' && l.msg.includes('自愈恢复在途 start 失败'))
+    expect(warns).toHaveLength(1)
+    // 收尾：取消失败后排程的挂起重启（timer unref 不拖 worker，显式收口保净）
+    await manager.stopChild()
+  })
+})
+
 afterAll(() => {
   for (const d of tmpDirs) rmSync(d, { recursive: true, force: true })
 })

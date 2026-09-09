@@ -133,8 +133,12 @@ function onBookGenreChange(): void {
   })
 }
 function onBookVolumeSizeInput(e: Event): void {
-  const raw = Number((e.target as HTMLInputElement).value)
-  bookVolumeSize.value = Number.isFinite(raw) && raw >= 5 ? Math.round(raw) : null
+  // 重评2-P3-5（2026-09-09 全量重评 GLM-5.3）：对齐兄弟两输入（R36-20）——本 handler 是
+  // R72-11 helper 统一后的残余偏离点（裸 Number + isFinite）。行为等价：`>= 5` 闸下
+  // `Number('')===0` 本就不穿透（0 < 5 → null），改 helper 后空/空白/非法 → null → 清键
+  // 口径与 onBookTargetWordsInput 完全一致（含 trim），零行为改动。
+  const raw = parseNumericInput(e)
+  bookVolumeSize.value = raw !== null && raw >= 5 ? Math.round(raw) : null
   void saveConfig((c) => {
     if (!c.book) c.book = {}
     c.book.volume_size = bookVolumeSize.value ?? undefined

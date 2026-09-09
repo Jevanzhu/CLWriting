@@ -3,7 +3,9 @@
  *
  * 三个适配器的 toErrorEvent 统一走这里；runner 重试按 failureAction 的结果决定动作
  * （retry-policy.shouldRetryError 消费 'retry' 族——Z-P2-2 单口径化后的唯一事实源），
- * 不再对 message 字符串做模式匹配。switch-provider/shrink-prompt 族留给自愈分流（A7+）。
+ * 不再对 message 字符串做模式匹配。shrink-prompt 已由 chat 编排层最小接线（A7 最小版，
+ * 2026-09-09 清偿批：超窗 400 后收缩历史重试恰一次，见 orchestrate/chat/turns.ts 主模型
+ * 发送处）；switch-provider 仍无消费者，留给自愈分流（A7+）。
  */
 
 import type { GenErrorCode } from './types.js'
@@ -88,14 +90,17 @@ export function failureAction(e: { code?: GenErrorCode; retryable?: boolean }): 
     case 'TIMEOUT':
     case 'NETWORK':
       return 'retry'
-    // R66-11（十四轮）：switch-provider / shrink-prompt 在 A7 接线前无消费者——调用侧
-    // 拿到这两个动作的实际处理与终态（author）等同：配额/凭据错不会自动换供应商、超窗
-    // 不会自动缩输入。决策表保留动作语义供 A7 落地；勿据返回值断言存在自动降级行为
+    // R66-11（十四轮）：switch-provider 至今无消费者——调用侧拿到该动作的实际处理与
+    // 终态（author）等同：配额/凭据错不会自动换供应商。勿据返回值断言存在自动降级行为。
+    // A7 最小版（2026-09-09 清偿批）：shrink-prompt 已在 chat 编排层接线（最小版，仅
+    // 收缩重试恰一次——orchestrate/chat/turns.ts 主模型发送处）；self-heal/spawn/rewrite
+    // 等非 chat 路径仍无消费者，runner 内该动作照旧同归终态（author）。
     case 'AUTH':
     case 'NOT_FOUND':
     case 'UNSUPPORTED':
       return 'switch-provider'
     case 'CONTEXT_WINDOW_EXCEEDED':
+      // 消费者 = chat 编排层 A7 最小版（见上注）；runner 本身无收缩行为，非 chat 路径照旧终态
       return 'shrink-prompt'
     case 'ABORTED':
       return 'none'

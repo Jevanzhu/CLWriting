@@ -1870,6 +1870,16 @@ if (gotSingleInstanceLock) {
     if (quitFlushInFlight || bootstrapRunner.shuttingDown) return
     quitFlushInFlight = true
     void (async () => {
+      // 重评2-P2-3（2026-09-09 全量重评 GLM-5.3）修复：quit 链补存窗口状态——根因：
+      // 本链收口 destroy() 全窗（下方 finally）不触发 'close' 事件（Electron 语义），
+      // close 拦截首行的 saveWinState 在本链不达；而 Cmd+Q / win 菜单退出 / 崩溃风暴
+      // 对话框退出 / 切库 relaunch（relaunch() → app.quit）全汇入本链——退出前的窗口
+      // 几何变更随退出静默丢失（session-end 链已有 R40-29 同款补存）。补点在链首：
+      // 窗口仍存活、任何 flush/确认/destroy 之前；saveWinState 内部已吞错、幂等
+      // （close/session-end 链已存时重写同值），冲突/失败确认取消退出路径多存一次
+      // 当前几何亦无副作用。quitViaShutdown 早退分支不另补——该旗只在下方 IIFE 内
+      // 置位（补点之后），二次进 quit 链时状态已存过、窗口已销毁。
+      saveWinState()
       try {
         const win = mainWindow
         if (win && !win.isDestroyed()) {

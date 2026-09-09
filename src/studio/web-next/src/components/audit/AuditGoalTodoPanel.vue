@@ -30,7 +30,10 @@ function goalStateLabel(s: string): string {
       </div>
     </div>
     <div v-if="todos.length > 0" class="todo-list">
-      <span v-for="(t, i) in todos" :key="i" class="todo-item" :data-state="t.state">
+      <!-- 重评2-P3-4（2026-09-09 全量重评 GLM-5.3）：key 弃纯 index——TodoFE 无 id、text 可重复，
+           改「值+序号」复合键（同 OverviewView 口癖 tags 形态）。todo 快照为整表重放、纯展示
+           span 无内部状态（无错位实害），复合键令内容参与键，零行为改动。 -->
+      <span v-for="(t, i) in todos" :key="t.text + '-' + i" class="todo-item" :data-state="t.state">
         {{ t.state === 'completed' ? '✓' : t.state === 'in_progress' ? '◐' : '○' }} {{ t.text }}
       </span>
     </div>

@@ -17,7 +17,7 @@
  *    被解析成 truthy 值——cherry 用裸对象 + Object.hasOwn 的原因，Map 更干净）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { route } from '../router.js'
+import { route, activeRouteTable, type RouteTable } from '../router.js'
 import { readJson, HttpError, replyError, replyHttpError } from '../http.js'
 
 /** defineRoute 的 handler 上下文：path 参数 + 解析后的 input */
@@ -41,19 +41,37 @@ export interface RouteSchema<I = unknown> {
   handler: (ctx: RouteContext<I>, req: IncomingMessage, res: ServerResponse) => void | Promise<void>
 }
 
-/** 注册表（Map：天然防原型链注入）——每个 startServer 实例独立（buildRoutes 建表时 reset，见 index.ts） */
-let registered = new Map<string, RouteSchema<unknown>>()
+/** 注册表（Map：天然防原型链注入）。重评2-P3-③（2026-09-09 全量重评 GLM-5.3）：
+ *  原模块级单例 Map 在同进程第二实例 buildRoutes → resetRouteSchemas() 时被整体
+ *  换新——前一实例路由仍在自己的路由表里可分发，注册视图却被清空（getRouteSchema
+ *  对前实例路由名返回 null 的自省面漂移）。现注册表按「当前活动路由表」隔离
+ *  （WeakMap 键 = RouteTable，取表口 activeRouteTable() 与 route() 写入
+ *  activeRoutes 同一闭包常驻语义）：每张路由表各持一份，实例间互不可见；同表内
+ *  重复声明仍拒绝（防漂移守卫不变），跨实例重复声明天然合法（index.ts 原注
+ *  「防跨 server 实例重复声明」的 reset 需求由隔离结构本身承担）。 */
+const registries = new WeakMap<RouteTable, Map<string, RouteSchema<unknown>>>()
 
-/** 重置注册表：startServer 每次建路由表前调用（与 withRouteTable 生命周期对齐） */
+function registryFor(table: RouteTable): Map<string, RouteSchema<unknown>> {
+  let m = registries.get(table)
+  if (!m) {
+    m = new Map<string, RouteSchema<unknown>>()
+    registries.set(table, m)
+  }
+  return m
+}
+
+/** 重置注册表：清当前活动路由表的注册表（与 withRouteTable 生命周期对齐）。
+ *  重评2-P3-③ 起按表隔离——本函数只影响调用时刻活动的那张表。 */
 export function resetRouteSchemas(): void {
-  registered = new Map<string, RouteSchema<unknown>>()
+  registries.delete(activeRouteTable())
 }
 
 /**
- * E2：route schema 单点声明。注册到 Map 并接线到现有分发器。
+ * E2：route schema 单点声明。注册到当前活动路由表的注册表并接线到现有分发器。
  * parse 失败 → 400 {code,error}（ii-3 补 code：统一信封单一出口）；handler 抛错由 dispatch 兜底。
  */
 export function defineRoute<I>(name: string, schema: RouteSchema<I>): RouteSchema<I> {
+  const registered = registryFor(activeRouteTable())
   if (registered.has(name)) throw new Error(`route 重复声明: ${name}`)
   registered.set(name, schema as RouteSchema<unknown>)
   route(schema.method, schema.path, async (req, res, params) => {
@@ -75,8 +93,10 @@ export function defineRoute<I>(name: string, schema: RouteSchema<I>): RouteSchem
   return schema
 }
 
-/** 查 schema（防原型链注入：Map.has/get；未知名返回 null） */
+/** 查 schema（防原型链注入：Map.has/get；未知名返回 null）——作用域为当前活动
+ *  路由表的注册表（重评2-P3-③ 起按表隔离；生产读面零调用，测试形态自省用）。 */
 export function getRouteSchema(name: string): RouteSchema<unknown> | null {
+  const registered = registryFor(activeRouteTable())
   return registered.has(name) ? (registered.get(name) as RouteSchema<unknown>) : null
 }
 

@@ -36,6 +36,12 @@ async function run(): Promise<void> {
     // R72-11（二十轮 E-6）：await 后切书守卫——成功提示不落 B 书界面（域内普遍模式）
     if (ws.bookName !== targetBook) return
     ui.toast(`导出完成（${r.chapterCount ?? '?'} ${r.unit ?? '章'}）`, 'success')
+    // 清偿-导出未过滤提示（2026-09-09 残留清偿批）：清单缺失时导出兜底不过滤（宁多勿漏，
+    // M-2/PL-2 哲学不动），成功此前无任何标记、作者可能拿含未定稿章的全本而不自知——
+    // 成功面（弹窗即关，结果面 = toast）补 warning 明示；'applied'/缺省免提示
+    if (r.finalizedFilter === 'skipped-no-manifest') {
+      ui.toast('定稿清单缺失，本次导出未按定稿过滤（含未定稿章）', 'warning')
+    }
     ui.closeExport()
   } catch (e) {
     // R26-68（二十六轮）：catch 补切书复检——成功路径（上方）有门，catch 漏配：

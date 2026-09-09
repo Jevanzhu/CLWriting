@@ -119,4 +119,22 @@ describe('R36-20：目标字数/每章字数 空输入清键（接 R72-11 helper
     expect(cfg.book?.volume_size).toBeUndefined()
     wrapper.unmount()
   })
+
+  // 重评2-P3-5（2026-09-09 全量重评 GLM-5.3）：每卷章数接 R72-11 helper 后的统一口径钉值
+  //（行为与旧裸 Number 等价，此处钉住防再漂移）
+  it('每卷章数非法输入 → 清键；带空白合法值 → trim 后照常写值（helper 统一口径）', async () => {
+    const wrapper = await mountOpen()
+    const run = captureMutator()
+    await wrapper.find('input[aria-label="每卷章数"]').setValue('abc')
+    let cfg = { book: { title: '测试书' } } as BookConfig
+    run(cfg)
+    expect(cfg.book?.volume_size).toBeUndefined()
+
+    const run2 = captureMutator()
+    await wrapper.find('input[aria-label="每卷章数"]').setValue(' 12 ')
+    cfg = { book: { title: '测试书' } } as BookConfig
+    run2(cfg)
+    expect(cfg.book?.volume_size).toBe(12)
+    wrapper.unmount()
+  })
 })

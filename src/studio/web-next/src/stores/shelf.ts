@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { listBooks, type BookEntry } from '../api/shelf'
 import { friendlyError } from '../shared/error'
+import { useUiStore } from './ui'
 
 export const useShelfStore = defineStore('shelf', () => {
   const books = ref<BookEntry[]>([])
@@ -96,8 +97,15 @@ export const useShelfStore = defineStore('shelf', () => {
     } catch (e) {
       if (gen !== opGen) return
       // 有快照时刷新失败不整屏报错（列表仍展示旧数据，控制台留痕）；无快照（首屏）照旧上抛
-      if (cached) console.warn('[shelf] 刷新书架失败，沿用缓存快照', e)
-      else error.value = friendlyError(e)
+      if (cached) {
+        console.warn('[shelf] 刷新书架失败，沿用缓存快照', e)
+        // 清偿-shelf缓存失效提示（2026-09-09 残留清偿批）：原仅 console.warn，作者对着
+        // 可能过期的列表继续操作毫无感知——补 warning toast 可见化（对齐 doc.ts 重审-16
+        // 「显示内容可能已过期」的半失败口径；同文案同 kind 经 ui.toast 合并去重不刷屏）。
+        useUiStore().toast('书架刷新失败，当前显示本地缓存', 'warning')
+      } else {
+        error.value = friendlyError(e)
+      }
     } finally {
       if (gen === opGen) loading.value = false
     }

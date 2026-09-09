@@ -8,7 +8,7 @@
  */
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
@@ -79,5 +79,33 @@ describe('learn 文风收割端点（#8.3）', () => {
       body: JSON.stringify({ samples: [], quotes: [] }),
     })
     expect(r.status).toBe(403)
+  })
+
+  // 重评2-P3-⑤a（2026-09-09 全量重评 GLM-5.3）：learn-commit 逐项条目数上限——
+  // 原仅受 readJson 1MB 总量约束，超长数组逐条 commit 秒级阻塞；上限 400 对齐
+  // 批量定稿 BATCH_FINALIZE_MAX_DOCS 先例，超限回 422 业务信封且零入库。
+  it('重评2-P3-⑤a：learn-commit 条目数超上限 → 422 {code,error} 信封，不入库', async () => {
+    const itemDir = join(workDir, BOOK, '文风', '条目', '样章')
+    const before = existsSync(itemDir) ? readdirSync(itemDir).length : 0
+    // samples 401 条（> 400）+ quotes 401 条——两数组各自超限都拒
+    const items = Array.from({ length: 401 }, (_, i) => ({
+      场景: '对话',
+      正文: `「样本${i}。」`,
+      出处: `《收割测试书》第 ${i + 1} 章`,
+    }))
+    for (const body of [{ samples: items, quotes: [] }, { samples: [], quotes: items }]) {
+      const r = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/learn-commit`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'X-Studio-Token': token },
+        body: JSON.stringify(body),
+      })
+      expect(r.status).toBe(422)
+      const d = (await r.json()) as { code?: string; error?: string }
+      expect(d.code).toBe('TOO_MANY_ITEMS')
+      expect(d.error).toContain('400')
+    }
+    // 零入库：目录条目数与请求前一致（超限在过滤/commit 前早拒）
+    const after = existsSync(itemDir) ? readdirSync(itemDir).length : 0
+    expect(after).toBe(before)
   })
 })

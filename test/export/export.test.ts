@@ -39,6 +39,9 @@ test('exportBook: 导出产物不含 front matter', () => {
   try {
     const r = exportBook({ bookRoot: root, format: 'merged' })
     expect(r.ok).toBe(true)
+    // 清偿-导出未过滤提示（2026-09-09 残留清偿批）：不写清单 → 兜底不过滤，成功结果
+    // 显式标记 skipped-no-manifest（前端据此明示含未定稿章）
+    expect(r.finalizedFilter).toBe('skipped-no-manifest')
     const merged = readFileSync(join(root, '工作区', '导出', '全本-剥fm测试.md'), 'utf-8')
     // front matter 被剥干净
     expect(merged).not.toContain('---')
@@ -309,6 +312,8 @@ test('exportBook: 未定稿章被滤出导出（V-P2-2），skippedDrafts 计数
     expect(r.ok).toBe(true)
     expect(r.chapterCount).toBe(1)
     expect(r.skippedDrafts).toBe(1)
+    // 清偿-导出未过滤提示（2026-09-09 残留清偿批）：清单在 → 过滤实际生效
+    expect(r.finalizedFilter).toBe('applied')
     const merged = readFileSync(join(root, '工作区', '导出', '全本-滤草稿.md'), 'utf-8')
     expect(merged).toContain('定稿内容')
     expect(merged).not.toContain('半成品')

@@ -63,6 +63,14 @@ export interface ExportResult {
   unit: '章'
   /** 因未定稿被滤掉的章数（V-P2-2，前端可提示） */
   skippedDrafts?: number
+  /** 清偿-导出未过滤提示（2026-09-09 残留清偿批）：定稿过滤是否实际生效。
+   *  定稿清单缺失（finalizedPathSet → null）时导出兜底不过滤（宁多勿漏，M-2/PL-2
+   *  哲学不动），但成功结果此前无任何标记（R28-16 只在失败文案区分），作者可能拿
+   *  含未定稿章的全本而不自知——补显式标记，服务端信封/前端 toast 透传展示。
+   *  'applied' = 已按定稿清单过滤；'skipped-no-manifest' = 清单缺失未过滤（结果含未定稿章）。
+   *  判定发生在正文扫描后（finalizedPathSet 读取处）：此前置失败路径（参数错/无章
+   *  可扫）未达过滤阶段且零产物，值不参与语义，统一置 'applied' 保必填契约。 */
+  finalizedFilter: 'applied' | 'skipped-no-manifest'
   /** X-P2-4：单章级问题（解析失败/正文为空被跳过）——个别坏章不再拖垮整本导出 */
   warnings?: string[]
   /** 错误信息 */
@@ -236,6 +244,7 @@ export function exportBook(options: ExportOptions): ExportResult {
       files: [],
       chapterCount: 0,
       unit: '章',
+      finalizedFilter: 'applied', // 前置失败未达过滤阶段（零产物，值不参与语义）
       error: `参数错误：format=${JSON.stringify(format)} 非法（只接受 merged / split / both）`,
     }
   }
@@ -248,7 +257,7 @@ export function exportBook(options: ExportOptions): ExportResult {
   // 驻留内存可 OOM；改 meta-only 扫描，正文在下方写循环内逐章现读即弃（读-写流水化，
   // 峰值降为单章级，对齐 5+6 步「单遍流式」注释口径）。
   if (!existsSync(bodyDir)) {
-    return { ok: false, files: [], chapterCount: 0, unit: '章', error: '没有定稿正文可导出。' }
+    return { ok: false, files: [], chapterCount: 0, unit: '章', finalizedFilter: 'applied', error: '没有定稿正文可导出。' }
   }
   // X-P2-4：单个坏章（解析失败）不再拖垮整本导出——记入 warnings 跳过，仍有可导章则继续
   const warnings: string[] = []
@@ -264,10 +273,10 @@ export function exportBook(options: ExportOptions): ExportResult {
     ch._path ? [{ num: ch.章号, title: ch.标题, path: ch._path }] : [],
   )
   if (units.length === 0 && warnings.length > 0) {
-    return { ok: false, files: [], chapterCount: 0, unit: '章', error: `章解析失败：${warnings.join('; ')}` }
+    return { ok: false, files: [], chapterCount: 0, unit: '章', finalizedFilter: 'applied', error: `章解析失败：${warnings.join('; ')}` }
   }
   if (units.length === 0) {
-    return { ok: false, files: [], chapterCount: 0, unit: '章', error: '没有定稿正文可导出。' }
+    return { ok: false, files: [], chapterCount: 0, unit: '章', finalizedFilter: 'applied', error: '没有定稿正文可导出。' }
   }
 
   // V-P2-2：「导出定稿正文」名要符实——滤掉从未定稿的章（manifest 无 finalizedRevision；
@@ -277,6 +286,10 @@ export function exportBook(options: ExportOptions): ExportResult {
   // R38-14（三十八轮）：定稿集身份折叠（win 大小写不敏感 FS 外部 case-only 改名后
   // 精确匹配失配，定稿章被当草稿跳过）；posix 恒等
   const finalizedKeys = finalizedPaths === null ? null : new Set([...finalizedPaths].map(docJoinKey)) // R41-2：升 docJoinKey（+NFC 归一）
+  // 清偿-导出未过滤提示（2026-09-09 残留清偿批）：过滤是否生效的显式标记（见
+  // ExportResult.finalizedFilter 注）——自此以下各构造点（含失败信封）一律携带
+  const finalizedFilter: ExportResult['finalizedFilter'] =
+    finalizedPaths === null ? 'skipped-no-manifest' : 'applied'
   let skippedDrafts = 0
   const filtered: ExportUnit[] =
     finalizedPaths !== null
@@ -330,6 +343,7 @@ export function exportBook(options: ExportOptions): ExportResult {
       files: [],
       chapterCount: 0,
       unit: '章',
+      finalizedFilter,
       skippedDrafts,
       ...(warnings.length > 0 ? { warnings } : {}),
       error: `正文区共 ${units.length} 章均未定稿，没有可导出的定稿正文；请先在文档树中定稿。`,
@@ -353,6 +367,7 @@ export function exportBook(options: ExportOptions): ExportResult {
       files: [],
       chapterCount: 0,
       unit: '章',
+      finalizedFilter,
       skippedDrafts,
       ...(warnings.length > 0 ? { warnings } : {}),
       error: `导出写入失败：${e instanceof Error ? e.message : String(e)}`,
@@ -394,6 +409,7 @@ export function exportBook(options: ExportOptions): ExportResult {
         files: [],
         chapterCount: 0,
         unit: '章',
+        finalizedFilter,
         skippedDrafts,
         ...(warnings.length > 0 ? { warnings } : {}),
         error: `导出写入失败：${e instanceof Error ? e.message : String(e)}`,
@@ -440,6 +456,7 @@ export function exportBook(options: ExportOptions): ExportResult {
         files: [],
         chapterCount: 0,
         unit: '章',
+        finalizedFilter,
         skippedDrafts,
         ...(warnings.length > 0 ? { warnings } : {}),
         error: `导出写入失败：${e instanceof Error ? e.message : String(e)}`,
@@ -543,6 +560,7 @@ export function exportBook(options: ExportOptions): ExportResult {
       files,
       chapterCount: 0,
       unit: '章',
+      finalizedFilter,
       skippedDrafts,
       ...(warnings.length > 0 ? { warnings } : {}),
       error: `导出写入失败：${e instanceof Error ? e.message : String(e)}`,
@@ -567,6 +585,7 @@ export function exportBook(options: ExportOptions): ExportResult {
       files: [],
       chapterCount: 0,
       unit: '章',
+      finalizedFilter,
       skippedDrafts,
       ...(warnings.length > 0 ? { warnings } : {}),
       error: `${scope}，没有可导出的内容；逐章原因见 warnings。`,
@@ -624,6 +643,7 @@ export function exportBook(options: ExportOptions): ExportResult {
       files,
       chapterCount: 0,
       unit: '章',
+      finalizedFilter,
       skippedDrafts,
       ...(warnings.length > 0 ? { warnings } : {}),
       error: `导出写入失败：${e instanceof Error ? e.message : String(e)}`,
@@ -635,6 +655,9 @@ export function exportBook(options: ExportOptions): ExportResult {
     files,
     chapterCount: writtenCount,
     unit: '章',
+    // 清偿-导出未过滤提示（2026-09-09 残留清偿批）：成功面核心消费点——清单缺失
+    // （skipped-no-manifest）时前端据此明示「本次导出未按定稿过滤（含未定稿章）」
+    finalizedFilter,
     skippedDrafts,
     ...(warnings.length > 0 ? { warnings } : {}),
   }

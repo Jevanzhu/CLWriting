@@ -53,6 +53,14 @@ function isQuoteCandidate(v: unknown): v is QuoteCandidate {
   return typeof o['场景'] === 'string' && typeof o['正文'] === 'string' && typeof o['出处'] === 'string'
 }
 
+/** 重评2-P3-⑤a（2026-09-09 全量重评 GLM-5.3）：learn-commit 单数组条目数上限——
+ *  samples/quotes 原仅受 readJson 1MB 总量约束，超长数组逐条 commitSamples/
+ *  commitQuotes（逐条指纹/建条目落盘）可拖出秒级同步循环阻塞事件循环。上限取
+ *  批量定稿 BATCH_FINALIZE_MAX_DOCS = 400 同值先例（documents.ts X-23）；超出回
+ *  422 业务信封（先例 io.ts EXPORT_FAILED）。按过滤前原始数组长度判定（校验前早拒，
+ *  不为畸形超长数组白付逐条过滤）。 */
+const LEARN_COMMIT_MAX_ITEMS = 400
+
 export function registerKnowledgeRoutes(ctx: KnowledgeCtx): void {
   // learn 产候选（调内核 learnFromBook，规则打分不涉大模型）
   defineRoute('books.learn', {
@@ -108,8 +116,19 @@ export function registerKnowledgeRoutes(ctx: KnowledgeCtx): void {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     const body = await readJson(req)
-    const samples = Array.isArray(body['samples']) ? (body['samples'] as unknown[]).filter(isSampleCandidate) : []
-    const quotes = Array.isArray(body['quotes']) ? (body['quotes'] as unknown[]).filter(isQuoteCandidate) : []
+    // 重评2-P3-⑤a：逐项条目数上限（过滤前原始长度判定，超限早拒——不进逐条 commit）
+    const rawSamples = Array.isArray(body['samples']) ? (body['samples'] as unknown[]) : []
+    const rawQuotes = Array.isArray(body['quotes']) ? (body['quotes'] as unknown[]) : []
+    if (rawSamples.length > LEARN_COMMIT_MAX_ITEMS || rawQuotes.length > LEARN_COMMIT_MAX_ITEMS) {
+      return replyError(
+        res,
+        422,
+        'TOO_MANY_ITEMS',
+        `samples/quotes 单次最多各提交 ${LEARN_COMMIT_MAX_ITEMS} 条（本次 samples ${rawSamples.length} 条 / quotes ${rawQuotes.length} 条），请分批提交`,
+      )
+    }
+    const samples = rawSamples.filter(isSampleCandidate)
+    const quotes = rawQuotes.filter(isQuoteCandidate)
     const bookRoot = r.bookRoot
     const sampleFiles = samples.length ? commitSamples(bookRoot, samples) : []
     const quoteFiles = quotes.length ? commitQuotes(bookRoot, quotes) : []

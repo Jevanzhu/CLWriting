@@ -124,3 +124,77 @@ test('重评-26: bookRoot 误传文件路径 → 目录校验人话报错 + exit
     rmSync(dir, { recursive: true, force: true })
   }
 }, 60_000)
+
+// 重评2-P3-5（2026-09-09 全量重评 GLM-5.3，scripts 域 P3-③）回归：现行基准正文兜底读
+// （原 :169 readFileSync(ch._path)）位于「只有 finally 无 catch」的外层 try 内——章文件
+// 在 readChapterDir 列目与该读之间被并发移走（TOCTOU）时 ENOENT 裸栈崩穿整次收割。
+// 修复后对齐 R63-14「计数 + 首错 + 人话告警」口径：本章跳过继续收割、产出段照常
+// 落盘、exitCode=1（部分失败不静默成功）。
+// 注入手法：NODE_OPTIONS --require 钩子包装 fs.readFileSync，对章文件第 2 次读取注入
+// ENOENT——第 1 次是 readChapterDir 列目（须成功），第 2 次即基准正文兜底读，确定性
+// 命中修复点（手工实跑已核：该章文件恰有两次 readFileSync）。
+test('重评2-P3-5: 章文件 TOCTOU 读失败 → R63-14 口径告警 + exit 1 + 产出不中断（不再裸栈崩穿）', () => {
+  const dir = mkdtempTracked(join(tmpdir(), 'harvest-corpus-'))
+  const root = join(dir, '青萍集移章')
+  mkdirSync(join(root, '写作', '正文'), { recursive: true })
+  mkdirSync(join(root, '项目'), { recursive: true })
+  writeFileSync(join(root, 'book.yaml'), ['spec_version: 1', 'book:', '  title: 青萍集移章', '  genre: 玄幻'].join('\n'), 'utf-8')
+  const chapterPath = join(root, '写作', '正文', '0001-好章.md')
+  writeFileSync(chapterPath, '---\n章号: 1\n标题: 好章\n---\n雪落在了城墙上。', 'utf-8')
+  writeFileSync(
+    join(root, '项目', '文档清单.jsonl'),
+    [
+      JSON.stringify({ version: 1, type: 'header' }),
+      JSON.stringify({ id: 'chap-1', nodeType: 'document', path: '写作/正文/0001-好章.md', parentId: null }),
+    ].join('\n') + '\n',
+    'utf-8',
+  )
+  // 注入钩子（cjs，--require 在被测脚本加载前安装）：对目标章文件第 2 次读取抛 ENOENT
+  const hookPath = join(dir, 're2-toctou-hook.cjs')
+  writeFileSync(
+    hookPath,
+    [
+      'const fs = require("node:fs")',
+      'const path = require("node:path")',
+      'const orig = fs.readFileSync',
+      'const seen = new Map()',
+      'fs.readFileSync = function (p, ...args) {',
+      '  const s = String(p)',
+      '  if (path.basename(s) === "0001-好章.md") {',
+      '    const n = (seen.get(s) || 0) + 1',
+      '    seen.set(s, n)',
+      '    if (n >= 2) {',
+      '      const e = new Error(`ENOENT: no such file or directory, open "${s}"`)',
+      "      e.code = 'ENOENT'",
+      '      e.errno = -2',
+      "      e.syscall = 'open'",
+      '      e.path = s',
+      '      throw e',
+      '    }',
+      '  }',
+      '  return orig.call(this, p, ...args)',
+      '}',
+    ].join('\n'),
+    'utf-8',
+  )
+  const nodeOptions = [process.env.NODE_OPTIONS, `--require ${hookPath}`].filter(Boolean).join(' ')
+  try {
+    const r = spawnSync('node', ['--import', 'tsx', script, root], {
+      cwd: repoRoot,
+      encoding: 'utf-8',
+      stdio: 'pipe',
+      env: { ...process.env, NODE_OPTIONS: nodeOptions },
+    })
+    // R63-14 退出码口径保持：部分失败 exitCode=1
+    expect(r.status).toBe(1)
+    // 人话告警（计数面已扩为「快照/基准正文」）+ 首错留痕
+    expect(r.stderr).toContain('警告：1 个版本快照/基准正文判定失败被跳过')
+    expect(r.stderr).toContain('ENOENT')
+    // 「跳过不中断」：主流程走到产出段（裸栈崩穿时该行不可能出现）
+    expect(r.stdout).toContain('章快照判定完成')
+    // 首错含堆栈属 R63-14 有意留痕（message\nstack），不能作未崩判据——
+    // 未崩信号 = 上面的「完成行照出 + 告警格式口径 + exit 1」三件套
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}, 60_000)

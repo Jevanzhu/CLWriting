@@ -319,9 +319,25 @@ export function __setManifestLockTimeoutForTest(ms: number): void {
   manifestLockTimeoutMs = ms
 }
 
-/** 进程内已持锁登记（manifestPath → 重入计数 + release）——计数式可重入防自锁：
- *  嵌套获取（如持锁段内再触发清单登记的调用链）只加深计数不再抢锁，最外层返回时释放。 */
-const heldManifestLocks = new Map<string, { depth: number; release: () => void }>()
+/** 进程内已持锁登记（manifestPath → 重入计数 + release + 异步排队链尾）——计数式
+ *  可重入防自锁：嵌套获取（如持锁段内再触发清单登记的调用链）只加深计数不再抢锁，
+ *  最外层返回时释放。
+ *  重评2-P2-2（2026-09-09 全量重评 GLM-5.3）：登记项增设 tail——异步孪生
+ *  （withManifestLockAsync）重入 async fn 的排队链尾（首节 = 持锁 fn 的执行 promise，
+ *  持锁 finally 在跨进程锁 release 前循环排空，见其函数头注）。同步版
+ *  withManifestLock 的临界段全同步、无排队语义，登记恒 tail:null（异步重入撞上时
+ *  惰性建空链——该形态属声明边界，不获锁覆盖）。 */
+const heldManifestLocks = new Map<string, { depth: number; release: () => void; tail: Promise<void> | null }>()
+
+/** 重评2-P2-2（2026-09-09 全量重评 GLM-5.3）：async fn 形态判定（不调用 fn）——
+ *  Object.prototype.toString 对 async 关键字函数（声明/箭头/方法/bind 产物）给
+ *  '[object AsyncFunction]'（Node ≥14 内建标签，跨 realm 稳定，胜过 constructor.name
+ *  的可被改名/跨 realm 失效）。排队判定必须发生在「调用 fn」之前：一旦调用，fn 的
+ *  同步前缀立即执行，延迟即失去意义（非 async 关键字却返回 thenable 的 fn 只能执行后
+ *  兜底，见重入分支注释）。 */
+function isAsyncFunction(fn: unknown): boolean {
+  return Object.prototype.toString.call(fn) === '[object AsyncFunction]'
+}
 
 /** R33-54（三十三轮）：锁键归一化——重入计数原以原始路径字符串为键，同一锁文件经
  *  大小写（win 不敏感 FS）或分隔符漂移的等价路径再入时会被当「他锁」抢锁，同步
@@ -369,7 +385,9 @@ export function withManifestLock<T>(manifestPath: string, fn: () => T): T {
   for (let attempt = 0; ; attempt++) {
     const release = acquireCrossProcessLockWithTimeout(lockPath, manifestLockTimeoutMs)
     if (release) {
-      heldManifestLocks.set(lockKey, { depth: 1, release })
+      // 重评2-P2-2：登记项增设 tail 字段（恒 null——同步临界段无排队语义，见
+      // heldManifestLocks 声明注）；本函数执行语义零变更。
+      heldManifestLocks.set(lockKey, { depth: 1, release, tail: null })
       try {
         return fn()
       } finally {
@@ -398,27 +416,70 @@ export function withManifestLock<T>(manifestPath: string, fn: () => T): T {
  * 锁覆盖 fn 整个执行期。同进程并发同 key 调用在首个 fn await 期间仍按重入计数放行
  * （与同步版一致，进程内串行化仍是调用方责任）。
  * 其余不在异步链上的调用方保持同步版不动。
- * R43-10（四十三轮）不变量声明（注释收口，未装断言）：**重入分支（含正常分支）的同
- * 进程互斥要求 fn 体零 await（同步返回）**——fn 一旦返回 Promise，其在途期间
+ * R43-10（四十三轮）不变量声明（注释收口，未装断言）〔重评2-P2-2（2026-09-09
+ *  全量重评 GLM-5.3）已机制化收口——本段纪律声明废止，同进程互斥改由下段排队机制
+ *  承担，不再依赖「fn 体零 await」纪律；原文留档沿革〕：**重入分支（含正常分支）的
+ * 同进程互斥要求 fn 体零 await（同步返回）**——fn 一旦返回 Promise，其在途期间
  * heldManifestLocks 仍登记在册（重入计数未清），同进程同 key 的并发调用会按「重入」
  * 放行并在 fn 的 await 点交错执行，同进程互斥静默失效（跨进程锁仍覆盖 fn 整个执行期，
  * R35-25）。原拟装「fn 返回值 thenable 即抛错」的 fail-loud dev 断言，但 grep 核实
  * 现有调用方并非全部同步返回——test/document/r35-manifest-lock-async.test.ts 的
  * R35-25 回归用例显式传入 async fn（断言锁覆盖 fn 整个执行期），断言会推翻既有裁定；
  * 生产调用方（service/trash/state/finalize/draft-pipeline）经 grep 全部为同步 fn。
- * 后续新增调用方应保持「fn 体零 await」纪律；确需 async fn 时须自行承担同进程
- * 串行化责任（本注释即该不变量的声明处）。
+ * 重评2-P2-2（2026-09-09 全量重评 GLM-5.3）修复——重入分支机制化分道（现行契约）：
+ * ① **同步 fn**（返回非 thenable）：depth++ 立即执行——与同步版完全同形，零语义
+ *   变更、零额外微任务跳数（全部既有同步调用方行为不变）。② **async fn**（async
+ *   关键字形态，isAsyncFunction 调用前判定）：**排队**到持锁者执行链尾 held.tail——
+ *   链首节 = 持锁 fn 的执行 promise，重入调用 turn = held.tail.then(() => fn())，
+ *   同进程同 key 的并发 async 调用由此串行化（修复前直接执行，fn 含 await 时在持锁
+ *   者 await 间隙交错、同进程互斥静默失效）；持锁 finally 在跨进程锁 release 前**循环
+ *   排空** tail（排水期间新到的重入调用会延长链尾：async 继续排队、同步走快道；循环
+ *   至链尾稳定，「稳定判定 → delete → release」三步同步无 await，无判定后插入窗口），
+ *   排队者始终执行在跨进程锁覆盖内。链尾吞前序异常（turn 失败不阻断后序排队者与
+ *   释放，错误只递给该调用方）。③ **非 async 关键字却返回 thenable 的 fn**（如箭头
+ *   包 async 调用）：调用前无法识别、同步前缀已先行执行（不可回退），完成挂入 tail
+ *   保住「跨进程锁释放等它 / 后续排队者等它」；前缀交错无法追回——此类调用方应改用
+ *   async fn 形态（声明边界）。
+ * **防真递归死锁边界（本修复的有意边界；grep 核实现有调用方后声明）**：同一次 fn
+ * 执行体内再次重入同 key 且 await 其结果（真递归；含排队 fn 内再排队自等、排队 fn
+ * await 持锁者自身完成）会排队自等死锁——现有生产调用方（service/trash/state/
+ * finalize/draft-pipeline）经 grep 全为同步 fn、无递归形态（trash 主清单/回收站锁
+ * 先后串联不嵌套，R34D-19）；**真递归调用方须维持同步 fn 形态**（同步快道立即执行
+ * 不排队，天然无此死锁；回归钉死见 test/document/re2-manifest-lock-reentry-async.test.ts）。
+ * 同版 withManifestLock 持锁段内发起的异步孪生调用（同步段内无法 await，必为
+ * fire-and-forget）不获排队保护：惰性空链上的排队轮次在同步临界段结束后才执行
+ * （彼时锁已释放，修复前该形态同样无保护）——同步持锁段内不得派生 async 重入。
  */
 export async function withManifestLockAsync<T>(manifestPath: string, fn: () => T | Promise<T>): Promise<T> {
   const lockKey = manifestLockKey(manifestPath)
   const held = heldManifestLocks.get(lockKey)
   if (held) {
-    // R43-10（四十三轮）：重入分支不变量——fn 体必须零 await（同步返回）。fn 返回
-    // Promise 期间重入计数仍在册，同 key 并发调用会按重入放行交错执行（见函数头注
-    // R43-10 段：grep 发现 R35-25 测试用例合法使用 async fn，故只做注释收口不设断言）。
+    // 重评2-P2-2（2026-09-09 全量重评 GLM-5.3）：重入分支机制化分道（契约见函数头
+    // 注）——async fn 排队到持锁者执行链尾串行化（修复 R43-10 注释纪律下的同进程
+    // 互斥静默失效）；同步 fn 维持现状（depth++ 立即执行，零语义变更、零额外微
+    // 任务跳数）。惰性建链：撞上同步版登记项（tail:null）时建空链——该形态属
+    // 声明边界（排队轮次在同步临界段后执行，不获锁覆盖）。
+    if (!held.tail) held.tail = Promise.resolve()
+    if (isAsyncFunction(fn)) {
+      const invoke = fn as () => Promise<T>
+      // 调用本身挂链尾轮次（不能先调用再排队：同步前缀一旦先行执行，延迟即失效）
+      const turn = held.tail.then(() => invoke())
+      // 链尾吞前序异常：本排队者失败不阻断后序排队者与持锁释放，错误只递给本调用方
+      held.tail = turn.then(() => {}, () => {})
+      return await turn
+    }
     held.depth++
     try {
-      return await fn()
+      const r = fn()
+      if (r !== null && r !== undefined && typeof (r as PromiseLike<unknown>).then === 'function') {
+        // 非 async 关键字却返回 thenable（箭头包 async 调用等）：同步前缀已先行
+        //（不可回退），完成挂入 tail——保住释放/后续排队者等它（声明边界，函数头注③）
+        const settle = r as Promise<T>
+        const gated = held.tail.then(() => settle)
+        held.tail = gated.then(() => {}, () => {})
+        return await gated
+      }
+      return await r
     } finally {
       held.depth--
     }
@@ -427,10 +488,25 @@ export async function withManifestLockAsync<T>(manifestPath: string, fn: () => T
   for (let attempt = 0; ; attempt++) {
     const release = await acquireCrossProcessLockAsync(lockPath, manifestLockTimeoutMs)
     if (release) {
-      heldManifestLocks.set(lockKey, { depth: 1, release })
+      const held: { depth: number; release: () => void; tail: Promise<void> | null } = { depth: 1, release, tail: null }
+      heldManifestLocks.set(lockKey, held)
+      // 重评2-P2-2：临界段首节——fn 的执行 promise 即重入排队链（tail）的头节；
+      // async IIFE 保持 fn 调用时机与旧实现逐位一致（同步前缀立即执行；fn 同步前缀
+      // 内发起的 fire-and-forget 异步重入属声明边界，见函数头注）。
+      const run = (async () => fn())()
+      held.tail = run.then(() => {}, () => {})
       try {
-        return await fn()
+        return await run
       } finally {
+        // 重评2-P2-2：释放前循环排空重入排队链——排队中的 async fn 仍是本进程临界
+        // 段的一部分，必须先于跨进程锁 release 执行完毕（否则排队者跑在锁外，跨进程
+        // 互斥失守）。排水期间新到的重入调用会延长链尾（登记项仍在册：async 重入继续
+        // 排队、同步重入走快道），循环等至链尾稳定；「稳定判定 → delete → release」
+        // 三步同步无 await，不存在判定后的插入窗口。
+        for (let t = held.tail; ; t = held.tail) {
+          await t
+          if (held.tail === t) break
+        }
         heldManifestLocks.delete(lockKey)
         release()
       }

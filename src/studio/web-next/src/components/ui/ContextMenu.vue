@@ -18,7 +18,8 @@ export interface MenuItem {
 // 浏览器/dev 回退的 CSS 模拟右键菜单（桌面端走 Electron 原生 Menu，不渲染本组件）。
 // mask 和 menu 必须是 body 下的兄弟元素，不能嵌套——mask 的 z-index+position
 // 会创建独立 stacking context，导致 menu 的 backdrop-filter 失效。
-import { ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { isImeComposing } from '../../shared/ime'
 
 const props = defineProps<{
   visible: boolean
@@ -35,6 +36,57 @@ const openSub = ref<string | null>(null)
 const menuEl = ref<HTMLElement>()
 const flipX = ref(false)
 const flipY = ref(false)
+
+// 重评2-P3-2（2026-09-09 全量重评 GLM-5.3）：浏览器回退菜单键盘导航（照 FontPicker
+// 重评-P2-2 的 roving tabindex 搭法）——原 role="menu" 面仅 Esc 可用，无方向键导航，
+// 纯键盘用户进不了任何菜单项。开启即把焦点移入首项，↑/↓ 循环、Home/End 首尾、
+// Enter/Space 激活、Tab 自然走焦关闭、关闭还焦右键来源；容器另挂 aria-activedescendant
+//（roving 焦点在项上时为冗余保险，焦点若落容器 AT 也能命中高亮项）。桌面端走 Electron
+// 原生 Menu 不渲染本组件，不受影响。子菜单飞出层沿 hover 语义不进 roving 序（与原实现一致）。
+/** 键盘高亮项在 navItems 中的序；-1 = 未初始化 */
+const activeIdx = ref(-1)
+/** 顶层可导航项（跳过分隔线；idx = props.items 下标，供 id/aria 对应） */
+const navItems = computed(() => props.items.map((item, idx) => ({ item, idx })).filter((e) => !e.item.separator))
+/** aria-activedescendant 指向的高亮项 id（与模板 cm-i-{items 下标} 对应） */
+const activeId = computed(() => {
+  const e = navItems.value[activeIdx.value]
+  return e ? `cm-i-${e.idx}` : undefined
+})
+/** 打开前焦点元素（关闭时还焦右键来源——FontPicker P2-2「还焦触发钮」同语义） */
+let prevFocus: HTMLElement | null = null
+
+/** 顶层项导航序（props.items 下标 → 非分隔项序，模板 tabindex/.hl 用；菜单项极少 O(n) 直查） */
+function navIdxOf(itemsIdx: number): number {
+  return navItems.value.findIndex((e) => e.idx === itemsIdx)
+}
+/** 焦点移到高亮项（FontPicker focusActive 同款：顶层可聚焦项 DOM 序与 navItems 一一对应） */
+function focusActive(): void {
+  const el = menuEl.value
+  if (!el) return
+  const items = el.querySelectorAll<HTMLElement>(':scope > .cm-item, :scope > .cm-sub-wrap > .cm-item')
+  if (items.length === 0) return
+  const idx = Math.min(Math.max(activeIdx.value, 0), items.length - 1)
+  items[idx]?.focus()
+}
+/** ↑/↓ 循环步进（FontPicker moveActive 同款） */
+function moveActive(delta: 1 | -1): void {
+  const n = navItems.value.length
+  if (n === 0) return
+  const cur = activeIdx.value < 0 ? (delta > 0 ? -1 : 0) : activeIdx.value
+  activeIdx.value = (cur + delta + n) % n
+  focusActive()
+}
+/** Enter/Space 激活高亮项：普通项选中关闭；子菜单父项开/收飞出层；disabled 可聚焦不可激活 */
+function activateActive(): void {
+  const e = navItems.value[Math.max(activeIdx.value, 0)]
+  if (!e) return
+  if (e.item.submenu) {
+    openSub.value = openSub.value === e.item.key ? null : e.item.key
+    return
+  }
+  if (e.item.disabled) return
+  onSelect(e.item.key)
+}
 
 /** Electron accelerator → 平台可读文本（"CmdOrCtrl+X" → mac "⌘X" / win·linux "Ctrl+X"）。
  *  R33-83（三十三轮）：原无条件映射 ⌘，win 浏览器/dev 回退菜单显示 mac 符号。
@@ -62,9 +114,19 @@ watch(
   () => props.visible,
   async (v) => {
     if (!v) {
+      // 重评2-P3-2：关闭收尾——菜单会话仍持有焦点（焦点在菜单内/已落 body）时还焦
+      // 右键来源，防焦点丢在已卸载的菜单上；他处焦点不动（parent 主动关窗等场景）
+      const menu = menuEl.value
+      const cur = document.activeElement
+      if (prevFocus && (cur === null || cur === document.body || (menu !== undefined && menu.contains(cur)))) {
+        prevFocus.focus()
+      }
+      prevFocus = null
+      activeIdx.value = -1
       openSub.value = null
       return
     }
+    prevFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
     flipX.value = false
     flipY.value = false
     await nextTick()
@@ -73,13 +135,47 @@ watch(
     const r = el.getBoundingClientRect()
     if (props.x + r.width > window.innerWidth - 8) flipX.value = true
     if (props.y + r.height > window.innerHeight - 8) flipY.value = true
+    // 重评2-P3-2：开启即把键盘焦点移入首项（roving tabindex；与 flip 复位同一拍完成）
+    activeIdx.value = navItems.value.length > 0 ? 0 : -1
+    focusActive()
   },
 )
 
 function onKey(e: KeyboardEvent): void {
-  if (e.key !== 'Escape' || !props.visible) return // 菜单未开不消费——Esc 落到 useHotkeys
-  emit('close')
-  e.preventDefault() // Z-23（第五十八轮）：本层消费 Esc，防同键退专注双效
+  if (!props.visible) return // 菜单未开不消费——Esc 落到 useHotkeys
+  if (e.key === 'Escape') {
+    emit('close')
+    e.preventDefault() // Z-23（第五十八轮）：本层消费 Esc，防同键退专注双效
+    return
+  }
+  // 重评2-P3-2：方向键/Home/End/Enter/Space roving 导航；IME 组合期让渡输入法
+  //（FontPicker P2-2 同口径）；Tab 不消费仅关闭，焦点走自然次序
+  if (isImeComposing(e)) return
+  if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    moveActive(1)
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    moveActive(-1)
+  } else if (e.key === 'Home') {
+    e.preventDefault()
+    if (navItems.value.length > 0) {
+      activeIdx.value = 0
+      focusActive()
+    }
+  } else if (e.key === 'End') {
+    e.preventDefault()
+    if (navItems.value.length > 0) {
+      activeIdx.value = navItems.value.length - 1
+      focusActive()
+    }
+  } else if (e.key === 'Enter' || e.key === ' ') {
+    // keydown 期 preventDefault 截停原生按钮激活（无原生 click），激活只走 activateActive 防双触发
+    e.preventDefault()
+    activateActive()
+  } else if (e.key === 'Tab') {
+    emit('close')
+  }
 }
 onMounted(() => window.addEventListener('keydown', onKey))
 onUnmounted(() => window.removeEventListener('keydown', onKey))
@@ -100,6 +196,7 @@ function onSelect(key: string): void {
         role="menu"
         :class="{ 'flip-x': flipX, 'flip-y': flipY }"
         :style="{ '--cm-x': x + 'px', '--cm-y': y + 'px' }"
+        :aria-activedescendant="activeId"
         @click.stop
         @contextmenu.prevent.stop
       >
@@ -111,7 +208,15 @@ function onSelect(key: string): void {
             @mouseenter="openSub = item.key"
             @mouseleave="openSub = null"
           >
-            <button class="cm-item cm-has-sub" role="menuitem">
+            <!-- 重评2-P3-2：顶层项 roving tabindex（高亮项 0 其余 -1）+ id 供 aria-activedescendant -->
+            <button
+              class="cm-item cm-has-sub"
+              role="menuitem"
+              :id="`cm-i-${i}`"
+              :tabindex="navIdxOf(i) === activeIdx ? 0 : -1"
+              :class="{ hl: navIdxOf(i) === activeIdx }"
+              :aria-disabled="item.disabled || undefined"
+            >
               <span class="cm-label">{{ item.label }}</span>
               <span class="cm-caret">▸</span>
             </button>
@@ -133,7 +238,10 @@ function onSelect(key: string): void {
             v-else
             class="cm-item"
             role="menuitem"
-            :class="{ danger: item.danger, disabled: item.disabled }"
+            :id="`cm-i-${i}`"
+            :tabindex="navIdxOf(i) === activeIdx ? 0 : -1"
+            :class="{ danger: item.danger, disabled: item.disabled, hl: navIdxOf(i) === activeIdx }"
+            :aria-disabled="item.disabled || undefined"
             @click="!item.disabled && onSelect(item.key)"
           >
             <span class="cm-label">{{ item.label }}</span>
@@ -222,6 +330,18 @@ function onSelect(key: string): void {
 .cm-item.disabled {
   opacity: 0.35;
   pointer-events: none;
+}
+/* 重评2-P3-2：键盘高亮项（roving tabindex 焦点所在），与 hover 同视觉；danger 同款 */
+.cm-item.hl {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+.cm-item.danger.hl {
+  background: var(--text-error);
+  color: var(--text-on-accent);
+}
+.cm-item:focus-visible {
+  outline: none;
 }
 .cm-label {
   flex: 1;

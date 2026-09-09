@@ -197,14 +197,21 @@ async function doClear(): Promise<void> {
   if (clearing.value) return
   clearing.value = true
   err.value = null
+  const gen = loadGen // 重评2-P3-6：入口拍代数（loadMoreConvo R48-23 同款——开工后发生刷新则本操作作废）
   try {
     await clearAudit(props.bookName)
     confirmClear.value = false
     await load()
   } catch (e) {
+    // 重评2-P3-6（2026-09-09 全量重评 GLM-5.3）：catch 补存活/代数复检（R57-F-1 先例同款）
+    // ——清除在途时卸载/点刷新，迟到失败此前仍会把错误态写到已卸载实例或已被新刷新
+    // 取代的新代视图上（旧错误横幅顶在新数据上）。
+    if (!alive || gen !== loadGen) return // R36-25：卸载后不回写；R48-23：被刷新作废的清除不得置错
     err.value = friendlyError(e)
   } finally {
-    clearing.value = false
+    // 只守存活不守代数：clearing 仅由本操作持有，代数作废分支若不复位会把「确认清除」
+    // 按钮永久吊在禁用态（对照 loading 由取代方 load() 自己接管收尾，两处口径并不相同）
+    if (alive) clearing.value = false
   }
 }
 </script>

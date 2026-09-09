@@ -150,6 +150,9 @@ export function registerIoRoutes(ctx: IoCtx): void {
         chapterCount: result.chapterCount,
         unit: result.unit,
         files: result.files,
+        // 清偿-导出未过滤提示（2026-09-09 残留清偿批）：透传定稿过滤标记——
+        // 清单缺失兜底导出（含未定稿章）时前端据此明示
+        finalizedFilter: result.finalizedFilter,
       })
     } catch (e) {
       // R27-62（二十七轮）：排队超限/超时给 503 信封（可重试），不再直穿 500 兜底

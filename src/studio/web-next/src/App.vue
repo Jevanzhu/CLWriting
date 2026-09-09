@@ -53,13 +53,20 @@ onMounted(() => {
       /* 忽略 */
     }
   }
-  // R50-D1-2（五十轮）：lastBook 恢复直进改以路由态为判据——裸 location.pathname 在
-  // onMounted 时刻与路由初始导航（'/' redirect '/shelf'）有竞态（初始导航完成前后读值
-  // 不一）；isReady 后读 currentRoute.path 才是权威路径。保留原语义：仅根路径时恢复直进
+  // R50-D1-2（五十轮）沿革：lastBook 恢复直进曾以裸 location.pathname 判根路径（与初始
+  // 导航有竞态），改读路由态；但其「isReady 后 path === '/'」判据在 redirect 路由下失效。
+  // 重评2-P1-1（2026-09-09 全量重评 GLM-5.3）修复：isReady() 在初始导航（含 redirect）
+  // 完成后 resolve，'/' 已被 router.ts redirect 到 '/shelf'，此刻 currentRoute.path 恒为
+  // '/shelf'、'===' 恒假——lastBook 恢复与 --book 首启直进（getLastInitialBook 汇入同
+  // 分支）确定性失效。判据更正为「本次由根路径进入」：优先 redirectedFrom?.path === '/'，
+  // 保留 path === '/' 直判兜底（防无 redirect 场景）；仍保留原语义：仅根路径进入时直进。
   if (startBook) {
     const book = startBook
     void router.isReady().then(() => {
-      if (router.currentRoute.value.path === '/') {
+      const enteredFromRoot =
+        router.currentRoute.value.redirectedFrom?.path === '/' ||
+        router.currentRoute.value.path === '/'
+      if (enteredFromRoot) {
         router.replace(`/book/${encodeURIComponent(book)}`)
       }
     })

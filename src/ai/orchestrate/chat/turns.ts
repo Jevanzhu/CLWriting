@@ -10,7 +10,8 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import type { ChatMsg, ContentBlock, TokenUsage } from '../../provider/types.js'
-import { generate } from '../../gen.js'
+// A7 最小版（2026-09-09 清偿批）：GenError 随 generate 同源导入——run 回调边界捕获超窗 code
+import { generate, GenError } from '../../gen.js'
 // R57-B-2（五十七轮）：resolveProvider 复用既有 resolve 路径取档位模型 conf（只读
 // contextWindow；provider 实例本身仍由下方 runTask 自行 resolve，此调用无额外副作用面——
 // 同 path 幂等，loadProviders 有 mtime 缓存，runTask 每回合本就同参调用）
@@ -61,7 +62,9 @@ import { log } from '../../../log/index.js'
 import { bodyOf } from '../../../format/frontmatter-core.js'
 import type { SessionRecorder } from '../../../events/chat-bridge.js'
 import { turnStartEvent, turnEndEvent, assistantMessageEvent, toolCallEvent, toolResultEvent } from '../../../events/chat-bridge.js'
-import { settingsSnapshotEvent, revisionRefEvent, skillsSnapshotEvent } from '../../../events/chain-bridge.js'
+// A7 最小版（2026-09-09 清偿批）：llm/retry 留痕——超窗收缩重试复用 runner 重试留痕事件
+// 形态（events/types.ts LlmRetryData；落 chat 会话库，runner 链路库的 llm/retry 不变）
+import { settingsSnapshotEvent, revisionRefEvent, skillsSnapshotEvent, llmRetryEvent } from '../../../events/chain-bridge.js'
 // R65-15：可见性诊断开关直接消费 lineage 校验器（lineage 只依赖 node:crypto 与
 // 自身 types，无环）；NewEvent→ChatEvent 形状补齐仅供校验器读取 type/data
 import { verifyVisibleRecorded, type VisibleInjection } from '../../../events/lineage.js'
@@ -522,8 +525,9 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
 
     // R55-C-1（五十五轮）：发送前体量防线——trimHistory/compaction 只在成功收尾后的
     // finalizeHistory（finish.ts）执行，单轮发送前无任何体量闸：重工具会话（大
-    // tool_result 多轮累积）可一路撑到超窗 → provider 400（CONTEXT_WINDOW_EXCEEDED）
-    // 后无自动恢复（failure.ts 决策表 shrink-prompt 动作 A7 接线前无消费者），会话卡死。
+    // tool_result 多轮累积）可一路撑到超窗 → provider 400（CONTEXT_WINDOW_EXCEEDED）。
+    // A7 最小版（2026-09-09 清偿批）起，预切后仍越线的残余形态由下方 shrink-prompt
+    // 消费者（收缩重试恰一次）兜底——接线前此处 fail-open 原样发送、超窗即会话卡死。
     // 按「resolved 发送预算 − system prompt 点数」（R57-B-1）对消毒后历史做保尾预切，
     // 切点口径与 trimHistory 回落分支单源（budgetTailCut：只取纯文本 user 边界，永不落
     // tool_use/tool_result 配对中间）。预切只改本轮发送副本 toSend，不改累积 history
@@ -559,92 +563,166 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
     }
     // R57-B-1（五十七轮）：切后复查——sys 计入后仍有三形态可越线：sys 超大挤到下限、
     // 单肥回合兜底保最近一整回合、零边界病态原样发送。复查不改发送行为（fail-open
-    // 语义不变；不给 failure.ts 加 shrink-prompt 消费者——A7 接线单独立项），只让
-    // warn 反映含 sys 的真实总量，超窗 400 卡死现场可观测。
+    // 语义不变），只让 warn 反映含 sys 的真实总量；越线后的超窗 400 由下方 A7 最小版
+    // 收缩重试兜底（接线前仅 warn 可观测、会话卡死）。
     const sentPoints = toSend === sanitized ? sendPoints : measureHistoryPoints(toSend)
     if (sysPoints + sentPoints > sendBudget) {
-      log.warn('chat', `chat 发送前体量防线：切后复查——system prompt 约 ${sysPoints} + 实发历史 ${toSend.length} 条约 ${sentPoints} 码点，合计 ${sysPoints + sentPoints} 仍超发送预算 ${sendBudget}（fail-open 原样发送；shrink-prompt 消费者接线属 A7 单独立项）`)
+      log.warn('chat', `chat 发送前体量防线：切后复查——system prompt 约 ${sysPoints} + 实发历史 ${toSend.length} 条约 ${sentPoints} 码点，合计 ${sysPoints + sentPoints} 仍超发送预算 ${sendBudget}（fail-open 原样发送；越线超窗 400 由下方 A7 最小版收缩重试兜底）`)
     }
 
-    const out = await runTask<{
-      text: string
-      toolCalls: { id: string; name: string; input: unknown }[]
-      stopReason: string
-      usage: TokenUsage
-      reasoning: string
-      /** Q-13（第十五轮）：resolve 后上线输出上限——runner 提取落 llm/call */
-      resolvedMaxTokens?: number
-      /** Responses 线缺口 11：加密推理项随 reasoning 块入历史，下轮回传维持推理状态 */
-      reasoningEncrypted?: string
-      reasoningItemId?: string
-    }>({
-      userDataPath: opts.userDataPath,
-      tierKind: 'chat',
-      task: 'chat',
-      bookRoot: opts.bookRoot,
-      // B-P2-2：trace hash 纳入 system prompt——chat 的 system prompt 稳定（设定+职责），
-      // 不带则同 user 消息不同书 hash 冲突
-      systemPrompt: sys,
-      // Q-11（第十五轮）：每轮取当轮末条消息（tool_result 轮为 blocks 序列化），
-      // 同组多轮 hash 各异，恢复「本次实际输入指纹」审计语义——R54-C-1 起取消毒后
-      // 历史（与 generate 实发同源）；R55-C-1 起取预切后实际发送的 toSend 末条
-      //（指纹与实发同源，预切触发时指纹随实发收窄，不再对未发送的历史记账）
-      promptText: lastMessageFingerprint(toSend),
-      // T2-1：注入文件清单（章正文/spill）进 llm/call promptMeta.files——与写稿链
-      //（self-heal promptFiles）同口径：记 hash+chars+files，不落 prompt 全文
-      promptFiles: deps.promptFiles,
-      // R59 清偿批（R55-C-6）：本轮 generate 挂载的 chatTools（15 个工具 schema 模型
-      // 可见）——工具名清单进 promptMeta.tools（铁律②「模型可见 ⟺ 已记录」工具面登记）
-      promptTools: chatTools.map((t) => t.name),
-      ctrl: state.ctrl,
-      // M-1（第八轮）：owner='chat:<book>'——driver 分槽防跨编排抢占（此前单槽「换新先
-      // abort 旧」会掐断在途写稿）。R69-11（十七轮）注释校准：chat 与 self-heal/spawn 的并发
-      // 由入口互斥闸管（stream.ts chat.send/regenerate 对写稿在途 409，R-9），本处不承
-      // 担并发许可；下方 AI_GEN_TOOLS/write_chapter 闸是工具层二道防线。
-      // R71-19（十九轮）：owner 带书维度——sendChatMessage 锁按书分键（chat.ts running
-      // map），两本书共享同一 mainSession 的形态下，后书对话注册同 owner 'chat' 触发
-      // P2-6「换新先 abort 旧」掐断前书在途 ctrl。`chat:<bookName>` 分槽后跨书并发
-      // 互不抢占；同书 turns 与 finish 同槽同 ctrl，幂等 no-op 不变。
-      register: (c) => opts.driver.registerCtrl?.(opts.mainSession, c, `chat:${opts.bookName}`),
-      onReset: () => emit(opts, { type: 'chat_reset' }),
-      // P1-R3：provider 429/5xx 重试时推 warning（与 self-heal.ts:496 对齐，Bug C 同类补齐）
-      // R43-19（四十三轮）：error 拼接前过 redactSecret（与 stream.ts:216 R26-8 同款）
-      onRetry: (attempt, error) =>
-        emit(opts, { type: 'warning', message: `AI 响应异常（${redactSecret(error)}），第 ${attempt + 1} 次重试中…` }),
-      run: async (provider, signal, tier) => {
-        // 消毒副本在 runTask 前统一产出（R54-C-1 上提，指纹同源）；消毒产副本不污染
-        // 累积的 history（回滚仍按 baseLen 精确）。R55-C-1：实发取发送前预切后的
-        // toSend（超 resolved 发送预算时保尾收窄，防超窗 400 卡死；R57-B-1/B-2 起预算
-        // 按模型窗口 resolve 且 sys 计入，见上方防线注释）
-        const r = await generate(
-          provider,
-          {
-            systemPrompt: sys,
-            messages: toSend,
-            tools: chatTools,
-            toolChoice: 'auto',
-            effort: tier.effort,
-          },
-          signal,
-          (delta) => emit(opts, { type: 'chat_text', text: delta }),
-        )
-        return {
-          text: r.text,
-          toolCalls: r.toolCalls,
-          stopReason: r.stopReason,
-          usage: r.usage,
-          reasoning: r.reasoning,
-          resolvedMaxTokens: r.resolvedMaxTokens,
-          // B-2（第六十轮）：降级参数面标记透传（extractDegraded 落 llm/call，铁律②重放口径）
-          degraded: r.degraded,
-          reasoningEncrypted: r.reasoningEncrypted,
-          reasoningItemId: r.reasoningItemId,
+    // ── A7 最小版（2026-09-09 清偿批）：shrink-prompt 消费者（chat 编排层主模型发送处）──
+    // 发送封装为 sendTurn(send, promptText)：首发失败且 run 回调捕获到 GenError.code ===
+    // 'CONTEXT_WINDOW_EXCEEDED' 时，按更紧预算（⌊首发历史预算/2⌋，依据见下）对消毒后
+    // 历史保尾重切 → 重算指纹 → 再发恰一次；仍失败（或不可重切/重切无收益）落回现行
+    // 终态路径（下方 !out.ok 出口与错误面零变更）。范围严控：仅 chat 主模型发送；
+    // switch-provider 不接线，self-heal/spawn/rewrite 等非 chat 路径不收缩，不做多次
+    // 重试与预算动态学习。
+    //
+    // code 捕获通道：runTask 失败封套只透出 message（结构化 code 仅落 llm/call errCode，
+    // turns 层不可见），故在 run 回调边界就地置 ctxOverflow 信号。CONTEXT_WINDOW_EXCEEDED
+    // 非重试族（决策表 action='shrink-prompt' ≠ 'retry'），runner 对其不退避重试——信号
+    // 置位即对应该次发送的终态失败，不存在跨 attempt 的陈旧信号；每次发送前显式重置。
+    //
+    // 重试预算系数 = ⌊historyBudget / 2⌋——对首发「实际生效」的历史预算取半（恒 ≤
+    // sendBudget/2，「约 sendBudget 一半」作为上界自动满足）。依据：① 首发已按
+    // historyBudget 预切（或预算内原样发送）仍超窗，说明真实开销（15 个工具 schema、
+    // 消息包装、码点≈token 粗估误差、输出预留）已吃满首发预算的全部余量，对半收缩才
+    // 保证重试载荷确定性变小；小系数（如 3/4）可能仍落同一估计误差带内白烧一次调用；
+    // ② sys 挤到 CHAT_HISTORY_MIN_BUDGET_POINTS 下限的越线形态（R57-B-1 三形态之一）下
+    // sendBudget/2 反而比首发预算更松、不可用——对 historyBudget 取半在任何形态下都
+    // 严格更紧；③ 与 resolveChatSendBudget「≤ 半窗」的既有哲学同族。budgetTailCut 自带
+    // 兜底：所有边界后缀都超重试预算时保最近一整回合（可能不严格更小 → 守卫跳过重试）、
+    // 无边界返回 null（无法安全切 → 不重试），两者都直接落终态路径。
+    //
+    // 指纹/登记闭环（铁律「模型可见 ⟺ 已记录」）：收缩只动历史消息载荷——system prompt
+    // 注入面不变，轮首已登记的 settings/snapshot + revision/ref + skills/snapshot 血缘与
+    // deps.promptFiles（llm/call promptMeta.files）无需也不应重复登记（重复登记反而制造
+    // 双份血缘）；变化的是 messages——重试以 lastMessageFingerprint(重切实发) 重算
+    // promptText 再进 runTask，两次 llm/call 的 promptMeta 各对齐各自实发载荷（保尾切点
+    // 下末条消息不变、指纹恒同，是「对齐实发」的正确形态而非漏改）。
+    //
+    // 双次计费口径：重试是独立的第二次 runTask——首发（失败）与重试的 usage 各由本次
+    // runTask 按 W-P2-8/X-P2-10「失败/重试也是真实 API 消耗」口径独立入账 ai-calls/账本；
+    // 外层 out.attemptsUsage 只聚合末次发送的 attempt 链，首发消耗不并入封套（与 runner
+    // 内部重试链失败 attempt 不入 done 合计的既有口径一致，账本按次不丢）。
+    //
+    // 留痕：log.warn（前后码点数）+ chat 会话库 llm/retry（复用 runner 重试留痕事件形态
+    // LlmRetryData，delayMs=0 表无退避）+ 用户面 warning（onRetry 先例）；重试前防御性
+    // chat_reset 清前端缓冲（超窗 400 属建连期失败、零增量，正常为 no-op——防御流中
+    // 异常形态下重复文本）。
+    let ctxOverflow = false
+    const sendTurn = (send: ChatMsg[], promptText: string) =>
+      runTask<{
+        text: string
+        toolCalls: { id: string; name: string; input: unknown }[]
+        stopReason: string
+        usage: TokenUsage
+        reasoning: string
+        /** Q-13（第十五轮）：resolve 后上线输出上限——runner 提取落 llm/call */
+        resolvedMaxTokens?: number
+        /** Responses 线缺口 11：加密推理项随 reasoning 块入历史，下轮回传维持推理状态 */
+        reasoningEncrypted?: string
+        reasoningItemId?: string
+      }>({
+        userDataPath: opts.userDataPath,
+        tierKind: 'chat',
+        task: 'chat',
+        bookRoot: opts.bookRoot,
+        // B-P2-2：trace hash 纳入 system prompt——chat 的 system prompt 稳定（设定+职责），
+        // 不带则同 user 消息不同书 hash 冲突
+        systemPrompt: sys,
+        // Q-11（第十五轮）：每轮取当轮末条消息（tool_result 轮为 blocks 序列化），
+        // 同组多轮 hash 各异，恢复「本次实际输入指纹」审计语义——R54-C-1 起取消毒后
+        // 历史（与 generate 实发同源）；R55-C-1 起取预切后实际发送的 toSend 末条
+        //（指纹与实发同源，预切触发时指纹随实发收窄，不再对未发送的历史记账）；
+        // A7 最小版起收缩重试对重切实发重算同一指纹（见上方闭环注释）
+        promptText,
+        // T2-1：注入文件清单（章正文/spill）进 llm/call promptMeta.files——与写稿链
+        //（self-heal promptFiles）同口径：记 hash+chars+files，不落 prompt 全文
+        promptFiles: deps.promptFiles,
+        // R59 清偿批（R55-C-6）：本轮 generate 挂载的 chatTools（15 个工具 schema 模型
+        // 可见）——工具名清单进 promptMeta.tools（铁律②「模型可见 ⟺ 已记录」工具面登记）
+        promptTools: chatTools.map((t) => t.name),
+        ctrl: state.ctrl,
+        // M-1（第八轮）：owner='chat:<book>'——driver 分槽防跨编排抢占（此前单槽「换新先
+        // abort 旧」会掐断在途写稿）。R69-11（十七轮）注释校准：chat 与 self-heal/spawn 的并发
+        // 由入口互斥闸管（stream.ts chat.send/regenerate 对写稿在途 409，R-9），本处不承
+        // 担并发许可；下方 AI_GEN_TOOLS/write_chapter 闸是工具层二道防线。
+        // R71-19（十九轮）：owner 带书维度——sendChatMessage 锁按书分键（chat.ts running
+        // map），两本书共享同一 mainSession 的形态下，后书对话注册同 owner 'chat' 触发
+        // P2-6「换新先 abort 旧」掐断前书在途 ctrl。`chat:<bookName>` 分槽后跨书并发
+        // 互不抢占；同书 turns 与 finish 同槽同 ctrl，幂等 no-op 不变。
+        register: (c) => opts.driver.registerCtrl?.(opts.mainSession, c, `chat:${opts.bookName}`),
+        onReset: () => emit(opts, { type: 'chat_reset' }),
+        // P1-R3：provider 429/5xx 重试时推 warning（与 self-heal.ts:496 对齐，Bug C 同类补齐）
+        // R43-19（四十三轮）：error 拼接前过 redactSecret（与 stream.ts:216 R26-8 同款）
+        onRetry: (attempt, error) =>
+          emit(opts, { type: 'warning', message: `AI 响应异常（${redactSecret(error)}），第 ${attempt + 1} 次重试中…` }),
+        run: async (provider, signal, tier) => {
+          // 消毒副本在 runTask 前统一产出（R54-C-1 上提，指纹同源）；消毒产副本不污染
+          // 累积的 history（回滚仍按 baseLen 精确）。R55-C-1：实发取发送前预切后的
+          // toSend（超 resolved 发送预算时保尾收窄，防超窗 400 卡死；R57-B-1/B-2 起预算
+          // 按模型窗口 resolve 且 sys 计入，见上方防线注释）；A7 最小版起重试发送取
+          // 重切后的实发（sendTurn 参数 send）。
+          // A7 最小版：超窗 code 就地捕获（见上方 code 捕获通道注释）后原样上抛——
+          // runner 侧决策与封套形状零变更
+          try {
+            const r = await generate(
+              provider,
+              {
+                systemPrompt: sys,
+                messages: send,
+                tools: chatTools,
+                toolChoice: 'auto',
+                effort: tier.effort,
+              },
+              signal,
+              (delta) => emit(opts, { type: 'chat_text', text: delta }),
+            )
+            return {
+              text: r.text,
+              toolCalls: r.toolCalls,
+              stopReason: r.stopReason,
+              usage: r.usage,
+              reasoning: r.reasoning,
+              resolvedMaxTokens: r.resolvedMaxTokens,
+              // B-2（第六十轮）：降级参数面标记透传（extractDegraded 落 llm/call，铁律②重放口径）
+              degraded: r.degraded,
+              reasoningEncrypted: r.reasoningEncrypted,
+              reasoningItemId: r.reasoningItemId,
+            }
+          } catch (e) {
+            if (e instanceof GenError && e.code === 'CONTEXT_WINDOW_EXCEEDED') ctxOverflow = true
+            throw e
+          }
+        },
+      })
+    let out = await sendTurn(toSend, lastMessageFingerprint(toSend))
+    if (!out.ok && ctxOverflow) {
+      ctxOverflow = false
+      const retryBudget = Math.floor(historyBudget / 2)
+      const retryCut = budgetTailCut(sanitized, retryBudget)
+      const retryToSend = retryCut === null ? null : sanitized.slice(retryCut)
+      const retryPoints = retryToSend !== null ? measureHistoryPoints(retryToSend) : 0
+      // 重试守卫：无法安全切（null）或重切未严格小于首发（单肥回合兜底保最近一整回合
+      // 的病态形态）→ 重发同量载荷必再败，不白烧一次调用，直接按终态路径收口
+      if (retryToSend !== null && retryPoints < sentPoints) {
+        log.warn('chat', `chat 发送超窗收缩重试（A7 最小版）：首发 ${toSend.length} 条约 ${sentPoints} 码点回 CONTEXT_WINDOW_EXCEEDED，按重试预算 ${retryBudget}（首发历史预算 ${historyBudget} 之半）保尾重切 → ${retryToSend.length} 条约 ${retryPoints} 码点，重试一次`)
+        recorder.add({ ...llmRetryEvent({ attempt: 1, delayMs: 0, errCode: 'CONTEXT_WINDOW_EXCEEDED' }), turn })
+        emit(opts, { type: 'chat_reset' })
+        emit(opts, { type: 'warning', message: `上下文超限，已自动收缩对话历史（约 ${sentPoints} → ${retryPoints} 码点）后重试。` })
+        out = await sendTurn(retryToSend, lastMessageFingerprint(retryToSend))
+        if (!out.ok && ctxOverflow) {
+          log.warn('chat', `chat 发送收缩重试后仍超窗（A7 最小版）：重试发送 ${retryToSend.length} 条约 ${retryPoints} 码点仍回 CONTEXT_WINDOW_EXCEEDED，按现行终态路径收口（错误面不变）`)
         }
-      },
-    })
+      } else {
+        log.warn('chat', `chat 发送超窗且无法收缩重试（A7 最小版）：首发 ${toSend.length} 条约 ${sentPoints} 码点回 CONTEXT_WINDOW_EXCEEDED，重试预算 ${retryBudget} 下${retryCut === null ? '无纯文本 user 边界可对齐、无法安全重切' : `重切后约 ${retryPoints} 码点不严格小于首发`}，直接按终态路径收口`)
+      }
+    }
 
-    // R65-15：llm/call 已落库（成败两路都落 trace）——对注入清单抽样校验（flag 开时；
-    // 违约仅 warn，先于失败出口收口，失败回合的注入同样受查）
+    // R65-15：llm/call 已落库（成败两路都落 trace；A7 最小版收缩重试时两次发送的链路
+    // 各自成对落库）——对注入清单抽样校验（flag 开时；违约仅 warn，先于失败出口收口，
+    // 失败回合的注入同样受查。收缩只动历史消息、注入清单与发送次数无关，单次校验即可）
     verifyVisibleSampled(deps.digests, lineageRecorded)
 
     if (!out.ok) {

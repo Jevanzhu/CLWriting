@@ -622,9 +622,11 @@ export const useDocStore = defineStore('doc', () => {
              保留（不上抛、不中断其余条目），但不再零 UI 面——失败 toast warning 提示
              「显示内容可能已过期」（同文案经 ui.toast 合并去重，多文档批量失败不刷屏）；
              书名守卫防切书后旧书失败提示落新书界面（对齐上方 await 窗口复检）。 */
+          // 清偿-doc恒假分支清理（2026-09-09 残留清偿批）：原内层 `if (bookName.value
+          // !== book) return false` 位于同条件外层守卫内、与本行间无 await，静态恒假
+          // （且 void async 回调的返回值无消费面），删去；toast 缩进归位。行为零变更。
           if (bookName.value === book) {
-            if (bookName.value !== book) return false
-      useUiStore().toast('文档信息刷新失败，显示内容可能已过期', 'warning')
+            useUiStore().toast('文档信息刷新失败，显示内容可能已过期', 'warning')
           }
         }
       }),

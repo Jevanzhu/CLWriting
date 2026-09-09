@@ -58,14 +58,18 @@ import { registerChatBranchesRoutes } from './api/chat-branches.js'
 import { registerLeadUpdateRoutes } from './api/lead-updates.js'
 // T2-4：task-gate 跨进程文件锁根目录注入（书库 .clwriting/task-gate/；无 workDir → 纯内存闸）
 import { configureTaskGateLockRoot } from './api/task-gate.js'
-import { resetRouteSchemas } from './api/schema.js'
 import { setInitialBook } from './api/books.js'
 // A4（批 0）：启动通告端点——启动链迁移失败对用户可见（App 级横幅数据源）
 import { createStartupNoticeSink, registerStartupNoticeRoutes, type StartupNoticeSink } from './api/startup-notices.js'
 import { createStaticHandler } from './static.js'
 import { initLogging, log } from '../../log/index.js'
 
-/** 注册 REST 路由到独立路由表，避免多 server 复用旧 workDir/token 闭包。 */
+/** 注册 REST 路由到独立路由表，避免多 server 复用旧 workDir/token 闭包。
+ *  清理批（2026-09-09 残留清偿批）：原此处对旧模块级单例 schema 注册表的
+ *  resetRouteSchemas() 调用已删——重评2-P3-③ 起注册表按「当前活动路由表」隔离
+ *  （api/schema.ts WeakMap 键 = RouteTable），「防跨实例重复声明」由隔离结构本身
+ *  承担；旧调用位于 withRouteTable 之外，清的只是外层默认表（生产恒空），属无害
+ *  冗余。resetRouteSchemas 函数本身保留（router-schema 测试在用）。 */
 function buildRoutes(
   workDir: string | null,
   token: string,
@@ -75,8 +79,6 @@ function buildRoutes(
   streamTickets: StreamTicketStore,
 ): RouteTable {
   const routes = createRouteTable()
-  // E2：schema 注册表随路由表生命周期重置（防跨 server 实例重复声明）
-  resetRouteSchemas()
   withRouteTable(routes, () => {
     // 元：AI 可达性探测（editor/ai 共用，G4 降级体验）
     registerAiStatusRoutes({ userDataPath })

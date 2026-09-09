@@ -166,7 +166,28 @@ try {
         break
       }
     }
-    if (finalBody === null) finalBody = bodyOf(readFileSync(ch._path, 'utf8'))
+    // 重评2-P3-5（2026-09-09 全量重评 GLM-5.3，scripts 域 P3-③）：现行正文兜底读位于
+    // 「只有 finally 无 catch」的外层 try 内——章文件在 readChapterDir 列目与本处读取
+    // 之间被并发移走/瞬删（TOCTOU）时 ENOENT 裸栈崩穿整次收割（同文件单版快照判定
+    // R63-14 已配同款守卫，此处漏配）。补 catch 对齐 R63-14「计数 + 首错 + 产出段
+    // 人话告警」口径：本章跳过继续收割（同 R63-14「跳过不中断」语义），复用
+    // failedSnapshots/firstSnapshotError 承载（首错单槽、部分失败 exitCode=1 哨兵
+    // 按既有口径不变），末尾告警文案随计数面同步扩为「快照/基准正文」。
+    // 修复批二段（主审复核）：`if (finalBody === null)` 守卫必须保留——初版漏挂条件
+    // 致 pinned 锚定基准被现行正文无条件覆盖，「定稿后再改正文不改变判定」失守
+    // （corpus-domain 幸存者基准用例红即此因）。守卫保留还使有锚定章免读现行文件，
+    // 本条 TOCTOU 面同步收窄。
+    if (finalBody === null) {
+      try {
+        finalBody = bodyOf(readFileSync(ch._path, 'utf8'))
+      } catch (e) {
+        if (firstSnapshotError === null) {
+          firstSnapshotError = e instanceof Error ? `${e.message}\n${e.stack ?? ''}` : String(e)
+        }
+        failedSnapshots++
+        continue
+      }
+    }
     for (const v of versions) {
       const r = readVersion(versionsDir, docId, v.id)
       if (!r || !r.content.trim()) continue
@@ -275,8 +296,10 @@ console.log(
 
 // R63-14：快照失败不再静默——首错 + 计数随成功口径一并打印（系统性失败时
 // 「候选 0 条」有了排障入口，而不是被当成真的没有候选）
+// 重评2-P3-5：计数面扩入现行基准正文兜底读失败（见循环内注）——文案同步，
+// 容错/退出码口径仍 R63-14（部分失败不静默成功，exitCode=1）
 if (failedSnapshots > 0 && firstSnapshotError !== null) {
-  console.error(`[harvest-corpus] 警告：${failedSnapshots} 个版本快照判定失败被跳过（首错如下，若为系统性失败请先修复再采信候选数）`)
+  console.error(`[harvest-corpus] 警告：${failedSnapshots} 个版本快照/基准正文判定失败被跳过（首错如下，若为系统性失败请先修复再采信候选数）`)
   console.error(firstSnapshotError)
   process.exitCode = 1
 }

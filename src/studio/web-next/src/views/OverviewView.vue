@@ -344,7 +344,10 @@ const fsStats = computed(() => {
         <div v-if="analysis?.style" class="style-body">
           <div class="style-drift">{{ analysis.style.drift }}</div>
           <div v-if="analysis.style.口癖?.length" class="style-tags">
-            <span v-for="(t, i) in analysis.style.口癖" :key="i" class="style-tag">{{ t }}</span>
+            <!-- 重评2-P3-4（2026-09-09 全量重评 GLM-5.3）：key 弃纯 index——分析快照为一次性
+                 整表替换、纯展示 span 无内部状态（无错位实害），但口癖串可重复，改「值+序号」
+                 复合键令内容参与键（前缀稳定的尾部追加场景 DOM 复用优于 index），零行为改动。 -->
+            <span v-for="(t, i) in analysis.style.口癖" :key="t + '-' + i" class="style-tag">{{ t }}</span>
           </div>
         </div>
         <div v-else class="empty">暂无文风分析，到文风工作台开始分析</div>

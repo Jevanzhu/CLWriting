@@ -83,7 +83,9 @@ interface AnalysisOverviewResult {
   allChapters: { 章号: number; docId: string }[]
   style: unknown
 }
-const analysisOverviewCache = new Map<string, { probe: string; result: AnalysisOverviewResult; sig: string; ts: number }>()
+/** 重评2-P3-④（2026-09-09 全量重评 GLM-5.3）：缓存条目加 probeTs——探针取值时刻
+ *  （节流窗起点，见 getAnalysisOverviewCached；先例 snapshots.ts R44-9 同款）。 */
+const analysisOverviewCache = new Map<string, { probe: string; probeTs: number; result: AnalysisOverviewResult; sig: string; ts: number }>()
 let analysisOverviewTtlMs: number | null = null
 /** R36-7：TTL 测试注入口（先例同 __setStyleCorpusTtlForTest）。仅测试用。 */
 export function __setAnalysisOverviewTtlForTest(ms: number | null): void {
@@ -110,6 +112,16 @@ export function __analysisOverviewSigCountForTest(): number {
 }
 export function __resetAnalysisOverviewSigCountForTest(): void {
   analysisOverviewSigCount = 0
+}
+/** 重评2-P3-④（2026-09-09 全量重评 GLM-5.3）回归观测钩子（生产零调用）：
+ *  analysisOverviewProbe 实际执行计数——探针节流命中（TTL 窗内复用）时应不再增长
+ *  （先例 snapshots.ts __versionStatsProbeCountForTest）。 */
+let analysisOverviewProbeCount = 0
+export function __analysisOverviewProbeCountForTest(): number {
+  return analysisOverviewProbeCount
+}
+export function __resetAnalysisOverviewProbeCountForTest(): void {
+  analysisOverviewProbeCount = 0
 }
 
 /** stat 的 size:mtimeMs 签名（缺失/占位文件 → '-'；Read 失败按缺失处理）。
@@ -158,6 +170,7 @@ function analysisOverviewSignature(bookRoot: string): string {
  *  语义由两级结构共同承担）。
  */
 function analysisOverviewProbe(bookRoot: string): string {
+  analysisOverviewProbeCount += 1 // 重评2-P3-④：观测口（生产语义零影响，先例 versionStatsProbeCount）
   return [
     `m:${sigStatFor(join(bookRoot, '项目', '文档清单.jsonl'))}`,
     `d:${sigStatFor(join(bookRoot, '项目', '分析'))}`,
@@ -174,8 +187,20 @@ export async function getAnalysisOverviewCached(bookRoot: string): Promise<Analy
   const now = Date.now()
   const ttl = analysisOverviewTtlMs ?? ANALYSIS_OVERVIEW_TTL_MS
   const cached = analysisOverviewCache.get(bookRoot)
+  // 重评2-P3-④（2026-09-09 全量重评 GLM-5.3）：探针纳入 TTL 节流——TTL 窗内复用上次
+  // 探针值（照 snapshots.ts R44-9① 搭法；R44-9 当年只落 version-stats 侧，此处补齐
+  // 两探缓存对称）。命中路径零系统调用（此前前端 3s 轮询每 poll 实算 manifest+分析目录
+  // 两个 stat）；超窗现取（TTL 到了必须重新探）。指纹时效语义与 R44-9① 记档一致：TTL 窗内
+  // 的 rename 类信封变化从「下次调用即时可见」变为「TTL 到期重探后可见（≤5s）」，
+  // 写侧 forgetAnalysisOverviewCache 显式失效不受节流影响。
+  let probe: string
+  if (cached && now - cached.probeTs < ttl) {
+    probe = cached.probe
+  } else {
+    probe = analysisOverviewProbe(bookRoot)
+    if (cached) cached.probeTs = now
+  }
   // 第一级：便宜目录指纹未变（且 TTL 内）→ 直接复用，跳过每文件 stat 签名 walk
-  const probe = analysisOverviewProbe(bookRoot)
   if (cached && now - cached.ts < ttl && cached.probe === probe) {
     return cached.result
   }
@@ -198,8 +223,10 @@ export async function getAnalysisOverviewCached(bookRoot: string): Promise<Analy
     const oldest = analysisOverviewCache.keys().next().value
     if (oldest !== undefined) analysisOverviewCache.delete(oldest)
   }
-  // R44-10：ts 记 set 当刻 Date.now()（R42-16 口径——计算体含逐块让出跨多个 tick）
-  analysisOverviewCache.set(bookRoot, { probe, sig, result, ts: Date.now() })
+  // R44-10：ts 记 set 当刻 Date.now()（R42-16 口径——计算体含逐块让出跨多个 tick）；
+  // 重评2-P3-④：probeTs 记探针取值时刻 now（更早，节流窗更保守——宁多探不少探，
+  // snapshots.ts R44-9 同口径）
+  analysisOverviewCache.set(bookRoot, { probe, probeTs: now, sig, result, ts: Date.now() })
   return result
 }
 

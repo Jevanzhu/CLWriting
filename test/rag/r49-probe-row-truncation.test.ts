@@ -114,7 +114,11 @@ describe('R49-20 recallDetailed 层：截断边界不多删合法命中', () => 
       db.close()
     }
     const r = await recallDetailed(bookRoot, CONFIG, 'stub-key', '剑光', 5, stubEmbed, 2)
-    expect(r.truncated).toBe(true)
+    // 重评2-P3-4（2026-09-09 全量重评 GLM-5.3，RAG 域 P3-②）：truncated 判定对齐
+    // R49-20 pop 侧口径改「确实丢弃命中行才 true」——本用例表恰 3 行 = warnThreshold+1
+    // 且探针行（第 3 产出行）非命中：探针未入 rows、零命中被丢，旧断言 true 属
+    // 边界误报（截断信号虚发），改断言 false。两条合法命中全保留的回归主旨不变。
+    expect(r.truncated).toBe(false)
     expect(r.totalBlocks).toBe(3) // produced = 2 匹配 + 1 不匹配（探针）
     // 修复前：盲 pop 错删第 2 条合法命中 → hits 只剩 1 条
     expect(r.hits).toHaveLength(2)
