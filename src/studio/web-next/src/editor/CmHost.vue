@@ -127,7 +127,10 @@ function characterCompletion(context: CompletionContext): CompletionResult | nul
   if (!entries.length) return null
 
   // @ 触发：光标前有 @ 开头的文本
-  const at = context.matchBefore(/@[一-鿿\w]*/)
+  // 重评-P3-14（2026-09-09 全量代码重评）：CJK 区间 [一-鿿] 是 BMP 硬编码，升
+  // \p{Script=Han}/u 全 Han 脚本——扩展平面字（Ext-B「𠀀」等）@ 后可续配；
+  // 下方两处 validFor 同款
+  const at = context.matchBefore(/@[\p{Script=Han}\w]*/u)
   if (at && at.text.length >= 1) {
     const query = at.text.slice(1)
     const filtered = query ? entries.filter((e) => e.label.includes(query)) : entries
@@ -135,7 +138,7 @@ function characterCompletion(context: CompletionContext): CompletionResult | nul
       return {
         from: at.from,
         options: filtered.map((e) => ({ label: e.label, type: 'variable', detail: e.detail })),
-        validFor: /^@?[一-鿿\w]*$/,
+        validFor: /^@?[\p{Script=Han}\w]*$/u,
       }
     }
   }
@@ -145,7 +148,7 @@ function characterCompletion(context: CompletionContext): CompletionResult | nul
   return {
     from: context.pos,
     options: entries.map((e) => ({ label: e.label, type: 'variable', detail: e.detail })),
-    validFor: /^[一-鿿\w]*$/,
+    validFor: /^[\p{Script=Han}\w]*$/u,
   }
 }
 

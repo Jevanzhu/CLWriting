@@ -39,6 +39,9 @@ test('exportBook: 导出产物不含 front matter', () => {
   try {
     const r = exportBook({ bookRoot: root, format: 'merged' })
     expect(r.ok).toBe(true)
+    // 清偿-导出未过滤提示（2026-09-09 残留清偿批）：不写清单 → 兜底不过滤，成功结果
+    // 显式标记 skipped-no-manifest（前端据此明示含未定稿章）
+    expect(r.finalizedFilter).toBe('skipped-no-manifest')
     const merged = readFileSync(join(root, '工作区', '导出', '全本-剥fm测试.md'), 'utf-8')
     // front matter 被剥干净
     expect(merged).not.toContain('---')
@@ -309,6 +312,8 @@ test('exportBook: 未定稿章被滤出导出（V-P2-2），skippedDrafts 计数
     expect(r.ok).toBe(true)
     expect(r.chapterCount).toBe(1)
     expect(r.skippedDrafts).toBe(1)
+    // 清偿-导出未过滤提示（2026-09-09 残留清偿批）：清单在 → 过滤实际生效
+    expect(r.finalizedFilter).toBe('applied')
     const merged = readFileSync(join(root, '工作区', '导出', '全本-滤草稿.md'), 'utf-8')
     expect(merged).toContain('定稿内容')
     expect(merged).not.toContain('半成品')
@@ -509,6 +514,47 @@ test('exportBook: 行中带空白的字面 #% 保留；行首/紧贴正文的批
     expect(merged).not.toContain('贴附批注')
     expect(merged).not.toContain('整行批注')
     expect(merged).toContain('正常正文')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// ── 重评-P3-19（2026-09-09 全量代码重评）：行内多个 #% 取首个满足标记形态位截断 ──────
+
+test('重评-P3-19: 首处合法字面 #% 不掩护行内后续紧贴真批注（评审例）', () => {
+  const root = makeLongBook('混合行书')
+  // 评审例原样：首处 `#%=95%` 是 `#` 前带空白的保留字面，次处紧贴 CJK 是真批注
+  writeLongChapter(root, 1, '同行混合', '达标线 #%=95% 才放行正文甲#%批注\n正常正文')
+  try {
+    exportBook({ bookRoot: root, format: 'merged' })
+    const merged = readFileSync(join(root, '工作区', '导出', '全本-混合行书.md'), 'utf-8')
+    // 首处字面量保留、次处真批注起截断
+    expect(merged).toContain('达标线 #%=95% 才放行正文甲')
+    expect(merged).not.toContain('批注')
+    expect(merged).toContain('正常正文')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('重评-P3-19: 纯字面量多 #% 行不误剥；CRLF 行批注照剥且行尾不残 \\r', () => {
+  const root = makeLongBook('多字面书')
+  writeLongChapter(
+    root,
+    1,
+    '多字面',
+    '达标线 #%=95% 才放行\r\n正文甲#%贴附批注\r\n底线 #%=80% 保底',
+  )
+  try {
+    exportBook({ bookRoot: root, format: 'merged' })
+    const merged = readFileSync(join(root, '工作区', '导出', '全本-多字面书.md'), 'utf-8')
+    // 全字面行（无批注形态出现位）整行保留
+    expect(merged).toContain('达标线 #%=95% 才放行')
+    expect(merged).toContain('底线 #%=80% 保底')
+    // CRLF 行的紧贴批注照剥、正文保留；产物规范形 LF（hadCr 行尾保真 → canonicalize 归一）
+    expect(merged).not.toContain('贴附批注')
+    expect(merged).toContain('正文甲')
+    expect(merged).not.toContain('\r')
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

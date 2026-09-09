@@ -24,6 +24,7 @@ vi.mock('../../../src/studio/web-next/src/api/settings', () => ({
 }))
 
 import CmHost from '../../../src/studio/web-next/src/editor/CmHost.vue'
+import { getCompletionNames } from '../../../src/studio/web-next/src/api/settings'
 import { useWorkspaceStore } from '../../../src/studio/web-next/src/stores/workspace'
 
 beforeEach(() => {
@@ -95,6 +96,37 @@ describe('R51-I-2: @ 补全触发的 userEvent 判别', () => {
     expect(completionStatus(view.state)).not.toBeNull()
     await settle()
     expect(completionStatus(view.state)).not.toBeNull()
+    w.unmount()
+  })
+})
+
+// 重评-P3-14（2026-09-09 全量代码重评）：@ 补全的 CJK 区间从 BMP 硬编码 [一-鿿] 升
+// \p{Script=Han}/u 全 Han 脚本——扩展平面字（Ext-B「𠀀」等）此前 matchBefore 不认、
+// validFor 失配，@ 后续打扩展平面字补全浮层直接关闭。
+describe('重评-P3-14: @ 补全 CJK 区间升全 Han 脚本（扩展平面可续配）', () => {
+  it('键入 @ 后续打扩展平面字（𠀀）→ 补全保持激活不关闭', async () => {
+    // 补全名称含扩展平面字的角色：续打后 query='𠀀' 仍能过滤出候选
+    vi.mocked(getCompletionNames).mockResolvedValueOnce({ characters: ['𠀀测试角色'], items: [] })
+    const w = mountHost()
+    await settle() // 等补全名称列表异步加载（本例的 mockResolvedValueOnce 消费于挂载 watch）
+    const view = viewOf(w)
+    // 键入 '@'：matchBefore 识别 → 补全激活（前置确认既有触发路径）
+    view.dispatch({
+      changes: { from: 2, to: 2, insert: '@' },
+      selection: { anchor: 3 },
+      annotations: Transaction.userEvent.of('input.type'),
+    })
+    expect(completionStatus(view.state)).not.toBeNull()
+    // 续打扩展平面字（U+20000，代理对占 2 个 UTF-16 码元）：validFor 须认全 Han 脚本，
+    // 否则修复前 validFor 失配 → 重查源 → matchBefore 也不认 → 浮层关闭
+    view.dispatch({
+      changes: { from: 3, to: 3, insert: '𠀀' },
+      selection: { anchor: 5 },
+      annotations: Transaction.userEvent.of('input.type'),
+    })
+    expect(completionStatus(view.state)).not.toBeNull() // 修复点：不关闭
+    await settle()
+    expect(completionStatus(view.state)).not.toBeNull() // 持续激活
     w.unmount()
   })
 })

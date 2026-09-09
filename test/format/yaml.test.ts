@@ -84,7 +84,7 @@ test('rag 段：provider 引用往返；设 provider 时不再写旧内联 endpo
     ...DEFAULT_CONFIG,
     rag: { enabled: true, provider: 'rag-abc123' },
   })
-  let raw = readFileSync(fp, 'utf8')
+  const raw = readFileSync(fp, 'utf8')
   expect(raw).toContain('provider: rag-abc123')
   expect(raw).not.toContain('endpoint:')
   let r = readBookConfig(fp)

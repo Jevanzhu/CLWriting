@@ -365,4 +365,44 @@ describe('R26-68（二十六轮）：ExportDialog catch 切书复检', () => {
     expect(ui.exportOpen).toBe(true) // 失败不关弹窗（仅成功关）
     wrapper.unmount()
   })
+
+  // 清偿-导出未过滤提示（2026-09-09 残留清偿批）：清单缺失兜底导出（宁多勿漏）成功时
+  // 补 warning toast 明示「未按定稿过滤（含未定稿章）」——applied/缺省免提示
+  it('成功且 finalizedFilter=skipped-no-manifest → 成功 toast 外补未过滤 warning，弹窗照常关', async () => {
+    const ui = useUiStore()
+    const ws = useWorkspaceStore()
+    ws.bookName = '书A'
+    ui.exportOpen = true
+    ioMocks.exportBook.mockResolvedValue({
+      ok: true,
+      chapterCount: 3,
+      unit: '章',
+      finalizedFilter: 'skipped-no-manifest',
+    })
+
+    const wrapper = mount(ExportDialog, { global: { stubs: { Teleport: true } } })
+    await wrapper.find('[data-testid="export-run"]').trigger('click')
+    await flushPromises()
+
+    expect(ui.toasts.some((t) => t.msg.includes('导出完成') && t.kind === 'success')).toBe(true)
+    expect(ui.toasts.some((t) => t.msg.includes('定稿清单缺失') && t.msg.includes('未按定稿过滤') && t.kind === 'warning')).toBe(true)
+    expect(ui.exportOpen).toBe(false) // 成功照常关弹窗
+    wrapper.unmount()
+  })
+
+  it('成功且 finalizedFilter=applied → 只 toast 成功，不补未过滤提示', async () => {
+    const ui = useUiStore()
+    const ws = useWorkspaceStore()
+    ws.bookName = '书A'
+    ui.exportOpen = true
+    ioMocks.exportBook.mockResolvedValue({ ok: true, chapterCount: 1, unit: '章', finalizedFilter: 'applied' })
+
+    const wrapper = mount(ExportDialog, { global: { stubs: { Teleport: true } } })
+    await wrapper.find('[data-testid="export-run"]').trigger('click')
+    await flushPromises()
+
+    expect(ui.toasts).toHaveLength(1)
+    expect(ui.toasts[0]!.kind).toBe('success')
+    wrapper.unmount()
+  })
 })

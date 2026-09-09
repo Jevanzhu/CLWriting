@@ -87,7 +87,7 @@ export async function shutdownStudio(
   if (server) {
     await new Promise<void>((resolveP) => {
       let done = false
-      let timer: NodeJS.Timeout | undefined
+      let timer: NodeJS.Timeout | undefined = undefined
       const fin = (): void => {
         if (done) return
         done = true

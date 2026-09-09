@@ -15,9 +15,15 @@ let pendingMenuSelect: ((_e: IpcRendererEvent, key: string | null) => void) | nu
 contextBridge.exposeInMainWorld('clwritingDesktop', {
   /** 渲染进程平台标识（win 窗控 overlay 避让等平台分支用；浏览器版无此对象）。 */
   platform: process.platform,
-  /** 弹原生目录选择器选书库 → 选定则切换（relaunch）。取消返回 { ok:false, canceled:true }。 */
-  openLibrary: (): Promise<{ ok: true } | { ok: false; canceled: true }> =>
-    ipcRenderer.invoke('desktop:open-library'),
+  /**
+   * 弹原生目录选择器选书库 → 选定则切换（relaunch）。取消返回 { ok:false, canceled:true }。
+   * 重评-P3-9（2026-09-09 全量代码重评）：落库失败（saveCurrent 写盘错等）返回
+   * { ok:false, reason }——与 switchLibrary 的失败信封对称（main.ts open-library
+   * handler R51-A-4 起契约化失败，此前类型声明漏该变体）。
+   */
+  openLibrary: (): Promise<
+    { ok: true } | { ok: false; canceled: true } | { ok: false; reason: string }
+  > => ipcRenderer.invoke('desktop:open-library'),
   /** 切换到指定书库路径（来自最近列表）→ relaunch。 */
   switchLibrary: (
     path: string,
@@ -66,8 +72,13 @@ contextBridge.exposeInMainWorld('clwritingDesktop', {
   setFullScreen: (flag: boolean): Promise<void> =>
     ipcRenderer.invoke('desktop:set-fullscreen', flag),
   /** 运行时更新 win 窗控 overlay 颜色（主题切换驱动；非 win 主进程 no-op）。
-   *  dark 额外同步 nativeTheme.themeSource——overlay 透明后按钮底色由系统按主题绘制。 */
-  setTitleBarOverlay: (o: { color?: string; symbolColor?: string; dark?: boolean }): Promise<void> =>
+   *  dark 额外同步 nativeTheme.themeSource——overlay 透明后按钮底色由系统按主题绘制。
+   *  清偿-titlebar注解对齐（2026-09-09 残留清偿批）：对齐 desktop.d.ts 正本（重评2-P3-④）
+   *  ——main 侧颜色白名单外回 {ok:false,reason}（openLibrary 失败信封同款）；成功/非 win
+   *  路径无返回值（undefined），如实标 void、不虚构 {ok:true} 态。 */
+  setTitleBarOverlay: (
+    o: { color?: string; symbolColor?: string; dark?: boolean },
+  ): Promise<{ ok: false; reason: string } | void> =>
     ipcRenderer.invoke('desktop:set-titlebar-overlay', o),
   /** 订阅窗口全屏态变化（系统手势退出全屏时回调 false）。返回退订函数。 */
   onFullScreenChange: (cb: (fullscreen: boolean) => void): (() => void) => {

@@ -11,7 +11,7 @@
  */
 import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { createFakeProvider, type FakeProvider } from './fake-provider.js'
 import { withFakeProvider, tempUserData, makeDualTrackWorkdir, LONG_BOOK } from '../studio/fixtures.js'
 import { runChat, isChatRunning, sendChatMessage, clearChatHistory } from '../../src/ai/orchestrate/chat.js'
@@ -103,8 +103,10 @@ describe('H-1: 事件库打开失败不死锁（降级内存模式）', () => {
       message: '再聊一句',
     })
     expect(r).toBe('started')
-    await new Promise((resolve) => setTimeout(resolve, 300))
-    expect(isChatRunning(bookName)).toBe(false)
+    // 重评2-P3-①（2026-09-09 全量重评 GLM-5.3）：原固定 sleep(300) 等第二轮对话收尾
+    // ——与「测试竞速轮询化」家规不一致（慢机下 300ms 内未收尾即假红）。改条件轮询：
+    // 锁一释放即过；断言面原样（isChatRunning 归 false）
+    await vi.waitFor(() => expect(isChatRunning(bookName)).toBe(false))
   })
 })
 

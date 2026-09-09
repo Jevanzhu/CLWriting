@@ -102,13 +102,17 @@ export function migrateLegacyForeshadows(bookRoot: string): MigrateResult {
       : '（无推进记录）'
     // R70-20（十八轮）：值走 stringifyValue——标题含 # 时直拼会被读侧行内注释剥截、
     // 含逗号时关联词切分错位；引号化承载与读侧 parseFlat 对称
+    // 重评-P3-20（2026-09-09 全量代码重评）：标题含逗号时关联词改数组单项承载
+    // （stringifyValue([title])）——引号标量与表单逗号输入落盘同形、读侧仍按词表劈分，
+    // 数组形态读回才是整词单项，与「无关联词回落标题」的整词口径对称
+    const 关联词fm = /[,，]/.test(title) ? stringifyValue([title]) : stringifyValue(title)
     const fm = [
       '---',
       `标题: ${stringifyValue(title)}`,
       `状态: ${status}`,
       ...(lead.开启章 ? [`埋设章号: ${lead.开启章}`] : []),
       '重要性: 中',
-      `关联词: ${stringifyValue(title)}`,
+      `关联词: ${关联词fm}`,
       '---',
       '',
       `（迁移自账本伏笔 ${lead.编号}）`,
@@ -184,7 +188,15 @@ export function readForeshadows(bookRoot: string): ForeshadowEntry[] {
     }
     const r = readFile(fp)
     const map = r.ok ? parseFlat(r.fmRaw) : new Map<string, unknown>()
-    const 关联词raw = String(map.get('关联词') ?? '')
+    // 重评-P3-20（2026-09-09 全量代码重评）：数组值逐项直采（String+trim+去空）不劈分——
+    // 旧 String(值) 拼接后再按逗号劈，含逗号项（["悬疑,推理"]）被拆碎；标量维持劈分：
+    // parseFlat 已剥引号，旧迁移批（R70-20）写入的引号标量与表单逗号输入（patchFlatFm
+    // → stringifyValue 对含 , 标量同样加引号落盘）读侧同形不可辨，不能借引号免劈。
+    const 关联词val = map.get('关联词')
+    const 关联词list = Array.isArray(关联词val)
+      ? 关联词val.map((s) => String(s).trim()).filter(Boolean)
+      // X-P2-19：中文逗号也切——只切英文逗号时 `佩剑，玉佩` 整串成一个词，足迹扫描永不命中
+      : String(关联词val ?? '').split(/[,，]/).map((s) => s.trim()).filter(Boolean)
     items.push({
       file: `设定/伏笔/${f}`,
       // R48-45（四十八轮）：剥尾判定单源 isMdFileName（大小写不敏感）——.MD 文件名
@@ -194,8 +206,7 @@ export function readForeshadows(bookRoot: string): ForeshadowEntry[] {
       埋设章号: parsePositiveInt(map.get('埋设章号')),
       回收章号: parsePositiveInt(map.get('回收章号')),
       重要性: String(map.get('重要性') ?? '中'),
-      // X-P2-19：中文逗号也切——只切英文逗号时 `佩剑，玉佩` 整串成一个词，足迹扫描永不命中
-      关联词: 关联词raw.split(/[,，]/).map((s) => s.trim()).filter(Boolean),
+      关联词: 关联词list,
       摘要: r.ok ? r.body.slice(0, 100).trim() : '',
     })
   }

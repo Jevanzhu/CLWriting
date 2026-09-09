@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { listBooks, type BookEntry } from '../api/shelf'
 import { friendlyError } from '../shared/error'
+import { useUiStore } from './ui'
 
 export const useShelfStore = defineStore('shelf', () => {
   const books = ref<BookEntry[]>([])
@@ -52,7 +53,13 @@ export const useShelfStore = defineStore('shelf', () => {
       // 在消费点 (b.title ?? b.name).toLowerCase() 抛 TypeError 整页白屏。逐条校验：
       // 坏条目丢弃、好条目保留（全坏 → 空表，走「有快照」路径立即渲染空列表后台刷新）
       const books = parsed['books'].filter(isBookEntry)
-      return { books, workDirMissing: parsed.workDirMissing, hint: parsed.hint }
+      // 重评-P3-13（2026-09-09 全量代码重评）：workDirMissing/hint 与 books 同口径形状校验——
+      // 损坏快照的字段类型非法即回落缺省值，不直通进 store
+      return {
+        books,
+        workDirMissing: typeof parsed.workDirMissing === 'boolean' ? parsed.workDirMissing : false,
+        hint: typeof parsed.hint === 'string' ? parsed.hint : null,
+      }
     } catch {
       return null
     }
@@ -90,8 +97,15 @@ export const useShelfStore = defineStore('shelf', () => {
     } catch (e) {
       if (gen !== opGen) return
       // 有快照时刷新失败不整屏报错（列表仍展示旧数据，控制台留痕）；无快照（首屏）照旧上抛
-      if (cached) console.warn('[shelf] 刷新书架失败，沿用缓存快照', e)
-      else error.value = friendlyError(e)
+      if (cached) {
+        console.warn('[shelf] 刷新书架失败，沿用缓存快照', e)
+        // 清偿-shelf缓存失效提示（2026-09-09 残留清偿批）：原仅 console.warn，作者对着
+        // 可能过期的列表继续操作毫无感知——补 warning toast 可见化（对齐 doc.ts 重审-16
+        // 「显示内容可能已过期」的半失败口径；同文案同 kind 经 ui.toast 合并去重不刷屏）。
+        useUiStore().toast('书架刷新失败，当前显示本地缓存', 'warning')
+      } else {
+        error.value = friendlyError(e)
+      }
     } finally {
       if (gen === opGen) loading.value = false
     }

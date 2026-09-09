@@ -332,7 +332,7 @@ export function sanitizeHistory(history: ChatMsg[]): ChatMsg[] {
     }
   }
 
-  let result: ChatMsg[] = []
+  const result: ChatMsg[] = []
   // 已出现的 tool_use id（供后续孤儿 tool_result 判定；时序上 use 先于 result）
   const knownToolUseIds = new Set<string>()
   // B-13（第六十轮）：病态时序双弃登记——result 先于 use 到达时（外部损坏的历史恢复），

@@ -839,24 +839,28 @@ describe('kk-P2-8：原生菜单与 second-instance', () => {
     expect(sent[1]).toBe('new-book')
   })
 
-  it('second-instance --book 直进：解析登记书 → 主窗导航 + 聚焦', () => {
+  // 重评-P3-11（2026-09-09 全量代码重评）：直进链补 probeDirReachable 预探——活卷上
+  // stat 走 statSync 同步垫底（微任务级），导航不再同步发生，断言前冲刷一拍
+  it('second-instance --book 直进：解析登记书 → 主窗导航 + 聚焦', async () => {
     const h = M.appOn['second-instance']![0]!
     const win = mainWin()
     const n0 = win.webContents.sent.length
     h({}, ['electron', '--book', '书A'])
+    await new Promise((r) => setImmediate(r)) // 预探微任务冲刷（statSync 垫底口径）
     const sent = win.webContents.sent[n0]!
     expect(sent[0]).toBe('desktop:navigate')
     expect(sent[1]).toBe(`/book/${encodeURIComponent('书A')}`)
-    expect(win.focused).toBeGreaterThan(0)
+    expect(win.focused).toBeGreaterThan(0) // 聚焦不受预探影响（handler 尾部同步执行）
   })
 
   // P3（打包修复批）：启动早期/书未登记时的 --book 忽略路径原为静默——必须留痕
-  it('second-instance --book 未匹配登记书：无导航 + info 留痕含书名（不再静默吞）', () => {
+  it('second-instance --book 未匹配登记书：无导航 + info 留痕含书名（不再静默吞）', async () => {
     const h = M.appOn['second-instance']![0]!
     const win = mainWin()
     const n0 = win.webContents.sent.length
     const infos0 = M.logInfos.length
     h({}, ['electron', '--book', '不存在的书'])
+    await new Promise((r) => setImmediate(r)) // 预探微任务冲刷
     expect(win.webContents.sent.length).toBe(n0) // 无导航（行为不变）
     const line = M.logInfos[infos0] as unknown[]
     expect(line![1]).toContain('不存在的书') // 留痕含被忽略的 --book 值
@@ -989,6 +993,39 @@ describe('kk-P2-8：退出与边界分支', () => {
     expect(saved.bounds).toMatchObject({ x: 50, y: 50, width: 1500, height: 900 }) // 恢复的存量 bounds 落盘
     // R1W-9 主语义不回归：停机指令照发（shutdown 指令非裸 kill）
     await vi.waitFor(() => expect(child['posted']).toContainEqual({ type: 'shutdown' }))
+  })
+
+  // 重评2-P2-3（2026-09-09 全量重评 GLM-5.3）：quit 链（before-quit）收口 destroy()
+  // 全窗不触发 'close'（Electron 语义），close 拦截首行的 saveWinState 由此不达——
+  // Cmd+Q / win 菜单退出 / 崩溃风暴对话框退出 / 切库 relaunch 全汇入此链，退出前
+  // 窗口几何变更静默丢失。修复 = quit flush IIFE 链首（窗口仍存活、任何 flush/
+  // 确认/destroy 之前）补一次 saveWinState。fresh 模块复刻 R65-48/R40-29 手法
+  //（新 child 供停机指令断言）。锚定用哨兵几何值而非 maximized 键存在性——上方
+  // R40-29 用例已把 maximized:true 写进 state 文件，键存在性在修复前也成立（假绿）。
+  it('重评2-P2-3: quit 链（before-quit → flush IIFE）执行后窗口状态已落盘（destroy 前补存），停机/收口主语义不回归', async () => {
+    const quit0 = M.quitCalls
+    vi.resetModules()
+    await import('../../src/desktop/main.js')
+    await new Promise((r) => setImmediate(r))
+    await new Promise((r) => setImmediate(r))
+    const win = M.windows.at(-1)!
+    const child = M.forkChildren.at(-1)!
+    const fp = join(M.userData, 'window-state.json')
+    // 哨兵几何（FakeWin.getBounds 直读 opts）：quit 链补存的新写必含此值；修复前
+    // destroy 不触发 'close'、链内无 saveWinState，文件停在 R40-29 写入形态
+    //（x:50/maximized:true）——哨兵缺席即红，不依赖跨用例文件初态。
+    win.opts = { ...win.opts, x: 777, y: 88, width: 1600, height: 1000 }
+    win.maximized = false
+    const e = { preventDefault: vi.fn() }
+    M.appOn['before-quit']!.at(-1)!(e)
+    expect(e.preventDefault).toHaveBeenCalledTimes(1) // 优雅退出链照常拦下
+    await vi.waitFor(() => expect(M.quitCalls).toBe(quit0 + 1)) // flush → 停机 → destroy 收口 → 统一 quit
+    const saved = JSON.parse(readFileSync(fp, 'utf-8')) as { bounds: Record<string, number>; maximized?: boolean }
+    expect(saved.bounds).toMatchObject({ x: 777, y: 88, width: 1600, height: 1000 }) // 修复锚点：quit 链本次新写（哨兵值落盘）
+    expect(saved.maximized).toBe(false) // 同锚（R40-29 旧写为 true，可区分）
+    expect(win.isDestroyed()).toBe(true) // 链已走到收口 destroy 全窗（补存先于此点）
+    // 主语义不回归：停机指令照发（shutdown 指令非裸 kill）
+    expect(child['posted']).toContainEqual({ type: 'shutdown' })
   })
 
   // 批 U3：崩溃风暴接线——manager 退避（默认 0/5s/15s，fake timers 快进）+ main 的
@@ -2194,13 +2231,23 @@ describe('R54-A-1/A-2: flush 超时留痕 + switch-library 可达性预探', () 
     process.env['CLW_BOOTSTRAP_PROBE_TIMEOUT_MS'] = '150'
     try {
       const err0 = M.errorBox.length
+      const windows0 = M.windows.length
       fsPromisesMock.statGate = () => new Promise(() => {}) // 模拟失联卷 stat 挂死
       vi.resetModules()
       await import('../../src/desktop/main.js')
-      await new Promise((r) => setTimeout(r, 500)) // 真定时器等两段预探（current + cwd）各 150ms 超时落定
-      const win = M.windows.at(-1)!
-      expect(win).toBeTruthy()
-      expect(win.loaded[0]).toContain('/welcome') // 不采信失联 current、不跑 findWorkDir 同步爬祖 → 引导页
+      // 重评2（2026-09-09 全量重评 GLM-5.3）测试工程 P3-①：原固定 500ms sleep 等
+      // 两段预探（current + cwd）各 150ms 超时落定（≈300ms + 启动链开销）——固定值
+      // 是竞速赌注（慢机超 500ms 即假红、快机白等），改 vi.waitFor 轮询可观测终态
+      //（fresh 窗已开且落 /welcome），预算 2s ≥ 300ms 预探 + 慢机抖动余量。
+      // 锚 windows0：只认本用例 fresh 模块新开的窗，防误吃前用例旧窗的 loaded 面。
+      await vi.waitFor(
+        () => {
+          const win = M.windows[windows0]
+          expect(win).toBeTruthy()
+          expect(win!.loaded[0]).toContain('/welcome') // 不采信失联 current、不跑 findWorkDir 同步爬祖 → 引导页
+        },
+        { timeout: 2_000, interval: 25 },
+      )
       expect(M.errorBox.slice(err0).some(([, m]) => String(m).includes('暂不可达'))).toBe(true)
     } finally {
       fsPromisesMock.statGate = null
@@ -2265,6 +2312,55 @@ describe('R54-A-1/A-2: flush 超时留痕 + switch-library 可达性预探', () 
       vi.useRealTimers()
       if (prevRecovery === undefined) process.env['CLW_SESSION_END_RECOVERY_MS'] = '3600000'
       else process.env['CLW_SESSION_END_RECOVERY_MS'] = prevRecovery
+    }
+  })
+})
+
+// ── 重评-P3-11（2026-09-09 全量代码重评）：second-instance --book 直进链失联卷预探 ──
+// resolveInitialBook→readBooks 同步扫书库，书库在失联网络卷时冻主进程数秒（bootstrap
+// 重审-1 / switch-library R54-A-2 / show-in-folder 族重审-2 均有 probeDirReachable
+// 预探，唯此入口漏）。'unreachable' → log 留痕 + 忽略 book 引用（同族收口口径）。
+describe('重评-P3-11: second-instance --book 失联卷预探', () => {
+  it('书库失联卷（stat 挂死）→ 预探拦下：warn 留痕 + 无导航（readBooks 同步扫描不执行）', async () => {
+    const prev = process.env['CLW_SWITCH_LIBRARY_PROBE_TIMEOUT_MS']
+    process.env['CLW_SWITCH_LIBRARY_PROBE_TIMEOUT_MS'] = '150'
+    try {
+      vi.resetModules()
+      await import('../../src/desktop/main.js')
+      await new Promise((r) => setImmediate(r))
+      await new Promise((r) => setImmediate(r))
+      const win = M.windows.at(-1)!
+      const h = M.appOn['second-instance']!.at(-1)!
+      const n0 = win.webContents.sent.length
+      const infos0 = M.logInfos.length
+      const warns0 = M.logWarns.length
+      fsPromisesMock.statGate = () => new Promise(() => {}) // 模拟失联卷 stat 挂死
+      h({}, ['electron', '--book', '书A'])
+      // 重评2（2026-09-09 全量重评 GLM-5.3）测试工程 P3-①：原固定 500ms sleep 等
+      // 150ms 预探超时落定（重审-1 用例同款）——固定值是竞速赌注（慢机超 500ms 即
+      // 假红、快机白等），改 vi.waitFor 轮询可观测终态（忽略 --book 的 warn 留痕已
+      // 出），预算 2s ≥ 150ms 预探 + 慢机抖动余量。锚 warns0：只认本用例触发的留痕。
+      await vi.waitFor(
+        () => {
+          expect(
+            M.logWarns.slice(warns0).some((l) => {
+              const m = String((l as unknown[])[1])
+              return m.includes('书A') && m.includes('暂不可达')
+            }),
+          ).toBe(true)
+        },
+        { timeout: 2_000, interval: 25 },
+      )
+      expect(win.webContents.sent.length).toBe(n0) // 无导航：预探先于 readBooks 拦下（挂死形态下若漏探，readBooks 读真目录会照常放行导航）
+      const line = M.logWarns.at(-1) as unknown[]
+      expect(line![0]).toBe('main')
+      expect(String(line![1])).toContain('书A') // 留痕含被忽略的 --book 值
+      expect(String(line![1])).toContain('暂不可达')
+      expect(M.logInfos.length).toBe(infos0) // 与「无此登记书」留痕形态可区分
+    } finally {
+      fsPromisesMock.statGate = null
+      if (prev === undefined) delete process.env['CLW_SWITCH_LIBRARY_PROBE_TIMEOUT_MS']
+      else process.env['CLW_SWITCH_LIBRARY_PROBE_TIMEOUT_MS'] = prev
     }
   })
 })

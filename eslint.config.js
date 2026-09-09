@@ -110,9 +110,9 @@ export default [
         'error',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrors: 'none' },
       ],
-      // 关闭：prefer-const 有 9 处存量 let 违例全在 src（本批文件面禁改 src），
-      // 修不动故先关门——登记待后续批清掉存量后开启
-      'prefer-const': 'off',
+      // 重评-P3-24③（2026-09-09 全量代码重评）：存量 9 处 let 违例已随修复批 --fix 清偿，
+      // 规则开启（原「关门待清偿」注记由此取代）
+      'prefer-const': 'error',
       // 放行空接口：src/driver/types.ts:16 的空接口是既有 driver 扩展点契约
       // （本批禁改 src）；allowInterfaces 后空 type 字面量 `{}` 仍会被拦截
       '@typescript-eslint/no-empty-object-type': ['error', { allowInterfaces: 'always' }],

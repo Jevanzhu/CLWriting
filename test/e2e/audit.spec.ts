@@ -88,20 +88,24 @@ test('审计：进书 → 审计视图 → 遮蔽差异双模式 → 两 tab 加
   await expect(page.locator('.audit-title')).toHaveText('事件审计')
 
   // ── 对话 tab（默认）：遮蔽差异头部 + 事件重放首页 ──
-  // 默认 diffMode = model：只渲染未遮蔽节点（520 - 10 遮蔽 = 510 行）
+  // 默认 diffMode = model：投影 510 行（520 - 10 遮蔽）——重评-P3-16（2026-09-09）起
+  // 差异列表渲染面 RENDER_CAP=100：DOM 只挂前 100 条 + 尾部「已省略」提示（数据面不动）
   await expect(page.locator('.shadow-hint')).toContainText(`遮蔽 ${Math.floor(TOTAL / 50)}`)
-  await expect(page.locator('.diff-row')).toHaveCount(TOTAL - Math.floor(TOTAL / 50))
+  await expect(page.locator('.diff-row')).toHaveCount(100)
+  await expect(page.locator('.cap-hint')).toContainText('已省略 410 条')
   await expect(page.locator('.diff-row.shadowed')).toHaveCount(0)
 
-  // 切「人类可见（含遮蔽）」：全量 520 行，遮蔽行带「被遮蔽」标记
+  // 切「人类可见（含遮蔽）」：投影 520 行，首屏 100 条内含 seq 50/100 两条遮蔽行
   await page.locator('.audit-seg button', { hasText: '人类可见' }).click()
-  await expect(page.locator('.diff-row')).toHaveCount(TOTAL)
-  await expect(page.locator('.diff-row.shadowed')).toHaveCount(Math.floor(TOTAL / 50))
+  await expect(page.locator('.diff-row')).toHaveCount(100)
+  await expect(page.locator('.cap-hint')).toContainText('已省略 420 条')
+  await expect(page.locator('.diff-row.shadowed')).toHaveCount(2)
   await expect(page.locator('.shadowed-mark').first()).toBeVisible()
 
-  // 切回「模型可见」：遮蔽行随投影消失（差异切换真的换了数据源，非仅样式）
+  // 切回「模型可见」：遮蔽行随投影消失 + 省略计数回落（差异切换真的换了数据源，非仅样式）
   await page.locator('.audit-seg button', { hasText: '模型可见' }).click()
   await expect(page.locator('.diff-row.shadowed')).toHaveCount(0)
+  await expect(page.locator('.cap-hint')).toContainText('已省略 410 条')
 
   // ── 事件重放：首页 500 条截断 + 「加载更多」跨页补齐 ──
   const replayTitle = page.locator('.sec-title', { hasText: '事件重放' })

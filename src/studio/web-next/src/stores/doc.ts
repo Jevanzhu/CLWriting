@@ -55,8 +55,6 @@ const MAX_CACHED_DOCS = 20
 
 export const useDocStore = defineStore('doc', () => {
   const docs = ref<Map<string, DocEntry>>(new Map())
-  /** 加载中文档的防并发锁（同一 docId 不重复发起请求） */
-  const loading = new Set<string>()
   const bookName = ref<string | null>(null)
   /** 切书代数：作废在途 open 的结果（参考 workspace.ts 的 bookGen 守卫） */
   let bookGen = 0
@@ -239,8 +237,6 @@ export const useDocStore = defineStore('doc', () => {
     const prevBook = bookName.value
     bookName.value = name
     docs.value = new Map()
-    // RB-FE-P2-1：清 loading 锁 + bump 代数——在途 open 的旧书响应不得注入新书缓存
-    loading.clear()
     // R33D-26（三十三轮 dev 线）：inflightOpens 同口径清——legacy docId 按路径派生跨书可同 id，
     // A 书在途 open 的 promise 被 B 书同名 open 复用后其结果被 bookGen 守卫整体丢弃
     //（promise resolve 但缓存无 entry，调用方空手而归）。清台账让 B 书 open 真发新请求。
@@ -303,7 +299,6 @@ export const useDocStore = defineStore('doc', () => {
 
   /** R31-31：open 的实际执行体（读 + 基线 + 入缓存）。docId 已由 open 收窄校验。 */
   async function doOpen(docId: string, node: TreeNode): Promise<void> {
-    loading.add(docId)
     // RB-FE-P2-1：进入时代数——await 期间切书（setBook bump bookGen）则丢弃结果，
     // 防旧书 doc 注入新书缓存（后续 save 会用新书名写旧书内容）
     const gen = bookGen
@@ -321,55 +316,49 @@ export const useDocStore = defineStore('doc', () => {
       if (err instanceof ApiError && err.code === 'NOT_FOUND') clearDirtyMirror(book, docId)
       throw err
     }
-    try {
-      const baselineRevision = await sha256Revision(content)
-      if (gen !== bookGen) return
-      docs.value.set(docId, {
-        docId,
-        path: node.path,
-        name: node.name,
-        role: node.role,
-        mode: modeOf(node.path),
-        content,
-        baselineRevision,
-        dirty: false,
-        saving: false,
-        savedAt: null,
-        error: null,
-        conflict: false,
-        // E-4（二十九轮）：记录打开时的树版本，供树刷新后对账新鲜度
-        treeRev: useTreeStore().revision,
-      })
-      evictLRU() // F7（五十九轮）：新 entry 落位后裁剪 clean 缓存至 LRU 上限
-      // R55-F-3：镜像复活——上次会话崩溃残留的未保存编辑：镜像内容 ≠ 服务端内容时
-      // 恢复为当前脏内容（baselineRevision 仍为服务端内容之哈希，乐观锁语义不变，
-      // autosave/⌘S 照常接管）并一次性 toast 告知；镜像与服务端一致（内容未丢）则
-      // 仅清陈旧镜像，不置脏不提示。
-      // R57-E-1：复活须过时效门——镜像记录镜像时的服务端基线（baseRev），自崩溃点
-      // 服务端未变过（baseRev === 当前基线）才许复活。崩溃后同文档被另一存活标签页/
-      // 外部编辑器更新过（基线已推进）时，陈旧镜像只清不复活——否则旧内容会以匹配的
-      // 新基线静默覆盖外部已保存内容（保存零冲突、toast 反报「已恢复」）。旧格式镜像
-      //（无 baseRev，升级残留）同按陈旧处理。
-      const mirror = readDirtyMirror(book, docId)
-      if (mirror) {
-        const entry = docs.value.get(docId)
-        if (
-          entry &&
-          mirror.content !== content &&
-          mirror.baseRev !== null &&
-          mirror.baseRev === baselineRevision
-        ) {
-          entry.content = mirror.content
-          entry.dirty = true
-          useUiStore().toast('检测到上次未保存的编辑，已恢复', 'info')
-        } else {
-          clearDirtyMirror(book, docId)
-        }
+    const baselineRevision = await sha256Revision(content)
+    if (gen !== bookGen) return
+    docs.value.set(docId, {
+      docId,
+      path: node.path,
+      name: node.name,
+      role: node.role,
+      mode: modeOf(node.path),
+      content,
+      baselineRevision,
+      dirty: false,
+      saving: false,
+      savedAt: null,
+      error: null,
+      conflict: false,
+      // E-4（二十九轮）：记录打开时的树版本，供树刷新后对账新鲜度
+      treeRev: useTreeStore().revision,
+  })
+    evictLRU() // F7（五十九轮）：新 entry 落位后裁剪 clean 缓存至 LRU 上限
+    // R55-F-3：镜像复活——上次会话崩溃残留的未保存编辑：镜像内容 ≠ 服务端内容时
+    // 恢复为当前脏内容（baselineRevision 仍为服务端内容之哈希，乐观锁语义不变，
+    // autosave/⌘S 照常接管）并一次性 toast 告知；镜像与服务端一致（内容未丢）则
+    // 仅清陈旧镜像，不置脏不提示。
+    // R57-E-1：复活须过时效门——镜像记录镜像时的服务端基线（baseRev），自崩溃点
+    // 服务端未变过（baseRev === 当前基线）才许复活。崩溃后同文档被另一存活标签页/
+    // 外部编辑器更新过（基线已推进）时，陈旧镜像只清不复活——否则旧内容会以匹配的
+    // 新基线静默覆盖外部已保存内容（保存零冲突、toast 反报「已恢复」）。旧格式镜像
+    //（无 baseRev，升级残留）同按陈旧处理。
+    const mirror = readDirtyMirror(book, docId)
+    if (mirror) {
+      const entry = docs.value.get(docId)
+      if (
+        entry &&
+        mirror.content !== content &&
+        mirror.baseRev !== null &&
+        mirror.baseRev === baselineRevision
+      ) {
+        entry.content = mirror.content
+        entry.dirty = true
+        useUiStore().toast('检测到上次未保存的编辑，已恢复', 'info')
+      } else {
+        clearDirtyMirror(book, docId)
       }
-    } finally {
-      // R33-71（三十三轮）：代守卫——切书后旧 open 的 finally 不得释放新书同 docId
-      // 的在途加载锁（否则新书可重复 GET；结果注入有 gen 守卫，仅冗余请求面）
-      if (gen === bookGen) loading.delete(docId)
     }
   }
 
@@ -550,15 +539,19 @@ export const useDocStore = defineStore('doc', () => {
   async function refresh(docId: string): Promise<boolean> {
     const e = docs.value.get(docId)
     if (!e) return false
+    const book = bookName.value!
     try {
-      const content = await getContent(bookName.value!, e.path)
+      const content = await getContent(book, e.path)
+      if (bookName.value !== book) return false
       if (e.dirty && e.content !== content) {
         // fm 以服务端为准（refresh 的目的），正文以本地为准（未保存编辑）
         // R48-22（四十八轮）：本地正文本就完整保留——mergeFm 缺省 stripLeading 会剥掉
         // 本地正文全部前导空行（编辑路径 EditorView 已显式 stripLeading:false，R36-6
         // 同型问题换了触发源），此处同样显式关闭
         e.content = mergeFm(content, stripFrontmatter(e.content), { stripLeading: false })
-        e.baselineRevision = await sha256Revision(content)
+        const rev = await sha256Revision(content)
+        if (bookName.value !== book) return false
+        e.baselineRevision = rev
         // R51-H-3（五十一轮）：refresh 成功同样推进 treeRev（对齐 doSave 成功分支口径）——
         // 不推进则 syncCleanWithTree 的 stale 过滤（treeRev !== curRev）恒命中，refreshed
         // 文档此后每次树刷新都被冗余重拉（每文档 GET + sha256 白耗）
@@ -567,11 +560,12 @@ export const useDocStore = defineStore('doc', () => {
       }
       e.content = content
       const rev = await sha256Revision(content)
+      if (bookName.value !== book) return false
       // ee-P1-7：await 窗口内作者键入（patch 置 dirty）时不得清 dirty——否则 autosave/
       // beforeunload 双兜底同时被跳过，编辑静默丢失（CC-P2-15 只护住了上面的 dirty 分支）
       e.baselineRevision = rev
       if (e.content === content) {
-        if (e.dirty) clearDirtyMirror(bookName.value, docId) // R55-F-3：转 clean 即清镜像
+        if (e.dirty) clearDirtyMirror(book, docId) // R55-F-3：转 clean 即清镜像
         e.dirty = false
       }
       // R51-H-3（五十一轮）：同上——clean 分支（refresh 的主路径）也推进，冗余重拉才真正收口
@@ -582,6 +576,7 @@ export const useDocStore = defineStore('doc', () => {
       // 仅以 false 上报失败。重审-16（2026-09-07 全量代码重审 §四.16）：补 UI 面——
       // 「fm 以服务端为准」的关键对齐路径失败原先完全静默，作者对着过期内容继续操作
       // 毫无感知；toast warning（同文案 + 同 kind 经 ui.toast 的合并去重天然防刷屏）。
+      if (bookName.value !== book) return false
       useUiStore().toast('文档信息刷新失败，显示内容可能已过期', 'warning')
       return false
     }
@@ -627,6 +622,9 @@ export const useDocStore = defineStore('doc', () => {
              保留（不上抛、不中断其余条目），但不再零 UI 面——失败 toast warning 提示
              「显示内容可能已过期」（同文案经 ui.toast 合并去重，多文档批量失败不刷屏）；
              书名守卫防切书后旧书失败提示落新书界面（对齐上方 await 窗口复检）。 */
+          // 清偿-doc恒假分支清理（2026-09-09 残留清偿批）：原内层 `if (bookName.value
+          // !== book) return false` 位于同条件外层守卫内、与本行间无 await，静态恒假
+          // （且 void async 回调的返回值无消费面），删去；toast 缩进归位。行为零变更。
           if (bookName.value === book) {
             useUiStore().toast('文档信息刷新失败，显示内容可能已过期', 'warning')
           }

@@ -510,9 +510,12 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
           logger.warn('server-manager', 'start 时旧 child 仍在——先停旧再 fork')
           await stopActiveChild()
         }
-        // stopActiveChild 置位的停机门复位（换轮继续 launch）；并发 shutdown 已在
-        // settleStarting 等 starting 落定，不会在此窗漏网
-        shutdownStarted = false
+        // 重评-P3-8（2026-09-09 全量代码重评）：换轮清停机门改条件式——并发 shutdown
+        // 恰落在 stopActiveChild 的 kill 等待窗（已置 shuttingDown + shutdownStarted）
+        // 时，无条件清零会拆掉 launch 的 fork 后检查防线，退出链上 fork 出孤儿 child。
+        // 停机流程在途（shuttingDown）保持门置位：fork 后检查即杀新 child 按启动失败
+        // 收口（S1 同款），「shutdown 开始后绝不 fork 出存活 child」在任何交织下成立。
+        if (!shuttingDown) shutdownStarted = false
         restartCount = 0 // 显式 start 开新周期（bootstrap 语义，非崩溃续期）
         return await launch(opts, '0')
       })()
@@ -681,7 +684,17 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
           return null
         }
       }
-      if (starting) return starting // 在途轮复用（X-3 同款互斥通道语义）
+      // 在途轮复用（X-3 同款互斥通道语义）。重评2-P3-①（2026-09-09 全量重评
+      // GLM-5.3）：原样透传 starting 会把在途 start 的 rejection 一起透传——逃逸
+      // 本函数「失败 resolve null」契约（下方其余路径均 catch 返 null），调用方无
+      // .catch 即落全局兜底日志。改对齐契约：复用值包一层 catch，失败留痕后
+      // resolve null；成功值原样透传（复用语义不变）。
+      if (starting) {
+        return starting.catch((e) => {
+          logger.warn('server-manager', 'session-end 自愈恢复在途 start 失败（API 不可用，建议重启应用）', e)
+          return null
+        })
+      }
       // R51-A-3（五十一轮）：作废挂起重启，与 start() 口径对称（start IIFE 首段
       // cancelPendingRestart 同款）——不取消则崩溃退避 restartTimer 仍武装，本函数
       // launch 在途时 doRestart 触发会复刻钉住端口再 fork（doRestart 不查 starting

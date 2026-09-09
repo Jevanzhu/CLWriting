@@ -11,8 +11,15 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
+const toastSpy = vi.fn()
+
 vi.mock('../../../src/studio/web-next/src/api/shelf', () => ({
   listBooks: vi.fn(),
+}))
+// 清偿-shelf缓存失效提示（2026-09-09 残留清偿批）：load 有快照且刷新失败 → toast warning
+// 可见化（对齐 r16-doc-refresh-fail-toast 的 ui store mock 口径）
+vi.mock('../../../src/studio/web-next/src/stores/ui', () => ({
+  useUiStore: () => ({ toast: toastSpy }),
 }))
 
 import { listBooks } from '../../../src/studio/web-next/src/api/shelf'
@@ -137,7 +144,7 @@ describe('shelf: 加载书架', () => {
       expect(s.loading).toBe(false)
     })
 
-    it('有快照且刷新失败：沿用缓存 + console.warn 留痕，不整屏报错', async () => {
+    it('有快照且刷新失败：沿用缓存 + console.warn 留痕，不整屏报错；清偿批起补 toast 可见化', async () => {
       stubLocalStorage({
         [CACHE_KEY]: JSON.stringify({
           books: [{ name: '缓存书', kind: 'long' }],
@@ -154,6 +161,8 @@ describe('shelf: 加载书架', () => {
       expect(s.error).toBeNull() // 有快照：不整屏报错
       expect(warnSpy).toHaveBeenCalled()
       warnSpy.mockRestore()
+      // 清偿-shelf缓存失效提示（2026-09-09 残留清偿批）：仅 console.warn 修复前作者无感知
+      expect(toastSpy).toHaveBeenCalledWith('书架刷新失败，当前显示本地缓存', 'warning')
     })
 
     it('成功拉取后写入快照（下次刷新可复用）', async () => {
@@ -187,12 +196,13 @@ describe('shelf: 加载书架', () => {
       expect(s.books.map((b) => b.name)).toEqual(['新书'])
     })
 
-    it('无快照且失败：照旧上抛 error（与原有行为一致）', async () => {
+    it('无快照且失败：照旧上抛 error（与原有行为一致），且不 toast（清偿批可见化仅限有快照路径）', async () => {
       listMock.mockRejectedValue(new Error('网络断开'))
       const s = useShelfStore()
       await s.load()
       expect(s.error).not.toBeNull()
       expect(s.loading).toBe(false)
+      expect(toastSpy).not.toHaveBeenCalled() // 首屏失败走整屏 error，不叠加 toast
     })
 
     // R50-D2-3（五十轮）：readCache 逐条校验——坏条目（null/数字/缺 name/title 非
@@ -250,6 +260,80 @@ describe('shelf: 加载书架', () => {
       resolveSlow({ books: [{ name: '最新书', kind: 'long' }], workDir: true })
       await p
       expect(s.books.map((b) => b.name)).toEqual(['最新书'])
+    })
+
+    // 重评-P3-13（2026-09-09 全量代码重评）：workDirMissing/hint 与 books 同口径形状校验
+    it('重评-P3-13: 快照 hint 为对象/workDirMissing 非布尔 → 回落缺省值（books 合法条目照常灌入）', async () => {
+      stubLocalStorage({
+        [CACHE_KEY]: JSON.stringify({
+          books: [{ name: '缓存书', kind: 'long' }],
+          workDirMissing: 'yes',
+          hint: { text: '坏形状' },
+        }),
+      })
+      let resolveSlow!: (v: unknown) => void
+      listMock.mockImplementationOnce(
+        () =>
+          new Promise((r) => {
+            resolveSlow = r
+          }),
+      )
+      const s = useShelfStore()
+      const p = s.load()
+      expect(s.books.map((b) => b.name)).toEqual(['缓存书']) // books 校验通过照常灌入
+      expect(s.workDirMissing).toBe(false) // 非 boolean → 缺省 false
+      expect(s.hint).toBeNull() // 非 string → 缺省 null
+      resolveSlow({ books: [{ name: '最新书', kind: 'long' }], workDir: true })
+      await p
+      expect(s.books.map((b) => b.name)).toEqual(['最新书']) // 后台刷新照常覆盖
+    })
+
+    it('重评-P3-13: 快照 hint 为数字/workDirMissing 非布尔 → 同款回落缺省，后台刷新以权威数据覆盖', async () => {
+      stubLocalStorage({
+        [CACHE_KEY]: JSON.stringify({
+          books: [{ name: '缓存书', kind: 'long' }],
+          workDirMissing: 0,
+          hint: 42,
+        }),
+      })
+      let resolveSlow!: (v: unknown) => void
+      listMock.mockImplementationOnce(
+        () =>
+          new Promise((r) => {
+            resolveSlow = r
+          }),
+      )
+      const s = useShelfStore()
+      const p = s.load()
+      expect(s.workDirMissing).toBe(false)
+      expect(s.hint).toBeNull()
+      resolveSlow({ books: [], workDir: false, hint: '请先选择书库目录' })
+      await p
+      expect(s.workDirMissing).toBe(true)
+      expect(s.hint).toBe('请先选择书库目录')
+    })
+
+    it('重评-P3-13 对照: 合法快照值（boolean workDirMissing / string hint）照常直通不被误拦', async () => {
+      stubLocalStorage({
+        [CACHE_KEY]: JSON.stringify({
+          books: [{ name: '缓存书', kind: 'long' }],
+          workDirMissing: true,
+          hint: '请先选择书库目录',
+        }),
+      })
+      let resolveSlow!: (v: unknown) => void
+      listMock.mockImplementationOnce(
+        () =>
+          new Promise((r) => {
+            resolveSlow = r
+          }),
+      )
+      const s = useShelfStore()
+      const p = s.load()
+      expect(s.workDirMissing).toBe(true)
+      expect(s.hint).toBe('请先选择书库目录')
+      resolveSlow({ books: [{ name: '最新书', kind: 'long' }], workDir: true })
+      await p
     })
   })
 })

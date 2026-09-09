@@ -46,6 +46,13 @@ export function withRouteTable<T>(routes: RouteTable, fn: () => T): T {
   }
 }
 
+/** 重评2-P3-③（2026-09-09 全量重评 GLM-5.3）：当前活动路由表只读观测口——schema
+ *  注册表按表隔离用（api/schema.ts WeakMap 键，见该文件头注）。只读；改写仍走
+ *  withRouteTable。 */
+export function activeRouteTable(): RouteTable {
+  return activeRoutes
+}
+
 /** 注册路由：path 如 '/api/books/:id/state'，:xxx 作为参数捕获 */
 export function route(method: string, path: string, handler: Handler): void {
   const keys: string[] = []

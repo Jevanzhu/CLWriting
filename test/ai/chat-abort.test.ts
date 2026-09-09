@@ -195,3 +195,53 @@ describe('Z-P1-1: waitConfirm abort 即时释放', () => {
     expect(Date.now() - t0).toBeGreaterThanOrEqual(40)
   })
 })
+
+// ─── 重评-P3-3：工具串行段轮首级 abort 短路 ──────────────────
+
+describe('重评-P3-3：工具串行段轮首级 abort 短路', () => {
+  it('工具 1（写类）处理中置 aborted → 工具 2（本地只读）不再执行，按既有中断语义收尾', { timeout: 10_000 }, async () => {
+    // 单响应双工具调用：write_chapter 挂确认闸（工具 1 处理中），chapter_status 为
+    // 本地只读工具（不接 signal）——修复前中止落在工具 1 时工具 2 仍顺序照跑
+    fake.setScript([
+      {
+        type: 'tools',
+        calls: [
+          { id: 'call_w1', name: 'write_chapter', input: { chapter: 1, 正文: 'x' } },
+          { id: 'call_r1', name: 'chapter_status', input: {} },
+        ],
+      },
+    ])
+    const events: DriverEvent[] = []
+    const driver = makeDriver(events)
+    const ud = setup()
+
+    const chatPromise = runChat({
+      driver,
+      mainSession: { id: 's1', cwd: workDir, closed: false },
+      userDataPath: ud,
+      bookRoot: longRoot,
+      bookName: 'abort-tool-seq',
+      message: '写第 1 章，再看章状态',
+      confirmTimeoutMs: 5000,
+    })
+
+    // 确认闸挂起（工具 1 处理中）→ 作者中止
+    await waitFor(() => events.some((e) => e.type === 'chat_tool_pending'))
+    abortChat('abort-tool-seq')
+    await chatPromise
+
+    // 工具 1：waitConfirm 感知 aborted 即拒（既有语义不动）
+    // 工具 2：轮首级短路 → 零执行（无 chat_tool 执行事件），按取消口径回填
+    const execR1 = events.filter((e) => e.type === 'chat_tool' && (e as { name?: string }).name === 'chapter_status')
+    expect(execR1).toHaveLength(0)
+    const results = events.filter((e) => e.type === 'chat_tool_result') as Array<{ callId: string; summary: string; ok: boolean }>
+    expect(results.find((r) => r.callId === 'call_w1')?.summary).toBe('已取消')
+    const r1Result = results.find((r) => r.callId === 'call_r1')
+    expect(r1Result?.summary).toBe('已取消')
+    expect(r1Result?.ok).toBe(false)
+    // 响应按既有中断语义收尾：chat_error「已中断」+ 会话结束
+    const err = events.find((e) => e.type === 'chat_error') as { error?: string } | undefined
+    expect(err?.error).toContain('中断')
+    expect(isChatRunning('abort-tool-seq')).toBe(false)
+  })
+})

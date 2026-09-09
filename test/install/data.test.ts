@@ -7,6 +7,11 @@ import {
   sanitizeLeadsEnabled,
 } from '../../src/install/data.js'
 import { readBooks } from '../../src/install/books.js'
+import { enabledLeadTypes } from '../../src/check/runner.js'
+import { rebuild } from '../../src/cache/rebuild.js'
+import { writeLead } from '../../src/format/leads.js'
+import { DEFAULT_CONFIG, writeBookConfig } from '../../src/format/yaml.js'
+import type { Lead } from '../../src/format/types.js'
 import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -15,6 +20,46 @@ import { mkdtempTracked } from '../helpers/temp-dir.js'
 test('BASE_LEAD_TYPES 恒为两类、EXTENDED 四类', () => {
   expect(BASE_LEAD_TYPES).toEqual(['悬念', '感情线'])
   expect(EXTENDED_LEAD_TYPES).toEqual(['布局线', '设定线', '成长线', '关系线'])
+})
+
+// 重评-P2-3（2026-09-09 全量代码重评）漂移门：check/runner（enabledLeadTypes）与
+// cache/rebuild 须与 install/data.ts 导出共用**同一** BASE_LEAD_TYPES 数组符号——
+// 运行期往数组注入扩展类「布局线」后两处消费面立即同步可见。值相等断言（上方用例）
+// 区分不了「值相同的手抄副本」，符号同一性以此注入探针为足：任一侧退回私有副本，
+// 注入类不可见（rebuild 侧 enabled 为空、未列入 book.yaml，命中必来自共享数组）。
+test('BASE_LEAD_TYPES 单源：runner/rebuild 引用同一符号（注入项三处同步可见）', () => {
+  const injected = '布局线'
+  const arr = BASE_LEAD_TYPES as unknown as string[]
+  arr.push(injected)
+  try {
+    // runner 侧：enabledLeadTypes 未启用任何扩展类仍含注入类
+    expect(enabledLeadTypes({ ...DEFAULT_CONFIG, leads: { enabled: [] } })).toContain(injected)
+    // rebuild 侧：布线/<注入类>/ 被扫描入库
+    const root = mkdtempTracked(join(tmpdir(), 'base-lead-drift-'))
+    try {
+      writeBookConfig(join(root, 'book.yaml'), {
+        ...DEFAULT_CONFIG,
+        book: { title: '漂移门' },
+        leads: { enabled: [] },
+      })
+      mkdirSync(join(root, '布线', injected), { recursive: true })
+      writeLead(join(root, '布线', injected, `${injected}-001-漂移门.md`), {
+        编号: `${injected}-001`,
+        标题: '漂移门',
+        类型: injected,
+        状态: '进行中',
+        开启章: 1,
+        履历: [],
+      } as unknown as Lead)
+      const r = rebuild(root, join(root, '.cache', 'index.db'))
+      expect(r.errors).toHaveLength(0)
+      expect(r.leadCount).toBe(1)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  } finally {
+    arr.pop() // 还原共享数组，防污染同文件后续用例
+  }
 })
 
 test('matchGenreLeads: 玄幻/仙侠 → 成长线 + 设定线', () => {

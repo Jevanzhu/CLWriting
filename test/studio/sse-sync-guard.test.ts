@@ -12,7 +12,7 @@ import type { AddressInfo } from 'node:net'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { beforeAll, afterAll, describe, it, expect } from 'vitest'
+import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest'
 import { startServerSafe } from '../helpers/safe-port.js'
 
 const BOOK = 'SSE同步守卫书'
@@ -55,8 +55,13 @@ describe('B-20: 初始 sync 帧走 safeWrite 守卫', () => {
     const { value } = await reader.read()
     expect(new TextDecoder().decode(value!)).toContain('"type":"sync"')
     // 断开（close 回调走计数递减/心跳清理路径——含 safeWrite 守卫的断连边沿）
+    const abortAt = Date.now() // 断连危险窗起点
     ac.abort()
-    await new Promise((resolve) => setTimeout(resolve, 100))
+    // 重评2-P3-①（2026-09-09 全量重评 GLM-5.3）：原固定 sleep(100) 等断连 close 边沿
+    // ——与「测试竞速轮询化」家规不一致。改墙钟轮询越过危险窗（重审-18 elapseBeyond
+    // 同款）：小步 poll 让出事件循环；终检留在窗后——断连边沿处理若致进程崩（守卫
+    // 失效形态），窗内任何时刻的崩都会被终检 fetch 抓到
+    await vi.waitFor(() => expect(Date.now() - abortAt).toBeGreaterThanOrEqual(100), { timeout: 5_000, interval: 10 })
     // 服务存活：后续请求正常应答（裸写已死连接未把进程带崩）
     const boot = await fetch(`${baseUrl}/api/boot`)
     expect(boot.status).toBe(200)

@@ -169,6 +169,18 @@ function onTitleKeydown(e: KeyboardEvent): void {
   e.preventDefault()
   void onTitleCommit()
 }
+/** 重评2-P3-1（2026-09-09 全量重评 GLM-5.3）：短篇章号占位解析——fm 章号 → 路径提取 → 1
+ *  逐级兜底。原 `Number(fm章号 || 路径提取 || 1)` 的 `||` 作用在操作数上：fm 章号为非数字
+ *  串（如 'x'）时 truthy 直取，Number('x')=NaN 穿透 `!== undefined` 检查、经 JSON 序列化
+ *  为 null 传 API。改逐级 Number.isFinite 守卫：fm 坏值与原 falsy 兜底（''/0/undefined）
+ *  同归路径提取/1（保底语义不变）；好值语义不变（`!== 0` 对齐原 `||` 的 falsy 集）。 */
+function resolvePieceNum(content: string, path: string): number {
+  const fmNum = Number(parseFmFields(content).章号)
+  if (Number.isFinite(fmNum) && fmNum !== 0) return fmNum
+  const pathNum = Number(path.match(/(\d+)-[^/]*\.md$/)?.[1])
+  return Number.isFinite(pathNum) && pathNum !== 0 ? pathNum : 1
+}
+
 async function onTitleCommit(): Promise<void> {
   const e = entry.value
   if (!e || !ws.activeDocId) {
@@ -198,9 +210,8 @@ async function onTitleCommit(): Promise<void> {
     // 短篇传 章号（占位沿用现有值，仅改标题）；后端按 piece-body 落 fm + 章纲目录 rename
     // P2：fm 缺章号时从文件名提取（防 fallback 1 覆盖真实章号）
     // P2-FE-5：`||` 替代 `??`——NaN/undefined/0 均 fallback 到路径提取或 1（fm 损坏时防 NaN 传入 API）
-    const pieceNum = e.role === 'piece-body'
-      ? Number(parseFmFields(e.content).章号 || e.path.match(/(\d+)-[^/]*\.md$/)?.[1] || 1)
-      : undefined
+    // 重评2-P3-1：NaN 穿透修复——见 resolvePieceNum 注释（逐级 isFinite 守卫替代 `||` 链）
+    const pieceNum = e.role === 'piece-body' ? resolvePieceNum(e.content, e.path) : undefined
     await updateChapterMetaDoc(book, id, {
       标题: newTitle,
       ...(e.role === 'piece-body' && pieceNum !== undefined ? { 章号: pieceNum } : {}),

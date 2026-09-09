@@ -88,12 +88,44 @@ export function progressPercent(b: { words?: number; targetWords?: number }): nu
   return Math.min(100, Math.round((b.words / b.targetWords) * 100))
 }
 
-/** Linear 风光晕：鼠标位置写入 --mx/--my 驱动卡片 ::before 的 radial-gradient 圆心 */
+/**
+ * Linear 风光晕：鼠标位置写入 --mx/--my 驱动卡片 ::before 的 radial-gradient 圆心。
+ * 重评-P3-15（2026-09-09 全量代码重评）：原每 mousemove 读 getBoundingClientRect +
+ * 写 CSS 变量 = 强制同步 reflow（144Hz ≈ 144 次/秒，PM-9 同族）。套用 WorkspaceShell
+ * PM-9 先例：rect 惰性缓存（WeakMap 按卡片元素）+ window resize/scroll(capture) 失效
+ * （scroll 不冒泡，capture 才能接住浮层内滚动容器）+ rAF 同帧合并只写最后一次位置，
+ * 绘制时机与同步写一致，光晕视觉逐位不变。
+ */
+let glowRects = new WeakMap<HTMLElement, DOMRect>()
+function invalidateGlowRects(): void {
+  glowRects = new WeakMap()
+}
+if (typeof window !== 'undefined') {
+  window.addEventListener('resize', invalidateGlowRects, { passive: true })
+  window.addEventListener('scroll', invalidateGlowRects, { capture: true, passive: true })
+}
+let glowRaf = 0
+let glowPending: { el: HTMLElement; mx: string; my: string } | null = null
 export function onCardMove(e: MouseEvent): void {
   const el = e.currentTarget as HTMLElement
-  const r = el.getBoundingClientRect()
-  el.style.setProperty('--mx', `${e.clientX - r.left}px`)
-  el.style.setProperty('--my', `${e.clientY - r.top}px`)
+  let r = glowRects.get(el)
+  if (!r) {
+    r = el.getBoundingClientRect()
+    glowRects.set(el, r)
+  }
+  const mx = `${e.clientX - r.left}px`
+  const my = `${e.clientY - r.top}px`
+  // 同帧合并：只保留最后一次位置（值不变不写，避免重复样式失效）
+  if (glowPending && glowPending.el === el && glowPending.mx === mx && glowPending.my === my) return
+  if (glowRaf) cancelAnimationFrame(glowRaf)
+  glowPending = { el, mx, my }
+  glowRaf = requestAnimationFrame(() => {
+    glowRaf = 0
+    if (!glowPending) return
+    glowPending.el.style.setProperty('--mx', glowPending.mx)
+    glowPending.el.style.setProperty('--my', glowPending.my)
+    glowPending = null
+  })
 }
 
 /**

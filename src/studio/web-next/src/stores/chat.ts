@@ -187,6 +187,15 @@ export const useChatStore = defineStore('chat', () => {
       case 'sync': {
         // 连接快照（SSE 重连补发）：同步后端真实 chat 运行态，防断连错过 chat_done 致永久锁死
         running.value = ev['chatRunning'] === true
+        // 重评2-P2-1（2026-09-09 全量重评 GLM-5.3）修复：重连快照 chatRunning=false = 后端
+        // 已收尾该回合，是前端漏收 chat_done/chat_error 的兜底信号——对齐 chat_error 的
+        // R-7 口径收尾在途气泡（done + 复位索引），防永久「生成中」+ 后续文本错位；同时
+        // 守住 P2-9 前提「未完成气泡只属于在途回合」（否则此后新回合 + 错过 chat_turn 的
+        // 重连会把新回合文本追加进旧气泡，跨回合并文）。
+        if (!running.value && currentIdx >= 0) {
+          messages.value[currentIdx]!.done = true
+          currentIdx = -1
+        }
         // AA-P3-8：regenPending 陷阱态恢复——regenPending 只由 chat_done/chat_error 复位，
         // 若 SSE 全断且这两者都没到，防重入标志永久卡死「重新生成」。重连的 sync 是权威
         // 快照：后端不在跑对话（chatRunning=false）→ 那次 regenerate 的回合要么从未启动、

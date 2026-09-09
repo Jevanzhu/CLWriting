@@ -12,7 +12,15 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError, parseRequestUrl } from '../http.js'
 import { resolveBook } from '../book-context.js'
-import { DocumentService, type SaveDocumentInput } from '../../../document/service.js'
+import {
+  DocumentService,
+  type CopyResult,
+  type CreateResult,
+  type MoveResult,
+  type SaveDocumentInput,
+  type SaveOutcome,
+  type TrashResult,
+} from '../../../document/service.js'
 import { getBookTreeIndex } from '../../../document/tree.js'
 import { finalizeRevisionAsync } from '../../../document/finalize.js' // R30-6（三十轮，批 C 移交收尾）：服务进程切异步孪生
 import { afterFinalizeGenerateSummary, afterFinalizeGenerateSummaryBatch } from '../../../process/summary.js'
@@ -121,6 +129,32 @@ async function recordForeshadowDelta(
   }
 }
 
+// ── 重评2-P3-①（2026-09-09 全量重评 GLM-5.3）：伏笔保存 per-book 串行链 ─────────
+// 原 PUT content 的 foreshadowSnapshot 读在 svc.save 的 per-docId 串行队列之外：两
+// 并发保存交叠时双方快照基线同取前者变更前的状态，而 recordForeshadowDelta 的差分
+// 读的是「当刻」全量状态——后落库的一方会把先落库者的变更一并计入自己的差分窗
+// （事件流重复计窗）。现把「快照读 → save → 差分落事件」整段挂到 per-bookRoot
+// promise 链上串行执行：后继单元的快照基线必然已含前继单元落库的变更，差分各归
+// 各窗。仅伏笔域路径入链（非伏笔保存零开销、并行性不变）；链上单元失败不阻断后继
+// （prev.then(unit, unit)），观测层串行不引入新的失败面；伏笔正本保存语义零变更
+// （save 仍在原链路原样执行，只是调度位置移入临界段）。
+// 清偿-伏笔接线×4（2026-09-09 残留清偿批）：PATCH（fm/rename/move/meta 共用 handler）、
+// 新建、软删、copy 四处同型「快照读在链外」残留一并收口——各操作「快照读 → op → 差分」
+// 整段入链，链内单元语义按各操作适配：新建/软删/copy 改 docId 集合，差分基线仍取
+// 「本单元 op 前的全域快照」（差分是全域标题集对比，recordForeshadowChanges），链内
+// 串行保证前继单元落库的增删改必在基线中，事件各归各窗。死锁核查：四处 op 体走
+// SaveQueue（save）/chainDocMetaOp（meta/fm）/清单·回收站锁（create/copy/trash/
+// rename/move），均只被链单元单向 await、从不反等本链，外链→内链/锁单向无环；
+// drainDocumentSaves 只计 SaveQueue 在途，四处本就不入该计数，链化无顺序回归。
+const foreshadowSaveChains = new Map<string, Promise<unknown>>()
+function runInForeshadowSaveChain<T>(bookRoot: string, unit: () => Promise<T>): Promise<T> {
+  const prev = foreshadowSaveChains.get(bookRoot) ?? Promise.resolve()
+  const next = prev.then(unit, unit) // 前驱成败都接续
+  // 链尾吞错防 unhandled rejection（单元错误由本单元 await 侧经 dispatch 兜底 500）
+  foreshadowSaveChains.set(bookRoot, next.catch(() => {}))
+  return next
+}
+
 export function registerDocumentRoutes(ctx: DocumentCtx): void {
   // ── W1：保存内容 ──────────────────────────────
   defineRoute('books.documents.content', {
@@ -145,14 +179,25 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
         return
       }
 
-      // Z-P2-6：伏笔快照先于保存（差分需要变更前状态）
-      const fsPrev = foreshadowSnapshot(r.bookRoot, path, docId) // R43-23：docId 留痕因果
-      const outcome = await svc.save(docId, path, input)
+      // Z-P2-6：伏笔快照先于保存（差分需要变更前状态）。
+      // 重评2-P3-①：伏笔域保存（快照读→save→差分落事件）整段入 per-book 串行链
+      // ——并发保存交叠不再重复计窗；非伏笔路径不进链（快照直通 null、零差分，
+      // 保存并行性不变）。
+      const runSave = async (): Promise<SaveOutcome> => {
+        const fsPrev = foreshadowSnapshot(r.bookRoot, path, docId) // R43-23：docId 留痕因果
+        const o = await svc.save(docId, path, input)
+        if (o.ok) {
+          // V-P2-27：字数变了 → 书架摘要即时失效（不等 5s TTL）
+          invalidateBookSummary(r.bookRoot)
+          // Z-P2-6：伏笔内容保存（fm 状态变更）→ foreshadow/change 事件
+          await recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev, docId) // R43-23：docId 留痕因果
+        }
+        return o
+      }
+      const outcome = await (path.startsWith('设定/伏笔/')
+        ? runInForeshadowSaveChain(r.bookRoot, runSave)
+        : runSave())
       if (outcome.ok) {
-        // V-P2-27：字数变了 → 书架摘要即时失效（不等 5s TTL）
-        invalidateBookSummary(r.bookRoot)
-        // Z-P2-6：伏笔内容保存（fm 状态变更）→ foreshadow/change 事件
-        await recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev, docId) // R43-23：docId 留痕因果
         reply(res, 200, { ok: true, revision: outcome.revision, superseded: outcome.superseded })
         return
       }
@@ -305,18 +350,29 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const body = await readJson(req)
-      if (typeof body.relPath !== 'string' || !body.relPath) {
+      const relPath = body.relPath
+      if (typeof relPath !== 'string' || !relPath) {
         replyError(res, 400, 'BAD_INPUT', 'relPath 缺失')
         return
       }
       const svc = getOrCreateService(r.bookRoot, ctx.userDataPath)
-      // Z-P2-6：新建伏笔（create）前快照（R43-23：新建前无 docId，以 relPath 作留痕因果标注）
-      const fsPrev = foreshadowSnapshot(r.bookRoot, body.relPath, body.relPath)
-      const result = await svc.createDocument({
-        relPath: body.relPath,
-        content: typeof body.content === 'string' ? body.content : undefined,
-      })
-      if (result.ok) await recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev, result.docId) // R43-23：docId 留痕因果
+      // 清偿-伏笔接线×4（2026-09-09 残留清偿批）②：新建——「快照读 → create → 差分」
+      // 整段入 per-book 伏笔串行链（同 PUT 重评2-P3-① 口径）：并发交叠不再重复计窗；
+      // 非伏笔域目标不进链。新建前无 docId，以 relPath 作留痕因果标注。
+      const runCreate = async (): Promise<CreateResult> => {
+        // Z-P2-6：新建伏笔（create）前快照（差分需要变更前状态；新建改 docId 集合，
+        // 基线取本单元 create 前全域状态，链内前继落库变更必在基线中）
+        const fsPrev = foreshadowSnapshot(r.bookRoot, relPath, relPath) // R43-23：relPath 留痕因果
+        const result = await svc.createDocument({
+          relPath,
+          content: typeof body.content === 'string' ? body.content : undefined,
+        })
+        if (result.ok) await recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev, result.docId) // R43-23：docId 留痕因果
+        return result
+      }
+      const result = await (relPath.startsWith('设定/伏笔/')
+        ? runInForeshadowSaveChain(r.bookRoot, runCreate)
+        : runCreate())
       // Q-7（第十五轮）：失败收编 replyError 统一信封（原裸 result——前端 toast 直显机器码，reason 人话永不见）
       if (result.ok) reply(res, 201, result)
       else replyError(res, structStatus(result.code), result.code, result.reason)
@@ -333,52 +389,66 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       const docId = params['docId'] ?? ''
       const body = await readJson(req)
       const svc = getOrCreateService(r.bookRoot, ctx.userDataPath)
-      // Z-P2-6：伏笔快照先于变更（rename/move/meta/fm 都可能改 设定/伏笔/ 状态）
-      const fsPrev = foreshadowSnapshot(r.bookRoot, await svc.resolvePathAsync(docId), docId) // R43-23：docId 留痕因果
-      let result
-      if (body.op === 'rename') {
-        if (typeof body.newName !== 'string') {
-          replyError(res, 400, 'BAD_INPUT', 'rename 需要 newName')
-          return
+      // docId → relPath：仅作伏笔域判定（rename/move/meta/fm 各自内部会再解析登记路径）
+      const docPath = await svc.resolvePathAsync(docId)
+      // 清偿-伏笔接线×4（2026-09-09 残留清偿批）①：PATCH——op=fm 改伏笔状态最常用，
+      // rename/move/meta 与其共用同一 handler 差分接线：「快照读 → op → 差分」整段入
+      // per-book 伏笔串行链（同 PUT 重评2-P3-① 口径），并发交叠不再重复计窗。op 形状
+      // 校验失败在链单元内同步回复即出链（400 不产生差分、不长时间占链位；返回
+      // undefined = 响应已发）。
+      const runPatch = async (): Promise<MoveResult | undefined> => {
+        // Z-P2-6：伏笔快照先于变更（rename/move/meta/fm 都可能改 设定/伏笔/ 状态）
+        const fsPrev = foreshadowSnapshot(r.bookRoot, docPath, docId) // R43-23：docId 留痕因果
+        let result: MoveResult | undefined
+        if (body.op === 'rename') {
+          if (typeof body.newName !== 'string') {
+            replyError(res, 400, 'BAD_INPUT', 'rename 需要 newName')
+            return undefined
+          }
+          result = await svc.renameDocument({ docId, newName: body.newName })
+        } else if (body.op === 'move') {
+          if (typeof body.toDir !== 'string') {
+            replyError(res, 400, 'BAD_INPUT', 'move 需要 toDir')
+            return undefined
+          }
+          result = await svc.moveDocument({ docId, toDir: body.toDir })
+        } else if (body.op === 'meta') {
+          const 标题 = typeof body.标题 === 'string' ? body.标题 : undefined
+          // 章号：长篇/短篇统一用 章号
+          const numVal = typeof body.章号 === 'number' || typeof body.章号 === 'string' ? Number(body.章号) : NaN
+          // 低-3（第十轮）：章号 fail-closed 整数校验——3.5 这类小数旧口径放行后文件名落成
+          // 03.5-…（从章号特性脱落）；前端 ChapterMetaDialog 同口径拒收，服务端兜底 400，
+          // 也顺带堵住旧实现「章号非法被静默丢弃、只改标题」的半成功
+          if (body.章号 !== undefined && (!Number.isInteger(numVal) || numVal < 1)) {
+            replyError(res, 400, 'BAD_INPUT', '章号需为正整数')
+            return undefined
+          }
+          if (标题 === undefined && !Number.isFinite(numVal)) {
+            replyError(res, 400, 'BAD_INPUT', 'meta 需要 标题 或 章号')
+            return undefined
+          }
+          const metaUpdate: Record<string, unknown> = {}
+          if (标题 !== undefined) metaUpdate['标题'] = 标题
+          if (Number.isFinite(numVal)) metaUpdate['章号'] = numVal
+          result = await svc.updateChapterMeta(docId, metaUpdate) // R31-20：异步孪生
+        } else if (body.op === 'fm') {
+          const meta = body.meta
+          if (!meta || typeof meta !== 'object' || Array.isArray(meta)) {
+            replyError(res, 400, 'BAD_INPUT', 'fm 需要 meta 对象')
+            return undefined
+          }
+          result = await svc.updateDocMeta(docId, meta as Record<string, unknown>) // R31-20：异步孪生
+        } else {
+          replyError(res, 400, 'BAD_INPUT', '未知 op（rename/move/meta/fm）')
+          return undefined
         }
-        result = await svc.renameDocument({ docId, newName: body.newName })
-      } else if (body.op === 'move') {
-        if (typeof body.toDir !== 'string') {
-          replyError(res, 400, 'BAD_INPUT', 'move 需要 toDir')
-          return
-        }
-        result = await svc.moveDocument({ docId, toDir: body.toDir })
-      } else if (body.op === 'meta') {
-        const 标题 = typeof body.标题 === 'string' ? body.标题 : undefined
-        // 章号：长篇/短篇统一用 章号
-        const numVal = typeof body.章号 === 'number' || typeof body.章号 === 'string' ? Number(body.章号) : NaN
-        // 低-3（第十轮）：章号 fail-closed 整数校验——3.5 这类小数旧口径放行后文件名落成
-        // 03.5-…（从章号特性脱落）；前端 ChapterMetaDialog 同口径拒收，服务端兜底 400，
-        // 也顺带堵住旧实现「章号非法被静默丢弃、只改标题」的半成功
-        if (body.章号 !== undefined && (!Number.isInteger(numVal) || numVal < 1)) {
-          replyError(res, 400, 'BAD_INPUT', '章号需为正整数')
-          return
-        }
-        if (标题 === undefined && !Number.isFinite(numVal)) {
-          replyError(res, 400, 'BAD_INPUT', 'meta 需要 标题 或 章号')
-          return
-        }
-        const metaUpdate: Record<string, unknown> = {}
-        if (标题 !== undefined) metaUpdate['标题'] = 标题
-        if (Number.isFinite(numVal)) metaUpdate['章号'] = numVal
-        result = await svc.updateChapterMeta(docId, metaUpdate) // R31-20：异步孪生
-      } else if (body.op === 'fm') {
-        const meta = body.meta
-        if (!meta || typeof meta !== 'object' || Array.isArray(meta)) {
-          replyError(res, 400, 'BAD_INPUT', 'fm 需要 meta 对象')
-          return
-        }
-        result = await svc.updateDocMeta(docId, meta as Record<string, unknown>) // R31-20：异步孪生
-      } else {
-        replyError(res, 400, 'BAD_INPUT', '未知 op（rename/move/meta/fm）')
-        return
+        if (result.ok) await recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev, docId) // R43-23：docId 留痕因果
+        return result
       }
-      if (result.ok) await recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev, docId) // R43-23：docId 留痕因果
+      const result = await (docPath !== null && docPath.startsWith('设定/伏笔/')
+        ? runInForeshadowSaveChain(r.bookRoot, runPatch)
+        : runPatch())
+      if (result === undefined) return // op 形状校验失败：链单元内已回 400
       // Q-7（第十五轮）：同上——失败走 replyError 统一信封
       if (result.ok) reply(res, 200, result)
       else replyError(res, structStatus(result.code), result.code, result.reason)
@@ -394,19 +464,29 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const docId = params['docId'] ?? ''
       const body = await readJson(req)
-      if (typeof body.relPath !== 'string' || !body.relPath) {
+      const relPath = body.relPath
+      if (typeof relPath !== 'string' || !relPath) {
         replyError(res, 400, 'BAD_INPUT', 'relPath 缺失')
         return
       }
       const svc = getOrCreateService(r.bookRoot, ctx.userDataPath)
-      // R-17（第十六轮）：copy 目标落在伏笔域（设定/伏笔/）时同 create/patch 接伏笔
-      // 差分事件——此前 copy 绕过 foreshadowSnapshot → recordForeshadowDelta，伏笔
-      // md 复制出的新条目不落 foreshadow/change{create}（观测层丢事件）
-      const fsPrev = foreshadowSnapshot(r.bookRoot, body.relPath, docId) // R43-23：源 docId 作留痕因果
-      const result = await svc.copyDocument({ docId, relPath: body.relPath })
+      // 清偿-伏笔接线×4（2026-09-09 残留清偿批）④：copy——「快照读 → copy → 差分」
+      // 整段入 per-book 伏笔串行链（同 PUT 重评2-P3-① 口径）：复制出的新条目 create
+      // 事件各归各窗，非伏笔域目标不进链。
+      const runCopy = async (): Promise<CopyResult> => {
+        // R-17（第十六轮）：copy 目标落在伏笔域（设定/伏笔/）时同 create/patch 接伏笔
+        // 差分事件——此前 copy 绕过 foreshadowSnapshot → recordForeshadowDelta，伏笔
+        // md 复制出的新条目不落 foreshadow/change{create}（观测层丢事件）
+        const fsPrev = foreshadowSnapshot(r.bookRoot, relPath, docId) // R43-23：源 docId 作留痕因果
+        const result = await svc.copyDocument({ docId, relPath })
+        if (result.ok) await recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev, result.docId) // R43-23：新 docId 留痕因果
+        return result
+      }
+      const result = await (relPath.startsWith('设定/伏笔/')
+        ? runInForeshadowSaveChain(r.bookRoot, runCopy)
+        : runCopy())
       // Q-7（第十五轮）：失败走 replyError 统一信封（原裸 result 违反 schema.ts 信封约定）
       if (result.ok) {
-        await recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev, result.docId) // R43-23：新 docId 留痕因果
         reply(res, 201, result)
       } else replyError(res, structStatus(result.code), result.code, result.reason)
     },
@@ -421,10 +501,23 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const docId = params['docId'] ?? ''
       const svc = getOrCreateService(r.bookRoot, ctx.userDataPath)
-      // Z-P2-6：软删伏笔（clear 事件）前快照
-      const fsPrev = foreshadowSnapshot(r.bookRoot, await svc.resolvePathAsync(docId), docId) // R43-23：docId 留痕因果
-      const result = await svc.trashDocument({ docId })
-      if (result.ok) await recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev, docId) // R43-23：docId 留痕因果
+      // docId → relPath：仅作伏笔域判定（trashDocument 内部自会再解析）
+      const docPath = await svc.resolvePathAsync(docId)
+      // 清偿-伏笔接线×4（2026-09-09 残留清偿批）③：软删——「快照读 → trash → 差分」
+      // 整段入 per-book 伏笔串行链（同 PUT 重评2-P3-① 口径）：软删改 docId 集合（−1）
+      // 且把文件移出 设定/伏笔/，快照仍取本单元 trash 前全域状态（条目在册）、差分读
+      // 在 trashDocument 落定之后（条目已移出）→ clear 事件各归各窗；链内串行保证
+      // 他单元的增删不混入本单元差分窗。
+      const runTrash = async (): Promise<TrashResult> => {
+        // Z-P2-6：软删伏笔（clear 事件）前快照
+        const fsPrev = foreshadowSnapshot(r.bookRoot, docPath, docId) // R43-23：docId 留痕因果
+        const result = await svc.trashDocument({ docId })
+        if (result.ok) await recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev, docId) // R43-23：docId 留痕因果
+        return result
+      }
+      const result = await (docPath !== null && docPath.startsWith('设定/伏笔/')
+        ? runInForeshadowSaveChain(r.bookRoot, runTrash)
+        : runTrash())
       // Q-7（第十五轮）：同上——失败走 replyError 统一信封
       if (result.ok) reply(res, 200, result)
       else replyError(res, structStatus(result.code), result.code, result.reason)

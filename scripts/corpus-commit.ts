@@ -134,7 +134,25 @@ for (const [checkId, entries] of byCheck) {
       failedExisting++
       continue
     }
-    existing = parsed as Entry[]
+    // 重评-P2-5（2026-09-09 全量代码重评）：数组元素逐条形状校验（普通对象 + excerpt 为
+    // 字符串）——此前直透 `.map` 对元素零校验：null 元素裸 TypeError 崩整轮合并循环（无
+    // 告警无退出哨兵）、字符串元素 excerpt=undefined 静默写回成回归门输入。坏条丢弃不
+    // 合并、计数进尾部标红哨兵；全部坏则整档跳过、原文件保持原样（R51-J-2 同口径）
+    const rawElements = parsed as unknown[]
+    const goodEntries = rawElements.filter(
+      (e): e is Entry => e !== null && typeof e === 'object' && typeof (e as Entry).excerpt === 'string',
+    )
+    const badCount = rawElements.length - goodEntries.length
+    if (badCount > 0) {
+      console.error(
+        `[corpus:commit] 存量语料含 ${badCount} 条形状异常（非对象或缺 excerpt 字符串），已丢弃${
+          goodEntries.length === 0 ? '，跳过合并（原文件保持原样，请手工修档后重跑）' : ''
+        }：${fp}`,
+      )
+      failedExisting++
+      if (goodEntries.length === 0) continue
+    }
+    existing = goodEntries
   }
   // 按 excerpt 去重合并（后到覆盖先到——重标以最近一次为准）
   const merged = new Map(existing.map((e) => [e.excerpt, e] as const))
@@ -148,7 +166,7 @@ console.log(`[corpus:commit] 完成：${all.length} 条入库（${written} 个�
 // R63-13/R63-11/R64-36：拒绝/跳过/丢条不静默——有效条目照常入库，但退出码标红让作者看见告警
 if (rejectedCheckIds > 0 || failedExisting > 0 || droppedExcerpts > 0) {
   console.error(
-    `[corpus:commit] 未完全成功：${rejectedCheckIds} 个 checkId 被拒（路径穿越）＋ ${failedExisting} 个存量文件解析失败被跳过＋ ${droppedExcerpts} 行勾选摘录解析被丢——见上方逐条告警`,
+    `[corpus:commit] 未完全成功：${rejectedCheckIds} 个 checkId 被拒（路径穿越）＋ ${failedExisting} 个存量文件异常（解析失败或元素形状坏）被跳过＋ ${droppedExcerpts} 行勾选摘录解析被丢——见上方逐条告警`,
   )
   process.exitCode = 1
 }

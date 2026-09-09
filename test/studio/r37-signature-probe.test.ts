@@ -19,6 +19,11 @@
  * readdir+stat）——rename 类结构变化在 TTL 窗内同样命中旧值，可见性统一由「TTL 到期
  * 重探」承担（分析侧 analysisOverviewProbe 未节流，行为不变）。getVersionStatsCached
  * 同步转 async（MISS 计算体分批让出），调用点补 await。
+ *
+ * 重评2-P3-④（2026-09-09 全量重评 GLM-5.3）适配：上段 R44-9 记档的「分析侧未节流」
+ * 偏差随本批补齐（analysisOverviewProbe 纳入 TTL 节流，照 snapshots 版搭法）——
+ * analysis 侧「re-analyze 即时可见」用例改节流语义：TTL 窗内命中旧值，TTL 到期重探
+ * 后见新值；「就地直写」边界用例行为不变（探针本就不可见，TTL 兜底语义同前）。
  */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -158,7 +163,7 @@ describe('R37-17 analysis-overview 两级探针', () => {
     expect(r2).toEqual(r1)
   })
 
-  it('信封原子重写（re-analyze，同目录 rename）→ 一级探针失配 → 全量签名 + 重算见新值', async () => {
+  it('信封原子重写（re-analyze，同目录 rename）：TTL 窗内探针节流命中；TTL 到期重探失配 → 全量签名 + 重算见新值', async () => {
     const root = makeAnalysisBook()
     __setAnalysisOverviewTtlForTest(60_000)
     const manifestPath = join(root, '项目', '文档清单.jsonl')
@@ -167,6 +172,13 @@ describe('R37-17 analysis-overview 两级探针', () => {
     expect(before.scoreTrend[0]!.score).toBe(8)
     await sleep(5)
     writeAnalysis(root, docId, 'score', envOf({ score: 3, dims: { 爽点: 3 } }))
+    // 重评2-P3-④：探针纳入 TTL 节流——rename 已刷分析目录 mtime，但 TTL 窗内不重探 → 命中旧缓存
+    const throttled = await getAnalysisOverviewCached(root)
+    expect(__analysisOverviewSigCountForTest()).toBe(1)
+    expect(__analysisOverviewScanCountForTest()).toBe(1)
+    expect(throttled.scoreTrend[0]!.score).toBe(8)
+    // TTL 到期 → 必须重新探 → 指纹失配 → 全量签名 + 重算见新值
+    __setAnalysisOverviewTtlForTest(0)
     const after = await getAnalysisOverviewCached(root)
     expect(__analysisOverviewSigCountForTest()).toBe(2)
     expect(__analysisOverviewScanCountForTest()).toBe(2)

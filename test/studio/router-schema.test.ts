@@ -5,8 +5,8 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { createServer, type Server } from 'node:http'
-import { defineRoute, getRouteSchema } from '../../src/studio/server/api/schema.js'
-import { dispatch, route } from '../../src/studio/server/router.js'
+import { defineRoute, getRouteSchema, resetRouteSchemas } from '../../src/studio/server/api/schema.js'
+import { createRouteTable, dispatch, route, withRouteTable } from '../../src/studio/server/router.js'
 
 function listen(srv: Server): Promise<number> {
   return new Promise((resolve) => {
@@ -92,6 +92,33 @@ describe('E2: route schema 单点声明', () => {
     expect((await resp.json()) as Record<string, unknown>).toEqual({ name: '__proto__', n: 1 })
     expect(({} as Record<string, unknown>)['polluted']).toBeUndefined()
     srv.close()
+  })
+
+  it('重评2-P3-③：注册表按路由表隔离——第二实例 reset/注册不清空第一实例视图', () => {
+    // 模拟同进程双 startServer：各自 createRouteTable + withRouteTable 建路由
+    // （buildRoutes 形态：reset 在 withRouteTable 外、注册在表内——index.ts 口径）
+    const t1 = createRouteTable()
+    const t2 = createRouteTable()
+    withRouteTable(t1, () =>
+      defineRoute('re2.inst1', { method: 'GET', path: '/re2/inst1', handler: async () => {} }),
+    )
+    withRouteTable(t2, () => {
+      resetRouteSchemas() // 第二实例建表前的既有 reset 调用（修前会清空第一实例注册视图）
+      defineRoute('re2.inst2', { method: 'GET', path: '/re2/inst2', handler: async () => {} })
+    })
+    // 第一实例：自己的 schema 仍可查、第二实例的不可见、同表重复声明仍拒绝
+    withRouteTable(t1, () => {
+      expect(getRouteSchema('re2.inst1')).not.toBeNull()
+      expect(getRouteSchema('re2.inst2')).toBeNull()
+      expect(() =>
+        defineRoute('re2.inst1', { method: 'GET', path: '/re2/dup', handler: async () => {} }),
+      ).toThrow('route 重复声明')
+    })
+    // 第二实例：对称成立
+    withRouteTable(t2, () => {
+      expect(getRouteSchema('re2.inst2')).not.toBeNull()
+      expect(getRouteSchema('re2.inst1')).toBeNull()
+    })
   })
 
   it('AA-P3-10: 路径参数损坏 % 编码 → 400 统一信封（不再 500）', async () => {

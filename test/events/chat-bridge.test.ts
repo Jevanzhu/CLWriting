@@ -208,6 +208,29 @@ describe('F1-P1 SessionRecorder', () => {
   })
 })
 
+// 重评-P3-2（2026-09-09 全量代码重评）：内存模式（store=null，openStore 失败降级）
+// flush 早退原先不清 pending/pendingSurfaceIdx——add 持续 push、整场事件滞留内存
+describe('重评-P3-2：内存模式 flush 清批内累积', () => {
+  it('store=null：add→flush → 批内累积清空，flush 恒 null，close 不受影响', () => {
+    const rec = new SessionRecorder(null, 'mem-sid')
+    rec.add(userMessageEvent('u1'))
+    rec.add(assistantMessageEvent('a1'))
+    expect(rec.flush()).toBeNull()
+    // 断言内部态（类未暴露公开观测面）：批内累积两数组同步清空
+    const inner = rec as unknown as { pending: NewEvent[]; pendingSurfaceIdx: number[] }
+    expect(inner.pending).toHaveLength(0)
+    expect(inner.pendingSurfaceIdx).toHaveLength(0)
+    // 持续录制不滞留：再一轮 add→flush 后仍为空
+    rec.add(userMessageEvent('u2'))
+    expect(rec.flush()).toBeNull()
+    expect(inner.pending).toHaveLength(0)
+    expect(inner.pendingSurfaceIdx).toHaveLength(0)
+    // 内存模式 close 照常返回 null（session/end 入批即被清，不落库不抛）
+    expect(rec.close('interrupted')).toBeNull()
+    expect(inner.pending).toHaveLength(0)
+  })
+})
+
 
 // ── R62-10/R62-11（第六十二轮）──────────────────────────
 

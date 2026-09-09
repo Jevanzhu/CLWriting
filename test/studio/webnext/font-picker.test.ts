@@ -282,4 +282,14 @@ describe('R8C-F3: FontPicker win 自绘浮层键盘导航', () => {
     await pressKey('3') // fon3 无前缀命中 → 原位
     expect(activeItem().id.endsWith('-opt-3')).toBe(true)
   })
+
+  it('IME 组合期 Esc 让渡不关闭（R50-D1-1）；松开组合后 Esc 正常收菜单', async () => {
+    // dev 线重评-P2-2 同题用例随 win←dev 合并移植（契约并至 R8C-F3 版）
+    wrapper = mount(FontPicker, { props: PROPS })
+    await wrapper.find('button.font-picker').trigger('click')
+    await pressKey('Escape', { isComposing: true })
+    expect(menuVisible()).toBe(true) // 组合期收候选的 Esc 不连带关下拉
+    await pressKey('Escape')
+    expect(menuVisible()).toBe(false)
+  })
 })

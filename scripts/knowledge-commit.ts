@@ -20,7 +20,17 @@ if (!target) {
 }
 const flag = (name: string): string | undefined => {
   const i = argv.indexOf(name)
-  return i >= 0 ? argv[i + 1] : undefined
+  if (i < 0) return undefined
+  // 重评-P3-23（2026-09-09 全量代码重评）：值缺失或以 `--` 开头 = 吞了下一个 flag 名——
+  // `--source-ref --note "x"` 此前把 `--note` 当 sourceRef 静默写进 manifest；按缺参
+  // 处理，走同款「用法 + 退出码 1」参数错误出口（在触达 manifest 前退出，零落盘）
+  const v = argv[i + 1]
+  if (v === undefined || v.startsWith('--')) {
+    console.error(`参数错误：${name} 缺少值（不能省略或以 -- 开头）`)
+    console.error('用法：npm run knowledge:commit -- <知识层/定稿文件.md> [--source-ref …] [--note "…"]')
+    process.exit(1)
+  }
+  return v
 }
 
 const report = commitKnowledgeFile(root, {

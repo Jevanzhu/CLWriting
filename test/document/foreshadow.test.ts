@@ -92,6 +92,20 @@ describe('readForeshadows', () => {
     const list = readForeshadows(root)
     expect(list[0]!.关联词).toEqual(['佩剑', '玉佩', '剑穗'])
   })
+
+  // 重评-P3-20（2026-09-09 全量代码重评）：数组值逐项直采不劈分——旧 String(数组) 拼接
+  // 后劈分把含逗号项拆碎（["悬疑,推理","玉佩"] → 三项），与标题回落整词口径不对称
+  test('重评-P3-20: 数组关联词的含逗号项整项保留', () => {
+    writeForeshadow('数组词表', { 关联词: '["悬疑,推理", 玉佩]' })
+    const list = readForeshadows(root)
+    expect(list[0]!.关联词).toEqual(['悬疑,推理', '玉佩'])
+  })
+
+  test('重评-P3-20: 标量关联词维持逗号劈分（裸标量存量兼容）', () => {
+    writeForeshadow('标量词表', { 关联词: '佩剑，玉佩' })
+    const list = readForeshadows(root)
+    expect(list[0]!.关联词).toEqual(['佩剑', '玉佩'])
+  })
 })
 
 describe('scanForeshadowTrails', () => {
@@ -287,6 +301,25 @@ describe('migrateLegacyForeshadows', () => {
     expect(list[0]!.状态).toBe('未回收') // 进行中 → 未回收
     expect(list[0]!.埋设章号).toBe(1)
     expect(list[0]!.关联词).toEqual(['灭门真凶'])
+  })
+
+  // 重评-P3-20（2026-09-09 全量代码重评）：含逗号标题的关联词改数组单项承载
+  // （stringifyValue([title])）→ 读回整词不劈分，迁移链往返自洽
+  test('重评-P3-20: 含逗号标题迁移 → 关联词数组单项，读回整词（往返自洽）', () => {
+    const oldDir = join(root, '大纲', '伏笔')
+    mkdirSync(oldDir, { recursive: true })
+    writeFileSync(
+      join(oldDir, '伏笔-031-铜锁钥匙.md'),
+      '---\n编号: 伏笔-031\n标题: 铜锁,钥匙\n类型: 伏笔\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n\n- 第001章 埋下：焦痕\n',
+      'utf-8',
+    )
+
+    const r = migrateLegacyForeshadows(root)
+    expect(r.migrated).toBe(1)
+    const list = readForeshadows(root)
+    expect(list).toHaveLength(1)
+    expect(list[0]!.标题).toBe('铜锁,钥匙')
+    expect(list[0]!.关联词).toEqual(['铜锁,钥匙']) // 数组单项承载：整词不被劈分
   })
 
   test('幂等：二次调用 no-op（旧文件已删）', () => {

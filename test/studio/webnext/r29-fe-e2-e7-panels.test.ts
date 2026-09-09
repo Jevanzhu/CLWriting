@@ -124,10 +124,9 @@ describe('E-2: SearchPanel.open 在途切书 → 跳过 openTab', () => {
     await w.find('input').trigger('keydown.enter')
     await flushPromises()
     await w.find('.result').trigger('click')
-    // 两轮泵：doc.open 链上有 crypto.subtle.digest（宿主异步边界），单轮 flushPromises 不够
-    await flushPromises()
-    await flushPromises()
-    expect(ws.activeDocId).toBe('d1')
+    // 重评修复批（2026-09-09）：doc.open 链上的 crypto.subtle.digest 走真实线程池，
+    // 定值两轮泵在负载下欠泵（偶发 activeDocId 未落）——改轮询等待，越泵即断言成立
+    await vi.waitFor(() => expect(ws.activeDocId).toBe('d1'))
     w.unmount()
   })
 })
@@ -237,6 +236,7 @@ describe('重审-G17: ChapterTreePanel 切书挂起期点树 → onSelect 前置
     // R9-P2-6：开链含 crypto.subtle.digest（libuv 线程池 → 宏任务回复），flushPromises
     // 只泵微任务——并行负载下 digest 回复晚于两轮泵即断言失败（全量跑偶发红，隔离恒绿）。
     // 改轮询判定等 activeDocId 落定（到点未落定仍红，断言语义不弱化）。
+    // （win←dev 合并：dev 侧同题 vi.waitFor 写法随批并回 waitFor 单源口径）
     await waitFor(() => ws.activeDocId === 'd1')
     w.unmount()
   })

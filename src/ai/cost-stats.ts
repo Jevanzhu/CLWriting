@@ -19,10 +19,11 @@
  * 重建」守则的口径差以此声明（预算闸侧 ai-calls.json 调用时即落 cost，不受影响）；
  * 在 llm/call 事件随记 pricing 指纹（版本/单价）属后续增强。
  */
-import { openSessionStoreAsync, bookHash } from '../events/store.js'
-import type { LlmCallData } from '../events/types.js'
 import { resolveModelPricing, computeCallCost } from './pricing.js'
-import { localDayKey } from '../log/index.js'
+// 重评2-P3-2（2026-09-09 全量重评 GLM-5.3，AI 域 P3-③）：读侧单源化——原私有
+// readLlmCalls 与 trace-stats 同构（开库/type 下推/投影/静默容错四处抄写），收敛至
+// llm-call-read.ts 单源；本模块口径 = skipMissingUsage: true（Q-12：无 usage 行跳过）
+import { readLlmCallRows, type LlmCallReadRow } from './llm-call-read.js'
 
 /** 单维度聚合条目 */
 export interface CostBucket {
@@ -44,57 +45,12 @@ export interface CostStats {
   unpricedModels: string[]
 }
 
-interface CallEntry {
-  task: string
-  model: string
-  chapter?: number
-  usageIn: number
-  usageOut: number
-  cacheRead?: number
-  cacheWrite?: number
-  day: string
-}
-
-/** 从事件库读 llm/call（与 trace-stats 同源同容错；观测层失败静默 → []）
- *  R34D-19（三十四轮）：转 async——开库走 openSessionStoreAsync（首开锁等待不阻塞
- *  服务事件循环），aggregateCost 随迁异步（端点/测试调用方 await）。 */
-async function readLlmCalls(userDataPath: string | null | undefined, bookRoot: string): Promise<CallEntry[]> {
-  if (!userDataPath) return []
-  try {
-    const store = await openSessionStoreAsync(userDataPath, bookRoot)
-    if (!store) return []
-    try {
-      // B1（2026-08-24 内存闸）：type SQL 下推（同 trace-stats——只取 llm/call 行）
-      // PM-10（2026-09-05 性能专项）核查：成本聚合须折算全部 llm/call 行（预算闸口径按
-      // 全量账目算），全量语义必需、无尾读空间（type 已 SQL 下推，对话正文不再陪载）
-      const events = store.listEvents(bookHash(bookRoot), undefined, undefined, 'llm/call')
-      const out: CallEntry[] = []
-      for (const e of events) {
-        const d = e.data as unknown as LlmCallData
-        // Q-12（第十五轮）：判跳改看 usage 而非 ok——失败调用可携真实 usage（O-5 边界中断
-        // 入账等），按 ok 剔除会让报表系统性低于预算闸口径/真实账单；失败且无 usage（多数
-        // 失败响应客观不可得）仍跳过。带 usage 的失败调用按真实消耗折算，与预算闸对齐
-        if (d.usage == null) continue
-        out.push({
-          task: d.task,
-          model: d.model,
-          ...(typeof d.chapter === 'number' ? { chapter: d.chapter } : {}),
-          usageIn: d.usage?.input ?? 0,
-          usageOut: d.usage?.output ?? 0,
-          ...(d.usage?.cacheRead !== undefined ? { cacheRead: d.usage.cacheRead } : {}),
-          ...(d.usage?.cacheWrite !== undefined ? { cacheWrite: d.usage.cacheWrite } : {}),
-          // M2（二轮复审）：本地日分桶（与日志文件日同口径；此前 UTC 切日，东八区 0-8 点记前一日）
-          day: localDayKey(e.createdAt),
-        })
-      }
-      return out
-    } finally {
-      store.close()
-    }
-  } catch {
-    return []
-  }
-}
+/**
+ * 重评2-P3-2：行类型随读侧单源化收敛为 LlmCallReadRow（原私有 CallEntry 与单源
+ * 投影字段重合——task/model/chapter?/usageIn/usageOut/cacheRead?/cacheWrite?/day；
+ * ok/durationMs/attempt 为 trace 侧同源字段，本模块不消费）。
+ */
+type CallEntry = LlmCallReadRow
 
 function bump(map: Record<string, CostBucket>, key: string, cost: number): void {
   const b = map[key] ?? { cost: 0, calls: 0 }
@@ -105,7 +61,9 @@ function bump(map: Record<string, CostBucket>, key: string, cost: number): void 
 
 /** 聚合成本（无事件或全书无价格 → enabled:false 的空壳） */
 export async function aggregateCost(userDataPath: string | null | undefined, bookRoot: string): Promise<CostStats> {
-  const entries = await readLlmCalls(userDataPath, bookRoot)
+  // 重评2-P3-2：读侧走 llm-call-read 单源；skipMissingUsage: true 即原 Q-12 口径
+  //（失败调用可携真实 usage 入账，失败且无 usage 才跳过——报表不系统性低于预算闸）
+  const entries: CallEntry[] = await readLlmCallRows(userDataPath, bookRoot, { skipMissingUsage: true })
   const stats: CostStats = { enabled: false, total: 0, byDay: {}, byTask: {}, byChapter: {}, unpricedModels: [] }
   if (entries.length === 0) return stats
 

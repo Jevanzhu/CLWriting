@@ -231,9 +231,25 @@ if (!gotSingleInstanceLock) {
     const workDir = currentWorkDir() // M-3（第八轮）：bootstrap 实际值优先
     const ref = initialBookArgvOnly(argv)
     if (workDir && ref && mainWindow && !mainWindow.isDestroyed()) {
-      const name = resolveInitialBook(workDir, ref)
-      if (name) mainWindow.webContents.send('desktop:navigate', `/book/${encodeURIComponent(name)}`)
-      else log.info('main', `second-instance 带 --book=${ref}，但书库内无此登记书——已忽略直达`) // P3：忽略留痕
+      // 重评-P3-11（2026-09-09 全量代码重评）：resolveInitialBook→readBooks 同步扫书库，
+      // 书库在失联网络卷时冻主进程数秒（R54-A-2/重审-2 同族防线补齐此入口）——预探
+      // 先行，'unreachable' log 留痕 + 忽略 book 引用（同族「无物可开」收口口径，
+      // 不弹框打断前台应用）；聚焦不受预探影响，保持尾部同步执行。
+      void (async () => {
+        if ((await probeDirReachable(workDir)) === 'unreachable') {
+          log.warn('main', `second-instance 带 --book=${ref}，但书库目录暂不可达（可能是网络卷无响应或已断开）——已忽略直达`)
+          return
+        }
+        const name = resolveInitialBook(workDir, ref)
+        if (!name) {
+          log.info('main', `second-instance 带 --book=${ref}，但书库内无此登记书——已忽略直达`) // P3：忽略留痕
+          return
+        }
+        // 预探 await 期间窗口可能已关：导航前重验存活（同 open-book 的 isDestroyed 守卫）
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('desktop:navigate', `/book/${encodeURIComponent(name)}`)
+        }
+      })()
     } else if (ref) {
       // P3（打包修复批）：启动早期（bootstrappedWorkDir 未就绪/无持久化 current）或
       // 主窗不可用时原路径静默吞掉 --book——留痕含被忽略的值，双开排查不再靠猜
@@ -1902,6 +1918,16 @@ if (gotSingleInstanceLock) {
     if (quitFlushInFlight || bootstrapRunner.shuttingDown) return
     quitFlushInFlight = true
     void (async () => {
+      // 重评2-P2-3（2026-09-09 全量重评 GLM-5.3）修复：quit 链补存窗口状态——根因：
+      // 本链收口 destroy() 全窗（下方 finally）不触发 'close' 事件（Electron 语义），
+      // close 拦截首行的 saveWinState 在本链不达；而 Cmd+Q / win 菜单退出 / 崩溃风暴
+      // 对话框退出 / 切库 relaunch（relaunch() → app.quit）全汇入本链——退出前的窗口
+      // 几何变更随退出静默丢失（session-end 链已有 R40-29 同款补存）。补点在链首：
+      // 窗口仍存活、任何 flush/确认/destroy 之前；saveWinState 内部已吞错、幂等
+      // （close/session-end 链已存时重写同值），冲突/失败确认取消退出路径多存一次
+      // 当前几何亦无副作用。quitViaShutdown 早退分支不另补——该旗只在下方 IIFE 内
+      // 置位（补点之后），二次进 quit 链时状态已存过、窗口已销毁。
+      saveWinState()
       try {
         const win = mainWindow
         if (win && !win.isDestroyed()) {

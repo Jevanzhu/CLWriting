@@ -12,7 +12,7 @@ import { readBookConfig } from '../format/yaml.js'
 import { applyGlobalDefaults } from '../format/global-defaults.js'
 import { readDraft } from '../format/draft.js'
 import { rebuild } from '../cache/rebuild.js'
-import { runAllChecks, hasRed, enabledLeadTypes, promoteStrictShort } from './runner.js'
+import { runAllChecks, hasRed, enabledLeadTypes, effectiveShort, promoteStrictShort } from './runner.js'
 import { outlineDeclarationForChapter, scanOutlineDeclarationMemo, type OutlineDeclaration } from './outline-leads.js'
 import {
   leadEvidenceMatchesBody,
@@ -123,8 +123,10 @@ export function runCheckForDocument(
         ],
       })
       // R51-E-N2（五十一轮）：后置推入不过 runner 的报告内升红路径——严格短篇下
-      // degraded 族同升红（「配置降级、机检未按书级口径跑」不可绿灯过定稿闸）
-      if (config.short?.strict === true) promoteStrictShort(outcome.report.sections.slice(-1))
+      // degraded 族同升红（「配置降级、机检未按书级口径跑」不可绿灯过定稿闸）。
+      // 重评-P2-4（2026-09-09 全量代码重评）：strict 生效判定改走 effectiveShort
+      // （kind==='short' 门控）——长篇误写 short 段不再升红，与 runner 报告内路径同源。
+      if (effectiveShort(config)?.strict) promoteStrictShort(outcome.report.sections.slice(-1))
     }
     return outcome
   } finally {
@@ -338,8 +340,9 @@ export function checkWithDb(
           },
         ],
       })
-      // R51-E-N2（五十一轮）：unreadable 族后置推入同升红（严格短篇，口径同上）
-      if (config.short?.strict === true) promoteStrictShort(report.sections.slice(-1))
+      // R51-E-N2（五十一轮）：unreadable 族后置推入同升红（严格短篇，口径同上——
+      // 重评-P2-4：effectiveShort 门控，长篇误写 short 段不升红）
+      if (effectiveShort(config)?.strict) promoteStrictShort(report.sections.slice(-1))
     }
     // R33D-14（三十三轮）：声明侧读失败的黄项降级（对齐兑现侧 R31-3 fail-noisy 口径）
     // ——known:false 且 reason='read-failed' 时本章两端闭合同样被跳过，此前零留痕；
@@ -356,8 +359,9 @@ export function checkWithDb(
           },
         ],
       })
-      // R51-E-N2（五十一轮）：unreadable 族后置推入同升红（严格短篇，口径同上）
-      if (config.short?.strict === true) promoteStrictShort(report.sections.slice(-1))
+      // R51-E-N2（五十一轮）：unreadable 族后置推入同升红（严格短篇，口径同上——
+      // 重评-P2-4：effectiveShort 门控，长篇误写 short 段不升红）
+      if (effectiveShort(config)?.strict) promoteStrictShort(report.sections.slice(-1))
     }
     return { ok: true, report, hasRed: hasRed(report), chapter: draft.chapter, body: draft.body }
   } catch (e) {

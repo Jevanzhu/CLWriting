@@ -31,6 +31,10 @@ export interface ExportResponse {
   chapterCount?: number
   unit?: string
   files?: string[]
+  /** 清偿-导出未过滤提示（2026-09-09 残留清偿批）：定稿过滤标记（服务端信封透传）——
+   *  'skipped-no-manifest' = 定稿清单缺失，本次导出未按定稿过滤（结果含未定稿章），
+   *  ExportDialog 据此补 warning toast；'applied' = 已按定稿清单过滤（前端免提示） */
+  finalizedFilter?: 'applied' | 'skipped-no-manifest'
 }
 
 export async function exportBook(

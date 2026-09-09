@@ -170,10 +170,12 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
     const body = await readJson(req)
     const step = String(body['step'] ?? '') as OnboardStep
     if (!Object.hasOwn(STEP_PATH, step)) return replyError(res, 400, 'BAD_INPUT', `step 不支持:${step}`)
+    // 重评2-P3-⑤b（2026-09-09 全量重评 GLM-5.3）：下两行原多缩一层（R48-20 随批引入的
+    // 纯格式异常）——收回与相邻语句对齐，零行为变更。
     // R48-20（四十八轮）：空 content 校验——content 缺失/空串此前静默清空设定文件并
     // 返回 200 假成功；对齐 draft.ts 保存端点先例（400 BAD_INPUT）
-      const content = canonicalizeText(typeof body['content'] === 'string' ? body['content'] : '')
-      if (!content.trim()) return replyError(res, 400, 'BAD_INPUT', 'content 为空')
+    const content = canonicalizeText(typeof body['content'] === 'string' ? body['content'] : '')
+    if (!content.trim()) return replyError(res, 400, 'BAD_INPUT', 'content 为空')
     const bookRoot = r.bookRoot
     const relPath = STEP_PATH[step]
     // R69-26（十七轮）：并发闸——与 onboard-ai（:85）互斥面缺失：双窗口同 step 保存

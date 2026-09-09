@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, watch, nextTick } from 'vue'
 import { useDocStore } from './doc'
 import { usePrefsStore } from './prefs'
+import { useUiStore } from './ui'
 import { getBookPrefs, putBookPrefs, type BookPrefs } from '../api/prefs'
 import { setFullScreen } from '../shared/fullscreen'
 
@@ -238,7 +239,26 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     activeView.value = 'editor'
     if (activeDocId.value && activeDocId.value !== docId) {
       const doc = useDocStore()
-      if (doc.get(activeDocId.value)?.dirty) void doc.save(activeDocId.value, 'autosave')
+      if (doc.get(activeDocId.value)?.dirty) {
+        // 清偿-切换autosave失败可见化（2026-09-09 残留清偿批）：fire-and-forget 存旧文档
+        // 失败零 UI 面（save 吞错以 resolved false 上报，被 void 丢弃；编辑器状态条已随
+        // 切文档离屏）。失败是异步迟到态：不抛错不打断切换（activeDocId 已先行更新）；
+        // 入口书名快照守卫防在途切书后迟到失败提示落新书界面（对齐 doc.save P5 /
+        // R69-28 同款纪律）。dirty 标志与崩溃镜像兜底均在（doc.save 失败路径自持），
+        // 此处仅可见化。
+        const bookAtEntry = bookName.value
+        const notify = (): void => {
+          if (bookName.value === bookAtEntry) {
+            useUiStore().toast('切换文档时自动保存失败，未保存内容仍保留', 'warning')
+          }
+        }
+        void doc.save(activeDocId.value, 'autosave').then(
+          (ok) => {
+            if (ok === false) notify()
+          },
+          notify, // 契约外 reject（save 正常吞错不拒）也可见化，且不产生 unhandled rejection
+        )
+      }
     }
     activeDocId.value = docId
   }

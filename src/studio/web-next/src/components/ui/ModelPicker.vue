@@ -4,7 +4,7 @@
  * 从「获取模型列表」探测结果勾选采纳——勾选集 picked 由父层持有（采纳/去重逻辑在父）。
  */
 import { X, Check } from 'lucide-vue-next'
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { isImeComposing } from '../../shared/ime'
 import { useFocusTrap } from '../../composables/useFocusTrap'
 
@@ -20,6 +20,14 @@ const emit = defineEmits<{
   close: []
   adopt: []
 }>()
+
+// 重评2-P3-3（2026-09-09 全量重评 GLM-5.3）：候选清单渲染上限——探测返回的模型清单
+// 无条数约束，全量 v-for 挂 DOM 会线性膨胀。对齐 CommandPalette/ChapterTreeItem/
+// RewritePanel 的 RENDER_CAP=100 域内惯例：数据面不动（props.candidates 原样、父层
+// picked 集与「添加 N 个」计数仍按全量），仅渲染截断 + 尾部省略计数提示行。
+const RENDER_CAP = 100
+const shownCandidates = computed(() => props.candidates.slice(0, RENDER_CAP))
+const omittedCount = computed(() => Math.max(0, props.candidates.length - RENDER_CAP))
 
 // R37-36（三十七轮批E）：弹层内按 Esc 关闭自身且不外溢——原无任何 Esc 处理，按键直穿
 // 到 window 层的外层 Esc 链（useHotkeys 退专注/SettingsModal 关设置），内层未关外层
@@ -53,10 +61,12 @@ useFocusTrap(modalRef)
           <button class="close-btn" @click="emit('close')"><X :size="15" /></button>
         </div>
         <div class="picker-list">
-          <label v-for="c in candidates" :key="c" class="picker-item">
+          <label v-for="c in shownCandidates" :key="c" class="picker-item">
             <input type="checkbox" :checked="picked.has(c)" @change="emit('toggle', c)" />
             <span>{{ c }}</span>
           </label>
+          <!-- 重评2-P3-3：RENDER_CAP 截断提示行（与 ChapterTreeItem/CommandPalette 尾部省略行同语义） -->
+          <div v-if="omittedCount > 0" class="cap-hint">… 其余 {{ omittedCount }} 项未渲染</div>
         </div>
         <div class="picker-actions">
           <button class="cancel-btn" @click="emit('close')">取消</button>
@@ -141,6 +151,13 @@ useFocusTrap(modalRef)
 }
 .picker-item:hover {
   background: var(--background-modifier-hover);
+}
+/* 重评2-P3-3：渲染上限省略提示行——纯展示弱化色（对齐 ChapterTreeItem/CommandPalette cap-hint 口径） */
+.cap-hint {
+  padding: 2px 8px;
+  font-size: var(--font-size-xxs);
+  color: var(--text-faint);
+  font-style: italic;
 }
 .picker-actions {
   display: flex;

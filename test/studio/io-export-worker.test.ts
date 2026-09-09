@@ -74,10 +74,13 @@ describe('B-24: /export 经 worker 线程执行（真实 worker 往返）', () =
   it('有定稿正文 → 200 域形状（chapterCount/unit/files，worker 内核执行）', async () => {
     const r = await req('POST', `/api/books/${encodeURIComponent(BOOK_OK)}/export`, { format: 'merged' })
     expect(r.status).toBe(200)
-    const body = r.json as { ok: boolean; chapterCount?: number; unit?: string }
+    const body = r.json as { ok: boolean; chapterCount?: number; unit?: string; finalizedFilter?: string }
     expect(body.ok).toBe(true)
     expect(body.chapterCount).toBe(1)
     expect(body.unit).toBe('章')
+    // 清偿-导出未过滤提示（2026-09-09 残留清偿批）：信封透传过滤标记（fixture 无清单
+    // → skipped-no-manifest，前端据此明示含未定稿章）
+    expect(body.finalizedFilter).toBe('skipped-no-manifest')
   })
 
   it('B-23: 无定稿正文 → 422 EXPORT_FAILED 错误信封（原 200 {ok:false} 豁免点收口）', async () => {

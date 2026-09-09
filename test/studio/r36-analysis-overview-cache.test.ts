@@ -14,6 +14,12 @@
  *
  * R44-10（四十四轮）适配：getAnalysisOverviewCached 同步转 async（MISS 计算体
  * 分批让出），调用点补 await；两级探针与失效语义不变。
+ *
+ * 重评2-P3-④（2026-09-09 全量重评 GLM-5.3）适配：analysisOverviewProbe 纳入
+ * TTL 节流（补齐 snapshots.ts R44-9① 只落一侧的不对称）——TTL 窗内的信封变化
+ * 从「下次调用即时失效」收敛为「TTL 到期重探后失效（≤5s）」，与就地内容改写的
+ * 既有兜底窗口一致（记档见 api/analysis.ts 重评2-P3-④ 注）；forgetAnalysisOverviewCache
+ * 显式失效不受节流影响。下方「直写盘重写/新增信封/style 落盘」三用例按节流语义更新。
  */
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -73,30 +79,42 @@ describe('R36-7 analysis-overview 缓存', () => {
     expect(r2).toEqual(r1)
   })
 
-  it('直写盘重写既有信封 → mtime 探针即时失效：下次调用重算见新值（不依赖写侧挂点）', async () => {
+  it('直写盘重写既有信封：TTL 窗内探针节流命中旧值；TTL 到期重探重算见新值（不依赖写侧挂点）', async () => {
     const { root, docId1 } = makeBook()
     __setAnalysisOverviewTtlForTest(60_000)
     const before = await getAnalysisOverviewCached(root)
     expect(before.scoreTrend.find((t) => t.章号 === 1)?.score).toBe(8)
     // 直写盘（不走 analyze POST 失效挂点）重写章 1 score——模拟低-5 测试同类直写面
-    await sleep(5) // 让 mtime 跨过同毫秒档，探针必然失配
+    await sleep(5) // 让 mtime 跨过同毫秒档，重探时探针必然失配
     writeAnalysis(root, docId1, 'score', env({ score: 3, dims: { 爽点: 3 } }))
+    // 重评2-P3-④：探针纳入 TTL 节流——窗内命中不重算（即时失效收敛为 ≤TTL 窗，头注记档）
+    const throttled = await getAnalysisOverviewCached(root)
+    expect(__analysisOverviewScanCountForTest()).toBe(1)
+    expect(throttled.scoreTrend.find((t) => t.章号 === 1)?.score).toBe(8)
+    // TTL 到期 → 必须重新探 → 指纹失配 → 重算见新值
+    __setAnalysisOverviewTtlForTest(0)
     const after = await getAnalysisOverviewCached(root)
     expect(__analysisOverviewScanCountForTest()).toBe(2) // 探针失配 → 重算
     expect(after.scoreTrend.find((t) => t.章号 === 1)?.score).toBe(3)
   })
 
-  it('新增信封（新章分析落盘）→ 探针即时失效重算，趋势增多；forget 同效', async () => {
+  it('新增信封（新章分析落盘）：TTL 窗内节流命中；TTL 到期重探失效，趋势增多；forget 显式失效同效', async () => {
     const { root, docId1 } = makeBook()
     __setAnalysisOverviewTtlForTest(60_000)
     const before = await getAnalysisOverviewCached(root)
     expect(before.hooksTrend).toHaveLength(0)
     await sleep(5)
     writeAnalysis(root, docId1, 'hooks', env({ hooks: ['危机钩'], density: '中' }))
+    // 重评2-P3-④：TTL 窗内探针节流命中（不重算）
+    const throttled = await getAnalysisOverviewCached(root)
+    expect(__analysisOverviewScanCountForTest()).toBe(1)
+    expect(throttled.hooksTrend).toHaveLength(0)
+    // TTL 到期 → 重探 → 分析目录 mtime 变 → 重算
+    __setAnalysisOverviewTtlForTest(0)
     const after = await getAnalysisOverviewCached(root)
     expect(__analysisOverviewScanCountForTest()).toBe(2)
     expect(after.hooksTrend).toHaveLength(1)
-    // forget 显式失效挂点同效
+    // forget 显式失效挂点同效（不走探针，不受节流影响）
     forgetAnalysisOverviewCache(root)
     await getAnalysisOverviewCached(root)
     expect(__analysisOverviewScanCountForTest()).toBe(3)
@@ -115,7 +133,7 @@ describe('R36-7 analysis-overview 缓存', () => {
     expect(__analysisOverviewScanCountForTest()).toBe(2)
   })
 
-  it('style 全书信封参与读面：落盘后下次重算可见，命中时沿用旧值', async () => {
+  it('style 全书信封参与读面：TTL 窗内节流命中旧值；TTL 到期重探重算可见', async () => {
     const { root } = makeBook()
     const { writeBookAnalysisAsync } = await import('../../src/document/analysis.js')
     __setAnalysisOverviewTtlForTest(60_000)
@@ -123,8 +141,14 @@ describe('R36-7 analysis-overview 缓存', () => {
     expect(before.style).toBeNull()
     await sleep(5)
     await writeBookAnalysisAsync(root, 'style', env({ 口癖: ['嗯'] }))
+    // 重评2-P3-④：TTL 窗内探针节流命中（__book__.json 虽属探针读面，重探才可见）
+    const throttled = await getAnalysisOverviewCached(root)
+    expect(__analysisOverviewScanCountForTest()).toBe(1)
+    expect(throttled.style).toBeNull()
+    // TTL 到期 → 重探 → 分析目录 mtime 变 → 重算见新值
+    __setAnalysisOverviewTtlForTest(0)
     const after = await getAnalysisOverviewCached(root)
-    expect(__analysisOverviewScanCountForTest()).toBe(2) // __book__.json 属于探针读面
+    expect(__analysisOverviewScanCountForTest()).toBe(2)
     expect((after.style as { 口癖?: string[] })?.口癖).toEqual(['嗯'])
   })
 })

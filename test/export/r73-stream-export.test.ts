@@ -141,6 +141,8 @@ test('R28-16: 无定稿清单兜底 → 不再误称「有定稿章」，改报�
     expect(r.error).toContain('正文区 1 章')
     expect(r.error).toContain('正文全部为空或读取失败')
     expect(r.error).not.toContain('有定稿章')
+    // 清偿-导出未过滤提示（2026-09-09 残留清偿批）：无清单路径失败信封同带标记
+    expect(r.finalizedFilter).toBe('skipped-no-manifest')
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

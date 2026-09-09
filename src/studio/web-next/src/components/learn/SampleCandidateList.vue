@@ -61,6 +61,8 @@ const sampleGroups = computed(() => {
 // 默认渲染前 50 条，超出「显示剩余 N 条」按需展开（勾选/统计/全选仍面向全量 items，
 // 仅渲染面截断——大书收割数千候选时 DOM 不失控）。
 const GROUP_RENDER_CAP = 50
+// 口径互引（重评-P3-17）：此处直接依赖 Vue 3 对 Set.add 的响应式插桩（无需重赋值）；
+// ChatMessages.vue 的重赋值写法属防御性惯例，非响应性必需
 const expandedGroups = ref(new Set<string>())
 function visibleItems(g: { 场景: string; items: KeyedSample[] }): KeyedSample[] {
   if (expandedGroups.value.has(g.场景) || g.items.length <= GROUP_RENDER_CAP) return g.items
