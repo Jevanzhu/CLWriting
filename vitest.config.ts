@@ -138,6 +138,14 @@ export default defineConfig({
         // 总览 R29-12）。原聚合桶 glob/阈值维持不动，沿用「匹配多桶的文件须过所有桶」
         // 语义：stores 文件同过域级基线门 + 聚合防回退门，两不误。
         'src/studio/web-next/src/stores/**': { lines: 89, branches: 88 },
+        // R0910-W（2026-09-10）：composables 单列子桶——聚合桶 lines 门仅 43，远低于
+        // 本域实测 84.13，composables 整体腰斩在聚合均值里对门不可见（既有 useChapterTreeActions
+        // 72.31 / useRelationGraph 73.52 / useShelf 79.32 三处低覆盖被 43% 门放过）。
+        // 与 stores 子桶同语义：匹配多桶的文件须过所有桶，域级基线门 + 聚合防回退门叠加。
+        // 阈值 = coverage/coverage-summary.json 全量实测基线 −2pp 向下取整（同仓内规则）：
+        // 2026-09-10 实测 lines 1823/2167 = 84.13 · branches 662/791 = 83.69
+        // → lines 82 / branches 81。只防回退不追高；聚合桶 glob/阈值维持不动（无风险）。
+        'src/studio/web-next/src/composables/**': { lines: 82, branches: 81 },
       },
     },
   },

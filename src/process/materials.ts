@@ -15,7 +15,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { walkMdFind } from '../fs/walk-md.js'
+import { walkMdEach } from '../fs/walk-md.js'
 import { readFile } from '../format/frontmatter.js'
 import { chapterNamePrefixes } from '../format/chapters.js'
 import { readChapterScenes, readDeclaredChapterScenes } from './draft-pipeline.js'
@@ -33,15 +33,20 @@ import type { BookConfig } from '../format/types.js'
 /**
  * 取召回命中对应的原文片段（精准读取定稿正文，按偏移切片）。
  * 账本不走这里——召回只补正文（#37 红线）。
+ * R0910-W（2026-09-10 修复批）：先收集去重章号、一次遍历解析全部命中章正文——
+ * 原对每个命中调 readChapterBodyByNumber（各自一次全树 walk，topK=5 即最多 5 次
+ * 全树扫描）；改为单次 walkMdEach 命中任一候选前缀即读正文。结果等价：同章号取
+ * 遍历中最先匹配到的可读文件（与逐个 walkMdFind 的首个命中同序），正文切片口径不变。
  */
 function renderRecallHits(bookRoot: string, hits: RecallHit[]): string {
   if (hits.length === 0) return ''
+  const bodies = readChapterBodiesByNumbers(bookRoot, [...new Set(hits.map((h) => h.章号))])
   const lines: string[] = []
   for (const hit of hits) {
     // 命中位置：第 X 章 offset[a,b]
     // 原文精准读取：从 写作/正文/<章号>-<标题>.md 取正文后按偏移切片
-    const body = readChapterBodyByNumber(bookRoot, hit.章号)
-    if (body === null) continue
+    const body = bodies.get(hit.章号)
+    if (body === undefined) continue
     const frag = body.slice(hit.start_offset, hit.end_offset)
     if (frag.trim().length === 0) continue
     lines.push(`【第${hit.章号}章 · 相关度 ${hit.score.toFixed(2)}】\n${frag.trim()}`)
@@ -50,27 +55,30 @@ function renderRecallHits(bookRoot: string, hits: RecallHit[]): string {
 }
 
 /**
- * 按章号精准读取定稿正文（复用 frontmatter.readFile 取 body）。
+ * 按章号集合单次遍历定稿正文目录解析正文（R0910-W）。
  * 前缀口径走 chapterNamePrefixes 单一真相源（CC-P2-21）：无补零 / 3 位 / 4 位补零全试——
  * 草稿新建是 3 位补零，此前只试「无补零 + 4 位」导致这些章 RAG 召回静默返回 null。
+ * 递归扫描含卷子目录（v2 后章节可在 写作/正文/<卷>/ 子目录，非递归会漏，D1）；
+ * 环剪枝 + 根界走共享 walkMdEach（L-P1 第八轮；替换手写递归）。
  */
-function readChapterBodyByNumber(bookRoot: string, chapter: number): string | null {
+function readChapterBodiesByNumbers(bookRoot: string, chapterNumbers: number[]): Map<number, string> {
+  const out = new Map<number, string>()
+  if (chapterNumbers.length === 0) return out
   const bodyDir = join(bookRoot, '写作', '正文')
-  if (!existsSync(bodyDir)) return null
-  return findChapterBodyRecursive(bodyDir, chapterNamePrefixes(chapter))
-}
-
-/** 递归扫描正文目录（含卷子目录），按文件名前缀匹配章号取正文。
- *  v2 后章节可在 写作/正文/<卷>/ 子目录，非递归会漏（D1）。 */
-/** L-P1（第八轮）：走共享 walkMdFind（环剪枝 + 起遍目录根界），替换手写递归 */
-function findChapterBodyRecursive(dir: string, candidates: string[]): string | null {
-  return (
-    walkMdFind(dir, (abs, name) => {
-      if (!candidates.some((p) => name.startsWith(p))) return undefined
+  if (!existsSync(bodyDir)) return out
+  // 文件名前缀 → 章号（同章号多前缀；跨章号前缀互斥，见 chapterNamePrefixes）
+  const wanted = new Map<string, number>()
+  for (const n of chapterNumbers) {
+    for (const p of chapterNamePrefixes(n)) wanted.set(p, n)
+  }
+  walkMdEach(bodyDir, (abs, name) => {
+    for (const [prefix, n] of wanted) {
+      if (out.has(n) || !name.startsWith(prefix)) continue
       const r = readFile(abs)
-      return r.ok ? r.body : undefined
-    }) ?? null
-  )
+      if (r.ok) out.set(n, r.body)
+    }
+  })
+  return out
 }
 
 export interface PrepareMaterialsOptions {

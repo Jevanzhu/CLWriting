@@ -12,13 +12,15 @@
  */
 import { test, expect } from '@playwright/test'
 import http from 'node:http'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { startServer } from '../../src/studio/server/index.js'
 import { makeDualTrackWorkdir } from '../studio/fixtures.js'
 import { e2ePort } from './e2e-ports.js'
 import { attachPageErrorBaseline } from './page-error-baseline.js'
+// R0910-W：临时目录清理走重试封装（Windows 句柄异步收尾的 ENOTEMPTY/EPERM/EBUSY）
+import { rmTempDirRetry } from './tmp-cleanup.js'
 
 // R73-75（批 F-8）：端口基址派生（偏移 4 此前未用；偏移表见 e2e-ports.ts）
 const PORT = e2ePort(4)
@@ -51,8 +53,8 @@ test.beforeAll(async () => {
       }
       // R9-P2-4：listen 失败不留残——对齐 global-setup R27-124 口径：先清本次自建目录 +
       // 还原 env，再上抛（原写法 reject 后 dirs/env 残留在测试进程退出前一直悬空）
-      if (userDataPath) rmSync(userDataPath, { recursive: true, force: true })
-      if (workDir) rmSync(workDir, { recursive: true, force: true })
+      if (userDataPath) rmTempDirRetry(userDataPath)
+      if (workDir) rmTempDirRetry(workDir)
       if (prevDriver === undefined) delete process.env.CLWRITING_DRIVER
       else process.env.CLWRITING_DRIVER = prevDriver
       reject(err)
@@ -65,8 +67,8 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()))
-  if (userDataPath) rmSync(userDataPath, { recursive: true, force: true })
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
+  if (userDataPath) rmTempDirRetry(userDataPath)
+  if (workDir) rmTempDirRetry(workDir)
   if (prevDriver === undefined) delete process.env.CLWRITING_DRIVER
   else process.env.CLWRITING_DRIVER = prevDriver
 })

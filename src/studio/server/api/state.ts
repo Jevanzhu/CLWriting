@@ -19,6 +19,7 @@ import { readBookConfig } from '../../../format/yaml.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { readManifest } from '../../../document/manifest.js'
 import { detectState, routeState, buildRecap, STATE_NAMES } from '../../../state/state.js'
+import { trackInFlightWork } from './in-flight-work.js' // R0910-W：rebuild Worker 退出收尾登记
 import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
 import { log } from '../../../log/index.js'
 
@@ -88,7 +89,7 @@ export function registerStateRoutes(ctx: StateCtx): void {
       // R35-5：detectState 异步化——healMovePending 自愈链的锁等待不再阻塞事件循环
       // R55-B-N（五十五轮）：rebuild 走 worker 通道——大书 index.db 缺失/损坏首进门
       // 的全量重建卸线程，utilityProcess 事件循环不再被同步内核秒级冻结
-      const detected = await detectState(bookRoot, config, manifest, { rebuildChannel: 'worker' })
+      const detected = await trackInFlightWork(detectState(bookRoot, config, manifest, { rebuildChannel: 'worker' }))
       const act = routeState(detected)
       const recap = buildRecap(bookRoot, config, detected, manifest)
       // 下一个该写的章号：态 7→nextChapter；态 4（工作区未完成）→续写那章；其余→recap.nextChapter

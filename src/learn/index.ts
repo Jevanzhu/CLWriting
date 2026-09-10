@@ -135,6 +135,20 @@ export function __setLearnHarvestLockTimeoutForTest(ms: number): void {
   learnHarvestLockTimeoutMs = ms
 }
 
+// R0910-W（2026-09-10 修复批）：候选池有界化——样章/金句候选原随全书合格段持续
+// push，末了才 sort+slice，大书峰值可达数万条 snippet 对象（O(全书)）。现循环内即
+// 保有界 top-N 池：每池容量 = 终取数 ×2，越过即按「最终排序口径」裁剪回终取数
+//（稳定排序等值早入者胜，与全量 sort+slice 逐位一致）；峰值降为 O(1)。
+const SAMPLE_KEEP = 10
+const SAMPLE_POOL_CAP = SAMPLE_KEEP * 2
+const QUOTE_KEEP = 5
+const QUOTE_POOL_CAP = QUOTE_KEEP * 2
+
+/** 样章终排序键：打分降序（稳定 → 等分保 push 序）。循环内裁剪与最终排序共用单源。 */
+const bySampleScore = (a: SampleCandidate, b: SampleCandidate): number => b.打分 - a.打分
+/** 金句终排序键：章号倒序（A5 口径，稳定 → 同章保 push 序）。 */
+const byQuoteChapter = (a: QuoteCandidate, b: QuoteCandidate): number => b.章号 - a.章号
+
 export async function learnFromBook(bookRoot: string): Promise<LearnResult> {
   // 1. 扫描定稿正文
   const bodyDir = join(bookRoot, '写作', '正文')
@@ -170,9 +184,12 @@ export async function learnFromBook(bookRoot: string): Promise<LearnResult> {
   // R-P3-3（评审修复批）：chapterBodies 原把全书正文累积成数组、样章/金句两环各线性
   // 遍历一次——大书收割峰值内存 = 全书正文同驻。两消费环均按章自足（产出互不依赖、
   // 候选数组只增小对象），合并为单遍逐章处理：每章读一次（IO 不变），章内完成样章打分
-  // 与金句提取后正文即可回收，峰值从全书降为单章。产出等价：两候选数组的 push 序
+  // 与金句提取后正文即可回收，正文本体峰值从全书降为单章。产出等价：两候选数组的 push 序
   // （章节升序 × 章内原序）与合并前逐一相同，后续排序/截断口径不变；错误语义不变
   //（readFile 失败/草稿跳过口径同旧读环）。R72-2 的「每章让出事件循环」契约保持。
+  // R0910-W 注释校准：上述「峰值降为单章」只对正文本体成立——候选数组原仍随全书合格段
+  // 持续 push、末了才 slice，大书峰值可达数万条 snippet（O(全书)）；现候选池循环内即有界
+  //（见 SAMPLE_POOL_CAP/QUOTE_POOL_CAP），两处峰值口径一致降为 O(1)。
   const finalized = finalizedPathSet(bookRoot)
   // R42-6（四十二轮）：定稿集消费侧建折叠键集（win32 大小写 + NFC，overview.ts R41-2
   // 同款范式——set 构建一次、比较双侧 docJoinKey）——外部 case-only 改名 / NFD 文件名
@@ -182,6 +199,7 @@ export async function learnFromBook(bookRoot: string): Promise<LearnResult> {
   // R-P3-3：成功读入正文的章数（替代旧 chapterBodies.length 的空判据）
   let readCount = 0
   // 4. 提取样章候选（按段落分块 + #10 打分 + 低分过滤）
+  // R0910-W：有界池（容量 = 终取数 ×2）——循环内越界即裁，峰值 O(1)；终取数 SAMPLE_KEEP
   const sampleCandidates: SampleCandidate[] = []
   // 5. 提取金句候选（短句 + 钩子/情绪/对比特征）
   const quoteCandidates: QuoteCandidate[] = []
@@ -213,6 +231,12 @@ export async function learnFromBook(bookRoot: string): Promise<LearnResult> {
         章号: ch.章号,
         打分: score,
       })
+      // R0910-W：越过容量即按终排序口径裁回 SAMPLE_KEEP（保留集合 = 全量稳定排序后
+      // 前 SAMPLE_KEEP 条，见 bySampleScore 注释）
+      if (sampleCandidates.length >= SAMPLE_POOL_CAP) {
+        sampleCandidates.sort(bySampleScore)
+        sampleCandidates.length = SAMPLE_KEEP
+      }
     }
     // 金句候选：统一分句口径（原先少 \n，可能漏检跨行——P2-BE-6）
     const sentences = splitSentences(body).filter((s) => {
@@ -229,6 +253,11 @@ export async function learnFromBook(bookRoot: string): Promise<LearnResult> {
           出处: `《${bookTitle}》第 ${ch.章号} 章`,
           章号: ch.章号,
         })
+        // R0910-W：同上（容量裁剪口径见 byQuoteChapter 注释）
+        if (quoteCandidates.length >= QUOTE_POOL_CAP) {
+          quoteCandidates.sort(byQuoteChapter)
+          quoteCandidates.length = QUOTE_KEEP
+        }
       }
     }
   }
@@ -244,14 +273,14 @@ export async function learnFromBook(bookRoot: string): Promise<LearnResult> {
   }
 
   // 按打分降序取 top 10（场景不再分桶配额）
-  sampleCandidates.sort((a, b) => b.打分 - a.打分)
-  const topSamples: SampleCandidate[] = sampleCandidates.slice(0, 10)
+  sampleCandidates.sort(bySampleScore)
+  const topSamples: SampleCandidate[] = sampleCandidates.slice(0, SAMPLE_KEEP)
 
   // 取 top 5（场景不再分桶配额）
   // A5（五十九轮）：候选按章号倒序再取 top5——章节按章号升序遍历，直接 slice 取的是
   // 章节序最前 5 条，金句候选系统性偏旧；倒序取最新章节的候选（同章内保遍历序，稳定排序）
-  quoteCandidates.sort((a, b) => b.章号 - a.章号)
-  const topQuotes: QuoteCandidate[] = quoteCandidates.slice(0, 5)
+  quoteCandidates.sort(byQuoteChapter)
+  const topQuotes: QuoteCandidate[] = quoteCandidates.slice(0, QUOTE_KEEP)
 
   // 6. 落候选到 工作区/learn候选/
   // R69-15（十七轮）：候选目录 rm+重建整段跨进程互斥——chat 工具（harvest_style 不经

@@ -54,6 +54,10 @@ export function runUtilityEntry(parentPort: ParentPortLike, parsed: ParsedServer
   parentPort.on('message', (event: { data?: unknown }) => {
     const msg = event.data as { type?: string } | undefined
     if (msg?.type !== 'shutdown') return
+    // R0910-W：shutdown-done 回执（及随之的 exit）严格后置于 shutdownStudio 全流程——
+    // 该流程现已含在途 Worker 线程/保存队列的有界收尾（graceful-shutdown），
+    // postMessage/exit 只在 finally 执行，即 teardown 完成后才允许退出；硬 exit 仍作
+    // 最终兜底（main 侧另有总超时 + kill），child 永不挂死。
     void shutdownStudio(() => parsed.workDir, server)
       .catch(() => {}) // 收尾失败也必须回执退出——main 总超时兜底，不让 child 挂死
       .finally(() => {

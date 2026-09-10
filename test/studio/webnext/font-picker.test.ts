@@ -293,3 +293,23 @@ describe('R8C-F3: FontPicker win 自绘浮层键盘导航', () => {
     expect(menuVisible()).toBe(false)
   })
 })
+
+// R0910-W（2026-09-10 修复批）：卸载回收 typeahead 800ms 复位定时器——组件销毁后
+// 回调仍会触发（对已销毁实例的闭包写 typeBuf，纯泄漏）；随监听器一并 clearTimeout。
+describe('R0910-W: FontPicker 卸载清 typeahead 定时器', () => {
+  it('typeahead 排定的复位定时器随卸载清理，不残留', async () => {
+    vi.useFakeTimers()
+    try {
+      wrapper = mount(FontPicker, { props: PROPS })
+      await wrapper.find('button.font-picker').trigger('click')
+      const baseline = vi.getTimerCount()
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', bubbles: true, cancelable: true }))
+      expect(vi.getTimerCount()).toBe(baseline + 1) // typeahead 复位定时器已排定
+      wrapper.unmount()
+      wrapper = null
+      expect(vi.getTimerCount()).toBe(baseline) // 随卸载清理，不残留
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})

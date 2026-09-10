@@ -193,14 +193,18 @@ function attachRendererCrashSelfHeal(win: BrowserWindow, label: string): void {
   // 窗口销毁后至多 5 分钟才随计时器到期释放（回调的 isDestroyed 守卫只防崩不防滞留）。
   // R51-A-2：加载失败重试计时器同款收口。
   win.on('closed', () => {
-    if (stabilityTimer) {
-      clearTimeout(stabilityTimer)
-      stabilityTimer = null
-    }
-    if (failLoadTimer) {
-      clearTimeout(failLoadTimer)
-      failLoadTimer = null
-    }
+    // R0910-W：清理体异常隔离——任一 closed 监听抛错会取消同事件后续监听（含主窗
+    // app.quit 退出链），本处只做计时器撤销，异常不得外溢。
+    guardClosedCleanup(`${label} 自愈计时器`, () => {
+      if (stabilityTimer) {
+        clearTimeout(stabilityTimer)
+        stabilityTimer = null
+      }
+      if (failLoadTimer) {
+        clearTimeout(failLoadTimer)
+        failLoadTimer = null
+      }
+    })
   })
 }
 
@@ -757,8 +761,30 @@ let devProxyApplied: Promise<void> = Promise.resolve()
 // senderFrame 为 null 亦拒）。拒绝即拒（不弹提示不回退上下文），防攻击面试探。
 const trustedSenders = new Set<WebContents>()
 function trackWindow(win: BrowserWindow): void {
-  trustedSenders.add(win.webContents)
-  win.on('closed', () => trustedSenders.delete(win.webContents))
+  // R0910-W：先捕获局部引用再登记——窗口销毁后读 win.webContents 抛
+  // "Object has been destroyed"（Electron 实测）。本监听是 closed 事件的首个监听，
+  // 其抛错会中断 emit 遍历，令后续 closed 清理（自愈计时器撤销 / 子窗引用置空 /
+  // 主窗 null→app.quit）全部短路，并经 uncaughtException 提前硬退。局部 ref 口径
+  // 同 openShelfWindow/openLibraryWindow（R48-16）。
+  const wc = win.webContents
+  trustedSenders.add(wc)
+  win.on('closed', () => trustedSenders.delete(wc))
+}
+/** R0910-W：closed 清理监听异常隔离——EventEmitter.emit 同步遍历监听，任一监听抛错
+ *  即中断其余监听（同事件后续清理整体被取消）。清理体包一层：异常只留痕、不连累其余
+ *  清理与退出链；无异常时行为与直接调用完全一致。 */
+function guardClosedCleanup(label: string, fn: () => void): void {
+  try {
+    fn()
+  } catch (e) {
+    log.error('desktop', `窗口 closed 清理监听异常（${label}，已隔离——不影响其余清理与退出链）`, e)
+  }
+}
+/** R0910-W：测试钩子（生产零调用，先例同 src/cache/rebuild.ts __testHooks）——供回归
+ *  用例断言窗口关闭后 IPC 白名单登记已摘除。 */
+export const __testHooks = {
+  trustedSenderCount: (): number => trustedSenders.size,
+  hasTrustedSender: (wc: WebContents): boolean => trustedSenders.has(wc),
 }
 function isTrustedSender(e: IpcMainInvokeEvent | IpcMainEvent | null): boolean {
   // 事件对象缺失（帧销毁期形态/异常调用）一律拒——null 防御防 handler 层 TypeError
@@ -884,7 +910,10 @@ async function openShelfWindow(): Promise<void> {
   // 恰在此窗关窗则 closed 先于挂接触发，悬空引用已销毁窗口（isDestroyed 自愈重建
   // 兜底在，纯防御收口）；await 后复验存活再 loadURL（R48-16 起复验用局部引用）
   win.on('closed', () => {
-    if (shelfWindow === win) shelfWindow = null
+    // R0910-W：异常隔离（同 attachRendererCrashSelfHeal）——引用置空不被前置监听抛错短路
+    guardClosedCleanup('书架窗口引用置空', () => {
+      if (shelfWindow === win) shelfWindow = null
+    })
   })
   await devProxyApplied // R72-10（二十轮 D-7）：代理生效后再加载
   if (win.isDestroyed()) return
@@ -934,7 +963,10 @@ async function openLibraryWindow(): Promise<void> {
   // R47-35（四十七轮）：closed 监听先于 await 挂接（openShelfWindow 同款——dev 态
   // setProxy 窗口内关窗的悬空引用防御收口）；await 后复验存活再 loadURL
   win.on('closed', () => {
-    if (libraryWindow === win) libraryWindow = null
+    // R0910-W：异常隔离（同 attachRendererCrashSelfHeal）——引用置空不被前置监听抛错短路
+    guardClosedCleanup('书库窗口引用置空', () => {
+      if (libraryWindow === win) libraryWindow = null
+    })
   })
   await devProxyApplied // R72-10（二十轮 D-7）：代理生效后再加载
   // R74-16（七十四轮批 D）：同 openShelfWindow——loadURL promise 接日志防丢诊断
@@ -1042,6 +1074,66 @@ function confirmDiscardFailed(parent: BrowserWindow, count: number): boolean {
       cancelId: 1,
     }) === 0
   )
+}
+
+/** R0910-W（2026-09-10 修复批）：真实 Electron 窗口循环冒烟——仅当
+ *  CLW_SMOKE_WINDOW_CYCLE=1 时由 bootstrap 末段（[CLW_SMOKE] ready 之后）调用，
+ *  保证 app 已 ready 再动窗口。目的：把 R0910-W 修复的缺陷类（closed 清理监听在
+ *  销毁态 webContents 上抛错 → 中断 emit 遍历令其余清理/白名单摘除短路）由真实
+ *  Electron 进程兜住——单测假件只能锁单测口径，真实销毁语义（closed 后读
+ *  webContents 抛 "Object has been destroyed"）唯有真实进程可复现。
+ *  复用 createSecureWindow 工厂：安全五件套 + trackWindow（白名单登记 + closed 摘除）
+ *  与生产完全同链，不另起第二份安全配置。
+ *  契约输出串（CI 驱动 grep 硬绑定，勿改）：成功 [CLW_SMOKE] window-cycle-ok
+ *  （exit 0）；超时 [CLW_SMOKE] window-cycle-timeout（exit 非 0）；未捕获异常
+ *  [CLW_SMOKE] crash <message>（经 uncaughtException 首行，见其处理器）。
+ *  严格 opt-in：env 未设置为 '1' 时本函数零调用（不建窗/不打日志/不改时序）。 */
+const SMOKE_WINDOW_CYCLE_TIMEOUT_MS = 15_000
+function runSmokeWindowCycle(): void {
+  // 基线：冒烟态此刻仅主窗在白名单——关窗后应回落至此值
+  const baseline = __testHooks.trustedSenderCount()
+  let settled = false
+  const finish = (code: number, line: string): void => {
+    if (settled) return // 超时/关闭/加载失败多路可能竞速，只认首个落定
+    settled = true
+    clearTimeout(hardTimeout)
+    console.log(line)
+    app.exit(code)
+  }
+  // 有界超时：窗口关闭链若被炸穿（本冒烟正是要兜的缺陷类），不能钉死 CI
+  const hardTimeout = setTimeout(() => finish(1, '[CLW_SMOKE] window-cycle-timeout'), SMOKE_WINDOW_CYCLE_TIMEOUT_MS)
+  hardTimeout.unref?.()
+  try {
+    // 复用生产工厂（安全选项零重复）；show:false 无窗口闪现，适合 headless
+    const probe = createSecureWindow({ show: false, title: 'smoke-window-cycle' })
+    // 先捕获局部 wc 引用——窗口销毁后读 probe.webContents 会抛（R0910-W 根因形态）
+    const wc = probe.webContents
+    probe.on('closed', () => {
+      // closed emit 已同步跑完 trackWindow 摘除等清理；延迟一拍让 Electron 侧销毁落定
+      setTimeout(() => {
+        try {
+          if (!probe.isDestroyed()) return finish(1, '[CLW_SMOKE] window-cycle-fail')
+          if (__testHooks.hasTrustedSender(wc)) return finish(1, '[CLW_SMOKE] window-cycle-fail') // 白名单登记未摘除
+          if (__testHooks.trustedSenderCount() !== baseline) return finish(1, '[CLW_SMOKE] window-cycle-fail')
+          finish(0, '[CLW_SMOKE] window-cycle-ok')
+        } catch (e) {
+          log.error('desktop', '冒烟窗口循环：关闭后校验异常', e)
+          finish(1, '[CLW_SMOKE] window-cycle-fail')
+        }
+      }, 200)
+    })
+    // about:blank 不依赖 server（裸 Electron 进程亦可跑通）；加载落定后再关
+    void probe.loadURL('about:blank').then(
+      () => probe.close(),
+      (e) => {
+        log.error('desktop', '冒烟窗口循环：about:blank 加载失败', e)
+        finish(1, '[CLW_SMOKE] window-cycle-fail')
+      },
+    )
+  } catch (e) {
+    log.error('desktop', '冒烟窗口循环：创建窗口失败', e)
+    finish(1, '[CLW_SMOKE] window-cycle-fail')
+  }
 }
 
 async function bootstrap(): Promise<void> {
@@ -1307,9 +1399,13 @@ async function bootstrap(): Promise<void> {
     }
   })
   mainWindow.on('closed', () => {
-    mainWindow = null
-    // 主窗口是应用核心：关闭即退出（连带销毁书架/书库子窗口，杜绝孤儿窗口 / 僵尸进程）
-    app.quit()
+    // R0910-W：异常隔离——本监听承载退出链（app.quit），不得被任何前置 closed 监听
+    // 抛错短路；此处自身异常也只留痕（交 uncaughtException 兜底），不静默取消退出。
+    guardClosedCleanup('主窗口退出链', () => {
+      mainWindow = null
+      // 主窗口是应用核心：关闭即退出（连带销毁书架/书库子窗口，杜绝孤儿窗口 / 僵尸进程）
+      app.quit()
+    })
   })
   // 专注模式全屏反向同步：作者经系统手势（⌘⌃F/绿按钮）退出全屏时通知渲染层
   //（渲染层据此连带退出专注模式）。只回发事实，不在主进程持有专注语义。
@@ -1363,6 +1459,11 @@ async function bootstrap(): Promise<void> {
   // （一行 ASCII、无中文措辞依赖）。直写 console：打包态 log.* 只落 JSONL 不镜像
   // stdout，冒烟步重定向的是进程标准流
   console.log('[CLW_SMOKE] ready')
+  // R0910-W：真实 Electron 窗口循环冒烟（严格 opt-in）——app ready 且主窗首载落定后
+  // 才跑；env 未设为 '1' 时零调用（不建窗/不打日志/不改时序，生产行为逐字节不变）。
+  if (process.env['CLW_SMOKE_WINDOW_CYCLE'] === '1') {
+    runSmokeWindowCycle()
+  }
 }
 
 // ── IPC（供 preload 调用）──────────────────────────────
@@ -1856,18 +1957,31 @@ if (gotSingleInstanceLock) {
   // 主进程未捕获异常：打包态 GUI 的 stderr 无人可见——先留痕 JSONL 日志（延迟一拍
   // 让日志泵落盘），再保持与默认崩溃等价的退出语义（不吞、不续跑半坏状态）。
   process.on('uncaughtException', (err) => {
+    // R0910-W：真实 Electron 窗口循环冒烟——崩溃串须先于既有退出路径打出（CI 驱动
+    // grep 用）；仅 opt-in 态输出，env 未设时零副作用。
+    if (process.env['CLW_SMOKE_WINDOW_CYCLE'] === '1') {
+      console.log(`[CLW_SMOKE] crash ${err instanceof Error ? err.message : String(err)}`)
+    }
     log.error('desktop', '主进程未捕获异常，即将退出', err)
     // R44-17（四十四轮）：200ms 窗内对 server child best-effort kill——父进程崩溃硬退
     // 时 utilityProcess 子进程不被连带收尸（win 上成孤儿继续持端口/会话锁，原全靠
-    // 事件库 10min 孤儿宽限兜底）；kill 同步下发、不等回执不 await（等也等不起），
-    // 200ms 后 process.exit 兜底收口。stopChild 幂等且 child 已死形态安全，失败不
-    // 影响退出语义（账面级缺口由 10min 宽限与 .版本 快照兜底，正文无损）。
-    try {
-      void serverManager.stopChild().catch(() => {})
-    } catch {
-      /* child 不在（未起/已收口）等形态：直接走退出 */
-    }
-    setTimeout(() => process.exit(1), 200)
+    // 事件库 10min 孤儿宽限兜底）。stopChild 幂等且 child 已死形态安全，失败不影响
+    // 退出语义（账面级缺口由 10min 宽限与 .版本 快照兜底，正文无损）。
+    // R0910-W（2026-09-10 修复批）：原实现 stopChild fire-and-forget 后固定 200ms 裸退
+    // ——stopChild 内含停机 settle 竞速（预算 2s），200ms 到点常早于 kill 下发/收口，
+    // best-effort 停机被自身截断；清理链来源的异常（窗口 closed 监听等）同经此路，
+    // 裸退还会打断在途优雅停机收尾。改为「停机落定即退、到点兜底强退」：stopChild
+    // 落定后延迟一拍（让日志泵落盘）再 process.exit，未落定则由既有 200ms 兜底硬退。
+    // 留痕 / 不吞 / 半坏状态不续跑的退出语义不变。
+    const backstop = setTimeout(() => process.exit(1), 200)
+    void serverManager
+      .stopChild()
+      .catch(() => {})
+      .then(() => {
+        // 已落定：撤 200ms 兜底，延迟一拍让日志泵落盘后硬退（原「延迟一拍」语义）
+        clearTimeout(backstop)
+        setTimeout(() => process.exit(1), 0)
+      })
   })
   // R38-23（三十八轮）：unhandledRejection 最后防线——各调用点已有 .catch 纪律，
   // 本兜底只 log 不退出（漏网 rejection 不再静默无痕；退出语义维持 uncaughtException

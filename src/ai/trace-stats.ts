@@ -10,7 +10,9 @@
 // readLlmCalls 与 cost-stats 同构（开库/type 下推/投影/静默容错四处抄写），收敛至
 // llm-call-read.ts 单源；本模块口径 = skipMissingUsage: false（无 usage 行也计入，
 // token 按 ?? 0 兜底、行数即调用次数——通过率/耗时维度不依赖 usage）
-import { readLlmCallRows } from './llm-call-read.js'
+// R0910-W（2026-09-10 修复批）：读侧改流式（streamLlmCallRows）——边读边聚合，
+// 不再物化全量行数组；迭代顺序（seq 升序）与聚合口径不变，结果逐字段相同
+import { streamLlmCallRows, type LlmCallReadRow } from './llm-call-read.js'
 
 /** 单个 task 的聚合统计 */
 export interface TaskStat {
@@ -52,53 +54,65 @@ export async function aggregateTrace(userDataPath: string | null | undefined, bo
   // 重评2-P3-2：读侧走 llm-call-read 单源（原注释：P2 起 trace 以事件库 llm/call 为
   // 单一事实源；观测层失败静默 → []；按事件创建时间聚日）。skipMissingUsage: false
   // 即原口径——无 usage 行不跳过，token 按 0 兜底计入。
-  const entries = await readLlmCallRows(userDataPath, bookRoot, { skipMissingUsage: false })
-  if (entries.length === 0) return { total: 0, byTask: {} }
-
-  // 按 task 分组
-  const groups = new Map<string, typeof entries>()
-  for (const e of entries) {
-    const arr = groups.get(e.task) ?? []
-    arr.push(e)
-    groups.set(e.task, arr)
+  // R0910-W：流式逐行聚合（原先把全量 entries 分组数组堆内存）；分组／按天累加器
+  // 均为小对象，峰值只与 task/日桶数量相关。读失败丢弃部分结果返回 {total:0}。
+  interface TaskAcc {
+    count: number
+    ok: number
+    durations: number[]
+    attempts: number
+    inTok: number
+    outTok: number
+    byDay: Record<string, { count: number; ok: number; tokens: number }>
   }
-
-  const byTask: Record<string, TaskStat> = {}
-  for (const [task, list] of groups) {
-    const count = list.length
-    const okCount = list.filter((e) => e.ok).length
-    const durations = list.map((e) => e.durationMs).sort((a, b) => a - b)
-    const totalAttempts = list.reduce((sum, e) => sum + e.attempt, 0)
-    const totalIn = list.reduce((sum, e) => sum + e.usageIn, 0)
-    const totalOut = list.reduce((sum, e) => sum + e.usageOut, 0)
-
-    // 按天聚合
-    const byDay: Record<string, { count: number; ok: number; tokens: number }> = {}
-    for (const e of list) {
-      const day = e.day
-      const d = byDay[day] ?? { count: 0, ok: 0, tokens: 0 }
+  const groups = new Map<string, TaskAcc>()
+  let total = 0
+  try {
+    await streamLlmCallRows(userDataPath, bookRoot, { skipMissingUsage: false }, (e: LlmCallReadRow) => {
+      total++
+      let g = groups.get(e.task)
+      if (g === undefined) {
+        g = { count: 0, ok: 0, durations: [], attempts: 0, inTok: 0, outTok: 0, byDay: {} }
+        groups.set(e.task, g)
+      }
+      g.count++
+      if (e.ok) g.ok++
+      g.durations.push(e.durationMs)
+      g.attempts += e.attempt
+      g.inTok += e.usageIn
+      g.outTok += e.usageOut
+      const d = g.byDay[e.day] ?? { count: 0, ok: 0, tokens: 0 }
       d.count++
       if (e.ok) d.ok++
       d.tokens += e.usageIn + e.usageOut
-      byDay[day] = d
-    }
+      g.byDay[e.day] = d
+    })
+  } catch {
+    return { total: 0, byTask: {} } // 观测层失败静默 → 空壳（与旧全量读失败 → [] 一致）
+  }
+  if (total === 0) return { total: 0, byTask: {} }
+
+  const byTask: Record<string, TaskStat> = {}
+  for (const [task, g] of groups) {
+    const count = g.count
+    const durations = g.durations.sort((a, b) => a - b)
 
     const byDayFinal: Record<string, { count: number; successRate: number; tokens: number }> = {}
-    for (const [day, d] of Object.entries(byDay)) {
+    for (const [day, d] of Object.entries(g.byDay)) {
       byDayFinal[day] = { count: d.count, successRate: d.ok / d.count, tokens: d.tokens }
     }
 
     byTask[task] = {
       count,
-      successRate: okCount / count,
-      avgAttempts: totalAttempts / count,
+      successRate: g.ok / count,
+      avgAttempts: g.attempts / count,
       durationP50: percentile(durations, 0.5),
       durationP95: percentile(durations, 0.95),
-      totalInputTokens: totalIn,
-      totalOutputTokens: totalOut,
+      totalInputTokens: g.inTok,
+      totalOutputTokens: g.outTok,
       byDay: byDayFinal,
     }
   }
 
-  return { total: entries.length, byTask }
+  return { total, byTask }
 }

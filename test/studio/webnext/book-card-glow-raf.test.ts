@@ -100,4 +100,22 @@ describe('重评-P3-15：光晕 mousemove rect 缓存 + rAF 同帧合并', () =>
     w1.unmount()
     w2.unmount()
   })
+
+  it('R0910-W：scroll/resize 失效改惰性脏标记——失效后首次 move 重读 rect，随即回缓存', async () => {
+    const w = mount(BookCard, { props: { book: BOOK, variant: 'grid', onMove: onCardMove } })
+    const el = w.find('.book-card').element as HTMLElement
+    const rectSpy = vi.spyOn(el, 'getBoundingClientRect')
+
+    await w.find('.book-card').trigger('mousemove', { clientX: 1, clientY: 1 })
+    expect(rectSpy).toHaveBeenCalledTimes(1) // 首事件惰性读一次
+
+    // 滚动/尺寸变化 → 只置脏标记（旧实现此处即重建 WeakMap 丢弃全部缓存）
+    window.dispatchEvent(new Event('scroll'))
+    await w.find('.book-card').trigger('mousemove', { clientX: 2, clientY: 2 })
+    expect(rectSpy).toHaveBeenCalledTimes(2) // 失效后首次读取重读其实测 rect
+    await w.find('.book-card').trigger('mousemove', { clientX: 3, clientY: 3 })
+    expect(rectSpy).toHaveBeenCalledTimes(2) // 脏标记已消费，回到缓存命中
+    flushRaf()
+    w.unmount()
+  })
 })

@@ -12,6 +12,23 @@ import type { IpcRendererEvent } from 'electron'
 /** 右键菜单 pending 一次性监听（连开新菜单前摘旧，防 channel 广播串到旧回调） */
 let pendingMenuSelect: ((_e: IpcRendererEvent, key: string | null) => void) | null = null
 
+/** R0910-W：待选监听清场（幂等）——主进程因拒绝/不可信 sender/窗口销毁而未回执
+ *  desktop:context-menu 时，once 监听与 pendingMenuSelect 原样常驻到下一次
+ *  showContextMenu。窗口 unload 一次性清场兜底；正常回执路径 handler 已自摘，清场为
+ *  无害 no-op（正常路径行为完全不变）。 */
+function clearPendingMenuSelect(): void {
+  if (pendingMenuSelect) {
+    ipcRenderer.removeListener('desktop:context-menu-select', pendingMenuSelect)
+    pendingMenuSelect = null
+  }
+}
+// globalThis 与渲染层 window 同一（isolated world）；ES2023 lib 无 DOM 类型，用最小结构
+// 型表达。同函数引用重复 addEventListener 被浏览器去重，无需额外「只挂一次」旗。
+const unloadHost = globalThis as { addEventListener?: (type: string, listener: () => void) => void }
+if (typeof unloadHost.addEventListener === 'function') {
+  unloadHost.addEventListener('unload', clearPendingMenuSelect)
+}
+
 contextBridge.exposeInMainWorld('clwritingDesktop', {
   /** 渲染进程平台标识（win 窗控 overlay 避让等平台分支用；浏览器版无此对象）。 */
   platform: process.platform,
@@ -104,7 +121,7 @@ contextBridge.exposeInMainWorld('clwritingDesktop', {
     items: Array<Record<string, unknown>>,
     cb: (key: string | null) => void,
   ): void => {
-    if (pendingMenuSelect) ipcRenderer.removeListener('desktop:context-menu-select', pendingMenuSelect)
+    clearPendingMenuSelect() // R0910-W：复用清场（摘旧 + 置空），行为同原内联摘除
     const handler = (_e: IpcRendererEvent, key: string | null): void => {
       pendingMenuSelect = null
       cb(key)

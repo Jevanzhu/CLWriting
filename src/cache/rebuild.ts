@@ -244,16 +244,26 @@ function tryIncrementalRebuild(
   scannedStats?: { stats?: SourceStats },
 ): RebuildResult | null {
   if (!existsSync(cachePath)) return null
-  let db: DatabaseSync
+  let opened: DatabaseSync | undefined
   try {
-    db = new DatabaseSync(cachePath, { readOnly: true })
+    opened = new DatabaseSync(cachePath, { readOnly: true })
     // R67-8（十五轮）：只读探测也设 busy_timeout（对齐全库 5000ms 口径）——写方短暂
     // 持锁时裸读立即 SQLITE_BUSY → catch 判「打不开」走全量重建，白扔整库索引；
     // 排队等锁（毫秒级）后再读，增量跳过判定不被并发写误伤（纯性能项，不改语义）
-    db.exec('PRAGMA busy_timeout = 5000')
+    opened.exec('PRAGMA busy_timeout = 5000')
   } catch {
+    // R0910-W（2026-09-10 修复批）：R65-22 同款——构造成功后 exec 抛错（库损坏/被锁）时
+    // 句柄泄漏（win 上泄漏 fd 使「删 .cache/index.db 重试」自愈撞 EBUSY/EPERM）；先
+    // close 再返回 null。关闭自身守卫 try/catch（NOTADB 后句柄可能已失效，close 抛错
+    // 不掩蔽原错误）；构造即抛（opened 未赋值）时 ?. 短路。
+    try {
+      opened?.close()
+    } catch {
+      /* 已自动回亡 */
+    }
     return null // 只读打不开（损坏/被锁）→ 全量重建
   }
+  const db = opened
   try {
     const recorded = getMeta(db, 'source_max_mtime')
     const recordedCount = getMeta(db, 'source_file_count')

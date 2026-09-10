@@ -11,7 +11,7 @@ import { rmSync, readFileSync, existsSync, writeFileSync, utimesSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
-import { spillIfLarge, writeSpillFile, readSpillFile, readSpillMeta, type SpillThresholds } from '../../src/process/spill.js'
+import { spillIfLarge, writeSpillFile, readSpillFile, readSpillMeta, sweepOldSpills, type SpillThresholds } from '../../src/process/spill.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const T: SpillThresholds = { maxInlineChars: 2000, headChars: 1200, tailChars: 400 }
@@ -160,7 +160,7 @@ describe('readSpillFile', () => {
 })
 
 describe('L-P8（第八轮）：spills 过期清理', () => {
-  it('30 天前的旧 spill 被清，新 spill 保留', () => {
+  it('sweepOldSpills（生命周期清扫）：30 天前的旧 spill 被清，新 spill 保留', () => {
     const root = mkdtempTracked(join(tmpdir(), 'clwriting-spill-gc-'))
     try {
       writeSpillFile(root, '新内容')
@@ -170,10 +170,28 @@ describe('L-P8（第八轮）：spills 过期清理', () => {
       writeFileSync(old, '旧内容')
       const past = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000)
       utimesSync(old, past, past)
-      // 再写一次触发 GC
-      writeSpillFile(root, '又一次新内容')
+      // R0910-W：清扫改为显式生命周期入口（writeSpillFile 热路径已节流，见下用例）
+      sweepOldSpills(root)
       expect(existsSync(old)).toBe(false)
       expect(existsSync(join(dir, `${createHash('sha256').update('新内容', 'utf8').digest('hex').slice(0, 16)}.md`))).toBe(true)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('R0910-W：写路径节流——连续写入不再逐次全目录扫描（窗内旧文件保留，显式 sweep 才清）', () => {
+    const root = mkdtempTracked(join(tmpdir(), 'clwriting-spill-throttle-'))
+    try {
+      writeSpillFile(root, '新内容') // 首次写入 → 触发一次扫描并记节流时刻
+      const dir = join(root, '工作区', 'spills')
+      const old = join(dir, 'feedfacefeedface.md')
+      writeFileSync(old, '旧内容')
+      const past = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000)
+      utimesSync(old, past, past)
+      writeSpillFile(root, '又一次新内容') // 节流窗内 → 不扫描，旧文件保留
+      expect(existsSync(old)).toBe(true)
+      sweepOldSpills(root) // 显式生命周期清扫不受节流限制
+      expect(existsSync(old)).toBe(false)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

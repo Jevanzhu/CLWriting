@@ -79,6 +79,9 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
   // R73-67：429 指引一次连接纪元只提示一次（onopen 成功/切书复位）——退避重连期间不反复打扰
   let busy429Notified = false
   let probing429 = false
+  // R0910-W（2026-09-10 修复批）：在途探测的 AbortController——disconnect（切书/卸载/
+  // 重连接管）时中止，防旧语境探测迟到补发 429 指引
+  let probeCtrl: AbortController | null = null
   // R51-H-5（五十一轮）：换票失败回退 ?token= 的留痕告警去重——退避重连每轮 doConnect 都
   // 重新换票，ticket 通道持续故障时原实现每连接一条 console.warn（分钟级刷屏）。对齐
   // busy429Notified 惯例：同连接纪元只 warn 一次，onopen 成功/切书 connect 复位
@@ -105,8 +108,12 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
     const t = getToken()
     if (!t) return
     probing429 = true
+    // R0910-W：探测起始捕获连接代——探测在途期间切书/断开（disconnect 推代）后，
+    // 迟到的状态码不得再按旧书写入（429 指引会指向用户已离开的语境）
+    const gen = connectGen
     const base = import.meta.env.DEV ? DEV_API_BASE : ''
     const ctrl = new AbortController()
+    probeCtrl = ctrl
     // R26-78（二十六轮）：探测超时 8s——探测挂死（半开连接/对端不回包）时 probing429
     // 恒 true，后续所有 fail-closed 的探测被在途锁吞掉；超时按「非 429」处理（catch
     // 静默，交回既有退避重连节奏），与探测网络失败的既有语义一致
@@ -120,6 +127,9 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
         headers: { 'x-studio-token': t },
       })
       ctrl.abort() // 拿到状态码即断（非 429 时服务端已建流——不留存活探测连接）
+      // R0910-W：探测起始至今已被 disconnect 接管（切书/卸载/重连推代 + 中止在途探测）
+      // ——迟到的状态码属旧语境，不落 429 指引、不计失配连记
+      if (gen !== connectGen) return
       if (r.status === 429 && !busy429Notified) {
         busy429Notified = true
         ui.toast('同一本书的标签页开太多啦，请关闭多余的标签页后重试', 'error')
@@ -145,6 +155,7 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
       /* 探测失败/超时 abort 不提示——交回既有退避重连节奏 */
     } finally {
       clearTimeout(probeTimer)
+      if (probeCtrl === ctrl) probeCtrl = null
       probing429 = false
     }
   }
@@ -269,6 +280,10 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
 
   function disconnect(): void {
     connectGen++ // 推代：悬挂中的 doConnect（await re-bootstrap 期间）放弃开连
+    // R0910-W：在途 429 探测随断开中止——切书/卸载后旧语境的探测不再 settle 后
+    // 补发指引（代闸在 probeSseBusy 内另兜一道）
+    probeCtrl?.abort()
+    probeCtrl = null
     if (reconnectTimer) {
       clearTimeout(reconnectTimer)
       reconnectTimer = null

@@ -12,6 +12,9 @@
  */
 import { Worker } from 'node:worker_threads'
 import type { StyleScanJob, StyleScanResult } from './analysis-worker.js'
+// R0910-W：扫描 Worker 登记进 server 在途工作表——退出收尾有界等待，防 close 后
+// 线程仍持 index.db 句柄（Windows rmSync ENOTEMPTY）
+import { trackInFlightWork } from './in-flight-work.js'
 
 export type { StyleScanJob, StyleScanResult } from './analysis-worker.js'
 
@@ -38,7 +41,7 @@ export function runStyleScanAsync(
   job: StyleScanJob,
   opts: StyleScanRunnerOptions = {},
 ): Promise<StyleScanResult> {
-  return new Promise<StyleScanResult>((resolve, reject) => {
+  return trackInFlightWork(new Promise<StyleScanResult>((resolve, reject) => {
     let settled = false
     const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
     const workerUrl = opts.workerUrl ?? resolveWorkerUrl()
@@ -66,5 +69,5 @@ export function runStyleScanAsync(
       settle(() => reject(new Error(`文风扫描工作线程已退出（exit code=${code}），未返回扫描结果`))),
     )
     w.postMessage(job)
-  })
+  }))
 }

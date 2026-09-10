@@ -131,6 +131,10 @@ export interface SessionStore {
   /** O-2（第十三轮）：可选 limit 限量通道（seq 升序取前 N）——现有调用方均为全量投影
    *  （折叠需要完整事件流，限流会破坏投影正确性，故不默认启用）；分页/审计渐进读取用。 */
   listEvents(book: string, sessionId?: string, limit?: number, type?: EventType): ChatEvent[]
+  /** R0910-W：流式读（无 limit，seq 升序）——逐行 yield 不物化，供分析读侧（llm/call
+   *  成本/轨迹聚合）边读边聚合，避免把整段过滤集堆进数组；坏行降级与 listEvents 同
+   *  （R65-20）。调用方负责 close；投影折叠等需要完整数组的调用方继续走 listEvents。 */
+  iterateEvents(book: string, sessionId?: string, type?: EventType): IterableIterator<ChatEvent>
   /** P2：每书一个 workspace 会话（ws- 前缀）承载非对话链路事件（step/llm/retry/check）；惰性创建复用 */
   workspaceSession(book: string): string
   /** R66-13（十四轮）：最新对话会话查询——生产零调用（对话恢复经内存 histories/restore
@@ -175,6 +179,21 @@ function rowToEvent(r: Row): ChatEvent {
     sourceSeqs: r.source_seqs ? (JSON.parse(r.source_seqs) as number[]) : undefined,
     replaceGeneration: r.replace_generation,
     createdAt: r.created_at,
+  }
+}
+
+/**
+ * R65-20（十三轮）坏行降级共用（R0910-W 从 listEvents 内联闭包提取，供迭代读同享）：
+ * 单行 data/source_seqs JSON 损坏时 rowToEvent 抛错，直穿会炸整个读路径；逐行
+ * try/catch 跳过坏行 + warn 留行 seq 与病因（log.warn 未 init 时即镜像 console.warn），
+ * 好行完整返回。label 只影响 warn 文案（便于定位读侧入口）。
+ */
+function safeRowToEvent(r: Row, label: string): ChatEvent | null {
+  try {
+    return rowToEvent(r)
+  } catch (e) {
+    log.warn('events', `${label} 跳过坏行 seq=${r.seq}（${e instanceof Error ? e.message : String(e)}）`)
+    return null
   }
 }
 
@@ -874,18 +893,7 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
       // ——原 stmt.all() 先物化全部行（data JSON 串一份）再 map JSON.parse 出第二份，
       // 双份共存峰值 ≈2× 表字节，与 rag readAllChunks 同修法
       const out: ChatEvent[] = []
-      // R65-20（十三轮）：坏行降级——单行 data/source_seqs JSON 损坏时 rowToEvent 抛错
-      // 直穿会炸整个 listEvents（chat 恢复/audit/历史端点整体 500）；逐行 try/catch
-      // 跳过坏行 + warn 留行 seq 与病因（log.warn 未 init 时即镜像 console.warn），
-      // 好行完整返回
-      const safeRowToEvent = (r: Row): ChatEvent | null => {
-        try {
-          return rowToEvent(r)
-        } catch (e) {
-          log.warn('events', `listEvents 跳过坏行 seq=${r.seq}（${e instanceof Error ? e.message : String(e)}）`)
-          return null
-        }
-      }
+      // R65-20（十三轮）：坏行降级见 safeRowToEvent（R0910-W 提取为共用函数）
       if (sessionId) {
         const args: Array<string | number> = [sessionId]
         if (type !== undefined) args.push(type)
@@ -896,7 +904,7 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
           `SELECT * FROM events WHERE session_id = ? ${type !== undefined ? 'AND type = ?' : ''} ORDER BY seq ASC ${cap !== undefined ? 'LIMIT ?' : ''}`
         ).iterate(...args) as unknown as Iterable<Row>
         for (const r of rows) {
-          const ev = safeRowToEvent(r)
+          const ev = safeRowToEvent(r, 'listEvents')
           if (ev) out.push(ev)
         }
         return out
@@ -911,10 +919,43 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
          ORDER BY seq ASC ${cap !== undefined ? 'LIMIT ?' : ''}`
       ).iterate(...args) as unknown as Iterable<Row>
       for (const r of rows) {
-        const ev = safeRowToEvent(r)
+        const ev = safeRowToEvent(r, 'listEvents')
         if (ev) out.push(ev)
       }
       return out
+    },
+    *iterateEvents(book: string, sessionId?: string, type?: EventType): IterableIterator<ChatEvent> {
+      // R0910-W（2026-09-10 修复批）：流式读（不物化）——llm/call 分析读侧（cost/trace
+      // 聚合）此前经 listEvents 把整段过滤集（重书数十万行 data JSON 解析成对象）堆进
+      // 数组，每次指标刷新峰值巨大；本生成器逐行 yield，调用方边读边聚合，峰值只与
+      // 聚合桶规模相关。SQL 与 listEvents 无 limit 变体逐字同构（seq 升序 = 时间序，
+      // 聚合结果与全量读逐字段一致）；坏行降级沿用 safeRowToEvent（R65-20）。调用方
+      // 负责 close（与 listEvents 同约定）；提前 break 时游标随 GC 回收，无悬挂。
+      if (sessionId) {
+        const args: Array<string | number> = [sessionId]
+        if (type !== undefined) args.push(type)
+        const rows = prepared(
+          db,
+          `SELECT * FROM events WHERE session_id = ? ${type !== undefined ? 'AND type = ?' : ''} ORDER BY seq ASC`
+        ).iterate(...args) as unknown as Iterable<Row>
+        for (const r of rows) {
+          const ev = safeRowToEvent(r, 'iterateEvents')
+          if (ev) yield ev
+        }
+        return
+      }
+      const args: Array<string | number> = [book]
+      if (type !== undefined) args.push(type)
+      const rows = prepared(
+        db,
+        `SELECT * FROM events
+         WHERE session_id IN (SELECT session_id FROM sessions WHERE book = ?) ${type !== undefined ? 'AND type = ?' : ''}
+         ORDER BY seq ASC`
+      ).iterate(...args) as unknown as Iterable<Row>
+      for (const r of rows) {
+        const ev = safeRowToEvent(r, 'iterateEvents')
+        if (ev) yield ev
+      }
     },
     workspaceSession(book: string): string {
       // N3（五十九轮）：SELECT→INSERT 包 BEGIN IMMEDIATE——双进程并行首开同书时，原裸

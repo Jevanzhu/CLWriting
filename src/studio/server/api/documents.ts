@@ -151,8 +151,23 @@ function runInForeshadowSaveChain<T>(bookRoot: string, unit: () => Promise<T>): 
   const prev = foreshadowSaveChains.get(bookRoot) ?? Promise.resolve()
   const next = prev.then(unit, unit) // 前驱成败都接续
   // 链尾吞错防 unhandled rejection（单元错误由本单元 await 侧经 dispatch 兜底 500）
-  foreshadowSaveChains.set(bookRoot, next.catch(() => {}))
+  const tail = next.catch(() => {})
+  foreshadowSaveChains.set(bookRoot, tail)
+  // R0910-W：链尾 settle 后比较-删除——本书键此前只增不减（server 层唯一缺逐出的
+  //  per-book map，对齐 files.ts filePutChains / lead-update 的 compare-and-delete）。
+  //  仅当尾仍是本单元写入的那条才删（不许删掉后继链上的更新尾），串行语义不变
+  //  （后继链读 prev 时尾仍在表内，其运行必先见到本单元）。
+  void tail.then(() => {
+    if (foreshadowSaveChains.get(bookRoot) === tail) foreshadowSaveChains.delete(bookRoot)
+  })
   return next
+}
+
+/** R0910-W：删书/改名生命周期失效挂点（books.ts forgetBookKeyedCaches 接线）——
+ *  整表删该书键的伏笔串行链尾（in-flight-work 同族：防同名重建书复用旧链/泄漏）。
+ *  调用点均在 drainDocumentSaves 之后（链已空），删除不破坏在途串行。 */
+export function forgetForeshadowSaveChain(bookRoot: string): void {
+  foreshadowSaveChains.delete(bookRoot)
 }
 
 export function registerDocumentRoutes(ctx: DocumentCtx): void {

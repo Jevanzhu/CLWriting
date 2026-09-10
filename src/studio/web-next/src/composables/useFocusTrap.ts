@@ -16,21 +16,23 @@ const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabi
 // 拉回设置弹窗首元素，确认框内 Tab 卡死（确认钮键盘不可达）。修复：模块级活跃 trap
 // 登记表（注册序 = 浮层层级序），仅**最顶层**（最后注册且未卸载）的 trap 处理 Tab，
 // 下层 trap 静默让渡（不 preventDefault、不抢焦点）；顶层关闭/卸载后下一层自动恢复
-// 处理权（disposed 标记随 onCleanup 置位，残留登记留在数组内仅作遍历过滤，体量
-// ≤浮层数，无需主动收缩）。
-const activeTraps: Array<{ seq: number; disposed: () => boolean }> = []
+// 处理权。
+// R0910-W（2026-09-10 修复批）：登记项改为 onCleanup 时按身份 splice 移除——原实现
+// 仅置 disposed 标记、残留登记常驻数组（一次会话每开合一次浮层即 +1 项，永不回收），
+// topmostActiveSeq 又在每次 Tab 按下遍历全表，耗时随会话单调增长；改为移除后登记表
+// 体量恒等于当前打开的浮层数，扫描 O(开层数)，顶层判定语义不变。
+const activeTraps: Array<{ seq: number }> = []
 let trapSeq = 0
 
 /** 当前最顶层活跃 trap 的 seq（0 = 无活跃 trap）。 */
 function topmostActiveSeq(): number {
   let top = 0
-  for (const t of activeTraps) if (!t.disposed() && t.seq > top) top = t.seq
+  for (const t of activeTraps) if (t.seq > top) top = t.seq
   return top
 }
 
 export function useFocusTrap(targetRef: Ref<HTMLElement | null>): void {
   let previouslyFocused: HTMLElement | null = null
-  let disposed = false
   let seq = 0
 
   function getFocusable(el: HTMLElement): HTMLElement[] {
@@ -74,13 +76,16 @@ export function useFocusTrap(targetRef: Ref<HTMLElement | null>): void {
         else el.focus()
         // R8C-F2：登记活跃 trap 并取注册序（层级序）——后注册者（上层浮层）优先
         seq = ++trapSeq
-        disposed = false
-        activeTraps.push({ seq, disposed: () => disposed })
+        const entry = { seq }
+        activeTraps.push(entry)
         document.addEventListener('keydown', onKeydown, true)
 
         // ref 变 null（v-if 关闭）或组件卸载时归还焦点
         onCleanup(() => {
-          disposed = true
+          // R0910-W：按身份移除登记项（而非仅置标记）——登记表体量恒等于在开浮层数，
+          // 不随会话开合次数增长；顶层判定语义（max seq）不变
+          const i = activeTraps.indexOf(entry)
+          if (i !== -1) activeTraps.splice(i, 1)
           document.removeEventListener('keydown', onKeydown, true)
           previouslyFocused?.focus()
         })

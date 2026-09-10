@@ -29,7 +29,7 @@ import {
   tryBooksLockAsync,
 } from '../../../install/books.js'
 import { resolveBook } from '../book-context.js'
-import { forgetService, drainDocumentSaves } from './documents.js'
+import { forgetService, drainDocumentSaves, forgetForeshadowSaveChain } from './documents.js'
 import { drainFilePutChainsUnder } from './files.js'
 import { forgetSession } from '../../../driver/index.js'
 import { invalidateTreeIndex } from '../../../document/tree.js'
@@ -122,6 +122,10 @@ function forgetBookKeyedCaches(bookRoot: string): void {
   // R39-16：书架守卫/配置缓存同族清理（删/改名后同名重建书不读陈 book.yaml；
   // 缓存按 workDir+path 键，整表清扫语义与「该书键失效」等价——书键族口径）
   shelfGuardCache.clear()
+  // R0910-W：伏笔保存串行链同族清理（documents.ts per-bookRoot 链尾 map，此前唯一
+  // 无逐出路径的 per-book map）——删书/改名后同名重建书不复用旧链尾（调用点已
+  // drainDocumentSaves，链空，删除不破坏在途串行）
+  forgetForeshadowSaveChain(bookRoot)
 }
 
 // ── R39-16（三十九轮）：书架守卫/配置 TTL 缓存 ──────────────────

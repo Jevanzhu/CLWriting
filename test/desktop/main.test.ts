@@ -33,6 +33,7 @@ const M = vi.hoisted(() => ({
   quitCalls: 0,
   relaunchCalls: 0,
   releaseLockCalls: 0, // R51-A-1：锁释放推迟到不可回头点——释放调用捕获面
+  exitCodes: [] as number[], // R0910-W：窗口循环冒烟 app.exit(code) 捕获面
   whenReadyCalls: 0,
   setPaths: {} as Record<string, string>,
   appOn: {} as Record<string, Array<(...a: unknown[]) => void>>,
@@ -64,6 +65,9 @@ const M = vi.hoisted(() => ({
   msgBoxSyncChoice: 1,
   // R44-15（四十四轮）：子窗尺寸钳制断言用——小工作区形态可注入（screen 桩读此值）
   workArea: { width: 1920, height: 1080 },
+  // R0910-W（2026-09-10 修复批）：真实 Electron 窗口销毁后读 win.webContents 抛
+  // "Object has been destroyed"——默认关闭不扰存量用例，回归用例按需打开。
+  throwWebContentsOnDestroyed: false,
 }))
 
 vi.mock('electron', () => {
@@ -112,7 +116,16 @@ vi.mock('electron', () => {
   }
   class FakeWin {
     opts: Record<string, any>
-    webContents: FakeWebContents
+    // R0910-W：真实 Electron 窗口销毁后读 webContents 抛 "Object has been destroyed"
+    // （实测）——默认不抛（throwWebContentsOnDestroyed=false）不扰存量用例；回归用例
+    // 打开后 Getter 在 closed 态抛错，精确复刻故障形态。内部一律经 _wc 访问。
+    _wc: FakeWebContents
+    get webContents(): FakeWebContents {
+      if (M.throwWebContentsOnDestroyed && this.closed) {
+        throw new Error('Object has been destroyed')
+      }
+      return this._wc
+    }
     handlers: Record<string, Array<(...a: unknown[]) => void>> = {}
     focused = 0
     closed = false
@@ -125,7 +138,7 @@ vi.mock('electron', () => {
     }
     constructor(opts: Record<string, any>) {
       this.opts = opts
-      this.webContents = new FakeWebContents(this)
+      this._wc = new FakeWebContents(this)
       M.windows.push(this as unknown as Record<string, any>)
     }
     loadURL(u: string): Promise<void> {
@@ -234,6 +247,11 @@ vi.mock('electron', () => {
       quit: () => {
         M.quitCalls++
       },
+      // R0910-W：窗口循环冒烟成功/失败经 app.exit(code) 收口——真 exit 会杀死 worker，
+      // 捕获面记录 code 供断言（生产零调用该 API 的其他处）。
+      exit: (code?: number) => {
+        M.exitCodes.push(code ?? 0)
+      },
       relaunch: () => {
         M.relaunchCalls++
       },
@@ -253,8 +271,10 @@ vi.mock('electron', () => {
     BrowserWindow: Object.assign(
       class extends FakeWin {},
       {
+        // R0910-W：优先经 _wc 反查（走 webContents Getter 会在 closed+抛错模式下误炸）；
+        // 直构的裸 win 假件（无 _wc）回落 webContents 属性，兼容两种形态。
         fromWebContents: (wc: unknown) =>
-          M.windows.find((w) => w.webContents === wc) ?? null,
+          M.windows.find((w) => (w._wc ?? w.webContents) === wc) ?? null,
         getFocusedWindow: () => M.focusedWin,
       },
     ),
@@ -1845,6 +1865,9 @@ describe('R44-15/R44-17: 子窗工作区钳制 + uncaughtException 停机兜底'
         ;(registered[String(evt)] ??= []).push(fn)
         return process
       }) as never)
+    // R0910-W：修复后退出改由 stopChild 落定后的 setTimeout(_,0) 触发（不再只靠
+    // 200ms 兜底）——真 process.exit 会杀死 vitest worker，mock 掉只断言调用。
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never)
     try {
       await freshModule()
       const child = M.forkChildren.at(-1)!
@@ -1863,11 +1886,52 @@ describe('R44-15/R44-17: 子窗工作区钳制 + uncaughtException 停机兜底'
       }
       await new Promise((r) => setImmediate(r)) // stopChild 链：settle → kill 落拍
       expect(child.killed).toBeGreaterThan(killed0) // kill 已下发（不等回执）
-      expect(timers).toContain(200) // 原「留痕一拍再退」语义保留
+      expect(timers).toContain(200) // 既有 200ms 硬退兜底预算保留
+      // 退出由 stopChild 落定后的 setTimeout(_,0) 触发（异步链，宏任务轮询等待）；
+      // 必须等到 exitSpy 被调用后再还原——否则迟到的真 process.exit 会杀死 worker
+      await vi.waitFor(() => expect(exitSpy).toHaveBeenCalledWith(1), { timeout: 1_000, interval: 10 })
       const crashLogs = M.logErrors.filter((l) => String((l as unknown[])[1]).includes('未捕获异常'))
       expect(crashLogs.length).toBeGreaterThan(0) // JSONL 留痕不丢
     } finally {
+      exitSpy.mockRestore()
       onSpy.mockRestore()
+    }
+  })
+})
+
+// R0910-W（2026-09-10 修复批）：窗口关闭清理链防炸穿回归——真实 Electron 窗口销毁后
+// 读 win.webContents 抛 "Object has been destroyed"（实测）。trustedSenders 摘除监听是
+// closed 事件的首个监听，原实现在回调内现读 win.webContents → 抛错中断 emit 遍历，
+// 令自愈计时器撤销 / 子窗引用置空 / 主窗 null→app.quit 全部短路，并经 uncaughtException
+// 提前硬退（打开书架/书库窗关闭、或点回主窗触发 libraryWindow.close 即可复现）。
+describe('R0910-W: 窗口关闭（销毁态 webContents）不炸穿 closed 清理链', () => {
+  it('关闭主窗：emit 不外抛、自愈计时器撤销、退出链 app.quit 照跑、IPC 白名单登记摘除', async () => {
+    vi.resetModules()
+    const mod = (await import('../../src/desktop/main.js')) as unknown as {
+      __testHooks: { trustedSenderCount: () => number; hasTrustedSender: (wc: unknown) => boolean }
+    }
+    await new Promise((r) => setImmediate(r))
+    await new Promise((r) => setImmediate(r))
+    const win = M.windows.at(-1)!
+    const wc = win._wc as Record<string, any>
+    M.throwWebContentsOnDestroyed = true // 复刻真实 Electron 销毁后读 webContents 抛错
+    const tSpy = vi.spyOn(globalThis, 'setTimeout')
+    const cSpy = vi.spyOn(globalThis, 'clearTimeout')
+    const quit0 = M.quitCalls
+    try {
+      expect(mod.__testHooks.hasTrustedSender(wc)).toBe(true) // 建窗即登记
+      // 武装自愈稳定窗计时器——closed 清理应撤销它（计数复位防 5min 滞留）
+      ;(wc.handlers['did-finish-load'] ?? []).forEach((fn: () => void) => fn())
+      const stabilityTimer = tSpy.mock.results.at(-1)?.value
+      expect(stabilityTimer, 'did-finish-load 应排定稳定窗计时器').toBeTruthy()
+      expect(() => win.close()).not.toThrow() // (i) 关窗 emit 不外抛
+      expect(cSpy).toHaveBeenCalledWith(stabilityTimer) // (ii) 自愈计时器已撤销
+      expect(M.quitCalls).toBe(quit0 + 1) // (ii) 主窗 closed → app.quit 退出链照跑
+      expect(mod.__testHooks.hasTrustedSender(wc)).toBe(false) // (iii) 白名单登记已摘除
+    } finally {
+      tSpy.mockRestore()
+      cSpy.mockRestore()
+      M.throwWebContentsOnDestroyed = false // 还原共享桩，不污染后续用例
     }
   })
 })
@@ -2361,6 +2425,61 @@ describe('重评-P3-11: second-instance --book 失联卷预探', () => {
       fsPromisesMock.statGate = null
       if (prev === undefined) delete process.env['CLW_SWITCH_LIBRARY_PROBE_TIMEOUT_MS']
       else process.env['CLW_SWITCH_LIBRARY_PROBE_TIMEOUT_MS'] = prev
+    }
+  })
+})
+
+// R0910-W（2026-09-10 修复批）：窗口循环冒烟 env 门的单元契约——门开时复用
+// createSecureWindow 真链（建窗→about:blank→关闭→白名单摘除→契约串→app.exit(0)）；
+// 门关时严格零副作用（不建窗/不打串/不改时序）。真实 Electron 进程面兜底见
+// src/desktop/main.ts runSmokeWindowCycle（CI 驱动跑真 Electron 进程 grep 契约串）。
+describe('R0910-W: 窗口循环冒烟门（CLW_SMOKE_WINDOW_CYCLE）', () => {
+  function flushBootstrap(): Promise<void> {
+    return new Promise((r) => setImmediate(r)).then(() => new Promise((r) => setImmediate(r)))
+  }
+
+  it('env 未设：bootstrap 只开主窗、无 window-cycle 串、无 app.exit（严格 opt-in）', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    vi.stubEnv('CLW_SMOKE_WINDOW_CYCLE', '')
+    try {
+      const windows0 = M.windows.length
+      const exits0 = M.exitCodes.length
+      vi.resetModules()
+      await import('../../src/desktop/main.js')
+      await flushBootstrap()
+      await new Promise((r) => setTimeout(r, 50)) // 越过冒烟校验延迟窗，确认无迟到动作
+      expect(M.windows.length).toBe(windows0 + 1) // 仅主窗，无冒烟探针窗
+      expect(M.exitCodes.length).toBe(exits0) // 未触发退出
+      expect(logSpy.mock.calls.some((c) => String(c[0]).includes('window-cycle'))).toBe(false)
+    } finally {
+      logSpy.mockRestore()
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('env=1：复用工厂建窗→关闭→白名单摘除→打 window-cycle-ok 且 app.exit(0)', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    vi.stubEnv('CLW_SMOKE_WINDOW_CYCLE', '1')
+    try {
+      const windows0 = M.windows.length
+      const exits0 = M.exitCodes.length
+      vi.resetModules()
+      const mod = (await import('../../src/desktop/main.js')) as unknown as {
+        __testHooks: { trustedSenderCount: () => number }
+      }
+      await flushBootstrap()
+      // 探针窗经 createSecureWindow 创建（主窗之外），关闭后仍留在捕获数组
+      await vi.waitFor(() => expect(M.windows.length).toBe(windows0 + 2), { timeout: 2_000, interval: 25 })
+      await vi.waitFor(() => expect(logSpy).toHaveBeenCalledWith('[CLW_SMOKE] window-cycle-ok'), {
+        timeout: 2_000,
+        interval: 25,
+      })
+      expect(M.exitCodes.slice(exits0)).toEqual([0]) // 成功 exit 0
+      expect(mod.__testHooks.trustedSenderCount()).toBe(1) // 探针窗白名单登记已摘除，仅余主窗
+      expect(logSpy.mock.calls.some((c) => String(c[0]).startsWith('[CLW_SMOKE] crash'))).toBe(false)
+    } finally {
+      logSpy.mockRestore()
+      vi.unstubAllEnvs()
     }
   })
 })

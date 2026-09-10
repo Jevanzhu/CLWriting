@@ -139,18 +139,88 @@ export function listSkills(roots: SkillRoots): SkillMeta[] {
   return [...byName.values()].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
 }
 
+// ── R0910-W（2026-09-10 修复批）：roots 级 name→meta 索引缓存 ──────────────
+// loadSkill 原每次都调 listSkills(roots) 全量扫三根（逐文件 readdir + stat）只为按名
+// 取一条，命中后再 stat 目标文件复核指纹——read_skill 每次调用 O(总技巧包数) 系统调用。
+// 现按 roots 指纹（三根目录 mtimeNs：新增/删除/改名会使目录 mtime 变化）缓存 name→meta
+// 索引：指纹命中即为 O(1) 查询 + 目标文件一次指纹校验。索引未命中或目标文件被改动
+// （name/whenToUse/正文可能陈旧）时整体重建一次，覆盖改名/新增/内容改写形态，语义与
+// 逐次全量扫描一致。残留窗口：仅「另一根某包就地改名，恰使同名归属易主、且目标文件
+// 自身未动」的极窄形态，在目标文件下一次改动或目录增删前不感知；目录增删即失效。
+// FIFO 上限防书库增多无界缓涨（同 skillFileCache 纪律）。
+interface SkillIndexEntry {
+  sig: string
+  index: Map<string, SkillMeta>
+}
+const SKILL_INDEX_CACHE_MAX = 64
+const skillIndexCache = new Map<string, SkillIndexEntry>()
+
+/** 单目录 mtimeNs 指纹（stat 失败 = '-'，按未缓存处理）。 */
+function dirSig(dir: string): string {
+  try {
+    const st = statSync(dir, { bigint: true })
+    return `${st.mtimeNs}`
+  } catch {
+    return '-'
+  }
+}
+
+/** roots 指纹：三根目录 mtimeNs 有序拼接（bundled 恒在，user/project 缺省用 '-'）。 */
+function skillRootsSig(roots: SkillRoots): string {
+  return [
+    dirSig(bundledResource('skills')),
+    roots.userDataPath ? dirSig(join(roots.userDataPath, 'skills')) : '-',
+    roots.bookRoot ? dirSig(join(roots.bookRoot, '设定', '技巧')) : '-',
+  ].join('|')
+}
+
+function skillIndexKey(roots: SkillRoots): string {
+  return `${roots.bookRoot ?? ''}\u0000${roots.userDataPath ?? ''}`
+}
+
+/** 取 roots 对应 name→meta 索引；force 或指纹失配即重建。cached 标记是否命中原缓存。 */
+function skillIndexFor(roots: SkillRoots, force = false): { index: Map<string, SkillMeta>; cached: boolean } {
+  const key = skillIndexKey(roots)
+  const sig = skillRootsSig(roots)
+  const hit = skillIndexCache.get(key)
+  if (!force && hit && hit.sig === sig) return { index: hit.index, cached: true }
+  const index = new Map(listSkills(roots).map((m) => [m.name, m]))
+  if (skillIndexCache.size >= SKILL_INDEX_CACHE_MAX) {
+    const oldest = skillIndexCache.keys().next().value
+    if (oldest !== undefined) skillIndexCache.delete(oldest)
+  }
+  skillIndexCache.set(key, { sig, index })
+  return { index, cached: false }
+}
+
 /**
  * 按需读正文（read_skill 工具的执行通道）。
  * 名字未知/文件读失败 → null（调用方据此回「未找到 + 可用列表」）。
+ * R0910-W：查名走 roots 级索引缓存（见上方注释），不再每次全量扫三根。
  */
 export function loadSkill(name: string, roots: SkillRoots): { meta: SkillMeta; content: string } | null {
-  const meta = listSkills(roots).find((m) => m.name === name)
+  let lookup = skillIndexFor(roots)
+  let meta = lookup.index.get(name)
+  // 未命中且来自缓存 → 可能新增/改名的包：强制重建一次再查（语义同全量扫描）
+  if (!meta && lookup.cached) {
+    lookup = skillIndexFor(roots, true)
+    meta = lookup.index.get(name)
+  }
   if (!meta) return null
   // R46-26：正文直查文件级缓存（读前重验指纹——listSkills 建索引与 read_skill 取
   // 正文之间可能隔整轮对话，作者中途改包须取到新文；指纹失配/竞态删除落回现读）
-  const sig = skillFileSig(meta.path)
-  const hit = sig !== null ? skillFileCache.get(meta.path) : undefined
+  let sig = skillFileSig(meta.path)
+  let hit = sig !== null ? skillFileCache.get(meta.path) : undefined
   if (hit && hit.sig === sig) return { meta, content: hit.content }
+  // 目标文件指纹失配：索引 meta 可能陈旧（name/whenToUse 被改）→ 重建一次取新 meta
+  if (lookup.cached) {
+    lookup = skillIndexFor(roots, true)
+    meta = lookup.index.get(name)
+    if (!meta) return null
+    sig = skillFileSig(meta.path)
+    hit = sig !== null ? skillFileCache.get(meta.path) : undefined
+    if (hit && hit.sig === sig) return { meta, content: hit.content }
+  }
   const r = readFile(meta.path)
   if (r.ok) return { meta, content: r.body.trim() }
   // 裸 md（无 front matter）：全文即正文（与 scanRoot 降级口径一致）

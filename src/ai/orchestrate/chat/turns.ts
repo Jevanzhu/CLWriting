@@ -83,6 +83,11 @@ const READ_CHAPTER_MAX_CHARS = 20_000
 const READ_CHAPTER_HEAD_CHARS = 12_000
 const READ_CHAPTER_TAIL_CHARS = 6_000
 
+/** R0910-W（2026-09-10 修复批）：read_skill 单次返回上限（code points）——技巧包正文
+ *  与整章正文同属模型可控外置内容，无上限灌 tool_result 可撑爆上下文；与 read_chapter
+ *  同量级取 2 万字（大多数技巧包远小于此，仅病理长文触发截断）。 */
+const READ_SKILL_MAX_CHARS = 20_000
+
 /** M-1（第六轮）：注册表工具里做嵌套 AI 生成的三件——与写稿编排互斥面。
  *  calls.ts 的章预算块按「同书同时只有一路生成」记账（其头注释前提），write_chapter
  *  分支一直有 isSelfHealRunning 闸，这三件走注册表漏配。rewrite 两件传 chapter 按章
@@ -329,7 +334,18 @@ export async function executeChatTool(
             .join('、')
           return { ok: false, summary: `未找到该技巧包。可用：${names}` }
         }
-        return { ok: true, summary: skill.content }
+        // R0910-W：正文有界返回——与 read_chapter（RB-AI-P2-5）同款纪律：code point
+        // 安全裁切 + 截断通知。粗判先行（UTF-16 码元 ≥ 码点数，未超限直接返回），
+        // 仅超限才 Array.from 物化精确码点（R58-B-4 同款，语义等价）
+        if (skill.content.length <= READ_SKILL_MAX_CHARS) return { ok: true, summary: skill.content }
+        const skillChars = Array.from(skill.content)
+        if (skillChars.length <= READ_SKILL_MAX_CHARS) return { ok: true, summary: skill.content }
+        return {
+          ok: true,
+          summary:
+            skillChars.slice(0, READ_SKILL_MAX_CHARS).join('') +
+            `\n\n（技巧包 ${skillChars.length} 字超出单次读取上限，已截断至 ${READ_SKILL_MAX_CHARS} 字。）`,
+        }
       }
       default:
         return { ok: false, summary: `未知工具：${call.name}` }
