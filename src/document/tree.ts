@@ -238,11 +238,6 @@ interface FileProbe {
 const PROBE_CACHE_MAX = 4096
 const probeCache = new Map<string, { mtimeNs: bigint; size: bigint; probe: FileProbe }>()
 
-/** 清空哈希缓存（结构性 mutation 后由 invalidateTreeIndex 调用）。 */
-export function clearProbeCache(): void {
-  probeCache.clear()
-}
-
 /**
  * CC-P1-3：字节指纹的缓存版（computeRevision 语义，stat 级复用 probeCache）。
  * 树红点聚合每章一调——未变文件（绝大多数）stat 命中零读零哈希，替代每章整读 + SHA-256；

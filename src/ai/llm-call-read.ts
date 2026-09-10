@@ -17,7 +17,7 @@
  * - 观测层失败静默 → []（观测面失败不反噬业务主流程）。
  */
 import { openSessionStoreAsync, bookHash } from '../events/store.js'
-import type { LlmCallData } from '../events/types.js'
+import type { ChatEvent, LlmCallData } from '../events/types.js'
 import { localDayKey } from '../log/index.js'
 
 /** llm/call 行投影（两消费方字段的并集；下游各取所需） */
@@ -58,37 +58,66 @@ export async function readLlmCallRows(
   bookRoot: string,
   opts: ReadLlmCallRowsOptions,
 ): Promise<LlmCallReadRow[]> {
-  if (!userDataPath) return []
+  const out: LlmCallReadRow[] = []
   try {
-    const store = await openSessionStoreAsync(userDataPath, bookRoot)
-    if (!store) return []
-    try {
-      // B1（2026-08-24 内存闸）：type SQL 下推——只取 llm/call 行；PM-10 核查为全量语义必需
-      const events = store.listEvents(bookHash(bookRoot), undefined, undefined, 'llm/call')
-      const out: LlmCallReadRow[] = []
-      for (const e of events) {
-        const d = e.data as unknown as LlmCallData
-        // Q-12（第十五轮，cost 侧口径）：skipMissingUsage 见 options 注
-        if (opts.skipMissingUsage && d.usage == null) continue
-        out.push({
-          task: d.task,
-          ok: d.ok,
-          durationMs: d.durationMs,
-          attempt: d.attempt,
-          model: d.model,
-          ...(typeof d.chapter === 'number' ? { chapter: d.chapter } : {}),
-          usageIn: d.usage?.input ?? 0,
-          usageOut: d.usage?.output ?? 0,
-          ...(d.usage?.cacheRead !== undefined ? { cacheRead: d.usage.cacheRead } : {}),
-          ...(d.usage?.cacheWrite !== undefined ? { cacheWrite: d.usage.cacheWrite } : {}),
-          day: localDayKey(e.createdAt),
-        })
-      }
-      return out
-    } finally {
-      store.close()
-    }
+    await streamLlmCallRows(userDataPath, bookRoot, opts, (row) => out.push(row))
   } catch {
-    return []
+    return [] // 观测层失败静默 → []（与旧实现整段 catch 口径一致：失败丢弃全量，不留半截）
   }
+  return out
+}
+
+/** 单事件 → 投影行（skipMissingUsage 见 options 注）；跳过的行返回 null。 */
+function projectRow(e: ChatEvent, skipMissingUsage: boolean): LlmCallReadRow | null {
+  const d = e.data as unknown as LlmCallData
+  // Q-12（第十五轮，cost 侧口径）：skipMissingUsage 见 options 注
+  if (skipMissingUsage && d.usage == null) return null
+  return {
+    task: d.task,
+    ok: d.ok,
+    durationMs: d.durationMs,
+    attempt: d.attempt,
+    model: d.model,
+    ...(typeof d.chapter === 'number' ? { chapter: d.chapter } : {}),
+    usageIn: d.usage?.input ?? 0,
+    usageOut: d.usage?.output ?? 0,
+    ...(d.usage?.cacheRead !== undefined ? { cacheRead: d.usage.cacheRead } : {}),
+    ...(d.usage?.cacheWrite !== undefined ? { cacheWrite: d.usage.cacheWrite } : {}),
+    day: localDayKey(e.createdAt),
+  }
+}
+
+/**
+ * R0910-W（2026-09-10 修复批）：流式读——逐行投影并回调，不物化全量行数组。重书
+ * llm/call 事件可达数十万条，原 readLlmCallRows 返回全量数组（叠加 store 侧
+ * listEvents 物化的 ChatEvent 数组）在每次指标刷新时峰值巨大；本入口经 store
+ * iterateEvents 游标逐行读，调用方（cost-stats / trace-stats）边读边聚合，峰值只与
+ * 聚合桶规模相关。iter 顺序 = seq 升序（与全量读一致），故聚合结果逐字段相同。
+ * 观测层失败静默（与 readLlmCallRows 同口径）。
+ */
+export async function streamLlmCallRows(
+  userDataPath: string | null | undefined,
+  bookRoot: string,
+  opts: ReadLlmCallRowsOptions,
+  visit: (row: LlmCallReadRow) => void,
+): Promise<void> {
+  if (!userDataPath) return
+  let store: Awaited<ReturnType<typeof openSessionStoreAsync>>
+  try {
+    store = await openSessionStoreAsync(userDataPath, bookRoot)
+  } catch {
+    return // 开库失败 → 观测层静默
+  }
+  if (!store) return
+  try {
+    // B1（2026-08-24 内存闸）：type SQL 下推——只取 llm/call 行；PM-10 核查为全量语义必需
+    for (const e of store.iterateEvents(bookHash(bookRoot), undefined, 'llm/call')) {
+      const row = projectRow(e, opts.skipMissingUsage)
+      if (row) visit(row)
+    }
+  } finally {
+    store.close()
+  }
+  // R0910-W：迭代期错误（游标/SQLite 故障）不在此吞——上抛给调用方，使其能丢弃已
+  // 聚合的部分结果返回空壳，保持与「全量读失败 → []」逐字段一致（调用方负责 catch）。
 }

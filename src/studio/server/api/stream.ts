@@ -74,6 +74,16 @@ export function forgetSseCount(bookName: string): void {
   for (const h of conns) h.destroy()
 }
 
+/** R0910-W：退出收尾——销毁并清账**全部**在途 SSE 连接（不限书）。
+ *  此前 server.close 只停接新请求，SSE 长连接仍挂在 server 上（响应未 end，非
+ *  closeIdleConnections 可摘的空闲连接），close 回调被拖满调用方超时才放行；且
+ *  集成测试/调用方 close 后立刻 rmSync 时残留 socket 句柄。destroy → req close →
+ *  既有常规清理链（心跳/生成器/计数移除均幂等），并同步清账，防同名重建书读陈计数。
+ *  接线点：server/index.ts 的 close 路径（本模块生命周期终态）。 */
+export function closeAllSseConnections(): void {
+  for (const bookName of [...sseConnections.keys()]) forgetSseCount(bookName)
+}
+
 /** R-18：测试观测钩子（对齐 __setSpawnRunning 风格）——按句柄集合重算只读快照断言计数。 */
 export function __getSseConnections(): ReadonlyMap<string, number> {
   const snapshot = new Map<string, number>()

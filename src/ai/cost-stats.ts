@@ -23,7 +23,9 @@ import { resolveModelPricing, computeCallCost } from './pricing.js'
 // 重评2-P3-2（2026-09-09 全量重评 GLM-5.3，AI 域 P3-③）：读侧单源化——原私有
 // readLlmCalls 与 trace-stats 同构（开库/type 下推/投影/静默容错四处抄写），收敛至
 // llm-call-read.ts 单源；本模块口径 = skipMissingUsage: true（Q-12：无 usage 行跳过）
-import { readLlmCallRows, type LlmCallReadRow } from './llm-call-read.js'
+// R0910-W（2026-09-10 修复批）：读侧改流式（streamLlmCallRows）——逐行回调即时聚合，
+// 不再物化全量行数组；聚合算术与顺序逐字段不变（同 seq 升序，逐条 bump）
+import { streamLlmCallRows, type LlmCallReadRow } from './llm-call-read.js'
 
 /** 单维度聚合条目 */
 export interface CostBucket {
@@ -45,13 +47,6 @@ export interface CostStats {
   unpricedModels: string[]
 }
 
-/**
- * 重评2-P3-2：行类型随读侧单源化收敛为 LlmCallReadRow（原私有 CallEntry 与单源
- * 投影字段重合——task/model/chapter?/usageIn/usageOut/cacheRead?/cacheWrite?/day；
- * ok/durationMs/attempt 为 trace 侧同源字段，本模块不消费）。
- */
-type CallEntry = LlmCallReadRow
-
 function bump(map: Record<string, CostBucket>, key: string, cost: number): void {
   const b = map[key] ?? { cost: 0, calls: 0 }
   b.cost = Math.round((b.cost + cost) * 1e10) / 1e10
@@ -59,42 +54,52 @@ function bump(map: Record<string, CostBucket>, key: string, cost: number): void 
   map[key] = b
 }
 
+/** 空壳（无事件/失败/全书无价格 → enabled:false，无 currency 字段） */
+function emptyCostStats(): CostStats {
+  return { enabled: false, total: 0, byDay: {}, byTask: {}, byChapter: {}, unpricedModels: [] }
+}
+
 /** 聚合成本（无事件或全书无价格 → enabled:false 的空壳） */
 export async function aggregateCost(userDataPath: string | null | undefined, bookRoot: string): Promise<CostStats> {
   // 重评2-P3-2：读侧走 llm-call-read 单源；skipMissingUsage: true 即原 Q-12 口径
   //（失败调用可携真实 usage 入账，失败且无 usage 才跳过——报表不系统性低于预算闸）
-  const entries: CallEntry[] = await readLlmCallRows(userDataPath, bookRoot, { skipMissingUsage: true })
-  const stats: CostStats = { enabled: false, total: 0, byDay: {}, byTask: {}, byChapter: {}, unpricedModels: [] }
-  if (entries.length === 0) return stats
-
+  // R0910-W：流式逐行聚合——不再物化全量 entries；任何读失败丢弃部分结果返回空壳
+  //（与旧「readLlmCallRows 失败 → [] → 空壳」逐字段一致）
+  const stats = emptyCostStats()
   const unpriced = new Set<string>()
   const pricedSeen = new Set<string>()
   let currency: string | undefined
+  let anyEntry = false
   const pricingCache = new Map<string, ReturnType<typeof resolveModelPricing>>()
-
-  for (const e of entries) {
-    let pricing = pricingCache.get(e.model)
-    if (pricing === undefined) {
-      pricing = resolveModelPricing(userDataPath, e.model)
-      pricingCache.set(e.model, pricing)
-    }
-    if (!pricing) {
-      unpriced.add(e.model)
-      continue
-    }
-    pricedSeen.add(e.model)
-    if (!currency) currency = pricing.currency
-    const cost = computeCallCost(pricing, {
-      inputTokens: e.usageIn,
-      outputTokens: e.usageOut,
-      ...(e.cacheRead !== undefined ? { cacheReadTokens: e.cacheRead } : {}),
-      ...(e.cacheWrite !== undefined ? { cacheWriteTokens: e.cacheWrite } : {}),
-    }) ?? 0
-    stats.total = Math.round((stats.total + cost) * 1e10) / 1e10
-    bump(stats.byDay, e.day, cost)
-    bump(stats.byTask, e.task, cost)
-    if (e.chapter !== undefined) bump(stats.byChapter, String(e.chapter), cost)
+  try {
+    await streamLlmCallRows(userDataPath, bookRoot, { skipMissingUsage: true }, (e: LlmCallReadRow) => {
+      anyEntry = true
+      let pricing = pricingCache.get(e.model)
+      if (pricing === undefined) {
+        pricing = resolveModelPricing(userDataPath, e.model)
+        pricingCache.set(e.model, pricing)
+      }
+      if (!pricing) {
+        unpriced.add(e.model)
+        return
+      }
+      pricedSeen.add(e.model)
+      if (!currency) currency = pricing.currency
+      const cost = computeCallCost(pricing, {
+        inputTokens: e.usageIn,
+        outputTokens: e.usageOut,
+        ...(e.cacheRead !== undefined ? { cacheReadTokens: e.cacheRead } : {}),
+        ...(e.cacheWrite !== undefined ? { cacheWriteTokens: e.cacheWrite } : {}),
+      }) ?? 0
+      stats.total = Math.round((stats.total + cost) * 1e10) / 1e10
+      bump(stats.byDay, e.day, cost)
+      bump(stats.byTask, e.task, cost)
+      if (e.chapter !== undefined) bump(stats.byChapter, String(e.chapter), cost)
+    })
+  } catch {
+    return emptyCostStats() // 观测层失败丢弃部分聚合 → 空壳
   }
+  if (!anyEntry) return stats // 无事件 → 空壳（无 currency 字段）
 
   stats.enabled = pricedSeen.size > 0
   // R42-22（四十二轮）：currency 缺省 'USD' 落地接口注释承诺——前端消费方（WbUsageCard）

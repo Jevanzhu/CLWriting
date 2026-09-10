@@ -30,6 +30,9 @@ const EXPECTED_GLOBS = [
   'src/studio/web-next/src/{components,composables,editor,shared,stores,types}/**',
   // R29-12（二十九轮批 F）：stores 单列域级子桶（基线 −2pp → 89/88，与聚合桶并存叠加）
   'src/studio/web-next/src/stores/**',
+  // R0910-W（2026-09-10）：composables 单列域级子桶——聚合桶 lines 门仅 43，远低于本域
+  // 实测 84.13，域内腰斩在聚合均值里对门不可见；阈值 = 实测基线 −2pp 向下取整（82/81）
+  'src/studio/web-next/src/composables/**',
 ]
 /** 各桶排除时留下注释标记便于人读；include/exclude 口径抄自 vitest.config.ts */
 const INCLUDE = ['src/**/*.ts']

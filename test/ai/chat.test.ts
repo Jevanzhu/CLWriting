@@ -723,6 +723,71 @@ describe('低-4（第十轮）：read_chapter 超长截断口径如实', () => {
   })
 })
 
+// ─── R0910-W read_skill 正文有界返回 ───────────────
+// 修复背景：read_skill 直接 summary = skill.content 无上限，与 read_chapter（RB-AI-P2-5）
+// 同属模型可控外置内容——病理长技巧包可整段灌 tool_result 撑爆上下文。
+describe('R0910-W: read_skill 正文有界返回', () => {
+  it('超长技巧包 → tool_result 截断至上限并注明截断量', async () => {
+    const longRoot = join(bookRoot, '长篇', '长篇测试书')
+    mkdirSync(join(longRoot, '设定', '技巧'), { recursive: true })
+    writeFileSync(
+      join(longRoot, '设定', '技巧', '长包.md'),
+      '---\nname: 长包\n---\n' + '技'.repeat(30_000),
+      'utf8',
+    )
+    fake.setScript([
+      { type: 'tool', name: 'read_skill', input: { name: '长包' } },
+      { type: 'text', content: '读完了。' },
+    ])
+    const events: DriverEvent[] = []
+    const driver = makeDriver(events)
+    const ud = setup()
+
+    await runChat({
+      driver,
+      mainSession: { id: 's1', cwd: bookRoot, closed: false },
+      userDataPath: ud,
+      bookRoot: longRoot,
+      bookName: 'r0910w-skill',
+      message: '读技巧包',
+    })
+
+    const result = events.find((e) => e.type === 'chat_tool_result') as { summary?: string } | undefined
+    expect(result).toBeTruthy()
+    // 3 万字全量灌进 tool_result 会撑爆上下文：截断后正文 ≤ 上限，另有通知行
+    expect(result!.summary!.length).toBeLessThan(20_200)
+    expect(result!.summary!.startsWith('技')).toBe(true)
+    expect(result!.summary).toContain('已截断至')
+    expect(result!.summary).toContain('30000')
+  })
+
+  it('上限内技巧包 → 原文透传（不带截断提示）', async () => {
+    const longRoot = join(bookRoot, '长篇', '长篇测试书')
+    mkdirSync(join(longRoot, '设定', '技巧'), { recursive: true })
+    writeFileSync(join(longRoot, '设定', '技巧', '短包.md'), '---\nname: 短包\n---\n短技巧正文', 'utf8')
+    fake.setScript([
+      { type: 'tool', name: 'read_skill', input: { name: '短包' } },
+      { type: 'text', content: '读完了。' },
+    ])
+    const events: DriverEvent[] = []
+    const driver = makeDriver(events)
+    const ud = setup()
+
+    await runChat({
+      driver,
+      mainSession: { id: 's1', cwd: bookRoot, closed: false },
+      userDataPath: ud,
+      bookRoot: longRoot,
+      bookName: 'r0910w-skill2',
+      message: '读技巧包',
+    })
+
+    const result = events.find((e) => e.type === 'chat_tool_result') as { summary?: string } | undefined
+    expect(result).toBeTruthy()
+    expect(result!.summary).toBe('短技巧正文')
+  })
+})
+
 // ─── X-P2-12 check_chapter 章号回落 ─────────────────
 describe('X-P2-12: check_chapter 省略 chapter 入参 → 回落作者选定章', () => {
   it('input 无 chapter + opts.chapter=1 → 回落查第 1 章（不再「章号需为正整数」被拒）', async () => {

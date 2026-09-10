@@ -238,6 +238,16 @@ export function openRagDb(bookRoot: string): DatabaseSync {
     createRagTables(db)
     // A3（批 7）：norm 列惰性迁移 + 存量回填（幂等——列在/范数齐 → no-op）
     ensureNormColumn(db)
+    // R0910-W（2026-09-10 修复批）：norm 回填探测的部分索引——ensureNormColumn 每次 open
+    // 都跑 `SELECT id, embedding FROM chunks WHERE norm IS NULL`，norm 无索引时全表扫
+    //（约 3.5 万块/书），回填完成后（无 NULL 行）仍每次全扫；recallDetailed 一次召回开
+    // 库两次，放大为 2× 全表扫。部分索引只收录 norm IS NULL 的行（正常为空），探测降为
+    // 索引扫描。**须在 ensureNormColumn 之后**——旧库首次打开时 chunks 尚在 ALTER 之前，
+    // 先建索引会撞 no such column: norm（createRagTables 的建表对既有旧表是 no-op）；
+    // 首次打开仍免不了全扫（列刚加、全行 NULL，必须回填），此后各次 open 走索引不再全扫。
+    // 新建索引对既有库为一次 O(n) 迁移（IF NOT EXISTS 幂等）。新写入行由 storeChunk 即时
+    // 算 norm，不会长期滞留 NULL（异常行由召回侧现算兜底）。
+    db.exec('CREATE INDEX IF NOT EXISTS idx_chunks_norm_null ON chunks(id) WHERE norm IS NULL')
   } catch (e) {
     try {
       db.close()

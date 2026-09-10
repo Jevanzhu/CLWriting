@@ -69,7 +69,10 @@ export function writeSpillFile(bookRoot: string, text: string, meta?: SpillMeta)
     if (meta) atomicWriteFile(join(dir, `${digest}.meta.json`), JSON.stringify(meta))
     // L-P8（第八轮）：顺带清理 30 天前的旧 spill——内容寻址幂等但此前无 GC，长跑书库
     // 无限增长；清理失败不影响本次写入（best-effort）
-    pruneOldSpills(dir)
+    // R0910-W（2026-09-10 修复批）：热写路径不再每次全目录 readdir+逐文件 stat——改经
+    // 节流（每小时至多一次，见 SPILL_SWEEP_THROTTLE_MS）；GC 主通道改为生命周期侧显式
+    // 调 sweepOldSpills（导出，供 state 的 housekeeping 扫挂点接线；本文件不引 state）。
+    sweepOldSpillsThrottled(bookRoot)
     return `工作区/spills/${digest}.md`
   } catch {
     return null
@@ -170,6 +173,31 @@ export function spillIfLarge(
  *  缓存读场景不可靠，不漏清正在取回的 spill；apply 链另有 baseSha 兜底防误删。
  *  M-3：.meta.json sidecar 同 TTL 一并清（含孤儿 sidecar）。 */
 const SPILL_TTL_MS = 30 * 24 * 60 * 60 * 1000
+
+/** R0910-W（2026-09-10 修复批）：spill 清扫热写路径节流窗——一次写入不再 stat 全目录，
+ *  至多每小时扫一遍；显式生命周期清扫（sweepOldSpills）不受此限。 */
+const SPILL_SWEEP_THROTTLE_MS = 60 * 60 * 1000
+const spillSweepLastAt = new Map<string, number>()
+
+/**
+ * R0910-W：删除某书 30 天前的 spill（幂等、best-effort，失败静默）——导出供生命周期
+ * housekeeping 扫（state.ts 的 sweepAbandonedTmpFilesThrottled 挂点）显式调用：原清扫
+ * 只在 writeSpillFile 内触发，一本书写完再无编辑时旧 spill 永久残留，仓库内无任何
+ * 启动/退出/周期清扫兜底。本函数可安全重复调用（按 mtime 判据、无副作用）。
+ */
+export function sweepOldSpills(bookRoot: string): void {
+  pruneOldSpills(join(bookRoot, '工作区', 'spills'))
+}
+
+/** 写路径节流包装：窗内直接返回（不碰盘），窗外扫一次并记时。 */
+function sweepOldSpillsThrottled(bookRoot: string): void {
+  const now = Date.now()
+  const last = spillSweepLastAt.get(bookRoot)
+  if (last !== undefined && now - last < SPILL_SWEEP_THROTTLE_MS) return
+  spillSweepLastAt.set(bookRoot, now)
+  sweepOldSpills(bookRoot)
+}
+
 function pruneOldSpills(dir: string): void {
   try {
     const now = Date.now()

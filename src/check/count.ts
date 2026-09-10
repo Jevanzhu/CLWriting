@@ -719,8 +719,18 @@ export function checkStyleMetrics(
   return { name: '文风可量化', items }
 }
 
+/** R0910-W（2026-09-10 修复批）：adjStack 正则按 maxAdjStack 记忆化——learn 收割逐段
+ *  调用 matchAdjStackHits，原每次调用 new RegExp（同参反复编译）；maxAdjStack 经
+ *  iron-rules clamp 后取值域有限（[0,20]），Map 命中即复用。`seg.match(/g 正则)` 会重置
+ *  lastIndex，跨段/跨调用共享安全（同 R33-31 口径）。行为不变。 */
+const adjStackRegexCache = new Map<number, RegExp>()
 function adjStackRegex(maxAdjStack: number): RegExp {
-  return new RegExp(`(?:[${HANZI}]{1,6}的(?:[、，,]\\s*)?){${maxAdjStack + 1},}`, 'gu')
+  let re = adjStackRegexCache.get(maxAdjStack)
+  if (!re) {
+    re = new RegExp(`(?:[${HANZI}]{1,6}的(?:[、，,]\\s*)?){${maxAdjStack + 1},}`, 'gu')
+    adjStackRegexCache.set(maxAdjStack, re)
+  }
+  return re
 }
 
 /**

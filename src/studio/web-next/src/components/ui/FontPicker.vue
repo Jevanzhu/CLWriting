@@ -182,6 +182,9 @@ onMounted(() => {
   window.addEventListener('scroll', onScrollOrResize, true)
 })
 onBeforeUnmount(() => {
+  // R0910-W：清 typeahead 800ms 复位定时器——组件卸载后回调仍会触发（对已销毁实例
+  // 的闭包写 typeBuf，纯泄漏），随监听器一并回收
+  clearTimeout(typeTimer)
   window.removeEventListener('keydown', onKey, true)
   window.removeEventListener('resize', onScrollOrResize)
   window.removeEventListener('scroll', onScrollOrResize, true)

@@ -52,6 +52,16 @@ beforeAll(async () => {
   expect(M.exposed, 'contextBridge 应暴露 clwritingDesktop').toBeTruthy()
 })
 
+// R0910-W：preload 在模块加载期向 globalThis（渲染层 window 同一）挂 window unload 清场
+// 监听——捕获面。必须在 import preload 前定义（beforeAll 内 import 此时已执行到此）。
+const unloadListeners: Array<() => void> = []
+;(globalThis as { addEventListener?: (type: string, listener: () => void) => void }).addEventListener = (
+  type: string,
+  listener: () => void,
+): void => {
+  if (type === 'unload') unloadListeners.push(listener)
+}
+
 describe('kk-P2-8：preload 暴露面 → channel 映射', () => {
   const CASES: Array<[string, string, unknown[]]> = [
     ['openLibrary', 'desktop:open-library', []],
@@ -118,5 +128,29 @@ describe('kk-P2-8：preload 订阅通道', () => {
     expect(M.sent[M.sent.length - 1]!).toEqual(['desktop:context-menu', [{ label: '复制', key: 'copy' }]])
     M.onceHandlers['desktop:context-menu-select']![0]!({}, 'copy')
     expect(got).toEqual(['copy'])
+  })
+
+  // R0910-W：主进程因拒绝/不可信 sender/窗口销毁未回执 desktop:context-menu 时，once
+  // 监听与 pendingMenuSelect 原样常驻到下一次 showContextMenu（泄漏）。窗口 unload 兜底清场。
+  it('R0910-W: 窗口 unload 清场 pending once 监听（主进程不回执形态）', () => {
+    const before = M.removed.length
+    ;(M.exposed!['showContextMenu']! as (
+      items: Array<Record<string, unknown>>,
+      cb: (k: string | null) => void,
+    ) => void)([{ label: '复制', key: 'copy' }], vi.fn())
+    const handler = M.onceHandlers['desktop:context-menu-select']!.at(-1)!
+    expect(unloadListeners.length, 'import 期应挂 window unload 清场监听').toBeGreaterThan(0)
+    for (const fn of unloadListeners) fn() // 触发 unload
+    expect(
+      M.removed.slice(before).some(([ch, fn]) => ch === 'desktop:context-menu-select' && fn === handler),
+      'unload 应摘除 pending once 监听',
+    ).toBe(true)
+    // 清场已把 pendingMenuSelect 置空：再次 showContextMenu 不再重复摘旧
+    const removedAfterUnload = M.removed.length
+    ;(M.exposed!['showContextMenu']! as (
+      items: Array<Record<string, unknown>>,
+      cb: (k: string | null) => void,
+    ) => void)([{ label: '粘贴', key: 'paste' }], vi.fn())
+    expect(M.removed.length).toBe(removedAfterUnload)
   })
 })

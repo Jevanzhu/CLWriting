@@ -25,9 +25,18 @@ const SECTION_PAYOFF = '伏笔回收'
 
 /** R32-17（三十二轮）：段头整行精确匹配——此前 `/^##\s*反转线索表/` 前缀正则会把
  *  `## 反转线索表补遗` 类手写标题当正式段头（后随内容被段解析器吞入结构数据）。
- *  现要求标题后即行尾，仅容忍尾随空白或一个括注尾注（`## 反转线索表（修订）` 类）。 */
+ *  现要求标题后即行尾，仅容忍尾随空白或一个括注尾注（`## 反转线索表（修订）` 类）。
+ *  R0910-W（2026-09-10 修复批）：段标题为固定字面量，正则按标题模块常量化——原
+ *  isSectionHead 每行最多 3 次 new RegExp（parsePieceListBody 主循环逐行调用）。
+ *  匹配口径逐字节不变。 */
+const SECTION_HEAD_RE: Record<string, RegExp> = {
+  [SECTION_REVERSAL]: new RegExp(`^##\\s*${SECTION_REVERSAL}(?:\\s*[（(][^）)]*[）)])?\\s*$`),
+  [SECTION_EMOTION]: new RegExp(`^##\\s*${SECTION_EMOTION}(?:\\s*[（(][^）)]*[）)])?\\s*$`),
+  [SECTION_PAYOFF]: new RegExp(`^##\\s*${SECTION_PAYOFF}(?:\\s*[（(][^）)]*[）)])?\\s*$`),
+}
 function isSectionHead(trimmed: string, title: string): boolean {
-  return new RegExp(`^##\\s*${title}(?:\\s*[（(][^）)]*[）)])?\\s*$`).test(trimmed)
+  const re = SECTION_HEAD_RE[title] ?? new RegExp(`^##\\s*${title}(?:\\s*[（(][^）)]*[）)])?\\s*$`)
+  return re.test(trimmed)
 }
 
 /** 默认空章纲（导入/冷启动占位，不臆造反转线索——吸收点 7.5 负向约束） */

@@ -10,13 +10,15 @@
  */
 import { test, expect } from '@playwright/test'
 import http from 'node:http'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { startServer } from '../../src/studio/server/index.js'
 import { makeDualTrackWorkdir, SHORT_BOOK } from '../studio/fixtures.js'
 import { e2ePort } from './e2e-ports.js'
 import { attachPageErrorBaseline } from './page-error-baseline.js'
+// R0910-W：临时目录清理走重试封装（Windows 句柄异步收尾的 ENOTEMPTY/EPERM/EBUSY）
+import { rmTempDirRetry } from './tmp-cleanup.js'
 
 // R73-75（批 F-8）：端口基址派生（CLW_E2E_PORT_BASE+13，旧硬编码 19012；偏移表见 e2e-ports.ts）
 const PORT = e2ePort(13)
@@ -52,8 +54,8 @@ test.afterAll(async () => {
   if (prevDriver === undefined) delete process.env.CLWRITING_DRIVER
   else process.env.CLWRITING_DRIVER = prevDriver
   await new Promise<void>((r) => server.close(() => r()))
-  if (userDataPath) rmSync(userDataPath, { recursive: true, force: true })
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
+  if (userDataPath) rmTempDirRetry(userDataPath)
+  if (workDir) rmTempDirRetry(workDir)
 })
 
 test('短篇概览：字数曲线面板非空白（2 章数据点 + 标题）', async ({ page }) => {

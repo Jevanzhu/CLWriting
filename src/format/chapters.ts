@@ -291,7 +291,8 @@ interface ChapterDirEntry {
 const CHAPTER_DIR_CACHE_MAX = 64
 const chapterDirCache = new Map<string, Map<string, ChapterDirEntry>>()
 
-/** 清空章节元数据缓存（结构性 mutation 后防御性调用；正常由每轮 walk 自愈，测试用）。 */
+/** R0910-W（2026-09-10 修复批）：测试专用导出（零生产调用；生产侧按书失效走
+ *  clearChapterDirCacheForBook，正常由每轮 walk 自愈）——清空章节元数据缓存。 */
 export function clearChapterDirCache(): void {
   chapterDirCache.clear()
 }

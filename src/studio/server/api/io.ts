@@ -13,6 +13,7 @@ import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { runExportBookAsync } from '../../../export/run-async.js'
+import { trackInFlightWork } from './in-flight-work.js' // R0910-W：导出 Worker 退出收尾登记
 import type { ExportFormat, ExportPlatform } from '../../../export/index.js'
 import { SUBMISSION_PLATFORMS } from '../../../metrics/short-index.js'
 import { acquireTaskGate } from './task-gate.js' // S3（五十九轮）：export 并发闸
@@ -141,7 +142,7 @@ export function registerIoRoutes(ctx: IoCtx): void {
       const format: ExportFormat = formatRaw as ExportFormat
       const platform: ExportPlatform = platformRaw as ExportPlatform
       releaseGlobal = await acquireExportSlot()
-      const result = await runExportBookAsync({ bookRoot: r.bookRoot, format, platform })
+      const result = await trackInFlightWork(runExportBookAsync({ bookRoot: r.bookRoot, format, platform }))
       // B-23（第六十轮补修）：业务失败回 422 错误信封——原 200 {ok:false} 是全域
       // 错误信封唯一豁免点，旧注释「apiJson 当异常抛吞诊断信息」已被 dv-01 错误
       // 信封判别取代（有信封 → body.error 完整保留，ExportDialog catch 后原样展示）。

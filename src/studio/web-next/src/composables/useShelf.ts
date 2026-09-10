@@ -95,10 +95,16 @@ export function progressPercent(b: { words?: number; targetWords?: number }): nu
  * PM-9 先例：rect 惰性缓存（WeakMap 按卡片元素）+ window resize/scroll(capture) 失效
  * （scroll 不冒泡，capture 才能接住浮层内滚动容器）+ rAF 同帧合并只写最后一次位置，
  * 绘制时机与同步写一致，光晕视觉逐位不变。
+ * R0910-W（2026-09-10 修复批）：失效改为置脏标记、读取时惰性重建 WeakMap——原实现
+ * 每次 scroll tick 直接 `glowRects = new WeakMap()`，而 capture 监听会命中全应用
+ * 每个容器的每次滚动（全局热路径），逐 tick 分配新 WeakMap 丢弃全部缓存；改标记后
+ * 热路径仅一次布尔写，重建推迟到下一次 onCardMove 读取（未读零成本），失效与命中
+ * 语义不变。监听器为页面寿命、capture 语义均保持不变。
  */
 let glowRects = new WeakMap<HTMLElement, DOMRect>()
+let glowRectsDirty = false
 function invalidateGlowRects(): void {
-  glowRects = new WeakMap()
+  glowRectsDirty = true
 }
 if (typeof window !== 'undefined') {
   window.addEventListener('resize', invalidateGlowRects, { passive: true })
@@ -108,6 +114,11 @@ let glowRaf = 0
 let glowPending: { el: HTMLElement; mx: string; my: string } | null = null
 export function onCardMove(e: MouseEvent): void {
   const el = e.currentTarget as HTMLElement
+  // R0910-W：消费脏标记——roll/resize 后首次读取时一次性重建缓存（惰性失效）
+  if (glowRectsDirty) {
+    glowRects = new WeakMap()
+    glowRectsDirty = false
+  }
   let r = glowRects.get(el)
   if (!r) {
     r = el.getBoundingClientRect()

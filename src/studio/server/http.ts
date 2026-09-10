@@ -149,7 +149,12 @@ export function readJson(
         idleTimer = null
         reject(new HttpError(408, '请求体读取超时（长时间无数据推进），请重试', 'TIMEOUT'))
         const grace = setTimeout(() => { req.destroy() }, graceMs)
-        req.once('close', () => clearTimeout(grace))
+        // R0910-W：宽限定时器 unref + 已收口连接即清——req 若在本行前已 close，下方
+        // once('close') 的清理永不触发，未 unref 的定时器会作为活跃句柄存活到 grace 满
+        //（清理漏网）；活动请求路径行为不变（close 即清、到点 destroy）。
+        grace.unref()
+        if (req.destroyed) clearTimeout(grace)
+        else req.once('close', () => clearTimeout(grace))
       }, idleMs)
     }
     armIdle()
@@ -173,7 +178,11 @@ export function readJson(
         // 回环 413 亚毫秒级已送达，之后断连属预期收口；正常客户端到此早已 end
         // （close 即清定时器，不误伤）。graceMs 可注入，测试用小值保快。
         const grace = setTimeout(() => { req.destroy() }, graceMs)
-        req.on('close', () => clearTimeout(grace))
+        // R0910-W：同 408 宽限——unref + 已收口即清（req 提前 close 时 once('close')
+        // 清理漏网，未 unref 的定时器在清理后仍存活）
+        grace.unref()
+        if (req.destroyed) clearTimeout(grace)
+        else req.once('close', () => clearTimeout(grace))
         return
       }
       chunks.push(c)

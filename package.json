@@ -39,6 +39,8 @@
     "knowledge:commit": "tsx scripts/knowledge-commit.ts",
     "test:e2e": "npm run build:web && playwright test",
     "test:e2e:release": "npm run build:all && cross-env CLWRITING_E2E_RELEASE=1 playwright test test/e2e/release-smoke.spec.ts",
+    "smoke:electron": "node scripts/electron-smoke.mjs",
+    "soak": "node --import tsx --expose-gc test/soak/soak.ts",
     "dev:electron": "npm run build:all && node node_modules/electron/cli.js .",
     "build:desktop": "npm run build:all && electron-builder --publish never",
     "build:desktop:dir": "npm run build:all && electron-builder --dir"

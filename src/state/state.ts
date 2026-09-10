@@ -25,6 +25,9 @@ import { join, relative } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { scanCloudCopies } from '../git/exec.js'
 import { sweepAbandonedTmpFiles, rmWithRetry } from '../fs/atomic.js'
+// R0910-W（2026-09-10 修复批）：spill 清扫兜底接线——sweepOldSpills 幂等（按 mtime
+// 30 天 TTL），与 tmp 清扫同窗节流执行（见 sweepAbandonedTmpFilesThrottled）
+import { sweepOldSpills } from '../process/spill.js'
 
 // R43-2（四十三轮）：sweep 每书 TTL 节流表（内存态，key = bookRoot；书数量级小无上限
 // 忧虑）。导出 reset 钩子供测试复位节流窗。
@@ -72,6 +75,16 @@ function sweepAbandonedTmpFilesThrottled(bookRoot: string): number {
   const last = sweepLastAt.get(bookRoot)
   if (last !== undefined && now - last < SWEEP_THROTTLE_MS) return 0
   const swept = sweepAbandonedTmpFiles(bookRoot)
+  // R0910-W（2026-09-10 修复批）：同一节流窗内顺带清扫 30 天前 spill（housekeeping
+  // 兜底）——原清扫只在 writeSpillFile 热路径触发，一本书写完再无编辑时旧 spill 永久
+  // 残留。sweepOldSpills 幂等、内部失败静默（目录不存在/单文件错误均吞），此处再包
+  // try/catch 保 best-effort：其异常绝不影响 tmp 清扫返回与节流窗推进。返回值不计入
+  // swept（spill 数量不产 issue，纯卫生，留痕口径与 tmp 清扫一致）。
+  try {
+    sweepOldSpills(bookRoot)
+  } catch {
+    /* spill 清扫失败不影响主清扫流程 */
+  }
   sweepLastAt.set(bookRoot, now)
   return swept
 }

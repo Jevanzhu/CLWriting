@@ -146,7 +146,9 @@ jobs:
     runs-on: ubuntu-latest
     # R66-39（十四轮）：与 build-test 同款放宽——build:all + 29 spec 串行（workers:1）+
     # release-smoke 二次构建，10 分钟慢机易触顶。20 为过渡值，待实跑数据校准。
-    timeout-minutes: 20
+    # R0910-W（2026-09-10）：20→25——本轮补 Electron 集成冒烟（apt 装系统依赖 + xvfb 起
+    # 真壳）与 soak 步，release-smoke 的 build:all 之上再叠 ~1-2 分钟，取 25 留余量。
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -175,6 +177,35 @@ jobs:
       # （此前仅本地手跑，CI 从不验发布形态；打包资源门只查文件存在不验可启动）
       - name: 发布冒烟（release-smoke，build:all + 编译产物起服）
         run: npm run test:e2e:release
+
+      # R0910-W（2026-09-10）：Electron 集成冒烟接入 PR/push 门——此前本 job 全链只碰
+      # chromium + Node HTTP（mock driver），从不启动 Electron 壳；唯一 Electron 覆盖
+      # 是 desktop.yml 的 25s 存活冒烟（仅 tag 推送触发）。真实崩溃（src/desktop/main.ts
+      # 的 closed 清理监听在销毁态 webContents 上抛错 → 关窗链短路/退出异常）因此可随 PR
+      # 合入。本步以 CLW_SMOKE_WINDOW_CYCLE=1 驱动真实建窗→关窗→标记（契约见 main.ts），
+      # 不依赖 studio server 就绪；dist 由上一「发布冒烟」步的 build:all 产出。
+      # 系统库逐个容错安装：22.04→24.04 间 libgtk-3/libasound2 有 t64 更名，候选名任一
+      # 装成即过；装后显式核对（xvfb-run / GTK / NSS 至少各一在位），缺则 fail-fast 报人话，
+      # 不把「库没装齐」伪装成后续冒烟超时。
+      - name: 装 Electron 系统依赖（xvfb + GTK/NSS/ALSA）
+        run: |
+          sudo apt-get update
+          for p in xvfb libgtk-3-0 libgtk-3-0t64 libnss3 libgbm1 libxss1 libasound2 libasound2t64; do
+            sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y "$p" || true
+          done
+          command -v xvfb-run >/dev/null || { echo "::error::xvfb 未安装成功"; exit 1; }
+          ldconfig -p | grep -q 'libgtk-3' || { echo "::error::libgtk-3 未安装成功"; exit 1; }
+          ldconfig -p | grep -q 'libnss3' || { echo "::error::libnss3 未安装成功"; exit 1; }
+
+      - name: Electron 集成冒烟（真实建窗→关窗，xvfb）
+        run: xvfb-run -a npm run smoke:electron
+
+      # R0910-W（2026-09-10）：有界 soak/泄漏门——「200 万字不崩」此前全仓无内存断言
+      #（grep memoryUsage|heapUsed = 0 命中），线性泄漏回归无门可拦。独立脚本
+      #（test/soak/soak.ts，故意不带 .test. 以不进 README 计数套件）反复跑有界纯路径 +
+      # --expose-gc 断增长上界（详见脚本头注）；gc 不可用则干净 SKIP。无系统依赖，纯 Node。
+      - name: 有界内存/soak 门（--expose-gc）
+        run: npm run soak
 
       - name: 上传 trace（失败时）
         if: failure()

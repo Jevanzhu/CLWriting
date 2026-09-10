@@ -27,6 +27,8 @@ import { registerOverviewRoutes } from './api/overview.js'
 import { registerRhythmRoutes } from './api/rhythm.js'
 import { registerSettingsRoutes } from './api/settings.js'
 import { registerStreamRoutes } from './api/stream.js'
+import { closeAllSseConnections } from './api/stream.js' // R0910-W：close 收尾断开在途 SSE
+import { waitInFlightWorkSettled } from './api/in-flight-work.js' // R0910-W：close 收尾有界等在途外部工作
 import { createStreamTicketStore, registerStreamTicketRoutes, type StreamTicketStore } from './api/stream-ticket.js'
 import { registerDraftRoutes } from './api/draft.js'
 import { registerOutlineRoutes } from './api/outline.js'
@@ -142,6 +144,11 @@ function buildRoutes(
  * 健康检查无独立顶层端点（health.ts 为书级业务端点，不豁免）；非 /api/ 静态资源不受影响。
  */
 const GET_TOKEN_EXEMPT_PATHS: readonly RegExp[] = [/^\/api\/boot$/, /^\/api\/books\/[^/]+\/stream$/]
+
+/** R0910-W：close 收尾等「在途外部工作」（重建/导出/扫描 Worker 线程）settle 的
+ *  有界预算——超时放行，与 graceful-shutdown 的 settle/close 超时同口径（close 只
+ *  需覆盖该进程内最长的单次 worker 收尾，不追求覆盖全量重建）。 */
+const CLOSE_FLUSH_BUDGET_MS = 2_000
 
 export interface StudioServerOptions {
   port: number
@@ -490,7 +497,27 @@ export function startServer(opts: StudioServerOptions): http.Server {
   // 还依赖运行中实例的 live-set 语义（set 后即可读），close 清空两头都保住。
   server.on('close', () => {
     setInitialBook(undefined)
+    // R0910-W：模块生命周期终态断开全部在途 SSE——幂等（close 包装已先断一次）。
+    closeAllSseConnections()
   })
+  // R0910-W：server.close 自包含化（P2「close 不完整」修复）。
+  // 原 close 只停接新请求、等在途响应——两类收尾逃逸出回调语义：
+  //  ① SSE 长连接响应未 end（非 closeIdleConnections 可摘的空闲连接），close 回调
+  //     被悬置到调用方自身超时才放行；② 客户端可先断开连接而 handler 仍 await 重建/
+  //     导出 Worker 线程，连接清空即触发回调，worker 仍持 .cache/index.db 句柄写盘 →
+  //     调用方（集成测试/e2e）close 后立刻 rmSync 在 Windows 落 ENOTEMPTY。
+  // 包装：close 前先 destroy 全部 SSE；close 事件到后再于有界预算内等在途外部工作
+  // settle，才回调调用方。预算耗尽即放行（与既有 settle 超时同口径，绝不无限期阻塞）；
+  // err 原样透传（服务器未监听等既有错误语义不变）。
+  {
+    const rawClose = server.close.bind(server)
+    server.close = ((cb?: (err?: Error) => void) => {
+      closeAllSseConnections()
+      return rawClose((err?: Error) => {
+        void waitInFlightWorkSettled(CLOSE_FLUSH_BUDGET_MS).finally(() => cb?.(err))
+      })
+    }) as typeof server.close
+  }
   // R73-49（二十一轮）：票库挂 server 对象——同进程多实例（测试/e2e）按实例取用，
   // 旧实例签发的票随实例隔离，新实例（二次 startServer）零残留零可用
   ;(server as http.Server & { __streamTickets?: StreamTicketStore }).__streamTickets = streamTickets

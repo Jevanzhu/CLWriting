@@ -10,10 +10,11 @@
  */
 import http from 'node:http'
 import { join } from 'node:path'
-import { rmSync } from 'node:fs'
 import { startServer } from '../../src/studio/server/index.js'
 import { makeDualTrackWorkdir } from '../studio/fixtures.js'
 import { E2E_PORT_BASE } from './e2e-ports.js'
+// R0910-W：临时 workDir 清理走重试封装（Windows 句柄异步收尾的 ENOTEMPTY/EPERM/EBUSY）
+import { rmTempDirRetry } from './tmp-cleanup.js'
 
 let server: http.Server | undefined
 
@@ -54,13 +55,13 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     // R27-124（二十七轮）：启动失败路径此前只 reject 不清理——workDir（fixtures 双轨书仓）
     // 已落盘，而删除只挂在成功路径的 teardown（X-31），EADDRINUSE 等监听失败会把整个
     // workDir 泄漏在系统 tmp；此处对齐成功路径「用完即删」口径，抛错前先收走。
-    rmSync(workDir, { recursive: true, force: true })
+    rmTempDirRetry(workDir)
     throw err
   }
   return async () => {
     if (server) await new Promise<void>((r) => server!.close(() => r()))
     // X-31：对齐 release-smoke 的删除口径——临时 workDir 用完即删（此前只 close 不删，
     // 泄漏在系统 tmp 目录）
-    rmSync(workDir, { recursive: true, force: true })
+    rmTempDirRetry(workDir)
   }
 }

@@ -44,7 +44,8 @@ interface CardCacheEntry {
 const CARD_CACHE_MAX = 64
 const cardCache = new Map<string, CardCacheEntry>()
 
-/** 清空角色卡缓存（测试用）。 */
+/** R0910-W（2026-09-10 修复批）：测试专用导出（零生产调用）——清空角色卡缓存；
+ *  生产侧变化由每轮 readdir 的 (mtimeMs,size) 指纹自愈，无需显式清。 */
 export function clearCharacterCardCache(): void {
   cardCache.clear()
 }

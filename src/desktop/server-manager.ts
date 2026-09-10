@@ -680,12 +680,22 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
         return null
       }
       if (shuttingDown) {
+        // R0910-W：等待者闭包挂入 shutdownSettledWaiters，超时分支此前不摘除——超时
+        // 返回后该 resolver 常驻数组直到下一次 shutdown（无界滞留）。用 finally 在
+        // race 落定后从数组移除自身；停机收口路径已整体清空数组（indexOf=-1）为无害
+        // no-op，落定语义不变。（对象属性承载 resolver：let 变量在闭包内赋值会被 TS
+        // 流分析钉死在初值 null 上——同 shutdown() settle 对象注释口径。）
+        const waiterRef: { fn: (() => void) | null } = { fn: null }
         const settled = await Promise.race([
           new Promise<void>((resolve) => {
+            waiterRef.fn = resolve
             shutdownSettledWaiters.push(resolve)
           }).then(() => true),
           delay(restartShutdownWaitMs).then(() => false),
-        ])
+        ]).finally(() => {
+          const i = waiterRef.fn ? shutdownSettledWaiters.indexOf(waiterRef.fn) : -1
+          if (i >= 0) shutdownSettledWaiters.splice(i, 1)
+        })
         if (!settled) {
           logger.warn(
             'server-manager',

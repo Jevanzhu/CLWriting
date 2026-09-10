@@ -340,6 +340,18 @@ export function sharedRuntimeVersionDrift(rootLockPackages, webLockPackages, pkg
   return drift
 }
 
+/**
+ * R0910-W（2026-09-10）：从 README「开发」节解析 win 实跑口径相对 mac/linux 口径的
+ * 平台门跳过量。该节表述形如「…win 实跑口径：… 实测差 75 恒定〔73 既有 + …〕」——
+ * win 上 skipIf(win32) 平台门用例不进 vitest list 收集，win 实测值 = mac/linux 声称值
+ * − 该差值。README 是该口径的唯一真相源，故就地从原文解析，不在脚本另立硬编码常量
+ * （消除双真相源分叉）。解析失败返回 null，调用方 fail-closed（不静默退回旧「跳过」）。
+ */
+export function parseWinPlatformDelta(readme) {
+  const m = readme.match(/实测差\s*(\d+)\s*恒定/)
+  return m ? Number(m[1]) : null
+}
+
 // 门禁主体收进 main() + 直跑守卫：node 直跑本文件（npm run check:counts）时执行；
 // 被测试 import（R63-12 直测纯函数）时不触发 vitest list / process.exit 副作用
 function main() {
@@ -456,12 +468,46 @@ function main() {
   // 但把排版差异当数字失真红太脆）；语义锚（短语 + 数字位置）不变，真失配/真缺行仍红。
   const PH = (inner) => `[（(]${inner}[)）]`
   // J0（win 适配，2026-08-28 本机实测）：README 单测数为 macOS/Linux 口径——win 上 J3
-  // 的 skipIf(win32) 平台门用例不进 vitest list 收集（实测 4066→4010，差属预期非丢失），
-  // 单测数对账由 macos/ubuntu 腿承担（承 coverage 门「阈值门留分支 CI」的平台分工先例）；
-  // win 腿仍对账测试文件数与 e2e spec/用例数（平台不变量）。
+  // 的 skipIf(win32) 平台门用例不进 vitest list 收集（实测 4066→4010，差属预期非丢失）。
+  // R0910-W（2026-09-10）：此前 win 腿整段跳过单测数对账 → README 头号数字（6525）在
+  // 出货平台 Windows 上从未被验证。现 win 腿从「跳过」升级为「按 README 声称值 − 平台门
+  // 跳过量反推核对」：delta 就地解析 README「实测差 N 恒定」原文（README = 唯一真相源），
+  // win 实测 + delta 必须等于 README 声称值，否则红（README 漂移 / win 侧真丢收集都拦）；
+  // 文件数与 e2e spec/用例数照旧为平台不变量、两腿同对账。mac/linux 腿断言一字未改。
+  // fail-closed：README 未记载 delta / 解析失败时，win 腿报人话并红——绝不退回「静默跳过」。
   const isWin = process.platform === 'win32'
+  const winDelta = isWin ? parseWinPlatformDelta(readme) : 0
+  let winDeltaMissingReported = false
   const claimUnitTests = (pattern, label) => {
-    if (!isWin) claim(pattern, actual.unitTests, label)
+    if (!isWin) {
+      claim(pattern, actual.unitTests, label)
+      return
+    }
+    if (winDelta === null) {
+      if (!winDeltaMissingReported) {
+        winDeltaMissingReported = true
+        mismatch.push(
+          'README 缺少 win 平台门跳过量（模式 /实测差\\s*(\\d+)\\s*恒定/ 未命中 README「开发」节）——' +
+            `win 腿无法反推单测数期望值（win 实测 ${actual.unitTests}）。请在「开发」节补「实测差 N 恒定」口径。`,
+        )
+      }
+      return
+    }
+    const m = readme.match(pattern)
+    if (!m) {
+      mismatch.push(`README 缺少「${label}」声称值（模式失配：${pattern}）——win 实测 ${actual.unitTests}`)
+      return
+    }
+    // win 期望 = README 声称（mac/linux 口径）− 平台门跳过量
+    const claimed = Number(m[1])
+    const expectedWin = claimed - winDelta
+    if (expectedWin !== actual.unitTests) {
+      mismatch.push(
+        `${label}（win 口径）：README 声称 ${claimed}（mac/linux 口径），平台门差 ${winDelta} → ` +
+          `期望 win ${expectedWin}，实测 win ${actual.unitTests}（README 漂移或 win 侧收集丢失）。` +
+          `请按实测修 README（若为新增/移除 skipIf(win32) 用例，同步修「开发」节的「实测差 N 恒定」）。`,
+      )
+    }
   }
   // 徽章：tests-2937%20all%20green（示例为 2026-08-23 当前值，实际以 README 为准）
   claimUnitTests(/badge\/tests-(\d+)%20all%20green/, '徽章单测数')

@@ -279,3 +279,30 @@ test('R-P3-3: 单遍流式——多章混合书上两路候选逐章对应、草
   }
 })
 
+// ── R0910-W：候选池循环内有界化（容量 = 终取数 ×2）━━━━━━━━━━━━━━━━━━
+// 原实现全书 push、末了才 slice（大书峰值 O(全书)）。现循环内即保有界 top-N 池，
+// 结果须与全量稳定排序后 slice 逐位一致。此处用超过池容量的章数（12 章 × 1 金句）
+// 真实走一遍裁剪路径，钉金句 top5 仍为最新 5 章（章号倒序）。
+test('R0910-W: 候选数超池容量后裁剪——金句 top5 仍为最新 5 章（章号倒序）', async () => {
+  const root = makeBook() // 含第 1/2 章
+  try {
+    for (let n = 3; n <= 12; n++) {
+      writeFileSync(
+        join(root, '写作', '正文', `${String(n).padStart(4, '0')}-定稿章${n}.md`),
+        `---\n章号: ${n}\n标题: 定稿章${n}\n---\n${QUALIFYING_BODY}`,
+        'utf-8',
+      )
+    }
+    const r = await learnFromBook(root)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    // 12 条金句候选 > QUOTE_POOL_CAP(10)，裁剪路径生效；终取 top5 = 最新 5 章
+    expect(r.quoteCount).toBe(5)
+    expect((r.quotes ?? []).map((q) => q.章号)).toEqual([12, 11, 10, 9, 8])
+    // 样章候选同章多条，裁剪后恰为容量上限 top10
+    expect(r.sampleCount).toBe(10)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+

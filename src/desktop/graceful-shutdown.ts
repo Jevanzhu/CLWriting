@@ -2,11 +2,13 @@
  * RB-SV-P2-6：退出前清理——中断在途编排 + 关 HTTP server。
  *
  * 只用现有 API：abortSelfHeal / abortChat（per book，self-heal 与 chat 编排的
- * 中断入口，与删书端点同款接线）；server.close。DocumentService 写队列无公开
- * drain/flush API（保存路径有 journal 崩溃恢复兜底），本层不强行介入。
- * close 对 SSE/keep-alive 长连接会悬置回调——限时放行，由调用方再兜一层总超时。
+ * 中断入口，与删书端点同款接线）；server.close。R0910-W：DocumentService 保存
+ * 队列经 drainDocumentSaves 有界 drain（不再只靠 journal 崩溃恢复）；重建/导出/
+ * 扫描 Worker 线程经 server 在途工作表有界等待（in-flight-work）。server.close
+ * 对 SSE/keep-alive 长连接会悬置回调——限时放行，由调用方再兜一层总超时。
  */
 import http from 'node:http'
+import { join } from 'node:path'
 import { readBooks } from '../install/books.js'
 import { abortSelfHeal, waitSelfHealSettled } from '../ai/orchestrate/self-heal.js'
 import { abortChat, waitChatSettled } from '../ai/orchestrate/chat.js'
@@ -14,6 +16,9 @@ import { waitBackgroundTasks } from '../ai/orchestrate/background.js'
 import { isSpawnRunning } from '../ai/orchestrate/spawn-registry.js'
 import { getDriver, getSession } from '../driver/index.js'
 import { heldTaskGatesFor } from '../studio/server/api/task-gate.js'
+// R0910-W：保存队列 drain + 在途外部工作（Worker 线程）有界等待
+import { drainDocumentSaves } from '../studio/server/api/documents.js'
+import { waitInFlightWorkSettled } from '../studio/server/api/in-flight-work.js'
 
 export interface ShutdownOptions {
   /** server.close 回调等待上限（SSE 长连接未断时悬置）；缺省 1.5s */
@@ -42,6 +47,9 @@ export async function shutdownStudio(
 ): Promise<void> {
   const workDir = getWorkDir()
   const names: string[] = []
+  // R0910-W：书根清单——退出前 drain 每本书的 DocumentService 保存队列（在途 save
+  // 的 journal+快照+fsync 收尾此前只靠 journal 崩溃恢复，进程退出即丢在途写）
+  const roots: string[] = []
   if (workDir) {
     for (const b of readBooks(workDir)) {
       abortSelfHeal(b.name)
@@ -56,6 +64,7 @@ export async function shutdownStudio(
         if (session) getDriver().interrupt?.(session)
       }
       names.push(b.name)
+      roots.push(join(workDir, b.path))
     }
   }
   // #7/L3（二轮复审）：等被中断的编排收尾（session/end 事件落库）——此前 abort 后不等
@@ -84,6 +93,18 @@ export async function shutdownStudio(
       ]),
     ),
   )
+  // R0910-W：保存队列 drain + 在途 Worker（重建/导出/扫描）收尾。此前本层只等编排
+  // settle、不等这两类资源，进程退出时在途 save 的收尾与 Worker 线程写盘被硬杀
+  //（journal 崩溃恢复只兜保存，Worker 持 .cache/index.db 句柄）。与上方 settle、下方
+  // server.close 并行等待（各自有界超时，总时长不叠加）；超时放行——退出仍是有界且必然终止。
+  const serializeBudget = opts.settleTimeoutMs ?? 1_500
+  const serializeWait = Promise.race([
+    Promise.all([
+      ...roots.map((r) => drainDocumentSaves(r, serializeBudget)),
+      waitInFlightWorkSettled(serializeBudget),
+    ]),
+    new Promise<void>((resolveP) => setTimeout(resolveP, serializeBudget).unref()),
+  ])
   if (server) {
     await new Promise<void>((resolveP) => {
       let done = false
@@ -102,5 +123,5 @@ export async function shutdownStudio(
       timer.unref() // R-20：同上，不阻塞无其他句柄时的正常退出
     })
   }
-  await settleWait
+  await Promise.all([settleWait, serializeWait])
 }

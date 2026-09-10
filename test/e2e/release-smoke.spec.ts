@@ -11,10 +11,12 @@
  */
 import { test, expect } from '@playwright/test'
 import { spawn, type ChildProcess } from 'node:child_process'
-import { existsSync, rmSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { makeDualTrackWorkdir } from '../studio/fixtures.js'
 import { e2ePort } from './e2e-ports.js'
+// R0910-W：smoke 临时 workDir 清理同样走重试封装（子进程收尾后句柄可能短暂未释放）
+import { rmTempDirRetry } from './tmp-cleanup.js'
 
 // 独立端口（基址+16，旧硬编码 19015）——auto-write（基址+3）与本项目分端口并行不抢占
 // （R63-15 修正陈旧注释：勿再合并）；R73-75（批 F-8）：改基址派生，偏移表见 e2e-ports.ts
@@ -47,7 +49,7 @@ test.afterAll(async () => {
       child!.kill('SIGTERM')
     })
   }
-  if (smokeWorkDir) rmSync(smokeWorkDir, { recursive: true, force: true })
+  if (smokeWorkDir) rmTempDirRetry(smokeWorkDir)
 })
 
 test('编译产物齐备（Electron 壳 bundle + server 入口 + web 静态）', () => {

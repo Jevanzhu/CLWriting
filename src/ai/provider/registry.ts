@@ -113,7 +113,8 @@ function cachePut(hash: string, provider: ModelProvider): void {
   }
 }
 
-/** 测试辅助：清实例缓存（防跨用例串味） */
+/** R0910-W（2026-09-10 修复批）：测试专用导出（零生产调用）——清实例缓存，防跨用例
+ *  串味；生产侧缓存失效由 conf hash 键控自然完成，无需显式清。 */
 export function clearProviderCache(): void {
   _cache.clear()
 }

@@ -9,13 +9,15 @@
  */
 import { test, expect } from '@playwright/test'
 import http from 'node:http'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { startServer } from '../../src/studio/server/index.js'
 import { makeDualTrackWorkdir } from '../studio/fixtures.js'
 import { e2ePort } from './e2e-ports.js'
 import { attachPageErrorBaseline } from './page-error-baseline.js'
+// R0910-W：临时目录清理走重试封装（Windows 句柄异步收尾的 ENOTEMPTY/EPERM/EBUSY）
+import { rmTempDirRetry } from './tmp-cleanup.js'
 
 // R73-75（批 F-8）：端口基址派生（CLW_E2E_PORT_BASE+2，旧硬编码 19001；偏移表见 e2e-ports.ts）
 const PORT = e2ePort(2)
@@ -43,8 +45,8 @@ test.beforeAll(async () => {
         )
       }
       // R9-P2-4：listen 失败不留残——对齐 global-setup R27-124 口径（usage-card/auto-write 同批）
-      if (userDataPath) rmSync(userDataPath, { recursive: true, force: true })
-      if (workDir) rmSync(workDir, { recursive: true, force: true })
+      if (userDataPath) rmTempDirRetry(userDataPath)
+      if (workDir) rmTempDirRetry(workDir)
       if (prevDriver === undefined) delete process.env.CLWRITING_DRIVER
       else process.env.CLWRITING_DRIVER = prevDriver
       reject(err)
@@ -56,9 +58,9 @@ test.afterAll(async () => {
   if (prevDriver === undefined) delete process.env.CLWRITING_DRIVER
   else process.env.CLWRITING_DRIVER = prevDriver
   await new Promise<void>((resolve) => server.close(() => resolve()))
-  if (userDataPath) rmSync(userDataPath, { recursive: true, force: true })
+  if (userDataPath) rmTempDirRetry(userDataPath)
   // R65-60（F-4）：workDir 同清（对齐 auto-write）
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
+  if (workDir) rmTempDirRetry(workDir)
 })
 
 // T2-3：GET /api/* 读端点要求 token——boot 取一次缓存，直打 API 的断言统一带 x-studio-token
