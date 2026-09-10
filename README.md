@@ -113,7 +113,7 @@ Windows 在 cmd/PowerShell 里直接跑同一套 npm 命令即可（环境变量
 
 前端子包 `src/studio/web-next` 有自己的 `package.json` 和二级 `node_modules`（CodeMirror 等钉在那里，根目录的 `npm install` 不会带下来）。新克隆后要先补装上面第一行（CI 同款命令；本地改前端依赖时把 `ci` 换成 `install`）——不装的话 `npm test` 会在打字机相关用例上报模块解析失败，`build:web` / `dev:web` 也起不来。
 
-改完代码至少跑 `npm test`：1037 个测试文件 / 6725 单测全绿是合入门槛，CI 里的 check:counts 会核对 README 声称的数字，对不上直接红。单测数是 macOS/Linux 口径——win 上平台门（`skipIf(win32)`）的用例不进 vitest 收集（阶段 21 J3；2026-09-10 全量重审修复批 win 实跑口径：1014 文件 / 6470 过 + 79 跳 0 败，实测差 75 恒定〔73 既有 + dev 侧新增 2 个 skipIf(win32)〕；本合并树按差值预期 win 1037 文件 / 6650 过 + 79 跳，待 CI win 腿复验），win 腿的 check:counts 现同时核对文件数、e2e 数与单测数（R0910-W：此前 win 腿只对账文件数与 e2e 数，单测数只在 macos/ubuntu 腿核对）。动了前端就再跑 `vue-tsc` 和 e2e。e2e 的 29 个 spec 按固有顺序跑（前一个建的书/写的内容供后一个用），其中主链共享单一临时 workDir（少数 spec 如 usage-card 各持独立 server+workDir 实例，见 test/e2e/e2e-ports.ts）——勿加并行或改动 spec 顺序，否则隐式依赖会静默错乱。
+改完代码至少跑 `npm test`：1037 个测试文件 / 6725 单测全绿是合入门槛，CI 里的 check:counts 会核对 README 声称的数字，对不上直接红。单测数是 macOS/Linux 口径——win 上平台门（`skipIf(win32)`）的用例不进 vitest 收集（阶段 21 J3；2026-09-10 全量重审修复批 win 实跑口径：1014 文件 / 6470 过 + 79 跳 0 败，实测差 75 恒定〔73 既有 + dev 侧新增 2 个 skipIf(win32)〕；本合并树按差值预期 win 1037 文件 / 6650 过 + 79 跳——2026-09-11 workflow_dispatch 复验（run 34503257752）win 腿零用例红但收尾被 tinypool teardown 竞态杀于汇总前，通过数待再验），win 腿的 check:counts 现同时核对文件数、e2e 数与单测数（R0910-W：此前 win 腿只对账文件数与 e2e 数，单测数只在 macos/ubuntu 腿核对）。CI 测试步现存四族环境面红（R71-8 大小写敏感 FS 用例假设 / kk-P2-8 ubuntu 平台差异 / r43-2 慢机 TTL 时序 / win teardown 竞态——均为测试侧或 runner 面，本地全绿不复现；明细与处置登记 `Dev/Main/00-未收口与挂账-台账-2026-09-04.md` §三 G）。动了前端就再跑 `vue-tsc` 和 e2e。e2e 的 29 个 spec 按固有顺序跑（前一个建的书/写的内容供后一个用），其中主链共享单一临时 workDir（少数 spec 如 usage-card 各持独立 server+workDir 实例，见 test/e2e/e2e-ports.ts）——勿加并行或改动 spec 顺序，否则隐式依赖会静默错乱。
 
 ## 技术栈
 
