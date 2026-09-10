@@ -251,5 +251,9 @@ export function stringifyPieceList(list: PieceList): string {
     }
   }
 
-  return lines.join('\n')
+  // R1010b-DOC-P3-4（全量代码重审与内存专项 2026-09-10）：补尾换行，对齐全库 stringify
+  // 惯例（yaml.ts stringifyBookConfig 的 `join('\n') + '\n'` 同款）——此前无尾换行，
+  // 章纲.md 落盘后 git 显示 No newline at end of file；空 lines 分支为防御（现行实现
+  // 恒推三段头，实际不可达）。读侧 parsePieceListBody 按 split('\n') 切行，尾空行无感。
+  return lines.length > 0 ? lines.join('\n') + '\n' : ''
 }

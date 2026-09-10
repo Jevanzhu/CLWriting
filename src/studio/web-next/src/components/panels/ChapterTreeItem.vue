@@ -15,6 +15,9 @@ const props = defineProps<{
   depth: number
   expanded: Set<string>
   activePath: string | null
+  /** R1010-P3（G6-③）roving tabindex：唯此行 tabindex=0（active 行优先，无 active
+   *  回落首行），其余行 -1——100 行树只留一个 Tab 停靠点，Tab 序不再被树淹没。 */
+  tabstopPath: string | null
   /** inline 新建输入框：渲染在 renderDir 目录的子列表顶部。 */
   creatingDirPath: string | null
   creatingKind: 'chapter' | 'chapter-outline' | 'volume-outline' | 'character' | 'item' | 'foreshadow' | 'volume' | 'doc' | null
@@ -119,6 +122,65 @@ function onCreateEsc(e: KeyboardEvent): void {
   emit('create-cancel')
 }
 
+// R1010-P3（G6-③）：树键盘 roving——WAI-ARIA tree 模式（对齐 re2-context-menu-roving
+// / CommandPalette 先例）。方向键在可见 treeitem 间移动真焦点：可见序 = DOM 序（折叠
+// 子树 v-if 不在 DOM、RENDER_CAP 截断行不在渲染面，均天然排除，无需自算）；Tab 只在
+// tabstop 行停靠一次。↑↓ 平移；→ 展开目录 / 已展开则进首个子行；← 收起目录 / 已收起
+// 或章行则回父目录行（顶层无父不动）；Home/End 跳首/末可见行。
+function cssEscape(s: string): string {
+  return typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(s) : s.replace(/["\\]/g, '\\$&')
+}
+function onTreeKeyDown(e: KeyboardEvent): void {
+  if (isImeComposing(e)) return // 组合期方向键归输入法选候选（B-9 同判据）
+  const el = e.currentTarget as HTMLElement
+  const treeRoot = el.closest<HTMLElement>('[role="tree"]')
+  if (!treeRoot) return
+  const rows = Array.from(treeRoot.querySelectorAll<HTMLElement>('[role="treeitem"]'))
+  const idx = rows.indexOf(el)
+  const focusRow = (r: HTMLElement | undefined): void => {
+    r?.focus()
+  }
+  switch (e.key) {
+    case 'ArrowDown':
+      e.preventDefault()
+      focusRow(rows[idx + 1])
+      break
+    case 'ArrowUp':
+      e.preventDefault()
+      focusRow(rows[idx - 1])
+      break
+    case 'ArrowRight':
+      if (!props.node.isDirectory) return
+      e.preventDefault()
+      if (!isOpen()) emit('toggle', props.node.path)
+      else focusRow(rows[idx + 1])
+      break
+    case 'ArrowLeft':
+      if (props.node.isDirectory && isOpen()) {
+        e.preventDefault()
+        emit('toggle', props.node.path)
+        return
+      }
+      {
+        const segs = props.node.path.split('/')
+        if (segs.length < 2) return // 顶级分组无父
+        segs.pop()
+        e.preventDefault()
+        const hit = treeRoot.querySelector<HTMLElement>(`[data-path="${cssEscape(segs.join('/'))}"]`)
+        if (hit) focusRow(hit)
+      }
+      break
+    case 'Home':
+      e.preventDefault()
+      focusRow(rows[0])
+      break
+    case 'End':
+      e.preventDefault()
+      focusRow(rows[rows.length - 1])
+      break
+  }
+}
+
 // 进入新建/重命名态：初始化值 + 聚焦
 watch(
   () => [props.creatingDirPath, props.renamePath],
@@ -151,17 +213,22 @@ watch(
         @blur="emit('rename-commit', node.path, inputVal)"
       />
     </div>
-    <!-- 常规行 -->
+    <!-- 常规行（R1010-P3 G6-③：treeitem + aria-expanded/level/selected + roving tabindex） -->
     <div
       v-else
       class="tree-item"
       :class="{ active: activePath === node.path, dragging: draggedPath === node.path, 'group-head': depth === 0 }"
       :style="{ paddingLeft: `${depth * 14 + 8}px` }"
-      role="button"
-      tabindex="0"
+      role="treeitem"
+      :data-path="node.path"
+      :aria-level="depth + 1"
+      :aria-expanded="node.isDirectory ? isOpen() : undefined"
+      :aria-selected="!node.isDirectory && activePath === node.path"
+      :tabindex="tabstopPath === node.path ? 0 : -1"
       draggable="true"
       @keydown.enter.prevent="node.isDirectory ? emit('toggle', node.path) : emit('select', node)"
       @keydown.space.prevent="node.isDirectory ? emit('toggle', node.path) : emit('select', node)"
+      @keydown="onTreeKeyDown"
       @click="node.isDirectory ? emit('toggle', node.path) : emit('select', node)"
       @contextmenu.prevent="emit('contextmenu', node, $event.clientX, $event.clientY)"
       @dragstart="onDragStart"
@@ -188,8 +255,8 @@ watch(
       ></span>
     </div>
 
-    <!-- 子节点 + 新建输入框 -->
-    <template v-if="node.isDirectory && isOpen()">
+    <!-- 子节点 + 新建输入框（G6-③：group 语义包裹，display:contents 不改排版） -->
+    <div v-if="node.isDirectory && isOpen()" role="group" class="tree-group">
       <div v-if="isCreatingHere()" class="tree-item" :style="{ paddingLeft: `${(depth + 1) * 14 + 8}px` }">
         <input
           ref="inp"
@@ -209,6 +276,7 @@ watch(
         :depth="depth + 1"
         :expanded="expanded"
         :active-path="activePath"
+        :tabstop-path="tabstopPath"
         :creating-dir-path="creatingDirPath"
         :creating-kind="creatingKind"
         :creating-seed="creatingSeed"
@@ -233,7 +301,7 @@ watch(
       >
         … 其余 {{ omittedCount }} 项未渲染（可用快开搜索定位）
       </div>
-    </template>
+    </div>
   </div>
 </template>
 
@@ -253,6 +321,15 @@ watch(
 }
 .tree-item:hover {
   background: var(--background-modifier-hover);
+}
+/* R1010-P3（G6-③）：roving 后键盘焦点行显形（对齐 HistoryPanel restore-btn 同批口径） */
+.tree-item:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: -2px;
+}
+/* G6-③：子树 group 语义容器——display:contents 不产生盒子，排版与拆分前逐像素一致 */
+.tree-group {
+  display: contents;
 }
 .tree-item.active {
   background: var(--background-modifier-active-hover);

@@ -10,13 +10,14 @@
  * - ① 首发超窗 400 → 按更紧预算（⌊首发历史预算/2⌋）保尾重切 → 重算指纹 → 重发 →
  *   会话正常收尾；第二次请求载荷确实更小；llm/retry 留痕在库；两次 llm/call 的
  *   promptMeta 指纹各对齐各自实发载荷（保尾切点下末条消息不变 → 指纹恒同是正确对齐）。
- * - ② 两发都超窗 → 终态失败，错误面与现行（未接线）完全一致；恰一次重试（4 个 HTTP 请求
- *   = 2 次发送 × openai 适配器 400 降级链 2 个参数面）。
- * - ③ 非超窗 400（BAD_REQUEST）→ 不触发收缩重试（现行行为零变更）。
+ * - ② 两发都超窗 → 终态失败，错误面与现行（未接线）完全一致；恰一次重试（2 个 HTTP
+ *   请求 = 2 次发送各 1——R1010-P3〔2026-09-10 全量重评 GLM-5.3 修复批〕起真超窗 400
+ *   不再进降级链白耗剥 tools 重试，isMidChain400 立即透传）。
+ * - ③ 非超窗 400（BAD_REQUEST）→ 不触发收缩重试；降级链照旧驱满 2 参数面（现行零变更）。
  *
  * 载荷形态：以「轮循环第 2 轮在途」（历史末尾悬置 tool_result）的肥历史驱动——这是
  * budgetTailCut 保尾切点真正移动、且不触发发送前预切（总量在首发预算内、因估计误差
- * 超窗）的形态；openai 适配器 400 降级链（剥 tools 重试）由 fake 脚本逐请求喂 400 驱满。
+ * 超窗）的形态；非超窗 400 的 openai 适配器 400 降级链（剥 tools 重试）由 ③ 锁定。
  */
 import { rmSync, mkdtempSync } from 'node:fs'
 import { join } from 'node:path'
@@ -166,15 +167,15 @@ describe('A7 最小版：chat 编排层 shrink-prompt 收缩重试', () => {
     const fingerprintBeforeRun = lastMessageFingerprint(history)
     const s = setup(history, [
       { type: 'error', status: 400, message: OVER_MSG },
-      { type: 'error', status: 400, message: OVER_MSG },
       { type: 'text', content: '收缩后回复。', usage: { input: 100, output: 50 } },
     ])
     try {
       const ok = await runAgentTurns(s.deps)
       expect(ok).toBe(true) // 会话正常收尾（修复前：终态失败卡死）
 
-      // 恰 3 个 HTTP 请求：首发 2 个（openai 降级链两参数面各一 400）+ 重试首发 1 个（200）
-      expect(fake.requestCount()).toBe(3)
+      // 恰 2 个 HTTP 请求：首发 1 个（R1010-P3 起真超窗 400 不再进降级链白耗剥 tools
+      // 重试——isMidChain400 立即透传交收缩链）+ 收缩重试 1 个（200）
+      expect(fake.requestCount()).toBe(2)
       // 第二次请求载荷确实更小：保尾重切在 u1（5 条），修复前首发为全量 9 条
       const body = fake.lastBody() as { messages?: Array<{ role: string; content?: unknown }> }
       const convo = (body.messages ?? []).slice(1) // 去掉 system
@@ -220,8 +221,9 @@ describe('A7 最小版：chat 编排层 shrink-prompt 收缩重试', () => {
       const ok = await runAgentTurns(s.deps)
       expect(ok).toBe(false)
 
-      // 恰一次收缩重试：2 次发送 × 降级链 2 请求 = 4（修复前 2）
-      expect(fake.requestCount()).toBe(4)
+      // 恰一次收缩重试：2 次发送各 1 请求 = 2（R1010-P3 前为 4——降级链每发送白耗一
+      // 次剥 tools 必败重试；真超窗 400 现立即透传）
+      expect(fake.requestCount()).toBe(2)
       // 错误面与现行（未接线）一致：provider 400 原文透传（chat-exits ⑤ 同款口径）
       const err = s.emitted.find((e) => e.type === 'chat_error') as { error: string } | undefined
       expect(err?.error).toContain(OVER_MSG)

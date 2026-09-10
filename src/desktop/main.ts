@@ -53,7 +53,7 @@ import { listWindowsFonts } from './win-fonts.js' // MP2-1（专项重评二轮�
 import {
   parseStore,
   setCurrent,
-  filterValidRecent,
+  filterValidRecentBudgeted,
   serializeStore,
   emptyStore,
 } from './workdir-store.js'
@@ -314,9 +314,11 @@ const serverManager = createStudioServerManager({
       if (win && !win.isDestroyed()) win.webContents.send('desktop:server-restarted', port)
     }
   },
-  onRestartExhausted: () => {
-    // 同步对话框：崩溃风暴路径上无在途状态可等，用户决断即收口
-    const choice = dialog.showMessageBoxSync({
+  onRestartExhausted: async () => {
+    // R1010-P3（G7-②）：同步对话框泵原生嵌套消息循环，崩溃风暴路径上主进程事件循环
+    // 被冻（三窗口输入/IPC 全停）；改异步 showMessageBox，exit 回调即刻返回，决断
+    // 到达前不重启不退出（server-manager 侧 void Promise 适配）。
+    const { response: choice } = await dialog.showMessageBox({
       type: 'error',
       title: 'CLWriting 服务异常',
       message: '写作服务连续崩溃，自动重启已停止。',
@@ -363,7 +365,11 @@ function loadWinState(): WinState | null {
     // R26-86（二十六轮）：校验扩为 getAllDisplays 任一显示器包含即有效（±容差口径
     // 原样保留）——原只对主屏判定，多屏作者窗口常驻副屏：副屏坐标对主屏永远「越界」，
     // 恢复被无条件丢弃、窗口尺寸/位置白丢。判定逻辑抽 window-state.ts 纯函数（可单测）。
-    if (isBoundsVisibleOnAnyDisplay(s.bounds, screen.getAllDisplays().map((d) => d.bounds))) return s
+    // R1010-P3（G7-④）：校验矩形整屏 bounds → workArea——创建侧缺省/钳制口径
+    // （workAreaSize-80/-8）一直按工作区算，校验却按含任务栏/Dock 的整屏：存档底部
+    // 压在任务栏区（整屏含、工作区外）此前判有效、恢复即压条。容差 200px 原样保留
+    //（轻微出界照旧放行），只多拦「越工作区 >200px」的真离屏态，正常存档不受影响。
+    if (isBoundsVisibleOnAnyDisplay(s.bounds, screen.getAllDisplays().map((d) => d.workArea))) return s
   } catch {
     /* 无文件或损坏 → 默认 */
   }
@@ -392,11 +398,17 @@ function storePath(): string {
 }
 
 /** 读 store（含失效 recent 清理）；缺失/损坏 → 空存储。
- *  R47-9（四十七轮）：内存缓存（写时失效）——此前每次调用全量读盘 + filterValidRecent
- *  逐 recent 项 existsSync+statSync：welcome 态 currentWorkDir 的 ?? 兜底使每次相关
- *  IPC 都重踩，书库在失联网络卷（NAS/SMB「挂载点在而服务器无响应」态）上时同步
- *  阻塞主进程数秒（三窗口输入/IPC 全冻结）。缓存后常态零盘 IO；recent 有效性过滤
- *  只在首读一次执行（workdir.json 系应用管理文件，外部手改重启可见，可接受）。
+ *  R47-9（四十七轮）：内存缓存（写时失效）——此前每次调用全量读盘 + 旧同步版
+ *  filterValidRecent 逐 recent 项 existsSync+statSync：welcome 态 currentWorkDir 的
+ *  ?? 兜底使每次相关 IPC 都重踩，书库在失联网络卷（NAS/SMB「挂载点在而服务器无
+ *  响应」态）上时同步阻塞主进程数秒（三窗口输入/IPC 全冻结）。缓存后常态零盘 IO；
+ *  recent 有效性过滤只在首读一次执行（workdir.json 系应用管理文件，外部手改重启
+ *  可见，可接受）。
+ *  R1010-P2-1（2026-09-10 全量重评 GLM-5.3 修复批）：首读不再同步过滤——同步逐条
+ *  stat 在 recent 残留失联网络卷时照样冻主进程数十秒（重审-1 probeDirReachable
+ *  防线只护 current/cwd，recent 条目在防线外）。readStore 仅 parse 缓存，过滤挪
+ *  bootstrap 异步预算一次执行（filterValidRecentBudgeted，超时项保留展示——见其
+ *  头注；bootstrap await 先于任何 IPC 注册，早读窗口不存在）。
  *  R48-73（四十八轮）备案（取舍补记）：首读过滤后运行期不再复验——会话内被外部
  *  （或本应用他路径）删除的书库目录会残留展示至重启，R47-9 注释只声明了「外部手改
  *  重启可见」一半。接受依据：点切换有 canSwitchLibraryDir 守卫拦截兜底（失效目录
@@ -424,7 +436,9 @@ function readStore(): WorkDirStore {
     storeCache = emptyStore()
     return storeCache
   }
-  storeCache = filterValidRecent(parseStore(raw))
+  // R1010-P2-1：仅 parse 缓存（同步零盘 IO 除读文件本身）——recent 失效过滤挪 bootstrap
+  // 异步预算执行（见 readStore 头注），失联网络卷不再同步冻首读
+  storeCache = parseStore(raw)
   return storeCache
 }
 
@@ -756,7 +770,12 @@ let devProxyApplied: Promise<void> = Promise.resolve()
 //（senderFrame === sender.mainFrame，被注入 iframe 的帧中帧不满足；帧销毁期
 // senderFrame 为 null 亦拒）。拒绝即拒（不弹提示不回退上下文），防攻击面试探。
 const trustedSenders = new Set<WebContents>()
+// R1010b-DSK-P3-5（2026-09-10 内存专项重审修复批）：工厂窗登记集合——兜底反查的判定面。
+// WeakSet 不持强引用，窗口销毁随 GC 回收无泄漏面；登记随 trackWindow 单点（createSecureWindow
+// 唯一入口），无旁路登记面。
+const factoryWindows = new WeakSet<BrowserWindow>()
 function trackWindow(win: BrowserWindow): void {
+  factoryWindows.add(win)
   trustedSenders.add(win.webContents)
   win.on('closed', () => trustedSenders.delete(win.webContents))
 }
@@ -768,10 +787,12 @@ function isTrustedSender(e: IpcMainInvokeEvent | IpcMainEvent | null): boolean {
   if (!e.senderFrame || e.senderFrame !== e.sender.mainFrame) return false
   // 主判据：三窗白名单（createSecureWindow 登记、closed 摘除，快路径）。
   if (trustedSenders.has(e.sender)) return true
-  // 兜底：Electron 全局反查——能反查到本进程存活窗口的 webContents 与白名单等强
-  //（本进程窗口的 webContents 不可能在别处出现）；防非工厂创建窗口的漏网面。
+  // 兜底：Electron 全局反查 + 工厂窗判定。R1010b-DSK-P3-5（2026-09-10 内存专项重审
+  // 修复批）：原「能反查到本进程存活窗口即放行」宽于白名单语义——未来若出现绕过工厂
+  // 的直建窗口，其 webContents 即 IPC 直通；收窄为反查命中窗须属工厂登记集合（登记面
+  // 见 trackWindow），白名单语义 = 「工厂登记 webContents ∪ 工厂窗反查」。
   const win = BrowserWindow.fromWebContents(e.sender)
-  return !!win && !win.isDestroyed()
+  return !!win && !win.isDestroyed() && factoryWindows.has(win)
 }
 
 function createSecureWindow(opts: BrowserWindowConstructorOptions): BrowserWindow {
@@ -832,6 +853,11 @@ function createSecureWindow(opts: BrowserWindowConstructorOptions): BrowserWindo
   trackWindow(win)
   // R67-16：渲染崩溃自愈随工厂挂载（三窗同享；原先只挂主窗，书架/书库白屏无自愈）
   attachRendererCrashSelfHeal(win, opts.title ?? '窗口')
+  // R1010-P3（G7-③）：preload-error 同款入工厂——原先只挂主窗，书架/书库窗 preload
+  // 加载失败（sandbox preload 报错主进程才可见）零留痕。带窗口名区分来源。
+  win.webContents.on('preload-error', (_e, preloadPath, err) => {
+    log.error('desktop', `preload 加载失败（${opts.title ?? '窗口'}）：${preloadPath}`, err)
+  })
   // dev 模式:不经系统代理（防 clash/surge 类 HTTP 代理 buffer SSE 长连接 → driver events 断流）
   // R43-26（四十三轮）：dev 环境变量防线——本文件全部 CLW_DEV_UI 读取统一收紧为
   // 「!!env && !app.isPackaged」形态：宿主 shell 残留的 CLW_DEV_UI=1 在打包态不得再
@@ -953,6 +979,11 @@ const CLOSE_FLUSH_BUDGET_MS = 4_000
  *  竞窗里 null 取消常先到，渲染层 once 只认第一条 → 菜单动作被吞）。放宽到 100ms
  *  让 click 稳定抢先；取消回执晚 100ms 对渲染侧无感（只是收尾态）。 */
 const CONTEXT_MENU_CANCEL_DELAY_MS = 100
+/** R1010b-DSK-P3-6（2026-09-10 内存专项重审修复批）：取消补发 timer 句柄（模块级单槽）
+ *  ——原 popup callback 内裸排 setTimeout 不留句柄：不可清、不可 unref，违本文件 timer
+ *  纪律（R46-19 闭包持引用滞留 / R54-A-5 卫生），菜单连续开关时旧补发叠跑。排新清旧 +
+ *  unref（不拖退出），消费点见 desktop:context-menu 的 popup callback。 */
+let contextMenuCancelTimer: ReturnType<typeof setTimeout> | null = null
 
 /** R44-2（四十四轮）：关窗/退出前渲染层兜底 flush——主进程拦下 close/quit 后经
  *  executeJavaScript 调渲染层 window.__clwFlushBeforeClose（Book 页注册，页面未进
@@ -1048,6 +1079,15 @@ async function bootstrap(): Promise<void> {
   // 工作目录定位：持久化 current（合法书库 或 决策②待建空目录，目录存在即用）> findWorkDir(cwd)
   // 不再启动时弹原生选择器：无书库 → 主窗口加载 /welcome 起始页引导新建 / 打开。
   const store = readStore()
+  // R1010-P2-1（2026-09-10 全量重评 GLM-5.3 修复批）：recent 失效过滤在此异步预算一次
+  // 执行——原 readStore 首读内联同步过滤（existsSync+statSync 逐条），recent 残留失联
+  // 网络卷时 bootstrap 首行即同步冻主进程数十秒；重审-1 probeDirReachable 防线只护
+  // current/cwd，recent 条目在防线外。超时项保留展示（失联≠失效，择库守卫预探拦截
+  // 兜底，R48-73 取舍口径不变）；并行预算 ≤ MAX_RECENT 条，总延迟 = 单条预算。
+  // 此处先于任何 IPC 注册（下方 registerIpc 在窗口就绪后），早读窗口不存在。
+  if (store.recent.length > 0) {
+    storeCache = await filterValidRecentBudgeted(store, { timeoutMs: BOOTSTRAP_PROBE_TIMEOUT_MS })
+  }
   let workDir: string | null = null
   // R72-10（二十轮 D-1）：持久化 workDir 由仅 existsSync 改目录校验——指向普通文件时
   // 原样采信会静默空书架无引导；失效回落 findWorkDir(cwd)，仍无 → /welcome 引导
@@ -1195,7 +1235,24 @@ async function bootstrap(): Promise<void> {
       } else if (raced === null) {
         log.info('desktop', '关窗兜底 flush 无钩子/渲染层不可达（非编辑页常态），直接关窗')
       }
-      if (res && res.conflict.length > 0 && !win.isDestroyed()) {
+      // R1010b-DSK-P2-1（2026-09-10 内存专项重审修复批）：flush 落定后补停机复查——
+      // 上方首行闸只护「close 事件到达时旗已置位」，护不住「close 先到 → flush 在途 →
+      // 旗后置」竞窗：红叉 → flush 在途 → OS 关机触发 session-end 置 sessionEnding →
+      // flush 随后落定 → 同步确认框在 OS 会话收尾有限窗口内弹出，进程被钉死到强杀
+      //（R53-A-1「停机窗口内无人可答」同因，该口径此前只落在 session-end 链自身，未
+      // 回灌 close 链）。三种时序：① sessionEnding（OS 关机/注销收尾在途）——确认
+      // 无人可答，必须跳过；② appTearingDown（before-quit 链已自行 flush+确认全过、
+      // 置位进入停机收尾，将统一 destroy 全窗）——交互权在 quit 链，close 链不重复
+      // 询问；③ 两旗皆假——正常关窗，确认照旧。命中即 warn 留痕未落净清单（对齐
+      // R53-A-1「只留痕不弹窗」）后直落下方 destroy 收口。
+      const skipConfirms = sessionEnding || appTearingDown
+      if (skipConfirms && res && (res.conflict.length > 0 || res.failed.length > 0)) {
+        log.warn(
+          'desktop',
+          `关窗兜底 flush 落定但${sessionEnding ? 'OS 停机' : '应用退出收尾'}已在途，跳过冲突/失败确认直接关窗（停机窗口内无人可答）：冲突 ${res.conflict.length} 个、保存失败 ${res.failed.length} 个`,
+        )
+      }
+      if (res && res.conflict.length > 0 && !win.isDestroyed() && !skipConfirms) {
         // R44-19（四十四轮）收口：冲突未决的本地修改无法代存，原生确认给作者最后一念
         if (!confirmDiscardConflicts(win, res.conflict.length)) {
           closeFlushInFlight = false
@@ -1205,7 +1262,7 @@ async function bootstrap(): Promise<void> {
           return
         }
       }
-      if (res && res.failed.length > 0 && !win.isDestroyed()) {
+      if (res && res.failed.length > 0 && !win.isDestroyed() && !skipConfirms) {
         // 重评-1（全库代码重评审 2026-09-05）：保存失败（failed = 保存失败的 docId
         // 列表）与冲突同属「flush 未落净」——原实现 failed 零消费，保存失败恰逢
         // 关窗时编辑增量静默丢失。先留痕失败清单（只是文档 id，供诊断），再弹原生
@@ -1321,13 +1378,12 @@ async function bootstrap(): Promise<void> {
   mainWindow.on('leave-full-screen', () => {
     if (!fsWin.isDestroyed()) fsWin.webContents.send('desktop:fullscreen-change', false)
   })
-  // 捕获 preload 加载错误（sandbox preload 失败时主进程可见，便于排查）
-  mainWindow.webContents.on('preload-error', (_e, p, err) => {
-    log.error('desktop', `preload 加载失败：${p}`, err)
-  })
+  // R1010-P3（G7-③）：preload-error 监听移入 createSecureWindow 工厂（三窗同享，
+  // 带窗口名）——原主窗专属块随此删除。
   // R67-16（十五轮）：渲染崩溃自愈已随 createSecureWindow 工厂挂载（原主窗专属块
   // 删除——attachRendererCrashSelfHeal 原样承接 dd-P3/X-26 退避 + S6 稳定复位），
-  // 书架/书库子窗口同享。
+  // 书架/书库子窗口同享。R1010-P3（G7-③）：preload-error 监听亦随工厂挂载（下方
+  // 原主窗专属块删除），三窗同享。
   // 纵深防御监听与 dev 代理已由 createSecureWindow 统一挂载；此处 await 一次保证
   // 主窗首载前代理确定生效（工厂内是 fire-and-forget，此处 loadURL 前须确定）
   // R32-24（三十二轮）：工厂侧 setProxy 失败仅降级留日志（见 createSecureWindow），
@@ -1591,7 +1647,13 @@ function registerIpc(): void {
     menu.popup({
       window: win,
       callback: () => {
-        setTimeout(() => sendOnce(null), CONTEXT_MENU_CANCEL_DELAY_MS)
+        // R1010b-DSK-P3-6：排新清旧 + unref（句柄纪律见 contextMenuCancelTimer 声明处）
+        if (contextMenuCancelTimer) clearTimeout(contextMenuCancelTimer)
+        contextMenuCancelTimer = setTimeout(() => {
+          contextMenuCancelTimer = null
+          sendOnce(null)
+        }, CONTEXT_MENU_CANCEL_DELAY_MS)
+        contextMenuCancelTimer.unref?.()
       },
     })
   })
@@ -1904,6 +1966,16 @@ if (gotSingleInstanceLock) {
       // 正常退出（无意图）零副作用
       armPendingRelaunchIfAny()
       return // 收口 quit 放行直通
+    }
+    // R1010-P3（G7-⑦）：session-end 在途的级联 quit 直通——OS 关机/注销收尾期
+    // （sessionEnding 已置旗、server 已下发停机、渲染层将死）主窗 closed →
+    // app.quit() 会二次进本链：flush 打向已死 server 必落空，conflict/failed 的
+    // 原生同步确认无人可答（把进程钉死在 OS 收尾窗口内）。session-end 链已完成
+    // 尽力而为三件（并行 flush / 存窗口状态 / 停机指令），此处不再起交互链、不
+    // preventDefault，放行原生退出（close 拦截已按 sessionEnding 直关放行）。
+    if (sessionEnding) {
+      log.info('desktop', 'session-end 在途的级联 quit：放行直通（不再起交互链）')
+      return
     }
     e.preventDefault()
     // R49-5（评审四十九轮）：close 链 flush 在途——只拦不另起第二链（同窗双

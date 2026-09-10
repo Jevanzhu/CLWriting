@@ -8,7 +8,7 @@
  */
 import { describe, it, expect } from 'vitest'
 // @ts-expect-error —— .mjs 直跑脚本无类型声明（不为其维护 d.ts；断言口径靠用例锚定）
-import { stripComments, stripStrings, countE2eCases, findOnlyOrSkipViolations, sanitizeForCount, posixRelPath, findAssertionFreeTestFiles, missingPageErrorWiring } from '../../scripts/check-counts.mjs'
+import { stripComments, stripStrings, countE2eCases, findOnlyOrSkipViolations, sanitizeForCount, posixRelPath, findAssertionFreeTestFiles, missingPageErrorWiring, sharedRuntimeVersionDrift } from '../../scripts/check-counts.mjs'
 
 describe('J0（win 适配）：posixRelPath 分隔符归一化', () => {
   it('Windows 反斜杠绝对路径归一为 posix 相对路径——R66-37 快照守卫 win 假红根因', () => {
@@ -236,5 +236,31 @@ describe('R54-E-3: 常量真值 test.skip(true) 检出', () => {
     expect(findOnlyOrSkipViolations("test.skip(!process.env['X'], '环境门')")).toEqual({ only: 0, uncondSkip: 0 })
     // `true` 前缀不误伤真变量（trueish 无词边界）
     expect(findOnlyOrSkipViolations('test.skip(trueish, "x")')).toEqual({ only: 0, uncondSkip: 0 })
+  })
+})
+
+// R1010c-TL-P2-2（2026-09-10 全量独立复审修复批）：双包共享运行时版本对账纯函数直测——
+// 修复前 vue 已实际漂移（根 3.5.38 ↔ 子包 3.5.40）无任何门会红；本门防再漂。
+describe('R1010c-TL-P2-2: sharedRuntimeVersionDrift 双包共享运行时对账', () => {
+  const rootLock = { 'node_modules/vue': { version: '3.5.42' }, 'node_modules/pinia': { version: '3.0.4' }, 'node_modules/@vitejs/plugin-vue': { version: '6.0.8' } }
+
+  it('两侧齐备且版本一致 → 无漂移', () => {
+    const webLock = { 'node_modules/vue': { version: '3.5.42' }, 'node_modules/pinia': { version: '3.0.4' }, 'node_modules/@vitejs/plugin-vue': { version: '6.0.8' } }
+    expect(sharedRuntimeVersionDrift(rootLock, webLock)).toEqual([])
+  })
+
+  it('同包异版 → 逐项报漂移（含包名与两侧版本）', () => {
+    const webLock = { 'node_modules/vue': { version: '3.5.40' }, 'node_modules/pinia': { version: '3.0.4' }, 'node_modules/@vitejs/plugin-vue': { version: '6.0.8' } }
+    expect(sharedRuntimeVersionDrift(rootLock, webLock)).toEqual(['vue: 根 3.5.42 ↔ web-next 3.5.40'])
+  })
+
+  it('单侧缺失不报（vue-router 刻意只存子包：vitest alias 直钉 web-next 副本）', () => {
+    const webLock = { ...rootLock, 'node_modules/vue-router': { version: '4.6.4' } }
+    expect(sharedRuntimeVersionDrift(rootLock, webLock)).toEqual([])
+  })
+
+  it('双侧缺失同跳过；packages 形状缺键不炸（空键安全）', () => {
+    expect(sharedRuntimeVersionDrift({}, {})).toEqual([])
+    expect(sharedRuntimeVersionDrift({ 'node_modules/vue': {} }, { 'node_modules/vue': {} })).toEqual([])
   })
 })

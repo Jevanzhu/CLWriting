@@ -66,6 +66,7 @@ describe('R61-17: ChapterTreeItem 重命名/新建输入框组合期让渡', () 
         depth: 0,
         expanded: new Set<string>(),
         activePath: null,
+        tabstopPath: null, // R1010-P3 G6-③：roving 停靠行（本文件只测输入框，null 即可）
         creatingDirPath: null,
         creatingKind: null,
         creatingSeed: '',
@@ -95,6 +96,7 @@ describe('R61-17: ChapterTreeItem 重命名/新建输入框组合期让渡', () 
         depth: 0,
         expanded: new Set(['设定']),
         activePath: null,
+        tabstopPath: null, // 同上（G6-③ 新增必填 prop）
         creatingDirPath: '设定',
         creatingKind: 'character',
         creatingSeed: '',

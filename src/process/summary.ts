@@ -42,6 +42,7 @@ import { log } from '../log/index.js'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { canonicalizeText } from '../fs/text-canonical.js'
 import { acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
+import { chapterNoFromName } from '../format/filename.js'
 
 // N-7（第五十四轮）：预算兜底显式声明——summary_chapter_max / summary_volume_max 不在
 // applyGlobalDefaults 全局默认链内（书级不设即 undefined），此值即实际生效的最终回落，
@@ -436,10 +437,12 @@ export async function selfHealRecentChapterSummaries(
     if (e.nodeType !== 'document' || !e.finalizedRevision) continue
     if (!e.path.startsWith('写作/正文/')) continue
     const name = e.path.split('/').pop() ?? ''
-    const m = /^(\d+)-/.exec(name)
+    // R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：窄正则升格 chapterNoFromName 单源
+    //（与 tree 排序同宽容集，leads/foreshadow 同批收敛）
+    const 章号 = chapterNoFromName(name)
     // R33D-19：同款 safeManifestPath 防线（hash/stat 只读逃逸面）
     const abs = safeManifestPath(bookRoot, e.path)
-    if (m && abs) finalizedByChapter.set(Number(m[1]), abs)
+    if (章号 !== null && abs) finalizedByChapter.set(章号, abs)
   }
   const generated: string[] = []
   for (const ch of [writingChapter - 2, writingChapter - 1]) {
@@ -516,8 +519,20 @@ export function volumeChainState(bookRoot: string, volume: number, volumeSize: n
   for (const e of manifest.entries.values()) {
     if (e.nodeType !== 'document' || !e.finalizedRevision) continue
     if (!e.path.startsWith('写作/正文/')) continue
-    const m = /^(\d+)-/.exec(e.path.split('/').pop() ?? '')
-    if (m) finalizedChapters.add(Number(m[1]))
+    // R1010b-CORE-P2-1（2026-09-10 内存专项重审修复批）：定稿章识别升格 chapterNoFromName
+    // 单源（与 :442 selfHealRecentChapterSummaries 的 R1010-P3 修复同款宽容集）——原窄正则
+    // `/^(\d+)-/` 只认连字符，`1—开局.md`/`1 开局.md` 等宽容命名的定稿章既不进 chain
+    // 也不进 missing（卷链完整性判定静默漏章、卷摘要以残链报缺）。卷链与自愈摘要自此同口径。
+    // R1010c-EN-P2-1（2026-09-10 全量独立复审修复批）修账：原注释把 `1.md` 也列进已收口集
+    // 系失实——chapterNoFromName 正则 `/^(\d+)(?:[-—]|\s|$)/` 要求数字后跟分隔符（-/—/空白）
+    // 或串尾，`1.md` 数字后是 `.` 不匹配 → null（test/format/filename.test.ts 钉定该契约）。
+    // 即本处与 :442/leads:103/foreshadow:574 三处一样**带全名（含 .md）调用**，对 `1.md`
+    // 形态不识别；而 document/tree.ts:84 先 stripMd(e.name) 再判，树排序认得 `1.md`——
+    // 同一文件名树/消费方口径分裂如实存在（对表见 test/process/chapter-no-callshape.test.ts）。
+    // 裸数字扩集（让 `1.md` 也认）是既有台账待拍板项（牵动全部消费点），本批只修注释
+    // 不改正则本体。
+    const 章号 = chapterNoFromName(e.path.split('/').pop() ?? '')
+    if (章号 !== null) finalizedChapters.add(章号)
   }
   const { from, to } = volumeChapterRange(volume, volumeSize)
   const chain = new Map<number, string>()

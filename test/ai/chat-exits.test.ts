@@ -122,7 +122,8 @@ describe('hh §八-16 出口走查：finishTurn 单一出口', () => {
     await assertExit(
       'exit-timeout-gen',
       ud,
-      (msg) => expect(msg).toBe('对话超时（超过 30 分钟），已停止'),
+      // R1010b-AI-P3-3：文案按实际生效 deadline 换算（本测注入 deadlineMs: 40 → 0 分钟）
+      (msg) => expect(msg).toBe('对话超时（超过 0 分钟），已停止'),
       'aborted',
       { deadlineMs: 40 },
     )
@@ -143,7 +144,8 @@ describe('hh §八-16 出口走查：finishTurn 单一出口', () => {
       deadlineMs: 120,
     })
     const err = events.find((e) => e.type === 'chat_error') as { error: string } | undefined
-    expect(err?.error).toBe('对话超时（超过 30 分钟），已停止')
+    // R1010b-AI-P3-3：文案按实际生效 deadline 换算（本测注入 deadlineMs: 120 → 0 分钟）
+    expect(err?.error).toBe('对话超时（超过 0 分钟），已停止')
     const store = openSessionStore(ud, bookRoot)!
     try {
       const evs = store.listEvents('exit-timeout-confirm')

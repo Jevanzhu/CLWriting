@@ -538,8 +538,16 @@ export const useDocStore = defineStore('doc', () => {
    *  语义不变（catch 不上抛），仅让调用方能感知结果；忽略返回值的既有调用方零影响。 */
   async function refresh(docId: string): Promise<boolean> {
     const e = docs.value.get(docId)
-    if (!e) return false
+    // R1010-P2-3（2026-09-10 全量重评修复批）：入口对齐同文件守卫族（reloadFromRemote:474 /
+    // overwriteRemote 同款）——在途保存期间不并发刷新，交保存链接管状态。
+    if (!e || e.saving) return false
     const book = bookName.value!
+    // R1010-P2-3：保存完成快照——GET/sha256 双 await 窗口内若有一次保存落定（savedAt 推进），
+    // 本轮抓到的 content 已陈旧：dirty 分支会把 doSave:426 刚写入的新 revision 用旧哈希覆盖
+    // （下次保存必吃假 REVISION_CONFLICT），clean 分支更会把 e.content 整体回退到保存前的
+    // 服务端内容。窗口后复查 saving / savedAt 任一命中即整体放弃写回（对齐 R59「迟到结果
+    // 整体放弃」口径）。
+    const savedAtEntry = e.savedAt
     try {
       const content = await getContent(book, e.path)
       if (bookName.value !== book) return false
@@ -548,9 +556,13 @@ export const useDocStore = defineStore('doc', () => {
         // R48-22（四十八轮）：本地正文本就完整保留——mergeFm 缺省 stripLeading 会剥掉
         // 本地正文全部前导空行（编辑路径 EditorView 已显式 stripLeading:false，R36-6
         // 同型问题换了触发源），此处同样显式关闭
-        e.content = mergeFm(content, stripFrontmatter(e.content), { stripLeading: false })
+        // R1010-P2-3：合并结果先落局部量，守卫通过后才写回——守卫不过时连 content 也不动
+        const merged = mergeFm(content, stripFrontmatter(e.content), { stripLeading: false })
         const rev = await sha256Revision(content)
-        if (bookName.value !== book) return false
+        if (bookName.value !== book || docs.value.get(docId) !== e || e.saving || e.savedAt !== savedAtEntry) {
+          return false
+        }
+        e.content = merged
         e.baselineRevision = rev
         // R51-H-3（五十一轮）：refresh 成功同样推进 treeRev（对齐 doSave 成功分支口径）——
         // 不推进则 syncCleanWithTree 的 stale 过滤（treeRev !== curRev）恒命中，refreshed
@@ -558,12 +570,21 @@ export const useDocStore = defineStore('doc', () => {
         e.treeRev = useTreeStore().revision
         return true
       }
+      // R1010-P2-3：content 早写 + 失败回滚。早写是 ee-P1-7 的窗口锚——sha256 在途期
+      // e.content 可观察为服务端内容，窗口内键入经「e.content === content」比对胜出
+      // （键入优先）。P2-3 的「迟到结果整体放弃」由下方迟到守卫 + 回滚实现：守卫命中
+      // 且期间无键入（e.content 仍 === content）时回滚到窗口前内容——净分支窗口内
+      // 保存落定（savedAt 推进）不再把刚保存的本地内容回退成保存前的服务端快照。
+      const prevContent = e.content
       e.content = content
       const rev = await sha256Revision(content)
-      if (bookName.value !== book) return false
+      if (bookName.value !== book || docs.value.get(docId) !== e || e.saving || e.savedAt !== savedAtEntry) {
+        if (e.content === content) e.content = prevContent // 无键入 → 回滚早写
+        return false
+      }
+      e.baselineRevision = rev
       // ee-P1-7：await 窗口内作者键入（patch 置 dirty）时不得清 dirty——否则 autosave/
       // beforeunload 双兜底同时被跳过，编辑静默丢失（CC-P2-15 只护住了上面的 dirty 分支）
-      e.baselineRevision = rev
       if (e.content === content) {
         if (e.dirty) clearDirtyMirror(book, docId) // R55-F-3：转 clean 即清镜像
         e.dirty = false

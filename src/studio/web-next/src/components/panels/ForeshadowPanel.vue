@@ -52,6 +52,16 @@ const pending = computed(() =>
 const resolved = computed(() => list.value.filter((f) => f.状态 === '已回收'))
 const abandoned = computed(() => list.value.filter((f) => f.状态 === '已废弃'))
 
+// R1010c-FE1-P3-2（2026-09-10 全量独立复审修复批）：未回收/已回收渲染上限——千条级
+// 伏笔全量 v-for 挂 DOM（max-height 只裁视觉不减节点），对齐域内 RENDER_CAP=100 惯例
+// （先例 RewritePanel/AuditDiffPanel R-P3-16）：只裁渲染面前 100 条 + 尾部省略提示行；
+// 数据面不动——统计行（未回收 N/已回收 N）与折叠开关仍面向全量
+const RENDER_CAP = 100
+const pendingView = computed(() => pending.value.slice(0, RENDER_CAP))
+const resolvedView = computed(() => resolved.value.slice(0, RENDER_CAP))
+const pendingOmitted = computed(() => Math.max(0, pending.value.length - RENDER_CAP))
+const resolvedOmitted = computed(() => Math.max(0, resolved.value.length - RENDER_CAP))
+
 /** 本章埋设的未回收伏笔（当前章节联动提醒） */
 const currentPlanted = computed(() => pending.value.filter((f) => f.埋设章号 === currentChapNo.value))
 
@@ -161,7 +171,7 @@ watch(() => props.bookName, load, { immediate: true })
     <div v-else class="fs-list">
       <!-- 未回收 -->
       <div
-        v-for="f in pending"
+        v-for="f in pendingView"
         :key="f.file"
         class="fs-item pending"
         :class="{ current: currentChapNo !== null && f.埋设章号 === currentChapNo }"
@@ -181,20 +191,43 @@ watch(() => props.bookName, load, { immediate: true })
         </div>
         <span class="fs-pri" :class="'p-' + f.重要性">{{ f.重要性 }}</span>
       </div>
+      <!-- R1010c-FE1-P3-2：RENDER_CAP 截断省略提示行（统计行仍面向全量） -->
+      <div v-if="pendingOmitted > 0" class="cap-hint">已省略 {{ pendingOmitted }} 项</div>
 
-      <!-- 已回收（折叠） -->
-      <div v-if="resolved.length" class="fs-toggle" @click="showResolved = !showResolved">
+      <!-- 已回收（折叠）。R1010-P3（G6-⑨）：toggle/行补键盘可达——对齐上方未回收行
+           的 role=button + tabindex + Enter/Space 契约，鼠标可达即键盘可达 -->
+      <div
+        v-if="resolved.length"
+        class="fs-toggle"
+        role="button"
+        tabindex="0"
+        :aria-expanded="showResolved"
+        @keydown.enter.prevent="showResolved = !showResolved"
+        @keydown.space.prevent="showResolved = !showResolved"
+        @click="showResolved = !showResolved"
+      >
         <Check :size="12" /> 已回收 {{ resolved.length }}
         <ChevronDown :size="12" class="toggle-caret" :class="{ closed: !showResolved }" />
       </div>
       <template v-if="showResolved">
-        <div v-for="f in resolved" :key="f.file" class="fs-item resolved" @click="openFile(f.file)">
+        <div
+          v-for="f in resolvedView"
+          :key="f.file"
+          class="fs-item resolved"
+          role="button"
+          tabindex="0"
+          @keydown.enter.prevent="openFile(f.file)"
+          @keydown.space.prevent="openFile(f.file)"
+          @click="openFile(f.file)"
+        >
           <Check :size="14" class="fs-icon" />
           <span class="fs-title">{{ f.标题 }}</span>
           <span class="fs-meta resolved-meta">
             第{{ f.埋设章号 ?? '?' }}章→第{{ f.回收章号 ?? '?' }}章
           </span>
         </div>
+        <!-- R1010c-FE1-P3-2：已回收节同款截断省略提示行 -->
+        <div v-if="resolvedOmitted > 0" class="cap-hint">已省略 {{ resolvedOmitted }} 项</div>
       </template>
     </div>
 
@@ -253,6 +286,13 @@ watch(() => props.bookName, load, { immediate: true })
   display: flex;
   flex-direction: column;
   gap: 1px;
+}
+/* R1010c-FE1-P3-2：渲染上限省略提示行——纯展示（弱化色，r54 tree-cap-hint 同语义） */
+.cap-hint {
+  padding: 3px 8px;
+  font-size: var(--font-size-xxs);
+  color: var(--text-faint);
+  font-style: italic;
 }
 .fs-item {
   display: flex;

@@ -128,3 +128,13 @@ export function sanitizeFullFileName(name: string): string {
 export function isMdFileName(name: string): boolean {
   return name.toLowerCase().endsWith('.md')
 }
+
+/** R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：文件名前导章号提取单一真相源——
+ *  此前四处各持正则漂移（tree 容忍 -/—/空白/裸尾，leads/foreshadow/summary 仅认 -）：
+ *  「树按章号排序认得的章文件」在伏笔足迹/线索核验/摘要自愈三处静默不可见
+ *  （如 `5—标题.md`/`5 标题.md`：排序在位、足迹缺章）。统一取 tree 宽容集；
+ *  补零宽度无关（0001-x 与 1-x 同判 1）；非数字前缀返回 null。 */
+export function chapterNoFromName(name: string): number | null {
+  const m = /^(\d+)(?:[-—]|\s|$)/.exec(name)
+  return m ? Number(m[1]) : null
+}

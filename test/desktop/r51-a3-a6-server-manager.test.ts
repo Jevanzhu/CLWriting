@@ -95,6 +95,61 @@ describe('R51-A-3: restartPinned 作废挂起重启', () => {
   })
 })
 
+// R1010b-DSK-P3-2（2026-09-10 内存专项重审修复批）：doRestart 在途不覆写——R51-A-3
+// 收窄的另一半：restartPinned 占住 starting（自愈握手在途）时，崩溃风暴对话框
+// 「重启服务」决断触发的 0ms 退避 doRestart 不得覆写通道（原实现直接覆写
+// starting/startingOpts/startingProc：finally 清错通道与 fork 句柄 + 双 fork 竞逐
+// active，输者孤儿）。
+describe('R1010b-DSK-P3-2: doRestart 在途检查', () => {
+  it('restartPinned 握手在途时封顶决断「重启」→ doRestart 复用在途轮，不覆写不双 fork', async () => {
+    // 异步决断（R1010-P3 G7-② 形态）：对话框等待期由测试手动放行
+    let resolveChoice!: (v: 'restart' | 'quit') => void
+    const choice = new Promise<'restart' | 'quit'>((r) => {
+      resolveChoice = r
+    })
+    let exhaustedCalls = 0
+    const { forkRecords, manager } = mkHarness({
+      backoffMs: [0, 0, 0], // 决断后 0ms 退避立即触发 doRestart（竞窗最大）
+      onRestartExhausted: () => {
+        exhaustedCalls++
+        return choice
+      },
+    })
+    const ud = mkUserData()
+    const p1 = manager.start({ workDir: '/w', userDataPath: ud })
+    forkRecords[0]!.child.emit('message', { type: 'ready', port: 47100 })
+    await p1
+    // 崩溃 ×3：每轮 0ms 退避自动重启（重启 child 均 ready 供握手落定，doRestart 的
+    // finally 清完 starting 通道再进下一轮）
+    for (let i = 0; i < 3; i++) {
+      forkRecords.at(-1)!.child.emit('exit', 1)
+      await vi.waitFor(() => expect(forkRecords.length).toBe(i + 2), { timeout: 300 })
+      forkRecords.at(-1)!.child.emit('message', { type: 'ready', port: 47100 })
+      await vi.waitFor(() => expect(manager.isRunning()).toBe(true), { timeout: 300 })
+      await new Promise((r) => setTimeout(r, 10)) // doRestart finally 清通道余量
+    }
+    expect(forkRecords.length).toBe(4) // 首启 + 3 次自动重启
+    // 第 4 次崩溃 → 封顶转决断（异步对话框挂起，无 fork）
+    forkRecords.at(-1)!.child.emit('exit', 1)
+    await vi.waitFor(() => expect(exhaustedCalls).toBe(1), { timeout: 300 })
+    expect(forkRecords.length).toBe(4)
+    // 对话框等待期并发 session-end 自愈：restartPinned 占住 starting（握手挂起——不 ready）
+    const recovered = manager.restartPinned()
+    await vi.waitFor(() => expect(forkRecords.length).toBe(5), { timeout: 300 })
+    // 决断到达：「重启服务」→ 计数清零 → 0ms 退避 doRestart——修复后复用在途轮不覆写
+    resolveChoice('restart')
+    await new Promise((r) => setTimeout(r, 30)) // 0ms 退避 timer + doRestart 入口充分落地
+    expect(forkRecords.length).toBe(5) // 修复点：无第 6 次 fork（修复前覆写通道双 fork）
+    // 在途自愈轮照常收口：钉住端口恢复
+    forkRecords.at(-1)!.child.emit('message', { type: 'ready', port: 47100 })
+    await expect(recovered).resolves.toBe(47100)
+    await new Promise((r) => setTimeout(r, 20)) // 复用路径（doRestart 的 await）余量落地
+    expect(forkRecords.length).toBe(5) // 复用而非排队：恢复轮收口后也不补 fork
+    expect(manager.hasPendingRestart()).toBe(false) // doRestart 未排新轮
+    await manager.stopChild()
+  })
+})
+
 describe('R51-A-6: 握手超时 kill 等待可注入', () => {
   it('握手超时 kill 路径按注入 killWaitMs 升级 SIGKILL（不再钉模块常量 2s）', async () => {
     vi.useFakeTimers()

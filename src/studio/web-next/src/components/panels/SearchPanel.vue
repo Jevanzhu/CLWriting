@@ -103,10 +103,12 @@ async function open(path: string): Promise<void> {
     <div class="search-input">
       <input
         v-model="q"
+        type="search"
         placeholder="全书搜索…"
+        aria-label="全书搜索"
         @keydown.enter="onEnterKey"
       />
-      <select v-model="scope" @change="run">
+      <select v-model="scope" aria-label="搜索范围" @change="run">
         <option v-for="s in SCOPES" :key="s.v" :value="s.v">{{ s.label }}</option>
       </select>
     </div>
@@ -136,6 +138,12 @@ async function open(path: string): Promise<void> {
           >
             <span class="ln">{{ m.line }}</span>
             <span class="text">{{ m.text }}</span>
+          </div>
+          <!-- R1010c-FE1-P3-3（2026-09-10 全量独立复审修复批）：命中行余量提示——原
+            slice(0,3) 截断静默；>3 条时点名余量，hasMore（服务端单文件 20 条封顶 R72-9）
+            时以「20+」区分服务端截断（真实总数未知，不虚报） -->
+          <div v-if="hit.matches.length > 3" class="result-more">
+            {{ hit.hasMore ? '还有 20+ 条' : `还有 ${hit.matches.length - 3} 条` }}
           </div>
         </div>
       </div>
@@ -230,5 +238,11 @@ async function open(path: string): Promise<void> {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* R1010c-FE1-P3-3：命中行余量提示（>3 条截断 / 服务端 20+ 封顶区分文案） */
+.result-more {
+  font-size: var(--font-size-xxs);
+  color: var(--text-faint);
+  font-style: italic;
 }
 </style>

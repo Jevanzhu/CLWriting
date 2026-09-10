@@ -16,7 +16,7 @@ import { readFile, parseFlat , stringifyValue } from '../format/frontmatter.js'
 import { splitFrontMatter } from '../format/frontmatter-core.js'
 import { readMdTextCached, forgetMdTextCacheForBook } from '../fs/md-text-cache.js'
 import { readLead } from '../format/leads.js'
-import { sanitizeFileNamePart, isMdFileName } from '../format/filename.js'
+import { sanitizeFileNamePart, isMdFileName, chapterNoFromName } from '../format/filename.js'
 import { createFileExclusive, rmWithRetry } from '../fs/atomic.js'
 import { walkMdEach } from '../fs/walk-md.js'
 import { log } from '../log/index.js'
@@ -566,10 +566,12 @@ function walkChapters(dir: string, texts: Map<number, string>): void {
   })
 }
 
-/** 从文件名提取章号（兼容补零与不补零：0001-开篇.md / 1-标题.md → 1） */
+/** 从文件名提取章号（兼容补零与不补零：0001-开篇.md / 1-标题.md → 1）。
+ *  R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：窄正则（仅认 -）升格
+ *  format/filename.ts chapterNoFromName 单源——原与 tree 的宽容集（-/—/空白/裸尾）
+ *  漂移，`5—标题.md` 树排序认得、伏笔足迹静默缺章。 */
 function parseChapterNoFromName(name: string): number | null {
-  const m = name.match(/^(\d+)-/) // P2：与 leads.ts 对齐（要求 - 分隔符）
-  return m ? Number(m[1]) : null
+  return chapterNoFromName(name)
 }
 
 // ── F1-P3 伏笔足迹 FTS 检索 ────────────────────────

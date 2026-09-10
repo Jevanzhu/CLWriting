@@ -87,4 +87,23 @@ describe('R34D-18：readVersionRaw 字节保真读', () => {
     expect(readVersionRaw(dir, docId, '../escape')).toBeNull()
     expect(readVersionRaw(dir, docId, '01ARZ3NDEKTSV4RRFFQ69G5FAV')).toBeNull()
   })
+
+  // R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：fence 尾随空白容忍对齐文本侧
+  // R54-E-2——`--- `（编辑器/同步盘注入）此前字节层只认裸 `---`/`---\r`，同文件
+  // 文本侧读得、字节层 read null 的判定漂移
+  it('fence 尾随空白（--- \\t / --- \\r）：字节层与文本侧同判有效，正文零损伤', () => {
+    const body = '正文第一行\n第二行'
+    const id = writeVersion(dir, docId, body, { origin: 'manual' })
+    expect(id).not.toBeNull()
+    // 手工重写档案头：起始/闭合 fence 均带尾随空白（起始 [ \t]、闭合 [ \t]\r 混合形态）
+    writeFileSync(
+      join(dir, docId, `${id}.md`),
+      `--- \n版本ID: ${id}\n来源: manual\n---\t\r\n${body}`,
+    )
+    const raw = readVersionRaw(dir, docId, id!)
+    expect(raw).not.toBeNull()
+    expect(raw!.content.toString('utf-8')).toBe(body)
+    expect(raw!.meta.origin).toBe('manual')
+    expect(readVersion(dir, docId, id!)?.content).toBe(body)
+  })
 })

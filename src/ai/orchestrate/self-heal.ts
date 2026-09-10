@@ -122,11 +122,22 @@ export function isChatEmbeddedSelfHealRunning(bookName: string): boolean {
   return running.get(bookName)?.embedded === true
 }
 
+/**
+ * R1010c-SRV-P3-1（2026-09-10 全量独立复审修复批）：运行登记强删除（生产命名导出）——
+ * stream.ts 静默挂死 watchdog 二段强释放的登记清理入口。语义 = running.delete(bookName)，
+ * 幂等（不在册/重复调用均安全；被强释放的编排若日后 settle，其 finally 的同键删除天然互容）。
+ * 此前该生产清理点直调测试命名导出 __setSelfHealRunningForTest，测试专用 API 进了生产路径。
+ */
+export function forceReleaseSelfHealRunning(bookName: string): void {
+  running.delete(bookName)
+}
+
 /** R67-13 回归注入（先例同 api/review.ts __setReviewRunning）——orchestrationBusyFor
- *  互斥矩阵测试需制造「self-heal 在途」态，真实跑完整闭环过重。生产零调用。 */
+ *  互斥矩阵测试需制造「self-heal 在途」态，真实跑完整闭环过重。生产零调用；off 分支
+ *  转调 forceReleaseSelfHealRunning（R1010c-SRV-P3-1 起本函数是它的测试别名）。 */
 export function __setSelfHealRunningForTest(bookName: string, on: boolean): void {
   if (on) running.set(bookName, { ctrl: new AbortController(), usage: { outputTokens: 0, cost: 0 } })
-  else running.delete(bookName)
+  else forceReleaseSelfHealRunning(bookName)
 }
 
 /** #7：在途 runSelfHeal 的收尾 Promise（改名/删书/退出等待用；含 emitResult 后的完整收尾） */
@@ -338,14 +349,25 @@ async function orchestrateBatch(
   // readBatchPause → StatusRecap.batchPause）据此提示「连写暂停在第 N 章（原因）」。
   // 观测性元数据：落盘失败静默降级，不挡写稿主线（与备料 best-effort 同口径）。
   // R33D-1（三十三轮）：writeBatchPause/clearBatchPause 异步化（锁等待 Async 孪生）——
-  // recordPause 保持 fire-and-forget 语义（void + catch 吞 rejection）；开批清暂停 await。
+  // recordPause 保持 fire-and-forget 语义（catch 吞 rejection）；开批清暂停 await。
+  // R1010b-AI-P2-1（2026-09-10 内存专项重审修复批）：fire-and-forget 写收编进 per-book
+  // 后台表（照下方 exitPass :706 M-2 先例）。成因：writeBatchPause 先抢跨进程锁（竞争下
+  // 最长 PAUSE_LOCK_TIMEOUT_MS 轮询）再 mkdirSync recursive + 原子写，而 waitSelfHealSettled
+  // 只等编排本体——锁竞争使写在途时 runSelfHeal 已返回，books.ts 删书/改名的
+  // hasBackgroundTasks → awaitOrchestrationsSettled 等待链此前等不到这次写，写在已删/
+  // 已搬路径恢复后 mkdirSync 会重建孤儿目录。登记后该写进 waitBackgroundTasks 覆盖面
+  //（触发端 fire-and-forget 语义不变）；catch 留痕保留在注册的 promise 链内——自留痕
+  // promise（不 reject 到本层）正是登记约定。
   const recordPause = (atChapter: number, reason: string, detail: string): void => {
-    void writeBatchPause(opts.bookRoot, { atChapter, reason, detail }).catch((e) => {
-      // 暂停记录失败不影响连写结果与回报
-      // R43-20（四十三轮）：空 catch 补留痕（对齐 chain-bridge R66-4 口径）——静默吞掉
-      // 后「连写暂停在第 N 章」的进书近况提示缺位且无从排查；带 atChapter/reason 因果
-      log.warn('self-heal', `连写暂停记录失败（第 ${atChapter} 章，${reason}）：${e instanceof Error ? e.message : String(e)}`)
-    })
+    registerBackgroundTask(
+      opts.bookName,
+      writeBatchPause(opts.bookRoot, { atChapter, reason, detail }).catch((e) => {
+        // 暂停记录失败不影响连写结果与回报
+        // R43-20（四十三轮）：空 catch 补留痕（对齐 chain-bridge R66-4 口径）——静默吞掉
+        // 后「连写暂停在第 N 章」的进书近况提示缺位且无从排查；带 atChapter/reason 因果
+        log.warn('self-heal', `连写暂停记录失败（第 ${atChapter} 章，${reason}）：${e instanceof Error ? e.message : String(e)}`)
+      }),
+    )
   }
   try {
     await clearBatchPause(opts.bookRoot)

@@ -53,7 +53,17 @@ async function fetchStreamTicket(token: string, base: string): Promise<string | 
       headers: { 'x-studio-token': token },
       signal: ctrl.signal,
     })
-    if (!r.ok) return null
+    if (!r.ok) {
+      // R1010c-FE2-P3-2（2026-09-10 全量独立复审修复批）：401 = token 失效（dev 重启
+      // dev:api 换 token 等）——触发 client 同款 re-boot 通道（promise 去重防风暴，与
+      // apiFetch 401→rebootstrap 同源），fail-closed 退避的下轮 doConnect 即取到新票，
+      // SSE 层对失效 token 有了直接自愈（原先只能靠心跳/apiFetch 写请求间接触发）。
+      // 只认 401：403/404/429 另有成因（Origin/书不存在/连接数上限），re-boot 拿回
+      // 同一枚 token 不解决，不空转（对齐 apiFetch「token 未变不重放」口径）。返回
+      // null 语义不变：本轮仍回退 ?token= 旧通道，不自打断连接节奏。
+      if (r.status === 401) void rebootstrap()
+      return null
+    }
     const data = (await r.json().catch(() => null)) as { ticket?: unknown } | null
     return typeof data?.ticket === 'string' && data.ticket ? data.ticket : null
   } catch {
@@ -120,6 +130,11 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
         headers: { 'x-studio-token': t },
       })
       ctrl.abort() // 拿到状态码即断（非 429 时服务端已建流——不留存活探测连接）
+      // R1010c-FE2-P3-2（2026-09-10 全量独立复审修复批）：探测 401 同样触发 client 的
+      // re-boot 通道（去重同源，见 fetchStreamTicket 同锚点注）——token 失效面在探测
+      // 侧也直接自愈；403/429/404 不触发（re-boot 无解，同 apiFetch「token 未变不重放」）。
+      // R59 的 dev 失配连记计数（下方）不受影响，照常累计。
+      if (r.status === 401) void rebootstrap()
       if (r.status === 429 && !busy429Notified) {
         busy429Notified = true
         ui.toast('同一本书的标签页开太多啦，请关闭多余的标签页后重试', 'error')

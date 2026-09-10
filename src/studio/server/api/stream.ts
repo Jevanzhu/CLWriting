@@ -15,10 +15,10 @@ import { log } from '../../../log/index.js' // R43-21（四十三轮）：SSE �
 import { resolveBook } from '../book-context.js'
 import { ensureSession, getDriver, getSession } from '../../../driver/index.js'
 import type { DriverEvent, Session, StudioDriver } from '../../../driver/index.js'
-// 重评-P3-7（2026-09-09 全量代码重评）：补 __setSelfHealRunningForTest——运行登记正本在
-// ai 层 running Map，watchdog 强释放需清登记；本批文件互斥纪律禁改 src/ai/orchestrate/，
-// 借该既有导出（= running.delete，幂等）完成登记清理（见下方 startStallWatchdog 消费点）
-import { abortSelfHeal, isSelfHealRunning, isChatEmbeddedSelfHealRunning, runSelfHeal, __setSelfHealRunningForTest } from '../../../ai/orchestrate/self-heal.js'
+// R1010c-SRV-P3-1（2026-09-10 全量独立复审修复批）：watchdog 二段强释放改用生产命名导出
+// forceReleaseSelfHealRunning（= running.delete，幂等）——此前借道测试命名导出
+// __setSelfHealRunningForTest，测试专用 API 进生产路径；该导出自本批起回归测试专用
+import { abortSelfHeal, isSelfHealRunning, isChatEmbeddedSelfHealRunning, runSelfHeal, forceReleaseSelfHealRunning } from '../../../ai/orchestrate/self-heal.js'
 import { hasBackgroundTasks } from '../../../ai/orchestrate/background.js'
 import { isChatRunning, abortChat, resolveChatConfirm, clearChatHistory, sendChatMessage } from '../../../ai/orchestrate/chat.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
@@ -763,13 +763,13 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
         const s = getSession(bookName)
         if (s) driver.interrupt?.(s)
       },
-      // 二段：强释放。运行登记正本在 ai 层 running Map（本批文件互斥纪律禁改
-      // src/ai/orchestrate/），借其既有导出 __setSelfHealRunningForTest(name,false)
-      // （= running.delete，幂等）完成登记清理 + 同 ctrl 注销防 isRunning 假真；
-      // 迟到编排若日后 settle：其 finally 的 running.delete 同键幂等，迟到结果按
-      // 既有迟到覆盖口径处理。
+      // 二段：强释放。运行登记正本在 ai 层 running Map——经生产命名导出
+      // forceReleaseSelfHealRunning(name)（= running.delete，幂等；R1010c-SRV-P3-1
+      // 收编：原直调 __setSelfHealRunningForTest 系测试命名 API 进生产路径）完成
+      // 登记清理 + 同 ctrl 注销防 isRunning 假真；迟到编排若日后 settle：其 finally
+      // 的 running.delete 同键幂等，迟到结果按既有迟到覆盖口径处理。
       forceRelease: () => {
-        __setSelfHealRunningForTest(bookName, false)
+        forceReleaseSelfHealRunning(bookName)
         if (registered) {
           driver.unregisterCtrl?.(mainSession, registered)
           registered = null

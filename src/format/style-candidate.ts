@@ -77,12 +77,23 @@ export function readCandidate(
 
   const source = map.get('来源')
   const status = map.get('状态')
+  // R1010b-DOC-P3-5（全量代码重审与内存专项 2026-09-10）：标量「标签」归一为单元素
+  // 数组——重评-20 同族漏网收编（style-entry readEntry / style readSample 先已修，本处
+  // 漏网）：作者手改标量形态（`标签: 金句`）此前既不进字段（候选模型无 _raw 承载），
+  // 确认入库后标签物理消失。归一只发生在解析侧，写回后标量变数组属规范形归一（对齐
+  // 两先例同款条件与口径）；空串/缺键不造空数组。
+  const rawTags = map.get('标签')
+  const 标签 = Array.isArray(rawTags)
+    ? (rawTags as string[])
+    : rawTags != null && rawTags !== ''
+      ? [String(rawTags)]
+      : undefined
   const candidate: StyleCandidate = {
     类型: kind as EntryKind,
     场景: typeof map.get('场景') === 'string' && map.get('场景') ? String(map.get('场景')) : '通用',
     来源: typeof source === 'string' && SOURCE_SET.has(source) ? (source as EntrySource) : '收割',
     ...(map.has('说明') ? { 说明: String(map.get('说明')) } : {}),
-    ...(Array.isArray(map.get('标签')) ? { 标签: map.get('标签') as string[] } : {}),
+    ...(标签 ? { 标签 } : {}),
     正文,
     状态: status === '已忽略' ? '已忽略' : '待确认',
     创建: typeof map.get('创建') === 'string' ? String(map.get('创建')) : '',

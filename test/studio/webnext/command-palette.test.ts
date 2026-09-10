@@ -117,6 +117,34 @@ describe('M-P3-13: 命令面板渲染上限（每节 ≤100 + 省略提示行）
   })
 })
 
+// R1010c-FE1-P3-4（2026-09-10 全量独立复审修复批）：listbox 语义——结果容器
+// role=listbox、条目 role=option + aria-selected 对齐 WAI-ARIA listbox 模式
+//（↑↓ 高亮态可被读屏播报；aria-selected 跟随 sel 唯一）。
+describe('R1010c-FE1-P3-4: listbox 语义', () => {
+  it('结果容器 role=listbox；全部条目 role=option 且仅高亮项 aria-selected=true', () => {
+    mountPalette(10)
+    const list = palette().find('.palette-list')
+    expect(list.attributes('role')).toBe('listbox')
+    const items = palette().findAll('.palette-item')
+    expect(items.length).toBeGreaterThan(0)
+    for (const item of items) {
+      expect(item.attributes('role')).toBe('option')
+    }
+    const selected = items.filter((i) => i.attributes('aria-selected') === 'true')
+    expect(selected).toHaveLength(1) // 高亮态唯一
+    expect(selected[0]!.classes()).toContain('sel')
+  })
+
+  it('aria-selected 跟随键盘/悬停高亮移动（sel 变化后唯一选中项随之切换）', async () => {
+    mountPalette(10)
+    const items = () => palette().findAll('.palette-item')
+    expect(items()[0]!.attributes('aria-selected')).toBe('true')
+    await items()[1]!.trigger('mouseenter') // 悬停 = 高亮（sel 同步）
+    expect(items()[0]!.attributes('aria-selected')).toBe('false')
+    expect(items()[1]!.attributes('aria-selected')).toBe('true')
+  })
+})
+
 describe('R61-3/R61-16: IME 组合期让渡与键盘导航渲染上限', () => {
   /** 真实 KeyboardEvent 直派（VTU trigger 对 isComposing 类 init 键的透传不可靠） */
   function press(input: HTMLInputElement, init: KeyboardEventInit): void {

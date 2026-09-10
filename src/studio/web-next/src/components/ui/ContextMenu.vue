@@ -43,6 +43,11 @@ const flipY = ref(false)
 // Enter/Space 激活、Tab 自然走焦关闭、关闭还焦右键来源；容器另挂 aria-activedescendant
 //（roving 焦点在项上时为冗余保险，焦点若落容器 AT 也能命中高亮项）。桌面端走 Electron
 // 原生 Menu 不渲染本组件，不受影响。子菜单飞出层沿 hover 语义不进 roving 序（与原实现一致）。
+// R1010-P3（G6-⑦）维持登记：浏览器回退版飞出层键盘不可达——Enter 可开层，但 Tab 关
+// 菜单、ArrowRight 未接线，飞出项唯一可达路径是鼠标 hover。不修的权衡：桌面端（唯一
+// 生产路径）走 Electron 原生 Menu 全键盘可达，回退版仅 dev/web 模式触达；飞出层接入
+// roving 需 ArrowRight/Left 跨层焦点机（原生 menu 弹层惯例），改动面与本组件「薄回退」
+// 定位不称。台账 §三挂账，触发条件 = 浏览器版转正。
 /** 键盘高亮项在 navItems 中的序；-1 = 未初始化 */
 const activeIdx = ref(-1)
 /** 顶层可导航项（跳过分隔线；idx = props.items 下标，供 id/aria 对应） */

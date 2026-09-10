@@ -296,6 +296,16 @@ async function onRestore(e: SnapshotEntry): Promise<void> {
 .row:hover .restore-btn {
   opacity: 1;
 }
+/* R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：键盘焦点同权显形——原仅 hover 行
+ * 显形，Tab 聚到隐形按钮上「焦点在但看不见」（对齐 switch focus-visible 焦点环口径） */
+.restore-btn:focus-visible,
+.row:focus-within .restore-btn {
+  opacity: 1;
+}
+.restore-btn:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 1px;
+}
 .restore-btn:hover {
   color: var(--text-accent);
   background: var(--background-modifier-hover);

@@ -10,7 +10,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
-import { checkToken, readJson, reply, replyError } from '../http.js'
+import { readJson, reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { runExportBookAsync } from '../../../export/run-async.js'
 import type { ExportFormat, ExportPlatform } from '../../../export/index.js'
@@ -114,7 +114,9 @@ export function registerIoRoutes(ctx: IoCtx): void {
     path: '/api/books/:name/export',
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.workDir) return replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
-    if (!checkToken(req, ctx.token)) return replyError(res, 403, 'FORBIDDEN', 'token 校验失败')
+    // R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：handler 内冗余 token 复核删除——
+    // 写闸（index.ts isWrite safeTokenCompare）在路由分派前已拦一切 POST，此处重复
+    // 校验误导安全模型分层判断（其余写 handler 均无此行）
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     // S3（五十九轮）：export 并发闸（acquireTaskGate 同款）——双击并发 exportBook 会

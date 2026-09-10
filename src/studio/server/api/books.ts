@@ -29,7 +29,8 @@ import {
   tryBooksLockAsync,
 } from '../../../install/books.js'
 import { resolveBook } from '../book-context.js'
-import { forgetService, drainDocumentSaves } from './documents.js'
+// R1010b-SRV-P2-1/P3-1（2026-09-10 内存专项重审修复批）：伏笔保存串行链 drain + 按书 forget
+import { forgetService, drainDocumentSaves, drainForeshadowSaveChains, forgetForeshadowSaveChain } from './documents.js'
 import { drainFilePutChainsUnder } from './files.js'
 import { forgetSession } from '../../../driver/index.js'
 import { invalidateTreeIndex } from '../../../document/tree.js'
@@ -119,6 +120,9 @@ function forgetBookKeyedCaches(bookRoot: string): void {
   forgetEntriesCache(bookRoot)
   // R46-23：ai-calls 旧格式迁移标记同族清理（删书重建后迁移可重试）
   forgetMigratedRoots(bookRoot)
+  // R1010b-SRV-P3-1（2026-09-10 内存专项重审修复批）：伏笔保存串行链 Map 条目同族
+  // 清理——链尾自清理覆盖常态，此处兜删书/改名时点的悬挂残条（bookRoot 键成死重）
+  forgetForeshadowSaveChain(bookRoot)
   // R39-16：书架守卫/配置缓存同族清理（删/改名后同名重建书不读陈 book.yaml；
   // 缓存按 workDir+path 键，整表清扫语义与「该书键失效」等价——书键族口径）
   shelfGuardCache.clear()
@@ -400,6 +404,12 @@ export function registerBookRoutes(ctx: BookCtx): void {
     // 跨 rm 的 await 窗口理论上会重建目录（删除路径基线 ENOENT → 404 天然免疫，一并
     // drain 求同口径）
     await drainFilePutChainsUnder(join(ctx.workDir, entry.path))
+    // R1010b-SRV-P2-1（2026-09-10 内存专项重审修复批·面 B）：伏笔保存串行链同款
+    // drain——已入队未启动的伏笔单元在 SaveQueue 之外（drainDocumentSaves 看不见），
+    // 不 drain 则 rmSync 后链单元才开跑、照写旧捕获 bookRoot 成孤儿。死锁核查：链单元
+    // 只单向 await SaveQueue/清单·回收站锁、从不反等 books 侧锁，置于既有两 drain 之后
+    // 不引入环；drain 窗口内新进单元不等（快照式），由单元体内书注册重验兜底。
+    await drainForeshadowSaveChains(join(ctx.workDir, entry.path))
     // M-4：闸后复查——settle 等待的 await 间隙里新 acquire 的闸（spawn/三审/task-gate）
     // 在此拦截；复检到 rmSync 之间全同步（单线程事件循环无新任务可插入），三闸 TOCTOU
     // 窗归零。
@@ -636,6 +646,12 @@ export function registerBookRoutes(ctx: BookCtx): void {
       // renameSync 时「旧内容基线 + atomicWriteFile mkdir recursive」会重建旧路径目录树
       //（无 book.yaml 孤儿，repairBooks 不认领）——与 drainDocumentSaves 当年堵的同型窗
       await drainFilePutChainsUnder(oldRoot)
+      // R1010b-SRV-P2-1（2026-09-10 内存专项重审修复批·面 B）：伏笔保存串行链同款
+      // drain（同删书段口径）——链单元开跑跨 renameSync 会对旧路径 mkdir 重建目录树
+      //（无 book.yaml 孤儿）。死锁核查：链单元只单向 await SaveQueue/清单·回收站锁、
+      // 从不反等 books 侧锁，置于既有两 drain 之后不引入环；drain 窗口内新进单元不等
+      //（快照式），由单元体内书注册重验兜底。
+      await drainForeshadowSaveChains(oldRoot)
       // M-4：闸后复查——同删书：settle 等待的 await 间隙新 acquire 的闸在此拦截，
       // 复检到 renameSync 之间全同步（三闸 TOCTOU 归零）。
       // R33D-7（三十三轮 dev 线）：同删书复查补 chat/self-heal（drain 段新起的对话/写稿贯穿 renameSync）。

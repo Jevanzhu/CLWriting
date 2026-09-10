@@ -10,7 +10,7 @@
  * 关联：Dev/Plans/desktop-workdir-方案.md（决策③ 多数库切换）。
  */
 import { basename } from 'node:path'
-import { existsSync, statSync } from 'node:fs'
+import { stat as statAsync } from 'node:fs/promises'
 // R51-A-5（五十一轮）：路径等值判定单源——win（NTFS）与 mac（默认 APFS）卷大小写
 // 不敏感，路径经启动器/手工输入/Finder 可 case-only 漂移，字符串全等会把同一书库
 // 劈成两条记录（展示面污染）。samePath 已在 darwin/win32 折叠（R51-D-2 单源）。
@@ -104,28 +104,59 @@ export function setCurrent(store: WorkDirStore, newCurrent: string): WorkDirStor
   return { current: newCurrent, recent }
 }
 
-/**
- * R26-93（二十六轮）：目录有效性判定——existsSync 之外补 isDirectory。
- * existsSync 对「同路径普通文件」也为 true：书库目录被同名文件顶替（误删后重建/解压
- * 残留）时该 recent 项不再可用，却原样保留 → 点击切换后链路把文件路径当书库目录用。
- * statSync 单独 try/catch（对齐本文件容错口径）：判定窗口内被删（ENOENT）/权限
- * （EACCES）按无效处理，不裸抛破坏「容错解析，不抛异常」契约。
- */
-function isExistingDir(p: string): boolean {
-  if (!existsSync(p)) return false
-  try {
-    return statSync(p).isDirectory()
-  } catch {
-    return false
-  }
-}
+/** R1010-P2-1：recent 有效性预探超时哨兵（race reject 载体——stat 真实异常带 errno code，唯超时无）。 */
+const RECENT_PROBE_TIMEOUT = Symbol('recent-probe-timeout')
+
+/** 单条预探默认预算（ms）；调用方（main.ts bootstrap）注入 CLW_BOOTSTRAP_PROBE_TIMEOUT_MS 口径。 */
+export const RECENT_PROBE_DEFAULT_TIMEOUT_MS = 2_000
+
+/** 预探注入形态（默认 node:fs/promises stat；测试注入挂起/失败形态）。 */
+export type StatLike = (p: string) => Promise<{ isDirectory(): boolean }>
 
 /**
- * 过滤掉 recent 中已失效（目录不存在）的项 —— 启动时清理。
- * current 失效不在本函数处理（由调用方决定是否弹选择器重选）。
+ * 过滤掉 recent 中已失效的项 —— 启动时清理一次（current 失效不在本函数处理，由调用方
+ * 决定是否弹选择器重选）。
+ * R26-93（二十六轮）：目录有效性判定含 isDirectory——existsSync 对「同路径普通文件」
+ * 也为 true：书库目录被同名文件顶替（误删后重建/解压残留）时该 recent 项不再可用，
+ * 却原样保留 → 点击切换后链路把文件路径当书库目录用。
+ * R1010-P2-1（2026-09-10 全量重评 GLM-5.3 修复批）：同步 existsSync+statSync 改
+ * 「fs/promises stat + 超时预算」——原实现逐条同步 stat，recent 残留失联网络卷
+ * （NAS/SMB 挂载点在而服务器无响应）时启动首读同步冻主进程数十秒（R47-9/R54-A-2/
+ * 重审-1 反复修复的同一冻结族，readStore 首读入口漏网——probeDirReachable 防线只护
+ * current/cwd）。三态分诊（probeDirReachable 同款口径）：
+ *   stat 通过且 isDirectory → 保留；确定性快速失败（ENOENT/EACCES/ENOTDIR 等）→ 剔除
+ *   （原语义不变，判定窗口内被删/权限按无效处理，不裸抛破坏容错契约）；
+ *   超时（失联卷挂死面）→ 跳过判定保留展示——失联不等于失效，择库守卫另有预探拦截
+ *   兜底，R48-73「残留只污展示面不产行为错」取舍口径不变。
+ * 逐条独立预算并行探测（recent ≤ MAX_RECENT 条，并行后总预算 = 单条预算，不串行放大
+ * 启动延迟）；返回新对象，保序过滤。
  */
-export function filterValidRecent(store: WorkDirStore): WorkDirStore {
-  return { current: store.current, recent: store.recent.filter((r) => isExistingDir(r.path)) }
+export async function filterValidRecentBudgeted(
+  store: WorkDirStore,
+  opts?: { timeoutMs?: number; stat?: StatLike },
+): Promise<WorkDirStore> {
+  const timeoutMs = opts?.timeoutMs ?? RECENT_PROBE_DEFAULT_TIMEOUT_MS
+  const stat = opts?.stat ?? statAsync
+  const verdicts = await Promise.all(
+    store.recent.map(async (r) => {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      try {
+        const s = await Promise.race([
+          stat(r.path),
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(RECENT_PROBE_TIMEOUT), timeoutMs)
+          }),
+        ])
+        return s.isDirectory()
+      } catch (e) {
+        return e === RECENT_PROBE_TIMEOUT // 超时保留；确定性失败剔除
+      } finally {
+        // probeDirReachable 同款卫生：探测结束清掉超时计时器，不空转滞留
+        if (timer) clearTimeout(timer)
+      }
+    }),
+  )
+  return { current: store.current, recent: store.recent.filter((_, i) => verdicts[i]) }
 }
 
 /** 序列化为 workdir.json 文本（pretty + 尾换行）。 */

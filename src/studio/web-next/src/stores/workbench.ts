@@ -74,8 +74,11 @@ const WORKBENCH_LOG_TYPES: ReadonlySet<string> = new Set([
 ])
 
 /** R30-27（三十轮）：未知/空 type 事件日志丢弃计数（debug 观测口径——只丢日志不丢
- *  事件，分发行为不变；计数经 console.debug 留痕，便于排查服务端新增事件漏录白名单） */
+ *  事件，分发行为不变；计数经 console.debug 留痕，便于排查服务端新增事件漏录白名单）
+ *  R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：留痕按 type 去重——高频未知事件
+ *  （网关新增事件名风暴）不再逐条刷屏，首见留痕、计数照旧累计（降噪不丢总量观测） */
 let droppedLogCount = 0
+const droppedTypesWarned = new Set<string>()
 
 export const useWorkbenchStore = defineStore('workbench', () => {
   /** 事件日志（按序追加，右栏事件流消费）。 */
@@ -136,7 +139,13 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     // console.debug 留痕），后续状态分支照常执行（分发行为零改动）
     if (!WORKBENCH_LOG_TYPES.has(e.type)) {
       droppedLogCount++
-      console.debug(`[workbench] 未入库日志：未知事件 type="${e.type}"（累计丢弃 ${droppedLogCount} 条）`)
+      // R1010-P3：按 type 去重——同型未知事件只首见留痕一次
+      if (!droppedTypesWarned.has(e.type)) {
+        // R1010b-FE-P3-1（2026-09-10 内存专项重审修复批）：add 前封顶防无界增长（事件 type 名不可枚举）；去重语义容忍重置（clear 后同型至多再留痕一次）
+        if (droppedTypesWarned.size >= 64) droppedTypesWarned.clear()
+        droppedTypesWarned.add(e.type)
+        console.debug(`[workbench] 未入库日志：未知事件 type="${e.type}"（首见留痕，同型去重；累计丢弃 ${droppedLogCount} 条）`)
+      }
     } else {
       log.value.push(e)
       if (log.value.length > MAX_LOG) log.value.splice(0, log.value.length - MAX_LOG)

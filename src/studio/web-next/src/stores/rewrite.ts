@@ -8,7 +8,11 @@ import { stripFrontmatter, mergeFm } from '../shared/words'
 
 /**
  * 改写 store（M12 块2 B2.2）：触发改写 + diff 结果；接受 → rewritten 写入 doc content（dirty，作者 ⌘S 保存）。
- * apply 不走后端（最纯提案模型，AI 永不直接落盘正文）。选区改写后置（当前 whole 整章）。
+ * apply 不走后端（最纯提案模型，AI 永不直接落盘正文）。
+ * R1010c-FE2-P3-4（2026-09-10 全量独立复审修复批）：头注修账——原注「选区改写后置（当前
+ * whole 整章）」与实现相悖：run() 已收 selection 参数，RewritePanel 读编辑器选区下发
+ * （非空 → local 选段改写、空 → whole 整章，服务端按 selection 判模式），选区路径已是
+ * 扩写/缩写/润色的现行主路径，whole 只是空选区的兜底形态。
  */
 export const useRewriteStore = defineStore('rewrite', () => {
   const result = ref<RewriteResult | null>(null)

@@ -2,7 +2,8 @@
  * workdir-store 纯函数测试（桌面化工作目录管理，批1）。
  *
  * 验证持久化数据变换：解析容错 / 切换去重截断 / 失效路径过滤。
- * 零 Electron 依赖（纯数据）；filterValidRecent 用真实临时目录验 existsSync。
+ * 零 Electron 依赖（纯数据）；filterValidRecentBudgeted 用真实临时目录验 stat
+ * （R1010-P2-1：同步版改异步预算版）。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -13,7 +14,7 @@ import {
   setCurrent,
   emptyStore,
   serializeStore,
-  filterValidRecent,
+  filterValidRecentBudgeted,
   MAX_RECENT,
 } from '../../src/desktop/workdir-store.js'
 
@@ -109,7 +110,7 @@ describe('workdir-store setCurrent（切换 + 最近列表）', () => {
   })
 })
 
-describe('workdir-store filterValidRecent（失效清理）', () => {
+describe('workdir-store filterValidRecentBudgeted（失效清理）', () => {
   let alive = ''
   beforeEach(() => {
     alive = mkdtempSync(join(tmpdir(), 'clwriting-wd-'))
@@ -118,7 +119,7 @@ describe('workdir-store filterValidRecent（失效清理）', () => {
     if (alive) rmSync(alive, { recursive: true, force: true })
   })
 
-  it('过滤掉不存在的目录，保留存在的', () => {
+  it('过滤掉不存在的目录，保留存在的', async () => {
     const s = {
       current: '/current',
       recent: [
@@ -126,7 +127,7 @@ describe('workdir-store filterValidRecent（失效清理）', () => {
         { path: '/not-exist-xyz-123', label: 'gone' },
       ],
     }
-    const result = filterValidRecent(s)
+    const result = await filterValidRecentBudgeted(s)
     expect(result.recent).toEqual([{ path: alive, label: 'alive' }])
     expect(result.current).toBe('/current') // current 不受影响
   })

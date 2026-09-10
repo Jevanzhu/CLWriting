@@ -407,6 +407,12 @@ export function useChapterTreeActions(deps: {
       // 统一直接丢弃，不为 canonical 单独分叉「保留重写」语义。book 用入口快照：清的
       // 是被改名文档所属的旧书键，即便 await 期间切书清理也不落空。
       doc.clearDirtyMirror(book, node.docId)
+      // R1010b-FE-P3-2（2026-09-10 内存专项重审修复批）：改名成功即清该文档误报灰显键
+      // ——legacy docId 由路径派生，改名后旧 id 孤儿化，同路径重建新文档复用同 id 时
+      // 残留键会把旧章灰显态/禁用误报按钮带给新章（E-10 删除链同款清理，原改名链漏）。
+      // canonical docId 稳定，清了只是损失灰显展示态（标记真相在服务端），对齐 R-P2-1
+      // 「不为 canonical 单独分叉语义」取舍；book 用入口快照，在途切书清理不落空。
+      clearFalsePositiveMarksForDoc(book, node.docId)
       // B-10（第六十轮）：await 后活源复检（对齐 doDelete/doCopy 双点守卫）——重命名
       // 在途切书后 tree.load(旧书) 会把 A 书整树覆盖进 B 书工作台（后调者胜写入）
       if (deps.bookName() !== book) return
@@ -517,7 +523,13 @@ export function useChapterTreeActions(deps: {
     draggedPath.value = null
     if (!src) return
     const node = tree.byPath.get(src)
-    if (!node?.docId) return
+    if (!node?.docId) {
+      // R1010-P3（G6-②）：目录行同样 draggable，拖目录落下此前静默丢弃——
+      // 无任何反馈近似「卡死」。moveDoc 仅 docId 面（服务端 move 只收 docId），
+      // 目录拖拽移动本就不支持：补 info toast 明示，不改移动语义。
+      ui.toast('目录暂不支持拖拽移动（可拖拽章节到目标目录）', 'info')
+      return
+    }
     await doMove(node.docId, targetPath)
   }
 

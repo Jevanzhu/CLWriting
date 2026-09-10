@@ -306,3 +306,50 @@ describe('R36-15: responses 线兜底 tool id 流级单调（同流不重号）'
     expect(evs.some((e) => e.type === 'done')).toBe(true)
   })
 })
+
+// R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：工具参数「合法 JSON 非对象」形态
+// （模型偶发裸标量参数）——parse 成功但非对象时原样透出入库，跨协议换供方回放
+// Anthropic 线必 400（input 契约是 object）；产源头与 anthropic 回放侧双侧兜 {_raw}
+describe('R1010-P3: responses 线工具参数合法 JSON 非对象 → {_raw} 兜底', () => {
+  it('arguments=数字标量 → input={_raw}（不裸传标量）', async () => {
+    const client = {
+      responses: {
+        create: fakeSend([
+          { type: 'response.output_item.done', item: { type: 'function_call', call_id: 'call_9', name: 'tool_a', arguments: '123' } },
+          { type: 'response.completed', response: { usage: { input_tokens: 5, output_tokens: 4 } } },
+        ]),
+      },
+    } as unknown as OpenAI
+    const evs = await collect(
+      createOpenAIResponsesProvider({ ...CONF, protocol: 'openai-responses' } as ProviderConf, client),
+      {
+        systemPrompt: '',
+        messages: [{ role: 'user', content: 'hi' }],
+        tools: [{ name: 'tool_a', description: 'd', input_schema: { type: 'object', properties: {} } }],
+      },
+    )
+    const tool = evs.find((e) => e.type === 'tool')
+    expect(tool).toMatchObject({ type: 'tool', id: 'call_9', name: 'tool_a', input: { _raw: '123' } })
+  })
+
+  it('arguments=合法对象 JSON → 原样透传（既有主路径不受兜底影响）', async () => {
+    const client = {
+      responses: {
+        create: fakeSend([
+          { type: 'response.output_item.done', item: { type: 'function_call', call_id: 'call_8', name: 'tool_b', arguments: '{"q":1}' } },
+          { type: 'response.completed', response: { usage: { input_tokens: 5, output_tokens: 4 } } },
+        ]),
+      },
+    } as unknown as OpenAI
+    const evs = await collect(
+      createOpenAIResponsesProvider({ ...CONF, protocol: 'openai-responses' } as ProviderConf, client),
+      {
+        systemPrompt: '',
+        messages: [{ role: 'user', content: 'hi' }],
+        tools: [{ name: 'tool_b', description: 'd', input_schema: { type: 'object', properties: {} } }],
+      },
+    )
+    const tool = evs.find((e) => e.type === 'tool')
+    expect(tool).toMatchObject({ type: 'tool', id: 'call_8', input: { q: 1 } })
+  })
+})

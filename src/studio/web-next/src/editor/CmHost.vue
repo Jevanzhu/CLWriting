@@ -111,10 +111,20 @@ const editorSetup: Extension[] = [
     // 后台同步也会自动弹补全浮层（无输入意图的 UI 打扰）。
     if (!u.transactions.some((tr) => (tr.annotation(Transaction.userEvent) ?? '').startsWith('input'))) return
     const head = u.state.selection.main.head
-    if (u.state.doc.sliceString(head - 1, head) === '@') startCompletion(u.view)
+    if (u.state.doc.sliceString(head - 1, head) === '@') {
+      startCompletion(u.view)
+      refreshCompletionNamesIfStale() // R1010-P3（G6-④）：触发即探 TTL，见函数头注
+    }
   }),
   keymap.of([
-    { key: 'Mod-i', run: (v) => { startCompletion(v); return true } },
+    {
+      key: 'Mod-i',
+      run: (v) => {
+        startCompletion(v)
+        refreshCompletionNamesIfStale() // 同上
+        return true
+      },
+    },
     ...defaultKeymap, ...searchKeymap, ...historyKeymap, ...foldKeymap, ...completionKeymap,
   ]),
 ]
@@ -392,6 +402,7 @@ watch(
     try {
       const r = await getCompletionNames(name)
       if (myId !== compReqId) return // 旧请求，丢弃
+      completionFetchedAt = Date.now() // G6-④：TTL 基点（成功才计龄，失败下次触发即重试）
       completionEntries.value = [
         ...r.characters.map((n) => ({ label: n, detail: '角色' })),
         ...r.items.map((n) => ({ label: n, detail: '物品' })),
@@ -400,6 +411,35 @@ watch(
   },
   { immediate: true },
 )
+
+// R1010-P3（G6-④）：名单 TTL 刷新——原仅切书拉取，同会话里新建角色/物品后 @ 补全
+// 一直陈旧到下次切书。@ 击键 / Cmd+I 触发时超龄（5min）即后台补拉一次：竞态仍走
+// compReqId（旧请求晚归丢弃）、单飞标志防触发风暴。刷新结果对「当次已弹浮层」不
+// 生效（CM6 浮层选项在 source 调用瞬间定格，续打只按 validFor 过滤）——下一次
+// 触发即见新名单，陈旧窗口从「会话级」缩到 TTL 级。
+const COMPLETION_TTL_MS = 5 * 60_000
+let completionFetchedAt = 0
+let completionTtlInflight = false
+function refreshCompletionNamesIfStale(): void {
+  const book = ws.bookName
+  if (!book || props.readonly) return
+  if (completionTtlInflight || Date.now() - completionFetchedAt < COMPLETION_TTL_MS) return
+  completionTtlInflight = true
+  const myId = ++compReqId
+  getCompletionNames(book)
+    .then((r) => {
+      if (myId !== compReqId) return
+      completionFetchedAt = Date.now()
+      completionEntries.value = [
+        ...r.characters.map((n) => ({ label: n, detail: '角色' })),
+        ...r.items.map((n) => ({ label: n, detail: '物品' })),
+      ]
+    })
+    .catch(() => {}) // 设定 API 不可达：保持现名单（陈旧优于清空）
+    .finally(() => {
+      completionTtlInflight = false
+    })
+}
 
 // 打字机开关（专注模式切换）：动态重配；进入时立即把当前行居中
 watch(

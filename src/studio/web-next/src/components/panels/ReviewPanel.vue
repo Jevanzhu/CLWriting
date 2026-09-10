@@ -1,6 +1,7 @@
 <script setup lang="ts">
-// 三审面板（M12 块1 B1.2）：发起三审 → 阻断/警告分组意见；存量信封 + 过期条；AI 不可达置灰。
-// 意见点击定位 CodeMirror、进度 SSE、verdict 联动 → 切片3 增强。
+// 三审面板（M12 块1 B1.2）：发起三审 → 阻断/警告分组意见；存量信封 + 过期条；AI 不可达置灰；
+// verdict 联动已落地（通过/驳回落信封，B1.3 方案 A）。R1010-P3（G6-⑤）修账：意见点击
+// 定位 CodeMirror、进度 SSE 并未实现亦无排期——原「切片3 增强」为过时前瞻宣称，删除。
 import { computed, ref, watch } from 'vue'
 import { FileSearch, RefreshCw, AlertCircle, AlertTriangle, CircleCheck, Clock } from 'lucide-vue-next'
 import { useReviewStore } from '../../stores/review'
@@ -46,6 +47,16 @@ const warnings = computed(() => review.collected?.normalized.warnings ?? [])
 // 同内容条目按出现序 #n 消歧
 const blockerKeys = computed(() => contentStableKeys(blockers.value.map(reviewIssueKeyBase)))
 const warningKeys = computed(() => contentStableKeys(warnings.value.map(reviewIssueKeyBase)))
+// R1010c-FE1-P3-2（2026-09-10 全量独立复审修复批）：意见渲染上限——千条级意见全量
+// v-for 挂 DOM（max-height 只裁视觉不减节点），对齐域内 RENDER_CAP=100 惯例（先例
+// RewritePanel/AuditDiffPanel R-P3-16）：只裁渲染面前 100 条 + 尾部省略提示行；
+// 数据面不动——分组头计数（阻断项/警告项 N）仍面向全量，键表按全量构造（切片与键
+// 按下标仍对齐）
+const RENDER_CAP = 100
+const blockersView = computed(() => blockers.value.slice(0, RENDER_CAP))
+const warningsView = computed(() => warnings.value.slice(0, RENDER_CAP))
+const blockersOmitted = computed(() => Math.max(0, blockers.value.length - RENDER_CAP))
+const warningsOmitted = computed(() => Math.max(0, warnings.value.length - RENDER_CAP))
 // R63-4（十一轮）：passed 必须查采集是否成立——此前只看 normalized.passed（空判据），
 // 采集失败（stale/缺视角/坏条目）被渲染成「三审通过，无阻断/警告」，作者按假通过
 // 放行从未真正审校的内容（刷新/重启依旧，已随信封持久化）。后端已同步注入阻断级
@@ -198,7 +209,7 @@ function severityLabel(s: string): string {
           <span>阻断项（{{ blockers.length }}）</span>
         </div>
         <div
-          v-for="(it, i) in blockers"
+          v-for="(it, i) in blockersView"
           :key="'b' + blockerKeys[i]"
           class="rev-item rev-item--red"
         >
@@ -211,6 +222,8 @@ function severityLabel(s: string): string {
           <div v-if="it.evidence.length > 0" class="item-evidence">「{{ it.evidence.join('；') }}」</div>
           <div v-if="it.fix" class="item-fix">建议：{{ it.fix }}</div>
         </div>
+        <!-- R1010c-FE1-P3-2：RENDER_CAP 截断省略提示行（数据面计数不虚减） -->
+        <div v-if="blockersOmitted > 0" class="cap-hint">已省略 {{ blockersOmitted }} 项</div>
       </div>
 
       <div v-if="warnings.length > 0" class="rev-group">
@@ -219,7 +232,7 @@ function severityLabel(s: string): string {
           <span>警告项（{{ warnings.length }}）</span>
         </div>
         <div
-          v-for="(it, i) in warnings"
+          v-for="(it, i) in warningsView"
           :key="'w' + warningKeys[i]"
           class="rev-item rev-item--yellow"
         >
@@ -232,6 +245,8 @@ function severityLabel(s: string): string {
           <div v-if="it.evidence.length > 0" class="item-evidence">「{{ it.evidence.join('；') }}」</div>
           <div v-if="it.fix" class="item-fix">建议：{{ it.fix }}</div>
         </div>
+        <!-- R1010c-FE1-P3-2：RENDER_CAP 截断省略提示行（数据面计数不虚减） -->
+        <div v-if="warningsOmitted > 0" class="cap-hint">已省略 {{ warningsOmitted }} 项</div>
       </div>
     </template>
 
@@ -386,6 +401,11 @@ function severityLabel(s: string): string {
   border-radius: var(--radius-s);
   font-size: var(--font-size-s);
   line-height: 1.5;
+}
+/* R1010c-FE1-P3-2：渲染上限省略提示行——纯展示（弱化色，r54 tree-cap-hint 同语义） */
+.cap-hint {
+  font-size: var(--font-size-xxs);
+  color: var(--text-faint);
 }
 .rev-item--red {
   background: color-mix(in srgb, var(--text-error) 8%, transparent);

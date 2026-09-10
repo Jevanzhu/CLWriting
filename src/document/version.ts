@@ -458,11 +458,16 @@ export function readVersionMeta(
   return { meta: metaFromMap(map, id) }
 }
 
-/** 行是否恰为零缩进 fence `---`（容忍 \r 尾）——与 splitFrontMatter 的闭合判定同口径。 */
+/** 行是否恰为零缩进 fence `---`（容忍尾随 [ \t]* 与 \r 尾）——与 splitFrontMatter 的
+ *  闭合判定同口径。R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：补 R54-E-2 尾随
+ *  空白容忍——文本侧（frontmatter-core）五十四轮起容忍 `--- `（编辑器/同步盘常注入），
+ *  字节层仍只认裸 `---`/`---\r`，同文件两侧判定漂移：文本侧读得的档案字节层读 null。 */
 function isFenceLine(b: Buffer): boolean {
-  if (b.length !== 3 && b.length !== 4) return false
+  if (b.length < 3) return false
   if (b[0] !== 0x2d || b[1] !== 0x2d || b[2] !== 0x2d) return false // '---'
-  return b.length === 3 || b[3] === 0x0d
+  let i = 3
+  while (i < b.length && (b[i] === 0x20 || b[i] === 0x09)) i++ // 尾随 [ \t]*（R54-E-2 同口径）
+  return i === b.length || (i === b.length - 1 && b[i] === 0x0d)
 }
 
 /**

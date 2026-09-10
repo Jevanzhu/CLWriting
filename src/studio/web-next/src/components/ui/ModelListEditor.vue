@@ -10,7 +10,7 @@
  * hh §八-16 拆分：行卡片 → ModelRow.vue，候选弹窗 → ModelPicker.vue（纯搬家，
  * DOM 结构不变）；本件留行状态/探测/采纳编排。
  */
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { Plus, RefreshCw, Loader2 } from 'lucide-vue-next'
 import type { Protocol } from '../../api/providers'
 import { fetchModels } from '../../api/providers'
@@ -116,6 +116,16 @@ const fetchHint = computed(() => {
 const busy = ref(false)
 const failure = ref<string>()
 
+// R1010b-FTC-P3-2（2026-09-10 内存专项重审修复批）：armed 单门——探测（fetchModels）
+// 在途时实例卸载（父卡收起/弹窗关闭），迟到的响应续体此前照旧写回死实例的
+// busy/failure/showPicker（低敏写回，非泄漏级）。对齐 style 系 armed /
+// SettingsBookAnalysis 书名复检的「await 后守卫」纪律：高敏路径书名复检、低敏路径
+// armed 单门。
+let armed = true
+onBeforeUnmount(() => {
+  armed = false
+})
+
 async function fetchList(): Promise<void> {
   const body = probeBody.value
   if (!body || busy.value || props.disabled) return
@@ -123,6 +133,7 @@ async function fetchList(): Promise<void> {
   failure.value = undefined
   try {
     const r = await fetchModels(body)
+    if (!armed) return // R1010b-FTC-P3-2：卸载后不写回死实例（failure/showPicker 同门）
     if (r.models.length === 0) {
       failure.value = '端点未返回任何模型'
       return
@@ -133,9 +144,10 @@ async function fetchList(): Promise<void> {
     picked.value = new Set(r.models.filter((m) => !known.has(m)))
     showPicker.value = true
   } catch (e) {
+    if (!armed) return // R1010b-FTC-P3-2：失败路径同门
     failure.value = e instanceof Error ? e.message : String(e)
   } finally {
-    busy.value = false
+    if (armed) busy.value = false
   }
 }
 

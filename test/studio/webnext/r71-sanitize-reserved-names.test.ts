@@ -100,3 +100,23 @@ describe('R71-30: 新建入口保留名报错文案', () => {
     expect(createMock).not.toHaveBeenCalled()
   })
 })
+
+describe('R1010c-FE2-P3-1: sanitizeName 拒收 Win 非法字符（: " < > | ? *）', () => {
+  // 九字符非法集中 / \ 已由路径分隔符规则拒收，此处补齐其余七字符：名字中段/扩展名任一位置命中即拒
+  it.each(['a:b.md', '第四?章', '卷<名>', 'a|b', 'a"b', '2*3', 'a?b.md', '标题：半角:冒号'])(
+    '「%s」被拒（null）',
+    (name) => {
+      expect(sanitizeName(name)).toBeNull()
+    },
+  )
+
+  // 全角形态不受影响（：＂＜＞｜？＊不在 ASCII 非法集）；既有放行面不回退
+  it.each([
+    ['第四：章（全角冒号）', '第四：章（全角冒号）'],
+    ['书名？问号全角', '书名？问号全角'],
+    ['a｜b（全角竖线）', 'a｜b（全角竖线）'],
+    ['联系.md', '联系.md'],
+  ])('「%s」放行 → %s', (name, expected) => {
+    expect(sanitizeName(name)).toBe(expected)
+  })
+})

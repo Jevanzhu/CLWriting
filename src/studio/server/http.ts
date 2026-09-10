@@ -117,10 +117,6 @@ export function parseRequestUrl(req: IncomingMessage): URL | null {
   }
 }
 
-export function checkToken(req: IncomingMessage, token: string): boolean {
-  return safeTokenCompare(req.headers['x-studio-token'], token)
-}
-
 /** 读取 JSON body；默认 1MB 上限，避免本地 server 被超大请求顶爆内存。 */
 export function readJson(
   req: IncomingMessage,

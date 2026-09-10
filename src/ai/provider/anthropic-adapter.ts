@@ -77,6 +77,17 @@ function normalizeAnthropicBaseUrl(baseUrl: string): string {
  *  现役 claude 安全下限（对旧模型 128000 才 400，16384 无此问题）。 */
 const MAX_TOKENS = 16_384
 
+/** R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：tool_use.input 归一——ChatMsg 历史
+ *  的 input 形状是 unknown（跨协议回放：Responses/OpenAI 线产出合法 JSON 非对象形态
+ *  如数字/字符串/数组时原样入库），Anthropic 线 input 必须是 object，原 `as` 断言吞
+ *  形状后非对象裸传网关 400。窄兜底 {_raw} 保真载荷（与 responses-adapter parse
+ *  失败兜底同款口径），fail-visible 不丢参数。 */
+function toolInputForAnthropic(input: unknown): Record<string, unknown> {
+  return typeof input === 'object' && input !== null && !Array.isArray(input)
+    ? (input as Record<string, unknown>)
+    : { _raw: input }
+}
+
 /** ChatMsg → Anthropic 线格式 message（纯文本直传；block 数组逐项映射）。
  *  R30-10（三十轮）：映射后 content 为空数组（block 全为 reasoning 的消息）→ 返回 null，
  *  由 toParams 从请求历史剔除（见 toParams 处注）。 */
@@ -94,7 +105,7 @@ function toAnthropicMessage(m: ChatMsg): Anthropic.MessageParam | null {
     // 类型扩展会击穿 usage-estimate.flattenMsgContent 的 exhaust 分支（该文件不在本轮
     // 可修清单），故回传侧零透传维持；防 400 由 toParams 的 claude+effort 显式禁思考
     //（主防线）+ 上一条 reasoning 块丢弃（次防线）承担，完整回传留待跨批接通。
-    if (b.type === 'tool_use') return [{ type: 'tool_use', id: b.id, name: b.name, input: b.input as Record<string, unknown> }]
+    if (b.type === 'tool_use') return [{ type: 'tool_use', id: b.id, name: b.name, input: toolInputForAnthropic(b.input) }]
     // tool_result: Anthropic 要求挂在 user 消息里，toolUseId → tool_use_id
     return [{ type: 'tool_result', tool_use_id: b.toolUseId, content: b.content, ...(b.isError ? { is_error: true } : {}) }]
   })

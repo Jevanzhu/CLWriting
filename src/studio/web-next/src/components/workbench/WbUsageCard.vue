@@ -2,7 +2,7 @@
 // D1（批 4）AI 用量卡片：消费既有 GET /trace-stats（aggregateTrace 的 byTask 聚合——
 // 此前端连 API 都引了没渲染，本卡补上渲染面）+ D2 的 cost-stats（配价书显示金额，
 // 未配价显示引导不显示 0）。自取数（挂载即拉），WorkbenchView 单点挂载零数据编排。
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { Gauge } from 'lucide-vue-next'
 import { getTraceStats } from '../../api/trace-stats'
 import { getCostStats, type CostStats } from '../../api/cost-stats'
@@ -28,6 +28,16 @@ const loaded = ref(false)
 // 切书竞态代数（同 stores/ 的 opGen 模式）：旧书慢响应不回填新书数据
 let loadGen = 0
 
+// R1010b-FTC-P3-2（2026-09-10 内存专项重审修复批）：卸载 armed 单门——loadGen 代只挡
+// 在途切书（实例复用），挡不住「请求在途实例卸载」（切路由整树销毁）：迟到的取数续体
+// 此前照旧写回死实例 byTask/total/cost（低敏写回，非泄漏级）。对齐 style 系 armed /
+// SettingsBookAnalysis 书名复检的「await 后守卫」纪律：高敏路径书名复检、低敏路径
+// armed 单门。
+let armed = true
+onBeforeUnmount(() => {
+  armed = false
+})
+
 async function load(): Promise<void> {
   const gen = ++loadGen
   loaded.value = false
@@ -37,6 +47,7 @@ async function load(): Promise<void> {
       getCostStats(props.bookName).catch(() => null),
     ])
     if (gen !== loadGen) return
+    if (!armed) return // R1010b-FTC-P3-2：卸载后不写回死实例
     byTask.value = (trace.byTask ?? {}) as Record<string, TaskStat>
     total.value = trace.total ?? 0
     cost.value = costStats
@@ -45,11 +56,12 @@ async function load(): Promise<void> {
     // 否则新书请求失败时 finally 置 loaded，旧书的调用量/金额挂在新书名下（敏感数据错位
     // 在失败路径复现，正是本卡要消灭的场景）
     if (gen !== loadGen) return
+    if (!armed) return // R1010b-FTC-P3-2：失败路径同门
     byTask.value = {}
     total.value = 0
     cost.value = null
   } finally {
-    if (gen === loadGen) loaded.value = true
+    if (gen === loadGen && armed) loaded.value = true
   }
 }
 

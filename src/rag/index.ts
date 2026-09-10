@@ -330,11 +330,14 @@ export async function buildIndex(
 
   const bodyDir = join(bookRoot, '写作', '正文')
   if (!existsSync(bodyDir)) {
-    return { ok: false, chunkCount: 0, chapterCount: 0, error: '没有定稿正文可索引。' }
+    // R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：文案「定稿」→「正文」——本模块
+    // 头注明示索引进全量正文（含未定稿草稿，召回服务写作连续性检索），空语料降级
+    // 文案却宣称只认定稿，误导排查方向（作者会误以为先定稿才能建索引）
+    return { ok: false, chunkCount: 0, chapterCount: 0, error: '没有正文可索引。' }
   }
   const { chapters: chaptersFromDir, errors } = readChapterDir(bodyDir)
   if (chaptersFromDir.length === 0) {
-    return { ok: false, chunkCount: 0, chapterCount: 0, error: '没有定稿正文可索引。' }
+    return { ok: false, chunkCount: 0, chapterCount: 0, error: '没有正文可索引。' }
   }
   // R35-43（三十五轮）：重复章号去重 + 告警——无告警时两文件同章号的块全入库，召回
   // 偏移对精准读取可错位。R54-E-1（五十四轮）：注释与告警文案对齐 R48-61 实现口径

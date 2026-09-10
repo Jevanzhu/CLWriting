@@ -4,7 +4,7 @@
 // 阶段 14 第二步（§6.3 统一 store + I2 卡片化单卡展开 + I5 内嵌新增）：
 // 数据源收敛到 useProviderStore（AI + RAG + 档位 + 模型清单 + revision 单份）；
 // 本层只保留编排态（分页 tab / 展开互斥 / 新增卡 / 档位草稿）与确认弹窗、可达性联动。
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { MessageSquare, Database } from 'lucide-vue-next'
 import {
   type ProviderConfDto,
@@ -64,8 +64,18 @@ function syncTierForm(): void {
   chatTierEnabled.value = !!store.tiers.chat?.model
 }
 
+// R1010b-FTC-P3-2（2026-09-10 内存专项重审修复批）：armed 单门——onMounted 的
+// refreshAll 在途时实例卸载（快速切 tab），迟到的 refresh 续体此前照旧写回死实例
+// 档位草稿（低敏写回，非泄漏级）。对齐 style 系 armed / SettingsBookAnalysis 书名
+// 复检的「await 后守卫」纪律：高敏路径书名复检、低敏路径 armed 单门。
+let armed = true
+onBeforeUnmount(() => {
+  armed = false
+})
+
 onMounted(async () => {
   await store.refreshAll()
+  if (!armed) return // R1010b-FTC-P3-2：卸载后不写回死实例
   syncTierForm()
 })
 

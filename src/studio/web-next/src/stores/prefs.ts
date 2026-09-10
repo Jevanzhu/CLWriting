@@ -187,7 +187,16 @@ export const usePrefsStore = defineStore('prefs', () => {
     // workspace 侧已修口径），防旧残值在后续 API 不可达时再度触发伪迁移。
     if (apiOk && Object.keys(prefs).length === 0 && migrateFromLocalStorage()) {
       prefs = buildCache()
-      lastPersisted = prefs // R35-8：迁移写内容即基线（迁移 PUT 失败时脏字段判定仍成立）
+      // R35-8：迁移写内容即基线（迁移 PUT 失败时脏字段判定仍成立）。
+      // R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）注记：评审曾建议「移到 PUT 落定
+      // 后置位」，二阶分析后维持先行——①迁移 PUT 是裸调用不占 putInFlight 单飞槽，
+      // 在途窗口内用户编辑可并发 schedulePersist → 撞 409 → recoverFromConflict 的
+      // 本窗重放依赖 dirtyKeysOf 对比基线；移后 lastPersisted=null 走 R61-F-3 零脏口径
+      // 会静默丢该次编辑（现行为可重放）。②先行置位保住 R61-F-3 头注「init 各完成
+      // 路径均置基线」不变量。③迁移 PUT 失败的服务端缺口由 revisionKnown=false 的
+      // R32-26 写前重 GET 链在下一次保存时对齐补写，无需基线参与。偏离评审建议按
+      // 「证伪维持」口径在报告收口记记档。
+      lastPersisted = prefs
       clearLegacyLocalStorage()
       // GG-P2-7：迁移写会 bump 服务端 revision——同步回存，否则首个用户保存带陈旧号 409
       void putGlobalPrefs(prefs).then((r) => { revision = r.revision; revisionKnown = true }).catch(() => {})
@@ -212,7 +221,9 @@ export const usePrefsStore = defineStore('prefs', () => {
         return Number.isFinite(v) && v > 0 ? v : null
       }
       const str = (k: string): string => localStorage.getItem(k) ?? ''
-      for (const [k, ref, kind] of [
+      // R1010b-FE-P3-3（2026-09-10 内存专项重审修复批）：循环变量原命名 ref 遮蔽 Vue
+      // 的 ref 导入（同文件内 ref(...) 语义漂移的可读性陷阱），改名 entry——零语义变更
+      for (const [k, entry, kind] of [
         [OLD_LS.size, proseSize, 'num'], [OLD_LS.lh, proseLh, 'num'],
         [OLD_LS.pageWidth, pageWidth, 'num'],
         [OLD_LS.autosaveInterval, autosaveInterval, 'num'],
@@ -221,10 +232,10 @@ export const usePrefsStore = defineStore('prefs', () => {
       ] as const) {
         if (kind === 'num') {
           const v = num(k)
-          if (v !== null) { (ref as typeof proseSize).value = v; has = true }
+          if (v !== null) { (entry as typeof proseSize).value = v; has = true }
         } else {
           const v = str(k)
-          if (v) { (ref as typeof uiFontCn).value = v; has = true }
+          if (v) { (entry as typeof uiFontCn).value = v; has = true }
         }
       }
       const sv = localStorage.getItem(OLD_LS.shelfView)

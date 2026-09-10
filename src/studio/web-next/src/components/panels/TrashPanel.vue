@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { Trash2, RotateCcw, AlertCircle } from 'lucide-vue-next'
 import { useTreeStore } from '../../stores/tree'
 import { useUiStore } from '../../stores/ui'
@@ -14,6 +14,14 @@ const ui = useUiStore()
 
 const entries = ref<TrashEntry[]>([])
 const err = ref<string | null>(null)
+
+// R1010c-FE1-P3-2（2026-09-10 全量独立复审修复批）：条目渲染上限——大批量回收站全量
+// v-for 挂 DOM（max-height 只裁视觉不减节点），对齐域内 RENDER_CAP=100 惯例（先例
+// RewritePanel/AuditDiffPanel R-P3-16、r54 ChapterTree）：只裁渲染面前 100 条 + 尾部
+// 省略提示行，数据面不动（空态判定仍看全量 entries）
+const RENDER_CAP = 100
+const renderedEntries = computed(() => entries.value.slice(0, RENDER_CAP))
+const omittedCount = computed(() => Math.max(0, entries.value.length - RENDER_CAP))
 
 // M-10：回收站加载代守卫（words store reqGen 同款）——快速切书 A→B 时 A 的慢响应
 // 不覆盖 B 的回收站列表（restore/purge 后的 load 同享守卫）
@@ -118,7 +126,7 @@ watch(() => props.bookName, () => load(), { immediate: true })
     </div>
     <!-- 列表（严格仿章节树叶子行：dot-slot + label 27px 行高） -->
     <div v-else class="tree-list">
-      <div v-for="e in entries" :key="e.id" class="tree-item" :title="e.originalPath ?? e.path">
+      <div v-for="e in renderedEntries" :key="e.id" class="tree-item" :title="e.originalPath ?? e.path">
         <span class="dot-slot">
           <span class="dot dot-gray"></span>
         </span>
@@ -134,6 +142,8 @@ watch(() => props.bookName, () => load(), { immediate: true })
           </button>
         </div>
       </div>
+      <!-- R1010c-FE1-P3-2：RENDER_CAP 截断省略提示行（与 r54 ChapterTree 尾部提示行同语义） -->
+      <div v-if="omittedCount > 0" class="cap-hint">已省略 {{ omittedCount }} 项</div>
     </div>
   </div>
 </template>
@@ -210,6 +220,17 @@ watch(() => props.bookName, () => load(), { immediate: true })
 .tree-item:hover .item-actions {
   opacity: 1;
 }
+/* R1010c-FE1-P3-1（2026-09-10 全量独立复审修复批）：键盘焦点同权显形——原仅 hover 行
+ * 显形，Tab 聚到「恢复/永久删除」钮上「焦点在但看不见」（对齐 HistoryPanel R1010-P3
+ * restore-btn 同款修法：focus-visible 焦点环 + focus-within 行级显形） */
+.action-btn:focus-visible,
+.tree-item:focus-within .item-actions {
+  opacity: 1;
+}
+.action-btn:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 1px;
+}
 .action-btn {
   display: inline-flex;
   align-items: center;
@@ -229,5 +250,13 @@ watch(() => props.bookName, () => load(), { immediate: true })
 }
 .action-btn.danger:hover {
   color: var(--text-error);
+}
+/* R1010c-FE1-P3-2：渲染上限省略提示行——纯展示不可点（弱化色，r54 tree-cap-hint 同语义） */
+.cap-hint {
+  padding-left: 22px;
+  font-size: var(--font-size-xs);
+  color: var(--text-faint);
+  font-style: italic;
+  cursor: default;
 }
 </style>

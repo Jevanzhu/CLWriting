@@ -4,6 +4,7 @@
   "description": "为中文网文作者打造的开箱即用、全程中文、200 万字不崩的 AI 长篇创作系统",
   "type": "module",
   "license": "MIT",
+  "private": true,
   "engines": {
     "node": ">=24"
   },
@@ -45,7 +46,7 @@
   "devDependencies": {
     "@playwright/test": "^1.61.1",
     "@types/node": "^24.0.0",
-    "@vitejs/plugin-vue": "^6.0.7",
+    "@vitejs/plugin-vue": "^6.0.8",
     "@vitest/coverage-v8": "^3.2.7",
     "@vue/test-utils": "^2.4.11",
     "cross-env": "^10.1.0",
@@ -59,7 +60,7 @@
     "typescript": "^5.5.0",
     "typescript-eslint": "^8.68.0",
     "vitest": "^3.0.0",
-    "vue": "^3.5.0"
+    "vue": "^3.5.42"
   },
   "//overrides": "esbuild 钉版因由：54e0eaa（2026-06-23）清依赖安全告警——esbuild 旧版 dev server 有跨站读取泄漏面（GHSA-67mh-4wv8-2f99，修复线 0.25.0），强制 tsup/tsx/vite 构建链统一越过受影响版本；放开钉版前需回归 electron 构建链（tsup 构建 + dev:app + build:desktop 出包）",
   "overrides": {

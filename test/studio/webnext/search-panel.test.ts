@@ -76,3 +76,49 @@ describe('M-7: SearchPanel 切书清残留', () => {
     expect(vm.loading).toBe(false)
   })
 })
+
+// R1010c-FE1-P3-3（2026-09-10 全量独立复审修复批）：命中行余量提示——原 slice(0,3)
+// 截断静默；>3 条时点名余量，hasMore（服务端单文件 20 条封顶 R72-9）以「20+」区分
+// 服务端截断（真实总数未知，不虚报精确余量）。
+describe('R1010c-FE1-P3-3: 命中行余量提示', () => {
+  async function searchHits(matches: { line: number; text: string }[], hasMore?: boolean) {
+    const w = mount(SearchPanel, { props: { bookName: '书A' } })
+    mocks.search.mockResolvedValue({
+      results: [{ path: '写作/正文/1-一.md', matches, ...(hasMore ? { hasMore: true } : {}) }],
+      truncated: false,
+    })
+    await w.find('input').setValue('关键词')
+    await w.find('input').trigger('keydown.enter')
+    await flushPromises()
+    return w
+  }
+
+  it('5 条命中 → 只渲染前 3 行 + 「还有 2 条」（精确余量）', async () => {
+    const w = await searchHits(Array.from({ length: 5 }, (_, i) => ({ line: i + 1, text: `行${i}` })))
+    expect(w.findAll('.result-line')).toHaveLength(3)
+    expect(w.find('.result-more').text()).toContain('还有 2 条')
+    expect(w.find('.result-more').text()).not.toContain('20+')
+    w.unmount()
+  })
+
+  it('服务端截断（20 条 + hasMore）→ 「还有 20+ 条」区分服务端封顶', async () => {
+    const w = await searchHits(
+      Array.from({ length: 20 }, (_, i) => ({ line: i + 1, text: `行${i}` })),
+      true,
+    )
+    expect(w.findAll('.result-line')).toHaveLength(3)
+    expect(w.find('.result-more').text()).toContain('还有 20+ 条')
+    w.unmount()
+  })
+
+  it('≤3 条命中 → 全量渲染零提示', async () => {
+    const w = await searchHits([
+      { line: 1, text: '甲' },
+      { line: 4, text: '乙' },
+      { line: 9, text: '丙' },
+    ])
+    expect(w.findAll('.result-line')).toHaveLength(3)
+    expect(w.find('.result-more').exists()).toBe(false)
+    w.unmount()
+  })
+})

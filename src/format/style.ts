@@ -147,7 +147,12 @@ export function parseSampleFileName(
   // R38-9（三十八轮）：扩展名剥离大小写不敏感——'.MD' 改名条目的序号此前解析不出
   //（nextEntrySeq 同场景编号割裂，靠 O_EXCL 自愈但新旧编号断裂）
   const base = fileName.replace(/\.[mM][dD]$/, '')
-  const m = base.match(/^(.+)-(\d{3})$/)
+  // R1010b-DOC-P3-3（全量代码重审与内存专项 2026-09-10）：序号由固定 3 位放宽为 3 位起
+  //（对齐 style-migrate.ts 播种正则 (\d{3,}) 同族先例）——写侧 padStart(3,'0') 不截断，
+  // 同场景第 1000 条产出 `战斗-1000.md`，固定 \d{3} 配贪婪 (.+) 吞千位解析成
+  // {场景:'战斗-1', 序号:0}，编号割裂靠 O_EXCL 重试自愈；不足 3 位仍不匹配（既有
+  // 非法名语义不变）。
+  const m = base.match(/^(.+)-(\d{3,})$/)
   if (!m) return null
   return { 场景: m[1]!, 序号: Number(m[2]!) }
 }

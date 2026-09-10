@@ -217,7 +217,11 @@ export function parseHistoryWithPreamble(body: string): {
 
 /** 履历段 → markdown 文本；preamble 非空时在标题与首条之间原位还原（R48-8）；
  *  groupHeadings 按挂靠条目序号原位还原（R51-F-1）——同槽多条（标题链）按数组序，
- *  越界槽位（条目被删等）尾插兜底不静默丢弃。 */
+ *  越界槽位（条目被删等）尾插兜底不静默丢弃。
+ *  R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）注记精度：preamble 两侧外围空行
+ *  trim 后按「标题-空行-散文-空行-首条」规范形重拼——「原位还原」是内容级原位
+ *  （散文行本体与位置不丢），非字节级往返；作者在散文前后多打的连续空行不保真
+ *  （单空行分隔形态即规范形，实际漂移面仅多余空行）。 */
 export function stringifyHistory(
   entries: LeadEntry[],
   preamble?: string,

@@ -16,8 +16,9 @@ const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabi
 // 拉回设置弹窗首元素，确认框内 Tab 卡死（确认钮键盘不可达）。修复：模块级活跃 trap
 // 登记表（注册序 = 浮层层级序），仅**最顶层**（最后注册且未卸载）的 trap 处理 Tab，
 // 下层 trap 静默让渡（不 preventDefault、不抢焦点）；顶层关闭/卸载后下一层自动恢复
-// 处理权（disposed 标记随 onCleanup 置位，残留登记留在数组内仅作遍历过滤，体量
-// ≤浮层数，无需主动收缩）。
+// 处理权（登记随 onCleanup 按 seq 摘除——R1010b-FE-P2-2（2026-09-10 内存专项重审
+// 修复批）：原「只置 disposed 不摘除」与实现矛盾且数组只增不减，界 = 历史打开次数；
+// 摘除后活条目集合 = 并发浮层数，本段「体量有界」宣称自此为真）。
 const activeTraps: Array<{ seq: number; disposed: () => boolean }> = []
 let trapSeq = 0
 
@@ -81,6 +82,12 @@ export function useFocusTrap(targetRef: Ref<HTMLElement | null>): void {
         // ref 变 null（v-if 关闭）或组件卸载时归还焦点
         onCleanup(() => {
           disposed = true
+          // R1010b-FE-P2-2（2026-09-10 内存专项重审修复批）：按 seq 摘除本条目——
+          // 原实现只置 disposed 标志从不移除：数组界 = 历史打开次数（本批内存专项
+          // 唯一无界堆增长点），且已卸载组件条目经 targetRef/闭包把 detached DOM
+          // 钉在堆里；摘除后活条目集合 = 并发浮层数（上方注记自此为真）
+          const i = activeTraps.findIndex((t) => t.seq === seq)
+          if (i >= 0) activeTraps.splice(i, 1)
           document.removeEventListener('keydown', onKeydown, true)
           previouslyFocused?.focus()
         })
@@ -88,4 +95,12 @@ export function useFocusTrap(targetRef: Ref<HTMLElement | null>): void {
     },
     { immediate: true },
   )
+}
+
+/**
+ * R1010b-FE-P2-2（2026-09-10 内存专项重审修复批）：活跃 trap 计数探针——仅供回归
+ * 测试断言「关浮层即摘登记」（锁 activeTraps 只增不减回归；生产代码零调用）。
+ */
+export function __focusTrapActiveCountForTest(): number {
+  return activeTraps.length
 }

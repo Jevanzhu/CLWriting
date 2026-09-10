@@ -63,6 +63,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   let debounceTimer: ReturnType<typeof setTimeout> | null = null
   /** 切书 generation token：防止快速切换 A→B→C 时 A 的异步 prefs 覆盖 C（竞态污染） */
   let bookGen = 0
+  /** R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：书级 prefs 持久化失败的一次性提示
+   *  去重标记——对齐全局偏好 R55-F-7 口径（同一失败窗只 warning 一次，成功落盘复位） */
+  let bookPrefsFailNotified = false
   // E-3（二十九轮）：进书后用户是否动过 treeExpanded（展开/折叠 mutation 处 setTreeExpanded
   // 置位）——loadBookPrefs 迟到回填不得覆盖作者已手工调整的展开态（比照 activeDocId 的
   // R72-11 守卫：既有 gen 守卫只防跨书异步竞态，不防同书用户操作）
@@ -215,7 +218,19 @@ export const useWorkspaceStore = defineStore('workspace', () => {
             treeExpanded: treeExpanded.value,
             pageWidth: ps.bookPageWidth ?? undefined,
             autosaveInterval: ps.bookAutosaveInterval ?? undefined,
-          }).catch(() => {})
+          })
+            .then(() => {
+              bookPrefsFailNotified = false // 成功落盘复位——恢复后再失败可再提示
+            })
+            .catch(() => {
+              // R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：书级 prefs 落盘失败不再
+              // 全静默（原 catch(()=>{}) 吞掉——离线调面板布局重启回退无提示）；对齐
+              // 全局偏好 R55-F-7 一次性 warning 口径（同失败窗只提示一次，成功复位）
+              if (!bookPrefsFailNotified) {
+                bookPrefsFailNotified = true
+                useUiStore().toast('本书布局偏好暂时未能保存（网络/服务异常），恢复后将随下次调整自动重试', 'warning')
+              }
+            })
         }, 500)
       },
     )

@@ -12,7 +12,7 @@ import { readdirSync, readFileSync, statSync, type Dirent } from 'node:fs'
 import { join } from 'node:path'
 import { safeManifestPath, docJoinKey } from '../fs/safe-path.js'
 import { toNfcName } from '../fs/text-canonical.js'
-import { isMdFileName } from '../format/filename.js'
+import { isMdFileName, chapterNoFromName } from '../format/filename.js'
 import { createHash } from 'node:crypto'
 import { roleOf, type DocumentRole } from './layout.js'
 import { readManifest, type ManifestEntry } from './manifest.js'
@@ -97,10 +97,12 @@ const SYNOPSIS_TOP = '大纲/总纲.md'
 
 /** 章号提取：文件名前导数字（M-5，第十轮）。兼容存量多种补零宽度混名
  *  （前端新建不补零 `5-x` / 前端复制 4 位 / 服务端长篇 4 位 / 短篇与草稿管线 3 位）；
- *  非数字前缀文件（副本、设定类）返回 null。 */
+ *  非数字前缀文件（副本、设定类）返回 null。
+ *  R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：正则本体升格 format/filename.ts
+ *  chapterNoFromName 单一真相源（leads/foreshadow/summary 三处窄正则同批收敛），
+ *  此处保留薄委托维持本文件调用面。 */
 function chapterNoOf(name: string): number | null {
-  const m = /^(\d+)(?:[-—]|\s|$)/.exec(name)
-  return m ? Number(m[1]) : null
+  return chapterNoFromName(name)
 }
 
 /** 排序：目录优先于文件；根级按 ROOT_ORDER 固定序（工作流优先），

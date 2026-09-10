@@ -324,6 +324,22 @@ export function posixRelPath(root, fp) {
   return fp.replace(root, '').replace(/\\/g, '/')
 }
 
+// R1010c-TL-P2-2（2026-09-10 全量独立复审修复批）：双包共享运行时版本对账——
+// vue/pinia/@vitejs/plugin-vue 在根与 web-next 两份 lockfile 必须解析到同一版本：
+// vitest 侧前端测试按 resolve.alias 消费根副本，vite 构建发布产物按子包依赖解析，
+// 两副本漂移时「测试运行时 ≠ 发布构建运行时」且无门会红（R1010c 前已实际漂移：
+// vue 3.5.38 ↔ 3.5.40，plugin-vue 6.0.7 ↔ 6.0.8）。vue-router 刻意只存于子包
+//（vitest alias 直钉 web-next 副本），故只比对两侧齐备的项、不要求在位。
+export function sharedRuntimeVersionDrift(rootLockPackages, webLockPackages, pkgs = ['vue', 'pinia', '@vitejs/plugin-vue', 'vue-router']) {
+  const drift = []
+  for (const p of pkgs) {
+    const a = rootLockPackages[`node_modules/${p}`]?.version
+    const b = webLockPackages[`node_modules/${p}`]?.version
+    if (a !== undefined && b !== undefined && a !== b) drift.push(`${p}: 根 ${a} ↔ web-next ${b}`)
+  }
+  return drift
+}
+
 // 门禁主体收进 main() + 直跑守卫：node 直跑本文件（npm run check:counts）时执行；
 // 被测试 import（R63-12 直测纯函数）时不触发 vitest list / process.exit 副作用
 function main() {
@@ -471,6 +487,16 @@ function main() {
   // 「327 个测试文件 / 2937 单测全绿」
   claim(/(\d+) 个测试文件 [\/／] \d+ 单测全绿/, actual.unitFiles, '测试文件数')
   claimUnitTests(/\d+ 个测试文件 [\/／] (\d+) 单测全绿/, '状态段单测数')
+
+  // R1010c-TL-P2-2：双包共享运行时对账——失配与 README 数字失真同级（门禁红， fail-closed）
+  const rootLock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8')).packages ?? {}
+  const webLock = JSON.parse(readFileSync(join(root, 'src', 'studio', 'web-next', 'package-lock.json'), 'utf8')).packages ?? {}
+  const drift = sharedRuntimeVersionDrift(rootLock, webLock)
+  if (drift.length > 0) {
+    for (const d of drift) {
+      mismatch.push(`双包共享运行时版本漂移——${d}（vitest 跑根副本、构建跑子包副本；两侧 lockfile 对齐后再提交）`)
+    }
+  }
 
   console.log(`实测：${actual.unitFiles} 个测试文件 / ${actual.unitTests} 单测；${actual.e2eSpecs} e2e spec / ${actual.e2eCases} 用例`)
 

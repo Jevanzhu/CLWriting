@@ -112,7 +112,10 @@ export default defineConfig({
         // ai 90.76/86.81/97.04 · events 97.25/92.14/100 · studio/server 88.24/71.51/94.43
         'src/ai/**': { statements: 88, branches: 84, functions: 95, lines: 88 },
         'src/events/**': { statements: 95, branches: 90, functions: 98, lines: 95 },
-        'src/studio/server/**': { statements: 86, branches: 69, functions: 92, lines: 86 },
+        // R1010c-COV（2026-09-10 全量独立复审修复批）：onboard/config/draft/io 补测后
+        // 全量 coverage 实测 statements 89.53 / branches 78.53 / functions 94.33 /
+        // lines 89.53 → −2pp 向下取整 87 / 76 / 92 / 87（functions 恰持平不动）
+        'src/studio/server/**': { statements: 87, branches: 76, functions: 92, lines: 87 },
         // M-7（第十轮）：api 层单列覆盖桶——此前十余 api 文件落进聚合桶被 stores 高覆盖
         // 均值掩盖（单文件回退对阈值门不可见，参数/响应映射逻辑零守护）；阈值 = 实测基线
         // −2pp 向下取整，只防回退不追高。X-6（第五十六轮批 D）：批 A 补 api 直测后

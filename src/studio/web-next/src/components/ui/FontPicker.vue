@@ -185,6 +185,11 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKey, true)
   window.removeEventListener('resize', onScrollOrResize)
   window.removeEventListener('scroll', onScrollOrResize, true)
+  // R1010b-FTC-P3-1（2026-09-10 内存专项重审修复批）：typeahead 定时器卸载随清（typeBuf
+  // 一并复位）——原只清 window 监听，800ms 窗内卸载则清窗回调滞留（有界自清、非累积）；
+  // 对齐 TooltipHost showTimer / OnboardPremise premiseTimer 的 timer 卸载清理惯例
+  clearTimeout(typeTimer)
+  typeBuf = ''
 })
 </script>
 

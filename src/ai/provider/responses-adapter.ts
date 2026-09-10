@@ -373,7 +373,15 @@ export function createOpenAIResponsesProvider(
                     outToolText.push(acc.name + acc.args) // R74-1：tool 参数计入产出累计
                     let input: unknown
                     try {
-                      input = acc.args ? JSON.parse(acc.args) : {}
+                      const parsed = acc.args ? JSON.parse(acc.args) : {}
+                      // R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：合法 JSON 非对象
+                      //（数字/字符串/数组/布尔——模型偶发裸标量参数形态）同兜 {_raw}——
+                      // 原样透出入库后，跨协议换供方回放 Anthropic 线必 400（input 契约
+                      // 是 object；anthropic-adapter 侧另有归一兜底，此处产源头窄前置）
+                      input =
+                        typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+                          ? parsed
+                          : { _raw: acc.args }
                     } catch {
                       input = { _raw: acc.args }
                     }

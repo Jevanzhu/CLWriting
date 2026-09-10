@@ -50,12 +50,19 @@ const exitNow = (): void => {
   exiting = true
   process.exit(0)
 }
+// R1010b-DSK-P3-7（2026-09-10 内存专项重审修复批）：兜底超时句柄模块级单槽——原每个
+// 信号各排一个 2s timer 不清旧：SIGINT+SIGTERM 连发（Ctrl+C 后补 kill / 进程管理器
+// 双信号）叠两个等价兜底（exiting 幂等无害但句柄滞留、多排违 timer 纪律）。排前查重，
+// 已有在途兜底则跳过。
+let exitFallbackTimer: ReturnType<typeof setTimeout> | null = null
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.on(sig, () => {
     server.close(exitNow)
     // R-20（第十六轮）：兜底超时 unref + close 先到即清——server 顺利 close 后定时器
-    // 不再作为活跃句柄拖慢退出
-    const t = setTimeout(exitNow, 2_000)
-    t.unref()
+    // 不再作为活跃句柄拖慢退出。R1010b-DSK-P3-7：已有在途兜底不重排（重复信号安全）
+    if (!exitFallbackTimer) {
+      exitFallbackTimer = setTimeout(exitNow, 2_000)
+      exitFallbackTimer.unref()
+    }
   })
 }

@@ -420,6 +420,16 @@ export function readAllChunks(db: DatabaseSync, maxChunks?: number): RagChunk[] 
       continue
     }
     const embedding = bufferToFloat32(r.embedding)
+    // R1010b-CHK-P3-1（2026-09-10 内存专项重审修复批）：BLOB 字节数非 4 倍数/空 BLOB
+    // → bufferToFloat32 返回空数组。此形外部损坏才可达（storeChunk 写入侧恒 Float32Array，
+    // 序列化字节数恒 4 倍数），此前 norm 非 null 的损坏行跳过两个毒形分支照常产出、
+    // 下游按「维度不匹配」记账（totalBlocks 虚增、永不触发毒行 warn，作者得不到重建
+    // 索引指引）。归毒行剔除（norm 两态都剔——norm=null 空向量本就无有效分量，同损坏），
+    // 沿用既有毒行告警口径。
+    if (embedding.length === 0) {
+      poisonRows++
+      continue
+    }
     if (r.norm === null && embedding.some((x) => !Number.isFinite(x))) {
       poisonRows++
       continue
@@ -491,6 +501,16 @@ export function streamChunkScores(
       continue
     }
     const embedding = bufferToFloat32(r.embedding)
+    // R1010b-CHK-P3-1（2026-09-10 内存专项重审修复批）：同 readAllChunks——BLOB 字节数
+    // 非 4 倍数/空 BLOB（外部损坏才可达，storeChunk 写入侧恒 Float32Array）→ 空数组归
+    // 毒行剔除。必须在 produced++ 之前判：毒行不占产出名额（R37-38 剔毒不计额、R49-20
+    // 探针行口径一致），否则损坏行占 produced 被下游按「维度不匹配」记账（totalBlocks
+    // 虚增、poisonRows 恒 0 永不触发调用方毒行 warn）。fail-closed 不变：损坏行本就因
+    // 维度失配不进 rows，改判毒行后仍不进。
+    if (embedding.length === 0) {
+      poisonRows++
+      continue
+    }
     if (r.norm === null && embedding.some((x) => !Number.isFinite(x))) {
       poisonRows++
       continue

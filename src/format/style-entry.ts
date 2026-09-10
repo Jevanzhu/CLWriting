@@ -298,6 +298,8 @@ export function nextEntrySeq(entriesDir: string, kind: EntryKind, scene: string)
   }
   for (const f of files) {
     if (!isMdFileName(f) || f.startsWith('._')) continue // R38-9：.MD 不再失明
+    // R1010b-DOC-P3-3：序号解析经 parseSampleFileName 单源（(\d{3,}) 3 位起同修），
+    // 千位序号文件不再被吞千位误判成异场景（同场景续号从 1001 起，不割裂）
     const parsed = parseSampleFileName(f)
     if (parsed && parsed.场景 === scene && parsed.序号 > maxSeq) maxSeq = parsed.序号
   }

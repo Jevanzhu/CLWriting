@@ -33,6 +33,13 @@ const activePath = computed<string | null>(
   () => (ws.activeDocId ? doc.get(ws.activeDocId)?.path ?? null : null),
 )
 
+// R1010-P3（G6-③）：roving tabindex 停靠行——active 行优先（active 恒在渲染面：
+// RENDER_CAP 滑窗含 active，R55-G-2）；active 不在树（无打开文档/陈旧）回落首行。
+const tabstopPath = computed<string | null>(() => {
+  if (activePath.value && tree.byPath.has(activePath.value)) return activePath.value
+  return tree.grouped[0]?.path ?? null
+})
+
 // --- 右键菜单（构建 + 原生/浏览器分派）---
 const menuNode = ref<TreeNode | null>(null)
 const { isNative, menuVisible, menuX, menuY, menuItems, popup, onPopupSelect, onPopupClose } = useNativeMenu()
@@ -83,7 +90,11 @@ function onContextMenu(node: TreeNode, x: number, y: number): void {
 }
 function onBlankContextMenu(e: MouseEvent): void {
   // 节点项 contextmenu 冒泡到此：节点 handler 已设对应菜单，跳过避免被空白菜单覆盖
-  if ((e.target as HTMLElement).closest('.tree-item')) return
+  // R1010c-FE1-P3-5（2026-09-10 全量独立复审修复批）：排除 tree-cap-hint 省略提示行——
+  // 其 class 同含 tree-item（ChapterTreeItem R54-G-1 提示行），closest('.tree-item')
+  // 会把它误当节点吞掉右键，成「节点菜单/空白菜单都出不来」的死区；提示行非节点，
+  // 右键应落空白菜单
+  if ((e.target as HTMLElement).closest('.tree-item:not(.tree-cap-hint)')) return
   e.preventDefault()
   menuNode.value = null
   // 空白处 = 「还没想好建在哪」：8 种新建选项直接摊开在顶层（blankItems 已按正文/大纲/设定三组分隔），
@@ -177,7 +188,8 @@ watch(
     <div v-if="tree.loading" class="hint">加载中…</div>
     <div v-else-if="tree.error" class="hint err">{{ tree.error }}</div>
     <div v-else-if="!tree.grouped.length" class="hint">（无章节）</div>
-    <div v-else class="tree-list">
+    <!-- R1010-P3（G6-③）：tree 语义 + 唯一 Tab 停靠（tabstop 行），行内 roving 见 ChapterTreeItem -->
+    <div v-else class="tree-list" role="tree" aria-label="章节树">
       <ChapterTreeItem
         v-for="n in tree.grouped"
         :key="n.path"
@@ -185,6 +197,7 @@ watch(
         :depth="0"
         :expanded="expanded"
         :active-path="activePath"
+        :tabstop-path="tabstopPath"
         :creating-dir-path="actions.creating.value?.renderDir ?? null"
         :creating-kind="actions.creating.value?.kind ?? null"
         :creating-seed="actions.creating.value?.seed ?? ''"

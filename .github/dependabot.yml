@@ -1,0 +1,19 @@
+# R1010c-TL-P3-4（2026-09-10 全量独立复审修复批）：依赖更新自动化此前缺位——
+# electron/vite/vitest 等快线依赖的安全补丁与升级全靠作者手扫。三源 weekly：
+# 根包 / web-next 子包（双 lockfile 布局）/ CI 动作版本。
+# 注意：双包共享运行时（vue/pinia/@vitejs/plugin-vue）升级须两侧同步——
+# scripts/check-counts.mjs 的双包对账门（R1010c-TL-P2-2）会拦截单侧漂移。
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directory: /src/studio/web-next
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

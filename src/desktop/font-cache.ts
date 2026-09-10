@@ -7,8 +7,10 @@
  * invoke 时的重复系统命令。
  *
  * 语义：TTL 内命中缓存；过期/未缓存真跑 loader；并发调用合并为同一在途 Promise
- * （双窗口同拍拉取只跑一次系统命令）。loader 失败不缓存（无负缓存）——下次调用
- * 重新探测，调用方（main.ts）catch 后返回 [] 的兜底语义不变。
+ * （双窗口同拍拉取只跑一次系统命令）。loader 失败不缓存（无负缓存）——首次失败
+ * 照抛（调用方 main.ts catch 后返回 [] 的兜底语义不变）；R1010-P3（G7-⑥）补
+ * serve-stale：已持有过期缓存时重载失败不再作废回 []，回吐旧值且不刷 cachedAt
+ * （下次调用仍重试探测——瞬时故障只降级一次可见性，不丢好数据）。
  * ttlMs/now 可注入（测试用，不动生产语义）。
  */
 import { spawn } from 'node:child_process'
@@ -37,6 +39,14 @@ export function createSystemFontCache(
         cached = fonts
         cachedAt = now()
         return fonts
+      })
+      .catch((e: unknown) => {
+        // R1010-P3（G7-⑥）：serve-stale——TTL 过期后的重载失败此前直穿 reject，
+        // 调用方兜底 []（手里明明有 60s 前的好列表也整场作废，字体下拉空到下次
+        // 成功探测）。持有过期缓存时回吐旧值；不刷 cachedAt（下次调用仍重试，
+        // 瞬时故障不固化为新 TTL）。首次（无缓存）维持 reject——负缓存仍不设。
+        if (cached !== null) return cached
+        throw e
       })
       .finally(() => {
         inflight = null

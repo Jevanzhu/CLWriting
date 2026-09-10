@@ -87,13 +87,14 @@ describe('新书冷启动：空书/仅一章/空语料/首稿链路', () => {
     }
   })
 
-  it('RAG 空语料：无定稿正文 → 设计内错误形状；未启用 → 空召回', async () => {
+  it('RAG 空语料：无正文 → 设计内错误形状；未启用 → 空召回', async () => {
     const root = freshBook('long')
     try {
       const config = { enabled: true, endpoint: 'http://stub', model: 'bench-model' }
       const built = await buildIndex(root, config, 'stub-key', stubEmbed)
       expect(built.ok).toBe(false) // 不炸：明确的设计内降级形状
-      expect(built.error).toContain('没有定稿正文可索引')
+      // R1010-P3：文案「定稿」→「正文」（索引进全量正文含草稿，见 rag/index.ts 头注）
+      expect(built.error).toContain('没有正文可索引')
       expect(built.chapterCount).toBe(0)
 
       const hits = await recall(root, { enabled: false, endpoint: '', model: '' }, 'stub-key', '随便问')

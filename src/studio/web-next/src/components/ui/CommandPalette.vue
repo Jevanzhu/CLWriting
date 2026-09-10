@@ -183,7 +183,9 @@ function run(c: Cmd): void {
           placeholder="搜索章节或操作…"
           @keydown="onKey"
         />
-        <div class="palette-list">
+        <!-- R1010c-FE1-P3-4（2026-09-10 全量独立复审修复批）：结果容器 listbox 语义——
+             项 option + aria-selected 对齐 WAI-ARIA listbox 模式（↑↓ 选中态可被读屏播报） -->
+        <div class="palette-list" role="listbox" aria-label="命令与章节">
           <div v-for="sec in sections" :key="sec.title" class="palette-group">
             <div class="pg-title">{{ sec.title }}</div>
             <div
@@ -191,6 +193,8 @@ function run(c: Cmd): void {
               :key="c.id"
               class="palette-item"
               :class="{ sel: i === sel }"
+              role="option"
+              :aria-selected="i === sel"
               @mouseenter="sel = i"
               @click="run(c)"
             >

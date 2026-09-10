@@ -149,9 +149,15 @@ export function buildDegradeAttempts(
 /**
  * 非最后 attempt 的 400 → continue 语义（降级链的续跑闸）。
  * 最后一个 400 必须透传原文——否则真实参数错误被降级链的兜底文案掩盖。
+ * R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：真·上下文超限 400 不再续链——
+ * 超窗与 structured/tools 形状无关（历史总量超模型窗），剥 tools 重试是纯白耗的
+ * 第二次必败调用；立即透传让上层拿 CONTEXT_WINDOW_EXCEEDED 走正路（chat 链 A7
+ * shrink-prompt 自动缩输入 / 生成链终态化）。判定复用 httpStatusToCode 的超窗
+ * 短语级正则单源（R42-25/R48-34 收紧口径，不另立文案表）。
  */
 export function isMidChain400(e: unknown, APIError: SdkErrorCtor, attempt: GenRequest, plan: DegradePlan): boolean {
-  return e instanceof APIError && e.status === 400 && attempt !== plan.attempts[plan.attempts.length - 1]
+  if (!(e instanceof APIError && e.status === 400 && attempt !== plan.attempts[plan.attempts.length - 1])) return false
+  return httpStatusToCode(400, e.message) !== 'CONTEXT_WINDOW_EXCEEDED'
 }
 
 /**

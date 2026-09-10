@@ -4,7 +4,7 @@
  * 面积图 SVG：实线 hairline 网格 + 均章参考线 + 折线端点（M-P3-14 按 tickStep
  * 降采样，与 X 轴标签同口径）+ X 轴降采样标签。
  */
-import { computed } from 'vue'
+import { computed, useId } from 'vue'
 import { TrendingUp } from 'lucide-vue-next'
 import type { RhythmResult } from '../../api/rhythm'
 
@@ -13,6 +13,9 @@ const props = defineProps<{
 }>()
 
 // ── 字数曲线 SVG 尺度（面积图）──
+// R1010-P3（G6-⑥）：渐变 id 实例唯一——写死 "wordAreaGrad" 在多实例并存时
+// url(#) 解析到文档首个定义（跨图错填色）。当前总览单实例无实害，防组件复用雷。
+const gradId = `word-area-grad-${useId()}`
 const CHART_W = 880
 const CHART_H = 180
 const PAD_BOTTOM = 24 // 章号标签
@@ -90,7 +93,7 @@ const wordLineD = computed(() => {
       aria-label="字数曲线"
     >
       <defs>
-        <linearGradient id="wordAreaGrad" x1="0" y1="0" x2="0" y2="1">
+        <linearGradient :id="gradId" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" style="stop-color: var(--interactive-accent); stop-opacity: 0.2;" />
           <stop offset="100%" style="stop-color: var(--interactive-accent); stop-opacity: 0.01;" />
         </linearGradient>
@@ -103,7 +106,7 @@ const wordLineD = computed(() => {
       <!-- 基线 -->
       <line :x1="PAD_LEFT" :x2="CHART_W" :y1="CHART_H - PAD_BOTTOM" :y2="CHART_H - PAD_BOTTOM" class="axis-baseline" />
       <!-- 面积填充 -->
-      <path :d="wordAreaD" fill="url(#wordAreaGrad)" />
+      <path :d="wordAreaD" :fill="`url(#${gradId})`" />
       <!-- 均章参考线 -->
       <line :x1="PAD_LEFT" :x2="CHART_W" :y1="avgY" :y2="avgY" class="avg-line" />
       <text :x="CHART_W - 6" :y="avgY - 5" class="avg-text" text-anchor="end">均章 {{ fmtWords(curveAvg) }}</text>

@@ -34,33 +34,37 @@ const sweepLastAt = new Map<string, number>()
 // R58-A-2（五十八轮）：网盘副本扫描每书 TTL 节流表（口径同 sweepLastAt 纪律）——
 // scanCloudCopies 是 readdirSync 全树同步递归 + 逐文件 existsSync 验母本，此前
 // detectState（/api/state 5s TTL）每轮请求都全扫；SMB/网盘卷上可冻结事件循环数百
-// ms~秒级（R43-2 同族纪律漏网点）。60s 窗内回上次结果；冲突副本检出延迟 ≤60s
-// （登记取舍：窗内新出现的副本最迟 TTL 过后下一次健康检查可见）。
+// ms~秒级（R43-2 同族纪律漏网点）。
+// R1010-P2-2（2026-09-10 全量重评修复批）：窗内回**上次结果**（非空数组）——原实现
+// 窗内返回 []，已检出的持续网盘副本冲突仅在每个 60s 边界的扫描瞬间可见（/api/state
+// TTL 仅 5s，健康信号 ~92% 时间消失，态 1/态 7 周期闪烁），且降级方向 fail-open
+// （把「有问题」降成「无问题」），与本注释「回上次结果」的承诺不符。缓存值口径：
+// 窗内新出现的副本最迟 TTL 过后下一次健康检查可见（登记取舍不变）。
 const CLOUD_SCAN_THROTTLE_MS = 60_000
-const cloudScanLastAt = new Map<string, number>()
+const cloudScanCache = new Map<string, { at: number; copies: string[] }>()
 
 function scanCloudCopiesThrottled(bookRoot: string): string[] {
   const now = Date.now()
-  const last = cloudScanLastAt.get(bookRoot)
-  if (last !== undefined && now - last < CLOUD_SCAN_THROTTLE_MS) return []
+  const cached = cloudScanCache.get(bookRoot)
+  if (cached && now - cached.at < CLOUD_SCAN_THROTTLE_MS) return cached.copies
   const copies = scanCloudCopies(bookRoot)
-  cloudScanLastAt.set(bookRoot, now)
+  cloudScanCache.set(bookRoot, { at: now, copies })
   return copies
 }
 
 /** @internal 测试钩子：复位节流表（构造「TTL 窗内第二次 detectState 不再全树扫」臂）。 */
 export function __resetSweepThrottleForTest(): void {
   sweepLastAt.clear()
-  cloudScanLastAt.clear()
+  cloudScanCache.clear()
 }
 
 /** R46-40（四十六轮）：删书/改名的生命周期失效挂点（books.ts forgetBookKeyedCaches
  *  接线）——sweepLastAt 键为 bookRoot，删书后条目成死重；改名后旧键永不再命中。
  *  不清无正确性影响（同名重建书最多延迟到下个 6h TTL 窗才首次清扫），纯内存卫生。
- *  R58-A-2：cloudScanLastAt 同挂点一并清除。 */
+ *  R58-A-2：cloudScanCache 同挂点一并清除。 */
 export function forgetStateSweepStamp(bookRoot: string): void {
   sweepLastAt.delete(bookRoot)
-  cloudScanLastAt.delete(bookRoot)
+  cloudScanCache.delete(bookRoot)
 }
 
 function sweepAbandonedTmpFilesThrottled(bookRoot: string): number {

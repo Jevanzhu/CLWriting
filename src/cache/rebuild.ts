@@ -247,10 +247,19 @@ function tryIncrementalRebuild(
   let db: DatabaseSync
   try {
     db = new DatabaseSync(cachePath, { readOnly: true })
-    // R67-8（十五轮）：只读探测也设 busy_timeout（对齐全库 5000ms 口径）——写方短暂
-    // 持锁时裸读立即 SQLITE_BUSY → catch 判「打不开」走全量重建，白扔整库索引；
-    // 排队等锁（毫秒级）后再读，增量跳过判定不被并发写误伤（纯性能项，不改语义）
-    db.exec('PRAGMA busy_timeout = 5000')
+    try {
+      // R67-8（十五轮）：只读探测也设 busy_timeout（对齐全库 5000ms 口径）——写方短暂
+      // 持锁时裸读立即 SQLITE_BUSY → catch 判「打不开」走全量重建，白扔整库索引；
+      // 排队等锁（毫秒级）后再读，增量跳过判定不被并发写误伤（纯性能项，不改语义）
+      db.exec('PRAGMA busy_timeout = 5000')
+    } catch (e) {
+      // R1010b-CORE-P3-1（2026-09-10 内存专项重审修复批）：只读探测开库成功而 PRAGMA
+      // exec 抛错（库损坏/锁超时耗尽）时连接泄漏——同族先例 rebuild() 主路径 R65-22
+      //（PRAGMA 挪进 try 守卫、失败 close 后 rethrow）同款纪律；close 后按既有
+      //「只读打不开」口径 return null 走全量重建，语义不变
+      db.close()
+      throw e
+    }
   } catch {
     return null // 只读打不开（损坏/被锁）→ 全量重建
   }

@@ -211,6 +211,24 @@ describe('isMidChain400 续跑闸', () => {
     // 另一家 SDK 的 APIError 不得误判（构造函数传参隔离两线）
     expect(isMidChain400(new OpenAI.APIError(400, { message: 'bad' }, 'bad', undefined), Anthropic.APIError, plan.attempts[0]!, plan)).toBe(false)
   })
+
+  // R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：真·上下文超限 400 不续链——
+  // 超窗与 structured/tools 形状无关，继续剥 tools 重试是白耗的第二次必败调用；
+  // 透传让上层拿 CONTEXT_WINDOW_EXCEEDED 走 A7 shrink / 终态化正路
+  it('真·上下文超限 400（非最后 attempt）→ false（不白耗剥 tools 重试，立即透传）', () => {
+    const plan = buildDegradeAttempts(REQ_ST, 'json_schema', CONF, undefined)
+    const cases = [
+      'context_length_exceeded', // OpenAI
+      'prompt is too long', // Anthropic
+      'maximum context length is 65536 tokens', // DeepSeek
+    ]
+    for (const msg of cases) {
+      expect(isMidChain400(new OpenAI.APIError(400, { message: msg }, msg, undefined), OpenAI.APIError, plan.attempts[0]!, plan)).toBe(false)
+    }
+    // 组装类 400（含 "context" 词根但非超窗短语）维持续链语义不变
+    const unrelated = new OpenAI.APIError(400, { message: 'invalid context id' }, 'invalid context id', undefined)
+    expect(isMidChain400(unrelated, OpenAI.APIError, plan.attempts[0]!, plan)).toBe(true)
+  })
 })
 
 describe('markStructuredDegrade 记忆写入', () => {

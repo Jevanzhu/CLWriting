@@ -52,3 +52,15 @@ test('R58-A-2: TTL 窗内第二次 detectState 不再全树扫——窗内新副
     expect(third.issues.some((i) => i.kind === 'cloudCopy')).toBe(true)
   }
 })
+
+test('R1010-P2-2: 已检出副本在节流窗内保持可见——缓存上次结果而非空数组', async () => {
+  plantCloudCopy()
+  const first = await detectState(root, SHORT_CONFIG)
+  expect(first.state).toBe(1) // 首扫即检出：态 1 + cloudCopy 健康项
+
+  const second = await detectState(root, SHORT_CONFIG)
+  expect(second.state).toBe(1) // 修复前：窗内回 [] → 健康项消失、态闪烁；修复后：回上次结果持续可见
+  if (second.state === 1) {
+    expect(second.issues.some((i) => i.kind === 'cloudCopy')).toBe(true)
+  }
+})

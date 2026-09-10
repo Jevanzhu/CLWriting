@@ -9,7 +9,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
-import { checkToken, readJson, reply, replyError } from '../http.js'
+import { readJson, reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { learnFromBook } from '../../../learn/index.js'
 import { commitSamples, commitQuotes } from '../../../learn/commit.js'
@@ -66,9 +66,10 @@ export function registerKnowledgeRoutes(ctx: KnowledgeCtx): void {
   defineRoute('books.learn', {
     method: 'POST',
     path: '/api/books/:name/learn',
-    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
+    handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.workDir) return replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
-    if (!checkToken(req, ctx.token)) return replyError(res, 403, 'FORBIDDEN', 'token 校验失败')
+    // R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：handler 内冗余 token 复核删除——
+    // 写闸（index.ts isWrite safeTokenCompare）在路由分派前已拦一切 POST（learn-commit 同）
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     // R66-28（十四轮）：全书扫描并发闸 + 缓存（重复点击双跑双扫）。R72-2（二十轮 A-1）：
@@ -112,7 +113,7 @@ export function registerKnowledgeRoutes(ctx: KnowledgeCtx): void {
     path: '/api/books/:name/learn-commit',
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.workDir) return replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
-    if (!checkToken(req, ctx.token)) return replyError(res, 403, 'FORBIDDEN', 'token 校验失败')
+    // R1010-P3：冗余 token 复核删除（写闸在路由前已拦，learn 同注）
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     const body = await readJson(req)

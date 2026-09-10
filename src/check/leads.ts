@@ -17,6 +17,7 @@ import { readLeadHistory } from '../format/read.js'
 import { LEAD_TYPES, LEAD_VERBS } from '../format/leads.js'
 import { QUOTE_OPEN_LENIENT, QUOTE_CLOSE_LENIENT } from './quotes.js'
 import { bodyOf } from '../format/frontmatter-core.js'
+import { chapterNoFromName } from '../format/filename.js'
 import { readMdTextCached } from '../fs/md-text-cache.js'
 
 /**
@@ -97,8 +98,10 @@ export function checkLeadsBookItems(
       chapterPathMap = new Map()
       walkMdEach(正文dir, (abs, name) => {
         // 前缀数字 == 章号即登记（补零与否不影响判等）；首见优先保 walkMdFind 找到即停语义
-        const n = Number(name.match(/^(\d+)-/)?.[1])
-        if (Number.isInteger(n) && !chapterPathMap!.has(n)) chapterPathMap!.set(n, abs)
+        // R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：窄正则升格 format/filename.ts
+        // chapterNoFromName 单源（与 tree 排序同宽容集——`5—标题.md` 不再线索核验缺章）
+        const n = chapterNoFromName(name)
+        if (n !== null && !chapterPathMap!.has(n)) chapterPathMap!.set(n, abs)
       })
     }
     return chapterPathMap.get(chapter) ?? null

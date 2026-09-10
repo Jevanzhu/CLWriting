@@ -30,6 +30,16 @@ const isCheckable = computed(() => {
 const redKeys = computed(() => contentStableKeys(check.redItems.map(checkItemKeyBase)))
 const yellowKeys = computed(() => contentStableKeys(check.yellowItems.map(checkItemKeyBase)))
 
+// R1010c-FE1-P3-2（2026-09-10 全量独立复审修复批）：红/黄项渲染上限——千项级命中全量
+// v-for 挂 DOM（max-height 只裁视觉不减节点），对齐域内 RENDER_CAP=100 惯例（先例
+// RewritePanel/AuditDiffPanel R-P3-16）：只裁渲染面前 100 条 + 尾部省略提示行；
+// 数据面不动——分组头计数仍面向全量，键表也按全量构造（切片与键按下标仍对齐）
+const RENDER_CAP = 100
+const redItemsView = computed(() => check.redItems.slice(0, RENDER_CAP))
+const yellowItemsView = computed(() => check.yellowItems.slice(0, RENDER_CAP))
+const redOmitted = computed(() => Math.max(0, check.redItems.length - RENDER_CAP))
+const yellowOmitted = computed(() => Math.max(0, check.yellowItems.length - RENDER_CAP))
+
 async function runCheck(): Promise<void> {
   if (!docId.value) return
   await check.run(props.bookName, docId.value)
@@ -100,7 +110,7 @@ async function flagFalsePositive(checkId: string): Promise<void> {
           <span>红项（{{ check.redItems.length }}）</span>
         </div>
         <div
-          v-for="(it, i) in check.redItems"
+          v-for="(it, i) in redItemsView"
           :key="'r' + redKeys[i]"
           class="check-item check-item--red"
         >
@@ -116,6 +126,8 @@ async function flagFalsePositive(checkId: string): Promise<void> {
             {{ check.flagged.has(it.checkId) ? '已标误报' : '误报' }}
           </button>
         </div>
+        <!-- R1010c-FE1-P3-2：RENDER_CAP 截断省略提示行（数据面计数不虚减） -->
+        <div v-if="redOmitted > 0" class="cap-hint">已省略 {{ redOmitted }} 项</div>
       </div>
 
       <div v-if="check.yellowItems.length > 0" class="check-group">
@@ -124,7 +136,7 @@ async function flagFalsePositive(checkId: string): Promise<void> {
           <span>黄项（{{ check.yellowItems.length }}）</span>
         </div>
         <div
-          v-for="(it, i) in check.yellowItems"
+          v-for="(it, i) in yellowItemsView"
           :key="'y' + yellowKeys[i]"
           class="check-item check-item--yellow"
         >
@@ -140,6 +152,8 @@ async function flagFalsePositive(checkId: string): Promise<void> {
             {{ check.flagged.has(it.checkId) ? '已标误报' : '误报' }}
           </button>
         </div>
+        <!-- R1010c-FE1-P3-2：RENDER_CAP 截断省略提示行（数据面计数不虚减） -->
+        <div v-if="yellowOmitted > 0" class="cap-hint">已省略 {{ yellowOmitted }} 项</div>
       </div>
 
       <div v-if="check.flagError" class="check-hint fp-error">{{ check.flagError }}</div>
@@ -238,6 +252,11 @@ async function flagFalsePositive(checkId: string): Promise<void> {
   border-radius: var(--radius-s);
   font-size: var(--font-size-s);
   line-height: 1.5;
+}
+/* R1010c-FE1-P3-2：渲染上限省略提示行——纯展示（弱化色，r54 tree-cap-hint 同语义） */
+.cap-hint {
+  font-size: var(--font-size-xxs);
+  color: var(--text-faint);
 }
 .check-item--red {
   background: color-mix(in srgb, var(--text-error) 8%, transparent);

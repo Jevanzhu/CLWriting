@@ -42,6 +42,7 @@ function mountTree(children: TreeNode[], activePath: string | null = null) {
       depth: 0,
       expanded: new Set(['写作/正文']),
       activePath,
+      tabstopPath: activePath, // R1010-P3 G6-③：roving 停靠行（active 命中时恒为它）
       creatingDirPath: null,
       creatingKind: null,
       creatingSeed: '',

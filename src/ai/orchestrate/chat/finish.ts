@@ -29,11 +29,20 @@ const MAX_HISTORY_TURNS = 10
 type ChatExitReason = 'timeout' | 'interrupted' | 'max-tokens' | { error: string }
 
 const CHAT_EXIT_SPEC = {
-  // R70-12（十八轮）：文案与超时值同源（AGENT_DEADLINE_MS 共享常量换算），不再硬编码
-  timeout: { mask: 'aborted', message: `对话超时（超过 ${Math.round(AGENT_DEADLINE_MS / 60_000)} 分钟），已停止` },
   interrupted: { mask: 'interrupted', message: '已中断' },
   'max-tokens': { mask: 'max-tokens', message: '回复达到长度上限被截断，请缩小问题范围重试' },
 } as const
+
+// R70-12（十八轮）：文案与超时值同源换算，不再硬编码。
+// R1010b-AI-P3-3（2026-09-10 内存专项重审修复批）：CC-P2-2 起 runChatInner 支持
+// opts.deadlineMs 注入，超时文案恒按缺省 AGENT_DEADLINE_MS 换算会与实际生效超时漂移
+// （原「文案按缺省口径展示」声明失真）——改按实际生效 deadline（opts.deadlineMs ??
+// AGENT_DEADLINE_MS，与 chat.ts runChatInner 的 resolve 同式）换算；mask 终态口径不变，
+// 故 timeout 项自静态表拆出按调用点现算。
+function timeoutExitSpec(opts: ChatOpts): { mask: 'aborted'; message: string } {
+  const deadlineMs = opts.deadlineMs ?? AGENT_DEADLINE_MS
+  return { mask: 'aborted', message: `对话超时（超过 ${Math.round(deadlineMs / 60_000)} 分钟），已停止` }
+}
 
 /** 单一失败出口：回滚历史到 baseLen（P1-S4/R1a：防末尾 user → 下次连续 user → Anthropic 400）
  * + 本会话全部 surface 消息遮蔽（F1-P1：防下次恢复/审计重放出已回滚的废数据）+ chat_error 文案。 */
@@ -45,7 +54,13 @@ export function finishTurn(
   reason: ChatExitReason,
 ): void {
   history.length = baseLen
-  const spec = typeof reason === 'object' ? { mask: 'error' as const, message: reason.error } : CHAT_EXIT_SPEC[reason]
+  // R1010b-AI-P3-3：timeout 出口文案按实际生效 deadline 现算（见 timeoutExitSpec 注释）
+  const spec =
+    typeof reason === 'object'
+      ? { mask: 'error' as const, message: reason.error }
+      : reason === 'timeout'
+        ? timeoutExitSpec(opts)
+        : CHAT_EXIT_SPEC[reason]
   // M-1（第十一轮）：失败出口自身不得再抛——closeMaskingAll 内含 flush，同一 DB 故障
   // （磁盘满/血缘校验越界）下随之抛错会直穿 runChatInner（只有 finally 无 catch），
   // 遮蔽失败降级留痕（悬置 pending 事件由孤儿修复收口），回滚与 chat_error 文案必须送达
@@ -92,7 +107,9 @@ async function summarizeCheckpoint(
   // 摘要调用自带 clamp cap（P8），重放口径必须记 resolve 后终值
   // R35-2：usage + stopReason 同壳透传——摘要调用是长对话中输入最大的真实计费调用，
   // 此前两字段被整链丢弃（usage null 不进账、截断时 stopReason 谎记 end_turn）
-  const out = await runTask<{ text: string | null; resolvedMaxTokens?: number; usage: TokenUsage; stopReason: string }>({
+  // R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：泛型补 degraded?: boolean——B-2 透传
+  // （:132/:135 两分支返回 degraded）早已写进回调返回值，类型面未声明对调用方不可见
+  const out = await runTask<{ text: string | null; resolvedMaxTokens?: number; degraded?: boolean; usage: TokenUsage; stopReason: string }>({
     userDataPath: opts.userDataPath,
     tierKind: 'chat',
     task: 'chat',

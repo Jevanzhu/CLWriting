@@ -151,8 +151,70 @@ function runInForeshadowSaveChain<T>(bookRoot: string, unit: () => Promise<T>): 
   const prev = foreshadowSaveChains.get(bookRoot) ?? Promise.resolve()
   const next = prev.then(unit, unit) // 前驱成败都接续
   // 链尾吞错防 unhandled rejection（单元错误由本单元 await 侧经 dispatch 兜底 500）
-  foreshadowSaveChains.set(bookRoot, next.catch(() => {}))
+  const settled = next.catch(() => {})
+  foreshadowSaveChains.set(bookRoot, settled)
+  // R1010b-SRV-P3-1（2026-09-10 内存专项重审修复批）：链尾自清理——原实现 settled
+  // 条目常驻 Map，进过伏笔操作的书每本留一条死 Promise 永不回收（服务进程长期驻留
+  // 的桌面场景纯内存死重）。照 files.ts enqueueFilePut 先例：settle 后身份校验
+  // delete（settle 窗口内该书新单元已 set 的新链尾不得误删）。
+  void settled.then(() => {
+    if (foreshadowSaveChains.get(bookRoot) === settled) foreshadowSaveChains.delete(bookRoot)
+  })
   return next
+}
+
+/** R1010b-SRV-P2-1（2026-09-10 内存专项重审修复批·面 B）：等该书伏笔串行链尾排空
+ *  ——删书/改名前 drain（与 drainDocumentSaves / drainFilePutChainsUnder 同型）。
+ *  竞态时序：已入队未启动的伏笔单元在 SaveQueue 之外（drainDocumentSaves 只计在途
+ *  save，本链不可见——:148 旧注自认），不 drain 则删书/改名后链单元才开跑、照写旧
+ *  捕获 bookRoot 落孤儿文件。快照式（同 drainFilePutChainsUnder 口径）：只等快照
+ *  时点的链尾，drain 窗口内新进单元不等——其安全由单元体内书注册重验（409
+ *  BOOK_MOVED）兜底。死锁核查：链单元只单向 await SaveQueue / 清单·回收站锁 /
+ *  save·布线锁，从不反等 books 侧任何锁，drain 置于 books.ts 既有两 drain 之后不
+ *  引入环。无条目即立即 resolve。 */
+export async function drainForeshadowSaveChains(bookRoot: string): Promise<void> {
+  const tail = foreshadowSaveChains.get(bookRoot)
+  if (!tail) return
+  await tail
+}
+
+/** R1010b-SRV-P3-1：删书/改名按书清理伏笔链 Map 条目（对齐 forgetService 等既有
+ *  forgetBookKeyedCaches 挂点形态）——链尾自清理已覆盖常态，此处兜悬挂残条。 */
+export function forgetForeshadowSaveChain(bookRoot: string): void {
+  foreshadowSaveChains.delete(bookRoot)
+}
+
+/** R1010b-SRV-P3-1：测试观测钩子（对齐 files.ts __filePutChainKeysForTest 风格）——
+ *  当前在途伏笔链键的只读快照（自清理/forget 生效断言用；快照时点在途，settle 后
+ *  自清理）。 */
+export function __foreshadowSaveChainKeysForTest(): readonly string[] {
+  return [...foreshadowSaveChains.keys()]
+}
+
+// ── R1010b-SRV-P2-1（2026-09-10 内存专项重审修复批·面 A）：书注册重验 ─────────
+// 五处链内写单元（PUT content / PATCH / 新建 / 软删 / copy）的临界段首行防线。
+// 竞态时序（与 files.ts R70-6 同族）：handler 开头 resolveBook 捕获的 bookRoot 只是
+// 请求入口快照——随后的 await readJson / 伏笔链排队可跨过 books.ts 删书（rmSync 入
+// 墓地）/改名（renameSync 搬目录）的 drain 时点（drain 是快照式，快照后新进单元不被
+// drain 等待），单元体真正执行时书目录已被搬走/删除，svc.save 落盘会对旧捕获路径
+// mkdir recursive 重建目录树成孤儿文件。重验放临界段首行（而非 handler 入口）：只有
+// 单元体开跑时刻的注册态才贴近真实落盘时刻。只判 book 级注册（name→bookRoot），不动
+// docId/docPath 语义；文档 rename/move 操作本身不改书注册，不受影响。
+// SaveOutcome/CreateResult 等的失败 code 联合在 src/document/service.ts 是闭集合
+//（本批不越界改源），BOOK_MOVED 以本地等价形状扩展，出口统一经 structStatus（随批
+// 补 409 映射）走 replyError 单一出口，信封形状与其他结构化失败一致。
+
+/** 书注册重验失败的结构化出口（BOOK_MOVED 本地扩展形状，见上节头注）。 */
+type BookMovedFailure = { ok: false; code: 'BOOK_MOVED'; reason: string }
+
+/** 按书名重验书注册：已删（解析失败）或 bookRoot 变化（改名/搬目录）→ 结构化失败
+ *  （不落盘）；注册未变 → null（放行写盘）。 */
+function bookMovedFailure(ctx: DocumentCtx, name: string | undefined, capturedRoot: string): BookMovedFailure | null {
+  const rNow = resolveBook(ctx.workDir, name)
+  if ('error' in rNow || rNow.bookRoot !== capturedRoot) {
+    return { ok: false, code: 'BOOK_MOVED', reason: '书已改名或已删除，本次操作已取消——请重新打开本书后再试' }
+  }
+  return null
 }
 
 export function registerDocumentRoutes(ctx: DocumentCtx): void {
@@ -183,7 +245,11 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       // 重评2-P3-①：伏笔域保存（快照读→save→差分落事件）整段入 per-book 串行链
       // ——并发保存交叠不再重复计窗；非伏笔路径不进链（快照直通 null、零差分，
       // 保存并行性不变）。
-      const runSave = async (): Promise<SaveOutcome> => {
+      // R1010b-SRV-P2-1 面 A：重验在 runSave 内——非伏笔直调路径天然同覆盖，伏笔链
+      // 路径在链单元开跑时刻重验（竞态时序见 bookMovedFailure 头注）。
+      const runSave = async (): Promise<SaveOutcome | BookMovedFailure> => {
+        const moved = bookMovedFailure(ctx, params['name'], r.bookRoot)
+        if (moved) return moved
         const fsPrev = foreshadowSnapshot(r.bookRoot, path, docId) // R43-23：docId 留痕因果
         const o = await svc.save(docId, path, input)
         if (o.ok) {
@@ -337,6 +403,11 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
         replyError(res, 400, 'BAD_INPUT', 'baseline 需非负数')
         return
       }
+      // R1010b-SRV-P2-1 面 A（2026-09-10 内存专项重审修复批·同型扫描接线）：await
+      // readJson 可跨删书/改名 drain 时点，appendBaseline 对旧捕获路径 mkdir recursive
+      // + append 成孤儿——写前与五处链内单元同款书注册重验（时序见 bookMovedFailure 头注）
+      const moved = bookMovedFailure(ctx, params['name'], r.bookRoot)
+      if (moved) return replyError(res, structStatus(moved.code), moved.code, moved.reason)
       appendBaseline(r.bookRoot, todayDate(), baseline)
       reply(res, 200, { ok: true })
     },
@@ -359,7 +430,10 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       // 清偿-伏笔接线×4（2026-09-09 残留清偿批）②：新建——「快照读 → create → 差分」
       // 整段入 per-book 伏笔串行链（同 PUT 重评2-P3-① 口径）：并发交叠不再重复计窗；
       // 非伏笔域目标不进链。新建前无 docId，以 relPath 作留痕因果标注。
-      const runCreate = async (): Promise<CreateResult> => {
+      // R1010b-SRV-P2-1 面 A：单元体首行重验书注册（同 runSave 口径）
+      const runCreate = async (): Promise<CreateResult | BookMovedFailure> => {
+        const moved = bookMovedFailure(ctx, params['name'], r.bookRoot)
+        if (moved) return moved
         // Z-P2-6：新建伏笔（create）前快照（差分需要变更前状态；新建改 docId 集合，
         // 基线取本单元 create 前全域状态，链内前继落库变更必在基线中）
         const fsPrev = foreshadowSnapshot(r.bookRoot, relPath, relPath) // R43-23：relPath 留痕因果
@@ -396,7 +470,11 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       // per-book 伏笔串行链（同 PUT 重评2-P3-① 口径），并发交叠不再重复计窗。op 形状
       // 校验失败在链单元内同步回复即出链（400 不产生差分、不长时间占链位；返回
       // undefined = 响应已发）。
-      const runPatch = async (): Promise<MoveResult | undefined> => {
+      // R1010b-SRV-P2-1 面 A：单元体首行重验书注册（同 runSave 口径；undefined 仍 =
+      // op 形状校验失败在单元内已回 400）
+      const runPatch = async (): Promise<MoveResult | undefined | BookMovedFailure> => {
+        const moved = bookMovedFailure(ctx, params['name'], r.bookRoot)
+        if (moved) return moved
         // Z-P2-6：伏笔快照先于变更（rename/move/meta/fm 都可能改 设定/伏笔/ 状态）
         const fsPrev = foreshadowSnapshot(r.bookRoot, docPath, docId) // R43-23：docId 留痕因果
         let result: MoveResult | undefined
@@ -473,7 +551,10 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       // 清偿-伏笔接线×4（2026-09-09 残留清偿批）④：copy——「快照读 → copy → 差分」
       // 整段入 per-book 伏笔串行链（同 PUT 重评2-P3-① 口径）：复制出的新条目 create
       // 事件各归各窗，非伏笔域目标不进链。
-      const runCopy = async (): Promise<CopyResult> => {
+      // R1010b-SRV-P2-1 面 A：单元体首行重验书注册（同 runSave 口径）
+      const runCopy = async (): Promise<CopyResult | BookMovedFailure> => {
+        const moved = bookMovedFailure(ctx, params['name'], r.bookRoot)
+        if (moved) return moved
         // R-17（第十六轮）：copy 目标落在伏笔域（设定/伏笔/）时同 create/patch 接伏笔
         // 差分事件——此前 copy 绕过 foreshadowSnapshot → recordForeshadowDelta，伏笔
         // md 复制出的新条目不落 foreshadow/change{create}（观测层丢事件）
@@ -508,7 +589,10 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       // 且把文件移出 设定/伏笔/，快照仍取本单元 trash 前全域状态（条目在册）、差分读
       // 在 trashDocument 落定之后（条目已移出）→ clear 事件各归各窗；链内串行保证
       // 他单元的增删不混入本单元差分窗。
-      const runTrash = async (): Promise<TrashResult> => {
+      // R1010b-SRV-P2-1 面 A：单元体首行重验书注册（同 runSave 口径）
+      const runTrash = async (): Promise<TrashResult | BookMovedFailure> => {
+        const moved = bookMovedFailure(ctx, params['name'], r.bookRoot)
+        if (moved) return moved
         // Z-P2-6：软删伏笔（clear 事件）前快照
         const fsPrev = foreshadowSnapshot(r.bookRoot, docPath, docId) // R43-23：docId 留痕因果
         const result = await svc.trashDocument({ docId })
@@ -602,6 +686,11 @@ function structStatus(code: string): number {
     case 'ALREADY_EXISTS':
     case 'OCCUPIED':
     case 'REVISION_CONFLICT':
+      return 409
+    // R1010b-SRV-P2-1（2026-09-10 内存专项重审修复批）：书注册重验失败（删书/改名
+    // drain 窗口后新进单元）——账实状态冲突可重试，与 REVISION_CONFLICT/OCCUPIED
+    // 冲突族同 409 档（ee-P1-3 LEAD_GATE 同口径先例）
+    case 'BOOK_MOVED':
       return 409
     case 'WRITE_ERROR':
       return 500

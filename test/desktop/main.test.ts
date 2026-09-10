@@ -62,6 +62,8 @@ const M = vi.hoisted(() => ({
   // ── 阶段 22 批 U3：封顶对话框捕获面（0=重启服务 / 1=退出应用，缺省退出） ──
   msgBoxSync: [] as Array<Record<string, unknown>>,
   msgBoxSyncChoice: 1,
+  // R1010-P3（G7-②）：异步对话框捕获面（崩溃风暴封顶 showMessageBox）
+  msgBox: [] as Array<Record<string, unknown>>,
   // R44-15（四十四轮）：子窗尺寸钳制断言用——小工作区形态可注入（screen 桩读此值）
   workArea: { width: 1920, height: 1080 },
 }))
@@ -273,8 +275,11 @@ vi.mock('electron', () => {
         // R44-15（四十四轮）：workAreaSize 可注入（小工作区形态断言子窗钳制）
         workAreaSize: { ...M.workArea },
       }),
-      // R26-86：loadWinState 校验扩为 getAllDisplays 任一包含——mock 与主屏同款单屏面
-      getAllDisplays: () => [{ bounds: { x: 0, y: 0, width: 1920, height: 1080 } }],
+      // R26-86：loadWinState 校验扩为 getAllDisplays 任一包含——mock 与主屏同款单屏面。
+      // R1010-P3（G7-④）：校验口径整屏 bounds → workArea，假件补同形 workArea
+      getAllDisplays: () => [
+        { bounds: { x: 0, y: 0, width: 1920, height: 1080 }, workArea: { x: 0, y: 0, width: 1920, height: 1040 } },
+      ],
     },
     ipcMain: {
       handle: (ch: string, fn: (e: unknown, ...a: unknown[]) => unknown) => {
@@ -289,7 +294,12 @@ vi.mock('electron', () => {
         M.dialogOpenCalls++ // E-9c：计数（pickLibrary 封顶锚定）
         return M.dialogOpen
       },
-      showMessageBox: async () => ({ response: M.msgResponse }),
+      // R1010-P3（G7-②）：异步对话框捕获面——崩溃风暴封顶改走此通道（0=重启服务 /
+      // 1=退出应用，缺省沿用 msgResponse=2 → choice!==0 → quit）
+      showMessageBox: async (a: Record<string, unknown>, maybeOpts?: Record<string, unknown>) => {
+        M.msgBox.push(maybeOpts ?? a)
+        return { response: M.msgResponse }
+      },
       showMessageBoxSync: (a: Record<string, unknown>, maybeOpts?: Record<string, unknown>) => {
         // R44-2（四十四轮）：真 API 双参重载 (parentWindow, options)——单参形态 (options) 兼容
         M.msgBoxSync.push(maybeOpts ?? a)
@@ -439,8 +449,14 @@ function mainWin(): Record<string, any> {
 // R4-P2-1（2026-09-09 修复批）：handler 练习统一走「受信渲染进程」形态——senderFrame
 // 须等于 sender.mainFrame（顶层主帧）；null 事件与异帧/白名单外形态属拒绝面（拒绝
 // 测试单列）。
-function trustedEvent(wc: Record<string, any> = mainWin().webContents): Record<string, any> {
-  return { sender: wc, senderFrame: wc.mainFrame }
+// R1010b-DSK-P3-5 适配：sender 白名单收窄为「工厂登记 webContents ∪ 工厂窗反查」后，
+// 跨模块实例借用旧窗 sender 的形态不再可信（旧兜底「反查本进程任一存活窗口即放行」
+// 掩盖了 resetModules 换实例后仍锚 M.windows[0] 的假绿）。缺省改取最新存活工厂窗——
+// 各调用点的当前实例登记窗（fresh module 主窗 / 首实例存活窗），显式传参形态不变。
+function trustedEvent(wc?: Record<string, any>): Record<string, any> {
+  const sender =
+    wc ?? [...M.windows].reverse().find((w) => !w.isDestroyed())?.webContents ?? mainWin().webContents
+  return { sender, senderFrame: sender.mainFrame }
 }
 
 describe('kk-P2-8：主进程启动链（安全配置 / CSP / 内嵌 server）', () => {
@@ -583,18 +599,16 @@ describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
   })
 
   it('set-fullscreen：按发起窗口 setFullScreen(flag===true)，非布尔收敛 false', () => {
+    // R1010b-DSK-P3-5 适配：sender 白名单收窄为「工厂登记 webContents ∪ 工厂窗反查」，
+    // 自建裸窗假件不再能走反查兜底——改在工厂窗实例上挂 setFullScreen 记录器承载
+    //（isTrustedSender 走登记快路径；「按发起窗口」语义不变：目标窗 = sender 反查窗）
+    const win = [...M.windows].reverse().find((w) => !w.isDestroyed())! // 同 trustedEvent 缺省锚
     const calls: boolean[] = []
-    const wc = { sent: [], on(): void {}, isDestroyed(): boolean { return false }, mainFrame: null as unknown }
-    wc.mainFrame = wc // R4-P2-1：顶层主帧自引用（受信 sender 形态）
-    const win = {
-      webContents: wc,
-      isDestroyed(): boolean { return false },
-      setFullScreen(f: boolean): void { calls.push(f) },
-    }
-    M.windows.push(win as unknown as Record<string, any>)
-    M.ipcHandle['desktop:set-fullscreen']!({ sender: wc, senderFrame: wc.mainFrame }, true)
-    M.ipcHandle['desktop:set-fullscreen']!({ sender: wc, senderFrame: wc.mainFrame }, false)
-    M.ipcHandle['desktop:set-fullscreen']!({ sender: wc, senderFrame: wc.mainFrame }, 'yes')
+    ;(win as unknown as { setFullScreen: (f: boolean) => void }).setFullScreen = (f) => calls.push(f)
+    const ev = trustedEvent(win.webContents)
+    M.ipcHandle['desktop:set-fullscreen']!(ev, true)
+    M.ipcHandle['desktop:set-fullscreen']!(ev, false)
+    M.ipcHandle['desktop:set-fullscreen']!(ev, 'yes')
     expect(calls).toEqual([true, false, false])
   })
 
@@ -616,37 +630,37 @@ describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
   // setTitleBarOverlay 靠 Electron 内部抛错兜底（catch 吞掉无痕）。校验置于平台守卫前
   //（与 isInvalidBookName「跨平台统一拒绝」口径一致），mac 上亦可测。
   it('R74-21: set-titlebar-overlay 颜色白名单——非法色回错误、合法 hex 放行（不再只验 typeof）', () => {
+    // R1010b-DSK-P3-5 适配：sender 白名单收窄后自建裸窗不再能走反查兜底——改在工厂
+    // 窗实例上挂 setTitleBarOverlay 记录器承载（isTrustedSender 走登记快路径，校验面
+    // 断言不变；记录器窗与 sender 反查窗须同窗）
+    const win = [...M.windows].reverse().find((w) => !w.isDestroyed())! // 同 trustedEvent 缺省锚
     const calls: Array<Record<string, unknown>> = []
-    const wc = { sent: [], on(): void {}, isDestroyed(): boolean { return false }, mainFrame: null as unknown }
-    wc.mainFrame = wc // R4-P2-1：顶层主帧自引用（受信 sender 形态——color 校验面不受 sender 身份影响）
-    const win = {
-      webContents: wc,
-      isDestroyed(): boolean { return false },
-      setTitleBarOverlay(p: Record<string, unknown>): void { calls.push(p) },
+    ;(win as unknown as { setTitleBarOverlay: (p: Record<string, unknown>) => void }).setTitleBarOverlay = (p) => {
+      calls.push(p)
     }
-    M.windows.push(win as unknown as Record<string, any>)
+    const ev = trustedEvent(win.webContents)
     const h = M.ipcHandle['desktop:set-titlebar-overlay']!
     // 非法：任意长字符串（修复前直达 Electron）、无 # 前缀、非 hex 字符、数字类型
-    expect(h({ sender: wc, senderFrame: wc.mainFrame }, { color: 'x'.repeat(500) })).toMatchObject({ ok: false })
-    expect(h({ sender: wc, senderFrame: wc.mainFrame }, { color: 'red' })).toMatchObject({ ok: false })
-    expect(h({ sender: wc, senderFrame: wc.mainFrame }, { color: '#GGGGGG' })).toMatchObject({ ok: false })
-    expect(h({ sender: wc, senderFrame: wc.mainFrame }, { symbolColor: '#12' })).toMatchObject({ ok: false })
-    expect(h({ sender: wc, senderFrame: wc.mainFrame }, { color: 12345 })).toMatchObject({ ok: false })
+    expect(h(ev, { color: 'x'.repeat(500) })).toMatchObject({ ok: false })
+    expect(h(ev, { color: 'red' })).toMatchObject({ ok: false })
+    expect(h(ev, { color: '#GGGGGG' })).toMatchObject({ ok: false })
+    expect(h(ev, { symbolColor: '#12' })).toMatchObject({ ok: false })
+    expect(h(ev, { color: 12345 })).toMatchObject({ ok: false })
     // R38-20（三十八轮）：5/7 位非法 hex 拒绝——原 {3,8} 放行后 Electron 内部校验
     // 抛错被 catch 吞、深浅色切换静默失效；收紧为 CSS 合法位数集合 3/4/6/8
-    expect(h({ sender: wc, senderFrame: wc.mainFrame }, { color: '#12345' })).toMatchObject({ ok: false })
-    expect(h({ sender: wc, senderFrame: wc.mainFrame }, { symbolColor: '#1234567' })).toMatchObject({ ok: false })
+    expect(h(ev, { color: '#12345' })).toMatchObject({ ok: false })
+    expect(h(ev, { symbolColor: '#1234567' })).toMatchObject({ ok: false })
     // 合法 hex（3/6/8 位）放行：返回非错误；win32 下转发 setTitleBarOverlay（mac 上
     // 平台守卫 no-op，仅验校验面）
-    expect(h({ sender: wc, senderFrame: wc.mainFrame }, { color: '#f6f6f6', symbolColor: '#666' })).toBeUndefined()
-    expect(h({ sender: wc, senderFrame: wc.mainFrame }, { color: '#262626FF' })).toBeUndefined()
+    expect(h(ev, { color: '#f6f6f6', symbolColor: '#666' })).toBeUndefined()
+    expect(h(ev, { color: '#262626FF' })).toBeUndefined()
     if (process.platform === 'win32') {
       expect(calls).toEqual([{ color: '#f6f6f6', symbolColor: '#666' }, { color: '#262626FF' }])
     } else {
       expect(calls).toEqual([]) // 非 win 平台守卫 no-op，不应触达 setTitleBarOverlay
     }
     // 合法载荷后未销毁窗口上的既有空参形态维持 no-op（无字段 → undefined）
-    expect(h({ sender: wc, senderFrame: wc.mainFrame }, {})).toBeUndefined()
+    expect(h(ev, {})).toBeUndefined()
   })
 
   it('专注全屏反向同步：enter/leave-full-screen → desktop:fullscreen-change 转发渲染层', () => {
@@ -784,32 +798,19 @@ describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
   })
 
   it('N-4（第十二轮）：菜单滞留期间窗口销毁 → click/关闭回调晚到不再向已毁 webContents send', async () => {
-    // 独立假窗（不动共享 mainWin——后续用例复用它）：fromWebContents 按 webContents 身份反查
-    const wc = {
-      sent: [] as Array<[string, ...unknown[]]>,
-      on(): void {},
-      destroyed: false,
-      mainFrame: null as unknown,
-      isDestroyed(): boolean {
-        return this.destroyed
-      },
-    }
-    wc.mainFrame = wc // R4-P2-1：顶层主帧自引用（受信 sender 形态）
-    const win = {
-      webContents: wc,
-      closed: false,
-      isDestroyed(): boolean {
-        return this.closed
-      },
-      close(): void {
-        this.closed = true
-        wc.destroyed = true // webContents 随窗销毁（sendOnce 判 event.sender 本体）
-      },
-    }
-    M.windows.push(win as unknown as Record<string, any>)
+    // R1010b-DSK-P3-5 适配：sender 白名单收窄后自建裸窗不再能走反查兜底——改用工厂
+    // 书库窗承载（登记快路径）；「窗销毁随 wc 销毁」由 webContents 实例的 isDestroyed
+    // 覆写承载（FakeWebContents 层无销毁联动，原假件由 win.close 同步置位，sendOnce
+    // 判 sender 本体的语义等价）
+    M.ipcHandle['desktop:open-library-window']!(trustedEvent())
+    await new Promise((r) => setImmediate(r))
+    const win = [...M.windows].reverse().find((w) => w.opts.title === '书库')!
+    const wc = win.webContents as unknown as Record<string, any>
+    let destroyed = false
+    wc.isDestroyed = (): boolean => destroyed
     M.ipcOn['desktop:context-menu']!({ sender: wc, senderFrame: wc.mainFrame }, [{ label: '删除', key: 'delete' }])
     const item = (M.menuTemplate![M.menuTemplate!.length - 1] as { click?: () => void })
-    win.close() // 菜单仍开着，窗口先关（isDestroyed → true）——点选晚到
+    destroyed = true // 菜单仍开着，窗口先关（isDestroyed → true）——点选晚到
     const n0 = wc.sent.length
     // 修复前：对已销毁 webContents send 抛「Object has been destroyed」进主进程
     expect(() => item.click!()).not.toThrow()
@@ -817,6 +818,38 @@ describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
     M.popupCb?.()
     await new Promise((r) => setTimeout(r, 5))
     expect(wc.sent.length).toBe(n0) // 两路都无回传
+    // 清理：还原 isDestroyed 覆写 + 关书库窗（单例/登记面让位后续用例）
+    delete wc.isDestroyed
+    win.close()
+  })
+
+  // R1010b-DSK-P3-6（2026-09-10 内存专项重审修复批）：取消补发 timer 排新清旧——原
+  // popup callback 内裸排 setTimeout 不留句柄，菜单连续开关时旧补发叠跑（旧 timer 持
+  // win/sender 引用滞留）。修复后句柄模块级单槽：新补发武装即撤销旧在途补发。
+  it('R1010b-DSK-P3-6: context-menu 连续开关——新补发武装时撤销旧在途补发（不叠发）', async () => {
+    vi.useFakeTimers()
+    try {
+      // 第二个工厂窗承载第二份菜单载荷（渲染侧 ipcRenderer.once 只认第一条消息，
+      // 叠发会让旧菜单的取消回执吞掉新菜单动作——正是要防的形态）
+      M.ipcHandle['desktop:open-library-window']!(trustedEvent())
+      await vi.advanceTimersByTimeAsync(0)
+      const libWin = [...M.windows].reverse().find((w) => w.opts.title === '书库')!
+      const wc1 = mainWin().webContents
+      const wc2 = libWin.webContents
+      const specs = [{ label: '复制', key: 'copy' }]
+      const n1 = wc1.sent.length
+      const n2 = wc2.sent.length
+      M.ipcOn['desktop:context-menu']!(trustedEvent(wc1), specs)
+      M.popupCb?.() // 菜单1 关闭 → 取消补发武装（指向 wc1）
+      M.ipcOn['desktop:context-menu']!(trustedEvent(wc2), specs)
+      M.popupCb?.() // 菜单2 关闭 → 排新清旧（撤销 wc1 在途补发，武装 wc2）
+      await vi.advanceTimersByTimeAsync(200) // 取消补发窗（CONTEXT_MENU_CANCEL_DELAY_MS=100）已过
+      expect(wc1.sent.length).toBe(n1) // 修复点：菜单1 的在途补发已随菜单2 排新被清（修复前 wc1 亦收到取消）
+      expect(wc2.sent.slice(n2)).toContainEqual(['desktop:context-menu-select', null]) // 菜单2 取消照常补发
+      libWin.close() // 清理（书库窗单例让位）
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 
@@ -1029,13 +1062,14 @@ describe('kk-P2-8：退出与边界分支', () => {
   })
 
   // 批 U3：崩溃风暴接线——manager 退避（默认 0/5s/15s，fake timers 快进）+ main 的
-  // 封顶对话框（onRestartExhausted → showMessageBoxSync「重启服务/退出应用」）
-  it('崩溃风暴（批 U3）：3 次自动重启后封顶 → 对话框选「退出应用」→ quit 且不再 fork', async () => {
+  // 封顶对话框（onRestartExhausted →「重启服务/退出应用」；R1010-P3 G7-② 改走异步
+  // showMessageBox——同步版泵原生嵌套消息循环冻结主进程，断言面随之换 msgBox）
+  it('崩溃风暴（批 U3）：3 次自动重启后封顶 → 异步对话框选「退出应用」→ quit 且不再 fork', async () => {
     vi.useFakeTimers()
     try {
       const forks0 = M.forkChildren.length
       const quit0 = M.quitCalls
-      M.msgBoxSyncChoice = 1 // 退出应用
+      M.msgResponse = 1 // 退出应用（showMessageBox 异步通道）
       vi.resetModules()
       await import('../../src/desktop/main.js')
       await vi.advanceTimersByTimeAsync(0) // bootstrap + 首个 child ready 落定
@@ -1046,11 +1080,12 @@ describe('kk-P2-8：退出与边界分支', () => {
         await vi.advanceTimersByTimeAsync(16_000) // 覆盖当轮最长退避 15s（稳定窗口 5min 远未到）
       }
       expect(M.forkChildren.length).toBe(forks0 + 4) // 首启 + 3 次重启，封顶后无第 5 次
-      expect(M.msgBoxSync.length).toBe(1)
-      expect((M.msgBoxSync[0] as { buttons?: string[] }).buttons).toEqual(['重启服务', '退出应用'])
-      expect((M.msgBoxSync[0] as { message?: string }).message).toContain('自动重启已停止')
+      expect(M.msgBox.length).toBe(1) // 异步通道（非 showMessageBoxSync）
+      expect((M.msgBox[0] as { buttons?: string[] }).buttons).toEqual(['重启服务', '退出应用'])
+      expect((M.msgBox[0] as { message?: string }).message).toContain('自动重启已停止')
       expect(M.quitCalls).toBeGreaterThan(quit0) // 选退出 → app.quit
     } finally {
+      M.msgResponse = 2
       vi.useRealTimers()
     }
   })
@@ -1318,6 +1353,61 @@ describe('R44-2: 关窗/退出兜底（close 拦截 + flush 钩子 + 冲突确�
     expect(win.webContents.execJs[0]).toContain('__clwFlushBeforeClose')
     await new Promise((r) => setImmediate(r))
     expect(M.logInfos.some((l) => String((l as unknown[])[1]).includes('session-end 渲染层 flush'))).toBe(true)
+  })
+
+  // R1010-P3（G7-⑦）：session-end 在途的级联 quit（主窗 closed → app.quit()）直通——
+  // OS 收尾期 quit 链不再起交互链：flush 打向已死 server 必落空、conflict/failed 的
+  // 原生同步确认无人可答（同步对话框会把进程钉死在 OS 收尾窗口内）。
+  it('R1010-P3 G7-⑦: session-end 后级联 quit 直通——不 preventDefault、零弹窗、不另起 flush', async () => {
+    const win = await freshModule()
+    win.webContents.execJsResult = { conflict: ['d1'], failed: ['d2'] }
+    const boxSync0 = M.msgBoxSync.length
+    const boxAsync0 = M.msgBox.length
+    win.emit('session-end', {})
+    await new Promise((r) => setImmediate(r)) // session-end 并行 flush 落定
+    const exec0 = win.webContents.execJs.length
+    const e = { preventDefault: vi.fn() }
+    M.appOn['before-quit']!.at(-1)!(e)
+    expect(e.preventDefault).not.toHaveBeenCalled() // 直通：不再起交互链
+    expect(M.msgBoxSync.length).toBe(boxSync0) // 零同步确认（无人可答）
+    expect(M.msgBox.length).toBe(boxAsync0)
+    expect(win.webContents.execJs.length).toBe(exec0) // quit 链不另起 flush
+    expect(M.logInfos.some((l) => String((l as unknown[])[1]).includes('session-end 在途的级联 quit'))).toBe(true)
+  })
+
+  // R1010b-DSK-P2-1（2026-09-10 内存专项重审修复批）：close 链 flush 落定后的停机复查
+  // ——首行闸只护「close 到达时旗已置位」，护不住「close 先到 → flush 在途 → session-end
+  // 后置」竞窗：flush 落定后同步确认框会在 OS 会话收尾有限窗口内弹出，进程被钉死到强杀。
+  it('R1010b-DSK-P2-1: close flush 在途时 session-end 置旗 → flush 落定跳过同步确认直接关窗 + warn 留痕', async () => {
+    const win = await freshModule()
+    // flush 挂手动闸（模拟竞窗：红叉先到、flush 未落定，session-end 随后置旗）
+    let release!: (v: unknown) => void
+    const gate = new Promise((r) => {
+      release = r
+    })
+    win.webContents.executeJavaScript = (code: string) => {
+      win.webContents.execJs.push(code)
+      return gate
+    }
+    const box0 = M.msgBoxSync.length
+    const warn0 = M.logWarns.length
+    // 1) close 先到：拦下等 flush（在途窗口）
+    const e1 = { preventDefault: vi.fn() }
+    win.emit('close', e1)
+    expect(e1.preventDefault).toHaveBeenCalledTimes(1)
+    await new Promise((r) => setImmediate(r))
+    expect(win.webContents.execJs).toHaveLength(1)
+    // 2) OS 关机竞入：session-end 置旗（并行 flush 同闸挂起 + 停机指令照发）
+    win.emit('session-end')
+    await new Promise((r) => setImmediate(r))
+    // 3) flush 落定（conflict/failed 非空）→ 跳过两个同步确认直接 destroy 收口
+    release({ conflict: ['d1'], failed: ['d2'] })
+    await new Promise((r) => setImmediate(r))
+    expect(M.msgBoxSync.length).toBe(box0) // 修复点：停机窗口内零同步确认（进程不被钉死）
+    expect(win.isDestroyed()).toBe(true) // 留痕后照常关窗收口
+    expect(
+      M.logWarns.slice(warn0).some((l) => String((l as unknown[])[1]).includes('跳过冲突/失败确认')),
+    ).toBe(true)
   })
 
   // R53-A-1（五十三轮）：session-end 并行 flush 的三种结局——落净 / 未落净（冲突+失败

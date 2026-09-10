@@ -132,6 +132,17 @@ export function waitConfirm(state: ChatRunState, callId: string, timeoutMs: numb
       ;(state.confirmTimedOut ??= new Set<string>()).add(callId)
       finish(false)
     }, timeoutMs)
+    // R1010b-AI-P3-2（2026-09-10 内存专项重审修复批）：登记前查重——模型退化输出两个同 id
+    // tool_use 块时直接 set 会顶掉旧项 resolve：旧确认的作者通道失联（只能干等其超时兜底），
+    // 且旧项 timer 到点回调里的 pending.delete(callId) 会误删新项登记。set 前先按本表既有
+    // resolve 用法（取消终态）收口旧项——finish 幂等（settled 闸 + clearTimeout +
+    // removeEventListener，重复触发 no-op），timer/listener 由其幂等清理——再 log.warn
+    // 留痕取代缘，然后登记新项。
+    const prev = state.pending.get(callId)
+    if (prev) {
+      log.warn('chat', `确认闸重复登记：tool_use id ${callId} 的挂起确认按「重复 tool_use id，已被同 id 新调用取代」收口`)
+      prev(false)
+    }
     state.pending.set(callId, finish)
     // abort 先于挂起到达（signal 已 aborted）→ 立即按取消处理，不等超时
     if (state.ctrl.signal.aborted) {
@@ -419,8 +430,10 @@ export interface TurnDeps {
  *  经 visibleInjectionsFromDigests 单源组装（R66-9；revision→chapter、skills→skills
  *  的字段映射在本函数）：
  *  recorded 传本回合已登记的三种血缘事件（settings/snapshot + revision/ref +
- *  skills/snapshot，与 recorder 收到的同物）。违约只 console.warn（不抛、不进事件库、
- *  不影响主流程）；flag 关闭首行即返回，零开销。 */
+ *  skills/snapshot，与 recorder 收到的同物）。违约只 warn 留痕（不抛、不进事件库、
+ *  不影响主流程；R1010-P3 2026-09-10 全量重评 GLM-5.3 修复批：console.warn 改
+ *  log.warn 统一日志通道——与 rag recall 三降级出口同口径，诊断输出落 app-*.jsonl
+ *  可回溯）；flag 关闭首行即返回，零开销。 */
 export function verifyVisibleSampled(
   digests: { settings: string; revision?: string; skills?: string },
   recorded: NewEvent[],
@@ -445,7 +458,9 @@ export function verifyVisibleSampled(
     }))
     const check = verifyVisibleRecorded(visible, events)
     if (check.missing.length > 0) {
-      console.warn(
+      // R1010-P3：console.warn → log.warn（统一日志通道，文案不变）
+      log.warn(
+        'chat',
         `[CLW_VERIFY_VISIBLE] 模型可见注入未登记（${check.missing.length}/${visible.length}）：` +
           check.missing.map((m) => `${m.scope}:${m.digest}`).join(', '),
       )
@@ -620,6 +635,10 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
         reasoning: string
         /** Q-13（第十五轮）：resolve 后上线输出上限——runner 提取落 llm/call */
         resolvedMaxTokens?: number
+        /** B-2（第六十轮）：适配器降级标记透传（run 回调 :690 返回 degraded）——runner
+         *  extractDegraded 落 llm/call。R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：
+         *  回调已返回而泛型未声明，类型面对调用方不可见，现补齐（finish.ts 摘要壳同款） */
+        degraded?: boolean
         /** Responses 线缺口 11：加密推理项随 reasoning 块入历史，下轮回传维持推理状态 */
         reasoningEncrypted?: string
         reasoningItemId?: string

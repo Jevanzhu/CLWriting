@@ -13,7 +13,10 @@ import { log } from '../../../log/index.js'
 // ── 运行态类型（chat.ts 并发锁与 turns.ts waitConfirm 共用） ──
 
 /** R70-12（十八轮）：对话总超时缺省值——finish.ts 超时文案同源换算（防参数化后
- *  文案与实际值漂移；测试注入 deadlineMs 覆盖运行值，文案按缺省口径展示）。 */
+ *  文案与实际值漂移）。
+ *  R1010b-AI-P3-3（2026-09-10 内存专项重审修复批）：CC-P2-2 起 deadlineMs 可注入，
+ *  超时文案改按实际生效 deadline（opts.deadlineMs ?? 本常量，与 chat.ts runChatInner
+ *  的 resolve 同式）换算——原「文案按缺省口径展示」声明作废。 */
 export const AGENT_DEADLINE_MS = 30 * 60_000
 
 export interface ChatRunState {

@@ -73,6 +73,29 @@ describe('createSystemFontCache（R77-1 批 A）', () => {
     expect(calls).toBe(2)
   })
 
+  it('R1010-P3 G7-⑥：TTL 过期重载失败 serve-stale——回吐旧值且不刷龄（下次仍重试）', async () => {
+    let t = 1000
+    let fail = false
+    let calls = 0
+    const get = createSystemFontCache(
+      async () => {
+        calls++
+        if (fail) throw new Error('系统命令失败')
+        return [`font-${calls}`]
+      },
+      { ttlMs: 60_000, now: () => t },
+    )
+    await expect(get()).resolves.toEqual(['font-1'])
+    t += 60_001 // 过期
+    fail = true // 重载瞬时故障
+    await expect(get()).resolves.toEqual(['font-1']) // serve-stale：不 reject 不空
+    // 不刷龄：紧接着的调用仍在过期态 → 再次真跑 loader（恢复后取到新值）
+    await expect(get()).resolves.toEqual(['font-1'])
+    expect(calls).toBe(3) // 初次 + 两次过期重试（失败不固化为新 TTL）
+    fail = false
+    await expect(get()).resolves.toEqual(['font-4']) // 恢复后新结果照常覆盖
+  })
+
   it('成功空数组照缓存（合法结果，不重复探测）', async () => {
     let calls = 0
     const get = createSystemFontCache(async () => {

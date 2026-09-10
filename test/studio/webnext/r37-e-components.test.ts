@@ -47,6 +47,7 @@ describe('R37-31: ChapterTreeItem 拖拽 dragstart 写 dataTransfer', () => {
         depth: 1,
         expanded: new Set<string>(),
         activePath: null,
+        tabstopPath: null, // R1010-P3 G6-③：roving 停靠行（本文件不测焦点，null 即可）
         creatingDirPath: null,
         creatingKind: null,
         creatingSeed: '',

@@ -31,10 +31,12 @@ import {
 } from '../../src/studio/server/api/stream.js'
 import { holdSpawnGate, releaseSpawnGate, isSpawnRunning } from '../../src/ai/orchestrate/spawn-registry.js'
 // 被测模块的 mock 面（下方 vi.mock 生效后，这些导入即假件）
+// R1010c-SRV-P3-1：stream.ts 强释放改调生产命名导出 forceReleaseSelfHealRunning，
+// 本测试的观测面随之从测试别名 __setSelfHealRunningForTest 切到新导出
 import {
   abortSelfHeal,
   isSelfHealRunning,
-  __setSelfHealRunningForTest,
+  forceReleaseSelfHealRunning,
 } from '../../src/ai/orchestrate/self-heal.js'
 
 // ---- 假 self-heal 编排器状态（vi.hoisted 保证 mock 工厂先行可用）----
@@ -44,7 +46,7 @@ const shFake = vi.hoisted(() => {
     mode: 'never' as 'never' | 'settle-on-abort' | 'immediate',
     running: new Map<string, true>(),
     settleFns: [] as Array<() => void>,
-    /** 强释放观测：__setSelfHealRunningForTest(name,false) 的 name 列表 */
+    /** 强释放观测：forceReleaseSelfHealRunning(name) 的 name 列表 */
     forced: [] as string[],
     /** 端点传入的 opts（断言 driver 包装 / mainSession 用） */
     lastOpts: null as {
@@ -78,6 +80,12 @@ vi.mock('../../src/ai/orchestrate/self-heal.js', () => ({
   isSelfHealRunning: (name: string): boolean => shFake.running.has(name),
   isChatEmbeddedSelfHealRunning: (): boolean => false,
   waitSelfHealSettled: async (): Promise<void> => {},
+  // R1010c-SRV-P3-1：生产命名导出（stream.ts 强释放消费点）；测试别名 __setSelfHealRunningForTest
+  // 在真实模块里 off 分支转调本函数，假件同语义（清登记 + 观测）保留一份防其他消费方回引
+  forceReleaseSelfHealRunning: vi.fn((name: string): void => {
+    shFake.running.delete(name)
+    shFake.forced.push(name)
+  }),
   __setSelfHealRunningForTest: vi.fn((name: string, on: boolean): void => {
     if (on) shFake.running.set(name, true)
     else {
@@ -201,7 +209,7 @@ beforeEach(() => {
   specFake.mode = 'never'
   specFake.registeredCtrl = null
   vi.mocked(abortSelfHeal).mockClear()
-  vi.mocked(__setSelfHealRunningForTest).mockClear()
+  vi.mocked(forceReleaseSelfHealRunning).mockClear()
   warnSpy = vi.spyOn(log, 'warn')
 })
 
@@ -230,7 +238,7 @@ describe('重评-P3-7：/auto-write（self-heal）静默挂死 watchdog', () => 
 
     await vi.advanceTimersByTimeAsync(ORCH_STALL_GRACE_MS + 5_000)
     // 宽限内已收尾 → 不强释放：登记清理导出未被调用 + 无强释放留痕（「疑似挂死」为二段专属片段）
-    expect(vi.mocked(__setSelfHealRunningForTest)).not.toHaveBeenCalled()
+    expect(vi.mocked(forceReleaseSelfHealRunning)).not.toHaveBeenCalled()
     expect(hadWarn('疑似挂死')).toBe(false)
   })
 
@@ -245,8 +253,8 @@ describe('重评-P3-7：/auto-write（self-heal）静默挂死 watchdog', () => 
     expect(isSelfHealRunning(BOOK)).toBe(true) // 挂死：中止后闸仍被占
 
     await vi.advanceTimersByTimeAsync(ORCH_STALL_GRACE_MS + 5_000)
-    // 二段强释放：清 ai 层登记 + warn 留痕
-    expect(vi.mocked(__setSelfHealRunningForTest)).toHaveBeenCalledWith(BOOK, false)
+    // 二段强释放：清 ai 层登记 + warn 留痕（R1010c-SRV-P3-1：单参生产签名）
+    expect(vi.mocked(forceReleaseSelfHealRunning)).toHaveBeenCalledWith(BOOK)
     expect(shFake.forced).toContain(BOOK)
     expect(hadWarn('疑似挂死')).toBe(true)
 
@@ -286,7 +294,7 @@ describe('重评-P3-7：/auto-write（self-heal）静默挂死 watchdog', () => 
       await vi.advanceTimersByTimeAsync(ORCH_STALL_WATCHDOG_MS * 2)
       // 上一轮的 stall timer 已在终态 finally 撤表：两轮各 2×阈值推进均无任何触发
       expect(vi.mocked(abortSelfHeal)).not.toHaveBeenCalled()
-      expect(vi.mocked(__setSelfHealRunningForTest)).not.toHaveBeenCalled()
+      expect(vi.mocked(forceReleaseSelfHealRunning)).not.toHaveBeenCalled()
       expect(hadWarn('疑似编排器挂起')).toBe(false)
     }
   })

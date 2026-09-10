@@ -138,7 +138,10 @@ export interface ServerManagerDeps {
    * 'restart' = 计数清零立即人工重启；'quit' = 不再重启（main 侧自行 app.quit）。
    * 缺省 'quit'——无接线不盲启（测试/降级态安全缺省）。
    */
-  onRestartExhausted?: () => 'restart' | 'quit'
+  /** 封顶决断回调。R1010-P3（G7-②）：允许返回 Promise——main 侧对话框改异步
+   *  showMessageBox（同步版泵原生嵌套消息循环，崩溃风暴路径上冻结三窗口输入/IPC）；
+   *  决断到达前不重启不退出（本侧 void 适配，exit 回调不等它）。 */
+  onRestartExhausted?: () => 'restart' | 'quit' | Promise<'restart' | 'quit'>
   /** 重审-3（2026-09-07 全量代码重审 §四.3）：自动重启（doRestart）/session-end
    *  自愈（restartPinned）钉住端口拉回成功后的广播钩子——main 接线后向存活渲染层
    *  广播 desktop:server-restarted（渲染层 sse.resync() 主动重连续用同源）。
@@ -369,11 +372,14 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
     if (shutdownStarted || restartTimer) return // 主动停机不重启 / 已有挂起重启不双排
     if (restartCount >= RESTART_MAX_ATTEMPTS) {
       logger.error('server-manager', `studio server 连续崩溃：${RESTART_MAX_ATTEMPTS} 次自动重启后仍异常，转用户决断`)
-      const choice = deps.onRestartExhausted?.() ?? 'quit'
-      if (choice === 'restart') {
-        restartCount = 0 // 人工重启计一次全新周期
-        scheduleRestart()
-      }
+      // R1010-P3（G7-②）：决断可能异步（异步对话框）——exit 回调不等它，决断到达
+      // 前不重启不退出；期间 active 已空、无新 exit 事件，无重入面
+      void Promise.resolve(deps.onRestartExhausted?.() ?? 'quit').then((choice) => {
+        if (choice === 'restart') {
+          restartCount = 0 // 人工重启计一次全新周期
+          scheduleRestart()
+        }
+      })
       return
     }
     restartCount++
@@ -388,6 +394,16 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
 
   async function doRestart(): Promise<void> {
     if (shutdownStarted) return // 等待窗口内被停机（S-5）
+    // R1010b-DSK-P3-2（2026-09-10 内存专项重审修复批）：在途不覆写——R51-A-3 注释自认
+    // 「doRestart 不查 starting 直接覆写通道」：崩溃风暴对话框等待期（onRestartExhausted
+    // 异步决断在途，R1010-P3 G7-② 起）并发 restartPinned 自愈握手在途时，0ms 退避触发的
+    // doRestart 会覆写 starting/startingOpts/startingProc——先落定方的 finally 清错通道
+    // 与 fork 句柄、launch 双 fork 竞逐 active（输者孤儿）。对齐 start() 复用口径：通道
+    // 被占即复用在途轮（其自身 catch 已按退避续排 / 留痕），本函数不再排新轮。
+    if (starting) {
+      await starting.catch(() => {}) // 在途轮落定即本函数语义完成，失败已由在途轮自身路径收口
+      return
+    }
     const opts = lastOpts
     const port = pinnedPort
     if (!opts || port === null) return

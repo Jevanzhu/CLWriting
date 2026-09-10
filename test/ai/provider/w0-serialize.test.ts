@@ -184,6 +184,27 @@ describe('W0: block 数组 → Anthropic 线格式', () => {
     expect(out[0]!.content[0]).toMatchObject({ type: 'tool_result', is_error: true })
   })
 
+  // R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：跨协议回放的 tool_use input 为
+  // 「合法 JSON 非对象」（标量/数组——Responses 线模型偶发裸标量参数形态入库）时，
+  // Anthropic 线 input 契约是 object，原 as 断言吞形状后裸传网关 400 → 窄兜底 {_raw}
+  it('tool_use input 合法 JSON 非对象（标量/数组）→ 归一 {_raw} 兜底不裸传', async () => {
+    const messages: ChatMsg[] = [
+      {
+        role: 'assistant',
+        content: [
+          { type: 'tool_use', id: 't_scalar', name: 'check_chapter', input: 5 },
+          { type: 'tool_use', id: 't_arr', name: 'lookup', input: ['a', 'b'] },
+          { type: 'tool_use', id: 't_obj', name: 'submit', input: { chapter: 1 } },
+        ],
+      },
+    ]
+    const params = await runAnthropic({ systemPrompt: '', messages })
+    const out = params['messages'] as { role: string; content: Record<string, unknown>[] }[]
+    expect(out[0]!.content[0]).toMatchObject({ type: 'tool_use', id: 't_scalar', input: { _raw: 5 } })
+    expect(out[0]!.content[1]).toMatchObject({ type: 'tool_use', id: 't_arr', input: { _raw: ['a', 'b'] } })
+    expect(out[0]!.content[2]).toMatchObject({ type: 'tool_use', id: 't_obj', input: { chapter: 1 } })
+  })
+
   // 表驱动重构 §6.1：structured → output_config.format 按表 structuredMode 翻译
   // （deepseek 走 anthropic 端点时硬编码 json_schema 会 400「格式有问题」）
   it('claude 系列 structured → output_config.format.json_schema', async () => {
