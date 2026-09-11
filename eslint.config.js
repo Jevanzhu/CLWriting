@@ -32,7 +32,7 @@ const tsRecommendedRules = tseslint.configs.recommended.reduce(
 export default [
   {
     // 生成产物与参考资料不入口：coverage/test-results/playwright-report/tmp 为工具输出，
-    // dist 为构建产物，Dev/ 为项目文档链（Dev/Main）+ 第三方参考项目（Dev/参考项目，
+    // dist 为构建产物，Dev/ 为项目文档链（Dev/Docs）+ 第三方参考项目（Dev/参考项目，
     // 均非 lint 射程内的代码面）。
     // R32-11（三十二轮）：web-next 不再整体忽略——TS 面接入 lint 门（原「子包独立
     // 自治」口径收窄为「.vue SFC 仍由 vue-tsc 管」）；工具输出目录保留排除。
