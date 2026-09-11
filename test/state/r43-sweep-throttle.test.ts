@@ -7,7 +7,7 @@
  * 观察面：5 分钟年龄门槛内的合法 tmp 不会被清（年龄门维持），本测试用「真过期
  * tmp 文件在节流窗内第二次 detectState 后仍在、reset 后被清」锚定节流行为。
  */
-import { test, expect, beforeEach, afterEach } from 'vitest'
+import { test, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -19,6 +19,13 @@ const SHORT_CONFIG: BookConfig = { ...DEFAULT_CONFIG, kind: 'short', book: { tit
 let root = ''
 
 beforeEach(() => {
+  // R0911-G-P1-1c（2026-09-11 修复批）：注入时钟消除 Date.now() 墙钟漂移敏感性——
+  // 清扫年龄门（sweepAbandonedTmpFiles 的 now-mtimeMs≥5min，经 throttled 层 Date.now()
+  // 取时）与 6h 节流窗判定（sweepLastAt）全部读 fake Date，三次 detectState 之间真实
+  // 耗时不再映射进任何时间比较（慢机/CI 抖动下确定性）。只接管 Date，setTimeout/真实
+  // I/O 照常真实（toFake 选择性 fake 先例 p37-write-stall-watchdog；TTL 推进先例
+  // r47-rebuild-probe-ttl 的 advanceTimersByTime 同族）。断言语义不变。
+  vi.useFakeTimers({ toFake: ['Date'] })
   __resetSweepThrottleForTest()
   root = mkdtempSync(join(tmpdir(), 'r43-sweep-'))
   writeBookConfig(join(root, 'book.yaml'), SHORT_CONFIG)
@@ -27,6 +34,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.useRealTimers() // R0911-G-P1-1c：解除 Date fake
   rmSync(root, { recursive: true, force: true })
 })
 

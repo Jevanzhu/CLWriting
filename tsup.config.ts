@@ -1,4 +1,4 @@
-import { rmSync } from 'node:fs'
+import { copyFileSync, rmSync } from 'node:fs'
 import { defineConfig } from 'tsup'
 
 // P-13（第十四轮）：只清 dist/desktop 子目录——本目录唯一写者是 tsup（两 config 均落此），
@@ -52,6 +52,19 @@ export default defineConfig([
     // 会把 `node:sqlite` 改写成 bare `sqlite`，运行时 Node 去找不存在的 npm 包 `sqlite` 而崩。
     // 本项目门槛 Node ≥24，内置模块原生支持 `node:` 协议，保留前缀。
     removeNodeProtocol: false,
+    // R0911-A-P2-1（2026-09-11 全量重评 GLM-5.3 修复批）：mac fontlist 原生二进制随包
+    // 分发——font-list 上游按 path.join(__dirname,'fontlist') execFile，bundle 后
+    // __dirname 指向 dist/desktop，二进制必须落 bundle 同目录（此前打包态恒 ENOENT，
+    // 字体枚举回落 system_profiler 慢路径，慢机触 10s 超时连败熔断、下拉返空）。
+    // 仅 darwin：win 走 win-fonts 自绘枚举、linux fc-list 是系统命令，均无随包二进制
+    // （非 darwin 腿不拷，check-packaging 门同口径只查 darwin）。copyFileSync 保留
+    // 可执行位（libuv uv_fs_copyfile 保 mode）；源缺失（依赖安装不完整）ENOENT 裸抛
+    // 红构建，不静默跳过（静默跳过 = A-P2-1 原样回潮）。watch 模式每次重建后重拷，
+    // 幂等。
+    onSuccess: async () => {
+      if (process.platform !== 'darwin') return
+      copyFileSync('node_modules/font-list/libs/darwin/fontlist', 'dist/desktop/fontlist')
+    },
   },
   {
     // preload 必须是 CommonJS:Electron sandbox preload 用 require 加载,

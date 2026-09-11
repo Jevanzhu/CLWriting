@@ -15,7 +15,7 @@ import { createHash } from 'node:crypto'
 import { readChapterDir } from '../format/chapters.js'
 import { readFile } from '../format/frontmatter.js'
 import { parseChapterFileName } from '../format/words.js'
-import { openRagDb, storeChunk, readAllChapterFingerprints, getRagMeta, setRagMeta, deleteRagMeta, deleteChunksByChapter, getIndexedChapterNumbers, streamChunkScores, type ChunkScoreRow, isRagDbCorruptionError, deleteRagDbFiles, ragDbExists } from './store.js'
+import { openRagDb, closeRagDb, storeChunk, readAllChapterFingerprints, getRagMeta, setRagMeta, deleteRagMeta, deleteChunksByChapter, getIndexedChapterNumbers, streamChunkScores, type ChunkScoreRow, isRagDbCorruptionError, deleteRagDbFiles, ragDbExists } from './store.js'
 import { embed, type EmbedOptions } from './embed.js'
 import type { RagConfig } from './config.js'
 import type { DatabaseSync } from 'node:sqlite'
@@ -266,7 +266,7 @@ export function resetRagIndex(bookRoot: string): void {
       throw new Error(`清空 RAG 索引失败（已回滚，可重试）：${errStr(e)}`)
     }
   } finally {
-    db.close()
+    closeRagDb(db)
   }
 }
 
@@ -306,7 +306,7 @@ export function ragIndexState(bookRoot: string): RagIndexState {
   try {
     return ragIndexStateOfOpenDb(db)
   } finally {
-    db.close()
+    closeRagDb(db)
   }
 }
 
@@ -361,7 +361,20 @@ export async function buildIndex(
     log.warn('rag', `${brokenChapterNums.size} 章正文 frontmatter 解析失败（章号：${[...brokenChapterNums].sort((a, b) => a - b).join('、')}）——本轮索引跳过且保留其既有向量，修复后自动恢复`)
   }
 
-  const db = openRagDb(bookRoot)
+  // R0911-D-P3-1（2026-09-11 全量重评 GLM-5.3 修复批）：增量路径对齐同文件 reset/
+  // state 路径的损坏自愈——文件级损坏（SQLITE_NOTADB 族）此前裸抛英文 SQLite 错，
+  // 建索引入口（作者自救的第一操作）同死；确认损坏后删库（连 -wal/-shm）全新建，
+  // 全量重建由增量逻辑自然承接（空库无指纹/游标 → 全部章落入 toIndex）。busy/IO
+  // 等可重试错误照旧上抛——绝无「误判损坏 → 白白整库重嵌」面（口径同 resetRagIndex）。
+  let db: DatabaseSync
+  try {
+    db = openRagDb(bookRoot)
+  } catch (e) {
+    if (!isRagDbCorruptionError(e)) throw e
+    log.warn('rag', `RAG 索引库文件损坏（${errStr(e)}），删除后全新重建`)
+    deleteRagDbFiles(bookRoot)
+    db = openRagDb(bookRoot)
+  }
   try {
     const indexedModel = getRagMeta(db, 'embedding_model')
     if (indexedModel && indexedModel !== config.model) {
@@ -510,7 +523,7 @@ export async function buildIndex(
     }
     return committed
   } finally {
-    db.close()
+    closeRagDb(db)
   }
 }
 
@@ -854,7 +867,7 @@ export async function recallDetailed(
     }
     indexedDim = getRagMeta(db, 'embedding_dim')
   } finally {
-    db.close()
+    closeRagDb(db)
   }
 
   // 网络段（无 db 句柄）
@@ -916,7 +929,7 @@ export async function recallDetailed(
       // A3：指纹元数据整表读内存（单 SELECT 零文件 IO），闭库后候选子集校验用
       indexedFingerprints = readAllChapterFingerprints(db2)
     } finally {
-      db2.close()
+      closeRagDb(db2)
     }
   }
 

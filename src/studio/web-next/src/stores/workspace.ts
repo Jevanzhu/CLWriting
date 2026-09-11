@@ -193,6 +193,55 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     startPersistWatch()
   }
 
+  /**
+   * 书级 prefs 落盘直发段：按排定时刻快照（gen/name）复查后写穿一次 putBookPrefs。
+   * R0911-C1-P3-3（2026-09-11 全量重评 GLM-5.3 修复批）：自防抖 setTimeout 回调外提
+   * ——关窗冲刷（flushPendingBookPrefs）与防抖 fire 复用同一段写链（成功复位一次性
+   * 失败提示标记 / 失败走 R1010-P3 一次性 warning，口径不变）。
+   */
+  function writeBookPrefs(gen: number, name: string): Promise<void> {
+    // ff 细节#11 复查：gen/书名任一漂移（切书）→ 本次落盘作废，防 A 书布局写进 B 书
+    if (gen !== bookGen || !prefsLoaded || bookName.value !== name) return Promise.resolve()
+    const ps = usePrefsStore()
+    return putBookPrefs(name, {
+      leftWidth: leftWidth.value,
+      leftOpen: leftOpen.value,
+      rightOpen: rightOpen.value,
+      leftPanel: leftPanel.value,
+      activeDocId: activeDocId.value,
+      treeExpanded: treeExpanded.value,
+      pageWidth: ps.bookPageWidth ?? undefined,
+      autosaveInterval: ps.bookAutosaveInterval ?? undefined,
+    })
+      .then(() => {
+        bookPrefsFailNotified = false // 成功落盘复位——恢复后再失败可再提示
+      })
+      .catch(() => {
+        // R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：书级 prefs 落盘失败不再
+        // 全静默（原 catch(()=>{}) 吞掉——离线调面板布局重启回退无提示）；对齐
+        // 全局偏好 R55-F-7 一次性 warning 口径（同失败窗只提示一次，成功复位）
+        if (!bookPrefsFailNotified) {
+          bookPrefsFailNotified = true
+          useUiStore().toast('本书布局偏好暂时未能保存（网络/服务异常），恢复后将随下次调整自动重试', 'warning')
+        }
+      })
+  }
+
+  /**
+   * R0911-C1-P3-3（2026-09-11 全量重评 GLM-5.3 修复批）：关窗前强制冲刷书级 prefs 的
+   * 500ms 防抖窗——末次布局态（面板开合/宽度/活动文档/展开态）此前随关窗静默丢失
+   * （R48-82 备案的取舍，本批收口）。对齐全局偏好 prefs.flushPendingPersist 的关窗
+   * 钩子口径（App.vue __clwFlushPrefs 先例）：清掉挂起计时器后直发一次写穿，整链
+   * Promise 交 Book.vue __clwFlushBeforeClose await（主进程关窗预算内等待）。防抖
+   * 语义不变——平时照旧 500ms 合并写；无待写项（计时器空）不空写。
+   */
+  function flushPendingBookPrefs(): Promise<void> {
+    if (!debounceTimer) return Promise.resolve()
+    clearTimeout(debounceTimer)
+    debounceTimer = null
+    return writeBookPrefs(bookGen, bookName.value ?? '')
+  }
+
   /** 启动 watch：面板布局/文档变更时 debounce 写回 .clwriting/prefs.json。 */
   function startPersistWatch(): void {
     if (watchStop) watchStop()
@@ -208,29 +257,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         const gen = bookGen
         const name = bookName.value
         debounceTimer = setTimeout(() => {
-          if (gen !== bookGen || !prefsLoaded || bookName.value !== name) return
-          void putBookPrefs(name, {
-            leftWidth: leftWidth.value,
-            leftOpen: leftOpen.value,
-            rightOpen: rightOpen.value,
-            leftPanel: leftPanel.value,
-            activeDocId: activeDocId.value,
-            treeExpanded: treeExpanded.value,
-            pageWidth: ps.bookPageWidth ?? undefined,
-            autosaveInterval: ps.bookAutosaveInterval ?? undefined,
-          })
-            .then(() => {
-              bookPrefsFailNotified = false // 成功落盘复位——恢复后再失败可再提示
-            })
-            .catch(() => {
-              // R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：书级 prefs 落盘失败不再
-              // 全静默（原 catch(()=>{}) 吞掉——离线调面板布局重启回退无提示）；对齐
-              // 全局偏好 R55-F-7 一次性 warning 口径（同失败窗只提示一次，成功复位）
-              if (!bookPrefsFailNotified) {
-                bookPrefsFailNotified = true
-                useUiStore().toast('本书布局偏好暂时未能保存（网络/服务异常），恢复后将随下次调整自动重试', 'warning')
-              }
-            })
+          void writeBookPrefs(gen, name)
         }, 500)
       },
     )
@@ -359,6 +386,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     validate,
     openTab,
     triggerCreate,
+    flushPendingBookPrefs,
     toggleLeft,
     setLeftWidth,
     toggleRight,

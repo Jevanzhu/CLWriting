@@ -326,7 +326,16 @@ onMounted(() => {
   window.addEventListener('beforeunload', flushOnUnload)
   // 主进程 close/before-quit 拦截的调用面（钩子与页面同生命周期注册/注销；不在编辑页
   // 时无 dirty 状态，主进程拿不到钩子即直接关，无兜底需求）
-  ;(window as CloseFlushWindow).__clwFlushBeforeClose = () => doc.flushBeforeClose()
+  // R0911-C1-P3-3（2026-09-11 全量重评 GLM-5.3 修复批）：钩子首位并入书级 prefs 冲刷
+  // ——workspace store 的 500ms 防抖窗内末次布局态此前随关窗静默丢失（R48-82 备案的
+  // 取舍，本批收口）；对齐 App.vue __clwFlushPrefs 为全局偏好做的事（同一
+  // executeJavaScript 表达式内先行冲刷的先例）。书级 prefs 只在进书（Book 挂载）后有
+  // 待写项，挂本页钩子即覆盖全部有丢失窗的时机；冲刷链内部消化失败（不 reject），
+  // 吞错兜底不阻断后续文档保存与关窗。
+  ;(window as CloseFlushWindow).__clwFlushBeforeClose = async () => {
+    await ws.flushPendingBookPrefs().catch(() => {})
+    return doc.flushBeforeClose()
+  }
 })
 onUnmounted(() => {
   window.removeEventListener('beforeunload', flushOnUnload)

@@ -25,7 +25,7 @@ import { readRagConfig } from '../../../rag/config.js'
 import { resolveRag, type RagProviderRef } from '../../../rag/resolve.js'
 import { loadProviders } from '../../../ai/provider/index.js'
 import { buildIndex, resetRagIndex, RAG_RESET_MARKER_KEY, type BuildIndexResult } from '../../../rag/index.js'
-import { openRagDb, getRagMeta, ragDbExists, isRagDbCorruptionError } from '../../../rag/store.js'
+import { openRagDb, closeRagDb, getRagMeta, ragDbExists, isRagDbCorruptionError } from '../../../rag/store.js'
 import { acquireTaskGate } from './task-gate.js'
 // D-2（二十九轮）：建索引失败信息与 replyError 同源的脱敏单源（http.ts 同款 import）——
 // embed 上游报错 message 可能夹带完整 URL（key 在 query）/ Authorization 痕迹
@@ -221,7 +221,9 @@ export function registerRagRoutes(ctx: RagCtx): void {
           indexState = 'cleared'
         }
       } finally {
-        db.close()
+        // R0911-G-P3-4：RAG 库关闭走缓存注销 helper（裸 close 每次开/关滞留一份
+        // prepared 缓存 Map+语句包装，本端点属前端轮询路径）——见 rag/store.ts closeRagDb
+        closeRagDb(db)
       }
     }
     // 生效提供方回显（provider 缺失 → null + legacy 标记，前端据此引导重选）。

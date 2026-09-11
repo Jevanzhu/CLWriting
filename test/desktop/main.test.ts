@@ -1089,6 +1089,13 @@ describe('kk-P2-8：退出与边界分支', () => {
     try {
       const forks0 = M.forkChildren.length
       const quit0 = M.quitCalls
+      // R0911-G-P1-1b：msgBox 是文件级累积面（各用例间不重置）——切库用例在大小写
+      // 敏感卷（ubuntu ext4）上经 warnIfCaseSensitive 真实探测 → showMessageBox 各留
+      // 一条（mac/win 不敏感卷探测 false 零残留），绝对计数 toBe(1) 因此平台分叉
+      //（CI ubuntu「expected 1 got 3」= 本用例前两次成功切库的警告残留 +2）。改快照
+      // 增量口径（同 1338/1385 行 msgBoxSync/msgBox 先例）：断言只锚本用例净增 1 条，
+      // 内容取快照下标，跨平台恒定。
+      const box0 = M.msgBox.length
       M.msgResponse = 1 // 退出应用（showMessageBox 异步通道）
       vi.resetModules()
       await import('../../src/desktop/main.js')
@@ -1100,9 +1107,10 @@ describe('kk-P2-8：退出与边界分支', () => {
         await vi.advanceTimersByTimeAsync(16_000) // 覆盖当轮最长退避 15s（稳定窗口 5min 远未到）
       }
       expect(M.forkChildren.length).toBe(forks0 + 4) // 首启 + 3 次重启，封顶后无第 5 次
-      expect(M.msgBox.length).toBe(1) // 异步通道（非 showMessageBoxSync）
-      expect((M.msgBox[0] as { buttons?: string[] }).buttons).toEqual(['重启服务', '退出应用'])
-      expect((M.msgBox[0] as { message?: string }).message).toContain('自动重启已停止')
+      expect(M.msgBox.length).toBe(box0 + 1) // 异步通道（非 showMessageBoxSync）——R0911-G-P1-1b 增量口径：敏感卷上前序切库警告不扰
+      const stormBox = M.msgBox[box0] as { buttons?: string[]; message?: string } // R0911-G-P1-1b：取本用例那条（非 [0] 绝对下标）
+      expect(stormBox.buttons).toEqual(['重启服务', '退出应用'])
+      expect(stormBox.message).toContain('自动重启已停止')
       expect(M.quitCalls).toBeGreaterThan(quit0) // 选退出 → app.quit
     } finally {
       M.msgResponse = 2

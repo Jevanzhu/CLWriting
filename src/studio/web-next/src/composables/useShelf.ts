@@ -7,8 +7,13 @@ import { useShelfStore } from '../stores/shelf'
 import { usePrefsStore } from '../stores/prefs'
 import { useChatStore } from '../stores/chat'
 import { useDocStore } from '../stores/doc'
-import { apiJson, ApiError } from '../api/client'
+import { ApiError } from '../api/client'
 import { deleteBook } from '../api/shelf'
+// R0911-C1-P3-2（2026-09-11 全量重评 GLM-5.3 修复批）：建书端点调用自本文件裸 apiJson
+// 归置到 api/books.ts 具名函数（与全仓其余端点统一）——别名导入避免与本组合式函数
+// 同名冲突；apiJson 导入随迁移移除（本文件仅剩 ApiError 供 confirmDelete 的 404 语义
+// 分支用）
+import { createBook as createBookApi } from '../api/books'
 import { friendlyError } from '../shared/error'
 import { clearFalsePositiveMarks, fpBookPrefix } from '../stores/check'
 import { clearFailedDrafts, migrateFailedDrafts } from './useChatComposer'
@@ -229,11 +234,8 @@ export function useShelf(options?: {
     creating.value = true
     createError.value = null
     try {
-      await apiJson('/api/books', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name, kind: newKind.value }),
-      })
+      // R0911-C1-P3-2：裸 apiJson → api/books.ts 具名函数（端点/payload/错误口径零变化）
+      await createBookApi(name, newKind.value)
       showCreate.value = false
       newName.value = ''
       newKind.value = 'long'

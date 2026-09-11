@@ -43,7 +43,10 @@ export default defineConfig({
   },
   // R73-76（批 F-9）：首因标记——顺序契约下 spec 崩溃会让下游连坐红，整轮第一个
   // 未通过用例即首因，reporter 打印提示不改结果（list 保持默认输出）
-  reporter: [['list'], ['./test/e2e/first-cause-reporter.ts']],
+  // R0911-G-P3-3（2026-09-11 全量重评 GLM-5.3 修复批）：顺序契约运行期探针——
+  // onBegin 拿 Playwright 自排计划执行序对 spec-order.snapshot.txt 比对，镜像假设
+  //（guard 用 localeCompare 镜像收集序）分叉当场红；与 vitest 侧守卫互补合围
+  reporter: [['list'], ['./test/e2e/first-cause-reporter.ts'], ['./test/e2e/spec-order.reporter.ts']],
   projects: [
     // R73-74（批 F）：维持单 chromium 腿——Electron=Chromium 同核；补 webkit/firefox
     // 需另装浏览器且 dev:web 形态非发布面，登记取舍不在本轮扩腿

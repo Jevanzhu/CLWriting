@@ -1,3 +1,12 @@
+<script lang="ts">
+// R0911-C2-P3-1（2026-09-11 全量重评 GLM-5.3 修复批）：实例取号器须在模块作用域——
+// 原写在 <script setup> 内（其顶层即 setup 函数体、每实例重新执行），fpSeq 每实例
+// 归零再自增、uid 恒为 1：设置弹窗与专注排版条等双开 FontPicker 时两实例 optId 全
+// 同名（DOM 重复 id + aria-activedescendant 互串指到对方菜单项）。提模块级后跨实例
+// 单调取号（双 <script> 块先例：ContextMenu.vue）。
+let nextFpUid = 0
+</script>
+
 <script setup lang="ts">
 /**
  * 字体下拉选择器。
@@ -41,8 +50,7 @@ const listH = ref(320)
 // 移动，标准 listbox 模式）：↑/↓ 逐项（APG：不环绕）、Home/End 首尾、Enter/Space
 // 选中当前项、可打印字符 typeahead（前缀累计 800ms 窗）、Tab 收菜单放行焦移。
 // mouseenter 与键盘光标同源（悬停即同步 roving 位，菜单内 hover/键盘态不打架）。
-let fpSeq = 0 // 每实例唯一 id 前缀（页面多处字体下拉并存，aria-activedescendant 需全局唯一）
-const uid = ++fpSeq
+const uid = ++nextFpUid // 每实例唯一 id 前缀（页面多处字体下拉并存，aria-activedescendant 需全局唯一）
 const activeIdx = ref(0)
 const listNames = computed(() => [
   props.defaultFont ? `默认 · ${props.display(props.defaultFont)}` : props.placeholder,

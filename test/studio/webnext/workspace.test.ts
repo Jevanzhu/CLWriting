@@ -284,6 +284,60 @@ describe('workspace · 切书 debounce 竞态（ff 细节#11）', () => {
   })
 })
 
+// R0911-C1-P3-3（2026-09-11 全量重评 GLM-5.3 修复批）：书级 prefs 500ms 防抖的关窗
+// 冲刷——末次布局态此前随关窗静默丢失（R48-82 备案取舍收口）。冲刷 = 清挂起计时器后
+// 直发写穿（Book.vue __clwFlushBeforeClose 调用，页面级接线见
+// r0911-workspace-prefs-close-flush.test）；本组锚定 store 级语义：防抖窗内直写、
+// 冲刷后计时器作废不二写、无待写项不空写。
+describe('workspace · 关窗冲刷书级 prefs（R0911-C1-P3-3）', () => {
+  it('防抖窗内（未满 500ms）触发冲刷 → 直接写穿落盘（不 advance 计时器）', async () => {
+    const ws = useWorkspaceStore()
+    ws.setBook(BOOK)
+    await flush() // 加载 + 持久化 watch 挂上
+    vi.mocked(putBookPrefs).mockClear()
+    ws.openTab('d-close') // 排定 500ms 防抖（关窗时机落在窗内）
+    await nextTick() // watch 为 pre-flush：等一拍让防抖计时器排上（不 advance 500ms）
+    await ws.flushPendingBookPrefs()
+    // 写穿断言：未经 advanceTimersByTime(500)，putBookPrefs 已带最新布局态落盘
+    expect(putBookPrefs).toHaveBeenCalledTimes(1)
+    expect(putBookPrefs).toHaveBeenCalledWith(BOOK, expect.objectContaining({ activeDocId: 'd-close' }))
+    expect(bookPrefs.get(BOOK)).toMatchObject({ activeDocId: 'd-close' })
+  })
+
+  it('冲刷清掉挂起计时器 → 此后 advance 不再二写（防抖窗随冲刷消亡）', async () => {
+    const ws = useWorkspaceStore()
+    ws.setBook(BOOK)
+    await flush()
+    ws.openTab('d-once')
+    await nextTick() // 同上：等防抖计时器排上
+    await ws.flushPendingBookPrefs()
+    vi.mocked(putBookPrefs).mockClear()
+    await flush() // 原防抖计时器若未清，此处会再写一次
+    expect(putBookPrefs).not.toHaveBeenCalled()
+  })
+
+  it('无待写项（防抖窗空）→ 冲刷不空写', async () => {
+    const ws = useWorkspaceStore()
+    ws.setBook(BOOK)
+    await flush()
+    vi.mocked(putBookPrefs).mockClear()
+    await ws.flushPendingBookPrefs()
+    expect(putBookPrefs).not.toHaveBeenCalled()
+  })
+
+  it('冲刷失败 → 一次性 warning（R1010-P3 口径随写链外提保持）', async () => {
+    const ws = useWorkspaceStore()
+    ws.setBook(BOOK)
+    await flush()
+    ws.openTab('d-fail')
+    await nextTick() // 同上：等防抖计时器排上
+    vi.mocked(putBookPrefs).mockRejectedValueOnce(new Error('网络断了'))
+    await ws.flushPendingBookPrefs()
+    expect(toastSpy).toHaveBeenCalledWith('本书布局偏好暂时未能保存（网络/服务异常），恢复后将随下次调整自动重试', 'warning')
+    // 冲刷链吞错不 reject（关窗钩子不被打断）
+  })
+})
+
 // R-6（第十六轮）：书级 prefs 拉取失败 → 不置 prefsLoaded、不挂持久化 watch、
 // 不做 localStorage 迁移写回——否则默认布局经 watch 覆盖服务端已存的 prefs.json
 describe('workspace · R-6 prefs 拉取失败不覆盖已存 prefs', () => {

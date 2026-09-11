@@ -78,6 +78,24 @@ export async function postBaseline(name: string, baseline: number): Promise<void
   })
 }
 
+// POST /api/books { name, kind } → 建书（doInit：目录 + books.jsonl 登记 + book.yaml）。
+// R0911-C1-P3-2（2026-09-11 全量重评 GLM-5.3 修复批）：自 useShelf.createBook 的裸
+// apiJson 调用归置收编至此（全仓端点调用统一归 api/ 层，此处为此前唯一漏网）——签名/
+// 错误处理对齐本文件既有函数：失败（重名/非法书名/无工作目录，400）经 apiJson 统一抛
+// ApiError，由调用方 friendlyError 呈报；调用点行为零变化（原裸调同 payload 同端点）。
+export interface CreateBookResult {
+  name: string
+  kind: 'long' | 'short'
+  path: string
+}
+export async function createBook(name: string, kind: 'long' | 'short'): Promise<CreateBookResult> {
+  return apiJson<CreateBookResult>('/api/books', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, kind }),
+  })
+}
+
 // POST /api/books/:name/rename { name } → 全量改名（磁盘目录 + books.jsonl 登记 + active 指针 +
 // book.yaml title 一起同步）。renamed=false = 同名 no-op（仅 title 回正）；true = 目录已搬家，
 // 前端须把当前书切换到新名（res.name），否则旧名 URL 全部失效。

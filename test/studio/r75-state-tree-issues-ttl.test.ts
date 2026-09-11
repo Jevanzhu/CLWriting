@@ -13,7 +13,7 @@ import type { AddressInfo } from 'node:net'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { beforeAll, afterAll, describe, it, expect } from 'vitest'
+import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest'
 import { startServerSafe } from '../helpers/safe-port.js'
 import {
   __setStateTtlForTest,
@@ -138,6 +138,14 @@ beforeAll(async () => {
   // writeFileSync+清单读写，慢机/CI 卡顿下这段 I/O 超 300ms 即缓存已过期、二查变重算，
   // 假红（fail-noisy 方向无豁免）；1000ms 给足 3 倍裕量，到期侧睡 TTL+500 不受影响
   //（墙钟到期与机器快慢无关）。
+  // R0911-G-P1-1c（2026-09-11 修复批）：注入时钟根治两个方向的墙钟依赖——只接管
+  // Date（TTL 判定全部读 Date.now()），setTimeout/HTTP 服务器/真实 I/O 照常真实
+  //（toFake 选择性 fake 先例 p37-write-stall-watchdog）。fake 时钟不随真实耗时流动
+  // →「窗内二查」臂对首查→二查之间的 I/O 时长彻底免疫（R76-37 的裕量顾虑不再需要
+  // 真实墙钟兜底）；到期臂 advanceTimersByTime(TTL+1) 即时过期（先例 r47-rebuild-
+  // probe-ttl 的 3001=3000+1 同款），不再睡 TTL+500=1.5s 真实墙钟（CI 慢机测试段
+  // 被睡眠拖长，R0911-G-P1-1c macos 腿红族）。TTL 注入值保持 1000ms 不变。
+  vi.useFakeTimers({ toFake: ['Date'] })
   __setStateTtlForTest(1000)
   __setTreeIssuesTtlForTest(1000)
   server = await startServerSafe({ port: 0, workDir })
@@ -147,6 +155,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  vi.useRealTimers() // R0911-G-P1-1c：解除 Date fake，避免污染同进程后续时序
   __setStateTtlForTest(null) // 恢复默认 TTL，避免污染同进程其它测试
   __setTreeIssuesTtlForTest(null)
   if (server) await new Promise<void>((r) => server!.close(() => r()))
@@ -171,8 +180,8 @@ describe('R75-D-P3b：GET /state 5s TTL 缓存三态', () => {
     expect(second.status).toBe(200)
     expect(second.json.nextChapter).toBe(2)
 
-    // TTL（1000ms，R76-37）到期 → 重算见到新章
-    await new Promise((r) => setTimeout(r, 1000 + 500))
+    // TTL（1000ms，R76-37）到期 → 重算见到新章（R0911-G-P1-1c：注入时钟推进）
+    vi.advanceTimersByTime(1000 + 1)
     const third = await get(`/api/books/${encodeURIComponent(STATE_BOOK)}/state`)
     expect(third.status).toBe(200)
     expect(third.json.nextChapter).toBe(3)
@@ -194,8 +203,8 @@ describe('R75-D-P3b：GET /tree-issues 5s TTL 缓存三态', () => {
     expect(second.status).toBe(200)
     expect(second.json.issues[redDocId]).toEqual(expect.objectContaining({ hasRed: true }))
 
-    // TTL 到期 → 重算见到洗净后的正文（无红不入 issues）
-    await new Promise((r) => setTimeout(r, 1000 + 500))
+    // TTL 到期 → 重算见到洗净后的正文（无红不入 issues；R0911-G-P1-1c：注入时钟推进）
+    vi.advanceTimersByTime(1000 + 1)
     const third = await get(`/api/books/${encodeURIComponent(TREE_BOOK)}/tree-issues`)
     expect(third.status).toBe(200)
     expect(third.json.issues[redDocId]).toBeUndefined()
@@ -204,8 +213,9 @@ describe('R75-D-P3b：GET /tree-issues 5s TTL 缓存三态', () => {
 
 describe('R75-D-P3b：删书生命周期清理（forgetBookKeyedCaches 接线）', () => {
   it('GET 填充两缓存 → DELETE /api/books/:name 后条目随书失效', async () => {
-    // 填充：两个端点各命中一次（上两组用例后 TTL 已过期，本次为重算落缓存）
-    await new Promise((r) => setTimeout(r, 1000 + 500))
+    // 填充：两个端点各命中一次（上两组用例后 TTL 已过期，本次为重算落缓存；
+    // R0911-G-P1-1c：注入时钟显式推进保过期确定性，不再睡 TTL+500 真实墙钟）
+    vi.advanceTimersByTime(1000 + 1)
     const s = await get(`/api/books/${encodeURIComponent(STATE_BOOK)}/state`)
     expect(s.status).toBe(200)
     const t = await get(`/api/books/${encodeURIComponent(TREE_BOOK)}/tree-issues`)

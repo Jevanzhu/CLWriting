@@ -48,7 +48,7 @@ import { createStudioServerManager, ServerBootError } from './server-manager.js'
 import { createBootstrapRunner } from './bootstrap-runner.js' // O-4：生命周期 runner 可测
 import { isBoundsVisibleOnAnyDisplay } from './window-state.js' // R26-86：多屏 bounds 校验纯函数
 import { getFonts as getSystemFontList } from 'font-list'
-import { createSystemFontCache, fontListWithTimeout } from './font-cache.js' // R77-1（二十五轮批 A）：系统字体 IPC 缓存；R40-28：font-list 超时包裹
+import { createSystemFontCache, fontListWithTimeout, darwinFontListCommand } from './font-cache.js' // R77-1（二十五轮批 A）：系统字体 IPC 缓存；R40-28：font-list 超时包裹；R0911-A-P2-1：darwin 自管 spawn 二进制解析
 import { listWindowsFonts } from './win-fonts.js' // MP2-1（专项重评二轮）：win 自绘枚举（windowsHide，不经 cmd）
 import {
   parseStore,
@@ -1176,7 +1176,11 @@ async function bootstrap(): Promise<void> {
   // 网络卷时 bootstrap 首行即同步冻主进程数十秒；重审-1 probeDirReachable 防线只护
   // current/cwd，recent 条目在防线外。超时项保留展示（失联≠失效，择库守卫预探拦截
   // 兜底，R48-73 取舍口径不变）；并行预算 ≤ MAX_RECENT 条，总延迟 = 单条预算。
-  // 此处先于任何 IPC 注册（下方 registerIpc 在窗口就绪后），早读窗口不存在。
+  // R0911-A-P3-1（2026-09-11 全量重评 GLM-5.3 修复批）：本行原注「此处先于任何 IPC
+  // 注册（下方 registerIpc 在窗口就绪后）」与实际相反——registerIpc() 在 whenReady
+  // 同步段先于 runBootstrap 执行（IPC handler 已注册）。早读窗口不存在的真实依据：
+  // 窗口要到 bootstrap 定出 workDir 后才创建、渲染层尚未加载，这些 await 期间没有
+  // renderer sender 到达，不构成 IPC 并发面（同步冻住的是主进程自身，见上段动机）。
   if (store.recent.length > 0) {
     storeCache = await filterValidRecentBudgeted(store, { timeoutMs: BOOTSTRAP_PROBE_TIMEOUT_MS })
   }
@@ -1641,12 +1645,24 @@ function registerIpc(): void {
   // R40-28（四十轮）：mac/linux 的 font-list 调用包超时（win 已走 win-fonts 自带
   // 10s 超时 + kill，R39-5）——osascript/系统命令挂起时字体下拉悬死；font-list 不
   // 暴露子进程句柄，超时只 reject 不 kill（残留记档见 font-cache.ts 头注）。
-  // R48-17（四十八轮）备案：本处不传 deps——PM-12 的「超时必杀」（deps.command 自管
-  // spawn）生产不可达，mac/linux 超时仍只放弃等待、孤儿进程残留未收口，接线待台账
-  // PM-12 拍板（mac asar 路径需打包态验证），不代办拍板项；会话级熔断生产已生效
-  //（fontListWithTimeout 缺省路径即包裹，R48-74 起 win 侧 listWindowsFonts 亦套用）。
+  // R0911-A-P2-1/A-P3-4（2026-09-11 全量重评 GLM-5.3 修复批）：R48-17 备案的两项随本批
+  // 收口——①二进制随包分发：fontlist 原生二进制构建期由 tsup onSuccess 拷入
+  // dist/desktop/（darwin 腿）+ electron-builder asarUnpack 外置，font-list 上游
+  // path.join(__dirname,'fontlist') 的 execFile 自此真有文件可执行（此前打包态恒
+  // ENOENT 回落 system_profiler 慢路径，慢机触 10s 超时连败熔断、下拉返空）；
+  // ②PM-12 kill 接线（台账待拍板项随作者「全部修复」指令落地，原「打包态路径不可解」
+  // 拍板理由随①失效）：mac 注入 deps.command 走自管 spawn——超时必杀（孤儿进程残留
+  // 收口），启动面失败（二进制缺失/不可执行）自动回落 load（font-list 自带
+  // system_profiler 回落链保持可达，与纯 font-list 行为一致）；linux 维持 load 路径
+  //（fc-list 是系统命令非随包二进制，无此孤儿面差）。win 不变（win-fonts 自带超时
+  // kill）。打包态实测复验仍留台账（build:desktop:dir + 手装 DMG 验字体下拉）。
   const loadFontList = () =>
-    process.platform === 'win32' ? listWindowsFonts() : fontListWithTimeout(() => getSystemFontList({ disableQuoting: true }))
+    process.platform === 'win32'
+      ? listWindowsFonts()
+      : fontListWithTimeout(
+          () => getSystemFontList({ disableQuoting: true }),
+          process.platform === 'darwin' ? darwinFontListCommand(here) : undefined,
+        )
   const loadSystemFonts = createSystemFontCache(loadFontList)
   ipcMain.handle('desktop:get-system-fonts', async (e) => {
     if (!isTrustedSender(e)) return

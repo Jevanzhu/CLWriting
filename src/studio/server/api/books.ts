@@ -121,15 +121,16 @@ function forgetBookKeyedCaches(bookRoot: string): void {
   // R46-23：ai-calls 旧格式迁移标记同族清理（删书重建后迁移可重试）
   forgetMigratedRoots(bookRoot)
   // R1010b-SRV-P3-1（2026-09-10 内存专项重审修复批）：伏笔保存串行链 Map 条目同族
-  // 清理——链尾自清理覆盖常态，此处兜删书/改名时点的悬挂残条（bookRoot 键成死重）
+  // 清理——链尾自清理覆盖常态，此处兜删书/改名时点的悬挂残条（bookRoot 键成死重）；
+  // 删书/改名后同名重建书不复用旧链尾（调用点已 drainForeshadowSaveChains，链空，
+  // 删除不破坏在途串行）。
+  // R0911-B-P3-1（2026-09-11 全量重评 GLM-5.3 修复批）：R0910-W 批在此（shelfGuardCache
+  // 清扫之后）重复追加了第二次调用——幂等零影响，但两条注释读作两件不同的事。合并为
+  // 单次调用，真实语义即上注（Map.delete 幂等，一次已达清理目的）。
   forgetForeshadowSaveChain(bookRoot)
   // R39-16：书架守卫/配置缓存同族清理（删/改名后同名重建书不读陈 book.yaml；
   // 缓存按 workDir+path 键，整表清扫语义与「该书键失效」等价——书键族口径）
   shelfGuardCache.clear()
-  // R0910-W：伏笔保存串行链同族清理（documents.ts per-bookRoot 链尾 map，此前唯一
-  // 无逐出路径的 per-book map）——删书/改名后同名重建书不复用旧链尾（调用点已
-  // drainDocumentSaves，链空，删除不破坏在途串行）
-  forgetForeshadowSaveChain(bookRoot)
 }
 
 // ── R39-16（三十九轮）：书架守卫/配置 TTL 缓存 ──────────────────

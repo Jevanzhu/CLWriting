@@ -40,6 +40,24 @@ interface ConfigCtx {
   workDir: string | null
 }
 
+// ── R0911-B-P3-4（2026-09-11 全量重评 GLM-5.3 修复批）：非闸书级写端点的临界段书注册重验 ──
+// PUT /config 无任务闸（books.ts 删书/改名的 busyGate 只查 spawn/三审/task-gate，看不见
+// 在途 PUT）——handler 入口 resolveBook 捕获的 bookRoot 只是快照，随后 await readJson 可
+// 跨过 drain 时点，atomicWriteFile 对旧捕获路径 mkdir recursive 会复活幽灵 book.yaml 目录
+// （无完整书相，repairBooks 不认领）。套 documents.ts R1010b-SRV-P2-1 同型防线：body
+// 解析校验后、写盘临界段首行重验 name→bookRoot 注册，已删或变化 → 409 BOOK_MOVED
+//（信封口径与 documents.ts/files.ts 一致）。重验与下方「读盘/指纹比对/写盘」同步段
+// 之间零 await，乐观锁原子口径（R34D-25）不变。
+type BookMovedFailure = { code: 'BOOK_MOVED'; reason: string }
+
+function bookMovedFailure(ctx: ConfigCtx, name: string | undefined, capturedRoot: string): BookMovedFailure | null {
+  const rNow = resolveBook(ctx.workDir, name)
+  if ('error' in rNow || rNow.bookRoot !== capturedRoot) {
+    return { code: 'BOOK_MOVED', reason: '书已改名或已删除，本次操作已取消——请重新打开本书后再试' }
+  }
+  return null
+}
+
 export function registerConfigRoutes(ctx: ConfigCtx): void {
   defineRoute('books.config.get', {
     method: 'GET',
@@ -89,6 +107,9 @@ export function registerConfigRoutes(ctx: ConfigCtx): void {
         return replyError(res, 400, 'BAD_INPUT', `config.${key} 须为 ≥${min} 的有限数值`)
       }
     }
+    // R0911-B-P3-4：readJson 窗口后写前重验书注册（时序见 bookMovedFailure 头注）
+    const moved = bookMovedFailure(ctx, params['name'], r.bookRoot)
+    if (moved) return replyError(res, 409, moved.code, moved.reason)
     try {
       const yamlPath = join(r.bookRoot, 'book.yaml')
       // R34D-25：读盘/指纹比对/写盘三段同步无 await（GG-P2-7 单事件循环原子口径）——

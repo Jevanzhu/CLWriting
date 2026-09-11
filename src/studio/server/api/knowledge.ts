@@ -12,12 +12,44 @@ import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { learnFromBook } from '../../../learn/index.js'
-import { commitSamples, commitQuotes } from '../../../learn/commit.js'
+import { commitSamples, commitQuotes, defaultCommitYield, type CommitYield } from '../../../learn/commit.js'
 import type { LearnResult, SampleCandidate, QuoteCandidate } from '../../../learn/index.js'
 import { acquireTaskGate } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
 interface KnowledgeCtx {
   workDir: string | null
   token: string
+}
+
+// ── R0911-B-P3-4（2026-09-11 全量重评 GLM-5.3 修复批）：非闸书级写端点的临界段书注册重验 ──
+// learn-commit 无任务闸（books.ts 删书/改名的 busyGate 只查 spawn/三审/task-gate，看不见
+// 在途 commit）——handler 入口 resolveBook 捕获的 bookRoot 只是快照，随后的 await
+// readJson / 批量落盘的周期让出（R0911-B-P3-3）都可跨过 drain 时点，对旧捕获路径落盘
+// 会 mkdir 复活幽灵目录（无 book.yaml，repairBooks 不认领）。套 documents.ts
+// R1010b-SRV-P2-1 同型防线（本文件域内单源）：写前/每次让出后重验 name→bookRoot 注册，
+// 已删（解析失败）或 bookRoot 变化（改名/搬目录）→ 409 BOOK_MOVED（信封口径与
+// documents.ts/files.ts 一致）。同文件 /learn 有 'learn' 任务闸先于首个 await 占位，
+// busyGate 可见，不在本竞态面内。
+type BookMovedFailure = { code: 'BOOK_MOVED'; reason: string }
+
+function bookMovedFailure(ctx: KnowledgeCtx, name: string | undefined, capturedRoot: string): BookMovedFailure | null {
+  const rNow = resolveBook(ctx.workDir, name)
+  if ('error' in rNow || rNow.bookRoot !== capturedRoot) {
+    return { code: 'BOOK_MOVED', reason: '书已改名或已删除，本次操作已取消——请重新打开本书后再试' }
+  }
+  return null
+}
+
+/** R0911-B-P3-4：让出点书注册重验失败的出口信号——经 commit 循环上抛（commit.ts 让出
+ *  抛错 = 调用方中止信号），handler 统一映射 409 BOOK_MOVED；其余错误照原样上抛走
+ *  dispatch 兜底（与修复前口径一致）。 */
+class BookMovedSignal extends Error {}
+
+/** R0911-B-P3-3：learn-commit 让出原语测试注入口（先例 __setLearnTtlForTest）——生产
+ *  缺省真让出（setImmediate）；测试注入受控桩在让出点做确定性动作（计数/并发移书）。
+ *  让出后的书注册重验在 handler 的包装层（不随桩替换），始终生效。 */
+let learnCommitYieldPrimitive: CommitYield = defaultCommitYield
+export function __setLearnCommitYieldForTest(fn: CommitYield | null): void {
+  learnCommitYieldPrimitive = fn ?? defaultCommitYield
 }
 
 // ── R66-28（十四轮）：/learn 全书扫描的并发闸 + TTL 缓存 ──────────────────────
@@ -131,9 +163,28 @@ export function registerKnowledgeRoutes(ctx: KnowledgeCtx): void {
     const samples = rawSamples.filter(isSampleCandidate)
     const quotes = rawQuotes.filter(isQuoteCandidate)
     const bookRoot = r.bookRoot
-    const sampleFiles = samples.length ? commitSamples(bookRoot, samples) : []
-    const quoteFiles = quotes.length ? commitQuotes(bookRoot, quotes) : []
-    reply(res, 200, { ok: true, sampleFiles, quoteFiles })
+    // R0911-B-P3-4：await readJson 可跨删书/改名的 drain 时点（本端点无任务闸）——
+    // commit 前重验书注册（时序见本文件 bookMovedFailure 头注），防对旧捕获路径落盘
+    const moved = bookMovedFailure(ctx, params['name'], bookRoot)
+    if (moved) return replyError(res, 409, moved.code, moved.reason)
+    // R0911-B-P3-3（2026-09-11 全量重评 GLM-5.3 修复批）：批量落盘改走可让出 commit——
+    // 上限 400 条/数组 × 逐条原子写双 fsync 在慢盘可拖出秒级同步段，全程无让出会冻结
+    // SSE 心跳/其它请求；让出缺省每 100 条一次（commit.ts COMMIT_YIELD_EVERY）。
+    // 让出点复合 B-P3-4 重验：周期让出是新的 await 窗，让出后书已搬走即抛信号中止
+    // 剩余条目（已落条目不回滚，documents.ts 链单元同口径），409 提示重开书重提交。
+    const commitYield = async (): Promise<void> => {
+      await learnCommitYieldPrimitive()
+      const movedNow = bookMovedFailure(ctx, params['name'], bookRoot)
+      if (movedNow) throw new BookMovedSignal(movedNow.reason)
+    }
+    try {
+      const sampleFiles = samples.length ? await commitSamples(bookRoot, samples, commitYield) : []
+      const quoteFiles = quotes.length ? await commitQuotes(bookRoot, quotes, commitYield) : []
+      reply(res, 200, { ok: true, sampleFiles, quoteFiles })
+    } catch (e) {
+      if (e instanceof BookMovedSignal) return replyError(res, 409, 'BOOK_MOVED', e.message)
+      throw e
+    }
   },
   })
 }

@@ -66,6 +66,30 @@ describe('B-8: ConfirmPrompt Esc 消费', () => {
     ui.resolveConfirm(false)
     await expect(p).resolves.toBe(false)
   })
+
+  // R0911-C2-P3-3（2026-09-11 全量重评 GLM-5.3 修复批）：Esc 补 IME 组合期让渡——
+  // 全库编辑类组件 Esc/Enter 均带 isImeComposing 守卫（SettingsModal/FontPicker/
+  // ConfirmDeleteModal 等先例），本组件原是唯一缺口：确认框常压在含输入框的页面
+  // 之上，组合中的 Esc 是取消组字/收输入法候选，不应连带取消确认弹窗。
+  // 真实 KeyboardEvent 直派（isComposing init 透传，r50-d1 同款）。
+  it('R0911-C2-P3-3: IME 组合期 Esc 让渡——不关不消费；非组合 Esc 照常取消', async () => {
+    const ui = useUiStore()
+    const w = mount(ConfirmPrompt, { attachTo: document.body })
+    const p = ui.ask({ title: '删除书', message: '确认？' })
+
+    // IME 组合期 Esc（收候选/取消组字）：让渡输入法——不关弹窗、不 preventDefault
+    const composingEsc = new KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true, cancelable: true })
+    document.dispatchEvent(composingEsc)
+    expect(composingEsc.defaultPrevented).toBe(false) // Esc 归输入法消费
+    expect(ui.confirmState).not.toBeNull() // 修复点：不连带取消确认框
+
+    // 非组合期 Esc：照常本层消费并按取消收口（B-8 语义保留）
+    const realEsc = pressEsc()
+    expect(realEsc.defaultPrevented).toBe(true)
+    await expect(p).resolves.toBe(false)
+    expect(ui.confirmState).toBeNull()
+    w.unmount()
+  })
 })
 
 describe('重评-P3-18: ConfirmDeleteModal Esc 自持（宿主 handler 摘分支后语义不变）', () => {

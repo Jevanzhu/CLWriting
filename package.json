@@ -32,7 +32,7 @@
     "check:packaging": "node scripts/check-packaging.mjs",
     "check:knowledge": "tsx scripts/check-knowledge.ts",
     "verify:responses": "tsx scripts/verify-responses-relay.ts",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings 0",
     "corpus:harvest": "tsx scripts/harvest-corpus.ts",
     "corpus:commit": "tsx scripts/corpus-commit.ts",
     "knowledge:update": "tsx scripts/knowledge-update.ts",

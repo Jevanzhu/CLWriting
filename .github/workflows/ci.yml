@@ -106,7 +106,34 @@ jobs:
       - name: 测试（含 node:sqlite smoke）
         run: npm test
         # 注意须 ${{ }} 包裹：裸 if 以 ! 开头会被 YAML 解析为标签（gg批0：CI 工作流启动级失败的根因）
-        if: ${{ !(matrix.os == 'ubuntu-latest' && matrix.node == 24) }}
+        # R0911-G-P1-1d：win 腿拆到下方专用步（收尾竞态重跑兜底），其余非覆盖腿维持原样
+        if: ${{ !(matrix.os == 'ubuntu-latest' && matrix.node == 24) && matrix.os != 'windows-latest' }}
+      # R0911-G-P1-1d（2026-09-11 CI 红族之四）：win 腿测试步「同命令重跑一次」兜底。
+      # 成因定性（源码证据，见台账 §三 G 族）：win 腿用例零红，但 vitest forks 池默认
+      # isolate=true——每个测试文件跑完都销毁一个 fork worker（tinypool ProcessWorker：
+      # teardown 消息 → 等 worker 应答 → kill）；win 上 TerminateProcess 即时生效 + IPC
+      # 通道关断时序差异，收尾期「teardown 应答 vs kill」竞态窗内 process.send() 抛
+      # ERR_IPC_CHANNEL_CLOSED，tinypool 1.1.1 的 ThreadPool.destroy 对 _removeWorker
+      # 返回的 promise 无 catch → unhandledRejection → vitest 主进程
+      # registerUnhandledRejection 一律 process.exit(1)（汇总打印前被杀，2026-09-08
+      # win 红同族，间歇性竞态）。
+      # 重跑语义：首跑绿 = 零额外成本；首跑红 → 同命令重跑一次：重跑绿 = 收尾竞态洗白
+      # （win 用例本身全绿的既证形态）；重跑仍红 = exit 1 步红——真失败不吞，只延后一轮。
+      # 副作用已知：①真用例红多花一次全量时长（win 腿预算 30min，实测测试段 ~6min 可容）；
+      # ②间歇用例 flake 可能被重跑洗白一跑——当前 win 腿零用例红，风险面收窄接受。
+      # ubuntu/macos 腿无此竞态族记录，不加重试（保持失败首报的排障效率）。
+      # 待上游根治后（vitest/tinypool 升级，见台账登记项）本兜底可撤。
+      - name: 测试（win 腿，R0911-G-P1-1d 收尾竞态重跑一次兜底）
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          npm test
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::warning title=R0911-G-P1-1d::win 腿测试首跑非零退出（tinypool teardown ERR_IPC_CHANNEL_CLOSED 收尾竞态嫌疑）——同命令重跑一次区分收尾竞态与真失败"
+            npm test
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+          }
+          exit 0
       - name: 测试 + 覆盖率阈值门（ubuntu·24 腿）
         run: npm run test:coverage
         if: matrix.os == 'ubuntu-latest' && matrix.node == 24
@@ -167,6 +194,14 @@ jobs:
         run: npm --prefix src/studio/web-next ci
 
       # --with-deps：ubuntu 上确保 chromium 系统库齐备（runner 镜像通常预装，此处幂等兜底）
+      # R0911-G-P3-5（2026-09-11 全量重评 GLM-5.3 修复批）：浏览器层缓存——每跑重下
+      # chromium ~130MB，按根 lockfile 哈希键控（@playwright/test 版本变更自动失效重下；
+      # --with-deps 的 apt 侧幂等，命中缓存时 install 秒级 no-op）
+      - name: 缓存 playwright chromium
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - name: 装 playwright chromium
         run: npx playwright install --with-deps chromium
 
@@ -196,6 +231,11 @@ jobs:
           command -v xvfb-run >/dev/null || { echo "::error::xvfb 未安装成功"; exit 1; }
           ldconfig -p | grep -q 'libgtk-3' || { echo "::error::libgtk-3 未安装成功"; exit 1; }
           ldconfig -p | grep -q 'libnss3' || { echo "::error::libnss3 未安装成功"; exit 1; }
+          # R0911-G-P3-6（2026-09-11 全量重评 GLM-5.3 修复批）：核对面补齐 libgbm/libasound
+          # ——apt 循环 `|| true` 容错安装时装失败此前静默（装 7 包只核对 3），Electron
+          # 缺 GPU/ALSA 库以非零退/挂死收场，伪装成后面冒烟步的超时红，指因错层。
+          ldconfig -p | grep -q 'libgbm' || { echo "::error::libgbm 未安装成功（Electron GPU 合成必需）"; exit 1; }
+          ldconfig -p | grep -q 'libasound' || { echo "::error::libasound 未安装成功（Electron 音频栈必需）"; exit 1; }
 
       - name: Electron 集成冒烟（真实建窗→关窗，xvfb）
         run: xvfb-run -a npm run smoke:electron

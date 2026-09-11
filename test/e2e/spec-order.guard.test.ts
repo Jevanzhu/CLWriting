@@ -28,7 +28,10 @@
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+// R0911-G-P3-3：运行期探针 reporter 的纯函数直测（reporter 模块零 playwright 运行时
+// 依赖——类型自持，vitest 侧可直 import；onBegin/onEnd 只在真实 e2e 由 config 挂载跑）
+import SpecOrderReporter, { plannedSpecOrderFromSuite, specOrderDriftLines } from './spec-order.reporter.js'
 
 const e2eDir = dirname(fileURLToPath(import.meta.url))
 const SNAPSHOT_PATH = join(e2eDir, 'spec-order.snapshot.txt')
@@ -209,4 +212,61 @@ it('重评-3 两步闸：无变化 + 仅 UPDATE → 幂等通过，不写入不�
   })
   expect(outcome).toBe('unchanged')
   expect(written).toBe(false)
+})
+
+// ── R0911-G-P3-3（2026-09-11 全量重评 GLM-5.3 修复批）：运行期探针 reporter 的纯函数直测 ──
+// （spec-order.reporter.ts 由 playwright.config.ts 挂载，onBegin/onEnd 只在真实 e2e
+// 跑；两个纯函数在 vitest 侧锚定语义）
+describe('R0911-G-P3-3：spec-order reporter 纯函数（运行期探针的比对内核）', () => {
+  it('plannedSpecOrderFromSuite：按文件去重保序（跨 spec 多用例只记一次，顺序=allTests 首见序）', () => {
+    const mk = (file: string) => ({ location: { file: `/repo/test/e2e/${file}` } })
+    const out = plannedSpecOrderFromSuite([mk('aa.spec.ts'), mk('aa.spec.ts'), mk('cc.spec.ts'), mk('bb.spec.ts'), mk('aa.spec.ts')])
+    expect(out).toEqual(['aa.spec.ts', 'cc.spec.ts', 'bb.spec.ts'])
+  })
+
+  it('specOrderDriftLines：一致 → 空；新增/移除/纯顺序漂移三形态各自成行', () => {
+    const base = ['aa.spec.ts', 'bb.spec.ts', 'cc.spec.ts']
+    expect(specOrderDriftLines([...base], base)).toEqual([])
+    expect(specOrderDriftLines([...base, 'dd.spec.ts'], base)).toEqual(['  实际执行序多出：dd.spec.ts'])
+    expect(specOrderDriftLines(base.slice(0, 2)!, base)).toEqual(['  快照有而实际未收集：cc.spec.ts'])
+    expect(specOrderDriftLines(['bb.spec.ts', 'aa.spec.ts', 'cc.spec.ts'], base)).toEqual([
+      '  集合相同、顺序不同——Playwright 收集序与快照分叉（localeCompare 镜像假设失效，或 spec 集漂移未重拍）',
+    ])
+  })
+})
+
+// ── R0911-G-P3-3 补：reporter 门行为直测（锚 onEnd 返回 { status: 'failed' } 机制）──
+// 首版实现在此处翻过车：onBegin 单参声明把 config 收成 suite（allTests undefined）、
+// onEnd 用 throw——playwright 对 reporter 异常只记「Error in reporter」日志且退出码
+// 仍 0，门形失效。本组用例把两个签名口径钉进回归（playwright 1.57 探针实测）。
+describe('R0911-G-P3-3：spec-order reporter 门行为（防回退成抛错/单参签名）', () => {
+  const mkTests = (files: string[]) => files.map((f) => ({ location: { file: `/fake/e2e/${f}` } }))
+  const snapshot = readSnapshotOrder()
+
+  it.skipIf(snapshot === null)(
+    '双参 onBegin(config, suite) 收集计划序；序与快照一致 → onEnd 不判失败（返回 undefined）',
+    () => {
+      const r = new SpecOrderReporter()
+      r.onBegin({ workers: 1 }, { allTests: () => mkTests(snapshot!) })
+      expect(r.onEnd()).toBeUndefined()
+    },
+  )
+
+  it.skipIf(snapshot === null)(
+    '序漂移 → onEnd 返回 { status: "failed" }（整轮退出码 1 的官方通道）并留痕 console.error',
+    () => {
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      try {
+        const base = snapshot!
+        const drifted =
+          base.length > 1 ? [...base.slice(1), base[0]!] : [...base, 'zz-extra-drift.spec.ts']
+        const r = new SpecOrderReporter()
+        r.onBegin({}, { allTests: () => mkTests(drifted) })
+        expect(r.onEnd()).toEqual({ status: 'failed' })
+        expect(errSpy).toHaveBeenCalled()
+      } finally {
+        errSpy.mockRestore()
+      }
+    },
+  )
 })

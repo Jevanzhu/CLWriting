@@ -11,6 +11,14 @@ files:
   - resources/**/*
   - package.json
 asar: true
+# R0911-A-P2-1（2026-09-11 全量重评 GLM-5.3 修复批）：mac fontlist 原生二进制外置——
+# main 进程的自管枚举（font-cache.ts runFontListCommandWithKill）用 spawn，spawn 不认
+# asar 内路径（execFile 有 Electron 补丁、spawn 没有），desktop/fontlist（tsup onSuccess
+# 构建期拷入 dist，darwin 腿）须外置到 app.asar.unpacked/ 同相对位，main.ts
+# darwinFontListCommand 按 asar→asar.unpacked 改写取真路径。win/linux 腿 dist 内无此
+# 文件，glob 零命中为 no-op。
+asarUnpack:
+  - desktop/fontlist
 mac:
   category: public.app-category.productivity
   target:

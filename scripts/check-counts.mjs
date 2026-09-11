@@ -352,6 +352,23 @@ export function parseWinPlatformDelta(readme) {
   return m ? Number(m[1]) : null
 }
 
+/**
+ * R0911-G-P3-1（2026-09-11 全量重评 GLM-5.3 修复批）：win 腿单测数对账的失配判定
+ * 纯函数化——原逻辑内联在 main() 的 claimUnitTests 闭包里（README 声称值 − 平台门
+ * 跳过量反推期望 win 实测），win 分支此前零直测、基线零实跑背书（win CI 腿红绿是
+ * 唯一暴露通道）。语义零变化：期望 win = claimed − delta，不等即一条人话失配
+ *（含 README 漂移与 win 侧收集丢失两个方向 + 修账指引）；相等返回空。
+ */
+export function problemsForWinUnitTestsClaim(claimed, delta, actualWin, label) {
+  const expectedWin = claimed - delta
+  if (expectedWin === actualWin) return []
+  return [
+    `${label}（win 口径）：README 声称 ${claimed}（mac/linux 口径），平台门差 ${delta} → ` +
+      `期望 win ${expectedWin}，实测 win ${actualWin}（README 漂移或 win 侧收集丢失）。` +
+      `请按实测修 README（若为新增/移除 skipIf(win32) 用例，同步修「开发」节的「实测差 N 恒定」）。`,
+  ]
+}
+
 // 门禁主体收进 main() + 直跑守卫：node 直跑本文件（npm run check:counts）时执行；
 // 被测试 import（R63-12 直测纯函数）时不触发 vitest list / process.exit 副作用
 function main() {
@@ -498,16 +515,9 @@ function main() {
       mismatch.push(`README 缺少「${label}」声称值（模式失配：${pattern}）——win 实测 ${actual.unitTests}`)
       return
     }
-    // win 期望 = README 声称（mac/linux 口径）− 平台门跳过量
+    // win 期望 = README 声称（mac/linux 口径）− 平台门跳过量（R0911-G-P3-1 抽出直测）
     const claimed = Number(m[1])
-    const expectedWin = claimed - winDelta
-    if (expectedWin !== actual.unitTests) {
-      mismatch.push(
-        `${label}（win 口径）：README 声称 ${claimed}（mac/linux 口径），平台门差 ${winDelta} → ` +
-          `期望 win ${expectedWin}，实测 win ${actual.unitTests}（README 漂移或 win 侧收集丢失）。` +
-          `请按实测修 README（若为新增/移除 skipIf(win32) 用例，同步修「开发」节的「实测差 N 恒定」）。`,
-      )
-    }
+    mismatch.push(...problemsForWinUnitTestsClaim(claimed, winDelta, actual.unitTests, label))
   }
   // 徽章：tests-2937%20all%20green（示例为 2026-08-23 当前值，实际以 README 为准）
   claimUnitTests(/badge\/tests-(\d+)%20all%20green/, '徽章单测数')

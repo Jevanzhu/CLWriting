@@ -4,6 +4,7 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 import { useUiStore } from '../../stores/ui'
 import { useFocusTrap } from '../../composables/useFocusTrap'
+import { isImeComposing } from '../../shared/ime'
 const ui = useUiStore()
 const modalRef = ref<HTMLElement | null>(null)
 useFocusTrap(modalRef)
@@ -13,6 +14,11 @@ useFocusTrap(modalRef)
 // document capture 监听，Esc → preventDefault（全局层 defaultPrevented 让渡链成立）+ 取消。
 function onKeydown(e: KeyboardEvent): void {
   if (!ui.confirmState || e.key !== 'Escape') return
+  // R0911-C2-P3-3（2026-09-11 全量重评 GLM-5.3 修复批）：IME 组合期 Esc 让渡输入法
+  // （isImeComposing 单源判据，对齐 SettingsModal/FontPicker/ConfirmDeleteModal 先例；
+  // 本组件原是全库编辑类 Esc/Enter 守卫族唯一缺口）——组合中的 Esc 是取消组字/收输入法
+  // 候选，不应连带取消确认弹窗；让渡期不 preventDefault，Esc 归输入法消费。
+  if (isImeComposing(e)) return
   e.preventDefault()
   ui.resolveConfirm(false)
 }

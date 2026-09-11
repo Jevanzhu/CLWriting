@@ -25,9 +25,12 @@ export interface FenceLineMatch {
  * 判定一行是否 markdown 围栏行（``` / ~~~；0-3 空格缩进；CRLF 尾容忍——R33-1：
  * 行尾残 \r 不破匹配，`.` 不匹配 \r 故信息串不含 \r）。非围栏行（含 4+ 空格缩进
  * 的 indented code block 内容）返回 null。
+ * R0911-E-P3-5（2026-09-11 全量重评 GLM-5.3 修复批）：缩进字符收紧为纯空格——
+ * CommonMark 缩进只计空格（tab 按 4 列进 indented code block），原 `\s{0,3}` 把
+ * tab 缩进的 ``` 行误判成围栏；tab 不再计入缩进容忍，口径钉死与规范一致。
  */
 export function matchFenceLine(line: string): FenceLineMatch | null {
-  const m = line.match(/^\s{0,3}(`{3,}|~{3,})(.*)\r?$/)
+  const m = line.match(/^ {0,3}(`{3,}|~{3,})(.*)\r?$/)
   if (!m) return null
   // 围栏字符连写 ≥3 且只含 `/~（正则保证），首字符安全
   return { ch: m[1]![0]! as '`' | '~', len: m[1]!.length, info: m[2] ?? '' }

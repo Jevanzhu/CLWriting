@@ -199,6 +199,30 @@ describe('批 U1：fork 参数与握手', () => {
     await expect(pending).rejects.toMatchObject({ code: 'EXIT' })
   })
 
+  // ── R0911-A-P3-2（2026-09-11 全量重评 GLM-5.3 修复批）：utilityProcess 'error' 监听面 ──
+  it('启动途中 error（V8 FatalError/spawn 失败形态）→ ServerBootError(FORK_ERROR) 快失败，不等满握手超时', async () => {
+    const { forkRecords, manager } = mkHarness()
+    const pending = manager.start({ workDir: null, userDataPath: mkUserData() })
+    // Electron 契约：'error' 三参（type / location / 完整崩溃报告文本），非 Error 对象
+    forkRecords[0]!.child.emit('error', 'FatalError', 'heap/0x1c8', 'report: invalid table size')
+    await expect(pending).rejects.toMatchObject({ code: 'FORK_ERROR' })
+    await expect(pending).rejects.toThrow(/FatalError @ heap\/0x1c8/)
+  })
+
+  it('ready 后 error（运行中异常终止）→ 持久监听诊断留痕不崩进程（EventEmitter error 无监听即 uncaught 的防线锚定）', async () => {
+    const cap = mkLogCapture()
+    const { forkRecords, manager } = mkHarness({ logger: cap.logger })
+    const pending = manager.start({ workDir: null, userDataPath: mkUserData() })
+    const child = forkRecords[0]!.child
+    child.emit('message', { type: 'ready', port: 7 })
+    await pending
+    child.emit('error', 'FatalError', '', 'report: OOM')
+    const hit = cap.lines.find((l) => l.level === 'error' && l.msg.includes('utilityProcess 异常终止'))
+    expect(hit, '诊断日志未落档').toBeTruthy()
+    expect(hit?.err).toBe('report: OOM') // 完整崩溃报告进档（V8 级根因可考古）
+    await manager.stopChild()
+  })
+
   it('ready 前不 resolve（时序锚定：端口只能来自握手消息）', async () => {
     const { forkRecords, manager } = mkHarness()
     const pending = manager.start({ workDir: null, userDataPath: mkUserData() })

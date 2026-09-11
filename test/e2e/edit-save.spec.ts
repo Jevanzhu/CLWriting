@@ -28,6 +28,16 @@ function parseTotalWords(s: string | null): number {
 // 恢复口径：delta 行滤除（前序 spec 的 baseline「今日基线」条目保留）；.cache 整目录
 // 移除（缓存是纯加速，缺席自动 rebuild，与 fixture 初态一致）。防御性：三步各自
 // 独立 try/catch，任一恢复失败不阻断（workDir 每次运行重建，最坏是本轮下游受影响）。
+// R0911-G-P3-3（2026-09-11 全量重评 GLM-5.3 修复批）：恢复失败留痕——原空 catch 静默
+// 吞，顺序契约下「前序 spec 该恢复的状态没恢复」会让下游 spec 无因红（或弱断言照绿
+// 漏真回归），事后日志零线索。不阻断语义保留，改打 [e2e-restore] 结构化标记（CI 日志
+// 可 grep 定位，与 [CLW_SMOKE] / 首因标记同款排查锚）。
+function reportRestoreFailure(step: string, e: unknown): void {
+  console.error(
+    `[e2e-restore] edit-save afterAll「${step}」恢复失败：${e instanceof Error ? e.message : String(e)}（不阻断；下游 spec 可能受影响）`,
+  )
+}
+
 test.afterAll(() => {
   const workDir = process.env['CLWRITING_E2E_WORKDIR']
   if (!workDir) return
@@ -36,8 +46,8 @@ test.afterAll(() => {
     const fp = join(bookRoot, '写作', '正文', '0001-初入宗门.md')
     const src = readFileSync(fp, 'utf8')
     if (src.includes('e2e 追加内容')) writeFileSync(fp, src.replace('e2e 追加内容', ''), 'utf8')
-  } catch {
-    /* 恢复失败不阻断（workDir 每次运行重建，最坏情形是本轮后续 spec 受影响） */
+  } catch (e) {
+    reportRestoreFailure('正文追加滤除', e)
   }
   // R73-70①：字数日记只滤 delta 条目——baseline 条目（他 spec 的「今日基线」）保留
   try {
@@ -57,14 +67,14 @@ test.afterAll(() => {
       if (kept.length === 0) rmSync(diary, { force: true })
       else writeFileSync(diary, kept.join('\n') + '\n', 'utf8')
     }
-  } catch {
-    /* 同上：恢复失败不阻断 */
+  } catch (e) {
+    reportRestoreFailure('字数日记 delta 滤除', e)
   }
   // R73-70②：树缓存整目录移除——collectTreeIssues 对缺席缓存自动 rebuild（纯加速语义）
   try {
     rmTempDirRetry(join(bookRoot, '.cache'))
-  } catch {
-    /* 同上：恢复失败不阻断 */
+  } catch (e) {
+    reportRestoreFailure('树缓存目录移除', e)
   }
 })
 

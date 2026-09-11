@@ -15,16 +15,17 @@ import { tmpdir } from 'node:os'
 import { commitSamples } from '../../src/learn/commit.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
-test('R28-7: 去重命中 warn 留痕（既有条目路径 + 被吞条目的技法指令摘要）', () => {
+test('R28-7: 去重命中 warn 留痕（既有条目路径 + 被吞条目的技法指令摘要）', async () => {
   const bookRoot = mkdtempTracked(join(tmpdir(), 'r28-learn-'))
   const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
   try {
-    commitSamples(bookRoot, [
+    // R0911-B-P3-3：commitSamples 转 async（周期让出）——本测单条路径，await 即原语义
+    await commitSamples(bookRoot, [
       { 章号: 1, 打分: 5, 场景: '战斗', 技法指令: '指令甲', 出处: '《甲》第1章', 正文: '同一句正文。' },
     ])
     warnSpy.mockClear()
     // 同场景同正文、不同技法指令：指纹相同 → 去重命中且 warn（修复前静默吞、指令丢失）
-    const out = commitSamples(bookRoot, [
+    const out = await commitSamples(bookRoot, [
       { 章号: 2, 打分: 5, 场景: '战斗', 技法指令: '指令乙', 出处: '《乙》第2章', 正文: '同一句正文。' },
     ])
     expect(out).toHaveLength(1) // 幂等返回值不变

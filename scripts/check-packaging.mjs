@@ -13,7 +13,7 @@
  *
  * 用法：npm run check:packaging（退出码 1 = 失配，并列出问题）
  */
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
@@ -108,6 +108,77 @@ export function readDirTolerant(dir) {
   }
 }
 
+// ── 第四层（R0911-A-P2-1，2026-09-11 全量重评 GLM-5.3 修复批）：mac 字体二进制分发门 ──
+// fontlist 原生二进制此前不随包分发（electron-builder files 白名单无 node_modules、
+// tsup 不拷原生文件），mac 打包态字体枚举主路径恒 ENOENT 回落 system_profiler 慢路径。
+// 修复链 = tsup onSuccess 拷入 dist/desktop/（darwin）+ asarUnpack 外置 + main.ts 接线；
+// 本门静态锁前两环的防回潮：asarUnput 配置缺失 / darwin dist 已构建但二进制缺席/丢执行位。
+
+/** 解析 electron-builder.yml 顶层 asarUnpack: 序列（行扫描，与 parseBuilderFiles 同口径
+ *  ——引号剥除、容忍缩进/空行/注释；找不到键或序列为空 → null）。导出供直测锚定。 */
+export function parseBuilderAsarUnpack(yamlText) {
+  const items = []
+  let inBlock = false
+  for (const raw of String(yamlText || '').split('\n')) {
+    const line = raw.trim()
+    if (line === '' || line.startsWith('#')) continue
+    if (!inBlock) {
+      if (/^asarUnpack:\s*$/.test(line)) {
+        inBlock = true
+        continue
+      }
+      continue
+    }
+    if (line.startsWith('- ')) {
+      let v = line.slice(2).trim()
+      if (v.length >= 2 && ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'")))) {
+        v = v.slice(1, -1)
+      }
+      if (v) items.push(v)
+      continue
+    }
+    break // asarUnpack 块结束（下一个顶层键）
+  }
+  return items.length > 0 ? items : null
+}
+
+/** 断言 asarUnpack 序列覆盖 desktop/fontlist——spawn 不解 asar，外置缺失则打包态自管
+ *  枚举恒回落（A-P2-1 只修了一半的回潮形态）。导出供直测锚定。 */
+export function problemsForElectronBuilderAsarUnpack(items) {
+  const found = []
+  if (!Array.isArray(items) || items.length === 0) {
+    found.push('electron-builder.yml asarUnpack 不可解析或为空——fontlist 二进制不会外置，打包态 spawn 枚举恒不可达（R0911-A-P2-1 回潮）')
+    return found
+  }
+  const covers = (entry) => entry === 'desktop/fontlist' || entry.startsWith('desktop/fontlist/')
+  if (!items.some((entry) => typeof entry === 'string' && covers(entry))) {
+    found.push('electron-builder.yml asarUnpack 未包含 desktop/fontlist——打包态自管枚举 spawn 不到真二进制（R0911-A-P2-1 回潮）')
+  }
+  return found
+}
+
+/** dist 侧实存门：仅 darwin 且 dist/desktop/main.js 已构建时生效（其余平台/未构建
+ *  返回 []——CI linux/win 腿 dist 无二进制属预期，纯本地 check 不 build 也不误报）。
+ *  断言 dist/desktop/fontlist 存在且带可执行位。导出供直测（注入路径与平台）。 */
+export function problemsForDistFontList(distDesktopDir, platform) {
+  if (platform !== 'darwin') return []
+  if (!existsSync(join(distDesktopDir, 'main.js'))) return []
+  const found = []
+  const bin = join(distDesktopDir, 'fontlist')
+  if (!existsSync(bin)) {
+    found.push(`darwin dist 已构建但缺 ${bin}——tsup onSuccess 拷贝步骤失效（R0911-A-P2-1 回潮，重跑 npm run build）`)
+    return found
+  }
+  try {
+    if ((statSync(bin).mode & 0o111) === 0) {
+      found.push(`${bin} 无可执行位——拷贝链丢了 mode（重跑 npm run build）`)
+    }
+  } catch (e) {
+    found.push(`${bin} stat 失败：${e.message}`)
+  }
+  return found
+}
+
 function checkPackaging() {
   const pkgPath = join(root, 'package.json')
   let pkg
@@ -127,7 +198,11 @@ function checkPackaging() {
   } else {
     const ebFiles = parseBuilderFiles(readFileSync(ebPath, 'utf8'))
     problems.push(...problemsForElectronBuilderFiles(ebFiles))
+    // R0911-A-P2-1 第四层：fontlist asarUnpack 配置门（静态，全平台可查）
+    problems.push(...problemsForElectronBuilderAsarUnpack(parseBuilderAsarUnpack(readFileSync(ebPath, 'utf8'))))
   }
+  // R0911-A-P2-1 第四层：darwin dist 实存门（仅 darwin + dist 已构建时生效）
+  problems.push(...problemsForDistFontList(join(root, 'dist', 'desktop'), process.platform))
 
   // ── 2. 捆绑资源自洽：versions.json ↔ 实际 .md 双向对账 ────────────────────
   const promptsDir = join(root, 'resources', 'prompts')

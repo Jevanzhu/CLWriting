@@ -44,6 +44,19 @@ function ts(): string {
 const MAX_LOG = 500
 
 /**
+ * R0911-C1-P3-1（2026-09-11 全量重评 GLM-5.3 修复批）：textOut 正文聚合的前端内存
+ * 封顶（UTF-16 码元，与 JS string.length 同口径）。此前防线单侧依赖服务端锚契约——
+ * 单次生成受 max_tokens 约束、自愈重写有 reset 清缓冲，正常会话远不及封顶；但 SSE
+ * 通道异常（网关重放/事件风暴）时 text 事件无界拼接会撑爆渲染层内存，日志侧有
+ * MAX_LOG 而正文侧无对称防线。封顶值锚定服务端对输出流的既定封顶常量
+ * SSE_BACKPRESSURE_LIMIT = 1_000_000（src/studio/server/api/stream.ts，码元计数
+ * 同口径）——web-next 独立打包无法 import 服务端常量，字面对齐；服务端调值须同步
+ * 本处。超限截断保留最新段（丢最旧）：封顶是极端流防线而非常态路径（一章正文数千
+ * 字，差两个数量级），不抛错、不打断聚合与其余事件分派。
+ */
+const MAX_TEXT_OUT = 1_000_000
+
+/**
  * R30-27（三十轮）：事件日志 type 白名单——空串/未知名事件此前照进 workbench.log，
  * 事件流里渲染为裸 type 噪声（未知 type 对作者无意义）。集合口径 = 既有事件处理分支
  * 的全集：dispatch 状态分支（role_spawn / init / done / interrupted / error / text /
@@ -174,7 +187,13 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       // 卡片即永不显示（workbench-selfheal.test「role_spawn 开局」已锁该行为）。断线
       // 残留面由上方 sync(running=false) 分支连带复位兜住。
     }
-    if (e.type === 'text' && typeof e.text === 'string') textOut.value += e.text
+    if (e.type === 'text' && typeof e.text === 'string') {
+      textOut.value += e.text
+      // R0911-C1-P3-1：超限截断保留最新段（锚定来源与取舍见 MAX_TEXT_OUT 头注）
+      if (textOut.value.length > MAX_TEXT_OUT) {
+        textOut.value = textOut.value.slice(textOut.value.length - MAX_TEXT_OUT)
+      }
+    }
     // 整章重写 / 流式重试前清正文缓冲，不清会把多轮正文首尾拼接
     else if (e.type === 'self_heal_reset' || e.type === 'text_reset') textOut.value = ''
     else if (e.type === 'self_heal_phase') {

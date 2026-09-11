@@ -255,4 +255,30 @@ describe('R29-13 TooltipHost 全局 tooltip 宿主', () => {
     mountHost()
     expect(pre.getAttribute('aria-label')).toBe('首屏按钮')
   })
+
+  // R0911-C2-P3-2（2026-09-11 全量重评 GLM-5.3 修复批）：250ms 延迟窗内目标被移除
+  // （hover 中列表重渲染/弹层关窗摘节点）——移除节点 getBoundingClientRect 全 0，
+  // 修复前 tooltip 错落视口左上角；修后延迟回调先验 isConnected，不在文档则中止显示。
+  it('延迟窗内目标移除 → 到时不显示 tooltip（不落 0,0）；后续悬停新目标照常显示', async () => {
+    mountHost()
+    const trigger = document.createElement('button')
+    trigger.dataset.tip = '将被移除'
+    document.body.appendChild(trigger)
+    trigger.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+    await nextTick()
+    trigger.remove() // 延迟窗内目标摘出文档
+    vi.advanceTimersByTime(250)
+    await nextTick()
+    expect(document.querySelector('.tip-host')).toBeNull() // 修复点：不出现 0,0 定位的 tooltip
+
+    // 中止后状态不悬挂：悬停新目标照常走完整显示链（lastTarget 已复位、不被短路）
+    const fresh = document.createElement('button')
+    fresh.dataset.tip = '新目标'
+    document.body.appendChild(fresh)
+    fresh.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+    await nextTick()
+    vi.advanceTimersByTime(250)
+    await nextTick()
+    expect(document.querySelector('.tip-host')?.textContent).toContain('新目标')
+  })
 })

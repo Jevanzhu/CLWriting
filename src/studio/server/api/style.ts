@@ -80,6 +80,25 @@ function insideDir(rel: string, dir: string): boolean {
   )
 }
 
+// ── R0911-B-P3-4（2026-09-11 全量重评 GLM-5.3 修复批）：非闸书级写端点的临界段书注册重验 ──
+// 本文件四个写端点（entries 新增/删除、候选确认/忽略）均无任务闸——books.ts 删书/改名
+// 的 busyGate 只查 spawn/三审/task-gate，看不见在途请求；resolveStyleBook 捕获的
+// bookRoot 只是入口快照，随后 await readJson 可跨过 drain 时点，写盘/搬文件对旧捕获
+// 路径 mkdir 会复活幽灵目录（无 book.yaml，repairBooks 不认领）。套 documents.ts
+// R1010b-SRV-P2-1 同型防线（本文件域内单源）：body 解析校验后、写盘临界段首行重验
+// name→bookRoot 注册，已删或变化 → 409 BOOK_MOVED（信封口径与 documents.ts/files.ts
+// 一致）。同文件同步 handler（entries.get 迁移 / baseline.freeze，无 await 窗）与持
+// 'style-harvest' 任务闸的 harvest 均不在竞态面内。
+type BookMovedFailure = { code: 'BOOK_MOVED'; reason: string }
+
+function bookMovedFailure(ctx: StyleCtx, name: string | undefined, capturedRoot: string): BookMovedFailure | null {
+  const rNow = resolveBook(ctx.workDir, name)
+  if ('error' in rNow || rNow.bookRoot !== capturedRoot) {
+    return { code: 'BOOK_MOVED', reason: '书已改名或已删除，本次操作已取消——请重新打开本书后再试' }
+  }
+  return null
+}
+
 export function registerStyleRoutes(ctx: StyleCtx): void {
   // 找书走公共 resolveBook（hh §八-12：信封统一 replyError）——原局部复制的 workDir 判空 + find + 404 样板
   const resolveStyleBook = (
@@ -139,6 +158,9 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
       ...(Array.isArray(body['标签']) ? { 标签: (body['标签'] as unknown[]).map(String) } : {}),
       正文: text,
     }
+    // R0911-B-P3-4：readJson 窗口后写前重验书注册（时序见 bookMovedFailure 头注）
+    const moved = bookMovedFailure(ctx, params['name'], bookRoot)
+    if (moved) return replyError(res, 409, moved.code, moved.reason)
     reply(res, 200, { ok: true, path: addEntry(bookRoot, entry) })
   },
   })
@@ -155,6 +177,10 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
     if (!insideDir(p, ENTRIES_DIR)) {
       return replyError(res, 400, 'BAD_INPUT', 'path 须在 文风/条目/ 内')
     }
+    // R0911-B-P3-4：重验置于 resolveWithinRoot 之前——书已搬走时对旧根 realpath 失败
+    // 会误报 400「路径非法」，409 BOOK_MOVED 才是真实语义（时序见头注）
+    const moved = bookMovedFailure(ctx, params['name'], bookRoot)
+    if (moved) return replyError(res, 409, moved.code, moved.reason)
     // 批 6 统一：resolveWithinRoot = 防穿越 + symlink 双侧 realpath 校验
     // （防 entry.path 中间组件是符号链接 → rmSync 删到书库外；realpath 抛 → fail-closed 拒删）
     const safe = resolveWithinRoot(bookRoot, p)
@@ -210,6 +236,10 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
     if (!insideDir(p, CANDIDATES_DIR)) {
       return replyError(res, 400, 'BAD_INPUT', 'path 须在 文风/候选/ 内')
     }
+    // R0911-B-P3-4：readJson 窗口后重验书注册（置于 resolveWithinRoot 前，删条目同因——
+    // 书已搬走时旧根 realpath 失败误报 400；时序见 bookMovedFailure 头注）
+    const moved = bookMovedFailure(ctx, params['name'], bookRoot)
+    if (moved) return replyError(res, 409, moved.code, moved.reason)
     // M-7：补 resolveWithinRoot——insideDir 只挡字面穿越，中间组件符号链接仍可越出
     // 书库；confirm 会搬文件/写盘，与 entries.delete 批 6 统一口径（realpath 抛 → 拒绝）
     if (!resolveWithinRoot(bookRoot, p)) {
@@ -235,6 +265,9 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
     if (!insideDir(p, CANDIDATES_DIR)) {
       return replyError(res, 400, 'BAD_INPUT', 'path 须在 文风/候选/ 内')
     }
+    // R0911-B-P3-4：readJson 窗口后重验书注册（置于 resolveWithinRoot 前，同 confirm 注）
+    const moved = bookMovedFailure(ctx, params['name'], bookRoot)
+    if (moved) return replyError(res, 409, moved.code, moved.reason)
     // M-7：同 confirm——ignore 落盘留档也补 symlink 防穿越（批 6 统一口径）
     if (!resolveWithinRoot(bookRoot, p)) {
       return replyError(res, 400, 'BAD_INPUT', '路径非法（越出书库或路径异常）')

@@ -8,9 +8,9 @@
  * Envelope = { 生成时间, 模型, 正文 hash, 载荷 }；正文变更（strip fm 后）
  * hash 不匹配 → 面板标「已过期」，提示可重新分析。
  */
-import { existsSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { atomicWriteFile } from '../fs/atomic.js'
+import { atomicWriteFile, rmWithRetry } from '../fs/atomic.js'
 import { acquireCrossProcessLockWithTimeout, acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 import { safeDocId } from '../fs/safe-path.js'
 import { encodeDocDirName } from './version.js'
@@ -220,7 +220,12 @@ function writeAnalysisLocked(fp: string, bookRoot: string, docId: string, kind: 
     for (const cp of candidates) {
       if (cp !== fp && existsSync(cp)) {
         try {
-          rmSync(cp, { force: true })
+          // R0911-E-P3-3（2026-09-11 全量重评 GLM-5.3 修复批）：删源收编 rmWithRetry
+          //（fs/atomic.ts R40-18「确实要删」原语，trash.ts/service.ts 等删源点同款）——
+          // 裸 rmSync 撞 win 杀软/索引器对相邻刚写文件的瞬时锁（EPERM/EBUSY）直败，
+          // 字面旧源滞留拖长双候选期；3×50ms 退避后仍失败保持既有收口（吞错不阻断，
+          // 下次写重试删）
+          rmWithRetry(cp)
         } catch {
           // 删源失败：读侧仍双候选可读（编码优先级靠下方读序保证），下次写重试
         }

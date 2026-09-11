@@ -17,6 +17,7 @@
 
 import { DatabaseSync } from 'node:sqlite'
 import { existsSync, readdirSync, statSync, mkdirSync, rmSync } from 'node:fs'
+import type { Dirent } from 'node:fs'
 import { join, dirname, sep } from 'node:path'
 import { createAllTables, clearAllTables } from './schema.js'
 import { syncLead, syncChapter, syncSummary, setMeta, getMeta } from './sync.js'
@@ -535,7 +536,23 @@ function scanSummaries(
   // 白名单外形态照常 errors 留痕。
   // R48-65（四十八轮）：目录形态留痕——摘要目录下误建子目录时其中 .md 全体静默不入库
   //（「摘要不生效」无从定位）；对齐白名单外口径 log.warn 留痕（._/. 开头仍豁免）。
-  const dirents = readdirSync(dir, { withFileTypes: true })
+  // R0911-E-P3-2（2026-09-11 全量重评 GLM-5.3 修复批）：列举本身加守卫，对齐同域
+  // readdir 容错家族（format/draft.ts R37-9、check/run.ts、check/runner.ts 同款）——
+  // 上方 existsSync 与 readdirSync 间隙目录被瞬删/移走（TOCTOU），或路径被同名文件
+  // 占用（ENOTDIR——existsSync 对文件同为 true，直穿前置守卫）时，裸 readdirSync
+  // 直穿炸穿整个 rebuild 事务（fail-loud 把瞬时竞态误报成一次源损坏）；降级空目录
+  // + warn 留痕（与「目录不存在 return 0」同一出口），其余错误码照旧抛（失败可见）。
+  let dirents: Dirent[]
+  try {
+    dirents = readdirSync(dir, { withFileTypes: true })
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code
+    if (code === 'ENOENT' || code === 'ENOTDIR') {
+      log.warn('rebuild', `摘要目录列举失败（${dir}，${code}），本次按空目录处理`)
+      return 0
+    }
+    throw e
+  }
   for (const d of dirents) {
     if (d.isDirectory() && !d.name.startsWith('._')) {
       log.warn('rebuild', `摘要目录下存在子目录「${d.name}」（${dir}），其中内容不入摘要索引——如为误建请移出或删除`)

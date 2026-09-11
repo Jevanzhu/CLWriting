@@ -43,6 +43,11 @@ const INCLUDE = ['src/**/*.ts']
 // 非 SFC 运行时文件（settings-context.ts/theme.ts）不再排除，抄本与配置同步收窄
 const EXCLUDE = [
   'src/**/*.d.ts',
+  // R0911-G-P2-2（2026-09-11 全量重评 GLM-5.3 修复批）：web-next 子包 node_modules 里
+  // 27 个第三方 .ts（@lezer/markdown、entities 等）会命中 include 'src/**/*.ts'——
+  // 它们不属于任何阈值桶（零守护的合法形态），不排除会让下方反向守卫点名误报；
+  // vitest.config.ts coverage.exclude 同步补 '**/node_modules/**'（抄本保持口径一致）
+  '**/node_modules/**',
   'src/studio/web-next/vite.config.ts',
   'src/studio/web-next/src/types/tree.ts',
   'src/studio/web-next/src/{main,router}.ts',
@@ -111,6 +116,28 @@ describe('coverage 阈值桶 glob 守护（R65-58）', () => {
       empties,
       '以下阈值桶 glob 命中 0 个文件（v8 对空桶不报错，阈值门已静默失效——重构后须同步 vitest.config 桶键）:\n' +
         empties.join('\n'),
+    ).toEqual([])
+  })
+
+  // R0911-G-P2-2（2026-09-11 全量重评 GLM-5.3 修复批）：反向守卫——include∩¬exclude
+  // 全集逐文件至少命中一个阈值桶。vitest 的 per-glob thresholds 语义 = 不匹配任何键的
+  // 文件不做阈值检查（进报告但零守护）：前端新增 utils/ 等纯 TS 子目录即静默逃出全部门
+  //（stores/composables/api 历次「收暗区」的同型回潮，此前无机器门阻止）。桶外文件
+  // 点名报红，指引同步 vitest.config.ts 桶键 + 本测试 EXPECTED_GLOBS。
+  it('R0911-G-P2-2：include∩¬exclude 的每个文件至少命中一个阈值桶（桶外文件 = 零守护点名）', () => {
+    const includeMatcher = picomatch(INCLUDE)
+    const excludeMatcher = picomatch(EXCLUDE)
+    const files = listSrcTs(join(root, 'src'))
+      .map((fp) => relative(root, fp).replaceAll('\\', '/'))
+      .filter((rel) => includeMatcher(rel) && !excludeMatcher(rel))
+    expect(files.length, 'coverage 入口集为空——include glob 或目录结构漂移').toBeGreaterThan(0)
+
+    const outside = files.filter((rel) => !EXPECTED_GLOBS.some((g) => picomatch(g)(rel)))
+    expect(
+      outside,
+      '以下文件不匹配任何阈值桶 glob（vitest 语义：不匹配任何键的文件不做阈值检查——' +
+        '新增子目录须同步 vitest.config.ts 桶键与 EXPECTED_GLOBS，否则该文件零守护）:\n' +
+        outside.join('\n'),
     ).toEqual([])
   })
 })

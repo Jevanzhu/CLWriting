@@ -205,6 +205,12 @@ function safeRowToEvent(r: Row, label: string): ChatEvent | null {
 // 新实例、新缓存，天然隔离）。低频迁移/一次性语句（DDL、孤儿修复、钥匙改写、PRAGMA）
 // 不走本帮手——缓存面只进恒定不变的高频 SQL。listEvents 的可选 type/limit 拼出的
 // SQL 变体以 SQL 串本身为键，各自独立缓存（变体数有界）。
+// R0911-G-P3-4（2026-09-11 重评修复批）修账：原注「连接 close 后缓存条目随 GC 消失」
+// 不成立——node:sqlite StatementSync 强引用 DatabaseSync，与 WeakMap 弱键构成
+// ephemeron 环，实测 close 后条目不回收（每次开/关滞留 ~0.35KB；语句是否执行过无关，
+// 入缓存即滞留）。事件库是每会话一开的长连接（引用计数制），泄漏量级远小于 RAG
+//（每次召回两开两关的重灾区，另见 rag/store.ts closeRagDb），但根因同一——本文件
+// db 的 close 一律走下方 closeEventsDb（先 preparedByDb.delete 再 close，断链后实测归零）。
 const preparedByDb = new WeakMap<DatabaseSync, Map<string, StatementSync>>()
 
 /** R46-42：按 (db, sql) 取缓存的 prepared 语句；未见过则编译一次入缓存。 */
@@ -220,6 +226,13 @@ function prepared(db: DatabaseSync, sql: string): StatementSync {
     bySql.set(sql, stmt)
   }
   return stmt
+}
+
+/** R0911-G-P3-4：带缓存注销的关库——本文件事件库句柄的 close 统一出口（勿裸 db.close）。
+ *  根因与量级见上方 R46-42 注释块修账记。 */
+function closeEventsDb(db: DatabaseSync): void {
+  preparedByDb.delete(db)
+  db.close()
 }
 
 /** 孤儿会话补 end 的宽限期：最后活动距今不足该值视为「可能仍在进行」，不补（RB-IF-P2-2）。
@@ -725,7 +738,7 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
       markerTimer.unref()
     } catch (e) {
       try {
-        db.close()
+        closeEventsDb(db)
       } catch {
         /* best-effort：close 自身失败不再遮蔽原始错误 */
       }
@@ -1104,7 +1117,7 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
         // R67-2：引用归零真关库 → 注销开口标记（迁移扫描从此看不见本进程）
         releaseOpenMarker(dbPath)
         try {
-          db.close()
+          closeEventsDb(db)
         } catch (e) {
           // close 失败只留痕：停表/注销已正确收口，句柄由进程退出兜底回收
           log.warn('events', `事件库关闭异常（${dbPath}）：${e instanceof Error ? e.message : String(e)}`)
@@ -1185,7 +1198,7 @@ export async function migrateBookSession(
       db.exec('COMMIT')
     } finally {
       // 未 COMMIT 的事务随连接关闭回滚（先关干净再让异常冒泡去回滚文件搬移）
-      db.close()
+      closeEventsDb(db)
     }
   }
   try {

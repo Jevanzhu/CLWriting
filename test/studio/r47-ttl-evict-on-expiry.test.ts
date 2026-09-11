@@ -58,6 +58,13 @@ async function get(path: string): Promise<{ status: number; json: any }> {
 }
 
 beforeAll(async () => {
+  // R0911-G-P1-1c（2026-09-11 修复批）：注入时钟替代真实睡眠——只接管 Date（TTL 判定
+  // 全部读 Date.now()），setTimeout/HTTP 服务器/真实 I/O 照常真实（先例同款收窄：
+  // p37-write-stall-watchdog 的 toFake 选择性 fake）。此前到期臂睡 TTL+500=1.5s 真实
+  // 墙钟（先例 r75-state-tree-issues-ttl），CI 慢机测试段被睡眠拖长（R0911-G-P1-1c
+  // macos 腿红族）；改 advanceTimersByTime(TTL+1) 即时过期，语义不变（严格大于 TTL 窗，
+  // 先例 r47-rebuild-probe-ttl 的 3001=3000+1 同款）。
+  vi.useFakeTimers({ toFake: ['Date'] })
   workDir = mkdtempSync(join(tmpdir(), 'clw-r47-evict-'))
   mkdirSync(join(workDir, '.clwriting'), { recursive: true })
   writeFileSync(
@@ -76,7 +83,8 @@ beforeAll(async () => {
   writeFileSync(join(healthRoot, 'book.yaml'), `spec_version: 1\nkind: long\nbook:\n  title: ${HEALTH_BOOK}\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n`)
   writeFileSync(join(healthRoot, '写作', '正文', '0001-开篇.md'), CH_FM(1, '开篇') + '主角登场，初入宗门。\n')
 
-  // TTL 注入短档（先例 r75-state-tree-issues-ttl：1000ms 档 + 到期侧睡 TTL+500）
+  // TTL 注入短档（先例 r75-state-tree-issues-ttl：1000ms 档；R0911-G-P1-1c 起到期侧
+  // 由注入时钟推进 TTL+1，不再真实睡眠）
   __setStateTtlForTest(1000)
   __setStyleScanTtlForTest(1000)
   server = await startServerSafe({ port: 0, workDir })
@@ -86,6 +94,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  vi.useRealTimers() // R0911-G-P1-1c：解除 Date fake，避免污染同进程后续时序
   __setStateTtlForTest(null) // 恢复默认 TTL，避免污染同进程其它测试
   __setStyleScanTtlForTest(null)
   if (server) await new Promise<void>((r) => server!.close(() => r()))
@@ -100,8 +109,9 @@ describe('R47-18：过期条目随 miss 检查顺手逐出（行为间接断言�
     expect(first.status).toBe(200)
     expect(__stateCacheHasForTest(bookRoot)).toBe(true)
 
-    // TTL 到期 → 注入单发失败（readManifest 抛）→ 重算 500、不落缓存
-    await new Promise((r) => setTimeout(r, 1000 + 500))
+    // TTL 到期（R0911-G-P1-1c：注入时钟推进，不再睡 TTL+500 真实墙钟）→ 注入单发
+    // 失败（readManifest 抛）→ 重算 500、不落缓存
+    vi.advanceTimersByTime(1000 + 1)
     readManifestMock.mockImplementationOnce(() => {
       throw new Error('R47-18 注入：清单读取失败')
     })
@@ -122,7 +132,8 @@ describe('R47-18：过期条目随 miss 检查顺手逐出（行为间接断言�
     expect(first.status).toBe(200)
     expect(__styleScanCacheHasForTest(bookRoot)).toBe(true)
 
-    await new Promise((r) => setTimeout(r, 1000 + 500))
+    // TTL 到期（R0911-G-P1-1c：注入时钟推进，不再睡 TTL+500 真实墙钟）
+    vi.advanceTimersByTime(1000 + 1)
     scanChaptersAsyncMock.mockImplementationOnce(() => Promise.reject(new Error('R47-18 注入：全书扫描失败')))
     const failed = await get(`/api/books/${encodeURIComponent(HEALTH_BOOK)}/health/style`)
     expect(failed.status).toBe(500)

@@ -11,7 +11,7 @@ import type { AddressInfo } from 'node:net'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { beforeAll, afterAll, describe, it, expect } from 'vitest'
+import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest'
 import { startServerSafe } from '../helpers/safe-port.js'
 import { __setStyleScanTtlForTest } from '../../src/studio/server/api/health.js'
 import { __setStyleCorpusTtlForTest } from '../../src/studio/server/api/analysis.js'
@@ -78,6 +78,14 @@ beforeAll(async () => {
   // R76-37（二十四轮 F 域）：300ms→1000ms——「命中」用例首查与二查之间夹着两次
   // writeFileSync，慢机/CI 卡顿下超 300ms 即缓存过期、二查变重扫（count/hash 变化），
   // 假红；1000ms 给足裕量，到期侧睡 TTL+500 不受影响。
+  // R0911-G-P1-1c（2026-09-11 修复批）：注入时钟根治两个方向的墙钟依赖——只接管
+  // Date（TTL 判定全部读 Date.now()），setTimeout/HTTP 服务器/真实 I/O 照常真实
+  //（toFake 选择性 fake 先例 p37-write-stall-watchdog）。fake 时钟不随真实耗时流动
+  // →「命中」臂对首查→二查之间的 I/O 时长彻底免疫；到期臂 advanceTimersByTime
+  // (TTL+1) 即时过期（先例 r47-rebuild-probe-ttl 的 3001=3000+1 同款），不再睡
+  // TTL+500=1.5s 真实墙钟（CI 慢机测试段被睡眠拖长，R0911-G-P1-1c macos 腿红族）。
+  // TTL 注入值保持 1000ms 不变。
+  vi.useFakeTimers({ toFake: ['Date'] })
   __setStyleScanTtlForTest(1000)
   __setStyleCorpusTtlForTest(1000)
   server = await startServerSafe({ port: 0, workDir })
@@ -87,6 +95,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  vi.useRealTimers() // R0911-G-P1-1c：解除 Date fake，避免污染同进程后续时序
   __setStyleScanTtlForTest(null) // R62-21：恢复默认 TTL，避免污染同进程其它测试
   __setStyleCorpusTtlForTest(null)
   if (server) await new Promise<void>((r) => server!.close(() => r()))
@@ -127,9 +136,10 @@ describe('D3：health/style + analyze-style 全书扫描 5s TTL 缓存', () => {
   })
 
   it('失效：TTL 到期后重扫（盘上变更可见）', async () => {
-    // R62-21：注入 TTL（R76-37 起为 1000ms）→ 睡 TTL+500 过期（含余量）。此前
-    // STYLE_SCAN_TTL+300≈5.3s 真实墙钟，慢机假红。
-    await new Promise((r) => setTimeout(r, 1000 + 500))
+    // R62-21：注入 TTL（R76-37 起为 1000ms）→ R0911-G-P1-1c：注入时钟推进 TTL+1
+    // 过期（含余量语义不变：严格大于 TTL 窗）。此前睡 TTL+500=1.5s 真实墙钟，慢机
+    // 拖长 CI 测试段。
+    vi.advanceTimersByTime(1000 + 1)
 
     const third = await req('GET', `/api/books/${encodeURIComponent(BOOK)}/health/style`)
     expect(third.status).toBe(200)

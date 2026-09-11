@@ -20,6 +20,7 @@ import {
   putConfig,
   getWordsDiary,
   postBaseline,
+  createBook,
   renameBook,
   getRagStatus,
   triggerRagBuild,
@@ -195,6 +196,16 @@ describe('api 书级操作 · books/shelf', () => {
     await postBaseline('书 A', 100)
     expect(lastCall().init?.method).toBe('POST')
     expect(jsonBody(lastCall())).toEqual({ baseline: 100 })
+  })
+
+  it('R0911-C1-P3-2（2026-09-11 修复批）：createBook POST /api/books {name, kind}；建书信封透传', async () => {
+    // 自 useShelf.createBook 裸 apiJson 归置收编（端点/payload 与原裸调逐位一致）
+    stubFetch(() => ok({ name: '书 A', kind: 'long', path: '/w/书 A' }))
+    const r = await createBook('书 A', 'short')
+    expect(lastCall().init?.method).toBe('POST')
+    expect(lastCall().url).toBe('/api/books')
+    expect(jsonBody(lastCall())).toEqual({ name: '书 A', kind: 'short' })
+    expect(r).toEqual({ name: '书 A', kind: 'long', path: '/w/书 A' })
   })
 
   it('renameBook：POST {name}；结果透传（renamed/eventsMigrationFailed）', async () => {

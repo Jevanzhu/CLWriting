@@ -22,10 +22,13 @@
  * detached 进程组 + kill(-pid)。退出码 0 仅当观察到 window-cycle-ok。
  *
  * 跑：node scripts/electron-smoke.mjs（CI 侧经 xvfb-run -a 包裹）。
- * 可调：CLW_SMOKE_TIMEOUT_MS（默认 60000）。
+ * 可调：CLW_SMOKE_TIMEOUT_MS（默认 60000）；CLW_SMOKE_APP_BIN（R0911-G-P3-2，
+ * 2026-09-11 全量重评 GLM-5.3 修复批：注入打包态可执行体——desktop.yml tag 门的
+ * mac .app 二进制 / win win-unpacked exe——缺省维持「node electron/cli.js .」开发态
+ * 形态，行为零变化；打包态跳过 package.json main 前置门，由下方可执行性检查兜）。
  */
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -40,20 +43,36 @@ const TIMEOUT_MS = Number(process.env['CLW_SMOKE_TIMEOUT_MS']) || 60_000
 /** 日志保留尾长（失败时打印现场；限长防 CI 日志被巨量输出淹没）。 */
 const TAIL_CHARS = 8_000
 
-// 产物前置门：main 入口缺失时 Electron 只会抛原生错误，先给可读指路（CI 里 dist 由
-// 同 job 的 release-smoke 步 build:all 产出；纯冒烟驱动不自建）。
-const mainEntry = (() => {
-  try {
-    return JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).main
-  } catch {
-    return null
+// R0911-G-P3-2：打包态注入（CLW_SMOKE_APP_BIN）——前置门只验可执行体存在（产物自身
+// 即入口）；开发态缺省走原「package.json main 存在性」指路门，行为零变化。
+const appBin = process.env['CLW_SMOKE_APP_BIN']
+if (appBin) {
+  if (!existsSync(appBin)) {
+    console.error(`[electron-smoke] 未找到打包态可执行体 ${appBin}——先跑 npm run build:desktop 产出 dist-electron。`)
+    process.exit(1)
   }
-})()
-if (!mainEntry || !existsSync(join(root, mainEntry))) {
-  console.error(
-    `[electron-smoke] 未找到应用入口 ${mainEntry ?? '(package.json.main 缺失)'}——先跑 npm run build:all 生成 dist 再冒烟。`,
-  )
-  process.exit(1)
+  try {
+    statSync(appBin)
+  } catch (e) {
+    console.error(`[electron-smoke] 打包态可执行体不可访问：${e.message}`)
+    process.exit(1)
+  }
+} else {
+  // 产物前置门：main 入口缺失时 Electron 只会抛原生错误，先给可读指路（CI 里 dist 由
+  // 同 job 的 release-smoke 步 build:all 产出；纯冒烟驱动不自建）。
+  const mainEntry = (() => {
+    try {
+      return JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).main
+    } catch {
+      return null
+    }
+  })()
+  if (!mainEntry || !existsSync(join(root, mainEntry))) {
+    console.error(
+      `[electron-smoke] 未找到应用入口 ${mainEntry ?? '(package.json.main 缺失)'}——先跑 npm run build:all 生成 dist 再冒烟。`,
+    )
+    process.exit(1)
+  }
 }
 
 // headless Linux（CI/root）下 Chromium 沙箱不可用（无 SUID helper / 无用户命名空间），
@@ -61,11 +80,41 @@ if (!mainEntry || !existsSync(join(root, mainEntry))) {
 // --no-sandbox：平台为 linux 且（CI 环境或 root）。Windows/macOS 本地不传，保持真沙箱。
 const needNoSandbox =
   process.platform === 'linux' && (Boolean(process.env['CI']) || process.getuid?.() === 0)
-const electronArgs = [
-  join(root, 'node_modules', 'electron', 'cli.js'),
-  ...(needNoSandbox ? ['--no-sandbox'] : []),
-  '.',
-]
+// R0911-G-P3-2：打包态直起二进制（CLW_SMOKE_WINDOW_CYCLE 等契约 env 照注）；开发态
+// 维持原 node electron/cli.js 形态（--no-sandbox 仅 dev 直跑面需要，打包态不传）。
+const child = appBin
+  ? spawn(appBin, [], {
+      cwd: root,
+      env: {
+        ...process.env,
+        CLW_SMOKE_WINDOW_CYCLE: '1',
+        ELECTRON_ENABLE_LOGGING: '1',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: process.platform !== 'win32',
+      windowsHide: true,
+    })
+  : spawn(
+      process.execPath,
+      [
+        join(root, 'node_modules', 'electron', 'cli.js'),
+        ...(needNoSandbox ? ['--no-sandbox'] : []),
+        '.',
+      ],
+      {
+        cwd: root,
+        env: {
+          ...process.env,
+          CLW_SMOKE_WINDOW_CYCLE: '1',
+          ELECTRON_ENABLE_LOGGING: '1',
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+        // POSIX：独立进程组，便于整树 kill(-pid)。Windows 不能 detached（会弹新控制台，
+        // 且 taskkill /T 已够用）。
+        detached: process.platform !== 'win32',
+        windowsHide: true,
+      },
+    )
 
 let log = ''
 let settled = false
@@ -91,20 +140,6 @@ function killTree(child) {
     }
   }
 }
-
-const child = spawn(process.execPath, electronArgs, {
-  cwd: root,
-  env: {
-    ...process.env,
-    CLW_SMOKE_WINDOW_CYCLE: '1',
-    ELECTRON_ENABLE_LOGGING: '1',
-  },
-  stdio: ['ignore', 'pipe', 'pipe'],
-  // POSIX：独立进程组，便于整树 kill(-pid)。Windows 不能 detached（会弹新控制台，
-  // 且 taskkill /T 已够用）。
-  detached: process.platform !== 'win32',
-  windowsHide: true,
-})
 
 function finish(code, reason, extra) {
   if (settled) return

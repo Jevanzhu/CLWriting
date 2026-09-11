@@ -11,7 +11,7 @@ import type { AddressInfo } from 'node:net'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { beforeAll, afterAll, describe, it, expect } from 'vitest'
+import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest'
 import { startServerSafe } from '../helpers/safe-port.js'
 import { __setStyleCorpusTtlForTest } from '../../src/studio/server/api/analysis.js'
 
@@ -66,7 +66,12 @@ beforeAll(async () => {
   mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
   writeFileSync(join(bookRoot, 'book.yaml'), `spec_version: 1\nkind: long\nbook:\n  title: ${BOOK}\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n`)
   writeFileSync(join(bookRoot, '写作', '正文', '0001-开篇.md'), CH_FM(1, '开篇') + '主角登场，初入宗门，一切由此开始。\n')
-  // TTL 注入短档（R62-21/R76-37 口径：1000ms 档，到期侧睡 TTL+500）
+  // TTL 注入短档（R62-21/R76-37 口径：1000ms 档）。R0911-G-P1-1c（2026-09-11
+  // 修复批）：到期臂改注入时钟推进 TTL+1（先例 r47-rebuild-probe-ttl 的 3001=3000+1
+  // 同款），不再睡 TTL+500=1.5s 真实墙钟（CI 慢机测试段被睡眠拖长，macos 腿红族）；
+  // 只接管 Date（TTL 判定读 Date.now()），setTimeout/HTTP 服务器/真实 I/O 照常真实
+  //（toFake 选择性 fake 先例 p37-write-stall-watchdog）。
+  vi.useFakeTimers({ toFake: ['Date'] })
   __setStyleCorpusTtlForTest(1000)
   server = await startServerSafe({ port: 0, workDir })
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
@@ -75,6 +80,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  vi.useRealTimers() // R0911-G-P1-1c：解除 Date fake，避免污染同进程后续时序
   __setStyleCorpusTtlForTest(null)
   if (server) await new Promise<void>((r) => server!.close(() => r()))
   if (workDir) rmSync(workDir, { recursive: true, force: true })
@@ -106,7 +112,8 @@ describe('R47-22：analyze-style MISS 路径行为回归（释放后重扫/缓�
     writeFileSync(join(bookRoot, '写作', '正文', '0001-开篇.md'), CH_FM(1, '开篇') + '主角登场，正文已被作者彻底改写一新。\n')
     writeFileSync(join(bookRoot, '写作', '正文', '0002-次章.md'), CH_FM(2, '次章') + '第二章正文登场，剧情推进。\n')
 
-    await new Promise((r) => setTimeout(r, 1000 + 500))
+    // R0911-G-P1-1c：注入时钟推进 TTL+1 过期，不再睡 TTL+500 真实墙钟
+    vi.advanceTimersByTime(1000 + 1)
     const after = await req('POST', `/api/books/${encodeURIComponent(BOOK)}/analyze-style`)
     expect(after.status).toBe(200)
     const hashAfter = (after.json as { envelope: { sourceHash: string } }).envelope.sourceHash

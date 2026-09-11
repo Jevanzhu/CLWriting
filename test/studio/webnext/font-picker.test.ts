@@ -294,6 +294,38 @@ describe('R8C-F3: FontPicker win 自绘浮层键盘导航', () => {
   })
 })
 
+// R0911-C2-P3-1（2026-09-11 全量重评 GLM-5.3 修复批）：实例 id 取号器原写 <script setup>
+// 内（每实例归零再自增、uid 恒为 1）——双开 FontPicker（设置弹窗 + 专注排版条等）时
+// 两实例 optId 全同名：DOM 重复 id + aria-activedescendant 互串指到对方菜单项。
+// 修后取号器提模块级，跨实例单调。id 面只在 win 自绘路径渲染（非 win 原生 select 不产
+// optId），故用例锁 win 腿即覆盖全部 id 产出面。
+describe('R0911-C2-P3-1: FontPicker 双开实例 id 互异', () => {
+  it('两实例同时打开——菜单项 id 全表互异，aria-activedescendant 各指本实例项', async () => {
+    const w1 = mount(FontPicker, { props: { ...PROPS, value: 'Font1' } })
+    const w2 = mount(FontPicker, { props: { ...PROPS, value: 'Font2' } })
+    try {
+      await w1.find('button.font-picker').trigger('click')
+      await w2.find('button.font-picker').trigger('click')
+      const menus = document.body.querySelectorAll('.fp-menu')
+      expect(menus).toHaveLength(2) // 双开：两套浮层并存于 body
+      const ids1 = [...menus[0]!.querySelectorAll('.fp-item')].map((el) => el.id)
+      const ids2 = [...menus[1]!.querySelectorAll('.fp-item')].map((el) => el.id)
+      expect(ids1).toHaveLength(PROPS.fonts.length + 1) // 默认项 + 30 字体
+      // 修复点：修复前两实例 uid 同为 1，id 逐项同名（Set 尺寸 ≈ 单表）；修后全表互异
+      expect(new Set([...ids1, ...ids2]).size).toBe(ids1.length + ids2.length)
+      // aria 互串面：activedescendant 只在本实例菜单项集合内命中（对方表无此 id）
+      const b1 = w1.find('button.font-picker').element.getAttribute('aria-activedescendant')
+      const b2 = w2.find('button.font-picker').element.getAttribute('aria-activedescendant')
+      expect(ids1).toContain(b1) // w1 值 Font1 → 光标在本表 opt-2
+      expect(ids2).toContain(b2) // w2 值 Font2 → 光标在本表 opt-3
+      expect(ids2).not.toContain(b1) // 不再互串指到对方表
+    } finally {
+      w1.unmount()
+      w2.unmount()
+    }
+  })
+})
+
 // R0910-W（2026-09-10 修复批）：卸载回收 typeahead 800ms 复位定时器——组件销毁后
 // 回调仍会触发（对已销毁实例的闭包写 typeBuf，纯泄漏）；随监听器一并 clearTimeout。
 describe('R0910-W: FontPicker 卸载清 typeahead 定时器', () => {

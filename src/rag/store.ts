@@ -250,7 +250,7 @@ export function openRagDb(bookRoot: string): DatabaseSync {
     db.exec('CREATE INDEX IF NOT EXISTS idx_chunks_norm_null ON chunks(id) WHERE norm IS NULL')
   } catch (e) {
     try {
-      db.close()
+      closeRagDb(db)
     } catch {
       /* 已被引擎自行关闭（如 NOTADB 后句柄失效）——尽力而为，原错误优先上抛 */
     }
@@ -280,6 +280,20 @@ function prepared(db: DatabaseSync, sql: string): StatementSync {
     bySql.set(sql, stmt)
   }
   return stmt
+}
+
+/**
+ * R0911-G-P3-4（2026-09-11 重评修复批）：带缓存注销的关库——RAG 库的 close 一律走本
+ * helper，不得裸 `db.close()`。根因（裸 .mjs 40k 次 open/close 复现定位）：node:sqlite
+ * 的 StatementSync 强引用其 DatabaseSync，R46-45 的 preparedByDb（WeakMap<db, Map<sql,
+ * stmt>>）值侧 Map → stmt → db 与弱键构成 ephemeron 环，db 关闭后条目不随 GC 消失——
+ * 每次开/关滞留一份 Map+语句包装（实测 ~0.35KB；语句是否执行过无关，仅入缓存即滞留）。
+ * RAG 召回每次开库两回（探测+读），长会话下线性堆积；close 前显式 delete 断链后实测
+ * 归零（30k 次开/关增长 0.00MB）。WAL/busy_timeout/table_info/部分索引均经 bisect 排除。
+ */
+export function closeRagDb(db: DatabaseSync): void {
+  preparedByDb.delete(db)
+  db.close()
 }
 
 /** 向量 L2 范数（A3 预存范数：余弦退化为点积，召回数学量减半） */

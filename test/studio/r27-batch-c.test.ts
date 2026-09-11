@@ -192,28 +192,30 @@ function listEntries(dir: string): string[] {
 }
 
 describe('R27-63: commitSamples/commitQuotes 幂等', () => {
-  test('同场景同正文二次提交 → 不落新文件、返回既有路径', () => {
+  // R0911-B-P3-3（2026-09-11 全量重评 GLM-5.3 修复批）：commitSamples/commitQuotes 转
+  // async（批量落盘周期让出）——本组单条路径，await 即原语义，幂等断言不变
+  test('同场景同正文二次提交 → 不落新文件、返回既有路径', async () => {
     const bookRoot = mkdtempTracked(join(tmpdir(), 'r27-learn-'))
     const pick = { 章号: 1, 打分: 5, 场景: '战斗', 技法指令: '学短句压迫感', 出处: '《测试》第1章', 正文: '刀光没入雪雾。' }
-    const first = commitSamples(bookRoot, [pick])
+    const first = await commitSamples(bookRoot, [pick])
     expect(first).toHaveLength(1)
-    const second = commitSamples(bookRoot, [pick])
+    const second = await commitSamples(bookRoot, [pick])
     expect(second).toEqual(first) // 幂等：重放返回同一相对路径
     // 只有 1 个条目文件（双击不双份）
     expect(listEntries(join(bookRoot, '文风', '条目', '样章'))).toHaveLength(1)
   })
 
-  test('不同场景同正文 → 照常入库（场景是注入取用键）', () => {
+  test('不同场景同正文 → 照常入库（场景是注入取用键）', async () => {
     const bookRoot = mkdtempTracked(join(tmpdir(), 'r27-learn2-'))
-    commitSamples(bookRoot, [{ 章号: 1, 打分: 5, 场景: '战斗', 出处: '', 正文: '同一段正文。' }])
-    commitSamples(bookRoot, [{ 章号: 2, 打分: 5, 场景: '日常', 出处: '', 正文: '同一段正文。' }])
+    await commitSamples(bookRoot, [{ 章号: 1, 打分: 5, 场景: '战斗', 出处: '', 正文: '同一段正文。' }])
+    await commitSamples(bookRoot, [{ 章号: 2, 打分: 5, 场景: '日常', 出处: '', 正文: '同一段正文。' }])
     expect(listEntries(join(bookRoot, '文风', '条目', '样章'))).toHaveLength(2)
   })
 
-  test('金句与样章同内容 → 跨类不互并（金句标签不丢）', () => {
+  test('金句与样章同内容 → 跨类不互并（金句标签不丢）', async () => {
     const bookRoot = mkdtempTracked(join(tmpdir(), 'r27-learn3-'))
-    commitSamples(bookRoot, [{ 章号: 1, 打分: 5, 场景: '战斗', 出处: '', 正文: '金句正文。' }])
-    const q = commitQuotes(bookRoot, [{ 章号: 1, 场景: '战斗', 出处: '', 正文: '金句正文。' }])
+    await commitSamples(bookRoot, [{ 章号: 1, 打分: 5, 场景: '战斗', 出处: '', 正文: '金句正文。' }])
+    const q = await commitQuotes(bookRoot, [{ 章号: 1, 场景: '战斗', 出处: '', 正文: '金句正文。' }])
     expect(q).toHaveLength(1)
     expect(listEntries(join(bookRoot, '文风', '条目', '样章'))).toHaveLength(2)
   })

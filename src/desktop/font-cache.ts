@@ -14,6 +14,7 @@
  * ttlMs/now 可注入（测试用，不动生产语义）。
  */
 import { spawn } from 'node:child_process'
+import { join, sep } from 'node:path'
 
 export interface SystemFontCacheOptions {
   /** 缓存存活期；缺省 60s（字体安装属低频事件，60s 内的陈旧可接受）。 */
@@ -251,6 +252,27 @@ function parseFontListStdout(raw: string, platform: NodeJS.Platform): string[] {
   return fonts.map(bareFontName).sort(compareFontNames)
 }
 
+/**
+ * R0911-A-P2-1/A-P3-4（2026-09-11 全量重评 GLM-5.3 修复批）：darwin 自管 spawn 的
+ * fontlist 二进制解析——bundle 同伴定位 + asar 外置路径改写（main.ts loadFontList 接线用，
+ * PM-12 拍板项随本批落地）。两个形态：
+ * - dev/直跑：bundleDir = dist/desktop（main bundle 的目录），二进制由 tsup onSuccess
+ *   拷入同目录，路径原样可用；
+ * - 打包态：dist/** 进 asar 后 spawn 不认 asar 内路径（execFile 有 Electron 补丁、
+ *   spawn 没有）——electron-builder asarUnpack 把 desktop/fontlist 外置到
+ *   app.asar.unpacked/desktop/fontlist，同相对位替换取真路径。
+ * 任一形态的启动面失败（ENOENT/EACCES）都由 fontListWithTimeout 的
+ * fontListSetupFailure 回落链兜住（回落 load → font-list 自带 system_profiler），
+ * 本函数只负责给出正确的第一优先路径。纯函数（路径字符串进出），直测钉两形态。
+ */
+export function darwinFontListCommand(bundleDir: string): { command: string; args: string[] } {
+  const bin = join(bundleDir, 'fontlist')
+  const marker = `app.asar${sep}`
+  // sep 锚定目录分隔（防「app.asar」恰为文件名前缀的误替换）；dev 形态不含 marker 原样返回
+  const command = bin.includes(marker) ? bin.replace(marker, `app.asar.unpacked${sep}`) : bin
+  return { command, args: [] }
+}
+
 /** R40-28 原实现抽提（load 路径：font-list 不暴露子进程句柄，超时只放弃等待），文案与语义零变化。 */
 function fontListLoadWithTimeout(load: () => Promise<string[]>): Promise<string[]> {
   return new Promise<string[]>((resolve, reject) => {
@@ -286,12 +308,13 @@ function fontListLoadWithTimeout(load: () => Promise<string[]>): Promise<string[
  * TerminateProcess），仓库无 taskkill 分支（仅 e2e global-setup 有手工排查提示语），
  * 保留不改写；本函数自管路径同样统一 SIGTERM 口径，不引入 taskkill。
  *
- * R48-17（四十八轮）备案（如实标注，不代办拍板项）：生产接线（main.ts loadFontList）
- * 不传 deps——①超时必杀（deps.command 自管 spawn）路径生产不可达，mac/linux 超时仍
- * 走 load 路径「放弃等待」，孤儿进程残留问题未收口，接线待台账 PM-12 拍板（mac asar
- * 路径需打包态验证）；②会话级熔断（fontListProbeWithBreaker）生产已生效（缺省路径
- * 即包裹），R48-74 起 win 侧 listWindowsFonts 亦套用。deps.command 面 ~90 行（
- * runFontListCommandWithKill + 注入接口）当前仅测试可达。
+ * R48-17（四十八轮）备案沿革：生产接线（main.ts loadFontList）曾不传 deps——超时必杀
+ * 路径生产不可达，接线待台账 PM-12 拍板。**R0911-A-P2-1/A-P3-4（2026-09-11 全量重评
+ * GLM-5.3 修复批）已接线收口**：mac 侧 main.ts 注入 darwinFontListCommand(here)（随包
+ * 二进制 + asarUnpack 外置见 tsup.config.ts / electron-builder.yml），超时必杀生产
+ * 生效、启动面失败回落 load；linux 维持 load（系统命令无随包二进制）。会话级熔断
+ * （fontListProbeWithBreaker）生产持续生效（缺省路径即包裹），R48-74 起 win 侧
+ * listWindowsFonts 亦套用。打包态实测复验登记台账（build:desktop:dir + DMG 手验）。
  */
 export function fontListWithTimeout(load: () => Promise<string[]>, deps?: FontListWithTimeoutDeps): Promise<string[]> {
   return fontListProbeWithBreaker(() => {

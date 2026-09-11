@@ -97,7 +97,12 @@ export default defineConfig({
       // 时语句，全部消费方 import type 编译期擦除，无覆盖语义可计；.vue 组件层由 include
       // 'src/**/*.ts' 天然不入口径（vue-tsc/构建链自管），不再用 exclude 表达；两运行时
       // 文件随聚合桶 glob 扩面纳管（见 thresholds，同 R62-23「收暗区、阈值不变」先例）。
-      exclude: ['src/**/*.d.ts', 'src/studio/web-next/vite.config.ts', 'src/studio/web-next/src/types/tree.ts', 'src/studio/web-next/src/{main,router}.ts'],
+      // R0911-G-P2-2（2026-09-11 全量重评 GLM-5.3 修复批）：exclude 补 '**/node_modules/**'
+      // ——include 'src/**/*.ts' 命中 web-next 子包 node_modules 里 27 个第三方 .ts
+      //（@lezer/markdown、entities、@jridgewell 等），它们不落任何阈值桶（零守护）却
+      // 进报告占体积；显式排除后报告只剩自有源码（governance 反向守卫的 EXCLUDE 抄本
+      // 同步，见 test/governance/coverage-threshold-globs.test.ts）。
+      exclude: ['src/**/*.d.ts', '**/node_modules/**', 'src/studio/web-next/vite.config.ts', 'src/studio/web-next/src/types/tree.ts', 'src/studio/web-next/src/{main,router}.ts'],
       thresholds: {
         // 主代码单桶（brace+extglob 组合 = 除 web-next 外的全部，池化口径与旧全局门一致；
         // R36-17（三十六轮）：阈值随实测重算——区段注释口径曾停在 2026-08-20

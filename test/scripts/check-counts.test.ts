@@ -8,7 +8,7 @@
  */
 import { describe, it, expect } from 'vitest'
 // @ts-expect-error —— .mjs 直跑脚本无类型声明（不为其维护 d.ts；断言口径靠用例锚定）
-import { stripComments, stripStrings, countE2eCases, findOnlyOrSkipViolations, sanitizeForCount, posixRelPath, findAssertionFreeTestFiles, missingPageErrorWiring, sharedRuntimeVersionDrift } from '../../scripts/check-counts.mjs'
+import { stripComments, stripStrings, countE2eCases, findOnlyOrSkipViolations, sanitizeForCount, posixRelPath, findAssertionFreeTestFiles, missingPageErrorWiring, sharedRuntimeVersionDrift, parseWinPlatformDelta, problemsForWinUnitTestsClaim } from '../../scripts/check-counts.mjs'
 
 describe('J0（win 适配）：posixRelPath 分隔符归一化', () => {
   it('Windows 反斜杠绝对路径归一为 posix 相对路径——R66-37 快照守卫 win 假红根因', () => {
@@ -262,5 +262,43 @@ describe('R1010c-TL-P2-2: sharedRuntimeVersionDrift 双包共享运行时对账'
   it('双侧缺失同跳过；packages 形状缺键不炸（空键安全）', () => {
     expect(sharedRuntimeVersionDrift({}, {})).toEqual([])
     expect(sharedRuntimeVersionDrift({ 'node_modules/vue': {} }, { 'node_modules/vue': {} })).toEqual([])
+  })
+})
+
+// ── R0911-G-P3-1（2026-09-11 全量重评 GLM-5.3 修复批）：win 腿单测数对账分支直测 ──
+// parseWinPlatformDelta（README「实测差 N 恒定」原文解析）与 win 反推失配判定
+// 此前只活在 main() 闭包里，win 腿红绿是唯一暴露通道（本地 mac 从不经过）。
+describe('R0911-G-P3-1：win 平台门跳过量解析（README 唯一真相源的就地解析）', () => {
+  it('标准表述 → 解析出数字', () => {
+    expect(parseWinPlatformDelta('…win 实跑口径：… 实测差 75 恒定〔73 既有 + …〕')).toBe(75)
+    expect(parseWinPlatformDelta('实测差 1 恒定')).toBe(1)
+  })
+  it('空白容忍（多空格）照解析；无该口径 / 非数字 → null（调用方 fail-closed 报红）', () => {
+    expect(parseWinPlatformDelta('实测差  42  恒定')).toBe(42)
+    expect(parseWinPlatformDelta('README 里没有这个口径')).toBe(null)
+    expect(parseWinPlatformDelta('实测差 恒定')).toBe(null)
+    expect(parseWinPlatformDelta('')).toBe(null)
+  })
+})
+
+describe('R0911-G-P3-1：win 单测数反推失配判定（期望 win = 声称 − 平台门差）', () => {
+  it('实测恰等于反推期望 → 无失配', () => {
+    expect(problemsForWinUnitTestsClaim(6725, 75, 6650, '徽章单测数')).toEqual([])
+  })
+  it('win 实测偏少（收集丢失方向）→ 一条人话失配，含期望值与修账指引', () => {
+    const problems = problemsForWinUnitTestsClaim(6725, 75, 6640, '徽章单测数')
+    expect(problems).toHaveLength(1)
+    expect(problems[0]).toContain('期望 win 6650')
+    expect(problems[0]).toContain('实测 win 6640')
+    expect(problems[0]).toContain('实测差 N 恒定')
+  })
+  it('win 实测偏多（README 漂移方向，如新增 skipIf 用例未修账）→ 同样红', () => {
+    const problems = problemsForWinUnitTestsClaim(6725, 75, 6660, 'npm test 单测数')
+    expect(problems).toHaveLength(1)
+    expect(problems[0]).toContain('README 漂移或 win 侧收集丢失')
+  })
+  it('delta=0（无平台门差）退化为严格相等判定', () => {
+    expect(problemsForWinUnitTestsClaim(100, 0, 100, 'x')).toEqual([])
+    expect(problemsForWinUnitTestsClaim(100, 0, 99, 'x')).toHaveLength(1)
   })
 })

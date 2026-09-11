@@ -88,6 +88,11 @@ export interface UtilityProcessLike {
   on(event: 'message', listener: (message: unknown) => void): unknown
   once(event: 'message', listener: (message: unknown) => void): unknown
   once(event: 'exit', listener: (code: number) => void): unknown
+  /** R0911-A-P3-2（2026-09-11 全量重评 GLM-5.3 修复批）：Electron 在「进程无法
+   *  spawn」「被异常终止（V8 FatalError/OOM 等）」时经 'error' 事件抛诊断（三参：
+   *  type（如 "FatalError"）/location/完整 V8 崩溃报告文本）——EventEmitter 语义下
+   *  无监听即 uncaughtException 崩主进程，本接口此前漏此事件面（且 V8 级根因丢失）。 */
+  on(event: 'error', listener: (type: string, location: string, report: string) => void): unknown
   postMessage(message: unknown): void
   kill(): boolean
   pid?: number
@@ -344,6 +349,19 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
     // doRestart 的 finally 同步清空）——shutdown 短预算耗尽时 kill 链经此够到它
     startingProc = proc
     forwardChildStdio(proc, logger) // 握手前接线——boot 期日志不丢
+    // R0911-A-P3-2（2026-09-11 全量重评 GLM-5.3 修复批）：utilityProcess 'error' 必监听
+    // ——V8 FatalError/OOM/spawn 失败等异常终止经该事件抛诊断，EventEmitter 语义下无监听
+    // 即 uncaughtException 崩主进程；此前既不监听也不留痕，child 静默消失只剩 restart 链
+    // 兜底重启，根因（V8 级崩溃原因）永久丢失。持久监听随 child 消亡，诊断进档；握手期
+    // 的 'error' 另由 handshake() 的监听快失败（不必等满 30s 超时），两监听并存不冲突
+    //（handshake settle 有 settled 单飞闸，本监听只记日志不参与结算）。
+    proc.on('error', (type: string, location: string, report: string) => {
+      logger.error(
+        'server-manager',
+        `studio server utilityProcess 异常终止（error 事件：${type}${location ? ` @ ${location}` : ''}）`,
+        report,
+      )
+    })
     const port = await handshake(proc, logger, killWaitMs)
     // 稳定窗口计时（unref 不拖退出）：到点仍是他为 active 才清零
     // R58-B-1（五十八轮）：句柄留存 + exit 路径清除——此前不成对，child 提前退出后
@@ -1002,6 +1020,20 @@ function handshake(
     })
     proc.once('exit', (code: number) =>
       settle(() => rejectRaw(new ServerBootError('EXIT', `studio server 子进程启动途中退出（exit code ${code}）`))),
+    )
+    // R0911-A-P3-2：fork/spawn 失败或异常终止（V8 FatalError）经 'error' 事件到达——
+    // 此前 handshake 只认 message/exit/超时三路，error 形态要么挂满 30s 超时收场、要么
+    // （无任何监听时）直接崩主进程。此处快失败（report 进 reject 文案），诊断由
+    // startProc 的持久监听全文留痕。
+    proc.on('error', (type: string, location: string, report: string) =>
+      settle(() =>
+        rejectRaw(
+          new ServerBootError(
+            'FORK_ERROR',
+            `studio server utilityProcess 异常（error 事件：${type}${location ? ` @ ${location}` : ''}）：${report.slice(0, 400)}`,
+          ),
+        ),
+      ),
     )
   })
 }
