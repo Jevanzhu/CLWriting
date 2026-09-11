@@ -9,7 +9,7 @@
 import { ref, computed, watch, onBeforeUnmount, nextTick } from 'vue'
 import { PenLine, ShieldCheck, AlertCircle, Loader2, MessageSquareText, RefreshCw, ChevronLeft, ChevronRight, Info } from 'lucide-vue-next'
 import { useChatStore, type ChatMessage } from '../../../stores/chat'
-import { confirmTool } from '../../../api/chat'
+import { confirmTool, type ChatBranchInfo } from '../../../api/chat'
 import { ApiError } from '../../../api/client'
 import { useUiStore } from '../../../stores/ui'
 
@@ -121,28 +121,65 @@ function handleRegenerate(): void {
 }
 
 /**
+ * 变体组信息（供切换器渲染与 switchVariant 定位下一变体）。
+ */
+interface VariantGroupInfo {
+  index: number
+  total: number
+  label: string
+  branchIds: string[]
+}
+
+/**
  * 各助手消息的变体组定位（msgId → 当前序号/总数/同组分支 id 列表）。
  * 命中条件：消息 seq 落在某分支组区间（rootSeq ≤ seq ≤ lastSeq）且
  * 同 parentSeq 的变体组数 > 1（按 rootSeq 升序稳定排序）。
+ * R0912-C2-P3-1（2026-09-12 全量重评修复批）：原实现对每条消息各做一次
+ * branches.find（区间扫描）+ 同组 filter/sort——同组过滤/排序逐消息重复（区间扫描本身
+ * 仍线性，不构建区间索引）；改为循环前单趟预处理（同 parentSeq 组信息/已排序变体各算
+ * 一次），消息循环查表 + 区间线性扫描。渲染输出逐项不变：组内仍 rootSeq 升序、变体
+ * 归属/区间判定/无命中 group 即 continue 的 fallback 全部照搬——区间扫描沿 branches
+ * 原数组序（即服务端 listBranches 的 lastSeq 降序，branch-tree.ts）取首个命中，与原
+ * find 同口径；重叠区间极端场景（跨分支交错续写）归组不因本批改写漂移。
  */
 const variantGroups = computed(() => {
-  const map = new Map<string, { index: number; total: number; label: string; branchIds: string[] }>()
-  for (const msg of chat.messages) {
-    if (msg.role !== 'assistant' || msg.seq === undefined) continue
-    const seq = msg.seq
-    const group = chat.branches.find((b) => seq >= b.rootSeq && seq <= b.lastSeq)
-    if (!group) continue
-    const variants = chat.branches
-      .filter((b) => b.parentSeq === group.parentSeq)
-      .sort((a, b) => a.rootSeq - b.rootSeq)
-    const index = variants.findIndex((b) => b.branchId === group.branchId)
+  const map = new Map<string, VariantGroupInfo>()
+  const branches = chat.branches
+  if (branches.length === 0) return map
+  // 预处理①：parentSeq → 同组已排序变体；branchId → 组信息（仅多变体组且位次合法时登记）
+  const variantsByParent = new Map<number | null, ChatBranchInfo[]>()
+  const groupByBranchId = new Map<string, VariantGroupInfo>()
+  for (const b of branches) {
+    let variants = variantsByParent.get(b.parentSeq)
+    if (!variants) {
+      variants = branches
+        .filter((x) => x.parentSeq === b.parentSeq)
+        .sort((x, y) => x.rootSeq - y.rootSeq)
+      variantsByParent.set(b.parentSeq, variants)
+    }
+    const index = variants.findIndex((v) => v.branchId === b.branchId)
     if (index < 0 || variants.length <= 1) continue
-    map.set(msg.id, {
+    groupByBranchId.set(b.branchId, {
       index,
       total: variants.length,
       label: `${index + 1}/${variants.length}`,
       branchIds: variants.map((v) => v.branchId),
     })
+  }
+  // 预处理②：消息 seq 的区间查找沿 branches 原数组序取首个命中（原 find 同口径，见上注）
+  for (const msg of chat.messages) {
+    if (msg.role !== 'assistant' || msg.seq === undefined) continue
+    const seq = msg.seq
+    let group: ChatBranchInfo | undefined
+    for (const b of branches) {
+      if (seq >= b.rootSeq && seq <= b.lastSeq) {
+        group = b
+        break
+      }
+    }
+    if (!group) continue
+    const info = groupByBranchId.get(group.branchId)
+    if (info) map.set(msg.id, info)
   }
   return map
 })

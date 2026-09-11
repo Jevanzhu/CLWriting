@@ -894,6 +894,45 @@ describe('批 U3：崩溃退避自动重启（U-2/S-1/S-5/S-9）', () => {
     await vi.waitFor(() => expect(forkRecords.length).toBe(5), { timeout: 300 })
   })
 
+  // R0912-A-P3-4（2026-09-12 独立重评修复批）：异步决断 reject（对话框链异常等）此前
+  // 无接手 → unhandledRejection。修复后 catch 记 error 日志并按兜底 quit 语义收口
+  //（不再自动重启）；无第 5 次 fork、无未处理拒绝外溢。
+  it('R0912-A-P3-4：封顶决断回调 reject → error 留痕 + 兜底不重启 + 无未处理拒绝', async () => {
+    const cap = mkLogCapture()
+    const { forkRecords, manager } = mkHarness({
+      backoffMs: [10, 20, 30],
+      logger: cap.logger,
+      onRestartExhausted: () => Promise.reject(new Error('对话框链崩了')),
+    })
+    const unhandled: unknown[] = []
+    const onUnhandled = (e: unknown): void => {
+      unhandled.push(e)
+    }
+    process.on('unhandledRejection', onUnhandled)
+    try {
+      await bootAt(manager, forkRecords, 1)
+      for (let i = 0; i < 4; i++) {
+        forkRecords[i]!.child.emit('exit', 1)
+        if (i < 3) {
+          await vi.waitFor(() => expect(forkRecords.length).toBe(i + 2), { timeout: 300 })
+          forkRecords[i + 1]!.child.emit('message', { type: 'ready', port: 1 })
+          await flushMicrotasks()
+        }
+      }
+      await vi.waitFor(
+        () => expect(cap.lines.some((l) => l.level === 'error' && l.msg.includes('崩溃封顶决断回调失败'))).toBe(true),
+        { timeout: 300 },
+      )
+      await sleep(80)
+      expect(forkRecords.length).toBe(4) // 兜底 quit 语义：封顶后无第 5 次 fork
+      await new Promise((r) => setTimeout(r, 30)) // 给潜在未处理拒绝一个落地窗
+      expect(unhandled).toEqual([])
+    } finally {
+      process.off('unhandledRejection', onUnhandled)
+      await manager.stopChild() // 显式收口（无 active 直通），不留挂起重启外溢
+    }
+  })
+
   it('S-9：ready 后稳定过窗口计数清零——后续崩溃回退避第 1 档而非第 2 档', async () => {
     // backoff[1]=2000ms：若计数未清零，第二次崩溃后的重启要等 2s（用例 1000ms 内必超时）
     const { forkRecords, manager } = mkHarness({ backoffMs: [10, 2000, 3000], stabilityResetMs: 40 })

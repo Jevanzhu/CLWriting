@@ -19,10 +19,10 @@ import { join } from 'node:path'
 import { createAllTables } from '../../src/cache/schema.js'
 import { syncChapter } from '../../src/cache/sync.js'
 import { prepareMaterials } from '../../src/process/materials.js'
-import { writeBookConfig, DEFAULT_CONFIG, setSectionKeyBlock } from '../../src/format/yaml.js'
+import { writeBookConfig, DEFAULT_CONFIG, setSectionKeyBlock, patchTopSection } from '../../src/format/yaml.js'
+import { stringifyValue } from '../../src/format/frontmatter.js'
 import { writeChapter } from '../helpers/chapter.js'
 import { buildIndex } from '../../src/rag/index.js'
-import { enableRag } from '../../src/rag/config.js'
 import { emptySettings, saveProviders } from '../../src/ai/provider/index.js'
 import type { ChapterMeta } from '../../src/format/types.js'
 import type { EmbedResult } from '../../src/rag/embed.js'
@@ -75,6 +75,21 @@ function stubEmbed(_ep: string, _m: string, _k: string, texts: string[]): Promis
       return [norm, norm * 0.5, norm * 0.3]
     }),
   )
+}
+
+/** 启用 RAG 的等价直写（原 enableRag API 已删，本测试内复刻其 yaml 输出）：
+ *  非密段走 patchTopSection 文本级补丁（enabled: true + endpoint/model，stringifyValue
+ *  同款引号口径，key 绝不入 book.yaml）；apiKey 落 .clwriting/rag.secret（key + '\n'，
+ *  读侧 trim）。不传 apiKey = 不落 key 文件（原 useEnv 形态）。 */
+function setupRag(root: string, workDir: string, opts: { endpoint?: string; model?: string; apiKey?: string }): void {
+  const raw = readFileSync(join(root, 'book.yaml'), 'utf-8')
+  const body = [
+    '  enabled: true',
+    ...(opts.endpoint ? [`  endpoint: ${stringifyValue(opts.endpoint)}`] : []),
+    ...(opts.model ? [`  model: ${stringifyValue(opts.model)}`] : []),
+  ].join('\n')
+  writeFileSync(join(root, 'book.yaml'), patchTopSection(raw, 'rag', body))
+  if (opts.apiKey) writeFileSync(join(workDir, '.clwriting', 'rag.secret'), opts.apiKey + '\n', 'utf-8')
 }
 
 test('未配 RAG → prepareMaterials 行为与 prepare 逐字节一致', async () => {
@@ -255,7 +270,7 @@ test('已配 RAG + key + 命中 → 备料含「RAG 召回」段', async () => {
   const { root, workDir, db } = makeBook()
   try {
     // 启用 RAG（非密入 book.yaml + key 落 .clwriting/rag.secret）
-    enableRag(root, workDir, { endpoint: 'http://stub', model: 'stub-model', apiKey: 'stub-key' })
+    setupRag(root, workDir, { endpoint: 'http://stub', model: 'stub-model', apiKey: 'stub-key' })
     // 先建索引（用桩 embed 注入 buildIndex）
     const cfg: RagConfig = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
     await buildIndex(root, cfg, 'stub-key', stubEmbed)
@@ -284,7 +299,7 @@ test('CC-P2-21: 3 位补零命名（草稿新建口径）的章 → 召回后仍
     // 草稿新建用 3 位补零（format/draft.ts resolveDraftPath）；此前 readChapterBodyByNumber
     // 只试「无补零 + 4 位」，这些章 RAG 命中后正文静默读 null → 召回段空手而归
     renameSync(join(root, '写作', '正文', '1-前章.md'), join(root, '写作', '正文', '001-前章.md'))
-    enableRag(root, workDir, { endpoint: 'http://stub', model: 'stub-model', apiKey: 'stub-key' })
+    setupRag(root, workDir, { endpoint: 'http://stub', model: 'stub-model', apiKey: 'stub-key' })
     const cfg: RagConfig = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
     await buildIndex(root, cfg, 'stub-key', stubEmbed)
 
@@ -305,8 +320,8 @@ test('CC-P2-21: 3 位补零命名（草稿新建口径）的章 → 召回后仍
 test('已配 RAG 但无 key → 降级（无召回段，ragNote 标注）', async () => {
   const { root, workDir, db } = makeBook()
   try {
-    // 启用 RAG 但不落 key（useEnv 模式 + 不设环境变量）
-    enableRag(root, workDir, { endpoint: 'http://stub', model: 'stub-model', useEnv: true })
+    // 启用 RAG 但不落 key（不设环境变量也无 secret 文件）
+    setupRag(root, workDir, { endpoint: 'http://stub', model: 'stub-model' })
     // 确保无环境变量也无 secret 文件
     delete process.env.CLWRITING_RAG_API_KEY
     expect(existsSync(join(workDir, '.clwriting', 'rag.secret'))).toBe(false)
@@ -360,7 +375,7 @@ test('降级不崩主路径：备料文本仍含刚需段（近况/文风铁律�
   const { root, workDir, db } = makeBook()
   try {
     // 已配 RAG 但无 key（降级路径）
-    enableRag(root, workDir, { endpoint: 'http://stub', model: 'stub-model', useEnv: true })
+    setupRag(root, workDir, { endpoint: 'http://stub', model: 'stub-model' })
     delete process.env.CLWRITING_RAG_API_KEY
 
     const r = await prepareMaterials(db, DEFAULT_CONFIG, {
@@ -393,7 +408,7 @@ test('低-1（第十轮）：RAG 无命中降级也传 writingChapter——卷�
       'utf-8',
     )
     // 已配 RAG + key 但不建索引 → recall 空库返回 []（无命中降级分支）
-    enableRag(root, workDir, { endpoint: 'http://stub', model: 'stub-model', apiKey: 'stub-key' })
+    setupRag(root, workDir, { endpoint: 'http://stub', model: 'stub-model', apiKey: 'stub-key' })
 
     const r = await prepareMaterials(db, cfg, {
       bookRoot: root, workDir, chapterLeadIds: [], chapter: 2,
@@ -423,7 +438,7 @@ test('A3 生产链路：book.yaml rag.candidate_depth 经备料透传到召回�
     const dirEmbed = (_ep: string, _m: string, _k: string, texts: string[]): Promise<EmbedResult> =>
       Promise.resolve(texts.map((t) => (t.includes('乙') ? [0.12, 0.4, 0.9] : [0.9, 0.4, 0.12])))
 
-    enableRag(root, workDir, { endpoint: 'http://stub', model: 'stub-model', apiKey: 'stub-key' })
+    setupRag(root, workDir, { endpoint: 'http://stub', model: 'stub-model', apiKey: 'stub-key' })
     await buildIndex(root, { enabled: true, endpoint: 'http://stub', model: 'stub-model' }, 'stub-key', dirEmbed)
 
     // 建索引后整段改写第 1 章 → 指纹过期（它仍是余弦首位命中）

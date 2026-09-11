@@ -17,8 +17,14 @@ asar: true
 # 构建期拷入 dist，darwin 腿）须外置到 app.asar.unpacked/ 同相对位，main.ts
 # darwinFontListCommand 按 asar→asar.unpacked 改写取真路径。win/linux 腿 dist 内无此
 # 文件，glob 零命中为 no-op。
+# R0912-A-P2-1（2026-09-12 独立重评 GLM-5.3 修复批）：上批外置路径漏 dist/ 前缀——
+# files 规则 `dist/**/*` 打包后 asar 内资源路径带 dist/ 段（app-builder-lib FileMatcher
+# 以 appDir 相对路径做 minimatch），asarUnpack 同样按 asar 内相对路径匹配，裸
+# `desktop/fontlist` 零命中 = 外置 no-op、打包态自管枚举恒 ENOENT 回落慢路径。改为
+# `dist/desktop/fontlist`（运行时 darwinFontListCommand 改写期望
+# app.asar.unpacked/dist/desktop/fontlist，与 test/desktop/r0911-font-binary-path 同口径）。
 asarUnpack:
-  - desktop/fontlist
+  - dist/desktop/fontlist
 mac:
   category: public.app-category.productivity
   target:

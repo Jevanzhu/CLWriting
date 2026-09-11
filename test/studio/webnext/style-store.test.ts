@@ -3,7 +3,7 @@
  *
  * 覆盖重点：
  * - load 三路并行拉取（entries/candidates/config）+ migration 返回
- * - pendingCount / kindCounts 派生计算
+ * - kindCounts 派生计算
  * - add/remove/confirm/ignore 本地状态同步
  * - harvest 有新增才 reloadCandidates
  * - freeze 更新 baseline / rescan 更新 trend
@@ -104,17 +104,6 @@ describe('style: load 并行加载', () => {
 })
 
 describe('style: 派生计算', () => {
-  it('pendingCount = 待确认候选数', async () => {
-    listEntriesMock.mockResolvedValue({ entries: [], errors: [], migration: null })
-    listCandidatesMock.mockResolvedValue({
-      candidates: [candidate('a.md', '待确认'), candidate('b.md', '待确认'), candidate('c.md', '已忽略')],
-    })
-    getConfigMock.mockResolvedValue(config())
-    const style = useStyleStore()
-    await style.load(BOOK)
-    expect(style.pendingCount).toBe(2)
-  })
-
   it('kindCounts 按类型计数', async () => {
     listEntriesMock.mockResolvedValue({
       entries: [entry('a.md', '样章'), entry('b.md', '手法'), entry('c.md', '样章'), entry('d.md', '禁词')],

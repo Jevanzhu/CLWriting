@@ -286,6 +286,23 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
   }
 
   /**
+   * R0912-A-P3-2（2026-09-12 独立重评修复批）：预算耗尽时对在途 fork 的就地 kill 收口
+   * （stopChild / shutdown 两段逐字同构块收拢为局部闭包，行为零变化）——句柄快照 +
+   * once('exit') 等待 + kill + killProcAwaitEscalating 纪律（killWaitMs 等待 + SIGKILL
+   * 升级）。无在途 fork（startingProc 已清）直通；`!settled && startingProc` 守卫留在
+   * 调用点（settled 属各自 race 局部量）。
+   */
+  async function killStartingProc(context: string): Promise<void> {
+    const proc = startingProc
+    if (!proc) return
+    const exited = new Promise<void>((resolveExit) => {
+      proc.once('exit', () => resolveExit())
+    })
+    proc.kill()
+    await killProcAwaitEscalating(proc, exited, context, killWaitMs, logger)
+  }
+
+  /**
    * fork + 握手 + 接线（start 与内部重启共用）。
    * portArg：start 传 '0'（OS 分配）；重启传钉住端口字符串（S-1 前端恢复链同源）。
    * 成功后登记 active/lastOpts/pinnedPort、挂持久 exit 监听（非主动停机 → 排程重启）、
@@ -392,12 +409,20 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
       logger.error('server-manager', `studio server 连续崩溃：${RESTART_MAX_ATTEMPTS} 次自动重启后仍异常，转用户决断`)
       // R1010-P3（G7-②）：决断可能异步（异步对话框）——exit 回调不等它，决断到达
       // 前不重启不退出；期间 active 已空、无新 exit 事件，无重入面
-      void Promise.resolve(deps.onRestartExhausted?.() ?? 'quit').then((choice) => {
-        if (choice === 'restart') {
-          restartCount = 0 // 人工重启计一次全新周期
-          scheduleRestart()
-        }
-      })
+      // R0912-A-P3-4（2026-09-12 独立重评修复批）：决断链补 .catch——异步决断 reject
+      // （对话框链异常等）此前无接手即成 unhandledRejection；catch 记错误日志后走兜底
+      // 'quit' 语义（本模块的 quit 缺省 = 不再自动重启，真退出由 main 侧执行，deps 无
+      // quit 钩子可调——保持进程现状不重启即该语义的兜底形态）。
+      void Promise.resolve(deps.onRestartExhausted?.() ?? 'quit')
+        .then((choice) => {
+          if (choice === 'restart') {
+            restartCount = 0 // 人工重启计一次全新周期
+            scheduleRestart()
+          }
+        })
+        .catch((e) => {
+          logger.error('server-manager', '崩溃封顶决断回调失败，按兜底 quit 语义收口（不再自动重启）', e)
+        })
       return
     }
     restartCount++
@@ -583,13 +608,9 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
       // 就地 kill + 等退出收口（killProcAwaitEscalating 纪律原样复用：killWaitMs 等待
       // + SIGKILL 升级，本段不新增等待语义）。settled=true 的空 active 属握手已失败/
       // child 已退形态，其自身路径已收口，此处无需动作。
+      // R0912-A-P3-2：同构块收拢为 killStartingProc（行为零变化）。
       if (!settled && startingProc) {
-        const proc = startingProc
-        const exited = new Promise<void>((resolveExit) => {
-          proc.once('exit', () => resolveExit())
-        })
-        proc.kill()
-        await killProcAwaitEscalating(proc, exited, 'stopChild 在途 fork 收口', killWaitMs, logger)
+        await killStartingProc('stopChild 在途 fork 收口')
       }
       await stopActiveChild()
     },
@@ -624,13 +645,9 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
           // 就地 kill + 等退出收口（killProcAwaitEscalating 纪律原样复用：killWaitMs
           // 等待 + SIGKILL 升级，本段不新增等待语义）。settled=true 的空 active 属
           // 握手已失败/child 已退形态，其自身路径已收口，此处无需动作。
+          // R0912-A-P3-2：同构块收拢为 killStartingProc（行为零变化）。
           if (!settled && startingProc) {
-            const proc = startingProc
-            const exited = new Promise<void>((resolveExit) => {
-              proc.once('exit', () => resolveExit())
-            })
-            proc.kill()
-            await killProcAwaitEscalating(proc, exited, 'shutdown 在途 fork 收口', killWaitMs, logger)
+            await killStartingProc('shutdown 在途 fork 收口')
           }
           return
         }

@@ -9,6 +9,8 @@ import { usePrefsStore } from '../../stores/prefs'
 import { parseNumericInput } from '../../shared/numeric-input'
 import { useProviderStore } from '../../stores/provider'
 import BetaBadge from './BetaBadge.vue'
+import SettingItem from './SettingItem.vue'
+import SettingToggle from './SettingToggle.vue'
 
 const ui = useUiStore()
 // 全局默认值来自 prefs store（main.ts 在 mount 前 await init()，设置打开时必已就绪）
@@ -39,9 +41,6 @@ onActivated(() => {
 
 // ── 全局默认控件：直写 prefs store（clamp 在 store setter，防抖落 global.json）──
 
-function onGlobalRagToggle(e: Event): void {
-  prefs.setRagEnabled((e.target as HTMLInputElement).checked)
-}
 function onGlobalRagProviderChange(e: Event): void {
   prefs.setRagProvider((e.target as HTMLSelectElement).value)
 }
@@ -64,154 +63,55 @@ function onGlobalCheckNum(e: Event, set: (v: number) => void): void {
   <div class="settings-tab">
     <div class="cfg-card-head">AI 机检</div>
     <section class="cfg-card">
-      <div class="setting-item">
-        <div class="setting-item-info">
-          <div class="setting-item-name">短篇严格模式</div>
-          <div class="setting-item-desc">把短篇专属黄项（字数/身体部位词/比喻/五段节数/开头钩子/反转线索/情绪曲线）提升为红项——机检红项会打回重写，过不了不交稿；仅作用于短篇书；未单独设定的书使用此默认</div>
-        </div>
-        <div class="setting-item-control">
-          <label class="switch">
-            <input type="checkbox" aria-label="短篇严格模式（全局默认）" :checked="prefs.defaultShortStrict" @change="prefs.setDefaultShortStrict(($event.target as HTMLInputElement).checked)" />
-            <span class="switch-slider"></span>
-          </label>
-        </div>
-      </div>
+      <SettingToggle name="短篇严格模式" desc="把短篇专属黄项（字数/身体部位词/比喻/五段节数/开头钩子/反转线索/情绪曲线）提升为红项——机检红项会打回重写，过不了不交稿；仅作用于短篇书；未单独设定的书使用此默认" ariaLabel="短篇严格模式（全局默认）" :checked="prefs.defaultShortStrict" @change="prefs.setDefaultShortStrict" />
       <!-- R52-E-2：机检阈值五键（全局托底；本书可在 book.yaml checks.* 单独覆盖） -->
-      <div class="setting-item">
-        <div class="setting-item-info">
-          <div class="setting-item-name">复读占比阈值</div>
-          <div class="setting-item-desc">重复字词占全章比例超过该值报黄（0-1 之间，如 0.15）；留空用内置默认 0.15；未单独设定的书使用此默认</div>
-        </div>
-        <div class="setting-item-control">
-          <input class="num-input" type="number" min="0.01" max="1" step="0.01" aria-label="复读占比阈值（全局默认）" placeholder="默认 0.15" :value="prefs.checkRepeatThreshold" @change="onGlobalCheckNum($event, prefs.setCheckRepeatThreshold)" />
-        </div>
-      </div>
-      <div class="setting-item">
-        <div class="setting-item-info">
-          <div class="setting-item-name">复读连续字数</div>
-          <div class="setting-item-desc">连续重复多少字以上才计入复读检查；留空用内置默认 200；未单独设定的书使用此默认</div>
-        </div>
-        <div class="setting-item-control">
-          <input class="num-input" type="number" min="2" max="1000" step="1" aria-label="复读连续字数（全局默认）" placeholder="默认 200" :value="prefs.checkRepeatCharsThreshold" @change="onGlobalCheckNum($event, prefs.setCheckRepeatCharsThreshold)" />
-          <span class="val-suffix">字</span>
-        </div>
-      </div>
-      <div class="setting-item">
-        <div class="setting-item-info">
-          <div class="setting-item-name">超长句判定长度</div>
-          <div class="setting-item-desc">单句超过多少字报黄（句式体检）；留空用内置默认 60，文风铁律单独配置时以铁律为准；未单独设定的书使用此默认</div>
-        </div>
-        <div class="setting-item-control">
-          <input class="num-input" type="number" min="10" max="500" step="1" aria-label="超长句判定长度（全局默认）" placeholder="默认 60" :value="prefs.checkMaxSentenceLen" @change="onGlobalCheckNum($event, prefs.setCheckMaxSentenceLen)" />
-          <span class="val-suffix">字</span>
-        </div>
-      </div>
-      <div class="setting-item">
-        <div class="setting-item-info">
-          <div class="setting-item-name">高频意象阈值</div>
-          <div class="setting-item-desc">同一意象词出现超过该次数报黄；留空用内置默认 3；未单独设定的书使用此默认</div>
-        </div>
-        <div class="setting-item-control">
-          <input class="num-input" type="number" min="1" max="100" step="1" aria-label="高频意象阈值（全局默认）" placeholder="默认 3" :value="prefs.checkImageryThreshold" @change="onGlobalCheckNum($event, prefs.setCheckImageryThreshold)" />
-          <span class="val-suffix">次</span>
-        </div>
-      </div>
-      <div class="setting-item">
-        <div class="setting-item-info">
-          <div class="setting-item-name">字数容差</div>
-          <div class="setting-item-desc">章节字数与目标偏差在容差内不报黄（百分比）；留空用内置默认 30，短篇书走短篇字数上下限；未单独设定的书使用此默认</div>
-        </div>
-        <div class="setting-item-control">
-          <input class="num-input" type="number" min="1" max="500" step="1" aria-label="字数容差（全局默认）" placeholder="默认 30" :value="prefs.checkWordCountTolerance" @change="onGlobalCheckNum($event, prefs.setCheckWordCountTolerance)" />
-          <span class="val-suffix">%</span>
-        </div>
-      </div>
+      <SettingItem name="复读占比阈值" desc="重复字词占全章比例超过该值报黄（0-1 之间，如 0.15）；留空用内置默认 0.15；未单独设定的书使用此默认">
+        <input class="num-input" type="number" min="0.01" max="1" step="0.01" aria-label="复读占比阈值（全局默认）" placeholder="默认 0.15" :value="prefs.checkRepeatThreshold" @change="onGlobalCheckNum($event, prefs.setCheckRepeatThreshold)" />
+      </SettingItem>
+      <SettingItem name="复读连续字数" desc="连续重复多少字以上才计入复读检查；留空用内置默认 200；未单独设定的书使用此默认">
+        <input class="num-input" type="number" min="2" max="1000" step="1" aria-label="复读连续字数（全局默认）" placeholder="默认 200" :value="prefs.checkRepeatCharsThreshold" @change="onGlobalCheckNum($event, prefs.setCheckRepeatCharsThreshold)" />
+        <span class="val-suffix">字</span>
+      </SettingItem>
+      <SettingItem name="超长句判定长度" desc="单句超过多少字报黄（句式体检）；留空用内置默认 60，文风铁律单独配置时以铁律为准；未单独设定的书使用此默认">
+        <input class="num-input" type="number" min="10" max="500" step="1" aria-label="超长句判定长度（全局默认）" placeholder="默认 60" :value="prefs.checkMaxSentenceLen" @change="onGlobalCheckNum($event, prefs.setCheckMaxSentenceLen)" />
+        <span class="val-suffix">字</span>
+      </SettingItem>
+      <SettingItem name="高频意象阈值" desc="同一意象词出现超过该次数报黄；留空用内置默认 3；未单独设定的书使用此默认">
+        <input class="num-input" type="number" min="1" max="100" step="1" aria-label="高频意象阈值（全局默认）" placeholder="默认 3" :value="prefs.checkImageryThreshold" @change="onGlobalCheckNum($event, prefs.setCheckImageryThreshold)" />
+        <span class="val-suffix">次</span>
+      </SettingItem>
+      <SettingItem name="字数容差" desc="章节字数与目标偏差在容差内不报黄（百分比）；留空用内置默认 30，短篇书走短篇字数上下限；未单独设定的书使用此默认">
+        <input class="num-input" type="number" min="1" max="500" step="1" aria-label="字数容差（全局默认）" placeholder="默认 30" :value="prefs.checkWordCountTolerance" @change="onGlobalCheckNum($event, prefs.setCheckWordCountTolerance)" />
+        <span class="val-suffix">%</span>
+      </SettingItem>
     </section>
 
     <div class="cfg-card-head">关系图 <BetaBadge /></div>
     <section class="cfg-card">
-      <div class="setting-item">
-        <div class="setting-item-info">
-          <div class="setting-item-name">自动梳理</div>
-          <div class="setting-item-desc">打开关系图时，若新增章节达到阈值则自动 AI 梳理；未单独设定的书使用此默认</div>
-        </div>
-        <div class="setting-item-control">
-          <label class="switch">
-            <input type="checkbox" aria-label="关系图自动梳理（全局默认）" :checked="prefs.relationAutoMine" @change="prefs.setRelationAutoMine(($event.target as HTMLInputElement).checked)" />
-            <span class="switch-slider"></span>
-          </label>
-        </div>
-      </div>
-      <div class="setting-item">
-        <div class="setting-item-info">
-          <div class="setting-item-name">章节增量阈值</div>
-          <div class="setting-item-desc">自上次梳理后新增多少章触发自动梳理；未单独设定的书使用此默认</div>
-        </div>
-        <div class="setting-item-control">
-          <input class="num-input" type="number" min="1" max="20" step="1" aria-label="章节增量阈值（全局默认）" :value="prefs.relationMineThreshold" @change="onGlobalThresholdInput($event)" />
-          <span class="val-suffix">章</span>
-        </div>
-      </div>
+      <SettingToggle name="自动梳理" desc="打开关系图时，若新增章节达到阈值则自动 AI 梳理；未单独设定的书使用此默认" ariaLabel="关系图自动梳理（全局默认）" :checked="prefs.relationAutoMine" @change="prefs.setRelationAutoMine" />
+      <SettingItem name="章节增量阈值" desc="自上次梳理后新增多少章触发自动梳理；未单独设定的书使用此默认">
+        <input class="num-input" type="number" min="1" max="20" step="1" aria-label="章节增量阈值（全局默认）" :value="prefs.relationMineThreshold" @change="onGlobalThresholdInput($event)" />
+        <span class="val-suffix">章</span>
+      </SettingItem>
     </section>
 
     <div class="cfg-card-head">知识检索 <BetaBadge /></div>
     <section class="cfg-card">
-      <div class="setting-item">
-        <div class="setting-item-info">
-          <div class="setting-item-name">启用检索</div>
-          <div class="setting-item-desc">开启后 AI 可检索已有章节作为上下文；未单独设定的书使用此默认</div>
-        </div>
-        <div class="setting-item-control">
-          <label class="switch">
-            <input type="checkbox" aria-label="启用知识检索（全局默认）" :checked="prefs.ragEnabled" @change="onGlobalRagToggle($event)" />
-            <span class="switch-slider"></span>
-          </label>
-        </div>
-      </div>
-      <div class="setting-item">
-        <div class="setting-item-info">
-          <div class="setting-item-name">检索提供方</div>
-          <div class="setting-item-desc">
-            {{ ragProviders.length ? '嵌入提供方在「服务提供方」页管理，未单独设定的书使用此默认' : '尚未配置嵌入提供方——请先到「服务提供方」页添加 RAG 提供方' }}
-          </div>
-        </div>
-        <div class="setting-item-control">
-          <select
-            class="rag-prov-select"
-            aria-label="检索提供方（全局默认）"
-            :value="prefs.ragProvider"
-            @change="onGlobalRagProviderChange($event)"
-          >
-            <option value="" disabled>{{ ragProviders.length ? '请选择' : '暂无可选提供方' }}</option>
-            <option v-for="p in ragProviders" :key="p.id" :value="p.id">{{ p.name }}（{{ p.model }}）</option>
-          </select>
-        </div>
-      </div>
+      <SettingToggle name="启用检索" desc="开启后 AI 可检索已有章节作为上下文；未单独设定的书使用此默认" ariaLabel="启用知识检索（全局默认）" :checked="prefs.ragEnabled" @change="prefs.setRagEnabled" />
+      <SettingItem name="检索提供方">
+        <template #desc>
+          {{ ragProviders.length ? '嵌入提供方在「服务提供方」页管理，未单独设定的书使用此默认' : '尚未配置嵌入提供方——请先到「服务提供方」页添加 RAG 提供方' }}
+        </template>
+        <select
+          class="rag-prov-select"
+          aria-label="检索提供方（全局默认）"
+          :value="prefs.ragProvider"
+          @change="onGlobalRagProviderChange($event)"
+        >
+          <option value="" disabled>{{ ragProviders.length ? '请选择' : '暂无可选提供方' }}</option>
+          <option v-for="p in ragProviders" :key="p.id" :value="p.id">{{ p.name }}（{{ p.model }}）</option>
+        </select>
+      </SettingItem>
     </section>
   </div>
 </template>
-
-<style scoped>
-/* 检索提供方下拉（对齐设置页输入控件风格） */
-.rag-prov-select {
-  max-width: 260px;
-  padding: 6px 10px;
-  font-size: var(--font-size-s);
-  color: var(--text-normal);
-  background: var(--background-secondary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-s);
-  cursor: pointer;
-  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
-}
-
-.rag-prov-select:hover {
-  border-color: var(--interactive-accent);
-}
-
-.rag-prov-select:focus {
-  outline: none;
-  border-color: var(--interactive-accent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 18%, transparent);
-}
-</style>

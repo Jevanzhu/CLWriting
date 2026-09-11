@@ -80,8 +80,6 @@ export const useTreeStore = defineStore('tree', () => {
   // T9b 树红点：docId → { hasRed, verdictRejected }（仅含有 issue 的 docId）。
   // 触发刷新：load 后拉一次；CheckPanel 跑完机检 / ReviewPanel verdict 后各拉一次。
   const issues = ref<Record<string, TreeIssue>>({})
-  /** rebuild 失败等降级提示（非阻塞，仅展示用）；null = 正常。 */
-  const issuesWarning = ref<string | null>(null)
 
   /**
    * 冒泡后的「有 issue」path 集合（叶子自身命中 + 目录子树命中均纳入）。
@@ -115,7 +113,6 @@ export const useTreeStore = defineStore('tree', () => {
       const r = await getTreeIssues(name)
       if (gen !== issuesGen) return // 旧书慢响应后到：防覆盖新书红点
       issues.value = r.issues ?? {}
-      issuesWarning.value = r.warning ?? null
     } catch {
       /* 网络抖动等：保留旧值，不惊扰作者 */
     }
@@ -183,7 +180,6 @@ export const useTreeStore = defineStore('tree', () => {
     loading.value = false
     error.value = null
     issues.value = {}
-    issuesWarning.value = null
     ownerBook.value = '' // R35-10：树清空即无属主
   }
 
@@ -201,7 +197,6 @@ export const useTreeStore = defineStore('tree', () => {
     load,
     clear,
     issues,
-    issuesWarning,
     issuePaths,
     loadIssues,
   }

@@ -33,11 +33,10 @@ export async function putContent(
     `/api/books/${encodeURIComponent(name)}/file?file=${encodeURIComponent(path)}`,
     {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      json: {
         content,
         ...(expectedRevision !== undefined ? { expectedRevision } : {}),
-      }),
+      },
     },
   )
 }
@@ -64,8 +63,7 @@ export async function saveContent(
     `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/content`,
     {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      json: body,
     },
     30_000, // 本地磁盘写应秒级；超时防 saving 永不清除
   )
@@ -86,8 +84,7 @@ export async function createDoc(
 ): Promise<CreateOk> {
   return apiJson<CreateOk>(`/api/books/${encodeURIComponent(name)}/documents`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    json: body,
   })
 }
 
@@ -102,8 +99,7 @@ export async function copyDoc(
     `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/copy`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ relPath }),
+      json: { relPath },
     },
   )
 }
@@ -118,8 +114,7 @@ export async function renameDoc(
     `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}`,
     {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ op: 'rename', newName }),
+      json: { op: 'rename', newName },
     },
   )
 }
@@ -132,8 +127,7 @@ export async function moveDoc(
     `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}`,
     {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ op: 'move', toDir }),
+      json: { op: 'move', toDir },
     },
   )
 }
@@ -148,8 +142,7 @@ export async function updateChapterMetaDoc(
     `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}`,
     {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ op: 'meta', ...meta }),
+      json: { op: 'meta', ...meta },
     },
   )
 }
@@ -164,8 +157,7 @@ export async function updateDocMeta(
     `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}`,
     {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ op: 'fm', meta }),
+      json: { op: 'fm', meta },
     },
   )
 }
@@ -208,8 +200,7 @@ export async function batchFinalizeDocs(name: string, docIds: string[]): Promise
     `/api/books/${encodeURIComponent(name)}/documents/batch-finalize`,
     {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ docIds }),
+      json: { docIds },
     },
     120_000, // R33-77（三十三轮）：慢档对齐 clearAudit——批量定稿逐章 git 提交可达数秒/章，30s 默认档必假超时（服务端继续成功、前端报超时不刷树）
   )

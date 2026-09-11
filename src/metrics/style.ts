@@ -23,6 +23,7 @@ import { readMdTextCached } from '../fs/md-text-cache.js'
 import { readIronRules, type IronRules } from '../format/iron-rules.js'
 import { computeStyleMetrics, type StyleStats } from '../check/count.js'
 import type { ChapterMeta } from '../format/types.js'
+import { yieldToEventLoop } from '../async.js'
 
 /** 含句长方差/复读率的完整文风指纹（StyleStats + 两个聚合用维度） */
 export interface FullStyleStats extends StyleStats {
@@ -189,10 +190,9 @@ export function scanChapters(bookRoot: string): ChapterSample[] {
 // 对齐 R39-15（analysis.ts MISS 读循环）/R72-2（learn 章级让出）范式：health 缓存
 // miss 与收割源2 挂在 HTTP 链上此前同步整树扫描，200 万字大书秒级冻结事件循环
 // （SSE 心跳/保存/全部 API 同停）。章正文读有 R66-24 stat 指纹缓存，但 miss 首扫
-// 与逐章 computeFullStats 仍为热点。yield 助手本地定义（learn/index.ts 同款先例：
-// metrics 层不向上引 studio/server/api/progress，防反向依赖）。
+// 与逐章 computeFullStats 仍为热点。yield 原语单源于 src/async.ts（2026-09-11
+// 精简批收敛，防反向依赖口径不变）。
 const SCAN_YIELD_EVERY = 25
-const yieldToEventLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
 
 /** scanChapters 的异步孪生（R40-4）——语义与同步版逐字段一致（等价性对照测试锚定），
  *  供 HTTP 链（health miss / 收割源2）使用；同步版保留供存量测试与非 HTTP 调用方。 */
@@ -393,83 +393,6 @@ export function freezeBaseline(bookRoot: string): StyleBaseline {
   // service 元数据写的 fsync: true 口径——断电窗口内 rename 只进页缓存会丢基线
   atomicWriteFile(p, JSON.stringify(baseline, null, 2), { fsync: true })
   return baseline
-}
-
-// ── 格式化 ────────────────────────────────────────
-
-/** 重扫报告 → 人话表格（文风方案 §4.4 输出形态） */
-export function formatStyleReport(trend: StyleTrend): string {
-  if (trend.count === 0) {
-    return '尚无已定稿正文可重扫。写完并定稿一章后再看（health --style）。\n'
-  }
-  const unit = '章'
-  const lines: string[] = []
-  const baselineStr = trend.baseline
-    ? `基线来自 ${trend.baseline.frozenFrom}`
-    : '无基线（仅显示绝对值，可 health --style --freeze 冻结）'
-  lines.push(`文风对齐体检 · 基于 ${trend.count} ${unit} · ${baselineStr}`)
-  lines.push('─'.repeat(52))
-
-  const hasBaseline = trend.baseline !== null
-  // 对话标签占比
-  const avgTag = avg(trend.dialogueTagSeries)
-  const baseTag = trend.baseline?.overall.dialogueTagRatio
-  lines.push(formatLine('对话标签占比', `${(avgTag * 100).toFixed(0)}%`,
-    hasBaseline && baseTag !== undefined ? `基线 ${(baseTag * 100).toFixed(0)}%` : '',
-    avgTag > 0.5 ? '⚠' : '✓'))
-  // 单句超限
-  const overlongPct = trend.count > 0 ? (trend.overlongChapters.length / trend.count) * 100 : 0
-  lines.push(formatLine('单句超限', `${trend.overlongChapters.length}/${trend.count} ${unit}（${overlongPct.toFixed(0)}%）`, '', overlongPct > 30 ? '⚠' : '✓'))
-  // 形容词堆叠
-  const adjPct = trend.count > 0 ? (trend.adjStackChapters.length / trend.count) * 100 : 0
-  lines.push(formatLine('形容词堆叠', `${trend.adjStackChapters.length}/${trend.count} ${unit}（${adjPct.toFixed(0)}%）`, '', adjPct > 30 ? '⚠' : '✓'))
-  // 句长方差
-  const avgVar = avg(trend.varianceSeries)
-  const baseVar = trend.baseline?.overall.sentenceLenVariance
-  lines.push(formatLine('句长方差', avgVar.toFixed(1),
-    hasBaseline && baseVar !== undefined ? `基线 ${baseVar.toFixed(1)}` : '',
-    hasBaseline && baseVar !== undefined && avgVar > baseVar * 1.3 ? '○ 略高' : '✓'))
-  // 复读率
-  const avgRepeat = avg(trend.repeatSeries)
-  lines.push(formatLine('复读率', `${(avgRepeat * 100).toFixed(1)}%`, '', avgRepeat > 0.1 ? '⚠' : '✓'))
-  // 结尾总结体
-  const summaryPct = trend.count > 0 ? (trend.summaryEndingChapters.length / trend.count) * 100 : 0
-  lines.push(formatLine('结尾总结体', `${trend.summaryEndingChapters.length}/${trend.count} ${unit}（${summaryPct.toFixed(0)}%）`, '', trend.summaryEndingChapters.length > 0 ? '⚠' : '✓'))
-
-  // 漂移信号
-  if (trend.drifts.length > 0) {
-    lines.push('')
-    lines.push('⚠ 漂移信号（建议复核，非判决）：')
-    for (const d of trend.drifts) {
-      lines.push(`  · ${d.message}`)
-    }
-  }
-
-  // 短篇小样本提示
-  if (trend.kind === 'short' && trend.count < SHORT_TREND_MIN) {
-    lines.push('')
-    lines.push(`（短篇 ${trend.count} 章 < ${SHORT_TREND_MIN}，仅报明细不做趋势判定）`)
-  }
-
-  lines.push('')
-  return lines.join('\n')
-}
-
-function formatLine(metric: string, value: string, extra: string, mark: string): string {
-  const pad = (s: string, n: number) => s + ' '.repeat(Math.max(0, n - width(s)))
-  return `  ${pad(metric, 12)} ${pad(value, 18)} ${pad(extra, 16)} ${mark}`
-}
-
-/** 近似显示宽度（中文算 2）
- *  覆盖：CJK 统一表意 + 扩展A + CJK 标点(　-〿) + 全角ASCII(！-｠) + 全角符号(￠-￦)。
- *  注意半宽片假名 ｡-ￜ 是窄字符，不纳入（故上限取 ｠），否则表格列错位。
- *  导出供报告对齐测试断言（#2）。 */
-export function width(s: string): number {
-  let w = 0
-  for (const ch of s) {
-    w += /[\u4e00-\u9fff\u3400-\u4dbf\u3000-\u303f\uff01-\uff60\uffe0-\uffe6]/.test(ch) ? 2 : 1
-  }
-  return w
 }
 
 function avg(nums: number[]): number {

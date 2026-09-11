@@ -831,7 +831,8 @@ export function writeBookConfig(filePath: string, cfg: BookConfig): void {
 /**
  * 文本级补丁：替换或追加一个顶层段（V-P2-4）。
  *
- * 读改写场景（enableRag 等）不能走 stringifyBookConfig 全量重生成——解析模型只保
+ * 读改写场景（历史生产例 enableRag 已删，现存直接消费面为补丁族测试）不能走
+ * stringifyBookConfig 全量重生成——解析模型只保
  * 已知字段，作者的 # 注释、未知段、未知子键会静默丢失。此函数只重写目标段的
  * 行区间，区间外的原文（含注释与未知内容）逐字保留。
  *

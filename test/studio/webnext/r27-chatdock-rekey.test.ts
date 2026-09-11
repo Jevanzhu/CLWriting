@@ -17,6 +17,10 @@ import { createPinia, setActivePinia } from 'pinia'
 import { nextTick } from 'vue'
 import WorkspaceShell from '../../../src/studio/web-next/src/components/shell/WorkspaceShell.vue'
 import ChatDock from '../../../src/studio/web-next/src/components/shell/ChatDock.vue'
+// R0912-C2-P3-4（2026-09-12 独立重评修复批）：composer 自 ChatDock 内联模板收敛为
+// 子件 ChatComposer（input 状态随之在子件）——本测锚定的跨书残留语义不变，
+// shallow 挂载下须显式声明 ChatComposer 为真件（原内联模板等价面随迁）。
+import ChatComposer from '../../../src/studio/web-next/src/components/panels/chat/ChatComposer.vue'
 import { usePrefsStore } from '../../../src/studio/web-next/src/stores/prefs'
 import { useWorkspaceStore } from '../../../src/studio/web-next/src/stores/workspace'
 
@@ -49,7 +53,7 @@ function mountShell(book: string) {
   const w = mount(WorkspaceShell, {
     props: { bookName: book },
     shallow: true,
-    global: { stubs: { ChatDock } }, // 仅 ChatDock 用真件，其余子件 shallow stub
+    global: { stubs: { ChatDock, ChatComposer } }, // 仅 ChatDock + ChatComposer 用真件，其余子件 shallow stub
   })
   const ws = useWorkspaceStore()
   ws.activeView = 'editor' // dock 显示条件：非 workbench 视图（workbench 有对话 tab 不叠 dock）

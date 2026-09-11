@@ -10,7 +10,7 @@
  *
  * 恢复走 DocumentService.save + origin='restore'，因此会自动再留一份当前内容的底
  * （maybeSnapshot 的 restore 分支 force 不节流）——恢复本身可再撤销。
- * R34D-18（三十四轮）：恢复按字节保真读（readSnapshotRaw）——utf-8 档解码为精确
+ * R34D-18（三十四轮）：恢复按字节保真读（readVersionRaw）——utf-8 档解码为精确
  * 文本（journal 全文快照/字数口径照旧），非 UTF-8 字节档（R26-52 GBK 留底）原字节
  * 透传 save，恢复不再强制失真（U+FFFD）。
  * 复用 documents.ts 的 service 缓存：两个队列会破坏串行写保证。
@@ -22,7 +22,7 @@ import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { readBooks } from '../../../install/books.js'
-import { listSnapshotEntries, readSnapshot, readSnapshotRaw, pruneSnapshots, DEFAULT_SNAPSHOT_POLICY, readGlobalSnapshotPolicy } from '../../../document/snapshot.js'
+import { listVersionEntries, readVersion, readVersionRaw, pruneVersions, DEFAULT_VERSION_POLICY, readGlobalSnapshotPolicy } from '../../../document/version.js'
 import { readManifest } from '../../../document/manifest.js'
 import { safeDocId } from '../../../fs/safe-path.js' // P3-1：docId 白名单校验共享（不内联手写）
 import { isUtf8Bytes } from '../../../document/service.js' // R34D-18：字节档判定共享（M-5 防线同源口径）
@@ -122,7 +122,7 @@ async function scanVersionsDirAsync(
   return { count, bytes, pinnedCount }
 }
 
-// 全局保留策略读取器已上移 document/snapshot.ts（service.ts 写时清理也走同一三层链）
+// 全局保留策略读取器已上移 document/version.ts（service.ts 写时清理也走同一三层链）
 
 // ── R36-7（三十六轮）：version-stats 全书快照统计 5s TTL 缓存 ─────────────────
 // 端点递归遍历 .版本 全目录（含 pinned 判定逐文件 fm 读 + parse）+ manifest 全表，
@@ -402,7 +402,7 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
         const policy = {
           maxDays: global.maxDays ?? 14,
           maxCount: global.maxCount ?? 30,
-          throttleMinutes: DEFAULT_SNAPSHOT_POLICY.throttleMinutes,
+          throttleMinutes: DEFAULT_VERSION_POLICY.throttleMinutes,
         }
 
         // 收集所有 docId（manifest 已登记的 + 版本目录里实际存在的）
@@ -422,7 +422,7 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
         }
 
         let removed = 0
-        // R50-C-1（五十轮）：全书 prune 循环改 async 逐块让出——pruneSnapshots 内部
+        // R50-C-1（五十轮）：全书 prune 循环改 async 逐块让出——pruneVersions 内部
         // readdirSync + 逐 meta 读 + 逐 unlink 均同步，大书数百 docId 单 tick 冻结事件
         // 循环（SSE 心跳/保存同停）；让出口径对齐同文件 scanVersionsDirAsync（R44-9
         // 范式：每 SCAN_YIELD_EVERY（25）项 await yieldToEventLoop() 一次）。清理结果
@@ -433,7 +433,7 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
           // P3-1：docId 白名单校验共享（防 manifest 篡改导致的路径穿越删除）
           if (!safeDocId(docId)) continue
           try {
-            removed += pruneSnapshots(versionsDir, docId, policy)
+            removed += pruneVersions(versionsDir, docId, policy)
           } catch {
             /* 单文档清理失败不阻断全书 */
           }
@@ -455,7 +455,7 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
       const docId = params['docId'] ?? ''
       const r = await resolveDoc(ctx.workDir, params['name'], docId, ctx.userDataPath)
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
-      reply(res, 200, { ok: true, entries: listSnapshotEntries(r.snapshotsDir, docId, countWords) })
+      reply(res, 200, { ok: true, entries: listVersionEntries(r.snapshotsDir, docId, countWords) })
     },
   })
 
@@ -467,7 +467,7 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
       const docId = params['docId'] ?? ''
       const r = await resolveDoc(ctx.workDir, params['name'], docId, ctx.userDataPath)
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
-      const snap = readSnapshot(r.snapshotsDir, docId, params['id'] ?? '')
+      const snap = readVersion(r.snapshotsDir, docId, params['id'] ?? '')
       if (!snap) return replyError(res, 404, 'NOT_FOUND', '版本不存在')
       reply(res, 200, { ok: true, content: snap.content, meta: snap.meta })
     },
@@ -481,13 +481,13 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
       const docId = params['docId'] ?? ''
       const r = await resolveDoc(ctx.workDir, params['name'], docId, ctx.userDataPath)
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
-      // R34D-18（三十四轮）：字节保真读——此前 readSnapshot 的 utf-8 文本视图对
+      // R34D-18（三十四轮）：字节保真读——此前 readVersion 的 utf-8 文本视图对
       // R26-52 字节档（非 UTF-8 源按原字节留底）必有损（U+FFFD 不可逆），恢复形同
       // 虚设。utf-8 档解码回精确文本（合法 utf-8 字节 ↔ 字符串双射，journal 全文
       // 快照/字数增量/回复体口径照旧）；非 UTF-8 字节档原 Buffer 透传 save 原字节
       // 直存（save 侧 M-5 覆写防线对 Buffer 放行——该防线的威胁模型是文本往返
       // 失真覆写，字节保真写不在其内）。
-      const snap = readSnapshotRaw(r.snapshotsDir, docId, params['id'] ?? '')
+      const snap = readVersionRaw(r.snapshotsDir, docId, params['id'] ?? '')
       if (!snap) return replyError(res, 404, 'NOT_FOUND', '版本不存在')
       const content: string | Buffer = isUtf8Bytes(snap.content)
         ? snap.content.toString('utf-8')

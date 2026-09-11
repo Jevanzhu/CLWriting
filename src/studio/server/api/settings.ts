@@ -21,6 +21,7 @@ import { atomicWriteFile } from '../../../fs/atomic.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
 import { RELATION_MINE_SPEC } from '../../../ai/tasks/specs.js'
 import { acquireTaskGate, orchestrationBusyFor } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
+import { sigStatFor } from './rhythm.js' // 精简批（SRV 域）：size:mtimeMs 签名单源（原本地同构副本收敛）
 import type { RealmSystem } from '../../../format/types.js'
 
 interface SettingsCtx {
@@ -88,16 +89,6 @@ export function __resetSettingsScanCountForTest(): void {
   settingsScanCount = 0
 }
 
-/** 读面单文件成员的 size:mtimeMs 签名（缺失 → '-'；先例同 rhythm.ts rhythmSigStatFor）。 */
-function settingsSigStatFor(fp: string): string {
-  try {
-    const st = statSync(fp)
-    return `${st.size}:${st.mtimeMs}`
-  } catch {
-    return '-'
-  }
-}
-
 /** settings 读面指纹：境界体系.md + relations.json（单文件）+ 角色/时间线/关系线/正文（目录 mtime）。 */
 function settingsSignature(bookRoot: string): string {
   const dirSig = (...dir: string[]): string => {
@@ -108,8 +99,8 @@ function settingsSignature(bookRoot: string): string {
     }
   }
   return [
-    settingsSigStatFor(join(bookRoot, '设定', '境界体系.md')),
-    settingsSigStatFor(join(bookRoot, '.clwriting', 'relations.json')),
+    sigStatFor(join(bookRoot, '设定', '境界体系.md')),
+    sigStatFor(join(bookRoot, '.clwriting', 'relations.json')),
     dirSig('设定', '角色'),
     dirSig('设定', '时间线'),
     dirSig('大纲', '关系线'),

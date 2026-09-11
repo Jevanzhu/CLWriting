@@ -33,8 +33,3 @@ export function bufferNeedsCanonical(buf: Buffer): boolean {
 export function toNfcName(name: string): string {
   return name.normalize('NFC')
 }
-
-/** 文件名是否已是 NFC 形。 */
-export function isNfcName(name: string): boolean {
-  return name === name.normalize('NFC')
-}

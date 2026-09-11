@@ -22,7 +22,8 @@ export const useReviewStore = defineStore('review', () => {
   const stale = ref(false)
   const loading = ref(false)
   const error = ref<string | null>(null)
-  const lastDocId = ref<string | null>(null)
+  // R0912-C1-P3-2（2026-09-12 全量重评修复批）：原 lastDocId ref 删除——跨文档/跨书归属
+  // 职能已由下方 lastLoadKey（`${书}::${docId}`）承担，书级维度亦在键内，裸 docId 死字段不再维护。
 
   /** 操作代：run/loadEnvelope/clear 共用——任何切换都让在途旧结果失效 */
   let opGen = 0
@@ -46,7 +47,6 @@ export const useReviewStore = defineStore('review', () => {
       const r = await runReview(name, docId)
       if (gen !== opGen) return // 三审最长 2 分钟：期间切文档/清空，旧结果不落
       collected.value = r.collected
-      lastDocId.value = docId
       // R1010b-FE-P2-1：同步推进归属键——否则紧随的同文档 loadEnvelope（ReviewPanel
       // watch / setVerdict 回读）按「键不同」误清新采集结果
       lastLoadKey = `${name}::${docId}`
@@ -78,7 +78,6 @@ export const useReviewStore = defineStore('review', () => {
       if (gen !== opGen) return
       envelope.value = env?.envelope ?? null
       stale.value = env?.stale ?? false
-      lastDocId.value = env ? docId : null
       if (env && !collected.value) {
         collected.value = env.envelope.payload.collected
       }
@@ -98,7 +97,6 @@ export const useReviewStore = defineStore('review', () => {
     envelope.value = null
     stale.value = false
     error.value = null
-    lastDocId.value = null
     lastLoadKey = null // R1010b-FE-P2-1：归属键随清空复位（clear 后首次 loadEnvelope 视为跨文档，先清再拉）
   }
 
@@ -115,5 +113,5 @@ export const useReviewStore = defineStore('review', () => {
     await loadEnvelope(name, docId)
   }
 
-  return { collected, envelope, stale, loading, error, lastDocId, verdict, run, loadEnvelope, setVerdict, clear }
+  return { collected, envelope, stale, loading, error, verdict, run, loadEnvelope, setVerdict, clear }
 })

@@ -115,7 +115,7 @@ export function registerStateRoutes(ctx: StateCtx): void {
         const oldest = stateCache.keys().next().value
         if (oldest !== undefined) stateCache.delete(oldest)
       }
-      stateCache.set(bookRoot, { payload, ts: now })
+      stateCache.set(bookRoot, { payload, ts: Date.now() }) // R0912-B-P2-1：ts 取写入当刻（原计算前时刻被秒级计算吃掉有效缓存窗）
       reply(res, 200, payload)
     } catch (e) {
       // P2-4：API 错误脱敏——SDK 报错 message 可能含 API Key 痕迹

@@ -22,7 +22,7 @@ export async function runRewriteDoc(
 ): Promise<RewriteResult> {
   return apiJson<RewriteResult>(
     `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/rewrite`,
-    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+    { method: 'POST', json: body },
     120_000, // AI 改写超时 2 分钟
   )
 }
@@ -32,6 +32,6 @@ export async function runRewriteDoc(
 export async function reportAiVersion(name: string, docId: string, content: string): Promise<void> {
   await apiJson(
     `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/ai-version`,
-    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }) },
+    { method: 'POST', json: { content } },
   )
 }

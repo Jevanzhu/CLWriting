@@ -16,8 +16,7 @@ export async function sendChat(
     `/api/books/${encodeURIComponent(name)}/chat`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      json: body,
     },
     30_000, // 后端应秒级确认；挂起则超时提示
   )
@@ -78,8 +77,7 @@ export async function confirmTool(
 ): Promise<{ ok: boolean }> {
   return apiJson(`/api/books/${encodeURIComponent(name)}/chat/confirm`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    json: body,
   }, 15_000)
 }
 
@@ -115,7 +113,6 @@ export async function regenerateChat(
 ): Promise<{ ok: boolean; queued?: boolean }> {
   return apiJson(`/api/books/${encodeURIComponent(name)}/chat/regenerate`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    json: body,
   }, 15_000)
 }

@@ -17,7 +17,6 @@ vi.mock('../../../src/studio/web-next/src/api/providers', () => ({
   deleteProvider: vi.fn(),
   setCurrentProvider: vi.fn(),
   testProvider: vi.fn(),
-  fetchModels: vi.fn(),
   setTiers: vi.fn(),
   setChatTier: vi.fn(),
   createRagProvider: vi.fn(),
@@ -122,16 +121,14 @@ describe('Y-32: learn.commit 代守卫', () => {
 })
 
 describe('MP-1（专项重评）: 删提供方/删 RAG 清测试结果缓存', () => {
-  it('remove() 后 testResults/modelsByProvider/probeModels 不再残留该 id', async () => {
+  it('remove() 后 testResults/probeModels 不再残留该 id', async () => {
     deleteMock.mockResolvedValue({ currentId: null, revision: 2 })
     const s = useProviderStore()
     s.providers = [{ id: 'A' } as never]
     s.testResults = new Map([['A', { ok: true }]])
-    s.modelsByProvider = new Map([['A', ['m1']]])
     s.probeModels = new Map([['A', 'm1']])
     await s.remove('A')
     expect(s.testResults.has('A')).toBe(false) // 修复点：删提供方清测试结果缓存
-    expect(s.modelsByProvider.has('A')).toBe(false)
     expect(s.probeModels.has('A')).toBe(false)
   })
 
@@ -158,15 +155,12 @@ describe('MP2-2（专项重评二轮）: refresh/refreshRag 按存活列表收�
     s.providers = [{ id: 'A' }, { id: 'B' }] as never
     s.testResults = new Map([['A', { ok: true }], ['B', { ok: false }]])
     s.probeModels = new Map([['A', 'm1'], ['B', 'm2']])
-    s.modelsByProvider = new Map([['A', ['m1']], ['B', ['m2', 'm3']]])
 
     await s.refresh() // 服务器列表已无 B（另一窗口删除）
 
     expect(s.testResults.has('A')).toBe(true)
     expect(s.testResults.has('B')).toBe(false) // 修复点：跨窗删除的 B 随列表刷新修剪
     expect(s.probeModels.has('B')).toBe(false)
-    expect(s.modelsByProvider.has('B')).toBe(false)
-    expect(s.modelsByProvider.get('A')).toEqual(['m1']) // 存活键原值不动
   })
 
   it('refreshRag() 后 ragTestResults 收敛到存活 RAG 配置', async () => {

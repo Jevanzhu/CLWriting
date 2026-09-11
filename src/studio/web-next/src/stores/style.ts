@@ -33,7 +33,6 @@ export const useStyleStore = defineStore('style', () => {
   const loading = ref(false)
   const loaded = ref(false)
 
-  const pendingCount = computed(() => candidates.value.filter((c) => c.状态 === '待确认').length)
   const kindCounts = computed(() => {
     const m: Record<EntryKindFE, number> = { 样章: 0, 手法: 0, 反例: 0, 禁词: 0 }
     for (const e of entries.value) m[e.类型]++
@@ -165,7 +164,6 @@ export const useStyleStore = defineStore('style', () => {
     trend,
     loading,
     loaded,
-    pendingCount,
     kindCounts,
     load,
     add,

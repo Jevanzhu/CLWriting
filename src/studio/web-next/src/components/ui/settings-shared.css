@@ -545,6 +545,31 @@
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 18%, transparent);
 }
 
+/* ── 检索提供方下拉（rag-prov-select，对齐设置页输入控件风格）──
+   原 SettingsAnalysis.vue / SettingsBookAnalysis.vue 两份逐字相同的 scoped 块收敛于此
+   （类名全局唯一无冲突；全局装载与 SFC scoped 对本类选择器特异性相同）。 */
+.rag-prov-select {
+  max-width: 260px;
+  padding: 6px 10px;
+  font-size: var(--font-size-s);
+  color: var(--text-normal);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+
+.rag-prov-select:hover {
+  border-color: var(--interactive-accent);
+}
+
+.rag-prov-select:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 18%, transparent);
+}
+
 /* ── 题材输入（genre-field）：text-input 套壳加内置类目图标——
    图标沉在框内左缘，hover 框缘提亮、聚焦时图标染强调色（label 包裹点图标即聚焦）；
    placeholder 换示例提示（原「题材」与行名重复），色压到注释级作纯提示 ── */

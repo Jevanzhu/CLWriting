@@ -1,7 +1,7 @@
 /**
  * G-2（二十轮）：api 桶补测——AI/文风/服务商域端点行为级直测（走真实 client + 桩 fetch）。
  * 覆盖 style/analysis/review/rewrite/providers 的 URL 编码、method、body 负载、响应解包
- * 与 404→null 兜底（信封读取三态）。书级状态端点见 api-endpoints-a.test.ts。
+ * 与 404→null 兜底（review 信封）。书级状态端点见 api-endpoints-a.test.ts。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
@@ -17,8 +17,6 @@ import {
   getStyleTrend,
 } from '../../../src/studio/web-next/src/api/style'
 import {
-  getAnalysisEnvelope,
-  runAnalyze,
   autotag,
   inferMeta,
   getAnalysisOverview,
@@ -40,7 +38,7 @@ import {
   createRagProvider,
   updateRagProvider,
 } from '../../../src/studio/web-next/src/api/providers'
-import { boot, ApiError } from '../../../src/studio/web-next/src/api/client'
+import { boot } from '../../../src/studio/web-next/src/api/client'
 
 interface Call { url: string; init: RequestInit | undefined }
 
@@ -117,28 +115,8 @@ describe('api style · 文风条目/候选/基线', () => {
   })
 })
 
-describe('api analysis · 信封三态 + AI 端点', () => {
-  it('getAnalysisEnvelope：命中解包 {envelope, stale}', async () => {
-    stubFetch(() => ok({ ok: true, envelope: ENVELOPE, stale: true }))
-    const r = await getAnalysisEnvelope('书 A', 'doc 1', 'score')
-    expect(lastCall().url).toBe('/api/books/%E4%B9%A6%20A/documents/doc%201/analysis/score')
-    expect(r?.stale).toBe(true)
-    expect(r?.envelope.model).toBe('m')
-  })
-
-  it('getAnalysisEnvelope：404 → null（确无信封）；500 → 上抛', async () => {
-    stubFetch(() => ok({ error: '无' }, 404))
-    expect(await getAnalysisEnvelope('书 A', 'd', 'score')).toBeNull()
-    stubFetch(() => ok({ error: '炸' }, 500))
-    await expect(getAnalysisEnvelope('书 A', 'd', 'score')).rejects.toBeInstanceOf(ApiError)
-  })
-
-  it('runAnalyze：POST {kind} 解包 envelope；autotag/inferMeta：POST {} 解包字段', async () => {
-    stubFetch(() => ok({ ok: true, envelope: ENVELOPE }))
-    const env = await runAnalyze('书 A', 'd1', 'emotion')
-    expect(lastCall().init?.method).toBe('POST')
-    expect(jsonBody(lastCall())).toEqual({ kind: 'emotion' })
-    expect(env.sourceHash).toBe('h')
+describe('api analysis · AI 端点与聚合', () => {
+  it('autotag/inferMeta：POST {} 解包字段', async () => {
     stubFetch(() => ok({ ok: true, tags: { 钩子类型: '悬念钩' } }))
     expect((await autotag('书 A', 'd1')).钩子类型).toBe('悬念钩')
     stubFetch(() => ok({ ok: true, meta: { 目标情绪: '压抑' } }))

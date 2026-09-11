@@ -92,6 +92,21 @@ export async function* withFirstByteTimeout(
   onStall?: () => void,
 ): AsyncGenerator<GenEvent> {
   const it = source[Symbol.asyncIterator]()
+  // R0912-D-P3-4：单 deferred + 单 timer——原实现每 chunk 新建 Promise + setTimeout
+  //（每 chunk 一组定时器/闭包/Promise 分配），改「单 timer，每 chunk timer.refresh()
+  // 重置」。语义严格保持：
+  // - 计时窗与原实现一致——timer 只在 Promise.race 活动期在场（race 赢得结果后、yield
+  //   悬挂前显式 clearTimeout；原实现悬挂期间 timer 虽仍在场但 race 已结算、触发被吞，
+  //   可观测行为同为「悬挂期不计时」），下一轮循环顶 refresh 重启整窗；
+  // - 任一 chunk 间隔超 timeoutMs 即 reject GenError（错误消息格式不变）；
+  // - 外层 finally it.return() 收口与 onStall → 清理的顺序不变。
+  let rejectStall!: (e: GenError) => void
+  const stalled = new Promise<never>((_, reject) => {
+    rejectStall = reject
+  })
+  const stallError = (): GenError =>
+    new GenError(`响应超时（${timeoutMs / 1000}s 无数据），服务可能不可达`, true, { code: 'TIMEOUT' })
+  const timer = setTimeout(() => rejectStall(stallError()), timeoutMs)
   // R33D-11（三十三轮）：任意退出路径都关源迭代器——原实现只在 done 与自身超时分支
   // it.return()；消费方（generate/probe）收到适配器 yield 的 error 事件 throw 时，
   // for-await 调 wrapper.return() 只恢复到 wrapper 的 yield 点、finally 仅 clearTimeout，
@@ -101,17 +116,13 @@ export async function* withFirstByteTimeout(
   // 清理段异常吞掉（M-3 同口径）。
   try {
     while (true) {
-      const next = it.next()
-      let timer: ReturnType<typeof setTimeout> | undefined
-      const timeout = new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new GenError(`响应超时（${timeoutMs / 1000}s 无数据），服务可能不可达`, true, { code: 'TIMEOUT' })),
-          timeoutMs,
-        )
-      })
+      timer.refresh()
       try {
-        const result = await Promise.race([next, timeout])
+        const result = await Promise.race([it.next(), stalled])
         if (result.done) { return }
+        // R0912-D-P3-4：yield 悬挂期解武装（见上「计时窗」注）——否则单 deferred 一旦
+        // 在悬挂期被触发即永久滞留 rejected，污染下一轮 race
+        clearTimeout(timer)
         yield result.value
       } catch (e) {
         // P1-1：超时/异常 → 关闭上游迭代器释放 HTTP 连接（否则悬挂连接叠加重试最多 4 条并存）。
@@ -125,11 +136,10 @@ export async function* withFirstByteTimeout(
         // 吞清理段异常，外层 e 照常上抛走重试链
         onStall?.()
         throw e
-      } finally {
-        if (timer) clearTimeout(timer)
       }
     }
   } finally {
+    clearTimeout(timer)
     // R33D-11：正常 return / 消费方 throw / 自身 throw 全部到 this——不等待、吞清理异常
     it.return?.().catch(() => { /* 清理段异常不外抛 */ })
   }

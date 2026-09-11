@@ -11,7 +11,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError, parseRequestUrl } from '../http.js'
-import { resolveBook } from '../book-context.js'
+import { resolveBook, bookMovedFailure } from '../book-context.js'
 import {
   DocumentService,
   type CopyResult,
@@ -192,29 +192,22 @@ export function __foreshadowSaveChainKeysForTest(): readonly string[] {
 }
 
 // ── R1010b-SRV-P2-1（2026-09-10 内存专项重审修复批·面 A）：书注册重验 ─────────
-// 五处链内写单元（PUT content / PATCH / 新建 / 软删 / copy）的临界段首行防线。
-// 竞态时序（与 files.ts R70-6 同族）：handler 开头 resolveBook 捕获的 bookRoot 只是
-// 请求入口快照——随后的 await readJson / 伏笔链排队可跨过 books.ts 删书（rmSync 入
-// 墓地）/改名（renameSync 搬目录）的 drain 时点（drain 是快照式，快照后新进单元不被
-// drain 等待），单元体真正执行时书目录已被搬走/删除，svc.save 落盘会对旧捕获路径
-// mkdir recursive 重建目录树成孤儿文件。重验放临界段首行（而非 handler 入口）：只有
-// 单元体开跑时刻的注册态才贴近真实落盘时刻。只判 book 级注册（name→bookRoot），不动
-// docId/docPath 语义；文档 rename/move 操作本身不改书注册，不受影响。
-// SaveOutcome/CreateResult 等的失败 code 联合在 src/document/service.ts 是闭集合
-//（本批不越界改源），BOOK_MOVED 以本地等价形状扩展，出口统一经 structStatus（随批
-// 补 409 映射）走 replyError 单一出口，信封形状与其他结构化失败一致。
+// 五处链内写单元（PUT content / PATCH / 新建 / 软删 / copy）的临界段首行防线；重验
+// 竞态时序与防线形态单源见 book-context.ts R0912-B-P3-2 头注（R0912-B-P3-2 起四处
+// 本地拷贝收敛到 book-context.ts）。本文件特有：SaveOutcome/CreateResult 等失败
+// code 联合在 src/document/service.ts 是闭集合（本批不越界改源），BOOK_MOVED 以
+// 本地等价形状（ok:false + code + reason，下方 BookMovedFailure）扩展，出口统一经
+// structStatus（随批补 409 映射）走 replyError 单一出口，信封形状与其他结构化失败一致。
 
 /** 书注册重验失败的结构化出口（BOOK_MOVED 本地扩展形状，见上节头注）。 */
 type BookMovedFailure = { ok: false; code: 'BOOK_MOVED'; reason: string }
 
-/** 按书名重验书注册：已删（解析失败）或 bookRoot 变化（改名/搬目录）→ 结构化失败
- *  （不落盘）；注册未变 → null（放行写盘）。 */
-function bookMovedFailure(ctx: DocumentCtx, name: string | undefined, capturedRoot: string): BookMovedFailure | null {
-  const rNow = resolveBook(ctx.workDir, name)
-  if ('error' in rNow || rNow.bookRoot !== capturedRoot) {
-    return { ok: false, code: 'BOOK_MOVED', reason: '书已改名或已删除，本次操作已取消——请重新打开本书后再试' }
-  }
-  return null
+/** R0912-B-P3-2：单源重验（book-context.ts）的本文件包装——链单元返回联合以 ok
+ *  判别（SaveOutcome/CreateResult/MoveResult 均以 ok:true 成功判定），核心对象补
+ *  ok:false 组合，响应契约逐字节不变。 */
+function bookMovedFailureOk(ctx: DocumentCtx, name: string | undefined, capturedRoot: string): BookMovedFailure | null {
+  const moved = bookMovedFailure(ctx.workDir, name, capturedRoot)
+  return moved === null ? null : { ...moved, ok: false }
 }
 
 export function registerDocumentRoutes(ctx: DocumentCtx): void {
@@ -248,7 +241,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       // R1010b-SRV-P2-1 面 A：重验在 runSave 内——非伏笔直调路径天然同覆盖，伏笔链
       // 路径在链单元开跑时刻重验（竞态时序见 bookMovedFailure 头注）。
       const runSave = async (): Promise<SaveOutcome | BookMovedFailure> => {
-        const moved = bookMovedFailure(ctx, params['name'], r.bookRoot)
+        const moved = bookMovedFailureOk(ctx, params['name'], r.bookRoot)
         if (moved) return moved
         const fsPrev = foreshadowSnapshot(r.bookRoot, path, docId) // R43-23：docId 留痕因果
         const o = await svc.save(docId, path, input)
@@ -406,7 +399,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       // R1010b-SRV-P2-1 面 A（2026-09-10 内存专项重审修复批·同型扫描接线）：await
       // readJson 可跨删书/改名 drain 时点，appendBaseline 对旧捕获路径 mkdir recursive
       // + append 成孤儿——写前与五处链内单元同款书注册重验（时序见 bookMovedFailure 头注）
-      const moved = bookMovedFailure(ctx, params['name'], r.bookRoot)
+      const moved = bookMovedFailure(ctx.workDir, params['name'], r.bookRoot)
       if (moved) return replyError(res, structStatus(moved.code), moved.code, moved.reason)
       appendBaseline(r.bookRoot, todayDate(), baseline)
       reply(res, 200, { ok: true })
@@ -432,7 +425,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       // 非伏笔域目标不进链。新建前无 docId，以 relPath 作留痕因果标注。
       // R1010b-SRV-P2-1 面 A：单元体首行重验书注册（同 runSave 口径）
       const runCreate = async (): Promise<CreateResult | BookMovedFailure> => {
-        const moved = bookMovedFailure(ctx, params['name'], r.bookRoot)
+        const moved = bookMovedFailureOk(ctx, params['name'], r.bookRoot)
         if (moved) return moved
         // Z-P2-6：新建伏笔（create）前快照（差分需要变更前状态；新建改 docId 集合，
         // 基线取本单元 create 前全域状态，链内前继落库变更必在基线中）
@@ -473,7 +466,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       // R1010b-SRV-P2-1 面 A：单元体首行重验书注册（同 runSave 口径；undefined 仍 =
       // op 形状校验失败在单元内已回 400）
       const runPatch = async (): Promise<MoveResult | undefined | BookMovedFailure> => {
-        const moved = bookMovedFailure(ctx, params['name'], r.bookRoot)
+        const moved = bookMovedFailureOk(ctx, params['name'], r.bookRoot)
         if (moved) return moved
         // Z-P2-6：伏笔快照先于变更（rename/move/meta/fm 都可能改 设定/伏笔/ 状态）
         const fsPrev = foreshadowSnapshot(r.bookRoot, docPath, docId) // R43-23：docId 留痕因果
@@ -553,7 +546,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       // 事件各归各窗，非伏笔域目标不进链。
       // R1010b-SRV-P2-1 面 A：单元体首行重验书注册（同 runSave 口径）
       const runCopy = async (): Promise<CopyResult | BookMovedFailure> => {
-        const moved = bookMovedFailure(ctx, params['name'], r.bookRoot)
+        const moved = bookMovedFailureOk(ctx, params['name'], r.bookRoot)
         if (moved) return moved
         // R-17（第十六轮）：copy 目标落在伏笔域（设定/伏笔/）时同 create/patch 接伏笔
         // 差分事件——此前 copy 绕过 foreshadowSnapshot → recordForeshadowDelta，伏笔
@@ -591,7 +584,7 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       // 他单元的增删不混入本单元差分窗。
       // R1010b-SRV-P2-1 面 A：单元体首行重验书注册（同 runSave 口径）
       const runTrash = async (): Promise<TrashResult | BookMovedFailure> => {
-        const moved = bookMovedFailure(ctx, params['name'], r.bookRoot)
+        const moved = bookMovedFailureOk(ctx, params['name'], r.bookRoot)
         if (moved) return moved
         // Z-P2-6：软删伏笔（clear 事件）前快照
         const fsPrev = foreshadowSnapshot(r.bookRoot, docPath, docId) // R43-23：docId 留痕因果

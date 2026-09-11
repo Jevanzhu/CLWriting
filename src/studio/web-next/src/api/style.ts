@@ -94,16 +94,14 @@ export async function addStyleEntry(
 ): Promise<{ path: string }> {
   return apiJson(`${base(name)}/entries`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(entry),
+    json: entry,
   })
 }
 
 export async function deleteStyleEntry(name: string, path: string): Promise<void> {
   await apiJson(`${base(name)}/entries`, {
     method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path }),
+    json: { path },
   })
 }
 
@@ -116,16 +114,14 @@ export async function listStyleCandidates(
 export async function confirmStyleCandidate(name: string, path: string): Promise<{ entryPath: string }> {
   return apiJson(`${base(name)}/candidates/confirm`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path }),
+    json: { path },
   })
 }
 
 export async function ignoreStyleCandidate(name: string, path: string): Promise<void> {
   await apiJson(`${base(name)}/candidates/ignore`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path }),
+    json: { path },
   })
 }
 

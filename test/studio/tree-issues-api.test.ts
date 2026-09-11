@@ -297,7 +297,7 @@ describe('T9b 修复：多章定稿 + 高章伏笔规划不误报 future', () =>
 
 // ── R26-57（二十六轮）：降级说明 warnings 数组透出（旧 warning 键双轨保留）──
 // 原三处降级条件展开同用 `warning` 键，后写覆盖先写、至多存活一条；改 `warnings:
-// string[]` 全量上报，旧键保留末条供 web-next 旧消费方（tree.ts issuesWarning）过渡。
+// string[]` 全量上报，旧键保留末条双轨过渡（原 web-next 消费方 tree.ts issuesWarning 已删）。
 
 describe('R26-57: tree-issues 降级 warnings 数组 + 旧 warning 键双轨', () => {
   it('章机检失败注入 → warnings 收全量降级说明，warning 键保留末条（双轨）', async () => {

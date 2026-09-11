@@ -286,22 +286,32 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
       const verdict = { approved, at: new Date().toISOString() }
       const absPath = safeManifestPath(bookRoot, m.path)
       if (!absPath) return replyError(res, 400, 'BAD_PATH', '文档路径非法')
-      // dd-P3：读稿守卫——文件并发消失（回收站/删除竞态）时给人话 500，此前裸 ENOENT 穿透 dispatch
-      let body = ''
-      try {
-        body = readFileSync(absPath, 'utf-8')
-      } catch {
-        return replyError(res, 500, 'IO_ERROR', '读不到正文文件（可能已被移动或删除），请刷新后再试')
-      }
-      // R-16：写前重读——三审若在首读与读稿之间完成，这里拿到的是新 collected/lenses
+      // R0912-B-P3-1：读稿守卫惰性化——sourceHash 只在信封缺 hash 时才需要读稿兜底。
+      // 此前无条件 readFileSync：信封已带 hash（三审已落盘）的正常路径也整读一遍正文，
+      // 大稿纯 I/O 浪费；且文件并发消失（回收站/删除竞态）时即使 hash 已有也 500。
+      // 现先取 latest?.sourceHash ?? existing?.sourceHash，仅空才进「读文件 + sourceHashOf」
+      // 兜底分支，兜底内保留 dd-P3 人话 500。语义微变：文件消失但信封已有 hash 时不再
+      // 500，verdict 照常落盘；sourceHash 恒有值的响应契约不变。
+      // R-16：写前重读——三审若在首读与落盘之间完成，这里拿到的是新 collected/lenses
+      //（重读提到读稿兜底之前：先判 hash 是否需要兜底；两读与本写之间零 await 窗，
+      // 同步序内语义不变）
       const latest = readAnalysis(bookRoot, docId, 'review') ?? existing
+      let sourceHash = latest?.sourceHash ?? existing?.sourceHash
+      if (sourceHash === undefined) {
+        // dd-P3：读稿守卫——文件并发消失（回收站/删除竞态）时给人话 500，此前裸 ENOENT 穿透 dispatch
+        try {
+          sourceHash = sourceHashOf(readFileSync(absPath, 'utf-8'))
+        } catch {
+          return replyError(res, 500, 'IO_ERROR', '读不到正文文件（可能已被移动或删除），请刷新后再试')
+        }
+      }
       const latestPayload = (latest?.payload as { collected?: unknown; lenses?: string[] } | undefined) ?? {}
       const payload = { ...latestPayload, verdict }
       // R34D-19（三十四轮）：写信封走异步孪生（锁等待不阻塞服务事件循环）
       await writeAnalysisAsync(bookRoot, docId, 'review', {
         generatedAt: latest?.generatedAt ?? existing?.generatedAt ?? new Date().toISOString(),
         model: 'author',
-        sourceHash: latest?.sourceHash ?? existing?.sourceHash ?? sourceHashOf(body),
+        sourceHash,
         payload,
       })
       // R75-D-P3b 修正（批 F 收尾）：verdict 落盘即失效 /tree-issues 5s TTL 缓存——

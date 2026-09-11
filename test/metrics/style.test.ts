@@ -24,11 +24,9 @@ import {
   readChapterBody,
   scanChapters,
   aggregateStyleTrend,
-  formatStyleReport,
   freezeBaseline,
   readBaseline,
   baselinePath,
-  width,
   type ChapterSample,
 } from '../../src/metrics/style.js'
 import { writeBookConfig, DEFAULT_CONFIG } from '../../src/format/yaml.js'
@@ -186,77 +184,19 @@ test('aggregateStyleTrend: 基线存在时漂移阈值用基线对照值', () =>
   rmSync(root, { recursive: true, force: true })
 })
 
-test('formatStyleReport: 空样本 → 友好提示', () => {
+test('aggregateStyleTrend: 空样本 → count 0、无漂移（原 formatStyleReport 空样本友好提示的语义面）', () => {
   const trend = aggregateStyleTrend([], 'long', null)
-  expect(formatStyleReport(trend)).toContain('尚无已定稿正文')
+  expect(trend.count).toBe(0)
+  expect(trend.drifts).toHaveLength(0)
 })
 
-test('formatStyleReport: 无基线 → 标注"仅绝对值"', () => {
+test('aggregateStyleTrend: 无基线 → baseline null（消费方按仅绝对值降级）', () => {
   const root = makeLongBookWithDrift(6, 999)
   const samples = scanChapters(root)
   const trend = aggregateStyleTrend(samples, 'long', null)
-  const out = formatStyleReport(trend)
-  expect(out).toContain('无基线')
+  expect(trend.baseline).toBeNull()
+  expect(trend.count).toBe(6)
   rmSync(root, { recursive: true, force: true })
-})
-
-test('formatStyleReport: 含全角括号（…）的行与不含的行标记列对齐（#2 width 补全角标点）', () => {
-  // 造有超限 + 无超限的样本：格式化后「单句超限」行含全角括号（如 `1/2 章（50%）`），
-  // 「对话标签占比」行不含。各行结尾的 ⚠/✓ 标记应在同一显示列（按显示宽度，非字符数）。
-  const root = mkdtempTracked(join(tmpdir(), 'style-width-'))
-  writeBookConfig(join(root, 'book.yaml'), { ...DEFAULT_CONFIG })
-  mkdirSync(join(root, '文风'), { recursive: true })
-  writeFileSync(join(root, '文风', '文风铁律.md'),
-    '单句上限字数: 4\n形容词连续堆叠上限: 2\n对话标签占比: 50%\n排比连续数: 2\n结尾总结体: 禁止', 'utf-8')
-  const dir = join(root, '写作', '正文')
-  mkdirSync(dir, { recursive: true })
-  const ch1: ChapterMeta = { 章号: 1, 标题: '甲', 钩子类型: '悬念钩', 钩子强弱: '强', 情绪定位: '铺垫' }
-  writeChapter(join(dir, '1-甲.md'), ch1, '这是一个超过四个字的句子。')
-  const ch2: ChapterMeta = { 章号: 2, 标题: '乙', 钩子类型: '悬念钩', 钩子强弱: '强', 情绪定位: '铺垫' }
-  writeChapter(join(dir, '2-乙.md'), ch2, '雪落。')
-  const samples = scanChapters(root)
-  const out = formatStyleReport(aggregateStyleTrend(samples, 'long', null))
-
-  // 取出 6 个指标行，验证 ⚠/✓ 标记的起始显示列一致（按显示宽度，非字符数）。
-  const metricRows = out.split('\n').filter((l) => /[⚠✓○]/.test(l))
-  expect(metricRows.length).toBe(6)
-  const MARK = new Set(['✓', '⚠', '○'])
-  const markCol = (l: string): number => {
-    let w = 0
-    for (const ch of l) {
-      if (MARK.has(ch)) break
-      w += width(ch) // 用源码同口径 width
-    }
-    return w
-  }
-  const markCols = metricRows.map(markCol)
-  expect(new Set(markCols).size).toBe(1) // 标记列对齐
-  // 含全角括号的行确实存在（否则该用例本身没覆盖到 #2）
-  expect(metricRows.some((l) => l.includes('（'))).toBe(true)
-  rmSync(root, { recursive: true, force: true })
-})
-
-test('width: 全角标点/全角ASCII/全角符号算 2 宽（#2 核心断言）', () => {
-  // CJK 汉字（基线，原本就该算 2）
-  expect(width('汉')).toBe(2)
-  // 全角括号「」、全角句号。
-  expect(width('（')).toBe(2)
-  expect(width('）')).toBe(2)
-  expect(width('。')).toBe(2)
-  // 全角 ASCII：！＃％＆（）
-  expect(width('！')).toBe(2)
-  expect(width('％')).toBe(2)
-  // 全角符号 ￠￦
-  expect(width('￠')).toBe(2)
-  // 半角 ASCII 仍算 1（回归保护）
-  expect(width('a')).toBe(1)
-  expect(width('1')).toBe(1)
-  expect(width('(')).toBe(1)
-  // 半宽片假名 ｡ﾞ 不纳入，算 1（工单强调勿纳入）
-  expect(width('｡')).toBe(1)
-  // 组合：报告里实际出现的 `1/2 章（50%）`
-  // 1 / 2 空格 章 （ 5 0 % ） = 1+1+1+1+2+2+1+1+1+2 = 13
-  expect(width('1/2 章（50%）')).toBe(13)
 })
 
 test('aggregateStyleTrend: 对话标签漂移的 drift.metric === "dialogueTag"（#3 参数化不贴错标签）', () => {
@@ -419,25 +359,25 @@ test('短篇: <5 篇只报明细，不做趋势判定（无漂移信号）', () 
   const root = makeShortBook(3)
   const samples = scanChapters(root)
   const trend = aggregateStyleTrend(samples, 'short', null)
+  expect(trend.count).toBe(3) // < SHORT_TREND_MIN(5)
+  expect(trend.kind).toBe('short')
   expect(trend.drifts).toHaveLength(0) // 小样本不判定
-  const out = formatStyleReport(trend)
-  expect(out).toContain('仅报明细') // 降级提示
   rmSync(root, { recursive: true, force: true })
 })
 
-test('短篇: ≥5 篇可做趋势判定', () => {
+test('短篇: ≥5 篇可做趋势判定（漂移可报）', () => {
   const root = makeShortBook(6)
   const samples = scanChapters(root)
+  // 每篇正文「你来了。」他说。→ 对话标签占比 100% > 50%，连续 6 篇超阈 → 可报漂移
   const trend = aggregateStyleTrend(samples, 'short', null, { driftWindow: 5 })
-  // 6 章 ≥ 5，进入趋势判定（是否有漂移取决于内容，这里只验证不再降级提示）
-  const out = formatStyleReport(trend)
-  expect(out).not.toContain('仅报明细')
+  expect(trend.count).toBe(6)
+  expect(trend.drifts.some((d) => d.message.includes('对话标签'))).toBe(true) // 趋势判定已开
   rmSync(root, { recursive: true, force: true })
 })
 
 // ── 综合：冻结基线后重扫有对照 ───────────────────
 
-test('综合: 先冻结基线 → 重扫报告含基线对照', () => {
+test('综合: 先冻结基线 → 重扫聚合带基线对照', () => {
   const root = makeBookWithSamples()
   freezeBaseline(root)
   // 加一章定稿正文（用长篇格式，仅为验证基线读取）
@@ -449,8 +389,9 @@ test('综合: 先冻结基线 → 重扫报告含基线对照', () => {
   const samples = scanChapters(root)
   const baseline = readBaseline(root)
   const trend = aggregateStyleTrend(samples, 'long', baseline)
-  const out = formatStyleReport(trend)
-  expect(out).toContain('基线')
   expect(trend.baseline).not.toBeNull()
+  // 原「报告含基线」断言的数据面等价：overall 确由样章语料算出（对话样章有引语行）。
+  // dialogueTagRatio 在本夹具合法为 0（引语无「说/道」标签），不能用作非零锚。
+  expect(trend.baseline?.overall._dialogueLines).toBeGreaterThan(0)
   rmSync(root, { recursive: true, force: true })
 })

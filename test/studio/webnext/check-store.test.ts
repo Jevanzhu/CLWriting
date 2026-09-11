@@ -55,7 +55,6 @@ describe('check: 触发机检', () => {
     await s.run('book1', 'doc_1')
     expect(s.report).not.toBeNull()
     expect(s.hasRed).toBe(true)
-    expect(s.lastDocId).toBe('doc_1')
     expect(s.loading).toBe(false)
     expect(s.error).toBeNull()
   })
@@ -111,7 +110,6 @@ describe('check: clear', () => {
     expect(s.report).toBeNull()
     expect(s.error).toBeNull()
     expect(s.hasRed).toBe(false)
-    expect(s.lastDocId).toBeNull()
   })
 })
 

@@ -12,12 +12,14 @@
  */
 import { join } from 'node:path'
 import { readChapterDir, readChapterDirSummary } from '../../../format/chapters.js'
+import { yieldToEventLoop } from '../../../async.js'
 
 // ── R37-3（三十七轮）：服务热路径全书扫描的逐块让出 ──────────────────────
 // 服务是 Electron 主进程内嵌的单进程 HTTP 服务，同步全书扫描在大书上单请求冻结事件
 // 循环 = 桌面整体卡死。让出范式同 learn/index.ts R72-2 与 src/check/run.ts R37-3
 //（setImmediate 级，块与块之间其它请求/SSE 心跳可跑）；粒度统一每 25 章/条。
-export const yieldToEventLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
+// 让出原语 2026-09-11 精简批单源化至 src/async.ts，此处 re-export 保既有 import 面。
+export { yieldToEventLoop }
 /** R37-3：逐块让出粒度——每处理 25 章/条让出一次（与 check/run.ts TREE_ISSUES_YIELD_EVERY 同口径）。 */
 export const SCAN_YIELD_EVERY = 25
 

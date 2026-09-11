@@ -106,11 +106,57 @@ export function readTrashManifest(bookRoot: string): TrashEntry[] {
   return parseTrashText(raw, entries)
 }
 
+// ── R0912-E-P3-1（2026-09-12 独立重评修复批）：trash 清单单槽指纹缓存 ─────────
+// readTrashManifestStrict 此前每次调用全量读盘 + 逐行 JSON.parse（executeSave 前段
+// 守卫 + 锁内复核双调用点每笔保存 2 遍重复读，restore/purge/append 的 RMW 链同样
+// 高频触发）。仿 document/manifest.ts manifestCache 先例：trash 清单全库单文件，
+// 单槽 stat 指纹缓存即够——命中零 IO 零解析。指纹 = size:mtimeNs（bigint stat，
+// manifest.ts R53-D-1 同款：mtimeMs 毫秒粒度在 FAT/exFAT + 同尺寸他进程写下指纹
+// 不变会假命中，ns 粒度消同尺寸窗口）——他进程改写必变 mtime/size → 失效重读，
+// executeSave 锁内复核（service.ts 双调用点）依赖读到最新数据的语义保真。
+// 写侧 writeTrashManifest 主动清槽双保险（原子写自身必 bump mtime，防指纹巧合）。
+// 只缓存解析成功的结果：stat 非确定性失败（sig=null）与读失败路径绕过缓存走原
+// 路径（strict 上抛/降级值不落缓存，防「降级空表」毒化 strict 防丢闸——manifest.ts
+// R47-8 同款纪律）。缓存主本不外借：调用方（appendTrashEntry RMW 原位改写数组等）
+// 拿到的恒是逐条浅拷（tags 数组随拷，唯一嵌套面）。
+let trashCacheKey: string | null = null
+let trashCacheSig = ''
+let trashCacheEntries: TrashEntry[] = []
+
+/** stat 签名：ENOENT → 'absent'（合法空态可缓存）；其他 stat 失败 → null（绕过缓存，
+ *  交原路径判读——读失败面与 stat 失败面同族）。 */
+function trashManifestStatSig(bookRoot: string): string | null {
+  try {
+    const st = statSync(trashManifestPath(bookRoot), { bigint: true })
+    return `${st.size}:${st.mtimeNs}`
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === 'ENOENT' ? 'absent' : null
+  }
+}
+
+/** 缓存主本 → 独立副本（逐条浅拷，tags 数组随拷）。 */
+function copyTrashEntries(entries: TrashEntry[]): TrashEntry[] {
+  return entries.map((e) => (e.tags ? { ...e, tags: [...e.tags] } : { ...e }))
+}
+
+/** R0912-E-P3-1：清缓存槽（写侧调用）。 */
+function invalidateTrashCache(): void {
+  trashCacheKey = null
+  trashCacheEntries = []
+}
+
 /** R27-40（二十七轮）P1：RMW 写路径专用 strict 版——appendTrashEntry/restore/purge
  *  的「读全量→改→整文件重写」在瞬态读失败（EBUSY/EACCES/EIO）下原会以空表重写，
  *  全部回收站条目一次性丢失（同 readManifestStrict 根因）。ENOENT = 合法空；
- *  其余上抛，由调用方既有收口（GG-P2-6 中止软删 / best-effort catch）拒写保旧。 */
+ *  其余上抛，由调用方既有收口（GG-P2-6 中止软删 / best-effort catch）拒写保旧。
+ *  R0912-E-P3-1：stat 指纹缓存命中零读零解析（返回副本）；strict 读失败上抛语义
+ *  保留——stat 非确定性失败绕过缓存走原路径（其 readFileSync 同族失败会上抛，
+ *  R27-40 防丢闸不受缓存影响）。 */
 export function readTrashManifestStrict(bookRoot: string): TrashEntry[] {
+  const sig = trashManifestStatSig(bookRoot)
+  if (sig !== null && trashCacheKey === bookRoot && trashCacheSig === sig) {
+    return copyTrashEntries(trashCacheEntries)
+  }
   const p = trashManifestPath(bookRoot)
   if (!existsSync(p)) return []
   const entries: TrashEntry[] = []
@@ -122,7 +168,13 @@ export function readTrashManifestStrict(bookRoot: string): TrashEntry[] {
     if (code === 'ENOENT') return []
     throw new Error(`回收站清单读取失败（${code ?? '未知错误'}）：${p}——已拒绝以空清单重写整文件（R27-40 防丢条目）`)
   }
-  return parseTrashText(raw, entries)
+  const parsed = parseTrashText(raw, entries)
+  if (sig !== null) {
+    trashCacheKey = bookRoot
+    trashCacheSig = sig
+    trashCacheEntries = parsed
+  }
+  return copyTrashEntries(parsed)
 }
 
 /** 文本 → TrashEntry[]（容错/strict 两版共用解析体） */
@@ -157,6 +209,9 @@ function parseTrashText(raw: string, entries: TrashEntry[]): TrashEntry[] {
 
 /** 原子写 trash manifest（全量重写，atomicWriteFile）。 */
 function writeTrashManifest(bookRoot: string, entries: TrashEntry[]): void {
+  // R0912-E-P3-1：写侧主动清缓存槽（双保险——原子写自身必 bump mtime/size 使指纹
+  // 失效，清槽防指纹巧合 + 防清写失败态下的陈旧命中）
+  invalidateTrashCache()
   mkdirSync(join(bookRoot, TRASH_DIR_REL), { recursive: true })
   const text = entries.map((e) => JSON.stringify(e)).join('\n') + (entries.length ? '\n' : '')
   // P2-BE-5：加 fsync——回收站 manifest 是「删除可还原」的承诺，掉电丢失即永久丢还原入口

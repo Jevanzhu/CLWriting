@@ -85,8 +85,7 @@ export async function getProviders(): Promise<ProvidersResponse> {
 export async function fetchModels(body: { protocol: Protocol; baseUrl: string; apiKey: string } | { id: string }): Promise<{ models: string[] }> {
   return apiJson('/api/providers/models', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    json: body,
   }, 30_000) // 拉模型列表可能慢，30s 超时
 }
 
@@ -101,8 +100,7 @@ export async function createProvider(body: {
 }): Promise<{ provider: ProviderConfDto; revision: number }> {
   return apiJson('/api/providers', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    json: body,
   })
 }
 
@@ -112,24 +110,22 @@ export async function updateProvider(
 ): Promise<{ provider: ProviderConfDto; revision: number }> {
   return apiJson(`/api/providers/${encodeURIComponent(id)}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    json: body,
   })
 }
 
 export async function deleteProvider(id: string, expectedRevision?: number): Promise<{ ok: boolean; currentId: string | null; revision: number }> {
   return apiJson(`/api/providers/${encodeURIComponent(id)}`, {
     method: 'DELETE',
-    headers: expectedRevision !== undefined ? { 'Content-Type': 'application/json' } : undefined,
-    body: expectedRevision !== undefined ? JSON.stringify({ expectedRevision }) : undefined,
+    // json: undefined = 不带体不带头（R0912-C1-P3-4 合并语义，原条件式 headers/body 同此）
+    json: expectedRevision !== undefined ? { expectedRevision } : undefined,
   })
 }
 
 export async function setCurrentProvider(id: string, expectedRevision?: number): Promise<{ ok: boolean; currentId: string | null; revision?: number }> {
   return apiJson('/api/providers/current', {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id, expectedRevision }),
+    json: { id, expectedRevision },
   })
 }
 
@@ -145,8 +141,7 @@ export interface TestResult {
 export async function testProvider(id: string, model?: string): Promise<TestResult> {
   return apiJson(`/api/providers/${encodeURIComponent(id)}/test`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(model ? { model } : {}),
+    json: model ? { model } : {},
   }, 60_000)
 }
 
@@ -154,8 +149,7 @@ export async function testProvider(id: string, model?: string): Promise<TestResu
 export async function setTiers(body: { creative: TierSlot; assistant: TierSlot | null; expectedRevision?: number }): Promise<{ ok: boolean; tiers: TierConfig; revision: number; details?: Record<string, string[]> }> {
   return apiJson('/api/tiers', {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    json: body,
   })
 }
 
@@ -166,8 +160,7 @@ export async function setChatTier(slot: TierSlot | null, expectedRevision?: numb
     : (expectedRevision !== undefined ? { clear: true, expectedRevision } : null)
   return apiJson('/api/tiers/chat', {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    json: body,
   })
 }
 
@@ -209,8 +202,7 @@ export async function createRagProvider(body: {
 }): Promise<{ provider: RagProviderDto; revision: number }> {
   return apiJson('/api/rag-providers', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    json: body,
   })
 }
 
@@ -221,8 +213,7 @@ export async function updateRagProvider(
 ): Promise<{ provider: RagProviderDto; revision: number }> {
   return apiJson(`/api/rag-providers/${encodeURIComponent(id)}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    json: body,
   })
 }
 
@@ -230,8 +221,8 @@ export async function updateRagProvider(
 export async function deleteRagProvider(id: string, expectedRevision?: number): Promise<{ ok: boolean; revision: number }> {
   return apiJson(`/api/rag-providers/${encodeURIComponent(id)}`, {
     method: 'DELETE',
-    headers: expectedRevision !== undefined ? { 'Content-Type': 'application/json' } : undefined,
-    body: expectedRevision !== undefined ? JSON.stringify({ expectedRevision }) : undefined,
+    // json: undefined = 不带体不带头（R0912-C1-P3-4 合并语义，原条件式 headers/body 同此）
+    json: expectedRevision !== undefined ? { expectedRevision } : undefined,
   })
 }
 
@@ -248,8 +239,7 @@ export interface RagTestResult {
 export async function testRagProvider(id: string): Promise<RagTestResult> {
   return apiJson(`/api/rag-providers/${encodeURIComponent(id)}/test`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: '{}',
+    json: {},
   }, 30_000)
 }
 
@@ -261,7 +251,6 @@ export async function updateProviderPricing(
 ): Promise<{ ok: true; pricing: PricingConfDto | null; revision: number }> {
   return apiJson(`/api/providers/${encodeURIComponent(id)}/pricing`, {
     method: 'PUT',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ pricing, ...(expectedRevision !== undefined ? { expectedRevision } : {}) }),
+    json: { pricing, ...(expectedRevision !== undefined ? { expectedRevision } : {}) },
   })
 }

@@ -84,19 +84,26 @@ describe('R62-22：electron-builder.yml files 断言（asar 实际打包面，�
 })
 
 // ── R0911-A-P2-1（2026-09-11 全量重评 GLM-5.3 修复批）：mac 字体二进制分发门直测 ──
+// R0912-A-P2-1（2026-09-12 独立重评修复批）：覆盖形态修正为 dist/desktop/fontlist——
+// files 规则 `dist/**/*` 下 asar 内路径带 dist/ 段（app-builder-lib FileMatcher 以
+// appDir 相对路径做 minimatch），裸 desktop/fontlist 零命中 = 无效外置（假绿）。
 describe('R0911-A-P2-1：electron-builder.yml asarUnpack 断言（spawn 不解 asar 的外置门）', () => {
   it('parseBuilderAsarUnpack：解析顶层序列（容忍缩进/空行/注释/引号，与 parseBuilderFiles 同口径）', () => {
-    const yml = 'asar: true\nasarUnpack:\n  - desktop/fontlist\nfiles:\n  - dist/**/*\n'
-    expect(parseBuilderAsarUnpack(yml)).toEqual(['desktop/fontlist'])
-    const messy = '# 注释\nasarUnpack:\n    - "desktop/fontlist"\n\n  - ' + "'other'\n" + 'asar: true\n'
-    expect(parseBuilderAsarUnpack(messy)).toEqual(['desktop/fontlist', 'other'])
+    const yml = 'asar: true\nasarUnpack:\n  - dist/desktop/fontlist\nfiles:\n  - dist/**/*\n'
+    expect(parseBuilderAsarUnpack(yml)).toEqual(['dist/desktop/fontlist'])
+    const messy = '# 注释\nasarUnpack:\n    - "dist/desktop/fontlist"\n\n  - ' + "'other'\n" + 'asar: true\n'
+    expect(parseBuilderAsarUnpack(messy)).toEqual(['dist/desktop/fontlist', 'other'])
     expect(parseBuilderAsarUnpack('asar: true\nfiles:\n  - dist/**/*\n')).toBe(null)
   })
-  it('含 desktop/fontlist → 无问题；通配/多余成员不误报', () => {
-    expect(problemsForElectronBuilderAsarUnpack(['desktop/fontlist'])).toEqual([])
-    expect(problemsForElectronBuilderAsarUnpack(['other/dir/**', 'desktop/fontlist'])).toEqual([])
+  it('含 dist/desktop/fontlist → 无问题；通配/多余成员不误报', () => {
+    expect(problemsForElectronBuilderAsarUnpack(['dist/desktop/fontlist'])).toEqual([])
+    expect(problemsForElectronBuilderAsarUnpack(['other/dir/**', 'dist/desktop/fontlist'])).toEqual([])
   })
-  it('缺 desktop/fontlist / 序列缺失为空 → 必红（A-P2-1 半修回潮形态）', () => {
+  it('R0912 反向钉：旧错误形态 desktop/fontlist（漏 dist/ 前缀，asar 内零命中的无效外置）→ 必红', () => {
+    expect(problemsForElectronBuilderAsarUnpack(['desktop/fontlist'])).toHaveLength(1)
+    expect(String(problemsForElectronBuilderAsarUnpack(['desktop/fontlist'])[0])).toContain('dist/desktop/fontlist')
+  })
+  it('缺 dist/desktop/fontlist / 序列缺失为空 → 必红（A-P2-1 半修回潮形态）', () => {
     expect(problemsForElectronBuilderAsarUnpack(['other/**'])).toHaveLength(1)
     expect(problemsForElectronBuilderAsarUnpack(null)).toHaveLength(1)
     expect(problemsForElectronBuilderAsarUnpack([])).toHaveLength(1)

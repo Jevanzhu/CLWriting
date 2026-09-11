@@ -359,7 +359,8 @@ describe('R66-34: SettingsBook 改名前 flushDirty 失败中止', () => {
     ws.bookName = '旧名'
     mocks.getConfig.mockResolvedValue({ book: { title: '旧名' } })
     vi.spyOn(useDocStore(), 'flushDirty').mockResolvedValue(['d1'])
-    const w = mount(SettingsBook, { shallow: true })
+    // shallow 之外放行 SettingItem（书名输入在其默认插槽内——壳被 stub 则 input 不渲染）
+    const w = mount(SettingsBook, { shallow: true, global: { stubs: { SettingItem: false } } })
     await flushPromises() // watch immediate 读 getConfig → 基线 = 旧名
     const inp = w.find('input[aria-label="书名"]')
     await inp.setValue('新名')

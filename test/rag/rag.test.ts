@@ -13,11 +13,10 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import process from 'node:process'
 import { DatabaseSync } from 'node:sqlite'
-import { readRagConfig, readApiKey, writeApiKey, enableRag } from '../../src/rag/config.js'
+import { readRagConfig, readApiKey } from '../../src/rag/config.js'
 import { resolveRag } from '../../src/rag/resolve.js'
 import { createRagTables } from '../../src/rag/schema.js'
 import { openRagDb, ragDbExists, resolveRagDbPath, storeChunk, readAllChunks, float32ToBuffer, bufferToFloat32, cosineSimilarity, getRagMeta, setRagMeta } from '../../src/rag/store.js'
-import { readBookConfig } from '../../src/format/yaml.js'
 
 describe('RAG config（红线 H1：key 不进 git）', () => {
   let bookRoot: string
@@ -77,47 +76,9 @@ describe('RAG config（红线 H1：key 不进 git）', () => {
     expect(readRagConfig(bookRoot).embed_timeout_ms).toBe(45000)
   })
 
-  it('enableRag 保留已配 embed_timeout_ms（R62-27，整段替换不抹键）', () => {
-    writeFileSync(
-      join(bookRoot, 'book.yaml'),
-      'spec_version: 1\nbook:\n  title: 测试\n  genre: 玄幻\nleads:\n  enabled: [主线]\nrag:\n  enabled: true\n  endpoint: https://old.example/v1/embeddings\n  model: old-m\n  embed_timeout_ms: 9000\n',
-      'utf-8',
-    )
-    const result = enableRag(bookRoot, workDir, { endpoint: 'https://new.example/v1/embeddings', model: 'new-m' })
-    expect(result.ok).toBe(true)
-    const raw = readFileSync(join(bookRoot, 'book.yaml'), 'utf-8')
-    expect(raw).toContain('embed_timeout_ms: 9000') // 保留
-    expect(raw).toContain('"https://new.example/v1/embeddings"') // 新值照写（URL 被 stringifyValue 加引号）
-  })
-
-  it('enableRag：非密入 book.yaml，key 落 .clwriting/rag.secret（H1）', () => {
-    const result = enableRag(bookRoot, workDir, {
-      endpoint: 'https://api.example.com/v1/embeddings',
-      model: 'text-embedding-3-small',
-      apiKey: 'sk-secret-key-12345',
-    })
-    expect(result.ok).toBe(true)
-
-    // book.yaml 有 rag 非密段
-    const cfg = readBookConfig(join(bookRoot, 'book.yaml')).config
-    expect(cfg.rag?.enabled).toBe(true)
-    expect(cfg.rag?.endpoint).toBe('https://api.example.com/v1/embeddings')
-    expect(cfg.rag?.model).toBe('text-embedding-3-small')
-
-    // H1 红线：book.yaml 文本里 grep 不到 key
-    const yamlText = readFileSync(join(bookRoot, 'book.yaml'), 'utf-8')
-    expect(yamlText).not.toContain('sk-secret-key-12345')
-
-    // key 落 .clwriting/rag.secret（gitignore 区）
-    expect(existsSync(join(workDir, '.clwriting', 'rag.secret'))).toBe(true)
-    expect(readFileSync(join(workDir, '.clwriting', '.gitignore'), 'utf-8')).toContain('rag.secret')
-    const secret = readFileSync(join(workDir, '.clwriting', 'rag.secret'), 'utf-8')
-    expect(secret).toContain('sk-secret-key-12345')
-  })
-
   it('readApiKey 优先级：环境变量 > .clwriting/rag.secret', () => {
-    // 先写 secret
-    writeApiKey(workDir, 'file-key')
+    // 先写 secret（原 writeApiKey 已删：等价直写 key + '\n'，readApiKey 读侧 trim）
+    writeFileSync(join(workDir, '.clwriting', 'rag.secret'), 'file-key\n', 'utf-8')
     expect(readApiKey(workDir)).toBe('file-key')
 
     // 设环境变量优先
@@ -503,87 +464,6 @@ describe('createRagTables 错误分类（RB-IF-P2-3）', () => {
     expect(() => createRagTables(db)).not.toThrow()
     expect(execs.filter((s) => s.includes('DELETE FROM chunks'))).toHaveLength(1)
     expect(execs.filter((s) => s.includes('idx_chunks_unique') && !s.includes('HAVING'))).toHaveLength(2)
-  })
-})
-
-// ── V-P2-4：enableRag 读改写不丢注释/未知段（文本级补丁）──────────────
-
-describe('enableRag 保真（V-P2-4）', () => {
-  let bookRoot: string
-  let workDir: string
-
-  beforeEach(() => {
-    workDir = join(tmpdir(), `rag-keep-${Date.now()}-${Math.random().toString(36).slice(2)}`)
-    bookRoot = join(workDir, 'mybook')
-    mkdirSync(bookRoot, { recursive: true })
-  })
-  afterEach(() => {
-    rmSync(workDir, { recursive: true, force: true })
-  })
-
-  it('注释、未知段、未知子键逐字保留；rag 段原位替换', () => {
-    const raw = [
-      'spec_version: 1',
-      '# 作者备注：这本书的预算别动',
-      '',
-      'book:',
-      '  title: 测试',
-      '  genre: 玄幻',
-      '  custom_field: 42',
-      '',
-      'rag:',
-      '  enabled: false',
-      '  endpoint: http://old',
-      '',
-      'plugin_unknown:',
-      '  key: value',
-    ].join('\n') + '\n'
-    writeFileSync(join(bookRoot, 'book.yaml'), raw, 'utf-8')
-
-    const r = enableRag(bookRoot, workDir, { endpoint: 'https://api.example.com/v1/embeddings', model: 'm1' })
-    expect(r.ok).toBe(true)
-
-    const after = readFileSync(join(bookRoot, 'book.yaml'), 'utf-8')
-    expect(after).toContain('# 作者备注：这本书的预算别动') // 注释保留
-    expect(after).toContain('custom_field: 42') // 已知段未知子键保留
-    expect(after).toContain('plugin_unknown:') // 未知段保留
-    expect(after).toContain('  key: value')
-    expect(after).not.toContain('enabled: false') // rag 段被替换
-    expect(after).toContain('enabled: true')
-    expect(after.indexOf('plugin_unknown:')).toBeGreaterThan(after.indexOf('rag:')) // 段序不变
-
-    // 解析口径：rag 生效
-    const cfg = readBookConfig(join(bookRoot, 'book.yaml')).config
-    expect(cfg.rag?.enabled).toBe(true)
-    expect(cfg.rag?.endpoint).toBe('https://api.example.com/v1/embeddings')
-  })
-
-  it('无 rag 段 → 追加到文件尾，其余原样', () => {
-    const raw = 'spec_version: 1\n\nbook:\n  title: 测试\n  genre: 玄幻\n# 尾注释\n'
-    writeFileSync(join(bookRoot, 'book.yaml'), raw, 'utf-8')
-    const r = enableRag(bookRoot, workDir, { model: 'm2' })
-    expect(r.ok).toBe(true)
-    const after = readFileSync(join(bookRoot, 'book.yaml'), 'utf-8')
-    expect(after).toContain('# 尾注释')
-    expect(after).toContain('rag:')
-    expect(after).toContain('model: m2')
-    expect(readRagConfig(bookRoot)).toMatchObject({ enabled: true, model: 'm2' })
-  })
-
-  it('合并语义：不带新值调用 → 保留旧 endpoint/model', () => {
-    const raw = 'spec_version: 1\n\nrag:\n  enabled: false\n  endpoint: http://keep-me\n  model: keep-model\n'
-    writeFileSync(join(bookRoot, 'book.yaml'), raw, 'utf-8')
-    const r = enableRag(bookRoot, workDir, {})
-    expect(r.ok).toBe(true)
-    expect(readRagConfig(bookRoot)).toMatchObject({ enabled: true, endpoint: 'http://keep-me', model: 'keep-model' })
-  })
-
-  it('合并语义：已配 candidate_depth 不被整段替换抹掉（dd-P2 同款）', () => {
-    const raw = 'spec_version: 1\n\nrag:\n  enabled: false\n  endpoint: http://old\n  model: m1\n  candidate_depth: 7\n'
-    writeFileSync(join(bookRoot, 'book.yaml'), raw, 'utf-8')
-    const r = enableRag(bookRoot, workDir, { endpoint: 'https://api.example.com/v1/embeddings', model: 'm2' })
-    expect(r.ok).toBe(true)
-    expect(readRagConfig(bookRoot)).toMatchObject({ enabled: true, candidate_depth: 7, model: 'm2' })
   })
 })
 

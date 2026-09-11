@@ -65,6 +65,15 @@ export function readKnowledgeManifest(projectRoot: string): KnowledgeManifestRep
 
   try {
     const manifest = JSON.parse(readFileSync(path, 'utf-8')) as KnowledgeManifest
+    // R0912-G1-P2-1（2026-09-12 独立重评修复批）：parse 后形状守卫——manifest 写成
+    // 字面 null（手编/半写形态）时 parse 成功返回 null，原直通 ok:true 把 null 当
+    // 合法 manifest 放行：validateKnowledgeManifest 的 manifest.version、update.ts
+    // 登记链的 manifest.entries 双双在 null 上裸 TypeError 崩。parse 成功 ≠ JSON
+    // 对象，非对象（null/标量）按 issue 报告不抛，对齐「坏形状报 issue 不崩」的
+    // 既有降级口径（validateEntry 坏行 / update.ts 非数组 entries 同族）。
+    if (manifest === null || typeof manifest !== 'object') {
+      return { ok: false, issues: [{ path: KNOWLEDGE_MANIFEST, message: '知识层 manifest 不是 JSON 对象' }] }
+    }
     return { ok: true, manifest, issues: [] }
   } catch {
     return { ok: false, issues: [{ path: KNOWLEDGE_MANIFEST, message: '知识层 manifest 不是合法 JSON' }] }

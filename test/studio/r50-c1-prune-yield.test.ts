@@ -1,7 +1,7 @@
 /**
  * R50-C-1（五十轮）回归：versions/prune 全书循环逐块让出。
  *
- * 修复前 prune 的 `for (const docId of ids)` 是整段同步循环（pruneSnapshots 内部
+ * 修复前 prune 的 `for (const docId of ids)` 是整段同步循环（pruneVersions 内部
  * readdirSync + 逐 meta 读 + 逐 unlink），大书数百 docId 单 tick 冻结事件循环
  * （SSE 心跳/保存同停）；修复后 handler 改 async，每 SCAN_YIELD_EVERY（25）项
  * await yieldToEventLoop() 一次（口径对齐同文件 scanVersionsDirAsync R44-9 范式），

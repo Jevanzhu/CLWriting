@@ -1264,7 +1264,9 @@ export async function migrateBookSession(
         return false
       }
     } finally {
-      cp.close()
+      // R0912-E-P3-3：close 纪律统一走 closeEventsDb（防裸 close 回流）——本 cp 未入
+      // prepared 缓存，delete 为 no-op，行为不变
+      closeEventsDb(cp)
     }
     // 3) 移动主库 + 残留侧车（TRUNCATE checkpoint + 连接全关后通常只剩主库文件；
     //    有竞态残留时一并搬走）。任一 rename 失败 → 外层 catch 逆序回滚已搬文件。

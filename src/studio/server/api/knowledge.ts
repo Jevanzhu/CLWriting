@@ -10,7 +10,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
-import { resolveBook } from '../book-context.js'
+import { resolveBook, bookMovedFailure } from '../book-context.js'
 import { learnFromBook } from '../../../learn/index.js'
 import { commitSamples, commitQuotes, defaultCommitYield, type CommitYield } from '../../../learn/commit.js'
 import type { LearnResult, SampleCandidate, QuoteCandidate } from '../../../learn/index.js'
@@ -24,22 +24,9 @@ interface KnowledgeCtx {
 
 // ── R0911-B-P3-4（2026-09-11 全量重评 GLM-5.3 修复批）：非闸书级写端点的临界段书注册重验 ──
 // learn-commit 无任务闸（books.ts 删书/改名的 busyGate 只查 spawn/三审/task-gate，看不见
-// 在途 commit）——handler 入口 resolveBook 捕获的 bookRoot 只是快照，随后的 await
-// readJson / 批量落盘的周期让出（R0911-B-P3-3）都可跨过 drain 时点，对旧捕获路径落盘
-// 会 mkdir 复活幽灵目录（无 book.yaml，repairBooks 不认领）。套 documents.ts
-// R1010b-SRV-P2-1 同型防线（本文件域内单源）：写前/每次让出后重验 name→bookRoot 注册，
-// 已删（解析失败）或 bookRoot 变化（改名/搬目录）→ 409 BOOK_MOVED（信封口径与
-// documents.ts/files.ts 一致）。同文件 /learn 有 'learn' 任务闸先于首个 await 占位，
-// busyGate 可见，不在本竞态面内。
-type BookMovedFailure = { code: 'BOOK_MOVED'; reason: string }
-
-function bookMovedFailure(ctx: KnowledgeCtx, name: string | undefined, capturedRoot: string): BookMovedFailure | null {
-  const rNow = resolveBook(ctx.workDir, name)
-  if ('error' in rNow || rNow.bookRoot !== capturedRoot) {
-    return { code: 'BOOK_MOVED', reason: '书已改名或已删除，本次操作已取消——请重新打开本书后再试' }
-  }
-  return null
-}
+// 在途 commit）——重验竞态时序与防线形态单源见 book-context.ts R0912-B-P3-2 头注
+//（R0912-B-P3-2 起四处本地拷贝收敛，直接调用单源 bookMovedFailure）。同文件 /learn 有
+// 'learn' 任务闸先于首个 await 占位，busyGate 可见，不在本竞态面内。
 
 /** R0911-B-P3-4：让出点书注册重验失败的出口信号——经 commit 循环上抛（commit.ts 让出
  *  抛错 = 调用方中止信号），handler 统一映射 409 BOOK_MOVED；其余错误照原样上抛走
@@ -73,15 +60,10 @@ export function __setLearnTtlForTest(ms: number | null): void {
   learnTtlMs = ms
 }
 
-/** 校验 SampleCandidate 形状（防外部提交畸形数据经 as 断言绕过） */
-function isSampleCandidate(v: unknown): v is SampleCandidate {
-  if (typeof v !== 'object' || v === null) return false
-  const o = v as Record<string, unknown>
-  return typeof o['场景'] === 'string' && typeof o['正文'] === 'string' && typeof o['出处'] === 'string'
-}
-
-/** 校验 QuoteCandidate 形状 */
-function isQuoteCandidate(v: unknown): v is QuoteCandidate {
+/** 候选条目形状校验（防外部提交畸形数据经 as 断言绕过）——samples/quotes 共用：
+ *  只复核两候选共同必需的 场景/正文/出处 三字符串字段（章号/打分等数值字段由
+ *  commit 侧各自处理），类型参数由两个 filter 调用点分别收窄。 */
+function isLearnCandidate<T>(v: unknown): v is T {
   if (typeof v !== 'object' || v === null) return false
   const o = v as Record<string, unknown>
   return typeof o['场景'] === 'string' && typeof o['正文'] === 'string' && typeof o['出处'] === 'string'
@@ -130,7 +112,7 @@ export function registerKnowledgeRoutes(ctx: KnowledgeCtx): void {
             const oldest = learnCache.keys().next().value
             if (oldest !== undefined) learnCache.delete(oldest)
           }
-          learnCache.set(r.bookRoot, { result, ts: now })
+          learnCache.set(r.bookRoot, { result, ts: Date.now() }) // R0912-B-P2-1：ts 取写入当刻（原计算前时刻被秒级计算吃掉有效缓存窗）
         }
       }
       if (!result.ok) return replyError(res, 400, 'BAD_INPUT', result.error ?? '学习产出候选失败')
@@ -162,12 +144,12 @@ export function registerKnowledgeRoutes(ctx: KnowledgeCtx): void {
         `samples/quotes 单次最多各提交 ${LEARN_COMMIT_MAX_ITEMS} 条（本次 samples ${rawSamples.length} 条 / quotes ${rawQuotes.length} 条），请分批提交`,
       )
     }
-    const samples = rawSamples.filter(isSampleCandidate)
-    const quotes = rawQuotes.filter(isQuoteCandidate)
+    const samples = rawSamples.filter(isLearnCandidate<SampleCandidate>)
+    const quotes = rawQuotes.filter(isLearnCandidate<QuoteCandidate>)
     const bookRoot = r.bookRoot
     // R0911-B-P3-4：await readJson 可跨删书/改名的 drain 时点（本端点无任务闸）——
     // commit 前重验书注册（时序见本文件 bookMovedFailure 头注），防对旧捕获路径落盘
-    const moved = bookMovedFailure(ctx, params['name'], bookRoot)
+    const moved = bookMovedFailure(ctx.workDir, params['name'], bookRoot)
     if (moved) return replyError(res, 409, moved.code, moved.reason)
     // R0911-B-P3-3（2026-09-11 全量重评 GLM-5.3 修复批）：批量落盘改走可让出 commit——
     // 上限 400 条/数组 × 逐条原子写双 fsync 在慢盘可拖出秒级同步段，全程无让出会冻结
@@ -176,7 +158,7 @@ export function registerKnowledgeRoutes(ctx: KnowledgeCtx): void {
     // 剩余条目（已落条目不回滚，documents.ts 链单元同口径），409 提示重开书重提交。
     const commitYield = async (): Promise<void> => {
       await learnCommitYieldPrimitive()
-      const movedNow = bookMovedFailure(ctx, params['name'], bookRoot)
+      const movedNow = bookMovedFailure(ctx.workDir, params['name'], bookRoot)
       if (movedNow) throw new BookMovedSignal(movedNow.reason)
     }
     try {

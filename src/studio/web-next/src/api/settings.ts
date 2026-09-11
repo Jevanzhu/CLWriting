@@ -45,8 +45,7 @@ export async function getSettings(name: string): Promise<SettingsResult> {
 export async function mineRelations(name: string, force = false): Promise<{ ok: boolean; cached: boolean; relations: { from: string; to: string; type: string; note?: string }[] }> {
   return apiJson(`/api/books/${encodeURIComponent(name)}/relations/mine`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ force }),
+    json: { force },
   }, 120_000) // AI 关系梳理超时 2 分钟
 }
 

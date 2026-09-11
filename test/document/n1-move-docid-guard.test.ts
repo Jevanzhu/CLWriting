@@ -3,7 +3,7 @@
  *
  * manifest 是可篡改数据面：构造 id:"../../evil" 条目后 PATCH move/rename 可把
  * journal .jsonl 写出书仓库外（executeSave 有 P1-SEC-A 守卫，此入口漏）。
- * 验证：非法 docId → PATH_ESCAPE，仓库外无 journal 文件；writeSnapshot 对非法
+ * 验证：非法 docId → PATH_ESCAPE，仓库外无 journal 文件；writeVersion 对非法
  * docId 的静默 null 改为 warn 留痕（留底纪律失守可诊断）。
  */
 import { test, expect, afterEach } from 'vitest'
@@ -11,7 +11,7 @@ import { rmSync, mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { DocumentService } from '../../src/document/service.js'
-import { writeSnapshot } from '../../src/document/snapshot.js'
+import { writeVersion } from '../../src/document/version.js'
 import { initLogging, flushLogsForTest } from '../../src/log/index.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
@@ -84,10 +84,10 @@ test('N1: 合法 docId 的 rename 照常成功（守卫不误伤）', async () =
   expect(existsSync(join(root, '写作', '正文', '0001-改名.md'))).toBe(true)
 })
 
-test('N1: writeSnapshot 非法 docId → null 且 warn 留痕（不再静默）', async () => {
+test('N1: writeVersion 非法 docId → null 且 warn 留痕（不再静默）', async () => {
   const logsDir = join(tmpRoot(), 'logs')
   initLogging({ logsDir, mirrorConsole: false })
-  const out = writeSnapshot(join(logsDir, '版本'), '../../evil', '内容', { origin: 'manual', reason: '移动前留底', baseRevision: null })
+  const out = writeVersion(join(logsDir, '版本'), '../../evil', '内容', { origin: 'manual', reason: '移动前留底', baseRevision: null })
   expect(out).toBeNull()
   await flushLogsForTest()
   const lines: string[] = []

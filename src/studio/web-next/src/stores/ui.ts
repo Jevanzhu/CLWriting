@@ -53,7 +53,6 @@ export const useUiStore = defineStore('ui', () => {
   const toasts = ref<ToastItem[]>([])
   // G4：AI 可达性（null=探测中；false=不可达，工作台/开书置灰）
   const aiAvailable = ref<boolean | null>(null)
-  const aiDriver = ref('')
 
   function openPalette(): void {
     paletteOpen.value = true
@@ -197,7 +196,6 @@ export const useUiStore = defineStore('ui', () => {
     try {
       const s = await getAiStatus()
       aiAvailable.value = s.available
-      aiDriver.value = s.driver
       // R-22（第十六轮）：available:false 也重试（与网络异常同口径）——后端可达但
       // AI 供应商未配置/未就绪是暂时态，只有 available:true 才停止探测
       if (s.available) {
@@ -211,7 +209,6 @@ export const useUiStore = defineStore('ui', () => {
       scheduleProbeRetry()
     } catch {
       aiAvailable.value = false
-      aiDriver.value = ''
       // API 不可达：退避重试（dev 启动竞态 / 后端重启后自动恢复），成功即停
       scheduleProbeRetry()
     }
@@ -238,7 +235,6 @@ export const useUiStore = defineStore('ui', () => {
     shelfOpen,
     toasts,
     aiAvailable,
-    aiDriver,
     probeAiStatus,
     overlayOpen,
     overlayOpenExcept,

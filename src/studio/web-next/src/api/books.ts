@@ -26,22 +26,22 @@ export interface BookConfig {
   short?: { strict?: boolean; word_min?: number; word_max?: number; body_part_threshold?: number; simile_threshold?: number; section_count?: number; opening_env_chars?: number; [k: string]: unknown }
   [k: string]: unknown
 }
-export async function getConfig(name: string): Promise<BookConfig> {
-  const r = await apiJson<{ config: BookConfig }>(
-    `/api/books/${encodeURIComponent(name)}/config`,
-  )
-  return r.config
-}
-
-// GET /config 的 revision 信封视图（R34D-25）：服务端随 GET 回传 book.yaml 内容指纹
-// revision（sha256 前 4 字节 uint32，文件缺失为 0），供读改写调用方下次 PUT 带
-// expectedRevision。只读调用方继续用 getConfig（返回型不变，零波及）。
+// GET /config → {config, revision}（book.yaml）。target_words 在 config.book.target_words。
+// R34D-25：服务端随 GET 回传 book.yaml 内容指纹 revision（sha256 前 4 字节 uint32，
+// 文件缺失为 0），供读改写调用方下次 PUT 带 expectedRevision。
+// R0912-C1-P3-3（2026-09-12 全量重评修复批）：两函数原为同端点双声明（各自 apiJson 一次），
+// 端点/解析改动时互为漏改点——现以此函数为唯一实现，getConfig 委托取 .config。
 export async function getConfigWithRevision(
   name: string,
 ): Promise<{ config: BookConfig; revision: number }> {
   return apiJson<{ config: BookConfig; revision: number }>(
     `/api/books/${encodeURIComponent(name)}/config`,
   )
+}
+
+// 只读视图（返回型不变，只读调用方零波及）：委托 getConfigWithRevision 后取 .config。
+export async function getConfig(name: string): Promise<BookConfig> {
+  return (await getConfigWithRevision(name)).config
 }
 
 // PUT /config {config} → 全量写回 book.yaml（须传完整 config，服务端整文件重写）。
@@ -57,8 +57,7 @@ export async function putConfig(
 ): Promise<void> {
   await apiJson<{ ok: true }>(`/api/books/${encodeURIComponent(name)}/config`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ config, expectedRevision }),
+    json: { config, expectedRevision },
   })
 }
 
@@ -73,8 +72,7 @@ export async function getWordsDiary(
 export async function postBaseline(name: string, baseline: number): Promise<void> {
   await apiJson(`/api/books/${encodeURIComponent(name)}/words-diary`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ baseline }),
+    json: { baseline },
   })
 }
 
@@ -91,8 +89,7 @@ export interface CreateBookResult {
 export async function createBook(name: string, kind: 'long' | 'short'): Promise<CreateBookResult> {
   return apiJson<CreateBookResult>('/api/books', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, kind }),
+    json: { name, kind },
   })
 }
 
@@ -111,8 +108,7 @@ export interface RenameBookResult {
 export async function renameBook(name: string, newName: string): Promise<RenameBookResult> {
   return apiJson<RenameBookResult>(`/api/books/${encodeURIComponent(name)}/rename`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: newName }),
+    json: { name: newName },
   })
 }
 

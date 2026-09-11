@@ -2,10 +2,10 @@
  * 规范形原语单测（平台规范化批一，2026-09-03）：src/fs/text-canonical.ts。
  *
  * canonicalizeText = 剥前导 BOM + \r\n/孤立 \r 归一 LF；bufferNeedsCanonical =
- * 字节级幂等探测（v4 迁移用）；isNfcName/toNfcName = 文件名 NFC 归一薄封装。
+ * 字节级幂等探测（v4 迁移用）；toNfcName = 文件名 NFC 归一薄封装。
  */
 import { describe, expect, it } from 'vitest'
-import { bufferNeedsCanonical, canonicalizeText, isNfcName, toNfcName } from '../../src/fs/text-canonical.js'
+import { bufferNeedsCanonical, canonicalizeText, toNfcName } from '../../src/fs/text-canonical.js'
 
 describe('canonicalizeText', () => {
   it('CRLF → LF', () => {
@@ -61,19 +61,15 @@ describe('bufferNeedsCanonical（字节级探测，v4 幂等闸）', () => {
   })
 })
 
-describe('isNfcName / toNfcName', () => {
-  it('NFC 名 isNfcName=true；NFD 名 false；toNfcName 归一', () => {
+describe('toNfcName', () => {
+  it('NFD 名归一为 NFC 形', () => {
     const nfc = '가'
     const nfd = nfc.normalize('NFD')
     expect(nfd).not.toBe(nfc)
-    expect(isNfcName(nfc)).toBe(true)
-    expect(isNfcName(nfd)).toBe(false)
     expect(toNfcName(nfd)).toBe(nfc)
-    expect(isNfcName(toNfcName(nfd))).toBe(true)
   })
 
   it('纯 ASCII 名恒 NFC', () => {
-    expect(isNfcName('abc-1.md')).toBe(true)
     expect(toNfcName('abc-1.md')).toBe('abc-1.md')
   })
 })

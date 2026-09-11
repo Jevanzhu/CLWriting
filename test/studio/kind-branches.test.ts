@@ -13,9 +13,13 @@ import { buildDraftPrompt } from '../../src/studio/server/api/draft.js'
 
 /** Q-5（第十五轮）：buildDraftPrompt 返回 {prompt, files}——本文件断言全针对 prompt 文本 */
 const buildPrompt = (...args: Parameters<typeof buildDraftPrompt>): string => buildDraftPrompt(...args).prompt
-import { buildOutlinePrompt } from '../../src/studio/server/api/outline.js'
+import { buildOutlinePromptWithFiles } from '../../src/studio/server/api/outline.js'
 import { lensToRole } from '../../src/studio/server/api/review.js'
 import { buildRewritePrompt } from '../../src/studio/server/api/rewrite.js'
+
+/** Q-5 同款（先例上方 buildPrompt）：WithFiles 版返回 {prompt, files}——本文件断言全针对 prompt 文本 */
+const buildOutlinePrompt = (...args: Parameters<typeof buildOutlinePromptWithFiles>): string =>
+  buildOutlinePromptWithFiles(...args).prompt
 
 let root = ''
 

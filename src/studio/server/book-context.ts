@@ -30,3 +30,37 @@ export function resolveBook(
 export function resolveDocEntry(bookRoot: string, docId: string): ManifestEntry | null {
   return readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries.get(docId) ?? null
 }
+
+// ── R0912-B-P3-2（2026-09-12 第十篇独立重评修复批）：书注册重验单源 ─────────────
+// documents / style / knowledge / config 四个写端点族各持一份同构 bookMovedFailure
+// 本地拷贝（R1010b-SRV-P2-1 / R0911-B-P3-4 分头落地），判定口径与人话文案面临漂移
+//（documents 版多一个 ok:false 形状）。收敛到本文件（与 resolveBook 同址，四消费方
+// ctx 均含 workDir），四处头注的时序说明合并如下（先例 revision-guard.ts X-25 样板）：
+//
+// 【为什么需要重验】handler 入口 resolveBook 捕获的 bookRoot 只是请求入口快照——
+// 随后的 await readJson / 伏笔链排队 / 批量落盘的周期让出可跨过 books.ts 删书
+//（rmSync 入墓地）/改名（renameSync 搬目录）的 drain 时点（drain 是快照式，快照后
+// 新进单元不被 drain 等待），单元体真正执行时书目录已被搬走/删除，后续写盘
+//（svc.save / atomicWriteFile / addEntry / commitSamples 等）会对旧捕获路径 mkdir
+// recursive 重建目录树成孤儿文件（无 book.yaml，repairBooks 不认领）。
+// 【防线形态】写盘临界段首行（或每次让出后）重验 name→bookRoot 注册：只有执行时刻
+// 的注册态才贴近真实落盘时刻。已删（解析失败）或 bookRoot 变化（改名/搬目录）→
+// 409 BOOK_MOVED；注册未变 → null 放行。重验只判 book 级注册，不动 docId/docPath
+// 语义；文档 rename/move 操作本身不改书注册，不受影响。
+// 【信封口径】409 经 replyError 单一出口，code='BOOK_MOVED'，reason 人话各端点一致；
+// documents.ts 链单元返回联合以 ok 判别，调用点以「核心对象 + ok:false」组合保持
+// 其响应契约逐字节不变。
+
+/** 书注册重验：已删（解析失败）或 bookRoot 变化（改名/搬目录）→ 409 结构化失败；
+ *  注册未变 → null（放行写盘）。竞态时序与防线形态见上方 R0912-B-P3-2 头注。 */
+export function bookMovedFailure(
+  workDir: string | null,
+  name: string | undefined,
+  capturedRoot: string,
+): { code: 'BOOK_MOVED'; reason: string } | null {
+  const rNow = resolveBook(workDir, name)
+  if ('error' in rNow || rNow.bookRoot !== capturedRoot) {
+    return { code: 'BOOK_MOVED', reason: '书已改名或已删除，本次操作已取消——请重新打开本书后再试' }
+  }
+  return null
+}

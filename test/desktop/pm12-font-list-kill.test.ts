@@ -21,11 +21,13 @@ import { EventEmitter } from 'node:events'
 import { existsSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { PassThrough } from 'node:stream'
 import { describe, expect, it } from 'vitest'
 import {
   __resetFontListBreakerForTest,
   __setFontProbeBreakerThresholdForTest,
   fontListWithTimeout,
+  spawnCollectKillFonts,
   type FontListSpawn,
   type FontListSpawnChild,
 } from '../../src/desktop/font-cache.js'
@@ -275,5 +277,105 @@ describe('PM-12：缺省路径（不注入 command）= R40-28 原语义，熔断
     } finally {
       __resetFontListBreakerForTest()
     }
+  })
+})
+
+// ── R0912-A-P3-3（2026-09-12 独立重评修复批）：spawn-collect-kill 骨架单源直测 ──
+// font-cache 自管枚举与 win-fonts PowerShell 枚举的同构骨架收编为 spawnCollectKillFonts；
+// 两调用方（runFontListCommandWithKill / listWindowsFonts）的既有测试零语义改动全数回归，
+// 此处补骨架自身的锚点：结算回调 / 超时文案与 SIGTERM 必杀 / 启动面标记开关 / error 透传。
+describe('R0912-A-P3-3：spawnCollectKillFonts 骨架单源', () => {
+  /** 最小假件：EventEmitter + 可写流 + kill 记录（结构面 = FontListSpawnChild）。
+   *  流写入面经返回的 PassThrough 引用（接口类型只有 on('data')，同 win-fonts.test 收窄法）。 */
+  function makeFakeChild(): { child: FontListSpawnChild & EventEmitter; so: PassThrough; se: PassThrough } {
+    const child = new EventEmitter() as FontListSpawnChild & EventEmitter
+    const so = new PassThrough()
+    const se = new PassThrough()
+    child.stdout = so
+    child.stderr = se
+    child.kill = () => true
+    return { child, so, se }
+  }
+
+  it('close(0) → 整流 stdout 交结算回调（解析口径由调用方参数化）', async () => {
+    const { child, so } = makeFakeChild()
+    const seen: string[] = []
+    const p = spawnCollectKillFonts('fake-cmd', [], {
+      doSpawn: () => child,
+      timeoutMs: 500,
+      timeoutMessage: '超时文案',
+      exitCodeErrorPrefix: '前缀',
+      parse: (raw) => {
+        seen.push(raw)
+        return raw.split('\n').filter(Boolean)
+      },
+    })
+    so.write(Buffer.from('"微软雅黑"\nSimSun\n', 'utf8'))
+    so.end()
+    child.emit('close', 0)
+    await expect(p).resolves.toEqual(['"微软雅黑"', 'SimSun']) // 原文行交回调（裸名化属调用方口径）
+    expect(seen).toEqual(['"微软雅黑"\nSimSun\n']) // 整流原文一次交付（Buffer 拼接后解码）
+  })
+
+  it('超时：SIGTERM 必杀 + 调用方文案 reject（默认信号锚定）', async () => {
+    const { child } = makeFakeChild()
+    const kills: Array<string | undefined> = []
+    child.kill = (signal) => {
+      kills.push(signal)
+      return true
+    }
+    const p = spawnCollectKillFonts('fake-cmd', [], {
+      doSpawn: () => child,
+      timeoutMs: 15,
+      timeoutMessage: 'powershell 字体枚举超过 15ms 未退出，已中止',
+      exitCodeErrorPrefix: 'powershell 字体枚举',
+      parse: () => [],
+    })
+    await expect(p).rejects.toThrow('powershell 字体枚举超过 15ms 未退出，已中止')
+    expect(kills).toEqual(['SIGTERM'])
+  })
+
+  it('win 侧形态（不标启动面）：close 非 0 → 前缀+stderr 文案；spawn error 原样透传', async () => {
+    // 先起骨架（注册收集监听）再写 stderr——顺序与真实 spawn 时序一致
+    const { child: childFail, se } = makeFakeChild()
+    const p1 = spawnCollectKillFonts('fake-cmd', [], {
+      doSpawn: () => childFail,
+      timeoutMs: 500,
+      timeoutMessage: '超时文案',
+      exitCodeErrorPrefix: 'powershell 字体枚举',
+      parse: () => [],
+    })
+    se.write(Buffer.from('Add-Type 异常', 'utf8'))
+    se.end()
+    childFail.emit('close', 1)
+    await expect(p1).rejects.toThrow('powershell 字体枚举退出码 1：Add-Type 异常')
+
+    const { child: childErr } = makeFakeChild()
+    const p2 = spawnCollectKillFonts('fake-cmd', [], {
+      doSpawn: () => childErr,
+      timeoutMs: 500,
+      timeoutMessage: '超时文案',
+      exitCodeErrorPrefix: 'powershell 字体枚举',
+      parse: () => [],
+    })
+    childErr.emit('error', new Error('spawn ENOENT'))
+    await expect(p2).rejects.toThrow('spawn ENOENT') // 不带 fontListSetupFailure 标记语义
+  })
+
+  it('settled 后迟到 close/error 双吞（无二次结算、无未处理异常面）', async () => {
+    const { child } = makeFakeChild()
+    const p = spawnCollectKillFonts('fake-cmd', [], {
+      doSpawn: () => child,
+      timeoutMs: 15,
+      timeoutMessage: '超时文案',
+      exitCodeErrorPrefix: '前缀',
+      parse: () => ['不该出现'],
+    })
+    await expect(p).rejects.toThrow('超时文案')
+    expect(() => {
+      child.emit('close', 0)
+      child.emit('error', new Error('kill ESRCH 迟到'))
+    }).not.toThrow()
+    await expect(p).rejects.toThrow('超时文案') // 结算不翻盘
   })
 })

@@ -255,8 +255,8 @@ describe('快照端点（单章版本回滚）', () => {
   })
 
   // R34D-18（三十四轮）：非 UTF-8 字节档恢复零失真。R26-52 写侧按原字节留底（GBK
-  // 旧档），修复前 readSnapshot 的 utf-8 文本视图读出必失真（U+FFFD 不可逆），恢复
-  // 把失真文本写回盘上——「可恢复」形同虚设。修复后 restore 走 readSnapshotRaw：
+  // 旧档），修复前 readVersion 的 utf-8 文本视图读出必失真（U+FFFD 不可逆），恢复
+  // 把失真文本写回盘上——「可恢复」形同虚设。修复后 restore 走 readVersionRaw：
   // utf-8 档解码精确文本、字节档原 Buffer 透传 save 原字节直存（M-5 防线对 Buffer
   // 放行——其威胁模型是文本往返失真覆写，字节保真写不在其内）。
   it('R34D-18: 非 UTF-8 字节档恢复 → 盘上字节与档内逐位相等（无 U+FFFD 失真）', async () => {

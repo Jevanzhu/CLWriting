@@ -45,8 +45,7 @@ export async function exportBook(
     `/api/books/${encodeURIComponent(name)}/export`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      json: body,
     },
     // P2-FE-1：大书同步遍历可能数秒，无超时则 ExportDialog loading 永真
     60_000,

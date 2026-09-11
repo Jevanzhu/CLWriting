@@ -78,7 +78,7 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
       // 总纲/设定/账本/前章/卷摘要全部真实注入源进 promptFiles（llm/call promptMeta.files）。
       // 低-4（第十轮）：userDataPath 透传 prompt 组装——卷进展段按全局默认卷长取生效值。
       // 此前端点单独再调一次 volumeProgressOf 只登卷摘要（其余注入源零登记），且与
-      // buildOutlinePrompt 内部那次的两次读盘重复——一并收口为单次调用。
+      // prompt 组装函数内部那次的两次读盘重复——一并收口为单次调用。
       const { prompt, files } = buildOutlinePromptWithFiles(bookRoot, chapter, kind, ctx.userDataPath)
 
       // generateText 纯文本产出（prompt 自含任务说明，system prompt 为空）
@@ -131,7 +131,7 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
   })
 }
 
-/** R66-7（十四轮）：buildOutlinePrompt 伴随 files——实际注入源清单（相对书根、注入序去重）。
+/** R66-7（十四轮）：buildOutlinePromptWithFiles 伴随 files——实际注入源清单（相对书根、注入序去重）。
  *  仿 draft-pipeline 的 DraftPrompt（Q-5 模式）：铁律①「模型可见⟺已记录」——prompt 注入的
  *  每个来源文件都进 files（经 runSpec promptFiles → llm/call promptMeta.files 溯源）。
  *  只列真实入 prompt 的段：空段 = 该源未注入，不登记（promptMeta 可查「本次未注入」）。 */
@@ -284,16 +284,6 @@ export function buildOutlinePromptWithFiles(
     `## 要求\n产出第 ${chapter} 章细纲:① 场景声明(本章主场景为「战斗/对话/抒情/叙事铺陈/爽点高潮」之一,writer 据此写入正文 front matter 场景字段);② 账本推进声明(本章实际推进哪些线,写清 线×动词:埋下/推进/揭开,动词须匹配该线合法动词表);③ 情节骨架(开篇/发展/章尾钩)。\n\n## 输出结尾\n细纲正文之后,最后一行必须以「推进: 」开头声明本章推进的账本编号列表(编号取自上方「当前账本」清单,用半角逗号分隔;本章不推进任何线则写「推进: 无」)。`,
   )
   return { prompt: parts.join('\n\n'), files }
-}
-
-/** 兼容薄壳（R66-7）：既有 string 调用方（test/process/summary-volume 等）继续拿纯文本。 */
-export function buildOutlinePrompt(
-  bookRoot: string,
-  chapter: number,
-  kind: 'long' | 'short',
-  userDataPath: string | null = null,
-): string {
-  return buildOutlinePromptWithFiles(bookRoot, chapter, kind, userDataPath).prompt
 }
 
 /**

@@ -6,15 +6,14 @@
 import { usePrefsStore } from '../../stores/prefs'
 import { parseNumericInput } from '../../shared/numeric-input'
 import BetaBadge from './BetaBadge.vue'
+import SettingItem from './SettingItem.vue'
+import SettingToggle from './SettingToggle.vue'
 
 // 全局默认值来自 prefs store（main.ts 在 mount 前 await init()，设置打开时必已就绪）
 const prefs = usePrefsStore()
 
 // ── 全局默认控件：直写 prefs store（clamp 在 store setter，防抖落 global.json）──
 
-function onGlobalConfirmToggle(e: Event): void {
-  prefs.setAutoConfirmOutline((e.target as HTMLInputElement).checked)
-}
 // R72-11（二十轮 E-2）：数值输入统一走共享 helper——空串不再被 Number('')=0 穿过
 // isFinite 闸后 clamp 成下限
 function onGlobalBatchInput(e: Event): void {
@@ -32,69 +31,26 @@ function onGlobalCallsInput(e: Event): void {
   <div class="settings-tab">
     <div class="cfg-card-head">AI 对话 <BetaBadge /></div>
     <section class="cfg-card">
-      <div class="setting-item">
-        <div class="setting-item-info">
-          <div class="setting-item-name">对话助手</div>
-          <div class="setting-item-desc">在工作台显示对话面板，可与 AI 讨论剧情、机检章节</div>
-        </div>
-        <div class="setting-item-control">
-          <label class="switch">
-            <input type="checkbox" aria-label="对话助手" :checked="prefs.chatEnabled" @change="prefs.setChatEnabled(($event.target as HTMLInputElement).checked)" />
-            <span class="switch-slider"></span>
-          </label>
-        </div>
-      </div>
+      <SettingToggle name="对话助手" desc="在工作台显示对话面板，可与 AI 讨论剧情、机检章节" ariaLabel="对话助手" :checked="prefs.chatEnabled" @change="prefs.setChatEnabled" />
     </section>
 
     <div class="cfg-card-head">AI 写作 <BetaBadge /></div>
     <section class="cfg-card">
-      <div class="setting-item">
-        <div class="setting-item-info">
-          <div class="setting-item-name">文风注入</div>
-          <div class="setting-item-desc">AI 写正文时遵循文风铁律的强度（所有书统一）</div>
+      <SettingItem name="文风注入" desc="AI 写正文时遵循文风铁律的强度（所有书统一）">
+        <div class="seg">
+          <button :class="{ on: prefs.styleInjection === 'light' }" @click="prefs.setStyleInjection('light')">轻</button>
+          <button :class="{ on: prefs.styleInjection === 'heavy' }" @click="prefs.setStyleInjection('heavy')">重</button>
         </div>
-        <div class="setting-item-control">
-          <div class="seg">
-            <button :class="{ on: prefs.styleInjection === 'light' }" @click="prefs.setStyleInjection('light')">轻</button>
-            <button :class="{ on: prefs.styleInjection === 'heavy' }" @click="prefs.setStyleInjection('heavy')">重</button>
-          </div>
-        </div>
-      </div>
-      <div class="setting-item">
-        <div class="setting-item-info">
-          <div class="setting-item-name">自动确认细纲</div>
-          <div class="setting-item-desc">AI 生成细纲后自动确认，无需手动点确认（所有书统一）</div>
-        </div>
-        <div class="setting-item-control">
-          <label class="switch">
-            <input type="checkbox" aria-label="自动确认细纲（全局默认）" :checked="prefs.autoConfirmOutline" @change="onGlobalConfirmToggle($event)" />
-            <span class="switch-slider"></span>
-          </label>
-        </div>
-      </div>
-      <div class="setting-item">
-        <div class="setting-item-info">
-          <div class="setting-item-name">批量写作章数</div>
-          <div class="setting-item-desc">一次自动写作流程连续写的章数，中途红项触顶会停在当前章（所有书统一）</div>
-        </div>
-        <div class="setting-item-control">
-          <input class="num-input" type="number" min="1" max="20" step="1" aria-label="批量写作章数（全局默认）" :value="prefs.aiBatchSize" @change="onGlobalBatchInput($event)" />
-          <span class="val-suffix">章</span>
-        </div>
-      </div>
-      <div class="setting-item">
-        <div class="setting-item-info">
-          <div class="setting-item-name">单章调用上限</div>
-          <div class="setting-item-desc">每章 AI 辅助的最大调用次数，防止成本失控（所有书统一）</div>
-        </div>
-        <div class="setting-item-control">
-          <input class="num-input" type="number" min="1" max="50" step="1" aria-label="单章调用上限（全局默认）" :value="prefs.callsPerChapter" @change="onGlobalCallsInput($event)" />
-          <span class="val-suffix">次</span>
-        </div>
-      </div>
+      </SettingItem>
+      <SettingToggle name="自动确认细纲" desc="AI 生成细纲后自动确认，无需手动点确认（所有书统一）" ariaLabel="自动确认细纲（全局默认）" :checked="prefs.autoConfirmOutline" @change="prefs.setAutoConfirmOutline" />
+      <SettingItem name="批量写作章数" desc="一次自动写作流程连续写的章数，中途红项触顶会停在当前章（所有书统一）">
+        <input class="num-input" type="number" min="1" max="20" step="1" aria-label="批量写作章数（全局默认）" :value="prefs.aiBatchSize" @change="onGlobalBatchInput($event)" />
+        <span class="val-suffix">章</span>
+      </SettingItem>
+      <SettingItem name="单章调用上限" desc="每章 AI 辅助的最大调用次数，防止成本失控（所有书统一）">
+        <input class="num-input" type="number" min="1" max="50" step="1" aria-label="单章调用上限（全局默认）" :value="prefs.callsPerChapter" @change="onGlobalCallsInput($event)" />
+        <span class="val-suffix">次</span>
+      </SettingItem>
     </section>
   </div>
 </template>
-
-<style scoped>
-</style>

@@ -189,7 +189,7 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
       // R26-57（二十六轮）：三降级条件收数组全量透出——原三处条件展开同用 `warning`
       // 键，后写覆盖先写、至多存活一条（多降级叠加时其余静默丢失）。改 `warnings:
       // string[]` 全量上报；旧键 `warning` 保留（取末条 = 修复前实际存活的那条语义）
-      // 供 web-next 旧消费方（tree.ts issuesWarning）一个迭代双轨。
+      // 双轨过渡（原 web-next 消费方 tree.ts issuesWarning 已删，现无前端读者）。
       const warnings: string[] = []
       // R62-7：账本全书性红项计算失败随响应降级说明（与 rebuildFailed 同口径——
       // 此前静默降级为「无红」，持续性失败期间漏红不可见）
@@ -209,7 +209,7 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
         const oldest = treeIssuesCache.keys().next().value
         if (oldest !== undefined) treeIssuesCache.delete(oldest)
       }
-      treeIssuesCache.set(bookRoot, { payload, ts: now })
+      treeIssuesCache.set(bookRoot, { payload, ts: Date.now() }) // R0912-B-P2-1：ts 取写入当刻（原计算前时刻被秒级计算吃掉有效缓存窗）
       reply(res, 200, payload)
     },
   })

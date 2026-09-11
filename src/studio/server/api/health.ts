@@ -72,7 +72,7 @@ export function registerHealthRoutes(ctx: HealthCtx): void {
         const oldest = styleScanCache.keys().next().value
         if (oldest !== undefined) styleScanCache.delete(oldest)
       }
-      styleScanCache.set(r.bookRoot, { samples, ts: now })
+      styleScanCache.set(r.bookRoot, { samples, ts: Date.now() }) // R0912-B-P2-1：ts 取写入当刻（原计算前时刻被秒级计算吃掉有效缓存窗）
     }
     reply(res, 200, aggregateStyleTrend(samples, kind, readBaseline(r.bookRoot)))
   },

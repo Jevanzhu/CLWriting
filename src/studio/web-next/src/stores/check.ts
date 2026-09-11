@@ -28,7 +28,8 @@ export const useCheckStore = defineStore('check', () => {
   const report = ref<CheckReport | null>(null)
   const loading = ref(false)
   const error = ref<string | null>(null)
-  const lastDocId = ref<string | null>(null)
+  // R0912-C1-P3-1（2026-09-12 全量重评修复批）：原 lastDocId ref 删除——赋值后全仓零消费
+  // （文档归属职责由调用方 clear 时机与报告/docId 绑定承担），死字段不再维护。
   const hasRed = ref(false)
 
   const redItems = computed<CheckItem[]>(() =>
@@ -75,7 +76,6 @@ export const useCheckStore = defineStore('check', () => {
       if (gen !== opGen) return // 机检数秒：期间切文档/清空，旧结果不落（防张冠李戴）
       report.value = r.report
       hasRed.value = r.hasRed
-      lastDocId.value = docId
       // R71-5（七十一轮）：新报告落位即在途标记态复位——flag 在途时 run 推代（flag 只
       // 快照不推进），迟到的 finally 查代不过会让 flagging 停留旧报告的 checkId，误报
       // 按钮永久禁用直到切文档；此处直接复位（对齐 R-1 修 loading 的思路，双保险）
@@ -101,7 +101,6 @@ export const useCheckStore = defineStore('check', () => {
     report.value = null
     error.value = null
     hasRed.value = false
-    lastDocId.value = null
     // M-1：checkId 是检查器级 id（跨文档/跨书同名）——不清会让旧文档的标记灰显到
     // 新文档同名命中上、误报按钮被禁用（标记的真相在服务端，这里只清展示态）
     flagging.value = null
@@ -136,7 +135,7 @@ export const useCheckStore = defineStore('check', () => {
   }
 
   return {
-    report, loading, error, lastDocId, hasRed, redItems, yellowItems, run, clear,
+    report, loading, error, hasRed, redItems, yellowItems, run, clear,
     flagging, flagged, flagError, flagFalsePositive,
   }
 })

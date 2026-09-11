@@ -77,6 +77,11 @@ import type { ChatSeqLedger } from './restore.js'
 
 const MAX_AGENT_TURNS = 5
 
+/** R0912-D-P3-2：工具名清单模块级常量化——chatTools 表模块级不可变，promptTools 登记
+ *  （铁律②「模型可见 ⟺ 已记录」工具面）每轮循环不必重算 map。（finish.ts 收尾压缩
+ *  同口径各持一份本文件常量——共享导出需改 contract/chat.ts 公共面，取最小改。） */
+const CHAT_TOOL_NAMES = chatTools.map((t) => t.name)
+
 /** RB-AI-P2-5：read_chapter 单次返回上限（code points，与 chat 入口消息上限 5 万字符
  *  同量级的安全上限）——数万字整章无上限灌 tool_result 可撑爆上下文 */
 const READ_CHAPTER_MAX_CHARS = 20_000
@@ -513,6 +518,13 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
   // R48-27（四十八轮）：最近一轮用量快照——轮数触顶收尾的 chat_done 同无工具路径带上
   // usage（触顶场景整场对话原本没有任何带用量的 done，SSE 侧用量统计恒缺）
   let lastTurnUsage: { inputTokens: number; outputTokens: number } | undefined
+  // R0912-D-P3-2：provider 档位与发送预算 resolve 上提出轮循环（原每轮重复 resolve：
+  // loadProviders 虽有 mtime 缓存仍是重复读表；预算只依赖档位模型 contextWindow）。
+  // 语义边界：agent 轮循环中途改 providers 配置不再即时生效（轮循环场次分钟级、单场
+  // 对话内换档场景可忽略）；runTask 内 provider 实例仍走自身 resolve 路径，发送面
+  // 与实际发送用同一预切预算的不变量（R57-B-2「预算先于 runTask 定型」）不受影响。
+  const prov = resolveProvider(opts.userDataPath, 'chat')
+  const sendBudget = resolveChatSendBudget(prov.ok ? modelConfOf(prov.provider.conf)?.contextWindow : undefined)
   for (let turn = 0; turn < MAX_AGENT_TURNS; turn++) {
     if (state.ctrl.signal.aborted) {
       // P1-S4 回滚 + F1-P1 遮蔽在 finishTurn 内；CC-P2-2：deadline 定时器触发的 abort
@@ -568,13 +580,12 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
     // R57-B-2（五十七轮）：预算不再吃硬编码 96k——按当前档位模型的 contextWindow 显式
     // resolve。窗口沿既有 resolve 路径取（resolveProvider → provider.conf → modelConfOf
     // 的 models 行，与 finish.ts clampCheckpointOutputTokens 同款先例）；解析失败/未知
-    // 在 resolveChatSendBudget 内显式回落 96k 并单点声明 fallback。在 turns 层就地收口
+    // 在 resolveChatSendBudget 内显式回落 96k 并单点声明 fallback（R0912-D-P3-2 起
+    // prov/sendBudget resolve 上提出轮循环，见循环上方注释）。在 turns 层就地收口
     // 是最小穿线：预算必须先于 runTask 定型（promptText 指纹取预切后 toSend 末条，
     // R55-C-1「指纹与实发同源」不变量），而 provider 实例只在 run 回调内可得——落
     // llm/call（runner trace 侧）拿不到切点时机，评审建议的「落 llm/call」在现有结构
     // 下不可行，故偏离报告建议并在此声明。
-    const prov = resolveProvider(opts.userDataPath, 'chat')
-    const sendBudget = resolveChatSendBudget(prov.ok ? modelConfOf(prov.provider.conf)?.contextWindow : undefined)
     // R57-B-1（五十七轮）：system prompt 计入发送预算——历史可用 = resolved 预算 − sys
     // 点数（同族码点口径 measureTextPoints）；sys 超大（重设定书场景）把差额挤负时
     // clamp 到具名下限 CHAT_HISTORY_MIN_BUDGET_POINTS（约保一个回合），宁可切后总量
@@ -677,7 +688,8 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
         promptFiles: deps.promptFiles,
         // R59 清偿批（R55-C-6）：本轮 generate 挂载的 chatTools（15 个工具 schema 模型
         // 可见）——工具名清单进 promptMeta.tools（铁律②「模型可见 ⟺ 已记录」工具面登记）
-        promptTools: chatTools.map((t) => t.name),
+        // R0912-D-P3-2：清单收 CHAT_TOOL_NAMES 模块常量（原每轮 map 重算）
+        promptTools: CHAT_TOOL_NAMES,
         ctrl: state.ctrl,
         // M-1（第八轮）：owner='chat:<book>'——driver 分槽防跨编排抢占（此前单槽「换新先
         // abort 旧」会掐断在途写稿）。R69-11（十七轮）注释校准：chat 与 self-heal/spawn 的并发

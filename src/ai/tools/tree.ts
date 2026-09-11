@@ -6,7 +6,7 @@ import { join, dirname, basename } from 'node:path'
 import { DocumentService } from '../../document/service.js'
 import { readChapterDir } from '../../format/chapters.js'
 import { sanitizeFileNamePart } from '../../format/filename.js'
-import { chapterToDocId, relFromBookRoot } from './shared.js'
+import { chapterToDocId, relFromBookRoot, chapterInput } from './shared.js'
 import type { ToolContext, ToolResult } from './context.js'
 
 /** 查章正文相对路径（不存在返回 null）。 */
@@ -20,12 +20,6 @@ function findChapterRel(ctx: ToolContext, chapter: number): string | null {
 /** 标题净化（单源收敛 sanitizeFileNamePart：win 非法字符 + 尾点/保留名 + 双封顶）。 */
 function sanitizeTitle(title: string): string {
   return sanitizeFileNamePart(title)
-}
-
-/** 校验章号入参；非法返回错误摘要。 */
-function chapterInput(input: Record<string, unknown>): number | null {
-  const chapter = Number(input['chapter'])
-  return Number.isInteger(chapter) && chapter >= 1 ? chapter : null
 }
 
 export async function moveChapter(ctx: ToolContext, input: Record<string, unknown>): Promise<ToolResult> {

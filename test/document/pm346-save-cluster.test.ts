@@ -11,7 +11,7 @@
  *   （docWordsCache），连续保存/外部改动后 delta 仍逐次精确（缓存陈旧即在此暴露）；
  *   字数日记为外部可观测面。
  * - PM-6：留底携带 words——保存链 maybeSnapshot / meta PATCH 路径写入的字数进版本
- *   meta，listVersionEntries / listSnapshotEntries 对带字数版本走头部读快路径
+ *   meta，listVersionEntries 对带字数版本走头部读快路径
  *   （countWords 兜底不触发）；存量无字数版本回落全量读兜底（口径不变）。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'

@@ -39,8 +39,7 @@ export async function restoreSnapshot(
     `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/snapshots/${encodeURIComponent(id)}/restore`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ expectedRevision }),
+      json: { expectedRevision },
     },
   )
 }

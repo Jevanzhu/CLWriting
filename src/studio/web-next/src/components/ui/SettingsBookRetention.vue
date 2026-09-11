@@ -7,6 +7,7 @@ import { Trash2 } from 'lucide-vue-next'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
 import { getVersionStats, pruneVersions, type VersionStats } from '../../api/snapshots'
+import SettingItem from './SettingItem.vue'
 
 const ui = useUiStore()
 const ws = useWorkspaceStore()
@@ -75,45 +76,21 @@ watch(
   <div class="cfg-card-head">定稿版本</div>
   <section class="cfg-card">
     <template v-if="versionStats">
-      <div class="setting-item">
-        <div class="setting-item-info">
-          <div class="setting-item-name">已定稿章节</div>
-          <div class="setting-item-desc">文档清单中有定稿基线的章节</div>
-        </div>
-        <div class="setting-item-control">
-          <span class="backup-summary">{{ versionStats.finalizedDocs }} 章</span>
-        </div>
-      </div>
-      <div class="setting-item">
-        <div class="setting-item-info">
-          <div class="setting-item-name">定稿版本总数</div>
-          <div class="setting-item-desc">永久保留，不自动清理</div>
-        </div>
-        <div class="setting-item-control">
-          <span class="backup-summary">{{ versionStats.pinnedCount }} 个</span>
-        </div>
-      </div>
-      <div class="setting-item">
-        <div class="setting-item-info">
-          <div class="setting-item-name">当前快照占用</div>
-          <div class="setting-item-desc">编辑快照（非定稿）占用的磁盘空间</div>
-        </div>
-        <div class="setting-item-control">
-          <span class="backup-summary">{{ formatBytes(versionStats.snapshotBytes) }} · {{ versionStats.snapshotCount }} 个</span>
-        </div>
-      </div>
-      <div class="setting-item">
-        <div class="setting-item-info">
-          <div class="setting-item-name">清理过期快照</div>
-          <div class="setting-item-desc">按全局保留规则删除超期/超量的编辑快照（定稿版本永久保留）</div>
-        </div>
-        <div class="setting-item-control">
-          <button class="link-btn danger" :disabled="pruning" @click="onPrune">
-            <Trash2 :size="12" />
-            {{ pruning ? '清理中…' : '立即清理' }}
-          </button>
-        </div>
-      </div>
+      <SettingItem name="已定稿章节" desc="文档清单中有定稿基线的章节">
+        <span class="backup-summary">{{ versionStats.finalizedDocs }} 章</span>
+      </SettingItem>
+      <SettingItem name="定稿版本总数" desc="永久保留，不自动清理">
+        <span class="backup-summary">{{ versionStats.pinnedCount }} 个</span>
+      </SettingItem>
+      <SettingItem name="当前快照占用" desc="编辑快照（非定稿）占用的磁盘空间">
+        <span class="backup-summary">{{ formatBytes(versionStats.snapshotBytes) }} · {{ versionStats.snapshotCount }} 个</span>
+      </SettingItem>
+      <SettingItem name="清理过期快照" desc="按全局保留规则删除超期/超量的编辑快照（定稿版本永久保留）">
+        <button class="link-btn danger" :disabled="pruning" @click="onPrune">
+          <Trash2 :size="12" />
+          {{ pruning ? '清理中…' : '立即清理' }}
+        </button>
+      </SettingItem>
     </template>
     <div v-else class="stats-hint">统计数据加载中…</div>
   </section>

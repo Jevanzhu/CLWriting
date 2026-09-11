@@ -32,7 +32,6 @@ describe('E-8 · check store 代数守卫与 clear 复位', () => {
     resolveRun({ ok: true, hasRed: true, report: REPORT })
     await p
     expect(s.report).toBeNull() // A 文档结果不张冠李戴到新文档
-    expect(s.lastDocId).toBeNull()
     expect(s.hasRed).toBe(false)
   })
 
@@ -50,7 +49,6 @@ describe('E-8 · check store 代数守卫与 clear 复位', () => {
     checkMock.mockResolvedValue({ ok: true, hasRed: true, report: REPORT })
     await s.run('book', 'doc_B')
     expect(s.loading).toBe(false)
-    expect(s.lastDocId).toBe('doc_B')
     expect(s.hasRed).toBe(true)
   })
 

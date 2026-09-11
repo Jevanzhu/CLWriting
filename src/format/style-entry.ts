@@ -163,21 +163,6 @@ interface EntriesCacheEntry {
 
 const entriesCache = new Map<string, EntriesCacheEntry>()
 
-let entriesTtlMs: number | null = null
-/** TTL 测试注入口（null 还原默认；先例同 setting-rule __setSettingCacheTtlForTest）。 */
-export function __setEntriesCacheTtlForTest(ms: number | null): void {
-  entriesTtlMs = ms
-}
-
-let entriesLoadCountForTest = 0
-/** 底层实际读目录计数观察口（验证缓存命中/失效；生产零调用）。 */
-export function __entriesLoadCountForTest(): number {
-  return entriesLoadCountForTest
-}
-export function __resetEntriesLoadCountForTest(): void {
-  entriesLoadCountForTest = 0
-}
-
 /** R46-20：删书/改名失效挂点（books.ts forgetBookKeyedCaches 家族，同 forgetSettingCache
  *  口径）——缓存键为 `<entriesDir>\u0000<kind|*>`，按 join(bookRoot, ENTRIES_DIR) 前缀
  *  精确清除该书全部 kind 变体（绝对路径前缀无歧义）。 */
@@ -229,10 +214,9 @@ export function readEntries(
   const key = `${entriesDir}\u0000${kind ?? '*'}`
   const sig = entriesDirSignature(entriesDir, kinds)
   const cached = entriesCache.get(key)
-  if (cached && cached.sig === sig && Date.now() - cached.ts < (entriesTtlMs ?? ENTRIES_CACHE_TTL_MS)) {
+  if (cached && cached.sig === sig && Date.now() - cached.ts < ENTRIES_CACHE_TTL_MS) {
     return { entries: cached.entries.slice(), errors: cached.errors.slice() }
   }
-  entriesLoadCountForTest += 1
   const r = readEntriesUncached(entriesDir, kinds)
   // 简单 FIFO 淘汰（Map 保插入序）：超上限丢最旧条目，防长期书架累积死重（setting 先例）
   if (entriesCache.size >= ENTRIES_CACHE_MAX) {

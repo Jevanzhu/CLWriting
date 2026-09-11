@@ -472,7 +472,7 @@ describe('R66-1: snapshotBeforeOverwrite 非 UTF-8 覆写防线', () => {
     writeFileSync(join(dir, rel), old, 'utf-8')
     const snap = snapshotBeforeOverwrite(dir, rel, '新内容')
     expect(snap).toBeTruthy()
-    // writeSnapshot 返回版本 id（非路径）：按 .版本/<docId>/<id>.md 布局落盘，走目录扫描读回
+    // writeVersion 返回版本 id（非路径）：按 .版本/<docId>/<id>.md 布局落盘，走目录扫描读回
     const verDir = join(dir, '工作区', '.版本')
     const docDir = readdirSync(verDir).find((d) => existsSync(join(verDir, d, `${snap}.md`)))
     expect(docDir).toBeTruthy()

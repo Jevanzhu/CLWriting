@@ -58,8 +58,11 @@ export function __resetRhythmScanCountForTest(): void {
   rhythmScanCount = 0
 }
 
-/** stat 的 size:mtimeMs 签名（缺失 → '-'；先例同 snapshots.ts sigStatFor）。 */
-function rhythmSigStatFor(fp: string): string {
+/** stat 的 size:mtimeMs 签名（缺失 → '-'；先例同 snapshots.ts sigStatFor）。
+ *  精简批（SRV 域）：overview/settings 的同构本地副本（overviewSigStatFor/
+ *  settingsSigStatFor）收敛至此单源 export（本文件为两处原注释所引先例位），另两处
+ *  import——三处调用点行为逐字不变。 */
+export function sigStatFor(fp: string): string {
   try {
     const st = statSync(fp)
     return `${st.size}:${st.mtimeMs}`
@@ -71,7 +74,7 @@ function rhythmSigStatFor(fp: string): string {
 /** rhythm 读面指纹：book.yaml + 写作/正文 + 大纲/章纲。 */
 function rhythmSignature(bookRoot: string): string {
   return [
-    rhythmSigStatFor(join(bookRoot, 'book.yaml')),
+    sigStatFor(join(bookRoot, 'book.yaml')),
     (() => {
       try {
         return String(statSync(join(bookRoot, '写作', '正文')).mtimeMs)

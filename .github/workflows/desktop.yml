@@ -60,8 +60,24 @@ jobs:
       # 门集与分支 CI 不对称，lint 只在本地生效
       - name: lint 门（eslint）
         run: npm run lint
+      # R0912-G2-P3-5（2026-09-12 独立重评修复批）：win 腿拆专用步收尾竞态重跑兜底，
+      # 同 ci.yml「测试」步的 R0911-G-P1-1d 结构逐行照搬（成因/语义/副作用见彼处注释；
+      # desktop.yml 矩阵为 os 双腿无 node 维度——按矩阵腿 if 分流：win 走 pwsh 重跑，
+      # 非 win 维持原样单跑。上游根治后与 ci.yml 兜底一并可撤）。
       - name: 单元测试（vitest run）
+        if: runner.os != 'Windows'
         run: npm test
+      - name: 单元测试（win 腿，R0912-G2-P3-5 收尾竞态重跑一次兜底，同 R0911-G-P1-1d）
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          npm test
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::warning title=R0912-G2-P3-5::win 腿测试首跑非零退出（tinypool teardown ERR_IPC_CHANNEL_CLOSED 收尾竞态嫌疑）——同命令重跑一次区分收尾竞态与真失败"
+            npm test
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+          }
+          exit 0
       # N-1（第十二轮）：M-3 修得不完整——tag 门只补了 typecheck+test，check:packaging
       # （打包资源完整性门）与 release-smoke（编译产物真实起服验证）仍只在 ci.yml 分支
       # push 跑；tag 若指 ci.yml 跳过/失败的提交（CC-P1-7 场景），DMG 仍可产出未验发布

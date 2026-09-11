@@ -34,8 +34,7 @@ export async function getBookPrefs(name: string): Promise<BookPrefs> {
 export async function putBookPrefs(name: string, prefs: BookPrefs): Promise<void> {
   await apiJson<{ ok: true }>(`/api/books/${encodeURIComponent(name)}/prefs`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prefs }),
+    json: { prefs },
   })
 }
 
@@ -113,7 +112,6 @@ export async function putGlobalPrefs(
 ): Promise<{ ok: true; revision: number }> {
   return apiJson<{ ok: true; revision: number }>(`/api/library/prefs`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prefs, expectedRevision }),
+    json: { prefs, expectedRevision },
   })
 }

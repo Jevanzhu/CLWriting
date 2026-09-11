@@ -12,6 +12,7 @@ import { readKind } from '../../format/kind.js'
 import { readBookConfig } from '../../format/yaml.js'
 import { applyGlobalDefaults } from '../../format/global-defaults.js'
 import { writeSpillFile, readSpillFile, readSpillMeta } from '../../process/spill.js'
+import { chapterInput } from './shared.js'
 import { createHash } from 'node:crypto'
 import { saveDraft } from '../../process/draft-pipeline.js'
 import { resolveDraftPath } from '../../format/draft.js'
@@ -61,11 +62,6 @@ async function runRewriter(
   }
   if (text.trim()) return { ok: true, produced: text.trim() }
   return { ok: false, error: 'writer 产出为空' }
-}
-
-function chapterInput(input: Record<string, unknown>): number | null {
-  const chapter = Number(input['chapter'])
-  return Number.isInteger(chapter) && chapter >= 1 ? chapter : null
 }
 
 /** M-3：改写 spill 的溯源元数据（章号 + 基线正文 sha256），apply 侧凭此校验归属与新鲜度 */

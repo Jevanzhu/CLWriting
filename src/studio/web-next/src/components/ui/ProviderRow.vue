@@ -7,19 +7,15 @@
  * .row-line 提供布局；#actions 槽内按钮用 .mini-btn，
  * 其样式经 :slotted() 下发——插槽内容不带本组件 scope id，普通 scoped 选择器够不着。
  */
-import { Loader2 } from 'lucide-vue-next'
-
 defineProps<{
   expanded: boolean
-  /** 操作区是否有测试按钮在跑（用于测试按钮局部 loading？这里仅做展开区忙碌提示） */
-  busy?: boolean
   /** 行激活态（AI 当前启用 / RAG false） */
   active?: boolean
 }>()
 </script>
 
 <template>
-  <div class="provider-row" :class="{ active, expanded, 'row-busy': busy }">
+  <div class="provider-row" :class="{ active, expanded }">
     <div class="provider-row-main">
       <slot name="main" />
     </div>
@@ -27,7 +23,6 @@ defineProps<{
       <slot name="actions" />
     </div>
     <div v-if="expanded" class="provider-row-expand">
-      <Loader2 v-if="busy" :size="14" class="spin" />
       <slot name="expand" />
     </div>
   </div>

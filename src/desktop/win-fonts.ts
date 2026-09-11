@@ -28,11 +28,15 @@
  * R48-74（四十八轮）：枚举整体套 fontListProbeWithBreaker（进程级会话熔断）——PS
  * 挂死时连败达阈值后本进程秒降级，不再每次重开下拉等满 10s（与 mac/linux 熔断面
  * 对齐）；R39-5 自身超时 kill 不动。
+ * R0912-A-P3-3（2026-09-12 独立重评修复批）：spawn→收集→超时 kill→结算骨架与
+ * font-cache 自管枚举收编为 spawnCollectKillFonts 单源（font-cache.ts），本模块保留
+ * 平台守卫 / PS 脚本常量 / 熔断包装与 win 侧文案；注入接口 FontSpawn/FontSpawnChild
+ * 不变，既有测试零语义改动。
  */
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { bareFontName, compareFontNames, fontListProbeWithBreaker } from './font-cache.js'
+import { bareFontName, compareFontNames, fontListProbeWithBreaker, spawnCollectKillFonts } from './font-cache.js'
 
 /** PowerShell 枚举脚本（对齐 font-list getByPowerShell：chcp 65001 + UTF-8 输出编码）。 */
 const PS_FONT_SCRIPT = [
@@ -74,6 +78,20 @@ function resolvePowershellExe(): string {
   return 'powershell.exe'
 }
 
+/** PowerShell stdout → 字体名数组（R0912-A-P3-3 起为 spawnCollectKillFonts 骨架的结算
+ *  回调）：PowerShell UTF-8 输出可能带 BOM 前导（Console.OutputEncoding 初始化）剥一次；
+ *  font-list standardize 的 disableQuoting 移植口径（裸名 + 滤空）。 */
+function parsePowerShellFontStdout(out: string): string[] {
+  const fonts = out
+    .replace(/^\uFEFF/, '')
+    .split('\n')
+    .map((ln) => bareFontName(ln.trim()))
+    .filter((f) => f !== '')
+  // R48-72（四十八轮）：排序口径消费 font-cache 单源导出（原内联比较器逐字同款）
+  fonts.sort(compareFontNames)
+  return fonts
+}
+
 export async function listWindowsFonts(deps: ListWindowsFontsDeps = {}): Promise<string[]> {
   const platform = deps.platform ?? process.platform
   if (platform !== 'win32') {
@@ -88,54 +106,19 @@ export async function listWindowsFonts(deps: ListWindowsFontsDeps = {}): Promise
   // R48-74（四十八轮）：整体套进程级会话熔断——连败达阈值（font-cache PM-12 档 2）
   // 后本进程不再重探，直接 reject 走调用方（main.ts）catch → [] 降级；成功清零计数。
   // 平台守卫在熔断判断之外（非 win 调用属编程错误，不消耗熔断计数）。
+  // R0912-A-P3-3（2026-09-12 独立重评修复批）：windowsHide spawn → Buffer[] 收集 →
+  // 超时 kill → error/close 结算骨架收编为 font-cache spawnCollectKillFonts 单源
+  // （windowsHide + 数组参数不经 shell 纪律随骨架单点化），本函数保留平台守卫 /
+  // PS 脚本常量 / 熔断包装与 win 文案（超时/退出码，测试锚定）；R39-5 超时 kill 语义
+  // 不变（骨架缺省 SIGTERM，win 上等价原 kill() 的 TerminateProcess）。
   return await fontListProbeWithBreaker(
     () =>
-      new Promise<string[]>((resolve, reject) => {
-        // windowsHide: true = libuv CREATE_NO_WINDOW——GUI 子系统主进程起控制台程序的
-        // 闪窗治本位（与 git/exec.ts R1W-8 同纪律）；数组参数免 shell，不经 cmd.exe。
-        const child = doSpawn(psExe, ['-NoProfile', '-NonInteractive', '-Command', PS_FONT_SCRIPT], {
-          windowsHide: true,
-        })
-        // R39-2：整流解码——收 Buffer[] 拼接后一次 toString，防多字节字符跨 chunk 边界劈成 U+FFFD
-        const outParts: Buffer[] = []
-        const errParts: Buffer[] = []
-        child.stdout?.on('data', (d) => {
-          outParts.push(d)
-        })
-        child.stderr?.on('data', (d) => {
-          errParts.push(d)
-        })
-        // R39-5：超时兜底（kill 缺席的测试假件仅放弃等待，Promise 仍按 reject 结算）
-        const timer = setTimeout(() => {
-          try {
-            child.kill?.()
-          } catch {
-            /* 已退出 */
-          }
-          reject(new Error(`powershell 字体枚举超过 ${timeoutMs}ms 未退出，已中止`))
-        }, timeoutMs)
-        child.on('error', (err) => {
-          clearTimeout(timer)
-          reject(err)
-        })
-        child.on('close', (code) => {
-          clearTimeout(timer)
-          const out = Buffer.concat(outParts).toString('utf8')
-          const err = Buffer.concat(errParts).toString('utf8')
-          if (code !== 0) {
-            reject(new Error(`powershell 字体枚举退出码 ${code ?? 'null'}${err ? `：${err.trim().slice(0, 200)}` : ''}`))
-            return
-          }
-          // PowerShell UTF-8 输出可能带 BOM 前导（Console.OutputEncoding 初始化），剥一次
-          const fonts = out
-            .replace(/^\uFEFF/, '')
-            .split('\n')
-            .map((ln) => bareFontName(ln.trim()))
-            .filter((f) => f !== '')
-          // R48-72（四十八轮）：排序口径消费 font-cache 单源导出（原内联比较器逐字同款）
-          fonts.sort(compareFontNames)
-          resolve(fonts)
-        })
+      spawnCollectKillFonts(psExe, ['-NoProfile', '-NonInteractive', '-Command', PS_FONT_SCRIPT], {
+        doSpawn,
+        timeoutMs,
+        timeoutMessage: `powershell 字体枚举超过 ${timeoutMs}ms 未退出，已中止`,
+        exitCodeErrorPrefix: 'powershell 字体枚举',
+        parse: parsePowerShellFontStdout,
       }),
   )
 }

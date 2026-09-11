@@ -14,6 +14,8 @@ import { useProviderStore } from '../../stores/provider'
 import { friendlyError } from '../../shared/error'
 import { SAVE_CONFIG_KEY } from './settings-context'
 import BetaBadge from './BetaBadge.vue'
+import SettingToggle from './SettingToggle.vue'
+import SettingItem from './SettingItem.vue'
 
 const ui = useUiStore()
 const ws = useWorkspaceStore()
@@ -153,8 +155,7 @@ function providerLabel(id: string | null): string {
 // ── 组开关：off = 组内全部键 delete；on = 组内全部键用当前生效值（书级 ?? 全局）写入 ──
 // auto 段展开保留段内他键（confirm_outline/batch_size 归「本书」页的 AI 写作组管，互不覆盖）。
 
-function onShortOverrideToggle(e: Event): void {
-  const on = (e.target as HTMLInputElement).checked
+function onShortOverrideToggle(on: boolean): void {
   if (on) {
     bookShortStrict.value = effShortStrict.value
     void saveConfig((c) => {
@@ -168,8 +169,7 @@ function onShortOverrideToggle(e: Event): void {
   }
 }
 
-function onRelationOverrideToggle(e: Event): void {
-  const on = (e.target as HTMLInputElement).checked
+function onRelationOverrideToggle(on: boolean): void {
   if (on) {
     bookAutoMine.value = effAutoMine.value
     bookMineThreshold.value = effMineThreshold.value
@@ -188,8 +188,7 @@ function onRelationOverrideToggle(e: Event): void {
   }
 }
 
-function onRagOverrideToggle(e: Event): void {
-  const on = (e.target as HTMLInputElement).checked
+function onRagOverrideToggle(on: boolean): void {
   if (on) {
     bookRagEnabled.value = effRagEnabled.value
     bookRagProvider.value = effRagProvider.value
@@ -211,15 +210,13 @@ function onRagOverrideToggle(e: Event): void {
 
 // ── 本书覆盖子项（override 已开）──
 
-function onShortStrictToggle(e: Event): void {
-  const v = (e.target as HTMLInputElement).checked
+function onShortStrictToggle(v: boolean): void {
   bookShortStrict.value = v
   void saveConfig((c) => {
     c.short = { ...(c.short ?? {}), strict: v }
   })
 }
-function onBookAutoMineToggle(e: Event): void {
-  const v = (e.target as HTMLInputElement).checked
+function onBookAutoMineToggle(v: boolean): void {
   bookAutoMine.value = v
   void saveConfig((c) => {
     c.auto = { ...(c.auto ?? {}), relation_auto_mine: v }
@@ -235,8 +232,7 @@ function onMineThresholdInput(e: Event): void {
     c.auto = { ...(c.auto ?? {}), relation_mine_threshold: v }
   })
 }
-function onBookRagToggle(e: Event): void {
-  const v = (e.target as HTMLInputElement).checked
+function onBookRagToggle(v: boolean): void {
   bookRagEnabled.value = v
   void saveConfig((c) => {
     c.rag = { ...(c.rag ?? {}), enabled: v }
@@ -419,122 +415,55 @@ onUnmounted(() => {
   <template v-if="bookKind === 'short'">
     <div class="cfg-card-head">AI 机检</div>
     <section class="cfg-card">
-      <div class="setting-item">
-        <div class="setting-item-info">
-          <div class="setting-item-name">本书使用独立设定</div>
-          <div class="setting-item-desc">
-            当前生效 {{ effShortStrict ? '严格' : '常规' }}{{ shortOverride ? '' : '（跟随全局默认）' }}
-          </div>
-        </div>
-        <div class="setting-item-control">
-          <label class="switch">
-            <input type="checkbox" aria-label="AI 机检使用独立设定" :checked="shortOverride" @change="onShortOverrideToggle($event)" />
-            <span class="switch-slider"></span>
-          </label>
-        </div>
-      </div>
-      <div v-if="shortOverride" class="setting-item sub">
-        <div class="setting-item-info">
-          <div class="setting-item-name">短篇严格模式</div>
-        </div>
-        <div class="setting-item-control">
-          <label class="switch">
-            <input type="checkbox" aria-label="短篇严格模式" :checked="bookShortStrict ?? effShortStrict" @change="onShortStrictToggle($event)" />
-            <span class="switch-slider"></span>
-          </label>
-        </div>
-      </div>
+      <SettingToggle name="本书使用独立设定" ariaLabel="AI 机检使用独立设定" :checked="shortOverride" @change="onShortOverrideToggle">
+        <template #desc>
+          当前生效 {{ effShortStrict ? '严格' : '常规' }}{{ shortOverride ? '' : '（跟随全局默认）' }}
+        </template>
+      </SettingToggle>
+      <SettingToggle v-if="shortOverride" sub name="短篇严格模式" ariaLabel="短篇严格模式" :checked="bookShortStrict ?? effShortStrict" @change="onShortStrictToggle" />
     </section>
   </template>
 
   <div class="cfg-card-head">关系图 <BetaBadge /></div>
   <section class="cfg-card">
-    <div class="setting-item">
-      <div class="setting-item-info">
-        <div class="setting-item-name">本书使用独立设定</div>
-        <div class="setting-item-desc">
-          当前生效 自动梳理{{ effAutoMine ? '开' : '关' }} · 增量 {{ effMineThreshold }} 章{{ relationOverride ? '' : '（跟随全局默认）' }}
-        </div>
-      </div>
-      <div class="setting-item-control">
-        <label class="switch">
-          <input type="checkbox" aria-label="关系图使用独立设定" :checked="relationOverride" @change="onRelationOverrideToggle($event)" />
-          <span class="switch-slider"></span>
-        </label>
-      </div>
-    </div>
+    <SettingToggle name="本书使用独立设定" ariaLabel="关系图使用独立设定" :checked="relationOverride" @change="onRelationOverrideToggle">
+      <template #desc>
+        当前生效 自动梳理{{ effAutoMine ? '开' : '关' }} · 增量 {{ effMineThreshold }} 章{{ relationOverride ? '' : '（跟随全局默认）' }}
+      </template>
+    </SettingToggle>
     <template v-if="relationOverride">
-      <div class="setting-item sub">
-        <div class="setting-item-info">
-          <div class="setting-item-name">自动梳理</div>
-        </div>
-        <div class="setting-item-control">
-          <label class="switch">
-            <input type="checkbox" aria-label="关系图自动梳理" :checked="bookAutoMine ?? effAutoMine" @change="onBookAutoMineToggle($event)" />
-            <span class="switch-slider"></span>
-          </label>
-        </div>
-      </div>
-      <div class="setting-item sub">
-        <div class="setting-item-info">
-          <div class="setting-item-name">章节增量阈值</div>
-        </div>
-        <div class="setting-item-control">
-          <input class="num-input" type="number" min="1" max="20" step="1" aria-label="章节增量阈值" :value="bookMineThreshold ?? effMineThreshold" @change="onMineThresholdInput($event)" />
-          <span class="val-suffix">章</span>
-        </div>
-      </div>
+      <SettingToggle sub name="自动梳理" ariaLabel="关系图自动梳理" :checked="bookAutoMine ?? effAutoMine" @change="onBookAutoMineToggle" />
+      <SettingItem sub name="章节增量阈值">
+        <input class="num-input" type="number" min="1" max="20" step="1" aria-label="章节增量阈值" :value="bookMineThreshold ?? effMineThreshold" @change="onMineThresholdInput($event)" />
+        <span class="val-suffix">章</span>
+      </SettingItem>
     </template>
   </section>
 
   <div class="cfg-card-head">知识检索 <BetaBadge /></div>
   <section class="cfg-card">
-    <div class="setting-item">
-      <div class="setting-item-info">
-        <div class="setting-item-name">本书使用独立设定</div>
-        <div class="setting-item-desc">
-          当前生效 {{ effRagEnabled ? '已启用' : '未启用' }} · 提供方 {{ ragLegacy ? '旧版内联配置' : providerLabel(effRagProvider) }}{{ ragOverride ? '' : '（跟随全局默认）' }}
-        </div>
-      </div>
-      <div class="setting-item-control">
-        <label class="switch">
-          <input type="checkbox" aria-label="知识检索使用独立设定" :checked="ragOverride" @change="onRagOverrideToggle($event)" />
-          <span class="switch-slider"></span>
-        </label>
-      </div>
-    </div>
+    <SettingToggle name="本书使用独立设定" ariaLabel="知识检索使用独立设定" :checked="ragOverride" @change="onRagOverrideToggle">
+      <template #desc>
+        当前生效 {{ effRagEnabled ? '已启用' : '未启用' }} · 提供方 {{ ragLegacy ? '旧版内联配置' : providerLabel(effRagProvider) }}{{ ragOverride ? '' : '（跟随全局默认）' }}
+      </template>
+    </SettingToggle>
     <template v-if="ragOverride">
-      <div class="setting-item sub">
-        <div class="setting-item-info">
-          <div class="setting-item-name">启用检索</div>
-        </div>
-        <div class="setting-item-control">
-          <label class="switch">
-            <input type="checkbox" aria-label="启用知识检索" :checked="bookRagEnabled ?? effRagEnabled" @change="onBookRagToggle($event)" />
-            <span class="switch-slider"></span>
-          </label>
-        </div>
-      </div>
-      <div v-if="bookRagEnabled" class="setting-item sub">
-        <div class="setting-item-info">
-          <div class="setting-item-name">检索提供方</div>
-          <div class="setting-item-desc">
-            {{ ragProviders.length ? '嵌入提供方在「服务提供方」页管理，此处选本书用哪个' : '尚未配置嵌入提供方——请先到「服务提供方」页添加 RAG 提供方' }}
-          </div>
-        </div>
-        <div class="setting-item-control">
-          <select
-            class="rag-prov-select"
-            aria-label="检索提供方"
-            :value="bookRagProvider || (ragLegacy ? '__legacy__' : '')"
-            @change="onBookRagProviderChange($event)"
-          >
-            <option value="" disabled>{{ ragProviders.length ? '请选择' : '暂无可选提供方' }}</option>
-            <option v-if="ragLegacy" value="__legacy__">旧版内联配置（沿用）</option>
-            <option v-for="p in ragProviders" :key="p.id" :value="p.id">{{ p.name }}（{{ p.model }}）</option>
-          </select>
-        </div>
-      </div>
+      <SettingToggle sub name="启用检索" ariaLabel="启用知识检索" :checked="bookRagEnabled ?? effRagEnabled" @change="onBookRagToggle" />
+      <SettingItem v-if="bookRagEnabled" sub name="检索提供方">
+        <template #desc>
+          {{ ragProviders.length ? '嵌入提供方在「服务提供方」页管理，此处选本书用哪个' : '尚未配置嵌入提供方——请先到「服务提供方」页添加 RAG 提供方' }}
+        </template>
+        <select
+          class="rag-prov-select"
+          aria-label="检索提供方"
+          :value="bookRagProvider || (ragLegacy ? '__legacy__' : '')"
+          @change="onBookRagProviderChange($event)"
+        >
+          <option value="" disabled>{{ ragProviders.length ? '请选择' : '暂无可选提供方' }}</option>
+          <option v-if="ragLegacy" value="__legacy__">旧版内联配置（沿用）</option>
+          <option v-for="p in ragProviders" :key="p.id" :value="p.id">{{ p.name }}（{{ p.model }}）</option>
+        </select>
+      </SettingItem>
     </template>
     <!-- 建索引：书级生效启用即可建（含跟随全局默认启用）；挂在两组之后（原交互不变） -->
     <div v-if="effRagEnabled" class="rag-build-row">
@@ -554,28 +483,7 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-/* 检索提供方下拉（对齐设置页输入控件风格） */
-.rag-prov-select {
-  max-width: 260px;
-  padding: 6px 10px;
-  font-size: var(--font-size-s);
-  color: var(--text-normal);
-  background: var(--background-secondary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-s);
-  cursor: pointer;
-  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
-}
-
-.rag-prov-select:hover {
-  border-color: var(--interactive-accent);
-}
-
-.rag-prov-select:focus {
-  outline: none;
-  border-color: var(--interactive-accent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 18%, transparent);
-}
+/* rag-prov-select：两份逐字相同块已收敛至 settings-shared.css（全局装载） */
 
 .rag-build-row {
   display: flex;
