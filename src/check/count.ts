@@ -656,9 +656,15 @@ export function checkStyleMetrics(
   // Z-17（第五十八轮）：X地道 收窄为后续跟引语标点（:：""「『）——「十分地道，」这类
   // 词语误用（地道=名词「正宗」，非「说道」动词）不再计入；X地说 不受影响（无同形名词）
   // R33-31（三十三轮）：消费模块常量（原每调用 new RegExp 两枚）
+  // R0911b-F-P3-1：堆叠项与上方占比项同族对齐——占比项自 V-P1-7 起只统计剥引号后的
+  // 提示语，堆叠项却吃 raw body，对白内容里的「X地说」（角色嘴里的话，非作者叙述
+  // 堆叠）被计入，同文件双口径分裂；对齐 stripQuotedSpans 单源，只收窄「哪些文本
+  // 参与计数」（对白外命中数不变）。注意剥引号后 X地道 的引语标点 lookahead 只剩
+  // ：: 可命中（「」『“ 已随 span 剥除），与占比项 DIALOGUE_TAG_RE 的锚定环境一致。
+  const tagProse = stripQuotedSpans(body)
   const tagHits = [
-    ...(body.match(DIALOGUE_TAG_SHUO_RE) ?? []),
-    ...(body.match(DIALOGUE_TAG_DIDAO_RE) ?? []),
+    ...(tagProse.match(DIALOGUE_TAG_SHUO_RE) ?? []),
+    ...(tagProse.match(DIALOGUE_TAG_DIDAO_RE) ?? []),
   ]
   if (tagHits.length) {
     for (const t of new Set(tagHits)) {
@@ -873,18 +879,26 @@ export function checkBodyParts(
 ): CheckSectionResult {
   const items: CheckItem[] = []
   const over: string[] = []
+  // R0911b-P2④：计数前剥对白引号 span（quotes.ts 单源 stripQuotedSpans）——同文件
+  // 禁词（checkBannedWords R29-1①）/意象（checkImagery R51-E-N5）/开头（R29-4）均
+  // 剥引号后统计，唯本检查与 checkSimile 吃原文：对白里角色说「你看着我的眼睛」
+  // 是人物语言，不等于作者叙述堆砌部位词；对白密集章「眼睛×6」虚黄，短篇 strict
+  // （runner STRICT_SHORT_CHECK_IDS 的 body-parts）升红会把对白密集章误打回重写。
+  // 单字「手」的动作语境匹配路径同口径。阈值与升红逻辑零改动，只收窄
+  // 「哪些文本参与计数」。
+  const prose = stripQuotedSpans(body)
   for (const word of words) {
     if (!word) continue
     let count = 0
-    let idx = body.indexOf(word)
+    let idx = prose.indexOf(word)
     while (idx !== -1) {
       count++
-      idx = body.indexOf(word, idx + word.length)
+      idx = prose.indexOf(word, idx + word.length)
     }
     if (count > threshold) over.push(`${word}×${count}`)
   }
-  // 单字「手」走动作语境匹配，避免误伤惯用语
-  const handCount = (body.match(HAND_ACTION_RE) ?? []).length
+  // 单字「手」走动作语境匹配，避免误伤惯用语（R0911b-P2④：同样只吃剥引号后的叙述面）
+  const handCount = (prose.match(HAND_ACTION_RE) ?? []).length
   if (handCount > threshold) over.push(`手×${handCount}`)
   if (over.length > 0) {
     items.push({
@@ -928,8 +942,16 @@ export function checkSimile(
   threshold = 10,
 ): CheckSectionResult {
   const items: CheckItem[] = []
+  // R0911b-P2④：统计前剥对白引号 span（禁词/意象/开头/身体部位同款口径，quotes.ts
+  // 单源 stripQuotedSpans）——对白里角色说「像…一样」是人物语言，非作者叙述比喻
+  // 堆砌；对白密集章虚黄，短篇 strict（runner STRICT_SHORT_CHECK_IDS 的
+  // simile-density）升红会把对白密集章误打回重写。剥引号必须在 checkSimile 调用点
+  // 做而非收进 SIMILE_RE 本体：scripts/harvest-corpus.ts 语料收割（R51-J-1）复用
+  // 本正则直扫原文取真实比喻短语作幸存者判定锚，收割面要原文全量命中（含引号内），
+  // 改正则会漂移收割锚口径——单一真相源只保正则本体，剥引号由消费方各自决定。
+  const prose = stripQuotedSpans(body)
   // 统计明喻句式命中数（粗计；精确判定比喻语义需 NLP，零 token 取句式近似）
-  const count = (body.match(SIMILE_RE) ?? []).length
+  const count = (prose.match(SIMILE_RE) ?? []).length
   if (count > threshold) {
     items.push({
       checkId: 'simile-density',

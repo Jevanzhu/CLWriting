@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => ({
   getConfig: vi.fn(),
   getRagStatus: vi.fn(),
   triggerRagBuild: vi.fn(),
+  triggerRagRebuild: vi.fn(),
   getRagProviders: vi.fn(),
   saveConfig: vi.fn(),
 }))
@@ -34,17 +35,21 @@ vi.mock('../../../src/studio/web-next/src/api/books', () => ({
   getConfig: mocks.getConfig,
   getRagStatus: mocks.getRagStatus,
   triggerRagBuild: mocks.triggerRagBuild,
+  triggerRagRebuild: mocks.triggerRagRebuild,
 }))
 vi.mock('../../../src/studio/web-next/src/api/providers', () => ({
   getRagProviders: mocks.getRagProviders,
 }))
 
+// R0911b-P2①：RagStatus 补 indexState/indexModelMismatch 实测字段（api/rag.ts status 契约）
 const IDLE_STATUS: RagStatus = {
   running: false, indexedChapters: 0, chunkCount: 0, model: null,
+  indexState: 'unbuilt', indexModelMismatch: false,
   ragConfig: {}, providerName: null, legacy: false, lastResult: null,
 }
 const RUNNING_STATUS: RagStatus = {
   running: true, indexedChapters: 0, chunkCount: 0, model: null,
+  indexState: 'built', indexModelMismatch: false,
   ragConfig: {}, providerName: null, legacy: false, lastResult: null,
 }
 

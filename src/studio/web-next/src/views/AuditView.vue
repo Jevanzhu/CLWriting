@@ -4,14 +4,14 @@
 // AA-P2-1：长书 >500 条事件分页续页——后端按 limit/offset 截断，前端「加载更多」累积追加
 // 并显式提示「已显示 X / N」（此前无翻页入口，>500 条旧事件结构上永远不可见）。
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import {
-  ScrollText, EyeOff, GitBranch, RefreshCw, AlertCircle,
-  ChevronRight, ChevronDown, MoreHorizontal,
-} from 'lucide-vue-next'
+import { ScrollText, EyeOff, GitBranch, RefreshCw, AlertCircle } from 'lucide-vue-next'
 import { getAudit, clearAudit, type AuditConversationFE, type AuditEventFE, type GoalFE, type TodoFE } from '../api/audit'
 import { friendlyError } from '../shared/error'
 import AuditDiffPanel from '../components/audit/AuditDiffPanel.vue'
 import AuditGoalTodoPanel from '../components/audit/AuditGoalTodoPanel.vue'
+// R0911b-C2-P3-1：对话/工作流两段事件列表模板近复制（行 + 空态 + 分页/截断行），
+// 抽 AuditEventList 子组件两处以 props/事件消费（纯结构去重零行为变更）
+import AuditEventList from '../components/audit/AuditEventList.vue'
 
 const props = defineProps<{ bookName: string }>()
 
@@ -163,31 +163,6 @@ function toggle(seq: number): void {
   expanded.value = s
 }
 
-/** 事件类型 → 展示标签（去前缀，如 assistant/message → assistant·message） */
-function typeLabel(t: string): string {
-  return t.replace('/', '·')
-}
-
-/** data 摘要（取几个常见字段，避免大对象撑爆列表） */
-function dataSummary(e: AuditEventFE): string {
-  const d = e.data
-  if (typeof d['message'] === 'string') return String(d['message']).slice(0, 60)
-  if (typeof d['task'] === 'string') return String(d['task'])
-  if (typeof d['callId'] === 'string') return String(d['callId'])
-  if (typeof d['chapter'] === 'number') return 'chapter ' + String(d['chapter'])
-  // F5：goal/change（动词 + 标题 + 状态）+ todo/write（完成数/总数）
-  if (typeof d['operation'] === 'string' && d['goal'] && typeof d['goal'] === 'object') {
-    const g = d['goal'] as { title?: unknown; state?: unknown }
-    return [d['operation'], typeof g.title === 'string' ? g.title : '', typeof g.state === 'string' ? '[' + g.state + ']' : ''].join(' ').trim().slice(0, 60)
-  }
-  if (Array.isArray(d['todos'])) {
-    const ts = d['todos'] as { state?: unknown }[]
-    const done = ts.filter((t) => t.state === 'completed').length
-    return 'todos ' + done + '/' + ts.length
-  }
-  return ''
-}
-
 // ── 事件保留定版（2026-08-16 拍板：全量保留 + 手动清理）──────────────
 // 事件史默认 append-only 全量保留；此处是每书唯一清理入口，两步确认（销毁不可撤销）。
 const clearing = ref(false)
@@ -266,41 +241,21 @@ async function doClear(): Promise<void> {
           <!-- 事件重放（分页累积，含遮蔽标记 + 血缘） -->
           <section class="sec">
             <h2 class="sec-title">事件重放（{{ convoEvents.length }}{{ hasMoreConvo ? ' / 共 ' + convoTotal : '' }}）</h2>
-            <div class="ev-list">
-              <div v-for="e in convoEvents" :key="e.seq" class="ev-row">
-                <button class="ev-toggle" @click="toggle(e.seq)">
-                  <ChevronRight v-if="!expanded.has(e.seq)" :size="13" />
-                  <ChevronDown v-else :size="13" />
-                </button>
-                <span class="ev-seq" :class="{ shadowed: e.shadowed }">#{{ e.seq }}</span>
-                <span class="ev-type" :class="{ shadowed: e.shadowed }">{{ typeLabel(e.type) }}</span>
-                <span v-if="e.surfaceOp" class="ev-op" :class="e.surfaceOp">{{ e.surfaceOp }}</span>
-                <span class="ev-summary">{{ dataSummary(e) }}</span>
-                <span v-if="e.shadowed" class="ev-shadow"><EyeOff :size="11" /> 遮蔽</span>
-                <span v-if="e.sourceSeqs?.length" class="ev-lineage">
-                  <GitBranch :size="11" /> {{ e.sourceSeqs.join(',') }}
-                </span>
-                <div v-if="expanded.has(e.seq)" class="ev-detail">
-                  <pre>{{ JSON.stringify(e.data, null, 2) }}</pre>
-                  <p v-if="e.sourceSeqs?.length" class="lineage-note">
-                    血缘引用（sourceSeqs）指向事件：#{{ e.sourceSeqs.join(' #') }} —— 每个引用都可在上方事件流定位。
-                  </p>
-                </div>
-              </div>
-              <div v-if="convoEvents.length === 0" class="empty">暂无事件</div>
-            </div>
-            <!-- AA-P2-1：截断提示 + 续页入口（长书 >500 条可见「已显示 X / N」并可翻到底） -->
-            <div v-if="hasMoreConvo" class="pager">
-              <span class="pager-hint">已显示 {{ convoEvents.length }} / {{ convoTotal }} 条，更多最早事件待加载</span>
-              <button class="load-more" :disabled="convoLoadingMore" @click="loadMoreConvo">
-                <MoreHorizontal :size="14" :class="{ spin: convoLoadingMore }" />
-                {{ convoLoadingMore ? '加载中…' : '加载更多' }}
-              </button>
-            </div>
-            <!-- ii-2：渲染上限截断提示（防长书 DOM 无界膨胀） -->
-            <div v-else-if="convoCapHit" class="pager">
-              <span class="pager-hint">已达渲染上限 {{ RENDER_CAP }} 条（共 {{ convoTotal }}，为防卡顿截断）——更早日志仍在事件库，可清除本库事件史后重查</span>
-            </div>
+            <!-- R0911b-C2-P3-1：行模板/空态/分页截断行抽 AuditEventList（detailed=对话段专有：遮蔽/血缘列） -->
+            <AuditEventList
+              :events="convoEvents"
+              :total="convoTotal"
+              :loading-more="convoLoadingMore"
+              :has-more="hasMoreConvo"
+              :cap-hit="convoCapHit"
+              :render-cap="RENDER_CAP"
+              :expanded="expanded"
+              empty-text="暂无事件"
+              detailed
+              cap-hint-suffix="——更早日志仍在事件库，可清除本库事件史后重查"
+              @toggle="toggle"
+              @load-more="loadMoreConvo"
+            />
           </section>
         </template>
         <div v-else class="empty big">本库尚无对话事件（先发一条对话消息）</div>
@@ -313,32 +268,19 @@ async function doClear(): Promise<void> {
 
         <section class="sec">
           <h2 class="sec-title">工作流事件（{{ workflowEvents.length }}{{ hasMoreWorkflow ? ' / 共 ' + workflowTotal : '' }}）</h2>
-          <div class="ev-list">
-            <div v-for="e in workflowEvents" :key="e.seq" class="ev-row">
-              <button class="ev-toggle" @click="toggle(e.seq)">
-                <ChevronRight v-if="!expanded.has(e.seq)" :size="13" />
-                <ChevronDown v-else :size="13" />
-              </button>
-              <span class="ev-seq">#{{ e.seq }}</span>
-              <span class="ev-type">{{ typeLabel(e.type) }}</span>
-              <span class="ev-summary">{{ dataSummary(e) }}</span>
-              <div v-if="expanded.has(e.seq)" class="ev-detail">
-                <pre>{{ JSON.stringify(e.data, null, 2) }}</pre>
-              </div>
-            </div>
-            <div v-if="workflowEvents.length === 0" class="empty">暂无工作流事件（运行一次 AI 写作后可见）</div>
-          </div>
-          <div v-if="hasMoreWorkflow" class="pager">
-            <span class="pager-hint">已显示 {{ workflowEvents.length }} / {{ workflowTotal }} 条，更多最早事件待加载</span>
-            <button class="load-more" :disabled="workflowLoadingMore" @click="loadMoreWorkflow">
-              <MoreHorizontal :size="14" :class="{ spin: workflowLoadingMore }" />
-              {{ workflowLoadingMore ? '加载中…' : '加载更多' }}
-            </button>
-          </div>
-          <!-- ii-2：渲染上限截断提示（对称实现） -->
-          <div v-else-if="workflowCapHit" class="pager">
-            <span class="pager-hint">已达渲染上限 {{ RENDER_CAP }} 条（共 {{ workflowTotal }}，为防卡顿截断）</span>
-          </div>
+          <!-- R0911b-C2-P3-1：同上——工作流段无遮蔽/血缘列（不传 detailed），文案以 props 区分 -->
+          <AuditEventList
+            :events="workflowEvents"
+            :total="workflowTotal"
+            :loading-more="workflowLoadingMore"
+            :has-more="hasMoreWorkflow"
+            :cap-hit="workflowCapHit"
+            :render-cap="RENDER_CAP"
+            :expanded="expanded"
+            empty-text="暂无工作流事件（运行一次 AI 写作后可见）"
+            @toggle="toggle"
+            @load-more="loadMoreWorkflow"
+          />
         </section>
       </template>
     </template>
@@ -444,32 +386,6 @@ async function doClear(): Promise<void> {
   opacity: 0.85;
 }
 .sec { margin-bottom: var(--size-4-5); }
-/* AA-P2-1：分页续页 */
-.pager {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--size-4-3);
-  margin-top: var(--size-4-3);
-  flex-wrap: wrap;
-}
-.pager-hint {
-  color: var(--text-muted);
-  font-size: var(--font-size-s);
-}
-.load-more {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 5px 14px;
-  border-radius: 8px;
-  border: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
-  color: var(--text-normal);
-  cursor: pointer;
-  font-size: var(--font-size-s);
-}
-.load-more:disabled { opacity: 0.55; cursor: default; }
 .sec-title {
   display: flex;
   align-items: center;
@@ -478,80 +394,8 @@ async function doClear(): Promise<void> {
   margin: 0 0 var(--size-4-3);
   flex-wrap: wrap;
 }
-.ev-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.ev-seq {
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-  min-width: 2.4em;
-}
-.ev-row {
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 7px;
-  background: var(--background-secondary);
-  padding: 4px 10px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: var(--font-size-s);
-  flex-wrap: wrap;
-  /* 列表渲染上限（起步方案）：「加载更多」跨页累积无上限，长书几千行全量布局会卡；
-   * content-visibility 让视口外行跳过渲染，进视口按需恢复。30px ≈ 未展开行的
-   * 量得高度（13px 字 × 1.5 行距 + 8px 内边距 + 2px 边框），作首渲染前占位；
-   * auto 前缀让浏览器记住实际渲染高度（展开 ev-detail 后不受占位束缚）。 */
-  content-visibility: auto;
-  contain-intrinsic-size: auto 30px;
-}
-.ev-toggle {
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--text-muted);
-  display: inline-flex;
-  padding: 0;
-}
-.ev-seq.shadowed { color: var(--text-error); }
-.ev-type {
-  font-family: var(--font-monospace);
-  color: var(--text-accent);
-  font-size: var(--font-size-xs);
-}
-.ev-type.shadowed { color: var(--text-muted); text-decoration: line-through; }
-.ev-op {
-  font-size: var(--font-size-xs);
-  padding: 1px 6px;
-  border-radius: 5px;
-  border: 1px solid var(--background-modifier-border);
-}
-.ev-op.replace { color: var(--text-error); border-color: var(--text-error); }
-.ev-summary { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); }
-.ev-shadow, .ev-lineage {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  font-size: var(--font-size-xs);
-  color: var(--text-muted);
-}
-.ev-shadow { color: var(--text-error); }
-.ev-detail {
-  flex-basis: 100%;
-  padding: 6px 0 4px;
-}
-.ev-detail pre {
-  margin: 0;
-  max-height: 200px;
-  overflow: auto;
-  font-size: var(--font-size-xs);
-  background: var(--background-primary);
-  border-radius: 6px;
-  padding: 8px;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-.lineage-note { font-size: var(--font-size-xs); color: var(--text-muted); margin: 4px 0 0; }
+/* R0911b-C2-P3-1：ev-list/ev-row/pager 等事件列表样式随模板迁 AuditEventList.vue
+ * （scoped 隔离，子组件同名类不与本视图互相泄漏）；.empty/.empty.big 本视图仍用，保留。 */
 .empty { color: var(--text-muted); font-size: var(--font-size-s); padding: 8px; }
 .empty.big { padding: 40px; text-align: center; }
 </style>

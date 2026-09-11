@@ -142,6 +142,19 @@ describe('POST /documents/:docId/analyze + GET /analysis/:kind（M12 B4.0/B4.1�
     expect(j.stale).toBe(true)
   })
 
+  it('R0911b-B-P3-1：GET kind 白名单——垃圾 kind 显式 404 NO_ENVELOPE（与原隐式行为等价）', async () => {
+    const r = await req('GET', `/api/books/${encodeURIComponent(BOOK)}/documents/${docId}/analysis/not-a-kind`)
+    expect(r.status).toBe(404)
+    expect(r.json).toMatchObject({ code: 'NO_ENVELOPE' })
+  })
+
+  it('R0911b-B-P3-1：review 属 GET 白名单（三审信封经本端点读取，前端 api/review.ts）——无存量 404', async () => {
+    // POST /analyze 的 ANALYSIS_KINDS 不含 review（写入走三审端点），但 GET 读存量须放行
+    const r = await req('GET', `/api/books/${encodeURIComponent(BOOK)}/documents/${docId}/analysis/review`)
+    expect(r.status).toBe(404)
+    expect(r.json).toMatchObject({ code: 'NO_ENVELOPE' })
+  })
+
   it('emotion 分析 → 200 + payload 数组（emotion -2..2）', async () => {
     const r = await req('POST', `/api/books/${encodeURIComponent(BOOK)}/documents/${docId}/analyze`, {
       kind: 'emotion',

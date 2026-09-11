@@ -635,40 +635,40 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
           return
         }
         current.proc.postMessage({ type: 'shutdown' })
-      // 竞速三路：shutdown-done 回执 / 自然退出 / 总超时。回执后真实 child 立即
-      // exit(0)，但 exit 事件与回执之间有异步缝——by 区分：回执到达再让渡一拍等
-      // 自然退出（优雅路径不 kill）；超时（child 无响应）直接强杀。（对象属性承载
-      // 状态：let 变量在闭包内改值会被 TS 流分析钉死在初值类型上）
-      const settle: { by: 'done' | 'exit' | 'timeout' } = { by: 'timeout' }
-      const done = new Promise<void>((resolveDone) => {
-        // 协议面上 child→main 消息只有 ready/boot-error/shutdown-done 三种，前两者
-        // 已随握手结束；on 不过滤移除——对象随退出消亡，无泄漏面
-        current.proc.on('message', (message: unknown) => {
-          if ((message as { type?: string })?.type === 'shutdown-done') {
-            settle.by = 'done'
-            resolveDone()
-          }
+        // 竞速三路：shutdown-done 回执 / 自然退出 / 总超时。回执后真实 child 立即
+        // exit(0)，但 exit 事件与回执之间有异步缝——by 区分：回执到达再让渡一拍等
+        // 自然退出（优雅路径不 kill）；超时（child 无响应）直接强杀。（对象属性承载
+        // 状态：let 变量在闭包内改值会被 TS 流分析钉死在初值类型上）
+        const settle: { by: 'done' | 'exit' | 'timeout' } = { by: 'timeout' }
+        const done = new Promise<void>((resolveDone) => {
+          // 协议面上 child→main 消息只有 ready/boot-error/shutdown-done 三种，前两者
+          // 已随握手结束；on 不过滤移除——对象随退出消亡，无泄漏面
+          current.proc.on('message', (message: unknown) => {
+            if ((message as { type?: string })?.type === 'shutdown-done') {
+              settle.by = 'done'
+              resolveDone()
+            }
+          })
         })
-      })
-      void current.exited.then(() => {
-        settle.by = 'exit'
-      })
-      await Promise.race([done, current.exited, delay(shutdownTotalMs)])
-      if (settle.by === 'done' && active?.proc === current.proc) {
-        await Promise.race([current.exited, delay(killWaitMs)])
-      }
-      // 停机结果留痕（运维口径：批 U3 崩溃重启归因同样依赖 graceful/强杀区分）
-      if (settle.by === 'done' || active?.proc !== current.proc) {
-        logger.info('server-manager', 'studio server 子进程已停机（shutdown 指令链路）')
-      } else {
-        logger.warn('server-manager', 'shutdown 超时未回执，已强杀兜底')
-      }
-      if (active?.proc === current.proc) {
-        // 超时未退 / 回执后滞留：强杀兜底（E-1：总超时已覆盖 child 最坏预算，此处才是真强杀）
-        current.proc.kill()
-        // R26-87：同 stopChild——kill 后超时升级 SIGKILL，不再静默放行孤儿
-        await killAwaitEscalating(current, 'shutdown')
-      }
+        void current.exited.then(() => {
+          settle.by = 'exit'
+        })
+        await Promise.race([done, current.exited, delay(shutdownTotalMs)])
+        if (settle.by === 'done' && active?.proc === current.proc) {
+          await Promise.race([current.exited, delay(killWaitMs)])
+        }
+        // 停机结果留痕（运维口径：批 U3 崩溃重启归因同样依赖 graceful/强杀区分）
+        if (settle.by === 'done' || active?.proc !== current.proc) {
+          logger.info('server-manager', 'studio server 子进程已停机（shutdown 指令链路）')
+        } else {
+          logger.warn('server-manager', 'shutdown 超时未回执，已强杀兜底')
+        }
+        if (active?.proc === current.proc) {
+          // 超时未退 / 回执后滞留：强杀兜底（E-1：总超时已覆盖 child 最坏预算，此处才是真强杀）
+          current.proc.kill()
+          // R26-87：同 stopChild——kill 后超时升级 SIGKILL，不再静默放行孤儿
+          await killAwaitEscalating(current, 'shutdown')
+        }
       } finally {
         // B-7：停机生命周期门复位——收口后允许下一轮 start（新生命周期；幂等 early-return
         // 的并发 shutdown 不经此处，由首调用方 finally 统一复位）

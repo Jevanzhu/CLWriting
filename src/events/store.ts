@@ -1013,10 +1013,12 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
       // P2：排除 workspace 会话（ws- 前缀）——链路事件不干扰对话恢复选会话
       // P3-9：ORDER BY 加 rowid tiebreaker——同一毫秒创建/更新的多个会话选择结果稳定
       //（此前仅 updated_at DESC，同毫秒无次序锚，恢复选择不确定）
-      const stmt = db.prepare(
+      // R0911b-E-P3-1：改道连接级 prepared 语句缓存（原裸 db.prepare 每调重编译，
+      // 绕过全库统一 helper；本函数当前零生产调用，导出保留）
+      const r = prepared(
+        db,
         `SELECT * FROM sessions WHERE book = ? AND session_id NOT LIKE 'ws-%' ORDER BY updated_at DESC, rowid DESC LIMIT 1`
-      );
-      const r = stmt.get(book) as SessionRow | undefined
+      ).get(book) as SessionRow | undefined
       return r ?? null
     },
     lastSeq(): number {

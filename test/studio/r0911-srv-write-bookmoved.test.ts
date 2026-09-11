@@ -84,7 +84,8 @@ function makeBook(name: string): Rig {
   mkdirSync(bookRoot, { recursive: true })
   writeFileSync(join(bookRoot, 'book.yaml'), `spec_version: 1\nkind: long\nbook:\n  title: ${name}\nhost: cc\n`, 'utf-8')
   const handlers = withRouteTable(createRouteTable(), () => {
-    registerKnowledgeRoutes({ workDir, token: 't' })
+    // R0911b-B-P3-2：KnowledgeCtx token 死字段删除，注入随之去 token
+    registerKnowledgeRoutes({ workDir })
     registerStyleRoutes({ workDir, userDataPath: null })
     registerConfigRoutes({ workDir })
     return {

@@ -39,7 +39,9 @@ const healDone = computed(() => wb.healResult)
         <div class="heal-detail">
           <div>{{ healDone.yellows?.length ? `校对通过，仍剩 ${healDone.yellows.length} 处黄项（建议手改）` : '校对通过，文风已收敛' }}</div>
           <ul v-if="healDone.yellows?.length" class="heal-reds">
-            <li v-for="(y, i) in healDone.yellows" :key="i">{{ y }}</li>
+            <!-- R0911b-C2-P3-2：yellows 是 string[] 无 id 且文本可重复，key 弃纯 index 改「值+序号」
+                 复合键（AuditGoalTodoPanel 重评2-P3-4 同款）；终局卡整表替换、li 纯展示无状态，零行为改动。 -->
+            <li v-for="(y, i) in healDone.yellows" :key="y + '-' + i">{{ y }}</li>
           </ul>
         </div>
       </div>
@@ -48,7 +50,8 @@ const healDone = computed(() => wb.healResult)
         <div class="heal-detail">
           <div>AI 已重试到上限仍有待修问题，需要你来定夺</div>
           <ul class="heal-reds">
-            <li v-for="(r, i) in healDone.reds ?? []" :key="i">{{ r }}</li>
+            <!-- R0911b-C2-P3-2：reds 同 yellows——string[] 无 id 且文本可重复，「值+序号」复合键。 -->
+            <li v-for="(r, i) in healDone.reds ?? []" :key="r + '-' + i">{{ r }}</li>
           </ul>
         </div>
       </div>

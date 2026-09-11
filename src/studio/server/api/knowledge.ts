@@ -15,9 +15,11 @@ import { learnFromBook } from '../../../learn/index.js'
 import { commitSamples, commitQuotes, defaultCommitYield, type CommitYield } from '../../../learn/commit.js'
 import type { LearnResult, SampleCandidate, QuoteCandidate } from '../../../learn/index.js'
 import { acquireTaskGate } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
+// R0911b-B-P3-2（2026-09-11 全量重评修复批）：token 死字段删除——写闸（index.ts isWrite
+// safeTokenCompare）在路由分派前已拦一切 POST，R1010-P3 删 handler 内冗余复核后本 ctx
+// 的 token 注入后零读取，随批删除
 interface KnowledgeCtx {
   workDir: string | null
-  token: string
 }
 
 // ── R0911-B-P3-4（2026-09-11 全量重评 GLM-5.3 修复批）：非闸书级写端点的临界段书注册重验 ──

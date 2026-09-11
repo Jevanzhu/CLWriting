@@ -9,7 +9,7 @@ import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
 import { usePrefsStore } from '../../stores/prefs'
 import { parseNumericInput } from '../../shared/numeric-input'
-import { getConfig, getRagStatus, triggerRagBuild, type RagStatus } from '../../api/books'
+import { getConfig, getRagStatus, triggerRagBuild, triggerRagRebuild, type RagStatus } from '../../api/books'
 import { useProviderStore } from '../../stores/provider'
 import { friendlyError } from '../../shared/error'
 import { SAVE_CONFIG_KEY } from './settings-context'
@@ -63,10 +63,9 @@ let ragPollInFlight = false
 const RAG_POLL_MAX_FAILS = 5
 let ragFailStreak = 0
 
-// R28-22（二十八轮）：「重建已清空旧索引、未完成」提示。数据可行性：RagStatus.lastResult
-// 只有 ok/error/chunk/chapter，无「索引已清空」显式字段（服务端 api/rag.ts 本轮不动，
-// 先清库再后台建的阶段信息前端拿不到）——最小实现走文案条件渲染：以「本组件触发过
-// 重建且尚未见到成功结果」为条件（ragRebuildTriggered），失败文案旁补一句人话。
+// R28-22（二十八轮）：「重建已清空旧索引、未完成」提示。R0911b-P2①（2026-09-11 修复批）
+// 语义修正：本提示只在真重建（rebuild，服务端任务闸内先清库再建）后失败时出现——原实现
+// 把触发记忆误挂在「建立索引」（build，增量不清库）上，失败提示「已清空旧索引」失实。
 // 局限如实记：他窗口触发/刷新页面后该本地记忆丢失，退回普通失败文案（保守面，不误报）。
 const ragRebuildTriggered = ref(false)
 // 提示按书隔离：切书复位，防 A 书重建记忆串到 B 书（ws.bookName 为 string|null，一并收留无书态）
@@ -74,6 +73,18 @@ let ragHintBook: string | null = ''
 const ragRebuildFailedHint = computed(
   () => ragRebuildTriggered.value && !ragBuilding.value && ragStatus.value?.lastResult?.ok === false,
 )
+// R0911b-P2①：需要重建索引的判定（「重建索引」按钮的显隐）——三种形态任一即出：
+// ① 服务端 R26-16 失配标记（已建索引模型 ≠ 当前生效模型，status 实测字段 indexModelMismatch）；
+// ② 最近一次建索引失败且错误指向重建（维度失配等 R26-16 文案含「重建索引」——维度失配
+//    配置侧无从比对，只经 buildIndex 错误信封透出）；
+// ③ 本组件触发过重建且已失败（ragRebuildFailedHint）——出路提示指向的重试按钮须在场。
+const ragNeedsRebuild = computed(() => {
+  const s = ragStatus.value
+  if (!s) return false
+  if (s.indexModelMismatch) return true
+  if (s.lastResult?.ok === false && (s.lastResult.error ?? '').includes('重建索引')) return true
+  return ragRebuildFailedHint.value
+})
 
 // R63-3（十一轮）：配置加载代守卫（style store M-2 / AnalysisPanel M-11 的 reqGen 惯例）——
 // 此前 watch 无代守卫、await getConfig 后无书名复检：A 书在途响应迟到落地 B 书面板，
@@ -265,6 +276,10 @@ async function refreshRagStatus(name?: string): Promise<boolean> {
     if (!s.running && s.lastResult?.ok) ragRebuildTriggered.value = false
     if (s.running) {
       ragStatusText.value = '索引构建中…'
+    } else if (s.indexModelMismatch) {
+      // R0911b-P2①：R26-16 模型失配——旧索引与新模型不兼容，明说失配 + 给出路
+      //（同排「重建索引」按钮即程序化出口；构建中不进此分支，构建文案优先）
+      ragStatusText.value = `现有索引由「${s.model ?? '未知模型'}」建立，与当前嵌入模型不一致，无法继续使用——请重建索引`
     } else if (s.lastResult && s.lastResult.ok) {
       // 增量结果：本次有新增报本次数，纯增量（0 新块）报库内总数
       ragStatusText.value =
@@ -292,13 +307,32 @@ async function startRagBuild(): Promise<void> {
   ragBuilding.value = true
   try {
     await triggerRagBuild(name)
-    // R28-22：本组件触发过重建（服务端先清库再后台建）——此后若以失败收场，
-    // ragRebuildFailedHint 据此补「索引已清空、重建未完成」的提示
-    ragRebuildTriggered.value = true
+    // R0911b-P2①④：build 是增量建索引（不清库），不置 ragRebuildTriggered——原实现
+    // 在此误置触发记忆，失败提示「已清空旧索引」与 build 实际语义不符（清库只在 rebuild）
     ragStatusText.value = '索引构建中…'
     void pollRagStatus(name)
   } catch (e) {
     ragBuilding.value = false // R33-81：锁前置后失败路径须复位，否则按钮永久置灰
+    ui.toast(friendlyError(e), 'error')
+  }
+}
+
+/** R0911b-P2①：重建索引（服务端 R26-16 rebuild 端点：任务闸内先清空既有索引再后台全新
+ *  建）。模型/维度失配后 build 只会撞「请重建索引」错误信封，本入口是 GUI 的程序化出路。
+ *  复用 build 的在途锁与轮询（服务端同一把 'rag-build' 任务闸，两操作本就互斥）。 */
+async function startRagRebuild(): Promise<void> {
+  const name = ws.bookName
+  if (!name || ragBuilding.value) return
+  ragBuilding.value = true // 同款在途锁前置（R33-81 口径）
+  try {
+    await triggerRagRebuild(name)
+    // R28-22：真重建（先清库再建）才置触发记忆——此后若以失败收场，
+    // ragRebuildFailedHint 据此补「索引已清空、重建未完成」的提示
+    ragRebuildTriggered.value = true
+    ragStatusText.value = '正在清空旧索引并重建…'
+    void pollRagStatus(name)
+  } catch (e) {
+    ragBuilding.value = false
     ui.toast(friendlyError(e), 'error')
   }
 }
@@ -505,11 +539,15 @@ onUnmounted(() => {
     <!-- 建索引：书级生效启用即可建（含跟随全局默认启用）；挂在两组之后（原交互不变） -->
     <div v-if="effRagEnabled" class="rag-build-row">
       <button class="save-btn" @click="startRagBuild" :disabled="ragBuilding">{{ ragBuilding ? '构建中…' : '建立索引' }}</button>
+      <!-- R0911b-P2①：失配/失败指向重建时的程序化出路——清库重建（服务端 R26-16 rebuild）。
+           增量「建立索引」对失配索引只会报错，重建是唯一出路；构建中与建立索引同锁禁用 -->
+      <button v-if="ragNeedsRebuild" class="save-btn" aria-label="重建索引" @click="startRagRebuild" :disabled="ragBuilding">重建索引</button>
       <span class="rag-status" :class="{ running: ragBuilding }">{{ ragStatusText }}</span>
-      <!-- R28-22：重建先清库再后台建——建索引期失败时旧索引已删、新索引未成，检索归零
-           但普通「索引失败」文案不说明这一点。此处如实补一句 + 给出路（重试/正文不受影响） -->
+      <!-- R28-22 + R0911b-P2①④：清库重建（rebuild）先删旧索引再后台建——重建期失败时旧
+           索引已删、新索引未成，检索归零但普通「索引失败」文案不说明这一点。此处如实补一句
+           + 给出路（重试按钮同排在场；书稿正文不受影响）。增量 build 失败不清库，不出本提示 -->
       <span v-if="ragRebuildFailedHint" class="rag-rebuild-hint" role="status">
-        上次重建已清空旧索引、新索引未建成——检索暂时查不到内容。可重新点「建立索引」重试；书稿正文不受影响。
+        上次重建已清空旧索引、新索引未建成——检索暂时查不到内容。可点「重建索引」重试；书稿正文不受影响。
       </span>
     </div>
   </section>

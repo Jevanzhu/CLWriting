@@ -276,30 +276,49 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }
   }
 
-  /** 打开文档（单文档模式）：切到编辑器视图 + 旧文档 dirty 自动保存（watch 自动持久化）。 */
+  /** 打开文档（单文档模式）：切到编辑器视图 + 旧文档 dirty 自动保存（watch 自动持久化）。
+   *  R0911b-P2②（2026-09-11 全量重评 GLM-5.3 修复批）：存旧文档改走 doDelete（R55-F-6）
+   *  同族的「先落定在途再判」——F8 契约下 entry.saving 时 doc.save(·,'autosave') 直接返
+   *  false 不等待，原实现在途保存窗口内必误报「切换文档时自动保存失败」（内容不丢、
+   *  在途自愈的假警报）。先 await doc.waitInflightSave（flushDirty 同款有界轮次台账等待）
+   *  落定，复查仍 dirty 才补存；真失败（返 false 且仍 dirty、无新在途）才可见化。 */
   function openTab(docId: string): void {
     activeView.value = 'editor'
-    if (activeDocId.value && activeDocId.value !== docId) {
+    const prevId = activeDocId.value
+    if (prevId && prevId !== docId) {
       const doc = useDocStore()
-      if (doc.get(activeDocId.value)?.dirty) {
+      if (doc.get(prevId)?.dirty) {
         // 清偿-切换autosave失败可见化（2026-09-09 残留清偿批）：fire-and-forget 存旧文档
         // 失败零 UI 面（save 吞错以 resolved false 上报，被 void 丢弃；编辑器状态条已随
-        // 切文档离屏）。失败是异步迟到态：不抛错不打断切换（activeDocId 已先行更新）；
-        // 入口书名快照守卫防在途切书后迟到失败提示落新书界面（对齐 doc.save P5 /
-        // R69-28 同款纪律）。dirty 标志与崩溃镜像兜底均在（doc.save 失败路径自持），
-        // 此处仅可见化。
+        // 切文档离屏）。失败是异步迟到态：不抛错不打断切换（activeDocId 已先行更新，
+        // 旧 id 以 prevId 快照携带进异步链）；入口书名快照守卫防在途切书后迟到失败提示
+        // 落新书界面（对齐 doc.save P5 / R69-28 同款纪律）。dirty 标志与崩溃镜像兜底
+        // 均在（doc.save 失败路径自持），此处仅可见化。
         const bookAtEntry = bookName.value
         const notify = (): void => {
           if (bookName.value === bookAtEntry) {
             useUiStore().toast('切换文档时自动保存失败，未保存内容仍保留', 'warning')
           }
         }
-        void doc.save(activeDocId.value, 'autosave').then(
-          (ok) => {
-            if (ok === false) notify()
-          },
-          notify, // 契约外 reject（save 正常吞错不拒）也可见化，且不产生 unhandled rejection
-        )
+        // R0911b-P2②：整链异步但 fire-and-forget 不阻断切换（openTab 保持同步返回）；
+        // reject 兜底沿用 notify（save 正常吞错不拒，契约外 reject 也可见化且不产生
+        // unhandled rejection）
+        void (async (): Promise<void> => {
+          // 与 doDelete 同族（R55-F-6）：在途保存窗口先落定再判——dirty 要到保存落定才清，
+          // 不等在途即判必吃到 save「saving 中 autosave 返 false」的假失败
+          await doc.waitInflightSave(prevId)
+          const cur = doc.get(prevId)
+          // 落定复查：已 clean（在途已代存）/条目已清（删除/切书）/又有新在途接手
+          //（其结局自担，autosaveTick 节拍兜底）→ 不补存不提示
+          if (!cur || !cur.dirty || cur.saving) return
+          const ok = await doc.save(prevId, 'autosave')
+          // save 返 false ≠ 全是失败（条目已清的 404 不算），仍 dirty 且无在途才算
+          // 真未落盘（真失败/冲突未决）才可见化（对齐 doDelete 的 R49-25 判式）
+          if (!ok) {
+            const after = doc.get(prevId)
+            if (after?.dirty && !after.saving) notify()
+          }
+        })().catch(notify)
       }
     }
     activeDocId.value = docId

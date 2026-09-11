@@ -102,8 +102,10 @@ function buildRoutes(
     registerConfigRoutes({ workDir })
     registerPrefsRoutes({ workDir, userDataPath })
     registerStateRoutes({ workDir, userDataPath }) // GG-P2-5：状态机入口过全局托底链（volume_size 等喂生效值）
-    registerIoRoutes({ workDir, token })
-    registerKnowledgeRoutes({ workDir, token })
+    // R0911b-B-P3-2（2026-09-11 全量重评修复批）：token 死注入删除——两 ctx 的 token
+    // 字段注入后零读取（写闸在路由分派前已拦，R1010-P3 删 handler 复核后即成死字段）
+    registerIoRoutes({ workDir })
+    registerKnowledgeRoutes({ workDir })
     registerHeartbeatRoutes({ workDir })
     registerDocumentRoutes({ workDir, userDataPath }) // Z-P2-6：伏笔事件族接线（伏笔文档变更落 foreshadow/change）
     registerSnapshotRoutes({ workDir, userDataPath }) // 版本保留三层链：global.json 全局默认（book.yaml 未设时生效）

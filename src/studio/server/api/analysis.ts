@@ -354,6 +354,13 @@ async function runAnalyst(
 /** analyze 端点支持的 kind（review 走独立三审端点，不在此）。 */
 const ANALYSIS_KINDS: ReadonlySet<AnalysisKind> = new Set(['score', 'emotion', 'hooks', 'style'])
 
+// R0911b-B-P3-1（2026-09-11 全量重评修复批）：GET 存量信封的 kind 白名单——原 handler 对
+// params.kind 直接 as 断言，垃圾 kind 靠 readAnalysis 空手而归间接落 404（行为对但校验隐式）。
+// 显式化对齐 POST /analyze 的白名单口径；注意须含 review——review 由三审端点写入同一信封
+// 目录，读存量同样经本 GET 端点（前端 api/review.ts getReviewEnvelope），不能用 ANALYSIS_KINDS
+// 原集（那里不含 review）。垃圾 kind 显式 404 NO_ENVELOPE（与原行为等价：读不到 → 同信封）。
+const GET_ANALYSIS_KINDS: ReadonlySet<string> = new Set<AnalysisKind>(['review', ...ANALYSIS_KINDS])
+
 const ANALYSIS_LABEL: Record<AnalysisKind, string> = {
   review: '三审汇总',
   score: '体验分',
@@ -372,7 +379,13 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const bookRoot = r.bookRoot
       const docId = params['docId'] ?? ''
-      const kind = (params['kind'] ?? '') as AnalysisKind
+      // R0911b-B-P3-1：kind 显式白名单（原 as 断言直通；垃圾 kind 同款 404 NO_ENVELOPE，
+      // 行为等价、校验显式化）
+      const kindRaw = params['kind'] ?? ''
+      if (!GET_ANALYSIS_KINDS.has(kindRaw)) {
+        return replyError(res, 404, 'NO_ENVELOPE', '无存量分析')
+      }
+      const kind = kindRaw as AnalysisKind
       const m = resolveDocEntry(bookRoot, docId)
       if (!m) return replyError(res, 404, 'NOT_FOUND', `文档ID未登记：${docId}`)
 

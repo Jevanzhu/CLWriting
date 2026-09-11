@@ -47,7 +47,10 @@ export async function boot(): Promise<void> {
         const data = (await r.json().catch(() => ({}))) as { token?: string; initialBook?: string }
         if (r.ok && data.token) {
           token = data.token
-          initialBook = data.initialBook ?? null
+          // R0911b-C1-P3-1（2026-09-11 全量重评 GLM-5.3 修复批）：initialBook 验型——
+          // 非 string 脏值（服务端字段漂移/手改响应）按无值处理，不再未验直入
+          // getLastInitialBook → App 启动路由拼接
+          initialBook = typeof data.initialBook === 'string' ? data.initialBook : null
           return
         }
       } finally {

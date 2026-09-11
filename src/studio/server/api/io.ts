@@ -6,7 +6,9 @@
  * 确定性操作（不涉大模型）。B-24（第六十轮补修）：内核为全同步 IO（S4 留档），
  * 直调会独占服务进程事件循环（大书导出期间全部书的 SSE 心跳/保存停摆）——改经
  * run-async.ts 卸载 worker 线程，服务进程只等消息（内核零改动）。
- * 写端点带 session token 校验（defense-in-depth）。
+ * 写闸承担 session token 校验（defense-in-depth）：index.ts isWrite 的 safeTokenCompare
+ * 在路由分派前拦一切 POST——R1010-P3 删 handler 内冗余复核、R0911b-B-P3-2（2026-09-11
+ * 全量重评修复批）随之删 ctx.token 死字段（注入后零读取）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
@@ -20,7 +22,6 @@ import { acquireTaskGate } from './task-gate.js' // S3（五十九轮）：expor
 
 interface IoCtx {
   workDir: string | null
-  token: string
 }
 
 const EXPORT_FORMATS = new Set(['merged', 'split', 'both'])

@@ -112,9 +112,12 @@ function accept(): void {
           </span>
         </div>
         <div class="rw-diff">
+          <!-- R0911b-C2-P3-2：key 弃纯 index——DiffLineFE 无 id、text 可重复，改「值+序号」复合键
+               （AuditGoalTodoPanel 重评2-P3-4 同款口径）。diff 结果整表替换、行内纯展示无状态，
+               复合键令内容参与键，零行为改动。 -->
           <div
             v-for="(line, i) in shownDiff"
-            :key="i"
+            :key="line.type + '-' + line.text + '-' + i"
             class="diff-line"
             :class="'diff-' + line.type"
           >

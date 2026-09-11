@@ -1486,9 +1486,6 @@ async function bootstrap(): Promise<void> {
   // 原主窗专属块删除），三窗同享。
   // 纵深防御监听与 dev 代理已由 createSecureWindow 统一挂载；此处 await 一次保证
   // 主窗首载前代理确定生效（工厂内是 fire-and-forget，此处 loadURL 前须确定）
-  // R32-24（三十二轮）：工厂侧 setProxy 失败仅降级留日志（见 createSecureWindow），
-  // 此处裸 await 同因异果——失败会炸启动。补 catch 降级（dev 代理缺 direct:// 归零
-  // 只影响 HMR 场景的代理一致性，不阻断首载），与工厂侧同口径。
   if (devUi) {
     // R32-24（三十二轮）：工厂侧 setProxy 失败仅降级留日志（见 createSecureWindow），
     // 此处裸 await 同因异果——失败会炸启动。补 catch 降级（dev 代理缺 direct:// 归零
@@ -1668,8 +1665,8 @@ function registerIpc(): void {
     if (!isTrustedSender(e)) return
     try {
       return await loadSystemFonts()
-    } catch (e) {
-      log.error('desktop', `get-system-fonts 失败：${e instanceof Error ? e.message : String(e)}`)
+    } catch (err) {
+      log.error('desktop', `get-system-fonts 失败：${err instanceof Error ? err.message : String(err)}`)
       return []
     }
   })

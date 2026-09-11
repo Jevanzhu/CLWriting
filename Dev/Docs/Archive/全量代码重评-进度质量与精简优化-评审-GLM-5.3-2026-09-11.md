@@ -1,9 +1,11 @@
 # 全量代码重评——进度质量与精简优化评审
 
+> 归档记：2026-09-11 重评修复批同日收口（作者指令「全部修复，编排下任务，并发做。」）后自 `01-评审/` 移入 `Archive/` 扁平；历史正文不改写，收口态见头部行与 §八收口记。
+
 - 日期：2026-09-11。执行模型：GLM-5.3（主审；子代理同模型）。作者指令原文：「忽略现有的评审文档，重新评审一遍项目所有代码，最后告诉我项目完成进度，完成质量，以及是否可以精简优化代码，结果形成一个文档给我。记得编排下任务。」
 - 评审基线：HEAD `ddf40293`（分支 win，工作树净——除 Dev/Docs 下两篇未入库游离件）。评审范围：src/ 全部产品代码（18 域 + web-next 前端子包，~107k 行）+ test/（~166k 行）+ scripts/ + 根配置/CI + 知识层资产。
 - **独立重评声明**：按作者指令忽略既有评审文档——本报告全部结论直接来自代码本身；代码注释中的历史声明一律作为线索经代码核实后采信。与既往台账条目天然重叠的项（如 writePieceList 零接线、switch-provider 无消费者）系本次独立再发现，非采信既往。
-- 收口状态：**未收口**——新发现 P2×4 待修复（见 §3.3）；报告完成≠收口。
+- 收口状态：**已收口**（2026-09-11 重评修复批同日办结——作者指令「全部修复，编排下任务，并发做。」，收口记 §八；正本随批归档 `Archive/`）。
 
 ## 一、总评（三问直答）
 
@@ -169,3 +171,23 @@ foreshadow 同步孪生（有等价测试背书）/ RagProviderEditor 与 AiProv
 ---
 
 *本报告为评审交付物，未含任何代码改动（L0 零测试面批）。收口记待修复批后补 §八。*
+
+## 八、收口记（2026-09-11 重评修复批）
+
+作者指令：「全部修复，编排下任务，并发做。」同日办结本报告 P2×4（按 §七 建议：修 3 + 单立 1）与 P3 随批收；零提交（工作树留作者）。
+
+**P2 处置**：
+- ① rag/rebuild 断头【已修 R0911b-P2①】：前端 `triggerRagRebuild` 接线 POST `/api/books/:name/rag/rebuild`（api/books.ts）+ RagStatus 补 `indexState`/`indexModelMismatch` 实测字段 + SettingsBookAnalysis 失配三分支「重建索引」入口（复用 ragBuilding 锁 + 轮询）+ R28-22 误挂记忆修正（build 成功不再置重建提示）+ 失败提示文案改指重建；+白名单/失配直测。如实记档残留：库文件级损坏时 /rag/status 500 拿不到失配标记不出按钮——build 损坏自愈（上批 D-P3-1）可达，无死路。
+- ② openTab 切档假警报【已修 R0911b-P2②】：openTab 先 `waitInflightSave(prevId)` 落定 → 复查 dirty/saving → 补存 → 仅按 R49-25 判式（真失败）notify，保留 bookAtEntry 守卫与 `.catch(notify)`；+4 回归用例。
+- ③ ai→studio 反向依赖【按 §七 建议登记单立重构批，不随修复批强改】（台账 §三 D）。
+- ④ 机检剥引号口径分裂【已修 R0911b-P2④】：checkBodyParts/checkSimile 调用点补 `stripQuotedSpans`（SIMILE_RE 本体不动——scripts/harvest-corpus.ts 复用该正则直扫原文，剥引号由消费方各自决定）+ style-dialogue-tag 堆叠项对齐（F-P3-1 同批收）；语料锚 fire/silent 逐锚核实零翻转 + r0911b-quoted-span 7 用例双向钉定。
+
+**P3 随批收 13 项**（A×3/B×2/C1×3/C2×2/E×2/F×1；源文件锚注释 R0911b- 为准）：A-P3-1 重复注释块去重、A-P3-2 server-manager 缩进（`git diff -w` 空验证）、A-P3-3 catch 变量遮蔽改名；B-P3-1 GET /analysis kind 显式白名单（**定性修正：白名单必须含 'review'**——照「对齐 ANALYSIS_KINDS」字面落地将回归 review 信封读路，+2 用例钉死）、B-P3-2 IoCtx/KnowledgeCtx token 死字段删除；C1-P3-1 boot initialBook 验型、C1-P3-2 seedHistory 空历史分支修正（多窗清史路径可达，非死分支）、C1-P3-4 doc.ts 缩进；C2-P3-1 AuditView 抽 AuditEventList 组件（−195 行，锚测试 ×3）、C2-P3-2 v-for 稳定键 ×5 处逐处核定；E-P3-1 latestSession 改道 prepared 缓存、E-P3-2 中置 import 上提（核实无循环依赖缘由，ESM 提升语义下中置无意义）；F-P3-1 并入 P2④。
+
+**维持登记 13 项**（台账 §三 各域新行/归并）：A-P3-4 migrate-layout-v3 EISDIR 边角、A-P3-5 font-cache 超时不杀；B ai-track 同步孪生零调用 + isNfcName 仅测试（→H 档一候选）；C1 useChatTier 模块级单例、C2 variantGroups O(n×m)、C2 settings-shared.css 全局注入；D recordAiCall 生产零调用（→H 档一）、writeChains 不可达防御段、chapter `?? 0` 兜底、守则校验 CLW_VERIFY_VISIBLE opt-in（设计取舍）；E isPieceBody 同步重读；F-P3-2 Math.max spread 栈压（700 章量级未证实可触发）；G-P3-1 main.test.ts 2583 行（→H 档三）。另 3 项归并既有台账行（switch-provider 无消费者 / MODEL_CATALOG 零消费 / writePieceList 零接线——本评审独立再发现与既有登记并一）。
+
+**编排记档**：波 1 四路文件互斥并发代理（F 机检 / C1 前端数据层 / SRV 服务端+P2①接线 / AE 桌面壳+核心）→ 波 2 单路 C2 组件层；全程在途 ≤4（作者纪律条）。C2 路于收尾验证期模型请求失败中止——结构性改动（AuditEventList 抽取 + 5 文件）已完整在盘，主审接手逐 diff 复核并补锚测试 3 用例；其余四路主审逐 diff 复核全量。改动面：src 22 文件（21 改 + 1 新 AuditEventList.vue）+ test 10 文件（8 改 + 2 新：r0911b-quoted-span / r0911b-audit-event-list）+ 根 README 修账。
+
+**L2 终门九件套亲跑全绿（收口态 2026-09-11，win 口径）**：vitest **1051 文件 = 6743 过 + 80 跳 0 败**〔305.45s〕+ tsc/vue-tsc 0 错 + eslint 0/0 + 三 check 过（counts 1051/6743 + 29/45 对账一致；packaging；knowledge 13 条 manifest 一致）+ e2e 43 过 2 跳〔46.4s，reporter 零报错〕+ soak 两段绿（有界往返 10 万次 −0.02MB / RAG 召回 2 万次 +0.06MB）。根 README 修账 1049/6795 → 1051/6818 四处 + win 实跑口径句更新（本批实测 6743 过 + 80 跳，「实测差 75 恒定」对账锚保持）。
+
+§七 收口条件（批 1 修复 + L2 回归绿）满足，报告随批归档 `Archive/`；精简两档（批 2/批 3 建议）维持待拍板不在本批范围。

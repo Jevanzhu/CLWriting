@@ -124,11 +124,17 @@ export interface RagStatus {
   indexedChapters: number
   chunkCount: number
   model: string | null
+  /** R0911b-P2①：索引三态（api/rag.ts status 端点实测字段，R40-50）——unbuilt=从未建索引 /
+   *  cleared=已清空待重建 / built=有索引内容 */
+  indexState: 'unbuilt' | 'cleared' | 'built'
   ragConfig: { enabled?: boolean; provider?: string; endpoint?: string; model?: string }
   /** 生效服务商名（旧版内联配置时为 null + legacy=true） */
   providerName: string | null
   /** true = 书还在用旧版内联 endpoint/model（未迁移到服务商引用） */
   legacy: boolean
+  /** R0911b-P2①：已建索引的 embedding 模型与当前生效配置不一致（api/rag.ts R26-16 标记，
+   *  从未建过索引不算）——旧索引无法续建，需走 rebuild 清库重建 */
+  indexModelMismatch: boolean
   lastResult: { ok: boolean; chunkCount: number; chapterCount: number; error?: string } | null
 }
 
@@ -138,6 +144,16 @@ export async function getRagStatus(name: string): Promise<RagStatus> {
 
 export async function triggerRagBuild(name: string): Promise<{ started: true }> {
   return apiJson<{ started: true }>(`/api/books/${encodeURIComponent(name)}/rag/build`, {
+    method: 'POST',
+  })
+}
+
+// R0911b-P2①（2026-09-11 全量重评修复批）：重建索引——服务端 R26-16 端点，任务闸内先
+// 清空既有索引再后台全新建。嵌入模型/维度失配后 build 只会撞「请重建索引」错误信封
+// （src/rag/index.ts 失配文案），rebuild 是 GUI 的程序化出路（此前仅 CLI/手搓 HTTP 可达）。
+// 与 build 同一套任务闸（运行中 409 BUSY）与响应信封。
+export async function triggerRagRebuild(name: string): Promise<{ started: true; reset: true }> {
+  return apiJson<{ started: true; reset: true }>(`/api/books/${encodeURIComponent(name)}/rag/rebuild`, {
     method: 'POST',
   })
 }

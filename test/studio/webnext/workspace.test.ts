@@ -9,15 +9,18 @@ import { nextTick } from 'vue'
 const flush = () => vi.advanceTimersByTimeAsync(600)
 import { createPinia, setActivePinia } from 'pinia'
 
-// doc store 用 hoisted mock：不同用例控制 get(dirty)/save(成败)
-const { docGet, docSave, toastSpy } = vi.hoisted(() => ({
+// doc store 用 hoisted mock：不同用例控制 get(dirty)/save(成败)/waitInflightSave(在途落定)
+const { docGet, docSave, docWait, toastSpy } = vi.hoisted(() => ({
   docGet: vi.fn(),
   docSave: vi.fn(),
+  // R0911b-P2②（2026-09-11 全量重评 GLM-5.3 修复批）：openTab 存旧文档先等在途落定——
+  // 观察口默认即刻 resolve（无在途），个别用例以受控 promise 模拟在途窗口
+  docWait: vi.fn(),
   // 清偿-切换autosave失败可见化（2026-09-09 残留清偿批）：openTab 失败 toast 观察口
   toastSpy: vi.fn(),
 }))
 vi.mock('../../../src/studio/web-next/src/stores/doc', () => ({
-  useDocStore: () => ({ get: docGet, save: docSave }),
+  useDocStore: () => ({ get: docGet, save: docSave, waitInflightSave: docWait }),
 }))
 vi.mock('../../../src/studio/web-next/src/stores/ui', () => ({
   useUiStore: () => ({ toast: toastSpy }),
@@ -75,11 +78,29 @@ beforeEach(() => {
   // 清偿批：默认 save 成功——真实 doc.save 吞错以 Promise<boolean> 落定（不 reject），
   // openTab 现挂 .then 消费返回值，mock 须回 Promise（undefined 会 .then 崩）
   docSave.mockResolvedValue(true)
+  // R0911b-P2②：waitInflightSave 默认即刻落定（无在途），个别用例覆写为受控 promise
+  docWait.mockReset()
+  docWait.mockResolvedValue(undefined)
   toastSpy.mockClear()
 })
 afterEach(() => {
   vi.useRealTimers()
 })
+
+// R0911b-P2②：openTab 的存旧文档链改为异步（waitInflightSave 先行）——多拍 microtask
+// 冲刷等整链落定（mock 均即刻 resolve，10 拍足以走完「等在途→复查→补存→判失败」全链）
+const drain = async (): Promise<void> => {
+  for (let i = 0; i < 10; i++) await Promise.resolve()
+}
+
+/** 受控在途窗口（模拟旧文档 saving 中：waitInflightSave 挂起直至测试放行落定） */
+function deferredWait(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void
+  const promise = new Promise<void>((r) => {
+    resolve = r
+  })
+  return { promise, resolve }
+}
 
 describe('workspace · 单文档打开切换', () => {
   it('openTab → activeDocId + 回编辑器视图', () => {
@@ -99,14 +120,16 @@ describe('workspace · 单文档打开切换', () => {
     expect(ws.activeDocId).toBe('d2')
   })
 
-  it('切换时旧文档 dirty → 静默自动保存', () => {
+  // R0911b-P2②：存旧文档链异步化（waitInflightSave 先行）——切换本身仍同步完成
+  it('切换时旧文档 dirty → 静默自动保存', async () => {
     const ws = useWorkspaceStore()
     ws.setBook(BOOK)
     ws.openTab('d1')
     docGet.mockReturnValue({ dirty: true })
     ws.openTab('d2')
+    expect(ws.activeDocId).toBe('d2') // 切换不被存档链阻断（同步完成）
+    await drain()
     expect(docSave).toHaveBeenCalledWith('d1', 'autosave')
-    expect(ws.activeDocId).toBe('d2')
   })
 
   it('旧文档非 dirty → 不保存', () => {
@@ -140,8 +163,7 @@ describe('workspace · 清偿批：切换 autosave 失败可见化', () => {
     docSave.mockResolvedValueOnce(false)
     ws.openTab('d2')
     expect(ws.activeDocId).toBe('d2') // 切换先行完成
-    await Promise.resolve()
-    await Promise.resolve() // 迟到失败态（microtask 落定）
+    await drain() // 迟到失败态（异步链落定）
     expect(toastSpy).toHaveBeenCalledWith('切换文档时自动保存失败，未保存内容仍保留', 'warning')
   })
 
@@ -151,8 +173,7 @@ describe('workspace · 清偿批：切换 autosave 失败可见化', () => {
     ws.openTab('d1')
     docGet.mockReturnValue({ dirty: true })
     ws.openTab('d2')
-    await Promise.resolve()
-    await Promise.resolve()
+    await drain()
     expect(docSave).toHaveBeenCalledWith('d1', 'autosave')
     expect(toastSpy).not.toHaveBeenCalled()
   })
@@ -167,8 +188,72 @@ describe('workspace · 清偿批：切换 autosave 失败可见化', () => {
     ws.openTab('d2')
     ws.setBook('B书') // save 在途切书
     resolveSave(false)
-    await Promise.resolve()
-    await Promise.resolve()
+    await drain()
+    expect(toastSpy).not.toHaveBeenCalled()
+  })
+})
+
+// R0911b-P2②（2026-09-11 全量重评 GLM-5.3 修复批）：openTab 存旧文档对齐 doDelete
+//（R55-F-6）同族「先落定在途再判」——saving 在途窗口不再误报「自动保存失败」假警报
+//（修复前 F8 契约下 saving 中 autosave 直接返 false，dirty 未清即被当成失败弹 toast）
+describe('workspace · R0911b-P2②：切档在途保存不假警报', () => {
+  it('saving 在途 → 等落定期不补存；落定已转 clean → 静默收尾（零假警报）', async () => {
+    const ws = useWorkspaceStore()
+    ws.setBook(BOOK)
+    ws.openTab('d1')
+    docGet.mockReturnValue({ dirty: true, saving: true })
+    const d = deferredWait()
+    docWait.mockReturnValueOnce(d.promise)
+    docSave.mockResolvedValue(false) // 契约：saving 中 autosave 直接返 false——不得被消费成警报
+    ws.openTab('d2')
+    expect(docSave).not.toHaveBeenCalled() // 在途未落定不补存（修复前此处已误报路径的入口）
+    docGet.mockReturnValue({ dirty: false, saving: false }) // 在途保存落定且已代存成功
+    d.resolve()
+    await drain()
+    expect(docSave).not.toHaveBeenCalled()
+    expect(toastSpy).not.toHaveBeenCalled()
+  })
+
+  it('落定复查仍 dirty → 补存一次（autosave），成功不提示', async () => {
+    const ws = useWorkspaceStore()
+    ws.setBook(BOOK)
+    ws.openTab('d1')
+    docGet.mockReturnValue({ dirty: true, saving: true })
+    const d = deferredWait()
+    docWait.mockReturnValueOnce(d.promise)
+    ws.openTab('d2')
+    docGet.mockReturnValue({ dirty: true, saving: false }) // 落定复查：仍 dirty（在途没存上）
+    docSave.mockResolvedValueOnce(true)
+    d.resolve()
+    await drain()
+    expect(docSave).toHaveBeenCalledWith('d1', 'autosave')
+    expect(toastSpy).not.toHaveBeenCalled()
+  })
+
+  it('真失败（无在途、save 返 false 且仍 dirty）→ 仍 toast 可见化', async () => {
+    const ws = useWorkspaceStore()
+    ws.setBook(BOOK)
+    ws.openTab('d1')
+    docGet.mockReturnValue({ dirty: true, saving: false })
+    docSave.mockResolvedValueOnce(false)
+    ws.openTab('d2')
+    await drain()
+    expect(docSave).toHaveBeenCalledWith('d1', 'autosave')
+    expect(toastSpy).toHaveBeenCalledWith('切换文档时自动保存失败，未保存内容仍保留', 'warning')
+  })
+
+  it('落定时又有新在途接手（saving 仍 true）→ 不补存不误报（结局交其自担）', async () => {
+    const ws = useWorkspaceStore()
+    ws.setBook(BOOK)
+    ws.openTab('d1')
+    docGet.mockReturnValue({ dirty: true, saving: true })
+    const d = deferredWait()
+    docWait.mockReturnValueOnce(d.promise)
+    ws.openTab('d2')
+    docGet.mockReturnValue({ dirty: true, saving: true }) // 落定复查：新在途在跑
+    d.resolve()
+    await drain()
+    expect(docSave).not.toHaveBeenCalled()
     expect(toastSpy).not.toHaveBeenCalled()
   })
 })
