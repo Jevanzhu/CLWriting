@@ -28,6 +28,8 @@ import { readOpenLeads } from '../../../process/open-leads.js'
 import { readLeadDir } from '../../../format/leads.js'
 import { acquireTaskGate, orchestrationBusyFor } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
 import { snapshotBeforeOverwrite } from '../../../process/draft-pipeline.js' // R74-4：覆盖留底单源复用
+import { getDriver, ensureSession } from '../../../driver/index.js' // R0912-P2-①：中断通道注册面
+import type { Session } from '../../../driver/types.js'
 import { log } from '../../../log/index.js'
 
 interface OutlineCtx {
@@ -35,14 +37,16 @@ interface OutlineCtx {
   userDataPath: string | null
 }
 
-/** 跑一次大纲生成（runSpec 统一编排）。C3（批 3）：promptFiles 随 llm/call promptMeta 登记。 */
+/** 跑一次大纲生成（runSpec 统一编排）。C3（批 3）：promptFiles 随 llm/call promptMeta 登记。
+ *  R0912-P2-①：ctrl 透传 runSpec——外部中断（/interrupt 经 driver abort）同步中止生成。 */
 async function runOutline(
   userDataPath: string | null,
   prompt: string,
   bookRoot?: string,
   promptFiles: string[] = [],
+  ctrl?: AbortController,
 ): Promise<{ ok: true; text: string } | { ok: false; code: string; error: string }> {
-  const out = await runSpec(OUTLINE_SPEC, { userDataPath, bookRoot, userPrompt: prompt, promptFiles })
+  const out = await runSpec(OUTLINE_SPEC, { userDataPath, bookRoot, userPrompt: prompt, promptFiles, ctrl })
   // R43-24（四十三轮）：code 透传（不再坍缩 'GEN_FAIL'）——NO_* 配置缺失族此前被
   // 500 GEN_FAIL 掩蔽成因，路由按 code 映射状态码
   if (!out.ok) return { ok: false, code: out.code, error: out.error }
@@ -67,7 +71,21 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
     // RB-SV-P2-2：长任务并发闸（细纲生成分钟级，且落盘为覆盖写）
     const release = acquireTaskGate(params['name']!, 'outline')
     if (!release) return replyError(res, 409, 'BUSY', '本书正在生成细纲，请等待完成后再试')
+    // R0912-P2-①（2026-09-11 重评-0911c 修复批）：接入中断通道——此前本端点 runSpec 未接
+    // driver ctrl 注册面，/interrupt 对在途细纲生成完全无效且 driver.isRunning 假空闲（假
+    // 成功）。接法照抄 stream.ts spawn/self-heal 的 register/unregister 形态：编排段新建
+    // ctrl → driver.registerCtrl（owner='outline:<书名>'，含书名使跨书并发互不误伤；同书
+    // 重入已被任务闸 409 挡住，同 owner 串行换新安全）→ settle（成功/失败/中断）统一注销。
+    // 中断收口：runTask 中断返 ABORTED → 下方既有 ABORTED→499 分支即活，无需新增映射。
+    const driver = getDriver()
+    let registeredSession: Session | null = null
+    let registeredCtrl: AbortController | null = null
     try {
+      const session = await ensureSession(params['name']!, ctx.workDir!)
+      registeredSession = session
+      const ctrl = new AbortController()
+      driver.registerCtrl?.(session, ctrl, `outline:${params['name']!}`)
+      registeredCtrl = ctrl
       const body = await readJson(req)
       const chapter = Number(body['chapter'])
       if (!Number.isInteger(chapter) || chapter < 1) return replyError(res, 400, 'BAD_INPUT', 'chapter 需为正整数')
@@ -82,7 +100,7 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
       const { prompt, files } = buildOutlinePromptWithFiles(bookRoot, chapter, kind, ctx.userDataPath)
 
       // generateText 纯文本产出（prompt 自含任务说明，system prompt 为空）
-      const result = await runOutline(ctx.userDataPath, prompt, bookRoot, files)
+      const result = await runOutline(ctx.userDataPath, prompt, bookRoot, files, ctrl)
       // R43-24（四十三轮）：按透传 code 映射状态（rewrite.ts 同款）——NO_* 族（配置
       // 缺失）→ 400；ABORTED（用户中断）→ 499（请求被取消语义，api/ 无既有先例，
       // 错误信封 {code,error} 形状不变）；其余维持 500 + 透传 code。错误文案一律不变
@@ -125,6 +143,9 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
       }
       reply(res, 200, { ok: true, path: relPath, words: countWords(bodyOf(content)) })
     } finally {
+      // R0912-P2-①：settle（成功/失败/中断）统一注销——isRunning 归 false，/interrupt
+      // 不再假报在途（cc X-P2-11 同口径）；ensureSession 失败（未注册）时跳过
+      if (registeredCtrl && registeredSession) driver.unregisterCtrl?.(registeredSession, registeredCtrl)
       release()
     }
   },

@@ -214,39 +214,58 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
         try {
           const driver = getDriver()
           const mainSession = await ensureSession(params['name']!, ctx.workDir!)
-          const emitProgress = (lens: string, phase: 'start' | 'done'): void => {
-            if (driver.emit) driver.emit(mainSession, { type: 'review-progress', lens, label: LENS_LABEL[lens] ?? lens, phase })
+          // R0912-P2-①（2026-09-11 重评-0911c 修复批）：接入中断通道——此前 generateTool×3
+          // 未接 driver ctrl 注册面，/interrupt 对在途三审完全无效且 driver.isRunning 假空闲
+          // （假成功）。接法照抄 stream.ts spawn/self-heal 的 register/unregister 形态：编排
+          // 段新建 ctrl → driver.registerCtrl（owner='review:<书名>'，含书名使跨书并发互不
+          // 误伤；同书重入已被 reviewRunning + 任务闸 409 挡住，同 owner 串行换新安全）→
+          // settle（成功/失败/中断）统一注销。
+          const ctrl = new AbortController()
+          driver.registerCtrl?.(mainSession, ctrl, `review:${params['name']!}`)
+          try {
+            const emitProgress = (lens: string, phase: 'start' | 'done'): void => {
+              if (driver.emit) driver.emit(mainSession, { type: 'review-progress', lens, label: LENS_LABEL[lens] ?? lens, phase })
+            }
+            const loopResult = await runLensSpawnLoop({
+              userDataPath: ctx.userDataPath,
+              bookRoot,
+              packets: built.packet.packets,
+              tier: built.packet.tier,
+              body,
+              chapter: chapter.章号,
+              outDir: built.packet.out_dir,
+              // Z-1（第五十八轮）：正文注入源登记（m.path = 三审直读的文档相对路径）
+              sourceFiles: [m.path],
+              onProgress: emitProgress,
+              ctrl, // R0912-P2-①：中断通道透传逐 lens runSpec
+            })
+            if (!loopResult.ok) {
+              // R0912-P2-①：中断收口——循环把 runSpec 的 ABORTED 坍缩进 error 文案，此处
+              // 按 ctrl 信号如实映射 499 人话信封（对齐 outline/rewrite 既有先例）
+              if (ctrl.signal.aborted) return replyError(res, 499, 'ABORTED', '已中断')
+              return replyError(res, 500, 'LENS_FAIL', loopResult.error)
+            }
+
+            // collectReviewIssues → 归一化；落信封（kind=review；O-b 手写线落信封，不走 finalize/审稿.md）
+            const collected = collectReviewIssues({ packet: built.packet })
+            // P2-7：信封 model 记实际供应商/模型名（不再写死 'cc'）
+            const prov = process.env['CLWRITING_DRIVER'] === 'mock' ? null : (ctx.userDataPath ? currentProvider(ctx.userDataPath) : null)
+            // R34D-19（三十四轮）：写信封走异步孪生（锁等待不阻塞服务事件循环）
+            await writeAnalysisAsync(bookRoot, docId, 'review', {
+              generatedAt: new Date().toISOString(),
+              model: prov ? `${prov.name}/${resolveTier(ctx.userDataPath, 'assistant').model}` : 'mock',
+              sourceHash, // CC-P1-2：进 prompt 时的稿（见上）——与 payload 同源，不重读
+              // R63-4（十一轮）：采集失败（ok:false）打 incomplete 标记——collected.normalized
+              // 已由 run.ts 注入阻断级「三审未完成」issue（passed 恒 false），信封层再加显式
+              // 标记供消费方免查深层结构即可识别「结论不成立」
+              payload: { collected, lenses: loopResult.lenses, ...(collected.ok ? {} : { incomplete: true }) },
+            })
+
+            reply(res, 200, { ok: true, lenses: loopResult.lenses, collected })
+          } finally {
+            // R0912-P2-①：settle（成功/失败/中断）统一注销——isRunning 归 false（cc X-P2-11 口径）
+            driver.unregisterCtrl?.(mainSession, ctrl)
           }
-          const loopResult = await runLensSpawnLoop({
-            userDataPath: ctx.userDataPath,
-            bookRoot,
-            packets: built.packet.packets,
-            tier: built.packet.tier,
-            body,
-            chapter: chapter.章号,
-            outDir: built.packet.out_dir,
-            // Z-1（第五十八轮）：正文注入源登记（m.path = 三审直读的文档相对路径）
-            sourceFiles: [m.path],
-            onProgress: emitProgress,
-          })
-          if (!loopResult.ok) return replyError(res, 500, 'LENS_FAIL', loopResult.error)
-  
-          // collectReviewIssues → 归一化；落信封（kind=review；O-b 手写线落信封，不走 finalize/审稿.md）
-          const collected = collectReviewIssues({ packet: built.packet })
-          // P2-7：信封 model 记实际供应商/模型名（不再写死 'cc'）
-          const prov = process.env['CLWRITING_DRIVER'] === 'mock' ? null : (ctx.userDataPath ? currentProvider(ctx.userDataPath) : null)
-          // R34D-19（三十四轮）：写信封走异步孪生（锁等待不阻塞服务事件循环）
-          await writeAnalysisAsync(bookRoot, docId, 'review', {
-            generatedAt: new Date().toISOString(),
-            model: prov ? `${prov.name}/${resolveTier(ctx.userDataPath, 'assistant').model}` : 'mock',
-            sourceHash, // CC-P1-2：进 prompt 时的稿（见上）——与 payload 同源，不重读
-            // R63-4（十一轮）：采集失败（ok:false）打 incomplete 标记——collected.normalized
-            // 已由 run.ts 注入阻断级「三审未完成」issue（passed 恒 false），信封层再加显式
-            // 标记供消费方免查深层结构即可识别「结论不成立」
-            payload: { collected, lenses: loopResult.lenses, ...(collected.ok ? {} : { incomplete: true }) },
-          })
-  
-          reply(res, 200, { ok: true, lenses: loopResult.lenses, collected })
         } finally {
           // 三审临时目录用毕即清（防跨审稿累积膨胀）
           rmSync(reviewOutDir, { recursive: true, force: true })
@@ -321,6 +340,8 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
  * 文件名契约与 collectReviewIssues 对齐：独立档 issues-<lens>.json；合审单档 issues-combined.json
  * （W-P1-1：合审时 packet.lens 是锚视角名，按它写文件 collect 永远找不到）。
  * 串行避 GLM 并发；出错返 {ok:false,error}（调用方决定 reply）。
+ * R0912-P2-①：ctrl 透传每次 runSpec——外部中断（/interrupt 经 driver abort）在任一
+ * lens 在途时同步中止，循环不再继续下一 lens。
  */
 async function runLensSpawnLoop(opts: {
   userDataPath: string | null
@@ -333,6 +354,8 @@ async function runLensSpawnLoop(opts: {
   /** Z-1（第五十八轮）：正文注入源（相对书根）——铁律①登记通道 */
   sourceFiles?: string[]
   onProgress?: (lens: string, phase: 'start' | 'done') => void
+  /** R0912-P2-①：编排级中断 ctrl（/interrupt 经 driver 注册面对其 abort） */
+  ctrl?: AbortController
 }): Promise<{ ok: true; lenses: string[] } | { ok: false; error: string }> {
   const lenses: string[] = []
   mkdirSync(opts.outDir, { recursive: true })
@@ -343,7 +366,7 @@ async function runLensSpawnLoop(opts: {
     lenses.push(lens)
     opts.onProgress?.(lens, 'start')
     const prompt = buildLensPrompt(lens, sub, opts.body, opts.chapter)
-    const out = await runSpec(reviewSpec(lens), { userDataPath: opts.userDataPath, bookRoot: opts.bookRoot, userPrompt: prompt, promptFiles: opts.sourceFiles })
+    const out = await runSpec(reviewSpec(lens), { userDataPath: opts.userDataPath, bookRoot: opts.bookRoot, userPrompt: prompt, promptFiles: opts.sourceFiles, ctrl: opts.ctrl })
     if (!out.ok) return { ok: false, error: `${lens}-review gen:${out.error}` }
     const { input, text } = out.data
     // tool_use 产出 → input.issues；降级用 text

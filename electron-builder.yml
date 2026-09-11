@@ -17,8 +17,13 @@ asar: true
 # 构建期拷入 dist，darwin 腿）须外置到 app.asar.unpacked/ 同相对位，main.ts
 # darwinFontListCommand 按 asar→asar.unpacked 改写取真路径。win/linux 腿 dist 内无此
 # 文件，glob 零命中为 no-op。
+# R0912（重评-0911c P2）：原模式 `desktop/fontlist` 不匹配 asar 内实际路径
+# `dist/desktop/fontlist`（app-builder-lib fileMatcher 对无 `**/` 前缀模式不隐式加
+# 根；`electron-builder --dir` 实包核验 unpacked 内无 dist/desktop/fontlist）——
+# 打包态 darwinFontListCommand 恒 ENOENT 回落，超时必杀加固失效。改 `**/` 前缀
+# 通配真实产物路径；门（check-packaging.mjs）同步校验模式可命中。
 asarUnpack:
-  - desktop/fontlist
+  - '**/desktop/fontlist'
 mac:
   category: public.app-category.productivity
   target:

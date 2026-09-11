@@ -374,7 +374,11 @@ export function listVersions(versionsDir: string, docId: string): VersionInfo[] 
       out.push({ id, path: join(dir, name) })
     }
   }
-  return out.sort((a, b) => b.id.localeCompare(a.id))
+  // R0912-5（2026-09-11 重评-0911c 修复批）：localeCompare → 字节序比较——id 是 26 字符
+  // Crockford base32（fs/id.ts，全大写 ASCII：0-9 在前 A-Z 在后，无小写/重音/多字节），
+  // 字节序即 ULID 编码序、时间序 = 列表序不再依赖 locale（localeCompare 的排序规则随
+  // 运行环境 ICU/locale 漂移，等价类折叠可能扰动同前缀 id 的相对序）。降序语义不变。
+  return out.sort((a, b) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0))
 }
 
 /** fm 键值 map → 版本 meta（readVersion / readVersionMeta / readVersionRaw 三读入口

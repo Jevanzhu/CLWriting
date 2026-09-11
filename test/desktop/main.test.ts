@@ -845,12 +845,13 @@ describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
 
   // R1010b-DSK-P3-6（2026-09-10 内存专项重审修复批）：取消补发 timer 排新清旧——原
   // popup callback 内裸排 setTimeout 不留句柄，菜单连续开关时旧补发叠跑（旧 timer 持
-  // win/sender 引用滞留）。修复后句柄模块级单槽：新补发武装即撤销旧在途补发。
-  it('R1010b-DSK-P3-6: context-menu 连续开关——新补发武装时撤销旧在途补发（不叠发）', async () => {
+  // win/sender 引用滞留）。R0912（重评-0911c P3）：句柄由模块级单槽改 per-sender 分槽
+  // ——单槽下 B 窗排新会清掉 A 窗在途补发（A 渲染层 once 收不到 null 挂等到下次开
+  // 菜单）。本测试锁两条语义：同 sender 重排清旧（不叠发）+ 跨 sender 互不清。
+  it('R1010b-DSK-P3-6 + R0912: context-menu 取消补发——同窗重排清旧不叠发，跨窗互不清', async () => {
     vi.useFakeTimers()
     try {
-      // 第二个工厂窗承载第二份菜单载荷（渲染侧 ipcRenderer.once 只认第一条消息，
-      // 叠发会让旧菜单的取消回执吞掉新菜单动作——正是要防的形态）
+      // 第二个工厂窗承载第二份菜单载荷（渲染侧 ipcRenderer.once 只认第一条消息）
       M.ipcHandle['desktop:open-library-window']!(trustedEvent())
       await vi.advanceTimersByTimeAsync(0)
       const libWin = [...M.windows].reverse().find((w) => w.opts.title === '书库')!
@@ -859,13 +860,19 @@ describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
       const specs = [{ label: '复制', key: 'copy' }]
       const n1 = wc1.sent.length
       const n2 = wc2.sent.length
+      // 同 sender 重排（R1010b 原语义）：wc1 连开两菜，菜单1 在途补发被菜单2 武装清除
       M.ipcOn['desktop:context-menu']!(trustedEvent(wc1), specs)
-      M.popupCb?.() // 菜单1 关闭 → 取消补发武装（指向 wc1）
+      M.popupCb?.() // 菜单1 关闭 → wc1 取消补发武装
+      M.ipcOn['desktop:context-menu']!(trustedEvent(wc1), specs)
+      M.popupCb?.() // 菜单2 关闭 → 排新清旧（清菜单1 在途补发，重武装 wc1）
+      // 跨 sender 独立（R0912 修复点）：wc2 的武装不清 wc1 的在途补发
       M.ipcOn['desktop:context-menu']!(trustedEvent(wc2), specs)
-      M.popupCb?.() // 菜单2 关闭 → 排新清旧（撤销 wc1 在途补发，武装 wc2）
+      M.popupCb?.() // 菜单3（wc2）关闭 → 只武装 wc2
       await vi.advanceTimersByTimeAsync(200) // 取消补发窗（CONTEXT_MENU_CANCEL_DELAY_MS=100）已过
-      expect(wc1.sent.length).toBe(n1) // 修复点：菜单1 的在途补发已随菜单2 排新被清（修复前 wc1 亦收到取消）
-      expect(wc2.sent.slice(n2)).toContainEqual(['desktop:context-menu-select', null]) // 菜单2 取消照常补发
+      expect(wc1.sent.slice(n1)).toEqual([
+        ['desktop:context-menu-select', null], // 仅菜单2 一笔：菜单1 已被同窗重排清掉（不叠发）
+      ]) // 且该笔在 wc2 排新后仍存续（修复前单槽被 wc2 清空 → 0 笔）
+      expect(wc2.sent.slice(n2)).toEqual([['desktop:context-menu-select', null]]) // 菜单3 取消照常补发
       libWin.close() // 清理（书库窗单例让位）
     } finally {
       vi.useRealTimers()

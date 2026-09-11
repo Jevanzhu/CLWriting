@@ -177,9 +177,17 @@ export function initLogging(opts: { logsDir: string | null; mirrorConsole?: bool
  *  - 头/查询族（case-insensitive，对齐 redactSecret 同款 /gi）：Bearer 头（值字符
  *    类补 +/=~——原 [A-Za-z0-9._-] 在 base64pad 形态中途截断漏掩）、x-api-key 头、
  *    URL query 凭据（api_key/key/token/access_key/authorization=，掩值保留参数名）；
- *  - 裸 key 族（大小写敏感，对齐 redactSecret）：前缀族 sk-/xai-/sk_/gsk_/hf_/
+ *  - 裸 key 族（大小写敏感）：前缀族 sk-/xai-/sk_/gsk_/hf_/
  *    glpat-/ghp_（sk- 长度阈值维持 {8,}——取两源更严者，16+ 之外的短 key 也掩）+
  *    智谱 + Gemini。
+ *    R0912（重评-0911c P3）：前缀族加词首断言 `(?<![A-Za-z0-9\-_])`——原正则无界，
+ *    路径/文件名内的「sk-+8 位词字符」普通文本（如 `task-sk-20230801.md`、
+ *    `mask-sensitive-data`）会被误掩破相；单加 `\b` 不够（`-task-sk-` 的连字符与
+ *    词字符间恰是词边界），须排除前置 key 字符。另本表与 redact.ts 并非逐位对齐
+ *    （本表形貌保留 + {8,} 更严过掩方向系有意），头注原「对齐 redactSecret」措辞
+ *    修正为「语义分账」：本表对账形貌、redactSecret 泄漏收敛，两词表由双词表
+ *    对账测试锁「重叠域（≥16 位）同形必同命中 + 良性文本双方零误伤」（R0912 同批
+ *    新增 test/log/r0912-mask-cross-account.test.ts）。
  *  R59 清偿批（R55-A-4）：URL 值类 `[^&\s#]+` → `[^\s&#\\"]+`——掩码在序列化后的
  *  JSON 行上执行（emit），msg 值内引号是 `\"` 转义形态；值类含 `"`/`\` 时匹配越过
  *  JSON 字符串边界（或保留末 4 位把裸 `"` 带回行内），单行 JSONL 即不可解析（诊断
@@ -188,7 +196,7 @@ export function initLogging(opts: { logsDir: string | null; mirrorConsole?: bool
 const KEY_MASK_HEADER_RE =
   /(bearer\s+[A-Za-z0-9\-._~+/=]{8,}|x-api-key[:\s]+[A-Za-z0-9\-._~+/=]{8,}|[?&](?:api[_-]?key|key|token|access[_-]?key|authorization)=[^\s&#\\"]+)/gi
 const KEY_MASK_BARE_RE =
-  /((?:sk-|xai-|sk_|gsk_|hf_|glpat-|ghp_)[A-Za-z0-9\-_]{8,}|\b[0-9a-fA-F]{32}\.[0-9a-fA-F]{32}\b|\bAIza[A-Za-z0-9_\-]{35}\b)/g
+  /((?<![A-Za-z0-9\-_])(?:sk-|xai-|sk_|gsk_|hf_|glpat-|ghp_)[A-Za-z0-9\-_]{8,}|\b[0-9a-fA-F]{32}\.[0-9a-fA-F]{32}\b|\bAIza[A-Za-z0-9_\-]{35}\b)/g
 /**
  * R72-9 引入、R26-95（二十六轮）修正：key 掩码。Bearer 形态改为「token 部分掩码」——
  * 原实现 m.slice(0,5) 对 Bearer 产出「Beare***」破损外观（前缀被截断、token 一位未掩），

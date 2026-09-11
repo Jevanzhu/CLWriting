@@ -4,6 +4,7 @@
 - 评审基线：HEAD `ddf40293`（分支 win，工作树净——除 Dev/Docs 下两篇未入库游离件）。评审范围：src/ 全部产品代码（18 域 + web-next 前端子包，~107k 行）+ test/（~166k 行）+ scripts/ + 根配置/CI + 知识层资产。
 - **独立重评声明**：按作者指令忽略既有评审文档——本报告全部结论直接来自代码本身；代码注释中的历史声明一律作为线索经代码核实后采信。与既往台账条目天然重叠的项（如 writePieceList 零接线、switch-provider 无消费者）系本次独立再发现，非采信既往。
 - 收口状态：**未收口**——新发现 P2×4 待修复（见 §3.3）；报告完成≠收口。
+- **〔收口补记 2026-09-12〕**：本报告已随 R0912 修复批收口归档（作者指令「全部修复，编排任务，并发做。」）——P2×4 全处置：① rag/rebuild 前端断头 → 前端接 rebuild + RagStatus 补 indexState/indexModelMismatch（服务端字段已有，零服务端改动）；② openTab 切档假警报 → waitInflightSave + dirty/conflict 分流；③ ai→studio 反向依赖 → ai 层 task-gate 端口依赖倒置（stream.ts 注册真实闸）；④ 机检剥引号口径分裂 → body-parts/simile 补 stripQuotedSpans。与同日重评-0911c（GLM-5.3-Flash）交叉收敛三复现一未复现的记档见其报告 §4.4。L2 终门九件套修复后亲跑全绿（vitest 1078 文件 = 6937 过 + 5 跳 0 败）。处置明细 = `Archive/README.md` R0912 修复批批记行；历史正文不改写。
 
 ## 一、总评（三问直答）
 

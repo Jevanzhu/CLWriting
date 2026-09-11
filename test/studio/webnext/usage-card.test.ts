@@ -5,10 +5,14 @@
  * - 空态（无调用记录）
  * - D2 金额口径两态：配价显示金额、未配价显示引导（不显示 0）
  * - API 失败 → 空态不炸
+ * R0912-FE-P3-4：组件改走 trace-stats 共享 store（与 WorkbenchView 规则命中单点分发）
+ * ——挂载需 pinia（此前无 store 依赖故未建）；本文件补并发去重直测。
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import WbUsageCard from '../../../src/studio/web-next/src/components/workbench/WbUsageCard.vue'
+import { useTraceStatsStore } from '../../../src/studio/web-next/src/stores/trace-stats'
 
 const mocks = vi.hoisted(() => ({
   getTraceStats: vi.fn(),
@@ -47,6 +51,7 @@ const BY_TASK = {
 
 describe('WbUsageCard（D1 批 4）', () => {
   beforeEach(() => {
+    setActivePinia(createPinia())
     mocks.getTraceStats.mockReset()
     mocks.getCostStats.mockReset()
   })
@@ -122,7 +127,7 @@ describe('WbUsageCard（D1 批 4）', () => {
     expect(w.text()).toContain('1.2345')
 
     // 切书：WorkbenchView 不加 :key、组件实例复用——此前仅挂载拉一次，
-    // 旧书的调用量与金额会残留挂在新书工作台（金额属敏感数据错位）
+    // 旧书的调用量/金额会残留挂在新书工作台（金额属敏感数据错位）
     await w.setProps({ bookName: '新书' })
     await flushPromises()
     expect(mocks.getTraceStats).toHaveBeenLastCalledWith('新书')
@@ -131,5 +136,56 @@ describe('WbUsageCard（D1 批 4）', () => {
     expect(w.text()).not.toContain('15 次调用')
     expect(w.text()).not.toContain('1.2345')
     expect(w.text()).toContain('未配置价格表')
+  })
+})
+
+// R0912-FE-P3-4（2026-09-11 重评-0911b 修复批）：trace-stats 共享 store 单点分发
+describe('trace-stats store（R0912-FE-P3-4）', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    mocks.getTraceStats.mockReset()
+    mocks.getCostStats.mockReset()
+  })
+
+  it('同书并发调用共享同一在途请求（工作台同屏两消费方不再双发）', async () => {
+    let resolveTrace!: (v: unknown) => void
+    mocks.getTraceStats.mockImplementationOnce(
+      () => new Promise((r) => (resolveTrace = r)),
+    )
+    const store = useTraceStatsStore()
+    const p1 = store.getStats('测试书')
+    const p2 = store.getStats('测试书')
+    // 单发判定（pinia action 包装使两次返回是不同 wrapper promise，身份断言不成立）
+    expect(mocks.getTraceStats).toHaveBeenCalledTimes(1)
+    resolveTrace({ total: 15, byTask: {}, ruleHits: [] })
+    await Promise.all([p1, p2])
+    expect(mocks.getTraceStats).toHaveBeenCalledTimes(1)
+    await Promise.resolve()
+  })
+
+  it('settle 后台账删键：下次调用重发新请求（数据面口径不变，不做结果缓存）', async () => {
+    mocks.getTraceStats.mockResolvedValue({ total: 1, byTask: {}, ruleHits: [] })
+    const store = useTraceStatsStore()
+    await store.getStats('测试书')
+    await store.getStats('测试书')
+    expect(mocks.getTraceStats).toHaveBeenCalledTimes(2)
+  })
+
+  it('失败共享给同书并发方；删键后可重试（异书不共享）', async () => {
+    mocks.getTraceStats
+      .mockRejectedValueOnce(new Error('offline')) // 第1发：书A 在途失败
+      .mockResolvedValueOnce({ total: 3, byTask: {}, ruleHits: [] }) // 第2发：书A 重试成功
+    const store = useTraceStatsStore()
+    const p1 = store.getStats('书A')
+    const p2 = store.getStats('书A') // 同书 → 共享同一在途请求（单发）
+    expect(mocks.getTraceStats).toHaveBeenCalledTimes(1)
+    await expect(p1).rejects.toThrow('offline')
+    await expect(p2).rejects.toThrow('offline') // 失败同享给并发方
+    await expect(store.getStats('书A')).resolves.toEqual({ total: 3, byTask: {}, ruleHits: [] })
+    expect(mocks.getTraceStats).toHaveBeenCalledTimes(2)
+    // 异书不共享：再调书B 必发新请求
+    mocks.getTraceStats.mockResolvedValue({ total: 0, byTask: {}, ruleHits: [] })
+    await store.getStats('书B')
+    expect(mocks.getTraceStats).toHaveBeenCalledTimes(3)
   })
 })

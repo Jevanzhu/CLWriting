@@ -46,6 +46,14 @@ const sweepLastAt = new Map<string, number>()
 const CLOUD_SCAN_THROTTLE_MS = 60_000
 const cloudScanCache = new Map<string, { at: number; copies: string[] }>()
 
+// R0912-9（2026-09-11 重评-0911c 修复批）：finalizedLost 逐条 statSync 每书 TTL 节流表
+//（口径同 cloudScanCache 纪律——窗内回**上次结果**：清单在册有 finalizedRevision 的条目
+// 数 = 章数级，SMB/网盘卷每条 statSync 5-50ms，每次 detectState（5s 缓存过期后）全量重付
+// 可冻结事件循环秒级。回上次结果而非空数组 = fail-closed 方向：持续丢失面在窗内仍可见，
+// 窗内新丢失最迟 TTL 过后下一次健康检查可见，登记取舍与 cloudScanCache 注一致）。
+const FINALIZED_LOST_THROTTLE_MS = 60_000
+const finalizedLostCache = new Map<string, { at: number; issues: HealthIssue[] }>()
+
 function scanCloudCopiesThrottled(bookRoot: string): string[] {
   const now = Date.now()
   const cached = cloudScanCache.get(bookRoot)
@@ -59,15 +67,19 @@ function scanCloudCopiesThrottled(bookRoot: string): string[] {
 export function __resetSweepThrottleForTest(): void {
   sweepLastAt.clear()
   cloudScanCache.clear()
+  finalizedLostCache.clear() // R0912-9：finalizedLost 节流表同窗复位（测试钩子口径一致）
 }
 
 /** R46-40（四十六轮）：删书/改名的生命周期失效挂点（books.ts forgetBookKeyedCaches
  *  接线）——sweepLastAt 键为 bookRoot，删书后条目成死重；改名后旧键永不再命中。
  *  不清无正确性影响（同名重建书最多延迟到下个 6h TTL 窗才首次清扫），纯内存卫生。
- *  R58-A-2：cloudScanCache 同挂点一并清除。 */
+ *  R58-A-2：cloudScanCache 同挂点一并清除。
+ *  R0912-9：finalizedLostCache 同挂点一并清除——同名重建书的旧书丢失结论不得带入
+ *  新书首个 TTL 窗（缓存值含 issue 明细，比 sweepStamp 的「晚扫一轮」更刺眼）。 */
 export function forgetStateSweepStamp(bookRoot: string): void {
   sweepLastAt.delete(bookRoot)
   cloudScanCache.delete(bookRoot)
+  finalizedLostCache.delete(bookRoot)
 }
 
 function sweepAbandonedTmpFilesThrottled(bookRoot: string): number {
@@ -88,7 +100,7 @@ function sweepAbandonedTmpFilesThrottled(bookRoot: string): number {
   sweepLastAt.set(bookRoot, now)
   return swept
 }
-import { appendAborted, appendSettled, findUnsettled, isMovePending, type JournalAnyPending, type JournalMovePending } from '../document/journal.js'
+import { appendAborted, appendSettled, findUnsettled, isMovePending, type JournalAnyPending, type JournalMovePending, type JournalPending } from '../document/journal.js'
 import { decodeDocDirName } from '../document/version.js'
 import { readTrashManifest } from '../document/trash.js'
 import { rebuild } from '../cache/rebuild.js'
@@ -333,11 +345,16 @@ async function healthCheck(bookRoot: string, manifest: Manifest): Promise<Health
         // 清单真实键全 miss、自愈静默失效（settled 照标、清单残留旧路径）。
         const journalFile = join(journalDir, name)
         const docId = decodeDocDirName(name.slice(0, -'.jsonl'.length))
+        // R0912-6（2026-09-11 重评-0911c 修复批）：journal 单次整读——此前 isOrphanJournal
+        // （:下方）与主循环 findUnsettled 对同一文件各整读+解析一次（双读翻倍）；循环体
+        // 到 isOrphanJournal 判定之间全同步（无 await），两次读之间不存在并发写窗口，
+        // 上提为单读共享后行为逐位等价（R46-7 清单快照单读纪律同款）。
+        const pending = findUnsettled(journalFile)
         // R69-4（十七轮）：孤儿 journal 归档——docId 不在清单且不在回收站、且 move 类
         // pending 两端路径都不在盘（purge/外部删除后的残骸），对其报 crashedWrite 是
         // 永久幽灵红且含全文快照的内容级残留；改判 .orphaned 保留数据可手工恢复。
         // save 类 pending 无路径字段无法证实无主，保守维持原报红（ genuine 崩溃不静默）。
-        if (isOrphanJournal(bookRoot, docId, journalFile, orphanSnapshot)) {
+        if (isOrphanJournal(bookRoot, docId, orphanSnapshot, pending)) {
           const dst = `${journalFile}.orphaned-${Date.now()}`
           try {
             renameSync(journalFile, dst)
@@ -347,10 +364,17 @@ async function healthCheck(bookRoot: string, manifest: Manifest): Promise<Health
             // 归档失败（占用等）：维持原报红路径
           }
         }
-        const pending = findUnsettled(journalFile)
         const unresolved: JournalAnyPending[] = []
         for (const p of pending) {
-          if (!isMovePending(p) || !(await healMovePending(bookRoot, docId, p, manifest, journalFile))) unresolved.push(p)
+          if (isMovePending(p)) {
+            if (!(await healMovePending(bookRoot, docId, p, manifest, journalFile))) unresolved.push(p)
+            continue
+          }
+          // R0912-1a（2026-09-11 重评-0911c 修复批）：save 类 pending 确定性自动消解——
+          // 盘上指纹已非 pending.baseRevision ⇒ 该次保存实际已落盘（atomicWrite 后 settled
+          // 写失败 / 崩溃窗内的幸存态），补 settled 消解不再报红；相等 ⇒ 真未落盘，维持
+          // 报红。返回 false（含各保守边界）时照旧进下方 crashedWrite 报文。
+          if (!(await reconcileSavePending(bookRoot, docId, p, manifest, journalFile))) unresolved.push(p)
         }
         if (unresolved.length > 0) {
           // R76-25（二十四轮 C 域）：报文补文档路径——此前只报 docId（doc_…/legacy:…
@@ -387,32 +411,9 @@ async function healthCheck(bookRoot: string, manifest: Manifest): Promise<Health
   // 是清单侧唯一定稿标记（finalizeRevision 落盘），定稿在四前缀之外的登记文档此前丢失
   // 零出口。同时区分「确实不存在（ENOENT）」与「stat 出错（EACCES 等不可探测）」：
   // 后者同样计入 lost（保守报红），但 warn 留痕——不可读 ≠ 不在盘，处置动作不同。
-  for (const entry of manifest.entries.values()) {
-    if (entry.nodeType !== 'document' || !entry.finalizedRevision) continue
-    const abs = safeManifestPath(bookRoot, entry.path)
-    let statErr: NodeJS.ErrnoException | null = null
-    if (abs !== null) {
-      try {
-        statSync(abs)
-      } catch (e) {
-        statErr = e as NodeJS.ErrnoException
-      }
-    }
-    if (abs === null || statErr !== null) {
-      if (statErr !== null && statErr.code !== 'ENOENT') {
-        log.warn(
-          'state',
-          `已定稿文件「${entry.path}」状态探测失败（${statErr.code ?? '未知错误'}）：按丢失计入健康项——可能只是无读取权限，请人工核对后处置`,
-        )
-      }
-      issues.push({
-        kind: 'finalizedLost',
-        humanMsg: `已定稿文件「${entry.path}」不在盘上（可能被外部删除或移走）。`,
-        fix: '从版本历史（工作区/.版本）或备份找回该文件；确认不需要可重新定稿覆盖基线。',
-        files: [entry.path],
-      })
-    }
-  }
+  // R0912-9：逐条 statSync 探测改每书 TTL 节流（原内联循环抽出为 detectFinalizedLost，
+  // 判定逐位不变；窗内回上次结果，登记取舍见 FINALIZED_LOST_THROTTLE_MS 注）。
+  issues.push(...finalizedLostCheckThrottled(bookRoot, manifest))
 
   // ④ R29-8（二十九轮）：长篇书 布线/ 目录缺失——finalize 的防吃书闸（ee-P1-3，含
   // finalGateBlockers 的 fail-open 降级）与账本履历回写（ee-P1-4）都以 existsSync(布线)
@@ -576,6 +577,58 @@ function journalDir(bookRoot: string): string {
   return join(bookRoot, '工作区', '.journal')
 }
 
+/** R0912-9（2026-09-11 重评-0911c 修复批）：finalizedLost 每书 TTL 节流入口（口径同
+ *  scanCloudCopiesThrottled）——窗内回上次结果（fail-closed：持续丢失面不消失），
+ *  窗外重付逐条 statSync 并刷新缓存。 */
+function finalizedLostCheckThrottled(bookRoot: string, manifest: Manifest): HealthIssue[] {
+  const now = Date.now()
+  const cached = finalizedLostCache.get(bookRoot)
+  if (cached && now - cached.at < FINALIZED_LOST_THROTTLE_MS) return cached.issues
+  const issues = detectFinalizedLost(bookRoot, manifest)
+  finalizedLostCache.set(bookRoot, { at: now, issues })
+  return issues
+}
+
+/** R0912-9：finalizedLost 逐条探测（原 healthCheck ③ 内联循环原样抽出，判定逐位不变）。
+ *  N5（五十九轮）：已定稿文件丢失——清单在册有 finalizedRevision 的文档文件不在盘
+ *（被外部删除/移走），detectHandEdits 的 rev===null 分支原先静默跳过，无任何健康出口
+ *（静默丢章：章号推算只看盘上文件，缺章无感知）。归入态 1 issues 交作者裁决（恢复
+ * 来源：版本档案/回收站/同步盘备份）。
+ * R29-n/C-5（二十九轮）：核对范围从固定四前缀（HAND_EDIT_PREFIXES，态 3 手改检测的
+ * 口径）放宽为「清单在册有 finalizedRevision 的全部 document 条目」。同时区分
+ * 「确实不存在（ENOENT）」与「stat 出错（EACCES 等不可探测）」：后者同样计入 lost
+ *（保守报红），但 warn 留痕——不可读 ≠ 不在盘，处置动作不同。 */
+function detectFinalizedLost(bookRoot: string, manifest: Manifest): HealthIssue[] {
+  const out: HealthIssue[] = []
+  for (const entry of manifest.entries.values()) {
+    if (entry.nodeType !== 'document' || !entry.finalizedRevision) continue
+    const abs = safeManifestPath(bookRoot, entry.path)
+    let statErr: NodeJS.ErrnoException | null = null
+    if (abs !== null) {
+      try {
+        statSync(abs)
+      } catch (e) {
+        statErr = e as NodeJS.ErrnoException
+      }
+    }
+    if (abs === null || statErr !== null) {
+      if (statErr !== null && statErr.code !== 'ENOENT') {
+        log.warn(
+          'state',
+          `已定稿文件「${entry.path}」状态探测失败（${statErr.code ?? '未知错误'}）：按丢失计入健康项——可能只是无读取权限，请人工核对后处置`,
+        )
+      }
+      out.push({
+        kind: 'finalizedLost',
+        humanMsg: `已定稿文件「${entry.path}」不在盘上（可能被外部删除或移走）。`,
+        fix: '从版本历史（工作区/.版本）或备份找回该文件；确认不需要可重新定稿覆盖基线。',
+        files: [entry.path],
+      })
+    }
+  }
+  return out
+}
+
 /** R34D-16（三十四轮）：孤儿 journal 归档超龄清理门槛——30 天（毫秒）。
  *  归档（`<名>.jsonl.orphaned-<ts>`，R69-4 改名产物）是「可手工恢复」的保留数据面，
  *  门槛远宽于 tmp 的 5 分钟：超 30 天 mtime 无变化即视为作者已放弃恢复，不再永久堆积。 */
@@ -635,13 +688,13 @@ function readOrphanSnapshot(bookRoot: string): OrphanSnapshot {
  *  docId 不在清单 && 不在回收站 && move pending 两端路径均不在盘（save 类无路径
  *  字段，无法证实 → 永远返回 false 维持报红，防 genuine 崩溃被静默）。
  *  R46-7（四十六轮）：清单/回收站改用循环头快照——此前每个 journal 文件各整读一次，
- *  O(journal 数 × 清单条目数) 全同步；快照语义 = 原「以盘上为准」的循环头时点。 */
-function isOrphanJournal(bookRoot: string, docId: string, journalFile: string, snapshot: OrphanSnapshot): boolean {
+ *  O(journal 数 × 清单条目数) 全同步；快照语义 = 原「以盘上为准」的循环头时点。
+ *  R0912-6：pending 改由调用方传入（journal 单次整读共享），本函数不再自读。 */
+function isOrphanJournal(bookRoot: string, docId: string, snapshot: OrphanSnapshot, pending: JournalAnyPending[]): boolean {
   if (snapshot.manifestFailed) return false // 清单读失败：不确定 → 不归档
   if (snapshot.manifestIds.has(docId)) return false
   if (snapshot.trashFailed) return false // 回收站清单读失败：不确定 → 不归档
   if (snapshot.trashIds.has(docId)) return false
-  const pending = findUnsettled(journalFile)
   if (pending.length === 0) return false // 无未结算项：不在报红路径上，无需归档
   return pending.every((p) => {
     if (!isMovePending(p)) return false
@@ -649,6 +702,57 @@ function isOrphanJournal(bookRoot: string, docId: string, journalFile: string, s
     const newAbs = safeManifestPath(bookRoot, p.newPath)
     return oldAbs !== null && newAbs !== null && !existsSync(oldAbs) && !existsSync(newAbs)
   })
+}
+
+/**
+ * R0912-1a（2026-09-11 重评-0911c 修复批）：save 类 pending 的确定性自动消解。
+ * 返回 true = 已处理（appendSettled 落账，本轮不再报 crashedWrite）。
+ *
+ * 背景：executeSave 的 settled 写失败（R27-44 best-effort）或「atomicWrite 落盘后、
+ * settled 前崩溃」留下悬置 save pending——healthCheck 原一律报 crashedWrite「可能丢
+ * 字」，journal compact 恒保留未结算行，无任何复核/确认通道 → 幽灵红每次进门重复
+ * 报且永久化。本函数给 save 类补上与 healMovePending（move 类）对位的确定性复核：
+ * 读盘上文件 computeRevision 与 pending.baseRevision 比对——
+ * - 不一致 ⇒ 该次保存实际已落盘（盘上内容已演进）：自动 appendSettled 消解，不报红；
+ * - 相等 ⇒ 真未落盘（内容仍停在保存前基线）：维持报红交作者；
+ * 保守边界（一律维持报红，false）：
+ * - docId 不在清单（无主面归 isOrphanJournal 保守口径）或路径越出书仓库；
+ * - baseRevision 为 null（journal.ts :226-239 注明合法——新建场景）：无从比对；
+ * - 盘上文件不存在（ENOENT，含 exists 与 read 间竞态被删）：定稿丢失面另有
+ *   finalizedLost 检查，此处不消解不误消；
+ * - 比对失败（读盘异常非 ENOENT）：保守报红并 warn 留痕；
+ * - 消解 settled 自身写失败：报红兜底（下次进门重试消解）。
+ */
+async function reconcileSavePending(
+  bookRoot: string,
+  docId: string,
+  p: JournalPending,
+  manifest: Manifest,
+  journalFile: string,
+): Promise<boolean> {
+  const rel = manifest.entries.get(docId)?.path
+  if (!rel) return false // 不在册：无法定位盘上文件，保守报红
+  const abs = safeManifestPath(bookRoot, rel)
+  if (abs === null) return false // 路径越出书仓库：无法安全读盘，保守报红
+  if (p.baseRevision === null) return false // 无基线（新建场景合法）：无法比对，保守报红
+  let rev: `sha256:${string}`
+  try {
+    if (!existsSync(abs)) return false // 文件不在盘（ENOENT 面）：维持报红，不消解
+    rev = computeRevision(abs)
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return false // exists 与 read 间被删：同「不在盘」口径
+    log.warn('state', `save 类 pending 复核读盘失败（${rel}，保守维持报红）：${e instanceof Error ? e.message : String(e)}`)
+    return false
+  }
+  if (rev === p.baseRevision) return false // 盘上仍是保存前基线：真未落盘，维持报红
+  try {
+    await appendSettled(journalFile, p.opId, rev)
+  } catch (e) {
+    log.warn('state', `save 类 pending 自动消解 settled 写失败（${rel}，维持报红待下次进门重试）：${e instanceof Error ? e.message : String(e)}`)
+    return false
+  }
+  log.info('state', `save 类 pending 已确定性消解（${rel}）：盘上指纹已非 pending 基线，判定该次保存实际已落盘，补 settled 不再报红`)
+  return true
 }
 
 /** docId 的 journal 文件名候选（编码在前——写侧恒编码；字面在后兜底 mac 存量）。 */

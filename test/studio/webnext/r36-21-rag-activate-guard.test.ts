@@ -42,10 +42,13 @@ vi.mock('../../../src/studio/web-next/src/api/providers', () => ({
 const IDLE_STATUS: RagStatus = {
   running: false, indexedChapters: 0, chunkCount: 0, model: null,
   ragConfig: {}, providerName: null, legacy: false, lastResult: null,
+  // R0912-FE-P2-12：RagStatus 补接服务端既有字段（失配/索引三态）
+  indexState: 'unbuilt', indexModelMismatch: false,
 }
 const RUNNING_STATUS: RagStatus = {
   running: true, indexedChapters: 0, chunkCount: 0, model: null,
   ragConfig: {}, providerName: null, legacy: false, lastResult: null,
+  indexState: 'unbuilt', indexModelMismatch: false,
 }
 
 /** KeepAlive 宿主挂载（SettingsModal 同款 keep-alive 语义）；show=false 即「关窗」。 */

@@ -32,18 +32,12 @@ import { resolveDraftPath } from '../../../format/draft.js'
 // 闸表的最小改（闸表搬层需动 src/studio 多文件，本轮禁区）
 //
 // 批2-5 注释（2026-09-07 全量代码重审 §四P3/§六批2）——分层债记档，维持最小改不修：
-// 债务内容：① 依赖方向倒置——ai 编排域（本文件 chat 改写工具）反向 import 表现层
-// 实现（studio/server/api/task-gate），分层上 ai 是底层、studio 是消费方；② 双向环
-// ——task-gate 的 orchestrationBusyFor 反向聚合 ai 层在途态（isSelfHealRunning/
-// isChatRunning/hasBackgroundTasks/isSpawnRunning），ai↔studio 模块级环（函数级互引、
-// ESM 运行时安全，先例 atomic↔cross-process-lock）；③ 上述「纯内存模块、零依赖」
-// 记账前提已失实——task-gate 现依赖 node:fs / fs/cross-process-lock / ai/log，搬层
-// 成本随其依赖面上升而上涨。重构触发条件（任一命中即搬层）：a. ai 层出现第二处
-// studio/server 反向 import（趋势化坐实分层穿透）；b. task-gate 需引入 studio 侧
-// 重依赖（server token/config 等）把 server 代码拖进 ai 链；c. ai 层出现 studio
-// 之外的第二消费方（如纯 CLI 链）需要同一把闸。届时闸表下沉中性层（闸=「任务并发
-// 状态」域，不属 HTTP 表现），studio 与 ai 两侧同改 import。
-import { acquireTaskGate } from '../../../studio/server/api/task-gate.js'
+// R0912（重评-0911b P2③ / 重评-0911c）：ai→studio 反向依赖收口——本文件不再直接
+// import studio/server/api/task-gate，改经 ai 层端口取闸，真实闸由 stream.ts
+// registerStreamRoutes 注册（原债务注释五个触发条件中「第二处反向 import」未出现、
+// 但两轮评审同判此项应修，走依赖倒置而非搬层：task-gate 依赖 ai/orchestrate 四个
+// 在途态查询，下移会形成 ai←fs 环）。未注册形态（纯 ai 层单测）= no-op 放行。
+import { acquireTaskGateViaPort } from '../task-gate-port.js'
 // DSH-18：写作技巧包按需加载（read_skill 工具的执行通道）
 import { listSkills, loadSkill } from '../../../process/skills.js'
 import { sanitizeHistory, visibleInjectionsFromDigests } from '../../prompts/chat.js'
@@ -210,7 +204,7 @@ export async function executeChatTool(
       // 两条确认通道互不知晓对方已改基线）。拿不到闸 fail-closed 拒绝并说明在途原因；
       // 闸在整个工具执行期持有，反向同样拦（chat 改写在途时端点重复点击同闸 409）。
       if (REWRITE_GATE_TOOLS.has(call.name)) {
-        const release = acquireTaskGate(opts.bookName, 'rewrite')
+        const release = acquireTaskGateViaPort(opts.bookName, 'rewrite')
         if (!release) {
           // R69-13：apply_spill 是确认落盘（非发起改写），文案单列防误导
           const busyMsg =
@@ -240,7 +234,7 @@ export async function executeChatTool(
         // 闸不互通，可并发改稿——写章全程持有同把 task-gate 'rewrite'（与 REWRITE_GATE_TOOLS
         // 同语义）：编辑器改写在途时此处 fail-closed 拒绝；反向 chat 写章持闸期间端点
         // acquireTaskGate 得 null 回 409——两侧经同一把闸真正互斥，非两把独立锁。
-        const releaseWrite = acquireTaskGate(opts.bookName, 'rewrite')
+        const releaseWrite = acquireTaskGateViaPort(opts.bookName, 'rewrite')
         if (!releaseWrite) {
           return { ok: false, summary: '本书正在改写中（编辑器改写请求在途），无法同时写章——请等本轮改写完成后再试。' }
         }

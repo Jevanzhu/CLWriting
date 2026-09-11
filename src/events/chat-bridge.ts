@@ -132,6 +132,12 @@ export function loadHistoryWithSeqs(events: ChatEvent[]): RestoredHistory {
 
 // ── 会话录制器 ─────────────────────────────────────
 
+/** R0912-2（2026-09-11 修复批）：flush 失败重试的 pending 累积上限——对齐同文件
+ *  ChainRecorder 的 CHAIN_BUFFER_MAX（chain-bridge.ts O-1，同值 256）：落库持续失败
+ *  （SQLITE_BUSY 耗尽/磁盘满）+ 长对话下 pending 无界增长；超限丢最旧（保最新对话
+ *  语义），丢弃条数 warn 留痕（丢事件 = 丢「已记录」凭据，必留痕纪律）。 */
+const SESSION_PENDING_MAX = 256
+
 /**
  * 会话录制器：收集事件 → 回合级 flush（每回合一个事务）。
  * store 为 null（无 userDataPath）时退化为纯内存记录（flush 返回 null）。
@@ -196,7 +202,42 @@ export class SessionRecorder {
     // sourceSeqs 拆分，本路径一律传批内索引）。
     // R65-23（十三轮）：真实 seqs 数组随返回值透出（range.first + i 区间算术反推在
     // 批内 seq 不连续时会遮蔽整体错位——遮蔽区间/消息 seq 映射一律直索引真实值）
-    const seqs = this.store.appendEventsResolveLineage(this.sessionId, this.pending)
+    let seqs: number[]
+    try {
+      seqs = this.store.appendEventsResolveLineage(this.sessionId, this.pending)
+    } catch (e) {
+      // R0912-2（2026-09-11 修复批）：失败批保留 pending 待重试（R62-10 语义不变，正确），
+      // 但落库持续失败（SQLITE_BUSY 耗尽/磁盘满）+ 长对话下累积无界——对齐 ChainRecorder
+      // （chain-bridge.ts O-1/R55-B-4）：超上限丢最旧（保最新对话语义），丢弃条数/涉及
+      // 回合 warn 留痕（丢事件必留痕纪律）。被丢事件占用的批内序号同步平移——
+      // pendingSurfaceIdx 剔除越界项；sourceIdxs 摘除指向已蒸发前驱的引用、其余前移
+      // （保留原值会在恢复后的 flush 撞 store「宁可红不可错」的批内索引校验，或静默
+      // 错链血缘）；浅拷贝改写，不动调用方仍持有的原事件对象。
+      if (this.pending.length > SESSION_PENDING_MAX) {
+        const dropped = this.pending.length - SESSION_PENDING_MAX
+        const droppedEvs = this.pending.slice(0, dropped)
+        this.pending = this.pending
+          .slice(dropped)
+          .map((ev) =>
+            ev.sourceIdxs
+              ? { ...ev, sourceIdxs: ev.sourceIdxs.map((i) => i - dropped).filter((i) => i >= 0) }
+              : ev,
+          )
+        this.pendingSurfaceIdx = this.pendingSurfaceIdx.map((i) => i - dropped).filter((i) => i >= 0)
+        const droppedTurns = [
+          ...new Set(droppedEvs.map((ev) => ev.turn).filter((t): t is number => t !== undefined)),
+        ].sort((a, b) => a - b)
+        log.warn(
+          'events',
+          `SessionRecorder 落库持续失败，pending 超上限（${SESSION_PENDING_MAX}）：丢弃最旧 ${dropped} 条事件` +
+            (droppedTurns.length > 0
+              ? `（涉及 turn ${droppedTurns[0]!}–${droppedTurns[droppedTurns.length - 1]!}）`
+              : '') +
+            '，保留最新事件待重试（保最新对话语义）——丢事件必留痕（ChainRecorder 同口径）',
+        )
+      }
+      throw e
+    }
     this.pending = []
     const range = { first: seqs[0]!, last: seqs[seqs.length - 1]!, seqs }
     this.flushedSeqs.push(seqs)

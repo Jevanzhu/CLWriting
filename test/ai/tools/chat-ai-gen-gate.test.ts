@@ -20,6 +20,12 @@ import { runChat, resolveChatConfirm } from '../../../src/ai/orchestrate/chat.js
 import { isSelfHealRunning, runSelfHeal, type SelfHealOutcome } from '../../../src/ai/orchestrate/self-heal.js'
 import { isSpawnRunning } from '../../../src/ai/orchestrate/spawn-registry.js'
 import { acquireTaskGate, isTaskGateHeld } from '../../../src/studio/server/api/task-gate.js'
+// R0912：chat 工具侧取闸改经 ai/orchestrate/task-gate-port（依赖倒置）——本文件断言
+// 「端点侧闸在途 → chat 侧被拒」共闸互斥，须把真实闸注册进端口（生产由 stream.ts
+// registerStreamRoutes 注册；本文件为纯 ai 层装置，自行注册等价形态）。
+import { registerTaskGateProvider } from '../../../src/ai/orchestrate/task-gate-port.js'
+
+registerTaskGateProvider(acquireTaskGate)
 import type { DriverEvent, Session, StudioDriver } from '../../../src/driver/types.js'
 import { waitFor as waitForShared } from '../../helpers/wait-for.js'
 

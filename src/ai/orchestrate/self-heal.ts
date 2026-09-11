@@ -34,6 +34,11 @@ import { readKind } from '../../format/kind.js'
 import { checkWithDb, type CheckOutcome } from '../../check/run.js'
 import { buildDraftPrompt, saveDraft } from '../../process/draft-pipeline.js'
 import { generateLeadUpdateDraft } from '../../process/lead-update-draft.js'
+// R0912-1（2026-09-11 修复批）：后台任务独立登记 ctrl 的共享 helper（summary.ts 单源，
+// 定稿摘要钩子与 self-heal pass 后账本草稿两路共用）
+import { runRegisteredBgTask } from '../../process/summary.js'
+// R0912-2（2026-09-11 修复批）：重写稿 front matter 章号防线——与机检同源解析器
+import { readDraft } from '../../format/draft.js'
 import { buildRewritePrompt } from '../../process/rewrite-prompt.js'
 import { assembleChapter } from '../contract/index.js'
 import { runSpec } from '../tasks/spec.js'
@@ -683,7 +688,20 @@ async function rewriteOnce(
   // error 出口：调用方走 exitEscalateBlocked（F2 语义——重写失败 escalate 保留当前
   // 已落盘稿），goal 落 block 附原因、批量按 escalate 落暂停，终态收口闭合。
   try {
-    await ctx.save(ctx.bookRoot, loop.chapter, loop.current, { snapshotOrigin: 'self-heal' })
+    const saved = await ctx.save(ctx.bookRoot, loop.chapter, loop.current, { snapshotOrigin: 'self-heal' })
+    // R0912-2（2026-09-11 修复批）：以 saveDraft 返回的真实 relPath 刷新 loop.draftPath
+    // ——此前 loop.draftPath 仅首稿设定、重写落盘后不回写：tool_use 未命中降级自由文本
+    // 且 AI 自带异章号 front matter 时，resolveDraftPath（只读接口）按章号失配新建孤儿
+    // 文件，而机检恒打首稿路径（:796 ctx.check(loop.draftPath)，红项永不收敛）。刷新后
+    // 机检/后续重写始终以最新落盘稿为准（首稿路径本就取自 save 返回值，口径对齐）。
+    loop.draftPath = join(ctx.bookRoot, saved.relPath)
+    // R0912-2 防线：重写稿 front matter 章号 ≠ 编排章号时 warn 留痕（不阻断，保持现行
+    // 为）——该形态正是孤儿文件成因；读解析失败不在此警告，交由机检 NOT_CHAPTER
+    // 既有出口处置（content 传入 = 纯内存解析，不读盘）。
+    const parsed = readDraft(loop.draftPath, loop.current)
+    if (parsed.ok && parsed.chapter.章号 !== loop.chapter) {
+      log.warn('self-heal', `重写稿 front matter 章号（${parsed.chapter.章号}）与编排章号（${loop.chapter}）不一致——落盘路径按编排章号解析，机检以实际落盘文件为准`)
+    }
   } catch (e) {
     return { status: 'error', error: `重写稿落盘失败：${e instanceof Error ? e.message : String(e)}` }
   }
@@ -700,9 +718,9 @@ function exitAborted(term: ChapterTerminal): ChapterRun {
 }
 
 // R32-5：exitPass/exitEscalateBlocked 随 persistFinal 异步化改 async（调用点在 async 章循环内 return，无需改调用方）
+// R0912-1：state 形参随后台任务改持独立 ctrl（不再读 state.ctrl.signal）移除
 async function exitPass(
   opts: SelfHealOpts,
-  state: RunState,
   ctx: ChapterCtx,
   loop: HealLoop,
   term: ChapterTerminal,
@@ -724,8 +742,22 @@ async function exitPass(
   // Z-P1-1：signal 透传——fire-and-forget 也随编排级中断中止（runSelfHeal 返回不等于其结束）；
   // M-2：登记进 per-book 后台表——waitSelfHealSettled 只等 runSelfHeal 本体收尾，
   // 此前该任务逃逸出删书/改名/退出的 settle 等待，落盘窗口撞上目录搬移会重建孤儿目录
+  // R0912-1（2026-09-11 修复批）：后台任务改持**独立登记的 ctrl**——此前传编排级
+  // state.ctrl.signal，但编排收尾后 running Map 已删（runSelfHealInner finally）、ctrl
+  // 已在 stream.ts unregister，/interrupt 既找不到编排闸也无在册 ctrl，本 AI 调用只能
+  // 跑到 10min 总超时。现于后台任务启动处新建 ctrl 并登记 driver（owner
+  // 'bg-lead-draft:<bookName>'，与 'self-heal' 槽位互不抢占），settle（成功/失败/中断）
+  // finally 注销；中断沿 signal 即时收口，失败/中断按 logLeadDraftFailure 既有口径
+  // 落日志，不 crash。
   if (loop.hasWiring && !loop.leadDraftTried)
-    registerBackgroundTask(opts.bookName, logLeadDraftFailure(generateLeadUpdateDraft(ctx.bookRoot, chapterNo, opts.userDataPath, state.ctrl.signal)))
+    registerBackgroundTask(
+      opts.bookName,
+      logLeadDraftFailure(
+        runRegisteredBgTask(opts.driver, opts.mainSession, `bg-lead-draft:${opts.bookName}`, (signal) =>
+          generateLeadUpdateDraft(ctx.bookRoot, chapterNo, opts.userDataPath, signal),
+        ),
+      ),
+    )
   const yellows = ruleYellows(loop.current, ctx.bookRoot, chapterNo)
   term.writeTodos('completed', 'completed', 'completed')
   term.writeGoal('complete', 'complete', { rounds: loop.attempt })
@@ -815,7 +847,7 @@ async function runChapter(
       if (await maybeLeadRedraft(opts, state, ctx, loop, outcome, chapterNo)) continue
       const st = evaluateRetry(outcome.report, loop.attempt, ctx.maxAttempts)
       recordRetryAttempt(ctx.chain, st, ctx.maxAttempts, loop.attempt)
-      if (st.state === 'pass') return exitPass(opts, state, ctx, loop, term, chapterNo)
+      if (st.state === 'pass') return exitPass(opts, ctx, loop, term, chapterNo)
       // E-9g（第五十三轮）：redMessages(outcome) 原连算三次（escalate 两处 + reds 赋值），
       // 提取为单次计算复用——纯性能修，行为不变
       const redMsgs = redMessages(outcome)

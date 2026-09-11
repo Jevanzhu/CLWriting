@@ -21,6 +21,8 @@ import { atomicWriteFile } from '../../../fs/atomic.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
 import { RELATION_MINE_SPEC } from '../../../ai/tasks/specs.js'
 import { acquireTaskGate, orchestrationBusyFor } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
+import { getDriver, ensureSession } from '../../../driver/index.js' // R0912-P2-①：中断通道注册面
+import type { Session } from '../../../driver/types.js'
 import type { RealmSystem } from '../../../format/types.js'
 
 interface SettingsCtx {
@@ -181,7 +183,20 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
     // RB-SV-P2-2：长任务并发闸（分钟级 AI 梳理，重复点击=双倍费用）
     const release = acquireTaskGate(params['name']!, 'relations-mine')
     if (!release) return replyError(res, 409, 'BUSY', '本书正在梳理角色关系，请等待完成后再试')
+    // R0912-P2-①（2026-09-11 重评-0911c 修复批）：接入中断通道——此前 runSpec 未接 driver
+    // ctrl 注册面，/interrupt 对在途梳理完全无效且 driver.isRunning 假空闲（假成功）。接法
+    // 照抄 stream.ts spawn/self-heal 的 register/unregister 形态：编排段新建 ctrl →
+    // driver.registerCtrl（owner='relations-mine:<书名>'，含书名使跨书并发互不误伤；同书
+    // 重入已被任务闸 409 挡住，同 owner 串行换新安全）→ settle（外层 finally）统一注销。
+    const driver = getDriver()
+    let registeredSession: Session | null = null
+    let registeredCtrl: AbortController | null = null
     try {
+      const session = await ensureSession(params['name']!, ctx.workDir!)
+      registeredSession = session
+      const ctrl = new AbortController()
+      driver.registerCtrl?.(session, ctrl, `relations-mine:${params['name']!}`)
+      registeredCtrl = ctrl
       // 幂等：body.force=true 强制重新梳理；否则已有缓存则直接返回
       //（dd-P3：readJson 的 HttpError（如 413 超限）透传，只容错「无 body/坏 JSON」）
       const body = (await readJson(req).catch((e: unknown) => {
@@ -203,13 +218,23 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
         userPrompt: `## 任务\n通读以下材料，提炼这部书的角色关系网络。\n\n${context}`,
         // Z-1（第五十八轮）：聚合材料注入源登记（铁律①）——名册/角色卡目录/正文节选各章
         promptFiles: mined.files,
+        ctrl, // R0912-P2-①：中断通道透传
       })
-      if (!out.ok) return replyError(res, 500, 'GEN_FAIL', `AI 梳理失败:${out.error}`)
+      if (!out.ok) {
+        // R0912-P2-①：中断收口——ABORTED → 499 人话信封（对齐 outline/rewrite 既有先例）
+        if (out.code === 'ABORTED') return replyError(res, 499, 'ABORTED', '已中断')
+        return replyError(res, 500, 'GEN_FAIL', `AI 梳理失败:${out.error}`)
+      }
       const input = out.data.input as { relations?: { from: string; to: string; type: string; note?: string }[] } | null
       const relations = input?.relations ?? []
       // R48-77（四十八轮）：零关系也是合法产出——此前空结果不落缓存，下次请求重新
       // 烧一遍 AI 费用；且该分支返回 cached:true 语义失真（实为新鲜产出非缓存命中）。
       // 空数组同样落盘，与有产出共用下方写路径，本请求如实标 cached:false
+      // R0912-P3-③：落盘前重验书注册（对齐 style.ts R0911-B-P3-4 现行防线）——runSpec
+      // 分钟级 await 窗口内书可能被删/改名，向旧 bookRoot 写 .clwriting/relations.json
+      // 会复活幽灵目录（无 book.yaml，repairBooks 不认领）。已删或变化 → 409 BOOK_MOVED。
+      const moved = relationsBookMoved(ctx, params['name'], bookRoot)
+      if (moved) return replyError(res, 409, moved.code, moved.reason)
       try {
         mkdirSync(dirname(cachePath), { recursive: true })
         atomicWriteFile(cachePath, JSON.stringify({ relations, chapterCount: countChapters(bookRoot) }, null, 2))
@@ -219,6 +244,9 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
       }
       reply(res, 200, { ok: true, cached: false, relations })
     } finally {
+      // R0912-P2-①：settle（成功/失败/中断）统一注销——isRunning 归 false（cc X-P2-11 口径）；
+      // ensureSession 失败（未注册）时跳过。GET settings/completion-names 无 AI 生成段，不接线。
+      if (registeredCtrl && registeredSession) driver.unregisterCtrl?.(registeredSession, registeredCtrl)
       release()
     }
   },
@@ -278,6 +306,24 @@ function settingsLong(bookRoot: string): unknown {
 
 /** AI 关系梳理缓存的相对路径（.clwriting/relations.json）。 */
 const RELATION_CACHE = '.clwriting/relations.json'
+
+/**
+ * R0912-P3-③（2026-09-11 重评-0911c 修复批）：书注册重验（style.ts bookMovedFailure 同型，
+ * documents.ts/files.ts 同款 409 信封口径）——关系梳理的 AI 生成段为分钟级 await，期间书
+ * 可能被删/改名；落盘前重验 name→bookRoot 注册，已删或变化即取消本次落盘，防向旧捕获路径
+ * mkdir 复活幽灵目录。返回 null = 注册未变，可安全落盘。
+ */
+function relationsBookMoved(
+  ctx: SettingsCtx,
+  name: string | undefined,
+  capturedRoot: string,
+): { code: 'BOOK_MOVED'; reason: string } | null {
+  const rNow = resolveBook(ctx.workDir, name)
+  if ('error' in rNow || rNow.bookRoot !== capturedRoot) {
+    return { code: 'BOOK_MOVED', reason: '书已改名或已删除，本次操作已取消——请重新打开本书后再试' }
+  }
+  return null
+}
 
 /** 读 AI 关系梳理缓存（不存在/损坏 → 空）。返回 relations 数组 + 梳理时的章节数（新鲜度判断用）。 */
 function readRelationCache(bookRoot: string): {

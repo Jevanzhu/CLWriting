@@ -16,10 +16,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { startServerSafe } from '../helpers/safe-port.js'
-import { isSpawnRunning, __setSpawnRunning, registerStreamRoutes } from '../../src/studio/server/api/stream.js'
+import { isSpawnRunning, __setSpawnRunning, registerStreamRoutes, SSE_STREAM_PATH_PATTERN } from '../../src/studio/server/api/stream.js'
 import { createStreamTicketStore } from '../../src/studio/server/api/stream-ticket.js' // R73-49：registerStreamRoutes 的 ctx 需实例票库
 import { createRouteTable, withRouteTable, dispatch } from '../../src/studio/server/router.js'
-import { resetRouteSchemas } from '../../src/studio/server/api/schema.js'
+import { resetRouteSchemas, getRouteSchema } from '../../src/studio/server/api/schema.js'
 
 const BOOK = '对话测试书'
 /** S5（五十九轮）：全书零触碰的书（/interrupt 空闲 no-op 回归用） */
@@ -373,6 +373,8 @@ describe('S5: /interrupt 无运行 → 成功 no-op，不隐式建会话', () =>
     const r = await req({ method: 'POST', path: `/api/books/${encodeURIComponent(IDLE_BOOK)}/interrupt` })
     expect(r.status).toBe(200)
     expect((r.json as { ok: boolean }).ok).toBe(true)
+    // R0912-P2-①：返回值如实附 interrupted——空闲 no-op 时为 false（不再无差别假成功）
+    expect((r.json as { interrupted?: boolean }).interrupted).toBe(false)
     // 原实现无条件 ensureSession → 静默新建 channel（永不 dispose）；现 no-op 不建
     expect(getSession(IDLE_BOOK)).toBeNull()
   })
@@ -384,8 +386,36 @@ describe('S5: /interrupt 无运行 → 成功 no-op，不隐式建会话', () =>
       const r = await req({ method: 'POST', path: bp('/interrupt') })
       expect(r.status).toBe(200)
       expect((r.json as { ok: boolean }).ok).toBe(true)
+      // R0912-P2-①：在途确被下达中断动作 → interrupted:true
+      expect((r.json as { interrupted?: boolean }).interrupted).toBe(true)
     } finally {
       __setSpawnRunning(BOOK, false)
     }
+  })
+})
+
+// ── R0912-P3-⑥：SSE 端点路径模式单源 ─────────────────
+// 豁免表（index.ts GET_TOKEN_EXEMPT_PATHS）与 books.stream 路由此前分居两文件、
+// 靠各自手写的等价正则字符串耦合；现模式由 stream.ts 导出单源（SSE_STREAM_PATH_PATTERN），
+// index.ts 引用。本用例钉住「导出模式 ↔ 路由声明路径」的同源关系与边界形态。
+
+describe('R0912-P3-⑥: SSE 端点路径模式单源', () => {
+  it('SSE_STREAM_PATH_PATTERN 与 books.stream 路由声明路径同源匹配（:name 单段口径）', () => {
+    const routes = createRouteTable()
+    resetRouteSchemas()
+    withRouteTable(routes, () => {
+      registerStreamRoutes({ workDir, userDataPath, studioToken: token, tickets: createStreamTicketStore() })
+      const schema = getRouteSchema('books.stream')
+      expect(schema).not.toBeNull()
+      // 路由模板的具体形（:name 取单段样例）必被豁免模式命中——两处失配即静默失闸/漏豁免
+      expect(SSE_STREAM_PATH_PATTERN.test(schema!.path.replace(':name', '某书'))).toBe(true)
+    })
+  })
+
+  it('相邻形态不误匹配（X-19 收敛初心：拒绝后缀/多段放宽的回潮）', () => {
+    expect(SSE_STREAM_PATH_PATTERN.test('/api/books/a/b/stream')).toBe(false)
+    expect(SSE_STREAM_PATH_PATTERN.test('/api/books/a/stream/extra')).toBe(false)
+    expect(SSE_STREAM_PATH_PATTERN.test('/api/books/a/streamx')).toBe(false)
+    expect(SSE_STREAM_PATH_PATTERN.test('/api/boot')).toBe(false)
   })
 })

@@ -11,6 +11,7 @@
  * （与 overview 喂 detectState 同一口径），态 5 卷末判定 / recap 卷号因此吃到生效值。
  * 失败不崩（500 + 错误）。
  */
+import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { defineRoute } from './schema.js'
 import { reply, replyError } from '../http.js'
@@ -19,6 +20,7 @@ import { readBookConfig } from '../../../format/yaml.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { readManifest } from '../../../document/manifest.js'
 import { detectState, routeState, buildRecap, STATE_NAMES } from '../../../state/state.js'
+import { appendAborted, findUnsettled } from '../../../document/journal.js'
 import { trackInFlightWork } from './in-flight-work.js' // R0910-W：rebuild Worker 退出收尾登记
 import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
 import { log } from '../../../log/index.js'
@@ -108,6 +110,13 @@ export function registerStateRoutes(ctx: StateCtx): void {
         // kk-P1-4：连写暂停元状态（M6 #34）透传——buildRecap 已产出但此前在响应组装处被
         // 丢弃，前端/AI 工具均零消费，「进书提示连写暂停在第 N 章」无任何用户可见出口
         ...(recap.batchPause ? { batchPause: recap.batchPause } : {}),
+        // R0912（重评-0911c P2 + FE 接线）：态 1 crashedWrite 的 opId 透出——前端
+        // 「忽略此提醒」按钮据此调 POST /api/books/:name/journal/:opId/acknowledge
+        // （幽灵红消解闭环的人工半边）。取全部 crashedWrite issue 的 files（opId）
+        // 扁平去重；非态 1 无 issues 恒缺省（可选字段契约，前端条件渲染）。
+        ...(d.state === 1
+          ? { crashedPendingOpIds: [...new Set(d.issues.flatMap((i) => (i.kind === 'crashedWrite' ? (i.files ?? []) : [])))] }
+          : {}),
       }
       // R75-D-P3b：只缓存成功路径（错误响应不缓存——book.yaml 修复后下次即重算）；
       // FIFO 淘汰同 health.ts（Map 保插入序，超上限丢最旧）
@@ -125,5 +134,68 @@ export function registerStateRoutes(ctx: StateCtx): void {
       replyError(res, 500, 'ERROR', '状态聚合失败（详见服务端日志）')
     }
   },
+  })
+
+  // ── R0912-1b（2026-09-11 重评-0911c 修复批）：崩溃 pending 人工确认通道 ─────────
+  // POST /api/books/:name/journal/:opId/acknowledge → 对该 save 类 pending appendAborted
+  // （journal.ts 既有原语，自带跨进程 journal 锁），使其 findUnsettled 不再命中、
+  // healthCheck 不再报 crashedWrite「可能丢字」。这是幽灵红消解闭环的人工半边：
+  // R0912-1a 在 state.ts 自动消解「盘上已落盘」的确定性面，真未落盘（盘上仍是基线/
+  // 文件不在盘）的报红由作者确认后经本端点消解（前端接线另批，服务端先行 + 单测）。
+  // 幂等语义：opId 不存在 / 已 settled / 已 aborted（重复确认、清理竞态）→ 200
+  // { ok:true, acknowledged:false }——确认动作可安全重复点击；命中 pending →
+  // appendAborted → { ok:true, acknowledged:true }。opId 只用于比对与 journal 行写入
+  //（JSON 编码），不参与路径构造，无注入面。
+  // 鉴权/路径形态沿用本文件现行 defineRoute 模式（本地回环 server，无额外鉴权中间件）；
+  // 书注册重验对齐 documents.ts bookMovedFailure（R1010b-SRV-P2-1 同款）：写盘
+  //（appendAborted）前按书名重验，已删/改名 → 409 BOOK_MOVED，不对旧捕获 bookRoot 落盘。
+  defineRoute('books.state.journal-acknowledge', {
+    method: 'POST',
+    path: '/api/books/:name/journal/:opId/acknowledge',
+    handler: async ({ params }, _req, res) => {
+      const r = resolveBook(ctx.workDir, params['name'])
+      if ('error' in r) return replyError(res, r.status, r.code, r.error)
+      const opId = params['opId'] ?? ''
+      if (!opId) return replyError(res, 400, 'BAD_INPUT', '缺少 opId')
+      // 扫 工作区/.journal/*.jsonl 定位持该 opId 未结算 pending 的 journal 文件
+      //（findUnsettled 逐行容错：坏行跳过、读失败降级 []——本端点按「无 pending」幂等
+      // 返回，不放大瞬态读故障）
+      const journalDir = join(r.bookRoot, '工作区', '.journal')
+      let names: string[] = []
+      if (existsSync(journalDir)) {
+        try {
+          names = readdirSync(journalDir)
+        } catch {
+          names = [] // 目录不可读（EACCES 瞬态）：按无 pending 处理（幂等 false）
+        }
+      }
+      let targetFile: string | null = null
+      for (const n of names) {
+        if (n.startsWith('._') || !n.endsWith('.jsonl')) continue
+        const fp = join(journalDir, n)
+        if (findUnsettled(fp).some((p) => p.opId === opId)) {
+          targetFile = fp
+          break
+        }
+      }
+      if (targetFile === null) {
+        // 幂等：opId 从未存在 / 已 settled / 已 aborted——确认已生效或无事可确认，均成功
+        reply(res, 200, { ok: true, acknowledged: false })
+        return
+      }
+      // 书注册重验（贴近写盘时刻）：扫描为同步段，此处的重验窗口只剩 journal 锁等待期
+      const rNow = resolveBook(ctx.workDir, params['name'])
+      if ('error' in rNow || rNow.bookRoot !== r.bookRoot) {
+        return replyError(res, 409, 'BOOK_MOVED', '书已改名或已删除，本次操作已取消——请重新打开本书后再试')
+      }
+      try {
+        await appendAborted(targetFile, opId, '作者确认：接受该次未完成保存的现状，清除崩溃恢复提示（R0912-1b 人工消解）')
+      } catch (e) {
+        log.error('state', `journal acknowledge 落账失败：${redactSecret(e instanceof Error ? e.message : String(e))}`)
+        replyError(res, 500, 'WRITE_ERROR', '崩溃提示清除失败（journal 落账未完成），请重试')
+        return
+      }
+      reply(res, 200, { ok: true, acknowledged: true })
+    },
   })
 }

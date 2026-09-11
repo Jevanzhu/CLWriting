@@ -244,8 +244,12 @@ jobs:
       #（grep memoryUsage|heapUsed = 0 命中），线性泄漏回归无门可拦。独立脚本
       #（test/soak/soak.ts，故意不带 .test. 以不进 README 计数套件）反复跑有界纯路径 +
       # --expose-gc 断增长上界（详见脚本头注）；gc 不可用则干净 SKIP。无系统依赖，纯 Node。
+      # R0912（重评-0911c P3）：脚本在 --expose-gc 丢失时 SKIP 且 exit 0——只看退出码
+      # 门会假绿，故断言输出含 [soak] OK（SKIP/FAIL 均判红：内存门必须真跑）。
       - name: 有界内存/soak 门（--expose-gc）
-        run: npm run soak
+        run: |
+          npm run soak | tee /tmp/soak-output.log
+          grep -q '\[soak\] OK' /tmp/soak-output.log || { echo '::error::soak 门未输出 [soak] OK（--expose-gc 丢失被 SKIP 或运行失败）——内存门假绿拦截'; exit 1; }
 
       - name: 上传 trace（失败时）
         if: failure()

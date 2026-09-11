@@ -26,6 +26,8 @@ import { countWords } from '../../../format/words.js'
 import { bodyOf } from '../../../format/frontmatter.js'
 import { acquireTaskGate, orchestrationBusyFor } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
 import { snapshotBeforeOverwrite } from '../../../process/draft-pipeline.js' // R71-9：覆盖留底单源复用
+import { getDriver, ensureSession } from '../../../driver/index.js' // R0912-P2-①：中断通道注册面
+import type { Session } from '../../../driver/types.js'
 import { log } from '../../../log/index.js'
 
 interface OnboardCtx {
@@ -33,16 +35,19 @@ interface OnboardCtx {
   userDataPath: string | null
 }
 
-/** 跑一次 onboard 步骤生成（runSpec 统一编排）。 */
+/** 跑一次 onboard 步骤生成（runSpec 统一编排）。
+ *  R0912-P2-①：ctrl 透传 runSpec——外部中断（/interrupt 经 driver abort）同步中止生成；
+ *  中断码单点归一（ABORTED），其余失败维持既有 GEN_FAIL 坍缩不变。 */
 async function runOnboard(
   userDataPath: string | null,
   prompt: string,
   bookRoot?: string,
-): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
-  const out = await runSpec(ONBOARD_SPEC, { userDataPath, bookRoot, userPrompt: prompt })
-  if (!out.ok) return { ok: false, error: out.error }
+  ctrl?: AbortController,
+): Promise<{ ok: true; text: string } | { ok: false; code: 'GEN_FAIL' | 'ABORTED'; error: string }> {
+  const out = await runSpec(ONBOARD_SPEC, { userDataPath, bookRoot, userPrompt: prompt, ctrl })
+  if (!out.ok) return { ok: false, code: out.code === 'ABORTED' ? 'ABORTED' : 'GEN_FAIL', error: out.error }
   const text = out.data.text.trim()
-  if (!text) return { ok: false, error: 'AI 产出为空' }
+  if (!text) return { ok: false, code: 'GEN_FAIL', error: 'AI 产出为空' }
   return { ok: true, text }
 }
 
@@ -86,7 +91,20 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
     // RB-SV-P2-2：长任务并发闸（AI 填设定分钟级且覆盖落盘）
     const release = acquireTaskGate(params['name']!, 'onboard-ai')
     if (!release) return replyError(res, 409, 'BUSY', '本书已有 AI 设定任务在跑，请等待完成后再试')
+    // R0912-P2-①（2026-09-11 重评-0911c 修复批）：接入中断通道——此前 runSpec 未接 driver
+    // ctrl 注册面，/interrupt 对在途设定生成完全无效且 driver.isRunning 假空闲（假成功）。
+    // 接法照抄 stream.ts spawn/self-heal 的 register/unregister 形态：编排段新建 ctrl →
+    // driver.registerCtrl（owner='onboard:<书名>'，含书名使跨书并发互不误伤；同书重入已被
+    // 任务闸 409 挡住，同 owner 串行换新安全）→ settle（外层 finally）统一注销。
+    const driver = getDriver()
+    let registeredSession: Session | null = null
+    let registeredCtrl: AbortController | null = null
     try {
+      const session = await ensureSession(params['name']!, ctx.workDir!)
+      registeredSession = session
+      const ctrl = new AbortController()
+      driver.registerCtrl?.(session, ctrl, `onboard:${params['name']!}`)
+      registeredCtrl = ctrl
       const reqBody = await readJson(req)
       const step = String(reqBody['step'] ?? '') as OnboardStep
       /** 既有讨论（对话式整理到步时传入，prompt 据此整理防臆造） */
@@ -128,8 +146,13 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
       // 请求体自由文本）——两者均非文件注入源，故 runSpec 不传 promptFiles（files 是文件
       // 级溯源通道）；用户文本的凭据 = 请求本身 + llm/call promptMeta 的 chars/hash 指纹。
 
-      const result = await runOnboard(ctx.userDataPath, prompt, bookRoot)
-      if (!result.ok) return replyError(res, 500, 'GEN_FAIL', result.error)
+      const result = await runOnboard(ctx.userDataPath, prompt, bookRoot, ctrl)
+      if (!result.ok) {
+        // R0912-P2-①：中断收口——ABORTED（/interrupt 中断）→ 499 人话信封（对齐
+        // outline/rewrite 既有 ABORTED→499 先例）；其余维持 500 GEN_FAIL
+        if (result.code === 'ABORTED') return replyError(res, 499, result.code, result.error)
+        return replyError(res, 500, 'GEN_FAIL', result.error)
+      }
 
       // 平台规范化批：AI 产出写前归一（onboard 直写不经 DocumentService.save，自收口）
       const content = canonicalizeText(result.text || '(空产出)')
@@ -155,6 +178,9 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
       }
       reply(res, 200, { ok: true, step, path: relPath, words: countWords(bodyOf(content)), content, ...(snapshotted ? { snapshotted: true } : {}) })
     } finally {
+      // R0912-P2-①：settle（成功/失败/中断）统一注销——isRunning 归 false（cc X-P2-11 口径）；
+      // ensureSession 失败（未注册）时跳过。onboard-save 无 AI 生成段，不接线。
+      if (registeredCtrl && registeredSession) driver.unregisterCtrl?.(registeredSession, registeredCtrl)
       release()
     }
   },

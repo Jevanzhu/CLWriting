@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   getConfig: vi.fn(),
   getRagStatus: vi.fn(),
   triggerRagBuild: vi.fn(),
+  triggerRagRebuild: vi.fn(),
   getRagProviders: vi.fn(),
   saveConfig: vi.fn(),
 }))
@@ -30,6 +31,7 @@ vi.mock('../../../src/studio/web-next/src/api/books', () => ({
   getConfig: mocks.getConfig,
   getRagStatus: mocks.getRagStatus,
   triggerRagBuild: mocks.triggerRagBuild,
+  triggerRagRebuild: mocks.triggerRagRebuild,
 }))
 vi.mock('../../../src/studio/web-next/src/api/providers', () => ({
   getRagProviders: mocks.getRagProviders,
@@ -212,6 +214,78 @@ describe('SettingsBookAnalysis 知识检索（本书组）', () => {
     expect(wrapper.find('.rag-build-row button').attributes('disabled')).toBeDefined()
 
     // 卸载触发 onUnmounted 停轮询（interval 未到 1.5s 首跳即清，不泄漏到后续用例）
+    wrapper.unmount()
+  })
+})
+
+// ── R0912-FE-P2-12（2026-09-11 重评-0911b 修复批）：rag/rebuild 前端接线 ──
+// 服务端 /rag/status 早透出 indexModelMismatch（R26-16），前端此前漏接：模型/维度失配
+// 后 build 错误文案指向 POST /rag/rebuild，GUI 却只有 build 接线——失配无程序化自愈
+// 出路（断头）。本批补：失配呈现 + 「重建索引」钮 → triggerRagRebuild。
+describe('SettingsBookAnalysis 索引重建（R0912-FE-P2-12）', () => {
+  beforeEach(() => {
+    usePrefsStore().setRagEnabled(true)
+  })
+
+  it('indexModelMismatch=true → 失配提示 + 「重建索引」按钮渲染', async () => {
+    mocks.getRagStatus.mockResolvedValue({
+      running: false, indexedChapters: 3, chunkCount: 20, model: 'old-embed',
+      ragConfig: { enabled: true }, providerName: 'rag-a', legacy: false,
+      lastResult: null, indexState: 'built', indexModelMismatch: true,
+    })
+    const wrapper = await mountOpen()
+    expect(wrapper.text()).toContain('嵌入模型与现有索引不一致')
+    const btns = wrapper.findAll('.rag-build-row button')
+    expect(btns.some((b) => b.text() === '重建索引')).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('未失配 → 不出现重建钮与失配提示（build 主路径零变化）', async () => {
+    mocks.getRagStatus.mockResolvedValue({
+      running: false, indexedChapters: 3, chunkCount: 20, model: 'embed-a',
+      ragConfig: { enabled: true }, providerName: 'rag-a', legacy: false,
+      lastResult: { ok: true, chunkCount: 20, chapterCount: 3 },
+      indexState: 'built', indexModelMismatch: false,
+    })
+    const wrapper = await mountOpen()
+    expect(wrapper.text()).not.toContain('嵌入模型与现有索引不一致')
+    expect(wrapper.findAll('.rag-build-row button').some((b) => b.text() === '重建索引')).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('点「重建索引」→ triggerRagRebuild(书名) + 重建中状态（R28-22 触发记忆置位）', async () => {
+    mocks.getRagStatus.mockResolvedValue({
+      running: false, indexedChapters: 3, chunkCount: 20, model: 'old-embed',
+      ragConfig: { enabled: true }, providerName: 'rag-a', legacy: false,
+      lastResult: null, indexState: 'built', indexModelMismatch: true,
+    })
+    mocks.triggerRagRebuild.mockResolvedValue({ started: true, reset: true })
+    const wrapper = await mountOpen()
+    const btn = wrapper.findAll('.rag-build-row button').find((b) => b.text() === '重建索引')!
+    await btn.trigger('click')
+    await flushPromises()
+    expect(mocks.triggerRagRebuild).toHaveBeenCalledWith('测试书')
+    expect(wrapper.text()).toContain('重建中')
+    // R28-22：重建先清库——此后失败补「旧索引已清空」提示的触发记忆已置位
+    //（ragRebuildTriggered 是内部态，此处经其可观察联动面：构建中按钮置灰即锁生效）
+    expect(wrapper.findAll('.rag-build-row button').every((b) => b.attributes('disabled') !== undefined)).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('triggerRagRebuild 失败 → toast + 按钮解禁（R33-81 在途锁失败复位）', async () => {
+    mocks.getRagStatus.mockResolvedValue({
+      running: false, indexedChapters: 3, chunkCount: 20, model: 'old-embed',
+      ragConfig: { enabled: true }, providerName: 'rag-a', legacy: false,
+      lastResult: null, indexState: 'built', indexModelMismatch: true,
+    })
+    mocks.triggerRagRebuild.mockRejectedValue(new Error('重建失败'))
+    const toastSpy = vi.spyOn(useUiStore(), 'toast')
+    const wrapper = await mountOpen()
+    const btn = wrapper.findAll('.rag-build-row button').find((b) => b.text() === '重建索引')!
+    await btn.trigger('click')
+    await flushPromises()
+    expect(toastSpy).toHaveBeenCalledWith('重建失败', 'error')
+    expect(wrapper.findAll('.rag-build-row button').every((b) => b.attributes('disabled') === undefined)).toBe(true)
     wrapper.unmount()
   })
 })

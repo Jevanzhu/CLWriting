@@ -476,3 +476,64 @@ describe('Q-3（第十五轮）：flushDirty 循环冲排', () => {
     expect(doc.get('d-q3f')!.dirty).toBe(true)
   })
 })
+
+// ── R0912-FE（2026-09-11 重评-0911b 修复批）P3-5 / P3-6 ─────────────────────
+describe('doc store · R0912-FE-P3-5：overwriteRemote 条目身份复检', () => {
+  it('getContent await 窗口内条目被重建（discard/LRU 驱逐形态）→ 基线不写游离对象、save 不发', async () => {
+    const doc = await openDoc('d-owr', '写作/正文/第1章.md', 'a')
+    doc.patch('d-owr', '本地覆盖')
+    const oldEntry = doc.get('d-owr')!
+    oldEntry.conflict = true
+    const staleBaseline = oldEntry.baselineRevision
+    vi.mocked(getContent).mockImplementationOnce(async () => {
+      // await 窗口内：同 docId 条目被换成新对象（丢弃重建/驱逐重开等价形态）
+      const fresh = { ...oldEntry, conflict: true, dirty: true }
+      doc.docs.delete('d-owr')
+      doc.docs.set('d-owr', fresh)
+      return '远端当前'
+    })
+    await doc.overwriteRemote('d-owr')
+    // 复检命中 → 整体放弃：基线推进与覆盖保存都不发生（修复前：新基线落在游离旧对象上，
+    // 新条目基线未推进 → 下次保存吃假 REVISION_CONFLICT）
+    expect(saveContent).not.toHaveBeenCalled()
+    expect(doc.get('d-owr')!.baselineRevision).toBe(staleBaseline)
+    expect(doc.get('d-owr')!.conflict).toBe(true) // 新条目未被误清冲突
+  })
+
+  it('条目未变（正常覆盖链）→ 行为不变（回归锚）', async () => {
+    const doc = await openDoc('d-owr2', '写作/正文/第1章.md', 'a')
+    doc.patch('d-owr2', '本地覆盖')
+    const e = doc.get('d-owr2')!
+    e.conflict = true
+    vi.mocked(getContent).mockResolvedValueOnce('远端当前')
+    vi.mocked(saveContent).mockResolvedValueOnce({ ok: true, revision: 'sha256:over', superseded: false })
+    await doc.overwriteRemote('d-owr2')
+    expect(saveContent).toHaveBeenCalledTimes(1)
+    expect(e.conflict).toBe(false)
+  })
+})
+
+describe('doc store · R0912-FE-P3-6：discard 清 inflightOpens', () => {
+  it('在途 open 期间 discard 后同 docId 重开 → 新 open 不复用旧 promise，必发新请求', async () => {
+    const doc = useDocStore()
+    doc.setBook(BOOK)
+    let resolveContent!: (v: string) => void
+    vi.mocked(getContent).mockImplementationOnce(() => new Promise((r) => (resolveContent = r)))
+    const firstOpen = doc.open(makeNode('写作/正文/第1章.md', 'd-ifo')) // 在途
+    doc.discard('d-ifo') // 删除（同步清 entry + 在途登记）
+    // 修复前：open() 命中在途旧 promise 直接复用返回（getContent 只发一次，重开拿到
+    // 404 reject 或过期内容）；修复后台账已清，重开必发新请求
+    vi.mocked(getContent).mockResolvedValueOnce('新内容')
+    await doc.open(makeNode('写作/正文/第1章.md', 'd-ifo'))
+    expect(getContent).toHaveBeenCalledTimes(2)
+    expect(doc.get('d-ifo')!.content).toBe('新内容')
+    resolveContent('旧内容')
+    await firstOpen
+  })
+
+  it('无在途时 discard → 照常清 entry 与镜像（既有语义回归锚）', async () => {
+    const doc = await openDoc('d-ifo2', '写作/正文/第1章.md', 'a')
+    doc.discard('d-ifo2')
+    expect(doc.get('d-ifo2')).toBeUndefined()
+  })
+})

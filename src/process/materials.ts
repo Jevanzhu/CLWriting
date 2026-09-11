@@ -235,6 +235,9 @@ export async function prepareMaterials(
       opts.topK ?? 5,
       opts.embedFn ?? embed,
       ragWarnThreshold,
+      // R0912-4（2026-09-11 修复批）：编排级中断透传——embed 网络往返与流式打分
+      // 此前不随编排 signal 收口（分钟级白烧），现入口/网络前后/打分行级检查点齐备
+      opts.signal !== undefined ? { signal: opts.signal } : undefined,
     )
   } catch {
     rec = null

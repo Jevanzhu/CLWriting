@@ -130,6 +130,17 @@ export interface RagStatus {
   /** true = 书还在用旧版内联 endpoint/model（未迁移到服务商引用） */
   legacy: boolean
   lastResult: { ok: boolean; chunkCount: number; chapterCount: number; error?: string } | null
+  /**
+   * R0912-FE-P2-12（2026-09-11 重评-0911b 修复批）：索引三态（服务端 R40-50 已透出，
+   * 此前前端类型漏接）——unbuilt=从未建 / cleared=已重置可重建 / built=有索引内容。
+   */
+  indexState: 'unbuilt' | 'cleared' | 'built'
+  /**
+   * R0912-FE-P2-12：embedding 模型失配标记（服务端 R26-16 已透出，前端此前漏接）——
+   * 已建索引的模型 ≠ 当前生效配置模型；消费方据此引导走 triggerRagRebuild（前端唯一
+   * 可达的失配自愈出口，修「失配文案指向 rebuild 端点而 GUI 不可达」的断头）。
+   */
+  indexModelMismatch: boolean
 }
 
 export async function getRagStatus(name: string): Promise<RagStatus> {
@@ -138,6 +149,15 @@ export async function getRagStatus(name: string): Promise<RagStatus> {
 
 export async function triggerRagBuild(name: string): Promise<{ started: true }> {
   return apiJson<{ started: true }>(`/api/books/${encodeURIComponent(name)}/rag/build`, {
+    method: 'POST',
+  })
+}
+
+// POST /rag/rebuild（服务端 R26-16 端点，本批前端接线）：闸内先 resetRagIndex 清空既有
+// 索引再后台重建——embedding 模型/维度失配（rag/index.ts 失配错误文案指向本端点）后
+// RAG 无法自愈的死路由此回到 GUI 可达。响应信封/任务闸与 build 同一套（运行中 409）。
+export async function triggerRagRebuild(name: string): Promise<{ started: true; reset: true }> {
+  return apiJson<{ started: true; reset: true }>(`/api/books/${encodeURIComponent(name)}/rag/rebuild`, {
     method: 'POST',
   })
 }

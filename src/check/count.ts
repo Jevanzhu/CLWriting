@@ -865,6 +865,8 @@ const HAND_ACTION_RE = /(?:伸|握|抓|拉|抬|挥|摊|攥|搓|叉|捂|托|撑|�
  * 身体部位词检查（#27 第 5.3 节，🟡 黄）。
  * 正文洁净：眼/心脏等堆砌计数超阈报黄（AI 味高发）。
  * 单字「手」单独走 HAND_ACTION_RE 动作语境匹配，避免「对手/高手/随手」误报。
+ * R0912-1（2026-09-11 修复批）：计数前剥对白引号 span（对白是角色嘴里的话非作者
+ * 叙述，见函数体内注释——同批 checkSimile 对齐）。
  */
 export function checkBodyParts(
   body: string,
@@ -873,18 +875,25 @@ export function checkBodyParts(
 ): CheckSectionResult {
   const items: CheckItem[] = []
   const over: string[] = []
+  // R0912-1（2026-09-11 修复批）：计数前剥对白引号 span——同文件禁词（checkBannedWords
+  // R29-1①）/意象（checkImagery R51-E-N5）/开头环境（checkOpeningNoEnv R29-4）均经
+  // stripQuotedSpans（quotes.ts 单源），唯本检查与 checkSimile 吃原文：对白里角色说
+  // 「我的眼睛…」「心跳好快」属人物语言非作者叙述堆砌，对白密集章逐次累加黄项刷屏；
+  // 本项属短篇 strict 升红族（runner.ts 短篇机检 4 项），误报驱动打回重写白烧真调用。
+  // 对齐家族约定（R51-E-N5 注释自证「同族均剥」），prose 变量口径同 checkBannedWords。
+  const prose = stripQuotedSpans(body)
   for (const word of words) {
     if (!word) continue
     let count = 0
-    let idx = body.indexOf(word)
+    let idx = prose.indexOf(word)
     while (idx !== -1) {
       count++
-      idx = body.indexOf(word, idx + word.length)
+      idx = prose.indexOf(word, idx + word.length)
     }
     if (count > threshold) over.push(`${word}×${count}`)
   }
-  // 单字「手」走动作语境匹配，避免误伤惯用语
-  const handCount = (body.match(HAND_ACTION_RE) ?? []).length
+  // 单字「手」走动作语境匹配，避免误伤惯用语（R0912-1：同在剥对白后的叙述面上计数）
+  const handCount = (prose.match(HAND_ACTION_RE) ?? []).length
   if (handCount > threshold) over.push(`手×${handCount}`)
   if (over.length > 0) {
     items.push({
@@ -911,13 +920,15 @@ export function checkBodyParts(
 // 安全（不误报），且「恰好/正好」+明喻连用占比极低，零 token 边界不做分词级判别。
 // R73-14（二十一轮 B-1）：前排他集再纳入「X像」名词首字（图像/偶像/摄像/录像/影像/
 // 照像/画像/音像/映像/实像/虚像/镜像/显像/成像/雕像/塑像/石像/铜像/铁像/玉像/蜡像/
-// 金像/肖像/绣像/头像/佛像/神像/遗像/铸像/拟像/造像/圣像/形象/印像/想像）——此前
+// 金像/肖像/绣像/头像/佛像/神像/遗像/铸像/拟像/造像/圣像/群像/形象/印像/想像）——此前
 // 词内「像」未排除名词，「他用图像处理软件处理图像数据。」实测命中 2 次、「摄像头
 // 对准了门口」「她是全民偶像明星」各命中 1；短篇 strict 模式下 simile-density 升红
 // 会把无一流比的名物章打回重写烧调用。代价（同 R67-9 登记式取舍）：「拳头像铁锤」
 // 「石头像刀一样硬」等「X头像/X石像」明喻被一并漏计（漏报向安全）；「人像蝼蚁」
 // 类人字领明喻不排（人像的肖像义在散文里远低于明喻用法）。后排他集补「样」——
 // 「挺像样」「很像样」的「像样」非比喻。
+// R0912-1（2026-09-11 修复批）：注释补齐实现口径——下方正则前排他集实含「群」
+// （「群像」），上列 R73-14 词表此前漏列，照注释读会误判正则多收一字。
 // 导出（R51-J-1，五十一轮）：语料收割（scripts/harvest-corpus.ts）对 simile-density
 // 复用本正则直扫正文取真实比喻短语作幸存者判定锚——message 只报次数（「像…」是
 // 模板字面量），文案解析提不出锚。单一真相源，防两处正则漂移。
@@ -928,8 +939,12 @@ export function checkSimile(
   threshold = 10,
 ): CheckSectionResult {
   const items: CheckItem[] = []
+  // R0912-1（2026-09-11 修复批）：对白剥除后按 prose 匹配——SIMILE_RE 匹配的是「像…」
+  // 句式（非特定词表），剥对白后剩余叙述照常命中，无需改正则；角色对白里的「像…一样」
+  // 是人物语言非作者叙述比喻（checkBodyParts 同批对齐，见该函数注释的升红族误报代价）。
+  const prose = stripQuotedSpans(body)
   // 统计明喻句式命中数（粗计；精确判定比喻语义需 NLP，零 token 取句式近似）
-  const count = (body.match(SIMILE_RE) ?? []).length
+  const count = (prose.match(SIMILE_RE) ?? []).length
   if (count > threshold) {
     items.push({
       checkId: 'simile-density',

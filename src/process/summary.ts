@@ -43,6 +43,7 @@ import { atomicWriteFile } from '../fs/atomic.js'
 import { canonicalizeText } from '../fs/text-canonical.js'
 import { acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
 import { chapterNoFromName } from '../format/filename.js'
+import type { Session, StudioDriver } from '../driver/index.js'
 
 // N-7（第五十四轮）：预算兜底显式声明——summary_chapter_max / summary_volume_max 不在
 // applyGlobalDefaults 全局默认链内（书级不设即 undefined），此值即实际生效的最终回落，
@@ -344,6 +345,42 @@ export function summaryAutoEnabled(config: BookConfig): boolean {
   return config.summary?.auto !== false
 }
 
+// ── R0912-1（2026-09-11 修复批）：后台 AI 任务的独立中断通道 ─────────────────
+/**
+ * 后台 AI 任务改持**独立登记的 ctrl**：启动处新建 AbortController 并
+ * driver.registerCtrl(session, ctrl, owner)（owner 如 'bg-summary:<bookName>' /
+ * 'bg-lead-draft:<bookName>'——与 'chat:<book>'/'spawn'/'self-heal' 各占 owner 槽位，
+ * 互不抢占），任务 settle（成功/失败/中断）finally unregisterCtrl。
+ *
+ * 背景：此前两类后台任务的 AI 调用没有可被 /interrupt 命中的在册 ctrl——定稿摘要
+ * 钩子（afterFinalizeGenerateSummary/Batch）根本不持 ctrl；self-heal pass 后账本
+ * 推进草稿（self-heal exitPass）持编排级 state.ctrl，而编排收尾后 running Map 已删
+ * （self-heal.ts）、ctrl 已在 stream.ts unregister——/interrupt 既找不到编排闸也无
+ * 在册 ctrl，该 AI 调用只能跑到 10min 总超时（分钟级白烧 token）。
+ *
+ * 中断语义：/interrupt 对 session 全部在册 ctrl abort（cc interrupt）→ ctrl.signal
+ * 置位 → run 内部 runTask 经 signal 桥接即时收口；失败/中断由调用方按既有后台任务
+ * 失败口径落账/落日志（不 crash）。driver/session 未接线（旧调用方不传新形参）→
+ * 只建 ctrl 不登记：中断面退化为「无外部中断点」，与修复前等价，不影响既有调用方。
+ */
+export async function runRegisteredBgTask<T>(
+  driver: StudioDriver | null | undefined,
+  session: Session | null | undefined,
+  owner: string,
+  run: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const ctrl = new AbortController()
+  const registered = driver != null && session != null
+  if (registered) driver!.registerCtrl?.(session!, ctrl, owner)
+  try {
+    return await run(ctrl.signal)
+  } finally {
+    // settle（成功/失败/中断）即注销——isRunning 归位（cc X-P2-11 口径）；
+    // 只注销自己：晚到的注销不得抹掉同 session 后来的新登记
+    if (registered) driver!.unregisterCtrl?.(session!, ctrl)
+  }
+}
+
 /**
  * 挂点一（定稿即生成，P7-①）：finalize 管线成功后由 API 层调用（依赖方向：document/
  * 禁止 import AI 层，钩子只能挂服务端）。best-effort：fire-and-forget，失败 log.warn
@@ -351,8 +388,9 @@ export function summaryAutoEnabled(config: BookConfig): boolean {
  * M-2：bookName 在场时登记进后台任务表——删书/改名/优雅退出的 settle 等待能追上
  * 本任务，不再对其落盘窗口逃逸（fire-and-forget 语义不变）。
  */
-/** 单次定稿摘要执行（单发/批量串行链共用；异常由调用方包裹留痕） */
-async function runFinalizeSummaryOnce(bookRoot: string, userDataPath: string | null, docId: string): Promise<void> {
+/** 单次定稿摘要执行（单发/批量串行链共用；异常由调用方包裹留痕）
+ *  R0912-1：signal 可选——后台任务独立 ctrl 的信号，中断时在途 AI 调用即时收口 */
+async function runFinalizeSummaryOnce(bookRoot: string, userDataPath: string | null, docId: string, signal?: AbortSignal): Promise<void> {
   const config = effectiveConfig(bookRoot, userDataPath)
   if (!summaryAutoEnabled(config)) return
   const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
@@ -371,6 +409,7 @@ async function runFinalizeSummaryOnce(bookRoot: string, userDataPath: string | n
     config,
     chapter: parsed.章号,
     bodyAbsPath: bodyAbs,
+    ...(signal ? { signal } : {}), // R0912-1：后台任务独立 ctrl 的中断透传
   })
   if (!r.ok) log.warn('summary', `定稿章摘要生成失败（第 ${parsed.章号} 章，留待自愈）：${r.error}`)
 }
@@ -380,10 +419,16 @@ export function afterFinalizeGenerateSummary(
   userDataPath: string | null,
   docId: string,
   bookName?: string,
+  /** R0912-1：driver/session 可选接线——传入时后台任务持独立登记 ctrl（可被 /interrupt
+   *  中止、settle 后注销）；旧调用方不传 → 只建 ctrl 不登记，行为与修复前等价 */
+  driver?: StudioDriver,
+  session?: Session,
 ): void {
   const p: Promise<void> = (async () => {
     try {
-      await runFinalizeSummaryOnce(bookRoot, userDataPath, docId)
+      await runRegisteredBgTask(driver, session, `bg-summary:${bookName ?? docId}`, (signal) =>
+        runFinalizeSummaryOnce(bookRoot, userDataPath, docId, signal),
+      )
     } catch (e) {
       log.warn('summary', `定稿章摘要钩子异常（${docId}）：${e instanceof Error ? e.message : String(e)}`)
     }
@@ -403,16 +448,22 @@ export function afterFinalizeGenerateSummaryBatch(
   userDataPath: string | null,
   docIds: string[],
   bookName?: string,
+  /** R0912-1：driver/session 可选接线（同 afterFinalizeGenerateSummary）——整条串行链
+   *  共享一把独立登记的 ctrl，中断对链上在途与未开跑的章摘要一并生效 */
+  driver?: StudioDriver,
+  session?: Session,
 ): void {
   if (docIds.length === 0) return
   const p: Promise<void> = (async () => {
-    for (const docId of docIds) {
-      try {
-        await runFinalizeSummaryOnce(bookRoot, userDataPath, docId)
-      } catch (e) {
-        log.warn('summary', `定稿章摘要钩子异常（${docId}）：${e instanceof Error ? e.message : String(e)}`)
+    await runRegisteredBgTask(driver, session, `bg-summary:${bookName ?? 'batch'}`, async (signal) => {
+      for (const docId of docIds) {
+        try {
+          await runFinalizeSummaryOnce(bookRoot, userDataPath, docId, signal)
+        } catch (e) {
+          log.warn('summary', `定稿章摘要钩子异常（${docId}）：${e instanceof Error ? e.message : String(e)}`)
+        }
       }
-    }
+    })
   })()
   if (bookName) registerBackgroundTask(bookName, p)
 }

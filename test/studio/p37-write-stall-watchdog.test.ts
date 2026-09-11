@@ -30,6 +30,9 @@ import {
   runWriterSpawn,
 } from '../../src/studio/server/api/stream.js'
 import { holdSpawnGate, releaseSpawnGate, isSpawnRunning } from '../../src/ai/orchestrate/spawn-registry.js'
+// R0912-P2-④：self-heal 侧强释放/settle 的 ctrl 注册观测面——auto-write 路径经
+// getDriver() 拿到的就是本文件共享的 mockDriver 单例（noop 桩），spy 即可观测注册/注销
+import { mockDriver } from '../../src/driver/mock.js'
 // 被测模块的 mock 面（下方 vi.mock 生效后，这些导入即假件）
 // R1010c-SRV-P3-1：stream.ts 强释放改调生产命名导出 forceReleaseSelfHealRunning，
 // 本测试的观测面随之从测试别名 __setSelfHealRunningForTest 切到新导出
@@ -61,6 +64,10 @@ vi.mock('../../src/ai/orchestrate/self-heal.js', () => ({
   runSelfHeal: vi.fn((opts: NonNullable<typeof shFake.lastOpts> & { bookName: string; chapter: number }) => {
     shFake.lastOpts = opts
     shFake.running.set(opts.bookName, true)
+    // R0912-P2-④：模拟真实编排的 ctrl 登记面（self-heal.ts 每轮 runSpec 经 opts.register
+    // 交 driver 注册）——stream.ts 的 registered 闭包由此非空，「强释放不注销、settle 才
+    // 注销」的行为才可经 driver spy 观测
+    opts.register?.(new AbortController())
     return new Promise((resolve) => {
       const settle = (): void => {
         shFake.running.delete(opts.bookName)
@@ -96,9 +103,12 @@ vi.mock('../../src/ai/orchestrate/self-heal.js', () => ({
 }))
 
 // ---- 假 runSpec（spawn 挂死控制；self-heal 已整体 mock，不触达）----
+// R0912-P2-④：新增 'manual' 模式——run 挂起但可手动放行 settle，验「强释放后 ctrl 保留
+// 注册至底层 run settle 才注销」的时序。
 const specFake = vi.hoisted(() => ({
-  mode: 'never' as 'never' | 'settle-on-abort' | 'immediate',
+  mode: 'never' as 'never' | 'settle-on-abort' | 'immediate' | 'manual',
   registeredCtrl: null as AbortController | null,
+  resolveRun: null as null | (() => void),
 }))
 vi.mock('../../src/ai/tasks/spec.js', async (importOriginal) => {
   const orig = await importOriginal<typeof import('../../src/ai/tasks/spec.js')>()
@@ -116,6 +126,10 @@ vi.mock('../../src/ai/tasks/spec.js', async (importOriginal) => {
         }
         if (specFake.mode === 'settle-on-abort') {
           ctrl.signal.addEventListener('abort', failAborted, { once: true })
+        }
+        if (specFake.mode === 'manual') {
+          specFake.resolveRun = () => resolve({ ok: false, error: '迟到收尾（R0912-P2-④ 测试注入）', code: 'ABORTED' })
+          return
         }
         // never：不观察 abort 信号 → 真挂死（中止也无法使其 settle）
       })
@@ -208,6 +222,7 @@ beforeEach(() => {
   shFake.lastOpts = null
   specFake.mode = 'never'
   specFake.registeredCtrl = null
+  specFake.resolveRun = null
   vi.mocked(abortSelfHeal).mockClear()
   vi.mocked(forceReleaseSelfHealRunning).mockClear()
   warnSpy = vi.spyOn(log, 'warn')
@@ -298,6 +313,39 @@ describe('重评-P3-7：/auto-write（self-heal）静默挂死 watchdog', () => 
       expect(hadWarn('疑似编排器挂起')).toBe(false)
     }
   })
+
+  it('⑤ R0912-P2-④：强释放后 ctrl 留册（不提前注销），底层 run 迟到 settle 时才由 finally 注销', async () => {
+    shFake.mode = 'never' // 中止也无法使其 settle（真挂死）
+    // StudioDriver 类型上 registerCtrl/unregisterCtrl 为 optional（运行时 mock 桩恒已定义）
+    // ——spyOn 面收窄，防 spy 类型落 never
+    const regSpy = vi.spyOn(
+      mockDriver as typeof mockDriver & { registerCtrl: NonNullable<typeof mockDriver.registerCtrl> },
+      'registerCtrl',
+    )
+    const unregSpy = vi.spyOn(
+      mockDriver as typeof mockDriver & { unregisterCtrl: NonNullable<typeof mockDriver.unregisterCtrl> },
+      'unregisterCtrl',
+    )
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const r1 = await post(`/api/books/${encodeURIComponent(BOOK)}/auto-write`, { chapter: 1 })
+    expect(r1.status).toBe(200)
+    // 编排 mock 经 opts.register 交 driver 登记（真实 self-heal 每轮 runSpec 同款接线）
+    expect(regSpy).toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(ORCH_STALL_WATCHDOG_MS + ORCH_STALL_GRACE_MS + 5_000)
+    // 两段 watchdog 已走完：闸已强释放，但 ctrl 未注销——修复前此处已注销，
+    // /interrupt 对在途请求永久失联（isRunning 假空闲 → anyRunning 判假 → no-op）
+    expect(vi.mocked(forceReleaseSelfHealRunning)).toHaveBeenCalledWith(BOOK)
+    expect(isSelfHealRunning(BOOK)).toBe(false)
+    expect(unregSpy).not.toHaveBeenCalled()
+
+    // 底层 run 迟到 settle → stream.ts 的 runSelfHeal finally 统一注销（唯一注销点）
+    for (const s of shFake.settleFns.splice(0)) s()
+    await vi.advanceTimersByTimeAsync(0) // 冲刷 settle 链的微任务
+    expect(unregSpy).toHaveBeenCalledTimes(1)
+    regSpy.mockRestore()
+    unregSpy.mockRestore()
+  })
 })
 
 describe('重评-P3-7：spawn 静默挂死 watchdog（runWriterSpawn 直调，闸用真实 registry）', () => {
@@ -317,7 +365,11 @@ describe('重评-P3-7：spawn 静默挂死 watchdog（runWriterSpawn 直调，�
       emit: vi.fn(),
       registerCtrl: vi.fn(),
       unregisterCtrl: vi.fn(),
-      interrupt: vi.fn(),
+      // R0912-P2-③：一段改走 driver.interrupt 链——桩按 cc 语义模拟（abort 在册 ctrl；
+      // 事件面由「interrupt 被调用」断言覆盖，桩不实际建 channel）
+      interrupt: vi.fn((_s: Session) => {
+        specFake.registeredCtrl?.abort()
+      }),
     }
   }
 
@@ -336,15 +388,18 @@ describe('重评-P3-7：spawn 静默挂死 watchdog（runWriterSpawn 直调，�
     }).finally(() => releaseSpawnGate(BOOK))
   }
 
-  it('① 静默至阈值 → 在册 ctrl 被中止；宽限内闸释放 → 无强释放', async () => {
+  it('① 静默至阈值 → 走 driver.interrupt 同款链（abort 在册 ctrl）；宽限内闸释放 → 无强释放', async () => {
     // runWriterSpawn 的 mock 快路不看 driver、只在 CLWRITING_DRIVER=mock 时短路——直调须临时脱离 mock
     delete process.env['CLWRITING_DRIVER']
     specFake.mode = 'settle-on-abort'
     const driver = makeFakeDriver()
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
-    const p = launchSpawn(driver as unknown as StudioDriver, {} as Session)
+    const session = {} as Session
+    const p = launchSpawn(driver as unknown as StudioDriver, session)
     await vi.advanceTimersByTimeAsync(ORCH_STALL_WATCHDOG_MS)
-    // 一段：abort 在册 ctrl（/interrupt 对 spawn 的动作）——假 runSpec 收到 abort 即收尾
+    // R0912-P2-③：一段 = driver.interrupt（等同作者 /interrupt 的动作集：abort ctrl +
+    // 推 interrupted 事件），不再是只 abort ctrl 的事件面分叉
+    expect(driver.interrupt).toHaveBeenCalledWith(session)
     expect(specFake.registeredCtrl?.signal.aborted).toBe(true)
     expect(hadWarn('疑似编排器挂起')).toBe(true)
     await p // runSpec 收尾 → runWriterSpawn 终态 finally → 闸释放
@@ -355,7 +410,7 @@ describe('重评-P3-7：spawn 静默挂死 watchdog（runWriterSpawn 直调，�
     expect(hadWarn('疑似挂死')).toBe(false)
   })
 
-  it('② 宽限期满闸仍占 → 强释放（放闸 + warning 事件 + warn 留痕）', async () => {
+  it('② 宽限期满闸仍占 → 强释放（放闸 + warning 事件 + warn 留痕；ctrl 不提前注销）', async () => {
     delete process.env['CLWRITING_DRIVER']
     specFake.mode = 'never'
     const driver = makeFakeDriver()
@@ -366,15 +421,34 @@ describe('重评-P3-7：spawn 静默挂死 watchdog（runWriterSpawn 直调，�
     expect(specFake.registeredCtrl?.signal.aborted).toBe(true)
     expect(isSpawnRunning(BOOK)).toBe(true) // 挂死：闸仍被占
     await vi.advanceTimersByTimeAsync(ORCH_STALL_GRACE_MS + 5_000)
-    // 二段强释放：放闸 + ctrl 注销 + 前端 warning + warn 留痕（底层任务未中断，迟到结果按迟到覆盖口径）
+    // 二段强释放：放闸 + 前端 warning + warn 留痕（底层任务未中断，迟到结果按迟到覆盖口径）
     expect(isSpawnRunning(BOOK)).toBe(false)
-    expect(driver.unregisterCtrl).toHaveBeenCalled()
     expect(driver.emit).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ type: 'warning', message: expect.stringContaining('强制释放') }),
     )
     expect(hadWarn('疑似挂死')).toBe(true)
+    // R0912-P2-④：强释放不再注销 ctrl（run 未 settle）——修复前此处已注销，/interrupt
+    // 对该在途请求永久失联；ctrl 留册至 settle（见 ③）
+    expect(driver.unregisterCtrl).not.toHaveBeenCalled()
     void guard
+  })
+
+  it('③ R0912-P2-④：强释放后 ctrl 留册，底层 run 迟到 settle 时才由终态 finally 注销', async () => {
+    delete process.env['CLWRITING_DRIVER']
+    specFake.mode = 'manual' // run 挂起但可手动放行 settle
+    const driver = makeFakeDriver()
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const p = launchSpawn(driver as unknown as StudioDriver, {} as Session)
+    await vi.advanceTimersByTimeAsync(ORCH_STALL_WATCHDOG_MS + ORCH_STALL_GRACE_MS + 5_000)
+    // 两段 watchdog 已走完：闸已强释放，但 ctrl 未注销（修复前此处即失联）
+    expect(isSpawnRunning(BOOK)).toBe(false)
+    expect(driver.registerCtrl).toHaveBeenCalled()
+    expect(driver.unregisterCtrl).not.toHaveBeenCalled()
+    // 底层 run 迟到 settle → 终态 finally 统一注销（唯一注销点）
+    specFake.resolveRun?.()
+    await p
+    expect(driver.unregisterCtrl).toHaveBeenCalledTimes(1)
   })
 
   it('④ 正常完成 → 计时器清理无泄漏', async () => {

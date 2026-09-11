@@ -281,25 +281,37 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     activeView.value = 'editor'
     if (activeDocId.value && activeDocId.value !== docId) {
       const doc = useDocStore()
-      if (doc.get(activeDocId.value)?.dirty) {
+      const prevDocId = activeDocId.value
+      if (doc.get(prevDocId)?.dirty) {
         // 清偿-切换autosave失败可见化（2026-09-09 残留清偿批）：fire-and-forget 存旧文档
         // 失败零 UI 面（save 吞错以 resolved false 上报，被 void 丢弃；编辑器状态条已随
         // 切文档离屏）。失败是异步迟到态：不抛错不打断切换（activeDocId 已先行更新）；
         // 入口书名快照守卫防在途切书后迟到失败提示落新书界面（对齐 doc.save P5 /
         // R69-28 同款纪律）。dirty 标志与崩溃镜像兜底均在（doc.save 失败路径自持），
         // 此处仅可见化。
+        // R0912-FE-P2-1（2026-09-11 重评-0911b 修复批）：save 在 saving（在途）与
+        // conflict（设计内跳过）两路返回 false，原「ok===false 即警报」把这两路也当
+        // 失败弹「切换文档时自动保存失败」假警报。改为：fire autosave（真正触发落盘
+        // 的动作不变）后，notify 前先等在途保存落定（waitInflightSave 既有原语，
+        // flushDirty/doDelete 先例）再复查 dirty——
+        // ① 在途保存落定且 dirty 已清（内容已落盘）→ 不提示；
+        // ② conflict 未决（autosave 设计内跳过，编辑器自有重载/覆盖冲突 UI）→ 不提示；
+        // ③ 仍 dirty 且非 conflict（保存真失败/落定后新键入）→ 才提示。
+        // 入口快照 docId/bookName 双守卫：切书/再切换后迟到的落定不落当前界面。
         const bookAtEntry = bookName.value
-        const notify = (): void => {
-          if (bookName.value === bookAtEntry) {
-            useUiStore().toast('切换文档时自动保存失败，未保存内容仍保留', 'warning')
+        void (async () => {
+          try {
+            await doc.save(prevDocId, 'autosave')
+          } catch {
+            /* 契约外 reject（save 正常吞错不拒）：落定即走下方 dirty 复查，可见化口径统一 */
           }
-        }
-        void doc.save(activeDocId.value, 'autosave').then(
-          (ok) => {
-            if (ok === false) notify()
-          },
-          notify, // 契约外 reject（save 正常吞错不拒）也可见化，且不产生 unhandled rejection
-        )
+          await doc.waitInflightSave(prevDocId)
+          if (bookName.value !== bookAtEntry) return
+          const cur = doc.get(prevDocId)
+          if (!cur || !cur.dirty) return // 已落盘 / 条目已清（如 404 删除自清理）
+          if (cur.conflict) return // 冲突未决不弹本警报（编辑器自有冲突 UI）
+          useUiStore().toast('切换文档时自动保存失败，未保存内容仍保留', 'warning')
+        })()
       }
     }
     activeDocId.value = docId

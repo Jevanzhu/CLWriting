@@ -1,12 +1,33 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
+
+// R0912-3 收口（2026-09-11 重评-0911c 修复批）注：R75-4 原用例以「清单路径是目录」
+// 制造读清单抛——该手法在 lookup 命中读 strict 化后会被保存**前段守卫**拦截（读失败
+// → WRITE_ERROR「未执行保存」，fail-closed，见 r0912-guard-strict-read.test.ts），
+// 走不到落盘段。R75-4 的原语义是「落盘**后**清单刷新失败不误报保存失败」，本文件
+// mock withManifestLockAsync 抛（清单锁等待超时形态，R48-6 同面）继续锚定该面：
+// 前段守卫真实通过（清单可读、条目匹配），刷新在 maybeUpdateManifest 的 best-effort
+// catch 中降级 warn。
+const WRITE_FAIL = vi.hoisted(() => ({ lock: false }))
+vi.mock('../../src/document/manifest.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/document/manifest.js')>()
+  return {
+    ...actual,
+    withManifestLockAsync: (p: string, fn: () => unknown) => {
+      if (WRITE_FAIL.lock) throw new Error('清单锁等待超时（模拟：另一进程 5 秒未让出）')
+      return (actual.withManifestLockAsync as typeof actual.withManifestLockAsync)(p, fn)
+    },
+  }
+})
+
 import { DocumentService } from '../../src/document/service.js'
 import { appendPending, findUnsettled, type JournalPending } from '../../src/document/journal.js'
 import { readTodayDelta, todayDate } from '../../src/document/words-diary.js'
 import { hashFile } from '../../src/fs/hash.js'
 import { computeRevision } from '../../src/document/revision.js'
+import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 
 describe('DocumentService / 保存协议主路径', () => {
   let bookRoot: string
@@ -131,21 +152,34 @@ describe('DocumentService / 保存协议主路径', () => {
     expect(readFileSync(fp).equals(before)).toBe(true) // 原始字节一字不动
   })
 
-  it('R75-4: 清单刷新失败（读清单抛）→ 保存仍成功（best-effort，不误报 WRITE_ERROR）', async () => {
+  it('R75-4: 清单刷新失败（清单锁超时抛）→ 保存仍成功（best-effort，不误报 WRITE_ERROR）', async () => {
     // 文件已原子落盘后清单只是可重建索引：此前清单锁超时/读失败会落进外层 catch
-    // 记 journal aborted + 返回 WRITE_ERROR——保存实际成功却报失败。以「清单路径是
-    // 目录」制造 readManifest 抛（EISDIR），断言保存照常 ok、内容落盘。
-    mkdirSync(join(bookRoot, '项目', '文档清单.jsonl'), { recursive: true }) // 目录占位 → 读必抛
-    const fp = join(bookRoot, '设定', '世界观.md')
-    const r = await svc.save('doc_world', '设定/世界观.md', {
-      content: '内容已落盘，清单坏了也不该报保存失败',
-      expectedRevision: null,
-      operationId: 'op-r75-4',
-      origin: 'manual',
-    })
-    expect(r.ok).toBe(true)
-    if (r.ok) expect(r.revision).toMatch(/^sha256:/)
-    expect(readFileSync(fp, 'utf-8')).toContain('清单坏了也不该报保存失败')
+    // 记 journal aborted + 返回 WRITE_ERROR——保存实际成功却报失败。
+    // R0912-3 注：清单**读**失败现由保存前段守卫 strict 化后 fail-closed 拒绝（未落盘、
+    // 可重试——容错空表会让复活守卫静默失效），本用例改打「落盘后刷新」面：mock
+    // withManifestLockAsync 抛（锁等待超时），前段守卫真实通过，断言保存照常 ok、
+    // 内容落盘。
+    const mp = join(bookRoot, '项目', '文档清单.jsonl')
+    mkdirSync(join(bookRoot, '项目'), { recursive: true })
+    const m = readManifest(mp)
+    upsertEntry(m, { id: 'doc_world', nodeType: 'document', path: '设定/世界观.md', parentId: null })
+    writeManifest(mp, m)
+    WRITE_FAIL.lock = true
+    try {
+      const fp = join(bookRoot, '设定', '世界观.md')
+      mkdirSync(join(bookRoot, '设定'), { recursive: true })
+      const r = await svc.save('doc_world', '设定/世界观.md', {
+        content: '内容已落盘，清单坏了也不该报保存失败',
+        expectedRevision: null,
+        operationId: 'op-r75-4',
+        origin: 'manual',
+      })
+      expect(r.ok).toBe(true)
+      if (r.ok) expect(r.revision).toMatch(/^sha256:/)
+      expect(readFileSync(fp, 'utf-8')).toContain('清单坏了也不该报保存失败')
+    } finally {
+      WRITE_FAIL.lock = false
+    }
   })
 
   it('P5-数据层（第七轮）: restore 到尚不存在的文件 → 跳过快照正常落盘（原 ENOENT 抛 WRITE_ERROR）', async () => {

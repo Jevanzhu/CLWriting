@@ -28,12 +28,16 @@ import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错�
 import { resolveModelPricing, computeCallCost } from '../../../ai/pricing.js'
 import { safeTokenCompare } from '../http.js'
 import type { StreamTicketStore } from './stream-ticket.js'
-import { heldTaskGatesFor } from './task-gate.js'
 import { isReviewRunningForBook } from './review.js'
-// R29-9（二十九轮）：chat/clear 的任务闸查询换合并口径（进程内 + 跨进程锁文件扫描，
-// books.ts busyGate R75-5 同款）——helper 放 audit.ts 导出（模式已三处重复，不动
-// task-gate.ts 共享面）；本文件其余 spawn/对话在途闸仍用纯进程内 heldTaskGatesFor
+// R29-9（二十九轮）：任务闸查询换合并口径（进程内 + 跨进程锁文件扫描，books.ts busyGate
+// R75-5 同款）——helper 放 audit.ts 导出（模式已三处重复，不动 task-gate.ts 共享面）。
+// R0912-P2-疑似：spawn / auto-write / chat 入口闸自本批起同样换合并口径——此前这三处仍用
+// 纯进程内 heldTaskGatesFor，双进程形态（dev-api/脚本与 GUI 并存）下他进程分钟级任务
+// 在途时写端点照常放行，产出互踩（busyGate 修复时漏的对称面）。
 import { allHeldTaskGatesFor } from './audit.js'
+// R0912：chat 工具侧闸端口的注册端（见 registerStreamRoutes 头部注）与真实闸本体
+import { registerTaskGateProvider } from '../../../ai/orchestrate/task-gate-port.js'
+import { acquireTaskGate } from './task-gate.js'
 // M-2（第八轮）：spawn 闸移驻 ai 层（turns.ts 的嵌套生成工具闸要查它，ai 层不得反向
 // import server 路由层）；此处再导出保持 books/audit/测试的既有导入不变
 import { isSpawnRunning, holdSpawnGate, releaseSpawnGate, __setSpawnRunning } from '../../../ai/orchestrate/spawn-registry.js'
@@ -177,18 +181,23 @@ export async function runWriterSpawn(opts: {
     bookName: opts.bookName,
     label: '手动写稿',
     gateHeld: () => isSpawnRunning(opts.bookName),
-    // 一段：既有用户中止路径（/interrupt 对 spawn 的动作 = abort 其在册 ctrl）
+    // 一段：既有用户中止路径。R0912-P2-③：对齐 /interrupt 的动作集（self-heal 分支同款
+    // driver.interrupt 链）——此前只 registeredCtrl.abort() 不推 interrupted 事件，
+    // /spawn 超时强停后前端状态机收不到终态（running 卡死），与 /interrupt 路径语义分叉。
+    // driver.interrupt（cc 实现）= abort 全部在册 ctrl + 推 interrupted，恰是 /interrupt
+    // 对 spawn 的完整动作集；driver 未实现 interrupt（mock 系桩）时退回直 abort 在册
+    // ctrl 保底（不回退既有中止能力，仅少事件面）。
     abortLikeUser: () => {
-      registeredCtrl?.abort()
+      if (opts.driver.interrupt) opts.driver.interrupt(opts.mainSession)
+      else registeredCtrl?.abort()
     },
-    // 二段：强释放——底层任务未中断，迟到结果按既有迟到覆盖口径处理（runWriterSpawn
-    // 终态 finally 的二次 releaseSpawnGate / unregisterCtrl 均幂等）
+    // 二段：强释放。R0912-P2-④：只放闸，不在此注销 ctrl——注销唯一落点留在底层 run
+    // settle（本函数终态 finally）。此前在此注销：若一段 abort 未触达底层 runTask（ctrl
+    // 尚未登记，或请求无视中止信号），ctrl 一经注销 isRunning 即假空闲，后续 /interrupt
+    // 对该在途请求永久失联；保留注册至 settle，/interrupt 仍可经 driver.isRunning 命中
+    // 并 abort，同 owner 的新登记（cc P2-6）亦会 abort 旧 ctrl 防僵尸。
     forceRelease: () => {
       releaseSpawnGate(opts.bookName)
-      if (registeredCtrl) {
-        opts.driver.unregisterCtrl?.(opts.mainSession, registeredCtrl)
-        registeredCtrl = null
-      }
       opts.driver.emit?.(opts.mainSession, {
         type: 'warning',
         message: '手动写稿长时间无进展，疑似挂起，并发闸已被服务端强制释放（底层任务未中断，迟到结果按既有迟到覆盖口径处理）',
@@ -266,6 +275,8 @@ export async function runWriterSpawn(opts: {
     }
   } finally {
     wd.cancel() // 重评-P3-7：终态撤 watchdog（成功/失败/中断统一，clearTimeout 无泄漏）
+    // R0912-P2-④：底层 run settle 的注销点（唯一）——watchdog 二段强释放不再提前注销，
+    // 强释放到 settle 之间 ctrl 留册，/interrupt 对在途请求不失联
     if (registeredCtrl) opts.driver.unregisterCtrl?.(opts.mainSession, registeredCtrl)
   }
 }
@@ -342,7 +353,9 @@ function startStallWatchdog(o: {
       stall = undefined
       if (done || aborted || !o.gateHeld()) return // 已收尾/已中止（竞态兜底）
       aborted = true
-      log.warn('api', `「${o.bookName}」${o.label}超过 ${ORCH_STALL_WATCHDOG_MS / 60_000} 分钟无任何进度事件，疑似编排器挂起，已自动中止（等同作者中断）；若 ${ORCH_STALL_GRACE_MS / 60_000}s 内仍不收尾将强制释放并发闸`)
+      // R0912-随批修正：宽限时长展示单位错配——ORCH_STALL_GRACE_MS(60s) 除以 60_000 却标
+      // 「s」，日志误显「若 1s 内仍不收尾」（实际宽限 60s）；改按秒换算
+      log.warn('api', `「${o.bookName}」${o.label}超过 ${ORCH_STALL_WATCHDOG_MS / 60_000} 分钟无任何进度事件，疑似编排器挂起，已自动中止（等同作者中断）；若 ${ORCH_STALL_GRACE_MS / 1000}s 内仍不收尾将强制释放并发闸`)
       o.abortLikeUser()
       grace = setTimeout(() => {
         grace = undefined
@@ -370,7 +383,59 @@ function startStallWatchdog(o: {
   }
 }
 
+/**
+ * R0912-P3-⑥：SSE 端点路径模式单源声明——index.ts 的 GET token 豁免表
+ * （GET_TOKEN_EXEMPT_PATHS）引用本常量。此前豁免正则与下方 books.stream 路由分居两文件，
+ * 靠各自手写的等价正则字符串耦合：路由路径若改，豁免表不会跟着改（静默失闸或漏豁免）。
+ * 现模式与被豁免端点（自带 ticket/?token=/x-studio-token 三凭据闸，见该 handler）同居
+ * 一文件，改路径只动一处。:name 为单路径段（[^/]+），与 router.ts :param 捕获口径一致。
+ * 行为零变更（两处正则原本等价）。
+ */
+export const SSE_STREAM_PATH_PATTERN = /^\/api\/books\/[^/]+\/stream$/
+
+/**
+ * R0912-P3-⑤：chat.send / chat.regenerate 入口闸组单点化——两路此前各自多段近乎逐行
+ * 复制（首检 / readJson 后中段复检 / ensureSession 后复检，历史上漂移过一次 R32-7），
+ * 抽本 helper 统一；调用点保持原有检查段数与先后顺序，TOCTOU 复检语义逐位保真（每次
+ * 调用即时取态：嵌套标记与各闸均为活查询，不缓存）。返回 null = 放行；非 null = 409
+ * BUSY 文案。
+ *
+ * 闸组语义（沿革 R-9 / R70-5 / R76-12）：
+ * - self-heal 闸 × R76-12 嵌套豁免：chat 的 write_chapter 工具在途时 isSelfHealRunning
+ *   为真且 'rewrite' 任务闸被本会话工具持有，原样 409 会把作者的 steer 追加话拒之门外
+ *   （写章是 chat 自己发起的，结束后续链正是 E1a 入队语义）——嵌套标记时放行，交
+ *   sendChatMessage 原子判定入队；独立写稿（非嵌套）维持 409。
+ * - spawn 闸（AI-1/M-2 互斥矩阵）：写手在途时对话（含嵌套生成工具）两路 runTask 互覆
+ *   预算章块/草稿。
+ * - 任务闸（R70-5，嵌套时豁免）：outline/lead-updates/onboard-ai/analyze 等分钟级任务
+ *   在途时对话收尾与其产出互踩。R0912-P2-疑似：换 allHeldTaskGatesFor（books.ts
+ *   busyGate 同款含跨进程面）——他进程分钟级任务在途不再放行。
+ * - opts.taskGate = false：regenerate 的 readJson 后中段复检专用——该段历史上只查编排
+ *   两闸（R32-7 引入时未含任务闸面），任务闸窗口由 ensureSession 后的终检覆盖，保真
+ *   不改拒绝时序。
+ */
+function chatEntryGateError(bookName: string, opts?: { taskGate?: boolean }): string | null {
+  const chatEmbeddedWrite = isChatEmbeddedSelfHealRunning(bookName)
+  if (isSelfHealRunning(bookName) && !chatEmbeddedWrite) {
+    return '本书正在全自动写章，先等它跑完或中断再对话'
+  }
+  if (isSpawnRunning(bookName)) {
+    return '本书正在手动写稿，先等它跑完或中断再对话'
+  }
+  if ((opts?.taskGate ?? true) && !chatEmbeddedWrite) {
+    const held = allHeldTaskGatesFor(bookName)
+    if (held.length > 0) {
+      return `本书有任务在跑（${held.join('、')}），先等它完成或中断再对话`
+    }
+  }
+  return null
+}
+
 export function registerStreamRoutes(ctx: StreamCtx): void {
+  // R0912（重评-0911b P2③ / 重评-0911c）：ai→studio 反向依赖收口的注册端——chat 工具
+  // 侧（turns.ts）经 ai/orchestrate/task-gate-port 端口取闸，真实闸在服务构造时注入。
+  // 幂等（重注册覆盖）；未注册形态仅存在于纯 ai 层单测（端口放行，见端口头注）。
+  registerTaskGateProvider(acquireTaskGate)
   // SSE 订阅 driver 事件流
   defineRoute('books.stream', {
     method: 'GET',
@@ -589,8 +654,10 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     // R71-1（总七十一轮）：生成任务闸反向互斥——对齐 /chat（R70-5）与删书/改名 busyGate
     // 口径：outline/lead-updates/onboard-ai/analyze 等分钟级任务在途时再 /spawn，写手
     // 草稿与任务收尾的覆盖写（细纲.md/账本推进.md 等上下文注入源）互相踩踏
+    // R0912-P2-疑似：换 allHeldTaskGatesFor（busyGate 同款含跨进程锁文件面）——双进程
+    // 形态下他进程分钟级任务在途时，此前纯进程内查询看不见、放行 /spawn 互踩产出
     {
-      const held = heldTaskGatesFor(bookName)
+      const held = allHeldTaskGatesFor(bookName)
       if (held.length > 0) {
         return replyError(res, 409, 'BUSY', `本书有任务在跑（${held.join('、')}），先等它完成或中断再手动写稿`)
       }
@@ -676,11 +743,23 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       isChatRunning(bookName) ||
       isSpawnRunning(bookName) ||
       (session0 !== null && (driver0.isRunning?.(session0) ?? false))
-    if (!anyRunning) return reply(res, 200, { ok: true })
+    // R0912-P2-①：返回值如实附 interrupted——true = 在途任务确被下达中断动作；false =
+    // 判定时刻本就无在途（含波 2 已注册 ctrl 的 outline/review/analysis 等端点——其
+    // ctrl 经 driver.isRunning 判真走真实中断路径），不再无差别 {ok:true} 假成功。
+    if (!anyRunning) return reply(res, 200, { ok: true, interrupted: false })
     const session = await ensureSession(bookName, ctx.workDir!)
     const driver = getDriver()
-    if (driver.interrupt) driver.interrupt(session)
-    reply(res, 200, { ok: true })
+    // R0912-P3-④：await 后复检——anyRunning 判定与 ensureSession await 之间任务可能
+    // 自然收尾，原样 interrupt 会向零消费者 push 假 interrupted 事件（重连客户端错认
+    // 刚被中断）。复检仍真值才下达中断；driver.isRunning 对波 2 注册 ctrl 的任务同样
+    // 生效（cc.isRunning 覆盖全部 owner 槽位的在册 ctrl）。
+    const stillRunning =
+      isSelfHealRunning(bookName) ||
+      isChatRunning(bookName) ||
+      isSpawnRunning(bookName) ||
+      (driver.isRunning?.(session) ?? false)
+    if (stillRunning && driver.interrupt) driver.interrupt(session)
+    reply(res, 200, { ok: true, interrupted: stillRunning })
   },
   })
 
@@ -716,8 +795,10 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     // 方向；outline/lead-updates/onboard-ai/analyze 持闸（分钟级）期间启动 self-heal，
     // 其收尾覆盖写 细纲.md/账本推进.md，后续章拿到混合态上下文（双费 + 两端闭合误报
     // 红触发多余重写）。与删书/改名 busyGate 同口径。
+    // R0912-P2-疑似：换 allHeldTaskGatesFor（busyGate 同款含跨进程锁文件面）——双进程
+    // 形态下他进程分钟级任务在途时，此前纯进程内查询看不见、放行 self-heal 互踩产出
     {
-      const held = heldTaskGatesFor(bookName)
+      const held = allHeldTaskGatesFor(bookName)
       if (held.length > 0) {
         return replyError(res, 409, 'BUSY', `本书有任务在跑（${held.join('、')}），先等它完成或中断再自动写章`)
       }
@@ -750,8 +831,9 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     // R71-2（总七十一轮）：任务闸复检（对齐 /chat 的 R70-5 复检口径）——readJson +
     // ensureSession 两个 await 的窗口内新 acquire 的生成任务闸（分钟级）在此拦截，
     // 否则 self-heal 收尾覆盖写 细纲.md/账本推进.md 时与任务产出互踩
+    // R0912-P2-疑似：复检同换 allHeldTaskGatesFor（与首检同口径，含跨进程面）
     {
-      const held = heldTaskGatesFor(bookName)
+      const held = allHeldTaskGatesFor(bookName)
       if (held.length > 0) {
         return replyError(res, 409, 'BUSY', `本书有任务在跑（${held.join('、')}），先等它完成或中断再自动写章`)
       }
@@ -776,14 +858,15 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       // 二段：强释放。运行登记正本在 ai 层 running Map——经生产命名导出
       // forceReleaseSelfHealRunning(name)（= running.delete，幂等；R1010c-SRV-P3-1
       // 收编：原直调 __setSelfHealRunningForTest 系测试命名 API 进生产路径）完成
-      // 登记清理 + 同 ctrl 注销防 isRunning 假真；迟到编排若日后 settle：其 finally
-      // 的 running.delete 同键幂等，迟到结果按既有迟到覆盖口径处理。
+      // 登记清理；迟到编排若日后 settle：其 finally 的 running.delete 同键幂等，
+      // 迟到结果按既有迟到覆盖口径处理。
+      // R0912-P2-④：不在此注销 ctrl——注销唯一落点留在底层 run settle（下方 finally）。
+      // 此前在此注销：一段 abort 未触达底层 runTask 时（请求无视中止信号 / ctrl 尚未
+      // 重新登记），ctrl 一经注销 isRunning 即假空闲，后续 /interrupt 对该在途请求永久
+      // 失联；保留注册至 settle，/interrupt 仍可经 driver.isRunning 命中并 abort，同
+      // owner 的新登记（cc P2-6）亦会 abort 旧 ctrl 防僵尸。
       forceRelease: () => {
         forceReleaseSelfHealRunning(bookName)
-        if (registered) {
-          driver.unregisterCtrl?.(mainSession, registered)
-          registered = null
-        }
         driver.emit?.(mainSession, {
           type: 'warning',
           message: '全自动写章长时间无进展，疑似挂起，已被服务端强制收尾并释放并发闸（底层任务未中断，迟到结果按既有迟到覆盖口径处理）',
@@ -821,6 +904,8 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       .catch((e) => emitSpawnError(driver, mainSession, e))
       .finally(() => {
         wd.cancel() // 重评-P3-7：终态撤 watchdog（正常完成/中止/失败统一，clearTimeout 无泄漏）
+        // R0912-P2-④：底层 run settle 的注销点（唯一）——watchdog 二段强释放不再提前
+        // 注销，强释放到 settle 之间 ctrl 留册，/interrupt 对在途请求不失联
         if (registered) driver.unregisterCtrl?.(mainSession, registered)
       })
 
@@ -859,49 +944,16 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const bookName = params['name']!
       if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到用户数据目录')
-      // R-9（第十六轮）：chat 入口补 spawn/self-heal 反向互斥——互斥矩阵（AI-1/M-2）
-      // 此前只补了 spawn/auto-write 侧的 isChatRunning 检查，chat 侧反向缺失：
-      // 写手在途时发对话（含 rewrite/write_chapter 嵌套生成工具），两路 runTask 以不同
-      // 章号交替记账互覆预算章块、写手互覆草稿。注：chat 自身 running 的 steer 入队
-      // 语义只针对 chat 自己，与这两闸不冲突（sendChatMessage 内原子判定）。
-      // R76-12（二十四轮 A 域）：对话嵌套写章豁免——chat 的 write_chapter 工具在途时
-      // isSelfHealRunning 为真且 'rewrite' 任务闸被本会话工具持有，原样 409 会把作者
-      // 的 steer 追加话拒之门外（写章是 chat 自己发起的，结束后续链正是 E1a 入队
-      // 语义）。嵌套标记（isChatEmbeddedSelfHealRunning）时放行两闸，交 sendChatMessage
-      // 原子判定入队；独立写稿（非嵌套）维持 409 不变。
-      const chatEmbeddedWrite = isChatEmbeddedSelfHealRunning(bookName)
-      if (isSelfHealRunning(bookName) && !chatEmbeddedWrite) {
-        return replyError(res, 409, 'BUSY', '本书正在全自动写章，先等它跑完或中断再对话')
-      }
-      if (isSpawnRunning(bookName)) {
-        return replyError(res, 409, 'BUSY', '本书正在手动写稿，先等它跑完或中断再对话')
-      }
-      // R70-5（十八轮）：生成任务闸反向互斥（同 /auto-write 口径，见彼处注释）；
-      // R76-12：嵌套写章时豁免（held 的 'rewrite' 是本会话工具所持）
-      if (!chatEmbeddedWrite) {
-        const held = heldTaskGatesFor(bookName)
-        if (held.length > 0) {
-          return replyError(res, 409, 'BUSY', `本书有任务在跑（${held.join('、')}），先等它完成或中断再对话`)
-        }
-      }
+      // R-9（第十六轮）：chat 入口补 spawn/self-heal 反向互斥（闸组语义详见
+      // chatEntryGateError 注释）。R0912-P3-⑤：闸组抽 helper 单点化（与 regenerate 同源）。
+      const gateErr = chatEntryGateError(bookName)
+      if (gateErr) return replyError(res, 409, 'BUSY', gateErr)
 
       const mainSession = await ensureSession(bookName, ctx.workDir!)
       // R-9：ensureSession await 后二次检查（对齐 /auto-write 的 N4 TOCTOU 收窄口径；
       // R76-12 嵌套豁免同首检口径——嵌套标记可能在 await 期间才落下）
-      const chatEmbeddedWrite2 = isChatEmbeddedSelfHealRunning(bookName)
-      if (isSelfHealRunning(bookName) && !chatEmbeddedWrite2) {
-        return replyError(res, 409, 'BUSY', '本书正在全自动写章，先等它跑完或中断再对话')
-      }
-      if (isSpawnRunning(bookName)) {
-        return replyError(res, 409, 'BUSY', '本书正在手动写稿，先等它跑完或中断再对话')
-      }
-      // R70-5：复检（同首检口径；R76-12 嵌套豁免同上）
-      if (!chatEmbeddedWrite2) {
-        const held = heldTaskGatesFor(bookName)
-        if (held.length > 0) {
-          return replyError(res, 409, 'BUSY', `本书有任务在跑（${held.join('、')}），先等它完成或中断再对话`)
-        }
-      }
+      const gateErrRecheck = chatEntryGateError(bookName)
+      if (gateErrRecheck) return replyError(res, 409, 'BUSY', gateErrRecheck)
       // E1a（steer）：对话运行中不再 409 拒绝，改为入队（当前轮结束自动续链）。
       // 二次检查（await 期间可能另一个请求已启动）在 sendChatMessage 内原子完成——running 判定与入队同临界区。
       const driver = getDriver()
@@ -956,22 +1008,10 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     // R-9（第十六轮）：regenerate 同款 spawn/self-heal 反向互斥（与 chat.send 口径一致）
     // R32-7（三十二轮）：补 R76-12 嵌套写章豁免——chat 自己的 write_chapter 工具在途时
     // isSelfHealRunning 为真且 'rewrite' 任务闸被本会话工具持有，原样 409 会把 regenerate
-    // 拒之门外且文案误导（报「全自动写章进行中」，实为 chat 自身嵌套生成）。豁免口径与
-    // chat.send 完全一致（独立写稿维持 409 不变）。
-    const chatEmbeddedWrite = isChatEmbeddedSelfHealRunning(bookName)
-    if (isSelfHealRunning(bookName) && !chatEmbeddedWrite) {
-      return replyError(res, 409, 'BUSY', '本书正在全自动写章，先等它跑完或中断再对话')
-    }
-    if (isSpawnRunning(bookName)) {
-      return replyError(res, 409, 'BUSY', '本书正在手动写稿，先等它跑完或中断再对话')
-    }
-    // R70-5（十八轮）：生成任务闸反向互斥（同 chat.send 口径，见彼处注释）；R32-7：嵌套豁免
-    if (!chatEmbeddedWrite) {
-      const held = heldTaskGatesFor(bookName)
-      if (held.length > 0) {
-        return replyError(res, 409, 'BUSY', `本书有任务在跑（${held.join('、')}），先等它完成或中断再对话`)
-      }
-    }
+    // 拒之门外且文案误导（报「全自动写章进行中」，实为 chat 自身嵌套生成）。
+    // R0912-P3-⑤：闸组抽 helper 单点化（与 chat.send 同源，语义详见 chatEntryGateError 注释）。
+    const gateErr = chatEntryGateError(bookName)
+    if (gateErr) return replyError(res, 409, 'BUSY', gateErr)
     const body = await readJson(req)
     const rawParentSeq = Number(body['parentSeq'])
     if (!Number.isInteger(rawParentSeq) || rawParentSeq < 1) return replyError(res, 400, 'BAD_INPUT', 'parentSeq 需为正整数')
@@ -981,34 +1021,19 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     const chapter = rawChapter === undefined || rawChapter === null ? undefined : Number(rawChapter)
     if (chapter !== undefined && (!Number.isInteger(chapter) || chapter < 1)) return replyError(res, 400, 'BAD_INPUT', 'chapter 需为正整数')
 
-    // R32-7：此处二次检查嵌套豁免（readJson await 期间嵌套标记可能才落下）
-    const chatEmbeddedWriteMid = isChatEmbeddedSelfHealRunning(bookName)
-    if (isSelfHealRunning(bookName) && !chatEmbeddedWriteMid) {
-      return replyError(res, 409, 'BUSY', '本书正在全自动写章，先等它跑完或中断再对话')
-    }
-    if (isSpawnRunning(bookName)) {
-      return replyError(res, 409, 'BUSY', '本书正在手动写稿，先等它跑完或中断再对话')
-    }
+    // R32-7：此处二次检查嵌套豁免（readJson await 期间嵌套标记可能才落下）。
+    // R0912-P3-⑤：中段复检历史上只查编排两闸（R32-7 引入时未含任务闸面），以
+    // taskGate:false 保真——任务闸窗口由 ensureSession 后的终检覆盖，不改拒绝时序。
+    const gateErrMid = chatEntryGateError(bookName, { taskGate: false })
+    if (gateErrMid) return replyError(res, 409, 'BUSY', gateErrMid)
     const mainSession = await ensureSession(bookName, ctx.workDir!)
     // Z-3（第五十八轮）：二次检查移到 ensureSession 之后（与 chat.send 完全同序）——
     // 此前排在 await 之前（注释却宣称「await 后二次检查」），让出窗口内他标签页 /spawn
     // 占闸启动写手，regenerate 续体无复查直接 sendChatMessage（内含嵌套生成工具）→
     // 双写手互覆草稿/预算章块（R-9 互斥矩阵要防的场景）
     // R32-7：复检同款嵌套豁免（嵌套标记可能在 await 期间才落下，同 chat.send R76-12）
-    const chatEmbeddedWrite2 = isChatEmbeddedSelfHealRunning(bookName)
-    if (isSelfHealRunning(bookName) && !chatEmbeddedWrite2) {
-      return replyError(res, 409, 'BUSY', '本书正在全自动写章，先等它跑完或中断再对话')
-    }
-    if (isSpawnRunning(bookName)) {
-      return replyError(res, 409, 'BUSY', '本书正在手动写稿，先等它跑完或中断再对话')
-    }
-    // R70-5（十八轮）：复检（同 chat.send 口径）；R32-7：嵌套豁免
-    if (!chatEmbeddedWrite2) {
-      const held = heldTaskGatesFor(bookName)
-      if (held.length > 0) {
-        return replyError(res, 409, 'BUSY', `本书有任务在跑（${held.join('、')}），先等它完成或中断再对话`)
-      }
-    }
+    const gateErrRecheck = chatEntryGateError(bookName)
+    if (gateErrRecheck) return replyError(res, 409, 'BUSY', gateErrRecheck)
     const driver = getDriver()
     const outcome = sendChatMessage({
       driver,

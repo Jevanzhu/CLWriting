@@ -500,12 +500,18 @@ export interface ChunkScoreRow {
  *   R49-20（评审 R49）：produced 计数先于 model/维度过滤——探针行（第 maxRows 个
  *   产出行）可以是不匹配行而**不入 rows**，故附 `lastProducedWasMatch` 供调用方
  *   精确剔除（仅当最后产出行确为命中才 pop，不得盲 pop）。
+ *
+ * R0912-4（2026-09-11 修复批）：可选 signal——行级 abort 检查点（recallDetailed 中断
+ * 透传）。同步扫描循环内无法观测「扫描中途」置位的信号（单线程无让出点），但
+ * 预先 aborted / embed 窗口内已 aborted 的信号在此即时抛「RAG 召回已中断」，
+ * 大库不再白扫；也为未来异步化预留检查点。抛错走 for…of 迭代器收口（return()）。
  */
 export function streamChunkScores(
   db: DatabaseSync,
   queryVec: Float32Array,
   model: string,
   maxRows: number,
+  signal?: AbortSignal,
 ): { rows: ChunkScoreRow[]; produced: number; poisonRows: number; lastProducedWasMatch: boolean } {
   const stmt = db.prepare('SELECT 章号, start_offset, end_offset, embedding, norm, model FROM chunks')
   const qNorm = l2Norm(queryVec)
@@ -519,6 +525,8 @@ export function streamChunkScores(
     章号: number; start_offset: number; end_offset: number
     embedding: Uint8Array; norm: number | null; model: string
   }>) {
+    // R0912-4：行级中断检查点——命中即抛（与 recallDetailed 中断态同一文案）
+    if (signal?.aborted) throw new Error('RAG 召回已中断')
     if (produced >= maxRows) break
     if (r.norm !== null && !Number.isFinite(r.norm)) {
       poisonRows++

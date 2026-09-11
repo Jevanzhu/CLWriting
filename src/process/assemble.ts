@@ -26,19 +26,30 @@ const DEFAULT_THRESHOLDS: Record<LeadType, number> = {
   关系线: 20,
 }
 
+// R0912-6（2026-09-11 修复批）：近况段进行中线索上限——openLeads 原取全部「进行中」
+// 无 cap，而近况段是 essential（prepare 刚需不砍）：超长篇数百线时近况段无限膨胀。
+// 源头封住：快照只保留最近 OPEN_LEADS_CAP 条（按 opened_at 升序现有排序取尾部=最近
+// 开启的线），超限数随快照透出（openLeadsOmitted），formatStatus 追加一行提示；
+// 悬太久的线另有 staleLeads 段承载，不因 cap 丢失预警面。
+const OPEN_LEADS_CAP = 50
+
 /** 近况快照（供阶段 1 起草细纲 + 阶段 3 备料） */
 export interface StatusSnapshot {
   /** 已定稿的最新章号（0 = 还没开始写） */
   currentChapter: number
   /** 当前卷号 */
   currentVolume: number
-  /** 进行中的账本（id/type/title/开启章/年龄） */
+  /** 进行中的账本（id/type/title/开启章/年龄）
+   *  R0912-6：超过 OPEN_LEADS_CAP 条时只保留最近开启的 OPEN_LEADS_CAP 条（省略数见
+   *  openLeadsOmitted）——近况段 essential 无裁剪通道，膨胀须在快照源头封住 */
   openLeads: {
     id: string
     type: LeadType
     title: string
     openedAt: number
   }[]
+  /** R0912-6：因 cap 未列入 openLeads 的进行中线数（未超限缺省；formatStatus 据此追加提示行） */
+  openLeadsOmitted?: number
   /** 悬太久预警（超阈值的进行中线） */
   staleLeads: {
     id: string
@@ -108,15 +119,19 @@ export function assembleStatus(
   }
 
   // 进行中的账本
+  // R0912-6：行按 opened_at 升序（现有排序）——超 cap 取尾部（最近开启的线），省略数
+  // 随快照透出；保序切片（升序不变，formatStatus 展示序与旧口径一致）
   const openRows = db.prepare(
     `SELECT id, type, title, opened_at FROM leads WHERE status = '进行中' ORDER BY opened_at`,
   ).all() as Record<string, unknown>[]
-  const openLeads = openRows.map((r) => ({
+  const openLeadsAll = openRows.map((r) => ({
     id: r['id'] as string,
     type: r['type'] as LeadType,
     title: r['title'] as string,
     openedAt: r['opened_at'] as number,
   }))
+  const openLeadsOmitted = Math.max(0, openLeadsAll.length - OPEN_LEADS_CAP)
+  const openLeads = openLeadsOmitted > 0 ? openLeadsAll.slice(-OPEN_LEADS_CAP) : openLeadsAll
 
   // 悬太久（复用 readStaleLeads）
   const staleRaw = readStaleLeads(db, currentChapter, thresholds, 30)
@@ -149,6 +164,8 @@ export function assembleStatus(
     currentChapter,
     currentVolume,
     openLeads,
+    // R0912-6：仅超限时携带（未超限缺省，消费方零感知）
+    ...(openLeadsOmitted > 0 ? { openLeadsOmitted } : {}),
     staleLeads,
     recentChapters,
   }
@@ -175,6 +192,10 @@ export function formatStatus(snapshot: StatusSnapshot): string {
     lines.push(`【进行中的线】${snapshot.openLeads.length} 条`)
     for (const l of snapshot.openLeads) {
       lines.push(`  ${l.id} ${l.title}（第${l.openedAt}章开启）`)
+    }
+    // R0912-6：cap 生效时追加提示行——AI/作者可知晓尚有未列入的进行中线
+    if (snapshot.openLeadsOmitted !== undefined && snapshot.openLeadsOmitted > 0) {
+      lines.push(`（另有 ${snapshot.openLeadsOmitted} 条进行中线索未列入）`)
     }
     lines.push('')
   }

@@ -30,6 +30,8 @@ import { mapAnalysisToCandidates, persistCandidates } from '../../../format/styl
 import { log, localDayKey } from '../../../log/index.js' // R76-31：候选日键本地日（同 overview/日记口径）；R46-2：worker 回落 warn 留痕
 import { safeManifestPath } from '../../../fs/safe-path.js'
 import { acquireTaskGate, orchestrationBusyFor } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
+import { getDriver, ensureSession } from '../../../driver/index.js' // R0912-P2-①：中断通道注册面
+import type { Session } from '../../../driver/types.js'
 import { yieldToEventLoop, SCAN_YIELD_EVERY } from './progress.js' // R39-15：MISS 读循环逐块让出（R37-3 范式；R46-2 起主路径下沉 worker，此为回落面）
 import { runStyleScanAsync, type StyleScanJob } from './style-scan-async.js' // R46-2：全书扫描 worker 卸载
 
@@ -336,7 +338,9 @@ async function computeAnalysisOverviewAsync(bookRoot: string): Promise<AnalysisO
   return { scoreTrend, emotionTrend, hooksTrend, allChapters, style: styleEnv?.payload ?? null }
 }
 
-/** 跑一次 analyst 生成（runSpec 统一编排；mock 与真实同走 decode）。 */
+/** 跑一次 analyst 生成（runSpec 统一编排；mock 与真实同走 decode）。
+ *  R0912-P2-①：ctrl 透传 runSpec——外部中断（/interrupt 经 driver abort）同步中止生成；
+ *  中断码透传（ABORTED），其余失败维持既有 GEN_FAIL 坍缩不变（错误码面零扩散）。 */
 async function runAnalyst(
   userDataPath: string | null,
   kind: ContractKind,
@@ -344,9 +348,10 @@ async function runAnalyst(
   bookRoot?: string,
   /** Z-1（第五十八轮）：正文/采样注入源（相对书根）——铁律①登记通道 */
   promptFiles?: string[],
+  ctrl?: AbortController,
 ): Promise<{ ok: true; payload: unknown } | { ok: false; code: string; error: string }> {
-  const out = await runSpec(analysisSpec(kind), { userDataPath, bookRoot, userPrompt: prompt, promptFiles })
-  if (!out.ok) return { ok: false, code: 'GEN_FAIL', error: out.error }
+  const out = await runSpec(analysisSpec(kind), { userDataPath, bookRoot, userPrompt: prompt, promptFiles, ctrl })
+  if (!out.ok) return { ok: false, code: out.code === 'ABORTED' ? 'ABORTED' : 'GEN_FAIL', error: out.error }
   if (out.data.input) return { ok: true, payload: out.data.input }
   return { ok: false, code: 'PARSE_FAIL', error: 'AI 未通过工具提交结构化结果' }
 }
@@ -408,7 +413,23 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       // RB-SV-P2-2：长任务并发闸（分钟级 AI 分析，重复点击=双倍费用）
       const release = acquireTaskGate(params['name']!, 'analyze')
       if (!release) return replyError(res, 409, 'BUSY', '本书已有分析任务在跑，请等待完成后再试')
+      // R0912-P2-①（2026-09-11 重评-0911c 修复批）：接入中断通道——此前 runSpec 未接 driver
+      // ctrl 注册面，/interrupt 对在途分析完全无效且 driver.isRunning 假空闲（假成功）。接法
+      // 照抄 stream.ts spawn/self-heal 的 register/unregister 形态：编排段新建 ctrl →
+      // driver.registerCtrl → settle（外层 finally）统一注销。owner 按 action 分槽
+      // （'analyze:<书名>'）而非共用 'analysis:<书名>'——本文件四个 AI 子端点任务闸按 action
+      // 分键可并发（analyze × autotag 等），共用 owner 会让后注册方按 cc P2-6「同 owner 换新
+      // 先 abort 旧」误伤在途另一路；按 action 分槽跨书/跨端点互不误伤，同 action 重入已被
+      // 任务闸 409 挡住，串行换新安全。
+      const driver = getDriver()
+      let registeredSession: Session | null = null
+      let registeredCtrl: AbortController | null = null
       try {
+        const session = await ensureSession(params['name']!, ctx.workDir!)
+        registeredSession = session
+        const ctrl = new AbortController()
+        driver.registerCtrl?.(session, ctrl, `analyze:${params['name']!}`)
+        registeredCtrl = ctrl
         const reqBody = await readJson(req)
         const kind = String(reqBody['kind'] ?? '').trim() as AnalysisKind
         if (!ANALYSIS_KINDS.has(kind)) {
@@ -445,8 +466,12 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
         // 快照口径，此处对齐）
         const modelAtRequest = process.env['CLWRITING_DRIVER'] === 'mock' ? 'mock' : resolveTier(ctx.userDataPath, 'assistant').model
         const prompt = buildAnalystPrompt(kind, body, chapter, bookRoot)
-        const result = await runAnalyst(ctx.userDataPath, kind as ContractKind, prompt, bookRoot, [m.path])
-        if (!result.ok) return replyError(res, 500, result.code, result.error)
+        const result = await runAnalyst(ctx.userDataPath, kind as ContractKind, prompt, bookRoot, [m.path], ctrl)
+        if (!result.ok) {
+          // R0912-P2-①：中断收口——ABORTED → 499 人话信封（对齐 outline/rewrite 既有先例）
+          if (result.code === 'ABORTED') return replyError(res, 499, result.code, result.error)
+          return replyError(res, 500, result.code, result.error)
+        }
         const payload = result.payload
 
         const envelope = {
@@ -461,6 +486,9 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
         forgetAnalysisOverviewCache(bookRoot)
         reply(res, 200, { ok: true, envelope })
       } finally {
+        // R0912-P2-①：settle（成功/失败/中断）统一注销——isRunning 归 false（cc X-P2-11 口径）；
+        // ensureSession 失败（未注册）时跳过
+        if (registeredCtrl && registeredSession) driver.unregisterCtrl?.(registeredSession, registeredCtrl)
         release()
       }
     },
@@ -480,7 +508,17 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       // RB-SV-P2-2：长任务并发闸
       const release = acquireTaskGate(params['name']!, 'autotag')
       if (!release) return replyError(res, 409, 'BUSY', '本书已在识别章节标签，请等待完成后再试')
+      // R0912-P2-①：接入中断通道（register/unregister 形态与 analyze 子端点同款；
+      // owner 按 action 分槽='autotag:<书名>'，理由见 analyze 处头注）
+      const driver = getDriver()
+      let registeredSession: Session | null = null
+      let registeredCtrl: AbortController | null = null
       try {
+        const session = await ensureSession(params['name']!, ctx.workDir!)
+        registeredSession = session
+        const ctrl = new AbortController()
+        driver.registerCtrl?.(session, ctrl, `autotag:${params['name']!}`)
+        registeredCtrl = ctrl
         const bookRoot = r.bookRoot
         const docId = params['docId'] ?? ''
         const m = resolveDocEntry(bookRoot, docId)
@@ -509,8 +547,12 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
           `## 正文\n${body}`,
         ].join('\n')
 
-        const result = await runAnalyst(ctx.userDataPath, 'tags', prompt, bookRoot, [m.path])
-        if (!result.ok) return replyError(res, 500, result.code, result.error)
+        const result = await runAnalyst(ctx.userDataPath, 'tags', prompt, bookRoot, [m.path], ctrl)
+        if (!result.ok) {
+          // R0912-P2-①：中断收口——ABORTED → 499 人话信封（对齐 outline/rewrite 既有先例）
+          if (result.code === 'ABORTED') return replyError(res, 499, result.code, result.error)
+          return replyError(res, 500, result.code, result.error)
+        }
         const payload = result.payload as Record<string, unknown>
 
         // 校验：只保留合法选项内的字段（防 AI 产出越界值）
@@ -528,6 +570,8 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
         }
         reply(res, 200, { ok: true, tags })
       } finally {
+        // R0912-P2-①：settle（成功/失败/中断）统一注销（口径见 analyze 处 finally 注释）
+        if (registeredCtrl && registeredSession) driver.unregisterCtrl?.(registeredSession, registeredCtrl)
         release()
       }
     },
@@ -548,7 +592,17 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       // RB-SV-P2-2：长任务并发闸
       const release = acquireTaskGate(params['name']!, 'infer-meta')
       if (!release) return replyError(res, 409, 'BUSY', '本书已在推断目标情绪，请等待完成后再试')
+      // R0912-P2-①：接入中断通道（register/unregister 形态与 analyze 子端点同款；
+      // owner 按 action 分槽='infer-meta:<书名>'，理由见 analyze 处头注）
+      const driver = getDriver()
+      let registeredSession: Session | null = null
+      let registeredCtrl: AbortController | null = null
       try {
+        const session = await ensureSession(params['name']!, ctx.workDir!)
+        registeredSession = session
+        const ctrl = new AbortController()
+        driver.registerCtrl?.(session, ctrl, `infer-meta:${params['name']!}`)
+        registeredCtrl = ctrl
         const bookRoot = r.bookRoot
         const docId = params['docId'] ?? ''
         const m = resolveDocEntry(bookRoot, docId)
@@ -577,8 +631,12 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
           `## 正文\n${body}`,
         ].join('\n')
 
-        const result = await runAnalyst(ctx.userDataPath, 'infer_meta', prompt, bookRoot, [m.path])
-        if (!result.ok) return replyError(res, 500, result.code, result.error)
+        const result = await runAnalyst(ctx.userDataPath, 'infer_meta', prompt, bookRoot, [m.path], ctrl)
+        if (!result.ok) {
+          // R0912-P2-①：中断收口——ABORTED → 499 人话信封（对齐 outline/rewrite 既有先例）
+          if (result.code === 'ABORTED') return replyError(res, 499, result.code, result.error)
+          return replyError(res, 500, result.code, result.error)
+        }
         const payload = result.payload as { 目标情绪?: string; 核心反转?: string }
 
         const meta: Record<string, string> = {}
@@ -588,6 +646,8 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
         if (reversal) meta.核心反转 = reversal
         reply(res, 200, { ok: true, meta })
       } finally {
+        // R0912-P2-①：settle（成功/失败/中断）统一注销（口径见 analyze 处 finally 注释）
+        if (registeredCtrl && registeredSession) driver.unregisterCtrl?.(registeredSession, registeredCtrl)
         release()
       }
     },
@@ -630,7 +690,17 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       // RB-SV-P2-2：长任务并发闸（全书文风分析采样多章，耗时最长）
       const release = acquireTaskGate(params['name']!, 'analyze-style')
       if (!release) return replyError(res, 409, 'BUSY', '本书正在做文风分析，请等待完成后再试')
+      // R0912-P2-①：接入中断通道（register/unregister 形态与 analyze 子端点同款；
+      // owner 按 action 分槽='analyze-style:<书名>'，理由见 analyze 处头注）
+      const driver = getDriver()
+      let registeredSession: Session | null = null
+      let registeredCtrl: AbortController | null = null
       try {
+        const session = await ensureSession(params['name']!, ctx.workDir!)
+        registeredSession = session
+        const ctrl = new AbortController()
+        driver.registerCtrl?.(session, ctrl, `analyze-style:${params['name']!}`)
+        registeredCtrl = ctrl
         const bookRoot = r.bookRoot
 
         // 读所有定稿正文章节（按章号排序）
@@ -722,8 +792,12 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
         const styleSources = recent
           .filter((ch) => ch._path)
           .map((ch) => relative(bookRoot, ch._path!).replace(/\\/g, '/'))
-        const result = await runAnalyst(ctx.userDataPath, 'style', prompt, bookRoot, styleSources)
-        if (!result.ok) return replyError(res, 500, result.code, result.error)
+        const result = await runAnalyst(ctx.userDataPath, 'style', prompt, bookRoot, styleSources, ctrl)
+        if (!result.ok) {
+          // R0912-P2-①：中断收口——ABORTED → 499 人话信封（对齐 outline/rewrite 既有先例）
+          if (result.code === 'ABORTED') return replyError(res, 499, result.code, result.error)
+          return replyError(res, 500, result.code, result.error)
+        }
         const payload = result.payload
 
         const envelope = {
@@ -751,6 +825,8 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
         }
         reply(res, 200, { ok: true, envelope, styleCandidates })
       } finally {
+        // R0912-P2-①：settle（成功/失败/中断）统一注销（口径见 analyze 处 finally 注释）
+        if (registeredCtrl && registeredSession) driver.unregisterCtrl?.(registeredSession, registeredCtrl)
         release()
       }
     },

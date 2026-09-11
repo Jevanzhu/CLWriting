@@ -32,6 +32,8 @@ import {
   lineDiff,
 } from '../../../process/rewrite-prompt.js'
 import { acquireTaskGate } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
+import { getDriver, ensureSession } from '../../../driver/index.js' // R0912-P2-①：中断通道注册面
+import type { Session } from '../../../driver/types.js'
 
 // re-export（P1-8 下沉兼容：既有 import 方零感知）
 export { buildRewritePrompt, buildAppendPrompt, appendRewritten, lineDiff, type DiffLine } from '../../../process/rewrite-prompt.js'
@@ -41,18 +43,20 @@ interface RewriteCtx {
   userDataPath: string | null
 }
 
-/** 跑一次 writer 改写（runSpec 统一编排；mock 与真实同走 decode）。 */
+/** 跑一次 writer 改写（runSpec 统一编排；mock 与真实同走 decode）。
+ *  R0912-P2-①：ctrl 透传 runSpec——外部中断（/interrupt 经 driver abort）同步中止生成。 */
 async function runRewriter(
   userDataPath: string | null,
   prompt: string,
   bookRoot?: string,
   chapter?: number,
   promptFiles?: string[],
+  ctrl?: AbortController,
 ): Promise<{ ok: true; produced: string } | { ok: false; code: string; error: string }> {
   // Z-1（第五十八轮）：正文注入源登记（铁律①——chat 侧 tools/rewrite.ts 已修，端点侧漏网）
   // Z-4（第五十八轮）：chapter 透传 runSpec → runTask chapter 记账块——编辑器侧整章改写
   // 与 chat 侧同受章预算三口径熔断（P3-8 口径，此前端点侧绕过）
-  const out = await runSpec(REWRITE_SPEC, { userDataPath, bookRoot, userPrompt: prompt, ...(chapter !== undefined ? { chapter } : {}), promptFiles })
+  const out = await runSpec(REWRITE_SPEC, { userDataPath, bookRoot, userPrompt: prompt, ...(chapter !== undefined ? { chapter } : {}), promptFiles, ctrl })
   // R43-24（四十三轮）：code 透传（不再坍缩 'GEN_FAIL'）——NO_PROVIDER/NO_MODEL 等
   // 配置缺失族此前被 500 GEN_FAIL 掩蔽成因，路由按 code 映射状态码
   if (!out.ok) return { ok: false, code: out.code, error: out.error }
@@ -92,7 +96,21 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
     // RB-SV-P2-2：长任务并发闸（整章改写分钟级，重复点击=双倍费用）
     const release = acquireTaskGate(params['name']!, 'rewrite')
     if (!release) return replyError(res, 409, 'BUSY', '本书已在改写中，请等待完成后再试')
+    // R0912-P2-①（2026-09-11 重评-0911c 修复批）：接入中断通道——此前 runSpec 未接 driver
+    // ctrl 注册面，/interrupt 对在途改写完全无效且 driver.isRunning 假空闲（假成功）。接法
+    // 照抄 stream.ts spawn/self-heal 的 register/unregister 形态：编排段新建 ctrl →
+    // driver.registerCtrl（owner='rewrite:<书名>'，含书名使跨书并发互不误伤；同书重入已被
+    // 任务闸 409 挡住，同 owner 串行换新安全）→ settle（外层 finally）统一注销。
+    // 中断收口：runTask 中断返 ABORTED → 下方既有 ABORTED→499 分支即活，无需新增映射。
+    const driver = getDriver()
+    let registeredSession: Session | null = null
+    let registeredCtrl: AbortController | null = null
     try {
+      const session = await ensureSession(params['name']!, ctx.workDir!)
+      registeredSession = session
+      const ctrl = new AbortController()
+      driver.registerCtrl?.(session, ctrl, `rewrite:${params['name']!}`)
+      registeredCtrl = ctrl
       const reqBody = await readJson(req)
       const instruction = String(reqBody['instruction'] ?? '').trim()
       if (!instruction) return replyError(res, 400, 'BAD_INPUT', 'instruction(改写指令)必填')
@@ -131,7 +149,7 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
       const prompt = append
         ? buildAppendPrompt(original, instruction)
         : buildRewritePrompt('local', original, selection, instruction, [], draft.chapter.章号, readKind(bookRoot))
-      const result = await runRewriter(ctx.userDataPath, prompt, bookRoot, draft.chapter.章号, [m.path])
+      const result = await runRewriter(ctx.userDataPath, prompt, bookRoot, draft.chapter.章号, [m.path], ctrl)
       // R43-24（四十三轮）：按透传 code 映射状态——NO_* 族（NO_USERDATA/NO_PROVIDER/
       // NO_MODEL，配置缺失）是客户端可处置的 400；ABORTED（用户中断）回 499（请求被
       // 取消语义；api/ 无既有先例，错误信封 {code,error} 形状不变）；其余（GEN_FAIL/
@@ -154,6 +172,9 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
       }
       reply(res, 200, { ok: true, mode, original, rewritten, diff: lineDiff(original, rewritten) })
     } finally {
+      // R0912-P2-①：settle（成功/失败/中断）统一注销——isRunning 归 false（cc X-P2-11 口径）；
+      // ensureSession 失败（未注册）时跳过。ai-version 无 AI 生成段，不接线。
+      if (registeredCtrl && registeredSession) driver.unregisterCtrl?.(registeredSession, registeredCtrl)
       release()
     }
   },

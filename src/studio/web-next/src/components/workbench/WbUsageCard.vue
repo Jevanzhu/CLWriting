@@ -4,10 +4,15 @@
 // 未配价显示引导不显示 0）。自取数（挂载即拉），WorkbenchView 单点挂载零数据编排。
 import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { Gauge } from 'lucide-vue-next'
-import { getTraceStats } from '../../api/trace-stats'
 import { getCostStats, type CostStats } from '../../api/cost-stats'
+import { useTraceStatsStore } from '../../stores/trace-stats'
 
 const props = defineProps<{ bookName: string }>()
+
+// R0912-FE-P3-4：trace-stats 改走共享 store——与 WorkbenchView.loadRuleHits 同屏各拉
+// 一次 GET /trace-stats 的双发面在 store 层单点分发（同书并发去重）；本卡的
+// getCostStats 仍自拉（仅本卡消费），取数/失败/切书代守卫口径不变。
+const traceStats = useTraceStatsStore()
 
 interface TaskStat {
   count: number
@@ -43,7 +48,7 @@ async function load(): Promise<void> {
   loaded.value = false
   try {
     const [trace, costStats] = await Promise.all([
-      getTraceStats(props.bookName),
+      traceStats.getStats(props.bookName),
       getCostStats(props.bookName).catch(() => null),
     ])
     if (gen !== loadGen) return

@@ -460,7 +460,10 @@ export async function runTask<T>(opts: {
       // data 内藏 usage（self-heal done 事件自取累计），同一调用事件库 0/0、UI 口径 100/50
       trace({ model: 'mock', attempt: 0, stopReason: 'mock', usage: mock.usage, ok: true })
       finishMock()
-      return { ok: true, data: mock as unknown as T, ctrl: new AbortController(), usage: mock.usage, attemptsUsage: mock.usage, runId, model: null }
+      // R0912-3（2026-09-11 修复批）：ctrl 契约对齐真实路径——TaskOk.ctrl 恒为
+      // opts.ctrl ?? 新建（ee-P1-2「TaskOk.ctrl 对外是外部 ctrl」的 mock 半边此前
+      // 脱钩为无名新控制器）。mock 语义下无行为差，纯契约一致。
+      return { ok: true, data: mock as unknown as T, ctrl: opts.ctrl ?? new AbortController(), usage: mock.usage, attemptsUsage: mock.usage, runId, model: null }
     }
   }
   // mock 快路（文本型）：CLWRITING_DRIVER=mock 时直接返回预定值（守卫位置与 tryMockTool 对称，P0-1）
@@ -469,7 +472,8 @@ export async function runTask<T>(opts: {
     // trace/TaskOk 均记 null，同一 mock 会话两路计量口径分叉（预算闸/成本聚合假零）
     trace({ model: 'mock', attempt: 0, stopReason: 'mock', usage: MOCK_USAGE, ok: true })
     finishMock()
-    return { ok: true, data: opts.mockText, ctrl: new AbortController(), usage: MOCK_USAGE, attemptsUsage: MOCK_USAGE, runId, model: null }
+    // R0912-3：同上——ctrl 返回外部传入的 opts.ctrl（缺省新建），与真实路径契约对称
+    return { ok: true, data: opts.mockText, ctrl: opts.ctrl ?? new AbortController(), usage: MOCK_USAGE, attemptsUsage: MOCK_USAGE, runId, model: null }
   }
 
   const r = resolveProvider(opts.userDataPath, tierKind)

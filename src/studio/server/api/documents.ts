@@ -24,6 +24,10 @@ import {
 import { getBookTreeIndex } from '../../../document/tree.js'
 import { finalizeRevisionAsync } from '../../../document/finalize.js' // R30-6（三十轮，批 C 移交收尾）：服务进程切异步孪生
 import { afterFinalizeGenerateSummary, afterFinalizeGenerateSummaryBatch } from '../../../process/summary.js'
+// R0912（重评-0911c P2）：定稿摘要后台任务的中断接线——driver 会话惰性取得后传入
+// 钩子，后台摘要/批量链持独立登记 ctrl（/interrupt 可中止）；未接线形态（session
+// 取得失败）退化为不登记，与修复前等价
+import { ensureSession, getDriver } from '../../../driver/index.js'
 import { invalidateBookSummary } from './progress.js'
 import { acquireTaskGate } from './task-gate.js' // CC-P2-9：批量定稿并发闸
 import { readBaseline, appendBaseline, readTodayDelta, todayDate } from '../../../document/words-diary.js'
@@ -320,7 +324,14 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       // C1（批 2）定稿即生成章摘要：best-effort fire-and-forget（钩子在 API 层——
       // document/ 禁 import AI 层，依赖方向治理测试守门）；skipped（幂等重定稿）不触发；
       // M-2：带书名登记进后台表，删书/改名/退出的 settle 能追上其落盘
-      if (!outcome.skipped) afterFinalizeGenerateSummary(r.bookRoot, ctx.userDataPath ?? null, params['docId'] ?? '', params['name'])
+      // R0912：driver 会话惰性取得后再挂钩子——ensureSession 窗口内任务尚未启动
+      // （零 AI 调用/零落盘），M-2 登记稍迟无逃逸面；session 失败 → 不登记（修复前等价）
+      if (!outcome.skipped) {
+        void (async (): Promise<void> => {
+          const session = await ensureSession(params['name']!, ctx.workDir!).catch((): undefined => undefined)
+          afterFinalizeGenerateSummary(r.bookRoot, ctx.userDataPath ?? null, params['docId'] ?? '', params['name'], getDriver(), session)
+        })()
+      }
       reply(res, 200, { ok: true, status: outcome.status, skipped: outcome.skipped })
     },
   })
@@ -371,7 +382,11 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
         }
         // 第五轮：批量摘要走串行链——逐章 fire-and-forget 会让一键定稿 N 章 = N 路
         // 摘要 AI 并发（provider 限流整批失败）；整链单条登记，settle 在链首即追上全部
-        afterFinalizeGenerateSummaryBatch(r.bookRoot, ctx.userDataPath ?? null, summarized, params['name'])
+        // R0912：同上——惰性取得 driver 会话后接线（中断对链上在途与未开跑的章一并生效）
+        void (async (): Promise<void> => {
+          const session = await ensureSession(params['name']!, ctx.workDir!).catch((): undefined => undefined)
+          afterFinalizeGenerateSummaryBatch(r.bookRoot, ctx.userDataPath ?? null, summarized, params['name'], getDriver(), session)
+        })()
         reply(res, 200, { ok: true, results })
       } finally {
         release()

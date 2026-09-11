@@ -9,15 +9,16 @@ import { nextTick } from 'vue'
 const flush = () => vi.advanceTimersByTimeAsync(600)
 import { createPinia, setActivePinia } from 'pinia'
 
-// doc store 用 hoisted mock：不同用例控制 get(dirty)/save(成败)
-const { docGet, docSave, toastSpy } = vi.hoisted(() => ({
+// doc store 用 hoisted mock：不同用例控制 get(dirty)/save(成败)/waitInflightSave(等待原语)
+const { docGet, docSave, docWaitInflightSave, toastSpy } = vi.hoisted(() => ({
   docGet: vi.fn(),
   docSave: vi.fn(),
+  docWaitInflightSave: vi.fn(),
   // 清偿-切换autosave失败可见化（2026-09-09 残留清偿批）：openTab 失败 toast 观察口
   toastSpy: vi.fn(),
 }))
 vi.mock('../../../src/studio/web-next/src/stores/doc', () => ({
-  useDocStore: () => ({ get: docGet, save: docSave }),
+  useDocStore: () => ({ get: docGet, save: docSave, waitInflightSave: docWaitInflightSave }),
 }))
 vi.mock('../../../src/studio/web-next/src/stores/ui', () => ({
   useUiStore: () => ({ toast: toastSpy }),
@@ -72,6 +73,9 @@ beforeEach(() => {
   setActivePinia(createPinia())
   docGet.mockReturnValue(undefined)
   docSave.mockReset()
+  docWaitInflightSave.mockReset()
+  // R0912-FE-P2-1：waitInflightSave 原语默认立即返回（无在途）；专项用例另行 mock
+  docWaitInflightSave.mockResolvedValue(undefined)
   // 清偿批：默认 save 成功——真实 doc.save 吞错以 Promise<boolean> 落定（不 reject），
   // openTab 现挂 .then 消费返回值，mock 须回 Promise（undefined 会 .then 崩）
   docSave.mockResolvedValue(true)
@@ -149,7 +153,10 @@ describe('workspace · 清偿批：切换 autosave 失败可见化', () => {
     const ws = useWorkspaceStore()
     ws.setBook(BOOK)
     ws.openTab('d1')
-    docGet.mockReturnValue({ dirty: true })
+    // R0912-FE-P2-1：入口 dirty 判定与落定后复查各读一次——保存成功清 dirty（真实
+    // store 语义），复查读到 clean 即不提示
+    docGet.mockReturnValueOnce({ dirty: true })
+    docGet.mockReturnValue({ dirty: false })
     ws.openTab('d2')
     await Promise.resolve()
     await Promise.resolve()
@@ -169,6 +176,70 @@ describe('workspace · 清偿批：切换 autosave 失败可见化', () => {
     resolveSave(false)
     await Promise.resolve()
     await Promise.resolve()
+    expect(toastSpy).not.toHaveBeenCalled()
+  })
+})
+
+// R0912-FE-P2-1（2026-09-11 重评-0911b 修复批）：save 返 false 的两路非失败态不再假警报
+describe('workspace · R0912-FE-P2-1：切换假错 toast 消解', () => {
+  it('save 返 false 实为在途保存 → waitInflightSave 落定后 dirty 已清，不提示', async () => {
+    const ws = useWorkspaceStore()
+    ws.setBook(BOOK)
+    ws.openTab('d1')
+    docGet.mockReturnValue({ dirty: true })
+    docSave.mockResolvedValueOnce(false) // saving 在途窗口的 autosave no-op false
+    let resolveWait!: () => void
+    docWaitInflightSave.mockImplementationOnce(() => new Promise<void>((r) => (resolveWait = r)))
+    ws.openTab('d2')
+    await Promise.resolve()
+    await Promise.resolve()
+    // 在途未落定前不提示（原实现此处已误报）
+    expect(toastSpy).not.toHaveBeenCalled()
+    docGet.mockReturnValue({ dirty: false }) // 在途保存完成落盘（dirty 清）
+    resolveWait()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(toastSpy).not.toHaveBeenCalled()
+  })
+
+  it('在途落定后仍 dirty 且非 conflict（真失败）→ 仍提示（可见化语义保留）', async () => {
+    const ws = useWorkspaceStore()
+    ws.setBook(BOOK)
+    ws.openTab('d1')
+    docGet.mockReturnValue({ dirty: true })
+    docSave.mockResolvedValueOnce(false)
+    ws.openTab('d2')
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(toastSpy).toHaveBeenCalledWith('切换文档时自动保存失败，未保存内容仍保留', 'warning')
+  })
+
+  it('conflict 未决（autosave 设计内跳过）→ 不弹本警报（编辑器自有冲突 UI）', async () => {
+    const ws = useWorkspaceStore()
+    ws.setBook(BOOK)
+    ws.openTab('d1')
+    docGet.mockReturnValue({ dirty: true, conflict: true })
+    docSave.mockResolvedValueOnce(false)
+    ws.openTab('d2')
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(toastSpy).not.toHaveBeenCalledWith('切换文档时自动保存失败，未保存内容仍保留', 'warning')
+  })
+
+  it('落定前再切书 → 复查走入口书名快照守卫，不落后来界面', async () => {
+    const ws = useWorkspaceStore()
+    ws.setBook(BOOK)
+    ws.openTab('d1')
+    docGet.mockReturnValue({ dirty: true })
+    docSave.mockResolvedValueOnce(false)
+    let resolveWait!: () => void
+    docWaitInflightSave.mockImplementationOnce(() => new Promise<void>((r) => (resolveWait = r)))
+    ws.openTab('d2')
+    // 等 save 落定、waitInflightSave 被调用（挂起）后再切书——异步链起步在 openTab 同步段之后
+    for (let i = 0; i < 5; i++) await Promise.resolve()
+    ws.setBook('另一本') // 复查在途切书
+    resolveWait()
+    for (let i = 0; i < 5; i++) await Promise.resolve()
     expect(toastSpy).not.toHaveBeenCalled()
   })
 })

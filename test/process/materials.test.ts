@@ -457,3 +457,31 @@ test('A3 生产链路：book.yaml rag.candidate_depth 经备料透传到召回�
     rmSync(workDir, { recursive: true, force: true })
   }
 })
+
+test('R0912-4: 编排 signal 预先 aborted → 召回中断降级，embed 零发起（主路径不 crash）', async () => {
+  const { root, workDir, db } = makeBook()
+  try {
+    enableRag(root, workDir, { endpoint: 'http://stub', model: 'stub-model', apiKey: 'stub-key' })
+    const cfg: RagConfig = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
+    await buildIndex(root, cfg, 'stub-key', stubEmbed)
+
+    let embedCalls = 0
+    const spyEmbed = (_ep: string, _m: string, _k: string, texts: string[]): Promise<EmbedResult> => {
+      embedCalls++
+      return stubEmbed(_ep, _m, _k, texts)
+    }
+    const ctrl = new AbortController()
+    ctrl.abort()
+    const r = await prepareMaterials(db, DEFAULT_CONFIG, {
+      bookRoot: root, workDir, chapterLeadIds: [], embedFn: spyEmbed, signal: ctrl.signal,
+    })
+    // 中断态上抛 → materials 既有 catch 降级（ragNote 留痕、主路径照常 prepare，不 crash）
+    expect(r.ragUsed).toBe(false)
+    expect(r.ragHitCount).toBe(0)
+    expect(r.ragNote).toBe('RAG 召回异常（降级回落精准读取）')
+    expect(embedCalls).toBe(0)
+  } finally {
+    db.close()
+    rmSync(workDir, { recursive: true, force: true })
+  }
+})

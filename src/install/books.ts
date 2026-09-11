@@ -120,10 +120,13 @@ export function readBooksStrict(workDir: string): BookEntry[] | null {
   } catch {
     return []
   }
-  // R46-11：同指纹直接回缓存解析结果（调用方只读或经 writeBooks 收口的 mutate，
-  // 共享数组无旁路污染——见上方缓存头注）
+  // R46-11：同指纹直接回缓存解析结果。
+  // R0912（重评-0911c P3）：命中返回浅拷贝——缓存数组本体不出缓存。原「共享数组
+  // 无旁路污染」的承诺不成立（appendBookLocked 曾对命中数组就地 push，跨 await 持
+  // 同一引用的读方会看到突增条目）；边界处一次 slice 消灭整类就地 mutate 面，
+  // 代价可忽略（条目数 = 书数个位数）。
   const hit = booksReadCache.get(fp)
-  if (hit && hit.mtimeNs === mtimeNs && hit.size === size) return hit.books
+  if (hit && hit.mtimeNs === mtimeNs && hit.size === size) return hit.books.slice()
   let text: string
   try {
     text = readFileSync(fp, 'utf-8')
@@ -172,7 +175,8 @@ export function readBooksStrict(workDir: string): BookEntry[] | null {
     if (oldest !== undefined) booksReadCache.delete(oldest)
   }
   booksReadCache.set(fp, { mtimeNs, size, books })
-  return books
+  // R0912：同上——缓存本体不出缓存，返回浅拷贝
+  return books.slice()
 }
 
 /** 读 books.jsonl（容错：缺文件/读失败均返回空；坏行跳过不崩——读路径降级口径）。
@@ -327,8 +331,18 @@ function appendBookLocked(workDir: string, entry: BookEntry): { ok: true } | { o
   if (occupying) {
     return { ok: false, reason: `已有一本叫「${occupying.name}」的书占用了目录「${entry.path}」（大小写不敏感的卷上仅大小写不同的书名视为同库），换个名字或先删掉旧的` }
   }
-  books.push(entry)
-  writeBooks(workDir, books)
+  // R0912（重评-0911c P3）：
+  // a) 拷贝后追加——books 为缓存边界浅拷贝（readBooksStrict R0912 slice 纪律），
+  //    以新数组形态交写侧，不与任何共享引用纠缠。
+  // b) 写段 try/catch——init.ts 契约「appendBook*/doInit* 永不 reject」此前对写段
+  //    失效（writeBooks → mkdirSync/atomicWriteFile 在 EACCES/ENOSPC 时抛出直穿，
+  //    GUI 建书端点得 500 而非人话 reason）；锁超时/读失败两条已契约化，唯写漏。
+  const next = [...books, entry]
+  try {
+    writeBooks(workDir, next)
+  } catch (e) {
+    return { ok: false, reason: `books.jsonl 写入失败（权限或磁盘故障），登记未落盘——请检查磁盘空间/权限后重试：${e instanceof Error ? e.message : String(e)}` }
+  }
   return { ok: true }
 }
 

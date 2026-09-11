@@ -9,7 +9,7 @@ import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
 import { usePrefsStore } from '../../stores/prefs'
 import { parseNumericInput } from '../../shared/numeric-input'
-import { getConfig, getRagStatus, triggerRagBuild, type RagStatus } from '../../api/books'
+import { getConfig, getRagStatus, triggerRagBuild, triggerRagRebuild, type RagStatus } from '../../api/books'
 import { useProviderStore } from '../../stores/provider'
 import { friendlyError } from '../../shared/error'
 import { SAVE_CONFIG_KEY } from './settings-context'
@@ -74,6 +74,13 @@ let ragHintBook: string | null = ''
 const ragRebuildFailedHint = computed(
   () => ragRebuildTriggered.value && !ragBuilding.value && ragStatus.value?.lastResult?.ok === false,
 )
+
+// R0912-FE-P2-12（2026-09-11 重评-0911b 修复批）：embedding 模型失配面——服务端 /rag/status
+// 早已透出 indexModelMismatch（R26-16），此前前端类型/呈现均漏接：失配后 build 必报
+// 「embedding 模型与现有索引不一致…请重建索引（POST /rag/rebuild）」，而 GUI 唯一接线
+// 是 build 端点，重建无程序化出路（死路）。本批接上：失配时呈现失配提示 + 「重建索引」
+// 钮（调 triggerRagRebuild——服务端闸内先清空既有索引再按当前模型全新重建）。
+const ragMismatch = computed(() => ragStatus.value?.indexModelMismatch === true)
 
 // R63-3（十一轮）：配置加载代守卫（style store M-2 / AnalysisPanel M-11 的 reqGen 惯例）——
 // 此前 watch 无代守卫、await getConfig 后无书名复检：A 书在途响应迟到落地 B 书面板，
@@ -303,6 +310,27 @@ async function startRagBuild(): Promise<void> {
   }
 }
 
+/**
+ * R0912-FE-P2-12：触发重建索引（模型/维度失配的自愈出口）。与 startRagBuild 同一套
+ * 在途锁/轮询/失败面，差异仅在调 triggerRagRebuild（服务端闸内先 resetRagIndex 清空
+ * 既有索引再后台建）。ragRebuildTriggered 置位——重建以失败收场时 R28-22 的
+ * 「旧索引已清空、新索引未建成」提示照常生效（重建比 build 更需要这半边）。
+ */
+async function startRagRebuild(): Promise<void> {
+  const name = ws.bookName
+  if (!name || ragBuilding.value) return
+  ragBuilding.value = true
+  try {
+    await triggerRagRebuild(name)
+    ragRebuildTriggered.value = true
+    ragStatusText.value = '索引重建中…'
+    void pollRagStatus(name)
+  } catch (e) {
+    ragBuilding.value = false
+    ui.toast(friendlyError(e), 'error')
+  }
+}
+
 async function pollRagStatus(name: string): Promise<void> {
   if (ragPolling) return
   ragPolling = true
@@ -505,7 +533,16 @@ onUnmounted(() => {
     <!-- 建索引：书级生效启用即可建（含跟随全局默认启用）；挂在两组之后（原交互不变） -->
     <div v-if="effRagEnabled" class="rag-build-row">
       <button class="save-btn" @click="startRagBuild" :disabled="ragBuilding">{{ ragBuilding ? '构建中…' : '建立索引' }}</button>
+      <!-- R0912-FE-P2-12：失配自愈出口——仅失配时出现，与 build 同一套在途锁/轮询 -->
+      <button v-if="ragMismatch" class="save-btn" @click="startRagRebuild" :disabled="ragBuilding">
+        {{ ragBuilding ? '重建中…' : '重建索引' }}
+      </button>
       <span class="rag-status" :class="{ running: ragBuilding }">{{ ragStatusText }}</span>
+      <!-- R0912-FE-P2-12：失配呈现侧提示——服务端 lastResult.error 的失配报文含机器端点
+           字样（POST /rag/rebuild），此处给一行人话出路（旧索引在重建完成前不可检索）。 -->
+      <span v-if="ragMismatch && !ragBuilding" class="rag-mismatch-hint" role="status">
+        嵌入模型与现有索引不一致——点「重建索引」清空旧索引后按当前模型重建；重建完成前检索暂查不到内容。
+      </span>
       <!-- R28-22：重建先清库再后台建——建索引期失败时旧索引已删、新索引未成，检索归零
            但普通「索引失败」文案不说明这一点。此处如实补一句 + 给出路（重试/正文不受影响） -->
       <span v-if="ragRebuildFailedHint" class="rag-rebuild-hint" role="status">
@@ -558,6 +595,14 @@ onUnmounted(() => {
   font-size: var(--font-size-xs);
   line-height: 1.6;
   color: var(--text-warning);
+}
+
+/* R0912-FE-P2-12：模型失配提示（次级灰字，同占整行折行） */
+.rag-mismatch-hint {
+  width: 100%;
+  font-size: var(--font-size-xs);
+  line-height: 1.6;
+  color: var(--text-faint);
 }
 
 .rag-status.running {

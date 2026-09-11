@@ -71,6 +71,10 @@ async function loadAll(): Promise<void> {
   } catch (e) {
     if (gen !== loadGen) return
     err.value = friendlyError(e)
+    // R0912-FE-P3-9（2026-09-11 重评-0911b 修复批）：主请求失败即止——此前主请求失败
+    // 后仍无条件发 3 个子请求（伏笔/节奏/分析）：总览页已整页错误态（数据无处渲染），
+    // 子请求纯属白耗且失败静默。重试按钮触发 loadAll 重走全链。
+    return
   } finally {
     if (gen === loadGen) loading.value = false
   }

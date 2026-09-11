@@ -520,7 +520,14 @@ export const useDocStore = defineStore('doc', () => {
     const book = bookName.value!
     try {
       const remote = await getContent(book, e.path)
+      // R0912-FE-P3-5（2026-09-11 重评-0911b 修复批）：getContent await 窗口后的条目
+      // 身份复检（对齐同文件 reloadFromRemote R59 守卫）——窗口内条目被 discard（文档
+      // 删除）/LRU 驱逐重建时，docs 里已不是同一对象，直接写 e.baselineRevision 会把
+      // 新基线落在游离对象上（真条目基线未推进，下次保存吃假 REVISION_CONFLICT）。
+      if (bookName.value !== book || docs.value.get(docId) !== e) return
       e.baselineRevision = await sha256Revision(remote)
+      // sha256 双 await 窗口同款复检（两段 await 各守一次）
+      if (docs.value.get(docId) !== e) return
       e.conflict = false
       e.error = null
       await save(docId, 'manual')
@@ -781,6 +788,12 @@ export const useDocStore = defineStore('doc', () => {
   function discard(docId: string): void {
     docs.value.delete(docId)
     inflightSaves.delete(docId)
+    // R0912-FE-P3-6（2026-09-11 重评-0911b 修复批）：inflightOpens 同口径清（setBook
+    // R33D-26 先例）——删除后同 docId 重开（同名重建/回收站还原）窗口内 open() 会命中
+    // 在途旧 promise（旧 doOpen 的 getContent 已 404 或内容已旧），复用旧 promise 要么
+    // 直接 reject 要么落过期内容。同步删键让重开必发新请求；旧 open 的 finally 为
+    // identity 条件删（R40-38），不会误删新登记。
+    inflightOpens.delete(docId)
     clearDirtyMirror(bookName.value, docId) // R55-F-3：条目已弃，镜像一并清
   }
 

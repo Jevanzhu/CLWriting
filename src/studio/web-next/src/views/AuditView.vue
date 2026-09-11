@@ -3,7 +3,7 @@
 // 只读审计——展示「模型看到的 vs 人类看到的」差异，以及每本书的事件流与血缘引用。
 // AA-P2-1：长书 >500 条事件分页续页——后端按 limit/offset 截断，前端「加载更多」累积追加
 // 并显式提示「已显示 X / N」（此前无翻页入口，>500 条旧事件结构上永远不可见）。
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, reactive, onMounted, onUnmounted } from 'vue'
 import {
   ScrollText, EyeOff, GitBranch, RefreshCw, AlertCircle,
   ChevronRight, ChevronDown, MoreHorizontal,
@@ -78,6 +78,7 @@ async function load(): Promise<void> {
   goals.value = []
   todos.value = []
   expanded.value = new Set()
+  showFullJson.clear() // R0912-FE-P3-11：事件列表整体重取，放行全量集合随之清空
   try {
     const v = await getAudit(props.bookName, { limit: PAGE_LIMIT, offset: 0 })
     if (!alive || gen !== loadGen) return // R36-25：卸载后迟到响应不回写；R48-23：被更新刷新作废
@@ -188,6 +189,40 @@ function dataSummary(e: AuditEventFE): string {
   return ''
 }
 
+// ── R0912-FE-P3-11（2026-09-11 重评-0911b 修复批）：事件 data JSON 懒展开 ──
+// 原模板内联 `{{ JSON.stringify(e.data, null, 2) }}`：①组件任意重渲染都重新全量
+// stringify；②超大 payload（全文快照/批量事件）展开即把 MB 级 JSON 全量灌进 DOM。
+// 改为：展开时 stringify 至多一次（按 e.data 对象身份 WeakMap 缓存，重渲染/截断与
+// 全量切换复用）；超 4KB 只渲染截断摘要，「查看完整 JSON」点击后才放行全量（缓存
+// 复用，不再 stringify）。WeakMap 缓存按 data 对象身份记账——load/loadMore 重取
+// 产生新对象自然失效，无需手动重置；「放行全量」集合用 reactive Set（WeakSet 无
+// 响应性，点击后不触发重渲染），load 时随事件列表一并清空。
+const JSON_DETAIL_LIMIT = 4_096
+const detailJsonCache = new WeakMap<object, string>()
+/** 「查看完整 JSON」已放行集合（按 e.data 身份，响应式）。 */
+const showFullJson = reactive(new Set<object>())
+
+function eventDetailJson(e: AuditEventFE): string {
+  const key = e.data
+  let s = detailJsonCache.get(key)
+  if (s === undefined) {
+    s = JSON.stringify(e.data, null, 2)
+    detailJsonCache.set(key, s)
+  }
+  return s
+}
+
+/** 展开态渲染文本：超长且未放行全量时只出截断摘要（DOM 面恒有界）。 */
+function detailText(e: AuditEventFE): string {
+  const s = eventDetailJson(e)
+  if (showFullJson.has(e.data) || s.length <= JSON_DETAIL_LIMIT) return s
+  return s.slice(0, JSON_DETAIL_LIMIT) + `\n…（已截断，完整 JSON 共 ${s.length} 字符）`
+}
+
+function detailTruncated(e: AuditEventFE): boolean {
+  return !showFullJson.has(e.data) && eventDetailJson(e).length > JSON_DETAIL_LIMIT
+}
+
 // ── 事件保留定版（2026-08-16 拍板：全量保留 + 手动清理）──────────────
 // 事件史默认 append-only 全量保留；此处是每书唯一清理入口，两步确认（销毁不可撤销）。
 const clearing = ref(false)
@@ -281,7 +316,10 @@ async function doClear(): Promise<void> {
                   <GitBranch :size="11" /> {{ e.sourceSeqs.join(',') }}
                 </span>
                 <div v-if="expanded.has(e.seq)" class="ev-detail">
-                  <pre>{{ JSON.stringify(e.data, null, 2) }}</pre>
+                  <pre>{{ detailText(e) }}</pre>
+                  <button v-if="detailTruncated(e)" class="ev-full-btn" @click="showFullJson.add(e.data)">
+                    查看完整 JSON
+                  </button>
                   <p v-if="e.sourceSeqs?.length" class="lineage-note">
                     血缘引用（sourceSeqs）指向事件：#{{ e.sourceSeqs.join(' #') }} —— 每个引用都可在上方事件流定位。
                   </p>
@@ -323,7 +361,10 @@ async function doClear(): Promise<void> {
               <span class="ev-type">{{ typeLabel(e.type) }}</span>
               <span class="ev-summary">{{ dataSummary(e) }}</span>
               <div v-if="expanded.has(e.seq)" class="ev-detail">
-                <pre>{{ JSON.stringify(e.data, null, 2) }}</pre>
+                <pre>{{ detailText(e) }}</pre>
+                <button v-if="detailTruncated(e)" class="ev-full-btn" @click="showFullJson.add(e.data)">
+                  查看完整 JSON
+                </button>
               </div>
             </div>
             <div v-if="workflowEvents.length === 0" class="empty">暂无工作流事件（运行一次 AI 写作后可见）</div>
@@ -552,6 +593,18 @@ async function doClear(): Promise<void> {
   word-break: break-all;
 }
 .lineage-note { font-size: var(--font-size-xs); color: var(--text-muted); margin: 4px 0 0; }
+/* R0912-FE-P3-11：「查看完整 JSON」放行钮（次级小按钮，紧贴截断摘要下方） */
+.ev-full-btn {
+  margin-top: 4px;
+  padding: 2px 10px;
+  font-size: var(--font-size-xs);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.ev-full-btn:hover { color: var(--text-normal); background: var(--background-modifier-hover); }
 .empty { color: var(--text-muted); font-size: var(--font-size-s); padding: 8px; }
 .empty.big { padding: 40px; text-align: center; }
 </style>

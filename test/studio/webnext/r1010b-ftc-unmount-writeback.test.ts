@@ -140,6 +140,8 @@ function tracePayload(): { total: number; byTask: Record<string, unknown>; ruleH
 
 describe('R1010b-FTC-P3-2: WbUsageCard load 卸载不写回', () => {
   beforeEach(() => {
+    // R0912-FE-P3-4：WbUsageCard 改走 trace-stats 共享 store——挂载需活动 pinia
+    setActivePinia(createPinia())
     usageMocks.getTraceStats.mockReset()
     usageMocks.getCostStats.mockReset()
   })

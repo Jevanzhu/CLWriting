@@ -44,7 +44,16 @@ describe('P3：package.json files 断言（JSON.parse 口径，顺序/格式无�
   })
 
   it('真实仓库脚本直跑：退出码 0（versions.json 对账等整链不回归）', () => {
-    const out = execFileSync('node', [scriptPath], { cwd: root, encoding: 'utf8' })
+    // R0912（重评-0911c P2）：单测不把不受控的本地 dist 构建产物状态当断言对象——
+    // dist 半新态（main.js 在而 fontlist 缺）曾使本用例红、全量单测单点红。置
+    // CLW_CHECK_PACKAGING_SKIP_DIST_GATE=1 跳过 dist 实存门，只锁配置面与资源对账面；
+    // dist 门自身语义由 problemsForDistFontList 直测锚定（下方 describe），CI 不设
+    // 此变量、门照常生效。
+    const out = execFileSync('node', [scriptPath], {
+      cwd: root,
+      encoding: 'utf8',
+      env: { ...process.env, CLW_CHECK_PACKAGING_SKIP_DIST_GATE: '1' },
+    })
     expect(out).toContain('check:packaging 通过')
   })
 })
@@ -92,11 +101,15 @@ describe('R0911-A-P2-1：electron-builder.yml asarUnpack 断言（spawn 不解 a
     expect(parseBuilderAsarUnpack(messy)).toEqual(['desktop/fontlist', 'other'])
     expect(parseBuilderAsarUnpack('asar: true\nfiles:\n  - dist/**/*\n')).toBe(null)
   })
-  it('含 desktop/fontlist → 无问题；通配/多余成员不误报', () => {
-    expect(problemsForElectronBuilderAsarUnpack(['desktop/fontlist'])).toEqual([])
-    expect(problemsForElectronBuilderAsarUnpack(['other/dir/**', 'desktop/fontlist'])).toEqual([])
+  it('可命中 dist/desktop/fontlist 的模式 → 无问题（R0912：裸模式系半修回潮必红）', () => {
+    expect(problemsForElectronBuilderAsarUnpack(['**/desktop/fontlist'])).toEqual([])
+    expect(problemsForElectronBuilderAsarUnpack(['dist/desktop/fontlist'])).toEqual([])
+    expect(problemsForElectronBuilderAsarUnpack(['other/dir/**', '**/desktop/fontlist'])).toEqual([])
   })
-  it('缺 desktop/fontlist / 序列缺失为空 → 必红（A-P2-1 半修回潮形态）', () => {
+  it('裸 desktop/fontlist（R0911 首修形态）→ 必红：asar 内实际路径带 dist/ 前缀，无 **/ 前缀零命中', () => {
+    const problems = problemsForElectronBuilderAsarUnpack(['desktop/fontlist'])
+    expect(problems).toHaveLength(1)
+    expect(String(problems[0])).toContain('R0912')
     expect(problemsForElectronBuilderAsarUnpack(['other/**'])).toHaveLength(1)
     expect(problemsForElectronBuilderAsarUnpack(null)).toHaveLength(1)
     expect(problemsForElectronBuilderAsarUnpack([])).toHaveLength(1)

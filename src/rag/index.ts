@@ -811,6 +811,12 @@ export interface RecallResult {
  *   顺位递补至 topK；校验从「整批拒绝闸」变为「过滤闸」，召回质量不降（过期向量
  *   本就不该命中），新鲜数据的 top-5 与全量校验口径逐一等价。
  *
+ * R0912-4（2026-09-11 修复批）：可选 `opts.signal`——编排级中断透传（materials 备料
+ * 传入编排 signal，向后兼容：旧调用方零变更）。检查点：函数入口 / embed 网络往返前后
+ * / 流式打分循环（store.streamChunkScores），命中即抛「RAG 召回已中断」——与 embed
+ * 失败同走 throw 形态（本函数既有错误形态：网络/库异常上抛，由调用方降级），中断不再
+ * 白烧 embed 调用与全表扫描。
+ *
  * @param embedFn 可选：注入 embed 函数（测试用桩）
  */
 export async function recallDetailed(
@@ -822,7 +828,11 @@ export async function recallDetailed(
   embedFn: typeof embed = embed,
   /** O-3：块数告警阈值（测试注入用，默认 RAG_CHUNK_WARN_THRESHOLD） */
   warnThreshold = RAG_CHUNK_WARN_THRESHOLD,
+  /** R0912-4：编排级中断信号（可选；预先 aborted → 快速中断不发起 embed） */
+  opts?: { signal?: AbortSignal },
 ): Promise<RecallResult> {
+  // R0912-4：入口检查点——预先 aborted 直接中断态上抛，不开库不发起 embed
+  if (opts?.signal?.aborted) throw new Error('RAG 召回已中断')
   // R35-41（三十五轮）：空结果每出口返回新字面量——共享同一可变对象会被消费方
   // 改动污染（进程内后续空召回带着被塞进的脏 hits/truncated）
   const emptyResult = (): RecallResult => ({ hits: [], truncated: false, totalBlocks: 0 })
@@ -871,7 +881,11 @@ export async function recallDetailed(
   }
 
   // 网络段（无 db 句柄）
+  // R0912-4：embed 前检查点（元数据预检段耗时后信号可能已置位）
+  if (opts?.signal?.aborted) throw new Error('RAG 召回已中断')
   const qVec = await embedFn(config.endpoint, config.model, apiKey, [query], embedOptionsFor(bookRoot, config))
+  // R0912-4：embed 返回后检查点——网络往返窗口内的中断不再进入全表扫描
+  if (opts?.signal?.aborted) throw new Error('RAG 召回已中断')
   if (qVec === null || qVec.length === 0) return emptyResult()
   const queryVec = Float32Array.from(qVec[0]!)
   // R34D-32（三十四轮）：查询向量同走 double→Float32 收窄——溢出分量（有限 double
@@ -904,7 +918,8 @@ export async function recallDetailed(
       //（truncated 判定恒等）；不足 N+1 条 ⟺ 全量 = 读得数（totalBlocks 仍精确）。
       // O-3：块数超已知可用区间（十万块，见 store.ts 量化注释）时告警 + 硬截断
       //（截断取读出序前缀 + warn 留痕，配额数值与告警阈值同一常量）
-      const scanned = streamChunkScores(db2, queryVec, config.model, warnThreshold + 1)
+      // R0912-4：signal 透传进流式打分循环（行级检查点，见 store.ts streamChunkScores）
+      const scanned = streamChunkScores(db2, queryVec, config.model, warnThreshold + 1, opts?.signal)
       if (scanned.poisonRows > 0) {
         log.warn('rag', `RAG 库含 ${scanned.poisonRows} 行毒向量块（历史 Float32 溢出入库：norm 非有限或 norm=NULL 且向量含非有限分量）——已剔除不参与召回，建议重建索引（POST /rag/rebuild）清根`)
       }

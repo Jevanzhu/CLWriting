@@ -155,6 +155,29 @@ export async function learnFromBook(bookRoot: string): Promise<LearnResult> {
   if (!existsSync(bodyDir)) {
     return { ok: false, sampleCount: 0, quoteCount: 0, candidateDir: '', error: '没有定稿正文可收割。' }
   }
+  // R0912-5（2026-09-11 修复批）：收割锁前移到全书扫描之前——此前先全书扫描（逐章
+  // 读盘 + 打分，长书秒级）末了才取锁，双进程并发收割双方各自白扫一遍全书，败者
+  // 整段 CPU/IO 白付。现锁在扫描前取得：并发第二方立即按既有「在途」口径返回
+  //（文案/返回形状逐字不变），锁内逻辑不变（扫描 → 候选 → 落盘全临界段）。
+  const releaseHarvest = await acquireCrossProcessLockAsync(join(bookRoot, '工作区', '.learn-harvest.lock'), learnHarvestLockTimeoutMs)
+  if (!releaseHarvest) {
+    return {
+      ok: false,
+      sampleCount: 0,
+      quoteCount: 0,
+      candidateDir: CANDIDATE_DIR,
+      error: 'learn 收割在途（另一进程正在收割本书），请稍后重试。',
+    }
+  }
+  try {
+    return await learnFromBookLocked(bookRoot, bodyDir)
+  } finally {
+    releaseHarvest()
+  }
+}
+
+/** R0912-5：锁内收割主体（扫描 → 候选 → 落盘；与锁前移前逻辑逐位一致，仅入口收窄形参） */
+async function learnFromBookLocked(bookRoot: string, bodyDir: string): Promise<LearnResult> {
   const { chapters, errors } = readChapterDir(bodyDir)
   if (errors.length > 0) {
     return { ok: false, sampleCount: 0, quoteCount: 0, candidateDir: '', error: `章节解析失败：${errors[0]!.message}` }
@@ -239,8 +262,16 @@ export async function learnFromBook(bookRoot: string): Promise<LearnResult> {
       }
     }
     // 金句候选：统一分句口径（原先少 \n，可能漏检跨行——P2-BE-6）
+    // R0912-7（2026-09-11 修复批）：长度按码位计（for-of 迭代码点，零分配）——
+    // String.length 是 UTF-16 码元，含增补平面字符（emoji/生僻字）的句子 length 偏大
+    // 而被 50 上限误杀（代理对一符双计），与全库 code point 口径（P-7/R72-7 族）不一致。
+    // 阈值语义不变（10/50 码位）；process/summary.ts 的 codePointLength 单源在本批
+    // 不引入（其依赖链拖入 AI 编排栈，learn 头注「纯脚本」边界），算法与 summary
+    // 实现同构（代理对合 1 计），漂移风险由两处同注钉住。
     const sentences = splitSentences(body).filter((s) => {
-      return s.length >= 10 && s.length <= 50 && !s.startsWith('#')
+      let cpLen = 0
+      for (const _cp of s) cpLen++
+      return cpLen >= 10 && cpLen <= 50 && !s.startsWith('#')
     })
     for (const s of sentences) {
       const hasHook = /[忽然竟然居然可是但是]/.test(s)
@@ -288,57 +319,45 @@ export async function learnFromBook(bookRoot: string): Promise<LearnResult> {
   // fail-closed 报「在途」交调用方提示重试（桌面+CLI 双进程形态 J7 已认可）。
   // R32-13（三十二轮）：锁等待异步化（acquireCrossProcessLockAsync，rule-hits 同口径）——
   // 同步 Atomics.wait 微睡会在双进程争用时冻结 utility 进程事件循环（SSE/HTTP 最坏停 5s）。
+  // R0912-5：锁的取得已上移到扫描前（learnFromBook）——本函数全程在锁内跑，落盘段
+  // 不再重复取锁/判超时（互斥覆盖面从「落盘段」扩为「扫描+候选+落盘」全临界段）。
   const candidateRoot = join(bookRoot, CANDIDATE_DIR)
-  const releaseHarvest = await acquireCrossProcessLockAsync(join(bookRoot, '工作区', '.learn-harvest.lock'), learnHarvestLockTimeoutMs)
-  if (!releaseHarvest) {
-    return {
-      ok: false,
-      sampleCount: 0,
-      quoteCount: 0,
-      candidateDir: CANDIDATE_DIR,
-      error: 'learn 收割在途（另一进程正在收割本书），请稍后重试。',
-    }
-  }
+  // 清旧候选（重跑覆盖）
+  // R43-22（四十三轮）：注释改真实口径——force:true 下 ENOENT 不抛（目录不存在是
+  // 正常态），真正会抛的是 EBUSY/EPERM 半删态（候选 md 被编辑器占用/杀软扫描锁）。
+  // 失败留痕：半删目录残留下轮收割覆盖前仍可见，可能含上轮过期候选混入本轮审阅面
   try {
-    // 清旧候选（重跑覆盖）
-    // R43-22（四十三轮）：注释改真实口径——force:true 下 ENOENT 不抛（目录不存在是
-    // 正常态），真正会抛的是 EBUSY/EPERM 半删态（候选 md 被编辑器占用/杀软扫描锁）。
-    // 失败留痕：半删目录残留下轮收割覆盖前仍可见，可能含上轮过期候选混入本轮审阅面
-    try {
-      rmSync(candidateRoot, { recursive: true, force: true })
-    } catch (e) {
-      log.warn('learn', `候选目录未清空，可能含上轮残留（${e instanceof Error ? e.message : String(e)}）`)
-    }
-    mkdirSync(candidateRoot, { recursive: true })
+    rmSync(candidateRoot, { recursive: true, force: true })
+  } catch (e) {
+    log.warn('learn', `候选目录未清空，可能含上轮残留（${e instanceof Error ? e.message : String(e)}）`)
+  }
+  mkdirSync(candidateRoot, { recursive: true })
 
-    // 样章候选：样章/<场景>-候选-NN.md（拟入 front matter）
-    // 平台规范化批 C：场景值收编单源消毒（此前未经 sanitize 直拼文件名——win 非法字符/
-    // 保留设备名/超长场景值直落盘，与 filename.ts 单一真相源口径漂移）；候选目录是人类
-    // 审阅面（无按名反推的读侧），改名无配对面。B：产出内容规范形写（正文源自库内
-    // 文本，可携 \r 残尾）。
-    const sampleDir = join(candidateRoot, '样章')
-    mkdirSync(sampleDir, { recursive: true })
-    topSamples.forEach((c, i) => {
-      const fileName = `${sanitizeFileNamePart(c.场景)}-候选-${String(i + 1).padStart(2, '0')}.md`
-      const fm = [`场景: ${c.场景}`, `来源: 作者原作`, `出处: ${c.出处}`, `打分: ${c.打分}`].join('\n')
-      atomicWriteFile(join(sampleDir, fileName), canonicalizeText(`---\n${fm}\n---\n\n${c.正文}`))
-    })
+  // 样章候选：样章/<场景>-候选-NN.md（拟入 front matter）
+  // 平台规范化批 C：场景值收编单源消毒（此前未经 sanitize 直拼文件名——win 非法字符/
+  // 保留设备名/超长场景值直落盘，与 filename.ts 单一真相源口径漂移）；候选目录是人类
+  // 审阅面（无按名反推的读侧），改名无配对面。B：产出内容规范形写（正文源自库内
+  // 文本，可携 \r 残尾）。
+  const sampleDir = join(candidateRoot, '样章')
+  mkdirSync(sampleDir, { recursive: true })
+  topSamples.forEach((c, i) => {
+    const fileName = `${sanitizeFileNamePart(c.场景)}-候选-${String(i + 1).padStart(2, '0')}.md`
+    const fm = [`场景: ${c.场景}`, `来源: 作者原作`, `出处: ${c.出处}`, `打分: ${c.打分}`].join('\n')
+    atomicWriteFile(join(sampleDir, fileName), canonicalizeText(`---\n${fm}\n---\n\n${c.正文}`))
+  })
 
-    // 金句候选：金句/<场景>.md（逐条列表）
-    const quoteDir = join(candidateRoot, '金句')
-    mkdirSync(quoteDir, { recursive: true })
-    const quotesByScene = new Map<string, QuoteCandidate[]>()
-    for (const q of topQuotes) {
-      const list = quotesByScene.get(q.场景) ?? []
-      list.push(q)
-      quotesByScene.set(q.场景, list)
-    }
-    for (const [scene, quotes] of quotesByScene) {
-      const content = quotes.map((q) => `- ${q.正文}  \n  ——${q.出处}`).join('\n\n')
-      atomicWriteFile(join(quoteDir, `${sanitizeFileNamePart(scene)}.md`), canonicalizeText(content))
-    }
-  } finally {
-    releaseHarvest()
+  // 金句候选：金句/<场景>.md（逐条列表）
+  const quoteDir = join(candidateRoot, '金句')
+  mkdirSync(quoteDir, { recursive: true })
+  const quotesByScene = new Map<string, QuoteCandidate[]>()
+  for (const q of topQuotes) {
+    const list = quotesByScene.get(q.场景) ?? []
+    list.push(q)
+    quotesByScene.set(q.场景, list)
+  }
+  for (const [scene, quotes] of quotesByScene) {
+    const content = quotes.map((q) => `- ${q.正文}  \n  ——${q.出处}`).join('\n\n')
+    atomicWriteFile(join(quoteDir, `${sanitizeFileNamePart(scene)}.md`), canonicalizeText(content))
   }
 
   return {

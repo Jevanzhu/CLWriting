@@ -18,13 +18,15 @@ import {
   getDraftPrompt,
   generateOutline,
   generateLeadUpdates,
+  acknowledgeJournalPending,
   type BookState,
 } from '../api/stream'
 import { useUiStore } from '../stores/ui'
 import { usePrefsStore } from '../stores/prefs'
 import { useProviderStore } from '../stores/provider'
+import { useTraceStatsStore } from '../stores/trace-stats'
 import { getConfig } from '../api/books'
-import { getTraceStats, type RuleHitEntry } from '../api/trace-stats'
+import { type RuleHitEntry } from '../api/trace-stats'
 import ChatPanel from '../components/panels/ChatPanel.vue'
 import WbStateCard from '../components/workbench/WbStateCard.vue'
 import WbAdvanced from '../components/workbench/WbAdvanced.vue'
@@ -42,6 +44,8 @@ const ws = useWorkspaceStore()
 const tree = useTreeStore()
 const doc = useDocStore()
 const prefs = usePrefsStore()
+// R0912-FE-P3-4：trace-stats 单点分发 store（WorkbenchView 规则命中 + WbUsageCard 用量共用）
+const traceStats = useTraceStatsStore()
 
 /** 工作台 tab：写作 / 对话（对话 tab 仅 chatEnabled 时可见） */
 const activeTab = ref<'write' | 'chat'>('write')
@@ -62,7 +66,9 @@ let ruleHitsGen = 0
 async function loadRuleHits(): Promise<void> {
   const gen = ++ruleHitsGen
   try {
-    const data = await getTraceStats(props.bookName)
+    // R0912-FE-P3-4：trace-stats 改走共享 store（与 WbUsageCard 同屏单点分发，
+    // 同书并发去重；本处只消费 ruleHits 面，代守卫与失败清空口径不变）
+    const data = await traceStats.getStats(props.bookName)
     if (gen !== ruleHitsGen) return
     ruleHits.value = data.ruleHits ?? []
   } catch {
@@ -209,6 +215,35 @@ async function onSpawn(): Promise<void> {
     spawnPending.value = false
   }
 }
+// R0912-FE-P2-3（2026-09-11 重评-0911b 修复批）：崩溃 pending「忽略此提醒」（WbStateCard
+// 上抛）。逐个 acknowledge（端点幂等，重复确认 acknowledged:false），成功 toast + 刷新
+// 状态卡；书名入口捕获 + await 后复检（R70-10 家族同款）——在途切书后不再 toast/刷新
+//（新书状态卡由切书链自拉）。确认动作不删数据（journal appendAborted 落账），按站内
+// 危险动作分级属「直接调用 + toast」档，不设两步确认。
+const ackCrashedPending = ref(false)
+async function onAcknowledgeCrashed(): Promise<void> {
+  if (ackCrashedPending.value) return
+  const opIds = state.value?.crashedPendingOpIds ?? []
+  if (opIds.length === 0) return
+  ackCrashedPending.value = true
+  const book = props.bookName
+  try {
+    let any = false
+    for (const opId of opIds) {
+      const r = await acknowledgeJournalPending(book, opId)
+      if (props.bookName !== book) return // 切书：成功结果不落新书界面
+      if (r.acknowledged) any = true
+    }
+    ui.toast(any ? '已忽略崩溃恢复提醒，进门体检不再报该条' : '该提醒已失效或已确认', 'success')
+    await refreshState()
+  } catch (e) {
+    if (props.bookName !== book) return // R70-10：失败提示同样不落新书界面
+    ui.toast(friendlyError(e), 'error')
+  } finally {
+    ackCrashedPending.value = false
+  }
+}
+
 async function onInterrupt(): Promise<void> {
   if (interruptPending.value) return // R35-39：在途锁（双击重复 POST 中断）
   interruptPending.value = true
@@ -384,7 +419,7 @@ async function onSaveDraft(): Promise<void> {
       </span>
     </section>
     <!-- 状态卡（导航灯：当前在哪 + 该做什么 + 一键操作） -->
-    <WbStateCard :state="state" @spawn="onSpawn" />
+    <WbStateCard :state="state" @spawn="onSpawn" @acknowledge="onAcknowledgeCrashed" />
 
     <!-- D1（批 4）：AI 用量卡片（trace-stats byTask 渲染 + D2 金额口径） -->
     <WbUsageCard :book-name="bookName" />
@@ -412,19 +447,21 @@ async function onSaveDraft(): Promise<void> {
         >
           {{ outlinePending ? '细纲生成中…' : '生成细纲' }}
         </button>
+        <!-- R0912-FE-P3-7：账本推进/全自动写章两钮原挂 v-if="!genBusy"——pending 期
+             （genBusy 置位）按钮整体消失，「推进草拟中…」「写章启动中…」两段文案成
+             死代码不可达。对齐上方「生成细纲」钮的既有口径：恒渲染、genBusy 期禁用，
+             在途文案才可达。 -->
         <button
-          v-if="!genBusy"
           class="btn"
-          :disabled="ui.aiAvailable === false || leadUpdatesPending"
+          :disabled="genBusy || ui.aiAvailable === false"
           title="W-P1-3：AI 草拟本章账本推进（工作区/账本推进.md），定稿时确认回写布线履历"
           @click="onLeadUpdates"
         >
           {{ leadUpdatesPending ? '推进草拟中…' : '生成账本推进' }}
         </button>
         <button
-          v-if="!genBusy"
           class="btn auto"
-          :disabled="ui.aiAvailable === false || autoPending"
+          :disabled="genBusy || ui.aiAvailable === false"
           title="AI 写稿后自动机检，报红自动重写，全绿才交给你确认"
           @click="onAutoWrite"
         >

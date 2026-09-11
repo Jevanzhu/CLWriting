@@ -142,17 +142,26 @@ export function parseBuilderAsarUnpack(yamlText) {
   return items.length > 0 ? items : null
 }
 
-/** 断言 asarUnpack 序列覆盖 desktop/fontlist——spawn 不解 asar，外置缺失则打包态自管
- *  枚举恒回落（A-P2-1 只修了一半的回潮形态）。导出供直测锚定。 */
+/** 断言 asarUnpack 序列覆盖 fontlist 真实产物路径——spawn 不解 asar，外置缺失则打包态
+ *  自管枚举恒回落（A-P2-1 只修了一半的回潮形态）。R0912（重评-0911c P2）：模式必须
+ *  能命中 asar 内实际路径 dist/desktop/fontlist——未带两星斜杠根锚定的裸 desktop/fontlist
+ *  经 app-builder-lib fileMatcher 零命中（--dir 实包核验），视为半修回潮必红；接受
+ *  两星斜杠根锚定形态与显式 dist/ 前缀形态。导出供直测锚定。 */
 export function problemsForElectronBuilderAsarUnpack(items) {
   const found = []
   if (!Array.isArray(items) || items.length === 0) {
     found.push('electron-builder.yml asarUnpack 不可解析或为空——fontlist 二进制不会外置，打包态 spawn 枚举恒不可达（R0911-A-P2-1 回潮）')
     return found
   }
-  const covers = (entry) => entry === 'desktop/fontlist' || entry.startsWith('desktop/fontlist/')
-  if (!items.some((entry) => typeof entry === 'string' && covers(entry))) {
-    found.push('electron-builder.yml asarUnpack 未包含 desktop/fontlist——打包态自管枚举 spawn 不到真二进制（R0911-A-P2-1 回潮）')
+  // 可命中 dist/desktop/fontlist 的模式族（含目录级 `/**`/`/**/*` 尾巴；纯字符串
+  // 判定，不写内联 glob 正则——vite import-analysis 对复杂正则字面量解析易脆）
+  const hits = (entry) => {
+    if (typeof entry !== 'string') return false
+    const norm = entry.replace(/\/\*\*(?:\/\*)?$/, '')
+    return norm === '**/desktop/fontlist' || norm === 'dist/desktop/fontlist' || norm === 'dist'
+  }
+  if (!items.some(hits)) {
+    found.push('electron-builder.yml asarUnpack 无可命中 dist/desktop/fontlist 的模式——打包态自管枚举 spawn 不到真二进制（R0912：裸 desktop/fontlist 对 asar 内带 dist/ 前缀的实际路径零命中）')
   }
   return found
 }
@@ -166,7 +175,10 @@ export function problemsForDistFontList(distDesktopDir, platform) {
   const found = []
   const bin = join(distDesktopDir, 'fontlist')
   if (!existsSync(bin)) {
-    found.push(`darwin dist 已构建但缺 ${bin}——tsup onSuccess 拷贝步骤失效（R0911-A-P2-1 回潮，重跑 npm run build）`)
+    // R0912（重评-0911c P3/G）：两态文案——本机 dist 陈旧（工作树半新态）与拷贝链
+    // 失效（真回潮）此前不可区分，误导排障方向（R0911 修复后本地首跑曾因陈旧 dist
+    // 伪红）。fail-closed 方向不变：两种形态都要求先重跑 build 再复检。
+    found.push(`darwin dist 已构建但缺 ${bin}——dist 陈旧（先 npm run build 重新构建再复检）或 tsup onSuccess 拷贝步骤失效（回潮）`)
     return found
   }
   try {
@@ -201,8 +213,14 @@ function checkPackaging() {
     // R0911-A-P2-1 第四层：fontlist asarUnpack 配置门（静态，全平台可查）
     problems.push(...problemsForElectronBuilderAsarUnpack(parseBuilderAsarUnpack(readFileSync(ebPath, 'utf8'))))
   }
-  // R0911-A-P2-1 第四层：darwin dist 实存门（仅 darwin + dist 已构建时生效）
-  problems.push(...problemsForDistFontList(join(root, 'dist', 'desktop'), process.platform))
+  // R0911-A-P2-1 第四层：darwin dist 实存门（仅 darwin + dist 已构建时生效）。
+  // R0912（重评-0911c P2/G）：CLW_CHECK_PACKAGING_SKIP_DIST_GATE=1 可跳过本门——
+  // 供 test/desktop/check-packaging.test.ts 的「真实脚本直跑」用例使用：单测不应把
+  // 不受控的本地工作树构建产物状态当断言对象（dist 半新态曾致全量单测单点红），
+  // 用例置此变量只锁配置面与资源对账面；CI 与本地常规跑不设变量，门照常生效。
+  if (process.env.CLW_CHECK_PACKAGING_SKIP_DIST_GATE !== '1') {
+    problems.push(...problemsForDistFontList(join(root, 'dist', 'desktop'), process.platform))
+  }
 
   // ── 2. 捆绑资源自洽：versions.json ↔ 实际 .md 双向对账 ────────────────────
   const promptsDir = join(root, 'resources', 'prompts')

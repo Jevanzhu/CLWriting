@@ -101,6 +101,19 @@ export function __setMetaSaveLockTimeoutForTest(ms: number): void {
   metaSaveLockTimeoutMs = ms
 }
 
+/** R0912-2（2026-09-11 重评-0911c 修复批）：结构性操作（doMoveOrRename/doTrash）落位段
+ *  的 per-doc save 锁等待档（毫秒）——与 executeSave 的 5s 同档；测试注入缩短保快
+ *  （生产零调用），同 META_SAVE_LOCK_TIMEOUT_MS 惯例。 */
+export const STRUCT_SAVE_LOCK_TIMEOUT_MS = 5_000
+
+/** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改。 */
+let structSaveLockTimeoutMs = STRUCT_SAVE_LOCK_TIMEOUT_MS
+
+/** 测试注入钩子（生产零调用）。 */
+export function __setStructSaveLockTimeoutForTest(ms: number): void {
+  structSaveLockTimeoutMs = ms
+}
+
 /** R29-7（二十九轮）：布线文件写路径的第二道跨进程锁（`<布线文件绝对路径>.lock`，
  *  与 lead-finalize.ts applyLeadUpdates 同名锁）等待档（毫秒）——与 save 锁的 5s
  *  同档（测试注入缩短保快，生产零调用）。
@@ -950,7 +963,13 @@ export class DocumentService {
   }
 
   private async updateChapterMetaLocked(docId: string, meta: { 标题?: string; 章号?: number }): Promise<MoveResult> {
-    const path = await this.lookupPathByDocIdAdoptAsync(docId)
+    // R0912-3：lookup strict 读失败收口 WRITE_ERROR（未执行修改、可重试），不裸穿
+    let path: string | null
+    try {
+      path = await this.lookupPathByDocIdAdoptAsync(docId)
+    } catch (e) {
+      return { ok: false, code: 'WRITE_ERROR', reason: `元数据修改前清单查询失败（未执行修改，可重试）：${errMsg(e)}` }
+    }
     if (!path) return { ok: false, code: 'NOT_FOUND', reason: `文档 ${docId} 未在清单登记` }
     const abs = this.resolveSafePath(path)
     if (!abs) return { ok: false, code: 'PATH_ESCAPE', reason: '路径越出书仓库' }
@@ -1068,13 +1087,41 @@ export class DocumentService {
       } catch (e) {
         log.warn('document', `章节元数据修改前快照失败（fail-open 继续写入）：${errMsg(e)}`)
       }
+      // R0912-4（2026-09-11 重评-0911c 修复批）：meta PATCH 写回补 journal pending/settled
+      // 配对（保存协议统一；此前双路径写回零 pending——原子写兜底只保「不半截」，崩溃窗
+      // 在健康面零痕迹，作者对「fm 是否改成了」无从对账）。选取「真补」而非豁免登记的
+      // 依据：写回全文（新 fm + 原正文）在写前已知，appendPending 原语直接可用；pending
+      // 快照即写回全文，崩溃后 R0912-1a 的 save 类复核按「盘上指纹 vs baseRevision」
+      // 确定性收口（已落盘 ⇒ 自动 settled；未落盘 ⇒ 报红），与 executeSave 语义逐位同构。
+      // baseRevision 取写回前盘上指纹（fileBytes 单读派生，R39-11 同源口径）。
+      // updateDocMetaLocked 同款。
+      const metaFullText = joinFrontMatter(patched.text, r.body)
+      const metaBaseRev = computeRevisionBytes(fileBytes)
+      let metaOpId: string
+      try {
+        metaOpId = await appendPending(journalPath, docId, metaBaseRev, metaFullText)
+      } catch (e) {
+        return { ok: false, code: 'WRITE_ERROR', reason: `journal 追加失败，元数据修改未执行：${errMsg(e)}` }
+      }
       try {
         // 元数据写入走原子写（P1-6A：防 writeFileSync 半截损坏不可恢复）
         // 平台规范化批：R39-10 BOM 补回移除（规范形无 BOM），行尾/BOM 由 joinFrontMatter
         // 整体规范化（原文带 BOM/CRLF 的外部编辑产物经此写自愈归一）
-        atomicWriteFile(abs, joinFrontMatter(patched.text, r.body), { fsync: true })
+        atomicWriteFile(abs, metaFullText, { fsync: true })
       } catch (e) {
+        try {
+          await appendAborted(journalPath, metaOpId, `元数据写入失败：${errMsg(e)}`)
+        } catch {
+          // journal 留痕失败吞掉（best-effort）：必须保住 {ok:false} 契约
+        }
         return { ok: false, code: 'WRITE_ERROR', reason: `元数据写入失败：${errMsg(e)}` }
+      }
+      // settled best-effort（R27-44 口径：写已落盘，落账失败不误报——悬置 pending 由
+      // 进门 R0912-1a save 类复核自动消解）
+      try {
+        await appendSettled(journalPath, metaOpId, computeRevisionBytes(Buffer.from(metaFullText, 'utf-8')))
+      } catch (e) {
+        log.warn('document', `元数据已写盘但 journal settled 写失败（${docId}，恢复链 R0912-1a 将按 pending 自动消解）：${errMsg(e)}`)
       }
       // R46-8（四十六轮）：meta PATCH 同文件整写——与 executeSave 同款单键失效
       invalidateTreeIndexForContent(this.bookRoot, path)
@@ -1112,7 +1159,9 @@ export class DocumentService {
         const safeTitle = sanitizeChapterTitle(标题) || '未命名'
         const newName = `${numPrefix}${safeTitle}.md`
         if (basename(path) !== newName) {
-          const result = await this.doMoveOrRename(docId, { kind: 'rename', newName })
+          // R0912-2：外层已持本 docId 的 save 锁（R76-1），传 holdSaveLock:false 防
+          // 同进程嵌套同路径锁（重取必超时 fail-closed）
+          const result = await this.doMoveOrRename(docId, { kind: 'rename', newName }, { holdSaveLock: false })
           if (result.ok) await this.syncRenamePieceList(path, newName)
           else this.rollbackMetaOnRenameFail(abs, r)
           return result
@@ -1126,7 +1175,8 @@ export class DocumentService {
       const newName =
         no !== null ? `${chapterFilePrefix(no, 'chapter')}${safeTitle}.md` : basename(path)
       if (basename(path) !== newName) {
-        const result = await this.doMoveOrRename(docId, { kind: 'rename', newName })
+        // R0912-2：外层已持本 docId 的 save 锁（R76-1），同 piece 分支防嵌套自锁
+        const result = await this.doMoveOrRename(docId, { kind: 'rename', newName }, { holdSaveLock: false })
         if (!result.ok) this.rollbackMetaOnRenameFail(abs, r)
         return result
       }
@@ -1239,7 +1289,13 @@ export class DocumentService {
   }
 
   private async updateDocMetaLocked(docId: string, meta: Record<string, unknown>): Promise<MoveResult> {
-    const path = await this.lookupPathByDocIdAdoptAsync(docId)
+    // R0912-3：lookup strict 读失败收口 WRITE_ERROR（未执行修改、可重试），不裸穿
+    let path: string | null
+    try {
+      path = await this.lookupPathByDocIdAdoptAsync(docId)
+    } catch (e) {
+      return { ok: false, code: 'WRITE_ERROR', reason: `元数据修改前清单查询失败（未执行修改，可重试）：${errMsg(e)}` }
+    }
     if (!path) return { ok: false, code: 'NOT_FOUND', reason: `文档 ${docId} 未在清单登记` }
     const abs = this.resolveSafePath(path)
     if (!abs) return { ok: false, code: 'PATH_ESCAPE', reason: '路径越出书仓库' }
@@ -1287,12 +1343,15 @@ export class DocumentService {
       // 被并发替换（他进程保存/改名）时判据与写回内容错源（微 TOCTOU）。Buffer 一读，
       // 判据与写回同源派生。
       let raw: string
+      // R0912-4：buf 提升作用域——写前指纹（baseRevision）单读派生用（下方 pending）
+      let fileBytes: Buffer | undefined
       try {
         const buf = readFileSync(abs)
         // 非 UTF-8 防线（第五轮引入；DA-1·第七轮升级字节级判据，同 updateChapterMeta 口径）——
         // 原字符串 FFFD 判据有 fm 区 GBK 盲区：部分 GBK 双字节对恰好构成合法 UTF-8，读入
         // 无 U+FFFD 即放行，fm 往返把乱码原子覆盖回原文件，原始字节永久丢失
         if (!isUtf8Bytes(buf)) return NON_UTF8_REJECT
+        fileBytes = buf
         raw = buf.toString('utf-8')
       } catch (e) {
         return { ok: false, code: 'WRITE_ERROR', reason: `元数据读取失败：${errMsg(e)}` }
@@ -1325,12 +1384,35 @@ export class DocumentService {
       } catch (e) {
         log.warn('document', `元数据修改前快照失败（fail-open 继续写入）：${errMsg(e)}`)
       }
+      // R0912-4：meta PATCH 写回补 journal pending/settled 配对（同 updateChapterMetaLocked
+      // 头注——选取「真补」依据与 R0912-1a 确定性收口联动；baseRevision 取写回前盘上
+      // 指纹，fileBytes 单读派生）
+      const metaFullText = joinFrontMatter(patched.text, body)
+      const metaBaseRev = computeRevisionBytes(fileBytes!)
+      let metaOpId: string
+      try {
+        metaOpId = await appendPending(journalPath, docId, metaBaseRev, metaFullText)
+      } catch (e) {
+        return { ok: false, code: 'WRITE_ERROR', reason: `journal 追加失败，元数据修改未执行：${errMsg(e)}` }
+      }
       try {
         // 平台规范化批：R39-10 BOM 补回移除（规范形无 BOM）——raw 若带 BOM（外部编辑
         // 产物）由 joinFrontMatter 整体规范化剥除
-        atomicWriteFile(abs, joinFrontMatter(patched.text, body), { fsync: true })
+        atomicWriteFile(abs, metaFullText, { fsync: true })
       } catch (e) {
+        try {
+          await appendAborted(journalPath, metaOpId, `元数据写入失败：${errMsg(e)}`)
+        } catch {
+          // journal 留痕失败吞掉（best-effort）：必须保住 {ok:false} 契约
+        }
         return { ok: false, code: 'WRITE_ERROR', reason: `元数据写入失败：${errMsg(e)}` }
+      }
+      // settled best-effort（R27-44 口径：写已落盘，落账失败不误报——悬置 pending 由
+      // 进门 R0912-1a save 类复核自动消解）
+      try {
+        await appendSettled(journalPath, metaOpId, computeRevisionBytes(Buffer.from(metaFullText, 'utf-8')))
+      } catch (e) {
+        log.warn('document', `元数据已写盘但 journal settled 写失败（${docId}，恢复链 R0912-1a 将按 pending 自动消解）：${errMsg(e)}`)
       }
       invalidateTreeIndex(this.bookRoot, true)
       return { ok: true, docId, path }
@@ -1343,17 +1425,56 @@ export class DocumentService {
 
   /** move/rename 共用：查清单 oldPath → 算 newPath → 能力校验 → snapshot → rename → 清单更新。 */
   // R31-20（三十一轮）：doMoveOrRename 改异步——尾部清单 path 更新走
-  // updateManifestPath 的异步清单锁（等待期不阻塞事件循环）；锁序不变（本方法
-  // 不取 save 锁，由调用方 save 锁内 await，见 updateChapterMetaLocked）。
+  // updateManifestPath 的异步清单锁（等待期不阻塞事件循环）。
+  // R0912-2（2026-09-11 重评-0911c 修复批）：落位段补 per-doc save 锁——原「本方法
+  // 不取 save 锁，由调用方 save 锁内 await」留下双向复活窗：他进程 executeSave 过锁内
+  // 守卫（registered/trash 复核）后、落盘前，本方法把文件 rename 走并删源，他进程的
+  // atomicWriteFile/createFileExclusive 会在旧路径复活已移走文件（expectedRevision=null
+  // 的新建语义尤其如此：文件不在盘 ⇒ 基线校验通过 ⇒ 独占创建复活）。现取
+  // `<journal>.save.lock` 覆盖「pending → snapshot → 落位 → 删源 → 清单 path 更新 →
+  // settled」整段：本方持锁时他进程 save 在取锁处等待（锁内复核看到新世界后按
+  // REVISION_CONFLICT 拒绝）；他进程 save 持锁时本方等待（落位发生在其保存完成后，
+  // 语义为「保存后移动/删除」，无复活）。锁序严格沿用全仓「save → 布线 → 清单」：
+  // 本锁最先取（save），其后 journal 锁（appendMovePending）与清单锁
+  // （updateManifestPath/upsertManifestEntryAsync 收编链）均为既有单向嵌套，无环。
+  // opts.holdSaveLock：调用方已持同 docId save 锁时传 false（updateChapterMetaLocked
+  // ——锁基建禁同进程嵌套同路径锁，重取必 5s 超时 fail-closed）；缺省 true（安全默认，
+  // 新调用方漏声明时 fail-loud 而非静默无锁）。syncRenamePieceList 对章纲 docId 走
+  // 缺省 true：章纲 save 锁与正文 save 锁是不同路径锁，正文→章纲为单向下行
+  //（章纲 rename 不反带正文），无 ABBA 环。
   private async doMoveOrRename(
     docId: string,
     op: { kind: 'move'; toDir: string } | { kind: 'rename'; newName: string },
+    opts?: { holdSaveLock?: boolean },
   ): Promise<MoveResult> {
     // N1（五十九轮）：journal 路径含 docId，入口显式 safeDocId 校验防穿越——executeSave
     // 已有 P1-SEC-A 守卫，此处同型构造漏校验；manifest 是可篡改数据面，构造
     // id:"../../evil" 条目后 PATCH move/rename 可把 .jsonl 写出书仓库外。
     if (!safeDocId(docId)) return { ok: false, code: 'PATH_ESCAPE', reason: '文档 ID 非法' }
-    const oldPath = await this.lookupPathByDocIdAdoptAsync(docId)
+    const journalPath = join(this.journalDir, `${encodeDocDirName(docId)}.jsonl`) // R68-3：同 executeSave 编码口径
+    // R0912-2：取 save 锁（同 executeSave R48-6——获取自身抛出收口 WRITE_ERROR）
+    const holdSaveLock = opts?.holdSaveLock ?? true
+    let structSaveLock: (() => void) | null = null
+    if (holdSaveLock) {
+      try {
+        structSaveLock = await acquireCrossProcessLockAsync(`${journalPath}.save.lock`, structSaveLockTimeoutMs)
+      } catch (e) {
+        return { ok: false, code: 'WRITE_ERROR', reason: `移动/重命名保存锁获取失败（未执行操作，可重试）：${errMsg(e)}` }
+      }
+      if (!structSaveLock) {
+        return { ok: false, code: 'WRITE_ERROR', reason: '移动/重命名等待超时：另一进程正在保存或移动此文档（5 秒未让出），请重试' }
+      }
+    }
+    try {
+    // R0912-3（2026-09-11 重评-0911c 修复批）：lookup 命中读已随 lookupPathByDocIdAdoptAsync
+    // 收敛 strict（R27-40 口径）——瞬态读失败上抛不再落「未登记」，此处收口 WRITE_ERROR
+    //（未执行操作、可重试），不裸穿 MoveResult 契约。
+    let oldPath: string | null
+    try {
+      oldPath = await this.lookupPathByDocIdAdoptAsync(docId)
+    } catch (e) {
+      return { ok: false, code: 'WRITE_ERROR', reason: `移动/重命名前清单查询失败（未执行操作，可重试）：${errMsg(e)}` }
+    }
     if (!oldPath) return { ok: false, code: 'NOT_FOUND', reason: `文档 ${docId} 未在清单登记` }
 
     // R64-16（十二轮）：rename 的 newName 直拼 `${dirname}/${newName}`——含 `/`/`\`
@@ -1421,12 +1542,18 @@ export class DocumentService {
 
     // P3-10：journal 兜底移动/重命名的非原子窗口——pending → snapshot+rename → 清单更新 → settled。
     // 窗口内崩溃：进门 healthCheck 按磁盘现状确定性收口（new 在 old 不在 → 补清单；old 在 new 不在 → abort）。
-    const journalPath = join(this.journalDir, `${encodeDocDirName(docId)}.jsonl`) // R68-3：同 executeSave 编码口径
+    // （R0912-2：journalPath 已上提到取锁处。）
     // ee-P1-5：pending 写入收进 try——appendMovePending 同步抛（磁盘满/权限）此前在 try 外
     // 裸穿，而调用方以 Promise.resolve 包裹本方法（不捕获同步 throw），拿到的是裸异常而非
     // {ok:false} 契约（save 路径同类已修 RB-KN-P2-2，此处对齐）。pending 仍先于
     // snapshot+rename，P3-10 崩溃恢复语义不变。
+    // R0912-7（2026-09-11 重评-0911c 修复批）：settled 复用移动前单读派生的 baseRev——
+    // 移动/重命名内容不变（同 inode 落位），newSafe 的盘上指纹与 oldContent 恒等，原
+    // computeRevision(newSafe) 在 settled 处再整读全文属重复 IO（R47-32 单读派生同族
+    // 收口）。行为零变更。防御回落仅在「readFileSync(oldSafe) 未执行即失败」的不可达
+    // 路径兜底（此刻早已走上方 catch 返回，到不了 settled）。
     let opId: string | undefined
+    let baseRev: `sha256:${string}` | undefined
     try {
       opId = await appendMovePending(journalPath, docId, oldPath, newPath)
       // snapshot 留底（移动/重命名前，W0-1 §7）
@@ -1436,7 +1563,7 @@ export class DocumentService {
       // R47-32（四十七轮）：baseRev 单读派生——快照反正要整读原字节，rev 从同份
       // 字节派生（computeRevision(oldSafe) 此前独立再读一遍全文）
       const oldContent = readFileSync(oldSafe)
-      const baseRev = computeRevisionBytes(oldContent) // R47-32：单读派生（同份字节，免独立重读）
+      baseRev = computeRevisionBytes(oldContent) // R47-32：单读派生（同份字节，免独立重读）；R0912-7：settled 复用
       // R46-39（四十六轮）：留底补传 policy（this.snapshotPolicy()）——此前缺省走
       // DEFAULT_VERSION_POLICY（14 天/30 个），global.json 的 snapMax* 覆盖对移动/重命名
       // 前留底不生效，与同文件 maybeSnapshot/updateChapterMeta/updateDocMeta 写法漂移；
@@ -1523,7 +1650,8 @@ export class DocumentService {
       }
     }
     try {
-      await appendSettled(journalPath, opId, computeRevision(newSafe))
+      // R0912-7：内容未变，settled 复用移动前单读派生的指纹（不再整读 newSafe 全文）
+      await appendSettled(journalPath, opId, baseRev ?? computeRevision(newSafe))
     } catch (e) {
       return {
         ok: false,
@@ -1533,6 +1661,11 @@ export class DocumentService {
     }
     invalidateTreeIndex(this.bookRoot, true)
     return { ok: true, docId, path: newPath }
+    } finally {
+      // R0912-2：结构性落位段 save 锁释放（覆盖 lookup → 落位 → 删源 → 清单更新 → settled
+      // 整段；提前 return 的各失败路径经 finally 幂等释放，不泄漏）
+      if (structSaveLock) structSaveLock()
+    }
   }
 
   // 残留清偿批（三十四轮）：同步收编链三函数已删——lookupPathByDocId / adoptLegacyDoc /
@@ -1564,7 +1697,14 @@ export class DocumentService {
    *  resolvePathAsync）已迁本孪生，同步链删除——本函数为 docId 收编唯一实现。 */
   private async lookupPathByDocIdAdoptAsync(docId: string): Promise<string | null> {
     if (existsSync(this.manifestPath)) {
-      const path = readManifest(this.manifestPath).entries.get(docId)?.path
+      // R0912-3（2026-09-11 重评-0911c 修复批）：命中读改 readManifestStrict（与 RMW 链
+      // upsertManifestEntryAsync/updateManifestPath 的 R27-40 口径对齐）——容错版对瞬态
+      // 读失败（EBUSY/EACCES）返空表，守卫把「登记在册」误判「未登记」：save 走新建语义
+      // 在旧路径落盘（同内容双文件/复活窗），trash/move 的「未登记」分支同样静默失效。
+      // strict 读失败上抛，由各调用方既有 WRITE_ERROR 信封收口（fail-closed：未落盘、
+      // 可重试）——executeSave 前段/锁内复核本就有 catch，本函数的直调方（meta/结构性
+      // 操作）已随 R0912-2/3 各自补 catch。
+      const path = readManifestStrict(this.manifestPath).entries.get(docId)?.path
       if (path) return path
     }
     if (!docId.startsWith('legacy:')) return null
@@ -1601,7 +1741,13 @@ export class DocumentService {
   }
 
   private async doCopy(input: CopyDocumentInput): Promise<CopyResult> {
-    const srcPath = await this.lookupPathByDocIdAdoptAsync(input.docId)
+    // R0912-3：lookup strict 读失败收口 WRITE_ERROR（未执行复制、可重试），不裸穿
+    let srcPath: string | null
+    try {
+      srcPath = await this.lookupPathByDocIdAdoptAsync(input.docId)
+    } catch (e) {
+      return { ok: false, code: 'WRITE_ERROR', reason: `复制前清单查询失败（未执行复制，可重试）：${errMsg(e)}` }
+    }
     if (!srcPath) return { ok: false, code: 'NOT_FOUND', reason: `源文档 ${input.docId} 未在清单登记` }
     // R33-9（三十三轮）：目标文件段过 sanitizeFileNamePart（补单源纪律缺口——目录段
     // 既有身份不动，只净化本次创建的文件名；win 尾点/尾空格/保留设备名同族收口）
@@ -1696,7 +1842,36 @@ export class DocumentService {
     // snapshot 留底/trash 路径拼接（下游 resolveSafePath 两层已挡穿越，此处挡在
     // 更早，非法 ID 不进后续链）
     if (!safeDocId(docId)) return { ok: false, code: 'PATH_ESCAPE', reason: '文档 ID 非法' }
-    const oldPath = await this.lookupPathByDocIdAdoptAsync(docId)
+    // R0912-2（2026-09-11 重评-0911c 修复批）：软删全程持 per-doc save 锁——原「落位
+    // （linkOrRenameExclusive）与删源（rmWithRetry）全程无 save 锁」留下双向复活窗：
+    // 他进程 executeSave 过锁内守卫后、落盘前，本方法把文件 rename 进 .trash 并删源，
+    // 他进程 atomicWriteFile 在旧路径复活已删文件（绕过回收站、清单无登记）。现取
+    // `<journal>.save.lock` 覆盖「lookup → 登记 → 落位 → 删源 → 清单删除」整段：
+    // 本方持锁时他进程 save 在取锁处等待，锁内复核（R76-22）看到「回收站认领 + 文件
+    // 不在盘」后按 REVISION_CONFLICT 拒绝；他进程 save 持锁时本方等待（删的是其保存后
+    // 内容，快照/回收站留底，无复活）。锁序沿用全仓「save → 布线 → 清单」单向嵌套：
+    // 其后 journal 锁 / trash 清单锁 / 主清单锁均无反向取 save 锁者，无环。
+    // （executeSave Z-6 的回收站复活守卫本可兜「删源后清单未删」窗，但兜不住「守卫
+    // 已过、atomicWrite 在旧路径复活」的毫秒窗——本锁闭合后者。）
+    const journalPath = join(this.journalDir, `${encodeDocDirName(docId)}.jsonl`) // R68-3：同 executeSave 编码口径
+    let structSaveLock: (() => void) | null = null
+    try {
+      structSaveLock = await acquireCrossProcessLockAsync(`${journalPath}.save.lock`, structSaveLockTimeoutMs)
+    } catch (e) {
+      return { ok: false, code: 'WRITE_ERROR', reason: `删除保存锁获取失败（未执行删除，可重试）：${errMsg(e)}` }
+    }
+    if (!structSaveLock) {
+      return { ok: false, code: 'WRITE_ERROR', reason: '删除等待超时：另一进程正在保存或删除此文档（5 秒未让出），请重试' }
+    }
+    try {
+    // R0912-3：lookup 命中读 strict 化后的收口——瞬态读失败按 WRITE_ERROR 拒删
+    //（文件未动、可重试），不裸穿 TrashResult 契约。
+    let oldPath: string | null
+    try {
+      oldPath = await this.lookupPathByDocIdAdoptAsync(docId)
+    } catch (e) {
+      return { ok: false, code: 'WRITE_ERROR', reason: `删除前清单查询失败（未执行删除，可重试）：${errMsg(e)}` }
+    }
     if (!oldPath) return { ok: false, code: 'NOT_FOUND', reason: `文档 ${docId} 未在清单登记` }
     if (!layoutOf(oldPath).capabilities.trash) {
       return { ok: false, code: 'CAPABILITY_DENIED', reason: '该文档不可删除（系统文档）' }
@@ -1888,6 +2063,10 @@ export class DocumentService {
     }
     invalidateTreeIndex(this.bookRoot, true)
     return { ok: true, docId, trashedPath: finalTrashRel }
+    } finally {
+      // R0912-2：软删 save 锁释放（各提前 return 经 finally 幂等释放，不泄漏）
+      if (structSaveLock) structSaveLock()
+    }
   }
 }
 

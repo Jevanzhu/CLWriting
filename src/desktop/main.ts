@@ -1011,11 +1011,16 @@ const CLOSE_FLUSH_BUDGET_MS = 4_000
  *  竞窗里 null 取消常先到，渲染层 once 只认第一条 → 菜单动作被吞）。放宽到 100ms
  *  让 click 稳定抢先；取消回执晚 100ms 对渲染侧无感（只是收尾态）。 */
 const CONTEXT_MENU_CANCEL_DELAY_MS = 100
-/** R1010b-DSK-P3-6（2026-09-10 内存专项重审修复批）：取消补发 timer 句柄（模块级单槽）
- *  ——原 popup callback 内裸排 setTimeout 不留句柄：不可清、不可 unref，违本文件 timer
+/** R1010b-DSK-P3-6（2026-09-10 内存专项重审修复批）：取消补发 timer 句柄登记——
+ *  原 popup callback 内裸排 setTimeout 不留句柄：不可清、不可 unref，违本文件 timer
  *  纪律（R46-19 闭包持引用滞留 / R54-A-5 卫生），菜单连续开关时旧补发叠跑。排新清旧 +
- *  unref（不拖退出），消费点见 desktop:context-menu 的 popup callback。 */
-let contextMenuCancelTimer: ReturnType<typeof setTimeout> | null = null
+ *  unref（不拖退出），消费点见 desktop:context-menu 的 popup callback。
+ *  R0912（重评-0911c P3）：单槽改 per-sender 分槽——单槽下 A 窗排定的取消补发会被
+ *  B 窗菜单关闭回调 clearTimeout 清掉（100ms 内双窗先后关菜单），A 的渲染层 once
+ *  收不到 null 挂等到下次开菜单；按 webContents 分槽互不干扰。sendOnce 自带
+ *  isDestroyed 守卫（N-4），窗销毁后的迟到触发无害；条目仅在重排/触发时清理，
+ *  残留上界 = 窗口数（个位数）。 */
+const contextMenuCancelTimers = new Map<Electron.WebContents, ReturnType<typeof setTimeout>>()
 
 /** R44-2（四十四轮）：关窗/退出前渲染层兜底 flush——主进程拦下 close/quit 后经
  *  executeJavaScript 调渲染层 window.__clwFlushBeforeClose（Book 页注册，页面未进
@@ -1764,13 +1769,16 @@ function registerIpc(): void {
     menu.popup({
       window: win,
       callback: () => {
-        // R1010b-DSK-P3-6：排新清旧 + unref（句柄纪律见 contextMenuCancelTimer 声明处）
-        if (contextMenuCancelTimer) clearTimeout(contextMenuCancelTimer)
-        contextMenuCancelTimer = setTimeout(() => {
-          contextMenuCancelTimer = null
+        // R1010b-DSK-P3-6：排新清旧 + unref（句柄纪律见 contextMenuCancelTimers 声明处）
+        // R0912：per-sender 分槽（单槽跨窗互清缺陷见声明处）——本窗重排只清本窗旧句柄
+        const prev = contextMenuCancelTimers.get(event.sender)
+        if (prev) clearTimeout(prev)
+        const timer = setTimeout(() => {
+          contextMenuCancelTimers.delete(event.sender)
           sendOnce(null)
         }, CONTEXT_MENU_CANCEL_DELAY_MS)
-        contextMenuCancelTimer.unref?.()
+        timer.unref?.()
+        contextMenuCancelTimers.set(event.sender, timer)
       },
     })
   })

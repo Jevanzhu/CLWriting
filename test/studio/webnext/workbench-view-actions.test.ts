@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   getDraftPrompt: vi.fn(),
   generateOutline: vi.fn(),
   generateLeadUpdates: vi.fn(),
+  acknowledgeJournalPending: vi.fn(),
   getConfig: vi.fn(),
   getTraceStats: vi.fn(),
   getCostStats: vi.fn(),
@@ -39,6 +40,8 @@ vi.mock('../../../src/studio/web-next/src/api/stream', () => ({
   getDraftPrompt: mocks.getDraftPrompt,
   generateOutline: mocks.generateOutline,
   generateLeadUpdates: mocks.generateLeadUpdates,
+  // R0912-FE-P2-3：崩溃 pending 忽略通道封装（WorkbenchView 父层接线直测）
+  acknowledgeJournalPending: mocks.acknowledgeJournalPending,
 }))
 vi.mock('../../../src/studio/web-next/src/api/books', () => ({
   getConfig: mocks.getConfig,
@@ -59,6 +62,7 @@ vi.mock('lucide-vue-next', () => new Proxy({}, { get: () => ({ template: '<i/>' 
 
 import WorkbenchView from '../../../src/studio/web-next/src/views/WorkbenchView.vue'
 import WbDraftCard from '../../../src/studio/web-next/src/components/workbench/WbDraftCard.vue'
+import WbStateCard from '../../../src/studio/web-next/src/components/workbench/WbStateCard.vue'
 import { useWorkbenchStore } from '../../../src/studio/web-next/src/stores/workbench'
 
 function primeLoadApis(): void {
@@ -183,6 +187,123 @@ describe('WorkbenchView: AI 不可达置灰（R76-8）', () => {
     const w = await mountView()
     expect(w.text()).toContain('AI 服务暂不可用')
     expect(findBtn(w, '生成')!.attributes('disabled')).toBeDefined()
+    w.unmount()
+  })
+})
+
+// ── R0912-FE-P2-3（2026-09-11 重评-0911b 修复批）：崩溃 pending「忽略此提醒」父层接线 ──
+describe('WorkbenchView: 崩溃 pending 忽略通道（R0912-FE-P2-3）', () => {
+  const crashedState = {
+    state: 1,
+    stateName: '体检异常',
+    humanMsg: '进门体检发现问题，先处理再开写：\n· 上次写作时「正文/第1章.md」的保存没完成，可能丢字。（…）',
+    action: '',
+    crashedPendingOpIds: ['op-1', 'op-2'],
+  }
+
+  it('WbStateCard ack 事件 → 逐个 acknowledge + 成功 toast + 刷新状态卡', async () => {
+    mocks.getState.mockResolvedValue(crashedState)
+    mocks.acknowledgeJournalPending.mockResolvedValue({ ok: true, acknowledged: true })
+    const w = await mountView()
+    const stateCallsBefore = mocks.getState.mock.calls.length
+    w.findComponent(WbStateCard).vm.$emit('acknowledge')
+    await flushPromises()
+    expect(mocks.acknowledgeJournalPending).toHaveBeenCalledTimes(2)
+    expect(mocks.acknowledgeJournalPending).toHaveBeenNthCalledWith(1, '书A', 'op-1')
+    expect(mocks.acknowledgeJournalPending).toHaveBeenNthCalledWith(2, '书A', 'op-2')
+    expect(mocks.uiToast).toHaveBeenCalledWith('已忽略崩溃恢复提醒，进门体检不再报该条', 'success')
+    expect(mocks.getState.mock.calls.length).toBeGreaterThan(stateCallsBefore) // 成功后刷新
+    w.unmount()
+  })
+
+  it('幂等 acknowledged:false（提醒已失效）→ toast 失效口径', async () => {
+    mocks.getState.mockResolvedValue(crashedState)
+    mocks.acknowledgeJournalPending.mockResolvedValue({ ok: true, acknowledged: false })
+    const w = await mountView()
+    w.findComponent(WbStateCard).vm.$emit('acknowledge')
+    await flushPromises()
+    expect(mocks.uiToast).toHaveBeenCalledWith('该提醒已失效或已确认', 'success')
+    w.unmount()
+  })
+
+  it('acknowledge 失败 → error toast（friendlyError 面）', async () => {
+    mocks.getState.mockResolvedValue(crashedState)
+    mocks.acknowledgeJournalPending.mockRejectedValue(new Error('网络不可达'))
+    const w = await mountView()
+    w.findComponent(WbStateCard).vm.$emit('acknowledge')
+    await flushPromises()
+    expect(mocks.uiToast).toHaveBeenCalledWith('网络不可达', 'error')
+    w.unmount()
+  })
+
+  it('无 opId（服务端未透出/已清账）→ ack 事件空转，不发请求', async () => {
+    const w = await mountView() // primeLoadApis 的 getState 无 crashedPendingOpIds
+    w.findComponent(WbStateCard).vm.$emit('acknowledge')
+    await flushPromises()
+    expect(mocks.acknowledgeJournalPending).not.toHaveBeenCalled()
+    w.unmount()
+  })
+
+  it('acknowledge 在途切书 → 迟到结果不落 B 书（R70-10 家族守卫）', async () => {
+    mocks.getState.mockResolvedValue(crashedState)
+    let resolveAck!: (v: { ok: true; acknowledged: boolean }) => void
+    mocks.acknowledgeJournalPending.mockImplementationOnce(
+      () => new Promise((r) => (resolveAck = r)),
+    )
+    const w = await mountView()
+    w.findComponent(WbStateCard).vm.$emit('acknowledge')
+    await nextTick()
+    await w.setProps({ bookName: '书B' }) // 在途切书
+    resolveAck({ ok: true, acknowledged: true })
+    await flushPromises()
+    expect(mocks.acknowledgeJournalPending).toHaveBeenCalledTimes(1) // 不再打第二个 opId
+    expect(mocks.uiToast).not.toHaveBeenCalled()
+    w.unmount()
+  })
+})
+
+// ── R0912-FE-P3-7（2026-09-11 重评-0911b 修复批）：pending 文案死代码复活 ──
+describe('WorkbenchView: pending 文案可达（R0912-FE-P3-7）', () => {
+  it('autoWrite 在途 → 「写章启动中…」可达且按钮禁用（原 v-if="!genBusy" 期整体消失）', async () => {
+    // onAutoWrite 先 await getConfig 读批量档位——本文件未全局打桩，此处补（缺桩会
+    // 在读 cfg.auto 时抛错进 catch，autoPending 复位、按钮文案回到常態）
+    mocks.getConfig.mockResolvedValue({ auto: { batch_size: 1 } })
+    let resolveAuto!: (v: unknown) => void
+    mocks.autoWrite.mockImplementationOnce(() => new Promise((r) => (resolveAuto = r)))
+    const w = await mountView()
+    await findBtn(w, '全自动写章')!.trigger('click')
+    await nextTick()
+    const pendingBtn = findBtn(w, '写章启动中…')
+    expect(pendingBtn).toBeDefined() // 文案可达（原死代码）
+    expect(pendingBtn!.attributes('disabled')).toBeDefined()
+    resolveAuto({ ok: true, chapter: 2, batchSize: 1 })
+    await flushPromises()
+    expect(findBtn(w, '全自动写章')).toBeDefined() // 收尾复原
+    w.unmount()
+  })
+
+  it('wb.running 生成中 → 账本推进/全自动写章钮保持渲染且禁用（不再整体消失）', async () => {
+    const wb = useWorkbenchStore()
+    const w = await mountView()
+    wb.running = true
+    await nextTick()
+    expect(findBtn(w, '生成账本推进')!.attributes('disabled')).toBeDefined()
+    expect(findBtn(w, '全自动写章')!.attributes('disabled')).toBeDefined()
+    w.unmount()
+  })
+
+  it('leadUpdates 在途 → 「推进草拟中…」可达且按钮禁用', async () => {
+    let resolveLead!: (v: unknown) => void
+    mocks.generateLeadUpdates.mockImplementationOnce(() => new Promise((r) => (resolveLead = r)))
+    const w = await mountView()
+    await findBtn(w, '生成账本推进')!.trigger('click')
+    await nextTick()
+    const pendingBtn = findBtn(w, '推进草拟中…')
+    expect(pendingBtn).toBeDefined()
+    expect(pendingBtn!.attributes('disabled')).toBeDefined()
+    resolveLead({ ok: true, count: 0 })
+    await flushPromises()
+    expect(findBtn(w, '生成账本推进')).toBeDefined()
     w.unmount()
   })
 })

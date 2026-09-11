@@ -314,7 +314,18 @@ export function scanCloudCopies(bookRoot: string): string[] {
     for (const e of entries) {
       // 跳过 .git / node_modules / .cache（不扫 git 内部、依赖与可重建缓存）
       // X-P2-20：补 .版本（工作区/版本档案，每书成百上千文件，进门全扫纯属浪费）与 .trash（回收站）
-      if (e.name === '.git' || e.name === 'node_modules' || e.name === '.cache' || e.name === '.版本' || e.name === '.trash') continue
+      // R0912-8（2026-09-11 重评-0911c 修复批）：补工作区内部簿记目录全表（layout.ts
+      // WORKSPACE_INTERNAL_DIR_PREFIXES 的「工作区/ 下直接子目录」清单对齐）——.journal
+      // 内 AppleDouble 伴生（._xxx.jsonl）此前被 patterns[0] 当 cloudCopy 报红（进门每次
+      // 误报，journal 目录恰是同步盘伴生高发位）；待定稿/导出/spills/.snapshots/.账本推进
+      // 暂存同理不扫。跳过在 patterns 判定前，`._*` 伴生不因目录面扩大而误入候选
+      //（顶层/内容区的 `._*` 维持既有「报为副本」口径不变）。
+      if (
+        e.name === '.git' || e.name === 'node_modules' || e.name === '.cache' ||
+        e.name === '.版本' || e.name === '.trash' ||
+        e.name === '.journal' || e.name === '.snapshots' || e.name === '.账本推进暂存' ||
+        e.name === 'spills' || e.name === '待定稿' || e.name === '导出'
+      ) continue
       const full = join(dir, e.name)
       if (e.isDirectory()) {
         walk(full)

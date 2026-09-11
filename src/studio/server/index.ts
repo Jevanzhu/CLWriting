@@ -27,7 +27,10 @@ import { registerOverviewRoutes } from './api/overview.js'
 import { registerRhythmRoutes } from './api/rhythm.js'
 import { registerSettingsRoutes } from './api/settings.js'
 import { registerStreamRoutes } from './api/stream.js'
-import { closeAllSseConnections } from './api/stream.js' // R0910-W：close 收尾断开在途 SSE
+// closeAllSseConnections：R0910-W close 收尾断开在途 SSE；
+// SSE_STREAM_PATH_PATTERN：R0912-P3-⑥ GET token 豁免表引用（SSE 端点路径模式单源，
+// 与 books.stream 路由及其自带凭据闸同居 stream.ts，改路径只动一处）
+import { closeAllSseConnections, SSE_STREAM_PATH_PATTERN } from './api/stream.js'
 import { waitInFlightWorkSettled } from './api/in-flight-work.js' // R0910-W：close 收尾有界等在途外部工作
 import { createStreamTicketStore, registerStreamTicketRoutes, type StreamTicketStore } from './api/stream-ticket.js'
 import { registerDraftRoutes } from './api/draft.js'
@@ -142,8 +145,11 @@ function buildRoutes(
  *   stream.ts 自带的一次性 ticket / query token 双凭据闸校验；:name 为单路径段
  *   （[^/]+），与 router.ts :param 捕获口径一致。
  * 健康检查无独立顶层端点（health.ts 为书级业务端点，不豁免）；非 /api/ 静态资源不受影响。
+ * R0912-P3-⑥：SSE 豁免项改引 stream.ts 导出的 SSE_STREAM_PATH_PATTERN（单源）——
+ * 此处不再手写等价正则（原两处正则字符串耦合，路由路径改动时豁免表会静默失配）；
+ * /api/boot 项本文件自持（bootstrap 端点注册面不在 stream.ts）。
  */
-const GET_TOKEN_EXEMPT_PATHS: readonly RegExp[] = [/^\/api\/boot$/, /^\/api\/books\/[^/]+\/stream$/]
+const GET_TOKEN_EXEMPT_PATHS: readonly RegExp[] = [/^\/api\/boot$/, SSE_STREAM_PATH_PATTERN]
 
 /** R0910-W：close 收尾等「在途外部工作」（重建/导出/扫描 Worker 线程）settle 的
  *  有界预算——超时放行，与 graceful-shutdown 的 settle/close 超时同口径（close 只
