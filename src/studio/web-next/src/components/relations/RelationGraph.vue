@@ -26,7 +26,13 @@ const g = useRelationGraphInjected()
       <rect x="-9999" y="-9999" width="19998" height="19998" class="bg-rect" />
       <!-- 边：默认就带语义色（弱），聚焦时提到全饱和 -->
       <g class="edges">
-        <g v-for="(g2, i) in g.edgeGeoms.value" :key="i" :class="{ dim: g.edgeDim(g2.e) }">
+        <!-- R0911b-C2-P3-2：key 弃纯 index——edges 按 pairKey(from,to,kind) 无向去重后建边，
+             (from, to, kind) 必唯一（同域节点 :key="n.id" 先例），即天然稳定键。 -->
+        <g
+          v-for="g2 in g.edgeGeoms.value"
+          :key="g2.e.from + '-' + g2.e.to + '-' + g2.e.kind"
+          :class="{ dim: g.edgeDim(g2.e) }"
+        >
           <path
             :d="g2.d"
             class="edge" :class="{ debt: g2.e.kind === 'debt', active: g.edgeActive(g2.e) }"

@@ -26,6 +26,12 @@ const failState = vi.hoisted(() => ({
   trashManifestFailOnNthRead: 0,
   /** 回收站清单读取计数（trashManifestFailOnNthRead 的分母，afterEach 复位）。 */
   trashReadCount: 0,
+  /** >0 = 回收站清单 statSync 第 N 次命中时抛 EACCES——R0912-E-P3-1 起 strict 读
+   *  带单槽 stat 指纹缓存，清单未变时复核读走缓存不触盘；须让指纹探测（stat）本身
+   *  失败才能把「复核段读失败」注入进缓存后的读路径（sig=null 绕过缓存走原读）。 */
+  trashManifestStatFailOnNth: 0,
+  /** 回收站清单 stat 计数（trashManifestStatFailOnNth 的分母，afterEach 复位）。 */
+  trashStatCount: 0,
   /** 命中即抛 EPERM 一次（一次性瞬时锁形态，抛后放行）。 */
   rmEpisOn: null as string | null,
 }))
@@ -43,6 +49,15 @@ vi.mock('node:fs', async (importOriginal) => {
       return encoding === undefined
         ? actual.readFileSync(p)
         : actual.readFileSync(p, encoding as 'utf-8')
+    },
+    statSync: (p: string, opts?: { bigint?: boolean }) => {
+      if (typeof p === 'string' && p.includes('.trash-manifest.jsonl')) {
+        failState.trashStatCount++
+        if (failState.trashStatCount === failState.trashManifestStatFailOnNth) {
+          throw Object.assign(new Error(`EACCES: permission denied, stat '${p}'`), { code: 'EACCES' })
+        }
+      }
+      return opts === undefined ? actual.statSync(p) : actual.statSync(p, opts)
     },
     rmSync: (p: string, opts?: { recursive?: boolean; force?: boolean }) => {
       if (typeof p === 'string' && failState.rmEpisOn === p) {
@@ -68,6 +83,8 @@ afterEach(() => {
   failState.trashManifestReadFails = false
   failState.trashManifestFailOnNthRead = 0
   failState.trashReadCount = 0
+  failState.trashManifestStatFailOnNth = 0
+  failState.trashStatCount = 0
   failState.rmEpisOn = null
 })
 
@@ -115,7 +132,11 @@ describe('R42-7：Z-6 复活守卫读失败 → 保守拒绝（fail-closed）', 
   it('锁内复核：第 2 次读（复核段）失败 → 外层 catch 信封 WRITE_ERROR「未落盘，可重试」', async () => {
     const root = tmpRoot()
     const { abs } = seedBook(root)
-    // 第 1 次 = 取锁前守卫（放行），第 2 次 = 锁内复核（失败）
+    // R0912-E-P3-1：strict 读带单槽指纹缓存——清单未变时复核读走缓存不触盘，故
+    // 「复核段读失败」注入须经 stat 探测失败（sig=null 绕过缓存走原读路径）抵达：
+    // 第 1 次 stat + read = 取锁前守卫（放行并落缓存），第 2 次 stat 失败绕过缓存、
+    // 第 2 次 read 失败 → strict 上抛 → 外层 catch 收口。
+    failState.trashManifestStatFailOnNth = 2
     failState.trashManifestFailOnNthRead = 2
     const svc = new DocumentService({ bookRoot: root })
     const r = await svc.save('doc_r42', '写作/正文/0001-a.md', {
@@ -130,6 +151,24 @@ describe('R42-7：Z-6 复活守卫读失败 → 保守拒绝（fail-closed）', 
       expect(r.reason).toContain('未落盘，可重试')
     }
     expect(readFileSync(abs, 'utf-8')).toContain('旧内容')
+  })
+
+  it('R0912-E-P3-1 对照：清单未变（指纹不变）时复核读走缓存不触盘 → 读失败注入不触发，保存照常成功', async () => {
+    const root = tmpRoot()
+    const { abs } = seedBook(root)
+    // 只注入第 2 次 readFileSync 失败（不注入 stat 失败）：清单未变 → 复核段指纹命中
+    // 缓存、零读盘，注入不触发。语义保真：他进程改写必变 mtime/size → 指纹失效重读
+    // （届时读失败照旧 fail-closed，见上臂），未变清单的缓存内容即权威数据。
+    failState.trashManifestFailOnNthRead = 2
+    const svc = new DocumentService({ bookRoot: root })
+    const r = await svc.save('doc_r42', '写作/正文/0001-a.md', {
+      content: '---\n章号: 1\n---\n\n新内容',
+      expectedRevision: computeRevision(abs),
+      operationId: 'op-r42d',
+      origin: 'manual',
+    })
+    expect(r.ok).toBe(true)
+    expect(readFileSync(abs, 'utf-8')).toContain('新内容')
   })
 
   it('对照：读正常时同款保存成功（注入不影响主路径）', async () => {

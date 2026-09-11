@@ -23,6 +23,11 @@ import { log } from '../../../log/index.js'
 
 const MAX_HISTORY_TURNS = 10
 
+/** R0912-D-P3-2：工具名清单模块级常量化——chatTools 表模块级不可变，摘要调用 promptTools
+ *  登记（铁律②「模型可见 ⟺ 已记录」工具面）不必每次调用重算 map。（turns.ts 同口径
+ *  各持一份本文件常量——共享导出需改 contract/chat.ts 公共面，取最小改。） */
+const CHAT_TOOL_NAMES = chatTools.map((t) => t.name)
+
 // ── 失败出口收敛 ──────────────────────────────────
 
 /** 失败出口口径表——mask 是 session/end 终态 + 全会话 surface 遮蔽实参，message 是 chat_error 文案 */
@@ -119,7 +124,8 @@ async function summarizeCheckpoint(
     promptFiles, // Z-11：摘要调用与轮循环同源登记（sys 内嵌章正文预览的源）
     // R59 清偿批（R55-C-6）：摘要 generate 同挂 chatTools——工具名清单与轮循环同口径
     // 进 promptMeta.tools（铁律②「模型可见 ⟺ 已记录」工具面登记）
-    promptTools: chatTools.map((t) => t.name),
+    // R0912-D-P3-2：清单收 CHAT_TOOL_NAMES 模块常量（原每次调用 map 重算）
+    promptTools: CHAT_TOOL_NAMES,
     ctrl: state.ctrl,
     // 低-1（第十轮）：补 owner——对齐第八轮 M-1 的 owner 分槽口径（轮循环
     // turns.ts 的 register 同款）。此前漏带 owner 落无主 '' 槽：两本书共享 session 的

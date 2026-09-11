@@ -32,13 +32,32 @@ export const QUOTE_CLOSE_LENIENT = QUOTE_CLOSE + '"'
  * 逐行 span 抽取）行为逐字不变。 */
 export const QUOTED_SPAN_RE = /[「『“‘][^」』”’\n]*[」』”’]/
 
-/** 剥除行内全部引号片段，返回引号外文本（对话标签判定只看提示语，V-P1-7）。
- *  R26-47（二十六轮）：本函数按行高频调用、原每次 new RegExp 提升为模块级常量
- *  （String.replace 对 g 正则每调用重置扫描位，共享常量安全，语义逐字不变）。 */
 const QUOTED_SPAN_GLOBAL_RE = new RegExp(QUOTED_SPAN_RE.source, 'g')
 
+/** 剥除行内全部引号片段，返回引号外文本（对话标签判定只看提示语，V-P1-7）。
+ *  R26-47（二十六轮）：本函数按行高频调用、原每次 new RegExp 提升为模块级常量
+ *  （String.replace 对 g 正则每调用重置扫描位，共享常量安全，语义逐字不变）。
+ *  R0912-F-P3-1（2026-09-12 独立重评修复批）：2-slot 引用 memo——runAllChecks 每
+ *  章对同一章 body 重复调用 6 处（count.ts 禁词/意象/文风标签/身体部位/比喻/开头
+ *  窗口），剥引号全量重扫白付；最近两次入参 string === 命中即直接返回缓存结果。
+ *  刻意不用 Map/WeakMap 长队列：string 键会持有大正文引用，无界缓存 = 常驻内存
+ *  泄漏面——只留 2 个有限槽位（先例 frontmatter-core splitFrontMatter memo），
+ *  命中靠 === 全等（字符串不可变，缓存恒正确），不持有额外引用面之外无内存代价。 */
+const STRIP_MEMO_SLOTS = 2
+const stripMemoKeys: Array<string | undefined> = new Array(STRIP_MEMO_SLOTS)
+const stripMemoVals: Array<string | undefined> = new Array(STRIP_MEMO_SLOTS)
+let stripMemoNext = 0
+
 export function stripQuotedSpans(line: string): string {
-  return line.replace(QUOTED_SPAN_GLOBAL_RE, '')
+  for (let i = 0; i < STRIP_MEMO_SLOTS; i++) {
+    if (stripMemoKeys[i] === line) return stripMemoVals[i] as string
+  }
+  const out = line.replace(QUOTED_SPAN_GLOBAL_RE, '')
+  const slot = stripMemoNext
+  stripMemoNext = (stripMemoNext + 1) % STRIP_MEMO_SLOTS
+  stripMemoKeys[slot] = line
+  stripMemoVals[slot] = out
+  return out
 }
 
 /** 引号内常见的句读（对白内容特征：专名一般不含句读；对白以句读收尾或含句读）。 */

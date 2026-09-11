@@ -1,7 +1,7 @@
 /**
  * R66-7（十四轮）回归：outline prompt 注入源全量登记（铁律①「模型可见⟺已记录」）。
  *
- * 缺陷：buildOutlinePrompt 实际注入 总纲/设定/账本/前章/卷摘要 等来源文本，但端点
+ * 缺陷：outline prompt 组装实际注入 总纲/设定/账本/前章/卷摘要 等来源文本，但端点
  * promptFiles 只登记卷进度文件——总纲/设定/账本注入无事件凭据，重放与审计对账失真。
  *
  * 修复：buildOutlinePromptWithFiles 返回 {prompt, files}（draft-pipeline Q-5 模式），
@@ -15,7 +15,6 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  buildOutlinePrompt,
   buildOutlinePromptWithFiles,
   volumeProgressOf,
 } from '../../src/studio/server/api/outline.js'
@@ -132,13 +131,6 @@ describe('R66-7: outline promptFiles 全源登记（铁律①）', () => {
     const { prompt, files } = buildOutlinePromptWithFiles(root, 1, 'long')
     expect(prompt).toContain('为第 1 章生成细纲')
     expect(files).toEqual([])
-  })
-
-  it('buildOutlinePrompt 薄壳返回纯文本（既有 string 调用方兼容）', () => {
-    makeLongBook()
-    const withFiles = buildOutlinePromptWithFiles(root, 51, 'long')
-    expect(buildOutlinePrompt(root, 51, 'long')).toBe(withFiles.prompt)
-    expect(typeof buildOutlinePrompt(root, 51, 'long')).toBe('string')
   })
 })
 

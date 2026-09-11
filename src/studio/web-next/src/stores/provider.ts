@@ -16,7 +16,6 @@ import {
   deleteProvider,
   setCurrentProvider,
   testProvider,
-  fetchModels,
   setTiers,
   setChatTier,
   createRagProvider,
@@ -61,13 +60,6 @@ export const useProviderStore = defineStore('provider', () => {
   const testResults = ref<Map<string, TestResult>>(new Map())
   /** 测试连接用模型（按提供方分卡独立，V-P2-26） */
   const probeModels = ref<Map<string, string>>(new Map())
-  /** 拉取到的模型清单（按提供方分存，V-P2-26） */
-  const modelsByProvider = ref<Map<string, string[]>>(new Map())
-  /** 入模重入锁：同一提供方正在拉取则不重复发请求。
-   *  P-10（第十四轮）：删除 fetchingModels 单布尔死状态——并发拉取时先完成者会把
-   *  共享布尔置 false（语义失真），且全前端零消费方；「任一在拉」如需可由
-   *  fetchingModelIds.size>0 派生。 */
-  const fetchingModelIds = new Set<string>()
 
   // ── RAG 提供方 ──
   const ragProviders = ref<RagProviderDto[]>([])
@@ -122,7 +114,6 @@ export const useProviderStore = defineStore('provider', () => {
       const alive = new Set(d.providers.map((p) => p.id))
       for (const id of [...testResults.value.keys()]) if (!alive.has(id)) testResults.value.delete(id)
       for (const id of [...probeModels.value.keys()]) if (!alive.has(id)) probeModels.value.delete(id)
-      for (const id of [...modelsByProvider.value.keys()]) if (!alive.has(id)) modelsByProvider.value.delete(id)
     } catch {
       /* 设置页加载失败静默（面板显示空 + 可重试） */
     } finally {
@@ -161,35 +152,6 @@ export const useProviderStore = defineStore('provider', () => {
     await refreshAll() // GET 两族端点：revision 对齐远端（内部静默，网络不可达不叠加噪声）
     ui.toast('AI 配置已在其他窗口被修改，已刷新为最新配置，请重试本次操作', 'warning')
     return true
-  }
-
-  /**
-   * 拉取提供方模型清单（幂等去重 + 探测模型回落 + 手动重试）。
-   * @param opts.fallbackModel 全局当前模型在清单内时优先作探测默认
-   * @param opts.force 已有缓存也重拉（「获取模型列表」手动重试）
-   */
-  async function ensureModels(
-    p: { id: string },
-    opts: { fallbackModel?: string; force?: boolean; silent?: boolean } = {},
-  ): Promise<void> {
-    if (fetchingModelIds.has(p.id)) return
-    if (!opts.force && modelsByProvider.value.has(p.id)) return
-    fetchingModelIds.add(p.id)
-    try {
-      const r = await fetchModels({ id: p.id })
-      modelsByProvider.value.set(p.id, r.models)
-      const cur = probeModels.value.get(p.id) ?? ''
-      if (!cur || !r.models.includes(cur)) {
-        const fallback = opts.fallbackModel && r.models.includes(opts.fallbackModel) ? opts.fallbackModel : (r.models[0] ?? '')
-        probeModels.value.set(p.id, fallback)
-      }
-      if (!opts.silent) ui.toast(`已获取 ${r.models.length} 个模型`, 'success')
-    } catch (e) {
-      if (!opts.silent) ui.toast(errText(e), 'error')
-      // dd-P2：失败保留旧缓存——force 重拉失败不清空已成功清单
-    } finally {
-      fetchingModelIds.delete(p.id)
-    }
   }
 
   /** 新增提供方（P4：带 expectedRevision）；成功返回新提供方 id，失败返回 null。 */
@@ -233,7 +195,6 @@ export const useProviderStore = defineStore('provider', () => {
       const r = await deleteProvider(id, revision.value)
       providers.value = providers.value.filter((p) => p.id !== id)
       currentId.value = r.currentId
-      modelsByProvider.value.delete(id)
       probeModels.value.delete(id)
       // MP-1（专项重评）：测试结果缓存随删清——防删提供方后 Map 残留（读侧按 id 键取不再命中，纯卫生）
       testResults.value.delete(id)
@@ -396,12 +357,12 @@ export const useProviderStore = defineStore('provider', () => {
 
   return {
     // state
-    providers, currentId, currentModel, tiers, revision, loading, testing, testResults, probeModels, modelsByProvider,
+    providers, currentId, currentModel, tiers, revision, loading, testing, testResults, probeModels,
     ragProviders, ragLoading, ragTesting, ragTestResults,
     // getters
     currentProvider, configModels, currentModels, chatActiveModel, chatActiveEffort,
     // actions
-    refresh, refreshRag, refreshAll, ensureModels, add, update, remove, activate, test, saveTiers, applyChatTier,
+    refresh, refreshRag, refreshAll, add, update, remove, activate, test, saveTiers, applyChatTier,
     addRag, updateRag, removeRag, testRag,
   }
 })

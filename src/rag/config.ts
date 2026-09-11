@@ -9,12 +9,10 @@
  */
 
 import process from 'node:process'
-import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { atomicWriteFile } from '../fs/atomic.js'
-import { readBookConfig, patchTopSection } from '../format/yaml.js'
+import { readBookConfig } from '../format/yaml.js'
 import { readGlobalBookDefaults } from '../format/global-defaults.js'
-import { stringifyValue } from '../format/frontmatter.js'
 import { log } from '../log/index.js'
 
 const RAG_SECRET_FILE = 'rag.secret'
@@ -109,86 +107,4 @@ export function readApiKey(workDir: string): string | null {
 export function envRagApiKey(): string {
   const k = process.env[ENV_KEY]
   return k && k.trim() ? k.trim() : ''
-}
-
-/** 写 api_key 到 .clwriting/rag.secret（gitignore 区，绝不写 book.yaml） */
-export function writeApiKey(workDir: string, key: string): void {
-  const clwritingDir = join(workDir, '.clwriting')
-  mkdirSync(clwritingDir, { recursive: true })
-  ensureRagSecretGitignore(workDir)
-  // RB-IF-P2-6：临时文件按 0600 创建后 rename——修复前先落盘后 chmod，默认 umask
-  // （0644）窗口内凭据全局可读。rename 保持原子性；覆盖旧文件时同样以 0600 面世
-  atomicWriteFile(join(clwritingDir, RAG_SECRET_FILE), key + '\n', { mode: 0o600 })
-}
-
-/** 给 rag.secret 加显式忽略兜底，避免工作目录被误放进 git 后泄露 key。 */
-function ensureRagSecretGitignore(workDir: string): void {
-  const clwritingDir = join(workDir, '.clwriting')
-  const ignorePath = join(clwritingDir, '.gitignore')
-  const existing = existsSync(ignorePath) ? readFileSync(ignorePath, 'utf-8') : ''
-  const lines = existing.split(/\r?\n/)
-  if (lines.includes(RAG_SECRET_FILE)) return
-  const prefix = existing === '' || existing.endsWith('\n') ? existing : existing + '\n'
-  atomicWriteFile(ignorePath, prefix + RAG_SECRET_FILE + '\n')
-}
-
-/**
- * 启用 RAG：写 book.yaml rag 非密段 + 引导 key 落 .clwriting/rag.secret。
- *
- * @param bookRoot 书仓库（写 book.yaml）
- * @param workDir 工作目录（key 落 .clwriting/）
- * @param opts 非密配置 + 可选 key（key 不入 book.yaml）
- */
-export interface EnableRagOpts {
-  endpoint?: string
-  model?: string
-  /** 可选：直接写 key 到 .clwriting/rag.secret（不进 book.yaml） */
-  apiKey?: string
-  /** 可选：提示作者用环境变量而不落文件 */
-  useEnv?: boolean
-}
-
-export function enableRag(
-  bookRoot: string,
-  workDir: string,
-  opts: EnableRagOpts,
-): { ok: true } | { ok: false; reason: string } {
-  // 1. 校验现有 book.yaml 可解析（合并 rag 段前确认基线合法）
-  const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
-  if (!cfgResult.ok) {
-    return { ok: false, reason: `读 book.yaml 失败：${cfgResult.error.message}` }
-  }
-  // 已有 rag 段的非密字段做合并语义：未提供新值时保留旧值
-  const prev = cfgResult.config.rag
-  const endpoint = opts.endpoint ?? prev?.endpoint
-  const model = opts.model ?? prev?.model
-  // dd-P2：provider 引用同样保留——ragBody 此前不含 provider 行，整段替换后
-  // 服务商引用被静默抹掉、resolve 链回落旧内联端点（换端点烧钱）
-  const provider = prev?.provider
-  // 同款保留：candidate_depth（A3 批 7）——整段替换会静默抹掉已配的候选深度
-  const candidateDepth = prev?.candidate_depth
-  // 同款保留：embed_timeout_ms（R62-27）
-  const embedTimeoutMs = prev?.embed_timeout_ms
-
-  // 2. 写回 book.yaml——V-P2-4：文本级补丁只重写 rag 段，作者的 # 注释、未知段、
-  //    未知子键逐字保留（此前 stringifyBookConfig 全量重生成会静默丢掉）。
-  //    key 绝不在此。
-  const yamlPath = join(bookRoot, 'book.yaml')
-  const raw = existsSync(yamlPath) ? readFileSync(yamlPath, 'utf-8') : ''
-  const ragBody = [
-    '  enabled: true',
-    ...(provider ? [`  provider: ${stringifyValue(provider)}`] : []),
-    ...(endpoint ? [`  endpoint: ${stringifyValue(endpoint)}`] : []),
-    ...(model ? [`  model: ${stringifyValue(model)}`] : []),
-    ...(candidateDepth !== undefined ? [`  candidate_depth: ${candidateDepth}`] : []),
-    ...(embedTimeoutMs !== undefined ? [`  embed_timeout_ms: ${embedTimeoutMs}`] : []),
-  ].join('\n')
-  atomicWriteFile(yamlPath, patchTopSection(raw, 'rag', ragBody))
-
-  // 3. key 落 gitignore 区（绝不写 book.yaml）
-  if (opts.apiKey) {
-    writeApiKey(workDir, opts.apiKey)
-  }
-
-  return { ok: true }
 }

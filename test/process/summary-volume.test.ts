@@ -20,7 +20,7 @@ import {
 import { computeRevision } from '../../src/document/revision.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
-import { volumeProgressOf, buildOutlinePrompt } from '../../src/studio/server/api/outline.js'
+import { volumeProgressOf, buildOutlinePromptWithFiles } from '../../src/studio/server/api/outline.js'
 import { estimateTokens, TOKEN_COEFFICIENTS, DEFAULT_TOKEN_COEFF } from '../../src/process/prepare.js'
 import { fitCoefficients, renderCalibrationReport, type CalibrationSample } from '../../src/ai/token-calibration.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
@@ -169,10 +169,10 @@ describe('C3 细纲卷进展段', () => {
     expect(p.section).toContain('第 1 卷摘要')
     expect(p.file).toBe('定稿/摘要/卷摘要/1.md')
     // prompt 含该段
-    const prompt = buildOutlinePrompt(root, 3, 'long')
+    const prompt = buildOutlinePromptWithFiles(root, 3, 'long').prompt
     expect(prompt).toContain('## 当前卷进展')
     // 仍在卷 1 的章 → 不注入
-    const promptVol1 = buildOutlinePrompt(root, 2, 'long')
+    const promptVol1 = buildOutlinePromptWithFiles(root, 2, 'long').prompt
     expect(promptVol1).not.toContain('## 当前卷进展')
   })
 })

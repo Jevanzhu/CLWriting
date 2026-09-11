@@ -47,7 +47,10 @@ export async function boot(): Promise<void> {
         const data = (await r.json().catch(() => ({}))) as { token?: string; initialBook?: string }
         if (r.ok && data.token) {
           token = data.token
-          initialBook = data.initialBook ?? null
+          // R0911b-C1-P3-1（2026-09-11 全量重评 GLM-5.3 修复批）：initialBook 验型——
+          // 非 string 脏值（服务端字段漂移/手改响应）按无值处理，不再未验直入
+          // getLastInitialBook → App 启动路由拼接
+          initialBook = typeof data.initialBook === 'string' ? data.initialBook : null
           return
         }
       } finally {
@@ -158,11 +161,31 @@ export const API_DEFAULT_TIMEOUT_MS = 30_000
  *  （此前各调用方凭 friendlyError 分散兜底、文案不一）。 */
 const AUTH_BROKEN_MESSAGE = '本地服务连接异常（登录态失效），请刷新页面或重启应用'
 
+/** R0912-C1-P3-4（2026-09-12 全量重评修复批）：apiJson 的 JSON 快捷载荷约定——init.json
+ *  非 undefined 时自动补 `Content-Type: application/json` 头并物化 `body: JSON.stringify(json)`，
+ *  api/ 层「method + headers + body 三件套」成对样板（55 处）由此收敛为 `{ method, json }`。
+ *  合并语义：json 与显式 headers 并用时只补缺（已有 Content-Type 不覆盖，其余头原样保留）；
+ *  json 与显式 body 并用属误用，json 优先；json: undefined = 不带体不带头（providers 两处
+ *  DELETE 可选体调用点依赖此语义）；json: null 是显式负载，正常出体。json 在进 apiFetch 前
+ *  已物化为字符串 body——401/403 re-boot 重放、超时、错误信封语义全部不变。 */
+export interface ApiJsonInit extends RequestInit {
+  json?: unknown
+}
+
 export async function apiJson<T>(
   path: string,
-  init?: RequestInit,
+  init?: ApiJsonInit,
   timeoutMs: number = API_DEFAULT_TIMEOUT_MS,
 ): Promise<T> {
+  // R0912-C1-P3-4：json 快捷载荷物化（语义见 ApiJsonInit 注）——先落成标准 RequestInit，
+  // 后续 signal 联动 / apiFetch 透传 / 401 重放均只见常规字符串 body，不感知本约定
+  const { json, ...rest } = init ?? {}
+  let reqInit: RequestInit = rest
+  if (json !== undefined) {
+    const headers = new Headers(rest.headers)
+    if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
+    reqInit = { ...rest, headers, body: JSON.stringify(json) }
+  }
   let timer: ReturnType<typeof setTimeout> | undefined
   let timedOut = false
   const controller = new AbortController()
@@ -184,9 +207,9 @@ export async function apiJson<T>(
   }
   // 外部 signal 联动：外部 abort → 内部也 abort。第九轮 L-4：abort 事件只在 abort() 时刻
   // 派发一次——调用前已 abort 的 signal 不会再发，须预检补发，否则请求不超时也不取消
-  if (init?.signal?.aborted) controller.abort()
-  else if (init?.signal) {
-    const external = init.signal
+  if (reqInit.signal?.aborted) controller.abort()
+  else if (reqInit.signal) {
+    const external = reqInit.signal
     const onExternalAbort = () => controller.abort()
     external.addEventListener('abort', onExternalAbort, { once: true })
     unlinkExternalSignal = () => external.removeEventListener('abort', onExternalAbort)
@@ -199,7 +222,7 @@ export async function apiJson<T>(
     // 重审-15（2026-09-07 全量代码重审 §四.15）：重放标记出参——apiFetch 内部 token 变化
     // 重发时置位，供下方 !r.ok 分支区分「重放仍 401/403」与「不重放透传」。
     const replayed = { yes: false }
-    const r = await apiFetch(path, { ...init, signal: controller.signal }, false, gauge, replayed)
+    const r = await apiFetch(path, { ...reqInit, signal: controller.signal }, false, gauge, replayed)
     // 错误信封判别（dv-01）：服务端错误统一走 {code, error} JSON 信封（error-envelope 门禁）。
     // 检出空体/裸文本 5xx（dev Vite proxy 在 7878 未起时返回 502 空体；反代口子同形态）——
     // 这类「本地 API 服务未连接」不是 AI 提供方故障，不能套 friendlyError 的 AI 文案

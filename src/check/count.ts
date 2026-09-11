@@ -392,6 +392,8 @@ export function checkNewNames(
       ],
     }
   }
+  // R0912-F-P3-2（2026-09-12 独立重评修复批）：名册 Set 化（构建一次，判重循环内 O(1) 查）
+  const registeredSet = new Set(registeredNames)
   // 粗抽：2-4 字中文专名候选——候选仅出自引号 span（QUOTED_SPAN_RE 命中段；
   // R31-12（三十一轮）注释如实化：叙述行裸名不入候选，扩裸名会引入高误报面，超出本轮）
   const candidates = new Set<string>()
@@ -444,7 +446,10 @@ export function checkNewNames(
       if (name.length < 2 || name.length > 4) continue
       // R30-2（三十轮）：精确全等判重（见 parseRosterNames/函数头注）——
       // 原 roster.includes(name) 是名册全文子串判定，长名吞短名致独立新角色漏报
-      if (!registeredNames.includes(name)) candidates.add(name)
+      // R0912-F-P3-2（2026-09-12 独立重评修复批）：判重集合化——原
+      // registeredNames.includes 对名册数组逐名线性扫（数百名 × 每章数十候选，
+      // 每章 O(名册×候选) 白付），构建一次 Set 后 O(1) 查，判定语义不变。
+      if (!registeredSet.has(name)) candidates.add(name)
     }
   }
   for (const name of candidates) {
@@ -656,9 +661,15 @@ export function checkStyleMetrics(
   // Z-17（第五十八轮）：X地道 收窄为后续跟引语标点（:：""「『）——「十分地道，」这类
   // 词语误用（地道=名词「正宗」，非「说道」动词）不再计入；X地说 不受影响（无同形名词）
   // R33-31（三十三轮）：消费模块常量（原每调用 new RegExp 两枚）
+  // R0911b-F-P3-1：堆叠项与上方占比项同族对齐——占比项自 V-P1-7 起只统计剥引号后的
+  // 提示语，堆叠项却吃 raw body，对白内容里的「X地说」（角色嘴里的话，非作者叙述
+  // 堆叠）被计入，同文件双口径分裂；对齐 stripQuotedSpans 单源，只收窄「哪些文本
+  // 参与计数」（对白外命中数不变）。注意剥引号后 X地道 的引语标点 lookahead 只剩
+  // ：: 可命中（「」『“ 已随 span 剥除），与占比项 DIALOGUE_TAG_RE 的锚定环境一致。
+  const tagProse = stripQuotedSpans(body)
   const tagHits = [
-    ...(body.match(DIALOGUE_TAG_SHUO_RE) ?? []),
-    ...(body.match(DIALOGUE_TAG_DIDAO_RE) ?? []),
+    ...(tagProse.match(DIALOGUE_TAG_SHUO_RE) ?? []),
+    ...(tagProse.match(DIALOGUE_TAG_DIDAO_RE) ?? []),
   ]
   if (tagHits.length) {
     for (const t of new Set(tagHits)) {
@@ -737,11 +748,16 @@ function adjStackRegex(maxAdjStack: number): RegExp {
  * R46-46（四十六轮）：adjStack 的「的」长游程切段守卫——的 ∈ [HANZI]，纯「的」
  * 长串（如 40 连发）可被 `(?:[汉字]{1,6}的){N,}` 以多种 {1,6} 分段方式匹配，失败
  * 回溯随游程长指数增长（R27-23 已把 N clamp 到 [0,20]，但游程长在正文侧无界，
- * 粘贴事故/生成体正文可拖死检查）。预扫描按 ≥8 连发「的」的游程切段丢弃——段内
- * 匹配本属垃圾（合法堆叠每单元是「≤6 汉字+的」，8 连「的」不可能是合法定语
- * 堆叠），对切段逐一跑原正则、命中取并集；<8 的短游程不受影响照常检查。
+ * 粘贴事故/生成体正文可拖死检查）。预扫描按「的」连发游程切段丢弃——段内匹配
+ * 本属垃圾（合法堆叠每单元是「≤6 汉字+的」，长连「的」不可能是合法定语堆叠），
+ * 对切段逐一跑原正则、命中取并集；短游程不受影响照常检查。
+ * R0912-F-P2-1（2026-09-12 独立重评修复批）：界 {8,} → {3,} 收紧——4-7 连游程的
+ * 分解歧义窗口一并封死。≥3 连「的」必非合法定语堆叠（每单元至少要吃 1 个头字，
+ * 3 连意味着出现空头单元）；「的的」2 连的分解方式恰 1 种（c(2)=1，无歧义回溯），
+ * 故歧义起点在 3 连，界收到歧义起点以下即 {3,}——主审实测 41 字符病理片段
+ * （5×7 连「的」+断链尾）469ms → 0.1ms，正常文本命中零变化。
  */
-const DE_RUN_SPLIT_RE = /的{8,}/
+const DE_RUN_SPLIT_RE = /的{3,}/
 
 /** 形容词堆叠命中（去重 + R73-18 领属链豁免）——computeStyleMetrics 与 checkStyleMetrics 共用单源 */
 function matchAdjStackHits(body: string, maxAdjStack: number): string[] {
@@ -875,11 +891,13 @@ export function checkBodyParts(
 ): CheckSectionResult {
   const items: CheckItem[] = []
   const over: string[] = []
-  // R0912-1（2026-09-11 修复批）：计数前剥对白引号 span——同文件禁词（checkBannedWords
-  // R29-1①）/意象（checkImagery R51-E-N5）/开头环境（checkOpeningNoEnv R29-4）均经
-  // stripQuotedSpans（quotes.ts 单源），唯本检查与 checkSimile 吃原文：对白里角色说
-  // 「我的眼睛…」「心跳好快」属人物语言非作者叙述堆砌，对白密集章逐次累加黄项刷屏；
-  // 本项属短篇 strict 升红族（runner.ts 短篇机检 4 项），误报驱动打回重写白烧真调用。
+  // R0912-1（2026-09-11 修复批；win 线同题锚 R0911b-P2④）：计数前剥对白引号 span
+  // （quotes.ts 单源 stripQuotedSpans）——同文件禁词（checkBannedWords R29-1①）/
+  // 意象（checkImagery R51-E-N5）/开头环境（checkOpeningNoEnv R29-4）均经剥引号
+  // 统计，唯本检查与 checkSimile 吃原文：对白里角色说「我的眼睛…」是人物语言非
+  // 作者叙述堆砌，对白密集章逐次累加黄项刷屏；本项属短篇 strict 升红族（runner.ts
+  // STRICT_SHORT_CHECK_IDS 的 body-parts），误报驱动打回重写白烧真调用。单字「手」
+  // 的动作语境匹配路径同口径。阈值与升红逻辑零改动，只收窄「哪些文本参与计数」。
   // 对齐家族约定（R51-E-N5 注释自证「同族均剥」），prose 变量口径同 checkBannedWords。
   const prose = stripQuotedSpans(body)
   for (const word of words) {
@@ -892,7 +910,7 @@ export function checkBodyParts(
     }
     if (count > threshold) over.push(`${word}×${count}`)
   }
-  // 单字「手」走动作语境匹配，避免误伤惯用语（R0912-1：同在剥对白后的叙述面上计数）
+  // 单字「手」走动作语境匹配，避免误伤惯用语（R0912-1 / R0911b-P2④：同在剥对白后的叙述面上计数）
   const handCount = (prose.match(HAND_ACTION_RE) ?? []).length
   if (handCount > threshold) over.push(`手×${handCount}`)
   if (over.length > 0) {
@@ -939,9 +957,15 @@ export function checkSimile(
   threshold = 10,
 ): CheckSectionResult {
   const items: CheckItem[] = []
-  // R0912-1（2026-09-11 修复批）：对白剥除后按 prose 匹配——SIMILE_RE 匹配的是「像…」
-  // 句式（非特定词表），剥对白后剩余叙述照常命中，无需改正则；角色对白里的「像…一样」
-  // 是人物语言非作者叙述比喻（checkBodyParts 同批对齐，见该函数注释的升红族误报代价）。
+  // R0912-1（2026-09-11 修复批；win 线同题锚 R0911b-P2④）：统计前剥对白引号 span
+  // （禁词/意象/开头/身体部位同款口径，quotes.ts 单源 stripQuotedSpans）——对白里
+  // 角色说「像…一样」是人物语言，非作者叙述比喻堆砌；对白密集章虚黄，短篇 strict
+  // （runner STRICT_SHORT_CHECK_IDS 的 simile-density）升红会把对白密集章误打回
+  // 重写。SIMILE_RE 匹配的是「像…」句式（非特定词表），剥对白后剩余叙述照常命中，
+  // 无需改正则；剥引号必须在 checkSimile 调用点做而非收进 SIMILE_RE 本体：
+  // scripts/harvest-corpus.ts 语料收割（R51-J-1）复用本正则直扫原文取真实比喻短语
+  // 作幸存者判定锚，收割面要原文全量命中（含引号内），改正则会漂移收割锚口径——
+  // 单一真相源只保正则本体，剥引号由消费方各自决定。
   const prose = stripQuotedSpans(body)
   // 统计明喻句式命中数（粗计；精确判定比喻语义需 NLP，零 token 取句式近似）
   const count = (prose.match(SIMILE_RE) ?? []).length

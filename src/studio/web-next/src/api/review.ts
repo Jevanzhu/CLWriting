@@ -55,7 +55,7 @@ interface EnvelopeGet {
 export async function runReview(name: string, docId: string): Promise<ReviewResult> {
   return apiJson<ReviewResult>(
     `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/review`,
-    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' },
+    { method: 'POST', json: {} },
     600_000, // X-P1-4：三审超时 10 分钟——真实 provider 串行 3 视角单次 1-3 分钟常态，120s 必假超时（服务端继续跑完落信封，费用照花）
   )
 }
@@ -64,7 +64,7 @@ export async function runReview(name: string, docId: string): Promise<ReviewResu
 export async function runVerdictDoc(name: string, docId: string, approved: boolean): Promise<void> {
   await apiJson<{ ok: true }>(
     `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/review-verdict`,
-    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ approved }) },
+    { method: 'POST', json: { approved } },
   )
 }
 

@@ -30,6 +30,7 @@ import type { ProviderStore } from './store.js'
 import { modelConfOf } from './store.js'
 import { redactSecret } from './redact.js'
 import { responsesQuirksFor } from './model-quirks.js'
+import { resolveToolChoiceIntent } from './tool-choice.js' // R0912-D-P3-3：tool_choice 分档决策单源
 import { makeToErrorEvent, buildDegradeAttempts, isMidChain400, markStructuredDegrade } from './adapter-errors.js'
 import { estimateInputTokens, estimateOutputTokens } from './usage-estimate.js'
 import { log } from '../../log/index.js'
@@ -145,21 +146,15 @@ function toParams(conf: ProviderConf, req: GenRequest): Record<string, unknown> 
   }
 
   // 缺口 5：tool_choice 翻译（学 openai-adapter 分档写法；Responses 指名为扁平
-  // {type:'function',name}，非 Chat 的 {type, function:{name}}）——
-  // named → any→required / tool→指名 / auto→auto；
-  // required（deepseek：无指名）→ 强制意图一律 required；auto → 仅 auto 意图发。
+  // {type:'function',name}，非 Chat 的 {type, function:{name}}）——分档决策单源见
+  // tool-choice.ts（R0912-D-P3-3 三适配器同构 if 树收敛；rw.toolChoiceMode 视图无
+  // 'none' 档），此处只留动作 → wire 值发射：force → 'required'、force-named → 扁平
+  // {type:'function',name}、auto → 'auto'，none → 不发（prompt 引导 + 契约层校验重试兜底）。
   if (req.toolChoice) {
-    if (rw.toolChoiceMode === 'named') {
-      if (req.toolChoice === 'any') params['tool_choice'] = 'required'
-      else if (req.toolChoice === 'tool' && req.toolName) params['tool_choice'] = { type: 'function', name: req.toolName }
-      else if (req.toolChoice === 'auto') params['tool_choice'] = 'auto'
-    } else if (rw.toolChoiceMode === 'required') {
-      if (req.toolChoice === 'any' || req.toolChoice === 'tool') params['tool_choice'] = 'required'
-      else if (req.toolChoice === 'auto') params['tool_choice'] = 'auto'
-    } else {
-      if (req.toolChoice === 'auto') params['tool_choice'] = 'auto'
-      // 'any'/'tool' → 保守不发（prompt 引导 + 契约层校验重试兜底）
-    }
+    const intent = resolveToolChoiceIntent({ toolChoiceMode: rw.toolChoiceMode, toolChoice: req.toolChoice, toolName: req.toolName })
+    if (intent.action === 'force') params['tool_choice'] = 'required'
+    else if (intent.action === 'force-named') params['tool_choice'] = { type: 'function', name: intent.name }
+    else if (intent.action === 'auto') params['tool_choice'] = 'auto'
     // W0 契约「一轮最多一个工具调用」（RB-AI-P2-4 对齐 Chat/Anthropic 线）
     if (q.parallelControl) params['parallel_tool_calls'] = false
   }

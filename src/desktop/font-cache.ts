@@ -153,21 +153,53 @@ interface FontListSetupError extends Error {
   fontListSetupFailure?: boolean
 }
 
+/** R0912-A-P3-3（2026-09-12 独立重评修复批）：骨架子进程句柄的最小结构面——两调用方
+ *  注入接口（本模块 FontListSpawnChild / win-fonts FontSpawnChild）的结构交集，两接口
+ *  均结构性满足，现有测试假件不改语义直接可用（生产 spawn 返回的 ChildProcess 同满足）。 */
+interface SpawnCollectChild {
+  stdout?: { on(event: 'data', cb: (d: Buffer) => void): unknown } | null
+  stderr?: { on(event: 'data', cb: (d: Buffer) => void): unknown } | null
+  on(event: 'error', cb: (err: Error) => void): unknown
+  on(event: 'close', cb: (code: number | null) => void): unknown
+  kill?(signal?: NodeJS.Signals): boolean | undefined
+}
+
 /**
- * PM-12：自管 spawn 的字体枚举——子进程句柄在手，超时必杀（SIGTERM）；输出处理逐字
- * 对齐 font-list 上游（darwin 包内 fontlist 二进制 / linux fc-list 的行口径 +
- * standardize disableQuoting + 大小写不敏感排序），注入同形输出的命令即得同形结果。
+ * R0912-A-P3-3（2026-09-12 独立重评修复批）：windowsHide spawn → Buffer[] 收集 →
+ * setTimeout 超时 kill → error 监听 → close 结算的公共骨架单源——font-cache 自管枚举
+ * （runFontListCommandWithKill）与 win-fonts PowerShell 枚举（listWindowsFonts 内层
+ * Promise）此前两份逐字同构骨架收编于此（win-fonts 保留平台守卫/PS 脚本常量/熔断
+ * 包装在调用方）。差异面全参数化：超时/退出码文案（两调用方各留原文案，测试锚定）、
+ * kill 信号（缺省 SIGTERM）、启动面标记（font-list 回落链专用）、结算解析回调。
+ * 纪律单点：windowsHide = libuv CREATE_NO_WINDOW（GUI 主进程起控制台程序不闪窗，
+ * win-fonts R1W-8 / 本模块 PM-12 同款）；数组参数不经 shell；Buffer[] 整流一次解码
+ * 防多字节字体名跨 chunk 边界劈成 U+FFFD（R39-2 同口径）；结算统一在 close（stdio
+ * 收尾后触发，输出收完再解析）。原 font-cache 版的 noop 'exit' 监听随收编取消
+ * （EventEmitter 语义下未监听的 exit 无副作用，纯注释性消纳）。
+ * 注入接口兼容：FontListSpawnChild/FontSpawnChild 现有测试（pm12-font-list-kill /
+ * win-fonts）不改语义只按需改导入。
  */
-function runFontListCommandWithKill(command: string, args: string[], deps: FontListWithTimeoutDeps): Promise<string[]> {
-  const timeoutMs = deps.timeoutMs ?? fontListTimeoutMs
-  const platform = deps.platform ?? process.platform
-  const doSpawn: FontListSpawn = deps.spawnImpl ?? ((cmd, a, opts) => spawn(cmd, a, opts))
+export interface SpawnCollectKillParams {
+  /** spawn 实现（生产 = node:child_process spawn 包装；测试注入计数/假件）。 */
+  doSpawn: (cmd: string, args: string[], opts: { windowsHide: boolean }) => SpawnCollectChild
+  /** 超时毫秒。 */
+  timeoutMs: number
+  /** 超时 reject 文案（调用方自带档位插值）。 */
+  timeoutMessage: string
+  /** 超时 kill 信号；缺省 SIGTERM（win 上等价 TerminateProcess，R39-5 同口径）。 */
+  killSignal?: NodeJS.Signals
+  /** 非 0 退出码错误文案前缀（拼 `…退出码 N[：stderr 前 200 字]`）。 */
+  exitCodeErrorPrefix: string
+  /** spawn error 打「启动面」标记（fontListSetupFailure，font-list 回落链消费）；win 侧不标。 */
+  markSetupFailure?: boolean
+  /** close(0) 结算解析：入参 = 整流解码后的 stdout 原文。 */
+  parse: (stdout: string) => string[]
+}
+
+export function spawnCollectKillFonts(command: string, args: string[], p: SpawnCollectKillParams): Promise<string[]> {
   return new Promise<string[]>((resolve, reject) => {
     let settled = false
-    // windowsHide = libuv CREATE_NO_WINDOW：GUI 主进程起控制台程序不闪窗（win-fonts.ts
-    // R1W-8 同纪律）；数组参数不经 shell。
-    const child = doSpawn(command, args, { windowsHide: true })
-    // R39-2 同口径：收 Buffer[] 后整流一次解码，防多字节字体名跨 chunk 边界劈成 U+FFFD
+    const child = p.doSpawn(command, args, { windowsHide: true })
     const outParts: Buffer[] = []
     const errParts: Buffer[] = []
     child.stdout?.on('data', (d) => {
@@ -179,42 +211,64 @@ function runFontListCommandWithKill(command: string, args: string[], deps: FontL
     const timer = setTimeout(() => {
       if (settled) return
       settled = true
-      // PM-12：超时必杀（SIGTERM；win 上等价 TerminateProcess）——不 kill 则挂起命令成
-      // 孤儿进程（R40-28 头注自认的「残留记档」变残留实祸）。kill 已退出进程的 ESRCH：
-      // 同步 throw 由 try/catch 吞掉；异步形态（退出与 kill 竞态）走下方 error 监听
-      // （settled 后吞）。win-fonts R39-5 已有同口径超时 kill，两处统一 SIGTERM。
+      // PM-12：超时必杀（缺省 SIGTERM；win 上等价 TerminateProcess）——不 kill 则挂起
+      // 命令成孤儿进程。kill 已退出进程的 ESRCH：同步 throw 由 try/catch 吞掉；异步
+      // 形态（退出与 kill 竞态）走下方 error 监听（settled 后吞）。
       try {
-        child.kill?.('SIGTERM')
+        child.kill?.(p.killSignal ?? 'SIGTERM')
       } catch {
         /* ESRCH：进程已退出 */
       }
-      reject(new Error(`font-list 字体枚举超过 ${timeoutMs}ms 未返回，已中止等待并终止子进程`))
-    }, timeoutMs)
+      reject(new Error(p.timeoutMessage))
+    }, p.timeoutMs)
     // PM-12：error 必监听——超时 kill 打在已退出进程上会异步抛 ESRCH（往已关流写则
     // EPIPE），无监听即 uncaughtException 崩主进程。已结算则吞掉；未结算 = 命令起不来
-    // （ENOENT/EACCES 等启动面），打标记 reject 供上层回落 load（font-list 对二进制
-    // 缺失自有回落链，保持其可达）。
+    // （ENOENT/EACCES 等启动面），markSetupFailure 时打标记 reject 供上层回落 load
+    // （font-list 对二进制缺失自有回落链，保持其可达）。
     child.on('error', (err) => {
       if (settled) return
       settled = true
       clearTimeout(timer)
-      const tagged = err as FontListSetupError
-      tagged.fontListSetupFailure = true
-      reject(tagged)
+      if (p.markSetupFailure) {
+        const tagged = err as FontListSetupError
+        tagged.fontListSetupFailure = true
+        reject(tagged)
+      } else {
+        reject(err)
+      }
     })
-    // exit 仅消纳事件面；结算统一在 close（stdio 收尾后触发，保证输出收完再解析——R39-2 同口径）
-    child.on('exit', () => {})
     child.on('close', (code) => {
       clearTimeout(timer)
       if (settled) return
       settled = true
       if (code !== 0) {
         const errText = Buffer.concat(errParts).toString('utf8').trim()
-        reject(new Error(`font-list 字体枚举退出码 ${code ?? 'null'}${errText ? `：${errText.slice(0, 200)}` : ''}`))
+        reject(new Error(`${p.exitCodeErrorPrefix}退出码 ${code ?? 'null'}${errText ? `：${errText.slice(0, 200)}` : ''}`))
         return
       }
-      resolve(parseFontListStdout(Buffer.concat(outParts).toString('utf8'), platform))
+      resolve(p.parse(Buffer.concat(outParts).toString('utf8')))
     })
+  })
+}
+
+/**
+ * PM-12：自管 spawn 的字体枚举——子进程句柄在手，超时必杀；输出处理逐字对齐
+ * font-list 上游（darwin 包内 fontlist 二进制 / linux fc-list 的行口径 + standardize
+ * disableQuoting + 大小写不敏感排序），注入同形输出的命令即得同形结果。
+ * R0912-A-P3-3：spawn-collect-kill 骨架收编为 spawnCollectKillFonts 单源，本函数只
+ * 剩 font-list 侧参数（启动面标记 + darwin/linux 行口径解析回调）。
+ */
+function runFontListCommandWithKill(command: string, args: string[], deps: FontListWithTimeoutDeps): Promise<string[]> {
+  const timeoutMs = deps.timeoutMs ?? fontListTimeoutMs
+  const platform = deps.platform ?? process.platform
+  const doSpawn: FontListSpawn = deps.spawnImpl ?? ((cmd, a, opts) => spawn(cmd, a, opts))
+  return spawnCollectKillFonts(command, args, {
+    doSpawn,
+    timeoutMs,
+    timeoutMessage: `font-list 字体枚举超过 ${timeoutMs}ms 未返回，已中止等待并终止子进程`,
+    exitCodeErrorPrefix: 'font-list 字体枚举',
+    markSetupFailure: true,
+    parse: (raw) => parseFontListStdout(raw, platform),
   })
 }
 
@@ -259,8 +313,9 @@ function parseFontListStdout(raw: string, platform: NodeJS.Platform): string[] {
  * - dev/直跑：bundleDir = dist/desktop（main bundle 的目录），二进制由 tsup onSuccess
  *   拷入同目录，路径原样可用；
  * - 打包态：dist/** 进 asar 后 spawn 不认 asar 内路径（execFile 有 Electron 补丁、
- *   spawn 没有）——electron-builder asarUnpack 把 desktop/fontlist 外置到
- *   app.asar.unpacked/desktop/fontlist，同相对位替换取真路径。
+ *   spawn 没有）——electron-builder asarUnpack 把 dist/desktop/fontlist 外置到
+ *   app.asar.unpacked/ 同相对位（R0912-A-P2-1：asar 内路径带 dist/ 段，上批裸
+ *   desktop/fontlist 零命中），同相对位替换取真路径。
  * 任一形态的启动面失败（ENOENT/EACCES）都由 fontListWithTimeout 的
  * fontListSetupFailure 回落链兜住（回落 load → font-list 自带 system_profiler），
  * 本函数只负责给出正确的第一优先路径。纯函数（路径字符串进出），直测钉两形态。

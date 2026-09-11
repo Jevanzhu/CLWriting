@@ -28,6 +28,7 @@ import type {
 import type { ProviderStore } from './store.js'
 import { modelConfOf } from './store.js'
 import { quirksFor, detectFamily } from './model-quirks.js'
+import { resolveToolChoiceIntent } from './tool-choice.js' // R0912-D-P3-3：tool_choice 分档决策单源
 import { anthropicClientOpts } from './models.js'
 import { makeToErrorEvent, buildDegradeAttempts, isMidChain400, markStructuredDegrade } from './adapter-errors.js'
 import { estimateInputTokens, estimateOutputTokens } from './usage-estimate.js'
@@ -145,33 +146,20 @@ function toParams(conf: ProviderConf, req: GenRequest): Anthropic.MessageCreateP
   if (req.tools?.length) {
     params['tools'] = req.tools.map(toAnthropicTool)
   }
-  // tool_choice 按表 toolChoiceMode 翻译（V-P2-9，对齐 openai-adapter §6.1）：
-  // named → any/tool/auto 原样（claude/glm/kimi）；
-  // required（deepseek：官方仅 auto/none/required，anthropic 端点指名 type:'tool' 会 400）
-  //   → 强制意图转 type:'any'（不指名），auto 原样；
-  // auto → 仅 auto 发（不支持强制），none → 不发。
-  // #12：disable_parallel_tool_use 仅 parallelControl 为真才发
+  // tool_choice 按表 toolChoiceMode 翻译（V-P2-9，对齐 openai-adapter §6.1）：分档决策
+  // 单源见 tool-choice.ts（R0912-D-P3-3 三适配器同构 if 树收敛），此处只留动作 → wire
+  // 值发射：force → {type:'any'}、force-named → {type:'tool',name}、auto → {type:'auto'}，
+  // none → 不发。#12：disable_parallel_tool_use 仅 parallelControl 为真才发
   const dptu = q.parallelControl ? { disable_parallel_tool_use: true } : {}
   if (req.toolChoice && q.toolChoiceMode !== 'none') {
-    if (q.toolChoiceMode === 'named') {
-      if (req.toolChoice === 'any') {
-        params['tool_choice'] = { type: 'any', ...dptu }
-      } else if (req.toolChoice === 'tool' && req.toolName) {
-        params['tool_choice'] = { type: 'tool', name: req.toolName, ...dptu }
-      } else if (req.toolChoice === 'auto') {
-        params['tool_choice'] = { type: 'auto', ...dptu }
-      }
-    } else if (q.toolChoiceMode === 'required') {
-      if (req.toolChoice === 'any' || req.toolChoice === 'tool') {
-        params['tool_choice'] = { type: 'any', ...dptu } // 指名意图降级为 any（deepseek 400 防线）
-      } else if (req.toolChoice === 'auto') {
-        params['tool_choice'] = { type: 'auto', ...dptu }
-      }
-    } else if (q.toolChoiceMode === 'auto') {
-      if (req.toolChoice === 'auto') {
-        params['tool_choice'] = { type: 'auto', ...dptu }
-      }
-      // 'any'/'tool' → 不支持，不发（prompt 引导 + 契约层校验重试兜底）
+    const intent = resolveToolChoiceIntent({ toolChoiceMode: q.toolChoiceMode, toolChoice: req.toolChoice, toolName: req.toolName })
+    if (intent.action === 'force') {
+      // named 档 = 'any' 原样；required 档 = 指名意图降级为 any（deepseek 400 防线）
+      params['tool_choice'] = { type: 'any', ...dptu }
+    } else if (intent.action === 'force-named') {
+      params['tool_choice'] = { type: 'tool', name: intent.name, ...dptu }
+    } else if (intent.action === 'auto') {
+      params['tool_choice'] = { type: 'auto', ...dptu }
     }
   }
   // #2：effort 仅当表 anthropicEffortWire=output_config 才发（claude/deepseek），

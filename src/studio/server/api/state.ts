@@ -15,7 +15,7 @@ import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { defineRoute } from './schema.js'
 import { reply, replyError } from '../http.js'
-import { resolveBook } from '../book-context.js'
+import { resolveBook, bookMovedFailure } from '../book-context.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { readManifest } from '../../../document/manifest.js'
@@ -124,7 +124,7 @@ export function registerStateRoutes(ctx: StateCtx): void {
         const oldest = stateCache.keys().next().value
         if (oldest !== undefined) stateCache.delete(oldest)
       }
-      stateCache.set(bookRoot, { payload, ts: now })
+      stateCache.set(bookRoot, { payload, ts: Date.now() }) // R0912-B-P2-1：ts 取写入当刻（原计算前时刻被秒级计算吃掉有效缓存窗）
       reply(res, 200, payload)
     } catch (e) {
       // P2-4：API 错误脱敏——SDK 报错 message 可能含 API Key 痕迹
@@ -183,11 +183,10 @@ export function registerStateRoutes(ctx: StateCtx): void {
         reply(res, 200, { ok: true, acknowledged: false })
         return
       }
-      // 书注册重验（贴近写盘时刻）：扫描为同步段，此处的重验窗口只剩 journal 锁等待期
-      const rNow = resolveBook(ctx.workDir, params['name'])
-      if ('error' in rNow || rNow.bookRoot !== r.bookRoot) {
-        return replyError(res, 409, 'BOOK_MOVED', '书已改名或已删除，本次操作已取消——请重新打开本书后再试')
-      }
+      // 书注册重验（贴近写盘时刻）：扫描为同步段，此处的重验窗口只剩 journal 锁等待期。
+      // 并合注（R0912-B-P3-2）：内联重验已收敛 book-context.ts bookMovedFailure 单源。
+      const moved = bookMovedFailure(ctx.workDir, params['name'], r.bookRoot)
+      if (moved) return replyError(res, 409, moved.code, moved.reason)
       try {
         await appendAborted(targetFile, opId, '作者确认：接受该次未完成保存的现状，清除崩溃恢复提示（R0912-1b 人工消解）')
       } catch (e) {

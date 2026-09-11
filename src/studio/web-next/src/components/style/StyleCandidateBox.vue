@@ -7,6 +7,10 @@ import { useStyleStore } from '../../stores/style'
 import { useUiStore } from '../../stores/ui'
 import { friendlyError } from '../../shared/error'
 import EmptyState from '../ui/EmptyState.vue'
+// R0912-C2-P3-3（2026-09-12 独立重评修复批）：.panel/.btn-*/.kind-badge/.token-chip
+// 逐字重复块收敛至 style-shared.css——接入机制照 settings-shared.css 先例（全局装载
+// 非 scoped，组件模块加载即注入；Vite 同模块去重，四件各引一次只注入一份）。
+import './style-shared.css'
 import type { StyleCandidateFE } from '../../api/style'
 
 const style = useStyleStore()
@@ -168,15 +172,9 @@ async function onIgnore(c: StyleCandidateFE): Promise<void> {
 </template>
 
 <style scoped>
-/* ══ 面板基础（对齐 OverviewView 卡片语言）══ */
-.panel {
-  background: var(--background-primary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-l);
-  padding: 18px 20px;
-  animation: clw-fade-up var(--dur-fast) var(--ease-out) both;
-}
-
+/* .panel/.btn-ghost/.btn-primary 基础族、.token-chip 基础与 .free、.kind-badge 族
+ * 已收敛至 style-shared.css（R0912-C2-P3-3 全局装载）；disabled 规则与 .spin 留
+ * 本文件（Entry 原无 disabled、Acceptance disabled 仅 ghost 单选择器，形态不一致不强统一）。 */
 .head-count {
   font-size: var(--font-size-xs);
   font-weight: 600;
@@ -195,33 +193,6 @@ async function onIgnore(c: StyleCandidateFE): Promise<void> {
   line-height: 1.6;
 }
 
-/* ══ 通用按钮 ══ */
-.btn-ghost,
-.btn-primary {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: var(--font-size-xs);
-  padding: 4px 10px;
-  border-radius: var(--radius-s);
-  cursor: pointer;
-  border: 1px solid var(--background-modifier-border);
-  background: transparent;
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-.btn-ghost:hover:not(:disabled) {
-  background: var(--background-modifier-hover);
-  color: var(--text-normal);
-}
-.btn-primary {
-  border-color: transparent;
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-}
-.btn-primary:hover:not(:disabled) {
-  background: var(--interactive-accent-hover);
-}
 .btn-ghost:disabled,
 .btn-primary:disabled {
   opacity: 0.45;
@@ -229,19 +200,6 @@ async function onIgnore(c: StyleCandidateFE): Promise<void> {
 }
 .spin {
   animation: clw-spin 1s linear infinite;
-}
-
-/* ══ token 徽标（零 token / 耗 token 区分同名打架）══ */
-.token-chip {
-  font-size: var(--font-size-xxs);
-  padding: 1px 7px;
-  border-radius: 99px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-.token-chip.free {
-  color: var(--dv-good);
-  background: color-mix(in srgb, var(--dv-good) 12%, transparent);
 }
 
 /* ══ ③ 候选箱 ══ */
@@ -355,30 +313,7 @@ async function onIgnore(c: StyleCandidateFE): Promise<void> {
   transform: rotate(90deg);
 }
 
-/* 类型徽标（样章紫/手法绿/反例橙/禁词红） */
-.kind-badge {
-  font-size: var(--font-size-xxs);
-  font-weight: 600;
-  padding: 1px 7px;
-  border-radius: 99px;
-  flex-shrink: 0;
-}
-.kind-badge[data-kind='样章'] {
-  color: var(--text-accent);
-  background: color-mix(in srgb, var(--text-accent) 12%, transparent);
-}
-.kind-badge[data-kind='手法'] {
-  color: var(--dv-good);
-  background: color-mix(in srgb, var(--dv-good) 12%, transparent);
-}
-.kind-badge[data-kind='反例'] {
-  color: var(--dv-warn);
-  background: color-mix(in srgb, var(--dv-warn) 12%, transparent);
-}
-.kind-badge[data-kind='禁词'] {
-  color: var(--text-error);
-  background: color-mix(in srgb, var(--text-error) 12%, transparent);
-}
+/* 类型徽标（kind-badge 族）已收敛至 style-shared.css（R0912-C2-P3-3）。 */
 .src-dot {
   font-size: var(--font-size-xs);
   color: var(--text-faint);

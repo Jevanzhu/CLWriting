@@ -14,8 +14,6 @@
  *   3. 顺序敏感，首个命中即归类
  *   4. 无命中 → 「其他反转」兜底（metrics 语义：真实类型，非未识别）
  */
-import type { ReversalLead } from './types.js'
-
 /** 内置反转类型全集（顺序即匹配优先级） */
 const REVERSAL_TYPES = [
   '死者反转',
@@ -74,9 +72,4 @@ export function classifyReversal(text: string): ReversalTypeName {
     if (REVERSAL_PATTERNS[type].test(t)) return type
   }
   return '其他反转'
-}
-
-/** 从章纲反转线索表提取文本（供上层分类；缺核心反转返回空串） */
-export function reversalText(lead: ReversalLead): string {
-  return lead.核心反转?.trim() ?? ''
 }

@@ -90,7 +90,11 @@ export function resolveRagDbPath(bookRoot: string): string {
       try {
         legacy.exec('PRAGMA wal_checkpoint(TRUNCATE)')
       } finally {
-        legacy.close()
+        // R0912-G1-P3-1（2026-09-12 独立重评修复批）：close 收编 closeRagDb——迁移探测
+        // 库虽未走 prepared() 入缓存，但统一走带缓存注销的关库 helper（同文件 R0911-G-P3-4
+        // 纪律：RAG 库的 close 一律不走裸 db.close()），防未来此段引入 prepared 调用时
+        // 裸 close 重新打开 ephemeron 环泄漏面
+        closeRagDb(legacy)
       }
     } catch {
       /* checkpoint 尽力而为：失败回落纯 rename 迁移 */
@@ -138,36 +142,10 @@ export function isRagDbCorruptionError(e: unknown): boolean {
   return /file is not a database|database disk image is malformed/i.test(msg)
 }
 
-/**
- * R1W-11（win 平台专项复审 R1）unlink 退避原语：3×50ms 指数退避后仍失败原样上抛
- *（调用方按失败收口，不静默吞）。unlink/sleep 可注入（测试用）。
- * R37-39（三十七轮）同旨独立实现（见 deleteRagDbFiles：固定 200ms 间隔 + 耗尽
- * 结构化错误，注入口不同族）——双线合并后两 API 面各自保留，测试面分别锁定。
- * 重试码集为两线并集：EPERM/EBUSY（R1W-11）+ EACCES（R37-39，win FAT 权限变体）。
- */
+/** unlink 退避的可重试错误码（deleteRagDbFiles 用）：EPERM/EBUSY + EACCES
+ * （R37-39，win FAT 权限变体）；ENOENT 不进重试面——R0912-G1-P3-7 起视为删除
+ * 已成功（目标状态达成），其余确定性错误零重试原样上抛。 */
 const RETRYABLE_UNLINK_CODES = new Set(['EPERM', 'EBUSY', 'EACCES'])
-
-export function unlinkWithRetry(
-  fp: string,
-  opts?: { unlink?: (p: string) => void; sleep?: (ms: number) => void; retries?: number; baseDelayMs?: number },
-): void {
-  const doUnlink = opts?.unlink ?? ((p: string) => unlinkSync(p))
-  const sleep =
-    opts?.sleep ?? ((ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms))
-  const retries = opts?.retries ?? 3
-  const base = opts?.baseDelayMs ?? 50
-  let attempt = 0
-  for (;;) {
-    try {
-      return doUnlink(fp)
-    } catch (e) {
-      const code = (e as NodeJS.ErrnoException).code ?? ''
-      if (attempt >= retries || !RETRYABLE_UNLINK_CODES.has(code)) throw e
-      sleep(base * 2 ** attempt)
-      attempt++
-    }
-  }
-}
 
 /**
  * R35-13（三十五轮）：删除 RAG 库文件（连同 -wal/-shm 侧车）。文件级损坏（断电/磁盘
@@ -181,10 +159,12 @@ export function unlinkWithRetry(
  * R37-39 实现：3 次重试 × 200ms 固定间隔，本函数在 resetRagIndex 同步链上
  *（DatabaseSync 同步 API，不可异步化），同步退避先例同 fs/atomic.ts
  * renameWithRetry（Atomics.wait 微睡 + unlink/sleep 可注入测试口，不动生产语义）。
- * 仅瞬时占用码进重试——ENOENT 等确定性错误立即上抛。最终仍失败抛带结构化信息的
+ * 仅瞬时占用码进重试——R0912-G1-P3-7（2026-09-12 独立重评修复批）：ENOENT 视为
+ * 已成功（existsSync 探测与 unlink 之间的 TOCTOU 窗口内文件被并发删掉 = 删除目标
+ * 已达成，不再误报失败；确定性错误照旧不放宽重试）；其余确定性错误立即上抛。
+ * 最终仍失败抛带结构化信息的
  * 错误（文件名+code+已重试次数），上层 isRagDbCorruptionError/rebuild 自愈语义
- * 不变（错误不落损坏判定面）。R1W-11 的 unlinkWithRetry 原语（指数退避、原样
- * 上抛）同文件共存，生产消费方仅其测试面。
+ * 不变（错误不落损坏判定面）。
  */
 export interface DeleteRagDbFilesOptions {
   unlink?: (fp: string) => void
@@ -210,7 +190,10 @@ export function deleteRagDbFiles(bookRoot: string, opts?: DeleteRagDbFilesOption
         break
       } catch (e) {
         const code = (e as NodeJS.ErrnoException).code ?? ''
-        // 确定性错误（ENOENT 等）零重试原样上抛（先例同 renameWithRetry）
+        // R0912-G1-P3-7：ENOENT = 文件已不在（并发删除赢过了 existsSync 探测的
+        // TOCTOU 窗口）→ 删除目标已达成，视为成功 break（不重试不抛）；其他
+        // 确定性错误零重试原样上抛（先例同 renameWithRetry）
+        if (code === 'ENOENT') break
         if (!RETRYABLE_UNLINK_CODES.has(code)) throw e
         if (attempt >= retries) {
           // R37-39：重试耗尽的结构化收口（文件名+code+已重试次数）
@@ -263,8 +246,14 @@ export function openRagDb(bookRoot: string): DatabaseSync {
 // 与 events/store.ts R46-42 同手法（模块独立性优先，本文件内自持一份小帮手）：
 // node:sqlite 的 db.prepare 每次重编译同一条 SQL——全书重建索引 3.5 万次 storeChunk
 // 即 3.5 万次编译同一 INSERT，纯白付。按 db 实例（WeakMap 键）+ SQL 串双键缓存编译
-// 产物：连接 close 后条目随 GC 消失，无悬挂执行面。建库/迁移/探测类一次性语句
-//（DDL、PRAGMA、checkpoint、存在性探测）不走本帮手。
+// 产物。建库/迁移/探测类一次性语句（DDL、PRAGMA、checkpoint、存在性探测）不走本帮手。
+// R0912-G1-P3-1（2026-09-12 独立重评修复批）：头注修账——原句「连接 close 后条目随
+// GC 消失，无悬挂执行面」失实：node:sqlite 的 StatementSync 强引用其 DatabaseSync，
+// 本缓存 WeakMap<db, Map<sql, stmt>> 的值侧 Map → stmt → db 与弱键构成 ephemeron 环，
+// close 并不解除该强引用、条目不随 GC 消失（R0911-G-P3-4 实测：裸 .mjs 40k 次
+// open/close 每次滞留 ~0.35KB，30k 次线性增长）。必须经 closeRagDb 先 delete 断链
+// 再 close——故本帮手与 closeRagDb 是配对纪律：凡有 prepared 调用面的连接，关库
+// 一律走 closeRagDb，不得裸 db.close()。
 const preparedByDb = new WeakMap<DatabaseSync, Map<string, StatementSync>>()
 
 /** R46-45：按 (db, sql) 取缓存的 prepared 语句；未见过则编译一次入缓存。 */
@@ -294,6 +283,23 @@ function prepared(db: DatabaseSync, sql: string): StatementSync {
 export function closeRagDb(db: DatabaseSync): void {
   preparedByDb.delete(db)
   db.close()
+}
+
+/**
+ * R0912-G1-P3-3（2026-09-12 独立重评修复批）：安全回滚——SQLite 部分错误
+ *（SQLITE_FULL/IOERR 等）已自动回亡事务，再 ROLLBACK 抛 "no transaction is
+ * active" 会掩蔽原始错误；吞 ROLLBACK 自身异常、调用方继续走自己的原始错误
+ * 上抛/返回文案。本文件与 index.ts 共五处同构 try{ROLLBACK}catch{} 收编单源
+ *（各处原注释并入本头注：store.ts ensureNormColumn R43-18、index.ts
+ * resetRagIndex / buildIndex 清残留 / commitIndexBatch 续传小事务 / 主提交事务
+ * 均 R43-18（四十三轮）R61-10 同款加固）。无事务（began=false 等）时调用无害。
+ */
+export function safeRollback(db: DatabaseSync): void {
+  try {
+    db.exec('ROLLBACK')
+  } catch {
+    /* 已自动回亡 */
+  }
 }
 
 /** 向量 L2 范数（A3 预存范数：余弦退化为点积，召回数学量减半） */
@@ -349,13 +355,8 @@ export function ensureNormColumn(db: DatabaseSync): void {
     //（SQLITE_FULL/IOERR 等）已自动回亡事务，再 ROLLBACK 抛 "no transaction is
     // active" 掩蔽原始写错误；吞 ROLLBACK 自身异常、原样上抛。began=false（首行
     // 读/开事务前抛）无事务可回，跳过。
-    if (began) {
-      try {
-        db.exec('ROLLBACK')
-      } catch {
-        /* 已自动回亡 */
-      }
-    }
+    // R0912-G1-P3-3：回滚句收编 safeRollback 单源。
+    if (began) safeRollback(db)
     throw e
   }
 }
@@ -397,8 +398,8 @@ export function storeChunk(db: DatabaseSync, chunk: ChunkInput): void {
 /**
  * 读全部块（全表线性扫描——#37 第 5 节）。
  * R49-19（四十九轮）：头注如实化——生产召回自 R46-9 起走 streamChunkScores（流式打分，
- * 向量 BLOB 用完即弃），本函数 src 内零生产调用方，现存消费面仅测试（断言/盘点原语，
- * 同 unlinkWithRetry「生产消费方仅其测试面」登记先例）；勿再把它接回召回热路径。
+ * 向量 BLOB 用完即弃），本函数 src 内零生产调用方，现存消费面仅测试（断言/盘点原语）；
+ * 勿再把它接回召回热路径。
  * R37-38（三十七轮）：可选 maxChunks 早停——产出行数达到限额即停（毒行剔除不计额），
  * 语义恒等于全量读后 slice(0, maxChunks)；缺省 undefined = 全读（既有口径不变）。
  * 规模量化（2026-08 实测，Apple Silicon，基准见 test/rag/scale.test.ts）：200 万字目标场景
@@ -513,7 +514,9 @@ export function streamChunkScores(
   maxRows: number,
   signal?: AbortSignal,
 ): { rows: ChunkScoreRow[]; produced: number; poisonRows: number; lastProducedWasMatch: boolean } {
-  const stmt = db.prepare('SELECT 章号, start_offset, end_offset, embedding, norm, model FROM chunks')
+  // R0912-G1-P3-2（2026-09-12 独立重评修复批）：召回热路径 SELECT 走 prepared 缓存
+  //（每次召回都重编译同一全表扫描语句，纯白付；原 db.prepare 改同文件既有 helper）
+  const stmt = prepared(db, 'SELECT 章号, start_offset, end_offset, embedding, norm, model FROM chunks')
   const qNorm = l2Norm(queryVec)
   const rows: ChunkScoreRow[] = []
   let produced = 0
@@ -568,8 +571,8 @@ export function streamChunkScores(
 /** A3（批 7）：全部章指纹元数据一次读进内存（章号 → indexed hash）——惰性校验的
  *  元数据源（召回闭库后子集校验用；单 SELECT，零文件 IO）。 */
 export function readAllChapterFingerprints(db: DatabaseSync): Map<number, string> {
-  const rows = db
-    .prepare("SELECT key, value FROM rag_meta WHERE key LIKE 'chapter_hash:%'")
+  // R0912-G1-P3-2：召回热路径（每次召回读指纹元数据）走 prepared 缓存
+  const rows = prepared(db, "SELECT key, value FROM rag_meta WHERE key LIKE 'chapter_hash:%'")
     .all() as Array<{ key: string; value: string }>
   const out = new Map<number, string>()
   for (const r of rows) {
@@ -607,7 +610,8 @@ export function deleteChunksByChapter(db: DatabaseSync, 章号: number): void {
 
 /** 已索引过的章号集合（chunks 去重；P1-28 删除检测用） */
 export function getIndexedChapterNumbers(db: DatabaseSync): number[] {
-  const rows = db.prepare('SELECT DISTINCT 章号 FROM chunks').all() as Array<{ 章号: number }>
+  // R0912-G1-P3-2：召回/建索引探测热路径走 prepared 缓存
+  const rows = prepared(db, 'SELECT DISTINCT 章号 FROM chunks').all() as Array<{ 章号: number }>
   return rows.map((r) => r.章号)
 }
 

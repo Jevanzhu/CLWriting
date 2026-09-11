@@ -2,7 +2,7 @@
 // 三审面板（M12 块1 B1.2）：发起三审 → 阻断/警告分组意见；存量信封 + 过期条；AI 不可达置灰；
 // verdict 联动已落地（通过/驳回落信封，B1.3 方案 A）。R1010-P3（G6-⑤）修账：意见点击
 // 定位 CodeMirror、进度 SSE 并未实现亦无排期——原「切片3 增强」为过时前瞻宣称，删除。
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, markRaw } from 'vue'
 import { FileSearch, RefreshCw, AlertCircle, AlertTriangle, CircleCheck, Clock } from 'lucide-vue-next'
 import { useReviewStore } from '../../stores/review'
 import { useWorkspaceStore } from '../../stores/workspace'
@@ -69,6 +69,22 @@ const passed = computed(
     review.collected.normalized.passed === true &&
     blockers.value.length + warnings.value.length === 0,
 )
+
+// R0912-C2-P3-6（2026-09-12 独立重评修复批）：红/黄两组 item 模板逐字重复 → 分组
+// 数据化 + 模板 v-for 单份化（原两份逐张一致，DOM 输出不变——template v-for 不产生
+// DOM；组序阻断在前警告在后、各自独立显隐均保持）。markRaw：组件对象不进响应式。
+const issueGroups = computed(() => [
+  {
+    key: 'blockers', label: '阻断项', icon: markRaw(AlertCircle), tone: 'red',
+    count: blockers.value.length, view: blockersView.value,
+    keys: blockerKeys.value, keyPrefix: 'b', omitted: blockersOmitted.value,
+  },
+  {
+    key: 'warnings', label: '警告项', icon: markRaw(AlertTriangle), tone: 'yellow',
+    count: warnings.value.length, view: warningsView.value,
+    keys: warningKeys.value, keyPrefix: 'w', omitted: warningsOmitted.value,
+  },
+])
 
 /** R63-4：采集失败的人话原因（横幅展示；后端注入的阻断 issue 走 blockers 分组渲染） */
 const incompleteReason = computed(() => {
@@ -203,51 +219,32 @@ function severityLabel(s: string): string {
         <span>三审通过，无阻断/警告</span>
       </div>
 
-      <div v-if="blockers.length > 0" class="rev-group">
-        <div class="group-label group-label--red">
-          <AlertCircle :size="13" />
-          <span>阻断项（{{ blockers.length }}）</span>
-        </div>
-        <div
-          v-for="(it, i) in blockersView"
-          :key="'b' + blockerKeys[i]"
-          class="rev-item rev-item--red"
-        >
-          <div class="item-head">
-            <span class="item-sev" :class="severityClass(it.severity)">{{ severityLabel(it.severity) }}</span>
-            <span class="item-lens">{{ lensLabel(it.lens) }}</span>
-            <span v-if="it.location" class="item-loc">{{ it.location }}</span>
+      <!-- R0912-C2-P3-6：红/黄两组模板单份化（组差异数据化，DOM 逐像素不变） -->
+      <template v-for="g in issueGroups" :key="g.key">
+        <div v-if="g.count > 0" class="rev-group">
+          <div class="group-label" :class="`group-label--${g.tone}`">
+            <component :is="g.icon" :size="13" />
+            <span>{{ g.label }}（{{ g.count }}）</span>
           </div>
-          <div class="item-issue">{{ it.issue }}</div>
-          <div v-if="it.evidence.length > 0" class="item-evidence">「{{ it.evidence.join('；') }}」</div>
-          <div v-if="it.fix" class="item-fix">建议：{{ it.fix }}</div>
-        </div>
-        <!-- R1010c-FE1-P3-2：RENDER_CAP 截断省略提示行（数据面计数不虚减） -->
-        <div v-if="blockersOmitted > 0" class="cap-hint">已省略 {{ blockersOmitted }} 项</div>
-      </div>
-
-      <div v-if="warnings.length > 0" class="rev-group">
-        <div class="group-label group-label--yellow">
-          <AlertTriangle :size="13" />
-          <span>警告项（{{ warnings.length }}）</span>
-        </div>
-        <div
-          v-for="(it, i) in warningsView"
-          :key="'w' + warningKeys[i]"
-          class="rev-item rev-item--yellow"
-        >
-          <div class="item-head">
-            <span class="item-sev" :class="severityClass(it.severity)">{{ severityLabel(it.severity) }}</span>
-            <span class="item-lens">{{ lensLabel(it.lens) }}</span>
-            <span v-if="it.location" class="item-loc">{{ it.location }}</span>
+          <div
+            v-for="(it, i) in g.view"
+            :key="g.keyPrefix + g.keys[i]"
+            class="rev-item"
+            :class="`rev-item--${g.tone}`"
+          >
+            <div class="item-head">
+              <span class="item-sev" :class="severityClass(it.severity)">{{ severityLabel(it.severity) }}</span>
+              <span class="item-lens">{{ lensLabel(it.lens) }}</span>
+              <span v-if="it.location" class="item-loc">{{ it.location }}</span>
+            </div>
+            <div class="item-issue">{{ it.issue }}</div>
+            <div v-if="it.evidence.length > 0" class="item-evidence">「{{ it.evidence.join('；') }}」</div>
+            <div v-if="it.fix" class="item-fix">建议：{{ it.fix }}</div>
           </div>
-          <div class="item-issue">{{ it.issue }}</div>
-          <div v-if="it.evidence.length > 0" class="item-evidence">「{{ it.evidence.join('；') }}」</div>
-          <div v-if="it.fix" class="item-fix">建议：{{ it.fix }}</div>
+          <!-- R1010c-FE1-P3-2：RENDER_CAP 截断省略提示行（数据面计数不虚减） -->
+          <div v-if="g.omitted > 0" class="cap-hint">已省略 {{ g.omitted }} 项</div>
         </div>
-        <!-- R1010c-FE1-P3-2：RENDER_CAP 截断省略提示行（数据面计数不虚减） -->
-        <div v-if="warningsOmitted > 0" class="cap-hint">已省略 {{ warningsOmitted }} 项</div>
-      </div>
+      </template>
     </template>
 
     <div v-else-if="!review.loading" class="rev-hint">

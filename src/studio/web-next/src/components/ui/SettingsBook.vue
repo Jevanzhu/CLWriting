@@ -21,6 +21,8 @@ import { usePrefsStore } from '../../stores/prefs'
 import SettingsBookWriting from './SettingsBookWriting.vue'
 import SettingsBookAnalysis from './SettingsBookAnalysis.vue'
 import SettingsBookRetention from './SettingsBookRetention.vue'
+import SettingItem from './SettingItem.vue'
+import SettingToggle from './SettingToggle.vue'
 
 const ui = useUiStore()
 const ws = useWorkspaceStore()
@@ -35,12 +37,12 @@ const pfwOverride = computed(() => prefs.bookPageWidth !== null)
 const asOverride = computed(() => prefs.bookAutosaveInterval !== null)
 const pfwEff = computed(() => prefs.bookPageWidth ?? prefs.pageWidth)
 const asEff = computed(() => prefs.bookAutosaveInterval ?? prefs.autosaveInterval)
-function onPfwToggle(e: Event): void {
-  prefs.bookPageWidth = (e.target as HTMLInputElement).checked ? prefs.effectivePageWidth : null
+function onPfwToggle(v: boolean): void {
+  prefs.bookPageWidth = v ? prefs.effectivePageWidth : null
   prefs.apply()
 }
-function onAsToggle(e: Event): void {
-  prefs.bookAutosaveInterval = (e.target as HTMLInputElement).checked ? prefs.effectiveAutosaveInterval : null
+function onAsToggle(v: boolean): void {
+  prefs.bookAutosaveInterval = v ? prefs.effectiveAutosaveInterval : null
   prefs.apply()
 }
 function onPfwInput(v: number): void {
@@ -189,68 +191,34 @@ async function doBookTitleChange(): Promise<void> {
 
       <div class="cfg-card-head">基本信息</div>
       <section class="cfg-card">
-        <div class="setting-item">
-          <div class="setting-item-info">
-            <div class="setting-item-name">书名</div>
-            <div class="setting-item-desc">显示在书架和标题栏</div>
-          </div>
-          <div class="setting-item-control">
-            <input v-model="bookTitle" class="text-input" type="text" placeholder="书名" aria-label="书名" @change="onBookTitleChange" />
-          </div>
-        </div>
+        <SettingItem name="书名" desc="显示在书架和标题栏">
+          <input v-model="bookTitle" class="text-input" type="text" placeholder="书名" aria-label="书名" @change="onBookTitleChange" />
+        </SettingItem>
       </section>
 
       <!-- 覆盖组：编辑排版（纸张宽度/自动保存 书级覆盖）+ 写作默认 + 智能分析（AI 写作/版本保留已砍书级，见各组件头注释） -->
       <div class="cfg-card-head">编辑排版</div>
       <section class="cfg-card">
-        <div class="setting-item">
-          <div class="setting-item-info">
-            <div class="setting-item-name">纸张宽度</div>
-            <div class="setting-item-desc">
-              当前生效 {{ pfwEff }}px{{ pfwOverride ? '（本书独立设定）' : '（跟随全局默认）' }}
-            </div>
-          </div>
-          <div class="setting-item-control">
-            <label class="switch">
-              <input type="checkbox" aria-label="本书独立设定纸张宽度" :checked="pfwOverride" @change="onPfwToggle($event)" />
-              <span class="switch-slider"></span>
-            </label>
-          </div>
-        </div>
-        <div v-if="pfwOverride" class="setting-item sub">
-          <div class="setting-item-info">
-            <div class="setting-item-name">本书纸宽</div>
-          </div>
-          <div class="setting-item-control">
-            <input type="range" min="600" max="1400" step="20" :value="prefs.bookPageWidth ?? 1020" @input="onPfwInput(Number(($event.target as HTMLInputElement).value))" />
-            <input class="num-input" type="number" min="600" max="1400" step="20" :value="prefs.bookPageWidth ?? ''" aria-label="本书纸宽" @change="onPfwNumChange($event)" />
-            <span class="val-suffix">px</span>
-          </div>
-        </div>
-        <div class="setting-item">
-          <div class="setting-item-info">
-            <div class="setting-item-name">自动保存</div>
-            <div class="setting-item-desc">
-              当前生效 {{ asEff }}s{{ asOverride ? '（本书独立设定）' : '（跟随全局默认）' }}
-            </div>
-          </div>
-          <div class="setting-item-control">
-            <label class="switch">
-              <input type="checkbox" aria-label="本书独立设定自动保存" :checked="asOverride" @change="onAsToggle($event)" />
-              <span class="switch-slider"></span>
-            </label>
-          </div>
-        </div>
-        <div v-if="asOverride" class="setting-item sub">
-          <div class="setting-item-info">
-            <div class="setting-item-name">本书自动保存间隔</div>
-          </div>
-          <div class="setting-item-control">
-            <input type="range" min="5" max="120" step="5" :value="prefs.bookAutosaveInterval ?? 30" @input="onAsInput(Number(($event.target as HTMLInputElement).value))" />
-            <input class="num-input" type="number" min="5" max="120" step="5" :value="prefs.bookAutosaveInterval ?? ''" aria-label="本书自动保存间隔" @change="onAsNumChange($event)" />
-            <span class="val-suffix">s</span>
-          </div>
-        </div>
+        <SettingToggle name="纸张宽度" ariaLabel="本书独立设定纸张宽度" :checked="pfwOverride" @change="onPfwToggle">
+          <template #desc>
+            当前生效 {{ pfwEff }}px{{ pfwOverride ? '（本书独立设定）' : '（跟随全局默认）' }}
+          </template>
+        </SettingToggle>
+        <SettingItem v-if="pfwOverride" sub name="本书纸宽">
+          <input type="range" min="600" max="1400" step="20" :value="prefs.bookPageWidth ?? 1020" @input="onPfwInput(Number(($event.target as HTMLInputElement).value))" />
+          <input class="num-input" type="number" min="600" max="1400" step="20" :value="prefs.bookPageWidth ?? ''" aria-label="本书纸宽" @change="onPfwNumChange($event)" />
+          <span class="val-suffix">px</span>
+        </SettingItem>
+        <SettingToggle name="自动保存" ariaLabel="本书独立设定自动保存" :checked="asOverride" @change="onAsToggle">
+          <template #desc>
+            当前生效 {{ asEff }}s{{ asOverride ? '（本书独立设定）' : '（跟随全局默认）' }}
+          </template>
+        </SettingToggle>
+        <SettingItem v-if="asOverride" sub name="本书自动保存间隔">
+          <input type="range" min="5" max="120" step="5" :value="prefs.bookAutosaveInterval ?? 30" @input="onAsInput(Number(($event.target as HTMLInputElement).value))" />
+          <input class="num-input" type="number" min="5" max="120" step="5" :value="prefs.bookAutosaveInterval ?? ''" aria-label="本书自动保存间隔" @change="onAsNumChange($event)" />
+          <span class="val-suffix">s</span>
+        </SettingItem>
       </section>
       <SettingsBookWriting />
       <SettingsBookAnalysis />
@@ -259,15 +227,9 @@ async function doBookTitleChange(): Promise<void> {
       <template v-if="hasDesktop">
         <div class="cfg-card-head">存储</div>
         <section class="cfg-card">
-          <div class="setting-item">
-            <div class="setting-item-info">
-              <div class="setting-item-name">书库目录</div>
-              <div class="setting-item-desc">在文件管理器中打开</div>
-            </div>
-            <div class="setting-item-control">
-              <button class="link-btn" @click="openBookDir">打开</button>
-            </div>
-          </div>
+          <SettingItem name="书库目录" desc="在文件管理器中打开">
+            <button class="link-btn" @click="openBookDir">打开</button>
+          </SettingItem>
         </section>
       </template>
     </template>

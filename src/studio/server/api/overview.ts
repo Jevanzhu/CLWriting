@@ -34,6 +34,7 @@ import { localDayKey, log } from '../../../log/index.js'
 import { detectState, STATE_NAMES, type DetectedState } from '../../../state/state.js'
 import { trackInFlightWork } from './in-flight-work.js' // R0910-W：rebuild Worker 退出收尾登记
 import { computeProgressAsync, yieldToEventLoop, SCAN_YIELD_EVERY } from './progress.js'
+import { sigStatFor } from './rhythm.js' // 精简批（SRV 域）：size:mtimeMs 签名单源（原本地同构副本收敛）
 import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
 
 interface OverviewCtx {
@@ -76,24 +77,14 @@ export function __resetOverviewScanCountForTest(): void {
   overviewScanCount = 0
 }
 
-/** stat 的 size:mtimeMs 签名（缺失 → '-'；先例同 rhythm.ts rhythmSigStatFor）。 */
-function overviewSigStatFor(fp: string): string {
-  try {
-    const st = statSync(fp)
-    return `${st.size}:${st.mtimeMs}`
-  } catch {
-    return '-'
-  }
-}
-
 /** 概览读面指纹：book.yaml（kind/target）+ 写作/正文（timeline/progress/recentDoc）+
  *  项目/文档清单.jsonl（finalizedPathSet 定稿集）+ 大纲/卷纲（volumes）。 */
 function overviewSignature(bookRoot: string): string {
   return [
-    overviewSigStatFor(join(bookRoot, 'book.yaml')),
-    overviewSigStatFor(join(bookRoot, '写作', '正文')),
-    overviewSigStatFor(join(bookRoot, '项目', '文档清单.jsonl')),
-    overviewSigStatFor(join(bookRoot, '大纲', '卷纲')),
+    sigStatFor(join(bookRoot, 'book.yaml')),
+    sigStatFor(join(bookRoot, '写作', '正文')),
+    sigStatFor(join(bookRoot, '项目', '文档清单.jsonl')),
+    sigStatFor(join(bookRoot, '大纲', '卷纲')),
   ].join(',')
 }
 
@@ -176,7 +167,7 @@ export function registerOverviewRoutes(ctx: OverviewCtx): void {
           const oldest = stateCache.keys().next().value
           if (oldest !== undefined) stateCache.delete(oldest)
         }
-        stateCache.set(bookRoot, { result: state, ts: now })
+        stateCache.set(bookRoot, { result: state, ts: Date.now() }) // R0912-B-P2-1：ts 取写入当刻（原计算前时刻被秒级计算吃掉有效缓存窗）
       } catch (e) {
         // R37-19：失败态不落缓存——下一请求立即重试（而非被 TTL 挡住拿假空数据）
         state = {

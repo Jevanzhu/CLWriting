@@ -50,7 +50,7 @@ describe('R71-27: setVerdict 在途切书 → 旧参 loadEnvelope 不再发起',
     s.clear() // 切书：opGen 推进 + 状态清空
     envelopeMock.mockResolvedValueOnce(envOf('书B'))
     await s.loadEnvelope('书B', 'doc_B') // 新书信封先落位
-    expect(s.lastDocId).toBe('doc_B')
+    expect(s.envelope?.generatedAt).toBe('t-书B') // R0912-C1-P3-2：lastDocId 死字段删除，落位断言改信封锚
     expect(envelopeMock).toHaveBeenCalledTimes(1)
 
     resolveVerdict({ ok: true })
@@ -58,8 +58,7 @@ describe('R71-27: setVerdict 在途切书 → 旧参 loadEnvelope 不再发起',
     // 修复点：续体查代不过直接弃——不再 loadEnvelope('书A','doc_A')（修复前会发起，
     // 再推代反超 → 旧书信封覆盖 B 书）
     expect(envelopeMock).toHaveBeenCalledTimes(1)
-    expect(s.lastDocId).toBe('doc_B') // B 书数据不被旧书拉取串显
-    expect(s.envelope?.generatedAt).toBe('t-书B')
+    expect(s.envelope?.generatedAt).toBe('t-书B') // B 书数据不被旧书拉取串显
   })
 
   it('未切书（对照）→ 裁决后正常拉信封、verdict 落地（守卫不误伤）', async () => {
@@ -84,7 +83,7 @@ describe('R71-27: setVerdict 在途切书 → 旧参 loadEnvelope 不再发起',
 
     resolveVerdict({ ok: true })
     await p
-    expect(s.lastDocId).toBe('doc_B') // doc_A 的迟到拉取不覆盖 doc_B
+    expect(s.envelope?.generatedAt).toBe('t-doc_B-env') // doc_A 的迟到拉取不覆盖 doc_B
     expect(envelopeMock).toHaveBeenCalledTimes(1)
   })
 })

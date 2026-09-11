@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, type Ref } from 'vue'
 import { getGlobalPrefs, putGlobalPrefs, type GlobalPrefs } from '../api/prefs'
 import { ApiError } from '../api/client'
 import { buildFontFamily, buildProseFontStack } from '../composables/useSystemFonts'
@@ -623,6 +623,35 @@ export const usePrefsStore = defineStore('prefs', () => {
   }
 
   // ── setter ──
+  // 表驱动工厂（2026-09-11 专项精简批）：同构「写 ref → schedulePersist」setter 收拢为
+  // 工厂产出（const 挂公开名）——33 个名/签名零变化，消费面含函数引用传递不动，persist
+  // 语义逐字保留（哪个 setter 写哪个键不变）。异形不塞表、手写保留：applyTheme/apply/
+  // applyCompact 三副作用族、setUiFontSizeStep（clamp+apply 双职）、setPageWidth/
+  // setAutosaveInterval 两 bookOnly 双分支、setCheckRepeatThreshold（浮点两位截断）。
+
+  /** 数值 setter：round 后 clamp [min, max]（max 缺省 = 无上界，退化为 max(min, round)）。
+   *  ref 形参联合宽型：机检四键为 Ref<number|undefined>（undefined = 未设），纯 number
+   *  ref 同传（Ref get/set 分写型下 Ref<number> 不可直接赋 Ref<number|undefined>）。 */
+  const numSetter = (r: Ref<number> | Ref<number | undefined>, min: number, max = Infinity) =>
+    (v: number): void => {
+      r.value = Math.min(max, Math.max(min, Math.round(v)))
+      schedulePersist()
+    }
+  /** 布尔 setter：纯赋值 */
+  const boolSetter = (r: Ref<boolean>) => (v: boolean): void => {
+    r.value = v
+    schedulePersist()
+  }
+  /** 字符串 setter：{ trim } 控制首尾去空 */
+  const strSetter = (r: Ref<string>, opts: { trim?: boolean } = {}) => (v: string): void => {
+    r.value = opts.trim ? v.trim() : v
+    schedulePersist()
+  }
+  /** 联合枚举 setter：纯赋值（'grid'|'list'、'light'|'heavy'） */
+  const setter = <T>(r: Ref<T>) => (v: T): void => {
+    r.value = v
+    schedulePersist()
+  }
 
   function setThemeValue(id: ThemeId): void {
     theme.value = id
@@ -691,123 +720,60 @@ export const usePrefsStore = defineStore('prefs', () => {
     bookAutosaveInterval.value = null
     schedulePersist()
   }
-  function setShelfView(v: 'grid' | 'list'): void {
-    shelfView.value = v
-    schedulePersist()
-  }
-  function setChatEnabled(v: boolean): void {
-    chatEnabled.value = v
-    schedulePersist()
-  }
+  const setShelfView = setter(shelfView)
+  const setChatEnabled = boolSetter(chatEnabled)
   function setCompact(v: boolean): void {
     compact.value = v
     applyCompact()
     schedulePersist()
   }
   /** 版本保留全局默认 · 保留天数（clamp 1-365；所有书统一） */
-  function setSnapDays(v: number): void {
-    snapDays.value = Math.min(365, Math.max(1, Math.round(v)))
-    schedulePersist()
-  }
+  const setSnapDays = numSetter(snapDays, 1, 365)
   /** 版本保留全局默认 · 保留数量（clamp 1-200；所有书统一） */
-  function setSnapCount(v: number): void {
-    snapCount.value = Math.min(200, Math.max(1, Math.round(v)))
-    schedulePersist()
-  }
+  const setSnapCount = numSetter(snapCount, 1, 200)
 
-  // ── 书级设定全局托底 setter（clamp 后写 ref → 走 schedulePersist 防抖落 global.json）──
+  // ── 书级设定全局托底 setter（表驱动：clamp/trim/赋值后走 schedulePersist 防抖落 global.json）──
 
   /** 写作默认 · 题材（trim；'' = 未设） */
-  function setDefaultGenre(v: string): void {
-    defaultGenre.value = v.trim()
-    schedulePersist()
-  }
+  const setDefaultGenre = strSetter(defaultGenre, { trim: true })
   /** 写作默认 · 每卷章数（clamp 5-500 取整；仅长篇使用） */
-  function setDefaultVolumeSize(v: number): void {
-    defaultVolumeSize.value = Math.min(500, Math.max(5, Math.round(v)))
-    schedulePersist()
-  }
+  const setDefaultVolumeSize = numSetter(defaultVolumeSize, 5, 500)
   /** 写作默认 · 目标字数（0 = 未设，否则正整数） */
-  function setDefaultTargetWords(v: number): void {
-    defaultTargetWords.value = Math.max(0, Math.round(v))
-    schedulePersist()
-  }
+  const setDefaultTargetWords = numSetter(defaultTargetWords, 0)
   /** 写作默认 · 每章字数（0 = 未设，否则正整数） */
-  function setDefaultChapterTargetWords(v: number): void {
-    defaultChapterTargetWords.value = Math.max(0, Math.round(v))
-    schedulePersist()
-  }
+  const setDefaultChapterTargetWords = numSetter(defaultChapterTargetWords, 0)
   /** AI 机检 · 短篇严格模式（仅短篇书生效） */
-  function setDefaultShortStrict(v: boolean): void {
-    defaultShortStrict.value = v
-    schedulePersist()
-  }
+  const setDefaultShortStrict = boolSetter(defaultShortStrict)
   /** AI 写作 · 文风注入强度 */
-  function setStyleInjection(v: 'light' | 'heavy'): void {
-    styleInjection.value = v
-    schedulePersist()
-  }
+  const setStyleInjection = setter(styleInjection)
   /** AI 写作 · 自动确认细纲 */
-  function setAutoConfirmOutline(v: boolean): void {
-    autoConfirmOutline.value = v
-    schedulePersist()
-  }
+  const setAutoConfirmOutline = boolSetter(autoConfirmOutline)
   /** AI 写作 · 批量写作章数（clamp 1-20 取整） */
-  function setAiBatchSize(v: number): void {
-    aiBatchSize.value = Math.min(20, Math.max(1, Math.round(v)))
-    schedulePersist()
-  }
+  const setAiBatchSize = numSetter(aiBatchSize, 1, 20)
   /** AI 写作 · 单章调用上限（clamp 1-50 取整） */
-  function setCallsPerChapter(v: number): void {
-    callsPerChapter.value = Math.min(50, Math.max(1, Math.round(v)))
-    schedulePersist()
-  }
+  const setCallsPerChapter = numSetter(callsPerChapter, 1, 50)
   /** 关系图 · 自动梳理 */
-  function setRelationAutoMine(v: boolean): void {
-    relationAutoMine.value = v
-    schedulePersist()
-  }
+  const setRelationAutoMine = boolSetter(relationAutoMine)
   /** 关系图 · 章节增量阈值（clamp 1-20 取整） */
-  function setRelationMineThreshold(v: number): void {
-    relationMineThreshold.value = Math.min(20, Math.max(1, Math.round(v)))
-    schedulePersist()
-  }
+  const setRelationMineThreshold = numSetter(relationMineThreshold, 1, 20)
   /** 知识检索 · 启用 */
-  function setRagEnabled(v: boolean): void {
-    ragEnabled.value = v
-    schedulePersist()
-  }
+  const setRagEnabled = boolSetter(ragEnabled)
   /** 知识检索 · 提供方（trim；'' = 未设） */
-  function setRagProvider(v: string): void {
-    ragProvider.value = v.trim()
-    schedulePersist()
-  }
+  const setRagProvider = strSetter(ragProvider, { trim: true })
   // ── R52-E-2：机检阈值五键 setter（clamp 后写 ref → schedulePersist 防抖落 global.json）──
-  /** AI 机检 · 复读占比阈值（clamp (0,1]，两位小数截断防浮点尾差入盘） */
+  /** AI 机检 · 复读占比阈值（clamp (0,1]，两位小数截断防浮点尾差入盘）——浮点截断异形，手写不进表 */
   function setCheckRepeatThreshold(v: number): void {
     checkRepeatThreshold.value = Math.min(1, Math.max(0.01, Math.round(v * 100) / 100))
     schedulePersist()
   }
   /** AI 机检 · 复读最小连续字数（clamp 2-1000 取整） */
-  function setCheckRepeatCharsThreshold(v: number): void {
-    checkRepeatCharsThreshold.value = Math.min(1000, Math.max(2, Math.round(v)))
-    schedulePersist()
-  }
+  const setCheckRepeatCharsThreshold = numSetter(checkRepeatCharsThreshold, 2, 1000)
   /** AI 机检 · 超长句判定长度（clamp 10-500 取整） */
-  function setCheckMaxSentenceLen(v: number): void {
-    checkMaxSentenceLen.value = Math.min(500, Math.max(10, Math.round(v)))
-    schedulePersist()
-  }
+  const setCheckMaxSentenceLen = numSetter(checkMaxSentenceLen, 10, 500)
   /** AI 机检 · 高频意象次数阈值（clamp 1-100 取整） */
-  function setCheckImageryThreshold(v: number): void {
-    checkImageryThreshold.value = Math.min(100, Math.max(1, Math.round(v)))
-    schedulePersist()
-  }
+  const setCheckImageryThreshold = numSetter(checkImageryThreshold, 1, 100)
   /** AI 机检 · 字数容差百分比（clamp 1-500 取整） */
-  function setCheckWordCountTolerance(v: number): void {
-    checkWordCountTolerance.value = Math.min(500, Math.max(1, Math.round(v)))
-    schedulePersist()
-  }
+  const setCheckWordCountTolerance = numSetter(checkWordCountTolerance, 1, 500)
 
   return {
     theme,

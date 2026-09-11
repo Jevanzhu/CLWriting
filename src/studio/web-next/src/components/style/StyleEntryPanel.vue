@@ -7,6 +7,10 @@ import { useUiStore } from '../../stores/ui'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { friendlyError } from '../../shared/error'
 import EmptyState from '../ui/EmptyState.vue'
+// R0912-C2-P3-3（2026-09-12 独立重评修复批）：.panel/.btn-*/.kind-badge 逐字重复块
+// 收敛至 style-shared.css——接入机制照 settings-shared.css 先例（全局装载非 scoped，
+// 组件模块加载即注入；Vite 同模块去重，四件各引一次只注入一份）。
+import './style-shared.css'
 import type { EntryKindFE } from '../../api/style'
 
 const style = useStyleStore()
@@ -206,14 +210,8 @@ async function onRemove(path: string, text: string): Promise<void> {
 </template>
 
 <style scoped>
-/* ══ 面板基础（对齐 OverviewView 卡片语言）══ */
-.panel {
-  background: var(--background-primary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-l);
-  padding: 18px 20px;
-  animation: clw-fade-up var(--dur-fast) var(--ease-out) both;
-}
+/* .panel 与 .btn-ghost/.btn-primary 基础族已收敛至 style-shared.css
+ *（R0912-C2-P3-3 全局装载）；本文件原无按钮 disabled 规则，不引入（视觉不变）。 */
 
 .head-warn {
   font-size: var(--font-size-xs);
@@ -225,34 +223,6 @@ async function onRemove(path: string, text: string): Promise<void> {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-/* ══ 通用按钮 ══ */
-.btn-ghost,
-.btn-primary {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: var(--font-size-xs);
-  padding: 4px 10px;
-  border-radius: var(--radius-s);
-  cursor: pointer;
-  border: 1px solid var(--background-modifier-border);
-  background: transparent;
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-.btn-ghost:hover:not(:disabled) {
-  background: var(--background-modifier-hover);
-  color: var(--text-normal);
-}
-.btn-primary {
-  border-color: transparent;
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-}
-.btn-primary:hover:not(:disabled) {
-  background: var(--interactive-accent-hover);
 }
 
 /* ══ ② 条目库 ══ */
@@ -396,30 +366,7 @@ async function onRemove(path: string, text: string): Promise<void> {
   color: var(--text-faint);
 }
 
-/* 类型徽标（样章紫/手法绿/反例橙/禁词红） */
-.kind-badge {
-  font-size: var(--font-size-xxs);
-  font-weight: 600;
-  padding: 1px 7px;
-  border-radius: 99px;
-  flex-shrink: 0;
-}
-.kind-badge[data-kind='样章'] {
-  color: var(--text-accent);
-  background: color-mix(in srgb, var(--text-accent) 12%, transparent);
-}
-.kind-badge[data-kind='手法'] {
-  color: var(--dv-good);
-  background: color-mix(in srgb, var(--dv-good) 12%, transparent);
-}
-.kind-badge[data-kind='反例'] {
-  color: var(--dv-warn);
-  background: color-mix(in srgb, var(--dv-warn) 12%, transparent);
-}
-.kind-badge[data-kind='禁词'] {
-  color: var(--text-error);
-  background: color-mix(in srgb, var(--text-error) 12%, transparent);
-}
+/* 类型徽标（kind-badge 族）与通用按钮同批收敛至 style-shared.css（R0912-C2-P3-3）。 */
 .src-dot {
   font-size: var(--font-size-xs);
   color: var(--text-faint);

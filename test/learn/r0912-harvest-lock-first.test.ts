@@ -9,11 +9,11 @@
  * 都不可达——一律先报既有「在途」文案。修复前这两臂分别返回
  * 「没有定稿正文可收割。」「章节解析失败：…」（确定性区分锁相对扫描的先后）。
  */
-import { test, expect } from 'vitest'
+import { test, expect, vi } from 'vitest'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { learnFromBook, __setLearnHarvestLockTimeoutForTest, LEARN_HARVEST_LOCK_TIMEOUT_MS } from '../../src/learn/index.js'
+import { learnFromBook, LEARN_HARVEST_LOCK_TIMEOUT_MS } from '../../src/learn/index.js'
 import { acquireCrossProcessLockAsync } from '../../src/fs/cross-process-lock.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
@@ -41,16 +41,20 @@ test('R0912-5: 锁在途 → 空书也先报「在途」而非「没有定稿正
   const root = makeBook({ emptyBody: true })
   const release = await acquireCrossProcessLockAsync(join(root, HARVEST_LOCK), 0)
   expect(release).toBeTruthy()
-  // 锁等待档注入 0（try-acquire，R26-105 惯例）——测试不付生产 5s 等待档；
-  // 「超时/失败返回口径」本体由返回形状断言（candidateDir/文案逐字）锁定
-  __setLearnHarvestLockTimeoutForTest(0)
+  // 合并批注（2026-09-12 mac/win 语义并合）：原注入钩子 __setLearnHarvestLockTimeoutForTest
+  // 已随 win 线 2026-09-11 精简批退役（零消费钩子删除）——改用假时钟瞬时走完生产
+  // 5s 等待档（等待档本体仍为 LEARN_HARVEST_LOCK_TIMEOUT_MS，测试不付真实 5s，
+  // 原设计意图不变）。「超时/失败返回口径」本体由返回形状断言（candidateDir/文案逐字）锁定
+  vi.useFakeTimers()
   try {
-    const r = await learnFromBook(root)
+    const pending = learnFromBook(root)
+    await vi.advanceTimersByTimeAsync(LEARN_HARVEST_LOCK_TIMEOUT_MS)
+    const r = await pending
     expect(r.ok).toBe(false)
     expect(r.error).toContain('在途')
     expect(r.candidateDir).toBe(CANDIDATE_DIR) // 在途返回口径逐字不变
   } finally {
-    __setLearnHarvestLockTimeoutForTest(LEARN_HARVEST_LOCK_TIMEOUT_MS)
+    vi.useRealTimers()
     release?.()
   }
 })
@@ -59,14 +63,16 @@ test('R0912-5: 锁在途 → 连章节解析都不跑（报「在途」而非「
   const root = makeBook({ brokenChapter: true })
   const release = await acquireCrossProcessLockAsync(join(root, HARVEST_LOCK), 0)
   expect(release).toBeTruthy()
-  __setLearnHarvestLockTimeoutForTest(0)
+  vi.useFakeTimers()
   try {
-    const r = await learnFromBook(root)
+    const pending = learnFromBook(root)
+    await vi.advanceTimersByTimeAsync(LEARN_HARVEST_LOCK_TIMEOUT_MS)
+    const r = await pending
     expect(r.ok).toBe(false)
     expect(r.error).toContain('在途')
     expect(r.error).not.toContain('章节解析失败')
   } finally {
-    __setLearnHarvestLockTimeoutForTest(LEARN_HARVEST_LOCK_TIMEOUT_MS)
+    vi.useRealTimers()
     release?.()
   }
 })

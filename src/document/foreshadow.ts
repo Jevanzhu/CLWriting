@@ -20,6 +20,7 @@ import { sanitizeFileNamePart, isMdFileName, chapterNoFromName } from '../format
 import { createFileExclusive, rmWithRetry } from '../fs/atomic.js'
 import { walkMdEach } from '../fs/walk-md.js'
 import { log } from '../log/index.js'
+import { yieldToEventLoop } from '../async.js'
 
 // ── 伏笔条目（fm 数据）──────────────────────────
 
@@ -432,12 +433,6 @@ function buildTrailRegExp(foreshadows: ForeshadowEntry[]): RegExp | null {
 // md-text-cache 指纹表吸收（R47-27）。同步版原样保留（行为规格参照 + 回归测试钉），
 // 索引语义单源化在 collectTrailKeywords/buildTrailRegExp——两版扫描循环互为镜像，
 // 改动任一侧必须对另一侧做同款等价核对（等价性由 pm1 测试逐字段断言背书）。
-
-/** 事件循环让出原语：setImmediate 落到 libuv check 阶段，跨事件循环迭代（rAF 语义
- *  在服务端无意义；process.nextTick 微任务不让出事件循环，等于没让）。 */
-function yieldToEventLoop(): Promise<void> {
-  return new Promise((resolve) => setImmediate(resolve))
-}
 
 /** 每让出片的章数：25 章 ≈ 每片 10-15ms（数千字/章 × 联合正则），远低于一帧预算。 */
 const TRAILS_YIELD_EVERY = 25

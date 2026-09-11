@@ -1,7 +1,4 @@
-import { apiJson, ApiError } from './client'
-
-// 分析载荷种类（review 走独立三审端点，不在此）。
-export type AnalysisKindFE = 'score' | 'emotion' | 'hooks' | 'style'
+import { apiJson } from './client'
 
 // 信封（镜像后端 Envelope；payload 按 kind 异构，前端按 kind 断言）。
 export interface EnvelopeFE {
@@ -9,42 +6,6 @@ export interface EnvelopeFE {
   model: string
   sourceHash: string
   payload: unknown
-}
-interface EnvelopeGet {
-  ok: true
-  envelope: EnvelopeFE
-  stale: boolean
-}
-interface AnalyzePost {
-  ok: true
-  envelope: EnvelopeFE
-}
-
-// GET /documents/:docId/analysis/:kind —— 读存量信封（无则 null；stale=正文已变更）。
-export async function getAnalysisEnvelope(
-  name: string,
-  docId: string,
-  kind: AnalysisKindFE,
-): Promise<{ envelope: EnvelopeFE; stale: boolean } | null> {
-  try {
-    const r = await apiJson<EnvelopeGet>(
-      `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/analysis/${kind}`,
-    )
-    return { envelope: r.envelope, stale: r.stale }
-  } catch (e) {
-    if (e instanceof ApiError && e.status === 404) return null // 确无存量信封
-    throw e // 服务端故障/网络错误上抛（调用方 toast）
-  }
-}
-
-// POST /documents/:docId/analyze —— 重新分析（需 AI 可达）。
-export async function runAnalyze(name: string, docId: string, kind: AnalysisKindFE): Promise<EnvelopeFE> {
-  const r = await apiJson<AnalyzePost>(
-    `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/analyze`,
-    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind }) },
-    120_000, // AI 分析超时 2 分钟
-  )
-  return r.envelope
 }
 
 /** AI 章节标签（钩子/情绪/场景判定；后端校验后只含合法选项）。 */
@@ -59,7 +20,7 @@ export interface ChapterTags {
 export async function autotag(name: string, docId: string): Promise<ChapterTags> {
   const r = await apiJson<{ ok: true; tags: ChapterTags }>(
     `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/autotag`,
-    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) },
+    { method: 'POST', json: {} },
     60_000, // 标签判定超时 1 分钟
   )
   return r.tags
@@ -75,7 +36,7 @@ export interface InferredMeta {
 export async function inferMeta(name: string, docId: string): Promise<InferredMeta> {
   const r = await apiJson<{ ok: true; meta: InferredMeta }>(
     `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/infer-meta`,
-    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) },
+    { method: 'POST', json: {} },
     60_000,
   )
   return r.meta
@@ -130,7 +91,7 @@ export async function runStyleAnalysis(
 ): Promise<{ envelope: EnvelopeFE; styleCandidates: number }> {
   const r = await apiJson<{ ok: true; envelope: EnvelopeFE; styleCandidates?: number }>(
     `/api/books/${encodeURIComponent(name)}/analyze-style`,
-    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) },
+    { method: 'POST', json: {} },
     120_000, // AI 文风分析超时 2 分钟
   )
   return { envelope: r.envelope, styleCandidates: r.styleCandidates ?? 0 }

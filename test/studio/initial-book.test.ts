@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, it, expect } from 'vitest'
-import { initialBookArg, initialBookArgvOnly, resolveInitialBook } from '../../src/desktop/initial-book.js'
+import { initialBookArg, resolveInitialBook } from '../../src/desktop/initial-book.js'
 
 let workDir = ''
 const prevEnv = process.env['CLWRITING_INITIAL_BOOK']
@@ -82,12 +82,15 @@ describe('resolveInitialBook', () => {
   })
 })
 
-describe('initialBookArgvOnly（R27-97：second-instance 只认 argv）', () => {
+// R0912-A-P3-1（2026-09-12 独立重评修复批）：initialBookArgvOnly 与 initialBookArg 的
+// allowEnvFallback:false 分支逐位等价，函数删除、second-instance 调用点收编为传参形态。
+// 原 R27-97 用例（second-instance 只认 argv）改钉等价传参形态，语义锚不变。
+describe('second-instance argv-only 口径（R27-97；R0912-A-P3-1 起经 allowEnvFallback:false）', () => {
   it('argv 带 --book → 取值；无 --book → 不回落 env（普通二次拉起不误导航）', () => {
     process.env['CLWRITING_INITIAL_BOOK'] = '首实例env书'
-    expect(initialBookArgvOnly(['electron', '.', '--book', '新参书'])).toBe('新参书')
-    // 修复前：此场景回落到首实例 env「首实例env书」，无参双开被误导航
-    expect(initialBookArgvOnly(['electron', '.'])).toBeUndefined()
-    expect(initialBookArgvOnly(['electron', '.', '--book'])).toBeUndefined()
+    expect(initialBookArg(['electron', '.', '--book', '新参书'], { allowEnvFallback: false })).toBe('新参书')
+    // 修复前（历史）：此场景回落到首实例 env「首实例env书」，无参双开被误导航
+    expect(initialBookArg(['electron', '.'], { allowEnvFallback: false })).toBeUndefined()
+    expect(initialBookArg(['electron', '.', '--book'], { allowEnvFallback: false })).toBeUndefined()
   })
 })

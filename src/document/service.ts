@@ -37,7 +37,7 @@ import { canonicalizeText, bufferNeedsCanonical } from '../fs/text-canonical.js'
 import { computeRevision, computeRevisionBytes, type Revision } from './revision.js'
 import { layoutOf, roleOf, isInternalBookPath } from './layout.js'
 import { appendAborted, appendMovePending, appendPending, appendSettled } from './journal.js'
-import { writeSnapshot, DEFAULT_SNAPSHOT_POLICY, readGlobalSnapshotPolicy, type SnapshotPolicy } from './snapshot.js'
+import { writeVersion, DEFAULT_VERSION_POLICY, readGlobalSnapshotPolicy, encodeDocDirName, type VersionPolicy } from './version.js'
 import { readManifest, readManifestStrict, writeManifest, upsertEntry, withManifestLockAsync, type ManifestEntry } from './manifest.js'
 import { SaveQueue } from './queue.js'
 import { generateDocId, legacyId } from './stable-id.js'
@@ -52,7 +52,6 @@ import { countWords, chapterFilePrefix } from '../format/words.js'
 // R26-55（二十六轮）：createDocument 的 relPath 逐段消毒同源（sanitizeChapterTitle 是
 // 同函数的章标题别名）
 import { sanitizeChapterTitle, sanitizeFileNamePart, sanitizeFullFileName } from '../format/filename.js'
-import { encodeDocDirName } from './version.js'
 import { acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js' // R31-20：meta 链全异步化，同步等待原语已无使用方
 import { readBookConfig } from '../format/yaml.js'
 
@@ -130,7 +129,7 @@ export function __setWiringSaveLockTimeoutForTest(ms: number): void {
 
 /** 保存输入（W0-1 §5.1）。
  *  R34D-18（三十四轮）：content 扩为 string | Buffer——Buffer 仅恢复端点字节档分支
- *  产生（readSnapshotRaw 原字节透传），原字节直存闭合 R26-52「字节档恢复不失真」；
+ *  产生（readVersionRaw 原字节透传），原字节直存闭合 R26-52「字节档恢复不失真」；
  *  文本保存方（编辑器/autosave/外部合并）仍全量 string，行为不变。 */
 export interface SaveDocumentInput {
   content: string | Buffer
@@ -296,6 +295,8 @@ export class DocumentService {
   // executeSave await 化不改变 per-docId 串行保证。
   // R30-5（三十轮）锁序：save 锁 → 布线锁 → 清单锁（全仓统一，含 finalize 链——
   // 定稿入口已改为进清单锁前预取布线锁，save↔finalize 的 ABBA 交叉对已消除）。
+  // R0912-E-P3-4（2026-09-12 独立重评修复批）：本 async 函数内全部
+  // `return Promise.resolve({...})` 收敛为 `return {...}`（await 点上等价，逐处改不改语义）。
   private async executeSave(
     docId: string,
     relPath: string,
@@ -303,7 +304,7 @@ export class DocumentService {
     input: SaveDocumentInput,
   ): Promise<SaveResult> {
     // P1-SEC-A：journal 路径含 docId，显式校验防穿越（与 version.ts/analysis.ts 对齐）
-    if (!safeDocId(docId)) return Promise.resolve({ ok: false, code: 'PATH_ESCAPE', reason: '文档 ID 非法' })
+    if (!safeDocId(docId)) return { ok: false, code: 'PATH_ESCAPE', reason: '文档 ID 非法' }
     // R68-3（十六轮）：文件名编码（`:`→`_`）——legacy docId 的字面名在 win 上非法
     // （EINVAL/NTFS ADS），appendPending 记不上 = 保存链路永久 WRITE_ERROR。读侧
     // 文件名编码（R68-3，win legacy 冒号防线）；未结算读侧反解见 journal/state 消费面。
@@ -324,18 +325,18 @@ export class DocumentService {
     try {
       registered = await this.lookupPathByDocIdAdoptAsync(docId)
     } catch (e) {
-      return Promise.resolve({
+      return {
         ok: false,
         code: 'WRITE_ERROR',
         reason: `保存前清单查询失败（未执行保存，可重试）：${e instanceof Error ? e.message : String(e)}`,
-      })
+      }
     }
     if (registered !== null && docJoinKey(registered) !== docJoinKey(relPath)) { // R38-14 win 折叠 + R41-2 NFC 归一
-      return Promise.resolve({
+      return {
         ok: false,
         code: 'REVISION_CONFLICT',
         reason: `文档已移动或重命名（现路径 ${registered}），本次保存目标 ${relPath} 已失效，请刷新后重试`,
-      })
+      }
     }
     // Z-6（第五十八轮）：双条件复活守卫——doTrash 尾段（rename 后清单删除前）崩溃/写失败
     // 会残留指向旧路径的清单条目，旧判定「registered === null 才查回收站」被残留绕过
@@ -350,18 +351,18 @@ export class DocumentService {
     try {
       trashClaimed = readTrashManifestStrict(this.bookRoot).some((t) => t.id === docId)
     } catch (e) {
-      return Promise.resolve({
+      return {
         ok: false,
         code: 'WRITE_ERROR',
         reason: `回收站清单读取失败（复活守卫按保守拒绝，未执行保存，可重试）：${errMsg(e)}`,
-      })
+      }
     }
     if (trashClaimed && (registered === null || !existsSync(absPath))) {
-      return Promise.resolve({
+      return {
         ok: false,
         code: 'REVISION_CONFLICT',
         reason: '文档已删除（在回收站中），拒绝在原路径复活文件；如需恢复请从回收站还原',
-      })
+      }
     }
 
     // R72-1（二十轮 B-1）：保存临界段跨进程锁——per-docId 串行队列只防进程内并发；
@@ -384,18 +385,18 @@ export class DocumentService {
     try {
       docSaveLock = await acquireCrossProcessLockAsync(`${journalPath}.save.lock`, 5_000)
     } catch (e) {
-      return Promise.resolve({
+      return {
         ok: false,
         code: 'WRITE_ERROR',
         reason: `保存锁获取失败（未执行保存，可重试）：${errMsg(e)}`,
-      })
+      }
     }
     if (!docSaveLock) {
-      return Promise.resolve({
+      return {
         ok: false,
         code: 'WRITE_ERROR',
         reason: '保存等待超时：另一进程正在保存此文档（5 秒未让出），请重试',
-      })
+      }
     }
     // R29-7（二十九轮）：布线文件在 save 锁内再取同名文件锁（`<布线文件绝对路径>.lock`，
     // 与 lead-finalize 回写临界段互斥）——超时按 WRITE_ERROR 拒绝保存（fail-closed 不降级
@@ -413,19 +414,19 @@ export class DocumentService {
         wiringLock = await acquireCrossProcessLockAsync(wiringKey, wiringSaveLockTimeoutMs)
       } catch (e) {
         docSaveLock()
-        return Promise.resolve({
+        return {
           ok: false,
           code: 'WRITE_ERROR',
           reason: `布线文件锁获取失败（未执行保存，可重试）：${e instanceof Error ? e.message : String(e)}`,
-        })
+        }
       }
       if (!wiringLock) {
         docSaveLock()
-        return Promise.resolve({
+        return {
           ok: false,
           code: 'WRITE_ERROR',
           reason: '保存等待超时：另一进程正在回写此布线文件（5 秒未让出），请重试',
-        })
+        }
       }
     }
     try {
@@ -437,11 +438,11 @@ export class DocumentService {
       // 残留收口——非 legacy docId 行为不变，仅清单命中读）
       const registeredNow = await this.lookupPathByDocIdAdoptAsync(docId)
       if (registeredNow !== null && docJoinKey(registeredNow) !== docJoinKey(relPath)) { // R38-14 + R41-2
-        return Promise.resolve({
+        return {
           ok: false,
           code: 'REVISION_CONFLICT',
           reason: `文档已移动或重命名（现路径 ${registeredNow}），本次保存目标 ${relPath} 已失效，请刷新后重试`,
-        })
+        }
       }
       // R42-7（四十二轮）：锁内复核同款 strict 读——读失败上抛走外层 catch 的
       // WRITE_ERROR「未落盘，可重试」（R28-5 既有收口；此刻尚未 appendPending，
@@ -450,11 +451,11 @@ export class DocumentService {
         readTrashManifestStrict(this.bookRoot).some((t) => t.id === docId) &&
         (registeredNow === null || !existsSync(absPath))
       ) {
-        return Promise.resolve({
+        return {
           ok: false,
           code: 'REVISION_CONFLICT',
           reason: '文档已删除（在回收站中），拒绝在原路径复活文件；如需恢复请从回收站还原',
-        })
+        }
       }
       // 步骤 2：revision 校验（串行内执行，保证并发一致）
       // R39-11（三十九轮）：单读派生——对齐 R73-40/R27-45 手法，锁内一次整读 Buffer，
@@ -470,7 +471,7 @@ export class DocumentService {
         const reason = existing
           ? `基线不符（期望 ${input.expectedRevision ?? 'null'}，磁盘 ${currentRev}）`
           : `期望基线 ${input.expectedRevision} 但文件不存在`
-        return Promise.resolve({ ok: false, code: 'REVISION_CONFLICT', reason })
+        return { ok: false, code: 'REVISION_CONFLICT', reason }
       }
 
       // M-5（第六轮）：非 UTF-8 覆写防线（save 主路径含 autosave）——新内容含 U+FFFD 且
@@ -482,14 +483,14 @@ export class DocumentService {
       // 留底，覆写后原字节任何形式不可恢复）。对齐 draft-pipeline R66-1 / lead-finalize
       // M-9 的无条件口径：盘上非 UTF-8 一律拒绝，先转码再保存。
       // R34D-18（三十四轮）：Buffer 内容放行——该防线的威胁模型是「文本往返失真覆写」，
-      // 字节档恢复（readSnapshotRaw 原字节透传）正是把原始字节写回盘上的反悔通道，
+      // 字节档恢复（readVersionRaw 原字节透传）正是把原始字节写回盘上的反悔通道，
       // 拦它等于剥夺 GBK 档唯一的无损恢复路径。
       const content =
         typeof input.content === 'string' ? canonicalizeText(input.content) : input.content
       const byteRestore = Buffer.isBuffer(content)
       // R39-11：UTF-8 闸改判单读字节（原 :438 二次 readFileSync）
       if (diskBytes !== null && !byteRestore && !isUtf8Bytes(diskBytes)) {
-        return Promise.resolve(NON_UTF8_SAVE_REJECT)
+        return NON_UTF8_SAVE_REJECT
       }
 
       // 步骤 4：journal pending（含全文快照，防丢字）
@@ -502,11 +503,11 @@ export class DocumentService {
       try {
         opId = await appendPending(journalPath, docId, currentRev, byteRestore ? '' : content)
       } catch (e) {
-        return Promise.resolve({
+        return {
           ok: false,
           code: 'WRITE_ERROR',
           reason: `journal 追加失败，保存未执行：${e instanceof Error ? e.message : String(e)}`,
-        })
+        }
       }
 
       try {
@@ -587,11 +588,11 @@ export class DocumentService {
             } catch {
               // journal 留痕失败吞掉（best-effort）：必须保住 {ok:false} 契约
             }
-            return Promise.resolve({
+            return {
               ok: false,
               code: 'PATH_ESCAPE',
               reason: `新建路径 ${relPath} 含不合消毒规则的段（Windows 保留设备名/尾点/尾空格/控制字符/非法字符），已拒绝——请改用合法文件名（或经新建文档入口，将自动消毒）`,
-            })
+            }
           }
           const created = createFileExclusive(absPath, contentBytes, { fsync: true })
           if (created === 'exists') {
@@ -600,11 +601,11 @@ export class DocumentService {
             } catch {
               // journal 留痕失败吞掉（best-effort）：必须保住 {ok:false} 契约
             }
-            return Promise.resolve({
+            return {
               ok: false,
               code: 'REVISION_CONFLICT',
               reason: `预期新建，但落位时 ${relPath} 已被并发创建（另一进程先到）——请刷新后基于最新内容重试`,
-            })
+            }
           }
         }
         // 步骤 8：新 revision
@@ -654,7 +655,7 @@ export class DocumentService {
         //（rev 键控：即便此笔回填后文件又被外部改动，rev 不匹配自动失效，无害）。
         if (newWords !== null) this.rememberDocWords(docId, newRev, newWords)
         // 步骤 11
-        return Promise.resolve({ ok: true, revision: newRev })
+        return { ok: true, revision: newRev }
       } catch (e) {
         // 失败：journal 标 aborted（atomicWriteFile 失败已自清 tmp，未落盘）
         try {
@@ -662,11 +663,11 @@ export class DocumentService {
         } catch {
           // journal 写失败忽略（best-effort，不影响返回）
         }
-        return Promise.resolve({
+        return {
           ok: false,
           code: 'WRITE_ERROR',
           reason: `保存失败：${e instanceof Error ? e.message : String(e)}`,
-        })
+        }
       }
     } catch (e) {
       // R28-5（二十八轮）：锁内段裸穿收编——R27-43（:279-287）只收编了取锁**前段**的
@@ -681,11 +682,11 @@ export class DocumentService {
       // journal pending（无 opId，无孤儿可标 aborted），保存未执行、无数据损伤；
       // appendPending 之后的失败各有专属内层 catch 契约（journal 追加 :379、落盘段
       // :451），全部显式 return 不会流入本 catch，落盘成功后的失败语义原样保留。
-      return Promise.resolve({
+      return {
         ok: false,
         code: 'WRITE_ERROR',
         reason: `保存失败（未落盘，可重试）：${e instanceof Error ? e.message : String(e)}`,
-      })
+      }
     } finally {
       // R29-7：布线文件锁先于 save 锁释放（逆获取序），release 幂等
       if (wiringLock) wiringLock()
@@ -728,7 +729,7 @@ export class DocumentService {
     const currentContent = diskContent !== undefined ? diskContent : readFileSync(absPath, 'utf-8')
     // restore/external-merge 是"真要反悔"的时刻，必留；autosave 走节流
     const force = input.origin === 'restore' || input.origin === 'external-merge'
-    writeSnapshot(
+    writeVersion(
       this.snapshotsDir,
       docId,
       currentContent,
@@ -775,12 +776,12 @@ export class DocumentService {
     return value
   }
 
-  private snapshotPolicy(): SnapshotPolicy {
+  private snapshotPolicy(): VersionPolicy {
     const global = this.readGlobalPolicyCached()
     return {
-      maxDays: global.maxDays ?? DEFAULT_SNAPSHOT_POLICY.maxDays,
-      maxCount: global.maxCount ?? DEFAULT_SNAPSHOT_POLICY.maxCount,
-      throttleMinutes: DEFAULT_SNAPSHOT_POLICY.throttleMinutes,
+      maxDays: global.maxDays ?? DEFAULT_VERSION_POLICY.maxDays,
+      maxCount: global.maxCount ?? DEFAULT_VERSION_POLICY.maxCount,
+      throttleMinutes: DEFAULT_VERSION_POLICY.throttleMinutes,
     }
   }
 
@@ -1072,12 +1073,12 @@ export class DocumentService {
         // 为单次 fileBytes 读且已过 isUtf8Bytes 判据（合法 UTF-8 时 Buffer 直存与
         // utf-8 往返字节一致），R26-51 快照却又第二次 readFileSync 再读盘：两读之间文件
         // 被并发替换（他进程结构性操作不持 save 锁的毫秒窗）时「覆盖前留底」存档的不是
-        // 被覆盖内容（错档非丢失），且多一次全文读。改直喂 fileBytes（writeSnapshot 形参
+        // 被覆盖内容（错档非丢失），且多一次全文读。改直喂 fileBytes（writeVersion 形参
         // string | Buffer，R26-52 Buffer 透传字节档）。
         // PM-6（性能与内存专项）：补产 words——本路径手工编辑频率低，一次 toString 全文
         // 物化可接受，免版本面板对 meta-overwrite 版本的全量读+重数兜底（读侧
         // listVersionEntries 以 meta.words 命中为快路径）。
-        writeSnapshot(
+        writeVersion(
           this.snapshotsDir,
           docId,
           fileBytes,
@@ -1374,7 +1375,7 @@ export class DocumentService {
       // raw 是上方单次 Buffer 读出的原文件文本（R73-40 同源），字节级忠实。
       // PM-6：raw 已在手，顺带产 words（免版本面板全量读兜底，meta PATCH 低频路径）。
       try {
-        writeSnapshot(
+        writeVersion(
           this.snapshotsDir,
           docId,
           raw,
@@ -1568,7 +1569,7 @@ export class DocumentService {
       // DEFAULT_VERSION_POLICY（14 天/30 个），global.json 的 snapMax* 覆盖对移动/重命名
       // 前留底不生效，与同文件 maybeSnapshot/updateChapterMeta/updateDocMeta 写法漂移；
       // 留底是"必须留"时刻，force 与既有缺省（true）一致，显式写明。
-      writeSnapshot(this.snapshotsDir, docId, oldContent, {
+      writeVersion(this.snapshotsDir, docId, oldContent, {
         origin: 'manual',
         reason: op.kind === 'move' ? '移动前留底' : '重命名前留底',
         baseRevision: baseRev,
@@ -1904,7 +1905,7 @@ export class DocumentService {
       // R46-39（四十六轮）：同 doMoveOrRename——删除前留底补传 policy，global.json 的
       // snapMax* 覆盖此前对软删留底不生效（缺省 14 天/30 个硬编码）；force 显式 true
       // （留底必留，与缺省一致）。
-      writeSnapshot(this.snapshotsDir, docId, content, {
+      writeVersion(this.snapshotsDir, docId, content, {
         origin: 'manual',
         reason: '删除前留底',
         baseRevision: baseRev,

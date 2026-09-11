@@ -648,7 +648,8 @@ export async function runTask<T>(opts: {
           // R34D-1（三十四轮）：失败响应并非必无 usage——截断带 usage 机制（B-12/R31-1）
           // 下 GenError.usage 在手即真值，重试两分支（Retry-After 超封顶 / 正常退避）与
           // abort/fail 两分支同口径按可得值入账；无 usage 保持 null 口径不变
-          const retryUsage = e instanceof GenError && e.usage ? e.usage : null
+          // R0912-D-P3-2：外层 if 已收窄 e instanceof GenError（:640），冗余前半判定删除
+          const retryUsage = e.usage ? e.usage : null
           // B4：服务端 Retry-After 超过封顶 → 尊重其「等多久」的判断，不重试（终态）
           if (delay === null) {
             recordUsageSafe(retryUsage)
@@ -688,8 +689,9 @@ export async function runTask<T>(opts: {
           // Bug C：重试前通知调用方（前端可见「AI 响应异常，重试中」，不再静默卡死）
           opts.onRetry?.(attempt, e.message)
           opts.onReset?.()
-          // P2：llm/retry 重试记账（先落库后等待）——重试链可重放
-          chain?.add(llmRetryEvent({ attempt, delayMs: delay, ...((e instanceof GenError && e.code) ? { errCode: e.code } : {}) }))
+          // P2：llm/retry 重试记账（先落库后等待）——重试链可重放（R0912-D-P3-2：分支内
+          // e 已收窄为 GenError，冗余 instanceof 判定删除）
+          chain?.add(llmRetryEvent({ attempt, delayMs: delay, ...(e.code ? { errCode: e.code } : {}) }))
           chain?.flush() // Z-P2-7：批缓冲下显式落盘，保住「先落库后等待」语义
           await sleep(delay, ctrl.signal)
           if (ctrl.signal.aborted) {

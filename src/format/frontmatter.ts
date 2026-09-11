@@ -13,8 +13,10 @@
  * 不含 markdown 正文解析——front matter 只管 --- 分隔的 YAML 头。
  */
 
+import { readFileSync } from 'node:fs'
 import type { ParseError } from './types.js'
 import { log } from '../log/index.js'
+import { atomicWriteFile } from '../fs/atomic.js'
 import { canonicalizeText } from '../fs/text-canonical.js'
 import { splitFrontMatter, bodyOf, stripInlineComment, firstKeyColon, hasOpenFrontMatterFence } from './frontmatter-core.js'
 // splitFrontMatter 已拆到 frontmatter-core.ts（零 Node 依赖，浏览器共用）；此处 re-export 保持兼容
@@ -373,9 +375,6 @@ export function joinFrontMatter(fmText: string, body: string): string {
 }
 
 // ── 读取/写入文件（容错入口）────────────────────
-
-import { readFileSync } from 'node:fs'
-import { atomicWriteFile } from '../fs/atomic.js'
 
 /** 读取文件的 front matter + 正文（容错：坏文件返回错误不崩）。
  *  R63-7（十一轮）：content 传入时跳过读文件、按预读文本解析——三审端点单次读取

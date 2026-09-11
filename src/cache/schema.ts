@@ -120,5 +120,3 @@ export function clearAllTables(db: DatabaseSync): void {
     db.exec(`DELETE FROM ${t}`)
   }
 }
-
-export { DDL_STATEMENTS }

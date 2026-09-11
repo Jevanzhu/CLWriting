@@ -36,7 +36,6 @@ describe('review: 发起三审', () => {
     expect(s.stale).toBe(false)
     expect(s.loading).toBe(false)
     expect(s.error).toBeNull()
-    expect(s.lastDocId).toBe('doc_1')
   })
 
   it('run 失败 → error 设置 + collected 清空', async () => {
@@ -59,7 +58,6 @@ describe('review: 读存量信封', () => {
     await s.loadEnvelope('book1', 'doc_1')
     expect(s.envelope).not.toBeNull()
     expect(s.stale).toBe(true)
-    expect(s.lastDocId).toBe('doc_1')
   })
 
   it('loadEnvelope 无信封 → envelope null', async () => {
@@ -97,7 +95,6 @@ describe('review: clear', () => {
     expect(s.envelope).toBeNull()
     expect(s.stale).toBe(false)
     expect(s.error).toBeNull()
-    expect(s.lastDocId).toBeNull()
   })
 })
 

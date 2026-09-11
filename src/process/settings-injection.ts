@@ -27,9 +27,18 @@ export interface SettingsLayer {
   sources?: string[]
 }
 
-/** code point 量长度（与 prune.ts 同口径，Array.from 不劈 surrogate pair） */
+/** code point 量长度（与 prune.ts 同口径，不劈 surrogate pair）。
+ *  R0912-F-P3-3（2026-09-12 独立重评修复批）：Array.from(s).length 改零分配计数
+ *  循环——原实现对全文逐码点物化一个临时数组（大文本白付一份 O(n) 分配）只为计数；
+ *  就地遍历代理对合 1 计，量纲不变。刻意不 import process/summary 的
+ *  codePointLength 单源：避免把 AI/summary 栈拖进本模块依赖图，就地 5 行循环。 */
 function cpLen(s: string): number {
-  return Array.from(s).length
+  let n = 0
+  for (let i = 0; i < s.length; i++) {
+    n++
+    if (s.codePointAt(i)! > 0xffff) i++ // 代理对：astral 字符按 1 计
+  }
+  return n
 }
 
 /** 被丢层的 in-band 声明行（计入预算） */

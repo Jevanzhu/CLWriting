@@ -9,17 +9,17 @@
  */
 import { test, expect } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
-import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createAllTables } from '../../src/cache/schema.js'
 import { syncChapter } from '../../src/cache/sync.js'
 import { prepareMaterials } from '../../src/process/materials.js'
-import { writeBookConfig, DEFAULT_CONFIG } from '../../src/format/yaml.js'
+import { writeBookConfig, DEFAULT_CONFIG, patchTopSection } from '../../src/format/yaml.js'
+import { stringifyValue } from '../../src/format/frontmatter.js'
 import { writeChapter } from '../helpers/chapter.js'
 import { buildIndex } from '../../src/rag/index.js'
-import { enableRag } from '../../src/rag/config.js'
 import type { ChapterMeta } from '../../src/format/types.js'
 import type { EmbedResult } from '../../src/rag/embed.js'
 import type { RagConfig } from '../../src/rag/config.js'
@@ -66,10 +66,20 @@ function stubEmbed(_ep: string, _m: string, _k: string, texts: string[]): Promis
   )
 }
 
+/** 启用 RAG 的等价直写（原 enableRag API 已删，本测试内复刻其 yaml 输出）：
+ *  patchTopSection 文本级补丁写 rag 段（enabled: true + endpoint/model，
+ *  stringifyValue 同款引号口径）；key 落 .clwriting/rag.secret（key + '\n'，读侧 trim）。 */
+function setupRag(root: string, workDir: string, opts: { endpoint: string; model: string; apiKey: string }): void {
+  const raw = readFileSync(join(root, 'book.yaml'), 'utf-8')
+  const body = ['  enabled: true', `  endpoint: ${stringifyValue(opts.endpoint)}`, `  model: ${stringifyValue(opts.model)}`].join('\n')
+  writeFileSync(join(root, 'book.yaml'), patchTopSection(raw, 'rag', body))
+  writeFileSync(join(workDir, '.clwriting', 'rag.secret'), opts.apiKey + '\n', 'utf-8')
+}
+
 test('R36-16: 召回池被硬截断 → ragTruncated 透出 + ragNote 留痕（修复前信号被兼容包装丢弃）', async () => {
   const { root, workDir, db } = makeBook()
   try {
-    enableRag(root, workDir, { endpoint: 'http://stub', model: 'stub-model', apiKey: 'stub-key' })
+    setupRag(root, workDir, { endpoint: 'http://stub', model: 'stub-model', apiKey: 'stub-key' })
     const cfg: RagConfig = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
     const bi = await buildIndex(root, cfg, 'stub-key', stubEmbed)
     expect(bi.ok).toBe(true)
@@ -101,7 +111,7 @@ test('R36-16: 召回池被硬截断 → ragTruncated 透出 + ragNote 留痕（�
 test('R36-16: 未触界 → ragTruncated 缺省（信号不误报，行为与修复前一致）', async () => {
   const { root, workDir, db } = makeBook()
   try {
-    enableRag(root, workDir, { endpoint: 'http://stub', model: 'stub-model', apiKey: 'stub-key' })
+    setupRag(root, workDir, { endpoint: 'http://stub', model: 'stub-model', apiKey: 'stub-key' })
     const cfg: RagConfig = { enabled: true, endpoint: 'http://stub', model: 'stub-model' }
     await buildIndex(root, cfg, 'stub-key', stubEmbed)
 

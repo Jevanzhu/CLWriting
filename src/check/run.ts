@@ -34,6 +34,7 @@ import { checkLeadsBookItems } from './leads.js'
 import type { CheckReport } from './types.js'
 import type { ChapterMeta, BookConfig } from '../format/types.js'
 import { log } from '../log/index.js'
+import { yieldToEventLoop } from '../async.js'
 
 /** 机检结果：成功带 report + chapter + body（三审端点复用 chapter/body）；失败带 code（映射 HTTP 状态）。 */
 export type CheckOutcome =
@@ -394,7 +395,6 @@ export function checkOutcomeStatus(code: 'NOT_CHAPTER' | 'REBUILD_FAIL' | 'CHECK
 // 边界如实记：rebuild/预扫段（readChapterDir×2 + 账本预扫）仍是单段同步块——其内核
 //（src/cache/rebuild.ts、src/format/chapters.ts）不在本批允许清单，热路径有 stat 级
 // 缓存（CC-P1-3）与增量 rebuild 兜住；本批切的是章循环（大书的主要阻塞段）。
-const yieldToEventLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
 /** R37-3：章循环的让出粒度——每处理 25 章让出一次（块内单章 stat/机检为毫秒级）。 */
 const TREE_ISSUES_YIELD_EVERY = 25
 

@@ -2153,6 +2153,77 @@ describe('R47-9：readStore 内存缓存——welcome/常态 IPC 不再逐调全
   })
 })
 
+// ── R0912-A-P3-5（2026-09-12 独立重评修复批）：bootstrap recent 过滤 await 窗并发写 ──
+// filterValidRecentBudgeted 的 await 窗内（菜单/IPC 冷启动链）并发 saveCurrent→writeStore
+// 换掉 storeCache 对象后，原「整对象赋值回填」会把旧 store 的 current 整体写回——内存面
+// 回滚并发写、与盘面自此分叉。修复 = 仅回填 recent 字段（展开当下 storeCache）。
+// 手法：doMock 受控 filterValidRecentBudgeted（手动闸拉宽 await 窗，其余导出透传
+// actual）；并发写走「打开书库目录…」菜单链（菜单点击不经受信 sender 校验）；判别面
+// = welcome 态（bootstrappedWorkDir=null）下 get-current 回落 readStore().current——
+// 回潮（整对象赋值）时该值被旧 store 的 current=null 覆盖，断言红。
+describe('R0912-A-P3-5: bootstrap recent 过滤 await 窗并发写不被内存面回滚', () => {
+  it('过滤窗内的菜单切库落库后，storeCache.current 保留新值（仅 recent 被回填）', async () => {
+    const fp = join(M.userData, 'workdir.json')
+    const backup = readFileSync(fp, 'utf-8')
+    // 夹具：current=null（welcome 态——判别面如上）、recent 1 条真实目录（过滤后保留）
+    const recentDir = mkTmp('clw-main-recent-race-')
+    writeFileSync(fp, JSON.stringify({ current: null, recent: [{ path: recentDir, label: '旧recent' }] }))
+    const gates: Array<() => void> = []
+    vi.resetModules()
+    vi.doMock('../../src/desktop/workdir-store.js', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('../../src/desktop/workdir-store.js')>()
+      return {
+        ...actual,
+        filterValidRecentBudgeted: async (
+          store: Parameters<typeof actual.filterValidRecentBudgeted>[0],
+          opts: Parameters<typeof actual.filterValidRecentBudgeted>[1],
+        ) => {
+          await new Promise<void>((r) => gates.push(r)) // 手动闸：bootstrap 停在过滤 await 上
+          return actual.filterValidRecentBudgeted(store, opts)
+        },
+      }
+    })
+    try {
+      await import('../../src/desktop/main.js')
+      await new Promise((r) => setImmediate(r)) // whenReady 链（CSP→IPC→菜单→bootstrap）停闸上
+      // await 窗内并发写：菜单「打开书库目录…」→ 选 libB → 落库 + storeCache 换新对象
+      const libB = mkLibrary('书B', 'books/b')
+      M.dialogOpen = { canceled: false, filePaths: [libB] }
+      const findClick = (items: Array<Record<string, unknown>>): (() => void) | undefined => {
+        for (const it of items) {
+          if (it.label === '打开书库目录…' && typeof it.click === 'function') return it.click as () => void
+          if (Array.isArray(it.submenu)) {
+            const hit = findClick(it.submenu as Array<Record<string, unknown>>)
+            if (hit) return hit
+          }
+        }
+        return undefined
+      }
+      const click = findClick(M.menuTemplate!)
+      expect(click, '菜单模板应含「打开书库目录…」项').toBeTruthy()
+      click!()
+      await new Promise((r) => setImmediate(r)) // 选库链（dialog→预探→落库）微任务冲刷
+      // 并发写已落盘：文件 current=libB（此刻内存面同样指向 libB——writeStore 换对象）
+      expect((JSON.parse(readFileSync(fp, 'utf-8')) as { current: string | null }).current).toBe(libB)
+      gates.shift()!() // 放行过滤：基于旧 store 对象（current=null）算出 {current:null, recent:[kept]}
+      await new Promise((r) => setImmediate(r))
+      await new Promise((r) => setImmediate(r)) // bootstrap 收尾（welcome 态开窗 + fork）
+      // 修复锚点：bootstrappedWorkDir=null（旧 store.current）→ get-current 回落
+      // readStore().current——仅回填 recent 即 libB；整对象赋值回潮即 null（内存面回滚）
+      expect(M.ipcHandle['desktop:get-current']!(trustedEvent())).toBe(libB)
+      // recent 照常回填（过滤语义本身不变）
+      expect(M.ipcHandle['desktop:get-recent']!(trustedEvent())).toEqual([
+        { path: recentDir, label: '旧recent' },
+      ])
+    } finally {
+      vi.doUnmock('../../src/desktop/workdir-store.js')
+      vi.resetModules()
+      writeFileSync(fp, backup)
+      M.dialogOpen = { canceled: true, filePaths: [] }
+    }
+  })
+})
+
 // ── R51-A-4（五十一轮）：open/switch-library 落库失败转 {ok:false,reason} 契约 ──
 // saveCurrent → atomicWriteFile 可抛（磁盘满/权限/EISDIR），原实现裸抛绕过 {ok,reason}
 // 信封直达 invoke 异常通道，且 setTimeout(relaunch) 已排程——落库失败照常重启 = 带着

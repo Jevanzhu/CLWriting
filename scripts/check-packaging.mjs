@@ -113,6 +113,9 @@ export function readDirTolerant(dir) {
 // tsup 不拷原生文件），mac 打包态字体枚举主路径恒 ENOENT 回落 system_profiler 慢路径。
 // 修复链 = tsup onSuccess 拷入 dist/desktop/（darwin）+ asarUnpack 外置 + main.ts 接线；
 // 本门静态锁前两环的防回潮：asarUnput 配置缺失 / darwin dist 已构建但二进制缺席/丢执行位。
+// R0912-A-P2-1（2026-09-12 独立重评 GLM-5.3 修复批）：外置路径修正为 asar 内真实形态
+// dist/desktop/fontlist（上批裸 desktop/fontlist 在 files `dist/**/*` 口径下零命中），
+// 本门覆盖判定随配置同步收紧——门随改，旧错误形态改判红。
 
 /** 解析 electron-builder.yml 顶层 asarUnpack: 序列（行扫描，与 parseBuilderFiles 同口径
  *  ——引号剥除、容忍缩进/空行/注释；找不到键或序列为空 → null）。导出供直测锚定。 */
@@ -142,26 +145,31 @@ export function parseBuilderAsarUnpack(yamlText) {
   return items.length > 0 ? items : null
 }
 
-/** 断言 asarUnpack 序列覆盖 fontlist 真实产物路径——spawn 不解 asar，外置缺失则打包态
- *  自管枚举恒回落（A-P2-1 只修了一半的回潮形态）。R0912（重评-0911c P2）：模式必须
- *  能命中 asar 内实际路径 dist/desktop/fontlist——未带两星斜杠根锚定的裸 desktop/fontlist
- *  经 app-builder-lib fileMatcher 零命中（--dir 实包核验），视为半修回潮必红；接受
- *  两星斜杠根锚定形态与显式 dist/ 前缀形态。导出供直测锚定。 */
+/** 断言 asarUnpack 序列覆盖 fontlist 真实产物路径 dist/desktop/fontlist——spawn 不解
+ *  asar，外置缺失则打包态自管枚举恒回落（A-P2-1 只修了一半的回潮形态）。R0912（mac 线
+ *  重评-0911c P2）/ R0912-A-P2-1（win 线 2026-09-12 独立重评修复批）同题并合：files 的
+ *  dist 通配规则下 asar 内路径带 dist/ 段（FileMatcher 以 appDir 相对路径做 minimatch），
+ *  旧口径认裸 `desktop/fontlist` 会放过「配置了也零命中」的无效外置（真打包才能暴露的
+ *  假绿）——视为半修回潮必红；门接受可命中 dist/desktop/fontlist 的模式族（两星斜杠根
+ *  锚定形态、显式 dist/ 前缀形态、dist 目录级通配，含目录级尾巴/子路径前缀）。导出供
+ *  直测锚定。 */
 export function problemsForElectronBuilderAsarUnpack(items) {
   const found = []
   if (!Array.isArray(items) || items.length === 0) {
     found.push('electron-builder.yml asarUnpack 不可解析或为空——fontlist 二进制不会外置，打包态 spawn 枚举恒不可达（R0911-A-P2-1 回潮）')
     return found
   }
-  // 可命中 dist/desktop/fontlist 的模式族（含目录级 `/**`/`/**/*` 尾巴；纯字符串
+  // 可命中 dist/desktop/fontlist 的模式族（R0912 两线并集：两星斜杠根锚定 / 显式 dist/
+  // 前缀及其子路径 / dist 目录级通配；目录级 `/**`、`/**/*` 尾巴归一剥除后判定；纯字符串
   // 判定，不写内联 glob 正则——vite import-analysis 对复杂正则字面量解析易脆）
   const hits = (entry) => {
     if (typeof entry !== 'string') return false
     const norm = entry.replace(/\/\*\*(?:\/\*)?$/, '')
     return norm === '**/desktop/fontlist' || norm === 'dist/desktop/fontlist' || norm === 'dist'
+      || entry.startsWith('dist/desktop/fontlist/')
   }
   if (!items.some(hits)) {
-    found.push('electron-builder.yml asarUnpack 无可命中 dist/desktop/fontlist 的模式——打包态自管枚举 spawn 不到真二进制（R0912：裸 desktop/fontlist 对 asar 内带 dist/ 前缀的实际路径零命中）')
+    found.push('electron-builder.yml asarUnpack 无可命中 dist/desktop/fontlist 的模式——打包态自管枚举 spawn 不到真二进制（R0911-A-P2-1 回潮；R0912：裸 desktop/fontlist 对 asar 内带 dist/ 前缀的实际路径零命中，为无效外置）')
   }
   return found
 }

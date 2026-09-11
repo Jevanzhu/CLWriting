@@ -42,7 +42,7 @@ import { atomicWriteFile } from '../fs/atomic.js'
 import { resolveWithinRoot } from '../fs/safe-path.js'
 import { probeCaseSensitive } from '../fs/case-probe.js' // 平台规范化批 E：大小写敏感卷探测
 import { defaultUserDataPath, samePath } from '../fs/user-data-path.js'
-import { initialBookArg, initialBookArgvOnly, resolveInitialBook } from './initial-book.js' // RB-SV-P2-4：--book 直进
+import { initialBookArg, resolveInitialBook } from './initial-book.js' // RB-SV-P2-4：--book 直进
 import { parseContextMenuSpecs, type ContextMenuSpec } from './context-menu.js' // RB-SV-P2-5：IPC 载荷净化
 import { createStudioServerManager, ServerBootError } from './server-manager.js' // 阶段 22：server 拆分 utilityProcess
 import { createBootstrapRunner } from './bootstrap-runner.js' // O-4：生命周期 runner 可测
@@ -230,10 +230,12 @@ if (!gotSingleInstanceLock) {
 } else {
   app.on('second-instance', (_e, argv: string[]) => {
     // RB-SV-P2-4：第二实例带 --book → 主窗口直达该书（与 desktop:open-book 同通路）
-    // R27-97（二十七轮）：只认本次 argv——原 initialBookArg 回落 env 读到的是首实例
-    // 的 CLWRITING_INITIAL_BOOK，普通二次拉起（无参双开）被误导航到首实例初书
+    // R27-97（二十七轮）：只认本次 argv——回落 env 读到的是首实例的
+    // CLWRITING_INITIAL_BOOK，普通二次拉起（无参双开）被误导航到首实例初书
+    // R0912-A-P3-1（2026-09-12 独立重评修复批）：initialBookArgvOnly 与本函数
+    // allowEnvFallback:false 分支逐位等价，删等价函数改传参收编（语义零变化）
     const workDir = currentWorkDir() // M-3（第八轮）：bootstrap 实际值优先
-    const ref = initialBookArgvOnly(argv)
+    const ref = initialBookArg(argv, { allowEnvFallback: false })
     if (workDir && ref && mainWindow && !mainWindow.isDestroyed()) {
       // 重评-P3-11（2026-09-09 全量代码重评）：resolveInitialBook→readBooks 同步扫书库，
       // 书库在失联网络卷时冻主进程数秒（R54-A-2/重审-2 同族防线补齐此入口）——预探
@@ -1187,7 +1189,13 @@ async function bootstrap(): Promise<void> {
   // 窗口要到 bootstrap 定出 workDir 后才创建、渲染层尚未加载，这些 await 期间没有
   // renderer sender 到达，不构成 IPC 并发面（同步冻住的是主进程自身，见上段动机）。
   if (store.recent.length > 0) {
-    storeCache = await filterValidRecentBudgeted(store, { timeoutMs: BOOTSTRAP_PROBE_TIMEOUT_MS })
+    const filtered = await filterValidRecentBudgeted(store, { timeoutMs: BOOTSTRAP_PROBE_TIMEOUT_MS })
+    // R0912-A-P3-5（2026-09-12 独立重评修复批）：整覆改仅回填 recent 字段——await 窗内
+    // 菜单/IPC 链的并发写（saveCurrent→writeStore 换 storeCache 对象）会被旧 store 的
+    // 整对象赋值回滚（内存面丢 current，盘面与内存面自此分叉直到重启）；展开当下
+    // storeCache 只覆写 recent，并发写不再被内存面回滚。?? store：类型收窄兜底
+    //（bootstrap 首行 readStore() 已建缓存，此分支 storeCache 恒非空且 !== null）。
+    storeCache = { ...(storeCache ?? store), recent: filtered.recent }
   }
   let workDir: string | null = null
   // R72-10（二十轮 D-1）：持久化 workDir 由仅 existsSync 改目录校验——指向普通文件时
@@ -1491,9 +1499,6 @@ async function bootstrap(): Promise<void> {
   // 原主窗专属块删除），三窗同享。
   // 纵深防御监听与 dev 代理已由 createSecureWindow 统一挂载；此处 await 一次保证
   // 主窗首载前代理确定生效（工厂内是 fire-and-forget，此处 loadURL 前须确定）
-  // R32-24（三十二轮）：工厂侧 setProxy 失败仅降级留日志（见 createSecureWindow），
-  // 此处裸 await 同因异果——失败会炸启动。补 catch 降级（dev 代理缺 direct:// 归零
-  // 只影响 HMR 场景的代理一致性，不阻断首载），与工厂侧同口径。
   if (devUi) {
     // R32-24（三十二轮）：工厂侧 setProxy 失败仅降级留日志（见 createSecureWindow），
     // 此处裸 await 同因异果——失败会炸启动。补 catch 降级（dev 代理缺 direct:// 归零
@@ -1673,8 +1678,8 @@ function registerIpc(): void {
     if (!isTrustedSender(e)) return
     try {
       return await loadSystemFonts()
-    } catch (e) {
-      log.error('desktop', `get-system-fonts 失败：${e instanceof Error ? e.message : String(e)}`)
+    } catch (err) {
+      log.error('desktop', `get-system-fonts 失败：${err instanceof Error ? err.message : String(err)}`)
       return []
     }
   })
@@ -1686,7 +1691,7 @@ function registerIpc(): void {
     // R74-16 的 loadURL 口径：promise 接日志留痕（handler 同步返回，invoke 端不悬等待、
     // 错误不外抛到渲染层，窗口崩溃另有 R67-16 自愈兜底）
     openShelfWindow().catch((e) => {
-      log.error('desktop', `书架窗口打开失败`, e)
+      log.error('desktop', '书架窗口打开失败', e)
     })
   })
   // 书架窗口选书 → 主窗口加载该书并聚焦，关闭书架窗口
@@ -1706,7 +1711,7 @@ function registerIpc(): void {
     if (!isTrustedSender(e)) return
     // R30-24（三十轮）：同 open-shelf——async 工厂 promise 接日志，防 unhandledRejection
     openLibraryWindow().catch((e) => {
-      log.error('desktop', `书库管理窗口打开失败`, e)
+      log.error('desktop', '书库管理窗口打开失败', e)
     })
   })
   // 在系统文件管理器中打开当前书库根目录
@@ -1955,8 +1960,8 @@ function buildMenu(): void {
         // 书架/书库管理直接主进程开窗（不绕前端 dispatch）
         // R30-24（三十轮）：同 ipc handler 口径——async 工厂 promise 接日志防
         // unhandledRejection（click 回调与 invoke 回调同款裸浮调用面）
-        { label: '书架', click: () => { openShelfWindow().catch((e) => { log.error('desktop', `书架窗口打开失败`, e) }) } },
-        { label: '书库管理', click: () => { openLibraryWindow().catch((e) => { log.error('desktop', `书库管理窗口打开失败`, e) }) } },
+        { label: '书架', click: () => { openShelfWindow().catch((e) => { log.error('desktop', '书架窗口打开失败', e) }) } },
+        { label: '书库管理', click: () => { openLibraryWindow().catch((e) => { log.error('desktop', '书库管理窗口打开失败', e) }) } },
       ],
     },
     // macOS 的「关于」在 app 菜单；非 mac 单独「帮助」菜单承载

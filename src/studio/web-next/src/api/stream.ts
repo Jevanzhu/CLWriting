@@ -36,8 +36,7 @@ export async function spawnRole(
 ): Promise<void> {
   await apiJson(`/api/books/${encodeURIComponent(name)}/spawn`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    json: body,
   }, 120_000) // 角色生成超时 2 分钟
 }
 
@@ -58,8 +57,7 @@ export async function autoWrite(
     `/api/books/${encodeURIComponent(name)}/auto-write`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chapter, ...(batchSize > 1 ? { batchSize } : {}) }),
+      json: { chapter, ...(batchSize > 1 ? { batchSize } : {}) },
     },
     30_000, // 后端应秒级确认并开始 SSE 回流；挂起则超时提示
   )
@@ -91,8 +89,7 @@ export interface DraftSaveResult {
 export async function saveDraft(name: string, chapter: number, content: string): Promise<DraftSaveResult> {
   return apiJson(`/api/books/${encodeURIComponent(name)}/draft-save`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chapter, content }),
+    json: { chapter, content },
   })
 }
 
@@ -105,8 +102,7 @@ export async function getDraftPrompt(name: string, chapter: number): Promise<{ p
 export async function generateOutline(name: string, chapter: number): Promise<void> {
   await apiJson(`/api/books/${encodeURIComponent(name)}/outline`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chapter }),
+    json: { chapter },
   }, 300_000) // 大纲多源合成超时 5 分钟
 }
 
@@ -114,7 +110,6 @@ export async function generateOutline(name: string, chapter: number): Promise<vo
 export async function generateLeadUpdates(name: string, chapter: number): Promise<{ ok: boolean; count: number }> {
   return apiJson(`/api/books/${encodeURIComponent(name)}/lead-updates`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chapter }),
+    json: { chapter },
   }, 300_000)
 }

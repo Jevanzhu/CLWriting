@@ -2,7 +2,7 @@
 // 机检面板（M12 块3 B3.2）：本地规则检查，无 AI 依赖，断网可用。
 // 点「机检」按钮 → POST /documents/:docId/check → 红黄分组展示。
 // 仅对正文章节启用（章纲/设定/卷纲等机检无意义）。
-import { computed, watch } from 'vue'
+import { computed, watch, markRaw } from 'vue'
 import { ShieldCheck, RefreshCw, AlertCircle, AlertTriangle, CircleCheck, ThumbsDown } from 'lucide-vue-next'
 import { useCheckStore } from '../../stores/check'
 import { useWorkspaceStore } from '../../stores/workspace'
@@ -39,6 +39,23 @@ const redItemsView = computed(() => check.redItems.slice(0, RENDER_CAP))
 const yellowItemsView = computed(() => check.yellowItems.slice(0, RENDER_CAP))
 const redOmitted = computed(() => Math.max(0, check.redItems.length - RENDER_CAP))
 const yellowOmitted = computed(() => Math.max(0, check.yellowItems.length - RENDER_CAP))
+
+// R0912-C2-P3-6（2026-09-12 独立重评修复批）：红/黄两组 item 模板逐字重复 → 分组
+// 数据化 + 模板 v-for 单份化（原两份逐张一致，DOM 输出不变——template v-for 不产生
+// DOM；组序红在前黄在后、各自独立显隐均保持）。markRaw：组件对象不进响应式。
+// 与 ReviewPanel 结构相似但数据源不同，按评审口径分文件各自 v-for 化、不跨文件抽组件。
+const checkGroups = computed(() => [
+  {
+    key: 'red', label: '红项', icon: markRaw(AlertCircle), tone: 'red',
+    count: check.redItems.length, view: redItemsView.value,
+    keys: redKeys.value, keyPrefix: 'r', omitted: redOmitted.value,
+  },
+  {
+    key: 'yellow', label: '黄项', icon: markRaw(AlertTriangle), tone: 'yellow',
+    count: check.yellowItems.length, view: yellowItemsView.value,
+    keys: yellowKeys.value, keyPrefix: 'y', omitted: yellowOmitted.value,
+  },
+])
 
 async function runCheck(): Promise<void> {
   if (!docId.value) return
@@ -104,57 +121,35 @@ async function flagFalsePositive(checkId: string): Promise<void> {
         <span>未发现问题</span>
       </div>
 
-      <div v-if="check.redItems.length > 0" class="check-group">
-        <div class="group-label group-label--red">
-          <AlertCircle :size="13" />
-          <span>红项（{{ check.redItems.length }}）</span>
-        </div>
-        <div
-          v-for="(it, i) in redItemsView"
-          :key="'r' + redKeys[i]"
-          class="check-item check-item--red"
-        >
-          <div class="item-msg">{{ it.message }}</div>
-          <button
-            class="fp-btn"
-            :class="{ done: check.flagged.has(it.checkId) }"
-            :disabled="check.flagging !== null || check.flagged.has(it.checkId)"
-            :title="check.flagged.has(it.checkId) ? '已标记误报' : '标记为误报（喂语料回归库）'"
-            @click="flagFalsePositive(it.checkId)"
+      <!-- R0912-C2-P3-6：红/黄两组模板单份化（组差异数据化，DOM 逐像素不变） -->
+      <template v-for="g in checkGroups" :key="g.key">
+        <div v-if="g.count > 0" class="check-group">
+          <div class="group-label" :class="`group-label--${g.tone}`">
+            <component :is="g.icon" :size="13" />
+            <span>{{ g.label }}（{{ g.count }}）</span>
+          </div>
+          <div
+            v-for="(it, i) in g.view"
+            :key="g.keyPrefix + g.keys[i]"
+            class="check-item"
+            :class="`check-item--${g.tone}`"
           >
-            <ThumbsDown :size="12" />
-            {{ check.flagged.has(it.checkId) ? '已标误报' : '误报' }}
-          </button>
+            <div class="item-msg">{{ it.message }}</div>
+            <button
+              class="fp-btn"
+              :class="{ done: check.flagged.has(it.checkId) }"
+              :disabled="check.flagging !== null || check.flagged.has(it.checkId)"
+              :title="check.flagged.has(it.checkId) ? '已标记误报' : '标记为误报（喂语料回归库）'"
+              @click="flagFalsePositive(it.checkId)"
+            >
+              <ThumbsDown :size="12" />
+              {{ check.flagged.has(it.checkId) ? '已标误报' : '误报' }}
+            </button>
+          </div>
+          <!-- R1010c-FE1-P3-2：RENDER_CAP 截断省略提示行（数据面计数不虚减） -->
+          <div v-if="g.omitted > 0" class="cap-hint">已省略 {{ g.omitted }} 项</div>
         </div>
-        <!-- R1010c-FE1-P3-2：RENDER_CAP 截断省略提示行（数据面计数不虚减） -->
-        <div v-if="redOmitted > 0" class="cap-hint">已省略 {{ redOmitted }} 项</div>
-      </div>
-
-      <div v-if="check.yellowItems.length > 0" class="check-group">
-        <div class="group-label group-label--yellow">
-          <AlertTriangle :size="13" />
-          <span>黄项（{{ check.yellowItems.length }}）</span>
-        </div>
-        <div
-          v-for="(it, i) in yellowItemsView"
-          :key="'y' + yellowKeys[i]"
-          class="check-item check-item--yellow"
-        >
-          <div class="item-msg">{{ it.message }}</div>
-          <button
-            class="fp-btn"
-            :class="{ done: check.flagged.has(it.checkId) }"
-            :disabled="check.flagging !== null || check.flagged.has(it.checkId)"
-            :title="check.flagged.has(it.checkId) ? '已标记误报' : '标记为误报（喂语料回归库）'"
-            @click="flagFalsePositive(it.checkId)"
-          >
-            <ThumbsDown :size="12" />
-            {{ check.flagged.has(it.checkId) ? '已标误报' : '误报' }}
-          </button>
-        </div>
-        <!-- R1010c-FE1-P3-2：RENDER_CAP 截断省略提示行（数据面计数不虚减） -->
-        <div v-if="yellowOmitted > 0" class="cap-hint">已省略 {{ yellowOmitted }} 项</div>
-      </div>
+      </template>
 
       <div v-if="check.flagError" class="check-hint fp-error">{{ check.flagError }}</div>
     </template>

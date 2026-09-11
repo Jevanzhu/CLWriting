@@ -452,10 +452,13 @@ export const useChatStore = defineStore('chat', () => {
       messages.value = []
       currentIdx = -1
     }
-    if (data.messages.length === 0) return
-    seedFromHistory(data.messages, data.seqs)
-    // G1：activeBranchId 用 history 返回的实际采用分支——种子化成功即写，
-    // 与 branches 拉取解耦（后者失败只降级隐藏切换器，不丢当前分支定位）
+    // R0911b-C1-P3-2（2026-09-11 全量重评 GLM-5.3 修复批）：空历史不提前 return——
+    // 分支态（activeBranchId/branches）仍以本次权威拉取对齐（对齐 switchBranch 空历史
+    // 同款刷新口径），否则 replace 补种（pendingReseed）落空历史时（他窗清空服务端
+    // 历史等罕达路径）旧分支态滞留在已清空的对话界面
+    if (data.messages.length > 0) seedFromHistory(data.messages, data.seqs)
+    // G1：activeBranchId 用 history 返回的实际采用分支——拉取成功即写（空历史同，
+    // R0911b-C1-P3-2），与 branches 拉取解耦（后者失败只降级隐藏切换器，不丢当前分支定位）
     activeBranchId.value = data.branchId ?? null
     // 分支列表 best-effort 拉取（失败静默——变体切换器降级隐藏，对话不受影响）
     await refreshBranches(bookName, gen)

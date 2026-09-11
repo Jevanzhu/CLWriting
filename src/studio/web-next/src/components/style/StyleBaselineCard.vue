@@ -10,6 +10,10 @@ import { getContentRevisioned, putContent } from '../../api/documents'
 import { ApiError } from '../../api/client'
 import { friendlyError } from '../../shared/error'
 import BetaBadge from '../ui/BetaBadge.vue'
+// R0912-C2-P3-3（2026-09-12 独立重评修复批）：.panel/.btn-*/.kind-badge 逐字重复块
+// 收敛至 style-shared.css——接入机制照 settings-shared.css 先例（全局装载非 scoped，
+// 组件模块加载即注入；Vite 同模块去重，四件各引一次只注入一份）。
+import './style-shared.css'
 
 const props = defineProps<{ bookName: string }>()
 const style = useStyleStore()
@@ -213,42 +217,9 @@ async function saveRules(): Promise<void> {
 </template>
 
 <style scoped>
-/* ══ 面板基础（对齐 OverviewView 卡片语言）══ */
-.panel {
-  background: var(--background-primary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-l);
-  padding: 18px 20px;
-  animation: clw-fade-up var(--dur-fast) var(--ease-out) both;
-}
-
-/* ══ 通用按钮 ══ */
-.btn-ghost,
-.btn-primary {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: var(--font-size-xs);
-  padding: 4px 10px;
-  border-radius: var(--radius-s);
-  cursor: pointer;
-  border: 1px solid var(--background-modifier-border);
-  background: transparent;
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-.btn-ghost:hover:not(:disabled) {
-  background: var(--background-modifier-hover);
-  color: var(--text-normal);
-}
-.btn-primary {
-  border-color: transparent;
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-}
-.btn-primary:hover:not(:disabled) {
-  background: var(--interactive-accent-hover);
-}
+/* .panel 与 .btn-ghost/.btn-primary 基础族已收敛至 style-shared.css
+ *（R0912-C2-P3-3 全局装载）；disabled 规则留本文件（Entry 原无、Acceptance 仅
+ * ghost 单选择器，三处形态不一致，不强统一）。 */
 .btn-ghost:disabled,
 .btn-primary:disabled {
   opacity: 0.45;

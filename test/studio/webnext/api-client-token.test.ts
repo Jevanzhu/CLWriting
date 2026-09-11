@@ -143,3 +143,34 @@ describe('契约① · /api/* 请求 token 注入', () => {
     expect(pathCalls).toBe(2) // 原请求 + 恰一次重试
   })
 })
+
+// R0911b-C1-P3-1（2026-09-11 全量重评 GLM-5.3 修复批）：boot 的 initialBook 验型——
+// 非 string 脏值（服务端字段漂移/手改响应）按无值处理，不再未验直入 getLastInitialBook
+// → App 启动路由拼接。
+describe('R0911b-C1-P3-1 · boot initialBook 验型', () => {
+  it('initialBook 非 string（数字脏值）→ getLastInitialBook 返 null（按无值处理）', async () => {
+    const c = await freshClient()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input) === '/api/boot') return jsonRes(200, { token: 'T1', initialBook: 42 })
+        return jsonRes(200, { ok: true })
+      }),
+    )
+    await c.boot()
+    expect(c.getLastInitialBook()).toBeNull()
+  })
+
+  it('initialBook 为合法 string → 原样透传（不误伤 --book 首启直进路径）', async () => {
+    const c = await freshClient()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input) === '/api/boot') return jsonRes(200, { token: 'T1', initialBook: '书B' })
+        return jsonRes(200, { ok: true })
+      }),
+    )
+    await c.boot()
+    expect(c.getLastInitialBook()).toBe('书B')
+  })
+})

@@ -32,7 +32,7 @@ function putChapter(rel: string, content: string): void {
 describe('Y-3: saveDraft 留底 fail-closed', () => {
   it('快照写失败（.版本 是文件）→ 拒绝覆写上抛，原文件不动', async () => {
     putChapter('写作/正文/0005-旧稿.md', OLD)
-    // .版本 做成普通文件 → writeSnapshot 的 mkdir 必败
+    // .版本 做成普通文件 → writeVersion 的 mkdir 必败
     mkdirSync(join(root, '工作区'), { recursive: true })
     writeFileSync(join(root, '工作区', '.版本'), 'not-a-dir')
     // R32-5：saveDraft 异步化 → rejects 断言

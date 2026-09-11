@@ -22,9 +22,17 @@ import { readBookConfig } from '../format/yaml.js'
 import { sanitizeFileNamePart, isMdFileName } from '../format/filename.js'
 import { finalizedPathSet } from '../document/manifest.js'
 import { docJoinKey } from '../fs/safe-path.js'
+import {
+  formatShortSubmissionView,
+  scanShortCollection,
+  SUBMISSION_TEMPLATES,
+  type ShortSubmissionPlatform,
+} from '../metrics/short-index.js'
 
 /** R38-17（三十八轮）：非 UTF-8 字节判定（与 document/service.ts isUtf8Bytes 同口径——
- *  TextDecoder fatal；就地声明避免把 document/service 整链拉进导出依赖图）。 */
+ *  TextDecoder fatal；就地声明避免把 document/service 整链拉进导出依赖图）。
+ *  R0912-E-P3-6（2026-09-12 独立重评修复批）：原插在 import 区之间，下移到全部
+ *  import 之后（零行为变化）。 */
 function isUtf8ExportBytes(buf: Buffer): boolean {
   try {
     new TextDecoder('utf-8', { fatal: true }).decode(buf)
@@ -33,12 +41,6 @@ function isUtf8ExportBytes(buf: Buffer): boolean {
     return false
   }
 }
-import {
-  formatShortSubmissionView,
-  scanShortCollection,
-  SUBMISSION_TEMPLATES,
-  type ShortSubmissionPlatform,
-} from '../metrics/short-index.js'
 
 export type ExportFormat = 'merged' | 'split' | 'both'
 /** 平台标识（配置化：查 SUBMISSION_TEMPLATES，未知平台 fallback generic）。 */
@@ -303,7 +305,8 @@ export function exportBook(options: ExportOptions): ExportResult {
       : units
   // X-P2-4：正文为空/读取失败的单章在写循环内现读时判定（R73-37 起正文不预读），
   // 记警告跳过，不再整本失败；零可写章在下方按 writtenCount 收口
-  const exportable: ExportUnit[] = filtered
+  // R0912-E-P3-6（2026-09-12 独立重评修复批）：`const exportable: ExportUnit[] =
+  // filtered` 纯别名删除——后续全用 filtered 本名（类型标注本就来自 filtered 声明处）。
   /** R73-37：逐章现读正文（frontmatter.readFile 单源，剥 fm 取 body）。
    *  返回 null = 读取失败/正文为空（已记 warnings，调用方跳过该章）。 */
   const readUnitBody = (u: ExportUnit): string | null => {
@@ -337,7 +340,7 @@ export function exportBook(options: ExportOptions): ExportResult {
     }
     return r.body
   }
-  if (exportable.length === 0) {
+  if (filtered.length === 0) {
     return {
       ok: false,
       files: [],
@@ -351,7 +354,7 @@ export function exportBook(options: ExportOptions): ExportResult {
   }
 
   // 2. 按章号数值排序（不依赖文件名字符串序）
-  exportable.sort((a, b) => a.num - b.num)
+  filtered.sort((a, b) => a.num - b.num)
 
   // 3. 准备导出目录（母本 6.2 工作区/导出/）
   const exportDir = join(bookRoot, '工作区', '导出')
@@ -506,8 +509,8 @@ export function exportBook(options: ExportOptions): ExportResult {
   // R73-37：循环内逐章 readUnitBody 现读即弃（读-写流水化），writtenCount 记实际
   // 写出的章数（空正文/读取失败章已记 warnings 跳过，不再计入）。
   let writtenCount = 0
-  // R73-37：实际产出章号集——投稿视图按它对齐（原实现经 exportable 预滤天然排除空正文
-  // 章；预滤取消后改按实际写出集合，口径不漂移）
+  // R73-37：实际产出章号集——投稿视图按它对齐（原实现经定稿预滤（filtered）天然排除
+  // 空正文章；预滤取消后改按实际写出集合，口径不漂移）
   const writtenNums = new Set<number>()
   try {
     if (doMerged) {
@@ -522,7 +525,7 @@ export function exportBook(options: ExportOptions): ExportResult {
       atomicWriteStream(
         join(exportDir, mergedFileName),
         (append) => {
-          for (const unit of exportable) {
+          for (const unit of filtered) {
             const raw = readUnitBody(unit)
             if (raw === null) continue // 读取失败/空正文：警告已记，跳过（不出分隔符）
             const body = purifyBody(raw)
@@ -541,7 +544,7 @@ export function exportBook(options: ExportOptions): ExportResult {
       )
       if (writtenCount > 0) files.unshift(`工作区/导出/${mergedFileName}`)
     } else if (doSplit) {
-      for (const unit of exportable) {
+      for (const unit of filtered) {
         const raw = readUnitBody(unit)
         if (raw === null) continue
         writeSplit(unit, purifyBody(raw))
@@ -566,9 +569,9 @@ export function exportBook(options: ExportOptions): ExportResult {
       error: `导出写入失败：${e instanceof Error ? e.message : String(e)}`,
     }
   }
-  // R73-37：定稿章在册但全部空正文/读取失败 → 零产物，按失败收口（原实现经 exportable
-  // 预滤走同一信封；具体病因见 warnings 逐章留痕）。
-  // R26-53（二十六轮）：文案如实归因——到达此处时各章**均已定稿**（exportable 即定稿
+  // R73-37：定稿章在册但全部空正文/读取失败 → 零产物，按失败收口（原实现经定稿预滤
+  // （filtered）走同一信封；具体病因见 warnings 逐章留痕）。
+  // R26-53（二十六轮）：文案如实归因——到达此处时各章**均已定稿**（filtered 即定稿
   // 集），真实病因是空正文/读取失败；原「均未定稿，请先在文档树中定稿」误导作者去重
   // 复定稿操作。配合 publish 裁定，盘上亦无空壳产物残留。
   // R28-16（二十八轮）：报数口径再收紧——units.length 是正文区全部章数，跳过草稿

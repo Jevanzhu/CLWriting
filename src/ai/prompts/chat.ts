@@ -233,19 +233,31 @@ export function resolveChatSendBudget(contextWindow?: number): number {
 export const CHAT_HISTORY_MIN_BUDGET_POINTS = 20_000
 
 /** R57-B-1（五十七轮）：纯文本码点计量——measurePoints 同族口径（中文 ≈1 码点/token
- *  粗估）的文本入参形态；system prompt 不经 ChatMsg 包装，发送预算侧按同一口径计量。 */
+ *  粗估）的文本入参形态；system prompt 不经 ChatMsg 包装，发送预算侧按同一口径计量。
+ *  R0912-D-P3-1：热路径每轮全历史计量不再物化 N 元素数组——就地计数，代理对跨
+ *  surrogate 对算 1；口径不变（UTF-16 码点数，孤立代理算 1）。 */
 export function measureTextPoints(text: string): number {
-  return Array.from(text).length
+  let n = 0
+  for (let i = 0; i < text.length; i++) {
+    n++
+    const c = text.charCodeAt(i)
+    if (c >= 0xd800 && c <= 0xdbff && i + 1 < text.length) {
+      const d = text.charCodeAt(i + 1)
+      if (d >= 0xdc00 && d <= 0xdfff) i++
+    }
+  }
+  return n
 }
 
 /** 码点计量（与 compaction.measureMessages 同口径的本地副本——该模块在
- *  chat-finalize-order 等测试被整模块 mock，跨模块导入会被 mock 面缺导出绊倒） */
+ *  chat-finalize-order 等测试被整模块 mock，跨模块导入会被 mock 面缺导出绊倒）
+ *  R0912-D-P3-1：块文本计量统一走零分配 measureTextPoints。 */
 function measurePoints(m: ChatMsg): number {
   if (typeof m.content === 'string') return measureTextPoints(m.content)
   let n = 0
   for (const b of m.content) {
-    if (b.type === 'text' || b.type === 'reasoning') n += Array.from(b.text).length
-    else if (b.type === 'tool_result') n += Array.from(b.content).length
+    if (b.type === 'text' || b.type === 'reasoning') n += measureTextPoints(b.text)
+    else if (b.type === 'tool_result') n += measureTextPoints(b.content)
     else n += 64
   }
   return n

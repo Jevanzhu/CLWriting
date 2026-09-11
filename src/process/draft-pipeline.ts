@@ -21,7 +21,7 @@ import { pickStyleSamplesWithSources } from './style-samples.js'
 import type { BookConfig } from '../format/types.js'
 import { readManifest, readManifestStrict, upsertEntry, withManifestLockAsync, writeManifest, type Manifest, type ManifestEntry } from '../document/manifest.js'
 import { readTrashManifest } from '../document/trash.js'
-import { writeSnapshot, readGlobalSnapshotPolicy, DEFAULT_SNAPSHOT_POLICY } from '../document/snapshot.js'
+import { writeVersion, readGlobalSnapshotPolicy, DEFAULT_VERSION_POLICY, encodeDocDirName } from '../document/version.js'
 import { legacyId } from '../document/stable-id.js'
 import { isUtf8Bytes } from '../document/service.js'
 import { invalidateTreeIndexForContent } from '../document/tree.js'
@@ -29,7 +29,6 @@ import { appendAborted, appendPending, appendSettled } from '../document/journal
 import { appendWordsDelta, todayDate } from '../document/words-diary.js'
 import { computeRevision } from '../document/revision.js'
 import { hashBytes } from '../fs/hash.js'
-import { encodeDocDirName } from '../document/version.js'
 import { acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 import { log } from '../log/index.js'
 
@@ -90,12 +89,12 @@ export function snapshotBeforeOverwrite(
   // service.ts maybeSnapshot 生效，两条留底路径的保留口径割裂（AI 覆写快照可能被更紧
   // 的默认策略清掉）。force 语义保留（覆写前必留，不节流），仅 prune 边界统一走全局。
   const global = readGlobalSnapshotPolicy(userDataPath ?? null)
-  return writeSnapshot(join(bookRoot, '工作区', '.版本'), docId, old, { origin }, {
+  return writeVersion(join(bookRoot, '工作区', '.版本'), docId, old, { origin }, {
     force: true,
     policy: {
-      maxDays: global.maxDays ?? DEFAULT_SNAPSHOT_POLICY.maxDays,
-      maxCount: global.maxCount ?? DEFAULT_SNAPSHOT_POLICY.maxCount,
-      throttleMinutes: DEFAULT_SNAPSHOT_POLICY.throttleMinutes,
+      maxDays: global.maxDays ?? DEFAULT_VERSION_POLICY.maxDays,
+      maxCount: global.maxCount ?? DEFAULT_VERSION_POLICY.maxCount,
+      throttleMinutes: DEFAULT_VERSION_POLICY.throttleMinutes,
     },
   })
 }

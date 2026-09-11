@@ -26,8 +26,10 @@ const g = useRelationGraphInjected()
       <div v-if="g.selectedRelations.value.length" class="dc-sec">
         <h4 class="dc-sec-h">关系</h4>
         <ul class="dc-rel">
+          <!-- R0911b-C2-P3-2：key 弃纯 index——selectedRelations 派生自按 pairKey(from,to,kind)
+               无向去重后的边表，同选点视角下 (other, kind) 必唯一，即天然稳定键。 -->
           <li
-            v-for="(r, i) in g.selectedRelations.value" :key="i"
+            v-for="r in g.selectedRelations.value" :key="r.other + '-' + r.kind"
             :class="{ debt: r.kind === 'debt' }"
             @click="g.selectNode(r.other)"
           >

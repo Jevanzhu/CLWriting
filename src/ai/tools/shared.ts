@@ -14,6 +14,12 @@ export function relFromBookRoot(bookRoot: string, absPath: string): string {
   return relative(bookRoot, absPath).split(sep).join('/')
 }
 
+/** 校验章号入参（正整数）；非法返回 null。（原 rewrite.ts/tree.ts 两份同体，2026-09-11 精简批单源化。） */
+export function chapterInput(input: Record<string, unknown>): number | null {
+  const chapter = Number(input['chapter'])
+  return Number.isInteger(chapter) && chapter >= 1 ? chapter : null
+}
+
 /**
  * 章号 → docId：优先清单登记的真 ID（W0-1），未登记回落 legacyId(relPath)。
  * 查无此章（正文不存在）返回 null。

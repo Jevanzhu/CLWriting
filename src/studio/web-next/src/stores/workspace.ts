@@ -276,42 +276,56 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }
   }
 
-  /** 打开文档（单文档模式）：切到编辑器视图 + 旧文档 dirty 自动保存（watch 自动持久化）。 */
+  /** 打开文档（单文档模式）：切到编辑器视图 + 旧文档 dirty 自动保存（watch 自动持久化）。
+   *  R0911b-P2②（2026-09-11 全量重评 GLM-5.3 修复批）：存旧文档改走 doDelete（R55-F-6）
+   *  同族的「先落定在途再判」——F8 契约下 entry.saving 时 doc.save(·,'autosave') 直接返
+   *  false 不等待，原实现在途保存窗口内必误报「切换文档时自动保存失败」（内容不丢、
+   *  在途自愈的假警报）。先 await doc.waitInflightSave（flushDirty 同款有界轮次台账等待）
+   *  落定，复查仍 dirty 才补存；真失败（返 false 且仍 dirty、无新在途）才可见化。
+   *  R0912-FE-P2-1（mac 线，merge 2026-09-12 同题双修并入）：save 返 false 另有 conflict
+   *  一路（autosave 设计内跳过）——冲突未决不补存不提示（编辑器自有重载/覆盖冲突 UI），
+   *  判式补 !conflict；切书早退守卫显式化（复查前先对 bookAtEntry 复核）。 */
   function openTab(docId: string): void {
     activeView.value = 'editor'
-    if (activeDocId.value && activeDocId.value !== docId) {
+    const prevId = activeDocId.value
+    if (prevId && prevId !== docId) {
       const doc = useDocStore()
-      const prevDocId = activeDocId.value
-      if (doc.get(prevDocId)?.dirty) {
+      if (doc.get(prevId)?.dirty) {
         // 清偿-切换autosave失败可见化（2026-09-09 残留清偿批）：fire-and-forget 存旧文档
         // 失败零 UI 面（save 吞错以 resolved false 上报，被 void 丢弃；编辑器状态条已随
-        // 切文档离屏）。失败是异步迟到态：不抛错不打断切换（activeDocId 已先行更新）；
-        // 入口书名快照守卫防在途切书后迟到失败提示落新书界面（对齐 doc.save P5 /
-        // R69-28 同款纪律）。dirty 标志与崩溃镜像兜底均在（doc.save 失败路径自持），
-        // 此处仅可见化。
-        // R0912-FE-P2-1（2026-09-11 重评-0911b 修复批）：save 在 saving（在途）与
-        // conflict（设计内跳过）两路返回 false，原「ok===false 即警报」把这两路也当
-        // 失败弹「切换文档时自动保存失败」假警报。改为：fire autosave（真正触发落盘
-        // 的动作不变）后，notify 前先等在途保存落定（waitInflightSave 既有原语，
-        // flushDirty/doDelete 先例）再复查 dirty——
-        // ① 在途保存落定且 dirty 已清（内容已落盘）→ 不提示；
-        // ② conflict 未决（autosave 设计内跳过，编辑器自有重载/覆盖冲突 UI）→ 不提示；
-        // ③ 仍 dirty 且非 conflict（保存真失败/落定后新键入）→ 才提示。
-        // 入口快照 docId/bookName 双守卫：切书/再切换后迟到的落定不落当前界面。
+        // 切文档离屏）。失败是异步迟到态：不抛错不打断切换（activeDocId 已先行更新，
+        // 旧 id 以 prevId 快照携带进异步链）；入口书名快照守卫防在途切书后迟到失败提示
+        // 落新书界面（对齐 doc.save P5 / R69-28 同款纪律）。dirty 标志与崩溃镜像兜底
+        // 均在（doc.save 失败路径自持），此处仅可见化。
         const bookAtEntry = bookName.value
-        void (async () => {
-          try {
-            await doc.save(prevDocId, 'autosave')
-          } catch {
-            /* 契约外 reject（save 正常吞错不拒）：落定即走下方 dirty 复查，可见化口径统一 */
+        const notify = (): void => {
+          if (bookName.value === bookAtEntry) {
+            useUiStore().toast('切换文档时自动保存失败，未保存内容仍保留', 'warning')
           }
-          await doc.waitInflightSave(prevDocId)
-          if (bookName.value !== bookAtEntry) return
-          const cur = doc.get(prevDocId)
-          if (!cur || !cur.dirty) return // 已落盘 / 条目已清（如 404 删除自清理）
-          if (cur.conflict) return // 冲突未决不弹本警报（编辑器自有冲突 UI）
-          useUiStore().toast('切换文档时自动保存失败，未保存内容仍保留', 'warning')
-        })()
+        }
+        // R0911b-P2②（win）/ R0912-FE-P2-1（mac）同题双修并合：整链异步 fire-and-forget
+        // 不阻断切换（openTab 保持同步返回）。先落定在途再判（与 doDelete R55-F-6 同族）：
+        // ① 落定已 clean（在途已代存）/ 条目已清（删除/切书）/ 又有新在途接手（结局自担，
+        //    autosaveTick 节拍兜底）→ 不补存不提示；
+        // ② conflict 未决（autosave 设计内跳过，编辑器自有重载/覆盖冲突 UI）→ 不补存不提示；
+        // ③ 仍 dirty → 补存一次，仅 R49-25 判式（返 false 且仍 dirty、无新在途、非冲突）
+        //    才可见化（save 返 false ≠ 全是失败：条目已清的 404、落定冲突都不算）。
+        // reject 兜底沿用 notify（save 正常吞错不拒，契约外 reject 也可见化且不产生
+        // unhandled rejection）。
+        void (async (): Promise<void> => {
+          // dirty 要到保存落定才清，不等在途即判必吃到 save「saving 中 autosave 返 false」
+          // 的假失败（flushDirty 同款有界轮次台账等待）
+          await doc.waitInflightSave(prevId)
+          if (bookName.value !== bookAtEntry) return // 切书后迟到落定不落当前界面（下方 get 复查兜底）
+          const cur = doc.get(prevId)
+          if (!cur || !cur.dirty || cur.saving) return
+          if (cur.conflict) return // 冲突未决不弹本警报（编辑器自有冲突 UI，mac 线三分支②）
+          const ok = await doc.save(prevId, 'autosave')
+          if (!ok) {
+            const after = doc.get(prevId)
+            if (after?.dirty && !after.saving && !after.conflict) notify()
+          }
+        })().catch(notify)
       }
     }
     activeDocId.value = docId

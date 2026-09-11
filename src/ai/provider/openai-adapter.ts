@@ -30,6 +30,7 @@ import type {
 import type { ProviderStore } from './store.js'
 import { modelConfOf } from './store.js'
 import { quirksFor } from './model-quirks.js'
+import { resolveToolChoiceIntent } from './tool-choice.js' // R0912-D-P3-3：tool_choice 分档决策单源
 import { makeToErrorEvent, buildDegradeAttempts, isMidChain400, markStructuredDegrade } from './adapter-errors.js'
 import { estimateInputTokens, estimateOutputTokens } from './usage-estimate.js'
 
@@ -180,31 +181,18 @@ function toParams(conf: ProviderConf, req: GenRequest): Record<string, unknown> 
   // 「一轮最多一个工具调用」此前 openai 线仅 forced 才关并行，chat 的 toolChoice='auto' 恒不关。
   // 注意：parallel_tool_calls 是顶层 chat.completions 参数，不是 tool_choice 的子字段。
   if (req.toolChoice && q.parallelControl) params['parallel_tool_calls'] = false
-  // tool_choice 按表 toolChoiceMode 翻译（表驱动重构 §6.1）：
-  // named → 指名/required/auto 原样；
-  // required（Kimi k3：指名与思考不兼容）→ 强制意图转 required，不指名；
-  // auto（GLM：仅 auto 可用）→ 非 auto 意图不发 tool_choice（prompt 引导兜底）；
-  // none（responses 协议不在此）→ 不发
+  // tool_choice 按表 toolChoiceMode 翻译（表驱动重构 §6.1）：分档决策单源见
+  // tool-choice.ts（R0912-D-P3-3 三适配器同构 if 树收敛），此处只留动作 → wire 值发射：
+  // force/force-named → 'required' / {type:'function',function:{name}}，auto → 'auto'，
+  // none → 不发（prompt 引导兜底）。
   if (req.toolChoice && q.toolChoiceMode !== 'none') {
-    if (q.toolChoiceMode === 'named') {
-      if (req.toolChoice === 'any') {
-        params['tool_choice'] = 'required'
-      } else if (req.toolChoice === 'tool' && req.toolName) {
-        params['tool_choice'] = { type: 'function', function: { name: req.toolName } }
-      } else if (req.toolChoice === 'auto') {
-        params['tool_choice'] = 'auto'
-      }
-    } else if (q.toolChoiceMode === 'required') {
-      if (req.toolChoice === 'any' || req.toolChoice === 'tool') {
-        params['tool_choice'] = 'required'
-      } else if (req.toolChoice === 'auto') {
-        params['tool_choice'] = 'auto'
-      }
-    } else if (q.toolChoiceMode === 'auto') {
-      if (req.toolChoice === 'auto') {
-        params['tool_choice'] = 'auto'
-      }
-      // 'any'/'tool' → 不支持，不发（prompt 引导 + 契约层校验重试兜底）
+    const intent = resolveToolChoiceIntent({ toolChoiceMode: q.toolChoiceMode, toolChoice: req.toolChoice, toolName: req.toolName })
+    if (intent.action === 'force') {
+      params['tool_choice'] = 'required'
+    } else if (intent.action === 'force-named') {
+      params['tool_choice'] = { type: 'function', function: { name: intent.name } }
+    } else if (intent.action === 'auto') {
+      params['tool_choice'] = 'auto'
     }
   }
 

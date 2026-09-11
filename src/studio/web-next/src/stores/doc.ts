@@ -333,7 +333,7 @@ export const useDocStore = defineStore('doc', () => {
       conflict: false,
       // E-4（二十九轮）：记录打开时的树版本，供树刷新后对账新鲜度
       treeRev: useTreeStore().revision,
-  })
+    })
     evictLRU() // F7（五十九轮）：新 entry 落位后裁剪 clean 缓存至 LRU 上限
     // R55-F-3：镜像复活——上次会话崩溃残留的未保存编辑：镜像内容 ≠ 服务端内容时
     // 恢复为当前脏内容（baselineRevision 仍为服务端内容之哈希，乐观锁语义不变，

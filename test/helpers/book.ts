@@ -10,12 +10,12 @@
 
 import { spawnSync } from 'node:child_process'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdirSync, writeFileSync, existsSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from './temp-dir.js'
 import { createAllTables } from '../../src/cache/schema.js'
-import { syncLead, syncChapter } from '../../src/cache/sync.js'
+import { syncLead } from '../../src/cache/sync.js'
 import { writeBookConfig } from '../../src/format/yaml.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
@@ -162,15 +162,4 @@ export function stageIncompleteChapter(root: string, chapterNum: number): void {
     }),
     'utf-8',
   )
-}
-
-/** 同步章节进缓存（部分测试需要缓存里有章节记录，如续跑判定读 currentChapter） */
-export function seedChapterToCache(root: string, chapterNum: number, title: string): void {
-  const db = new DatabaseSync(join(root, '.cache', 'index.db'))
-  if (!existsSync(join(root, '.cache'))) mkdirSync(join(root, '.cache'), { recursive: true })
-  createAllTables(db)
-  syncChapter(db, {
-    章号: chapterNum, 标题: title, 钩子类型: '悬念钩', 钩子强弱: '强', 情绪定位: '铺垫',
-  })
-  db.close()
 }

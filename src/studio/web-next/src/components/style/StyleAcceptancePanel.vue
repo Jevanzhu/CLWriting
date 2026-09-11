@@ -9,6 +9,10 @@ import { useUiStore } from '../../stores/ui'
 import { runStyleAnalysis, type StylePayload } from '../../api/analysis'
 import { friendlyError } from '../../shared/error'
 import BetaBadge from '../ui/BetaBadge.vue'
+// R0912-C2-P3-3（2026-09-12 独立重评修复批）：.panel/.btn-ghost/.token-chip 逐字重复块
+// 收敛至 style-shared.css——接入机制照 settings-shared.css 先例（全局装载非 scoped，
+// 组件模块加载即注入；Vite 同模块去重，四件各引一次只注入一份）。
+import './style-shared.css'
 
 const props = defineProps<{ bookName: string }>()
 const route = useRoute()
@@ -182,33 +186,9 @@ function fmtDate(iso: string): string {
 </template>
 
 <style scoped>
-/* ══ 面板基础（对齐 OverviewView 卡片语言）══ */
-.panel {
-  background: var(--background-primary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-l);
-  padding: 18px 20px;
-  animation: clw-fade-up var(--dur-fast) var(--ease-out) both;
-}
-
-/* ══ 通用按钮 ══ */
-.btn-ghost {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: var(--font-size-xs);
-  padding: 4px 10px;
-  border-radius: var(--radius-s);
-  cursor: pointer;
-  border: 1px solid var(--background-modifier-border);
-  background: transparent;
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-.btn-ghost:hover:not(:disabled) {
-  background: var(--background-modifier-hover);
-  color: var(--text-normal);
-}
+/* .panel/.btn-ghost 基础与 hover、.token-chip 基础与 .free 已收敛至 style-shared.css
+ *（R0912-C2-P3-3 全局装载）。差异行留本文件：disabled 规则原仅 .btn-ghost 单选择器
+ *（Baseline/Candidate 为双选择器合并块）；.cost 档仅本文件使用；.spin 仅两件使用。 */
 .btn-ghost:disabled {
   opacity: 0.45;
   cursor: default;
@@ -218,17 +198,6 @@ function fmtDate(iso: string): string {
 }
 
 /* ══ token 徽标（零 token / 耗 token 区分同名打架）══ */
-.token-chip {
-  font-size: var(--font-size-xxs);
-  padding: 1px 7px;
-  border-radius: 99px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-.token-chip.free {
-  color: var(--dv-good);
-  background: color-mix(in srgb, var(--dv-good) 12%, transparent);
-}
 .token-chip.cost {
   color: var(--dv-warn);
   background: color-mix(in srgb, var(--dv-warn) 12%, transparent);

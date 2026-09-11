@@ -2,7 +2,7 @@
  * 书级设定全局托底 —— global.json 全局默认键（含 D3 预算两键 + R52 机检阈值五键，共 20）+ 硬编码回落（两层在 applyGlobalDefaults 合并）。
  *
  * 三层链：book.yaml 书级 → global.json（应用级全局默认）→ GLOBAL_FALLBACK_DEFAULTS（硬编码）。
- * 与快照保留策略（snapshot.ts readGlobalSnapshotPolicy + service.ts snapshotPolicy）同一范式：
+ * 与快照保留策略（version.ts readGlobalSnapshotPolicy + service.ts snapshotPolicy）同一范式：
  * - global.json 是 flat 键名（照 snapMaxDays 风格，camelCase，不带段嵌套）
  * - 读侧四重容错：目录未定位 / 文件不存在 / JSON 损坏 / 值非法 → 该项 undefined（上层继续回退）
  * - 合并只作用于「运行时读出的副本」，绝不写回 book.yaml——书文件里只保留作者真正设过的值，

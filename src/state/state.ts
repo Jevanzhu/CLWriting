@@ -28,6 +28,24 @@ import { sweepAbandonedTmpFiles, rmWithRetry } from '../fs/atomic.js'
 // R0910-W（2026-09-10 修复批）：spill 清扫兜底接线——sweepOldSpills 幂等（按 mtime
 // 30 天 TTL），与 tmp 清扫同窗节流执行（见 sweepAbandonedTmpFilesThrottled）
 import { sweepOldSpills } from '../process/spill.js'
+import { appendAborted, appendSettled, findUnsettled, isMovePending, type JournalAnyPending, type JournalMovePending, type JournalPending } from '../document/journal.js'
+import { decodeDocDirName } from '../document/version.js'
+import { readTrashManifest } from '../document/trash.js'
+import { rebuild } from '../cache/rebuild.js'
+import { runRebuildAsync } from '../cache/run-rebuild-async.js'
+import { readBookConfig } from '../format/yaml.js'
+import { splitFrontMatter, parseFlat } from '../format/frontmatter.js'
+import { assembleStatus } from '../process/assemble.js'
+import { readChapterDir } from '../format/chapters.js'
+import { parseChapterFileName } from '../format/words.js'
+import { readManifest, readManifestStrict, writeManifest, finalizedChapterNumbers, finalizedChapterSetOfBook, withManifestLockAsync, type Manifest } from '../document/manifest.js'
+import { computeRevision } from '../document/revision.js'
+import { probeCachedRevision } from '../document/tree.js'
+import { safeManifestPath, docJoinKey } from '../fs/safe-path.js'
+import { walkMdEach } from '../fs/walk-md.js'
+import { readBatchPause } from './batch-pause.js'
+import type { BookConfig, ParseError } from '../format/types.js'
+import { log } from '../log/index.js'
 
 // R43-2（四十三轮）：sweep 每书 TTL 节流表（内存态，key = bookRoot；书数量级小无上限
 // 忧虑）。导出 reset 钩子供测试复位节流窗。
@@ -100,24 +118,6 @@ function sweepAbandonedTmpFilesThrottled(bookRoot: string): number {
   sweepLastAt.set(bookRoot, now)
   return swept
 }
-import { appendAborted, appendSettled, findUnsettled, isMovePending, type JournalAnyPending, type JournalMovePending, type JournalPending } from '../document/journal.js'
-import { decodeDocDirName } from '../document/version.js'
-import { readTrashManifest } from '../document/trash.js'
-import { rebuild } from '../cache/rebuild.js'
-import { runRebuildAsync } from '../cache/run-rebuild-async.js'
-import { readBookConfig } from '../format/yaml.js'
-import { splitFrontMatter, parseFlat } from '../format/frontmatter.js'
-import { assembleStatus } from '../process/assemble.js'
-import { readChapterDir } from '../format/chapters.js'
-import { parseChapterFileName } from '../format/words.js'
-import { readManifest, readManifestStrict, writeManifest, finalizedChapterNumbers, finalizedChapterSetOfBook, withManifestLockAsync, type Manifest } from '../document/manifest.js'
-import { computeRevision } from '../document/revision.js'
-import { probeCachedRevision } from '../document/tree.js'
-import { safeManifestPath, docJoinKey } from '../fs/safe-path.js'
-import { walkMdEach } from '../fs/walk-md.js'
-import { readBatchPause } from './batch-pause.js'
-import type { BookConfig, ParseError } from '../format/types.js'
-import { log } from '../log/index.js'
 
 /** 默认每卷章数；book.yaml 可用 book.volume_size 覆盖。 */
 const DEFAULT_VOLUME_SIZE = 50

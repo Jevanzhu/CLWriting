@@ -339,7 +339,7 @@ describe('E-7: Book.vue 脏路由 name=\'\' → 先落盘 dirty 再清各 store'
     const w = mount(Book)
     await flushPromises()
 
-    // 前书留残态：dirty 文档 + 工作台正文 + 机检 lastDocId
+    // 前书留残态：dirty 文档 + 工作台正文 + 机检残态
     mocks.getContent.mockResolvedValueOnce('盘上内容')
     const doc = useDocStore()
     const wb = useWorkbenchStore()
@@ -348,7 +348,7 @@ describe('E-7: Book.vue 脏路由 name=\'\' → 先落盘 dirty 再清各 store'
     await doc.open(makeNode('d1'))
     doc.patch('d1', '未落盘编辑')
     wb.textOut = 'A 书生成正文残留'
-    check.lastDocId = 'd1'
+    check.hasRed = true // R0912-C1-P3-1：lastDocId 死字段删除，残态锚改 clear() 可观测复位位
     const askSpy = vi.spyOn(ui, 'ask')
 
     routeHolder.route!.params.name = '' // 脏路由
@@ -358,7 +358,7 @@ describe('E-7: Book.vue 脏路由 name=\'\' → 先落盘 dirty 再清各 store'
     expect(doc.bookName).toBe('')
     expect(doc.docs.size).toBe(0) // 缓存照切换口径清空
     expect(wb.textOut).toBe('')
-    expect(check.lastDocId).toBeNull()
+    expect(check.hasRed).toBe(false)
     expect(askSpy).not.toHaveBeenCalled() // 脏路由非切书决断：不弹 Z-8/F1 确认
 
     // 回到真实书名 → 正常切书流程恢复（lastBook 已复位，不被同书短路误吞）

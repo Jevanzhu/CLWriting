@@ -71,8 +71,7 @@ export async function onboardAi(
 ): Promise<OnboardAiResult> {
   return apiJson<OnboardAiResult>(`/api/books/${encodeURIComponent(name)}/onboard-ai`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    json: body,
   }, 180_000) // AI 开书对话超时 3 分钟
 }
 
@@ -83,7 +82,6 @@ export async function onboardSave(
 ): Promise<void> {
   await apiJson(`/api/books/${encodeURIComponent(name)}/onboard-save`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    json: body,
   }, 30_000)
 }

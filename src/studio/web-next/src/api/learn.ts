@@ -56,7 +56,7 @@ export async function runLearnCommit(
   // 10-30s 量级影响，与 runLearn 同口径）
   return apiJson<LearnCommitResultFE>(
     `/api/books/${encodeURIComponent(name)}/learn-commit`,
-    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+    { method: 'POST', json: body },
     60_000,
   )
 }

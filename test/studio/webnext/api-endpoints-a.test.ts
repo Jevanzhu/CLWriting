@@ -24,6 +24,7 @@ import {
   renameBook,
   getRagStatus,
   triggerRagBuild,
+  triggerRagRebuild,
 } from '../../../src/studio/web-next/src/api/books'
 import * as shelf from '../../../src/studio/web-next/src/api/shelf'
 import {
@@ -217,13 +218,17 @@ describe('api 书级操作 · books/shelf', () => {
     expect(r.eventsMigrationFailed).toBe(true)
   })
 
-  it('RAG：GET status / POST build', async () => {
+  it('RAG：GET status / POST build / POST rebuild（R0911b-P2① 失配重建接线）', async () => {
     stubFetch(() => ok({}))
     await getRagStatus('书 A')
     expect(lastCall().url).toBe('/api/books/%E4%B9%A6%20A/rag/status')
     await triggerRagBuild('书 A')
     expect(lastCall().init?.method).toBe('POST')
     expect(lastCall().url).toBe('/api/books/%E4%B9%A6%20A/rag/build')
+    // R0911b-P2①：重建索引客户端函数——POST rag/rebuild（服务端 R26-16：先清库再建）
+    await triggerRagRebuild('书 A')
+    expect(lastCall().init?.method).toBe('POST')
+    expect(lastCall().url).toBe('/api/books/%E4%B9%A6%20A/rag/rebuild')
   })
 })
 

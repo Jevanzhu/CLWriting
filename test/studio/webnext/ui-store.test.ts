@@ -119,7 +119,6 @@ describe('ui: AI 可达性探测', () => {
     const ui = useUiStore()
     await ui.probeAiStatus()
     expect(ui.aiAvailable).toBe(true)
-    expect(ui.aiDriver).toBe('anthropic')
     vi.advanceTimersByTime(15000)
     expect(getAiStatusMock).toHaveBeenCalledTimes(1) // 无重试
   })

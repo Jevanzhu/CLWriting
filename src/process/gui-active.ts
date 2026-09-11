@@ -5,14 +5,11 @@
  * - pid/ts：GUI 后端心跳（heartbeat 端点续期）。
  * - editing_workdir：编辑器打开工作区草稿/细纲时置位（W0-2 §5 互斥第一层）。
  *
- * 沿用 STALE_MS=30s：editing_workdir 新鲜 = 标记在 + ts 未过期。
+ * editing_workdir 新鲜 = 标记在 + ts 未过期（30s 新鲜窗口，判定方自带）。
  */
 import { join } from 'node:path'
 import { readFileSync, rmSync } from 'node:fs'
 import { atomicWriteFile } from '../fs/atomic.js'
-
-/** 心跳超过此值视为已离开（进程可能崩溃/被杀）。 */
-export const STALE_MS = 30_000
 
 /** .gui-active 完整记录。editing_workdir 是工作区编辑锁（W0-2 §5）。 */
 export interface GuiActiveRecord {

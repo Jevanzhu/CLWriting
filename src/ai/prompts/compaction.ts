@@ -60,17 +60,32 @@ export function planCompaction(messages: ChatMsg[], opts: { keepTurns: number })
   }
 }
 
+/** R0912-D-P3-1：码点计数零分配改写——热路径每轮全历史计量不再物化 N 元素数组，
+ *  就地计数（代理对跨 surrogate 对算 1，孤立代理算 1）；口径不变（UTF-16 码点数）。 */
+function codePointLength(text: string): number {
+  let n = 0
+  for (let i = 0; i < text.length; i++) {
+    n++
+    const c = text.charCodeAt(i)
+    if (c >= 0xd800 && c <= 0xdbff && i + 1 < text.length) {
+      const d = text.charCodeAt(i + 1)
+      if (d >= 0xdc00 && d <= 0xdfff) i++
+    }
+  }
+  return n
+}
+
 /** 计量消息占用的 code point 数（严格更小校验的口径；tool_use 入参按 64 粗估） */
 function measureMessages(msgs: ChatMsg[]): number {
   let n = 0
   for (const m of msgs) {
     if (typeof m.content === 'string') {
-      n += Array.from(m.content).length
+      n += codePointLength(m.content)
       continue
     }
     for (const b of m.content as ContentBlock[]) {
-      if (b.type === 'text' || b.type === 'reasoning') n += Array.from(b.text).length
-      else if (b.type === 'tool_result') n += Array.from(b.content).length
+      if (b.type === 'text' || b.type === 'reasoning') n += codePointLength(b.text)
+      else if (b.type === 'tool_result') n += codePointLength(b.content)
       else n += 64
     }
   }
@@ -115,7 +130,8 @@ export async function compactHistory(
   }
   const wrapped = `${CHECKPOINT_PREAMBLE}\n\n${CHECKPOINT_TAG_OPEN}\n${summary.trim()}\n${CHECKPOINT_TAG_CLOSE}`
   // 严格更小：与被压掉的原文比（摘要区含旧存档时一并计入——累计存档必须仍小于累计原文）
-  if (Array.from(wrapped).length >= measureMessages(plan.toSummarize)) {
+  // R0912-D-P3-1：码点计数走零分配 codePointLength（口径不变）
+  if (codePointLength(wrapped) >= measureMessages(plan.toSummarize)) {
     return { history, summarizedCount: 0, wasOverLimit: true }
   }
   return {

@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => ({
   getConfig: vi.fn(),
   getRagStatus: vi.fn(),
   triggerRagBuild: vi.fn(),
+  triggerRagRebuild: vi.fn(),
   getRagProviders: vi.fn(),
   saveConfig: vi.fn(),
 }))
@@ -34,21 +35,23 @@ vi.mock('../../../src/studio/web-next/src/api/books', () => ({
   getConfig: mocks.getConfig,
   getRagStatus: mocks.getRagStatus,
   triggerRagBuild: mocks.triggerRagBuild,
+  triggerRagRebuild: mocks.triggerRagRebuild,
 }))
 vi.mock('../../../src/studio/web-next/src/api/providers', () => ({
   getRagProviders: mocks.getRagProviders,
 }))
 
+// R0911b-P2①（win）/ R0912-FE-P2-12（mac）同题双修取一：RagStatus 补 indexState/
+// indexModelMismatch 实测字段（api/rag.ts status 契约，R40-50 / R26-16）
 const IDLE_STATUS: RagStatus = {
   running: false, indexedChapters: 0, chunkCount: 0, model: null,
-  ragConfig: {}, providerName: null, legacy: false, lastResult: null,
-  // R0912-FE-P2-12：RagStatus 补接服务端既有字段（失配/索引三态）
   indexState: 'unbuilt', indexModelMismatch: false,
+  ragConfig: {}, providerName: null, legacy: false, lastResult: null,
 }
 const RUNNING_STATUS: RagStatus = {
   running: true, indexedChapters: 0, chunkCount: 0, model: null,
+  indexState: 'built', indexModelMismatch: false,
   ragConfig: {}, providerName: null, legacy: false, lastResult: null,
-  indexState: 'unbuilt', indexModelMismatch: false,
 }
 
 /** KeepAlive 宿主挂载（SettingsModal 同款 keep-alive 语义）；show=false 即「关窗」。 */

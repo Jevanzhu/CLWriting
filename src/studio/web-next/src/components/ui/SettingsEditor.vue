@@ -8,6 +8,7 @@ import { useSystemFonts, buildProseFontStack } from '../../composables/useSystem
 import { isFontInstalled, resolveInstalledFont } from '../../shared/font-names'
 import { prosePresets, matchProsePreset, type ProsePreset } from '../../shared/prose-presets'
 import FontPicker from './FontPicker.vue'
+import SettingItem from './SettingItem.vue'
 
 const prefs = usePrefsStore()
 const { chineseFonts, englishFonts, fontDisplayName, defaultProseFontCn, defaultProseFontEn, systemFonts, fontsLoaded } = useSystemFonts()
@@ -79,104 +80,64 @@ function numInput(min: number, max: number, setter: (v: number) => void, e: Even
   <div class="settings-tab">
   <div class="cfg-card-head">字体</div>
   <section class="cfg-card">
-    <div class="setting-item">
-      <div class="setting-item-info">
-        <div class="setting-item-name">排版预设</div>
-        <div class="setting-item-desc">成组方案一键切换；手动调整任一项后变为自定义</div>
-      </div>
-      <div class="setting-item-control">
-        <div class="preset-wrap">
-          <div class="preset-row" role="group" aria-label="正文排版预设">
-            <button
-              v-for="p in prosePresetList"
-              :key="p.id"
-              type="button"
-              class="preset-chip"
-              :class="{ active: activePresetId === p.id }"
-              :title="presetTitle(p)"
-              @click="applyPreset(p)"
-            >
-              {{ p.label }}<span v-if="presetMissing(p)" class="preset-missing">· 未装</span>
-            </button>
-            <span v-if="activePresetId === 'custom'" class="preset-chip custom">自定义</span>
-          </div>
-          <div class="preset-preview" role="group" aria-label="排版预设样张">
-            <div v-for="p in prosePresetList" :key="'pv-' + p.id" class="preset-preview-row">
-              <span class="preset-preview-label">{{ p.label }}</span>
-              <span class="preset-preview-sample" :style="previewStyle(p)">永和九年，岁在癸丑。ABCD 1234</span>
-            </div>
+    <SettingItem name="排版预设" desc="成组方案一键切换；手动调整任一项后变为自定义">
+      <div class="preset-wrap">
+        <div class="preset-row" role="group" aria-label="正文排版预设">
+          <button
+            v-for="p in prosePresetList"
+            :key="p.id"
+            type="button"
+            class="preset-chip"
+            :class="{ active: activePresetId === p.id }"
+            :title="presetTitle(p)"
+            @click="applyPreset(p)"
+          >
+            {{ p.label }}<span v-if="presetMissing(p)" class="preset-missing">· 未装</span>
+          </button>
+          <span v-if="activePresetId === 'custom'" class="preset-chip custom">自定义</span>
+        </div>
+        <div class="preset-preview" role="group" aria-label="排版预设样张">
+          <div v-for="p in prosePresetList" :key="'pv-' + p.id" class="preset-preview-row">
+            <span class="preset-preview-label">{{ p.label }}</span>
+            <span class="preset-preview-sample" :style="previewStyle(p)">永和九年，岁在癸丑。ABCD 1234</span>
           </div>
         </div>
       </div>
-    </div>
-    <div v-if="hasDesktop" class="setting-item">
-      <div class="setting-item-info">
-        <div class="setting-item-name">正文字体</div>
-        <div class="setting-item-desc">编辑区、开书对话、草稿卡等所有正文编辑框</div>
+    </SettingItem>
+    <SettingItem v-if="hasDesktop" name="正文字体" desc="编辑区、开书对话、草稿卡等所有正文编辑框">
+      <div class="font-pair">
+        <FontPicker class="font-select" :value="prefs.proseFontCn" :fonts="chineseFonts" :default-font="defaultProseFontCn" placeholder="中文 · 默认" :display="fontDisplayName" @change="prefs.setProseFontCn($event)" />
+        <FontPicker class="font-select" :value="prefs.proseFontEn" :fonts="englishFonts" :default-font="defaultProseFontEn" placeholder="英文 · 默认" :display="fontDisplayName" @change="prefs.setProseFontEn($event)" />
       </div>
-      <div class="setting-item-control">
-        <div class="font-pair">
-          <FontPicker class="font-select" :value="prefs.proseFontCn" :fonts="chineseFonts" :default-font="defaultProseFontCn" placeholder="中文 · 默认" :display="fontDisplayName" @change="prefs.setProseFontCn($event)" />
-          <FontPicker class="font-select" :value="prefs.proseFontEn" :fonts="englishFonts" :default-font="defaultProseFontEn" placeholder="英文 · 默认" :display="fontDisplayName" @change="prefs.setProseFontEn($event)" />
-        </div>
-      </div>
-    </div>
+    </SettingItem>
   </section>
 
   <div class="cfg-card-head">排版</div>
   <section class="cfg-card">
-    <div class="setting-item">
-      <div class="setting-item-info">
-        <div class="setting-item-name">正文字号</div>
-        <div class="setting-item-desc">所有正文编辑框文字大小</div>
-      </div>
-      <div class="setting-item-control">
-        <input type="range" min="13" max="24" :value="prefs.proseSize" @input="prefs.setSize(Number(($event.target as HTMLInputElement).value))" />
-        <input class="val-input" type="number" min="13" max="24" step="0.5" :value="prefs.proseSize" @change="numInput(13, 24, prefs.setSize, $event)" />
-        <span class="val-suffix">px</span>
-      </div>
-    </div>
-    <div class="setting-item">
-      <div class="setting-item-info">
-        <div class="setting-item-name">行距</div>
-        <div class="setting-item-desc">所有正文编辑框行间距倍数</div>
-      </div>
-      <div class="setting-item-control">
-        <input type="range" min="1.4" max="2.4" step="0.05" :value="prefs.proseLh" @input="prefs.setLh(Number(($event.target as HTMLInputElement).value))" />
-        <input class="val-input" type="number" min="1.4" max="2.4" step="0.05" :value="prefs.proseLh" @change="numInput(1.4, 2.4, prefs.setLh, $event)" />
-        <span class="val-suffix">×</span>
-      </div>
-    </div>
+    <SettingItem name="正文字号" desc="所有正文编辑框文字大小">
+      <input type="range" min="13" max="24" :value="prefs.proseSize" @input="prefs.setSize(Number(($event.target as HTMLInputElement).value))" />
+      <input class="val-input" type="number" min="13" max="24" step="0.5" :value="prefs.proseSize" @change="numInput(13, 24, prefs.setSize, $event)" />
+      <span class="val-suffix">px</span>
+    </SettingItem>
+    <SettingItem name="行距" desc="所有正文编辑框行间距倍数">
+      <input type="range" min="1.4" max="2.4" step="0.05" :value="prefs.proseLh" @input="prefs.setLh(Number(($event.target as HTMLInputElement).value))" />
+      <input class="val-input" type="number" min="1.4" max="2.4" step="0.05" :value="prefs.proseLh" @change="numInput(1.4, 2.4, prefs.setLh, $event)" />
+      <span class="val-suffix">×</span>
+    </SettingItem>
   </section>
 
   <div class="cfg-card-head">纸张</div>
   <section class="cfg-card">
-    <div class="setting-item">
-      <div class="setting-item-info">
-        <div class="setting-item-name">纸张宽度</div>
-        <div class="setting-item-desc">
-          写作区纸张的最大宽度（全局默认；某本书要单独设 —— 去「本书」页）
-        </div>
-      </div>
-      <div class="setting-item-control">
-        <input type="range" min="600" max="1400" step="20" :value="prefs.pageWidth" @input="onPageWidthInput(Number(($event.target as HTMLInputElement).value))" />
-        <input class="val-input" type="number" min="600" max="1400" step="20" :value="prefs.pageWidth" @change="numInput(600, 1400, onPageWidthInput, $event)" />
-        <span class="val-suffix">px</span>
-      </div>
-    </div>
-    <div class="setting-item">
-      <div class="setting-item-info">
-        <div class="setting-item-name">自动保存</div>
-        <div class="setting-item-desc">
-          编辑后自动保存的间隔（全局默认；某本书要单独设 —— 去「本书」页）
-        </div>
-      </div>
-      <div class="setting-item-control">
-        <input type="range" min="5" max="120" step="5" :value="prefs.autosaveInterval" @input="onAutosaveInput(Number(($event.target as HTMLInputElement).value))" />
-        <input class="val-input" type="number" min="5" max="120" step="5" :value="prefs.autosaveInterval" @change="numInput(5, 120, onAutosaveInput, $event)" />
-        <span class="val-suffix">s</span>
-      </div>
-    </div>
+    <SettingItem name="纸张宽度" desc="写作区纸张的最大宽度（全局默认；某本书要单独设 —— 去「本书」页）">
+      <input type="range" min="600" max="1400" step="20" :value="prefs.pageWidth" @input="onPageWidthInput(Number(($event.target as HTMLInputElement).value))" />
+      <input class="val-input" type="number" min="600" max="1400" step="20" :value="prefs.pageWidth" @change="numInput(600, 1400, onPageWidthInput, $event)" />
+      <span class="val-suffix">px</span>
+    </SettingItem>
+    <SettingItem name="自动保存" desc="编辑后自动保存的间隔（全局默认；某本书要单独设 —— 去「本书」页）">
+      <input type="range" min="5" max="120" step="5" :value="prefs.autosaveInterval" @input="onAutosaveInput(Number(($event.target as HTMLInputElement).value))" />
+      <input class="val-input" type="number" min="5" max="120" step="5" :value="prefs.autosaveInterval" @change="numInput(5, 120, onAutosaveInput, $event)" />
+      <span class="val-suffix">s</span>
+    </SettingItem>
   </section>
   </div>
 </template>

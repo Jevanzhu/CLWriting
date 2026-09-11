@@ -67,6 +67,7 @@ beforeEach(() => {
   mocks.getConfig.mockResolvedValue({ kind: 'long', book: { title: '测试书' } } satisfies BookConfig)
   mocks.getRagStatus.mockResolvedValue({
     running: false, indexedChapters: 0, chunkCount: 0, model: null,
+    indexState: 'unbuilt', indexModelMismatch: false,
     ragConfig: {}, providerName: null, legacy: false, lastResult: null,
   })
   mocks.getRagProviders.mockResolvedValue({
@@ -643,27 +644,41 @@ describe('R28-26（二十八轮）：RAG 轮询重叠去重（inFlight 旗标）
   })
 })
 
-// R28-22（二十八轮）：重建先清库再后台建（服务端不动）——建索引期失败时旧索引已删、
-// 新索引未成，recall 归零但普通「索引失败」文案不明示。修复后：本组件触发过重建且未见
-// 成功结果、最近结果 ok=false 且不在构建中 → 补「已清空 / 可重试 / 正文不受影响」提示；
-// 非本组件触发的失败不提示（数据无「已清空」字段，保守面不误报，见组件注释）。
-describe('R28-22（二十八轮）：重建失败「索引已清空」提示', () => {
+// R28-22（二十八轮）+ R0911b-P2①④（2026-09-11 修复批语义修正）：清库重建（rebuild，服务端
+// 先清库再后台建）失败时旧索引已删、新索引未成，recall 归零但普通「索引失败」文案不明示——
+// 补「已清空 / 可重试 / 正文不受影响」提示。触发记忆只挂真重建（点「重建索引」按钮）；
+// 增量「建立索引」（build，不清库）失败不出本提示（原实现误挂 build，提示失实，本批修）。
+describe('R28-22 + R0911b-P2①④：重建失败「索引已清空」提示', () => {
   afterEach(() => {
     vi.useRealTimers()
   })
 
-  it('触发重建后最近结果失败 → 提示出现且含出路；构建中不显示', async () => {
-    vi.useFakeTimers()
+  /** 挂载时 status 即模型失配（R26-16 标记）→「重建索引」按钮在场；返回 wrapper。 */
+  async function mountWithMismatch(): Promise<ReturnType<typeof mount>> {
     usePrefsStore().setRagEnabled(true)
-    mocks.triggerRagBuild.mockResolvedValue({ ok: true })
-    const wrapper = await mountOpen()
-    await wrapper.find('.rag-build-row button').trigger('click')
+    mocks.triggerRagRebuild.mockResolvedValue({ started: true, reset: true })
+    mocks.getRagStatus.mockResolvedValue({
+      running: false, indexedChapters: 3, chunkCount: 12, model: 'embed-a',
+      indexState: 'built', indexModelMismatch: true,
+      ragConfig: {}, providerName: null, legacy: false, lastResult: null,
+    })
+    return mountOpen()
+  }
+
+  it('点「重建索引」→ triggerRagRebuild(书名)；重建期失败 → 提示出现且含出路；构建中不显示', async () => {
+    vi.useFakeTimers()
+    const wrapper = await mountWithMismatch()
+    const rebuildBtn = wrapper.find('button[aria-label="重建索引"]')
+    expect(rebuildBtn.exists()).toBe(true)
+    await rebuildBtn.trigger('click')
     await flushPromises()
-    expect(wrapper.text()).toContain('构建中')
+    expect(mocks.triggerRagRebuild).toHaveBeenCalledWith('测试书')
+    expect(wrapper.text()).toContain('重建')
     expect(wrapper.find('.rag-rebuild-hint').exists()).toBe(false) // 构建中不提示
 
     mocks.getRagStatus.mockResolvedValue({
-      running: false, indexedChapters: 0, chunkCount: 0, model: null,
+      running: false, indexedChapters: 0, chunkCount: 0, model: 'embed-a',
+      indexState: 'built', indexModelMismatch: false,
       ragConfig: {}, providerName: null, legacy: false,
       lastResult: { ok: false, chunkCount: 0, chapterCount: 0, error: '嵌入配额超限' },
     })
@@ -676,6 +691,8 @@ describe('R28-22（二十八轮）：重建失败「索引已清空」提示', (
     expect(hint.text()).toContain('已清空')
     expect(hint.text()).toContain('重试')
     expect(hint.text()).toContain('正文不受影响')
+    // 出路提示指向的重试按钮须在场（ragNeedsRebuild 第三形态：本组件重建失败）
+    expect(wrapper.find('button[aria-label="重建索引"]').exists()).toBe(true)
     wrapper.unmount()
   })
 
@@ -683,6 +700,7 @@ describe('R28-22（二十八轮）：重建失败「索引已清空」提示', (
     usePrefsStore().setRagEnabled(true)
     mocks.getRagStatus.mockResolvedValue({
       running: false, indexedChapters: 0, chunkCount: 0, model: null,
+      indexState: 'unbuilt', indexModelMismatch: false,
       ragConfig: {}, providerName: null, legacy: false,
       lastResult: { ok: false, chunkCount: 0, chapterCount: 0, error: '历史失败' },
     })
@@ -692,16 +710,37 @@ describe('R28-22（二十八轮）：重建失败「索引已清空」提示', (
     wrapper.unmount()
   })
 
-  it('触发重建后最近结果成功 → 提示不出现（触发记忆已撤销）', async () => {
+  it('增量「建立索引」失败 → 不出「已清空」提示（build 不清库，R0911b-P2①④ 修失实文案）', async () => {
     vi.useFakeTimers()
     usePrefsStore().setRagEnabled(true)
-    mocks.triggerRagBuild.mockResolvedValue({ ok: true })
+    mocks.triggerRagBuild.mockResolvedValue({ started: true })
     const wrapper = await mountOpen()
-    await wrapper.find('.rag-build-row button').trigger('click')
+    await wrapper.find('.rag-build-row button').trigger('click') // 建立索引（增量）
     await flushPromises()
 
     mocks.getRagStatus.mockResolvedValue({
       running: false, indexedChapters: 3, chunkCount: 12, model: null,
+      indexState: 'built', indexModelMismatch: false,
+      ragConfig: {}, providerName: null, legacy: false,
+      lastResult: { ok: false, chunkCount: 0, chapterCount: 0, error: '嵌入配额超限' },
+    })
+    vi.advanceTimersByTime(1500)
+    await flushPromises()
+
+    expect(wrapper.find('.rag-status').text()).toContain('索引失败：嵌入配额超限')
+    expect(wrapper.find('.rag-rebuild-hint').exists()).toBe(false) // 修复前此处误报「已清空」
+    wrapper.unmount()
+  })
+
+  it('触发重建后最近结果成功 → 提示不出现（触发记忆已撤销）', async () => {
+    vi.useFakeTimers()
+    const wrapper = await mountWithMismatch()
+    await wrapper.find('button[aria-label="重建索引"]').trigger('click')
+    await flushPromises()
+
+    mocks.getRagStatus.mockResolvedValue({
+      running: false, indexedChapters: 3, chunkCount: 12, model: 'embed-a',
+      indexState: 'built', indexModelMismatch: false,
       ragConfig: {}, providerName: null, legacy: false,
       lastResult: { ok: true, chunkCount: 12, chapterCount: 3 },
     })
@@ -721,9 +760,10 @@ describe('R28-22（二十八轮）：重建失败「索引已清空」提示', (
     prefs.setRagEnabled(true)
     ui.settingsOpen = true
     ws.bookName = '甲书'
-    mocks.triggerRagBuild.mockResolvedValue({ ok: true })
+    mocks.triggerRagRebuild.mockResolvedValue({ started: true, reset: true })
     mocks.getRagStatus.mockResolvedValue({
-      running: false, indexedChapters: 0, chunkCount: 0, model: null,
+      running: false, indexedChapters: 3, chunkCount: 12, model: 'embed-a',
+      indexState: 'built', indexModelMismatch: true,
       ragConfig: {}, providerName: null, legacy: false,
       lastResult: { ok: false, chunkCount: 0, chapterCount: 0, error: '嵌入失败' },
     })
@@ -731,8 +771,8 @@ describe('R28-22（二十八轮）：重建失败「索引已清空」提示', (
       global: { provide: { [SAVE_CONFIG_KEY as symbol]: mocks.saveConfig } },
     })
     await flushPromises()
-    // 甲书：手动触发一次重建（触发记忆置位），下一拍轮询读回失败 → 提示出现
-    await wrapper.find('.rag-build-row button').trigger('click')
+    // 甲书：点「重建索引」（触发记忆置位），下一拍轮询读回失败 → 提示出现
+    await wrapper.find('button[aria-label="重建索引"]').trigger('click')
     await flushPromises()
     vi.advanceTimersByTime(1500)
     await flushPromises()
@@ -743,6 +783,74 @@ describe('R28-22（二十八轮）：重建失败「索引已清空」提示', (
     ws.bookName = '乙书'
     await flushPromises()
     expect(wrapper.find('.rag-rebuild-hint').exists()).toBe(false)
+    wrapper.unmount()
+  })
+})
+
+// R0911b-P2①（2026-09-11 修复批）：rag/rebuild 前端接线——模型/维度失配（R26-16）后
+// 增量 build 恒报「请重建索引」死路，GUI 此前无程序化出路。修复后：失配态（服务端
+// indexModelMismatch 标记 / 失败错误指向重建）出「重建索引」按钮，点击调 POST rag/rebuild。
+describe('R0911b-P2①：失配态「重建索引」入口', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('indexModelMismatch → 重建按钮出现 + 状态文案给出路；点击调 triggerRagRebuild 且两按钮同禁', async () => {
+    vi.useFakeTimers()
+    usePrefsStore().setRagEnabled(true)
+    mocks.triggerRagRebuild.mockResolvedValue({ started: true, reset: true })
+    mocks.getRagStatus.mockResolvedValue({
+      running: false, indexedChapters: 3, chunkCount: 12, model: 'embed-old',
+      indexState: 'built', indexModelMismatch: true,
+      ragConfig: {}, providerName: null, legacy: false, lastResult: null,
+    })
+    const wrapper = await mountOpen()
+
+    // 失配文案：旧索引模型 + 出路指向
+    expect(wrapper.find('.rag-status').text()).toContain('embed-old')
+    expect(wrapper.find('.rag-status').text()).toContain('请重建索引')
+
+    const rebuildBtn = wrapper.find('button[aria-label="重建索引"]')
+    expect(rebuildBtn.exists()).toBe(true)
+    expect(rebuildBtn.text()).toBe('重建索引')
+    await rebuildBtn.trigger('click')
+    await flushPromises()
+    expect(mocks.triggerRagRebuild).toHaveBeenCalledWith('测试书')
+    expect(wrapper.text()).toContain('重建')
+    // 建立索引与重建索引同一把在途锁：构建中双双禁用
+    const buttons = wrapper.findAll('.rag-build-row button')
+    expect(buttons.every((b) => b.attributes('disabled') !== undefined)).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('普通失败（错误不指向重建）→ 重建按钮不出现', async () => {
+    usePrefsStore().setRagEnabled(true)
+    mocks.getRagStatus.mockResolvedValue({
+      running: false, indexedChapters: 0, chunkCount: 0, model: null,
+      indexState: 'unbuilt', indexModelMismatch: false,
+      ragConfig: {}, providerName: null, legacy: false,
+      lastResult: { ok: false, chunkCount: 0, chapterCount: 0, error: '嵌入配额超限' },
+    })
+    const wrapper = await mountOpen()
+    expect(wrapper.find('button[aria-label="重建索引"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('build 失败且错误指向重建（维度失配 R26-16 文案）→ 重建按钮出现（错误信封出路）', async () => {
+    usePrefsStore().setRagEnabled(true)
+    mocks.getRagStatus.mockResolvedValue({
+      running: false, indexedChapters: 3, chunkCount: 12, model: 'embed-old',
+      indexState: 'built', indexModelMismatch: false, // 维度失配：模型同名，标记不亮
+      ragConfig: {}, providerName: null, legacy: false,
+      lastResult: {
+        ok: false, chunkCount: 0, chapterCount: 0,
+        error: 'embedding 维度与现有索引不一致（现有：1024，当前：1536），请重建索引（POST /rag/rebuild）后重试。',
+      },
+    })
+    const wrapper = await mountOpen()
+    const rebuildBtn = wrapper.find('button[aria-label="重建索引"]')
+    expect(rebuildBtn.exists()).toBe(true) // 修复前：只有错误文案、无操作入口
+    expect(rebuildBtn.attributes('disabled')).toBeUndefined()
     wrapper.unmount()
   })
 })

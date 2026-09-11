@@ -3,6 +3,7 @@
  *
  * 由 snapshot.ts 泛化而来：同一套「全文 + front matter 元信息」机制，
  * origin 区分来源（autosave 编辑快照 / finalize 定稿版本 / restore 恢复留底…）。
+ * O-12 退役收尾：兼容别名层 snapshot.ts 于 2026-09-11 精简批整删（readGlobalSnapshotPolicy 随批迁入本模块）。
  *
  * 落点：工作区/.版本/<docId>/<ULID>.md（原 .snapshots 改名 .版本，首次启动自动迁移）。
  * id 即 ULID，含时间戳可排序。用 atomicWriteFile 整文件写（版本是独立文件，非追加日志）。
@@ -118,6 +119,24 @@ export const DEFAULT_VERSION_POLICY: VersionPolicy = {
   maxDays: 14,
   maxCount: 30,
   throttleMinutes: 5,
+}
+
+/** 读全局保留策略（userData/global.json 的 snapMaxDays / snapMaxCount，两层链的全局层：
+ *  global.json snapMax* → 硬编码默认。R34D-20（三十四轮）校正：book.yaml snapshots
+ *  书级段 2026-08-19 起已砍除，不参与解析——三层链旧说法作废）。
+ *  容错：目录未定位 / 文件不存在 / JSON 损坏 / 值非正整数 → 该项 undefined（上层继续回退）。 */
+export function readGlobalSnapshotPolicy(userDataPath: string | null): { maxDays?: number; maxCount?: number } {
+  if (!userDataPath) return {}
+  const p = join(userDataPath, 'global.json')
+  if (!existsSync(p)) return {}
+  try {
+    const raw = JSON.parse(readFileSync(p, 'utf8')) as Record<string, unknown>
+    const posInt = (v: unknown): number | undefined =>
+      typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : undefined
+    return { maxDays: posInt(raw['snapMaxDays']), maxCount: posInt(raw['snapMaxCount']) }
+  } catch {
+    return {}
+  }
 }
 
 export interface WriteVersionOptions {
@@ -334,7 +353,19 @@ export function writeVersion(
   // P3-14 + AA-P1-1：写入成功后更新指纹缓存（存「版本 id + fp」，下次同 origin 同内容
   // 命中时校验该 id 仍在盘；Map 有 size 上限防缓涨）
   setVersionCache(cacheKey, { id, fp })
-  pruneVersions(versionsDir, docId, policy)
+  // R0912-E-P3-2（2026-09-12 独立重评修复批）：prune 复用本函数已 listVersions 的
+  // existing（补上刚写入的新版本条目 = 与 prune 内部重扫结果恒一致），跳过重复
+  // readdir。列表必须按 listVersions 同款比较器排序（新在前）——prune 以「all[0]
+  // 最新」为前提做数量兜底截取，裸 append 会把新版本排到队尾被当最旧误删。
+  //（并合批 2026-09-12：比较器收编 compareVersionIdDesc 单源——R0912-5 把 listVersions
+  // 改字节序后，此处原 localeCompare 同款副本与其漂移，故共用单源。）
+  pruneVersions(
+    versionsDir,
+    docId,
+    policy,
+    undefined,
+    [{ id, path: file }, ...existing].sort(compareVersionIdDesc),
+  )
   return id
 }
 
@@ -344,6 +375,16 @@ export function writeVersion(
  *  （与解析端 unquote 对称）。 */
 function sanitizeFmLine(s: string): string {
   return s.replace(/[\r\n\t]+/g, ' ').trim()
+}
+
+/** 版本列表单源比较器：id 降序（新在前）。R0912-5（2026-09-11 重评-0911c 修复批）：
+ *  localeCompare → 字节序比较——id 是 26 字符 Crockford base32（fs/id.ts，全大写 ASCII：
+ *  0-9 在前 A-Z 在后，无小写/重音/多字节），字节序即 ULID 编码序、时间序 = 列表序不再
+ *  依赖 locale（localeCompare 的排序规则随运行环境 ICU/locale 漂移，等价类折叠可能扰动
+ *  同前缀 id 的相对序）。并合批 2026-09-12 收编单源：R0912-E-P3-2 的 writeVersion
+ *  knownList 排序同用本比较器（其注释本就要求「listVersions 同款比较器」），防两处漂移。 */
+function compareVersionIdDesc(a: VersionInfo, b: VersionInfo): number {
+  return a.id < b.id ? 1 : a.id > b.id ? -1 : 0
 }
 
 /** 列某文档的版本（按 id 降序，新的在前；id 是 ULID 时间排序）。
@@ -374,11 +415,9 @@ export function listVersions(versionsDir: string, docId: string): VersionInfo[] 
       out.push({ id, path: join(dir, name) })
     }
   }
-  // R0912-5（2026-09-11 重评-0911c 修复批）：localeCompare → 字节序比较——id 是 26 字符
-  // Crockford base32（fs/id.ts，全大写 ASCII：0-9 在前 A-Z 在后，无小写/重音/多字节），
-  // 字节序即 ULID 编码序、时间序 = 列表序不再依赖 locale（localeCompare 的排序规则随
-  // 运行环境 ICU/locale 漂移，等价类折叠可能扰动同前缀 id 的相对序）。降序语义不变。
-  return out.sort((a, b) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0))
+  // R0912-5（2026-09-11 重评-0911c 修复批）：localeCompare → 字节序比较（比较器已上提
+  // compareVersionIdDesc 单源，注释随迁）。降序语义不变。
+  return out.sort(compareVersionIdDesc)
 }
 
 /** fm 键值 map → 版本 meta（readVersion / readVersionMeta / readVersionRaw 三读入口
@@ -586,6 +625,11 @@ export function listVersionEntries(
  * pinned（定稿里程碑）恒保留；头部不可读（是否定稿无法判定）的版本按 pinned 同等
  * 保护不删（R34D-14，宁多勿失——与写侧 R73-35 fail-open 口径同向）。
  *
+ * R0912-E-P3-2（2026-09-12 独立重评修复批）：可选 knownList——writeVersion 写入后
+ * 顺带 prune 的链路此前对刚 listVersions 过的档案再全量扫一遍目录（重复 readdir，
+ * 长档案高频留底白付）；调用方传入已知列表时跳过内部 listVersions（列表内容与
+ * 重扫结果一致的前提由调用方保证）。其他调用方不传，行为不变（内部现扫）。
+ *
  * @returns 删除的版本数
  */
 export function pruneVersions(
@@ -593,8 +637,9 @@ export function pruneVersions(
   docId: string,
   policy: VersionPolicy = DEFAULT_VERSION_POLICY,
   now: number = Date.now(),
+  knownList?: VersionInfo[],
 ): number {
-  const all = listVersions(versionsDir, docId)
+  const all = knownList ?? listVersions(versionsDir, docId)
   if (!all.length) return 0
 
   // 升序（旧→新）遍历，每个时间桶的第一个即该桶最早的

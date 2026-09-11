@@ -297,6 +297,29 @@ describe('Y-P2-5: 历史种子化', () => {
     await chat.seedHistory('书A')
     expect(chat.messages).toHaveLength(0)
   })
+
+  // R0911b-C1-P3-2（2026-09-11 全量重评 GLM-5.3 修复批）：空历史不提前 return——
+  // 分支态仍以本次权威拉取对齐（对齐 switchBranch 空历史同款刷新），防 replace 补种
+  //（pendingReseed）落空历史时旧 activeBranchId/branches 滞留在已清空的对话界面
+  it('空历史 + replace 补种 → 分支态随权威拉取复位（不再滞留旧值）', async () => {
+    const chat = useChatStore()
+    // 先按非空历史种入，建立「曾有过对话」的分支态
+    fetchMock.mockResolvedValueOnce({ messages: [{ role: 'user', content: '旧对话' }], branchId: 'b1' })
+    branchesMock.mockResolvedValueOnce({
+      branches: [{ branchId: 'b1', messageCount: 1, rootSeq: 1, lastSeq: 2, isDefault: true, parentSeq: null }],
+      activeBranchId: 'b1',
+    })
+    await chat.seedHistory('书A')
+    expect(chat.activeBranchId).toBe('b1')
+    expect(chat.branches).toHaveLength(1)
+    // 回合收尾补种（replace:true）拉到空历史（他窗清空服务端历史等罕达路径）
+    fetchMock.mockResolvedValueOnce({ messages: [], branchId: null })
+    branchesMock.mockResolvedValueOnce({ branches: [], activeBranchId: null })
+    await chat.seedHistory('书A', { replace: true })
+    expect(chat.messages).toHaveLength(0)
+    expect(chat.activeBranchId).toBeNull()
+    expect(chat.branches).toHaveLength(0)
+  })
 })
 
 // ── G1：分支（变体）与重新生成 ────────────────────────

@@ -6,6 +6,10 @@
  * 直接把删库自愈变 500。修复：瞬时占用码重试至多 3 次 × 200ms（同步退避，先例同
  * fs/atomic.ts renameWithRetry：Atomics.wait 微睡 + unlink/sleep 可注入测试口）；
  * 耗尽抛带结构化信息的错误（文件名+code+已重试次数），损坏判定面不受污染。
+ *
+ * R0912-G1-P3-7（2026-09-12 独立重评修复批）：ENOENT 语义改「视为删除已成功」——
+ * existsSync 探测与 unlink 之间的 TOCTOU 窗口内文件被并发删掉 = 删除目标已达成，
+ * 不再误报失败（首抛 ENOENT → 不抛、零退避零重试）；其他确定性错误照旧立即上抛。
  */
 import { describe, expect, it } from 'vitest'
 import { existsSync, mkdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
@@ -88,7 +92,7 @@ describe('deleteRagDbFiles unlink 退避重试（R37-39）', () => {
     }
   })
 
-  it('非重试码（EACCES 之外的确定性错误 ENOENT）→ 立即原样抛，零退避零重试', () => {
+  it('R0912-G1-P3-7：ENOENT 视为删除已成功（TOCTOU：existsSync 探测后文件被并发删）→ 不抛、零退避、计成功', () => {
     const bookRoot = makeBook()
     try {
       const delays: number[] = []
@@ -101,7 +105,28 @@ describe('deleteRagDbFiles unlink 退避重试（R37-39）', () => {
           },
           sleep: (ms) => delays.push(ms),
         }),
-      ).toThrow('mock ENOENT')
+      ).not.toThrow() // 修复前：确定性错误立即原样上抛，TOCTOU 窗口误报失败
+      expect(calls).toBe(3) // 主库 + -wal/-shm 各一次：首抛即认定目标达成，零重试（不放宽重试纪律）
+      expect(delays).toEqual([])
+    } finally {
+      rmSync(bookRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('R0912-G1-P3-7：ENOENT 之外的确定性错误（EIO）→ 照旧立即原样抛，零退避零重试', () => {
+    const bookRoot = makeBook()
+    try {
+      const delays: number[] = []
+      let calls = 0
+      expect(() =>
+        deleteRagDbFiles(bookRoot, {
+          unlink: () => {
+            calls++
+            throw errOf('EIO')
+          },
+          sleep: (ms) => delays.push(ms),
+        }),
+      ).toThrow('mock EIO')
       expect(calls).toBe(1)
       expect(delays).toEqual([])
     } finally {

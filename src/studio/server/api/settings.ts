@@ -12,7 +12,7 @@ import { join, basename, relative, dirname } from 'node:path'
 import { readFileSync, readdirSync, existsSync, mkdirSync, statSync } from 'node:fs'
 import { defineRoute } from './schema.js'
 import { reply, readJson, HttpError, replyError } from '../http.js'
-import { resolveBook } from '../book-context.js'
+import { resolveBook, bookMovedFailure } from '../book-context.js'
 import { readRealmDoc } from '../../../format/realms.js'
 import { readLeadDir } from '../../../format/leads.js'
 import { readFile, parseFlat } from '../../../format/frontmatter.js'
@@ -23,6 +23,7 @@ import { RELATION_MINE_SPEC } from '../../../ai/tasks/specs.js'
 import { acquireTaskGate, orchestrationBusyFor } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
 import { getDriver, ensureSession } from '../../../driver/index.js' // R0912-P2-①：中断通道注册面
 import type { Session } from '../../../driver/types.js'
+import { sigStatFor } from './rhythm.js' // 精简批（SRV 域）：size:mtimeMs 签名单源（原本地同构副本收敛）
 import type { RealmSystem } from '../../../format/types.js'
 
 interface SettingsCtx {
@@ -90,16 +91,6 @@ export function __resetSettingsScanCountForTest(): void {
   settingsScanCount = 0
 }
 
-/** 读面单文件成员的 size:mtimeMs 签名（缺失 → '-'；先例同 rhythm.ts rhythmSigStatFor）。 */
-function settingsSigStatFor(fp: string): string {
-  try {
-    const st = statSync(fp)
-    return `${st.size}:${st.mtimeMs}`
-  } catch {
-    return '-'
-  }
-}
-
 /** settings 读面指纹：境界体系.md + relations.json（单文件）+ 角色/时间线/关系线/正文（目录 mtime）。 */
 function settingsSignature(bookRoot: string): string {
   const dirSig = (...dir: string[]): string => {
@@ -110,8 +101,8 @@ function settingsSignature(bookRoot: string): string {
     }
   }
   return [
-    settingsSigStatFor(join(bookRoot, '设定', '境界体系.md')),
-    settingsSigStatFor(join(bookRoot, '.clwriting', 'relations.json')),
+    sigStatFor(join(bookRoot, '设定', '境界体系.md')),
+    sigStatFor(join(bookRoot, '.clwriting', 'relations.json')),
     dirSig('设定', '角色'),
     dirSig('设定', '时间线'),
     dirSig('大纲', '关系线'),
@@ -233,7 +224,8 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
       // R0912-P3-③：落盘前重验书注册（对齐 style.ts R0911-B-P3-4 现行防线）——runSpec
       // 分钟级 await 窗口内书可能被删/改名，向旧 bookRoot 写 .clwriting/relations.json
       // 会复活幽灵目录（无 book.yaml，repairBooks 不认领）。已删或变化 → 409 BOOK_MOVED。
-      const moved = relationsBookMoved(ctx, params['name'], bookRoot)
+      // 并合注（R0912-B-P3-2）：本地同构实现已收敛 book-context.ts bookMovedFailure 单源。
+      const moved = bookMovedFailure(ctx.workDir, params['name'], bookRoot)
       if (moved) return replyError(res, 409, moved.code, moved.reason)
       try {
         mkdirSync(dirname(cachePath), { recursive: true })
@@ -307,23 +299,9 @@ function settingsLong(bookRoot: string): unknown {
 /** AI 关系梳理缓存的相对路径（.clwriting/relations.json）。 */
 const RELATION_CACHE = '.clwriting/relations.json'
 
-/**
- * R0912-P3-③（2026-09-11 重评-0911c 修复批）：书注册重验（style.ts bookMovedFailure 同型，
- * documents.ts/files.ts 同款 409 信封口径）——关系梳理的 AI 生成段为分钟级 await，期间书
- * 可能被删/改名；落盘前重验 name→bookRoot 注册，已删或变化即取消本次落盘，防向旧捕获路径
- * mkdir 复活幽灵目录。返回 null = 注册未变，可安全落盘。
- */
-function relationsBookMoved(
-  ctx: SettingsCtx,
-  name: string | undefined,
-  capturedRoot: string,
-): { code: 'BOOK_MOVED'; reason: string } | null {
-  const rNow = resolveBook(ctx.workDir, name)
-  if ('error' in rNow || rNow.bookRoot !== capturedRoot) {
-    return { code: 'BOOK_MOVED', reason: '书已改名或已删除，本次操作已取消——请重新打开本书后再试' }
-  }
-  return null
-}
+// R0912-P3-③（2026-09-11 重评-0911c 修复批）：本端点书注册重验原持本地同构实现
+// relationsBookMoved；并合 R0912-B-P3-2（2026-09-12 第十篇修复批）后收敛到
+// book-context.ts bookMovedFailure 单源（判定口径与人话文案逐字一致），本地拷贝删除。
 
 /** 读 AI 关系梳理缓存（不存在/损坏 → 空）。返回 relations 数组 + 梳理时的章节数（新鲜度判断用）。 */
 function readRelationCache(bookRoot: string): {

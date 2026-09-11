@@ -190,17 +190,18 @@ onMounted(() => {
   window.addEventListener('scroll', onScrollOrResize, true)
 })
 onBeforeUnmount(() => {
-  // R0910-W：清 typeahead 800ms 复位定时器——组件卸载后回调仍会触发（对已销毁实例
-  // 的闭包写 typeBuf，纯泄漏），随监听器一并回收
+  // R0910-W + R1010b-FTC-P3-1（两批同点收敛为一处清理）：
+  // - R0910-W：清 typeahead 800ms 复位定时器——组件卸载后回调仍会触发（对已销毁实例
+  //   的闭包写 typeBuf，纯泄漏），随监听器一并回收；
+  // - R1010b-FTC-P3-1（2026-09-10 内存专项重审修复批）：typeahead 定时器卸载随清（typeBuf
+  //   一并复位）——原只清 window 监听，800ms 窗内卸载则清窗回调滞留（有界自清、非累积）；
+  //   对齐 TooltipHost showTimer / OnboardPremise premiseTimer 的 timer 卸载清理惯例。
+  //   清除调用与 typeBuf 复位各只做一次（原两批各写一遍 clearTimeout(typeTimer)）。
   clearTimeout(typeTimer)
+  typeBuf = ''
   window.removeEventListener('keydown', onKey, true)
   window.removeEventListener('resize', onScrollOrResize)
   window.removeEventListener('scroll', onScrollOrResize, true)
-  // R1010b-FTC-P3-1（2026-09-10 内存专项重审修复批）：typeahead 定时器卸载随清（typeBuf
-  // 一并复位）——原只清 window 监听，800ms 窗内卸载则清窗回调滞留（有界自清、非累积）；
-  // 对齐 TooltipHost showTimer / OnboardPremise premiseTimer 的 timer 卸载清理惯例
-  clearTimeout(typeTimer)
-  typeBuf = ''
 })
 </script>
 

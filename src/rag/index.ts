@@ -15,7 +15,7 @@ import { createHash } from 'node:crypto'
 import { readChapterDir } from '../format/chapters.js'
 import { readFile } from '../format/frontmatter.js'
 import { parseChapterFileName } from '../format/words.js'
-import { openRagDb, closeRagDb, storeChunk, readAllChapterFingerprints, getRagMeta, setRagMeta, deleteRagMeta, deleteChunksByChapter, getIndexedChapterNumbers, streamChunkScores, type ChunkScoreRow, isRagDbCorruptionError, deleteRagDbFiles, ragDbExists } from './store.js'
+import { openRagDb, closeRagDb, safeRollback, storeChunk, readAllChapterFingerprints, getRagMeta, setRagMeta, deleteRagMeta, deleteChunksByChapter, getIndexedChapterNumbers, streamChunkScores, type ChunkScoreRow, isRagDbCorruptionError, deleteRagDbFiles, ragDbExists } from './store.js'
 import { embed, type EmbedOptions } from './embed.js'
 import type { RagConfig } from './config.js'
 import type { DatabaseSync } from 'node:sqlite'
@@ -258,11 +258,8 @@ export function resetRagIndex(bookRoot: string): void {
       // R43-18（四十三轮）：R61-10 同款加固——SQLite 部分错误（SQLITE_FULL/IOERR 等）
       // 已自动回亡事务，再 ROLLBACK 抛 "no transaction is active" 掩蔽原始写错误；
       // 吞 ROLLBACK 自身异常、原始错误上抛
-      try {
-        db.exec('ROLLBACK')
-      } catch {
-        /* 已自动回亡 */
-      }
+      // R0912-G1-P3-3：回滚句收编 store.ts safeRollback 单源。
+      safeRollback(db)
       throw new Error(`清空 RAG 索引失败（已回滚，可重试）：${errStr(e)}`)
     }
   } finally {
@@ -416,11 +413,8 @@ export async function buildIndex(
             // R43-18（四十三轮）：R61-10 同款加固——SQLite 部分错误已自动回亡事务，
             // 再 ROLLBACK 抛 "no transaction is active" 掩蔽原始写错误；吞 ROLLBACK
             // 自身异常、原始错误进返回文案
-            try {
-              db.exec('ROLLBACK')
-            } catch {
-              /* 已自动回亡 */
-            }
+            // R0912-G1-P3-3：回滚句收编 store.ts safeRollback 单源。
+            safeRollback(db)
             return {
               ok: false,
               chunkCount: 0,
@@ -688,11 +682,8 @@ async function commitIndexBatch(
         // R43-18（四十三轮）：R61-10 同款加固——吞 ROLLBACK 自身异常（部分错误已
         // 自动回亡事务，再 ROLLBACK 抛 "no transaction is active"），保持「整体重跑」
         // 降级语义不因回滚句柄抖动旁生枝节
-        try {
-          db.exec('ROLLBACK')
-        } catch {
-          /* 已自动回亡 */
-        }
+        // R0912-G1-P3-3：回滚句收编 store.ts safeRollback 单源。
+        safeRollback(db)
       }
     }
     return {
@@ -756,11 +747,8 @@ async function commitIndexBatch(
     // R43-18（四十三轮）：R61-10 同款加固——SQLite 部分错误已自动回亡事务，再
     // ROLLBACK 抛 "no transaction is active" 掩蔽原始写错误；吞 ROLLBACK 自身异常、
     // 原始错误进返回文案
-    try {
-      db.exec('ROLLBACK')
-    } catch {
-      /* 已自动回亡 */
-    }
+    // R0912-G1-P3-3：回滚句收编 store.ts safeRollback 单源。
+    safeRollback(db)
     return {
       ok: false,
       chunkCount: 0,

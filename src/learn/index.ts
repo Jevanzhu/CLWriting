@@ -30,6 +30,7 @@ import { checkStyleMetrics, checkRepeat } from '../check/count.js'
 import { readIronRules } from '../metrics/style.js'
 import { log } from '../log/index.js' // R43-22（四十三轮）：候选目录清理失败留痕
 import type { IronRules } from '../format/iron-rules.js'
+import { yieldToEventLoop } from '../async.js'
 
 /** 样章候选 */
 export interface SampleCandidate {
@@ -122,18 +123,11 @@ function scoreByChecks(
  * 事件循环（setImmediate 级，每章一次），单章内的段级打分仍同步（毫秒级，无需更碎）。
  * ToolExecutor 契约本就支持 Promise（turns.ts executor 调用全带 await），调用方无感。
  */
-const yieldToEventLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
 
-/** learn 收割跨进程锁等待上限（R30-18 口径：const 导出 + 内部可变生效值 + 测试注入钩子）。 */
+/** learn 收割跨进程锁等待上限（R30-18 口径：const 导出）。原「内部可变生效值 + 测试
+ *  注入钩子」形态随 2026-09-11 精简批退役——钩子全仓零消费（测试已删钩未删），生效值
+ *  失去唯一改写点，读点直用本常量。 */
 export const LEARN_HARVEST_LOCK_TIMEOUT_MS = 5_000
-
-/** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改。 */
-let learnHarvestLockTimeoutMs = LEARN_HARVEST_LOCK_TIMEOUT_MS
-
-/** 测试注入钩子（生产零调用）。 */
-export function __setLearnHarvestLockTimeoutForTest(ms: number): void {
-  learnHarvestLockTimeoutMs = ms
-}
 
 // R0910-W（2026-09-10 修复批）：候选池有界化——样章/金句候选原随全书合格段持续
 // push，末了才 sort+slice，大书峰值可达数万条 snippet 对象（O(全书)）。现循环内即
@@ -159,7 +153,9 @@ export async function learnFromBook(bookRoot: string): Promise<LearnResult> {
   // 读盘 + 打分，长书秒级）末了才取锁，双进程并发收割双方各自白扫一遍全书，败者
   // 整段 CPU/IO 白付。现锁在扫描前取得：并发第二方立即按既有「在途」口径返回
   //（文案/返回形状逐字不变），锁内逻辑不变（扫描 → 候选 → 落盘全临界段）。
-  const releaseHarvest = await acquireCrossProcessLockAsync(join(bookRoot, '工作区', '.learn-harvest.lock'), learnHarvestLockTimeoutMs)
+  // R0912-B-P2-1（win 线 2026-09-11 精简批）：锁等待读点直用导出常量——原模块内
+  // 可变生效值 learnHarvestLockTimeoutMs 及测试注入钩子已退役（钩子全仓零消费）。
+  const releaseHarvest = await acquireCrossProcessLockAsync(join(bookRoot, '工作区', '.learn-harvest.lock'), LEARN_HARVEST_LOCK_TIMEOUT_MS)
   if (!releaseHarvest) {
     return {
       ok: false,
@@ -277,7 +273,11 @@ async function learnFromBookLocked(bookRoot: string, bodyDir: string): Promise<L
       const hasHook = /[忽然竟然居然可是但是]/.test(s)
       const hasEmotion = /[痛爱恨死生泪笑]/.test(s)
       const hasContrast = /[却而]/.test(s)
-      if (hasHook && hasEmotion || (hasContrast && hasEmotion)) {
+      // R0912-G1-P3-5（2026-09-12 独立重评修复批）：布尔式改写 `hasEmotion && (hasHook
+      // || hasContrast)`——与原式 `hasHook && hasEmotion || (hasContrast && hasEmotion)`
+      // 数学恒等（分配律），情绪位提前短路省两次正则 test；且显式括号消除
+      // 「&&/|| 混排无括号」的可读性陷阱，语义零变化。
+      if (hasEmotion && (hasHook || hasContrast)) {
         quoteCandidates.push({
           场景: '通用',
           正文: s,
