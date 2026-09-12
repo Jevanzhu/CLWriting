@@ -70,7 +70,15 @@ function parseFile(fp: string, expect: Entry['expect']): ParsedLine[] {
     if (!m) continue
     try {
       const excerpt = JSON.parse(m[1]!) as string
-      if (excerpt.trim()) out.push({ checkId, excerpt, expect })
+      if (excerpt.trim()) {
+        out.push({ checkId, excerpt, expect })
+      } else {
+        // R0912-3（2026-09-12 全量重评 #43）：空白摘录行（JSON 合法但内容全空白）此前
+        // 静默丢弃、不进 droppedExcerpts 哨兵——勾选条目无声消失且退出码仍绿。计入
+        // 哨兵 + warn 留痕，口径同下方 catch 臂（R62-24）
+        droppedExcerpts++
+        console.warn(`[corpus:commit] 摘录行为空白（JSON 合法但无有效内容，已跳过不入库）：${line}`)
+      }
     } catch {
       // R62-24：手写/畸形摘录行——此前静默跳过；改为显式 warn（不再无告警丢条）
       droppedExcerpts++

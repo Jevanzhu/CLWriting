@@ -4,6 +4,12 @@
 import { useRelationGraphInjected, CX, CY } from '../../composables/useRelationGraph'
 
 const g = useRelationGraphInjected()
+
+/** R0912-3 #20：边 key 弃 '-' 裸拼接（自由文本名可含 '-'，from/to 分段歧义撞 key）——
+ *  \u0000 分隔防拼接歧义（对齐 stores/learn.ts sampleKey/quoteKey 同款口径） */
+function edgeKey(e: { from: string; to: string; kind: string }): string {
+  return `${e.from}\u0000${e.to}\u0000${e.kind}`
+}
 </script>
 
 <template>
@@ -27,10 +33,11 @@ const g = useRelationGraphInjected()
       <!-- 边：默认就带语义色（弱），聚焦时提到全饱和 -->
       <g class="edges">
         <!-- R0911b-C2-P3-2：key 弃纯 index——edges 按 pairKey(from,to,kind) 无向去重后建边，
-             (from, to, kind) 必唯一（同域节点 :key="n.id" 先例），即天然稳定键。 -->
+             (from, to, kind) 必唯一（同域节点 :key="n.id" 先例），即天然稳定键。
+             R0912-3 #20：拼接改 \u0000 分隔（'-' 裸拼自由文本名理论撞 key） -->
         <g
           v-for="g2 in g.edgeGeoms.value"
-          :key="g2.e.from + '-' + g2.e.to + '-' + g2.e.kind"
+          :key="edgeKey(g2.e)"
           :class="{ dim: g.edgeDim(g2.e) }"
         >
           <path

@@ -28,7 +28,19 @@ interface TaskStat {
 const byTask = ref<Record<string, TaskStat>>({})
 const total = ref(0)
 const cost = ref<CostStats | null>(null)
+// R0912-3 #19：cost 取数失败与未配价（enabled:false）分流——此前 catch 吞成 null，
+// 失败被渲染成「未配置价格表」引导，误导归因到配置
+const costFailed = ref(false)
 const loaded = ref(false)
+
+/** R0912-3 #19：cost 取数失败不打穿整卡（trace-stats 仍要渲染），失败单独记态 */
+async function loadCost(book: string): Promise<CostStats | 'failed'> {
+  try {
+    return await getCostStats(book)
+  } catch {
+    return 'failed'
+  }
+}
 
 // 切书竞态代数（同 stores/ 的 opGen 模式）：旧书慢响应不回填新书数据
 let loadGen = 0
@@ -47,15 +59,16 @@ async function load(): Promise<void> {
   const gen = ++loadGen
   loaded.value = false
   try {
-    const [trace, costStats] = await Promise.all([
+    const [trace, costR] = await Promise.all([
       traceStats.getStats(props.bookName),
-      getCostStats(props.bookName).catch(() => null),
+      loadCost(props.bookName),
     ])
     if (gen !== loadGen) return
     if (!armed) return // R1010b-FTC-P3-2：卸载后不写回死实例
     byTask.value = (trace.byTask ?? {}) as Record<string, TaskStat>
     total.value = trace.total ?? 0
-    cost.value = costStats
+    costFailed.value = costR === 'failed' // R0912-3 #19
+    cost.value = costR === 'failed' ? null : costR
   } catch {
     // 离线/无数据：空态展示。失败也要清旧书数据（gen 匹配 = 本次请求属于当前书）——
     // 否则新书请求失败时 finally 置 loaded，旧书的调用量/金额挂在新书名下（敏感数据错位
@@ -65,6 +78,7 @@ async function load(): Promise<void> {
     byTask.value = {}
     total.value = 0
     cost.value = null
+    costFailed.value = false // R0912-3 #19：整卡失败走空态，不误报 cost 取数失败
   } finally {
     if (gen === loadGen && armed) loaded.value = true
   }
@@ -124,12 +138,16 @@ function fmtMs(n: number): string {
       暂无 AI 调用记录（写作/审稿/摘要等任务的用量在此汇总）。
     </div>
     <template v-else>
-      <!-- D2（批 5）：配价书显示金额；未配价引导配置（不显示 0） -->
+      <!-- D2（批 5）：配价书显示金额；未配价引导配置（不显示 0）。R0912-3 #19：
+           取数失败单独成态，不再伪装成「未配置价格表」引导 -->
       <div v-if="cost?.enabled" class="usage-cost">
         本书累计成本 <strong>{{ cost.total.toFixed(4) }}</strong> {{ cost.currency ?? 'USD' }}
         <span v-if="Object.keys(cost.byChapter).length > 0" class="usage-cost-meta">
           （{{ Object.keys(cost.byChapter).length }} 个章节有记账）
         </span>
+      </div>
+      <div v-else-if="costFailed" class="usage-cost usage-cost--muted">
+        成本金额取数失败（服务暂不可达），刷新后重试。
       </div>
       <div v-else class="usage-cost usage-cost--muted">
         未配置价格表——在「设置 · 服务提供方」编辑价格后此处显示金额。

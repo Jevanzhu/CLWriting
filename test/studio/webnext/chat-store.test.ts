@@ -15,6 +15,7 @@ vi.mock('../../../src/studio/web-next/src/api/chat', () => ({
 }))
 
 import { fetchChatHistory, fetchChatBranches, regenerateChat, type ChatHistoryMessage } from '../../../src/studio/web-next/src/api/chat'
+import { CHAT_HISTORY_LIMIT } from '../../../src/studio/web-next/src/shared/chat-history'
 import { useChatStore } from '../../../src/studio/web-next/src/stores/chat'
 
 const fetchMock = fetchChatHistory as ReturnType<typeof vi.fn>
@@ -824,5 +825,17 @@ describe('C3: 工具入参超长截断（2000 码位 + … 尾标）', () => {
     const exact = '风'.repeat(2000)
     chat.dispatch({ type: 'chat_tool_pending', callId: 'c1', name: 'write_chapter', input: exact })
     expect(chat.messages[0]!.tools[0]!.input).toBe(exact)
+  })
+})
+
+// R0912-3 #10（2026-09-12 全量重评修复批）：消息上限单源化——store 裁剪阈值取
+// shared/chat-history 的 CHAT_HISTORY_LIMIT（与 fetchChatHistory 尾窗 limit、
+// ChatMessages 截断提示文案同源），本组锚定裁剪行为随常量走、不再各自硬编码
+describe('R0912-3 #10: 消息上限单源（shared/chat-history）', () => {
+  it('pushUser 超上限 → 裁剪至 CHAT_HISTORY_LIMIT，最旧者先出', () => {
+    const chat = useChatStore()
+    for (let i = 0; i < CHAT_HISTORY_LIMIT + 5; i++) chat.pushUser(`m${i}`)
+    expect(chat.messages).toHaveLength(CHAT_HISTORY_LIMIT)
+    expect(chat.messages[0]!.content).toBe('m5') // 前 5 条被裁
   })
 })

@@ -262,7 +262,12 @@ if (!gotSingleInstanceLock) {
       const why = !workDir ? '书库未就绪（bootstrap 未完成且无持久化 current）' : '主窗口不可用'
       log.warn('main', `second-instance 带 --book=${ref}，但${why}——已忽略（聚焦现有窗口）`)
     }
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.focus()
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      // R0912-3（重评-0912 P3 #36）：mac 上 app.focus() 默认只激活不抢焦点，双开拉起
+      // 可能只聚焦不置前——darwin 补 steal:true 自其他 app 强制夺焦并置前主窗
+      if (process.platform === 'darwin') app.focus({ steal: true })
+      mainWindow.focus()
+    }
   })
 }
 
@@ -2064,7 +2069,15 @@ if (gotSingleInstanceLock) {
     // 裸退还会打断在途优雅停机收尾。改为「停机落定即退、到点兜底强退」：stopChild
     // 落定后延迟一拍（让日志泵落盘）再 process.exit，未落定则由既有 200ms 兜底硬退。
     // 留痕 / 不吞 / 半坏状态不续跑的退出语义不变。
-    const backstop = setTimeout(() => process.exit(1), 200)
+    // R0912-3（重评-0912 P3 #35）：200ms 到点 stopChild 可能仍在 settle 竞速窗内
+    // （预算 2s，kill 尚未发出）——裸 process.exit 会把 child 留成孤儿。到点先经
+    // killNow 对在途 child/在途 fork 同步发出 kill 信号（fire-and-forget，不等待
+    // 收口——uncaughtException 后必须退出不悬挂），再硬退；kill 已发出的形态下重复
+    // kill 为无害幂等。硬约束不破：退出不被 stopChild 拖延（200ms 上限保留）。
+    const backstop = setTimeout(() => {
+      serverManager.killNow()
+      process.exit(1)
+    }, 200)
     void serverManager
       .stopChild()
       .catch(() => {})

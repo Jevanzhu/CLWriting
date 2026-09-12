@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DocumentService } from '../../src/document/service.js'
 import { readManifest } from '../../src/document/manifest.js'
+import { computeRevision } from '../../src/document/revision.js'
 
 let bookRoot: string
 let svc: DocumentService
@@ -91,5 +92,48 @@ describe('R66-5: move toDir 归一（脏输入单键 + 前导斜杠拒绝）', (
     if (m.ok) expect(m.path).toBe(`笔记/${name}`)
     expect(registeredPath(docId)).toBe(`笔记/${name}`)
     expect(existsSync(join(bookRoot, '笔记', name))).toBe(true)
+  })
+})
+
+// ── R0912-3（2026-09-12 全量重评 P2-1）：toDir 拒 '..'/'.' 段 ─────────────────
+// 原实现只拒前导 '/' 与空串，'..'/'.' 段漏网：safeSegs「已存在则原样保留」对 '..'
+// 恒命中（existsSync(join(root,'a','..')) 即 root），'..' 原文入清单而物理落位经
+// resolveSafePath 词法消解落在别处 → 登记与盘上路径分裂、docJoinKey 失配、保存恒
+// REVISION_CONFLICT。与 R51-D-3（doCopy 显式拒 '..'）同族口径收口。
+
+describe('R0912-3: move toDir 拒绝 .. / . 段（R51-D-3 doCopy 同族）', () => {
+  it('含 .. / . 段 → BAD_INPUT，文件不动、清单不换键', async () => {
+    for (const dirty of ['..', 'a/..', 'a/../写作/正文', '写作/../正文', '.', '写作/./正文']) {
+      const name = `穿越${seq++}.md`
+      const docId = await createNote(name)
+      const m = await svc.moveDocument({ docId, toDir: dirty })
+      expect(m.ok, dirty).toBe(false)
+      if (!m.ok) expect(m.code, dirty).toBe('BAD_INPUT')
+      expect(registeredPath(docId), dirty).toBe(`笔记/${name}`)
+      expect(existsSync(join(bookRoot, '笔记', name)), dirty).toBe(true)
+      expect(existsSync(join(bookRoot, 'a')), dirty).toBe(false)
+    }
+  })
+
+  it('被拒后同文档身份完好：原路径可保存、合法移动后新路径可保存（无 docId 分裂残留）', async () => {
+    const name = `复原${seq++}.md`
+    const docId = await createNote(name)
+    const bad = await svc.moveDocument({ docId, toDir: 'a/../素材' })
+    expect(bad.ok).toBe(false)
+    // 注册路径上的正常保存不受拒绝移动影响（对照：畸形键落账时 registered≠盘上路径，保存恒 REVISION_CONFLICT）
+    const s0 = await svc.save(docId, `笔记/${name}`, {
+      content: '拒绝后原路径保存', expectedRevision: computeRevision(join(bookRoot, '笔记', name)), operationId: 'op-r0912-0', origin: 'manual',
+    })
+    expect(s0.ok).toBe(true)
+    const good = await svc.moveDocument({ docId, toDir: '素材' })
+    expect(good.ok).toBe(true)
+    if (good.ok) expect(good.path).toBe(`素材/${name}`)
+    expect(registeredPath(docId)).toBe(`素材/${name}`)
+    // 合法移动后新注册路径保存同样成立（registered === 盘上路径，docJoinKey 命中）
+    const s1 = await svc.save(docId, `素材/${name}`, {
+      content: '合法移动后保存', expectedRevision: computeRevision(join(bookRoot, '素材', name)), operationId: 'op-r0912-1', origin: 'manual',
+    })
+    expect(s1.ok).toBe(true)
+    expect(existsSync(join(bookRoot, '素材', name))).toBe(true)
   })
 })

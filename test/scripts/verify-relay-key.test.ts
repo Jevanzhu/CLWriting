@@ -33,3 +33,17 @@ test('R61-15: env key 可解析；argv key 告警；无 key 只打用法——�
   expect(merged.out).toContain('用法') // env+argv 均在、独缺 base-url → 用法并 0 退出
   expect(merged.err).toContain('CLW_RELAY_API_KEY') // argv key → ps 可见性告警留痕
 }, 60_000)
+
+// R0912-3（2026-09-12 全量重评 #49）回归：argValue 严格口径钉——flag 名不被误吞作值。
+// `--api-key` 的「值」位出现 `--model` 时按缺参处理（key=null → 用法 0 退出），不得
+// 吞成 key 触发 argv 告警或继续发请求（该判式为两脚本 argValue 的严格口径基准，
+// calibrate-tokens.ts 宽松形态待另行对齐）。
+test('R0912-3: flag 名出现在值位不被误吞——`--api-key --model` 按缺 key 用法 0 退出', () => {
+  const r = run(['--base-url', 'https://relay.example.com/v1', '--api-key', '--model', 'gpt-5'], {})
+  expect(r.status).toBe(0)
+  expect(r.out).toContain('用法')
+  // 未进真机验证段（误吞形态会以 key 继续走请求链）
+  expect(r.out).not.toContain('中转真机验证')
+  // 误吞形态会打 argv key 告警（ps 可见提示）——严格口径下 key=null 无告警
+  expect(r.err).not.toContain('ps 可见')
+}, 60_000)

@@ -6,6 +6,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { sendChat, fetchChatHistory, confirmTool, regenerateChat } from '../../../src/studio/web-next/src/api/chat'
+import { CHAT_HISTORY_LIMIT } from '../../../src/studio/web-next/src/shared/chat-history'
 import { getState, interrupt, autoWrite, saveDraft } from '../../../src/studio/web-next/src/api/stream'
 import { boot } from '../../../src/studio/web-next/src/api/client'
 
@@ -53,8 +54,9 @@ describe('chat api', () => {
     await fetchChatHistory('书A', 'br 1')
     const url = new URL(calls[0]!.url, 'http://x')
     expect(calls[0]!.init?.method).toBe('GET') // 缺省 GET（client 显式 resolve 为 GET）
-    // R72-11（二十轮 F-5）：500→200 对齐 chat store MAX_MESSAGES（多拉的 300 条即弃）
-    expect(url.searchParams.get('limit')).toBe('200')
+    // R72-11（二十轮 F-5）：500→200 对齐 chat store MAX_MESSAGES（多拉部分即弃）；
+    // R0912-3 #10：上限单源 shared/chat-history——api/store/提示文案三端同源锚定
+    expect(url.searchParams.get('limit')).toBe(String(CHAT_HISTORY_LIMIT))
     expect(url.searchParams.get('branch')).toBe('br 1') // 解一层即得原始值 → 未被二次编码
     // 契约①：GET 历史读同样带 token 头
     expect(new Headers(calls[0]!.init?.headers).get('x-studio-token')).toBe('T-cw')

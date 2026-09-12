@@ -104,6 +104,22 @@ describe('R63-12：.only / 无条件 .skip 拒绝门', () => {
     expect(findOnlyOrSkipViolations("// it.skip.each([1])('注释', (n) => {})")).toEqual({ only: 0, uncondSkip: 0 })
   })
 
+  // R0912-3（2026-09-12 全量重评 #48）：each 参数改一层平衡括号近似——原 `\([^)]*\)` 遇
+  // 参数内 `)` 提前收口，后随 `\s*\(\s*"` 失配 → 整组无条件 skip 漏检（R31-35 正则盲区
+  // 同族，漏检向）。既有形态（数组参数/无第二调用）不回退。
+  it('R0912-3: skip.each 参数内嵌套 `)`（如 each(buildPairs(1, 2))）不漏检', () => {
+    expect(
+      findOnlyOrSkipViolations("it.skip.each(buildPairs(1, 2))('参数化 %d', ([a, b]) => { expect(a).toBe(b) })"),
+    ).toEqual({ only: 0, uncondSkip: 1 })
+    // 参数内多处嵌套（map/filter 链）同样命中
+    expect(
+      findOnlyOrSkipViolations("test.skip.each(Object.keys(m).filter(f))('用例 %s', (k) => {})").uncondSkip,
+    ).toBe(1)
+    // 既有形态不回退：数组参数照旧；无第二调用（非标题串形态）不误报
+    expect(findOnlyOrSkipViolations("it.skip.each([1, 2])('参数化 %d', (n) => {})").uncondSkip).toBe(1)
+    expect(findOnlyOrSkipViolations('test.skip.each(cases)').uncondSkip).toBe(0)
+  })
+
   it('R27-134: 零参形态 test.skip() 同样检出——连条件都没有的无条件跳过，比标题串更赤裸', () => {
     expect(findOnlyOrSkipViolations('test.skip()')).toEqual({ only: 0, uncondSkip: 1 })
     expect(findOnlyOrSkipViolations('it.skip( )')).toEqual({ only: 0, uncondSkip: 1 })

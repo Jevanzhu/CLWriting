@@ -47,6 +47,9 @@ export interface GlobalPrefs {
   proseLh?: number
   uiFontCn?: string
   uiFontEn?: string
+  /** UI 字号档（-1 小 / 0 标准 / 1 大 / 2 特大；--font-size-step 整条刻度平移）。
+   *  R0912-3 #8：store 真实读写本键，原靠索引签名过编译，此处补正声明。 */
+  uiFontSizeStep?: number
   proseFontCn?: string
   proseFontEn?: string
   pageWidth?: number

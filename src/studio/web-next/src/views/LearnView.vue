@@ -84,11 +84,14 @@ async function onCommit(): Promise<void> {
       <span>{{ learn.error }}</span>
     </div>
 
-    <!-- 空状态 -->
+    <!-- 空状态（R0912-3 P2-3 三态：未收割引导 / 已收割零候选 / 有结果——原内层
+         「无合格候选」分支与外层 hasResult 逻辑互斥不可达，判据上移 store 合流到此） -->
     <EmptyState
       v-if="!learn.hasResult && !learn.loading && !learn.error"
-      :icon="GraduationCap"
-      :text="chapterCount > 0 ? `点击「收割候选」分析 ${chapterCount} 章定稿正文。` : '当前没有定稿正文可收割——先写正文并定稿。'"
+      :icon="learn.lastHarvestRan ? PackageCheck : GraduationCap"
+      :text="learn.lastHarvestRan
+        ? '这次没有合格候选——定稿正文得分普遍偏低，或缺少有特色的短句。'
+        : chapterCount > 0 ? `点击「收割候选」分析 ${chapterCount} 章定稿正文。` : '当前没有定稿正文可收割——先写正文并定稿。'"
       class="learn-empty"
     />
 
@@ -117,13 +120,6 @@ async function onCommit(): Promise<void> {
 
       <!-- 金句区 -->
       <QuoteCardGrid />
-
-      <!-- 无合格候选 -->
-      <EmptyState
-        v-if="!learn.samples.length && !learn.quotes.length"
-        :icon="PackageCheck"
-        text="这次没有合格候选——定稿正文得分普遍偏低，或缺少有特色的短句。"
-      />
     </div>
   </div>
 </template>

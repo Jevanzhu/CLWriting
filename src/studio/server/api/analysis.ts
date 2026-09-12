@@ -29,6 +29,7 @@ import { readAnalysis, readAnalysisKinds, writeAnalysisAsync, readBookAnalysis, 
 import { mapAnalysisToCandidates, persistCandidates } from '../../../format/style-candidate.js'
 import { log, localDayKey } from '../../../log/index.js' // R76-31：候选日键本地日（同 overview/日记口径）；R46-2：worker 回落 warn 留痕
 import { safeManifestPath } from '../../../fs/safe-path.js'
+import { readMdTextCachedAsync } from '../../../fs/md-text-cache.js' // R0912-3：GET stale 判定走异步指纹缓存读
 import { acquireTaskGate, orchestrationBusyFor } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
 import { getDriver, ensureSession } from '../../../driver/index.js' // R0912-P2-①：中断通道注册面
 import type { Session } from '../../../driver/types.js'
@@ -379,7 +380,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
   defineRoute('books.documents.analysis', {
     method: 'GET',
     path: '/api/books/:name/documents/:docId/analysis/:kind',
-    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
+    handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
       const bookRoot = r.bookRoot
@@ -402,11 +403,11 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
       if (!absPath) return replyError(res, 400, 'BAD_PATH', '文档路径不合法')
       let stale = false
       if (existsSync(absPath)) {
-        try {
-          stale = isStaleEnv(env, readFileSync(absPath, 'utf-8'))
-        } catch {
-          stale = true
-        }
+        // R0912-3（2026-09-12 全量重评修复批 A1-2）：裸 readFileSync 整章同步读是范式一致性
+        // 残留——改走 readMdTextCachedAsync（HTTP 端点不回退同步 IO，R37-5 口径；stat 指纹
+        // 缓存命中零读盘）。降级语义同原 try/catch：读失败/TOCTOU 消失 → null → stale=true。
+        const text = await readMdTextCachedAsync(absPath)
+        stale = text === null ? true : isStaleEnv(env, text)
       }
       reply(res, 200, { ok: true, envelope: env, stale })
     },

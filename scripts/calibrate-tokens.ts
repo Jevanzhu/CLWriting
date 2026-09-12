@@ -20,9 +20,12 @@ import { DatabaseSync } from 'node:sqlite'
 import { defaultUserDataPath } from '../src/fs/user-data-path.js'
 import { fitCoefficients, renderCalibrationReport, isCalibratableCallRow, type CalibrationSample } from '../src/ai/token-calibration.js'
 
+// R0912-3 #49：与 verify-responses-relay.ts 严格口径对齐——值缺失/空串/flag 名（`--` 开头）
+// 一律按缺参处理，不误吞下一个 flag 作值
 function argValue(flag: string): string | null {
   const i = process.argv.indexOf(flag)
-  return i !== -1 && i + 1 < process.argv.length ? process.argv[i + 1] ?? null : null
+  const v = i !== -1 ? process.argv[i + 1] : undefined
+  return v && !v.startsWith('--') ? v : null
 }
 
 const userDataPath = argValue('--user-data') ?? defaultUserDataPath()

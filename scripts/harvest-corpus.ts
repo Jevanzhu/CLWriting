@@ -60,6 +60,11 @@ const hasWiring = existsSync(join(bookRoot, '布线'))
 
 // 有布线的书需要 db（账本检查）——rebuild 一次拿现行索引
 let db: DatabaseSync | null = null
+// R0912-3（2026-09-12 全量重评 #42）：清单缺失早退旗标——原 process.exit(1) 在 try 内
+// 硬退、绕过 finally{db?.close()}（R71-34「db 由 finally 统一收口」不变量该路径不成立；
+// 进程即退无实害，仍按纪律修）。改「置旗标 → break 出 try（finally 照跑）→ 收口后再
+// exit(1)」：退出码与「不进产出段」（不覆盖写候选文件）语义均不变。
+let manifestMissing = false
 
 /** 命中词提取（R51-J-1 五十一轮重写，原 quotedOf）：message 里的「」/『』/“”引号
  *  片段（禁词/意象等检查项带）+ 「词×N」形态（身体部位/比喻堆砌类：`眼睛×6`）。
@@ -121,7 +126,7 @@ let firstSnapshotError: string | null = null
 // 系统性故障会以「候选 0 条」成功口径收场（对比 src/learn/index.ts 的显式报错口径）
 const failedChapters: Array<{ file: string; line: number; message: string }> = []
 
-try {
+harvestScan: try {
   // R71-34（总七十一轮）：rebuild/开库移入 try/finally——此前在 try 外，BEGIN busy/
   // 磁盘故障裸栈崩穿（不走 finally 收尾）；db 由 finally 统一 close
   if (hasWiring) {
@@ -134,7 +139,8 @@ try {
   // 「候选 0 条」假成功无从归因
   if (!existsSync(manifestPath)) {
     console.error(`文档清单缺失（${manifestPath}）——请先在应用中打开一次本书生成清单后重试`)
-    process.exit(1)
+    manifestMissing = true
+    break harvestScan
   }
   const manifest = readManifest(manifestPath)
   const versionsDir = join(bookRoot, '工作区', VERSIONS_DIR_NAME)
@@ -247,6 +253,9 @@ try {
 } finally {
   db?.close()
 }
+// R0912-3（#42）：finally 收口 db 后再硬退（退出码 1 与原早退一致；此处退出保证
+// 清单缺失时不进下方产出段——空候选覆盖写会清掉作者既有候选清单）
+if (manifestMissing) process.exit(1)
 
 // ── 产出（候选制：作者勾选 [x] 后 npm run corpus:commit 入库）──────────
 const outDir = join(bookRoot, '工作区', '语料候选')

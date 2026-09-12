@@ -54,11 +54,13 @@ const M = vi.hoisted(() => ({
   logErrors: [] as unknown[],
   logWarns: [] as unknown[], // P3（打包修复批）：second-instance --book 忽略留痕断言用
   logInfos: [] as unknown[],
+  appFocus: [] as unknown[], // R0912-3 #36：second-instance darwin app.focus({steal:true}) 捕获面
   // ── 阶段 22 批 U1：utilityProcess 假件捕获面 ──
   forkCalls: [] as Array<{ modulePath: string; args: string[]; options: Record<string, unknown> }>,
   forkChildren: [] as Array<Record<string, any>>,
-  /** 'ready'（默认，自动回传 ready 45678）/ 'boot-error'（回传 EADDRINUSE 信封后退出） */
-  forkBehavior: 'ready' as 'ready' | 'boot-error',
+  /** 'ready'（默认，自动回传 ready 45678）/ 'boot-error'（回传 EADDRINUSE 信封后退出）/
+   *  'pending'（不回任何消息——握手挂起形态，R0912-3 #35 backstop 竞速用例） */
+  forkBehavior: 'ready' as 'ready' | 'boot-error' | 'pending',
   errorBox: [] as Array<[string, string]>,
   // ── 阶段 22 批 U3：封顶对话框捕获面（0=重启服务 / 1=退出应用，缺省退出） ──
   msgBoxSync: [] as Array<Record<string, unknown>>,
@@ -199,6 +201,8 @@ vi.mock('electron', () => {
         if (M.forkBehavior === 'boot-error') {
           this.emit('message', { type: 'boot-error', code: 'EADDRINUSE', message: '端口 0 已被占用（EADDRINUSE），请释放占用进程或用 --port 换端口' })
           this.emit('exit', 1)
+        } else if (M.forkBehavior === 'pending') {
+          // 握手挂起形态：不回任何消息（stopChild 的 settle 竞速窗无法按时收口）
         } else {
           this.emit('message', { type: 'ready', port: 45678 })
         }
@@ -253,6 +257,10 @@ vi.mock('electron', () => {
       // 捕获面记录 code 供断言（生产零调用该 API 的其他处）。
       exit: (code?: number) => {
         M.exitCodes.push(code ?? 0)
+      },
+      // R0912-3 #36：app.focus(opts) 捕获面（second-instance darwin steal 断言用）
+      focus: (opts?: unknown) => {
+        M.appFocus.push(opts ?? null)
       },
       relaunch: () => {
         M.relaunchCalls++
@@ -946,6 +954,29 @@ describe('kk-P2-8：原生菜单与 second-instance', () => {
       // 恢复窗口存活态（fake close 只置 closed 标记，可逆），避免影响后续用例
       win.closed = false
     }
+  })
+
+  // R0912-3（重评-0912 P3 #36）：mac 双开拉起可能只聚焦不置前——second-instance 尾部
+  // 补 darwin app.focus({steal:true})（steal = 自其他 app 强制夺焦并置前）；win/linux
+  // 不调（默认 focus 语义已足），win.focus() 各平台照常。
+  // 前置用例（主窗不可用形态）会把首实例的 mainWindow 置 null——fresh module 取干净
+  // 实例（同重评-P3-11 手法），handler 取 at(-1)。
+  it('R0912-3 #36: second-instance 尾部 darwin app.focus({steal:true})，主窗 focus 照常', async () => {
+    vi.resetModules()
+    await import('../../src/desktop/main.js')
+    await new Promise((r) => setImmediate(r))
+    await new Promise((r) => setImmediate(r))
+    const h = M.appOn['second-instance']!.at(-1)!
+    const win = M.windows.at(-1)!
+    const f0 = win.focused
+    const focus0 = M.appFocus.length // M 共享态：既有 second-instance 用例已写过聚焦捕获面
+    h({}, []) // 无 --book 的普通双开拉起（直达聚焦尾部）
+    if (process.platform === 'darwin') {
+      expect(M.appFocus.slice(focus0)).toEqual([{ steal: true }]) // steal 语义参数钉定
+    } else {
+      expect(M.appFocus.length).toBe(focus0) // 非 darwin 平台不调 app.focus
+    }
+    expect(win.focused).toBe(f0 + 1) // 主窗聚焦不受影响（应用内置前）
   })
 })
 
@@ -1998,6 +2029,45 @@ describe('R44-15/R44-17: 子窗工作区钳制 + uncaughtException 停机兜底'
       const crashLogs = M.logErrors.filter((l) => String((l as unknown[])[1]).includes('未捕获异常'))
       expect(crashLogs.length).toBeGreaterThan(0) // JSONL 留痕不丢
     } finally {
+      exitSpy.mockRestore()
+      onSpy.mockRestore()
+    }
+  })
+
+  // R0912-3（重评-0912 P3 #35）：stopChild 慢于 200ms backstop（自动重启 fork 握手挂起
+  // = 'pending' 形态，settle 预算 2s 远未到）时，修复前 backstop 到点裸退、kill 从未
+  // 发出成孤儿——修复后 backstop 内先经 killNow 同步发 kill 再 process.exit(1)，退出
+  // 不被 stopChild 拖延。真 200ms 定时器驱动（process.exit 已 mock）。
+  it('R0912-3 #35: stopChild 慢于 backstop → killNow 仍发出 kill，退出不被拖延', async () => {
+    const registered: Record<string, Array<(...a: unknown[]) => void>> = {}
+    const onSpy = vi
+      .spyOn(process, 'on')
+      .mockImplementation(((evt: string | symbol, fn: (...a: unknown[]) => void) => {
+        ;(registered[String(evt)] ??= []).push(fn)
+        return process
+      }) as never)
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never)
+    try {
+      await freshModule()
+      const child1 = M.forkChildren.at(-1)!
+      const forkCount0 = M.forkChildren.length
+      // 崩溃 → backoff[0]=0 自动重启 fork（'pending'：ready 永不到达，握手挂起）
+      M.forkBehavior = 'pending'
+      child1.emit('exit', 1)
+      await vi.waitFor(() => expect(M.forkChildren.length).toBe(forkCount0 + 1), { timeout: 500 })
+      const child2 = M.forkChildren.at(-1)!
+      const handler = registered['uncaughtException']?.at(-1)
+      expect(handler).toBeTruthy()
+      const t0 = Date.now()
+      handler!(new Error('测试崩溃'))
+      // stopChild 的 settle 竞速（2s 预算）未收口，backstop 200ms 到点：killNow 同步
+      // 对在途 fork 发 kill → process.exit(1)。两断言都须在 ~200ms 量级达成（修复前
+      // killed 不增——kill 被裸退截断；修复后 kill 与退出同拍发出，不被 2s 预算拖延）
+      await vi.waitFor(() => expect(child2.killed).toBeGreaterThanOrEqual(1), { timeout: 1_500, interval: 20 })
+      expect(exitSpy).toHaveBeenCalledWith(1)
+      expect(Date.now() - t0).toBeLessThan(1_900)
+    } finally {
+      M.forkBehavior = 'ready' // 还原共享桩，不污染后续用例
       exitSpy.mockRestore()
       onSpy.mockRestore()
     }

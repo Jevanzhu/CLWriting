@@ -11,13 +11,20 @@ export const QUOTE_OPEN = '「『“‘'
 /** 闭引号（直角 + 弯引号双体系） */
 export const QUOTE_CLOSE = '」』”’'
 
-/** 证据提取专用宽容字符集（双体系 + ASCII 直引号）。R62-8：V-P2-12「证据匹配宁宽
+/** 证据提取专用宽容字符集（双体系 + ASCII 直引号 + ASCII 单引号）。R62-8：V-P2-12「证据匹配宁宽
  *  勿漏」口径此前散落在 leads.ts 正则字面量里、与「全部检查器从这里取字符集」的
  *  单源宣言分裂——收编为导出常量两文件同源。正文 span 检测（QUOTED_SPAN_RE）刻意
  *  不收 ASCII 引号（行为维持定谳，见六十二轮报告 R62-8）：span 面收紧/放宽波及
- *  golden 语料门与全部检查器行为，证据面宽容只影响 grep 截取。 */
-export const QUOTE_OPEN_LENIENT = QUOTE_OPEN + '"'
-export const QUOTE_CLOSE_LENIENT = QUOTE_CLOSE + '"'
+ *  golden 语料门与全部检查器行为，证据面宽容只影响 grep 截取。
+ *  R0912-3（2026-09-12 全量重评修复批）：补 ASCII 单引号（'）——单引号包裹的证据
+ *  此前两头落空（CORE 取不到内文、edge/all 剥不掉引号），正文以无引号形式写同文时
+ *  grep 整组 miss → lead-evidence-miss 伪红（fail-noisy 向，宁宽勿漏口径内的漏字）。
+ *  误剥面评估：本集只供证据面正则（leads.ts EVIDENCE_* 族与 setting-rule 候选抽取）
+ *  ——stripQuotedSpans 用字面 QUOTED_SPAN_RE（无 ASCII 引号），禁词/意象/比喻/身体
+ *  部位/开头等剥引号消费面对 it's 类撇号文本行为零变化；中文小说语境 ASCII 单引号
+ *  几乎只作包裹用，证据针串多候选（任一命中即算）对撇号边缘形态亦有兜底。 */
+export const QUOTE_OPEN_LENIENT = QUOTE_OPEN + '"\''
+export const QUOTE_CLOSE_LENIENT = QUOTE_CLOSE + '"\''
 
 /** 成对引号包裹的片段（跨体系配对：任一开 + 任一闭）。对话行/引文判定用。
  * R61-12（第六十一轮）：补单弯引号 ‘’——QUOTE_OPEN/QUOTE_CLOSE 常量自含 ‘’，

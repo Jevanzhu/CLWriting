@@ -41,7 +41,8 @@ async function chooseLibrary(): Promise<void> {
     const r = await window.clwritingDesktop?.openLibrary()
     if (r && !r.ok && 'reason' in r) ui.toast(r.reason, 'error')
   } catch (e) {
-    loadError.value = e instanceof Error ? e.message : String(e)
+    // R0912-3 #21：交互失败改 toast——原先写 loadError 顶掉已加载最近列表（loadError 双职）
+    ui.toast(e instanceof Error ? e.message : String(e), 'error')
   }
 }
 
@@ -52,7 +53,8 @@ async function switchTo(path: string): Promise<void> {
     // 目录」等）此前只 catch 抛错、返回值被静默吞掉——取消原因就地 toast 交代
     if (r && !r.ok) ui.toast(r.reason, 'error')
   } catch (e) {
-    loadError.value = e instanceof Error ? e.message : String(e)
+    // R0912-3 #21：同 chooseLibrary——交互失败不再顶掉最近列表
+    ui.toast(e instanceof Error ? e.message : String(e), 'error')
   }
 }
 </script>
@@ -101,12 +103,13 @@ async function switchTo(path: string): Promise<void> {
       </div>
 
       <!-- 最近 -->
-      <!-- 低级项（第六轮）：最近列表 IPC 失败给错误态 + 重试（主入口按钮不依赖该数据，保持可用） -->
+      <!-- 低级项（第六轮）：最近列表 IPC 失败给错误态 + 重试（主入口按钮不依赖该数据，保持可用）。
+           R0912-3 #21：错误态与列表数据分离——两段独立 v-if，失败的补拉不顶掉已加载列表 -->
       <section v-if="hasDesktop && loadError" class="recent">
         <p class="no-desktop">最近书库加载失败：{{ loadError }}</p>
         <button class="retry-btn" @click="void load()">重试</button>
       </section>
-      <section v-else-if="hasDesktop && recents.length" class="recent">
+      <section v-if="hasDesktop && recents.length" class="recent">
         <h2 class="recent-title">
           <Clock :size="14" />
           <span>最近打开</span>

@@ -54,7 +54,8 @@ function onTimeout(slot: TierSlot, ev: Event): void {
   const min = Number(v)
   if (!Number.isFinite(min) || min <= 0) {
     // 非法输入不落值（等价于清空），下次合法输入再写
-    ev.target instanceof HTMLInputElement && (ev.target.value = '')
+    // R0912-3 #15：原表达式语句（&& 短链赋值）改 if——语句位用表达式字面不达意
+    if (ev.target instanceof HTMLInputElement) ev.target.value = ''
     delete slot.timeoutMs
     return
   }

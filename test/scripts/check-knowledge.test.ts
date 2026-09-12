@@ -87,6 +87,31 @@ describe('R63-15：scanUnregisteredKnowledgeAssets 反向扫描直测', () => {
     const registered = [{ target: '知识层/图谱.json' }, { target: '知识层/资料包/图.png' }] as never
     expect(scanUnregisteredKnowledgeAssets(dir, registered)).toEqual([])
   })
+
+  // R0912-3（2026-09-12 全量重评 #40）：登记面比对收敛 caseFoldKey 单源 + NFC（同
+  // docJoinKey 次序：先 NFC 后折叠）。修复前精确字符串比对——大小写漂移（win/APFS
+  // 同物理文件）与 NFD 文件名（mac APFS 惯存分解形）下已登记文件误报未登记（CI 假红）。
+  // 折叠仅 darwin/win32 生效（platformCaseFold 口径），以 platform mock 钉折叠臂；
+  // 真不同名仍须上报（归一收敛 ≠ 模糊匹配）。
+  it('R0912-3: 大小写漂移/NFD 文件名形态不再误报未登记；精确不匹配仍报', () => {
+    const ORIG_PLATFORM = process.platform
+    mkdirSync(join(dir, '知识层'), { recursive: true })
+    writeFileSync(join(dir, '知识层', '条目.MD'), '# 大小写漂移形态')
+    const nfcName = '阐明.md'
+    const nfdName = nfcName.normalize('NFD')
+    writeFileSync(join(dir, '知识层', nfdName), '# NFD 形态')
+    try {
+      Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+      const registered = [{ target: '知识层/条目.md' }, { target: `知识层/${nfcName}` }] as never
+      expect(scanUnregisteredKnowledgeAssets(dir, registered)).toEqual([])
+      // 真不同名（登记面查无）仍报——上报磁盘原形态（不折叠不 NFC 改写）
+      expect(scanUnregisteredKnowledgeAssets(dir, [{ target: '知识层/另一个.md' }] as never).sort()).toEqual(
+        ['知识层/条目.MD', `知识层/${nfdName}`].sort(),
+      )
+    } finally {
+      Object.defineProperty(process, 'platform', { value: ORIG_PLATFORM, configurable: true })
+    }
+  })
 })
 
 describe('R63-15：真实仓库反向扫描——门禁口径锚定（当前全登记/全豁免）', () => {

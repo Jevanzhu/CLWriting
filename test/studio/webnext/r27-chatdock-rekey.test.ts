@@ -78,7 +78,9 @@ describe('R27-76: ChatDock 跨书残留', () => {
     await nextTick()
     expect(w.findComponent(ChatDock).exists()).toBe(true)
     expect(w.findAllComponents(ChatDock)).toHaveLength(1) // 旧的销毁、无叠加
-    expect(w.find('.chat-input').exists()).toBe(false) // fabOpen 复位为收起
+    // R0912-3 #11 起 dock composer 常驻（v-show 保实例草稿），收起态改断言不可见；
+    // fabOpen 复位为收起 + 重建实例输入为空的语义不变
+    expect((w.find('.chat-stack').element as HTMLElement).style.display).toBe('none')
 
     // 再展开：输入框为空——A 书文本无处可残留，不会误发进 B 书
     await w.find('.fab').trigger('click')

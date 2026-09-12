@@ -130,6 +130,18 @@ describe('POST /documents/:docId/analyze + GET /analysis/:kind（M12 B4.0/B4.1�
     expect(j.envelope.payload.score).toBe(8)
   })
 
+  it('R0912-3：连续 GET（第二拍命中 md 指纹缓存）stale 判定不变', async () => {
+    // stale 判定改走 readMdTextCachedAsync 后：首拍填充指纹缓存，第二拍命中缓存直读，
+    // 两拍判定须一致（缓存路径行为不变）；下用例改正文后照常翻 true（指纹失效重读）
+    const p = `/api/books/${encodeURIComponent(BOOK)}/documents/${docId}/analysis/score`
+    const r1 = await req('GET', p)
+    const r2 = await req('GET', p)
+    expect(r1.status).toBe(200)
+    expect(r2.status).toBe(200)
+    expect((r1.json as { stale: boolean }).stale).toBe(false)
+    expect((r2.json as { stale: boolean }).stale).toBe(false)
+  })
+
   it('改正文 → GET stale=true（过期标注）', async () => {
     writeFileSync(
       join(workDir, BOOK, '写作', '正文', '0001-开篇.md'),

@@ -116,12 +116,36 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
   })
 }
 
-/** 从 run 回调返回值提取 usage（如有 { usage: TokenUsage } 字段） */
+/** 从 run 回调返回值提取 usage（如有 { usage: TokenUsage } 字段）。
+ *  R0912-3（2026-09-12 全量重评修复批 #7）：键存在之外加值类型守卫——计量字段非
+ *  number（字符串/null 等错型）不透传：inputTokens/outputTokens 错型整体视为缺失 →
+ *  null 走兜底（行为与缺失一致，防错型入账累加成字符串拼接/NaN 静默烂账）；可选
+ *  cache/reasoning 字段错型按缺失丢弃、estimated 非布尔 true 按未标记丢弃（与 calls.ts
+ *  readRecord 对可选字段/标记的同款口径）。三适配器自产 usage 恒为良型，既有形态
+ *  逐字段不变。 */
 function extractUsage(data: unknown): TokenUsage | null {
   if (typeof data === 'object' && data !== null && 'usage' in data) {
     const u = (data as Record<string, unknown>)['usage']
-    if (u && typeof u === 'object' && 'inputTokens' in u && 'outputTokens' in u) {
-      return u as TokenUsage
+    if (u && typeof u === 'object') {
+      const r = u as Record<string, unknown>
+      const inputTokens = r['inputTokens']
+      const outputTokens = r['outputTokens']
+      if (typeof inputTokens !== 'number' || typeof outputTokens !== 'number') return null
+      const optNum = (k: string): number | undefined => {
+        const v = r[k]
+        return typeof v === 'number' ? v : undefined
+      }
+      const cacheReadTokens = optNum('cacheReadTokens')
+      const cacheWriteTokens = optNum('cacheWriteTokens')
+      const reasoningTokens = optNum('reasoningTokens')
+      return {
+        inputTokens,
+        outputTokens,
+        ...(cacheReadTokens !== undefined ? { cacheReadTokens } : {}),
+        ...(cacheWriteTokens !== undefined ? { cacheWriteTokens } : {}),
+        ...(reasoningTokens !== undefined ? { reasoningTokens } : {}),
+        ...(r['estimated'] === true ? { estimated: true } : {}),
+      }
     }
   }
   return null

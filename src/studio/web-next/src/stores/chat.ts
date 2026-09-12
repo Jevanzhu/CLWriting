@@ -2,6 +2,7 @@ import { useWorkspaceStore } from './workspace'
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { str } from './sse-guards'
+import { CHAT_HISTORY_LIMIT } from '../shared/chat-history'
 import {
   fetchChatHistory,
   fetchChatBranches,
@@ -46,8 +47,9 @@ export interface ChatMessage {
   seq?: number
 }
 
-/** 消息列表上限（防长对话内存膨胀） */
-const MAX_MESSAGES = 200
+/** 消息列表上限（防长对话内存膨胀；R0912-3 #10：单源 shared/chat-history——原硬编码
+ *  200 与 fetchChatHistory 尾窗 limit / ChatMessages 截断提示三处各自为政曾失同步） */
+const MAX_MESSAGES = CHAT_HISTORY_LIMIT
 
 /** 工具入参落存截断上限（码位）。内存闸（2026-08-24 审计 C3）：工具卡 input 是
  *  整章正文级文本（如 write_chapter 的正文入参），原样入 store 常驻——列表上限只

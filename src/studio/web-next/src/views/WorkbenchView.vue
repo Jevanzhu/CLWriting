@@ -184,6 +184,8 @@ function onPromptEnter(e: KeyboardEvent): void {
   // R61-17（第六十一轮）：原 @keyup.enter 在 IME compositionend 之后触发（isComposing
   // 已 false），确认候选词的 Enter 会直接起一轮 AI 生成——改 keydown + 组合期守卫
   if (isImeComposing(e)) return
+  // R0912-3 #17：AI 不可用时 Enter 不放行（主「生成」按钮已禁，旁路补同款闸）
+  if (ui.aiAvailable === false) return
   if (!genBusy.value) void onSpawn()
 }
 
@@ -271,16 +273,19 @@ async function onAutoWrite(): Promise<void> {
   err.value = null
   // FE-9（第七轮）：书名入口捕获（同 onSpawn）——getConfig await 期间切书后中止
   const book = props.bookName
+  // R0912-3 #24：章号同款请求时刻捕获——toast 处再读 chapter.value 已是生成结束刷新
+  // 状态卡后的新值（窄窗文案错位），入队时刻拍定全函数用
+  const chap = chapter.value
   try {
     const cfg = await getConfig(book)
     // 书级未设回落全局默认（prefs.aiBatchSize 初值即硬编码回落 8；服务端合并同链）
     const batchSize = Math.max(1, Math.min(20, Math.floor(cfg.auto?.batch_size ?? prefs.aiBatchSize)))
     if (props.bookName !== book) return
-    const r = await autoWrite(book, chapter.value, batchSize)
+    const r = await autoWrite(book, chap, batchSize)
     // R52-I-1：同 onSpawn——autoWrite POST 在途切书，A 书的「已开始全自动写稿」toast
     // 不落 B 书界面（消息里的章号也是 A 书的，落 B 书更误导）
     if (props.bookName !== book) return
-    const msg = (r.batchSize ?? 1) > 1 ? `第 ${chapter.value} 章起连写 ${r.batchSize} 章已开始` : `第 ${chapter.value} 章已开始全自动写稿`
+    const msg = (r.batchSize ?? 1) > 1 ? `第 ${chap} 章起连写 ${r.batchSize} 章已开始` : `第 ${chap} 章已开始全自动写稿`
     ui.toast(msg, 'info')
   } catch (e) {
     if (props.bookName !== book) return // R70-10：同 onSpawn
@@ -299,10 +304,11 @@ async function onOutline(): Promise<void> {
   // R63-10（十一轮）：书名入口捕获 + await 后复检（FE-9/L-F1 惯例，兄弟函数均已有）——
   // 生成期间切书后 toast 会落到切换后的书，误导作者
   const book = props.bookName
+  const chap = chapter.value // R0912-3 #24：章号请求时刻捕获（同 onAutoWrite）
   try {
-    await generateOutline(book, chapter.value)
+    await generateOutline(book, chap)
     if (props.bookName !== book) return
-    ui.toast(`第 ${chapter.value} 章细纲已生成`, 'success')
+    ui.toast(`第 ${chap} 章细纲已生成`, 'success')
   } catch (e) {
     if (props.bookName !== book) return
     err.value = friendlyError(e)
@@ -319,8 +325,9 @@ async function onLeadUpdates(): Promise<void> {
   err.value = null
   // R63-10：书名入口捕获 + await 后复检（同 onOutline）
   const book = props.bookName
+  const chap = chapter.value // R0912-3 #24：章号请求时刻捕获（同 onAutoWrite）
   try {
-    const r = await generateLeadUpdates(book, chapter.value)
+    const r = await generateLeadUpdates(book, chap)
     if (props.bookName !== book) return
     ui.toast(r.count > 0 ? `已生成 ${r.count} 条账本推进，请确认` : '本章无账本推进', 'success')
   } catch (e) {
@@ -358,8 +365,9 @@ async function onSaveDraft(): Promise<void> {
   // L-F1（第八轮）：await 前捕获书名——存草稿在途切书后 tree.load/openTab/toast 会
   // 落到 B 书界面（legacy docId 可撞 B 书同路径），确认后守卫中止
   const book = props.bookName
+  const chap = chapter.value // R0912-3 #24：章号请求时刻捕获（同 onAutoWrite）
   try {
-    const r = await saveDraft(book, chapter.value, wb.textOut)
+    const r = await saveDraft(book, chap, wb.textOut)
     // 低-2（第十轮）：draftSaved 赋值移到切书守卫之后——原先守卫前就写徽标，存草稿
     // 在途切书时 watch(bookName) 已清残留，晚到的赋值又把 A 书「已存 N 字」徽标
     // 留在 B 书工作台（L-F1 同点收尾）
@@ -369,7 +377,7 @@ async function onSaveDraft(): Promise<void> {
     await tree.load(book)
     refreshCachedDoc(r.docId) // R26-17：同 healResult——缓存命中（clean）时先异步重拉再开
     ws.openTab(r.docId)
-    ui.toast(`第 ${chapter.value} 章草稿已存，转到编辑`, 'success')
+    ui.toast(`第 ${chap} 章草稿已存，转到编辑`, 'success')
   } catch (e) {
     if (props.bookName !== book) return // R70-10：同 onSpawn——A 书失败不落 B 书界面
     err.value = friendlyError(e)

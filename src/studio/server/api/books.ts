@@ -479,51 +479,51 @@ export function registerBookRoutes(ctx: BookCtx): void {
       void cleanupDone.finally(() => {
         pendingGraveyardCleanups.delete(cleanupDone)
       })
-    // 移 books.jsonl 登记 + 清活动书指针（残留清偿批：同步 removeBookEntry 的
-    // Atomics.wait 锁等待改异步孪生——mutator 族服务面落点至此归零）
-    await removeBookEntryAsync(ctx.workDir, name)
-    // 清理 service 缓存，防同 path 重建复用旧实例
-    forgetService(bookAbs)
-    // P1-S2：清理 driver session + 树索引缓存，防删书后资源泄漏
-    forgetSession(name)
-    // R-18（第十六轮）：per-book SSE 计数一并清——残留计数会让同名重建书被顶到 429 上限
-    forgetSseCount(name)
-    // R67-15（十五轮）：书键 TTL 结果缓存一并清（见顶部 forgetBookKeyedCaches 注释）
-    forgetBookKeyedCaches(bookAbs)
-    // R69-24（十七轮）：书架摘要缓存一并清——rename 分支（:444）有 invalidateBookSummary，
-    // delete 分支漏配：删后 5s TTL 窗口内同名重建书，书架卡会读到旧章数/字数/最近编辑
-    invalidateBookSummary(bookAbs)
-    invalidateTreeIndex(bookAbs, true)
-    // 内存闸（2026-08-24 审计 C2）：章节元数据缓存按书前缀一并清——删书后目录已不在，
-    // 每章元数据条目成死重（bookAbs 即各调用方 readChapterDir 键的 join 前缀）
-    clearChapterDirCacheForBook(bookAbs)
-    // GG-P2-3：事件库一并清（Y-P2-7 双键：book=书名 + book=bookHash(bookRoot)）——
-    // 只清内存时事件库残留，同名重建书会在 audit 重放里继承旧书会话/链路事件。
-    // L-S4（第八轮）：删除主流程已完成（登记已移、目录已删），清史收尾若抛（SQLITE_BUSY
-    // 等）不该让客户端看到 500「内部错误」且跳过下方 db 文件清理留孤儿——防御性收编
-    try {
-      // R34D-19（三十四轮）：clearChatHistory 转异步（事件库开库异步孪生），防御性收编不变
-      await clearChatHistory(name, ctx.userDataPath ?? undefined, bookAbs)
-    } catch (e) {
-      // 低-6（第十轮）：留痕走项目 logger——console 在打包态 mirrorConsole=false 无人看见
-      // 也不进 JSONL（诊断失明）；tag 与本文件 log.error 删除目录失败同源 'api'
-      log.warn('api', `删书清史失败（${name}，残留 db 文件将由下方清理兜底）`, e)
-    }
-    // 二轮复审（低级）：事件库**文件**一并删（<hash>.db + WAL/SHM 伴生）——clearChatHistory
-    // 只清行，库文件本体滞留 userData 成永久孤儿（每书一库）；settle 已保证无人持有句柄，
-    // 清理失败不阻断删书（残留文件无读者）
-    if (ctx.userDataPath) {
-      const dbBase = join(ctx.userDataPath, 'clwriting', 'session', bookHash(bookAbs) + '.db')
-      for (const suffix of ['', '-wal', '-shm']) {
-        try {
-          rmSync(dbBase + suffix, { force: true })
-        } catch {
-          /* 单个伴生文件清理失败忽略 */
+      // 移 books.jsonl 登记 + 清活动书指针（残留清偿批：同步 removeBookEntry 的
+      // Atomics.wait 锁等待改异步孪生——mutator 族服务面落点至此归零）
+      await removeBookEntryAsync(ctx.workDir, name)
+      // 清理 service 缓存，防同 path 重建复用旧实例
+      forgetService(bookAbs)
+      // P1-S2：清理 driver session + 树索引缓存，防删书后资源泄漏
+      forgetSession(name)
+      // R-18（第十六轮）：per-book SSE 计数一并清——残留计数会让同名重建书被顶到 429 上限
+      forgetSseCount(name)
+      // R67-15（十五轮）：书键 TTL 结果缓存一并清（见顶部 forgetBookKeyedCaches 注释）
+      forgetBookKeyedCaches(bookAbs)
+      // R69-24（十七轮）：书架摘要缓存一并清——rename 分支（:444）有 invalidateBookSummary，
+      // delete 分支漏配：删后 5s TTL 窗口内同名重建书，书架卡会读到旧章数/字数/最近编辑
+      invalidateBookSummary(bookAbs)
+      invalidateTreeIndex(bookAbs, true)
+      // 内存闸（2026-08-24 审计 C2）：章节元数据缓存按书前缀一并清——删书后目录已不在，
+      // 每章元数据条目成死重（bookAbs 即各调用方 readChapterDir 键的 join 前缀）
+      clearChapterDirCacheForBook(bookAbs)
+      // GG-P2-3：事件库一并清（Y-P2-7 双键：book=书名 + book=bookHash(bookRoot)）——
+      // 只清内存时事件库残留，同名重建书会在 audit 重放里继承旧书会话/链路事件。
+      // L-S4（第八轮）：删除主流程已完成（登记已移、目录已删），清史收尾若抛（SQLITE_BUSY
+      // 等）不该让客户端看到 500「内部错误」且跳过下方 db 文件清理留孤儿——防御性收编
+      try {
+        // R34D-19（三十四轮）：clearChatHistory 转异步（事件库开库异步孪生），防御性收编不变
+        await clearChatHistory(name, ctx.userDataPath ?? undefined, bookAbs)
+      } catch (e) {
+        // 低-6（第十轮）：留痕走项目 logger——console 在打包态 mirrorConsole=false 无人看见
+        // 也不进 JSONL（诊断失明）；tag 与本文件 log.error 删除目录失败同源 'api'
+        log.warn('api', `删书清史失败（${name}，残留 db 文件将由下方清理兜底）`, e)
+      }
+      // 二轮复审（低级）：事件库**文件**一并删（<hash>.db + WAL/SHM 伴生）——clearChatHistory
+      // 只清行，库文件本体滞留 userData 成永久孤儿（每书一库）；settle 已保证无人持有句柄，
+      // 清理失败不阻断删书（残留文件无读者）
+      if (ctx.userDataPath) {
+        const dbBase = join(ctx.userDataPath, 'clwriting', 'session', bookHash(bookAbs) + '.db')
+        for (const suffix of ['', '-wal', '-shm']) {
+          try {
+            rmSync(dbBase + suffix, { force: true })
+          } catch {
+            /* 单个伴生文件清理失败忽略 */
+          }
         }
       }
-    }
-    forgetRagBuildTask(name) // dd-P3：模块级索引任务表随删书清理
-    reply(res, 200, { ok: true, name })
+      forgetRagBuildTask(name) // dd-P3：模块级索引任务表随删书清理
+      reply(res, 200, { ok: true, name })
   },
   })
 

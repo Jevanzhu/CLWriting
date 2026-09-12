@@ -7,7 +7,7 @@ import { serverOnline } from '../../composables/useHeartbeat'
 import { useWorkbenchStore } from '../../stores/workbench'
 import { useTreeStore } from '../../stores/tree'
 import { useWordsStore } from '../../stores/words'
-defineProps<{ bookName: string }>()
+// R0912-3 #9：原声明的 bookName 必填 prop 组件零消费（死契约，调用方白传）——整行删除。
 const { themeName } = useTheme()
 const tree = useTreeStore()
 const words = useWordsStore()

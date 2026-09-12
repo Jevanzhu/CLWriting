@@ -222,3 +222,70 @@ describe('learn: R-1 clear 在途 harvest 不卡 loading', () => {
     expect(s.hasResult).toBe(false) // 迟到数据不落地
   })
 })
+
+// R0912-3 P2-3（2026-09-12 全量重评修复批）：本次收割已跑判据——hasResult 布尔区分
+// 不了「未收割」与「收割了但零候选」（零候选收割后视图回落未收割引导），视图空态
+// 三态化靠 lastHarvestRan
+describe('learn: R0912-3 P2-3 lastHarvestRan 收割已跑判据', () => {
+  it('初始 false；零候选收割成功也置位（hasResult 仍 false——两判据正交）', async () => {
+    learnMock.mockResolvedValue({ samples: [], quotes: [] })
+    const s = useLearnStore()
+    expect(s.lastHarvestRan).toBe(false)
+    await s.harvest('book1')
+    expect(s.lastHarvestRan).toBe(true)
+    expect(s.hasResult).toBe(false)
+  })
+
+  it('harvest 失败不置位（未成功跑过不冒充已收割）', async () => {
+    learnMock.mockRejectedValue(new Error('连接失败'))
+    const s = useLearnStore()
+    await s.harvest('book1')
+    expect(s.lastHarvestRan).toBe(false)
+    expect(s.error).not.toBeNull()
+  })
+
+  it('clear 复位（切书后新书未收割）', async () => {
+    learnMock.mockResolvedValue({ samples: [], quotes: [] })
+    const s = useLearnStore()
+    await s.harvest('book1')
+    expect(s.lastHarvestRan).toBe(true)
+    s.clear()
+    expect(s.lastHarvestRan).toBe(false)
+  })
+})
+
+// R0912-3 #16：harvest/commit 函数级在途锁——同帧双击只跑一次（R35-34 家族漏网；
+// reqGen/commitGen 代守卫只防串书回填，防不了双发双跑）
+describe('learn: R0912-3 #16 函数级在途锁', () => {
+  it('harvest 在途同帧双发 → 只调一次 API', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    learnMock.mockImplementationOnce(() => gate.then(() => ({ samples: [], quotes: [] })))
+    const s = useLearnStore()
+    const p1 = s.harvest('book1')
+    const p2 = s.harvest('book1') // 在途第二笔：直接返回
+    release()
+    await Promise.all([p1, p2])
+    expect(learnMock).toHaveBeenCalledTimes(1)
+    expect(s.loading).toBe(false)
+  })
+
+  it('commit 在途同帧双发 → 只调一次 API', async () => {
+    learnMock.mockResolvedValue({ samples: [{ 场景: 's', 正文: 'b1', 出处: 'c' }], quotes: [] })
+    const s = useLearnStore()
+    await s.harvest('book1')
+    s.toggleSample(S('b1', 'c'))
+
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    commitMock.mockImplementationOnce(() =>
+      gate.then(() => ({ ok: true, sampleFiles: ['f1.md'], quoteFiles: [] })),
+    )
+    const p1 = s.commit('book1')
+    const p2 = s.commit('book1') // 在途第二笔：直接返回
+    release()
+    await Promise.all([p1, p2])
+    expect(commitMock).toHaveBeenCalledTimes(1)
+    expect(s.committing).toBe(false)
+  })
+})

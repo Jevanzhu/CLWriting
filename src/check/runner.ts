@@ -196,7 +196,18 @@ export function runAllChecks(input: CheckInput): CheckReport {
 
   // #10 项 6 复读（黄）—— R52-E-2：占比/连续字数双阈值可配（同上生效链，undefined
   // 直落引擎默认 0.15 / 200）
-  sections.push(checkRepeat(body, config.checks?.repeat_threshold, config.checks?.repeat_chars_threshold))
+  // R0912-3（2026-09-12 全量重评修复批）：repeat_threshold 是 0-1 占比语义——book 层
+  // 解析（yaml.ts parsePositiveNumber）只验 >0，手写 1.5 直穿 → rate > 1.5 恒假 =
+  // 复读比率口径静默死亡，违反「配置不生效必留痕」纪律。对齐 global 层同键 unitNum
+  // 先例（global-defaults.ts 限 (0,1]）在消费点夹紧上界到 1 + warn 留痕（比率恒
+  // ≤1，夹紧到 1 语义即「关比率口径」，绝对字数口径照常兜底）；≤0 由解析层既有
+  // 拒绝（非正数 warn 按未设）维持，不在此重复。
+  let repeatThreshold = config.checks?.repeat_threshold
+  if (repeatThreshold !== undefined && repeatThreshold > 1) {
+    log.warn('check', `checks.repeat_threshold ${repeatThreshold} 超出占比语义 (0,1] 上界，已夹紧为 1（复读率为 0-1 小数；绝对重复字数阈值不受影响）`)
+    repeatThreshold = 1
+  }
+  sections.push(checkRepeat(body, repeatThreshold, config.checks?.repeat_chars_threshold))
 
   // #10 项 7 高频意象（黄）—— 三级供给（数据源接线）：入参显式 > book.yaml
   // checks.imagery_words > 内置种子表（imagery-seed.ts）。?? 链上空数组非 nullish：

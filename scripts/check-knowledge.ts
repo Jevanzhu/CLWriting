@@ -20,7 +20,8 @@
 import { existsSync, readdirSync, statSync, type Dirent, type Stats } from 'node:fs'
 import { join, relative, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { validateKnowledgeManifest, KNOWLEDGE_DIR, type KnowledgeManifest } from '../src/knowledge/manifest.js'
+import { caseFoldKey, validateKnowledgeManifest, KNOWLEDGE_DIR, type KnowledgeManifest } from '../src/knowledge/manifest.js'
+import { toNfcName } from '../src/fs/text-canonical.js'
 
 // 仓库根（工作区路径可能含 ^ 等特殊字符，fileURLToPath 解码，与 check-packaging 同口径）
 const root = fileURLToPath(new URL('..', import.meta.url))
@@ -94,8 +95,15 @@ export function scanUnregisteredKnowledgeAssets(
   manifestOrEntries: KnowledgeManifest | KnowledgeManifest['entries'] | undefined,
   rootDir: string = KNOWLEDGE_DIR
 ): string[] {
+  // R0912-3（2026-09-12 全量重评 #40）：登记面比对收敛 caseFoldKey 单源（校验器/登记侧
+  // 判重同源），NFC 先于折叠（platformCaseFold 硬性不变量「不含 NFC」，同 docJoinKey
+  // 管线次序）——此前精确字符串比对，大小写漂移（win/APFS 同物理文件）与 NFD 文件名
+  // 形态（mac APFS 惯存分解形）下已登记文件误报未登记（CI 假红）。非字符串 target
+  // （坏形状行）维持原行为：不折叠、恒不匹配（报未登记，交由正向校验器上报）。
   const registered = new Set(
-    (Array.isArray(manifestOrEntries) ? manifestOrEntries : (manifestOrEntries?.entries ?? [])).map((e) => e.target)
+    (Array.isArray(manifestOrEntries) ? manifestOrEntries : (manifestOrEntries?.entries ?? [])).map((e) =>
+      typeof e.target === 'string' ? caseFoldKey(toNfcName(e.target)) : e.target
+    )
   )
   const knowledgeRoot = join(projectRoot, rootDir)
   if (!existsSync(knowledgeRoot)) return []
@@ -104,7 +112,7 @@ export function scanUnregisteredKnowledgeAssets(
     const rel = relative(projectRoot, fp).split(sep).join('/')
     const base = fp.split(sep).pop() ?? ''
     const exempt = base === '_manifest.json' || base.includes('草稿') || base === 'README.md'
-    if (!registered.has(rel) && !exempt) unmatched.push(rel)
+    if (!registered.has(caseFoldKey(toNfcName(rel))) && !exempt) unmatched.push(rel)
   }
   return unmatched
 }

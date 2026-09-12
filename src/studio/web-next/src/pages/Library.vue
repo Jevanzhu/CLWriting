@@ -50,7 +50,8 @@ async function chooseLibrary(): Promise<void> {
     const r = await window.clwritingDesktop?.openLibrary()
     if (r && !r.ok && 'reason' in r) ui.toast(r.reason, 'error')
   } catch (e) {
-    loadError.value = e instanceof Error ? e.message : String(e)
+    // R0912-3 #21：交互失败改 toast——原先写 loadError 顶掉已加载书库信息（双职）
+    ui.toast(friendlyError(e), 'error')
   }
 }
 
@@ -63,7 +64,8 @@ async function switchTo(path: string): Promise<void> {
     // 目录」等）此前只 catch 抛错、返回值被静默吞掉——取消原因就地 toast 交代
     if (r && !r.ok) ui.toast(r.reason, 'error')
   } catch (e) {
-    loadError.value = e instanceof Error ? e.message : String(e)
+    // R0912-3 #21：同 chooseLibrary——交互失败不再顶掉书库信息
+    ui.toast(friendlyError(e), 'error')
   }
 }
 
@@ -100,11 +102,13 @@ function openDir(): void {
       <div v-else-if="!hasDesktop" class="lib-status">
         <p>书库管理仅在桌面版可用。</p>
       </div>
-      <div v-else-if="loadError" class="lib-status">
-        <p>书库信息加载失败：{{ loadError }}</p>
-        <button class="btn" @click="void load()">重试</button>
-      </div>
       <template v-else>
+        <!-- R0912-3 #21：loadError 只来自 load()（交互失败已改 toast），错误态与已加载
+             数据分离显示——补拉失败不再顶掉当前书库/最近列表 -->
+        <div v-if="loadError" class="lib-status">
+          <p>书库信息加载失败：{{ loadError }}</p>
+          <button class="btn" @click="void load()">重试</button>
+        </div>
         <section v-if="current" class="current-card">
           <div class="cur-icon"><Database :size="20" /></div>
           <div class="cur-info">

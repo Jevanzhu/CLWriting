@@ -207,10 +207,16 @@ export type MoveResult =
  *  R71-23（十九轮）：'\' 归一在前——win32 path.resolve 视 '\' 为分隔符，含反斜杠的
  *  toDir 会被 resolveSafePath 放行并真实建目录，但混合分隔符串直拼进 manifest 后，
  *  posix 口径的树扫描/前端全链 miss（docId 身份分裂 + 保存恒 REVISION_CONFLICT，
- *  R66-5 同族后果）；先归一再按 '/' 口径统一校验，'\\server\\x' 伪 UNC 也被前导斜杠拒绝。 */
+ *  R66-5 同族后果）；先归一再按 '/' 口径统一校验，'\\server\\x' 伪 UNC 也被前导斜杠拒绝。
+ *  R0912-3（2026-09-12 全量重评 P2-1）：'..'/'.' 段拒绝——下方 safeSegs「已存在则原样
+ *  保留」分支对 '..' 恒命中（existsSync(join(root,'a','..')) 即 root），'..' 原文直拼进
+ *  manifest 而物理落位经 resolveSafePath 词法消解落在别处 → 登记与盘上路径分裂、docId
+ *  身份分裂、保存恒 REVISION_CONFLICT（R66-5/R71-23 同族；口径对齐 doCopy R51-D-3）。 */
 function normalizeMoveToDir(toDir: string): string | null {
   const normalized = toDir.replace(/\\/g, '/').replace(/\/{2,}/g, '/').replace(/\/+$/, '')
   if (normalized.startsWith('/') || normalized === '') return null
+  const segs = normalized.split('/')
+  if (segs.includes('..') || segs.includes('.')) return null
   return normalized
 }
 
@@ -1501,7 +1507,7 @@ export class DocumentService {
       // 让 'a/b/'、'a/b//'、'a//b' 归一到同一键。
       const toDir = normalizeMoveToDir(op.toDir)
       if (toDir === null) {
-        return { ok: false, code: 'BAD_INPUT', reason: '目标目录非法（前导斜杠或空目录不被接受）' }
+        return { ok: false, code: 'BAD_INPUT', reason: '目标目录非法（前导斜杠、空目录或「.」「..」相对段不被接受）' }
       }
       // R33-9（三十三轮）：toDir 逐段消毒（补 doCreate/updateChapterMeta 单源纪律缺口）——
       // 段已存在则保持原样（不破坏既有目录身份，mac 存量 '备注.' 类名不受影响）；
@@ -1941,7 +1947,7 @@ export class DocumentService {
         finalTrashAbs = suffixedAbs
       }
       // W-P2-1：软删前抓取定稿基线随 TrashEntry 落账（主清单条目稍后删除，不先抓就找不回）
-      let priorFinalized: { finalizedRevision?: string; finalizedAt?: string; tags?: string[]; order?: number } = {}
+      let priorFinalized: ReturnType<typeof trashBaselineOf> = {}
       try {
         if (existsSync(this.manifestPath)) {
           // R27-46（二十七轮）：strict 读——瞬态读失败不再静默降级「从未定稿」（还原后
@@ -1950,12 +1956,7 @@ export class DocumentService {
           // 清单读得失败时登记不成则删不成，GG-P2-6）。
           const prior = readManifestStrict(this.manifestPath).entries.get(docId)
           if (prior) {
-            // R27-47：tags/order 一并随 TrashEntry 落账（还原时带回清单）
-            priorFinalized = {
-              ...(prior.finalizedRevision ? { finalizedRevision: prior.finalizedRevision, finalizedAt: prior.finalizedAt } : {}),
-              ...(prior.tags && prior.tags.length > 0 ? { tags: prior.tags } : {}),
-              ...(typeof prior.order === 'number' ? { order: prior.order } : {}),
-            }
+            priorFinalized = trashBaselineOf(prior)
           }
         }
       } catch (e) {
@@ -1968,16 +1969,16 @@ export class DocumentService {
       // 反向残留（登记成功而 rename 失败）留下指向不存在 trashedPath 的孤儿条目——无害：
       // 源文件未动，restore 报 NOT_FOUND、purge 可清。
       // R26-48：换名重试链里 trashedPath 变化须重登记（条目记的是真实落位），条目
-      // 基座（id/originalPath/role/基线）抽出共用。
+      // 基座（id/originalPath/role）抽出共用；基线字段不在基座里、各登记点随用随拼
+      //（R0912-3：priorFinalized 可被删除 RMW 锁内回填覆盖，拼入时取当次值）。
       const entryBase = {
         id: docId,
         originalPath: oldPath,
         trashedAt: new Date().toISOString(),
         role: layoutOf(oldPath).role,
-        ...priorFinalized,
       }
       try {
-        await appendTrashEntryAsync(this.bookRoot, { ...entryBase, trashedPath: finalTrashRel })
+        await appendTrashEntryAsync(this.bookRoot, { ...entryBase, ...priorFinalized, trashedPath: finalTrashRel })
       } catch (e) {
         return {
           ok: false,
@@ -2001,7 +2002,7 @@ export class DocumentService {
         mkdirSync(dirname(retryAbs), { recursive: true })
         finalTrashAbs = retryAbs
         try {
-          await appendTrashEntryAsync(this.bookRoot, { ...entryBase, trashedPath: finalTrashRel })
+          await appendTrashEntryAsync(this.bookRoot, { ...entryBase, ...priorFinalized, trashedPath: finalTrashRel })
         } catch (e) {
           return {
             ok: false,
@@ -2055,8 +2056,25 @@ export class DocumentService {
           // X-5：RMW 持清单锁（跨进程互斥）
           // R34D-19（三十四轮）：锁等待异步化（withManifestLockAsync，R30-6 原语）——
           // best-effort 语义不变（P1-S3 失败不阻断，文件已实质删除）
-          await withManifestLockAsync(this.manifestPath, () => {
+          // R0912-3（2026-09-12 全量重评 P2-2）：TrashEntry 落账与清单删除收进同一清单锁
+          // 临界段——上方 priorFinalized 是无锁快照（本方法只持 per-doc save 锁，finalize
+          // 不持该锁），快照后、本删除前并发 finalize 写入的基线（finalize 持清单锁落盘）
+          // 若随整条 delete 丢弃，TrashEntry 记的还是快照旧值 → 还原后该章无定稿基线，
+          // ensureChapterNotFinalized 防覆盖闸失守（tags/order 同窗同失）。现锁内 strict
+          // 新鲜读条目，基线投影与快照不一致时先按当次值回填 TrashEntry（append 同 id
+          // 替换）再 delete；回填写取 trash 清单锁与主清单锁仍单向（全仓无「持 trash
+          // 清单锁再取主清单锁」路径，无环）。无并发时新鲜读与快照恒等 → 不重写条目，
+          // 行为逐字节不变。
+          await withManifestLockAsync(this.manifestPath, async () => {
             const m = readManifestStrict(this.manifestPath) // R27-40：RMW strict 读——读失败拒删，保住全书登记
+            const fresh = m.entries.get(docId)
+            if (fresh) {
+              const freshBaseline = trashBaselineOf(fresh)
+              if (JSON.stringify(freshBaseline) !== JSON.stringify(priorFinalized)) {
+                priorFinalized = freshBaseline
+                await appendTrashEntryAsync(this.bookRoot, { ...entryBase, ...priorFinalized, trashedPath: finalTrashRel })
+              }
+            }
             m.entries.delete(docId)
             writeManifest(this.manifestPath, m)
           })
@@ -2082,6 +2100,17 @@ export class DocumentService {
 /** 错误信息提取（避免重复 try/catch 样板）。 */
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
+}
+
+/** R0912-3（2026-09-12 全量重评 P2-2）：清单条目 → TrashEntry 基线投影单源（W-P2-1
+ *  基线 + R27-47 tags/order，status 可派生故不带）——doTrash 的无锁快照与删除 RMW
+ *  锁内新鲜读两处共用同一字段集与键序（键序固定是 JSON.stringify 逐位比对的判据）。 */
+function trashBaselineOf(e: ManifestEntry): { finalizedRevision?: string; finalizedAt?: string; tags?: string[]; order?: number } {
+  return {
+    ...(e.finalizedRevision ? { finalizedRevision: e.finalizedRevision, finalizedAt: e.finalizedAt } : {}),
+    ...(e.tags && e.tags.length > 0 ? { tags: e.tags } : {}),
+    ...(typeof e.order === 'number' ? { order: e.order } : {}),
+  }
 }
 
 /** R2W-1：同物理文件判定（win NTFS/mac APFS 大小写不敏感 FS 的纯大小写改名识别）——

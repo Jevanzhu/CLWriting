@@ -366,13 +366,7 @@ async function onRemove(path: string, text: string): Promise<void> {
   color: var(--text-faint);
 }
 
-/* 类型徽标（kind-badge 族）与通用按钮同批收敛至 style-shared.css（R0912-C2-P3-3）。 */
-.src-dot {
-  font-size: var(--font-size-xs);
-  color: var(--text-faint);
-}
-.src-dot::before {
-  content: '◦ ';
-}
+/* 类型徽标（kind-badge 族）、通用按钮与 .src-dot 均收敛至 style-shared.css
+ *（R0912-C2-P3-3 / R0912-3 #14 全局装载）。 */
 
 </style>

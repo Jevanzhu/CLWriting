@@ -170,7 +170,11 @@ export function findOnlyOrSkipViolations(src) {
   // 非 `"`/`)`），语义上恒跳过（比零参更隐蔽的门禁假绿面）；`skip(false)` 恒跑无门禁
   // 风险不收，环境门表达式（`!process.env.X` 等）不受影响
   const skipPlain = clean.match(/(^|[^.\w])(?:it|test|describe)\.skip\s*\(\s*(?:"|\)|true\b)/g)
-  const skipEach = clean.match(/(^|[^.\w])(?:it|test|describe)\.skip\.each\s*\([^)]*\)\s*\(\s*"/g)
+  // R0912-3（2026-09-12 全量重评 #48）：each 参数改一层平衡括号近似——原 `\([^)]*\)`
+  // 遇参数内 `)`（如 each(buildPairs(1, 2))）提前收口，后随 `\s*\(\s*"` 失配 → 整组
+  // 无条件 skip 漏检（R31-35 正则盲区同族，漏检向；匹配面只对 `.skip.each` 字面量放宽，
+  // 无误检向变化）
+  const skipEach = clean.match(/(^|[^.\w])(?:it|test|describe)\.skip\.each\s*\((?:[^()]|\([^()]*\))*\)\s*\(\s*"/g)
   return { only: only ? only.length : 0, uncondSkip: (skipPlain?.length ?? 0) + (skipEach?.length ?? 0) }
 }
 

@@ -476,10 +476,11 @@ export function createOpenAIResponsesProvider(
                 case 'response.failed': {
                   // 重审-批2-1（2026-09-07 全量代码重审 §四P3/§六批2）：completed 已
                   // emitDone 后网关仍补发 failed/error（个别网关流尾抖动形态）——原实现
-                  // 照常 yield 终态失败，整回合成功产出被判失败。terminal 已 'completed'
-                  // 则忽略该事件（done 已发、产出保持成功；Anthropic/OpenAI Chat 线
-                  // 无此形态）。
-                  if (terminal === 'completed') break
+                  // 照常 yield 终态失败，整回合成功产出被判失败。R0912-3（2026-09-12
+                  // 全量重评修复批 #4）：守卫放宽为 terminal!=='none'——incomplete
+                  // (max_tokens) 同样已 emitDone（能续走流的终态事件必然已发 done），
+                  // 流尾 failed/error 一律忽略，done 已发的回合不被翻转。
+                  if (terminal !== 'none') break
                   terminal = 'failed'
                   // R30-9（三十轮）登记维持：流中 failed/error 事件恒 retryable:false，与
                   // 另两线（HTTP status → 决策表）不对称系有意保守——流中事件缺 HTTP
@@ -502,9 +503,9 @@ export function createOpenAIResponsesProvider(
                 }
                 case 'error': {
                   // SDK 流中错误事件（网关 mid-stream error）——同 failed 处理，code 同上
-                  // 重审-批2-1：同 response.failed——terminal 已 'completed'（done 已发）
-                  // 时忽略，成功回合不被流尾抖动的 error 翻转成失败
-                  if (terminal === 'completed') break
+                  // 重审-批2-1：同 response.failed——terminal 已置（done 已发）时忽略，
+                  // R0912-3：守卫同款放宽含 incomplete（见 response.failed 分支注）
+                  if (terminal !== 'none') break
                   terminal = 'failed'
                   // R32-2：error 事件无 response 载荷，usage 走估计兜底（标 estimated）
                   yield { type: 'error', message: redactSecret(event.message ?? '流中错误事件'), retryable: false, code: 'PROTOCOL', usage: estimateDoneUsage() }

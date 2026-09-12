@@ -10,6 +10,7 @@
 import { fileURLToPath } from 'node:url'
 import process from 'node:process'
 import { commitKnowledgeFile } from '../src/knowledge/update.js'
+import { caseFoldKey, readKnowledgeManifest } from '../src/knowledge/manifest.js'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const argv = process.argv.slice(2)
@@ -39,7 +40,25 @@ const report = commitKnowledgeFile(root, {
   note: flag('--note'),
 })
 if (!report.ok) {
-  console.error('登记失败（manifest 未写入有效状态，对账失配）：')
+  // R0912-3（2026-09-12 全量重评 #41）：登记已成功但 manifest 存预存坏行时，原文案
+  // 「manifest 未写入有效状态」与登记实态相悖——作者按提示重试只会撞「已在 manifest」。
+  // 两态区分：判重拒绝（issue 明言已在 manifest）或 manifest 里查无本 target ⇒ 未写入，
+  // 维持原文案；否则登记已落盘，改报「预存坏行、请先修 manifest」。退出码恒 1 不变。
+  const dupRejected = report.issues.some((i) => i.message.includes('已在 manifest'))
+  const read = readKnowledgeManifest(root)
+  const registeredNow =
+    !dupRejected &&
+    read.ok &&
+    read.manifest !== undefined &&
+    Array.isArray(read.manifest.entries) &&
+    read.manifest.entries.some(
+      (e) => e !== null && typeof e === 'object' && typeof e.target === 'string' && caseFoldKey(e.target) === caseFoldKey(target)
+    )
+  if (registeredNow) {
+    console.error('登记已写入 manifest，但读取对账发现预存坏行（非本次登记引入；重试会报「已在 manifest」），请先修 manifest：')
+  } else {
+    console.error('登记失败（manifest 未写入有效状态，对账失配）：')
+  }
   for (const issue of report.issues) console.error(`  - ${issue.path}: ${issue.message}`)
   process.exit(1)
 }

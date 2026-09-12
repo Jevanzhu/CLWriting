@@ -1,4 +1,5 @@
 import { apiJson } from './client'
+import { CHAT_HISTORY_LIMIT } from '../shared/chat-history'
 
 /** POST /chat {message, chapter?} —— 发送对话消息（fire-and-forget + SSE 回流） */
 export interface SendChatResult {
@@ -61,8 +62,9 @@ export async function fetchChatHistory(bookName: string, branchId?: string): Pro
   // L-S2（第八轮）：尾窗拉取——长书几万事件不再全量出网；messages 仅作展示种子
   //（模型上下文由服务端从事件库重建，不经此端点）。
   // R72-11（二十轮 F-5）：500→200 对齐 chat store 的 MAX_MESSAGES——展示种子只留
-  // 200 条，多拉的 300 条每次拉取即弃，纯流量浪费
-  const params = new URLSearchParams({ limit: '200' })
+  // 上限条数，多拉部分每次拉取即弃，纯流量浪费（R0912-3 #10：上限单源
+  // shared/chat-history，与 store/截断提示文案同值）
+  const params = new URLSearchParams({ limit: String(CHAT_HISTORY_LIMIT) })
   // 低-1（第十轮）：branchId 交给 URLSearchParams.toString() 统一编码——此前手编
   // encodeURIComponent 后再进 toString 会被二次编码（% → %25），服务端解一层后拿到
   // 残缺分支号（'br 1' → 'br%201'），分支查询静默落空

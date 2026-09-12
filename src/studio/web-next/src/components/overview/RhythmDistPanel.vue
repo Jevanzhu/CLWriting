@@ -38,6 +38,9 @@ const distGroups = computed<DistGroup[]>(() => {
 function distMax(g: DistGroup): number {
   return Math.max(1, ...g.keys.map((k) => Math.max(g.written[k] ?? 0, g.planned[k] ?? 0)))
 }
+
+// R0912-3 #22：短篇无 planned——行尾规划占位「/0」只在长篇渲染
+const isLong = computed(() => props.rhythmData?.kind === 'long')
 </script>
 
 <template>
@@ -60,7 +63,7 @@ function distMax(g: DistGroup): number {
               :style="{ left: ((g.planned[k] ?? 0) / distMax(g) * 100) + '%' }"
             ></div>
           </div>
-          <span class="dist-val">{{ g.written[k] ?? 0 }}<span class="sep">/</span>{{ g.planned[k] ?? 0 }}</span>
+          <span class="dist-val">{{ g.written[k] ?? 0 }}<template v-if="isLong"><span class="sep">/</span>{{ g.planned[k] ?? 0 }}</template></span>
         </div>
       </div>
     </div>

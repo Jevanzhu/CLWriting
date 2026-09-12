@@ -91,6 +91,15 @@ jobs:
         run: npm run check:counts
       - name: 知识层门（check:knowledge）
         run: npm run check:knowledge
+      # R0912-3（重评-0912-3 #45）：mac 腿补 playwright chromium 缓存——此前仅 ci.yml
+      # e2e job（ubuntu）有缓存，mac 腿每次 ~130MB 重下。路径按 macOS 实际缓存位
+      #（~/Library/Caches/ms-playwright，非 linux 的 ~/.cache），键控同 ci.yml。
+      - name: 缓存 playwright chromium
+        if: runner.os == 'macOS'
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - name: 装 playwright chromium
         if: runner.os == 'macOS'  # D5：e2e 仍 mac，win 腿不装不跑
         run: npx playwright install chromium

@@ -109,16 +109,21 @@ export function readBooksStrict(workDir: string): BookEntry[] | null {
   // R46-11：缓存键含绝对路径（不同形态的 workDir 字符串指向同一文件时同键复用）
   const fp = resolve(workDir, BOOKS_FILE)
   // R46-11：原 existsSync 判存合并进指纹 stat——一次调用同时承担「缺文件 → 空表」
-  // 判定与缓存指纹采集（stat 的一切失败形态与 existsSync 吞错返 false 的原口径一致
-  // 归空表；stat 成功但文件是目录时走下方 readFileSync EISDIR → null 原路径不变）
+  // 判定与缓存指纹采集；stat 成功但文件是目录时走下方 readFileSync EISDIR → null
+  // 原路径不变。
+  // R0912-3（重评-0912 P3 #33）：stat 失败按 errno 分诊——仅 ENOENT 归空表（首启
+  // 语义，缺文件 = 新建合法）；EACCES/EIO/ENOTDIR 等其余失败归 null，与下方
+  // readFileSync 失败同走 DA-3 拒写防线（此前一律归空表，降级空表 × 后续整写会把
+  // 其余登记清掉，恰好绕过 DA-3；repairBooks 扫盘可重建兜底故评 P3）。
   let mtimeNs: bigint
   let size: bigint
   try {
     const st = statSync(fp, { bigint: true })
     mtimeNs = st.mtimeNs
     size = st.size
-  } catch {
-    return []
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return []
+    return null
   }
   // R46-11：同指纹直接回缓存解析结果。
   // R0912（重评-0911c P3）：命中返回浅拷贝——缓存数组本体不出缓存。原「共享数组
@@ -365,10 +370,19 @@ export function removeBookEntry(workDir: string, name: string): void {
     // 登记留在盘上成为幽灵条目（repairBooks 只报告 missing 不清除，R35-28），文件系统侧删除照常进行
     const books = readBooksStrict(workDir)
     if (books === null) return
-    writeBooks(workDir, books.filter((b) => b.name !== name))
-    // 活动书被删 → 清指针（下次进书架会提示选书）
-    if (readActive(workDir) === name) {
-      atomicWriteFile(join(workDir, ACTIVE_FILE), '')
+    // R0912-3（重评-0912 P3 #37）：写段 try/catch 对齐 appendBookLocked 收编形态——
+    // writeBooks/active 清指针在 EACCES/ENOSPC 时抛出此前直穿（上游删书端点已兜，
+    // CLI/测试同步面无契约），失败按锁超时同款跳过留痕：登记留盘成幽灵条目，由
+    // 启动 repairBooks 报告，文件系统侧删除不受影响
+    try {
+      writeBooks(workDir, books.filter((b) => b.name !== name))
+      // 活动书被删 → 清指针（下次进书架会提示选书）
+      if (readActive(workDir) === name) {
+        atomicWriteFile(join(workDir, ACTIVE_FILE), '')
+      }
+    } catch (e) {
+      log.warn('books', `books.jsonl 登记写入失败（权限或磁盘故障），跳过移除「${name}」登记（登记留盘，成为幽灵条目需人工清理）：${e instanceof Error ? e.message : String(e)}`)
+      return
     }
   } finally {
     release()
@@ -393,10 +407,16 @@ export async function removeBookEntryAsync(workDir: string, name: string): Promi
     // 登记留在盘上成为幽灵条目（repairBooks 只报告 missing 不清除，R35-28），文件系统侧删除照常进行
     const books = readBooksStrict(workDir)
     if (books === null) return
-    writeBooks(workDir, books.filter((b) => b.name !== name))
-    // 活动书被删 → 清指针（下次进书架会提示选书）
-    if (readActive(workDir) === name) {
-      atomicWriteFile(join(workDir, ACTIVE_FILE), '')
+    // R0912-3（重评-0912 P3 #37）：写段 try/catch，收编口径与同步版逐位对齐
+    try {
+      writeBooks(workDir, books.filter((b) => b.name !== name))
+      // 活动书被删 → 清指针（下次进书架会提示选书）
+      if (readActive(workDir) === name) {
+        atomicWriteFile(join(workDir, ACTIVE_FILE), '')
+      }
+    } catch (e) {
+      log.warn('books', `books.jsonl 登记写入失败（权限或磁盘故障），跳过移除「${name}」登记（登记留盘，成为幽灵条目需人工清理）：${e instanceof Error ? e.message : String(e)}`)
+      return
     }
   } finally {
     release()

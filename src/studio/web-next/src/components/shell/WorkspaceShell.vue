@@ -173,7 +173,7 @@ onBeforeUnmount(() => {
       <main class="ws-main">
         <!-- 专注模式：TabBar 隐藏后顶部拖拽区丢失，补一条透明拖拽条（macOS 窗口移动） -->
         <div v-if="ws.focusMode" class="ws-focus-drag" aria-hidden="true" />
-        <TabBar v-show="!ws.focusMode" :book-name="bookName" />
+        <TabBar v-show="!ws.focusMode" />
         <ViewHeader v-if="ws.activeView !== 'editor' && !ws.focusMode" :book-name="bookName" />
         <div class="ws-view">
           <slot />
@@ -209,7 +209,7 @@ onBeforeUnmount(() => {
         <SidebarRight :book-name="bookName" />
       </div>
     </div>
-    <StatusBar v-show="!ws.focusMode" :book-name="bookName" />
+    <StatusBar v-show="!ws.focusMode" />
     <!-- R42-3/R42-4：Toast/ConfirmPrompt/SettingsModal/ShelfModal/ExportDialog 已上移 App.vue -->
     <CommandPalette />
     <TooltipHost />

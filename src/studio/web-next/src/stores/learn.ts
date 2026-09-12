@@ -24,6 +24,10 @@ export const useLearnStore = defineStore('learn', () => {
   const hasResult = computed(() => samples.value.length > 0 || quotes.value.length > 0)
   const pickedCount = computed(() => pickedSamples.value.size + pickedQuotes.value.size)
 
+  /** R0912-3 P2-3：本次收割已跑判据——harvest 成功置位（零候选也算跑过），clear 复位。
+   *  hasResult 布尔区分不了「未收割」与「收割了但零候选」，视图空态三态化靠它 */
+  const lastHarvestRan = ref(false)
+
   /** 请求代守卫（M-3 二轮复审）：收割是全书扫描（大书数秒）——切书后 A 书在途 harvest
    *  回填会让 B 书收割视图显示 A 书正文候选，作者勾选入库即跨书污染条目库。后调者胜 */
   let reqGen = 0
@@ -36,6 +40,9 @@ export const useLearnStore = defineStore('learn', () => {
 
   /** 扫定稿正文收割候选（规则打分，不涉大模型） */
   async function harvest(name: string): Promise<void> {
+    // R0912-3 #16：函数级在途锁——同帧双击只跑一次（harvest 是全书扫描，双发=双跑，
+    // R35-34 家族；reqGen 代守卫只防串书回填，在途第二笔在此直接返回）
+    if (loading.value) return
     const gen = ++reqGen
     loading.value = true
     error.value = null
@@ -47,6 +54,7 @@ export const useLearnStore = defineStore('learn', () => {
       quotes.value = r.quotes
       pickedSamples.value = new Set()
       pickedQuotes.value = new Set()
+      lastHarvestRan.value = true // R0912-3 P2-3：收割成功置位（随新收割刷新）
     } catch (e) {
       if (gen !== reqGen) return
       error.value = friendlyError(e)
@@ -96,6 +104,8 @@ export const useLearnStore = defineStore('learn', () => {
    *  R73-66：改查独立 commitGen（自己推代）；在途遇 harvest 推代（reqGen 变）仍作废
    *  本笔回填——原 M-11 语义保留。 */
   async function commit(name: string): Promise<void> {
+    // R0912-3 #16：函数级在途锁（同 harvest）——在途第二笔直接返回，防同批勾选重复入库
+    if (committing.value) return
     // R33D-30：样章勾选按 出处+正文 身份取
     const sPicks = samples.value.filter((s) => pickedSamples.value.has(sampleKey(s)))
     // R32-31：金句勾选按 出处+正文 身份取（同文不同出处各自独立勾选）
@@ -147,6 +157,7 @@ export const useLearnStore = defineStore('learn', () => {
     pickedQuotes.value = new Set()
     error.value = null
     commitMessage.value = null
+    lastHarvestRan.value = false // R0912-3 P2-3：切书复位（新书未收割）
   }
 
   return {
@@ -157,6 +168,7 @@ export const useLearnStore = defineStore('learn', () => {
     committing,
     commitMessage,
     hasResult,
+    lastHarvestRan,
     pickedCount,
     harvest,
     toggleSample,

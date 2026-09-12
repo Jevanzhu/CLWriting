@@ -242,11 +242,17 @@ async function flagFalsePositive(checkId: string): Promise<void> {
 .group-label--yellow {
   color: var(--text-warning);
 }
+/* R0912-3 #13：原同选择器两处分离规则（间隔在 .cap-hint）合并——属性并集、
+ * 无重叠声明，级联结果逐字不变 */
 .check-item {
   padding: 6px 8px;
   border-radius: var(--radius-s);
   font-size: var(--font-size-s);
   line-height: 1.5;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
 }
 /* R1010c-FE1-P3-2：渲染上限省略提示行——纯展示（弱化色，r54 tree-cap-hint 同语义） */
 .cap-hint {
@@ -263,12 +269,6 @@ async function flagFalsePositive(checkId: string): Promise<void> {
 }
 .item-msg {
   color: var(--text-normal);
-}
-.check-item {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
 }
 .fp-btn {
   flex: none;

@@ -31,7 +31,7 @@ describe('StatusBar: 连接三态（R65-55）', () => {
   it('心跳活 + SSE 通 → 绿灯「就绪」', async () => {
     const wb = useWorkbenchStore()
     wb.setConnected(true)
-    const w = mount(StatusBar, { props: { bookName: '书A' } })
+    const w = mount(StatusBar) // R0912-3 #9：bookName 死 prop 已删，无 props
     expect(connText(w)).toBe('写作助手就绪')
     expect(w.find('.status-dot').classes()).not.toContain('degraded')
     w.unmount()
@@ -40,7 +40,7 @@ describe('StatusBar: 连接三态（R65-55）', () => {
   it('心跳活 + SSE 断 → 黄灯「实时通道中断」（修复前仍绿灯就绪）', async () => {
     const wb = useWorkbenchStore()
     wb.setConnected(false)
-    const w = mount(StatusBar, { props: { bookName: '书A' } })
+    const w = mount(StatusBar) // R0912-3 #9：bookName 死 prop 已删，无 props
     expect(connText(w)).toBe('实时通道中断，重连中…')
     expect(w.find('.status-dot').classes()).toContain('degraded')
     // 恢复：SSE 重连成功 → 回绿（状态随 store 响应）
@@ -54,7 +54,7 @@ describe('StatusBar: 连接三态（R65-55）', () => {
     serverOnline.value = false
     const wb = useWorkbenchStore()
     wb.setConnected(true) // SSE 残留态 true 也不影响：心跳死优先
-    const w = mount(StatusBar, { props: { bookName: '书A' } })
+    const w = mount(StatusBar) // R0912-3 #9：bookName 死 prop 已删，无 props
     expect(connText(w)).toBe('无法连接到写作助手')
     expect(w.find('.status-dot').classes()).toContain('off')
     w.unmount()

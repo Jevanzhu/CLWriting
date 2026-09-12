@@ -6,6 +6,10 @@
  * 自己推代（commitGen）：后一笔使前一笔迟到回填/finally 解锁全部作废；clear() 推
  * commitGen 作废在途 commit；在途遇 harvest 推代（reqGen 变）仍作废本笔回填（M-11
  * 原语义保留）。
+ *
+ * R0912-3 #16（2026-09-12 全量重评修复批）：commit/harvest 增函数级在途锁——同帧重入
+ * 第二笔直接返回，「同批重入双 commit」旁路场景结构性不可达；前两例改经 clear() 推代
+ * 后开新笔 B，迟到 A 的作废断言（commitGen 核心语义）原样保留。
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
@@ -44,13 +48,17 @@ describe('R73-66: commit 独立推代（同代双 commit 不再互相穿透）',
     const s = await seededPicks()
     s.toggleSample({ 场景: 's', 正文: 'b1', 出处: 'c', 章号: 1, 打分: 80 })
     let resolveA!: (v: { sampleFiles: string[]; quoteFiles: string[] }) => void
-    let resolveB!: (v: { sampleFiles: string[]; quoteFiles: string[] }) => void
-    commitMock
-      .mockImplementationOnce(() => new Promise((r) => (resolveA = r))) // A
-      .mockImplementationOnce(() => new Promise((r) => (resolveB = r))) // B（同批重入——B 启动时 A 未归，勾选未清）
-
+    commitMock.mockImplementationOnce(() => new Promise((r) => (resolveA = r))) // A
     const pA = s.commit('bookA')
-    const pB = s.commit('bookA') // 程序性重入（绕过 UI committing 锁的旁路场景）
+
+    // R0912-3 #16 起：同帧重入第二笔被在途锁直接返回（旁路不可达）——A 在途清场后
+    // 重新收割勾选再开 B（commitGen 推代），A 迟到成功回填仍须作废
+    s.clear()
+    await s.harvest('bookA') // seededPicks 的 base impl 回填 b1+b2
+    s.toggleSample({ 场景: 's', 正文: 'b1', 出处: 'c', 章号: 1, 打分: 80 })
+    let resolveB!: (v: { sampleFiles: string[]; quoteFiles: string[] }) => void
+    commitMock.mockImplementationOnce(() => new Promise((r) => (resolveB = r))) // B
+    const pB = s.commit('bookA')
 
     // B 先落：入库项（b1）移除 + 成功消息（b2 未勾选仍在列表）
     resolveB({ sampleFiles: ['f1.md'], quoteFiles: [] })
@@ -70,17 +78,20 @@ describe('R73-66: commit 独立推代（同代双 commit 不再互相穿透）',
     const s = await seededPicks()
     s.toggleSample({ 场景: 's', 正文: 'b1', 出处: 'c', 章号: 1, 打分: 80 })
     let rejectA!: (e: Error) => void
-    let resolveB!: (v: { sampleFiles: string[]; quoteFiles: string[] }) => void
-    commitMock
-      .mockImplementationOnce(
-        () =>
-          new Promise<never>((_, rej) => {
-            rejectA = rej
-          }),
-      )
-      .mockImplementationOnce(() => new Promise((r) => (resolveB = r)))
-
+    commitMock.mockImplementationOnce(
+      () =>
+        new Promise<never>((_, rej) => {
+          rejectA = rej
+        }),
+    )
     const pA = s.commit('bookA')
+
+    // R0912-3 #16：同上——A 在途经 clear() 推代后开新笔 B
+    s.clear()
+    await s.harvest('bookA')
+    s.toggleSample({ 场景: 's', 正文: 'b1', 出处: 'c', 章号: 1, 打分: 80 })
+    let resolveB!: (v: { sampleFiles: string[]; quoteFiles: string[] }) => void
+    commitMock.mockImplementationOnce(() => new Promise((r) => (resolveB = r)))
     const pB = s.commit('bookA') // 第二笔推代
     resolveB({ sampleFiles: ['f1.md'], quoteFiles: [] })
     await pB

@@ -222,7 +222,8 @@ function writeTrashManifest(bookRoot: string, entries: TrashEntry[]): void {
 export function appendTrashEntry(bookRoot: string, entry: TrashEntry): void {
   // Z-5（第五十八轮）：RMW 持锁（X-5 同型漏网）——GUI 与 CLI/他实例并发软删时，
   // 裸「读全量→改→整文件重写」后写者吞掉先者条目（回收站 UI 失明）。锁文件
-  // <trash-manifest>.lock 独立于主清单锁，全程不与主清单锁嵌套（无获取序环路）。
+  // <trash-manifest>.lock 独立于主清单锁；与主清单锁的唯一嵌套面 = doTrash 删除 RMW
+  // 锁内回填条目（R0912-3：主清单锁 → 本锁单向，全仓无「持本锁再取主清单锁」者，无环）。
   // R34D-19（三十四轮）：服务进程链改走异步孪生（下方 appendTrashEntryAsync）——
   // 本同步版保留供 CLI 迁移脚本（migrate-layout-v3）等合法同步面。
   withManifestLock(trashManifestPath(bookRoot), () => {

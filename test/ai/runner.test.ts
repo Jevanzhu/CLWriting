@@ -5,7 +5,7 @@
  * mock/真实 decode 一致、resolveProvider 独立行为。
  * （GEN_FAIL / ABORTED 需真实 provider 网络路径，不在这层单测，由 e2e 覆盖。）
  */
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, statSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createServer } from 'node:http'
@@ -676,4 +676,72 @@ describe('R42-24（四十二轮）：探测实例降级记忆按目标库路由'
     // 活跃库 A（修复前 undefined 回落活跃 path 的误写目标）不被写入
     expect(JSON.parse(readFileSync(join(udA, 'providers.json'), 'utf8')).modelCaps?.['prov-test/gpt-4o']).toBeUndefined()
   }, 10_000)
+})
+
+/**
+ * R0912-3（2026-09-12 全量重评修复批 #7）：extractUsage 键存在之外加值类型守卫——
+ * usage 计量字段（inputTokens/outputTokens）为字符串/null 等错型时不再透传入账，
+ * 整体视为缺失走兜底（out.usage = null、账本 0 token，行为与缺失一致；修复前错型
+ * 透传会被 applyCall 累加成字符串拼接/NaN 静默烂账）。经 runTask 成功路径驱动。
+ */
+describe('R0912-3：usage 值类型守卫（错型走兜底，行为与缺失一致）', () => {
+  function tempBookRoot(): string {
+    const d = mkdtempSync(join(tmpdir(), 'clwriting-runner-book-'))
+    workDirs.push(d)
+    mkdirSync(join(d, '.cache'), { recursive: true })
+    return d
+  }
+
+  function readLedger(bookRoot: string): { chapter: { used: number; inputTokens: number; outputTokens: number } } {
+    return JSON.parse(readFileSync(join(bookRoot, '.cache', 'ai-calls.json'), 'utf8'))
+  }
+
+  it('usage 计量字段错型（字符串/null）→ 不崩、out.usage 为 null，账本 0 token 与缺失一致', async () => {
+    const ud = tempUserData()
+    writeProviders(ud)
+    const book = tempBookRoot()
+    const out = await runTask<Record<string, unknown>>({
+      userDataPath: ud,
+      task: 'r0912-3',
+      bookRoot: book,
+      chapter: 1,
+      run: () => Promise.resolve({ usage: { inputTokens: '12', outputTokens: null } } as unknown as Record<string, unknown>),
+    })
+    expect(out.ok).toBe(true)
+    if (out.ok) {
+      // 修复前：错型 usage 原样透传（out.usage = { inputTokens: '12', outputTokens: null }）
+      expect(out.usage).toBeNull()
+    }
+    // 记账落兜底口径：按次计 1、token 0（与 usage 缺失的回合同账本形态）
+    expect(readLedger(book).chapter).toMatchObject({ used: 1, inputTokens: 0, outputTokens: 0 })
+  }, 10_000)
+
+  it('usage 整体错型（字符串/null）→ 同 null（既有放行面不回归）', async () => {
+    const ud = tempUserData()
+    writeProviders(ud)
+    for (const junk of ['12', null]) {
+      const out = await runTask<Record<string, unknown>>({
+        userDataPath: ud,
+        run: () => Promise.resolve({ usage: junk } as unknown as Record<string, unknown>),
+      })
+      expect(out.ok).toBe(true)
+      if (out.ok) expect(out.usage).toBeNull()
+    }
+  }, 10_000)
+
+  it('回归护栏：良型 usage（含可选 cache 字段）原样提取，提取值逐字段不变', async () => {
+    const ud = tempUserData()
+    writeProviders(ud)
+    const out = await runTask<{ usage: unknown }>({
+      userDataPath: ud,
+      run: () =>
+        Promise.resolve({
+          usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 3, estimated: true },
+        }),
+    })
+    expect(out.ok).toBe(true)
+    if (out.ok) {
+      expect(out.usage).toEqual({ inputTokens: 10, outputTokens: 5, cacheReadTokens: 3, estimated: true })
+    }
+  })
 })

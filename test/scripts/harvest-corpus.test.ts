@@ -12,7 +12,7 @@
  */
 import { test, expect } from 'vitest'
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
@@ -194,6 +194,35 @@ test('重评2-P3-5: 章文件 TOCTOU 读失败 → R63-14 口径告警 + exit 1 
     expect(r.stdout).toContain('章快照判定完成')
     // 首错含堆栈属 R63-14 有意留痕（message\nstack），不能作未崩判据——
     // 未崩信号 = 上面的「完成行照出 + 告警格式口径 + exit 1」三件套
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}, 60_000)
+
+// R0912-3（2026-09-12 全量重评 #42）回归：清单缺失早退原先在 try 内 process.exit(1)
+// 硬退、绕过 finally{db?.close()}（R71-34「db 由 finally 统一收口」不变量该路径不成立；
+// 进程即退无实害仍按纪律修）。修后「置旗标 → break 出 try（finally 照跑）→ 收口后再
+// exit(1)」：退出码与「不进产出段」（不覆盖写候选文件）语义均不变。
+test('R0912-3: 文档清单缺失 → 人话报错 + exit 1 + 不产出候选文件（早退改走 finally 收口）', () => {
+  const dir = mkdtempTracked(join(tmpdir(), 'harvest-corpus-'))
+  const root = join(dir, '青萍集无清单')
+  mkdirSync(join(root, '写作', '正文'), { recursive: true })
+  writeFileSync(join(root, 'book.yaml'), ['spec_version: 1', 'book:', '  title: 青萍集无清单', '  genre: 玄幻'].join('\n'), 'utf-8')
+  writeFileSync(join(root, '写作', '正文', '0001-好章.md'), '---\n章号: 1\n标题: 好章\n---\n雪落在了城墙上。', 'utf-8')
+  // 故意不写 项目/文档清单.jsonl——早退点在 rebuild/开库之后、产出段之前
+  try {
+    const r = spawnSync('node', ['--import', 'tsx', script, root], {
+      cwd: repoRoot,
+      encoding: 'utf-8',
+      stdio: 'pipe',
+    })
+    expect(r.status).toBe(1)
+    expect(r.stderr).toContain('文档清单缺失')
+    expect(r.stderr).toContain('请先在应用中打开一次本书生成清单后重试')
+    // 「不进产出段」语义保持：空候选不得覆盖写既有候选清单
+    expect(existsSync(join(root, '工作区', '语料候选', '误报候选.md'))).toBe(false)
+    // 未走兜底读/快照面（清单缺失在收割前早退）
+    expect(r.stderr).not.toContain('版本快照判定失败')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

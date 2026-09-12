@@ -6,12 +6,13 @@
  * - best-effort：落盘失败回退原文
  * - readSpillFile（GG-P2-2 读侧）：locator 形状白名单 + isWithinRoot 双保险，按路径取回全文
  */
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { rmSync, readFileSync, existsSync, writeFileSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { spillIfLarge, writeSpillFile, readSpillFile, readSpillMeta, sweepOldSpills, type SpillThresholds } from '../../src/process/spill.js'
+import { log } from '../../src/log/index.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const T: SpillThresholds = { maxInlineChars: 2000, headChars: 1200, tailChars: 400 }
@@ -193,6 +194,34 @@ describe('L-P8（第八轮）：spills 过期清理', () => {
       sweepOldSpills(root) // 显式生命周期清扫不受节流限制
       expect(existsSync(old)).toBe(false)
     } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+// ── R0912-3（2026-09-12 全量重评修复批 B3-28）：写失败节流 warn ──────────────────
+// 修复背景：spill 写失败全链（writeSpillFile catch → spillIfLarge null → 全文内联）此前
+// 静默，上下文成本膨胀不可归因。留痕按书根节流（60s 窗至多一条）。
+describe('R0912-3：spill 写失败节流 warn', () => {
+  it('写失败 → warn 恰一次（含书根/降级语义），连发被节流；降级内联正文逐字节不变', () => {
+    const warnSpy = vi.spyOn(log, 'warn').mockImplementation(() => {})
+    const root = mkdtempTracked(join(tmpdir(), 'clwriting-spill-warn-'))
+    try {
+      // 工作区 是普通文件 → mkdir 失败 → 写失败（同既有 best-effort 用例的稳定复现形态）
+      writeFileSync(join(root, '工作区'), 'blocker')
+      const text = '丁'.repeat(2500)
+      for (let i = 0; i < 3; i++) expect(writeSpillFile(root, text)).toBeNull()
+      const hits = warnSpy.mock.calls.filter((c) => c[0] === 'spill')
+      expect(hits).toHaveLength(1) // 恰一次：窗内连发被节流，不刷日志
+      expect(String(hits[0]![1])).toContain(root) // 书根可归因
+      expect(String(hits[0]![1])).toContain('全文内联') // 降级后果留痕
+      // 全链降级对照：spillIfLarge 拿到 null → 原文透传逐字节不变（修复前后行为一致）
+      const out = spillIfLarge(text, T, () => writeSpillFile(root, text))
+      expect(out.preview).toBe(text)
+      expect(out.locator).toBeUndefined()
+      expect(warnSpy.mock.calls.filter((c) => c[0] === 'spill')).toHaveLength(1) // 节流未放行第二条
+    } finally {
+      warnSpy.mockRestore()
       rmSync(root, { recursive: true, force: true })
     }
   })

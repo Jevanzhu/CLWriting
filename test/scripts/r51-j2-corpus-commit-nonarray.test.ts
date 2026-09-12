@@ -143,3 +143,27 @@ test('重评-P2-5: 存量元素全部坏 → 整档跳过原样保留（不静�
   const sibling = join(corpusDir, 'simile-density.json')
   expect(JSON.parse(readFileSync(sibling, 'utf-8'))).toEqual([{ excerpt: '纸像蝉翼一样薄', expect: 'silent' }])
 }, 60_000)
+
+// R0912-3（2026-09-12 全量重评 #43）回归：空白摘录行（JSON 合法但内容全空白）此前在
+// `if (excerpt.trim())` 处静默丢弃、不进 droppedExcerpts 哨兵——勾选条目无声消失且
+// 退出码仍绿。修后计入哨兵 + warn 留痕（口径同 catch 臂 R62-24），有效条目照常入库。
+test('R0912-3: 空白摘录行 → warn 留痕 + 退出码哨兵标红，有效条目照常入库', () => {
+  const bookRoot = mkdtempTracked(join(tmpdir(), 'r0912-book-'))
+  const corpusDir = mkdtempTracked(join(tmpdir(), 'r0912-corpus-'))
+  const candidate = [
+    '### checkId: style-repeat',
+    '- [x] 章号 1 ｜ 判定：误报 ｜ 摘录："   "（第 1 段）',
+    '- [x] 章号 1 ｜ 判定：误报 ｜ 摘录："雪落在了城墙上"（第 2 段）',
+    '',
+  ].join('\n')
+  mkdirSync(join(bookRoot, '工作区', '语料候选'), { recursive: true })
+  writeFileSync(join(bookRoot, '工作区', '语料候选', '误报候选.md'), candidate, 'utf-8')
+  const r = runCommit(bookRoot, corpusDir)
+  expect(r.status).toBe(1)
+  expect(r.stderr).toContain('摘录行为空白（JSON 合法但无有效内容，已跳过不入库）')
+  expect(r.stderr).toContain('1 行勾选摘录解析被丢')
+  // 同节有效条目不因空白行受累：照常入库
+  const fp = join(corpusDir, 'style-repeat.json')
+  expect(JSON.parse(readFileSync(fp, 'utf-8'))).toEqual([{ excerpt: '雪落在了城墙上', expect: 'silent' }])
+  expect(r.stdout).toContain('完成：1 条入库（1 个检查器）')
+}, 60_000)

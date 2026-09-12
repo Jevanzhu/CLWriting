@@ -252,10 +252,11 @@ function writeRecord(bookRoot: string, rec: CallRecord): void {
 // 「记完即读」语义保持不变；存在在途段时排队为微任务执行，杜绝交错覆盖。
 // J7（2026-08-23）：本互斥队列之上叠加跨进程真锁（见下 AI_CALLS_MUTEX_SCOPE_NOTE），
 // 多进程（CLI+桌面）同书并发写已闭合。
-// R33-17（三十三轮）现状校正：J7 锁获取为**同步阻塞**（Atomics.wait 轮询）——空闲
-// 快路同步完成、控制流不归还，「排队为微任务」分支实际不可达（writeChains 从不置位，
-// 见 calls-migration-selflock.test.ts 旧注释的同款误解）。保留排队代码作为未来锁
-// 异步化（acquireCrossProcessLockAsync 已在树）的现成接管面。
+// R33-17（三十三轮）原判断已被 R30-3（三十轮）作废，R0912-3（2026-09-12 全量重评
+// 修复批 #3）现状再校正：R33-17 时点 J7 锁获取还是 Atomics.wait 同步阻塞，「排队为
+// 微任务」分支确不可达，排队代码按「未来异步化接管面」保留；R30-3 锁等待改异步轮询
+// 后，锁被占时 writeWithCrossProcessLock 返回在途 Promise 并紧随 writeChains.set
+//（见 serializedWrite 快路段）——排队分支已在役（保调用序 = 落盘序），非保留代码。
 const writeChains = new Map<string, Promise<unknown>>()
 
 /** Y-1（第五十七轮）：当前是否处于某次记账写段（writeWithCrossProcessLock 的 doWrite）
@@ -347,8 +348,8 @@ export function __setAiCallsLockTimeoutForTest(ms: number): void {
  * 降级口径零改动。未来异步化的前置条件（满足前不动）：a. 盘点「记完即读」消费者
  * 清单并逐一确认无「写返回后立即读必须见新值」依赖（或改等待句柄/版本号协议）；
  * b. 全部写方（recordTaskUsage / recordAiCall / readRecord 锁内迁移写）统一改返回
- * Promise 并上溯改造 runner/rag/self-heal 调用链的同步 catch 口径；c. R33-17 保留的
- * writeChains 排队代码（acquireCrossProcessLockAsync 已在树）即现成接管面。 */
+ * Promise 并上溯改造 runner/rag/self-heal 调用链的同步 catch 口径；c. R33-17 曾保留、
+ * R30-3 起已在役的 writeChains 排队代码即现成接管面。 */
 function writeWithCrossProcessLock(bookRoot: string, doWrite: () => void): void | Promise<void> {
   const lockPath = `${budgetPath(bookRoot)}.lock`
   const fast = tryAcquireCrossProcessLock(lockPath)

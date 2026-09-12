@@ -17,6 +17,7 @@ import { existsSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs
 import { join } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { isWithinRoot } from '../fs/safe-path.js'
+import { log } from '../log/index.js' // R0912-3：写失败节流 warn 留痕
 import { codePointLength } from './summary.js' // R26-96：非分配码位计数单源复用
 
 export interface SpillThresholds {
@@ -52,6 +53,22 @@ export interface SpillMeta {
   baseSha: string
 }
 
+/** R0912-3（2026-09-12 全量重评修复批 B3-28）：写失败 warn 节流窗（每书根至多一条/窗）
+ *  ——失败常驻（磁盘满/权限/占用）时连发不刷日志；手法同 sweepOldSpillsThrottled 的
+ *  Map 时间戳。窗内静默不代表恢复，窗外首败重新留痕。 */
+const SPILL_WARN_THROTTLE_MS = 60 * 1000
+const spillWarnLastAt = new Map<string, number>()
+
+/** R0912-3：写失败分支留痕（书根可归因 + 失败原因 + 降级后果）——此前全链
+ *  （本 catch → spillIfLarge null → 全文内联）静默，上下文成本膨胀不可归因。 */
+function warnSpillWriteFailed(bookRoot: string, e: unknown): void {
+  const now = Date.now()
+  const last = spillWarnLastAt.get(bookRoot)
+  if (last !== undefined && now - last < SPILL_WARN_THROTTLE_MS) return
+  spillWarnLastAt.set(bookRoot, now)
+  log.warn('spill', `spill 落盘失败（${bookRoot}），本次降级为全文内联——上下文成本膨胀且不可归因`, e)
+}
+
 export function writeSpillFile(bookRoot: string, text: string, meta?: SpillMeta): string | null {
   try {
     // A6（五十九轮）：locator 哈希并入 meta（章号+基线 sha）——改写 spill 原纯内容寻址，
@@ -74,7 +91,8 @@ export function writeSpillFile(bookRoot: string, text: string, meta?: SpillMeta)
     // 调 sweepOldSpills（导出，供 state 的 housekeeping 扫挂点接线；本文件不引 state）。
     sweepOldSpillsThrottled(bookRoot)
     return `工作区/spills/${digest}.md`
-  } catch {
+  } catch (e) {
+    warnSpillWriteFailed(bookRoot, e) // R0912-3：降级为全文内联前节流留痕（恰一次/窗）
     return null
   }
 }
@@ -147,6 +165,8 @@ export function spillIfLarge(
   const chars = Array.from(text)
 
   const locator = writeSpill(text)
+  // null（生产写方恒为 writeSpillFile，失败已在源头 warnSpillWriteFailed 节流留痕）：
+  // 降级原文透传，绝不把成功调用变失败/变空
   if (locator === null) return { preview: text }
 
   let head = Math.min(thresholds.headChars, total)

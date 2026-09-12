@@ -1317,6 +1317,115 @@ describe('重评2-P3-①: restartPinned 复用在途 start 失败不逃逸 rejec
   })
 })
 
+// ── R0912-3（重评-0912 P3 #34）：launch fork 后停机检查（S1）的 kill 收编
+// killProcAwaitEscalating 等待/升级纪律（TERM→等 killWaitMs→SIGKILL）──
+// 此路径的 kill 此前 fire-and-forget，SIGTERM 被吞时新 child 在停机链上漏杀成孤儿。
+// 场景 = 重评-P3-8 同款（换轮 start 的 kill 等待窗内并发 shutdown → fork 即杀）。
+describe('R0912-3 #34: 停机期在途 fork 的 kill 等待/升级纪律', () => {
+  /** 自出生吞信号假件：kill 只计数、不派发 exit（SIGTERM 被吞形态，R28-21 同款） */
+  function mkSwallowHarness(extra: ServerManagerDeps = {}): {
+    forkRecords: ForkRecord[]
+    manager: ReturnType<typeof createStudioServerManager>
+  } {
+    const forkRecords: ForkRecord[] = []
+    const manager = createStudioServerManager({
+      ...extra,
+      fork: (modulePath, args, options) => {
+        const child = new FakeChild()
+        child.kill = () => {
+          child.killed++
+          return true
+        }
+        forkRecords.push({ modulePath, args, options: options as Record<string, unknown>, child })
+        return child
+      },
+    })
+    return { forkRecords, manager }
+  }
+
+  it('S1 fork 即杀路径 SIGTERM 被吞 → killWaitMs 后升级 SIGKILL，SHUTDOWN reject 语义保留', async () => {
+    const cap = mkLogCapture()
+    const { forkRecords, manager } = mkSwallowHarness({
+      logger: cap.logger,
+      shutdownSettleBudgetMs: 5_000,
+      shutdownTotalMs: 5_000,
+      killWaitMs: 60,
+    })
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true)
+    try {
+      const ud = mkUserData()
+      // 首启建 active child（吞信号假件下 ready 经 message 照常回传）
+      const first = manager.start({ workDir: '/w', userDataPath: ud })
+      forkRecords[0]!.child.emit('message', { type: 'ready', port: 46200 })
+      await first
+      // 换轮 start：旧 child kill 被吞 → IIFE 停驻 kill 等待窗；并发 shutdown 落窗内
+      // （置 shuttingDown + 停机门，重评-P3-8 场景）
+      const second = manager.start({ workDir: '/w2', userDataPath: ud })
+      const shuttingDown = manager.shutdown()
+      // 旧 child 退出 → 换轮 IIFE 恢复 → fork 新 child → fork 后检查命中即杀（TERM）
+      forkRecords[0]!.child.emit('exit', 0)
+      await expect(second).rejects.toThrow(/停机指令/) // 等杀链走完再按启动失败收口
+      expect(forkRecords).toHaveLength(2)
+      expect(forkRecords[1]!.child.killed).toBe(1) // TERM 已发（fork 即杀）
+      // TERM 被吞（pid 仍在）→ killWaitMs 窗过后升级 SIGKILL（修复前 fire-and-forget 无升级）
+      expect(killSpy).toHaveBeenCalledWith(4242, 'SIGKILL')
+      const escalations = cap.lines.filter((l) => l.level === 'warn' && l.msg.includes('SIGKILL'))
+      expect(escalations).toHaveLength(1) // 升级留痕
+      await expect(shuttingDown).resolves.toBeUndefined()
+      expect(forkRecords).toHaveLength(2) // 停机门置位：exit 不触发重启 fork
+    } finally {
+      killSpy.mockRestore()
+    }
+  })
+
+  it('对照：TERM 正常收殓（exit 及时到达）→ 不升级 SIGKILL，SHUTDOWN reject 快速保留', async () => {
+    const { forkRecords, manager } = mkHarness({ shutdownSettleBudgetMs: 5_000, shutdownTotalMs: 5_000, killWaitMs: 200 })
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true)
+    try {
+      const ud = mkUserData()
+      const first = manager.start({ workDir: '/w', userDataPath: ud })
+      forkRecords[0]!.child.emit('message', { type: 'ready', port: 46201 })
+      await first
+      // 换轮 kill → exit 微任务级到达；shutdown 恰落 kill 等待窗（门保持置位）
+      const second = manager.start({ workDir: '/w2', userDataPath: ud })
+      const shuttingDown = manager.shutdown()
+      await expect(second).rejects.toThrow(/停机指令/)
+      expect(killSpy).not.toHaveBeenCalled() // exit 竞速赢过 killWaitMs → 不升级
+      expect(forkRecords[1]!.child.killed).toBeGreaterThanOrEqual(1)
+      await expect(shuttingDown).resolves.toBeUndefined()
+    } finally {
+      killSpy.mockRestore()
+    }
+  })
+})
+
+// ── R0912-3（重评-0912 P3 #35）：killNow——崩溃退出兜底的同步 kill 信号面 ──
+// uncaughtException 的 200ms backstop 到点时 stopChild 可能仍在 settle 竞速窗内
+// （预算 2s）、kill 尚未发出，裸 process.exit 会把 child 留成孤儿——backstop 先经
+// killNow 同步发 kill 再退（不等待收口：uncaughtException 后必须退出不悬挂）。
+describe('R0912-3 #35: killNow 同步 kill 信号', () => {
+  it('空态直通；当值 child 已清后在途 fork 同步被杀；被杀 exit 不触发自动重启', async () => {
+    const { forkRecords, manager } = mkHarness({ backoffMs: [0, 5_000, 15_000] })
+    expect(() => manager.killNow()).not.toThrow() // 空态直通（无 child 无在途 fork）
+    const ud = mkUserData()
+    const first = manager.start({ workDir: '/w', userDataPath: ud })
+    forkRecords[0]!.child.emit('message', { type: 'ready', port: 46300 })
+    await first
+    // 崩溃 → backoff[0]=0 自动重启 fork 握手挂起（ready 未发，startingProc 在册）
+    forkRecords[0]!.child.emit('exit', 1)
+    await vi.waitFor(() => expect(forkRecords.length).toBe(2), { timeout: 300 })
+    const child2 = forkRecords[1]!.child
+    manager.killNow()
+    expect(child2.killed).toBe(1) // 在途 fork 同步收到 kill（stopChild 竞速窗内 kill 未发出时的兜底面）
+    expect(manager.isRunning()).toBe(false)
+    // S-5 门随 killNow 置位：被杀 child 的 exit 不触发新一轮重启（fork 数封顶）
+    child2.emit('exit', 1)
+    await new Promise((r) => setTimeout(r, 20))
+    expect(forkRecords.length).toBe(2)
+    expect(manager.hasPendingRestart()).toBe(false)
+  })
+})
+
 afterAll(() => {
   for (const d of tmpDirs) rmSync(d, { recursive: true, force: true })
 })

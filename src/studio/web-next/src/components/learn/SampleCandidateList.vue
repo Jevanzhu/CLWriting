@@ -4,7 +4,7 @@
  * 筛选（全部/仅 A 级）+ 批量操作（全选 A / 清空）+ 场景分组候选卡列表。
  * 候选制红线：勾选才入库，品味归人——勾选态直接读写 learn store（单一实例）。
  */
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { Check } from 'lucide-vue-next'
 import { useLearnStore } from '../../stores/learn'
 import { TIER_A, scoreTierStats, tierOf } from '../../shared/learn-tier'
@@ -71,6 +71,12 @@ function visibleItems(g: { 场景: string; items: KeyedSample[] }): KeyedSample[
 function expandGroup(scene: string): void {
   expandedGroups.value.add(scene)
 }
+// R0912-3 #23：expandedGroups 跨收割重置——组件实例随视图常驻，上一轮手动展开的大组
+// 在新收割数据上仍全量渲染；收割跑完（loading 落 false）即清。commit 后列表收缩不推
+// loading，展开态保留
+watch(() => learn.loading, (v, old) => {
+  if (old && !v) expandedGroups.value = new Set()
+})
 
 // ── 批量操作 ──
 function selectAllTierA(): void {

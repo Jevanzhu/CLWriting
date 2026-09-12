@@ -22,12 +22,39 @@ vi.mock('../../src/document/manifest.js', async (importOriginal) => {
   }
 })
 
-import { DocumentService } from '../../src/document/service.js'
+import { DocumentService, type SaveResult } from '../../src/document/service.js'
+import { SaveQueue, type QueueSaveRequest, type QueueResult } from '../../src/document/queue.js'
 import { appendPending, findUnsettled, type JournalPending } from '../../src/document/journal.js'
 import { readTodayDelta, todayDate } from '../../src/document/words-diary.js'
 import { hashFile } from '../../src/fs/hash.js'
 import { computeRevision } from '../../src/document/revision.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
+
+// R0912-3：SaveQueue 测试桩（走 DocumentServiceOptions.queue 注入面）——按 docId 把
+// run 停在闸门 Promise 上（已启动、未放行），供「跨 doc 保存互不阻塞」做终态断言
+// （r0912-interrupt-semantics 同款可控闸门手法），替代上限式时间窗断言。
+class GatedSaveQueue extends SaveQueue<SaveResult> {
+  private gateResolve: (() => void) | null = null
+  private readonly gate: Promise<void> = new Promise<void>((res) => {
+    this.gateResolve = res
+  })
+  /** 闸住的 doc 是否已启动 run（尚未放行）——并发重叠的观测口。 */
+  aRan = false
+  override enqueue(req: QueueSaveRequest<SaveResult>): Promise<QueueResult<SaveResult>> {
+    if (req.docId !== 'doc_a') return super.enqueue(req)
+    return super.enqueue({
+      ...req,
+      run: async (token: number) => {
+        this.aRan = true
+        await this.gate
+        return req.run(token)
+      },
+    })
+  }
+  release(): void {
+    this.gateResolve?.()
+  }
+}
 
 describe('DocumentService / 保存协议主路径', () => {
   let bookRoot: string
@@ -421,16 +448,24 @@ describe('DocumentService / 串行', () => {
     expect(readFileSync(join(bookRoot, '写作/正文/0001.md'), 'utf-8')).toBe('一')
   })
 
-  it('不同 doc 并发保存互不阻塞', async () => {
-    const t0 = Date.now()
-    await Promise.all([
-      svc.save('doc_a', '写作/正文/0001.md', { content: 'a', expectedRevision: null, operationId: 'opa', origin: 'manual' }),
-      svc.save('doc_b', '写作/正文/0002.md', { content: 'b', expectedRevision: null, operationId: 'opb', origin: 'manual' }),
-    ])
-    // 两个独立 doc 并行，应在 ~一次 IO 时间内完成
-    expect(Date.now() - t0).toBeLessThan(1000)
-    expect(existsSync(join(bookRoot, '写作/正文/0001.md'))).toBe(true)
+  it('不同 doc 并发保存互不阻塞（R0912-3：可控闸门终态断言，替换上限式时间窗 <1s——慢机假红向）', async () => {
+    // 原「全程 <1s」是弱代理且慢机/CI 抖动下假红。改闸门法：doc_a 的 run 被
+    // SaveQueue 测试桩闸住（已启动未执行）期间，doc_b 的保存必须完整落盘返回——
+    // 若出现跨 doc 串行/阻塞，doc_b 无法完成，本用例以超时红暴露（非永真断言）。
+    const q = new GatedSaveQueue()
+    const gated = new DocumentService({ bookRoot, queue: q })
+    const pa = gated.save('doc_a', '写作/正文/0001.md', { content: 'a', expectedRevision: null, operationId: 'opa', origin: 'manual' })
+    const pb = await gated.save('doc_b', '写作/正文/0002.md', { content: 'b', expectedRevision: null, operationId: 'opb', origin: 'manual' })
+    // doc_b 完整落盘时 doc_a 仍被闸住（run 已启动未放行）——并发重叠的终态证据
+    expect(pb.ok).toBe(true)
+    expect(q.aRan).toBe(true)
     expect(existsSync(join(bookRoot, '写作/正文/0002.md'))).toBe(true)
+    expect(existsSync(join(bookRoot, '写作/正文/0001.md'))).toBe(false)
+    // 放行后 doc_a 照常完成落盘（两保存互不干扰）
+    q.release()
+    const ra = await pa
+    expect(ra.ok).toBe(true)
+    expect(existsSync(join(bookRoot, '写作/正文/0001.md'))).toBe(true)
   })
 })
 

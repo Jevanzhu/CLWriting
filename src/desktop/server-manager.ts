@@ -180,6 +180,14 @@ export interface StudioServerManager {
    *  取消挂起重启 + S-5 门置位（随后的 exit 不触发自动重启）。 */
   stopChild(): Promise<void>
   /**
+   * R0912-3（重评-0912 P3 #35）：崩溃退出兜底用——不等待收口，对在途 child/在途
+   * fork 同步发出 kill 信号（fire-and-forget，无 SIGKILL 升级——升级等待属 stopChild
+   * 链，调用方即退无窗口可等）。uncaughtException 的 200ms backstop 到点时 stopChild
+   * 可能仍在 settle 竞速窗（预算 2s）内、kill 尚未发出，裸 process.exit 会把 child
+   * 留成孤儿。置位主动停机门（被杀 child 的 exit 不触发自动重启）+ 作废挂起重启。
+   */
+  killNow(): void
+  /**
    * 优雅停机（before-quit 收尾）：下发 shutdown 指令 → shutdownStudio 落定 →
    * shutdown-done 回执 / 总超时（3.5s，E-1）/ exit 三路先到为准；窗口内未退则 kill 兜底。
    * R44-12（四十四轮）：等在途启动（settleStarting）设短预算（缺省 2s），超时放弃等
@@ -358,8 +366,18 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
     // 在途 start/自动重启（X-3 starting 通道）的握手窗口内 shutdown/stopChild 落地时，
     // shutdown 侧 settleStarting 只能等到 handshake 完成——fork 即杀把窗口收窄到
     // 「已 fork 未检查」的同步缝隙，新 child 不再漏杀成孤儿（优雅停机面收口）。
+    // R0912-3（重评-0912 P3 #34）：kill 收编 killProcAwaitEscalating 同款等待/升级
+    // 纪律（TERM→等 killWaitMs→SIGKILL，握手超时/boot-error 分支同款）——此前
+    // fire-and-forget，SIGTERM 被吞（child 卡死在不可中断调用）时新 child 在停机链上
+    // 漏杀成孤儿。与既有 stop 路径的差异点：收口形态仍是启动失败——等杀链走完再抛
+    // ServerBootError('SHUTDOWN')（握手超时分支同款时序），settleStarting 侧经
+    // settle/catch 照常落定，启动期其余语义不变。
     if (shutdownStarted) {
+      const exited = new Promise<void>((resolveExit) => {
+        proc.once('exit', () => resolveExit())
+      })
       proc.kill()
+      await killProcAwaitEscalating(proc, exited, 'studio server 停机期在途 fork 收口', killWaitMs, logger)
       throw new ServerBootError('SHUTDOWN', 'studio server 启动途中收到停机指令，已中止新 child')
     }
     // R44-12（四十四轮）：在途 fork 句柄登记（与 starting 通道同生命周期，start/
@@ -521,6 +539,18 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
     await killAwaitEscalating(current, 'stopChild')
   }
 
+  /**
+   * R0912-3（重评-0912 P3 #35）：killNow 的实现——同步对在途 fork/当值 child 发 kill
+   * 信号后立即返回（不等待退出、无升级）。握手已落定而 starting 通道未清的窄窗内
+   * startingProc 与 active.proc 同指一个 child，双 kill 对已死句柄为无害幂等。
+   */
+  function killNow(): void {
+    cancelPendingRestart()
+    shutdownStarted = true // S-5：被杀 child 的 exit 不触发自动重启
+    startingProc?.kill()
+    active?.proc.kill()
+  }
+
   return {
     async start(opts: StartStudioServerOptions): Promise<number> {
       // B-7（第六十轮）：停机流程进行中 start fail-closed 拒绝——S1 的注释与复位只覆盖
@@ -614,6 +644,7 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
       }
       await stopActiveChild()
     },
+    killNow,
     async shutdown(): Promise<void> {
       // R62-16：幂等门改判 shuttingDown（B-7 引入的停机生命周期门）——此前用
       // shutdownStarted：start 换旧 child 的 kill 等待窗（≈2s）内 stopActiveChild 置位

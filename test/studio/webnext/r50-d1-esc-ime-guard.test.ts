@@ -30,7 +30,8 @@ afterEach(() => {
 
 describe('R50-D1-1: TabBar 新建下拉 Esc 的 IME 组合期让渡', () => {
   it('组合期 Esc 不关闭不消费；非组合期 Esc 照常关闭', async () => {
-    const w = mount(TabBar, { props: { bookName: '书A' }, attachTo: document.body })
+    // R0912-3 #9：TabBar bookName 死 prop 已删，无 props
+    const w = mount(TabBar, { attachTo: document.body })
     // 打开下拉（caret 点击出 Teleport 菜单）
     await w.find('.tb-caret').trigger('click')
     expect(document.body.querySelector('.new-dropdown')).not.toBeNull()

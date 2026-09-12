@@ -4,7 +4,7 @@
  * 的逐字重复块收编，纯搬家——选择器/声明逐字不变）。
  *
  * 接入机制照 components/ui/settings-shared.css 先例：全局（非 scoped）装载，
- * 类名全局唯一无冲突（.btn-ghost/.btn-primary/.kind-badge/.token-chip 经全库
+ * 类名全局唯一无冲突（.btn-ghost/.btn-primary/.kind-badge/.token-chip/.src-dot 经全库
  * grep 仅 style/ 四件使用；.panel 同名八处——style/ 四件 + OverviewView 系四处——
  * 声明逐字相同，全局化无视觉差）。装载时机与 SFC style 块等价（组件模块加载即注入）。
  *
@@ -88,4 +88,14 @@
 .kind-badge[data-kind='禁词'] {
   color: var(--text-error);
   background: color-mix(in srgb, var(--text-error) 12%, transparent);
+}
+
+/* ══ 来源徽标（候选箱/条目库卡脚注；R0912-3 #14：Candidate/Entry 两件原局部
+ * 逐字重复收编，选择器与声明逐字不变）══ */
+.src-dot {
+  font-size: var(--font-size-xs);
+  color: var(--text-faint);
+}
+.src-dot::before {
+  content: '◦ ';
 }

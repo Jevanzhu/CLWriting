@@ -10,7 +10,7 @@ import { usePlatform } from '../../composables/usePlatform'
 import { modComboLabel } from '../../shared/mod-key'
 import { isImeComposing } from '../../shared/ime'
 
-defineProps<{ bookName: string }>()
+// R0912-3 #9：原声明的 bookName 必填 prop 组件零消费（死契约，调用方白传）——整行删除。
 const ws = useWorkspaceStore()
 const tree = useTreeStore()
 const { isDesktop, isMac, isWin, platform } = usePlatform()

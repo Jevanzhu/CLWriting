@@ -56,8 +56,16 @@ function onExpandChat(): void {
       </div>
     </div>
 
-    <!-- 输入框（Codex 风格，与工作台对话一致；glass=dock 玻璃档，R0912-C2-P3-4） -->
-    <div v-if="fabOpen" class="chat-stack">
+    <!-- 输入框（Codex 风格，与工作台对话一致；glass=dock 玻璃档，R0912-C2-P3-4）。
+         R0912-3 #11：v-if → v-show——原收起即卸载 ChatComposer，未发送草稿随实例
+         销毁静默丢失（同书内 ChatPanel 输入区常驻，口径不一致）。R48-97「不渲染
+         不实例化」针对的是 dock 场景 ChatPanel 内隐藏 composer 与本输入区双实例
+         双监听的潜伏陷阱；本处是 dock 唯一自持 composer，v-show 保实例不产生第二
+         实例：隐藏期残留的 document click/keydown 监听以 chapterMenuOpen 为门
+         （收起时恒 false）成 no-op，章节跟随 watch 与 ChatPanel 共写同一 store
+         单源且幂等，无静默双跑面，故此处豁免。切书跨书残留语义不变：外层
+         :key=bookName 整 dock 销毁重建（r27-chatdock-rekey 锚定）。 -->
+    <div v-show="fabOpen" class="chat-stack">
       <ChatComposer glass :book-name="bookName" :current-chapter="currentChapter" :on-pushed="afterPushed" />
     </div>
 

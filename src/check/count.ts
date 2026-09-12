@@ -12,6 +12,8 @@ import type { CheckSectionResult, CheckItem } from './types.js'
 import type { ChapterMeta } from '../format/types.js'
 import { validateEnums } from '../format/chapters.js'
 import { splitSentences, ngramRepeatRate } from '../format/sentences.js'
+// R0912-3（2026-09-12 全量重评修复批）：章号前缀解析单源（fm-chapter-mismatch 收编，见 checkFrontMatter）
+import { chapterNoFromName } from '../format/filename.js'
 // R49-2：围栏行识别单源（与导出 purifyBody 共享「识别」一步，开/闭栏语义各自保留）
 import { matchFenceLine, type FenceLineMatch } from '../format/fence.js'
 import { QUOTED_SPAN_RE, stripQuotedSpans, QUOTE_OPEN, QUOTE_CLOSE, SPAN_PUNCT } from './quotes.js'
@@ -44,10 +46,15 @@ export function checkFrontMatter(
   const items: CheckItem[] = []
 
   // 章号 == 文件名前缀（非数字文件名如 前言.md 不报红——与短篇版 checkPieceFrontMatter 对齐）
-  // R33-30（三十三轮）：分隔符双侧容忍（`[/\\]`）——契约对路径形态脆弱（win 反斜杠
-  // 直传时前缀识别失明）；现调用方传 basename 不触发，纯加固。
-  const fileNum = Number(fileName.match(/(?:^|[/\\])(\d+)-/)?.[1])
-  if (!Number.isNaN(fileNum) && fileNum !== chapter.章号) {
+  // R33-30（三十三轮）：路径形态容忍（win 反斜杠直传前缀不失明；现调用方传 basename
+  // 不触发，纯加固）——basename 化后再交单源解析。
+  // R0912-3（2026-09-12 全量重评修复批）：前缀解析收编 format/filename.ts
+  // chapterNoFromName 单源——此前自带窄正则只认 `-` 分隔，`6—标题.md`（tree 排序/
+  // 线索核验同宽容集形态）在此解析不出前缀 → fm-chapter-mismatch 对真不一致静默
+  // 失明。只统一「解析」一步：null（无数字前缀）= 不报（既有豁免语义不变），解析
+  // 出章号才判 mismatch，本处判断逻辑零改动。
+  const fileNum = chapterNoFromName(fileName.split(/[/\\]/).pop() ?? fileName)
+  if (fileNum !== null && fileNum !== chapter.章号) {
     items.push({
       checkId: 'fm-chapter-mismatch',
       level: 'red',
@@ -304,8 +311,14 @@ export const DIALOGUE_TAG_RE = new RegExp(
   'u',
 )
 
-/** R30-2（三十轮）：纯汉字名判定（名册侧名字过滤用，区间与候选抽取同源 HANZI）。 */
-const ROSTER_NAME_RE = new RegExp(`^[${HANZI}]{2,4}$`)
+/** R30-2（三十轮）：纯汉字名判定（名册侧名字过滤用，区间与候选抽取同源 HANZI）。
+ *  R0912-3（2026-09-12 全量重评修复批）：补 CJK 增补平面区段（SIP 扩展 B–I + 兼容
+ *  补充 U+20000-U+2FA1F、TIP 扩展 G/H U+30000-U+323AF）+ u 标志——HANZI 仅 BMP
+ *  （基本区+扩展 A），Ext-B/C 生僻字姓名（如 𪀀）在名册侧恒被盲拒 → 已登记判重
+ *  永不命中（真名伪报新专名候选）。u 标志使字符类内 astral 字面按码点计（不碎成
+ *  代理对半区）；刻意不动 HANZI 常量本体——它被无 u 标志正则（HANZI_CHAR_RE/
+ *  SPEECH_ATTRIBUTION_RE 等）消费，掺入 astral 区段会碎成代理对半区破坏语义。 */
+const ROSTER_NAME_RE = new RegExp(`^[${HANZI}\u{20000}-\u{2FA1F}\u{30000}-\u{323AF}]{2,4}$`, 'u')
 
 /**
  * R46-10（四十六轮）：名册解析结果的 (mtimeNs,size) 指纹缓存——runAllChecks 每章调
@@ -443,7 +456,11 @@ export function checkNewNames(
       // （「名叫『萧策』」）仍照报，真候选不误伤（词表收窄理由见 DIALOGUE_GUIDE_RE 注释）
       if (DIALOGUE_GUIDE_RE.test(line.slice(0, span.index ?? 0).trimEnd())) continue
       const name = q.replace(punctRe, '')
-      if (name.length < 2 || name.length > 4) continue
+      // R0912-3（2026-09-12 全量重评修复批）：长度窗按码点计（codePointLength 单源
+      // 在本文件 R73-19，代理对合 1 计，勿新写）——UTF-16 .length 对 astral 字一符
+      // 计 2，含 Ext-B 字的姓名被窗误拒（「𪀀𪀀𪀀」3 码点计 6 > 4 静默跳过）。
+      const nameLen = codePointLength(name)
+      if (nameLen < 2 || nameLen > 4) continue
       // R30-2（三十轮）：精确全等判重（见 parseRosterNames/函数头注）——
       // 原 roster.includes(name) 是名册全文子串判定，长名吞短名致独立新角色漏报
       // R0912-F-P3-2（2026-09-12 独立重评修复批）：判重集合化——原

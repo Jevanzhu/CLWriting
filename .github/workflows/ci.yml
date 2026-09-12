@@ -246,10 +246,16 @@ jobs:
       # --expose-gc 断增长上界（详见脚本头注）；gc 不可用则干净 SKIP。无系统依赖，纯 Node。
       # R0912（重评-0911c P3）：脚本在 --expose-gc 丢失时 SKIP 且 exit 0——只看退出码
       # 门会假绿，故断言输出含 [soak] OK（SKIP/FAIL 均判红：内存门必须真跑）。
+      # R0912-3 P2-4：旧断言 grep -q 是「至少一个 OK」——段 1 通过即真，其后 RAG 段
+      # 失败仍步绿（假绿洞）；且步未设 shell，默认 bash -e 无 pipefail，soak 非零退出
+      # 被 tee 吞。修法 = 显式 shell: bash（GH Actions 即 -eo pipefail，teed 退出码
+      # 不再被吞）+ OK 行数恰等于段数断言（补段须同步改此断言，fail-closed）。
       - name: 有界内存/soak 门（--expose-gc）
+        shell: bash
         run: |
           npm run soak | tee /tmp/soak-output.log
-          grep -q '\[soak\] OK' /tmp/soak-output.log || { echo '::error::soak 门未输出 [soak] OK（--expose-gc 丢失被 SKIP 或运行失败）——内存门假绿拦截'; exit 1; }
+          OK_N=$(grep -c '\[soak\] OK' /tmp/soak-output.log || true)
+          [ "$OK_N" -eq 2 ] || { echo "::error::soak 门 OK 行数=${OK_N}（应为 2 = 段1 有界往返 + 段2 RAG 召回；段失败/SKIP/退出码非零均不得步绿；补段须同步改此断言）——内存门假绿拦截"; exit 1; }
 
       - name: 上传 trace（失败时）
         if: failure()

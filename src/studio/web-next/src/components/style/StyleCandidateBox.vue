@@ -313,14 +313,8 @@ async function onIgnore(c: StyleCandidateFE): Promise<void> {
   transform: rotate(90deg);
 }
 
-/* 类型徽标（kind-badge 族）已收敛至 style-shared.css（R0912-C2-P3-3）。 */
-.src-dot {
-  font-size: var(--font-size-xs);
-  color: var(--text-faint);
-}
-.src-dot::before {
-  content: '◦ ';
-}
+/* 类型徽标（kind-badge 族）与 .src-dot 均收敛至 style-shared.css
+ *（R0912-C2-P3-3 / R0912-3 #14 全局装载）。 */
 
 @media (max-width: 860px) {
   .cc-compare {

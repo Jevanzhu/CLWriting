@@ -3,6 +3,8 @@
 // kk-P1-4 连写暂停提示）+ 一键操作（建议动作按钮）。动作执行（写稿上下文拼装）在父层。
 import { computed } from 'vue'
 import { useWorkbenchStore } from '../../stores/workbench'
+// R0912-3 #17：建议按钮补 AI 可用性闸（主「生成」按钮有闸，此旁路此前无）
+import { useUiStore } from '../../stores/ui'
 import type { BookState } from '../../api/stream'
 
 const props = defineProps<{ state: BookState | null }>()
@@ -11,6 +13,7 @@ const props = defineProps<{ state: BookState | null }>()
 // 编排都在 WorkbenchView，卡片保持纯展示 + 事件出口的既有分工）。
 const emit = defineEmits<{ spawn: []; acknowledge: [] }>()
 const wb = useWorkbenchStore()
+const ui = useUiStore() // R0912-3 #17：AI 可用性闸读取
 
 // 态机 action → 可执行操作（每个建议动作都有 UI 按钮）。
 // CLI 确定性步骤（hand/rebook/health/review-batch/enter）随 CLI 退场：对应 action 不再有按钮，
@@ -86,7 +89,7 @@ const crashedPendingOpIds = computed<string[]>(() =>
       <span class="action-hint">建议下一步</span>
       <button
         class="btn mini primary"
-        :disabled="wb.running"
+        :disabled="wb.running || ui.aiAvailable === false"
         :title="currentAction.title"
         @click="emit('spawn')"
       >{{ currentAction.label }}</button>

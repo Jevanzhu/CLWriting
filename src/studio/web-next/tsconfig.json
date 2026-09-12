@@ -34,7 +34,6 @@
   "include": [
     "src",
     "vite.config.ts",
-    "env.d.ts",
     "../../../test/studio/webnext"
   ]
 }

@@ -97,3 +97,67 @@ describe('重审-批2-1：completed 后 trailing error/response.failed 忽略', 
     expect(events.some((e) => e.type === 'done')).toBe(false)
   })
 })
+
+/**
+ * R0912-3（2026-09-12 全量代码重评修复批 #4）：守卫放宽 terminal!=='none'——
+ * incomplete(max_tokens) 已 emitDone 后流尾 failed/error 同款忽略（重审-批2-1 只拦
+ * completed 的同型另一半）。修复前：terminal 为 'incomplete' 不命中守卫，流尾
+ * failed/error 照常 yield 终态失败，max_tokens 回合被翻转成失败。
+ */
+describe('R0912-3：incomplete(max_tokens) 后流尾 failed/error 同款忽略', () => {
+  /** incomplete(max_output_tokens) 终态（带 usage——收尾入账走真值不走估计） */
+  const INCOMPLETE_MAX = {
+    type: 'response.incomplete',
+    response: {
+      output: [{ type: 'message' }],
+      usage: { input_tokens: 2, output_tokens: 3 },
+      incomplete_details: { reason: 'max_output_tokens' },
+    },
+  }
+
+  it('incomplete → response.failed：无 error yield，done(max_tokens) 收尾且唯一', async () => {
+    const events = await run(
+      { messages: [{ role: 'user', content: '继续写' }] },
+      [
+        { type: 'response.output_text.delta', delta: '正文增量' },
+        INCOMPLETE_MAX,
+        { type: 'response.failed', response: { error: { message: 'late failure' } } },
+      ],
+    )
+    // 修复前：terminal 为 'incomplete' 不命中守卫，流尾 failed 照常 yield 终态失败翻转回合
+    expect(events.some((e) => e.type === 'error')).toBe(false)
+    const dones = events.filter((e) => e.type === 'done')
+    expect(dones).toHaveLength(1)
+    // ① incomplete 正常收尾路径不受影响：usage 真值入账 + max_tokens 停因原样透出
+    expect(dones[0]).toMatchObject({ stopReason: 'max_tokens', usage: { inputTokens: 2, outputTokens: 3 } })
+    expect(events.at(-1)!.type).toBe('done')
+  })
+
+  it('incomplete → error：同款忽略', async () => {
+    const events = await run(
+      { messages: [{ role: 'user', content: '继续写' }] },
+      [
+        { type: 'response.output_text.delta', delta: '正文增量' },
+        INCOMPLETE_MAX,
+        { type: 'error', message: 'gateway late error' },
+      ],
+    )
+    expect(events.some((e) => e.type === 'error')).toBe(false)
+    expect(events.filter((e) => e.type === 'done')).toHaveLength(1)
+    expect(events.at(-1)!.type).toBe('done')
+  })
+
+  it('回归护栏：incomplete 正常收尾不受影响（无流尾事件时 done 唯一、usage 不变）', async () => {
+    const events = await run(
+      { messages: [{ role: 'user', content: '继续写' }] },
+      [
+        { type: 'response.output_text.delta', delta: '正文增量' },
+        INCOMPLETE_MAX,
+      ],
+    )
+    expect(events.some((e) => e.type === 'error')).toBe(false)
+    const dones = events.filter((e) => e.type === 'done')
+    expect(dones).toHaveLength(1)
+    expect(dones[0]).toMatchObject({ stopReason: 'max_tokens', usage: { inputTokens: 2, outputTokens: 3 } })
+  })
+})

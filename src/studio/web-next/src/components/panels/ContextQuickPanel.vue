@@ -60,9 +60,11 @@ function onInsert(text: string): void {
     <div class="side-title">设定速查</div>
     <div v-if="!settings.length" class="side-hint">无设定文档</div>
     <div v-else class="setting-list">
+      <!-- R0912-3 #12：docId 可空（未登记清单的设定文件，tree.ts legacyId 兜底前可缺），
+           多条空值同作 key 会撞 Vue 重复键——回落稳定唯一的 path 兜底（path 全树唯一） -->
       <div
         v-for="s in settings"
-        :key="s.docId"
+        :key="s.docId ?? s.path"
         class="setting-item"
         role="button"
         tabindex="0"

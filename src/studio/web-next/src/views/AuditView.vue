@@ -266,7 +266,9 @@ async function doClear(): Promise<void> {
             />
           </section>
         </template>
-        <div v-else class="empty big">本库尚无对话事件（先发一条对话消息）</div>
+        <!-- R0912-3 #18：加载失败后不再渲染「本库尚无对话事件」空态文案（与上方错误
+             横幅同屏自相矛盾；头部 shadow-hint :211 同款 !err 守卫先例） -->
+        <div v-else-if="!err" class="empty big">本库尚无对话事件（先发一条对话消息）</div>
       </template>
 
       <!-- 工作流链路 -->
@@ -274,7 +276,9 @@ async function doClear(): Promise<void> {
         <!-- F5：当前目标 / 任务清单（goal/todo 重放快照） -->
         <AuditGoalTodoPanel :goals="goals" :todos="todos" />
 
-        <section class="sec">
+        <!-- R0912-3 #18：同上——加载失败后不渲染「暂无工作流事件」空态与 (0) 标题；
+             有数据时（续页失败/清除失败）仍照常渲染，错误只走横幅 -->
+        <section v-if="!err || workflowEvents.length > 0" class="sec">
           <h2 class="sec-title">工作流事件（{{ workflowEvents.length }}{{ hasMoreWorkflow ? ' / 共 ' + workflowTotal : '' }}）</h2>
           <!-- R0911b-C2-P3-1：同上——工作流段无遮蔽/血缘列（不传 detailed），文案以 props 区分；
                R0912-FE-P3-11 懒展开同随子组件生效 -->
