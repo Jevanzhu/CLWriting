@@ -32,6 +32,7 @@ import { resolveBook } from '../book-context.js'
 // R1010b-SRV-P2-1/P3-1（2026-09-10 内存专项重审修复批）：伏笔保存串行链 drain + 按书 forget
 import { forgetService, drainDocumentSaves, drainForeshadowSaveChains, forgetForeshadowSaveChain } from './documents.js'
 import { drainFilePutChainsUnder } from './files.js'
+import { drainDraftSaveChainsUnder } from './draft.js'
 import { forgetSession } from '../../../driver/index.js'
 import { invalidateTreeIndex } from '../../../document/tree.js'
 import { clearChatHistory, abortChat, isChatRunning, waitChatSettled } from '../../../ai/orchestrate/chat.js'
@@ -415,6 +416,12 @@ export function registerBookRoutes(ctx: BookCtx): void {
     // 只单向 await SaveQueue/清单·回收站锁、从不反等 books 侧锁，置于既有两 drain 之后
     // 不引入环；drain 窗口内新进单元不等（快照式），由单元体内书注册重验兜底。
     await drainForeshadowSaveChains(join(ctx.workDir, entry.path))
+    // 重评-0912-4 P2-1（2026-09-12 全量重评修复批）：draft-save 串行链同款 drain——
+    // 在途/迟到 draft-save 跨墓地 renameSync 后 saveDraft 的 mkdirSync(recursive) 会按
+    // 旧书路径重建幽灵目录树并返 200（内容不属于任何书）。死锁核查同伏笔链：链单元只
+    // 单向 await saveDraft 的跨进程锁，从不反等 books 侧锁；快照式窗口由链内
+    // bookMovedFailure 重验兜底。
+    await drainDraftSaveChainsUnder(join(ctx.workDir, entry.path))
     // M-4：闸后复查——settle 等待的 await 间隙里新 acquire 的闸（spawn/三审/task-gate）
     // 在此拦截；复检到 rmSync 之间全同步（单线程事件循环无新任务可插入），三闸 TOCTOU
     // 窗归零。
@@ -657,6 +664,9 @@ export function registerBookRoutes(ctx: BookCtx): void {
       // 从不反等 books 侧锁，置于既有两 drain 之后不引入环；drain 窗口内新进单元不等
       //（快照式），由单元体内书注册重验兜底。
       await drainForeshadowSaveChains(oldRoot)
+      // 重评-0912-4 P2-1：draft-save 串行链同款 drain（同删书段口径）——链单元跨
+      // renameSync 落盘会对旧书路径 mkdir 重建幽灵目录树。死锁核查同删书段。
+      await drainDraftSaveChainsUnder(oldRoot)
       // M-4：闸后复查——同删书：settle 等待的 await 间隙新 acquire 的闸在此拦截，
       // 复检到 renameSync 之间全同步（三闸 TOCTOU 归零）。
       // R33D-7（三十三轮 dev 线）：同删书复查补 chat/self-heal（drain 段新起的对话/写稿贯穿 renameSync）。

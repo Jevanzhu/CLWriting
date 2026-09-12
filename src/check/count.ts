@@ -1108,13 +1108,16 @@ export function checkOpeningNoEnv(
   const items: CheckItem[] = []
   // R29-4（二十九轮）：opening 窗口先剥对白引号 span 再匹配环境词——角色嘴里说的
   // 「今天天气真好」是对白不是环境描写（叙述面），裸匹配此前误报对白密集的开篇。
-  // 窗口尾截断的半个 span（有开无闭）不被识别为 span → 该处引号内容仍参与匹配，
-  // 对白里的环境词会被误报（误报向残余，黄项 advisory。重评-P3-22（2026-09-09
-  // 全量代码重评）：原注「可接受的漏报向」方向写反，仅改定性不改行为）。
   // R33-32（三十三轮）：码点口径（对齐 R73-19）——UTF-16 直接 slice 在含 astral 字符
   // 时窗口实际缩短；astral 码点最多占 2 个 UTF-16 单元，先取 openingChars*2 单元再按
   // 码点截断，窗口恒足 openingChars 码点。
-  const opening = stripQuotedSpans([...body.slice(0, openingChars * 2)].slice(0, openingChars).join(''))
+  // 重评-0912-4 P2-5（2026-09-12 全量重评修复批）：剥引号与开窗 swap——原序「先截窗
+  // 后剥引号」下窗尾截断的半个 span（有开无闭）不被识别，引号内容仍参与匹配；而本项
+  // 在 runner.ts STRICT_SHORT_CHECK_IDS 严格升红集内（黄→红拦定稿闸），短篇开篇恰在
+  // 窗尾截断对白即误报白烧重写费。现改为**全文先剥再开窗**（stripQuotedSpans 在完整
+  // 正文上识别配对 span，随后才做 R33-32 码点窗），截断半 span 形态根除；窗口语义不变
+  //（= 去对白后叙述面的前 openingChars 码点），非对白开篇的命中面逐位不变。
+  const opening = [...stripQuotedSpans(body).slice(0, openingChars * 2)].slice(0, openingChars).join('')
   const hits: string[] = []
   for (const word of envWords) {
     if (word && opening.includes(word)) hits.push(word)

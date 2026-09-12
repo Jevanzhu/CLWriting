@@ -32,6 +32,17 @@ import { hashBytes } from '../fs/hash.js'
 import { acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 import { log } from '../log/index.js'
 
+/** 重评-0912-4 P1-1（2026-09-12 全量重评修复批）：R66-1 非 UTF-8 覆写拒绝的类型化错误。
+ *  该拒绝是**确定性失败**（盘上旧文编码事实，重试不改结果），消费方（files.ts PUT /file
+ *  的快照 catch、draft-save 端点）按类型分诊 fail-closed 并透传转码指引；与留底链的
+ *  瞬态 IO 错误（EACCES/EBUSY 等）区分——后者是可重试的环境抖动，走各端点自己的口径。 */
+export class NonUtf8TargetError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'NonUtf8TargetError'
+  }
+}
+
 /** R73-32：saveDraft 保存临界段跨进程锁等待（毫秒）——与 executeSave 的 per-doc
  *  保存锁（service.ts R72-1）同档 5s，超时拒绝不降级（裸写正是本锁要闭合的丢更新形态）。
  *  测试注入缩短保快（生产零调用），同 manifest/journal 锁超时的注入钩子惯例。
@@ -70,7 +81,9 @@ export function snapshotBeforeOverwrite(
   // 放行）。fail-closed 上抛拒绝覆写（Y-3 同款语义），提示先转码。
   const raw = readFileSync(absPath)
   if (!isUtf8Bytes(raw)) {
-    throw new Error(`目标文件 ${relPath} 不是 UTF-8 编码，覆写将使原始内容不可恢复——请先转码为 UTF-8 再重试`)
+    // 重评-0912-4 P1-1：改抛类型化 NonUtf8TargetError——消费方按类型分诊（files.ts PUT
+    // 快照 catch 此前与瞬态 IO 一并 fail-open 吞掉，GBK 存量覆盖丢原稿，见该处修复注）
+    throw new NonUtf8TargetError(`目标文件 ${relPath} 不是 UTF-8 编码，覆写将使原始内容不可恢复——请先转码为 UTF-8 再重试`)
   }
   const old = raw.toString('utf8')
   if (old === newContent) return null

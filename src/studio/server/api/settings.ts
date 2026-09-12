@@ -73,13 +73,17 @@ const SETTINGS_CACHE_TTL_MS = 5000
 const SETTINGS_CACHE_MAX = 32
 const settingsCache = new Map<string, { result: unknown; ts: number; sig: string }>()
 let settingsTtlMs: number | null = null
-/** R46-16：TTL 测试注入口（先例同 __setRhythmCacheTtlForTest）。仅测试用。 */
+/** R46-16：TTL 测试注入口（先例同 __setRhythmCacheTtlForTest）。仅测试用。
+ *  重评-0912-4 批并修 deepseek-P2-2 起**同控两壳**：settings 与 completion-names 缓存
+ *  的 TTL 生效值（两壳同档 5s，注 null 回落常量）。 */
 export function __setSettingsCacheTtlForTest(ms: number | null): void {
   settingsTtlMs = ms
 }
-/** R46-16：删书/改名失效挂点（books.ts forgetBookKeyedCaches 家族同款）。 */
+/** R46-16：删书/改名失效挂点（books.ts forgetBookKeyedCaches 家族同款）。
+ *  重评-0912-4 批并修 deepseek-P2-2 起**同清两壳**（completion-names 见下方同族块）。 */
 export function forgetSettingsCache(bookRoot: string): void {
   settingsCache.delete(bookRoot)
+  completionNamesCache.delete(bookRoot)
 }
 /** R46-16 回归观测钩子（生产零调用；先例同 __rhythmScanCountForTest）：缓存 MISS →
  *  全量重算（settingsLong）计数。 */
@@ -128,6 +132,59 @@ export function getSettingsCached(bookRoot: string): unknown {
   return result
 }
 
+// ── 重评-0912-4 批并修 deepseek-P2-2（2026-09-12）：completion-names 缓存壳 ────
+// 手法照抄上方 R46-16 settings 壳（探针 + 纯 TTL + FIFO 上限 + 书键 forget 挂点）：
+// GET /completion-names 此前每请求同步整读 设定/角色 + 设定/物品 全部 md（readFmNames
+// 逐文件 readFile 整读解 fm），编辑器补全高频调用时同步阻塞事件循环（deepseek 重评
+// 实测 ~80-200ms/次）。指纹 = 角色/物品 两目录 mtime（增删改名落盘可见；目录内就地
+// 内容改写不动目录 mtime，由 TTL 5s 兜底，宁多扫不脏读）。TTL 生效值与 forget 挂点
+// 与 settings 壳共用（上方两函数已改同控/同清），FIFO 上限同值。
+const completionNamesCache = new Map<string, { result: unknown; ts: number; sig: string }>()
+
+let completionNamesScanCount = 0
+/** 回归观测钩子（生产零调用；同 __settingsScanCountForTest）：缓存 MISS → 全量重算计数。 */
+export function __completionNamesScanCountForTest(): number {
+  return completionNamesScanCount
+}
+export function __resetCompletionNamesScanCountForTest(): void {
+  completionNamesScanCount = 0
+}
+
+/** completion-names 读面指纹：设定/角色 + 设定/物品 目录 mtime。 */
+function completionNamesSignature(bookRoot: string): string {
+  const dirSig = (...dir: string[]): string => {
+    try {
+      return String(statSync(join(bookRoot, ...dir)).mtimeMs)
+    } catch {
+      return '-'
+    }
+  }
+  return [dirSig('设定', '角色'), dirSig('设定', '物品')].join(',')
+}
+
+/** completion-names 聚合查询（目录指纹 + TTL 缓存壳）。导出供回归测试直测。
+ *  响应形状与直算版逐字节一致（{characters, items}）。 */
+export function getCompletionNamesCached(bookRoot: string): unknown {
+  const sig = completionNamesSignature(bookRoot)
+  const cached = completionNamesCache.get(bookRoot)
+  if (cached && cached.sig === sig && Date.now() - cached.ts < (settingsTtlMs ?? SETTINGS_CACHE_TTL_MS)) {
+    return cached.result
+  }
+  completionNamesScanCount += 1
+  const setDir = join(bookRoot, '设定')
+  const result = {
+    characters: readFmNames(join(setDir, '角色'), '姓名'),
+    items: readFmNames(join(setDir, '物品'), '名称'),
+  }
+  // 简单 FIFO 淘汰（同 settings 壳）：超上限丢最旧条目
+  if (completionNamesCache.size >= SETTINGS_CACHE_MAX) {
+    const oldest = completionNamesCache.keys().next().value
+    if (oldest !== undefined) completionNamesCache.delete(oldest)
+  }
+  completionNamesCache.set(bookRoot, { result, ts: Date.now(), sig })
+  return result
+}
+
 export function registerSettingsRoutes(ctx: SettingsCtx): void {
   defineRoute('books.settings', {
     method: 'GET',
@@ -143,17 +200,14 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
   })
 
   // 补全名称列表（编辑器自动补全用；轻量：角色姓名 + 物品名称，只读 fm 不读正文）
+  // 重评-0912-4 批并修 deepseek-P2-2：走缓存壳（命中即跳过 readFmNames 的逐文件整读）
   defineRoute('books.completion-names', {
     method: 'GET',
     path: '/api/books/:name/completion-names',
     handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
-    const setDir = join(r.bookRoot, '设定')
-    reply(res, 200, {
-      characters: readFmNames(join(setDir, '角色'), '姓名'),
-      items: readFmNames(join(setDir, '物品'), '名称'),
-    })
+    reply(res, 200, getCompletionNamesCached(r.bookRoot))
   },
   })
 

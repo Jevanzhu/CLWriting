@@ -38,7 +38,7 @@ import { computeRevision, computeRevisionBytes, type Revision } from './revision
 import { layoutOf, roleOf, isInternalBookPath } from './layout.js'
 import { appendAborted, appendMovePending, appendPending, appendSettled } from './journal.js'
 import { writeVersion, DEFAULT_VERSION_POLICY, readGlobalSnapshotPolicy, encodeDocDirName, type VersionPolicy } from './version.js'
-import { readManifest, readManifestStrict, writeManifest, upsertEntry, withManifestLockAsync, type ManifestEntry } from './manifest.js'
+import { readManifestStrict, writeManifest, upsertEntry, withManifestLockAsync, type Manifest, type ManifestEntry } from './manifest.js'
 import { SaveQueue } from './queue.js'
 import { generateDocId, legacyId } from './stable-id.js'
 import { invalidateTreeIndex, invalidateTreeIndexForContent, scanBookTree, type TreeNode } from './tree.js'
@@ -1239,7 +1239,22 @@ export class DocumentService {
     if (!oldSafe || !newSafe) return
     if (!existsSync(oldSafe)) return
     if (existsSync(this.manifestPath)) {
-      const hit = [...readManifest(this.manifestPath).entries].find(([, e]) => e.path === oldListRel)
+      // 重评-0912-4 P2-2（2026-09-12 全量重评修复批）：命中读改 strict（R0912 strict 化
+      // 家族口径——lookupPathByDocIdAdoptAsync 同款，本条为该族漏网成员）。容忍版在瞬态
+      // 锁占（win 杀软/索引器/他进程 RMW 的 EACCES/EBUSY/EIO）时返回空清单 → oldListRel
+      // 不命中 → 落入裸 rename 兜底：清单登记仍认领旧路径而被搬走 = 孤儿条目 + 新条目
+      // 并存，docJoinKey 失配 docId 退化（N-7 同款危害终点）。strict 读失败时登记态未知，
+      // **不走裸 rename 兜底、也不阻断正文 rename**（本函数调用序在正文 rename 成功之后
+      // ——updateChapterMetaLocked 的 isPiece 分支——上抛会把已成功的改名劣化为失败）：
+      // 章纲滞留旧名 + 清单与盘上文件一致（世界自洽），warn 留痕交作者重试或机检收口。
+      let listedStrict: Manifest
+      try {
+        listedStrict = readManifestStrict(this.manifestPath)
+      } catch (e) {
+        log.warn('document', `章纲清单读失败（strict），章纲同步重命名跳过（${oldListRel} 滞留旧名，登记与盘上文件保持一致）：${errMsg(e)}`)
+        return
+      }
+      const hit = [...listedStrict.entries].find(([, e]) => e.path === oldListRel)
       if (hit) {
         const r = await this.doMoveOrRename(hit[0], { kind: 'rename', newName })
         if (r.ok) return

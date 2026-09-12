@@ -25,6 +25,8 @@ import { join, relative } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { scanCloudCopies } from '../git/exec.js'
 import { sweepAbandonedTmpFiles, rmWithRetry } from '../fs/atomic.js'
+// 重评-0912-4 P2-3：save 锁在持探针（只读不取锁，judgeStaleLock 陈锁语义复用）
+import { queryLockHeld } from '../fs/cross-process-lock.js'
 // R0910-W（2026-09-10 修复批）：spill 清扫兜底接线——sweepOldSpills 幂等（按 mtime
 // 30 天 TTL），与 tmp 清扫同窗节流执行（见 sweepAbandonedTmpFilesThrottled）
 import { sweepOldSpills } from '../process/spill.js'
@@ -373,8 +375,10 @@ async function healthCheck(bookRoot: string, manifest: Manifest): Promise<Health
           // R0912-1a（2026-09-11 重评-0911c 修复批）：save 类 pending 确定性自动消解——
           // 盘上指纹已非 pending.baseRevision ⇒ 该次保存实际已落盘（atomicWrite 后 settled
           // 写失败 / 崩溃窗内的幸存态），补 settled 消解不再报红；相等 ⇒ 真未落盘，维持
-          // 报红。返回 false（含各保守边界）时照旧进下方 crashedWrite 报文。
-          if (!(await reconcileSavePending(bookRoot, docId, p, manifest, journalFile))) unresolved.push(p)
+          // 报红。返回 'crashed'（含各保守边界）时照旧进下方 crashedWrite 报文。
+          // 重评-0912-4 P2-3：'inflight'（save 锁在持=保存进行中）与 'settled' 同样不进
+          // 报文——在途非崩溃，本轮跳过（settled 已自消解，inflight 等下一轮复核收敛）。
+          if ((await reconcileSavePending(bookRoot, docId, p, manifest, journalFile)) === 'crashed') unresolved.push(p)
         }
         if (unresolved.length > 0) {
           // R76-25（二十四轮 C 域）：报文补文档路径——此前只报 docId（doc_…/legacy:…
@@ -706,7 +710,7 @@ function isOrphanJournal(bookRoot: string, docId: string, snapshot: OrphanSnapsh
 
 /**
  * R0912-1a（2026-09-11 重评-0911c 修复批）：save 类 pending 的确定性自动消解。
- * 返回 true = 已处理（appendSettled 落账，本轮不再报 crashedWrite）。
+ * 返回 'settled' = 已处理（appendSettled 落账，本轮不再报 crashedWrite）。
  *
  * 背景：executeSave 的 settled 写失败（R27-44 best-effort）或「atomicWrite 落盘后、
  * settled 前崩溃」留下悬置 save pending——healthCheck 原一律报 crashedWrite「可能丢
@@ -715,44 +719,59 @@ function isOrphanJournal(bookRoot: string, docId: string, snapshot: OrphanSnapsh
  * 读盘上文件 computeRevision 与 pending.baseRevision 比对——
  * - 不一致 ⇒ 该次保存实际已落盘（盘上内容已演进）：自动 appendSettled 消解，不报红；
  * - 相等 ⇒ 真未落盘（内容仍停在保存前基线）：维持报红交作者；
- * 保守边界（一律维持报红，false）：
+ * 保守边界（一律维持报红，'crashed'）：
  * - docId 不在清单（无主面归 isOrphanJournal 保守口径）或路径越出书仓库；
  * - baseRevision 为 null（journal.ts :226-239 注明合法——新建场景）：无从比对；
  * - 盘上文件不存在（ENOENT，含 exists 与 read 间竞态被删）：定稿丢失面另有
  *   finalizedLost 检查，此处不消解不误消；
  * - 比对失败（读盘异常非 ENOENT）：保守报红并 warn 留痕；
  * - 消解 settled 自身写失败：报红兜底（下次进门重试消解）。
+ * 返回 'inflight' = 重评-0912-4 P2-3（2026-09-12 全量重评修复批）：比对相等且该 doc 的
+ * 保存锁（`<journal>.save.lock`，executeSave R72-1 / saveDraft R73-32 同键）在持——
+ * 慢盘/杀软全盘扫描下大章保存进行中（journal pending 已写、atomicWriteFile 未落定、
+ * revision 未推进）正是「相等」形态，但这是**在途非崩溃**：本轮跳过不报红不消解（不
+ * appendSettled——保存自身收尾会写），锁释放后的下一轮复核按盘上结果自然收敛到
+ * settled/crashed 两态。queryLockHeld 只读不取锁（「查询判 held ⟺ acquire 会拿到
+ * null」口径对齐），陈锁判定复用 judgeStaleLock（死 pid/超龄不算在持，不会把真崩溃
+ * 误判成在途）。
  */
+type SavePendingVerdict = 'settled' | 'inflight' | 'crashed'
+
 async function reconcileSavePending(
   bookRoot: string,
   docId: string,
   p: JournalPending,
   manifest: Manifest,
   journalFile: string,
-): Promise<boolean> {
+): Promise<SavePendingVerdict> {
   const rel = manifest.entries.get(docId)?.path
-  if (!rel) return false // 不在册：无法定位盘上文件，保守报红
+  if (!rel) return 'crashed' // 不在册：无法定位盘上文件，保守报红
   const abs = safeManifestPath(bookRoot, rel)
-  if (abs === null) return false // 路径越出书仓库：无法安全读盘，保守报红
-  if (p.baseRevision === null) return false // 无基线（新建场景合法）：无法比对，保守报红
+  if (abs === null) return 'crashed' // 路径越出书仓库：无法安全读盘，保守报红
+  if (p.baseRevision === null) return 'crashed' // 无基线（新建场景合法）：无法比对，保守报红
   let rev: `sha256:${string}`
   try {
-    if (!existsSync(abs)) return false // 文件不在盘（ENOENT 面）：维持报红，不消解
+    if (!existsSync(abs)) return 'crashed' // 文件不在盘（ENOENT 面）：维持报红，不消解
     rev = computeRevision(abs)
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return false // exists 与 read 间被删：同「不在盘」口径
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return 'crashed' // exists 与 read 间被删：同「不在盘」口径
     log.warn('state', `save 类 pending 复核读盘失败（${rel}，保守维持报红）：${e instanceof Error ? e.message : String(e)}`)
-    return false
+    return 'crashed'
   }
-  if (rev === p.baseRevision) return false // 盘上仍是保存前基线：真未落盘，维持报红
+  if (rev === p.baseRevision) {
+    // 重评-0912-4 P2-3：锁在持 = 保存进行中（journal 锁名与写侧 executeSave/saveDraft
+    // 的 `${journalPath}.save.lock` 同键；扫描到的 journalFile 即该 doc 的 journal 文件）
+    if (queryLockHeld(`${journalFile}.save.lock`)) return 'inflight'
+    return 'crashed' // 盘上仍是保存前基线且无在途保存：真未落盘，维持报红
+  }
   try {
     await appendSettled(journalFile, p.opId, rev)
   } catch (e) {
     log.warn('state', `save 类 pending 自动消解 settled 写失败（${rel}，维持报红待下次进门重试）：${e instanceof Error ? e.message : String(e)}`)
-    return false
+    return 'crashed'
   }
   log.info('state', `save 类 pending 已确定性消解（${rel}）：盘上指纹已非 pending 基线，判定该次保存实际已落盘，补 settled 不再报红`)
-  return true
+  return 'settled'
 }
 
 /** docId 的 journal 文件名候选（编码在前——写侧恒编码；字面在后兜底 mac 存量）。 */

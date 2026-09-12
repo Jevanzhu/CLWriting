@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { getContent, saveContent, finalizeDoc } from '../api/documents'
+import { getContent, getContentPayload, saveContent, finalizeDoc } from '../api/documents'
 import { ApiError } from '../api/client'
 import { sha256Revision, newOperationId } from '../shared/revision'
 import { useUiStore } from './ui'
@@ -305,7 +305,15 @@ export const useDocStore = defineStore('doc', () => {
     const book = bookName.value!
     let content: string
     try {
-      content = await getContent(book, node.path)
+      // 重评-0912-4 P1-1（2026-09-12 全量重评修复批）：改取完整载荷——非 UTF-8 存量
+      // （GBK/Big5 导入旧稿）经 utf-8 解码即 U+FFFD 乱码且此前零披露，作者在乱码上
+      // 编辑保存会被 R66-1 防线 400 拒绝（NOT_UTF8_TARGET）。打开时 toast 告警指引
+      // 先转码再编辑（重复打开重复提示，属预期告警语义）。
+      const payload = await getContentPayload(book, node.path)
+      content = payload.content
+      if (payload.encodingSuspect) {
+        useUiStore().toast(payload.encodingHint ?? '该文件不是 UTF-8 编码，内容可能显示为乱码', 'error')
+      }
     } catch (err) {
       // R-P2-1（评审修复批）：打开即 404（文档已被外部删除/残留入口指向已删路径）→
       // 顺手清该文档的脏镜像——崩溃残留镜像只认 book+docId，文档已不存在则镜像成无主

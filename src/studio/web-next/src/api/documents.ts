@@ -8,6 +8,21 @@ export async function getContent(name: string, path: string): Promise<string> {
   return data.content
 }
 
+// 重评-0912-4 P1-1（2026-09-12 全量重评修复批）：GET /file 带编码探测的完整载荷——
+// 服务端对非 UTF-8 存量文件（GBK/Big5 导入旧稿）回 encodingSuspect/encodingHint，
+// doOpen 打开时据此 toast 告警（作者在乱码上编辑保存会被 R66-1 防线 400 拒绝）。
+export interface FileContentPayload {
+  content: string
+  revision?: string
+  encodingSuspect?: boolean
+  encodingHint?: string
+}
+export async function getContentPayload(name: string, path: string): Promise<FileContentPayload> {
+  return apiJson<FileContentPayload>(
+    `/api/books/${encodeURIComponent(name)}/file?file=${encodeURIComponent(path)}`,
+  )
+}
+
 // M-3（第六轮）：GET /file 附带字节指纹 revision——与 /documents 协议同源（服务端 hashFile）。
 // 编辑类调用方（如文风铁律卡）读时取走、存时回传，配合 putContent 的可选乐观锁。
 export async function getContentRevisioned(

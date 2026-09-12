@@ -17,11 +17,13 @@ import { atomicWriteFile } from '../../../fs/atomic.js'
 import { acquireCrossProcessLockAsync } from '../../../fs/cross-process-lock.js'
 import { canonicalizeText, toNfcName } from '../../../fs/text-canonical.js'
 import { isMdFileName } from '../../../format/filename.js'
+import { isUtf8Bytes } from '../../../document/service.js'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError, parseRequestUrl } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { invalidateTreeIndexForContent } from '../../../document/tree.js'
-import { snapshotBeforeOverwrite } from '../../../process/draft-pipeline.js' // R26-9（二十六轮）：覆盖留底单源复用（R71-9/R74-4 同款）
+// 重评-0912-4 P1-1：NonUtf8TargetError 类型化分诊（R66-1 确定性拒绝 ≠ 瞬态 IO，见 PUT 快照 catch 注）
+import { snapshotBeforeOverwrite, NonUtf8TargetError } from '../../../process/draft-pipeline.js' // R26-9（二十六轮）：覆盖留底单源复用（R71-9/R74-4 同款）
 import { log } from '../../../log/index.js'
 
 interface FileCtx {
@@ -51,8 +53,12 @@ const WORKDIR_EDITABLE = new Set(['工作区/细纲.md', '工作区/账本推进
  * 字节 hex），revision 契约不变；ENOENT 以 null 区分（调用方回 404）。
  * 注：写侧仍走 atomicWriteFile（同步原子写是既有纪律，src/fs 不动；写面 IO 量级
  * 与读面同源，后续批次统一异步化时一并收口）。
+ * 重评-0912-4 P1-1（GET 侧编码探测）：读入原始字节后做 isUtf8Bytes 探测——存量
+ * GBK/Big5 文件经 utf-8 解码得 U+FFFD 乱码且此前零披露，作者在乱码上编辑保存即触发
+ * 覆写丢原稿面（PUT 侧 R66-1 防线现为 fail-closed 拒存）。encodingSuspect 随响应
+ * 透出，前端打开时 toast 告警（web-next doOpen 消费）。
  */
-async function readFileHashed(fp: string): Promise<{ content: string; revision: string } | null> {
+async function readFileHashed(fp: string): Promise<{ content: string; revision: string; encodingSuspect: boolean } | null> {
   let buf: Buffer
   try {
     buf = await readFileAsync(fp)
@@ -60,7 +66,11 @@ async function readFileHashed(fp: string): Promise<{ content: string; revision: 
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null
     throw e
   }
-  return { content: buf.toString('utf-8'), revision: 'sha256:' + createHash('sha256').update(buf).digest('hex') }
+  return {
+    content: buf.toString('utf-8'),
+    revision: 'sha256:' + createHash('sha256').update(buf).digest('hex'),
+    encodingSuspect: !isUtf8Bytes(buf),
+  }
 }
 
 export function registerFileRoutes(ctx: FileCtx): void {
@@ -78,11 +88,18 @@ export function registerFileRoutes(ctx: FileCtx): void {
       const safe = editablePath(r.bookRoot, file)
       if (!safe) return replyError(res, 400, 'BAD_PATH', '非法路径')
       // S4：异步读取（原 existsSync + readFileSync + hashFile 三份同步 IO）
+      // 重评-0912-4 P1-1：encodingSuspect 随响应透出（非 UTF-8 存量的打开时告警，doOpen 消费）
       const read = await readFileHashed(safe)
       if (!read) return replyError(res, 404, 'NOT_FOUND', '文件不存在')
       // M-3（第六轮）：附带字节指纹——与 /documents 协议的 revision 同源（hashFile），
       // 客户端读时取走、存时回传，PUT 侧据此做乐观锁（此前 PUT /file 无任何并发控制）
-      reply(res, 200, { content: read.content, revision: read.revision })
+      reply(res, 200, {
+        content: read.content,
+        revision: read.revision,
+        ...(read.encodingSuspect
+          ? { encodingSuspect: true, encodingHint: '该文件不是 UTF-8 编码，内容可能显示为乱码——请先在编辑器外转码为 UTF-8 再编辑保存' }
+          : {}),
+      })
     },
   })
 
@@ -166,12 +183,27 @@ export function registerFileRoutes(ctx: FileCtx): void {
         // R26-9（二十六轮）：覆盖写前快照留底——PUT /file 直接 atomicWriteFile 覆盖既有
         // 文件（设定/大纲/细纲等编辑器白名单 .md），旧内容此前无版本链、误存即不可恢复。
         // 复用 draft 侧 snapshotBeforeOverwrite 单源工具（文件不存在/内容相同 → null 不留）。
-        // 留底失败 fail-open（log 留痕不阻断保存）——与 onboard-ai（R71-9）同口径：保存
-        // 主链路不因留底 IO 抖动失败（编辑器 PUT 另有乐观锁 + per-file 串行链兜底）。
+        // 重评-0912-4 P1-1（2026-09-12 全量重评修复批）：原 catch 把**全部**留底失败一并
+        // fail-open 吞掉继续覆盖写——其中 R66-1 非 UTF-8 确定性拒绝被吞 = GBK/Big5 存量
+        // 书在编辑器保存即无快照覆盖丢原稿且返 200（本轮唯一 P1）。现改 fail-closed 分诊
+        //（对齐同函数在 saveDraft 侧 Y-3 的现行口径「留底失败上抛拒绝覆写」，R26-9 的
+        // fail-open 注记就此废止）：
+        // - NonUtf8TargetError（R66-1）→ 400 + 转码指引文案（确定性失败，重试无意义）；
+        // - 其余留底 IO 失败 → 409 WRITE_ERROR「未执行保存，可重试」——留底失败时覆盖写
+        //   = 无版本兜底的不可逆替换，与「作者手改不静默丢失」红线相抵；拒绝保存零损失
+        //   （原稿与编辑器内容都在），修好 IO 后重试即成功。
         try {
           snapshotBeforeOverwrite(r.bookRoot, putRel, content, 'file-put-overwrite', undefined, ctx.userDataPath)
         } catch (e) {
-          log.warn('api', `PUT /file 覆盖前快照失败（fail-open 继续保存）：${safe}`, e)
+          if (e instanceof NonUtf8TargetError) {
+            return { status: 400, code: 'NOT_UTF8_TARGET', error: e.message } as const
+          }
+          log.warn('api', `PUT /file 覆盖前快照留底失败（fail-closed 拒绝保存，可重试）：${safe}`, e)
+          return {
+            status: 409,
+            code: 'WRITE_ERROR',
+            error: `覆盖前快照留底失败，保存已取消（未写入，可重试）：${e instanceof Error ? e.message : String(e)}`,
+          } as const
         }
         atomicWriteFile(safe, content)
         // U-P2-8：与 DocumentService 写路径同口径——失效树索引缓存（wordCount/status），

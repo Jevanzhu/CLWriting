@@ -19,6 +19,11 @@ const results = ref<SearchHit[]>([])
 const truncated = ref(false)
 const loading = ref(false)
 const err = ref<string | null>(null)
+// 重评-0912-4 P2-4（2026-09-12 全量重评修复批）：open 失败错误独立作用域——原先与搜索
+// 错误共用 err，模板 `v-else-if="err"` 把整张结果列表替换成错误文案：结果已展示后单击
+// 某条 open 失败（文件被外部移动/锁定）会吞掉其余 N-1 条结果的可见性（单条失败不该
+// 摧毁整个搜索会话）。openErr 只在列表上方追加提示行，列表维持渲染。
+const openErr = ref<string | null>(null)
 
 // scope 值传 API 不变（all/定稿/正文…）；label 全中文，避免作者看到英文「all」。
 const SCOPES = [
@@ -36,6 +41,7 @@ async function run(): Promise<void> {
   const gen = ++runGen
   // R33-85（三十三轮）：空查询路径同清错误态（原只在有查询路径清，错误残留到下一次搜索）
   err.value = null
+  openErr.value = null // 重评-0912-4 P2-4：新搜索/清空同时作废旧 open 失败提示
   if (!q.value.trim()) {
     results.value = []
     truncated.value = false
@@ -61,9 +67,14 @@ async function run(): Promise<void> {
 watch(
   () => props.bookName,
   () => {
+    // 重评-0912-4 P3（2026-09-12 全量重评修复批随批）：切书同清查询词 q——原清
+    // results/err/loading 不清 q，切书后残留旧书查询词，回车即对新书重搜旧词
+    //（与 M-7 切书清面板意图不合）。
+    q.value = ''
     results.value = []
     truncated.value = false
     err.value = null
+    openErr.value = null
     runGen++ // 在途搜索响应作废（gen 对不上即弃）
     // R-1/R-24（第十六轮）：切书推代后在途搜索的 finally 查代不过 → loading 永久卡 true；
     // 此处直接复位（迟到回填仍被查代挡住，不落结果）
@@ -85,14 +96,16 @@ async function open(path: string): Promise<void> {
   // E-2（二十九轮）：await 前快照书名——doc.open 在途切书后不得把旧书文档开进新书
   // 工作区（新书同名路径命中旧书 docId）
   const bookAtClick = ws.bookName
+  openErr.value = null // 重评-0912-4 P2-4：本次尝试前清上一条 open 失败提示
   try {
     await doc.open(node)
     if (ws.bookName !== bookAtClick) return
     ws.openTab(node.docId)
   } catch (e) {
     // P5-前端（第七轮）：静默吞错收敛（对齐 ForeshadowPanel）——搜索结果点开失败
-    // 原先零反馈，作者不知为何没反应
-    err.value = friendlyError(e)
+    // 原先零反馈，作者不知为何没反应。重评-0912-4 P2-4：改写 openErr 独立作用域
+    //（原写共享 err 会把整个结果列表顶替成错误文案），列表维持可见。
+    openErr.value = friendlyError(e)
   }
 }
 </script>
@@ -115,6 +128,8 @@ async function open(path: string): Promise<void> {
     <div v-if="loading" class="hint">搜索中…</div>
     <div v-else-if="err" class="hint err">{{ err }}</div>
     <template v-else>
+      <!-- 重评-0912-4 P2-4：open 失败提示独立作用域——追加行而非顶替列表 -->
+      <div v-if="openErr" class="hint err">{{ openErr }}</div>
       <div v-if="truncated" class="hint">结果过多，请缩小搜索范围</div>
       <div v-if="q && !results.length" class="hint">无匹配</div>
       <div class="results">

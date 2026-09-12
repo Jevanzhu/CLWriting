@@ -24,11 +24,44 @@ import { mkdtempTracked } from '../helpers/temp-dir.js'
 // actual 经 hoisted 容器带出——用例内 mockImplementation 需要真实现做 pass-through
 const actualFs = vi.hoisted(() => ({
   rmSync: undefined as unknown as typeof import('node:fs').rmSync,
+  failManifestRead: false, // 重评-0912-4 P2-2：清单同步读点的瞬态锁占武装标记（时序锚见 writeFileSync 包装）
+  armOnBodyManifestWrite: false, // P2-2 用例专属闸门：仅该用例按内容标记武装（本文件各用例同款改名流，不闸会互相误伤）
 }))
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>()
   actualFs.rmSync = actual.rmSync
-  return { ...actual, rmSync: vi.fn(actual.rmSync) }
+  return {
+    ...actual,
+    rmSync: vi.fn(actual.rmSync),
+    // 重评-0912-4 P2-2：strict 命中读撞瞬态锁占（EBUSY）——mock 注入形态同
+    // test/state/r0912-save-pending-reconcile.test.ts 顶部先例
+    readFileSync: ((p, ...rest) => {
+      if (actualFs.failManifestRead && typeof p === 'string' && p.endsWith('文档清单.jsonl')) {
+        throw Object.assign(new Error('mock EBUSY：清单瞬态锁占'), { code: 'EBUSY' })
+      }
+      return (actual.readFileSync as typeof readFileSync)(p, ...rest)
+    }) as typeof readFileSync,
+    // 时序锚：清单 RMW 写落盘后，同步读点进入瞬态锁占形态（先透传后武装）。按写入
+    // 内容标记而非路径——清单写走 atomicWriteFile（tmp+rename，fsync 路径 writeFileSync
+    // 收 fd 数字，收不到清单路径字符串）；正文 rename 的清单 RMW 写（updateManifestPath
+    // 自身 strict 读之后）序列化内容含新正文 path，恰在同步读点前武装；journal 追加走
+    // appendFileSync（不经本包装），章纲清单写内容为章纲 path 不含标记，均不误伤。
+    // 闸门（armOnBodyManifestWrite）仅 P2-2 用例前置 true——本文件各用例都改名到同一
+    // 新正文名，无闸则内容标记会武装到既有用例的同步读点（其期望同步成功）。
+    writeFileSync: ((p, ...rest) => {
+      const r = (actual.writeFileSync as typeof writeFileSync)(p, ...rest)
+      const data = rest[0]
+      if (
+        actualFs.armOnBodyManifestWrite &&
+        typeof data === 'string' &&
+        data.includes('写作/正文/001-新标题.md')
+      ) {
+        actualFs.failManifestRead = true
+        actualFs.armOnBodyManifestWrite = false // 单发：武装一次即撤闸
+      }
+      return r
+    }) as typeof writeFileSync,
+  }
 })
 
 import { rmSync as rmSyncMocked } from 'node:fs'
@@ -37,6 +70,8 @@ const errOf = (code: string): NodeJS.ErrnoException => Object.assign(new Error(`
 
 const roots: string[] = []
 afterEach(() => {
+  actualFs.failManifestRead = false
+  actualFs.armOnBodyManifestWrite = false
   vi.mocked(rmSyncMocked).mockReset()
   vi.mocked(rmSyncMocked).mockImplementation((...args) => actualFs.rmSync(...args))
   vi.restoreAllMocks()
@@ -195,4 +230,22 @@ test('重评-13: 回滚删新位持续 EPERM → 重试耗尽吞错留孤儿副�
   expect(existsSync(join(root, '大纲', '章纲', '001-新标题.md'))).toBe(true)
   expect(existsSync(oldList)).toBe(true)
   expect(warn).toHaveBeenCalledWith('document', expect.stringContaining('章纲滞留旧名'))
+})
+
+// ── 重评-0912-4 P2-2（2026-09-12 全量重评修复批）：章纲命中读 strict 化 ──
+test('重评-0912-4 P2-2: 章纲命中读撞瞬态锁占（strict 抛）→ 滞留旧名不走裸兜底，正文改名不受阻断', async () => {
+  const { root, svc, docId } = await makeShortBook()
+  const p = await svc.createDocument({ relPath: '大纲/章纲/0001-旧标题.md', content: '---\n标题: 旧标题\n---\n\n登记章纲。' })
+  if (!p.ok) throw new Error('prereq create 章纲失败')
+  actualFs.failManifestRead = false // prereq 期间的清单写已武装标记 → 复位，只打本次改名流内 RMW 写之后的同步读点
+  actualFs.armOnBodyManifestWrite = true // 撤闸：本次改名流的清单 RMW 写（内容含新正文 path）落盘即武装
+  const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
+
+  const r = await svc.updateChapterMeta(docId, { 标题: '新标题' })
+  expect(r.ok).toBe(true) // strict 读失败不阻断正文 rename
+  expect(existsSync(join(root, '写作', '正文', '001-新标题.md'))).toBe(true)
+  // 章纲滞留旧名：登记态未知时不走裸 rename 兜底（新位零副本，登记与盘上保持一致）
+  expect(existsSync(join(root, '大纲', '章纲', '0001-旧标题.md'))).toBe(true)
+  expect(existsSync(join(root, '大纲', '章纲', '001-新标题.md'))).toBe(false)
+  expect(warn).toHaveBeenCalledWith('document', expect.stringContaining('章纲清单读失败'))
 })
