@@ -122,8 +122,18 @@ export function readBooksStrict(workDir: string): BookEntry[] | null {
     mtimeNs = st.mtimeNs
     size = st.size
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return []
-    return null
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') return null
+    // R0912-3-WIN（#33 平台补）：win 对「路径中间组件是普通文件」的 stat/readFileSync
+    // 均返 ENOENT（POSIX 归 ENOTDIR）——只认 errno 会把 `.clwriting` 被损坏成文件的
+    // 状态误判成首启缺文件而回空表，恰好绕过 DA-3 拒写面。故 ENOENT 分支再复核父目录
+    // 真身：存在且非目录 → null（损坏态，与 POSIX 同归拒写）；父链本身缺失（真首启，
+    // 含 workDir 未建）才归空表。
+    try {
+      if (!statSync(dirname(fp)).isDirectory()) return null
+    } catch (e2) {
+      if ((e2 as NodeJS.ErrnoException).code !== 'ENOENT') return null
+    }
+    return []
   }
   // R46-11：同指纹直接回缓存解析结果。
   // R0912（重评-0911c P3）：命中返回浅拷贝——缓存数组本体不出缓存。原「共享数组
