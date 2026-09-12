@@ -4,29 +4,27 @@
  * - acquireTaskGate 单元语义：首占成功 / 重复占返回 null / release 幂等 / 释放后可再占 /
  *   book 或 action 不同互不阻塞
  * - 端点接线：闸被持有时 relations/mine 与 outline 回 409；释放后 outline 走通（mock）
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio（req 走裸 http.request 定制形态，保留本地）。
  */
 import http from 'node:http'
 import { utimesSync } from 'node:fs'
-import type { AddressInfo } from 'node:net'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterAll, beforeAll, describe, it, expect } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { acquireTaskGate, isTaskGateHeld, heldTaskGatesFor } from '../../src/studio/server/api/task-gate.js'
 import { createHash } from 'node:crypto'
 
 const BOOK = '闸测试书'
+let studio: StudioHarness
 let workDir = ''
 let userDataPath = ''
-let server: http.Server | undefined
-let baseUrl = ''
-let token = ''
-const prevDriver = process.env['CLWRITING_DRIVER']
 
 function req(method: string, path: string, body?: unknown): Promise<{ status: number; json: unknown }> {
   return new Promise((resolve, reject) => {
-    const u = new URL(baseUrl)
+    const u = new URL(studio.baseUrl)
     const payload = body ? JSON.stringify(body) : ''
     const r = http.request(
       {
@@ -35,8 +33,8 @@ function req(method: string, path: string, body?: unknown): Promise<{ status: nu
         path,
         method,
         headers: {
-          'x-studio-token': token,
-          origin: baseUrl,
+          'x-studio-token': studio.token,
+          origin: studio.baseUrl,
           ...(payload ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) } : {}),
         },
       },
@@ -61,27 +59,22 @@ function req(method: string, path: string, body?: unknown): Promise<{ status: nu
 }
 
 beforeAll(async () => {
-  process.env['CLWRITING_DRIVER'] = 'mock'
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-gate-'))
   userDataPath = mkdtempSync(join(tmpdir(), 'clwriting-gate-ud-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(join(workDir, '.clwriting', 'books.jsonl'), JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n')
-  const bookRoot = join(workDir, BOOK)
-  mkdirSync(join(bookRoot, '大纲'), { recursive: true })
-  mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
-  writeFileSync(join(bookRoot, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 闸测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n')
-  server = await startServerSafe({ port: 0, workDir, userDataPath })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const r = await fetch(`${baseUrl}/api/boot`)
-  token = ((await r.json()) as { token: string }).token
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clwriting-gate-',
+    userDataPath,
+    env: { CLWRITING_DRIVER: 'mock' },
+    dirs: ['大纲', '写作/正文'],
+    bookYaml:
+      'spec_version: 1\nkind: long\nbook:\n  title: 闸测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+  })
+  workDir = studio.workDir
 })
 
 afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
   if (userDataPath) rmSync(userDataPath, { recursive: true, force: true })
-  if (prevDriver === undefined) delete process.env['CLWRITING_DRIVER']
-  else process.env['CLWRITING_DRIVER'] = prevDriver
+  await studio.close()
 })
 
 describe('acquireTaskGate 单元语义', () => {

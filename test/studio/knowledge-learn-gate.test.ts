@@ -4,26 +4,25 @@
  * 缺陷：learnFromBook 同步整读全书定稿正文（请求线程阻塞秒级），端点既无并发闸
  * 也无缓存——重复点击双跑双扫（health/files/documents 同型已修，此处漏网）。
  * 修复：套 acquireTaskGate（learn）+ 成功结果按书 5s TTL 缓存（health.ts 口径）。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio；req 走 node:http（手工
+ * content-length）形态保留本地，改绑 studio.baseUrl/studio.token。
  */
 import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect, afterEach } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { acquireTaskGate } from '../../src/studio/server/api/task-gate.js'
 import { __setLearnTtlForTest } from '../../src/studio/server/api/knowledge.js'
 
 const BOOK = '学习闸测试书'
+let studio: StudioHarness
 let workDir = ''
-let server: http.Server | undefined
-let baseUrl = ''
-let token = ''
 
 function req(method: string, path: string, body?: unknown): Promise<{ status: number; json: unknown }> {
   return new Promise((resolve, reject) => {
-    const u = new URL(baseUrl)
+    const u = new URL(studio.baseUrl)
     const payload = body ? JSON.stringify(body) : ''
     const r = http.request(
       {
@@ -32,8 +31,8 @@ function req(method: string, path: string, body?: unknown): Promise<{ status: nu
         path,
         method,
         headers: {
-          'x-studio-token': token,
-          origin: baseUrl,
+          'x-studio-token': studio.token,
+          origin: studio.baseUrl,
           ...(payload ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) } : {}),
         },
       },
@@ -58,28 +57,22 @@ function req(method: string, path: string, body?: unknown): Promise<{ status: nu
 }
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-r66-28-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(join(workDir, '.clwriting', 'books.jsonl'), JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n')
-  const bookRoot = join(workDir, BOOK)
-  // 有定稿正文（无清单 → finalizedPathSet null → 全量收割，learnFromBook ok:true）
-  mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
-  writeFileSync(
-    join(bookRoot, '写作', '正文', '0001-开篇.md'),
-    '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n主角登场，初入宗门。\n',
-    'utf-8',
-  )
-  writeFileSync(join(bookRoot, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 学习闸测试书\n  genre: 玄幻\nhost: cc\n')
-  server = await startServerSafe({ port: 0, workDir })
-  baseUrl = `http://127.0.0.1:${(server!.address() as AddressInfo).port}`
-  const boot = (await (await fetch(`${baseUrl}/api/boot`)).json()) as { token: string }
-  token = boot.token
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clwriting-r66-28-',
+    // 有定稿正文（无清单 → finalizedPathSet null → 全量收割，learnFromBook ok:true）
+    dirs: ['写作/正文'],
+    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: 学习闸测试书\n  genre: 玄幻\nhost: cc\n',
+    files: [
+      { rel: '写作/正文/0001-开篇.md', content: '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n主角登场，初入宗门。\n' },
+    ],
+  })
+  workDir = studio.workDir
 })
 
 afterAll(async () => {
   __setLearnTtlForTest(null)
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
+  await studio.close()
 })
 
 afterEach(() => {

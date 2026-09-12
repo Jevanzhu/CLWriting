@@ -4,41 +4,32 @@
  * token 校验、书不存在 404、清后审计视图回到空态。
  */
 import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
 import { SessionRecorder, sessionStartEvent, userMessageEvent } from '../../src/events/chat-bridge.js'
 import { stepStartEvent } from '../../src/events/chain-bridge.js'
 import { registerBackgroundTask, waitBackgroundTasks } from '../../src/ai/orchestrate/background.js'
 
 const BOOK = '清事件书'
-let workDir = ''
+let studio: StudioHarness
 let userDataPath = ''
-let server: http.Server | undefined
-let baseUrl = ''
-let token = ''
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-audit-clear-'))
+  // userData（事件库）由调用方创建/清理，bootStudio 只透传
   userDataPath = mkdtempSync(join(tmpdir(), 'clwriting-audit-clear-ud-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
-  )
-  const bookRoot = join(workDir, BOOK)
-  mkdirSync(bookRoot, { recursive: true })
-  writeFileSync(
-    join(bookRoot, 'book.yaml'),
-    'spec_version: 1\nkind: long\nbook:\n  title: 清事件书\n  genre: 玄幻\nhost: cc\n',
-  )
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clwriting-audit-clear-',
+    userDataPath,
+    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: 清事件书\n  genre: 玄幻\nhost: cc\n',
+  })
 
   // 种两侧事件：对话会话（book=bookName）+ 工作流会话（book=bookHash）
-  const store = openSessionStore(userDataPath, bookRoot)!
+  const store = openSessionStore(userDataPath, studio.bookRoot)!
   try {
     const chatSid = store.createSession(BOOK, { book: BOOK })
     const rec = new SessionRecorder(store, chatSid)
@@ -46,34 +37,28 @@ beforeAll(async () => {
     rec.add(userMessageEvent('旧对话', 1))
     rec.close('completed')
 
-    const wsSid = store.workspaceSession(bookHash(bookRoot))
+    const wsSid = store.workspaceSession(bookHash(studio.bookRoot))
     store.appendEvents(wsSid, [stepStartEvent('chat', 'chat')])
   } finally {
     store.close()
   }
-
-  server = await startServerSafe({ port: 0, workDir, userDataPath })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const r = await fetch(`${baseUrl}/api/boot`)
-  token = ((await r.json()) as { token: string }).token
 })
 
 afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
+  await studio.close()
   if (userDataPath) rmSync(userDataPath, { recursive: true, force: true })
 })
 
 function del(path: string, withToken = true): Promise<{ status: number; json: unknown }> {
   return new Promise((resolve, reject) => {
-    const u = new URL(baseUrl)
+    const u = new URL(studio.baseUrl)
     const req = http.request(
       {
         host: u.hostname,
         port: u.port,
         path,
         method: 'DELETE',
-        headers: { origin: baseUrl, ...(withToken ? { 'x-studio-token': token } : {}) },
+        headers: { origin: studio.baseUrl, ...(withToken ? { 'x-studio-token': studio.token } : {}) },
       },
       (res) => {
         let data = ''
@@ -96,7 +81,7 @@ function del(path: string, withToken = true): Promise<{ status: number; json: un
 
 /** 两侧事件计数（对话 bookName 键 + 工作流 bookHash 键）。 */
 function eventCounts(): { convo: number; workflow: number } {
-  const bookRoot = join(workDir, BOOK)
+  const bookRoot = studio.bookRoot
   const store = openSessionStore(userDataPath, bookRoot)!
   try {
     return {
@@ -132,8 +117,8 @@ describe('DELETE /api/books/:name/audit（事件保留定版：手动清理）',
   })
 
   it('清后审计视图回空态（GET 不再返回事件）', async () => {
-    const r = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/audit`, {
-      headers: { origin: baseUrl, 'x-studio-token': token },
+    const r = await fetch(`${studio.baseUrl}/api/books/${encodeURIComponent(BOOK)}/audit`, {
+      headers: { origin: studio.baseUrl, 'x-studio-token': studio.token },
     })
     expect(r.status).toBe(200)
     const j = (await r.json()) as { conversation: unknown; workflowTotal: number }
@@ -151,7 +136,7 @@ describe('DELETE /api/books/:name/audit（事件保留定版：手动清理）',
   // 会话续写事件，「清完表又被写回」清不彻底；spawn 手动写稿同口径
   it('后台任务在途 → 409 拒清；任务收尾后 → 200', async () => {
     // 先补一点事件便于观察（上一用例已清空）
-    const bookRoot = join(workDir, BOOK)
+    const bookRoot = studio.bookRoot
     const store = openSessionStore(userDataPath, bookRoot)!
     try {
       const wsSid = store.workspaceSession(bookHash(bookRoot))

@@ -5,15 +5,15 @@
  * 覆盖：status 初始态 / build 前置校验（未配置 → 400）/ 旧版内联 + rag.secret 回落 build /
  * 服务商引用 build（status 回显 providerName）/ 增量幂等。
  * embed 用 vi.mock 桩（确定性向量，不联网）。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio（api/gapi 为 RequestInit 透传形态，保留本地仅改绑定；writeChapter 章节种子 post-boot 落盘——服务端 IO 懒加载，首请求前等价）。
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
-import http from 'node:http'
-import type { AddressInfo } from 'node:net'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, appendFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { waitForAsync } from '../helpers/wait-for.js'
 import { createRagTables } from '../../src/rag/schema.js'
 import { storeChunk, setRagMeta } from '../../src/rag/store.js'
@@ -30,11 +30,11 @@ vi.mock('../../src/rag/embed.js', () => ({
 }))
 
 const BOOK = 'RAG测试书'
+let studio: StudioHarness
 let workDir = ''
-let userData = ''
-let server: http.Server | undefined
 let baseUrl = ''
 let token = ''
+let userData = ''
 
 function api(path: string, init?: RequestInit): Promise<{ status: number; json: Record<string, unknown> }> {
   return fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}${path}`, {
@@ -74,46 +74,33 @@ async function putRagCfg(rag: Record<string, unknown>): Promise<void> {
 }
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-rag-api-'))
   userData = mkdtempSync(join(tmpdir(), 'clwriting-rag-user-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
   // 登记名 = book.yaml title = 目录名（启动 repair 以 title 为真相源，构造对齐避免被改）
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
-  )
-  const bookRoot = join(workDir, BOOK)
-  mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
-  writeFileSync(
-    join(bookRoot, 'book.yaml'),
-    `spec_version: 1\nkind: long\nbook:\n  title: ${BOOK}\n  genre: 玄幻\nhost: cc\n`,
-    'utf8',
-  )
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clwriting-rag-api-',
+    userDataPath: userData,
+    dirs: ['写作/正文'],
+    bookYaml: `spec_version: 1\nkind: long\nbook:\n  title: ${BOOK}\n  genre: 玄幻\nhost: cc\n`,
+  })
+  workDir = studio.workDir
+  baseUrl = studio.baseUrl
+  token = studio.token
   for (const n of [1, 2]) {
     const meta: ChapterMeta = {
       章号: n, 标题: `第${n}章`, 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
       _path: '', _wordCount: 100,
     }
     writeChapter(
-      join(bookRoot, '写作', '正文', `${n}-第${n}章.md`),
+      join(studio.bookRoot, '写作', '正文', `${n}-第${n}章.md`),
       meta,
       `第${n}章的正文段落内容，这是一个战斗场景，主角挥剑战斗。`,
     )
   }
-
-  server = await startServerSafe({ port: 0, workDir, userDataPath: userData })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const boot = await fetch(`${baseUrl}/api/boot`)
-  token = ((await boot.json()) as { token: string }).token
 })
 
 afterAll(async () => {
-  if (server) {
-    // 强制断开 keep-alive 空闲连接，防 close 回调因连接池挂起
-    server.closeAllConnections()
-    await new Promise<void>((r) => server!.close(() => r()))
-  }
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
+  await studio.close()
   if (userData) rmSync(userData, { recursive: true, force: true })
 })
 

@@ -4,39 +4,31 @@
  * 真实 server + 真实建书（POST /api/books kind=short），验证「新建短篇书」路径：
  * 目录结构（无布线/无卷纲/设定层完整）/ 章纲范例 fm / 关系图放开 / 书架字数 / book.yaml。
  * AI 部分（onboard-ai / 写稿 / 三审）需真实 provider，留给人工手测。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio 空书架形态（api 定制形态保留本地；
+ * 原「空 books.jsonl」与「不写 books.jsonl」对服务端等价——读不到书即空架）。
  */
-import { mkdtempSync, rmSync, readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 
+let studio: StudioHarness
 let workDir = ''
-let server: Awaited<ReturnType<typeof startServerSafe>> | undefined
-let baseUrl = ''
-let token = ''
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clw-short-onboard-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(join(workDir, '.clwriting', 'books.jsonl'), '')
-  server = await startServerSafe({ port: 0, workDir })
-  baseUrl = `http://127.0.0.1:${(server.address() as { port: number }).port}`
-  const boot = (await (await fetch(`${baseUrl}/api/boot`)).json()) as { token: string }
-  token = boot.token
+  studio = await bootStudio({ prefix: 'clw-short-onboard-' })
+  workDir = studio.workDir
 })
 
-afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
-})
+afterAll(() => studio.close())
 
 const enc = encodeURIComponent
 
 async function api(path: string, opts: RequestInit = {}): Promise<{ status: number; [k: string]: unknown }> {
   const headers = new Headers(opts.headers)
-  if (opts.method && opts.method !== 'GET') headers.set('x-studio-token', token)
-  const r = await fetch(`${baseUrl}${path}`, { ...opts, headers })
+  if (opts.method && opts.method !== 'GET') headers.set('x-studio-token', studio.token)
+  const r = await fetch(`${studio.baseUrl}${path}`, { ...opts, headers })
   const j = (await r.json().catch(() => ({}))) as Record<string, unknown>
   return { status: r.status, ...j }
 }

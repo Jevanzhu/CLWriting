@@ -5,33 +5,29 @@
  * 释放不可直接断言（模块内局部量），测行为回归：MISS 重扫（清空后数组不再被引用）
  * 必须仍产出正确 stats/采样——盘上改章 + 新增章后 TTL 到期重扫 sourceHash 变化；
  * TTL 内二查命中缓存（R62-21 注入口压短档）sourceHash 不变。造法沿用 d3-style-ttl。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio（req 走裸 http.request，保留本地）。
  */
 import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { __setStyleCorpusTtlForTest } from '../../src/studio/server/api/analysis.js'
 
 const BOOK = 'R47释放测试书'
-let workDir = ''
-let server: http.Server | undefined
-let baseUrl = ''
-let token = ''
-const prevDriver = process.env['CLWRITING_DRIVER']
+let studio: StudioHarness
 
 function req(method: string, path: string): Promise<{ status: number; json: unknown }> {
   return new Promise((resolve, reject) => {
-    const u = new URL(baseUrl)
+    const u = new URL(studio.baseUrl)
     const r = http.request(
       {
         host: u.hostname,
         port: u.port,
         path,
         method,
-        headers: { 'x-studio-token': token },
+        headers: { 'x-studio-token': studio.token },
       },
       (res) => {
         let data = ''
@@ -55,17 +51,6 @@ function req(method: string, path: string): Promise<{ status: number; json: unkn
 const CH_FM = (n: number, t: string) => `---\n章号: ${n}\n标题: ${t}\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n`
 
 beforeAll(async () => {
-  process.env['CLWRITING_DRIVER'] = 'mock'
-  workDir = mkdtempSync(join(tmpdir(), 'clw-r47-release-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
-  )
-  const bookRoot = join(workDir, BOOK)
-  mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
-  writeFileSync(join(bookRoot, 'book.yaml'), `spec_version: 1\nkind: long\nbook:\n  title: ${BOOK}\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n`)
-  writeFileSync(join(bookRoot, '写作', '正文', '0001-开篇.md'), CH_FM(1, '开篇') + '主角登场，初入宗门，一切由此开始。\n')
   // TTL 注入短档（R62-21/R76-37 口径：1000ms 档）。R0911-G-P1-1c（2026-09-11
   // 修复批）：到期臂改注入时钟推进 TTL+1（先例 r47-rebuild-probe-ttl 的 3001=3000+1
   // 同款），不再睡 TTL+500=1.5s 真实墙钟（CI 慢机测试段被睡眠拖长，macos 腿红族）；
@@ -73,19 +58,20 @@ beforeAll(async () => {
   //（toFake 选择性 fake 先例 p37-write-stall-watchdog）。
   vi.useFakeTimers({ toFake: ['Date'] })
   __setStyleCorpusTtlForTest(1000)
-  server = await startServerSafe({ port: 0, workDir })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const r = await fetch(`${baseUrl}/api/boot`)
-  token = ((await r.json()) as { token: string }).token
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clw-r47-release-',
+    dirs: ['写作/正文'],
+    bookYaml: `spec_version: 1\nkind: long\nbook:\n  title: ${BOOK}\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n`,
+    files: [{ rel: '写作/正文/0001-开篇.md', content: CH_FM(1, '开篇') + '主角登场，初入宗门，一切由此开始。\n' }],
+    env: { CLWRITING_DRIVER: 'mock' },
+  })
 })
 
 afterAll(async () => {
   vi.useRealTimers() // R0911-G-P1-1c：解除 Date fake，避免污染同进程后续时序
   __setStyleCorpusTtlForTest(null)
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
-  if (prevDriver === undefined) delete process.env['CLWRITING_DRIVER']
-  else process.env['CLWRITING_DRIVER'] = prevDriver
+  await studio.close()
 })
 
 describe('R47-22：analyze-style MISS 路径行为回归（释放后重扫/缓存均正常）', () => {
@@ -108,9 +94,8 @@ describe('R47-22：analyze-style MISS 路径行为回归（释放后重扫/缓�
     expect(before.status).toBe(200)
     const hashBefore = (before.json as { envelope: { sourceHash: string } }).envelope.sourceHash
 
-    const bookRoot = join(workDir, BOOK)
-    writeFileSync(join(bookRoot, '写作', '正文', '0001-开篇.md'), CH_FM(1, '开篇') + '主角登场，正文已被作者彻底改写一新。\n')
-    writeFileSync(join(bookRoot, '写作', '正文', '0002-次章.md'), CH_FM(2, '次章') + '第二章正文登场，剧情推进。\n')
+    writeFileSync(join(studio.bookRoot, '写作', '正文', '0001-开篇.md'), CH_FM(1, '开篇') + '主角登场，正文已被作者彻底改写一新。\n')
+    writeFileSync(join(studio.bookRoot, '写作', '正文', '0002-次章.md'), CH_FM(2, '次章') + '第二章正文登场，剧情推进。\n')
 
     // R0911-G-P1-1c：注入时钟推进 TTL+1 过期，不再睡 TTL+500 真实墙钟
     vi.advanceTimersByTime(1000 + 1)

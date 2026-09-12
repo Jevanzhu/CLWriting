@@ -10,14 +10,16 @@
  * 不可控）；「书已删」用直接改写 books.jsonl + 删目录构造——服务端 DELETE 在闸持有
  * 期本就被 busyGate 409（M-4 闸后复查），本测复现的是评审指出的清理已完成、任务
  * 收尾在后的窗口（跨进程删除/未来重构均可落入）。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio（初始登记/目录/book.yaml 同
+ * 形态先落盘后起服）；rag.secret 改在起服后、首请求前落 key——readApiKey 经
+ * resolveRag 请求时惰性读盘（src/rag/resolve.ts），落 key 时机先后等价。中途
+ * unregisterBook/registerBook 的 books.jsonl 直改原样保留（workDir 改绑 harness）。
  */
-import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { rmSync, mkdirSync, writeFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { forgetRagBuildTask } from '../../src/studio/server/api/rag.js' // 删书/改名侧清理入口（books.ts 同款）
 
 const R26 = vi.hoisted(() => ({
@@ -37,10 +39,8 @@ vi.mock('../../src/rag/index.js', async (importOriginal) => {
 })
 
 const BOOK = 'R26复活书'
-let workDir = ''
-let server: http.Server | undefined
-let baseUrl = ''
-let token = ''
+let studio!: StudioHarness
+let workDir = '' // = studio.workDir（测试精简批改绑 harness）
 
 function bookYaml(): string {
   return 'spec_version: 1\nkind: long\nbook:\n  title: R26复活书\n  genre: 玄幻\nhost: cc\nrag:\n  enabled: true\n  endpoint: http://stub-legacy\n  model: stub-model\n'
@@ -60,49 +60,22 @@ function unregisterBook(): void {
   writeFileSync(join(workDir, '.clwriting', 'books.jsonl'), '')
 }
 
-async function req(method: string, path: string, body?: unknown): Promise<{ status: number; json: unknown }> {
-  const r = await fetch(`${baseUrl}${path}`, {
-    method,
-    headers: {
-      'x-studio-token': token,
-      origin: baseUrl,
-      ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
-    },
-    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-  })
-  let json: unknown = null
-  try {
-    json = await r.json()
-  } catch {
-    /* 非 JSON 留 null */
-  }
-  return { status: r.status, json }
-}
-
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clw-r26-rag-revive-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  // 旧版内联 RAG 配置 + rag.secret 落 key（rag-api.test.ts 同款前置，走 legacy 回落）
+  studio = await bootStudio({ book: BOOK, bookYaml: bookYaml(), prefix: 'clw-r26-rag-revive-' })
+  workDir = studio.workDir
+  // 旧版内联 RAG 配置 + rag.secret 落 key（rag-api.test.ts 同款前置，走 legacy 回落）；
+  // 起服后、首请求前落 key 与先落盘后起服等价（readApiKey 请求时惰性读盘，见头注）
   writeFileSync(join(workDir, '.clwriting', 'rag.secret'), 'sk-r26-legacy-key\n', 'utf8')
-  registerBook()
-
-  server = await startServerSafe({ port: 0, workDir })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  token = ((await (await fetch(`${baseUrl}/api/boot`)).json()) as { token: string }).token
 })
 
 afterAll(async () => {
-  if (server) {
-    server.closeAllConnections()
-    await new Promise<void>((r) => server!.close(() => r()))
-  }
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
+  await studio.close()
 })
 
 describe('R26-61: rag-build 收尾回调不复活已删书的任务条目', () => {
   it('书删除后 buildIndex 才落定 → 不复活条目；同名重建书 status 不见陈旧 lastResult', async () => {
     // 1. 触发建索引（后台 Deferred 挂起，闸持有中）
-    const build = await req('POST', `/api/books/${encodeURIComponent(BOOK)}/rag/build`, {})
+    const build = await studio.req('POST', `/api/books/${encodeURIComponent(BOOK)}/rag/build`, {})
     expect(build.status).toBe(200)
     expect(R26.release).not.toBeNull()
 
@@ -118,7 +91,7 @@ describe('R26-61: rag-build 收尾回调不复活已删书的任务条目', () =
 
     // 4. 同名重建书 → status 不得读到被复活的陈旧 lastResult
     registerBook()
-    const status = await req('GET', `/api/books/${encodeURIComponent(BOOK)}/rag/status`)
+    const status = await studio.req('GET', `/api/books/${encodeURIComponent(BOOK)}/rag/status`)
     expect(status.status).toBe(200)
     const j = status.json as { running: boolean; lastResult: unknown }
     expect(j.running).toBe(false)

@@ -6,14 +6,14 @@
  * GET /rag/status 返回 500 RAG_DB_CORRUPT（带「损坏，请重建」人话指引，修复前 handler
  * 抛错走 dispatch 兜底裸 500）→ POST /rag/rebuild（resetRagIndex 确认损坏删库重建）
  * → build 成功、status 恢复 200。embed 用 vi.mock 桩（手法对齐 rag-rebuild-api.test.ts）。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio（本地 api 合并 init 头保留本地仅改绑定；writeChapter 种子后置首请求前）。
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
-import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { writeChapter } from '../helpers/chapter.js'
 import { waitForAsync } from '../helpers/wait-for.js'
 import type { ChapterMeta } from '../../src/format/types.js'
@@ -28,9 +28,9 @@ vi.mock('../../src/rag/embed.js', () => ({
 }))
 
 const BOOK = 'RAG损坏书'
+let studio: StudioHarness
 let workDir = ''
 let userData = ''
-let server: http.Server | undefined
 let baseUrl = ''
 let token = ''
 
@@ -62,20 +62,19 @@ async function putRagCfg(rag: Record<string, unknown>): Promise<void> {
 }
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-r35-corrupt-'))
   userData = mkdtempSync(join(tmpdir(), 'clwriting-r35-corrupt-ud-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
-  )
-  const bookRoot = join(workDir, BOOK)
-  mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
-  writeFileSync(
-    join(bookRoot, 'book.yaml'),
-    `spec_version: 1\nkind: long\nbook:\n  title: ${BOOK}\n  genre: 玄幻\nhost: cc\n`,
-    'utf8',
-  )
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clwriting-r35-corrupt-',
+    userDataPath: userData,
+    dirs: ['写作/正文'],
+    bookYaml: `spec_version: 1\nkind: long\nbook:\n  title: ${BOOK}\n  genre: 玄幻\nhost: cc\n`,
+  })
+  workDir = studio.workDir
+  baseUrl = studio.baseUrl
+  token = studio.token
+  // writeChapter 种子（writeChapter 助手生成正文头）后置于 boot——服务端 IO 懒加载，首请求前等价
+  const bookRoot = studio.bookRoot
   for (const n of [1, 2]) {
     const meta: ChapterMeta = {
       章号: n, 标题: `第${n}章`, 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',
@@ -87,19 +86,10 @@ beforeAll(async () => {
       `第${n}章的正文段落内容，这是一个战斗场景，主角挥剑战斗。`,
     )
   }
-
-  server = await startServerSafe({ port: 0, workDir, userDataPath: userData })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const boot = await fetch(`${baseUrl}/api/boot`)
-  token = ((await boot.json()) as { token: string }).token
 })
 
 afterAll(async () => {
-  if (server) {
-    server.closeAllConnections()
-    await new Promise<void>((r) => server!.close(() => r()))
-  }
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
+  await studio.close()
   if (userData) rmSync(userData, { recursive: true, force: true })
 })
 

@@ -5,14 +5,12 @@
  * draft-save 端点集成：响应 {docId, snapshotted} 契约（前端「存草稿并编辑」跳转依赖）。
  * 范式同 kind-branches：临时目录 fixture，不调大模型。
  */
-import http from 'node:http'
-import type { AddressInfo } from 'node:net'
 import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from 'vitest'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { snapshotBeforeOverwrite } from '../../src/studio/server/api/draft.js'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { legacyId, generateDocId } from '../../src/document/stable-id.js'
 import { encodeDocDirName } from '../../src/document/version.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
@@ -97,43 +95,26 @@ describe('snapshotBeforeOverwrite(M1 覆写留底)', () => {
 // ---- 端点集成：POST /draft-save 响应契约（M3 存草稿并编辑） ----
 
 const BOOK = '草稿测试书'
-let workDir = ''
-let server: http.Server | undefined
-let baseUrl = ''
-let token = ''
+let studio: StudioHarness
 
 function postDraft(body: unknown): Promise<{ status: number; json: Record<string, unknown> }> {
-  return fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/draft-save`, {
+  return fetch(`${studio.baseUrl}/api/books/${encodeURIComponent(BOOK)}/draft-save`, {
     method: 'POST',
-    headers: { 'x-studio-token': token, 'content-type': 'application/json' },
+    headers: { 'x-studio-token': studio.token, 'content-type': 'application/json' },
     body: JSON.stringify(body),
   }).then(async (r) => ({ status: r.status, json: (await r.json()) as Record<string, unknown> }))
 }
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-draft-api-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
-  )
-  const bookRoot = join(workDir, BOOK)
-  mkdirSync(join(bookRoot, '工作区'), { recursive: true })
-  writeFileSync(
-    join(bookRoot, 'book.yaml'),
-    'spec_version: 1\nkind: long\nbook:\n  title: 草稿测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
-    'utf8',
-  )
-  server = await startServerSafe({ port: 0, workDir })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const r = await fetch(`${baseUrl}/api/boot`)
-  token = ((await r.json()) as { token: string }).token
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clwriting-draft-api-',
+    dirs: ['工作区'],
+    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: 草稿测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+  })
 })
 
-afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
-})
+afterAll(() => studio.close())
 
 describe('POST /draft-save 响应契约（M3）', () => {
   it('新草稿：docId 回落 legacyId(relPath)（与树扫盘一致）+ snapshotted=false', async () => {
@@ -152,13 +133,13 @@ describe('POST /draft-save 响应契约（M3）', () => {
     expect(r.status).toBe(200)
     expect(r.json['snapshotted']).toBe(true)
     // 快照真实落盘
-    const snapDir = join(workDir, BOOK, '工作区', '.版本')
+    const snapDir = join(studio.bookRoot, '工作区', '.版本')
     expect(existsSync(snapDir)).toBe(true)
   })
 
   it('清单已登记：docId 返回真 ID', async () => {
-    const manifestPath = join(workDir, BOOK, '项目', '文档清单.jsonl')
-    mkdirSync(join(workDir, BOOK, '项目'), { recursive: true })
+    const manifestPath = join(studio.bookRoot, '项目', '文档清单.jsonl')
+    mkdirSync(join(studio.bookRoot, '项目'), { recursive: true })
     const m = readManifest(manifestPath)
     const realId = generateDocId()
     // 登记正文区路径（draft-save 走 resolveDraftPath，长篇默认卷 第一卷 + 4 位补零，M-4 同源）

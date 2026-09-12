@@ -13,10 +13,11 @@ import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { createFakeProvider, type FakeProvider } from './fake-provider.js'
+import { makeFakeDriver } from './fake-driver.js'
 import { withFakeProvider, tempUserData, makeDualTrackWorkdir, LONG_BOOK } from '../studio/fixtures.js'
 import { runChat, isChatRunning, sendChatMessage, clearChatHistory } from '../../src/ai/orchestrate/chat.js'
 import { bookHash } from '../../src/events/store.js'
-import type { DriverEvent, Session, StudioDriver } from '../../src/driver/types.js'
+import type { DriverEvent } from '../../src/driver/types.js'
 
 let fake: FakeProvider
 const dirs: string[] = []
@@ -42,19 +43,6 @@ afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
 })
 
-function makeDriver(emitted: DriverEvent[]): StudioDriver {
-  return {
-    async startSession(cwd: string): Promise<Session> {
-      return { id: 'mock', cwd, closed: false }
-    },
-    async *stream(): AsyncGenerator<DriverEvent> {},
-    dispose(): void {},
-    emit(_s, ev): void {
-      emitted.push(ev)
-    },
-  }
-}
-
 /** 在 <ud>/clwriting/session/ 预埋垃圾字节——DatabaseSync/PRAGMA 打开即抛「不是数据库」 */
 function corruptSessionDb(ud: string, bookRoot: string): void {
   const dir = join(ud, 'clwriting', 'session')
@@ -72,7 +60,7 @@ describe('H-1: 事件库打开失败不死锁（降级内存模式）', () => {
     fake.setScript([{ type: 'text', content: '回复内容' }])
 
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
     const bookName = 'corrupt-db-book'
 
     // 修复前：runChatInner 在进 try 前抛错，runChat reject；锁不释放

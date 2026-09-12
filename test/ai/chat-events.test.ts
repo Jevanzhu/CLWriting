@@ -7,6 +7,7 @@
 import { rmSync } from 'node:fs'
 import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it } from 'vitest'
 import { createFakeProvider, type FakeProvider } from './fake-provider.js'
+import { makeFakeDriver } from './fake-driver.js'
 import { withFakeProvider, tempUserData, makeDualTrackWorkdir } from '../studio/fixtures.js'
 import { runChat, clearChatHistory, getHistory } from '../../src/ai/orchestrate/chat.js'
 import { openSessionStore } from '../../src/events/store.js'
@@ -14,7 +15,7 @@ import { deriveMessages, validateEventStream } from '../../src/events/projection
 import { loadHistoryWithSeqs } from '../../src/events/chat-bridge.js'
 import { selectBranch, selectBranchTo } from '../../src/events/branch-tree.js'
 import type { ContentBlock } from '../../src/ai/provider/types.js'
-import type { DriverEvent, Session, StudioDriver } from '../../src/driver/types.js'
+import type { DriverEvent } from '../../src/driver/types.js'
 
 let fake: FakeProvider
 const dirs: string[] = []
@@ -46,19 +47,6 @@ function setup(): string {
   return ud
 }
 
-function makeDriver(emitted: DriverEvent[]): StudioDriver {
-  return {
-    async startSession(cwd: string): Promise<Session> {
-      return { id: 'mock', cwd, closed: false }
-    },
-    async *stream(): AsyncGenerator<DriverEvent> {},
-    dispose(): void {},
-    emit(_s, ev): void {
-      emitted.push(ev)
-    },
-  }
-}
-
 /** 跑一轮对话管线；regenerate 时不传 message（复用已记录 user，与 regenerate 端点同形状）。
  *  返回本轮 emit 的 DriverEvent（失败路径断言 chat_error 用）。 */
 async function runOne(
@@ -69,7 +57,7 @@ async function runOne(
 ): Promise<DriverEvent[]> {
   const events: DriverEvent[] = []
   await runChat({
-    driver: makeDriver(events),
+    driver: makeFakeDriver({ emitted: events }),
     mainSession: { id: 's1', cwd: bookRoot, closed: false },
     userDataPath: ud,
     bookRoot,

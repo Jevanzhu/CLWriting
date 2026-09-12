@@ -20,13 +20,13 @@ import { openSessionStore, bookHash } from '../../src/events/store.js'
 import { createFakeProvider, type FakeProvider } from './fake-provider.js'
 import { withFakeProvider, tempUserData as fixturesTempUserData, makeDualTrackWorkdir } from '../studio/fixtures.js'
 import { runChat } from '../../src/ai/orchestrate/chat.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import type { DriverEvent, Session, StudioDriver } from '../../src/driver/types.js'
 
+// tempBookRoot 等书根目录仍走本地数组清理；tempUserData 已收编 mkdtempTracked（幂等并存）
 const dirs: string[] = []
 function tempUserData(): string {
-  const d = mkdtempSync(join(tmpdir(), 'clwriting-r34d-ud-'))
-  dirs.push(d)
-  return d
+  return mkdtempTracked(join(tmpdir(), 'clwriting-r34d-ud-'))
 }
 function tempBookRoot(): string {
   const d = mkdtempSync(join(tmpdir(), 'clwriting-r34d-book-'))

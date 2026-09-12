@@ -8,11 +8,12 @@
  * 测法：mock runSpec（两条路由共同的 AI 执行边界），在其内部先改稿（确定性复现
  * 「作者中途保存」窗口）再返回——断言信封 sourceHash === 读稿时的原稿指纹（≠当前盘上
  * 内容），即 GET stale=true。修复前 hash 取自改后文件，stale 恒 false。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio（req 走裸 http.request 定制形态，保留本地；
+ * 原裸 startServer+手动 listen 收编 safe 形态——语义等价且带受限端口重绑）。
  */
 import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { writeFileSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeAll, afterAll, it, expect, vi } from 'vitest'
 
@@ -29,24 +30,21 @@ vi.mock('../../src/ai/tasks/spec.js', () => ({
   },
 }))
 
-import { startServer } from '../../src/studio/server/index.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
 import { readAnalysis, sourceHashOf } from '../../src/document/analysis.js'
 
 const BOOK = '哈希竞态测试书'
+let studio: StudioHarness
 let workDir = ''
-let server: http.Server | undefined
-let baseUrl = ''
-let token = ''
 let docId = ''
 let chapterPath = ''
 let originalContent = ''
-const prevDriver = process.env['CLWRITING_DRIVER']
 
 function req(method: string, path: string, body?: unknown): Promise<{ status: number; json: unknown }> {
   return new Promise((resolve, reject) => {
-    const u = new URL(baseUrl)
+    const u = new URL(studio.baseUrl)
     const payload = body ? JSON.stringify(body) : ''
     const r = http.request(
       {
@@ -55,7 +53,7 @@ function req(method: string, path: string, body?: unknown): Promise<{ status: nu
         path,
         method,
         headers: {
-          'x-studio-token': token,
+          'x-studio-token': studio.token,
           ...(payload ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) } : {}),
         },
       },
@@ -80,38 +78,27 @@ function req(method: string, path: string, body?: unknown): Promise<{ status: nu
 }
 
 beforeAll(async () => {
-  process.env['CLWRITING_DRIVER'] = 'mock'
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-hash-race-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(join(workDir, '.clwriting', 'books.jsonl'), JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n')
-  const bookRoot = join(workDir, BOOK)
-  mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
-  mkdirSync(join(bookRoot, '项目'), { recursive: true })
-  writeFileSync(
-    join(bookRoot, 'book.yaml'),
-    'spec_version: 1\nkind: long\nbook:\n  title: 哈希竞态测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
-  )
-  chapterPath = join(bookRoot, '写作', '正文', '0001-开篇.md')
   originalContent = '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n主角登场，初入宗门。\n'
-  writeFileSync(chapterPath, originalContent)
-  const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clwriting-hash-race-',
+    env: { CLWRITING_DRIVER: 'mock' },
+    dirs: ['写作/正文', '项目'],
+    bookYaml:
+      'spec_version: 1\nkind: long\nbook:\n  title: 哈希竞态测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+    files: [{ rel: '写作/正文/0001-开篇.md', content: originalContent }],
+  })
+  workDir = studio.workDir
+  chapterPath = join(studio.bookRoot, '写作', '正文', '0001-开篇.md')
+  const manifestPath = join(studio.bookRoot, '项目', '文档清单.jsonl')
   const m = readManifest(manifestPath)
   docId = generateDocId()
   upsertEntry(m, { id: docId, nodeType: 'document', path: '写作/正文/0001-开篇.md', parentId: null })
   writeManifest(manifestPath, m)
-
-  server = startServer({ port: 0, workDir })
-  await new Promise<void>((r) => server!.listen(0, '127.0.0.1', r))
-  baseUrl = `http://127.0.0.1:${(server!.address() as AddressInfo).port}`
-  const boot = await (await fetch(`${baseUrl}/api/boot`)).json() as { token: string }
-  token = boot.token
 })
 
-afterAll(() => {
-  if (server) server.close()
-  rmSync(workDir, { recursive: true, force: true })
-  if (prevDriver === undefined) delete process.env['CLWRITING_DRIVER']
-  else process.env['CLWRITING_DRIVER'] = prevDriver
+afterAll(async () => {
+  await studio.close()
   vi.restoreAllMocks()
 })
 

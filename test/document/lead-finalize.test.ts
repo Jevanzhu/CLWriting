@@ -11,6 +11,7 @@
 import { test, expect } from 'vitest'
 import { mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { scaffoldBook } from '../helpers/book.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { applyLeadUpdates } from '../../src/document/lead-finalize.js'
@@ -18,14 +19,14 @@ import { readLead } from '../../src/format/leads.js'
 
 /** 造一本带布线的短书 + 一条悬念线 + 账本推进.md */
 function makeBook(): { root: string } {
-  const root = mkdtempTracked(join(tmpdir(), 'lead-finalize-'))
-  mkdirSync(join(root, '布线', '悬念'), { recursive: true })
-  mkdirSync(join(root, '工作区'), { recursive: true })
-  writeFileSync(
-    join(root, '布线', '悬念', '悬念-001-灭门真凶.md'),
-    '---\n编号: 悬念-001\n标题: 灭门真凶\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n',
-    'utf-8',
-  )
+  const { root } = scaffoldBook({
+    prefix: 'lead-finalize-',
+    flatRoot: true, // 原盘面：root 即临时目录（无书名子层）
+    dirs: ['工作区'],
+    files: [
+      { rel: '布线/悬念/悬念-001-灭门真凶.md', content: '---\n编号: 悬念-001\n标题: 灭门真凶\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n' },
+    ],
+  })
   return { root }
 }
 

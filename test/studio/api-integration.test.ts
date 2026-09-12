@@ -5,103 +5,74 @@
  * 覆盖:书架 → 设定台(P2 角色卡读写 + 境界写回 + 防穿越)→ 配置。
  * router 全局 routes 靠 vitest module isolate(每文件独立 routes 实例)。
  */
-import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, writeFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { startServer } from '../../src/studio/server/index.js'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { readBooks } from '../../src/install/books.js'
 
 const BOOK = '测试书'
-let workDir = ''
-let server: http.Server | undefined
-let baseUrl = ''
-let token = ''
+let studio: StudioHarness
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-api-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
-  )
-  const bookRoot = join(workDir, BOOK)
-  mkdirSync(join(bookRoot, '大纲'), { recursive: true })
-  writeFileSync(
-    join(bookRoot, 'book.yaml'),
-    'spec_version: 1\nbook:\n  title: 测试书\n  genre: 仙侠\nkind: long\nhost: cc\n',
-  )
-  writeFileSync(join(bookRoot, '大纲', '总纲.md'), '# 总纲\n仙侠:林远/旧案反转')
-  mkdirSync(join(bookRoot, '设定', '角色'), { recursive: true })
-  writeFileSync(
-    join(bookRoot, '设定', '角色', '林远.md'),
-    '---\n姓名: 林远\n身份: 弟子\n目标: 旧案\n境界: 练气\n---\n性格沉稳。',
-  )
-  writeFileSync(
-    join(bookRoot, '设定', '境界体系.md'),
-    '---\n体系:\n  - 名称: 修真\n    序列: [炼气, 筑基, 金丹]\n---\n境界说明',
-  )
-  // X-P2-14 用：一章正文（GET 可读 / PUT 拒绝）
-  mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
-  writeFileSync(
-    join(bookRoot, '写作', '正文', '0001-初入宗门.md'),
-    '---\n章号: 1\n标题: 初入宗门\n---\n\n林远踏入宗门。',
-  )
-
-  server = await startServerSafe({ port: 0, workDir })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const bootR = await fetch(`${baseUrl}/api/boot`)
-  token = ((await bootR.json()) as { token: string }).token
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clwriting-api-',
+    dirs: ['大纲', '设定/角色', '写作/正文'],
+    bookYaml: 'spec_version: 1\nbook:\n  title: 测试书\n  genre: 仙侠\nkind: long\nhost: cc\n',
+    files: [
+      { rel: '大纲/总纲.md', content: '# 总纲\n仙侠:林远/旧案反转' },
+      { rel: '设定/角色/林远.md', content: '---\n姓名: 林远\n身份: 弟子\n目标: 旧案\n境界: 练气\n---\n性格沉稳。' },
+      { rel: '设定/境界体系.md', content: '---\n体系:\n  - 名称: 修真\n    序列: [炼气, 筑基, 金丹]\n---\n境界说明' },
+      // X-P2-14 用：一章正文（GET 可读 / PUT 拒绝）
+      { rel: '写作/正文/0001-初入宗门.md', content: '---\n章号: 1\n标题: 初入宗门\n---\n\n林远踏入宗门。' },
+    ],
+  })
 })
 
-afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
-})
+afterAll(() => studio.close())
 
 describe('GUI API 集成链(设定台 P2)', () => {
   it('CC-P2-13: 非回环 host 启动即拒（fail-fast，不再全请求 403 的静默陷阱）', () => {
-    expect(() => startServer({ port: 0, workDir, host: '0.0.0.0' })).toThrow('非回环')
+    expect(() => startServer({ port: 0, workDir: studio.workDir, host: '0.0.0.0' })).toThrow('非回环')
   })
 
   it('GET /api/books 书架含测试书', async () => {
-    const r = await fetch(`${baseUrl}/api/books`)
+    const r = await fetch(`${studio.baseUrl}/api/books`)
     expect(r.ok).toBe(true)
     const d = (await r.json()) as { books: { name: string }[] }
     expect(d.books.some((b) => b.name === BOOK)).toBe(true)
   })
 
   it('POST /api/books 新建短篇落到短篇/二级目录', async () => {
-    const r = await fetch(`${baseUrl}/api/books`, {
+    const r = await fetch(`${studio.baseUrl}/api/books`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'X-Studio-Token': token },
+      headers: { 'content-type': 'application/json', 'X-Studio-Token': studio.token },
       body: JSON.stringify({ name: 'API短篇', genre: '悬疑', kind: 'short' }),
     })
     expect(r.ok).toBe(true)
     const d = (await r.json()) as { name: string; kind: string; path: string }
     expect(d).toMatchObject({ name: 'API短篇', kind: 'short', path: '短篇/API短篇' })
-    expect(existsSync(join(workDir, '短篇', 'API短篇', 'book.yaml'))).toBe(true)
-    expect(readBooks(workDir)).toEqual(expect.arrayContaining([
+    expect(existsSync(join(studio.workDir, '短篇', 'API短篇', 'book.yaml'))).toBe(true)
+    expect(readBooks(studio.workDir)).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: 'API短篇', kind: 'short', path: '短篇/API短篇' }),
     ]))
   })
 
   it('POST /api/books 路径穿越书名 → 400（禁 / \\ . ..）', async () => {
-    const r = await fetch(`${baseUrl}/api/books`, {
+    const r = await fetch(`${studio.baseUrl}/api/books`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'X-Studio-Token': token },
+      headers: { 'content-type': 'application/json', 'X-Studio-Token': studio.token },
       body: JSON.stringify({ name: '../evil' }),
     })
     expect(r.status).toBe(400)
   })
 
   it('POST 畸形 JSON body → 400 + 提示不合法（readJson 不再吞成 {}）', async () => {
-    const r = await fetch(`${baseUrl}/api/books`, {
+    const r = await fetch(`${studio.baseUrl}/api/books`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'X-Studio-Token': token },
+      headers: { 'content-type': 'application/json', 'X-Studio-Token': studio.token },
       body: '{bad json',
     })
     expect(r.status).toBe(400)
@@ -110,7 +81,7 @@ describe('GUI API 集成链(设定台 P2)', () => {
   })
 
   it('GET /api/books/:name/settings 设定台读角色 + 境界', async () => {
-    const r = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/settings`)
+    const r = await fetch(`${studio.baseUrl}/api/books/${encodeURIComponent(BOOK)}/settings`)
     const d = (await r.json()) as {
       kind: string
       characters: { 姓名: string; 境界: string }[]
@@ -124,7 +95,7 @@ describe('GUI API 集成链(设定台 P2)', () => {
   })
 
   it('GET /api/books/:name/config 配置读回(kind + title)', async () => {
-    const r = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/config`)
+    const r = await fetch(`${studio.baseUrl}/api/books/${encodeURIComponent(BOOK)}/config`)
     const d = (await r.json()) as { config: { kind: string; book: { title: string } } }
     expect(d.config.kind).toBe('long')
     expect(d.config.book.title).toBe('测试书')
@@ -134,9 +105,9 @@ describe('GUI API 集成链(设定台 P2)', () => {
   // （回读静默丢键/错键），入口 fail-fast
   it('PUT /api/books/:name/config 标题含换行/控制字符 → 400', async () => {
     for (const bad of ['双行\n标题', '带\r回车', '带\t制表', '带\x00空字节']) {
-      const r = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/config`, {
+      const r = await fetch(`${studio.baseUrl}/api/books/${encodeURIComponent(BOOK)}/config`, {
         method: 'PUT',
-        headers: { 'content-type': 'application/json', 'X-Studio-Token': token },
+        headers: { 'content-type': 'application/json', 'X-Studio-Token': studio.token },
         body: JSON.stringify({ config: { spec_version: 1, book: { title: bad }, leads: { enabled: [] }, budget: {}, growth: {} } }),
       })
       expect(r.status).toBe(400)
@@ -148,11 +119,11 @@ describe('GUI API 集成链(设定台 P2)', () => {
   // 是作者手写文件，指纹而非 prefs 式内嵌计数键）；PUT 带可选 expectedRevision 比对，
   // 失配 409（双标签页后写者不再静默覆盖先写者），缺省直通（旧客户端向后兼容）。
   it('R34D-25: config 乐观锁——GET 回传指纹；PUT 失配 409 / 匹配 200 / 缺省直通', async () => {
-    const cfgUrl = `${baseUrl}/api/books/${encodeURIComponent(BOOK)}/config`
+    const cfgUrl = `${studio.baseUrl}/api/books/${encodeURIComponent(BOOK)}/config`
     const put = (body: unknown) =>
       fetch(cfgUrl, {
         method: 'PUT',
-        headers: { 'content-type': 'application/json', 'X-Studio-Token': token },
+        headers: { 'content-type': 'application/json', 'X-Studio-Token': studio.token },
         body: JSON.stringify(body),
       })
 
@@ -186,26 +157,26 @@ describe('GUI API 集成链(设定台 P2)', () => {
   })
 
   it('GET /file 只允许读可编辑 Markdown，拒绝 book.yaml', async () => {
-    const ok = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent('大纲/总纲.md')}`)
+    const ok = await fetch(`${studio.baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent('大纲/总纲.md')}`)
     expect(ok.ok).toBe(true)
     const okD = (await ok.json()) as { content: string }
     expect(okD.content).toContain('# 总纲')
 
-    const blocked = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent('book.yaml')}`)
+    const blocked = await fetch(`${studio.baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent('book.yaml')}`)
     expect(blocked.status).toBe(400)
   })
 
   it('PUT /file 只允许写可编辑 Markdown，拒绝 book.yaml', async () => {
-    const ok = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent('大纲/总纲.md')}`, {
+    const ok = await fetch(`${studio.baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent('大纲/总纲.md')}`, {
       method: 'PUT',
-      headers: { 'content-type': 'application/json', 'X-Studio-Token': token },
+      headers: { 'content-type': 'application/json', 'X-Studio-Token': studio.token },
       body: JSON.stringify({ content: '# 总纲\n已更新' }),
     })
     expect(ok.ok).toBe(true)
 
-    const blocked = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent('book.yaml')}`, {
+    const blocked = await fetch(`${studio.baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent('book.yaml')}`, {
       method: 'PUT',
-      headers: { 'content-type': 'application/json', 'X-Studio-Token': token },
+      headers: { 'content-type': 'application/json', 'X-Studio-Token': studio.token },
       body: JSON.stringify({ content: 'broken: true\n' }),
     })
     expect(blocked.status).toBe(400)
@@ -214,12 +185,12 @@ describe('GUI API 集成链(设定台 P2)', () => {
   it('X-P2-14: PUT /file 拒绝正文（走文档保存协议）；GET 正文仍可读（doc store 按路径开 tab）', async () => {
     const chapter = '写作/正文/0001-初入宗门.md'
     // 读侧开放（编辑器开 tab 用）
-    const read = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent(chapter)}`)
+    const read = await fetch(`${studio.baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent(chapter)}`)
     expect(read.ok).toBe(true)
     // 写侧拒绝：正文 PUT 旁路会绕过乐观锁 + journal + 快照协议
-    const blocked = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent(chapter)}`, {
+    const blocked = await fetch(`${studio.baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent(chapter)}`, {
       method: 'PUT',
-      headers: { 'content-type': 'application/json', 'X-Studio-Token': token },
+      headers: { 'content-type': 'application/json', 'X-Studio-Token': studio.token },
       body: JSON.stringify({ content: '# 篡改\n' }),
     })
     expect(blocked.status).toBe(400)
@@ -231,14 +202,14 @@ describe('GUI API 集成链(设定台 P2)', () => {
 
   it('M-3: GET /file 附带 revision；PUT 带匹配基线 → 200 回新指纹', async () => {
     const f = '大纲/总纲.md'
-    const g = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent(f)}`)
+    const g = await fetch(`${studio.baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent(f)}`)
     expect(g.ok).toBe(true)
     const gd = (await g.json()) as { content: string; revision: string }
     expect(gd.revision).toMatch(/^sha256:/)
 
-    const ok = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent(f)}`, {
+    const ok = await fetch(`${studio.baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent(f)}`, {
       method: 'PUT',
-      headers: { 'content-type': 'application/json', 'X-Studio-Token': token },
+      headers: { 'content-type': 'application/json', 'X-Studio-Token': studio.token },
       body: JSON.stringify({ content: '# 总纲\nM-3 乐观锁写入', expectedRevision: gd.revision }),
     })
     expect(ok.status).toBe(200)
@@ -249,24 +220,24 @@ describe('GUI API 集成链(设定台 P2)', () => {
 
   it('M-3: PUT 基线不符（他窗已改）→ 409 REVISION_CONFLICT，文件一字不动', async () => {
     const f = '大纲/总纲.md'
-    const g = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent(f)}`)
+    const g = await fetch(`${studio.baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent(f)}`)
     const gd = (await g.json()) as { revision: string }
     // 他窗先改了文件
-    await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent(f)}`, {
+    await fetch(`${studio.baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent(f)}`, {
       method: 'PUT',
-      headers: { 'content-type': 'application/json', 'X-Studio-Token': token },
+      headers: { 'content-type': 'application/json', 'X-Studio-Token': studio.token },
       body: JSON.stringify({ content: '# 总纲\n他窗的新内容' }),
     })
-    const stale = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent(f)}`, {
+    const stale = await fetch(`${studio.baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent(f)}`, {
       method: 'PUT',
-      headers: { 'content-type': 'application/json', 'X-Studio-Token': token },
+      headers: { 'content-type': 'application/json', 'X-Studio-Token': studio.token },
       body: JSON.stringify({ content: '# 总纲\n本窗的旧基线内容', expectedRevision: gd.revision }),
     })
     expect(stale.status).toBe(409)
     const sd = (await stale.json()) as { code: string; error: string }
     expect(sd.code).toBe('REVISION_CONFLICT')
     // 文件保持他窗内容（本窗写入被拒）
-    const after = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent(f)}`)
+    const after = await fetch(`${studio.baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent(f)}`)
     const ad = (await after.json()) as { content: string }
     expect(ad.content).toContain('他窗的新内容')
     expect(ad.content).not.toContain('本窗的旧基线内容')
@@ -274,16 +245,16 @@ describe('GUI API 集成链(设定台 P2)', () => {
 
   it('M-3: 缺省 expectedRevision → 旧「后写为准」语义（存量调用方零改动）', async () => {
     const f = '大纲/总纲.md'
-    const ok = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent(f)}`, {
+    const ok = await fetch(`${studio.baseUrl}/api/books/${encodeURIComponent(BOOK)}/file?file=${encodeURIComponent(f)}`, {
       method: 'PUT',
-      headers: { 'content-type': 'application/json', 'X-Studio-Token': token },
+      headers: { 'content-type': 'application/json', 'X-Studio-Token': studio.token },
       body: JSON.stringify({ content: '# 总纲\n无基线直写' }),
     })
     expect(ok.status).toBe(200)
   })
 
   it('GET /api/books/:name/search?q= 全书扫描 + 行级匹配（W2A 收尾）', async () => {
-    const r = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/search?q=${encodeURIComponent('林远')}`)
+    const r = await fetch(`${studio.baseUrl}/api/books/${encodeURIComponent(BOOK)}/search?q=${encodeURIComponent('林远')}`)
     const d = (await r.json()) as { results: { path: string; matches: { line: number; text: string }[] }[] }
     expect(d.results.length).toBeGreaterThan(0)
     expect(
@@ -292,7 +263,7 @@ describe('GUI API 集成链(设定台 P2)', () => {
   })
 
   it('GET /search?scope=设定 限定范围（只搜设定/）', async () => {
-    const r = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/search?q=${encodeURIComponent('林远')}&scope=${encodeURIComponent('设定')}`)
+    const r = await fetch(`${studio.baseUrl}/api/books/${encodeURIComponent(BOOK)}/search?q=${encodeURIComponent('林远')}&scope=${encodeURIComponent('设定')}`)
     const d = (await r.json()) as { results: { path: string }[] }
     expect(d.results.length).toBeGreaterThan(0)
     expect(d.results.every((it) => it.path.startsWith('设定/'))).toBe(true)
@@ -303,7 +274,7 @@ describe('GUI API 集成链(设定台 P2)', () => {
 
 describe('搜索范围卫生（V-P2-25）', () => {
   it('历史快照 / 回收站 / 导出副本中的关键词不进结果', async () => {
-    const bookRoot = join(workDir, BOOK)
+    const bookRoot = studio.bookRoot
     // 造三处含关键词的「不该被搜到」文件
     mkdirSync(join(bookRoot, '工作区', '.版本', 'doc_hist'), { recursive: true })
     writeFileSync(join(bookRoot, '工作区', '.版本', 'doc_hist', 'v1.md'), '旧版本里的林远')
@@ -314,7 +285,7 @@ describe('搜索范围卫生（V-P2-25）', () => {
     // 一处「该被搜到」的工作区正文
     writeFileSync(join(bookRoot, '工作区', '笔记.md'), '工作区笔记提到林远')
 
-    const r = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}/search?q=${encodeURIComponent('林远')}`)
+    const r = await fetch(`${studio.baseUrl}/api/books/${encodeURIComponent(BOOK)}/search?q=${encodeURIComponent('林远')}`)
     const d = (await r.json()) as { results: { path: string }[] }
     const paths = d.results.map((it) => it.path)
     expect(paths.some((p) => p.includes('笔记'))).toBe(true)

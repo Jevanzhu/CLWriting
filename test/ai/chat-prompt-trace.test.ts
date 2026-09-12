@@ -11,12 +11,12 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it } from 'vitest'
 import { createFakeProvider, type FakeProvider } from './fake-provider.js'
+import { makeFakeDriver } from './fake-driver.js'
 import { withFakeProvider, tempUserData, makeDualTrackWorkdir } from '../studio/fixtures.js'
 import { runChat, clearChatHistory } from '../../src/ai/orchestrate/chat.js'
 import { buildChatContext } from '../../src/ai/prompts/chat.js'
 import { resolveDraftPath } from '../../src/format/draft.js'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
-import type { DriverEvent, Session, StudioDriver } from '../../src/driver/types.js'
 
 let fake: FakeProvider
 const dirs: string[] = []
@@ -40,17 +40,6 @@ afterEach(() => {
   delete process.env.CLWRITING_DRIVER
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
 })
-
-function makeDriver(): StudioDriver {
-  return {
-    async startSession(cwd: string): Promise<Session> {
-      return { id: 'mock', cwd, closed: false }
-    },
-    async *stream(): AsyncGenerator<DriverEvent> {},
-    dispose(): void {},
-    emit(): void {},
-  }
-}
 
 /** 写一章草稿（frontmatter + 正文 code points 数） */
 function writeDraft(chapter: number, body: string): string {
@@ -110,7 +99,7 @@ describe('T2-1 chat 链路事件登记（端到端）', () => {
     clearChatHistory('trace-a')
 
     await runChat({
-      driver: makeDriver(),
+      driver: makeFakeDriver(),
       mainSession: { id: 's1', cwd: bookRoot, closed: false },
       userDataPath: ud,
       bookRoot,
@@ -143,7 +132,7 @@ describe('T2-1 chat 链路事件登记（端到端）', () => {
     clearChatHistory('trace-b')
 
     await runChat({
-      driver: makeDriver(),
+      driver: makeFakeDriver(),
       mainSession: { id: 's1', cwd: bookRoot, closed: false },
       userDataPath: ud,
       bookRoot,
@@ -167,7 +156,7 @@ describe('T2-1 chat 链路事件登记（端到端）', () => {
     clearChatHistory('trace-c')
 
     await runChat({
-      driver: makeDriver(),
+      driver: makeFakeDriver(),
       mainSession: { id: 's1', cwd: bookRoot, closed: false },
       userDataPath: ud,
       bookRoot,

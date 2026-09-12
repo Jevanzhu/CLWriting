@@ -6,41 +6,18 @@
  * atomicWriteFile 覆盖写此前把手改静默丢失（细纲域无版本链）。修复后落盘前
  * snapshotBeforeOverwrite 留底（标签 outline-overwrite → 快照 fm「来源:」行），
  * fail-open：快照失败不阻断主流程（log.warn 留痕）。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio。
  */
-import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync } from 'node:fs'
+import { mkdtempSync, rmSync, readFileSync, readdirSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 
 const BOOK = 'R74细纲快照书'
 const OLD_CONTENT = '# 作者手改版细纲\n\n本章改成双线并行，别按旧纲写。'
-let workDir = ''
-let server: http.Server | undefined
-let baseUrl = ''
-let token = ''
-const prevDriver = process.env['CLWRITING_DRIVER']
-
-async function req(method: string, path: string, body?: unknown): Promise<{ status: number; json: unknown }> {
-  const r = await fetch(`${baseUrl}${path}`, {
-    method,
-    headers: {
-      'x-studio-token': token,
-      origin: baseUrl,
-      ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
-    },
-    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-  })
-  let json: unknown = null
-  try {
-    json = await r.json()
-  } catch {
-    /* 非 JSON 留 null */
-  }
-  return { status: r.status, json }
-}
+let studio: StudioHarness
 
 /** 递归收集目录下全部文件绝对路径 */
 function listFiles(dir: string): string[] {
@@ -55,44 +32,28 @@ function listFiles(dir: string): string[] {
 }
 
 beforeAll(async () => {
-  process.env['CLWRITING_DRIVER'] = 'mock'
-  workDir = mkdtempSync(join(tmpdir(), 'clw-r74-outline-'))
   const userDataPath = mkdtempSync(join(tmpdir(), 'clw-r74-outline-ud-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
-  )
-  const bookRoot = join(workDir, BOOK)
-  mkdirSync(join(bookRoot, '工作区'), { recursive: true })
-  mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
-  // 模拟「outline 生成期间作者已手改落盘」的现场（PUT /file 白名单含 细纲.md，
-  // 与 outline 闸互不相查）
-  writeFileSync(join(bookRoot, '工作区', '细纲.md'), OLD_CONTENT, 'utf-8')
-  writeFileSync(
-    join(bookRoot, 'book.yaml'),
-    'spec_version: 1\nkind: long\nbook:\n  title: R74细纲快照书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
-    'utf-8',
-  )
-  server = await startServerSafe({ port: 0, workDir, userDataPath })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const boot = await (await fetch(`${baseUrl}/api/boot`)).json()
-  token = boot.token
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clw-r74-outline-',
+    dirs: ['工作区', '写作/正文'],
+    // 模拟「outline 生成期间作者已手改落盘」的现场（PUT /file 白名单含 细纲.md，
+    // 与 outline 闸互不相查）
+    files: [{ rel: '工作区/细纲.md', content: OLD_CONTENT }],
+    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: R74细纲快照书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+    userDataPath,
+    env: { CLWRITING_DRIVER: 'mock' },
+  })
 })
 
-afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
-  if (prevDriver === undefined) delete process.env['CLWRITING_DRIVER']
-  else process.env['CLWRITING_DRIVER'] = prevDriver
-})
+afterAll(() => studio.close())
 
 describe('R74-4: outline 覆盖既有 细纲.md 前快照留底', () => {
   it('AI 产出覆盖前 → .版本 内生成含旧内容、标签 outline-overwrite 的快照', async () => {
-    const versionsDir = join(workDir, BOOK, '工作区', '.版本')
+    const versionsDir = join(studio.bookRoot, '工作区', '.版本')
     expect(listFiles(versionsDir)).toHaveLength(0) // 前置：无版本链
 
-    const r = await req('POST', `/api/books/${encodeURIComponent(BOOK)}/outline`, { chapter: 1 })
+    const r = await studio.req('POST', `/api/books/${encodeURIComponent(BOOK)}/outline`, { chapter: 1 })
     expect(r.status).toBe(200)
     const body = r.json as { ok: boolean }
     expect(body.ok).toBe(true)
@@ -105,20 +66,20 @@ describe('R74-4: outline 覆盖既有 细纲.md 前快照留底', () => {
     expect(hit).toContain('来源: outline-overwrite')
 
     // 主流程不受影响：细纲被 AI 产出覆盖（fm 前置章号 + mock 文本）
-    const after = readFileSync(join(workDir, BOOK, '工作区', '细纲.md'), 'utf8')
+    const after = readFileSync(join(studio.bookRoot, '工作区', '细纲.md'), 'utf8')
     expect(after).toContain('章号: 1')
     expect(after).toContain('mock 细纲')
     expect(after).not.toContain(OLD_CONTENT)
   })
 
   it('细纲不存在（首次生成）→ 无快照（留底只在覆盖既有文件时发生）', async () => {
-    rmSync(join(workDir, BOOK, '工作区', '细纲.md'))
-    const versionsDir = join(workDir, BOOK, '工作区', '.版本')
+    rmSync(join(studio.bookRoot, '工作区', '细纲.md'))
+    const versionsDir = join(studio.bookRoot, '工作区', '.版本')
     const before = listFiles(versionsDir).length
-    const r = await req('POST', `/api/books/${encodeURIComponent(BOOK)}/outline`, { chapter: 2 })
+    const r = await studio.req('POST', `/api/books/${encodeURIComponent(BOOK)}/outline`, { chapter: 2 })
     expect(r.status).toBe(200)
     expect((r.json as { ok: boolean }).ok).toBe(true)
-    expect(existsSync(join(workDir, BOOK, '工作区', '细纲.md'))).toBe(true)
+    expect(existsSync(join(studio.bookRoot, '工作区', '细纲.md'))).toBe(true)
     expect(listFiles(versionsDir)).toHaveLength(before) // 首次生成零留底
   })
 })

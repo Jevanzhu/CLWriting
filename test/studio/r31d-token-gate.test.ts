@@ -8,20 +8,19 @@
  *
  * 约定沿 api-token.test.ts（X-35）：断言 token 闸必须走 raw 通道（node:http 直发路径 /
  * raw socket 请求行），fetch 会被全局 setup 包装注入 token 造成假绿。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio（raw 免 token 通道保留本地，仅改绑定）。
  */
 import http from 'node:http'
 import net from 'node:net'
 import type { AddressInfo } from 'node:net'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 
+let studio: StudioHarness
 let baseUrl = ''
 let server: http.Server | undefined
 let token = ''
-let workDir = ''
 
 function rawRequest(method: string, path: string, headers: Record<string, string> = {}): Promise<{ status: number; text: string }> {
   return new Promise((resolve) => {
@@ -60,20 +59,14 @@ function rawSocketRequestLine(requestLine: string): Promise<{ status: number; te
 }
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-r31d-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  mkdirSync(join(workDir, 't'), { recursive: true })
-  writeFileSync(join(workDir, '.clwriting', 'books.jsonl'), '{"name":"t","path":"t"}\n')
-  server = await startServerSafe({ port: 0, workDir })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const r = await fetch(`${baseUrl}/api/boot`)
-  const d = (await r.json()) as { token: string }
-  token = d.token
+  studio = await bootStudio({ book: 't', prefix: 'clwriting-r31d-' })
+  baseUrl = studio.baseUrl
+  server = studio.server
+  token = studio.token
 })
 
 afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
+  await studio.close()
 })
 
 describe('R31-4：dot-segment 不绕读闸', () => {

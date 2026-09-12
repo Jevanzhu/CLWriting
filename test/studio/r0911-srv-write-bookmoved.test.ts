@@ -14,12 +14,11 @@
  * 用例：注入 yield 桩（__setLearnCommitYieldForTest）在首个让出点改名，锚定让出后
  * 重验中止剩余条目。
  */
-import type { IncomingMessage, ServerResponse } from 'node:http'
-import { EventEmitter } from 'node:events'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, renameSync, existsSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { fakeReqRes } from '../helpers/fake-reqres.js'
 import { createRouteTable, withRouteTable } from '../../src/studio/server/router.js'
 import { getRouteSchema } from '../../src/studio/server/api/schema.js'
 import { registerKnowledgeRoutes, __setLearnCommitYieldForTest } from '../../src/studio/server/api/knowledge.js'
@@ -28,36 +27,7 @@ import { registerConfigRoutes } from '../../src/studio/server/api/config.js'
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
-/** 假 req + 假 res（对齐 r1010b-srv-documents-bookmoved 先例：readJson 闲置窗内挂持
- *  body 即「入口已过、临界段未跑」确定性窗口）。 */
-function fakeReqRes(): {
-  req: IncomingMessage
-  res: ServerResponse
-  send: (body: unknown) => void
-  captured: { status: number | null; body: string }
-} {
-  const em = new EventEmitter()
-  const req = em as unknown as IncomingMessage
-  ;(req as unknown as { destroy: () => void }).destroy = () => {}
-  const captured = { status: null as number | null, body: '' }
-  const res = {
-    writeHead(status: number) {
-      captured.status = status
-    },
-    end(body?: string) {
-      captured.body = body ?? ''
-    },
-  } as unknown as ServerResponse
-  return {
-    req,
-    res,
-    send: (body: unknown) => {
-      em.emit('data', Buffer.from(JSON.stringify(body), 'utf-8'))
-      em.emit('end')
-    },
-    captured,
-  }
-}
+// 假 req/res 已收编 helpers/fake-reqres.ts 单源（测试精简批 2026-09-12）。
 
 interface Rig {
   workDir: string

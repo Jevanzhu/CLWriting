@@ -1,29 +1,24 @@
 /**
  * G4-a + G6：AI 可达性探测端点 + editor 端点不受 AI 可达影响。
  * CLWRITING_DRIVER=mock → available:true；连续请求一致（P0-2 起无缓存，每次实时重算）。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio（空书架形态——无 books.jsonl；
+ * get 走裸 http.request，保留本地）。
  */
 import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 
-let workDir = ''
-let server: http.Server | undefined
-let baseUrl = ''
-let token = ''
-let prevDriver: string | undefined
+let studio: StudioHarness
 
 function get(path: string): Promise<{ status: number; json: unknown }> {
   return new Promise((resolve, reject) => {
-    const u = new URL(baseUrl)
+    const u = new URL(studio.baseUrl)
     const req = http.request(
-      { host: u.hostname, port: u.port, path, method: 'GET', headers: { 'x-studio-token': token } },
+      { host: u.hostname, port: u.port, path, method: 'GET', headers: { 'x-studio-token': studio.token } },
       (res) => {
         let data = ''
-        res.on('data', (c) => (data += c.toString('utf-8')))
+        res.on('data', (c) => (data += c.toString('utf8')))
         res.on('end', () => {
           let json: unknown = null
           try {
@@ -41,21 +36,11 @@ function get(path: string): Promise<{ status: number; json: unknown }> {
 }
 
 beforeAll(async () => {
-  prevDriver = process.env.CLWRITING_DRIVER
-  process.env.CLWRITING_DRIVER = 'mock' // mock 永可达（不依赖本机 claude CLI）
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-aistatus-'))
-  server = await startServerSafe({ port: 0, workDir })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const r = await fetch(`${baseUrl}/api/boot`)
-  token = ((await r.json()) as { token: string }).token
+  // mock 永可达（不依赖本机 claude CLI）；env 由 bootStudio 统一注入/还原
+  studio = await bootStudio({ prefix: 'clwriting-aistatus-', env: { CLWRITING_DRIVER: 'mock' } })
 })
 
-afterAll(async () => {
-  if (prevDriver === undefined) delete process.env.CLWRITING_DRIVER
-  else process.env.CLWRITING_DRIVER = prevDriver
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
-})
+afterAll(() => studio.close())
 
 describe('G4-a：GET /api/ai-status（mock 模式）', () => {
   it('mock 驱动 → available:true', async () => {

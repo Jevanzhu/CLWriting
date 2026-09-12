@@ -5,25 +5,23 @@
  */
 import { test, expect } from 'vitest'
 import { rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { finalizeRevision } from '../../src/document/finalize.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
 import { deriveStatus } from '../../src/document/status.js'
 import { computeRevision } from '../../src/document/revision.js'
-import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { scaffoldBook } from '../helpers/book.js'
 
 /** 造一本干净书：一章 + 登记清单。返回 {root, docId}。 */
 function makeBook(): { root: string; docId: string } {
-  const root = mkdtempTracked(join(tmpdir(), 'finalize-'))
-  mkdirSync(join(root, '写作', '正文'), { recursive: true })
-  writeFileSync(
-    join(root, '写作', '正文', '0001-开篇.md'),
-    '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n天脉异象惊动宗门。\n',
-    'utf-8',
-  )
-
+  const { root } = scaffoldBook({
+    prefix: 'finalize-',
+    flatRoot: true, // 原盘面：root 即临时目录（无书名子层）
+    files: [
+      { rel: '写作/正文/0001-开篇.md', content: '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n天脉异象惊动宗门。\n' },
+    ],
+  })
   const manifestPath = join(root, '项目', '文档清单.jsonl')
   mkdirSync(join(root, '项目'), { recursive: true })
   const m = readManifest(manifestPath)

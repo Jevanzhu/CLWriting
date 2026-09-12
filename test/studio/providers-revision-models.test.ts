@@ -3,20 +3,20 @@
  * - revision：GET 返回递增计数；写端点带 stale expectedRevision → 409；不带 = 直通
  * - models：POST/PUT 模型行落盘（id/name/contextWindow/maxTokens）；models 变更不清 caps
  * - timeoutMs：PUT /api/tiers 档位超时（毫秒正整数）校验与回读
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio——空书架形态（无 books.jsonl，
+ * 仅 providers 组端点）；userDataPath 由本文件自建自清；req 走泛型 node:http
+ * 形态保留本地，改绑 studio.baseUrl/studio.token。
  */
 import http from 'node:http'
-import type { AddressInfo } from 'node:net'
 import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 
-let workDir = ''
+let studio: StudioHarness
 let userDataPath = ''
-let server: http.Server | undefined
-let baseUrl = ''
-let token = ''
 
 interface ReqOpts {
   method: string
@@ -25,7 +25,7 @@ interface ReqOpts {
 }
 function req<T>(opts: ReqOpts): Promise<{ status: number; json: T }> {
   return new Promise((resolve, reject) => {
-    const u = new URL(baseUrl)
+    const u = new URL(studio.baseUrl)
     const r = http.request(
       {
         host: u.hostname,
@@ -33,7 +33,7 @@ function req<T>(opts: ReqOpts): Promise<{ status: number; json: T }> {
         path: opts.path,
         method: opts.method,
         headers: {
-          'x-studio-token': token,
+          'x-studio-token': studio.token,
           ...(opts.body !== undefined
             ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(JSON.stringify(opts.body)) }
             : {}),
@@ -69,17 +69,12 @@ const CONF = {
 }
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-providers-p4-'))
   userDataPath = mkdtempSync(join(tmpdir(), 'clwriting-providers-p4-ud-'))
-  server = await startServerSafe({ port: 0, workDir, userDataPath })
-  baseUrl = `http://127.0.0.1:${(server!.address() as AddressInfo).port}`
-  const r = await fetch(`${baseUrl}/api/boot`)
-  token = ((await r.json()) as { token: string }).token
+  studio = await bootStudio({ prefix: 'clwriting-providers-p4-', userDataPath })
 })
 
 afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
+  await studio.close()
   if (userDataPath) rmSync(userDataPath, { recursive: true, force: true })
 })
 

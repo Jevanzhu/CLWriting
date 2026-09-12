@@ -4,21 +4,21 @@
  * - 带匹配 revision → 200 且响应回传自增后的 revision；GET 把保留键从 prefs 剥离单独回传
  * - 带过期 revision → 409 且盘上文件未被覆盖（后写不再静默覆盖先写）
  * - 读路径不受影响：global-defaults 等按键读取方忽略 revision 保留键
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio——空书架形态（无 books.jsonl，
+ * 仅 library 级端点）；userDataPath 由本文件自建自清；req 走泛型 node:http 形态
+ * 保留本地，改绑 studio.baseUrl/studio.token。
  */
 import http from 'node:http'
-import type { AddressInfo } from 'node:net'
 import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { readGlobalBookDefaults } from '../../src/format/global-defaults.js'
 
-let workDir = ''
+let studio: StudioHarness
 let userDataPath = ''
-let server: http.Server | undefined
-let baseUrl = ''
-let token = ''
 
 interface ReqOpts {
   method: string
@@ -27,7 +27,7 @@ interface ReqOpts {
 }
 function req<T>(opts: ReqOpts): Promise<{ status: number; json: T }> {
   return new Promise((resolve, reject) => {
-    const u = new URL(baseUrl)
+    const u = new URL(studio.baseUrl)
     const r = http.request(
       {
         host: u.hostname,
@@ -35,7 +35,7 @@ function req<T>(opts: ReqOpts): Promise<{ status: number; json: T }> {
         path: opts.path,
         method: opts.method,
         headers: {
-          'x-studio-token': token,
+          'x-studio-token': studio.token,
           ...(opts.body !== undefined
             ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(JSON.stringify(opts.body)) }
             : {}),
@@ -67,17 +67,12 @@ function disk(): Record<string, unknown> {
 }
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-prefs-rev-'))
   userDataPath = mkdtempSync(join(tmpdir(), 'clwriting-prefs-rev-ud-'))
-  server = await startServerSafe({ port: 0, workDir, userDataPath })
-  baseUrl = `http://127.0.0.1:${(server!.address() as AddressInfo).port}`
-  const r = await fetch(`${baseUrl}/api/boot`)
-  token = ((await r.json()) as { token: string }).token
+  studio = await bootStudio({ prefix: 'clwriting-prefs-rev-', userDataPath })
 })
 
 afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
+  await studio.close()
   if (userDataPath) rmSync(userDataPath, { recursive: true, force: true })
 })
 

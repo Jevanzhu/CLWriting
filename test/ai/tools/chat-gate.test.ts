@@ -8,9 +8,10 @@ import { existsSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it } from 'vitest'
 import { createFakeProvider, type FakeProvider } from '../fake-provider.js'
+import { makeFakeDriver } from '../fake-driver.js'
 import { withFakeProvider, tempUserData, makeDualTrackWorkdir, LONG_BOOK } from '../../studio/fixtures.js'
 import { runChat, resolveChatConfirm } from '../../../src/ai/orchestrate/chat.js'
-import type { DriverEvent, Session, StudioDriver } from '../../../src/driver/types.js'
+import type { DriverEvent } from '../../../src/driver/types.js'
 import { waitFor } from '../../helpers/wait-for.js' // R9-P2-2 单源轮询助手
 
 let fake: FakeProvider
@@ -43,19 +44,6 @@ function setup(): string {
   return ud
 }
 
-function makeDriver(emitted: DriverEvent[]): StudioDriver {
-  return {
-    async startSession(cwd: string): Promise<Session> {
-      return { id: 'mock', cwd, closed: false }
-    },
-    async *stream(): AsyncGenerator<DriverEvent> {},
-    dispose(): void {},
-    emit(_s, ev): void {
-      emitted.push(ev)
-    },
-  }
-}
-
 describe('工具面扩展确认闸', () => {
   it('move_chapter（write）→ pending 确认后执行，文件真实移动', async () => {
     fake.setScript([
@@ -63,7 +51,7 @@ describe('工具面扩展确认闸', () => {
       { type: 'text', content: '已移动。' },
     ])
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
     const ud = setup()
     const bookName = 'gate-move'
 
@@ -97,7 +85,7 @@ describe('工具面扩展确认闸', () => {
       { type: 'text', content: '找到了。' },
     ])
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
     const ud = setup()
 
     await runChat({

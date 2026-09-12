@@ -29,8 +29,8 @@ import { createOpenAIResponsesProvider } from '../../src/ai/provider/responses-a
 import type { GenEvent, GenRequest, ModelProvider, ProviderConf } from '../../src/ai/provider/index.js'
 import { runSelfHeal, type SelfHealOpts } from '../../src/ai/orchestrate/self-heal.js'
 import { makeDualTrackWorkdir, tempUserData, SHORT_BOOK } from '../studio/fixtures.js'
+import { makeFakeDriver } from './fake-driver.js'
 import type { CheckOutcome } from '../../src/studio/server/api/check.js'
-import type { DriverEvent, Session, StudioDriver } from '../../src/driver/index.js'
 import type { ChapterMeta } from '../../src/format/types.js'
 import type { saveDraft } from '../../src/studio/server/api/draft.js'
 
@@ -210,17 +210,6 @@ const META: ChapterMeta = {
   情绪定位: '铺垫',
 }
 
-function makeEmitDriver(_emitted: DriverEvent[]): StudioDriver {
-  return {
-    async startSession(cwd: string): Promise<Session> {
-      return { id: 'mock', cwd, closed: false }
-    },
-    async *stream(): AsyncGenerator<DriverEvent> {},
-    dispose(): void {},
-    emit(_s, _ev): void {},
-  }
-}
-
 test('R26-5: 首稿 ctx.save 抛错 → error 出口（failed 链收口），不裸穿', async () => {
   const workDir = makeDualTrackWorkdir()
   const ud = tempUserData()
@@ -233,7 +222,7 @@ test('R26-5: 首稿 ctx.save 抛错 → error 出口（failed 链收口），不
   process.env['CLWRITING_DRIVER'] = 'mock'
   try {
     const opts: SelfHealOpts = {
-      driver: makeEmitDriver([]),
+      driver: makeFakeDriver(),
       mainSession: { id: 'main', cwd: bookRoot, closed: false },
       userDataPath: ud,
       cwd: bookRoot,

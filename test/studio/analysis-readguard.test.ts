@@ -14,24 +14,19 @@
  * 制造 existsSync 命中 + read 必抛的稳定形态（同型于 review.ts R64-10 守卫口径）。
  */
 import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
 
 const BOOK = '读稿守卫测试书'
-let workDir = ''
-let server: http.Server | undefined
-let baseUrl = ''
-let token = ''
+let studio: StudioHarness
 
 function req(method: string, path: string, body?: unknown): Promise<{ status: number; json: unknown }> {
   return new Promise((resolve, reject) => {
-    const u = new URL(baseUrl)
+    const u = new URL(studio.baseUrl)
     const payload = body ? JSON.stringify(body) : ''
     const r = http.request(
       {
@@ -40,8 +35,8 @@ function req(method: string, path: string, body?: unknown): Promise<{ status: nu
         path,
         method,
         headers: {
-          'x-studio-token': token,
-          origin: baseUrl,
+          'x-studio-token': studio.token,
+          origin: studio.baseUrl,
           ...(payload ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) } : {}),
         },
       },
@@ -66,30 +61,20 @@ function req(method: string, path: string, body?: unknown): Promise<{ status: nu
 }
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-r66-26-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(join(workDir, '.clwriting', 'books.jsonl'), JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n')
-  const bookRoot = join(workDir, BOOK)
-  mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
-  mkdirSync(join(bookRoot, '项目'), { recursive: true })
-  writeFileSync(
-    join(bookRoot, 'book.yaml'),
-    'spec_version: 1\nkind: long\nbook:\n  title: 读稿守卫测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
-  )
-  server = await startServerSafe({ port: 0, workDir })
-  baseUrl = `http://127.0.0.1:${(server!.address() as AddressInfo).port}`
-  const boot = (await (await fetch(`${baseUrl}/api/boot`)).json()) as { token: string }
-  token = boot.token
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clwriting-r66-26-',
+    dirs: ['写作/正文', '项目'],
+    bookYaml:
+      'spec_version: 1\nkind: long\nbook:\n  title: 读稿守卫测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+  })
 })
 
-afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
-})
+afterAll(() => studio.close())
 
 /** 登记一个 manifest 文档条目，返回 docId */
 function registerDoc(relPath: string): string {
-  const bookRoot = join(workDir, BOOK)
+  const bookRoot = studio.bookRoot
   const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
   const m = readManifest(manifestPath)
   const docId = generateDocId()
@@ -104,7 +89,7 @@ describe('R66-26: analyze 端点单次读盘 + 读稿守卫', () => {
     // ——稳定复现 existsSync→read 间读失败形态。修复前：readDraft 先吃到目录
     // 返回 NOT_CHAPTER 400（或第二次 readFileSync EISDIR 裸穿 500）；修复后统一
     // 走守卫人话 500 IO。
-    mkdirSync(join(workDir, BOOK, '写作', '正文', '0002-占位.md'), { recursive: true })
+    mkdirSync(join(studio.bookRoot, '写作', '正文', '0002-占位.md'), { recursive: true })
     const docId = registerDoc('写作/正文/0002-占位.md')
     const res = await req('POST', `/api/books/${encodeURIComponent(BOOK)}/documents/${docId}/analyze`, { kind: 'score' })
     expect(res.status).toBe(500)
@@ -117,7 +102,7 @@ describe('R66-27: analysis-overview readdir 守卫', () => {
   it('分析目录被文件占位（existsSync true + readdir 抛 ENOTDIR）→ 空趋势 200，不裸穿', async () => {
     // 项目/分析 建成普通文件：existsSync 命中，readdirSync 必抛——稳定复现
     // existsSync→readdir 间目录消失/被占位的竞态形态（修复前 ENOTDIR 裸穿 500）
-    writeFileSync(join(workDir, BOOK, '项目', '分析'), '不是目录\n')
+    writeFileSync(join(studio.bookRoot, '项目', '分析'), '不是目录\n')
     const res = await req('GET', `/api/books/${encodeURIComponent(BOOK)}/analysis-overview`)
     expect(res.status).toBe(200)
     const d = res.json as { ok?: boolean; scoreTrend?: unknown[] }

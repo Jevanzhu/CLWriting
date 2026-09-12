@@ -20,12 +20,13 @@ import { makeDualTrackWorkdir, SHORT_BOOK, tempUserData } from '../studio/fixtur
 //（每次全量跑泄漏双书仓库）+ 固定共享 '/tmp/clwriting-test'；per-test 包 trackTempDir
 //（fixtures.ts 本体因 Playwright global-setup 复用不动），userDataPath 改唯一临时目录
 import { trackTempDir } from '../helpers/temp-dir.js'
+import { makeFakeDriver } from './fake-driver.js'
 import {
   runSelfHeal,
   type SelfHealOpts,
 } from '../../src/ai/orchestrate/self-heal.js'
 import type { CheckOutcome } from '../../src/studio/server/api/check.js'
-import type { DriverEvent, Session, StudioDriver } from '../../src/driver/index.js'
+import type { DriverEvent } from '../../src/driver/index.js'
 import type { ChapterMeta } from '../../src/format/types.js'
 import type { saveDraft } from '../../src/studio/server/api/draft.js'
 import { collectRuleViolations } from '../../src/ai/rules/index.js'
@@ -109,19 +110,6 @@ function makeSave(calls: SaveCall[]): typeof saveDraft {
   }
 }
 
-function makeEmitDriver(emitted: DriverEvent[]): StudioDriver {
-  return {
-    async startSession(cwd: string): Promise<Session> {
-      return { id: 'mock', cwd, closed: false }
-    },
-    async *stream(): AsyncGenerator<DriverEvent> {},
-    dispose(): void {},
-    emit(_s, ev): void {
-      emitted.push(ev)
-    },
-  }
-}
-
 function makeGenFn(texts: string[]): { genFn: NonNullable<SelfHealOpts['genFn']>; prompts: string[] } {
   const prompts: string[] = []
   let idx = 0
@@ -142,7 +130,7 @@ test('W1 端到端：AI 味稿检出黄 → 修复指令 → 二稿收敛 → pa
   const saves: SaveCall[] = []
   let checkIdx = 0
   const opts: SelfHealOpts = {
-    driver: makeEmitDriver(emitted),
+    driver: makeFakeDriver({ emitted }),
     mainSession: { id: 'main', cwd: bookRoot, closed: false },
     userDataPath: trackTempDir(tempUserData()),
     cwd: bookRoot,

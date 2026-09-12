@@ -5,23 +5,23 @@
  *   三审在途时仍可 /spawn，写手草稿与任务收尾覆盖写互踩
  * - R71-2：/auto-write 二次复查（readJson + ensureSession 两个 await 之后）补任务闸复检
  *   ——首检过后、二次复查前的窗口内新 acquire 的任务闸此前漏拦
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio（req 为 fetch+json:any 形态，保留本地仅改绑定；env prev/restore 收编 env 选项；userDataPath 改由调用方自建）。
  */
 import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { acquireTaskGate } from '../../src/studio/server/api/task-gate.js'
 import { __setReviewRunning } from '../../src/studio/server/api/review.js'
 
 const BOOK = 'R71互斥书'
-let workDir = ''
-let server: http.Server | undefined
+let studio: StudioHarness
 let baseUrl = ''
 let token = ''
-const prevDriver = process.env['CLWRITING_DRIVER']
+let userDataPath = ''
 
 async function req(method: string, path: string, body?: unknown): Promise<{ status: number; json: any }> {
   const r = await fetch(`${baseUrl}${path}`, {
@@ -46,32 +46,23 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 
 beforeAll(async () => {
   // ensureSession 在二次复查之前——mock driver 保证无 provider 也能建会话
-  process.env['CLWRITING_DRIVER'] = 'mock'
-  workDir = mkdtempSync(join(tmpdir(), 'clw-r71-gates-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
-  )
-  const bookRoot = join(workDir, BOOK)
-  mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
-  writeFileSync(
-    join(bookRoot, 'book.yaml'),
-    ['spec_version: 1', 'book:', `  title: ${BOOK}`, '  genre: 玄幻'].join('\n') + '\n',
-    'utf-8',
-  )
-  mkdirSync(join(workDir, 'userData'), { recursive: true })
-  server = await startServerSafe({ port: 0, workDir, userDataPath: join(workDir, 'userData') })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const boot = await (await fetch(`${baseUrl}/api/boot`)).json()
-  token = boot.token
+  // （CLWRITING_DRIVER 经 bootStudio env 选项注入、close() 还原）
+  userDataPath = mkdtempSync(join(tmpdir(), 'clw-r71-gates-ud-'))
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clw-r71-gates-',
+    userDataPath,
+    env: { CLWRITING_DRIVER: 'mock' },
+    dirs: ['写作/正文'],
+    bookYaml: ['spec_version: 1', 'book:', `  title: ${BOOK}`, '  genre: 玄幻'].join('\n') + '\n',
+  })
+  baseUrl = studio.baseUrl
+  token = studio.token
 })
 
 afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  rmSync(workDir, { recursive: true, force: true })
-  if (prevDriver === undefined) delete process.env['CLWRITING_DRIVER']
-  else process.env['CLWRITING_DRIVER'] = prevDriver
+  if (userDataPath) rmSync(userDataPath, { recursive: true, force: true })
+  await studio.close()
 })
 
 describe('R71-1: /spawn 入口任务闸 + 三审闸反向互斥', () => {

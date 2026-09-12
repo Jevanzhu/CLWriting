@@ -11,11 +11,11 @@
 import { rmSync } from 'node:fs'
 import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it } from 'vitest'
 import { createFakeProvider, type FakeProvider } from './fake-provider.js'
+import { makeFakeDriver } from './fake-driver.js'
 import { withFakeProvider, tempUserData, makeDualTrackWorkdir } from '../studio/fixtures.js'
 import { runChat, clearChatHistory } from '../../src/ai/orchestrate/chat.js'
 import { chatTools } from '../../src/ai/contract/chat.js'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
-import type { DriverEvent, Session, StudioDriver } from '../../src/driver/types.js'
 
 let fake: FakeProvider
 const dirs: string[] = []
@@ -40,17 +40,6 @@ afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
 })
 
-function makeDriver(): StudioDriver {
-  return {
-    async startSession(cwd: string): Promise<Session> {
-      return { id: 'mock', cwd, closed: false }
-    },
-    async *stream(): AsyncGenerator<DriverEvent> {},
-    dispose(): void {},
-    emit(): void {},
-  }
-}
-
 function readWorkspaceChain(ud: string) {
   const store = openSessionStore(ud, bookRoot)!
   try {
@@ -64,7 +53,7 @@ async function runOneChat(ud: string, bookName: string, message: string): Promis
   withFakeProvider(ud, fake.url)
   clearChatHistory(bookName)
   await runChat({
-    driver: makeDriver(),
+    driver: makeFakeDriver(),
     mainSession: { id: 's1', cwd: bookRoot, closed: false },
     userDataPath: ud,
     bookRoot,

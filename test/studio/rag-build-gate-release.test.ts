@@ -7,14 +7,15 @@
  * readRagConfig 定点抛错构造该路径，断言：500（dispatch 兜底，统一 { error } 信封）+
  * 闸已释放（isTaskGateHeld）+ 重试不再 409。书不配 rag 段 → 重试走「未启用」400，
  * 无需桩 embed、不联网。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio（api 为 fetch+常驻 content-type
+ * 形态，保留本地）。
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
-import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { isTaskGateHeld } from '../../src/studio/server/api/task-gate.js'
 
 // 定点故障开关：true 时 readRagConfig 抛错（vi.hoisted 保证 mock 工厂先行可用；
@@ -32,49 +33,33 @@ vi.mock('../../src/rag/config.js', async (importOriginal) => {
 })
 
 const BOOK = '闸残测书'
-let workDir = ''
+let studio: StudioHarness
 let userData = ''
-let server: http.Server | undefined
-let baseUrl = ''
-let token = ''
 
 function api(path: string, init?: RequestInit): Promise<{ status: number; json: Record<string, unknown> }> {
-  return fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}${path}`, {
+  return fetch(`${studio.baseUrl}/api/books/${encodeURIComponent(BOOK)}${path}`, {
     ...init,
-    headers: { 'x-studio-token': token, 'content-type': 'application/json', ...(init?.headers ?? {}) },
+    headers: { 'x-studio-token': studio.token, 'content-type': 'application/json', ...(init?.headers ?? {}) },
   }).then(async (r) => ({ status: r.status, json: (await r.json()) as Record<string, unknown> }))
 }
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-rag-gate-'))
   userData = mkdtempSync(join(tmpdir(), 'clwriting-rag-gate-ud-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  // 登记名 = book.yaml title = 目录名（启动 repair 以 title 为真相源，构造对齐避免被改）
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
-  )
-  const bookRoot = join(workDir, BOOK)
-  mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
-  // 故意不配 rag 段：透传时 readRagConfig → { enabled: false }，重试走 400 前置校验
-  writeFileSync(
-    join(bookRoot, 'book.yaml'),
-    `spec_version: 1\nkind: long\nbook:\n  title: ${BOOK}\n  genre: 玄幻\nhost: cc\n`,
-    'utf8',
-  )
-  server = await startServerSafe({ port: 0, workDir, userDataPath: userData })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const boot = await fetch(`${baseUrl}/api/boot`)
-  token = ((await boot.json()) as { token: string }).token
+  studio = await bootStudio({
+    book: BOOK,
+    // 登记名 = book.yaml title = 目录名（启动 repair 以 title 为真相源，构造对齐避免被改）
+    prefix: 'clwriting-rag-gate-',
+    dirs: ['写作/正文'],
+    // 故意不配 rag 段：透传时 readRagConfig → { enabled: false }，重试走 400 前置校验
+    bookYaml: `spec_version: 1\nkind: long\nbook:\n  title: ${BOOK}\n  genre: 玄幻\nhost: cc\n`,
+    userDataPath: userData,
+  })
 })
 
 afterAll(async () => {
-  if (server) {
-    // 强制断开 keep-alive 空闲连接，防 close 回调因连接池挂起
-    server.closeAllConnections()
-    await new Promise<void>((r) => server!.close(() => r()))
-  }
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
+  // 强制断开 keep-alive 空闲连接，防 close 回调因连接池挂起
+  studio.server.closeAllConnections()
+  await studio.close()
   if (userData) rmSync(userData, { recursive: true, force: true })
 })
 

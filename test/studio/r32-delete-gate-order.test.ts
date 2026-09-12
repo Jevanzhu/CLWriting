@@ -7,14 +7,14 @@
  * 本测试锁两件事：
  * 1. 任务闸在持 → DELETE 409 且 abortChat/abortSelfHeal 零调用（零副作用拒绝）；
  * 2. 闸释放后 → DELETE 200 且 abortChat 恰好一次（闸过才中断，中断语义不丢）。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio。
  */
-import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, beforeEach, describe, it, expect, vi } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { acquireTaskGate } from '../../src/studio/server/api/task-gate.js'
 import { abortChat } from '../../src/ai/orchestrate/chat.js'
 import { abortSelfHeal } from '../../src/ai/orchestrate/self-heal.js'
@@ -39,37 +39,26 @@ vi.mock('../../src/ai/orchestrate/self-heal.js', async (importOriginal) => {
 })
 
 const BOOK = '删书闸序测试书'
-let workDir = ''
+let studio: StudioHarness
 let userDataPath = ''
-let server: http.Server | undefined
-let baseUrl = ''
-let token = ''
 
 beforeEach(() => {
   chatState.running = true // 用例隔离：每个用例重新模拟「chat 在途」
 })
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-r32-del-order-'))
   userDataPath = mkdtempSync(join(tmpdir(), 'clwriting-r32-del-order-ud-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
-    'utf-8',
-  )
-  const bookRoot = join(workDir, BOOK)
-  mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
-  writeFileSync(join(bookRoot, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 删书闸序测试书\nhost: cc\n', 'utf-8')
-  server = await startServerSafe({ port: 0, workDir, userDataPath })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const boot = await fetch(`${baseUrl}/api/boot`)
-  token = ((await boot.json()) as { token: string }).token
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clwriting-r32-del-order-',
+    dirs: ['写作/正文'],
+    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: 删书闸序测试书\nhost: cc\n',
+    userDataPath,
+  })
 })
 
 afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
+  await studio.close()
   if (userDataPath) rmSync(userDataPath, { recursive: true, force: true })
 })
 
@@ -77,9 +66,9 @@ describe('R32-6：删书闸序（busyGate 前置，abort 闸后）', () => {
   it('任务闸在持 → DELETE 409 且 abortChat/abortSelfHeal 零调用（零副作用拒绝）', async () => {
     const release = acquireTaskGate(BOOK, 'analyze')!
     try {
-      const r = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}`, {
+      const r = await fetch(`${studio.baseUrl}/api/books/${encodeURIComponent(BOOK)}`, {
         method: 'DELETE',
-        headers: { 'x-studio-token': token },
+        headers: { 'x-studio-token': studio.token },
       })
       expect(r.status).toBe(409)
       const j = (await r.json()) as { error: string }
@@ -88,7 +77,7 @@ describe('R32-6：删书闸序（busyGate 前置，abort 闸后）', () => {
       expect(vi.mocked(abortChat)).not.toHaveBeenCalled()
       expect(vi.mocked(abortSelfHeal)).not.toHaveBeenCalled()
       // 书未被删
-      expect((await fetch(`${baseUrl}/api/books`, { headers: { 'x-studio-token': token } })).status).toBe(200)
+      expect((await fetch(`${studio.baseUrl}/api/books`, { headers: { 'x-studio-token': studio.token } })).status).toBe(200)
     } finally {
       release()
       vi.mocked(abortChat).mockClear()
@@ -97,9 +86,9 @@ describe('R32-6：删书闸序（busyGate 前置，abort 闸后）', () => {
   })
 
   it('闸释放后 → DELETE 200 且 abortChat 恰好一次（闸过才中断，中断语义不丢）', async () => {
-    const r = await fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}`, {
+    const r = await fetch(`${studio.baseUrl}/api/books/${encodeURIComponent(BOOK)}`, {
       method: 'DELETE',
-      headers: { 'x-studio-token': token },
+      headers: { 'x-studio-token': studio.token },
     })
     expect(r.status).toBe(200)
     // U-P2-7 中断语义保留：chat 在途（mock 真）→ 删除路径先 abort 再收尾

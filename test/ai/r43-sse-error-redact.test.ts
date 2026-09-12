@@ -21,31 +21,19 @@ import { finishTurn, finalizeHistory } from '../../src/ai/orchestrate/chat/finis
 import { runTask } from '../../src/ai/runner.js'
 import { compactionSuppressed, histories, msgSeqMap, type ChatRunState } from '../../src/ai/orchestrate/chat/state.js'
 import { redactSecret } from '../../src/ai/provider/redact.js'
+import { makeFakeDriver } from './fake-driver.js'
 import type { SessionRecorder } from '../../src/events/chat-bridge.js'
-import type { DriverEvent, Session, StudioDriver } from '../../src/driver/types.js'
+import type { DriverEvent } from '../../src/driver/types.js'
 import type { ChatOpts } from '../../src/ai/orchestrate/chat.js'
 import type { ChatMsg } from '../../src/ai/provider/types.js'
 
 const FAKE_KEY = 'sk-abcdef0123456789wxyz'
 
-function makeDriver(events: DriverEvent[]): StudioDriver {
-  return {
-    async startSession(cwd: string): Promise<Session> {
-      return { id: 'mock', cwd, closed: false }
-    },
-    async *stream(): AsyncGenerator<DriverEvent> {},
-    dispose(): void {},
-    emit(_s: Session, ev: DriverEvent): void {
-      events.push(ev)
-    },
-  }
-}
-
 describe('R43-19: chat_error 文案过 redactSecret', () => {
   it('error 分支携带 sk- key → emit 出的 chat_error 已 ***REDACTED***，key 不残留', () => {
     const events: DriverEvent[] = []
     const opts = {
-      driver: makeDriver(events),
+      driver: makeFakeDriver({ emitted: events }),
       mainSession: { id: 's1', cwd: '/tmp/r43-redact', closed: false },
       userDataPath: null,
       bookRoot: '/tmp/r43-redact',
@@ -64,7 +52,7 @@ describe('R43-19: chat_error 文案过 redactSecret', () => {
   it('固定文案（中断）不匹配凭据模式 → 幂等无变化（对照组）', () => {
     const events: DriverEvent[] = []
     const opts = {
-      driver: makeDriver(events),
+      driver: makeFakeDriver({ emitted: events }),
       mainSession: { id: 's1', cwd: '/tmp/r43-redact', closed: false },
       userDataPath: null,
       bookRoot: '/tmp/r43-redact',
@@ -99,7 +87,7 @@ describe('R49-1：历史压缩摘要 onRetry warning 过 redactSecret', () => {
   it('摘要 runTask 收到未脱敏 sk- key error → emit 出的 warning 已掩码，key 不残留', async () => {
     const events: DriverEvent[] = []
     const opts = {
-      driver: makeDriver(events),
+      driver: makeFakeDriver({ emitted: events }),
       mainSession: { id: 's1', cwd: '/tmp/r43-redact', closed: false },
       userDataPath: null,
       bookRoot: '/tmp/r43-redact',

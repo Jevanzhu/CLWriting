@@ -16,13 +16,14 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
 import { resetDegradedChannels } from '../../src/ai/provider/store.js'
 import { createFakeProvider, type FakeProvider } from './fake-provider.js'
+import { makeFakeDriver } from './fake-driver.js'
 import { withFakeProvider, tempUserData, makeDualTrackWorkdir, LONG_BOOK } from '../studio/fixtures.js'
 import { runChat, clearChatHistory } from '../../src/ai/orchestrate/chat.js'
 import { histories } from '../../src/ai/orchestrate/chat/state.js'
 import { checkAiCallBudget } from '../../src/ai/calls.js'
 import type { BookConfig } from '../../src/format/types.js'
 import type { ChatMsg } from '../../src/ai/provider/types.js'
-import type { DriverEvent, Session, StudioDriver } from '../../src/driver/types.js'
+import type { DriverEvent } from '../../src/driver/types.js'
 
 const dirs: string[] = []
 
@@ -34,20 +35,6 @@ afterEach(() => {
   clearChatHistory('r35-ckpt-usage')
   clearChatHistory('r35-ckpt-trunc')
 })
-
-/** 事件收集型 driver（r34d-batch-a 同款线缆级形态） */
-function makeDriver(events: DriverEvent[]): StudioDriver {
-  return {
-    async startSession(cwd: string): Promise<Session> {
-      return { id: 'mock', cwd, closed: false }
-    },
-    async *stream(): AsyncGenerator<DriverEvent> {},
-    dispose(): void {},
-    emit(_s, ev): void {
-      events.push(ev)
-    },
-  } satisfies StudioDriver
-}
 
 describe('R35-1：工具轮 assistant 事件 usage 与 chat_done 同用 attemptsUsage 合并口径', () => {
   let fake: FakeProvider
@@ -73,7 +60,7 @@ describe('R35-1：工具轮 assistant 事件 usage 与 chat_done 同用 attempts
       { type: 'text', content: '最终回复。', usage: { input: 200, output: 60 } },
     ])
     await runChat({
-      driver: makeDriver(events),
+      driver: makeFakeDriver({ emitted: events }),
       mainSession: { id: 's1', cwd: bookRoot, closed: false },
       userDataPath: ud,
       bookRoot,
@@ -130,7 +117,7 @@ describe('R35-2：checkpoint 摘要调用的 usage/stopReason 进账本与 llm/c
     const bookRoot = join(workDir, '长篇', LONG_BOOK)
     seedOverflowHistory(book)
     await runChat({
-      driver: makeDriver([]),
+      driver: makeFakeDriver({ emitted: [] }),
       mainSession: { id: 's1', cwd: workDir, closed: false },
       userDataPath: ud,
       bookRoot,

@@ -29,20 +29,14 @@ vi.mock('../../src/ai/tools/index.js', () => ({
 }))
 
 import { executeChatTool } from '../../src/ai/orchestrate/chat/turns.js'
+import { makeFakeDriver } from './fake-driver.js'
 import type { ChatOpts } from '../../src/ai/orchestrate/chat.js'
 
 const GUARD_PREFIX = '工具入参为空或非对象'
 
 function makeOpts(): ChatOpts {
   return {
-    driver: {
-      async startSession(cwd: string) {
-        return { id: 'mock', cwd, closed: false }
-      },
-      async *stream(): AsyncGenerator<never> {},
-      dispose(): void {},
-      emit(): void {},
-    },
+    driver: makeFakeDriver(),
     mainSession: { id: 's1', cwd: '/tmp/r60a1', closed: false },
     userDataPath: '/tmp/r60a1-ud',
     bookRoot: '/tmp/r60a1-book',

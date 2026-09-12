@@ -10,19 +10,17 @@
  * 结构化字段；用户中断（决策表 ABORTED → 'none' 非失败口径）不产生失败日志。
  */
 import { describe, expect, it, vi, afterEach } from 'vitest'
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { runTask } from '../../src/ai/runner.js'
 import { GenError } from '../../src/ai/gen.js'
 import { log } from '../../src/log/index.js'
 import { resetDegradedChannels } from '../../src/ai/provider/store.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
-const workDirs: string[] = []
 function tempUserData(): string {
-  const d = mkdtempSync(join(tmpdir(), 'clwriting-rp32-ud-'))
-  workDirs.push(d)
-  return d
+  return mkdtempTracked(join(tmpdir(), 'clwriting-rp32-ud-'))
 }
 
 /** 写最小 providers.json（run 回调桩不触网络，baseUrl 形参而已） */
@@ -65,7 +63,6 @@ function failureWarns(spy: ReturnType<typeof vi.spyOn>): Array<Record<string, un
 }
 
 afterEach(() => {
-  for (const d of workDirs.splice(0)) rmSync(d, { recursive: true, force: true })
   vi.restoreAllMocks()
   resetDegradedChannels()
 })

@@ -5,25 +5,25 @@
  * books.jsonl 登记（启动 repair 只兜底整目录缺失，半删态登记悬空且不可逆）。修复后：
  * 同盘 rename 原子入 .删书墓地（成功即原位不存在半删态），墓地副本清理失败仅留痕不阻断
  * ——登记照常移除，数据在墓地可手工恢复。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio——空书架形态（books.jsonl 由
+ * makeBook 按用例现写，.clwriting 目录经 dirs 预建）；userDataDir 由本文件自建自清；
+ * req 走无 origin 变体，保留本地、改绑 studio.baseUrl/studio.token。
  */
-import http from 'node:http'
-import type { AddressInfo } from 'node:net'
 import { chmodSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, existsSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { __waitForGraveyardCleanupForTest } from '../../src/studio/server/api/books.js'
 
 const GRAVEYARD = '.删书墓地'
 const isRoot = typeof process.getuid === 'function' && process.getuid() === 0
 const permsReliable = process.platform !== 'win32' && !isRoot // win chmod 近似 no-op；root 越权不触发 EACCES
 
+let studio: StudioHarness
 let workDir = ''
 let userDataDir = ''
-let server: http.Server | undefined
-let baseUrl = ''
-let token = ''
 
 function makeBook(name: string): string {
   writeFileSync(
@@ -38,7 +38,7 @@ function makeBook(name: string): string {
 }
 
 async function req(method: string, path: string): Promise<{ status: number; json: unknown }> {
-  const r = await fetch(`${baseUrl}${path}`, { method, headers: { 'x-studio-token': token } })
+  const r = await fetch(`${studio.baseUrl}${path}`, { method, headers: { 'x-studio-token': studio.token } })
   let json: unknown = null
   try {
     json = await r.json()
@@ -49,18 +49,13 @@ async function req(method: string, path: string): Promise<{ status: number; json
 }
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-del-grave-'))
   userDataDir = mkdtempSync(join(tmpdir(), 'clwriting-del-grave-user-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  server = await startServerSafe({ port: 0, workDir, userDataPath: userDataDir })
-  baseUrl = `http://127.0.0.1:${(server!.address() as AddressInfo).port}`
-  const boot = await fetch(`${baseUrl}/api/boot`)
-  token = ((await boot.json()) as { token: string }).token
+  studio = await bootStudio({ prefix: 'clwriting-del-grave-', userDataPath: userDataDir, dirs: ['.clwriting'] })
+  workDir = studio.workDir
 })
 
 afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
+  await studio.close()
   if (userDataDir) rmSync(userDataDir, { recursive: true, force: true })
 })
 

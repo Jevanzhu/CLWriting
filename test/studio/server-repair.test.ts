@@ -5,44 +5,36 @@
  * 登记损坏后作者无路触发自愈（CLI 入口已删），书架静默丢书。修复后 startServer
  * 启动期幂等执行一次：登记完好 no-op 不写盘；缺失/损坏时扫描重建。
  * 本测试验证「磁盘有书、books.jsonl 缺失」→ 启动后书架可见该书 + 登记已落盘。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio 空书架形态（无登记 = 不写 books.jsonl，
+ * 与被测「books.jsonl 缺失」前置等价）。
  */
-import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 
+let studio: StudioHarness
 let workDir = ''
-let server: http.Server | undefined
-let baseUrl = ''
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-srvrepair-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  // 磁盘有完整书仓库（book.yaml + 一章正文），但 books.jsonl 缺失——模拟登记损坏/被删
-  const bookRoot = join(workDir, '长篇', '失联书')
-  mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
-  writeFileSync(
-    join(bookRoot, 'book.yaml'),
-    'spec_version: 1\nkind: long\nbook:\n  title: 失联书\n  genre: 玄幻\nhost: cc\n',
-    'utf8',
-  )
-  writeFileSync(join(bookRoot, '写作', '正文', '0001-开篇.md'), '# 开篇\n\n正文。\n')
-
-  server = await startServerSafe({ port: 0, workDir })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  studio = await bootStudio({
+    prefix: 'clwriting-srvrepair-',
+    // 磁盘有完整书仓库（book.yaml + 一章正文），但 books.jsonl 缺失——模拟登记损坏/被删
+    dirs: ['长篇/失联书/写作/正文'],
+    files: [
+      { rel: '长篇/失联书/book.yaml', content: 'spec_version: 1\nkind: long\nbook:\n  title: 失联书\n  genre: 玄幻\nhost: cc\n' },
+      { rel: '长篇/失联书/写作/正文/0001-开篇.md', content: '# 开篇\n\n正文。\n' },
+    ],
+  })
+  workDir = studio.workDir
 })
 
-afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
-})
+afterAll(() => studio.close())
 
 describe('P1-10 server 启动书库自愈', () => {
   it('books.jsonl 缺失 → 启动 repair 重建登记，书架可见该书 + 登记落盘', async () => {
-    const r = await fetch(`${baseUrl}/api/books`)
+    const r = await fetch(`${studio.baseUrl}/api/books`)
     expect(r.status).toBe(200)
     const json = (await r.json()) as { books: { name: string; title: string }[] }
     expect(json.books.some((b) => b.title === '失联书')).toBe(true)

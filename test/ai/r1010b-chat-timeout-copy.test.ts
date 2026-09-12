@@ -10,22 +10,14 @@
 import { describe, expect, it, vi } from 'vitest'
 import { finishTurn } from '../../src/ai/orchestrate/chat/finish.js'
 import { SessionRecorder } from '../../src/events/chat-bridge.js'
+import { makeFakeDriver } from './fake-driver.js'
 import type { ChatOpts } from '../../src/ai/orchestrate/chat.js'
-import type { DriverEvent, Session } from '../../src/driver/types.js'
+import type { DriverEvent } from '../../src/driver/types.js'
 
 function makeOpts(deadlineMs?: number): { opts: ChatOpts; emitted: DriverEvent[] } {
   const emitted: DriverEvent[] = []
   const opts: ChatOpts = {
-    driver: {
-      async startSession(cwd: string): Promise<Session> {
-        return { id: 'mock', cwd, closed: false }
-      },
-      async *stream(): AsyncGenerator<DriverEvent> {},
-      dispose(): void {},
-      emit(_s, ev): void {
-        emitted.push(ev)
-      },
-    },
+    driver: makeFakeDriver({ emitted }),
     mainSession: { id: 's1', cwd: '.', closed: false },
     userDataPath: '.',
     bookRoot: '.',

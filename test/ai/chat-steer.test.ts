@@ -6,10 +6,11 @@
 import { rmSync } from 'node:fs'
 import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it } from 'vitest'
 import { createFakeProvider, type FakeProvider } from './fake-provider.js'
+import { makeFakeDriver } from './fake-driver.js'
 import { withFakeProvider, tempUserData, makeDualTrackWorkdir } from '../studio/fixtures.js'
 import { isChatRunning, abortChat, sendChatMessage, runChat, getHistory } from '../../src/ai/orchestrate/chat.js'
 import { openSessionStore } from '../../src/events/store.js'
-import type { DriverEvent, Session, StudioDriver } from '../../src/driver/types.js'
+import type { DriverEvent, StudioDriver } from '../../src/driver/types.js'
 import { waitFor as waitForShared } from '../helpers/wait-for.js'
 
 let fake: FakeProvider
@@ -42,19 +43,6 @@ function setup(): string {
   return ud
 }
 
-function makeDriver(emitted: DriverEvent[]): StudioDriver {
-  return {
-    async startSession(cwd: string): Promise<Session> {
-      return { id: 'mock', cwd, closed: false }
-    },
-    async *stream(): AsyncGenerator<DriverEvent> {},
-    dispose(): void {},
-    emit(_s, ev): void {
-      emitted.push(ev)
-    },
-  }
-}
-
 /** 等条件满足（带超时）——实现见 test/helpers/wait-for.ts（R9-P2-2 单源） */
 const waitFor = (fn: () => boolean, timeoutMs = 4000) => waitForShared(fn, timeoutMs)
 
@@ -78,7 +66,7 @@ describe('E1a: steer 入队与续链', () => {
       { type: 'text', content: '第二轮回复。' },
     ])
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
     const ud = setup()
     const bookName = 'steer-chain'
 
@@ -103,7 +91,7 @@ describe('E1a: steer 入队与续链', () => {
       { type: 'text', content: '第二轮（不应出现）。' },
     ])
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
     const ud = setup()
     const bookName = 'steer-abort'
 
@@ -121,7 +109,7 @@ describe('E1a: steer 入队与续链', () => {
   it('无运行直接启动（不排队）', async () => {
     fake.setScript([{ type: 'text', content: '好的。' }])
     const ud = setup()
-    const driver = makeDriver([])
+    const driver = makeFakeDriver({ emitted: [] })
     expect(sendMsg(ud, 'steer-plain', '你好', driver)).toBe('started')
     await waitFor(() => !isChatRunning('steer-plain'))
   })
@@ -133,7 +121,7 @@ describe('E1a: steer 入队与续链', () => {
       { type: 'text', content: '续链回复。' },
     ])
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
     const ud = setup()
     const bookName = 'steer-overflow'
 
@@ -185,7 +173,7 @@ describe('RB-AI-P2-1: 续链字段污染', () => {
     const ud = setup()
     const bookName = 'steer-p21a'
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
 
     // 第一轮普通对话建立锚点 user 消息
     fake.setScript([{ type: 'text', content: '初版回复。' }])
@@ -231,7 +219,7 @@ describe('RB-AI-P2-1: 续链字段污染', () => {
     const ud = setup()
     const bookName = 'steer-p21b'
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
 
     fake.setScript([{ type: 'text', content: '第一轮回复。' }])
     await runOne(ud, bookName, '第一问', driver)

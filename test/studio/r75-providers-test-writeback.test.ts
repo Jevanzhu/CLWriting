@@ -7,22 +7,22 @@
  * fieldsChanged 同源）复检，变了就丢弃回写并留痕（revision 不 bump）。
  *
  * 探测窗竞态用注入探测函数开出（mock driver 快路探测瞬时完成，开不出真实窗口）。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio（空书架形态；req 走裸 http.request 泛型形态，保留本地仅改绑定；userDataPath 由调用方自建）。
  */
 import http from 'node:http'
-import type { AddressInfo } from 'node:net'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { __setProbeCapabilitiesForTest } from '../../src/studio/server/api/providers.js'
 import type { ProbeResult, ProviderConf } from '../../src/ai/provider/index.js'
 
-let workDir = ''
-let userDataPath = ''
-let server: http.Server | undefined
+let studio: StudioHarness
 let baseUrl = ''
 let token = ''
+let userDataPath = ''
 
 interface ReqOpts {
   method: string
@@ -99,18 +99,15 @@ function controlledProbe(): {
 }
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clw-r75-probe-'))
   userDataPath = mkdtempSync(join(tmpdir(), 'clw-r75-probe-ud-'))
-  server = await startServerSafe({ port: 0, workDir, userDataPath })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const r = await fetch(`${baseUrl}/api/boot`)
-  token = ((await r.json()) as { token: string }).token
+  studio = await bootStudio({ prefix: 'clw-r75-probe-', userDataPath })
+  baseUrl = studio.baseUrl
+  token = studio.token
 })
 
 afterAll(async () => {
   __setProbeCapabilitiesForTest(null) // 恢复真探测，防注入泄漏到同进程其它用例
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
+  await studio.close()
   if (userDataPath) rmSync(userDataPath, { recursive: true, force: true })
 })
 

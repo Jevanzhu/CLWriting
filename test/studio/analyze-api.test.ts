@@ -7,26 +7,20 @@
  * - kind=review → 400（review 走独立三审端点）
  */
 import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
 
 const BOOK = '分析测试书'
-let workDir = ''
-let server: http.Server | undefined
-let baseUrl = ''
-let token = ''
+let studio: StudioHarness
 let docId = ''
-const prevDriver = process.env['CLWRITING_DRIVER']
 
 function req(method: string, path: string, body?: unknown): Promise<{ status: number; json: unknown }> {
   return new Promise((resolve, reject) => {
-    const u = new URL(baseUrl)
+    const u = new URL(studio.baseUrl)
     const payload = body ? JSON.stringify(body) : ''
     const r = http.request(
       {
@@ -35,7 +29,7 @@ function req(method: string, path: string, body?: unknown): Promise<{ status: nu
         path,
         method,
         headers: {
-          'x-studio-token': token,
+          'x-studio-token': studio.token,
           ...(payload ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) } : {}),
         },
       },
@@ -60,45 +54,30 @@ function req(method: string, path: string, body?: unknown): Promise<{ status: nu
 }
 
 beforeAll(async () => {
-  process.env['CLWRITING_DRIVER'] = 'mock'
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-analyze-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
-  )
-  const bookRoot = join(workDir, BOOK)
-  mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
-  mkdirSync(join(bookRoot, '项目'), { recursive: true })
-  writeFileSync(
-    join(bookRoot, 'book.yaml'),
-    'spec_version: 1\nkind: long\nbook:\n  title: 分析测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
-    'utf8',
-  )
-  const chapterPath = join(bookRoot, '写作', '正文', '0001-开篇.md')
-  writeFileSync(
-    chapterPath,
-    '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n主角登场，初入宗门，一切由此开始。\n',
-    'utf8',
-  )
-  const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clwriting-analyze-',
+    env: { CLWRITING_DRIVER: 'mock' },
+    dirs: ['写作/正文', '项目'],
+    bookYaml:
+      'spec_version: 1\nkind: long\nbook:\n  title: 分析测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+    files: [
+      {
+        rel: '写作/正文/0001-开篇.md',
+        content:
+          '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n主角登场，初入宗门，一切由此开始。\n',
+      },
+    ],
+  })
+  // manifest 条目经 readManifest/writeManifest 程序化落盘（起服惰性，请求前写入即可）
+  const manifestPath = join(studio.bookRoot, '项目', '文档清单.jsonl')
   const m = readManifest(manifestPath)
   docId = generateDocId()
   upsertEntry(m, { id: docId, nodeType: 'document', path: '写作/正文/0001-开篇.md', parentId: null })
   writeManifest(manifestPath, m)
-
-  server = await startServerSafe({ port: 0, workDir })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const r = await fetch(`${baseUrl}/api/boot`)
-  token = ((await r.json()) as { token: string }).token
 })
 
-afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
-  if (prevDriver === undefined) delete process.env['CLWRITING_DRIVER']
-  else process.env['CLWRITING_DRIVER'] = prevDriver
-})
+afterAll(() => studio.close())
 
 describe('POST /documents/:docId/analyze + GET /analysis/:kind（M12 B4.0/B4.1）', () => {
   it('score 分析 → 200 + 落信封（payload.score=8）', async () => {
@@ -144,7 +123,7 @@ describe('POST /documents/:docId/analyze + GET /analysis/:kind（M12 B4.0/B4.1�
 
   it('改正文 → GET stale=true（过期标注）', async () => {
     writeFileSync(
-      join(workDir, BOOK, '写作', '正文', '0001-开篇.md'),
+      join(studio.bookRoot, '写作', '正文', '0001-开篇.md'),
       '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n主角登场，剧情已被作者改动。\n',
       'utf8',
     )
@@ -240,7 +219,7 @@ describe('POST /documents/:docId/infer-meta（AI 反推目标情绪/核心反转
 
 describe('GET /analysis-overview：score/emotion 坏形状跳过该章（低-5）', () => {
   it('score 非数字 / emotion 末段缺字段 → 该章不入趋势，好数据照常聚合', async () => {
-    const bookRoot = join(workDir, BOOK)
+    const bookRoot = studio.bookRoot
     // 第二章 + 登记（章 1 坏 emotion / 章 2 坏 score，交叉验证互不拖累）
     const docId2 = generateDocId()
     writeFileSync(
@@ -290,7 +269,7 @@ describe('GET /analysis-overview：score/emotion 坏形状跳过该章（低-5�
   })
 
   it('emotion segments 非数组（坏信封）→ 跳过该章不崩端点', async () => {
-    const bookRoot = join(workDir, BOOK)
+    const bookRoot = studio.bookRoot
     const analysisDir = join(bookRoot, '项目', '分析')
     // 只重写章 1 的信封为坏形状（segments 非数组）；章 2 的好信封留盘对照
     writeFileSync(join(analysisDir, `${docId}.json`), JSON.stringify({

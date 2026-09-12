@@ -7,23 +7,20 @@
  *
  * 夹具口径同 api-cors.test.ts：手动 http.request 发 OPTIONS（可设任意 Origin），
  * 同源（实际监听 origin，listening 后自动入白名单）→ 预检 204 + 头回执。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio（preflight 走裸 http.request，
+ * 保留本地）。
  */
 import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 
-let workDir = ''
-let server: http.Server | undefined
-let baseUrl = ''
+let studio: StudioHarness
 
 /** 手动发 OPTIONS 预检（绕过 fetch 对 Origin 的 forbidden header 限制），回收放行方法头。 */
 function preflight(origin: string): Promise<{ status: number; methods: string | null }> {
   return new Promise((resolve) => {
-    const u = new URL(baseUrl)
+    const u = new URL(studio.baseUrl)
     const req = http.request(
       { host: u.hostname, port: u.port, path: '/api/books', method: 'OPTIONS', headers: { origin } },
       (res) => {
@@ -39,26 +36,20 @@ function preflight(origin: string): Promise<{ status: number; methods: string | 
 }
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-r37-cors-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(join(workDir, '.clwriting', 'books.jsonl'), JSON.stringify({ name: '测试书', path: '测试书', kind: 'long' }) + '\n')
-  const bookRoot = join(workDir, '测试书')
-  mkdirSync(join(bookRoot, '大纲'), { recursive: true })
-  writeFileSync(join(bookRoot, 'book.yaml'), 'spec_version: 1\nbook:\n  title: 测试书\n  genre: 仙侠\nkind: long\nhost: cc\n')
-  writeFileSync(join(bookRoot, '大纲', '总纲.md'), '# 总纲')
-
-  server = await startServerSafe({ port: 0, workDir })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  studio = await bootStudio({
+    book: '测试书',
+    prefix: 'clwriting-r37-cors-',
+    dirs: ['大纲'],
+    bookYaml: 'spec_version: 1\nbook:\n  title: 测试书\n  genre: 仙侠\nkind: long\nhost: cc\n',
+    files: [{ rel: '大纲/总纲.md', content: '# 总纲' }],
+  })
 })
 
-afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
-})
+afterAll(() => studio.close())
 
 describe('R37-18 CORS allow-methods 含 PATCH', () => {
   it('同源 OPTIONS 预检 → 204 且 allow-methods 含 PATCH（含既有 GET/POST/PUT/DELETE/OPTIONS）', async () => {
-    const r = await preflight(baseUrl)
+    const r = await preflight(studio.baseUrl)
     expect(r.status).toBe(204)
     expect(r.methods).not.toBeNull()
     const methods = r.methods!.split(',').map((s) => s.trim())

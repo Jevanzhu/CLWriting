@@ -6,47 +6,30 @@
  * 走 safeWrite（destroyed/writableEnded 守卫 + 背压判死全覆盖）。
  * 本测试经真实 server 锚定行为契约：①首帧仍为 sync 快照（守卫路径正常投递）；
  * ②客户端断开后服务存活（后续请求正常应答）。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio。
  */
-import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 
 const BOOK = 'SSE同步守卫书'
-let workDir = ''
-let server: http.Server | undefined
-let baseUrl = ''
-let token = ''
+let studio: StudioHarness
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clw-sse-sync-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
-  )
-  const bookRoot = join(workDir, BOOK)
-  mkdirSync(bookRoot, { recursive: true })
-  writeFileSync(join(bookRoot, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: SSE同步守卫书\n  genre: 玄幻\nhost: cc\n')
-  server = await startServerSafe({ port: 0, workDir })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const r = await fetch(`${baseUrl}/api/boot`)
-  token = ((await r.json()) as { token: string }).token
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clw-sse-sync-',
+    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: SSE同步守卫书\n  genre: 玄幻\nhost: cc\n',
+  })
 })
 
-afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
-})
+afterAll(() => studio.close())
 
 describe('B-20: 初始 sync 帧走 safeWrite 守卫', () => {
   it('首帧为 sync 快照；客户端断开后服务存活', async () => {
     const ac = new AbortController()
     const r = await fetch(
-      `${baseUrl}/api/books/${encodeURIComponent(BOOK)}/stream?token=${encodeURIComponent(token)}`,
+      `${studio.baseUrl}/api/books/${encodeURIComponent(BOOK)}/stream?token=${encodeURIComponent(studio.token)}`,
       { signal: ac.signal },
     )
     expect(r.status).toBe(200)
@@ -63,7 +46,7 @@ describe('B-20: 初始 sync 帧走 safeWrite 守卫', () => {
     // 失效形态），窗内任何时刻的崩都会被终检 fetch 抓到
     await vi.waitFor(() => expect(Date.now() - abortAt).toBeGreaterThanOrEqual(100), { timeout: 5_000, interval: 10 })
     // 服务存活：后续请求正常应答（裸写已死连接未把进程带崩）
-    const boot = await fetch(`${baseUrl}/api/boot`)
+    const boot = await fetch(`${studio.baseUrl}/api/boot`)
     expect(boot.status).toBe(200)
   })
 })

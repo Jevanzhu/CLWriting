@@ -15,12 +15,13 @@
 import { rmSync } from 'node:fs'
 import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { createFakeProvider, type FakeProvider } from './fake-provider.js'
+import { makeFakeDriver } from './fake-driver.js'
 import { withFakeProvider, tempUserData, makeDualTrackWorkdir } from '../studio/fixtures.js'
 import { runChat, abortChat, getHistory } from '../../src/ai/orchestrate/chat.js'
 import { loadProviders, saveProviders } from '../../src/ai/provider/store.js'
 import { SessionRecorder } from '../../src/events/chat-bridge.js'
 import { openSessionStore } from '../../src/events/store.js'
-import type { DriverEvent, Session, StudioDriver } from '../../src/driver/types.js'
+import type { DriverEvent } from '../../src/driver/types.js'
 import type { ChatEvent } from '../../src/events/types.js'
 
 let fake: FakeProvider
@@ -53,19 +54,6 @@ function setup(): string {
   return ud
 }
 
-function makeDriver(emitted: DriverEvent[]): StudioDriver {
-  return {
-    async startSession(cwd: string): Promise<Session> {
-      return { id: 'mock', cwd, closed: false }
-    },
-    async *stream(): AsyncGenerator<DriverEvent> {},
-    dispose(): void {},
-    emit(_s, ev): void {
-      emitted.push(ev)
-    },
-  }
-}
-
 import { waitFor } from '../helpers/wait-for.js'
 
 /** 跑一轮并断言失败出口四件套：文案 / 终态 reason / surface 遮蔽 / 历史回滚 */
@@ -78,7 +66,7 @@ async function assertExit(
 ): Promise<void> {
   const events: DriverEvent[] = []
   await runChat({
-    driver: makeDriver(events),
+    driver: makeFakeDriver({ emitted: events }),
     mainSession: { id: 's1', cwd: bookRoot, closed: false },
     userDataPath: ud,
     bookRoot,
@@ -134,7 +122,7 @@ describe('hh §八-16 出口走查：finishTurn 单一出口', () => {
     const ud = setup()
     const events: DriverEvent[] = []
     await runChat({
-      driver: makeDriver(events),
+      driver: makeFakeDriver({ emitted: events }),
       mainSession: { id: 's1', cwd: bookRoot, closed: false },
       userDataPath: ud,
       bookRoot,
@@ -164,7 +152,7 @@ describe('hh §八-16 出口走查：finishTurn 单一出口', () => {
     const ud = setup()
     const events: DriverEvent[] = []
     const p = runChat({
-      driver: makeDriver(events),
+      driver: makeFakeDriver({ emitted: events }),
       mainSession: { id: 's1', cwd: bookRoot, closed: false },
       userDataPath: ud,
       bookRoot,
@@ -227,7 +215,7 @@ describe('hh §八-16 出口走查：finishTurn 单一出口', () => {
     const ud = setup()
     const events: DriverEvent[] = []
     await runChat({
-      driver: makeDriver(events),
+      driver: makeFakeDriver({ emitted: events }),
       mainSession: { id: 's1', cwd: bookRoot, closed: false },
       userDataPath: ud,
       bookRoot,
@@ -260,7 +248,7 @@ describe('hh §八-16 出口走查：finishTurn 单一出口', () => {
     })
     try {
       await runChat({
-        driver: makeDriver(events),
+        driver: makeFakeDriver({ emitted: events }),
         mainSession: { id: 's1', cwd: bookRoot, closed: false },
         userDataPath: ud,
         bookRoot,
@@ -307,7 +295,7 @@ describe('hh §八-16 出口走查：finishTurn 单一出口', () => {
     })
     try {
       await runChat({
-        driver: makeDriver(events),
+        driver: makeFakeDriver({ emitted: events }),
         mainSession: { id: 's1', cwd: bookRoot, closed: false },
         userDataPath: ud,
         bookRoot,
@@ -335,7 +323,7 @@ describe('hh §八-16 出口走查：finishTurn 单一出口', () => {
     const ud = setup()
     const events: DriverEvent[] = []
     const p = runChat({
-      driver: makeDriver(events),
+      driver: makeFakeDriver({ emitted: events }),
       mainSession: { id: 's1', cwd: bookRoot, closed: false },
       userDataPath: ud,
       bookRoot,

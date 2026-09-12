@@ -14,14 +14,19 @@
  *
  * self-heal 走端点级（vi.mock 假编排器，经 HTTP 触发真实 handler 接线）；
  * spawn 走 runWriterSpawn 直调（vi.mock 假 runSpec，闸用真实 spawn-registry）。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio——CLWRITING_DRIVER=mock 的
+ * prev/保存还原对改 env 选项（用例内的临时删除保持原样）；userData 原位于
+ * workDir 内（bootStudio 的 workDir 后生成，无法先验路径），改为本文件自建的
+ * 独立 tmp 目录 + 自清（服务侧只消费绝对路径，语义等价）；post 走裸 node:http
+ * 形态保留本地，改绑 studio.baseUrl/studio.token。
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest'
 import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { log } from '../../src/log/index.js'
 import type { StudioDriver, Session, DriverEvent } from '../../src/driver/index.js'
 import {
@@ -138,16 +143,14 @@ vi.mock('../../src/ai/tasks/spec.js', async (importOriginal) => {
 })
 
 const BOOK = 'P3挂起书'
+let studio: StudioHarness
 let workDir = ''
-let server: http.Server | undefined
-let baseUrl = ''
-let token = ''
-const prevDriver = process.env['CLWRITING_DRIVER']
+let userDataDir = ''
 let warnSpy: ReturnType<typeof vi.spyOn>
 
 /** node:http 请求（fetch/undici 的超时定时器在假 timer 下不可控，用裸 http 规避） */
 function post(path: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }> {
-  const u = new URL(baseUrl)
+  const u = new URL(studio.baseUrl)
   const payload = JSON.stringify(body)
   return new Promise((resolve, reject) => {
     const req = http.request(
@@ -157,8 +160,8 @@ function post(path: string, body: unknown): Promise<{ status: number; json: Reco
         path,
         method: 'POST',
         headers: {
-          'x-studio-token': token,
-          origin: baseUrl,
+          'x-studio-token': studio.token,
+          origin: studio.baseUrl,
           'content-type': 'application/json',
           'content-length': String(Buffer.byteLength(payload)),
         },
@@ -183,35 +186,21 @@ function post(path: string, body: unknown): Promise<{ status: number; json: Reco
 }
 
 beforeAll(async () => {
-  process.env['CLWRITING_DRIVER'] = 'mock' // ensureSession 无 provider 可建会话
-  workDir = mkdtempSync(join(tmpdir(), 'clw-p37-watchdog-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
-  )
-  const bookRoot = join(workDir, BOOK)
-  mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
-  writeFileSync(
-    join(bookRoot, 'book.yaml'),
-    ['spec_version: 1', 'book:', `  title: ${BOOK}`, '  genre: 玄幻'].join('\n') + '\n',
-    'utf-8',
-  )
-  mkdirSync(join(workDir, 'userData'), { recursive: true })
-  server = await startServerSafe({ port: 0, workDir, userDataPath: join(workDir, 'userData') })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const boot = await (await fetch(`${baseUrl}/api/boot`)).json()
-  token = (boot as { token: string }).token
+  userDataDir = mkdtempSync(join(tmpdir(), 'clw-p37-watchdog-ud-'))
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clw-p37-watchdog-',
+    userDataPath: userDataDir, // ensureSession 无 provider 可建会话
+    env: { CLWRITING_DRIVER: 'mock' },
+    dirs: ['写作/正文'],
+    bookYaml: ['spec_version: 1', 'book:', `  title: ${BOOK}`, '  genre: 玄幻'].join('\n') + '\n',
+  })
+  workDir = studio.workDir
 })
 
 afterAll(async () => {
-  if (server) {
-    server.closeAllConnections()
-    await new Promise<void>((r) => server!.close(() => r()))
-  }
-  rmSync(workDir, { recursive: true, force: true })
-  if (prevDriver === undefined) delete process.env['CLWRITING_DRIVER']
-  else process.env['CLWRITING_DRIVER'] = prevDriver
+  await studio.close()
+  rmSync(userDataDir, { recursive: true, force: true })
 })
 
 beforeEach(() => {

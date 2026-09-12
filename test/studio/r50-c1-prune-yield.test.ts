@@ -12,14 +12,14 @@
  *    60 个 docId 的 prune 至少触发 2 次让出（25/50 两档）；
  * 2. 全量正确性——超期清理/pinned 与近期保留/removed 计数与同步版逐位一致（大 ids
  *    集下 prune 完整跑完、无中途丢项），回复体在全部完成后才发出。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio（request 走裸 http.request，保留本地）。
  */
 import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readdirSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, writeFileSync, existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { decodeUlidTime } from '../../src/document/stable-id.js'
 import { yieldToEventLoop } from '../../src/studio/server/api/progress.js'
 
@@ -47,16 +47,13 @@ function ulidAt(ts: number): string {
 }
 
 const BOOK = 'R50让出测试书'
-let workDir = ''
-let server: http.Server | undefined
-let baseUrl = ''
-let token = ''
+let studio: StudioHarness
 
 function request(method: string, path: string): Promise<{ status: number; json: unknown }> {
   return new Promise((resolve, reject) => {
-    const u = new URL(baseUrl)
+    const u = new URL(studio.baseUrl)
     const req = http.request(
-      { host: u.hostname, port: u.port, path, method, headers: { origin: baseUrl, 'x-studio-token': token } },
+      { host: u.hostname, port: u.port, path, method, headers: { origin: studio.baseUrl, 'x-studio-token': studio.token } },
       (res) => {
         let data = ''
         res.on('data', (c) => (data += c.toString('utf8')))
@@ -91,33 +88,20 @@ function writeExpiredSnapshot(versionsDir: string, docId: string): string {
 }
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clw-r50-c1-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
-  )
-  const bookRoot = join(workDir, BOOK)
-  mkdirSync(join(bookRoot, '项目'), { recursive: true })
-  writeFileSync(
-    join(bookRoot, 'book.yaml'),
-    'spec_version: 1\nkind: long\nbook:\n  title: R50让出测试书\n  genre: 玄幻\nhost: cc\n',
-  )
-  writeFileSync(join(bookRoot, '项目', '文档清单.jsonl'), '{"version":1,"type":"header"}\n')
-  server = await startServerSafe({ port: 0, workDir })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const r = await fetch(`${baseUrl}/api/boot`)
-  token = ((await r.json()) as { token: string }).token
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clw-r50-c1-',
+    dirs: ['项目'],
+    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: R50让出测试书\n  genre: 玄幻\nhost: cc\n',
+    files: [{ rel: '项目/文档清单.jsonl', content: '{"version":1,"type":"header"}\n' }],
+  })
 })
 
-afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
-})
+afterAll(() => studio.close())
 
 describe('R50-C-1：versions/prune 逐块让出（scanVersionsDirAsync 同款口径）', () => {
   it('60 个 docId 超期快照 → 全量清理完成（removed=60）且 prune 循环让出 ≥ 2 次（每 25 项一档）', async () => {
-    const versionsDir = join(workDir, BOOK, '工作区', '.版本')
+    const versionsDir = join(studio.bookRoot, '工作区', '.版本')
     for (let i = 1; i <= 60; i++) {
       writeExpiredSnapshot(versionsDir, `doc_${String(i).padStart(3, '0')}`)
     }
@@ -138,7 +122,7 @@ describe('R50-C-1：versions/prune 逐块让出（scanVersionsDirAsync 同款口
   })
 
   it('清理语义不回归：超期非 pinned 删、超期 pinned 留、近期留、removed 计数正确（含让出路径）', async () => {
-    const versionsDir = join(workDir, BOOK, '工作区', '.版本')
+    const versionsDir = join(studio.bookRoot, '工作区', '.版本')
     const vdir = join(versionsDir, 'doc_mix')
     mkdirSync(vdir, { recursive: true })
     const now = Date.now()

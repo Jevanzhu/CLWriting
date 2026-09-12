@@ -5,25 +5,20 @@
  * 写稿系编排（self-heal/对话/手动写稿/后台收尾）在途时，关系梳理（分钟级 AI +
  * relations.json 覆盖写、输入含正文节选/角色卡）应 409 BUSY——防覆盖写落盘 +
  * 后续章拿到混合态上下文（R67-13 互斥矩阵补角）。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio（req 走裸 http.request，保留本地）。
  */
 import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { __setSelfHealRunningForTest } from '../../src/ai/orchestrate/self-heal.js'
 
 const BOOK = 'R75关系互斥书'
-let workDir = ''
-let server: http.Server | undefined
-let baseUrl = ''
-let token = ''
+let studio: StudioHarness
 
 function req(method: string, path: string, body?: unknown): Promise<{ status: number; json: unknown }> {
   return new Promise((resolve, reject) => {
-    const u = new URL(baseUrl)
+    const u = new URL(studio.baseUrl)
     const payload = body ? JSON.stringify(body) : ''
     const r = http.request(
       {
@@ -32,8 +27,8 @@ function req(method: string, path: string, body?: unknown): Promise<{ status: nu
         path,
         method,
         headers: {
-          'x-studio-token': token,
-          origin: baseUrl,
+          'x-studio-token': studio.token,
+          origin: studio.baseUrl,
           ...(payload ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) } : {}),
         },
       },
@@ -58,22 +53,17 @@ function req(method: string, path: string, body?: unknown): Promise<{ status: nu
 }
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clw-r75-relmutex-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(join(workDir, '.clwriting', 'books.jsonl'), JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n')
-  const bookRoot = join(workDir, BOOK)
-  mkdirSync(join(bookRoot, '大纲'), { recursive: true })
-  writeFileSync(join(bookRoot, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: R75关系互斥书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n')
-  server = await startServerSafe({ port: 0, workDir })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const r = await fetch(`${baseUrl}/api/boot`)
-  token = ((await r.json()) as { token: string }).token
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clw-r75-relmutex-',
+    dirs: ['大纲'],
+    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: R75关系互斥书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+  })
 })
 
 afterAll(async () => {
   __setSelfHealRunningForTest(BOOK, false) // 兜底清理，防注入态泄漏到同进程其它用例
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
+  await studio.close()
 })
 
 describe('R75-D-P3a：/relations/mine 编排互斥', () => {

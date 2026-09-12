@@ -5,20 +5,19 @@
  * 冻结承载全部书（SSE/心跳/保存）的单一服务进程。修复后热路径只保留原子改名，rm 后台
  * 执行：本文件注入受控清理证明「端点响应不被 rm 阻塞」（墓地副本最终被清由
  * books-delete-graveyard.test.ts 轮询/收口断言覆盖）。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio（空书架形态；本地 req 排空响应体仅回 status，保留本地仅改绑定）。
  */
-import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, existsSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { __setGraveyardCleanupForTest, __waitForGraveyardCleanupForTest } from '../../src/studio/server/api/books.js'
 
 const GRAVEYARD = '.删书墓地'
 
+let studio: StudioHarness
 let workDir = ''
-let server: http.Server | undefined
 let baseUrl = ''
 let token = ''
 
@@ -41,18 +40,15 @@ async function req(method: string, path: string): Promise<{ status: number }> {
 }
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-r35-grave-async-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  server = await startServerSafe({ port: 0, workDir, userDataPath: null })
-  baseUrl = `http://127.0.0.1:${(server!.address() as AddressInfo).port}`
-  const boot = await fetch(`${baseUrl}/api/boot`)
-  token = ((await boot.json()) as { token: string }).token
+  studio = await bootStudio({ prefix: 'clwriting-r35-grave-async-', dirs: ['.clwriting'] })
+  workDir = studio.workDir
+  baseUrl = studio.baseUrl
+  token = studio.token
 })
 
 afterAll(async () => {
   __setGraveyardCleanupForTest(null)
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
+  await studio.close()
 })
 
 describe('R35-6 删书墓地后台清理', () => {

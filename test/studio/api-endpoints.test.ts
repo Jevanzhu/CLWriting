@@ -4,26 +4,17 @@
  * 起真实 server（port 0）+ 断言响应结构 + 404/403 边界。
  * fixture：最小长篇书（写作/正文 1 章 + 设定/伏笔 1 条 + 无 AI trace）。
  */
-import type { Server } from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 
 const BOOK = 'API端点测试书'
-let workDir = ''
-let bookRoot = ''
-let server: Server | undefined
-let baseUrl = ''
-let token = ''
+let studio: StudioHarness
 
 async function req(method: string, path: string, body?: unknown, withToken = true): Promise<{ status: number; json: unknown }> {
-  const r = await fetch(`${baseUrl}${path}`, {
+  const r = await fetch(`${studio.baseUrl}${path}`, {
     method,
     headers: {
-      ...(withToken ? { 'x-studio-token': token } : {}),
+      ...(withToken ? { 'x-studio-token': studio.token } : {}),
       ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
     },
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
@@ -38,33 +29,26 @@ async function req(method: string, path: string, body?: unknown, withToken = tru
 }
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-apiep-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(join(workDir, '.clwriting', 'books.jsonl'), JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n')
-  bookRoot = join(workDir, BOOK)
-  mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
-  mkdirSync(join(bookRoot, '设定', '伏笔'), { recursive: true })
-  writeFileSync(join(bookRoot, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: API端点测试书\n  genre: 玄幻\nhost: cc\n', 'utf8')
-  writeFileSync(
-    join(bookRoot, '写作', '正文', '0001-开篇.md'),
-    '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n玉佩在胸前发光。\n',
-    'utf8',
-  )
-  writeFileSync(
-    join(bookRoot, '设定', '伏笔', '玉佩线索.md'),
-    '---\n标题: 玉佩线索\n状态: 未回收\n埋设章号: 1\n重要性: 高\n关联词: 玉佩\n---\n玉佩来历之谜。\n',
-    'utf8',
-  )
-  server = await startServerSafe({ port: 0, workDir })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const r = await fetch(`${baseUrl}/api/boot`)
-  token = ((await r.json()) as { token: string }).token
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clwriting-apiep-',
+    dirs: ['写作/正文', '设定/伏笔'],
+    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: API端点测试书\n  genre: 玄幻\nhost: cc\n',
+    files: [
+      {
+        rel: '写作/正文/0001-开篇.md',
+        content:
+          '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n玉佩在胸前发光。\n',
+      },
+      {
+        rel: '设定/伏笔/玉佩线索.md',
+        content: '---\n标题: 玉佩线索\n状态: 未回收\n埋设章号: 1\n重要性: 高\n关联词: 玉佩\n---\n玉佩来历之谜。\n',
+      },
+    ],
+  })
 })
 
-afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
-})
+afterAll(() => studio.close())
 
 describe('GET /foreshadows', () => {
   it('返回伏笔列表（fm 字段 + 足迹）', async () => {

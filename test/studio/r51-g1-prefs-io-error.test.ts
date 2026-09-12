@@ -4,17 +4,17 @@
  * 原漂移：书级 PUT /api/books/:name/prefs 写失败 500 IO_ERROR，全局 PUT
  * /api/library/prefs 写失败 500 ERROR——同一「落盘 IO 异常」双端点码面分叉，前端按
  * 码分类的降级/提示路径不一致。修复后统一 IO_ERROR。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio（空书架形态；裸 http.request 定制 putGlobalPrefs 保留本地仅改绑定）。
  */
 import http from 'node:http'
-import type { AddressInfo } from 'node:net'
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 
-let server: http.Server | null = null
-let workDir = ''
+let studio: StudioHarness
 let userDataPath = ''
 let baseUrl = ''
 let token = ''
@@ -52,17 +52,14 @@ function putGlobalPrefs(): Promise<{ status: number; json: { code?: string; erro
 }
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-r51-g1-'))
   userDataPath = mkdtempSync(join(tmpdir(), 'clwriting-r51-g1-ud-'))
-  server = await startServerSafe({ port: 0, workDir, userDataPath })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const r = await fetch(`${baseUrl}/api/boot`)
-  token = ((await r.json()) as { token: string }).token
+  studio = await bootStudio({ prefix: 'clwriting-r51-g1-', userDataPath })
+  baseUrl = studio.baseUrl
+  token = studio.token
 })
 
 afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
+  await studio.close()
   if (userDataPath) rmSync(userDataPath, { recursive: true, force: true })
 })
 

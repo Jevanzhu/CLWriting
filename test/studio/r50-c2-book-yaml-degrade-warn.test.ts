@@ -11,28 +11,23 @@
  * 按各模块 tag（'overview'/'draft'/'rhythm'/'outline'/'style'）断言留痕。
  * outline 卷进度走导出函数 buildOutlinePromptWithFiles 直测（其端点 POST /outline
  * 会触发分钟级 AI 生成，不在本测面）。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio（get 走裸 http.request，保留本地）。
  */
 import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { buildOutlinePromptWithFiles } from '../../src/studio/server/api/outline.js'
 import { log } from '../../src/log/index.js'
 
 const BOOK = 'R50坏配置书'
-let workDir = ''
-let server: http.Server | undefined
-let baseUrl = ''
-let token = ''
+let studio: StudioHarness
 
 function get(path: string): Promise<{ status: number; json: unknown }> {
   return new Promise((resolve, reject) => {
-    const u = new URL(baseUrl)
+    const u = new URL(studio.baseUrl)
     const req = http.request(
-      { host: u.hostname, port: u.port, path, method: 'GET', headers: { 'x-studio-token': token } },
+      { host: u.hostname, port: u.port, path, method: 'GET', headers: { 'x-studio-token': studio.token } },
       (res) => {
         let data = ''
         res.on('data', (c) => (data += c.toString('utf8')))
@@ -53,28 +48,18 @@ function get(path: string): Promise<{ status: number; json: unknown }> {
 }
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clw-r50-c2-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
-  )
-  const bookRoot = join(workDir, BOOK)
-  mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
-  // 损坏的 book.yaml：顶层段重复——本项目自研行式解析器（format/yaml.ts parseSections）
-  // 对「顶层段重复」显式抛错（宁红不错挂）→ readBookConfig ok:false 回落 DEFAULT_CONFIG
-  // 骨架；启动自愈 detectBookName 对 ok:false 回落目录名，登记名稳定（书可解析）
-  writeFileSync(join(bookRoot, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: R50坏配置书\nbook:\n  title: 重复段\n')
-  server = await startServerSafe({ port: 0, workDir })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const r = await fetch(`${baseUrl}/api/boot`)
-  token = ((await r.json()) as { token: string }).token
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clw-r50-c2-',
+    dirs: ['写作/正文'],
+    // 损坏的 book.yaml：顶层段重复——本项目自研行式解析器（format/yaml.ts parseSections）
+    // 对「顶层段重复」显式抛错（宁红不错挂）→ readBookConfig ok:false 回落 DEFAULT_CONFIG
+    // 骨架；启动自愈 detectBookName 对 ok:false 回落目录名，登记名稳定（书可解析）
+    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: R50坏配置书\nbook:\n  title: 重复段\n',
+  })
 })
 
-afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
-})
+afterAll(() => studio.close())
 
 /** 按模块 tag 断言留痕（log.warn(tag, 'book.yaml 解析降级: ...')）。 */
 function warnCallsWithTag(tag: string): string[] {
@@ -139,7 +124,7 @@ describe('R50-C-2：book.yaml 损坏 → 端点 200 降级 + log.warn 留痕（s
   it('outline 卷进度（buildOutlinePromptWithFiles → volumeProgressOf）→ 正常产出且 log.warn("outline") 留痕', () => {
     const spy = vi.spyOn(log, 'warn').mockImplementation(() => {})
     try {
-      const d = buildOutlinePromptWithFiles(join(workDir, BOOK), 60, 'long')
+      const d = buildOutlinePromptWithFiles(studio.bookRoot, 60, 'long')
       expect(d.prompt.length).toBeGreaterThan(0)
       const calls = warnCallsWithTag('outline')
       expect(calls.length).toBeGreaterThanOrEqual(1)

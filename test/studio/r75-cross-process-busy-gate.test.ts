@@ -8,15 +8,16 @@
  * - 单元：活 pid 载荷 → 该 action 算在持；死 pid / 活 pid 超龄无续期（mtime 回拨
  *   > 10min）→ 陈锁不算在持（勿把崩溃残留算成在持导致删书被永久 409）。
  * - 端点：手写他进程在持锁文件 → DELETE 409（文案含 action）；陈锁/删除 → 放行。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio（空书架形态 + dirs 预建 .clwriting；req 走裸 http.request 定制形态，保留本地仅改绑定）。
  */
 import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, utimesSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { crossProcessHeldTaskGatesFor } from '../../src/studio/server/api/task-gate.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
@@ -75,8 +76,8 @@ describe('R75-5 crossProcessHeldTaskGatesFor 单元语义', () => {
 
 // ── 端点接线：busyGate 合并跨进程扫描后判 409 ──────────────────────────
 const BOOK = 'R75跨进程删书'
+let studio: StudioHarness
 let workDir = ''
-let server: http.Server | undefined
 let baseUrl = ''
 let token = ''
 
@@ -127,18 +128,15 @@ function registerBook(name: string): string {
 }
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clw-r75-xproc-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(join(workDir, '.clwriting', 'books.jsonl'), '')
-  server = await startServerSafe({ port: 0, workDir })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const r = await fetch(`${baseUrl}/api/boot`)
-  token = ((await r.json()) as { token: string }).token
+  // 空书架形态（原 books.jsonl 初始为空串；.clwriting 目录预建供 registerBook 追加登记）
+  studio = await bootStudio({ prefix: 'clw-r75-xproc-', dirs: ['.clwriting'] })
+  workDir = studio.workDir
+  baseUrl = studio.baseUrl
+  token = studio.token
 })
 
 afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
+  await studio.close()
 })
 
 describe('R75-5 busyGate 端点接线（DELETE 跨进程闸 409）', () => {

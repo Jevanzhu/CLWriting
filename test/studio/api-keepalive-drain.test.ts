@@ -7,43 +7,27 @@
  * req.resume()（与 stream-ticket.ts:67 口径一致）。
  */
 import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 
 const BOOK = '排空测试书'
-let workDir = ''
-let server: http.Server | undefined
-let baseUrl = ''
-let token = ''
+let studio: StudioHarness
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-keepalive-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
-  )
-  mkdirSync(join(workDir, BOOK, '项目'), { recursive: true })
-  writeFileSync(join(workDir, BOOK, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 排空测试书\nhost: cc\n', 'utf8')
-  server = await startServerSafe({ port: 0, workDir })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const r = await fetch(`${baseUrl}/api/boot`)
-  token = ((await r.json()) as { token: string }).token
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clwriting-keepalive-',
+    dirs: ['项目'],
+    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: 排空测试书\nhost: cc\n',
+  })
 })
 
-afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
-})
+afterAll(() => studio.close())
 
 /** 同一 keep-alive agent 上带 body 的 POST；记录用到的 socket 以断言复用 */
 function postHeartbeat(agent: http.Agent, sockets: Set<net_Socket>): Promise<number> {
   return new Promise((resolve, reject) => {
-    const u = new URL(baseUrl)
+    const u = new URL(studio.baseUrl)
     const payload = JSON.stringify({ padding: 'x'.repeat(512) })
     const r = http.request(
       {
@@ -53,7 +37,7 @@ function postHeartbeat(agent: http.Agent, sockets: Set<net_Socket>): Promise<num
         method: 'POST',
         agent,
         headers: {
-          'x-studio-token': token,
+          'x-studio-token': studio.token,
           'content-type': 'application/json',
           'content-length': Buffer.byteLength(payload),
         },

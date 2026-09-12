@@ -2,24 +2,25 @@
  * Z-P2-6 伏笔事件族接线集成测：设定/伏笔/*.md 的文档操作（保存/PATCH fm/新建/软删）
  * 经 documents API 落 foreshadow/change 事件到 workspace 会话（与 step/llm 同会话）。
  * 非伏笔文档操作零事件、userDataPath 缺失静默跳过（观测层不炸文档操作）。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio——目录/文件/清单经
+ * dirs/files/bookYaml 预置；userDataPath 由本文件自建自清；request 走
+ * node:http 形态保留本地，改绑 studio.baseUrl/studio.token。
  */
 import http from 'node:http'
-import type { AddressInfo } from 'node:net'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
 import { computeRevision } from '../../src/document/revision.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 
 const BOOK = '伏笔事件书'
+let studio: StudioHarness
 let workDir = ''
 let userDataPath = ''
-let server: http.Server | undefined
-let baseUrl = ''
-let token = ''
 
 /** 文件已存在时的 expectedRevision（sha256(现有内容)；不存在 → null 新建语义）。 */
 function revOf(relPath: string): `sha256:${string}` | null {
@@ -36,7 +37,7 @@ function request(
   body?: Record<string, unknown>,
 ): Promise<{ status: number; json: unknown }> {
   return new Promise((resolve, reject) => {
-    const u = new URL(baseUrl)
+    const u = new URL(studio.baseUrl)
     const payload = body === undefined ? '' : JSON.stringify(body)
     const req = http.request(
       {
@@ -44,7 +45,7 @@ function request(
         port: u.port,
         path,
         method,
-        headers: { 'content-type': 'application/json', origin: baseUrl, 'x-studio-token': token },
+        headers: { 'content-type': 'application/json', origin: studio.baseUrl, 'x-studio-token': studio.token },
       },
       (res) => {
         let data = ''
@@ -81,48 +82,34 @@ function foreshadowEvents(): { operation: string; title: string }[] {
 }
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-fs-ev-'))
   userDataPath = mkdtempSync(join(tmpdir(), 'clwriting-fs-ev-ud-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
-  )
-  const bookRoot = join(workDir, BOOK)
-  mkdirSync(bookRoot, { recursive: true })
-  writeFileSync(
-    join(bookRoot, 'book.yaml'),
-    'spec_version: 1\nkind: long\nbook:\n  title: 伏笔事件书\n  genre: 玄幻\nhost: cc\n',
-  )
-  // 清单登记：伏笔条目 doc_fs1（可写）+ 普通章 doc_ch1（对照组）
-  mkdirSync(join(bookRoot, '项目'), { recursive: true })
-  writeFileSync(
-    join(bookRoot, '项目', '文档清单.jsonl'),
-    [
-      '{"version":1,"type":"header"}',
-      '{"id":"doc_fs1","nodeType":"document","path":"设定/伏笔/古剑.md","parentId":null}',
-      '{"id":"doc_ch1","nodeType":"document","path":"写作/正文/0001-开篇.md","parentId":null}',
-    ].join('\n') + '\n',
-  )
-  // 伏笔初始内容（未回收）
-  mkdirSync(join(bookRoot, '设定', '伏笔'), { recursive: true })
-  writeFileSync(
-    join(bookRoot, '设定', '伏笔', '古剑.md'),
-    '---\n标题: 古剑\n状态: 未回收\n重要性: 高\n关联词: 古剑\n---\n\n主角佩剑藏机关。\n',
-    'utf-8',
-  )
-  mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
-  writeFileSync(join(bookRoot, '写作', '正文', '0001-开篇.md'), '开篇。\n', 'utf-8')
-
-  server = await startServerSafe({ port: 0, workDir, userDataPath })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const r = await fetch(`${baseUrl}/api/boot`)
-  token = ((await r.json()) as { token: string }).token
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clwriting-fs-ev-',
+    userDataPath,
+    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: 伏笔事件书\n  genre: 玄幻\nhost: cc\n',
+    dirs: ['项目', '设定/伏笔', '写作/正文'],
+    files: [
+      // 清单登记：伏笔条目 doc_fs1（可写）+ 普通章 doc_ch1（对照组）
+      {
+        rel: '项目/文档清单.jsonl',
+        content:
+          [
+            '{"version":1,"type":"header"}',
+            '{"id":"doc_fs1","nodeType":"document","path":"设定/伏笔/古剑.md","parentId":null}',
+            '{"id":"doc_ch1","nodeType":"document","path":"写作/正文/0001-开篇.md","parentId":null}',
+          ].join('\n') + '\n',
+      },
+      // 伏笔初始内容（未回收）
+      { rel: '设定/伏笔/古剑.md', content: '---\n标题: 古剑\n状态: 未回收\n重要性: 高\n关联词: 古剑\n---\n\n主角佩剑藏机关。\n' },
+      { rel: '写作/正文/0001-开篇.md', content: '开篇。\n' },
+    ],
+  })
+  workDir = studio.workDir
 })
 
 afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
+  await studio.close()
   if (userDataPath) rmSync(userDataPath, { recursive: true, force: true })
 })
 

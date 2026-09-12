@@ -10,10 +10,11 @@ import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it } from 'vitest'
 import { createFakeProvider, type FakeProvider } from './fake-provider.js'
+import { makeFakeDriver } from './fake-driver.js'
 import { withFakeProvider, tempUserData, makeDualTrackWorkdir, LONG_BOOK } from '../studio/fixtures.js'
 import { runChat, isChatRunning, abortChat, resolveChatConfirm, waitConfirm } from '../../src/ai/orchestrate/chat.js'
 import { rewriteChapter } from '../../src/ai/tools/rewrite.js'
-import type { DriverEvent, Session, StudioDriver } from '../../src/driver/types.js'
+import type { DriverEvent } from '../../src/driver/types.js'
 
 let fake: FakeProvider
 const dirs: string[] = []
@@ -49,20 +50,6 @@ function setup(): string {
   return ud
 }
 
-/** 最小 driver（捕获 emit 事件） */
-function makeDriver(emitted: DriverEvent[]): StudioDriver {
-  return {
-    async startSession(cwd: string): Promise<Session> {
-      return { id: 'mock', cwd, closed: false }
-    },
-    async *stream(): AsyncGenerator<DriverEvent> {},
-    dispose(): void {},
-    emit(_s, ev): void {
-      emitted.push(ev)
-    },
-  }
-}
-
 /** 等条件满足（带超时）——实现见 test/helpers/wait-for.ts（R9-P2-2 单源） */
 import { waitFor } from '../helpers/wait-for.js'
 
@@ -77,7 +64,7 @@ describe('Z-P1-1: 嵌套 rewrite 生成随 chat 中止', () => {
       { type: 'tool', name: 'submit_text', input: { 正文: '改写稿' }, delayMs: 4000 },
     ])
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
     const ud = setup()
 
     const chatPromise = runChat({
@@ -212,7 +199,7 @@ describe('重评-P3-3：工具串行段轮首级 abort 短路', () => {
       },
     ])
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
     const ud = setup()
 
     const chatPromise = runChat({

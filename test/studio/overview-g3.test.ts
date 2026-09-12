@@ -2,26 +2,22 @@
  * G3 验收：overview state 缓存 + 本地数据完整性。
  * detectState 内部全量 rebuild index.db（clearAllTables 清空重建），G3 加 TTL 缓存避免每请求全量扫。
  * 验证：overview 返回完整结构（state 不阻塞本地数据）+ 连续请求 state 一致（缓存透明不报错）。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio；get 走裸 node:http 形态
+ * 保留本地，改绑 studio.baseUrl/studio.token。
  */
 import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 
 const BOOK = 'G3测试书'
-let workDir = ''
-let server: http.Server | undefined
-let baseUrl = ''
-let token = ''
+let studio: StudioHarness
 
 function get(path: string): Promise<{ status: number; json: unknown }> {
   return new Promise((resolve, reject) => {
-    const u = new URL(baseUrl)
+    const u = new URL(studio.baseUrl)
     const req = http.request(
-      { host: u.hostname, port: u.port, path, method: 'GET', headers: { 'x-studio-token': token } },
+      { host: u.hostname, port: u.port, path, method: 'GET', headers: { 'x-studio-token': studio.token } },
       (res) => {
         let data = ''
         res.on('data', (c) => (data += c.toString('utf-8')))
@@ -42,35 +38,19 @@ function get(path: string): Promise<{ status: number; json: unknown }> {
 }
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-g3-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
-  )
-  const bookRoot = join(workDir, BOOK)
-  mkdirSync(bookRoot, { recursive: true })
-  writeFileSync(
-    join(bookRoot, 'book.yaml'),
-    'spec_version: 1\nkind: long\nbook:\n  title: G3测试书\n  genre: 玄幻\nhost: cc\n',
-  )
-  // 写作/正文 章 让 rebuild 有内容可扫（v2 结构）
-  mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
-  writeFileSync(
-    join(bookRoot, '写作', '正文', '0001-开篇.md'),
-    '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n正文一二三\n',
-    'utf8',
-  )
-  server = await startServerSafe({ port: 0, workDir })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const r = await fetch(`${baseUrl}/api/boot`)
-  token = ((await r.json()) as { token: string }).token
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clwriting-g3-',
+    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: G3测试书\n  genre: 玄幻\nhost: cc\n',
+    // 写作/正文 章 让 rebuild 有内容可扫（v2 结构）
+    dirs: ['写作/正文'],
+    files: [
+      { rel: '写作/正文/0001-开篇.md', content: '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n正文一二三\n' },
+    ],
+  })
 })
 
-afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
-})
+afterAll(() => studio.close())
 
 describe('G3：overview state 缓存 + 本地数据完整', () => {
   it('overview 返回完整结构（identity/progress/state/volumes/timeline 齐全）', async () => {

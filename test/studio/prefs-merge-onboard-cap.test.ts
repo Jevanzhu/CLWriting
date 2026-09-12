@@ -4,24 +4,23 @@
  *   的盘上键在 PUT 后存活，不再被整体覆写静默清键
  * - POST /api/books/:name/onboard-ai 自由文本长度上限——premise/discussionContext
  *   超 5 万字符 → 400（打不进 prompt）
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio；req 走泛型 node:http 形态
+ * 保留本地，改绑 studio.baseUrl/studio.token。
  */
 import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 
 const BOOK = '合并偏好书'
+let studio: StudioHarness
 let workDir = ''
-let server: http.Server | undefined
-let baseUrl = ''
-let token = ''
 
 function req<T>(method: string, path: string, body?: unknown): Promise<{ status: number; json: T }> {
   return new Promise((resolve, reject) => {
-    const u = new URL(baseUrl)
+    const u = new URL(studio.baseUrl)
     const r = http.request(
       {
         host: u.hostname,
@@ -29,7 +28,7 @@ function req<T>(method: string, path: string, body?: unknown): Promise<{ status:
         path,
         method,
         headers: {
-          'x-studio-token': token,
+          'x-studio-token': studio.token,
           ...(body !== undefined
             ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(JSON.stringify(body)) }
             : {}),
@@ -56,26 +55,15 @@ function req<T>(method: string, path: string, body?: unknown): Promise<{ status:
 }
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-prefs-merge-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
-  )
-  const bookRoot = join(workDir, BOOK)
-  mkdirSync(bookRoot, { recursive: true })
-  writeFileSync(join(bookRoot, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 合并偏好书\n  genre: 玄幻\nhost: cc\n')
-
-  server = await startServerSafe({ port: 0, workDir })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const r = await fetch(`${baseUrl}/api/boot`)
-  token = ((await r.json()) as { token: string }).token
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clwriting-prefs-merge-',
+    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: 合并偏好书\n  genre: 玄幻\nhost: cc\n',
+  })
+  workDir = studio.workDir
 })
 
-afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
-})
+afterAll(() => studio.close())
 
 describe('低级项（第六轮）：书级 prefs 合并写', () => {
   it('PUT 后 payload 之外的盘上键存活（修复前：整体覆写清键）', async () => {

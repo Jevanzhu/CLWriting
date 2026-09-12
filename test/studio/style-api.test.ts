@@ -1,67 +1,48 @@
 /**
  * 文风 API 端点集成测试（文风系统重整 S6）：
  * 条目 CRUD / 首读自动迁移 / 候选箱确认忽略 / 收割闭环（源1 轨迹→候选）。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio（api 走 fetch 定制形态，保留本地）。
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import type http from 'node:http'
-import type { AddressInfo } from 'node:net'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { legacyId } from '../../src/document/stable-id.js'
 import { recordAiVersion } from '../../src/git/ai-track.js'
 import { git } from '../../src/git/exec.js'
 
 const BOOK = '文风书'
 
-let workDir = ''
+let studio: StudioHarness
 let bookRoot = ''
-let server: http.Server | undefined
-let baseUrl = ''
-let token = ''
 
 function api(path: string, init?: RequestInit): Promise<{ status: number; json: Record<string, unknown> }> {
-  return fetch(`${baseUrl}/api/books/${encodeURIComponent(BOOK)}${path}`, {
+  return fetch(`${studio.baseUrl}/api/books/${encodeURIComponent(BOOK)}${path}`, {
     ...init,
-    headers: { 'x-studio-token': token, 'content-type': 'application/json', ...(init?.headers ?? {}) },
+    headers: { 'x-studio-token': studio.token, 'content-type': 'application/json', ...(init?.headers ?? {}) },
   }).then(async (r) => ({ status: r.status, json: (await r.json()) as Record<string, unknown> }))
 }
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-style-api-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
-  )
-  bookRoot = join(workDir, BOOK)
-  mkdirSync(join(bookRoot, '写作', '正文', '第一卷'), { recursive: true })
-  writeFileSync(
-    join(bookRoot, 'book.yaml'),
-    'spec_version: 1\nkind: long\nbook:\n  title: 文风书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
-    'utf8',
-  )
-  // 旧文风资产（首读 GET entries 应触发迁移）
-  mkdirSync(join(bookRoot, '文风', '样章库', '战斗'), { recursive: true })
-  writeFileSync(
-    join(bookRoot, '文风', '样章库', '战斗', '战斗-001.md'),
-    '---\n场景: 战斗\n来源: 作者原作\n---\n刀光没入雪雾。',
-    'utf8',
-  )
-  // git 仓库（源1 轨迹用）
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clwriting-style-api-',
+    dirs: ['写作/正文/第一卷'],
+    bookYaml:
+      'spec_version: 1\nkind: long\nbook:\n  title: 文风书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+    files: [
+      // 旧文风资产（首读 GET entries 应触发迁移）
+      { rel: '文风/样章库/战斗/战斗-001.md', content: '---\n场景: 战斗\n来源: 作者原作\n---\n刀光没入雪雾。' },
+    ],
+  })
+  bookRoot = studio.bookRoot
+  // git 仓库（源1 轨迹用）——起服后补建等价（git 面按需读取，无启动扫描）
   git(['init'], bookRoot)
-
-  server = await startServerSafe({ port: 0, workDir })
-  baseUrl = `http://127.0.0.1:${(server!.address() as AddressInfo).port}`
-  const r = await fetch(`${baseUrl}/api/boot`)
-  token = ((await r.json()) as { token: string }).token
 })
 
-afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
-})
+afterAll(() => studio.close())
 
 describe('条目库端点', () => {
   it('GET entries 首读触发迁移（旧样章入库）；二读幂等 migration=null', async () => {

@@ -11,13 +11,12 @@
  */
 import { describe, test, expect, vi, beforeEach } from 'vitest'
 import { rmSync, mkdirSync, writeFileSync, existsSync, readdirSync, utimesSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { generateChapterSummary, chapterSummaryPath, __setSummaryGenerateLockTimeoutForTest } from '../../src/process/summary.js'
 import { sweepAbandonedTmpFiles } from '../../src/fs/atomic.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
-import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { scaffoldBook } from '../helpers/book.js'
 
 // 桩计数 + 可控放行门：引用在 runSpec **调用时**才解引用（vi.mock 工厂提升安全，同
 // summary-volume-inflight.test.ts 惯例）；被锁/inFlight 挡住的调用方不进桩，计数不增。
@@ -47,13 +46,13 @@ beforeEach(() => {
 
 /** 单章书夹具（generateChapterSummary 直调不读清单，最小文件集即可） */
 function makeBook(): string {
-  const root = mkdtempTracked(join(tmpdir(), 'clw-r26-sumlock-'))
-  mkdirSync(join(root, '写作', '正文'), { recursive: true })
-  writeFileSync(
-    join(root, '写作', '正文', '001-第1章.md'),
-    '---\n章号: 1\n标题: 第1章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n第1章正文。\n',
-    'utf-8',
-  )
+  const { root } = scaffoldBook({
+    prefix: 'clw-r26-sumlock-',
+    flatRoot: true, // 原盘面：root 即临时目录（无书名子层）
+    files: [
+      { rel: '写作/正文/001-第1章.md', content: '---\n章号: 1\n标题: 第1章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n第1章正文。\n' },
+    ],
+  })
   return root
 }
 

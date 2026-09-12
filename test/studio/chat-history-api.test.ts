@@ -5,25 +5,21 @@
  * harness：tmp workDir + books.jsonl + tmp userData 预置事件（openSessionStore 直写）→
  * startServer 起 HTTP → fetch 断言（GET 无需 token）。
  */
-import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { openSessionStore } from '../../src/events/store.js'
 import { userMessageEvent, assistantMessageEvent, toolResultEvent } from '../../src/events/chat-bridge.js'
 
 const BOOK = '历史测试书'
-let workDir = ''
+let studio: StudioHarness
 let userDataPath = ''
-let server: http.Server | undefined
-let baseUrl = ''
 
 /** 预置事件：直开事件库写一轮带工具往返的对话（构造函数自带 surfaceOp: 'append'） */
 function presetEvents(): void {
-  const bookRoot = join(workDir, BOOK)
+  const bookRoot = studio.bookRoot
   const store = openSessionStore(userDataPath, bookRoot)!
   try {
     const sid = store.createSession(BOOK, { book: BOOK })
@@ -44,29 +40,24 @@ function presetEvents(): void {
 }
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-chat-history-'))
+  // userData（事件库）由调用方创建/清理，bootStudio 只透传
   userDataPath = mkdtempSync(join(tmpdir(), 'clwriting-chat-history-ud-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
-  )
-  const bookRoot = join(workDir, BOOK)
-  mkdirSync(join(bookRoot, '项目'), { recursive: true })
-  writeFileSync(join(bookRoot, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 历史测试书\n  genre: 玄幻\nhost: cc\n')
-
-  server = await startServerSafe({ port: 0, workDir, userDataPath })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clwriting-chat-history-',
+    userDataPath,
+    dirs: ['项目'],
+    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: 历史测试书\n  genre: 玄幻\nhost: cc\n',
+  })
 })
 
 afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
+  await studio.close()
   if (userDataPath) rmSync(userDataPath, { recursive: true, force: true })
 })
 
 async function get(path: string): Promise<{ status: number; json: unknown }> {
-  const r = await fetch(`${baseUrl}${path}`)
+  const r = await fetch(`${studio.baseUrl}${path}`)
   return { status: r.status, json: await r.json().catch(() => null) }
 }
 
@@ -116,7 +107,7 @@ describe('Y-P2-5 GET /api/books/:name/chat/history', () => {
 
   it('被遮蔽事件（compaction replace）不进投影', async () => {
     // 直接再写一段被遮蔽的回合：旧 assistant 被 compaction/end replace 遮蔽
-    const bookRoot = join(workDir, BOOK)
+    const bookRoot = studio.bookRoot
     const store = openSessionStore(userDataPath, bookRoot)!
     try {
       const sid = store.createSession(BOOK, { book: BOOK })

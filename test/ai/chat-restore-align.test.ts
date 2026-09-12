@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { prepareChatRun } from '../../src/ai/orchestrate/chat/restore.js'
 import { histories, msgSeqMap, activeBranchByBook } from '../../src/ai/orchestrate/chat/state.js'
 import { makeDualTrackWorkdir, tempUserData } from '../studio/fixtures.js'
-import type { DriverEvent, Session, StudioDriver } from '../../src/driver/types.js'
+import { makeFakeDriver } from './fake-driver.js'
 
 const book = 'restore-align-test'
 const dirs: string[] = []
@@ -22,17 +22,6 @@ afterEach(() => {
   activeBranchByBook.delete(book)
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
 })
-
-function makeDriver(): StudioDriver {
-  return {
-    async startSession(cwd: string): Promise<Session> {
-      return { id: 'mock', cwd, closed: false }
-    },
-    async *stream(): AsyncGenerator<DriverEvent> {},
-    dispose(): void {},
-    emit(): void {},
-  }
-}
 
 describe('msgSeqs 防御性对齐（prepareChatRun）', () => {
   it('尾部缺（flush 抛错残留）→ 尾部补 []：既有 seq 与消息对齐不动，trim 遮蔽不误遮', () => {
@@ -55,7 +44,7 @@ describe('msgSeqs 防御性对齐（prepareChatRun）', () => {
     ])
 
     const prepared = prepareChatRun(
-      { driver: makeDriver(), mainSession: { id: 's1', cwd: workDir, closed: false }, userDataPath: dirs[1]!, bookRoot: workDir, bookName: book, message: '新消息' },
+      { driver: makeFakeDriver(), mainSession: { id: 's1', cwd: workDir, closed: false }, userDataPath: dirs[1]!, bookRoot: workDir, bookName: book, message: '新消息' },
       null, // mem 模式（store=null）——防御分支在此路径触发
       () => {},
     )
@@ -94,7 +83,7 @@ describe('msgSeqs 防御性对齐（prepareChatRun）', () => {
     ])
 
     prepareChatRun(
-      { driver: makeDriver(), mainSession: { id: 's1', cwd: workDir, closed: false }, userDataPath: dirs[1]!, bookRoot: workDir, bookName: book, message: 'x' },
+      { driver: makeFakeDriver(), mainSession: { id: 's1', cwd: workDir, closed: false }, userDataPath: dirs[1]!, bookRoot: workDir, bookName: book, message: 'x' },
       null,
       () => {},
     )
@@ -116,7 +105,7 @@ describe('A7（五十九轮）：flush 返回 null → 清 pending 并补 []（�
     msgSeqMap.delete(book)
 
     const prepared = prepareChatRun(
-      { driver: makeDriver(), mainSession: { id: 's1', cwd: workDir, closed: false }, userDataPath: dirs[1]!, bookRoot: workDir, bookName: book, message: '新消息' },
+      { driver: makeFakeDriver(), mainSession: { id: 's1', cwd: workDir, closed: false }, userDataPath: dirs[1]!, bookRoot: workDir, bookName: book, message: '新消息' },
       null, // mem 模式（store=null）——flush 恒 null
       () => {},
     )

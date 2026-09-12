@@ -14,10 +14,9 @@
  *   → applyLeadUpdatesLocked（= 持锁核心）→ 断言回写结果与改后内容一致。
  */
 import { test, expect } from 'vitest'
-import { mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+import { scaffoldBook } from '../helpers/book.js'
 import { join } from 'node:path'
-import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { resolveLeadUpdateTargets, applyLeadUpdatesLocked } from '../../src/document/lead-finalize.js'
 import { readLead } from '../../src/format/leads.js'
 
@@ -26,25 +25,16 @@ const SENTENCE_B = '山门外的钟声在雨夜里连响了三下。'
 
 /** 造一本长篇书骨架：正文第 1 章 + 两条布线悬念线（履历空）+ 工作区。 */
 function makeBook(): string {
-  const root = mkdtempTracked(join(tmpdir(), 'r34d-lead-reread-'))
-  mkdirSync(join(root, '写作', '正文'), { recursive: true })
-  writeFileSync(
-    join(root, '写作', '正文', '0001-开篇.md'),
-    `---\n章号: 1\n标题: 开篇\n---\n\n${SENTENCE_A}\n`,
-    'utf-8',
-  )
-  mkdirSync(join(root, '布线', '悬念'), { recursive: true })
-  writeFileSync(
-    join(root, '布线', '悬念', '悬念-001-玉佩.md'),
-    '---\n编号: 悬念-001\n标题: 玉佩\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n',
-    'utf-8',
-  )
-  writeFileSync(
-    join(root, '布线', '悬念', '悬念-002-钟声.md'),
-    '---\n编号: 悬念-002\n标题: 钟声\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n',
-    'utf-8',
-  )
-  mkdirSync(join(root, '工作区'), { recursive: true })
+  const { root } = scaffoldBook({
+    prefix: 'r34d-lead-reread-',
+    flatRoot: true, // 原盘面：root 即临时目录（无书名子层）
+    dirs: ['工作区'],
+    files: [
+      { rel: '写作/正文/0001-开篇.md', content: `---\n章号: 1\n标题: 开篇\n---\n\n${SENTENCE_A}\n` },
+      { rel: '布线/悬念/悬念-001-玉佩.md', content: '---\n编号: 悬念-001\n标题: 玉佩\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n' },
+      { rel: '布线/悬念/悬念-002-钟声.md', content: '---\n编号: 悬念-002\n标题: 钟声\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n' },
+    ],
+  })
   return root
 }
 

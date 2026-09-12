@@ -12,12 +12,11 @@
  * - 书改名/删除 → 409 BOOK_MOVED（documents.ts bookMovedFailure 同款重验）；
  * - 循环健康报文消解链路：报红 → acknowledge → 复查不报红。
  */
-import type { IncomingMessage, ServerResponse } from 'node:http'
-import { EventEmitter } from 'node:events'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, renameSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, afterAll } from 'vitest'
+import { fakeReqRes } from '../helpers/fake-reqres.js'
 import { createRouteTable, withRouteTable } from '../../src/studio/server/router.js'
 import { getRouteSchema } from '../../src/studio/server/api/schema.js'
 import { registerStateRoutes, __setStateTtlForTest } from '../../src/studio/server/api/state.js'
@@ -29,35 +28,7 @@ import { detectState } from '../../src/state/state.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import { makeGitBook } from '../helpers/book.js'
 
-/** 假 req/res（r1010b-srv-documents-bookmoved 同款形态，对齐 error-envelope 先例）。 */
-function fakeReqRes(): {
-  req: IncomingMessage
-  res: ServerResponse
-  send: (body: unknown) => void
-  captured: { status: number | null; body: string }
-} {
-  const em = new EventEmitter()
-  const req = em as unknown as IncomingMessage
-  ;(req as unknown as { destroy: () => void }).destroy = () => {}
-  const captured = { status: null as number | null, body: '' }
-  const res = {
-    writeHead(status: number) {
-      captured.status = status
-    },
-    end(body?: string) {
-      captured.body = body ?? ''
-    },
-  } as unknown as ServerResponse
-  return {
-    req,
-    res,
-    send: (body: unknown) => {
-      em.emit('data', Buffer.from(JSON.stringify(body), 'utf-8'))
-      em.emit('end')
-    },
-    captured,
-  }
-}
+// 假 req/res 已收编 helpers/fake-reqres.ts 单源（测试精简批 2026-09-12）。
 
 const BODY_V1 = '---\n章号: 1\n标题: 开篇\n---\n\n第一版正文。\n'
 const BODY_V2 = BODY_V1 + '真未落盘的新键入。\n'

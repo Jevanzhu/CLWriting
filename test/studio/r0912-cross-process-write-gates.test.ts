@@ -7,15 +7,19 @@
  * 端点接线路径参照 r75-cross-process-busy-gate.test.ts：startServer 已把锁根注入
  * workDir/.clwriting/task-gate/——手写他进程在持锁文件（活 pid 载荷）模拟「另一进程正持
  * 闸」；陈锁（活 pid 超龄无续期）不算在持（放行）。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio——CLWRITING_DRIVER=mock 的
+ * prev/保存还原对改 env 选项；userData 原位于 workDir 内（bootStudio 的 workDir 后
+ * 生成，无法先验路径），改为本文件自建的独立 tmp 目录 + 自清（服务侧只消费绝对
+ * 路径，语义等价）；req 走 node:http 形态保留本地，改绑 studio.baseUrl/studio.token。
  */
 import http from 'node:http'
-import type { AddressInfo } from 'node:net'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 
 // 复现锁文件名算法（sha256(key) 前 16 hex；key = action + NUL + book）——与 task-gate.ts 同源约定
 const gateKey = (action: string, book: string): string => `${action}\u0000${book}`
@@ -23,15 +27,13 @@ const lockName = (action: string, book: string): string =>
   `${createHash('sha256').update(gateKey(action, book)).digest('hex').slice(0, 16)}.lock`
 
 const BOOK = 'R0912跨进程写闸书'
+let studio: StudioHarness
 let workDir = ''
-let server: http.Server | undefined
-let baseUrl = ''
-let token = ''
-const prevDriver = process.env['CLWRITING_DRIVER']
+let userDataDir = ''
 
 function req(method: string, path: string, body?: unknown): Promise<{ status: number; json: unknown }> {
   return new Promise((resolve, reject) => {
-    const u = new URL(baseUrl)
+    const u = new URL(studio.baseUrl)
     const payload = body !== undefined ? JSON.stringify(body) : ''
     const r = http.request(
       {
@@ -40,8 +42,8 @@ function req(method: string, path: string, body?: unknown): Promise<{ status: nu
         path,
         method,
         headers: {
-          'x-studio-token': token,
-          origin: baseUrl,
+          'x-studio-token': studio.token,
+          origin: studio.baseUrl,
           ...(payload ? { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(payload)) } : {}),
         },
       },
@@ -74,32 +76,21 @@ function holdCrossProcessGate(action: string, book: string): string {
 }
 
 beforeAll(async () => {
-  process.env['CLWRITING_DRIVER'] = 'mock' // 放行臂走 spawn mock 快路，不起真实生成
-  workDir = mkdtempSync(join(tmpdir(), 'clw-r0912-xgate-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
-  )
-  const bookRoot = join(workDir, BOOK)
-  mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
-  writeFileSync(
-    join(bookRoot, 'book.yaml'),
-    ['spec_version: 1', 'book:', `  title: ${BOOK}`, '  genre: 玄幻'].join('\n') + '\n',
-    'utf-8',
-  )
-  mkdirSync(join(workDir, 'userData'), { recursive: true })
-  server = await startServerSafe({ port: 0, workDir, userDataPath: join(workDir, 'userData') })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const boot = await (await fetch(`${baseUrl}/api/boot`)).json()
-  token = (boot as { token: string }).token
+  userDataDir = mkdtempSync(join(tmpdir(), 'clw-r0912-xgate-ud-'))
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clw-r0912-xgate-',
+    userDataPath: userDataDir,
+    env: { CLWRITING_DRIVER: 'mock' }, // 放行臂走 spawn mock 快路，不起真实生成
+    dirs: ['写作/正文'],
+    bookYaml: ['spec_version: 1', 'book:', `  title: ${BOOK}`, '  genre: 玄幻'].join('\n') + '\n',
+  })
+  workDir = studio.workDir
 })
 
 afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  rmSync(workDir, { recursive: true, force: true })
-  if (prevDriver === undefined) delete process.env['CLWRITING_DRIVER']
-  else process.env['CLWRITING_DRIVER'] = prevDriver
+  await studio.close()
+  rmSync(userDataDir, { recursive: true, force: true })
 })
 
 describe('R0912-P2-疑似: /spawn、/auto-write、/chat 任务闸含跨进程面', () => {

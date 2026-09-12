@@ -14,14 +14,15 @@
  * 差分未落库」窗口，另一方必然在此窗口内做快照读（链外形态即重复计窗：双方基线同取
  * 变更前状态，后落库差分把先落库者的变更一并计入；入链后另一方整段等待，基线已含
  * 前者变更）。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio（request 走裸 http.request，保留本地）。
  */
 import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
 
 // park 闸按测重武装（vi.mock 工厂闭包经 vi.hoisted 共享；单测文件内串行执行无竞争）
@@ -41,11 +42,8 @@ vi.mock('../../src/events/store.js', async (importOriginal) => {
 })
 
 const BOOK = '伏笔接线书'
-let workDir = ''
+let studio: StudioHarness
 let userDataPath = ''
-let server: http.Server | undefined
-let baseUrl = ''
-let token = ''
 
 function request(
   method: string,
@@ -53,7 +51,7 @@ function request(
   body?: Record<string, unknown>,
 ): Promise<{ status: number; json: unknown }> {
   return new Promise((resolve, reject) => {
-    const u = new URL(baseUrl)
+    const u = new URL(studio.baseUrl)
     const payload = body === undefined ? '' : JSON.stringify(body)
     const req = http.request(
       {
@@ -61,11 +59,11 @@ function request(
         port: u.port,
         path,
         method,
-        headers: { 'content-type': 'application/json', origin: baseUrl, 'x-studio-token': token },
+        headers: { 'content-type': 'application/json', origin: studio.baseUrl, 'x-studio-token': studio.token },
       },
       (res) => {
         let data = ''
-        res.on('data', (c) => (data += c.toString('utf-8')))
+        res.on('data', (c) => (data += c.toString('utf8')))
         res.on('end', () => {
           let json: unknown = null
           try {
@@ -85,11 +83,11 @@ function request(
 
 /** 读 workspace 会话里的 foreshadow/change 事件（按落库序）。 */
 function foreshadowEvents(): { operation: string; title: string }[] {
-  const store = openSessionStore(userDataPath, join(workDir, BOOK))!
+  const store = openSessionStore(userDataPath, studio.bookRoot)!
   try {
-    const sid = store.workspaceSession(bookHash(join(workDir, BOOK)))
+    const sid = store.workspaceSession(bookHash(studio.bookRoot))
     return store
-      .listEvents(bookHash(join(workDir, BOOK)), sid)
+      .listEvents(bookHash(studio.bookRoot), sid)
       .filter((e) => e.type === 'foreshadow/change')
       .map((e) => ({ operation: String(e.data['operation']), title: String(e.data['title']) }))
   } finally {
@@ -103,44 +101,34 @@ function fsBody(title: string, status: string, word: string): string {
 }
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-fs-wire-'))
   userDataPath = mkdtempSync(join(tmpdir(), 'clwriting-fs-wire-ud-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
-  )
-  const bookRoot = join(workDir, BOOK)
-  mkdirSync(bookRoot, { recursive: true })
-  writeFileSync(
-    join(bookRoot, 'book.yaml'),
-    'spec_version: 1\nkind: long\nbook:\n  title: 伏笔接线书\n  genre: 玄幻\nhost: cc\n',
-  )
-  // 清单登记三条伏笔：古剑/玉佩（用例① PATCH fm 各自变更）、铜镜（用例② 软删）
-  mkdirSync(join(bookRoot, '项目'), { recursive: true })
-  writeFileSync(
-    join(bookRoot, '项目', '文档清单.jsonl'),
-    [
-      '{"version":1,"type":"header"}',
-      '{"id":"doc_fs1","nodeType":"document","path":"设定/伏笔/古剑.md","parentId":null}',
-      '{"id":"doc_fs2","nodeType":"document","path":"设定/伏笔/玉佩.md","parentId":null}',
-      '{"id":"doc_fs3","nodeType":"document","path":"设定/伏笔/铜镜.md","parentId":null}',
-    ].join('\n') + '\n',
-  )
-  mkdirSync(join(bookRoot, '设定', '伏笔'), { recursive: true })
-  writeFileSync(join(bookRoot, '设定', '伏笔', '古剑.md'), fsBody('古剑', '未回收', '主角佩剑藏机关。'), 'utf-8')
-  writeFileSync(join(bookRoot, '设定', '伏笔', '玉佩.md'), fsBody('玉佩', '未回收', '身世信物。'), 'utf-8')
-  writeFileSync(join(bookRoot, '设定', '伏笔', '铜镜.md'), fsBody('铜镜', '未回收', '照出前世影。'), 'utf-8')
-
-  server = await startServerSafe({ port: 0, workDir, userDataPath })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const r = await fetch(`${baseUrl}/api/boot`)
-  token = ((await r.json()) as { token: string }).token
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clwriting-fs-wire-',
+    dirs: ['项目', '设定/伏笔'],
+    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: 伏笔接线书\n  genre: 玄幻\nhost: cc\n',
+    // 清单登记三条伏笔：古剑/玉佩（用例① PATCH fm 各自变更）、铜镜（用例② 软删）
+    files: [
+      {
+        rel: '项目/文档清单.jsonl',
+        content:
+          [
+            '{"version":1,"type":"header"}',
+            '{"id":"doc_fs1","nodeType":"document","path":"设定/伏笔/古剑.md","parentId":null}',
+            '{"id":"doc_fs2","nodeType":"document","path":"设定/伏笔/玉佩.md","parentId":null}',
+            '{"id":"doc_fs3","nodeType":"document","path":"设定/伏笔/铜镜.md","parentId":null}',
+          ].join('\n') + '\n',
+      },
+      { rel: '设定/伏笔/古剑.md', content: fsBody('古剑', '未回收', '主角佩剑藏机关。') },
+      { rel: '设定/伏笔/玉佩.md', content: fsBody('玉佩', '未回收', '身世信物。') },
+      { rel: '设定/伏笔/铜镜.md', content: fsBody('铜镜', '未回收', '照出前世影。') },
+    ],
+    userDataPath,
+  })
 })
 
 afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
+  await studio.close()
   if (userDataPath) rmSync(userDataPath, { recursive: true, force: true })
 })
 

@@ -7,22 +7,22 @@
  *   任务收尾会继续追加事件，运行中清库「清不彻底」。
  * 闸态经 __setReviewRunning / acquireTaskGate 测试钩子置位（不起真实三审，同 stream.ts 先例）；
  * 每例经 POST /api/books 自建自用书，互不依赖。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio（空书架形态；req 走裸 http.request 定制形态，保留本地仅改绑定；userDataPath 由调用方自建）。
  */
 import http from 'node:http'
-import type { AddressInfo } from 'node:net'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, it, expect } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { __setReviewRunning } from '../../src/studio/server/api/review.js'
 import { acquireTaskGate } from '../../src/studio/server/api/task-gate.js'
 
-let workDir = ''
-let userDataDir = ''
-let server: http.Server | undefined
+let studio: StudioHarness
 let baseUrl = ''
 let token = ''
+let userDataDir = ''
 
 function req(method: string, path: string, body?: unknown): Promise<{ status: number; json: unknown }> {
   return new Promise((resolve, reject) => {
@@ -61,17 +61,14 @@ function req(method: string, path: string, body?: unknown): Promise<{ status: nu
 }
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-review-gate-'))
   userDataDir = mkdtempSync(join(tmpdir(), 'clwriting-review-gate-ud-'))
-  server = await startServerSafe({ port: 0, workDir, userDataPath: userDataDir })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const boot = await fetch(`${baseUrl}/api/boot`)
-  token = ((await boot.json()) as { token: string }).token
+  studio = await bootStudio({ prefix: 'clwriting-review-gate-', userDataPath: userDataDir })
+  baseUrl = studio.baseUrl
+  token = studio.token
 })
 
 afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
+  await studio.close()
   if (userDataDir) rmSync(userDataDir, { recursive: true, force: true })
 })
 

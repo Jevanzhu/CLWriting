@@ -7,33 +7,27 @@
  * - 失效：TTL 到期后重扫——盘上变更可见（count 变化、sourceHash 变化）。
  */
 import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { __setStyleScanTtlForTest } from '../../src/studio/server/api/health.js'
 import { __setStyleCorpusTtlForTest } from '../../src/studio/server/api/analysis.js'
 
 const BOOK = 'D3测试书'
-let workDir = ''
-let server: http.Server | undefined
-let baseUrl = ''
-let token = ''
+let studio: StudioHarness
 let cachedStyleHash = '' // it1 建缓存时 analyze-style 的采样正文 hash（it2 断言变化用）
-const prevDriver = process.env['CLWRITING_DRIVER']
 
 function req(method: string, path: string): Promise<{ status: number; json: unknown }> {
   return new Promise((resolve, reject) => {
-    const u = new URL(baseUrl)
+    const u = new URL(studio.baseUrl)
     const r = http.request(
       {
         host: u.hostname,
         port: u.port,
         path,
         method,
-        headers: { 'x-studio-token': token },
+        headers: { 'x-studio-token': studio.token },
       },
       (res) => {
         let data = ''
@@ -57,23 +51,6 @@ function req(method: string, path: string): Promise<{ status: number; json: unkn
 const CH1_FM = '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n'
 
 beforeAll(async () => {
-  process.env['CLWRITING_DRIVER'] = 'mock'
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-d3-ttl-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
-  )
-  const bookRoot = join(workDir, BOOK)
-  // 不建 项目/文档清单.jsonl——finalizedPathSet 返 null 走全量口径，章文件直接进扫描样本
-  mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
-  writeFileSync(
-    join(bookRoot, 'book.yaml'),
-    'spec_version: 1\nkind: long\nbook:\n  title: D3测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
-    'utf8',
-  )
-  writeFileSync(join(bookRoot, '写作', '正文', '0001-开篇.md'), CH1_FM + '主角登场，初入宗门，一切由此开始。\n', 'utf8')
-
   // R62-21：两处 TTL 均注入短档——消除 STYLE_SCAN_TTL+300≈5.3s 真实墙钟，慢机假红。
   // R76-37（二十四轮 F 域）：300ms→1000ms——「命中」用例首查与二查之间夹着两次
   // writeFileSync，慢机/CI 卡顿下超 300ms 即缓存过期、二查变重扫（count/hash 变化），
@@ -88,20 +65,23 @@ beforeAll(async () => {
   vi.useFakeTimers({ toFake: ['Date'] })
   __setStyleScanTtlForTest(1000)
   __setStyleCorpusTtlForTest(1000)
-  server = await startServerSafe({ port: 0, workDir })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const r = await fetch(`${baseUrl}/api/boot`)
-  token = ((await r.json()) as { token: string }).token
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clwriting-d3-ttl-',
+    env: { CLWRITING_DRIVER: 'mock' },
+    // 不建 项目/文档清单.jsonl——finalizedPathSet 返 null 走全量口径，章文件直接进扫描样本
+    dirs: ['写作/正文'],
+    bookYaml:
+      'spec_version: 1\nkind: long\nbook:\n  title: D3测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+    files: [{ rel: '写作/正文/0001-开篇.md', content: CH1_FM + '主角登场，初入宗门，一切由此开始。\n' }],
+  })
 })
 
 afterAll(async () => {
   vi.useRealTimers() // R0911-G-P1-1c：解除 Date fake，避免污染同进程后续时序
   __setStyleScanTtlForTest(null) // R62-21：恢复默认 TTL，避免污染同进程其它测试
   __setStyleCorpusTtlForTest(null)
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
-  if (prevDriver === undefined) delete process.env['CLWRITING_DRIVER']
-  else process.env['CLWRITING_DRIVER'] = prevDriver
+  await studio.close()
 })
 
 describe('D3：health/style + analyze-style 全书扫描 5s TTL 缓存', () => {
@@ -117,7 +97,7 @@ describe('D3：health/style + analyze-style 全书扫描 5s TTL 缓存', () => {
     expect(cachedStyleHash).toMatch(/^[0-9a-f]{64}$/)
 
     // 盘上变更：新增章 0002 + 改写章 1 正文（重扫应能见到两者的口径）
-    const bookRoot = join(workDir, BOOK)
+    const bookRoot = studio.bookRoot
     writeFileSync(
       join(bookRoot, '写作', '正文', '0002-次章.md'),
       '---\n章号: 2\n标题: 次章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n第二章正文登场。\n',

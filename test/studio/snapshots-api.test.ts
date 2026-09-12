@@ -2,14 +2,14 @@
  * 快照端点集成测（单章版本回滚）：
  * 启动 studio server + 临时长篇书，走真实保存链路产生快照，
  * 验证列表 / 读取 / 恢复（含恢复后当前内容自动留底 → 可再退回）。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio（request 走裸 http.request，保留本地）。
  */
 import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, symlinkSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { readFileSync, existsSync, symlinkSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { decodeUlidTime } from '../../src/document/stable-id.js'
 
 const DAY_MS = 86_400_000
@@ -29,10 +29,7 @@ function ulidAt(ts: number): string {
 
 const BOOK = '快照测试书'
 const CHAPTER = '写作/正文/0001-开篇.md'
-let workDir = ''
-let server: http.Server | undefined
-let baseUrl = ''
-let token = ''
+let studio: StudioHarness
 
 function request(
   method: string,
@@ -40,13 +37,13 @@ function request(
   body?: Record<string, unknown>,
 ): Promise<{ status: number; json: unknown }> {
   return new Promise((resolve, reject) => {
-    const u = new URL(baseUrl)
+    const u = new URL(studio.baseUrl)
     const payload = body === undefined ? '' : JSON.stringify(body)
-    const headers: Record<string, string> = { origin: baseUrl, 'x-studio-token': token }
+    const headers: Record<string, string> = { origin: studio.baseUrl, 'x-studio-token': studio.token }
     if (payload) headers['content-type'] = 'application/json'
     const req = http.request({ host: u.hostname, port: u.port, path, method, headers }, (res) => {
       let data = ''
-      res.on('data', (c) => (data += c.toString('utf-8')))
+      res.on('data', (c) => (data += c.toString('utf8')))
       res.on('end', () => {
         let json: unknown = null
         try {
@@ -80,36 +77,25 @@ async function revisionOf(r: { json: unknown }): Promise<string> {
 }
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-snap-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
-  )
-  const bookRoot = join(workDir, BOOK)
-  mkdirSync(bookRoot, { recursive: true })
-  writeFileSync(
-    join(bookRoot, 'book.yaml'),
-    'spec_version: 1\nkind: long\nbook:\n  title: 快照测试书\n  genre: 玄幻\nhost: cc\n',
-  )
-  mkdirSync(join(bookRoot, '项目'), { recursive: true })
-  writeFileSync(
-    join(bookRoot, '项目', '文档清单.jsonl'),
-    [
-      '{"version":1,"type":"header"}',
-      `{"id":"doc_1","nodeType":"document","path":"${CHAPTER}","parentId":null,"status":"draft"}`,
-    ].join('\n') + '\n',
-  )
-  server = await startServerSafe({ port: 0, workDir })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const r = await fetch(`${baseUrl}/api/boot`)
-  token = ((await r.json()) as { token: string }).token
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clwriting-snap-',
+    dirs: ['项目'],
+    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: 快照测试书\n  genre: 玄幻\nhost: cc\n',
+    files: [
+      {
+        rel: '项目/文档清单.jsonl',
+        content:
+          [
+            '{"version":1,"type":"header"}',
+            `{"id":"doc_1","nodeType":"document","path":"${CHAPTER}","parentId":null,"status":"draft"}`,
+          ].join('\n') + '\n',
+      },
+    ],
+  })
 })
 
-afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
-})
+afterAll(() => studio.close())
 
 describe('快照端点（单章版本回滚）', () => {
   it('首次保存无快照；再次保存留下前一版', async () => {
@@ -140,13 +126,13 @@ describe('快照端点（单章版本回滚）', () => {
   it('恢复 → 正文回到该版本，且当前内容自动留底', async () => {
     const before = await request('GET', api('/documents/doc_1/snapshots'))
     const id = (before.json as { entries: { id: string }[] }).entries[0]!.id
-    expect(readFileSync(join(workDir, BOOK, CHAPTER), 'utf-8')).toBe('第二版正文')
+    expect(readFileSync(join(studio.bookRoot, CHAPTER), 'utf-8')).toBe('第二版正文')
 
     const r = await request('POST', api(`/documents/doc_1/snapshots/${id}/restore`), {
       expectedRevision: await computeCurrentRevision(),
     })
     expect(r.status).toBe(200)
-    expect(readFileSync(join(workDir, BOOK, CHAPTER), 'utf-8')).toBe('第一版正文')
+    expect(readFileSync(join(studio.bookRoot, CHAPTER), 'utf-8')).toBe('第一版正文')
 
     // 恢复前的内容进了快照 → 可再退回
     const after = await request('GET', api('/documents/doc_1/snapshots'))
@@ -185,7 +171,7 @@ describe('快照端点（单章版本回滚）', () => {
 
   it('prune：超期编辑快照清理、pinned 定稿保留、计数正确', async () => {
     // 手写一批版本文件：超期非 pinned ×2、超期 pinned ×1、近期非 pinned ×1
-    const vdir = join(workDir, BOOK, '工作区', '.版本', 'doc_1')
+    const vdir = join(studio.bookRoot, '工作区', '.版本', 'doc_1')
     mkdirSync(vdir, { recursive: true })
     const now = Date.now()
     const old = now - 30 * DAY_MS // 30 天前，超 maxDays(14)
@@ -224,7 +210,7 @@ describe('快照端点（单章版本回滚）', () => {
   // 修复后 lstatSync 判定 + symlink 条目跳过（M-9 同族口径）。
   // Windows 无 POSIX 权限位/需开发者模式，symlinkSync 直建 EPERM，该守卫语义由 macOS/Linux CI 腿覆盖
   it.skipIf(process.platform === 'win32')('R-15: 版本目录含指向祖先的 symlink → version-stats 正常返回（不死循环）', async () => {
-    const vdir = join(workDir, BOOK, '工作区', '.版本')
+    const vdir = join(studio.bookRoot, '工作区', '.版本')
     mkdirSync(join(vdir, 'doc_loop'), { recursive: true })
     writeFileSync(join(vdir, 'doc_loop', 'a.md'), '---\n来源: manual\n---\n环内容\n')
     // symlink 指向祖先目录：修复前 statSync 跟随 → walk 无限递归
@@ -265,7 +251,7 @@ describe('快照端点（单章版本回滚）', () => {
     const gbk = Buffer.from([0xd6, 0xd0, 0xce, 0xc4])
     const { writeVersion } = await import('../../src/document/version.js')
     const id = writeVersion(
-      join(workDir, BOOK, '工作区', '.版本'),
+      join(studio.bookRoot, '工作区', '.版本'),
       'doc_1',
       gbk,
       { origin: 'manual', reason: 'R34D-18 字节档', baseRevision: cur as `sha256:${string}` },
@@ -276,12 +262,12 @@ describe('快照端点（单章版本回滚）', () => {
     })
     expect(r.status).toBe(200)
     // 盘上字节 == 档内原字节（修复前这里是含 U+FFFD 的失真 utf-8 文本）
-    expect(readFileSync(join(workDir, BOOK, CHAPTER))).toEqual(gbk)
+    expect(readFileSync(join(studio.bookRoot, CHAPTER))).toEqual(gbk)
   })
 })
 
 /** 当前磁盘内容的 revision（服务端乐观锁基线，按文件字节算）。 */
 async function computeCurrentRevision(): Promise<string> {
   const { computeRevision } = await import('../../src/document/revision.js')
-  return computeRevision(join(workDir, BOOK, CHAPTER))
+  return computeRevision(join(studio.bookRoot, CHAPTER))
 }

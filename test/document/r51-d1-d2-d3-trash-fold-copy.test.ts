@@ -15,9 +15,10 @@
  *   原始 relPath PATH_ESCAPE 前置同口径）。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { scaffoldBook } from '../helpers/book.js'
 import { restoreTrash, purgeTrash, appendTrashEntry } from '../../src/document/trash.js'
 import { DocumentService } from '../../src/document/service.js'
 import { legacyId } from '../../src/document/stable-id.js'
@@ -53,9 +54,8 @@ afterEach(() => {
 })
 
 function makeBook(): string {
-  const root = mkdtempSync(join(tmpdir(), 'clw-r51-d-'))
-  mkdirSync(join(root, '写作', '正文'), { recursive: true })
-  writeFileSync(join(root, '写作', '正文', '0001-开篇.md'), '正文内容', 'utf-8')
+  // name:'.' = 原盘面 root 即临时目录（无书名子层）
+  const { root } = scaffoldBook({ prefix: 'clw-r51-d-', flatRoot: true, files: [{ rel: '写作/正文/0001-开篇.md', content: '正文内容' }] })
   return root
 }
 

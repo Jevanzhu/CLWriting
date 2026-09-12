@@ -2,14 +2,14 @@
  * GET /api/books/:name/tree-issues 树红点聚合端点测（T9b）。
  * 验证两源聚合：机检 red（fm 章号不匹配）+ verdict 驳回；verdict 通过不计入。
  * rebuild 一次循环 checkWithDb 的正确性在此一并覆盖（runCheckForDocument 重构零回归）。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio（get/内联请求走裸 http.request 定制形态，保留本地）。
  */
 import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 // R75-D-P3b（批 D）：/tree-issues 已有 5s TTL 结果缓存——本测验证「verdict 落盘后立即可见」，
 // 注入 TTL=0 关缓存保住原即时语义（缓存三态由 r75-state-tree-issues-ttl.test.ts 覆盖）
 import { __setTreeIssuesTtlForTest } from '../../src/studio/server/api/check.js'
@@ -21,25 +21,22 @@ import { computeRevision } from '../../src/document/revision.js'
 import { writeAnalysis } from '../../src/document/analysis.js'
 
 const BOOK = '树红点测试书'
+let studio: StudioHarness
 let workDir = ''
 let bookRoot = ''
-let server: http.Server | undefined
-let baseUrl = ''
-let token = ''
 let redDocId = '' // 0001：fm 章号 99 ≠ 文件名 0001 → 机检 red
 let verdictDocId = '' // 0002：fm 干净，靠 verdict 驳回/通过切换
-const prevDriver = process.env['CLWRITING_DRIVER']
 
 function get(path: string): Promise<{ status: number; json: unknown }> {
   return new Promise((resolve, reject) => {
-    const u = new URL(baseUrl)
+    const u = new URL(studio.baseUrl)
     const req = http.request(
       {
         host: u.hostname,
         port: u.port,
         path,
         method: 'GET',
-        headers: { 'x-studio-token': token },
+        headers: { 'x-studio-token': studio.token },
       },
       (res) => {
         let data = ''
@@ -62,40 +59,36 @@ function get(path: string): Promise<{ status: number; json: unknown }> {
 
 beforeAll(async () => {
   __setTreeIssuesTtlForTest(0) // R75-D-P3b：关 TTL 缓存（it1→it2 verdict 翻转后需立即可见）
-  process.env['CLWRITING_DRIVER'] = 'mock'
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-tree-issues-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
-  )
-  bookRoot = join(workDir, BOOK)
-  mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
-  mkdirSync(join(bookRoot, '项目'), { recursive: true })
-  // leads.enabled: [] 关闭账本/成长线长程项，隔离出禁词 red 这一确定红源
-  writeFileSync(
-    join(bookRoot, 'book.yaml'),
-    'spec_version: 1\nkind: long\nbook:\n  title: 树红点测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\nbudget:\n  calls_per_chapter: 8\n',
-    'utf8',
-  )
-  // 文风铁律硬禁词「玉佩」→ 0001 正文命中即 red
-  //（fm 章号 mismatch 走不通：fileName 从 chapter 派生，checkFrontMatter 永不触发）
-  mkdirSync(join(bookRoot, '文风'), { recursive: true })
-  writeFileSync(join(bookRoot, '文风', '文风铁律.md'), '# 文风铁律\n## 硬禁词\n- 玉佩\n', 'utf8')
-  // 0001：正文含禁词「玉佩」→ checkBannedWords 报 banned-word（红）
-  // R29-1（二十九轮）禁词新口径（前后非汉字边界）夹具适配：玉佩后邻汉字「发」被边界
-  // 拦截不再报红——改夹持形态（两侧标点 = 非汉字边界）恢复命中
-  writeFileSync(
-    join(bookRoot, '写作', '正文', '0001-红章.md'),
-    '---\n章号: 1\n标题: 红章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n主角登场，玉佩，通体发亮。\n',
-    'utf8',
-  )
-  // 0002：fm 干净（章号 2 == 文件名 0002），无机检 red
-  writeFileSync(
-    join(bookRoot, '写作', '正文', '0002-净章.md'),
-    '---\n章号: 2\n标题: 净章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n宗门震动，长老惊叹。\n',
-    'utf8',
-  )
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clwriting-tree-issues-',
+    env: { CLWRITING_DRIVER: 'mock' },
+    dirs: ['写作/正文', '项目', '文风'],
+    // leads.enabled: [] 关闭账本/成长线长程项，隔离出禁词 red 这一确定红源
+    bookYaml:
+      'spec_version: 1\nkind: long\nbook:\n  title: 树红点测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\nbudget:\n  calls_per_chapter: 8\n',
+    files: [
+      // 文风铁律硬禁词「玉佩」→ 0001 正文命中即 red
+      //（fm 章号 mismatch 走不通：fileName 从 chapter 派生，checkFrontMatter 永不触发）
+      { rel: '文风/文风铁律.md', content: '# 文风铁律\n## 硬禁词\n- 玉佩\n' },
+      // 0001：正文含禁词「玉佩」→ checkBannedWords 报 banned-word（红）
+      // R29-1（二十九轮）禁词新口径（前后非汉字边界）夹具适配：玉佩后邻汉字「发」被边界
+      // 拦截不再报红——改夹持形态（两侧标点 = 非汉字边界）恢复命中
+      {
+        rel: '写作/正文/0001-红章.md',
+        content:
+          '---\n章号: 1\n标题: 红章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n主角登场，玉佩，通体发亮。\n',
+      },
+      // 0002：fm 干净（章号 2 == 文件名 0002），无机检 red
+      {
+        rel: '写作/正文/0002-净章.md',
+        content:
+          '---\n章号: 2\n标题: 净章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n宗门震动，长老惊叹。\n',
+      },
+    ],
+  })
+  workDir = studio.workDir
+  bookRoot = studio.bookRoot
   const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
   const m = readManifest(manifestPath)
   redDocId = generateDocId()
@@ -108,19 +101,11 @@ beforeAll(async () => {
 
   // tree-issues 后端跳过定稿态（final/published）；无 finalizedRevision → 树红点聚合仍机检
   //（去 git：不再用 git init + staged 制造 dirty；draft 态即被聚合覆盖）
-
-  server = await startServerSafe({ port: 0, workDir })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const r = await fetch(`${baseUrl}/api/boot`)
-  token = ((await r.json()) as { token: string }).token
 })
 
 afterAll(async () => {
   __setTreeIssuesTtlForTest(null) // 恢复默认 TTL，避免污染同进程其它测试
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
-  if (prevDriver === undefined) delete process.env['CLWRITING_DRIVER']
-  else process.env['CLWRITING_DRIVER'] = prevDriver
+  await studio.close()
 })
 
 describe('GET /tree-issues 树红点聚合（T9b）', () => {
@@ -259,7 +244,7 @@ describe('T9b 修复：多章定稿 + 高章伏笔规划不误报 future', () =>
   })
 
   it('单章 check 端点同样以全书最高章号为基准（不误报 future）', async () => {
-    const u = new URL(baseUrl)
+    const u = new URL(studio.baseUrl)
     const result = await new Promise<{ status: number; json: unknown }>((resolve, reject) => {
       const req = http.request(
         {
@@ -267,7 +252,7 @@ describe('T9b 修复：多章定稿 + 高章伏笔规划不误报 future', () =>
           port: u.port,
           path: `/api/books/${encodeURIComponent(FUTURE_BOOK)}/documents/${encodeURIComponent(futureCh1DocId)}/check`,
           method: 'POST',
-          headers: { 'x-studio-token': token },
+          headers: { 'x-studio-token': studio.token },
         },
         (res) => {
           let data = ''

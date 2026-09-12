@@ -12,9 +12,10 @@ import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it } from 'vitest'
 import { createFakeProvider, type FakeProvider } from './fake-provider.js'
+import { makeFakeDriver } from './fake-driver.js'
 import { withFakeProvider, tempUserData, makeDualTrackWorkdir, LONG_BOOK } from '../studio/fixtures.js'
 import { runChat, isChatRunning, waitChatSettled, sendChatMessage } from '../../src/ai/orchestrate/chat.js'
-import type { DriverEvent, Session, StudioDriver } from '../../src/driver/types.js'
+import type { DriverEvent, Session } from '../../src/driver/types.js'
 
 let fake: FakeProvider
 const dirs: string[] = []
@@ -40,19 +41,6 @@ afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
 })
 
-function makeDriver(emitted: DriverEvent[]): StudioDriver {
-  return {
-    async startSession(cwd: string): Promise<Session> {
-      return { id: 'mock', cwd, closed: false }
-    },
-    async *stream(): AsyncGenerator<DriverEvent> {},
-    dispose(): void {},
-    emit(_s, ev): void {
-      emitted.push(ev)
-    },
-  }
-}
-
 import { waitFor } from '../helpers/wait-for.js'
 
 describe('#7: waitChatSettled 收尾等待原语', () => {
@@ -65,7 +53,7 @@ describe('#7: waitChatSettled 收尾等待原语', () => {
     fake.setScript([{ type: 'text', content: '回复内容', delayMs: 800 }])
 
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
     const bookName = 'settle-book'
     const chatPromise = runChat({
       driver,
@@ -111,7 +99,7 @@ describe('#7: waitChatSettled 收尾等待原语', () => {
     ])
 
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
     const bookName = 'settle-chain-book'
     const common = {
       driver,

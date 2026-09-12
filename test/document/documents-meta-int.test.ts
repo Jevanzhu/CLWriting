@@ -5,18 +5,20 @@
  * 从「章号 = 整数编号」特性中脱落（前端 ChapterMetaDialog 同口径拒收，此处兜底：
  * 非正整数章号 400 BAD_INPUT，且原文件保持不动）。启动 studio server + 临时长篇书，
  * 装配方式对齐 test/studio/documents-api.test.ts。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio；patchMeta 为裸 http.request
+ * 形态，按 helper 约定保留本地请求函数（helpers/studio-server.ts 头注）。
  */
 import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 
 const BOOK = '章号整数测试书'
+let studio: StudioHarness
+// 镜像 bootStudio 产物，保 patchMeta 与用例体沿用原变量名（样板收编只动装配段）
 let workDir = ''
-let server: http.Server | undefined
 let baseUrl = ''
 let token = ''
 
@@ -55,41 +57,25 @@ function patchMeta(
 }
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clw-meta-int-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
-  )
-  const bookRoot = join(workDir, BOOK)
-  mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
-  writeFileSync(
-    join(bookRoot, 'book.yaml'),
-    'spec_version: 1\nkind: long\nbook:\n  title: 章号整数测试书\n  genre: 玄幻\nhost: cc\n',
-  )
-  writeFileSync(
-    join(bookRoot, '写作', '正文', '0001-开篇.md'),
-    '---\n章号: 1\n标题: 开篇\n---\n正文。\n',
-    'utf-8',
-  )
-  mkdirSync(join(bookRoot, '项目'), { recursive: true })
-  writeFileSync(
-    join(bookRoot, '项目', '文档清单.jsonl'),
-    [
-      '{"version":1,"type":"header"}',
-      '{"id":"doc_1","nodeType":"document","path":"写作/正文/0001-开篇.md","parentId":null,"status":"draft"}',
-    ].join('\n') + '\n',
-  )
-  server = await startServerSafe({ port: 0, workDir })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const r = await fetch(`${baseUrl}/api/boot`)
-  token = ((await r.json()) as { token: string }).token
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clw-meta-int-',
+    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: 章号整数测试书\n  genre: 玄幻\nhost: cc\n',
+    files: [
+      { rel: '写作/正文/0001-开篇.md', content: '---\n章号: 1\n标题: 开篇\n---\n正文。\n' },
+      {
+        rel: '项目/文档清单.jsonl',
+        content:
+          '{"version":1,"type":"header"}\n{"id":"doc_1","nodeType":"document","path":"写作/正文/0001-开篇.md","parentId":null,"status":"draft"}\n',
+      },
+    ],
+  })
+  workDir = studio.workDir
+  baseUrl = studio.baseUrl
+  token = studio.token
 })
 
-afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
-})
+afterAll(() => studio.close())
 
 describe('低-3（第十轮）：PATCH meta 章号 fail-closed 整数校验', () => {
   it('章号 3.5 → 400 BAD_INPUT，原文件不动、不生成 0003.5-…', async () => {

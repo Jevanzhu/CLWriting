@@ -15,6 +15,7 @@ import { existsSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { createFakeProvider, type FakeProvider } from '../fake-provider.js'
+import { makeFakeDriver } from '../fake-driver.js'
 import { withFakeProvider, tempUserData, makeDualTrackWorkdir, LONG_BOOK } from '../../studio/fixtures.js'
 import { runChat, resolveChatConfirm } from '../../../src/ai/orchestrate/chat.js'
 import { isSelfHealRunning, runSelfHeal, type SelfHealOutcome } from '../../../src/ai/orchestrate/self-heal.js'
@@ -26,7 +27,7 @@ import { acquireTaskGate, isTaskGateHeld } from '../../../src/studio/server/api/
 import { registerTaskGateProvider } from '../../../src/ai/orchestrate/task-gate-port.js'
 
 registerTaskGateProvider(acquireTaskGate)
-import type { DriverEvent, Session, StudioDriver } from '../../../src/driver/types.js'
+import type { DriverEvent } from '../../../src/driver/types.js'
 import { waitFor as waitForShared } from '../../helpers/wait-for.js'
 
 // R66-2（十四轮）：write_chapter 闸测需要精确控制 self-heal 在途窗口——runSelfHeal
@@ -76,25 +77,12 @@ function setup(): string {
   return ud
 }
 
-function makeDriver(emitted: DriverEvent[]): StudioDriver {
-  return {
-    async startSession(cwd: string): Promise<Session> {
-      return { id: 'mock', cwd, closed: false }
-    },
-    async *stream(): AsyncGenerator<DriverEvent> {},
-    dispose(): void {},
-    emit(_s, ev): void {
-      emitted.push(ev)
-    },
-  }
-}
-
 /** 等条件满足（带超时）——实现见 test/helpers/wait-for.ts（R9-P2-2 单源） */
 const waitFor = (fn: () => boolean, timeoutMs = 5000) => waitForShared(fn, timeoutMs)
 
 async function runConfirmedToolChat(script: unknown[]): Promise<DriverEvent[]> {
   const events: DriverEvent[] = []
-  const driver = makeDriver(events)
+  const driver = makeFakeDriver({ emitted: events })
   fake.setScript(script as never)
   const chatPromise = runChat({
     driver,
@@ -211,7 +199,7 @@ describe('低-2（第十轮）：chat 改写工具与 /rewrite 端点 task-gate 
 
   it('chat 侧改写在途 → 持有同把闸（端点/并发 chat 改写此刻 acquire 为 null）', { timeout: 15_000 }, async () => {
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
     fake.setScript([
       { type: 'tool', name: 'rewrite_chapter', input: { chapter: 1, instruction: '压缩' } },
       { type: 'text', content: '改写后的全文内容。', delayMs: 300 }, // 挂住在途窗口供闸断言
@@ -276,7 +264,7 @@ describe('R66-2: write_chapter 与 /rewrite 端点 task-gate 跨侧互斥', () =
       () => new Promise<SelfHealOutcome>((res) => { resolveHeal = res }),
     )
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
     fake.setScript([
       { type: 'tool', name: 'write_chapter', input: { chapter: 1 } },
       { type: 'text', content: '写好了。' },

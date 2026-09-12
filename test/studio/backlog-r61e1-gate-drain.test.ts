@@ -27,15 +27,11 @@
 import http from 'node:http'
 import net from 'node:net'
 import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 
 const BOOK = '闸拒排空书'
-let workDir = ''
-let server: http.Server | undefined
+let studio: StudioHarness
 let port = 0
 
 // ── 机制探针：统计 ServerResponse 经公共 .on/.once 注册的 'finish' 监听数，
@@ -62,23 +58,19 @@ beforeAll(async () => {
     return origOnce.call(this, ev, listener)
   }
 
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-r61e1-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
-  )
-  mkdirSync(join(workDir, BOOK, '项目'), { recursive: true })
-  writeFileSync(join(workDir, BOOK, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 闸拒排空书\nhost: cc\n', 'utf8')
-  server = await startServerSafe({ port: 0, workDir })
-  port = (server.address() as AddressInfo).port
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clwriting-r61e1-',
+    dirs: ['项目'],
+    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: 闸拒排空书\nhost: cc\n',
+  })
+  port = (studio.server.address() as AddressInfo).port
 })
 
 afterAll(async () => {
   http.ServerResponse.prototype.on = origOn
   http.ServerResponse.prototype.once = origOnce
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
+  await studio.close()
 })
 
 /** 5s 守卫：无自动排空的运行时上第二请求会悬挂，用可读错误快速失败 */

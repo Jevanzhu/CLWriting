@@ -8,13 +8,14 @@ import { rmSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { createFakeProvider, type FakeProvider } from './fake-provider.js'
+import { makeFakeDriver } from './fake-driver.js'
 import { withFakeProvider, tempUserData, makeDualTrackWorkdir } from '../studio/fixtures.js'
 import { runChat, isChatRunning, abortChat, resolveChatConfirm, getHistory, sendChatMessage } from '../../src/ai/orchestrate/chat.js'
 import { chatTools } from '../../src/ai/contract/chat.js'
 import { writeSpillFile } from '../../src/process/spill.js'
 import { resolveDraftPath } from '../../src/format/draft.js'
 import { openSessionStore } from '../../src/events/store.js'
-import type { DriverEvent, Session, StudioDriver } from '../../src/driver/types.js'
+import type { DriverEvent } from '../../src/driver/types.js'
 
 let fake: FakeProvider
 const dirs: string[] = []
@@ -47,20 +48,6 @@ function setup(): string {
   return ud
 }
 
-/** 最小 driver（捕获 emit 事件） */
-function makeDriver(emitted: DriverEvent[]): StudioDriver {
-  return {
-    async startSession(cwd: string): Promise<Session> {
-      return { id: 'mock', cwd, closed: false }
-    },
-    async *stream(): AsyncGenerator<DriverEvent> {},
-    dispose(): void {},
-    emit(_s, ev): void {
-      emitted.push(ev)
-    },
-  }
-}
-
 /** 从事件中提取 chat_* 类型的文本内容 */
 function chatTexts(events: DriverEvent[]): string[] {
   return events.filter((e) => e.type === 'chat_text').map((e) => (e as { text: string }).text)
@@ -88,7 +75,7 @@ describe('W2: 单轮纯文本', () => {
       { type: 'text', content: '主角应该选择谈判。' },
     ])
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
     const ud = setup()
 
     await runChat({
@@ -112,7 +99,7 @@ describe('W2: 单轮纯文本', () => {
 describe('R73-11: 空用户消息入口拒绝', () => {
   it('空串/纯空白 message → rejected + 人话 error 事件，不启动链路不入历史', () => {
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
     const ud = setup()
 
     for (const message of ['', '   ']) {
@@ -137,7 +124,7 @@ describe('R73-11: 空用户消息入口拒绝', () => {
   it('regenerate 不带 message，不在守卫范围（返回 started 而非 rejected）', async () => {
     fake.setScript([{ type: 'text', content: '好' }])
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
     const ud = setup()
 
     const r = sendChatMessage({
@@ -164,7 +151,7 @@ describe('W2: 工具循环', () => {
       { type: 'text', content: '第 1 章机检已执行。' },
     ])
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
     const ud = setup()
 
     await runChat({
@@ -203,7 +190,7 @@ describe('W2: 只读工具免确认', () => {
       { type: 'text', content: '查完了。' },
     ])
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
     const ud = setup()
 
     await runChat({
@@ -229,7 +216,7 @@ describe('W2: 写操作确认闸', () => {
       { type: 'text', content: '写好了。' },
     ])
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
     const ud = setup()
 
     const chatPromise = runChat({
@@ -262,7 +249,7 @@ describe('W2: 写操作确认闸', () => {
       { type: 'text', content: '好的，那不写了。' },
     ])
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
     const ud = setup()
 
     const chatPromise = runChat({
@@ -300,7 +287,7 @@ describe('W2: 确认超时不挂起', () => {
       { type: 'text', content: '好的。' },
     ])
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
     const ud = setup()
 
     await runChat({
@@ -330,7 +317,7 @@ describe('W2: 中断', () => {
       { type: 'text', content: '好的。' },
     ])
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
     const ud = setup()
 
     const chatPromise = runChat({
@@ -369,7 +356,7 @@ describe('W2: 轮数触顶', () => {
       { type: 'tool', name: 'check_chapter', input: { chapter: 6 } },
     ])
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
     const ud = setup()
 
     await runChat({
@@ -398,7 +385,7 @@ describe('W2: 轮数触顶', () => {
       { type: 'tool', name: 'check_chapter', input: { chapter: 6 } },
     ])
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
     const ud = setup()
 
     await runChat({
@@ -437,7 +424,7 @@ describe('W2: 轮数触顶', () => {
       { type: 'tool', name: 'rename_chapter', input: { chapter: 1, title: '新标题' } },
     ])
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
     const ud = setup()
 
     await runChat({
@@ -468,7 +455,7 @@ describe('W2: max_tokens 截断保护', () => {
       { type: 'max_tokens', partial: '半截回复' },
     ])
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
     const ud = setup()
 
     await runChat({
@@ -495,7 +482,7 @@ describe('Q1: runChat 并发锁不泄漏', () => {
     mock.mockImplementation(() => { throw new Error('模拟读盘异常') })
 
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
     const ud = setup()
 
     await expect(
@@ -531,7 +518,7 @@ function hasConsecutiveSameRole(messages: unknown[]): boolean {
 describe('R1: max_tokens / 触顶后历史不连续 user', () => {
   it('max_tokens 截断 → 历史回滚，下次对话消息不连续', async () => {
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
     const ud = setup()
 
     // 第一次对话：max_tokens 截断 → chat_error
@@ -566,7 +553,7 @@ describe('R1: max_tokens / 触顶后历史不连续 user', () => {
 
   it('5 轮触顶 → 收尾文案入历史，下次对话消息不连续', async () => {
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
     const ud = setup()
 
     // 第一次对话：连续 6 个 tool → 第 5 轮触顶
@@ -628,7 +615,7 @@ describe('RB-AI-P2-5: read_chapter 整章无上限灌上下文', () => {
       { type: 'text', content: '读完了。' },
     ])
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
     const ud = setup()
 
     await runChat({
@@ -657,7 +644,7 @@ describe('RB-AI-P2-5: read_chapter 整章无上限灌上下文', () => {
       { type: 'text', content: '读完了。' },
     ])
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
     const ud = setup()
 
     await runChat({
@@ -695,7 +682,7 @@ describe('低-4（第十轮）：read_chapter 超长截断口径如实', () => {
       { type: 'text', content: '读完了。' },
     ])
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
     const ud = setup()
 
     await runChat({
@@ -740,7 +727,7 @@ describe('R0910-W: read_skill 正文有界返回', () => {
       { type: 'text', content: '读完了。' },
     ])
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
     const ud = setup()
 
     await runChat({
@@ -770,7 +757,7 @@ describe('R0910-W: read_skill 正文有界返回', () => {
       { type: 'text', content: '读完了。' },
     ])
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
     const ud = setup()
 
     await runChat({
@@ -796,7 +783,7 @@ describe('X-P2-12: check_chapter 省略 chapter 入参 → 回落作者选定章
       { type: 'text', content: '查完了。' },
     ])
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
     const ud = setup()
     // 长篇书（有正文 0001-初入宗门.md）——回落章号后能真跑到机检
     const longRoot = join(bookRoot, '长篇', '长篇测试书')
@@ -824,7 +811,7 @@ describe('X-P2-12: check_chapter 省略 chapter 入参 → 回落作者选定章
       { type: 'text', content: '好的。' },
     ])
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
     const ud = setup()
 
     await runChat({
@@ -847,7 +834,7 @@ describe('F1-P3 chat 血缘事件', () => {
   it('单轮对话：settings/snapshot 登记 + assistant sourceSeqs 引用（可回溯、早于 assistant）', async () => {
     fake.setScript([{ type: 'text', content: '答案是谈判。' }])
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
     const ud = setup()
 
     await runChat({
@@ -893,7 +880,7 @@ describe('F1-P4 chat 重新生成（分支）', () => {
       { type: 'text', content: '重新生成的回复。' },
     ])
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
     const ud = setup()
     const bookName = 'branch-e2e'
 
@@ -969,7 +956,7 @@ describe('A1（五十九轮）：read_chapter 剥 fm 走 bodyOf 单源', () => {
       { type: 'text', content: '读完了。' },
     ])
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
     const ud = setup()
 
     await runChat({
@@ -1003,7 +990,7 @@ describe('A1（五十九轮）：read_chapter 剥 fm 走 bodyOf 单源', () => {
       { type: 'text', content: '读完了。' },
     ])
     const events: DriverEvent[] = []
-    const driver = makeDriver(events)
+    const driver = makeFakeDriver({ emitted: events })
     const ud = setup()
 
     await runChat({

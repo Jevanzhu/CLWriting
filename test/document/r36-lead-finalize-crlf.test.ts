@@ -7,38 +7,40 @@
  * 履历条目物理删除、不可恢复。本测试走真实 applyLeadUpdates（含布线锁 + 清源）全链。
  */
 import { test, expect } from 'vitest'
-import { mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
-import { mkdtempTracked } from '../helpers/temp-dir.js'
-import { tmpdir } from 'node:os'
+import { rmSync, writeFileSync, readFileSync } from 'node:fs'
+import { scaffoldBook } from '../helpers/book.js'
 import { join } from 'node:path'
 import { applyLeadUpdates } from '../../src/document/lead-finalize.js'
 import { readLead } from '../../src/format/leads.js'
 
 /** 造一本带布线的短书 + 一条 CRLF 悬念线（含存量履历）+ 账本推进.md */
 function makeBook(): { root: string } {
-  const root = mkdtempTracked(join(tmpdir(), 'r36-lead-finalize-crlf-'))
-  mkdirSync(join(root, '布线', '悬念'), { recursive: true })
-  mkdirSync(join(root, '工作区'), { recursive: true })
-  // 存量履历 2 条，整文件 CRLF
-  writeFileSync(
-    join(root, '布线', '悬念', '悬念-001-灭门真凶.md'),
-    [
-      '---',
-      '编号: 悬念-001',
-      '标题: 灭门真凶',
-      '类型: 悬念',
-      '状态: 进行中',
-      '开启章: 1',
-      '---',
-      '',
-      '## 履历',
-      '',
-      '- 第010章 埋下：林家祠堂的焦痕。',
-      '- 第020章 递进：管家提到狗没叫。',
-      '',
-    ].join('\r\n'),
-    'utf-8',
-  )
+  const { root } = scaffoldBook({
+    prefix: 'r36-lead-finalize-crlf-',
+    flatRoot: true, // 原盘面：root 即临时目录（无书名子层）
+    dirs: ['工作区'],
+    files: [
+      {
+        // 存量履历 2 条，整文件 CRLF
+        rel: '布线/悬念/悬念-001-灭门真凶.md',
+        content: [
+          '---',
+          '编号: 悬念-001',
+          '标题: 灭门真凶',
+          '类型: 悬念',
+          '状态: 进行中',
+          '开启章: 1',
+          '---',
+          '',
+          '## 履历',
+          '',
+          '- 第010章 埋下：林家祠堂的焦痕。',
+          '- 第020章 递进：管家提到狗没叫。',
+          '',
+        ].join('\r\n'),
+      },
+    ],
+  })
   return { root }
 }
 

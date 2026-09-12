@@ -10,23 +10,17 @@
  * - 重试链多次失败 → attemptsUsage = 各尝试 usage 之和（R34D-1/R35-1 累计口径）
  * - abort 边界失败 → timeoutAbort 封套同样携带
  */
-import { describe, it, expect, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { describe, it, expect } from 'vitest'
+import { writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { runTask } from '../../src/ai/runner.js'
 import { GenError } from '../../src/ai/gen.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
-const workDirs: string[] = []
 function tempUserData(): string {
-  const d = mkdtempSync(join(tmpdir(), 'clwriting-r37-fail-ud-'))
-  workDirs.push(d)
-  return d
+  return mkdtempTracked(join(tmpdir(), 'clwriting-r37-fail-ud-'))
 }
-
-afterEach(() => {
-  for (const d of workDirs.splice(0)) rmSync(d, { recursive: true, force: true })
-})
 
 /** 最小 providers.json（run 抛错在触网之前，baseUrl 无需真实可达） */
 function writeProviders(userDataPath: string): void {

@@ -12,12 +12,11 @@
  * 3. 全空闲 → 200 且两侧清空（闸不误伤）。
  */
 import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
 import { stepStartEvent } from '../../src/events/chain-bridge.js'
 import { acquireTaskGate } from '../../src/studio/server/api/task-gate.js'
@@ -29,48 +28,35 @@ vi.mock('../../src/ai/orchestrate/self-heal.js', async (importOriginal) => {
 })
 
 const BOOK = '清对话闸书'
-let workDir = ''
+let studio: StudioHarness
 let userDataPath = ''
-let server: http.Server | undefined
-let baseUrl = ''
-let token = ''
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-chat-clear-gates-'))
+  // userData（事件库）由调用方创建/清理，bootStudio 只透传
   userDataPath = mkdtempSync(join(tmpdir(), 'clwriting-chat-clear-gates-ud-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
-  )
-  const bookRoot = join(workDir, BOOK)
-  mkdirSync(bookRoot, { recursive: true })
-  writeFileSync(
-    join(bookRoot, 'book.yaml'),
-    'spec_version: 1\nkind: long\nbook:\n  title: 清对话闸书\n  genre: 玄幻\nhost: cc\n',
-  )
-  server = await startServerSafe({ port: 0, workDir, userDataPath })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const r = await fetch(`${baseUrl}/api/boot`)
-  token = ((await r.json()) as { token: string }).token
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clwriting-chat-clear-gates-',
+    userDataPath,
+    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: 清对话闸书\n  genre: 玄幻\nhost: cc\n',
+  })
 })
 
 afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
+  await studio.close()
   if (userDataPath) rmSync(userDataPath, { recursive: true, force: true })
 })
 
 function post(path: string): Promise<{ status: number; json: unknown }> {
   return new Promise((resolve, reject) => {
-    const u = new URL(baseUrl)
+    const u = new URL(studio.baseUrl)
     const req = http.request(
       {
         host: u.hostname,
         port: u.port,
         path,
         method: 'POST',
-        headers: { origin: baseUrl, 'x-studio-token': token },
+        headers: { origin: studio.baseUrl, 'x-studio-token': studio.token },
       },
       (res) => {
         let data = ''
@@ -93,7 +79,7 @@ function post(path: string): Promise<{ status: number; json: unknown }> {
 
 /** 工作流侧事件计数（bookHash 键——闸要保护的另一侧）。 */
 function workflowEvents(): number {
-  const bookRoot = join(workDir, BOOK)
+  const bookRoot = studio.bookRoot
   const store = openSessionStore(userDataPath, bookRoot)!
   try {
     return store.listEvents(bookHash(bookRoot)).length
@@ -103,7 +89,7 @@ function workflowEvents(): number {
 }
 
 function seedWorkflowEvent(): void {
-  const bookRoot = join(workDir, BOOK)
+  const bookRoot = studio.bookRoot
   const store = openSessionStore(userDataPath, bookRoot)!
   try {
     const wsSid = store.workspaceSession(bookHash(bookRoot))

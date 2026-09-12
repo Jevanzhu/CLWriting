@@ -20,8 +20,8 @@ import { join } from 'node:path'
 import { runSelfHeal, type SelfHealOpts } from '../../../src/ai/orchestrate/self-heal.js'
 import { log } from '../../../src/log/index.js'
 import { SHORT_BOOK } from '../../studio/fixtures.js'
+import { makeFakeDriver } from '../fake-driver.js'
 import type { CheckOutcome } from '../../../src/studio/server/api/check.js'
-import type { DriverEvent, Session, StudioDriver } from '../../../src/driver/index.js'
 import type { ChapterMeta } from '../../../src/format/types.js'
 import type { saveDraft } from '../../../src/studio/server/api/draft.js'
 
@@ -48,19 +48,6 @@ function redOutcome(): CheckOutcome {
     hasRed: true,
     chapter: META,
     body: '正文',
-  }
-}
-
-function makeEmitDriver(emitted: DriverEvent[]): StudioDriver {
-  return {
-    async startSession(cwd: string): Promise<Session> {
-      return { id: 'mock', cwd, closed: false }
-    },
-    async *stream(): AsyncGenerator<DriverEvent> {},
-    dispose(): void {},
-    emit(_s, ev): void {
-      emitted.push(ev)
-    },
   }
 }
 
@@ -99,7 +86,7 @@ test('R0912-2: 重写落盘后以 saveDraft 真实 relPath 刷新 draftPath—�
   }
   try {
     const r = await runSelfHeal({
-      driver: makeEmitDriver([]),
+      driver: makeFakeDriver(),
       mainSession: { id: 'main', cwd: workDir, closed: false },
       userDataPath: ud,
       cwd: workDir,
@@ -142,7 +129,7 @@ test('R0912-2: 重写稿 front matter 异章号（999 ≠ 1）→ log.warn 留�
   }
   try {
     const r = await runSelfHeal({
-      driver: makeEmitDriver([]),
+      driver: makeFakeDriver(),
       mainSession: { id: 'main', cwd: workDir, closed: false },
       userDataPath: ud,
       cwd: workDir,

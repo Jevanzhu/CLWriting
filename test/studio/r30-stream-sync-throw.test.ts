@@ -11,14 +11,11 @@
  * 手法：partial mock src/driver/mock.js——mockDriver.stream 工厂改为同步 throw
  * （startSession/dispose 等保留原实现，ensureSession 正常建会话）；经
  * CLWRITING_DRIVER=mock 让 getDriver() 命中被 mock 的 mockDriver。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio。
  */
-import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import type { DriverEvent } from '../../src/driver/index.js'
 
 const THROW_MSG = 'R30-21 同步炸点：stream 工厂抛错'
@@ -38,40 +35,23 @@ vi.mock('../../src/driver/mock.js', async (importOriginal) => {
 })
 
 const BOOK = 'R30同步炸书'
-let workDir = ''
-let server: http.Server | undefined
-let baseUrl = ''
-let token = ''
-const prevDriver = process.env['CLWRITING_DRIVER']
+let studio: StudioHarness
 
 beforeAll(async () => {
-  process.env['CLWRITING_DRIVER'] = 'mock'
-  workDir = mkdtempSync(join(tmpdir(), 'clw-r30-sync-throw-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
-  )
-  const bookRoot = join(workDir, BOOK)
-  mkdirSync(bookRoot, { recursive: true })
-  writeFileSync(join(bookRoot, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: R30同步炸书\n  genre: 玄幻\n')
-  server = await startServerSafe({ port: 0, workDir })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const r = await fetch(`${baseUrl}/api/boot`)
-  token = ((await r.json()) as { token: string }).token
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clw-r30-sync-throw-',
+    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: R30同步炸书\n  genre: 玄幻\n',
+    env: { CLWRITING_DRIVER: 'mock' },
+  })
 })
 
-afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
-  if (prevDriver === undefined) delete process.env['CLWRITING_DRIVER']
-  else process.env['CLWRITING_DRIVER'] = prevDriver
-})
+afterAll(() => studio.close())
 
 describe('R30-21: driver.stream() 同步抛错 → SSE 错误事件 + 连接正常收束', () => {
   it('响应含 sync 帧 + error 事件，流正常结束（不悬挂），服务存活', async () => {
     const r = await fetch(
-      `${baseUrl}/api/books/${encodeURIComponent(BOOK)}/stream?token=${encodeURIComponent(token)}`,
+      `${studio.baseUrl}/api/books/${encodeURIComponent(BOOK)}/stream?token=${encodeURIComponent(studio.token)}`,
     )
     expect(r.status).toBe(200)
     expect(r.headers.get('content-type')).toContain('text/event-stream')
@@ -83,7 +63,7 @@ describe('R30-21: driver.stream() 同步抛错 → SSE 错误事件 + 连接正�
     expect(text).toContain('"kind":"stream"')
     expect(text).toContain(THROW_MSG)
     // 服务存活：后续请求正常应答（异常未炸穿 handler/dispatch）
-    const boot = await fetch(`${baseUrl}/api/boot`)
+    const boot = await fetch(`${studio.baseUrl}/api/boot`)
     expect(boot.status).toBe(200)
   })
 })

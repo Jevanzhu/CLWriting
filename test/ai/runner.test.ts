@@ -18,12 +18,12 @@ import { checkAiCallBudget } from '../../src/ai/calls.js'
 import type { BookConfig } from '../../src/format/types.js'
 import { tryMockTool } from '../../src/ai/mock-tool.js'
 import { GenError } from '../../src/ai/gen.js'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
+// tempBookRoot 等书根目录仍走本地数组清理；tempUserData 已收编 mkdtempTracked（幂等并存）
 const workDirs: string[] = []
 function tempUserData(): string {
-  const d = mkdtempSync(join(tmpdir(), 'clwriting-runner-ud-'))
-  workDirs.push(d)
-  return d
+  return mkdtempTracked(join(tmpdir(), 'clwriting-runner-ud-'))
 }
 
 // R73-13c（二十一轮，F 域移交）：必然拒绝端点可控化——此前写死 http://localhost:1，

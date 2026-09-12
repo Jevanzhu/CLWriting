@@ -16,12 +16,11 @@
  * 对齐 r71-files-drain-realpath）。
  * P3-1：链尾 settle 后 Map 条目自清理（不留死 Promise）；forget 钩子按书清悬挂条目。
  */
-import type { IncomingMessage, ServerResponse } from 'node:http'
-import { EventEmitter } from 'node:events'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, renameSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
+import { fakeReqRes } from '../helpers/fake-reqres.js'
 import { createRouteTable, withRouteTable } from '../../src/studio/server/router.js'
 import { getRouteSchema } from '../../src/studio/server/api/schema.js'
 import {
@@ -37,36 +36,7 @@ import { encodeDocDirName } from '../../src/document/version.js'
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
-/** 假 req（EventEmitter 手工喂 data/end；readJson 的闲置 30s 窗内挂持即「入口已过、
- *  单元未跑」确定性窗口）+ 假 res（捕获状态码与信封体，形状对齐 error-envelope 先例）。 */
-function fakeReqRes(): {
-  req: IncomingMessage
-  res: ServerResponse
-  send: (body: unknown) => void
-  captured: { status: number | null; body: string }
-} {
-  const em = new EventEmitter()
-  const req = em as unknown as IncomingMessage
-  ;(req as unknown as { destroy: () => void }).destroy = () => {}
-  const captured = { status: null as number | null, body: '' }
-  const res = {
-    writeHead(status: number) {
-      captured.status = status
-    },
-    end(body?: string) {
-      captured.body = body ?? ''
-    },
-  } as unknown as ServerResponse
-  return {
-    req,
-    res,
-    send: (body: unknown) => {
-      em.emit('data', Buffer.from(JSON.stringify(body), 'utf-8'))
-      em.emit('end')
-    },
-    captured,
-  }
-}
+// 假 req/res 已收编 helpers/fake-reqres.ts 单源（测试精简批 2026-09-12）。
 
 interface Rig {
   workDir: string

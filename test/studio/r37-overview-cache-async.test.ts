@@ -13,11 +13,10 @@
  * 请求命中成功缓存（detectState 不再被调）。
  *
  * 另带 R37-3c 冒烟：GET /api/books 书架列表经 computeBookSummaryAsync 出摘要。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio（本地 get 回裸 Response 保留本地仅改绑定；60 章+manifest 动态种子后置首请求前）。
  */
-import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, utimesSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { writeFileSync, utimesSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest'
 
@@ -28,15 +27,14 @@ vi.mock('../../src/state/state.js', async (importOriginal) => {
 
 import { detectState } from '../../src/state/state.js'
 import { forgetOverviewCache } from '../../src/studio/server/api/overview.js'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
 
 const detectStateMock = vi.mocked(detectState)
 
-let workDir = ''
+let studio: StudioHarness
 let bookRoot = ''
-let server: http.Server | undefined
 let baseUrl = ''
 let token = ''
 
@@ -48,15 +46,17 @@ function dayTime(daysAgo: number): number {
 }
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-r37-ov-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(join(workDir, '.clwriting', 'books.jsonl'), JSON.stringify({ name: '测试书', path: '测试书', kind: 'long' }) + '\n')
-  bookRoot = join(workDir, '测试书')
-  mkdirSync(join(bookRoot, '大纲'), { recursive: true })
-  mkdirSync(join(bookRoot, '项目'), { recursive: true })
-  mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
-  writeFileSync(join(bookRoot, 'book.yaml'), 'spec_version: 1\nbook:\n  title: 测试书\n  genre: 仙侠\nkind: long\nhost: cc\n', 'utf-8')
-  writeFileSync(join(bookRoot, '大纲', '总纲.md'), '# 总纲', 'utf-8')
+  studio = await bootStudio({
+    book: '测试书',
+    prefix: 'clwriting-r37-ov-',
+    dirs: ['大纲', '项目', '写作/正文'],
+    bookYaml: 'spec_version: 1\nbook:\n  title: 测试书\n  genre: 仙侠\nkind: long\nhost: cc\n',
+    files: [{ rel: '大纲/总纲.md', content: '# 总纲' }],
+  })
+  bookRoot = studio.bookRoot
+  baseUrl = studio.baseUrl
+  token = studio.token
+  // 60 章 + manifest 动态种子（generateDocId 落账）后置于 boot——服务端 IO 懒加载，首请求前等价
   const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
   const m = readManifest(manifestPath)
   for (let no = 1; no <= 60; no++) {
@@ -74,16 +74,10 @@ beforeAll(async () => {
     m.entries.get(id)!.finalizedRevision = 'sha256:' + 'a'.repeat(64) // 已定稿：timeline 计数口径
   }
   writeManifest(manifestPath, m)
-
-  server = await startServerSafe({ port: 0, workDir })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const r = await fetch(`${baseUrl}/api/boot`)
-  token = ((await r.json()) as { token: string }).token
 })
 
 afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
+  await studio.close()
 })
 
 function get(path: string): Promise<Response> {

@@ -22,6 +22,7 @@ import { rmSync, mkdtempSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createFakeProvider, type FakeProvider } from './fake-provider.js'
+import { makeFakeDriver } from './fake-driver.js'
 import { tempUserData, withFakeProvider } from '../studio/fixtures.js'
 import { runAgentTurns } from '../../src/ai/orchestrate/chat/turns.js'
 import {
@@ -35,7 +36,6 @@ import { saveProviders, type ProviderStore } from '../../src/ai/provider/store.j
 import { log } from '../../src/log/index.js'
 import { SessionRecorder } from '../../src/events/chat-bridge.js'
 import type { ChatMsg } from '../../src/ai/provider/types.js'
-import type { StudioDriver, DriverEvent, Session } from '../../src/driver/types.js'
 
 let fake: FakeProvider
 const dirs: string[] = []
@@ -54,21 +54,10 @@ beforeEach(() => {
   vi.restoreAllMocks()
 })
 
-function makeDriver(): StudioDriver {
-  return {
-    async startSession(cwd: string): Promise<Session> {
-      return { id: 'mock', cwd, closed: false }
-    },
-    async *stream(): AsyncGenerator<DriverEvent> {},
-    dispose(): void {},
-    emit(): void {},
-  }
-}
-
 function makeDeps(ud: string, bookRoot: string, history: ChatMsg[], sys: string) {
   return {
     opts: {
-      driver: makeDriver(),
+      driver: makeFakeDriver(),
       mainSession: { id: 's1', cwd: bookRoot, closed: false },
       userDataPath: ud,
       bookRoot,

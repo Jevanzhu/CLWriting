@@ -14,8 +14,9 @@ import { join } from 'node:path'
 import { makeDualTrackWorkdir, SHORT_BOOK, tempUserData } from '../../studio/fixtures.js'
 import { trackTempDir } from '../../helpers/temp-dir.js'
 import { runSelfHeal, abortSelfHeal, type SelfHealOpts } from '../../../src/ai/orchestrate/self-heal.js'
+import { makeFakeDriver } from '../fake-driver.js'
 import type { CheckOutcome } from '../../../src/studio/server/api/check.js'
-import type { DriverEvent, Session, StudioDriver } from '../../../src/driver/index.js'
+import type { DriverEvent } from '../../../src/driver/index.js'
 import type { ChapterMeta } from '../../../src/format/types.js'
 import type { saveDraft } from '../../../src/studio/server/api/draft.js'
 import { checkAiCallBudget } from '../../../src/ai/calls.js'
@@ -39,19 +40,6 @@ function greenOutcome(): CheckOutcome {
   return { ok: true, report: { sections: [] }, hasRed: false, chapter: META, body: '正文' }
 }
 
-function makeEmitDriver(emitted: DriverEvent[]): StudioDriver {
-  return {
-    async startSession(cwd: string): Promise<Session> {
-      return { id: 'mock', cwd, closed: false }
-    },
-    async *stream(): AsyncGenerator<DriverEvent> {},
-    dispose(): void {},
-    emit(_s, ev): void {
-      emitted.push(ev)
-    },
-  }
-}
-
 const save: typeof saveDraft = async (_root, _ch, content) => ({
   relPath: '写作/正文/1-测试章.md',
   docId: 'doc-短篇-1',
@@ -63,7 +51,7 @@ function makeOpts(emitted: DriverEvent[], genFn: NonNullable<SelfHealOpts['genFn
   const workDir = trackTempDir(makeDualTrackWorkdir())
   const bookRoot = join(workDir, '短篇', SHORT_BOOK)
   return {
-    driver: makeEmitDriver(emitted),
+    driver: makeFakeDriver({ emitted }),
     mainSession: { id: 'main', cwd: workDir, closed: false },
     userDataPath: trackTempDir(tempUserData()),
     cwd: workDir,

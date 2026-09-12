@@ -7,14 +7,15 @@
  * - ABORTED（用户中断）→ 499（请求被取消语义；api/ 无既有先例，错误信封形状不变）
  * - 其余（GEN_FAIL/TIMEOUT_TOTAL/EMPTY_OUTPUT…）→ 500 + 透传 code
  * 错误文案一律不变。runSpec 经 vi.mock 注入受控失败封套（不依赖真实 provider 配置）。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio（裸 http.request 定制 post 保留本地仅改绑定；manifest 动态种子后置首请求前）。
  */
 import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
 
@@ -27,12 +28,11 @@ vi.mock('../../src/ai/tasks/spec.js', async (importOriginal) => {
 })
 
 const BOOK = 'R43改写码透传书'
-let workDir = ''
-let server: http.Server | undefined
+let studio: StudioHarness
+let userData = ''
 let baseUrl = ''
 let token = ''
 let chapterDocId = ''
-const prevDriver = process.env['CLWRITING_DRIVER']
 
 function post(path: string, body: unknown): Promise<{ status: number; json: unknown }> {
   return new Promise((resolve, reject) => {
@@ -71,45 +71,34 @@ function post(path: string, body: unknown): Promise<{ status: number; json: unkn
 }
 
 beforeAll(async () => {
-  process.env['CLWRITING_DRIVER'] = 'mock'
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-r43-rewrite-code-'))
-  const userDataPath = mkdtempSync(join(tmpdir(), 'clwriting-r43-rewrite-ud-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
-  )
-  const bookRoot = join(workDir, BOOK)
-  mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
-  mkdirSync(join(bookRoot, '工作区'), { recursive: true })
-  mkdirSync(join(bookRoot, '项目'), { recursive: true })
-  writeFileSync(
-    join(bookRoot, 'book.yaml'),
-    'spec_version: 1\nkind: long\nbook:\n  title: R43改写码透传书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
-    'utf8',
-  )
-  writeFileSync(
-    join(bookRoot, '写作', '正文', '0001-开篇.md'),
-    '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n这是正文内容，主角登场。\n',
-    'utf8',
-  )
-  const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
+  userData = mkdtempSync(join(tmpdir(), 'clwriting-r43-rewrite-ud-'))
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clwriting-r43-rewrite-code-',
+    userDataPath: userData,
+    env: { CLWRITING_DRIVER: 'mock' },
+    dirs: ['写作/正文', '工作区', '项目'],
+    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: R43改写码透传书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+    files: [
+      {
+        rel: '写作/正文/0001-开篇.md',
+        content: '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n这是正文内容，主角登场。\n',
+      },
+    ],
+  })
+  baseUrl = studio.baseUrl
+  token = studio.token
+  // manifest 动态种子（generateDocId）后置于 boot——服务端 IO 懒加载，首请求前等价
+  const manifestPath = join(studio.bookRoot, '项目', '文档清单.jsonl')
   const m = readManifest(manifestPath)
   chapterDocId = generateDocId()
   upsertEntry(m, { id: chapterDocId, nodeType: 'document', path: '写作/正文/0001-开篇.md', parentId: null })
   writeManifest(manifestPath, m)
-
-  server = await startServerSafe({ port: 0, workDir, userDataPath })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const r = await fetch(`${baseUrl}/api/boot`)
-  token = ((await r.json()) as { token: string }).token
 })
 
 afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
-  if (prevDriver === undefined) delete process.env['CLWRITING_DRIVER']
-  else process.env['CLWRITING_DRIVER'] = prevDriver
+  await studio.close()
+  if (userData) rmSync(userData, { recursive: true, force: true })
 })
 
 const NO_PROVIDER_ERR = '未配置 AI 服务供应商。请在设置 → AI 中添加并启用。'

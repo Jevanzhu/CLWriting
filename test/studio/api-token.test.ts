@@ -8,20 +8,21 @@
  * (helpers/studio-token-setup.ts)全局包装了 fetch,会给 GET /api/* 自动注入 token,
  * 用 fetch 断「无凭据→403」会被包装层救活造成假绿。唯一例外：beforeAll 探 /api/boot
  * 取 token 走包装 fetch 也安全(包装层对 /api/boot 豁免不注入)。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio——原 books.jsonl 条目
+ * {'name':'t','path':'t'} 无 kind 字段，读取侧归一化 kind='long'，与 helper 写入
+ * 形态等价；rawRequest/rawSocket 保留本地（node:http 形态），内部改绑
+ * studio.baseUrl/studio.token/studio.server。
  */
 import http from 'node:http'
 import net from 'node:net'
 import type { AddressInfo } from 'node:net'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readdirSync, readFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 
-let baseUrl = ''
-let server: http.Server | undefined
-let token = ''
-let workDir = ''
+let studio: StudioHarness
 
 function rawRequest(
   method: string,
@@ -30,7 +31,7 @@ function rawRequest(
   body = '',
 ): Promise<{ status: number; text: string }> {
   return new Promise((resolve) => {
-    const u = new URL(baseUrl)
+    const u = new URL(studio.baseUrl)
     const req = http.request({ host: u.hostname, port: u.port, path, method, headers }, (res) => {
       let data = ''
       res.on('data', (c) => (data += c.toString('utf8')))
@@ -45,7 +46,7 @@ function rawRequest(
 /** X-20：raw socket 直发请求行——构造 absolute-form 等不经 http.request 归一化的形态 */
 function rawSocketRequestLine(requestLine: string): Promise<{ status: number; text: string }> {
   return new Promise((resolve, reject) => {
-    const address = server!.address() as AddressInfo
+    const address = studio.server.address() as AddressInfo
     const sock = net.connect(address.port, '127.0.0.1')
     const timer = setTimeout(() => reject(new Error('2s 内无响应')), 2_000)
     sock.on('connect', () => {
@@ -67,35 +68,24 @@ function rawSocketRequestLine(requestLine: string): Promise<{ status: number; te
 }
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-token-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  mkdirSync(join(workDir, 't'), { recursive: true })
-  writeFileSync(join(workDir, '.clwriting', 'books.jsonl'), '{"name":"t","path":"t"}\n')
-  server = await startServerSafe({ port: 0, workDir })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const r = await fetch(`${baseUrl}/api/boot`)
-  const d = (await r.json()) as { token: string }
-  token = d.token
+  studio = await bootStudio({ book: 't', prefix: 'clwriting-token-' })
 })
 
-afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
-})
+afterAll(() => studio.close())
 
 describe('P0 session token(写端点 defense-in-depth)', () => {
   it('GET /api/boot 返非空 token', () => {
-    expect(token.length).toBeGreaterThan(10)
+    expect(studio.token.length).toBeGreaterThan(10)
   })
 
   it('PUT 无 X-Studio-Token(Origin 白名单)→ 403', async () => {
-    const r = await rawRequest('PUT', `/api/books/${encodeURIComponent('x')}/settings/character`, { origin: baseUrl })
+    const r = await rawRequest('PUT', `/api/books/${encodeURIComponent('x')}/settings/character`, { origin: studio.baseUrl })
     expect(r.status).toBe(403)
   })
 
   it('PUT 错 token → 403', async () => {
     const r = await rawRequest('PUT', `/api/books/${encodeURIComponent('x')}/settings/character`, {
-      origin: baseUrl,
+      origin: studio.baseUrl,
       'x-studio-token': 'wrong-token',
     })
     expect(r.status).toBe(403)
@@ -103,8 +93,8 @@ describe('P0 session token(写端点 defense-in-depth)', () => {
 
   it('PUT 对 token(Origin 白名单)→ 非 403(过 token 门进 dispatch)', async () => {
     const r = await rawRequest('PUT', `/api/books/${encodeURIComponent('x')}/settings/character`, {
-      origin: baseUrl,
-      'x-studio-token': token,
+      origin: studio.baseUrl,
+      'x-studio-token': studio.token,
     })
     // R72-19（二十轮 G-4）：负向弱断言收紧——not.toBe(403) 连 500/502 都放行；
     // 该端点对不存在书籍落 404，白名单口径显式圈定过门后的合法状态集
@@ -114,7 +104,7 @@ describe('P0 session token(写端点 defense-in-depth)', () => {
   // P0-1 守护：PATCH 方法必须走 isWrite 校验（2026-08-10 评审发现 isWrite 曾遗漏 PATCH）
   it('PATCH 无 X-Studio-Token → 403', async () => {
     const r = await rawRequest('PATCH', `/api/books/${encodeURIComponent('t')}/documents/doc_x`, {
-      origin: baseUrl,
+      origin: studio.baseUrl,
       'content-type': 'application/json',
     }, JSON.stringify({ op: 'rename', newName: 'y' }))
     expect(r.status).toBe(403)
@@ -122,7 +112,7 @@ describe('P0 session token(写端点 defense-in-depth)', () => {
 
   it('PATCH 错 token → 403', async () => {
     const r = await rawRequest('PATCH', `/api/books/${encodeURIComponent('t')}/documents/doc_x`, {
-      origin: baseUrl,
+      origin: studio.baseUrl,
       'content-type': 'application/json',
       'x-studio-token': 'wrong-token',
     }, JSON.stringify({ op: 'rename', newName: 'y' }))
@@ -131,9 +121,9 @@ describe('P0 session token(写端点 defense-in-depth)', () => {
 
   it('PATCH 对 token → 非 403(过 token 门进 dispatch)', async () => {
     const r = await rawRequest('PATCH', `/api/books/${encodeURIComponent('x')}/documents/doc_x`, {
-      origin: baseUrl,
+      origin: studio.baseUrl,
       'content-type': 'application/json',
-      'x-studio-token': token,
+      'x-studio-token': studio.token,
     }, JSON.stringify({ op: 'rename', newName: 'y' }))
     // R50-G-1（五十轮）：负向弱断言收紧——not.toBe(403) 连 500/502 都放行；对齐同文件
     // :109-111 PUT 用例已收紧口径，显式圈定过门后的合法状态集（书 'x' 不存在 → 404）
@@ -152,7 +142,7 @@ describe('P0 session token(写端点 defense-in-depth)', () => {
   })
 
   it('GET 对 token(x-studio-token 头)→ 200', async () => {
-    const r = await rawRequest('GET', '/api/books', { 'x-studio-token': token })
+    const r = await rawRequest('GET', '/api/books', { 'x-studio-token': studio.token })
     expect(r.status).toBe(200)
   })
 
@@ -160,7 +150,7 @@ describe('P0 session token(写端点 defense-in-depth)', () => {
   // 进 URL 暴露面大于 SSE 最小必要面），现非豁免 GET 只认 x-studio-token 头；
   // `?token=` 仅 SSE 豁免路径放行（stream.ts 自身凭据闸校验）。契约变更同步本测试。
   it('S7: GET query token（非豁免路径）→ 403（通道收窄，只认头鉴权）', async () => {
-    const r = await rawRequest('GET', `/api/books?token=${encodeURIComponent(token)}`, {})
+    const r = await rawRequest('GET', `/api/books?token=${encodeURIComponent(studio.token)}`, {})
     expect(r.status).toBe(403)
   })
 
@@ -177,7 +167,7 @@ describe('P0 session token(写端点 defense-in-depth)', () => {
   })
 
   it('R65-46 对照: HEAD 对 token → 非 403（过闸进 dispatch，无匹配路由 404）', async () => {
-    const r = await rawRequest('HEAD', '/api/books', { 'x-studio-token': token })
+    const r = await rawRequest('HEAD', '/api/books', { 'x-studio-token': studio.token })
     // R50-G-1（五十轮）：负向弱断言收紧——not.toBe(403) 连 500/502 都放行；对齐同文件
     // :109-111 已收紧口径。HEAD 语义圈定：当前路由表无 HEAD 路由 → dispatch 404；
     // 若后续 HEAD 接通读端点则 200 亦合法（两态之外的 5xx/403 均不得出现）
@@ -190,10 +180,10 @@ describe('P0 session token(写端点 defense-in-depth)', () => {
       'POST',
       '/api/books/t/export',
       {
-        origin: baseUrl,
+        origin: studio.baseUrl,
         'content-type': 'application/json',
         'content-length': String(Buffer.byteLength(body)),
-        'x-studio-token': token,
+        'x-studio-token': studio.token,
       },
       body,
     )
@@ -217,7 +207,7 @@ describe('X-19: GET token 闸豁免显式路径表', () => {
     const no = await rawRequest('GET', '/api/notexist/stream', {})
     expect(no.status).toBe(403)
     expect((JSON.parse(no.text) as { error: string }).error).toContain('studio token')
-    const yes = await rawRequest('GET', '/api/notexist/stream', { 'x-studio-token': token })
+    const yes = await rawRequest('GET', '/api/notexist/stream', { 'x-studio-token': studio.token })
     expect(yes.status).toBe(404)
   })
 
@@ -231,7 +221,7 @@ describe('X-19: GET token 闸豁免显式路径表', () => {
 // 唯一合法形态；absolute-form 此前绕过 /api 前缀判断落静态分支回 200 HTML。
 describe('X-20: absolute-form 请求行入口拒绝', () => {
   it('GET http://…/api/* → 400（非 200 HTML、非 404）', async () => {
-    const address = server!.address() as AddressInfo
+    const address = studio.server.address() as AddressInfo
     const r = await rawSocketRequestLine(`GET http://127.0.0.1:${address.port}/api/books HTTP/1.1`)
     expect(r.status).toBe(400)
     // raw socket 侧 body 是 chunked 编码（带块长前缀），断言子串而非 JSON.parse
@@ -285,7 +275,7 @@ describe('R65-64（F-5）：全量 GET /api/* 无 token → 403（豁免表除�
 
   it('抽查带正确 token → 同批路径不再 403（闸只拦无凭据，不误伤读端点）', async () => {
     for (const p of ['/api/books', '/api/books/t/tree', '/api/books/t/state']) {
-      const r = await rawRequest('GET', p, { 'x-studio-token': token })
+      const r = await rawRequest('GET', p, { 'x-studio-token': studio.token })
       expect(r.status, `${p}`).not.toBe(403)
     }
   })

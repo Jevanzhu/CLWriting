@@ -5,24 +5,17 @@
  * 非白名单 Origin → 403。GET 跨站无 ACAO(浏览器拒读)。
  */
 import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 
-let workDir = ''
-let server: http.Server | undefined
-let baseUrl = ''
-let token = ''
+let studio: StudioHarness
 
 /** 手动发 HTTP 请求(可设任意 Origin header,绕过 fetch forbidden header 限制) */
 function rawRequest(method: string, path: string, origin: string | null): Promise<{ status: number; acao: string | null }> {
   return new Promise((resolve) => {
-    const u = new URL(baseUrl)
+    const u = new URL(studio.baseUrl)
     const req = http.request(
-      { host: u.hostname, port: u.port, path, method, headers: { ...(origin ? { origin } : {}), 'x-studio-token': token } },
+      { host: u.hostname, port: u.port, path, method, headers: { ...(origin ? { origin } : {}), 'x-studio-token': studio.token } },
       (res) => {
         res.resume()
         res.on('end', () => resolve({ status: res.statusCode ?? 0, acao: res.headers['access-control-allow-origin'] ?? null }))
@@ -34,25 +27,16 @@ function rawRequest(method: string, path: string, origin: string | null): Promis
 }
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-cors-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(join(workDir, '.clwriting', 'books.jsonl'), JSON.stringify({ name: '测试书', path: '测试书', kind: 'long' }) + '\n')
-  const bookRoot = join(workDir, '测试书')
-  mkdirSync(join(bookRoot, '大纲'), { recursive: true })
-  writeFileSync(join(bookRoot, 'book.yaml'), 'spec_version: 1\nbook:\n  title: 测试书\n  genre: 仙侠\nkind: long\nhost: cc\n')
-  writeFileSync(join(bookRoot, '大纲', '总纲.md'), '# 总纲')
-
-  server = await startServerSafe({ port: 0, workDir })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  // T2-3：GET 读端点要求 token（boot 取）；GET 行为断言（放行/ACAO）不受凭据影响
-  const r = await fetch(`${baseUrl}/api/boot`)
-  token = ((await r.json()) as { token: string }).token
+  studio = await bootStudio({
+    book: '测试书',
+    prefix: 'clwriting-cors-',
+    dirs: ['大纲'],
+    bookYaml: 'spec_version: 1\nbook:\n  title: 测试书\n  genre: 仙侠\nkind: long\nhost: cc\n',
+    files: [{ rel: '大纲/总纲.md', content: '# 总纲' }],
+  })
 })
 
-afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
-})
+afterAll(() => studio.close())
 
 describe('P0 CORS 安全边界', () => {
   it('GET 无 Origin(curl/同源)→ 200 放行', async () => {
@@ -67,9 +51,9 @@ describe('P0 CORS 安全边界', () => {
   })
 
   it('GET 白名单 Origin → 200 + ACAO 回显', async () => {
-    const r = await rawRequest('GET', '/api/books', baseUrl)
+    const r = await rawRequest('GET', '/api/books', studio.baseUrl)
     expect(r.status).toBe(200)
-    expect(r.acao).toBe(baseUrl)
+    expect(r.acao).toBe(studio.baseUrl)
   })
 
   it('PUT 恶意 Origin → 403(防跨站写)', async () => {
@@ -88,7 +72,7 @@ describe('P0 CORS 安全边界', () => {
   })
 
   it('OPTIONS 白名单 Origin → 204(预检过)', async () => {
-    const r = await rawRequest('OPTIONS', '/api/books', baseUrl)
+    const r = await rawRequest('OPTIONS', '/api/books', studio.baseUrl)
     expect(r.status).toBe(204)
   })
 })

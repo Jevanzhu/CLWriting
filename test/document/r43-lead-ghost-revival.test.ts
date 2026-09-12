@@ -11,10 +11,9 @@
  * readFileSync 等其余全部透传真 fs（读到 C0 成功的前提）。
  */
 import { describe, expect, it, vi } from 'vitest'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { scaffoldBook } from '../helpers/book.js'
 
 const ghost = vi.hoisted(() => ({ absentPath: null as string | null }))
 vi.mock('node:fs', async (importOriginal) => {
@@ -34,15 +33,14 @@ const LEAD_REL = '布线/悬念/悬念-001-灭门真凶.md'
 
 /** 造一本带布线的短书 + 一条悬念线 + 账本推进.md（真 fs，不开 mock 旗） */
 function makeBook(): string {
-  const root = mkdtempTracked(join(tmpdir(), 'r43-lead-ghost-'))
-  mkdirSync(join(root, '布线', '悬念'), { recursive: true })
-  mkdirSync(join(root, '工作区'), { recursive: true })
-  writeFileSync(
-    join(root, LEAD_REL),
-    '---\n编号: 悬念-001\n标题: 灭门真凶\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n',
-    'utf-8',
-  )
-  writeFileSync(join(root, '工作区', '账本推进.md'), '- 悬念-001 递进：焦痕在烛火下泛着暗红。\n', 'utf-8')
+  const { root } = scaffoldBook({
+    prefix: 'r43-lead-ghost-',
+    flatRoot: true, // 原盘面：root 即临时目录（无书名子层）
+    files: [
+      { rel: LEAD_REL, content: '---\n编号: 悬念-001\n标题: 灭门真凶\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n\n## 履历\n' },
+      { rel: '工作区/账本推进.md', content: '- 悬念-001 递进：焦痕在烛火下泛着暗红。\n' },
+    ],
+  })
   return root
 }
 

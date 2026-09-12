@@ -12,7 +12,7 @@ import { spawnSync } from 'node:child_process'
 import { DatabaseSync } from 'node:sqlite'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, dirname } from 'node:path'
 import { mkdtempTracked } from './temp-dir.js'
 import { createAllTables } from '../../src/cache/schema.js'
 import { syncLead } from '../../src/cache/sync.js'
@@ -132,6 +132,52 @@ export function makeGitBookWithChapters(n: number, opts?: { commitEach?: boolean
   }
 
   return root
+}
+
+/**
+ * 测试精简批（2026-09-12，台账 L181/L209 预登记项「makeBook 族参数化」）：
+ * 收编各域本地 makeBook 的公共骨架——mkdtemp（tracked，幂等于调用方尾行清理）+
+ * 可选 .clwriting 目录 + book.yaml + 目录/文件清单。域特有播种（db 行/账本/manifest）
+ * 留在调用方。
+ *
+ * 语义红线：替换本地 makeBook 前必须核对本工厂能逐字节复现原脚手架（name/prefix/
+ * config/files 与原文件一致）；有出入就维持本地实现，不为行数改测试盘面。
+ */
+export interface ScaffoldBookOptions {
+  /** 书目录名（默认 'mybook'；全中文书名等既有专名请原样传入） */
+  name?: string
+  /** root 即临时目录本身（无书名子层）——document 域「root 即临时目录」族形态；与 name 互斥 */
+  flatRoot?: boolean
+  /** mkdtemp 前缀（默认 'book-scaffold-'；原文件有专名前缀的保持原样） */
+  prefix?: string
+  /** book.yaml：true = writeBookConfig(DEFAULT_CONFIG)；字符串 = 逐字节原样写入；缺省不写 */
+  config?: boolean | string
+  /** 预建 workDir/.clwriting 目录（books.jsonl 登记面由 studio-server.ts 的 bootStudio 管） */
+  registryDir?: boolean
+  /** 相对书根的目录清单（recursive 创建；书根本身随首个目录/文件创建） */
+  dirs?: string[]
+  /** 相对书根的文件清单（content 逐字节写入；目录自动递归创建） */
+  files?: Array<{ rel: string; content: string }>
+}
+
+/** 造书脚手架（无 git、无缓存播种——那些属域特有逻辑，见各调用方） */
+export function scaffoldBook(opts: ScaffoldBookOptions = {}): { root: string; workDir: string } {
+  if (opts.flatRoot && opts.name !== undefined) {
+    throw new Error('scaffoldBook：flatRoot 与 name 互斥（root 即临时目录时不得再指定书名子层）')
+  }
+  const workDir = mkdtempTracked(join(tmpdir(), opts.prefix ?? 'book-scaffold-'))
+  if (opts.registryDir) mkdirSync(join(workDir, '.clwriting'), { recursive: true })
+  const root = opts.flatRoot ? workDir : join(workDir, opts.name ?? 'mybook')
+  for (const rel of opts.dirs ?? []) mkdirSync(join(root, rel), { recursive: true })
+  if (opts.config !== undefined) mkdirSync(root, { recursive: true })
+  for (const f of opts.files ?? []) {
+    const abs = join(root, f.rel)
+    mkdirSync(dirname(abs), { recursive: true })
+    writeFileSync(abs, f.content, 'utf8')
+  }
+  if (opts.config === true) writeBookConfig(join(root, 'book.yaml'), DEFAULT_CONFIG)
+  else if (typeof opts.config === 'string') writeFileSync(join(root, 'book.yaml'), opts.config, 'utf8')
+  return { root, workDir }
 }
 
 /**

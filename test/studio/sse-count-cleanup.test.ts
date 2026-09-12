@@ -5,48 +5,26 @@
  * 残留计数会让同名重建书被旧计数顶到 MAX_SSE_PER_BOOK(5) 的 429 上限。
  * 修复：stream.ts 导出 forgetSseCount(bookName)，books.delete 与 chat.clear 成功
  * 路径接线；本测试经 __getSseConnections 观测钩子断言。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio（req 收编 helper；SSE 挂流 fetch 保留本地）。
  */
-import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, writeFileSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { __getSseConnections } from '../../src/studio/server/api/stream.js'
 
 const BOOK = 'SSE计数清理书'
+let studio: StudioHarness
 let workDir = ''
-let server: http.Server | undefined
-let baseUrl = ''
-let token = ''
 const openStreams: AbortController[] = []
-
-async function req(method: string, path: string, body?: unknown): Promise<{ status: number; json: unknown }> {
-  const r = await fetch(`${baseUrl}${path}`, {
-    method,
-    headers: {
-      'x-studio-token': token,
-      origin: baseUrl,
-      ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
-    },
-    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-  })
-  let json: unknown = null
-  try {
-    json = await r.json()
-  } catch {
-    /* 非 JSON 留 null */
-  }
-  return { status: r.status, json }
-}
 
 /** 打开一条 SSE 订阅（保持连接，收尾统一 abort）。 */
 async function openStream(name: string): Promise<void> {
   const ac = new AbortController()
   openStreams.push(ac)
   const r = await fetch(
-    `${baseUrl}/api/books/${encodeURIComponent(name)}/stream?token=${encodeURIComponent(token)}`,
+    `${studio.baseUrl}/api/books/${encodeURIComponent(name)}/stream?token=${encodeURIComponent(studio.token)}`,
     { signal: ac.signal },
   )
   expect(r.status).toBe(200)
@@ -61,28 +39,17 @@ async function tick(): Promise<void> {
 }
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-sse-count-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
-  )
-  const bookRoot = join(workDir, BOOK)
-  mkdirSync(bookRoot, { recursive: true })
-  writeFileSync(
-    join(bookRoot, 'book.yaml'),
-    'spec_version: 1\nkind: long\nbook:\n  title: SSE计数清理书\n  genre: 玄幻\nhost: cc\n',
-  )
-  server = await startServerSafe({ port: 0, workDir })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const r = await fetch(`${baseUrl}/api/boot`)
-  token = ((await r.json()) as { token: string }).token
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clwriting-sse-count-',
+    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: SSE计数清理书\n  genre: 玄幻\nhost: cc\n',
+  })
+  workDir = studio.workDir
 })
 
 afterAll(async () => {
   for (const ac of openStreams) ac.abort()
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
+  await studio.close()
 })
 
 // S2（五十九轮）：原裸数字计数在 chat.clear 直接 delete 后，旧连接 close 回调对新
@@ -95,7 +62,7 @@ describe('S2: SSE 计数按实际存活连接记账（chat.clear 不再 -1 漂�
     const acOld = openStreams[openStreams.length - 1]!
     await tick()
     expect(__getSseConnections().get(BOOK)).toBe(1)
-    const r = await req('POST', `/api/books/${encodeURIComponent(BOOK)}/chat/clear`)
+    const r = await studio.req('POST', `/api/books/${encodeURIComponent(BOOK)}/chat/clear`)
     expect(r.status).toBe(200)
     expect(__getSseConnections().has(BOOK)).toBe(false)
     // 第二轮：clear 后再开 2 条新连接——旧连接（acOld）close 时不得对新账目 -1
@@ -122,7 +89,7 @@ describe('R-18: per-book SSE 计数随书级生命周期清理', () => {
     await openStream(BOOK)
     await tick()
     expect(__getSseConnections().get(BOOK)).toBe(2) // 连接在途：计数为 2
-    const r = await req('POST', `/api/books/${encodeURIComponent(BOOK)}/chat/clear`)
+    const r = await studio.req('POST', `/api/books/${encodeURIComponent(BOOK)}/chat/clear`)
     expect(r.status).toBe(200)
     expect(__getSseConnections().has(BOOK)).toBe(false) // R-18：立即清，不等连接散场
   })
@@ -131,7 +98,7 @@ describe('R-18: per-book SSE 计数随书级生命周期清理', () => {
     await openStream(BOOK)
     await tick()
     expect(__getSseConnections().get(BOOK)).toBe(1)
-    const r = await req('DELETE', `/api/books/${encodeURIComponent(BOOK)}`)
+    const r = await studio.req('DELETE', `/api/books/${encodeURIComponent(BOOK)}`)
     expect(r.status).toBe(200)
     expect(__getSseConnections().has(BOOK)).toBe(false) // R-18：同名重建书不被旧计数顶上限
   })
@@ -163,7 +130,7 @@ describe('R65-44: rename 清理序列补 forgetSseCount(oldName)', () => {
     await tick()
     expect(__getSseConnections().get(OLD)).toBe(1)
     // 改名：修复前旧名计数残留（forgetSseCount 缺席，close 回调也因书已改名无归零通路）
-    const r = await req('POST', `/api/books/${encodeURIComponent(OLD)}/rename`, { name: NEW })
+    const r = await studio.req('POST', `/api/books/${encodeURIComponent(OLD)}/rename`, { name: NEW })
     expect(r.status).toBe(200)
     expect(__getSseConnections().has(OLD)).toBe(false) // R65-44：随改名清理
     await tick()

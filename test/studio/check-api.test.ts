@@ -3,26 +3,18 @@
  * 验证：正文文档 → 200 + CheckReport；非章节文档 → NOT_CHAPTER；未登记 docId → NOT_FOUND。
  */
 import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
-import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { generateDocId } from '../../src/document/stable-id.js'
 
 const BOOK = '机检测试书'
-let workDir = ''
-let server: http.Server | undefined
-let baseUrl = ''
-let token = ''
+let studio: StudioHarness
 let chapterDocId = ''
 let nonChapterDocId = ''
 
 function post(path: string, body: unknown): Promise<{ status: number; json: unknown }> {
   return new Promise((resolve, reject) => {
-    const u = new URL(baseUrl)
+    const u = new URL(studio.baseUrl)
     const payload = JSON.stringify(body)
     const req = http.request(
       {
@@ -31,7 +23,7 @@ function post(path: string, body: unknown): Promise<{ status: number; json: unkn
         path,
         method: 'POST',
         headers: {
-          'x-studio-token': token,
+          'x-studio-token': studio.token,
           'content-type': 'application/json',
           'content-length': Buffer.byteLength(payload),
         },
@@ -57,49 +49,35 @@ function post(path: string, body: unknown): Promise<{ status: number; json: unkn
 }
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-check-api-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
-  )
-  const bookRoot = join(workDir, BOOK)
-  mkdirSync(join(bookRoot, '定稿', '正文'), { recursive: true })
-  mkdirSync(join(bookRoot, '定稿', '设定'), { recursive: true })
-  mkdirSync(join(bookRoot, '大纲', '悬念'), { recursive: true })
-  mkdirSync(join(bookRoot, '项目'), { recursive: true })
-  writeFileSync(
-    join(bookRoot, 'book.yaml'),
-    'spec_version: 1\nkind: long\nbook:\n  title: 机检测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
-    'utf8',
-  )
-  // 正文文档（完整章节 fm）
-  writeFileSync(
-    join(bookRoot, '定稿', '正文', '0001-开篇.md'),
-    '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n这是正文内容，主角登场。\n',
-    'utf8',
-  )
-  // 非章节文档（设定，fm 无章号/钩子字段）
-  writeFileSync(join(bookRoot, '定稿', '设定', '角色.md'), '---\n标题: 角色\n---\n\n主角信息。\n', 'utf8')
-  // manifest 登记 docId
-  const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
-  const m = readManifest(manifestPath)
+  // manifest 登记 docId——须经 files 选项随起服前置盘：启动迁移会把未定稿书的
+  // 定稿/ 文件按清单挪回 写作/ 并改写清单路径（起服后再写清单拿不到迁移）
   chapterDocId = generateDocId()
   nonChapterDocId = generateDocId()
-  upsertEntry(m, { id: chapterDocId, nodeType: 'document', path: '定稿/正文/0001-开篇.md', parentId: null })
-  upsertEntry(m, { id: nonChapterDocId, nodeType: 'document', path: '定稿/设定/角色.md', parentId: null })
-  writeManifest(manifestPath, m)
-
-  server = await startServerSafe({ port: 0, workDir })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const r = await fetch(`${baseUrl}/api/boot`)
-  token = ((await r.json()) as { token: string }).token
+  const manifest =
+    '{"version":1,"type":"header"}\n' +
+    JSON.stringify({ id: chapterDocId, nodeType: 'document', path: '定稿/正文/0001-开篇.md', parentId: null }) +
+    '\n' +
+    JSON.stringify({ id: nonChapterDocId, nodeType: 'document', path: '定稿/设定/角色.md', parentId: null }) +
+    '\n'
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clwriting-check-api-',
+    dirs: ['定稿/正文', '定稿/设定', '大纲/悬念', '项目'],
+    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: 机检测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+    files: [
+      // 正文文档（完整章节 fm）
+      {
+        rel: '定稿/正文/0001-开篇.md',
+        content: '---\n章号: 1\n标题: 开篇\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n这是正文内容，主角登场。\n',
+      },
+      // 非章节文档（设定，fm 无章号/钩子字段）
+      { rel: '定稿/设定/角色.md', content: '---\n标题: 角色\n---\n\n主角信息。\n' },
+      { rel: '项目/文档清单.jsonl', content: manifest },
+    ],
+  })
 })
 
-afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
-})
+afterAll(() => studio.close())
 
 describe('POST /documents/:docId/check 机检（M12 块3 B3.1）', () => {
   it('正文文档 → 200 + CheckReport（含 sections）', async () => {

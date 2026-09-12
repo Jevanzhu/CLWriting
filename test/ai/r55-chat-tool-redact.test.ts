@@ -23,6 +23,7 @@ vi.mock('../../src/ai/tools/index.js', () => ({
 }))
 
 import { executeChatTool } from '../../src/ai/orchestrate/chat/turns.js'
+import { makeFakeDriver } from './fake-driver.js'
 import type { ChatOpts } from '../../src/ai/orchestrate/chat.js'
 
 const SECRET_URL_KEY = 'sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUVWXYZ123456'
@@ -30,14 +31,7 @@ const SECRET_BEARER_KEY = 'sk-abcdefghijklmnop1234567890'
 
 function makeOpts(): ChatOpts {
   return {
-    driver: {
-      async startSession(cwd: string) {
-        return { id: 'mock', cwd, closed: false }
-      },
-      async *stream(): AsyncGenerator<never> {},
-      dispose(): void {},
-      emit(): void {},
-    },
+    driver: makeFakeDriver(),
     mainSession: { id: 's1', cwd: '/tmp/r55-c4', closed: false },
     userDataPath: '/tmp/r55-c4-ud',
     bookRoot: '/tmp/r55-c4-book',

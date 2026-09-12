@@ -10,19 +10,18 @@
  * R42-41：rename 的新书名 normalize('NFC')——与建书（init.ts 平台规范化批）同口径；
  * mac 侧 NFD 形态名直接落目录/登记，跨机到 NFC 惯例卷即「找不到文件」。修复后
  * 落盘目录 / books.jsonl 登记名 / 响应 path 均为 NFC 形。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio（空书架形态；本地 req 无 origin 头保留本地仅改绑定）。
  */
-import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, readdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { rmSync, mkdirSync, readdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { __setGraveyardCleanupForTest, __waitForGraveyardCleanupForTest } from '../../src/studio/server/api/books.js'
 
 const GRAVEYARD = '.删书墓地'
+let studio: StudioHarness
 let workDir = ''
-let server: http.Server | undefined
 let baseUrl = ''
 let token = ''
 
@@ -66,17 +65,14 @@ async function req(method: string, path: string, body?: unknown): Promise<{ stat
 }
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clw-r42-books-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  server = await startServerSafe({ port: 0, workDir })
-  baseUrl = `http://127.0.0.1:${(server!.address() as AddressInfo).port}`
-  const boot = await fetch(`${baseUrl}/api/boot`)
-  token = ((await boot.json()) as { token: string }).token
+  studio = await bootStudio({ prefix: 'clw-r42-books-', dirs: ['.clwriting'] })
+  workDir = studio.workDir
+  baseUrl = studio.baseUrl
+  token = studio.token
 })
 
 afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
+  await studio.close()
 })
 
 describe('R42-14：删书墓地名唯一 + 并发双删收口', () => {

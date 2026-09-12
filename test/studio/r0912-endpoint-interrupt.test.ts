@@ -12,14 +12,17 @@
  *
  * 驱动方式：真实 server + cc driver（不设 CLWRITING_DRIVER=mock，registerCtrl/isRunning/
  * interrupt 真实）+ 进程内 fake provider（delayMs 制造在途窗口，Z-P1-1 中断测试同款）。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio——「删 CLWRITING_DRIVER + 还原」
+ * 对改 env 选项（undefined = 删除语义）；fake provider 与 userData 预置为外部目录的
+ * 起服前步骤，保持在 bootStudio 之前（先落盘后起服）；post 走 node:http 形态保留
+ * 本地，改绑 studio.baseUrl/studio.token。
  */
 import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { rmSync, writeFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { waitFor } from '../helpers/wait-for.js'
 import { createFakeProvider, type FakeProvider } from '../ai/fake-provider.js'
 import { withFakeProvider, tempUserData } from './fixtures.js'
@@ -30,13 +33,10 @@ import { acquireTaskGate } from '../../src/studio/server/api/task-gate.js'
 
 const BOOK = 'R0912中断通道书'
 const DOC_ID = 'doc-r0912-0001'
+let studio: StudioHarness
 let workDir = ''
 let bookRoot = ''
 let userDataDir = ''
-let server: http.Server | undefined
-let baseUrl = ''
-let token = ''
-const prevDriver = process.env['CLWRITING_DRIVER']
 let fake: FakeProvider
 
 /** 在途判定：端点编排段的 ctrl 已登记到该书 session（注册面生效） */
@@ -47,7 +47,7 @@ function inFlight(): boolean {
 
 function post(path: string, body?: unknown): Promise<{ status: number; json: Record<string, unknown> }> {
   return new Promise((resolve, reject) => {
-    const u = new URL(baseUrl)
+    const u = new URL(studio.baseUrl)
     const payload = body === undefined ? '' : JSON.stringify(body)
     const r = http.request(
       {
@@ -56,8 +56,8 @@ function post(path: string, body?: unknown): Promise<{ status: number; json: Rec
         path,
         method: 'POST',
         headers: {
-          'x-studio-token': token,
-          origin: baseUrl,
+          'x-studio-token': studio.token,
+          origin: studio.baseUrl,
           ...(payload
             ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) }
             : { 'content-length': '0' }),
@@ -110,69 +110,52 @@ async function assertSettleUnregisters(path: string, body: unknown, expectOk: (j
 }
 
 beforeAll(async () => {
-  delete process.env['CLWRITING_DRIVER'] // cc driver：registerCtrl/isRunning/interrupt 真实
   fake = await createFakeProvider()
-  workDir = mkdtempSync(join(tmpdir(), 'clw-r0912-endpoint-int-'))
   userDataDir = tempUserData()
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
-  )
-  bookRoot = join(workDir, BOOK)
-  // 章节文件（outline/lead-updates 走 readChapterDir；review/analyze/rewrite 经 manifest docId 直读）
-  mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
-  writeFileSync(
-    join(bookRoot, '写作', '正文', '0001-初入宗门.md'),
-    '---\n章号: 1\n标题: 初入宗门\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n场景: 对话\n---\n林远踏入宗门，山门古拙，青石阶上苔痕斑驳。玉佩在胸前微微发光，温热如心跳。他抬手按住玉佩，那光芒便敛去，仿佛从未出现过。\n\n"你是新弟子？"长老问道，目光落在玉佩上，忽然一颤。\n\n林远点头，心中疑惑玉佩的来历，却忽然感到一阵锥心之痛，仿佛有什么在血里苏醒。',
-    'utf8',
-  )
-  // 账本（进行中悬念：lead-updates 草拟 + 机检账本核对数据源）
-  mkdirSync(join(bookRoot, '布线', '悬念'), { recursive: true })
-  writeFileSync(
-    join(bookRoot, '布线', '悬念', '悬念-001-玉佩.md'),
-    '---\n编号: 悬念-001\n标题: 玉佩\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n## 履历\n- 第1章 埋下：「玉佩在胸前微微发光」\n',
-    'utf8',
-  )
-  // 名册（relations-mine 梳理材料非空）
-  mkdirSync(join(bookRoot, '设定'), { recursive: true })
-  writeFileSync(join(bookRoot, '设定', '名册.md'), '# 名册\n- 林远：新弟子\n- 赵长老：执剑长老\n', 'utf8')
-  writeFileSync(
-    join(bookRoot, 'book.yaml'),
-    'spec_version: 1\nkind: long\nbook:\n  title: R0912中断通道书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: [悬念]\nbudget:\n  calls_per_chapter: 8\n',
-    'utf8',
-  )
-  // 文档清单（review/analyze/rewrite 的 docId 直读）
-  mkdirSync(join(bookRoot, '项目'), { recursive: true })
-  writeFileSync(
-    join(bookRoot, '项目', '文档清单.jsonl'),
-    [
-      JSON.stringify({ version: 1, type: 'header' }),
-      JSON.stringify({ id: DOC_ID, nodeType: 'document', path: '写作/正文/0001-初入宗门.md', parentId: null }),
-    ].join('\n') + '\n',
-    'utf8',
-  )
   // fake provider：creative 档（outline/onboard/lead-updates/rewrite）；review/analysis/
   // relations-mine 的 assistant 档缺省回落 creative（tierFromStore），同打 fake stub
   withFakeProvider(userDataDir, fake.url)
   writeFileSync(join(userDataDir, 'global.json'), '{}', 'utf8')
-
-  server = await startServerSafe({ port: 0, workDir, userDataPath: userDataDir })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const boot = await (await fetch(`${baseUrl}/api/boot`)).json()
-  token = (boot as { token: string }).token
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clw-r0912-endpoint-int-',
+    userDataPath: userDataDir,
+    env: { CLWRITING_DRIVER: undefined }, // cc driver：registerCtrl/isRunning/interrupt 真实
+    // 章节文件（outline/lead-updates 走 readChapterDir；review/analyze/rewrite 经 manifest docId 直读）
+    dirs: ['写作/正文', '布线/悬念', '设定', '项目'],
+    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: R0912中断通道书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: [悬念]\nbudget:\n  calls_per_chapter: 8\n',
+    files: [
+      {
+        rel: '写作/正文/0001-初入宗门.md',
+        content:
+          '---\n章号: 1\n标题: 初入宗门\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n场景: 对话\n---\n林远踏入宗门，山门古拙，青石阶上苔痕斑驳。玉佩在胸前微微发光，温热如心跳。他抬手按住玉佩，那光芒便敛去，仿佛从未出现过。\n\n"你是新弟子？"长老问道，目光落在玉佩上，忽然一颤。\n\n林远点头，心中疑惑玉佩的来历，却忽然感到一阵锥心之痛，仿佛有什么在血里苏醒。',
+      },
+      // 账本（进行中悬念：lead-updates 草拟 + 机检账本核对数据源）
+      {
+        rel: '布线/悬念/悬念-001-玉佩.md',
+        content: '---\n编号: 悬念-001\n标题: 玉佩\n类型: 悬念\n状态: 进行中\n开启章: 1\n---\n## 履历\n- 第1章 埋下：「玉佩在胸前微微发光」\n',
+      },
+      // 名册（relations-mine 梳理材料非空）
+      { rel: '设定/名册.md', content: '# 名册\n- 林远：新弟子\n- 赵长老：执剑长老\n' },
+      // 文档清单（review/analyze/rewrite 的 docId 直读）
+      {
+        rel: '项目/文档清单.jsonl',
+        content:
+          [
+            JSON.stringify({ version: 1, type: 'header' }),
+            JSON.stringify({ id: DOC_ID, nodeType: 'document', path: '写作/正文/0001-初入宗门.md', parentId: null }),
+          ].join('\n') + '\n',
+      },
+    ],
+  })
+  workDir = studio.workDir
+  bookRoot = studio.bookRoot
 })
 
 afterAll(async () => {
-  if (server) {
-    server.closeAllConnections()
-    await new Promise<void>((r) => server!.close(() => r()))
-  }
+  await studio.close()
   if (fake) await fake.close()
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
   if (userDataDir) rmSync(userDataDir, { recursive: true, force: true })
-  if (prevDriver === undefined) delete process.env['CLWRITING_DRIVER']
-  else process.env['CLWRITING_DRIVER'] = prevDriver
 })
 
 describe('R0912-P2-①: outline 中断通道', () => {

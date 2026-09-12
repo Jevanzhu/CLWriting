@@ -28,7 +28,8 @@ import { runSelfHeal, abortSelfHeal, type SelfHealOpts } from '../../src/ai/orch
 import { readBatchPause } from '../../src/state/batch-pause.js'
 import { hasBackgroundTasks, waitBackgroundTasks } from '../../src/ai/orchestrate/background.js'
 import { processBootTime } from '../../src/fs/cross-process-lock.js'
-import type { DriverEvent, Session, StudioDriver } from '../../src/driver/index.js'
+import { makeFakeDriver } from './fake-driver.js'
+import type { DriverEvent } from '../../src/driver/index.js'
 import type { saveDraft } from '../../src/studio/server/api/draft.js'
 import { checkAiCallBudget } from '../../src/ai/calls.js'
 
@@ -36,19 +37,6 @@ vi.mock('../../src/ai/calls.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/ai/calls.js')>()
   return { ...actual, checkAiCallBudget: vi.fn() }
 })
-
-function makeEmitDriver(emitted: DriverEvent[]): StudioDriver {
-  return {
-    async startSession(cwd: string): Promise<Session> {
-      return { id: 'mock', cwd, closed: false }
-    },
-    async *stream(): AsyncGenerator<DriverEvent> {},
-    dispose(): void {},
-    emit(_s, ev): void {
-      emitted.push(ev)
-    },
-  }
-}
 
 function makeSave(): typeof saveDraft {
   return async (_bookRoot, _chapter, content) => ({
@@ -79,7 +67,7 @@ describe('R1010b-AI-P2-1：批量暂停写登记后台任务表', () => {
       return '---\n章号: 1\n标题: 测试章\n---\n一章'
     }
     const opts: SelfHealOpts = {
-      driver: makeEmitDriver(emitted),
+      driver: makeFakeDriver({ emitted }),
       mainSession: { id: 'main', cwd: workDir, closed: false },
       userDataPath: join(tmpdir(), 'clwriting-test'),
       cwd: workDir,

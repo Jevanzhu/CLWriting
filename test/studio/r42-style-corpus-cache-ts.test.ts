@@ -12,14 +12,14 @@
  *   ts=set 当刻 → 命中（盘上已改文对 sourceHash 不可见）；修复前 ts=扫描前 now →
  *   TTL 已被吃光 → MISS 重扫（sourceHash 变化，红）；
  * - req3 睡过 TTL 后重扫见到改文——反证 req2 的 hash 不变来自缓存命中而非扫描失明。
+ *
+ * 测试精简批（2026-09-12）：启动样板收编 bootStudio（req 走裸 http.request，保留本地）。
  */
 import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeAll, afterAll, it, expect, vi } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { __setStyleCorpusTtlForTest } from '../../src/studio/server/api/analysis.js'
 
 const mockState = vi.hoisted(() => ({ yieldDelayMs: 0 }))
@@ -40,11 +40,7 @@ const BOOK = 'R42语料书'
 const CHAPTERS = 25 // 恰过 SCAN_YIELD_EVERY（25）一次让出
 const TTL_MS = 700
 const SCAN_DELAY_MS = 1800
-let workDir = ''
-let server: http.Server | undefined
-let baseUrl = ''
-let token = ''
-const prevDriver = process.env['CLWRITING_DRIVER']
+let studio: StudioHarness
 
 function chapterFm(n: number): string {
   return `---\n章号: ${n}\n标题: 第${n}章\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n`
@@ -56,9 +52,9 @@ function chapterFile(n: number): string {
 
 function req(method: string, path: string): Promise<{ status: number; json: unknown }> {
   return new Promise((resolve, reject) => {
-    const u = new URL(baseUrl)
+    const u = new URL(studio.baseUrl)
     const r = http.request(
-      { host: u.hostname, port: u.port, path, method, headers: { 'x-studio-token': token } },
+      { host: u.hostname, port: u.port, path, method, headers: { 'x-studio-token': studio.token } },
       (res) => {
         let data = ''
         res.on('data', (c) => (data += c.toString('utf-8')))
@@ -79,36 +75,23 @@ function req(method: string, path: string): Promise<{ status: number; json: unkn
 }
 
 beforeAll(async () => {
-  process.env['CLWRITING_DRIVER'] = 'mock'
-  workDir = mkdtempSync(join(tmpdir(), 'clw-r42-style-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
-  )
-  const bookRoot = join(workDir, BOOK)
-  mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
-  writeFileSync(
-    join(bookRoot, 'book.yaml'),
-    'spec_version: 1\nkind: long\nbook:\n  title: R42语料书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
-    'utf8',
-  )
-  for (let n = 1; n <= CHAPTERS; n++) {
-    writeFileSync(join(bookRoot, '写作', '正文', chapterFile(n)), chapterFm(n) + `第${n}章原始正文，主角稳步推进。\n`, 'utf8')
-  }
   __setStyleCorpusTtlForTest(TTL_MS)
-  server = await startServerSafe({ port: 0, workDir })
-  baseUrl = `http://127.0.0.1:${(server!.address() as AddressInfo).port}`
-  const r = await fetch(`${baseUrl}/api/boot`)
-  token = ((await r.json()) as { token: string }).token
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clw-r42-style-',
+    dirs: ['写作/正文'],
+    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: R42语料书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n',
+    files: Array.from({ length: CHAPTERS }, (_, i) => ({
+      rel: `写作/正文/${chapterFile(i + 1)}`,
+      content: `${chapterFm(i + 1)}第${i + 1}章原始正文，主角稳步推进。\n`,
+    })),
+    env: { CLWRITING_DRIVER: 'mock' },
+  })
 })
 
 afterAll(async () => {
   __setStyleCorpusTtlForTest(null)
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
-  if (prevDriver === undefined) delete process.env['CLWRITING_DRIVER']
-  else process.env['CLWRITING_DRIVER'] = prevDriver
+  await studio.close()
 })
 
 it('R42-16: 慢扫描（让出段 > TTL）后立即二查命中缓存——ts 记 set 当刻而非扫描前', async () => {
@@ -126,7 +109,7 @@ it('R42-16: 慢扫描（让出段 > TTL）后立即二查命中缓存——ts �
 
   // 盘上改写第 25 章（在最近 10 章采样集内）——MISS 重扫时 sourceHash 必变
   writeFileSync(
-    join(workDir, BOOK, '写作', '正文', chapterFile(CHAPTERS)),
+    join(studio.bookRoot, '写作', '正文', chapterFile(CHAPTERS)),
     chapterFm(CHAPTERS) + '作者已彻底改写的全新正文，与原稿一字不差地不同。\n',
     'utf8',
   )

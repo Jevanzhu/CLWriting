@@ -24,6 +24,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createFakeProvider, type FakeProvider } from './fake-provider.js'
+import { makeFakeDriver } from './fake-driver.js'
 import { tempUserData, withFakeProvider } from '../studio/fixtures.js'
 import { runAgentTurns, lastMessageFingerprint } from '../../src/ai/orchestrate/chat/turns.js'
 import { measureHistoryPoints } from '../../src/ai/prompts/chat.js'
@@ -33,7 +34,7 @@ import { SessionRecorder } from '../../src/events/chat-bridge.js'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
 import { log } from '../../src/log/index.js'
 import type { ChatMsg } from '../../src/ai/provider/types.js'
-import type { StudioDriver, DriverEvent, Session } from '../../src/driver/types.js'
+import type { DriverEvent, Session } from '../../src/driver/types.js'
 
 const OVER_MSG = 'prompt is too long: 60198 tokens > 47998 maximum'
 
@@ -53,19 +54,6 @@ beforeEach(() => {
   vi.restoreAllMocks()
   delete process.env.CLWRITING_DRIVER
 })
-
-function makeDriver(emitted: DriverEvent[]): StudioDriver {
-  return {
-    async startSession(cwd: string): Promise<Session> {
-      return { id: 'mock', cwd, closed: false }
-    },
-    async *stream(): AsyncGenerator<DriverEvent> {},
-    dispose(): void {},
-    emit(_s, ev): void {
-      emitted.push(ev)
-    },
-  }
-}
 
 /** 轮循环第 2 轮在途的肥历史（60198 码点，无模型行 → sendBudget 96k、首发预算 95997）：
  *  [u0, t0use, t0res(2 万), a0, u1, t1use, t1res(2 万), t2use, t2res(2 万)]——
@@ -108,7 +96,7 @@ function setup(history: ChatMsg[], script: Parameters<FakeProvider['setScript']>
   const recorder = new SessionRecorder(store, sessionId)
   const deps = {
     opts: {
-      driver: makeDriver(emitted),
+      driver: makeFakeDriver({ emitted }),
       mainSession: { id: 's1', cwd: bookRoot, closed: false } as Session,
       userDataPath: ud,
       bookRoot,

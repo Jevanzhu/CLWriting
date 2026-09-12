@@ -12,8 +12,9 @@ import { join } from 'node:path'
 import { makeDualTrackWorkdir, tempUserData, SHORT_BOOK } from '../studio/fixtures.js'
 import { runSelfHeal, type SelfHealOpts } from '../../src/ai/orchestrate/self-heal.js'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
+import { makeFakeDriver } from './fake-driver.js'
 import type { CheckOutcome } from '../../src/studio/server/api/check.js'
-import type { DriverEvent, Session, StudioDriver } from '../../src/driver/index.js'
+import type { DriverEvent } from '../../src/driver/index.js'
 import type { ChapterMeta } from '../../src/format/types.js'
 import type { saveDraft } from '../../src/studio/server/api/draft.js'
 
@@ -25,19 +26,6 @@ const META: ChapterMeta = {
   钩子类型: '悬念钩',
   钩子强弱: '中',
   情绪定位: '铺垫',
-}
-
-function makeEmitDriver(emitted: DriverEvent[]): StudioDriver {
-  return {
-    async startSession(cwd: string): Promise<Session> {
-      return { id: 'mock', cwd, closed: false }
-    },
-    async *stream(): AsyncGenerator<DriverEvent> {},
-    dispose(): void {},
-    emit(_s, ev): void {
-      emitted.push(ev)
-    },
-  }
 }
 
 test('A2: mock 快路走 runSpec 统一通道——链路事件（step/llm）落库 + 流式预览补发', async () => {
@@ -56,7 +44,7 @@ test('A2: mock 快路走 runSpec 统一通道——链路事件（step/llm）落
   process.env['CLWRITING_DRIVER'] = 'mock'
   try {
     const opts: SelfHealOpts = {
-      driver: makeEmitDriver(emitted),
+      driver: makeFakeDriver({ emitted }),
       mainSession: { id: 'main', cwd: bookRoot, closed: false },
       userDataPath: ud,
       cwd: bookRoot,
@@ -115,7 +103,7 @@ test('R65-8: persistFinal 抛错 → 链上仍有 goal 终态（blocked/persist-
   process.env['CLWRITING_DRIVER'] = 'mock'
   try {
     const r = await runSelfHeal({
-      driver: makeEmitDriver(emitted),
+      driver: makeFakeDriver({ emitted }),
       mainSession: { id: 'main', cwd: bookRoot, closed: false },
       userDataPath: ud,
       cwd: bookRoot,

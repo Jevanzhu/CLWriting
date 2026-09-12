@@ -4,19 +4,14 @@
  * 验证保存主路径 + 冲突 409 + 未登记 404 + 只读 403 + 缺字段 400。
  */
 import http from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServerSafe } from '../helpers/safe-port.js'
+import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 
 const BOOK = '保存测试书'
-let workDir = ''
-let server: http.Server | undefined
-let baseUrl = ''
-let token = ''
+let studio: StudioHarness
 
 function request(
   method: string,
@@ -25,7 +20,7 @@ function request(
   body = '',
 ): Promise<{ status: number; json: unknown }> {
   return new Promise((resolve, reject) => {
-    const u = new URL(baseUrl)
+    const u = new URL(studio.baseUrl)
     const req = http.request({ host: u.hostname, port: u.port, path, method, headers }, (res) => {
       let data = ''
       res.on('data', (c) => (data += c.toString('utf-8')))
@@ -49,7 +44,7 @@ function put(docId: string, body: Record<string, unknown>): Promise<{ status: nu
   return request(
     'PUT',
     `/api/books/${encodeURIComponent(BOOK)}/documents/${encodeURIComponent(docId)}/content`,
-    { 'content-type': 'application/json', origin: baseUrl, 'x-studio-token': token },
+    { 'content-type': 'application/json', origin: studio.baseUrl, 'x-studio-token': studio.token },
     JSON.stringify(body),
   )
 }
@@ -58,44 +53,33 @@ function patchMeta(docId: string, meta: Record<string, unknown>): Promise<{ stat
   return request(
     'PATCH',
     `/api/books/${encodeURIComponent(BOOK)}/documents/${encodeURIComponent(docId)}`,
-    { 'content-type': 'application/json', 'x-studio-token': token },
+    { 'content-type': 'application/json', 'x-studio-token': studio.token },
     JSON.stringify({ op: 'meta', ...meta }),
   )
 }
 
 beforeAll(async () => {
-  workDir = mkdtempSync(join(tmpdir(), 'clwriting-docs-'))
-  mkdirSync(join(workDir, '.clwriting'), { recursive: true })
-  writeFileSync(
-    join(workDir, '.clwriting', 'books.jsonl'),
-    JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n',
-  )
-  const bookRoot = join(workDir, BOOK)
-  mkdirSync(bookRoot, { recursive: true })
-  writeFileSync(
-    join(bookRoot, 'book.yaml'),
-    'spec_version: 1\nkind: long\nbook:\n  title: 保存测试书\n  genre: 玄幻\nhost: cc\n',
-  )
-  // 项目清单：登记 doc_1（可写定稿章）+ doc_ro（只读摘要）
-  mkdirSync(join(bookRoot, '项目'), { recursive: true })
-  writeFileSync(
-    join(bookRoot, '项目', '文档清单.jsonl'),
-    [
-      '{"version":1,"type":"header"}',
-      '{"id":"doc_1","nodeType":"document","path":"定稿/正文/0001-开篇.md","parentId":null,"status":"draft"}',
-      '{"id":"doc_ro","nodeType":"document","path":"定稿/摘要/0001.md","parentId":null}',
-    ].join('\n') + '\n',
-  )
-  server = await startServerSafe({ port: 0, workDir })
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  const r = await fetch(`${baseUrl}/api/boot`)
-  token = ((await r.json()) as { token: string }).token
+  studio = await bootStudio({
+    book: BOOK,
+    prefix: 'clwriting-docs-',
+    // 项目清单：登记 doc_1（可写定稿章）+ doc_ro（只读摘要）——随起服前置盘
+    dirs: ['项目'],
+    files: [
+      {
+        rel: '项目/文档清单.jsonl',
+        content:
+          [
+            '{"version":1,"type":"header"}',
+            '{"id":"doc_1","nodeType":"document","path":"定稿/正文/0001-开篇.md","parentId":null,"status":"draft"}',
+            '{"id":"doc_ro","nodeType":"document","path":"定稿/摘要/0001.md","parentId":null}',
+          ].join('\n') + '\n',
+      },
+    ],
+    bookYaml: 'spec_version: 1\nkind: long\nbook:\n  title: 保存测试书\n  genre: 玄幻\nhost: cc\n',
+  })
 })
 
-afterAll(async () => {
-  if (server) await new Promise<void>((r) => server!.close(() => r()))
-  if (workDir) rmSync(workDir, { recursive: true, force: true })
-})
+afterAll(() => studio.close())
 
 describe('PUT /documents/:docId/content（W1 保存端点）', () => {
   it('新建保存（清单登记 + expectedRevision=null）→ 200 + 落盘', async () => {
@@ -106,7 +90,7 @@ describe('PUT /documents/:docId/content（W1 保存端点）', () => {
     const j = r.json as { ok: boolean; revision: string; superseded: boolean }
     expect(j.ok).toBe(true)
     expect(j.revision).toMatch(/^sha256:/)
-    expect(readFileSync(join(workDir, BOOK, '写作/正文/0001-开篇.md'), 'utf-8')).toBe('你好')
+    expect(readFileSync(join(studio.bookRoot, '写作/正文/0001-开篇.md'), 'utf-8')).toBe('你好')
   })
 
   it('expectedRevision 不符磁盘 → 409', async () => {
@@ -145,7 +129,7 @@ describe('PUT /documents/:docId/content（W1 保存端点）', () => {
     const r = await request(
       'PUT',
       `/api/books/${encodeURIComponent(BOOK)}/documents/doc_1/content`,
-      { 'content-type': 'application/json', origin: baseUrl },
+      { 'content-type': 'application/json', origin: studio.baseUrl },
       JSON.stringify({ content: 'x', expectedRevision: null, operationId: 'op6', origin: 'manual' }),
     )
     expect(r.status).toBe(403)
@@ -154,7 +138,7 @@ describe('PUT /documents/:docId/content（W1 保存端点）', () => {
 
 describe('PATCH /documents/:docId meta（章号）', () => {
   it('长篇改章号 → 章号变 + 文件名 rename（曾因 numKey 丢弃静默失败）', async () => {
-    const bodyDir = join(workDir, BOOK, '写作', '正文')
+    const bodyDir = join(studio.bookRoot, '写作', '正文')
     mkdirSync(bodyDir, { recursive: true })
     const oldPath = join(bodyDir, '0001-开篇.md')
     writeFileSync(oldPath, '---\n章号: 1\n标题: 开篇\n---\n正文。\n', 'utf-8')
@@ -175,7 +159,7 @@ describe('PATCH /documents/:docId meta（章号）', () => {
 
 describe('POST /documents/:docId/finalize（ee-P1-3 防吃书闸）', () => {
   it('声明了没做 → 409 + code LEAD_GATE + error 人话透传，manifest 基线未写', async () => {
-    const bookRoot = join(workDir, BOOK)
+    const bookRoot = studio.bookRoot
     // 装配闸门触发条件：正文章 + 布线悬念线 + 细纲声明推进（账本推进.md 缺失 → 未兑现）
     writeFileSync(
       join(bookRoot, '写作', '正文', '0009-闸门章.md'),
@@ -196,7 +180,7 @@ describe('POST /documents/:docId/finalize（ee-P1-3 防吃书闸）', () => {
     writeManifest(manifestPath, m)
 
     const r = await request('POST', `/api/books/${encodeURIComponent(BOOK)}/documents/doc_gate/finalize`, {
-      'x-studio-token': token,
+      'x-studio-token': studio.token,
     })
     expect(r.status).toBe(409)
     // N-2（第十二轮）：finalize 错误信封收编 replyError——{code,error} 无 ok 冗余位
