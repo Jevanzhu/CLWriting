@@ -110,6 +110,67 @@ describe('R35-18: Responses 伪流式（只回终态）completed 从 message ite
   })
 })
 
+// ── 重评-0912-2 P2-2（2026-09-12 全量重评修复批）：R35-18 回填门与 R74-1 计费口径分家 ──
+// 改前口径：回填门与 hasOutput 共用 outText（R74-1 计费累计，reasoning delta 也计入），
+// 「reasoning delta 有流出 + text delta 全缺 + completed 带 message 全文」误跳回填（正文
+// 永不 yield）且 hasOutput 误判成功（静默丢主产出）；改后 textYielded 只认 text 实际
+// yield，reasoning-only 流回归 R1/R26-4 空产出报错。
+describe('重评-0912-2 P2-2: 回填门/hasOutput 只认 textYielded（与 R74-1 计费口径分家）', () => {
+  const RCONF = { ...CONF, protocol: 'openai-responses' as const } as ProviderConf
+
+  it('reasoning delta 有流出 + text delta 全缺 + completed 带 message 全文 → 正文恰回填一次，done 正常', async () => {
+    const client = {
+      responses: {
+        create: fakeSend([
+          { type: 'response.reasoning_text.delta', delta: '推理流出' },
+          {
+            type: 'response.completed',
+            response: {
+              output: [{ type: 'message', content: [{ type: 'output_text', text: 'message 全文正文' }] }],
+              usage: { input_tokens: 5, output_tokens: 4 },
+            },
+          },
+        ]),
+      },
+    } as unknown as OpenAI
+    const evs = await collect(createOpenAIResponsesProvider(RCONF, client), {
+      systemPrompt: '',
+      messages: [{ role: 'user', content: 'hi' }],
+    })
+    // 改前口径：reasoning delta 已使 outText 非空 → 回填门误判「已有 delta 产出」跳过回填，
+    // 正文永不 yield（重评-0912-2 P2-2 修复依据）
+    const reasoning = evs.filter((e) => e.type === 'reasoning')
+    expect(reasoning).toHaveLength(1) // reasoning 流出照常透出，不受影响
+    const texts = evs.filter((e) => e.type === 'text')
+    expect(texts).toHaveLength(1) // 恰回填一次，无重复
+    expect((texts[0] as { delta: string }).delta).toBe('message 全文正文')
+    const done = evs.find((e) => e.type === 'done')
+    expect(done).toMatchObject({ type: 'done', stopReason: 'stop', usage: { inputTokens: 5, outputTokens: 4 } })
+    expect(evs.at(-1)?.type).toBe('done')
+  })
+
+  it('reasoning-only 流（无 text delta）+ completed.output 为空 → 空产出 error，不静默成功', async () => {
+    const client = {
+      responses: {
+        create: fakeSend([
+          { type: 'response.reasoning_text.delta', delta: '纯推理无正文' },
+          { type: 'response.completed', response: { output: [], usage: { input_tokens: 3, output_tokens: 2 } } },
+        ]),
+      },
+    } as unknown as OpenAI
+    const evs = await collect(createOpenAIResponsesProvider(RCONF, client), {
+      systemPrompt: '',
+      messages: [{ role: 'user', content: 'hi' }],
+    })
+    // 改前口径：reasoning delta 使 outText 非空 → hasOutput 误判成功静默 done
+    //（重评-0912-2 P2-2 修复依据：回归 R1/R26-4 空产出报错语义）
+    const err = evs.at(-1)
+    expect(err?.type).toBe('error')
+    expect(err).toMatchObject({ retryable: false })
+    expect(evs.some((e) => e.type === 'done')).toBe(false)
+  })
+})
+
 describe('R35-19: OpenAI Chat 线读取 completion_tokens_details.reasoning_tokens', () => {
   it('usage 尾包带 reasoning_tokens → done.usage 透传（cache 扣减口径不变）', async () => {
     const client = {

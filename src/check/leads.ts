@@ -323,7 +323,12 @@ export function extractEvidenceCore(evidence: string): string {
     // R33-33（三十三轮）：内部残引一并剥除——「雪落」无声 的中段闭引号此前残留进展示
     // 文案（首/尾剥只处理串端，中间引号漏网）
     .replace(EVIDENCE_ALL_QUOTES_RE, '')
-  return (stripped || evidence).slice(0, 8)
+  // 重评-0912-2 P3（2026-09-12 全量重评修复批）：此前缀截断是 grep 锚口径（export 供
+  // cli/check 当前章引文命中复用），须按码点取——旧 slice(0, 8) 按 UTF-16 码元截，
+  // 增补平面字（如 𠀀，代理对占 2 码元）恰落第 8 边界时锚串截出半个代理对（孤立
+  // 代理项），正文 includes 恒 miss → 伪 lead-evidence-miss 红。同文件 :179/:199 与
+  // count.ts:640 的 slice(0,16/20) 仅作红项文案展示截断，不动（展示层已知项）。
+  return [...(stripped || evidence)].slice(0, 8).join('')
 }
 
 /**

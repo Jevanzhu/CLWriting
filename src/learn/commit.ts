@@ -9,6 +9,7 @@
 
 import { createHash } from 'node:crypto'
 import { relative } from 'node:path'
+import { yieldToEventLoop } from '../async.js'
 import { addEntry, readEntries, ENTRIES_DIR } from '../format/style-entry.js'
 import { log } from '../log/index.js'
 import type { SampleCandidate, QuoteCandidate } from './index.js'
@@ -22,7 +23,12 @@ import type { SampleCandidate, QuoteCandidate } from './index.js'
 // B-P3-4），测试注入计数桩断言让出次数/时机——本文件保持领域纯净，不感知 HTTP 层。
 // 持久化语义（原子写 + fsync）与返回值形状零变更，只在循环里插入 await 点。
 export type CommitYield = () => Promise<void>
-export const defaultCommitYield: CommitYield = () => new Promise((resolve) => setImmediate(resolve))
+// R0912-2 P3（2026-09-12 全量重评修复批）：defaultCommitYield 收敛单源——原内联
+// `() => new Promise((resolve) => setImmediate(resolve))` 与 src/async.ts 的
+// yieldToEventLoop 同体重复（async.ts 头注宣称「五处收敛单源」，此处漏网）。现直接
+// 引用单源，语义逐位一致（同为 setImmediate 落 libuv check 阶段）；导出名保留——
+// knowledge.ts 的缺省值/reset fallback 仍按名消费。
+export const defaultCommitYield: CommitYield = yieldToEventLoop
 /** R0911-B-P3-3：让出粒度——每满 100 条让一次（400 上限即最多 3-4 次让出，单次
  *  同步段回落到百 ms 量级内）。 */
 const COMMIT_YIELD_EVERY = 100

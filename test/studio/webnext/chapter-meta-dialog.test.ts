@@ -14,8 +14,10 @@ import ChapterMetaDialog from '../../../src/studio/web-next/src/components/panel
 let wrapper: ReturnType<typeof mount> | null = null
 
 beforeEach(() => {
+  // 重评-0912-2 P3：prop 名「标题」→ title（改前口径：props 传 `标题: '开篇'`）；
+  // emit save 载荷仍用 fm 键「标题」（弹窗 emit 边界转换），下方断言不变。
   wrapper = mount(ChapterMetaDialog, {
-    props: { modelValue: true, num: 3, 标题: '开篇' },
+    props: { modelValue: true, num: 3, title: '开篇' },
   })
 })
 
@@ -103,5 +105,22 @@ describe('R49-29：Enter 落点在按钮上让渡，不在输入框上照常保�
 
     expect(wrapper!.emitted('save')).toEqual([[{ 标题: '开篇', num: 4 }]])
     expect(wrapper!.emitted('update:modelValue')).toEqual([[false]])
+  })
+})
+
+// 重评-0912-2 P3（2026-09-12 全量重评修复批）：模态可及性——全库 8 模态唯一漏的
+// role="dialog"/aria-modal 补齐，aria-label 用现有标题态（isPiece 缺省 = 章节信息）。
+// 改前口径：.meta-dialog 容器无任何 role/aria-* 属性。
+describe('重评-0912-2 P3: 模态可及性（role/aria-modal/aria-label）', () => {
+  it('弹窗容器带 role=dialog + aria-modal=true + aria-label（章节信息）', () => {
+    const dlg = dialog()
+    expect(dlg.attributes('role')).toBe('dialog')
+    expect(dlg.attributes('aria-modal')).toBe('true')
+    expect(dlg.attributes('aria-label')).toBe('章节信息')
+  })
+
+  it('短篇（isPiece）→ aria-label 随标题态为「篇章信息」', async () => {
+    await wrapper!.setProps({ isPiece: true })
+    expect(dialog().attributes('aria-label')).toBe('篇章信息')
   })
 })

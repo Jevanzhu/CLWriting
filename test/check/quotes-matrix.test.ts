@@ -131,3 +131,14 @@ it('R62-8：QUOTE_*_LENIENT 单源——三体系引号证据都取内文（行�
   expect(extractEvidenceCore('「密室尽头的青铜灯很长啊」')).toBe('密室尽头的青铜灯很长啊')
   expect(extractEvidenceCore('“密室尽头的青铜灯很长啊”')).toBe('密室尽头的青铜灯很长啊')
 })
+
+// 重评-0912-2 P3（2026-09-12 全量重评修复批）：前 8 字截断按码点取——增补平面字
+//（𠀀，代理对占 2 码元）恰落第 8 边界时，旧 slice(0, 8) 码元截断把代理对截成孤立
+// 半区，锚串 includes 正文恒 miss → 伪 lead-evidence-miss 红；码点截断完整保留
+// 第 8 个码点，锚串可被正文 grep 命中。
+it('r0912-2-P3：前 8 字截断按码点——增补平面字落边界不截半代理对（grep 锚可命中）', () => {
+  const anchor = extractEvidenceCore('少年抬头望月，𠀀而叹息')
+  expect(anchor).toBe('少年抬头望月，𠀀') // 满 8 码点（9 码元），无孤立代理半区
+  expect([...anchor]).toHaveLength(8)
+  expect('山道之上，少年抬头望月，𠀀而叹息。'.includes(anchor)).toBe(true)
+})

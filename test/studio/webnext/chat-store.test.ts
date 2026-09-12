@@ -322,6 +322,49 @@ describe('Y-P2-5: 历史种子化', () => {
   })
 })
 
+// 重评-0912-2 P3（2026-09-12 全量重评修复批）：历史尾窗截断态（truncated/total）透出——
+// L-S2 起 fetchChatHistory limit=200 尾窗生效，超 200 条旧消息静默消失，truncated/total
+// 此前全前端零消费；改前口径：store 无 historyTruncated/historyTotal 字段（不透出）。
+// 口径收敛：seedHistory / switchBranch 两个视图重建点随权威拉取对齐；regenerate 的
+// 历史拉取只取 parentSeq 定位、不重建视图，不更新截断态。
+describe('重评-0912-2 P3: 历史尾窗截断态透出', () => {
+  it('seedHistory truncated:true → historyTruncated=true + historyTotal 透出', async () => {
+    fetchMock.mockResolvedValueOnce({ messages: [{ role: 'user', content: '旧消息' }], truncated: true, total: 356 })
+    const chat = useChatStore()
+    await chat.seedHistory('书A')
+    expect(chat.historyTruncated).toBe(true)
+    expect(chat.historyTotal).toBe(356)
+  })
+
+  it('switchBranch 拉到未截断分支 → 随新视图对齐为 false（不残留旧 true）', async () => {
+    fetchMock.mockResolvedValueOnce({ messages: [{ role: 'user', content: '长分支' }], truncated: true })
+    const chat = useChatStore()
+    await chat.seedHistory('书A')
+    expect(chat.historyTruncated).toBe(true)
+    fetchMock.mockResolvedValueOnce({ messages: [{ role: 'user', content: '短分支' }], truncated: false, total: 2 })
+    await chat.switchBranch('书A', 'b2')
+    expect(chat.historyTruncated).toBe(false)
+    expect(chat.historyTotal).toBe(2)
+  })
+
+  it('响应缺省 truncated/total（旧后端）→ false/null', async () => {
+    fetchMock.mockResolvedValueOnce({ messages: [{ role: 'user', content: 'hi' }] })
+    const chat = useChatStore()
+    await chat.seedHistory('书A')
+    expect(chat.historyTruncated).toBe(false)
+    expect(chat.historyTotal).toBeNull()
+  })
+
+  it('clear → 截断态复位（同分支态口径）', async () => {
+    fetchMock.mockResolvedValueOnce({ messages: [{ role: 'user', content: '旧消息' }], truncated: true, total: 300 })
+    const chat = useChatStore()
+    await chat.seedHistory('书A')
+    chat.clear()
+    expect(chat.historyTruncated).toBe(false)
+    expect(chat.historyTotal).toBeNull()
+  })
+})
+
 // ── G1：分支（变体）与重新生成 ────────────────────────
 
 /** 本地构造一轮已完成对话（[user, assistant(done)]，走真实 dispatch 路径） */

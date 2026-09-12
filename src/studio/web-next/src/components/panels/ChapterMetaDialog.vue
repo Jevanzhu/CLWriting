@@ -5,11 +5,17 @@ import { ref, watch } from 'vue'
 import { isImeComposing } from '../../shared/ime'
 import { useFocusTrap } from '../../composables/useFocusTrap'
 
+// 重评-0912-2 P3（2026-09-12 全量重评修复批）：
+// ① prop 名「标题」→ title（全库中文 prop 唯一孤例收敛）；fm 数据键「标题」不随改——
+//    emit save 载荷与调用方 onSaveMeta 仍用「标题」，边界在本件 emit 处转换。
+// ② 模态可及性补齐：role="dialog"/aria-modal/aria-label（全库 8 模态唯一漏的一件），
+//    aria-label 用现有标题态（篇章信息/章节信息）。
 const props = defineProps<{
   modelValue: boolean
   /** 章号 当前值（null = 空） */
   num: number | null
-  标题: string
+  /** 标题 当前值 */
+  title: string
   /** 短篇正文 → 标题「篇章信息」；否则「章节信息」（字段统一为 章号） */
   isPiece?: boolean
 }>()
@@ -27,7 +33,7 @@ watch(
   () => props.modelValue,
   (v) => {
     if (v) {
-      titleInput.value = props.标题
+      titleInput.value = props.title
       noInput.value = props.num === null ? '' : String(props.num)
       // R71-31（七十一轮）：重开复位错误提示（R70-28 引入面）——置错后取消关闭再开，
       // numError 残留会让作者误以为新弹窗的章号仍非法
@@ -79,6 +85,9 @@ function onKeyEsc(e: KeyboardEvent): void {
       <div
         ref="dlgRef"
         class="meta-dialog"
+        role="dialog"
+        aria-modal="true"
+        :aria-label="dlgTitle()"
         tabindex="-1"
         @keydown.enter="onKeySave"
         @keydown.esc="onKeyEsc"

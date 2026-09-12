@@ -15,7 +15,7 @@ import { createHash } from 'node:crypto'
 import { resolveWithinRoot, platformCaseFold } from '../../../fs/safe-path.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { acquireCrossProcessLockAsync } from '../../../fs/cross-process-lock.js'
-import { canonicalizeText } from '../../../fs/text-canonical.js'
+import { canonicalizeText, toNfcName } from '../../../fs/text-canonical.js'
 import { isMdFileName } from '../../../format/filename.js'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError, parseRequestUrl } from '../http.js'
@@ -294,7 +294,12 @@ function wiringLockKeyForPut(bookRoot: string, rel: string): string | null {
     // R38-14 同款 win32 折叠——与两侧既有实现逐位一致（回归锚定同键）
     // R45-2（四十五轮）：折叠改委托 safe-path platformCaseFold 单源（前缀过滤/join/
     // '.lock' 管线不变，键字节不变；r45-casefold-keys.test.ts 静态扫描锁定本委托）
-    return platformCaseFold(key)
+    // 重评-0912-2 P2-3（2026-09-12 全量重评修复批）：折叠前补 toNfcName（先 NFC 后
+    // 大小写折叠，与 docJoinKey 同序）——本侧同型缺口同批修齐：外部工具经 API 以
+    // NFD 形态送 rel 时此前派生不同 .lock，PUT 直写与保存/定稿互斥静默失效。NFC
+    // 输入键字节不变（R45-2 字节稳定不变量相容），仅 NFD 输入键变化；与 service/
+    // lead-finalize 两侧同式，三侧仍逐位一致
+    return platformCaseFold(toNfcName(key))
   }
   return null
 }

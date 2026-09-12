@@ -15,8 +15,9 @@ import ChapterMetaDialog from '../../../src/studio/web-next/src/components/panel
 let wrapper: ReturnType<typeof mount> | null = null
 
 beforeEach(() => {
+  // 重评-0912-2 P3：prop 名「标题」→ title（改前口径传 `标题: '开篇'`）
   wrapper = mount(ChapterMetaDialog, {
-    props: { modelValue: true, num: 3, 标题: '开篇' },
+    props: { modelValue: true, num: 3, title: '开篇' },
   })
 })
 

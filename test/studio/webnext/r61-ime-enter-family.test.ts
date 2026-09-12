@@ -117,7 +117,8 @@ describe('R61-17: ChapterTreeItem 重命名/新建输入框组合期让渡', () 
 describe('R61-3: ChapterMetaDialog 组合期 Enter 不保存', () => {
   it('组合期 Enter 让渡；真实 Enter 保存（标题/章号）', async () => {
     const w = mount(ChapterMetaDialog, {
-      props: { modelValue: true, num: 3, 标题: '原题' },
+      // 重评-0912-2 P3：prop 名「标题」→ title（改前口径传 `标题: '原题'`；emit 载荷 fm 键「标题」不变）
+      props: { modelValue: true, num: 3, title: '原题' },
       attachTo: document.body,
     })
     const dlg = document.body.querySelector('.meta-dialog')

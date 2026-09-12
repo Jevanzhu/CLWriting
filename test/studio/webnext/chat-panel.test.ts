@@ -355,3 +355,29 @@ describe('ChatMessages: 工具确认 404（R65-50）', () => {
     expect(ui.toasts.at(-1)?.kind).toBe('error')
   })
 })
+
+// ── 重评-0912-2 P3（2026-09-12 全量重评修复批）：历史尾窗截断提示行 ──
+// L-S2 起 limit=200 尾窗生效时旧消息静默消失，truncated 此前全前端零消费；
+// 改前口径：ChatMessages 无提示行（无 .chat-truncated-hint 元素）。
+
+describe('ChatMessages: 历史截断提示行（重评-0912-2 P3）', () => {
+  it('historyTruncated=true → 列表顶部渲染 muted 提示行（指引审计视图）', async () => {
+    const chat = useChatStore()
+    chat.messages.push({ id: 'u1', role: 'user', content: '旧消息', done: true, tools: [] })
+    chat.historyTruncated = true
+    const w = mountPanel()
+    await nextTick()
+    const hint = w.find('.chat-truncated-hint')
+    expect(hint.exists()).toBe(true)
+    expect(hint.text()).toContain('200 条')
+    expect(hint.text()).toContain('审计视图')
+  })
+
+  it('historyTruncated=false（默认）→ 不渲染提示行', async () => {
+    const chat = useChatStore()
+    chat.messages.push({ id: 'u1', role: 'user', content: '旧消息', done: true, tools: [] })
+    const w = mountPanel()
+    await nextTick()
+    expect(w.find('.chat-truncated-hint').exists()).toBe(false)
+  })
+})

@@ -88,12 +88,21 @@ export function summarizeFalsePositives(corpusDir: string): FalsePositiveSummary
     // R71-35（总七十一轮）：parse 成功但非数组（手编辑成 `{}` 等）→ 下方 entries.filter
     // TypeError 崩整轮——对齐「坏文件跳过」注释口径，非数组同样 continue
     if (!Array.isArray(entries)) continue
-    const silent = entries.filter((e) => e.expect === 'silent')
+    // 重评-0912-2 P3（随 P2-5 同批）：数组元素 null/非对象（手编半写形态）此前在下方
+    // e.expect 处 TypeError 崩整轮汇总——R71-35 只收「非数组」形态，坏项是同族漏网。
+    // 对齐本函数「坏文件跳过」与 R40-16 登记侧坏行降级口径：坏项剔除 + warn 留痕
+    // （不静默），不崩整轮（update 是产草稿不是门禁）；坏项不计入 silent/fire 计数。
+    const rows = entries.filter((e) => e !== null && typeof e === 'object')
+    const badItems = entries.length - rows.length
+    if (badItems > 0) {
+      log.warn('knowledge', `语料回归域 ${f} 含 ${badItems} 条坏形状条目（null/非对象），汇总已跳过这些行`)
+    }
+    const silent = rows.filter((e) => e.expect === 'silent')
     if (silent.length === 0) continue
     out.push({
       checkId,
       silent: silent.length,
-      fire: entries.length - silent.length,
+      fire: rows.length - silent.length,
       // R71-35：缺 excerpt 的条目被滤——此前落 undefined，草稿渲染成「> undefined」
       excerpts: silent.filter((e) => typeof e.excerpt === 'string').slice(0, 3).map((e) => e.excerpt),
     })

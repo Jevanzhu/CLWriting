@@ -231,10 +231,11 @@ watch(
       @select="onPopupSelect"
       @close="onPopupClose"
     />
+    <!-- 重评-0912-2 P3：prop 名「标题」→ title（fm 数据键「标题」在弹窗 emit 边界转换，本侧不变） -->
     <ChapterMetaDialog
       :model-value="!!actions.metaEditing.value"
       :num="actions.metaEditing.value?.num ?? null"
-      :标题="actions.metaEditing.value?.标题 ?? ''"
+      :title="actions.metaEditing.value?.标题 ?? ''"
       :is-piece="actions.metaEditing.value?.isPiece ?? false"
       @update:model-value="(v: boolean) => { if (!v) actions.metaEditing.value = null }"
       @save="actions.onSaveMeta"

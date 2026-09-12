@@ -224,4 +224,22 @@ describe('AI-1: 编排互斥矩阵反向闸', () => {
       vi.mocked(isSelfHealRunning).mockReturnValue(false)
     }
   })
+
+  // r0912-2-P2-1（2026-09-12 全量重评修复批）：rewrite × chat 正向面补角——编辑器整章
+  // 改写端点此前只查 self-heal（R66-2）/spawn（R70-3）两面，纯文本对话在途时仍可并发
+  // 起跑（双份 LLM 费用 + 过期基线提案）；反方向已封（chat 侧持 'rewrite' 闸即 409），
+  // 唯正向漏。rewrite.ts 入口补 orchestrationBusyFor（同族生成端点同款）后本用例锁角。
+  it('r0912-2: chat 在途 → 整章改写端点 409（rewrite × chat 正向面）', async () => {
+    vi.mocked(isChatRunning).mockReturnValue(true)
+    try {
+      // docId 故意取未登记值——闸先于文档解析，命中即 409（未进入改写生成段）
+      const r = await post(`/api/books/${encodeURIComponent(BOOK)}/documents/r0912-doc/rewrite`, { instruction: '润色' })
+      expect(r.status).toBe(409)
+      const j = r.json as { code: string; error: string }
+      expect(j.code).toBe('BUSY')
+      expect(j.error).toContain('对话进行中')
+    } finally {
+      vi.mocked(isChatRunning).mockReturnValue(false)
+    }
+  })
 })

@@ -127,6 +127,15 @@ export const useChatStore = defineStore('chat', () => {
   const activeBranchId = ref<string | null>(null)
   /** G1：分支（变体组）列表（种子化/切换/重新生成后 best-effort 维护，失败静默降级） */
   const branches = ref<ChatBranchInfo[]>([])
+  /**
+   * 重评-0912-2 P3（2026-09-12 全量重评修复批）：最近一次视图加载（seedHistory/switchBranch）
+   * 的历史尾窗截断态（L-S2：limit=200 生效时服务端回 truncated=true）——此前全前端零消费，
+   * 长书超 200 条的旧消息静默消失无提示；ChatMessages 列表顶部据此渲染 muted 提示。
+   * regenerate 的历史拉取只取 parentSeq 定位、不重建视图，不更新截断态。
+   */
+  const historyTruncated = ref(false)
+  /** 重评-0912-2 P3：投影前该分支消息总数（与 truncated 同源对齐；未知 = null） */
+  const historyTotal = ref<number | null>(null)
   /** G1：重新生成进行中（防重入；POST 成功后保持 true 直到 chat_done/chat_error 复位） */
   let regenPending = false
   /** G1：重新生成的书名（chat_done 时 best-effort 刷新分支列表用） */
@@ -460,6 +469,9 @@ export const useChatStore = defineStore('chat', () => {
     // G1：activeBranchId 用 history 返回的实际采用分支——拉取成功即写（空历史同，
     // R0911b-C1-P3-2），与 branches 拉取解耦（后者失败只降级隐藏切换器，不丢当前分支定位）
     activeBranchId.value = data.branchId ?? null
+    // 重评-0912-2 P3：截断态随本次权威拉取对齐（视图自此历史重建，提示面向当前视图）
+    historyTruncated.value = data.truncated === true
+    historyTotal.value = data.total ?? null
     // 分支列表 best-effort 拉取（失败静默——变体切换器降级隐藏，对话不受影响）
     await refreshBranches(bookName, gen)
   }
@@ -495,6 +507,9 @@ export const useChatStore = defineStore('chat', () => {
     if (data.messages.length > 0) seedFromHistory(data.messages, data.seqs)
     // activeBranchId = history 返回值（线性书显式 null；仅旧后端缺字段时才回落传入 id）
     activeBranchId.value = data.branchId !== undefined ? data.branchId : branchId ?? null
+    // 重评-0912-2 P3：截断态随新分支视图对齐（同 seedHistory 口径）
+    historyTruncated.value = data.truncated === true
+    historyTotal.value = data.total ?? null
     await refreshBranches(bookName, gen)
   }
 
@@ -629,6 +644,9 @@ export const useChatStore = defineStore('chat', () => {
     // G1：重置分支态 + 复位重新生成进行中标志（清空后旧分支/在途操作不得残留）
     activeBranchId.value = null
     branches.value = []
+    // 重评-0912-2 P3：截断态随视图清空复位（同分支态口径）
+    historyTruncated.value = false
+    historyTotal.value = null
     regenPending = false
     regenBook = null
     // R35-11：切书在此收口（Book.vue 切书链统一调 clear）——章号语境换到目标书的
@@ -658,6 +676,8 @@ export const useChatStore = defineStore('chat', () => {
     hasMessages,
     activeBranchId,
     branches,
+    historyTruncated,
+    historyTotal,
     selectedChapter,
     selectChatChapter,
     followChatChapter,

@@ -301,12 +301,21 @@ export function createOpenAIResponsesProvider(
             // 网关偏差挂点（缺口 18）：响应侧缺字段时在此入口加 per-family normalize。
             let terminal: 'completed' | 'incomplete' | 'failed' | 'none' = 'none'
             let toolYielded = false
+            // 重评-0912-2 P2-2（2026-09-12 全量重评修复批）：text 分支实际产出标记——
+            // R35-18 伪流回填门与 R74-1 计费口径分家。此前两处共用 outText 判「已有正文
+            // delta」，但 reasoning delta 也 push 进 outText（R74-1 计费面，保留不动），
+            // 「reasoning 有流出 + text 全缺 + completed 带 message 全文」的网关形态误跳
+            // 回填（正文永不 yield）且 hasOutput 误判成功（静默丢主产出不报错不重试）。
+            // textYielded 只认 text 分支实际 yield；reasoning-only 流（无 text delta 且
+            // completed 无 message/function_call 项）回归 R1/R26-4「空产出」报错语义。
+            let textYielded = false
             for await (const event of stream) {
               consumedAny = true
               switch (event.type) {
                 case 'response.output_text.delta': {
                   if (event.delta) {
                     outText.push(event.delta) // R74-1：产出累计
+                    textYielded = true // 重评-0912-2 P2-2：正文实际 yield 标记（回填门/hasOutput 判据，见声明处注释）
                     yield { type: 'text', delta: event.delta }
                   }
                   break
@@ -394,8 +403,10 @@ export function createOpenAIResponsesProvider(
                   const r = event.response
                   // R35-18：伪流式网关（接受 stream 只回终态、delta 事件全缺）——completed
                   // 的 message item 是唯一产出，回填 text（一次性 yield）使该形态可用；
-                  // 有 delta 流出时不回填（防重复增量），回填后仍无产出走下方空产出报错不变
-                  if (outText.length === 0) {
+                  // 有 text delta 流出时不回填（防重复增量），回填后仍无产出走下方空产出报错不变
+                  // 重评-0912-2 P2-2：门判据由 outText.length === 0 改 !textYielded——outText
+                  // 是 R74-1 计费累计（含 reasoning delta），不能作「已有正文 delta」判据
+                  if (!textYielded) {
                     const backfill: string[] = []
                     for (const it of r.output ?? []) {
                       if (it.type !== 'message') continue
@@ -406,6 +417,7 @@ export function createOpenAIResponsesProvider(
                     if (backfill.length > 0) {
                       const full = backfill.join('')
                       outText.push(full) // R74-1：产出累计口径一致
+                      textYielded = true // 重评-0912-2 P2-2：回填即产出，防双回填
                       yield { type: 'text', delta: full }
                     }
                   }
@@ -414,10 +426,13 @@ export function createOpenAIResponsesProvider(
                   // probe（「回复OK」）与结构化产出（message item）不受影响。
                   // R26-4（二十六轮）：补本流已实际流出内容判据——网关省略 completed 的
                   // output 数组（响应缺字段形态，文件头缺口 18 自认）但 delta 已流出正文时，
-                  // 原判据误判「空产出」且 retryable:false 不重试，token 白烧。outText 是
-                  // R74-1 为估计入账收集的本流累计，就在手边。
+                  // 原判据误判「空产出」且 retryable:false 不重试，token 白烧。
+                  // 重评-0912-2 P2-2：正文面判据由 outText.length > 0 改 textYielded——
+                  // outText 含 reasoning delta（R74-1 计费面），不再作产出判据；
+                  // reasoning-only 流（无 text delta 且无 message/function_call 项）
+                  // 回归 R1/R26-4「空产出」报错，不再静默判成功。
                   const hasOutput =
-                    toolYielded || outText.length > 0 || Boolean(r.output?.some((it) => it.type === 'message' || it.type === 'function_call'))
+                    toolYielded || textYielded || Boolean(r.output?.some((it) => it.type === 'message' || it.type === 'function_call'))
                   if (!hasOutput) {
                     // R34D-8（三十四轮）：空产出 error 同款随错上抛 usage（R32-2 口径——
                     // 同文件另四条错误路径均已带）：上游 r.usage 在手即真值，否则走紧邻

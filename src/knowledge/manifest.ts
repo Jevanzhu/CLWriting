@@ -120,6 +120,18 @@ function validateEntry(
   seen: Set<string>,
   issues: KnowledgeManifestIssue[],
 ): void {
+  // 重评-0912-2 P2-5（2026-09-12 全量重评修复批）：字段类型守卫——上方 R40-16 守卫只拦
+  // null/非对象行，非字符串 target（如 {"target":123}）在 isSafeKnowledgeTarget 的
+  // isAbsolute 处、非字符串 sha256（数字形态）在 `sha256?.startsWith` 处仍裸 TypeError
+  // 崩：check:knowledge 门由列 issue 变裸栈崩；commitKnowledgeFile 尾部对账在 manifest
+  // 登记已落盘后崩（CLI 报栈但 manifest 实已写入）。这是 R40-16/R73-4/R0912-G1-P2-1
+  // 同族「坏形状报 issue 不崩」序列的漏网——fail-loud 不丢数据，但裸崩形态与已收口族
+  // 口径相悖。对齐上方 :103 降级口径：报 issue 不崩，跳过该行后续校验（条目原样保留，
+  // 写入侧不静默增删改）。
+  if (typeof entry.target !== 'string' || typeof entry.sha256 !== 'string') {
+    issues.push({ path: KNOWLEDGE_MANIFEST, message: '存在坏形状条目（target/sha256 必须为字符串），请修复 manifest' })
+    return
+  }
   if (!isSafeKnowledgeTarget(projectRoot, entry.target)) {
     issues.push({ path: entry.target, message: 'target 必须位于知识层/ 内，且不能路径穿越' })
     return

@@ -5,7 +5,7 @@
 一本书就是一个普通文件夹，里面全是 Markdown 和 YAML，放在你自己的磁盘上。设计目标是长篇写到两百万字量级还不崩设定、不吃书——这事不指望 AI 自觉，靠账本核对、伏笔追踪、版本快照这些机制兜底。
 
 [![Node](https://img.shields.io/badge/Node-%E2%89%A524-339933?logo=node.js&logoColor=white)](https://nodejs.org)
-[![Test](https://img.shields.io/badge/tests-6984%20all%20green-4FC08D?logo=vitest&logoColor=white)](#开发)
+[![Test](https://img.shields.io/badge/tests-7010%20all%20green-4FC08D?logo=vitest&logoColor=white)](#开发)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 ## 写一本书的流程
@@ -98,7 +98,7 @@ macOS 包（dmg）与 Windows 版一样是第一版，几件事提前说清：
 npm --prefix src/studio/web-next ci   # 装前端子包依赖（CodeMirror 等；新克隆必跑，见下）
 npm run typecheck          # tsc --noEmit
 npm run build:all          # 桌面主进程 + 前端构建
-npm test                   # 6984 单测
+npm test                   # 7010 单测
 npm run test:e2e           # Playwright e2e（mock 驱动，29 specs / 45 用例）（其中常规命令跑 43，另 2 个发布 smoke 需 CLWRITING_E2E_RELEASE）
 npm run dev:api            # 只起 Studio API :7878（配合 dev:app / dev:web）
 npm run dev:web            # Vite HMR :5173（配合 dev:api）
@@ -113,11 +113,11 @@ Windows 在 cmd/PowerShell 里直接跑同一套 npm 命令即可（环境变量
 
 前端子包 `src/studio/web-next` 有自己的 `package.json` 和二级 `node_modules`（CodeMirror 等钉在那里，根目录的 `npm install` 不会带下来）。新克隆后要先补装上面第一行（CI 同款命令；本地改前端依赖时把 `ci` 换成 `install`）——不装的话 `npm test` 会在打字机相关用例上报模块解析失败，`build:web` / `dev:web` 也起不来。
 
-改完代码至少跑 `npm test`：1084 个测试文件 / 6984 单测全绿是合入门槛，CI 里的 check:counts 会核对 README 声称的数字，对不上直接红。单测数是 macOS/Linux 口径——win 上平台门（`skipIf(win32)`）的用例不进 vitest 收集（阶段 21 J3；2026-09-10 全量重审修复批 win 实跑口径：1014 文件 / 6470 过 + 79 跳 0 败，实测差 75 恒定〔73 既有 + dev 侧新增 2 个 skipIf(win32)〕；本树按差值预期 win 1084 文件 / 6909 过 + 80 跳〔2026-09-12 dev←win 合并批后口径，待 CI 实跑确认〕——2026-09-11 修复批起 win 腿测试步带「收尾竞态重跑一次」兜底（R0911-G-P1-1d：vitest×tinypool forks 池收尾 ERR_IPC_CHANNEL_CLOSED 竞态会杀进程于汇总前，首跑非零自动重跑一次区分竞态与真失败；win 通过数仍待 CI 实跑确认），win 腿的 check:counts 现同时核对文件数、e2e 数与单测数（R0910-W：此前 win 腿只对账文件数与 e2e 数，单测数只在 macos/ubuntu 腿核对）。CI 测试步曾存四族环境面红，2026-09-11 修复批已全数处置：R71-8 改运行时 FS 大小写探测分支断言、kk-P2-8 改 msgBox 快照增量口径、TTL 族 7 处真睡眠改注入时钟（r43 慢机时序压力源同批移除）、win teardown 竞态上重跑兜底（上游根治评估登记台账 §三 G）——本地全绿，六腿 CI 复验待下轮 dispatch。动了前端就再跑 `vue-tsc` 和 e2e。e2e 的 29 个 spec 按固有顺序跑（前一个建的书/写的内容供后一个用），其中主链共享单一临时 workDir（少数 spec 如 usage-card 各持独立 server+workDir 实例，见 test/e2e/e2e-ports.ts）——勿加并行或改动 spec 顺序，否则隐式依赖会静默错乱。
+改完代码至少跑 `npm test`：1088 个测试文件 / 7010 单测全绿是合入门槛，CI 里的 check:counts 会核对 README 声称的数字，对不上直接红。单测数是 macOS/Linux 口径——win 上平台门（`skipIf(win32)`）的用例不进 vitest 收集（阶段 21 J3；2026-09-10 全量重审修复批 win 实跑口径：1014 文件 / 6470 过 + 79 跳 0 败，实测差 75 恒定〔73 既有 + dev 侧新增 2 个 skipIf(win32)〕；本树按差值预期 win 1088 文件 / 6935 过 + 80 跳〔2026-09-12 重评-0912-2 修复批后口径，待 CI 实跑确认〕——2026-09-11 修复批起 win 腿测试步带「收尾竞态重跑一次」兜底（R0911-G-P1-1d：vitest×tinypool forks 池收尾 ERR_IPC_CHANNEL_CLOSED 竞态会杀进程于汇总前，首跑非零自动重跑一次区分竞态与真失败；win 通过数仍待 CI 实跑确认），win 腿的 check:counts 现同时核对文件数、e2e 数与单测数（R0910-W：此前 win 腿只对账文件数与 e2e 数，单测数只在 macos/ubuntu 腿核对）。CI 测试步曾存四族环境面红，2026-09-11 修复批已全数处置：R71-8 改运行时 FS 大小写探测分支断言、kk-P2-8 改 msgBox 快照增量口径、TTL 族 7 处真睡眠改注入时钟（r43 慢机时序压力源同批移除）、win teardown 竞态上重跑兜底（上游根治评估登记台账 §三 G）——本地全绿，六腿 CI 复验待下轮 dispatch。动了前端就再跑 `vue-tsc` 和 e2e。e2e 的 29 个 spec 按固有顺序跑（前一个建的书/写的内容供后一个用），其中主链共享单一临时 workDir（少数 spec 如 usage-card 各持独立 server+workDir 实例，见 test/e2e/e2e-ports.ts）——勿加并行或改动 spec 顺序，否则隐式依赖会静默错乱。
 
 ## 技术栈
 
-Node 24+，TypeScript strict。前端 Vue 3 + Pinia + Vite，编辑器 CodeMirror 6，桌面壳 Electron；存储是 node:sqlite（RAG 索引）加 JSON/YAML 配置；AI 侧三个协议适配器（Anthropic、OpenAI Chat、OpenAI Responses）统一走 runTask 编排，重试、超时、用量都归它管；测试 vitest（6984 单测）+ Playwright（29 specs / 45 用例）（常规命令跑 43，2 个发布 smoke 需 CLWRITING_E2E_RELEASE 环境变量）。
+Node 24+，TypeScript strict。前端 Vue 3 + Pinia + Vite，编辑器 CodeMirror 6，桌面壳 Electron；存储是 node:sqlite（RAG 索引）加 JSON/YAML 配置；AI 侧三个协议适配器（Anthropic、OpenAI Chat、OpenAI Responses）统一走 runTask 编排，重试、超时、用量都归它管；测试 vitest（7010 单测）+ Playwright（29 specs / 45 用例）（常规命令跑 43，2 个发布 smoke 需 CLWRITING_E2E_RELEASE 环境变量）。
 
 代码上有几条一直守着的规矩：作者数据不被升级覆盖；定稿走原子写入加指纹校验；api_key 不进 git；AI 生成链路不 spawn 任何 CLI 子进程（要用的内核模块直接 import），历史轨迹与启动迁移会 spawn 本地 Git（Windows 需预装，见上方使用须知）；对话和工作流的事件 append-only 全量落库（每本书一个 SQLite，在 userData 下），要清理去「事件审计」视图里手动删。
 

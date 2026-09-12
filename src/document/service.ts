@@ -33,7 +33,7 @@ import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { safeDocId, resolveWithinRoot, docJoinKey, platformCaseFold } from '../fs/safe-path.js'
 import { atomicWriteFile, createFileExclusive, linkOrRenameExclusive, renameWithRetry, rmWithRetry } from '../fs/atomic.js'
-import { canonicalizeText, bufferNeedsCanonical } from '../fs/text-canonical.js'
+import { canonicalizeText, bufferNeedsCanonical, toNfcName } from '../fs/text-canonical.js'
 import { computeRevision, computeRevisionBytes, type Revision } from './revision.js'
 import { layoutOf, roleOf, isInternalBookPath } from './layout.js'
 import { appendAborted, appendMovePending, appendPending, appendSettled } from './journal.js'
@@ -840,7 +840,15 @@ export class DocumentService {
       // 真相源引入 service↔lead-finalize 循环 import——后者已反向 import isUtf8Bytes）
       // R45-2（四十五轮）：折叠改委托 safe-path platformCaseFold 单源——safe-path 为
       // 底层叶子模块，委托不引入循环 import；前缀过滤/join/'.lock' 管线不变，键字节不变
-      return platformCaseFold(key)
+      // 重评-0912-2 P2-3（2026-09-12 全量重评修复批）：折叠前补 toNfcName（先 NFC 后
+      // 大小写折叠，与文档身份键 docJoinKey = relPathKey(toNfcName(p)) 同序并齐）——
+      // mac 上清单登记路径（NFC 为主）与磁盘扫描路径（NFD，外源工具常产）此前对同一
+      // 布线文件派生两个不同 .lock 文件名，保存链与终稿链（锁内重读-合并-写回）互斥
+      // 静默失效（丢失更新窗）。join(bookRoot, relPath) 后整段 NFC 安全：分隔符 / 不受
+      // 组合字符影响（docJoinKey 注释同口径）；NFC 输入键字节不变（与 R45-2 字节稳定
+      // 不变量相容），仅 NFD 输入键变化；lead-finalize 侧（wiringFileLockKeyOf）与
+      // files.ts PUT 侧（wiringLockKeyForPut）同批同式，三侧仍逐位一致
+      return platformCaseFold(toNfcName(key))
     }
     return null
   }

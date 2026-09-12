@@ -143,6 +143,18 @@ const bySampleScore = (a: SampleCandidate, b: SampleCandidate): number => b.打�
 /** 金句终排序键：章号倒序（A5 口径，稳定 → 同章保 push 序）。 */
 const byQuoteChapter = (a: QuoteCandidate, b: QuoteCandidate): number => b.章号 - a.章号
 
+// R0912-2 P3（2026-09-12 全量重评修复批）：码点计数单源（for-of 迭代码点，零分配）——
+// String.length 是 UTF-16 码元，含增补平面字符（emoji/生僻字）的文本 length 偏大
+//（代理对一符双计）被长度上限误杀。算法与 process/summary.ts 的 codePointLength
+// 同构（代理对合 1 计）；后者依赖链拖入 AI 编排栈、不引入（learn 头注「纯脚本」
+// 边界，R0912-7 同判）。样章块长与金句句长（R0912-7 的内联形态在本批收敛至此）
+// 两处共用本函数，口径单源、漂移风险由本注钉住。
+function codePointLength(s: string): number {
+  let n = 0
+  for (const _cp of s) n++
+  return n
+}
+
 export async function learnFromBook(bookRoot: string): Promise<LearnResult> {
   // 1. 扫描定稿正文
   const bodyDir = join(bookRoot, '写作', '正文')
@@ -235,8 +247,14 @@ async function learnFromBookLocked(bookRoot: string, bodyDir: string): Promise<L
     readCount++
     const body = r.body.trim()
     // 样章候选（同章内完成，body 出章即无引用——单遍流式的峰值单位）
-    const blocks = body.split(/\n\n+/).filter((b) => {
-      const len = b.trim().length
+    // R0912-2 P3（2026-09-12 全量重评修复批）：切分正则 `(?:\r?\n){2,}` = 2 个以上
+    // 换行单位（可选 \r + \n）——原 `/\n\n+/` 只认连续 LF，CRLF 存量/外部编辑章
+    //（\r\n\r\n）切不开、整章成一块超 500 被滤，样章候选静默全灭；混合形态
+    //（\r\n\n、\n\r\n）同命中且分隔符整体消费不残留 \r。块长过滤同批由 UTF-16
+    // .length 改码点计数（codePointLength 单源，与金句 R0912-7 同口径）——含
+    // emoji/增补平面字符的段 length 双计偏大被 500 上限误杀。
+    const blocks = body.split(/(?:\r?\n){2,}/).filter((b) => {
+      const len = codePointLength(b.trim())
       return len >= 50 && len <= 500
     })
     for (const block of blocks) {
@@ -264,9 +282,10 @@ async function learnFromBookLocked(bookRoot: string, bodyDir: string): Promise<L
     // 阈值语义不变（10/50 码位）；process/summary.ts 的 codePointLength 单源在本批
     // 不引入（其依赖链拖入 AI 编排栈，learn 头注「纯脚本」边界），算法与 summary
     // 实现同构（代理对合 1 计），漂移风险由两处同注钉住。
+    // R0912-2 P3（2026-09-12 全量重评修复批）：内联计数收敛至文件内 codePointLength
+    // 单源（同批样章块长过滤引入、与其同口径），算法逐位不变。
     const sentences = splitSentences(body).filter((s) => {
-      let cpLen = 0
-      for (const _cp of s) cpLen++
+      const cpLen = codePointLength(s)
       return cpLen >= 10 && cpLen <= 50 && !s.startsWith('#')
     })
     for (const s of sentences) {

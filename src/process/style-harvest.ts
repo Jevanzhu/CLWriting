@@ -10,7 +10,9 @@
 
 import { join } from 'node:path'
 import { readFileSync } from 'node:fs'
+import { yieldToEventLoop } from '../async.js'
 import { buildTree, type TreeNode } from '../document/tree.js'
+import { readMdTextCachedAsync } from '../fs/md-text-cache.js'
 import { splitFrontMatter, parseFlat } from '../format/frontmatter.js'
 import {
   listTrackedDocs,
@@ -152,7 +154,9 @@ export function harvestStyleCandidates(
  * harvestStyleCandidates 的异步孪生（R37-5 延伸，三十七轮批 A 收口）：源1 逐 doc
  * 的轨迹读走 collectDocSignalsAsync（gitAsync）。R44-13（四十四轮）补齐源1 顶部的
  * 轨迹枚举（listTrackedDocsAsync）——git 后端 for-each-ref 的同步 spawnSync 漏网
- * 已清零，HTTP 链全程不再同步 spawnSync。同步版保留供存量测试与等价性对照。
+ * 已清零，HTTP 链全程不再同步 spawnSync。重评-0912-2 P2-4（2026-09-12 全量重评
+ * 修复批）同族收尾：源1 逐 doc 章正文整读改 md-text-cache 异步缓存读 + 按 doc
+ * 让出（详见循环内注释锚）。同步版保留供存量测试与等价性对照。
  */
 export async function harvestStyleCandidatesAsync(
   bookRoot: string,
@@ -176,16 +180,21 @@ export async function harvestStyleCandidatesAsync(
     }
     walk(buildTree(bookRoot))
     const signals: DocSignals[] = []
+    // 重评-0912-2 P2-4（2026-09-12 全量重评修复批）：R44-13 同族收尾——本循环此前
+    // 残留两处同步阻塞：① 裸 readFileSync 整读章正文（不走缓存、无让出，大书冷缓存
+    // 冻结 HTTP 事件循环数百 ms 至秒级）→ 改走 md-text-cache 指纹缓存异步读
+    // readMdTextCachedAsync；② collectDocSignalsAsync 内 compareVersions 为 O(P²)
+    // 段对矩阵纯同步 CPU 计算（style-compare 无让出）→ 逐 doc 让出。至此 HTTP 链
+    // 不再同步整读/O(P²) 同步段。
     for (const docId of tracked) {
       const rel = byDocId.get(docId)
       if (!rel) continue
-      // 容错读：无 front matter 的文档整文件即正文（手写草稿常态）
-      let raw: string
-      try {
-        raw = readFileSync(join(bookRoot, rel), 'utf-8')
-      } catch {
-        continue
-      }
+      // 容错读：无 front matter 的文档整文件即正文（手写草稿常态）。
+      // 重评-0912-2 P2-4：缓存面 = 原始文本（fm 剥离留给调用方），与 readFileSync
+      // utf-8 逐位等价（无 BOM/规范化差异），splitFrontMatter 输入口径不变；消失/
+      // 读失败 → null，映射原 catch { continue } 跳过口径。
+      const raw = await readMdTextCachedAsync(join(bookRoot, rel))
+      if (raw === null) continue
       const split = splitFrontMatter(raw)
       const body = split ? split.body : raw
       const chNum = split ? Number(parseFlat(split.fmRaw).get('章号')) : NaN
@@ -196,6 +205,9 @@ export async function harvestStyleCandidatesAsync(
         Number.isInteger(chNum) && chNum > 0 ? chNum : undefined,
       )
       if (s) signals.push(s)
+      // 重评-0912-2 P2-4：按 doc 让出（yieldToEventLoop 单源 src/async.ts）——
+      // O(P²) 段对矩阵同步段后交还事件循环，不让下一个 doc 的重算接连冻结。
+      await yieldToEventLoop()
     }
     candidates.push(...aggregateSignals(signals, today))
   }

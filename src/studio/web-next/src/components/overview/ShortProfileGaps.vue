@@ -83,14 +83,7 @@ const reversalUnrecognized = computed(() => {
 </template>
 
 <style scoped>
-/* 面板基础（与 OverviewView 同式） */
-.panel {
-  background: var(--background-primary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-l);
-  padding: 18px 20px;
-  animation: clw-fade-up var(--dur-fast) var(--ease-out) both;
-}
+/* .panel 基础走全局 style-shared.css（R0912-C2 收敛批装载；重评-0912-2 P3 删「与 OverviewView 同式」重复块，声明逐字相同零视觉差） */
 
 .head-legend { margin-left: auto; font-weight: 400; font-size: var(--font-size-xs); color: var(--text-muted); }
 

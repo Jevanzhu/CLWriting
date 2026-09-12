@@ -18,9 +18,11 @@ export interface BookState {
   /**
    * R0912-FE-P2-3（2026-09-11 重评-0911b 修复批）：态 1 崩溃 pending 的 opId 清单透出位
    * （对应 crashedWrite 体检项 files 字段，journal findUnsettled 的未结算 save pending）。
-   * 服务端 /state payload 组装处（studio/server/api/state.ts）本批尚未透出该字段——
-   * 前端先行接线（api 封装 + WbStateCard 忽略按钮），字段缺省/空数组时按钮不渲染，
-   * 服务端补透出后即生效。opId 即 POST /journal/:opId/acknowledge 的路径参数。
+   * 服务端 /state payload 组装处（studio/server/api/state.ts）已透出该字段（R0912 修复批），
+   * WbStateCard 忽略按钮与 WorkbenchView acknowledge 链已消费；字段缺省/空数组时按钮不渲染。
+   * opId 即 POST /journal/:opId/acknowledge 的路径参数。
+   * 重评-0912-2 P3（2026-09-12 全量重评修复批）：过期现状注释修账——原文误记「服务端尚未透出、
+   * 前端先行接线」，实际服务端已透出且两端已消费。
    */
   crashedPendingOpIds?: string[]
 }

@@ -198,6 +198,13 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
 <template>
   <!-- 消息区：无气泡感，用户消息浅卡片右对齐，AI 消息纯文本全宽 -->
   <div ref="scrollRef" class="chat-messages" @scroll="onScroll">
+    <!-- 重评-0912-2 P3（2026-09-12 全量重评修复批）：历史尾窗截断提示——L-S2 起
+         fetchChatHistory limit=200 尾窗生效时旧消息不进种子化，此前 truncated 全前端
+         零消费、旧内容静默消失无提示（设计意图即提示作者：更早在事件库/审计视图可查）。
+         truncated 取 store 最近一次视图加载（seedHistory/switchBranch）的权威口径。 -->
+    <div v-if="chat.historyTruncated" class="chat-truncated-hint">
+      仅显示最近 200 条对话，更早内容见审计视图
+    </div>
     <div v-if="!chat.hasMessages && !chat.running" class="chat-empty">
       <MessageSquareText :size="32" class="chat-empty-icon" />
       <p class="chat-empty-title">和 AI 聊聊你的故事</p>
@@ -490,6 +497,14 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
   padding: var(--size-4-2);
   border-radius: var(--radius-s);
   background: var(--background-secondary);
+}
+
+/* ── 重评-0912-2 P3：历史尾窗截断提示（列表顶部 muted 一行，轻量无底色） ── */
+.chat-truncated-hint {
+  align-self: center;
+  font-size: var(--font-size-xs);
+  color: var(--text-faint);
+  padding: var(--size-4-1) 0;
 }
 
 /* ── G1：变体切换器 + 重新生成 ── */

@@ -31,7 +31,7 @@ import {
   appendRewritten,
   lineDiff,
 } from '../../../process/rewrite-prompt.js'
-import { acquireTaskGate } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
+import { acquireTaskGate, orchestrationBusyFor } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
 import { getDriver, ensureSession } from '../../../driver/index.js' // R0912-P2-①：中断通道注册面
 import type { Session } from '../../../driver/types.js'
 
@@ -93,6 +93,15 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
     if (isSpawnRunning(params['name']!)) {
       return replyError(res, 409, 'BUSY', '本书正在手动写稿，先等它跑完或中断再发起改写')
     }
+    // 重评-0912-2 P2-1（2026-09-12 全量重评修复批）：补 chat/后台收尾互斥面——同族生成端点
+    // （analyze/outline/onboard-ai/relations.mine/lead-updates）入口均走 orchestrationBusyFor
+    // （含 isChatRunning + hasBackgroundTasks），本端点此前只有 self-heal（R66-2）/spawn（R70-3）
+    // 两个单独补查面：纯文本对话在途时编辑器整章改写仍可并发起跑（双份 LLM 费用 + 过期基线
+    // 提案）——反方向已封（chat.send/auto-write/chat.clear 用 allHeldTaskGatesFor，'rewrite'
+    // 闸在持时对话 409），唯正向漏，矩阵不对称。组合方式照 lead-updates 先例：与前两面覆盖
+    // 重叠（self-heal/spawn）时上方既有检查先命中，既有文案语义不变。
+    const busyOrch = orchestrationBusyFor(params['name']!)
+    if (busyOrch) return replyError(res, 409, 'BUSY', busyOrch)
     // RB-SV-P2-2：长任务并发闸（整章改写分钟级，重复点击=双倍费用）
     const release = acquireTaskGate(params['name']!, 'rewrite')
     if (!release) return replyError(res, 409, 'BUSY', '本书已在改写中，请等待完成后再试')
