@@ -78,6 +78,9 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown, true))
   color: var(--text-muted);
   line-height: 1.6;
   margin-bottom: var(--size-4-4);
+  /* 阶段 24：多行确认 message（结构操作干跑预览列表）按换行渲染——既有 message 均
+     单行无 \n，行为不变 */
+  white-space: pre-line;
 }
 .cp-actions {
   display: flex;

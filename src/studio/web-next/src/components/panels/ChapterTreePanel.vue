@@ -13,6 +13,7 @@ import { defaultExpandedDirs } from '../../shared/chapter-tree'
 import { treeFirstOpenKey } from '../../shared/storage-keys'
 import ChapterTreeItem from './ChapterTreeItem.vue'
 import ChapterMetaDialog from './ChapterMetaDialog.vue'
+import SplitChapterDialog from './SplitChapterDialog.vue'
 import { friendlyError } from '../../shared/error'
 
 // 章节树面板：GET /tree → groupTree 分组 → 递归渲染 + 六态角标 + 展开态持久化
@@ -43,7 +44,8 @@ const tabstopPath = computed<string | null>(() => {
 // --- 右键菜单（构建 + 原生/浏览器分派）---
 const menuNode = ref<TreeNode | null>(null)
 const { isNative, menuVisible, menuX, menuY, menuItems, popup, onPopupSelect, onPopupClose } = useNativeMenu()
-const menu = useTreeMenu(() => ({ grouped: tree.grouped, raw: tree.raw }))
+// 阶段 24：activeDocId 访问器传入——「在光标处拆分」只对当前打开章显示
+const menu = useTreeMenu(() => ({ grouped: tree.grouped, raw: tree.raw }), { activeDocId: () => ws.activeDocId })
 
 // --- CRUD 动作（inline 新建/重命名/删除/移动/复制/篇章信息/批量定稿 + 菜单分发）---
 const actions = useChapterTreeActions({
@@ -239,6 +241,13 @@ watch(
       :is-piece="actions.metaEditing.value?.isPiece ?? false"
       @update:model-value="(v: boolean) => { if (!v) actions.metaEditing.value = null }"
       @save="actions.onSaveMeta"
+    />
+    <!-- 阶段 24（S4）：拆分弹窗（干跑视图 + 标题输入；确认后携 planHash 执行） -->
+    <SplitChapterDialog
+      :model-value="!!actions.splitEditing.value"
+      :plan="actions.splitEditing.value?.plan ?? null"
+      @update:model-value="(v: boolean) => { if (!v) actions.splitEditing.value = null }"
+      @confirm="actions.onSplitCommit"
     />
   </div>
 </template>

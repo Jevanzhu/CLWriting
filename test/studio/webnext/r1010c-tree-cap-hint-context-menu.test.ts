@@ -75,6 +75,7 @@ vi.mock('../../../src/studio/web-next/src/composables/useChapterTreeActions', ()
     renamePath: { value: null },
     draggedPath: { value: null },
     metaEditing: { value: null },
+    splitEditing: { value: null },
     resetInlineState: vi.fn(),
     dispatchCreate: vi.fn(),
     onMenuSelect: vi.fn(),
@@ -84,12 +85,16 @@ vi.mock('../../../src/studio/web-next/src/composables/useChapterTreeActions', ()
     onRenameCancel: vi.fn(),
     onDrop: vi.fn(),
     onSaveMeta: vi.fn(),
+    onSplitCommit: vi.fn(),
   }),
 }))
 vi.mock('../../../src/studio/web-next/src/components/ui/ContextMenu.vue', () => ({
   default: { template: '<div />' },
 }))
 vi.mock('../../../src/studio/web-next/src/components/panels/ChapterMetaDialog.vue', () => ({
+  default: { template: '<div />' },
+}))
+vi.mock('../../../src/studio/web-next/src/components/panels/SplitChapterDialog.vue', () => ({
   default: { template: '<div />' },
 }))
 

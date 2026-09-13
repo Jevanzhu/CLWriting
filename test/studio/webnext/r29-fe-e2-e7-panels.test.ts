@@ -149,6 +149,8 @@ const actionsMock = vi.hoisted(() => ({
   onDrop: vi.fn(),
   onSaveMeta: vi.fn(),
   dispatchCreate: vi.fn(),
+  splitEditing: { value: null },
+  onSplitCommit: vi.fn(),
 }))
 vi.mock('../../../src/studio/web-next/src/composables/useNativeMenu', () => ({
   useNativeMenu: () => ({
@@ -177,6 +179,7 @@ vi.mock('../../../src/studio/web-next/src/components/panels/ChapterTreeItem.vue'
   },
 }))
 vi.mock('../../../src/studio/web-next/src/components/panels/ChapterMetaDialog.vue', () => ({ default: { template: '<div />' } }))
+vi.mock('../../../src/studio/web-next/src/components/panels/SplitChapterDialog.vue', () => ({ default: { template: '<div />' } }))
 
 import ChapterTreePanel from '../../../src/studio/web-next/src/components/panels/ChapterTreePanel.vue'
 import { useDocStore } from '../../../src/studio/web-next/src/stores/doc'

@@ -15,8 +15,9 @@ import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { atomicWriteFile, atomicWriteStream, renameWithRetry } from '../fs/atomic.js'
 import { canonicalizeText } from '../fs/text-canonical.js'
-import { readChapterDir } from '../format/chapters.js'
+import { readChapterDir, isPublishedValue } from '../format/chapters.js'
 import { readFile } from '../format/frontmatter.js'
+import { chapterFilePrefix } from '../format/words.js'
 import { matchFenceLine } from '../format/fence.js'
 import { readBookConfig } from '../format/yaml.js'
 import { sanitizeFileNamePart, isMdFileName } from '../format/filename.js'
@@ -83,6 +84,15 @@ interface ExportUnit {
   num: number
   title: string
   path: string
+  /** S2（阶段 24）：排序键 = fm `序` ?? 章号（D2 缺省语义；无 序 旧书 = 章号，零漂移）。 */
+  sortKey: number
+  /** S2（阶段 24）：D7 已发布判据（readChapterDir `_raw.已发布` 解析，B.4——导出侧
+   *  现状不读 fm `已发布`，published 判定在 units 组装时带出）。 */
+  published: boolean
+  /** S2（阶段 24）：D7 分流呈现号（排序后赋值）——已发布章固定本地章号；其后未发布段
+   *  从「已发布最大章号+1」按 sortKey 序位连续编（留洞制：合并/拆分产生的章号空洞在
+   *  投稿分章前缀上闭合）。仅分章文件名前缀消费；全本/投稿视图/文案引用维持本地章号。 */
+  displayNum?: number
 }
 
 /**
@@ -271,8 +281,19 @@ export function exportBook(options: ExportOptions): ExportResult {
   const relPosix = (p: string): string => relative(bookRoot, p).replace(/\\/g, '/')
   const { chapters, errors } = readChapterDir(bodyDir)
   for (const e of errors) warnings.push(`${relPosix(e.file)}: ${e.message}`)
+  // S2（阶段 24）：units 组装带出 sortKey（序 ?? 章号）与 published（_raw.已发布）——
+  // readChapter 已将 `已发布` 容错落 _raw（中文键不在 KNOWN_FM_KEYS），经 isPublishedValue
+  // 单源判定（与树 probe regex 同式）
   const units: ExportUnit[] = chapters.flatMap((ch) =>
-    ch._path ? [{ num: ch.章号, title: ch.标题, path: ch._path }] : [],
+    ch._path
+      ? {
+          num: ch.章号,
+          title: ch.标题,
+          path: ch._path,
+          sortKey: ch.序 ?? ch.章号,
+          published: isPublishedValue(ch._raw?.['已发布']),
+        }
+      : [],
   )
   if (units.length === 0 && warnings.length > 0) {
     return { ok: false, files: [], chapterCount: 0, unit: '章', finalizedFilter: 'applied', error: `章解析失败：${warnings.join('; ')}` }
@@ -353,8 +374,17 @@ export function exportBook(options: ExportOptions): ExportResult {
     }
   }
 
-  // 2. 按章号数值排序（不依赖文件名字符串序）
-  filtered.sort((a, b) => a.num - b.num)
+  // 2. 按排序键数值排序（S2：`序 ?? 章号`——不依赖文件名字符串序；tie 章号保稳定）
+  filtered.sort((a, b) => a.sortKey - b.sortKey || a.num - b.num)
+
+  // S2（阶段 24）D7 分流：已发布章固定本地章号，其后未发布段从「已发布最大章号+1」
+  // 按 sortKey 序位连续编。全无已发布章时（旧书常态）从 1 连续编——无 `序` 且章号
+  // 连续的旧书 displayNum ≡ num，零漂移；章号空洞（合并留洞）在分章前缀上闭合。
+  {
+    const maxPublished = filtered.reduce((m, u) => (u.published ? Math.max(m, u.num) : m), 0)
+    let next = maxPublished + 1
+    for (const u of filtered) u.displayNum = u.published ? u.num : next++
+  }
 
   // 3. 准备导出目录（母本 6.2 工作区/导出/）
   const exportDir = join(bookRoot, '工作区', '导出')
@@ -470,11 +500,12 @@ export function exportBook(options: ExportOptions): ExportResult {
   // 晚于声明执行」侥幸不触发 TDZ）——结构脆弱：后续在声明执行前新增任何 writeSplit
   // 调用即 ReferenceError；声明上移到闭包定义之前，消除对调用时序的隐式依赖（行为不变）。
   const splitUsed = new Set<string>() // R62-15：分章产物文件名占用集（撞名序号判定）
-  const writeSplit = (unit: { num: number; title: string; path: string }, body: string): void => {
+  const writeSplit = (unit: { num: number; title: string; path: string; displayNum?: number }, body: string): void => {
    try {
-    // R69-22（十七轮）：3 位 → 4 位，与正文写侧章文件名（format/words.ts 4 位）对齐
-    //——长篇分章产物 005-x.md 与源 0005-x.md 命名族分裂（纯观感，分章为终端产物无下游）。
-    const prefix = `${String(unit.num).padStart(4, '0')}-`
+    // S2（阶段 24）：分章前缀走 displayNum（D7 分流）+ chapterFilePrefix 单源收编
+    //（原内联 padStart(4) 未走写侧单源，CC-P2-21 家族）；文案章号引用维持本地章号。
+    const display = unit.displayNum ?? unit.num
+    const prefix = chapterFilePrefix(display, 'chapter')
     const baseName = sanitizeFileName(unit.title, FILENAME_MAX_BYTES - Buffer.byteLength(prefix) - Buffer.byteLength('.md'))
     // R62-15：同章号+同标题（手工复制备份 / 网盘同步副本「xxx 2.md」形态）撞名——
     // 此前 atomicWriteFile 直写同路径幂等替换，chapterCount 与 files 却计两次，两章只

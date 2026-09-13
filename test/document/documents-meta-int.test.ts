@@ -10,10 +10,11 @@
  * 形态，按 helper 约定保留本地请求函数（helpers/studio-server.ts 头注）。
  */
 import http from 'node:http'
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, existsSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
+import { legacyId } from '../../src/document/stable-id.js'
 
 const BOOK = '章号整数测试书'
 let studio: StudioHarness
@@ -105,5 +106,28 @@ describe('低-3（第十轮）：PATCH meta 章号 fail-closed 整数校验', ()
     const bookRoot = join(workDir, BOOK, '写作', '正文')
     expect(existsSync(join(bookRoot, '0001-开篇.md'))).toBe(false)
     expect(readFileSync(join(bookRoot, '0005-开篇.md'), 'utf-8')).toMatch(/章号: 5/)
+  })
+})
+
+describe('阶段 24：op=meta 不摘 序/并入 结构键', () => {
+  it('章 fm 含 序: 7 + 并入: [5] → 更新 标题（含 rename 链）→ 落盘两键仍在、值不变', async () => {
+    // 独立夹具（不动 doc_1 既有链）：新章文件 + legacyId 收编（lookup 扫盘反查登记）
+    const rel = '写作/正文/0002-合并目标.md'
+    writeFileSync(
+      join(workDir, BOOK, rel),
+      '---\n章号: 2\n标题: 合并目标\n序: 7\n并入: [5]\n---\n合并目标正文。\n',
+    )
+    const r = await patchMeta(legacyId(rel), { 标题: '合并目标改' })
+    expect(r.status).toBe(200)
+    expect((r.json as { ok: boolean }).ok).toBe(true)
+    // 长篇 rename 链：文件名按 章号4位-标题.md 重命名；fm 走 patchFlatFm 文本级补丁，
+    // 非目标键行（序/并入）逐字节保留
+    const bookRoot = join(workDir, BOOK, '写作', '正文')
+    expect(existsSync(join(bookRoot, '0002-合并目标.md'))).toBe(false)
+    const after = readFileSync(join(bookRoot, '0002-合并目标改.md'), 'utf-8')
+    expect(after).toMatch(/序: 7/)
+    expect(after).toMatch(/并入: \[5\]/)
+    expect(after).toMatch(/标题: 合并目标改/)
+    expect(after).toContain('合并目标正文。')
   })
 })

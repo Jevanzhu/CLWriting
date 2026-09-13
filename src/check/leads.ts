@@ -18,6 +18,7 @@ import { LEAD_TYPES, LEAD_VERBS } from '../format/leads.js'
 import { QUOTE_OPEN_LENIENT, QUOTE_CLOSE_LENIENT } from './quotes.js'
 import { bodyOf } from '../format/frontmatter-core.js'
 import { chapterNoFromName } from '../format/filename.js'
+import { mergedIntoMap } from '../format/chapter-lookup.js'
 import { readMdTextCached } from '../fs/md-text-cache.js'
 
 /**
@@ -106,13 +107,22 @@ export function checkLeadsBookItems(
     }
     return chapterPathMap.get(chapter) ?? null
   }
+  // S2（阶段 24）：并入回退（D3 留洞制）——被合并源章从正文消失，履历行按源章号的
+  // 引文核验经 mergedIntoMap 回退到目标章正文（正文命中恒优先；仅 miss 时构建 Map，
+  // 闭包内 memo 防「一次三检内多次 miss 反复全书扫」）。回退口径单源 chapter-lookup.ts。
+  let mergedInto: Map<number, string> | null = null
+  const mergedTargetOf = (chapter: number): string | null => {
+    if (mergedInto === null) mergedInto = mergedIntoMap(bookRoot)
+    return mergedInto.get(chapter) ?? null
+  }
   // R47-10（四十七轮）：正文读取改走 fs/md-text-cache.ts stat 指纹缓存（此前仅本次
   // 调用内 Map——每次机检/三审打包按线索履历章号集全量重读各章正文，成熟长篇等效
   // 整读全书）。保留调用内 memo（章号 → body）避免同一章多条履历条目重复 bodyOf。
   const chapterTextCache = new Map<number, string | null>()
   const chapterTextOf = (chapter: number): string | null => {
     if (chapterTextCache.has(chapter)) return chapterTextCache.get(chapter) ?? null
-    const path = chapterPathOf(chapter)
+    // S2：按名 miss → 并入回退目标章路径（回退后仍按同一读取口径处理）
+    const path = chapterPathOf(chapter) ?? mergedTargetOf(chapter)
     // 低级项（第六轮）：章文件存在但读失败（权限/扫描后瞬删竞态）不崩整个三检——
     // 视同缺失走 lead-evidence-unverifiable 黄项提示作者，而非异常上抛拦截全部检查
     let text: string | null = null

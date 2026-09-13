@@ -9,6 +9,8 @@
  * 写端点的 Origin 白名单 + x-studio-token 校验由 server/index.ts 统一拦截（defense-in-depth）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { realpathSync } from 'node:fs'
+import { sep } from 'node:path'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError, parseRequestUrl } from '../http.js'
 import { resolveBook, bookMovedFailure } from '../book-context.js'
@@ -29,13 +31,33 @@ import { afterFinalizeGenerateSummary, afterFinalizeGenerateSummaryBatch } from 
 // 取得失败）退化为不登记，与修复前等价
 import { ensureSession, getDriver } from '../../../driver/index.js'
 import { invalidateBookSummary } from './progress.js'
-import { acquireTaskGate } from './task-gate.js' // CC-P2-9：批量定稿并发闸
+import { acquireTaskGate, orchestrationBusyFor } from './task-gate.js' // CC-P2-9：批量定稿并发闸
+import { isReviewRunningForBook } from './review.js'
+import { isSelfHealRunning } from '../../../ai/orchestrate/self-heal.js'
+import { isSpawnRunning } from '../../../ai/orchestrate/spawn-registry.js'
 import { readBaseline, appendBaseline, readTodayDelta, todayDate } from '../../../document/words-diary.js'
 import { listTrash, restoreTrash, purgeTrash } from '../../../document/trash.js'
 import { readForeshadows, type ForeshadowEntry } from '../../../document/foreshadow.js'
+import {
+  planChapterMerge,
+  applyChapterMerge,
+  planChapterSplit,
+  applyChapterSplit,
+  undoChapterMerge,
+  type MergeApplyResult,
+  type MergeUndoHints,
+  type SplitApplyResult,
+  type StructureRagPort,
+} from '../../../document/structure.js'
+// 阶段 24：structure 的 RAG 触点端口实现（G5 依赖反转——document 层不 import rag，
+// 由本合法层注入；方法名同 rag/index 原函数，适配零成本）
+import { cleanupRagAfterMerge, estimateRagChunkCount } from '../../../rag/index.js'
 import { openSessionStoreAsync, bookHash } from '../../../events/store.js'
 import { recordForeshadowChanges } from '../../../events/chain-bridge.js'
 import { log } from '../../../log/index.js' // R43-23（四十三轮）：伏笔观测层失败留痕
+
+/** 阶段 24：structure 的 RAG 触点端口实例（干跑预估 + 合并/撤销/拆分后清理）。 */
+const structureRag: StructureRagPort = { cleanupRagAfterMerge, estimateRagChunkCount }
 
 interface DocumentCtx {
   workDir: string | null
@@ -193,6 +215,48 @@ export function forgetForeshadowSaveChain(bookRoot: string): void {
  *  自清理）。 */
 export function __foreshadowSaveChainKeysForTest(): readonly string[] {
   return [...foreshadowSaveChains.keys()]
+}
+
+// ── 阶段 24 章节结构操作：per-book structure 串行链（draftSaveChains 同款范式）──────
+// 合并/拆分/撤销是「多文档、多步」的结构性操作（save + trash + create 三个内部各自
+// 有锁，但操作间序须整段串行：同书两次并发合并会在 fm 并入 折叠上互相覆盖）。链
+// key=书根；链单元只单向 await DocumentService 的 per-doc 队列/清单/回收站锁与 RAG
+// 清理，从不反等 books 侧锁，drain 置于既有四 drain 之后不引入环。链内临界段首行
+// bookMovedFailure 单源重验（readJson await 窗口内书可被删/改名，重评-0912-4 P2-1
+// 同款幽灵目录防线）。
+const structureChains = new Map<string, Promise<unknown>>()
+
+function enqueueStructureOp<T>(bookRoot: string, critical: () => Promise<T>): Promise<T> {
+  const prev = structureChains.get(bookRoot) ?? Promise.resolve()
+  const task = prev.then(critical, critical)
+  const settled = task.catch(() => { /* 续链副本吞错；真实结果经 task 传递 */ })
+  structureChains.set(bookRoot, settled)
+  void settled.then(() => {
+    if (structureChains.get(bookRoot) === settled) structureChains.delete(bookRoot)
+  })
+  return task
+}
+
+/** 阶段 24：等待某书在途 structure 串行链排空——books.ts 删书/改名排水段第 5 调用
+ *  （drainDraftSaveChainsUnder 同型：恰等于书根 + realpath 双口径；快照式——drain
+ *  窗口内新进链不等，由链内 bookMovedFailure 重验兜底拒绝）。 */
+export async function drainStructureChainsUnder(bookRoot: string): Promise<void> {
+  const roots = [bookRoot]
+  try {
+    const real = realpathSync(bookRoot)
+    if (real !== bookRoot) roots.push(real)
+  } catch {
+    /* 书根不存在（已删）等 → 只用词法口径 */
+  }
+  const matches = (k: string): boolean => roots.some((r) => k === r || k.startsWith(r + sep))
+  const pending = [...structureChains.keys()].filter(matches)
+  if (pending.length === 0) return
+  await Promise.allSettled(pending.map((k) => structureChains.get(k)))
+}
+
+/** 阶段 24：测试观测钩子（__draftSaveChainKeysForTest 同款）——当前在途链键只读快照。 */
+export function __structureChainKeysForTest(): readonly string[] {
+  return [...structureChains.keys()]
 }
 
 // ── R1010b-SRV-P2-1（2026-09-10 内存专项重审修复批·面 A）：书注册重验 ─────────
@@ -654,6 +718,182 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       else replyError(res, structStatus(result.code), result.code, result.reason)
     },
   })
+
+  // ── 阶段 24 章节结构操作（S3+S4）：干跑 / 执行 / 撤销合并 ──────────────
+  // 入口实序照 rewrite.ts 样板：resolveBook → self-heal/spawn 单面 → orchestrationBusyFor
+  // （chat/后台）→ review → 任务闸 'structure'（plan 干跑只读只走 resolveBook +
+  // orchestrationBusyFor，不占闸）。反向零接线——chat.send/auto-write/spawn/chat.clear/
+  // 删书 busyGate 查 allHeldTaskGatesFor 全集，'structure' 注册进 KNOWN_ACTIONS 后自动生效。
+  // （注释避免写出 acquireTaskGate 加左括号的调用形态——known-actions-audit 的 OCCUR_RE
+  // 对注释与代码同计，CALL_RE 只认真调用点，字样残留即 19≠20 假红。）
+  defineRoute('books.documents.structure-plan', {
+    method: 'POST',
+    path: '/api/books/:name/documents/:docId/structure-plan',
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
+      const r = resolveBook(ctx.workDir, params['name'])
+      if ('error' in r) return replyError(res, r.status, r.code, r.error)
+      const busy = orchestrationBusyFor(params['name']!)
+      if (busy) return replyError(res, 409, 'BUSY', busy)
+      const body = await readJson(req)
+      const docId = params['docId'] ?? ''
+      const svc = getOrCreateService(r.bookRoot, ctx.userDataPath)
+      if (body.op === 'merge') {
+        if (typeof body.sourceDocId !== 'string' || !body.sourceDocId) {
+          return replyError(res, 400, 'BAD_INPUT', 'merge 干跑需要 sourceDocId')
+        }
+        const plan = await planChapterMerge(r.bookRoot, svc, docId, body.sourceDocId, structureRag)
+        if (!plan.ok) return replyError(res, structStatus(plan.code), plan.code, plan.reason)
+        return reply(res, 200, { ok: true, plan })
+      }
+      if (body.op === 'split') {
+        const cursorOffset = Number(body.cursorOffset)
+        if (!Number.isInteger(cursorOffset) || cursorOffset < 0) {
+          return replyError(res, 400, 'BAD_INPUT', 'split 干跑需要 cursorOffset（非负整数）')
+        }
+        const plan = await planChapterSplit(r.bookRoot, svc, docId, cursorOffset)
+        if (!plan.ok) return replyError(res, structStatus(plan.code), plan.code, plan.reason)
+        return reply(res, 200, { ok: true, plan })
+      }
+      return replyError(res, 400, 'BAD_INPUT', 'op 需为 merge 或 split')
+    },
+  })
+
+  defineRoute('books.documents.structure-apply', {
+    method: 'POST',
+    path: '/api/books/:name/documents/:docId/structure-apply',
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
+      const r = resolveBook(ctx.workDir, params['name'])
+      if ('error' in r) return replyError(res, r.status, r.code, r.error)
+      if (isSelfHealRunning(params['name']!)) {
+        return replyError(res, 409, 'BUSY', '本书正在全自动写章，先等它跑完或中断再做结构操作')
+      }
+      if (isSpawnRunning(params['name']!)) {
+        return replyError(res, 409, 'BUSY', '本书正在手动写稿，先等它跑完再做结构操作')
+      }
+      const busy = orchestrationBusyFor(params['name']!)
+      if (busy) return replyError(res, 409, 'BUSY', busy)
+      // 改写正文的结构操作与三审互斥（stream.ts spawn 先例同款面）
+      if (isReviewRunningForBook(params['name']!)) {
+        return replyError(res, 409, 'BUSY', '本书三审进行中，先等它完成再做结构操作')
+      }
+      const release = acquireTaskGate(params['name']!, 'structure')
+      if (!release) return replyError(res, 409, 'BUSY', '本书结构操作进行中，请等待完成后再试')
+      try {
+        const body = await readJson(req)
+        const docId = params['docId'] ?? ''
+        const planHash = typeof body.planHash === 'string' ? body.planHash : ''
+        if (!planHash) {
+          return replyError(res, 400, 'BAD_INPUT', 'structure-apply 需要 planHash（先干跑取指纹）')
+        }
+        const sourceDocId = typeof body.sourceDocId === 'string' ? body.sourceDocId : ''
+        const title = typeof body.title === 'string' ? body.title : ''
+        const cursorOffset = Number(body.cursorOffset)
+        const svc = getOrCreateService(r.bookRoot, ctx.userDataPath)
+        // 链内首行书注册重验（readJson await 窗口内书可被删/改名）
+        type ApplyOutcome =
+          | { status: number; code: string; error: string }
+          | { result: MergeApplyResult | SplitApplyResult }
+        const outcome = await enqueueStructureOp(r.bookRoot, async (): Promise<ApplyOutcome> => {
+          const moved = bookMovedFailure(ctx.workDir, params['name'], r.bookRoot)
+          if (moved) return { status: structStatus(moved.code), code: moved.code, error: moved.reason }
+          let result: MergeApplyResult | SplitApplyResult
+          if (body.op === 'merge') {
+            if (!sourceDocId) {
+              return { status: 400, code: 'BAD_INPUT', error: 'merge 需要 sourceDocId' }
+            }
+            result = await applyChapterMerge(
+              r.bookRoot,
+              svc,
+              ctx.userDataPath,
+              {
+                targetDocId: docId,
+                sourceDocId,
+                planHash,
+              },
+              structureRag,
+            )
+          } else if (body.op === 'split') {
+            if (!title.trim()) {
+              return { status: 400, code: 'BAD_INPUT', error: 'split 需要 title（新章标题必填）' }
+            }
+            if (!Number.isInteger(cursorOffset) || cursorOffset < 0) {
+              return { status: 400, code: 'BAD_INPUT', error: 'split 需要 cursorOffset（非负整数）' }
+            }
+            result = await applyChapterSplit(
+              r.bookRoot,
+              svc,
+              ctx.userDataPath,
+              {
+                docId,
+                title,
+                cursorOffset,
+                planHash,
+              },
+              structureRag,
+            )
+          } else {
+            return { status: 400, code: 'BAD_INPUT', error: 'op 需为 merge 或 split' }
+          }
+          if (result.ok) invalidateBookSummary(r.bookRoot)
+          return { result }
+        })
+        if ('status' in outcome) return replyError(res, outcome.status, outcome.code, outcome.error)
+        const result = outcome.result
+        if (!result.ok) return replyError(res, structStatus(result.code), result.code, result.reason)
+        reply(res, 200, result)
+      } finally {
+        release()
+      }
+    },
+  })
+
+  defineRoute('books.documents.merge-undo', {
+    method: 'POST',
+    path: '/api/books/:name/documents/:docId/merge-undo',
+    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
+      const r = resolveBook(ctx.workDir, params['name'])
+      if ('error' in r) return replyError(res, r.status, r.code, r.error)
+      if (isSelfHealRunning(params['name']!)) {
+        return replyError(res, 409, 'BUSY', '本书正在全自动写章，先等它跑完或中断再做结构操作')
+      }
+      if (isSpawnRunning(params['name']!)) {
+        return replyError(res, 409, 'BUSY', '本书正在手动写稿，先等它跑完再做结构操作')
+      }
+      const busy = orchestrationBusyFor(params['name']!)
+      if (busy) return replyError(res, 409, 'BUSY', busy)
+      if (isReviewRunningForBook(params['name']!)) {
+        return replyError(res, 409, 'BUSY', '本书三审进行中，先等它完成再做结构操作')
+      }
+      const release = acquireTaskGate(params['name']!, 'structure')
+      if (!release) return replyError(res, 409, 'BUSY', '本书结构操作进行中，请等待完成后再试')
+      try {
+        // 前端恒发 JSON body（无提示时 {}）；hints 三 id 齐备时 undo 直用（apply 响应透传）
+        const body = await readJson(req)
+        const hints: MergeUndoHints = {}
+        if (typeof body.sourceDocId === 'string') hints.sourceDocId = body.sourceDocId
+        if (typeof body.sourceChapterNo === 'number') hints.sourceChapterNo = body.sourceChapterNo
+        if (typeof body.trashEntryId === 'string') hints.trashEntryId = body.trashEntryId
+        if (typeof body.rollbackSnapshotId === 'string') hints.rollbackSnapshotId = body.rollbackSnapshotId
+        if (typeof body.planHash === 'string') hints.planHash = body.planHash
+        const docId = params['docId'] ?? ''
+        const svc = getOrCreateService(r.bookRoot, ctx.userDataPath)
+        type UndoOutcome = { status: number; code: string; error: string } | { result: Awaited<ReturnType<typeof undoChapterMerge>> }
+        const outcome = await enqueueStructureOp(r.bookRoot, async (): Promise<UndoOutcome> => {
+          const moved = bookMovedFailure(ctx.workDir, params['name'], r.bookRoot)
+          if (moved) return { status: structStatus(moved.code), code: moved.code, error: moved.reason }
+          const result = await undoChapterMerge(r.bookRoot, svc, ctx.userDataPath, docId, structureRag, hints)
+          if (result.ok) invalidateBookSummary(r.bookRoot)
+          return { result }
+        })
+        if ('status' in outcome) return replyError(res, outcome.status, outcome.code, outcome.error)
+        const result = outcome.result
+        if (!result.ok) return replyError(res, structStatus(result.code), result.code, result.reason)
+        reply(res, 200, result)
+      } finally {
+        release()
+      }
+    },
+  })
 }
 
 const ORIGINS = new Set(['manual', 'autosave', 'restore', 'external-merge'])
@@ -695,13 +935,25 @@ function structStatus(code: string): number {
     case 'OCCUPIED':
     case 'REVISION_CONFLICT':
       return 409
+    // 阶段 24 章节结构操作：干跑指纹失配/无并入可撤销/回滚快照缺失均为账实状态冲突
+    //（可重试或人工处置）；非 UTF-8 存量与拆分点非法属输入问题 → 400（NOT_UTF8_TARGET
+    // 对齐 draft-save 同码档位）
+    case 'PLAN_STALE':
+    case 'NOT_MERGE_STATE':
+    case 'UNDO_NO_SNAPSHOT':
+      return 409
+    case 'NOT_UTF8_TARGET':
+      return 400
     // R1010b-SRV-P2-1（2026-09-10 内存专项重审修复批）：书注册重验失败（删书/改名
     // drain 窗口后新进单元）——账实状态冲突可重试，与 REVISION_CONFLICT/OCCUPIED
     // 冲突族同 409 档（ee-P1-3 LEAD_GATE 同口径先例）
     case 'BOOK_MOVED':
       return 409
+    // S5（阶段 24）：WRITE_ERROR 升 409 可重试档——apply 收尾段锁等待超时等瞬态写
+    // 失败的信封自带「重试将自动续跑收尾」语义（finishMerge 幂等），与 files.ts PUT
+    // 的 409 WRITE_ERROR 拒写可重试口径对齐（原 500 档让重试语义失真）
     case 'WRITE_ERROR':
-      return 500
+      return 409
     default:
       return 500
   }

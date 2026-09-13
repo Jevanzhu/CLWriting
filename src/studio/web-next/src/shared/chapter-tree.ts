@@ -130,6 +130,29 @@ export function pendingChaptersUpToIn(target: TreeNode, rawNodes: TreeNode[]): s
   return out.sort((a, b) => a.no - b.no).map((x) => x.docId)
 }
 
+/** 阶段 24（S4）：正文长篇章按树显示序扁平（grouped 已由服务端 sortTreeByOrder 按
+ *  fm `序` ?? 章号 排好，深度优先遍历即作者看到的章序；短篇 piece-body 不参与结构
+ *  操作——留洞制合并/拆分只对长篇章开放）。 */
+export function bodyChaptersInDisplayOrder(nodes: TreeNode[]): TreeNode[] {
+  const out: TreeNode[] = []
+  const walk = (ns: TreeNode[]): void => {
+    for (const n of ns) {
+      if (!n.isDirectory && n.docId && n.role !== 'piece-body' && n.path.startsWith('写作/正文/')) out.push(n)
+      if (n.children.length) walk(n.children)
+    }
+  }
+  walk(nodes)
+  return out
+}
+
+/** 显示序前一章（「并入上一章」的目标章；非章号−1——插序/跨卷后视觉上的上一章才是
+ *  作者心智中的「上一章」，与树面板渲染序一致）。无前章（首章）→ null。 */
+export function prevBodyChapterInDisplayOrder(target: TreeNode, grouped: TreeNode[]): TreeNode | null {
+  const seq = bodyChaptersInDisplayOrder(grouped)
+  const idx = seq.findIndex((n) => n.path === target.path)
+  return idx > 0 ? (seq[idx - 1] ?? null) : null
+}
+
 /** 默认展开：一级目录 + 写作/正文（正文是作者主战场，二级也展开）。 */
 export function defaultExpandedDirs(nodes: TreeNode[]): string[] {
   const dirs: string[] = []

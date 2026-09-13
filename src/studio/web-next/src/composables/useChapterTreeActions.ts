@@ -20,8 +20,13 @@ import {
   deleteDoc,
   updateChapterMetaDoc,
   batchFinalizeDocs,
+  structurePlan,
+  structureApply,
+  structureMergeUndo,
+  type MergePlanView,
+  type SplitPlanView,
 } from '../api/documents'
-import { parseChapterFileName, chapterFilePrefix } from '../shared/words'
+import { parseChapterFileName, chapterFilePrefix, splitFrontmatter } from '../shared/words'
 import {
   chapterTemplate,
   chapterOutlineTemplate,
@@ -41,6 +46,7 @@ import {
   volumeCountIn,
   nextChapterNoIn,
   pendingChaptersUpToIn,
+  prevBodyChapterInDisplayOrder,
 } from '../shared/chapter-tree'
 
 export type CreatingKind =
@@ -99,6 +105,15 @@ export function useChapterTreeActions(deps: {
     bookName: string
   } | null>(null)
   const draggedPath = ref<string | null>(null)
+  // 阶段 24（S4）：拆分弹窗态——干跑视图 + 全文光标偏移（拆分标题输入是执行参数，
+  // ui.ask 布尔确认不够用，走 SplitChapterDialog）。bookName 开弹窗时捕获（N-8 同族：
+  // 弹窗滞留期间切书后提交，docId/plan 属旧书）。
+  const splitEditing = ref<{
+    docId: string
+    bookName: string
+    cursorOffset: number
+    plan: SplitPlanView
+  } | null>(null)
 
   // --- 菜单动作分发 ---
   function onMenuSelect(key: string, node: TreeNode | null): void {
@@ -157,6 +172,9 @@ export function useChapterTreeActions(deps: {
     else if (key === 'copy-path') void onCopyPath(node)
     else if (key === 'reveal-in-folder') void onRevealInFolder(node)
     else if (key === 'delete') void doDelete(node)
+    else if (key === 'merge-into-prev') void doMergeIntoPrev(node)
+    else if (key === 'merge-undo') void doMergeUndo(node)
+    else if (key === 'split-here') void doSplitHere(node)
   }
 
   /** 批量定稿：逐个 finalizeRevision（后端串行，无锁冲突）→ 汇总 toast + 刷树。 */
@@ -497,6 +515,203 @@ export function useChapterTreeActions(deps: {
     }
   }
 
+  // --- 章节结构操作（阶段 24 S3+S4：并入上一章 / 撤销并入 / 光标拆分）---
+  // 服务端为唯一真相（结构键/回收站/事件），动作前照 doDelete 范式先落盘脏内容——
+  // 结构操作以盘上内容为准，脏内容不落盘就动结构会「合并了半章」。
+
+  /** 尽力落盘单章未保存内容（waitInflightSave 落定在途保存 → dirty 则静默 autosave，
+   *  origin 用 autosave 同 R48-88：内部步骤非作者动作，不弹「已保存」toast）。
+   *  false = 冲突未决或保存失败，调用方中止并提示。 */
+  async function flushUnsaved(docId: string): Promise<boolean> {
+    await doc.waitInflightSave(docId)
+    const cur = doc.get(docId)
+    if (!cur) return true
+    if (cur.conflict) return false
+    if (cur.dirty) {
+      const saved = await doc.save(docId, 'autosave')
+      if (!saved && (doc.get(docId)?.dirty ?? false)) return false
+    }
+    return true
+  }
+
+  /** 并入上一章：显示序前一章为目标（prevBodyChapterInDisplayOrder，非章号−1）→
+   *  干跑 → ui.ask 确认（.cp-modal 动线，引文预演/RAG 预估入 message）→ 携指纹执行。 */
+  async function doMergeIntoPrev(node: TreeNode): Promise<void> {
+    if (!node.docId) return
+    // FE-1 同族：书名入口捕获——确认弹窗滞留期间切书后，docId 属旧书（错书结构操作）
+    const book = deps.bookName()
+    const prev = prevBodyChapterInDisplayOrder(node, tree.grouped)
+    if (!prev?.docId) return
+    // 两章都可能开着脏内容（源章 = 右键目标、目标章 = 前一章可能在别的 tab）——都先落盘
+    for (const id of [prev.docId, node.docId]) {
+      if (!(await flushUnsaved(id))) {
+        ui.toast('有章节未保存的修改无法自动落盘（保存失败或版本冲突），请先处理后再并入', 'error')
+        return
+      }
+    }
+    let plan: MergePlanView
+    try {
+      const r = await structurePlan(book, prev.docId, { op: 'merge', sourceDocId: node.docId })
+      plan = r.plan as MergePlanView
+    } catch (e) {
+      if (deps.bookName() !== book) return // R34D-21：切书后旧书报错不写新书界面
+      deps.openError.value = friendlyError(e)
+      return
+    }
+    if (plan.op !== 'merge') return
+    // 干跑即拦（apply 侧同款 400，提前到确认框前——不让作者确认后才被拒）
+    if (plan.encodingSuspect) {
+      deps.openError.value =
+        '任一章是非 UTF-8 编码的存量文件（GBK 等旧档），并入会失真——请先在编辑器外转码为 UTF-8 再操作'
+      return
+    }
+    const missCount = plan.leadPreviews.filter((x) => !x.willMatch).length
+    const lines = [
+      `将「${plan.sourceTitle}」（第 ${plan.sourceChapterNo} 章，约 ${plan.sourceWords} 字）并入「${plan.targetTitle}」？`,
+      '',
+      `· 源章移入回收站，可随时右键「撤销并入」还原`,
+      `· 目标章 并入 记录：第 ${plan.mergedInto.join('、')} 章`,
+    ]
+    if (plan.leadPreviews.length) {
+      lines.push(`· 履历引文预演：${plan.leadPreviews.length} 条中 ${missCount} 条合并后将失配（体检红）`)
+    }
+    if (plan.ragChunksToClear > 0) {
+      lines.push(`· RAG 向量清理：约 ${plan.ragChunksToClear} 块（下轮索引重建）`)
+    }
+    if (plan.sourcePreview) lines.push(`· 拼接预览：「${plan.sourcePreview}」`)
+    const ok = await ui.ask({
+      title: '并入上一章',
+      message: lines.join('\n'),
+      confirmText: '并入',
+    })
+    if (!ok) return
+    if (deps.bookName() !== book) return
+    try {
+      await structureApply(book, prev.docId, {
+        op: 'merge',
+        sourceDocId: node.docId,
+        planHash: plan.planHash,
+      })
+      if (deps.bookName() !== book) return
+      // 源章已软删：弃编辑器缓存条目 + 清误报灰显键（对齐 doDelete E-10/R33-13 口径）
+      clearFalsePositiveMarksForDoc(book, node.docId)
+      doc.discard(node.docId)
+      await tree.load(book)
+      if (deps.bookName() !== book) return
+      // 目标章正文已变——打开中的编辑器重对齐基线（对齐 onSaveMeta Y-8，防下次保存
+      // REVISION_CONFLICT：重载丢编辑 / 覆盖静默回退）
+      if (doc.get(prev.docId)) await doc.refresh(prev.docId)
+      ui.toast(`已并入「${plan.targetTitle}」（源章在回收站，可撤销并入）`, 'success')
+    } catch (e) {
+      if (deps.bookName() !== book) return // R34D-21
+      deps.openError.value = friendlyError(e)
+    }
+  }
+
+  /** 撤销并入：目标章回滚到合并前版本 + 源章从回收站还原（服务端三级定位，恒发 {}）。 */
+  async function doMergeUndo(node: TreeNode): Promise<void> {
+    if (!node.docId) return
+    const book = deps.bookName()
+    const ok = await ui.ask({
+      title: '撤销并入',
+      message: [
+        `确认撤销「${node.name}」最近一次并入？`,
+        '',
+        '· 目标章将回滚到合并前版本（合并后的新改动会丢失）',
+        '· 源章从回收站还原为独立章节',
+      ].join('\n'),
+      confirmText: '撤销并入',
+    })
+    if (!ok) return
+    if (deps.bookName() !== book) return
+    try {
+      const r = await structureMergeUndo(book, node.docId)
+      if (deps.bookName() !== book) return
+      await tree.load(book)
+      if (deps.bookName() !== book) return
+      // 目标章已回滚——打开中的编辑器重对齐基线（Y-8 口径）
+      if (doc.get(node.docId)) await doc.refresh(node.docId)
+      ui.toast(`已还原第 ${r.sourceChapterNo} 章（目标章已回滚到合并前版本）`, 'success')
+    } catch (e) {
+      if (deps.bookName() !== book) return // R34D-21
+      deps.openError.value = friendlyError(e)
+    }
+  }
+
+  /** 光标处拆分（只对当前打开章开放）：落盘脏内容 → 读编辑器光标（正文坐标 → 全文
+   *  偏移）→ 干跑 → SplitChapterDialog 输入标题 → onSplitCommit 执行。 */
+  async function doSplitHere(node: TreeNode): Promise<void> {
+    if (!node.docId) return
+    const book = deps.bookName()
+    // 菜单已按 activeDocId 过滤，此处兜底复检（快捷路径/竞态窗口）
+    if (ws.activeDocId !== node.docId) {
+      ui.toast('仅对当前打开的章节可拆分（拆分点取编辑器光标）', 'info')
+      return
+    }
+    if (!(await flushUnsaved(node.docId))) {
+      ui.toast('该章未保存的修改无法自动落盘（保存失败或版本冲突），请先处理后再拆分', 'error')
+      return
+    }
+    const readOffset = ws.editorGetCursorOffset
+    const editorOffset = readOffset ? readOffset() : null
+    if (editorOffset === null) {
+      ui.toast('未获取到编辑器光标，请先打开该章再拆分', 'error')
+      return
+    }
+    // 编辑器正文坐标 → 全文偏移（服务端拆分按含 fm 全文切片）：fm 段长 + 编辑器剥掉的
+    // 分隔换行——EditorView body computed = splitFrontmatter(c).body 去首个 \n，此处
+    // 同源换算（splitFrontmatter 单源，两端口径一致）
+    const content = doc.get(node.docId)?.content ?? ''
+    const split = splitFrontmatter(content)
+    const bodyStart = split
+      ? content.length - split.body.length + (split.body.startsWith('\n') ? 1 : 0)
+      : 0
+    const cursorOffset = bodyStart + editorOffset
+    let plan: SplitPlanView
+    try {
+      const r = await structurePlan(book, node.docId, { op: 'split', cursorOffset })
+      plan = r.plan as SplitPlanView
+    } catch (e) {
+      if (deps.bookName() !== book) return // R34D-21
+      deps.openError.value = friendlyError(e)
+      return
+    }
+    if (plan.op !== 'split') return
+    splitEditing.value = { docId: node.docId, bookName: book, cursorOffset, plan }
+  }
+
+  /** 拆分弹窗确认（标题必填已在弹窗侧校验）→ 携干跑指纹执行；成功后原章截断重对齐
+   *  + 新章开 tab。 */
+  async function onSplitCommit(title: string): Promise<void> {
+    const s = splitEditing.value
+    if (!s) return
+    splitEditing.value = null
+    const book = s.bookName
+    try {
+      const r = await structureApply(book, s.docId, {
+        op: 'split',
+        title,
+        cursorOffset: s.cursorOffset,
+        planHash: s.plan.planHash,
+      })
+      if (deps.bookName() !== book) return
+      if (!('newDocId' in r)) return // 结构上不可达（split 请求只回 SplitApplyOk）
+      // 原章已截断——打开中的编辑器（拆分前提即打开）重对齐基线，防下次保存 REVISION_CONFLICT
+      if (doc.get(s.docId)) await doc.refresh(s.docId)
+      await tree.load(book)
+      if (deps.bookName() !== book) return
+      const fresh = tree.byDocId.get(r.newDocId)
+      if (fresh?.docId) {
+        await doc.open(fresh)
+        ws.openTab(fresh.docId)
+      }
+      ui.toast(`已拆分：新章 第 ${r.newChapterNo} 章「${title}」`, 'success')
+    } catch (e) {
+      if (deps.bookName() !== book) return // R34D-21
+      deps.openError.value = friendlyError(e)
+    }
+  }
+
   // --- 移动（菜单 + 拖拽共用）---
   async function doMove(docId: string, toDir: string): Promise<void> {
     // Z-25：同 onRenameCommit——书名入口捕获
@@ -616,6 +831,7 @@ export function useChapterTreeActions(deps: {
     renamePath.value = null
     metaEditing.value = null
     draggedPath.value = null
+    splitEditing.value = null
   }
 
   return {
@@ -624,6 +840,7 @@ export function useChapterTreeActions(deps: {
     renamePath,
     metaEditing,
     draggedPath,
+    splitEditing,
     resetInlineState,
     // 动作
     onMenuSelect,
@@ -640,6 +857,10 @@ export function useChapterTreeActions(deps: {
     onRenameCommit,
     onRenameCancel,
     doDelete,
+    doMergeIntoPrev,
+    doMergeUndo,
+    doSplitHere,
+    onSplitCommit,
     doMove,
     onDrop,
     doCopy,

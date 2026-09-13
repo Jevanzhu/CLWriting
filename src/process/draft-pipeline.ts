@@ -13,6 +13,7 @@ import { canonicalizeText } from '../fs/text-canonical.js'
 import { readChapterDir } from '../format/chapters.js'
 import { countWords } from '../format/words.js'
 import { bodyOf, parseFlat, readFile } from '../format/frontmatter.js'
+import { preserveStructureFmIn } from '../format/chapter-lookup.js'
 import { resolveDraftPath } from '../format/draft.js'
 import { readKind } from '../format/kind.js'
 import { buildSettingsLayers } from './settings-context.js'
@@ -194,6 +195,11 @@ export async function saveDraft(
         throw new Error(`草稿保存目标已被占用（清单中他文档 ${e.id} 已认领 ${relPath}，等待保存锁期间发生移动/并入）——请刷新后重试`)
       }
     }
+    // 阶段 24 结构键保形回补（S3）：saveDraft 是「AI 产出强覆盖」通道，组装方
+    // （self-heal/rewrite/spawn writer）可能不带 序/并入——锁内写盘前对盘上既有键
+    // 回补，防结构键在强覆盖时丢失（self-heal 组装侧另有显式透传，两道共保；回补
+    // 先于 journal pending 与留底，快照与落盘同带结构键）。incoming 已显式含键则不覆写。
+    content = preserveStructureFmIn(absPath, content)
     // M1 覆写留底：已有文件且内容不同 → force 快照（作者手改不静默丢失；Y-3 IO 失败上抛）
     const snapshotId = snapshotBeforeOverwrite(bookRoot, relPath, content, opts?.snapshotOrigin, manifest, opts?.userDataPath)
     // 步骤 4（对齐 executeSave）：journal pending 先于写盘（含全文快照，防丢字）——

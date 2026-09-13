@@ -608,6 +608,12 @@ export function deleteChunksByChapter(db: DatabaseSync, 章号: number): void {
   prepared(db, 'DELETE FROM chunks WHERE 章号 = ?').run(章号)
 }
 
+/** 阶段 24 章节结构操作：某章向量块数（合并干跑的 RAG 清除预估，只读） */
+export function countChunksByChapter(db: DatabaseSync, 章号: number): number {
+  const row = prepared(db, 'SELECT COUNT(*) AS n FROM chunks WHERE 章号 = ?').get(章号) as { n: number } | undefined
+  return row?.n ?? 0
+}
+
 /** 已索引过的章号集合（chunks 去重；P1-28 删除检测用） */
 export function getIndexedChapterNumbers(db: DatabaseSync): number[] {
   // R0912-G1-P3-2：召回/建索引探测热路径走 prepared 缓存

@@ -27,6 +27,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:related": "vitest related --run",
     "test:coverage": "vitest run --coverage",
     "check:counts": "node scripts/check-counts.mjs",
     "check:packaging": "node scripts/check-packaging.mjs",

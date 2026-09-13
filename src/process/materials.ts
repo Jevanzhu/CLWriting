@@ -18,6 +18,7 @@ import { join } from 'node:path'
 import { walkMdEach } from '../fs/walk-md.js'
 import { readFile } from '../format/frontmatter.js'
 import { chapterNamePrefixes } from '../format/chapters.js'
+import { mergedIntoMap } from '../format/chapter-lookup.js'
 import { readChapterScenes, readDeclaredChapterScenes } from './draft-pipeline.js'
 import { prepare, type PrepareResult } from './prepare.js'
 import { selfHealRecentChapterSummaries, selfHealVolumeSummary } from './summary.js'
@@ -78,6 +79,20 @@ function readChapterBodiesByNumbers(bookRoot: string, chapterNumbers: number[]):
       if (r.ok) out.set(n, r.body)
     }
   })
+  // S2（阶段 24，D3 留洞制）：并入源章回退——RAG chunk 按章号整型键控，合并后到
+  // buildIndex 清理前的窗口内召回仍可能带源章号；按名 miss 经 mergedIntoMap 取目标章
+  // 正文（正文命中优先；回退口径单源 chapter-lookup.ts；Map 只建一次——readChapterDir
+  // 的 stat 缓存吸收重复扫描，但按章号循环内重建仍是无谓支付）
+  if (out.size < chapterNumbers.length) {
+    const merged = mergedIntoMap(bookRoot)
+    for (const n of chapterNumbers) {
+      if (out.has(n)) continue
+      const target = merged.get(n)
+      if (target === undefined) continue
+      const r = readFile(target)
+      if (r.ok) out.set(n, r.body)
+    }
+  }
   return out
 }
 

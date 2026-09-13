@@ -51,6 +51,7 @@ import { recordRuleHits } from '../rule-hits.js'
 import { recordAuthorSignal } from '../author-signal.js'
 import { recordAiVersionAsync } from '../../git/ai-track.js'
 import { writeBatchPause, clearBatchPause } from '../../state/batch-pause.js'
+import { preserveStructureFmForChapter } from '../../format/chapter-lookup.js'
 import { log } from '../../log/index.js'
 
 
@@ -1000,7 +1001,10 @@ async function runGenerate(
     // A2（五十九轮）：mock 快路（out.model === null）经 runTask 短路返回，onText 未流式——
     // 成功产出后按码位切片补发预览（与原本地 mock 快路口径一致），前端/测试能见推进
     if (out.model === null) emitMockPreview(opts, assembled.content)
-    return { status: 'ok', text: assembled.content }
+    // 阶段 24 结构键保形（S3）：assembleChapter 从零组 fm（不知 序/并入），重写既有章
+    // 前读盘上 fm 透传结构键——否则全自动写章强覆盖会静默丢掉合并去向与显示序登记
+    // （saveDraft 锁内另有 preserveStructureFmIn 兜底，两道共保）。
+    return { status: 'ok', text: preserveStructureFmForChapter(opts.bookRoot, chapter, assembled.content) }
   }
 
   // 降级：tool_use 未命中（AI 产出自由文本）→ 直接用 text

@@ -30,7 +30,7 @@ import {
 } from '../../../install/books.js'
 import { resolveBook } from '../book-context.js'
 // R1010b-SRV-P2-1/P3-1（2026-09-10 内存专项重审修复批）：伏笔保存串行链 drain + 按书 forget
-import { forgetService, drainDocumentSaves, drainForeshadowSaveChains, forgetForeshadowSaveChain } from './documents.js'
+import { forgetService, drainDocumentSaves, drainForeshadowSaveChains, forgetForeshadowSaveChain, drainStructureChainsUnder } from './documents.js'
 import { drainFilePutChainsUnder } from './files.js'
 import { drainDraftSaveChainsUnder } from './draft.js'
 import { forgetSession } from '../../../driver/index.js'
@@ -422,6 +422,11 @@ export function registerBookRoutes(ctx: BookCtx): void {
     // 单向 await saveDraft 的跨进程锁，从不反等 books 侧锁；快照式窗口由链内
     // bookMovedFailure 重验兜底。
     await drainDraftSaveChainsUnder(join(ctx.workDir, entry.path))
+    // 阶段 24 章节结构操作：structure 串行链同款 drain（第 5 个）——链单元内
+    // applyChapterMerge/applyChapterSplit 的 save/trash/create 各自会 mkdir + 落盘，
+    // 跨 rmSync 开跑会对旧书路径重建孤儿文件。死锁核查同上：链单元只单向 await
+    // DocumentService 队列/清单·回收站锁与 RAG 清理，从不反等 books 侧锁。
+    await drainStructureChainsUnder(join(ctx.workDir, entry.path))
     // M-4：闸后复查——settle 等待的 await 间隙里新 acquire 的闸（spawn/三审/task-gate）
     // 在此拦截；复检到 rmSync 之间全同步（单线程事件循环无新任务可插入），三闸 TOCTOU
     // 窗归零。
@@ -667,6 +672,8 @@ export function registerBookRoutes(ctx: BookCtx): void {
       // 重评-0912-4 P2-1：draft-save 串行链同款 drain（同删书段口径）——链单元跨
       // renameSync 落盘会对旧书路径 mkdir 重建幽灵目录树。死锁核查同删书段。
       await drainDraftSaveChainsUnder(oldRoot)
+      // 阶段 24：structure 串行链同款 drain（同删书段口径，第 5 个）。
+      await drainStructureChainsUnder(oldRoot)
       // M-4：闸后复查——同删书：settle 等待的 await 间隙新 acquire 的闸在此拦截，
       // 复检到 renameSync 之间全同步（三闸 TOCTOU 归零）。
       // R33D-7（三十三轮 dev 线）：同删书复查补 chat/self-heal（drain 段新起的对话/写稿贯穿 renameSync）。

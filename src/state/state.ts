@@ -43,6 +43,7 @@ import { parseChapterFileName } from '../format/words.js'
 import { readManifest, readManifestStrict, writeManifest, finalizedChapterNumbers, finalizedChapterSetOfBook, withManifestLockAsync, type Manifest } from '../document/manifest.js'
 import { computeRevision } from '../document/revision.js'
 import { probeCachedRevision } from '../document/tree.js'
+import { detectStructureViolations } from '../document/structure.js'
 import { safeManifestPath, docJoinKey } from '../fs/safe-path.js'
 import { walkMdEach } from '../fs/walk-md.js'
 import { readBatchPause } from './batch-pause.js'
@@ -317,7 +318,7 @@ export async function detectState(
  *  存在章节 .md 的哨兵——读侧三防线把解析级全损当合法空集 fail-open 的可见化；只加可见
  *  哨兵，不新增写阻断路径）。 */
 export interface HealthIssue {
-  kind: 'crashedWrite' | 'cloudCopy' | 'finalizedLost' | 'wiringMissing' | 'manifestEmpty'
+  kind: 'crashedWrite' | 'cloudCopy' | 'finalizedLost' | 'wiringMissing' | 'manifestEmpty' | 'structurePending'
   humanMsg: string
   fix: string
   files?: string[]
@@ -496,6 +497,27 @@ async function healthCheck(bookRoot: string, manifest: Manifest): Promise<Health
         files: ['项目/文档清单.jsonl'],
       })
     }
+  }
+
+  // ⑥ 阶段 24 S5：结构崩溃不变量（设计方案 §5.5 v3 修订）——`并入` 所指章存活于
+  // 正文 = 合并半成态（① 后崩溃：fm 已写、源章软删未起，内容暂重复可见）。挂点 =
+  // detectState 书内检查（不挂 startup-notices——server 生命周期一次性通告通道）；
+  // 态 1 报文指引两条既有收敛路径（重跑「并入上一章」幂等续跑 / 「撤销并入」整体
+  // 回退，见 structure.ts 崩溃形态分支），盘面收敛后报文自然消失。不进
+  // crashedPendingOpIds 提取（结构半成态无 journal pending 可 abort——「忽略」按钮
+  // 对无持久登记的报红是假消解，指引作者收敛才是真闭环）。
+  try {
+    for (const v of detectStructureViolations(bookRoot)) {
+      issues.push({
+        kind: 'structurePending',
+        humanMsg: `合并中断：第${v.targetChapterNo}章「${v.targetTitle}」已登记并入第 ${v.sourceChapterNo} 章，但源章仍在正文（内容暂重复）。`,
+        fix: '在章节树对目标章重新执行「并入上一章」即可幂等完成；或执行「撤销并入」整体回退。',
+        files: v.targetDocId ? [v.targetDocId] : [v.targetPath],
+      })
+    }
+  } catch (e) {
+    // R54-B-1 降级纪律：检查异常不阻断进门，warn 留痕
+    log.warn('state', `结构不变量检查异常，本轮降级跳过：${e instanceof Error ? e.message : String(e)}`)
   }
 
   return issues

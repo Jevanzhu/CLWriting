@@ -163,6 +163,15 @@ function maxWrittenChapterOf(bookRoot: string, preScanned?: ChapterMeta[]): numb
     if (!finalized.has(docJoinKey(rel))) continue // R42-5：双侧同键（扫描路径侧折叠）
     if (ch.章号 > max) max = ch.章号
   }
+  // S2（阶段 24）：并入感知——合并最高定稿章后源章摘除（正文文件 + manifest 定稿集
+  // 均已无该章号），预扫值会低估使既有履历行「第N章」被判 lead-chapter-future 假红
+  // （设计 §5.4 检查器改口：future 基准 = max(现值, 并入 在档最大源章号)）。
+  // .cache 删损重建场景（state.ts 兜底族）同面覆盖：基准消费点在此单点收口。
+  let mergedMax = 0
+  for (const ch of chapters) {
+    for (const src of ch.并入 ?? []) if (src > mergedMax) mergedMax = src
+  }
+  if (mergedMax > max) max = mergedMax
   if (max > 0) return max
   // R69-17（十七轮）：零定稿书回退全书最高现存章号——与树聚合（collectTreeIssues
   // maxWritten ?? maxExisting）同口径；此前返回 undefined 让单章侧回落被检章自身

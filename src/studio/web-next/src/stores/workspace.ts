@@ -55,6 +55,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   let insertTick = 0
   /** 编辑器选区读取器（EditorView onMounted 注册；选段改写读当前选区）。null = 无编辑器。 */
   const editorGetSelection = ref<(() => string) | null>(null)
+  /** 编辑器光标偏移读取器（EditorView onMounted 注册；章节拆分读当前光标）。null = 无编辑器。 */
+  const editorGetCursorOffset = ref<(() => number | null) | null>(null)
   const bookName = ref<string | null>(null)
 
   // ── 书库级 prefs 加载/持久化 ──
@@ -393,6 +395,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   function setEditorGetSelection(fn: (() => string) | null): void {
     editorGetSelection.value = fn
   }
+  /** 注册/注销编辑器光标偏移读取器（EditorView mount/unmount；章节拆分读光标位）。
+   *  坐标系 = 编辑器正文（fm 已剥离），调用方自行换算全文偏移——服务端拆分按含 fm
+   *  全文切片，两端换算口径见 useChapterTreeActions.doSplitHere。null = 无编辑器。 */
+  function setEditorGetCursorOffset(fn: (() => number | null) | null): void {
+    editorGetCursorOffset.value = fn
+  }
 
   return {
     leftOpen,
@@ -426,5 +434,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     consumeInsert,
     editorGetSelection,
     setEditorGetSelection,
+    editorGetCursorOffset,
+    setEditorGetCursorOffset,
   }
 })
