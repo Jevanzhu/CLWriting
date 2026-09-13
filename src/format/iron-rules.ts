@@ -129,6 +129,14 @@ function cloneIronRules(r: IronRules): IronRules {
 const IRON_RULES_CACHE_MAX = 64
 const ironRulesCache = new Map<string, { fp: string; rules: IronRules }>()
 
+/** 复审-0913-源码 P3-⑩：按书清 readIronRules 指纹缓存——books.ts 删书/改名
+ *  forgetBookKeyedCaches 挂点同族收编（对齐同库 style-entry readEntries /
+ *  forgetEntriesCache 先例）：指纹 stat 摘要只覆盖「盘上输入变了」，删书/改名后
+ *  同名重建书书键复用、缓存条目成死重，正向清理消灭之。 */
+export function forgetIronRulesCache(bookRoot: string): void {
+  ironRulesCache.delete(bookRoot)
+}
+
 /**
  * R73-31：readIronRules 全部输入的 stat 指纹——铁律 md (mtimeNs,size) + 禁词条目目录
  * （count:size:maxMtimeNs:文件名FNV，目录未装 = 'no-entries'）。禁词条目库是

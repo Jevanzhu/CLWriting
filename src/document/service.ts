@@ -127,6 +127,19 @@ export function __setWiringSaveLockTimeoutForTest(ms: number): void {
   wiringSaveLockTimeoutMs = ms
 }
 
+/** 复审-0913-源码 P3-③：executeSave 主体保存锁（`<journalPath>.save.lock`）等待档
+ *  （毫秒）——原裸写 5_000 与 META/STRUCT/WIRING 三档惯例脱钩（R30-18 收口口径漏网
+ *  单点）；测试注入缩短保快（生产零调用），同 META_SAVE_LOCK_TIMEOUT_MS 惯例。 */
+export const SAVE_LOCK_TIMEOUT_MS = 5_000
+
+/** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改。 */
+let saveLockTimeoutMs = SAVE_LOCK_TIMEOUT_MS
+
+/** 测试注入钩子（生产零调用）。 */
+export function __setSaveLockTimeoutForTest(ms: number): void {
+  saveLockTimeoutMs = ms
+}
+
 /** 保存输入（W0-1 §5.1）。
  *  R34D-18（三十四轮）：content 扩为 string | Buffer——Buffer 仅恢复端点字节档分支
  *  产生（readVersionRaw 原字节透传），原字节直存闭合 R26-52「字节档恢复不失真」；
@@ -389,7 +402,7 @@ export class DocumentService {
     // SaveResult 契约（紧随的 wiring 锁已显式 catch，save 锁本体漏了）→ 收口 WRITE_ERROR
     let docSaveLock: (() => void) | null
     try {
-      docSaveLock = await acquireCrossProcessLockAsync(`${journalPath}.save.lock`, 5_000)
+      docSaveLock = await acquireCrossProcessLockAsync(`${journalPath}.save.lock`, saveLockTimeoutMs)
     } catch (e) {
       return {
         ok: false,

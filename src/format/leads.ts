@@ -8,7 +8,7 @@
  */
 
 import { readdirSync, statSync } from 'node:fs'
-import { join, basename } from 'node:path'
+import { join } from 'node:path'
 // R34D-2（三十四轮）：履历畸形行抢救失败时的 log.warn 留痕（对齐 lead-updates R26-32 手法）
 import { log } from '../log/index.js'
 import { isMdFileName } from './filename.js'
@@ -342,7 +342,11 @@ function parseLeadModel(
   // R75-2（二十三轮）：Number() 无守卫——手写「十二」→ NaN 落模型，机检章号区间
   // 比较恒 false（「未来章」误判族）、回写 NaN 扩散。对齐 chapters.ts R64-19 口径：
   // 非有限数按「未写」处理，回落默认 0（缺字段/空串语义不变）。
+  // 复审-0913-源码 P2：守卫从 isFinite 收紧为 isSafeInteger && >= 1——对齐 chapters.ts
+  // R31-15 同语义字段口径（章号 = 正整数）；-3/12.5/1e20 此前穿透 isFinite 落 opened_at，
+  // readStaleLeads 的 age = 当前章 − opened_at 被虚高（悬太久误报族）。
   const 开启章Num = Number(map.get('开启章'))
+  const 开启章合法 = Number.isSafeInteger(开启章Num) && 开启章Num >= 1
 
   // R48-8（四十八轮）：履历段解析改带 preamble 收集——标题与首条条目间的手写
   // 散文原样带回（存在才带字段），writeLead 经 stringifyHistory 原位还原
@@ -352,7 +356,7 @@ function parseLeadModel(
     标题: String(map.get('标题') ?? ''),
     类型: (map.get('类型') as LeadType) ?? '悬念',
     状态: (map.get('状态') as Lead['状态']) ?? '进行中',
-    开启章: Number.isFinite(开启章Num) ? 开启章Num : 0,
+    开启章: 开启章合法 ? 开启章Num : 0,
     履历: hist.entries,
     _bodyBeforeHistory: bodyBeforeHistory(body),
     _bodyAfterHistory: bodyAfterHistory(body),
@@ -530,9 +534,12 @@ export function readLeadDir(
 /** 从文件名提取编号（#3 第 2 节：<编号>-<标题>.md）
  *  R40-11（四十轮）：扩展名剥除大小写不敏感——basename(fileName, '.md') 只剥精确小写
  *  尾，.MD 条目（扫描侧 R34D-11 起已收）标题残留 .MD 尾，构造/扫描两口径分裂。与
- *  readLeadDir 扫描侧同走 isMdFileName 单源（mac 敏感卷上 .MD 也是合法账本文件）。 */
+ *  readLeadDir 扫描侧同走 isMdFileName 单源（mac 敏感卷上 .MD 也是合法账本文件）。
+ *  复审-0913-源码 P3-⑫：else 分支（basename('.md')）在「不以 .md 结尾」前提下等价于
+ *  原串、却暗带剥路径副作用（唯一调用方 readLeadDir 只传纯文件名）——统一为
+ *  「isMdFileName 剥 3 字符尾，否则原样」，消除「看似剥扩展名实则原样」的陷阱分支。 */
 export function parseLeadFileName(fileName: string): { 编号: string; 标题: string } | null {
-  const base = isMdFileName(fileName) ? fileName.slice(0, -3) : basename(fileName, '.md')
+  const base = isMdFileName(fileName) ? fileName.slice(0, -3) : fileName
   // 编号格式：类型-三位序号（如 悬念-031），标题在编号之后
   const m = base.match(/^(.+?-\d{3})-(.+)$/)
   if (!m) return null

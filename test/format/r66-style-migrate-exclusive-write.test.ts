@@ -92,4 +92,22 @@ describe('R66-20: 迁移条目写入 O_EXCL 排他', () => {
     expect(names).toEqual(['打斗-001.md', '打斗-002.md'])
     expect(readBody(existing)).toBe('作者已改')
   })
+
+  // 复审-0913-源码 P3-⑧：播种序号解析收编 parseSampleFileName 单源——手写正则只认
+  // 小写 .md，.MD 既有条目播种漏记、续跑新条目从 001 起与既有 .MD 撞号（O_EXCL 兜底
+  // 但编号断裂）；修复后 .MD 照常计入播种。
+  it('复审-0913-P3-⑧: 既有 .MD 条目计入播种（新序号不与之撞号）', () => {
+    const entriesDir = join(root, ENTRIES_DIR, '样章')
+    mkdirSync(entriesDir, { recursive: true })
+    const existing = join(entriesDir, '打斗-001.MD')
+    writeEntryExclusive(existing, { 类型: '样章', 场景: '打斗', 来源: '作者标注', 正文: '大写扩展名旧条目' })
+
+    makeSample('打斗', '旧样章库里的正文')
+    const result = migrateStyleLibrary(root)
+    expect(result.migrated).toBe(1)
+    const names = readdirSync(entriesDir).sort()
+    // 修复前（大小写敏感卷）：播种漏记 .MD → 新条目落 打斗-001.md 与旧条目仅差扩展名
+    expect(names).toEqual(['打斗-001.MD', '打斗-002.md'])
+    expect(readBody(existing)).toBe('大写扩展名旧条目')
+  })
 })

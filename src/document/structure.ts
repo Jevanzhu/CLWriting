@@ -24,6 +24,7 @@ import { ulid } from '../fs/id.js'
 import { canonicalizeText } from '../fs/text-canonical.js'
 import { readMdTextCached } from '../fs/md-text-cache.js'
 import { walkMdEach } from '../fs/walk-md.js'
+import { safeManifestPath } from '../fs/safe-path.js'
 import { splitFrontMatter, parseFlat, patchFlatFm, stringifyValue } from '../format/frontmatter.js'
 import { parseMergedInto, parseOrderOf, isPublishedValue } from '../format/chapters.js'
 import { mergedIntoMap } from '../format/chapter-lookup.js'
@@ -34,7 +35,6 @@ import { readManifestStrict } from './manifest.js'
 import { invalidateTreeIndex } from './tree.js'
 import { readVersion, readVersionRaw, listVersions } from './version.js'
 import { restoreTrash, listTrash } from './trash.js'
-import { computeRevision } from './revision.js'
 import { isUtf8Bytes, type DocumentService } from './service.js'
 import { readChapterUpdatesForChapter, leadEvidenceMatchesBody } from '../check/lead-updates.js'
 import { openSessionStoreAsync, bookHash, type NewEvent, type SessionStore } from '../events/store.js'
@@ -175,7 +175,10 @@ async function readChapterState(
   if (!path) return fail('NOT_FOUND', `文档ID未在清单登记：${docId}`)
   if (!path.startsWith(BODY_PREFIX)) return fail('BAD_INPUT', `目标不是正文区章文件：${path}`)
   if (layoutOf(path).role !== 'chapter') return fail('BAD_INPUT', `目标不是章文档：${path}`)
-  const abs = join(bookRoot, path)
+  // 复审-0913-源码 P2-1：清单路径可篡改数据面 defense-in-depth——resolvePathAsync 产出的
+  // path 裸 join 前经 safeManifestPath 收口（越界/非法 → BAD_INPUT 拒收，不留书外探测面）
+  const abs = safeManifestPath(bookRoot, path)
+  if (!abs) return fail('BAD_INPUT', `清单路径越界或非法：${path}`)
   if (!existsSync(abs)) return fail('NOT_FOUND', `源文件不存在：${path}`)
   let bytes: Buffer
   try {
@@ -436,7 +439,9 @@ export async function applyChapterMerge(
     // 重复可见）——重跑 = 幂等续跑，跳过 planHash/编码复核（① 已通过），直接补完
     // 收尾段；回收站无条目 + 源章不在正文 = 半成态已被人工处置，语义歧义拒收交作者
     // 先走撤销。
-    if (!existsSync(join(bookRoot, s.path))) {
+    // 复审-0913-源码 P2-1：s.abs 已是 readChapterState 经 safeManifestPath 收口的派生，
+    // 不再二次裸 join
+    if (!existsSync(s.abs)) {
       return fail('NOT_MERGE_STATE', `目标章 fm 并入 已含第${s.章号}章，但源章既不在正文也不在回收站（半成态疑似已被人工处置）——请先「撤销合并」清理 fm，或手工修正 并入 登记`)
     }
     const rollbackSnapshotId = newestVersionWithoutSource(bookRoot, input.targetDocId, s.章号) ?? undefined
@@ -511,7 +516,14 @@ async function finishMerge(
   // 确已不在原路径（文件被人工放回正文的混合态仍需补软删，跳过会让 并入 所指章
   // 永久存活、违反崩溃不变量）。
   const trashEntry = listTrash(bookRoot).find((e) => e.id === merged.sourceDocId)
-  const alreadyTrashed = trashEntry !== undefined && !existsSync(join(bookRoot, trashEntry.originalPath))
+  // 复审-0913-源码 P2-1：回收站条目 originalPath 同为清单派生可篡改面（trash.ts 恢复段
+  // 已走 safePathWithin，此处存在性探测同源收口）；路径非法不可判 → NOT_MERGE_STATE 交
+  // 作者（fail-closed：既不误判已软删跳过，也不落「进回收站失败」重试空转）
+  const srcAbs = trashEntry === undefined ? null : safeManifestPath(bookRoot, trashEntry.originalPath)
+  if (trashEntry !== undefined && srcAbs === null) {
+    return fail('NOT_MERGE_STATE', `回收站条目 originalPath 越界或非法（${trashEntry.originalPath}）——疑似人工处置过，请先「撤销合并」或手工核对盘面`)
+  }
+  const alreadyTrashed = srcAbs !== null && !existsSync(srcAbs)
   if (!alreadyTrashed) {
     const trashed = await svc.trashDocument({ docId: merged.sourceDocId })
     if (!trashed.ok) {
@@ -631,7 +643,10 @@ function locateMergeByBody(bookRoot: string, mergedInto: number[]): MergeUndoLoc
   }
   for (const [id, e] of m.entries) {
     if (e.nodeType !== 'document') continue
-    if (chapterNoFromName(basename(e.path)) === sourceChapterNo && existsSync(join(bookRoot, e.path))) {
+    if (chapterNoFromName(basename(e.path)) !== sourceChapterNo) continue
+    // 复审-0913-源码 P2-1：清单条目 path 同源收口（越界/非法条目不探测，等同未命中）
+    const abs = safeManifestPath(bookRoot, e.path)
+    if (abs !== null && existsSync(abs)) {
       return { sourceDocId: id, sourceChapterNo, trashEntryId: '', planHash: '' }
     }
   }
@@ -692,7 +707,9 @@ export async function undoChapterMerge(
   if (!existsSync(t.abs)) return fail('NOT_FOUND', `目标章文件不存在：${t.path}`)
   const rolled = await svc.save(targetDocId, t.path, {
     content,
-    expectedRevision: computeRevision(t.abs),
+    // 复审-0913-源码 P3-②：用 readChapterState 单读派生的 t.rev（R33D-18 单读同款口径）
+    // ——消整读重算；读后文件被并发改 → revision 冲突拒收（fail-closed），不静默按新基线写入
+    expectedRevision: t.rev,
     operationId: ulid(),
     origin: 'restore',
     reason: `撤销合并：回滚第${loc.sourceChapterNo}章并入前版本`,

@@ -331,5 +331,33 @@ describe('F1-P3 recordForeshadowChanges', () => {
       store.close()
     }
   })
+
+  // 复审-0913-源码 P3-⑪：配对键改 file（ForeshadowEntry 盘上唯一身份）——同标题双伏笔
+  // 此前在标题键 Map 里互相覆盖：002 先回收后 001 再回收，001 的完成变更被吞（零事件）
+  it('复审-0913-P3-⑪: 同标题双伏笔按 file 配对（标题键吞变更不再发生）', () => {
+    const ud = tmpRoot()
+    const bookRoot = '/books/f3'
+    const store = openSessionStore(ud, bookRoot)!
+    try {
+      const sessionId = store.workspaceSession(bookHash(bookRoot))
+      recordForeshadowChanges(
+        store,
+        sessionId,
+        [
+          { 标题: '双生', 状态: '未回收', file: '设定/伏笔/001-双生.md' },
+          { 标题: '双生', 状态: '已回收', file: '设定/伏笔/002-双生.md' },
+        ],
+        [
+          { 标题: '双生', 状态: '已回收', file: '设定/伏笔/001-双生.md' },
+          { 标题: '双生', 状态: '已回收', file: '设定/伏笔/002-双生.md' },
+        ],
+      )
+      const evs = store.listEvents(bookHash(bookRoot))
+      expect(evs).toHaveLength(1) // 修复前：标题键互相覆盖 → 0 事件（001 完成漏记）
+      expect(evs[0]!.data).toEqual({ operation: 'complete', title: '双生' })
+    } finally {
+      store.close()
+    }
+  })
 })
 

@@ -22,6 +22,8 @@ import {
 import { useWorkspaceStore } from '../stores/workspace'
 import { useTreeStore } from '../stores/tree'
 import { friendlyError } from '../shared/error'
+// 复审-0913-源码 P3-㉕：万字简写走 shared 单源（wordsFmt/targetFmt/avgWordsFmt 三处同收）
+import { formatWanZi } from '../shared/words'
 import WordCurveChart from '../components/overview/WordCurveChart.vue'
 import RhythmDistPanel from '../components/overview/RhythmDistPanel.vue'
 import ShortProfileGaps from '../components/overview/ShortProfileGaps.vue'
@@ -34,19 +36,27 @@ const tree = useTreeStore()
 function continueWriting(): void {
   const rc = data.value?.recentDoc
   if (!rc) return
-  const node = tree.byPath.get(rc.path)
-  if (node?.docId) {
-    ws.openTab(node.docId)
-  } else {
-    // 树未命中（树未加载/缓存旧）→ 重拉后再打开
-    // B-10（第六十轮）：在途切书守卫——重拉在途切书后旧闭包不再按 A 书树开 tab
-    const book = props.bookName
-    void tree.load(book, true).then(() => {
-      if (props.bookName !== book) return
-      const n = tree.byPath.get(rc.path)
-      if (n?.docId) ws.openTab(n.docId)
-    })
+  const book = props.bookName
+  // P3-㉒（复审-0913-源码）：byPath 命中前补书归属校验（tree.ownerBook，ChapterTreePanel
+  // R35-10 同款）——切书后旧树滞留时同路径节点属旧书，直接 openTab 会开旧书 docId
+  if (tree.ownerBook === book) {
+    const node = tree.byPath.get(rc.path)
+    if (node?.docId) {
+      ws.openTab(node.docId)
+      return
+    }
   }
+  // 树未命中（树未加载/缓存旧/属主不符）→ 重拉后再打开
+  // B-10（第六十轮）：在途切书守卫——重拉在途切书后旧闭包不再按 A 书树开 tab
+  void tree.load(book, true).then(() => {
+    if (props.bookName !== book) return
+    // R35-10：load 失败只置 error 不清 raw，旧树滞留时不得按旧树开 tab
+    if (tree.error) return
+    // ownerBook 复检：落定的树必须确属本书（与上方主分支同口径）
+    if (tree.ownerBook !== book) return
+    const n = tree.byPath.get(rc.path)
+    if (n?.docId) ws.openTab(n.docId)
+  })
 }
 
 // ── 数据 refs ─────────────────────────────────
@@ -90,14 +100,19 @@ async function loadFs(gen: number): Promise<void> {
     const r = await getForeshadows(props.bookName)
     if (gen !== loadGen) return
     foreshadows.value = r
-  } catch { /* 静默 */ }
+  } catch (e) {
+    // 降级留痕（复审-0913-源码 P3）——面板空态可重试，不打扰 UI
+    console.warn('[overview] 伏笔健康度加载失败（面板保持空态）', e)
+  }
 }
 async function loadRhythm(gen: number): Promise<void> {
   try {
     const r = await getRhythm(props.bookName)
     if (gen !== loadGen) return
     rhythmData.value = r
-  } catch {
+  } catch (e) {
+    // 降级留痕（复审-0913-源码 P3）——面板空态可重试，不打扰 UI
+    console.warn('[overview] 节奏分布加载失败（面板保持空态）', e)
     if (gen !== loadGen) return // 旧请求的失败不清新书的数据（同成功路径口径）
     rhythmData.value = null
   }
@@ -107,7 +122,9 @@ async function loadAnalysis(gen: number): Promise<void> {
     const r = await getAnalysisOverview(props.bookName)
     if (gen !== loadGen) return
     analysis.value = r
-  } catch {
+  } catch (e) {
+    // 降级留痕（复审-0913-源码 P3）——面板空态可重试，不打扰 UI
+    console.warn('[overview] 文风分析概览加载失败（面板保持空态）', e)
     if (gen !== loadGen) return // 同上
     analysis.value = null
   }
@@ -124,11 +141,11 @@ const words = computed(() => data.value?.progress.words ?? 0)
 const percent = computed(() => data.value?.progress.percent ?? 0)
 const streak = computed(() => data.value?.streak ?? 0)
 const wordsFmt = computed(() =>
-  words.value >= 10000 ? (words.value / 10000).toFixed(1) + '万' : words.value.toLocaleString(),
+  words.value >= 10000 ? formatWanZi(words.value) : words.value.toLocaleString(),
 )
 const targetFmt = computed(() => {
   const t = data.value?.progress.targetWords
-  return t ? (t >= 10000 ? (t / 10000).toFixed(0) + '万' : t.toLocaleString()) : null
+  return t ? (t >= 10000 ? formatWanZi(t, { digits: 0 }) : t.toLocaleString()) : null
 })
 const hasTarget = computed(() => !!targetFmt.value)
 // F-P1-6：Date.now() 非响应式——创作天数只在 data 变化时重算（跨日差 1 天，不影响体验）
@@ -143,9 +160,7 @@ const activeDays = computed(() => (data.value?.timeline ?? []).filter((t) => t.c
  *  摊成一个没意义的小数，作者想看的是「动笔那几天，一天写多少」。 */
 const avgWords = computed(() => (activeDays.value > 0 ? Math.round(words.value / activeDays.value) : 0))
 const avgWordsFmt = computed(() =>
-  avgWords.value >= 10000
-    ? (avgWords.value / 10000).toFixed(1) + '万'
-    : avgWords.value.toLocaleString(),
+  avgWords.value >= 10000 ? formatWanZi(avgWords.value) : avgWords.value.toLocaleString(),
 )
 const maxCount = computed(() => Math.max(1, ...(data.value?.timeline ?? []).map((t) => t.count)))
 

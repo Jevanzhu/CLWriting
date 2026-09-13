@@ -536,8 +536,10 @@ async function healMovePending(
   bookRoot: string,
   docId: string,
   p: JournalMovePending,
-  manifestMirror?: Manifest,
-  journalFile?: string,
+  // 复审-0913-源码 P3-①：唯一调用方（恢复扫描）恒传两参——必选化后 journalFile 空值
+  // 兜底分支与 encodeOrLiteralNames 死码即删（docId 冒号手写替换与 encodeDocDirName 双源）
+  manifestMirror: Manifest,
+  journalFile: string,
 ): Promise<boolean> {
   const oldAbs = safeManifestPath(bookRoot, p.oldPath)
   const newAbs = safeManifestPath(bookRoot, p.newPath)
@@ -586,11 +588,11 @@ async function healMovePending(
       }
       // R69-3（十七轮）：settled/aborted 回写沿用被扫 journal 文件（传入路径）——
       // 不再用 docId 重拼（mac 存量字面名文件会写到编码新文件、pending 永不消）。
-      await appendSettled(journalFile ?? join(journalDir(bookRoot), `${encodeOrLiteralNames(docId)[0]}.jsonl`), p.opId, computeRevision(newAbs))
+      await appendSettled(journalFile, p.opId, computeRevision(newAbs))
       return true
     }
     if (oldExists && !newExists) {
-      await appendAborted(journalFile ?? join(journalDir(bookRoot), `${encodeOrLiteralNames(docId)[0]}.jsonl`), p.opId, '恢复扫描判定：rename 未发生，清除悬置 pending')
+      await appendAborted(journalFile, p.opId, '恢复扫描判定：rename 未发生，清除悬置 pending')
       return true
     }
   } catch {
@@ -794,12 +796,6 @@ async function reconcileSavePending(
   }
   log.info('state', `save 类 pending 已确定性消解（${rel}）：盘上指纹已非 pending 基线，判定该次保存实际已落盘，补 settled 不再报红`)
   return 'settled'
-}
-
-/** docId 的 journal 文件名候选（编码在前——写侧恒编码；字面在后兜底 mac 存量）。 */
-function encodeOrLiteralNames(docId: string): string[] {
-  const encoded = docId.replace(/:/g, '_')
-  return encoded === docId ? [docId] : [encoded, docId]
 }
 
 /** 态 3：已定稿文件有未重新定稿的改动（manifest.finalizedRevision vs 当前指纹）。 */

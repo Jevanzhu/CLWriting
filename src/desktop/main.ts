@@ -1703,6 +1703,8 @@ function registerIpc(): void {
   ipcMain.handle('desktop:open-book', (e, name: unknown) => {
     if (!isTrustedSender(e)) return
     if (typeof name !== 'string') return
+    // 复审-0913-源码 P3：与 show-in-folder 同款 \0 防御对称（IPC 入参边界收口）
+    if (name.includes('\0')) return
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('desktop:navigate', `/book/${encodeURIComponent(name)}`)
       mainWindow.focus()

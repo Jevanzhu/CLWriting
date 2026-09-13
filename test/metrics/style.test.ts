@@ -33,6 +33,7 @@ import { writeBookConfig, DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import { writeChapter } from '../helpers/chapter.js'
 import { writeSample } from '../../src/format/style.js'
 import { parseIronRules } from '../../src/format/iron-rules.js'
+import { log } from '../../src/log/index.js'
 import type { ChapterMeta } from '../../src/format/types.js'
 
 const TAG_RULES = parseIronRules('对话标签占比: 50%')
@@ -327,6 +328,26 @@ test('readBaseline: 文件不存在 → null（重扫降级为仅绝对值）', 
   const root = mkdtempTracked(join(tmpdir(), 'style-nobase-'))
   expect(readBaseline(root)).toBeNull()
   rmSync(root, { recursive: true, force: true })
+})
+
+// 复审-0913-源码 P2：基线存在但损坏（坏 JSON）不再与「无基线」同判零留痕——
+// warn 带 bookRoot 与病因，作者可归因（降级语义不变：仍返回 null）
+test('复审-0913-P2: readBaseline 坏 JSON → warn 留痕 + 返回 null（降级语义不变）', () => {
+  const root = mkdtempTracked(join(tmpdir(), 'style-badbase-'))
+  mkdirSync(join(root, '文风'), { recursive: true })
+  writeFileSync(baselinePath(root), '{ 不是 JSON', 'utf-8')
+  const warn = vi.spyOn(log, 'warn').mockReturnValue()
+  try {
+    expect(readBaseline(root)).toBeNull()
+    expect(warn).toHaveBeenCalledTimes(1)
+    const [tag, msg] = warn.mock.calls[0]!
+    expect(tag).toBe('metrics')
+    expect(String(msg)).toContain(root) // bookRoot 可归因
+    expect(String(msg)).toContain('按无基线降级')
+  } finally {
+    warn.mockRestore()
+    rmSync(root, { recursive: true, force: true })
+  }
 })
 
 // ── 短篇适配（#10）─────────────────────────────────

@@ -20,25 +20,19 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
-import { openSessionStore, bookHash } from '../../src/events/store.js'
+import { chapterContent, bindStructureHelpers } from '../helpers/structure.js'
 import { openRagDb, setRagMeta, getRagMeta } from '../../src/rag/store.js'
 
 const BOOK = '结构拆分测试书'
 let studio: StudioHarness
 let userDataPath = ''
 
-function chapterContent(no: number, title: string, body: string, extraFm = ''): string {
-  return `---\n章号: ${no}\n标题: ${title}\n${extraFm}---\n\n${body}`
-}
-
-async function createChapter(rel: string, content: string): Promise<string> {
-  const r = await studio.req('POST', `/api/books/${encodeURIComponent(BOOK)}/documents`, {
-    relPath: rel,
-    content,
-  })
-  expect(r.status).toBe(201)
-  return (r.json as { docId: string }).docId
-}
+// 复审-0913-结构 P2-2 收编：三件套 helper 单源（bind 工厂 thunk 延迟取 beforeAll 后的模块态）
+const { createChapter, structureEvents } = bindStructureHelpers({
+  studio: () => studio,
+  book: BOOK,
+  userDataPath: () => userDataPath,
+})
 
 async function planSplit(
   docId: string,
@@ -62,20 +56,6 @@ async function applySplit(
     body,
   )
   return { status: r.status, json: r.json as Record<string, unknown> }
-}
-
-function splitEvents(): Array<Record<string, unknown>> {
-  const store = openSessionStore(userDataPath, studio.bookRoot)
-  if (!store) return []
-  try {
-    const out: Array<Record<string, unknown>> = []
-    for (const ev of store.iterateEvents(bookHash(studio.bookRoot), undefined, 'structure.split' as never)) {
-      out.push(ev.data as Record<string, unknown>)
-    }
-    return out
-  } finally {
-    store.close()
-  }
 }
 
 beforeAll(async () => {
@@ -164,7 +144,7 @@ describe('阶段 24 S4: 拆分执行（structure-apply op=split）', () => {
     const fresh = readFileSync(join(studio.bookRoot, newRel), 'utf8')
     expect(fresh).toBe(`---\n章号: 4\n标题: 新章标题\n序: 3.5\n---\n${tailBody}\n`)
     // 事件副录：structure.split 载荷
-    const ev = splitEvents().find((e) => e.docId === d)
+    const ev = structureEvents('structure.split').find((e) => e.docId === d)
     expect(ev).toBeDefined()
     expect(ev!['newDocId']).toBe(apply.json['newDocId'])
     expect(ev!['originChapterNo']).toBe(3)

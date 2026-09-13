@@ -3,7 +3,13 @@
  * 编辑区剥离 fm 的核心保证：stripFrontmatter / mergeFm 往返一致（fm 不丢不重，body 不被改写）。
  */
 import { describe, it, expect } from 'vitest'
-import { stripFrontmatter, mergeFm, formKindOf, isBodyKind } from '../../../src/studio/web-next/src/shared/words'
+import {
+  stripFrontmatter,
+  mergeFm,
+  formKindOf,
+  isBodyKind,
+  formatWanZi,
+} from '../../../src/studio/web-next/src/shared/words'
 
 describe('mergeFm（stripFrontmatter 的逆）', () => {
   it('有 fm：保留 fm 头，拼接新 body', () => {
@@ -76,5 +82,19 @@ describe('isBodyKind（v2 正文判定）', () => {
   it('非正文 → false', () => {
     expect(isBodyKind('大纲/章纲/x.md')).toBe(false)
     expect(isBodyKind('设定/角色/x.md')).toBe(false)
+  })
+})
+
+describe('formatWanZi（复审-0913-源码 P3-㉕：万字简写单源）', () => {
+  it('默认：1 位小数 + 后缀「万」（OverviewView wordsFmt/avgWordsFmt、WordCurveChart 口径）', () => {
+    expect(formatWanZi(12345)).toBe('1.2万')
+    expect(formatWanZi(10000)).toBe('1.0万')
+  })
+  it('digits: 0 → 整数万（OverviewView targetFmt 口径）', () => {
+    expect(formatWanZi(30000, { digits: 0 })).toBe('3万')
+    expect(formatWanZi(45000, { digits: 0 })).toBe('5万')
+  })
+  it('suffix: \' 万字\'（useShelf formatWords 口径，空格随参保留）', () => {
+    expect(formatWanZi(23456, { suffix: ' 万字' })).toBe('2.3 万字')
   })
 })

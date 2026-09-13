@@ -114,8 +114,9 @@ export const useProviderStore = defineStore('provider', () => {
       const alive = new Set(d.providers.map((p) => p.id))
       for (const id of [...testResults.value.keys()]) if (!alive.has(id)) testResults.value.delete(id)
       for (const id of [...probeModels.value.keys()]) if (!alive.has(id)) probeModels.value.delete(id)
-    } catch {
-      /* 设置页加载失败静默（面板显示空 + 可重试） */
+    } catch (e) {
+      // 降级留痕（复审-0913-源码 P3）——面板空态可重试，不打扰 UI
+      console.warn('[provider] AI 提供方/档位刷新失败（面板显示空态，可重试）', e)
     } finally {
       if (gen === refreshGen) loading.value = false
     }
@@ -133,8 +134,9 @@ export const useProviderStore = defineStore('provider', () => {
       // MP2-2：RAG 侧同款收敛（跨窗删除的 ragTestResults 键随列表修剪）
       const aliveRag = new Set(d.ragProviders.map((p) => p.id))
       for (const id of [...ragTestResults.value.keys()]) if (!aliveRag.has(id)) ragTestResults.value.delete(id)
-    } catch {
-      /* 静默 */
+    } catch (e) {
+      // 降级留痕（复审-0913-源码 P3）——面板空态可重试，不打扰 UI
+      console.warn('[provider] RAG 提供方刷新失败（面板显示空态，可重试）', e)
     } finally {
       if (gen === refreshRagGen) ragLoading.value = false
     }

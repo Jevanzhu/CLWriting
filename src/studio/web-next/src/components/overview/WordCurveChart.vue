@@ -7,6 +7,8 @@
 import { computed, useId } from 'vue'
 import { TrendingUp } from 'lucide-vue-next'
 import type { RhythmResult } from '../../api/rhythm'
+// 复审-0913-源码 P3-㉕：万字分支走 shared 单源（k 简写/原值两支非万字族，留本面）
+import { formatWanZi } from '../../shared/words'
 
 const props = defineProps<{
   rhythmData: RhythmResult | null
@@ -41,7 +43,7 @@ const tickStep = computed(() => {
 })
 /** 字数简写：≥1万→X.X万，≥1千→X.Xk，其余原值 */
 function fmtWords(n: number): string {
-  if (n >= 10000) return `${(n / 10000).toFixed(1)}万`
+  if (n >= 10000) return formatWanZi(n)
   if (n >= 1000) return `${(n / 1000).toFixed(1)}k`
   return String(Math.round(n))
 }

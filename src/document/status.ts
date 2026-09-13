@@ -10,10 +10,12 @@
  * （idea = 工作区笔记，published = frontmatter `已发布` 字段，archived = 废稿目录——
  * 三者不依赖定稿基线，路径判定即可。）
  *
- * 0 运行时依赖：复用 src/format/frontmatter.ts（容错解析）+ src/document/manifest.ts（基线）。
+ * 0 运行时依赖：复用 src/format/frontmatter.ts（容错解析）+ src/format/chapters.ts
+ * （已发布判定单源）+ src/document/manifest.ts（基线）。
  * 不调用任何外部进程（git/shell）——纯内容 + 账本推导。
  */
 import { readFile, parseFlat } from '../format/frontmatter.js'
+import { isPublishedValue } from '../format/chapters.js'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ManifestEntry } from './manifest.js'
@@ -52,7 +54,7 @@ export function deriveStatus(
 
 /**
  * 读文件 frontmatter `已发布` 字段（published 唯一落盘字段，W0 §3 + §17 决策③）。
- * 无 frontmatter / 无字段 / 字段非 true / 文件不存在 → false。坏文件容错降级 false。
+ * 无 frontmatter / 无字段 / 字段非已发布值 / 文件不存在 → false。坏文件容错降级 false。
  */
 export function readPublished(bookRoot: string, relPath: string): boolean {
   const full = join(bookRoot, relPath)
@@ -60,9 +62,9 @@ export function readPublished(bookRoot: string, relPath: string): boolean {
   const r = readFile(full)
   if (!r.ok) return false
   const fm = parseFlat(r.fmRaw)
-  const v = fm.get('已发布')
-  // parseValue（frontmatter.ts）不推断 boolean，true 落盘为字符串 "true"；兼容两种防御未来扩展
-  return v === true || v === 'true'
+  // 复审-0913-源码 P3-⑥：已发布判定收编 chapters.isPublishedValue 单源（数组形态
+  // ['true'] 亦判已发布，与树 probe / 导出 _raw 解析同口径），消 v === true || v === 'true' 双源
+  return isPublishedValue(fm.get('已发布'))
 }
 
 /**

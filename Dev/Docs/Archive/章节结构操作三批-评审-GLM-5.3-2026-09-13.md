@@ -4,7 +4,8 @@
 - 执行模型：GLM-5.3（主审；四路评审子代理全同模型，单波 ≤4、按文件互斥分路）。
 - 评审对象：mac 工作树**未提交**的阶段 24 三批改动（基线 HEAD `304174b1`）——44 已跟踪文件（+1490/−136）+ 20 新增（src 3：`document/structure.ts` 900 行 / `format/chapter-lookup.ts` 125 行 / web-next `SplitChapterDialog.vue` 171 行；vitest 15；e2e 2）。作者未提交的 README.md/package.json（test:related 脚本）混在同一工作树，评审时识别并排除。
 - 作者指令：「评审下这次修复，是否足够优雅简洁！编排下任务，并发做！」——纯评审落盘批，**零代码改动（L0 面）**，不跑测试。
-- 状态：**未收口**（P1×1 在库；收口条件见 §七）。
+- 状态：**已收口**（2026-09-13 源码重评修复批并批收口——P1×1 + P2×5 全修 + 回归通过；收口补记见下）。归档：2026-09-13 随批复位 `Archive/`（扁平）。
+- **收口补记（2026-09-13 源码重评修复批；作者指令「开始修复吧，全部修复。」）**：P1×1（doMergeUndo 缺前置 flushUnsaved）+ P2×5 全修——P1 前置落盘（useChapterTreeActions.doMergeUndo，同节纪律对齐，调用序 + 失败路 2 回归）；P2-1 summary findChapterFile 收编 chapterPathByNumber 单源（保签名换体内一行）；P2-2 vitest 三件套 helper 收编 `test/helpers/structure.ts`（bindStructureHelpers 工厂参数化 BOOK/studio）；P2-3 e2e 三方 helper 收编 `test/e2e/tree-actions.ts` 扁平模块（clickSubmenuItem 收 `string | RegExp` 超集统一漂移，三 spec 10 用例零漂移）；P2-4 README:117 win 预期增量链补「阶段 24 批 A 起 +6 文件/+48 用例」（1095+4+6+8+1=1114 算术闭合）；P2-5 执行方案头部改「已实施完成」。P3×19 维持登记（明细 = 本报告 §四，两拍板项维持待拍板）。修复批整账 = `Archive/README.md` 2026-09-13 源码重评修复批收口批批记行 + 并批主报告《源代码抽样重评-进度与质量-评审-GLM-5.3-2026-09-13》§八收口记；L2 终门全绿 1115 文件 = 7213 过 + 5 跳。
 
 ## 一、结论总览
 

@@ -21,7 +21,6 @@ import { readdirSync, statSync, lstatSync, existsSync } from 'node:fs'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
-import { readBooks } from '../../../install/books.js'
 import { listVersionEntries, readVersion, readVersionRaw, pruneVersions, DEFAULT_VERSION_POLICY, readGlobalSnapshotPolicy } from '../../../document/version.js'
 import { readManifest } from '../../../document/manifest.js'
 import { safeDocId } from '../../../fs/safe-path.js' // P3-1：docId 白名单校验共享（不内联手写）
@@ -42,18 +41,19 @@ interface SnapshotCtx {
 }
 
 /** 定位书 + 文档：返回 bookRoot 与文档相对路径。userDataPath 传给 DocumentService
- *  （缓存实例共享——先经此创建的实例也要带全局策略，否则恢复端点写时清理退化为两层链）。 */
+ *  （缓存实例共享——先经此创建的实例也要带全局策略，否则恢复端点写时清理退化为两层链）。
+ *  P3-⑬（2026-09-13 服务端端点/摘要簇修复批）：找书段收编 resolveBook 单源（workDir
+ *  判空 + readBooks().find + 404 样板原内联在此，与 book-context.ts 单源目标相悖）；
+ *  错误形状/文案与原内联逐位一致（resolveBook 同款信封），对外响应字节不变。 */
 async function resolveDoc(
   workDir: string | null,
   name: string | undefined,
   docId: string,
   userDataPath: string | null = null,
 ): Promise<{ bookRoot: string; relPath: string; snapshotsDir: string } | { error: string; status: number; code: string }> {
-  if (!workDir) return { error: '未定位到工作目录', status: 400, code: 'NO_WORKDIR' }
-  if (!name) return { error: '缺少书名', status: 400, code: 'BAD_INPUT' }
-  const entry = readBooks(workDir).find((b) => b.name === name)
-  if (!entry) return { error: `没有这本书：${name}`, status: 404, code: 'NOT_FOUND' }
-  const bookRoot = join(workDir, entry.path)
+  const r = resolveBook(workDir, name)
+  if ('error' in r) return r
+  const bookRoot = r.bookRoot
   // docId → relPath（含 legacy 旧文件首次补登记，resolvePathAsync → 异步收编孪生；这里
   // 不能换 resolveDocEntry——legacy 补登记是写操作。残留清偿批：原同步 resolvePath 的
   // 收编段走 withManifestLock 同步睡，快照端点已改异步孪生不再阻塞事件循环）

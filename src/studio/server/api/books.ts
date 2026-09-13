@@ -84,6 +84,8 @@ import { forgetVersionFpCacheForBook } from '../../../document/version.js'
 // R46-20（四十六轮）：条目库读取 TTL+mtime 探针缓存同族收编（AI 写稿热路径的
 // readEntries 不再每章每轮全量重读 文风/条目/；删/改名后同名重建书不读陈条目）
 import { forgetEntriesCache } from '../../../format/style-entry.js'
+// 复审-0913-源码 P3-⑩：文风铁律指纹缓存同族收编（同上删书/改名生命周期）
+import { forgetIronRulesCache } from '../../../format/iron-rules.js'
 // R46-23（四十六轮）：ai-calls 旧格式迁移标记同族收编——migratedRoots 只增不减，
 // 删书重建同名书后旧标记会让旧格式迁移在本进程内永不重试
 import { forgetMigratedRoots } from '../../../ai/calls.js'
@@ -119,6 +121,8 @@ function forgetBookKeyedCaches(bookRoot: string): void {
   forgetVersionFpCacheForBook(bookRoot)
   // R46-20：条目库读取缓存同族清理（按书前缀清全部 kind 变体键）
   forgetEntriesCache(bookRoot)
+  // 复审-0913-源码 P3-⑩：文风铁律指纹缓存同族清理（删/改名后同名重建书不复用陈规则）
+  forgetIronRulesCache(bookRoot)
   // R46-23：ai-calls 旧格式迁移标记同族清理（删书重建后迁移可重试）
   forgetMigratedRoots(bookRoot)
   // R1010b-SRV-P3-1（2026-09-10 内存专项重审修复批）：伏笔保存串行链 Map 条目同族

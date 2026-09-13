@@ -11,6 +11,9 @@
  * 纯函数，不依赖 DB——单测直接喂事件数组。
  */
 import type { ChatEvent, EventType } from './types.js'
+// 复审-0913-源码 P3-⑦：排序原语收编 projection 单源（原本地副本逐字双源；依赖单向
+// branch-tree → projection，无环）
+import { sortEvents } from './projection.js'
 
 /** 分支树节点（surface 消息事件；非 surface 事件也保留用于重放） */
 export interface BranchNode {
@@ -252,21 +255,5 @@ export function selectBranchTo(events: ChatEvent[], targetSeq: number): ChatEven
     if (!isSuperseded(ev.seq)) keep.add(ev.seq)
   }
   return seq.filter((e) => keep.has(e.seq) && e.seq <= targetSeq)
-}
-
-/** 按 seq 升序（与 projection.sortEvents 一致）。
- *  B2（2026-08-24 内存闸）：输入已有序（SQL ORDER BY / 上游已排序——投影链常态）时
- *  O(n) 检测后零拷贝直返，乱序输入回退拷贝排序（纯函数语义不变）。返回值调用方
- *  只读（selectBranch/selectBranchTo 均 filter 产新数组，不改原序）。 */
-function sortEvents(events: ChatEvent[]): ChatEvent[] {
-  let sorted = true
-  for (let i = 1; i < events.length; i++) {
-    if (events[i - 1]!.seq > events[i]!.seq) {
-      sorted = false
-      break
-    }
-  }
-  if (sorted) return events
-  return [...events].sort((a, b) => a.seq - b.seq)
 }
 

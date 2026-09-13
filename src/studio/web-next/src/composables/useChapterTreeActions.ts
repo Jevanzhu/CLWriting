@@ -624,6 +624,14 @@ export function useChapterTreeActions(deps: {
     })
     if (!ok) return
     if (deps.bookName() !== book) return
+    // 复审-0913-源码 P1：undo 前置落盘（同节自留纪律——doMergeIntoPrev/doSplitHere
+    // 均先 flushUnsaved）——dirty 目标章直接 undo，随后的 doc.refresh 走 dirty 分支
+    // 保住本地合并后正文并与回滚基线对齐，下次保存零冲突把合并后内容写回；而源章已
+    // 还原 → 两章内容重复且无提示
+    if (!(await flushUnsaved(node.docId))) {
+      ui.toast('该章未保存的修改无法自动落盘（保存失败或版本冲突），请先处理后再撤销并入', 'error')
+      return
+    }
     try {
       const r = await structureMergeUndo(book, node.docId)
       if (deps.bookName() !== book) return

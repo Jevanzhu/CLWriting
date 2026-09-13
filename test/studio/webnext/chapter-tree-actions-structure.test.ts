@@ -7,6 +7,9 @@
  * 干跑即拦面：encodingSuspect（GBK 存量）不发 apply；ask 拒 false 不发 apply。
  * mock 手法照 chapter-tree-actions-y8-y29.test.ts（api/documents 工厂补
  * structurePlan/structureApply/structureMergeUndo；stores 单例 mock）。
+ *
+ * 复审-0913-源码 P1：补 doMergeUndo 前置落盘回归（同节 doMergeIntoPrev/doSplitHere
+ * 均先 flushUnsaved，undo 原漏——dirty 目标章 undo 后两章内容重复无提示）。
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { ref, type Ref } from 'vue'
@@ -37,7 +40,8 @@ const treeMock = {
   updateWordCount: vi.fn(),
 }
 const docMock = {
-  get: vi.fn((_id: string) => undefined),
+  // get 返回放宽 unknown：doMergeUndo 前置落盘用例需注入 conflict 脏条目（原恒 undefined）
+  get: vi.fn((_id: string): unknown => undefined),
   open: vi.fn(),
   refresh: vi.fn(async () => {}),
   save: vi.fn(async () => true),
@@ -63,7 +67,7 @@ vi.mock('../../../src/studio/web-next/src/stores/doc', () => ({
   useDocStore: vi.fn(() => docMock),
 }))
 
-import { structurePlan, structureApply } from '../../../src/studio/web-next/src/api/documents'
+import { structurePlan, structureApply, structureMergeUndo } from '../../../src/studio/web-next/src/api/documents'
 import { useChapterTreeActions } from '../../../src/studio/web-next/src/composables/useChapterTreeActions'
 
 const planMock = structurePlan as ReturnType<typeof vi.fn>
@@ -169,6 +173,48 @@ describe('doMergeIntoPrev（阶段 24 S3：并入上一章动作流）', () => {
     expect(applyMock).not.toHaveBeenCalled()
     expect(openError.value).toBeNull()
     expect(docMock.discard).not.toHaveBeenCalled()
+    expect(treeMock.load).not.toHaveBeenCalled()
+  })
+})
+
+describe('doMergeUndo（复审-0913-P1：undo 前置落盘）', () => {
+  it('happy path：先 flushUnsaved（waitInflightSave 首步）后 structureMergeUndo（调用序）', async () => {
+    const undoMock = structureMergeUndo as ReturnType<typeof vi.fn>
+    undoMock.mockResolvedValue({ ok: true, sourceChapterNo: 2 })
+    uiAskMock.mockResolvedValue(true)
+    const { actions, node1 } = setupActions()
+
+    actions.onMenuSelect('merge-undo', node1)
+    await flushPromises()
+
+    expect(undoMock).toHaveBeenCalledWith('书名', 'doc1')
+    // 调用序断言：落盘（flushUnsaved 首步 = waitInflightSave）先于 undo 请求——
+    // dirty 目标章不落盘就 undo，refresh 的 dirty 分支会保旧正文，两章内容重复
+    expect(docMock.waitInflightSave).toHaveBeenCalledWith('doc1')
+    expect(docMock.waitInflightSave.mock.invocationCallOrder[0]).toBeLessThan(
+      undoMock.mock.invocationCallOrder[0]!,
+    )
+    expect(treeMock.load).toHaveBeenCalledWith('书名')
+  })
+
+  it('flushUnsaved 失败（conflict 未决）→ 不发 undo + error toast', async () => {
+    const undoMock = structureMergeUndo as ReturnType<typeof vi.fn>
+    uiAskMock.mockResolvedValue(true)
+    // 单次返回 conflict 条目（mockReturnValueOnce：不渗漏到后续用例，beforeEach 只 clear 调用不重置实现）
+    docMock.get.mockReturnValueOnce({
+      docId: 'doc1',
+      path: '写作/正文/第一卷/0001-甲.md',
+      content: '',
+      dirty: false,
+      conflict: true,
+    })
+    const { actions, node1 } = setupActions()
+
+    actions.onMenuSelect('merge-undo', node1)
+    await flushPromises()
+
+    expect(undoMock).not.toHaveBeenCalled()
+    expect(uiToastMock).toHaveBeenCalledWith(expect.stringContaining('撤销并入'), 'error')
     expect(treeMock.load).not.toHaveBeenCalled()
   })
 })

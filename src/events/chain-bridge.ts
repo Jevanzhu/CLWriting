@@ -266,18 +266,40 @@ export class ChainRecorder {
 /** 对比新旧伏笔列表，把状态变化登记为 foreshadow/change 事件（create/edit/complete/block/clear）。
  *  Z-P2-6 接线：字段形状与 document/foreshadow.ts ForeshadowEntry 对齐（标题/状态），
  *  由 documents API 的保存/PATCH/新建/软删四个变更点调用（快照-差分）。
- *  store/session 缺失静默跳过。 */
+ *  store/session 缺失静默跳过。
+ *  复审-0913-源码 P3-⑪：差分配对键从 标题 改为 file——ForeshadowEntry 数据模型无编号
+ *  字段，盘上唯一身份是相对路径 file（迁移链 N3 只保证文件名不撞，fm 标题可重复，
+ *  同文件 低-5 注记在案）；同标题双伏笔此前在标题键 Map 里互相覆盖，后回收的那条的
+ *  状态变更被吞（零事件漏记）。file 缺失的宽松调用方回落标题；同键重号首个 warn
+ *  一次性留痕（键唯一性破坏 = 配对按后者覆盖退化）。事件载荷仍只带 title，产出形态不变。 */
 export function recordForeshadowChanges(
   store: SessionStore | null,
   sessionId: string | null,
-  prev: { 标题: string; 状态: string }[],
-  next: { 标题: string; 状态: string }[],
+  prev: { 标题: string; 状态: string; file?: string }[],
+  next: { 标题: string; 状态: string; file?: string }[],
 ): void {
   if (!store || !sessionId) return
-  const prevMap = new Map(prev.map((p) => [p.标题, p]))
+  const keyOf = (e: { 标题: string; file?: string }): string => e.file ?? e.标题
+  let dupWarned = false
+  const warnDupKeys = (list: { 标题: string; file?: string }[]): void => {
+    if (dupWarned) return
+    const seen = new Set<string>()
+    for (const e of list) {
+      const k = keyOf(e)
+      if (seen.has(k)) {
+        dupWarned = true
+        log.warn('chain-bridge', `伏笔差分键重号（${e.file ? `file=${e.file}` : `标题「${e.标题}」`}）——伏笔身份应唯一，变更配对按后者覆盖退化`)
+        return
+      }
+      seen.add(k)
+    }
+  }
+  warnDupKeys(prev)
+  warnDupKeys(next)
+  const prevMap = new Map(prev.map((p) => [keyOf(p), p]))
   const events: NewEvent[] = []
   for (const n of next) {
-    const p = prevMap.get(n.标题)
+    const p = prevMap.get(keyOf(n))
     if (!p) {
       events.push(foreshadowChangeEvent({ operation: 'create', title: n.标题 }))
     } else if (p.状态 !== n.状态) {
@@ -285,9 +307,9 @@ export function recordForeshadowChanges(
       events.push(foreshadowChangeEvent({ operation: op, title: n.标题 }))
     }
   }
-  const nextTitles = new Set(next.map((n) => n.标题))
+  const nextKeys = new Set(next.map(keyOf))
   for (const p of prev) {
-    if (!nextTitles.has(p.标题)) events.push(foreshadowChangeEvent({ operation: 'clear', title: p.标题 }))
+    if (!nextKeys.has(keyOf(p))) events.push(foreshadowChangeEvent({ operation: 'clear', title: p.标题 }))
   }
   if (events.length === 0) return
   try {

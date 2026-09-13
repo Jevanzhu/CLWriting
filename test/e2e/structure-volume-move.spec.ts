@@ -34,50 +34,26 @@
  * 「e2e测试卷」先例同款；卷不计章节 KPI，后序 tree-ops test1 新建章落 lastVolume
  * 语义不受扰（startCreate 自动展开落点卷，其断言不钉位置）。
  *
- * 选择器口径与 structure-ops/tree-ops 同源：右键 .tree-item → .cm-menu menuitem；
- * 「移动到」子菜单 hover .cm-has-sub 展开 .cm-submenu；合并/撤销走 ui.ask 通用确认
- * 框 .cp-modal（确认钮 并入 / 撤销并入，exact: true）。树名带章号前缀（如
- * 「0006-e2e卷移乙」），菜单项 label 用 regex 容前缀。卷展开态不假设（书级 prefs
- * 持久化时序不定）：按 aria-expanded 判后点——点行是 toggle，盲点会把已展开的卷
- * 折叠；卷名互为前缀（e2e重组 ⊂ e2e重组卷），行定位用锚定 regex。新建章 seed
- * 「NNNN-」前缀保留提交（无前缀文件名对 nextChapterNo 不可见，连建两章 fm 章号
- * 重号——structure-ops 同款已知行为约束）。
+ * 选择器口径与 structure-ops/tree-ops 同源（helper 已收编至 ./tree-actions.js——
+ * 复审-0913-结构 P2-3）：右键 .tree-item → .cm-menu menuitem；「移动到」子菜单
+ * hover .cm-has-sub 展开 .cm-submenu；合并/撤销走 ui.ask 通用确认框 .cp-modal
+ * （确认钮 并入 / 撤销并入，exact: true）。树名带章号前缀（如「0006-e2e卷移乙」），
+ * 菜单项 label 用 regex 容前缀。卷展开态不假设（书级 prefs 持久化时序不定）：按
+ * aria-expanded 判后点——点行是 toggle，盲点会把已展开的卷折叠；卷名互为前缀
+ * （e2e重组 ⊂ e2e重组卷），行定位用锚定 regex。新建章 seed「NNNN-」前缀保留提交
+ * （无前缀文件名对 nextChapterNo 不可见，连建两章 fm 章号重号——契约注释随收编
+ * 移入 ./tree-actions.ts createChapter，只留一处）。
  */
 import { test, expect, type Locator, type Page } from '@playwright/test'
 import { attachPageErrorBaseline } from './page-error-baseline.js'
-
-async function gotoBook(page: Page): Promise<void> {
-  await page.goto('/')
-  await page.locator('.book-title', { hasText: '长篇测试书' }).click()
-  await expect(page.locator('.ws-shell')).toBeVisible()
-  // 确保回到章节树面板（上个 test 可能切走，leftPanel 持久化）
-  await page.locator('.rbtn[data-tip*="章节树"]').click()
-  await expect(page.locator('.tree-item').first()).toBeVisible()
-}
-
-/** 右键某树项（按 label 文本匹配 .tree-item） */
-async function ctxOn(page: Page, label: string): Promise<void> {
-  await page.locator('.tree-item').filter({ hasText: label }).first().click({ button: 'right' })
-}
-
-/** hover 子菜单父项，等子菜单出现 */
-async function hoverSubmenu(page: Page, parentLabel: string): Promise<void> {
-  await page.locator('.cm-menu .cm-has-sub').filter({ hasText: parentLabel }).hover()
-  await expect(page.locator('.cm-submenu')).toBeVisible()
-}
-
-/** 点子菜单里的某项（name 容 string/regex——两卷名互为前缀，收窄时用锚定 regex） */
-async function clickSubmenuItem(page: Page, name: string | RegExp): Promise<void> {
-  await page.locator('.cm-submenu').getByRole('menuitem', { name }).click()
-}
-
-/** 软删某章（右键 → 删除 → .cp-modal 确认）——收尾净零/清种子章用，进回收站 */
-async function deleteChapter(page: Page, title: string): Promise<void> {
-  await ctxOn(page, title)
-  await page.locator('.cm-menu').getByRole('menuitem', { name: '删除' }).click()
-  await page.locator('.cp-modal').getByRole('button', { name: '删除', exact: true }).click()
-  await expect(page.locator('.tree-list')).not.toContainText(title)
-}
+import {
+  gotoBook,
+  ctxOn,
+  hoverSubmenu,
+  clickSubmenuItem,
+  createChapter,
+  deleteChapter,
+} from './tree-actions.js'
 
 /**
  * 右键「写作」组新建正文卷（卷 seed 为空直接填名）。收尾断言锚定卷行（目录行恒有
@@ -99,23 +75,6 @@ async function createVolume(page: Page, name: string): Promise<void> {
   await expect(volumeRow(page, name)).toBeVisible()
   await expandVolume(page, name)
   await deleteChapter(page, '未命名')
-}
-
-/**
- * 右键「写作」组新建正文章。seed 预填「NNNN-未命名」——保留章号前缀提交（无前缀
- * 文件名对 nextChapterNo 不可见，连建两章 fm 章号重号，合并干跑按跨卷重号 400 拒收）；
- * 前缀从 seed 现读不 hardcode。注意须在建卷**之前**调用：有卷时「新建章节」落
- * lastVolume（onMenuSelect new-chapter-root），本 spec 两章都要落正文根。
- */
-async function createChapter(page: Page, title: string): Promise<void> {
-  await ctxOn(page, '写作')
-  await page.locator('.cm-menu').getByRole('menuitem', { name: '新建章节' }).click()
-  const input = page.locator('.inline-input')
-  await expect(input).toBeVisible()
-  const prefix = (await input.inputValue()).replace(/未命名$/, '')
-  await input.fill(`${prefix}${title}`)
-  await page.keyboard.press('Enter')
-  await expect(page.locator('.tree-list')).toContainText(title)
 }
 
 /** 卷目录行（锚定 regex——e2e重组 ⊂ e2e重组卷，substring hasText 分不开两行） */

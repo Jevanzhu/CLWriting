@@ -254,9 +254,11 @@ export async function prepareMaterials(
       // 此前不随编排 signal 收口（分钟级白烧），现入口/网络前后/打分行级检查点齐备
       opts.signal !== undefined ? { signal: opts.signal } : undefined,
     )
-  } catch {
+  } catch (e) {
+    // 复审-0913-源码 P3-⑱：降级文案附病因（对齐同文件 selfHeal 卷摘要 catch 的
+    // message 透出口径）——此前 ragNote 只说「异常」，网络/中断/解析错无从归因
     rec = null
-    ragNote = 'RAG 召回异常（降级回落精准读取）'
+    ragNote = `RAG 召回异常（降级回落精准读取）：${e instanceof Error ? e.message : String(e)}`
   }
   const hits: RecallHit[] = rec?.hits ?? []
   // R36-16：截断信号透出——recallDetailed 硬截断（池超上限保读出序前缀）时留痕

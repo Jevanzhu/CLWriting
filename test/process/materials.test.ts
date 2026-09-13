@@ -492,10 +492,10 @@ test('R0912-4: 编排 signal 预先 aborted → 召回中断降级，embed 零�
     const r = await prepareMaterials(db, DEFAULT_CONFIG, {
       bookRoot: root, workDir, chapterLeadIds: [], embedFn: spyEmbed, signal: ctrl.signal,
     })
-    // 中断态上抛 → materials 既有 catch 降级（ragNote 留痕、主路径照常 prepare，不 crash）
+    // 中断态上抛 → materials 既有 catch 降级（ragNote 留痕带病因、主路径照常 prepare，不 crash）
     expect(r.ragUsed).toBe(false)
     expect(r.ragHitCount).toBe(0)
-    expect(r.ragNote).toBe('RAG 召回异常（降级回落精准读取）')
+    expect(r.ragNote).toBe('RAG 召回异常（降级回落精准读取）：RAG 召回已中断')
     expect(embedCalls).toBe(0)
   } finally {
     db.close()

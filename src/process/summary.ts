@@ -23,9 +23,8 @@ import { existsSync, readFileSync, mkdirSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { join, relative, sep } from 'node:path'
 import { safeManifestPath } from '../fs/safe-path.js'
-import { walkMdFind } from '../fs/walk-md.js'
-import { chapterNamePrefixes, parseChapterFileName } from '../format/chapters.js'
-import { mergedIntoMap } from '../format/chapter-lookup.js'
+import { parseChapterFileName } from '../format/chapters.js'
+import { chapterPathByNumber } from '../format/chapter-lookup.js'
 import { splitFrontMatter } from '../format/frontmatter-core.js'
 import { readDraft } from '../format/draft.js'
 import { computeRevision } from '../document/revision.js'
@@ -154,18 +153,15 @@ export function readChapterSummaryBody(bookRoot: string, chapter: number): strin
 }
 
 /** 在 写作/正文/（含卷子目录）按章号找正文文件；找不到 → null。
- *  L-P1（第八轮）：走共享 walkMdFind（环剪枝 + 起遍目录根界）——原先手写递归无
- *  visited（书内 symlink 环深递归）也无根界（书外 symlink 被跟随整读）。
+ *  复审-0913-结构 P2-1（2026-09-13 服务端端点/摘要簇修复批）：体内与 format/
+ *  chapter-lookup.ts chapterPathByNumber 逐行同构（walkMdFind 按名定位 + mergedIntoMap
+ *  并入回退），收编单源只消费不再自带实现——语义逐位等价（正文区缺失/按名 miss/并入
+ *  回退三分支同口径），L-P1/S2 修复史由单源继承。
  *  S2（阶段 24，D3 留洞制）：按名 miss → 并入回退目标章路径（被合并源章的正文在
  *  目标章里，摘要状态判定/自愈补漏对源章号仍可定位；正文命中恒优先——通用还原后
  *  陈旧并入不被咨询）。 */
 export function findChapterFile(bookRoot: string, chapter: number): string | null {
-  const bodyDir = join(bookRoot, '写作', '正文')
-  if (!existsSync(bodyDir)) return null
-  const prefixes = chapterNamePrefixes(chapter)
-  return walkMdFind(bodyDir, (abs, name) =>
-    prefixes.some((p) => name.startsWith(p)) ? abs : undefined,
-  ) ?? mergedIntoMap(bookRoot).get(chapter) ?? null
+  return chapterPathByNumber(bookRoot, chapter)
 }
 
 export interface GenerateChapterSummaryOpts {
@@ -459,15 +455,21 @@ export function afterFinalizeGenerateSummaryBatch(
 ): void {
   if (docIds.length === 0) return
   const p: Promise<void> = (async () => {
-    await runRegisteredBgTask(driver, session, `bg-summary:${bookName ?? 'batch'}`, async (signal) => {
-      for (const docId of docIds) {
-        try {
-          await runFinalizeSummaryOnce(bookRoot, userDataPath, docId, signal)
-        } catch (e) {
-          log.warn('summary', `定稿章摘要钩子异常（${docId}）：${e instanceof Error ? e.message : String(e)}`)
+    // 整段 try-catch 自留痕（p 不 reject）——registerCtrl 同步抛错等形态不逃逸为
+    // unhandled rejection（对齐单发版 afterFinalizeGenerateSummary 同款包裹）
+    try {
+      await runRegisteredBgTask(driver, session, `bg-summary:${bookName ?? 'batch'}`, async (signal) => {
+        for (const docId of docIds) {
+          try {
+            await runFinalizeSummaryOnce(bookRoot, userDataPath, docId, signal)
+          } catch (e) {
+            log.warn('summary', `定稿章摘要钩子异常（${docId}）：${e instanceof Error ? e.message : String(e)}`)
+          }
         }
-      }
-    })
+      })
+    } catch (e) {
+      log.warn('summary', `批量定稿章摘要链异常（${docIds.length} 章）：${e instanceof Error ? e.message : String(e)}`)
+    }
   })()
   if (bookName) registerBackgroundTask(bookName, p)
 }

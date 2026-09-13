@@ -13,50 +13,14 @@
  * 本 test 建的章软删（进回收站，tree-ops 后续回收站断言只按行过滤不受扰），正文目录
  * 回到 fixture 4 章净零态。tree-ops 排在 switch-book 之后才可留态，排序契约下不可比。
  *
- * 选择器口径（与 tree-ops 同源）：右键树项 .tree-item → .cm-menu menuitem；合并/撤销
- * 走 ui.ask 通用确认框 .cp-modal；拆分是独立弹窗 teleport 到 body（.split-mask /
- * .split-dialog，aria-label="在光标处拆分"），标题必填 input + 无标题禁用确认钮。
+ * 选择器口径（与 tree-ops 同源，helper 已收编至 ./tree-actions.js——复审-0913-结构
+ * P2-3）：右键树项 .tree-item → .cm-menu menuitem；合并/撤销走 ui.ask 通用确认框
+ * .cp-modal；拆分是独立弹窗 teleport 到 body（.split-mask / .split-dialog，
+ * aria-label="在光标处拆分"），标题必填 input + 无标题禁用确认钮。
  */
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect } from '@playwright/test'
 import { attachPageErrorBaseline } from './page-error-baseline.js'
-
-async function gotoBook(page: Page): Promise<void> {
-  await page.goto('/')
-  await page.locator('.book-title', { hasText: '长篇测试书' }).click()
-  await expect(page.locator('.ws-shell')).toBeVisible()
-  // 确保回到章节树面板（上个 test 可能切走，leftPanel 持久化）
-  await page.locator('.rbtn[data-tip*="章节树"]').click()
-  await expect(page.locator('.tree-item').first()).toBeVisible()
-}
-
-/** 右键某树项（按 label 文本匹配 .tree-item） */
-async function ctxOn(page: Page, label: string): Promise<void> {
-  await page.locator('.tree-item').filter({ hasText: label }).first().click({ button: 'right' })
-}
-
-/**
- * 右键「写作」组新建正文章。seed 预填「NNNN-未命名」——保留章号前缀提交：
- * 无前缀文件名（裸标题 .md）对 nextChapterNo 不可见，连建两章会拿到重号 fm 章号，
- * 合并干跑按「跨卷重号章」400 拒收（全量首跑实测）；前缀从 seed 现读不自 hardcode。
- */
-async function createChapter(page: Page, title: string): Promise<void> {
-  await ctxOn(page, '写作')
-  await page.locator('.cm-menu').getByRole('menuitem', { name: '新建章节' }).click()
-  const input = page.locator('.inline-input')
-  await expect(input).toBeVisible()
-  const prefix = (await input.inputValue()).replace(/未命名$/, '')
-  await input.fill(`${prefix}${title}`)
-  await page.keyboard.press('Enter')
-  await expect(page.locator('.tree-list')).toContainText(title)
-}
-
-/** 软删某章（右键 → 删除 → .cp-modal 确认）——收尾净零用，进回收站可还原 */
-async function deleteChapter(page: Page, title: string): Promise<void> {
-  await ctxOn(page, title)
-  await page.locator('.cm-menu').getByRole('menuitem', { name: '删除' }).click()
-  await page.locator('.cp-modal').getByRole('button', { name: '删除', exact: true }).click()
-  await expect(page.locator('.tree-list')).not.toContainText(title)
-}
+import { gotoBook, ctxOn, createChapter, deleteChapter } from './tree-actions.js'
 
 test('并入上一章：干跑确认 → 源章移出正文', async ({ page }) => {
   attachPageErrorBaseline(page, 'structure-ops')

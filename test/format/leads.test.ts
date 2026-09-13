@@ -259,6 +259,9 @@ test('parseLeadFileName', () => {
   expect(parseLeadFileName('悬念-031-灭门真凶.md')).toEqual({ 编号: '悬念-031', 标题: '灭门真凶' })
   expect(parseLeadFileName('成长线-003-林晚修为.md')).toEqual({ 编号: '成长线-003', 标题: '林晚修为' })
   expect(parseLeadFileName('乱七八糟.md')).toBeNull()
+  // 复审-0913-源码 P3-⑫：非 .md 名原样进入编号解析（不再暗带 basename 剥路径副作用）
+  expect(parseLeadFileName('悬念-032-大写尾.MD')).toEqual({ 编号: '悬念-032', 标题: '大写尾' })
+  expect(parseLeadFileName('悬念-033-无扩展名')).toEqual({ 编号: '悬念-033', 标题: '无扩展名' })
 })
 
 // ── dd-P2：履历段后的人工正文（备注/关联线索）回写保留 ──
@@ -499,5 +502,40 @@ test('R75-2: 开启章 非数值回落 0（NaN 防线，对齐 chapters.ts R64-1
   const r = readLead(fp)
   expect(r.ok).toBe(true)
   if (r.ok) expect(r.lead.开启章).toBe(0)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+// 复审-0913-源码 P2：负数/小数此前穿透 isFinite 落 opened_at，readStaleLeads 的
+// age = 当前章 − opened_at 被虚高（悬太久误报族）——守卫对齐 chapters.ts R31-15。
+test('复审-0913-P2: 开启章 负数/小数回落 0（正整数守卫，对齐 chapters.ts R31-15 口径）', () => {
+  const dir = makeTmpBook()
+  try {
+    const cases = [
+      { raw: '-3', id: '悬念-010', name: '负章' },
+      { raw: '12.5', id: '悬念-011', name: '半章' },
+    ]
+    for (const c of cases) {
+      const fp = join(dir, `${c.id}-${c.name}.md`)
+      writeFileSync(fp, [
+        '---', `编号: ${c.id}`, `标题: ${c.name}`, '类型: 悬念', '状态: 进行中', `开启章: ${c.raw}`, '---', '', '## 履历', '',
+      ].join('\n'))
+      const r = readLead(fp)
+      expect(r.ok).toBe(true)
+      if (r.ok) expect(r.lead.开启章).toBe(0)
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('复审-0913-P2: 开启章 正常正整数值不受守卫影响（语义不变面）', () => {
+  const dir = makeTmpBook()
+  const fp = join(dir, '悬念-011-正章.md')
+  writeFileSync(fp, [
+    '---', '编号: 悬念-011', '标题: 正章', '类型: 悬念', '状态: 进行中', '开启章: 47', '---', '', '## 履历', '',
+  ].join('\n'))
+  const r = readLead(fp)
+  expect(r.ok).toBe(true)
+  if (r.ok) expect(r.lead.开启章).toBe(47)
   rmSync(dir, { recursive: true, force: true })
 })

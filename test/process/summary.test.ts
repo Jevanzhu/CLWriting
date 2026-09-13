@@ -6,7 +6,7 @@
  * AI 侧走 mock 快路（CLWRITING_DRIVER=mock + SUMMARY_CHAPTER_SPEC.mockText），
  * 失败路径走「无 provider 且非 mock」的真实解析错误。
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync, appendFileSync, chmodSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -23,13 +23,15 @@ import {
   SUMMARY_VOLUME_MAX_FALLBACK,
 } from '../../src/process/summary.js'
 import { SUMMARY_CHAPTER_SPEC } from '../../src/ai/tasks/specs.js'
-import { waitBackgroundTasks } from '../../src/ai/orchestrate/background.js'
+import { waitBackgroundTasks, hasBackgroundTasks } from '../../src/ai/orchestrate/background.js'
 import { computeRevision } from '../../src/document/revision.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
 import { finalizeRevision } from '../../src/document/finalize.js'
 import { prepare } from '../../src/process/prepare.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
+import { log } from '../../src/log/index.js'
+import type { DriverEvent, Session, StudioDriver } from '../../src/driver/index.js'
 import type { BookConfig } from '../../src/format/types.js'
 
 const dirs: string[] = []
@@ -335,6 +337,34 @@ describe('批量定稿串行摘要链 afterFinalizeGenerateSummaryBatch（第五
     afterFinalizeGenerateSummaryBatch(root, null, [], '空批量')
     await new Promise((r) => setTimeout(r, 50))
     expect(existsSync(chapterSummaryPath(root, 1))).toBe(false)
+  })
+
+  // P3-⑯（2026-09-13 服务端端点/摘要簇修复批）：外层整段 try/catch 自留痕——
+  // registerCtrl 同步抛错等形态此前直穿 IIFE 让 p reject（未登记时逃逸为 unhandled
+  // rejection），对齐单发版 afterFinalizeGenerateSummary 同款包裹
+  it('registerCtrl 同步抛错 → 整段自留痕 warn 且 p 不 reject 不悬挂', async () => {
+    const root = makeBook(1, 1)
+    const session: Session = { id: 'r0913-trace', cwd: root, closed: false }
+    const driver: StudioDriver = {
+      async startSession(cwd: string): Promise<Session> {
+        return { id: 'trace', cwd, closed: false }
+      },
+      async *stream(): AsyncGenerator<DriverEvent> {},
+      dispose(): void {},
+      registerCtrl(): void {
+        throw new Error('registerCtrl 同步抛错')
+      },
+    }
+    const warnSpy = vi.spyOn(log, 'warn').mockImplementation(() => {})
+    try {
+      afterFinalizeGenerateSummaryBatch(root, null, [chapterDocId(root, 1)], '批量自留痕书', driver, session)
+      await waitBackgroundTasks('批量自留痕书')
+      expect(hasBackgroundTasks('批量自留痕书')).toBe(false)
+      // 留痕点名批量链异常（修复前无此 warn——p 静默 reject）
+      expect(warnSpy.mock.calls.some((c) => String(c[1]).includes('批量定稿章摘要链异常'))).toBe(true)
+    } finally {
+      warnSpy.mockRestore()
+    }
   })
 })
 

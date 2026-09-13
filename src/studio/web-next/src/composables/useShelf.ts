@@ -15,6 +15,8 @@ import { deleteBook } from '../api/shelf'
 // 分支用）
 import { createBook as createBookApi } from '../api/books'
 import { friendlyError } from '../shared/error'
+// 复审-0913-源码 P3-㉕：万字分支走 shared 单源（后缀 ' 万字' 与 <1 万 兜底口径留本面）
+import { formatWanZi } from '../shared/words'
 import { clearFalsePositiveMarks, fpBookPrefix } from '../stores/check'
 import { clearFailedDrafts, migrateFailedDrafts } from './useChatComposer'
 import { treeFirstOpenKey, onboardPremiseKey } from '../shared/storage-keys'
@@ -67,7 +69,7 @@ export function migrateBookKeyedState(oldName: string, newName: string): void {
 export function formatWords(n?: number): string {
   if (!n) return '0 字'
   if (n < 10000) return `${n.toLocaleString()} 字`
-  return `${(n / 10000).toFixed(1)} 万字`
+  return formatWanZi(n, { suffix: ' 万字' })
 }
 
 /** 最近编辑相对时间（书卡「N 天前」）*/

@@ -26,11 +26,18 @@ import { acquireCrossProcessLockWithTimeout } from '../../src/fs/cross-process-l
 import { encodeDocDirName } from '../../src/document/version.js'
 import { listTrash } from '../../src/document/trash.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
-import { openSessionStore, bookHash } from '../../src/events/store.js'
+import { bindStructureHelpers } from '../helpers/structure.js'
 
 const BOOK = '结构崩溃书'
 let studio: StudioHarness
 let userDataPath = ''
+
+// 复审-0913-结构 P2-2 收编：三件套 helper 单源（bind 工厂 thunk 延迟取 beforeAll 后的模块态）
+const { createChapter, structureEvents } = bindStructureHelpers({
+  studio: () => studio,
+  book: BOOK,
+  userDataPath: () => userDataPath,
+})
 
 beforeAll(async () => {
   userDataPath = join(await import('node:os').then((m) => m.tmpdir()), `clw-struct-crash-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
@@ -53,28 +60,8 @@ afterAll(async () => {
 
 const ENC = encodeURIComponent(BOOK)
 
-async function createChapter(rel: string, content: string): Promise<string> {
-  const mk = await studio.req('POST', `/api/books/${ENC}/documents`, { relPath: rel, content })
-  expect(mk.status).toBe(201)
-  return (mk.json as { docId: string }).docId
-}
-
 function saveLockPath(docId: string): string {
   return join(studio.bookRoot, '工作区', '.journal', `${encodeDocDirName(docId)}.jsonl.save.lock`)
-}
-
-function structureEvents(type: string): Array<Record<string, unknown>> {
-  const store = openSessionStore(userDataPath, studio.bookRoot)
-  if (!store) return []
-  try {
-    const out: Array<Record<string, unknown>> = []
-    for (const ev of store.iterateEvents(bookHash(studio.bookRoot), undefined, type as never)) {
-      out.push(ev.data as Record<string, unknown>)
-    }
-    return out
-  } finally {
-    store.close()
-  }
 }
 
 async function detect(): Promise<Awaited<ReturnType<typeof detectState>>> {

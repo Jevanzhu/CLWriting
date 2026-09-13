@@ -9,6 +9,8 @@ import { GraduationCap, Sparkles, PackageCheck, AlertCircle, Check, X } from 'lu
 import { useLearnStore } from '../stores/learn'
 import { useTreeStore } from '../stores/tree'
 import { scoreTierStats } from '../shared/learn-tier'
+// P3-㉖（复审-0913-源码）：正文判定走 isBodyKind 单源
+import { isBodyKind } from '../shared/words'
 import EmptyState from '../components/ui/EmptyState.vue'
 import SampleCandidateList from '../components/learn/SampleCandidateList.vue'
 import QuoteCardGrid from '../components/learn/QuoteCardGrid.vue'
@@ -19,7 +21,7 @@ const tree = useTreeStore()
 
 // 定稿正文章节数（引导提示用）
 const chapterCount = computed(
-  () => [...tree.byDocId.values()].filter((n) => n.path.startsWith('写作/正文/')).length,
+  () => [...tree.byDocId.values()].filter((n) => isBodyKind(n.path)).length,
 )
 
 // ── 打分分布统计 ──

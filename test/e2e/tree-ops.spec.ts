@@ -9,35 +9,11 @@
  * 右键菜单：.tree-item click({button:'right'}) → .cm-menu → 子菜单 hover .cm-has-sub
  * 展开 .cm-submenu → 点子项；inline 新建/重命名输入 .inline-input + Enter。
  * 删除弹 ConfirmPrompt（通用确认框 .cp-modal），测试里点确认钮。
+ * 复审-0913-结构 P2-3：树操作 helper 收编至 ./tree-actions.js（本文件留 commitInline）。
  */
 import { test, expect, type Page } from '@playwright/test'
 import { attachPageErrorBaseline } from './page-error-baseline.js'
-
-async function gotoBook(page: Page): Promise<void> {
-  await page.goto('/')
-  await page.locator('.book-title', { hasText: '长篇测试书' }).click()
-  await expect(page.locator('.ws-shell')).toBeVisible()
-  // 确保回到章节树面板（上个 test 可能切到回收站等，leftPanel 持久化）
-  await page.locator('.rbtn[data-tip*="章节树"]').click()
-  // 切面板后等树就绪再操作（右键需树项已渲染，否则点到空白菜单不弹）
-  await expect(page.locator('.tree-item').first()).toBeVisible()
-}
-
-/** 右键某树项（按 label 文本匹配 .tree-item） */
-async function ctxOn(page: Page, label: string): Promise<void> {
-  await page.locator('.tree-item').filter({ hasText: label }).first().click({ button: 'right' })
-}
-
-/** hover 子菜单父项，等子菜单出现 */
-async function hoverSubmenu(page: Page, parentLabel: string): Promise<void> {
-  await page.locator('.cm-menu .cm-has-sub').filter({ hasText: parentLabel }).hover()
-  await expect(page.locator('.cm-submenu')).toBeVisible()
-}
-
-/** 点子菜单里的某项 */
-async function clickSubmenuItem(page: Page, name: string): Promise<void> {
-  await page.locator('.cm-submenu').getByRole('menuitem', { name }).click()
-}
+import { gotoBook, ctxOn, hoverSubmenu, clickSubmenuItem } from './tree-actions.js'
 
 /** inline 输入提交（新建/重命名共用） */
 async function commitInline(page: Page, value: string): Promise<void> {

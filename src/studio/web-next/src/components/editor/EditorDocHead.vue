@@ -140,7 +140,8 @@ const isFinalizable = computed(() => {
   if (!props.docId) return false
   const node = tree.byDocId.get(props.docId)
   if (!node || node.isDirectory) return false
-  if (!node.path.startsWith('写作/正文/')) return false // 仅正文章节可定稿（草稿/设定/大纲不参与）
+  // P3-㉖（复审-0913-源码）：正文判定走 isBodyKind 单源（语义同 startsWith('写作/正文/')）
+  if (!isBodyKind(node.path)) return false // 仅正文章节可定稿（草稿/设定/大纲不参与）
   return node.status === 'draft' || node.status === 'revision'
 })
 const finalizing = ref(false)

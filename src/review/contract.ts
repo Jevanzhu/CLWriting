@@ -207,7 +207,9 @@ export function buildReviewTasks(
 function buildShortReviewTasks(report: CheckReport): ReviewTask[] {
   // 短篇无账本 byproducts，清单核对条目由调用方经 report 之外的清单解析注入；
   // report.sections 不含清单，这里从 report.byproducts?.pieceListChecks 取（若有）
-  const listChecks: PieceListCheck[] = (report.byproducts as { pieceListChecks?: PieceListCheck[] } | undefined)?.pieceListChecks ?? []
+  // 复审-0913-源码 P3-⑲：删 as 断言直取——check/types.ts CheckReport.byproducts
+  // 已含形状一致的 pieceListChecks 字段，断言属冗余（tsc 直取可查）
+  const listChecks: PieceListCheck[] = report.byproducts?.pieceListChecks ?? []
 
   return [
     {

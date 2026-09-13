@@ -23,7 +23,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
-import { openSessionStore, bookHash } from '../../src/events/store.js'
+import { chapterContent, bindStructureHelpers } from '../helpers/structure.js'
 import { openRagDb, storeChunk, setRagMeta, getRagMeta, countChunksByChapter } from '../../src/rag/store.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 
@@ -31,18 +31,12 @@ const BOOK = '结构合并测试书'
 let studio: StudioHarness
 let userDataPath = ''
 
-function chapterContent(no: number, title: string, body: string, extraFm = ''): string {
-  return `---\n章号: ${no}\n标题: ${title}\n${extraFm}---\n\n${body}`
-}
-
-async function createChapter(rel: string, content: string): Promise<string> {
-  const r = await studio.req('POST', `/api/books/${encodeURIComponent(BOOK)}/documents`, {
-    relPath: rel,
-    content,
-  })
-  expect(r.status).toBe(201)
-  return (r.json as { docId: string }).docId
-}
+// 复审-0913-结构 P2-2 收编：三件套 helper 单源（bind 工厂 thunk 延迟取 beforeAll 后的模块态）
+const { createChapter, structureEvents } = bindStructureHelpers({
+  studio: () => studio,
+  book: BOOK,
+  userDataPath: () => userDataPath,
+})
 
 /** 干跑 → plan 视图（字段断言用）。 */
 async function planMerge(targetDocId: string, sourceDocId: string): Promise<Record<string, unknown>> {
@@ -71,21 +65,6 @@ async function trashEntries(): Promise<Array<{ id: string; originalPath?: string
   const r = await studio.req('GET', `/api/books/${encodeURIComponent(BOOK)}/trash`)
   expect(r.status).toBe(200)
   return (r.json as { entries: Array<{ id: string; originalPath?: string }> }).entries ?? []
-}
-
-/** workspace 事件库里某类型的全部 data（读侧 open/close 引用计数安全）。 */
-function structureEvents(type: string): Array<Record<string, unknown>> {
-  const store = openSessionStore(userDataPath, studio.bookRoot)
-  if (!store) return []
-  try {
-    const out: Array<Record<string, unknown>> = []
-    for (const ev of store.iterateEvents(bookHash(studio.bookRoot), undefined, type as never)) {
-      out.push(ev.data as Record<string, unknown>)
-    }
-    return out
-  } finally {
-    store.close()
-  }
 }
 
 /** GET /tree 递归找 path 节点的六态（status）。 */
@@ -460,5 +439,56 @@ describe('阶段 24 S4: 合并的 RAG 清理（best-effort 事务）', () => {
     } finally {
       db2.close()
     }
+  })
+})
+
+describe('复审-0913-源码 P2-1: 清单路径防线（safeManifestPath 收口裸 join）', () => {
+  it('源章清单 path 被篡改为越界形态 → plan/apply 400 BAD_INPUT', async () => {
+    const rel1 = '写作/正文/第一卷/0033-第33章.md'
+    const rel2 = '写作/正文/第一卷/0034-第34章.md'
+    const t = await createChapter(rel1, chapterContent(33, '第33章', '第三十三章正文。'))
+    const s = await createChapter(rel2, chapterContent(34, '第34章', '第三十四章正文。'))
+    // 篡改清单（可篡改本地数据面）：越界形态带 写作/正文/ 前缀——BODY_PREFIX 前置
+    // 检查与 layoutOf role 判定均拦不住，必须由 safeManifestPath 在裸 join 点拒收
+    const mp = join(studio.bookRoot, '项目', '文档清单.jsonl')
+    const m = readManifest(mp)
+    const entry = m.entries.get(s)
+    expect(entry).toBeDefined()
+    entry!.path = '写作/正文/../../../任务.md'
+    writeManifest(mp, m)
+    const plan = await studio.req(
+      'POST',
+      `/api/books/${encodeURIComponent(BOOK)}/documents/${encodeURIComponent(t)}/structure-plan`,
+      { op: 'merge', sourceDocId: s },
+    )
+    expect(plan.status).toBe(400)
+    expect((plan.json as { code: string }).code).toBe('BAD_INPUT')
+    const apply = await applyMerge(t, { op: 'merge', sourceDocId: s, planHash: 'x' })
+    expect(apply.status).toBe(400)
+    expect(apply.json['code']).toBe('BAD_INPUT')
+    // 拒收即盘面不动：目标章未被并入
+    expect(readFileSync(join(studio.bookRoot, rel1), 'utf8')).toBe(
+      chapterContent(33, '第33章', '第三十三章正文。'),
+    )
+  })
+
+  it('目标章清单 path 越界 → plan 400 BAD_INPUT（正常路径行为由既有用例全绿钉定）', async () => {
+    const rel1 = '写作/正文/第一卷/0035-第35章.md'
+    const rel2 = '写作/正文/第一卷/0036-第36章.md'
+    const t = await createChapter(rel1, chapterContent(35, '第35章', '第三十五章正文。'))
+    const s = await createChapter(rel2, chapterContent(36, '第36章', '第三十六章正文。'))
+    const mp = join(studio.bookRoot, '项目', '文档清单.jsonl')
+    const m = readManifest(mp)
+    const entry = m.entries.get(t)
+    expect(entry).toBeDefined()
+    entry!.path = '写作/正文/../../../越界章.md'
+    writeManifest(mp, m)
+    const plan = await studio.req(
+      'POST',
+      `/api/books/${encodeURIComponent(BOOK)}/documents/${encodeURIComponent(t)}/structure-plan`,
+      { op: 'merge', sourceDocId: s },
+    )
+    expect(plan.status).toBe(400)
+    expect((plan.json as { code: string }).code).toBe('BAD_INPUT')
   })
 })

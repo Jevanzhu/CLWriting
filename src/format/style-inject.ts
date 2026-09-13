@@ -109,11 +109,15 @@ export function pickSampleEntries(
 
 /** 样章条目 → 注入文本：说明作技法指令行（对齐旧样章格式），超长截断。
  *  R72-7（二十轮 C-2）：截断按码位（Array.from 迭代码点，对齐全库 code point 口径）——
- *  UTF-16 码元 slice 会把增补平面字符切成半个代理对。 */
+ *  UTF-16 码元 slice 会把增补平面字符切成半个代理对。
+ *  复审-0913-源码 P3-⑨：判据与截断统一码位口径——原判断侧 `e.正文.length`（UTF-16
+ *  码元）与截断侧 Array.from（码位）混用，含 astral 字符的样章恰在边界附近时判据误判
+ *  （该截不截 / 不截反截）。 */
 export function sampleEntryText(e: StyleEntry): string {
+  const cps = Array.from(e.正文)
   const body =
-    e.正文.length > SAMPLE_INJECT_MAX
-      ? `${Array.from(e.正文).slice(0, SAMPLE_INJECT_MAX).join('')}……`
+    cps.length > SAMPLE_INJECT_MAX
+      ? `${cps.slice(0, SAMPLE_INJECT_MAX).join('')}……`
       : e.正文
   return e.说明 ? `技法指令：${e.说明}\n${body}` : body
 }

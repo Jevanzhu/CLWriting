@@ -143,3 +143,14 @@ export function formKindOf(
 export function isBodyKind(path: string): boolean {
   return path.startsWith('写作/正文/')
 }
+
+/**
+ * 复审-0913-源码 P3-㉕：万字简写单源（≥1 万 → 「X.X万」形态；位数/后缀按面传参表达）。
+ * 只收「万」分支——各调用面 <1 万 的兜底（toLocaleString / '0 字' / k 简写）输出各异，
+ * 不并入本 helper（各处现有输出逐字节保持，不借收编顺手统一视觉口径）。
+ */
+export function formatWanZi(n: number, opts?: { suffix?: string; digits?: number }): string {
+  const digits = opts?.digits ?? 1
+  const suffix = opts?.suffix ?? '万'
+  return `${(n / 10000).toFixed(digits)}${suffix}`
+}

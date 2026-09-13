@@ -31,7 +31,7 @@ import { atomicWriteFile } from '../../../fs/atomic.js'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
 import { revisionError } from './revision-guard.js' // X-25：三处拷贝收敛单源（原 GG-P2-7 本地实现）
-import { resolveBook } from '../book-context.js'
+import { resolveBook, bookMovedFailure } from '../book-context.js'
 import { log } from '../../../log/index.js'
 
 export interface BookPrefs {
@@ -55,11 +55,12 @@ interface PrefsCtx {
 }
 
 export function registerPrefsRoutes(ctx: PrefsCtx): void {
-  /** 解析书库的 .clwriting/prefs.json 路径（找书走公共 resolveBook，error 带机器码） */
-  function prefsPath(name: string): { ok: true; path: string } | { ok: false; code: number; errCode: string; error: string } {
+  /** 解析书库的 .clwriting/prefs.json 路径（找书走公共 resolveBook，error 带机器码；
+   *  ok 分支带回 bookRoot——PUT 侧写前重验要用入口快照做比对） */
+  function prefsPath(name: string): { ok: true; path: string; bookRoot: string } | { ok: false; code: number; errCode: string; error: string } {
     const r = resolveBook(ctx.workDir, name)
     if ('error' in r) return { ok: false, code: r.status, errCode: r.code, error: r.error }
-    return { ok: true, path: join(r.bookRoot, '.clwriting', 'prefs.json') }
+    return { ok: true, path: join(r.bookRoot, '.clwriting', 'prefs.json'), bookRoot: r.bookRoot }
   }
 
   defineRoute('books.prefs.get', {
@@ -96,6 +97,11 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
     const body = await readJson(req)
     const prefs = body['prefs']
     if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs)) return replyError(res, 400, 'BAD_INPUT', 'prefs 必填且须为对象')
+    // R0913-B-P2（2026-09-13 服务端端点/摘要簇修复批）：readJson 窗口后写前重验书注册
+    //（时序见 bookMovedFailure 头注）；family：config R0911-B-P3-4 同款——此前窗口跨越
+    // 删书/改名后，mkdirSync recursive 重建无 book.yaml 幽灵目录 + 布局偏好静默写旧路径
+    const moved = bookMovedFailure(ctx.workDir, params['name'], r.bookRoot)
+    if (moved) return replyError(res, 409, moved.code, moved.reason)
     try {
       // 低级项（第六轮）：合并写（对齐 library.prefs.put 第五轮口径）——prefs.json 同样
       // 可能存在端点 payload 之外的使用方（手工/脚本写入的键），整体覆写会静默清键。

@@ -13,7 +13,7 @@
 
 import { existsSync, readdirSync, readFileSync, rmSync, rmdirSync, mkdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { readSamplesByScene } from './style.js'
+import { readSamplesByScene, parseSampleFileName } from './style.js'
 import { writeEntryExclusive, readEntries, ENTRIES_DIR } from './style-entry.js'
 import { parseIronRules } from './iron-rules.js'
 import { atomicWriteFile } from '../fs/atomic.js'
@@ -97,11 +97,13 @@ function makeWriter(bookRoot: string, result: StyleMigrateResult) {
         continue
       }
       for (const f of files) {
-        const m = f.match(/^(.+)-(\d{3,})\.md$/)
-        if (m) {
-          const key = `${kind}/${m[1]}`
-          const n = Number(m[2])
-          seq.set(key, Math.max(seq.get(key) ?? 0, n))
+        // 复审-0913-源码 P3-⑧：序号解析收编 parseSampleFileName 单源（style-entry
+        // nextEntrySeq 同款）——手写正则只认小写 .md，.MD 既有条目播种漏记、续跑序号
+        // 从头起（编号断裂仅靠 O_EXCL 重试兜底）；大小写剥尾与「3 位起」序号口径与写侧同源。
+        const parsed = parseSampleFileName(f)
+        if (parsed) {
+          const key = `${kind}/${parsed.场景}`
+          seq.set(key, Math.max(seq.get(key) ?? 0, parsed.序号))
         }
       }
     }

@@ -24,6 +24,7 @@ import { readIronRules, type IronRules } from '../format/iron-rules.js'
 import { computeStyleMetrics, type StyleStats } from '../check/count.js'
 import type { ChapterMeta } from '../format/types.js'
 import { yieldToEventLoop } from '../async.js'
+import { log } from '../log/index.js' // 复审-0913-源码 P2：基线损坏 warn 留痕（对齐同目录 short-index R51-B-3）
 
 /** 含句长方差/复读率的完整文风指纹（StyleStats + 两个聚合用维度） */
 export interface FullStyleStats extends StyleStats {
@@ -309,14 +310,18 @@ function detectConsecutiveOver(
 
 // ── 基线冻结（#9）──────────────────────────────────
 
-/** 读基线；文件不存在 → null（重扫降级为仅绝对值） */
+/** 读基线；文件不存在 → null（重扫降级为仅绝对值）。
+ *  复审-0913-源码 P2：存在但读/解析失败（坏 JSON、结构不符）不再与「无基线」同判
+ *  零留痕——warn 带 bookRoot 与病因（基线损坏按无基线降级，文风对照约束将不生效，
+ *  作者可归因；不存在路径仍静默 null = 正常未冻结）。 */
 export function readBaseline(bookRoot: string): StyleBaseline | null {
   const p = baselinePath(bookRoot)
   if (!existsSync(p)) return null
   try {
     const raw = JSON.parse(readFileSync(p, 'utf-8')) as unknown
     return coerceBaseline(raw)
-  } catch {
+  } catch (e) {
+    log.warn('metrics', `文风基线读取/解析失败，按无基线降级（文风对照将不生效）：${bookRoot}：${e instanceof Error ? e.message : String(e)}`)
     return null
   }
 }

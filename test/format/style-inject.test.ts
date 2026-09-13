@@ -91,6 +91,18 @@ describe('pickSampleEntries / sampleEntryText', () => {
     expect(out.length).toBe(SAMPLE_INJECT_MAX + 2) // 500 字 + 「……」
     expect(out.endsWith('……')).toBe(true)
   })
+
+  // 复审-0913-源码 P3-⑨：判据与截断统一码位——含 astral 字符的样章按码位数截断，
+  // 截断产物码位数恰为 MAX（修复前判据用 UTF-16 码元 length，边界附近该截不截/反截）
+  it('复审-0913-P3-⑨: astral 样章按码位判据截断（截断后码位数 = MAX）', () => {
+    const body = '剑'.repeat(SAMPLE_INJECT_MAX - 1) + '😀'.repeat(3) // 码位 MAX+2，UTF-16 码元 MAX+5
+    const out = sampleEntryText(mk({ 类型: '样章', 正文: body }))
+    expect([...out].length).toBe(SAMPLE_INJECT_MAX + 2) // MAX 码位 + 「……」
+    expect(out.endsWith('……')).toBe(true)
+    // 不超界（码位恰 MAX）→ 原样返回不截断
+    const exact = '😀'.repeat(SAMPLE_INJECT_MAX)
+    expect(sampleEntryText(mk({ 类型: '样章', 正文: exact }))).toBe(exact)
+  })
 })
 
 describe('readIronRules 条目库禁词合并（S5 机检收口）', () => {
