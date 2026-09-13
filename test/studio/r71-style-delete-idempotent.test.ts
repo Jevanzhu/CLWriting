@@ -73,4 +73,25 @@ describe('R71-11: DELETE /style/entries 幂等（不存在条目不再 500）', 
     expect(r.status).toBe(200)
     expect(existsSync(join(studio.bookRoot, dirRel))).toBe(false)
   })
+
+  it('R0913-win P2-1: 反斜杠 .. 段（win 形态）→ 400，条目目录外文件不受影响', async () => {
+    mkdirSync(join(studio.bookRoot, '设定', '角色'), { recursive: true })
+    writeFileSync(join(studio.bookRoot, '设定', '角色', '林远.md'), '---\n---\n角色卡', 'utf-8')
+    // 修复前：insideDir 只按 '/' 切段，`..\` 不产独立 '..' 段 → 放行；resolveWithinRoot
+    // 的 resolve 把 \ 折叠后仍在书内 → 也放行 → 可删条目目录以外的书内文件
+    const attack = '文风/条目/..\\..\\设定\\角色\\林远.md'
+    const r = await req('DELETE', `/api/books/${encodeURIComponent(BOOK)}/style/entries`, { path: attack })
+    expect(r.status).toBe(400)
+    // 错误信封 = { code, error }（http.ts replyError，无 ok 字段）
+    expect(r.json).toMatchObject({ code: 'BAD_INPUT' })
+    expect(existsSync(join(studio.bookRoot, '设定', '角色', '林远.md'))).toBe(true)
+  })
+
+  it('R0913-win P2-1: 同型守卫覆盖 candidates/ignore（反斜杠穿越 → 400）', async () => {
+    const r = await req('POST', `/api/books/${encodeURIComponent(BOOK)}/style/candidates/ignore`, {
+      path: '文风/候选/..\\..\\设定\\x.md',
+    })
+    expect(r.status).toBe(400)
+    expect(r.json).toMatchObject({ code: 'BAD_INPUT' })
+  })
 })

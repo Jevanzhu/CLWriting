@@ -17,6 +17,7 @@ import { atomicWriteFile, rmQuietly } from '../../fs/atomic.js'
 // R30-3（三十轮）：锁等待改异步孪生 + 快路同步尝试——生成收尾路径（降级持久化等）与
 // 设置页保存在 CLI+桌面双进程争用窗口不再被 Atomics.wait 同步微睡冻结事件循环
 import { acquireCrossProcessLockAsync, tryAcquireCrossProcessLock } from '../../fs/cross-process-lock.js'
+import { platformCaseFold } from '../../fs/safe-path.js'
 import { dirname, join } from 'node:path'
 import type { ProviderConf, ModelConf, TierSlot, TierConfig, RagProviderConf } from './types.js'
 import { builtinKeyMaterial } from './vault-key.js'
@@ -323,17 +324,26 @@ export function loadProviders(userDataPath: string): ProviderStore {
  */
 const writeChains = new Map<string, Promise<unknown>>()
 
+/** R0913-win P3-3（折叠键族，2026-09-13 全库源码重评 win 适配修复批）：写链键折叠
+ *  ——键此前为原始 userDataPath，同一目录以两种 case 寻址（盘符/路径大小写漂移）会
+ *  拆成两条进程内串行链，进程内互斥退化（跨进程文件锁仍兜底）。platformCaseFold
+ *  单源（win/darwin 折叠，linux 原样）；仅作进程内 Map 键，磁盘路径派生不受影响。 */
+function writeChainKey(userDataPath: string): string {
+  return platformCaseFold(userDataPath)
+}
+
 /** R73-2 跨进程锁等待超时（毫秒）——写段为本地文件 IO 级毫秒，5s 已极保守（同 calls.ts） */
 const PROVIDERS_WRITE_LOCK_TIMEOUT_MS = 5_000
 
 /** 测试辅助：向写链注入一段在途 promise（R29-2 排队路径回归用——空闲快路永不入链，
  *  生产代码无从触达排队段；生产零调用）。 */
 export function __seedProvidersWriteChainForTest(userDataPath: string, pending: Promise<unknown>): void {
-  writeChains.set(userDataPath, pending)
+  writeChains.set(writeChainKey(userDataPath), pending)
 }
 
 export function saveProviders(userDataPath: string, store: ProviderStore): Promise<void> {
-  const prev = writeChains.get(userDataPath)
+  const chainKey = writeChainKey(userDataPath)
+  const prev = writeChains.get(chainKey)
   if (prev === undefined) {
     // 空闲快路：无争用时同步原子完成（跨进程锁内——多进程同写 providers.json 不再交错
     // 覆盖）；IO 异常照旧同步上抛（R29-2：throw 路径保持 throw，await 侧 try/catch 同样
@@ -343,9 +353,9 @@ export function saveProviders(userDataPath: string, store: ProviderStore): Promi
     // unhandled rejection + warn 留痕（R29-2 口径）。
     const inflight = saveWithCrossProcessLock(userDataPath, store)
     if (inflight === undefined) return Promise.resolve()
-    writeChains.set(userDataPath, inflight)
+    writeChains.set(chainKey, inflight)
     const cleanupInflight = (): void => {
-      if (writeChains.get(userDataPath) === inflight) writeChains.delete(userDataPath)
+      if (writeChains.get(chainKey) === inflight) writeChains.delete(chainKey)
     }
     void inflight.then(cleanupInflight, (e: unknown) => {
       log.warn('providers', `providers.json 写入失败（本次写未落盘）：${e instanceof Error ? e.message : String(e)}`)
@@ -354,9 +364,9 @@ export function saveProviders(userDataPath: string, store: ProviderStore): Promi
     return inflight
   }
   const next = prev.catch(() => {}).then(() => saveWithCrossProcessLock(userDataPath, store))
-  writeChains.set(userDataPath, next)
+  writeChains.set(chainKey, next)
   const cleanup = (): void => {
-    if (writeChains.get(userDataPath) === next) writeChains.delete(userDataPath)
+    if (writeChains.get(chainKey) === next) writeChains.delete(chainKey)
   }
   // 旁挂分支只负责留痕 + 清链——不吞返回 promise 的拒绝（R29-2 前这里是唯一出口，
   // 排队段失败对外表现为「成功」）

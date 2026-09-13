@@ -12,7 +12,7 @@
  * 在途 promise 触达（生产零调用测试钩子）。
  */
 import { test, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, readFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -117,4 +117,20 @@ test('R29-2⑤ 链清空后恢复快路：写后立即可读（无 await 同步�
   saveProviders(dir, storeOf('prov-sync'))
   const raw = JSON.parse(readFileSync(FP(), 'utf8'))
   expect(raw.providers.map((p: { id: string }) => p.id)).toEqual(['prov-sync'])
+})
+
+test('R0913-win P3-3: 写链键折叠——case 变体寻址共享同一条串行链（折叠面），不折叠面按字面独立', async () => {
+  const foldFs = process.platform === 'win32' || process.platform === 'darwin'
+  const variant = foldFs ? dir.toLowerCase() : dir.toUpperCase()
+  let release!: () => void
+  const gate = new Promise<void>((r) => {
+    release = r
+  })
+  // 变体寻址注入在途段；原始寻址写应命中同一条链（折叠面）排队，而非走快路直写
+  __seedProvidersWriteChainForTest(variant, gate)
+  const p = saveProviders(dir, storeOf('prov-fold'))
+  await new Promise((r) => setTimeout(r, 20))
+  expect(existsSync(FP())).toBe(foldFs ? false : true)
+  release()
+  await expect(p).resolves.toBeUndefined()
 })

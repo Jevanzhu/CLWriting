@@ -50,6 +50,7 @@ import { isBoundsVisibleOnAnyDisplay } from './window-state.js' // R26-86：多�
 import { getFonts as getSystemFontList } from 'font-list'
 import { createSystemFontCache, fontListWithTimeout, darwinFontListCommand } from './font-cache.js' // R77-1（二十五轮批 A）：系统字体 IPC 缓存；R40-28：font-list 超时包裹；R0911-A-P2-1：darwin 自管 spawn 二进制解析
 import { listWindowsFonts } from './win-fonts.js' // MP2-1（专项重评二轮）：win 自绘枚举（windowsHide，不经 cmd）
+import { acquireAppInstanceGuard } from './app-instance-guard.js' // R0913-win P3-13：提权差异双开文件锁防线
 import {
   parseStore,
   setCurrent,
@@ -225,7 +226,13 @@ initLogging({ logsDir: join(app.getPath('userData'), 'logs'), mirrorConsole: !ap
 // 第二实例拿不到锁 → app.quit() 并跳过文件底部全部生命周期注册（不进 whenReady、
 // 不起 server、不开窗）；持锁实例收到 second-instance 时聚焦已有主窗口。
 const gotSingleInstanceLock = app.requestSingleInstanceLock()
-if (!gotSingleInstanceLock) {
+// R0913-win P3-13：提权差异双开的文件锁补充防线（Electron 锁按会话/提权上下文隔离，
+// 管理员/普通用户各开一份时两侧各自持锁 → 双开互踩 userData 语义层）——文件锁跨提权
+// 可见（pid 存活探测 EPERM 按存活保守处理），细节见 app-instance-guard.ts 头注。
+// 须在 setPath(userData) 之后（同 Z-P2-8 的身份域对齐理由）。fail-open：锁面异常不拦
+// 启动（同用户双开仍由 Electron 锁兜底）。
+const appInstanceGuard = acquireAppInstanceGuard(app.getPath('userData'))
+if (!gotSingleInstanceLock || !appInstanceGuard.acquired) {
   app.quit()
 } else {
   app.on('second-instance', (_e, argv: string[]) => {
@@ -1646,7 +1653,10 @@ function registerIpc(): void {
     // （批 6 统一：resolveWithinRoot = 防穿越 + symlink 双侧 realpath，X-P3a 同口径）
     const safe = resolveWithinRoot(workDir, entry.path)
     if (!safe || !existsSync(safe.abs)) return // realpath 失败/不存在 = 无物可开
-    void shell.openPath(safe.abs)
+    // R0913-win P3-11：openPath 的结果字符串（失败时非空）此前被丢弃——打开失败零反馈
+    void shell.openPath(safe.abs).then((err) => {
+      if (err) log.warn('desktop', `打开书目录失败（${safe.abs}）：${err}`)
+    })
   })
   // 枚举系统已装字体（设置弹窗字体下拉用；font-list 跨平台封装系统命令，disableQuoting 返回裸名便于直拼 CSS）
   // R77-1（二十五轮批 A）：TTL 缓存降半档——系统字体枚举是跨平台系统命令（mac 自带
@@ -1734,7 +1744,11 @@ function registerIpc(): void {
     // ii 批：与 open-book-dir 同口径——realpath 解析后再开（store.current 持久化值若被
     // 改成指向外部的 symlink/失效路径，不再原样透传给 shell.openPath）
     try {
-      void shell.openPath(realpathSync(workDir))
+      // R0913-win P3-11：同 open-book-dir——失败结果字符串留痕（openPath 不 reject，
+      // try/catch 管不到 promise 结果）
+      void shell.openPath(realpathSync(workDir)).then((err) => {
+        if (err) log.warn('desktop', `打开书库目录失败（${workDir}）：${err}`)
+      })
     } catch {
       // realpath 失败 = 目录不存在，无物可开
     }
@@ -2049,6 +2063,10 @@ if (gotSingleInstanceLock) {
   // app.quit() 复用既有幂等链（quitViaShutdown 门防重入，重复信号安全）。
   // R38-19（三十八轮）：补 SIGTERM——`kill <pid>`/进程管理器/IDE 停止按钮的默认
   // 信号（mac/linux）同属「硬杀跳过优雅停机链」的 R1W-9 动机面，与 SIGINT 同款一行。
+  // R0913-win P3-10（备注级事实收口）：SIGTERM 在 win 上无投递机制（外部
+  // TerminateProcess 不进 JS handler），本行实际仅 POSIX 生效；win 的硬杀面已由
+  // SIGBREAK（Ctrl+Break）与 uncaughtException backstop 兜底。保留本行为三平台
+  // 对齐与跨平台宿主（如 win 下经 POSIX 兼容层运行）预留，非缺陷。
   process.on('SIGINT', () => app.quit())
   process.on('SIGBREAK', () => app.quit())
   process.on('SIGTERM', () => app.quit())

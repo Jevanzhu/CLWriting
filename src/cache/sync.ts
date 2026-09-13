@@ -8,6 +8,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Lead, LeadEntry, ChapterMeta } from '../format/types.js'
 import { log } from '../log/index.js'
+import { samePath } from '../fs/user-data-path.js'
 
 // ── 账本入库（#4 第 6 节映射表）──────────────────
 
@@ -118,7 +119,10 @@ export function syncChapter(db: DatabaseSync, ch: ChapterMeta): void {
   const prev = db.prepare('SELECT path FROM chapters WHERE number = ?').get(ch.章号) as
     | { path: string }
     | undefined
-  if (prev && prev.path !== (ch._path ?? '')) {
+  // R0913-win P3（折叠键族，2026-09-13 全库源码重评 win 适配修复批）：路径比较收编
+  // samePath（win/darwin 折叠，linux 原样全等）——盘符/路径大小写漂移的两次入库此前
+  // 被精确比较误判「重复章号」（仅 warn 文案失真，非数据错误）。
+  if (prev && !samePath(prev.path, ch._path ?? '')) {
     log.warn('cache', `章号 ${ch.章号} 重复入库：${prev.path} 将被 ${ch._path ?? ''} 覆盖（后者胜）——请核对章节目录是否含重复章号`)
   }
   db.prepare(

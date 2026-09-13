@@ -15,11 +15,12 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, relative, isAbsolute } from 'node:path'
-import { rmSync, existsSync, readFileSync , statSync } from 'node:fs'
+import { existsSync, readFileSync , statSync } from 'node:fs'
 import { defineRoute } from './schema.js'
 import { reply, replyError, readJson } from '../http.js'
 import { acquireTaskGate } from './task-gate.js' // R40-4：收割端点任务闸
 import { resolveWithinRoot } from '../../../fs/safe-path.js'
+import { rmWithRetry } from '../../../fs/atomic.js' // R0913-win P3-1：删条目收编 EPERM/EBUSY 退避
 import { readBookConfig } from '../../../format/yaml.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { parseIronRules } from '../../../format/iron-rules.js'
@@ -72,11 +73,19 @@ function insideDir(rel: string, dir: string): boolean {
   // 合法条目（safe-path 口径合法，如 `条目/a..b.md`）误杀成 400（删/确认/忽略全不可
   // 用，fail-closed 方向安全但与 safe-path.ts 段级口径漂移）；穿越只可能由独立的
   // 「..」段构成，下方 resolveWithinRoot 仍兜底双侧 realpath。
+  // R0913-win P2-1（2026-09-13 全库源码重评 win 适配修复批）：先归一反斜杠再切段——
+  // 原实现只按 '/' 切段，win 上 `文风/条目/..\..\设定\x.md` 的 `..` 段（以 \ 分隔）
+  // 不被识别而放行；resolveWithinRoot 的 resolve 把 \ 当分隔符折叠后仍在书内 → 同样
+  // 放行，「限 条目/候选/ 内」的端点契约失守（可删/搬/写目录以外的书内文件，不越书
+  // 根）。全仓同类守卫（normalizeMoveToDir / layout norm / isSanitizedCreatePath）均
+  // 先归一反斜杠，此处对齐；归一只影响守卫切段——实际 FS 操作仍走原 rel（posix 上
+  // \ 是合法文件名字符，resolveWithinRoot 按字面解析语义不变）。
+  const norm = rel.replace(/\\/g, '/')
   return (
-    rel.startsWith(`${dir}/`) &&
-    !rel.split('/').includes('..') &&
-    !rel.includes('\0') &&
-    !isAbsolute(rel)
+    norm.startsWith(`${dir}/`) &&
+    !norm.split('/').includes('..') &&
+    !norm.includes('\0') &&
+    !isAbsolute(norm)
   )
 }
 
@@ -185,7 +194,11 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
     } catch {
       /* 不存在（ENOENT）等 → 幂等删除：非递归 + force 无害通过 */
     }
-    rmSync(safe.abs, { force: true, recursive })
+    // R0913-win P3-1（退避族）：裸 rmSync 收编 rmWithRetry——win 杀软/索引器对刚
+    // stat 完的条目瞬时锁定（EPERM/EBUSY）下直败 500；口径同全仓「确实要删」删源点
+    //（3×50ms 指数退避，仅 EPERM/EBUSY 重试；ENOENT 等确定性错误立即上抛，幂等
+    // 删除语义与 rmSync force 一致）。
+    rmWithRetry(safe.abs, { recursive })
     reply(res, 200, { ok: true })
   },
   })

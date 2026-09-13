@@ -170,3 +170,23 @@ test('R77-3: git 可执行缺失（ENOENT）→ 人话引导装 Git，不落穿 
     expect(r.humanMsg).toContain('Git for Windows')
   }
 })
+
+test('R0913-win P3-9: 资源管理器「名 - Copy.md」/「名 - 副本.md」命中（需母本）；无母本不误报', () => {
+  const root = join(tmpdir(), `clw-exec-${Date.now()}`)
+  mkdirSync(join(root, '写作', '正文'), { recursive: true })
+  writeFileSync(join(root, '写作', '正文', '第1章.md'), '母本', 'utf-8')
+  writeFileSync(join(root, '写作', '正文', '第1章 - Copy.md'), '副本', 'utf-8')
+  writeFileSync(join(root, '写作', '正文', '第1章 - 副本.md'), '副本', 'utf-8')
+  writeFileSync(join(root, '写作', '正文', '第1章 - 副本 (2).md'), '副本', 'utf-8')
+  // 无母本的资源管理器副本形态：不报（母本收紧，同 X-P2-20 口径）
+  writeFileSync(join(root, '写作', '正文', '孤儿 - Copy.md'), '无母本副本', 'utf-8')
+  try {
+    const copies = scanCloudCopies(root)
+    expect(copies.some((f) => f.includes('第1章 - Copy.md'))).toBe(true)
+    expect(copies.some((f) => f.includes('第1章 - 副本.md'))).toBe(true)
+    expect(copies.some((f) => f.includes('第1章 - 副本 (2)'))).toBe(true)
+    expect(copies.some((f) => f.includes('孤儿'))).toBe(false)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})

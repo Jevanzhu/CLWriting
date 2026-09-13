@@ -11,12 +11,12 @@
  * 消费方触发（同伏笔迁移范式）：首次进文风视图时调用，结果落 toast。
  */
 
-import { existsSync, readdirSync, readFileSync, rmSync, rmdirSync, mkdirSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, rmdirSync, mkdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { readSamplesByScene, parseSampleFileName } from './style.js'
 import { writeEntryExclusive, readEntries, ENTRIES_DIR } from './style-entry.js'
 import { parseIronRules } from './iron-rules.js'
-import { atomicWriteFile } from '../fs/atomic.js'
+import { atomicWriteFile, rmWithRetry } from '../fs/atomic.js'
 import { canonicalizeText } from '../fs/text-canonical.js'
 import { sanitizeChapterTitle, isMdFileName } from './filename.js'
 import type { StyleEntry, EntryKind, EntrySource, SampleSource } from './types.js'
@@ -265,7 +265,10 @@ export function migrateStyleLibrary(bookRoot: string): StyleMigrateResult {
           正文: s.正文,
           ...(s._raw ? { _raw: s._raw } : {}),
         })
-        if (s._path) rmSync(s._path, { force: true })
+        // R0913-win P3（退避族）：删源收编 rmWithRetry——win 杀软/索引器瞬时锁下裸
+        // rmSync 直败会中断本轮迁移（迁移幂等 + Y-7 续跑查重可自愈，但不该无谓报错
+        // + 旧目录滞留一轮）；口径同全仓「确实要删」删源点。
+        if (s._path) rmWithRetry(s._path)
       }
       result.skipped += errors.length
       for (const e of errors) result.details.push(`跳过（解析失败）：${e.file}`)
@@ -310,7 +313,7 @@ export function migrateStyleLibrary(bookRoot: string): StyleMigrateResult {
           正文: q.正文,
         })) quoteCount++
       }
-      rmSync(fp, { force: true })
+      rmWithRetry(fp) // R0913-win P3（退避族）：同上——拆条后删源
     }
     rmdirIfEmpty(quoteDir)
   }
@@ -329,7 +332,7 @@ export function migrateStyleLibrary(bookRoot: string): StyleMigrateResult {
         正文: q.正文,
       })) quoteCount++
     }
-    rmSync(quoteFile, { force: true })
+    rmWithRetry(quoteFile) // R0913-win P3（退避族）：同上——导入源删档
   }
   if (quoteCount > 0) result.details.push(`金句库 → ${quoteCount} 条样章（标签: 金句）`)
 

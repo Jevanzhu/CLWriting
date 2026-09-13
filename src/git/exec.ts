@@ -304,6 +304,12 @@ export function scanCloudCopies(bookRoot: string): string[] {
   // OneDrive 式 `<名>-<计算机名>.md` 与合法标题不可分（假阳性高），不进自动检测，
   // 改根 README「Windows 版使用须知」披露；同 X-P2-20 必须验母本。
   const zhConflicted = /^(.+?)\s*[（(-]\s*冲突副本.*\.md$/
+  // R0913-win P3-9（2026-09-13 全库源码重评 win 适配修复批）：Windows 资源管理器
+  // 首份副本 `<名> - Copy.md` 与中文 Windows 形态 `<名> - 副本.md`——dedupCopy 的
+  // 数字形态不匹配无数字母本，母本自身漏报（` - Copy (2)` 虽可经 dedupCopy 命中，
+  // 但需 ` - Copy.md` 在盘，链式依赖使本源恒漏）。同 X-P2-20 母本收紧：`<名>.md`
+  // 在盘才报，合法标题含该字样不误伤。
+  const explorerCopy = /^(.+?)\s- (?:Copy|副本)(?:\s\(\d+\))?\.md$/
   const walk = (dir: string): void => {
     let entries: Dirent[]
     try {
@@ -337,6 +343,10 @@ export function scanCloudCopies(bookRoot: string): string[] {
         else {
           const c = zhConflicted.exec(e.name)
           if (c && existsSync(join(dir, `${c[1]}.md`))) copies.push(full)
+          else {
+            const w = explorerCopy.exec(e.name)
+            if (w && existsSync(join(dir, `${w[1]}.md`))) copies.push(full)
+          }
         }
       }
     }
