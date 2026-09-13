@@ -20,7 +20,7 @@ import { join } from 'node:path'
 import { readdirSync, statSync, lstatSync, existsSync } from 'node:fs'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
-import { resolveBook } from '../book-context.js'
+import { resolveBook, bookMovedFailure } from '../book-context.js'
 import { listVersionEntries, readVersion, readVersionRaw, pruneVersions, DEFAULT_VERSION_POLICY, readGlobalSnapshotPolicy } from '../../../document/version.js'
 import { readManifest } from '../../../document/manifest.js'
 import { safeDocId } from '../../../fs/safe-path.js' // P3-1：docId 白名单校验共享（不内联手写）
@@ -507,6 +507,13 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
       if (expectedRevision === null) {
         return replyError(res, 400, 'BAD_INPUT', 'expectedRevision 必填')
       }
+
+      // 重评二轮-P3-1（2026-09-13 全库源码重评二轮 GLM-5.3）：readJson 窗口后写前重验书
+      // 注册（时序见 bookMovedFailure 头注）——restore 是全域 16 处同类非闸写端点中唯一
+      // 漏挂者（config.ts:99 家族）。窗口跨删书/改名时 save 的保存锁获取会在旧路径
+      // mkdir 复活幽灵目录骨架；重验 409 拒写保旧（正文写入另有基线校验拦）。
+      const moved = bookMovedFailure(ctx.workDir, params['name'], r.bookRoot)
+      if (moved) return replyError(res, 409, moved.code, moved.reason)
 
       const outcome = await getOrCreateService(r.bookRoot, ctx.userDataPath).save(docId, r.relPath, {
         content,

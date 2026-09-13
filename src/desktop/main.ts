@@ -2002,7 +2002,13 @@ function buildMenu(): void {
 
 // Z-P2-8：单实例锁守卫——第二实例已在顶部 app.quit()，跳过全部生命周期注册，
 // 防退出竞态中 whenReady/activate 仍触发 bootstrap（起 server/开窗/读写状态文件）
-if (gotSingleInstanceLock) {
+// 重评二轮-P2-1（2026-09-13 全库源码重评二轮 GLM-5.3）：守卫补消费文件锁标志——原只看
+// gotSingleInstanceLock，跨提权双开（Electron 锁按提权上下文隔离、双方各持，正是
+// R0913-win P3-13 文件锁防线要堵的场景）时第二实例 gotSingleInstanceLock=true 而
+// appInstanceGuard.acquired=false：顶部 quit 照发但退出是异步的，本守卫放行使生命周期
+// 全注册（瞬态起 server child/开窗/写 workdir.json），文件锁防线要关闭的语义层竞态重开。
+// 双标志与门与顶部 :235 同款（guard 异常时 fail-open 返回 acquired:true，放行语义不变）。
+if (gotSingleInstanceLock && appInstanceGuard.acquired) {
   app.whenReady().then(() => {
     // 生产模式注入 CSP（开发 HMR 模式跳过——Vite 依赖 unsafe-eval/unsafe-inline）
     // R43-26（四十三轮）：CSP 注入条件同步收紧——与 devUi 同形（!!env && !app.isPackaged）

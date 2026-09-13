@@ -289,9 +289,10 @@ async function onSave(): Promise<void> {
   <div class="meta-form-panel">
     <div v-if="!entry" class="side-hint">未打开文档</div>
     <div v-else class="info-card">
-      <!-- 正文标签（只读展示；长篇 chapter 钩子/情绪/场景，短篇 piece-body 目标情绪/核心反转） -->
+      <!-- 正文标签（只读展示；长篇 chapter 钩子/情绪/场景——短篇 piece-body 的目标情绪/
+      核心反转已移入 FIELD_DEFS 可编辑区，见 TAG_FIELDS_BY_KIND 头注，本块对短篇不渲染） -->
       <div v-if="tagFields.length" class="tag-block">
-        <div class="card-title"><Tag :size="14" />{{ kind === 'piece-body' ? '短篇标签' : '章节标签' }}<span class="ai-tag">AI 判定</span></div>
+        <div class="card-title"><Tag :size="14" />章节标签<span class="ai-tag">AI 判定</span></div>
         <div class="tag-grid" :class="{ 'single-col': tagFields.length <= 2 }">
           <div v-for="f in tagFields" :key="f.key" class="tag-cell">
             <span class="tag-cell-label">{{ f.label }}</span>

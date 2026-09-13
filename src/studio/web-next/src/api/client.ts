@@ -279,6 +279,16 @@ export async function apiJson<T>(
         : `本地服务未连接，请确认 API 服务已启动（dev 开发请先运行 npm run dev:api）`
       throw new ApiError(msg, r.status, hasEnvelope ? body.code : 'LOCAL_API_DOWN')
     }
+    // 重评二轮-P3-3（2026-09-13 全库源码重评二轮 GLM-5.3）：2xx + 字面量 null 体防御——
+    // r.json() 对「null」体解析成功（不进 catch），信封判别的 parsed !== null 使
+    // hasEnvelope 为假、!r.ok 不命中，null 一路穿透到 return body。调用方按 T 消费
+    // （getContent 得 content:undefined → sha256Revision('undefined') 错基线，R51-H-1
+    // 坏体同族）。null 是唯一可穿透的非法 JSON 字面量（true/数字/字符串同理无信封
+    // 无 error 字段，但那些至少可被 typeof 消费；null/undefined 使可选链与解构静默
+    // 空转）——对齐 204/304 之外的坏体口径上抛 MALFORMED_RESPONSE，不静默放行。
+    if (body === null) {
+      throw new ApiError('服务端返回了无法解析的响应体', r.status, 'MALFORMED_RESPONSE')
+    }
     return body
   } catch (e) {
     // 超时 abort 抛友好错误（timedOut 区分超时 abort 与外部 signal abort）

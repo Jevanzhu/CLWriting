@@ -119,6 +119,28 @@ export function parseRegFontsQueryOutput(out: string): string[] {
   return list
 }
 
+/** 重评二轮-P2-2（2026-09-13 全库源码重评二轮 GLM-5.3）：reg.exe 输出解码——reg 按
+ *  控制台 OEM 码页落字节（zh-CN = GBK/936），此前 spawnCollectKillFonts 骨架统一
+ *  toString('utf8') 把中文字体名解成 U+FFFD 串（本机字节级实证：OEM 936，
+ *  「方正粗黑宋简体」= B7 BD D5 FD B4 D6 BA DA CB CE BC F2 CC E5 恰 GBK、严格 UTF-8
+ *  解码失败），回落通道对其目标受众（受限中文机器）恰交付乱码半残表。解码序：严格
+ *  UTF-8 试解（ASCII 是两码公共子集，纯 ASCII 输出零风险直过）→ 失败回落
+ *  TextDecoder('gbk')（Node 24 自带 full-icu）→ gbk 解码器不可用（裁剪 icu 的小形态）
+ *  宽容 UTF-8 保底（替换符降级，不硬败——字体表宁半残不空）。纯函数，测试锚定
+ *  （GBK 字节进 → 中文字体名出）。PS 通道自设 chcp 65001 + UTF-8 输出编码不经本解码
+ *  （维持骨架缺省）。 */
+export function decodeRegOutput(buf: Buffer): string {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(buf)
+  } catch {
+    try {
+      return new TextDecoder('gbk').decode(buf)
+    } catch {
+      return buf.toString('utf8')
+    }
+  }
+}
+
 /** PowerShell stdout → 字体名数组（R0912-A-P3-3 起为 spawnCollectKillFonts 骨架的结算
  *  回调）：PowerShell UTF-8 输出可能带 BOM 前导（Console.OutputEncoding 初始化）剥一次；
  *  font-list standardize 的 disableQuoting 移植口径（裸名 + 滤空）。 */
@@ -192,6 +214,9 @@ export async function listWindowsFonts(deps: ListWindowsFontsDeps = {}): Promise
           timeoutMs,
           timeoutMessage: `reg 字体枚举超过 ${timeoutMs}ms 未退出，已中止`,
           exitCodeErrorPrefix: 'reg 字体枚举',
+          // 重评二轮-P2-2：reg 输出按 OEM 码页解码（严格 UTF-8 试解失败回落 GBK）——
+          // zh-CN 机器中文字体名不再整面 U+FFFD
+          decodeStdout: decodeRegOutput,
           parse: parseRegFontsQueryOutput,
         })) {
           fonts.add(f)

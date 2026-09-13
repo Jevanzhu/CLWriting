@@ -11,7 +11,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
-import { listWindowsFonts, parseRegFontsQueryOutput, type FontSpawn, type FontSpawnChild } from '../../src/desktop/win-fonts.js'
+import { listWindowsFonts, parseRegFontsQueryOutput, decodeRegOutput, type FontSpawn, type FontSpawnChild } from '../../src/desktop/win-fonts.js'
 import { __resetFontListBreakerForTest } from '../../src/desktop/font-cache.js'
 
 // R48-74（四十八轮）：listWindowsFonts 内部套进程级会话熔断（font-cache 模块级失败
@@ -320,5 +320,64 @@ describe('R0913-win P2-3：PS 不可用 → reg.exe 注册表回落', () => {
           '    (Default)    REG_SZ    (value not set)\r\n',
       ),
     ).toEqual(['Arial', 'Segoe UI Variable Display'])
+  })
+})
+
+// 重评二轮-P2-2（2026-09-13 全库源码重评二轮 GLM-5.3）：reg.exe 按控制台 OEM 码页
+// 落字节（zh-CN = GBK/936），骨架固定 toString('utf8') 会把中文字体名整面解成
+// U+FFFD（本机字节级实证：B7 BD D5 FD B4 D6 BA DA CB CE BC F2 CC E5 =「方正粗黑宋
+// 简体」GBK 字节）。修复 = font-cache 骨架可注入 decodeStdout + reg 通道接
+// decodeRegOutput（严格 UTF-8 试解失败回落 GBK）。
+describe('重评二轮-P2-2: reg 通道码页感知解码（GBK 回落）', () => {
+  /** GBK 字节（硬编码，不依赖宿主编码表）：方正粗黑宋简体 */
+  const GBK_FZ = Buffer.from([0xb7, 0xbd, 0xd5, 0xfd, 0xb4, 0xd6, 0xba, 0xda, 0xcb, 0xce, 0xbc, 0xf2, 0xcc, 0xe5])
+  /** GBK 字节：微软雅黑 */
+  const GBK_MSYH = Buffer.from([0xce, 0xa2, 0xc8, 0xed, 0xd1, 0xc5, 0xba, 0xda])
+
+  it('decodeRegOutput：GBK 字节 → 正确中文（严格 UTF-8 试解失败回落 GBK）', () => {
+    expect(decodeRegOutput(GBK_FZ)).toBe('方正粗黑宋简体')
+    expect(decodeRegOutput(GBK_MSYH)).toBe('微软雅黑')
+  })
+
+  it('decodeRegOutput：UTF-8 / ASCII 字节原样（严格试解成功不走回落）', () => {
+    expect(decodeRegOutput(Buffer.from('微软雅黑', 'utf8'))).toBe('微软雅黑')
+    expect(decodeRegOutput(Buffer.from('Arial (TrueType)    REG_SZ    arial.ttf\r\n'))).toBe(
+      'Arial (TrueType)    REG_SZ    arial.ttf\r\n',
+    )
+  })
+
+  it('reg 回落 + GBK 输出 → 列表得正确中文字体名（不落 U+FFFD）', async () => {
+    // 键头 + ASCII 行按原文（ASCII ⊂ GBK 无歧义），中文名行整段 GBK 字节
+    const out = Buffer.concat([
+      Buffer.from(
+        'HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts\r\n' +
+          '\r\n' +
+          '    Arial (TrueType)    REG_SZ    arial.ttf\r\n' +
+          '    ',
+        'utf8',
+      ),
+      GBK_MSYH,
+      Buffer.from(' (TrueType)    REG_SZ    msyh.ttc\r\n', 'utf8'),
+    ])
+    const spawnImpl: FontSpawn = (cmd, args) => {
+      const c = makeFakeChild()
+      setTimeout(() => {
+        if (cmd.includes('powershell')) {
+          ;(c.stderr as PassThrough).end()
+          ;(c.stdout as PassThrough).end()
+          c.emitClose(1)
+          return
+        }
+        if (args.some((a) => a.startsWith('HKLM'))) {
+          ;(c.stdout as PassThrough).write(out)
+          ;(c.stdout as PassThrough).end()
+          c.emitClose(0)
+          return
+        }
+        c.emitClose(1) // HKCU 键不存在 → 跳过
+      }, 0)
+      return c
+    }
+    await expect(listWindowsFonts({ platform: 'win32', spawnImpl })).resolves.toEqual(['Arial', '微软雅黑'])
   })
 })

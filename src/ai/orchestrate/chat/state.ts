@@ -96,8 +96,16 @@ export function getHistory(bookName: string): ChatMsg[] {
  * 不阻塞服务事件循环）；无 db 参的纯内存路径（books.ts 改名等）随之变异步但语义
  * 逐位不变（内存清空仍先行，事件库失败降级留痕口径不动）。测试侧未 await 的纯内存
  * 调用照旧工作（内部无 await 短路）。
+ * 重评二轮-P3-2：opts.gate 清库前复查闸（见体内注释）；返回值 = 拒清理由（null =
+ * 已清/纯内存路径），调用方可转 409——既有调用方（books.ts 删书/改名）await 后弃
+ * 值不受影响。
  */
-export async function clearChatHistory(bookName: string, userDataPath?: string, bookRoot?: string): Promise<void> {
+export async function clearChatHistory(
+  bookName: string,
+  userDataPath?: string,
+  bookRoot?: string,
+  opts?: { gate?: () => string | null },
+): Promise<string | null> {
   histories.delete(bookName)
   msgSeqMap.delete(bookName)
   activeBranchByBook.delete(bookName)
@@ -113,7 +121,18 @@ export async function clearChatHistory(bookName: string, userDataPath?: string, 
       store = await openSessionStoreAsync(userDataPath, bookRoot)
     } catch (e) {
       log.warn('chat', `清史打开事件库失败（内存已清、事件库待修复后重清）：${e instanceof Error ? e.message : String(e)}`)
-      return
+      return null
+    }
+    // 重评二轮-P3-2（2026-09-13 全库源码重评二轮 GLM-5.3）：开库 await 让出窗口后、
+    // 清库前复查闸（回调由调用方注入，正本 = audit.ts chatClearGateReason 六闸）。窗口
+    // 内新起的 chat/spawn/self-heal/三审/task-gate/后台收尾任务在旧形态下照清——任务
+    // 收尾继续向已清 session 追加事件（清不彻底 + 事件复活）。拒清时返回理由由调用方
+    // 转 409；此处内存已清是良性前置：在途任务持数组引用续写不丢、重开面板从事件库
+    // （未清）重放，两侧自愈对齐。无 gate / 纯内存调用（books.ts 改名等）行为不变。
+    const blocked = opts?.gate?.() ?? null
+    if (blocked) {
+      store?.close()
+      return blocked
     }
     // L-A2（第八轮）：clearBooks 本身也可抛（SQLITE_BUSY 超 busy_timeout / 磁盘满）——
     // 同款降级留痕：内存已清，事件库残留待修复后重清，重试可自愈
@@ -125,4 +144,5 @@ export async function clearChatHistory(bookName: string, userDataPath?: string, 
       store?.close()
     }
   }
+  return null
 }

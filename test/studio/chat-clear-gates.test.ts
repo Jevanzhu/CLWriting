@@ -10,6 +10,12 @@
  * 1. task-gate 在途（真实占位）→ 409 拒清，事件库两侧原样；
  * 2. self-heal 运行中 → 409 拒清；
  * 3. 全空闲 → 200 且两侧清空（闸不误伤）。
+ *
+ * 重评二轮-P3-2（2026-09-13 全库源码重评二轮 GLM-5.3）：两端六闸收编 audit.ts
+ * chatClearGateReason 单源 + await 后清库前复查（chat.clear 经 clearChatHistory 的
+ * gate 回调 / audit DELETE 在 openSessionStoreAsync 之后）。本文件经真服务锁入口
+ * 收编后口径不变（chat/clear 与 audit DELETE 两端各验一闸），复查闸的机制面见
+ * test/ai/r0913-r2-clear-gate.test.ts。
  */
 import http from 'node:http'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -60,7 +66,38 @@ function post(path: string): Promise<{ status: number; json: unknown }> {
       },
       (res) => {
         let data = ''
-        res.on('data', (c) => (data += c.toString('utf-8')))
+        res.on('data', (c) => (data += c.toString('utf8')))
+        res.on('end', () => {
+          let json: unknown = null
+          try {
+            json = JSON.parse(data)
+          } catch {
+            /* 非 JSON 留 null */
+          }
+          resolve({ status: res.statusCode ?? 0, json })
+        })
+      },
+    )
+    req.on('error', reject)
+    req.end()
+  })
+}
+
+/** 重评二轮-P3-2：audit DELETE 入口闸同口径验证（同 post 骨架，method 换 DELETE）。 */
+function del(path: string): Promise<{ status: number; json: unknown }> {
+  return new Promise((resolve, reject) => {
+    const u = new URL(studio.baseUrl)
+    const req = http.request(
+      {
+        host: u.hostname,
+        port: u.port,
+        path,
+        method: 'DELETE',
+        headers: { origin: studio.baseUrl, 'x-studio-token': studio.token },
+      },
+      (res) => {
+        let data = ''
+        res.on('data', (c) => (data += c.toString('utf8')))
         res.on('end', () => {
           let json: unknown = null
           try {
@@ -99,7 +136,7 @@ function seedWorkflowEvent(): void {
   }
 }
 
-describe('M-2: chat/clear 五闸对齐', () => {
+describe('M-2 + 重评二轮-P3-2: chat/clear 与 audit DELETE 六闸同口径', () => {
   it('task-gate 在途（真实占位）→ 409 拒清，工作流侧事件原样', async () => {
     seedWorkflowEvent()
     const release = acquireTaskGate(BOOK, 'analyze')!
@@ -127,6 +164,29 @@ describe('M-2: chat/clear 五闸对齐', () => {
 
   it('全空闲 → 200 且工作流侧清空（闸不误伤）', async () => {
     const r = await post(`/api/books/${encodeURIComponent(BOOK)}/chat/clear`)
+    expect(r.status).toBe(200)
+    expect((r.json as { ok: boolean }).ok).toBe(true)
+    expect(workflowEvents()).toBe(0)
+  })
+
+  // 重评二轮-P3-2：audit DELETE 入口收编 chatClearGateReason 后同口径（此前只经
+  // 内联块覆盖）——真占 task-gate 验 409 拒清 + 工作流侧原样
+  it('audit DELETE：task-gate 在途 → 409 拒清，工作流侧事件原样（六闸收编后口径不变）', async () => {
+    seedWorkflowEvent()
+    const release = acquireTaskGate(BOOK, 'analyze')!
+    try {
+      const r = await del(`/api/books/${encodeURIComponent(BOOK)}/audit`)
+      expect(r.status).toBe(409)
+      expect((r.json as { error: string }).error).toContain('任务在跑')
+      expect(workflowEvents()).toBe(1) // 未被清掉
+    } finally {
+      release()
+    }
+  })
+
+  it('audit DELETE：全空闲 → 200 且工作流侧清空（闸不误伤）', async () => {
+    seedWorkflowEvent()
+    const r = await del(`/api/books/${encodeURIComponent(BOOK)}/audit`)
     expect(r.status).toBe(200)
     expect((r.json as { ok: boolean }).ok).toBe(true)
     expect(workflowEvents()).toBe(0)
