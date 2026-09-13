@@ -104,7 +104,7 @@ export const SSE_BACKPRESSURE_LIMIT = 1_000_000
  * 写复位）。字节闸对「仅心跳存活」的假死连接几乎失效（心跳 ~14B/30s，1MB 需约 25
  * 天累计）；次数闸补位：240 次 × 30s = 2 小时无一次 drain 即判死。数据突发场景由
  * 字节闸先行（1MB 远早于 240 次到达），本闸只兜心跳型假死。 */
-export const SSE_STUCK_WRITES_LIMIT = 240
+const SSE_STUCK_WRITES_LIMIT = 240
 
 /** P-8：背压守卫所需的 res 最小面（结构化收窄——不用 Pick<ServerResponse,...>，
  *  真实 ServerResponse.on 返回 this，假 res/单测桩返回 void 无法满足该签名）。 */

@@ -13,7 +13,6 @@ import { afterAll, beforeAll, describe, it, expect } from 'vitest'
 import type { ServerResponse } from 'node:http'
 import { replyError } from '../../src/studio/server/http.js'
 import { resolveDocEntry } from '../../src/studio/server/book-context.js'
-import { startServer } from '../../src/studio/server/index.js'
 import { startServerSafe } from '../helpers/safe-port.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
@@ -103,8 +102,7 @@ describe('documents 端点结构化失败走统一信封（Q-7）', () => {
     upsertEntry(m, { id: 'doc_env1', nodeType: 'document', path: '写作/正文/0001-开篇.md', parentId: null })
     writeManifest(join(bookRoot, '项目', '文档清单.jsonl'), m)
 
-    docServer = startServer({ port: 0, workDir })
-    await new Promise<void>((r) => docServer!.once('listening', r))
+    docServer = await startServerSafe({ port: 0, workDir })
     docBaseUrl = `http://127.0.0.1:${(docServer.address() as AddressInfo).port}`
     const r = await fetch(`${docBaseUrl}/api/boot`)
     token = ((await r.json()) as { token: string }).token

@@ -5,7 +5,7 @@ import { log } from '../log/index.js'
 // R48-71（四十八轮）：存活探测收编单源（原 isPidAlive 私抄副本删除）
 import { isProcessAlive } from './cross-process-lock.js'
 
-export interface AtomicWriteOptions {
+interface AtomicWriteOptions {
   /** 落盘保证：写完 fsync 文件内容 + rename 后 fsync 父目录（元数据）。默认 true
    *  （T2-5：数据安全优先——此前默认 false，崩溃/断电下 rename 元数据未落盘会丢
    *  整个文件）。高频低价值写（诊断/心跳类）可显式传 false 关闭换吞吐。 */
@@ -23,7 +23,7 @@ export interface AtomicWriteOptions {
  * （调用方 catch 清 tmp 的语义不变）。仅 EPERM/EBUSY 进重试——ENOENT 等确定性
  * 错误立即上抛，不做无意义等待。rename/sleep 可注入（测试用，不动生产语义）。
  */
-export interface RenameRetryOptions {
+interface RenameRetryOptions {
   rename?: (from: string, to: string) => void
   sleep?: (ms: number) => void
   retries?: number
@@ -34,7 +34,7 @@ export interface RenameRetryOptions {
  *  renameWithRetry（本文件）与 cross-process-lock.rmWithRetryQuiet 的三份手抄循环、
  *  两份 retryable 字面量收敛此处（R48-15 接管面的退避缺口正是重复导致的视野遗漏）。
  *  退避口径不变：3×50ms 指数，仅集合内错误码重试，其余确定性错误立即终局。 */
-export const RETRYABLE_FS_CODES: ReadonlySet<string> = new Set(['EPERM', 'EBUSY'])
+const RETRYABLE_FS_CODES: ReadonlySet<string> = new Set(['EPERM', 'EBUSY'])
 
 /** Atomics.wait 同步微睡（Node 主线程合法；单次退避 ≤200ms，不阻塞事件循环可观时长） */
 export function fsBackoffSleep(ms: number): void {

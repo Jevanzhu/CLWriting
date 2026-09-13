@@ -41,7 +41,7 @@ export const LEAD_TYPES: readonly LeadType[] = [
  *  open 开端 → advance 进行中推进（不收尾）→ resolve 收尾 / drop 放弃。
  *  advance 语义：线仍在「进行中」，仅推进不闭合（悬疑递进/成长稳进等），
  *  不触发状态闭合校验（只有 resolve/drop 才要求状态翻转）。 */
-export interface LeadVerbSet {
+interface LeadVerbSet {
   open: string[]
   advance: string[]
   resolve: string[]

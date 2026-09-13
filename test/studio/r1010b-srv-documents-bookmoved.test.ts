@@ -33,8 +33,7 @@ import {
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { acquireCrossProcessLockAsync } from '../../src/fs/cross-process-lock.js'
 import { encodeDocDirName } from '../../src/document/version.js'
-
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
+import { sleep } from '../helpers/wait-for.js'
 
 // 假 req/res 已收编 helpers/fake-reqres.ts 单源（测试精简批 2026-09-12）。
 

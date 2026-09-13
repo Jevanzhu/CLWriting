@@ -22,8 +22,7 @@ import { tmpdir } from 'node:os'
 import { describe, it, expect } from 'vitest'
 import { ccDriver, MAX_EXEC_RING } from '../../src/driver/cc.js'
 import type { DriverEvent } from '../../src/driver/types.js'
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+import { sleep } from '../helpers/wait-for.js'
 
 /** 推一个接管 pre 的消费者（拿走首事件后断开）——置 preTaken=true，使后续迟到
  *  消费者走 execRing 回放分支（模拟「首个消费者早已来过又走」的重连形态）

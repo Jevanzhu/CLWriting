@@ -28,13 +28,13 @@ export interface QuoteCandidateFE {
 }
 
 /** 收割结果（POST /learn 响应） */
-export interface LearnResultFE {
+interface LearnResultFE {
   samples: SampleCandidateFE[]
   quotes: QuoteCandidateFE[]
 }
 
 /** 入库结果（POST /learn-commit 响应） */
-export interface LearnCommitResultFE {
+interface LearnCommitResultFE {
   ok: true
   sampleFiles: string[]
   quoteFiles: string[]

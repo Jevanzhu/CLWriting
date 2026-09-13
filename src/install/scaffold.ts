@@ -25,7 +25,7 @@ function writeIfAbsent(fp: string, content: string): void {
 }
 
 /** 书仓库 scaffold 入参（init 和 import 共用）。 */
-export interface BookScaffoldOpts {
+interface BookScaffoldOpts {
   name: string
   genre: string
   leadsEnabled: LeadType[]
@@ -99,7 +99,7 @@ export function scaffoldBookRepo(bookRoot: string, opts: BookScaffoldOpts): void
 }
 
 /** 建母本 6.2 目录树（基础三类恒建 + 扩展类按 leadsEnabled 建）。短篇集走精简布局（M8 #25）。 */
-export function scaffoldDirectories(bookRoot: string, opts: BookScaffoldOpts): void {
+function scaffoldDirectories(bookRoot: string, opts: BookScaffoldOpts): void {
   if (opts.kind === 'short') {
     scaffoldShortDirectories(bookRoot, opts)
     return
@@ -235,7 +235,7 @@ function scaffoldSharedStyle(bookRoot: string, genre: string): void {
 }
 
 /** 第一卷卷纲范例（§17 决策①，与 写作/正文/第一卷/ 同名关联，开箱引导卷结构）。 */
-export function renderVolumeOutlineExample(): string {
+function renderVolumeOutlineExample(): string {
   return [
     '# 第一卷 卷纲',
     '',
@@ -297,7 +297,7 @@ export function renderStyleRules(_genre: string): string {
 }
 
 /** 境界体系模板：成长线启用时给可解析序列，避免 growth 检测静默空跑。 */
-export function renderRealmRules(opts: Pick<BookScaffoldOpts, 'genre' | 'leadsEnabled'>): string {
+function renderRealmRules(opts: Pick<BookScaffoldOpts, 'genre' | 'leadsEnabled'>): string {
   if (!opts.leadsEnabled.includes('成长线')) {
     return [
       '# 境界体系',

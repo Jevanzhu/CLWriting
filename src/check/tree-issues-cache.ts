@@ -37,7 +37,7 @@ import { isMdFileName } from '../format/filename.js'
  *  旧代行语义不同（hasRed 含跨章红项），整代失效防新旧混存。 */
 const CHECKER_GENERATION = 'a1-v2'
 
-export interface TreeIssueEntry {
+interface TreeIssueEntry {
   hasRed: boolean
   verdictRejected: boolean
 }

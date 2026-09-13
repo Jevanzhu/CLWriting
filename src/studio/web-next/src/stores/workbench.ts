@@ -8,7 +8,7 @@ import { str, strArr, isSseEvent, isHealPhaseEvent, isHealResultEvent } from './
  */
 
 /** driver SSE 事件（松类型，按 type 分支取字段；对齐 driver/types.ts DriverEvent）。 */
-export interface SseEvent {
+interface SseEvent {
   type: string
   _ts: string
   /** R33-87（三十三轮）：入队序号（store 级单调查）——事件流滑窗渲染的稳定 key 源
@@ -18,7 +18,7 @@ export interface SseEvent {
 }
 
 /** 全自动写章终局（self_heal_result）。 */
-export interface HealResult {
+interface HealResult {
   outcome: 'pass' | 'escalate' | 'aborted' | 'failed'
   reds?: string[]
   /** pass 时终稿黄项复查：仍命中的规则违规（message 列表，空 = 已收敛） */
@@ -30,7 +30,7 @@ export interface HealResult {
 /** F-P1-4：SSE 事件字段白名单（拒绝非预期值；白名单常量集中在 sse-guards.ts 的守卫里） */
 
 /** 全自动写章进度（self_heal_progress：第 attempt/maxAttempts 次重写 + 剩余红项）。 */
-export interface HealProgress {
+interface HealProgress {
   attempt: number
   maxAttempts: number
   remaining: string[]

@@ -37,7 +37,7 @@
 import { canonicalFontName } from './font-names'
 import { usePlatform } from '../composables/usePlatform'
 
-export interface ProsePresetValues {
+interface ProsePresetValues {
   proseFontCn: string
   proseFontEn: string
   proseSize: number

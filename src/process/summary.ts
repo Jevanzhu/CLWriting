@@ -96,7 +96,7 @@ export function chapterSummaryRelPath(chapter: number): string {
   return [CHAPTER_SUMMARY_DIR, `${chapter}.md`].join('/')
 }
 
-export type SummaryState = 'fresh' | 'stale' | 'missing'
+type SummaryState = 'fresh' | 'stale' | 'missing'
 
 /**
  * 章摘要状态：文件缺失 → missing；fm.sourceHash ≠ 当前正文指纹 → stale（正文后改）；
@@ -164,7 +164,7 @@ export function findChapterFile(bookRoot: string, chapter: number): string | nul
   ) ?? null
 }
 
-export interface GenerateChapterSummaryOpts {
+interface GenerateChapterSummaryOpts {
   bookRoot: string
   /** APP 数据目录（provider/tier 解析 + 事件记账） */
   userDataPath: string | null
@@ -180,7 +180,7 @@ export interface GenerateChapterSummaryOpts {
   signal?: AbortSignal
 }
 
-export type GenerateSummaryResult =
+type GenerateSummaryResult =
   | { ok: true; path: string; skipped: boolean }
   | { ok: false; error: string }
 
@@ -341,7 +341,7 @@ export function effectiveConfig(bookRoot: string, userDataPath: string | null): 
 }
 
 /** 摘要自动生成开关（summary.auto 缺省 true） */
-export function summaryAutoEnabled(config: BookConfig): boolean {
+function summaryAutoEnabled(config: BookConfig): boolean {
   return config.summary?.auto !== false
 }
 
@@ -544,11 +544,11 @@ export function volumeSummaryRelPath(volume: number): string {
 }
 
 /** 第 volume 卷的章号区间（按 volume_size 划卷，与 assembleStatus 同口径） */
-export function volumeChapterRange(volume: number, volumeSize: number): { from: number; to: number } {
+function volumeChapterRange(volume: number, volumeSize: number): { from: number; to: number } {
   return { from: (volume - 1) * volumeSize + 1, to: volume * volumeSize }
 }
 
-export interface VolumeChainState {
+interface VolumeChainState {
   /** 该卷全部已定稿章的章摘要（章号 → 摘要正文）；null = 链不全（有定稿章缺摘要） */
   chain: Map<number, string> | null
   /** 链不全时缺失摘要的章号（留痕用） */

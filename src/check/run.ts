@@ -413,7 +413,7 @@ export function __setChapterCheckDegradeForTest(v: boolean): void {
 }
 
 /** R37-3（三十七轮）：树红点聚合结果形状（同步/async 孪生共用）。 */
-export interface TreeIssuesResult {
+interface TreeIssuesResult {
   issues: Record<string, { hasRed: boolean; verdictRejected: boolean }>
   rebuildFailed: boolean
   leadsBookDegraded: boolean

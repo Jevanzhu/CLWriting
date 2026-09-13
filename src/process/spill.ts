@@ -29,7 +29,7 @@ export interface SpillThresholds {
   tailChars: number
 }
 
-export interface SpillOutcome {
+interface SpillOutcome {
   /** 模型侧看到的内容（原文 或 头尾预览+通知行） */
   preview: string
   /** 全文落盘位置（书库内相对路径；未触发/落盘失败时缺省） */
@@ -37,14 +37,14 @@ export interface SpillOutcome {
 }
 
 /** 落盘回调：返回 locator（相对路径）；失败返回 null（best-effort） */
-export type SpillWriter = (fullText: string) => string | null
+type SpillWriter = (fullText: string) => string | null
 
 /** 落盘到 工作区/spills/<sha256 前 16>.md（内容寻址幂等；目录不存在自动建）。
  *  M-3（第十轮）：meta 随写随落同名 sidecar（<hash>.meta.json）——apply 侧凭它校验
  *  spill 归属章号与基线新鲜度，防「转述错章号整章覆写」与「改写后被编辑仍静默覆盖」。
  *  正文文件保持纯文本不变（内容寻址与模型直读语义不动）；sidecar 写失败随整次写入
  *  失败返回 null（无 meta 的 spill 在 apply 侧一律拒绝，不留半保障状态）。 */
-export interface SpillMeta {
+interface SpillMeta {
   /** 产出语义（当前仅 rewrite 改写稿；chat 上下文 spill 不带 meta） */
   kind: 'rewrite'
   /** 改写目标章号 */

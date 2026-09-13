@@ -22,7 +22,7 @@ import { sanitizeChapterTitle, isMdFileName } from './filename.js'
 import type { StyleEntry, EntryKind, EntrySource, SampleSource } from './types.js'
 
 /** 迁移结果（伏笔迁移同构 + 类型分布供 toast） */
-export interface StyleMigrateResult {
+interface StyleMigrateResult {
   migrated: number
   skipped: number
   details: string[]

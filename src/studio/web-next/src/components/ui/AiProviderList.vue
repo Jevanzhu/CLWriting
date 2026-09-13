@@ -119,12 +119,3 @@ function protocolLabel(p: ProviderConfDto): string {
     </div>
   </template>
 </template>
-
-<style scoped>
-/* 共享控件语言（group-title/add-btn/empty/徽章 等）
- * 在 styles/providers.css；这里只留列表自身骨架。 */
-.provider-list {
-  display: grid;
-  gap: var(--size-4-2);
-}
-</style>

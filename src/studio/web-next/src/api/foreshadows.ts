@@ -2,9 +2,6 @@ import { apiJson } from './client'
 
 // 伏笔/线索追踪：GET /foreshadows → 结构化列表（fm 字段 + 足迹 + 风险）
 
-export type ForeshadowStatus = '未回收' | '已回收' | '已废弃'
-export type ForeshadowPriority = '高' | '中' | '低'
-
 /** 单次足迹命中（关联词在正文中的出现） */
 export interface ForeshadowHit {
   章号: number

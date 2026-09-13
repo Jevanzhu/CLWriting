@@ -316,10 +316,6 @@ function clearAllPicks(): void {
   color: var(--text-muted);
   background: var(--background-modifier-hover);
 }
-.src {
-  font-size: var(--font-size-xs);
-  color: var(--text-faint);
-}
 .cand-head input[type='checkbox'] {
   margin-left: auto;
   width: 15px;

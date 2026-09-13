@@ -16,7 +16,7 @@ import { stat as statAsync } from 'node:fs/promises'
 // 劈成两条记录（展示面污染）。samePath 已在 darwin/win32 折叠（R51-D-2 单源）。
 import { samePath } from '../fs/user-data-path.js'
 
-export interface RecentItem {
+interface RecentItem {
   /** 书库绝对路径 */
   path: string
   /** 展示名（目录 basename） */
@@ -108,7 +108,7 @@ export function setCurrent(store: WorkDirStore, newCurrent: string): WorkDirStor
 const RECENT_PROBE_TIMEOUT = Symbol('recent-probe-timeout')
 
 /** 单条预探默认预算（ms）；调用方（main.ts bootstrap）注入 CLW_BOOTSTRAP_PROBE_TIMEOUT_MS 口径。 */
-export const RECENT_PROBE_DEFAULT_TIMEOUT_MS = 2_000
+const RECENT_PROBE_DEFAULT_TIMEOUT_MS = 2_000
 
 /** 预探注入形态（默认 node:fs/promises stat；测试注入挂起/失败形态）。 */
 export type StatLike = (p: string) => Promise<{ isDirectory(): boolean }>

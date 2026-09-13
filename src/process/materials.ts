@@ -108,7 +108,7 @@ export interface PrepareMaterialsOptions {
   embedFn?: typeof embed
 }
 
-export interface PrepareMaterialsResult extends PrepareResult {
+interface PrepareMaterialsResult extends PrepareResult {
   /** 本次是否触发了 RAG 召回（未配/降级 → false） */
   ragUsed: boolean
   /** 召回命中数（ragUsed=false 时 0） */

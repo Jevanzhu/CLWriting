@@ -24,8 +24,7 @@ import {
   __resetSettingLoadCountForTest,
   forgetSettingCache,
 } from '../../src/ai/rules/setting-rule.js'
-
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
+import { sleep } from '../helpers/wait-for.js'
 
 /** 造设定目录：角色卡(姓名 林远) + 名册.md(A 版内容)。返回 bookRoot。 */
 function makeSettingBook(): string {

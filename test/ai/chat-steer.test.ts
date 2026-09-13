@@ -11,7 +11,7 @@ import { withFakeProvider, tempUserData, makeDualTrackWorkdir } from '../studio/
 import { isChatRunning, abortChat, sendChatMessage, runChat, getHistory } from '../../src/ai/orchestrate/chat.js'
 import { openSessionStore } from '../../src/events/store.js'
 import type { DriverEvent, StudioDriver } from '../../src/driver/types.js'
-import { waitFor as waitForShared } from '../helpers/wait-for.js'
+import { sleep, waitFor as waitForShared } from '../helpers/wait-for.js'
 
 let fake: FakeProvider
 const dirs: string[] = []
@@ -45,8 +45,6 @@ function setup(): string {
 
 /** 等条件满足（带超时）——实现见 test/helpers/wait-for.ts（R9-P2-2 单源） */
 const waitFor = (fn: () => boolean, timeoutMs = 4000) => waitForShared(fn, timeoutMs)
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 function sendMsg(ud: string, bookName: string, message: string, driver: StudioDriver) {
   return sendChatMessage({

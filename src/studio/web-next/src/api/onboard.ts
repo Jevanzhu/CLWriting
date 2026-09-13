@@ -56,7 +56,7 @@ export const STEP_DESC: Record<OnboardStep, string> = {
   'first-outline': '首章细纲。目标情绪、核心反转、五段结构、伏笔回收、字数预估。',
 }
 
-export interface OnboardAiResult {
+interface OnboardAiResult {
   ok: true
   step: string
   path: string

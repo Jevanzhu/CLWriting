@@ -26,7 +26,7 @@ import {
 export type ToolStatus = 'pending' | 'running' | 'ok' | 'failed' | 'cancelled'
 
 /** 工具卡片 */
-export interface ToolCard {
+interface ToolCard {
   callId: string
   name: string
   input: unknown

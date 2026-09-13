@@ -61,7 +61,7 @@ export interface ProviderConfDto {
 }
 
 /** 价格表（D2 批 5；models[].pricing 同形状覆盖 provider 级） */
-export interface PricingConfDto {
+interface PricingConfDto {
   inputPerMTok?: number
   outputPerMTok?: number
   cacheReadPerMTok?: number
@@ -184,7 +184,7 @@ export interface RagProviderDto {
   sortIndex?: number
 }
 
-export interface RagProvidersResponse {
+interface RagProvidersResponse {
   ragProviders: RagProviderDto[]
   revision: number
 }
@@ -226,7 +226,7 @@ export async function deleteRagProvider(id: string, expectedRevision?: number): 
   })
 }
 
-export interface RagTestResult {
+interface RagTestResult {
   ok: boolean
   caps?: RagProviderCaps
   error?: string

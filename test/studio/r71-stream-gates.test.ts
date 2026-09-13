@@ -16,6 +16,7 @@ import { beforeAll, afterAll, describe, it, expect } from 'vitest'
 import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { acquireTaskGate } from '../../src/studio/server/api/task-gate.js'
 import { __setReviewRunning } from '../../src/studio/server/api/review.js'
+import { sleep } from '../helpers/wait-for.js'
 
 const BOOK = 'R71互斥书'
 let studio: StudioHarness
@@ -41,8 +42,6 @@ async function req(method: string, path: string, body?: unknown): Promise<{ stat
   }
   return { status: r.status, json }
 }
-
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
 beforeAll(async () => {
   // ensureSession 在二次复查之前——mock driver 保证无 provider 也能建会话

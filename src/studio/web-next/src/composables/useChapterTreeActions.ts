@@ -43,7 +43,7 @@ import {
   pendingChaptersUpToIn,
 } from '../shared/chapter-tree'
 
-export type CreatingKind =
+type CreatingKind =
   | 'chapter'
   | 'chapter-outline'
   | 'volume-outline'

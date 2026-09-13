@@ -16,8 +16,9 @@ import { readPieceList } from '../format/manifest.js'
 import { classifyReversal } from '../format/reversal-types.js'
 import { readChapterBody } from './style.js'
 import { log } from '../log/index.js' // R51-B-3：跳章 warn 留痕
+import { SHORT_DEFAULTS } from '../shared/short-defaults.js'
 import type { BookConfig, PieceList, SetupPoint } from '../format/types.js'
-export interface ShortPieceIndexEntry {
+interface ShortPieceIndexEntry {
   num: number
   title: string
   wordCount: number
@@ -29,7 +30,7 @@ export interface ShortPieceIndexEntry {
   reversalQuality: ShortReversalQuality
 }
 
-export interface ShortReversalQuality {
+interface ShortReversalQuality {
   score: number
   grade: '弱' | '中' | '强'
   setupCount: number
@@ -41,14 +42,14 @@ export interface ShortReversalQuality {
   issues: string[]
 }
 
-export interface ShortCollectionRisk {
+interface ShortCollectionRisk {
   kind: 'recent-repeat' | 'collection-repeat'
   field: 'targetEmotion' | 'reversalType' | 'coreReversal' | 'structureObject' | 'endingFlavor'
   message: string
   pieces: number[]
 }
 
-export interface ShortCollectionReport {
+interface ShortCollectionReport {
   count: number
   entries: ShortPieceIndexEntry[]
   platform: ShortPlatformProfileReport
@@ -57,7 +58,7 @@ export interface ShortCollectionReport {
   risks: ShortCollectionRisk[]
 }
 
-export interface ShortPlatformProfileReport {
+interface ShortPlatformProfileReport {
   profile: string
   wordMin: number
   wordMax: number
@@ -69,20 +70,20 @@ export interface ShortPlatformProfileReport {
   notes: string[]
 }
 
-export interface ShortPlatformTargets {
+interface ShortPlatformTargets {
   targetEmotions: string[]
   targetReversalTypes: string[]
   targetEndingFlavors: string[]
 }
 
-export interface ShortPlanningView {
+interface ShortPlanningView {
   emotions: DistributionItem[]
   reversalTypes: DistributionItem[]
   endingFlavors: DistributionItem[]
   structureObjects: DistributionItem[]
 }
 
-export interface DistributionItem {
+interface DistributionItem {
   value: string
   count: number
   pieces: number[]
@@ -92,7 +93,7 @@ export interface DistributionItem {
 // ShortSeriesMotifReport/ShortCalibrationReport/ShortBudgetCalibrationReport/
 // ShortRepairPlanIssue/ShortRepairPlanReport）——设计期占位，从未有生产/测试引用
 
-export interface ShortSubmissionItem {
+interface ShortSubmissionItem {
   num: number
   title: string
   words: number
@@ -105,7 +106,7 @@ export interface ShortSubmissionItem {
 /** 平台标识（配置化：运行时查 SUBMISSION_TEMPLATES，未知平台 fallback generic）。 */
 export type ShortSubmissionPlatform = string
 
-export interface ShortSubmissionTemplate {
+interface ShortSubmissionTemplate {
   platform: string
   label: string
   titleStyle: string
@@ -117,18 +118,10 @@ export interface ShortSubmissionTemplate {
 // 已删（原 112-129 行——短篇校准/修复计划设计期预留形状，全库 grep 无任何消费方，
 // 属评审登记的 8 处死代码之一；删除后由 tsc 门禁兜底防复活）。
 
-const DEFAULT_SHORT_CONFIG: NonNullable<BookConfig['short']> = {
-  profile: '通用短篇',
-  target_emotions: ['惊悚', '爽感', '酸涩', '温暖'],
-  target_reversal_types: ['身份反转', '亲密关系反转', '时间/记忆反转', '其他反转'],
-  target_ending_flavors: ['后怕', '释然', '遗憾', '余韵'],
-  word_min: 8000,
-  word_max: 20000,
-  body_part_threshold: 5,
-  simile_threshold: 10,
-  section_count: 5,
-  opening_env_chars: 300,
-}
+// R0912-ds41（P3-6）：默认表唯一正本收敛至 shared/short-defaults.ts（此前与 install/data.ts
+// 的 DEFAULT_SHORT_CHECKS 各持一份逐字相同的 12 行表，面临单侧改动漂移）；本地别名
+// 保持原类型标注，analyzeShortCollection 的展开用法与键序不变，行为逐字节等价。
+const DEFAULT_SHORT_CONFIG: NonNullable<BookConfig['short']> = SHORT_DEFAULTS
 
 /** 平台模板映射表（单一真相源）：新增平台只需在此加一项，导出/io 自动识别。 */
 export const SUBMISSION_TEMPLATES: Record<string, ShortSubmissionTemplate> = {

@@ -28,7 +28,7 @@ export interface CalibrationSample {
  *   （事件 data.task 恒存在），历史事件若缺 task 字段按其余字段判（不过滤）。
  * - model / usage.input / promptMeta.chars 任一缺失：记账残缺行（原脚本 continue 口径内联）。
  */
-export interface LlmCallSampleRow {
+interface LlmCallSampleRow {
   task?: string
   model?: string
   usage?: { input?: number; cacheRead?: number; cacheWrite?: number }
@@ -40,7 +40,7 @@ export function isCalibratableCallRow(row: LlmCallSampleRow): boolean {
   return Boolean(row.model && row.usage?.input && row.promptMeta?.chars)
 }
 
-export interface CoefficientFit {
+interface CoefficientFit {
   /** 建议 coeff（样本不足/退化 → null） */
   coeff: number | null
   /** 样本量 */

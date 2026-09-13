@@ -16,7 +16,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
-import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 import {
   searchBookCached,
   forgetSearchCache,
@@ -117,8 +117,7 @@ beforeAll(async () => {
   writeFileSync(join(httpWorkDir, '.clwriting', 'books.jsonl'), JSON.stringify({ name: '缓存书', path: '缓存书', kind: 'long' }) + '\n', 'utf-8')
   writeFileSync(join(bookRoot, 'book.yaml'), '标题: 缓存书\n', 'utf-8')
   writeFileSync(join(bookRoot, '写作', '正文', '0001-开篇.md'), '山门外玉佩轻响。', 'utf-8')
-  server = startServer({ workDir: httpWorkDir, port: 0, userDataPath: null })
-  await new Promise<void>((r) => server!.once('listening', r))
+  server = await startServerSafe({ workDir: httpWorkDir, port: 0, userDataPath: null })
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const boot = await httpGet('/api/boot')
   token = ((JSON.parse(boot.text) as { token?: string }).token) ?? ''

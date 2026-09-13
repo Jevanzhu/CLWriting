@@ -99,10 +99,6 @@ const learn = useLearnStore()
   align-items: center;
   justify-content: space-between;
 }
-.src {
-  font-size: var(--font-size-xs);
-  color: var(--text-faint);
-}
 .picked-mark {
   color: var(--text-accent);
 }

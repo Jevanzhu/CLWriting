@@ -57,7 +57,7 @@ export const NO_USERDATA_MSG = '未定位到应用数据目录'
 /** 未配置 AI 服务供应商（统一文案） */
 export const NO_PROVIDER_MSG = '未配置 AI 服务供应商。请在设置 → AI 中添加并启用。'
 /** 未选择模型（统一文案） */
-export const NO_MODEL_MSG = '请先在设置 → AI 中配置模型档位。'
+const NO_MODEL_MSG = '请先在设置 → AI 中配置模型档位。'
 
 export type TaskCode = 'NO_USERDATA' | 'NO_PROVIDER' | 'NO_MODEL' | 'GEN_FAIL' | 'ABORTED' | 'TIMEOUT_TOTAL'
 

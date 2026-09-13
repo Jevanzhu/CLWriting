@@ -14,6 +14,7 @@
  */
 
 import { readFileSync } from 'node:fs'
+import { open, readFile as fsReadFile, type FileHandle } from 'node:fs/promises'
 import type { ParseError } from './types.js'
 import { log } from '../log/index.js'
 import { atomicWriteFile } from '../fs/atomic.js'
@@ -425,6 +426,60 @@ export function readFile(
   return { ok: true, fmRaw: split.fmRaw, body: split.body }
 }
 
+// ── R0912-ds41（重评-deepseek-v4.1-flash P2-2）：fm-only 异步限量读 ─────────────
+
+/** fm 头读窗口：补全名单类消费面（角色/物品卡的姓名/名称等平铺字段）的 fm 段现实
+ *  <1KB，8KB 窗已数倍冗余；窗内未见闭合围栏不做增量续读（宁可简单正确），回退全读
+ *  兜正确性。 */
+const FM_HEAD_READ_LIMIT = 8 * 1024
+
+/** 只读文件的 front matter 段（异步 + 头部限量字节，正文不进读面）。
+ *  消费方是补全名单这类「只用 fmRaw」的轻扫描：此前 readFileSync 整文件读，角色卡
+ *  正文全进 IO 面且同步阻塞事件循环。截断不会产出错误 fmRaw——splitFrontMatter 取
+ *  首个闭合围栏，围栏完整落在窗内时 fmRaw 与全读逐字节相同（围栏行全 ASCII，多字节
+ *  截断只可能落在窗尾未被围栏覆盖的段）；围栏被窗切断/未闭合/无 fm 的裸 md → 回退
+ *  全读，走 readFile 同一解析与错误文案（错误形态逐字一致）。文件级 IO 失败不抛，
+ *  返回结构与 readFile 同构的错误对象（容错口径见 readFile 头注）。 */
+export async function readFileFmOnly(
+  filePath: string,
+): Promise<{ ok: true; fmRaw: string } | { ok: false; error: ParseError }> {
+  const ioError = (e: unknown): { ok: false; error: ParseError } => ({
+    ok: false,
+    error: {
+      file: filePath,
+      line: 0,
+      message: `无法读取文件：${e instanceof Error ? e.message : String(e)}`,
+    },
+  })
+  let fh: FileHandle
+  try {
+    fh = await open(filePath, 'r')
+  } catch (e) {
+    return ioError(e)
+  }
+  try {
+    const head = Buffer.alloc(FM_HEAD_READ_LIMIT)
+    const { bytesRead } = await fh.read(head, 0, FM_HEAD_READ_LIMIT, 0)
+    const split = splitFrontMatter(head.toString('utf-8', 0, bytesRead))
+    if (split !== null) return { ok: true, fmRaw: split.fmRaw }
+  } catch (e) {
+    return ioError(e)
+  } finally {
+    try {
+      await fh.close()
+    } catch {
+      /* 关闭失败不掩盖读取结果（句柄由进程退出兜底回收） */
+    }
+  }
+  // 围栏不完整（fm 超窗 / 未闭合 / 无 fm 裸 md）→ 回退全读：content 传参复用 readFile
+  // 的解析与文案单源，读面保持异步（不回到 readFileSync 的阻塞形态）
+  try {
+    return readFile(filePath, await fsReadFile(filePath, 'utf-8'))
+  } catch (e) {
+    return ioError(e)
+  }
+}
+
 /** 写入 front matter + 正文到文件（opts 透传 atomicWriteFile——ee-P1-6 账本写点用 fsync） */
 export function writeFile(filePath: string, fmText: string, body: string, opts?: { fsync?: boolean }): void {
   atomicWriteFile(filePath, joinFrontMatter(fmText, body), opts)
@@ -443,7 +498,7 @@ export function writeFile(filePath: string, fmText: string, body: string, opts?:
  *     - 名称: 武者等级
  *       序列: [后天, 先天]
  */
-export interface ParsedRealmSystem {
+interface ParsedRealmSystem {
   名称: string
   序列: string[]
 }

@@ -156,7 +156,7 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
  *  仿 draft-pipeline 的 DraftPrompt（Q-5 模式）：铁律①「模型可见⟺已记录」——prompt 注入的
  *  每个来源文件都进 files（经 runSpec promptFiles → llm/call promptMeta.files 溯源）。
  *  只列真实入 prompt 的段：空段 = 该源未注入，不登记（promptMeta 可查「本次未注入」）。 */
-export interface OutlinePrompt {
+interface OutlinePrompt {
   prompt: string
   files: string[]
 }

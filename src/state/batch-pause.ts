@@ -13,7 +13,7 @@ import { acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 import { log } from '../log/index.js'
 
 /** 暂停记录：atChapter=停在第几章，reason=停法（escalate/failed/aborted），detail=人话细节 */
-export interface BatchPause {
+interface BatchPause {
   atChapter: number
   reason: string
   detail: string

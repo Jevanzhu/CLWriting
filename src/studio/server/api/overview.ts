@@ -63,12 +63,17 @@ const stateCache = new Map<string, { result: StateOutput; ts: number }>()
 const OVERVIEW_CACHE_TTL_MS = 5000
 const OVERVIEW_CACHE_MAX = 32
 let overviewTtlMs: number | null = null
-/** R47-7：TTL 测试注入口（先例同 __setRhythmCacheTtlForTest）。仅测试用。 */
+/** R47-7：TTL 测试注入口（先例同 __setRhythmCacheTtlForTest）。仅测试用。
+ *  R0912-ds41（重评-deepseek-v4.1-flash P3-2）补门收编：消费方 = test/studio/
+ *  r0912-ttl-write-clock.test.ts（既有）+ test/studio/r0912-ds41-ttl-gates.test.ts
+ * （TTL 命中/过期/指纹失效三态门，本批评门新增）。 */
 export function __setOverviewCacheTtlForTest(ms: number | null): void {
   overviewTtlMs = ms
 }
 const overviewCache = new Map<string, { result: unknown; ts: number; sig: string }>()
-/** R47-7 回归观测钩子（生产零调用；先例同 __rhythmScanCountForTest）：MISS → 三路重算计数。 */
+/** R47-7 回归观测钩子（先例同 __rhythmScanCountForTest）：MISS → 三路重算计数。
+ *  R0912-ds41（重评-deepseek-v4.1-flash P3-2）补门收编：MISS 计数断言面 =
+ *  test/studio/r0912-ds41-ttl-gates.test.ts（原评审登记的「只写不读」至此消除）。 */
 let overviewScanCount = 0
 export function __overviewScanCountForTest(): number {
   return overviewScanCount

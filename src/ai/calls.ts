@@ -384,7 +384,7 @@ function writeWithCrossProcessLock(bookRoot: string, doWrite: () => void): void 
  *  - cost 口径仅当已配价格表（记账里有 costAccum）才生效——未配价静默不拦截
  *   （与信息差未配置静默跳过同语义，不做半吊子拦截，P10-①）。 */
 /** 判别联合：ok=false 必带 reason（调用方 narrowing 后 reason 恒为 string，零改动消费） */
-export type BudgetCheckResult =
+type BudgetCheckResult =
   | {
       ok: true
       used: number

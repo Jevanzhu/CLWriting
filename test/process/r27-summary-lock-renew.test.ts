@@ -26,6 +26,7 @@ import { computeRevision } from '../../src/document/revision.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { sleep } from '../helpers/wait-for.js'
 
 // 桩挂起门：章/卷摘要各自可控挂起（制造在途 AI 窗口）——引用在 runSpec 调用时才解引用
 // （vi.mock 工厂提升安全，同 r26-summary-crossproc-lock.test.ts 惯例）
@@ -50,8 +51,6 @@ vi.mock('../../src/ai/tasks/spec.js', () => ({
     return { ok: true, data: { text: '情节推进：主角登场。\n账本变动：无。\n章尾钩子：钟声又响。' }, model: 'mock' }
   }),
 }))
-
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
 /** 等锁文件出现（拿锁成功的观测锚）；超时抛错防用例假绿挂死。 */
 async function waitForLock(lockPath: string): Promise<void> {

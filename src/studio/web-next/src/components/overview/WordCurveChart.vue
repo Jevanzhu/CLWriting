@@ -137,7 +137,6 @@ const wordLineD = computed(() => {
 <style scoped>
 /* .panel 基础走全局 style-shared.css（R0912-C2 收敛批装载；重评-0912-2 P3 删「与 OverviewView 同式」重复块，声明逐字相同零视觉差） */
 
-.head-legend { margin-left: auto; font-weight: 400; font-size: var(--font-size-xs); color: var(--text-muted); }
 .empty { font-size: var(--font-size-s); color: var(--text-faint); padding: var(--size-4-2) 0; }
 
 /* ══ 字数曲线 SVG（面积图）══ */

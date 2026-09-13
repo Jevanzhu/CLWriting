@@ -153,7 +153,7 @@ export async function apiFetch(
  *  books/search 等几十处本地快端点漏配后请求挂死即 loading 永真（与 runLearn 的 P2-FE-2
  *  修复史同形态）。慢端点（AI 分析/收割/流式生成）均已显式配更大档（60s/120s/300s），
  *  显式值优先于默认；30s 对本地毫秒级操作是纯兜底，无误杀面。 */
-export const API_DEFAULT_TIMEOUT_MS = 30_000
+const API_DEFAULT_TIMEOUT_MS = 30_000
 
 /** 重审-15（2026-09-07 全量代码重审 §四.15）：重放（re-boot 换新 token 后重发）仍
  *  401/403 的统一友好文案——boot 重试与重放双失败说明登录态失效且自动恢复已尽力，
@@ -168,7 +168,7 @@ const AUTH_BROKEN_MESSAGE = '本地服务连接异常（登录态失效），请
  *  json 与显式 body 并用属误用，json 优先；json: undefined = 不带体不带头（providers 两处
  *  DELETE 可选体调用点依赖此语义）；json: null 是显式负载，正常出体。json 在进 apiFetch 前
  *  已物化为字符串 body——401/403 re-boot 重放、超时、错误信封语义全部不变。 */
-export interface ApiJsonInit extends RequestInit {
+interface ApiJsonInit extends RequestInit {
   json?: unknown
 }
 

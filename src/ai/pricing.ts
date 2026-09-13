@@ -16,7 +16,7 @@ import type { ProviderConf, ModelConf, TokenUsage } from './provider/types.js'
 import { loadProviders } from './provider/index.js'
 
 /** 价格表（每百万 token 单价；currency 缺省 USD） */
-export interface PricingConf {
+interface PricingConf {
   inputPerMTok?: number
   outputPerMTok?: number
   cacheReadPerMTok?: number

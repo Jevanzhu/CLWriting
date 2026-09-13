@@ -86,15 +86,14 @@ async function post(path: string, body: unknown): Promise<{ status: number; json
 }
 
 beforeAll(async () => {
-  const { startServer } = await import('../../src/studio/server/index.js')
+  const { startServerSafe } = await import('../helpers/safe-port.js')
   apiWorkDir = mkdtempSync(join(tmpdir(), 'r27-batchc-api-'))
   mkdirSync(join(apiWorkDir, '.clwriting'), { recursive: true })
   writeFileSync(join(apiWorkDir, '.clwriting', 'books.jsonl'), JSON.stringify({ name: BOOK, path: BOOK, kind: 'long' }) + '\n')
   const bookRoot = join(apiWorkDir, BOOK)
   mkdirSync(join(bookRoot, '工作区'), { recursive: true })
   writeFileSync(join(bookRoot, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 互斥测试书\n  genre: 玄幻\nhost: cc\nleads:\n  enabled: []\n', 'utf8')
-  server = startServer({ port: 0, workDir: apiWorkDir })
-  await new Promise<void>((r) => server!.once('listening', r))
+  server = await startServerSafe({ port: 0, workDir: apiWorkDir })
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const r = await fetch(`${baseUrl}/api/boot`)
   token = ((await r.json()) as { token: string }).token

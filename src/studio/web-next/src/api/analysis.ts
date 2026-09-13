@@ -1,7 +1,7 @@
 import { apiJson } from './client'
 
 // 信封（镜像后端 Envelope；payload 按 kind 异构，前端按 kind 断言）。
-export interface EnvelopeFE {
+interface EnvelopeFE {
   generatedAt: string
   model: string
   sourceHash: string
@@ -9,7 +9,7 @@ export interface EnvelopeFE {
 }
 
 /** AI 章节标签（钩子/情绪/场景判定；后端校验后只含合法选项）。 */
-export interface ChapterTags {
+interface ChapterTags {
   钩子类型?: string
   钩子强弱?: string
   情绪定位?: string
@@ -27,7 +27,7 @@ export async function autotag(name: string, docId: string): Promise<ChapterTags>
 }
 
 /** AI 推断的目标情绪/核心反转（从正文反推；不落信封；前端写 fm）。 */
-export interface InferredMeta {
+interface InferredMeta {
   目标情绪?: string
   核心反转?: string
   [k: string]: string | undefined
@@ -44,19 +44,19 @@ export async function inferMeta(name: string, docId: string): Promise<InferredMe
 
 // ── 全书聚合趋势（T1 后端遍历 分析/<docId>.json 本地拼接，无 AI 依赖）──
 
-export interface ScoreTrendPoint {
+interface ScoreTrendPoint {
   章号: number
   标题: string
   score: number
   dims: Record<string, number>
 }
-export interface EmotionTrendPoint {
+interface EmotionTrendPoint {
   章号: number
   标题: string
   emotion: number
   label: string
 }
-export interface HooksTrendPoint {
+interface HooksTrendPoint {
   章号: number
   标题: string
   density: string

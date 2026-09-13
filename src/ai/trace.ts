@@ -10,7 +10,7 @@ import { randomUUID, createHash } from 'node:crypto'
 import type { TokenUsage } from './provider/types.js'
 
 /** prompt 脱敏元信息（不落原文） */
-export interface PromptMeta {
+interface PromptMeta {
   /** prompt 总字符数 */
   chars: number
   /** 来源文件列表（相对书库根） */

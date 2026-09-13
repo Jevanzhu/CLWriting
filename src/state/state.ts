@@ -153,7 +153,7 @@ export type DetectedState =
   | { state: 7; nextChapter: number }
 
 /** 路由动作（#15 第 2 节，各态路由去向；AI 执行处出桩标记） */
-export interface RouterAction {
+interface RouterAction {
   state: BookState
   /** 人话（对作者：现在该干什么，零机器味） */
   humanMsg: string
@@ -163,7 +163,7 @@ export interface RouterAction {
   needsAI: boolean
 }
 
-export type RouterActionKind =
+type RouterActionKind =
   | 'repair' // 态 2 → #18 修复确认
   | 'resume' // 态 4 → 中断恢复续跑
   | 'volume-review' // 态 5 → 卷复盘（M3 概要）
@@ -181,7 +181,7 @@ export type RouterActionKind =
  * 只等消息；缺省 'sync' 进程内同步（CLI enter/库形态/既有测试零变更）。结果结构
  * 同构（RebuildResult），异常路径共用下方既有 catch → 降级态 2 报文语义。
  */
-export interface DetectStateOptions {
+interface DetectStateOptions {
   /** rebuild 执行通道：'sync'（缺省，进程内同步）/ 'worker'（R48-11 worker 线程，
    *  HTTP 消费点 /api/state、/api/overview 专用——大书 index.db 缺失/损坏首进门
    *  全量重建 readChapter×N 秒级冻结 utilityProcess 事件循环）。 */
@@ -314,7 +314,7 @@ export async function detectState(
  *  R34D-4（三十四轮）：kind 联合新增 'manifestEmpty'（清单在册可读但零文档条目、而正文区
  *  存在章节 .md 的哨兵——读侧三防线把解析级全损当合法空集 fail-open 的可见化；只加可见
  *  哨兵，不新增写阻断路径）。 */
-export interface HealthIssue {
+interface HealthIssue {
   kind: 'crashedWrite' | 'cloudCopy' | 'finalizedLost' | 'wiringMissing' | 'manifestEmpty'
   humanMsg: string
   fix: string
@@ -1096,7 +1096,7 @@ function fallbackRecapSnapshot(
 // ── 单入口：enter（#15 第 3 节，CLI + 库双形态）────────
 
 /** enter 结果（库形态：结构化数据，前端自行渲染） */
-export interface EnterResult {
+interface EnterResult {
   recap: StatusRecap
   detected: DetectedState
   route: RouterAction

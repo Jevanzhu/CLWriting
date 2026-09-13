@@ -77,10 +77,8 @@ async function onRefresh(): Promise<void> {
 .sidebar-left.has-traffic .left-tabs {
   padding-left: 52px;
 }
-/* 桌面版：顶部横排按钮间的空白（含交通灯避让区）可拖动整窗 */
-.left-tabs.is-drag {
-  -webkit-app-region: drag;
-}
+/* 桌面版：顶部横排按钮间的空白（含交通灯避让区）可拖动整窗——.is-drag 规则体收敛至
+ * 全局 styles/utilities.css（P3-10 重体收敛批，声明逐字未改，子件 no-drag 特异性恒压过全局档） */
 .left-tab {
   width: var(--size-control);
   height: var(--size-control);
@@ -104,10 +102,7 @@ async function onRefresh(): Promise<void> {
 .left-tab svg {
   flex-shrink: 0;
 }
-/* 刷新文件树：仅树面板显示，与收起按钮同排 */
-.left-tab.refresh-tree .spin {
-  animation: clw-spin 0.9s linear infinite;
-}
+/* 刷新文件树：仅树面板显示，与收起按钮同排（.spin 旋转走全局 utilities.css 0.9s 兜底档） */
 
 .left-body {
   flex: 1;

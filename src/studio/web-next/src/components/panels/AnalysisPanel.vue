@@ -300,9 +300,6 @@ function gotoOverview(): void {
   opacity: 0.4;
   cursor: not-allowed;
 }
-.spin {
-  animation: clw-spin 0.9s linear infinite;
-}
 
 .ap-card {
   border: 1px solid var(--background-modifier-border);

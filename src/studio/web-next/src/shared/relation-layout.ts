@@ -14,7 +14,7 @@ export const CX = W / 2
 export const CY = H / 2
 /** 一环半径基准；每往外一环 +RING_STEP */
 export const RING_R1 = 168
-export const RING_STEP = 132
+const RING_STEP = 132
 /** 同环相邻节点的最小弧长（防重叠，含胶囊宽 + 间隙） */
 export const MIN_ARC = 96
 /** 子节点挂在父节点角度两侧的扇区宽度 */
@@ -34,7 +34,7 @@ export interface RadialLayoutNode {
   card?: { 身份?: string } | null
 }
 
-export interface RadialLayoutEdge {
+interface RadialLayoutEdge {
   from: string
   to: string
 }

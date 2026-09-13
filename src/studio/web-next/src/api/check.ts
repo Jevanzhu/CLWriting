@@ -9,7 +9,7 @@ export interface CheckItem {
   leadId?: string
   chapter?: number
 }
-export interface CheckSection {
+interface CheckSection {
   name: string
   items: CheckItem[]
 }
@@ -17,7 +17,7 @@ export interface CheckReport {
   sections: CheckSection[]
   byproducts?: Record<string, unknown>
 }
-export interface CheckResult {
+interface CheckResult {
   ok: true
   report: CheckReport
   hasRed: boolean

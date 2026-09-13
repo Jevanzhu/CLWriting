@@ -16,7 +16,7 @@ import { isMdFileName } from '../format/filename.js'
 import { samePhysicalPath } from '../fs/user-data-path.js'
 import type { LeadType } from '../format/types.js'
 
-export interface InitOptions {
+interface InitOptions {
   /** 工作目录（cwd 或显式指定）；init 在此建书 */
   workDir: string
   /** 书名（必填，交互或 --name） */
@@ -35,7 +35,7 @@ export interface InitOptions {
   brief?: string
 }
 
-export type InitResult =
+type InitResult =
   | { ok: true; workDir: string; bookRoot: string; bookName: string; bookPath: string }
   | { ok: false; reason: string }
 

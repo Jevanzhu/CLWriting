@@ -60,7 +60,7 @@ async function switchTo(path: string): Promise<void> {
 </script>
 
 <template>
-  <div class="welcome" :class="{ 'has-traffic': isMac, 'is-drag': hasDesktop }">
+  <div class="welcome" :class="{ 'has-traffic': isMac, 'is-desktop': hasDesktop }">
     <!-- 环境背景：多层渐变 + 呼吸光晕（签名氛围层） -->
     <div class="ambient">
       <div class="glow glow-tr"></div>
@@ -166,10 +166,12 @@ async function switchTo(path: string): Promise<void> {
   height: var(--size-tabbar);
   flex-shrink: 0;
 }
-/* R33-14（三十三轮）：win 拖拽区（is-drag = 桌面壳整条可拖；同 Shelf/Library 注）。
+/* R33-14（三十三轮）：win 拖拽区（is-desktop = 桌面态页根标记；同 Shelf/Library 注）。
    R48-87（四十八轮）：原「win 拖拽区」注错挂在下方 has-traffic（mac 交通灯态）选择器
-   上——Library/Shelf 同结构注释均在 is-drag 侧，随批归属更正 */
-.welcome.is-drag .welcome-titlebar {
+   上——Library/Shelf 同结构注释均在拖拽侧，随批归属更正。
+   R0913 复核批：页根标记 is-drag 改名 is-desktop——is-drag 已归全局 utilities.css
+   真实拖拽容器单类，页根同名会被命中、app-region 继承致整页成拖拽面（P1 修复） */
+.welcome.is-desktop .welcome-titlebar {
   -webkit-app-region: drag;
 }
 /* has-traffic = mac 交通灯态：红绿灯占位下 titlebar 保持可拖 */
@@ -376,14 +378,6 @@ async function switchTo(path: string): Promise<void> {
   align-items: center;
   gap: 6px;
   padding-left: var(--size-4-2);
-}
-.recent-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
 }
 .recent-item {
   display: flex;

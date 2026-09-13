@@ -75,7 +75,7 @@ export function headerErrorFields(headers: unknown): { retryAfterMs?: number; re
 }
 
 /** 失败处置动作（决策表输出） */
-export type FailureAction =
+type FailureAction =
   | 'retry' // 同 provider 退避重试（B4 落地抖动公式）
   | 'switch-provider' // 换 provider/模型（凭据/配额/能力问题，重试无意义）
   | 'shrink-prompt' // 缩输入（超窗 → B1 压缩/裁剪触发信号）

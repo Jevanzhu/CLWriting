@@ -19,6 +19,7 @@ import { tryAcquireCrossProcessLock } from '../../src/fs/cross-process-lock.js'
 import { resolveProvider } from '../../src/ai/runner.js'
 import { createAnthropicProvider } from '../../src/ai/provider/anthropic-adapter.js'
 import type { GenEvent, GenRequest, ProviderConf } from '../../src/ai/provider/index.js'
+import { sleep } from '../helpers/wait-for.js'
 
 const workDirs: string[] = []
 function tempDir(prefix: string): string {
@@ -31,8 +32,6 @@ afterEach(() => {
   for (const d of workDirs.splice(0)) rmSync(d, { recursive: true, force: true })
   __setAiCallsLockTimeoutForTest(5_000) // 防超时注入泄漏到他用例
 })
-
-const sleep = (ms: number): Promise<void> => new Promise<void>((r) => setTimeout(r, ms))
 
 // ── R30-3：ai-calls 记账锁 ──────────────────────────────────────────────
 

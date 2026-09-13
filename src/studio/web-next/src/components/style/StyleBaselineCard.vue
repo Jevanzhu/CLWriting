@@ -307,10 +307,5 @@ async function saveRules(): Promise<void> {
 .rules-textarea:focus {
   border-color: var(--interactive-accent);
 }
-.af-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
 
 </style>

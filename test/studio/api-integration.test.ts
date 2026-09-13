@@ -35,6 +35,7 @@ afterAll(() => studio.close())
 
 describe('GUI API 集成链(设定台 P2)', () => {
   it('CC-P2-13: 非回环 host 启动即拒（fail-fast，不再全请求 403 的静默陷阱）', () => {
+    // 不绑端口无抖动面，R0912-ds41 复核留裸
     expect(() => startServer({ port: 0, workDir: studio.workDir, host: '0.0.0.0' })).toThrow('非回环')
   })
 

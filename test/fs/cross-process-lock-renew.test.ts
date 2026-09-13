@@ -11,13 +11,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it, expect, afterAll } from 'vitest'
 import { tryAcquireCrossProcessLock } from '../../src/fs/cross-process-lock.js'
+import { sleep } from '../helpers/wait-for.js'
 
 const dir = mkdtempSync(join(tmpdir(), 'n6-lockrenew-'))
 afterAll(() => {
   rmSync(dir, { recursive: true, force: true })
 })
 const lp = (name: string): string => join(dir, `${name}.lock`)
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 describe('N6 锁续期', () => {
   it('renewIntervalMs 开启 → 持锁期间锁文件 mtime 被周期刷新（续期声明「还活着」）', async () => {

@@ -72,7 +72,7 @@ export async function saveContent(
 // --- 树 CRUD（细案 §2.1）---
 
 // POST /documents（新建；建卷即建首章靠 relPath 含 <卷>/<首章>.md）。
-export interface CreateOk {
+interface CreateOk {
   ok: true
   docId: string
   path: string
@@ -171,7 +171,7 @@ export async function deleteDoc(name: string, docId: string): Promise<{ ok: true
 }
 
 // POST /documents/:docId/finalize —— 定稿确认（revision → final，git commit 锁定版本）。
-export interface FinalizeOk {
+interface FinalizeOk {
   ok: true
   status: 'final'
   skipped: boolean
@@ -184,14 +184,14 @@ export async function finalizeDoc(name: string, docId: string): Promise<Finalize
 }
 
 // POST /documents/batch-finalize —— 批量定稿（P2-PROD-2）。
-export interface BatchFinalizeItem {
+interface BatchFinalizeItem {
   docId: string
   ok: boolean
   status?: 'final'
   skipped?: boolean
   error?: string
 }
-export interface BatchFinalizeOk {
+interface BatchFinalizeOk {
   ok: true
   results: BatchFinalizeItem[]
 }

@@ -11,8 +11,7 @@ import { PassThrough } from 'node:stream'
 import type { IncomingMessage } from 'node:http'
 import { describe, it, expect } from 'vitest'
 import { readJson, HttpError } from '../../src/studio/server/http.js'
-
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
+import { sleep } from '../helpers/wait-for.js'
 
 describe('R51-G-2：readJson body 闲置超时（408 TIMEOUT）', () => {
   it('headers 后零字节推进 → 闲置到点 408 TIMEOUT + 宽限后 destroy', async () => {

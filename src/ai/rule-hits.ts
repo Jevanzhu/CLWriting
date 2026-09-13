@@ -53,7 +53,7 @@ function readHits(bookRoot: string): RuleHitsMap {
  *  争用为文件 IO 级毫秒，5s 已极保守（对齐 ai-calls J7）。
  *  R32-19（三十二轮）：常量化（journal.ts R30-18 同口径）——export let 可被任一
  *  import 方静默改写，改 const + 内部可变生效值；测试只能经注入钩子改档。 */
-export const RULE_HITS_LOCK_TIMEOUT_MS = 5_000
+const RULE_HITS_LOCK_TIMEOUT_MS = 5_000
 
 /** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改。 */
 let ruleHitsLockTimeoutMs = RULE_HITS_LOCK_TIMEOUT_MS

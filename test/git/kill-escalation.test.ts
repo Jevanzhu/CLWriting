@@ -6,6 +6,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { killWithEscalation } from '../../src/git/exec.js'
+import { sleep } from '../helpers/wait-for.js'
 
 interface FakeChild {
   signals: string[]
@@ -23,8 +24,6 @@ function fakeChild(opts?: { throwOnKill?: boolean }): FakeChild {
     },
   }
 }
-
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
 describe('IR-3 killWithEscalation（SIGTERM→SIGKILL 升级）', () => {
   it('先发 SIGTERM；宽限期满仍存活 → 升级 SIGKILL', async () => {

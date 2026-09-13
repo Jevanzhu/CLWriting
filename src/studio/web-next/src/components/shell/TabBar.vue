@@ -160,10 +160,7 @@ onUnmounted(() => {
   border-bottom: 1px solid var(--background-modifier-border);
   overflow: hidden;
 }
-/* 桌面版：空白区可拖动整窗（按钮本身可点） */
-.tabbar.is-drag {
-  -webkit-app-region: drag;
-}
+/* 桌面版：空白区可拖动整窗（按钮本身可点）——.is-drag 体收敛至全局 utilities.css（P3-10） */
 /* 桌面版交通灯避让：左栏关闭或专注模式时，lead 区整体右移 52px */
 .tabbar.avoid-traffic .tabbar-lead {
   padding-left: 52px;

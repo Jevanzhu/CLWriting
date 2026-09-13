@@ -45,7 +45,7 @@ const PROBE_IDS: readonly { model: string; note: string }[] = [
 ]
 
 /** 目录行——quirks 表的纯数据投影 */
-export interface CatalogRow {
+interface CatalogRow {
   model: string
   note: string
   family: ModelFamily

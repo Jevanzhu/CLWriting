@@ -13,7 +13,7 @@
 import type { ChatEvent, EventType } from './types.js'
 
 /** 分支树节点（surface 消息事件；非 surface 事件也保留用于重放） */
-export interface BranchNode {
+interface BranchNode {
   seq: number
   type: EventType
   /** 前驱消息事件 seq（重新生成/分支用；缺省 = 普通线性） */

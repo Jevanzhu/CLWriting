@@ -119,7 +119,7 @@ export function resolveEnvPort(
 }
 
 /** boot-error 信封：EADDRINUSE 给可读中文（server-main.ts 拆分前口径原样保留）。 */
-export interface BootErrorEnvelope {
+interface BootErrorEnvelope {
   code: string
   message: string
 }
@@ -140,14 +140,14 @@ export function deriveStaticDir(moduleUrl: string): string {
   return join(dirname(fileURLToPath(moduleUrl)), '..', 'web')
 }
 
-export interface BootServerDeps {
+interface BootServerDeps {
   /** 缺省真实 startServer；测试注入假件（不 vi.mock 整模块） */
   startServer?: (opts: StudioServerOptions) => http.Server
   /** 缺省真实 setInitialBook（--book 下沉：child 在 startServer 前调，U-1 附带） */
   setInitialBook?: (name: string) => void
 }
 
-export interface BootCallbacks {
+interface BootCallbacks {
   /** listening 后回调实际监听端口（--port 0 随机端口时与配置值不同） */
   onReady: (port: number) => void
   /** 监听失败（EADDRINUSE 等）——替代拆分前各入口自挂的 reject/exit 路径 */

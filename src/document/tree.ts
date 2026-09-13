@@ -43,7 +43,7 @@ export interface TreeNode {
 }
 
 /** 树缓存（§9.1）。revision 是树版本号，≠ DocumentService 的内容 revision。 */
-export interface BookTreeIndex {
+interface BookTreeIndex {
   bookRoot: string
   nodes: TreeNode[]
   /** 树版本号，进程级单调递增，前端据此判新。 */

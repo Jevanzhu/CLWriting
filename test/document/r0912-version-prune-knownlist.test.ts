@@ -16,11 +16,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { writeVersion, pruneVersions, listVersions, type VersionPolicy } from '../../src/document/version.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { sleep } from '../helpers/wait-for.js'
 
 const POLICY_MAX3: VersionPolicy = { maxDays: 14, maxCount: 3, throttleMinutes: 0 }
 const POLICY_KEEP: VersionPolicy = { maxDays: 14, maxCount: 999, throttleMinutes: 0 }
-
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
 /** 逐版间隔 ≥5ms 写 n 版（保证 ULID 时间序 = 创建序），返回创建序 id 数组 */
 async function seed(dir: string, n: number, policy: VersionPolicy = POLICY_KEEP): Promise<string[]> {

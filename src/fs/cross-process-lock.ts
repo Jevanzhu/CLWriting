@@ -46,7 +46,7 @@ export function isProcessAlive(pid: number): boolean {
   }
 }
 
-export interface CrossProcessLockOptions {
+interface CrossProcessLockOptions {
   /** 进程存活判定（测试注入用）；缺省 process.kill(pid,0) 探测。 */
   isProcessAlive?: (pid: number) => boolean
   /** 不可读锁（创建后 pid 未写完/空文件）视为存活的年龄宽限（毫秒）——

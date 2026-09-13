@@ -222,7 +222,13 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
       devMismatchWarned = false // 同上：恢复后再持续 401/403 可再告
       wb.setConnected(true)
     }
-    es.onerror = () => {
+    // R0912-ds41（重评-deepseek-v4.1-flash P3-12）：onerror 改读闭包捕获的当前实例
+    // （sock）——原实现读外层可变绑定 es，若回调触发前连接已被重连逻辑换成新实例
+    //（或 disconnect 置 null），readyState 判定读到的可能是新连接的状态甚至恒 false。
+    // 仅换取值来源：sock 非空由赋值处保证，恒真的 es 非空守卫随之内化，分支条件、
+    // 退避节奏与文案逐行为等价。
+    const sock = es
+    sock.onerror = () => {
       wb.setConnected(false)
       errorCount++
       // X-P1-3：非 2xx（token 随 server 重启轮换 / 书删改名 / 429 连接数上限）按 EventSource
@@ -231,9 +237,9 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
       // （CONNECTING，浏览器会自连）维持原「前 5 次不接管」策略。
       // backoffStep 独立计数（onopen 清零）：接管次数决定退避阶数，不与抖动 errorCount 混算
       // （否则先抖 5 次再 fail-closed 首退避就 64s）。
-      const failClosed = es !== null && es.readyState === EventSource.CLOSED
-      if (es && (failClosed || errorCount > FAST_RETRY_LIMIT)) {
-        es.close()
+      const failClosed = sock.readyState === EventSource.CLOSED
+      if (failClosed || errorCount > FAST_RETRY_LIMIT) {
+        sock.close()
         es = null
         // R26-66（二十六轮）复核：429 拒绝即 fail-closed，已并入下方同一指数退避通道
         // （r73-sse-429-guide/sse-reconnect 有回归），无需另接退避线——本批仅补

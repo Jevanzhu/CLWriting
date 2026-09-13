@@ -81,7 +81,7 @@ export async function postBaseline(name: string, baseline: number): Promise<void
 // apiJson 调用归置收编至此（全仓端点调用统一归 api/ 层，此处为此前唯一漏网）——签名/
 // 错误处理对齐本文件既有函数：失败（重名/非法书名/无工作目录，400）经 apiJson 统一抛
 // ApiError，由调用方 friendlyError 呈报；调用点行为零变化（原裸调同 payload 同端点）。
-export interface CreateBookResult {
+interface CreateBookResult {
   name: string
   kind: 'long' | 'short'
   path: string
@@ -98,7 +98,7 @@ export async function createBook(name: string, kind: 'long' | 'short'): Promise<
 // 前端须把当前书切换到新名（res.name），否则旧名 URL 全部失效。
 // eventsMigrationFailed=true（kk-P1-3）：会话/事件库迁移失败（旧库原地完整保留在旧名 hash 下，
 // 数据可找回但不再随新名可达）——改名成功与迁移失败可并存，UI 须出警告而非静默成功。
-export interface RenameBookResult {
+interface RenameBookResult {
   ok: true
   renamed: boolean
   name: string

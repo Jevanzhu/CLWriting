@@ -25,15 +25,15 @@ import type { StyleEntry, EntryKind, EntrySource, ParseError } from './types.js'
 export const CANDIDATES_DIR = '文风/候选'
 
 /** 待确认超此天数 → 呈现为已忽略（防候选箱堆积） */
-export const CANDIDATE_TTL_DAYS = 30
+const CANDIDATE_TTL_DAYS = 30
 
 /** 样章候选最短段长（与注入预算「样章 50–500 字」下限一致，太短没样章价值） */
 export const MIN_SAMPLE_PARA = 50
 
 /** 禁词候选跨章频次门槛（missing n-gram 出现的文档数 ≥ 此值才成候选） */
-export const DEFAULT_FREQ_THRESHOLD = 3
+const DEFAULT_FREQ_THRESHOLD = 3
 
-export type CandidateStatus = '待确认' | '已忽略'
+type CandidateStatus = '待确认' | '已忽略'
 
 export interface StyleCandidate {
   类型: EntryKind

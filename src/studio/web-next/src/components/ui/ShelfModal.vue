@@ -352,14 +352,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   cursor: pointer;
 }
 /* 视图切换 segmented control */
-.view-toggle {
-  display: flex;
-  gap: 2px;
-  padding: 2px;
-  border-radius: var(--radius-s);
-  background: var(--background-secondary);
-  border: 1px solid var(--background-modifier-border);
-}
+/* .view-toggle 收敛至全局 styles/utilities.css（P3-10 重体收敛批，声明逐字未改） */
 .toggle-btn {
   display: flex;
   align-items: center;
@@ -488,10 +481,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 .btn.batch-enter {
   font-size: var(--font-size-s);
   gap: 5px;
-}
-.del-num {
-  margin-left: 2px;
-  opacity: 0.85;
 }
 
 /* ── 危险按钮 ── */

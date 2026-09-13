@@ -10,7 +10,7 @@
  *   的 2s 优雅退出窗口内 macOS dock 点击仍会触发 activate）。
  */
 
-export interface BootstrapRunnerDeps {
+interface BootstrapRunnerDeps {
   /** 「重试前关旧 server」的清理对象。S-4（阶段 22 批 U1）拆分后语义换轨：main 接线
    *  传 server-manager 的停旧 child 适配器（close() = kill + 等退出，下一次 start 先等
    *  旧 child 退出再 fork）；server 生命周期归 manager 自持，setStudioServer 不再
@@ -21,7 +21,7 @@ export interface BootstrapRunnerDeps {
   setStudioServer: (server: { close: () => void | Promise<void> } | null) => void
 }
 
-export interface BootstrapRunner {
+interface BootstrapRunner {
   /** 入口：并发重入挡 + 重试前清旧 server + bootstrap 失败走 onError（完成后可再调） */
   runBootstrap(onError?: (e: unknown) => void): void
   /** before-quit 置位：置位后 runBootstrap 直通不再起 server/开窗；返回是否首次置位 */

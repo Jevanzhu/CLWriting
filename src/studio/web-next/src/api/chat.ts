@@ -2,7 +2,7 @@ import { apiJson } from './client'
 import { CHAT_HISTORY_LIMIT } from '../shared/chat-history'
 
 /** POST /chat {message, chapter?} —— 发送对话消息（fire-and-forget + SSE 回流） */
-export interface SendChatResult {
+interface SendChatResult {
   ok: boolean
   /** E1a（steer）：true = 对话运行中已入队，当前轮结束自动续链 */
   queued?: boolean

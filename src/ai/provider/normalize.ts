@@ -14,7 +14,7 @@
  * ③ 变体后缀表**刻意保守**：只收 `-latest` / `-preview`，不含 `-medium`（真 tier 名）、
  *   `-mini`（o3-mini 是真型号）——剥错 stem 比多留一段后缀更糟（宁缺勿错）。
  */
-export interface ModelIdKeys {
+interface ModelIdKeys {
   raw: string
   sized: string
   norm: string

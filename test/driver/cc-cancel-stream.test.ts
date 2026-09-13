@@ -17,6 +17,7 @@ import { describe, it, expect } from 'vitest'
 import { ccDriver, MAX_CONSUMER_QUEUE as CC_MAX_CONSUMER_QUEUE } from '../../src/driver/cc.js'
 import { mockDriver, MAX_CONSUMER_QUEUE as MOCK_MAX_CONSUMER_QUEUE } from '../../src/driver/mock.js'
 import type { StudioDriver, DriverEvent } from '../../src/driver/types.js'
+import { sleep } from '../helpers/wait-for.js'
 
 const drivers: [string, StudioDriver][] = [
   ['ccDriver', ccDriver],
@@ -28,8 +29,6 @@ const capDrivers: [string, StudioDriver, number][] = [
   ['ccDriver', ccDriver, CC_MAX_CONSUMER_QUEUE],
   ['mockDriver', mockDriver, MOCK_MAX_CONSUMER_QUEUE],
 ]
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 /** 推进 iter 直到它 park 在内部 await。返回**对象包裹**的悬置 next()——async 函数
  *  返回裸 Promise 会被展平，调用方 await 会变成等生成器自身 settle（无事件即挂死） */

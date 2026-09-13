@@ -15,7 +15,6 @@ import { mkdirSync, mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { startServer } from '../../src/studio/server/index.js'
 import { startServerSafe } from '../helpers/safe-port.js'
 import { acquireTaskGate } from '../../src/studio/server/api/task-gate.js'
 
@@ -108,8 +107,7 @@ beforeAll(async () => {
   baseUrl = `http://127.0.0.1:${(server!.address() as AddressInfo).port}`
   token = ((await (await fetch(`${baseUrl}/api/boot`)).json()) as { token: string }).token
 
-  noworkServer = startServer({ port: 0 })
-  await new Promise<void>((r) => noworkServer!.once('listening', r))
+  noworkServer = await startServerSafe({ port: 0 })
   noworkBaseUrl = `http://127.0.0.1:${(noworkServer!.address() as AddressInfo).port}`
   noworkToken = ((await (await fetch(`${noworkBaseUrl}/api/boot`)).json()) as { token: string }).token
 })

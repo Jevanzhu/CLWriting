@@ -2,11 +2,11 @@ import { timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { redactSecret } from '../../ai/provider/redact.js'
 
-export const JSON_BODY_LIMIT_BYTES = 1024 * 1024
+const JSON_BODY_LIMIT_BYTES = 1024 * 1024
 
 /** R-1（十五轮登记销账）：413 拒绝后排空请求体的宽限上限——超时即 destroy，防慢速
  * 发送方长期 dribble 占住 socket（信任域缓解，非安全边界）。 */
-export const PAYLOAD_GRACE_MS = 1500
+const PAYLOAD_GRACE_MS = 1500
 
 /** R51-G-2（五十一轮）：body 闲置超时——写端点普遍按 CC-P2-9 在 readJson 前**同步占
  * 书级闸**（占闸先于首个 await 以覆盖 body 在途窗口），客户端发完 headers 后悬持
@@ -14,7 +14,7 @@ export const PAYLOAD_GRACE_MS = 1500
  * 端点在此窗内恒 409。取「闲置」而非「总时长」口径：回环正常 body 亚秒到齐、重存
  * 大正文也远不到 1s，30s 内零字节推进只剩慢速攻击/半开连接——任何字节推进都重置
  * 计时，正常客户端永不误伤。与 client.ts 的请求超时（408 'TIMEOUT'）同码同形。 */
-export const BODY_IDLE_TIMEOUT_MS = 30_000
+const BODY_IDLE_TIMEOUT_MS = 30_000
 
 export class HttpError extends Error {
   /** 机器可判别错误码（信封 {code,error} 的 code；缺省 'ERROR' 兜底） */
@@ -32,7 +32,7 @@ export class HttpError extends Error {
 /** 重评-7（全库代码重评审 2026-09-05）：客户端断连错误形状——readJson 在请求体读取
  * 中途识别到客户端断开（ECONNRESET/EPIPE）时给原始错误打的显式标记（不换壳，保留
  * 原始 errno 信息），供 dispatch 兜底判别日志级别。 */
-export interface ClientAbortError extends Error {
+interface ClientAbortError extends Error {
   clientAbort: true
 }
 

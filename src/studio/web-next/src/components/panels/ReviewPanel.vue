@@ -294,9 +294,6 @@ function severityLabel(s: string): string {
   opacity: 0.4;
   cursor: not-allowed;
 }
-.spin {
-  animation: clw-spin 0.9s linear infinite;
-}
 
 .rev-hint,
 .rev-error,
@@ -379,19 +376,6 @@ function severityLabel(s: string): string {
   display: flex;
   flex-direction: column;
   gap: 4px;
-}
-.group-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-}
-.group-label--red {
-  color: var(--text-error);
-}
-.group-label--yellow {
-  color: var(--text-warning);
 }
 .rev-item {
   padding: 6px 8px;

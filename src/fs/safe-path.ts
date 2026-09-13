@@ -12,7 +12,7 @@ import { relative, isAbsolute, resolve, dirname, basename, join } from 'node:pat
 import { existsSync, lstatSync, realpathSync } from 'node:fs'
 import { toNfcName } from './text-canonical.js'
 
-export interface ResolvedWithinRoot {
+interface ResolvedWithinRoot {
   /** 绝对路径；目标存在时为 realpath（symlink 已解析），不存在时为 resolve 结果 */
   abs: string
   /** abs 相对 bookRoot 的规范化相对路径（posix 分隔，白名单前缀匹配用） */

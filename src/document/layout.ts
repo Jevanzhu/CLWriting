@@ -39,7 +39,7 @@ export interface Capabilities {
   aiPropose: boolean
 }
 
-export interface LayoutInfo {
+interface LayoutInfo {
   role: DocumentRole
   capabilities: Capabilities
 }

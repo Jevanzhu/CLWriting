@@ -13,7 +13,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, it, expect } from 'vitest'
-import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 import { setInitialBook } from '../../src/studio/server/api/books.js'
 
 let workDir = ''
@@ -58,9 +58,8 @@ async function bootServer(opts: { devUi?: boolean; studioToken?: string } = {}):
   if (opts.devUi) process.env['CLW_DEV_UI'] = '1'
   else delete process.env['CLW_DEV_UI']
   delete process.env['CLW_DEV_CORS']
-  const s = startServer({ port: 0, workDir, studioToken: opts.studioToken })
+  const s = await startServerSafe({ port: 0, workDir, studioToken: opts.studioToken })
   servers.push(s)
-  await new Promise<void>((r) => s.once('listening', r))
   const url = `http://127.0.0.1:${(s.address() as AddressInfo).port}`
   baseUrls.push(url)
   return url
@@ -195,15 +194,13 @@ describe('R64-30（十二轮）：initialBook 生命周期随 server close 复�
       ((await (await fetch(`${base}/api/boot`)).json()) as { initialBook?: string })
     try {
       setInitialBook('书A')
-      const s1 = startServer({ port: 0, workDir: workDir2 })
-      await new Promise<void>((r) => s1.once('listening', r))
+      const s1 = await startServerSafe({ port: 0, workDir: workDir2 })
       const b1 = await boot(`http://127.0.0.1:${(s1.address() as import('node:net').AddressInfo).port}`)
       expect(b1.initialBook).toBe('书A')
       await new Promise<void>((r) => s1.close(() => r()))
 
       // 第二次无 --book 启动：close 已复位模块态，不得残留上一实例初始书
-      const s2 = startServer({ port: 0, workDir: workDir2 })
-      await new Promise<void>((r) => s2.once('listening', r))
+      const s2 = await startServerSafe({ port: 0, workDir: workDir2 })
       const b2 = await boot(`http://127.0.0.1:${(s2.address() as import('node:net').AddressInfo).port}`)
       expect(b2.initialBook).toBeUndefined()
       await new Promise<void>((r) => s2.close(() => r()))

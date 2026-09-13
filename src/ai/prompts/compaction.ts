@@ -92,7 +92,7 @@ function measureMessages(msgs: ChatMsg[]): number {
   return n
 }
 
-export interface CompactOutcome {
+interface CompactOutcome {
   /** 压缩后的历史（no-op / 失败时 === 入参引用） */
   history: ChatMsg[]
   /** 被压掉的消息条数（>0 = 发生了压缩；0 = no-op，调用方跳过遮蔽/持久化） */

@@ -53,7 +53,7 @@ const LEGACY_STATUS_MAP: Record<string, string> = {
 }
 
 /** 迁移结果 */
-export interface MigrateResult {
+interface MigrateResult {
   migrated: number
   skipped: number
   details: string[]
@@ -572,7 +572,7 @@ function parseChapterNoFromName(name: string): number | null {
 // ── F1-P3 伏笔足迹 FTS 检索 ────────────────────────
 
 /** 伏笔足迹检索命中（「哪章埋了哪章收了」可检索） */
-export interface ForeshadowSearchHit {
+interface ForeshadowSearchHit {
   标题: string
   状态: string
   重要性: string

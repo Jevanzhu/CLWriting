@@ -1,0 +1,144 @@
+/**
+ * 跨组件通用单类工具样式（P3-10 重复规则体收敛批 R0912-ds41，自各 .vue scoped 块收敛，声明逐字未改）。
+ * 全局（非 scoped）装载（main.ts import，对齐 settings-shared.css / tokens / base 先例），
+ * 装载时机与 SFC style 块等价（入口模块加载即注入）。
+ *
+ * 收纳口径（安全防线，宁可少收不可收错）：
+ * 1. 同名类 + 规则体逐字相同 + 全库无同名异体定义（同名异体哪怕差一属性一律不收，
+ *    如 .sec-title / .head-actions / .muted / .batch-enter 均因此未收）；
+ * 2. 模板消费点全数定位（静态 class 与 :class 字面量扫描），无「未写该类却恰好同名」元素；
+ * 3. 特异性 (0,1,0) 低于任何 scoped 规则（scoped 带属性选择器 ≥ (0,2,0)），组件异形可局部覆盖，
+ *    故 .spin 三档时长（0.8s/0.9s/1s 真异档）中仅众数档 0.9s 归一于此，0.8s/1s 档保留在各组件
+ *    scoped 内并以此全局档为兜底。
+ */
+/* clw-spin @keyframes 沿用 base.css 的全局定义，本文件不重复声明。 */
+
+/* 窗口拖拽区（桌面端壳层标题栏/顶栏容器；子件 no-drag 规则在各组件 scoped 内，特异性恒压过本条）。
+ * 本类是「真实拖拽容器」的专属单类：页面根的桌面态标记一律用 is-desktop——页根若同名,
+ * 本规则命中后 app-region 继承会使整页成拖拽面（R0913 复核批 P1,Library/Shelf/Welcome
+ * 三页根已随批改名;防复活锚 = test/studio/webnext/r0913-is-drag-scope.test.ts） */
+.is-drag {
+  -webkit-app-region: drag;
+}
+
+/* 概览卡片头右侧图例（RhythmDistPanel / ShortProfileGaps / WordCurveChart / OverviewView） */
+.head-legend {
+  margin-left: auto;
+  font-weight: 400;
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+/* 灵感卡出处行（QuoteCardGrid / SampleCandidateList） */
+.src {
+  font-size: var(--font-size-xs);
+  color: var(--text-faint);
+}
+
+/* 章节树/回收站叶子行状态点（ChapterTreeItem / TrashPanel，严格仿同构行） */
+.dot-slot {
+  width: 14px;
+  display: flex;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.dot-gray {
+  background: var(--text-faint);
+}
+
+/* 机检/复盘分组小标题（CheckPanel / ReviewPanel） */
+.group-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+}
+.group-label--red {
+  color: var(--text-error);
+}
+.group-label--yellow {
+  color: var(--text-warning);
+}
+
+/* 文风基准卡/入口面板操作行（StyleBaselineCard / StyleEntryPanel） */
+.af-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* AI/RAG 提供方编辑器（AiProviderEditor / RagProviderEditor） */
+.key-stored {
+  font-size: var(--font-size-xxs);
+  color: var(--text-faint);
+}
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: var(--size-4-2);
+}
+
+/* AI/RAG 提供方列表（AiProviderList / RagProviderList） */
+.provider-list {
+  display: grid;
+  gap: var(--size-4-2);
+}
+
+/* 书架视图切换（ShelfModal / Shelf） */
+.view-toggle {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+}
+.del-num {
+  margin-left: 2px;
+  opacity: 0.85;
+}
+
+/* 工作台卡片头（WbDraftCard / WbStateCard） */
+.card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: var(--font-size-m);
+  font-weight: 600;
+  color: var(--text-normal);
+  margin-bottom: var(--size-4-2);
+}
+
+/* 书架/首页头图标章（Library / Shelf） */
+.head-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: var(--size-4-2);
+  border-radius: var(--radius-m);
+  background: color-mix(in srgb, var(--interactive-accent) 14%, transparent);
+  color: var(--text-accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--interactive-accent) 20%, transparent), var(--shadow-m),
+    0 0 30px color-mix(in srgb, var(--interactive-accent) 18%, transparent);
+}
+
+/* 首页最近作品列表（Library / Welcome） */
+.recent-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* 加载旋转（众数档 0.9s；0.8s 档见 AuditEventList/ModelListEditor/AuditView 与
+   providers.css 的 .ai-service-panel .spin，1s 档见 ChatMessages/StyleAcceptancePanel/
+   StyleCandidateBox，均 scoped 覆盖本兜底档） */
+.spin {
+  animation: clw-spin 0.9s linear infinite;
+}

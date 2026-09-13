@@ -36,6 +36,7 @@ import {
 } from '../../src/desktop/server-manager.js'
 import type { LogLike, ServerManagerDeps } from '../../src/desktop/server-manager.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { sleep } from '../helpers/wait-for.js'
 
 /** utilityProcess 假件：EventEmitter 方法双变结构兼容 UtilityProcessLike */
 class FakeChild extends EventEmitter {
@@ -788,7 +789,6 @@ describe('R50-A-4: exit 冲刷接线（manager 全链路）', () => {
 })
 
 describe('批 U3：崩溃退避自动重启（U-2/S-1/S-5/S-9）', () => {
-  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
   /** 重审-18（2026-09-07 全量代码重审 §四.18）：墙钟越过危险窗的轮询等待——定长
    *  sleep 与真实定时竞速（慢机/事件循环停滞下排程定时迟到即漏检）；小步 poll 持续
@@ -1238,7 +1238,6 @@ describe('重评-P3-8: 换轮 stopActiveChild 窗口内并发 shutdown 不清停
 // 修复后预算内未收口即放弃等握手、对在途 fork 就地 kill（同 shutdown 收口原语）；
 // 正常路径（握手毫秒级）语义不变（S1 既有用例覆盖）。
 describe('R49-4: stopChild 短预算放弃挂起握手', () => {
-  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
   it('崩溃重启链：重启握手挂起时 stopChild 在预算内收口（kill 在途 fork，不排程新重启）', async () => {
     const { forkRecords, manager } = mkHarness({

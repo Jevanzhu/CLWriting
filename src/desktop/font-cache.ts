@@ -16,7 +16,7 @@
 import { spawn } from 'node:child_process'
 import { join, sep } from 'node:path'
 
-export interface SystemFontCacheOptions {
+interface SystemFontCacheOptions {
   /** 缓存存活期；缺省 60s（字体安装属低频事件，60s 内的陈旧可接受）。 */
   ttlMs?: number
   /** 时钟源（测试注入用）。 */
@@ -78,7 +78,7 @@ export function __setFontListTimeoutForTest(ms: number): void {
  * 档位 2：首败可能是瞬时抖动，连败两次即认定会话内环境性故障（挂起的系统命令不会
  * 在毫秒级自愈）。与 journal.ts R30-18 同模式：常量 + 内部可变生效值 + 注入钩子。
  */
-export const FONT_PROBE_BREAKER_THRESHOLD = 2
+const FONT_PROBE_BREAKER_THRESHOLD = 2
 
 /** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改，生产恒用常量档。 */
 let fontProbeBreakerThreshold = FONT_PROBE_BREAKER_THRESHOLD
@@ -134,7 +134,7 @@ export interface FontListSpawnChild {
 export type FontListSpawn = (cmd: string, args: string[], opts: { windowsHide: boolean }) => FontListSpawnChild
 
 /** PM-12：fontListWithTimeout 注入面——全部可选，缺省 = R40-28 原行为（load 路径，零变化）。 */
-export interface FontListWithTimeoutDeps {
+interface FontListWithTimeoutDeps {
   /** 自管 spawn 的枚举命令（测试注入 node -e 跨平台假命令形态）；注入后超时必杀子进程。
    *  缺省不 spawn：font-list 不暴露子进程句柄，load 路径超时只能放弃等待（R40-28 原语义）。 */
   command?: string
@@ -179,7 +179,7 @@ interface SpawnCollectChild {
  * 注入接口兼容：FontListSpawnChild/FontSpawnChild 现有测试（pm12-font-list-kill /
  * win-fonts）不改语义只按需改导入。
  */
-export interface SpawnCollectKillParams {
+interface SpawnCollectKillParams {
   /** spawn 实现（生产 = node:child_process spawn 包装；测试注入计数/假件）。 */
   doSpawn: (cmd: string, args: string[], opts: { windowsHide: boolean }) => SpawnCollectChild
   /** 超时毫秒。 */

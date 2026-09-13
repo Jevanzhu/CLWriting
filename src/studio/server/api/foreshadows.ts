@@ -46,7 +46,7 @@ const FORESHADOW_CACHE_TTL_MS = 5000
 const FORESHADOW_CACHE_MAX = 32
 
 /** 一次全书扫描的快照：伏笔条目 + 足迹（?q= 过滤与全量列表共用同一份）。 */
-export interface ForeshadowSnapshot {
+interface ForeshadowSnapshot {
   entries: ForeshadowEntry[]
   trails: Map<string, ForeshadowTrail>
 }

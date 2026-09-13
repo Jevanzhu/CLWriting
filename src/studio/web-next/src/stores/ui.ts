@@ -25,7 +25,7 @@ export const MASK_ALPHA = {
   shelf: 0.35, // ShelfModal .shelf-mask
   confirm: 0.35, // ConfirmPrompt .cp-mask
 } as const
-export type OverlayKey = keyof typeof MASK_ALPHA
+type OverlayKey = keyof typeof MASK_ALPHA
 /** 书架子弹窗遮罩（叠在书架遮罩之上）：ConfirmDeleteModal .confirm-overlay .5、
  *  CreateBookModal .create-overlay .3——ShelfModal 私有态，经 setShelfDeepAlpha 上报。 */
 export const SHELF_DEEP_ALPHA = { confirmDelete: 0.5, create: 0.3 } as const

@@ -27,7 +27,7 @@ export interface ChatSeqLedger {
   commitPendingMsgSeqs(range: { first: number; last: number; seqs: number[] } | null): void
 }
 
-export interface PreparedChatRun {
+interface PreparedChatRun {
   history: ChatMsg[]
   sys: string
   recorder: SessionRecorder

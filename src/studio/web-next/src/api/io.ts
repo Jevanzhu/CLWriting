@@ -26,7 +26,7 @@ export const EXPORT_PLATFORMS: { v: ExportPlatform; label: string }[] = [
  *  B-23（第六十轮补修）：业务失败改 422 {code:'EXPORT_FAILED', error} 错误信封——
  *  失败即由 apiJson 抛 ApiError（信封 error 即诊断文案，dv-01 完整保留），
  *  本类型只描述成功形状（ok 恒 true） */
-export interface ExportResponse {
+interface ExportResponse {
   ok: true
   chapterCount?: number
   unit?: string

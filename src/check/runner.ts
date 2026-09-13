@@ -48,7 +48,7 @@ import type { ChapterMeta, BookConfig, RealmDoc, PieceList } from '../format/typ
 import { log } from '../log/index.js'
 
 /** 机检输入 */
-export interface CheckInput {
+interface CheckInput {
   /** 缓存 db（长篇必填；短篇无 db，不传） */
   db?: DatabaseSync
   bookRoot: string
