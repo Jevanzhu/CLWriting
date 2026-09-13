@@ -2,9 +2,11 @@ import { onMounted, onUnmounted } from 'vue'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useDocStore } from '../stores/doc'
 import { useUiStore } from '../stores/ui'
+import { APP_FIND_EVENT } from './useAppActions'
 
 // 全局快捷键（在 WorkspaceShell setup 调用，随外壳生命周期挂载/卸载）：
-// ⌘S 保存 / ⌘P 命令面板 / Esc 退出专注模式（栏/专注/设置已由系统菜单 accelerator 接管，见 main.ts buildMenu）。
+// ⌘S 保存 / ⌘P 命令面板 / ⌘F 查找 / Esc 退出专注模式
+//（栏/专注/设置已由系统菜单 accelerator 接管，见 main.ts buildMenu）。
 export function useHotkeys(): void {
   const ws = useWorkspaceStore()
   const doc = useDocStore()
@@ -36,6 +38,13 @@ export function useHotkeys(): void {
       if (ui.overlayOpen) return
       e.preventDefault()
       ui.openPalette()
+    } else if (k === 'f' && !e.shiftKey) {
+      // 复审-0913-mac适配 P3-7：全局 ⌘F 查找——编辑器聚焦时 CM searchKeymap 已消费
+      //（preventDefault 后事件仍冒泡，上方 defaultPrevented 守卫已让渡，不会双开面板）；
+      // 焦点在外时经 APP_FIND_EVENT 桥接 EditorView 打开查找面板，与系统菜单
+      //「查找…」同链路；无活动文档时无人消费即安全 no-op
+      e.preventDefault()
+      window.dispatchEvent(new CustomEvent(APP_FIND_EVENT))
     }
   }
 

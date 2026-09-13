@@ -52,6 +52,27 @@ test('低级项（第六轮）：目录存在且正文已有 .md（非半成品�
   }
 })
 
+test('复审-0913-mac适配 P3-1：正文仅剩 AppleDouble/点前缀垃圾伴生 → 判零正文半成品，重试完成建书', () => {
+  const wd = mkdtempTracked(join(tmpdir(), 'init-appledouble-'))
+  try {
+    const bookRoot = join(wd, '长篇', '北境')
+    // mac 同步盘形态：正文目录只余 `._` 资源分叉伴生（真实 md 已被清/移走）+ .DS_Store
+    mkdirSync(join(bookRoot, '写作', '正文', '第一卷'), { recursive: true })
+    writeFileSync(join(bookRoot, '写作', '正文', '第一卷', '._0001-手写.md'), 'AppleDouble 垃圾', 'utf-8')
+    writeFileSync(join(bookRoot, '写作', '正文', '.DS_Store'), 'Finder 垃圾', 'utf-8')
+    writeFileSync(join(bookRoot, 'book.yaml'), 'book:\n  title: 北境\n', 'utf-8')
+
+    // 修复前：._0001-x.md 被 isMdFileName 误计为正文 → 「有内容」→ 恢复被拒卡死
+    const r = doInit({ workDir: wd, name: '北境' })
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(readBooks(wd).some((b) => b.name === '北境')).toBe(true)
+    expect(readActive(wd)).toBe('北境')
+  } finally {
+    rmSync(wd, { recursive: true, force: true })
+  }
+})
+
 test('低级项（第六轮）：已登记但目录被删 → 重试报「已有一本」，冲突口径不变', () => {
   const wd = mkdtempTracked(join(tmpdir(), 'init-reg-'))
   try {

@@ -9,6 +9,7 @@
 import { resolve } from 'node:path'
 import { readBooks } from '../install/books.js'
 import { samePath } from '../fs/user-data-path.js'
+import { toNfcName } from '../fs/text-canonical.js'
 
 /** 从 argv 取 --book 值；无则回落 CLWRITING_INITIAL_BOOK env（仅冷启动解析自进程 argv 用）。
  *  R53-A-3（五十三轮）：env 回落仅 dev（非打包态）生效——opts.allowEnvFallback=false
@@ -28,10 +29,15 @@ export function initialBookArg(argv: string[], opts?: { allowEnvFallback?: boole
 
 /** 解析为书架登记书名：直接命中名册名 / 路径（相对 workDir 或绝对）命中登记 path；未命中返回 null。
  *  R1W-7（win 平台专项复审 R1）：路径命中走 samePath——win 上大小写漂移（盘符/手工
- *  输入）此前全等比较落空，--book 直达被静默丢弃。 */
+ *  输入）此前全等比较落空，--book 直达被静默丢弃。
+ *  复审-0913-mac适配 P3-3：名命中两侧 NFC 归一（toNfcName 单源）后比较——登记名建书
+ *  时已 NFC（init.ts），CLI/argv 的 ref 可能 NFD（mac 终端/启动器传入分解形），精确
+ *  串比较落空 → --book 静默回落书架页。全平台安全：存量登记名恒 NFC，NFC 归一不引入
+ *  假命中；路径命中臂由 samePath darwin NFC 覆盖（同批）。 */
 export function resolveInitialBook(workDir: string, ref: string): string | null {
   const books = readBooks(workDir)
-  if (books.some((b) => b.name === ref)) return ref
+  const nfcRef = toNfcName(ref)
+  if (books.some((b) => toNfcName(b.name) === nfcRef)) return ref
   const abs = resolve(workDir, ref)
   const byPath = books.find((b) => samePath(resolve(workDir, b.path), abs))
   return byPath ? byPath.name : null

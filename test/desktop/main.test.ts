@@ -907,6 +907,28 @@ describe('kk-P2-8：原生菜单与 second-instance', () => {
     expect(sent[1]).toBe('new-book')
   })
 
+  // 复审-0913-mac适配 P3-7：⌘F 此前无全局查找入口——编辑子菜单补「查找…」项，
+  // 经 action('find') 既有通路转发主窗（前端 useAppActions 'find' → EditorView.openSearch）
+  it('编辑菜单含「查找…」⌘F：位置在 selectAll 后，click 转发 find 到主窗', () => {
+    const startup = M.menuHistory![0]!
+    const edit = startup.find((m) => (m as { label?: string }).label === '编辑') as {
+      submenu: Array<Record<string, any>>
+    }
+    const findIdx = edit.submenu.findIndex((i) => i.label === '查找…')
+    expect(findIdx).toBeGreaterThan(-1)
+    const find = edit.submenu[findIdx]!
+    expect(find.accelerator).toBe('CmdOrCtrl+F')
+    const selIdx = edit.submenu.findIndex((i) => i.role === 'selectAll')
+    expect(selIdx).toBeGreaterThan(-1)
+    expect(findIdx).toBeGreaterThan(selIdx) // 紧随全选，排在编辑子菜单尾
+    const win = mainWin()
+    const n0 = win.webContents.sent.length
+    find.click()
+    const sent = win.webContents.sent[n0]!
+    expect(sent[0]).toBe('desktop:menu-action')
+    expect(sent[1]).toBe('find')
+  })
+
   // 重评-P3-11（2026-09-09 全量代码重评）：直进链补 probeDirReachable 预探——活卷上
   // stat 走 statSync 同步垫底（微任务级），导航不再同步发生，断言前冲刷一拍
   it('second-instance --book 直进：解析登记书 → 主窗导航 + 聚焦', async () => {

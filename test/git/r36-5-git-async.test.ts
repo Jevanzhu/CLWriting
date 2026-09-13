@@ -50,8 +50,10 @@ class NeverClosingChild extends EventEmitter {
   }
 }
 
+const ORIG_PLATFORM = process.platform
 afterEach(() => {
   __setGitAsyncTimeoutForTest(null)
+  Object.defineProperty(process, 'platform', { value: ORIG_PLATFORM, configurable: true })
 })
 
 describe('gitAsync 成功路径（真实 git 仓库）', () => {
@@ -110,18 +112,33 @@ describe('gitAsync 失败/超时有界', () => {
   })
 
   it('ENOENT（找不到 git 可执行）→ 人话引导装 Git（与同步 R77-3 同口径），不 reject', async () => {
-    const fake = new NeverClosingChild()
-    mockSpawn.mockImplementationOnce(() => {
-      process.nextTick(() => {
-        fake.emit('error', Object.assign(new Error('spawn git ENOENT'), { code: 'ENOENT' }))
+    // 复审-0913-mac适配 P3-5：三臂全测（r45 platform mock 惯例），与同步口同源断言
+    const expectations: Record<'darwin' | 'linux' | 'win32', (msg: string) => void> = {
+      darwin: (msg) => {
+        expect(msg).toContain('xcode-select --install')
+        expect(msg).not.toContain('Git for Windows')
+      },
+      linux: (msg) => {
+        expect(msg).toContain('包管理器')
+        expect(msg).not.toContain('Git for Windows')
+      },
+      win32: (msg) => expect(msg).toContain('Git for Windows'),
+    }
+    for (const platform of ['darwin', 'linux', 'win32'] as const) {
+      Object.defineProperty(process, 'platform', { value: platform, configurable: true })
+      const fake = new NeverClosingChild()
+      mockSpawn.mockImplementationOnce(() => {
+        process.nextTick(() => {
+          fake.emit('error', Object.assign(new Error('spawn git ENOENT'), { code: 'ENOENT' }))
+        })
+        return fake as unknown as ChildProcess
       })
-      return fake as unknown as ChildProcess
-    })
-    const r = await gitAsync(['status'], tmpdir())
-    expect(r.ok).toBe(false)
-    if (!r.ok) {
-      expect(r.humanMsg).toContain('未检测到 Git')
-      expect(r.humanMsg).toContain('Git for Windows')
+      const r = await gitAsync(['status'], tmpdir())
+      expect(r.ok).toBe(false)
+      if (!r.ok) {
+        expect(r.humanMsg).toContain('未检测到 Git')
+        expectations[platform](r.humanMsg)
+      }
     }
   })
 })

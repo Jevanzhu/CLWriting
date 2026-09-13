@@ -62,6 +62,15 @@ export function bookStoragePath(bookName: string, kind: 'long' | 'short'): strin
 export const BOOK_NAME_MAX_BYTES = 120
 
 /**
+ * 书名非法的面向用户拒绝文案单源（复审-0913-mac适配 P3-6）：isInvalidBookName 各
+ * 消费点（doInit 逻辑层 / server 建书与改名）共用，含 win 非法字符全集与跨平台
+ * 原因披露。行为面维持跨平台硬拒不变（数据面对称系有意设计，见 isInvalidBookName
+ * 内注）——仅文案向作者说明「为何 mac 上也拦 win 字符」。
+ */
+export const BOOK_NAME_INVALID_REASON =
+  '书名不能包含 \\ / : * ? " < > | 等字符，也不能是 . 或 ..（书名需兼容 Windows/macOS 双平台书库互拷，故统一限制）'
+
+/**
  * 书名合法性（P2-27：跨 server 建书 + doInit 逻辑层共用单一真相源）。
  * 书名直接用作目录名——禁空、NUL、路径分隔符、特殊路径段（. / ..），
  * 防 `../` 经 join 后越出 workDir（此前防线只在 server 层，逻辑层新调用方会重踩）。

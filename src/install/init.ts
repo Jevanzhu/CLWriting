@@ -10,7 +10,7 @@
 import { existsSync, mkdirSync, readdirSync, statSync, type Dirent } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { matchGenreLeads, sanitizeLeadsEnabled } from './data.js'
-import { appendBook, appendBookAsync, writeActive, readBooks, bookStoragePath, isInvalidBookName, BOOK_NAME_MAX_BYTES } from './books.js'
+import { appendBook, appendBookAsync, writeActive, readBooks, bookStoragePath, isInvalidBookName, BOOK_NAME_MAX_BYTES, BOOK_NAME_INVALID_REASON } from './books.js'
 import { scaffoldBookRepo, findGitAncestor } from './scaffold.js'
 import { isMdFileName } from '../format/filename.js'
 import { samePhysicalPath } from '../fs/user-data-path.js'
@@ -142,8 +142,9 @@ function doInitSteps(opts: InitOptions): InitStepOutcome {
     return { ok: false, reason: `书名过长（上限约 ${Math.floor(BOOK_NAME_MAX_BYTES / 3)} 个汉字），请缩短后重试` }
   }
   // P2-27：逻辑层补书名校验（与 server 建书同口径）——书名直接用作目录名，防 `../` 越出 workDir
+  // （复审-0913-mac适配 P3-6：拒绝文案收编 BOOK_NAME_INVALID_REASON 单源，含字符全集与跨平台原因）
   if (isInvalidBookName(bookName)) {
-    return { ok: false, reason: '书名不能包含路径分隔符或特殊路径段（/ \\ . ..）' }
+    return { ok: false, reason: BOOK_NAME_INVALID_REASON }
   }
 
   const kind = opts.kind ?? 'long'
@@ -262,6 +263,11 @@ function countMarkdownFiles(dir: string): number {
   }
   let n = 0
   for (const e of entries) {
+    // 复审-0913-mac适配 P3-1：点前缀条目跳过（对齐 walk-md.ts / migrate-layout-v3 口径）——
+    // mac 同步盘 AppleDouble 资源分叉 `._0001-x.md` 被 isMdFileName 误计为正文，
+    // 仅剩垃圾伴生文件的目录被误判「有内容」、半成品恢复被拒；语义上正文目录仅含
+    // `._` 垃圾即「零正文」（这正是修复目的）
+    if (e.name.startsWith('.')) continue
     if (e.isDirectory()) n += countMarkdownFiles(join(dir, e.name))
     // R44-7（四十四轮）：.md 判定收敛 isMdFileName（大小写不敏感，R38-9 家族）——
     // .MD 正文不计数会让半成品判定漂移（有内容的书被当零正文半成品复跑幂等 scaffold）

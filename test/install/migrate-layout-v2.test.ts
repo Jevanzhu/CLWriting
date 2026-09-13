@@ -170,6 +170,28 @@ test.skipIf(!canSymlink)('R65-38: statSync 抛错（dangling symlink 源 + 同�
   expect(has('写作/正文/0001-后续.md')).toBe(true)
 })
 
+// ── 复审-0913-mac适配 P3-1：点前缀条目不搬移/不虚增计数 ──────────
+
+test('复审-0913-mac适配 P3-1: moveTree 跳过 .DS_Store/AppleDouble 点前缀条目（不搬移、不进 errors、不虚增计数）', () => {
+  // 部分迁移过的断点形态（两目录并存 → 逐项搬分支，readdirSync 循环点；
+  // 新目录不存在时的整搬分支按子树忠实搬迁、不做条目过滤，不属本修面）
+  write('写作/正文/0000-已有.md', '目标位已有内容')
+  write('定稿/正文/.DS_Store', 'Finder 垃圾')
+  write('定稿/正文/._0001-x.md', 'AppleDouble 垃圾')
+  write('定稿/正文/0001-开篇.md', '真实正文')
+  const r = migrateLayoutV2(tmp)
+  expect(r.errors).toEqual([])
+  // 真实正文照搬；点前缀垃圾留在旧目录（不被当条目搬移；旧目录因残留垃圾
+  // rmdir 失败走既有「残留保留」通道）
+  expect(has('写作/正文/0001-开篇.md')).toBe(true)
+  expect(has('定稿/正文/.DS_Store')).toBe(true)
+  expect(has('定稿/正文/._0001-x.md')).toBe(true)
+  expect(has('写作/正文/.DS_Store')).toBe(false)
+  expect(has('写作/正文/._0001-x.md')).toBe(false)
+  // 计数不虚增：仅真实正文 1 件
+  expect(r.migrated).toBe(1)
+})
+
 // ── R27-130 / R27-136（二十七轮）：moveDrafts 认领收窄 + 同名跳过留痕 ──────────
 // 独立夹具（mkdtempTracked 兜底回收；不复用文件级 tmp，便于局部断言读写）
 

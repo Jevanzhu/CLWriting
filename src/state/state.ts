@@ -44,7 +44,7 @@ import { readManifest, readManifestStrict, writeManifest, finalizedChapterNumber
 import { computeRevision } from '../document/revision.js'
 import { probeCachedRevision } from '../document/tree.js'
 import { detectStructureViolations } from '../document/structure.js'
-import { safeManifestPath, docJoinKey } from '../fs/safe-path.js'
+import { safeManifestPath, docJoinKey, normalizeWinSeparators } from '../fs/safe-path.js'
 import { walkMdEach } from '../fs/walk-md.js'
 import { readBatchPause } from './batch-pause.js'
 import type { BookConfig, ParseError } from '../format/types.js'
@@ -901,7 +901,11 @@ function chapterFromFile(absPath: string, name: string): number {
 }
 
 function relativePath(bookRoot: string, absPath: string): string {
-  return relative(bookRoot, absPath).replace(/\\/g, '/')
+  // M-4（第六轮）：win 上 relative() 产反斜杠而 manifest 键是正斜杠——归一后对齐。
+  // 复审-0913-mac适配 P3-2：归一收窄 win32-only（normalizeWinSeparators 单源）——
+  // posix 上字面 `\` 是合法文件名字符，保持原样与 manifest 侧（resolveWithinRoot.rel /
+  // relPathKey）同口径，不再把 `a\b.md` 扭曲为 `a/b.md` 致 docJoinKey 双侧失配
+  return normalizeWinSeparators(relative(bookRoot, absPath))
 }
 
 /** 章节是否已定稿：manifest 中该章 entry 有 finalizedRevision。 */

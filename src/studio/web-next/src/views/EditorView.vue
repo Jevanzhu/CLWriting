@@ -18,6 +18,7 @@ import ContextMenu from '../components/ui/ContextMenu.vue'
 import type { MenuItem } from '../components/ui/ContextMenu.vue'
 import { useNativeMenu } from '../composables/useNativeMenu'
 import { useAiAssist } from '../composables/useAiAssist'
+import { APP_FIND_EVENT } from '../composables/useAppActions'
 import EmptyState from '../components/ui/EmptyState.vue'
 import { friendlyError } from '../shared/error'
 
@@ -253,6 +254,14 @@ watch(
   { immediate: true },
 )
 
+// 复审-0913-mac适配 P3-7：全局查找入口（系统菜单「查找…」/ ⌘F 经 useAppActions 与
+// useHotkeys 派发 APP_FIND_EVENT）桥接到本视图——复用右键菜单 'find' 同一条
+// cmHost.openSearch() 路径（openSearchPanel 幂等，已开面板不重复弹层）；无活动文档时
+// cmHost 为 null 可选链短路，安全 no-op。
+function onAppFind(): void {
+  cmHost.value?.openSearch()
+}
+
 // Q-9（第十五轮）：自动保存定时器上移 Book.vue（切到工作台/总览等视图后本组件卸载，
 // 此前 dirty 文档随之停止自动保存）——此处只保留编辑器专属生命周期接线。
 onMounted(() => {
@@ -261,10 +270,12 @@ onMounted(() => {
   ws.setEditorGetCursorOffset(() => cmHost.value?.getCursorOffset() ?? null)
   // 低级项（第六轮）：immediate watch 在 setup 期 cmHost 为 null 消费不到——挂载补一次
   tryConsumeInsert()
+  window.addEventListener(APP_FIND_EVENT, onAppFind)
 })
 onUnmounted(() => {
   ws.setEditorGetSelection(null)
   ws.setEditorGetCursorOffset(null)
+  window.removeEventListener(APP_FIND_EVENT, onAppFind)
 })
 </script>
 

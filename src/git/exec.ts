@@ -127,7 +127,7 @@ export function git(args: string[], cwd: string, opts?: { encoding?: 'utf-8'; in
       : errCode === 'ENOBUFS'
         ? `git 输出超限（${args.join(' ')}）：仓库改动量过大，输出超出缓冲上限，请分批处理或清理仓库`
         : errCode === 'ENOENT'
-          ? '未检测到 Git（未安装或不在 PATH）——请安装 Git（Windows 推荐 Git for Windows）后重启应用'
+          ? gitMissingHint() // 复审-0913-mac适配 P3-5：按平台分支（单源）
           : `git 操作失败（${args.join(' ')}）：${humanizeGitError(args, stderr)}`,
     stderr,
   }
@@ -238,9 +238,10 @@ export function gitAsync(
       settle({
         ok: false,
         // R77-3 同款：ENOENT（找不到 git 可执行）特判人话
+        // 复审-0913-mac适配 P3-5：文案按平台分支（与同步 git() 共用 gitMissingHint 单源）
         humanMsg:
           code === 'ENOENT'
-            ? '未检测到 Git（未安装或不在 PATH）——请安装 Git（Windows 推荐 Git for Windows）后重启应用'
+            ? gitMissingHint()
             : `git 操作失败（${args.join(' ')}）：${err.message}`,
         stderr: err.message,
       })
@@ -272,6 +273,22 @@ function humanizeGitError(_args: string[], stderr?: string): string {
   const hint = stderr ?? ''
   if (hint.includes('not a git repository')) return '这里不是书仓库（没有 .git）'
   return hint.split('\n')[0] || '未知错误'
+}
+
+/**
+ * ENOENT（找不到 git 可执行）的安装指引文案（复审-0913-mac适配 P3-5）——按平台给
+ * 可行动指引：darwin 走 xcode-select（Command Line Tools 自带 git，mac 最常见补装
+ * 通道）；linux 中性指向系统包管理器；win 维持 R77-3 原文（Git for Windows）。
+ * 同步 git() 与异步 gitAsync 两处 ENOENT 特判共用本单源（R77-3 同族文案不漂移）。
+ */
+function gitMissingHint(): string {
+  if (process.platform === 'darwin') {
+    return '未检测到 Git——请在终端执行 `xcode-select --install` 安装 Command Line Tools（或从 https://git-scm.com 安装）后重启应用'
+  }
+  if (process.platform === 'linux') {
+    return '未检测到 Git（未安装或不在 PATH）——请用系统包管理器安装 Git（如 apt/dnf/pacman install git）后重启应用'
+  }
+  return '未检测到 Git（未安装或不在 PATH）——请安装 Git（Windows 推荐 Git for Windows）后重启应用'
 }
 
 /** git status --porcelain（判定工作树脏不脏；core.quotepath=false 保中文路径不转义）。

@@ -26,6 +26,7 @@ import {
   writeActive,
   writeBooks,
   isInvalidBookName,
+  BOOK_NAME_INVALID_REASON,
   tryBooksLockAsync,
 } from '../../../install/books.js'
 import { resolveBook } from '../book-context.js'
@@ -331,8 +332,10 @@ export function registerBookRoutes(ctx: BookCtx): void {
       return
     }
     // P2-27：书名校验与 doInit 逻辑层共用单一真相源（isInvalidBookName）——防 `../` 越出 workDir
+    //（复审-0913-mac适配 P3-6：拒绝文案收编 BOOK_NAME_INVALID_REASON 单源，含字符全集
+    // 与跨平台原因披露——行为维持跨平台硬拒不变）
     if (isInvalidBookName(name)) {
-      replyError(res, 400, 'BAD_PATH', '书名不能包含路径分隔符或特殊路径段（/ \\ . ..）')
+      replyError(res, 400, 'BAD_PATH', BOOK_NAME_INVALID_REASON)
       return
     }
     const genre = typeof body.genre === 'string' ? body.genre.trim() : ''
@@ -559,7 +562,8 @@ export function registerBookRoutes(ctx: BookCtx): void {
       // 此前内联复制规则，两处将来会漂移
       if (!name) throw new Error('书名不能为空')
       if (isInvalidBookName(name)) {
-        throw new Error('书名不能包含路径分隔符或特殊路径段（/ \\ . ..）')
+        // 复审-0913-mac适配 P3-6：文案收编 BOOK_NAME_INVALID_REASON 单源（同上）
+        throw new Error(BOOK_NAME_INVALID_REASON)
       }
       return { name }
     },

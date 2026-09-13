@@ -1919,6 +1919,10 @@ function buildMenu(): void {
         { role: 'copy' },
         { role: 'paste' },
         { role: 'selectAll' },
+        // 复审-0913-mac适配 P3-7：⌘F 查找此前仅在编辑器聚焦时由 CM searchKeymap 响应，
+        // 焦点在外时按 ⌘F（及右键菜单「查找」的暗示）完全无响应——补系统菜单项走
+        // action('find') 统一转发，前端 useAppActions 'find' 动作接 EditorView.openSearch
+        { label: '查找…', accelerator: 'CmdOrCtrl+F', ...action('find') },
       ],
     },
     {

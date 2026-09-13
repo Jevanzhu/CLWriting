@@ -93,8 +93,10 @@ export async function recordRuleHits(bookRoot: string, violations: RuleViolation
       try {
         mkdirSync(join(bookRoot, '.cache'), { recursive: true })
         atomicWriteFile(hitsPath(bookRoot), JSON.stringify(hits, null, 2))
-      } catch {
-        // 统计是旁路，不影响主流程
+      } catch (e) {
+        // 统计是旁路，不影响主流程；但不再空吞——warn 留痕含病因（对齐
+        // prompts/resource.ts 单文件失败 warn 留痕先例；复审-0913-mac适配 通用-3）
+        log.warn('rule-hits', `rule-hits 落盘失败，本轮文件统计未记（观测层降级；事件双写照常）：${e instanceof Error ? e.message : String(e)}`)
       }
     } finally {
       release()

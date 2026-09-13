@@ -15,7 +15,8 @@ import { toNfcName } from './text-canonical.js'
 interface ResolvedWithinRoot {
   /** 绝对路径；目标存在时为 realpath（symlink 已解析），不存在时为 resolve 结果 */
   abs: string
-  /** abs 相对 bookRoot 的规范化相对路径（posix 分隔，白名单前缀匹配用） */
+  /** abs 相对 bookRoot 的相对路径（win32 分隔符归一为 /；posix 上字面 `\` 是合法
+   *  文件名字符、原样保留——复审-0913-mac适配 P3-2），白名单前缀匹配用 */
   rel: string
 }
 
@@ -48,7 +49,7 @@ export function resolveWithinRoot(bookRoot: string, relPath: string): ResolvedWi
       const real = realpathSync(abs)
       const realRel = relative(realRoot, real)
       if (realRel === '' || ESCAPE_SEGMENT_RE.test(realRel) || isAbsolute(realRel)) return null
-      return { abs: real, rel: realRel.replace(/\\/g, '/') }
+      return { abs: real, rel: normalizeWinSeparators(realRel) }
     } catch {
       return null // realpath 失败（EACCES/ELOOP/断链）→ 拒绝（fail-closed）
     }
@@ -85,7 +86,7 @@ export function resolveWithinRoot(bookRoot: string, relPath: string): ResolvedWi
     const realAbs = suffix.length > 0 ? join(realAnchor, ...suffix) : realAnchor
     const realRel = relative(realRoot, realAbs)
     if (realRel === '' || ESCAPE_SEGMENT_RE.test(realRel) || isAbsolute(realRel)) return null
-    return { abs, rel: rel.replace(/\\/g, '/') }
+    return { abs, rel: normalizeWinSeparators(rel) }
   } catch {
     return null
   }
@@ -138,6 +139,24 @@ export function safeManifestPath(bookRoot: string, rel: string): string | null {
   return resolveWithinRoot(bookRoot, rel)?.abs ?? null
 }
 
+/** win32 平台判定（单源门）：本模块 win32 字面判定的唯一落点，normalizeWinSeparators /
+ *  platformCaseFold 共用（调用时读取，测试可注入 platform 切臂）。
+ *  复审-0913-mac适配 P3-2：分隔符归一收窄的宿主——posix 层 `\` 是合法文件名字符。 */
+function isWin32(): boolean {
+  return process.platform === 'win32'
+}
+
+/**
+ * 分隔符归一（win 假设泄漏族收口，复审-0913-mac适配 P3-2）：仅 win32 把 `\` 归一为
+ * `/`，其余平台原样返回。win 侧归一承载「历史遗留反斜杠清单路径 / win native API
+ * 产出路径」的兼容语义（win 上 `\` 恒为分隔符），保持不变；posix 侧此前无条件归一
+ * 会把字面含 `\` 的合法文件名（mac 上外部创建的 `a\b.md`）的 rel/身份键扭曲为
+ * `a/b.md`，与磁盘名失配。全仓 `\`→`/` 归一命中点统一委托本函数。
+ */
+export function normalizeWinSeparators(rel: string): string {
+  return isWin32() ? rel.replace(/\\/g, '/') : rel
+}
+
 /**
  * win32 平台大小写折叠单源（R45-2，四十五轮）：全仓六处布线/清单/身份键此前各自
  * 手写 `process.platform === 'win32' ? x.toLowerCase() : x`，语义逐位一致但漂移无锁
@@ -157,7 +176,7 @@ export function safeManifestPath(bookRoot: string, rel: string): string | null {
  * （APFS 物理同文件互斥仍兜底），单版本内一致性不受影响。
  */
 export function platformCaseFold(key: string): string {
-  const foldFs = process.platform === 'win32' || process.platform === 'darwin'
+  const foldFs = isWin32() || process.platform === 'darwin'
   return foldFs ? key.toLowerCase() : key
 }
 
@@ -165,9 +184,12 @@ export function platformCaseFold(key: string): string {
  *  （FS 大小写不敏感，对齐 manifestLockKey R33-54 / samePath 先例）。供「清单登记
  *  路径 vs 请求路径 / 扫描路径」的身份比较面收编——外部 case-only 改名后，大小写
  *  敏感比较会让保存恒 REVISION_CONFLICT、定稿集失配、布线锁互斥静默失效。
- *  R45-2（四十五轮）：折叠改委托 platformCaseFold 单源（分隔符归一管线不变，键字节不变）。 */
+ *  R45-2（四十五轮）：折叠改委托 platformCaseFold 单源（分隔符归一管线不变，键字节不变）。
+ *  复审-0913-mac适配 P3-2：分隔符归一收编 normalizeWinSeparators（win32-only）——
+ *  posix 上字面 `\` 文件名的键不再被扭曲为 `/` 形态；win32 键字节不变（历史遗留
+ *  反斜杠清单路径兼容语义保留）。 */
 export function relPathKey(p: string): string {
-  const norm = p.replace(/\\/g, '/')
+  const norm = normalizeWinSeparators(p)
   return platformCaseFold(norm)
 }
 

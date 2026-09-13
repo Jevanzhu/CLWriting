@@ -342,7 +342,8 @@ function isAsyncFunction(fn: unknown): boolean {
 /** R33-54（三十三轮）：锁键归一化——重入计数原以原始路径字符串为键，同一锁文件经
  *  大小写（win 不敏感 FS）或分隔符漂移的等价路径再入时会被当「他锁」抢锁，同步
  *  Atomics.wait 自持锁等待至超时 fail-closed（而非复用持锁计数）。resolve + 分隔符
- *  归一 + win32 大小写折叠，让等价路径命中同一条目。
+ *  归一 + win32/darwin 大小写折叠（platformCaseFold 单源，R51-D-2 起 darwin 也折叠），
+ *  让等价路径命中同一条目。
  *  R45-2（四十五轮）：折叠改委托 safe-path platformCaseFold 单源（resolve/分隔符
  *  归一管线不变，键字节不变）。 */
 function manifestLockKey(manifestPath: string): string {

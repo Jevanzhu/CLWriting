@@ -46,9 +46,11 @@ describe('layout / roleOf 按路径判 role', () => {
     expect(roleOf('随便/放哪.md')).toBe('note')
   })
 
-  it('反斜杠与前导 ./ 容错', () => {
+  it('反斜杠与前导 ./ 容错（复审-0913-mac适配 P3-2：`\` 归一收窄 win32-only）', () => {
     expect(roleOf('./写作/正文/0001-开篇.md')).toBe('chapter')
-    expect(roleOf('写作\\正文\\0001-开篇.md')).toBe('chapter')
+    // win：`\` 恒为分隔符，归一后命中正文前缀（win CI 腿验证）
+    // posix：`\` 是合法文件名字符——字面含 `\` 的单段名不再被拆层，按未匹配自由文档（note）处理
+    expect(roleOf('写作\\正文\\0001-开篇.md')).toBe(process.platform === 'win32' ? 'chapter' : 'note')
   })
 })
 

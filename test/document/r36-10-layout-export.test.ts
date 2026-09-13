@@ -15,10 +15,12 @@ describe('R36-10 导出目录收编进内部簿记', () => {
       '工作区/导出/分卷/第一卷.md',
       '工作区/导出/合并.txt',
       './工作区/导出/提交稿.txt',
-      '工作区\\导出\\分卷\\第2卷.md',
     ]) {
       expect(isInternalBookPath(p), p).toBe(true)
     }
+    // 复审-0913-mac适配 P3-2：`\` 归一收窄 win32-only——win 上反斜杠形态归一后仍命中
+    // 内部前缀；posix 上 `\` 是合法文件名字符，字面含 `\` 的单段名不是内部簿记路径
+    expect(isInternalBookPath('工作区\\导出\\分卷\\第2卷.md')).toBe(process.platform === 'win32')
   })
 
   it('能力面拒绝：导出路径 write/rename/move/copy/trash 全拒（与其它内部簿记同口径），read 不拒', () => {

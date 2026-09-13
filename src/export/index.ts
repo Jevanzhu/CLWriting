@@ -200,12 +200,15 @@ function purifyBody(body: string): string {
 /** 净化文件名：替换路径分隔符为 _，杜绝 ../ 越出导出目录；超长截断（X-P2-4 码位 + FF-F3 字节双封顶）。
  *  书名/章标题来自 book.yaml 与 frontmatter（不可信），拼文件名前须净化——
  *  AI 产出标题可任意长，超 255 字节文件名在 macOS/NTFS 直接写失败，整本导出被一章拖垮。
- *  FF-F3：ext4/NTFS 单段上限按 255 **字节**判（APFS 按码位判，本地恒绿会掩盖 CI 红）——
+ *  FF-F3：APFS/ext4/NTFS 单段上限一律按 255 **UTF-8 字节**判（复审-0913-mac适配 P3-14
+ *  勘误：原注「APFS 按码位判，本地恒绿会掩盖 CI 红」失实——APFS 同为 255 字节上限、
+ *  无码位豁免；当前字节封顶 = 203B 名字预算 + 52B tmp 余量 = 255B，恰好贴线安全，行为不动）——
  *  码位封顶挡不住 4 字节字符（emoji 类 AI 标题 × 80 码位 = 320 字节），须再按字节截断；
  *  字节预算按各拼接点实际前后缀计算（分章序号 / 全本- / 投稿视图-平台后缀 长度不一），截断不切多字节字符。
  *  预算还须为原子写临时名让路：src/fs/atomic.ts 在同目录写 `.{名}.{pid}.{uuid}.tmp`
  *  （42B 固定 + pid 位数，Linux 上限 7 位 = 49B）——最终名贴着 255B 截断则临时名必超限，
- *  ext4 直接 ENAMETOOLONG（APFS 按码位判，本地恒绿会再次掩盖 CI 红），故预留 52B。 */
+ *  三平台均直接 ENAMETOOLONG，故预留 52B。预算含 tmp 后缀余量，未来放宽上限勿按码点算，
+ *  须连 tmp 余量一并重新核账。 */
 const FILENAME_MAX_CP = 80
 const FILENAME_MAX_BYTES = 255 - 52
 
@@ -230,8 +233,12 @@ function archiveOldExport(exportDir: string, oldName: string, warnings: string[]
     // 瞬时锁（EPERM/EBUSY）不再直接滑进 warning 分支（3×50ms 退避；确定性错误仍走
     // catch 保留原位 + 提示手动移入，语义不变）
     renameWithRetry(join(exportDir, oldName), join(archiveDir, dstName))
-  } catch {
-    warnings.push(`旧产物 ${oldName} 归档失败（已保留原位，请手动移入 ${OLD_EXPORT_DIR}/）`)
+  } catch (e) {
+    // 通用-1（复审-0913-mac适配）：留痕补病因（e.message）——通用文案让作者无从判断
+    // 失败原因（EACCES/EBUSY/…）；对齐本文件其余 catch 的 message 口径，语义不变
+    warnings.push(
+      `旧产物 ${oldName} 归档失败（${e instanceof Error ? e.message : String(e)}；已保留原位，请手动移入 ${OLD_EXPORT_DIR}/）`,
+    )
   }
 }
 
@@ -307,7 +314,9 @@ export function exportBook(options: ExportOptions): ExportResult {
   // 判定收敛到 manifest.finalizedPathSet 单一真相（learn 收割 H-1 同款，防两处漂移）
   const finalizedPaths = finalizedPathSet(bookRoot)
   // R38-14（三十八轮）：定稿集身份折叠（win 大小写不敏感 FS 外部 case-only 改名后
-  // 精确匹配失配，定稿章被当草稿跳过）；posix 恒等
+  // 精确匹配失配，定稿章被当草稿跳过）；非 win 并非恒等——platformCaseFold（R45-2 收编、
+  // R51-D-2 折叠面扩 darwin）在 darwin 也折叠，仅 linux 恒等（复审-0913-mac适配 P3-12
+  // 注释勘误：原注「posix 恒等」失实，零行为变化）
   const finalizedKeys = finalizedPaths === null ? null : new Set([...finalizedPaths].map(docJoinKey)) // R41-2：升 docJoinKey（+NFC 归一）
   // 清偿-导出未过滤提示（2026-09-09 残留清偿批）：过滤是否生效的显式标记（见
   // ExportResult.finalizedFilter 注）——自此以下各构造点（含失败信封）一律携带

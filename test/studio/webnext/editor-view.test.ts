@@ -18,6 +18,8 @@ const mocks = vi.hoisted(() => ({
   saveContent: vi.fn(),
   finalizeDoc: vi.fn(),
   getConfig: vi.fn(),
+  // 复审-0913-mac适配 P3-7：CmHost stub 暴露的 openSearch spy（全局查找接线断言用）
+  openSearch: vi.fn(),
 }))
 
 vi.mock('../../../src/studio/web-next/src/api/documents', () => ({
@@ -41,14 +43,23 @@ vi.mock('../../../src/studio/web-next/src/api/client', () => ({
   },
   getToken: vi.fn(() => null),
 }))
-// CodeMirror 在 happy-dom 里起不来，且本测试不碰编辑器交互——stub 掉
+// CodeMirror 在 happy-dom 里起不来，且本测试不碰编辑器交互——stub 掉。
+// 复审-0913-mac适配 P3-7：stub 按 CmHostExposed 契约 expose openSearch spy，
+// 供「全局查找入口 → cmHost.openSearch」接线用例断言（模板 ref 透传 expose）。
 vi.mock('../../../src/studio/web-next/src/editor/CmHost.vue', () => ({
-  default: { name: 'CmHost', template: '<div class="cm-host-stub" />' },
+  default: {
+    name: 'CmHost',
+    setup(_props: unknown, { expose }: { expose: (o: Record<string, unknown>) => void }) {
+      expose({ openSearch: mocks.openSearch })
+      return () => null
+    },
+  },
 }))
 
 import EditorView from '../../../src/studio/web-next/src/views/EditorView.vue'
 import { useDocStore } from '../../../src/studio/web-next/src/stores/doc'
 import { useTreeStore } from '../../../src/studio/web-next/src/stores/tree'
+import { APP_FIND_EVENT } from '../../../src/studio/web-next/src/composables/useAppActions'
 import type { TreeNode } from '../../../src/studio/web-next/src/types/tree'
 
 const BOOK = 'test-book'
@@ -71,6 +82,7 @@ beforeEach(() => {
   mocks.saveContent.mockReset()
   mocks.finalizeDoc.mockReset()
   mocks.getConfig.mockReset().mockResolvedValue({ kind: 'long' })
+  mocks.openSearch.mockReset() // 模块级 spy 跨用例共享，逐用例清调用记录
 })
 
 describe('EditorView: activeDocId 恢复竞态（CC-P1-4）', () => {
@@ -121,5 +133,51 @@ describe('EditorView: activeDocId 恢复竞态（CC-P1-4）', () => {
     // 同上：waitFor 轮询替代固定 flush 次数（防并行负载下偶发未结算）
     await vi.waitFor(() => expect(doc.get('d1')).toBeDefined())
     expect(mocks.getContent).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('EditorView: 全局查找入口接线（复审-0913-mac适配 P3-7）', () => {
+  let w: ReturnType<typeof mount> | null = null
+
+  // 同上（CC-P1-4 describe）：拆卸前排空，防 happy-dom 拆卸后微任务重渲染抛错
+  afterEach(async () => {
+    w?.unmount()
+    w = null
+    await flushPromises()
+  })
+
+  it('文档打开后派发 APP_FIND_EVENT → 调 CmHost.openSearch（菜单/⌘F 与右键菜单同链路）', async () => {
+    const doc = useDocStore()
+    const tree = useTreeStore()
+    doc.setBook(BOOK)
+    tree.raw = [makeNode('d1')]
+
+    w = mount(EditorView, { props: { docId: 'd1' } })
+    await flushPromises()
+    await vi.waitFor(() => expect(doc.get('d1')).toBeDefined())
+    expect(mocks.openSearch).not.toHaveBeenCalled() // 接线不自发触发
+    window.dispatchEvent(new CustomEvent(APP_FIND_EVENT))
+    expect(mocks.openSearch).toHaveBeenCalledTimes(1)
+  })
+
+  it('无活动文档（空态，cmHost 为 null）→ 派发安全 no-op，不调 openSearch', () => {
+    w = mount(EditorView, { props: { docId: null } })
+    expect(() => window.dispatchEvent(new CustomEvent(APP_FIND_EVENT))).not.toThrow()
+    expect(mocks.openSearch).not.toHaveBeenCalled()
+  })
+
+  it('卸载后退订：再派发不再触发 openSearch（监听随组件生命周期摘除）', async () => {
+    const doc = useDocStore()
+    const tree = useTreeStore()
+    doc.setBook(BOOK)
+    tree.raw = [makeNode('d1')]
+
+    w = mount(EditorView, { props: { docId: 'd1' } })
+    await vi.waitFor(() => expect(doc.get('d1')).toBeDefined())
+    w.unmount()
+    w = null
+    await flushPromises()
+    window.dispatchEvent(new CustomEvent(APP_FIND_EVENT))
+    expect(mocks.openSearch).not.toHaveBeenCalled()
   })
 })

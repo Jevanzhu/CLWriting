@@ -176,6 +176,22 @@ jobs:
           sleep 3
           kill -9 "$PID" 2>/dev/null || true
           echo "冒烟通过：打包态 Electron 进程存活 ≥25s，启动标记已捕获，无渲染崩溃标记"
+      # 复审-0913-mac适配 P3-11：window-cycle（建窗→关窗→退出链）此前只有 ubuntu dev 态
+      # 覆盖（scripts/electron-smoke.mjs 缺省 node electron/cli.js 形态），打包态链无 CI
+      # 接线。此处以 CLW_SMOKE_APP_BIN 注入实包二进制跑同款驱动——脚本契约（scripts/
+      # electron-smoke.mjs）：spawn 该二进制并注 CLW_SMOKE_WINDOW_CYCLE=1（main.ts
+      # bootstrap ready 后跑 runSmokeWindowCycle：真实建窗→关窗→白名单摘除校验），60s
+      # 有界内观察到 `[CLW_SMOKE] window-cycle-ok` 即 exit 0；crash/fail/timeout/提前
+      # 退出均非零。路径与上步同源 glob（mac*/ 容 arch 目录命名差异，勿硬编码 mac-arm64）；
+      # test -x 必须保留：glob 落空时 APP_BIN 为空串，脚本对空 CLW_SMOKE_APP_BIN 会静默
+      # 降级 dev 态形态（假绿）。放工件上传后（同上步口径：冒烟红仍留 DMG 供排查）。
+      - name: Electron 关窗链冒烟（打包态 .app，window-cycle）
+        if: runner.os == 'macOS'
+        run: |
+          set -eu
+          APP_BIN=$(ls -d dist-electron/mac*/CLWriting.app/Contents/MacOS/CLWriting | head -n1)
+          test -x "$APP_BIN" || { echo "::error::未找到打包态可执行体：$APP_BIN"; exit 1; }
+          CLW_SMOKE_APP_BIN="$APP_BIN" npm run smoke:electron
       # J0：win 腿同款启动冒烟——NSIS 产物不解包，拉起 win-unpacked/ 内可执行体（与 .app
       # 同一次 electron-builder 产物、解包态同口径，非安装器复验）。
       # R74-6（二十二轮）：判定对齐 mac 腿三重判（R73-53 口径——进程存活≠启动链走完）：

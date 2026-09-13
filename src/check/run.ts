@@ -28,7 +28,7 @@ import { readManifest } from '../document/manifest.js'
 import { deriveStatus } from '../document/status.js'
 import { probeCachedRevision, probeCachedPublished } from '../document/tree.js'
 import { existingAnalysisPath } from '../document/analysis.js'
-import { docJoinKey } from '../fs/safe-path.js'
+import { docJoinKey, normalizeWinSeparators } from '../fs/safe-path.js'
 import { syncTreeIssuesEpoch, readTreeIssuesCache, writeTreeIssuesCacheBatch, computeLeadsBookFp, readLeadsBookRed, writeLeadsBookRed, computeTreeIssuesGlobalFp } from './tree-issues-cache.js'
 import { checkLeadsBookItems } from './leads.js'
 import type { CheckReport } from './types.js'
@@ -150,8 +150,9 @@ function maxWrittenChapterOf(bookRoot: string, preScanned?: ChapterMeta[]): numb
   const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
   const finalized = new Set<string>()
   for (const e of manifest.entries.values()) {
-    // R42-5（四十二轮）：join 键折叠（win32 大小写 + NFC）——外部 case-only 改名 /
-    // NFD 文件名后精确串失配，定稿章被当草稿 → maxWritten 基准低估 → 账本「未来章」假红
+    // R42-5（四十二轮）：join 键折叠（platformCaseFold 单源：win32/darwin 折叠 + NFC；
+    // R51-D-2 起 darwin 也折叠）——外部 case-only 改名 / NFD 文件名后精确串失配，
+    // 定稿章被当草稿 → maxWritten 基准低估 → 账本「未来章」假红
     if (e.nodeType === 'document' && e.finalizedRevision) finalized.add(docJoinKey(e.path))
   }
   let max = 0
@@ -159,7 +160,9 @@ function maxWrittenChapterOf(bookRoot: string, preScanned?: ChapterMeta[]): numb
     if (!ch._path) continue
     // M-4（第六轮）：relative() 在 Windows 产反斜杠而 manifest 键是正斜杠——不归一
     // 全部章误判未定稿（同款已修：export/index.ts RB-KN-P2-3、state.ts relativePath）
-    const rel = relative(bookRoot, ch._path).replace(/\\/g, '/')
+    // 复审-0913-mac适配 P3-2：归一收窄 win32-only——posix 上字面 `\` 文件名保持原样，
+    // 与 manifest 侧 docJoinKey 双侧同口径（两侧均不再扭曲）
+    const rel = normalizeWinSeparators(relative(bookRoot, ch._path))
     if (!finalized.has(docJoinKey(rel))) continue // R42-5：双侧同键（扫描路径侧折叠）
     if (ch.章号 > max) max = ch.章号
   }
@@ -663,7 +666,8 @@ function* collectTreeIssuesCore(
         // R37-3：悬停点——同步驱动无感续跑；async 驱动在此让出事件循环
         if (++chaptersProcessed % TREE_ISSUES_YIELD_EVERY === 0) yield
         // M-4（第六轮）：同上归一——entryByPath/pathToDocId 的键与 manifest/树同用正斜杠
-        const relPath = relative(bookRoot, ch._path).replace(/\\/g, '/')
+        // （复审-0913-mac适配 P3-2：归一收窄 win32-only，posix 字面 `\` 原样保留）
+        const relPath = normalizeWinSeparators(relative(bookRoot, ch._path))
         // 定稿态跳过——不在树上打扰已确认的章节
         const entry = entryByPath.get(docJoinKey(relPath)) ?? null // R42-5：折叠键（与 set 侧成对）
         // CC-P1-3：字节指纹走 probeCache（stat 级命中零读零哈希，与树 W-P2-4 同口径），

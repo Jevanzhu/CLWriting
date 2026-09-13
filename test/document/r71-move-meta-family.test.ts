@@ -8,6 +8,8 @@
  * - R71-22：updateChapterMeta 只传章号且 fm 缺标题 → 沿用现有文件名标题段，不再吞成
  *   「未命名」；显式传空标题仍走 X-P3a「未命名」兜底。
  * - R71-23：win 侧含 '\' 的 toDir 归一为 '/' 再入清单（R66-5 同族），伪 UNC 拒绝。
+ *   复审-0913-mac适配 P3-2：归一收窄 win32-only——posix 侧 `\` 是合法文件名字符，
+ *   按 R33-9 段消毒单字段落 `_`（不再拆层、不再拒伪 UNC），两臂分别钉定。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, existsSync, writeFileSync, linkSync, readFileSync } from 'node:fs'
@@ -43,8 +45,9 @@ function registeredPath(docId: string): string {
   return readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries.get(docId)!.path
 }
 
-describe('R71-23: toDir 反斜杠归一', () => {
-  it('win 形态反斜杠 toDir → 归一为 / 入清单（清单键与落盘位置 posix 一致）', async () => {
+describe('R71-23: toDir 反斜杠归一（复审-0913-mac适配 P3-2：归一收窄 win32-only）', () => {
+  // win 臂：`\` 恒为分隔符——归一为 / 再入清单（win CI 腿执行）
+  it.skipIf(process.platform !== 'win32')('win 形态反斜杠 toDir → 归一为 / 入清单（清单键与落盘位置 posix 一致）', async () => {
     const name = `反斜杠${seq++}.md`
     const docId = await createNote(name)
     const m = await svc.moveDocument({ docId, toDir: '素材\\子目' })
@@ -54,7 +57,7 @@ describe('R71-23: toDir 反斜杠归一', () => {
     expect(existsSync(join(bookRoot, '笔记', name))).toBe(false)
   })
 
-  it('混合分隔 + 尾斜杠变体归一到同一键；内嵌双反斜杠折叠；前导反斜杠（伪 UNC）拒绝', async () => {
+  it.skipIf(process.platform !== 'win32')('win：混合分隔 + 尾斜杠变体归一到同一键；内嵌双反斜杠折叠；前导反斜杠（伪 UNC）拒绝', async () => {
     for (const dirty of ['素材\\', '素材\\\\']) {
       const name = `混合${seq++}.md`
       const docId = await createNote(name)
@@ -77,6 +80,38 @@ describe('R71-23: toDir 反斜杠归一', () => {
     expect(m.ok).toBe(false)
     if (!m.ok) expect(m.code).toBe('BAD_INPUT')
     expect(registeredPath(docId)).toBe(`笔记/${name}`)
+  })
+
+  // posix 臂：`\` 是合法文件名字符——不再被当分隔符拆层；含 `\` 的 toDir 按字面
+  // 单段处理，经既有 R33-9 段消毒把 `\` 落为 `_`（与 create/rename 对 win 非法字符
+  // 同一单源口径），登记与盘上位置一致（mac CI/本机腿执行）
+  it.skipIf(process.platform === 'win32')('posix：反斜杠 toDir 按字面单段处理（R33-9 段消毒落 `_`），不再拆层', async () => {
+    const name = `反斜杠posix${seq++}.md`
+    const docId = await createNote(name)
+    const m = await svc.moveDocument({ docId, toDir: '素材\\子目' })
+    expect(m.ok).toBe(true)
+    expect(registeredPath(docId)).toBe(`素材_子目/${name}`)
+    expect(existsSync(join(bookRoot, '素材_子目', name))).toBe(true)
+  })
+
+  it.skipIf(process.platform === 'win32')('posix：尾随/内嵌双反斜杠同为单段消毒；伪 UNC 不再拒绝（无 UNC 语义）', async () => {
+    for (const [dirty, seg] of [
+      ['素材\\', '素材_'],
+      ['素材\\\\', '素材__'],
+      ['素\\\\材', '素__材'],
+    ] as const) {
+      const name = `混合posix${seq++}.md`
+      const docId = await createNote(name)
+      const m = await svc.moveDocument({ docId, toDir: dirty })
+      expect(m.ok, JSON.stringify(dirty)).toBe(true)
+      expect(registeredPath(docId), JSON.stringify(dirty)).toBe(`${seg}/${name}`)
+    }
+    const name = `伪UNCposix${seq++}.md`
+    const docId = await createNote(name)
+    const m = await svc.moveDocument({ docId, toDir: '\\\\server\\share' })
+    expect(m.ok).toBe(true)
+    if (!m.ok) return
+    expect(registeredPath(docId)).toBe(`__server_share/${name}`)
   })
 })
 

@@ -5,12 +5,17 @@
  * （零生产调用方的死代码）；仍存活：git() / statusPorcelain（migrate 反推用）/
  * scanCloudCopies（状态机进门检查）。本文件覆盖后两者的行为契约。
  */
-import { test, expect, vi } from 'vitest'
+import { test, expect, vi, afterEach } from 'vitest'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { scanCloudCopies, statusPorcelain } from '../../src/git/exec.js'
 import { makeGitBook } from '../helpers/book.js'
+
+const ORIG_PLATFORM = process.platform
+afterEach(() => {
+  Object.defineProperty(process, 'platform', { value: ORIG_PLATFORM, configurable: true })
+})
 
 // P2-30：包装 spawnSync 记录调用参数（真实实现保留——现有测试零感知），
 // 断言 git()/statusPorcelain 每次调用都带 timeout（防挂起永久阻塞）。
@@ -153,7 +158,7 @@ test('R77-3: 坚果云「冲突副本」命中（全角/半角形态，需同名
   }
 })
 
-test('R77-3: git 可执行缺失（ENOENT）→ 人话引导装 Git，不落穿 spawn 英文报错', () => {
+test('R77-3/复审-0913-mac适配 P3-5: git 可执行缺失（ENOENT）→ 人话引导装 Git，按平台分支', () => {
   const enoent = {
     pid: -1,
     output: [],
@@ -162,11 +167,26 @@ test('R77-3: git 可执行缺失（ENOENT）→ 人话引导装 Git，不落穿 
     status: null,
     error: Object.assign(new Error('spawn git ENOENT'), { code: 'ENOENT' }),
   }
-  mockSpawn.mockImplementationOnce(() => enoent as unknown as ReturnType<typeof spawnSync>)
-  const r = git(['status'], tmpdir())
-  expect(r.ok).toBe(false)
-  if (!r.ok) {
-    expect(r.humanMsg).toContain('未检测到 Git')
-    expect(r.humanMsg).toContain('Git for Windows')
+  // 三臂全测（r45 platform mock 惯例）：本机真实平台只占其一，另两臂经注入跑满
+  const expectations: Record<'darwin' | 'linux' | 'win32', (msg: string) => void> = {
+    darwin: (msg) => {
+      expect(msg).toContain('xcode-select --install')
+      expect(msg).not.toContain('Git for Windows')
+    },
+    linux: (msg) => {
+      expect(msg).toContain('包管理器')
+      expect(msg).not.toContain('Git for Windows')
+    },
+    win32: (msg) => expect(msg).toContain('Git for Windows'),
+  }
+  for (const platform of ['darwin', 'linux', 'win32'] as const) {
+    Object.defineProperty(process, 'platform', { value: platform, configurable: true })
+    mockSpawn.mockImplementationOnce(() => enoent as unknown as ReturnType<typeof spawnSync>)
+    const r = git(['status'], tmpdir())
+    expect(r.ok).toBe(false)
+    if (!r.ok) {
+      expect(r.humanMsg).toContain('未检测到 Git')
+      expectations[platform](r.humanMsg)
+    }
   }
 })

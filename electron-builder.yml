@@ -45,6 +45,9 @@ mac:
   # （「笔+书」中文风，作者实物验收制）；ico/icns 由 electron-builder（app-builder）从 png
   # 自动派生，icns 不必手做。二十轮 H-1「仓内零图标/不代选」口径随之废止。
   icon: build/icon.png
+  # 复审-0913-mac适配 P3-9：产物命名与 win 同式对齐（显式钉死——未来 H-2 注记的双 arch
+  # 恢复时，arm64/x64 两产物靠 ${arch} 段区分，不同名相撞）。
+  artifactName: ${productName}-${version}-${arch}.${ext}
 # win 已启用（阶段 21 J0，2026-08-28；D1 仅 NSIS / D3 x64 先行 / 首版 unsigned 披露见 D4）；
 # linux 仍暂缓（2026-06-30 决策不变，恢复时取消注释）
 # R77-4（二十五轮批 F，J6 落账）：首版 unsigned 维持——SmartScreen「更多信息→仍要运行」

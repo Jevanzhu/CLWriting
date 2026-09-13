@@ -56,7 +56,7 @@ vi.mock('vue-router', () => ({
   useRoute: vi.fn(() => mocks.routeState),
 }))
 
-import { useRelationGraph } from '../../../src/studio/web-next/src/composables/useRelationGraph'
+import { useRelationGraph, wheelScale } from '../../../src/studio/web-next/src/composables/useRelationGraph'
 import type { SettingsResult } from '../../../src/studio/web-next/src/api/settings'
 
 /** 林远=主角（中心）；苏婉与林远互记恋人（建图须去重为一条）；老王有卡无边（孤立）；
@@ -249,5 +249,48 @@ describe('useRelationGraph: 交互守卫', () => {
     expect(g.nodeColor(ling)).toBe('var(--interactive-accent)')
     expect(g.nodeColor(asan)).toBe('var(--text-faint)')
     expect(g.nodeRx(su)).toBe(g.nodeH(su) / 2) // 全圆胶囊端
+  })
+})
+
+describe('wheelScale: 滚轮 deltaY → 缩放倍率（复审-0913-mac适配 P3-8 纯函数钉）', () => {
+  it('0 边界：deltaY=0 → 恒等 1（不缩放）', () => {
+    expect(wheelScale(0)).toBe(1)
+  })
+
+  it('方向：向下滚（正 delta）缩小 <1，向上滚（负 delta）放大 >1', () => {
+    expect(wheelScale(100)).toBeLessThan(1)
+    expect(wheelScale(-100)).toBeGreaterThan(1)
+  })
+
+  it('离散滚轮一格（deltaY≈±100）换算区间：≈1.22 倍，与旧固定步进 1.15 观感接近', () => {
+    // exp(-100*0.002) = e^-0.2 ≈ 0.8187（缩小）；放大侧为其倒数 ≈ 1.2214
+    expect(wheelScale(100)).toBeCloseTo(Math.exp(-0.2), 10)
+    expect(wheelScale(-100)).toBeCloseTo(Math.exp(0.2), 10)
+    expect(wheelScale(100)).toBeGreaterThan(0.75) // 不因归一而弱于旧步进的量级
+    expect(wheelScale(100)).toBeLessThan(0.9) // 且不至于一档过猛
+  })
+
+  it('触控板小 delta（1~5）→ 倍率贴近 1（平滑缩放，不再一步撞钳制）', () => {
+    for (const d of [1, 2, 4, 5]) {
+      expect(wheelScale(d)).toBeGreaterThan(0.99)
+      expect(wheelScale(d)).toBeLessThan(1)
+      expect(wheelScale(-d)).toBeLessThan(1.02) // 上界留裕量：wheelScale(-5)=e^0.01≈1.010
+      expect(wheelScale(-d)).toBeGreaterThan(1)
+    }
+  })
+
+  it('单调性：deltaY 递增 → 倍率严格递减（不增不平台）', () => {
+    const deltas = [-200, -100, -4, -1, 0, 1, 4, 100, 200]
+    for (let i = 1; i < deltas.length; i++) {
+      expect(wheelScale(deltas[i]!)).toBeLessThan(wheelScale(deltas[i - 1]!))
+    }
+  })
+
+  it('对称性：wheelScale(-d) × wheelScale(d) = 1（往返滚动不漂移）；大幅值恒正有限', () => {
+    for (const d of [1, 100, 480, 5000]) {
+      expect(wheelScale(-d) * wheelScale(d)).toBeCloseTo(1, 10)
+    }
+    expect(wheelScale(10000)).toBeGreaterThan(0)
+    expect(Number.isFinite(wheelScale(10000))).toBe(true)
   })
 })

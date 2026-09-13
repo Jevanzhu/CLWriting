@@ -10,7 +10,7 @@
 import { join, relative } from 'node:path'
 import { readdirSync, existsSync, statSync, realpathSync } from 'node:fs'
 import { readdir, stat, realpath } from 'node:fs/promises'
-import { isWithinRoot, docJoinKey } from '../fs/safe-path.js'
+import { isWithinRoot, docJoinKey, normalizeWinSeparators } from '../fs/safe-path.js'
 import { readMdTextCached, readMdTextCachedAsync } from '../fs/md-text-cache.js'
 import { finalizedPathSet } from '../document/manifest.js'
 import { clipByCodePoints } from './summary.js'
@@ -92,7 +92,9 @@ export function searchBook(bookRoot: string, q: string, scope?: string): SearchO
       // R48-12（四十八轮）：rel 改 relative 派生——`slice(root.length + 1)` 算术对根形态
       //（'/'、'C:\'，R26-104 特意保留不归一）恒吃掉 rel 首字符（命中路径截断残串）；
       // relative 语义对全部根形态正确，常规形态产出逐字节不变
-      const rel = relative(root, fp).split('\\').join('/')
+      // 复审-0913-mac适配 P3-2：分隔符归一收窄 win32-only（normalizeWinSeparators 单源，
+      // 与 manifest/state 侧同口径）——posix 上字面 `\` 文件名保持原样进 docJoinKey
+      const rel = normalizeWinSeparators(relative(root, fp))
       // R73-42：定稿 scope 下，写作/正文 中未登记定稿基线的章（在写草稿）不进结果
       if (finalizedKeys !== null && dir === '写作/正文' && !finalizedKeys.has(docJoinKey(rel))) continue // R42-6：折叠键比较
       // R72-9（二十轮 C-8）：文件内命中超上限时附 hasMore 标记（截断不再静默）
@@ -212,7 +214,8 @@ export async function searchBookAsync(bookRoot: string, q: string, scope?: strin
       const matches = await searchFileAsync(fp, lower)
       if (matches.length === 0) continue
       // R48-12（四十八轮）：rel 改 relative 派生（同上方同步版同编号注）
-      const rel = relative(root, fp).split('\\').join('/')
+      // 复审-0913-mac适配 P3-2：同上方同步版（normalizeWinSeparators 单源，win32-only）
+      const rel = normalizeWinSeparators(relative(root, fp))
       if (finalizedKeys !== null && dir === '写作/正文' && !finalizedKeys.has(docJoinKey(rel))) continue // R42-6：折叠键比较
       results.push({
         path: rel,

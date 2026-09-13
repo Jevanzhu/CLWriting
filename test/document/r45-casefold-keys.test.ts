@@ -75,6 +75,17 @@ describe('R45-2: 三侧布线锁同键（win32 钉定）', () => {
     }
   })
 
+  it('复审-0913-mac适配 P3-2: relPathKey 分隔符归一 win32-only——posix 字面 \\ 键不再扭曲', () => {
+    // win：`\` 恒为分隔符（历史遗留反斜杠清单路径兼容语义不变）
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+    expect(relPathKey('布线\\x.md')).toBe('布线/x.md')
+    // posix：`\` 是合法文件名字符——键保持字面（darwin 臂叠 R51-D-2 大小写折叠）
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+    expect(relPathKey('a\\b.md')).toBe('a\\b.md')
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
+    expect(relPathKey('a\\b.md')).toBe('a\\b.md')
+  })
+
   it('win32 折叠 + posix 对照（折叠原语只折叠、不归一）', () => {
     Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
     expect(platformCaseFold('布线/X.MD')).toBe('布线/x.md')

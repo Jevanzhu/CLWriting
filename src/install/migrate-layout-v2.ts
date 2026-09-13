@@ -163,6 +163,10 @@ function moveTree(
   let count = 0
   try {
     for (const name of readdirSync(oldPath)) {
+      // 复审-0913-mac适配 P3-1：点前缀条目跳过（对齐 walk-md.ts / migrate-layout-v3 口径）——
+      // `.DS_Store` 等此前被当条目搬移（迁移计数虚增、搬移面扩大）；残留在旧目录的
+      // 点文件只会让末尾 rmdirSync 留空失败走既有「残留文件，保留旧目录」通道
+      if (name.startsWith('.')) continue
       const src = join(oldPath, name)
       const dst = join(newPath, name)
       if (existsSync(dst)) {

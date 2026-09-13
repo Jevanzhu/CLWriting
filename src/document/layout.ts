@@ -16,6 +16,7 @@
  * 不进文档树（§9），由扫描层 skip，本模块不判 role。
  */
 import { LEAD_TYPES } from '../format/leads.js'
+import { normalizeWinSeparators } from '../fs/safe-path.js'
 
 /** 文档角色（W0-1 §2 DocumentRole）。
  *  P5-数据层（第七轮）注释澄清：roleOf 对 写作/正文/ 恒返 'chapter'，从不产出
@@ -85,9 +86,12 @@ export function isInternalBookPath(relPath: string): boolean {
   return BOOK_SYSTEM_TOP_DIRS.has(p.split('/')[0] ?? '')
 }
 
-/** 规整路径：去前导 ./、反斜杠转正斜杠。 */
+/** 规整路径：去前导 ./、反斜杠转正斜杠。
+ *  复审-0913-mac适配 P3-2：`\` 归一收编 normalizeWinSeparators（win32-only）——
+ *  posix 上 `\` 是合法文件名字符，字面含 `\` 的路径段不再被扭曲为子目录
+ *  （前缀匹配面 win 历史形态兼容不变）。 */
 function norm(p: string): string {
-  return p.replace(/^\.\//, '').replace(/\\/g, '/')
+  return normalizeWinSeparators(p.replace(/^\.\//, ''))
 }
 
 /** 按路径判 role（v2 目录结构）。relPath 是书仓库相对路径。

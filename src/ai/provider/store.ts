@@ -131,7 +131,8 @@ function tryRestoreFromBak(fp: string, bakFp: string): string | null {
  * 当前版本向上传播，由调用方（server API）转成错误响应。
  */
 export function loadProviders(userDataPath: string): ProviderStore {
-  const fp = `${userDataPath}/${FILE}`
+  // 通用-2（复审-0913-mac适配）：路径拼接统一 join()（posix 下与手拼 '/' 逐字节等价）
+  const fp = join(userDataPath, FILE)
   if (!existsSync(fp)) {
     _cache = null
     return emptySettings()
@@ -148,7 +149,8 @@ export function loadProviders(userDataPath: string): ProviderStore {
   }
 
   let raw: DiskFormat
-  const bakFp = `${dirname(fp)}/providers.bak.json`
+  // 通用-2（复审-0913-mac适配）：同上收编 join()（与 saveProvidersLocked 侧 bak 写同款）
+  const bakFp = join(dirname(fp), 'providers.bak.json')
   try {
     raw = JSON.parse(readFileSync(fp, 'utf8')) as DiskFormat
   } catch (e) {
@@ -377,7 +379,7 @@ export function saveProviders(userDataPath: string, store: ProviderStore): Promi
  *  接口的服务进程至超时。超时语义不变：5s 封顶、超时上抛（rejection 随 saveProviders
  *  返回的 promise 上抛 / 排队段旁挂 warn 留痕）。 */
 function saveWithCrossProcessLock(userDataPath: string, store: ProviderStore): void | Promise<void> {
-  const lockPath = `${userDataPath}/${FILE}.lock`
+  const lockPath = join(userDataPath, `${FILE}.lock`)
   const fast = tryAcquireCrossProcessLock(lockPath)
   if (fast) {
     try {
@@ -401,7 +403,9 @@ function saveWithCrossProcessLock(userDataPath: string, store: ProviderStore): v
 
 /** 原 saveProviders 主体（R73-2 改名入锁；逻辑逐行不变） */
 function saveProvidersLocked(userDataPath: string, store: ProviderStore): void {
-  const fp = `${userDataPath}/${FILE}`
+  // 通用-2（复审-0913-mac适配）：路径拼接统一走 join()（与下方 bak 写同款），posix 下
+  // 与手拼 '/' 逐字节等价，零行为变化
+  const fp = join(userDataPath, FILE)
   mkdirSync(dirname(fp), { recursive: true })
 
   // 确保 vault + DEK（首次创建或迁移时新建）

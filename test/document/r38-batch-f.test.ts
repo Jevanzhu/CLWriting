@@ -62,11 +62,14 @@ describe('R38-13: migrateVersionsDir 穿透 win 瞬时锁', () => {
 })
 
 describe('R38-14: relPathKey 平台语义', () => {
-  it('posix：分隔符归一为 /，大小写保持', () => {
+  it('posix：分隔符保持字面（`\\` 是合法文件名字符——复审-0913-mac适配 P3-2），大小写保持', () => {
     // R40-3（四十轮）：posix 语义须显式钉平台——原无守卫，win 宿主上按 win32 折叠
     // 语义跑「大小写保持」断言恒红（四十轮门禁基线唯一确定性败；对齐下方 win32 用例同款 mock）
+    // 复审-0913-mac适配 P3-2：分隔符归一收窄 win32-only——R38-14 时点的 posix 臂
+    // 「`\` 归一为 /」不再成立，字面 `\` 保留（win 历史遗留反斜杠清单路径的归一
+    // 兼容由 win32 臂承担）
     Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
-    expect(relPathKey('写作\\正文\\01-章.md')).toBe('写作/正文/01-章.md')
+    expect(relPathKey('写作\\正文\\01-章.md')).toBe('写作\\正文\\01-章.md')
     expect(relPathKey('写作/正文/01-章.md')).toBe('写作/正文/01-章.md')
     expect(relPathKey('写作/A.md')).not.toBe('写作/a.md')
   })

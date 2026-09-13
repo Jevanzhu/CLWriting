@@ -31,7 +31,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
-import { safeDocId, resolveWithinRoot, docJoinKey, platformCaseFold } from '../fs/safe-path.js'
+import { safeDocId, resolveWithinRoot, docJoinKey, platformCaseFold, normalizeWinSeparators } from '../fs/safe-path.js'
 import { atomicWriteFile, createFileExclusive, linkOrRenameExclusive, renameWithRetry, rmWithRetry } from '../fs/atomic.js'
 import { canonicalizeText, bufferNeedsCanonical, toNfcName } from '../fs/text-canonical.js'
 import { computeRevision, computeRevisionBytes, type Revision } from './revision.js'
@@ -224,9 +224,12 @@ export type MoveResult =
  *  R0912-3（2026-09-12 全量重评 P2-1）：'..'/'.' 段拒绝——下方 safeSegs「已存在则原样
  *  保留」分支对 '..' 恒命中（existsSync(join(root,'a','..')) 即 root），'..' 原文直拼进
  *  manifest 而物理落位经 resolveSafePath 词法消解落在别处 → 登记与盘上路径分裂、docId
- *  身份分裂、保存恒 REVISION_CONFLICT（R66-5/R71-23 同族；口径对齐 doCopy R51-D-3）。 */
+ *  身份分裂、保存恒 REVISION_CONFLICT（R66-5/R71-23 同族；口径对齐 doCopy R51-D-3）。
+ *  复审-0913-mac适配 P3-2：`\` 归一收编 normalizeWinSeparators（win32-only）——win 侧
+ *  R71-23 动机（path.resolve 视 `\` 为分隔符）与历史遗留兼容不变；posix 上 `\` 是合法
+ *  文件名字符，含 `\` 的 toDir 按字面单段目录处理（不再扭曲为子目录）。 */
 function normalizeMoveToDir(toDir: string): string | null {
-  const normalized = toDir.replace(/\\/g, '/').replace(/\/{2,}/g, '/').replace(/\/+$/, '')
+  const normalized = normalizeWinSeparators(toDir).replace(/\/{2,}/g, '/').replace(/\/+$/, '')
   if (normalized.startsWith('/') || normalized === '') return null
   const segs = normalized.split('/')
   if (segs.includes('..') || segs.includes('.')) return null
@@ -831,7 +834,9 @@ export class DocumentService {
   private resolveSafePath(relPath: string): string | null {
     const safe = resolveWithinRoot(this.bookRoot, relPath)
     if (!safe) return null
-    const lexical = relPath.replace(/\\/g, '/')
+    // 复审-0913-mac适配 P3-2：词法面归一 win32-only（与 safe.rel 同委托单源）——
+    // posix 上字面 `\` 不再被当分隔符，两侧口径对齐后跳板形态判定不劈叉
+    const lexical = normalizeWinSeparators(relPath)
     if (!isInternalBookPath(lexical) && isInternalBookPath(safe.rel)) return null
     return safe.abs
   }
@@ -849,7 +854,10 @@ export class DocumentService {
    *  R30-5（三十轮）锁序：全仓统一「save 锁 → 布线锁 → 清单锁」——定稿链原
    *  「持清单锁内取布线锁」的反向交叉对已由 finalize 入口预取布线锁消除。 */
   private wiringFileLockKey(relPath: string): string | null {
-    const p = relPath.replace(/\\/g, '/')
+    // 复审-0913-mac适配 P3-2：前缀门归一 win32-only——真实布线文件（`布线/`、
+    // `大纲/关系线/` 前缀）两种形态下判定一致、键字节用原始 relPath 不受影响；
+    // files.ts wiringLockKeyForPut（范围外）暂保留无条件归一，可达路径上判定与键逐位一致
+    const p = normalizeWinSeparators(relPath)
     if (p.startsWith('布线/') || p.startsWith('大纲/关系线/')) {
       const key = `${join(this.bookRoot, relPath)}.lock`
       // R38-14（三十八轮）：win32 大小写折叠（对齐 manifestLockKey R33-54）——外部

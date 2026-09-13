@@ -55,6 +55,14 @@ const LEGEND = [
 /** 债务边的弓形高度：同一对角色往往既有关系边又有债务边，直线会完全重合。 */
 const DEBT_BOW = 26
 
+/** 滚轮 deltaY → 缩放倍率（复审-0913-mac适配 P3-8，导出纯函数便于单测）。
+ *  幅值归一 exp(-deltaY*k)：离散滚轮一格 deltaY≈±100 → ≈1.22 倍（与旧固定步进 1.15
+ *  观感接近）；mac 触控板高频小 delta 连发改为平滑缩放，不再一步撞缩放钳制；
+ *  捏合手势（ctrlKey 且小 delta）同式自然成立。deltaY 向下滚为正 → 倍率 <1 缩小。 */
+export function wheelScale(deltaY: number): number {
+  return Math.exp(-deltaY * 0.002)
+}
+
 export interface RelationGraph {
   // 数据
   nodes: Ref<SimNode[]>
@@ -559,7 +567,9 @@ export function useRelationGraph(bookName: string): RelationGraph {
   // --- 缩放 + 平移 ---
   function onWheel(evt: WheelEvent): void {
     const p = svgPoint(evt)
-    const scale = evt.deltaY > 0 ? 1.15 : 1 / 1.15
+    // 复审-0913-mac适配 P3-8：固定步进（>0 ? 1.15 : 1/1.15）在触控板高频小 delta 下
+    // 连发数十事件瞬间撞钳制——改 wheelScale 幅值归一（换算见函数头注）；钳制不动
+    const scale = wheelScale(evt.deltaY)
     const nw = Math.max(W * 0.2, Math.min(W * 4, view.value.w * scale))
     if (nw === view.value.w) return
     const sx = nw / view.value.w

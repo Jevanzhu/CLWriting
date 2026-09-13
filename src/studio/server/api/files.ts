@@ -12,7 +12,7 @@ import { basename, sep, join } from 'node:path'
 import { readFile as readFileAsync } from 'node:fs/promises'
 import { realpathSync } from 'node:fs'
 import { createHash } from 'node:crypto'
-import { resolveWithinRoot, platformCaseFold } from '../../../fs/safe-path.js'
+import { resolveWithinRoot, platformCaseFold, normalizeWinSeparators } from '../../../fs/safe-path.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { acquireCrossProcessLockAsync } from '../../../fs/cross-process-lock.js'
 import { canonicalizeText, toNfcName } from '../../../fs/text-canonical.js'
@@ -323,7 +323,10 @@ function writablePath(bookRoot: string, file: string): { rel: string; abs: strin
  *  放行 布线/大纲/关系线/ 但临界段不取锁：跨进程下 CLI 定稿持锁 RMW 与 PUT 直写交错，
  *  writeLead 以旧读内容覆盖 PUT 刚落的新内容——无痕丢更新（快照留底的是覆写前旧内容）。 */
 function wiringLockKeyForPut(bookRoot: string, rel: string): string | null {
-  const p = rel.replace(/\\/g, '/')
+  // 复审-0913-mac适配 P3-2：前缀门归一收编 normalizeWinSeparators（win32-only，与
+  // DocumentService.wiringFileLockKey 同批同口径）——posix 上字面 `\` 文件名
+  // （`布线\x.md` 系书根单段名、非布线目录内文件）不再误入布线锁前缀门
+  const p = normalizeWinSeparators(rel)
   if (p.startsWith('布线/') || p.startsWith('大纲/关系线/')) {
     const key = `${join(bookRoot, rel)}.lock`
     // R38-14 同款 win32 折叠——与两侧既有实现逐位一致（回归锚定同键）

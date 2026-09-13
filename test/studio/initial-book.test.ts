@@ -67,6 +67,37 @@ describe('resolveInitialBook', () => {
     expect(resolveInitialBook(workDir, '平级书')).toBe('平级书')
   })
 
+  it('复审-0913-mac适配 P3-3: NFD 形态书名 ref 命中 NFC 登记名（mac 终端/启动器传入分解形）', () => {
+    // 登记名建书时恒 NFC（init.ts 归一）；CLI/argv 的 ref 可能 NFD——精确串比较
+    // 落空 → --book 静默回落书架页。两侧 toNfcName 后命中（全平台安全：存量名恒
+    // NFC，归一不引入假命中；异形仅 CJK 无分解形的「平级书」不受影响，故用含 é 的
+    // 夹具登记名验证真分解面）
+    const nfcName = 'Étude之书'
+    const nfdRef = nfcName.normalize('NFD')
+    expect(nfdRef).not.toBe(nfcName)
+    mkdirSync(join(workDir, 'nfd-book'), { recursive: true })
+    writeFileSync(
+      join(workDir, '.clwriting', 'books.jsonl'),
+      [
+        JSON.stringify({ name: '平级书', path: '平级书', kind: 'long' }),
+        JSON.stringify({ name: '嵌套书', path: '书库/嵌套书', kind: 'long' }),
+        JSON.stringify({ name: nfcName, path: 'nfd-book', kind: 'long' }),
+      ].join('\n') + '\n',
+    )
+    try {
+      expect(resolveInitialBook(workDir, nfdRef)).toBe(nfdRef)
+    } finally {
+      // 还原名册，不影响后续用例（beforeAll 夹具为两书）
+      writeFileSync(
+        join(workDir, '.clwriting', 'books.jsonl'),
+        [
+          JSON.stringify({ name: '平级书', path: '平级书', kind: 'long' }),
+          JSON.stringify({ name: '嵌套书', path: '书库/嵌套书', kind: 'long' }),
+        ].join('\n') + '\n',
+      )
+    }
+  })
+
   it('相对路径（平级与嵌套登记）命中登记 path', () => {
     expect(resolveInitialBook(workDir, '平级书/')).toBe('平级书')
     expect(resolveInitialBook(workDir, join('书库', '嵌套书'))).toBe('嵌套书')
