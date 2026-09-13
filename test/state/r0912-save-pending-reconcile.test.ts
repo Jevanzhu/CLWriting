@@ -38,6 +38,7 @@ import { computeRevisionBytes } from '../../src/document/revision.js'
 import { detectState } from '../../src/state/state.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import { makeGitBook } from '../helpers/book.js'
+import { acquireCrossProcessLockAsync } from '../../src/fs/cross-process-lock.js'
 
 const BODY_V1 = '---\n章号: 1\n标题: 开篇\n---\n\n第一版正文。\n'
 const BODY_V2 = BODY_V1 + '崩溃窗内新键入的内容。\n'
@@ -115,4 +116,20 @@ test('R0912-1a: 读盘异常（非 ENOENT）→ 保守报红留痕，pending 保
   const d2 = await detectState(root, DEFAULT_CONFIG)
   if (d2.state === 1) expect(d2.issues.some((i) => i.kind === 'crashedWrite')).toBe(false)
   expect(findUnsettled(jPath)).toHaveLength(0)
+})
+
+test('重评-0912-4 P2-3: save 锁在持（保存进行中）→ 不报 crashedWrite 亦不消解，释放后收敛报红', async () => {
+  const base = computeRevisionBytes(Buffer.from(BODY_V1, 'utf-8'))
+  const { root, jPath } = await makePendingBook(base, BODY_V1) // 盘上 = 基线（在途保存的「比对相等」形态）
+  const release = await acquireCrossProcessLockAsync(`${jPath}.save.lock`, 100)
+  expect(release).not.toBeNull()
+  const d1 = await detectState(root, DEFAULT_CONFIG)
+  if (d1.state === 1) expect(d1.issues.some((i) => i.kind === 'crashedWrite')).toBe(false)
+  expect(findUnsettled(jPath)).toHaveLength(1) // 不消解：pending 原样（在途保存自身收尾会写 settled）
+  release!()
+  const d2 = await detectState(root, DEFAULT_CONFIG)
+  expect(d2.state).toBe(1)
+  if (d2.state !== 1) return
+  expect(d2.issues.some((i) => i.kind === 'crashedWrite')).toBe(true) // 锁释放 → 真未落盘面照常报红
+  expect(findUnsettled(jPath)).toHaveLength(1)
 })

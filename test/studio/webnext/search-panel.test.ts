@@ -19,6 +19,25 @@ vi.mock('../../../src/studio/web-next/src/api/search', () => ({
   search: mocks.search,
 }))
 
+const storeMocks = vi.hoisted(() => ({
+  open: vi.fn(),
+  openTab: vi.fn(),
+  bookName: '书A' as string,
+}))
+vi.mock('../../../src/studio/web-next/src/stores/tree', () => ({
+  useTreeStore: () => ({
+    byPath: new Map([
+      ['写作/正文/1-一.md', { path: '写作/正文/1-一.md', name: '1-一', isDirectory: false, role: 'piece-body', children: [], docId: 'doc-1' }],
+    ]),
+  }),
+}))
+vi.mock('../../../src/studio/web-next/src/stores/doc', () => ({
+  useDocStore: () => ({ open: storeMocks.open }),
+}))
+vi.mock('../../../src/studio/web-next/src/stores/workspace', () => ({
+  useWorkspaceStore: () => ({ bookName: storeMocks.bookName, openTab: storeMocks.openTab }),
+}))
+
 beforeEach(() => {
   setActivePinia(createPinia())
   mocks.search.mockReset()
@@ -119,6 +138,72 @@ describe('R1010c-FE1-P3-3: 命中行余量提示', () => {
     ])
     expect(w.findAll('.result-line')).toHaveLength(3)
     expect(w.find('.result-more').exists()).toBe(false)
+    w.unmount()
+  })
+})
+
+// ── 重评-0912-4 P2-4（2026-09-12 全量重评修复批）：open 失败错误独立作用域 ──
+describe('重评-0912-4 P2-4: open 失败不顶替结果列表', () => {
+  beforeEach(() => {
+    storeMocks.open.mockReset()
+    storeMocks.openTab.mockReset()
+    storeMocks.bookName = '书A'
+  })
+
+  async function mountedWithResults() {
+    mocks.search.mockResolvedValue({
+      results: [
+        { path: '写作/正文/1-一.md', matches: [{ line: 1, text: '甲' }] },
+        { path: '写作/正文/2-二.md', matches: [{ line: 2, text: '乙' }] },
+      ],
+      truncated: false,
+    })
+    const w = mount(SearchPanel, { props: { bookName: '书A' } })
+    await w.find('input').setValue('词')
+    await w.find('input').trigger('keydown.enter')
+    await flushPromises()
+    return w
+  }
+
+  it('open 失败 → 错误在列表上方追加，其余结果维持可见（修复前整列表被 err 顶替）', async () => {
+    const w = await mountedWithResults()
+    storeMocks.open.mockRejectedValueOnce(new Error('文件被外部占用'))
+    await w.findAll('.result')[0]!.trigger('click')
+    await flushPromises()
+    expect(w.findAll('.result')).toHaveLength(2)
+    expect(w.find('.hint.err').text()).toContain('占用')
+    w.unmount()
+  })
+
+  it('open 成功 → 无错误提示，openTab 照常', async () => {
+    const w = await mountedWithResults()
+    storeMocks.open.mockResolvedValueOnce(undefined)
+    await w.findAll('.result')[0]!.trigger('click')
+    await flushPromises()
+    expect(storeMocks.openTab).toHaveBeenCalledWith('doc-1')
+    expect(w.find('.hint.err').exists()).toBe(false)
+    w.unmount()
+  })
+
+  it('open 失败提示不残留：下一次搜索开始即清空', async () => {
+    const w = await mountedWithResults()
+    storeMocks.open.mockRejectedValueOnce(new Error('x'))
+    await w.findAll('.result')[0]!.trigger('click')
+    await flushPromises()
+    expect(w.find('.hint.err').exists()).toBe(true)
+    mocks.search.mockResolvedValue({ results: [], truncated: false })
+    await w.find('input').setValue('新词')
+    await w.find('input').trigger('keydown.enter')
+    await flushPromises()
+    expect(w.find('.hint.err').exists()).toBe(false)
+    w.unmount()
+  })
+
+  it('切书清查询词 q（重评-0912-4 随批 P3：残留旧书词回车即对新书重搜）', async () => {
+    const w = await mountedWithResults()
+    await w.setProps({ bookName: '书B' })
+    await flushPromises()
+    expect((w.find('input').element as HTMLInputElement).value).toBe('')
     w.unmount()
   })
 })

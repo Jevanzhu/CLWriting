@@ -20,6 +20,7 @@ import { deriveStatus, type DocumentStatus } from './status.js'
 import { legacyId } from './stable-id.js'
 import { splitFrontMatter } from '../format/frontmatter.js'
 import { countWords } from '../format/words.js'
+import { parseOrderOf, isPublishedValue } from '../format/chapters.js'
 import { clearTreeIssuesCacheForBook } from '../check/tree-issues-cache.js'
 
 /** 树节点（扫描派生）。 */
@@ -38,6 +39,9 @@ export interface TreeNode {
   status?: DocumentStatus
   /** 叶子文档：正文字数（countWords 剥 fm 后码点数；仅 chapter/piece-body/draft）。目录无。 */
   wordCount?: number
+  /** 叶子文档：fm `序` 显示排序键（阶段 24 S2；仅 chapter/piece-body，probe 解析）。
+   *  缺省 = 文件名章号（排序回落），旧书零迁移。目录无。 */
+  order?: number
   /** 卷目录专属：关联卷纲 path（大纲/卷纲/<卷>.md）；无关联 undefined。 */
   volumeOutlinePath?: string
 }
@@ -153,7 +157,41 @@ export function buildTree(bookRoot: string): TreeNode[] {
   }
   const volumeStems = collectVolumeOutlineStems(bookRoot)
   annotate(nodes, bookRoot, entryByPath, volumeStems)
+  // S2（阶段 24）：annotate 后按 fm `序` 重排正文子树（scanDir 阶段无 fm 数据——设计
+  // §5.4 排序键接线的既定时机；缺省 = 章号，旧书排序逐位不变）
+  sortTreeByOrder(nodes)
   return nodes
+}
+
+/**
+ * S2（阶段 24）：`写作/正文` 子树（含卷子目录）的章文件按 `序 ?? 文件名章号` 重排。
+ * - 仅正文子树生效：其余目录（大纲/设定/布线等）维持 scanDir 的 localeCompare 现状；
+ * - 目录优先/卷目录次序不动（compareNode 语义保留），只重排同目录内的章文件；
+ * - tie-break：排序键同 → 章号 → path（稳定确定性）；非数字前缀且无 `序` 的文件
+ *   不参与重排（键 = +Infinity 沉底，彼此保持原相对序——正文区该形态罕见）。
+ */
+function sortTreeByOrder(nodes: TreeNode[]): void {
+  for (const n of nodes) {
+    if (n.children.length === 0) continue
+    if (n.path === '写作/正文' || n.path.startsWith('写作/正文/')) {
+      const files = n.children.filter((c) => !c.isDirectory)
+      if (files.length > 1) {
+        const keyOf = (c: TreeNode): number => c.order ?? chapterNoOf(c.name) ?? Number.POSITIVE_INFINITY
+        const noOf = (c: TreeNode): number => chapterNoOf(c.name) ?? Number.POSITIVE_INFINITY
+        files.sort(
+          (a, b) =>
+            keyOf(a) - keyOf(b) ||
+            noOf(a) - noOf(b) ||
+            a.path.localeCompare(b.path, 'zh-Hans-CN'),
+        )
+        // 目录在前（维持 compareNode 目录优先），重排后的章文件接续——sort 稳定，
+        // 键全 Infinity 的非章文件保持 scanDir 原相对序
+        let fi = 0
+        n.children = n.children.map((c) => (c.isDirectory ? c : files[fi++]!))
+      }
+    }
+    if (n.children.length > 0) sortTreeByOrder(n.children)
+  }
 }
 
 /** 收集 大纲/卷纲/*.md 的 stem（卷目录关联用）。无该目录 → 空集。
@@ -194,6 +232,8 @@ function annotate(
       n.status = status === 'final' && probe?.published ? 'published' : status
       if (isCountedRole(n.role)) {
         n.wordCount = probe?.wordCount ?? 0
+        // S2（阶段 24）：显示排序键带出（正文/短篇角色；probe miss 回落文件名章号）
+        if (probe?.order != null) n.order = probe.order
       }
     } else {
       const volName = matchVolumeName(n.path)
@@ -221,11 +261,13 @@ function isCountedRole(role: DocumentRole): boolean {
 
 // ── W-P2-4：树单次读 + 哈希缓存 ─────────────────────────────
 
-/** 单文件探测结果：一次 readFileSync 同时得到哈希 + 字数 + 已发布标志（原三读合一）。 */
+/** 单文件探测结果：一次 readFileSync 同时得到哈希 + 字数 + 已发布标志 + 显示序（原三读合一，阶段 24 增 order）。 */
 interface FileProbe {
   rev: `sha256:${string}`
   wordCount: number
   published: boolean
+  /** fm `序` 显示排序键（S2）；无键/非法值 → null（排序回落文件名章号）。 */
+  order: number | null
 }
 
 /**
@@ -292,11 +334,15 @@ function probeFile(bookRoot: string, rel: string): FileProbe | null {
   const split = splitFrontMatter(text)
   const wordCount = countWords(split ? split.body : text)
   let published = false
+  let order: number | null = null
   if (split) {
-    const v = parsePublishedValue(split.fmRaw)
-    published = v === true || v === 'true'
+    published = isPublishedValue(parsePublishedValue(split.fmRaw))
+    // S2（阶段 24）：`序` 与 `已发布` 同式同源（chapters.ts 归一小函数，regex 捕获串
+    // 直传——成对引号在 parseOrderOf 内剥），复用已读字节零额外读
+    const om = split.fmRaw.match(/^序[:：]\s*(.+?)\s*$/m)
+    if (om) order = parseOrderOf(om[1]) ?? null
   }
-  const probe: FileProbe = { rev, wordCount, published }
+  const probe: FileProbe = { rev, wordCount, published, order }
   // FIFO 淘汰最旧（Map 保插入序）
   if (probeCache.size >= PROBE_CACHE_MAX) {
     const oldest = probeCache.keys().next().value

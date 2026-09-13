@@ -168,3 +168,23 @@ test('B-8: 章级缓存行指纹落 µs 级整数（旧毫秒行值域不相交�
     rmSync(bookRoot, { recursive: true, force: true })
   }
 })
+
+// ── 重评-0912-4 P2-5（2026-09-12 全量重评修复批）：剥引号先于开窗，窗尾半 span 残余根除 ──
+test('重评-0912-4 P2-5: 窗尾截断的引号 span（有开无闭）全文先剥——对白环境词不再误报', () => {
+  // 对白 span 开于码点 288、闭于码点 306（span 共 19 码点）：旧序窗口（前 300 码点）截在
+  // span 中段，有开无闭不被识别为 span → 对白里的「天气」参与匹配误报黄项（严格档升红拦定稿闸）。
+  // 现全文先剥：span 整体移除，开窗落在去对白后的叙述面上 → 无命中。
+  const spanStraddlesWindow = '风平浪静'.repeat(72) + '「今天天气真好，风和日丽，万里无云。」' + '策马扬鞭'.repeat(50)
+  expect(checkOpeningNoEnv(spanStraddlesWindow).items).toHaveLength(0)
+
+  // 对照：窗内完整对白被剥除后，叙述面窗口语义不变——环境词在剥后前 300 码点之外不报
+  //（对白 7 码点 + 叙述过渡 15 码点 → 「天气」起于剥后码点 303，窗外）
+  const envBeyondWindow = '风平浪静'.repeat(72) + '「无关对白。」' + '他翻身上马，驰向远方，看天边。' + '天气骤变，狂风大作。' + '策马扬鞭'.repeat(50)
+  expect(checkOpeningNoEnv(envBeyondWindow).items).toHaveLength(0)
+
+  // 正面锚：剥后叙述面窗内环境词照常命中（防线不失效）
+  const envInWindow = '天气晴朗。' + '风平浪静'.repeat(80)
+  const r = checkOpeningNoEnv(envInWindow)
+  expect(r.items).toHaveLength(1)
+  expect(r.items[0]!.checkId).toBe('opening-env')
+})

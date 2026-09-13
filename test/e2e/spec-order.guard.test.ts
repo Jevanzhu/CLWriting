@@ -241,23 +241,30 @@ describe('R0911-G-P3-3：spec-order reporter 纯函数（运行期探针的比�
 // 仍 0，门形失效。本组用例把两个签名口径钉进回归（playwright 1.57 探针实测）。
 describe('R0911-G-P3-3：spec-order reporter 门行为（防回退成抛错/单参签名）', () => {
   const mkTests = (files: string[]) => files.map((f) => ({ location: { file: `/fake/e2e/${f}` } }))
-  const snapshot = readSnapshotOrder()
 
-  it.skipIf(snapshot === null)(
+  // 快照须在测试体内现读（阶段 24 重拍实测抓出）：两步闸第二步主用例在本轮内写新
+  // 快照，describe 级收集期捕获的旧序会让本侧基线与 onEnd 的现读盘基线失配 →
+  // 写入当跑必 1 红（写入本身成功、二跑幂等绿）。skipIf 只查存在性（收集期事实），
+  // 内容留到体内读——收集后在、运行前被移除的窄窗按跳过语义静默过。
+  it.skipIf(!existsSync(SNAPSHOT_PATH))(
     '双参 onBegin(config, suite) 收集计划序；序与快照一致 → onEnd 不判失败（返回 undefined）',
     () => {
+      const snapshot = readSnapshotOrder()
+      if (snapshot === null) return
       const r = new SpecOrderReporter()
-      r.onBegin({ workers: 1 }, { allTests: () => mkTests(snapshot!) })
+      r.onBegin({ workers: 1 }, { allTests: () => mkTests(snapshot) })
       expect(r.onEnd()).toBeUndefined()
     },
   )
 
-  it.skipIf(snapshot === null)(
+  it.skipIf(!existsSync(SNAPSHOT_PATH))(
     '序漂移 → onEnd 返回 { status: "failed" }（整轮退出码 1 的官方通道）并留痕 console.error',
     () => {
+      const snapshot = readSnapshotOrder()
+      if (snapshot === null) return
       const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
       try {
-        const base = snapshot!
+        const base = snapshot
         const drifted =
           base.length > 1 ? [...base.slice(1), base[0]!] : [...base, 'zz-extra-drift.spec.ts']
         const r = new SpecOrderReporter()

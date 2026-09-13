@@ -25,6 +25,7 @@ import { join, relative, sep } from 'node:path'
 import { safeManifestPath } from '../fs/safe-path.js'
 import { walkMdFind } from '../fs/walk-md.js'
 import { chapterNamePrefixes, parseChapterFileName } from '../format/chapters.js'
+import { mergedIntoMap } from '../format/chapter-lookup.js'
 import { splitFrontMatter } from '../format/frontmatter-core.js'
 import { readDraft } from '../format/draft.js'
 import { computeRevision } from '../document/revision.js'
@@ -154,14 +155,17 @@ export function readChapterSummaryBody(bookRoot: string, chapter: number): strin
 
 /** 在 写作/正文/（含卷子目录）按章号找正文文件；找不到 → null。
  *  L-P1（第八轮）：走共享 walkMdFind（环剪枝 + 起遍目录根界）——原先手写递归无
- *  visited（书内 symlink 环深递归）也无根界（书外 symlink 被跟随整读）。 */
+ *  visited（书内 symlink 环深递归）也无根界（书外 symlink 被跟随整读）。
+ *  S2（阶段 24，D3 留洞制）：按名 miss → 并入回退目标章路径（被合并源章的正文在
+ *  目标章里，摘要状态判定/自愈补漏对源章号仍可定位；正文命中恒优先——通用还原后
+ *  陈旧并入不被咨询）。 */
 export function findChapterFile(bookRoot: string, chapter: number): string | null {
   const bodyDir = join(bookRoot, '写作', '正文')
   if (!existsSync(bodyDir)) return null
   const prefixes = chapterNamePrefixes(chapter)
   return walkMdFind(bodyDir, (abs, name) =>
     prefixes.some((p) => name.startsWith(p)) ? abs : undefined,
-  ) ?? null
+  ) ?? mergedIntoMap(bookRoot).get(chapter) ?? null
 }
 
 interface GenerateChapterSummaryOpts {

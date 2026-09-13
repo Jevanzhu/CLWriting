@@ -12,7 +12,8 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
-import { parseChapterFileName } from '../format/words.js'
+import { chapterNoFromName } from '../format/filename.js'
+import { mergedIntoMap } from '../format/chapter-lookup.js'
 import { assembleStatus, formatStatus } from './assemble.js'
 import { readLeadHistory, readChapterSummaries } from '../format/read.js'
 import { readFile, splitFrontMatter } from '../format/frontmatter.js'
@@ -29,7 +30,10 @@ import { log } from '../log/index.js'
 /**
  * W-P2-4：按章号在 写作/正文/ 找正文文件，只扫「根目录 + 直接卷子目录」两层，
  * 替代 readChapterDir 全树递归扫描（备料为取一章此前要 stat/读全书所有 md）。
- * 文件名契约 `<数字>-<标题>.md`（parseChapterFileName），可补零。找不到 → null。
+ * 文件名数字前缀走 chapterNoFromName 宽容集（S2 阶段 24 统一：-/—/空白分隔均可，
+ * `5—标题.md` 形态对 AI 前章读取不再失明——原 parseChapterFileName 窄正则仅认 -，
+ * 双向锚定回归见 test/process/prepare.test.ts 前章定位用例族）。找不到 → null。
+ * S2：按名 miss → 并入回退目标章路径（前章被并入时，目标章正文结尾即续写衔接点）。
  * 正确性兜底：卷目录只存在一层（写作/正文/<卷>/），更深嵌套不在此结构内——
  * 若未来出现更深嵌套，此处返回 null 由调用方降级（不产出该段，行为与「无此章」一致）。
  */
@@ -46,8 +50,7 @@ function findChapterByNumber(bookRoot: string, chapterNo: number): string | null
       // R2W-8（win 平台专项复审 R2）：扩展名大小写不敏感（R34D-11 家族补齐，对齐
       // walk-md 口径）——资源管理器改名 .MD 的章此前对前章正文结尾配段隐形
       if (name.slice(-3).toLowerCase() !== '.md' || name.startsWith('._')) continue
-      const parsed = parseChapterFileName(name)
-      if (parsed && parsed.章号 === chapterNo) return join(dir, name)
+      if (chapterNoFromName(name) === chapterNo) return join(dir, name)
     }
     return null
   }
@@ -63,13 +66,14 @@ function findChapterByNumber(bookRoot: string, chapterNo: number): string | null
       try { return statSync(join(bodyRoot, n)).isDirectory() } catch { return false }
     })
   } catch {
-    return null
+    return mergedIntoMap(bookRoot).get(chapterNo) ?? null
   }
   for (const v of volDirs) {
     const inVol = tryFile(join(bodyRoot, v))
     if (inVol) return inVol
   }
-  return null
+  // S2（阶段 24，D3）：并入回退（正文命中恒优先——回退仅在全 miss 后咨询）
+  return mergedIntoMap(bookRoot).get(chapterNo) ?? null
 }
 
 /** 写作材料的各段（按裁剪优先级标注刚需/弹性） */

@@ -8,7 +8,12 @@
 import { computed } from 'vue'
 import type { MenuItem } from '../components/ui/ContextMenu.vue'
 import type { TreeNode } from '../types/tree'
-import { isVolumeDir, moveToTargetsFor, pendingChaptersUpToIn } from '../shared/chapter-tree'
+import {
+  isVolumeDir,
+  moveToTargetsFor,
+  pendingChaptersUpToIn,
+  prevBodyChapterInDisplayOrder,
+} from '../shared/chapter-tree'
 
 /** 正文区新建选项（卷/章节）—— label 带「新建」自解释，直接摊开不分层 */
 const NEW_BODY: MenuItem[] = [
@@ -37,7 +42,10 @@ const NEW_BLANK: MenuItem[] = [
   ...NEW_SETTINGS,
 ]
 
-export function useTreeMenu(treeData: () => { grouped: TreeNode[]; raw: TreeNode[] }) {
+export function useTreeMenu(
+  treeData: () => { grouped: TreeNode[]; raw: TreeNode[] },
+  opts?: { activeDocId?: () => string | null },
+) {
   /** 桌面版才有「打开所在文件夹」（Electron shell.showItemInFolder 跨平台；浏览器版隐藏） */
   const hasShowInFolder = computed(
     () => typeof window !== 'undefined' && !!window.clwritingDesktop?.showInFolder,
@@ -117,6 +125,16 @@ export function useTreeMenu(treeData: () => { grouped: TreeNode[]; raw: TreeNode
         })
       }
       items.push({ key: 'copy', label: '创建副本' })
+      // 阶段 24（S4）结构操作组：并入上一章（按显示序找前一章，非章号−1）/撤销并入；
+      // 撤销并入不按 并入 键显隐——树数据不带 fm 结构键，服务端是唯一真相（无并入
+      // 记录时 NOT_MERGE_STATE 拒收并提示）。光标拆分只对当前打开章开放（拆分点取
+      // 编辑器光标，未打开章无光标可依）。
+      const prev = prevBodyChapterInDisplayOrder(node, grouped)
+      if (prev) items.push({ key: 'merge-into-prev', label: `并入上一章（${prev.name}）` })
+      items.push({ key: 'merge-undo', label: '撤销并入…' })
+      if (opts?.activeDocId?.() === node.docId) {
+        items.push({ key: 'split-here', label: '在光标处拆分…' })
+      }
     }
     items.push({ key: 'sep-a', label: '', separator: true })
     // 桌面版在系统文件管理器中显示文件所在文件夹（浏览器版无此 API 隐藏）

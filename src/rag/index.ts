@@ -15,7 +15,7 @@ import { createHash } from 'node:crypto'
 import { readChapterDir } from '../format/chapters.js'
 import { readFile } from '../format/frontmatter.js'
 import { parseChapterFileName } from '../format/words.js'
-import { openRagDb, closeRagDb, safeRollback, storeChunk, readAllChapterFingerprints, getRagMeta, setRagMeta, deleteRagMeta, deleteChunksByChapter, getIndexedChapterNumbers, streamChunkScores, type ChunkScoreRow, isRagDbCorruptionError, deleteRagDbFiles, ragDbExists } from './store.js'
+import { openRagDb, closeRagDb, safeRollback, storeChunk, readAllChapterFingerprints, getRagMeta, setRagMeta, deleteRagMeta, deleteChunksByChapter, countChunksByChapter, getIndexedChapterNumbers, streamChunkScores, type ChunkScoreRow, isRagDbCorruptionError, deleteRagDbFiles, ragDbExists } from './store.js'
 import { embed, type EmbedOptions } from './embed.js'
 import type { RagConfig } from './config.js'
 import type { DatabaseSync } from 'node:sqlite'
@@ -264,6 +264,56 @@ export function resetRagIndex(bookRoot: string): void {
     }
   } finally {
     closeRagDb(db)
+  }
+}
+
+// ── 阶段 24 章节结构操作：合并后 RAG 清理（best-effort，不阻断主流程）──────
+
+/** 阶段 24：合并落定后的 RAG 清理——源章号 `deleteChunksByChapter` + `deleteRagMeta`
+ *  成对（P1-28 同款：章号从索引域整体摘除）+ 目标章 `deleteRagMeta`（指纹失效 →
+ *  missingFingerprint，下轮 buildIndex 按合并后正文重嵌）。事务包裹（BEGIN IMMEDIATE
+ *  … COMMIT，stale 清理 :393-426 同款先例）；任何失败 warn 回滚不抛——RAG 是投影非
+ *  权威源，自愈兜底 = 下轮 buildIndex 的已删章残留清理 + stale 指纹重嵌。 */
+export function cleanupRagAfterMerge(bookRoot: string, sourceChapterNos: number[], targetChapterNo: number): void {
+  if (!ragDbExists(bookRoot)) return
+  try {
+    const db = openRagDb(bookRoot)
+    try {
+      db.exec('BEGIN IMMEDIATE')
+      try {
+        for (const n of sourceChapterNos) {
+          deleteChunksByChapter(db, n)
+          deleteRagMeta(db, chapterHashKey(n))
+        }
+        deleteRagMeta(db, chapterHashKey(targetChapterNo))
+        db.exec('COMMIT')
+      } catch (e) {
+        safeRollback(db)
+        log.warn('rag', `合并后 RAG 清理失败（已回滚，下轮建索引自愈）：${errStr(e)}`)
+      }
+    } finally {
+      closeRagDb(db)
+    }
+  } catch (e) {
+    log.warn('rag', `合并后 RAG 清理开库失败（忽略，下轮建索引自愈）：${errStr(e)}`)
+  }
+}
+
+/** 阶段 24：合并干跑的 RAG 清除预估——源章向量块数合计（只读；库不存在/读失败 → 0，
+ *  ragDbExists 守卫避免为预估落空建库）。 */
+export function estimateRagChunkCount(bookRoot: string, chapters: number[]): number {
+  if (chapters.length === 0 || !ragDbExists(bookRoot)) return 0
+  try {
+    const db = openRagDb(bookRoot)
+    try {
+      let n = 0
+      for (const c of chapters) n += countChunksByChapter(db, c)
+      return n
+    } finally {
+      closeRagDb(db)
+    }
+  } catch {
+    return 0
   }
 }
 

@@ -67,6 +67,7 @@ vi.mock('../../../src/studio/web-next/src/composables/useChapterTreeActions', ()
     renamePath: ref(null),
     draggedPath: ref(null),
     metaEditing: ref(null),
+    splitEditing: ref(null),
     resetInlineState: mocks.resetInlineState,
     dispatchCreate: mocks.dispatchCreate,
     onMenuSelect: vi.fn(),
@@ -76,11 +77,13 @@ vi.mock('../../../src/studio/web-next/src/composables/useChapterTreeActions', ()
     onRenameCancel: vi.fn(),
     onDrop: vi.fn(),
     onSaveMeta: vi.fn(),
+    onSplitCommit: vi.fn(),
   }),
 }))
 vi.mock('../../../src/studio/web-next/src/components/ui/ContextMenu.vue', () => ({ default: { template: '<div />' } }))
 vi.mock('../../../src/studio/web-next/src/components/panels/ChapterTreeItem.vue', () => ({ default: { template: '<div />' } }))
 vi.mock('../../../src/studio/web-next/src/components/panels/ChapterMetaDialog.vue', () => ({ default: { template: '<div />' } }))
+vi.mock('../../../src/studio/web-next/src/components/panels/SplitChapterDialog.vue', () => ({ default: { template: '<div />' } }))
 
 import ChapterTreePanel from '../../../src/studio/web-next/src/components/panels/ChapterTreePanel.vue'
 

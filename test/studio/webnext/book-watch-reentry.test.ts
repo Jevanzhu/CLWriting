@@ -22,6 +22,10 @@ const mocks = vi.hoisted(() => ({
 }))
 vi.mock('../../../src/studio/web-next/src/api/documents', () => ({
   getContent: mocks.getContent,
+  // 重评-0912-4 P1-1:doOpen 改走完整载荷——委托默认包装既有 getContent mock(suspect 分支默认不触发)
+  getContentPayload: vi.fn(
+    async (...a: Parameters<typeof mocks.getContent>) => ({ content: await mocks.getContent(...a) }),
+  ),
   saveContent: mocks.saveContent,
   finalizeDoc: mocks.finalizeDoc,
 }))

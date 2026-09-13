@@ -23,18 +23,25 @@ const treeMock = {
 }
 const askMock = vi.fn(async () => true)
 const toastMock = vi.fn()
-vi.mock('../../../src/studio/web-next/src/api/documents', () => ({
-  createDoc: vi.fn(),
-  renameDoc: vi.fn(),
-  moveDoc: vi.fn(),
-  copyDoc: vi.fn(),
-  deleteDoc: vi.fn(),
-  updateChapterMetaDoc: vi.fn(),
-  batchFinalizeDocs: vi.fn(),
-  getContent: vi.fn(async () => '旧正文'),
-  saveContent: vi.fn(),
-  finalizeDoc: vi.fn(),
-}))
+vi.mock('../../../src/studio/web-next/src/api/documents', () => {
+  const getContent = vi.fn(async () => '旧正文')
+  return {
+    createDoc: vi.fn(),
+    renameDoc: vi.fn(),
+    moveDoc: vi.fn(),
+    copyDoc: vi.fn(),
+    deleteDoc: vi.fn(),
+    updateChapterMetaDoc: vi.fn(),
+    batchFinalizeDocs: vi.fn(),
+    getContent,
+    // 重评-0912-4 P1-1:doOpen 改走完整载荷——委托默认包装既有 getContent mock(suspect 分支默认不触发)
+    getContentPayload: vi.fn(
+      async (...a: Parameters<typeof getContent>) => ({ content: await getContent(...a) }),
+    ),
+    saveContent: vi.fn(),
+    finalizeDoc: vi.fn(),
+  }
+})
 vi.mock('../../../src/studio/web-next/src/api/client', () => ({
   ApiError: class ApiError extends Error {
     status = 0

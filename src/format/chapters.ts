@@ -18,7 +18,80 @@ const HOOK_LEVELS: HookLevel[] = ['强', '中', '弱']
 const EMOTIONS: Emotion[] = ['压抑', '铺垫', '小爽', '大爽', '转折']
 const SCENE_TYPES: SceneType[] = ['战斗', '对话', '抒情', '叙事铺陈', '爽点高潮']
 
-const KNOWN_FM_KEYS = new Set(['章号', '标题', '钩子类型', '钩子强弱', '情绪定位', '场景', '时间锚点', '字数目标', '目标情绪', '核心反转'])
+const KNOWN_FM_KEYS = new Set(['章号', '标题', '钩子类型', '钩子强弱', '情绪定位', '场景', '时间锚点', '字数目标', '目标情绪', '核心反转', '序', '并入'])
+
+// ── 阶段 24 结构键归一（留洞制 S2：序/并入 读侧小函数，tree probe 复用）──
+
+/**
+ * `序` 值归一（S2，D2/D5）：显示排序键。number 直取；字符串 trim 后 Number() 强转
+ * （parseValue 只认纯整数，`序: 12.5` 落字符串——拆分中值是合法主流形态，读侧收编）；
+ * 非正有限数（`序: 五`/`序: -3`/空串）按缺省 undefined 处理不报错（值校验 P3 口径）。
+ * probe 侧传原始捕获串（可能带成对引号），先剥成对引号再走同一强转。
+ */
+export function parseOrderOf(v: unknown): number | undefined {
+  let s: string
+  if (typeof v === 'number') {
+    return Number.isFinite(v) && v > 0 ? v : undefined
+  }
+  if (typeof v !== 'string') return undefined
+  s = v.trim()
+  // 成对引号剥除（对齐 parsePublishedValue 配对判定口径；probe 原始捕获串复用本函数）
+  const q = s[0]
+  if ((q === '"' || q === "'") && s.length >= 2 && s.endsWith(q)) s = s.slice(1, -1).trim()
+  if (s === '') return undefined
+  const n = Number(s)
+  return Number.isFinite(n) && n > 0 ? n : undefined
+}
+
+/**
+ * `并入` 值归一（S2，D3）：本章吸收的源章号清单 → number[]。
+ * 三形态兼容：number → [n]；字符串按 `,`/`、` 双分隔切分逐项强转正整数；数组逐项
+ * 同校验（parseFlat 内联数组项为 string）。非法项丢弃，全空/缺字段 → undefined。
+ */
+export function parseMergedInto(v: unknown): number[] | undefined {
+  const coerce = (item: unknown): number | null => {
+    if (typeof item === 'number') return Number.isSafeInteger(item) && item >= 1 ? item : null
+    if (typeof item !== 'string') return null
+    let s = item.trim()
+    const q = s[0]
+    if ((q === '"' || q === "'") && s.length >= 2 && s.endsWith(q)) s = s.slice(1, -1).trim()
+    if (!/^\d+$/.test(s)) return null
+    const n = Number(s)
+    return Number.isSafeInteger(n) && n >= 1 ? n : null
+  }
+  let items: unknown[]
+  if (typeof v === 'number') {
+    items = [v]
+  } else if (typeof v === 'string') {
+    let s = v.trim()
+    const q = s[0]
+    if ((q === '"' || q === "'") && s.length >= 2 && s.endsWith(q)) s = s.slice(1, -1).trim()
+    if (s === '') return undefined
+    items = s.split(/[,，、]/)
+  } else if (Array.isArray(v)) {
+    items = v
+  } else {
+    return undefined
+  }
+  const out: number[] = []
+  for (const item of items) {
+    const n = coerce(item)
+    if (n !== null && !out.includes(n)) out.push(n)
+  }
+  return out.length > 0 ? out : undefined
+}
+
+/**
+ * fm `已发布` 值判定单源（S2 随批）：树 probe（parsePublishedValue 原始捕获后调本函数）
+ * 与导出 `_raw.已发布` 解析（readChapter 容错落 _raw 为 string/string[]）同式——
+ * 仅认 true / 'true'（'是'/'1' 等不认，对齐 probe 既有口径）。
+ */
+export function isPublishedValue(v: unknown): boolean {
+  if (v === true) return true
+  if (typeof v === 'string') return v === 'true'
+  if (Array.isArray(v)) return v[0] === 'true'
+  return false
+}
 
 /** 读取章节 md → ChapterMeta（容错）。
  * @param includeBody W-P2-4：为 true 时把正文原文写入 _body（readChapterDir(includeBody=true) 一次读带出）；
@@ -107,6 +180,16 @@ export function readChapter(
   }
   if (map.has('时间锚点')) chapter.时间锚点 = String(map.get('时间锚点'))
   if (map.has('场景')) chapter.场景 = map.get('场景') as SceneType
+  // S2（阶段 24）：结构键解析——入 KNOWN_FM_KEYS 后不再落 _raw；`已发布` 仍留 _raw
+  // （fm 重组侧整体保形见 S3，导出侧 D7 published 判据从 _raw 解析）。
+  if (map.has('序')) {
+    const order = parseOrderOf(map.get('序'))
+    if (order !== undefined) chapter.序 = order
+  }
+  if (map.has('并入')) {
+    const merged = parseMergedInto(map.get('并入'))
+    if (merged !== undefined) chapter.并入 = merged
+  }
   if (map.has('字数目标')) {
     // R64-19（十二轮）：Number() 无守卫——手写「三千」→ NaN 落进元数据，区间比较
     // 恒 false 逐步污染预算/统计。非有限数按「未写」处理，走默认回落链。

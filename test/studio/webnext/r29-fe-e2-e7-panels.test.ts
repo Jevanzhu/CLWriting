@@ -32,6 +32,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../../src/studio/web-next/src/api/search', () => ({ search: mocks.search }))
 vi.mock('../../../src/studio/web-next/src/api/documents', () => ({
   getContent: mocks.getContent,
+  // 重评-0912-4 P1-1:doOpen 改走完整载荷——委托默认包装既有 getContent mock(suspect 分支默认不触发)
+  getContentPayload: vi.fn(async (...a: Parameters<typeof mocks.getContent>) => ({ content: await mocks.getContent(...a) })),
   saveContent: mocks.saveContent,
   finalizeDoc: vi.fn(),
 }))
@@ -147,6 +149,8 @@ const actionsMock = vi.hoisted(() => ({
   onDrop: vi.fn(),
   onSaveMeta: vi.fn(),
   dispatchCreate: vi.fn(),
+  splitEditing: { value: null },
+  onSplitCommit: vi.fn(),
 }))
 vi.mock('../../../src/studio/web-next/src/composables/useNativeMenu', () => ({
   useNativeMenu: () => ({
@@ -175,6 +179,7 @@ vi.mock('../../../src/studio/web-next/src/components/panels/ChapterTreeItem.vue'
   },
 }))
 vi.mock('../../../src/studio/web-next/src/components/panels/ChapterMetaDialog.vue', () => ({ default: { template: '<div />' } }))
+vi.mock('../../../src/studio/web-next/src/components/panels/SplitChapterDialog.vue', () => ({ default: { template: '<div />' } }))
 
 import ChapterTreePanel from '../../../src/studio/web-next/src/components/panels/ChapterTreePanel.vue'
 import { useDocStore } from '../../../src/studio/web-next/src/stores/doc'

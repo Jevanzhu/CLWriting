@@ -9,10 +9,15 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
-vi.mock('../../../src/studio/web-next/src/api/documents', () => ({
-  getContent: vi.fn(),
-  saveContent: vi.fn(),
-}))
+vi.mock('../../../src/studio/web-next/src/api/documents', () => {
+  const getContent = vi.fn()
+  return {
+    getContent,
+    // 重评-0912-4 P1-1:doOpen 改走完整载荷——委托默认包装既有 getContent mock(suspect 分支默认不触发)
+    getContentPayload: vi.fn(async (...a: Parameters<typeof getContent>) => ({ content: await getContent(...a) })),
+    saveContent: vi.fn(),
+  }
+})
 vi.mock('../../../src/studio/web-next/src/api/client', () => ({
   ApiError: class ApiError extends Error {
     status: number

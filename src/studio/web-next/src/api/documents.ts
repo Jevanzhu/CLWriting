@@ -8,6 +8,21 @@ export async function getContent(name: string, path: string): Promise<string> {
   return data.content
 }
 
+// 重评-0912-4 P1-1（2026-09-12 全量重评修复批）：GET /file 带编码探测的完整载荷——
+// 服务端对非 UTF-8 存量文件（GBK/Big5 导入旧稿）回 encodingSuspect/encodingHint，
+// doOpen 打开时据此 toast 告警（作者在乱码上编辑保存会被 R66-1 防线 400 拒绝）。
+export interface FileContentPayload {
+  content: string
+  revision?: string
+  encodingSuspect?: boolean
+  encodingHint?: string
+}
+export async function getContentPayload(name: string, path: string): Promise<FileContentPayload> {
+  return apiJson<FileContentPayload>(
+    `/api/books/${encodeURIComponent(name)}/file?file=${encodeURIComponent(path)}`,
+  )
+}
+
 // M-3（第六轮）：GET /file 附带字节指纹 revision——与 /documents 协议同源（服务端 hashFile）。
 // 编辑类调用方（如文风铁律卡）读时取走、存时回传，配合 putContent 的可选乐观锁。
 export async function getContentRevisioned(
@@ -203,6 +218,128 @@ export async function batchFinalizeDocs(name: string, docIds: string[]): Promise
       json: { docIds },
     },
     120_000, // R33-77（三十三轮）：慢档对齐 clearAudit——批量定稿逐章 git 提交可达数秒/章，30s 默认档必假超时（服务端继续成功、前端报超时不刷树）
+  )
+}
+
+// --- 章节结构操作（阶段 24 S3+S4：合并 / 拆分 / 撤销合并）---
+
+/** 合并干跑视图（确认弹窗数据源；服务端 structure.ts MergePlanView 同形裁剪——路径
+ *  字段前端不消费，略）。 */
+export interface MergePlanView {
+  op: 'merge'
+  targetDocId: string
+  sourceDocId: string
+  targetChapterNo: number
+  sourceChapterNo: number
+  targetTitle: string
+  sourceTitle: string
+  /** 任一方非 UTF-8（GBK 存量）——apply 将 400 拒绝，前端干跑后即拦 */
+  encodingSuspect: boolean
+  sourceWords: number
+  sourcePreview: string
+  /** 折叠后目标章 fm 并入 数组（写侧单跳化） */
+  mergedInto: number[]
+  /** 源章履历引文对拼接正文的命中预演（false 项合并后将产 lead-evidence-miss 红） */
+  leadPreviews: Array<{ leadId: string; 动词: string; 证据: string; willMatch: boolean }>
+  /** 源章 RAG 向量块清除预估 */
+  ragChunksToClear: number
+  planHash: string
+}
+
+/** 拆分干跑视图（拆分弹窗数据源；服务端 SplitPlanView 同形裁剪）。 */
+export interface SplitPlanView {
+  op: 'split'
+  docId: string
+  chapterNo: number
+  title: string
+  /** 新章号 = 全书 max+1 再跳已定稿章号（篇号永不复用） */
+  newChapterNo: number
+  order: number
+  headWords: number
+  tailWords: number
+  tailPreview: string
+  /** 原章 fm 已发布 → 提示「平台连载无插入机制」，不硬拦 */
+  publishedWarning: boolean
+  planHash: string
+}
+
+export interface MergeApplyOk {
+  ok: true
+  targetDocId: string
+  sourceDocId: string
+  targetChapterNo: number
+  sourceChapterNo: number
+  mergedInto: number[]
+  /** = 源 docId（TrashEntry.id 即原 docId） */
+  trashEntryId: string
+  rollbackSnapshotId?: string
+  planHash: string
+}
+export interface SplitApplyOk {
+  ok: true
+  docId: string
+  newDocId: string
+  originChapterNo: number
+  newChapterNo: number
+  order: number
+  title: string
+}
+export interface MergeUndoOk {
+  ok: true
+  targetDocId: string
+  sourceDocId: string
+  sourceChapterNo: number
+  trashEntryId: string
+  planHash: string
+}
+
+// POST /documents/:docId/structure-plan —— 干跑预览（不占结构闸；合并 body 带
+// sourceDocId（:docId = 目标章），拆分带 cursorOffset（全文坐标，含 fm））。
+// 失败（BUSY/NOT_FOUND/BAD_INPUT…）由 apiJson 抛 ApiError，调用方 catch。
+export async function structurePlan(
+  name: string,
+  docId: string,
+  body: { op: 'merge'; sourceDocId: string } | { op: 'split'; cursorOffset: number },
+): Promise<{ plan: MergePlanView | SplitPlanView }> {
+  return apiJson<{ ok: true; plan: MergePlanView | SplitPlanView }>(
+    `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/structure-plan`,
+    { method: 'POST', json: body },
+  )
+}
+
+// POST /documents/:docId/structure-apply —— 携干跑指纹执行（服务端锁前重算比对，
+// 失配 409 PLAN_STALE）。
+export async function structureApply(
+  name: string,
+  docId: string,
+  body:
+    | { op: 'merge'; sourceDocId: string; planHash: string }
+    | { op: 'split'; title: string; cursorOffset: number; planHash: string },
+): Promise<MergeApplyOk | SplitApplyOk> {
+  return apiJson<MergeApplyOk | SplitApplyOk>(
+    `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/structure-apply`,
+    { method: 'POST', json: body },
+    120_000, // 慢档对齐 batchFinalize——per-book 串行链排队 + 双章读写留底 + RAG 清理，30s 默认档在链积压时假超时（服务端继续成功、前端报超时不刷树）
+  )
+}
+
+// POST /documents/:docId/merge-undo —— 撤销目标章最近一次合并（服务端三级定位：
+// hints → 事件扫描 → 降级推演；前端无提示时恒发 {}）。
+export async function structureMergeUndo(
+  name: string,
+  docId: string,
+  hints: {
+    sourceDocId?: string
+    sourceChapterNo?: number
+    trashEntryId?: string
+    rollbackSnapshotId?: string
+    planHash?: string
+  } = {},
+): Promise<MergeUndoOk> {
+  return apiJson<MergeUndoOk>(
+    `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/merge-undo`,
+    { method: 'POST', json: hints },
+    120_000, // 同 structureApply——版本回滚 + 回收站还原 + 事件落账串行链
   )
 }
 

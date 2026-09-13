@@ -18,12 +18,17 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 
-vi.mock('../../../src/studio/web-next/src/api/documents', () => ({
-  getContent: vi.fn(),
-  saveContent: vi.fn(),
-  finalizeDoc: vi.fn(),
-  updateChapterMetaDoc: vi.fn(),
-}))
+vi.mock('../../../src/studio/web-next/src/api/documents', () => {
+  const getContent = vi.fn()
+  return {
+    getContent,
+    // 重评-0912-4 P1-1:doOpen 改走完整载荷——委托默认包装既有 getContent mock(suspect 分支默认不触发)
+    getContentPayload: vi.fn(async (...a: Parameters<typeof getContent>) => ({ content: await getContent(...a) })),
+    saveContent: vi.fn(),
+    finalizeDoc: vi.fn(),
+    updateChapterMetaDoc: vi.fn(),
+  }
+})
 vi.mock('../../../src/studio/web-next/src/api/client', () => ({
   // 本测试不触网，doc store 仅在保存链用 instanceof ApiError——mock 同构即可（doc.test.ts 先例）
   ApiError: class ApiError extends Error {

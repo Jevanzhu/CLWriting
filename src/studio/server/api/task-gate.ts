@@ -174,6 +174,7 @@ export const KNOWN_ACTIONS: readonly string[] = [
   'relations-mine',
   'review',
   'rewrite',
+  'structure', // 阶段 24 章节结构操作（documents.ts structure-apply / merge-undo）——合并/拆分/撤销的编排闸
   'style-harvest', // R40-4（四十轮）：收割端点（style.ts POST /style/harvest）——整树扫描任务闸
   'versions-prune', // R26-67（二十六轮）：快照清理端点（snapshots.ts POST /versions/prune）
 ]

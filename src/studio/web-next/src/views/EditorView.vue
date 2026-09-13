@@ -152,6 +152,7 @@ type CmHostExposed = {
   insertText: (t: string) => void
   getSelection: () => string
   hasSelection: () => boolean
+  getCursorOffset: () => number | null
   clipboardCut: () => Promise<void>
   clipboardCopy: () => Promise<void>
   clipboardPaste: () => Promise<void>
@@ -256,11 +257,14 @@ watch(
 // 此前 dirty 文档随之停止自动保存）——此处只保留编辑器专属生命周期接线。
 onMounted(() => {
   ws.setEditorGetSelection(() => cmHost.value?.getSelection() ?? '')
+  // 阶段 24：光标偏移读取器同款接线（章节拆分读拆分点）
+  ws.setEditorGetCursorOffset(() => cmHost.value?.getCursorOffset() ?? null)
   // 低级项（第六轮）：immediate watch 在 setup 期 cmHost 为 null 消费不到——挂载补一次
   tryConsumeInsert()
 })
 onUnmounted(() => {
   ws.setEditorGetSelection(null)
+  ws.setEditorGetCursorOffset(null)
 })
 </script>
 

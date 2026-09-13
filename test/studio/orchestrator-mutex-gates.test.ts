@@ -24,6 +24,7 @@ import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { isChatRunning } from '../../src/ai/orchestrate/chat.js'
 import { isSelfHealRunning, isChatEmbeddedSelfHealRunning } from '../../src/ai/orchestrate/self-heal.js'
 import { __setSpawnRunning } from '../../src/ai/orchestrate/spawn-registry.js'
+import { acquireTaskGate } from '../../src/studio/server/api/task-gate.js'
 
 vi.mock('../../src/ai/orchestrate/chat.js', async (importOriginal) => {
   const orig = await importOriginal<typeof import('../../src/ai/orchestrate/chat.js')>()
@@ -226,6 +227,114 @@ describe('AI-1: 编排互斥矩阵反向闸', () => {
       const j = r.json as { code: string; error: string }
       expect(j.code).toBe('BUSY')
       expect(j.error).toContain('对话进行中')
+    } finally {
+      vi.mocked(isChatRunning).mockReturnValue(false)
+    }
+  })
+
+  // ── 阶段 24（S4）：structure × 编排互斥矩阵补角 ──────────────────────
+  // structure-apply 入口实序照 rewrite.ts 样板：resolveBook → self-heal/spawn 单面 →
+  // orchestrationBusyFor（chat/后台）→ review → acquireTaskGate('structure')；plan 干跑
+  // 只读只走 resolveBook + orchestrationBusyFor（不占闸）。反向零接线——
+  // chat.send/auto-write/spawn/删书 busyGate 查 allHeldTaskGatesFor 全集，
+  // 'structure' 注册进 KNOWN_ACTIONS 后自动生效（下方反向角用例锁）。
+  it('阶段 24: chat 在途 → structure-apply 409（闸先于 readJson，dummy docId 即可）', async () => {
+    vi.mocked(isChatRunning).mockReturnValue(true)
+    try {
+      const r = await post(`/api/books/${encodeURIComponent(BOOK)}/documents/x/structure-apply`, {
+        op: 'merge',
+        sourceDocId: 's',
+        planHash: 'p',
+      })
+      expect(r.status).toBe(409)
+      const j = r.json as { code: string; error: string }
+      expect(j.code).toBe('BUSY')
+      expect(j.error).toContain('对话进行中')
+    } finally {
+      vi.mocked(isChatRunning).mockReturnValue(false)
+    }
+  })
+
+  it('阶段 24: self-heal 在途 → structure-apply 409（单面闸：全自动写章）', async () => {
+    vi.mocked(isSelfHealRunning).mockReturnValue(true)
+    try {
+      const r = await post(`/api/books/${encodeURIComponent(BOOK)}/documents/x/structure-apply`, {
+        op: 'merge',
+        sourceDocId: 's',
+        planHash: 'p',
+      })
+      expect(r.status).toBe(409)
+      const j = r.json as { code: string; error: string }
+      expect(j.code).toBe('BUSY')
+      expect(j.error).toContain('全自动写章')
+    } finally {
+      vi.mocked(isSelfHealRunning).mockReturnValue(false)
+    }
+  })
+
+  it('阶段 24: spawn 在途 → structure-apply 409（单面闸：手动写稿）', async () => {
+    __setSpawnRunning(BOOK, true)
+    try {
+      const r = await post(`/api/books/${encodeURIComponent(BOOK)}/documents/x/structure-apply`, {
+        op: 'merge',
+        sourceDocId: 's',
+        planHash: 'p',
+      })
+      expect(r.status).toBe(409)
+      const j = r.json as { code: string; error: string }
+      expect(j.code).toBe('BUSY')
+      expect(j.error).toContain('手动写稿')
+    } finally {
+      __setSpawnRunning(BOOK, false)
+    }
+  })
+
+  // 反向角：structure 闸在持 → auto-write / chat 全集拒。busyGate/allHeldTaskGatesFor
+  // 实际文案核对（books.ts:245 / stream.ts:426-429）：held 列表 join 进括号——含
+  // 'structure' 字样与「有任务在跑」，无「结构操作」字样，按实际断言。
+  it('阶段 24 反向角: structure 闸在持 → /auto-write 与 /chat 409；release 后闸不残留', async () => {
+    const release = acquireTaskGate(BOOK, 'structure')
+    expect(release).not.toBeNull()
+    try {
+      const aw = await post(`/api/books/${encodeURIComponent(BOOK)}/auto-write`, { chapter: 3 })
+      expect(aw.status).toBe(409)
+      const j = aw.json as { code: string; error: string }
+      expect(j.code).toBe('BUSY')
+      expect(j.error).toContain('structure')
+      expect(j.error).toContain('有任务在跑')
+      const chat = await post(`/api/books/${encodeURIComponent(BOOK)}/chat`, { message: '你好' })
+      expect(chat.status).toBe(409)
+      const j2 = chat.json as { code: string; error: string }
+      expect(j2.code).toBe('BUSY')
+      expect(j2.error).toContain('structure')
+    } finally {
+      release!()
+    }
+    // 闸已释放不残留：auto-write 落到 chapter 参数校验 400（未实际启动编排）
+    const aw2 = await post(`/api/books/${encodeURIComponent(BOOK)}/auto-write`, {})
+    expect(aw2.status).toBe(400)
+    expect((aw2.json as { error: string }).error).toContain('chapter')
+  })
+
+  it('阶段 24: plan 干跑不占 structure 闸也不查（越 busy 闸落 op 校验 400）；对照 chat 在途仍 409', async () => {
+    const release = acquireTaskGate(BOOK, 'structure')
+    expect(release).not.toBeNull()
+    try {
+      // structure 闸在持 → plan 越过 busy 闸（不查 structure 闸）落到 op 校验 400
+      const r = await post(`/api/books/${encodeURIComponent(BOOK)}/documents/x/structure-plan`, {})
+      expect(r.status).toBe(400)
+      const j = r.json as { code: string; error: string }
+      expect(j.code).toBe('BAD_INPUT')
+      expect(j.error).toContain('op')
+    } finally {
+      release!()
+    }
+    // 对照：plan 仍查 orchestrationBusyFor（chat 在途 → 409）
+    vi.mocked(isChatRunning).mockReturnValue(true)
+    try {
+      const r = await post(`/api/books/${encodeURIComponent(BOOK)}/documents/x/structure-plan`, {})
+      expect(r.status).toBe(409)
+      expect((r.json as { error: string }).error).toContain('对话进行中')
     } finally {
       vi.mocked(isChatRunning).mockReturnValue(false)
     }

@@ -43,6 +43,11 @@ export type EventType =
   // F5 goal 状态机 + todo 快照（DSH-11/DSH-12，第5.2/5.3节）
   | 'goal/change'
   | 'todo/write'
+  // 阶段 24 章节结构操作（合并/拆分/撤销合并）——审计副录，挂 workspace 会话，
+  // 不进 SURFACE_EVENT_TYPES（文件本位：盘上 fm/回收站是权威，事件只做审计与 undo 定位）
+  | 'structure.merge'
+  | 'structure.split'
+  | 'structure.merge-undo'
 
 // ── F2：结构化终止原因（dsh 借鉴六种 + 场景补充）────────────────────
 // turn/end：单轮 agent 收敛（六种 + max-turns——agent loop 达到轮数上限是真实收敛原因）
@@ -207,4 +212,49 @@ export interface Todo {
 /** todo/write —— 任务清单整表快照（last-write-wins，空表 = 清空） */
 export interface TodoWriteData {
   todos: Todo[]
+}
+
+// ── 阶段 24 章节结构操作事件载荷（审计副录）────────────────────────
+
+/** structure.merge —— 章节合并：源章正文并入目标章 + 源章软删进回收站（留洞制 D1-D5） */
+export interface StructureMergeData {
+  op: 'merge'
+  targetDocId: string
+  sourceDocId: string
+  targetChapterNo: number
+  sourceChapterNo: number
+  /** 合并后目标章 fm `并入` 数组（写侧链式折叠单跳化后） */
+  mergedInto: number[]
+  /** 源章回收站条目 id（TrashEntry.id = 源 docId）——undo 还原源章用 */
+  trashEntryId: string
+  /** 目标章合并前内容的留底版本 id（external-merge 强制留底产生）——undo 版本回滚
+   *  用；快照未产生（罕见）时缺省，undo 定位走降级推演 */
+  rollbackSnapshotId?: string
+  /** 干跑指纹（apply 复核防 TOCTOU；undo 按它匹配「最近未被撤销的 merge」） */
+  planHash: string
+}
+
+/** structure.split —— 章节拆分：原章光标处截断 + 新章落位 */
+export interface StructureSplitData {
+  op: 'split'
+  docId: string
+  newDocId: string
+  originChapterNo: number
+  newChapterNo: number
+  /** 新章显示序（拆分点两侧有效序中值） */
+  order: number
+  title: string
+}
+
+/** structure.merge-undo —— 撤销合并：目标章版本回滚（摘 `并入`）+ 源章回收站还原 */
+export interface StructureMergeUndoData {
+  op: 'merge-undo'
+  targetDocId: string
+  sourceDocId: string
+  sourceChapterNo: number
+  trashEntryId: string
+  /** 被回滚的合并的留底版本 id（merge 事件携带的 rollbackSnapshotId） */
+  rollbackSnapshotId?: string
+  /** 被撤销 merge 的 planHash（与 merge 事件配对） */
+  planHash: string
 }

@@ -475,6 +475,12 @@ function hasSelection(): boolean {
   const sel = view.state.selection.main
   return sel.from !== sel.to
 }
+/** 取当前光标偏移（编辑器正文坐标；阶段 24 章节拆分经 EditorView → workspace 透传。
+ *  无视图（未挂载/已卸载）→ null。 */
+function getCursorOffset(): number | null {
+  if (!view) return null
+  return view.state.selection.main.head
+}
 /** 剪切：复制选区到剪贴板并删除 */
 async function clipboardCut(): Promise<void> {
   if (!view) return
@@ -535,7 +541,7 @@ function openSearch(): void {
 }
 // R40-45（四十轮）：getSelectionRect 移除——浮动工具栏方案未落地，全库零消费方
 //（迁移残留死导出，eslint 存量 warn 关联项随触碰顺清）；落地时按本批 git 史取回。
-defineExpose({ insertText, getSelection, hasSelection, clipboardCut, clipboardCopy, clipboardPaste, selectAll, undoAction, redoAction, openSearch })
+defineExpose({ insertText, getSelection, hasSelection, getCursorOffset, clipboardCut, clipboardCopy, clipboardPaste, selectAll, undoAction, redoAction, openSearch })
 
 // B-25（第六十轮）：销毁后置 null——compositionend 已排定的 setTimeout 与挂起的
 // watch 回调靠 `if (!view) return` 短路，不留对 destroyed view 的 dispatch

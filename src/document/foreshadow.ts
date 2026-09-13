@@ -17,6 +17,8 @@ import { splitFrontMatter } from '../format/frontmatter-core.js'
 import { readMdTextCached, forgetMdTextCacheForBook } from '../fs/md-text-cache.js'
 import { readLead } from '../format/leads.js'
 import { sanitizeFileNamePart, isMdFileName, chapterNoFromName } from '../format/filename.js'
+import { parseMergedInto } from '../format/chapters.js'
+import { registerMergedInto } from '../format/chapter-lookup.js'
 import { createFileExclusive, rmWithRetry } from '../fs/atomic.js'
 import { walkMdEach } from '../fs/walk-md.js'
 import { log } from '../log/index.js'
@@ -459,6 +461,7 @@ export async function scanForeshadowTrailsAsync(
  *  对另一侧做同款等价核对（章号过滤/重复告警文案/读取口径逐位对齐）。 */
 async function collectChapterTextsAsync(bookRoot: string): Promise<Map<number, string>> {
   const texts = new Map<number, string>()
+  const merged = new Map<number, string>()
   const textDir = join(bookRoot, '写作', '正文')
   if (!existsSync(textDir)) return texts
   const files: { abs: string; name: string }[] = []
@@ -473,8 +476,13 @@ async function collectChapterTextsAsync(bookRoot: string): Promise<Map<number, s
     if (texts.has(章号)) {
       log.warn('foreshadow', `正文存在重复章号 ${章号}（${name} 与先前已收集的同号章冲突，伏笔足迹按后扫文件计——请核对卷内章号规划）`)
     }
+    // S2：并入 声明与正文同一次读取顺带解析（readMdTextCached 指纹缓存吸收，零额外 IO）
+    const raw = readMdTextCached(abs)
+    if (raw !== null) collectMergedFromRaw(merged, raw, abs)
     texts.set(章号, readChapterBodyCached(abs))
   }
+  // S2（阶段 24）：并入源章回退（fillMergedSources 头注——与同步孪生镜像等价）
+  fillMergedSources(merged, texts)
   return texts
 }
 
@@ -536,18 +544,46 @@ export function forgetChapterTextCacheForBook(bookRoot: string): number {
 /** 收集 写作/正文/ 下所有章节 md（递归含卷子目录）的 { 章号 → 正文（去 fm） } */
 function collectChapterTexts(bookRoot: string): Map<number, string> {
   const texts = new Map<number, string>()
+  const merged = new Map<number, string>()
   const textDir = join(bookRoot, '写作', '正文')
   if (!existsSync(textDir)) return texts
-  walkChapters(textDir, texts)
+  walkChapters(textDir, texts, merged)
+  fillMergedSources(merged, texts)
   return texts
+}
+
+/** S2（阶段 24，D3 留洞制）：并入源章回退——被合并源章的正文经目标章正文呈现
+ *  （伏笔足迹按章号建倒排索引，源章号的历史提及在合并后仍可命中；latestChapter
+ *  随 keys 自然含源章号，staleSpan 口径自洽）。正文已命中（通用还原后）的源章号
+ *  不覆盖——正文命中优先，陈旧并入映射不被咨询。
+ *  映射来自 walk 内「同一次读取顺带解析」（parseMergedInto + registerMergedInto，
+ *  零额外 IO——另起 mergedIntoMap 全扫会让每章多付一次整读，破坏 R66-6
+ *  「二扫零重读」指纹缓存契约）。同步/异步孪生共用（镜像纪律：改任一侧必须对
+ *  另一侧做同款等价核对）。 */
+function fillMergedSources(merged: Map<number, string>, texts: Map<number, string>): void {
+  for (const [src, targetPath] of merged) {
+    if (texts.has(src)) continue
+    const text = readChapterBodyCached(targetPath)
+    if (text.length > 0) texts.set(src, text)
+  }
+}
+
+/** 从已读原文解析 并入 声明（无 fm / 无键 / 非法值 → 不登记；walk 族共用） */
+function collectMergedFromRaw(merged: Map<number, string>, raw: string, abs: string): void {
+  const split = splitFrontMatter(raw)
+  if (!split) return
+  const list = parseMergedInto(parseFlat(split.fmRaw).get('并入'))
+  if (list) for (const src of list) registerMergedInto(merged, src, abs)
 }
 
 /** 遍历章节目录（含卷子目录）。
  *  B-4（第六十轮）：N2 walk 族收口漏网第四套——裸 statSync（跟随 symlink）+ 递归
  *  无 visited 无根界，循环 symlink → 无限递归 RangeError、指向书外的 symlink 整树
  *  .md 按章号整读。接入 walk-md 共享口径（Dirent 不跟随 + realpath visited 剪枝 +
- *  根界 = 正文目录，越出即拒），语义与 rebuild walkChapters 对齐。 */
-function walkChapters(dir: string, texts: Map<number, string>): void {
+ *  根界 = 正文目录，越出即拒），语义与 rebuild walkChapters 对齐。
+ *  S2（阶段 24）：并入 声明在 walk 内从同一份缓存原文顺带解析（collectMergedFromRaw，
+ *  零额外 IO——异步孪生 collectChapterTextsAsync 镜像等价，改动须双侧同步）。 */
+function walkChapters(dir: string, texts: Map<number, string>, merged: Map<number, string>): void {
   walkMdEach(dir, (abs, name) => {
     const 章号 = parseChapterNoFromName(name)
     if (章号 === null) return
@@ -556,6 +592,9 @@ function walkChapters(dir: string, texts: Map<number, string>): void {
     if (texts.has(章号)) {
       log.warn('foreshadow', `正文存在重复章号 ${章号}（${name} 与先前已收集的同号章冲突，伏笔足迹按后扫文件计——请核对卷内章号规划）`)
     }
+    // S2：并入 声明与正文同一次读取顺带解析（readMdTextCached 指纹缓存吸收，零额外 IO）
+    const raw = readMdTextCached(abs)
+    if (raw !== null) collectMergedFromRaw(merged, raw, abs)
     // R66-6（十四轮）：整读改走指纹缓存——二次扫描未变章节跳过重读，变更章指纹失配重读
     texts.set(章号, readChapterBodyCached(abs))
   })

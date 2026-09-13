@@ -13,6 +13,7 @@ import { canonicalizeText } from '../fs/text-canonical.js'
 import { readChapterDir } from '../format/chapters.js'
 import { countWords } from '../format/words.js'
 import { bodyOf, parseFlat, readFile } from '../format/frontmatter.js'
+import { preserveStructureFmIn } from '../format/chapter-lookup.js'
 import { resolveDraftPath } from '../format/draft.js'
 import { readKind } from '../format/kind.js'
 import { buildSettingsLayers } from './settings-context.js'
@@ -31,6 +32,17 @@ import { computeRevision } from '../document/revision.js'
 import { hashBytes } from '../fs/hash.js'
 import { acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 import { log } from '../log/index.js'
+
+/** 重评-0912-4 P1-1（2026-09-12 全量重评修复批）：R66-1 非 UTF-8 覆写拒绝的类型化错误。
+ *  该拒绝是**确定性失败**（盘上旧文编码事实，重试不改结果），消费方（files.ts PUT /file
+ *  的快照 catch、draft-save 端点）按类型分诊 fail-closed 并透传转码指引；与留底链的
+ *  瞬态 IO 错误（EACCES/EBUSY 等）区分——后者是可重试的环境抖动，走各端点自己的口径。 */
+export class NonUtf8TargetError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'NonUtf8TargetError'
+  }
+}
 
 /** R73-32：saveDraft 保存临界段跨进程锁等待（毫秒）——与 executeSave 的 per-doc
  *  保存锁（service.ts R72-1）同档 5s，超时拒绝不降级（裸写正是本锁要闭合的丢更新形态）。
@@ -70,7 +82,9 @@ export function snapshotBeforeOverwrite(
   // 放行）。fail-closed 上抛拒绝覆写（Y-3 同款语义），提示先转码。
   const raw = readFileSync(absPath)
   if (!isUtf8Bytes(raw)) {
-    throw new Error(`目标文件 ${relPath} 不是 UTF-8 编码，覆写将使原始内容不可恢复——请先转码为 UTF-8 再重试`)
+    // 重评-0912-4 P1-1：改抛类型化 NonUtf8TargetError——消费方按类型分诊（files.ts PUT
+    // 快照 catch 此前与瞬态 IO 一并 fail-open 吞掉，GBK 存量覆盖丢原稿，见该处修复注）
+    throw new NonUtf8TargetError(`目标文件 ${relPath} 不是 UTF-8 编码，覆写将使原始内容不可恢复——请先转码为 UTF-8 再重试`)
   }
   const old = raw.toString('utf8')
   if (old === newContent) return null
@@ -181,6 +195,11 @@ export async function saveDraft(
         throw new Error(`草稿保存目标已被占用（清单中他文档 ${e.id} 已认领 ${relPath}，等待保存锁期间发生移动/并入）——请刷新后重试`)
       }
     }
+    // 阶段 24 结构键保形回补（S3）：saveDraft 是「AI 产出强覆盖」通道，组装方
+    // （self-heal/rewrite/spawn writer）可能不带 序/并入——锁内写盘前对盘上既有键
+    // 回补，防结构键在强覆盖时丢失（self-heal 组装侧另有显式透传，两道共保；回补
+    // 先于 journal pending 与留底，快照与落盘同带结构键）。incoming 已显式含键则不覆写。
+    content = preserveStructureFmIn(absPath, content)
     // M1 覆写留底：已有文件且内容不同 → force 快照（作者手改不静默丢失；Y-3 IO 失败上抛）
     const snapshotId = snapshotBeforeOverwrite(bookRoot, relPath, content, opts?.snapshotOrigin, manifest, opts?.userDataPath)
     // 步骤 4（对齐 executeSave）：journal pending 先于写盘（含全文快照，防丢字）——

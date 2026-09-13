@@ -22,6 +22,8 @@ shelf-search.spec.ts
 shelf.spec.ts
 short-flow.spec.ts
 short-full-flow.spec.ts
+structure-ops.spec.ts
+structure-volume-move.spec.ts
 switch-book.spec.ts
 tree-issues.spec.ts
 tree-ops.spec.ts
