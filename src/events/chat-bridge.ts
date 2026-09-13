@@ -23,7 +23,7 @@ export function sessionStartEvent(book: string): NewEvent {
   return { type: 'session/start', data: { book } }
 }
 
-export function sessionEndEvent(reason: SessionEndReason): NewEvent {
+function sessionEndEvent(reason: SessionEndReason): NewEvent {
   return { type: 'session/end', data: { reason } }
 }
 
@@ -86,7 +86,7 @@ export function toolResultEvent(
 
 // ── 恢复历史 + 消息→seq 映射 ───────────────────────
 
-export interface RestoredHistory {
+interface RestoredHistory {
   /** 投影出的 ChatMsg[]（未遮蔽节点，与内存版等价） */
   msgs: ChatMsg[]
   /** 每条 msgs[i] 对应的 surface 节点 seq 列表（并行数组，压缩遮蔽用） */

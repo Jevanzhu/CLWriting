@@ -11,7 +11,6 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServer } from '../../src/studio/server/index.js'
 import { startServerSafe } from '../helpers/safe-port.js'
 import { createStreamTicketStore, type StreamTicketStore } from '../../src/studio/server/api/stream-ticket.js'
 
@@ -315,8 +314,7 @@ describe('R73-49：票库随 server 实例隔离', () => {
     expect(oldTicket).toBeTruthy()
     await new Promise<void>((r) => server!.close(() => r()))
 
-    const serverB = startServer({ port: 0, workDir, userDataPath })
-    await new Promise<void>((r) => serverB.once('listening', r))
+    const serverB = await startServerSafe({ port: 0, workDir, userDataPath })
     const baseB = `http://127.0.0.1:${(serverB.address() as AddressInfo).port}`
     const rBoot = await fetch(`${baseB}/api/boot`)
     const tokenB = ((await rBoot.json()) as { token: string }).token

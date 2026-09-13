@@ -21,13 +21,13 @@ import { route, activeRouteTable, type RouteTable } from '../router.js'
 import { readJson, HttpError, replyError, replyHttpError } from '../http.js'
 
 /** defineRoute 的 handler 上下文：path 参数 + 解析后的 input */
-export interface RouteContext<I> {
+interface RouteContext<I> {
   params: Record<string, string>
   input: I
 }
 
 /** route schema：method + path + input 解析器 + handler（handler 的 input 类型由 parse 推导） */
-export interface RouteSchema<I = unknown> {
+interface RouteSchema<I = unknown> {
   method: string
   path: string
   /**

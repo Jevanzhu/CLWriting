@@ -44,7 +44,7 @@ export const GLOBAL_FALLBACK_DEFAULTS: Readonly<{
 }
 
 /** global.json 各全局默认键的合并视图（逐键校验后的部分对象——没写的键不在场） */
-export interface GlobalBookDefaults {
+interface GlobalBookDefaults {
   defaultGenre?: string
   defaultVolumeSize?: number
   defaultTargetWords?: number
@@ -159,7 +159,7 @@ export function readGlobalBookDefaults(userDataPath: string | null): GlobalBookD
 }
 
 /** applyGlobalDefaults 之后的合并视图类型：有回落值的键保证已填（喂运行时可当非空用） */
-export type EffectiveBookConfig = BookConfig & {
+type EffectiveBookConfig = BookConfig & {
   book: BookConfig['book'] & { genre: string; volume_size: number }
   budget: BookConfig['budget'] & { calls_per_chapter: number }
   style: { injection: 'light' | 'heavy' }

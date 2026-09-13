@@ -10,12 +10,13 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, basename, relative, dirname } from 'node:path'
 import { readFileSync, readdirSync, existsSync, mkdirSync, statSync } from 'node:fs'
+import { readdir } from 'node:fs/promises'
 import { defineRoute } from './schema.js'
 import { reply, readJson, HttpError, replyError } from '../http.js'
 import { resolveBook, bookMovedFailure } from '../book-context.js'
 import { readRealmDoc } from '../../../format/realms.js'
 import { readLeadDir } from '../../../format/leads.js'
-import { readFile, parseFlat } from '../../../format/frontmatter.js'
+import { parseFlat, readFileFmOnly } from '../../../format/frontmatter.js'
 import { isMdFileName } from '../../../format/filename.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
@@ -38,19 +39,29 @@ function mdStem(name: string): string {
   return isMdFileName(name) ? name.slice(0, -3) : basename(name, '.md')
 }
 
-/** 轻量读目录下 md 文件的 fm 字段名（编辑器补全用，不读正文） */
-function readFmNames(dir: string, field: string): string[] {
+/** 轻量读目录下 md 文件的 fm 字段名（编辑器补全用，不读正文）。
+ *  R0912-ds41（重评-deepseek-v4.1-flash P2-2）：读面异步化 + fm 头读——此前
+ *  readFile 不带 content 回退 readFileSync 整文件同步读（角色卡正文全进 IO 面，
+ *  长篇书库单请求阻塞事件循环百毫秒级），改走 readFileFmOnly（头部限量字节提 fm，
+ *  围栏不完整回退全读；解析与错误文案单源不变）。 */
+async function readFmNames(dir: string, field: string): Promise<string[]> {
   const names: string[] = []
-  if (!existsSync(dir)) return names
+  let files: string[]
   try {
     // R42-39（四十二轮）：.md 判定收敛 isMdFileName（大小写不敏感）；`._` 前缀跳过不变
-    for (const f of readdirSync(dir).filter((x) => isMdFileName(x) && !x.startsWith('._'))) {
-      const r = readFile(join(dir, f))
+    // 目录不存在/读取失败 → 空列表（原 existsSync 前置 + readdirSync try/catch 同口径）
+    files = (await readdir(dir)).filter((x) => isMdFileName(x) && !x.startsWith('._'))
+  } catch {
+    return names
+  }
+  try {
+    for (const f of files) {
+      const r = await readFileFmOnly(join(dir, f))
       const map = r.ok ? parseFlat(r.fmRaw) : new Map<string, unknown>()
       const n = String(map.get(field) ?? mdStem(f))
       if (n) names.push(n)
     }
-  } catch { /* 目录读取失败 → 空列表 */ }
+  } catch { /* 单项意外失败 → 保留已收集名单（原整体 try/catch 同口径） */ }
   return names
 }
 
@@ -74,8 +85,10 @@ const SETTINGS_CACHE_MAX = 32
 const settingsCache = new Map<string, { result: unknown; ts: number; sig: string }>()
 let settingsTtlMs: number | null = null
 /** R46-16：TTL 测试注入口（先例同 __setRhythmCacheTtlForTest）。仅测试用。
- *  重评-0912-4 批并修 deepseek-P2-2 起**同控两壳**：settings 与 completion-names 缓存
- *  的 TTL 生效值（两壳同档 5s，注 null 回落常量）。 */
+ *  R0912-ds41（重评-deepseek-v4.1-flash P3-2）补门收编：消费方 = test/studio/
+ *  r0912-ds41-ttl-gates.test.ts（TTL 命中/过期/指纹失效三态门），不再零引用。
+ *  重评-0912-4 批并修 deepseek-P2-2 起**同控两壳**：本注入口同时作为 completion-names
+ *  壳 TTL 生效值的回落档（该壳自有注入口优先，见下方同族块）。 */
 export function __setSettingsCacheTtlForTest(ms: number | null): void {
   settingsTtlMs = ms
 }
@@ -85,8 +98,10 @@ export function forgetSettingsCache(bookRoot: string): void {
   settingsCache.delete(bookRoot)
   completionNamesCache.delete(bookRoot)
 }
-/** R46-16 回归观测钩子（生产零调用；先例同 __rhythmScanCountForTest）：缓存 MISS →
- *  全量重算（settingsLong）计数。 */
+/** R46-16 回归观测钩子（先例同 __rhythmScanCountForTest）：缓存 MISS →
+ *  全量重算（settingsLong）计数。R0912-ds41（重评-deepseek-v4.1-flash P3-2）补门
+ *  收编：MISS 计数断言面 = test/studio/r0912-ds41-ttl-gates.test.ts（原评审登记的
+ *  「只写不读」至此消除）。 */
 let settingsScanCount = 0
 export function __settingsScanCountForTest(): number {
   return settingsScanCount
@@ -132,17 +147,29 @@ export function getSettingsCached(bookRoot: string): unknown {
   return result
 }
 
-// ── 重评-0912-4 批并修 deepseek-P2-2（2026-09-12）：completion-names 缓存壳 ────
-// 手法照抄上方 R46-16 settings 壳（探针 + 纯 TTL + FIFO 上限 + 书键 forget 挂点）：
-// GET /completion-names 此前每请求同步整读 设定/角色 + 设定/物品 全部 md（readFmNames
-// 逐文件 readFile 整读解 fm），编辑器补全高频调用时同步阻塞事件循环（deepseek 重评
-// 实测 ~80-200ms/次）。指纹 = 角色/物品 两目录 mtime（增删改名落盘可见；目录内就地
-// 内容改写不动目录 mtime，由 TTL 5s 兜底，宁多扫不脏读）。TTL 生效值与 forget 挂点
-// 与 settings 壳共用（上方两函数已改同控/同清），FIFO 上限同值。
+// ── R0912-ds41（重评-deepseek-v4.1-flash P2-2）：completion-names「目录指纹 + TTL」缓存壳 ──
+// 手法照抄上方 R46-16 settings 缓存壳（探针 + 纯 TTL + FIFO 上限）：补全名单端点此前
+// 无任何缓存键，每次请求两遍全目录 fm 读（切书 + 编辑器 @ 键 5min 补拉反复触发）。
+// 指纹按本端点实际读面构成：设定/角色、设定/物品 两目录 mtime（增删改名落盘可见）；
+// 目录内就地内容改写不动目录 mtime，由 TTL 5s 兜底（与 R46-16 同值，宁多扫不脏读）。
+// 计算体已异步化（事件循环无阻塞段），缓存壳取同款「同步检查 + 异步计算」形态。
+// 重评-0912-4 批并修 deepseek-P2-2 同题在 mac 树独立落地，win 合并批（2026-09-13）
+// 收口合成：forget 挂点收编 forgetSettingsCache 同清两壳（删书/改名即时出清，较
+// R0912-ds41 首版「TTL/FIFO 自然出清」收紧）；TTL 生效值链 = 本壳注入口 → settings
+// 壳注入口（同控回落档）→ 常量。
+const COMPLETION_NAMES_CACHE_TTL_MS = 5000
+const COMPLETION_NAMES_CACHE_MAX = 32
 const completionNamesCache = new Map<string, { result: unknown; ts: number; sig: string }>()
-
+let completionNamesTtlMs: number | null = null
+/** R0912-ds41：TTL 测试注入口（命名对齐 __setSettingsCacheTtlForTest 先例）。仅测试用。
+ *  注 null 回落 settings 壳注入口，再回落常量（win 合并批合成口径）。 */
+export function __setCompletionNamesCacheTtlForTest(ms: number | null): void {
+  completionNamesTtlMs = ms
+}
+/** R0912-ds41 回归观测钩子（生产零调用；先例同 __settingsScanCountForTest）：缓存
+ *  MISS → 全量重扫计数。消费方 = test/studio/r0912-ds41-completion-names-cache.test.ts
+ *  与 test/studio/r0912-4-completion-names-cache.test.ts（两树同题回归，win 合并批并存）。 */
 let completionNamesScanCount = 0
-/** 回归观测钩子（生产零调用；同 __settingsScanCountForTest）：缓存 MISS → 全量重算计数。 */
 export function __completionNamesScanCountForTest(): number {
   return completionNamesScanCount
 }
@@ -162,22 +189,24 @@ function completionNamesSignature(bookRoot: string): string {
   return [dirSig('设定', '角色'), dirSig('设定', '物品')].join(',')
 }
 
-/** completion-names 聚合查询（目录指纹 + TTL 缓存壳）。导出供回归测试直测。
- *  响应形状与直算版逐字节一致（{characters, items}）。 */
-export function getCompletionNamesCached(bookRoot: string): unknown {
+/** completion-names 聚合查询（目录指纹 + TTL 缓存壳）。导出供回归测试直测（重评
+ *  -0912-4 口径，直调须 await）；R0912-ds41 起读面异步化 + fm 头读。响应体契约
+ *  { characters, items } 逐字节不变（键序/结构与改前一致）。 */
+export async function getCompletionNamesCached(bookRoot: string): Promise<unknown> {
   const sig = completionNamesSignature(bookRoot)
   const cached = completionNamesCache.get(bookRoot)
-  if (cached && cached.sig === sig && Date.now() - cached.ts < (settingsTtlMs ?? SETTINGS_CACHE_TTL_MS)) {
+  if (cached && cached.sig === sig && Date.now() - cached.ts < (completionNamesTtlMs ?? settingsTtlMs ?? COMPLETION_NAMES_CACHE_TTL_MS)) {
     return cached.result
   }
   completionNamesScanCount += 1
   const setDir = join(bookRoot, '设定')
-  const result = {
-    characters: readFmNames(join(setDir, '角色'), '姓名'),
-    items: readFmNames(join(setDir, '物品'), '名称'),
-  }
-  // 简单 FIFO 淘汰（同 settings 壳）：超上限丢最旧条目
-  if (completionNamesCache.size >= SETTINGS_CACHE_MAX) {
+  const [characters, items] = await Promise.all([
+    readFmNames(join(setDir, '角色'), '姓名'),
+    readFmNames(join(setDir, '物品'), '名称'),
+  ])
+  const result = { characters, items }
+  // 简单 FIFO 淘汰（Map 保插入序）：超上限丢最旧条目，防长期运行的书库累积
+  if (completionNamesCache.size >= COMPLETION_NAMES_CACHE_MAX) {
     const oldest = completionNamesCache.keys().next().value
     if (oldest !== undefined) completionNamesCache.delete(oldest)
   }
@@ -200,14 +229,16 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
   })
 
   // 补全名称列表（编辑器自动补全用；轻量：角色姓名 + 物品名称，只读 fm 不读正文）
-  // 重评-0912-4 批并修 deepseek-P2-2：走缓存壳（命中即跳过 readFmNames 的逐文件整读）
+  // R0912-ds41（重评-deepseek-v4.1-flash P2-2）与 重评-0912-4 批并修 deepseek-P2-2
+  // 两树同题独立落地，win 合并批收口合成：走缓存壳（命中即跳过全目录 fm 读）+
+  // handler 异步化——扫描体不再同步阻塞事件循环；响应契约不变
   defineRoute('books.completion-names', {
     method: 'GET',
     path: '/api/books/:name/completion-names',
-    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
+    handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
-    reply(res, 200, getCompletionNamesCached(r.bookRoot))
+    reply(res, 200, await getCompletionNamesCached(r.bookRoot))
   },
   })
 

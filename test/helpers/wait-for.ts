@@ -10,7 +10,16 @@
  *
  * 语义约定：超时**抛错**（测试红）而非返回——负窗口依赖靠轮询消除：断言从
  * 「固定毫秒实睡后查一次」改为「轮询到状态翻转」，慢机/共享 runner 不 flake。
+ *
+ * R0912-ds41（2026-09-12 修复批）：sleep 收编单源——test 树 28 份本地定长实睡
+ * 定义（`(ms) => new Promise((r) => setTimeout(r, ms))`，语义逐位同构）收敛为
+ * 本文件 export sleep，调用点原样不动（P3-14）。
  */
+
+/** 定长实睡（毫秒）：测试时序垫片单源（R0912-ds41 收编 test 树 28 份本地定义）。 */
+export function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms))
+}
 export async function waitFor(
   fn: () => boolean,
   timeoutMs = 3000,

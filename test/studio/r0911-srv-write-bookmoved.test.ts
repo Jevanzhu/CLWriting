@@ -24,8 +24,7 @@ import { getRouteSchema } from '../../src/studio/server/api/schema.js'
 import { registerKnowledgeRoutes, __setLearnCommitYieldForTest } from '../../src/studio/server/api/knowledge.js'
 import { registerStyleRoutes } from '../../src/studio/server/api/style.js'
 import { registerConfigRoutes } from '../../src/studio/server/api/config.js'
-
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
+import { sleep } from '../helpers/wait-for.js'
 
 // 假 req/res 已收编 helpers/fake-reqres.ts 单源（测试精简批 2026-09-12）。
 

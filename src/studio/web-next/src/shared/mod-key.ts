@@ -8,12 +8,12 @@
  */
 
 /** 主修饰键文案：mac ⌘（无 + 号，mac 组合键惯例），其余 Ctrl+ */
-export function modKeyLabel(platform: string | null | undefined): string {
+function modKeyLabel(platform: string | null | undefined): string {
   return platform === 'darwin' ? '⌘' : 'Ctrl+'
 }
 
 /** Shift 修饰键文案：mac ⇧，其余 Shift+ */
-export function shiftKeyLabel(platform: string | null | undefined): string {
+function shiftKeyLabel(platform: string | null | undefined): string {
   return platform === 'darwin' ? '⇧' : 'Shift+'
 }
 

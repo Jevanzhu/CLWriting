@@ -196,9 +196,6 @@ function accept(): void {
 .rw-run-btn:hover:not(:disabled) {
   opacity: 0.88;
 }
-.spin {
-  animation: clw-spin 0.9s linear infinite;
-}
 
 .rw-hint,
 .rw-error {

@@ -50,7 +50,7 @@ export async function mineRelations(name: string, force = false): Promise<{ ok: 
 }
 
 /** 补全名称列表（编辑器补全用；轻量端点：角色姓名 + 物品名称，只读 fm 不拉正文） */
-export interface CompletionNames {
+interface CompletionNames {
   characters: string[]
   items: string[]
 }

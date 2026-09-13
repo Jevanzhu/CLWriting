@@ -140,9 +140,7 @@ const historyOpen = ref(true)
   padding: 0 var(--size-4-3) 0 var(--size-4-2);
   gap: var(--size-4-1);
 }
-.right-topbar.is-drag {
-  -webkit-app-region: drag;
-}
+/* .right-topbar.is-drag 拖窗体收敛至全局 styles/utilities.css（P3-10，声明逐字未改） */
 /* J5（win 体验面，2026-08-30 修正）：右栏打开时本栏贴窗口右上角，右侧 tab 组让位
  * WCO 系统窗控。让位作用在 .right-tabs 的 margin-right（而非容器 padding-right 挤压：
  * 原 padding 挤压在窄右栏下会把内容区挤爆、tab 溢出探进窗控下方——实测重叠 10px，

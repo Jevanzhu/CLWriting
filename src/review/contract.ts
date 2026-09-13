@@ -9,9 +9,9 @@ import type { CheckReport } from '../check/types.js'
 
 export type ReviewLens = 'reader' | 'editor' | 'continuity' | 'hook' | 'emotion_peak' | 'payoff'
 
-export type ReviewSeverity = 'S1' | 'S2' | 'S3' | 'S4'
+type ReviewSeverity = 'S1' | 'S2' | 'S3' | 'S4'
 
-export type ReviewCategory =
+type ReviewCategory =
   | 'high_point'
   | 'reader_pull'
   | 'pacing'
@@ -30,7 +30,7 @@ export type ReviewCategory =
   | 'reversal'
   | 'payoff'
 
-export interface LedgerCheck {
+interface LedgerCheck {
   lead_id: string
   chapter: number
   verb: string

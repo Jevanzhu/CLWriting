@@ -46,7 +46,7 @@ export interface KnowledgeManifest {
   entries: KnowledgeManifestEntry[]
 }
 
-export interface KnowledgeManifestIssue {
+interface KnowledgeManifestIssue {
   path: string
   message: string
 }

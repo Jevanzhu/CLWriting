@@ -98,15 +98,6 @@ const crashedPendingOpIds = computed<string[]>(() =>
 </template>
 
 <style scoped>
-.card-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: var(--font-size-m);
-  font-weight: 600;
-  color: var(--text-normal);
-  margin-bottom: var(--size-4-2);
-}
 .state-tag {
   color: var(--text-accent);
 }

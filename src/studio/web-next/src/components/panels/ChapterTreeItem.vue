@@ -367,12 +367,6 @@ watch(
 .caret.caret-closed {
   transform: rotate(-90deg);
 }
-.dot-slot {
-  width: 14px;
-  display: flex;
-  justify-content: center;
-  flex-shrink: 0;
-}
 .dot {
   width: 8px;
   height: 8px;
@@ -387,9 +381,6 @@ watch(
 }
 .dot-yellow {
   background: var(--text-warning);
-}
-.dot-gray {
-  background: var(--text-faint);
 }
 .label {
   flex: 1;

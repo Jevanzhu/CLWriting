@@ -12,7 +12,7 @@ import { readFileSync, rmSync } from 'node:fs'
 import { atomicWriteFile } from '../fs/atomic.js'
 
 /** .gui-active 完整记录。editing_workdir 是工作区编辑锁（W0-2 §5）。 */
-export interface GuiActiveRecord {
+interface GuiActiveRecord {
   pid: number
   ts: number
   /** 工作区编辑锁：编辑器打开工作区草稿/细纲时置位（W0-2 §5 互斥第一层）。 */

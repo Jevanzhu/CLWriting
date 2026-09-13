@@ -51,21 +51,19 @@ export interface JournalMovePending {
   newPath: string
 }
 
-export interface JournalSettled {
+interface JournalSettled {
   opId: string
   ts: string
   status: 'settled'
   newRevision: `sha256:${string}`
 }
 
-export interface JournalAborted {
+interface JournalAborted {
   opId: string
   ts: string
   status: 'aborted'
   reason: string
 }
-
-export type JournalEntry = JournalPending | JournalMovePending | JournalSettled | JournalAborted
 
 /** 未结算 pending（保存类或移动类）——恢复方按 kind 分流处理。 */
 export type JournalAnyPending = JournalPending | JournalMovePending

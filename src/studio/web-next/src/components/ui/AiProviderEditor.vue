@@ -249,10 +249,7 @@ async function savePricing(clear = false): Promise<void> {
 <style scoped>
 /* 表单骨架（.form/.form-row/.text-input/.key-error/胶囊按钮）用 providers.css 共享类。 */
 /* 凭据状态点（I6·P3）：hasKey 来自服务端 vault 存在性推导，不依赖明文字段 */
-.key-stored {
-  font-size: var(--font-size-xxs);
-  color: var(--text-faint);
-}
+/* .key-stored 收敛至全局 styles/utilities.css（P3-10 重体收敛批，声明逐字未改） */
 /* 下拉借用 .text-input 的盒子；原生箭头丑且贴边 → 去原生外观自绘浅灰箭头（与档位下拉同语言）。
  * 双类名提权：压过 .text-input 的 background 简写（简写会把 background-image 重置为 none） */
 .select-input.select-input {
@@ -264,12 +261,6 @@ async function savePricing(clear = false): Promise<void> {
   background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23888' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 11px center;
-}
-.form-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: var(--size-4-2);
 }
 
 /* 协议选择：分段胶囊组——品牌前缀弱化成小字，接口名承载识别；

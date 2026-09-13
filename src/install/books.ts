@@ -42,7 +42,7 @@ const KIND_DIRS = {
 } as const
 
 /** 书库二级目录名：一级书库 / 二级长短篇 / 三级具体书。 */
-export function bookKindDir(kind: 'long' | 'short'): string {
+function bookKindDir(kind: 'long' | 'short'): string {
   return KIND_DIRS[kind]
 }
 

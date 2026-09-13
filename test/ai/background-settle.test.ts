@@ -11,10 +11,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { registerBackgroundTask, waitBackgroundTasks, hasBackgroundTasks } from '../../src/ai/orchestrate/background.js'
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms))
-}
+import { sleep } from '../helpers/wait-for.js'
 
 describe('M-2: 后台任务登记/等待', () => {
   it('在途不 resolve；任务收尾后 resolve；登记表清理干净', async () => {

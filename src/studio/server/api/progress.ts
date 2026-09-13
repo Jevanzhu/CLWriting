@@ -72,7 +72,7 @@ export function computeBookSummary(bookRoot: string): BookSummary {
 }
 
 /** R37-3：书架摘要结果形状（同步/async 孪生共用）。 */
-export interface BookSummary {
+interface BookSummary {
   chapters: number
   words: number
   lastEdited: string | null

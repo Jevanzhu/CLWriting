@@ -82,7 +82,7 @@ function openBook(name: string): void {
 </script>
 
 <template>
-  <div class="shelf" :class="{ 'has-traffic': isMac, 'is-drag': isDesktop }">
+  <div class="shelf" :class="{ 'has-traffic': isMac, 'is-desktop': isDesktop }">
     <!-- 环境背景：呼吸光晕（与 Welcome 同语言） -->
     <div class="ambient">
       <div class="glow glow-tr"></div>
@@ -279,8 +279,9 @@ function openBook(name: string): void {
   -webkit-app-region: drag;
 }
 /* R33-14（三十三轮）：win 拖拽区——WCO 模式系统只画窗控按钮，拖动区须由页面
-   提供；原拖拽只挂 has-traffic（isMac）致 win 三窗无法拖动 */
-.shelf.is-drag .shelf-titlebar {
+   提供；原拖拽只挂 has-traffic（isMac）致 win 三窗无法拖动。页根标记 = is-desktop
+   （桌面态；is-drag 已归全局 utilities.css 拖拽容器单类，R0913 复核批 P1 修复改名） */
+.shelf.is-desktop .shelf-titlebar {
   -webkit-app-region: drag;
 }
 /* 主体 header：标题（上）+ 数据副标题（下）两行编辑式排版；操作底对齐 */
@@ -293,21 +294,7 @@ function openBook(name: string): void {
   animation: clw-fade-up 0.5s var(--ease-out) both;
 }
 /* 品牌徽标（与 Welcome/Library 同语言） */
-.head-mark {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 48px;
-  height: 48px;
-  margin-bottom: var(--size-4-2);
-  border-radius: var(--radius-m);
-  background: color-mix(in srgb, var(--interactive-accent) 14%, transparent);
-  color: var(--text-accent);
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--interactive-accent) 20%, transparent),
-    var(--shadow-m),
-    0 0 30px color-mix(in srgb, var(--interactive-accent) 18%, transparent);
-}
+/* .head-mark 收敛至全局 styles/utilities.css（P3-10 重体收敛批，声明逐字未改） */
 .head-left {
   display: flex;
   flex-direction: column;
@@ -388,14 +375,7 @@ function openBook(name: string): void {
   cursor: pointer;
 }
 /* 视图切换（网格/列表）segmented control */
-.view-toggle {
-  display: flex;
-  gap: 2px;
-  padding: 2px;
-  border-radius: var(--radius-s);
-  background: var(--background-secondary);
-  border: 1px solid var(--background-modifier-border);
-}
+/* .view-toggle 收敛至全局 styles/utilities.css（P3-10 重体收敛批，声明逐字未改） */
 .toggle-btn {
   display: flex;
   align-items: center;
@@ -476,10 +456,6 @@ function openBook(name: string): void {
 .btn.batch-enter {
   font-size: var(--font-size-s);
   gap: 5px;
-}
-.del-num {
-  margin-left: 2px;
-  opacity: 0.85;
 }
 
 /* ── 危险按钮 ── */

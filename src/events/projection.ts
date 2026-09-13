@@ -196,7 +196,7 @@ export function deriveMessages(events: ChatEvent[], prefixSeq?: number): Array<{
  * - seq 单调递增无重复
  * 返回问题列表（空 = 通过）。
  */
-export interface ValidationIssue {
+interface ValidationIssue {
   seq: number
   message: string
 }

@@ -418,7 +418,7 @@ export function lastMessageFingerprint(history: ChatMsg[]): string {
 }
 
 
-export interface TurnDeps {
+interface TurnDeps {
   opts: ChatOpts
   state: ChatRunState
   confirmTimeout: number

@@ -43,7 +43,7 @@ const leadUpdateQueues = new Map<string, Promise<unknown>>()
 /** R73-46 锁等待档（毫秒）——R30-18 口径：const 导出 + 内部可变生效值 + 测试注入钩子
  *  （R32-19：`export let` 违反全仓口径改 const；R32-18：锁等待异步化——调用方
  *  generateLeadUpdateDraft 本就 async，Atomics.wait 微睡不再冻结事件循环）。 */
-export const LEAD_UPDATE_LOCK_TIMEOUT_MS = 5_000
+const LEAD_UPDATE_LOCK_TIMEOUT_MS = 5_000
 
 /** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改。 */
 let leadUpdateLockTimeoutMs = LEAD_UPDATE_LOCK_TIMEOUT_MS

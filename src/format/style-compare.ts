@@ -68,7 +68,7 @@ export function similarity(a: string, b: string, n = 2): number {
 }
 
 /** 段级分层：>95% 已对齐 / 70–95% 表层微调 / <70% 文风缺口 */
-export type SimTier = 'aligned' | 'surface' | 'gap'
+type SimTier = 'aligned' | 'surface' | 'gap'
 export function tierOf(sim: number): SimTier {
   if (sim > 0.95) return 'aligned'
   if (sim >= 0.7) return 'surface'
@@ -83,14 +83,14 @@ function splitParas(text: string): string[] {
     .filter(Boolean)
 }
 
-export interface ParaCompare {
+interface ParaCompare {
   authorPara: string
   aiPara: string | null // null = AI 版无对应段（作者新增，视作缺口）
   sim: number
   tier: SimTier
 }
 
-export interface CompareResult {
+interface CompareResult {
   overallSim: number
   paras: ParaCompare[]
   missing: string[] // 词级信号（禁词候选原料），只取 surface 段——gap 段全重写，词级差全量无信号

@@ -128,7 +128,7 @@ export function resolvePrompt(
   return { text: b.text, hash: b.hash, source: 'builtin' }
 }
 
-export interface MigrateReport {
+interface MigrateReport {
   /** 哈希命中历史（未改动的内置拷贝）→ 已升级为当前内置 */
   upgraded: string[]
   /** 哈希不在历史（用户改过）→ 原样保留 */

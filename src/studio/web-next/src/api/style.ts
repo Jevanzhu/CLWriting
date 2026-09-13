@@ -5,7 +5,7 @@ import { apiJson } from './client'
 //（源3 由后端 analyze-style 完成时自动落候选，前端无需另调）。
 
 export type EntryKindFE = '样章' | '手法' | '反例' | '禁词'
-export type EntrySourceFE = '作者标注' | '改稿行为' | '收割' | '题材范文' | '导入'
+type EntrySourceFE = '作者标注' | '改稿行为' | '收割' | '题材范文' | '导入'
 
 /** 条目（镜像 format/style-entry.ts StyleEntry；_path 为书内相对路径） */
 export interface StyleEntryFE {
@@ -43,7 +43,7 @@ export interface StyleMigrationFE {
 }
 
 /** 铁律机检阈值（镜像 check/count.ts IronRules，禁词不在此——在条目库） */
-export interface StyleRulesFE {
+interface StyleRulesFE {
   maxSentenceLen?: number
   maxAdjStack?: number
   maxDialogueTagRatio?: number
@@ -51,7 +51,7 @@ export interface StyleRulesFE {
   avoidSummaryEnding?: boolean
 }
 
-export interface StyleBaselineSummaryFE {
+interface StyleBaselineSummaryFE {
   frozenAt: string
   frozenFrom: string
   scenes: string[]

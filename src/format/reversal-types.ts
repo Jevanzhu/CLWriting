@@ -25,7 +25,7 @@ const REVERSAL_TYPES = [
   '自我反转',
   '其他反转',
 ] as const
-export type ReversalTypeName = (typeof REVERSAL_TYPES)[number]
+type ReversalTypeName = (typeof REVERSAL_TYPES)[number]
 
 /** 各类型触发正则（pre-normalization 后 test） */
 const REVERSAL_PATTERNS: Record<Exclude<ReversalTypeName, '其他反转'>, RegExp> = {

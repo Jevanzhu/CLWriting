@@ -19,7 +19,7 @@ import { clipByCodePoints } from './summary.js'
 export const SEARCH_ALL_DIRS = ['写作/正文', '设定', '大纲', '布线', '工作区']
 
 /** scope → 可搜目录（相对 bookRoot） */
-export const SEARCH_SCOPE_DIRS: Record<string, string[]> = {
+const SEARCH_SCOPE_DIRS: Record<string, string[]> = {
   all: SEARCH_ALL_DIRS,
   定稿: ['写作/正文', '设定'],
   正文: ['写作/正文'],

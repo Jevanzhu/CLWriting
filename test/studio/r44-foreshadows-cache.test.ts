@@ -22,8 +22,7 @@ import {
   __resetForeshadowScanCountForTest,
 } from '../../src/studio/server/api/foreshadows.js'
 import { filterForeshadowTrails, searchForeshadowTrails } from '../../src/document/foreshadow.js'
-
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
+import { sleep } from '../helpers/wait-for.js'
 
 let roots: string[] = []
 

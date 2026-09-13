@@ -264,11 +264,6 @@ async function onRemove(path: string, text: string): Promise<void> {
   font-family: inherit;
   line-height: 1.7;
 }
-.af-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
 
 .filters {
   display: flex;

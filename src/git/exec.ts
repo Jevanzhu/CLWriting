@@ -22,7 +22,7 @@ import { log } from '../log/index.js'
 // ── 统一 git 执行器（#16 第 3 节）──────────────────
 
 /** git 调用结果：成功带 stdout，失败带人话 */
-export type GitResult =
+type GitResult =
   | { ok: true; stdout: string }
   | { ok: false; humanMsg: string; stderr?: string }
 
@@ -32,7 +32,7 @@ export type GitResult =
  * kill 子进程并按失败返回（fail-closed：调用方不能把「未完成」当「成功/干净」）。
  * R36-5：gitAsync（异步路径）共用同一超时档；测试经 __setGitAsyncTimeoutForTest 缩短。
  */
-export const GIT_TIMEOUT_MS = 15_000
+const GIT_TIMEOUT_MS = 15_000
 
 /** R36-5：异步路径超时档生效值（模块内可变，仅测试注入口可改；先例同
  *  search.ts __setSearchCacheTtlForTest / books.ts __setBooksLockTimeoutForTest）。 */
@@ -52,7 +52,7 @@ export function __setGitAsyncTimeoutForTest(ms: number | null): void {
  *（不等待 close——调用方绝不被挂起）。
  * 导出仅为单测注入假 child（IR-7 同款已登记结构债：生产消费方仅 gitAsync 两处）。
  */
-export const GIT_KILL_ESCALATION_MS = 2_000
+const GIT_KILL_ESCALATION_MS = 2_000
 
 export function killWithEscalation(
   child: { kill: (signal: NodeJS.Signals) => boolean },

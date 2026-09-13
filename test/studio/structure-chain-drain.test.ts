@@ -91,7 +91,12 @@ describe('阶段 24（S3/S4）: structure 串行链与删书排水', () => {
       delSettled = true
       return r
     })
-    await new Promise((r) => setTimeout(r, 400))
+    // win 合并批复核批（2026-09-13）：400ms 固定睡眠改 vi.waitFor（同文件 :85 惯例）——
+    // 只等 DELETE 响应返回这一事实，不再假设墙钟 400ms 内必达（慢机 flake 源）；
+    // 下方 applySettled===false 由 save 锁在持保证，无时序依赖，不受此改影响。
+    await vi.waitFor(() => {
+      expect(delSettled).toBe(true)
+    })
     // 删书不推进墓地 rename：在途 apply 持 'structure' 任务闸（S4 互斥矩阵，
     // KNOWN_ACTIONS 全集），删书入口 busyGate 即 409 拒收——排水段第 5 个
     // drainStructureChainsUnder 在闸后作纵深兜底。apply 仍在链上悬置（save 锁等待处）。

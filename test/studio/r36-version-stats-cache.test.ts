@@ -30,8 +30,7 @@ import {
   __resetVersionStatsScanCountForTest,
 } from '../../src/studio/server/api/snapshots.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
-
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
+import { sleep } from '../helpers/wait-for.js'
 
 let roots: string[] = []
 

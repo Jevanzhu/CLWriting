@@ -14,7 +14,7 @@
  */
 
 /** 中文字体异名 → 规范族键（zh/en 同字体、思源/Noto 同族双产品） */
-export const CN_FONT_CANON: Record<string, string> = {
+const CN_FONT_CANON: Record<string, string> = {
   // 微软雅黑（win 恒装；zh-cn 枚举名与 en 名）
   'Microsoft YaHei': 'msyh',
   微软雅黑: 'msyh',
@@ -73,7 +73,7 @@ export function isFontInstalled(installed: readonly string[], name: string): boo
 }
 
 /** 预设指名字体 → 可落地候补（按优先序；zh-cn 系统常见的 Adobe/中文名形态） */
-export const PROSE_FONT_COGNATES: Record<string, string[]> = {
+const PROSE_FONT_COGNATES: Record<string, string[]> = {
   'Noto Sans SC': ['Noto Sans SC', 'Source Han Sans SC', '思源黑体'],
   'Noto Serif SC': ['Noto Serif SC', 'Source Han Serif SC', '思源宋体'],
   'Microsoft YaHei': ['Microsoft YaHei', '微软雅黑'],

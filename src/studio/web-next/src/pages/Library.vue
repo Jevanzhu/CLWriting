@@ -77,7 +77,7 @@ function openDir(): void {
 </script>
 
 <template>
-  <div class="library" :class="{ 'has-traffic': isMac, 'is-drag': hasDesktop }">
+  <div class="library" :class="{ 'has-traffic': isMac, 'is-desktop': hasDesktop }">
     <!-- 环境背景：呼吸光晕（与 Welcome 同语言） -->
     <div class="ambient">
       <div class="glow glow-tr"></div>
@@ -173,8 +173,10 @@ function openDir(): void {
 .library.has-traffic .lib-titlebar {
   -webkit-app-region: drag;
 }
-/* R33-14（三十三轮）：win 拖拽区（同 Shelf.vue 注） */
-.library.is-drag .lib-titlebar {
+/* R33-14（三十三轮）：win 拖拽区（同 Shelf.vue 注）。页根标记 = is-desktop（桌面态）：
+ * is-drag 已归全局 utilities.css 的真实拖拽容器单类，页根同名会被该规则命中、
+ * app-region 继承致整页成拖拽面（R0913 复核批 P1 修复改名） */
+.library.is-desktop .lib-titlebar {
   -webkit-app-region: drag;
 }
 
@@ -202,21 +204,6 @@ function openDir(): void {
   display: flex;
   flex-direction: column;
   gap: var(--size-4-1);
-}
-.head-mark {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 48px;
-  height: 48px;
-  margin-bottom: var(--size-4-2);
-  border-radius: var(--radius-m);
-  background: color-mix(in srgb, var(--interactive-accent) 14%, transparent);
-  color: var(--text-accent);
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--interactive-accent) 20%, transparent),
-    var(--shadow-m),
-    0 0 30px color-mix(in srgb, var(--interactive-accent) 18%, transparent);
 }
 .head-title {
   margin: 0;
@@ -354,14 +341,6 @@ function openDir(): void {
   text-align: center;
   font-size: var(--font-size-s);
   color: var(--text-faint);
-}
-.recent-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
 }
 .recent-item {
   display: flex;

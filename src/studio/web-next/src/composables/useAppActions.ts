@@ -6,7 +6,7 @@ import { useTheme } from './useTheme'
 // 应用动作单源：命令面板（CommandPalette）与系统菜单 dispatch 共用此定义。
 // 主进程系统菜单（desktop/main.ts buildMenu）跨进程独立硬编码 label/accelerator，
 // 但其 click 发出的 actionKey 必须与下方 id 一致——改这里要同步改 main.ts。
-export interface AppAction {
+interface AppAction {
   id: string
   label: string
   run: () => void

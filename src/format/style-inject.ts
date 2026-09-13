@@ -18,7 +18,7 @@ import type { StyleEntry } from './types.js'
 export const SAMPLE_INJECT_MAX = 500
 
 /** 反例注入条数上限（计划：关键 1–2 条） */
-export const CONTRA_INJECT_MAX = 2
+const CONTRA_INJECT_MAX = 2
 
 /** 场景命中序：主场景 0 < 次场景 1 < … < 通用；场景不相关 → -1（不候选） */
 function sceneRank(e: StyleEntry, scenes: string[]): number {

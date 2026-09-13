@@ -24,7 +24,7 @@ export interface VisibleInjection {
   digest: string
 }
 
-export interface LineageCheck {
+interface LineageCheck {
   /** 有对应记录的注入数 */
   present: number
   /** 缺失（模型可见但事件库无记录）的注入 */

@@ -8,6 +8,9 @@ import { useUiStore } from './stores/ui'
 import { prewarmSystemFonts } from './composables/useSystemFonts'
 import './styles/tokens.css'
 import './styles/base.css'
+// 跨组件通用单类工具（.is-drag/.head-legend/.spin 兜底档等，P3-10 重体收敛）：
+// 消费点散布多域组件，全局装载（收纳口径与级联防线见该文件头注）。
+import './styles/utilities.css'
 // 设置域共享类（.val/.save-btn/.seg 药丸等）被设置域外组件消费（右栏面板、导出弹窗），
 // 全局装载使依赖显式化（原先靠 SettingsModal 被静态 import 间接生效）。
 import './components/ui/settings-shared.css'

@@ -49,7 +49,7 @@ export interface AuditEvent {
 }
 
 /** 投影节点（surface 消息，审计差异视图用） */
-export interface AuditNode {
+interface AuditNode {
   seq: number
   kind: 'user-text' | 'assistant' | 'tool-result'
   role: 'user' | 'assistant'
@@ -72,7 +72,7 @@ function toPreview(content: string | unknown[]): string {
 }
 
 /** 对话审计视图（投影 + 遮蔽差异） */
-export interface AuditConversation {
+interface AuditConversation {
   events: AuditEvent[]
   /** P3-13：本页截断后的条数（与 eventsTotal 区分，前端可据此判断还有下一页） */
   eventsTotal: number
@@ -82,7 +82,7 @@ export interface AuditConversation {
 }
 
 /** 分页参数（缺省 limit=500，offset=0） */
-export interface AuditPaging {
+interface AuditPaging {
   limit: number
   offset: number
 }
@@ -162,7 +162,7 @@ export function buildAuditView(
 
 /** 解析 limit：整型且 1..DEFAULT_PAGE_LIMIT（非法/0/负/超大 → 缺省 500）。
  *  AA-P2-2：分页保护不可被 `limit=999999999` 打穿，零封不被当成「空页」合法值。 */
-export function limitParam(v: string | null): number {
+function limitParam(v: string | null): number {
   if (v === null || v.trim() === '') return DEFAULT_PAGE_LIMIT
   const n = Number(v)
   if (!Number.isInteger(n) || n < 1) return DEFAULT_PAGE_LIMIT
@@ -170,7 +170,7 @@ export function limitParam(v: string | null): number {
 }
 
 /** 解析 offset：整型且 ≥0（非法 → 0）；无上界——offset 出界自然空页，无害。 */
-export function offsetParam(v: string | null): number {
+function offsetParam(v: string | null): number {
   if (v === null || v.trim() === '') return 0
   const n = Number(v)
   return Number.isInteger(n) && n >= 0 ? n : 0

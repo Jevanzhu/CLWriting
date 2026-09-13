@@ -9,7 +9,7 @@
 //   左侧避让；win 的红绿灯是右上角 WCO（由 env(titlebar-area-*) 避让），左侧不需要。
 // - isWin 供 win 专属优化（WCO 避让、密度/字号套）。
 
-export interface PlatformInfo {
+interface PlatformInfo {
   /** 是否运行在 Electron 桌面（vs 浏览器预览） */
   isDesktop: boolean
   /** 主进程 platform：'darwin'|'win32'|…；浏览器为 null */

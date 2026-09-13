@@ -31,7 +31,7 @@ export interface AuditConversationFE {
 }
 
 /** AA-P2-1：分页参数（limit 服务端夹取 1..500；offset 为已载条数起点） */
-export interface AuditPagingFE {
+interface AuditPagingFE {
   limit?: number
   offset?: number
 }
@@ -55,7 +55,7 @@ export interface TodoFE {
   state: 'pending' | 'in_progress' | 'completed'
 }
 
-export interface AuditViewFE {
+interface AuditViewFE {
   conversation: AuditConversationFE | null
   workflowEvents: AuditEventFE[]
   /** AA-P2-1：工作流事件总条数（分页续页用） */

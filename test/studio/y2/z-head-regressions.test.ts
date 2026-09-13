@@ -15,7 +15,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServer } from '../../../src/studio/server/index.js'
+import { startServerSafe } from '../../helpers/safe-port.js'
 import { openSessionStore, bookHash } from '../../../src/events/store.js'
 
 let baseUrl = ''
@@ -75,8 +75,7 @@ beforeAll(async () => {
       currentModel: 'm1',
     }),
   )
-  server = startServer({ workDir, port: 0, userDataPath })
-  await new Promise<void>((r) => server!.listen(0, '127.0.0.1', r))
+  server = await startServerSafe({ workDir, port: 0, userDataPath })
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const boot = await req('GET', '/api/boot')
   token = ((boot.text.match(/"token":"([^"]+)"/)) ?? [])[1] ?? ''

@@ -77,7 +77,7 @@ function findChapterByNumber(bookRoot: string, chapterNo: number): string | null
 }
 
 /** 写作材料的各段（按裁剪优先级标注刚需/弹性） */
-export interface MaterialSection {
+interface MaterialSection {
   /** 段标题 */
   title: string
   /** 段内容 */

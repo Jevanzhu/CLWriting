@@ -25,8 +25,7 @@ import { describe, it, expect } from 'vitest'
 
 import { readJson, reply, isClientAbort } from '../../src/studio/server/http.js'
 import { acquireTaskGate, isTaskGateHeld } from '../../src/studio/server/api/task-gate.js'
-
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
+import { sleep } from '../helpers/wait-for.js'
 
 describe('R55-E-N：readJson close 兜底（断开无 error 形态）', () => {
   it('body 读到一半 destroy()（close 触发、无 error、未 end）→ clientAbort reject（修复前悬挂）', async () => {

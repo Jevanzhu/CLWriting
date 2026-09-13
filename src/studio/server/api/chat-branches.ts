@@ -21,7 +21,7 @@ interface ChatBranchesCtx {
 }
 
 /** 分支视图（纯函数——route 薄接线 + 单测直喂 store；BranchInfo 已是可 JSON 化普通对象） */
-export function buildBranchesView(
+function buildBranchesView(
   store: SessionStore,
   bookName: string,
 ): { branches: BranchInfo[]; activeBranchId: string | null } {

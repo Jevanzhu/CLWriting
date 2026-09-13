@@ -20,7 +20,7 @@ import { isMdFileName } from '../../../format/filename.js'
 import { isUtf8Bytes } from '../../../document/service.js'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError, parseRequestUrl } from '../http.js'
-import { resolveBook } from '../book-context.js'
+import { resolveBook, bookMovedFailure } from '../book-context.js'
 import { invalidateTreeIndexForContent } from '../../../document/tree.js'
 // 重评-0912-4 P1-1：NonUtf8TargetError 类型化分诊（R66-1 确定性拒绝 ≠ 瞬态 IO，见 PUT 快照 catch 注）
 import { snapshotBeforeOverwrite, NonUtf8TargetError } from '../../../process/draft-pipeline.js' // R26-9（二十六轮）：覆盖留底单源复用（R71-9/R74-4 同款）
@@ -167,11 +167,14 @@ export function registerFileRoutes(ctx: FileCtx): void {
         // R70-6（十八轮）：临界段写前重验书注册——readFileHashed 的 await 可跨
         // renameSync/rmSync（drain 是快照式，快照后新进的 PUT 无闸拦）：书已删/改路径
         // 后写旧路径，atomicWriteFile 的 mkdir recursive 会重建目录树成孤儿文件，PUT
-        // 却返回 200「已保存」。重验 resolveBook：已删（error）或 bookRoot 变化（改名）
-        // → 拒写 409，编辑端拿到可读错误重新进书。
-        const rNow = resolveBook(ctx.workDir, params['name']!)
-        if ('error' in rNow || rNow.bookRoot !== r.bookRoot) {
-          return { status: 409, code: 'BOOK_MOVED', error: '书目录刚被改名或删除，保存已取消——请重新打开本书后再试' } as const
+        // 却返回 200「已保存」。重验判删除/改名 → 拒写 409，编辑端拿到可读错误重新进书。
+        // R0912-ds41（重评-deepseek-v4.1-flash P3-8）：重验判定与信封文案一并收敛
+        // book-context.ts bookMovedFailure 单源（全库最后一处内联 BOOK_MOVED）——
+        // 单源头注即设计不变量「reason 人话各端点一致」，本端点旧文案是该不变量的
+        // 漏改残留（主审核定：全域仅此一处旧文案、零测试钉值，归一无契约面损伤）。
+        const moved = bookMovedFailure(ctx.workDir, params['name'], r.bookRoot)
+        if (moved) {
+          return { status: 409, code: moved.code, error: moved.reason } as const
         }
         if (typeof body.expectedRevision === 'string' && body.expectedRevision !== baseline.revision) {
           return {

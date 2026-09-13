@@ -103,7 +103,7 @@ export function __setMetaSaveLockTimeoutForTest(ms: number): void {
 /** R0912-2（2026-09-11 重评-0911c 修复批）：结构性操作（doMoveOrRename/doTrash）落位段
  *  的 per-doc save 锁等待档（毫秒）——与 executeSave 的 5s 同档；测试注入缩短保快
  *  （生产零调用），同 META_SAVE_LOCK_TIMEOUT_MS 惯例。 */
-export const STRUCT_SAVE_LOCK_TIMEOUT_MS = 5_000
+const STRUCT_SAVE_LOCK_TIMEOUT_MS = 5_000
 
 /** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改。 */
 let structSaveLockTimeoutMs = STRUCT_SAVE_LOCK_TIMEOUT_MS
@@ -166,7 +166,7 @@ export type SaveResult =
 export type SaveOutcome = SaveResult & { superseded: boolean }
 
 /** 新建文档输入（W2A §7）。 */
-export interface CreateDocumentInput {
+interface CreateDocumentInput {
   /** 目标相对路径（含 .md 后缀）。 */
   relPath: string
   /** 初始内容；缺省生成最小 frontmatter。 */
@@ -179,7 +179,7 @@ export type CreateResult =
   | { ok: false; code: 'PATH_ESCAPE' | 'CAPABILITY_DENIED' | 'ALREADY_EXISTS' | 'WRITE_ERROR'; reason: string }
 
 /** 复制文档输入（E3.3）。relPath 由前端算好章号 +「副本」标题；后端复制源内容到该 path。 */
-export interface CopyDocumentInput {
+interface CopyDocumentInput {
   /** 源文档 docId（须在清单登记）。 */
   docId: string
   /** 目标相对路径（含 .md 后缀）。 */
@@ -192,14 +192,14 @@ export type CopyResult =
   | { ok: false; code: 'PATH_ESCAPE' | 'CAPABILITY_DENIED' | 'NOT_FOUND' | 'ALREADY_EXISTS' | 'WRITE_ERROR'; reason: string }
 
 /** 移动文档输入（章号不变，文件名保持——§11）。 */
-export interface MoveDocumentInput {
+interface MoveDocumentInput {
   docId: string
   /** 目标目录（相对 bookRoot，无尾斜杠）。 */
   toDir: string
 }
 
 /** 重命名文档输入。 */
-export interface RenameDocumentInput {
+interface RenameDocumentInput {
   docId: string
   /** 新文件名（含 .md 后缀）。 */
   newName: string

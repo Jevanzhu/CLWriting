@@ -26,8 +26,7 @@ import {
   readMdTextCachedAsync,
   __mdTextCacheTestHooks,
 } from '../../src/fs/md-text-cache.js'
-
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
+import { sleep } from '../helpers/wait-for.js'
 
 let roots: string[] = []
 

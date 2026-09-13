@@ -30,7 +30,7 @@ import { isMdFileName } from '../../../format/filename.js'
 import { countWords } from '../../../format/words.js'
 import { ulid } from '../../../fs/id.js'
 import { getOrCreateService } from './documents.js'
-import { acquireTaskGate } from './task-gate.js' // R26-67（二十六轮）：prune 书级任务闸
+import { acquireTaskGate, orchestrationBusyFor } from './task-gate.js' // R26-67：prune 书级任务闸；R0912-ds41：补编排互斥查询
 import { yieldToEventLoop, SCAN_YIELD_EVERY } from './progress.js' // R44-9：MISS 计算体逐块让出（R37-3 范式）
 import type { Revision } from '../../../document/revision.js'
 
@@ -385,6 +385,14 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
+      // R0912-ds41（重评-deepseek-v4.1-flash P3-9）：编排互斥矩阵补向——prune 批量删
+      // .版本 快照，写稿系编排（self-heal/对话/手动写稿/后台收尾）的收尾正会写快照，
+      // 在途放行 prune = 清理与收尾快照并发互踩；此前 R26-67 闸只挡同 action 重入，
+      // 删书/改名 busyGate 是反向枚举面，生成类在途无人拦（矩阵单向不对称）。查法
+      // 照抄 analysis.ts analyze 端点精确形态：先查编排闸再占自身 action 闸，409 的
+      // code/error 与同族端点逐字节一致。
+      const busyOrch = orchestrationBusyFor(params['name']!)
+      if (busyOrch) return replyError(res, 409, 'BUSY', busyOrch)
       // R26-67（二十六轮）：书级任务闸全程持闸——prune 批量删除 .版本 快照，与生成类
       // 任务（写稿/onboard 等收尾会写快照）及删书/改名 busyGate（crossProcessHeldTask
       // GatesFor 借 KNOWN_ACTIONS 正向枚举）的互斥面此前缺失；闸忙 409 口径对齐

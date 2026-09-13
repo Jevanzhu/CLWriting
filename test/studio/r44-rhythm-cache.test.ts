@@ -20,8 +20,7 @@ import {
   __rhythmScanCountForTest,
   __resetRhythmScanCountForTest,
 } from '../../src/studio/server/api/rhythm.js'
-
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
+import { sleep } from '../helpers/wait-for.js'
 
 let roots: string[] = []
 

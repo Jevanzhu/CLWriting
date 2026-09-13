@@ -59,7 +59,7 @@ export interface FontSpawnChild {
 
 export type FontSpawn = (cmd: string, args: string[], opts: { windowsHide: boolean }) => FontSpawnChild
 
-export interface ListWindowsFontsDeps {
+interface ListWindowsFontsDeps {
   /** 平台注入（测试用；生产走 process.platform，仅 win32 走本枚举）。 */
   platform?: NodeJS.Platform
   /** spawn 注入（测试用）。 */

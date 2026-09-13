@@ -102,7 +102,7 @@ export interface UtilityProcessLike {
   stderr?: NodeJS.ReadableStream | null
 }
 
-export interface ForkOptionsLike {
+interface ForkOptionsLike {
   serviceName?: string
   stdio?: 'pipe' | 'inherit'
   env?: Record<string, string | undefined>
@@ -154,7 +154,7 @@ export interface ServerManagerDeps {
   onRestarted?: (port: number) => void
 }
 
-export interface StartStudioServerOptions {
+interface StartStudioServerOptions {
   /** null = welcome 态（fork 不带 --dir，S-8） */
   workDir: string | null
   /** Electron userData 目录（child 无 app 对象，经 --user-data 下发） */
@@ -172,7 +172,7 @@ interface ActiveChild {
   exited: Promise<void>
 }
 
-export interface StudioServerManager {
+interface StudioServerManager {
   /** fork + 握手，resolve 实际监听端口（ready 消息回传）。旧 child 在途时先停旧再 fork；
    *  显式 start 开新生命周期（退避计数清零、挂起重启作废）。 */
   start(opts: StartStudioServerOptions): Promise<number>
@@ -876,7 +876,7 @@ function forwardChildStdio(proc: UtilityProcessLike, logger: LogLike): void {
  *  onError：流 'error' 事件回调（R55-A-2（五十五轮）——原先空回调静默吞零留痕），
  *  缺省维持静默吞（不反噬调用方，转发尽力而为语义不变）。
  *  R50-A-4（五十轮）：返回切分器句柄——exit 冲刷接口见 flush()，接线见 forwardChildStdio。 */
-export interface LineSplitter {
+interface LineSplitter {
   /** 强制冲刷残留缓冲的半行（无换行尾行）：子进程 exit 路径调用一次，弃缓冲。
    *  幂等（缓冲已空再调无产出）；冲刷后残余 data 到达照常累积（极窄竞态窗，尽力而为）。 */
   flush(): void

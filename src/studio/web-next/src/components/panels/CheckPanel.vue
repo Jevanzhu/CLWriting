@@ -201,9 +201,6 @@ async function flagFalsePositive(checkId: string): Promise<void> {
   opacity: 0.4;
   cursor: not-allowed;
 }
-.spin {
-  animation: clw-spin 0.9s linear infinite;
-}
 
 .check-hint,
 .check-error {
@@ -228,19 +225,6 @@ async function flagFalsePositive(checkId: string): Promise<void> {
   display: flex;
   flex-direction: column;
   gap: 4px;
-}
-.group-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-}
-.group-label--red {
-  color: var(--text-error);
-}
-.group-label--yellow {
-  color: var(--text-warning);
 }
 /* R0912-3 #13：原同选择器两处分离规则（间隔在 .cap-hint）合并——属性并集、
  * 无重叠声明，级联结果逐字不变 */

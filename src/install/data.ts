@@ -8,6 +8,7 @@
  * 纯函数、零依赖、零 AI——init 第 4 步查本表推荐，非调模型。
  */
 
+import { SHORT_DEFAULTS } from '../shared/short-defaults.js'
 import type { BookConfig, LeadType } from '../format/types.js'
 
 /** 基础两类（恒启用，不列入 book.yaml 的 leads.enabled；伏笔已独立为设定伏笔系统） */
@@ -67,18 +68,9 @@ export function sanitizeLeadsEnabled(raw: string[]): LeadType[] {
 
 type ShortCheckConfig = NonNullable<BookConfig['short']>
 
-const DEFAULT_SHORT_CHECKS: ShortCheckConfig = {
-  profile: '通用短篇',
-  target_emotions: ['惊悚', '爽感', '酸涩', '温暖'],
-  target_reversal_types: ['身份反转', '亲密关系反转', '时间/记忆反转', '其他反转'],
-  target_ending_flavors: ['后怕', '释然', '遗憾', '余韵'],
-  word_min: 8000,
-  word_max: 20000,
-  body_part_threshold: 5,
-  simile_threshold: 10,
-  section_count: 5,
-  opening_env_chars: 300,
-}
+// R0912-ds41（P3-6）：与 metrics/short-index.ts 共用的默认表已收敛至 shared/short-defaults.ts
+//（唯一正本）；本地别名保持原类型标注，recommendShortChecks 的展开用法不变，行为逐字节等价。
+const DEFAULT_SHORT_CHECKS: ShortCheckConfig = SHORT_DEFAULTS
 
 const SHORT_CHECK_PRESETS: readonly {
   keywords: readonly string[]

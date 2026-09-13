@@ -22,7 +22,7 @@ export interface RagProviderRef {
 }
 
 /** 解析结果（一次 buildIndex / recall 调用的全部实参） */
-export interface ResolvedRag {
+interface ResolvedRag {
   endpoint: string
   model: string
   /** 可为空串——调用方按场景自行报错（未选服务商 / 服务商缺 Key 语义不同） */

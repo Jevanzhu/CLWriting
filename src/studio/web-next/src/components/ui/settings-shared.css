@@ -3,6 +3,18 @@
  * 全局（非 scoped）——SettingsModal 骨架 + 全部 Settings* 分域子件共用：
  * 卡片容器（cfg-card/setting-item 族）、seg/switch/val/num-input 控件、
  * data-tab-scope 归属徽章等。装载时机与 SFC style 块等价（组件模块加载即注入）。
+ *
+ * 通用短名越界收窄（P3-11，R0912-ds41 批）：seg/switch/num-input/link-btn/val-input/
+ * val-suffix/tab-pane/empty-tab/stats-hint/setting-item 子族等通用短名已加
+ * `.settings-content` 祖先前缀——全模板消费点证明全部落在 SettingsModal 的
+ * settings-content 内（Settings* 分域子件 + AiServicePanel/SettingItem/SettingToggle
+ * 均经 tab-pane 挂载），收窄后不再渗入设置域外同名元素（AuditDiffPanel 的
+ * .audit-seg、StyleBaselineCard 的 .sb-seg 改名隔离仍成立，且未来可直接用回 .seg）。
+ * 未加前缀的短名及缘由：.text-input（providers.css .ai-service-panel .text-input
+ * 以同特异性覆盖其宽度，加前缀会变依赖装载顺序的平级竞态）、.save-btn/.close-btn/
+ * .modal-*（ExportDialog/ShelfModal/ModelPicker/EditorDocHead 等域外组件消费）、
+ * .setting-item 基族（ContextQuickPanel 域外自有同名）；.cfg-card/.settings-nav/
+ * [data-tab-scope] 系选择器自带设置域限定，无需前缀。
  */
 .modal-mask {
   position: fixed;
@@ -215,7 +227,7 @@
   overflow-y: auto;
   padding: var(--size-4-6) var(--size-4-6);
 }
-.tab-pane {
+.settings-content .tab-pane {
   position: relative;
   min-height: 100%;
   padding-bottom: var(--size-4-6);
@@ -243,7 +255,7 @@
 }
 
 /* ── 空状态 ── */
-.empty-tab {
+.settings-content .empty-tab {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -346,11 +358,11 @@
 .setting-item:hover {
   background: color-mix(in srgb, var(--text-normal) 2.5%, transparent);
 }
-.setting-item-info {
+.settings-content .setting-item-info {
   flex: 1;
   min-width: 0;
 }
-.setting-item-name {
+.settings-content .setting-item-name {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -379,13 +391,13 @@
   color: var(--text-on-accent);
   background: color-mix(in srgb, var(--interactive-accent) 22%, transparent);
 }
-.setting-item-desc {
+.settings-content .setting-item-desc {
   font-size: var(--font-size-xs);
   color: var(--text-faint);
   margin-top: 3px;
   line-height: 1.4;
 }
-.setting-item-control {
+.settings-content .setting-item-control {
   display: flex;
   align-items: center;
   gap: var(--size-4-2);
@@ -395,7 +407,7 @@
   padding-left: var(--size-4-4);
 }
 /* 子选项名与主项同级可读（层级靠缩进表达，不再压字重降灰） */
-.setting-item.sub .setting-item-name {
+.settings-content .setting-item.sub .setting-item-name {
   font-size: var(--font-size-s);
   color: var(--text-normal);
   font-weight: 500;
@@ -410,11 +422,11 @@
   text-align: right;
   font-weight: 500;
 }
-.val-suffix {
+.settings-content .val-suffix {
   font-size: var(--font-size-xs);
   color: var(--text-faint);
 }
-.val-input {
+.settings-content .val-input {
   width: 52px;
   padding: 4px 6px;
   font-size: var(--font-size-xs);
@@ -426,13 +438,13 @@
   text-align: center;
   transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
 }
-.val-input:focus {
+.settings-content .val-input:focus {
   outline: none;
   border-color: var(--interactive-accent);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 18%, transparent);
 }
-.val-input::-webkit-inner-spin-button,
-.val-input::-webkit-outer-spin-button {
+.settings-content .val-input::-webkit-inner-spin-button,
+.settings-content .val-input::-webkit-outer-spin-button {
   -webkit-appearance: none;
   margin: 0;
 }
@@ -441,7 +453,7 @@
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
-.stats-hint {
+.settings-content .stats-hint {
   font-size: var(--font-size-xs);
   color: var(--text-faint);
   padding: var(--size-4-3) 0;
@@ -491,7 +503,7 @@
 }
 
 /* ── segmented control ── */
-.seg {
+.settings-content .seg {
   display: inline-flex;
   padding: 2px;
   border: 1px solid var(--background-modifier-border);
@@ -499,7 +511,7 @@
   background: var(--background-secondary);
   gap: 2px;
 }
-.seg button {
+.settings-content .seg button {
   padding: 5px 16px;
   font-size: var(--font-size-s);
   border: none;
@@ -509,11 +521,11 @@
   cursor: pointer;
   transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
-.seg button:hover:not(.on) {
+.settings-content .seg button:hover:not(.on) {
   color: var(--text-normal);
   background: var(--background-modifier-hover);
 }
-.seg button.on {
+.settings-content .seg button.on {
   background: var(--background-primary);
   color: var(--text-normal);
   font-weight: 600;
@@ -521,7 +533,7 @@
 }
 
 /* ── number / text input ── */
-.num-input,
+.settings-content .num-input,
 .text-input {
   padding: 6px 10px;
   font-size: var(--font-size-s);
@@ -531,14 +543,14 @@
   border-radius: var(--radius-s);
   transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
 }
-.num-input {
+.settings-content .num-input {
   width: 104px;
   font-variant-numeric: tabular-nums;
 }
 .text-input {
   width: 220px;
 }
-.num-input:focus,
+.settings-content .num-input:focus,
 .text-input:focus {
   outline: none;
   border-color: var(--interactive-accent);
@@ -619,7 +631,7 @@
 }
 
 /* ── link button ── */
-.link-btn {
+.settings-content .link-btn {
   padding: 6px 18px;
   font-size: var(--font-size-s);
   border: 1px solid var(--background-modifier-border);
@@ -629,17 +641,17 @@
   cursor: pointer;
   transition: background var(--dur-fast) var(--ease-out);
 }
-.link-btn:hover {
+.settings-content .link-btn:hover {
   background: var(--background-modifier-hover);
 }
-.link-btn.danger {
+.settings-content .link-btn.danger {
   border-color: color-mix(in srgb, var(--text-error) 40%, var(--background-modifier-border));
   color: var(--text-error);
   display: inline-flex;
   align-items: center;
   gap: 5px;
 }
-.link-btn.danger:hover {
+.settings-content .link-btn.danger:hover {
   background: color-mix(in srgb, var(--text-error) 10%, transparent);
 }
 
@@ -667,26 +679,26 @@
 }
 
 /* ── toggle switch ── */
-.switch {
+.settings-content .switch {
   position: relative;
   display: inline-block;
   width: 38px;
   height: 22px;
   cursor: pointer;
 }
-.switch input {
+.settings-content .switch input {
   opacity: 0;
   width: 0;
   height: 0;
 }
-.switch-slider {
+.settings-content .switch-slider {
   position: absolute;
   inset: 0;
   background: var(--background-modifier-border-active);
   border-radius: 22px;
   transition: background var(--dur-fast) var(--ease-out);
 }
-.switch-slider::before {
+.settings-content .switch-slider::before {
   content: '';
   position: absolute;
   width: 16px;
@@ -697,29 +709,29 @@
   border-radius: 50%;
   transition: transform var(--dur-fast) var(--ease-out);
 }
-.switch input:checked + .switch-slider {
+.settings-content .switch input:checked + .switch-slider {
   background: var(--interactive-accent);
 }
-.switch input:checked + .switch-slider::before {
+.settings-content .switch input:checked + .switch-slider::before {
   transform: translateX(16px);
 }
 /* R8B-P2-2（2026-09-09 修复批）：.switch input 视觉隐藏但保留 Tab 序，滑块此前无
  * focus-visible 焦点环——键盘焦点不可见（WCAG 2.4.7）。键盘环落在滑块上（保留
  * inset 边线语义，与滑块圆角同形）；鼠标/触屏不触发（:focus-visible 语义） */
-.switch input:focus-visible + .switch-slider {
+.settings-content .switch input:focus-visible + .switch-slider {
   box-shadow:
     inset 0 0 0 1px color-mix(in srgb, var(--interactive-accent) 55%, transparent),
     0 0 0 3px color-mix(in srgb, var(--interactive-accent) 35%, transparent);
 }
-.switch-slider {
+.settings-content .switch-slider {
   box-shadow: inset 0 0 0 1px transparent;
 }
 /* hover 反馈：未选中时轨道轻微提亮 */
-.switch:hover input:not(:checked) + .switch-slider {
+.settings-content .switch:hover input:not(:checked) + .switch-slider {
   background: color-mix(in srgb, var(--background-modifier-border-active) 80%, var(--interactive-accent) 20%);
 }
 /* 选中态 hover：轨道加深一档 */
-.switch:hover input:checked + .switch-slider {
+.settings-content .switch:hover input:checked + .switch-slider {
   background: var(--interactive-accent-hover);
 }
 
@@ -727,10 +739,10 @@
  * 1.4 行高的负半 leading 使说明文字墨迹下沉 ~2px、seg 胶囊文字未居中下沉 ~1px
  * （实测 3x 墨迹分析）；mac 苹方度量不同无此问题，故全部 win 限定。
  * 说明文字行高放宽 1.5 重新居中；控件文字 flex 垂直居中 + 行高 1。 */
-:root[data-platform='win32'] .setting-item-desc {
+:root[data-platform='win32'] .settings-content .setting-item-desc {
   line-height: 1.5;
 }
-:root[data-platform='win32'] .seg button {
+:root[data-platform='win32'] .settings-content .seg button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -743,10 +755,10 @@
 :root[data-platform='win32'] .setting-item {
   flex-wrap: wrap;
 }
-:root[data-platform='win32'] .setting-item-info {
+:root[data-platform='win32'] .settings-content .setting-item-info {
   flex: 1 1 12em;
 }
-:root[data-platform='win32'] .setting-item-control {
+:root[data-platform='win32'] .settings-content .setting-item-control {
   /* J5 win：字体对（双下拉 font-pair）行内最大内容 ~435px，win 字号 +1px 后信息列
    * flex-basis 12em 变大 → 整行放不下必须折行；放行 control 收缩（下拉有 min-width:0
    * 可收窄），行保持单行。 */
@@ -779,10 +791,10 @@
   width: min(880px, calc(100vw - 40px));
   height: min(840px, calc(100vh - 40px));
 }
-:root[data-platform='win32'] .val-input {
+:root[data-platform='win32'] .settings-content .val-input {
   width: 68px;
 }
-:root[data-platform='win32'] .num-input {
+:root[data-platform='win32'] .settings-content .num-input {
   width: 124px;
 }
 :root[data-platform='win32'] .text-input {

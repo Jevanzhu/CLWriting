@@ -53,7 +53,7 @@ export interface SkillMeta {
 }
 
 /** 多根发现入参（均可缺省——缺省的根直接跳过） */
-export interface SkillRoots {
+interface SkillRoots {
   bookRoot?: string
   userDataPath?: string
 }

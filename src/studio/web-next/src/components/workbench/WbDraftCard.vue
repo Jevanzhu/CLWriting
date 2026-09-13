@@ -48,15 +48,6 @@ const { count: draftWords } = useDebouncedWordCount(() => wb.textOut, undefined,
 </template>
 
 <style scoped>
-.card-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: var(--font-size-m);
-  font-weight: 600;
-  color: var(--text-normal);
-  margin-bottom: var(--size-4-2);
-}
 .muted {
   font-size: var(--font-size-xs);
   font-weight: 400;

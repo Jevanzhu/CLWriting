@@ -116,107 +116,12 @@ export interface ChatEvent {
   createdAt: number
 }
 
-/** 事件载荷类型（P1 对话助手） */
-export interface UserMessageData {
-  message: string
-  /** 作者选定讨论的章号（上下文快照用，血缘） */
-  chapter?: number
-}
-
-export interface AssistantMessageData {
-  /** ChatMsg.content：纯文本或 ContentBlock[]（含 text/reasoning/tool_use） */
-  message: string | unknown[]
-  usage?: { inputTokens: number; outputTokens: number }
-  stopReason?: string
-}
-
-export interface ToolCallData {
-  callId: string
-  name: string
-  arguments: unknown
-}
-
-export interface ToolResultData {
-  callId: string
-  content: string
-  isError?: boolean
-}
-
-export interface TurnEndData {
-  /** P3-14：复用 TurnEndReason 词表——此前手写字面量漏了 'max-turns'（agent loop 触顶真实收敛原因），与 TURN_END_REASONS 校验词表不一致 */
-  reason: TurnEndReason
-}
-
 // ── P2 五层链路事件载荷（F1 §二 v1 + §六 trace 合并计划）─────────────────────
 
 /** 五层链路（F2/DSH-8 绑定：每层一个 step）：context/draft/review/self-heal/chat */
 export type LayerName = 'context' | 'draft' | 'review' | 'self-heal' | 'chat'
 
-export interface StepStartData {
-  task: string
-  layer: LayerName
-}
-
-export interface StepEndData {
-  task: string
-  layer: LayerName
-  /** 结构化终止原因：受控词表以 STEP_END_REASONS 为准（completed / aborted / blocked /
-   *  error / max-tokens / interrupted）。
-   *  R26-99（二十六轮）：注释删 'timeout'——词表无此值；生产超时终止按 'interrupted'
-   *  记（runner.ts AA-P3-4 口径：执行被强制中止），不扩词表 */
-  reason: string
-}
-
 // ── P3 血缘+检索事件载荷（F1 §二 v1 + §五）─────────────────────────────
-
-/** revision/ref —— 正文版本指纹引用（血缘锚点） */
-export interface RevisionRefData {
-  chapter: number
-  /** 正文内容指纹（sha256 前 16 位） */
-  revision: string
-  /** 相对书库根的正文路径 */
-  path: string
-}
-
-/** settings/snapshot —— 注入设定快照（「模型可见 ⟺ 已记录」登记） */
-export interface SettingsSnapshotData {
-  scope: string
-  /** 快照版本（如设定文件 mtime/显式版本）；缺省由 digest 表达 */
-  version?: string
-  /** 快照内容指纹（sha256 前 16 位） */
-  digest: string
-}
-
-/** skills/snapshot —— 技能包注入快照（G2-1：与 settings/snapshot 同载荷形状，scope 固定 'skills'） */
-export interface SkillsSnapshotData {
-  scope: 'skills'
-  /** 技能包内容指纹（sha256 前 16 位） */
-  digest: string
-}
-
-/** foreshadow/change —— 伏笔状态机（goal 词汇） */
-export interface ForeshadowChangeData {
-  operation: 'create' | 'edit' | 'pause' | 'resume' | 'complete' | 'block' | 'clear'
-  /** 伏笔标题 */
-  title: string
-  /** 变化后的伏笔条目快照（可选，减轻载荷） */
-  entry?: Record<string, unknown>
-}
-
-/** author/signal —— 作者删除信号（套话类规则命中，B5 闭环） */
-export interface AuthorSignalData {
-  ruleId: string
-  message: string
-  task: string
-}
-
-/** rule/hit —— 规则命中（B3/B4 事件化） */
-export interface RuleHitData {
-  ruleId: string
-  task: string
-  chapter?: number
-  message: string
-}
 
 /** llm/call —— 合并 trace.ts 的 TraceEntry（P2 单一事实源） */
 export interface LlmCallData {
@@ -259,20 +164,6 @@ export interface LlmRetryData {
   attempt: number
   delayMs: number
   errCode?: string
-}
-
-/** retry/attempt —— 自愈重写轮次（「连续相同红项换策略」canonical key 来源） */
-export interface RetryAttemptData {
-  attempt: number
-  maxAttempts: number
-  redIssues?: string[]
-}
-
-/** check/report —— 机检报告（自愈打回判据来源） */
-export interface CheckReportData {
-  chapter: number
-  reds: string[]
-  yellows?: string[]
 }
 
 // ── F5 goal 状态机 + todo 快照（DSH-11/DSH-12，第5.2/5.3节）────────────────

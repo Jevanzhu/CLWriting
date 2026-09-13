@@ -11,7 +11,7 @@ import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
-import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 import { flushLogsForTest } from '../../src/log/index.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
@@ -23,17 +23,12 @@ afterAll(() => {
   for (const d of dirs) rmSync(d, { recursive: true, force: true })
 })
 
-/** boot 并等 listening 就绪（listen 异步，address() 在就绪前为 null） */
-function bootReady(workDir: string, userDataPath: string): Promise<string> {
-  const server = startServer({ port: 0, workDir, userDataPath })
+/** boot 并等 listening 就绪（startServerSafe 已代等 listening） */
+async function bootReady(workDir: string, userDataPath: string): Promise<string> {
+  const server = await startServerSafe({ port: 0, workDir, userDataPath })
   servers.push(server)
-  return new Promise((resolve, reject) => {
-    server.once('listening', () => {
-      const addr = server.address() as AddressInfo
-      resolve(`http://127.0.0.1:${addr.port}`)
-    })
-    server.once('error', reject)
-  })
+  const addr = server.address() as AddressInfo
+  return `http://127.0.0.1:${addr.port}`
 }
 
 async function getNotices(baseUrl: string): Promise<{ status: number; notices: unknown[] }> {

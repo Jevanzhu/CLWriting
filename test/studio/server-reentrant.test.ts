@@ -4,7 +4,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const servers: http.Server[] = []
@@ -21,9 +21,8 @@ function makeWorkDir(book: string): string {
   return workDir
 }
 
-async function listen(server: http.Server): Promise<string> {
+function listen(server: http.Server): string {
   servers.push(server)
-  await new Promise<void>((r) => server.once('listening', r))
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`
 }
 
@@ -34,8 +33,8 @@ afterEach(async () => {
 
 describe('startServer 路由表隔离', () => {
   it('两个 server 同时存在时各自使用自己的 workDir', async () => {
-    const a = await listen(startServer({ port: 0, workDir: makeWorkDir('甲书') }))
-    const b = await listen(startServer({ port: 0, workDir: makeWorkDir('乙书') }))
+    const a = listen(await startServerSafe({ port: 0, workDir: makeWorkDir('甲书') }))
+    const b = listen(await startServerSafe({ port: 0, workDir: makeWorkDir('乙书') }))
 
     const da = (await (await fetch(`${a}/api/books`)).json()) as { books: { name: string }[] }
     const db = (await (await fetch(`${b}/api/books`)).json()) as { books: { name: string }[] }

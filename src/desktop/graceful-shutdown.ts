@@ -20,7 +20,7 @@ import { heldTaskGatesFor } from '../studio/server/api/task-gate.js'
 import { drainDocumentSaves } from '../studio/server/api/documents.js'
 import { waitInFlightWorkSettled } from '../studio/server/api/in-flight-work.js'
 
-export interface ShutdownOptions {
+interface ShutdownOptions {
   /** server.close 回调等待上限（SSE 长连接未断时悬置）；缺省 1.5s */
   closeTimeoutMs?: number
   /** #7/L3：被中断编排的收尾等待上限（session/end 落库）；缺省 1.5s（与 close 同量级） */

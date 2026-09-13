@@ -327,7 +327,7 @@ export function estimateRagChunkCount(bookRoot: string, chapters: number[]): num
  *  - corrupt：库文件级损坏（openRagDb 抛 SQLITE_NOTADB 族；区别于 db 语义错误——
  *    后者原样上抛）。供 status/recall 链路把「未建 / 已清空可用 / 损坏」透出，
  *    未建书的空命中不再与损坏库混淆（排障面）。 */
-export type RagIndexState = 'unbuilt' | 'cleared' | 'built' | 'corrupt'
+type RagIndexState = 'unbuilt' | 'cleared' | 'built' | 'corrupt'
 
 /** 已开库的三态判定（recall 空库早退路径共享，免二次开库）。 */
 function ragIndexStateOfOpenDb(db: DatabaseSync): Exclude<RagIndexState, 'corrupt'> {

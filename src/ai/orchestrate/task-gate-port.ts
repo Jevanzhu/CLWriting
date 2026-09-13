@@ -17,7 +17,7 @@
  */
 
 /** 与 studio/server/api/task-gate.ts acquireTaskGate 同形（闸满返回 null = fail-closed） */
-export type TaskGateAcquire = (bookName: string, action: string) => (() => void) | null
+type TaskGateAcquire = (bookName: string, action: string) => (() => void) | null
 
 let provider: TaskGateAcquire | null = null
 

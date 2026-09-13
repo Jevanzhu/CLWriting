@@ -26,7 +26,7 @@ export interface RagChunk {
 }
 
 /** 建索引时写入的块（embedding 已算好） */
-export interface ChunkInput {
+interface ChunkInput {
   章号: number
   start_offset: number
   end_offset: number
@@ -166,7 +166,7 @@ const RETRYABLE_UNLINK_CODES = new Set(['EPERM', 'EBUSY', 'EACCES'])
  * 错误（文件名+code+已重试次数），上层 isRagDbCorruptionError/rebuild 自愈语义
  * 不变（错误不落损坏判定面）。
  */
-export interface DeleteRagDbFilesOptions {
+interface DeleteRagDbFilesOptions {
   unlink?: (fp: string) => void
   sleep?: (ms: number) => void
   retries?: number

@@ -289,8 +289,8 @@ function isGenerated(step: OnboardStep): boolean {
   background: var(--interactive-accent-hover);
 }
 
+/* 动画走全局 utilities.css 的 .spin 0.9s 兜底档（同值）；此处仅保留本组件特有的强调色 */
 .spin {
-  animation: clw-spin 0.9s linear infinite;
   color: var(--text-accent);
 }
 

@@ -73,7 +73,7 @@ const isLong = computed(() => props.rhythmData?.kind === 'long')
 <style scoped>
 /* .panel 基础走全局 style-shared.css（R0912-C2 收敛批装载；重评-0912-2 P3 删「与 OverviewView 同式」重复块，声明逐字相同零视觉差） */
 
-.head-legend { margin-left: auto; font-weight: 400; font-size: var(--font-size-xs); color: var(--text-muted); }
+/* .head-legend 基础收敛至全局 styles/utilities.css（P3-10 重体收敛批，声明逐字未改） */
 
 /* ══ 节奏分布 ══ */
 .dist-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--size-4-5); }

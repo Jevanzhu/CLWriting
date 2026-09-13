@@ -34,7 +34,7 @@ export interface ChatRunState {
 // ── emit 辅助（各相位统一走 driver.emit） ──────────
 
 /** emit 所需的最小结构契约——ChatOpts 满足之，避免本模块反向依赖 chat.ts */
-export interface EmitCarrier {
+interface EmitCarrier {
   driver: StudioDriver
   mainSession: Session
 }

@@ -52,7 +52,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  studio.close()
+  await studio.close() // win 合并批复核批（2026-09-13）：兄弟件（structure-split/merge）同款 await——关服落定再删 userData，防 win 删句柄竞态
   const { rmSync } = await import('node:fs')
   if (userDataPath) rmSync(userDataPath, { recursive: true, force: true })
   __setStructSaveLockTimeoutForTest(5_000)

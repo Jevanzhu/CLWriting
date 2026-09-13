@@ -23,7 +23,7 @@ export type LeadType =
   | '关系线'
 
 /** 账本三态（#3 第 5 节，磁盘中文 ↔ 机器语义） */
-export type LeadStatus = '进行中' | '已收尾' | '已放弃'
+type LeadStatus = '进行中' | '已收尾' | '已放弃'
 
 /** 履历行（#3 第 4 节）：- 第N章 动词：章内证据 */
 export interface LeadEntry {
@@ -210,7 +210,7 @@ export interface StyleEntry {
 }
 
 /** 改稿行为来源的原始证据（供作者在候选箱确认时对照看） */
-export interface EntryEvidence {
+interface EntryEvidence {
   章号: number
   AI版: string
   作者版: string

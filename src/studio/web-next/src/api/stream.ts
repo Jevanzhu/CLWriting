@@ -81,7 +81,7 @@ export async function acknowledgeJournalPending(
 
 // POST /draft-save {chapter, content} → {ok, path, words, docId, snapshotted}
 // docId：清单真 ID 或 legacyId 派生（与树一致，可直接 openTab）；snapshotted：覆写前留了快照（M1）
-export interface DraftSaveResult {
+interface DraftSaveResult {
   ok: boolean
   path: string
   words: number

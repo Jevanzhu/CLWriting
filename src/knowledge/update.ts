@@ -149,7 +149,7 @@ export function writeFalsePositiveDraft(projectRoot: string, corpusDir: string, 
   return rel
 }
 
-export interface CommitKnowledgeOpts {
+interface CommitKnowledgeOpts {
   /** 定稿文件（相对项目根，必须位于 知识层/ 内） */
   target: string
   /** 账本出处（缺省语料回归域） */

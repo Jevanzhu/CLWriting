@@ -37,7 +37,7 @@ export interface SimNode {
   file?: string
   card?: CharacterCard
 }
-export interface SimEdge { from: string; to: string; type: string; kind: 'relation' | 'debt'; note?: string }
+interface SimEdge { from: string; to: string; type: string; kind: 'relation' | 'debt'; note?: string }
 
 // 画布基准与布局常量：O-9（第十三轮）移 shared/relation-layout（纯函数层，可单测）；
 // CX/CY 转发导出（RelationGraph.vue 消费）

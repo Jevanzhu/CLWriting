@@ -5,6 +5,9 @@
  * （readFmNames 逐文件 readFile），编辑器补全高频调用同步阻塞事件循环 ~80-200ms。
  * 修复后照抄 R46-16 settings 壳（目录指纹 + 纯 TTL + FIFO 上限 + forgetSettingsCache
  * 书键挂点），响应形状 {characters, items} 不变；TTL 测试钩子与 settings 壳共用。
+ * win 合并批（2026-09-13）适配：R0912-ds41 同题在 win 树独立落地且读面异步化
+ * （readFileFmOnly 头读 + handler async），合并合成后直调改 await；TTL 生效值链
+ * = 本壳注入口 → settings 注入口 → 常量（断言面不受影响，本测试只复位 settings 档）。
  */
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -39,8 +42,8 @@ afterAll(async () => {
 describe('重评-0912-4 deepseek-P2-2: completion-names 缓存壳', () => {
   it('连续请求 → 一次全量扫描（TTL+指纹命中），响应形状不变；端点走同一壳', async () => {
     __resetCompletionNamesScanCountForTest()
-    const a = getCompletionNamesCached(studio.bookRoot) as { characters: string[]; items: string[] }
-    const b = getCompletionNamesCached(studio.bookRoot) as { characters: string[]; items: string[] }
+    const a = (await getCompletionNamesCached(studio.bookRoot)) as { characters: string[]; items: string[] }
+    const b = (await getCompletionNamesCached(studio.bookRoot)) as { characters: string[]; items: string[] }
     expect(a).toEqual({ characters: ['林远'], items: [] })
     expect(b).toEqual(a)
     expect(__completionNamesScanCountForTest()).toBe(1)
@@ -53,7 +56,7 @@ describe('重评-0912-4 deepseek-P2-2: completion-names 缓存壳', () => {
 
   it('角色目录 mtime 变化（新建角色卡）→ 指纹失配重算，新名可见', async () => {
     writeFileSync(join(studio.bookRoot, '设定', '角色', '赵衡.md'), '---\n姓名: 赵衡\n---\n\n反派。', 'utf-8')
-    const r = getCompletionNamesCached(studio.bookRoot) as { characters: string[] }
+    const r = (await getCompletionNamesCached(studio.bookRoot)) as { characters: string[] }
     expect(r.characters).toEqual(expect.arrayContaining(['林远', '赵衡']))
     expect(__completionNamesScanCountForTest()).toBe(2)
   })
@@ -61,7 +64,7 @@ describe('重评-0912-4 deepseek-P2-2: completion-names 缓存壳', () => {
   it('forgetSettingsCache（删书/改名挂点）同清两壳 → 下次请求重算', async () => {
     __resetCompletionNamesScanCountForTest()
     forgetSettingsCache(studio.bookRoot)
-    getCompletionNamesCached(studio.bookRoot)
+    await getCompletionNamesCached(studio.bookRoot)
     expect(__completionNamesScanCountForTest()).toBe(1)
   })
 })

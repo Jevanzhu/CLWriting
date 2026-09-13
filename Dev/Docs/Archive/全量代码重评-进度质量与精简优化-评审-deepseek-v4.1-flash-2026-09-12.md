@@ -6,7 +6,7 @@
 - 评审对象：`win` 分支 HEAD `9342bf2d`（工作树含 2 篇未跟踪游离件，无在途代码改动；本批零代码改动）
 - 作者指令：「忽略现有的评审文档，重新评审一遍项目所有代码，注意分析代码的优化和精简问题，最后告诉我项目完成进度，完成质量，结果形成一个文档给我。记得编排下任务，子agent不要超过2个。」
 - 独立性：**主审与两个子代理全程未读 `Dev/Docs/**`（含 `01-评审/`、`Archive/`）**，结论一律以代码事实与亲跑实测为依据；与既有登记的重复识别由主审事后完成。
-- 状态：**未收口**（处置建议见 §七）
+- 状态：**已收口**（2026-09-13 修复批 R0912-ds41 全清，收口记 = §十；收口后归档 `Archive/`）
 
 ---
 
@@ -239,3 +239,19 @@
 - 全域死导出扫描（`export function` 全量枚举 + 跨 `src`/`test`/`scripts` 引用计数）、死类型/死接口逐符号枚举、CSS 重复规则体统计、`>800` 行文件清单
 
 **本批零代码改动**：仅本报告落盘 + 文档链同步（`Dev/Docs/README.md` 计数、总览 §1.3、台账 §一、`Archive/README.md` 批记行）。工作树原有 2 篇未跟踪游离件（`01-评审/全量代码重审与进度质量评估-评审-deepseek-flash-2026-09-10.md`、`Archive/全量代码重审与进度质量评估-评审-deepseek-v4-flash-2026-09-09.md`）维持不动，处置仍待作者定夺。
+
+---
+
+## 十、收口记（2026-09-13 修复批 R0912-ds41）
+
+作者指令：「还剩哪些没修复」→「**全部修复！开始吧。**」。P2×2 全修 + P3 择收 15 / 维持 1（P3-15 >800 行文件维持登记——报告 §五 自裁定「纯移动拆分净减 ≈0」属观察项非缺陷）。编排 = 四波文件互斥修复代理，全程在途 ≤2（RPM=10 作者指令约束下的实际并发形态）：波 1a 两路（A1 SRV = P2-2/P3-2/P3-8/P3-9 + A2 死码 = P3-1/3/4/6）→ 波 1b 两路（A3 worker 壳+useSse = P3-5/P3-12 + B2 端口迁移 = P2-1）→ 波 2 两路（B1 前端 CSS = P3-10/P3-11 + B3 sleep 收敛 = P3-14）→ 波 3 单路（C1 冗余导出 = P3-13）；主审逐 diff 复核全量。
+
+**修复要点**：P2-2 `readFmNames` 异步化 + `frontmatter.ts` 新增 `readFileFmOnly`（头部 8KB 限量提 fm，围栏不完整回退全读，解析与文案单源不变）+ completion-names「目录指纹（角色/物品两目录 mtime）+ TTL 5s + FIFO 32」缓存壳（TTL/MISS 计数注入钩子对齐 R46-16 先例）；P2-1 测试装置 14 文件 18 处绑定点全迁 `startServerSafe`（api-integration:38 构造即抛不绑端口为例外留裸+注；y2 重绑 listen 形态一并收编）；P3-1 events/types.ts 15 个零引用载荷接口逐个精确删（−109 行，LayerName/LlmCallData/LlmRetryData 活码保住）；P3-2 补门收编非裸删——新增 ttl-gates 测试 6 用例后 5 个原零引用钩子全部有消费方，零删除；P3-6 新建 `src/shared/short-defaults.ts` 单源（零内部依赖结构化类型，两消费方赋值兼容展开）；P3-8 重验判定+信封文案一并收敛 `book-context.ts` `bookMovedFailure` 单源；P3-9 versions-prune 照 analysis 端点形态补 `orchestrationBusyFor` 前置双查；P3-5 三份 worker 运行器抽公共壳 `src/worker-async.ts`（86 行，rebuild 单飞/style-scan 在途跟踪两差异语义留域内，净 −20 行如实申报低于预期）；P3-10 收 18 组同名同体规则（40 块删除 + utilities.css 全局装载，`.spin` 仅众数档 0.9s 归一、真异档保留；净 −55 行如实申报，评审 −400~900 口径含跨类名重复须改模板类名，超出「类名不改」红线不可收）；P3-11 settings-shared.css 39 条规则加 `.settings-content` 前缀收窄（`.text-input`/`.save-btn` 等装载序竞态面保守未动并记因）；P3-12 useSse onerror 改闭包捕获实例（sock）；P3-13 冗余导出摘除 **218 处/122 文件**（评审 89 仅 studio 两域口径，本次全 src 树扫描新增核心域 141 处）；P3-14 本地 sleep 28 份清零收编 `wait-for.ts` 单源（84 调用点零漂移）。
+
+**主审修正 3 处**：P3-8 代理按「响应逐字节不变」保守保留旧文案，主审核定单源头注「reason 人话各端点一致」即设计不变量、旧文案全域仅此一处且零测试钉值，改判为文案归一；A2 头注批属笔误（「第十篇独立重评修复批」→「重评-deepseek-v4.1-flash 修复批」）随复核改正；A1 新测试内 2 份本地 sleep 落在 B3 铁律不碰面之外（并行批次边界），由主审收尾收编 `wait-for.ts`。
+
+**新增测试 6 文件 21 用例**（全 `r0912-ds41-` 锚、无平台门）：completion-names-cache 4 / ttl-gates 6 / prune-gate 2 / worker-shell 6 / sse-onerror-capture 1 / short-defaults 2。
+
+**L2 终门九件套亲跑全绿**：vitest **1101 文件 = 7005 过 + 84 跳 0 败** + tsc/vue-tsc 0 错 + eslint 0/0（--max-warnings 0）+ 三 check 过（counts 修账 1095/7063 → **1101/7084** 五处后绿；packaging；knowledge 13 条）+ build:web 过 + e2e 43 过 2 跳〔45.7s〕+ soak 两段 OK（−0.02MB / +0.06MB）+ electron-builder --dir 出包实锤 EXIT 0（asar 含本次构建 worker 三件 + `src/worker-async.ts` 壳单源 + BOOK_MOVED 单源文案 + completion 缓存与 prune 闸；`dist/desktop/fontlist` 为 darwin 专属件，win 侧对应面 font-list 原生库解包在位）。根 README 修账五处（徽章 / npm test / 状态段 / 技术栈行 / win 实跑口径句：1101 文件 = 7005 过 + 84 跳，与 7084 − 79 吻合，差值 79 恒定锚保持）。
+
+改动面：src 96 文件改 + 新增源件 3（`worker-async.ts` / `shared/short-defaults.ts` / web-next `styles/utilities.css`）+ test 改 ~150 文件 / 新增 6 + 根 README；净行数 src/test 合计约 **−300**（死码删除与 CSS/helper 收敛收益被新壳、锚测试与收敛头注部分回填，逐项口径见上文各条）。文档链收口：本报告补 §十后归档 `Archive/`（01-评审 2→1、Archive 21→22）；台账 §一 行收口移出（原行冻结 台账历史明细 §十）+ §三 B/G 两域 4 行处置态回填【已处置·R0912-ds41】；总览 §1.3 行收口移出（原表行冻结 总览历史明细 §十一）；`Dev/Docs/README.md` 计数与 `Archive/README.md` 批记行随批更新。2 篇 deepseek 游离件维持未跟踪待作者定。

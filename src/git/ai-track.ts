@@ -35,7 +35,7 @@ import {
 const REF_ROOT = 'refs/clwriting/ai'
 
 /** AI 版轨迹项（列出用） */
-export interface AiVersion {
+interface AiVersion {
   ref: string
   ulid: string // 时间序即版本序（含 48bit 毫秒时间戳）
   sha: string

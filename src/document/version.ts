@@ -76,7 +76,7 @@ function findVersionFile(versionsDir: string, docId: string, id: string): string
   return null
 }
 
-export interface VersionMeta {
+interface VersionMeta {
   /** 来源：autosave 编辑快照 / manual 手动留底 / finalize 定稿 / restore 恢复 / rename / delete… */
   origin: string
   reason?: string
@@ -87,7 +87,7 @@ export interface VersionMeta {
   pinned?: boolean
 }
 
-export interface VersionInfo {
+interface VersionInfo {
   id: string
   path: string
 }
@@ -139,7 +139,7 @@ export function readGlobalSnapshotPolicy(userDataPath: string | null): { maxDays
   }
 }
 
-export interface WriteVersionOptions {
+interface WriteVersionOptions {
   policy?: VersionPolicy
   /** 跳过节流：删除/改名前留底、restore 覆盖前留底等"必须留"的时刻。 */
   force?: boolean

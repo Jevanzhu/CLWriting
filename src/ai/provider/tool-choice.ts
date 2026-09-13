@@ -10,8 +10,6 @@
  */
 import type { GenRequest } from './types.js'
 
-export type ToolChoiceAction = 'force-named' | 'force' | 'auto' | 'none'
-
 /** 判别联合：force-named 才带 name（适配器发射点收窄为 string，无需非空断言） */
 export type ToolChoiceIntent =
   | { action: 'force-named'; name: string }

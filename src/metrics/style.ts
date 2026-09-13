@@ -40,7 +40,7 @@ export interface FullStyleStats extends StyleStats {
 
 /** 基线指纹（文风方案 §5.2，byScene + overall）。version 1 持续兼容：字段只增不改，
  *  旧文件缺新字段（如 R75-1 的 charCount）由 coerceStats 容忍保留缺失语义。 */
-export interface StyleBaseline {
+interface StyleBaseline {
   version: number
   frozenAt: string
   frozenFrom: string
@@ -77,7 +77,7 @@ export interface StyleTrend {
   baseline: StyleBaseline | null
 }
 
-export interface StyleDrift {
+interface StyleDrift {
   metric: string
   message: string
 }

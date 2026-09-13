@@ -35,7 +35,7 @@ import { parseBookConfig } from '../format/yaml.js'
 import { log } from '../log/index.js'
 
 /** 迁移汇总（供测试断言 + 启动日志） */
-export interface MigrateBookDefaultsResult {
+interface MigrateBookDefaultsResult {
   /** 检查的书数（books.jsonl 登记的全部书） */
   books: number
   /** 实际改写的书数（幂等重跑时为 0） */

@@ -188,19 +188,10 @@ watch(() => props.bookName, () => load(), { immediate: true })
 .tree-item:hover {
   background: var(--background-modifier-hover);
 }
-.dot-slot {
-  width: 14px;
-  display: flex;
-  justify-content: center;
-  flex-shrink: 0;
-}
 .dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-}
-.dot-gray {
-  background: var(--text-faint);
 }
 .label {
   flex: 1;

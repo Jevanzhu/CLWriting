@@ -14,7 +14,7 @@
 import type { ToolDef } from '../provider/types.js'
 
 /** 工具风险分级 */
-export type ToolRisk = 'readonly' | 'write'
+type ToolRisk = 'readonly' | 'write'
 
 /** 工具风险分级（R76-13：未注册工具不进分级——执行侧直接 isError 回填，不再按
  *  write 从严弹确认卡；`?? 'write'` 仅作防御性兜底，正常路径不可达） */

@@ -29,8 +29,7 @@ import {
 import { writeAnalysis, type Envelope } from '../../src/document/analysis.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
-
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
+import { sleep } from '../helpers/wait-for.js'
 
 let roots: string[] = []
 

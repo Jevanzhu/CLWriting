@@ -7,7 +7,7 @@ export interface RhythmDist {
   [key: string]: number
 }
 
-export interface RhythmTrack {
+interface RhythmTrack {
   count: number
   hookTypeDist: RhythmDist
   hookLevelDist: RhythmDist
@@ -15,7 +15,7 @@ export interface RhythmTrack {
   sceneDist: RhythmDist
 }
 
-export interface RhythmWordPoint {
+interface RhythmWordPoint {
   章号: number
   标题: string
   字数: number

@@ -18,11 +18,10 @@ import {
   __getInFlightWorkCount,
 } from '../../src/studio/server/api/in-flight-work.js'
 import { __getSseConnections } from '../../src/studio/server/api/stream.js'
+import { sleep } from '../helpers/wait-for.js'
 
 const BOOK = '退出收尾书'
 let workDir = ''
-
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
 beforeAll(() => {
   workDir = mkdtempSync(join(tmpdir(), 'clwriting-r0910w-'))

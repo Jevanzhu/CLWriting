@@ -827,8 +827,11 @@ export async function applyChapterSplit(
   })
   if (!saved.ok) return fail(saved.code, saved.reason)
   // ② 新章落位（与原章同目录——卷归属随原章；文件名 sanitizeFileNamePart +
-  // chapterFilePrefix 单源；fm 序 = 两侧有效序中值）
-  const relPath = join(dirname(o.path), `${chapterFilePrefix(newChapterNo, 'chapter')}${sanitizeFileNamePart(title)}.md`)
+  // chapterFilePrefix 单源；fm 序 = 两侧有效序中值）。win 合并批（2026-09-13）：
+  // 仓库 relPath 正斜杠为规范形——win 的 path.join 产出反斜杠，会把整条路径带进
+  // doCreate 的单段消毒被洗成畸形文件名落书根（apply 200 但预期路径无文件）；
+  // 规范化与下方 detectStructureViolations 的 replaceAll 同款（macOS 上恒 no-op）。
+  const relPath = join(dirname(o.path), `${chapterFilePrefix(newChapterNo, 'chapter')}${sanitizeFileNamePart(title)}.md`).replaceAll('\\', '/')
   const newContent = `---\n章号: ${newChapterNo}\n标题: ${stringifyValue(title)}\n序: ${order}\n---\n${tail}${tail.endsWith('\n') ? '' : '\n'}`
   const created = await svc.createDocument({ relPath, content: newContent })
   if (!created.ok) {

@@ -15,7 +15,6 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect, afterEach } from 'vitest'
-import { startServer } from '../../src/studio/server/index.js'
 import { startServerSafe } from '../helpers/safe-port.js'
 
 let workDir = ''
@@ -110,8 +109,7 @@ beforeAll(async () => {
   token = ((await (await fetch(`${baseUrl}/api/boot`)).json()) as { token: string }).token
 
   cliWorkDir = mkdtempSync(join(tmpdir(), 'clwriting-api-err-cli-'))
-  cliServer = startServer({ port: 0, workDir: cliWorkDir })
-  await new Promise<void>((r) => cliServer!.once('listening', r))
+  cliServer = await startServerSafe({ port: 0, workDir: cliWorkDir })
   cliBaseUrl = `http://127.0.0.1:${(cliServer!.address() as AddressInfo).port}`
   cliToken = ((await (await fetch(`${cliBaseUrl}/api/boot`)).json()) as { token: string }).token
 })

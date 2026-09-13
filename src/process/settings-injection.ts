@@ -12,7 +12,7 @@
 import { pruneTextMiddle, PRUNE_MARKER } from './prune.js'
 
 /** 具体度：project(全书) 最宽泛 → chapter(本章) 最具体，宽泛者先丢 */
-export type SettingsSpecificity = 'project' | 'volume' | 'chapter'
+type SettingsSpecificity = 'project' | 'volume' | 'chapter'
 
 /** 设定层：调用方组装好正文（含 '## …' 标题头），本模块只管预算分配 */
 export interface SettingsLayer {

@@ -11,7 +11,7 @@
  * - 阈值内原样返回**原引用**（调用方用 === 判 no-op 跳过下游记账）。
  */
 
-export interface PruneOpts {
+interface PruneOpts {
   /** 超过该 code point 数才开始修剪（默认 4096；中文信息密度高，比 dsh 的 8192 调小） */
   threshold?: number
   /** 头部保留 code point 数（默认 2048） */

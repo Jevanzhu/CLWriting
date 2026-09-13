@@ -46,7 +46,7 @@ import { leadClosureItems } from '../check/leads.js'
 import { readDraft } from '../format/draft.js'
 import { log } from '../log/index.js'
 
-export type FinalizeOutcome =
+type FinalizeOutcome =
   | { ok: true; status: 'final'; skipped: boolean }
   | { ok: false; code: 'NOT_FOUND' | 'WRITE_ERROR' | 'LEAD_GATE' | 'LEAD_WRITE_ERROR'; error: string }
 

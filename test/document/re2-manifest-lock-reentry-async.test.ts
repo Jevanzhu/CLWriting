@@ -18,6 +18,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { join } from 'node:path'
 import { acquireCrossProcessLockAsync } from '../../src/fs/cross-process-lock.js'
 import { withManifestLock, withManifestLockAsync } from '../../src/document/manifest.js'
+import { sleep } from '../helpers/wait-for.js'
 
 let dir = ''
 let manifestPath = ''
@@ -25,8 +26,6 @@ beforeEach(() => {
   dir = mkdtempTracked('clw-re2-manifest-reentry-')
   manifestPath = join(dir, '项目', '文档清单.jsonl')
 })
-
-const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
 describe('重评2-P2-2①：重入 async fn 同进程排队串行化', () => {
   it('外层持锁、首个 fn await 在途时发起的重入 async 调用排队至其完成后执行——共享日志不交错；排队者执行期间跨进程锁仍被持有', async () => {

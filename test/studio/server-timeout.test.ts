@@ -5,17 +5,17 @@
  * 加固：keepAliveTimeout=30s 覆盖 AI 生成间隔;headersTimeout 必须 > keepAliveTimeout（Node v19+ 硬约束）。
  */
 import { describe, it, expect } from 'vitest'
-import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 
 describe('startServer keep-alive 治理（防 EPIPE）', () => {
-  it('keepAliveTimeout 拉长到 ≥30s（覆盖生成间隔）', () => {
-    const server = startServer({ port: 0 })
+  it('keepAliveTimeout 拉长到 ≥30s（覆盖生成间隔）', async () => {
+    const server = await startServerSafe({ port: 0 })
     expect(server.keepAliveTimeout).toBeGreaterThanOrEqual(30_000)
     server.close()
   })
 
-  it('headersTimeout > keepAliveTimeout（Node v19+ 硬约束）', () => {
-    const server = startServer({ port: 0 })
+  it('headersTimeout > keepAliveTimeout（Node v19+ 硬约束）', async () => {
+    const server = await startServerSafe({ port: 0 })
     expect(server.headersTimeout).toBeGreaterThan(server.keepAliveTimeout!)
     server.close()
   })

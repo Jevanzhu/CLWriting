@@ -34,7 +34,7 @@ const DEFAULT_THRESHOLDS: Record<LeadType, number> = {
 const OPEN_LEADS_CAP = 50
 
 /** 近况快照（供阶段 1 起草细纲 + 阶段 3 备料） */
-export interface StatusSnapshot {
+interface StatusSnapshot {
   /** 已定稿的最新章号（0 = 还没开始写） */
   currentChapter: number
   /** 当前卷号 */

@@ -207,9 +207,6 @@ async function onCommit(): Promise<void> {
 .btn.primary:hover:not(:disabled) {
   background: var(--interactive-accent-hover);
 }
-.spin {
-  animation: clw-spin 0.9s linear infinite;
-}
 
 /* 反馈条 */
 .banner {

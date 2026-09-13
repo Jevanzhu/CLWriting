@@ -15,7 +15,7 @@ import type { ChapterMeta } from './types.js'
 // R37-9：正文目录卷扫描 readdirSync 容错降级留痕（同 run.ts/runner.ts 口径）
 import { log } from '../log/index.js'
 
-export type ReadDraftResult =
+type ReadDraftResult =
   | { ok: true; chapter: ChapterMeta; body: string }
   | { ok: false; reason: string }
 
@@ -49,7 +49,7 @@ export function readDraft(draftPath: string, content?: string): ReadDraftResult 
 }
 
 /** 草稿 frontmatter 错误文案补全。 */
-export function draftParseReason(message: string): string {
+function draftParseReason(message: string): string {
   if (message.includes('front matter')) {
     return `${message}。草稿必须以章节 front matter 开头，至少包含：章号、标题、钩子类型、钩子强弱、情绪定位。`
   }

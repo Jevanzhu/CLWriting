@@ -59,7 +59,7 @@ export function configureTaskGateLockRoot(dir: string | null): void {
   lockRoot = dir
 }
 
-export interface TaskGateOptions {
+interface TaskGateOptions {
   /** 显式锁目录（测试注入临时目录用）；缺省用模块级 lockRoot。传 null 强制纯内存。 */
   lockDir?: string | null
   /** 进程存活判定（测试注入用）；缺省 process.kill(pid,0) 探测。 */
@@ -180,7 +180,7 @@ export const KNOWN_ACTIONS: readonly string[] = [
 ]
 
 /** R75-5：跨进程查询注入项（语义同 TaskGateOptions 对应字段）。 */
-export interface CrossProcessQueryOptions {
+interface CrossProcessQueryOptions {
   /** 显式锁目录（测试注入用）；缺省用模块级 lockRoot。 */
   lockDir?: string | null
   /** 进程存活判定（测试注入用）；缺省 process.kill(pid,0) 探测（与锁原语同源）。 */

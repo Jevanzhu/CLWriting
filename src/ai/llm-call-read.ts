@@ -39,7 +39,7 @@ export interface LlmCallReadRow {
   day: string
 }
 
-export interface ReadLlmCallRowsOptions {
+interface ReadLlmCallRowsOptions {
   /**
    * true = usage 缺失的行跳过（cost 侧 Q-12 口径：判跳看 usage 而非 ok——失败调用
    * 可携真实 usage 入账，失败且无 usage 才跳过，报表不系统性低于预算闸/真实账单）；

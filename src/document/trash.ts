@@ -50,7 +50,7 @@ export type RestoreResult =
   | { ok: true; id: string; path: string }
   | { ok: false; code: 'NOT_FOUND' | 'OCCUPIED' | 'WRITE_ERROR'; reason: string }
 
-export type PurgeResult =
+type PurgeResult =
   | { ok: true; id: string }
   | { ok: false; code: 'NOT_FOUND' | 'WRITE_ERROR'; reason: string }
 

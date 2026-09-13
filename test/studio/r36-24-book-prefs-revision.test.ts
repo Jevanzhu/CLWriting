@@ -20,7 +20,7 @@ import { mkdtempSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
-import { startServer } from '../../src/studio/server/index.js'
+import { startServerSafe } from '../helpers/safe-port.js'
 import { doInit } from '../../src/install/init.js'
 
 let workDir = ''
@@ -85,8 +85,7 @@ beforeAll(async () => {
   const init = doInit({ workDir, name: BOOK, genre: '玄幻' })
   if (!init.ok) throw new Error(init.reason)
   bookPrefsPath = join(init.bookRoot, '.clwriting', 'prefs.json')
-  server = startServer({ port: 0, workDir, userDataPath })
-  await new Promise<void>((r) => server!.once('listening', r))
+  server = await startServerSafe({ port: 0, workDir, userDataPath })
   baseUrl = `http://127.0.0.1:${(server!.address() as AddressInfo).port}`
   const r = await fetch(`${baseUrl}/api/boot`)
   token = ((await r.json()) as { token: string }).token

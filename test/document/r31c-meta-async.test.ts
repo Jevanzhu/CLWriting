@@ -20,6 +20,7 @@ import { __setManifestLockTimeoutForTest } from '../../src/document/manifest.js'
 import { processBootTime } from '../../src/fs/cross-process-lock.js'
 import { readManifest } from '../../src/document/manifest.js'
 import { legacyId } from '../../src/document/stable-id.js'
+import { sleep } from '../helpers/wait-for.js'
 
 let bookRoot: string
 let svc: DocumentService
@@ -46,8 +47,6 @@ function holdLock(targetAbs: string): void {
   mkdirSync(dirname(targetAbs), { recursive: true })
   writeFileSync(`${targetAbs}.lock`, JSON.stringify({ pid: process.pid, bootTime: processBootTime() }), 'utf-8')
 }
-
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
 describe('R31-20: meta PATCH 锁等待不阻塞事件循环', () => {
   it('updateChapterMeta 等锁期间定时器照常触发（探针），锁释放后保存成功', async () => {
