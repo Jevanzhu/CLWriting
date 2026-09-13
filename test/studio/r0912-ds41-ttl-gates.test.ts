@@ -22,6 +22,8 @@ import {
   __settingsScanCountForTest,
   __resetSettingsScanCountForTest,
   forgetSettingsCache,
+  __completionNamesScanCountForTest,
+  __resetCompletionNamesScanCountForTest,
 } from '../../src/studio/server/api/settings.js'
 import {
   __setOverviewCacheTtlForTest,
@@ -34,6 +36,7 @@ const BOOK = 'R0912缓存门书'
 let studio: StudioHarness
 const SETTINGS_PATH = `/api/books/${encodeURIComponent(BOOK)}/settings`
 const OVERVIEW_PATH = `/api/books/${encodeURIComponent(BOOK)}/overview`
+const NAMES_PATH = `/api/books/${encodeURIComponent(BOOK)}/completion-names`
 
 beforeAll(async () => {
   // 只接管 Date（两级缓存 TTL 判定全读 Date.now()）；worker 重建/HTTP/真实 I/O 照常
@@ -128,5 +131,30 @@ describe('R0912-ds41：overview 缓存壳 TTL 门（P3-2 补门收编）', () =>
     )
     await studio.req('GET', OVERVIEW_PATH)
     expect(__overviewScanCountForTest()).toBe(2)
+  })
+})
+
+// win 合并批复核批（2026-09-13）钉链：completion-names 壳 TTL 生效值链 = 自有注入口
+// → settings 注入口 → 常量（合并合成口径，settings.ts 壳块注）。中间档（settings 注入
+// 口回落档）此前零回归覆盖——本例钉死：自有档保持 null 时，settings 注入口的短档 TTL
+// 对 completion-names 端点生效（窗内命中 / 越窗重扫），防链被静默简化后全绿照旧。
+describe('R0912-ds41：TTL 生效值链中间档（completion 壳自有档缺省 → settings 注入口回落档生效）', () => {
+  it('settings 注入口 300ms → completion-names 端点窗内命中、越窗重扫（completion 默认档 5000 远未到）', async () => {
+    __resetCompletionNamesScanCountForTest()
+    __setSettingsCacheTtlForTest(300) // completion 自有注入口本文件未注入（保持 null）→ 走中间档
+    try {
+      const first = await studio.req('GET', NAMES_PATH)
+      expect(first.status).toBe(200)
+      expect(__completionNamesScanCountForTest()).toBe(1)
+      vi.advanceTimersByTime(100) // < 300：settings 中间档窗内
+      await studio.req('GET', NAMES_PATH)
+      expect(__completionNamesScanCountForTest()).toBe(1) // 命中：未重扫
+      vi.advanceTimersByTime(201) // 累计 301 > 300（若误走默认档 5000，此臂不会重扫）
+      const third = await studio.req('GET', NAMES_PATH)
+      expect(__completionNamesScanCountForTest()).toBe(2) // 中间档过期 → 重扫
+      expect(third.json).toEqual(first.json) // 盘上无变化 → 结果仍一致（证明确为 TTL 臂而非数据差）
+    } finally {
+      __setSettingsCacheTtlForTest(1000) // 还原本文件 beforeAll 基线，防泄漏到后续用例
+    }
   })
 })

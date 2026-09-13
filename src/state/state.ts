@@ -316,7 +316,10 @@ export async function detectState(
  *  与账本回写静默失效的观测项）。
  *  R34D-4（三十四轮）：kind 联合新增 'manifestEmpty'（清单在册可读但零文档条目、而正文区
  *  存在章节 .md 的哨兵——读侧三防线把解析级全损当合法空集 fail-open 的可见化；只加可见
- *  哨兵，不新增写阻断路径）。 */
+ *  哨兵，不新增写阻断路径）。
+ *  阶段 24 S5（2026-09-13 章节结构操作三批）：kind 联合新增 'structurePending'（结构操作
+ *  ①②间崩溃半成态哨兵——「并入」所指章仍存活于正文；detectStructureViolations 只读判定，
+ *  收敛 = apply 重跑幂等续跑 / undo 整体回退，盘面收敛报文自消，不进 acknowledge 闭环）。 */
 interface HealthIssue {
   kind: 'crashedWrite' | 'cloudCopy' | 'finalizedLost' | 'wiringMissing' | 'manifestEmpty' | 'structurePending'
   humanMsg: string

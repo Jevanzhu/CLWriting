@@ -1,6 +1,6 @@
 /**
  * R27-122（二十七轮）：E2E_SPEC_ORDER_SNAPSHOT 守卫落地——此前它是 playwright.config.ts
- * retries:0 注释里宣称却全仓库不存在的幻影防线。e2e 29 specs 共享 globalSetup 单一
+ * retries:0 注释里宣称却全仓库不存在的幻影防线。e2e 31 specs 共享 globalSetup 单一
  * workDir、按文件名字典序固有顺序跑（前序 spec 落盘是后序输入），新增/改名/删除 spec
  * 即漂移该契约而无人设防。本测试把 test/e2e/*.spec.ts 实际序列与 spec-order.snapshot.txt
  * 快照比对，漂移即红，迫使改序者确认有意后显式重拍快照。
@@ -20,7 +20,7 @@
  *   # 写入后必须连跑完整 e2e（npx playwright test）验证新顺序契约可执行
  *
  * 放 test/e2e/ 但 Playwright 不收集：*.test.ts 本会命中 Playwright 默认 testMatch、
- * 被收成第 30 个 spec 破坏 29-spec 顺序契约，已在 playwright.config.ts 用 testIgnore
+ * 被收成第 32 个 spec 破坏 31-spec 顺序契约，已在 playwright.config.ts 用 testIgnore
  * 排除本文件；vitest 侧由 include（test/ 下的 *.test.ts，见 vitest.config.ts）自然纳管。
  * （vitest helpers 的 mkdtempTracked 顶层 import vitest 与 Playwright 语境互斥，本文件
  * 是 vitest 用例、纯 fs 比对无临时目录，不涉该取舍。）
