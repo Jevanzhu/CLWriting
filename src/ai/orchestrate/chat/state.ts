@@ -129,14 +129,14 @@ export async function clearChatHistory(
     // 收尾继续向已清 session 追加事件（清不彻底 + 事件复活）。拒清时返回理由由调用方
     // 转 409；此处内存已清是良性前置：在途任务持数组引用续写不丢、重开面板从事件库
     // （未清）重放，两侧自愈对齐。无 gate / 纯内存调用（books.ts 改名等）行为不变。
-    const blocked = opts?.gate?.() ?? null
-    if (blocked) {
-      store?.close()
-      return blocked
-    }
+    // 复审-0914-修复批 P3-R1-1：复查收进 clearBooks 的 try——store.close() 单点收敛
+    //（原拒清分支手写 close 与 finally 重复），gate 回调纯谓词不抛（crossProcess 侧
+    // readdirSync 已吞错），异常安全随 try 兜底。
     // L-A2（第八轮）：clearBooks 本身也可抛（SQLITE_BUSY 超 busy_timeout / 磁盘满）——
     // 同款降级留痕：内存已清，事件库残留待修复后重清，重试可自愈
     try {
+      const blocked = opts?.gate?.() ?? null
+      if (blocked) return blocked
       store?.clearBooks([bookName, bookHash(bookRoot)])
     } catch (e) {
       log.warn('chat', `清史清除事件库行失败（内存已清、事件库待修复后重清）：${e instanceof Error ? e.message : String(e)}`)

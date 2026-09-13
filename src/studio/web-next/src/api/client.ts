@@ -256,9 +256,12 @@ export async function apiJson<T>(
       // R51-H-1（五十一轮）：2xx + 非 JSON 体不再静默回 {}——本 API 面服务端统一
       // JSON 信封、无 200-无体端点（原注「304/204 无体合法」与本面不符），静默 {}
       // 使 getContent 得 content:undefined、sha256Revision('undefined') 成错误基线，
-      // 首存必吃 REVISION_CONFLICT。仅 204/304（HTTP 语义无体合法）维持空对象口径，
+      // 首存必吃 REVISION_CONFLICT。仅 204（HTTP 语义无体合法）维持空对象口径，
       // 其余 2xx 坏体上抛 MALFORMED_RESPONSE；非 2xx 非 JSON 仍走下方 LOCAL_API_DOWN。
-      if (r.ok && r.status !== 204 && r.status !== 304) {
+      // 复审-0914-修复批 P3-R2-2（前科收口）：304 属 3xx、Response.ok 恒假，从不进
+      // 本分支（fetch 304 直落下方 !r.ok），原「仅 204/304 维持空对象」表述失实，
+      // 同名死条件 r.status !== 304 一并移除。
+      if (r.ok && r.status !== 204) {
         throw new ApiError('服务端返回了无法解析的响应体', r.status, 'MALFORMED_RESPONSE')
       }
       body = {} as T & { error?: string; code?: string }
@@ -283,9 +286,11 @@ export async function apiJson<T>(
     // r.json() 对「null」体解析成功（不进 catch），信封判别的 parsed !== null 使
     // hasEnvelope 为假、!r.ok 不命中，null 一路穿透到 return body。调用方按 T 消费
     // （getContent 得 content:undefined → sha256Revision('undefined') 错基线，R51-H-1
-    // 坏体同族）。null 是唯一可穿透的非法 JSON 字面量（true/数字/字符串同理无信封
-    // 无 error 字段，但那些至少可被 typeof 消费；null/undefined 使可选链与解构静默
-    // 空转）——对齐 204/304 之外的坏体口径上抛 MALFORMED_RESPONSE，不静默放行。
+    // 坏体同族）。null 是本面实测可达的坏体形态（本面 T 全为对象/数组、无产出裸字面
+    // 量的端点），守卫锚定 null 收口为最小修复。复审-0914-修复批 P3-R2-1 记正：其余
+    // 裸字面量（true/数字/字符串）并非「可被 typeof 消费」而无害——信封字段消费
+    // （body.error 等）对一切非对象都静默 undefined，与 null 失效同族，属理论面维持
+    // 穿透。对齐 204 之外的坏体口径上抛 MALFORMED_RESPONSE，不静默放行。
     if (body === null) {
       throw new ApiError('服务端返回了无法解析的响应体', r.status, 'MALFORMED_RESPONSE')
     }

@@ -253,9 +253,8 @@ export function spawnCollectKillFonts(command: string, args: string[], p: SpawnC
         reject(new Error(`${p.exitCodeErrorPrefix}退出码 ${code ?? 'null'}${errText ? `：${errText.slice(0, 200)}` : ''}`))
         return
       }
-      // 重评二轮-P2-2：结算解码可注入（缺省 UTF-8，原行为）——reg.exe 通道按 OEM 码页
-      // 落字节，注入码页感知解码（win-fonts decodeRegOutput）
-      resolve(p.parse(p.decodeStdout ? p.decodeStdout(Buffer.concat(outParts)) : Buffer.concat(outParts).toString('utf8')))
+      const out = Buffer.concat(outParts)
+      resolve(p.parse(p.decodeStdout ? p.decodeStdout(out) : out.toString('utf8')))
     })
   })
 }

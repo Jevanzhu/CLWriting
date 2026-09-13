@@ -154,6 +154,13 @@ let versionStatsTtlMs: number | null = null
 export function __setVersionStatsTtlForTest(ms: number | null): void {
   versionStatsTtlMs = ms
 }
+/** 复审-0914-修复批 P3-R3-3：restore 处理器读体前让出注入口——测试用其在
+ *  readJson 窗口内确定性改盘（改名/删书），替代真实 40ms 竞态 timer（先例同
+ *  __setLearnCommitYieldForTest）。生产 null 零行为差异。仅测试用。 */
+let snapshotsRestoreYieldForTest: (() => Promise<void>) | null = null
+export function __setSnapshotsRestoreYieldForTest(fn: (() => Promise<void>) | null): void {
+  snapshotsRestoreYieldForTest = fn
+}
 /** R36-7：写侧失效挂点——prune/restore 落盘后调用（本文件内写路径）。 */
 export function forgetVersionStatsCache(bookRoot: string): void {
   versionStatsCache.delete(bookRoot)
@@ -501,6 +508,7 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
         ? snap.content.toString('utf-8')
         : snap.content
 
+      if (snapshotsRestoreYieldForTest) await snapshotsRestoreYieldForTest()
       const body = (await readJson(req)) as { expectedRevision?: unknown }
       const expectedRevision =
         typeof body.expectedRevision === 'string' ? (body.expectedRevision as Revision) : null

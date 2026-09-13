@@ -12,7 +12,7 @@
  * audit DELETE 同口径）见 test/studio/chat-clear-gates.test.ts。
  */
 import { describe, expect, it, afterEach } from 'vitest'
-import { rmSync } from 'node:fs'
+import { existsSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
@@ -72,5 +72,25 @@ describe('重评二轮-P3-2: clearChatHistory gate 清库前复查', () => {
     const reason = await clearChatHistory(BOOK, ud, bookRoot)
     expect(reason).toBe(null)
     expect(counts(ud, bookRoot)).toEqual({ chat: 0, ws: 0 })
+  })
+
+  // 复审-0914-修复批 P3-R3-2：调用序时点钉——gate 必须在 openSessionStoreAsync 的
+  // await 之后回调（复查才有意义）。全新 ud 无库文件，首开创建 db；gate 视角库文件
+  // 已存在 = 时序正确。若复查被挪到开库 await 之前（窗口防护失效），本断言即红。
+  it('gate 调用时点 = 开库 await 之后（全新 ud 上首开库文件在 gate 视角已落盘）', async () => {
+    const ud = mkdtempTracked(join(tmpdir(), 'clw-clear-gate-ts-'))
+    dirs.push(ud)
+    const bookRoot = join(ud, '长篇', BOOK)
+    const dbPath = join(ud, 'clwriting', 'session', bookHash(bookRoot) + '.db')
+    expect(existsSync(dbPath)).toBe(false) // 前置：全新 ud 无库文件
+    let gateSawDb = false
+    const reason = await clearChatHistory(BOOK, ud, bookRoot, {
+      gate: () => {
+        gateSawDb = existsSync(dbPath)
+        return null
+      },
+    })
+    expect(reason).toBe(null)
+    expect(gateSawDb).toBe(true)
   })
 })
