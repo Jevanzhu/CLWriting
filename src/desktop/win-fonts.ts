@@ -37,6 +37,7 @@ import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { bareFontName, compareFontNames, fontListProbeWithBreaker, spawnCollectKillFonts } from './font-cache.js'
+import { log } from '../log/index.js'
 
 /** PowerShell 枚举脚本（对齐 font-list getByPowerShell：chcp 65001 + UTF-8 输出编码）。 */
 const PS_FONT_SCRIPT = [
@@ -46,6 +47,11 @@ const PS_FONT_SCRIPT = [
   '$families=[Windows.Media.Fonts]::SystemFontFamilies',
   "foreach($family in $families){$name='';if(!$family.FamilyNames.TryGetValue([Windows.Markup.XmlLanguage]::GetLanguage('zh-cn'),[ref]$name)){$name=$family.FamilyNames[[Windows.Markup.XmlLanguage]::GetLanguage('en-us')]}echo $name}",
 ].join(';')
+
+/** R0913-win P2-3：注册表字体键（GDI 注册名权威源）。HKLM = 全机字体；HKCU =
+ *  当前用户字体（Win10 1809+ per-user 安装），键可能不存在（查询失败跳过）。 */
+const HKLM_FONTS_KEY = 'HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts'
+const HKCU_FONTS_KEY = 'HKCU\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts'
 
 /** 子进程句柄的最小面（测试注入用；生产 spawn 返回的 ChildProcess 结构性满足）。 */
 export interface FontSpawnChild {
@@ -76,6 +82,63 @@ function resolvePowershellExe(): string {
     if (existsSync(abs)) return abs
   }
   return 'powershell.exe'
+}
+
+/** R0913-win P2-3：reg.exe 绝对路径解析（同 resolvePowershellExe 口径——SystemRoot
+ *  恒在，PATH 裁剪环境不依赖 PATH）。reg.exe 是 System32 常驻原生工具，不经
+ *  PowerShell（不受 Constrained Language Mode / AppLocker / 杀软拦 PS 影响）。 */
+function resolveRegExe(): string {
+  const sysRoot = process.env['SystemRoot'] ?? process.env['windir']
+  if (sysRoot) {
+    const abs = join(sysRoot, 'System32', 'reg.exe')
+    if (existsSync(abs)) return abs
+  }
+  return 'reg.exe'
+}
+
+/** R0913-win P2-3：注册表 Fonts 键值名 → 字体族名（纯函数，测试锚定）。
+ *  reg query 输出行形态：`    Arial (TrueType)    REG_SZ    arial.ttf`——值名即字体
+ *  注册名，剥「(TrueType)/(OpenType)/(Bitmap)/(Vector)（+ Variable）」类注册后缀；
+ *  键头行（无 REG_SZ）与默认值行（(默认)/(Default)）跳过；同名去重 + 与 PS 通道
+ *  同款排序。注册表面是 GDI 注册名（含 weight 变体名如 Segoe UI Bold），族名纯度
+ *  不及 PresentationCore——仅作 PS 被禁环境的回落通道，宁可名字粒度粗不可空表。 */
+export function parseRegFontsQueryOutput(out: string): string[] {
+  const fonts = new Set<string>()
+  for (const raw of out.replace(/^\uFEFF/, '').split('\n')) {
+    const m = /^(.+?)\s{2,}REG_SZ(?:\s|$)/.exec(raw.trimEnd())
+    if (!m) continue
+    const regName = m[1]!
+      .replace(/\s*\((?:TrueType|OpenType|Bitmap|Vector)(?:\s+Variable)?\)$/i, '')
+      .trim()
+    if (regName === '' || regName.startsWith('(')) continue // (默认)/(Default) 等非字体值
+    const f = bareFontName(regName)
+    if (f !== '') fonts.add(f)
+  }
+  const list = [...fonts]
+  list.sort(compareFontNames)
+  return list
+}
+
+/** 重评二轮-P2-2（2026-09-13 全库源码重评二轮 GLM-5.3）：reg.exe 输出解码——reg 按
+ *  控制台 OEM 码页落字节（zh-CN = GBK/936），此前 spawnCollectKillFonts 骨架统一
+ *  toString('utf8') 把中文字体名解成 U+FFFD 串（本机字节级实证：OEM 936，
+ *  「方正粗黑宋简体」= B7 BD D5 FD B4 D6 BA DA CB CE BC F2 CC E5 恰 GBK、严格 UTF-8
+ *  解码失败），回落通道对其目标受众（受限中文机器）恰交付乱码半残表。解码序：严格
+ *  UTF-8 试解（ASCII 是两码公共子集，纯 ASCII 输出零风险直过）→ 失败回落
+ *  TextDecoder('gbk')（Node 24 自带 full-icu）→ gbk 解码器不可用（裁剪 icu 的小形态）
+ *  宽容 UTF-8 保底（替换符降级，不硬败——字体表宁半残不空）。纯函数，测试锚定
+ *  （GBK 字节进 → 中文字体名出）。PS 通道自设 chcp 65001 + UTF-8 输出编码不经本解码
+ *  （维持骨架缺省）。 */
+export function decodeRegOutput(buf: Buffer): string {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(buf)
+  } catch {
+    try {
+      return new TextDecoder('gbk').decode(buf)
+    } catch {
+      return buf.toString('utf8')
+    }
+  }
 }
 
 /** PowerShell stdout → 字体名数组（R0912-A-P3-3 起为 spawnCollectKillFonts 骨架的结算
@@ -111,14 +174,58 @@ export async function listWindowsFonts(deps: ListWindowsFontsDeps = {}): Promise
   // （windowsHide + 数组参数不经 shell 纪律随骨架单点化），本函数保留平台守卫 /
   // PS 脚本常量 / 熔断包装与 win 文案（超时/退出码，测试锚定）；R39-5 超时 kill 语义
   // 不变（骨架缺省 SIGTERM，win 上等价原 kill() 的 TerminateProcess）。
-  return await fontListProbeWithBreaker(
-    () =>
-      spawnCollectKillFonts(psExe, ['-NoProfile', '-NonInteractive', '-Command', PS_FONT_SCRIPT], {
-        doSpawn,
-        timeoutMs,
-        timeoutMessage: `powershell 字体枚举超过 ${timeoutMs}ms 未退出，已中止`,
-        exitCodeErrorPrefix: 'powershell 字体枚举',
-        parse: parsePowerShellFontStdout,
-      }),
-  )
+  //
+  // R0913-win P2-3（2026-09-13 全库源码重评 win 适配修复批）：PS 失败/空表 → 注册表
+  // 回落。此前 win 字体枚举唯一通道是 PowerShell + PresentationCore，受限环境（PS
+  // Constrained Language Mode / AppLocker / 杀软拦 PS）下必败，连败 2 次熔断后字体
+  // 下拉整会话静默返空且无用户可见提示。回落通道 = reg.exe query HKLM/HKCU Fonts 键
+  // 值名（不经 PS，System32 常驻；键不存在 → 跳过该键）。PS 首因错误保留——回落也
+  // 无结果时原样上抛（诊断归因不丢）；熔断仍包裹整体（PS + 回落为一个尝试单元），
+  // 连败照旧秒降级、回落成功清零计数。
+  return await fontListProbeWithBreaker(async () => {
+    let psError: unknown = null
+    try {
+      const psFonts = await spawnCollectKillFonts(
+        psExe,
+        ['-NoProfile', '-NonInteractive', '-Command', PS_FONT_SCRIPT],
+        {
+          doSpawn,
+          timeoutMs,
+          timeoutMessage: `powershell 字体枚举超过 ${timeoutMs}ms 未退出，已中止`,
+          exitCodeErrorPrefix: 'powershell 字体枚举',
+          parse: parsePowerShellFontStdout,
+        },
+      )
+      if (psFonts.length > 0) return psFonts
+      psError = new Error('powershell 字体枚举返回空表')
+    } catch (e) {
+      psError = e
+    }
+    log.warn(
+      'desktop',
+      `powershell 字体枚举不可用（${psError instanceof Error ? psError.message : String(psError)}），回落注册表枚举（HKLM/HKCU Fonts）——受限环境（PS 策略/杀软拦 PS）常见`,
+    )
+    const regExe = resolveRegExe()
+    const fonts = new Set<string>()
+    for (const key of [HKLM_FONTS_KEY, HKCU_FONTS_KEY]) {
+      try {
+        for (const f of await spawnCollectKillFonts(regExe, ['query', key], {
+          doSpawn,
+          timeoutMs,
+          timeoutMessage: `reg 字体枚举超过 ${timeoutMs}ms 未退出，已中止`,
+          exitCodeErrorPrefix: 'reg 字体枚举',
+          // 重评二轮-P2-2：reg 输出按 OEM 码页解码（严格 UTF-8 试解失败回落 GBK）——
+          // zh-CN 机器中文字体名不再整面 U+FFFD
+          decodeStdout: decodeRegOutput,
+          parse: parseRegFontsQueryOutput,
+        })) {
+          fonts.add(f)
+        }
+      } catch {
+        /* 键不存在（HKCU 未装用户字体）/ reg 不可用 → 跳过该键 */
+      }
+    }
+    if (fonts.size === 0) throw psError ?? new Error('win 字体枚举失败：powershell 与注册表通道均无结果')
+    return [...fonts]
+  })
 }

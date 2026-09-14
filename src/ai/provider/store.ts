@@ -18,6 +18,9 @@ import { atomicWriteFile, rmQuietly } from '../../fs/atomic.js'
 // 单源（R30-3 快路同步尝试 + 锁等待异步孪生语义不变——生成收尾路径与设置页保存在
 // CLI+桌面双进程争用窗口不再冻结事件循环，机制见 calls.ts crossProcessLockedWrite）
 import { serializedLockedWrite } from '../calls.js'
+// W-重评P3（重评-win适配修复批）：写链键折叠单源 writeChainKey——case-only/NFD 路径在
+// win/darwin 折叠同链（linux 原样），双进程争用时同链排队
+import { platformCaseFold } from '../../fs/safe-path.js'
 import { dirname, join } from 'node:path'
 import type { ProviderConf, ModelConf, TierSlot, TierConfig, RagProviderConf } from './types.js'
 import { builtinKeyMaterial } from './vault-key.js'
@@ -327,13 +330,21 @@ export function loadProviders(userDataPath: string): ProviderStore {
  */
 const writeChains = new Map<string, Promise<unknown>>()
 
+/** R0913-win P3-3（折叠键族，2026-09-13 全库源码重评 win 适配修复批）：写链键折叠
+ *  ——键此前为原始 userDataPath，同一目录以两种 case 寻址（盘符/路径大小写漂移）会
+ *  拆成两条进程内串行链，进程内互斥退化（跨进程文件锁仍兜底）。platformCaseFold
+ *  单源（win/darwin 折叠，linux 原样）；仅作进程内 Map 键，磁盘路径派生不受影响。 */
+function writeChainKey(userDataPath: string): string {
+  return platformCaseFold(userDataPath)
+}
+
 /** R73-2 跨进程锁等待超时（毫秒）——写段为本地文件 IO 级毫秒，5s 已极保守（同 calls.ts） */
 const PROVIDERS_WRITE_LOCK_TIMEOUT_MS = 5_000
 
 /** 测试辅助：向写链注入一段在途 promise（R29-2 排队路径回归用——空闲快路永不入链，
  *  生产代码无从触达排队段；生产零调用）。 */
 export function __seedProvidersWriteChainForTest(userDataPath: string, pending: Promise<unknown>): void {
-  writeChains.set(userDataPath, pending)
+  writeChains.set(writeChainKey(userDataPath), pending)
 }
 
 export function saveProviders(userDataPath: string, store: ProviderStore): Promise<void> {
@@ -343,10 +354,12 @@ export function saveProviders(userDataPath: string, store: ProviderStore): Promi
   // 逐位不变：returnInflight=true（在途/排队 promise 原样返回给 await 方）；快路同步完成
   // 返回 undefined，此处转 Promise.resolve()（R29-2：IO 异常照旧同步上抛，await 侧
   // try/catch 同样接得住）。
+  // W-重评P3 并合注：链键走 writeChainKey 折叠（case-only/NFD 路径同链排队，win 侧
+  // 修复与 C1 收编单源的接合点；__seedProvidersWriteChainForTest 同键口径）。
   const lockPath = join(userDataPath, `${FILE}.lock`)
   const r = serializedLockedWrite(
     writeChains,
-    userDataPath,
+    writeChainKey(userDataPath),
     lockPath,
     () => saveProvidersLocked(userDataPath, store),
     {

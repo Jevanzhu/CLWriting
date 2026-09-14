@@ -19,6 +19,7 @@
 import { readFileSync, statSync } from 'node:fs'
 import { readFile as readFileAsync, stat as statAsync } from 'node:fs/promises'
 import { sep } from 'node:path'
+import { platformCaseFold } from './safe-path.js'
 
 const MD_TEXT_CACHE_MAX = 4096
 let mdTextCacheMax = MD_TEXT_CACHE_MAX
@@ -113,10 +114,14 @@ export async function readMdTextCachedAsync(abs: string): Promise<string | null>
  *  未 resolve）构成，前缀用 bookRoot + sep 同源字节对齐（foreshadow 原本地缓存
  *  forgetChapterTextCacheForBook 同款口径）。返回清除条目数；清后键惰性重建。 */
 export function forgetMdTextCacheForBook(bookRoot: string): number {
-  const prefix = bookRoot + sep
+  // R0913-win P3（折叠键族，2026-09-13 全库源码重评 win 适配修复批）：前缀比较收编
+  // platformCaseFold（键字节不动、只折叠比较；cache/rebuild forgetChapterParseCacheForBook
+  // 同批同款）——同一书以不同 case 的 bookRoot 寻址（盘符/注册面漂移）时前缀失配
+  // 清不净（FIFO 4096 + 字节闸兜底内的内存卫生态）。linux 不折叠语义不变。
+  const prefix = platformCaseFold(bookRoot + sep)
   let removed = 0
   for (const key of mdTextCache.keys()) {
-    if (key.startsWith(prefix)) {
+    if (platformCaseFold(key).startsWith(prefix)) {
       dropEntryLocked(key) // 走计账出口，字节闸账本同步扣减
       removed++
     }

@@ -192,6 +192,13 @@ interface SpawnCollectKillParams {
   exitCodeErrorPrefix: string
   /** spawn error 打「启动面」标记（fontListSetupFailure，font-list 回落链消费）；win 侧不标。 */
   markSetupFailure?: boolean
+  /** close(0) 结算的 stdout 解码；缺省 UTF-8（toString('utf8')）。
+   *  重评二轮-P2-2（2026-09-13 全库源码重评二轮 GLM-5.3）：reg.exe 等按控制台 OEM 码页
+   *  落字节的命令需注入码页感知解码（严格 UTF-8 试解失败回落 GBK，见 win-fonts.ts
+   *  decodeRegOutput）——骨架原固定 toString('utf8') 把 zh-CN 机器 reg 输出的中文字体名
+   *  整面解成 U+FFFD（本机字节级实证）。PS/fontlist 通道自设 UTF-8 输出不注入，缺省
+   *  行为零变化。 */
+  decodeStdout?: (buf: Buffer) => string
   /** close(0) 结算解析：入参 = 整流解码后的 stdout 原文。 */
   parse: (stdout: string) => string[]
 }
@@ -246,7 +253,8 @@ export function spawnCollectKillFonts(command: string, args: string[], p: SpawnC
         reject(new Error(`${p.exitCodeErrorPrefix}退出码 ${code ?? 'null'}${errText ? `：${errText.slice(0, 200)}` : ''}`))
         return
       }
-      resolve(p.parse(Buffer.concat(outParts).toString('utf8')))
+      const out = Buffer.concat(outParts)
+      resolve(p.parse(p.decodeStdout ? p.decodeStdout(out) : out.toString('utf8')))
     })
   })
 }

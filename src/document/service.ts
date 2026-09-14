@@ -158,7 +158,7 @@ interface CreateDocumentInput {
 /** 新建结果。 */
 export type CreateResult =
   | { ok: true; docId: string; path: string; revision: `sha256:${string}` }
-  | { ok: false; code: 'PATH_ESCAPE' | 'CAPABILITY_DENIED' | 'ALREADY_EXISTS' | 'WRITE_ERROR'; reason: string }
+  | { ok: false; code: 'PATH_ESCAPE' | 'CAPABILITY_DENIED' | 'ALREADY_EXISTS' | 'WRITE_ERROR' | 'BAD_INPUT'; reason: string }
 
 /** 复制文档输入（E3.3）。relPath 由前端算好章号 +「副本」标题；后端复制源内容到该 path。 */
 interface CopyDocumentInput {
@@ -952,6 +952,14 @@ export class DocumentService {
       const created = createFileExclusive(safe, content, { fsync: true })
       if (created === 'exists') return { ok: false, code: 'ALREADY_EXISTS', reason: '文件已存在' }
     } catch (e) {
+      // R0913-win P3（预算面，2026-09-13 全库源码重评 win 适配修复批）：深层多段
+      // relPath 超 MAX_PATH/卷上限此前落裸 errno 的 WRITE_ERROR——ENAMETOOLONG 分诊
+      // 为 BAD_INPUT 人话（客户端可修：缩短标题或减少层级；对照 doInit 的「换更短的
+      // 书名或更浅的书库位置」同口径）。长路径启用的卷（libuv \\?\ 前缀）不触本分支，
+      // 行为不变；逐段消毒 120B 预算不动（books.ts BOOK_NAME_MAX_BYTES 单源口径）。
+      if ((e as NodeJS.ErrnoException).code === 'ENAMETOOLONG') {
+        return { ok: false, code: 'BAD_INPUT', reason: '路径过长（超出文件系统上限），请缩短标题或减少目录层级' }
+      }
       return { ok: false, code: 'WRITE_ERROR', reason: `新建失败：${errMsg(e)}` }
     }
     // 结构性操作触发建清单（W0-1 §4.2）：无清单则建，加 entry
@@ -1312,8 +1320,19 @@ export class DocumentService {
       let dst = newSafe
       let placed = linkOrRenameExclusive(oldSafe, dst)
       if (placed === 'exists') {
-        dst = newSafe.replace(/\.md$/, `-旧稿-${Date.now()}.md`)
-        placed = linkOrRenameExclusive(oldSafe, dst)
+        // R0913-win P3-8（2026-09-13 全库源码重评 win 适配修复批）：大小写不敏感 FS
+        //（win NTFS/mac APFS）上「仅大小写变化」的章纲改名——目标位与源是同一物理
+        // 文件，linkOrRenameExclusive 恒 EEXIST，原实现误落 `-旧稿-<时间戳>` 双份
+        // 分支（内容无损但需手工改名）。对齐 doMoveOrRename R2W-1 主路径同判：dev+ino
+        // 相等 → 原位 renameWithRetry 落大小写变体（win MoveFileEx/mac APFS 均支持；
+        // 落位后源已搬走，下方删源 rmWithRetry 对已不存在路径为无害 no-op）。
+        if (isSamePhysicalFile(oldSafe, dst)) {
+          renameWithRetry(oldSafe, dst)
+          placed = 'created'
+        } else {
+          dst = newSafe.replace(/\.md$/, `-旧稿-${Date.now()}.md`)
+          placed = linkOrRenameExclusive(oldSafe, dst)
+        }
       }
       if (placed === 'exists') {
         // 目标名与后缀名均被持续占用：不覆盖、不上抛（正文已改名成功），warn 留痕

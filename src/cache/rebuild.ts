@@ -27,6 +27,7 @@ import { readChapter } from '../format/chapters.js'
 import { isMdFileName } from '../format/filename.js' // R42-38（四十二轮）：.md 判定大小写不敏感单一真相源
 import type { ParseError } from '../format/types.js'
 import { walkMdEach } from '../fs/walk-md.js'
+import { platformCaseFold } from '../fs/safe-path.js'
 import { log, errMsg } from '../log/index.js'
 // 重评-P2-3（2026-09-09 全量代码重评）：基础两类单源自 install/data.ts（该模块仅
 // type-only import format/types，无环），与 check/runner enabledLeadTypes 共用同一符号
@@ -125,10 +126,14 @@ export const __testHooks = {
  * 断言用）；清后键惰性重建，无正确性影响。
  */
 export function forgetChapterParseCacheForBook(bookRoot: string): number {
-  const prefix = bookRoot + sep
+  // R0913-win P3（折叠键族，2026-09-13 全库源码重评 win 适配修复批）：前缀比较收编
+  // platformCaseFold（win/darwin 折叠，键字节不动、只折叠比较）——同一书以不同 case
+  // 的 bookRoot 寻址（盘符/注册面漂移）时前缀失配清不净（FIFO 上限兜底内的内存卫生
+  // 态）。linux 不折叠语义不变（md-text-cache forgetMdTextCacheForBook 同批同款）。
+  const prefix = platformCaseFold(bookRoot + sep)
   let removed = 0
   for (const key of chapterCache.keys()) {
-    if (key.startsWith(prefix)) {
+    if (platformCaseFold(key).startsWith(prefix)) {
       chapterCache.delete(key)
       removed++
     }

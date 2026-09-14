@@ -43,7 +43,13 @@ export function bookHash(bookRoot: string): string {
   return createHash('sha256').update(root).digest('hex').slice(0, 16)
 }
 
-/** R40-14：win32 盘上真实大小写归一（逐段 readdir 匹配 + memo）。 */
+/** R40-14：win32 盘上真实大小写归一（逐段 readdir 匹配 + memo）。
+ *  R0913-win P3-12（备注级维持，2026-09-13 全库源码重评 win 适配修复批）：书库在
+ *  失联网络卷时逐段 readdirSync 会同步冻结 server 子进程——同步 IO 无超时手段可挡，
+ *  彻底闭合需 bookHash 全链异步化（牵动全部调用面，超出维持项范畴）。现实防线 =
+ *  memo 512 条（每路径仅首次真探）+ 主进程 probeDirReachable 预探覆盖 GUI 全部入口；
+ *  且失联卷上同链路的其他同步读（books.jsonl 等）会先于本函数暴露同一冻结面，
+ *  边际风险不构成单点。 */
 const trueCaseCache = new Map<string, string>()
 const TRUE_CASE_CACHE_MAX = 512
 

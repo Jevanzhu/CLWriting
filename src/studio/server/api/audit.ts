@@ -195,6 +195,28 @@ export function allHeldTaskGatesFor(bookName: string): string[] {
   return [...new Set([...heldTaskGatesFor(bookName), ...crossProcessHeldTaskGatesFor(bookName)])]
 }
 
+/**
+ * 重评二轮-P3-2（2026-09-13 全库源码重评二轮 GLM-5.3）：清对话（chat/clear）与清
+ * 事件史（audit DELETE）共用的六闸拒清理由单源（null = 放行）。闸序沿革：dd-P3
+ * （对话运行）→ hh-P1（task-gate 分钟级任务 + self-heal 批量写稿）→ 第九轮 M-1
+ * （三审）→ 第五轮（后台收尾 + spawn 手动写稿）→ R29-9（task-gate 并入跨进程锁
+ * 文件扫描）。原两处各自内联同组闸且只在入口查一次——openSessionStoreAsync /
+ * clearChatHistory 内部的 await 让出窗口内新起任务时闸检已过、清库照走，任务收尾
+ * 继续向已清 session 追加事件（清不彻底 + 事件复活）。现入口与 await 后清库前各查
+ * 一次（本函数两用），消息模板「……后再${action}」（audit = 清除事件史 /
+ * stream = 清空对话）。
+ */
+export function chatClearGateReason(bookName: string, action: string): string | null {
+  if (isChatRunning(bookName)) return `本书对话仍在运行，先停止后再${action}`
+  const held = allHeldTaskGatesFor(bookName)
+  if (held.length > 0) return `本书有任务在跑（${held.join('、')}），先等它完成后再${action}`
+  if (isSelfHealRunning(bookName)) return `本书正在自动写稿，先等它完成或中断后再${action}`
+  if (isReviewRunningForBook(bookName)) return `本书三审进行中，先等它完成后再${action}`
+  if (hasBackgroundTasks(bookName)) return `本书有后台任务收尾中（如定稿摘要），稍等片刻后再${action}`
+  if (isSpawnRunning(bookName)) return `本书正在生成（手动写稿），先等它完成或中断后再${action}`
+  return null
+}
+
 export function registerAuditRoutes(ctx: AuditCtx): void {
   defineRoute('books.audit.get', {
     method: 'GET',
@@ -252,34 +274,10 @@ export function registerAuditRoutes(ctx: AuditCtx): void {
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
-    // dd-P3：对话运行中拒清（与 chat/clear 同口径）——清库后 chat 继续追加事件，清不彻底
-    if (isChatRunning(params['name']!)) {
-      return replyError(res, 409, 'BUSY', '本书对话仍在运行，先停止后再清除事件史')
-    }
-    // hh-P1（同族缺口）：task-gate 分钟级任务与 self-heal 批量写稿都会续写事件库——
-    // 运行中清库同样「清不彻底」（任务收尾继续追加），补齐与 chat 相同的拒清口径。
-    // R29-9（二十九轮）：换 allHeldTaskGatesFor（books.ts busyGate R75-5 同口径）——
-    // 进程内闸并入跨进程锁文件扫描，双进程下 B 进程分钟级任务在途时 A 进程清史同样 409
-    const held = allHeldTaskGatesFor(params['name']!)
-    if (held.length > 0) {
-      return replyError(res, 409, 'BUSY', `本书有任务在跑（${held.join('、')}），先等它完成后再清除事件史`)
-    }
-    if (isSelfHealRunning(params['name']!)) {
-      return replyError(res, 409, 'BUSY', '本书正在自动写稿，先等它完成或中断后再清除事件史')
-    }
-    // 第九轮 M-1（busyGate 家族同族缺口）：三审是分钟级长任务，经 runSpec 追加 llm-call
-    // 事件并写 review 信封——在途清库同样「清不彻底」（任务收尾事件复活到已清 session）
-    if (isReviewRunningForBook(params['name']!)) {
-      return replyError(res, 409, 'BUSY', '本书三审进行中，先等它完成后再清除事件史')
-    }
-    // 第五轮：fire-and-forget 后台任务（定稿章摘要等）与 spawn 手动写稿同样向工作流
-    // 会话追加事件——在途清除会「清不彻底」（任务收尾事件复活），补齐同口径两闸
-    if (hasBackgroundTasks(params['name']!)) {
-      return replyError(res, 409, 'BUSY', '本书有后台任务收尾中（如定稿摘要），稍等片刻再清除事件史')
-    }
-    if (isSpawnRunning(params['name']!)) {
-      return replyError(res, 409, 'BUSY', '本书正在生成（手动写稿），先等它完成或中断后再清除事件史')
-    }
+    // 重评二轮-P3-2：六闸收编 chatClearGateReason 单源（沿革注释见其头注——dd-P3 /
+    // hh-P1 / 第九轮 M-1 / 第五轮 / R29-9），入口首查 + 开库让出后复查（见下）两用
+    const gate = chatClearGateReason(params['name']!, '清除事件史')
+    if (gate) return replyError(res, 409, 'BUSY', gate)
     const bookRoot = r.bookRoot
     if (!ctx.userDataPath) return reply(res, 200, { ok: true }) // 无事件库模式（浏览器版）no-op
     // R62-43：userDataPath 空 no-op（上方已分流）；极端下仍可能 null → 显式错误信封
@@ -300,6 +298,11 @@ export function registerAuditRoutes(ctx: AuditCtx): void {
     }
     if (!store) return replyError(res, 500, 'STORE_UNAVAILABLE', '事件库不可用（无法打开会话存储）')
     try {
+      // 重评二轮-P3-2：开库 await 让出窗口内新起任务（chat/spawn/self-heal/三审/
+      // task-gate/后台收尾）复查——拦在 clearBooks 之前，任务收尾不再向已清 session
+      // 追加事件（清不彻底 + 事件复活）；finally 侧 store.close() 照常收口
+      const recheck = chatClearGateReason(params['name']!, '清除事件史')
+      if (recheck) return replyError(res, 409, 'BUSY', recheck)
       // 低级项（第六轮）：双键单事务（clearBooks）——两次 clearBook 各自事务，
       // 第二键失败时对话侧已提交、工作流侧残留，清除一半
       store.clearBooks([params['name']!, bookHash(bookRoot)])

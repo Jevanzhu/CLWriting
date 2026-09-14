@@ -14,11 +14,9 @@ import { readJson, reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { ensureSession, getDriver } from '../../../driver/index.js'
 import { isSelfHealRunning, isChatEmbeddedSelfHealRunning } from '../../../ai/orchestrate/self-heal.js'
-import { hasBackgroundTasks } from '../../../ai/orchestrate/background.js'
-import { isChatRunning, resolveChatConfirm, clearChatHistory, sendChatMessage } from '../../../ai/orchestrate/chat.js'
+import { resolveChatConfirm, clearChatHistory, sendChatMessage } from '../../../ai/orchestrate/chat.js'
 import { isSpawnRunning } from '../../../ai/orchestrate/spawn-registry.js'
-import { isReviewRunningForBook } from './review.js'
-import { allHeldTaskGatesFor } from './audit.js'
+import { allHeldTaskGatesFor, chatClearGateReason } from './audit.js'
 import { forgetSseCount } from './stream.js'
 
 interface ChatCtx {
@@ -207,40 +205,24 @@ export function registerChatRoutes(ctx: ChatCtx): void {
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.workDir) return replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
     const bookName = params['name']!
-    if (isChatRunning(bookName)) return replyError(res, 409, 'BUSY', '对话进行中，请先停止再清空')
-    // M-2（第六轮）：clearChatHistory 与 audit DELETE 同为双键清理（bookName + bookHash
-    // 工作流会话），audit 侧五闸（dd-P3/hh-P1/第五轮）已收口，此处此前只配两道——
-    // spawn 手动写稿 / self-heal 批量写稿 / task-gate 分钟级任务在途时清空同样清不彻底，
-    // 且任务收尾的 step/llm-call 事件追加到已被删 session 的行上成孤儿。对齐补三闸。
-    // R29-9（二十九轮）：换 allHeldTaskGatesFor（books.ts busyGate R75-5 同口径）——
-    // 双进程下 B 进程分钟级任务在途时 A 进程清空对话同样放行清不彻底，现 409 拒清
-    const held = allHeldTaskGatesFor(bookName)
-    if (held.length > 0) {
-      return replyError(res, 409, 'BUSY', `本书有任务在跑（${held.join('、')}），先等它完成后再清空对话`)
-    }
-    if (isSelfHealRunning(bookName)) {
-      return replyError(res, 409, 'BUSY', '本书正在自动写稿，先等它完成或中断后再清空对话')
-    }
-    if (isSpawnRunning(bookName)) {
-      return replyError(res, 409, 'BUSY', '本书正在生成（手动写稿），先等它完成或中断后再清空对话')
-    }
-    // 第九轮 M-1（对齐 audit DELETE 五闸收口）：三审在途时经 runSpec 向工作流会话追加
-    // llm-call 事件——在途清空同样清不彻底，补同口径闸
-    if (isReviewRunningForBook(bookName)) {
-      return replyError(res, 409, 'BUSY', '本书三审进行中，先等它完成后再清空对话')
-    }
-    // 第五轮：fire-and-forget 后台任务（定稿摘要等）持 workspace 会话续写事件——
-    // clearChatHistory 双键同清工作流侧，在途清空同样清不彻底，补同口径闸
-    if (hasBackgroundTasks(bookName)) {
-      return replyError(res, 409, 'BUSY', '本书有后台任务收尾中（如定稿摘要），稍等片刻再清空对话')
-    }
+    // 重评二轮-P3-2（win线并树随行）：六闸收编 audit.ts chatClearGateReason 单源（沿革见
+    // 其头注——dd-P3 / M-2 / hh-P1 / 第九轮 M-1 / 第五轮 / R29-9），入口首查 + 清库前复查
+    //（经 clearChatHistory 的 gate 回调，见下）两用
+    const gate = chatClearGateReason(bookName, '清空对话')
+    if (gate) return replyError(res, 409, 'BUSY', gate)
     // 二轮复审（低级）：resolveBook 统一解析——旧 readBooks().find() 对不存在的书
     // 静默落「只清内存」假成功（200），事件库原样残留；现与全文件其余路由同 404 口径
     const r = resolveBook(ctx.workDir, bookName)
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
     // F1-P1：清内存 + 清事件库
     // R34D-19（三十四轮）：clearChatHistory 转异步（事件库开库异步孪生）
-    await clearChatHistory(bookName, ctx.userDataPath ?? undefined, r.bookRoot)
+    // 重评二轮-P3-2：传闸回调——开库让出窗口内新起任务时在 clearBooks 之前复查拒清，
+    // 返回非 null 即已拒（内存清空是良性前置，详见 state.ts 体内注释）；任务收尾不再
+    // 向已清 session 追加事件
+    const blocked = await clearChatHistory(bookName, ctx.userDataPath ?? undefined, r.bookRoot, {
+      gate: () => chatClearGateReason(bookName, '清空对话'),
+    })
+    if (blocked) return replyError(res, 409, 'BUSY', blocked)
     // R-18（第十六轮）：清空对话 = 本书对话上下文整体销毁 → per-book SSE 计数一并清理
     forgetSseCount(bookName)
     reply(res, 200, { ok: true })

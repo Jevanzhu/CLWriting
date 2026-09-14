@@ -6,6 +6,7 @@ import { readChapterDir } from '../../format/chapters.js'
 import { readManifest } from '../../document/manifest.js'
 import { legacyId } from '../../document/stable-id.js'
 import { resolveDraftPath, readDraft } from '../../format/draft.js'
+import { docJoinKey } from '../../fs/safe-path.js'
 
 const MANIFEST_FILE = join('项目', '文档清单.jsonl')
 
@@ -30,8 +31,14 @@ export function chapterToDocId(bookRoot: string, chapter: number): string | null
   if (!hit?._path) return null
   const relPath = relFromBookRoot(bookRoot, hit._path)
   const manifest = readManifest(join(bookRoot, MANIFEST_FILE))
+  // R0913-win P2-2（2026-09-13 全库源码重评 win 适配修复批）：join 键折叠——精确
+  // 比较在外部 case-only 改名（win）或 NFD 文件名（mac APFS 惯存分解形）后 miss，
+  // 回落 legacyId(relPath)（新形态哈希）→ AI 章节结构工具（move/rename/copy/delete）
+  // 拿到的 docId 服务层解析失败，操作硬败。主 UI 侧同场景已由 docJoinKey 收口
+  //（export/learn/metrics 均已接入），本点为该消费面唯一漏网（fs/safe-path.ts 单源）。
+  const want = docJoinKey(relPath)
   for (const e of manifest.entries.values()) {
-    if (e.path === relPath) return e.id
+    if (docJoinKey(e.path) === want) return e.id
   }
   return legacyId(relPath)
 }

@@ -20,11 +20,11 @@
  * 回滚「回到第 N 章」是横切命令（#16 第 5 节），不在顺序判定里——由 version 恢复单独触发。
  */
 
-import { existsSync, readFileSync, readdirSync, renameSync, statSync, rmSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync, rmSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { scanCloudCopies } from '../git/exec.js'
-import { sweepAbandonedTmpFiles, rmWithRetry } from '../fs/atomic.js'
+import { sweepAbandonedTmpFiles, rmWithRetry, renameWithRetry } from '../fs/atomic.js'
 // 重评-0912-4 P2-3：save 锁在持探针（只读不取锁，judgeStaleLock 陈锁语义复用）
 import { queryLockHeld } from '../fs/cross-process-lock.js'
 // R0910-W（2026-09-10 修复批）：spill 清扫兜底接线——sweepOldSpills 幂等（按 mtime
@@ -363,7 +363,11 @@ async function healthCheck(bookRoot: string, manifest: Manifest): Promise<Health
         if (isOrphanJournal(bookRoot, docId, orphanSnapshot, pending)) {
           const dst = `${journalFile}.orphaned-${Date.now()}`
           try {
-            renameSync(journalFile, dst)
+            // R0913-win P3（退避族）：归档改名收编 renameWithRetry——win 杀软/索引器
+            // 瞬时锁（EPERM/EBUSY）下裸 renameSync 直败会维持 crashedWrite 假红（锁
+            // 释放后下次进门自愈）；同函数 healMovePending 删旧已用 rmWithRetry（口径
+            // 对齐）。退避后仍失败照走既有 catch「维持原报红」路径，语义不变。
+            renameWithRetry(journalFile, dst)
             log.info('state', `孤儿 journal 已归档（文档已删除且无盘上路径）：${name} → ${dst}，如需恢复可手工改名回 .jsonl`)
             continue
           } catch {

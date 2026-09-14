@@ -43,6 +43,7 @@ import { initialBookArg, resolveInitialBook } from './initial-book.js' // RB-SV-
 import { createStudioServerManager, ServerBootError } from './server-manager.js' // 阶段 22：server 拆分 utilityProcess
 import { createBootstrapRunner } from './bootstrap-runner.js' // O-4：生命周期 runner 可测
 import { registerIpc } from './ipc.js' // 复审-0914-优化修复批 F1：IPC 注册面拆出
+import { acquireAppInstanceGuard } from './app-instance-guard.js' // R0913-win P3-13：提权差异双开文件锁防线（win线并树随行）
 import {
   attachMainWindowLifecycle,
   registerQuitChain,
@@ -101,7 +102,13 @@ initLogging({ logsDir: join(app.getPath('userData'), 'logs'), mirrorConsole: !ap
 // 第二实例拿不到锁 → app.quit() 并跳过文件底部全部生命周期注册（不进 whenReady、
 // 不起 server、不开窗）；持锁实例收到 second-instance 时聚焦已有主窗口。
 const gotSingleInstanceLock = app.requestSingleInstanceLock()
-if (!gotSingleInstanceLock) {
+// R0913-win P3-13：提权差异双开的文件锁补充防线（Electron 锁按会话/提权上下文隔离，
+// 管理员/普通用户各开一份时两侧各自持锁 → 双开互踩 userData 语义层）——文件锁跨提权
+// 可见（pid 存活探测 EPERM 按存活保守处理），细节见 app-instance-guard.ts 头注。
+// 须在 setPath(userData) 之后（同 Z-P2-8 的身份域对齐理由）。fail-open：锁面异常不拦
+// 启动（同用户双开仍由 Electron 锁兜底）。
+const appInstanceGuard = acquireAppInstanceGuard(app.getPath('userData'))
+if (!gotSingleInstanceLock || !appInstanceGuard.acquired) {
   app.quit()
 } else {
   app.on('second-instance', (_e, argv: string[]) => {
@@ -583,7 +590,13 @@ function buildMenu(): void {
 
 // Z-P2-8：单实例锁守卫——第二实例已在顶部 app.quit()，跳过全部生命周期注册，
 // 防退出竞态中 whenReady/activate 仍触发 bootstrap（起 server/开窗/读写状态文件）
-if (gotSingleInstanceLock) {
+// 重评二轮-P2-1（2026-09-13 全库源码重评二轮 GLM-5.3）：守卫补消费文件锁标志——原只看
+// gotSingleInstanceLock，跨提权双开（Electron 锁按提权上下文隔离、双方各持，正是
+// R0913-win P3-13 文件锁防线要堵的场景）时第二实例 gotSingleInstanceLock=true 而
+// appInstanceGuard.acquired=false：顶部 quit 照发但退出是异步的，本守卫放行使生命周期
+// 全注册（瞬态起 server child/开窗/写 workdir.json），文件锁防线要关闭的语义层竞态重开。
+// 双标志与门与顶部 :235 同款（guard 异常时 fail-open 返回 acquired:true，放行语义不变）。
+if (gotSingleInstanceLock && appInstanceGuard.acquired) {
   app.whenReady().then(() => {
     // 生产模式注入 CSP（开发 HMR 模式跳过——Vite 依赖 unsafe-eval/unsafe-inline）
     // R43-26（四十三轮）：CSP 注入条件同步收紧——与 devUi 同形（!!env && !app.isPackaged）
@@ -646,6 +659,10 @@ if (gotSingleInstanceLock) {
   // app.quit() 复用既有幂等链（quitViaShutdown 门防重入，重复信号安全）。
   // R38-19（三十八轮）：补 SIGTERM——`kill <pid>`/进程管理器/IDE 停止按钮的默认
   // 信号（mac/linux）同属「硬杀跳过优雅停机链」的 R1W-9 动机面，与 SIGINT 同款一行。
+  // R0913-win P3-10（备注级事实收口）：SIGTERM 在 win 上无投递机制（外部
+  // TerminateProcess 不进 JS handler），本行实际仅 POSIX 生效；win 的硬杀面已由
+  // SIGBREAK（Ctrl+Break）与 uncaughtException backstop 兜底。保留本行为三平台
+  // 对齐与跨平台宿主（如 win 下经 POSIX 兼容层运行）预留，非缺陷。
   process.on('SIGINT', () => app.quit())
   process.on('SIGBREAK', () => app.quit())
   process.on('SIGTERM', () => app.quit())

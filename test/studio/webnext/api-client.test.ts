@@ -77,6 +77,32 @@ describe('apiJson · 服务端 {code,error} 信封（回归不变）', () => {
   })
 })
 
+// ── 重评二轮-P3-3（2026-09-13 全库源码重评二轮 GLM-5.3）：2xx + 字面量 null 体 ──
+// r.json() 对「null」体解析成功（不进坏体 catch），信封判别 parsed !== null 使
+// hasEnvelope 为假、!r.ok 不命中——null 一路穿透到调用方（getContent 得
+// content:undefined → sha256Revision('undefined') 错基线，R51-H-1 坏体同族）。
+// 修复：null 体上抛 MALFORMED_RESPONSE；204（HTTP 语义无体合法）维持空对象口径。
+describe('apiJson · 2xx 字面量 null 体（重评二轮-P3-3）', () => {
+  it('200 + 体「null」→ 抛 ApiError MALFORMED_RESPONSE（不静默穿透 null）', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('null', { status: 200, headers: { 'content-type': 'application/json' } })))
+    try {
+      await apiJson('/api/health')
+      expect.unreachable('null 体应当抛出 ApiError')
+    } catch (e) {
+      expect(e).toBeInstanceOf(ApiError)
+      const ae = e as ApiError
+      expect(ae.message).toBe('服务端返回了无法解析的响应体')
+      expect(ae.status).toBe(200)
+      expect(ae.code).toBe('MALFORMED_RESPONSE')
+    }
+  })
+
+  it('204 无体 → 维持空对象口径（null 防御不误伤 HTTP 语义无体合法形态）', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 204 })))
+    await expect(apiJson('/api/health')).resolves.toEqual({})
+  })
+})
+
 // ── 低-6（第十轮）：外部 signal 的 abort 监听器生命周期（第九轮 L-4 修复残余） ──
 // 旧实现 once 监听器在请求 settle 后永不移除——挂在调用方 signal 上引用着内部
 // controller。修法：settle（成功/失败/超时）后 removeEventListener；abort 触发

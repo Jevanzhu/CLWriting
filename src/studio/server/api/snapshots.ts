@@ -21,7 +21,7 @@ import { readdirSync, statSync, lstatSync, existsSync } from 'node:fs'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
 import { createTtlProbeCache } from '../ttl-cache.js'
-import { resolveBook } from '../book-context.js'
+import { resolveBook, bookMovedFailure } from '../book-context.js'
 import { listVersionEntries, readVersion, readVersionRaw, pruneVersions, DEFAULT_VERSION_POLICY, readGlobalSnapshotPolicy } from '../../../document/version.js'
 import { readManifest } from '../../../document/manifest.js'
 import { safeDocId } from '../../../fs/safe-path.js' // P3-1：docId 白名单校验共享（不内联手写）
@@ -150,6 +150,13 @@ let versionStatsTtlMs: number | null = null
 /** R36-7：TTL 测试注入口（先例同 __setSearchCacheTtlForTest）。仅测试用。 */
 export function __setVersionStatsTtlForTest(ms: number | null): void {
   versionStatsTtlMs = ms
+}
+/** 复审-0914-修复批 P3-R3-3：restore 处理器读体前让出注入口——测试用其在
+ *  readJson 窗口内确定性改盘（改名/删书），替代真实 40ms 竞态 timer（先例同
+ *  __setLearnCommitYieldForTest）。生产 null 零行为差异。仅测试用。 */
+let snapshotsRestoreYieldForTest: (() => Promise<void>) | null = null
+export function __setSnapshotsRestoreYieldForTest(fn: (() => Promise<void>) | null): void {
+  snapshotsRestoreYieldForTest = fn
 }
 /** R36-7：写侧失效挂点——prune/restore 落盘后调用（本文件内写路径）。 */
 export function forgetVersionStatsCache(bookRoot: string): void {
@@ -471,12 +478,20 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
         ? snap.content.toString('utf-8')
         : snap.content
 
+      if (snapshotsRestoreYieldForTest) await snapshotsRestoreYieldForTest()
       const body = (await readJson(req)) as { expectedRevision?: unknown }
       const expectedRevision =
         typeof body.expectedRevision === 'string' ? (body.expectedRevision as Revision) : null
       if (expectedRevision === null) {
         return replyError(res, 400, 'BAD_INPUT', 'expectedRevision 必填')
       }
+
+      // 重评二轮-P3-1（2026-09-13 全库源码重评二轮 GLM-5.3）：readJson 窗口后写前重验书
+      // 注册（时序见 bookMovedFailure 头注）——restore 是全域 16 处同类非闸写端点中唯一
+      // 漏挂者（config.ts:99 家族）。窗口跨删书/改名时 save 的保存锁获取会在旧路径
+      // mkdir 复活幽灵目录骨架；重验 409 拒写保旧（正文写入另有基线校验拦）。
+      const moved = bookMovedFailure(ctx.workDir, params['name'], r.bookRoot)
+      if (moved) return replyError(res, 409, moved.code, moved.reason)
 
       const outcome = await getOrCreateService(r.bookRoot, ctx.userDataPath).save(docId, r.relPath, {
         content,

@@ -172,7 +172,10 @@ export function registerIpc(): void {
     // （批 6 统一：resolveWithinRoot = 防穿越 + symlink 双侧 realpath，X-P3a 同口径）
     const safe = resolveWithinRoot(workDir, entry.path)
     if (!safe || !existsSync(safe.abs)) return // realpath 失败/不存在 = 无物可开
-    void shell.openPath(safe.abs)
+    // R0913-win P3-11（win线并树随行）：openPath 的结果字符串（失败时非空）此前被丢弃——打开失败零反馈
+    void shell.openPath(safe.abs).then((err) => {
+      if (err) log.warn('desktop', `打开书目录失败（${safe.abs}）：${err}`)
+    })
   })
   // 枚举系统已装字体（设置弹窗字体下拉用；font-list 跨平台封装系统命令，disableQuoting 返回裸名便于直拼 CSS）
   // R77-1（二十五轮批 A）：TTL 缓存降半档——系统字体枚举是跨平台系统命令（mac 自带
@@ -251,7 +254,11 @@ export function registerIpc(): void {
     // ii 批：与 open-book-dir 同口径——realpath 解析后再开（store.current 持久化值若被
     // 改成指向外部的 symlink/失效路径，不再原样透传给 shell.openPath）
     try {
-      void shell.openPath(realpathSync(workDir))
+      // R0913-win P3-11（win线并树随行）：同 open-book-dir——失败结果字符串留痕（openPath 不 reject，
+      // try/catch 管不到 promise 结果）
+      void shell.openPath(realpathSync(workDir)).then((err) => {
+        if (err) log.warn('desktop', `打开书库目录失败（${workDir}）：${err}`)
+      })
     } catch {
       // realpath 失败 = 目录不存在，无物可开
     }
