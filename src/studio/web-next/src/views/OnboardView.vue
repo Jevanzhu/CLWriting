@@ -164,6 +164,9 @@ async function save(): Promise<void> {
   try {
     await onboardSave(book, { step: active.value, content: content.value })
     if (!stillOn(book)) return
+    // P3-25（全库重评-0914）：保存成功回写 lastGenerated——脏守卫（content !== lastGenerated）
+    // 此前只认生成快照，「编辑 → 保存 → 切步骤」常见路径必误报「未保存修改」。
+    lastGenerated.value = content.value
     ui.toast('已保存', 'success')
     void tree.load(book)
   } catch (e) {

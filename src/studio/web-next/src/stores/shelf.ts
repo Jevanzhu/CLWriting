@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { listBooks, type BookEntry } from '../api/shelf'
 import { friendlyError } from '../shared/error'
+import { useStaleGuard } from '../composables/useStaleGuard'
 import { useUiStore } from './ui'
 
 export const useShelfStore = defineStore('shelf', () => {
@@ -11,8 +12,9 @@ export const useShelfStore = defineStore('shelf', () => {
   const loading = ref(false)
   const error = ref<string | null>(null)
 
-  /** 操作代（N-12，第五十四轮，与 check store 同款）：并发 load 慢响应迟到不回填旧数据 */
-  let opGen = 0
+  /** 操作代（N-12，第五十四轮，与 check store 同款）：并发 load 慢响应迟到不回填旧数据。
+   *  E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard。 */
+  const opGen = useStaleGuard()
 
   // win 平台专项（2026-09-02）：书架快照缓存——列表要等 GET /api/books（win 慢盘/网络盘扫
   // 可达数百 ms）返回才渲染。写侧在每次成功拉取后落一份非敏感快照（书名/章数/字数/时间，
@@ -75,7 +77,7 @@ export const useShelfStore = defineStore('shelf', () => {
   }
 
   async function load(): Promise<void> {
-    const gen = ++opGen
+    const gen = opGen.begin()
     // 起始先同步灌入快照（若上次成功拉过）：有缓存则书架立即渲染，loading 保持 false，
     // 后台再拉最新；无缓存（首屏/浏览器全新会话）维持原「加载中…」语义。
     const cached = readCache()
@@ -89,13 +91,13 @@ export const useShelfStore = defineStore('shelf', () => {
     error.value = null
     try {
       const r = await listBooks()
-      if (gen !== opGen) return // 后发 load 已生效：旧响应不回填
+      if (opGen.stale(gen)) return // 后发 load 已生效：旧响应不回填
       books.value = r.books
       workDirMissing.value = !r.workDir
       hint.value = r.hint ?? null
       writeCache({ books: r.books, workDirMissing: !r.workDir, hint: r.hint ?? null })
     } catch (e) {
-      if (gen !== opGen) return
+      if (opGen.stale(gen)) return
       // 有快照时刷新失败不整屏报错（列表仍展示旧数据，控制台留痕）；无快照（首屏）照旧上抛
       if (cached) {
         console.warn('[shelf] 刷新书架失败，沿用缓存快照', e)
@@ -107,7 +109,7 @@ export const useShelfStore = defineStore('shelf', () => {
         error.value = friendlyError(e)
       }
     } finally {
-      if (gen === opGen) loading.value = false
+      if (opGen.fresh(gen)) loading.value = false
     }
   }
 

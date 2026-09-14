@@ -25,9 +25,9 @@ vi.mock('vue-router', () => ({ useRoute: () => mockRoute }))
 vi.mock('../../../src/studio/web-next/node_modules/vue-router', () => ({ useRoute: () => mockRoute }))
 
 // StyleBaselineCard 的铁律读写 mock（store 动作走 spy，无需 mock api/style 本体）
-const docsMocks = vi.hoisted(() => ({ getContentRevisioned: vi.fn(), putContent: vi.fn() }))
+const docsMocks = vi.hoisted(() => ({ getContentPayload: vi.fn(), putContent: vi.fn() }))
 vi.mock('../../../src/studio/web-next/src/api/documents', () => ({
-  getContentRevisioned: docsMocks.getContentRevisioned,
+  getContentPayload: docsMocks.getContentPayload,
   putContent: docsMocks.putContent,
 }))
 
@@ -197,7 +197,7 @@ describe('R28-25：StyleBaselineCard 窗口期动作吞掉（armed 门）', () =
     const ui = useUiStore()
     style.bookName = '书A'
     const loadSpy = vi.spyOn(style, 'load').mockResolvedValue(null)
-    docsMocks.getContentRevisioned.mockResolvedValue({ content: '铁律原文', revision: 'r1' })
+    docsMocks.getContentPayload.mockResolvedValue({ content: '铁律原文', revision: 'r1' })
     const putReq = pending<{ revision: string }>()
     docsMocks.putContent.mockReturnValue(putReq.promise)
 
@@ -221,7 +221,7 @@ describe('R28-25：StyleBaselineCard 窗口期动作吞掉（armed 门）', () =
     const style = useStyleStore()
     const ui = useUiStore()
     style.bookName = '书A'
-    docsMocks.getContentRevisioned.mockResolvedValue({ content: '铁律原文', revision: 'r1' })
+    docsMocks.getContentPayload.mockResolvedValue({ content: '铁律原文', revision: 'r1' })
     const putReq = pending<{ revision: string }>()
     docsMocks.putContent.mockReturnValue(putReq.promise)
 
@@ -244,7 +244,7 @@ describe('R28-25：StyleBaselineCard 窗口期动作吞掉（armed 门）', () =
     const ui = useUiStore()
     style.bookName = '书A'
     const loadSpy = vi.spyOn(style, 'load').mockResolvedValue(null)
-    docsMocks.getContentRevisioned.mockResolvedValue({ content: '铁律原文', revision: 'r1' })
+    docsMocks.getContentPayload.mockResolvedValue({ content: '铁律原文', revision: 'r1' })
     docsMocks.putContent.mockResolvedValue({ revision: 'r2' })
     vi.spyOn(ui, 'ask').mockResolvedValue(true)
 

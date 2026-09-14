@@ -10,6 +10,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { acquireCrossProcessLockWithTimeout, acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
+import { testableConst } from '../shared/testable.js'
 import { platformCaseFold } from '../fs/safe-path.js'
 
 /** 清单条目：身份 + 排序投影。folder 无 status。 */
@@ -311,13 +312,8 @@ export function writeManifest(filePath: string, manifest: Manifest): void {
  */
 export const MANIFEST_LOCK_TIMEOUT_MS = 5_000
 
-/** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改。 */
-let manifestLockTimeoutMs = MANIFEST_LOCK_TIMEOUT_MS
-
-/** 测试注入钩子（生产零调用）。 */
-export function __setManifestLockTimeoutForTest(ms: number): void {
-  manifestLockTimeoutMs = ms
-}
+/** A4（复审-0914-优化修复批）：三件套换装 testableConst——生效值 getter（消费点显式调用）+ 测试注入 setter 元组第二位（原名原签名）。 */
+export const [getManifestLockTimeoutMs, __setManifestLockTimeoutForTest] = testableConst(MANIFEST_LOCK_TIMEOUT_MS)
 
 /** 进程内已持锁登记（manifestPath → 重入计数 + release + 异步排队链尾）——计数式
  *  可重入防自锁：嵌套获取（如持锁段内再触发清单登记的调用链）只加深计数不再抢锁，
@@ -384,7 +380,7 @@ export function withManifestLock<T>(manifestPath: string, fn: () => T): T {
   // R73-33：有界重试（共 2 轮 × 5s）后 fail-closed 抛错
   const lockPath = `${manifestPath}.lock`
   for (let attempt = 0; ; attempt++) {
-    const release = acquireCrossProcessLockWithTimeout(lockPath, manifestLockTimeoutMs)
+    const release = acquireCrossProcessLockWithTimeout(lockPath, getManifestLockTimeoutMs())
     if (release) {
       // 重评2-P2-2：登记项增设 tail 字段（恒 null——同步临界段无排队语义，见
       // heldManifestLocks 声明注）；本函数执行语义零变更。
@@ -398,7 +394,7 @@ export function withManifestLock<T>(manifestPath: string, fn: () => T): T {
     }
     if (attempt >= 1) {
       throw new Error(
-        `清单锁获取超时（另一进程持锁 ${manifestLockTimeoutMs}ms × 2 轮未让出：${manifestPath}）——已拒绝本次清单写入以防并发覆盖丢失，请稍后重试`,
+        `清单锁获取超时（另一进程持锁 ${getManifestLockTimeoutMs()}ms × 2 轮未让出：${manifestPath}）——已拒绝本次清单写入以防并发覆盖丢失，请稍后重试`,
       )
     }
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50)
@@ -487,7 +483,7 @@ export async function withManifestLockAsync<T>(manifestPath: string, fn: () => T
   }
   const lockPath = `${manifestPath}.lock`
   for (let attempt = 0; ; attempt++) {
-    const release = await acquireCrossProcessLockAsync(lockPath, manifestLockTimeoutMs)
+    const release = await acquireCrossProcessLockAsync(lockPath, getManifestLockTimeoutMs())
     if (release) {
       const held: { depth: number; release: () => void; tail: Promise<void> | null } = { depth: 1, release, tail: null }
       heldManifestLocks.set(lockKey, held)
@@ -514,7 +510,7 @@ export async function withManifestLockAsync<T>(manifestPath: string, fn: () => T
     }
     if (attempt >= 1) {
       throw new Error(
-        `清单锁获取超时（另一进程持锁 ${manifestLockTimeoutMs}ms × 2 轮未让出：${manifestPath}）——已拒绝本次清单写入以防并发覆盖丢失，请稍后重试`,
+        `清单锁获取超时（另一进程持锁 ${getManifestLockTimeoutMs()}ms × 2 轮未让出：${manifestPath}）——已拒绝本次清单写入以防并发覆盖丢失，请稍后重试`,
       )
     }
     // 同步版的 50ms 吸收间隔对应改异步睡（不阻塞事件循环）

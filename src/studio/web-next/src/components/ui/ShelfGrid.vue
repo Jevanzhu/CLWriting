@@ -3,6 +3,7 @@
 // 状态来自壳（useShelf composable 实例），本组件只做渲染 + 事件冒泡；两壳差异（容器/hero/工具栏/新建书/删除确认）留在各自壳内。
 import { useUiStore } from '../../stores/ui'
 import { friendlyError } from '../../shared/error'
+import { capView } from '../../shared/render-cap'
 import { useNativeMenu } from '../../composables/useNativeMenu'
 import { onCardMove } from '../../composables/useShelf'
 import ContextMenu, { type MenuItem } from './ContextMenu.vue'
@@ -35,14 +36,14 @@ const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
 // 分组计数仍面向全量），只裁渲染面——renderCap 传入时每组只渲染前 N 张书卡 + 尾部
 // 「已省略 N 部」提示行（上限数值由壳定，ShelfModal 传 100；不传即不裁，Shelf.vue
 // 行为不变）。搜索过滤后的命中 >上限时同样截断且提示行如实计数，缩小搜索词即可见
-// 全部命中。
+// 全部命中。复审-0914-优化修复批 P3：切片/计数样板收敛 shared/render-cap 单源。
 function shownBooks(grp: { books: BookEntry[] }): BookEntry[] {
-  if (props.renderCap === undefined || grp.books.length <= props.renderCap) return grp.books
-  return grp.books.slice(0, props.renderCap)
+  if (props.renderCap === undefined) return grp.books
+  return capView(grp.books, props.renderCap).view
 }
 function omittedCount(grp: { books: BookEntry[] }): number {
   if (props.renderCap === undefined) return 0
-  return Math.max(0, grp.books.length - props.renderCap)
+  return capView(grp.books, props.renderCap).omitted
 }
 
 function onCardContextmenu(e: MouseEvent, name: string): void {

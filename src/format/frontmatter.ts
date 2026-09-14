@@ -16,7 +16,7 @@
 import { readFileSync } from 'node:fs'
 import { open, readFile as fsReadFile, type FileHandle } from 'node:fs/promises'
 import type { ParseError } from './types.js'
-import { log } from '../log/index.js'
+import { errMsg, log } from '../log/index.js' // errMsg 收编（复审-0914-优化修复批）：错误文案三目单源
 import { atomicWriteFile } from '../fs/atomic.js'
 import { canonicalizeText } from '../fs/text-canonical.js'
 import { splitFrontMatter, bodyOf, stripInlineComment, firstKeyColon, hasOpenFrontMatterFence } from './frontmatter-core.js'
@@ -396,7 +396,7 @@ export function readFile(
         error: {
           file: filePath,
           line: 0,
-          message: `无法读取文件：${e instanceof Error ? e.message : String(e)}`,
+          message: `无法读取文件：${errMsg(e)}`,
         },
       }
     }
@@ -448,7 +448,7 @@ export async function readFileFmOnly(
     error: {
       file: filePath,
       line: 0,
-      message: `无法读取文件：${e instanceof Error ? e.message : String(e)}`,
+      message: `无法读取文件：${errMsg(e)}`,
     },
   })
   let fh: FileHandle

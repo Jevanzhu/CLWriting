@@ -5,10 +5,10 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useChatStore } from '../stores/chat'
 import { useWorkbenchStore } from '../stores/workbench'
-import { friendlyError } from '../shared/error'
+import { friendlyError, rawErrorMessage } from '../shared/error'
 import { useUiStore } from '../stores/ui'
 import { sendChat, clearChatHistory } from '../api/chat'
-import { interrupt } from '../api/stream'
+import { interrupt } from '../api/workbench'
 import { isImeComposing } from '../shared/ime'
 
 // R66-33（十四轮）：发送失败 + 切书 → 文本找回。input 先清空、消息已进 A 书对话区；
@@ -136,7 +136,8 @@ export function useChatComposer(
         // 「最近一次错误」）
         const last = chat.messages[chat.messages.length - 1]
         if (last && last.id === ghostId) chat.popUser()
-        chat.error = e instanceof Error ? e.message : String(e)
+        // 复审-0914-优化修复批：三目收编 shared/error 的 rawErrorMessage 单源（原文透出语义不变）
+        chat.error = rawErrorMessage(e)
       } else {
         // R66-33（十四轮）：失败时已切书——回滚被书名守卫拦下（popUser 会误弹 B 书末条），
         // 文本存入本书失败草稿，回切时回填输入框

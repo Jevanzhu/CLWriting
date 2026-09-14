@@ -12,6 +12,7 @@ import { statSync } from 'node:fs'
 import { join } from 'node:path'
 import { defineRoute } from './schema.js'
 import { reply, replyError, parseRequestUrl } from '../http.js'
+import { createTtlProbeCache } from '../ttl-cache.js'
 import { resolveBook } from '../book-context.js'
 import { searchBookAsync, SEARCH_ALL_DIRS, type SearchOutcome } from '../../../process/book-search.js'
 
@@ -28,8 +29,37 @@ interface SearchCtx {
 // 结构变化即时失效缓存，TTL 5s 只兜内容改写（不触碰目录 mtime）的最坏可见窗。
 const SEARCH_CACHE_TTL_MS = 5000
 const SEARCH_CACHE_MAX = 32
-const searchCache = new Map<string, { outcome: SearchOutcome; ts: number; sig: string }>()
-const inFlightSearches = new Map<string, Promise<SearchOutcome>>()
+let searchTtlMs: number | null = null
+/** TTL 测试注入口（null 还原默认；先例同 knowledge.ts __setLearnTtlForTest）。 */
+export function __setSearchCacheTtlForTest(ms: number | null): void {
+  searchTtlMs = ms
+}
+
+/** R35-7：删书/改名失效挂点（同 forgetLearnCache 口径；在途扫描不取消，结果照常落缓存）。 */
+export function forgetSearchCache(bookRoot: string): void {
+  searchCache.forgetPrefix(bookRoot)
+}
+
+/** R35-7：底层实际扫描计数观察口（验证缓存命中/在途去重；生产零调用）。 */
+export function __searchScanCountForTest(): number {
+  return searchCache.scanCountForTest()
+}
+export function __resetSearchScanCountForTest(): void {
+  searchCache.resetScanCountForTest()
+}
+
+/** D1（复审-0914-优化修复批）：缓存壳收编 ttl-cache.ts 通用件（原本地 Map + FIFO +
+ *  R47-18 过期逐出 + inFlightSearches 在途去重本地壳删除；命中/失效时序/逐出序逐位
+ *  不变——单级探针 + in-flight 去重 + FIFO 32，见 ttl-cache.ts 头部收敛映射表）。 */
+const searchCache = createTtlProbeCache<{ bookRoot: string; query: string; scope: string | undefined }, SearchOutcome>({
+  name: 'search',
+  keyOf: (k) => `${k.bookRoot}\u0000${k.scope ?? ''}\u0000${k.query}`,
+  max: SEARCH_CACHE_MAX,
+  ttl: () => searchTtlMs ?? SEARCH_CACHE_TTL_MS,
+  probe: (k) => dirSignature(k.bookRoot),
+  inFlight: true,
+  computeAsync: (k) => searchBookAsync(k.bookRoot, k.query, k.scope),
+})
 
 /** 可搜目录全集的 mtime 签名（缺失计 '-'）：每次命中前重算，5 次 stat 换免整书重扫。
  *  必须在扫描**前**取值——扫描期间落盘的变更会使签名失配，下次按失效重扫（宁多扫不脏读）。 */
@@ -45,64 +75,11 @@ function dirSignature(bookRoot: string): string {
   return parts.join(',')
 }
 
-let searchTtlMs: number | null = null
-/** TTL 测试注入口（null 还原默认；先例同 knowledge.ts __setLearnTtlForTest）。 */
-export function __setSearchCacheTtlForTest(ms: number | null): void {
-  searchTtlMs = ms
-}
-
-/** R35-7：删书/改名失效挂点（同 forgetLearnCache 口径；在途扫描不取消，结果照常落缓存）。 */
-export function forgetSearchCache(bookRoot: string): void {
-  for (const key of searchCache.keys()) {
-    if (key.startsWith(bookRoot + '\u0000')) searchCache.delete(key)
-  }
-}
-
-/** R35-7：底层实际扫描计数观察口（验证缓存命中/在途去重；生产零调用）。 */
-let scanCountForTest = 0
-export function __searchScanCountForTest(): number {
-  return scanCountForTest
-}
-export function __resetSearchScanCountForTest(): void {
-  scanCountForTest = 0
-}
-
-function cacheKey(bookRoot: string, q: string, scope: string | undefined): string {
-  return `${bookRoot}\u0000${scope ?? ''}\u0000${q}`
-}
-
 /** 全书搜索（缓存 + 在途去重 + 底层 searchBookAsync）。导出供回归测试直测。 */
 export async function searchBookCached(bookRoot: string, q: string, scope?: string): Promise<SearchOutcome> {
   const query = (q ?? '').trim()
   if (!query) return { results: [] } // 空查询零成本直返，不占缓存
-  const key = cacheKey(bookRoot, query, scope)
-  const sig = dirSignature(bookRoot)
-  const cached = searchCache.get(key)
-  if (cached && cached.sig === sig && Date.now() - cached.ts < (searchTtlMs ?? SEARCH_CACHE_TTL_MS)) {
-    return cached.outcome
-  }
-  // R47-18（四十七轮）：过期条目顺手逐出——原只当 miss 用、条目驻留至 FIFO 触顶/删书
-  //（forgetSearchCache）；重算路径本就必走，零成本零语义变更（扫描完成 set 原键覆写；
-  // 在途去重走 inFlightSearches 不经 searchCache，不受影响；过期条目本就永不再命中）
-  if (cached && Date.now() - cached.ts >= (searchTtlMs ?? SEARCH_CACHE_TTL_MS)) searchCache.delete(key)
-  const inFlight = inFlightSearches.get(key)
-  if (inFlight) return inFlight // 在途去重：同参数并发只跑一次
-  scanCountForTest += 1
-  const p = searchBookAsync(bookRoot, query, scope)
-    .then((outcome) => {
-      // 简单 FIFO 淘汰（Map 保插入序）：超上限丢最旧条目，防长期运行的书库累积
-      if (searchCache.size >= SEARCH_CACHE_MAX) {
-        const oldest = searchCache.keys().next().value
-        if (oldest !== undefined) searchCache.delete(oldest)
-      }
-      searchCache.set(key, { outcome, ts: Date.now(), sig })
-      return outcome
-    })
-    .finally(() => {
-      inFlightSearches.delete(key)
-    })
-  inFlightSearches.set(key, p)
-  return p
+  return searchCache.get({ bookRoot, query, scope })
 }
 
 export function registerSearchRoutes(ctx: SearchCtx): void {

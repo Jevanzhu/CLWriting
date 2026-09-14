@@ -46,12 +46,13 @@ import { readFile as readDoc, parseFlat, patchFlatFm, splitFrontMatter, joinFron
 // R42-7（四十二轮）：Z-6 守卫读改 strict——readTrashManifest 容错版只供只读展示面
 // （X-P3a：读失败按「无回收站」处理），本文件不再使用容错版。
 import { appendTrashEntryAsync, readTrashManifestStrict, removeTrashEntryAsync } from './trash.js'
-import { log } from '../log/index.js'
+import { errMsg, log } from '../log/index.js'
+import { testableConst } from '../shared/testable.js'
 import { appendWordsDelta, todayDate } from './words-diary.js'
 import { countWords, chapterFilePrefix } from '../format/words.js'
 // R26-55（二十六轮）：createDocument 的 relPath 逐段消毒同源（sanitizeChapterTitle 是
 // 同函数的章标题别名）
-import { sanitizeChapterTitle, sanitizeFileNamePart, sanitizeFullFileName } from '../format/filename.js'
+import { sanitizeChapterTitle, sanitizeFileNamePart, sanitizeFullFileName, chapterNoFromName } from '../format/filename.js'
 import { acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js' // R31-20：meta 链全异步化，同步等待原语已无使用方
 import { readBookConfig } from '../format/yaml.js'
 
@@ -92,26 +93,15 @@ const NON_UTF8_SAVE_REJECT = {
  *  R26-105 的收口认定），改 const + 内部可变生效值；测试只能经注入钩子改档，生产恒用常量。 */
 export const META_SAVE_LOCK_TIMEOUT_MS = 5_000
 
-/** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改。 */
-let metaSaveLockTimeoutMs = META_SAVE_LOCK_TIMEOUT_MS
-
-/** 测试注入钩子（生产零调用）。 */
-export function __setMetaSaveLockTimeoutForTest(ms: number): void {
-  metaSaveLockTimeoutMs = ms
-}
+/** 复审-0914-优化修复批 A4（2026-09-14 修复批）：三件套换装 testableConst——生效值 getter +
+ *  注入钩子由工厂单源产出（钩子名/签名不变，测试面零感知；生产消费点改调 getter）。 */
+export const [getMetaSaveLockTimeoutMs, __setMetaSaveLockTimeoutForTest] = testableConst(META_SAVE_LOCK_TIMEOUT_MS)
 
 /** R0912-2（2026-09-11 重评-0911c 修复批）：结构性操作（doMoveOrRename/doTrash）落位段
  *  的 per-doc save 锁等待档（毫秒）——与 executeSave 的 5s 同档；测试注入缩短保快
- *  （生产零调用），同 META_SAVE_LOCK_TIMEOUT_MS 惯例。 */
-const STRUCT_SAVE_LOCK_TIMEOUT_MS = 5_000
-
-/** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改。 */
-let structSaveLockTimeoutMs = STRUCT_SAVE_LOCK_TIMEOUT_MS
-
-/** 测试注入钩子（生产零调用）。 */
-export function __setStructSaveLockTimeoutForTest(ms: number): void {
-  structSaveLockTimeoutMs = ms
-}
+ *  （生产零调用），同 META_SAVE_LOCK_TIMEOUT_MS 惯例。
+ *  A4 换装（同 META 注）：档位常量为本模块私有（无导出消费方），def 值就地字面化。 */
+export const [getStructSaveLockTimeoutMs, __setStructSaveLockTimeoutForTest] = testableConst(5_000)
 
 /** R29-7（二十九轮）：布线文件写路径的第二道跨进程锁（`<布线文件绝对路径>.lock`，
  *  与 lead-finalize.ts applyLeadUpdates 同名锁）等待档（毫秒）——与 save 锁的 5s
@@ -119,26 +109,18 @@ export function __setStructSaveLockTimeoutForTest(ms: number): void {
  *  R30-18（三十轮）：常量化——同 META_SAVE_LOCK_TIMEOUT_MS 的收口口径。 */
 export const WIRING_SAVE_LOCK_TIMEOUT_MS = 5_000
 
-/** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改。 */
-let wiringSaveLockTimeoutMs = WIRING_SAVE_LOCK_TIMEOUT_MS
-
-/** 测试注入钩子（生产零调用）。 */
-export function __setWiringSaveLockTimeoutForTest(ms: number): void {
-  wiringSaveLockTimeoutMs = ms
-}
+/** A4 换装（同 META 注）。 */
+export const [getWiringSaveLockTimeoutMs, __setWiringSaveLockTimeoutForTest] = testableConst(WIRING_SAVE_LOCK_TIMEOUT_MS)
 
 /** 复审-0913-源码 P3-③：executeSave 主体保存锁（`<journalPath>.save.lock`）等待档
  *  （毫秒）——原裸写 5_000 与 META/STRUCT/WIRING 三档惯例脱钩（R30-18 收口口径漏网
  *  单点）；测试注入缩短保快（生产零调用），同 META_SAVE_LOCK_TIMEOUT_MS 惯例。 */
 export const SAVE_LOCK_TIMEOUT_MS = 5_000
 
-/** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改。 */
-let saveLockTimeoutMs = SAVE_LOCK_TIMEOUT_MS
-
-/** 测试注入钩子（生产零调用）。 */
-export function __setSaveLockTimeoutForTest(ms: number): void {
-  saveLockTimeoutMs = ms
-}
+/** 生效值（模块内可变）：初值 = 常量；测试如需注入走模块内替换（复审-0914-优化修复批
+ *  B4：原 __setSaveLockTimeoutForTest 钩子全库零调用方，2026-09-14 修复批删）。
+ *  本批注：钩子删后本值再无改写通道（恒等常量），随 eslint prefer-const 降 const。 */
+const saveLockTimeoutMs = SAVE_LOCK_TIMEOUT_MS
 
 /** 保存输入（W0-1 §5.1）。
  *  R34D-18（三十四轮）：content 扩为 string | Buffer——Buffer 仅恢复端点字节档分支
@@ -319,6 +301,62 @@ export class DocumentService {
   // 定稿入口已改为进清单锁前预取布线锁，save↔finalize 的 ABBA 交叉对已消除）。
   // R0912-E-P3-4（2026-09-12 独立重评修复批）：本 async 函数内全部
   // `return Promise.resolve({...})` 收敛为 `return {...}`（await 点上等价，逐处改不改语义）。
+  /** 复审-0914-优化修复批 P1-1（2026-09-14 修复批）：保存链锁编排单源——「save 锁
+   *  （`<journalPath>.save.lock`：获取自身抛出→收口 WRITE_ERROR，等待超时 null→fail-closed
+   *  收口）→ 布线锁（wiringFileLockKey 非空时；异常/超时先释放 save 锁防泄漏再收口）→
+   *  body → finally 逆序 release（release 幂等）」。此前 executeSave /
+   *  updateChapterMetaLocked / updateDocMetaLocked / doMoveOrRename / doTrash 五处各持
+   *  一份 ~50 行同构编排；锁序（全仓 save → 布线 → 清单）与失败语义逐位不变：
+   *  - holdSaveLock=false（doMoveOrRename 调用方已持同 docId save 锁）：跳过取锁与释放；
+   *  - wiring 缺省（结构性操作段）：不取布线锁，零开销（布线判定 wiringFileLockKey
+   *    仍在 helper 内单源执行，与旧各处就地判定同位同序）；
+   *  - 失败收口文案各调用面专属（超时/异常文案逐字保留），由回调注入。
+   *  R72-1（save 锁动机）/R48-6（获取抛出收口）/R29-7+R30-5（布线锁与锁序）/
+   *  R30-6（等待异步化）的机制本体自本批起单源此处，动机沿革见各调用面注释。 */
+  private async withSaveLocks<T>(args: {
+    journalPath: string
+    /** 调用方已持同 docId save 锁时 false（锁基建禁同进程嵌套同路径锁，重取必超时）。 */
+    holdSaveLock?: boolean
+    saveTimeoutMs: number
+    onSaveLockThrown: (e: unknown) => T
+    onSaveLockTimeout: () => T
+    wiring?: { relPath: string; timeoutMs: number; onThrown: (e: unknown) => T; onTimeout: () => T }
+    body: () => Promise<T>
+  }): Promise<T> {
+    let docSaveLock: (() => void) | null = null
+    if (args.holdSaveLock ?? true) {
+      try {
+        docSaveLock = await acquireCrossProcessLockAsync(`${args.journalPath}.save.lock`, args.saveTimeoutMs)
+      } catch (e) {
+        return args.onSaveLockThrown(e)
+      }
+      if (!docSaveLock) return args.onSaveLockTimeout()
+    }
+    let wiringLock: (() => void) | null = null
+    if (args.wiring) {
+      const wiringKey = this.wiringFileLockKey(args.wiring.relPath)
+      if (wiringKey) {
+        try {
+          wiringLock = await acquireCrossProcessLockAsync(wiringKey, args.wiring.timeoutMs)
+        } catch (e) {
+          docSaveLock?.()
+          return args.wiring.onThrown(e)
+        }
+        if (!wiringLock) {
+          docSaveLock?.()
+          return args.wiring.onTimeout()
+        }
+      }
+    }
+    try {
+      return await args.body()
+    } finally {
+      // R29-7：布线文件锁先于 save 锁释放（逆获取序），release 幂等
+      if (wiringLock) wiringLock()
+      if (docSaveLock) docSaveLock()
+    }
+  }
+
   private async executeSave(
     docId: string,
     relPath: string,
@@ -350,7 +388,7 @@ export class DocumentService {
       return {
         ok: false,
         code: 'WRITE_ERROR',
-        reason: `保存前清单查询失败（未执行保存，可重试）：${e instanceof Error ? e.message : String(e)}`,
+        reason: `保存前清单查询失败（未执行保存，可重试）：${errMsg(e)}`,
       }
     }
     if (registered !== null && docJoinKey(registered) !== docJoinKey(relPath)) { // R38-14 win 折叠 + R41-2 NFC 归一
@@ -400,58 +438,43 @@ export class DocumentService {
     // 正是本锁要闭合的丢更新形态）。同进程同 docId 由 queue 串行保证不会自锁
     // （appendPending 嵌套拿的是另一路径的 journal 锁）。
     // R30-6：取锁等待异步化（setTimeout 轮询），事件循环不阻塞；超时档与 fail-closed
-    // 语义不变。
-    // R48-6（四十八轮）：锁获取自身抛出（锁文件创建 ENOSPC/EACCES 等瞬态）此前裸穿
-    // SaveResult 契约（紧随的 wiring 锁已显式 catch，save 锁本体漏了）→ 收口 WRITE_ERROR
-    let docSaveLock: (() => void) | null
-    try {
-      docSaveLock = await acquireCrossProcessLockAsync(`${journalPath}.save.lock`, saveLockTimeoutMs)
-    } catch (e) {
-      return {
+    // 语义不变。R48-6（四十八轮）：锁获取自身抛出（锁文件创建 ENOSPC/EACCES 等瞬态）
+    // 收口 WRITE_ERROR。
+    // R29-7/R30-5：布线文件在 save 锁内再取同名文件锁（与 lead-finalize 回写临界段互斥，
+    // 超时/获取异常 fail-closed 拒绝并先释放 save 锁防泄漏）。锁序：save → 布线 → 清单。
+    // 复审-0914-优化修复批 P1-1（2026-09-14 修复批）：取锁/释放编排单源化至 withSaveLocks，
+    // 锁序与失败语义逐位不变；本处保留调用面专属文案与锁档。
+    return this.withSaveLocks<SaveResult>({
+      journalPath,
+      saveTimeoutMs: saveLockTimeoutMs,
+      onSaveLockThrown: (e) => ({
         ok: false,
         code: 'WRITE_ERROR',
         reason: `保存锁获取失败（未执行保存，可重试）：${errMsg(e)}`,
-      }
-    }
-    if (!docSaveLock) {
-      return {
+      }),
+      onSaveLockTimeout: () => ({
         ok: false,
         code: 'WRITE_ERROR',
         reason: '保存等待超时：另一进程正在保存此文档（5 秒未让出），请重试',
-      }
-    }
-    // R29-7（二十九轮）：布线文件在 save 锁内再取同名文件锁（`<布线文件绝对路径>.lock`，
-    // 与 lead-finalize 回写临界段互斥）——超时按 WRITE_ERROR 拒绝保存（fail-closed 不降级
-    // 裸写：裸写正是本锁要闭合的覆盖形态）；获取自身抛出（权限等）同样拒绝并先释放
-    // save 锁防泄漏。非布线文件 wiringLock 为 null，零开销。
-    // R30-5（三十轮）锁序注释如实化：本侧顺序为 save 锁 → 布线锁 → 清单锁（maybeUpdate
-    // Manifest）。lead-finalize/finalize 侧经 R30-5 已统一为「布线锁 → 清单锁」（定稿在进
-    // 清单锁前预取布线锁）——旧序「定稿持清单锁内再取布线锁」与保存链的 ABBA 交叉对
-    // 已消除，双侧注释旧称「单向无环」只覆盖各自侧序、未覆盖交叉对的缺口由本轮收口。
-    // R30-6：等待异步化。
-    const wiringKey = this.wiringFileLockKey(relPath)
-    let wiringLock: (() => void) | null = null
-    if (wiringKey) {
-      try {
-        wiringLock = await acquireCrossProcessLockAsync(wiringKey, wiringSaveLockTimeoutMs)
-      } catch (e) {
-        docSaveLock()
-        return {
+      }),
+      wiring: {
+        relPath,
+        timeoutMs: getWiringSaveLockTimeoutMs(),
+        onThrown: (e) => ({
           ok: false,
           code: 'WRITE_ERROR',
-          reason: `布线文件锁获取失败（未执行保存，可重试）：${e instanceof Error ? e.message : String(e)}`,
-        }
-      }
-      if (!wiringLock) {
-        docSaveLock()
-        return {
+          reason: `布线文件锁获取失败（未执行保存，可重试）：${errMsg(e)}`,
+        }),
+        onTimeout: () => ({
           ok: false,
           code: 'WRITE_ERROR',
           reason: '保存等待超时：另一进程正在回写此布线文件（5 秒未让出），请重试',
-        }
-      }
-    }
-    try {
+        }),
+      },
+      body: async () => {
+      // R28-5 外层 catch（下方）原挂在取锁后的 try 上——主体迁入本闭包后由本内层 try
+      // 承接同一收口语义（R76-22 复核与落盘段的意外抛出统一 WRITE_ERROR）。
+      try {
       // R76-22（二十四轮 C 域）：锁内复核——路径登记/回收站认领守卫原先只在取锁前判
       // 一次，5s 等锁窗口内他进程 doTrash/doMoveOrRename 后，出队保存仍按旧世界落盘
       //（旧路径复活已删文件/写错位，内容重复非丢失、低危）。取锁后重判把窗口收窄到
@@ -528,7 +551,7 @@ export class DocumentService {
         return {
           ok: false,
           code: 'WRITE_ERROR',
-          reason: `journal 追加失败，保存未执行：${e instanceof Error ? e.message : String(e)}`,
+          reason: `journal 追加失败，保存未执行：${errMsg(e)}`,
         }
       }
 
@@ -650,7 +673,7 @@ export class DocumentService {
           // R30-6：清单锁等待异步化（withManifestLockAsync）
           await this.maybeUpdateManifest(docId, relPath)
         } catch (e) {
-          log.warn('document', `保存后清单刷新失败（${relPath}，树扫描将自愈收编）：${e instanceof Error ? e.message : String(e)}`)
+          log.warn('document', `保存后清单刷新失败（${relPath}，树扫描将自愈收编）：${errMsg(e)}`)
         }
         // R46-8（四十六轮）：保存后树缓存失效统一口径——此前 executeSave 完全不失效
         // （树 wordCount/status 靠 stat 指纹自愈 + 前端 refresh=1 兜底），与 files.ts PUT /
@@ -665,7 +688,7 @@ export class DocumentService {
         try {
           await appendSettled(journalPath, opId, newRev)
         } catch (e) {
-          log.warn('document', `保存已落盘但 journal settled 写失败（${docId}，恢复链下次启动将按 pending 自愈复核）：${e instanceof Error ? e.message : String(e)}`)
+          log.warn('document', `保存已落盘但 journal settled 写失败（${docId}，恢复链下次启动将按 pending 自愈复核）：${errMsg(e)}`)
         }
         // P2-BE-4：字数增量 best-effort（settled 后失败不影响保存结果——否则文件已落盘但返回 WRITE_ERROR 误报失败）
         try {
@@ -681,14 +704,14 @@ export class DocumentService {
       } catch (e) {
         // 失败：journal 标 aborted（atomicWriteFile 失败已自清 tmp，未落盘）
         try {
-          await appendAborted(journalPath, opId, e instanceof Error ? e.message : String(e))
+          await appendAborted(journalPath, opId, errMsg(e))
         } catch {
           // journal 写失败忽略（best-effort，不影响返回）
         }
         return {
           ok: false,
           code: 'WRITE_ERROR',
-          reason: `保存失败：${e instanceof Error ? e.message : String(e)}`,
+          reason: `保存失败：${errMsg(e)}`,
         }
       }
     } catch (e) {
@@ -707,13 +730,11 @@ export class DocumentService {
       return {
         ok: false,
         code: 'WRITE_ERROR',
-        reason: `保存失败（未落盘，可重试）：${e instanceof Error ? e.message : String(e)}`,
+        reason: `保存失败（未落盘，可重试）：${errMsg(e)}`,
       }
-    } finally {
-      // R29-7：布线文件锁先于 save 锁释放（逆获取序），release 幂等
-      if (wiringLock) wiringLock()
-      docSaveLock()
     }
+      },
+    })
   }
 
   /** snapshot 策略（W0-1 §7）：restore/external-merge 覆盖前、定稿章首改前留底。
@@ -1034,36 +1055,21 @@ export class DocumentService {
     // 同族操作另由 SaveQueue（save）/chainDocMetaOp（meta）按 docId 链串行，同进程
     // 交错面只剩「save ↔ meta」这一跨族 await 窗口，如上受锁轮询兜底。
     const journalPath = join(this.journalDir, `${encodeDocDirName(docId)}.jsonl`)
-    // R48-6（四十八轮）：锁获取自身抛出收口 WRITE_ERROR（同 executeSave 同编号注）
-    let docSaveLock: (() => void) | null
-    try {
-      docSaveLock = await acquireCrossProcessLockAsync(`${journalPath}.save.lock`, metaSaveLockTimeoutMs)
-    } catch (e) {
-      return { ok: false, code: 'WRITE_ERROR', reason: `元数据保存锁获取失败（未执行保存，可重试）：${errMsg(e)}` }
-    }
-    if (!docSaveLock) {
-      return { ok: false, code: 'WRITE_ERROR', reason: '元数据保存等待超时：另一进程正在保存此文档（5 秒未让出），请重试' }
-    }
-    // R29-7（二十九轮）：同 executeSave——布线文件在 save 锁内再取同名文件锁（与
-    // lead-finalize 回写互斥），超时/获取异常按 WRITE_ERROR 拒绝（fail-closed，先释放
-    // save 锁防泄漏）；非布线文件不加锁。R30-5（三十轮）锁序如实化：全仓统一
-    // 「save 锁 → 布线锁 → 清单锁」，finalize 侧已同步改为进清单锁前预取布线锁。
-    // R31-20：两处锁获取均异步化（等待期不阻塞事件循环）。
-    const wiringKey = this.wiringFileLockKey(path)
-    let wiringLock: (() => void) | null = null
-    if (wiringKey) {
-      try {
-        wiringLock = await acquireCrossProcessLockAsync(wiringKey, wiringSaveLockTimeoutMs)
-      } catch (e) {
-        docSaveLock()
-        return { ok: false, code: 'WRITE_ERROR', reason: `布线文件锁获取失败（未执行保存，可重试）：${errMsg(e)}` }
-      }
-      if (!wiringLock) {
-        docSaveLock()
-        return { ok: false, code: 'WRITE_ERROR', reason: '元数据保存等待超时：另一进程正在回写此布线文件（5 秒未让出），请重试' }
-      }
-    }
-    try {
+    // 复审-0914-优化修复批 P1-1（2026-09-14 修复批）：取锁/释放编排单源化至 withSaveLocks
+    //（R48-6 获取抛出收口 / R29-7 布线锁 / R30-5 锁序 / R31-20 异步化机制随迁），
+    // 本处保留调用面专属文案与锁档，锁序与失败语义逐位不变。
+    return this.withSaveLocks<MoveResult>({
+      journalPath,
+      saveTimeoutMs: getMetaSaveLockTimeoutMs(),
+      onSaveLockThrown: (e) => ({ ok: false, code: 'WRITE_ERROR', reason: `元数据保存锁获取失败（未执行保存，可重试）：${errMsg(e)}` }),
+      onSaveLockTimeout: () => ({ ok: false, code: 'WRITE_ERROR', reason: '元数据保存等待超时：另一进程正在保存此文档（5 秒未让出），请重试' }),
+      wiring: {
+        relPath: path,
+        timeoutMs: getWiringSaveLockTimeoutMs(),
+        onThrown: (e) => ({ ok: false, code: 'WRITE_ERROR', reason: `布线文件锁获取失败（未执行保存，可重试）：${errMsg(e)}` }),
+        onTimeout: () => ({ ok: false, code: 'WRITE_ERROR', reason: '元数据保存等待超时：另一进程正在回写此布线文件（5 秒未让出），请重试' }),
+      },
+      body: async () => {
       // R27-45（二十七轮）：单次 Buffer 读派生文本与判据（照抄 R73-40 updateDocMeta 修法）
       // ——原 readDoc（610）与 readFileSync（619）两次独立读盘，两读之间文件被并发替换
       // （他进程改名/移动不持 save 锁）时判据与写回内容错源（微 TOCTOU）；且第二次读
@@ -1072,7 +1078,7 @@ export class DocumentService {
       try {
         fileBytes = readFileSync(abs)
       } catch (e) {
-        return { ok: false, code: 'WRITE_ERROR', reason: `元数据读取失败：${e instanceof Error ? e.message : String(e)}` }
+        return { ok: false, code: 'WRITE_ERROR', reason: `元数据读取失败：${errMsg(e)}` }
       }
       // readFile(filePath, content) 形参直喂单读文本——fmRaw/body 与 readDoc(abs) 同源派生
       const r = readDoc(abs, fileBytes.toString('utf-8'))
@@ -1088,7 +1094,8 @@ export class DocumentService {
       const map = parseFlat(r.fmRaw)
       if (meta.标题 !== undefined) map.set('标题', meta.标题)
       // piece-body / chapter 统一写「章号」字段
-      // 缓存 isPieceBody 结果（一次 readBookConfig，避免同方法内两次磁盘读）
+      // （复审-0914-优化修复批 P3：原注「避免同方法内两次磁盘读」为旧双调用口径——
+      // 现行本方法仅此一处判定，结果存 isPiece 供尾部 rename 分流，随本批如实化。）
       const isPiece = isPieceBody(path, this.bookRoot)
       if (meta.章号 !== undefined) map.set('章号', meta.章号)
       // R65-1（十三轮）：写侧改文本级补丁——parseFlat→stringifyFlat 整体重排会把手写
@@ -1166,11 +1173,14 @@ export class DocumentService {
       // 作者手建的 `0001-我的章节.md` 改一次章号就被静默改成 `000N-未命名.md`（用户自选
       // 标题丢失）。X-P3a「未命名」兜底语义保留给显式传空标题的编辑路径；回落链产物
       // 非空（文件名无标题段时退回旧行为）。
-      const explicitTitle = meta.标题 !== undefined ? String(map.get('标题') ?? '') : null
-      const 标题 =
-        explicitTitle !== null
-          ? explicitTitle
-          : String(map.get('标题') ?? '') || (basename(path).match(/^(?:\d+-)?(.+)\.md$/)?.[1] ?? '')
+      // 复审-0914-优化修复批 P3：fm 标题两臂重复求值 hoist——原三元两臂各自
+      // String(map.get('标题') ?? '')（map 已在上方 set，两臂同源，求值恒等），
+      // 收敛为一次读取。
+      // 全库重评-0914 P3-11：文件名标题段剥离收编 chapterNoFromName 单源（chapterTitleSegment）
+      // ——原窄正则只认 `-` 分隔，`5—标题.md`/`5 标题.md` 的章号前缀剥不净（整名连章号
+      // 落标题）；裸章号名（`0001.md`）剥后为空，经下方 sanitize || '未命名' 兜底。
+      const fmTitle = String(map.get('标题') ?? '')
+      const 标题 = meta.标题 !== undefined ? fmTitle : fmTitle || chapterTitleSegment(basename(path))
       // R59 清偿批（R57-G-1）：删去原此处 invalidateTreeIndex(bookRoot, true)——与
       // rename 委托链尾 doMoveOrRename 的同参整书失效（本文件 :1526 附近）在同一操作
       // 链上重复，保留链尾一处。分路径核实：rename 路径的结构性失效单源在链尾（成功
@@ -1184,10 +1194,20 @@ export class DocumentService {
       if (isPiece) {
         // 短篇：rename 文件名（章号3位-标题.md）+ 同步章纲同名文件
         const no = normalizeChapterNo(map.get('章号'))
+        // 全库重评-0914 P3-11：fm 缺章号时的前缀回落收编 chapterNoFromName 单源——
+        // 原窄正则 `^(\d+-)` 对 `5—标题.md`/`5 标题.md` 失明（前缀丢落，改名静默剥
+        // 章号）。识别走单源；产出保原文件名章号段原文（N-11 锚：`1-` 保 `1-`，不做
+        // 位宽归一——改名动作只动标题段，作者手定的位宽/分隔形态不在本路径归一；
+        // `5—`/`5 ` 整段保留修丢落）。裸数字名无原文段时按单源正典位宽补 `001-`
+        //（保章号不丢——旧行为此形态连章号一起剥掉）。
+        const nameNo = no ?? chapterNoFromName(basename(path))
+        const rawPrefix = nameNo !== null ? (basename(path).match(/^\d+(?:[-—]|\s)/)?.[0] ?? '') : ''
         const numPrefix =
           no !== null
             ? chapterFilePrefix(no, 'piece')
-            : (basename(path).match(/^(\d+-)/)?.[1] ?? '')
+            : nameNo !== null
+              ? rawPrefix || chapterFilePrefix(nameNo, 'piece')
+              : ''
         // X-P3a：标题缺失/空白时兜底「未命名」——否则文件名劣化成 `001-.md`
         // B-3（第六十轮）：消毒走 sanitizeChapterTitle 单源（控制字符含 \n / Windows
         // 非法字符 :*?"<>| / 码位 60/字节 120 双封顶）——此前仅替换 \\ / 两字符，
@@ -1217,11 +1237,8 @@ export class DocumentService {
         return result
       }
       return { ok: true, docId, path }
-    } finally {
-      // R29-7：布线文件锁先于 save 锁释放（逆获取序），release 幂等
-      if (wiringLock) wiringLock()
-      docSaveLock()
-    }
+      },
+    })
   }
 
   /** M-2（第十一轮）：updateChapterMeta rename 失败回写旧 fm——两步非原子（先原子写 fm
@@ -1360,35 +1377,22 @@ export class DocumentService {
     //（5s fail-closed）；锁内无嵌套锁获取（纯 read/patch/write），与 executeSave 的
     // save→journal/manifest 单向序无环。
     const journalPath = join(this.journalDir, `${encodeDocDirName(docId)}.jsonl`)
-    // R48-6（四十八轮）：锁获取自身抛出收口 WRITE_ERROR（同 executeSave 同编号注）
-    let docSaveLock: (() => void) | null
-    try {
-      docSaveLock = await acquireCrossProcessLockAsync(`${journalPath}.save.lock`, metaSaveLockTimeoutMs)
-    } catch (e) {
-      return { ok: false, code: 'WRITE_ERROR', reason: `元数据保存锁获取失败（未执行保存，可重试）：${errMsg(e)}` }
-    }
-    if (!docSaveLock) {
-      return { ok: false, code: 'WRITE_ERROR', reason: '元数据保存等待超时：另一进程正在保存此文档（5 秒未让出），请重试' }
-    }
-    // R29-7（二十九轮）：同 executeSave/updateChapterMeta——布线文件（含 大纲/关系线/）
-    // 在 save 锁内再取同名文件锁（与 lead-finalize 回写互斥），超时/获取异常按
-    // WRITE_ERROR 拒绝（fail-closed，先释放 save 锁防泄漏）。R30-5（三十轮）锁序如实化：
-    // 全仓统一「save 锁 → 布线锁 → 清单锁」，finalize 侧已同步改为进清单锁前预取布线锁。
-    const wiringKey = this.wiringFileLockKey(path)
-    let wiringLock: (() => void) | null = null
-    if (wiringKey) {
-      try {
-        wiringLock = await acquireCrossProcessLockAsync(wiringKey, wiringSaveLockTimeoutMs)
-      } catch (e) {
-        docSaveLock()
-        return { ok: false, code: 'WRITE_ERROR', reason: `布线文件锁获取失败（未执行保存，可重试）：${errMsg(e)}` }
-      }
-      if (!wiringLock) {
-        docSaveLock()
-        return { ok: false, code: 'WRITE_ERROR', reason: '元数据保存等待超时：另一进程正在回写此布线文件（5 秒未让出），请重试' }
-      }
-    }
-    try {
+    // 复审-0914-优化修复批 P1-1（2026-09-14 修复批）：取锁/释放编排单源化至 withSaveLocks
+    //（R48-6 / R29-7（布线文件含 大纲/关系线/，与 lead-finalize 回写互斥，fail-closed
+    // 先释放 save 锁防泄漏）/ R30-5 锁序 / R31-20 异步化机制随迁），本处保留调用面
+    // 专属文案与锁档，锁序与失败语义逐位不变。
+    return this.withSaveLocks<MoveResult>({
+      journalPath,
+      saveTimeoutMs: getMetaSaveLockTimeoutMs(),
+      onSaveLockThrown: (e) => ({ ok: false, code: 'WRITE_ERROR', reason: `元数据保存锁获取失败（未执行保存，可重试）：${errMsg(e)}` }),
+      onSaveLockTimeout: () => ({ ok: false, code: 'WRITE_ERROR', reason: '元数据保存等待超时：另一进程正在保存此文档（5 秒未让出），请重试' }),
+      wiring: {
+        relPath: path,
+        timeoutMs: getWiringSaveLockTimeoutMs(),
+        onThrown: (e) => ({ ok: false, code: 'WRITE_ERROR', reason: `布线文件锁获取失败（未执行保存，可重试）：${errMsg(e)}` }),
+        onTimeout: () => ({ ok: false, code: 'WRITE_ERROR', reason: '元数据保存等待超时：另一进程正在回写此布线文件（5 秒未让出），请重试' }),
+      },
+      body: async () => {
       // R73-40（二十一轮）：两次独立 readFileSync 收敛为单次读（finalize.ts R72-5 单读
       // 同源先例）——「utf-8 读文本」与「字节级 UTF-8 判据」原先各读一次盘，两读之间文件
       // 被并发替换（他进程保存/改名）时判据与写回内容错源（微 TOCTOU）。Buffer 一读，
@@ -1467,11 +1471,8 @@ export class DocumentService {
       }
       invalidateTreeIndex(this.bookRoot, true)
       return { ok: true, docId, path }
-    } finally {
-      // R29-7：布线文件锁先于 save 锁释放（逆获取序），release 幂等
-      if (wiringLock) wiringLock()
-      docSaveLock()
-    }
+      },
+    })
   }
 
   /** move/rename 共用：查清单 oldPath → 算 newPath → 能力校验 → snapshot → rename → 清单更新。 */
@@ -1503,20 +1504,16 @@ export class DocumentService {
     // id:"../../evil" 条目后 PATCH move/rename 可把 .jsonl 写出书仓库外。
     if (!safeDocId(docId)) return { ok: false, code: 'PATH_ESCAPE', reason: '文档 ID 非法' }
     const journalPath = join(this.journalDir, `${encodeDocDirName(docId)}.jsonl`) // R68-3：同 executeSave 编码口径
-    // R0912-2：取 save 锁（同 executeSave R48-6——获取自身抛出收口 WRITE_ERROR）
-    const holdSaveLock = opts?.holdSaveLock ?? true
-    let structSaveLock: (() => void) | null = null
-    if (holdSaveLock) {
-      try {
-        structSaveLock = await acquireCrossProcessLockAsync(`${journalPath}.save.lock`, structSaveLockTimeoutMs)
-      } catch (e) {
-        return { ok: false, code: 'WRITE_ERROR', reason: `移动/重命名保存锁获取失败（未执行操作，可重试）：${errMsg(e)}` }
-      }
-      if (!structSaveLock) {
-        return { ok: false, code: 'WRITE_ERROR', reason: '移动/重命名等待超时：另一进程正在保存或移动此文档（5 秒未让出），请重试' }
-      }
-    }
-    try {
+    // 复审-0914-优化修复批 P1-1（2026-09-14 修复批）：取锁/释放编排单源化至 withSaveLocks
+    //（R0912-2 holdSaveLock 防同进程嵌套自锁语义随迁：false = 调用方已持同 docId
+    // save 锁；R48-6 获取抛出收口随迁）。结构落位段无布线文件，不传 wiring。
+    return this.withSaveLocks<MoveResult>({
+      journalPath,
+      holdSaveLock: opts?.holdSaveLock ?? true,
+      saveTimeoutMs: getStructSaveLockTimeoutMs(),
+      onSaveLockThrown: (e) => ({ ok: false, code: 'WRITE_ERROR', reason: `移动/重命名保存锁获取失败（未执行操作，可重试）：${errMsg(e)}` }),
+      onSaveLockTimeout: () => ({ ok: false, code: 'WRITE_ERROR', reason: '移动/重命名等待超时：另一进程正在保存或移动此文档（5 秒未让出），请重试' }),
+      body: async () => {
     // R0912-3（2026-09-11 重评-0911c 修复批）：lookup 命中读已随 lookupPathByDocIdAdoptAsync
     // 收敛 strict（R27-40 口径）——瞬态读失败上抛不再落「未登记」，此处收口 WRITE_ERROR
     //（未执行操作、可重试），不裸穿 MoveResult 契约。
@@ -1712,11 +1709,8 @@ export class DocumentService {
     }
     invalidateTreeIndex(this.bookRoot, true)
     return { ok: true, docId, path: newPath }
-    } finally {
-      // R0912-2：结构性落位段 save 锁释放（覆盖 lookup → 落位 → 删源 → 清单更新 → settled
-      // 整段；提前 return 的各失败路径经 finally 幂等释放，不泄漏）
-      if (structSaveLock) structSaveLock()
-    }
+      },
+    })
   }
 
   // 残留清偿批（三十四轮）：同步收编链三函数已删——lookupPathByDocId / adoptLegacyDoc /
@@ -1812,7 +1806,13 @@ export class DocumentService {
     // sanitizeCreateSegment 洗段，copy 侧两道皆无），物理落位（resolveSafePath 归一）
     // 与清单登记（原文）路径不一致 → docId 身份分裂、保存恒 REVISION_CONFLICT。
     // 口径对齐 doCreate 主评审核销注：位置合法化不放宽，复制无合法用例需要 `..` 段。
-    if (relSegs.includes('..')) return { ok: false, code: 'PATH_ESCAPE', reason: '路径越出书仓库' }
+    // 全库重评-0914 P2-2：`.` 段一并拒绝——同「已存在则原样保留」分支对 `a/./b.md`
+    // 恒命中（existsSync(join(root,'a','.')) 即 `a` 本身），`.` 原文进 copyRelPath 登记
+    // 而物理落位经 resolveSafePath 词法折叠在 `a/b.md`，登记与盘上路径分裂 → docId
+    // 身份分裂（R51-D-3 同族终点）；口径对齐 normalizeMoveToDir 的 `..`/`.` 双拒。
+    if (relSegs.includes('..') || relSegs.includes('.')) {
+      return { ok: false, code: 'PATH_ESCAPE', reason: '路径段非法：不允许 . 或 .. 目录段' }
+    }
     const safeDirSegs = relSegs.slice(0, -1).map((seg, idx) =>
       existsSync(join(this.bookRoot, ...relSegs.slice(0, idx + 1))) ? seg : sanitizeFileNamePart(seg),
     )
@@ -1905,16 +1905,14 @@ export class DocumentService {
     // （executeSave Z-6 的回收站复活守卫本可兜「删源后清单未删」窗，但兜不住「守卫
     // 已过、atomicWrite 在旧路径复活」的毫秒窗——本锁闭合后者。）
     const journalPath = join(this.journalDir, `${encodeDocDirName(docId)}.jsonl`) // R68-3：同 executeSave 编码口径
-    let structSaveLock: (() => void) | null = null
-    try {
-      structSaveLock = await acquireCrossProcessLockAsync(`${journalPath}.save.lock`, structSaveLockTimeoutMs)
-    } catch (e) {
-      return { ok: false, code: 'WRITE_ERROR', reason: `删除保存锁获取失败（未执行删除，可重试）：${errMsg(e)}` }
-    }
-    if (!structSaveLock) {
-      return { ok: false, code: 'WRITE_ERROR', reason: '删除等待超时：另一进程正在保存或删除此文档（5 秒未让出），请重试' }
-    }
-    try {
+    // 复审-0914-优化修复批 P1-1（2026-09-14 修复批）：取锁/释放编排单源化至 withSaveLocks
+    //（R0912-2 全程持锁 + R48-6 获取抛出收口随迁）。软删段无布线文件，不传 wiring。
+    return this.withSaveLocks<TrashResult>({
+      journalPath,
+      saveTimeoutMs: getStructSaveLockTimeoutMs(),
+      onSaveLockThrown: (e) => ({ ok: false, code: 'WRITE_ERROR', reason: `删除保存锁获取失败（未执行删除，可重试）：${errMsg(e)}` }),
+      onSaveLockTimeout: () => ({ ok: false, code: 'WRITE_ERROR', reason: '删除等待超时：另一进程正在保存或删除此文档（5 秒未让出），请重试' }),
+      body: async () => {
     // R0912-3：lookup 命中读 strict 化后的收口——瞬态读失败按 WRITE_ERROR 拒删
     //（文件未动、可重试），不裸穿 TrashResult 契约。
     let oldPath: string | null
@@ -1996,7 +1994,7 @@ export class DocumentService {
           }
         }
       } catch (e) {
-        log.warn('document', `软删 ${docId} 前读定稿基线失败（按无基线落账，还原后该章不带定稿态）：${e instanceof Error ? e.message : String(e)}`)
+        log.warn('document', `软删 ${docId} 前读定稿基线失败（按无基线落账，还原后该章不带定稿态）：${errMsg(e)}`)
       }
       // GG-P2-6：回收站登记先于移文件，且登记写失败即中止整个软删（宁删失败）——
       // 原实现「先 rename 进 .trash、后补登记」，登记失败（磁盘满/登记路径被占）被
@@ -2126,16 +2124,9 @@ export class DocumentService {
     }
     invalidateTreeIndex(this.bookRoot, true)
     return { ok: true, docId, trashedPath: finalTrashRel }
-    } finally {
-      // R0912-2：软删 save 锁释放（各提前 return 经 finally 幂等释放，不泄漏）
-      if (structSaveLock) structSaveLock()
-    }
+      },
+    })
   }
-}
-
-/** 错误信息提取（避免重复 try/catch 样板）。 */
-function errMsg(e: unknown): string {
-  return e instanceof Error ? e.message : String(e)
 }
 
 /** R0912-3（2026-09-12 全量重评 P2-2）：清单条目 → TrashEntry 基线投影单源（W-P2-1
@@ -2197,6 +2188,21 @@ function normalizeChapterNo(v: unknown): number | null {
   if (typeof v === 'number' && Number.isInteger(v)) return v
   if (typeof v === 'string' && /^\d+$/.test(v.trim())) return Number(v.trim())
   return null
+}
+
+/** 全库重评-0914 P3-11：章文件名标题段剥离（章号识别收编 chapterNoFromName 单源，
+ *  format/filename 宽集：`-`/`—`/空白/裸尾均认）——原窄正则 `/^(?:\d+-)?(.+)\.md$/`
+ *  只认 `-` 分隔，`5—标题.md`/`5 标题.md` 的章号前缀剥不净（整名连章号落标题）。
+ *  命中判定走 chapterNoFromName；剥段 = 首个分隔符（`-`/`—`/空白，与单源分隔集一致）
+ *  之后余下部分（前缀是纯数字，首个分隔符即单源正则消费的那一个）。裸章号名（`0001.md`，
+ *  单源 `$` 臂命中）无标题段 → 空串，消费侧 sanitize || '未命名' 兜底；非 .md 名
+ *  维持原窄正则口径返回空串。 */
+function chapterTitleSegment(fileName: string): string {
+  if (!fileName.endsWith('.md')) return ''
+  const base = fileName.slice(0, -'.md'.length)
+  if (chapterNoFromName(base) === null) return base
+  const sepIdx = base.search(/[-—\s]/)
+  return sepIdx === -1 ? '' : base.slice(sepIdx + 1)
 }
 
 /** 深度优先找 legacyId(path) === docId 的叶子，返回其 relPath；无匹配 null。 */

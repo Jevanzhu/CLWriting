@@ -17,6 +17,7 @@ import { appendTrashEntry } from '../document/trash.js'
 import { ulid } from '../fs/id.js'
 import { legacyId } from '../document/stable-id.js'
 import { roleOf } from '../document/layout.js'
+import { errMsg } from '../log/index.js' // errMsg 收编（复审-0914-优化修复批）：错误文案三目单源
 
 /**
  * 冲突/受阻草稿 → 工作区/.trash + 回收站清单登记（W-P2-3：只挪文件不登记，
@@ -76,7 +77,7 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
           mkdirSync(dirname(dst), { recursive: true })
           renameWithRetry(srcAbs, dst)
           migrated++
-        } catch (e) { errors.push(`${name}: ${e instanceof Error ? e.message : String(e)}`) }
+        } catch (e) { errors.push(`${name}: ${errMsg(e)}`) }
       } else {
         // R26-88（二十六轮）：目标已存在不再静默跳过——对齐 R72-9「未识别文件不再静默
         // 跳过」口径：源文件滞留草稿区成孤儿（v3 布局已退役该目录）作者无从知晓，
@@ -95,7 +96,7 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
           renameWithRetry(srcAbs, dst)
           migrated++
           pathRemap.set(`写作/草稿/${name}`, `大纲/${dstName}`)
-        } catch (e) { errors.push(`${name}: ${e instanceof Error ? e.message : String(e)}`) }
+        } catch (e) { errors.push(`${name}: ${errMsg(e)}`) }
       } else {
         // R26-88（二十六轮）：同目标（首篇/首章两源抢 大纲/首章细纲.md）防覆盖跳过
         // 同样记入 errors——两源内容可能不同，静默丢弃后到者有丢稿风险，提示手动核对。
@@ -133,12 +134,12 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
     try {
       dstRel = resolveDraftPath(bookRoot, chapterNum, content).relPath
     } catch (e) {
-      errors.push(`${name}: ${e instanceof Error ? e.message : String(e)}`)
+      errors.push(`${name}: ${errMsg(e)}`)
       try {
         trashDraft(bookRoot, srcAbs, name, landingRel)
         migrated++
         trashPaths.add(`写作/草稿/${name}`) // R27-133：旧路径清单条目待清
-      } catch (e2) { errors.push(`${name} → .trash: ${e2 instanceof Error ? e2.message : String(e2)}`) }
+      } catch (e2) { errors.push(`${name} → .trash: ${errMsg(e2)}`) }
       continue
     }
     const dstAbs = join(bookRoot, dstRel)
@@ -148,7 +149,7 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
         trashDraft(bookRoot, srcAbs, name, dstRel)
         migrated++
         trashPaths.add(`写作/草稿/${name}`) // R27-133：旧路径清单条目待清
-      } catch (e) { errors.push(`${name} → .trash: ${e instanceof Error ? e.message : String(e)}`) }
+      } catch (e) { errors.push(`${name} → .trash: ${errMsg(e)}`) }
       continue
     }
     try {
@@ -157,7 +158,7 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
       migrated++
       pathRemap.set(`写作/草稿/${name}`, dstRel)
     } catch (e) {
-      errors.push(`${name} → ${dstRel}: ${e instanceof Error ? e.message : String(e)}`)
+      errors.push(`${name} → ${dstRel}: ${errMsg(e)}`)
     }
   }
 
@@ -185,7 +186,7 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
         writeManifest(manifestPath, manifest)
       })
     } catch (e) {
-      errors.push(`manifest 更新失败: ${e instanceof Error ? e.message : String(e)}`)
+      errors.push(`manifest 更新失败: ${errMsg(e)}`)
     }
   }
 

@@ -17,14 +17,16 @@ import { MODEL_QUIRKS_VERSION } from './provider/model-quirks.js'
 import { newRunId, promptMeta, toTraceUsage } from './trace.js'
 import { recordUsageBoth } from './calls.js'
 import { resolveModelPricing, computeCallCost } from './pricing.js'
-import { openSessionStoreAsync, bookHash } from '../events/store.js'
+// 复审-0914-优化修复批（P3）：openSessionStoreAsync/bookHash 随 mkChain 底层段收编
+// open-chain.ts 单源移除（唯一消费点）
+import { openChainRecorder } from './open-chain.js'
 import { ChainRecorder, layerForTask, stepStartEvent, stepEndEvent, llmCallEvent, llmRetryEvent } from '../events/chain-bridge.js'
 import type { StepEndReason } from '../events/types.js'
 import { DEFAULT_RETRY_POLICY, backoffDelayMs, shouldRetryError } from './retry-policy.js'
 // R-P3-2：失败出口日志留痕需带「动作名」——直接取决策表现值（failure.ts 唯一事实源），
 // 不在 runner 侧维护第二份 code→action 映射（Z-P2-2 单口径化纪律）
 import { failureAction } from './provider/failure.js'
-import { log } from '../log/index.js'
+import { errMsg, log } from '../log/index.js'
 
 /** AA-P3-5：降级记忆「已写一次」per-key 内存标记（userDataPath 维度隔离，防跨库/跨测试污染）。
  *  同 path 同 key 只写一次（load→改→save 是读改写三段——写频越低，「多书并发 400 时互相覆盖
@@ -281,7 +283,7 @@ export function resolveProvider(
   try {
     s = loadProviders(userDataPath)
   } catch (e) {
-    return { ok: false, code: 'NO_PROVIDER', error: `供应商配置读取失败：${e instanceof Error ? e.message : String(e)}` }
+    return { ok: false, code: 'NO_PROVIDER', error: `供应商配置读取失败：${errMsg(e)}` }
   }
   const conf = s.currentId ? (s.providers.find((p) => p.id === s.currentId) ?? null) : null
   // R75-A-P3a：currentId 已知但条目缺失（指向已删供应商）→ 身份仍带上（可定位配置错在哪）
@@ -334,28 +336,20 @@ function mkChain(
     log.warn('runner', JSON.stringify({ msg: '链路事件录制器未建（本次调用零链路事件）', reason: 'missing-args', hasUserDataPath: !!userDataPath, hasBookRoot: !!bookRoot, task: task ?? null }))
     return Promise.resolve(null)
   }
-  return openSessionStoreAsync(userDataPath, bookRoot)
-    .then((store) => {
-      // R34D-19（三十四轮）：开库走异步孪生（首开锁等待不阻塞服务事件循环）；
-      // 建链半途抛错先关库再降级（口径同下 catch：引用计数单例不留滞留引用）
-      if (!store) {
-        log.warn('runner', JSON.stringify({ msg: '链路事件录制器未建（本次调用零链路事件）', reason: 'open-session-store-null', task }))
-        return null
-      }
-      try {
-        const sessionId = store.workspaceSession(bookHash(bookRoot))
-        return new ChainRecorder(store, sessionId)
-      } catch (e) {
-        log.warn('runner', JSON.stringify({ msg: '链路事件录制器未建（本次调用零链路事件）', reason: 'chain-build-error', task, error: e instanceof Error ? e.message : String(e) }))
-        store.close()
-        return null
-      }
-    })
-    .catch((e: unknown) => {
-      // 二轮复审（低级）：建链抛错降级 null（T2-2 审计黑洞口径——warn 留痕不静默）
-      log.warn('runner', JSON.stringify({ msg: '链路事件录制器未建（本次调用零链路事件）', reason: 'open-error', task, error: e instanceof Error ? e.message : String(e) }))
-      return null
-    })
+  // 复审-0914-优化修复批（P3）：「openSessionStoreAsync → workspaceSession → ChainRecorder
+  // 失败先关库」底层段收编 open-chain.ts 单源（self-heal mkChain 同源）；本侧结构化 warn
+  // 留痕（T2-2 审计黑洞口径）经 onWarn 钩子保留，reason 取值与 JSON 键序逐字不变。
+  return openChainRecorder(userDataPath, bookRoot, (reason, error) => {
+    log.warn(
+      'runner',
+      JSON.stringify({
+        msg: '链路事件录制器未建（本次调用零链路事件）',
+        reason,
+        task,
+        ...(error !== undefined ? { error: errMsg(error) } : {}),
+      }),
+    )
+  })
 }
 
 export async function runTask<T>(opts: {
@@ -596,7 +590,7 @@ export async function runTask<T>(opts: {
           : undefined
       recordUsageBoth(bookRoot, task, opts.chapter, usage, cost ?? undefined)
     } catch (e) {
-      log.warn('runner', `任务记账写库失败（${task ?? '未知任务'}，本轮账目缺失）：${e instanceof Error ? e.message : String(e)}`)
+      log.warn('runner', `任务记账写库失败（${task ?? '未知任务'}，本轮账目缺失）：${errMsg(e)}`)
     }
   }
 
@@ -746,10 +740,10 @@ export async function runTask<T>(opts: {
         // shrink-prompt 在 A7 接线前同归终态、重试耗尽时 action 仍为 'retry'，见
         // failure.ts 决策表注释）；此前仅事件库 llm/call（chain 缺失时零线索），日志
         // 通道无任何痕迹。非 GenError 异常按 GEN_FAIL 兜底口径记 action:'author'
-        log.warn('runner', JSON.stringify({ msg: 'AI 调用终态失败', task: task ?? null, bookRoot: bookRoot ?? null, attempt, code: (e instanceof GenError && e.code) || 'GEN_FAIL', action: e instanceof GenError ? failureAction(e) : 'author', error: e instanceof Error ? e.message : String(e) }))
+        log.warn('runner', JSON.stringify({ msg: 'AI 调用终态失败', task: task ?? null, bookRoot: bookRoot ?? null, attempt, code: (e instanceof GenError && e.code) || 'GEN_FAIL', action: e instanceof GenError ? failureAction(e) : 'author', error: errMsg(e) }))
         // R37-7（三十七轮）：终态失败封套携带 attemptsUsage/model——recordUsageSafe 已按
         // 次入账 ai-calls，封套同步透出供下游（self-heal 失败分支）并入 done 事件用量
-        return { ok: false, code: 'GEN_FAIL', error: e instanceof Error ? e.message : String(e), attemptsUsage, model: tier.model }
+        return { ok: false, code: 'GEN_FAIL', error: errMsg(e), attemptsUsage, model: tier.model }
       }
     }
   } finally {

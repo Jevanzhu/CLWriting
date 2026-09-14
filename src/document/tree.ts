@@ -18,7 +18,8 @@ import { roleOf, type DocumentRole } from './layout.js'
 import { readManifest, type ManifestEntry } from './manifest.js'
 import { deriveStatus, type DocumentStatus } from './status.js'
 import { legacyId } from './stable-id.js'
-import { splitFrontMatter } from '../format/frontmatter.js'
+import { splitFrontMatter, parseValue } from '../format/frontmatter.js'
+import { stripInlineComment } from '../format/frontmatter-core.js'
 import { countWords } from '../format/words.js'
 import { parseOrderOf, isPublishedValue } from '../format/chapters.js'
 import { clearTreeIssuesCacheForBook } from '../check/tree-issues-cache.js'
@@ -103,11 +104,9 @@ const SYNOPSIS_TOP = '大纲/总纲.md'
  *  （前端新建不补零 `5-x` / 前端复制 4 位 / 服务端长篇 4 位 / 短篇与草稿管线 3 位）；
  *  非数字前缀文件（副本、设定类）返回 null。
  *  R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：正则本体升格 format/filename.ts
- *  chapterNoFromName 单一真相源（leads/foreshadow/summary 三处窄正则同批收敛），
- *  此处保留薄委托维持本文件调用面。 */
-function chapterNoOf(name: string): number | null {
-  return chapterNoFromName(name)
-}
+ *  chapterNoFromName 单一真相源（leads/foreshadow/summary 三处窄正则同批收敛）——
+ *  P3（复审-0914-优化修复批）：薄委托包装 chapterNoOf 随批内联删除，本文件调用点
+ *  直呼 chapterNoFromName；单一真相源仍在 format/filename.ts（沿革不变）。 */
 
 /** 排序：目录优先于文件；根级按 ROOT_ORDER 固定序（工作流优先），
  *  章文件按章号数值序（补零宽度不影响大小），其余按 path localeCompare（§6.2 卷字母序）；总纲例外置顶。 */
@@ -127,8 +126,8 @@ function compareNode(a: TreeNode, b: TreeNode): number {
   // 之后、`0100-y` 排到 `099-x` 之前，目录树实际错序；双方都是数字前缀文件时按
   // 数值比较，数值同（如 `005-x` 与 `5-x` 并存）回落 path 字典序保持稳定
   if (!a.isDirectory) {
-    const an = chapterNoOf(a.name)
-    const bn = chapterNoOf(b.name)
+    const an = chapterNoFromName(a.name)
+    const bn = chapterNoFromName(b.name)
     if (an !== null && bn !== null && an !== bn) return an - bn
   }
   return a.path.localeCompare(b.path, 'zh-Hans-CN')
@@ -176,8 +175,8 @@ function sortTreeByOrder(nodes: TreeNode[]): void {
     if (n.path === '写作/正文' || n.path.startsWith('写作/正文/')) {
       const files = n.children.filter((c) => !c.isDirectory)
       if (files.length > 1) {
-        const keyOf = (c: TreeNode): number => c.order ?? chapterNoOf(c.name) ?? Number.POSITIVE_INFINITY
-        const noOf = (c: TreeNode): number => chapterNoOf(c.name) ?? Number.POSITIVE_INFINITY
+        const keyOf = (c: TreeNode): number => c.order ?? chapterNoFromName(c.name) ?? Number.POSITIVE_INFINITY
+        const noOf = (c: TreeNode): number => chapterNoFromName(c.name) ?? Number.POSITIVE_INFINITY
         files.sort(
           (a, b) =>
             keyOf(a) - keyOf(b) ||
@@ -336,11 +335,13 @@ function probeFile(bookRoot: string, rel: string): FileProbe | null {
   let published = false
   let order: number | null = null
   if (split) {
-    published = isPublishedValue(parsePublishedValue(split.fmRaw))
+    published = parsePublishedValue(split.fmRaw)
     // S2（阶段 24）：`序` 与 `已发布` 同式同源（chapters.ts 归一小函数，regex 捕获串
-    // 直传——成对引号在 parseOrderOf 内剥），复用已读字节零额外读
+    // 直传——成对引号在 parseOrderOf 内剥），复用已读字节零额外读。
+    // 全库重评-0914 P3-13：捕获值先剥行内注释（`序: 3 # 备注` 此前 Number 强转失败
+    // 落缺省，readChapter 侧 parseFlat 先剥注释判得 3，两链路口径分裂）
     const om = split.fmRaw.match(/^序[:：]\s*(.+?)\s*$/m)
-    if (om) order = parseOrderOf(om[1]) ?? null
+    if (om) order = parseOrderOf(stripInlineComment(om[1]!.trim())) ?? null
   }
   const probe: FileProbe = { rev, wordCount, published, order }
   // FIFO 淘汰最旧（Map 保插入序）
@@ -352,20 +353,17 @@ function probeFile(bookRoot: string, rel: string): FileProbe | null {
   return probe
 }
 
-/** 从 fm 原文提取 `已发布` 字段值（与原 readPublished/parseFlat 同口径，内联避免第三读）。
- *  2026-08-21：剥首尾引号——`已发布: "true"` 手写带引号时，parseFlat→parseValue 会 unquote
- *  得 'true'（document 链路判 published），此处原样返回 '"true"' 判 false，树/定稿两链路
- *  口径分裂（注释宣称同口径不实）。 */
-function parsePublishedValue(fmRaw: string): boolean | string | undefined {
+/** 从 fm 原文提取 `已发布` 判定（probe 热路径：fm 原文单次读取复用，零额外 IO，只加
+ *  纯函数处理）。全库重评-0914 P3-13：值侧处理对齐 status.readPublished 的 parseFlat
+ *  单源口径——捕获值先 stripInlineComment 剥行内注释（`已发布: true # 备注` 此前把
+ *  「true # 备注」整段当值判 false，树/定稿两链路分裂），再走 parseValue（内联数组
+ *  `['true']` 形态与引号配对 unquote 均与 parseFlat 同源），终判 chapters.isPublishedValue
+ *  单源（含数组形态）。原注「与 readPublished/parseFlat 同口径」失实（不剥注释、
+ *  不认数组、引号配对剥除自实现），随批更正。 */
+function parsePublishedValue(fmRaw: string): boolean {
   const m = fmRaw.match(/^已发布[:：]\s*(.+?)\s*$/m)
-  if (!m) return undefined
-  // R33-48（三十三轮）：剥引号改「配对才剥」——原 `^["'](.*)["']$` 把 `"true'`
-  // （首尾引号不配对）也剥成 true，与 parseFlat 的 unquote 口径偏差（后者配对判定）。
-  const v0 = m[1]!.trim()
-  const q = v0[0]
-  const v =
-    (q === '"' || q === "'") && v0.length >= 2 && v0.endsWith(q) ? v0.slice(1, -1) : v0
-  return v === 'true' ? true : v
+  if (!m) return false
+  return isPublishedValue(parseValue(stripInlineComment(m[1]!.trim())))
 }
 
 /** 写作/正文/<卷> → <卷>（卷目录名，直接子级）；正文根或更深层（卷里的章）→ null。 */

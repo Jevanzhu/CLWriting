@@ -26,7 +26,7 @@ import { readRagConfig } from '../rag/config.js'
 import { resolveRag } from '../rag/resolve.js'
 import { loadProviders, resolveTier } from '../ai/provider/index.js'
 import { recallDetailed, RAG_CHUNK_WARN_THRESHOLD, type RecallHit, type RecallResult } from '../rag/index.js'
-import { log } from '../log/index.js'
+import { log, errMsg } from '../log/index.js'
 import { embed } from '../rag/embed.js'
 import { findWorkDir } from '../install/books.js'
 import type { BookConfig } from '../format/types.js'
@@ -195,7 +195,7 @@ export async function prepareMaterials(
     } catch (e) {
       // R32-20（三十二轮）：静默降级改 warn 留痕——此前「补漏失败静默」把 ENOENT/权限类
       // 持续性故障埋进零痕迹（自愈循环断链无观测），备料降级语义不变
-      log.warn('materials', `近章摘要补漏失败（prepare 无该段照常组装）：${e instanceof Error ? e.message : String(e)}`)
+      log.warn('materials', `近章摘要补漏失败（prepare 无该段照常组装）：${errMsg(e)}`)
     }
     // C2（批 3）：上一卷摘要缺失且章摘要链完整 → 按需生成（链不全不强行，留痕降级）。
     // 卷摘要手写优先（文件存在即跳过）；prepare 直接读文件，无需 rebuild
@@ -204,7 +204,7 @@ export async function prepareMaterials(
       if (vol) summaryGenerated.push(vol)
     } catch (e) {
       // R32-20：同款 warn 留痕（备料降级语义不变）
-      log.warn('materials', `上一卷摘要按需生成失败（备料降级）：${e instanceof Error ? e.message : String(e)}`)
+      log.warn('materials', `上一卷摘要按需生成失败（备料降级）：${errMsg(e)}`)
     }
   }
   // RAG 解析：书级引用 → 应用级服务商（providers.json ragProviders）；无引用走旧版内联回落。
@@ -258,7 +258,7 @@ export async function prepareMaterials(
     // 复审-0913-源码 P3-⑱：降级文案附病因（对齐同文件 selfHeal 卷摘要 catch 的
     // message 透出口径）——此前 ragNote 只说「异常」，网络/中断/解析错无从归因
     rec = null
-    ragNote = `RAG 召回异常（降级回落精准读取）：${e instanceof Error ? e.message : String(e)}`
+    ragNote = `RAG 召回异常（降级回落精准读取）：${errMsg(e)}`
   }
   const hits: RecallHit[] = rec?.hits ?? []
   // R36-16：截断信号透出——recallDetailed 硬截断（池超上限保读出序前缀）时留痕

@@ -36,7 +36,7 @@ describe('N8 migrateBookSession 在途引用断言', () => {
     const s1 = openSessionStore(ud, oldRoot)!
     const s2 = openSessionStore(ud, oldRoot)!
     const sid = s1.createSession('旧书名')
-    s1.appendEvent(sid, { type: 'llm/call', data: { task: 't', ok: true } })
+    s1.appendEvents(sid, [{ type: 'llm/call', data: { task: 't', ok: true } }])
     expect(existsSync(oldDb)).toBe(true)
 
     // refs=2（双开在途）→ N8 断言拦下：放弃迁移，源库原地完整
@@ -45,8 +45,7 @@ describe('N8 migrateBookSession 在途引用断言', () => {
     expect(existsSync(oldDb)).toBe(true)
     expect(existsSync(newDb)).toBe(false)
     // 在途引用仍可用（未被强关）
-    s2.appendEvent(sid, { type: 'llm/call', data: { task: 't2', ok: true } })
-
+    s2.appendEvents(sid, [{ type: 'llm/call', data: { task: 't2', ok: true } }])
     // 收口一个引用后 refs=1 → R64-8：首个在途调用方同样是活跃持有者，仍拦
     s2.close()
     const r2 = await migrateBookSession(ud, oldRoot, newRoot, '旧书名', '新书名')

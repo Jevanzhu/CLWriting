@@ -14,7 +14,7 @@ vi.mock('../../../src/studio/web-next/src/api/chat', () => ({
   sendChat: vi.fn(),
   clearChatHistory: vi.fn(),
 }))
-vi.mock('../../../src/studio/web-next/src/api/stream', () => ({
+vi.mock('../../../src/studio/web-next/src/api/workbench', () => ({
   interrupt: vi.fn(),
 }))
 vi.mock('../../../src/studio/web-next/src/api/providers', () => ({

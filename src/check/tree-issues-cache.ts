@@ -144,7 +144,22 @@ export function computeTreeIssuesGlobalFp(bookRoot: string, userDataPath: string
  * leads_book_fp / leads_book_red，无需 DDL 变更。
  */
 export function computeLeadsBookFp(bookRoot: string, userDataPath: string | null): string {
-  return `${computeTreeIssuesGlobalFp(bookRoot, userDataPath)}|${dirFp(join(bookRoot, '写作', '正文'))}`
+  return computeLeadsBookFpFromEpochFp(bookRoot, computeTreeIssuesGlobalFp(bookRoot, userDataPath))
+}
+
+/**
+ * 复审-0914-优化修复批（F4）：leadsBook 指纹的「基线拼装」形态——已有轮基线纪元
+ * 指纹（collectTreeIssuesCore 的 epochFp0，rebuild 前算得）时按
+ * `${纪元}|${写作/正文 目录指纹}` 拼装，与 computeLeadsBookFp 输出逐字节同构：
+ * globalFp 各段与 dirFp 的 `count:size:maxMtime:nameHash`（或 'absent'）均不含 `|`，
+ * 分隔无歧义，值域同空间，读侧失效判定（fp 全等比对）不变。聚合的 leadsFp /
+ * leadsFpNow（R53-E-1 写前复核）由此免整调 computeTreeIssuesGlobalFp——一次聚合的
+ * 全局目录递归 stat 自首（epochFp0）尾（epochFpEnd）各一遍（R47-30 口径至此成立，
+ * 见 run.ts 待落盘段注）；纪元基线缺席（前算失败为 null）时调用方回落
+ * computeLeadsBookFp 全算，非空/null 分支语义保持。
+ */
+export function computeLeadsBookFpFromEpochFp(bookRoot: string, epochFp: string): string {
+  return `${epochFp}|${dirFp(join(bookRoot, '写作', '正文'))}`
 }
 
 /** 全书性红项缓存读：指纹全中才命中，否则 null（调用方重算）。

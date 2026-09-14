@@ -368,6 +368,7 @@ function aggregateTrails(
  *
  * 每章正文用联合正则一次扫描，命中全部关键词的位置；
  * 关键词做转义防正则元字符（如「祖父遗物（上）」）。
+ * B1（复审-0914-优化修复批）：单章扫描体与异步孪生单源（scanChapterIntoIndex）。
  */
 function buildKeywordIndex(
   chapters: Map<number, string>,
@@ -378,25 +379,37 @@ function buildKeywordIndex(
   if (re === null) return index
   for (const [章号, text] of chapters) {
     if (text.length === 0) continue
-    re.lastIndex = 0
-    let m: RegExpExecArray | null
-    while ((m = re.exec(text)) !== null) {
-      const kw = m[0]
-      let byChapter = index.get(kw)
-      if (!byChapter) {
-        byChapter = new Map()
-        index.set(kw, byChapter)
-      }
-      let positions = byChapter.get(章号)
-      if (!positions) {
-        positions = []
-        byChapter.set(章号, positions)
-      }
-      positions.push(m.index)
-      if (m[0].length === 0) re.lastIndex++ // 防零宽匹配死循环（理论不会，防御）
-    }
+    scanChapterIntoIndex(index, re, 章号, text)
   }
   return index
+}
+
+/** 单章联合正则扫描入索引（B1，复审-0914-优化修复批）：buildKeywordIndex 与
+ *  buildKeywordIndexAsync 原逐字重复的 exec 循环抽出单源（含防零宽匹配死循环防御）；
+ *  异步版只承担按片让出事件循环的编排。 */
+function scanChapterIntoIndex(
+  index: Map<string, Map<number, number[]>>,
+  re: RegExp,
+  章号: number,
+  text: string,
+): void {
+  re.lastIndex = 0
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text)) !== null) {
+    const kw = m[0]
+    let byChapter = index.get(kw)
+    if (!byChapter) {
+      byChapter = new Map()
+      index.set(kw, byChapter)
+    }
+    let positions = byChapter.get(章号)
+    if (!positions) {
+      positions = []
+      byChapter.set(章号, positions)
+    }
+    positions.push(m.index)
+    if (m[0].length === 0) re.lastIndex++ // 防零宽匹配死循环（理论不会，防御）
+  }
 }
 
 /** 正则元字符转义（关联词可能含「（）」「.」等） */
@@ -433,8 +446,9 @@ function buildTrailRegExp(foreshadows: ForeshadowEntry[]): RegExp | null {
 // 异步孪生把 CPU 重段（buildKeywordIndex 逐章正则）切片让出事件循环（每 25 章
 // setImmediate，Node 请求线程可插步响应其他请求），正文读取段的磁盘 IO 由共享
 // md-text-cache 指纹表吸收（R47-27）。同步版原样保留（行为规格参照 + 回归测试钉），
-// 索引语义单源化在 collectTrailKeywords/buildTrailRegExp——两版扫描循环互为镜像，
-// 改动任一侧必须对另一侧做同款等价核对（等价性由 pm1 测试逐字段断言背书）。
+// 索引语义单源化在 collectTrailKeywords/buildTrailRegExp——B1（复审-0914-优化修复批）
+// 后两版扫描/收集循环本体亦单源（scanChapterIntoIndex/collectOneChapterFile），
+// 异步孪生只承担按片让出事件循环的编排，等价性由 pm1 测试逐字段断言背书。
 
 /** 每让出片的章数：25 章 ≈ 每片 10-15ms（数千字/章 × 联合正则），远低于一帧预算。 */
 const TRAILS_YIELD_EVERY = 25
@@ -457,8 +471,8 @@ export async function scanForeshadowTrailsAsync(
 /** collectChapterTexts 的异步孪生：签名/返回/语义逐位一致（目录枚举仍同步——只收集
  *  路径不读正文，开销为 walk 本身），差异在正文读取段每 TRAILS_YIELD_EVERY 章让出
  *  一次事件循环（R48-46，yieldToEventLoop 复用 PM-1 原语）；读盘由共享 md-text-cache
- *  指纹表吸收（R47-27），热缓存近零成本。与 walkChapters 互为镜像：改动任一侧必须
- *  对另一侧做同款等价核对（章号过滤/重复告警文案/读取口径逐位对齐）。 */
+ *  指纹表吸收（R47-27），热缓存近零成本。B1（复审-0914-优化修复批）：单章收集体与
+ *  同步 walkChapters 单源（collectOneChapterFile），不再互为镜像副本。 */
 async function collectChapterTextsAsync(bookRoot: string): Promise<Map<number, string>> {
   const texts = new Map<number, string>()
   const merged = new Map<number, string>()
@@ -471,23 +485,16 @@ async function collectChapterTextsAsync(bookRoot: string): Promise<Map<number, s
   let processed = 0
   for (const { abs, name } of files) {
     if (++processed % TRAILS_YIELD_EVERY === 0) await yieldToEventLoop()
-    const 章号 = parseChapterNoFromName(name)
-    if (章号 === null) continue
-    if (texts.has(章号)) {
-      log.warn('foreshadow', `正文存在重复章号 ${章号}（${name} 与先前已收集的同号章冲突，伏笔足迹按后扫文件计——请核对卷内章号规划）`)
-    }
-    // S2：并入 声明与正文同一次读取顺带解析（readMdTextCached 指纹缓存吸收，零额外 IO）
-    const raw = readMdTextCached(abs)
-    if (raw !== null) collectMergedFromRaw(merged, raw, abs)
-    texts.set(章号, readChapterBodyCached(abs))
+    collectOneChapterFile(texts, merged, abs, name)
   }
   // S2（阶段 24）：并入源章回退（fillMergedSources 头注——与同步孪生镜像等价）
   fillMergedSources(merged, texts)
   return texts
 }
 
-/** buildKeywordIndex 的异步孪生：与同步版逐位同源（buildTrailRegExp 单源），章节循环
- *  每 TRAILS_YIELD_EVERY 章让出一次事件循环（PM-1，见块注）。 */
+/** buildKeywordIndex 的异步孪生：与同步版逐位同源（buildTrailRegExp 单源 + B1 后
+ *  scanChapterIntoIndex 单章扫描体共用），章节循环每 TRAILS_YIELD_EVERY 章让出一次
+ *  事件循环（PM-1，见块注）。 */
 async function buildKeywordIndexAsync(
   chapters: Map<number, string>,
   foreshadows: ForeshadowEntry[],
@@ -499,23 +506,7 @@ async function buildKeywordIndexAsync(
   for (const [章号, text] of chapters) {
     if (++processed % TRAILS_YIELD_EVERY === 0) await yieldToEventLoop()
     if (text.length === 0) continue
-    re.lastIndex = 0
-    let m: RegExpExecArray | null
-    while ((m = re.exec(text)) !== null) {
-      const kw = m[0]
-      let byChapter = index.get(kw)
-      if (!byChapter) {
-        byChapter = new Map()
-        index.set(kw, byChapter)
-      }
-      let positions = byChapter.get(章号)
-      if (!positions) {
-        positions = []
-        byChapter.set(章号, positions)
-      }
-      positions.push(m.index)
-      if (m[0].length === 0) re.lastIndex++ // 防零宽匹配死循环（理论不会，防御）
-    }
+    scanChapterIntoIndex(index, re, 章号, text)
   }
   return index
 }
@@ -582,31 +573,42 @@ function collectMergedFromRaw(merged: Map<number, string>, raw: string, abs: str
  *  .md 按章号整读。接入 walk-md 共享口径（Dirent 不跟随 + realpath visited 剪枝 +
  *  根界 = 正文目录，越出即拒），语义与 rebuild walkChapters 对齐。
  *  S2（阶段 24）：并入 声明在 walk 内从同一份缓存原文顺带解析（collectMergedFromRaw，
- *  零额外 IO——异步孪生 collectChapterTextsAsync 镜像等价，改动须双侧同步）。 */
+ *  零额外 IO——B1（复审-0914-优化修复批）后单章收集体与异步孪生单源
+ *  collectOneChapterFile，不再双侧镜像）。 */
 function walkChapters(dir: string, texts: Map<number, string>, merged: Map<number, string>): void {
   walkMdEach(dir, (abs, name) => {
-    const 章号 = parseChapterNoFromName(name)
-    if (章号 === null) return
-    // R65-33（第六十五轮）：跨卷重复章号 set 静默覆盖（后者胜——足迹只按后扫到的
-    // 那章算，前一章的证据整章不可见）；保留现覆盖行为，补 warn 可见性供作者核对
-    if (texts.has(章号)) {
-      log.warn('foreshadow', `正文存在重复章号 ${章号}（${name} 与先前已收集的同号章冲突，伏笔足迹按后扫文件计——请核对卷内章号规划）`)
-    }
-    // S2：并入 声明与正文同一次读取顺带解析（readMdTextCached 指纹缓存吸收，零额外 IO）
-    const raw = readMdTextCached(abs)
-    if (raw !== null) collectMergedFromRaw(merged, raw, abs)
-    // R66-6（十四轮）：整读改走指纹缓存——二次扫描未变章节跳过重读，变更章指纹失配重读
-    texts.set(章号, readChapterBodyCached(abs))
+    collectOneChapterFile(texts, merged, abs, name)
   })
 }
 
-/** 从文件名提取章号（兼容补零与不补零：0001-开篇.md / 1-标题.md → 1）。
- *  R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：窄正则（仅认 -）升格
- *  format/filename.ts chapterNoFromName 单源——原与 tree 的宽容集（-/—/空白/裸尾）
- *  漂移，`5—标题.md` 树排序认得、伏笔足迹静默缺章。 */
-function parseChapterNoFromName(name: string): number | null {
-  return chapterNoFromName(name)
+/** 单章文件收集（B1，复审-0914-优化修复批）：同步 walkChapters 与异步
+ *  collectChapterTextsAsync 原逐字镜像的章号解析/重复告警/并入顺带解析/正文读取
+ *  四段抽出单源；重复章号覆盖语义（后者胜）与告警文案逐位不变。 */
+function collectOneChapterFile(
+  texts: Map<number, string>,
+  merged: Map<number, string>,
+  abs: string,
+  name: string,
+): void {
+  const 章号 = chapterNoFromName(name)
+  if (章号 === null) return
+  // R65-33（第六十五轮）：跨卷重复章号 set 静默覆盖（后者胜——足迹只按后扫到的
+  // 那章算，前一章的证据整章不可见）；保留现覆盖行为，补 warn 可见性供作者核对
+  if (texts.has(章号)) {
+    log.warn('foreshadow', `正文存在重复章号 ${章号}（${name} 与先前已收集的同号章冲突，伏笔足迹按后扫文件计——请核对卷内章号规划）`)
+  }
+  // S2：并入 声明与正文同一次读取顺带解析（readMdTextCached 指纹缓存吸收，零额外 IO）
+  const raw = readMdTextCached(abs)
+  if (raw !== null) collectMergedFromRaw(merged, raw, abs)
+  // R66-6（十四轮）：整读改走指纹缓存——二次扫描未变章节跳过重读，变更章指纹失配重读
+  texts.set(章号, readChapterBodyCached(abs))
 }
+
+// parseChapterNoFromName 薄委托包装已随 B1（复审-0914-优化修复批）内联删除：
+// 唯一消费方（单源后的 collectOneChapterFile）直呼 chapterNoFromName。沿革见
+// R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：窄正则（仅认 -）升格
+// format/filename.ts chapterNoFromName 单源——原与 tree 的宽容集（-/—/空白/裸尾）
+// 漂移，`5—标题.md` 树排序认得、伏笔足迹静默缺章；单源正文本在 format/filename.ts。
 
 // ── F1-P3 伏笔足迹 FTS 检索 ────────────────────────
 

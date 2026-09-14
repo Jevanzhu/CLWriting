@@ -55,6 +55,9 @@ async function run(): Promise<void> {
 
 // Esc 关闭（mask 点击已支持；键盘可达性补全）
 function onKeydown(e: KeyboardEvent): void {
+  // P3-23（全库重评-0914）：Esc 让渡链首行短路——先让高层（ConfirmPrompt capture 期
+  // 已消费并 preventDefault）不被本层重复处理；与 SettingsModal R8C-F1 同款纪律。
+  if (e.defaultPrevented) return
   // R33-82（三十三轮）：IME 组合期让渡（同 SettingsModal）
   if (isImeComposing(e)) return
   if (e.key === 'Escape' && ui.exportOpen) {

@@ -77,6 +77,13 @@ function serializeErr(err: unknown): { name: string; message: string; stack?: st
   return { name: typeof err, message: String(err) }
 }
 
+/** 复审-0914-优化 A1（2026-09-14 修复批）：unknown → message 字符串单源——全库
+ *  `e instanceof Error ? e.message : String(e)` 三目此前 210 处手抄（本轮起按域
+ *  分批收编），错误摘要口径（Error 取 message、其余 String 化）由本函数钉住。 */
+export function errMsg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e)
+}
+
 /** 本地日期文件名段：app-YYYYMMDD.jsonl（按本地时区轮转，与「按天」直觉一致）。 */
 function dayFile(logsDir: string, d = new Date()): string {
   const y = d.getFullYear()

@@ -13,7 +13,7 @@ import { sanitizeChapterTitle, isMdFileName } from './filename.js'
 import { readManifest } from '../document/manifest.js'
 import type { ChapterMeta } from './types.js'
 // R37-9：正文目录卷扫描 readdirSync 容错降级留痕（同 run.ts/runner.ts 口径）
-import { log } from '../log/index.js'
+import { errMsg, log } from '../log/index.js' // errMsg 收编（复审-0914-优化修复批）：错误文案三目单源
 
 type ReadDraftResult =
   | { ok: true; chapter: ChapterMeta; body: string }
@@ -38,7 +38,7 @@ export function readDraft(draftPath: string, content?: string): ReadDraftResult 
     try {
       text = readFileSync(draftPath, 'utf-8')
     } catch (e) {
-      return { ok: false, reason: `无法读取文件：${e instanceof Error ? e.message : String(e)}` }
+      return { ok: false, reason: `无法读取文件：${errMsg(e)}` }
     }
   }
   const chapter = readChapter(draftPath, undefined, text)

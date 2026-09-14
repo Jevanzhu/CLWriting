@@ -2,7 +2,8 @@
  * 书架共享逻辑：分组 + 搜索/排序 + 最新书 + 视图模式 + 建书表单 + 格式化纯函数。
  * Shelf.vue（全屏页）与 ShelfModal.vue（浮层）共用，差异仅在选书后的跳转。
  */
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { useShelfStore } from '../stores/shelf'
 import { usePrefsStore } from '../stores/prefs'
 import { useChatStore } from '../stores/chat'
@@ -19,7 +20,7 @@ import { friendlyError } from '../shared/error'
 import { formatWanZi } from '../shared/words'
 import { clearFalsePositiveMarks, fpBookPrefix } from '../stores/check'
 import { clearFailedDrafts, migrateFailedDrafts } from './useChatComposer'
-import { treeFirstOpenKey, onboardPremiseKey } from '../shared/storage-keys'
+import { LAST_BOOK_KEY, treeFirstOpenKey, onboardPremiseKey } from '../shared/storage-keys'
 
 /**
  * R46-6（四十六轮）：书名改名的渲染层按书键控状态迁移——删除路径有完整清理链
@@ -147,16 +148,27 @@ export function onCardMove(e: MouseEvent): void {
 }
 
 /**
- * 书架共享状态：分组 + 视图模式 + 建书表单。
+ * 书架共享状态：分组 + 视图模式 + 建书表单 + 选书跳转。
  * onCreated 回调在建书成功后调用，由外壳处理跳转（路由 / IPC / 关浮层）。
  * onDeleted 回调在删除成功后调用（R65-54/E-6：ShelfModal 内删掉当前打开的书时，
  * 外壳借它导航离开死路由 /book/:name——留在原地则后续所有 API 全 404）。
+ * openBook（P1-7b 降级单源，复审-0914-优化修复批）：「记 LAST_BOOK_KEY + 跳转」自
+ * Shelf.vue / ShelfModal.vue 两份手写收敛于此；IPC 分支留回调由外壳判定。
  */
 export function useShelf(options?: {
   onCreated?: (name: string) => void
   onDeleted?: (names: string[]) => void
+  /** 选书 IPC 分支：书架独立窗口（win=shelf）由外壳判定并走主窗口 IPC 打开（含
+   *  R42-31 的 reject catch 与窗口收尾），返回 true = 已接管跳转；缺省/返回 false =
+   *  常规路由跳转（beforeOpenBookNav 钩子先行） */
+  openBookViaIpc?: (name: string) => boolean
+  /** 常规路由跳转前钩子（浮层壳需先收浮层再导航） */
+  beforeOpenBookNav?: (name: string) => void
 }) {
   const shelf = useShelfStore()
+  // P1-7b：openBook 的常规跳转出口（useShelf 均在组件 setup 内调用；单测裸调场景
+  // router 为 undefined，openBook 不被触达）
+  const router = useRouter()
 
   // ── 搜索 + 排序（P2-PROD-6）────────────────────
   /** 搜索词（按书名模糊匹配） */
@@ -229,6 +241,12 @@ export function useShelf(options?: {
   const newKind = ref<'long' | 'short'>('long')
   const creating = ref(false)
   const createError = ref<string | null>(null)
+  // P3-26（全库重评-0914）：关弹窗清建书错误——原 createError 只在下次提交时清，
+  // 关闭（Esc/取消/建书成功）后残留，重开弹窗挂着上次失败文案。收敛在组合层
+  // （Shelf.vue 全屏页与 ShelfModal.vue 浮层两个消费方同享，零调用方改动）。
+  watch(showCreate, (v) => {
+    if (!v) createError.value = null
+  })
   async function createBook(): Promise<void> {
     const name = newName.value.trim()
     if (!name) return
@@ -275,6 +293,20 @@ export function useShelf(options?: {
   function exitBatch(): void {
     batchMode.value = false
     selected.value = new Set()
+  }
+
+  // 选书（P1-7b 降级单源）：记 LAST_BOOK_KEY（R60-D-4 键收敛单源写入口）+ 跳转分流——
+  // openBookViaIpc 命中（书架独立窗口 win=shelf）时外壳走 IPC 自管收尾；否则（可选
+  // beforeOpenBookNav 钩子后）常规路由跳转。两形态（全屏页/浮层）行为逐位不变。
+  function openBook(name: string): void {
+    try {
+      localStorage.setItem(LAST_BOOK_KEY, name)
+    } catch {
+      /* localStorage 不可用时忽略 */
+    }
+    if (options?.openBookViaIpc?.(name)) return
+    options?.beforeOpenBookNav?.(name)
+    router?.push(`/book/${encodeURIComponent(name)}`)
   }
   /** 打开确认弹窗（传入待删书名列表） */
   function requestDelete(names: string[]): void {
@@ -365,6 +397,8 @@ export function useShelf(options?: {
     selectAll,
     enterBatch,
     exitBatch,
+    // 选书（P1-7b 降级单源）
+    openBook,
     confirmTarget,
     deleting,
     deleteError,

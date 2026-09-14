@@ -85,7 +85,7 @@ function isGenerated(step: OnboardStep): boolean {
           <button class="btn primary" :disabled="saving" @click="emit('save')">
             {{ saving ? '保存中…' : '保存' }}
           </button>
-          <button class="btn" @click="emit('gen')">
+          <button class="btn" :disabled="ui.aiAvailable === false" @click="emit('gen')">
             <RotateCcw :size="13" /><span>重新生成</span>
           </button>
         </div>

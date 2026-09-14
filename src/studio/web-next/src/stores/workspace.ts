@@ -5,6 +5,7 @@ import { usePrefsStore } from './prefs'
 import { useUiStore } from './ui'
 import { getBookPrefs, putBookPrefs, type BookPrefs } from '../api/prefs'
 import { setFullScreen } from '../shared/fullscreen'
+import { useStaleGuard } from '../composables/useStaleGuard'
 
 /** 新建类型：正文/章纲/卷纲/总纲/角色/物品/世界观/伏笔（TabBar 下拉 → ChapterTreePanel 执行）。 */
 export type CreateKind =
@@ -63,8 +64,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   let prefsLoaded = false
   let watchStop: (() => void) | null = null
   let debounceTimer: ReturnType<typeof setTimeout> | null = null
-  /** 切书 generation token：防止快速切换 A→B→C 时 A 的异步 prefs 覆盖 C（竞态污染） */
-  let bookGen = 0
+  /** 切书 generation token：防止快速切换 A→B→C 时 A 的异步 prefs 覆盖 C（竞态污染）。
+   *  E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard（setBook begin；其余观测点 current）。 */
+  const bookGen = useStaleGuard()
   /** R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：书级 prefs 持久化失败的一次性提示
    *  去重标记——对齐全局偏好 R55-F-7 口径（同一失败窗只 warning 一次，成功落盘复位） */
   let bookPrefsFailNotified = false
@@ -96,12 +98,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     pendingInsert.value = null
     if (debounceTimer) clearTimeout(debounceTimer) // ff 细节#11：挂起的落盘随切书作废
     debounceTimer = null
-    const gen = ++bookGen
+    const gen = bookGen.begin()
     void loadBookPrefs(gen)
   }
 
   /** 从 .clwriting/prefs.json 加载书库级偏好；首次为空时从旧 localStorage 迁移。 */
-  async function loadBookPrefs(gen = bookGen): Promise<void> {
+  async function loadBookPrefs(gen = bookGen.current()): Promise<void> {
     if (!bookName.value) return
     let prefs: BookPrefs = {}
     try {
@@ -111,7 +113,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       // getBookPrefs 挂起窗内已切到 B 书（B 已成功回填书级覆盖）时，A 的迟到 reject
       // 不得把 B 刚回填的 bookPageWidth/bookAutosaveInterval 清掉（对齐下方成功路径
       // 同款 gen 守卫）。
-      if (gen !== bookGen) return
+      if (bookGen.stale(gen)) return
       // R-6（第十六轮）：拉取失败直接放弃——不置 prefsLoaded、不 startPersistWatch（下次进书重试），
       // 否则默认布局经持久化 watch 写回覆盖服务端已存的 prefs.json
       // R33-75（三十三轮）：放弃前清书级覆盖值——A 书的纸张宽度/自动保存间隔残留
@@ -127,7 +129,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }
 
     // 竞态守卫：await 期间若已切到其他书 → 丢弃本次结果，防 A 的 prefs 写入 C 的 slot
-    if (gen !== bookGen) return
+    if (bookGen.stale(gen)) return
 
     // 向后兼容：prefs.json 成功读到且为空时从旧 localStorage 迁移（R-6：拉取失败已提前 return，不会误迁移写回）
     if (Object.keys(prefs).length === 0) {
@@ -203,7 +205,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
    */
   function writeBookPrefs(gen: number, name: string): Promise<void> {
     // ff 细节#11 复查：gen/书名任一漂移（切书）→ 本次落盘作废，防 A 书布局写进 B 书
-    if (gen !== bookGen || !prefsLoaded || bookName.value !== name) return Promise.resolve()
+    if (bookGen.stale(gen) || !prefsLoaded || bookName.value !== name) return Promise.resolve()
     const ps = usePrefsStore()
     return putBookPrefs(name, {
       leftWidth: leftWidth.value,
@@ -241,7 +243,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (!debounceTimer) return Promise.resolve()
     clearTimeout(debounceTimer)
     debounceTimer = null
-    return writeBookPrefs(bookGen, bookName.value ?? '')
+    return writeBookPrefs(bookGen.current(), bookName.value ?? '')
   }
 
   /** 启动 watch：面板布局/文档变更时 debounce 写回 .clwriting/prefs.json。 */
@@ -256,7 +258,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         if (debounceTimer) clearTimeout(debounceTimer)
         // ff 细节#11：捕获排定时刻的书，fire 时复查（500ms 内切书 → 本次落盘作废，
         // 防 A 书布局经 setTimeout 回调写进 B 书 prefs.json）
-        const gen = bookGen
+        const gen = bookGen.current()
         const name = bookName.value
         debounceTimer = setTimeout(() => {
           void writeBookPrefs(gen, name)

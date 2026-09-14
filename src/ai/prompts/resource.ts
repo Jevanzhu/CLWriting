@@ -21,7 +21,7 @@ import { existsSync, readFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { bundledResource } from '../../fs/resources.js'
 import { atomicWriteFile } from '../../fs/atomic.js'
-import { log } from '../../log/index.js'
+import { log, errMsg } from '../../log/index.js'
 
 /** 哈希 = sha256(规范文本) 前 16 位（内容寻址，与 spill 文件名同族）。
  *  R40-6（四十轮）：哈希前内联 canonicalize——同文仅行尾异码（win 手编 CRLF vs LF
@@ -106,7 +106,7 @@ function readOverlaySync(fp: string): string {
   try {
     return readFileSync(fp, 'utf8')
   } catch (e) {
-    throw new Error(`读取用户覆盖 prompt 失败（${fp}）：${e instanceof Error ? e.message : String(e)}`)
+    throw new Error(`读取用户覆盖 prompt 失败（${fp}）：${errMsg(e)}`)
   }
 }
 
@@ -157,7 +157,7 @@ export function migratePromptOverlays(
     try {
       hash = promptHash(canonicalize(readOverlaySync(fp)))
     } catch (e) {
-      log.warn('migrate-prompts', `prompt overlay 读取失败，跳过该文件继续升级：${e instanceof Error ? e.message : String(e)}`)
+      log.warn('migrate-prompts', `prompt overlay 读取失败，跳过该文件继续升级：${errMsg(e)}`)
       continue
     }
     if (!versions[file]!.includes(hash)) {

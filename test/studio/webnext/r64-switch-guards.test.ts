@@ -21,6 +21,7 @@ const treeMock = {
   updateWordCount: vi.fn(),
 }
 const toastMock = vi.fn()
+const getContent = vi.hoisted(() => vi.fn(async () => '内容'))
 vi.mock('../../../src/studio/web-next/src/api/documents', () => {
   const getContent = vi.fn(async () => '内容')
   return {
@@ -59,7 +60,7 @@ vi.mock('../../../src/studio/web-next/src/stores/tree', () => ({
   useTreeStore: vi.fn(() => treeMock),
 }))
 
-import { batchFinalizeDocs, finalizeDoc, getContent } from '../../../src/studio/web-next/src/api/documents'
+import { batchFinalizeDocs, finalizeDoc } from '../../../src/studio/web-next/src/api/documents';
 import { useChapterTreeActions } from '../../../src/studio/web-next/src/composables/useChapterTreeActions'
 
 const batchMock = batchFinalizeDocs as ReturnType<typeof vi.fn>

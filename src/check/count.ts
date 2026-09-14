@@ -236,18 +236,28 @@ export function checkSentenceLength(
   return { name: '句式体检', items }
 }
 
+// R73-19（二十一轮）：句长码点口径（代理对合 1 计）。
+// 复审-0914-优化 A2：实现收编 src/shared/text.ts 单源（原本地副本删）。
+import { codePointLength } from '../shared/text.js'
+// 复审-0914-优化修复批：unknown → message 三目收编 log.errMsg 单源（同批 run.ts 同款）
+import { errMsg } from '../log/index.js'
+
 /**
- * R73-19（二十一轮）：句长码点口径——手写码点遍历（代理对合 1 计），
- * 与 countWords 的 [...body].length 同口径；不用 Array.from 免逐句分配。
+ * F7（复审-0914-优化修复批）：子串非重叠计数单源——checkImagery / checkBodyParts
+ * 两处逐字同构的 indexOf 步进循环收编（步进 needle.length = 不计重叠命中，口径与
+ * 原实现逐位一致）。grep 佐证该形态全仓仅此两处，落文件内 helper 不入 shared/text.ts
+ * ——单消费域不下沉（避免推测性泛化），第三处出现时再议上移。
  */
-function codePointLength(s: string): number {
-  let n = 0
-  for (let i = 0; i < s.length; i++) {
-    n++
-    if (s.codePointAt(i)! > 0xffff) i++ // 代理对：astral 字符按 1 计
+function countOccurrences(haystack: string, needle: string): number {
+  let count = 0
+  let idx = haystack.indexOf(needle)
+  while (idx !== -1) {
+    count++
+    idx = haystack.indexOf(needle, idx + needle.length)
   }
-  return n
+  return count
 }
+
 
 /**
  * 提示语成分字符表（对白行判定）：引号外文本全部由这些成分组成 → 该行是对白，
@@ -400,7 +410,7 @@ export function checkNewNames(
         {
           checkId: 'roster-unreadable',
           level: 'yellow',
-          message: `名册读取失败（${e instanceof Error ? e.message : String(e)}），新专名检查本轮未跑，修复后重查。`,
+          message: `名册读取失败（${errMsg(e)}），新专名检查本轮未跑，修复后重查。`,
         },
       ],
     }
@@ -505,12 +515,8 @@ export function checkImagery(
   const prose = stripQuotedSpans(body)
   for (const word of imageryWords) {
     if (!word) continue
-    let count = 0
-    let idx = prose.indexOf(word)
-    while (idx !== -1) {
-      count++
-      idx = prose.indexOf(word, idx + word.length)
-    }
+    // F7：计数循环收编 countOccurrences 单源（原与 checkBodyParts 双份逐字同构）
+    const count = countOccurrences(prose, word)
     // R26-29（二十六轮）：阈值边界统一为 `>`（超过才报）——与 checkBodyParts/checkSimile
     // 的「≤阈 合法、>阈 报黄」语义一致（#27 第 5.3 节同款）；原 `>=` 让恰好踩线的
     // 「3 次整」也报，与身体部位/比喻两项口径分裂。
@@ -555,6 +561,10 @@ export interface StyleStats {
   _sentencesWithColon?: string[]
   /** 形容词堆叠命中串列表（供 checkStyleMetrics 复用，避免重复全文匹配；R48-40（四十八轮），_sentences 同款口径） */
   _adjStackHits?: string[]
+  /** F7（复审-0914-优化修复批）：首个越界排比前缀（checkStyleMetrics 消费；与
+   *  parallelStreakMax 同循环一次记出，R48-40 _adjStackHits 同款内部复用先例）。
+   *  undefined = 未越界或 maxParallelStreak 未启用。 */
+  _parallelStreakHitPrefix?: string
 }
 
 /** 纯统计函数：对正文算文风 5 维数值指纹，不产 CheckItem（文风方案 §4.2） */
@@ -597,10 +607,15 @@ export function computeStyleMetrics(body: string, rules: IronRules): StyleStats 
 
   // 最大同构排比连续数（补全统计，不同于 checkStyleMetrics 的「首次越界即 break」）。
   // R26-47（二十六轮）：循环内 new RegExp 提升为模块级常量 PARALLEL_PREFIX_RE（纯浪费）
+  // F7（复审-0914-优化修复批）：首个越界前缀同一循环一次记出（_parallelStreakHitPrefix）
+  // ——checkStyleMetrics 原为取 hitPrefix 把本循环整跑第二遍（逐句 regex 重付）；「首次
+  // 越界」取值与原 break 版逐位一致（同一句列、同一正则、同一 streak 口径）。
   let parallelStreakMax = 0
+  let parallelStreakHitPrefix: string | undefined
   if (rules.maxParallelStreak !== undefined && rules.maxParallelStreak > 0) {
     let prev = ''
     let streak = 0
+    let hitPrefix: string | undefined
     for (const sentence of sentencesWithColon) {
       const prefix = sentence.match(PARALLEL_PREFIX_RE)?.[0] ?? ''
       if (prefix && prefix === prev) {
@@ -610,7 +625,9 @@ export function computeStyleMetrics(body: string, rules: IronRules): StyleStats 
         streak = prefix ? 1 : 0
       }
       if (streak > parallelStreakMax) parallelStreakMax = streak
+      if (hitPrefix === undefined && streak > rules.maxParallelStreak) hitPrefix = prefix
     }
+    parallelStreakHitPrefix = hitPrefix
   }
 
   // 结尾总结体
@@ -630,6 +647,7 @@ export function computeStyleMetrics(body: string, rules: IronRules): StyleStats 
     _sentences: sentences,
     _sentencesWithColon: sentencesWithColon,
     _adjStackHits: adjStackHitList,
+    _parallelStreakHitPrefix: parallelStreakHitPrefix,
   }
 }
 
@@ -709,25 +727,13 @@ export function checkStyleMetrics(
 
   // 连续同构排比：首次越界即推一条 + break（保持原行为；max 留在 stats 供聚合用）。
   // R26-47：循环内 new RegExp 提升为模块级常量 PARALLEL_PREFIX_RE
+  // F7（复审-0914-优化修复批）：hitPrefix 改读 computeStyleMetrics 同循环记出的
+  // _parallelStreakHitPrefix（R48-40 _adjStackHits 同款复用先例）——原「复算首个越界
+  // prefix」把 computeStyleMetrics 已跑过的同构排比循环再跑一遍，此前 _sentencesWithColon
+  // 复用只省了 splitSentences、逐句 regex 仍在重付；parallelStreakMax > 阈时该字段必有值
+  //（max 由同一 streak 序列取 max），`?? ''` 仅为异源构造 stats 的防御（与原未越界初值同形）。
   if (rules.maxParallelStreak !== undefined && rules.maxParallelStreak > 0 && stats.parallelStreakMax > rules.maxParallelStreak) {
-    // 复算首个越界 prefix（复用 stats 已分句结果）
-    const sentences = stats._sentencesWithColon ?? splitSentences(body, true)
-    let prev = ''
-    let streak = 0
-    let hitPrefix = ''
-    for (const sentence of sentences) {
-      const prefix = sentence.match(PARALLEL_PREFIX_RE)?.[0] ?? ''
-      if (prefix && prefix === prev) {
-        streak += 1
-      } else {
-        prev = prefix
-        streak = prefix ? 1 : 0
-      }
-      if (streak > rules.maxParallelStreak) {
-        hitPrefix = prefix
-        break
-      }
-    }
+    const hitPrefix = stats._parallelStreakHitPrefix ?? ''
     items.push({
       checkId: 'style-parallel-streak',
       level: 'yellow',
@@ -919,12 +925,8 @@ export function checkBodyParts(
   const prose = stripQuotedSpans(body)
   for (const word of words) {
     if (!word) continue
-    let count = 0
-    let idx = prose.indexOf(word)
-    while (idx !== -1) {
-      count++
-      idx = prose.indexOf(word, idx + word.length)
-    }
+    // F7：计数循环收编 countOccurrences 单源（原与 checkImagery 双份逐字同构）
+    const count = countOccurrences(prose, word)
     if (count > threshold) over.push(`${word}×${count}`)
   }
   // 单字「手」走动作语境匹配，避免误伤惯用语（R0912-1 / R0911b-P2④：同在剥对白后的叙述面上计数）

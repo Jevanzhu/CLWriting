@@ -28,7 +28,7 @@ const mocks = vi.hoisted(() => ({
   uiState: { aiAvailable: true },
 }))
 
-vi.mock('../../../src/studio/web-next/src/api/stream', () => ({
+vi.mock('../../../src/studio/web-next/src/api/workbench', () => ({
   getState: mocks.getState,
   spawnRole: mocks.spawnRole,
   interrupt: mocks.interrupt,

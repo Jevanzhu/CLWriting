@@ -26,6 +26,7 @@ const {
   showCreate, newName, newKind, creating, createError, createBook,
   batchMode, selected, toggleSelect, selectAll, enterBatch, exitBatch,
   confirmTarget, deleting, deleteError, requestDelete, confirmDelete, cancelDelete,
+  openBook,
 } = useShelf({
   onCreated: (name) => {
     ui.closeShelf()
@@ -44,6 +45,9 @@ const {
     ui.closeShelf()
     router.replace('/shelf')
   },
+  // P1-7b（复审-0914-优化修复批，降级单源）：选书「记 LAST_BOOK_KEY + 跳转」收敛
+  // useShelf.openBook——主窗口浮层无 IPC 分支，路由跳转前经钩子先收浮层
+  beforeOpenBookNav: () => ui.closeShelf(),
 })
 
 // R37-30（三十七轮批E）：删 hasDesktop 死变量——J5 平台判断收敛到 usePlatform 后残留零消费
@@ -88,16 +92,9 @@ function handleCardClick(name: string): void {
   else openBook(name)
 }
 
-// 选书：记 lastBook + 关浮层 + 路由跳转（主窗口内，无需跨窗口 IPC）——R60-D-4 键单源
-function openBook(name: string): void {
-  try {
-    localStorage.setItem(LAST_BOOK_KEY, name)
-  } catch {
-    /* 忽略 */
-  }
-  ui.closeShelf()
-  router.push(`/book/${encodeURIComponent(name)}`)
-}
+// 选书跳转已收敛 useShelf.openBook（P1-7b 降级单源，复审-0914-优化修复批）——
+// 原「记 lastBook + 关浮层 + 路由跳转（主窗口内，无需跨窗口 IPC）——R60-D-4 键单源」
+// 移入 composable，浮层侧经 beforeOpenBookNav 钩子保留「先收浮层再导航」时序
 
 // Esc 关闭（mask 点击已支持；键盘可达性补全）
 function onKeydown(e: KeyboardEvent): void {
@@ -352,27 +349,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   cursor: pointer;
 }
 /* 视图切换 segmented control */
-/* .view-toggle 收敛至全局 styles/utilities.css（P3-10 重体收敛批，声明逐字未改） */
-.toggle-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 4px;
-  border: none;
-  border-radius: calc(var(--radius-s) - 1px);
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
-}
-.toggle-btn:hover {
-  color: var(--text-normal);
-}
-.toggle-btn.active {
-  background: var(--background-primary);
-  color: var(--text-normal);
-  box-shadow: var(--shadow-s);
-}
+/* .view-toggle 与 .toggle-btn（P1-7b 复审-0914-优化修复批随批收敛，声明逐字未改）
+   均在全局 styles/utilities.css */
 .btn {
   display: inline-flex;
   align-items: center;

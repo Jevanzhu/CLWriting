@@ -10,8 +10,7 @@
  * 此处 re-export 兼容既有调用方（self-heal 已从内核直接 import）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { realpathSync } from 'node:fs'
-import { join, sep } from 'node:path'
+import { join } from 'node:path'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError, parseRequestUrl } from '../http.js'
 import { resolveBook, bookMovedFailure } from '../book-context.js'
@@ -23,6 +22,7 @@ import { isSelfHealRunning } from '../../../ai/orchestrate/self-heal.js'
 import { recordAuthorSignal } from '../../../ai/author-signal.js'
 import { recordAiVersionAsync } from '../../../git/ai-track.js'
 import { log } from '../../../log/index.js'
+import { createSerialChainMap } from '../serial-chain.js' // P1-3（复审-0914-优化修复批）：per-key 串行链四胞胎通用件
 
 // re-export（P1-8 下沉兼容：既有 import 方零感知）
 export { saveDraft, buildDraftPrompt, snapshotBeforeOverwrite } from '../../../process/draft-pipeline.js'
@@ -48,45 +48,30 @@ type DraftSaveOutcome =
   | { readonly status: number; readonly code: string; readonly error: string }
   | { readonly saved: Awaited<ReturnType<typeof saveDraft>> }
 
-const draftSaveChains = new Map<string, Promise<unknown>>()
+// P1-3（复审-0914-优化修复批）：enqueue/settled 吞错/链尾自清理四件套收编
+// serial-chain.ts createSerialChainMap 单源（默认 'exact-or-prefix' drain 口径：链键恰为
+// resolveBook 书根本身、无尾分隔符，判式必须兼收「恰等于书根」形态；realpath 兜底前缀
+// R71-10 同款在通用件内保留）——串行语义逐位不变。
+const draftSaveChains = createSerialChainMap()
 
 function enqueueDraftSave(bookRoot: string, critical: () => Promise<DraftSaveOutcome>): Promise<DraftSaveOutcome> {
-  const prev = draftSaveChains.get(bookRoot) ?? Promise.resolve()
-  const task = prev.then(critical, critical)
-  const settled = task.catch(() => { /* 续链副本吞错；真实结果经 task 传递 */ })
-  draftSaveChains.set(bookRoot, settled)
-  void settled.then(() => {
-    if (draftSaveChains.get(bookRoot) === settled) draftSaveChains.delete(bookRoot)
-  })
-  return task
+  return draftSaveChains.enqueue(bookRoot, critical)
 }
 
 /** 重评-0912-4 P2-1：等待某书在途 draft-save 串行链排空——books.ts 删书/改名排水段
  *  调用（drainFilePutChainsUnder 同型）：在途 draft-save 的 saveDraft await 窗口跨墓地
  *  renameSync 时 mkdirSync(recursive) 会重建旧书路径目录树（幽灵书目录，无 book.yaml，
  *  repairBooks 不认领）。快照当前键后逐键等待（新进链不等——由链内 bookMovedFailure
- *  重验兜底拒绝）。
- *  链键是 resolveBook 返回的书根本身（无尾分隔符），与 files.ts 的「书根/文件」键不同：
- *  前缀判式必须兼收「恰等于书根」形态，否则 drain 恒 no-op。R71-10 同款 realpath 兜底
- *  前缀（workDir 含 symlink 组件时词法/真实两口径任一命中即 drain）。 */
+ *  重验兜底拒绝）。P1-3（复审-0914-优化修复批）：匹配/等待实现在 serial-chain.ts
+ *  drainUnder 单源。 */
 export async function drainDraftSaveChainsUnder(bookRoot: string): Promise<void> {
-  const roots = [bookRoot]
-  try {
-    const real = realpathSync(bookRoot)
-    if (real !== bookRoot) roots.push(real)
-  } catch {
-    /* 书根不存在（已删）等 → 只用词法口径（与修复前一致） */
-  }
-  const matches = (k: string): boolean => roots.some((r) => k === r || k.startsWith(r + sep))
-  const pending = [...draftSaveChains.keys()].filter(matches)
-  if (pending.length === 0) return
-  await Promise.allSettled(pending.map((k) => draftSaveChains.get(k)))
+  await draftSaveChains.drainUnder(bookRoot)
 }
 
 /** 重评-0912-4 P2-1：测试观测钩子（files.ts __filePutChainKeysForTest 同款）——当前
  *  在途链键只读快照（drain 等待性测试用；快照时点在途，settle 后自清理）。 */
 export function __draftSaveChainKeysForTest(): readonly string[] {
-  return [...draftSaveChains.keys()]
+  return draftSaveChains.keysForTest()
 }
 
 export function registerDraftRoutes(ctx: DraftCtx): void {

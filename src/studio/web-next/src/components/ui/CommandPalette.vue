@@ -11,6 +11,7 @@ import { useWorkspaceStore } from '../../stores/workspace'
 import { useAppActions } from '../../composables/useAppActions'
 import { useFocusTrap } from '../../composables/useFocusTrap'
 import { isImeComposing } from '../../shared/ime'
+import { capView } from '../../shared/render-cap'
 import type { TreeNode } from '../../types/tree'
 
 const ui = useUiStore()
@@ -68,6 +69,7 @@ const filtered = computed(() => {
 // 内存核查（2026-08-25 M-P3-13）：渲染上限——空查询时全书每章一条全量渲染为 DOM
 // （千章级千行节点，原仅靠 max-height 视觉滚动裁剪不减节点）；cmds 数据生成不动，
 // 只裁每节渲染条数（≤100）+ 尾部省略提示行。有查询词（过滤）时同样上限防长匹配。
+// 复审-0914-优化修复批 P3：切片/计数样板收敛 shared/render-cap 单源（capView）。
 const RENDER_CAP = 100
 // 分段视图：章节/动作各带标题；sel 仍走扁平索引，保证 ↑↓ 键盘导航跨组连续
 const sections = computed(() => {
@@ -77,11 +79,10 @@ const sections = computed(() => {
     { title: '动作', items: indexed.filter((x) => x.c.group === 'action') },
   ]
     .filter((s) => s.items.length)
-    .map((s) => ({
-      ...s,
-      items: s.items.slice(0, RENDER_CAP),
-      omitted: Math.max(0, s.items.length - RENDER_CAP), // 未渲染条数（提示行展示）
-    }))
+    .map((s) => {
+      const cap = capView(s.items, RENDER_CAP)
+      return { ...s, items: cap.view, omitted: cap.omitted } // omitted = 未渲染条数（提示行展示）
+    })
 })
 // R61-16（第六十一轮）：键盘导航上限收到已渲染区间——每节 slice(RENDER_CAP) 后未渲染
 // 条目无 DOM，旧上限（filtered.length-1）会让 ↓ 走进不可见区，Enter 执行看不见的命令。

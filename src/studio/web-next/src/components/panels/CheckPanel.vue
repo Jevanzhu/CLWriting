@@ -9,6 +9,7 @@ import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
 import { useUiStore } from '../../stores/ui'
 import { isBodyKind } from '../../shared/words'
+import { capView } from '../../shared/render-cap'
 import { contentStableKeys, checkItemKeyBase } from '../../shared/issue-keys'
 
 const props = defineProps<{ bookName: string }>()
@@ -33,12 +34,11 @@ const yellowKeys = computed(() => contentStableKeys(check.yellowItems.map(checkI
 // R1010c-FE1-P3-2（2026-09-10 全量独立复审修复批）：红/黄项渲染上限——千项级命中全量
 // v-for 挂 DOM（max-height 只裁视觉不减节点），对齐域内 RENDER_CAP=100 惯例（先例
 // RewritePanel/AuditDiffPanel R-P3-16）：只裁渲染面前 100 条 + 尾部省略提示行；
-// 数据面不动——分组头计数仍面向全量，键表也按全量构造（切片与键按下标仍对齐）
+// 数据面不动——分组头计数仍面向全量，键表也按全量构造（切片与键按下标仍对齐）。
+// 复审-0914-优化修复批 P3：切片/计数样板收敛 shared/render-cap 单源（capView）。
 const RENDER_CAP = 100
-const redItemsView = computed(() => check.redItems.slice(0, RENDER_CAP))
-const yellowItemsView = computed(() => check.yellowItems.slice(0, RENDER_CAP))
-const redOmitted = computed(() => Math.max(0, check.redItems.length - RENDER_CAP))
-const yellowOmitted = computed(() => Math.max(0, check.yellowItems.length - RENDER_CAP))
+const redCap = computed(() => capView(check.redItems, RENDER_CAP))
+const yellowCap = computed(() => capView(check.yellowItems, RENDER_CAP))
 
 // R0912-C2-P3-6（2026-09-12 独立重评修复批）：红/黄两组 item 模板逐字重复 → 分组
 // 数据化 + 模板 v-for 单份化（原两份逐张一致，DOM 输出不变——template v-for 不产生
@@ -47,13 +47,13 @@ const yellowOmitted = computed(() => Math.max(0, check.yellowItems.length - REND
 const checkGroups = computed(() => [
   {
     key: 'red', label: '红项', icon: markRaw(AlertCircle), tone: 'red',
-    count: check.redItems.length, view: redItemsView.value,
-    keys: redKeys.value, keyPrefix: 'r', omitted: redOmitted.value,
+    count: check.redItems.length, view: redCap.value.view,
+    keys: redKeys.value, keyPrefix: 'r', omitted: redCap.value.omitted,
   },
   {
     key: 'yellow', label: '黄项', icon: markRaw(AlertTriangle), tone: 'yellow',
-    count: check.yellowItems.length, view: yellowItemsView.value,
-    keys: yellowKeys.value, keyPrefix: 'y', omitted: yellowOmitted.value,
+    count: check.yellowItems.length, view: yellowCap.value.view,
+    keys: yellowKeys.value, keyPrefix: 'y', omitted: yellowCap.value.omitted,
   },
 ])
 

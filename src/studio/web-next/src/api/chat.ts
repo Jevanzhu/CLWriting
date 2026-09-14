@@ -1,5 +1,10 @@
-import { apiJson } from './client'
+import { apiJson, API_DEFAULT_TIMEOUT_MS } from './client'
 import { CHAT_HISTORY_LIMIT } from '../shared/chat-history'
+
+// A5（复审-0914-优化修复批）：chat 域快端点 15s 档单源（原 5 处裸值 15_000 收敛；
+// 数值零变化。命名对齐 client.ts API_DEFAULT_TIMEOUT_MS / useSse TICKET_TIMEOUT_MS
+// 的 *_TIMEOUT_MS 惯例；30s 兜底档直接 import client 单源）。
+const CHAT_TIMEOUT_MS = 15_000
 
 /** POST /chat {message, chapter?} —— 发送对话消息（fire-and-forget + SSE 回流） */
 interface SendChatResult {
@@ -19,13 +24,13 @@ export async function sendChat(
       method: 'POST',
       json: body,
     },
-    30_000, // 后端应秒级确认；挂起则超时提示
+    API_DEFAULT_TIMEOUT_MS, // 后端应秒级确认；挂起则超时提示（30s 兜底档，原裸值 30_000）
   )
 }
 
 /** POST /chat/clear —— 清空后端对话历史（前端"清空对话"时调） */
 export async function clearChatHistory(name: string): Promise<{ ok: boolean }> {
-  return apiJson(`/api/books/${encodeURIComponent(name)}/chat/clear`, { method: 'POST' }, 15_000)
+  return apiJson(`/api/books/${encodeURIComponent(name)}/chat/clear`, { method: 'POST' }, CHAT_TIMEOUT_MS)
 }
 
 // ── Y-P2-5：对话历史恢复（只读投影） ──────────────────
@@ -69,7 +74,7 @@ export async function fetchChatHistory(bookName: string, branchId?: string): Pro
   // encodeURIComponent 后再进 toString 会被二次编码（% → %25），服务端解一层后拿到
   // 残缺分支号（'br 1' → 'br%201'），分支查询静默落空
   if (branchId) params.set('branch', branchId)
-  return apiJson(`/api/books/${encodeURIComponent(bookName)}/chat/history?${params.toString()}`, undefined, 15_000)
+  return apiJson(`/api/books/${encodeURIComponent(bookName)}/chat/history?${params.toString()}`, undefined, CHAT_TIMEOUT_MS)
 }
 
 /** POST /chat/confirm {callId, ok} —— 工具确认/取消 */
@@ -80,7 +85,7 @@ export async function confirmTool(
   return apiJson(`/api/books/${encodeURIComponent(name)}/chat/confirm`, {
     method: 'POST',
     json: body,
-  }, 15_000)
+  }, CHAT_TIMEOUT_MS)
 }
 
 // ── G1：分支（变体）与重新生成 ──────────────────────
@@ -104,7 +109,7 @@ export interface ChatBranchInfo {
 export async function fetchChatBranches(
   bookName: string,
 ): Promise<{ branches: ChatBranchInfo[]; activeBranchId: string | null }> {
-  return apiJson(`/api/books/${encodeURIComponent(bookName)}/chat/branches`, undefined, 15_000)
+  return apiJson(`/api/books/${encodeURIComponent(bookName)}/chat/branches`, undefined, CHAT_TIMEOUT_MS)
 }
 
 /** POST /chat/regenerate —— 从指定 user 消息（parentSeq）重新生成回复（G1）。
@@ -116,5 +121,5 @@ export async function regenerateChat(
   return apiJson(`/api/books/${encodeURIComponent(name)}/chat/regenerate`, {
     method: 'POST',
     json: body,
-  }, 15_000)
+  }, CHAT_TIMEOUT_MS)
 }

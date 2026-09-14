@@ -13,6 +13,7 @@
 import { join } from 'node:path'
 import { readChapterDir, readChapterDirSummary } from '../../../format/chapters.js'
 import { yieldToEventLoop } from '../../../async.js'
+import { createTtlProbeCache } from '../ttl-cache.js' // D1（复审-0914-优化修复批）：TTL+FIFO 缓存壳单源
 
 // ── R37-3（三十七轮）：服务热路径全书扫描的逐块让出 ──────────────────────
 // 服务是 Electron 主进程内嵌的单进程 HTTP 服务，同步全书扫描在大书上单请求冻结事件
@@ -56,19 +57,9 @@ export async function computeProgressAsync(
  * 替代 computeProgress + computeLastEdited + computeLatestChapter 三次独立扫描（P2-BE-1）。
  */
 export function computeBookSummary(bookRoot: string): BookSummary {
-  const cached = summaryCache.get(bookRoot)
-  if (cached && Date.now() - cached.at < SUMMARY_TTL_MS) return cached.value
-  // R47-18（四十七轮）：过期条目顺手逐出——原只当 miss 用、条目驻留至 FIFO 触顶/
-  // invalidateBookSummary 才清；重算路径本就必走，delete 零成本零语义变更（set 原键覆写）
-  if (cached) summaryCache.delete(bookRoot)
-  const value = computeBookSummaryUncached(bookRoot)
-  // 简单 FIFO 淘汰（Map 保插入序）：超上限丢最旧条目
-  if (summaryCache.size >= SUMMARY_CACHE_MAX) {
-    const oldest = summaryCache.keys().next().value
-    if (oldest !== undefined) summaryCache.delete(oldest)
-  }
-  summaryCache.set(bookRoot, { at: Date.now(), value })
-  return value
+  // D1（复审-0914-优化修复批）：壳体收编 ttl-cache.ts 通用件（R47-18 过期逐出/FIFO
+  // 移入通用件，时序逐位不变）
+  return summaryCache.getSync(bookRoot)
 }
 
 /** R37-3：书架摘要结果形状（同步/async 孪生共用）。 */
@@ -91,23 +82,14 @@ interface BookSummary {
  * 头注——内核 CC-P1-3 stat 级缓存兜底）。结果与同步版逐位一致（r37 回归锚守护）。
  */
 export async function computeBookSummaryAsync(bookRoot: string): Promise<BookSummary> {
-  const cached = summaryCache.get(bookRoot)
-  if (cached && Date.now() - cached.at < SUMMARY_TTL_MS) return cached.value
-  // R47-18（四十七轮）：同同步版——过期条目顺手逐出（重算 await 窗内该键已过期本就
-  // 不可能命中，并发读者各自重算与原行为一致）
-  if (cached) summaryCache.delete(bookRoot)
-  const value = await computeBookSummaryUncachedAsync(bookRoot)
-  if (summaryCache.size >= SUMMARY_CACHE_MAX) {
-    const oldest = summaryCache.keys().next().value
-    if (oldest !== undefined) summaryCache.delete(oldest)
-  }
-  summaryCache.set(bookRoot, { at: Date.now(), value })
-  return value
+  // D1（复审-0914-优化修复批）：壳体收编 ttl-cache.ts 通用件（缓存命中口径与同步版
+  // 一致：共壳共 Map；R47-18 过期逐出移入通用件，时序逐位不变）
+  return summaryCache.get(bookRoot)
 }
 
 /** V-P2-27：保存成功后失效该书摘要（书架卡即时反映新字数，不等 TTL）。 */
 export function invalidateBookSummary(bookRoot: string): void {
-  summaryCache.delete(bookRoot)
+  summaryCache.forget(bookRoot)
 }
 
 /** V-P2-27：摘要 TTL 缓存——GET /api/books 对每本书同步整树扫描（读全部章节文件），
@@ -115,10 +97,19 @@ export function invalidateBookSummary(bookRoot: string): void {
  *  内存上限防长期运行的书库累积。TTL 30s（win 平台专项 2026-09-02）：5s 过短——
  *  刷新页面间隔超 5s 就必重扫一次全书库；保存路径（documents.ts invalidateBookSummary）
  *  已即时失效，书架卡不会因此变陈旧，30s 只压低「无改动也重扫」的频率。
- *  扫描成本已由 chapters.ts scanChapterDir 单轮 stat 共享（摘要不再二次 statSync）。 */
+ *  扫描成本已由 chapters.ts scanChapterDir 单轮 stat 共享（摘要不再二次 statSync）。
+ *  D1（复审-0914-优化修复批）：壳体收编 ttl-cache.ts 通用件（同步/async 孪生共壳
+ *  共 Map，见其头部收敛映射表）。 */
 const SUMMARY_TTL_MS = 30_000
 const SUMMARY_CACHE_MAX = 64
-const summaryCache = new Map<string, { at: number; value: BookSummary }>()
+const summaryCache = createTtlProbeCache<string, BookSummary>({
+  name: 'book-summary',
+  keyOf: (k) => k,
+  max: SUMMARY_CACHE_MAX,
+  ttl: () => SUMMARY_TTL_MS,
+  computeSync: computeBookSummaryUncached,
+  computeAsync: computeBookSummaryUncachedAsync,
+})
 
 /** win 书架性能专项（2026-09-02）+ R37-3 双线合并：同步版未命中路径——readChapterDirSummary
  *  单轮算出（scanChapterDir 同轮 stat 跟踪 latest，不再逐章二次 statSync）。 */

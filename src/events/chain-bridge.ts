@@ -15,7 +15,7 @@ import type {
   StructureSplitData,
   TodoWriteData,
 } from './types.js'
-import { log } from '../log/index.js'
+import { log, errMsg } from '../log/index.js'
 
 // ── 事件构造辅助 ──────────────────────────────────
 
@@ -213,7 +213,7 @@ export class ChainRecorder {
       // = 丢「已记录」凭据，铁律①视角必须留痕），业务流程仍不炸
       log.warn(
         'events',
-        `ChainRecorder 批落库失败（${evs.length} 条链路事件暂存 buffer 待重试）：${e instanceof Error ? e.message : String(e)}`,
+        `ChainRecorder 批落库失败（${evs.length} 条链路事件暂存 buffer 待重试）：${errMsg(e)}`,
       )
       this.buffer = [...evs, ...this.buffer]
       if (this.buffer.length > CHAIN_BUFFER_MAX) {
@@ -317,7 +317,7 @@ export function recordForeshadowChanges(
   } catch (e) {
     // 观测层：不阻断主流程，但留痕（R67-7：静默吞错与 R66-4 留痕纪律相悖——
     // 伏笔变更事件丢失时审计链缺段，无诊断线索可查）
-    log.warn('chain-bridge', `伏笔变更事件写入失败（session=${sessionId}，${events.length} 条）：${e instanceof Error ? e.message : String(e)}`)
+    log.warn('chain-bridge', `伏笔变更事件写入失败（session=${sessionId}，${events.length} 条）：${errMsg(e)}`)
   }
 }
 

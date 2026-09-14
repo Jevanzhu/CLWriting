@@ -27,7 +27,7 @@ vi.mock('../../../src/studio/web-next/src/api/snapshots', () => ({
   listSnapshots: mocks.listSnapshots,
   restoreSnapshot: mocks.restoreSnapshot,
 }))
-vi.mock('../../../src/studio/web-next/src/api/stream', () => ({
+vi.mock('../../../src/studio/web-next/src/api/workbench', () => ({
   getState: mocks.getState,
   spawnRole: vi.fn(),
   interrupt: vi.fn(),

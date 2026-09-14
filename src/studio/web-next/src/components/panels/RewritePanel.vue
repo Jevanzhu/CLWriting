@@ -9,6 +9,7 @@ import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
 import { useUiStore } from '../../stores/ui'
 import { formKindOf, isBodyKind } from '../../shared/words'
+import { capView } from '../../shared/render-cap'
 
 const props = defineProps<{ bookName: string }>()
 const rewrite = useRewriteStore()
@@ -49,9 +50,9 @@ const diffStats = computed(() => {
 // 重评-P3-16（2026-09-09 全量代码重评）：diff 渲染无上限——整章改写千行级 diff 全量
 // 挂 DOM（max-height 只裁视觉不减节点）。对齐 CommandPalette RENDER_CAP=100 域内惯例：
 // 数据面不动（diffStats 统计仍面向全量），只裁渲染面前 100 行 + 尾部省略提示行。
+// 复审-0914-优化修复批 P3：切片/计数样板收敛 shared/render-cap 单源（capView）。
 const RENDER_CAP = 100
-const shownDiff = computed(() => (rewrite.result?.diff ?? []).slice(0, RENDER_CAP))
-const omittedLines = computed(() => Math.max(0, (rewrite.result?.diff ?? []).length - RENDER_CAP))
+const diffCap = computed(() => capView(rewrite.result?.diff ?? [], RENDER_CAP))
 
 async function runRewrite(): Promise<void> {
   if (!docId.value || !instruction.value.trim()) return
@@ -116,7 +117,7 @@ function accept(): void {
                （AuditGoalTodoPanel 重评2-P3-4 同款口径）。diff 结果整表替换、行内纯展示无状态，
                复合键令内容参与键，零行为改动。 -->
           <div
-            v-for="(line, i) in shownDiff"
+            v-for="(line, i) in diffCap.view"
             :key="line.type + '-' + line.text + '-' + i"
             class="diff-line"
             :class="'diff-' + line.type"
@@ -126,7 +127,7 @@ function accept(): void {
             <span v-else class="diff-mark diff-mark--same" />
             <span class="diff-text">{{ line.text || ' ' }}</span>
           </div>
-          <div v-if="omittedLines > 0" class="cap-hint">已省略 {{ omittedLines }} 行</div>
+          <div v-if="diffCap.omitted > 0" class="cap-hint">已省略 {{ diffCap.omitted }} 行</div>
         </div>
         <div class="rw-actions">
           <button class="rw-accept" @click="accept">

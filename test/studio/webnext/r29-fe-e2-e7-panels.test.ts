@@ -88,6 +88,9 @@ describe('E-2: SearchPanel.open 在途切书 → 跳过 openTab', () => {
     const tree = useTreeStore()
     const ws = useWorkspaceStore()
     ws.setBook('书A')
+    // P3-21（全库重评-0914）：doc.doOpen 改 fail-closed（书名未置即拒绝）——生产由
+    // Book.vue 路由 watch 的 doc.setBook 保证先置位，测试补同款种子
+    useDocStore().setBook('书A')
     tree.raw = [makeNode('d1')] // 直接播种树索引（byPath 派生）
     let release!: (v: string) => void
     mocks.getContent.mockImplementationOnce(() => new Promise<string>((r) => { release = r }))
@@ -116,6 +119,7 @@ describe('E-2: SearchPanel.open 在途切书 → 跳过 openTab', () => {
     const tree = useTreeStore()
     const ws = useWorkspaceStore()
     ws.setBook('书A')
+    useDocStore().setBook('书A') // P3-21：doc.doOpen fail-closed 前置种子（同上）
     tree.raw = [makeNode('d1')]
     mocks.search.mockResolvedValue({
       results: [{ path: '写作/正文/d1.md', matches: [{ line: 1, text: '命中' }] }],
@@ -190,6 +194,7 @@ describe('E-2: ChapterTreePanel.onSelect 在途切书 → 跳过 openTab', () =>
   it('doc.open 在途切书 → 不把旧书 docId 开进新书工作区', async () => {
     const ws = useWorkspaceStore()
     ws.setBook('书A')
+    useDocStore().setBook('书A') // P3-21：doc.doOpen fail-closed 前置种子（同上）
     let release!: (v: string) => void
     mocks.getContent.mockImplementationOnce(() => new Promise<string>((r) => { release = r }))
 
@@ -347,6 +352,7 @@ describe('E-7: Book.vue 脏路由 name=\'\' → 先落盘 dirty 再清各 store'
     // 前书留残态：dirty 文档 + 工作台正文 + 机检残态
     mocks.getContent.mockResolvedValueOnce('盘上内容')
     const doc = useDocStore()
+    doc.setBook('书A') // P3-21：doc.doOpen fail-closed 前置种子（生产由 Book.vue 路由 watch 置位）
     const wb = useWorkbenchStore()
     const check = useCheckStore()
     const ui = useUiStore()

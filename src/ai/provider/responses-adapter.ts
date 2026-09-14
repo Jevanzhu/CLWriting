@@ -180,7 +180,15 @@ function toParams(conf: ProviderConf, req: GenRequest): Record<string, unknown> 
 }
 
 function toResponsesTool(tool: ToolDef): Record<string, unknown> {
-  return { type: 'function', name: tool.name, description: tool.description ?? '', parameters: tool.input_schema }
+  // 全库重评-0914 P3-1：description 缺省改条件省略——原 `?? ''` 对缺省 description 发
+  // 空串，与 anthropic-adapter / openai-adapter 两线的条件 omit 行为分叉（空串 description
+  // 与缺省字段在严格端点语义不同）；三线行为分叉收编为同一条件 omit 口径
+  return {
+    type: 'function',
+    name: tool.name,
+    ...(tool.description ? { description: tool.description } : {}),
+    parameters: tool.input_schema,
+  }
 }
 
 /**

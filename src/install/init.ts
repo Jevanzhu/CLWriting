@@ -15,6 +15,7 @@ import { scaffoldBookRepo, findGitAncestor } from './scaffold.js'
 import { isMdFileName } from '../format/filename.js'
 import { samePhysicalPath } from '../fs/user-data-path.js'
 import type { LeadType } from '../format/types.js'
+import { errMsg } from '../log/index.js' // errMsg 收编（复审-0914-优化修复批）：错误文案三目单源
 
 interface InitOptions {
   /** 工作目录（cwd 或显式指定）；init 在此建书 */
@@ -119,7 +120,7 @@ function writeActiveGuarded(workDir: string, bookName: string): { ok: false; rea
   } catch (e) {
     return {
       ok: false,
-      reason: `书「${bookName}」已建成并登记成功，但设置当前活动书失败（${e instanceof Error ? e.message : String(e)}）——书已在书架中，从书架启用该书即可，无需重建（重跑同名建书会提示已存在）`,
+      reason: `书「${bookName}」已建成并登记成功，但设置当前活动书失败（${errMsg(e)}）——书已在书架中，从书架启用该书即可，无需重建（重跑同名建书会提示已存在）`,
     }
   }
 }
@@ -183,7 +184,7 @@ function doInitSteps(opts: InitOptions): InitStepOutcome {
     try {
       bookRootIsFile = !statSync(bookRoot).isDirectory()
     } catch (e) {
-      return { ok: false, reason: `路径「${bookName}」判定失败（${e instanceof Error ? e.message : String(e)}），请稍后重试` }
+      return { ok: false, reason: `路径「${bookName}」判定失败（${errMsg(e)}），请稍后重试` }
     }
   }
   if (bookRootIsFile) {
@@ -196,7 +197,7 @@ function doInitSteps(opts: InitOptions): InitStepOutcome {
     try {
       existingEntries = readdirSync(bookRoot)
     } catch (e) {
-      return { ok: false, reason: `目录「${bookName}」无法读取（${e instanceof Error ? e.message : String(e)}），请检查权限后重试` }
+      return { ok: false, reason: `目录「${bookName}」无法读取（${errMsg(e)}），请检查权限后重试` }
     }
   }
   if (existingEntries.length > 0) {
@@ -230,7 +231,7 @@ function doInitSteps(opts: InitOptions): InitStepOutcome {
     scaffoldWorkDir(workDir)
     scaffoldBookRepo(bookRoot, { name: bookName, genre: opts.genre ?? '', leadsEnabled, kind, host: opts.host, targetWords: opts.targetWords, brief: opts.brief })
   } catch (e) {
-    return { ok: false, reason: `建书目录失败（${e instanceof Error ? e.message : String(e)}），请换更短的书名或更浅的书库位置后重试` }
+    return { ok: false, reason: `建书目录失败（${errMsg(e)}），请换更短的书名或更浅的书库位置后重试` }
   }
 
   // 步骤 8：登记 books.jsonl + 设活动书——由调用方（同步 doInit / 异步 doInitAsync）
@@ -275,6 +276,3 @@ function countMarkdownFiles(dir: string): number {
   }
   return n
 }
-
-/** 把字符串数组收敛为合法扩展账本类（剔除基础类/未知类/去重）。
- *  R48-57（四十八轮）：本地副本删除，收编 data.ts sanitizeLeadsEnabled 单源（见上方调用点注）。 */

@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { getTree } from '../api/books'
 import { getTreeIssues, type TreeIssue } from '../api/tree-issues'
 import { useDocStore } from './doc'
+import { useStaleGuard } from '../composables/useStaleGuard'
 import type { TreeNode } from '../types/tree'
 import { friendlyError } from '../shared/error'
 
@@ -15,34 +16,34 @@ export const useTreeStore = defineStore('tree', () => {
   const loading = ref(false)
   const error = ref<string | null>(null)
 
+  // ── P3（复审-0914-优化修复批）：分组 + 双索引单趟复合派生 ──
+  // 原 grouped（groupTree 深克隆）/ byPath / byDocId 三个 computed 各自全树行走（克隆
+  // ×1 + 遍历 ×2），几百节点量级下合并为「一次 groupTree + 一次行走」同产三面，树刷新
+  // 时遍历次数 3 → 2（groupTree 内部克隆遍历含在内）；渲染结果逐字节不变：
+  // byPath 含目录节点、byDocId 只收带 docId 节点，与原两索引逐键同集。
+  const treeIndex = computed(() => {
+    const groupedNodes = groupTree(raw.value)
+    const pathIndex = new Map<string, TreeNode>()
+    const docIdIndex = new Map<string, TreeNode>()
+    const walk = (ns: TreeNode[]) => {
+      for (const n of ns) {
+        pathIndex.set(n.path, n)
+        if (n.docId) docIdIndex.set(n.docId, n)
+        if (n.children.length) walk(n.children)
+      }
+    }
+    walk(groupedNodes)
+    return { grouped: groupedNodes, byPath: pathIndex, byDocId: docIdIndex }
+  })
+
   /** 虚拟分组：写作（正文卷章+短篇篇）/ 大纲 / 设定（提升根级）/ 文风。 */
-  const grouped = computed(() => groupTree(raw.value))
+  const grouped = computed(() => treeIndex.value.grouped)
 
   /** path → node 索引（在 grouped 上建，含虚拟组）。 */
-  const byPath = computed(() => {
-    const m = new Map<string, TreeNode>()
-    const walk = (ns: TreeNode[]) => {
-      for (const n of ns) {
-        m.set(n.path, n)
-        if (n.children.length) walk(n.children)
-      }
-    }
-    walk(grouped.value)
-    return m
-  })
+  const byPath = computed(() => treeIndex.value.byPath)
 
   /** docId → node 索引（tab 标题/持久化恢复校验用）。 */
-  const byDocId = computed(() => {
-    const m = new Map<string, TreeNode>()
-    const walk = (ns: TreeNode[]) => {
-      for (const n of ns) {
-        if (n.docId) m.set(n.docId, n)
-        if (n.children.length) walk(n.children)
-      }
-    }
-    walk(grouped.value)
-    return m
-  })
+  const byDocId = computed(() => treeIndex.value.byDocId)
 
   /** 字数聚合：遍历 raw 叶子，按 role 过滤求和 wordCount。 */
   function sumWords(nodes: TreeNode[], roles: Set<string>): number {
@@ -105,13 +106,14 @@ export const useTreeStore = defineStore('tree', () => {
     return set
   })
 
-  /** 拉取树红点聚合（best-effort：失败静默，不阻塞树渲染）。 */
-  let issuesGen = 0
+  /** 拉取树红点聚合（best-effort：失败静默，不阻塞树渲染）。
+   *  E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard。 */
+  const issuesGen = useStaleGuard()
   async function loadIssues(name: string): Promise<void> {
-    const gen = ++issuesGen
+    const gen = issuesGen.begin()
     try {
       const r = await getTreeIssues(name)
-      if (gen !== issuesGen) return // 旧书慢响应后到：防覆盖新书红点
+      if (issuesGen.stale(gen)) return // 旧书慢响应后到：防覆盖新书红点
       issues.value = r.issues ?? {}
     } catch {
       /* 网络抖动等：保留旧值，不惊扰作者 */
@@ -123,8 +125,9 @@ export const useTreeStore = defineStore('tree', () => {
   const ownerBook = ref('')
 
   /** 拉树。refresh=true 让服务端重扫盘（切书 / 手动刷新 / 窗口回前台）；
-   *  结构性操作后不必传——后端 mutation 已 invalidate 缓存。 */
-  let loadGen = 0
+   *  结构性操作后不必传——后端 mutation 已 invalidate 缓存。
+   *  E6（复审-0914-优化修复批）：loadGen 裸计数器换装 useStaleGuard。 */
+  const loadGen = useStaleGuard()
   // R46-35（四十六轮）：同书在途 load 台账（手法对齐 doc.ts inflightOpens）——同书并发
   // 调用（切书链 + 结构性 mutation 后重载 + 窗口回前台重扫）合并为一次 GET /tree。
   // 值带 refresh 标志做合并判定：在途是重扫（refresh=1）时任何后来者都可搭车（重扫响应
@@ -143,12 +146,12 @@ export const useTreeStore = defineStore('tree', () => {
     return p
   }
   async function doLoad(name: string, refresh: boolean): Promise<void> {
-    const gen = ++loadGen
+    const gen = loadGen.begin()
     loading.value = true
     error.value = null
     try {
       const r = await getTree(name, refresh)
-      if (gen !== loadGen) return // 连切/并发刷新：慢响应后到，防旧树覆盖新树
+      if (loadGen.stale(gen)) return // 连切/并发刷新：慢响应后到，防旧树覆盖新树
       raw.value = r.nodes ?? []
       revision.value = r.revision ?? ''
       ownerBook.value = name // R35-10：raw 与属主同窗更新（失败路径不清，见 load catch）
@@ -159,10 +162,10 @@ export const useTreeStore = defineStore('tree', () => {
       // T9b：树就绪后 fire-and-forget 拉红点（聚合接口较重，不阻塞树渲染）
       void loadIssues(name)
     } catch (e) {
-      if (gen !== loadGen) return
+      if (loadGen.stale(gen)) return
       error.value = friendlyError(e)
     } finally {
-      if (gen === loadGen) loading.value = false
+      if (loadGen.fresh(gen)) loading.value = false
     }
   }
 
@@ -170,8 +173,8 @@ export const useTreeStore = defineStore('tree', () => {
    *  前书 raw/红点/错误提示不滞留展示；loadGen/issuesGen 推代，在途旧书 load/红点
    *  响应落定不回填（同库 opGen 纪律）。 */
   function clear(): void {
-    loadGen++
-    issuesGen++
+    loadGen.invalidate()
+    issuesGen.invalidate()
     // R46-35（四十六轮）：在途台账一并清——clear 已推代，在途共享 promise 落定时被 gen 守卫
     // 丢弃（不回填树）；不清则 clear 后同书首调会搭上这条「死」promise，树渲染永远空
     inflightLoads.clear()

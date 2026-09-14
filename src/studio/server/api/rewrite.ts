@@ -13,11 +13,9 @@
  * diff 行级 LCS 自写(YAGNI,~50 行)。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { existsSync } from 'node:fs'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
-import { safeManifestPath } from '../../../fs/safe-path.js'
-import { resolveBook, resolveDocEntry } from '../book-context.js'
+import { resolveBook, resolveDocFile } from '../book-context.js' // D2（复审-0914-优化修复批）：docId→正文解析链单源（本端点只走到存在性，读稿无守卫为既有语义）
 import { readKind } from '../../../format/kind.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
 import { REWRITE_SPEC } from '../../../ai/tasks/specs.js'
@@ -31,9 +29,7 @@ import {
   appendRewritten,
   lineDiff,
 } from '../../../process/rewrite-prompt.js'
-import { acquireTaskGate, orchestrationBusyFor } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
-import { getDriver, ensureSession } from '../../../driver/index.js' // R0912-P2-①：中断通道注册面
-import type { Session } from '../../../driver/types.js'
+import { runGatedGeneration, replyGenerationFailure } from './task-gate.js' // P1-2/D4（复审-0914-优化修复批）：长任务门控包装 + 生成失败状态映射单源
 
 // re-export（P1-8 下沉兼容：既有 import 方零感知）
 export { buildRewritePrompt, buildAppendPrompt, appendRewritten, lineDiff, type DiffLine } from '../../../process/rewrite-prompt.js'
@@ -100,26 +96,16 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
     // 提案）——反方向已封（chat.send/auto-write/chat.clear 用 allHeldTaskGatesFor，'rewrite'
     // 闸在持时对话 409），唯正向漏，矩阵不对称。组合方式照 lead-updates 先例：与前两面覆盖
     // 重叠（self-heal/spawn）时上方既有检查先命中，既有文案语义不变。
-    const busyOrch = orchestrationBusyFor(params['name']!)
-    if (busyOrch) return replyError(res, 409, 'BUSY', busyOrch)
-    // RB-SV-P2-2：长任务并发闸（整章改写分钟级，重复点击=双倍费用）
-    const release = acquireTaskGate(params['name']!, 'rewrite')
-    if (!release) return replyError(res, 409, 'BUSY', '本书已在改写中，请等待完成后再试')
-    // R0912-P2-①（2026-09-11 重评-0911c 修复批）：接入中断通道——此前 runSpec 未接 driver
-    // ctrl 注册面，/interrupt 对在途改写完全无效且 driver.isRunning 假空闲（假成功）。接法
-    // 照抄 stream.ts spawn/self-heal 的 register/unregister 形态：编排段新建 ctrl →
-    // driver.registerCtrl（owner='rewrite:<书名>'，含书名使跨书并发互不误伤；同书重入已被
-    // 任务闸 409 挡住，同 owner 串行换新安全）→ settle（外层 finally）统一注销。
-    // 中断收口：runTask 中断返 ABORTED → 下方既有 ABORTED→499 分支即活，无需新增映射。
-    const driver = getDriver()
-    let registeredSession: Session | null = null
-    let registeredCtrl: AbortController | null = null
-    try {
-      const session = await ensureSession(params['name']!, ctx.workDir!)
-      registeredSession = session
-      const ctrl = new AbortController()
-      driver.registerCtrl?.(session, ctrl, `rewrite:${params['name']!}`)
-      registeredCtrl = ctrl
+    // RB-SV-P2-2：长任务并发闸（409 文案逐位保留）+ R0912-P2-①（2026-09-11 重评-0911c
+    // 修复批）中断通道（register/unregister 形态，owner='rewrite:<书名>'，中断收口经
+    // runTask ABORTED → 下方 replyGenerationFailure 分支即活）——十段复制收编
+    // runGatedGeneration 单源（复审-0914-优化修复批 P1-2，接法头注见 task-gate.ts）。
+    return runGatedGeneration(res, {
+      book: params['name']!,
+      workDir: ctx.workDir!,
+      action: 'rewrite',
+      busyText: '本书已在改写中，请等待完成后再试',
+    }, async (ctrl) => {
       const reqBody = await readJson(req)
       const instruction = String(reqBody['instruction'] ?? '').trim()
       if (!instruction) return replyError(res, 400, 'BAD_INPUT', 'instruction(改写指令)必填')
@@ -130,13 +116,13 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
 
       const bookRoot = r.bookRoot
       const docId = params['docId'] ?? ''
-      const m = resolveDocEntry(bookRoot, docId)
-      if (!m) return replyError(res, 404, 'NOT_FOUND', `文档ID未登记：${docId}`)
-      const absPath = safeManifestPath(bookRoot, m.path)
-      if (!absPath) return replyError(res, 400, 'BAD_PATH', '文档路径非法')
-      if (!existsSync(absPath)) return replyError(res, 404, 'NOT_FOUND', `文档不存在：${m.path}`)
-
-      const draft = readDraft(absPath)
+      // D2（复审-0914-优化修复批）：清单/路径/存在性解析收编 resolveDocFile 单源
+      //（文案 variant『文档路径非法』为原字面量逐位保留；读稿无 TOCTOU 守卫为既有
+      // 语义——守卫化会改失败档响应字节，红线不越）
+      const f = resolveDocFile(bookRoot, docId, { badPathText: '文档路径非法' })
+      if (!f.ok) return replyError(res, f.status, f.code, f.message)
+      const m = f.entry
+      const draft = readDraft(f.absPath)
       if (!draft.ok) return replyError(res, 400, 'NOT_CHAPTER', draft.reason)
       const original = draft.body
       // append(M2)：无靶点纯追加；否则 选区空 → 整 body 改写（whole）；非空 → 选段改写（local）。改写统一走 local prompt（body 语境，不涉 fm）
@@ -162,12 +148,9 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
       // R43-24（四十三轮）：按透传 code 映射状态——NO_* 族（NO_USERDATA/NO_PROVIDER/
       // NO_MODEL，配置缺失）是客户端可处置的 400；ABORTED（用户中断）回 499（请求被
       // 取消语义；api/ 无既有先例，错误信封 {code,error} 形状不变）；其余（GEN_FAIL/
-      // TIMEOUT_TOTAL/EMPTY_OUTPUT 等）维持 500 + 透传 code。错误文案一律不变
-      if (!result.ok) {
-        if (result.code.startsWith('NO_')) return replyError(res, 400, result.code, result.error)
-        if (result.code === 'ABORTED') return replyError(res, 499, result.code, result.error)
-        return replyError(res, 500, result.code, result.error)
-      }
+      // TIMEOUT_TOTAL/EMPTY_OUTPUT 等）维持 500 + 透传 code。错误文案一律不变。
+      // D4（复审-0914-优化修复批）：三行映射收编 replyGenerationFailure 单源。
+      if (!result.ok) return replyGenerationFailure(res, result)
       const produced = result.produced
       // 按定位替换（保留选区外首尾空白；替代 replace 的首个出现语义）
       const rewritten =
@@ -180,12 +163,7 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
         return replyError(res, 422, 'NO_CHANGE', '改写产出与原文相同（未发生变化）')
       }
       reply(res, 200, { ok: true, mode, original, rewritten, diff: lineDiff(original, rewritten) })
-    } finally {
-      // R0912-P2-①：settle（成功/失败/中断）统一注销——isRunning 归 false（cc X-P2-11 口径）；
-      // ensureSession 失败（未注册）时跳过。ai-version 无 AI 生成段，不接线。
-      if (registeredCtrl && registeredSession) driver.unregisterCtrl?.(registeredSession, registeredCtrl)
-      release()
-    }
+    })
   },
   })
 

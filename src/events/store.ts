@@ -16,7 +16,8 @@ import { join, resolve, basename } from 'node:path'
 import { ulid } from '../document/stable-id.js'
 import type { ChatEvent, EventType, SurfaceOp } from './types.js'
 import { SURFACE_EVENT_TYPES } from './types.js'
-import { log } from '../log/index.js'
+import { log, errMsg } from '../log/index.js'
+import { testableConst } from '../shared/testable.js'
 import { acquireCrossProcessLockWithTimeout, acquireCrossProcessLockAsync, isProcessAlive, processBootTime } from '../fs/cross-process-lock.js'
 import { renameWithRetry, atomicWriteFile } from '../fs/atomic.js'
 
@@ -124,10 +125,8 @@ export interface SessionStore {
    *  全局 seq 传进本方法被当批内索引错链（或反之）；现按方法拆分并对 sourceSeqs
    *  拒收报错（文案说明陷阱）。返回 seq 数组与 events 一一对应。 */
   appendEventsResolveLineage(sessionId: string, events: NewEvent[]): number[]
-  /** R66-13（十四轮）：单事件便捷封装 = appendEvents(sid,[ev])[0]——生产链全走批接口
-   *  （appendEvents / appendEventsResolveLineage），本方法零生产调用、仅测试使用
-   *  （test/events/**、test/metrics/** 直接驱动）；待测试侧迁移批接口后随清理删除。 */
-  appendEvent(sessionId: string, ev: NewEvent): number
+  // B3（复审-0914-优化修复批）：appendEvent 单事件便捷封装随清理批删除（R66-13 原注
+  // 即预告）——生产链全走批接口，测试消费方已随本批迁 appendEvents(sid,[ev])[0]!。
   /** O-2（第十三轮）：可选 limit 限量通道（seq 升序取前 N）——现有调用方均为全量投影
    *  （折叠需要完整事件流，限流会破坏投影正确性，故不默认启用）；分页/审计渐进读取用。 */
   listEvents(book: string, sessionId?: string, limit?: number, type?: EventType): ChatEvent[]
@@ -192,7 +191,7 @@ function safeRowToEvent(r: Row, label: string): ChatEvent | null {
   try {
     return rowToEvent(r)
   } catch (e) {
-    log.warn('events', `${label} 跳过坏行 seq=${r.seq}（${e instanceof Error ? e.message : String(e)}）`)
+    log.warn('events', `${label} 跳过坏行 seq=${r.seq}（${errMsg(e)}）`)
     return null
   }
 }
@@ -247,14 +246,12 @@ const ORPHAN_GRACE_MS = 32 * 60 * 1000
  *  对齐 books.lock 的 5s（争用为文件 IO 级毫秒，极保守）。
  *  R26-105（二十六轮）：停止裸导出——`export let` 使模块态可被任何导入方静默改写，
  *  且「读侧直读 + 写侧 setter」两条通道并存。全仓 grep 生产与测试均无外部直读直写
- *  （仅本模块三处消费 + ForTest setter），收口为模块内 let + 仅供测试的 ForTest
- *  setter（同款惯例见 summary.ts R26-19 / lead-update-draft.ts R73-46）。 */
-let SESSION_MIGRATE_LOCK_TIMEOUT_MS = 5_000
-
-/** 测试注入钩子（生产零调用）。 */
-export function __setSessionMigrateLockTimeoutForTest(ms: number): void {
-  SESSION_MIGRATE_LOCK_TIMEOUT_MS = ms
-}
+ *  （仅本模块四处消费 + ForTest setter），收口为模块内可变生效值 + 仅供测试的
+ *  ForTest setter（同款惯例见 summary.ts R26-19 / lead-update-draft.ts R73-46）。
+ *  A4（复审-0914-优化修复批）：三件套换装 testableConst——生效值 getter 逐消费点
+ *  显式调用，测试注入走元组第二位（原名 __setSessionMigrateLockTimeoutForTest
+ *  签名不变）。 */
+export const [getSessionMigrateLockTimeoutMs, __setSessionMigrateLockTimeoutForTest] = testableConst(5_000)
 
 /** R66-12：首开/迁移段跨进程锁（导出供回归测试模拟「另一进程持锁」；同进程嵌套获取
  *  同一锁会自锁——本模块持锁段对同一 bookHash 的锁互不嵌套）。
@@ -281,9 +278,9 @@ async function acquireMigrateLockPairAsync(
     bookHash(oldRoot) <= bookHash(newRoot)
       ? [sessionMigrateLockPath(userDataPath, oldRoot), sessionMigrateLockPath(userDataPath, newRoot)]
       : [sessionMigrateLockPath(userDataPath, newRoot), sessionMigrateLockPath(userDataPath, oldRoot)]
-  const releaseFirst = await acquireCrossProcessLockAsync(first, SESSION_MIGRATE_LOCK_TIMEOUT_MS)
+  const releaseFirst = await acquireCrossProcessLockAsync(first, getSessionMigrateLockTimeoutMs())
   if (!releaseFirst) return null
-  const releaseSecond = await acquireCrossProcessLockAsync(second, SESSION_MIGRATE_LOCK_TIMEOUT_MS)
+  const releaseSecond = await acquireCrossProcessLockAsync(second, getSessionMigrateLockTimeoutMs())
   if (!releaseSecond) {
     releaseFirst()
     return null
@@ -554,7 +551,7 @@ export function openSessionStore(userDataPath: string | null | undefined, bookRo
   // openSessionStoreAsync（等待期 setTimeout 轮询不阻塞事件循环，R30-3/R33D-1 纪律）。
   const releaseOpenLock = acquireCrossProcessLockWithTimeout(
     sessionMigrateLockPath(userDataPath, bookRoot),
-    SESSION_MIGRATE_LOCK_TIMEOUT_MS,
+    getSessionMigrateLockTimeoutMs(),
   )
   if (!releaseOpenLock) {
     throw new Error(`事件库打开锁获取超时（另一进程正在迁移会话库），本进程首开 ${dbPath} 失败——可重试`)
@@ -585,7 +582,7 @@ export async function openSessionStoreAsync(
   }
   const releaseOpenLock = await acquireCrossProcessLockAsync(
     sessionMigrateLockPath(userDataPath, bookRoot),
-    SESSION_MIGRATE_LOCK_TIMEOUT_MS,
+    getSessionMigrateLockTimeoutMs(),
   )
   if (!releaseOpenLock) {
     throw new Error(`事件库打开锁获取超时（另一进程正在迁移会话库），本进程首开 ${dbPath} 失败——可重试`)
@@ -617,7 +614,7 @@ export async function openSessionStoreAsync(
  *  SQLITE_NOTADB/CORRUPT 抛英文裸 message 且各版本措辞有差，按已知短语集匹配；
  *  宁可漏判走原样上抛，不误判把 BUSY/IOERR 包装成「损坏」。 */
 function isDbCorruptionError(e: unknown): boolean {
-  const msg = e instanceof Error ? e.message : String(e)
+  const msg = errMsg(e)
   return /file is not a database|database disk image is malformed|malformed database image|unsupported file format/i.test(
     msg,
   )
@@ -781,6 +778,48 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
     entry.lastOrphanRepairAt = Date.now()
     repairOrphanSessions(db, activeChatSessions)
   }
+  /** B2（复审-0914-优化修复批）：listEvents/iterateEvents 的 SQL 装配单源——两方法
+   *  原 2×2 分支（按会话/按书 × 物化/流式）逐字同构，抽出本生成器后两方法只剩
+   *  物化/流式编排差异。查询结果与坏行降级（safeRowToEvent，R65-20）逐位同旧实现；
+   *  label 随调用方传入保告警可归因。唯一文本归一：原 listEvents 无 limit 变体的
+   *  ORDER BY 尾随空格去除（prepared 缓存以 SQL 串为键，键文本稳定即无行为面）。
+   *  cap 语义沿 O-2：仅正有限数生效（向下取整），否则全量。 */
+  function* queryEventRows(
+    book: string,
+    sessionId: string | undefined,
+    cap: number | undefined,
+    type: EventType | undefined,
+    label: 'listEvents' | 'iterateEvents',
+  ): Generator<ChatEvent> {
+    if (sessionId) {
+      const args: Array<string | number> = [sessionId]
+      if (type !== undefined) args.push(type)
+      if (cap !== undefined) args.push(cap)
+      // R46-42：读热路径固定/有界变体 SQL 走 prepared 缓存（变体以 SQL 串为键独立缓存）
+      const rows = prepared(
+        db,
+        `SELECT * FROM events WHERE session_id = ? ${type !== undefined ? 'AND type = ?' : ''} ORDER BY seq ASC${cap !== undefined ? ' LIMIT ?' : ''}`
+      ).iterate(...args) as unknown as Iterable<Row>
+      for (const r of rows) {
+        const ev = safeRowToEvent(r, label)
+        if (ev) yield ev
+      }
+      return
+    }
+    const args: Array<string | number> = [book]
+    if (type !== undefined) args.push(type)
+    if (cap !== undefined) args.push(cap)
+    const rows = prepared(
+      db,
+      `SELECT * FROM events
+       WHERE session_id IN (SELECT session_id FROM sessions WHERE book = ?) ${type !== undefined ? 'AND type = ?' : ''}
+       ORDER BY seq ASC${cap !== undefined ? ' LIMIT ?' : ''}`
+    ).iterate(...args) as unknown as Iterable<Row>
+    for (const r of rows) {
+      const ev = safeRowToEvent(r, label)
+      if (ev) yield ev
+    }
+  }
   const store: SessionStore = {
     dbPath,
     createSession(book: string, header?: Record<string, unknown>): string {
@@ -895,47 +934,16 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
         throw err
       }
     },
-    appendEvent(sessionId: string, ev: NewEvent): number {
-      return this.appendEvents(sessionId, [ev])[0]!
-    },
     listEvents(book: string, sessionId?: string, limit?: number, type?: EventType): ChatEvent[] {
       // O-2（第十三轮）：limit 可选限量（seq 升序前 N）；投影折叠调用方不传（全量语义不变）
-      const cap = typeof limit === 'number' && Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : undefined
       // 内存闸（2026-08-24 审计 B1）双降：①type 可选 SQL 下推——trace/cost 聚合只取
       // llm/call 小字段行，不再把全部对话正文一起载入解析；②游标 iterate 逐行 parse
       // ——原 stmt.all() 先物化全部行（data JSON 串一份）再 map JSON.parse 出第二份，
       // 双份共存峰值 ≈2× 表字节，与 rag readAllChunks 同修法
-      const out: ChatEvent[] = []
-      // R65-20（十三轮）：坏行降级见 safeRowToEvent（R0910-W 提取为共用函数）
-      if (sessionId) {
-        const args: Array<string | number> = [sessionId]
-        if (type !== undefined) args.push(type)
-        if (cap !== undefined) args.push(cap)
-        // R46-42：读热路径固定/有界变体 SQL 走 prepared 缓存（变体以 SQL 串为键独立缓存）
-        const rows = prepared(
-          db,
-          `SELECT * FROM events WHERE session_id = ? ${type !== undefined ? 'AND type = ?' : ''} ORDER BY seq ASC ${cap !== undefined ? 'LIMIT ?' : ''}`
-        ).iterate(...args) as unknown as Iterable<Row>
-        for (const r of rows) {
-          const ev = safeRowToEvent(r, 'listEvents')
-          if (ev) out.push(ev)
-        }
-        return out
-      }
-      const args: Array<string | number> = [book]
-      if (type !== undefined) args.push(type)
-      if (cap !== undefined) args.push(cap)
-      const rows = prepared(
-        db,
-        `SELECT * FROM events
-         WHERE session_id IN (SELECT session_id FROM sessions WHERE book = ?) ${type !== undefined ? 'AND type = ?' : ''}
-         ORDER BY seq ASC ${cap !== undefined ? 'LIMIT ?' : ''}`
-      ).iterate(...args) as unknown as Iterable<Row>
-      for (const r of rows) {
-        const ev = safeRowToEvent(r, 'listEvents')
-        if (ev) out.push(ev)
-      }
-      return out
+      // B2（复审-0914-优化修复批）：SQL 装配/坏行降级单源 queryEventRows，本方法只承担
+      // cap 解析 + 物化数组（R65-20 坏行降级见 safeRowToEvent）。
+      const cap = typeof limit === 'number' && Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : undefined
+      return [...queryEventRows(book, sessionId, cap, type, 'listEvents')]
     },
     *iterateEvents(book: string, sessionId?: string, type?: EventType): IterableIterator<ChatEvent> {
       // R0910-W（2026-09-10 修复批）：流式读（不物化）——llm/call 分析读侧（cost/trace
@@ -944,31 +952,9 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
       // 聚合桶规模相关。SQL 与 listEvents 无 limit 变体逐字同构（seq 升序 = 时间序，
       // 聚合结果与全量读逐字段一致）；坏行降级沿用 safeRowToEvent（R65-20）。调用方
       // 负责 close（与 listEvents 同约定）；提前 break 时游标随 GC 回收，无悬挂。
-      if (sessionId) {
-        const args: Array<string | number> = [sessionId]
-        if (type !== undefined) args.push(type)
-        const rows = prepared(
-          db,
-          `SELECT * FROM events WHERE session_id = ? ${type !== undefined ? 'AND type = ?' : ''} ORDER BY seq ASC`
-        ).iterate(...args) as unknown as Iterable<Row>
-        for (const r of rows) {
-          const ev = safeRowToEvent(r, 'iterateEvents')
-          if (ev) yield ev
-        }
-        return
-      }
-      const args: Array<string | number> = [book]
-      if (type !== undefined) args.push(type)
-      const rows = prepared(
-        db,
-        `SELECT * FROM events
-         WHERE session_id IN (SELECT session_id FROM sessions WHERE book = ?) ${type !== undefined ? 'AND type = ?' : ''}
-         ORDER BY seq ASC`
-      ).iterate(...args) as unknown as Iterable<Row>
-      for (const r of rows) {
-        const ev = safeRowToEvent(r, 'iterateEvents')
-        if (ev) yield ev
-      }
+      // B2（复审-0914-优化修复批）：SQL 装配/坏行降级单源 queryEventRows，本方法只承担
+      // 逐行 yield（不物化）。
+      yield* queryEventRows(book, sessionId, undefined, type, 'iterateEvents')
     },
     workspaceSession(book: string): string {
       // N3（五十九轮）：SELECT→INSERT 包 BEGIN IMMEDIATE——双进程并行首开同书时，原裸
@@ -1122,7 +1108,7 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
           closeEventsDb(db)
         } catch (e) {
           // close 失败只留痕：停表/注销已正确收口，句柄由进程退出兜底回收
-          log.warn('events', `事件库关闭异常（${dbPath}）：${e instanceof Error ? e.message : String(e)}`)
+          log.warn('events', `事件库关闭异常（${dbPath}）：${errMsg(e)}`)
         }
       }
     },
@@ -1177,7 +1163,7 @@ export async function migrateBookSession(
   try {
     releaseMigrateLock = await acquireMigrateLockPairAsync(userDataPath, oldRoot, newRoot)
   } catch (e) {
-    log.warn('events', `事件库迁移锁获取失败（${e instanceof Error ? e.message : String(e)}）——放弃本轮，源库原地完整可重试`)
+    log.warn('events', `事件库迁移锁获取失败（${errMsg(e)}）——放弃本轮，源库原地完整可重试`)
     return false
   }
   if (!releaseMigrateLock) {

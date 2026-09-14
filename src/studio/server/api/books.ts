@@ -16,6 +16,7 @@ import { rm } from 'node:fs/promises'
 import { join, basename, dirname } from 'node:path'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
+import { createTtlProbeCache } from '../ttl-cache.js' // D1（复审-0914-优化修复批）：TTL+FIFO 缓存壳单源
 import { resolveWithinRoot } from '../../../fs/safe-path.js'
 import {
   readBooks,
@@ -150,38 +151,39 @@ type ShelfGuardValue =
   | { damaged: false; bookRoot: string; config: BookConfig }
 const SHELF_GUARD_TTL_MS = 30_000
 const SHELF_GUARD_MAX = 128
-const shelfGuardCache = new Map<string, { ts: number; value: ShelfGuardValue }>()
+
+/** D1（复审-0914-优化修复批）：缓存壳收编 ttl-cache.ts 通用件（原本地 Map + FIFO +
+ *  R47-18 过期逐出本地壳删除；命中/失效时序/逐出序逐位不变——纯 TTL 30s + FIFO 128
+ *  + 同步计算；workDir+path 复合键经 keyOf 字符串化，键串与原实现逐位一致），
+ *  见 ttl-cache.ts 头部收敛映射表。 */
+const shelfGuardCache = createTtlProbeCache<{ workDir: string; path: string }, ShelfGuardValue>({
+  name: 'shelf-guard',
+  keyOf: (k) => `${k.workDir}\u0000${k.path}`,
+  max: SHELF_GUARD_MAX,
+  ttl: () => SHELF_GUARD_TTL_MS,
+  computeSync: computeShelfGuardValue,
+})
 
 function getShelfGuard(workDir: string, path: string): ShelfGuardValue {
-  const key = `${workDir}\u0000${path}`
-  const cached = shelfGuardCache.get(key)
-  if (cached && Date.now() - cached.ts < SHELF_GUARD_TTL_MS) return cached.value
-  // R47-18（四十七轮）：过期条目顺手逐出——原只当 miss 用、条目驻留至 FIFO 触顶/
-  // forgetBookKeyedCaches 整表清扫；重算路径本就必走，delete 零成本零语义变更（下方
-  // set 原键覆写）
-  if (cached) shelfGuardCache.delete(key)
-  let value: ShelfGuardValue
-  const within = resolveWithinRoot(workDir, path)
+  return shelfGuardCache.getSync({ workDir, path })
+}
+
+/** MISS 计算体（原 getShelfGuard 内联逻辑原样下沉；损坏标记也落缓存，R39-16/低-3 口径）。 */
+function computeShelfGuardValue(key: { workDir: string; path: string }): ShelfGuardValue {
+  const within = resolveWithinRoot(key.workDir, key.path)
   if (!within) {
-    value = { damaged: true }
-  } else {
-    try {
-      const cfgResult = readBookConfig(join(within.abs, 'book.yaml'))
-      // 低-3（第十轮）：book.yaml 损坏/缺失显式标 damaged——readBookConfig 容错不抛，
-      // 此前回落默认骨架的空 title 混进列表装作正常书，与单书端点 500 口径分叉。
-      // 前端按 damaged 展示可后续轮次接线（R36-24 既有登记）
-      value = cfgResult.ok ? { damaged: false, bookRoot: within.abs, config: cfgResult.config } : { damaged: true }
-    } catch {
-      // 书仓库读盘异常：保留登记原样 + 显式损坏标记（原 try/catch 语义）
-      value = { damaged: true }
-    }
+    return { damaged: true }
   }
-  if (shelfGuardCache.size >= SHELF_GUARD_MAX) {
-    const oldest = shelfGuardCache.keys().next().value
-    if (oldest !== undefined) shelfGuardCache.delete(oldest)
+  try {
+    const cfgResult = readBookConfig(join(within.abs, 'book.yaml'))
+    // 低-3（第十轮）：book.yaml 损坏/缺失显式标 damaged——readBookConfig 容错不抛，
+    // 此前回落默认骨架的空 title 混进列表装作正常书，与单书端点 500 口径分叉。
+    // 前端按 damaged 展示可后续轮次接线（R36-24 既有登记）
+    return cfgResult.ok ? { damaged: false, bookRoot: within.abs, config: cfgResult.config } : { damaged: true }
+  } catch {
+    // 书仓库读盘异常：保留登记原样 + 显式损坏标记（原 try/catch 语义）
+    return { damaged: true }
   }
-  shelfGuardCache.set(key, { ts: Date.now(), value })
-  return value
 }
 
 interface BookCtx {
@@ -249,6 +251,52 @@ function busyGate(name: string, verb: '删' | '改名'): { error: string } | nul
   const held = [...new Set([...heldTaskGatesFor(name), ...crossProcessHeldTaskGatesFor(name)])]
   if (held.length > 0) return { error: `本书有任务在跑（${held.join('、')}），先等它完成或稍后再${verb}` }
   return null
+}
+
+/** P1-4（复审-0914-优化修复批）：删书/改名共用的「五连 drain + 闸后复查」排水段收编
+ *  单源——此前两 handler 各自复制同一段 55 行（本段原实现顺位：第五轮 saveQueue →
+ *  R69-25 PUT 链 → R1010b-SRV-P2-1 伏笔链 → 重评-0912-4 P2-1 draft-save 链 → 阶段 24
+ *  structure 链，再接 M-4/R33D-7 与 R33-63 两级复查）。drain 顺序、复查判定与人话文案
+ *  逐位保留；verb 仅参数化两处文案（已中止删除/改名、请稍后再删/改名）。返回 null =
+ *  可安全动盘；非空 = 调用方回 409 BUSY。
+ *
+ *  各 drain 背景（原文沿革，逐条保序）：
+ *  - 第五轮：drain 该书串行保存队列——在途 save 的收尾（journal+快照+fsync）若在
+ *    rmSync/renameSync 之后恢复，会对已删/已搬路径 atomicWriteFile 重建孤儿文件
+ *   （窗口毫秒级但真实）。
+ *  - R69-25（十七轮）：PUT /file 的 per-file 串行链同款 drain——临界段内 readFileHashed
+ *    跨 rm 的 await 窗口理论上会重建目录（删除路径基线 ENOENT → 404 天然免疫，一并
+ *    drain 求同口径；改名侧重建的旧路径目录树无 book.yaml 孤儿，repairBooks 不认领）。
+ *  - R1010b-SRV-P2-1（2026-09-10 内存专项重审修复批·面 B）：伏笔保存串行链同款
+ *    drain——已入队未启动的伏笔单元在 SaveQueue 之外（drainDocumentSaves 看不见），
+ *    不 drain 则 rmSync 后链单元才开跑、照写旧捕获 bookRoot 成孤儿。死锁核查：链单元
+ *    只单向 await SaveQueue/清单·回收站锁、从不反等 books 侧锁，置于既有 drain 之后
+ *    不引入环；drain 窗口内新进单元不等（快照式），由单元体内书注册重验兜底。
+ *  - 重评-0912-4 P2-1（2026-09-12 全量重评修复批）：draft-save 串行链同款 drain——
+ *    在途/迟到 draft-save 跨墓地 renameSync 后 saveDraft 的 mkdirSync(recursive) 会按
+ *    旧书路径重建幽灵目录树并返 200（内容不属于任何书）。死锁核查同伏笔链。
+ *  - 阶段 24 章节结构操作：structure 串行链同款 drain（第 5 个）——链单元内
+ *    applyChapterMerge/applyChapterSplit 的 save/trash/create 各自会 mkdir + 落盘，
+ *    跨 rmSync 开跑会对旧书路径重建孤儿文件。死锁核查同上。
+ *  复查背景（原文沿革）：
+ *  - M-4：闸后复查——settle 等待的 await 间隙里新 acquire 的闸（spawn/三审/task-gate）
+ *    在此拦截；复检到 rmSync/renameSync 之间全同步（单线程事件循环无新任务可插入），
+ *    三闸 TOCTOU 窗归零。
+ *  - R33D-7（三十三轮 dev 线）：复查补 chat/self-heal——两闸不在 busyGate 之列，drain 段
+ *    await 窗口内新起的对话/写稿既不在入口 abort 之列也无闸拦截，会贯穿 rmSync 继续跑
+ *    分钟级（重建孤儿目录 + 白烧 API 费）。命中 → 保守 409（作者正主动用书，删除可重试）。
+ *  - R33-63（三十三轮 win 线）：复查补 hasBackgroundTasks——10s settle 窗口内新登记的
+ *    后台摘要任务此前可绕过复查，对已删路径收尾写（对齐 settle 三条件口径）。 */
+async function drainAndRecheckBookMutation(bookRoot: string, name: string, verb: '删' | '改名'): Promise<{ error: string } | null> {
+  await drainDocumentSaves(bookRoot)
+  await drainFilePutChainsUnder(bookRoot)
+  await drainForeshadowSaveChains(bookRoot)
+  await drainDraftSaveChainsUnder(bookRoot)
+  await drainStructureChainsUnder(bookRoot)
+  if (isChatRunning(name) || isSelfHealRunning(name)) {
+    return { error: `本书有对话/写稿在途启动，已中止${verb === '删' ? '删除' : '改名'}——请等它完成或中断后重试` }
+  }
+  return busyGate(name, verb) ?? (hasBackgroundTasks(name) ? { error: `本书后台任务进行中，请稍后再${verb}` } : null)
 }
 
 export function registerBookRoutes(ctx: BookCtx): void {
@@ -410,44 +458,12 @@ export function registerBookRoutes(ctx: BookCtx): void {
     // 无 chat/self-heal 在途时（hadSelfHeal/hadChat 均 false），漏判会让摘要任务
     // 对已删路径重建孤儿目录
     if (hadSelfHeal || hadChat || hasBackgroundTasks(name)) await awaitOrchestrationsSettled(name)
-    // 第五轮：drain 该书串行保存队列——在途 save 的收尾（journal+快照+fsync）若在
-    // rmSync 之后恢复，会对已删路径 atomicWriteFile 重建孤儿文件（窗口毫秒级但真实）
-    await drainDocumentSaves(join(ctx.workDir, entry.path))
-    // R69-25（十七轮）：PUT /file 的 per-file 串行链同款 drain——临界段内 readFileHashed
-    // 跨 rm 的 await 窗口理论上会重建目录（删除路径基线 ENOENT → 404 天然免疫，一并
-    // drain 求同口径）
-    await drainFilePutChainsUnder(join(ctx.workDir, entry.path))
-    // R1010b-SRV-P2-1（2026-09-10 内存专项重审修复批·面 B）：伏笔保存串行链同款
-    // drain——已入队未启动的伏笔单元在 SaveQueue 之外（drainDocumentSaves 看不见），
-    // 不 drain 则 rmSync 后链单元才开跑、照写旧捕获 bookRoot 成孤儿。死锁核查：链单元
-    // 只单向 await SaveQueue/清单·回收站锁、从不反等 books 侧锁，置于既有两 drain 之后
-    // 不引入环；drain 窗口内新进单元不等（快照式），由单元体内书注册重验兜底。
-    await drainForeshadowSaveChains(join(ctx.workDir, entry.path))
-    // 重评-0912-4 P2-1（2026-09-12 全量重评修复批）：draft-save 串行链同款 drain——
-    // 在途/迟到 draft-save 跨墓地 renameSync 后 saveDraft 的 mkdirSync(recursive) 会按
-    // 旧书路径重建幽灵目录树并返 200（内容不属于任何书）。死锁核查同伏笔链：链单元只
-    // 单向 await saveDraft 的跨进程锁，从不反等 books 侧锁；快照式窗口由链内
-    // bookMovedFailure 重验兜底。
-    await drainDraftSaveChainsUnder(join(ctx.workDir, entry.path))
-    // 阶段 24 章节结构操作：structure 串行链同款 drain（第 5 个）——链单元内
-    // applyChapterMerge/applyChapterSplit 的 save/trash/create 各自会 mkdir + 落盘，
-    // 跨 rmSync 开跑会对旧书路径重建孤儿文件。死锁核查同上：链单元只单向 await
-    // DocumentService 队列/清单·回收站锁与 RAG 清理，从不反等 books 侧锁。
-    await drainStructureChainsUnder(join(ctx.workDir, entry.path))
-    // M-4：闸后复查——settle 等待的 await 间隙里新 acquire 的闸（spawn/三审/task-gate）
-    // 在此拦截；复检到 rmSync 之间全同步（单线程事件循环无新任务可插入），三闸 TOCTOU
-    // 窗归零。
-    // R33D-7（三十三轮 dev 线）：复查补 chat/self-heal——两闸不在 busyGate 之列，drain 段
-    // await 窗口内新起的对话/写稿既不在入口 abort 之列也无闸拦截，会贯穿 rmSync 继续跑
-    // 分钟级（重建孤儿目录 + 白烧 API 费）。命中 → 保守 409（作者正主动用书，删除可重试）。
-    if (isChatRunning(name) || isSelfHealRunning(name)) {
-      return replyError(res, 409, 'BUSY', '本书有对话/写稿在途启动，已中止删除——请等它完成或中断后重试')
-    }
-    // R33-63（三十三轮 win 线）：复查补 hasBackgroundTasks——10s settle 窗口内新登记的
-    // 后台摘要任务此前可绕过复查，对已删路径收尾写（对齐上方 settle 三条件口径）。
-    const recheck = busyGate(name, '删') ?? (hasBackgroundTasks(name) ? { error: '本书后台任务进行中，请稍后再删' } : null)
-    if (recheck) {
-      return replyError(res, 409, 'BUSY', recheck.error)
+    // P1-4（复审-0914-优化修复批）：五连 drain + 闸后复查收编 drainAndRecheckBookMutation
+    // 单源——本段原为与改名 handler 逐位复制的 55 行排水段（第五轮/R69-25/R1010b-SRV-P2-1/
+    // 重评-0912-4 P2-1/阶段 24 五 drain + M-4/R33D-7/R33-63 复查，沿革与顺序见 helper 头注）。
+    const blocked = await drainAndRecheckBookMutation(join(ctx.workDir, entry.path), name, '删')
+    if (blocked) {
+      return replyError(res, 409, 'BUSY', blocked.error)
     }
       // 删书目录：整目录原子改名入墓地（含 git 历史）；物理清理移交后台（R35-6）
       const bookAbs = join(ctx.workDir, entry.path)
@@ -665,33 +681,11 @@ export function registerBookRoutes(ctx: BookCtx): void {
       // M-2 接线收口：同删书——后台任务（定稿摘要等）独立判定，无 chat/self-heal
       // 在途时也不能放走
       if (hadSelfHeal || hadChat || hasBackgroundTasks(oldName)) await awaitOrchestrationsSettled(oldName)
-      // 第五轮：同删书——drain 串行保存队列，防在途 save 收尾对旧路径重建孤儿文件
-      await drainDocumentSaves(oldRoot)
-      // R69-25（十七轮）：PUT /file 串行链同款 drain——临界段 readFileHashed 的 await 跨
-      // renameSync 时「旧内容基线 + atomicWriteFile mkdir recursive」会重建旧路径目录树
-      //（无 book.yaml 孤儿，repairBooks 不认领）——与 drainDocumentSaves 当年堵的同型窗
-      await drainFilePutChainsUnder(oldRoot)
-      // R1010b-SRV-P2-1（2026-09-10 内存专项重审修复批·面 B）：伏笔保存串行链同款
-      // drain（同删书段口径）——链单元开跑跨 renameSync 会对旧路径 mkdir 重建目录树
-      //（无 book.yaml 孤儿）。死锁核查：链单元只单向 await SaveQueue/清单·回收站锁、
-      // 从不反等 books 侧锁，置于既有两 drain 之后不引入环；drain 窗口内新进单元不等
-      //（快照式），由单元体内书注册重验兜底。
-      await drainForeshadowSaveChains(oldRoot)
-      // 重评-0912-4 P2-1：draft-save 串行链同款 drain（同删书段口径）——链单元跨
-      // renameSync 落盘会对旧书路径 mkdir 重建幽灵目录树。死锁核查同删书段。
-      await drainDraftSaveChainsUnder(oldRoot)
-      // 阶段 24：structure 串行链同款 drain（同删书段口径，第 5 个）。
-      await drainStructureChainsUnder(oldRoot)
-      // M-4：闸后复查——同删书：settle 等待的 await 间隙新 acquire 的闸在此拦截，
-      // 复检到 renameSync 之间全同步（三闸 TOCTOU 归零）。
-      // R33D-7（三十三轮 dev 线）：同删书复查补 chat/self-heal（drain 段新起的对话/写稿贯穿 renameSync）。
-      if (isChatRunning(oldName) || isSelfHealRunning(oldName)) {
-        return replyError(res, 409, 'BUSY', '本书有对话/写稿在途启动，已中止改名——请等它完成或中断后重试')
-      }
-      // R33-63（三十三轮 win 线）：同删书复查——补 hasBackgroundTasks（settle 窗口内新登记后台任务）
-      const recheck = busyGate(oldName, '改名') ?? (hasBackgroundTasks(oldName) ? { error: '本书后台任务进行中，请稍后再改名' } : null)
-      if (recheck) {
-        return replyError(res, 409, 'BUSY', recheck.error)
+      // P1-4（复审-0914-优化修复批）：五连 drain + 闸后复查收编 drainAndRecheckBookMutation
+      // 单源（同删书段口径，沿革与顺序见 helper 头注）——原为与删书 handler 逐位复制的 55 行。
+      const blocked = await drainAndRecheckBookMutation(oldRoot, oldName, '改名')
+      if (blocked) {
+        return replyError(res, 409, 'BUSY', blocked.error)
       }
       // L-S5（第八轮）：newName 冲突复查——入口检查在 10s settle await 之前（TOCTOU）：
       // 等待窗口内并发建同名书后 POSIX renameSync 对已存在空目录静默替换 → 同名同

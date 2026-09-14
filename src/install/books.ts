@@ -19,7 +19,7 @@ import { readBookConfig } from '../format/yaml.js'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { samePhysicalPath } from '../fs/user-data-path.js' // R42-35/R44-11：登记目录占用判重（dev+ino 物理身份，stat 失败回退 samePath）
 import { acquireCrossProcessLockWithTimeout, acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
-import { log } from '../log/index.js'
+import { errMsg, log } from '../log/index.js' // errMsg 收编（复审-0914-优化修复批）：错误文案三目单源
 
 // ── books.jsonl 登记格式（#32 第 2 节）──────────────
 
@@ -385,24 +385,7 @@ export function removeBookEntry(workDir: string, name: string): void {
     return
   }
   try {
-    // DA-3（第七轮）：读失败拒绝重写——降级空表会让 writeBooks 清掉其余登记；
-    // 登记留在盘上成为幽灵条目（repairBooks 只报告 missing 不清除，R35-28），文件系统侧删除照常进行
-    const books = readBooksStrict(workDir)
-    if (books === null) return
-    // R0912-3（重评-0912 P3 #37）：写段 try/catch 对齐 appendBookLocked 收编形态——
-    // writeBooks/active 清指针在 EACCES/ENOSPC 时抛出此前直穿（上游删书端点已兜，
-    // CLI/测试同步面无契约），失败按锁超时同款跳过留痕：登记留盘成幽灵条目，由
-    // 启动 repairBooks 报告，文件系统侧删除不受影响
-    try {
-      writeBooks(workDir, books.filter((b) => b.name !== name))
-      // 活动书被删 → 清指针（下次进书架会提示选书）
-      if (readActive(workDir) === name) {
-        atomicWriteFile(join(workDir, ACTIVE_FILE), '')
-      }
-    } catch (e) {
-      log.warn('books', `books.jsonl 登记写入失败（权限或磁盘故障），跳过移除「${name}」登记（登记留盘，成为幽灵条目需人工清理）：${e instanceof Error ? e.message : String(e)}`)
-      return
-    }
+    removeBookEntryLocked(workDir, name) // F6（复审-0914-优化修复批）：持锁主体单源
   } finally {
     release()
   }
@@ -422,23 +405,31 @@ export async function removeBookEntryAsync(workDir: string, name: string): Promi
     return
   }
   try {
-    // DA-3（第七轮）：读失败拒绝重写——降级空表会让 writeBooks 清掉其余登记；
-    // 登记留在盘上成为幽灵条目（repairBooks 只报告 missing 不清除，R35-28），文件系统侧删除照常进行
-    const books = readBooksStrict(workDir)
-    if (books === null) return
-    // R0912-3（重评-0912 P3 #37）：写段 try/catch，收编口径与同步版逐位对齐
-    try {
-      writeBooks(workDir, books.filter((b) => b.name !== name))
-      // 活动书被删 → 清指针（下次进书架会提示选书）
-      if (readActive(workDir) === name) {
-        atomicWriteFile(join(workDir, ACTIVE_FILE), '')
-      }
-    } catch (e) {
-      log.warn('books', `books.jsonl 登记写入失败（权限或磁盘故障），跳过移除「${name}」登记（登记留盘，成为幽灵条目需人工清理）：${e instanceof Error ? e.message : String(e)}`)
-      return
-    }
+    removeBookEntryLocked(workDir, name) // F6：持锁主体与同步版单源（appendBookLocked 先例）
   } finally {
     release()
+  }
+}
+
+/** 持锁后的移除主体（F6 复审-0914-优化修复批拆出——sync/async 孪生此前整段复制，
+ *  照 appendBookLocked（R63-2 拆出）先例收编单源，语义逐位不变）。 */
+function removeBookEntryLocked(workDir: string, name: string): void {
+  // DA-3（第七轮）：读失败拒绝重写——降级空表会让 writeBooks 清掉其余登记；
+  // 登记留在盘上成为幽灵条目（repairBooks 只报告 missing 不清除，R35-28），文件系统侧删除照常进行
+  const books = readBooksStrict(workDir)
+  if (books === null) return
+  // R0912-3（重评-0912 P3 #37）：写段 try/catch 对齐 appendBookLocked 收编形态——
+  // writeBooks/active 清指针在 EACCES/ENOSPC 时抛出此前直穿（上游删书端点已兜，
+  // CLI/测试同步面无契约），失败按锁超时同款跳过留痕：登记留盘成幽灵条目，由
+  // 启动 repairBooks 报告，文件系统侧删除不受影响
+  try {
+    writeBooks(workDir, books.filter((b) => b.name !== name))
+    // 活动书被删 → 清指针（下次进书架会提示选书）
+    if (readActive(workDir) === name) {
+      atomicWriteFile(join(workDir, ACTIVE_FILE), '')
+    }
+  } catch (e) {
+    log.warn('books', `books.jsonl 登记写入失败（权限或磁盘故障），跳过移除「${name}」登记（登记留盘，成为幽灵条目需人工清理）：${errMsg(e)}`)
   }
 }
 
@@ -655,8 +646,11 @@ function repairBooksLocked(workDir: string, purgeConfirmedMissing: boolean): Rep
   for (const relPath of entries) {
     const dir = join(workDir, relPath)
     if (!isBookRepo(dir)) continue
-    const bookName = detectBookName(dir, basename(relPath))
-    const kind = detectBookKind(dir)
+    // F6（复审-0914-优化修复批）：每书一次 readBookConfig——此前 detectBookName 与
+    // detectBookKind 各整读+整解析同一文件（2× IO + 2× 解析）；读结果传参两 detect
+    const cfgRead = readBookConfig(join(dir, 'book.yaml'))
+    const bookName = detectBookName(cfgRead, basename(relPath))
+    const kind = detectBookKind(cfgRead)
     const createdAt = detectBookCreatedAt(dir)
 
     const existingPathIndex = rebuilt.findIndex((b) => b.path === relPath)
@@ -791,23 +785,21 @@ function scanBookCandidates(workDir: string): string[] {
   return candidates
 }
 
-/** 从 book.yaml 读书名；无书名时回落目录名。 */
-function detectBookName(dir: string, fallback: string): string {
-  try {
-    const title = readBookConfig(join(dir, 'book.yaml')).config.book.title.trim()
-    if (title) return title
-  } catch {
-    // 读失败回落目录名
-  }
-  return fallback
+/** 从 book.yaml 读结果取书名；无书名时回落目录名。
+ *  F6（复审-0914-优化修复批）：改收 readBookConfig 结果（repairBooks 扫盘每书单次读取）；
+ *  原实现外层 `try { readBookConfig... } catch` 为死防御已删——核实 readBookConfig 契约
+ *  恒返信封不抛（缺文件/读失败/解析失败三路均 {ok:false, config:默认配置}，见 yaml.ts），
+ *  解析失败时 config 为默认空 title → 本就走 fallback 分支，行为不变。 */
+function detectBookName(cfgRead: ReturnType<typeof readBookConfig>, fallback: string): string {
+  const title = cfgRead.config.book.title.trim()
+  return title || fallback
 }
 
-/** 从 book.yaml 读 kind（缺省 long）。 */
-function detectBookKind(dir: string): 'long' | 'short' {
-  // Y-20（第五十七轮）：与 detectBookName 同走 readBookConfig 解析口径——此前正则
-  // 直读文本，注释行（如 `# kind: short 预留`）会被误判 short 并写回登记
-  const r = readBookConfig(join(dir, 'book.yaml'))
-  return r.ok && r.config.kind === 'short' ? 'short' : 'long'
+/** 从 book.yaml 读结果取 kind（缺省 long）。
+ *  Y-20（第五十七轮）：与 detectBookName 同走 readBookConfig 解析口径——此前正则
+ *  直读文本，注释行（如 `# kind: short 预留`）会被误判 short 并写回登记。 */
+function detectBookKind(cfgRead: ReturnType<typeof readBookConfig>): 'long' | 'short' {
+  return cfgRead.ok && cfgRead.config.kind === 'short' ? 'short' : 'long'
 }
 
 /** 从 book.yaml 文件 mtime 兜底 created_at（去 git：不再依赖 git log；无则 undefined）。 */

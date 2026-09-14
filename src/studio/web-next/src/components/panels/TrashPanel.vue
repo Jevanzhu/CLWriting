@@ -5,6 +5,8 @@ import { useTreeStore } from '../../stores/tree'
 import { useUiStore } from '../../stores/ui'
 import { listTrash, restoreTrash, purgeTrash, type TrashEntry } from '../../api/documents'
 import { ApiError } from '../../api/client'
+import { useStaleGuard } from '../../composables/useStaleGuard'
+import { capView } from '../../shared/render-cap'
 import { friendlyError } from '../../shared/error'
 
 // 回收站面板：严格仿章节树叶子行样式（dot-slot + label + hover 操作按钮）。
@@ -18,16 +20,17 @@ const err = ref<string | null>(null)
 // R1010c-FE1-P3-2（2026-09-10 全量独立复审修复批）：条目渲染上限——大批量回收站全量
 // v-for 挂 DOM（max-height 只裁视觉不减节点），对齐域内 RENDER_CAP=100 惯例（先例
 // RewritePanel/AuditDiffPanel R-P3-16、r54 ChapterTree）：只裁渲染面前 100 条 + 尾部
-// 省略提示行，数据面不动（空态判定仍看全量 entries）
+// 省略提示行，数据面不动（空态判定仍看全量 entries）。
+// 复审-0914-优化修复批 P3：切片/计数样板收敛 shared/render-cap 单源（capView）。
 const RENDER_CAP = 100
-const renderedEntries = computed(() => entries.value.slice(0, RENDER_CAP))
-const omittedCount = computed(() => Math.max(0, entries.value.length - RENDER_CAP))
+const entriesCap = computed(() => capView(entries.value, RENDER_CAP))
 
 // M-10：回收站加载代守卫（words store reqGen 同款）——快速切书 A→B 时 A 的慢响应
-// 不覆盖 B 的回收站列表（restore/purge 后的 load 同享守卫）
-let loadGen = 0
+// 不覆盖 B 的回收站列表（restore/purge 后的 load 同享守卫）。
+// E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard。
+const loadGen = useStaleGuard()
 async function load(): Promise<void> {
-  const gen = ++loadGen
+  const gen = loadGen.begin()
   if (!props.bookName) {
     entries.value = []
     return
@@ -35,10 +38,10 @@ async function load(): Promise<void> {
   err.value = null
   try {
     const list = await listTrash(props.bookName)
-    if (gen !== loadGen) return
+    if (loadGen.stale(gen)) return
     entries.value = list
   } catch (e) {
-    if (gen !== loadGen) return
+    if (loadGen.stale(gen)) return
     err.value = friendlyError(e)
   }
 }
@@ -126,7 +129,7 @@ watch(() => props.bookName, () => load(), { immediate: true })
     </div>
     <!-- 列表（严格仿章节树叶子行：dot-slot + label 27px 行高） -->
     <div v-else class="tree-list">
-      <div v-for="e in renderedEntries" :key="e.id" class="tree-item" :title="e.originalPath ?? e.path">
+      <div v-for="e in entriesCap.view" :key="e.id" class="tree-item" :title="e.originalPath ?? e.path">
         <span class="dot-slot">
           <span class="dot dot-gray"></span>
         </span>
@@ -143,7 +146,7 @@ watch(() => props.bookName, () => load(), { immediate: true })
         </div>
       </div>
       <!-- R1010c-FE1-P3-2：RENDER_CAP 截断省略提示行（与 r54 ChapterTree 尾部提示行同语义） -->
-      <div v-if="omittedCount > 0" class="cap-hint">已省略 {{ omittedCount }} 项</div>
+      <div v-if="entriesCap.omitted > 0" class="cap-hint">已省略 {{ entriesCap.omitted }} 项</div>
     </div>
   </div>
 </template>

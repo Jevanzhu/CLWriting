@@ -7,7 +7,7 @@
  *   出口接线，此前前端唯一接线的 build 端点对失配错误文案是指向 rebuild 的断头）
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { acknowledgeJournalPending } from '../../../src/studio/web-next/src/api/stream'
+import { acknowledgeJournalPending } from '../../../src/studio/web-next/src/api/workbench'
 import { triggerRagRebuild, triggerRagBuild } from '../../../src/studio/web-next/src/api/books'
 import { boot } from '../../../src/studio/web-next/src/api/client'
 

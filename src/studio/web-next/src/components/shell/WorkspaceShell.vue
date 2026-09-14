@@ -20,17 +20,20 @@ import { useWorkspaceStore } from '../../stores/workspace'
 import { usePrefsStore } from '../../stores/prefs'
 import { useTreeStore } from '../../stores/tree'
 import { useWorkbenchStore } from '../../stores/workbench'
+import { useDocStore } from '../../stores/doc'
 import { useUiStore } from '../../stores/ui'
+import { refreshCachedDoc } from '../../shared/doc-freshness'
 import { onFullScreenChange } from '../../shared/fullscreen'
 
 // Obsidian 工作区外壳：ribbon + 左侧栏 + 中央(tabbar+viewheader+视图) + 右侧栏 + 状态栏。
 // flex 布局（非旧 web 的 overlay 浮层）；折叠走 width 过渡，专注模式覆盖折叠态。
 // macOS 交通灯处理在 Ribbon 列内（顶部留白 + 可拖动），主区/sidebar 顶部与交通灯同排。
-defineProps<{ bookName: string }>()
+const props = defineProps<{ bookName: string }>()
 
 const ws = useWorkspaceStore()
 const prefs = usePrefsStore()
 const tree = useTreeStore()
+const doc = useDocStore()
 const ui = useUiStore()
 useHotkeys()
 // R40-42（四十轮）：专注退出按钮组合键平台文案（win → Ctrl+Shift+F；原 title 写死 ⌘⇧F，
@@ -48,6 +51,31 @@ watch(
     if (!msg) return
     ui.toast(msg, 'error')
     wb.warning = null
+  },
+)
+
+// P1-1：全自动写章收工 → 草稿已由 self-heal 落盘，凭 healResult.docId 自动转编辑器。
+// tool_use 模式下无逐字流，正文区恒空白，收工跳转是作者看到成品的唯一通道。
+// P2-3（全库重评-0914）：消费面自 WorkbenchView 上移本常驻层（R27-77 warning 同款）——
+// 原 watch 挂工作台视图，全自动写章运行中切到编辑器/总览等视图时视图未挂载，收工
+// 跳转被整链跳过。外壳随书常驻（Book.vue 全程挂载），任何视图下结果即产即转。
+watch(
+  () => wb.healResult,
+  async (r) => {
+    if (!r || (r.outcome !== 'pass' && r.outcome !== 'escalate')) return
+    if (!r.docId) return
+    // Z-24（第五十八轮）：书名入口捕获 + await 后守卫——tree.load 窗口内切书时，
+    // A 书的 openTab/toast 不得落 B 书界面（onSpawn/onAutoWrite 同款纪律）
+    const book = props.bookName
+    try {
+      await tree.load(book)
+      if (props.bookName !== book) return
+      refreshCachedDoc(doc, r.docId) // R26-17：openTab 前刷新 clean 缓存（异步，不阻塞跳转）
+      ws.openTab(r.docId)
+      ui.toast(r.outcome === 'pass' ? '已写完，已转到编辑器' : '已写完（剩红项待你定夺），已转到编辑器', 'success')
+    } catch {
+      /* 树刷新/打开失败不阻断（草稿已落盘，作者可从文章树手动找） */
+    }
   },
 )
 

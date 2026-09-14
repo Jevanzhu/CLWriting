@@ -97,8 +97,13 @@ describe('E-6b · 卸载 DELETE 的 token 守卫', () => {
     const w = mountHeartbeat(book)
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled())
     w.unmount()
+    // P3-18（全库重评-0914）：DELETE 补 10s 超时 signal——init 形状断言放宽为
+    // objectContaining（method 语义回归不变，signal 为新增超时档）
     await vi.waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith('/api/books/b1/heartbeat', { method: 'DELETE' }),
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/books/b1/heartbeat',
+        expect.objectContaining({ method: 'DELETE', signal: expect.any(AbortSignal) }),
+      ),
     )
   })
 })
@@ -164,8 +169,12 @@ describe('R34D-24 · 卸载 DELETE 用落拍捕获书名', () => {
     book.value = null // 生产时序复刻：卸载前路由参数已归空（watch 先 stop）
     w.unmount()
     // 修复点：捕获书名 b1 的 DELETE（修复前重读为 null 跳过，DELETE 不可达）
+    // P3-18：同上，init 形状断言放宽（新增超时 signal）
     await vi.waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith('/api/books/b1/heartbeat', { method: 'DELETE' }),
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/books/b1/heartbeat',
+        expect.objectContaining({ method: 'DELETE', signal: expect.any(AbortSignal) }),
+      ),
     )
   })
 

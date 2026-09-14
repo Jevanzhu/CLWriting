@@ -34,7 +34,7 @@ import type { Vault } from '../../../ai/provider/vault.js'
 import { listModels } from '../../../ai/provider/models.js'
 import { probeCapabilities as realProbeCapabilities } from '../../../ai/provider/probe.js'
 import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
-import { log } from '../../../log/index.js'
+import { log, errMsg } from '../../../log/index.js'
 
 // R75-D-P3c（批 D）：探测函数替换口（默认真探测）——回归测试注入受控延迟/结果的
 // 探测函数，复现「探测 10s+ 窗口内配置被改」竞态（mock driver 的快路探测瞬时完成，
@@ -391,7 +391,7 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
       reply(res, 200, { models })
     } catch (e) {
       // P2-4：错误脱敏
-      replyError(res, 500, 'GEN_FAIL', `获取模型列表失败：${redactSecret(e instanceof Error ? e.message : String(e))}`)
+      replyError(res, 500, 'GEN_FAIL', `获取模型列表失败：${redactSecret(errMsg(e))}`)
     }
   },
   })
@@ -452,7 +452,7 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
       // 此前落进本 catch-all 被包成 500 GEN_FAIL，内层「413 等透传」注释未成立
       if (e instanceof HttpError) return replyHttpError(res, e)
       // P2-4：错误脱敏（探测是 AI 网络往返 → GEN_FAIL，与 /models 端点同族）
-      replyError(res, 500, 'GEN_FAIL', redactSecret(e instanceof Error ? e.message : String(e)))
+      replyError(res, 500, 'GEN_FAIL', redactSecret(errMsg(e)))
     }
   },
   })

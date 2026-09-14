@@ -25,6 +25,8 @@ import { computeStyleMetrics, type StyleStats } from '../check/count.js'
 import type { ChapterMeta } from '../format/types.js'
 import { yieldToEventLoop } from '../async.js'
 import { log } from '../log/index.js' // 复审-0913-源码 P2：基线损坏 warn 留痕（对齐同目录 short-index R51-B-3）
+// 复审-0914-优化修复批（errMsg 收编）：错误摘要口径单源
+import { errMsg } from '../log/index.js'
 
 /** 含句长方差/复读率的完整文风指纹（StyleStats + 两个聚合用维度） */
 export interface FullStyleStats extends StyleStats {
@@ -139,17 +141,11 @@ export function computeRepeatRate(body: string): number {
   return ngramRepeatRate(body).rate
 }
 
-/** R75-1（批 A）：码点计数（代理对合 1 计），与 check/count.ts 的 codePointLength
- *  同口径手写遍历——该函数未导出，且 metrics→process（summary）→ai→metrics 会成环，
- *  故本地同款不引依赖（全库 code point 口径第 5 处，P-7/R73-19 家族）。 */
-function charCountOf(body: string): number {
-  let n = 0
-  for (let i = 0; i < body.length; i++) {
-    n++
-    if (body.codePointAt(i)! > 0xffff) i++ // 代理对：astral 字符按 1 计
-  }
-  return n
-}
+/** R75-1（批 A）：码点计数（代理对合 1 计）——原按「metrics→process→ai 成环」判
+ *  本地同款；复审-0914-优化 A2（2026-09-14 修复批）单源下沉零依赖的
+ *  src/shared/text.ts 后成环顾虑消除，本处委托单源（P-7/R73-19 家族收编）。 */
+import { codePointLength as charCountOf } from '../shared/text.js'
+
 
 /** 对一段正文算完整文风指纹（StyleStats 5 维 + 句长方差 + 复读率）。
  *  R75-1：附带 charCount 归一化因子（新冻结的基线随之持久化该字段）。 */
@@ -321,7 +317,7 @@ export function readBaseline(bookRoot: string): StyleBaseline | null {
     const raw = JSON.parse(readFileSync(p, 'utf-8')) as unknown
     return coerceBaseline(raw)
   } catch (e) {
-    log.warn('metrics', `文风基线读取/解析失败，按无基线降级（文风对照将不生效）：${bookRoot}：${e instanceof Error ? e.message : String(e)}`)
+    log.warn('metrics', `文风基线读取/解析失败，按无基线降级（文风对照将不生效）：${bookRoot}：${errMsg(e)}`)
     return null
   }
 }

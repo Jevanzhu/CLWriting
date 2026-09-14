@@ -48,7 +48,7 @@ import { safeManifestPath, docJoinKey, normalizeWinSeparators } from '../fs/safe
 import { walkMdEach } from '../fs/walk-md.js'
 import { readBatchPause } from './batch-pause.js'
 import type { BookConfig, ParseError } from '../format/types.js'
-import { log } from '../log/index.js'
+import { log, errMsg } from '../log/index.js'
 
 // R43-2（四十三轮）：sweep 每书 TTL 节流表（内存态，key = bookRoot；书数量级小无上限
 // 忧虑）。导出 reset 钩子供测试复位节流窗。
@@ -230,7 +230,7 @@ export async function detectState(
         ? await runRebuildAsync({ bookRoot, cachePath })
         : rebuild(bookRoot, cachePath)
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
+      const msg = errMsg(e)
       return {
         state: 2,
         parseErrors: [{ file: cachePath, line: 0, message: `缓存重建失败：${msg}（可删 .cache/index.db 重试）` }],
@@ -252,7 +252,7 @@ export async function detectState(
   // #4 工作区未完成（中断恢复）：有细纲/未定稿草稿 但对应章节已定稿 → post-finalize-residue
   const incomplete = detectIncompleteWorkdir(bookRoot, m)
   if (incomplete) {
-    const alreadyFinalized = isChapterFinalized(bookRoot, incomplete, m)
+    const alreadyFinalized = isChapterFinalized(incomplete, m)
     return {
       state: 4,
       chapterNum: incomplete,
@@ -292,7 +292,7 @@ export async function detectState(
       db.close()
     }
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
+    const msg = errMsg(e)
     return {
       state: 2,
       parseErrors: [{ file: cachePath, line: 0, message: `缓存读取失败：${msg}（可删 .cache/index.db 重试）` }],
@@ -406,7 +406,7 @@ async function healthCheck(bookRoot: string, manifest: Manifest): Promise<Health
       // 意外异常（readdirSync EACCES 等）把整轮崩溃恢复检查静默归零，作者对上次崩溃
       // 丢字零感知且无诊断线索；对齐同函数其他降级分支的 warn 口径（R53-D-2 恢复
       // 报文如实化的观测侧孪生缝）。
-      log.warn('state', `journal 扫描异常，本轮崩溃恢复检查降级跳过：${e instanceof Error ? e.message : String(e)}`)
+      log.warn('state', `journal 扫描异常，本轮崩溃恢复检查降级跳过：${errMsg(e)}`)
     }
   }
 
@@ -520,7 +520,7 @@ async function healthCheck(bookRoot: string, manifest: Manifest): Promise<Health
     }
   } catch (e) {
     // R54-B-1 降级纪律：检查异常不阻断进门，warn 留痕
-    log.warn('state', `结构不变量检查异常，本轮降级跳过：${e instanceof Error ? e.message : String(e)}`)
+    log.warn('state', `结构不变量检查异常，本轮降级跳过：${errMsg(e)}`)
   }
 
   return issues
@@ -782,7 +782,7 @@ async function reconcileSavePending(
     rev = computeRevision(abs)
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') return 'crashed' // exists 与 read 间被删：同「不在盘」口径
-    log.warn('state', `save 类 pending 复核读盘失败（${rel}，保守维持报红）：${e instanceof Error ? e.message : String(e)}`)
+    log.warn('state', `save 类 pending 复核读盘失败（${rel}，保守维持报红）：${errMsg(e)}`)
     return 'crashed'
   }
   if (rev === p.baseRevision) {
@@ -794,7 +794,7 @@ async function reconcileSavePending(
   try {
     await appendSettled(journalFile, p.opId, rev)
   } catch (e) {
-    log.warn('state', `save 类 pending 自动消解 settled 写失败（${rel}，维持报红待下次进门重试）：${e instanceof Error ? e.message : String(e)}`)
+    log.warn('state', `save 类 pending 自动消解 settled 写失败（${rel}，维持报红待下次进门重试）：${errMsg(e)}`)
     return 'crashed'
   }
   log.info('state', `save 类 pending 已确定性消解（${rel}）：盘上指纹已非 pending 基线，判定该次保存实际已落盘，补 settled 不再报红`)
@@ -908,8 +908,10 @@ function relativePath(bookRoot: string, absPath: string): string {
   return normalizeWinSeparators(relative(bookRoot, absPath))
 }
 
-/** 章节是否已定稿：manifest 中该章 entry 有 finalizedRevision。 */
-function isChapterFinalized(_bookRoot: string, chapterNum: number, manifest: Manifest): boolean {
+/** 章节是否已定稿：manifest 中该章 entry 有 finalizedRevision。
+ *  P3（复审-0914-优化修复批）：原签名首位 bookRoot 参数从引入起未被函数体消费
+ *  （判定只依赖 manifest 路径前缀），随批删除——唯一调用点同步收窄。 */
+function isChapterFinalized(chapterNum: number, manifest: Manifest): boolean {
   for (const e of manifest.entries.values()) {
     if (e.nodeType !== 'document' || !e.finalizedRevision) continue
     if (!e.path.startsWith('写作/正文/')) continue

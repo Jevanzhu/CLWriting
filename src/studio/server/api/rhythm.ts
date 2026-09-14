@@ -11,6 +11,7 @@ import { statSync } from 'node:fs'
 import { join } from 'node:path'
 import { defineRoute } from './schema.js'
 import { reply, replyError } from '../http.js'
+import { createTtlProbeCache } from '../ttl-cache.js'
 import { resolveBook } from '../book-context.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { readChapterDir } from '../../../format/chapters.js'
@@ -38,7 +39,6 @@ const SCENE_TYPES: readonly SceneType[] = ['战斗', '对话', '抒情', '叙事
 // 计算是同步单段（无在途并发窗口），缓存壳取 getVersionStatsCached 同款同步形态。
 const RHYTHM_CACHE_TTL_MS = 5000
 const RHYTHM_CACHE_MAX = 32
-const rhythmCache = new Map<string, { result: unknown; ts: number; sig: string }>()
 let rhythmTtlMs: number | null = null
 /** R44-8：TTL 测试注入口（先例同 __setSearchCacheTtlForTest）。仅测试用。 */
 export function __setRhythmCacheTtlForTest(ms: number | null): void {
@@ -46,17 +46,28 @@ export function __setRhythmCacheTtlForTest(ms: number | null): void {
 }
 /** R44-8：删书/改名失效挂点（books.ts forgetBookKeyedCaches 家族同款）。 */
 export function forgetRhythmCache(bookRoot: string): void {
-  rhythmCache.delete(bookRoot)
+  rhythmCache.forget(bookRoot)
 }
 /** R44-8 回归观测钩子（生产零调用；先例同 __searchScanCountForTest）：缓存 MISS →
  *  全量重算（readBookConfig + readChapterDir×2）计数。 */
-let rhythmScanCount = 0
 export function __rhythmScanCountForTest(): number {
-  return rhythmScanCount
+  return rhythmCache.scanCountForTest()
 }
 export function __resetRhythmScanCountForTest(): void {
-  rhythmScanCount = 0
+  rhythmCache.resetScanCountForTest()
 }
+
+/** D1（复审-0914-优化修复批）：缓存壳收编 ttl-cache.ts 通用件（原本地 Map + FIFO +
+ *  R47-18 过期逐出本地壳删除；命中/失效时序/逐出序逐位不变——单级探针 + 同步计算 +
+ *  FIFO 32，见 ttl-cache.ts 头部收敛映射表）。 */
+const rhythmCache = createTtlProbeCache<string, unknown>({
+  name: 'rhythm',
+  keyOf: (k) => k,
+  max: RHYTHM_CACHE_MAX,
+  ttl: () => rhythmTtlMs ?? RHYTHM_CACHE_TTL_MS,
+  probe: rhythmSignature,
+  computeSync: rhythmCompute,
+})
 
 /** stat 的 size:mtimeMs 签名（缺失 → '-'；先例同 snapshots.ts sigStatFor）。
  *  精简批（SRV 域）：overview/settings 的同构本地副本（overviewSigStatFor/
@@ -92,18 +103,15 @@ function rhythmSignature(bookRoot: string): string {
   ].join(',')
 }
 
-/** R44-8：rhythm 聚合查询（目录指纹 + TTL 缓存壳）。导出供回归测试直测。 */
+/** R44-8：rhythm 聚合查询（目录指纹 + TTL 缓存壳）。导出供回归测试直测。
+ *  D1（复审-0914-优化修复批）：壳体收编 ttl-cache.ts 通用件，本函数只剩转发。 */
 export function getRhythmCached(bookRoot: string): unknown {
-  const sig = rhythmSignature(bookRoot)
-  const cached = rhythmCache.get(bookRoot)
-  if (cached && cached.sig === sig && Date.now() - cached.ts < (rhythmTtlMs ?? RHYTHM_CACHE_TTL_MS)) {
-    return cached.result
-  }
-  // R47-18（四十七轮）：过期条目顺手逐出——原只当 miss 用、条目驻留至 FIFO 触顶/删书
-  //（forgetRhythmCache）；重算路径本就必走且 set 原键覆写，零成本零语义变更。sig 失配
-  // 但未过期的条目不在此次清（本函数同步单段，下方 set 必覆写同键）
-  if (cached && Date.now() - cached.ts >= (rhythmTtlMs ?? RHYTHM_CACHE_TTL_MS)) rhythmCache.delete(bookRoot)
-  rhythmScanCount += 1
+  return rhythmCache.getSync(bookRoot)
+}
+
+/** MISS 计算体（原内联逻辑原样下沉通用件 computeSync；book.yaml 损坏降级留痕等
+ *  行为逐位不变）。 */
+function rhythmCompute(bookRoot: string): unknown {
   // R50-C-2（五十轮）：book.yaml 损坏静默降级留痕（对齐 state.ts P3-2 口径）——
   // readBookConfig 错误分支带 DEFAULT_CONFIG 骨架（kind 缺省 'long'），未判 ok
   // 直接解构 .config 会无声按长篇口径全量重算
@@ -112,14 +120,7 @@ export function getRhythmCached(bookRoot: string): unknown {
     log.warn('rhythm', `book.yaml 解析降级: ${cfgResult.error.message}`)
   }
   const config = cfgResult.config
-  const result: unknown = config.kind === 'short' ? rhythmShort(bookRoot, config) : rhythmLong(bookRoot)
-  // 简单 FIFO 淘汰（Map 保插入序）：超上限丢最旧条目，防长期运行的书库累积
-  if (rhythmCache.size >= RHYTHM_CACHE_MAX) {
-    const oldest = rhythmCache.keys().next().value
-    if (oldest !== undefined) rhythmCache.delete(oldest)
-  }
-  rhythmCache.set(bookRoot, { result, ts: Date.now(), sig })
-  return result
+  return config.kind === 'short' ? rhythmShort(bookRoot, config) : rhythmLong(bookRoot)
 }
 
 export function registerRhythmRoutes(ctx: RhythmCtx): void {

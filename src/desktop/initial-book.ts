@@ -33,11 +33,16 @@ export function initialBookArg(argv: string[], opts?: { allowEnvFallback?: boole
  *  复审-0913-mac适配 P3-3：名命中两侧 NFC 归一（toNfcName 单源）后比较——登记名建书
  *  时已 NFC（init.ts），CLI/argv 的 ref 可能 NFD（mac 终端/启动器传入分解形），精确
  *  串比较落空 → --book 静默回落书架页。全平台安全：存量登记名恒 NFC，NFC 归一不引入
- *  假命中；路径命中臂由 samePath darwin NFC 覆盖（同批）。 */
+ *  假命中；路径命中臂由 samePath darwin NFC 覆盖（同批）。
+ *  全库重评-0914（P3-9）：名命中臂改返回登记名（books.find 命中项的 name）而非原始
+ *  ref——比较虽已 NFC 归一，返回 NFD 原串会让下游对登记名的严格匹配落空（非 CJK
+ *  书名如含 é 分解形）；函数契约即「解析为书架登记书名」，与路径命中臂返回
+ *  byPath.name 对齐。 */
 export function resolveInitialBook(workDir: string, ref: string): string | null {
   const books = readBooks(workDir)
   const nfcRef = toNfcName(ref)
-  if (books.some((b) => toNfcName(b.name) === nfcRef)) return ref
+  const byName = books.find((b) => toNfcName(b.name) === nfcRef)
+  if (byName) return byName.name
   const abs = resolve(workDir, ref)
   const byPath = books.find((b) => samePath(resolve(workDir, b.path), abs))
   return byPath ? byPath.name : null

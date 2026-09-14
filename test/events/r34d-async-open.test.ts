@@ -2,7 +2,7 @@
  * R34D-19（三十四轮）回归：openSessionStoreAsync 异步开库孪生。
  *
  * 锁纪律收口后的行为契约：
- * 1) 语义与同步壳对齐——首开建库/DDL/登记缓存，createSession/appendEvent/listEvents
+ * 1) 语义与同步壳对齐——首开建库/DDL/登记缓存，createSession/appendEvents/listEvents
  *    全链可用；
  * 2) 缓存命中免锁直复用（引用计数与同步壳一致，写读互通）；
  * 3) 同步/异步两壳共享同一缓存（混用不双开）；
@@ -28,12 +28,12 @@ afterEach(() => {
 })
 
 describe('R34D-19 openSessionStoreAsync 异步开库孪生', () => {
-  it('首开建库全链可用（createSession → appendEvent → listEvents）', async () => {
+  it('首开建库全链可用（createSession → appendEvents → listEvents）', async () => {
     const ud = tmpRoot()
     const s = await openSessionStoreAsync(ud, '/books/async-a')
     expect(s).not.toBeNull()
     const sid = s!.createSession('书A')
-    s!.appendEvent(sid, { type: 'user/message', data: { message: 'x' }, surfaceOp: 'append' })
+    s!.appendEvents(sid, [{ type: 'user/message', data: { message: 'x' }, surfaceOp: 'append' }])
     expect(s!.lastSeq()).toBe(1)
     expect(s!.listEvents('书A')).toHaveLength(1)
     s!.close()
@@ -43,7 +43,7 @@ describe('R34D-19 openSessionStoreAsync 异步开库孪生', () => {
     const ud = tmpRoot()
     const s1 = await openSessionStoreAsync(ud, '/books/async-b')
     const sid = s1!.createSession('书B')
-    s1!.appendEvent(sid, { type: 'user/message', data: { message: 'x' }, surfaceOp: 'append' })
+    s1!.appendEvents(sid, [{ type: 'user/message', data: { message: 'x' }, surfaceOp: 'append' }])
     const s2 = await openSessionStoreAsync(ud, '/books/async-b')
     expect(s2!.dbPath).toBe(s1!.dbPath)
     expect(s2!.lastSeq()).toBe(1)
@@ -55,7 +55,7 @@ describe('R34D-19 openSessionStoreAsync 异步开库孪生', () => {
     const ud = tmpRoot()
     const sync = openSessionStore(ud, '/books/mixed')!
     const sid = sync.createSession('书C')
-    sync.appendEvent(sid, { type: 'user/message', data: { message: 'x' }, surfaceOp: 'append' })
+    sync.appendEvents(sid, [{ type: 'user/message', data: { message: 'x' }, surfaceOp: 'append' }])
     const async = await openSessionStoreAsync(ud, '/books/mixed')
     expect(async!.dbPath).toBe(sync.dbPath)
     // 异步壳在已登记缓存上取引用（refs++），事件互通

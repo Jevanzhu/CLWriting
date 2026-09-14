@@ -12,7 +12,7 @@ import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import WbStateCard from '../../../src/studio/web-next/src/components/workbench/WbStateCard.vue'
-import type { BookState } from '../../../src/studio/web-next/src/api/stream'
+import type { BookState } from '../../../src/studio/web-next/src/api/workbench'
 
 function stateOf(partial: Partial<BookState>): BookState {
   return { state: 7, stateName: '起草新章', humanMsg: '', action: '', ...partial }

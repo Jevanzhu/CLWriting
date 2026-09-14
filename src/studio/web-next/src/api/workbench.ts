@@ -1,6 +1,13 @@
-import { apiJson } from './client'
+import { apiJson, API_DEFAULT_TIMEOUT_MS } from './client'
 
 // 工作台 HTTP 端点（细案 §2.2）。AI 类（spawn/outline）阻塞数十秒，调用方防重复提交。
+// P3-20（全库重评-0914）：原名 api/stream.ts 与内容不符（本文件全为工作台端点，无流
+// 代码；SSE 在 composables/useSse.ts，服务端另有同名的 SSE 文件）——更名 api/workbench.ts，
+// 全仓导入随批改指（含 22 个测试文件的 mock 路径）。
+
+// A5（复审-0914-优化修复批）：interrupt 15s 档单源（原裸值 15_000 收敛，数值零变化；
+// 命名对齐 *_TIMEOUT_MS 惯例）。
+const INTERRUPT_TIMEOUT_MS = 15_000
 
 // GET /state → 当前态机状态（状态卡）
 export interface BookState {
@@ -44,7 +51,7 @@ export async function spawnRole(
 
 // POST /interrupt —— 中断当前生成（同时停自愈编排循环）
 export async function interrupt(name: string): Promise<void> {
-  await apiJson(`/api/books/${encodeURIComponent(name)}/interrupt`, { method: 'POST' }, 15_000)
+  await apiJson(`/api/books/${encodeURIComponent(name)}/interrupt`, { method: 'POST' }, INTERRUPT_TIMEOUT_MS)
 }
 
 // POST /auto-write {chapter, batchSize?} —— 全自动写章：写稿→机检→红则自动重写→全绿或触顶交作者。
@@ -61,7 +68,7 @@ export async function autoWrite(
       method: 'POST',
       json: { chapter, ...(batchSize > 1 ? { batchSize } : {}) },
     },
-    30_000, // 后端应秒级确认并开始 SSE 回流；挂起则超时提示
+    API_DEFAULT_TIMEOUT_MS, // 后端应秒级确认并开始 SSE 回流；挂起则超时提示（30s 兜底档，原裸值 30_000）
   )
 }
 

@@ -58,6 +58,8 @@ vi.mock('../../src/log/index.js', () => ({
     error: (): void => {},
   },
   initLogging: (): void => {},
+  // errMsg 收编（复审-0914-优化修复批）：init.ts 引 log 模块公共 errMsg——mock 面同步补齐
+  errMsg: (e: unknown): string => (e instanceof Error ? e.message : String(e)),
 }))
 
 import { doInit, doInitAsync } from '../../src/install/init.js'

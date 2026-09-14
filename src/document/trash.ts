@@ -22,7 +22,7 @@ import { VERSIONS_DIR_NAME, encodeDocDirName } from './version.js'
 import { analysisPathCandidates } from './analysis.js'
 import { type DocumentRole } from './layout.js'
 import { invalidateTreeIndex } from './tree.js'
-import { log } from '../log/index.js'
+import { log, errMsg } from '../log/index.js'
 
 /** 回收站条目。 */
 export interface TrashEntry {
@@ -95,7 +95,6 @@ function trashManifestPath(bookRoot: string): string {
 export function readTrashManifest(bookRoot: string): TrashEntry[] {
   const p = trashManifestPath(bookRoot)
   if (!existsSync(p)) return []
-  const entries: TrashEntry[] = []
   // X-P3a：existsSync 与 read 之间有竞态（并发删/权限变化），读失败按无 manifest 处理
   let raw: string
   try {
@@ -103,7 +102,7 @@ export function readTrashManifest(bookRoot: string): TrashEntry[] {
   } catch {
     return []
   }
-  return parseTrashText(raw, entries)
+  return parseTrashText(raw)
 }
 
 // ── R0912-E-P3-1（2026-09-12 独立重评修复批）：trash 清单单槽指纹缓存 ─────────
@@ -159,7 +158,6 @@ export function readTrashManifestStrict(bookRoot: string): TrashEntry[] {
   }
   const p = trashManifestPath(bookRoot)
   if (!existsSync(p)) return []
-  const entries: TrashEntry[] = []
   let raw: string
   try {
     raw = readFileSync(p, 'utf-8')
@@ -168,7 +166,7 @@ export function readTrashManifestStrict(bookRoot: string): TrashEntry[] {
     if (code === 'ENOENT') return []
     throw new Error(`回收站清单读取失败（${code ?? '未知错误'}）：${p}——已拒绝以空清单重写整文件（R27-40 防丢条目）`)
   }
-  const parsed = parseTrashText(raw, entries)
+  const parsed = parseTrashText(raw)
   if (sig !== null) {
     trashCacheKey = bookRoot
     trashCacheSig = sig
@@ -177,8 +175,11 @@ export function readTrashManifestStrict(bookRoot: string): TrashEntry[] {
   return copyTrashEntries(parsed)
 }
 
-/** 文本 → TrashEntry[]（容错/strict 两版共用解析体） */
-function parseTrashText(raw: string, entries: TrashEntry[]): TrashEntry[] {
+/** 文本 → TrashEntry[]（容错/strict 两版共用解析体；P3 复审-0914-优化修复批：
+ *  原签名带 out 参 entries 就地 push、返回同容器，改纯返回值语义——收容器内置，
+ *  调用方不再预置；解析行为与产出逐位不变）。 */
+function parseTrashText(raw: string): TrashEntry[] {
+  const entries: TrashEntry[] = []
   for (const line of raw.split('\n')) {
     const t = line.trim()
     if (!t) continue
@@ -545,7 +546,5 @@ export async function purgeTrash(bookRoot: string, id: string): Promise<PurgeRes
 function safePathWithin(bookRoot: string, rel: string): string | null {
   return resolveWithinRoot(bookRoot, rel)?.abs ?? null
 }
-
-function errMsg(e: unknown): string {
-  return e instanceof Error ? e.message : String(e)
-}
+// errMsg 本地同型函数已随复审-0914-优化修复批收编 log/index.js 单源（本文件 4 个
+// 消费点 import 直用，语义逐位同旧实现）。

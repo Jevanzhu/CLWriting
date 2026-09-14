@@ -2,6 +2,8 @@ import { useWorkspaceStore } from './workspace'
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { str } from './sse-guards'
+import { rawErrorMessage } from '../shared/error'
+import { useStaleGuard } from '../composables/useStaleGuard'
 import { CHAT_HISTORY_LIMIT } from '../shared/chat-history'
 import {
   fetchChatHistory,
@@ -57,20 +59,10 @@ const MAX_MESSAGES = CHAT_HISTORY_LIMIT
  *  + … 尾标（方案原文写 ToolCard.summary，以实际字段为准 = input）。 */
 const TOOL_INPUT_MAX = 2000
 
-/** 码位计数（不展开数组；代理对成对计 1，与 Array.from 口径一致） */
-function codePointLength(text: string): number {
-  let n = 0
-  for (let i = 0; i < text.length; i++) {
-    const c = text.charCodeAt(i)
-    // 高代理项后随低代理项 → 成对算一个码位，跳过低代理项
-    if (c >= 0xd800 && c <= 0xdbff && i + 1 < text.length) {
-      const d = text.charCodeAt(i + 1)
-      if (d >= 0xdc00 && d <= 0xdfff) i++
-    }
-    n++
-  }
-  return n
-}
+// 复审-0914-优化 A2：码位计数收编根 src/shared/text.ts 单源（跨包引用对齐
+// shared/words.ts 引 format/words 先例；原本地副本删）。
+import { codePointLength } from '../../../../shared/text'
+
 
 /** 码位截断（口径同 src/process/summary.ts clipByCodePoints：Array.from 迭代码点——
  *  String.slice 按 UTF-16 码元会把增补平面字符切成半个代理对） */
@@ -110,8 +102,9 @@ export const useChatStore = defineStore('chat', () => {
   const notice = ref<string | null>(null)
   /** 当前正在填充的 assistant 气泡索引（chat_text 追加目标） */
   let currentIdx = -1
-  /** Y-P2-5：种子化代数——clear/新调用使在途响应失效（连切书防旧书历史种到新书，参考 bookGen 守卫） */
-  let seedGen = 0
+  /** Y-P2-5：种子化代数——clear/新调用使在途响应失效（连切书防旧书历史种到新书，参考 bookGen 守卫）
+   *  E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard（seed/switch 用 begin，regenerate/chat_done 观测点 current，clear invalidate）。 */
+  const seedGen = useStaleGuard()
   /** Q-8（第十五轮）：切书 clear 时该书在途回合被清（running 守卫跳过 seedHistory）→
    *  记待补种书名，running 翻 false（chat_done/chat_error）后自动补种——在途回合
    *  不再 UI 失明（服务端历史本就完好）。clear() 复位（每次切换重新登记，防跨书误种）。 */
@@ -313,7 +306,7 @@ export const useChatStore = defineStore('chat', () => {
           regenPending = false
           const book = regenBook
           regenBook = null
-          if (book) void refreshBranches(book, seedGen)
+          if (book) void refreshBranches(book, seedGen.current())
         }
         break
       }
@@ -449,7 +442,7 @@ export const useChatStore = defineStore('chat', () => {
       return
     }
     if (!replace && messages.value.length > 0) return
-    const gen = ++seedGen
+    const gen = seedGen.begin()
     let data: ChatHistoryResult
     try {
       data = await fetchChatHistory(bookName)
@@ -457,21 +450,44 @@ export const useChatStore = defineStore('chat', () => {
       return // 后端未起/离线：静默放弃（对话区留白，可正常发起新对话）
     }
     // 非 replace：fetch 窗口内 SSE 新消息已到（messages 非空）→ 放弃（不插入错位，Y-P2-5）
-    if (gen !== seedGen || running.value || (!replace && messages.value.length > 0)) return
-    if (replace) {
-      // R33D-8：替换式——先清旧种子再回填，防 append 错位（fetch 窗口内无在途回合）
+    if (seedGen.stale(gen) || running.value || (!replace && messages.value.length > 0)) return
+    // R33D-8 / R0911b-C1-P3-2 / 重评-0912-2 P3 注锚随实现移入 applyHistoryView（复审-0914-优化修复批 P3）
+    await applyHistoryView(bookName, gen, data, replace ? { replace: true } : {})
+  }
+
+  /**
+   * 复审-0914-优化修复批（P3）：seedHistory / switchBranch 公共核心收口——拿到权威
+   * history 后的「（替换式先清）→ 种子化 → activeBranchId 对齐 → 截断态对齐 →
+   * best-effort 刷分支列表」原是两处逐行双写，收敛本函数防再漂移。语义逐位等价：
+   * - replace:true（switchBranch / seedHistory 的 R33D-8 替换式补种）先清旧种子再回填，
+   *   防 append 错位（fetch 窗口内无在途回合）；不传不清（seedHistory 原路径，种子化
+   *   只在空列表进行，currentIdx 必 -1）；
+   * - fallbackBranchId：switchBranch 传请求的 branchId（≡原
+   *   `data.branchId !== undefined ? data.branchId : branchId ?? null`）；seedHistory 不传
+   *   （≡原 `data.branchId ?? null`，undefined ?? null = null）。
+   * 竞态守卫（stale/running/非空放弃）留在各自入口，不入本函数。
+   * R0911b-C1-P3-2（2026-09-11 全量重评 GLM-5.3 修复批）：空历史不提前 return——
+   * 分支态（activeBranchId/branches）仍以本次权威拉取对齐（对齐 switchBranch 空历史
+   * 同款刷新口径），否则 replace 补种（pendingReseed）落空历史时（他窗清空服务端
+   * 历史等罕达路径）旧分支态滞留在已清空的对话界面。
+   */
+  async function applyHistoryView(
+    bookName: string,
+    gen: number,
+    data: ChatHistoryResult,
+    opts: { replace?: boolean; fallbackBranchId?: string | null } = {},
+  ): Promise<void> {
+    if (opts.replace === true) {
+      // R33D-8：替换式——先清旧种子再回填，防 append 错位
       messages.value = []
       currentIdx = -1
     }
-    // R0911b-C1-P3-2（2026-09-11 全量重评 GLM-5.3 修复批）：空历史不提前 return——
-    // 分支态（activeBranchId/branches）仍以本次权威拉取对齐（对齐 switchBranch 空历史
-    // 同款刷新口径），否则 replace 补种（pendingReseed）落空历史时（他窗清空服务端
-    // 历史等罕达路径）旧分支态滞留在已清空的对话界面
     if (data.messages.length > 0) seedFromHistory(data.messages, data.seqs)
     // G1：activeBranchId 用 history 返回的实际采用分支——拉取成功即写（空历史同，
-    // R0911b-C1-P3-2），与 branches 拉取解耦（后者失败只降级隐藏切换器，不丢当前分支定位）
-    activeBranchId.value = data.branchId ?? null
-    // 重评-0912-2 P3：截断态随本次权威拉取对齐（视图自此历史重建，提示面向当前视图）
+    // R0911b-C1-P3-2），与 branches 拉取解耦（后者失败只降级隐藏切换器，不丢当前分支定位）；
+    // 仅旧后端缺字段（undefined）才回落传入 id / null
+    activeBranchId.value = data.branchId !== undefined ? data.branchId : opts.fallbackBranchId ?? null
+    // 重评-0912-2 P3：截断态随本次权威视图对齐（视图自此历史重建，提示面向当前视图）
     historyTruncated.value = data.truncated === true
     historyTotal.value = data.total ?? null
     // 分支列表 best-effort 拉取（失败静默——变体切换器降级隐藏，对话不受影响）
@@ -482,7 +498,7 @@ export const useChatStore = defineStore('chat', () => {
   async function refreshBranches(bookName: string, gen: number): Promise<void> {
     try {
       const d = await fetchChatBranches(bookName)
-      if (gen !== seedGen) return
+      if (seedGen.stale(gen)) return
       branches.value = d.branches ?? []
     } catch {
       /* 静默 */
@@ -490,29 +506,22 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   /**
-   * G1：切换到指定分支（变体组）。仅 !running 时允许；seedGen++ 作废在途种子化/切换。
+   * G1：切换到指定分支（变体组）。仅 !running 时允许；seedGen 作废在途种子化/切换。
    * 成功且无竞态 → 整体替换 messages（新种子，带 seqs）+ activeBranchId=返回的 branchId，
    * 再 best-effort 刷新分支列表；失败静默返回（保留原视图）。
+   * 复审-0914-优化修复批（P3）：落视图五连收口 applyHistoryView（公共核心见该函数注）。
    */
   async function switchBranch(bookName: string, branchId: string | null): Promise<void> {
     if (running.value) return
-    const gen = ++seedGen
+    const gen = seedGen.begin()
     let data: ChatHistoryResult
     try {
       data = await fetchChatHistory(bookName, branchId ?? undefined)
     } catch {
       return // 静默失败：保留原视图
     }
-    if (gen !== seedGen || running.value) return
-    messages.value = []
-    currentIdx = -1
-    if (data.messages.length > 0) seedFromHistory(data.messages, data.seqs)
-    // activeBranchId = history 返回值（线性书显式 null；仅旧后端缺字段时才回落传入 id）
-    activeBranchId.value = data.branchId !== undefined ? data.branchId : branchId ?? null
-    // 重评-0912-2 P3：截断态随新分支视图对齐（同 seedHistory 口径）
-    historyTruncated.value = data.truncated === true
-    historyTotal.value = data.total ?? null
-    await refreshBranches(bookName, gen)
+    if (seedGen.stale(gen) || running.value) return
+    await applyHistoryView(bookName, gen, data, { replace: true, fallbackBranchId: branchId })
   }
 
   /** G1：生成新分支 id（b + 时间戳 36 进制 + 随机尾，防同毫秒碰撞） */
@@ -532,7 +541,7 @@ export const useChatStore = defineStore('chat', () => {
     const last = messages.value[messages.value.length - 1]
     if (regenPending || running.value || !last || last.role !== 'assistant' || !last.done) return
     regenPending = true
-    const gen = seedGen
+    const gen = seedGen.current()
     let handedOff = false // 已交由 SSE 接管（标志改由 chat_done/chat_error 复位）
     try {
       let data: ChatHistoryResult
@@ -547,7 +556,7 @@ export const useChatStore = defineStore('chat', () => {
         error.value = '获取对话历史失败，请稍后重试'
         return
       }
-      if (gen !== seedGen || running.value) return // 期间清空/切分支/新回合开跑：放弃
+      if (seedGen.stale(gen) || running.value) return // 期间清空/切分支/新回合开跑：放弃
       // 反向找最后一条真实 user 文本消息（tool_result 合成的 user 不算）的事件 seq
       let parentSeq: number | undefined
       for (let i = data.messages.length - 1; i >= 0; i--) {
@@ -578,10 +587,10 @@ export const useChatStore = defineStore('chat', () => {
           ...(chapter !== undefined ? { chapter } : {}),
         })
       } catch (e) {
-        error.value = e instanceof Error ? e.message : String(e) // 保留原视图
+        error.value = rawErrorMessage(e) // 保留原视图（复审-0914-优化修复批：表达式收编 shared/error 单源）
         return
       }
-      if (gen !== seedGen) return // 期间清空/切分支：不污染新视图
+      if (seedGen.stale(gen)) return // 期间清空/切分支：不污染新视图
       // 本地截断到最后一条 user 气泡（其后旧消息全删、user 保留；SSE 抢先追加的新气泡保留）
       let lastUser = -1
       for (let i = messages.value.length - 1; i >= 0; i--) {
@@ -641,7 +650,7 @@ export const useChatStore = defineStore('chat', () => {
     error.value = null
     notice.value = null
     currentIdx = -1
-    seedGen++ // Y-P2-5：在途种子化响应作废（切书/清空后旧历史不得再种入）
+    seedGen.invalidate() // Y-P2-5：在途种子化响应作废（切书/清空后旧历史不得再种入）
     pendingReseed = null // Q-8：待补种随清空作废（每次切换由随后的 seedHistory 重新登记，防跨书误种）
     // G1：重置分支态 + 复位重新生成进行中标志（清空后旧分支/在途操作不得残留）
     activeBranchId.value = null

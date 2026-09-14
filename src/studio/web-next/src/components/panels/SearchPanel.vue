@@ -4,6 +4,7 @@ import { useTreeStore } from '../../stores/tree'
 import { useDocStore } from '../../stores/doc'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { search, type SearchHit } from '../../api/search'
+import { useStaleGuard } from '../../composables/useStaleGuard'
 import { friendlyError } from '../../shared/error'
 import { isImeComposing } from '../../shared/ime'
 
@@ -35,10 +36,11 @@ const SCOPES = [
   { v: '工作区', label: '工作区' },
 ]
 
-let runGen = 0
+// E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard。
+const runGen = useStaleGuard()
 async function run(): Promise<void> {
   // RB-FE-P2-6：连续搜索竞态——只渲染最后一次查询的结果，旧慢响应不覆盖新结果
-  const gen = ++runGen
+  const gen = runGen.begin()
   // R33-85（三十三轮）：空查询路径同清错误态（原只在有查询路径清，错误残留到下一次搜索）
   err.value = null
   openErr.value = null // 重评-0912-4 P2-4：新搜索/清空同时作废旧 open 失败提示
@@ -50,14 +52,14 @@ async function run(): Promise<void> {
   loading.value = true
   try {
     const r = await search(props.bookName, q.value, scope.value)
-    if (gen !== runGen) return
+    if (runGen.stale(gen)) return
     results.value = r.results
     truncated.value = !!r.truncated
   } catch (e) {
-    if (gen !== runGen) return
+    if (runGen.stale(gen)) return
     err.value = friendlyError(e)
   } finally {
-    if (gen === runGen) loading.value = false
+    if (runGen.fresh(gen)) loading.value = false
   }
 }
 
@@ -75,7 +77,7 @@ watch(
     truncated.value = false
     err.value = null
     openErr.value = null
-    runGen++ // 在途搜索响应作废（gen 对不上即弃）
+    runGen.invalidate() // 在途搜索响应作废（gen 对不上即弃；clear 型原 runGen++）
     // R-1/R-24（第十六轮）：切书推代后在途搜索的 finally 查代不过 → loading 永久卡 true；
     // 此处直接复位（迟到回填仍被查代挡住，不落结果）
     loading.value = false

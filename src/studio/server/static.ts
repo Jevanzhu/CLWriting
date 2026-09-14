@@ -9,7 +9,7 @@ import { readFile, stat } from 'node:fs/promises'
 import { createReadStream } from 'node:fs' // R46-12（四十六轮）：GET 静态文件整读改流式
 import { join, normalize, extname, sep, relative } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { replyError } from './http.js'
+import { replyError, parseRequestUrl } from './http.js'
 import { resolveWithinRoot } from '../../fs/safe-path.js'
 
 const MIME: Record<string, string> = {
@@ -51,10 +51,11 @@ export function createStaticHandler(rootDir: string) {
     // rejection（/api 分支在 index.ts 有 catch，静态分支此前裸奔 → Node ≥15 默认
     // throw 即进程崩溃；红测试：raw socket 畸形请求行，修复前 ERR_INVALID_URL 裸抛）。
     // 与下方 decodeURIComponent 守卫同款：畸形请求回 400，不炸服务。
-    let parsed: URL
-    try {
-      parsed = new URL(req.url ?? '/', 'http://localhost')
-    } catch {
+    // P3（复审-0914-优化修复批）：本地 try/catch 语义保持，构造收编 http.ts
+    // parseRequestUrl 单源（R-19，base 同为 URL_PARSE_BASE 'http://localhost'，
+    // 畸形返 null）——pathname 提取口径逐位不变。
+    const parsed = parseRequestUrl(req)
+    if (!parsed) {
       replyError(res, 400, 'BAD_INPUT', 'bad request')
       return
     }

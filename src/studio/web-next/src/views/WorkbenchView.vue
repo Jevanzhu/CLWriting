@@ -20,7 +20,7 @@ import {
   generateLeadUpdates,
   acknowledgeJournalPending,
   type BookState,
-} from '../api/stream'
+} from '../api/workbench'
 import { useUiStore } from '../stores/ui'
 import { usePrefsStore } from '../stores/prefs'
 import { useProviderStore } from '../stores/provider'
@@ -34,6 +34,8 @@ import WbHealCard from '../components/workbench/WbHealCard.vue'
 import WbDraftCard from '../components/workbench/WbDraftCard.vue'
 import WbUsageCard from '../components/workbench/WbUsageCard.vue'
 import { friendlyError } from '../shared/error'
+import { refreshCachedDoc } from '../shared/doc-freshness' // P2-3：R26-17 helper 单源
+import { useStaleGuard } from '../composables/useStaleGuard'
 import { isImeComposing } from '../shared/ime'
 import { countWords } from '../shared/words' // R64-33：草稿字数与编辑器头/草稿卡同源
 
@@ -62,17 +64,18 @@ const tierCreative = computed(() => pstore.tiers?.creative ?? null)
 // B3：规则命中统计（高频违规，供作者自查常见问题）
 const ruleHits = ref<RuleHitEntry[]>([])
 // M-11：规则命中代守卫（stateGen 同文件先例）——快速切书 A→B 时 A 的慢响应不覆盖 B 统计
-let ruleHitsGen = 0
+// E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard。
+const ruleHitsGen = useStaleGuard()
 async function loadRuleHits(): Promise<void> {
-  const gen = ++ruleHitsGen
+  const gen = ruleHitsGen.begin()
   try {
     // R0912-FE-P3-4：trace-stats 改走共享 store（与 WbUsageCard 同屏单点分发，
     // 同书并发去重；本处只消费 ruleHits 面，代守卫与失败清空口径不变）
     const data = await traceStats.getStats(props.bookName)
-    if (gen !== ruleHitsGen) return
+    if (ruleHitsGen.stale(gen)) return
     ruleHits.value = data.ruleHits ?? []
   } catch {
-    if (gen !== ruleHitsGen) return
+    if (ruleHitsGen.stale(gen)) return
     ruleHits.value = []
   }
 }
@@ -91,15 +94,16 @@ watch(
 const chapter = computed(() => state.value?.nextChapter ?? 1)
 
 // RB-FE-P2-4：状态卡请求代守卫——快速切书 A→B 时 A 的慢响应不覆盖 B 状态（对齐本文件 kindReqId 风格）
-let stateGen = 0
+// E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard。
+const stateGen = useStaleGuard()
 async function refreshState(): Promise<void> {
-  const gen = ++stateGen
+  const gen = stateGen.begin()
   try {
     const s = await getState(props.bookName)
-    if (gen !== stateGen) return
+    if (stateGen.stale(gen)) return
     state.value = s
   } catch (e) {
-    if (gen !== stateGen) return
+    if (stateGen.stale(gen)) return
     err.value = friendlyError(e)
   }
 }
@@ -132,35 +136,10 @@ watch(
     if (prev && !r) void refreshState()
   },
 )
-// P1-1：全自动写章收工 → 草稿已由 self-heal 落盘，凭 healResult.docId 自动转编辑器。
-// tool_use 模式下无逐字流，正文区恒空白，收工跳转是作者看到成品的唯一通道。
-// R26-17（二十六轮）：AI 落盘后 doc 缓存新鲜度——正文已写进磁盘，若该 docId 已在
-// doc 缓存（clean），openTab 命中旧内容。refresh 异步重拉对齐磁盘，不必 await（打开
-// 后编辑器内容随响应式 entry 自然更新）；dirty 不刷：本地有未保存编辑优先（CC-P2-15
-// 本地优先口径，refresh 自身也保护 dirty 正文）；未缓存则 open 全新拉取，无需处理。
-function refreshCachedDoc(docId: string): void {
-  const cached = doc.get(docId)
-  if (cached && !cached.dirty) void doc.refresh(docId)
-}
-watch(
-  () => wb.healResult,
-  async (r) => {
-    if (!r || (r.outcome !== 'pass' && r.outcome !== 'escalate')) return
-    if (!r.docId) return
-    // Z-24（第五十八轮）：书名入口捕获 + await 后守卫——tree.load 窗口内切书时，
-    // A 书的 openTab/toast 不得落 B 书界面（同文件 onSpawn/onAutoWrite 同款纪律）
-    const book = props.bookName
-    try {
-      await tree.load(book)
-      if (props.bookName !== book) return
-      refreshCachedDoc(r.docId) // R26-17：openTab 前刷新 clean 缓存（异步，不阻塞跳转）
-      ws.openTab(r.docId)
-      ui.toast(r.outcome === 'pass' ? '已写完，已转到编辑器' : '已写完（剩红项待你定夺），已转到编辑器', 'success')
-    } catch {
-      /* 树刷新/打开失败不阻断（草稿已落盘，作者可从文章树手动找） */
-    }
-  },
-)
+// P2-3（全库重评-0914）：healResult 消费面（收工自动转编辑器）与 R27-77 warning 同款
+// 上移 WorkspaceShell 常驻层——原 watch 挂本视图，全自动写章运行中切到编辑器/总览等
+// 视图时本视图未挂载，收工跳转（tool_use 模式作者看到成品的唯一通道）被整链跳过。
+// 本文件不再消费；doc 新鲜度 helper 收编 shared/doc-freshness.ts（存草稿路径仍用）。
 
 // R27-77（二十七轮）：wb.warning 消费面上移 WorkspaceShell（常驻层）——原 watch 挂在
 // 本视图，视图未挂载期间（生成中切到编辑器/总览）警告静默滞留，且 watch 无 immediate、
@@ -186,6 +165,9 @@ function onPromptEnter(e: KeyboardEvent): void {
   if (isImeComposing(e)) return
   // R0912-3 #17：AI 不可用时 Enter 不放行（主「生成」按钮已禁，旁路补同款闸）
   if (ui.aiAvailable === false) return
+  // P3-27（全库重评-0914）：state 未载入期 Enter 同闸（按钮已禁，旁路补同款——
+  // chapter 回落 1 的错章生成不得从键盘路径漏发）
+  if (state.value === null) return
   if (!genBusy.value) void onSpawn()
 }
 
@@ -375,7 +357,7 @@ async function onSaveDraft(): Promise<void> {
     draftSaved.value = { words: countWords(wb.textOut) } // R64-33：与草稿卡同源口径
     // 树重拉后新草稿在「写作」组；openTab 切编辑器视图 + 激活文档
     await tree.load(book)
-    refreshCachedDoc(r.docId) // R26-17：同 healResult——缓存命中（clean）时先异步重拉再开
+    refreshCachedDoc(doc, r.docId) // R26-17：同 healResult——缓存命中（clean）时先异步重拉再开
     ws.openTab(r.docId)
     ui.toast(`第 ${chap} 章草稿已存，转到编辑`, 'success')
   } catch (e) {
@@ -437,6 +419,9 @@ async function onSaveDraft(): Promise<void> {
 
     <!-- 触发生成 -->
     <section class="card">
+      <!-- P3-27（全库重评-0914）：state 未载入（null）期生成族按钮禁用——chapter 回落 1，
+          慢网/失败窗内起生成会把「第 1 章」发成实际进度之外的章。加载失败时 state 保持
+          null + 上方错误条展示（fail-closed，切书/重载自动重试）。 -->
       <div class="spawn-row">
         <input
           v-model="prompt"
@@ -445,11 +430,11 @@ async function onSaveDraft(): Promise<void> {
           :disabled="genBusy"
           @keydown.enter="onPromptEnter"
         />
-        <button v-if="!genBusy" class="btn primary" :disabled="ui.aiAvailable === false || spawnPending" @click="onSpawn">生成</button>
+        <button v-if="!genBusy" class="btn primary" :disabled="state === null || ui.aiAvailable === false || spawnPending" @click="onSpawn">生成</button>
         <button v-else class="btn danger" :disabled="interruptPending" @click="onInterrupt">中断</button>
         <button
           class="btn"
-          :disabled="genBusy || ui.aiAvailable === false"
+          :disabled="state === null || genBusy || ui.aiAvailable === false"
           title="AI 生成本章细纲（写稿前的语境准备，全自动写章可读）"
           @click="onOutline"
         >
@@ -461,7 +446,7 @@ async function onSaveDraft(): Promise<void> {
              在途文案才可达。 -->
         <button
           class="btn"
-          :disabled="genBusy || ui.aiAvailable === false"
+          :disabled="state === null || genBusy || ui.aiAvailable === false"
           title="W-P1-3：AI 草拟本章账本推进（工作区/账本推进.md），定稿时确认回写布线履历"
           @click="onLeadUpdates"
         >
@@ -469,7 +454,7 @@ async function onSaveDraft(): Promise<void> {
         </button>
         <button
           class="btn auto"
-          :disabled="genBusy || ui.aiAvailable === false"
+          :disabled="state === null || genBusy || ui.aiAvailable === false"
           title="AI 写稿后自动机检，报红自动重写，全绿才交给你确认"
           @click="onAutoWrite"
         >

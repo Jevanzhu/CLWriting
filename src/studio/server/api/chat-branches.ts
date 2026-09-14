@@ -14,6 +14,7 @@ import { reply, replyError } from '../http.js'
 import { resolveBook } from '../book-context.js'
 import { openSessionStoreAsync, type SessionStore } from '../../../events/store.js'
 import { buildBranchTree, listBranches, defaultBranchId, type BranchInfo } from '../../../events/branch-tree.js'
+import { errMsg } from '../../../log/index.js' // errMsg 收编（复审-0914-优化修复批）：错误文案三目单源
 
 interface ChatBranchesCtx {
   workDir: string | null
@@ -59,7 +60,7 @@ export function registerChatBranchesRoutes(ctx: ChatBranchesCtx): void {
           res,
           500,
           'STORE_UNAVAILABLE',
-          `事件库不可用（无法打开会话存储）：${e instanceof Error ? e.message : String(e)}`,
+          `事件库不可用（无法打开会话存储）：${errMsg(e)}`,
         )
       }
       if (!store) return replyError(res, 500, 'STORE_UNAVAILABLE', '事件库不可用（无法打开会话存储）')

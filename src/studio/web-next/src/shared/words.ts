@@ -154,3 +154,28 @@ export function formatWanZi(n: number, opts?: { suffix?: string; digits?: number
   const suffix = opts?.suffix ?? '万'
   return `${(n / 10000).toFixed(digits)}${suffix}`
 }
+
+/**
+ * 章节六态「标签 + 状态色」单表（复审-0914-优化修复批 P3 收敛）——此前三处独立维护：
+ * WritingInfoPanel / EditorDocHead 的 STATUS_LABEL（两份逐字相同）与 ChapterTreeItem
+ * 的 dotClass（switch 手搓同口径），改一处漏两处的漂移面。三消费方此后委托本表；
+ * dot/st 两列并存是既有视觉类名体系的如实保留（树/回收站 dot-green|red|yellow|gray，
+ * 编辑器顶栏 st-good|bad|warn|faint——两套类名不改，只收敛「态 → 色」判定源）。
+ */
+export interface ChapterStatusMeta {
+  /** 中文标签（WritingInfoPanel 元数据行 / EditorDocHead 章节状态展示） */
+  label: string
+  /** 章节树/回收站叶子行状态点类（ChapterTreeItem dotClass 同名） */
+  dot: 'dot-green' | 'dot-red' | 'dot-yellow' | 'dot-gray'
+  /** 编辑器顶栏状态色类（EditorDocHead statusCls 同名） */
+  st: 'st-good' | 'st-bad' | 'st-warn' | 'st-faint'
+}
+
+export const CHAPTER_STATUS: Record<string, ChapterStatusMeta> = {
+  idea: { label: '构想', dot: 'dot-gray', st: 'st-faint' },
+  draft: { label: '草稿', dot: 'dot-yellow', st: 'st-warn' },
+  revision: { label: '修订', dot: 'dot-red', st: 'st-bad' },
+  final: { label: '定稿', dot: 'dot-green', st: 'st-good' },
+  published: { label: '已发布', dot: 'dot-green', st: 'st-good' },
+  archived: { label: '已归档', dot: 'dot-gray', st: 'st-faint' },
+}

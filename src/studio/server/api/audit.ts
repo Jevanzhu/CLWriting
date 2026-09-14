@@ -30,6 +30,7 @@ import { isSpawnRunning } from './stream.js'
 import { heldTaskGatesFor, crossProcessHeldTaskGatesFor } from './task-gate.js'
 import { isReviewRunningForBook } from './review.js'
 import type { EventType, GoalSnapshot, SurfaceOp, Todo } from '../../../events/types.js'
+import { errMsg } from '../../../log/index.js' // errMsg 收编（复审-0914-优化修复批）：错误文案三目单源
 
 interface AuditCtx {
   workDir: string | null
@@ -230,7 +231,7 @@ export function registerAuditRoutes(ctx: AuditCtx): void {
         res,
         500,
         'STORE_UNAVAILABLE',
-        `事件库不可用（无法打开会话存储）：${e instanceof Error ? e.message : String(e)}`,
+        `事件库不可用（无法打开会话存储）：${errMsg(e)}`,
       )
     }
     if (!store) return replyError(res, 500, 'STORE_UNAVAILABLE', '事件库不可用（无法打开会话存储）')
@@ -294,7 +295,7 @@ export function registerAuditRoutes(ctx: AuditCtx): void {
         res,
         500,
         'STORE_UNAVAILABLE',
-        `事件库不可用（无法打开会话存储）：${e instanceof Error ? e.message : String(e)}`,
+        `事件库不可用（无法打开会话存储）：${errMsg(e)}`,
       )
     }
     if (!store) return replyError(res, 500, 'STORE_UNAVAILABLE', '事件库不可用（无法打开会话存储）')

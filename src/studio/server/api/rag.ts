@@ -30,7 +30,7 @@ import { acquireTaskGate } from './task-gate.js'
 // D-2（二十九轮）：建索引失败信息与 replyError 同源的脱敏单源（http.ts 同款 import）——
 // embed 上游报错 message 可能夹带完整 URL（key 在 query）/ Authorization 痕迹
 import { redactSecret } from '../../../ai/provider/redact.js'
-import { log } from '../../../log/index.js'
+import { log, errMsg } from '../../../log/index.js'
 
 interface RagCtx {
   workDir: string | null
@@ -150,7 +150,7 @@ function startRagBuild(
             // D-2（二十九轮）：入库前过 redactSecret——lastResult.error 经 GET /rag/status
             // 明文回传，此前 e.message 直存会把上游报错里夹带的凭据痕迹（URL query key /
             // Bearer 头等）透给前端；replyError 闸管不到这条旁路（200 响应体），就地脱敏
-            lastResult: { ok: false, chunkCount: 0, chapterCount: 0, error: redactSecret(`建索引异常：${e instanceof Error ? e.message : String(e)}`) },
+            lastResult: { ok: false, chunkCount: 0, chapterCount: 0, error: redactSecret(`建索引异常：${errMsg(e)}`) },
           })
         }
       })

@@ -23,6 +23,8 @@ import { readBookConfig } from '../format/yaml.js'
 import { sanitizeFileNamePart, isMdFileName } from '../format/filename.js'
 import { finalizedPathSet } from '../document/manifest.js'
 import { docJoinKey } from '../fs/safe-path.js'
+// 复审-0914-优化修复批（errMsg 收编）：错误摘要口径单源
+import { errMsg } from '../log/index.js'
 import {
   formatShortSubmissionView,
   scanShortCollection,
@@ -237,7 +239,7 @@ function archiveOldExport(exportDir: string, oldName: string, warnings: string[]
     // 通用-1（复审-0913-mac适配）：留痕补病因（e.message）——通用文案让作者无从判断
     // 失败原因（EACCES/EBUSY/…）；对齐本文件其余 catch 的 message 口径，语义不变
     warnings.push(
-      `旧产物 ${oldName} 归档失败（${e instanceof Error ? e.message : String(e)}；已保留原位，请手动移入 ${OLD_EXPORT_DIR}/）`,
+      `旧产物 ${oldName} 归档失败（${errMsg(e)}；已保留原位，请手动移入 ${OLD_EXPORT_DIR}/）`,
     )
   }
 }
@@ -252,20 +254,26 @@ function sanitizeFileName(name: string, maxBytes: number): string {
 export function exportBook(options: ExportOptions): ExportResult {
   const { bookRoot, platform = 'generic' } = options
   const format = options.format ?? 'both'
+  // C2（复审-0914-优化修复批）：前置失败（未达定稿过滤阶段）信封单源——finalizedFilter
+  // 恒 'applied'（值不参与语义，见 ExportResult.finalizedFilter 注）、无 skippedDrafts/
+  // warnings 面。与下方 fail（过滤阶段后）分立：二者捕获的变量面不同，前置闭包不引用
+  // 尚未声明的 warnings/finalizedFilter/skippedDrafts（TDZ）。
+  const failEarly = (error: string): ExportResult => ({
+    ok: false,
+    files: [],
+    chapterCount: 0,
+    unit: '章',
+    finalizedFilter: 'applied',
+    error,
+  })
   // C-9（二十九轮）：format 入口校验——TS 类型上只可能是三合法值，但 API/worker 层透传
   // 任意 JSON 可达（运行期不受类型约束），非法值此前会让 doMerged/doSplit 双 false：
   // 全部章静默跳过写入，落到「零产出」收口误报「正文全部为空或读取失败」，病因完全
   // 错位（误导作者去查正文）。改入口显式参数错误返回（对齐本文件 {ok:false,error}
   // 错误信封形态），不做任何盘上操作。
   if (format !== 'merged' && format !== 'split' && format !== 'both') {
-    return {
-      ok: false,
-      files: [],
-      chapterCount: 0,
-      unit: '章',
-      finalizedFilter: 'applied', // 前置失败未达过滤阶段（零产物，值不参与语义）
-      error: `参数错误：format=${JSON.stringify(format)} 非法（只接受 merged / split / both）`,
-    }
+    // 前置失败未达过滤阶段（零产物，finalizedFilter 值不参与语义）
+    return failEarly(`参数错误：format=${JSON.stringify(format)} 非法（只接受 merged / split / both）`)
   }
   const cfg = readBookConfig(join(bookRoot, 'book.yaml'))
   const kind = cfg.ok && cfg.config.kind === 'short' ? 'short' : 'long'
@@ -276,7 +284,7 @@ export function exportBook(options: ExportOptions): ExportResult {
   // 驻留内存可 OOM；改 meta-only 扫描，正文在下方写循环内逐章现读即弃（读-写流水化，
   // 峰值降为单章级，对齐 5+6 步「单遍流式」注释口径）。
   if (!existsSync(bodyDir)) {
-    return { ok: false, files: [], chapterCount: 0, unit: '章', finalizedFilter: 'applied', error: '没有定稿正文可导出。' }
+    return failEarly('没有定稿正文可导出。')
   }
   // X-P2-4：单个坏章（解析失败）不再拖垮整本导出——记入 warnings 跳过，仍有可导章则继续
   const warnings: string[] = []
@@ -303,10 +311,10 @@ export function exportBook(options: ExportOptions): ExportResult {
       : [],
   )
   if (units.length === 0 && warnings.length > 0) {
-    return { ok: false, files: [], chapterCount: 0, unit: '章', finalizedFilter: 'applied', error: `章解析失败：${warnings.join('; ')}` }
+    return failEarly(`章解析失败：${warnings.join('; ')}`)
   }
   if (units.length === 0) {
-    return { ok: false, files: [], chapterCount: 0, unit: '章', finalizedFilter: 'applied', error: '没有定稿正文可导出。' }
+    return failEarly('没有定稿正文可导出。')
   }
 
   // V-P2-2：「导出定稿正文」名要符实——滤掉从未定稿的章（manifest 无 finalizedRevision；
@@ -333,6 +341,21 @@ export function exportBook(options: ExportOptions): ExportResult {
           return false
         })
       : units
+  // C2（复审-0914-优化修复批）：失败信封单源——下方 7 处 {ok:false, files, chapterCount:0,
+  // unit:'章', finalizedFilter, skippedDrafts, ...(warnings), error} 同构字面量收编单行调用。
+  // warnings/finalizedFilter/skippedDrafts 闭包捕获（求值时机 = 调用时刻，与原字面量一致）；
+  // filesSnapshot 仅两处「已落盘产物回填」（重审-09 口径：split 项 ⟺ 已落盘、merged 名仅
+  // 完整发布后列）传当时 files 快照，其余恒 []。前置失败（过滤阶段前）走上方 failEarly。
+  const fail = (error: string, filesSnapshot?: string[]): ExportResult => ({
+    ok: false,
+    files: filesSnapshot ?? [],
+    chapterCount: 0,
+    unit: '章',
+    finalizedFilter,
+    skippedDrafts,
+    ...(warnings.length > 0 ? { warnings } : {}),
+    error,
+  })
   // X-P2-4：正文为空/读取失败的单章在写循环内现读时判定（R73-37 起正文不预读），
   // 记警告跳过，不再整本失败；零可写章在下方按 writtenCount 收口
   // R0912-E-P3-6（2026-09-12 独立重评修复批）：`const exportable: ExportUnit[] =
@@ -348,7 +371,7 @@ export function exportBook(options: ExportOptions): ExportResult {
     try {
       bytes = readFileSync(u.path)
     } catch (e) {
-      warnings.push(`${relPosix(u.path)}: 正文读取失败（${e instanceof Error ? e.message : String(e)}），已跳过`)
+      warnings.push(`${relPosix(u.path)}: 正文读取失败（${errMsg(e)}），已跳过`)
       return null
     }
     if (!isUtf8ExportBytes(bytes)) {
@@ -371,16 +394,7 @@ export function exportBook(options: ExportOptions): ExportResult {
     return r.body
   }
   if (filtered.length === 0) {
-    return {
-      ok: false,
-      files: [],
-      chapterCount: 0,
-      unit: '章',
-      finalizedFilter,
-      skippedDrafts,
-      ...(warnings.length > 0 ? { warnings } : {}),
-      error: `正文区共 ${units.length} 章均未定稿，没有可导出的定稿正文；请先在文档树中定稿。`,
-    }
+    return fail(`正文区共 ${units.length} 章均未定稿，没有可导出的定稿正文；请先在文档树中定稿。`)
   }
 
   // 2. 按排序键数值排序（S2：`序 ?? 章号`——不依赖文件名字符串序；tie 章号保稳定）
@@ -404,16 +418,7 @@ export function exportBook(options: ExportOptions): ExportResult {
   try {
     mkdirSync(exportDir, { recursive: true })
   } catch (e) {
-    return {
-      ok: false,
-      files: [],
-      chapterCount: 0,
-      unit: '章',
-      finalizedFilter,
-      skippedDrafts,
-      ...(warnings.length > 0 ? { warnings } : {}),
-      error: `导出写入失败：${e instanceof Error ? e.message : String(e)}`,
-    }
+    return fail(`导出写入失败：${errMsg(e)}`)
   }
 
   // 4. 读书名（用于合并文件名；book.yaml #9 格式）
@@ -446,16 +451,7 @@ export function exportBook(options: ExportOptions): ExportResult {
         }
       }
     } catch (e) {
-      return {
-        ok: false,
-        files: [],
-        chapterCount: 0,
-        unit: '章',
-        finalizedFilter,
-        skippedDrafts,
-        ...(warnings.length > 0 ? { warnings } : {}),
-        error: `导出写入失败：${e instanceof Error ? e.message : String(e)}`,
-      }
+      return fail(`导出写入失败：${errMsg(e)}`)
     }
   }
 
@@ -493,16 +489,7 @@ export function exportBook(options: ExportOptions): ExportResult {
     try {
       mkdirSync(join(exportDir, splitTargetDirName), { recursive: true })
     } catch (e) {
-      return {
-        ok: false,
-        files: [],
-        chapterCount: 0,
-        unit: '章',
-        finalizedFilter,
-        skippedDrafts,
-        ...(warnings.length > 0 ? { warnings } : {}),
-        error: `导出写入失败：${e instanceof Error ? e.message : String(e)}`,
-      }
+      return fail(`导出写入失败：${errMsg(e)}`)
     }
   }
   // R66-23（十四轮）：splitUsed 原声明在 writeSplit 闭包定义之后（仅靠「闭包实际调用
@@ -523,22 +510,21 @@ export function exportBook(options: ExportOptions): ExportResult {
     // 平台规范化批：导出产物规范形写（正文源自库内章，CRLF 存量可携 \r 残尾——归一后
     // 两台机器的导出产物字节一致，作者侧 diff/比对有基准）
     const payloadOf = (title: string, body: string): string => canonicalizeText(`# ${title}\n\n${body}`)
+    // P3（复审-0914-优化修复批）：撞名/非撞名两分支重复的 atomicWriteFile+files.push
+    // 合并单点写——名单先算定（finalName），写盘与登记只写一份
+    let finalName = fileName
     if (splitUsed.has(fileName)) {
       let n = 2
       while (splitUsed.has(`${prefix}${baseName}-${n}.md`)) n++
-      const dedupName = `${prefix}${baseName}-${n}.md`
-      splitUsed.add(dedupName)
-      warnings.push(`分章 ${unit.num}「${unit.title}」与已导出产物撞名，已另存为 ${dedupName}——若为同名重复章请手动核对/清理`)
-      atomicWriteFile(join(exportDir, splitTargetDirName, dedupName), payloadOf(unit.title, body))
-      files.push(`工作区/导出/${splitTargetDirName}/${dedupName}`)
-    } else {
-      splitUsed.add(fileName)
-      atomicWriteFile(join(exportDir, splitTargetDirName, fileName), payloadOf(unit.title, body))
-      files.push(`工作区/导出/${splitTargetDirName}/${fileName}`)
+      finalName = `${prefix}${baseName}-${n}.md`
+      warnings.push(`分章 ${unit.num}「${unit.title}」与已导出产物撞名，已另存为 ${finalName}——若为同名重复章请手动核对/清理`)
     }
+    splitUsed.add(finalName)
+    atomicWriteFile(join(exportDir, splitTargetDirName, finalName), payloadOf(unit.title, body))
+    files.push(`工作区/导出/${splitTargetDirName}/${finalName}`)
    } catch (e) {
     // R67-10（十五轮）：分章单章写入失败带上章上下文重抛——外层收编为 {ok:false}
-    throw new Error(`分章 ${unit.num}「${unit.title}」写入失败：${e instanceof Error ? e.message : String(e)}`)
+    throw new Error(`分章 ${unit.num}「${unit.title}」写入失败：${errMsg(e)}`)
    }
   }
 
@@ -598,16 +584,7 @@ export function exportBook(options: ExportOptions): ExportResult {
     // 核对半产物）。回填累积的 files：split 项 push 紧随成功 atomicWriteFile 之后 ⟺
     // 已落盘；merged 名仅在 atomicWriteStream 完整发布后 unshift（中途失败 tmp 自
     // 清理、目标不在盘），不虚列。
-    return {
-      ok: false,
-      files,
-      chapterCount: 0,
-      unit: '章',
-      finalizedFilter,
-      skippedDrafts,
-      ...(warnings.length > 0 ? { warnings } : {}),
-      error: `导出写入失败：${e instanceof Error ? e.message : String(e)}`,
-    }
+    return fail(`导出写入失败：${errMsg(e)}`, files)
   }
   // R73-37：定稿章在册但全部空正文/读取失败 → 零产物，按失败收口（原实现经定稿预滤
   // （filtered）走同一信封；具体病因见 warnings 逐章留痕）。
@@ -623,16 +600,7 @@ export function exportBook(options: ExportOptions): ExportResult {
       finalizedPaths !== null
         ? `有定稿章 ${filtered.length} 章但正文全部为空或读取失败${skippedDrafts > 0 ? `（另有 ${skippedDrafts} 章未定稿已跳过）` : ''}`
         : `正文区 ${units.length} 章的正文全部为空或读取失败（未找到定稿清单，未按定稿过滤）`
-    return {
-      ok: false,
-      files: [],
-      chapterCount: 0,
-      unit: '章',
-      finalizedFilter,
-      skippedDrafts,
-      ...(warnings.length > 0 ? { warnings } : {}),
-      error: `${scope}，没有可导出的内容；逐章原因见 warnings。`,
-    }
+    return fail(`${scope}，没有可导出的内容；逐章原因见 warnings。`)
   }
 
   // R70-4（十八轮）：short 分支整体收编进错误信封——R67-10 只包了 merged/split 写入，
@@ -665,8 +633,8 @@ export function exportBook(options: ExportOptions): ExportResult {
       archiveOldExport(exportDir, old, warnings)
     }
     // V-P2-2：投稿视图同口径滤未定稿（entries 按 R73-37 实际产出章号对齐）
-    const exportableNums = writtenNums
-    const entries = scanShortCollection(bookRoot).filter((e) => exportableNums.has(e.num))
+    // P3（复审-0914-优化修复批）：exportableNums 纯别名删——消费点直用 writtenNums
+    const entries = scanShortCollection(bookRoot).filter((e) => writtenNums.has(e.num))
     // R38-2（三十八轮）：同名投稿视图先归档再覆盖（与 merged 同族修法，R65-27 哲学补齐）
     if (existsSync(join(exportDir, submissionName))) {
       archiveOldExport(exportDir, submissionName, warnings)
@@ -681,16 +649,7 @@ export function exportBook(options: ExportOptions): ExportResult {
   } catch (e) {
     // 重审-09（2026-09-07 全量代码重审 §四.9）同族收口：投稿视图写失败时 merged/split
     // 产物均已完整落盘，错误信封回填累积的 files（原 `files: []` 清零，同主写入 catch）。
-    return {
-      ok: false,
-      files,
-      chapterCount: 0,
-      unit: '章',
-      finalizedFilter,
-      skippedDrafts,
-      ...(warnings.length > 0 ? { warnings } : {}),
-      error: `导出写入失败：${e instanceof Error ? e.message : String(e)}`,
-    }
+    return fail(`导出写入失败：${errMsg(e)}`, files)
   }
 
   return {

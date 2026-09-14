@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { getWordsDiary, postBaseline } from '../api/books'
 import { useTreeStore } from './tree'
+import { useStaleGuard } from '../composables/useStaleGuard'
 
 /** 本地日期 YYYY-MM-DD（与服务端 todayDate 同格式：本地时区逐段拼，非 toISOString 的 UTC）。 */
 function localToday(): string {
@@ -33,8 +34,9 @@ export const useWordsStore = defineStore('words', () => {
     return baseline.value === null ? 0 : Math.max(0, tree.totalWords - baseline.value)
   })
 
-  /** 打开书 / save 后刷新：GET baseline + delta；baseline 缺 → 记当前已写为基线。需 tree.load 后调。 */
-  let reqGen = 0
+  /** 打开书 / save 后刷新：GET baseline + delta；baseline 缺 → 记当前已写为基线。需 tree.load 后调。
+   *  E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard。 */
+  const reqGen = useStaleGuard()
   let loadedFor: string | null = null
   // R46-33（四十六轮）：同书在途合并台账（手法对齐 doc.ts inflightOpens）——批量落盘 N 文档
   // 并发 save settle 各调一次 ensureBaseline(同书)，原样发 N 次 GET /words-diary 而 N-1 次
@@ -52,7 +54,7 @@ export const useWordsStore = defineStore('words', () => {
   }
   async function doEnsureBaseline(name: string): Promise<void> {
     // RB-FE-P2-5：请求代守卫——切书后旧书慢响应不污染今日字数基线（后调者胜）
-    const gen = ++reqGen
+    const gen = reqGen.begin()
     // R65-49（E-1）：切书入口清态——tree.totalWords 已是新书而 baseline/delta 还是旧书时，
     // 回退式「当前已写 - 基线」拿两本书的数互减出脏值；同书 save 刷新不清，避免闪 0
     if (loadedFor !== name) {
@@ -71,7 +73,7 @@ export const useWordsStore = defineStore('words', () => {
     const bookTotalWords = tree.ownerBook === name ? tree.totalWords : null
     try {
       const r = await getWordsDiary(name)
-      if (gen !== reqGen) return
+      if (reqGen.stale(gen)) return
       // E-6（二十九轮）：跨零点守卫——响应的 date 由服务端在响应生成时刻打（今日），
       // 若它已 ≠ 前端当前本地日期，说明响应生成于零点前（慢响应跨日竞态）：baseline/delta
       // 属昨日，不能拿来当「今日」。以当前已写重记今日基线，再重取一次对齐服务端新日记录。
@@ -84,9 +86,9 @@ export const useWordsStore = defineStore('words', () => {
         if (bookTotalWords !== null) {
           baseline.value = bookTotalWords
           await postBaseline(name, baseline.value)
-          if (gen !== reqGen) return
+          if (reqGen.stale(gen)) return
           const r2 = await getWordsDiary(name)
-          if (gen !== reqGen) return
+          if (reqGen.stale(gen)) return
           date.value = r2.date
           todayDelta.value = r2.delta
           baseline.value = r2.baseline ?? baseline.value
@@ -99,13 +101,13 @@ export const useWordsStore = defineStore('words', () => {
           // R-23（第十六轮）：postBaseline 后查代——await 期间切书（旧书 ensureBaseline
           // 被 reqGen++ 作废）时旧书迟到响应不落盘（对齐同库其他 store 的 gen 模式）
           await postBaseline(name, baseline.value)
-          if (gen !== reqGen) return
+          if (reqGen.stale(gen)) return
         } else if (r.baseline !== null) {
           baseline.value = r.baseline
         }
       }
     } catch {
-      if (gen !== reqGen) return
+      if (reqGen.stale(gen)) return
       // R65-49（E-1）：失败降级须一并清 delta——否则旧书/上次成功的 delta 残留且
       // 优先级高于 baseline 回退，今日字数显示的是别人（旧书）的增量
       todayDelta.value = null
@@ -113,7 +115,7 @@ export const useWordsStore = defineStore('words', () => {
       // R35-10：降级基线同过属主校验——树滞留旧书时不取旧总值（今日 0 展示）
       baseline.value = bookTotalWords
     } finally {
-      if (gen === reqGen) ready.value = true
+      if (reqGen.fresh(gen)) ready.value = true
     }
   }
 
@@ -121,7 +123,7 @@ export const useWordsStore = defineStore('words', () => {
    *  前书的 date/baseline/delta 不再参与展示；loadedFor 复位 + reqGen 推代，在途旧书
    *  响应落定不回填，下次进书按新书重取。 */
   function reset(): void {
-    reqGen++
+    reqGen.invalidate()
     loadedFor = null
     // R46-33（四十六轮）：在途台账一并清——reset 已推代，在途共享 promise 落定时被 gen 守卫
     // 丢弃（不回填数据）；不清则 reset 后同书首调会搭上这条「死」promise，今日字数永不落定

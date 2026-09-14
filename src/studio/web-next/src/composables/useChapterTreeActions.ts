@@ -92,6 +92,19 @@ export function useChapterTreeActions(deps: {
   const ws = useWorkspaceStore()
   const ui = useUiStore()
 
+  // ── 切书守卫收敛（E3，复审-0914-优化修复批）──
+  // `if (deps.bookName() !== book) return` 复检 + 「catch 里先查书名再落错」样板单源。
+  // 红线沿革：R34D-21（catch 补切书守卫）/ R71-28（批量定稿 catch）/ B-10（await 后
+  // 活源复检）/ R48-24 / R64-2 各轮均因漏配此守卫出过 bug——收敛只换写法，判定时机
+  // 逐位不变（await 返回后先查书名，再决定落错/刷树/开 tab）。
+  /** 仍在 book 书（await 窗口后未切书）？ */
+  const stillIn = (book: string): boolean => deps.bookName() === book
+  /** catch 尾款单源：已切书则静默丢弃旧书报错，仍在本书才落 openError（R34D-21 语义）。 */
+  const failScoped = (book: string, e: unknown): void => {
+    if (!stillIn(book)) return
+    deps.openError.value = friendlyError(e)
+  }
+
   const creating = ref<Creating>(null)
   const renamePath = ref<string | null>(null)
   // 块2.2 篇章信息弹窗：编辑 标题 + 章号（落 fm + 路径同步 rename；长篇改文件名 / 短篇改文件名）
@@ -184,7 +197,7 @@ export function useChapterTreeActions(deps: {
       const r = await batchFinalizeDocs(bookName, docIds)
       // R64-2（十二轮）：批量定稿逐章 git 提交可达数秒——在途切书后不刷 B 书树、
       // toast 不落 B 书界面（同文件其余 9 个动作均有「已切书」复检，唯独此处漏）
-      if (deps.bookName() !== bookName) return // 已切书：定稿已落 A 书盘，树由切书链自刷
+      if (!stillIn(bookName)) return // 已切书：定稿已落 A 书盘，树由切书链自刷
       const done = r.results.filter((x) => x.ok && !x.skipped).length
       const skipped = r.results.filter((x) => x.ok && x.skipped).length
       const failed = r.results.filter((x) => !x.ok).length
@@ -193,8 +206,9 @@ export function useChapterTreeActions(deps: {
       void tree.load(bookName, true)
     } catch (err) {
       // R71-28（七十一轮）：catch 补切书复检（对齐 success 分支 R64-2 写法）——批量
-      // 定稿请求失败时若已切书，A 书的失败 toast 会弹在 B 书界面
-      if (deps.bookName() !== bookName) return
+      // 定稿请求失败时若已切书，A 书的失败 toast 会弹在 B 书界面（落错收口走 failScoped
+      // 同款判定，toast 面（非 openError）保持原样）
+      if (!stillIn(bookName)) return
       ui.toast(friendlyError(err), 'error')
     }
   }
@@ -234,7 +248,7 @@ export function useChapterTreeActions(deps: {
       // book 用开弹窗时捕获的 e.bookName（N-8），清理不随切书落空。
       await updateChapterMetaDoc(book, e.docId, { 标题: meta.标题, 章号: meta.num })
       doc.clearDirtyMirror(book, e.docId)
-      if (deps.bookName() !== book) return // 已切书：不动 B 书界面
+      if (!stillIn(book)) return // 已切书：不动 B 书界面
       await tree.load(book)
       // 路径可能变（长篇/短篇文件名）→ 同步 doc entry.path
       const entry = doc.get(e.docId)
@@ -248,9 +262,9 @@ export function useChapterTreeActions(deps: {
       }
     } catch (err) {
       // R34D-21（三十四轮）：catch 补切书守卫（对齐 doBatchFinalize 的 R71-28 先例）——
-      // 请求失败落 catch 时若已切书，A 书的报错不得写进 B 书界面（静默丢弃旧书报错）
-      if (deps.bookName() !== book) return
-      deps.openError.value = friendlyError(err)
+      // 请求失败落 catch 时若已切书，A 书的报错不得写进 B 书界面（静默丢弃旧书报错）；
+      // E3：判定收口 stillIn/failScoped（时机不变：先查书名再落错）
+      failScoped(book, err)
     }
   }
 
@@ -275,7 +289,7 @@ export function useChapterTreeActions(deps: {
       const template =
         relPath === '大纲/总纲.md' ? synopsisTemplate() : relPath === '设定/世界观.md' ? worldviewTemplate() : undefined
       await createDoc(bookName, { relPath, ...(template !== undefined ? { content: template } : {}) })
-      if (deps.bookName() !== bookName) return // N-9（第十二轮）：已切书——文件已落 A 书，不动 B 界面
+      if (!stillIn(bookName)) return // N-9（第十二轮）：已切书——文件已落 A 书，不动 B 界面
       await tree.load(bookName)
       const fresh = tree.byPath.get(relPath)
       if (fresh?.docId) {
@@ -284,8 +298,7 @@ export function useChapterTreeActions(deps: {
       }
     } catch (e) {
       // R34D-21：catch 补切书守卫（对齐 R71-28）——切书后旧书报错不写新书界面
-      if (deps.bookName() !== bookName) return
-      deps.openError.value = friendlyError(e)
+      failScoped(bookName, e)
     }
   }
   /** TabBar 新建信号分派（按 createKind 路由到 startCreate / createSingleton）。 */
@@ -351,12 +364,12 @@ export function useChapterTreeActions(deps: {
     const book = deps.bookName()
     try {
       const r = await createDoc(book, { relPath, ...(content ? { content } : {}) })
-      if (deps.bookName() !== book) return // 已切书：文档已落 A 书，不动 B 界面
+      if (!stillIn(book)) return // 已切书：文档已落 A 书，不动 B 界面
       await tree.load(book)
       // R48-24（四十八轮）：tree.load（大书秒级）的 await 窗口切书 A→B 后，byPath 已是
       // B 书树——按 A 书路径查找可能命中 B 书同名文件顶开其正开的活动文档。byPath.get
       // 前补书名复检（doCopy 同步补）
-      if (deps.bookName() !== book) return
+      if (!stillIn(book)) return
       const fresh = tree.byPath.get(r.path)
       if (fresh?.docId) {
         await doc.open(fresh)
@@ -364,8 +377,7 @@ export function useChapterTreeActions(deps: {
       }
     } catch (e) {
       // R34D-21：catch 补切书守卫（对齐 R71-28）——切书后旧书报错不写新书界面
-      if (deps.bookName() !== book) return
-      deps.openError.value = friendlyError(e)
+      failScoped(book, e)
     }
   }
 
@@ -433,7 +445,7 @@ export function useChapterTreeActions(deps: {
       clearFalsePositiveMarksForDoc(book, node.docId)
       // B-10（第六十轮）：await 后活源复检（对齐 doDelete/doCopy 双点守卫）——重命名
       // 在途切书后 tree.load(旧书) 会把 A 书整树覆盖进 B 书工作台（后调者胜写入）
-      if (deps.bookName() !== book) return
+      if (!stillIn(book)) return
       await tree.load(book)
       // Y-29（第五十七轮）：doc 缓存 path 回填——不回填则后续 doc.refresh 按旧路径
       // 404 被静默吞、save 后的树字数更新成 no-op（onSaveMeta/EditorDocHead 均有回填）
@@ -444,8 +456,7 @@ export function useChapterTreeActions(deps: {
       }
     } catch (e) {
       // R34D-21：catch 补切书守卫（对齐 R71-28）——切书后旧书报错不写新书界面
-      if (deps.bookName() !== book) return
-      deps.openError.value = friendlyError(e)
+      failScoped(book, e)
     }
   }
   function onRenameCancel(): void {
@@ -495,7 +506,7 @@ export function useChapterTreeActions(deps: {
       danger: true,
     })
     if (!ok) return
-    if (deps.bookName() !== book) return
+    if (!stillIn(book)) return
     try {
       await deleteDoc(book, node.docId)
       // E-10（二十九轮）：删章成功即清该章误报灰显键——同路径重建新章复用 legacy docId，
@@ -504,14 +515,13 @@ export function useChapterTreeActions(deps: {
       // R33-13（三十三轮）：删除成功即丢弃 doc 缓存条目——删除前刚键入（autosave 窗口内）
       // 或本就 dirty 的文档软删后 entry 若仍驻留，autosaveTick 会对已删 docId 无限重试
       // （404 后 dirty 不清），且切书 flushDirty 失败触发「保存失败将永久丢弃」假警报
-      if (deps.bookName() === book) {
+      if (stillIn(book)) {
         doc.discard(node.docId)
         await tree.load(book)
       }
     } catch (e) {
       // R34D-21：catch 补切书守卫（对齐 R71-28）——切书后旧书报错不写新书界面
-      if (deps.bookName() !== book) return
-      deps.openError.value = friendlyError(e)
+      failScoped(book, e)
     }
   }
 
@@ -554,8 +564,7 @@ export function useChapterTreeActions(deps: {
       const r = await structurePlan(book, prev.docId, { op: 'merge', sourceDocId: node.docId })
       plan = r.plan as MergePlanView
     } catch (e) {
-      if (deps.bookName() !== book) return // R34D-21：切书后旧书报错不写新书界面
-      deps.openError.value = friendlyError(e)
+      failScoped(book, e) // R34D-21：切书后旧书报错不写新书界面
       return
     }
     if (plan.op !== 'merge') return
@@ -585,26 +594,25 @@ export function useChapterTreeActions(deps: {
       confirmText: '并入',
     })
     if (!ok) return
-    if (deps.bookName() !== book) return
+    if (!stillIn(book)) return
     try {
       await structureApply(book, prev.docId, {
         op: 'merge',
         sourceDocId: node.docId,
         planHash: plan.planHash,
       })
-      if (deps.bookName() !== book) return
+      if (!stillIn(book)) return
       // 源章已软删：弃编辑器缓存条目 + 清误报灰显键（对齐 doDelete E-10/R33-13 口径）
       clearFalsePositiveMarksForDoc(book, node.docId)
       doc.discard(node.docId)
       await tree.load(book)
-      if (deps.bookName() !== book) return
+      if (!stillIn(book)) return
       // 目标章正文已变——打开中的编辑器重对齐基线（对齐 onSaveMeta Y-8，防下次保存
       // REVISION_CONFLICT：重载丢编辑 / 覆盖静默回退）
       if (doc.get(prev.docId)) await doc.refresh(prev.docId)
       ui.toast(`已并入「${plan.targetTitle}」（源章在回收站，可撤销并入）`, 'success')
     } catch (e) {
-      if (deps.bookName() !== book) return // R34D-21
-      deps.openError.value = friendlyError(e)
+      failScoped(book, e) // R34D-21
     }
   }
 
@@ -623,7 +631,7 @@ export function useChapterTreeActions(deps: {
       confirmText: '撤销并入',
     })
     if (!ok) return
-    if (deps.bookName() !== book) return
+    if (!stillIn(book)) return
     // 复审-0913-源码 P1：undo 前置落盘（同节自留纪律——doMergeIntoPrev/doSplitHere
     // 均先 flushUnsaved）——dirty 目标章直接 undo，随后的 doc.refresh 走 dirty 分支
     // 保住本地合并后正文并与回滚基线对齐，下次保存零冲突把合并后内容写回；而源章已
@@ -634,15 +642,14 @@ export function useChapterTreeActions(deps: {
     }
     try {
       const r = await structureMergeUndo(book, node.docId)
-      if (deps.bookName() !== book) return
+      if (!stillIn(book)) return
       await tree.load(book)
-      if (deps.bookName() !== book) return
+      if (!stillIn(book)) return
       // 目标章已回滚——打开中的编辑器重对齐基线（Y-8 口径）
       if (doc.get(node.docId)) await doc.refresh(node.docId)
       ui.toast(`已还原第 ${r.sourceChapterNo} 章（目标章已回滚到合并前版本）`, 'success')
     } catch (e) {
-      if (deps.bookName() !== book) return // R34D-21
-      deps.openError.value = friendlyError(e)
+      failScoped(book, e) // R34D-21
     }
   }
 
@@ -680,8 +687,7 @@ export function useChapterTreeActions(deps: {
       const r = await structurePlan(book, node.docId, { op: 'split', cursorOffset })
       plan = r.plan as SplitPlanView
     } catch (e) {
-      if (deps.bookName() !== book) return // R34D-21
-      deps.openError.value = friendlyError(e)
+      failScoped(book, e) // R34D-21
       return
     }
     if (plan.op !== 'split') return
@@ -702,12 +708,12 @@ export function useChapterTreeActions(deps: {
         cursorOffset: s.cursorOffset,
         planHash: s.plan.planHash,
       })
-      if (deps.bookName() !== book) return
+      if (!stillIn(book)) return
       if (!('newDocId' in r)) return // 结构上不可达（split 请求只回 SplitApplyOk）
       // 原章已截断——打开中的编辑器（拆分前提即打开）重对齐基线，防下次保存 REVISION_CONFLICT
       if (doc.get(s.docId)) await doc.refresh(s.docId)
       await tree.load(book)
-      if (deps.bookName() !== book) return
+      if (!stillIn(book)) return
       const fresh = tree.byDocId.get(r.newDocId)
       if (fresh?.docId) {
         await doc.open(fresh)
@@ -715,8 +721,7 @@ export function useChapterTreeActions(deps: {
       }
       ui.toast(`已拆分：新章 第 ${r.newChapterNo} 章「${title}」`, 'success')
     } catch (e) {
-      if (deps.bookName() !== book) return // R34D-21
-      deps.openError.value = friendlyError(e)
+      failScoped(book, e) // R34D-21
     }
   }
 
@@ -727,7 +732,7 @@ export function useChapterTreeActions(deps: {
     try {
       await moveDoc(book, docId, toDir)
       // B-10（第六十轮）：同 onRenameCommit——await 后活源复检，在途切书不再加载旧书树
-      if (deps.bookName() !== book) return
+      if (!stillIn(book)) return
       await tree.load(book)
       // Y-29：同 onRenameCommit——doc 缓存 path 随移动回填
       const entry = doc.get(docId)
@@ -737,8 +742,7 @@ export function useChapterTreeActions(deps: {
       }
     } catch (e) {
       // R34D-21：catch 补切书守卫（对齐 R71-28）——切书后旧书报错不写新书界面
-      if (deps.bookName() !== book) return
-      deps.openError.value = friendlyError(e)
+      failScoped(book, e)
     }
   }
   async function onDrop(targetPath: string): Promise<void> {
@@ -746,7 +750,14 @@ export function useChapterTreeActions(deps: {
     draggedPath.value = null
     if (!src) return
     const node = tree.byPath.get(src)
-    if (!node?.docId) {
+    if (!node) {
+      // P3-19（全库重评-0914）：源路径已不在树中（拖拽期间外部移动/删除/切书重建）——
+      // 原与「目录不支持」共落同一分支，文案误导（这里根本没有目录动作）。单列明示
+      // 无数据动作，不静默（R1010-P3「近似卡死」口径）。
+      ui.toast('拖拽源已不存在（可能已被移动或删除）', 'info')
+      return
+    }
+    if (!node.docId) {
       // R1010-P3（G6-②）：目录行同样 draggable，拖目录落下此前静默丢弃——
       // 无任何反馈近似「卡死」。moveDoc 仅 docId 面（服务端 move 只收 docId），
       // 目录拖拽移动本就不支持：补 info toast 明示，不改移动语义。
@@ -770,9 +781,9 @@ export function useChapterTreeActions(deps: {
     const book = deps.bookName()
     try {
       const r = await copyDoc(book, node.docId, relPath)
-      if (deps.bookName() !== book) return
+      if (!stillIn(book)) return
       await tree.load(book)
-      if (deps.bookName() !== book) return // R48-24：tree.load 窗口切书防御（onCreateCommit 同款注记）
+      if (!stillIn(book)) return // R48-24：tree.load 窗口切书防御（onCreateCommit 同款注记）
       const fresh = tree.byPath.get(r.path)
       if (fresh?.docId) {
         await doc.open(fresh)
@@ -780,8 +791,7 @@ export function useChapterTreeActions(deps: {
       }
     } catch (e) {
       // R34D-21：catch 补切书守卫（对齐 R71-28）——切书后旧书报错不写新书界面
-      if (deps.bookName() !== book) return
-      deps.openError.value = friendlyError(e)
+      failScoped(book, e)
     }
   }
 

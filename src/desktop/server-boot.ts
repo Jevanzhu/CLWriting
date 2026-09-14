@@ -15,6 +15,7 @@
 import type http from 'node:http'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import { errMsg } from '../log/index.js' // 复审-0914-优化修复批：错误摘要三目收编单源
 import { startServer as defaultStartServer, type StudioServerOptions } from '../studio/server/index.js'
 import { setInitialBook as defaultSetInitialBook } from '../studio/server/api/books.js'
 
@@ -132,7 +133,7 @@ export function describeBootError(err: unknown, port: number): BootErrorEnvelope
       message: `端口 ${port} 已被占用（EADDRINUSE），请释放占用进程或用 --port 换端口`,
     }
   }
-  return { code, message: `server 启动失败：${err instanceof Error ? err.message : String(err)}` }
+  return { code, message: `server 启动失败：${errMsg(err)}` }
 }
 
 /** 静态前端目录：相对编译产物入口（dist/web）派生——打包 asar 与开发态同款（R-6 先例）。 */

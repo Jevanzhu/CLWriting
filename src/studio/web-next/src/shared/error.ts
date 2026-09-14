@@ -37,6 +37,15 @@ const TECH_PATTERNS: ReadonlyArray<{ test: RegExp; tip: string }> = [
   },
 ]
 
+/** 复审-0914-优化修复批（errMsg 面收敛）：原始错误消息提取单源——`e instanceof Error ?
+ *  e.message : String(e)` 三目的逐字同型收编（chat store / ui store / useChatComposer
+ *  三处此前各自裸写）。与 friendlyError 的分工：本函数不做 TECH_PATTERNS 归类改写、
+ *  原样透出（「保留原视图/原文」语义的调用方用此）；面向作者的 AI 故障类友好化走
+ *  friendlyError。前端内单源，不引根 log 模块（零根依赖惯例不变）。 */
+export function rawErrorMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e)
+}
+
 export function friendlyError(e: unknown): string {
   // R40-40（四十轮）：结构化优先——ApiError 携带机器码（服务端 {error, code} 信封或
   // 客户端预制超时错）时 message 已是服务端/客户端人话文案，直接透出，不再对信封文案
@@ -47,7 +56,7 @@ export function friendlyError(e: unknown): string {
     if (import.meta.env.DEV) console.error('[error]', e)
     return e.message
   }
-  const raw = e instanceof Error ? e.message : String(e)
+  const raw = rawErrorMessage(e)
   // dv-01：本地 API/网络层的裸 HTTP 状态串（如 dev Vite proxy 未起返回的「HTTP 502」）
   // 不是 AI 提供方故障——先于 TECH_PATTERNS 返回中性文案，避免被 /502/ 误匹配成
   // 「AI 服务繁忙」掩盖「本地服务没起」的真实原因（apiJson 已将空体 5xx 改报

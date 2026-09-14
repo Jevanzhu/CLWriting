@@ -9,6 +9,7 @@ import { useUiStore } from '../../stores/ui'
 import { usePrefsStore } from '../../stores/prefs'
 import { formKindOf } from '../../shared/words'
 import { useDebouncedFmFields } from '../../composables/useDebouncedWordCount'
+import { useStaleGuard } from '../../composables/useStaleGuard'
 import { updateDocMeta } from '../../api/documents'
 import { getConfig } from '../../api/books'
 import { friendlyError } from '../../shared/error'
@@ -205,16 +206,17 @@ const tagValues = computed<Record<string, string>>(() => {
 
 // 每章字数目标（书级 chapter_target_words ?? 全局默认；0=未设）—— 字数目标字段的 placeholder
 const globalChapterTarget = ref<number | undefined>(undefined)
-// M-11：代守卫——快速切书 A→B 时 A 的 getConfig 慢响应不把 A 的字数目标落到 B 的 placeholder
-let targetGen = 0
+// M-11：代守卫——快速切书 A→B 时 A 的 getConfig 慢响应不把 A 的字数目标落到 B 的 placeholder。
+// E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard。
+const targetGen = useStaleGuard()
 watch(
   () => props.bookName,
   async (n) => {
-    const gen = ++targetGen
+    const gen = targetGen.begin()
     if (!n) return
     try {
       const v = (await getConfig(n)).book?.chapter_target_words ?? prefs.defaultChapterTargetWords
-      if (gen !== targetGen) return
+      if (targetGen.stale(gen)) return
       globalChapterTarget.value = v
     } catch {
       /* 用默认 */

@@ -7,7 +7,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { sendChat, fetchChatHistory, confirmTool, regenerateChat } from '../../../src/studio/web-next/src/api/chat'
 import { CHAT_HISTORY_LIMIT } from '../../../src/studio/web-next/src/shared/chat-history'
-import { getState, interrupt, autoWrite, saveDraft } from '../../../src/studio/web-next/src/api/stream'
+import { getState, interrupt, autoWrite, saveDraft } from '../../../src/studio/web-next/src/api/workbench'
 import { boot } from '../../../src/studio/web-next/src/api/client'
 
 interface Call { url: string; init: RequestInit | undefined }

@@ -90,7 +90,12 @@ server.on('listening', () => {
 // dev 页面开着 SSE 时 Ctrl+C 进程挂在信号上杀不掉。搬 src/desktop/server-main.ts 的
 // M-8 同款：exiting 幂等旗 + 2s 定时兜底强退；定时器 unref——close 顺利先到时不作为
 // 活跃句柄拖慢退出，幂等防双信号双触发。
+// 全库重评-0914（P3-6）：兜底超时句柄模块级单槽——原每个信号各排一个 2s timer 不清
+// 旧：SIGINT+SIGTERM 连发（Ctrl+C 后补 kill / 进程管理器双信号）叠两个等价兜底
+//（exiting 幂等无害但句柄滞留、多排违 timer 纪律）。排前查重，已有在途兜底则跳过
+//（照搬 src/desktop/server-main.ts 的 R1010b-DSK-P3-7 同型修复）。
 let exiting = false
+let exitFallbackTimer: ReturnType<typeof setTimeout> | null = null
 const exitNow = (): void => {
   if (exiting) return
   exiting = true
@@ -100,7 +105,10 @@ for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.on(sig, () => {
     console.log('\n  ⏹  Stopping API server…')
     server.close(exitNow)
-    const t = setTimeout(exitNow, 2_000)
-    t.unref()
+    // 已有在途兜底不重排（重复信号安全）；unref——close 顺利先到时不拖慢退出
+    if (!exitFallbackTimer) {
+      exitFallbackTimer = setTimeout(exitNow, 2_000)
+      exitFallbackTimer.unref()
+    }
   })
 }

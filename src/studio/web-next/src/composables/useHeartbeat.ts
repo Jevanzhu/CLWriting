@@ -86,10 +86,17 @@ export function useHeartbeat(getBookName: () => string | null): void {
     // E-6b（第五十三轮）：token null（boot 未成功）时跳过 DELETE——必 401 徒劳且会
     // 误触发 apiFetch 的 re-boot（E-2）；本地直接放弃清除，让服务端过期回收心跳。
     if (name && getToken()) {
+      // P3-18（全库重评-0914）：DELETE 补超时档（beat 侧 R26-77 同型）——apiFetch 无内建
+      // 超时，对端挂死时本 promise 永不 settle，onUnmounted 的 fire-and-forget 悬挂；
+      // 10s abort 后走 catch 静默（清除失败本就不阻断退书，靠服务端过期回收兜底）。
+      const ctrl = new AbortController()
+      const timeout = setTimeout(() => ctrl.abort(), BEAT_TIMEOUT_MS)
       try {
-        await apiFetch(`/api/books/${encodeURIComponent(name)}/heartbeat`, { method: 'DELETE' })
+        await apiFetch(`/api/books/${encodeURIComponent(name)}/heartbeat`, { method: 'DELETE', signal: ctrl.signal })
       } catch {
         /* 退书心跳清除失败忽略 */
+      } finally {
+        clearTimeout(timeout)
       }
     }
   }

@@ -152,8 +152,10 @@ export async function apiFetch(
  *  timeoutMs 缺省 = 30s 兜底档（R72-3 / 二十轮 F-1）：原先「未传则无超时」，documents/
  *  books/search 等几十处本地快端点漏配后请求挂死即 loading 永真（与 runLearn 的 P2-FE-2
  *  修复史同形态）。慢端点（AI 分析/收割/流式生成）均已显式配更大档（60s/120s/300s），
- *  显式值优先于默认；30s 对本地毫秒级操作是纯兜底，无误杀面。 */
-const API_DEFAULT_TIMEOUT_MS = 30_000
+ *  显式值优先于默认；30s 对本地毫秒级操作是纯兜底，无误杀面。
+ *  A5（复审-0914-优化修复批）：导出为 api 层 30s 兜底档单源——chat/stream/documents/
+ *  providers/onboard 此前旁路手写裸值 30_000 的调用点统一改 import（数值零变化）。 */
+export const API_DEFAULT_TIMEOUT_MS = 30_000
 
 /** 重审-15（2026-09-07 全量代码重审 §四.15）：重放（re-boot 换新 token 后重发）仍
  *  401/403 的统一友好文案——boot 重试与重放双失败说明登录态失效且自动恢复已尽力，

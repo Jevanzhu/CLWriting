@@ -26,11 +26,9 @@ import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
 import { readOpenLeads } from '../../../process/open-leads.js'
 import { readLeadDir } from '../../../format/leads.js'
-import { acquireTaskGate, orchestrationBusyFor } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
+import { runGatedGeneration, replyGenerationFailure } from './task-gate.js' // P1-2/D4（复审-0914-优化修复批）：长任务门控包装 + 生成失败状态映射单源
 import { snapshotBeforeOverwrite } from '../../../process/draft-pipeline.js' // R74-4：覆盖留底单源复用
-import { getDriver, ensureSession } from '../../../driver/index.js' // R0912-P2-①：中断通道注册面
-import type { Session } from '../../../driver/types.js'
-import { log } from '../../../log/index.js'
+import { log, errMsg } from '../../../log/index.js' // 复审-0914-优化修复批：errMsg 三目收编
 
 interface OutlineCtx {
   workDir: string | null
@@ -64,28 +62,16 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
-    // R67-13（十五轮）：编排互斥矩阵补角——写稿系编排在途（self-heal/对话/后台收尾）
-    // 时拒收生成长任务（细纲/账本是写稿上下文注入源，在途覆盖写 = 混合态上下文）
-    const busyOrch = orchestrationBusyFor(params['name']!)
-    if (busyOrch) return replyError(res, 409, 'BUSY', busyOrch)
-    // RB-SV-P2-2：长任务并发闸（细纲生成分钟级，且落盘为覆盖写）
-    const release = acquireTaskGate(params['name']!, 'outline')
-    if (!release) return replyError(res, 409, 'BUSY', '本书正在生成细纲，请等待完成后再试')
-    // R0912-P2-①（2026-09-11 重评-0911c 修复批）：接入中断通道——此前本端点 runSpec 未接
-    // driver ctrl 注册面，/interrupt 对在途细纲生成完全无效且 driver.isRunning 假空闲（假
-    // 成功）。接法照抄 stream.ts spawn/self-heal 的 register/unregister 形态：编排段新建
-    // ctrl → driver.registerCtrl（owner='outline:<书名>'，含书名使跨书并发互不误伤；同书
-    // 重入已被任务闸 409 挡住，同 owner 串行换新安全）→ settle（成功/失败/中断）统一注销。
-    // 中断收口：runTask 中断返 ABORTED → 下方既有 ABORTED→499 分支即活，无需新增映射。
-    const driver = getDriver()
-    let registeredSession: Session | null = null
-    let registeredCtrl: AbortController | null = null
-    try {
-      const session = await ensureSession(params['name']!, ctx.workDir!)
-      registeredSession = session
-      const ctrl = new AbortController()
-      driver.registerCtrl?.(session, ctrl, `outline:${params['name']!}`)
-      registeredCtrl = ctrl
+    // R67-13（十五轮）编排互斥预检 + RB-SV-P2-2 任务闸（409 文案逐位保留）+
+    // R0912-P2-①（2026-09-11 重评-0911c 修复批）中断通道（owner='outline:<书名>'，
+    // 中断收口经 runTask ABORTED → 下方 replyGenerationFailure 分支即活）——十段复制
+    // 收编 runGatedGeneration 单源（复审-0914-优化修复批 P1-2，接法头注见 task-gate.ts）。
+    return runGatedGeneration(res, {
+      book: params['name']!,
+      workDir: ctx.workDir!,
+      action: 'outline',
+      busyText: '本书正在生成细纲，请等待完成后再试',
+    }, async (ctrl) => {
       const body = await readJson(req)
       const chapter = Number(body['chapter'])
       if (!Number.isInteger(chapter) || chapter < 1) return replyError(res, 400, 'BAD_INPUT', 'chapter 需为正整数')
@@ -103,12 +89,9 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
       const result = await runOutline(ctx.userDataPath, prompt, bookRoot, files, ctrl)
       // R43-24（四十三轮）：按透传 code 映射状态（rewrite.ts 同款）——NO_* 族（配置
       // 缺失）→ 400；ABORTED（用户中断）→ 499（请求被取消语义，api/ 无既有先例，
-      // 错误信封 {code,error} 形状不变）；其余维持 500 + 透传 code。错误文案一律不变
-      if (!result.ok) {
-        if (result.code.startsWith('NO_')) return replyError(res, 400, result.code, result.error)
-        if (result.code === 'ABORTED') return replyError(res, 499, result.code, result.error)
-        return replyError(res, 500, result.code, result.error)
-      }
+      // 错误信封 {code,error} 形状不变）；其余维持 500 + 透传 code。错误文案一律不变。
+      // D4（复审-0914-优化修复批）：三行映射收编 replyGenerationFailure 单源。
+      if (!result.ok) return replyGenerationFailure(res, result)
 
       // 平台规范化批：AI 产出写前归一（在 withFm 拼接与快照比对之前——快照/落盘/指纹同源）
       const content = canonicalizeText(result.text)
@@ -138,16 +121,11 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
         mkdirSync(outlineDir, { recursive: true })
         atomicWriteFile(join(outlineDir, `细纲.md`), withFm || '(空细纲)')
       } catch (e) {
-        // P2-4：API 错误脱敏
-        return replyError(res, 500, 'IO_ERROR', `落盘:${redactSecret(e instanceof Error ? e.message : String(e))}`)
+        // P2-4：API 错误脱敏；复审-0914-优化修复批：errMsg 三目收编
+        return replyError(res, 500, 'IO_ERROR', `落盘:${redactSecret(errMsg(e))}`)
       }
       reply(res, 200, { ok: true, path: relPath, words: countWords(bodyOf(content)) })
-    } finally {
-      // R0912-P2-①：settle（成功/失败/中断）统一注销——isRunning 归 false，/interrupt
-      // 不再假报在途（cc X-P2-11 同口径）；ensureSession 失败（未注册）时跳过
-      if (registeredCtrl && registeredSession) driver.unregisterCtrl?.(registeredSession, registeredCtrl)
-      release()
-    }
+    })
   },
   })
 }

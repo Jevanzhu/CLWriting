@@ -8,7 +8,7 @@
 import type { DriverEvent, Session, StudioDriver } from '../../../driver/types.js'
 import type { ChatMsg } from '../../provider/types.js'
 import { openSessionStore, openSessionStoreAsync, bookHash } from '../../../events/store.js'
-import { log } from '../../../log/index.js'
+import { log, errMsg } from '../../../log/index.js'
 
 // ── 运行态类型（chat.ts 并发锁与 turns.ts waitConfirm 共用） ──
 
@@ -112,7 +112,7 @@ export async function clearChatHistory(bookName: string, userDataPath?: string, 
     try {
       store = await openSessionStoreAsync(userDataPath, bookRoot)
     } catch (e) {
-      log.warn('chat', `清史打开事件库失败（内存已清、事件库待修复后重清）：${e instanceof Error ? e.message : String(e)}`)
+      log.warn('chat', `清史打开事件库失败（内存已清、事件库待修复后重清）：${errMsg(e)}`)
       return
     }
     // L-A2（第八轮）：clearBooks 本身也可抛（SQLITE_BUSY 超 busy_timeout / 磁盘满）——
@@ -120,7 +120,7 @@ export async function clearChatHistory(bookName: string, userDataPath?: string, 
     try {
       store?.clearBooks([bookName, bookHash(bookRoot)])
     } catch (e) {
-      log.warn('chat', `清史清除事件库行失败（内存已清、事件库待修复后重清）：${e instanceof Error ? e.message : String(e)}`)
+      log.warn('chat', `清史清除事件库行失败（内存已清、事件库待修复后重清）：${errMsg(e)}`)
     } finally {
       store?.close()
     }

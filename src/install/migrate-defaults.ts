@@ -31,7 +31,7 @@ import { join } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { canonicalizeText } from '../fs/text-canonical.js'
 import { readBooks } from './books.js'
-import { parseBookConfig } from '../format/yaml.js'
+import { locateTopSection, parseBookConfig } from '../format/yaml.js'
 import { log } from '../log/index.js'
 
 /** 迁移汇总（供测试断言 + 启动日志） */
@@ -111,27 +111,11 @@ function migrateBookYamlText(raw: string): string {
 
 // ── 文本操作（照 yaml.ts patchTopSection 的段区间口径）────────
 
-/** 顶层段区间 [start, end)：end = 下一个顶层 key 行（非缩进、非注释、非空行）之前 */
-/** Z-7（第五十八轮）：段定位 CRLF 容忍（同 yaml.ts matchesKeyLine 口径——本地
- *  复制避免跨模块引私有；口径漂移由两处测试共同锁定） */
-function matchesKeyLineCRLF(line: string, key: string): boolean {
-  const bare = line.endsWith('\r') ? line.slice(0, -1) : line
-  return bare === `${key}:` || bare.startsWith(`${key}: `)
-}
-
-function topSectionSpan(lines: string[], section: string): { start: number; end: number } | null {
-  const start = lines.findIndex((l) => matchesKeyLineCRLF(l, section))
-  if (start === -1) return null
-  let end = lines.length
-  for (let i = start + 1; i < lines.length; i++) {
-    const l = lines[i]!
-    if (l.trim() !== '' && !l.trimStart().startsWith('#') && !/^\s/.test(l)) {
-      end = i
-      break
-    }
-  }
-  return { start, end }
-}
+/** P1-6（复审-0914-优化修复批）：段定位单源化——本地第四份复制（matchesKeyLineCRLF +
+ *  topSectionSpan + 段内最小缩进循环）删，改委托 yaml.ts locateTopSection（含 BOM 剥除
+ *  形态，与本函数头注「同 yaml.ts matchesKeyLine 口径」的意图对齐；历史本地复制漏 BOM
+ *  属口径漂移，单源后按注释意图收齐）。边界语义（含 CRLF 形态、空行/注释归属）逐位不变，
+ *  由 test/install/migrate-defaults.test.ts + r37-migrate-defaults-crlf.test.ts 锁定。 */
 
 /** 行是否为段内直接子键 `key:`（恰好 childIndent 缩进 + key + 冒号；行尾可带值/注释） */
 /** R37-23（三十七轮）：剥行尾 \r 再判（同 matchesKeyLineCRLF 的 Z-7 口径）——CRLF 文件
@@ -152,18 +136,13 @@ function isChildKeyLine(line: string, key: string, childIndent: number): boolean
  */
 function deleteSectionKey(raw: string, section: string, key: string): string {
   const lines = raw.split('\n')
-  const span = topSectionSpan(lines, section)
+  const span = locateTopSection(lines, section) // P1-6：段定位委托 yaml.ts 单源
   if (!span) return raw
   const body = lines.slice(span.start + 1, span.end)
   // 直接子键缩进 = 段体内最小缩进（嵌套更深的行不是本段的直接子键，绝不能碰）
-  let childIndent = -1
-  for (const l of body) {
-    if (l.trim() === '' || l.trimStart().startsWith('#')) continue
-    const ind = l.length - l.trimStart().length
-    if (childIndent === -1 || ind < childIndent) childIndent = ind
-  }
-  if (childIndent === -1) return raw // 段体空（无内容行）——没有可删的 key
-  const kept = body.filter((l) => !isChildKeyLine(l, key, childIndent))
+  // ——取 span.childIndent（locateTopSection 单源：同「非空非注释内容行最小缩进」口径）
+  if (span.childIndent === -1) return raw // 段体空（无内容行）——没有可删的 key
+  const kept = body.filter((l) => !isChildKeyLine(l, key, span.childIndent))
   if (kept.length === body.length) return raw // 没命中（key 行不在）——原样返回（幂等源）
 
   // 段内还有内容行（含缩进注释）→ 保留段头，仅抽掉目标行
@@ -180,7 +159,7 @@ function deleteSectionKey(raw: string, section: string, key: string): string {
 /** 删除整个顶层段（段头 + 段体 + 段间空行；0 缩进注释及其紧邻空行不陪葬） */
 function deleteTopSection(raw: string, section: string): string {
   const lines = raw.split('\n')
-  const span = topSectionSpan(lines, section)
+  const span = locateTopSection(lines, section) // P1-6：段定位委托 yaml.ts 单源
   if (!span) return raw
   const wasLast = span.end >= lines.length
   // 段区间内保留：0 缩进注释（patchTopSection 语义里段区间归段所有，但删除语义下

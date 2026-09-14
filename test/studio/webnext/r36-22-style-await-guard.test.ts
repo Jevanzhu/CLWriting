@@ -26,9 +26,9 @@ vi.mock('vue-router', () => ({ useRoute: () => mockRoute }))
 vi.mock('../../../src/studio/web-next/node_modules/vue-router', () => ({ useRoute: () => mockRoute }))
 
 // StyleBaselineCard 的铁律读写 mock
-const docsMocks = vi.hoisted(() => ({ getContentRevisioned: vi.fn(), putContent: vi.fn() }))
+const docsMocks = vi.hoisted(() => ({ getContentPayload: vi.fn(), putContent: vi.fn() }))
 vi.mock('../../../src/studio/web-next/src/api/documents', () => ({
-  getContentRevisioned: docsMocks.getContentRevisioned,
+  getContentPayload: docsMocks.getContentPayload,
   putContent: docsMocks.putContent,
 }))
 
@@ -164,7 +164,7 @@ describe('R36-22：StyleBaselineCard toggleRulesEdit 在途切书守卫', () => 
     const ui = useUiStore()
     style.bookName = '书A'
     const req = pending<{ content: string; revision: string }>()
-    docsMocks.getContentRevisioned.mockReturnValue(req.promise)
+    docsMocks.getContentPayload.mockReturnValue(req.promise)
 
     const wrapper = mount(StyleBaselineCard, { props: { bookName: '书A' } })
     await wrapper.find('button.rules-toggle').trigger('click')
@@ -183,7 +183,7 @@ describe('R36-22：StyleBaselineCard toggleRulesEdit 在途切书守卫', () => 
     const style = useStyleStore()
     style.bookName = '书A'
     const req = pending<{ content: string; revision: string }>()
-    docsMocks.getContentRevisioned.mockReturnValue(req.promise)
+    docsMocks.getContentPayload.mockReturnValue(req.promise)
 
     const wrapper = mount(StyleBaselineCard, { props: { bookName: '书A' } })
     await wrapper.find('button.rules-toggle').trigger('click')
@@ -200,7 +200,7 @@ describe('R36-22：StyleBaselineCard toggleRulesEdit 在途切书守卫', () => 
   it('未切书 → 不误伤：铁律正常打开编辑态', async () => {
     const style = useStyleStore()
     style.bookName = '书A'
-    docsMocks.getContentRevisioned.mockResolvedValue({ content: '铁律原文', revision: 'r1' })
+    docsMocks.getContentPayload.mockResolvedValue({ content: '铁律原文', revision: 'r1' })
 
     const wrapper = mount(StyleBaselineCard, { props: { bookName: '书A' } })
     await wrapper.find('button.rules-toggle').trigger('click')

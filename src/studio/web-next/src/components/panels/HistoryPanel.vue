@@ -8,6 +8,7 @@ import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
 import { listSnapshots, restoreSnapshot, type SnapshotEntry } from '../../api/snapshots'
 import { useDebouncedWordCount } from '../../composables/useDebouncedWordCount'
+import { useStaleGuard } from '../../composables/useStaleGuard'
 import { friendlyError } from '../../shared/error'
 
 const props = defineProps<{ bookName: string }>()
@@ -53,10 +54,11 @@ function delta(words: number): string {
   return d > 0 ? `+${d}` : String(d)
 }
 
-let loadGen = 0
+// E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard。
+const loadGen = useStaleGuard()
 async function load(): Promise<void> {
   // RB-FE-P2-6：双 watch（doc/book/savedAt）并发加载竞态——旧响应不覆盖新列表
-  const gen = ++loadGen
+  const gen = loadGen.begin()
   if (!ws.activeDocId) {
     entries.value = []
     return
@@ -65,14 +67,14 @@ async function load(): Promise<void> {
   err.value = null
   try {
     const list = await listSnapshots(props.bookName, ws.activeDocId)
-    if (gen !== loadGen) return
+    if (loadGen.stale(gen)) return
     entries.value = list
   } catch (e) {
-    if (gen !== loadGen) return
+    if (loadGen.stale(gen)) return
     const msg = friendlyError(e)
     err.value = msg === 'not found' ? '暂无历史数据' : msg
   } finally {
-    if (gen === loadGen) loading.value = false
+    if (loadGen.fresh(gen)) loading.value = false
   }
 }
 

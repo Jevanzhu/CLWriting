@@ -4,6 +4,8 @@
  * - Y-P2-7 并发重入挡（进行中重复调用不重跑）+ 失败/完成后可重试
  * - 第九轮 L-3：上次失败滞留的旧 server 在重试前被 close 并置 null（窗口已关时）
  * - 低-8（第十轮）：beginShutdown 置位后 runBootstrap 直通；二次 quit 幂等
+ * 复审-0914-优化修复批：deps.setStudioServer 死接口面删除（生产恒 no-op）——
+ * 「置 null」断言随行移除，close 调用语义（L-3/R-14/P3 异步 close）锚定不变。
  */
 
 import { describe, it, expect } from 'vitest'
@@ -19,7 +21,9 @@ function makeDeps() {
     closed,
     deps: {
       getStudioServer: () => state.server,
-      setStudioServer: (s: { close: () => void } | null) => { state.server = s },
+      // P3（复审-0914-优化修复批）：setStudioServer 成员删除——child 生命周期归
+      // serverManager 自持后生产恒 no-op，接口面收窄（runner 不再回调置 null，
+      // 断言面同步收窄为 close 调用本身）
     },
     fakeServer: (id: string): { close: () => void } => ({ close: () => closed.push(id) }),
     // P3（打包修复批）：异步 close 假件——resolve 前标记「旧 server 未收口」
@@ -78,14 +82,12 @@ describe('O-4 createBootstrapRunner', () => {
     state.server = fakeServer('old')
     runner.runBootstrap()
     expect(closed).toEqual(['old'])
-    expect(state.server).toBeNull()
     await new Promise((r) => setTimeout(r, 0))
     // 崩溃后重试进门（再次滞留的旧 server 同样先关再跑）
     fail = false
     state.server = fakeServer('old2')
     runner.runBootstrap()
     expect(closed).toEqual(['old', 'old2'])
-    expect(state.server).toBeNull()
     await new Promise((r) => setTimeout(r, 0))
   })
 
@@ -101,7 +103,6 @@ describe('O-4 createBootstrapRunner', () => {
     // R48-75 后窗口引用已出接口，判据只剩「存在旧 server 即关」
     runner.runBootstrap()
     expect(closed).toEqual(['live'])
-    expect(state.server).toBeNull()
     await new Promise((r) => setTimeout(r, 0))
   })
 
@@ -140,7 +141,6 @@ describe('O-4 createBootstrapRunner', () => {
     expect(order).toEqual([])
     await new Promise((r) => setTimeout(r, 0))
     expect(order).toEqual(['closed', 'bootstrap']) // 收口先于开跑
-    expect(state.server).toBeNull()
   })
 
   it('P3：异步 close 在途期间并发 runBootstrap 被重入门挡住（不双跑 bootstrap）', async () => {

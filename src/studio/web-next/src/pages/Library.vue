@@ -7,6 +7,7 @@ import { useUiStore } from '../stores/ui'
 import { friendlyError } from '../shared/error'
 import { FolderOpen, ExternalLink, Database, ArrowRight, Check } from 'lucide-vue-next'
 import { usePlatform } from '../composables/usePlatform'
+import { useLibraryIpc } from '../composables/useLibraryIpc'
 
 const ui = useUiStore()
 const { isDesktop: hasDesktop, isMac } = usePlatform()
@@ -39,35 +40,12 @@ async function load(): Promise<void> {
 
 onMounted(() => void load())
 
-// 选择目录（弹原生选择器；含非书库目录二次确认新建流程 → relaunch）。
-// P5-前端（第七轮）：交互路径 IPC 捕获——第六轮只修了加载路径，选择/切换失败
-// 原先 unhandled rejection 零反馈
-async function chooseLibrary(): Promise<void> {
-  try {
-    // P3-9（2026-09-09 全量代码重评）：openLibrary 落库失败返回 {ok:false,reason}
-    // （此前类型面缺失该变体、返回值被静默吞）——reason 失败就地 toast 交代（用户
-    // 取消 canceled 维持静默），对齐 switchLibrary 的 P3-3 处理写法
-    const r = await window.clwritingDesktop?.openLibrary()
-    if (r && !r.ok && 'reason' in r) ui.toast(r.reason, 'error')
-  } catch (e) {
-    // R0912-3 #21：交互失败改 toast——原先写 loadError 顶掉已加载书库信息（双职）
-    ui.toast(friendlyError(e), 'error')
-  }
-}
-
-// 切换到最近列表中的书库 → relaunch
-async function switchTo(path: string): Promise<void> {
-  if (path === current.value) return
-  try {
-    const r = await window.clwritingDesktop?.switchLibrary(path)
-    // P3-3（评审补修）：switchLibrary 返回 {ok:false, reason}（大小写敏感卷警告选「换个
-    // 目录」等）此前只 catch 抛错、返回值被静默吞掉——取消原因就地 toast 交代
-    if (r && !r.ok) ui.toast(r.reason, 'error')
-  } catch (e) {
-    // R0912-3 #21：同 chooseLibrary——交互失败不再顶掉书库信息
-    ui.toast(friendlyError(e), 'error')
-  }
-}
+// 选库/切库 IPC 交互单点化（复审-0914-优化 E7 → useLibraryIpc；取错口径保真 =
+// friendlyError 归类、切当前书库 no-op，均为本页历史口径）
+const { chooseLibrary, switchTo } = useLibraryIpc({
+  formatError: friendlyError,
+  currentPath: () => current.value,
+})
 
 // 在文件管理器中打开当前书库根目录
 function openDir(): void {

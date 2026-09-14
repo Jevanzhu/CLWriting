@@ -11,6 +11,7 @@ import { usePrefsStore } from '../../stores/prefs'
 import { parseNumericInput } from '../../shared/numeric-input'
 import { getConfig, getRagStatus, triggerRagBuild, triggerRagRebuild, type RagStatus } from '../../api/books'
 import { useProviderStore } from '../../stores/provider'
+import { useStaleGuard } from '../../composables/useStaleGuard'
 import { friendlyError } from '../../shared/error'
 import { SAVE_CONFIG_KEY } from './settings-context'
 import BetaBadge from './BetaBadge.vue'
@@ -98,13 +99,14 @@ const ragMismatch = computed(() => ragStatus.value?.indexModelMismatch === true)
 // 此前 watch 无代守卫、await getConfig 后无书名复检：A 书在途响应迟到落地 B 书面板，
 // 组开关（onShortOverrideToggle 等）以 stale 派生值 eff* 调 saveConfig(name=B) →
 // A 的配置值持久写进 B 的 book.yaml（跨书配置污染）。
-let loadGen = 0
+// E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard。
+const loadGen = useStaleGuard()
 
 watch(
   () => [ui.settingsOpen, ws.bookName] as const,
   async ([open, name]) => {
     if (!open) return
-    const gen = ++loadGen
+    const gen = loadGen.begin()
     // R28-22：重建触发记忆按书隔离——换书（含切到无书）才复位，防 A 书「重建中失败」
     // 提示串到 B 书；同书重开弹窗不触发复位，失败提示不因关/开弹窗丢失
     if (name !== ragHintBook) {
@@ -125,7 +127,7 @@ watch(
     try {
       const cfg = await getConfig(name)
       // 双复检：代（期间又切书/重开触发新加载）+ 书名（配置页开着他书未触发 watch 的极端窗口）
-      if (gen !== loadGen || ws.bookName !== name) return
+      if (loadGen.stale(gen) || ws.bookName !== name) return
       // raw 形态契约：13 键未设时为 undefined——只认合法类型，脏值按跟随全局展示
       bookKind.value = cfg.kind ?? 'long'
       bookShortStrict.value = typeof cfg.short?.strict === 'boolean' ? cfg.short.strict : null
@@ -394,9 +396,11 @@ function stopRagPolling(): void {
   ragFailStreak = 0 // R26-14：停表一并清失败计数（下次轮询从头计）
 }
 
-// dd-P2：SettingsModal 用 keep-alive 包 tab——关弹窗只 deactivated 不 unmount，
-// 此前轮询挂 onUnmounted = 关窗后 1.5s interval 继续打旧书 status 直到构建结束；
-// 改 deactivate 停表 / activate 续表（回窗时刷新状态，仍构建中才续轮询）
+// 轮询停表挂点（P3-24 全库重评-0914 注释记正）：dd-P2 原注称「关弹窗只 deactivated
+// 不 unmount」——按盘面实态记正：SettingsModal 根为 v-if="ui.settingsOpen"，关弹窗整棵
+// 子树真实 unmount（下方 onUnmounted 停表覆盖关窗路）；弹窗内切 tab 才是 keep-alive
+// 缓存路径——deactivate 停表 / activate 续表（回窗时刷新状态，仍构建中才续轮询）。
+// 两路停表并存，注释与实现对齐。
 // R36-21（三十六轮）：续轮询补「仍激活」复检——onActivated 的 refreshRagStatus 在途
 // 期间关窗（deactivated 先跑 stopRagPolling），.then 续拍仍会以 ragBuilding=true 新起
 // 轮询，关窗后后台持续打旧书 status。标记随 activate/deactivate/unmount 置位，

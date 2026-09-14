@@ -13,7 +13,8 @@
  */
 import { appendFileSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, statSync } from 'node:fs'
 import { tryAcquireCrossProcessLock, acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
-import { log } from '../log/index.js'
+import { log, errMsg } from '../log/index.js'
+import { testableConst } from '../shared/testable.js'
 import { dirname } from 'node:path'
 import { ulid } from './stable-id.js'
 import { atomicWriteFile } from '../fs/atomic.js'
@@ -125,7 +126,7 @@ export async function appendPending(
   const degradedFallback = (): string =>
     JSON.stringify({
       ...entry,
-      content: truncateSnapshotHeadTail(content, journalDegradedKeepBytes),
+      content: truncateSnapshotHeadTail(content, getJournalDegradedKeepBytes()),
       degraded: true,
     })
   // PM-3（性能与内存专项·2026-09-05）：超大快照主动降级——快照超阈值时直接落降级行
@@ -205,7 +206,7 @@ export function findUnsettled(journalPath: string): JournalAnyPending[] {
     // R54-B-1 循环级 warn 口径。
     log.warn(
       'journal',
-      `journal 读取失败，本轮崩溃恢复扫描降级跳过（${journalPath}）：${e instanceof Error ? e.message : String(e)}`,
+      `journal 读取失败，本轮崩溃恢复扫描降级跳过（${journalPath}）：${errMsg(e)}`,
     )
     return []
   }
@@ -264,7 +265,7 @@ async function appendLineAsync(
   degradedLine?: string | (() => string),
 ): Promise<void> {
   mkdirSync(dirname(filePath), { recursive: true })
-  const release = await acquireCrossProcessLockAsync(`${filePath}.lock`, journalLockTimeoutMs)
+  const release = await acquireCrossProcessLockAsync(`${filePath}.lock`, getJournalLockTimeoutMs())
   if (release) {
     try {
       appendFileSync(filePath, line + '\n', 'utf-8')
@@ -311,13 +312,8 @@ function fsyncFile(filePath: string): void {
  *  2MB——快照超 256KB 已被 appendPending 降级，撑不破），生产恒用常量。 */
 export const JOURNAL_COMPACT_BYTES = 2 * 1024 * 1024
 
-/** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改。 */
-let journalCompactBytes = JOURNAL_COMPACT_BYTES
-
-/** 测试注入钩子（生产零调用）。 */
-export function __setJournalCompactBytesForTest(bytes: number): void {
-  journalCompactBytes = bytes
-}
+/** A4（复审-0914-优化修复批）：三件套换装 testableConst——生效值 getter（消费点显式调用）+ 测试注入 setter 元组第二位（原名原签名）。 */
+export const [getJournalCompactBytes, __setJournalCompactBytesForTest] = testableConst(JOURNAL_COMPACT_BYTES)
 
 /** PM-3：pending 全文快照尺寸闸——超过此字节数的快照不进 journal（降级行替代），
  *  见 appendPending 注释。测试可经注入钩子改档（生产恒用常量，R30-18 口径）。 */
@@ -329,13 +325,8 @@ export const JOURNAL_PENDING_SNAPSHOT_MAX_BYTES = 256 * 1024
  *  R30-18 口径：常量 + 模块内可变生效值 + 注入钩子（生产恒用常量）。 */
 export const JOURNAL_PENDING_DEGRADED_KEEP_BYTES = 32 * 1024
 
-/** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改。 */
-let journalDegradedKeepBytes = JOURNAL_PENDING_DEGRADED_KEEP_BYTES
-
-/** 测试注入钩子（生产零调用）。 */
-export function __setJournalDegradedKeepBytesForTest(bytes: number): void {
-  journalDegradedKeepBytes = bytes
-}
+/** A4（复审-0914-优化修复批）：三件套换装 testableConst——生效值 getter（消费点显式调用）+ 测试注入 setter 元组第二位（原名原签名）。 */
+export const [getJournalDegradedKeepBytes, __setJournalDegradedKeepBytesForTest] = testableConst(JOURNAL_PENDING_DEGRADED_KEEP_BYTES)
 
 /**
  * 超阈值时压缩 journal：已结算（settled/aborted 配对完成）的行全部丢弃，
@@ -363,7 +354,7 @@ export function __setJournalDegradedKeepBytesForTest(bytes: number): void {
 function maybeCompactJournal(journalPath: string): void {
   try {
     if (!existsSync(journalPath)) return
-    if (statSync(journalPath).size < journalCompactBytes) return
+    if (statSync(journalPath).size < getJournalCompactBytes()) return
     // J7：跨进程锁（append 侧同锁）——持锁期间他进程 append 被阻塞。非阻塞占锁
     // （best-effort：拿不到直接弃本轮）。
     const release = tryAcquireCrossProcessLock(`${journalPath}.lock`)
@@ -371,7 +362,7 @@ function maybeCompactJournal(journalPath: string): void {
     try {
       // N4：锁内基线 stat（行数以 size 折算——任何 append 必改 size，等价且免二次全读）
       const before = statSync(journalPath)
-      if (before.size < journalCompactBytes) return
+      if (before.size < getJournalCompactBytes()) return
       const unsettled = findUnsettled(journalPath)
       // N4：rename 前重 stat 复核——读算期间若被他进程（锁超时降级裸写的 append 路径）
       // 追加新行（size 变 = 有新行），放弃本轮压缩，新行随原文件完整保留
@@ -392,10 +383,5 @@ function maybeCompactJournal(journalPath: string): void {
  *  R26-105 的收口认定），改 const + 内部可变生效值；测试只能经注入钩子改档，生产恒用常量。 */
 export const JOURNAL_LOCK_TIMEOUT_MS = 2_000
 
-/** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改。 */
-let journalLockTimeoutMs = JOURNAL_LOCK_TIMEOUT_MS
-
-/** 测试注入钩子（生产零调用）。 */
-export function __setJournalLockTimeoutForTest(ms: number): void {
-  journalLockTimeoutMs = ms
-}
+/** A4（复审-0914-优化修复批）：三件套换装 testableConst——生效值 getter（消费点显式调用）+ 测试注入 setter 元组第二位（原名原签名）。 */
+export const [getJournalLockTimeoutMs, __setJournalLockTimeoutForTest] = testableConst(JOURNAL_LOCK_TIMEOUT_MS)

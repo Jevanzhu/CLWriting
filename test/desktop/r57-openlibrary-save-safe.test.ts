@@ -211,6 +211,8 @@ vi.mock('../../src/fs/user-data-path.js', () => ({
     process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b,
 }))
 vi.mock('../../src/log/index.js', () => ({
+  // 复审-0914-优化修复批：desktop 域错误摘要三目收编 errMsg（同语义假件，保持 mock 面完整）
+  errMsg: (e: unknown) => (e instanceof Error ? e.message : String(e)),
   initLogging: () => undefined,
   log: {
     error: (...a: unknown[]) => {

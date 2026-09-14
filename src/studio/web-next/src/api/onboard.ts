@@ -1,4 +1,4 @@
-import { apiJson } from './client'
+import { apiJson, API_DEFAULT_TIMEOUT_MS } from './client'
 
 // onboard 开书对话（细案 §2.2 + 服务端 onboard.ts）：分步 AI 生成设定 + 落盘。
 // 长篇 9 步 + 短篇 1 步；realm 仅成长线书（服务端校验）。
@@ -83,5 +83,5 @@ export async function onboardSave(
   await apiJson(`/api/books/${encodeURIComponent(name)}/onboard-save`, {
     method: 'POST',
     json: body,
-  }, 30_000)
+  }, API_DEFAULT_TIMEOUT_MS) // A5（复审-0914-优化修复批）：原裸值 30_000 收敛，数值零变化
 }

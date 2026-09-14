@@ -44,7 +44,8 @@ import { outlineDeclarationForChapter } from '../check/outline-leads.js'
 import { readChapterUpdatesForChapterChecked, leadEvidenceMatchesBody } from '../check/lead-updates.js'
 import { leadClosureItems } from '../check/leads.js'
 import { readDraft } from '../format/draft.js'
-import { log } from '../log/index.js'
+import { chapterNoFromName } from '../format/filename.js'
+import { log, errMsg } from '../log/index.js'
 
 type FinalizeOutcome =
   | { ok: true; status: 'final'; skipped: boolean }
@@ -104,7 +105,7 @@ function prepareFinalize(bookRoot: string, docId: string): FinalizePrepared | Ex
   try {
     currentRev = computeRevision(absPath)
   } catch (e) {
-    return { ok: false, code: 'WRITE_ERROR', error: `定稿前指纹读取失败（文档瞬态占用？可重试）：${e instanceof Error ? e.message : String(e)}` }
+    return { ok: false, code: 'WRITE_ERROR', error: `定稿前指纹读取失败（文档瞬态占用？可重试）：${errMsg(e)}` }
   }
 
   // 章号 + 标题（版本元信息用）；解析失败从文件名推断（R30-5：移到锁外，纯读）
@@ -145,7 +146,7 @@ function finalizeLockedCore(pre: FinalizePrepared): FinalizeOutcome {
     try {
       fileBytes = readFileSync(absPath)
     } catch (e) {
-      return { ok: false, code: 'WRITE_ERROR', error: `定稿锁内指纹重算读盘失败（已拒绝，可重试）：${e instanceof Error ? e.message : String(e)}` }
+      return { ok: false, code: 'WRITE_ERROR', error: `定稿锁内指纹重算读盘失败（已拒绝，可重试）：${errMsg(e)}` }
     }
   }
   const rev = fileBytes ? (hashBytes(fileBytes) as `sha256:${string}`) : pre.currentRev
@@ -156,7 +157,7 @@ function finalizeLockedCore(pre: FinalizePrepared): FinalizeOutcome {
   try {
     manifest = readManifestStrict(manifestPath)
   } catch (e) {
-    return { ok: false, code: 'WRITE_ERROR', error: `定稿前清单读取失败（已拒绝，防空表重写）：${e instanceof Error ? e.message : String(e)}` }
+    return { ok: false, code: 'WRITE_ERROR', error: `定稿前清单读取失败（已拒绝，防空表重写）：${errMsg(e)}` }
   }
   const entry = manifest.entries.get(docId)
   if (entry?.finalizedRevision === rev) {
@@ -193,7 +194,7 @@ function finalizeLockedCore(pre: FinalizePrepared): FinalizeOutcome {
       pinned: true,
     })
   } catch (e) {
-    return { ok: false, code: 'WRITE_ERROR', error: `写版本失败：${e instanceof Error ? e.message : String(e)}` }
+    return { ok: false, code: 'WRITE_ERROR', error: `写版本失败：${errMsg(e)}` }
   }
 
   // W-P1-3 右端闭环（决策 2）：定稿正文章（长篇有布线）→ 已确认的 账本推进.md 回写布线履历并清空。
@@ -213,7 +214,7 @@ function finalizeLockedCore(pre: FinalizePrepared): FinalizeOutcome {
       return {
         ok: false,
         code: 'LEAD_WRITE_ERROR',
-        error: `账本履历回写失败（定稿未生效，修复后可重试）：${e instanceof Error ? e.message : String(e)}`,
+        error: `账本履历回写失败（定稿未生效，修复后可重试）：${errMsg(e)}`,
       }
     }
   }
@@ -233,7 +234,7 @@ function finalizeLockedCore(pre: FinalizePrepared): FinalizeOutcome {
   try {
     writeManifest(manifestPath, manifest)
   } catch (e) {
-    return { ok: false, code: 'WRITE_ERROR', error: `定稿基线落盘失败：${e instanceof Error ? e.message : String(e)}` }
+    return { ok: false, code: 'WRITE_ERROR', error: `定稿基线落盘失败：${errMsg(e)}` }
   }
 
   invalidateTreeIndex(bookRoot)
@@ -278,7 +279,7 @@ export function finalizeRevision(bookRoot: string, docId: string): FinalizeOutco
   try {
     return finalizeRevisionImpl(bookRoot, docId)
   } catch (e) {
-    return { ok: false, code: 'WRITE_ERROR', error: `定稿内部错误（已拒绝，可重试）：${e instanceof Error ? e.message : String(e)}` }
+    return { ok: false, code: 'WRITE_ERROR', error: `定稿内部错误（已拒绝，可重试）：${errMsg(e)}` }
   }
 }
 
@@ -309,7 +310,7 @@ export async function finalizeRevisionAsync(bookRoot: string, docId: string): Pr
   try {
     return await finalizeRevisionImplAsync(bookRoot, docId)
   } catch (e) {
-    return { ok: false, code: 'WRITE_ERROR', error: `定稿内部错误（已拒绝，可重试）：${e instanceof Error ? e.message : String(e)}` }
+    return { ok: false, code: 'WRITE_ERROR', error: `定稿内部错误（已拒绝，可重试）：${errMsg(e)}` }
   }
 }
 
@@ -356,7 +357,7 @@ function finalGateBlockers(bookRoot: string, absPath: string, chapterNo: number)
     // 只加观测，不改变放行语义（闸门是防吃书增强而非定稿必要条件，X-P2-5 哲学不变）。
     log.warn(
       'finalize',
-      `第${chapterNo}章 防吃书闸执行失败，闸门降级放行：${e instanceof Error ? e.message : String(e)}`,
+      `第${chapterNo}章 防吃书闸执行失败，闸门降级放行：${errMsg(e)}`,
     )
     return []
   }
@@ -372,11 +373,13 @@ function lookupRelPath(docId: string, manifestPath: string): string | null {
   }
 }
 
-/** 从文件名推断章号（`0001-开篇.md` → 1；解析失败 → 0）。 */
+/** 从文件名推断章号（`0001-开篇.md` → 1；解析失败 → 0）。
+ *  全库重评-0914 P3-11：窄正则 `^(\d+-)` 收编 chapterNoFromName 单源（format/filename
+ *  宽集：`-`/`—`/空白/裸尾均认）——`5—标题.md`/`5 标题.md` 此前落 0，防吃书闸兑现侧
+ *  清单按章号定位 miss。行为变化面：仅此前解析失败（章号 0）的文件名现在正确解析。 */
 function inferChapterFromName(relPath: string): number {
   const base = relPath.split('/').pop() ?? ''
-  const m = base.match(/^(\d+)-/)
-  return m ? Number(m[1]) : 0
+  return chapterNoFromName(base) ?? 0
 }
 
 function basenameNoExt(relPath: string): string {

@@ -102,7 +102,11 @@ export default defineConfig({
       //（@lezer/markdown、entities、@jridgewell 等），它们不落任何阈值桶（零守护）却
       // 进报告占体积；显式排除后报告只剩自有源码（governance 反向守卫的 EXCLUDE 抄本
       // 同步，见 test/governance/coverage-threshold-globs.test.ts）。
-      exclude: ['src/**/*.d.ts', '**/node_modules/**', 'src/studio/web-next/vite.config.ts', 'src/studio/web-next/src/types/tree.ts', 'src/studio/web-next/src/{main,router}.ts'],
+      // 全库重评-0914（P3-5）：补 '**/._*' 与上方 test.exclude 同款对齐——外置卷跑
+      // coverage 时 macOS AppleDouble 伴生文件（._*.ts）被 include 'src/**/*.ts' 命中，
+      // 以 0% 进分桶拉低阈值。正常检出零命中（仓库在内置盘），故 governance 反向守卫
+      // 的 EXCLUDE 抄本无需随动（其文件集扫描不涉 ._ 文件，口径不受影响）。
+      exclude: ['src/**/*.d.ts', '**/node_modules/**', '**/._*', 'src/studio/web-next/vite.config.ts', 'src/studio/web-next/src/types/tree.ts', 'src/studio/web-next/src/{main,router}.ts'],
       thresholds: {
         // 主代码单桶（brace+extglob 组合 = 除 web-next 外的全部，池化口径与旧全局门一致；
         // R36-17（三十六轮）：阈值随实测重算——区段注释口径曾停在 2026-08-20

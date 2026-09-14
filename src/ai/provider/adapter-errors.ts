@@ -16,6 +16,8 @@ import type { ProviderStore } from './store.js'
 import { persistDegraded, lookupDegraded } from './store.js'
 import { redactSecret } from './redact.js'
 import { httpStatusToCode, headerErrorFields } from './failure.js'
+// 复审-0914-优化修复批（errMsg 收编）：错误摘要口径单源
+import { errMsg } from '../../log/index.js'
 
 /**
  * toErrorEvent 分支判定/字段提取所需的最小 SDK 错误面。
@@ -74,7 +76,7 @@ export function makeToErrorEvent(ctors: {
     if (e instanceof Error && e.name === 'AbortError') {
       return { type: 'error', message: '已中断', retryable: false, code: 'ABORTED' }
     }
-    const msg = e instanceof Error ? e.message : String(e)
+    const msg = errMsg(e)
     return { type: 'error', message: redactSecret(msg), retryable: false, code: 'PROTOCOL' }
   }
 }

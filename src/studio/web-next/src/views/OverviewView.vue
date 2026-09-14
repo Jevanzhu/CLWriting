@@ -22,6 +22,7 @@ import {
 import { useWorkspaceStore } from '../stores/workspace'
 import { useTreeStore } from '../stores/tree'
 import { friendlyError } from '../shared/error'
+import { useStaleGuard } from '../composables/useStaleGuard'
 // 复审-0913-源码 P3-㉕：万字简写走 shared 单源（wordsFmt/targetFmt/avgWordsFmt 三处同收）
 import { formatWanZi } from '../shared/words'
 import WordCurveChart from '../components/overview/WordCurveChart.vue'
@@ -69,24 +70,25 @@ const err = ref<string | null>(null)
 
 // onMounted 并行加载 4 个 API（容错：单个失败不阻断页面）。
 // R72-11（二十轮 F-8）：代守卫——重试连点/切书后慢响应不再覆盖新响应（gen 判定丢弃）
-let loadGen = 0
+// E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard（loadAll begin，次级加载器收 gen 参数只查代）。
+const loadGen = useStaleGuard()
 async function loadAll(): Promise<void> {
-  const gen = ++loadGen
+  const gen = loadGen.begin()
   loading.value = true
   err.value = null
   try {
     const d = await getOverview(props.bookName)
-    if (gen !== loadGen) return
+    if (loadGen.stale(gen)) return
     data.value = d
   } catch (e) {
-    if (gen !== loadGen) return
+    if (loadGen.stale(gen)) return
     err.value = friendlyError(e)
     // R0912-FE-P3-9（2026-09-11 重评-0911b 修复批）：主请求失败即止——此前主请求失败
     // 后仍无条件发 3 个子请求（伏笔/节奏/分析）：总览页已整页错误态（数据无处渲染），
     // 子请求纯属白耗且失败静默。重试按钮触发 loadAll 重走全链。
     return
   } finally {
-    if (gen === loadGen) loading.value = false
+    if (loadGen.fresh(gen)) loading.value = false
   }
   void loadFs(gen)
   void loadRhythm(gen)
@@ -98,7 +100,7 @@ async function loadAll(): Promise<void> {
 async function loadFs(gen: number): Promise<void> {
   try {
     const r = await getForeshadows(props.bookName)
-    if (gen !== loadGen) return
+    if (loadGen.stale(gen)) return
     foreshadows.value = r
   } catch (e) {
     // 降级留痕（复审-0913-源码 P3）——面板空态可重试，不打扰 UI
@@ -108,24 +110,24 @@ async function loadFs(gen: number): Promise<void> {
 async function loadRhythm(gen: number): Promise<void> {
   try {
     const r = await getRhythm(props.bookName)
-    if (gen !== loadGen) return
+    if (loadGen.stale(gen)) return
     rhythmData.value = r
   } catch (e) {
     // 降级留痕（复审-0913-源码 P3）——面板空态可重试，不打扰 UI
     console.warn('[overview] 节奏分布加载失败（面板保持空态）', e)
-    if (gen !== loadGen) return // 旧请求的失败不清新书的数据（同成功路径口径）
+    if (loadGen.stale(gen)) return // 旧请求的失败不清新书的数据（同成功路径口径）
     rhythmData.value = null
   }
 }
 async function loadAnalysis(gen: number): Promise<void> {
   try {
     const r = await getAnalysisOverview(props.bookName)
-    if (gen !== loadGen) return
+    if (loadGen.stale(gen)) return
     analysis.value = r
   } catch (e) {
     // 降级留痕（复审-0913-源码 P3）——面板空态可重试，不打扰 UI
     console.warn('[overview] 文风分析概览加载失败（面板保持空态）', e)
-    if (gen !== loadGen) return // 同上
+    if (loadGen.stale(gen)) return // 同上
     analysis.value = null
   }
 }

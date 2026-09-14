@@ -27,6 +27,9 @@ import { registerOverviewRoutes } from './api/overview.js'
 import { registerRhythmRoutes } from './api/rhythm.js'
 import { registerSettingsRoutes } from './api/settings.js'
 import { registerStreamRoutes } from './api/stream.js'
+// 复审-0914-优化 D3：chat 四端点自 stream.ts 独立成文件（stream.ts 回归 SSE/spawn/
+// interrupt/auto-write 四职责；chat 段与 SSE 零共享，仅 forgetSseCount 单向依赖）
+import { registerChatRoutes } from './api/chat.js'
 // closeAllSseConnections：R0910-W close 收尾断开在途 SSE；
 // SSE_STREAM_PATH_PATTERN：R0912-P3-⑥ GET token 豁免表引用（SSE 端点路径模式单源，
 // 与 books.stream 路由及其自带凭据闸同居 stream.ts，改路径只动一处）
@@ -67,7 +70,7 @@ import { setInitialBook } from './api/books.js'
 // A4（批 0）：启动通告端点——启动链迁移失败对用户可见（App 级横幅数据源）
 import { createStartupNoticeSink, registerStartupNoticeRoutes, type StartupNoticeSink } from './api/startup-notices.js'
 import { createStaticHandler } from './static.js'
-import { initLogging, log } from '../../log/index.js'
+import { initLogging, log, errMsg } from '../../log/index.js'
 
 /** 注册 REST 路由到独立路由表，避免多 server 复用旧 workDir/token 闭包。
  *  清理批（2026-09-09 残留清偿批）：原此处对旧模块级单例 schema 注册表的
@@ -128,6 +131,7 @@ function buildRoutes(
     // R73-49（二十一轮）：ticket 库随本实例建，签发与 SSE 消费两侧共享同一份——
     // 票不跨 server 实例残留/消费（对齐路由表 per-server 生命周期）
     registerStreamRoutes({ workDir, userDataPath, studioToken: token, tickets: streamTickets })
+    registerChatRoutes({ workDir, userDataPath }) // 复审-0914-优化 D3：chat.send/confirm/regenerate/clear
     registerStreamTicketRoutes(streamTickets) // T2 批：SSE 一次性 ticket 签发（POST 走写闸），token 不再出 URL
     registerOutlineRoutes({ workDir, userDataPath })
     registerLeadUpdateRoutes({ workDir, userDataPath })
@@ -202,7 +206,7 @@ export function startServer(opts: StudioServerOptions): http.Server {
         log.warn('migrate-prompts', `已升级未改动 prompt 副本：${r.upgraded.join(', ')}`)
       }
     } catch (e) {
-      noticeOrLog('migrate-prompts', `prompt overlay 迁移失败：${e instanceof Error ? e.message : String(e)}`, e)
+      noticeOrLog('migrate-prompts', `prompt overlay 迁移失败：${errMsg(e)}`, e)
     }
   }
   // 书库自愈（P1-10）：books.jsonl 损坏/移书后启动即扫描重建登记——幂等，完好时
@@ -238,7 +242,7 @@ export function startServer(opts: StudioServerOptions): http.Server {
         )
       }
     } catch (e) {
-      noticeOrLog('repair-books', `书库登记自愈失败：${e instanceof Error ? e.message : String(e)}`, e)
+      noticeOrLog('repair-books', `书库登记自愈失败：${errMsg(e)}`, e)
     }
   }
   // 版本档案目录迁移：工作区/.snapshots → 工作区/.版本（幂等，旧目录不存在 no-op）
@@ -271,7 +275,7 @@ export function startServer(opts: StudioServerOptions): http.Server {
         // 定稿基线迁移：旧 git 书库 clean→final / dirty→revision / untracked→draft（幂等）
         migrateFinalizedRevisions(bookPath)
       } catch (e) {
-        noticeOrLog('migrate-layout', `${book.path} 启动迁移失败（已跳过该书，不影响其他书）：${e instanceof Error ? e.message : String(e)}`, e)
+        noticeOrLog('migrate-layout', `${book.path} 启动迁移失败（已跳过该书，不影响其他书）：${errMsg(e)}`, e)
       }
     }
   }
@@ -283,7 +287,7 @@ export function startServer(opts: StudioServerOptions): http.Server {
       migrateBookDefaults(opts.workDir)
     } catch (e) {
       // 整体异常不阻断启动（逐书失败已在内部 warn 过；这里兜编译期不可见的故障）
-      noticeOrLog('migrate-defaults', `书级默认值迁移整体失败：${e instanceof Error ? e.message : String(e)}`, e)
+      noticeOrLog('migrate-defaults', `书级默认值迁移整体失败：${errMsg(e)}`, e)
     }
   }
   // 平台规范化批（2026-09-03）：v4 存量规范形迁移**已裁决拆除**——RC 阶段无存量用户

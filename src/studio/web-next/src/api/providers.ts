@@ -1,4 +1,4 @@
-import { apiJson } from './client'
+import { apiJson, API_DEFAULT_TIMEOUT_MS } from './client'
 
 // AI 服务供应商管理（应用级，跨书共享）
 
@@ -86,7 +86,7 @@ export async function fetchModels(body: { protocol: Protocol; baseUrl: string; a
   return apiJson('/api/providers/models', {
     method: 'POST',
     json: body,
-  }, 30_000) // 拉模型列表可能慢，30s 超时
+  }, API_DEFAULT_TIMEOUT_MS) // 拉模型列表可能慢，30s 超时（原裸值 30_000，A5 收敛）
 }
 
 export async function createProvider(body: {
@@ -240,7 +240,7 @@ export async function testRagProvider(id: string): Promise<RagTestResult> {
   return apiJson(`/api/rag-providers/${encodeURIComponent(id)}/test`, {
     method: 'POST',
     json: {},
-  }, 30_000)
+  }, API_DEFAULT_TIMEOUT_MS) // A5（复审-0914-优化修复批）：原裸值 30_000 收敛，数值零变化
 }
 
 /** D2（批 5）：写 provider 级价格表（独立端点——不影响连通 caps；null = 清除） */

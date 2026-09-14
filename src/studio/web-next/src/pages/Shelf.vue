@@ -9,7 +9,6 @@ import { useShelf, formatWords, formatRelative } from '../composables/useShelf'
 import { useTheme } from '../composables/useTheme'
 import { usePlatform } from '../composables/usePlatform'
 import { isImeComposing } from '../shared/ime'
-import { LAST_BOOK_KEY } from '../shared/storage-keys'
 import ShelfGrid from '../components/ui/ShelfGrid.vue'
 import ShelfHeroCard from '../components/shelf/ShelfHeroCard.vue'
 import EmptyState from '../components/ui/EmptyState.vue'
@@ -26,8 +25,18 @@ const {
   showCreate, newName, newKind, creating, createError, createBook,
   batchMode, selected, toggleSelect, selectAll, enterBatch, exitBatch,
   confirmTarget, deleting, deleteError, requestDelete, confirmDelete, cancelDelete,
+  openBook,
 } = useShelf({
   onCreated: (name) => router.push(`/book/${encodeURIComponent(name)}`),
+  // P1-7b（复审-0914-优化修复批，降级单源）：选书「记 LAST_BOOK_KEY + 跳转」收敛
+  // useShelf.openBook——IPC 分支留回调接管：书架独立窗口（win=shelf）走主窗口 IPC
+  // 打开（R42-31：IPC reject 补 catch）；主窗口内返回 false → useShelf 内常规路由跳转
+  openBookViaIpc: (name) => {
+    const isShelfWin = new URLSearchParams(location.search).get('win') === 'shelf'
+    if (!isShelfWin || !window.clwritingDesktop) return false
+    void window.clwritingDesktop.openBook(name).catch((e) => console.warn('openBook IPC 失败', e))
+    return true
+  },
 })
 
 // 卡片点击：批量模式 toggle 选中，否则打开书
@@ -61,24 +70,6 @@ onMounted(() => {
   window.addEventListener('keydown', onKeydown)
 })
 onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
-
-function openBook(name: string): void {
-  // 记住最近打开的书（主窗口启动直进工作区用）——R60-D-4：键收敛 storage-keys 单源
-  try {
-    localStorage.setItem(LAST_BOOK_KEY, name)
-  } catch {
-    /* localStorage 不可用时忽略 */
-  }
-  // 书架独立窗口（win=shelf）：IPC 通知主窗口打开 + 关闭书架窗口；主窗口内：路由跳转
-  const isShelfWin = new URLSearchParams(location.search).get('win') === 'shelf'
-  if (isShelfWin && window.clwritingDesktop) {
-    // R42-31（四十二轮）：IPC reject（主窗已关/桥断）补 catch——裸 void 的 rejected
-    // promise 会以 unhandledrejection 噪音上报
-    void window.clwritingDesktop.openBook(name).catch((e) => console.warn('openBook IPC 失败', e))
-  } else {
-    router.push(`/book/${encodeURIComponent(name)}`)
-  }
-}
 </script>
 
 <template>
@@ -375,27 +366,8 @@ function openBook(name: string): void {
   cursor: pointer;
 }
 /* 视图切换（网格/列表）segmented control */
-/* .view-toggle 收敛至全局 styles/utilities.css（P3-10 重体收敛批，声明逐字未改） */
-.toggle-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 4px;
-  border: none;
-  border-radius: calc(var(--radius-s) - 1px);
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
-}
-.toggle-btn:hover {
-  color: var(--text-normal);
-}
-.toggle-btn.active {
-  background: var(--background-primary);
-  color: var(--text-normal);
-  box-shadow: var(--shadow-s);
-}
+/* .view-toggle 与 .toggle-btn（P1-7b 复审-0914-优化修复批随批收敛，声明逐字未改）
+   均在全局 styles/utilities.css */
 .btn {
   display: inline-flex;
   align-items: center;

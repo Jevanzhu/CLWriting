@@ -42,6 +42,11 @@ const FAIL_MARKER = '[CLW_SMOKE] window-cycle-fail'
 const TIMEOUT_MS = Number(process.env['CLW_SMOKE_TIMEOUT_MS']) || 60_000
 /** 日志保留尾长（失败时打印现场；限长防 CI 日志被巨量输出淹没）。 */
 const TAIL_CHARS = 8_000
+// 全库重评-0914（P3-7）：日志累积缓冲上限（4MB）——ELECTRON_ENABLE_LOGGING=1 下
+// Chromium 全量日志 60s 可达数十 MB，无界累积拖垮驱动进程内存（对齐
+// src/desktop/server-manager.ts MAX_LINE_CHARS 的内存闸纪律）。超限丢头部保尾部：
+// marker 命中只依赖保留段（标记行到达时位于缓冲尾部，丢头不误伤判定）。
+const MAX_LOG_CHARS = 4 << 20
 
 // R0911-G-P3-2：打包态注入（CLW_SMOKE_APP_BIN）——前置门只验可执行体存在（产物自身
 // 即入口）；开发态缺省走原「package.json main 存在性」指路门，行为零变化。
@@ -168,6 +173,9 @@ timer.unref?.()
 
 function onChunk(buf) {
   log += buf.toString('utf8')
+  // P3-7：超上限丢头部保尾部（内存闸，防 Chromium 全量日志无界累积）；marker 命中
+  // 只依赖保留段，丢头不影响判定。
+  if (log.length > MAX_LOG_CHARS) log = log.slice(-MAX_LOG_CHARS)
   if (settled) return
   if (log.includes(OK_MARKER)) return finish(0, '捕获到 window-cycle-ok（真实建窗→关窗链通过）')
   if (log.includes(CRASH_MARKER)) {

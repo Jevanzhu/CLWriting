@@ -6,6 +6,17 @@
  * 导出/ 与 node_modules（V-P2-25，防全书搜索被历史版本与已删文件污染）、spills/（R41-8
  * 防 AI 全文快照副本双出处命中）；.md 判定大小写不敏感（R41-6，.MD 漏网）。
  * 对话助手 book_search 工具与 /api/books/:name/search 端点共用，不复制逻辑。
+ *
+ * P3-30（全库重评-0914）单源化：searchBook/searchBookAsync 原手写平行双轨（前奏解析/
+ * 逐目录循环/逐文件命中折叠/截断各一份），对齐 collectTreeIssuesCore 仓内范式
+ * （check/run.ts R37-3，生成器核心 + 同步/异步双驱动）收编单源——
+ * - buildSearchPlan：前奏解析（归一/query 解析/dirs/finalizedKeys 折叠）一次写就；
+ * - searchBookCore：生成器核心持有目录循环与逐文件命中折叠（rel 派生/定稿过滤/
+ *   单文件截断/总量截断），IO 经 SearchFileIo 注入（yield 交驱动取值/等待）；
+ * - 双驱动：同步侧 walkMd + readMdTextCached（直返值），异步侧 walkMdAsync +
+ *   readMdTextCachedAsync（fs.promises），匹配/排序/截断/排除纪律零复制。
+ * 行为逐位不变：六要素（归一、query 解析、dirs、finalizedKeys 折叠、截断上限、
+ * 排除规则）两侧与改前完全一致。
  */
 import { join, relative } from 'node:path'
 import { readdirSync, existsSync, statSync, realpathSync } from 'node:fs'
@@ -59,17 +70,43 @@ function normalizeBookRoot(bookRoot: string): string {
   return stripped
 }
 
-/**
- * 全书搜索主函数。q 为空返回空结果；scope 非法回落 all。
- */
-export function searchBook(bookRoot: string, q: string, scope?: string): SearchOutcome {
+/** 行级 includes 匹配（大小写不敏感），返回匹配行（行号 + 截断文本）。 */
+function matchLines(text: string, lower: string): SearchMatch[] {
+  const out: SearchMatch[] = []
+  const lines = text.split('\n')
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i]!.toLowerCase().includes(lower)) {
+      // R64-24（十二轮）：slice(0,200) 按 UTF-16 码元切——emoji/扩展区字被劈成两半
+      // （落单代理对进 JSON/前端渲染均为乱码）。改码位安全截断（单源 summary.ts）。
+      out.push({ line: i + 1, text: clipByCodePoints(lines[i]!, MATCH_LINE_SLICE) })
+    }
+  }
+  return out
+}
+
+// ── P3-30（全库重评-0914）：单源核心 + 双驱动 ─────────────────────────────
+
+/** 搜索计划：前奏解析产物（同步/异步双驱动共用，六要素之前四——归一/query 解析/
+ *  dirs/finalizedKeys 折叠；截断上限内聚于核心、排除规则内聚于 walker）。 */
+interface SearchPlan {
+  root: string
+  /** 已 toLowerCase 的查询串 */
+  lower: string
+  dirs: string[]
+  /** null = 非「定稿」scope（不过滤）；否则定稿集折叠键集（docJoinKey，win32 大小写 + NFC） */
+  finalizedKeys: Set<string> | null
+}
+
+/** 前奏解析（原 searchBook/searchBookAsync 双侧复写的开头段收编单源）。
+ *  空查询返 null（调用方早退 { results: [] }，与改前逐位一致）。 */
+function buildSearchPlan(bookRoot: string, q: string, scope?: string): SearchPlan | null {
   // R26-104（二十六轮）：bookRoot 入参归一化（去尾部路径分隔符）后再用——rel 路径靠
   // `fp.slice(root.length + 1)` 剥前缀的算术对「根路径带尾分隔符」的入参形态敏感
   // （多剥一个字符，rel 变成「作/正文/…」式截断残串，命中结果路径错乱）。join/
   // isWithinRoot 的语义本不受尾分隔符影响，统一走归一根后两类形态等价。
   const root = normalizeBookRoot(bookRoot)
   const query = (q ?? '').trim()
-  if (!query) return { results: [] }
+  if (!query) return null
   const dirs = SEARCH_SCOPE_DIRS[scope ?? 'all'] ?? SEARCH_ALL_DIRS
   // R73-42（二十一轮）：scope「定稿」名要符实——写作/正文 下的未定稿草稿原先一并命中，
   // 与 assembleStatus 的定稿口径（manifest.finalizedRevision 单一真相）不一致，AI 拿
@@ -81,13 +118,35 @@ export function searchBook(bookRoot: string, q: string, scope?: string): SearchO
   // R41-2 同款范式——set 构建一次）——case-only 改名 / NFD 文件名后精确串失配，定稿章
   // 从「定稿」scope 结果里漏掉（AI 引用面失真）
   const finalizedKeys = finalizedPaths === null ? null : new Set([...finalizedPaths].map(docJoinKey))
-  const lower = query.toLowerCase()
+  return { root, lower: query.toLowerCase(), dirs, finalizedKeys }
+}
+
+/** P3-30：逐文件 IO 面（同步/异步双实现注入）。同步侧返回值恒非 Promise
+ *  （walkMd/readMdTextCached 直返），异步侧为 fs.promises 孪生；生成器核心对两侧
+ *  一视同仁（yield 交驱动取值/等待），匹配/过滤/截断逻辑单源不再双侧复写。
+ *  R47-5（四十七轮）口径随实现保留：文件读取走 fs/md-text-cache.ts stat 指纹缓存
+ *  （读失败返回 null 按无命中降级），异步孪生与同步版共享同一指纹表。 */
+interface SearchFileIo {
+  /** 列目录下全部 .md（排除/排序/symlink 纪律内聚在 walker，见 walkMd 注） */
+  listMd(dir: string): string[] | Promise<string[]>
+  /** 读文件全文；读失败（消失/权限）→ null（核心按无命中降级） */
+  readText(fp: string): string | null | Promise<string | null>
+}
+
+/** P3-30：搜索实现体（生成器，单源供同步/异步双驱动）。目录循环、读失败降级、
+ *  rel 派生、定稿过滤、单文件/总量截断的口径全部只写这一份。 */
+function* searchBookCore(plan: SearchPlan, io: SearchFileIo): Generator<unknown, SearchOutcome, unknown> {
+  const { root, lower, dirs, finalizedKeys } = plan
   const results: SearchHit[] = []
   for (const dir of dirs) {
     const abs = join(root, dir)
     if (!existsSync(abs)) continue
-    for (const fp of walkMd(abs, root)) {
-      const matches = searchFile(fp, lower)
+    const files = (yield io.listMd(abs)) as string[]
+    for (const fp of files) {
+      const text = (yield io.readText(fp)) as string | null
+      // 读失败（消失/权限）按无命中降级（原 searchFile/searchFileAsync 同口径）
+      if (text === null) continue
+      const matches = matchLines(text, lower)
       if (matches.length === 0) continue
       // R48-12（四十八轮）：rel 改 relative 派生——`slice(root.length + 1)` 算术对根形态
       //（'/'、'C:\'，R26-104 特意保留不归一）恒吃掉 rel 首字符（命中路径截断残串）；
@@ -111,33 +170,59 @@ export function searchBook(bookRoot: string, q: string, scope?: string): SearchO
   return { results }
 }
 
-/** 行级 includes 匹配（大小写不敏感），返回匹配行（行号 + 截断文本）。 */
-function matchLines(text: string, lower: string): SearchMatch[] {
-  const out: SearchMatch[] = []
-  const lines = text.split('\n')
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i]!.toLowerCase().includes(lower)) {
-      // R64-24（十二轮）：slice(0,200) 按 UTF-16 码元切——emoji/扩展区字被劈成两半
-      // （落单代理对进 JSON/前端渲染均为乱码）。改码位安全截断（单源 summary.ts）。
-      out.push({ line: i + 1, text: clipByCodePoints(lines[i]!, MATCH_LINE_SLICE) })
-    }
+/** P3-30：同步驱动——同步面 IO 恒非 Promise，yield 产出直取回传（collectTreeIssuesCore
+ *  同款：yield 只把控制权交还本驱动随即 next 续跑，净效果与纯同步执行逐位一致）。 */
+function driveSearchCoreSync(it: Generator<unknown, SearchOutcome, unknown>): SearchOutcome {
+  let input: unknown
+  for (;;) {
+    const r = it.next(input)
+    if (r.done) return r.value
+    input = r.value
   }
-  return out
-}
-
-/** 行级 includes 匹配（大小写不敏感）+ 读文件；读失败（消失/权限）按无命中降级。
- *  R47-5（四十七轮）：裸 readFileSync 改走 fs/md-text-cache.ts stat 指纹缓存——
- *  无命中/未凑满上限时此前仍要读完全书所有 .md（200 万字 ≈8MB/冷查询），缓存后
- *  同指纹二次查询（chat 工具多轮复用同一书）零读盘；异步孪生 searchFileAsync
- *  共享同一指纹表（端点路径保持全 async，R37-5 语义不回退）。 */
-function searchFile(fp: string, lower: string): SearchMatch[] {
-  const text = readMdTextCached(fp)
-  if (text === null) return []
-  return matchLines(text, lower)
 }
 
 /**
- * 递归列目录下所有 .md。
+ * 全书搜索主函数。q 为空返回空结果；scope 非法回落 all。
+ * P3-30 起为生成器核心的同步驱动（walkMd + readMdTextCached），行为与改前逐位一致。
+ */
+export function searchBook(bookRoot: string, q: string, scope?: string): SearchOutcome {
+  const plan = buildSearchPlan(bookRoot, q, scope)
+  if (plan === null) return { results: [] }
+  return driveSearchCoreSync(
+    searchBookCore(plan, {
+      listMd: (d) => walkMd(d, plan.root),
+      readText: (fp) => readMdTextCached(fp),
+    }),
+  )
+}
+
+/**
+ * searchBook 的异步孪生（R35-7，三十五轮）——原 HTTP 全书搜索端点专用，R46-3（四十六轮）
+ * 起 AI book_search 工具同用（chat 工具在 studio 服务进程事件循环内执行，同步版会冻结
+ * 同进程全部书的 SSE/保存）：全链 fs.promises（readdir/readFile/stat/realpath，realpath
+ * 语义逐位保留），扫描期间事件循环可响应 SSE 心跳/保存等其他请求。匹配/排序/截断/排除
+ * 目录/symlink 纪律与同步版逐位同源（P3-30 起经 searchBookCore 单源，不再靠双侧对齐）。
+ * 同步版 searchBook 现仅测试面/CLI 面消费，生产读路径一律走本异步版（R46-3 口径更正：
+ * 旧注「同步版保留给 AI book_search 工具（子进程面）」是 spawn CLI 时代的过时口径）。
+ */
+export async function searchBookAsync(bookRoot: string, q: string, scope?: string): Promise<SearchOutcome> {
+  const plan = buildSearchPlan(bookRoot, q, scope)
+  if (plan === null) return { results: [] }
+  // 异步驱动：逐 yield await（顺序非并发池，保住同步版「排序后按序截断」的确定性口径）
+  const it = searchBookCore(plan, {
+    listMd: (d) => walkMdAsync(d, plan.root),
+    readText: (fp) => readMdTextCachedAsync(fp),
+  })
+  let input: unknown
+  for (;;) {
+    const r = it.next(input)
+    if (r.done) return r.value
+    input = await r.value
+  }
+}
+
+/**
+ * 递归列目录下所有 .md（P3-30：同步侧 walk 驱动）。
  * 排除点前缀系统目录与 node_modules / 导出（V-P2-25）。
  * 低级项（第六轮）：递归前用 isWithinRoot（realpath 双侧比对）校验——书内一个指向
  * 书根外的符号链接（目录或 .md）原先会被跟随，全书检索越出 bookRoot 读到外部文件
@@ -187,61 +272,8 @@ function walkMd(dir: string, bookRoot: string): string[] {
 }
 
 /**
- * searchBook 的异步孪生（R35-7，三十五轮）——原 HTTP 全书搜索端点专用，R46-3（四十六轮）
- * 起 AI book_search 工具同用（chat 工具在 studio 服务进程事件循环内执行，同步版会冻结
- * 同进程全部书的 SSE/保存）：全链 fs.promises（readdir/readFile/stat/realpath，realpath
- * 语义逐位保留），扫描期间事件循环可响应 SSE 心跳/保存等其他请求。匹配/排序/截断/排除
- * 目录/symlink 纪律与同步版逐位同源（matchLines 单源共享）。
- * 同步版 searchBook 现仅测试面/CLI 面消费，生产读路径一律走本异步版（R46-3 口径更正：
- * 旧注「同步版保留给 AI book_search 工具（子进程面）」是 spawn CLI 时代的过时口径）。
- */
-export async function searchBookAsync(bookRoot: string, q: string, scope?: string): Promise<SearchOutcome> {
-  // 归一/过滤/截断口径与 searchBook 逐位对齐（见同步版各行注释，此处不重复）
-  const root = normalizeBookRoot(bookRoot)
-  const query = (q ?? '').trim()
-  if (!query) return { results: [] }
-  const dirs = SEARCH_SCOPE_DIRS[scope ?? 'all'] ?? SEARCH_ALL_DIRS
-  const finalizedPaths = scope === '定稿' ? finalizedPathSet(root) : null
-  // R42-6/R42-33（四十二轮）：同 searchBook 折叠键集（同步/异步逐位同源）
-  const finalizedKeys = finalizedPaths === null ? null : new Set([...finalizedPaths].map(docJoinKey))
-  const lower = query.toLowerCase()
-  const results: SearchHit[] = []
-  for (const dir of dirs) {
-    const abs = join(root, dir)
-    if (!existsSync(abs)) continue
-    // 顺序 await（非并发池）：保住同步版「排序后按序截断」的确定性口径
-    for (const fp of await walkMdAsync(abs, root)) {
-      const matches = await searchFileAsync(fp, lower)
-      if (matches.length === 0) continue
-      // R48-12（四十八轮）：rel 改 relative 派生（同上方同步版同编号注）
-      // 复审-0913-mac适配 P3-2：同上方同步版（normalizeWinSeparators 单源，win32-only）
-      const rel = normalizeWinSeparators(relative(root, fp))
-      if (finalizedKeys !== null && dir === '写作/正文' && !finalizedKeys.has(docJoinKey(rel))) continue // R42-6：折叠键比较
-      results.push({
-        path: rel,
-        matches: matches.slice(0, MAX_MATCHES_PER_FILE),
-        ...(matches.length > MAX_MATCHES_PER_FILE ? { hasMore: true } : {}),
-      })
-      if (results.length >= MAX_RESULTS) {
-        return { results, truncated: true }
-      }
-    }
-  }
-  return { results }
-}
-
-/** searchFile 异步孪生：读失败（消失/权限）同款按无命中降级。 */
-async function searchFileAsync(fp: string, lower: string): Promise<SearchMatch[]> {
-  // R47-5：异步孪生同走指纹缓存（stat/读盘全 async，与同步版共享指纹表）——读失败
-  // 按无命中降级口径不变
-  const text = await readMdTextCachedAsync(fp)
-  if (text === null) return []
-  return matchLines(text, lower)
-}
-
-/**
- * walkMd 异步孪生：排除点前缀/node_modules/导出、realpath 环剪枝、越界 symlink
- * fail-closed、显式排序——纪律逐位同源（见同步版注释）。
+ * walkMd 异步孪生（P3-30：异步侧 walk 驱动）：排除点前缀/node_modules/导出、realpath
+ * 环剪枝、越界 symlink fail-closed、显式排序——纪律逐位同源（见同步版注释）。
  */
 async function walkMdAsync(dir: string, bookRoot: string): Promise<string[]> {
   const out: string[] = []
@@ -280,4 +312,3 @@ async function walkMdAsync(dir: string, bookRoot: string): Promise<string[]> {
   await walk(dir)
   return out
 }
-

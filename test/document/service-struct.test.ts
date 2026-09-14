@@ -4,7 +4,7 @@
  * PATH_ESCAPE、跨卷移动章号不变、清单 path 更新、移动前 snapshot、rename、NOT_FOUND。
  */
 import { test, expect } from 'vitest'
-import { rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, appendFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, appendFileSync, renameSync } from 'node:fs'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -393,6 +393,31 @@ test('N-11: 章号非数字（小数串/空串）→ 维持原 basename 前缀�
   // 回落 basename 前缀 1-（原文件名的章号段），不产 3.5 派生名
   expect(r.path).toBe('写作/正文/1-新标.md')
   rmSync(root, { recursive: true, force: true })
+})
+
+// 全库重评-0914 P3-11 回归：宽分隔符名（全角破折号/空格）的前缀回落——原窄正则
+// `^(\d+-)` 失明，改名时章号前缀整段丢落（`5—原标.md` → `新标.md`，章号静默消失）。
+// 收编 chapterNoFromName 单源后识别命中，前缀按原文整段保留（不做位宽归一）。
+test('P3-11: 章号非数字 + 宽分隔符前缀（5—/5 空格）→ 前缀整段保留不丢落', async () => {
+  for (const [name, expected] of [['5—原标.md', '写作/正文/5—新标.md'], ['5 原标.md', '写作/正文/5 新标.md']] as const) {
+    const { root, svc } = makeBookWithPiece()
+    // 文件名与清单路径同步改成宽分隔符形态（doc_p01 实际路径 = 清单登记路径）
+    const rel = `写作/正文/${name}`
+    renameSync(join(root, '写作', '正文', '1-原标.md'), join(root, rel))
+    writeFileSync(join(root, rel), '---\n章号: "3.5"\n标题: 原标\n---\n短篇正文', 'utf-8')
+    writeFileSync(
+      join(root, '项目', '文档清单.jsonl'),
+      [
+        '{"version":1,"type":"header"}',
+        `{"id":"doc_p01","nodeType":"document","path":"${rel}","parentId":null,"status":"final"}`,
+      ].join('\n') + '\n',
+      'utf-8',
+    )
+    const r = await svc.updateChapterMeta('doc_p01', { 标题: '新标' })
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.path).toBe(expected)
+    rmSync(root, { recursive: true, force: true })
+  }
 })
 
 test('updateDocMeta: 改卷纲字段 → fm 更新，文件名不变', async () => {

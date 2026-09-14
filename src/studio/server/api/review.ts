@@ -15,14 +15,14 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { currentProvider } from '../../../ai/provider/index.js'
-import { existsSync, readFileSync, mkdirSync, rmSync, readdirSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync, readdirSync } from 'node:fs'
 import { readBooks } from '../../../install/books.js'
 import { defineRoute } from './schema.js'
 import { acquireTaskGate, orchestrationBusyFor, crossProcessHeldTaskGatesFor } from './task-gate.js' // R62-17：三审接跨进程任务闸（删书/改名/他进程可见）
 import { readJson, reply, replyError } from '../http.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { safeManifestPath, safeDocId } from '../../../fs/safe-path.js'
-import { resolveBook, resolveDocEntry } from '../book-context.js'
+import { resolveBook, resolveDocEntry, resolveDocFile, readDraftTextGuarded } from '../book-context.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { getDriver, ensureSession } from '../../../driver/index.js'
@@ -65,9 +65,11 @@ function reviewRunKey(bookName: string, docId: string): string {
 }
 
 /** 测试钩子（同 stream.ts __setSpawnRunning 先例）：不经真实三审直接置/清本书运行闸，
- * 供 books 删书/改名 409 接线测用。 */
-export function __setReviewRunning(bookName: string, running: boolean): void {
-  const key = reviewRunKey(bookName, '__test__')
+ * 供 books 删书/改名 409 接线测用。P2-1（全库重评-0914）：可选 docId（缺省 '__test__'
+ * 既有调用方零破坏）——review-verdict 竞窗闸按真实文档 docId 查闸，须能预置到具体
+ * 文档键上；用例负责同参清理。 */
+export function __setReviewRunning(bookName: string, running: boolean, docId = '__test__'): void {
+  const key = reviewRunKey(bookName, docId)
   if (running) reviewRunning.add(key)
   else reviewRunning.delete(key)
 }
@@ -110,11 +112,11 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
       const docId = params['docId'] ?? ''
       // P1-SEC-B：docId 拼 .cache/review-${docId} 后 rmSync recursive，显式校验防穿越
       if (!safeDocId(docId)) return replyError(res, 400, 'BAD_PATH', '文档 ID 非法')
-      const m = resolveDocEntry(bookRoot, docId)
-      if (!m) return replyError(res, 404, 'NOT_FOUND', `文档ID未登记：${docId}`)
-      const absPath = safeManifestPath(bookRoot, m.path)
-      if (!absPath) return replyError(res, 400, 'BAD_PATH', '文档路径非法')
-      if (!existsSync(absPath)) return replyError(res, 404, 'NOT_FOUND', `文档不存在：${m.path}`)
+      // D2（复审-0914-优化修复批）：docId→清单→安全路径→存在性解析链收编
+      // resolveDocFile 单源（不读稿——本端点读稿走下方 R63-7 单读 + R64-10 守卫）；
+      // BAD_PATH 文案 variant『文档路径非法』逐字保留
+      const f = resolveDocFile(bookRoot, docId, { badPathText: '文档路径非法' })
+      if (!f.ok) return replyError(res, f.status, f.code, f.message)
       // X-P1-4：并发闸——同文档三审进行中直接 409（不排队的长任务，排队只会双跑双记账）
       const runKey = reviewRunKey(params['name']!, docId)
       if (reviewRunning.has(runKey)) {
@@ -138,20 +140,19 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
         // 读取顺序巧合）。机检经 draftText 吃同一快照（runCheckForDocument 头注）。
         // R64-10（十二轮）：读稿守卫——existsSync 后 µs 级竞态删除（回收站/并发删）
         // 让 ENOENT 裸穿 dispatch；对齐 review-verdict 的 dd-P3「读不到正文」人话信封
-        let draftBuf: Buffer
-        try {
-          draftBuf = readFileSync(absPath)
-        } catch {
-          return replyError(res, 500, 'IO_ERROR', '读不到正文文件（可能已被移动或删除），请刷新后再试')
-        }
-        const draftText = draftBuf.toString('utf-8')
+        // D2（复审-0914-优化修复批）：守卫读收编 readDraftTextGuarded 单源（buffer+
+        // text 同一快照不变，人话文案归 DRAFT_UNREADABLE_TEXT 常量、字节同文）
+        const g = readDraftTextGuarded(f.absPath)
+        if (!g.ok) return replyError(res, g.status, g.code, g.message)
+        const draftBuf: Buffer = g.buf
+        const draftText = g.text
 
         // CC-P1-2：sourceHash 必须与进 prompt 的正文同源——分钟级三审期间作者保存会让
         // 任务后重读的 hash 对应新稿，而 payload 审的是旧稿，stale 判定恒 false（错配）。
         const sourceHash = sourceHashOf(draftText)
 
         // 机检（R63-7：draftText 喂预读快照；byproducts.leadChanges 供账本核对）
-        const outcome = runCheckForDocument(bookRoot, absPath, ctx.userDataPath, { draftText })
+        const outcome = runCheckForDocument(bookRoot, f.absPath, ctx.userDataPath, { draftText })
         if (!outcome.ok) {
           // N-2（第十二轮）：收编 replyError 单一出口——不再手拼 {ok:false,...} 混合信封
           return replyError(
@@ -195,7 +196,7 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
           checkReport: report,
           body,
           chapter: chapter.章号,
-          draft_path: absPath,
+          draft_path: f.absPath,
           draft_hash: draftHash,
           workDir: reviewOutDir,
           capabilities: { parallel_subagents: false, multiple_calls: true },
@@ -234,8 +235,8 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
               body,
               chapter: chapter.章号,
               outDir: built.packet.out_dir,
-              // Z-1（第五十八轮）：正文注入源登记（m.path = 三审直读的文档相对路径）
-              sourceFiles: [m.path],
+              // Z-1（第五十八轮）：正文注入源登记（f.entry.path = 三审直读的文档相对路径）
+              sourceFiles: [f.entry.path],
               onProgress: emitProgress,
               ctrl, // R0912-P2-①：中断通道透传逐 lens runSpec
             })
@@ -295,6 +296,15 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
       const m = resolveDocEntry(bookRoot, docId)
       if (!m) return replyError(res, 404, 'NOT_FOUND', `文档ID未登记：${docId}`)
 
+      // P2-1（全库重评-0914）：三审完成写竞窗闸——三审完成写（上方 review 端点）的
+      // payload 不含 verdict 且整体覆盖写盘，分钟级运行窗内作者的裁决会被随后的完成写
+      // 静默清除（R-16 写前重读只防「verdict 丢三审结果」的另一半，防不了本向）。
+      // 最小闸对齐同文件三审端点自身闸（同码同文案）：运行中 409 拒裁决不排队——
+      // 排队只会把旧 verdict 在完成写之后覆写回去，时机不可预期。
+      if (reviewRunning.has(reviewRunKey(params['name']!, docId))) {
+        return replyError(res, 409, 'REVIEW_RUNNING', '该文档三审进行中，请稍候完成后再试')
+      }
+
       // 合并写：保留 collected/lenses（若已三审），覆盖 verdict
       // R-16（第十六轮）：读改写竞态防护——三审完成（同 docId 的 review run）恰在本端点
       // 首次 readAnalysis 之后、writeAnalysis 之前落盘新 collected/lenses 时，旧读的
@@ -318,11 +328,11 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
       let sourceHash = latest?.sourceHash ?? existing?.sourceHash
       if (sourceHash === undefined) {
         // dd-P3：读稿守卫——文件并发消失（回收站/删除竞态）时给人话 500，此前裸 ENOENT 穿透 dispatch
-        try {
-          sourceHash = sourceHashOf(readFileSync(absPath, 'utf-8'))
-        } catch {
-          return replyError(res, 500, 'IO_ERROR', '读不到正文文件（可能已被移动或删除），请刷新后再试')
-        }
+        // D2（复审-0914-优化修复批）：守卫读收编 readDraftTextGuarded 单源（人话文案
+        // 归 DRAFT_UNREADABLE_TEXT 常量、字节同文）
+        const g = readDraftTextGuarded(absPath)
+        if (!g.ok) return replyError(res, g.status, g.code, g.message)
+        sourceHash = sourceHashOf(g.text)
       }
       const latestPayload = (latest?.payload as { collected?: unknown; lenses?: string[] } | undefined) ?? {}
       const payload = { ...latestPayload, verdict }

@@ -3,6 +3,7 @@ import { ref, computed, watch, nextTick } from 'vue'
 import { ChevronDown } from 'lucide-vue-next'
 import type { TreeNode } from '../../types/tree'
 import { useTreeStore } from '../../stores/tree'
+import { CHAPTER_STATUS } from '../../shared/words'
 import { isImeComposing } from '../../shared/ime'
 
 defineOptions({ name: 'ChapterTreeItem' })
@@ -62,18 +63,10 @@ const renderedChildren = computed<TreeNode[]>(() => {
 const omittedCount = computed(() => Math.max(0, props.node.children.length - RENDER_CAP))
 
 // 六态角标（细案 §3）：final·published 绿 / revision 红 / draft 黄 / 其余灰
+// 复审-0914-优化修复批 P3：switch 本地判定删除，委托 shared/words CHAPTER_STATUS 单表
+//（与 WritingInfoPanel/EditorDocHead 三处同源；未知态回落原 default 档 dot-gray）
 function dotClass(status?: string): string {
-  switch (status) {
-    case 'final':
-    case 'published':
-      return 'dot-green'
-    case 'revision':
-      return 'dot-red'
-    case 'draft':
-      return 'dot-yellow'
-    default:
-      return 'dot-gray'
-  }
+  return CHAPTER_STATUS[status ?? '']?.dot ?? 'dot-gray'
 }
 
 const isOpen = () => props.expanded.has(props.node.path)

@@ -68,7 +68,7 @@ const streamMocks = vi.hoisted(() => ({
   generateOutline: vi.fn(),
   generateLeadUpdates: vi.fn(),
 }))
-vi.mock('../../../src/studio/web-next/src/api/stream', () => streamMocks)
+vi.mock('../../../src/studio/web-next/src/api/workbench', () => streamMocks)
 vi.mock('../../../src/studio/web-next/src/api/trace-stats', () => ({
   getTraceStats: vi.fn(async () => ({ ruleHits: [] })),
 }))

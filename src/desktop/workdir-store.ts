@@ -107,6 +107,35 @@ export function setCurrent(store: WorkDirStore, newCurrent: string): WorkDirStor
 /** R1010-P2-1：recent 有效性预探超时哨兵（race reject 载体——stat 真实异常带 errno code，唯超时无）。 */
 const RECENT_PROBE_TIMEOUT = Symbol('recent-probe-timeout')
 
+/**
+ * P3（复审-0914-优化修复批）：「Promise.race + 超时哨兵 + finally clearTimeout」三处
+ * 同型（本文件 filterValidRecentBudgeted / main.ts 拆分后 workdir-controller 的
+ * probeDirReachable / lifecycle 的 flushRendererWithBudget）收敛单源——本文件零 Electron
+ * 依赖可单测，故落此。超时以传入哨兵 reject 后归一为哨兵返回值（区分「超时」与「任务
+ * 真实异常」——后者照抛由调用方分诊，与原三处手写 catch 内 `e === 哨兵` 判定逐位等价）；
+ * race 落定即 clearTimeout（R54-A-5 计时器卫生收编于此）。
+ */
+export async function raceWithTimeout<T, S extends symbol>(
+  task: Promise<T>,
+  timeoutMs: number,
+  timeoutSentinel: S,
+): Promise<T | S> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      task,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(timeoutSentinel), timeoutMs)
+      }),
+    ])
+  } catch (e) {
+    if (e === timeoutSentinel) return timeoutSentinel
+    throw e
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
 /** 单条预探默认预算（ms）；调用方（main.ts bootstrap）注入 CLW_BOOTSTRAP_PROBE_TIMEOUT_MS 口径。 */
 const RECENT_PROBE_DEFAULT_TIMEOUT_MS = 2_000
 
@@ -139,20 +168,13 @@ export async function filterValidRecentBudgeted(
   const stat = opts?.stat ?? statAsync
   const verdicts = await Promise.all(
     store.recent.map(async (r) => {
-      let timer: ReturnType<typeof setTimeout> | undefined
       try {
-        const s = await Promise.race([
-          stat(r.path),
-          new Promise<never>((_, reject) => {
-            timer = setTimeout(() => reject(RECENT_PROBE_TIMEOUT), timeoutMs)
-          }),
-        ])
-        return s.isDirectory()
-      } catch (e) {
-        return e === RECENT_PROBE_TIMEOUT // 超时保留；确定性失败剔除
-      } finally {
-        // probeDirReachable 同款卫生：探测结束清掉超时计时器，不空转滞留
-        if (timer) clearTimeout(timer)
+        const s = await raceWithTimeout(stat(r.path), timeoutMs, RECENT_PROBE_TIMEOUT)
+        // 超时保留（失联≠失效）；stat 通过交 isDirectory 判定
+        return s === RECENT_PROBE_TIMEOUT ? true : s.isDirectory()
+      } catch {
+        // 确定性失败剔除（原语义：判定窗口内被删/权限按无效处理，不裸抛破坏容错契约）
+        return false
       }
     }),
   )

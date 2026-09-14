@@ -25,6 +25,8 @@ import type { SessionRecorder } from '../../events/chat-bridge.js'
 import { emit, type ChatRunState, AGENT_DEADLINE_MS } from './chat/state.js'
 import { prepareChatRun } from './chat/restore.js'
 import { runAgentTurns } from './chat/turns.js'
+// 复审-0914-优化修复批（errMsg 收编）：错误摘要口径单源
+import { errMsg } from '../../log/index.js'
 
 // hh §八-16：子件符号经本件再导出——外部（server API / 测试）import 路径全部不变
 export { getHistory, clearChatHistory } from './chat/state.js'
@@ -147,7 +149,7 @@ export function sendChatMessage(opts: ChatOpts): 'started' | 'queued' | 'rejecte
     opts.driver.emit?.(opts.mainSession, {
       type: 'error',
       kind: 'chat',
-      message: redactSecret(e instanceof Error ? e.message : String(e)),
+      message: redactSecret(errMsg(e)),
       recoverable: false,
     })
   })
@@ -181,7 +183,7 @@ function drainNextChat(base: ChatOpts, completedOk: boolean): void {
     base.driver.emit?.(base.mainSession, {
       type: 'error',
       kind: 'chat',
-      message: redactSecret(e instanceof Error ? e.message : String(e)),
+      message: redactSecret(errMsg(e)),
       recoverable: false,
     })
   })
@@ -253,7 +255,7 @@ async function runChatInner(opts: ChatOpts): Promise<void> {
     emit(opts, {
       type: 'notice',
       message: `事件库打开失败，本次对话将不留审计记录（重启应用或检查磁盘后重试）：${
-        e instanceof Error ? e.message : String(e)
+        errMsg(e)
       }`,
     })
   }

@@ -4,6 +4,7 @@ import { runRewriteDoc, reportAiVersion, type RewriteResult } from '../api/rewri
 import { useDocStore } from './doc'
 import { useUiStore } from './ui'
 import { friendlyError } from '../shared/error'
+import { useStaleGuard } from '../composables/useStaleGuard'
 import { stripFrontmatter, mergeFm } from '../shared/words'
 
 /**
@@ -20,11 +21,12 @@ export const useRewriteStore = defineStore('rewrite', () => {
   const error = ref<string | null>(null)
 
   /** M-11：代守卫——切书 clear() 后在途改写结果不再落地（accept 虽有 docId 兜底防跨书
-   *  patch，但 B 书改写面板不该显示 A 书的 diff 结果；error/loading 回填同样查代） */
-  let reqGen = 0
+   *  patch，但 B 书改写面板不该显示 A 书的 diff 结果；error/loading 回填同样查代）。
+   *  E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard。 */
+  const reqGen = useStaleGuard()
 
   async function run(name: string, docId: string, instruction: string, selection: string, append = false): Promise<void> {
-    const gen = ++reqGen
+    const gen = reqGen.begin()
     loading.value = true
     error.value = null
     try {
@@ -39,7 +41,7 @@ export const useRewriteStore = defineStore('rewrite', () => {
           return
         }
         const saved = await doc.save(docId, 'manual')
-        if (gen !== reqGen) return
+        if (reqGen.stale(gen)) return
         // R34D-22（三十四轮）：save 返 false ≠ 保存失败——manual 排队复查在「在途
         // 保存已把全部内容落盘（dirty 已清）」时按「无需重存」返 false（F8 契约，
         // f8-manual-save-queue 钉死），内容实已在磁盘、改写基线（服务端读盘）安全；
@@ -54,14 +56,14 @@ export const useRewriteStore = defineStore('rewrite', () => {
       // append（M2 续写解选区）：无选区纯追加；否则有选区 local / 无选区 whole
       const body = append ? { instruction, append: true } : selection ? { instruction, selection } : { instruction }
       const r = await runRewriteDoc(name, docId, body)
-      if (gen !== reqGen) return
+      if (reqGen.stale(gen)) return
       result.value = r
     } catch (e) {
-      if (gen !== reqGen) return
+      if (reqGen.stale(gen)) return
       error.value = friendlyError(e)
       result.value = null
     } finally {
-      if (gen === reqGen) loading.value = false
+      if (reqGen.fresh(gen)) loading.value = false
     }
   }
 
@@ -94,7 +96,7 @@ export const useRewriteStore = defineStore('rewrite', () => {
   }
 
   function clear(): void {
-    reqGen++ // M-11：在途 run 的结果/错误回填全部作废
+    reqGen.invalidate() // M-11：在途 run 的结果/错误回填全部作废
     result.value = null
     error.value = null
     // R-1 第十六轮修复族（learn/check/review 均有，rewrite 漏网，X-2 补齐）：

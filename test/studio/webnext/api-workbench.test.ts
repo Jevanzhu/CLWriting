@@ -5,7 +5,7 @@
  * 职责（api-client.test.ts 已覆盖），此处只断言请求负载。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { getState, autoWrite, saveDraft, getDraftPrompt, interrupt } from '../../../src/studio/web-next/src/api/stream'
+import { getState, autoWrite, saveDraft, getDraftPrompt, interrupt } from '../../../src/studio/web-next/src/api/workbench'
 import { boot } from '../../../src/studio/web-next/src/api/client'
 
 interface Call { url: string; init: RequestInit | undefined }

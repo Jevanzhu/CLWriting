@@ -1,13 +1,10 @@
-import { apiJson } from './client'
+import { apiJson, API_DEFAULT_TIMEOUT_MS } from './client'
 
-// GET /file?file=<path> → {content}（路径寻址读全文，含 frontmatter；细案 §2.1）。
-export async function getContent(name: string, path: string): Promise<string> {
-  const data = await apiJson<{ content: string }>(
-    `/api/books/${encodeURIComponent(name)}/file?file=${encodeURIComponent(path)}`,
-  )
-  return data.content
-}
-
+// GET /file?file=<path> → 完整载荷（路径寻址读全文，含 frontmatter；细案 §2.1）。
+// E1（复审-0914-优化修复批）：同端点三包装（getContent / getContentPayload /
+// getContentRevisioned 均打同一 GET /file）收敛为单读口——调用方按需解构取字段。
+// getContent（只取 content）与 getContentRevisioned（content+revision 壳）均已随
+// 消费方改造删除（StyleBaselineCard 为最后一个调用点，复审-0914-优化修复批收口）。
 // 重评-0912-4 P1-1（2026-09-12 全量重评修复批）：GET /file 带编码探测的完整载荷——
 // 服务端对非 UTF-8 存量文件（GBK/Big5 导入旧稿）回 encodingSuspect/encodingHint，
 // doOpen 打开时据此 toast 告警（作者在乱码上编辑保存会被 R66-1 防线 400 拒绝）。
@@ -19,17 +16,6 @@ export interface FileContentPayload {
 }
 export async function getContentPayload(name: string, path: string): Promise<FileContentPayload> {
   return apiJson<FileContentPayload>(
-    `/api/books/${encodeURIComponent(name)}/file?file=${encodeURIComponent(path)}`,
-  )
-}
-
-// M-3（第六轮）：GET /file 附带字节指纹 revision——与 /documents 协议同源（服务端 hashFile）。
-// 编辑类调用方（如文风铁律卡）读时取走、存时回传，配合 putContent 的可选乐观锁。
-export async function getContentRevisioned(
-  name: string,
-  path: string,
-): Promise<{ content: string; revision: string }> {
-  return apiJson<{ content: string; revision: string }>(
     `/api/books/${encodeURIComponent(name)}/file?file=${encodeURIComponent(path)}`,
   )
 }
@@ -80,7 +66,7 @@ export async function saveContent(
       method: 'PUT',
       json: body,
     },
-    30_000, // 本地磁盘写应秒级；超时防 saving 永不清除
+    API_DEFAULT_TIMEOUT_MS, // 本地磁盘写应秒级；超时防 saving 永不清除（原裸值 30_000，A5 收敛）
   )
 }
 

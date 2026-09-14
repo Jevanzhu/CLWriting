@@ -6,7 +6,7 @@ import { SlidersHorizontal, Snowflake } from 'lucide-vue-next'
 import { useStyleStore } from '../../stores/style'
 import { usePrefsStore } from '../../stores/prefs'
 import { useUiStore } from '../../stores/ui'
-import { getContentRevisioned, putContent } from '../../api/documents'
+import { getContentPayload, putContent } from '../../api/documents'
 import { ApiError } from '../../api/client'
 import { friendlyError } from '../../shared/error'
 import BetaBadge from '../ui/BetaBadge.vue'
@@ -89,6 +89,18 @@ const rulesSaving = ref(false)
 const rulesDirty = computed(() => rulesText.value !== rulesOrig.value)
 async function toggleRulesEdit(): Promise<void> {
   if (editingRules.value) {
+    // P2-4（全库重评-0914）：收起前脏守卫——原直接折叠，再次展开走 getContentPayload
+    // 从磁盘重取，未保存手改静默丢稿（OnboardView R8a-P2-2「覆盖手改先确认」同款口径）。
+    // 确认取消则保持展开；确认后丢弃（danger 档，与删除类确认同视觉）。
+    if (rulesDirty.value) {
+      const ok = await ui.ask({
+        title: '收起铁律原文',
+        message: '有未保存的修改，收起后再展开将从磁盘重新加载，未保存内容会丢失。确认收起？',
+        confirmText: '收起并丢弃',
+        danger: true,
+      })
+      if (!ok) return
+    }
     editingRules.value = false
     return
   }
@@ -98,11 +110,14 @@ async function toggleRulesEdit(): Promise<void> {
   const book = props.bookName
   rulesMissing.value = false
   try {
-    const r = await getContentRevisioned(props.bookName, RULES_PATH)
+    // E1（复审-0914-优化修复批）：读口收敛 getContentPayload 解构（同端点同 URL 同超时档，
+    // 原 getContentRevisioned 壳随本调用点改造删除）
+    const { content, revision } = await getContentPayload(props.bookName, RULES_PATH)
     if (!armed(book) || style.bookName !== book) return // R36-22：在途切书 → 不回填
-    rulesText.value = r.content
-    rulesOrig.value = r.content
-    rulesBaseRev.value = r.revision
+    rulesText.value = content
+    rulesOrig.value = content
+    // revision 在载荷型读口下可缺省（FileContentPayload）——null 兜底与原壳非空类型同口径
+    rulesBaseRev.value = revision ?? null
   } catch (e) {
     if (!armed(book) || style.bookName !== book) return // R36-22：在途切书 → 不 toast/不置缺失态
     if (e instanceof ApiError && e.status === 404) {
@@ -140,11 +155,14 @@ async function saveRules(): Promise<void> {
       // 双出路取「重载」：铁律是低频配置，重拉最新版让作者比对重写，比静默覆盖稳妥
       ui.toast('铁律已在其他窗口修改——已为你重新加载最新版，请比对后再保存', 'error')
       try {
-        const remote = await getContentRevisioned(book, RULES_PATH)
+        // E1（复审-0914-优化修复批）：同上——读口收敛 getContentPayload 解构
+        const remote = await getContentPayload(book, RULES_PATH)
         if (!armed(book) || style.bookName !== book) return // 重拉在途切书：旧书内容不回填死实例 UI
         rulesText.value = remote.content
         rulesOrig.value = remote.content
-        rulesBaseRev.value = remote.revision
+        // revision 在载荷型读口下可缺省（FileContentPayload）——null 与原壳非空类型下的
+        // 实际消费口径（?? undefined 透传）等价
+        rulesBaseRev.value = remote.revision ?? null
       } catch {
         /* 重拉失败保留本地编辑，作者可再试 */
       }

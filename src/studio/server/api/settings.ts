@@ -21,9 +21,8 @@ import { isMdFileName } from '../../../format/filename.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
 import { RELATION_MINE_SPEC } from '../../../ai/tasks/specs.js'
-import { acquireTaskGate, orchestrationBusyFor } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
-import { getDriver, ensureSession } from '../../../driver/index.js' // R0912-P2-①：中断通道注册面
-import type { Session } from '../../../driver/types.js'
+import { runGatedGeneration, replyGenerationFailure } from './task-gate.js' // P1-2/D4（复审-0914-优化修复批）：长任务门控包装 + 生成失败状态映射单源
+import { createTtlProbeCache } from '../ttl-cache.js'
 import { sigStatFor } from './rhythm.js' // 精简批（SRV 域）：size:mtimeMs 签名单源（原本地同构副本收敛）
 import type { RealmSystem } from '../../../format/types.js'
 
@@ -82,7 +81,6 @@ export type { CharacterCard } from '../../../process/settings-context.js'
 // TTL 与先例同值）。计算是同步单段（无在途并发窗口），缓存壳取先例同款同步形态。
 const SETTINGS_CACHE_TTL_MS = 5000
 const SETTINGS_CACHE_MAX = 32
-const settingsCache = new Map<string, { result: unknown; ts: number; sig: string }>()
 let settingsTtlMs: number | null = null
 /** R46-16：TTL 测试注入口（先例同 __setRhythmCacheTtlForTest）。仅测试用。
  *  R0912-ds41（重评-deepseek-v4.1-flash P3-2）补门收编：消费方 = test/studio/
@@ -95,19 +93,18 @@ export function __setSettingsCacheTtlForTest(ms: number | null): void {
 /** R46-16：删书/改名失效挂点（books.ts forgetBookKeyedCaches 家族同款）。
  *  重评-0912-4 批并修 deepseek-P2-2 起**同清两壳**（completion-names 见下方同族块）。 */
 export function forgetSettingsCache(bookRoot: string): void {
-  settingsCache.delete(bookRoot)
-  completionNamesCache.delete(bookRoot)
+  settingsCache.forget(bookRoot)
+  completionNamesCache.forget(bookRoot)
 }
 /** R46-16 回归观测钩子（先例同 __rhythmScanCountForTest）：缓存 MISS →
  *  全量重算（settingsLong）计数。R0912-ds41（重评-deepseek-v4.1-flash P3-2）补门
  *  收编：MISS 计数断言面 = test/studio/r0912-ds41-ttl-gates.test.ts（原评审登记的
  *  「只写不读」至此消除）。 */
-let settingsScanCount = 0
 export function __settingsScanCountForTest(): number {
-  return settingsScanCount
+  return settingsCache.scanCountForTest()
 }
 export function __resetSettingsScanCountForTest(): void {
-  settingsScanCount = 0
+  settingsCache.resetScanCountForTest()
 }
 
 /** settings 读面指纹：境界体系.md + relations.json（单文件）+ 角色/时间线/关系线/正文（目录 mtime）。 */
@@ -129,22 +126,23 @@ function settingsSignature(bookRoot: string): string {
   ].join(',')
 }
 
+/** D1（复审-0914-优化修复批）：缓存壳收编 ttl-cache.ts 通用件（原本地 Map + FIFO
+ *  本地壳删除；命中/失效时序/逐出序逐位不变——单级探针 + 同步计算 + FIFO 32；
+ *  特记 evictExpiredOnMiss:false——本壳原无 R47-18 过期顺手逐出行，逐条核对后按原
+ *  样保留，见 ttl-cache.ts 头部收敛映射表）。 */
+const settingsCache = createTtlProbeCache<string, unknown>({
+  name: 'settings',
+  keyOf: (k) => k,
+  max: SETTINGS_CACHE_MAX,
+  ttl: () => settingsTtlMs ?? SETTINGS_CACHE_TTL_MS,
+  probe: settingsSignature,
+  computeSync: (bookRoot) => settingsLong(bookRoot),
+  evictExpiredOnMiss: false,
+})
+
 /** R46-16：settings 聚合查询（目录指纹 + TTL 缓存壳）。导出供回归测试直测。 */
 export function getSettingsCached(bookRoot: string): unknown {
-  const sig = settingsSignature(bookRoot)
-  const cached = settingsCache.get(bookRoot)
-  if (cached && cached.sig === sig && Date.now() - cached.ts < (settingsTtlMs ?? SETTINGS_CACHE_TTL_MS)) {
-    return cached.result
-  }
-  settingsScanCount += 1
-  const result: unknown = settingsLong(bookRoot)
-  // 简单 FIFO 淘汰（Map 保插入序）：超上限丢最旧条目，防长期运行的书库累积
-  if (settingsCache.size >= SETTINGS_CACHE_MAX) {
-    const oldest = settingsCache.keys().next().value
-    if (oldest !== undefined) settingsCache.delete(oldest)
-  }
-  settingsCache.set(bookRoot, { result, ts: Date.now(), sig })
-  return result
+  return settingsCache.getSync(bookRoot)
 }
 
 // ── R0912-ds41（重评-deepseek-v4.1-flash P2-2）：completion-names「目录指纹 + TTL」缓存壳 ──
@@ -159,7 +157,6 @@ export function getSettingsCached(bookRoot: string): unknown {
 // 壳注入口（同控回落档）→ 常量。
 const COMPLETION_NAMES_CACHE_TTL_MS = 5000
 const COMPLETION_NAMES_CACHE_MAX = 32
-const completionNamesCache = new Map<string, { result: unknown; ts: number; sig: string }>()
 let completionNamesTtlMs: number | null = null
 /** R0912-ds41：TTL 测试注入口（命名对齐 __setSettingsCacheTtlForTest 先例）。仅测试用。
  *  注 null 回落 settings 壳注入口，再回落常量（win 合并批合成口径）。 */
@@ -169,12 +166,11 @@ export function __setCompletionNamesCacheTtlForTest(ms: number | null): void {
 /** R0912-ds41 回归观测钩子（生产零调用；先例同 __settingsScanCountForTest）：缓存
  *  MISS → 全量重扫计数。消费方 = test/studio/r0912-ds41-completion-names-cache.test.ts
  *  与 test/studio/r0912-4-completion-names-cache.test.ts（两树同题回归，win 合并批并存）。 */
-let completionNamesScanCount = 0
 export function __completionNamesScanCountForTest(): number {
-  return completionNamesScanCount
+  return completionNamesCache.scanCountForTest()
 }
 export function __resetCompletionNamesScanCountForTest(): void {
-  completionNamesScanCount = 0
+  completionNamesCache.resetScanCountForTest()
 }
 
 /** completion-names 读面指纹：设定/角色 + 设定/物品 目录 mtime。 */
@@ -189,29 +185,32 @@ function completionNamesSignature(bookRoot: string): string {
   return [dirSig('设定', '角色'), dirSig('设定', '物品')].join(',')
 }
 
+/** D1（复审-0914-优化修复批）：缓存壳收编 ttl-cache.ts 通用件（原本地 Map + FIFO
+ *  本地壳删除；命中/失效时序/逐出序逐位不变——单级探针 + 异步计算 + FIFO 32；
+ *  特记 evictExpiredOnMiss:false（原无 R47-18 逐出行）+ TTL 链「本壳注入口 → settings
+ *  壳注入口 → 常量」以闭包原样表达，见 ttl-cache.ts 头部收敛映射表）。 */
+const completionNamesCache = createTtlProbeCache<string, unknown>({
+  name: 'completion-names',
+  keyOf: (k) => k,
+  max: COMPLETION_NAMES_CACHE_MAX,
+  ttl: () => completionNamesTtlMs ?? settingsTtlMs ?? COMPLETION_NAMES_CACHE_TTL_MS,
+  probe: completionNamesSignature,
+  computeAsync: async (bookRoot) => {
+    const setDir = join(bookRoot, '设定')
+    const [characters, items] = await Promise.all([
+      readFmNames(join(setDir, '角色'), '姓名'),
+      readFmNames(join(setDir, '物品'), '名称'),
+    ])
+    return { characters, items }
+  },
+  evictExpiredOnMiss: false,
+})
+
 /** completion-names 聚合查询（目录指纹 + TTL 缓存壳）。导出供回归测试直测（重评
  *  -0912-4 口径，直调须 await）；R0912-ds41 起读面异步化 + fm 头读。响应体契约
  *  { characters, items } 逐字节不变（键序/结构与改前一致）。 */
 export async function getCompletionNamesCached(bookRoot: string): Promise<unknown> {
-  const sig = completionNamesSignature(bookRoot)
-  const cached = completionNamesCache.get(bookRoot)
-  if (cached && cached.sig === sig && Date.now() - cached.ts < (completionNamesTtlMs ?? settingsTtlMs ?? COMPLETION_NAMES_CACHE_TTL_MS)) {
-    return cached.result
-  }
-  completionNamesScanCount += 1
-  const setDir = join(bookRoot, '设定')
-  const [characters, items] = await Promise.all([
-    readFmNames(join(setDir, '角色'), '姓名'),
-    readFmNames(join(setDir, '物品'), '名称'),
-  ])
-  const result = { characters, items }
-  // 简单 FIFO 淘汰（Map 保插入序）：超上限丢最旧条目，防长期运行的书库累积
-  if (completionNamesCache.size >= COMPLETION_NAMES_CACHE_MAX) {
-    const oldest = completionNamesCache.keys().next().value
-    if (oldest !== undefined) completionNamesCache.delete(oldest)
-  }
-  completionNamesCache.set(bookRoot, { result, ts: Date.now(), sig })
-  return result
+  return completionNamesCache.get(bookRoot)
 }
 
 export function registerSettingsRoutes(ctx: SettingsCtx): void {
@@ -249,30 +248,16 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
-    // R75-D-P3a（批 D）：编排互斥矩阵补角——对照 analyze/autotag/infer-meta/analyze-style/
-    // outline/onboard-ai/lead-updates 同族写法补齐。关系梳理是分钟级 AI 任务且 relations.json
-    // 落盘为覆盖写，梳理输入含正文节选/角色卡（写稿上下文注入源）——写稿系编排（self-heal/
-    // 对话/手动写稿/后台收尾）在途时放行会复刻 R67-13 要防的形态：覆盖写落盘 + 后续章拿到
-    // 混合态上下文。409 BUSY 语义与同族端点一致。
-    const busyOrch = orchestrationBusyFor(params['name']!)
-    if (busyOrch) return replyError(res, 409, 'BUSY', busyOrch)
-    // RB-SV-P2-2：长任务并发闸（分钟级 AI 梳理，重复点击=双倍费用）
-    const release = acquireTaskGate(params['name']!, 'relations-mine')
-    if (!release) return replyError(res, 409, 'BUSY', '本书正在梳理角色关系，请等待完成后再试')
-    // R0912-P2-①（2026-09-11 重评-0911c 修复批）：接入中断通道——此前 runSpec 未接 driver
-    // ctrl 注册面，/interrupt 对在途梳理完全无效且 driver.isRunning 假空闲（假成功）。接法
-    // 照抄 stream.ts spawn/self-heal 的 register/unregister 形态：编排段新建 ctrl →
-    // driver.registerCtrl（owner='relations-mine:<书名>'，含书名使跨书并发互不误伤；同书
-    // 重入已被任务闸 409 挡住，同 owner 串行换新安全）→ settle（外层 finally）统一注销。
-    const driver = getDriver()
-    let registeredSession: Session | null = null
-    let registeredCtrl: AbortController | null = null
-    try {
-      const session = await ensureSession(params['name']!, ctx.workDir!)
-      registeredSession = session
-      const ctrl = new AbortController()
-      driver.registerCtrl?.(session, ctrl, `relations-mine:${params['name']!}`)
-      registeredCtrl = ctrl
+    // R75-D-P3a（批 D）编排互斥预检 + RB-SV-P2-2 任务闸（409 文案逐位保留）+
+    // R0912-P2-①（2026-09-11 重评-0911c 修复批）中断通道（owner='relations-mine:<书名>'）
+    // ——十段复制收编 runGatedGeneration 单源（复审-0914-优化修复批 P1-2，接法头注见
+    // task-gate.ts；GET settings/completion-names 无 AI 生成段，不接线）。
+    return runGatedGeneration(res, {
+      book: params['name']!,
+      workDir: ctx.workDir!,
+      action: 'relations-mine',
+      busyText: '本书正在梳理角色关系，请等待完成后再试',
+    }, async (ctrl) => {
       // 幂等：body.force=true 强制重新梳理；否则已有缓存则直接返回
       //（dd-P3：readJson 的 HttpError（如 413 超限）透传，只容错「无 body/坏 JSON」）
       const body = (await readJson(req).catch((e: unknown) => {
@@ -297,9 +282,13 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
         ctrl, // R0912-P2-①：中断通道透传
       })
       if (!out.ok) {
-        // R0912-P2-①：中断收口——ABORTED → 499 人话信封（对齐 outline/rewrite 既有先例）
-        if (out.code === 'ABORTED') return replyError(res, 499, 'ABORTED', '已中断')
-        return replyError(res, 500, 'GEN_FAIL', `AI 梳理失败:${out.error}`)
+        // R0912-P2-①：中断收口——ABORTED → 499 人话信封。D4（复审-0914-优化修复批）：
+        // 状态映射收编 replyGenerationFailure 单源；本端点文案变体逐位保留（ABORTED 固定
+        // 「已中断」非 out.error、其余坍缩 GEN_FAIL 并组装「AI 梳理失败:…」）——经形状
+        // 归一喂单源，status 判定（499/500）与信封字节不变。
+        return replyGenerationFailure(res, out.code === 'ABORTED'
+          ? { ok: false, code: 'ABORTED', error: '已中断' }
+          : { ok: false, code: 'GEN_FAIL', error: `AI 梳理失败:${out.error}` })
       }
       const input = out.data.input as { relations?: { from: string; to: string; type: string; note?: string }[] } | null
       const relations = input?.relations ?? []
@@ -320,12 +309,7 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
         return replyError(res, 500, 'IO_ERROR', '落盘缓存失败')
       }
       reply(res, 200, { ok: true, cached: false, relations })
-    } finally {
-      // R0912-P2-①：settle（成功/失败/中断）统一注销——isRunning 归 false（cc X-P2-11 口径）；
-      // ensureSession 失败（未注册）时跳过。GET settings/completion-names 无 AI 生成段，不接线。
-      if (registeredCtrl && registeredSession) driver.unregisterCtrl?.(registeredSession, registeredCtrl)
-      release()
-    }
+    })
   },
   })
 }

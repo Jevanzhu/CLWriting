@@ -19,7 +19,7 @@ import { buildCheckpointInstruction, clampCheckpointOutputTokens } from '../../p
 import type { SessionRecorder } from '../../../events/chat-bridge.js'
 import type { ChatOpts } from '../chat.js'
 import { emit, histories, msgSeqMap, compactionSuppressed, type ChatRunState, AGENT_DEADLINE_MS } from './state.js'
-import { log } from '../../../log/index.js'
+import { log, errMsg } from '../../../log/index.js'
 
 const MAX_HISTORY_TURNS = 10
 
@@ -72,7 +72,7 @@ export function finishTurn(
   try {
     recorder.closeMaskingAll(spec.mask)
   } catch (e) {
-    log.warn('chat', `失败收尾遮蔽落库失败（终态 ${spec.mask}，本会话事件待修复后重放）：${e instanceof Error ? e.message : String(e)}`)
+    log.warn('chat', `失败收尾遮蔽落库失败（终态 ${spec.mask}，本会话事件待修复后重放）：${errMsg(e)}`)
   }
   // R43-19（四十三轮）：chat_error 文案过 redactSecret（与 stream.ts:216 R26-8 同款）——
   // {error} 分支的 message 源自 out.error（provider 异常），可含凭据痕迹；固定文案
@@ -193,7 +193,7 @@ export async function finalizeHistory(
     try {
       recorder.close('completed', shadowSeqs)
     } catch (e) {
-      log.warn('chat', `历史截断遮蔽落库失败（退化为未截断，下次溢出重试）：${e instanceof Error ? e.message : String(e)}`)
+      log.warn('chat', `历史截断遮蔽落库失败（退化为未截断，下次溢出重试）：${errMsg(e)}`)
       return
     }
     msgSeqs.splice(0, cut)
@@ -230,7 +230,7 @@ export async function finalizeHistory(
           ? recorder.close('completed', shadowSeqs, firstMsg.content)
           : recorder.close('completed', shadowSeqs)
     } catch (e) {
-      log.warn('chat', `压缩存档落库失败（保留原历史不遮蔽，下次溢出重试）：${e instanceof Error ? e.message : String(e)}`)
+      log.warn('chat', `压缩存档落库失败（保留原历史不遮蔽，下次溢出重试）：${errMsg(e)}`)
       return
     }
     msgSeqs.splice(0, cut)
@@ -254,6 +254,6 @@ export async function finalizeHistory(
   try {
     recorder.close('completed') // R69-10：no-op close 同款收编（session/end 落库失败不炸收尾）
   } catch (e) {
-    log.warn('chat', `会话收尾 close 落库失败（孤儿修复将补 interrupted 终态）：${e instanceof Error ? e.message : String(e)}`)
+    log.warn('chat', `会话收尾 close 落库失败（孤儿修复将补 interrupted 终态）：${errMsg(e)}`)
   }
 }

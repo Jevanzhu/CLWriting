@@ -6,13 +6,12 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
-  getContent,
+  getContentPayload,
   putContent,
   saveContent,
   createDoc,
   deleteDoc,
   finalizeDoc,
-  getContentRevisioned,
   copyDoc,
   renameDoc,
   moveDoc,
@@ -55,10 +54,10 @@ function ok(body: unknown): Response {
 }
 
 describe('documents api · 读', () => {
-  it('getContent：GET 路径寻址（书名/文件路径均编码）+ 返回 content', async () => {
+  it('getContentPayload：GET 路径寻址（书名/文件路径均编码）+ 返回 content（E1 收敛单读口）', async () => {
     stubFetch(() => ok({ content: '正文' }))
-    const r = await getContent('书 A', '写作/正文/第1章 x.md')
-    expect(r).toBe('正文')
+    const r = await getContentPayload('书 A', '写作/正文/第1章 x.md')
+    expect(r.content).toBe('正文')
     expect(calls[0]!.init?.method).toBe('GET') // 缺省 GET（client 显式 resolve 为 GET）
     expect(calls[0]!.url).toBe(
       `/api/books/${encodeURIComponent('书 A')}/file?file=${encodeURIComponent('写作/正文/第1章 x.md')}`,
@@ -67,7 +66,7 @@ describe('documents api · 读', () => {
 
   it('契约①：GET 读同样带 x-studio-token 头', async () => {
     stubFetch(() => ok({ content: 'x' }))
-    await getContent('书A', 'a.md')
+    await getContentPayload('书A', 'a.md')
     expect(new Headers(calls[0]!.init?.headers).get('x-studio-token')).toBe('T-doc')
   })
 })
@@ -144,13 +143,6 @@ describe('documents api · 写', () => {
 })
 
 describe('documents api · 树 CRUD 与批量定稿（X-6 补缺）', () => {
-  it('getContentRevisioned：与 getContent 同 URL，返回 content + revision 指纹', async () => {
-    stubFetch(() => ok({ content: '正文', revision: 'sha256:1' }))
-    const r = await getContentRevisioned('书A', 'a.md')
-    expect(r).toEqual({ content: '正文', revision: 'sha256:1' })
-    expect(calls[0]!.url).toBe(`/api/books/${encodeURIComponent('书A')}/file?file=a.md`)
-  })
-
   it('copyDoc：POST /copy，body 只带 relPath（源 docId 走 URL）', async () => {
     stubFetch(() => ok({ ok: true, docId: 'n2', path: '卷1/第1章 副本.md', revision: 'sha256:2' }))
     await copyDoc('书A', 'd1', '卷1/第1章 副本.md')

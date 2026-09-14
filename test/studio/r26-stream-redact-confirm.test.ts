@@ -19,6 +19,8 @@ import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest'
 import { createRouteTable, withRouteTable } from '../../src/studio/server/router.js'
 import { resetRouteSchemas } from '../../src/studio/server/api/schema.js'
 import { registerStreamRoutes } from '../../src/studio/server/api/stream.js'
+// 复审-0914-优化 D3：chat 四端点自 stream.ts 拆至 chat.ts——R26-60 断言面随迁同注册
+import { registerChatRoutes } from '../../src/studio/server/api/chat.js'
 import { createStreamTicketStore } from '../../src/studio/server/api/stream-ticket.js'
 import type { DriverEvent } from '../../src/driver/index.js'
 
@@ -96,9 +98,10 @@ afterAll(() => {
 function buildRoutes(): (method: 'GET' | 'POST', path: string) => RouteTable[number] {
   const routes = createRouteTable()
   resetRouteSchemas()
-  withRouteTable(routes, () =>
-    registerStreamRoutes({ workDir, userDataPath, studioToken: 'r26-token', tickets: createStreamTicketStore() }),
-  )
+  withRouteTable(routes, () => {
+    registerStreamRoutes({ workDir, userDataPath, studioToken: 'r26-token', tickets: createStreamTicketStore() })
+    registerChatRoutes({ workDir, userDataPath }) // D3：chat/confirm 本体已迁 chat.ts
+  })
   return (method, path) => {
     const route = routes.find((r) => r.method === method && r.regex.test(path))
     expect(route, `路由未注册：${method} ${path}`).toBeDefined()

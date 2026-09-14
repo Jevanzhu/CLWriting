@@ -43,7 +43,7 @@ describe('F1-P2 workspaceSession', () => {
       const b = store.workspaceSession(bookHash('/books/b'))
       expect(a).not.toBe(b)
       // 同一库内两本书事件互不串（listEvents 按 book 过滤）
-      store.appendEvent(a, { type: 'llm/call', data: { task: 't', ok: true } })
+      store.appendEvents(a, [{ type: 'llm/call', data: { task: 't', ok: true } }])
       expect(store.listEvents(bookHash('/books/a'))).toHaveLength(1)
       expect(store.listEvents(bookHash('/books/b'))).toHaveLength(0)
     } finally {
@@ -57,8 +57,8 @@ describe('F1-P2 workspaceSession', () => {
     const store = openSessionStore(ud, '/books/a')!
     try {
       const sid = store.workspaceSession(book)
-      store.appendEvent(sid, { type: 'step/start', data: { task: 'chat', layer: 'chat' } })
-      store.appendEvent(sid, { type: 'llm/call', data: { task: 'chat', ok: true } })
+      store.appendEvents(sid, [{ type: 'step/start', data: { task: 'chat', layer: 'chat' } }])
+      store.appendEvents(sid, [{ type: 'llm/call', data: { task: 'chat', ok: true } }])
       const evs = store.listEvents(book)
       expect(evs.map((e) => e.type)).toEqual(['step/start', 'llm/call'])
     } finally {
@@ -72,16 +72,16 @@ describe('F1-P2 workspaceSession', () => {
     try {
       const book = bookHash('/books/a')
       const sid = store.workspaceSession(book)
-      store.appendEvent(sid, { type: 'llm/call', data: { task: 't', ok: true } })
+      store.appendEvents(sid, [{ type: 'llm/call', data: { task: 't', ok: true } }])
       // ws 会话是最新更新的，但 latestSession 必须排除它
       expect(store.latestSession(book)).toBeNull()
       // 建一个真实对话会话后，latestSession 返回它（不是 ws）
       const chatSid = store.createSession('书A', { book: '书A' })
-      store.appendEvent(chatSid, { type: 'user/message', data: { message: 'hi' }, surfaceOp: 'append' })
+      store.appendEvents(chatSid, [{ type: 'user/message', data: { message: 'hi' }, surfaceOp: 'append' }])
       const latest = store.latestSession('书A')
       expect(latest?.session_id).toBe(chatSid)
       // 此时再写 ws 事件（更新时间更晚），latestSession 仍返回对话会话
-      store.appendEvent(sid, { type: 'llm/retry', data: { attempt: 0, delayMs: 10 } })
+      store.appendEvents(sid, [{ type: 'llm/retry', data: { attempt: 0, delayMs: 10 } }])
       expect(store.latestSession('书A')?.session_id).toBe(chatSid)
     } finally {
       store.close()

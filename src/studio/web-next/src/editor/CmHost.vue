@@ -486,6 +486,7 @@ async function clipboardCut(): Promise<void> {
   if (!view) return
   const sel = view.state.selection.main
   if (sel.from === sel.to) return
+  const doc = view.state.doc
   try {
     await navigator.clipboard.writeText(view.state.sliceDoc(sel.from, sel.to))
   } catch {
@@ -494,6 +495,11 @@ async function clipboardCut(): Promise<void> {
     useUiStore().toast('剪贴板权限被拒绝，剪切未生效', 'error') /* Z-26：不再静默 */
     return
   }
+  // P3-17（全库重评-0914）：await 剪贴板授权窗内选区/文档可能已变（打字、点选、切文档）——
+  // 陈旧区间直接 dispatch 会删错文本。复检同文档同区间才落删除（对齐 paste 侧 await 后
+  // 重读选区的防护口径）；已变则中止（剪贴板已有原文，文档零改动）。
+  const cur = view.state.selection.main
+  if (view.state.doc !== doc || cur.from !== sel.from || cur.to !== sel.to) return
   view.dispatch({ changes: { from: sel.from, to: sel.to, insert: '' } })
   view.focus()
 }

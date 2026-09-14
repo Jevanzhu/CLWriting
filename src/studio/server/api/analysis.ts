@@ -12,10 +12,10 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, relative } from 'node:path'
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
-import { resolveBook, resolveDocEntry } from '../book-context.js'
+import { resolveBook, resolveDocEntry, resolveDraftByDocId } from '../book-context.js' // D2（复审-0914-优化修复批）：docId→正文解析链单源
 import { readManifest } from '../../../document/manifest.js' // analysis-overview 全量遍历（非 docId 单查）
 import { readDraft } from '../../../format/draft.js'
 import { readChapterDir } from '../../../format/chapters.js'
@@ -27,12 +27,12 @@ import { resolveTier } from '../../../ai/provider/index.js'
 import type { AnalysisKind as ContractKind } from '../../../ai/contract/index.js'
 import { readAnalysis, readAnalysisKinds, writeAnalysisAsync, readBookAnalysis, writeBookAnalysisAsync, sourceHashOf, type AnalysisKind } from '../../../document/analysis.js'
 import { mapAnalysisToCandidates, persistCandidates } from '../../../format/style-candidate.js'
-import { log, localDayKey } from '../../../log/index.js' // R76-31：候选日键本地日（同 overview/日记口径）；R46-2：worker 回落 warn 留痕
+import { log, localDayKey, errMsg } from '../../../log/index.js' // R76-31：候选日键本地日（同 overview/日记口径）；R46-2：worker 回落 warn 留痕；复审-0914-优化修复批：errMsg 三目收编
 import { safeManifestPath } from '../../../fs/safe-path.js'
 import { readMdTextCachedAsync } from '../../../fs/md-text-cache.js' // R0912-3：GET stale 判定走异步指纹缓存读
-import { acquireTaskGate, orchestrationBusyFor } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
-import { getDriver, ensureSession } from '../../../driver/index.js' // R0912-P2-①：中断通道注册面
-import type { Session } from '../../../driver/types.js'
+import { sigStatFor } from './rhythm.js' // A3（复审-0914-优化修复批）：stat 签名单源（原本地同构副本收敛，单源落点 rhythm.ts 既有两 import 方不变）
+import { createTtlProbeCache } from '../ttl-cache.js' // D1（复审-0914-优化修复批）：TTL+探针+FIFO 缓存壳单源
+import { runGatedGeneration, replyGenerationFailure } from './task-gate.js' // P1-2/D4（复审-0914-优化修复批）：长任务门控包装 + 生成失败状态映射单源
 import { yieldToEventLoop, SCAN_YIELD_EVERY } from './progress.js' // R39-15：MISS 读循环逐块让出（R37-3 范式；R46-2 起主路径下沉 worker，此为回落面）
 import { runStyleScanAsync, type StyleScanJob } from './style-scan-async.js' // R46-2：全书扫描 worker 卸载
 
@@ -49,10 +49,9 @@ interface StyleCorpusResult {
   fullStats: FullStyleStats
   sampleText: string
 }
-const styleCorpusCache = new Map<string, { result: StyleCorpusResult; ts: number }>()
 /** R67-15（十五轮）：删书/改名失效挂点（同 health.ts forgetStyleScanCache 口径）。 */
 export function forgetStyleCorpusCache(bookRoot: string): void {
-  styleCorpusCache.delete(bookRoot)
+  styleCorpusCache.forget(bookRoot)
 }
 const STYLE_CORPUS_TTL = 5000
 /** R62-21：与 health.ts __setStyleScanTtlForTest 同族注入点——analyze-style 走独立
@@ -63,6 +62,18 @@ export function __setStyleCorpusTtlForTest(ms: number | null): void {
   styleCorpusTtlMs = ms
 }
 const STYLE_CORPUS_MAX = 32
+
+/** D1（复审-0914-优化修复批）：缓存壳收编 ttl-cache.ts 通用件（原本地 Map + FIFO +
+ *  R47-18 过期逐出 + R58-B-10 写侧全表清扫本地壳删除；命中/失效时序/逐出序逐位
+ *  不变——纯 TTL + 异步计算 + FIFO 32 + sweepExpiredOnWrite，见 ttl-cache.ts 头部
+ *  收敛映射表；计算体闭包 per-request 章列表/规则，经 get(key, compute) 逐调用传入）。 */
+const styleCorpusCache = createTtlProbeCache<string, StyleCorpusResult>({
+  name: 'style-corpus',
+  keyOf: (k) => k,
+  max: STYLE_CORPUS_MAX,
+  ttl: () => styleCorpusTtlMs ?? STYLE_CORPUS_TTL,
+  sweepExpiredOnWrite: true,
+})
 
 // ── R36-7（三十六轮）：analysis-overview 全书聚合 5s TTL 缓存 ─────────────────
 // 端点遍历 manifest + 分析目录全部信封（长书同步 IO 数百次），工作台进页/轮询/刷新
@@ -87,8 +98,9 @@ interface AnalysisOverviewResult {
   style: unknown
 }
 /** 重评2-P3-④（2026-09-09 全量重评 GLM-5.3）：缓存条目加 probeTs——探针取值时刻
- *  （节流窗起点，见 getAnalysisOverviewCached；先例 snapshots.ts R44-9 同款）。 */
-const analysisOverviewCache = new Map<string, { probe: string; probeTs: number; result: AnalysisOverviewResult; sig: string; ts: number }>()
+ *  （节流窗起点，见 getAnalysisOverviewCached；先例 snapshots.ts R44-9 同款）。
+ *  D1（复审-0914-优化修复批）：条目五字段（probe/probeTs/sig/ts/value）形态随壳体
+ *  收编 ttl-cache.ts 通用件（原本地 Map 删除，转写注见该件 judge）。 */
 let analysisOverviewTtlMs: number | null = null
 /** R36-7：TTL 测试注入口（先例同 __setStyleCorpusTtlForTest）。仅测试用。 */
 export function __setAnalysisOverviewTtlForTest(ms: number | null): void {
@@ -96,16 +108,15 @@ export function __setAnalysisOverviewTtlForTest(ms: number | null): void {
 }
 /** R36-7：写侧失效挂点——analyze/analyze-style 信封落盘后调用（本文件内写路径）。 */
 export function forgetAnalysisOverviewCache(bookRoot: string): void {
-  analysisOverviewCache.delete(bookRoot)
+  analysisOverviewCache.forget(bookRoot)
 }
 /** R36-7 回归观测钩子（生产零调用；先例同 __searchScanCountForTest）：缓存 MISS →
  *  全量重算计数。 */
-let analysisOverviewScanCount = 0
 export function __analysisOverviewScanCountForTest(): number {
-  return analysisOverviewScanCount
+  return analysisOverviewCache.scanCountForTest()
 }
 export function __resetAnalysisOverviewScanCountForTest(): void {
-  analysisOverviewScanCount = 0
+  analysisOverviewCache.resetScanCountForTest()
 }
 /** R37-17（三十七轮）回归观测钩子（生产零调用）：全量签名（analysisOverviewSignature
  *  每文件 stat walk）执行计数——两级探针命中时应不再增长。 */
@@ -128,15 +139,9 @@ export function __resetAnalysisOverviewProbeCountForTest(): void {
 }
 
 /** stat 的 size:mtimeMs 签名（缺失/占位文件 → '-'；Read 失败按缺失处理）。
- *  mtimeMs 保留亚毫秒小数（同 search.ts dirSignature 口径），降低同毫秒重写漏探针概率。 */
-function sigStatFor(fp: string): string {
-  try {
-    const st = statSync(fp)
-    return `${st.size}:${st.mtimeMs}`
-  } catch {
-    return '-'
-  }
-}
+ *  mtimeMs 保留亚毫秒小数（同 search.ts dirSignature 口径），降低同毫秒重写漏探针概率。
+ *  A3（复审-0914-优化修复批）：本地同构副本删除——单源收编 rhythm.ts sigStatFor
+ *  （overview/settings 既有 import 方同源），本文件改 import，调用点行为逐字不变。 */
 
 /** R36-7：overview 的盘面签名——manifest size:mtime + 分析目录每个 json 文件的
  *  name:size:mtime（读侧内容全部由签名覆盖：命中即跳过 manifest 整读 + 信封全读）。
@@ -182,56 +187,30 @@ function analysisOverviewProbe(bookRoot: string): string {
 
 /** R37-17（三十七轮）：analysis-overview 聚合查询两级探针化（每文件 mtime/size
  *  探针 + 5s TTL 缓存壳之上加便宜目录指纹）。前端 3s 轮询此前每 poll 都全量重算
- *  每文件 stat 签名（长书数百次）；现在第一级 O(1) stat（manifest + 目录）未变即
+ *  每文件 stat 签名（长书数百次）；现在第一级 O(1) stat（manifest + 分析目录）未变即
  *  复用，指纹变化才走第二级（R36-7 原全量签名），签名仍一致（指纹抖动，如原子写
  *  tmp 中间态已消失）则回填指纹复用结果。导出供回归测试直测（同 searchBookCached
- *  口径）。 */
-export async function getAnalysisOverviewCached(bookRoot: string): Promise<AnalysisOverviewResult> {
-  const now = Date.now()
-  const ttl = analysisOverviewTtlMs ?? ANALYSIS_OVERVIEW_TTL_MS
-  const cached = analysisOverviewCache.get(bookRoot)
-  // 重评2-P3-④（2026-09-09 全量重评 GLM-5.3）：探针纳入 TTL 节流——TTL 窗内复用上次
-  // 探针值（照 snapshots.ts R44-9① 搭法；R44-9 当年只落 version-stats 侧，此处补齐
-  // 两探缓存对称）。命中路径零系统调用（此前前端 3s 轮询每 poll 实算 manifest+分析目录
-  // 两个 stat）；超窗现取（TTL 到了必须重新探）。指纹时效语义与 R44-9① 记档一致：TTL 窗内
-  // 的 rename 类信封变化从「下次调用即时可见」变为「TTL 到期重探后可见（≤5s）」，
-  // 写侧 forgetAnalysisOverviewCache 显式失效不受节流影响。
-  let probe: string
-  if (cached && now - cached.probeTs < ttl) {
-    probe = cached.probe
-  } else {
-    probe = analysisOverviewProbe(bookRoot)
-    if (cached) cached.probeTs = now
-  }
-  // 第一级：便宜目录指纹未变（且 TTL 内）→ 直接复用，跳过每文件 stat 签名 walk
-  if (cached && now - cached.ts < ttl && cached.probe === probe) {
-    return cached.result
-  }
-  // R47-18（四十七轮）：TTL 已过的条目两级探针都不可能再命中（两级判定均含 now-ts<ttl），
-  // 顺手逐出防驻留至 FIFO 触顶/删书——重算路径本就必走，零成本零语义变更（set 原键覆写）
-  if (cached && now - cached.ts >= ttl) analysisOverviewCache.delete(bookRoot)
-  // 第二级：指纹变了才全量签名（R36-7 原口径）；签名一致 → 回填指纹、复用结果免重算
-  analysisOverviewSigCount += 1
-  const sig = analysisOverviewSignature(bookRoot)
-  if (cached && now - cached.ts < ttl && cached.sig === sig) {
-    cached.probe = probe
-    return cached.result
-  }
-  analysisOverviewScanCount += 1
-  // R44-10：MISS 计算体异步分批让出（原同步 computeAnalysisOverview 在指纹变化
-  //——保存/分析落盘后首查——时 2000 章级同步读单 tick 冻结事件循环）
-  const result = await computeAnalysisOverviewAsync(bookRoot)
-  // 简单 FIFO 淘汰（Map 保插入序）：超上限丢最旧条目，防长期运行的书库累积
-  if (analysisOverviewCache.size >= ANALYSIS_OVERVIEW_MAX) {
-    const oldest = analysisOverviewCache.keys().next().value
-    if (oldest !== undefined) analysisOverviewCache.delete(oldest)
-  }
-  // R44-10：ts 记 set 当刻 Date.now()（R42-16 口径——计算体含逐块让出跨多个 tick）；
-  // 重评2-P3-④：probeTs 记探针取值时刻 now（更早，节流窗更保守——宁多探不少探，
-  // snapshots.ts R44-9 同口径）
-  analysisOverviewCache.set(bookRoot, { probe, probeTs: now, sig, result, ts: Date.now() })
-  return result
+ *  口径）。D1（复审-0914-优化修复批）：壳体收编 ttl-cache.ts 通用件（两级判定/
+ *  R47-18 顺手逐出/FIFO 时序逐位不变，转写注见该件 judge；本文件为 analysis 侧
+ *  同族位）。 */
+export function getAnalysisOverviewCached(bookRoot: string): Promise<AnalysisOverviewResult> {
+  return analysisOverviewCache.get(bookRoot)
 }
+
+/** D1（复审-0914-优化修复批）：缓存壳实例——两级探针（probe + signature 包装计
+ *  sigCount）+ 异步计算 + FIFO 32，见 ttl-cache.ts 头部收敛映射表。 */
+const analysisOverviewCache = createTtlProbeCache<string, AnalysisOverviewResult>({
+  name: 'analysis-overview',
+  keyOf: (k) => k,
+  max: ANALYSIS_OVERVIEW_MAX,
+  ttl: () => analysisOverviewTtlMs ?? ANALYSIS_OVERVIEW_TTL_MS,
+  probe: analysisOverviewProbe,
+  signature: (bookRoot) => {
+    analysisOverviewSigCount += 1
+    return analysisOverviewSignature(bookRoot)
+  },
+  computeAsync: computeAnalysisOverviewAsync,
+})
 
 /** R36-7：overview 计算体（原 handler 内联逻辑原样下沉，行为不变）。
  *  R44-10（四十四轮）：改异步分批让出——readManifest 整读 + allChapters 收集为
@@ -420,30 +399,16 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
-      // R67-13（十五轮）：编排互斥矩阵补角——写稿系编排在途（self-heal/对话/后台收尾）
-      // 时拒收生成长任务（细纲/账本是写稿上下文注入源，在途覆盖写 = 混合态上下文）
-      const busyOrch = orchestrationBusyFor(params['name']!)
-      if (busyOrch) return replyError(res, 409, 'BUSY', busyOrch)
-      // RB-SV-P2-2：长任务并发闸（分钟级 AI 分析，重复点击=双倍费用）
-      const release = acquireTaskGate(params['name']!, 'analyze')
-      if (!release) return replyError(res, 409, 'BUSY', '本书已有分析任务在跑，请等待完成后再试')
-      // R0912-P2-①（2026-09-11 重评-0911c 修复批）：接入中断通道——此前 runSpec 未接 driver
-      // ctrl 注册面，/interrupt 对在途分析完全无效且 driver.isRunning 假空闲（假成功）。接法
-      // 照抄 stream.ts spawn/self-heal 的 register/unregister 形态：编排段新建 ctrl →
-      // driver.registerCtrl → settle（外层 finally）统一注销。owner 按 action 分槽
-      // （'analyze:<书名>'）而非共用 'analysis:<书名>'——本文件四个 AI 子端点任务闸按 action
-      // 分键可并发（analyze × autotag 等），共用 owner 会让后注册方按 cc P2-6「同 owner 换新
-      // 先 abort 旧」误伤在途另一路；按 action 分槽跨书/跨端点互不误伤，同 action 重入已被
-      // 任务闸 409 挡住，串行换新安全。
-      const driver = getDriver()
-      let registeredSession: Session | null = null
-      let registeredCtrl: AbortController | null = null
-      try {
-        const session = await ensureSession(params['name']!, ctx.workDir!)
-        registeredSession = session
-        const ctrl = new AbortController()
-        driver.registerCtrl?.(session, ctrl, `analyze:${params['name']!}`)
-        registeredCtrl = ctrl
+      // R67-13（十五轮）编排互斥预检 + RB-SV-P2-2 任务闸（409 文案逐位保留）+
+      // R0912-P2-①（2026-09-11 重评-0911c 修复批）中断通道接线——十段复制收编
+      // runGatedGeneration 单源（复审-0914-优化修复批 P1-2；ctrl 注册名
+      // 'analyze:<书名>' 逐位保留，owner 分槽语义见 task-gate.ts 包装头注）。
+      return runGatedGeneration(res, {
+        book: params['name']!,
+        workDir: ctx.workDir!,
+        action: 'analyze',
+        busyText: '本书已有分析任务在跑，请等待完成后再试',
+      }, async (ctrl) => {
         const reqBody = await readJson(req)
         const kind = String(reqBody['kind'] ?? '').trim() as AnalysisKind
         if (!ANALYSIS_KINDS.has(kind)) {
@@ -452,26 +417,13 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
 
         const bookRoot = r.bookRoot
         const docId = params['docId'] ?? ''
-        const m = resolveDocEntry(bookRoot, docId)
-        if (!m) return replyError(res, 404, 'NOT_FOUND', `文档ID未登记：${docId}`)
-        const absPath = safeManifestPath(bookRoot, m.path)
-        if (!absPath) return replyError(res, 400, 'BAD_PATH', '文档路径不合法')
-        if (!existsSync(absPath)) return replyError(res, 404, 'NOT_FOUND', `文档不存在：${m.path}`)
-
-        // R66-26（十四轮）：sourceHash 与进 prompt 的正文分两次读盘——readDraft 一读、
-        // sourceHashOf(readFileSync) 二读，两读之间作者保存会让 body（进 prompt）与
-        // sourceHash 对应不同稿（stale 判定错配）。仿 review.ts R63-7 同型：单次读取取
-        // buffer，readDraft 经 content 吃同一快照；existsSync 后 µs 级竞态删除（R64-10 口径）
-        // 的 ENOENT 由守卫转人话 500，不再裸穿 dispatch。
-        let draftBuf: Buffer
-        try {
-          draftBuf = readFileSync(absPath)
-        } catch {
-          return replyError(res, 500, 'IO_ERROR', '读不到正文文件（可能已被移动或删除），请刷新后再试')
-        }
-        const draftText = draftBuf.toString('utf-8')
-        const draft = readDraft(absPath, draftText)
-        if (!draft.ok) return replyError(res, 400, 'NOT_CHAPTER', draft.reason)
+        // R66-26（十四轮）：sourceHash 与进 prompt 的正文单次读取同拍（两读间作者保存
+        // 会让 body 与 sourceHash 对应不同稿）——D2（复审-0914-优化修复批）：解析链
+        // 收编 resolveDraftByDocId 单源（existsSync 后 µs 级竞态删除的 ENOENT 由守卫
+        // 转人话 500 IO_ERROR，不再裸穿 dispatch；单读快照口径随链）。
+        const d = resolveDraftByDocId(bookRoot, docId)
+        if (!d.ok) return replyError(res, d.status, d.code, d.message)
+        const { entry: m, content: draftText, draft } = d
         const { body, chapter } = draft
         const sourceHash = sourceHashOf(draftText)
 
@@ -482,9 +434,9 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
         const prompt = buildAnalystPrompt(kind, body, chapter, bookRoot)
         const result = await runAnalyst(ctx.userDataPath, kind as ContractKind, prompt, bookRoot, [m.path], ctrl)
         if (!result.ok) {
-          // R0912-P2-①：中断收口——ABORTED → 499 人话信封（对齐 outline/rewrite 既有先例）
-          if (result.code === 'ABORTED') return replyError(res, 499, result.code, result.error)
-          return replyError(res, 500, result.code, result.error)
+          // R0912-P2-①：中断收口——ABORTED → 499 人话信封；D4（复审-0914-优化修复批）：
+          // 状态映射收编 replyGenerationFailure 单源（本端点无 NO_* 码面，行为不变）
+          return replyGenerationFailure(res, result)
         }
         const payload = result.payload
 
@@ -499,12 +451,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
         // R36-7：信封落盘 → overview 缓存失效（探针/TTL 兜底）
         forgetAnalysisOverviewCache(bookRoot)
         reply(res, 200, { ok: true, envelope })
-      } finally {
-        // R0912-P2-①：settle（成功/失败/中断）统一注销——isRunning 归 false（cc X-P2-11 口径）；
-        // ensureSession 失败（未注册）时跳过
-        if (registeredCtrl && registeredSession) driver.unregisterCtrl?.(registeredSession, registeredCtrl)
-        release()
-      }
+      })
     },
   })
 
@@ -515,42 +462,24 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
-      // R67-13（十五轮）：编排互斥矩阵补角——写稿系编排在途（self-heal/对话/后台收尾）
-      // 时拒收生成长任务（细纲/账本是写稿上下文注入源，在途覆盖写 = 混合态上下文）
-      const busyOrch = orchestrationBusyFor(params['name']!)
-      if (busyOrch) return replyError(res, 409, 'BUSY', busyOrch)
-      // RB-SV-P2-2：长任务并发闸
-      const release = acquireTaskGate(params['name']!, 'autotag')
-      if (!release) return replyError(res, 409, 'BUSY', '本书已在识别章节标签，请等待完成后再试')
-      // R0912-P2-①：接入中断通道（register/unregister 形态与 analyze 子端点同款；
-      // owner 按 action 分槽='autotag:<书名>'，理由见 analyze 处头注）
-      const driver = getDriver()
-      let registeredSession: Session | null = null
-      let registeredCtrl: AbortController | null = null
-      try {
-        const session = await ensureSession(params['name']!, ctx.workDir!)
-        registeredSession = session
-        const ctrl = new AbortController()
-        driver.registerCtrl?.(session, ctrl, `autotag:${params['name']!}`)
-        registeredCtrl = ctrl
+      // R67-13 + RB-SV-P2-2（409 文案逐位保留）+ R0912-P2-①（register/unregister 形态
+      // 与 analyze 子端点同款；owner 按 action 分槽='autotag:<书名>'）——十段复制收编
+      // runGatedGeneration 单源（复审-0914-优化修复批 P1-2，接法头注见 analyze 处）。
+      return runGatedGeneration(res, {
+        book: params['name']!,
+        workDir: ctx.workDir!,
+        action: 'autotag',
+        busyText: '本书已在识别章节标签，请等待完成后再试',
+      }, async (ctrl) => {
         const bookRoot = r.bookRoot
         const docId = params['docId'] ?? ''
-        const m = resolveDocEntry(bookRoot, docId)
-        if (!m) return replyError(res, 404, 'NOT_FOUND', `文档ID未登记：${docId}`)
-        const absPath = safeManifestPath(bookRoot, m.path)
-        if (!absPath) return replyError(res, 400, 'BAD_PATH', '文档路径不合法')
-        if (!existsSync(absPath)) return replyError(res, 404, 'NOT_FOUND', `文档不存在：${m.path}`)
-
         // R48-76（四十八轮）：existsSync→readDraft 之间的 TOCTOU（文件恰被移动/删除时
-        // readDraft 裸抛 → dispatch 兜底 500 泛化「内部错误」丢现场语义）——对齐同文件
-        // analyze 端点 R66-26 模式：IO 失败落 500 IO_ERROR 人话文案
-        let draft: ReturnType<typeof readDraft>
-        try {
-          draft = readDraft(absPath)
-        } catch {
-          return replyError(res, 500, 'IO_ERROR', '读不到正文文件（可能已被移动或删除），请刷新后再试')
-        }
-        if (!draft.ok) return replyError(res, 400, 'NOT_CHAPTER', draft.reason)
+        // 裸抛 → dispatch 兜底 500 泛化「内部错误」丢现场语义）——D2（复审-0914-优化
+        // 修复批）：解析链收编 resolveDraftByDocId 单源（IO 失败落 500 IO_ERROR 人话
+        // 文案，R66-26 模式随链；单读快照口径不变）。
+        const d = resolveDraftByDocId(bookRoot, docId)
+        if (!d.ok) return replyError(res, d.status, d.code, d.message)
+        const { entry: m, draft } = d
         const { body, chapter } = draft
 
         const prompt = [
@@ -563,9 +492,9 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
 
         const result = await runAnalyst(ctx.userDataPath, 'tags', prompt, bookRoot, [m.path], ctrl)
         if (!result.ok) {
-          // R0912-P2-①：中断收口——ABORTED → 499 人话信封（对齐 outline/rewrite 既有先例）
-          if (result.code === 'ABORTED') return replyError(res, 499, result.code, result.error)
-          return replyError(res, 500, result.code, result.error)
+          // R0912-P2-①：中断收口——ABORTED → 499 人话信封；D4（复审-0914-优化修复批）：
+          // 状态映射收编 replyGenerationFailure 单源（本端点无 NO_* 码面，行为不变）
+          return replyGenerationFailure(res, result)
         }
         const payload = result.payload as Record<string, unknown>
 
@@ -583,11 +512,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
           if (allowed && allowed.has(v)) tags[key] = v
         }
         reply(res, 200, { ok: true, tags })
-      } finally {
-        // R0912-P2-①：settle（成功/失败/中断）统一注销（口径见 analyze 处 finally 注释）
-        if (registeredCtrl && registeredSession) driver.unregisterCtrl?.(registeredSession, registeredCtrl)
-        release()
-      }
+      })
     },
   })
 
@@ -599,40 +524,21 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
-      // R67-13（十五轮）：编排互斥矩阵补角——写稿系编排在途（self-heal/对话/后台收尾）
-      // 时拒收生成长任务（细纲/账本是写稿上下文注入源，在途覆盖写 = 混合态上下文）
-      const busyOrch = orchestrationBusyFor(params['name']!)
-      if (busyOrch) return replyError(res, 409, 'BUSY', busyOrch)
-      // RB-SV-P2-2：长任务并发闸
-      const release = acquireTaskGate(params['name']!, 'infer-meta')
-      if (!release) return replyError(res, 409, 'BUSY', '本书已在推断目标情绪，请等待完成后再试')
-      // R0912-P2-①：接入中断通道（register/unregister 形态与 analyze 子端点同款；
-      // owner 按 action 分槽='infer-meta:<书名>'，理由见 analyze 处头注）
-      const driver = getDriver()
-      let registeredSession: Session | null = null
-      let registeredCtrl: AbortController | null = null
-      try {
-        const session = await ensureSession(params['name']!, ctx.workDir!)
-        registeredSession = session
-        const ctrl = new AbortController()
-        driver.registerCtrl?.(session, ctrl, `infer-meta:${params['name']!}`)
-        registeredCtrl = ctrl
+      // R67-13 + RB-SV-P2-2（409 文案逐位保留）+ R0912-P2-①（owner='infer-meta:<书名>'）——
+      // 十段复制收编 runGatedGeneration 单源（复审-0914-优化修复批 P1-2，接法头注见 analyze 处）。
+      return runGatedGeneration(res, {
+        book: params['name']!,
+        workDir: ctx.workDir!,
+        action: 'infer-meta',
+        busyText: '本书已在推断目标情绪，请等待完成后再试',
+      }, async (ctrl) => {
         const bookRoot = r.bookRoot
         const docId = params['docId'] ?? ''
-        const m = resolveDocEntry(bookRoot, docId)
-        if (!m) return replyError(res, 404, 'NOT_FOUND', `文档ID未登记：${docId}`)
-        const absPath = safeManifestPath(bookRoot, m.path)
-        if (!absPath) return replyError(res, 400, 'BAD_PATH', '文档路径不合法')
-        if (!existsSync(absPath)) return replyError(res, 404, 'NOT_FOUND', `文档不存在：${m.path}`)
-
-        // R48-76（四十八轮）：同 autotag——existsSync→readDraft TOCTOU 兜底（R66-26 模式）
-        let draft: ReturnType<typeof readDraft>
-        try {
-          draft = readDraft(absPath)
-        } catch {
-          return replyError(res, 500, 'IO_ERROR', '读不到正文文件（可能已被移动或删除），请刷新后再试')
-        }
-        if (!draft.ok) return replyError(res, 400, 'NOT_CHAPTER', draft.reason)
+        // R48-76（四十八轮）：同 autotag——existsSync→readDraft TOCTOU 兜底（R66-26 模式）；
+        // D2（复审-0914-优化修复批）：解析链收编 resolveDraftByDocId 单源。
+        const d = resolveDraftByDocId(bookRoot, docId)
+        if (!d.ok) return replyError(res, d.status, d.code, d.message)
+        const { entry: m, draft } = d
         const { body, chapter } = draft
 
         const prompt = [
@@ -647,9 +553,9 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
 
         const result = await runAnalyst(ctx.userDataPath, 'infer_meta', prompt, bookRoot, [m.path], ctrl)
         if (!result.ok) {
-          // R0912-P2-①：中断收口——ABORTED → 499 人话信封（对齐 outline/rewrite 既有先例）
-          if (result.code === 'ABORTED') return replyError(res, 499, result.code, result.error)
-          return replyError(res, 500, result.code, result.error)
+          // R0912-P2-①：中断收口——ABORTED → 499 人话信封；D4（复审-0914-优化修复批）：
+          // 状态映射收编 replyGenerationFailure 单源（本端点无 NO_* 码面，行为不变）
+          return replyGenerationFailure(res, result)
         }
         const payload = result.payload as { 目标情绪?: string; 核心反转?: string }
 
@@ -659,11 +565,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
         if (emotion) meta.目标情绪 = emotion
         if (reversal) meta.核心反转 = reversal
         reply(res, 200, { ok: true, meta })
-      } finally {
-        // R0912-P2-①：settle（成功/失败/中断）统一注销（口径见 analyze 处 finally 注释）
-        if (registeredCtrl && registeredSession) driver.unregisterCtrl?.(registeredSession, registeredCtrl)
-        release()
-      }
+      })
     },
   })
 
@@ -697,24 +599,14 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBook(ctx.workDir, params['name'])
       if ('error' in r) return replyError(res, r.status, r.code, r.error)
-      // R67-13（十五轮）：编排互斥矩阵补角——写稿系编排在途（self-heal/对话/后台收尾）
-      // 时拒收生成长任务（细纲/账本是写稿上下文注入源，在途覆盖写 = 混合态上下文）
-      const busyOrch = orchestrationBusyFor(params['name']!)
-      if (busyOrch) return replyError(res, 409, 'BUSY', busyOrch)
-      // RB-SV-P2-2：长任务并发闸（全书文风分析采样多章，耗时最长）
-      const release = acquireTaskGate(params['name']!, 'analyze-style')
-      if (!release) return replyError(res, 409, 'BUSY', '本书正在做文风分析，请等待完成后再试')
-      // R0912-P2-①：接入中断通道（register/unregister 形态与 analyze 子端点同款；
-      // owner 按 action 分槽='analyze-style:<书名>'，理由见 analyze 处头注）
-      const driver = getDriver()
-      let registeredSession: Session | null = null
-      let registeredCtrl: AbortController | null = null
-      try {
-        const session = await ensureSession(params['name']!, ctx.workDir!)
-        registeredSession = session
-        const ctrl = new AbortController()
-        driver.registerCtrl?.(session, ctrl, `analyze-style:${params['name']!}`)
-        registeredCtrl = ctrl
+      // R67-13 + RB-SV-P2-2（409 文案逐位保留）+ R0912-P2-①（owner='analyze-style:<书名>'）——
+      // 十段复制收编 runGatedGeneration 单源（复审-0914-优化修复批 P1-2，接法头注见 analyze 处）。
+      return runGatedGeneration(res, {
+        book: params['name']!,
+        workDir: ctx.workDir!,
+        action: 'analyze-style',
+        busyText: '本书正在做文风分析，请等待完成后再试',
+      }, async (ctrl) => {
         const bookRoot = r.bookRoot
 
         // 读所有定稿正文章节（按章号排序）
@@ -726,16 +618,9 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
         const rules = readIronRules(bookRoot)
         const recent = sorted.slice(-10)
         // D3：命中短时缓存则跳过全书重读（allBodies+join 的重扫）；章集/正文变化最迟 5s 可见
-        const now = Date.now()
-        const cached = styleCorpusCache.get(bookRoot)
-        let fullStats: FullStyleStats
-        let sampleText: string
-        if (cached && now - cached.ts < (styleCorpusTtlMs ?? STYLE_CORPUS_TTL)) { // R62-21：测试注入优先
-          ;({ fullStats, sampleText } = cached.result)
-        } else {
-          // R47-18（四十七轮，合并批收编）：过期条目顺手逐出——原只当 miss 用、条目驻留至
-          // FIFO 触顶/删书；重算路径本就必走，delete 零成本零语义变更（下方 set 原键覆写）
-          if (cached) styleCorpusCache.delete(bookRoot)
+        // D1（复审-0914-优化修复批）：壳体收编 ttl-cache.ts 通用件——原 R47-18 过期
+        // 逐出/R58-B-10 写侧清扫/FIFO 段移入通用件 store（时序逐位不变）
+        const { fullStats, sampleText } = await styleCorpusCache.get(bookRoot, async (): Promise<StyleCorpusResult> => {
           // R46-2（四十六轮）：扫描+统计下沉 worker 线程（export B-24 同款先例）——
           // computeFullStats 对全书大串（join 又是一次同步大分配）的单段同步 CPU 正是
           // 0.1-1s 级事件循环停摆面（原注「下沉 worker 改动面大——登记维持」随本批
@@ -748,9 +633,9 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
             rules,
           }
           try {
-            ;({ fullStats, sampleText } = await runStyleScanAsync(scanJob))
+            return await runStyleScanAsync(scanJob)
           } catch (e) {
-            log.warn('api', `文风全书扫描 worker 失败，回落进程内同步路径：${e instanceof Error ? e.message : String(e)}`)
+            log.warn('api', `文风全书扫描 worker 失败，回落进程内同步路径：${errMsg(e)}`)
             const allBodies: string[] = []
             const recentBodies: string[] = []
             // R39-15（三十九轮）：回落面的读循环逐块让出（R37-3 范式）
@@ -765,27 +650,12 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
               }
               if (++scanned % SCAN_YIELD_EVERY === 0) await yieldToEventLoop()
             }
-            fullStats = computeFullStats(allBodies.join('\n\n'), rules)
-            sampleText = recentBodies.join('\n\n---\n\n')
+            return {
+              fullStats: computeFullStats(allBodies.join('\n\n'), rules),
+              sampleText: recentBodies.join('\n\n---\n\n'),
+            }
           }
-          // R58-B-10（五十八轮）：每写顺带清扫已过期条目（TTL 语义与读侧一致）——
-          // 此前过期条目只在被读/同书重算时逐出，未触达的书条目驻留至 FIFO 触顶，
-          // 多书场景陈旧语料（整书 join 大串 + 采样正文）可长期占内存
-          const sweepTtl = styleCorpusTtlMs ?? STYLE_CORPUS_TTL
-          const sweepNow = Date.now()
-          for (const [k, v] of styleCorpusCache) {
-            if (sweepNow - v.ts >= sweepTtl) styleCorpusCache.delete(k)
-          }
-          // 简单 FIFO 淘汰（Map 保插入序）：超上限丢最旧条目，防长期运行的书库累积
-          if (styleCorpusCache.size >= STYLE_CORPUS_MAX) {
-            const oldest = styleCorpusCache.keys().next().value
-            if (oldest !== undefined) styleCorpusCache.delete(oldest)
-          }
-          // R42-16（四十二轮）：ts 记 set 当刻 Date.now()——MISS 分支的读循环含逐块让出
-          //（每 25 章一次 setImmediate），大书扫描可跨数百 ms；此前记扫描前取的 now，
-          // 缓存「出生即折旧」TTL 窗被扫描时长吃掉，极端时刚 set 完就已过期。
-          styleCorpusCache.set(bookRoot, { result: { fullStats, sampleText }, ts: Date.now() })
-        }
+        })
 
         // R48-80（四十八轮）：同 analyze——模型档位调用前快照（完成后二次 resolve 在
         // 分钟级分析期间切档则信封溯源失真，R70-11 请求时刻口径）
@@ -808,9 +678,9 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
           .map((ch) => relative(bookRoot, ch._path!).replace(/\\/g, '/'))
         const result = await runAnalyst(ctx.userDataPath, 'style', prompt, bookRoot, styleSources, ctrl)
         if (!result.ok) {
-          // R0912-P2-①：中断收口——ABORTED → 499 人话信封（对齐 outline/rewrite 既有先例）
-          if (result.code === 'ABORTED') return replyError(res, 499, result.code, result.error)
-          return replyError(res, 500, result.code, result.error)
+          // R0912-P2-①：中断收口——ABORTED → 499 人话信封；D4（复审-0914-优化修复批）：
+          // 状态映射收编 replyGenerationFailure 单源（本端点无 NO_* 码面，行为不变）
+          return replyGenerationFailure(res, result)
         }
         const payload = result.payload
 
@@ -838,11 +708,7 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
           styleCandidates = persistCandidates(bookRoot, mapped).created.length
         }
         reply(res, 200, { ok: true, envelope, styleCandidates })
-      } finally {
-        // R0912-P2-①：settle（成功/失败/中断）统一注销（口径见 analyze 处 finally 注释）
-        if (registeredCtrl && registeredSession) driver.unregisterCtrl?.(registeredSession, registeredCtrl)
-        release()
-      }
+      })
     },
   })
 }

@@ -4,9 +4,9 @@
 import { ref, onMounted } from 'vue'
 import { Sparkles, FolderOpen, BookOpen, ArrowRight, Clock } from 'lucide-vue-next'
 import { usePlatform } from '../composables/usePlatform'
-import { useUiStore } from '../stores/ui'
+import { useLibraryIpc } from '../composables/useLibraryIpc'
+import { rawErrorMessage } from '../shared/error'
 
-const ui = useUiStore()
 const { isDesktop: hasDesktop, isMac } = usePlatform()
 const recents = ref<{ path: string; label: string }[]>([])
 const loading = ref(true)
@@ -31,32 +31,9 @@ async function load(): Promise<void> {
 
 onMounted(() => void load())
 
-// 新建 / 打开共用同一 IPC：pickLibrary 融合逻辑（是书库→直接用；空目录→问是否新建）。
-// P5-前端（第七轮）：交互路径 IPC 捕获（同 Library——加载路径第六轮已修，交互路径裸奔）
-async function chooseLibrary(): Promise<void> {
-  try {
-    // P3-9（2026-09-09 全量代码重评）：openLibrary 落库失败返回 {ok:false,reason}
-    // （此前类型面缺失该变体、返回值被静默吞）——reason 失败就地 toast 交代（用户
-    // 取消 canceled 维持静默），对齐 switchLibrary 的 P3-3 处理写法
-    const r = await window.clwritingDesktop?.openLibrary()
-    if (r && !r.ok && 'reason' in r) ui.toast(r.reason, 'error')
-  } catch (e) {
-    // R0912-3 #21：交互失败改 toast——原先写 loadError 顶掉已加载最近列表（loadError 双职）
-    ui.toast(e instanceof Error ? e.message : String(e), 'error')
-  }
-}
-
-async function switchTo(path: string): Promise<void> {
-  try {
-    const r = await window.clwritingDesktop?.switchLibrary(path)
-    // P3-3（评审补修）：switchLibrary 返回 {ok:false, reason}（大小写敏感卷警告选「换个
-    // 目录」等）此前只 catch 抛错、返回值被静默吞掉——取消原因就地 toast 交代
-    if (r && !r.ok) ui.toast(r.reason, 'error')
-  } catch (e) {
-    // R0912-3 #21：同 chooseLibrary——交互失败不再顶掉最近列表
-    ui.toast(e instanceof Error ? e.message : String(e), 'error')
-  }
-}
+// 选库/切库 IPC 交互单点化（复审-0914-优化 E7 → useLibraryIpc；取错口径保真 =
+// rawErrorMessage 原样透出，本页历史口径）
+const { chooseLibrary, switchTo } = useLibraryIpc({ formatError: rawErrorMessage })
 </script>
 
 <template>

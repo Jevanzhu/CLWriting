@@ -7,6 +7,12 @@
  * 最近未定稿章恰是高价值检索面；召回侧 chapterFingerprintFresh 惰性校验丢弃过期章，
  * buildIndex 增量自愈覆盖新指纹）；召回返回位置（章号+偏移），原文交精准读取。
  * 红线：账本永走精准读取不走 RAG；端点挂/未配 key → 召回空（降级回落，不崩）。
+ *
+ * P3-33（全库重评-0914）互斥依赖登记：本域（buildIndex/resetRagIndex 等）无自有跨进程
+ * 互斥，依赖 rag/build・rag/rebuild 端点的任务闸（studio server api/rag.ts 的
+ * acquireTaskGate(bookName,'rag-build')）兜住单实例并发；双进程并行 rebuild 与 build
+ * 交错时靠 SQLite 写原子（BEGIN IMMEDIATE 单事务）+ 指纹幂等收敛（重复嵌入的块被
+ * 唯一键覆盖、指纹以末写为准）——双份 embed 费用浪费为已知取舍。
  */
 
 import { existsSync } from 'node:fs'
@@ -20,7 +26,7 @@ import { embed, type EmbedOptions } from './embed.js'
 import type { RagConfig } from './config.js'
 import type { DatabaseSync } from 'node:sqlite'
 import type { ChapterMeta } from '../format/types.js'
-import { log } from '../log/index.js'
+import { log, errMsg } from '../log/index.js'
 import { recordTaskUsage } from '../ai/calls.js'
 
 /** O-3（第十三轮）：召回块数告警阈值——超出 store.ts readAllChunks 量化注释的已知
@@ -152,7 +158,7 @@ function chapterHashKey(chapterNumber: number): string {
 
 /** 错误信息提取（事务回滚返回用）。 */
 function errStr(e: unknown): string {
-  return e instanceof Error ? e.message : String(e)
+  return errMsg(e)
 }
 
 // R27-94（二十七轮）：指纹只摘 body——分块与 embedding 的输入只有正文，frontmatter
@@ -487,19 +493,33 @@ export async function buildIndex(
     // 事务内 deleteChunksByChapter 清旧块 + 重 embed + 覆盖指纹，偏移漂移残留同 missing 场景）。
     const missingFingerprint = new Set<number>()
     const staleFingerprint = new Set<number>()
+    // C5（复审-0914-优化修复批）：指纹循环顺手缓存已读 body——仅 missing/stale 命中章
+    // 保留（未命中章读完即弃，不抬峰值内存），下方收集段复用：stale/missing 章此前在
+    // 指纹循环与 toIndex 收集段各读一次全文，现至多读一次。指纹循环与收集段之间全同步
+    // IO 无 await，缓存 body 与现读逐字节一致。指纹计算口径不变（readChapterFingerprint
+    // 同式：readFile → hashChapterBody，查询侧 ：206 原函数保留不动）。
+    const staleBodies = new Map<number, string>()
     // R31-37（三十一轮）成本口径备案：指纹核对需逐章全文读+SHA-256（200 万字书每轮
     // build ≈8MB 读，秒级）——readChapterDir 的 (mtimeNs,size) 缓存只覆盖 meta 不覆盖
     // 指纹；引入 mtime 快路径会开「同 mtime 改内容」的漏检窗，有意不设，成本口径见此。
+    // C5 后口径如实化：每章至多读一次全文（含 toIndex 收集段），全轮 ≈ 一遍全书；
+    // C5 前 stale/missing 章另有收集段第二次全文读（读量随脏章数上浮）。
     for (const ch of chapters) {
       if (ch.章号 > indexedMax) continue
-      const currentHash = readChapterFingerprint(ch)
-      if (!currentHash) continue // 当前读不出 → 留给 toIndex 的读失败路径（下轮重试）
+      if (!ch._path) continue // readChapterFingerprint 同式：无路径按读不出处理
+      const r = readFile(ch._path)
+      if (!r.ok) continue // 当前读不出 → 留给 toIndex 的读失败路径（下轮重试）
+      const currentHash = hashChapterBody(r.body)
       const indexedHash = getRagMeta(db, chapterHashKey(ch.章号))
       if (!indexedHash) {
         missingFingerprint.add(ch.章号)
+        staleBodies.set(ch.章号, r.body)
         continue
       }
-      if (indexedHash !== currentHash) staleFingerprint.add(ch.章号)
+      if (indexedHash !== currentHash) {
+        staleFingerprint.add(ch.章号)
+        staleBodies.set(ch.章号, r.body)
+      }
     }
 
     const toIndex = chapters
@@ -517,7 +537,10 @@ export async function buildIndex(
     // continue 跳过但游标照常推进到 toIndex 最大章号，该章永久无指纹）
     let readFailAt: number | null = null
     for (const ch of toIndex) {
-      const r = ch._path ? readFile(ch._path) : null
+      // C5：stale/missing 命中章复用指纹循环已读 body（不再第二次全文读盘）；
+      // 其余（新章 >indexedMax / 指纹循环读失败章）照旧现读
+      const cached = staleBodies.get(ch.章号)
+      const r = cached !== undefined ? { ok: true as const, body: cached } : ch._path ? readFile(ch._path) : null
       if (!r || !r.ok) {
         readFailAt = ch.章号
         break

@@ -24,10 +24,11 @@ import { runSpec } from '../../../ai/tasks/spec.js'
 import { ONBOARD_SPEC } from '../../../ai/tasks/specs.js'
 import { countWords } from '../../../format/words.js'
 import { bodyOf } from '../../../format/frontmatter.js'
-import { acquireTaskGate, orchestrationBusyFor } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
+// P1-2/D4（复审-0914-优化修复批）：长任务门控包装 + 生成失败状态映射单源；
+// onboard-save 仍直连 acquireTaskGate（无 AI 生成段不接包装，闸在 body 校验后占——
+// 入口闸会改 409/400 判序与 driver 假在途面，行为红线不越）
+import { acquireTaskGate, runGatedGeneration, replyGenerationFailure } from './task-gate.js'
 import { snapshotBeforeOverwrite } from '../../../process/draft-pipeline.js' // R71-9：覆盖留底单源复用
-import { getDriver, ensureSession } from '../../../driver/index.js' // R0912-P2-①：中断通道注册面
-import type { Session } from '../../../driver/types.js'
 import { log } from '../../../log/index.js'
 
 interface OnboardCtx {
@@ -84,27 +85,18 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
-    // R67-13（十五轮）：编排互斥矩阵补角——写稿系编排在途（self-heal/对话/后台收尾）
-    // 时拒收生成长任务（细纲/账本是写稿上下文注入源，在途覆盖写 = 混合态上下文）
-    const busyOrch = orchestrationBusyFor(params['name']!)
-    if (busyOrch) return replyError(res, 409, 'BUSY', busyOrch)
-    // RB-SV-P2-2：长任务并发闸（AI 填设定分钟级且覆盖落盘）
-    const release = acquireTaskGate(params['name']!, 'onboard-ai')
-    if (!release) return replyError(res, 409, 'BUSY', '本书已有 AI 设定任务在跑，请等待完成后再试')
-    // R0912-P2-①（2026-09-11 重评-0911c 修复批）：接入中断通道——此前 runSpec 未接 driver
-    // ctrl 注册面，/interrupt 对在途设定生成完全无效且 driver.isRunning 假空闲（假成功）。
-    // 接法照抄 stream.ts spawn/self-heal 的 register/unregister 形态：编排段新建 ctrl →
-    // driver.registerCtrl（owner='onboard:<书名>'，含书名使跨书并发互不误伤；同书重入已被
-    // 任务闸 409 挡住，同 owner 串行换新安全）→ settle（外层 finally）统一注销。
-    const driver = getDriver()
-    let registeredSession: Session | null = null
-    let registeredCtrl: AbortController | null = null
-    try {
-      const session = await ensureSession(params['name']!, ctx.workDir!)
-      registeredSession = session
-      const ctrl = new AbortController()
-      driver.registerCtrl?.(session, ctrl, `onboard:${params['name']!}`)
-      registeredCtrl = ctrl
+    // R67-13（十五轮）编排互斥预检 + RB-SV-P2-2 任务闸（409 文案逐位保留）+
+    // R0912-P2-①（2026-09-11 重评-0911c 修复批）中断通道——十段复制收编
+    // runGatedGeneration 单源（复审-0914-优化修复批 P1-2，接法头注见 task-gate.ts；
+    // ownerLabel='onboard' 保留历史注册名 'onboard:<书名>' 字面量——与 action 名
+    // 'onboard-ai' 异名，包装缺省拼接不适用）。onboard-save 无 AI 生成段，不接线。
+    return runGatedGeneration(res, {
+      book: params['name']!,
+      workDir: ctx.workDir!,
+      action: 'onboard-ai',
+      busyText: '本书已有 AI 设定任务在跑，请等待完成后再试',
+      ownerLabel: 'onboard',
+    }, async (ctrl) => {
       const reqBody = await readJson(req)
       const step = String(reqBody['step'] ?? '') as OnboardStep
       /** 既有讨论（对话式整理到步时传入，prompt 据此整理防臆造） */
@@ -149,9 +141,10 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
       const result = await runOnboard(ctx.userDataPath, prompt, bookRoot, ctrl)
       if (!result.ok) {
         // R0912-P2-①：中断收口——ABORTED（/interrupt 中断）→ 499 人话信封（对齐
-        // outline/rewrite 既有 ABORTED→499 先例）；其余维持 500 GEN_FAIL
-        if (result.code === 'ABORTED') return replyError(res, 499, result.code, result.error)
-        return replyError(res, 500, 'GEN_FAIL', result.error)
+        // outline/rewrite 既有 ABORTED→499 先例）；其余维持 500 GEN_FAIL。D4（复审
+        // -0914-优化修复批）：状态映射收编 replyGenerationFailure 单源（runOnboard 已
+        // 把非中断失败坍缩 GEN_FAIL，映射行为不变）。
+        return replyGenerationFailure(res, result)
       }
 
       // 平台规范化批：AI 产出写前归一（onboard 直写不经 DocumentService.save，自收口）
@@ -177,12 +170,7 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
         return replyError(res, 500, 'IO_ERROR', '落盘失败')
       }
       reply(res, 200, { ok: true, step, path: relPath, words: countWords(bodyOf(content)), content, ...(snapshotted ? { snapshotted: true } : {}) })
-    } finally {
-      // R0912-P2-①：settle（成功/失败/中断）统一注销——isRunning 归 false（cc X-P2-11 口径）；
-      // ensureSession 失败（未注册）时跳过。onboard-save 无 AI 生成段，不接线。
-      if (registeredCtrl && registeredSession) driver.unregisterCtrl?.(registeredSession, registeredCtrl)
-      release()
-    }
+    })
   },
   })
 

@@ -143,11 +143,15 @@ jobs:
       # R67-4（十五轮）：Electron 壳真实启动冒烟——release-smoke 只 spawn 编译产物
       # server-main.js（node 进程，不启动 Electron 壳），BrowserWindow/preload/IPC 在
       # 真实 Electron 运行时的行为此前无任何自动化兜底。拉起打包态 .app 二进制，
-      # 存活 ≥25s、捕获 [CLW_SMOKE] ready 结构化标记且未触发 renderer-crash 标记即过
+      # 捕获 [CLW_SMOKE] ready 结构化标记且未触发 renderer-crash 标记即过
       # （放工件上传后：冒烟红仍留 DMG 供排查）。
       # R73-53（二十一轮）：判定改 grep main.ts 直写 stdout 的结构化标记（一行 ASCII）——
       # 原 grep 中文措辞与 main.ts 文案强耦合，文案改写即静默失判（且打包态 log.* 只落
       # JSONL 不进 stdout，原崩溃 grep 实际并不可见）
+      # 复审-0914-优化修复批 P3：固定 sleep 25 改轮询启动标记早退（timeout 60 ≥ 原 25s
+      # 安全裕度；标记到即走，快机不再白等、慢机上限更宽）。判定语义不弱化：下方
+      # 「进程存活 + ready 标记 + 无 renderer-crash」三重判定原样保留——轮询超时（标记
+      # 未现）落「未捕获标记」失败路径、进程已死落「退出」失败路径，两路均输出尾部日志。
       - name: Electron 启动冒烟（打包态 .app 拉起）
         if: runner.os == 'macOS'
         run: |
@@ -156,9 +160,9 @@ jobs:
           test -x "$APP_BIN" || { echo "::error::未找到打包态可执行体：$APP_BIN"; exit 1; }
           ELECTRON_ENABLE_LOGGING=1 "$APP_BIN" >/tmp/clw-electron-smoke.log 2>&1 &
           PID=$!
-          sleep 25
+          timeout 60 bash -c 'until grep -q "\[CLW_SMOKE\] ready" /tmp/clw-electron-smoke.log 2>/dev/null; do sleep 1; done' || true
           if ! kill -0 "$PID" 2>/dev/null; then
-            echo "::error::Electron 打包应用 25s 内退出（启动失败）"
+            echo "::error::Electron 打包应用在启动标记轮询窗（60s）内退出（启动失败）"
             tail -80 /tmp/clw-electron-smoke.log || true
             exit 1
           fi
@@ -173,9 +177,11 @@ jobs:
             exit 1
           fi
           kill "$PID" 2>/dev/null || true
-          sleep 3
+          # 复审-0914-优化修复批 P3：TERM 后固定 sleep 3 改轮询进程退出早退（上限 3s
+          # 不短于原裕度，提前退出即提前收口）；仍滞留时 KILL 兜底保持不变。
+          timeout 3 bash -c 'until ! kill -0 '"$PID"' 2>/dev/null; do sleep 1; done' || true
           kill -9 "$PID" 2>/dev/null || true
-          echo "冒烟通过：打包态 Electron 进程存活 ≥25s，启动标记已捕获，无渲染崩溃标记"
+          echo "冒烟通过：打包态 Electron 启动标记已捕获、无渲染崩溃标记，TERM 后进程已收口"
       # 复审-0913-mac适配 P3-11：window-cycle（建窗→关窗→退出链）此前只有 ubuntu dev 态
       # 覆盖（scripts/electron-smoke.mjs 缺省 node electron/cli.js 形态），打包态链无 CI
       # 接线。此处以 CLW_SMOKE_APP_BIN 注入实包二进制跑同款驱动——脚本契约（scripts/
@@ -199,6 +205,10 @@ jobs:
       # 崩溃标记（标记字符串与 mac 腿同源，均为 main.ts 直写 stdout 的结构化打点）。
       # ELECTRON_ENABLE_LOGGING=1 与 mac 腿同口径；pwsh 的 Start-Process 不允许
       # stdout/stderr 重定向同一文件，分两文件后同查（等价 mac 的 2>&1 合流）。
+      # 复审-0914-优化修复批 P3：固定 25s 改轮询启动标记早退（上限 60s ≥ 原 25s 安全
+      # 裕度）。判定语义不弱化：下方 HasExited + ready + 无 renderer-crash 三重判定
+      # 原样保留——轮询超时（标记未现）落「未捕获标记」失败路径、进程已死落「退出」
+      # 失败路径，两路均输出尾部日志。
       - name: Electron 启动冒烟（打包态 exe 拉起）
         if: runner.os == 'Windows'
         shell: pwsh
@@ -212,9 +222,12 @@ jobs:
           $logErr = "clw-electron-smoke.err.log"
           $env:ELECTRON_ENABLE_LOGGING = "1"
           $p = Start-Process -FilePath $exe -PassThru -RedirectStandardOutput $logOut -RedirectStandardError $logErr
-          Start-Sleep -Seconds 25
+          $deadline = (Get-Date).AddSeconds(60)
+          while (-not (Get-Content $logOut, $logErr -ErrorAction SilentlyContinue | Select-String -SimpleMatch "[CLW_SMOKE] ready") -and ((Get-Date) -lt $deadline)) {
+            Start-Sleep -Seconds 1
+          }
           if ($p.HasExited) {
-            Write-Output "::error::Electron 打包应用 25s 内退出（启动失败，ExitCode=$($p.ExitCode)）"
+            Write-Output "::error::Electron 打包应用在启动标记轮询窗（60s）内退出（启动失败，ExitCode=$($p.ExitCode)）"
             Get-Content $logOut -Tail 80 -ErrorAction SilentlyContinue
             Get-Content $logErr -Tail 80 -ErrorAction SilentlyContinue
             exit 1
@@ -231,4 +244,4 @@ jobs:
             exit 1
           }
           Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
-          Write-Output "冒烟通过：打包态 Electron 进程存活 ≥25s，启动标记已捕获，无渲染崩溃标记"
+          Write-Output "冒烟通过：打包态 Electron 启动标记已捕获，无渲染崩溃标记"

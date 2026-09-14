@@ -10,6 +10,8 @@ import { readBookConfig } from '../../format/yaml.js'
 import { applyGlobalDefaults } from '../../format/global-defaults.js'
 import { finalizedChapterSetOfBook } from '../../document/manifest.js'
 import type { ToolContext, ToolResult } from './context.js'
+// 复审-0914-优化修复批（errMsg 收编）：错误摘要口径单源
+import { errMsg } from '../../log/index.js'
 
 export function chapterStatus(ctx: ToolContext, _input: Record<string, unknown>): ToolResult {
   const cachePath = join(ctx.bookRoot, '.cache', 'index.db')
@@ -24,7 +26,7 @@ export function chapterStatus(ctx: ToolContext, _input: Record<string, unknown>)
     // 抛 SQLITE_BUSY，等锁而非失败。busy_timeout 是连接级设置，只读连接可设
     db.exec('PRAGMA busy_timeout = 5000')
   } catch (e) {
-    return { ok: false, summary: '打开书缓存失败：' + (e instanceof Error ? e.message : String(e)) }
+    return { ok: false, summary: '打开书缓存失败：' + (errMsg(e)) }
   }
   try {
     const cfg = readBookConfig(join(ctx.bookRoot, 'book.yaml'))
@@ -43,7 +45,7 @@ export function chapterStatus(ctx: ToolContext, _input: Record<string, unknown>)
     )
     return { ok: true, summary: formatStatus(snapshot) }
   } catch (e) {
-    return { ok: false, summary: '读取章节状态失败：' + (e instanceof Error ? e.message : String(e)) }
+    return { ok: false, summary: '读取章节状态失败：' + (errMsg(e)) }
   } finally {
     db.close()
   }

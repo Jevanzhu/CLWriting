@@ -67,11 +67,12 @@ describe('resolveInitialBook', () => {
     expect(resolveInitialBook(workDir, '平级书')).toBe('平级书')
   })
 
-  it('复审-0913-mac适配 P3-3: NFD 形态书名 ref 命中 NFC 登记名（mac 终端/启动器传入分解形）', () => {
+  it('复审-0913-mac适配 P3-3 + 全库重评-0914 P3-9: NFD 形态书名 ref 命中 → 返回 NFC 登记名', () => {
     // 登记名建书时恒 NFC（init.ts 归一）；CLI/argv 的 ref 可能 NFD——精确串比较
     // 落空 → --book 静默回落书架页。两侧 toNfcName 后命中（全平台安全：存量名恒
     // NFC，归一不引入假命中；异形仅 CJK 无分解形的「平级书」不受影响，故用含 é 的
-    // 夹具登记名验证真分解面）
+    // 夹具登记名验证真分解面）。P3-9：命中臂返回 NFC 登记名而非 NFD 原串 ref——
+    // 函数契约「解析为书架登记书名」，下游对登记名严格匹配不再落空。
     const nfcName = 'Étude之书'
     const nfdRef = nfcName.normalize('NFD')
     expect(nfdRef).not.toBe(nfcName)
@@ -85,7 +86,7 @@ describe('resolveInitialBook', () => {
       ].join('\n') + '\n',
     )
     try {
-      expect(resolveInitialBook(workDir, nfdRef)).toBe(nfdRef)
+      expect(resolveInitialBook(workDir, nfdRef)).toBe(nfcName)
     } finally {
       // 还原名册，不影响后续用例（beforeAll 夹具为两书）
       writeFileSync(

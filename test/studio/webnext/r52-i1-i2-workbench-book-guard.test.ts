@@ -31,7 +31,7 @@ const streamMocks = vi.hoisted(() => ({
   generateOutline: vi.fn(),
   generateLeadUpdates: vi.fn(),
 }))
-vi.mock('../../../src/studio/web-next/src/api/stream', () => streamMocks)
+vi.mock('../../../src/studio/web-next/src/api/workbench', () => streamMocks)
 const traceMocks = vi.hoisted(() => ({ getTraceStats: vi.fn(async () => ({ ruleHits: [] })) }))
 vi.mock('../../../src/studio/web-next/src/api/trace-stats', () => traceMocks)
 const booksMocks = vi.hoisted(() => ({ getConfig: vi.fn(async () => ({})) }))

@@ -16,6 +16,7 @@ import { useDocStore } from '../../stores/doc'
 import { getConfig, renameBook } from '../../api/books'
 import { friendlyError } from '../../shared/error'
 import { migrateBookKeyedState } from '../../composables/useShelf' // R46-6：改名迁移按书键控状态
+import { useStaleGuard } from '../../composables/useStaleGuard'
 import { parseNumericInput } from '../../shared/numeric-input'
 import { usePrefsStore } from '../../stores/prefs'
 import SettingsBookWriting from './SettingsBookWriting.vue'
@@ -87,14 +88,15 @@ async function openBookDir(): Promise<void> {
 
 // R64-4（十二轮）：配置加载代守卫（R63-3 只修了兄弟组件 SettingsBookAnalysis）——本组件
 // 的 titleBaseline 同样会被在途旧响应污染：A 书在途 getConfig 迟到落地 B 书面板后，
-// 书名框显示 A 书标题并污染改名基线（对齐 SettingsBookAnalysis 的 loadGen + 双复检口径）
-let loadGen = 0
+// 书名框显示 A 书标题并污染改名基线（对齐 SettingsBookAnalysis 的 loadGen + 双复检口径）。
+// E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard。
+const loadGen = useStaleGuard()
 
 watch(
   () => [ui.settingsOpen, ws.bookName] as const,
   async ([open, name]) => {
     if (!open) return
-    const gen = ++loadGen
+    const gen = loadGen.begin()
     // 无书打开：整页空态（banner/书名/覆盖组/存储全部隐藏），基线复位
     if (!name) {
       bookTitle.value = ''
@@ -103,7 +105,7 @@ watch(
     }
     try {
       const cfg = await getConfig(name)
-      if (gen !== loadGen || ws.bookName !== name) return // R64-4 双复检：代 + 书名
+      if (loadGen.stale(gen) || ws.bookName !== name) return // R64-4 双复检：代 + 书名
       bookTitle.value = cfg.book?.title ?? ''
       titleBaseline.value = bookTitle.value
     } catch {

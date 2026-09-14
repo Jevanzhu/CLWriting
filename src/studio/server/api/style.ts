@@ -42,7 +42,7 @@ import { migrateStyleLibrary } from '../../../format/style-migrate.js'
 import { harvestStyleCandidatesAsync } from '../../../process/style-harvest.js'
 import { readKind, resolveBook, bookMovedFailure } from '../book-context.js'
 import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
-import { localDayKey, log } from '../../../log/index.js' // R76-31：候选日键与 overview/日记同口径（本地日）
+import { localDayKey, log, errMsg } from '../../../log/index.js'
 import type { EntryKind, EntrySource, StyleEntry } from '../../../format/types.js'
 
 interface StyleCtx {
@@ -334,7 +334,7 @@ export function registerStyleRoutes(ctx: StyleCtx): void {
       reply(res, 200, { ok: true, baseline: { frozenAt: b.frozenAt, frozenFrom: b.frozenFrom, scenes: Object.keys(b.byScene) } })
     } catch (e) {
       // P2-4：API 错误脱敏
-      replyError(res, 400, 'NO_SAMPLES', redactSecret(e instanceof Error ? e.message : String(e)))
+      replyError(res, 400, 'NO_SAMPLES', redactSecret(errMsg(e)))
     }
   },
   })

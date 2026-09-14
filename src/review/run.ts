@@ -31,6 +31,8 @@ import {
   type NormalizedReviewResult,
   type PieceListCheck,
 } from './contract.js'
+// 复审-0914-优化修复批（errMsg 收编）：错误摘要口径单源
+import { errMsg } from '../log/index.js'
 
 /** 单视角的执行包：宿主据此调一次模型产出该视角的 issues。 */
 export interface ReviewLensPacket {
@@ -344,7 +346,7 @@ export function collectReviewIssues(input: {
       // RB-KN-P2-8：读取失败与解析失败分类——并发删除/权限错误原先也被记成「JSON 损坏」
       badEntries.push({
         path: expected.file,
-        reason: `issues 文件读取失败：${e instanceof Error ? e.message : String(e)}`,
+        reason: `issues 文件读取失败：${errMsg(e)}`,
       })
       continue
     }

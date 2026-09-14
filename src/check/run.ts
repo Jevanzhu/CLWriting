@@ -24,22 +24,127 @@ import {
   LEAD_UPDATES_ARCHIVE_DIR,
 } from './lead-updates.js'
 import { readChapterDir } from '../format/chapters.js'
-import { readManifest } from '../document/manifest.js'
+import { readManifest, type ManifestEntry } from '../document/manifest.js'
 import { deriveStatus } from '../document/status.js'
 import { probeCachedRevision, probeCachedPublished } from '../document/tree.js'
 import { existingAnalysisPath } from '../document/analysis.js'
 import { docJoinKey, normalizeWinSeparators } from '../fs/safe-path.js'
-import { syncTreeIssuesEpoch, readTreeIssuesCache, writeTreeIssuesCacheBatch, computeLeadsBookFp, readLeadsBookRed, writeLeadsBookRed, computeTreeIssuesGlobalFp } from './tree-issues-cache.js'
+import { syncTreeIssuesEpoch, readTreeIssuesCache, writeTreeIssuesCacheBatch, computeLeadsBookFp, computeLeadsBookFpFromEpochFp, readLeadsBookRed, writeLeadsBookRed, computeTreeIssuesGlobalFp } from './tree-issues-cache.js'
 import { checkLeadsBookItems } from './leads.js'
-import type { CheckReport } from './types.js'
+import type { CheckReport, CheckItem } from './types.js'
 import type { ChapterMeta, BookConfig } from '../format/types.js'
-import { log } from '../log/index.js'
+import { log, errMsg } from '../log/index.js'
 import { yieldToEventLoop } from '../async.js'
 
 /** 机检结果：成功带 report + chapter + body（三审端点复用 chapter/body）；失败带 code（映射 HTTP 状态）。 */
 export type CheckOutcome =
   | { ok: true; report: CheckReport; hasRed: boolean; chapter: ChapterMeta; body: string }
   | { ok: false; code: 'NOT_CHAPTER' | 'REBUILD_FAIL' | 'CHECK_ERROR'; error: string; details?: unknown }
+
+/**
+ * P3（复审-0914-优化修复批）：单章端点（runCheckForDocument）与树聚合
+ * （collectTreeIssuesCore）共用的「读配置→托底」前奏——B-P2-7 的 .ok 检查 + warn 与
+ * applyGlobalDefaults 托底两处逐字同构。degradedError 供单章侧 R29-5 黄项用原文
+ * （树聚合黄项无处落，只吃 warn——见 collectTreeIssuesCore 注）。
+ */
+function readCheckConfig(
+  bookRoot: string,
+  userDataPath: string | null,
+): { config: BookConfig; degradedError: string | null } {
+  // B-P2-7：检查 .ok，损坏时 warn 留诊断（config 回落 DEFAULT_CONFIG，不阻断）
+  const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
+  if (!cfgResult.ok) log.warn('check', `book.yaml 降级: ${cfgResult.error.message}`)
+  // 全局托底：short.strict 等未设时回落 global.json——runner 的 promoteStrictShort
+  // 读的是这里传下去的 config，服务端各入口须传 userDataPath（不传=书级直读，测试/CLI 兼容）
+  return {
+    config: applyGlobalDefaults(cfgResult.config, userDataPath),
+    degradedError: cfgResult.ok ? null : cfgResult.error.message,
+  }
+}
+
+/**
+ * P3（复审-0914-优化修复批）：「rebuild→开库→PRAGMA」前奏参数化——单章端点与树聚合
+ * 两处逐字同构（~35 行），仅两轴不同，作参数收编：
+ * - throttleSourceProbe：单章链 R47-11 的增量探测 3s TTL 节流 opt-in（连查/轮询去抖），
+ *   树聚合 rebuild 不节流（rebuild.ts 节流块注口径）。
+ * - failMode：'envelope'（单章 M-9（2026-08-21）：硬异常归 REBUILD_FAIL 信封出端点，
+ *   此前穿透成 500 裸异常）/ 'fail-open'（树聚合 M-9 同批降级：warn 留痕 +
+ *   rebuildFailed=true，只算 verdict 不拦树——与缓存层「读写失败跳过缓存走全量」红线
+ *   对齐）。PRAGMA 并入同一失败链（2026-08-24 审计 C4 口径：exec 抛错即关库不留句柄，
+ *   单章侧契约不变、树聚合侧由调用方 finally 收口）。
+ */
+function openCheckDb(
+  bookRoot: string,
+  hasWiring: boolean,
+  opts: { throttleSourceProbe: boolean; failMode: 'envelope' | 'fail-open' },
+): { db: DatabaseSync | null; rebuildFailed: boolean; fail?: { error: string; details?: unknown } } {
+  // rebuild 条件：有布线（账本/成长线依赖 index.db）才走；无布线（独立短篇）跳过
+  if (!hasWiring) return { db: null, rebuildFailed: false }
+  const cachePath = join(bookRoot, '.cache', 'index.db')
+  const failOpen = (message: string): { db: null; rebuildFailed: true } => {
+    log.warn('check', message)
+    return { db: null, rebuildFailed: true }
+  }
+  try {
+    // R47-11（四十七轮）：单章机检链的增量探测 opt-in 3s TTL 节流——四棵源树逐文件
+    // readdir+stat 在 SMB/网盘卷上单遍秒级，连查/轮询按请求次数放大；取舍与口径见
+    // rebuild.ts 节流块注（树聚合 collectTreeIssuesCore 的 rebuild 不节流，见函数头注）
+    const rebuilt = rebuild(bookRoot, cachePath, opts.throttleSourceProbe ? { throttleSourceProbe: true } : undefined)
+    if (rebuilt.errors.length > 0) {
+      if (opts.failMode === 'envelope') {
+        return {
+          db: null,
+          rebuildFailed: false,
+          fail: { error: '源文件解析失败，先修这些文件', details: rebuilt.errors.slice(0, 5) },
+        }
+      }
+      // rebuild 失败：机检 red 强依赖 db 不可算，降级——db 留 null 循环跳过机检、只算 verdict
+      //（verdict 驳回不依赖 db；单章解析失败不应连累全树 verdict 红点）
+      return { db: null, rebuildFailed: true }
+    }
+    const db = new DatabaseSync(cachePath)
+    try {
+      // 与 rebuild 同款：并发下（树红点聚合 + rebuild 同跑）等锁 5s 而非立即 SQLITE_BUSY
+      db.exec('PRAGMA busy_timeout = 5000')
+      return { db, rebuildFailed: false }
+    } catch (e) {
+      db.close() // 审计 C4：PRAGMA 抛错（库损坏/锁超时）不留已开句柄
+      return opts.failMode === 'envelope'
+        ? { db: null, rebuildFailed: false, fail: { error: `缓存库不可用：${errMsg(e)}` } }
+        : failOpen(`树红点聚合降级（rebuild/开库失败，只算 verdict）：${errMsg(e)}`)
+    }
+  } catch (e) {
+    return opts.failMode === 'envelope'
+      ? { db: null, rebuildFailed: false, fail: { error: `缓存库不可用：${errMsg(e)}` } }
+      : failOpen(`树红点聚合降级（rebuild/开库失败，只算 verdict）：${errMsg(e)}`)
+  }
+}
+
+/**
+ * F5（复审-0914-优化修复批）：降级黄项「后置 push + strict 短篇升红」三连同构收编
+ * ——原在 runCheckForDocument（book.yaml 降级 R29-5）与 checkWithDb（账本兑现侧
+ * R31-3 / 声明侧 R33D-14）逐字复制。section 名 / checkId / level / 升红语义逐位不变，
+ * 纯机械去重。
+ */
+function pushDegradedYellow(
+  report: CheckReport,
+  config: BookConfig,
+  name: string,
+  checkId: string,
+  message: string,
+  chapter?: number,
+): void {
+  const item: CheckItem =
+    chapter === undefined
+      ? { checkId, level: 'yellow', message }
+      : { checkId, level: 'yellow', message, chapter }
+  report.sections.push({ name, items: [item] })
+  // R51-E-N2（五十一轮）：后置推入不过 runner 的报告内升红路径——严格短篇下
+  // degraded/unreadable 族同升红（「配置降级/检查没跑成」不可绿灯过定稿闸）。
+  // 重评-P2-4（2026-09-09 全量代码重评）：strict 生效判定走 effectiveShort
+  // （kind==='short' 门控）——长篇误写 short 段不升红，与 runner 报告内路径同源。
+  if (effectiveShort(config)?.strict) promoteStrictShort(report.sections.slice(-1))
+}
 
 /**
  * 对单个文档跑机检（absPath → CheckReport）。
@@ -54,80 +159,35 @@ export function runCheckForDocument(
   userDataPath?: string | null,
   opts?: { draftText?: string },
 ): CheckOutcome {
-  // B-P2-7：检查 .ok，损坏时 warn 留诊断（config 回落 DEFAULT_CONFIG，不阻断）
-  const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
-  if (!cfgResult.ok) log.warn('check', `book.yaml 降级: ${cfgResult.error.message}`)
-  // 全局托底：short.strict 等未设时回落 global.json——runner 的 promoteStrictShort
-  // 读的是这里传下去的 config，服务端各入口须传 userDataPath（不传=书级直读，测试/CLI 兼容）
-  const config = applyGlobalDefaults(cfgResult.config, userDataPath ?? null)
-  // rebuild 条件：有布线（账本/成长线依赖 index.db）才走；无布线（独立短篇）跳过
+  const { config, degradedError } = readCheckConfig(bookRoot, userDataPath ?? null)
   const hasWiring = existsSync(join(bookRoot, '布线'))
-
-  const cachePath = join(bookRoot, '.cache', 'index.db')
-  let db: DatabaseSync | null = null
-  if (hasWiring) {
-    // M-9（2026-08-21）：rebuild/开库硬异常归 REBUILD_FAIL 出口（此前穿透成 500 裸异常，
-    // 端点契约本就为这类失败预留了 code）
-    try {
-      // R47-11（四十七轮）：单章机检链的增量探测 opt-in 3s TTL 节流——四棵源树逐文件
-      // readdir+stat 在 SMB/网盘卷上单遍秒级，连查/轮询按请求次数放大；取舍与口径见
-      // rebuild.ts 节流块注（树聚合 collectTreeIssuesCore 的 rebuild 不节流，见下）
-      const rebuilt = rebuild(bookRoot, cachePath, { throttleSourceProbe: true })
-      if (rebuilt.errors.length > 0) {
-        return {
-          ok: false,
-          code: 'REBUILD_FAIL',
-          error: '源文件解析失败，先修这些文件',
-          details: rebuilt.errors.slice(0, 5),
-        }
-      }
-      db = new DatabaseSync(cachePath)
-    } catch (e) {
-      return {
-        ok: false,
-        code: 'REBUILD_FAIL',
-        error: `缓存库不可用：${e instanceof Error ? e.message : String(e)}`,
-      }
+  // M-9（2026-08-21）：rebuild/开库硬异常归 REBUILD_FAIL 出口（此前穿透成 500 裸异常，
+  // 端点契约本就为这类失败预留了 code）——R47-11 节流 opt-in，见 openCheckDb 头注
+  const opened = openCheckDb(bookRoot, hasWiring, { throttleSourceProbe: true, failMode: 'envelope' })
+  if (opened.fail) {
+    const envelope: Extract<CheckOutcome, { ok: false }> = {
+      ok: false,
+      code: 'REBUILD_FAIL',
+      error: opened.fail.error,
     }
+    if (opened.fail.details !== undefined) envelope.details = opened.fail.details
+    return envelope
   }
+  const db = opened.db
   try {
-    // 内存闸（2026-08-24 审计 C4）：PRAGMA 段并入大 try——此前在开库 try/catch 内，
-    // exec 抛错（库损坏/锁超时）走 catch 直接 return，db 已开未关（泄漏句柄 + WAL）；
-    // 并入后由本层 finally 收口 close（对照同文件 collectTreeIssues 的大 finally 口径），
-    // REBUILD_FAIL 契约不变
-    if (db) {
-      try {
-        // 与 rebuild 同款：并发下（树红点聚合 + rebuild 同跑）等锁 5s 而非立即 SQLITE_BUSY
-        db.exec('PRAGMA busy_timeout = 5000')
-      } catch (e) {
-        return {
-          ok: false,
-          code: 'REBUILD_FAIL',
-          error: `缓存库不可用：${e instanceof Error ? e.message : String(e)}`,
-        }
-      }
-    }
     // R29-5（二十九轮）：book.yaml 降级黄项透出——config 回落默认仍能跑，但阈值/词表/
     // 账本类配置本轮未生效，作者只看 warn 日志无从知晓；在机检报告里透出黄项（面板可见，
-    // 不驱动红闸）让「降级事实」与「机检结果」同屏。
+    // 不驱动红闸）让「降级事实」与「机检结果」同屏。（R51-E-N2 升红语义见 pushDegradedYellow 注）
     const outcome = checkWithDb(bookRoot, absPath, db, config, undefined, { draftText: opts?.draftText })
-    if (outcome.ok && !cfgResult.ok) {
-      outcome.report.sections.push({
-        name: 'book.yaml',
-        items: [
-          {
-            checkId: 'book-config-degraded',
-            level: 'yellow',
-            message: `book.yaml 解析失败，本轮机检按默认配置降级执行（${cfgResult.error.message}）——书级阈值/词表/账本配置未生效，修复后请重查。`,
-            chapter: outcome.chapter.章号,
-          },
-        ],
-      })
-      // R51-E-N2（五十一轮）：后置推入不过 runner 的报告内升红路径——严格短篇下
-      // degraded 族同升红（「配置降级、机检未按书级口径跑」不可绿灯过定稿闸）。
-      // 重评-P2-4（2026-09-09 全量代码重评）：strict 生效判定改走 effectiveShort
-      // （kind==='short' 门控）——长篇误写 short 段不再升红，与 runner 报告内路径同源。
-      if (effectiveShort(config)?.strict) promoteStrictShort(outcome.report.sections.slice(-1))
+    if (outcome.ok && degradedError !== null) {
+      pushDegradedYellow(
+        outcome.report,
+        config,
+        'book.yaml',
+        'book-config-degraded',
+        `book.yaml 解析失败，本轮机检按默认配置降级执行（${degradedError}）——书级阈值/词表/账本配置未生效，修复后请重查。`,
+        outcome.chapter.章号,
+      )
     }
     return outcome
   } finally {
@@ -140,16 +200,23 @@ export function runCheckForDocument(
  * 无布线不走账本检查（无全书最高章号基准需求）→ 返回 undefined。
  * 已定稿 = manifest 有 finalizedRevision（去 git：不再用 untracked 排除草稿）。
  */
-function maxWrittenChapterOf(bookRoot: string, preScanned?: ChapterMeta[]): number | undefined {
+function maxWrittenChapterOf(
+  bookRoot: string,
+  preScanned?: ChapterMeta[],
+  manifestEntries?: Map<string, ManifestEntry>,
+): number | undefined {
   const bodyDir = join(bookRoot, '写作', '正文')
   // P5-管线（第七轮）：接受调用方预扫的正文章列表（批量路径 bodyChapters 一扫两用），
   // 原先内部再 readChapterDir 一遍 = 全书正文双遍扫描
   const chapters = preScanned ?? (existsSync(bodyDir) ? readChapterDir(bodyDir).chapters : [])
   if (chapters.length === 0) return undefined
   // 排除未定稿（无 finalizedRevision）的草稿——不算"已写"基准（防账本「未来章」检查误判）
-  const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl'))
+  // P3（复审-0914-优化修复批）：树聚合侧接受已读 entries（collectTreeIssuesCore 聚合头
+  // 已 readManifest 整读）——原实现此处内部再整读同一清单 = 单请求双读；单章路径不传
+  // 照旧自读（语义等价）。
+  const entries = manifestEntries ?? readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries
   const finalized = new Set<string>()
-  for (const e of manifest.entries.values()) {
+  for (const e of entries.values()) {
     // R42-5（四十二轮）：join 键折叠（platformCaseFold 单源：win32/darwin 折叠 + NFC；
     // R51-D-2 起 darwin 也折叠）——外部 case-only 改名 / NFD 文件名后精确串失配，
     // 定稿章被当草稿 → maxWritten 基准低估 → 账本「未来章」假红
@@ -203,6 +270,10 @@ export interface BatchCheckContext {
    *  首调读+parse 一次，其后按章号出三态；不传则单章路径现读（语义等价）。
    *  R33D-14：返回类型扩 OutlineDeclaration（known:false 带 reason）。 */
   outlineDeclarationFor?: (chapterNo: number) => OutlineDeclaration
+  /** P3（复审-0914-优化修复批）：布线在盘与否——collectTreeIssuesCore 聚合头已判
+   *  （rebuild/开库决策同源），章循环内 checkWithDb 不再逐章 existsSync；不传则
+   *  单章路径照旧现判（语义等价）。 */
+  hasWiring?: boolean
 }
 
 /**
@@ -275,7 +346,8 @@ export function checkWithDb(
   const draft = readDraft(absPath, opts?.draftText)
   if (!draft.ok) return { ok: false, code: 'NOT_CHAPTER', error: draft.reason }
   try {
-    const hasWiring = existsSync(join(bookRoot, '布线'))
+    // P3（复审-0914-优化修复批）：布线判定批量路径走 batch 透传（聚合头已判），仅单章路径现判
+    const hasWiring = batch?.hasWiring ?? existsSync(join(bookRoot, '布线'))
     // 全书最高已定稿章号：batch 存在即视为已预扫（树红点聚合循环外已扫过全书），
     // 直接用 batch.maxWrittenChapter——即使为 undefined（无定稿章）也是预扫的合法结果，
     // 不再回扫；未传 batch（单章 check 端点）时才扫描一次 写作/正文 取最大章号。
@@ -341,40 +413,29 @@ export function checkWithDb(
     // 的降级黄项口径），作者只看面板即知本轮「声明↔兑现」未比对、修复后须重查。
     // 树红点聚合缓存只存 {hasRed, verdictRejected} 布尔、不缓存黄项条目，降级黄项
     // 不会被缓存固化（hasRed=false 只表示本轮无红，属账本全书性红项同一缓存语义）。
+    // F5：push + strict 升红收编 pushDegradedYellow（R51-E-N2 语义见其注）。
     if (updatesResult?.unreadable) {
-      report.sections.push({
-        name: '账本推进',
-        items: [
-          {
-            checkId: 'lead-updates-unreadable',
-            level: 'yellow',
-            message: '账本推进文件读取失败（权限/瞬态占用），本章「声明↔兑现」两端闭合本轮跳过——修复读取后请重查，闭合未知期间请勿定稿该章。',
-            chapter: draft.chapter.章号,
-          },
-        ],
-      })
-      // R51-E-N2（五十一轮）：unreadable 族后置推入同升红（严格短篇，口径同上——
-      // 重评-P2-4：effectiveShort 门控，长篇误写 short 段不升红）
-      if (effectiveShort(config)?.strict) promoteStrictShort(report.sections.slice(-1))
+      pushDegradedYellow(
+        report,
+        config,
+        '账本推进',
+        'lead-updates-unreadable',
+        '账本推进文件读取失败（权限/瞬态占用），本章「声明↔兑现」两端闭合本轮跳过——修复读取后请重查，闭合未知期间请勿定稿该章。',
+        draft.chapter.章号,
+      )
     }
     // R33D-14（三十三轮）：声明侧读失败的黄项降级（对齐兑现侧 R31-3 fail-noisy 口径）
     // ——known:false 且 reason='read-failed' 时本章两端闭合同样被跳过，此前零留痕；
     // chapter-mismatch（细纲属他章，批量连写常态）维持静默，不算故障。
     if (declaration && !declaration.known && declaration.reason === 'read-failed') {
-      report.sections.push({
-        name: '账本推进',
-        items: [
-          {
-            checkId: 'lead-outline-unreadable',
-            level: 'yellow',
-            message: '细纲文件读取失败（权限/瞬态占用），本章「声明↔兑现」两端闭合本轮跳过——修复读取后请重查，闭合未知期间请勿定稿该章。',
-            chapter: draft.chapter.章号,
-          },
-        ],
-      })
-      // R51-E-N2（五十一轮）：unreadable 族后置推入同升红（严格短篇，口径同上——
-      // 重评-P2-4：effectiveShort 门控，长篇误写 short 段不升红）
-      if (effectiveShort(config)?.strict) promoteStrictShort(report.sections.slice(-1))
+      pushDegradedYellow(
+        report,
+        config,
+        '账本推进',
+        'lead-outline-unreadable',
+        '细纲文件读取失败（权限/瞬态占用），本章「声明↔兑现」两端闭合本轮跳过——修复读取后请重查，闭合未知期间请勿定稿该章。',
+        draft.chapter.章号,
+      )
     }
     return { ok: true, report, hasRed: hasRed(report), chapter: draft.chapter, body: draft.body }
   } catch (e) {
@@ -382,8 +443,8 @@ export function checkWithDb(
     // 留痕——树聚合路径对单章机检失败已有同款（collectTreeIssues 的「章机检失败（红点
     // 可能缺失）」），单章端点此前静默：CHECK_ERROR 只存在于响应信封，服务日志零线索。
     // tag 'check' 对齐本文件现有用法；带文档路径与异常信息。
-    log.warn('check', `单章机检失败（CHECK_ERROR，红点缺失）：${absPath}——${e instanceof Error ? e.message : String(e)}`)
-    return { ok: false, code: 'CHECK_ERROR', error: e instanceof Error ? e.message : String(e) }
+    log.warn('check', `单章机检失败（CHECK_ERROR，红点缺失）：${absPath}——${errMsg(e)}`)
+    return { ok: false, code: 'CHECK_ERROR', error: errMsg(e) }
   }
 }
 
@@ -482,13 +543,10 @@ function* collectTreeIssuesCore(
   // R29-5（二十九轮）：树聚合路径降级只 warn 不产黄项——树红点聚合只吃 hasRed
   // （issues 只记 {hasRed, verdictRejected}，黄项无处落），逐章注入黄项既不可见又会
   // 拖累章级缓存判定；降级可见性由 warn 日志 + 单章面板（runCheckForDocument 注入的
-  // book-config-degraded 黄项）承担。
-  const cfgResult = readBookConfig(join(bookRoot, 'book.yaml'))
-  if (!cfgResult.ok) log.warn('check', `book.yaml 降级: ${cfgResult.error.message}`)
-  // 全局托底：同 runCheckForDocument——树红点聚合也吃 short.strict 生效值
-  const config = applyGlobalDefaults(cfgResult.config, userDataPath ?? null)
+  // book-config-degraded 黄项）承担。（「读配置→托底」前奏 P3 收编 readCheckConfig
+  // ——与 runCheckForDocument 同源；树聚合只吃 config，degradedError 弃用。）
+  const { config } = readCheckConfig(bookRoot, userDataPath ?? null)
   const hasWiring = existsSync(join(bookRoot, '布线'))
-  const cachePath = join(bookRoot, '.cache', 'index.db')
   let db: DatabaseSync | null = null
   let rebuildFailed = false
   // R65-5（十三轮）：单章机检失败章计数（透出 warning，见下方 checkFailed 分支）
@@ -510,23 +568,15 @@ function* collectTreeIssuesCore(
     // M-9（2026-08-21）：rebuild / 开库 / PRAGMA 的硬异常按 fail-open 降级（warn + 留痕），
     // 不再穿透成 500——与缓存层头注释「读写失败跳过缓存走全量路径」红线对齐。此前只有
     // 「rebuild 报错列表非空」这一种失败形态走了降级，库损坏/锁超时直接把树红点端点打挂。
-    try {
-      const rebuilt = rebuild(bookRoot, cachePath)
-      if (rebuilt.errors.length > 0) {
-        // rebuild 失败：机检 red 强依赖 db 不可算，降级——db 留 null 循环跳过机检、只算 verdict
-        // （verdict 驳回不依赖 db；单章解析失败不应连累全树 verdict 红点）
-        rebuildFailed = true
-      } else {
-        db = new DatabaseSync(cachePath)
-        // 同 runCheckForDocument：树红点聚合与机检端点/rebuild 可并发，等锁而非 SQLITE_BUSY
-        db.exec('PRAGMA busy_timeout = 5000')
-      }
-    } catch (e) {
-      rebuildFailed = true
-      log.warn('check', `树红点聚合降级（rebuild/开库失败，只算 verdict）：${e instanceof Error ? e.message : String(e)}`)
-    }
+    //（「rebuild→开库→PRAGMA」前奏 P3 收编 openCheckDb（failMode 'fail-open'，rebuild
+    // 失败降级 comment 随实现移入该函数）；树聚合不吃 R47-11 节流，口径见其头注。）
+    const opened = openCheckDb(bookRoot, hasWiring, { throttleSourceProbe: false, failMode: 'fail-open' })
+    db = opened.db
+    rebuildFailed = opened.rebuildFailed
   }
   try {
+    // P3（复审-0914-优化修复批）：此处整读的 entries 直传 maxWrittenChapterOf
+    //（原其内部再 readManifest 同一清单 = 单请求双读）
     const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries
     const pathToDocId = new Map<string, string>()
     // R42-5（四十二轮）：join 键折叠（win32 大小写 + NFC）——盘上扫描路径与清单登记
@@ -564,6 +614,7 @@ function* collectTreeIssuesCore(
     // batch（H-1 新增消费方；不共用会把 readChapterDir 调用次数抬高回去，CC-P1-3 的
     // 调用次数回归锚会红）。P5-管线（第七轮）：bodyChapters 列表直接传入
     // maxWrittenChapterOf——原实现内部重扫一遍正文（「一次预扫」注释与实现漂移）
+    // P3（复审-0914-优化修复批）：manifest entries 同点直传（消聚合头双读，见上）
     // R35-24（三十五轮）：正文目录解析错误不再静默丢弃——章号损坏/缺章号的章进不了
     // chapters 列表，树红点对其完全隐形（损坏越重越安静）。errors 逐条 warn 留痕并以
     // 计数透出（chaptersParseDegraded，与 chaptersDegraded 同款降级口径）；章级黄项
@@ -576,7 +627,7 @@ function* collectTreeIssuesCore(
       chaptersParseDegraded++
       log.warn('check', `章文件解析失败（树红点对该章失明）：${pe.file}——${pe.message}`)
     }
-    const maxWritten = maxWrittenChapterOf(bookRoot, bodyChapters)
+    const maxWritten = maxWrittenChapterOf(bookRoot, bodyChapters, manifest)
     let leadsBookRed = false
     // R62-7：账本全书性红项计算失败的可视标志——此前静默降级为「无红」，持续性失败
     // 期间全树永不显示账本红项且响应无 warning（fail-open 方向是漏红，与 rebuildFailed
@@ -585,7 +636,15 @@ function* collectTreeIssuesCore(
     if (db && !rebuildFailed) {
       try {
         if (__leadsBookDegradeForTest) throw new Error('R62-7 注入：账本全书性红项读取失败')
-        const leadsFp = computeLeadsBookFp(bookRoot, userDataPath ?? null)
+        // F4（复审-0914-优化修复批）：epochFp0（轮基线，rebuild 前算得）在座时 leadsBook
+        // 指纹按 `${epochFp0}|${dirFp(正文)}` 拼装（computeLeadsBookFpFromEpochFp，与
+        // computeLeadsBookFp 输出逐字节同构、值域同空间）——不再整调
+        // computeTreeIssuesGlobalFp，聚合的全局目录递归 stat 自此首（epochFp0）尾
+        // （epochFpEnd）各一遍（R47-30 口径成立，见下方待落盘段注）；基线缺席（前算
+        // 失败为 null）回落全算，非空/null 分支语义保持。
+        const leadsFp = epochFp0 !== null
+          ? computeLeadsBookFpFromEpochFp(bookRoot, epochFp0)
+          : computeLeadsBookFp(bookRoot, userDataPath ?? null)
         const cachedRed = readLeadsBookRed(db, leadsFp)
         if (cachedRed !== null) {
           leadsBookRed = cachedRed
@@ -599,10 +658,16 @@ function* collectTreeIssuesCore(
           )
           // R53-E-1（五十三轮）：写前纪元终核（R70-14 章级行同款口径）——leadsFp 在
           // 聚合开头计算，checkLeadsBookItems 全账本扫描期间外部编辑器/第二进程可改
-          // 纪元输入（大纲/章纲/布线/正文），旧行按新输入视角陈旧落表（该周期红点
-          // 错、下轮自愈）。写前复核 fp 未变才落缓存；漂移 → 本轮不固化（fail-open
-          // 不拦树，leadsBookRed 本轮值照常返回，仅缓存不写、下轮重算）。
-          const leadsFpNow = computeLeadsBookFp(bookRoot, userDataPath ?? null)
+          // 纪元输入，旧行按新输入视角陈旧落表。写前复核 fp 未变才落缓存；漂移 → 本轮
+          // 不固化（fail-open 不拦树，leadsBookRed 本轮值照常返回，仅缓存不写、下轮重算）。
+          // F4：复核改同基线拼装——leadsFpNow = `${epochFp0}|${dirFp(正文) 新鲜扫描}`，
+          // 正文目录窗口内漂移照旧拦固化；全局输入窗口内漂移不再拦写，但落表行仍带
+          // 轮基线纪元、全局输入一变读侧 leadsFp 必全等失配 miss 自愈重算（readLeadsBookRed
+          // 的 fp 比对即失效判定，语义不变；mtimeNs 粒度下旧 fp 值不可复现，无脏读面）
+          // ——两分支下轮都付同一次重算，仅少留一行必然失效的单键值。
+          const leadsFpNow = epochFp0 !== null
+            ? computeLeadsBookFpFromEpochFp(bookRoot, epochFp0)
+            : computeLeadsBookFp(bookRoot, userDataPath ?? null)
           if (leadsFpNow === leadsFp) {
             writeLeadsBookRed(db, leadsFp, leadsBookRed)
           } else {
@@ -611,14 +676,14 @@ function* collectTreeIssuesCore(
         }
       } catch (e) {
         leadsBookDegraded = true
-        log.warn('check', `账本全书性红项计算失败（本轮降级为无，不落缓存）：${e instanceof Error ? e.message : String(e)}`)
+        log.warn('check', `账本全书性红项计算失败（本轮降级为无，不落缓存）：${errMsg(e)}`)
       }
     }
     if (existsSync(bodyDir)) {
       const chapters = bodyChapters
       // 定稿态（final/published）= 作者已确认，不参与树红点聚合（根本性解决）：
       // 跳过机检 + verdict 检查；作者仍可通过 CheckPanel 单章主动查看机检。
-      const entryByPath = new Map<string, import('../document/manifest.js').ManifestEntry>()
+      const entryByPath = new Map<string, ManifestEntry>()
       // R42-5（四十二轮）：join 键折叠（win32 大小写 + NFC）——case-only 改名章的
       // manifest 条目仍可命中（定稿态跳过判定不失明），下方 .get 侧同键
       for (const m of manifest.values()) entryByPath.set(docJoinKey(m.path), m)
@@ -637,6 +702,9 @@ function* collectTreeIssuesCore(
         leadUpdatesForChapter: scanChapterUpdatesByChapter(bookRoot),
         // R32-16：细纲声明批内 memo（此前每章现读同一细纲文件，CC-P1-3 预扫漏项）
         outlineDeclarationFor: scanOutlineDeclarationMemo(bookRoot),
+        // P3（复审-0914-优化修复批）：布线判定透传——章循环内 checkWithDb 不再逐章
+        // existsSync（聚合头 :490 同源判定，rebuild/开库决策一致）
+        hasWiring,
       }
       // R71-20：写前纪元复核改轮内缓存——原实现每 miss 章重算一次 computeTreeIssuesGlobalFp
       // （递归 readdir+stat 全输入树），任一全局输入变动清表后全书 miss，数百章书一次聚合
@@ -646,8 +714,11 @@ function* collectTreeIssuesCore(
       // R71-20 口径保留）。
       // R47-30（四十七轮）：轮前复核遍（epochFpNow）消重——其「检测聚合窗口内源漂移」的
       // 职责由循环后终核（epochFpEnd）统一承担：轮前漂移若持续到循环后必被终核检出（整批
-      // 丢弃），瞬时漂移（改回原状）与循环内同类盲区同口径（R32-14 既定取舍）。一次聚合的
-      // 全树纪元指纹从最多 4 遍（sync 内 + 基线 + 轮前 + 终核）收敛为首尾各一遍。
+      // 丢弃），瞬时漂移（改回原状）与循环内同类盲区同口径（R32-14 既定取舍）。
+      // F4（复审-0914-优化修复批）：「收敛为首尾各一遍」至此如实成立——此前 leadsBook
+      // 指纹（leadsFp/leadsFpNow）各自整调 computeTreeIssuesGlobalFp，一次聚合对同批全局
+      // 目录实扫 4 遍；现按轮基线拼装（computeLeadsBookFpFromEpochFp，见 leadsBook 段注），
+      // 全局纪元指纹实扫 = 首（epochFp0）+ 尾（epochFpEnd，有待落盘章时）各一遍。
       // epochFp0 为 null（纪元同步失败、缓存禁用）时不入列。
       // R32-14：待落盘章缓存（循环后统一终核纪元再写）
       const pendingCacheWrites: Array<{

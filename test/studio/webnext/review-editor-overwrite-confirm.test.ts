@@ -18,8 +18,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 
+const getContent = vi.hoisted(() => vi.fn())
 vi.mock('../../../src/studio/web-next/src/api/documents', () => {
-  const getContent = vi.fn()
   return {
     getContent,
     // 重评-0912-4 P1-1:doOpen 改走完整载荷——委托默认包装既有 getContent mock(suspect 分支默认不触发)
@@ -38,7 +38,6 @@ vi.mock('../../../src/studio/web-next/src/api/client', () => ({
   getToken: vi.fn(() => null),
 }))
 
-import { getContent } from '../../../src/studio/web-next/src/api/documents'
 import EditorDocHead from '../../../src/studio/web-next/src/components/editor/EditorDocHead.vue'
 import { useDocStore } from '../../../src/studio/web-next/src/stores/doc'
 import { useUiStore } from '../../../src/studio/web-next/src/stores/ui'

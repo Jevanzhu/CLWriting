@@ -9,7 +9,7 @@
  * finalize 时回写布线履历并清空）。
  */
 import { join, relative, sep } from 'node:path'
-import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { atomicWriteFile, renameWithRetry } from '../fs/atomic.js'
 import { canonicalizeText } from '../fs/text-canonical.js'
 import { snapshotBeforeOverwrite } from './draft-pipeline.js' // R74-4：覆盖留底单源复用
@@ -20,11 +20,12 @@ import { readKind } from '../format/kind.js'
 import { runSpec } from '../ai/tasks/spec.js'
 import { LEAD_UPDATE_SPEC } from '../ai/tasks/specs.js'
 import { readOutlineLeads } from '../check/outline-leads.js'
-import { LEAD_UPDATES_FILE, LEAD_UPDATES_ARCHIVE_DIR } from '../check/lead-updates.js'
+import { LEAD_UPDATES_FILE, LEAD_UPDATES_ARCHIVE_DIR, parseLeadUpdateLines } from '../check/lead-updates.js'
+import type { ChapterLeadUpdate } from '../check/lead-updates.js'
 import { LEAD_VERBS } from '../format/leads.js'
 import { readOpenLeads } from './open-leads.js'
 import { pruneTextMiddle } from './prune.js'
-import { log } from '../log/index.js'
+import { log, errMsg } from '../log/index.js'
 
 // ff-P1-1 常量归一：路径唯一出处 check/lead-updates.ts（闸/回写/草拟三方共用），此处再导出兼容既有导入方
 export { LEAD_UPDATES_FILE, LEAD_UPDATES_ARCHIVE_DIR }
@@ -158,7 +159,7 @@ async function generateLeadUpdateDraftInner(
       atomicWriteFile(join(bookRoot, LEAD_UPDATES_FILE), canonicalizeText(content))
     })
   } catch (e) {
-    return { ok: false, code: 'failed', error: '落盘:' + (e instanceof Error ? e.message : String(e)) }
+    return { ok: false, code: 'failed', error: '落盘:' + (errMsg(e)) }
   }
   return { ok: true, count: updates.length }
 }
@@ -188,13 +189,86 @@ export function archivePendingLeadUpdates(bookRoot: string, forChapter: number):
   if (tag === forChapter) return
   const dir = join(bookRoot, LEAD_UPDATES_ARCHIVE_DIR)
   mkdirSync(dir, { recursive: true })
-  // L-P6（第八轮）：目标已存在时不静默覆盖——同章旧「未确认推进草稿」无留痕丢失
-  // （POSIX renameSync 对已存在文件静默替换）；追加纳秒时间戳保全两代
-  let dst = join(dir, `第${tag}章.md`)
-  if (existsSync(dst)) dst = join(dir, `第${tag}章-${Date.now()}.md`)
   // MP2-3（专项重评二轮修复批）：归档 rename 收编 renameWithRetry——win 瞬时锁
   // （EPERM/EBUSY）退避后再失败仍上抛（调用方 WRITE_ERROR 可重试，语义不变）
-  renameWithRetry(file, dst)
+  const standardDst = join(dir, `第${tag}章.md`)
+  if (!existsSync(standardDst)) {
+    renameWithRetry(file, standardDst)
+    return
+  }
+  // 全库重评-0914 P2-5：标准名已存在时原落时间戳变体——但两读侧（check/run.ts 批量
+  // 预扫 `^第(\d+)章\.md$` 与 lead-updates.chapterUpdateSources 精确路径）均只认标准
+  // 名，第二代归档对两端闭合判定与 finalize 回写完全不可见（声明静默失联：闸不查、
+  // 定稿不回写）。改为读旧档 + 按（编号,动词）归并重写标准名：同键新声明覆盖旧（与
+  // 履历回写按编号归并口径一致；旧证据在章文重生成后 needle 必败，保留反造假红硬
+  // 阻断定稿），其余旧条目保序保全，新条目按新序追加。
+  let oldRaw: string
+  try {
+    oldRaw = readFileSync(standardDst, 'utf-8')
+  } catch (e) {
+    // 旧档读失败：宁保两代不损——回落时间戳变体（L-P6 保底语义，见下）
+    log.warn('lead-update-draft', `归档目标已存在但读取失败（${standardDst}），回落时间戳变体保全两代`, e)
+    renameWithRetry(file, join(dir, `第${tag}章-${Date.now()}.md`))
+    return
+  }
+  const newEntries = parseLeadUpdateLines(raw)
+  if (newEntries.length === 0) {
+    // 新档解析零条目（仅格式不符的 `-` 行/备注）：归并会把旧档非条目文本一并冲掉，
+    // 无条目可并时回落时间戳变体（原文两代均从盘上可恢复）
+    renameWithRetry(file, join(dir, `第${tag}章-${Date.now()}.md`))
+    return
+  }
+  // L-P6（第八轮）语义延续：同章旧「未确认推进草稿」仍不静默丢失——可解析条目全数
+  // 保全（仅同键旧证据被新声明覆盖），并留痕归并账目。
+  const merged = mergeLeadUpdateEntries(tag, parseLeadUpdateLines(oldRaw), newEntries)
+  atomicWriteFile(standardDst, canonicalizeText(merged.text))
+  // 归并落盘后源文件删除；ENOENT（他进程已移走）无害，其余失败留痕（调用方随即覆写
+  // 主文件，条目已全数并入标准名，不构成草稿丢失）
+  try {
+    rmSync(file, { force: true })
+  } catch (e) {
+    log.warn('lead-update-draft', `归档归并后源文件删除失败（${file}）——条目已并入第${tag}章.md`, e)
+  }
+  log.info('lead-update-draft', `归档归并 第${tag}章.md：旧 ${merged.oldCount} 条 + 新 ${merged.added} 条 + 覆盖 ${merged.overridden} 条 → ${merged.total} 条`)
+}
+
+/** P2-5 归并纯函数：旧条目保序保位（档内同键重复收敛到末次声明），同键新声明覆盖
+ *  旧证据，新键按新声明顺序追加。key = （编号, 动词）——与履历回写按编号归并的口径
+ *  一致（同编号同动词视为同一声明的新版本）。 */
+export function mergeLeadUpdateEntries(
+  tag: number,
+  oldEntries: readonly ChapterLeadUpdate[],
+  newEntries: readonly ChapterLeadUpdate[],
+): { text: string; oldCount: number; added: number; overridden: number; total: number } {
+  const out: ChapterLeadUpdate[] = []
+  const index = new Map<string, number>()
+  const keyOf = (u: ChapterLeadUpdate): string => u.leadId + '\u0000' + u.动词
+  const put = (u: ChapterLeadUpdate): boolean => {
+    const k = keyOf(u)
+    const i = index.get(k)
+    if (i === undefined) {
+      index.set(k, out.length)
+      out.push({ ...u })
+      return true
+    }
+    out[i] = { ...u }
+    return false
+  }
+  for (const u of oldEntries) put(u) // 旧档内重复：末次声明为准（读侧本就会双计，归并收敛）
+  let added = 0
+  let overridden = 0
+  for (const u of newEntries) {
+    if (put(u)) added++
+    else overridden++
+  }
+  const lines = out.map((u) => '- ' + u.leadId + ' ' + u.动词 + '：' + u.证据)
+  return {
+    text: `# 第${tag}章 账本推进\n` + lines.join('\n') + '\n',
+    oldCount: oldEntries.length,
+    added,
+    overridden,
+    total: out.length,
+  }
 }
 
 /**

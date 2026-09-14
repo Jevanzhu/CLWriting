@@ -24,7 +24,8 @@ import { join } from 'node:path'
 // readLeadFromBytes）整段坍缩（见文件尾原位注记），本文件只 import，格式链演进自动随动。
 import { readLeadDir, writeLead, LEAD_TYPES, LEAD_VERBS, readLeadFromBytes } from '../format/leads.js'
 import { acquireCrossProcessLockWithTimeout, acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
-import { log } from '../log/index.js'
+import { log, errMsg } from '../log/index.js'
+import { testableConst } from '../shared/testable.js'
 import { isUtf8Bytes } from './service.js'
 import {
   readChapterUpdatesForChapter,
@@ -47,11 +48,8 @@ export { LEAD_UPDATES_FILE, LEAD_UPDATES_ARCHIVE_DIR }
 export const LEAD_FINALIZE_LOCK_TIMEOUT_MS = 5_000
 
 /** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改。 */
-let leadFinalizeLockTimeoutMs = LEAD_FINALIZE_LOCK_TIMEOUT_MS
-
-export function __setLeadFinalizeLockTimeoutForTest(ms: number): void {
-  leadFinalizeLockTimeoutMs = ms
-}
+/** A4（复审-0914-优化修复批）：三件套换装 testableConst——生效值 getter（消费点显式调用）+ 测试注入 setter 元组第二位（原名原签名）。 */
+export const [getLeadFinalizeLockTimeoutMs, __setLeadFinalizeLockTimeoutForTest] = testableConst(LEAD_FINALIZE_LOCK_TIMEOUT_MS)
 
 /**
  * R30-5（三十轮）：本章待回写条目与其目标布线文件的解析结果——定稿布线预取锁与
@@ -135,9 +133,9 @@ export function acquireLeadFileLocksSync(files: Iterable<string>): (() => void)[
   for (const f of [...new Set(files)].sort()) {
     let release: (() => void) | null
     try {
-      release = acquireCrossProcessLockWithTimeout(wiringFileLockKeyOf(f), leadFinalizeLockTimeoutMs)
+      release = acquireCrossProcessLockWithTimeout(wiringFileLockKeyOf(f), getLeadFinalizeLockTimeoutMs())
     } catch (e) {
-      log.warn('lead-finalize', `布线锁获取失败（${wiringFileLockKeyOf(f)}）：${e instanceof Error ? e.message : String(e)}`)
+      log.warn('lead-finalize', `布线锁获取失败（${wiringFileLockKeyOf(f)}）：${errMsg(e)}`)
       release = null
     }
     if (!release) {
@@ -155,9 +153,9 @@ export async function acquireLeadFileLocksAsync(files: Iterable<string>): Promis
   for (const f of [...new Set(files)].sort()) {
     let release: (() => void) | null
     try {
-      release = await acquireCrossProcessLockAsync(wiringFileLockKeyOf(f), leadFinalizeLockTimeoutMs)
+      release = await acquireCrossProcessLockAsync(wiringFileLockKeyOf(f), getLeadFinalizeLockTimeoutMs())
     } catch (e) {
-      log.warn('lead-finalize', `布线锁获取失败（${wiringFileLockKeyOf(f)}）：${e instanceof Error ? e.message : String(e)}`)
+      log.warn('lead-finalize', `布线锁获取失败（${wiringFileLockKeyOf(f)}）：${errMsg(e)}`)
       release = null
     }
     if (!release) {
@@ -199,7 +197,7 @@ export async function applyLeadUpdates(bookRoot: string, chapterNo: number): Pro
     // 作者原文原样保留，下次定稿自动重试）；warn 留痕让「锁争用导致本次未回写」可观测。
     log.warn(
       'lead-finalize',
-      `布线回写锁等待超时（${leadFinalizeLockTimeoutMs}ms 未全部让出）——本章 ${targets.updates.length} 条账本推进整批留源未回写，下次定稿自动重试`,
+      `布线回写锁等待超时（${getLeadFinalizeLockTimeoutMs()}ms 未全部让出）——本章 ${targets.updates.length} 条账本推进整批留源未回写，下次定稿自动重试`,
     )
     return 0
   }

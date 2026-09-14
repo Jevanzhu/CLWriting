@@ -1,0 +1,22 @@
+/**
+ * 渲染上限切片单源（复审-0914-优化修复批 P3）：RENDER_CAP 三件套
+ * （`const RENDER_CAP = 100` + `arr.slice(0, CAP)` + `Math.max(0, arr.length - CAP)`）
+ * 的收敛件——CommandPalette（M-P3-13 内存核查口径）首立，RewritePanel/AuditDiffPanel
+ * （重评-P3-16）、CheckPanel/ReviewPanel/ForeshadowPanel/TrashPanel（R1010c-FE1-P3-2）、
+ * ModelPicker（重评2-P3-3）、ShelfGrid（R-P3-4）、SampleCandidateList（R47-16）各自
+ * 手搓的同构切片此后换装本工具。
+ *
+ * 口径不变：数据面不动（统计/计数/键表仍由调用方面向全量构造），只裁渲染面前 N 条 +
+ * 尾部「已省略 N 条」提示行计数。ChapterTreeItem 的 active 贴尾滑窗是特例实现（R55-G-2），
+ * 不适用本工具；ShelfGrid 的 renderCap 可缺省（undefined = 不裁）特判留调用方。
+ */
+export interface CappedView<T> {
+  /** 渲染面前 cap 条（原 `arr.slice(0, cap)`） */
+  view: T[]
+  /** 窗口外条数（原 `Math.max(0, arr.length - cap)`，提示行展示） */
+  omitted: number
+}
+
+export function capView<T>(arr: readonly T[], cap: number): CappedView<T> {
+  return { view: arr.slice(0, cap), omitted: Math.max(0, arr.length - cap) }
+}

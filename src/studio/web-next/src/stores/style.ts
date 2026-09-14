@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
+import { useStaleGuard } from '../composables/useStaleGuard'
 import {
   listStyleEntries,
   addStyleEntry,
@@ -41,12 +42,13 @@ export const useStyleStore = defineStore('style', () => {
 
   /** 请求代守卫（M-2 二轮复审，words store reqGen 同款）：切书时 Book.vue 先 clear()
    *  再 load(新书)——无守卫时 A 书慢响应可在 clear/load(B) 之后落地，B 书文风页显示
-   *  （B 加载失败则长时显示）A 书的条目库/候选/定标配置。后调者胜 */
-  let reqGen = 0
+   *  （B 加载失败则长时显示）A 书的条目库/候选/定标配置。后调者胜。
+   *  E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard（load 用 begin，其余只快照不推进用 current）。*/
+  const reqGen = useStaleGuard()
 
   /** 进入视图 / 切书加载；返回迁移结果（发生迁移时非 null，视图 toast） */
   async function load(name: string): Promise<StyleMigrationFE | null> {
-    const gen = ++reqGen
+    const gen = reqGen.begin()
     bookName.value = name
     loading.value = true
     try {
@@ -55,7 +57,7 @@ export const useStyleStore = defineStore('style', () => {
         listStyleCandidates(name),
         getStyleConfig(name),
       ])
-      if (gen !== reqGen) return null
+      if (reqGen.stale(gen)) return null
       entries.value = er.entries
       entryErrors.value = er.errors.length
       candidates.value = cr.candidates
@@ -63,17 +65,17 @@ export const useStyleStore = defineStore('style', () => {
       loaded.value = true
       return er.migration
     } finally {
-      if (gen === reqGen) loading.value = false
+      if (reqGen.fresh(gen)) loading.value = false
     }
   }
 
   async function reloadEntries(): Promise<void> {
     // R68-5（十六轮）：代守卫——add/confirm 落盘慢响应在途时切书（clear→load 新书）后，
     // 旧书条目无守卫落地共享 store，B 书文风页持久显示 A 书条目库（对齐 load/harvest 惯例）。
-    const gen = reqGen
+    const gen = reqGen.current()
     const book = bookName.value
     const r = await listStyleEntries(book)
-    if (gen !== reqGen) return
+    if (reqGen.stale(gen)) return
     entries.value = r.entries
     entryErrors.value = r.errors.length
   }
@@ -81,32 +83,32 @@ export const useStyleStore = defineStore('style', () => {
   // 实际候选加载由 load() 内联承担；保留只会让读者误以为存在第二加载入口）
 
   async function add(entry: Parameters<typeof addStyleEntry>[1]): Promise<void> {
-    const gen = reqGen
+    const gen = reqGen.current()
     const book = bookName.value
     await addStyleEntry(book, entry)
-    if (gen !== reqGen) return // 已切书：本地回填与 reload 全作废（reload 内另有同款守卫）
+    if (reqGen.stale(gen)) return // 已切书：本地回填与 reload 全作废（reload 内另有同款守卫）
     await reloadEntries()
   }
   async function remove(path: string): Promise<void> {
-    const gen = reqGen
+    const gen = reqGen.current()
     const book = bookName.value
     await deleteStyleEntry(book, path)
-    if (gen !== reqGen) return
+    if (reqGen.stale(gen)) return
     entries.value = entries.value.filter((e) => e._path !== path)
   }
   async function confirm(path: string): Promise<void> {
-    const gen = reqGen
+    const gen = reqGen.current()
     const book = bookName.value
     await confirmStyleCandidate(book, path)
-    if (gen !== reqGen) return
+    if (reqGen.stale(gen)) return
     candidates.value = candidates.value.filter((c) => c._path !== path)
     await reloadEntries()
   }
   async function ignore(path: string): Promise<void> {
-    const gen = reqGen
+    const gen = reqGen.current()
     const book = bookName.value
     await ignoreStyleCandidate(book, path)
-    if (gen !== reqGen) return
+    if (reqGen.stale(gen)) return
     const c = candidates.value.find((x) => x._path === path)
     if (c) c.状态 = '已忽略'
   }
@@ -115,12 +117,12 @@ export const useStyleStore = defineStore('style', () => {
    *  M-11：收割慢响应 + 切书——落盘在服务端按调用时的书结算（无串），但回填
    *  candidates 前查代，防 A 书收割结果回填到已切到 B 的视图 */
   async function harvest(): Promise<{ created: number; skipped: number }> {
-    const gen = reqGen
+    const gen = reqGen.current()
     const book = bookName.value
     const r = await runStyleHarvest(book)
     if (r.created > 0) {
       const cs = await listStyleCandidates(book)
-      if (gen === reqGen) candidates.value = cs.candidates
+      if (reqGen.fresh(gen)) candidates.value = cs.candidates
     }
     return r
   }
@@ -128,23 +130,23 @@ export const useStyleStore = defineStore('style', () => {
   async function freeze(): Promise<void> {
     // M-5（第八轮）：代守卫——请求在途切书（clear→load 重建 config）后，响应落地会把
     // A 书 baseline 写进 B 书展示态（对齐 harvest/rescan 的 reqGen 惯例）
-    const gen = reqGen
+    const gen = reqGen.current()
     const r = await freezeStyleBaseline(bookName.value)
-    if (gen === reqGen && config.value) config.value.baseline = r.baseline
+    if (reqGen.fresh(gen) && config.value) config.value.baseline = r.baseline
   }
 
   /** 机检重扫（零 AI，全量重算，章多时秒级）。
    *  M-11：同 load 代守卫——重扫秒级在途时切书，旧书 trend 落地会顶掉新书的文风页 */
   async function rescan(): Promise<void> {
-    const gen = reqGen
+    const gen = reqGen.current()
     const book = bookName.value
     const t = await getStyleTrend(book)
-    if (gen === reqGen) trend.value = t
+    if (reqGen.fresh(gen)) trend.value = t
   }
 
   /** 切书清空（Book.vue watch(bookName) 调；缺此方法切书渲染崩溃） */
   function clear(): void {
-    reqGen++ // 旧书在途 load 全部作废
+    reqGen.invalidate() // 旧书在途 load 全部作废
     bookName.value = ''
     entries.value = []
     entryErrors.value = 0

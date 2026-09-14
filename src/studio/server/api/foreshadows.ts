@@ -12,6 +12,7 @@ import { statSync } from 'node:fs'
 import { join } from 'node:path'
 import { defineRoute } from './schema.js'
 import { reply, replyError, parseRequestUrl } from '../http.js'
+import { createTtlProbeCache } from '../ttl-cache.js'
 import { resolveBook } from '../book-context.js'
 import {
   readForeshadows,
@@ -50,7 +51,6 @@ interface ForeshadowSnapshot {
   entries: ForeshadowEntry[]
   trails: Map<string, ForeshadowTrail>
 }
-const foreshadowCache = new Map<string, { snapshot: ForeshadowSnapshot; ts: number; sig: string }>()
 let foreshadowTtlMs: number | null = null
 /** R44-8：TTL 测试注入口（先例同 __setSearchCacheTtlForTest）。仅测试用。 */
 export function __setForeshadowCacheTtlForTest(ms: number | null): void {
@@ -58,17 +58,31 @@ export function __setForeshadowCacheTtlForTest(ms: number | null): void {
 }
 /** R44-8：删书/改名失效挂点（books.ts forgetBookKeyedCaches 家族同款）。 */
 export function forgetForeshadowCache(bookRoot: string): void {
-  foreshadowCache.delete(bookRoot)
+  foreshadowCache.forget(bookRoot)
 }
 /** R44-8 回归观测钩子（生产零调用；先例同 __searchScanCountForTest）：缓存 MISS →
  *  全量重扫（readForeshadows + scanForeshadowTrails）计数。 */
-let foreshadowScanCount = 0
 export function __foreshadowScanCountForTest(): number {
-  return foreshadowScanCount
+  return foreshadowCache.scanCountForTest()
 }
 export function __resetForeshadowScanCountForTest(): void {
-  foreshadowScanCount = 0
+  foreshadowCache.resetScanCountForTest()
 }
+
+/** D1（复审-0914-优化修复批）：缓存壳收编 ttl-cache.ts 通用件（原本地 Map + FIFO +
+ *  R47-18 过期逐出 + foreshadowInFlight 在途去重表本地壳删除；命中/失效时序/逐出序
+ *  逐位不变——单级探针 + FIFO 32 + in-flight 去重，同步/异步孪生共壳共 Map，
+ *  见 ttl-cache.ts 头部收敛映射表）。 */
+const foreshadowCache = createTtlProbeCache<string, ForeshadowSnapshot>({
+  name: 'foreshadows',
+  keyOf: (k) => k,
+  max: FORESHADOW_CACHE_MAX,
+  ttl: () => foreshadowTtlMs ?? FORESHADOW_CACHE_TTL_MS,
+  probe: foreshadowDirSignature,
+  computeSync: foreshadowComputeSync,
+  computeAsync: foreshadowComputeAsync,
+  inFlight: true,
+})
 
 /** 被扫目录全集的 mtime 签名（缺失计 '-'，先例同 search.ts dirSignature）：
  *  设定/伏笔（fm 读面）+ 写作/正文（足迹扫描面）。 */
@@ -84,66 +98,30 @@ function foreshadowDirSignature(bookRoot: string): string {
   return parts.join(',')
 }
 
-/** R44-8：伏笔条目 + 足迹快照（目录指纹 + TTL 缓存壳）。导出供回归测试直测。 */
-export function getForeshadowsCached(bookRoot: string): ForeshadowSnapshot {
-  const sig = foreshadowDirSignature(bookRoot)
-  const cached = foreshadowCache.get(bookRoot)
-  if (cached && cached.sig === sig && Date.now() - cached.ts < (foreshadowTtlMs ?? FORESHADOW_CACHE_TTL_MS)) {
-    return cached.snapshot
-  }
-  // R47-18（四十七轮）：过期条目顺手逐出——原只当 miss 用、条目驻留至 FIFO 触顶/删书
-  //（forgetForeshadowCache）；重算路径本就必走且 set 原键覆写，零成本零语义变更。sig
-  // 失配但未过期的条目不在此次清（本函数同步单段，下方 set 必覆写同键）
-  if (cached && Date.now() - cached.ts >= (foreshadowTtlMs ?? FORESHADOW_CACHE_TTL_MS)) foreshadowCache.delete(bookRoot)
-  foreshadowScanCount += 1
+/** 同步孪生 MISS 计算体（回归测试直测面 + 行为规格参照）。 */
+function foreshadowComputeSync(bookRoot: string): ForeshadowSnapshot {
   const entries = readForeshadows(bookRoot)
   const trails = scanForeshadowTrails(bookRoot, entries)
-  const snapshot: ForeshadowSnapshot = { entries, trails }
-  // 简单 FIFO 淘汰（Map 保插入序）：超上限丢最旧条目，防长期运行的书库累积
-  if (foreshadowCache.size >= FORESHADOW_CACHE_MAX) {
-    const oldest = foreshadowCache.keys().next().value
-    if (oldest !== undefined) foreshadowCache.delete(oldest)
-  }
-  foreshadowCache.set(bookRoot, { snapshot, ts: Date.now(), sig })
-  return snapshot
+  return { entries, trails }
 }
 
-/** PM-1：in-flight 去重表（search.ts inFlightSearches 同款）——同书并发 MISS 只扫一次，
- *  后到者 await 同一 Promise；job 收尾（成功或失败）自清。 */
-const foreshadowInFlight = new Map<string, Promise<ForeshadowSnapshot>>()
+/** 异步孪生 MISS 计算体（PM-1 生产路径）：scanForeshadowTrailsAsync 切片让出事件循环。 */
+async function foreshadowComputeAsync(bookRoot: string): Promise<ForeshadowSnapshot> {
+  const entries = readForeshadows(bookRoot)
+  const trails = await scanForeshadowTrailsAsync(bookRoot, entries)
+  return { entries, trails }
+}
+
+/** R44-8：伏笔条目 + 足迹快照（目录指纹 + TTL 缓存壳）。导出供回归测试直测。 */
+export function getForeshadowsCached(bookRoot: string): ForeshadowSnapshot {
+  return foreshadowCache.getSync(bookRoot)
+}
 
 /** R44-8 缓存壳的异步孪生（PM-1，端点生产路径）：命中语义与同步版逐位一致（同缓存
  *  同 TTL 同签名），MISS 时经 scanForeshadowTrailsAsync 切片让出事件循环（200 万字
  *  全书正则扫不再整段冻结请求线程），并以 in-flight 去重合并并发 MISS。 */
 export function getForeshadowsCachedAsync(bookRoot: string): Promise<ForeshadowSnapshot> {
-  const sig = foreshadowDirSignature(bookRoot)
-  const cached = foreshadowCache.get(bookRoot)
-  if (cached && cached.sig === sig && Date.now() - cached.ts < (foreshadowTtlMs ?? FORESHADOW_CACHE_TTL_MS)) {
-    return Promise.resolve(cached.snapshot)
-  }
-  // R47-18 过期逐出口径同步版同款：过期条目先清（异步扫描窗口长，驻留无意义）；sig
-  // 失配未过期的条目留给扫描完成后的 set 原键覆写
-  if (cached && Date.now() - cached.ts >= (foreshadowTtlMs ?? FORESHADOW_CACHE_TTL_MS)) foreshadowCache.delete(bookRoot)
-  const inFlight = foreshadowInFlight.get(bookRoot)
-  if (inFlight) return inFlight
-  const job = (async (): Promise<ForeshadowSnapshot> => {
-    foreshadowScanCount += 1
-    const entries = readForeshadows(bookRoot)
-    const trails = await scanForeshadowTrailsAsync(bookRoot, entries)
-    const snapshot: ForeshadowSnapshot = { entries, trails }
-    // FIFO 淘汰与同步版同款（Map 保插入序）
-    if (foreshadowCache.size >= FORESHADOW_CACHE_MAX) {
-      const oldest = foreshadowCache.keys().next().value
-      if (oldest !== undefined) foreshadowCache.delete(oldest)
-    }
-    foreshadowCache.set(bookRoot, { snapshot, ts: Date.now(), sig })
-    return snapshot
-  })()
-  foreshadowInFlight.set(bookRoot, job)
-  // 收尾自清（catch 先落避免 job 被拒时清理链 unhandled rejection；原 job 的拒绝仍
-  // 按常送达真实调用方——路由层有统一错误面）
-  job.catch(() => {}).then(() => foreshadowInFlight.delete(bookRoot))
-  return job
+  return foreshadowCache.get(bookRoot)
 }
 
 export function registerForeshadowRoutes(ctx: ForeshadowCtx): void {

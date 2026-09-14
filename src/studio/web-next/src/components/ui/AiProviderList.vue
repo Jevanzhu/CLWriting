@@ -29,8 +29,10 @@ const emit = defineEmits<{
   remove: [p: ProviderConfDto]
 }>()
 
-function configuredRows(p: ProviderConfDto): { id: string; name?: string }[] {
-  return (p.models ?? []).map((m) => ({ id: m.id, name: typeof m.name === 'string' ? m.name : undefined }))
+// P3-22（全库重评-0914）：原 configuredRows 构造 {id,name} 行对象，模板只消费 .length
+// （映射产物全量丢弃）——收编为纯计数，零行为变化。
+function modelRowCount(p: ProviderConfDto): number {
+  return (p.models ?? []).length
 }
 /** 协议标签 = API 接口名（Chat Completions / Responses / Messages），非品牌名 */
 function protocolLabel(p: ProviderConfDto): string {
@@ -110,7 +112,7 @@ function protocolLabel(p: ProviderConfDto): string {
                未提供时默认显示模型行数预览（未展开编辑态由父层在外部处理）。 -->
           <slot name="row-expand" :p="p">
             <div class="row-expand-preview">
-              <span v-if="configuredRows(p).length" class="row-expand-model-count">{{ configuredRows(p).length }} 个模型行</span>
+              <span v-if="modelRowCount(p)" class="row-expand-model-count">{{ modelRowCount(p) }} 个模型行</span>
               <span v-else class="row-expand-placeholder">展开编辑配置</span>
             </div>
           </slot>

@@ -14,13 +14,14 @@
  */
 import { readFileSync, mkdirSync, existsSync, statSync } from 'node:fs'
 import { atomicWriteFile, rmQuietly } from '../../fs/atomic.js'
-// R30-3（三十轮）：锁等待改异步孪生 + 快路同步尝试——生成收尾路径（降级持久化等）与
-// 设置页保存在 CLI+桌面双进程争用窗口不再被 Atomics.wait 同步微睡冻结事件循环
-import { acquireCrossProcessLockAsync, tryAcquireCrossProcessLock } from '../../fs/cross-process-lock.js'
+// 复审-0914-优化修复批（C1）：写链队列 + 跨进程锁机械收编 ai/calls.ts serializedLockedWrite
+// 单源（R30-3 快路同步尝试 + 锁等待异步孪生语义不变——生成收尾路径与设置页保存在
+// CLI+桌面双进程争用窗口不再冻结事件循环，机制见 calls.ts crossProcessLockedWrite）
+import { serializedLockedWrite } from '../calls.js'
 import { dirname, join } from 'node:path'
 import type { ProviderConf, ModelConf, TierSlot, TierConfig, RagProviderConf } from './types.js'
 import { builtinKeyMaterial } from './vault-key.js'
-import { log } from '../../log/index.js'
+import { errMsg, log } from '../../log/index.js'
 import {
   createVault,
   openVault,
@@ -120,8 +121,40 @@ function tryRestoreFromBak(fp: string, bakFp: string): string | null {
     _cache = null // 恢复后强制重读
     return null
   } catch (e) {
-    return e instanceof Error ? e.message : String(e)
+    return errMsg(e)
   }
+}
+
+/**
+ * 复审-0914-优化修复批（C7）：providers / ragProviders 两列共用的「解密 + 半迁移收敛」
+ * 循环单源（S4 §五）——vault 有条目 → openKey 解密（R31-28：providerId 绑 AAD；存量
+ * 未绑密文经 legacy 通道打开并标记重封；残留明文字段标记清理）；vault 缺条目但明文有 →
+ * 收明文补迁移。任一命中 needsRewrite 由返回值带出（两列在 loadProviders 汇总）。
+ */
+function decryptConfs<T extends { id: string; apiKey: string }>(
+  raws: Array<Omit<T, 'apiKey'> & { apiKey?: string }>,
+  vault: Vault | null,
+  dek: Buffer | null,
+): { confs: T[]; needsRewrite: boolean } {
+  let needsRewrite = false
+  const confs = raws.map((p) => {
+    const conf = { ...p, apiKey: '' } as T
+    if (vault && dek && vault.keys[conf.id]) {
+      // vault 有 → 解密（vault 永远优先）；R31-28（三十一轮）：providerId 绑 AAD，
+      // 存量未绑密文经 legacy 通道打开并标记重封
+      const opened = openKey(dek, vault.keys[conf.id]!, conf.id)
+      conf.apiKey = opened.apiKey
+      if (opened.legacy) needsRewrite = true
+      // 残留明文 apiKey 字段 → 标记清理
+      if (p.apiKey) needsRewrite = true
+    } else if (p.apiKey) {
+      // vault 缺该条目但明文有 → 补迁移
+      conf.apiKey = p.apiKey
+      needsRewrite = true
+    }
+    return conf
+  })
+  return { confs, needsRewrite }
 }
 
 /**
@@ -201,49 +234,18 @@ export function loadProviders(userDataPath: string): ProviderStore {
     dek = openVault(vault, builtinKeyMaterial())
   }
 
-  // 逐条提取明文 apiKey，按 §五半迁移规则收敛
-  let needsRewrite = false
-  const providers: ProviderConf[] = raw.providers.map((p) => {
-    const conf = { ...p, apiKey: '' } as ProviderConf
-    if (vault && dek && vault.keys[conf.id]) {
-      // vault 有 → 解密（vault 永远优先）
-      // R31-28（三十一轮）：providerId 绑 AAD；存量未绑密文经 legacy 通道打开并标记重封
-      const opened = openKey(dek, vault.keys[conf.id]!, conf.id)
-      conf.apiKey = opened.apiKey
-      if (opened.legacy) needsRewrite = true
-      // 残留明文 apiKey 字段 → 标记清理
-      if (p.apiKey) needsRewrite = true
-    } else if (p.apiKey) {
-      // vault 缺该条目但明文有 → 补迁移
-      conf.apiKey = p.apiKey
-      needsRewrite = true
-    }
-    return conf
-  })
+  // 逐条提取明文 apiKey，按 §五半迁移规则收敛（复审-0914-优化修复批 C7：两列循环
+  // 单源 decryptConfs，逐字段行为不变）
+  const { confs: providers, needsRewrite: providersMigrated } = decryptConfs<ProviderConf>(raw.providers, vault, dek)
 
   // 无 vault 但有明文 apiKey → 全量首次迁移
-  if (!vault && providers.some((p) => p.apiKey)) {
-    needsRewrite = true
-  }
+  let needsRewrite = providersMigrated || (!vault && providers.some((p) => p.apiKey))
 
-  // RAG（嵌入）服务商——同款解密/明文迁移规则。形状坏容错为 []：
+  // RAG（嵌入）服务商——同款解密/明文迁移规则（C7 同源）。形状坏容错为 []：
   // ragProviders 是后加段，不能因它拖累 chat providers 走整文件 bak 恢复链。
   const ragRaw = Array.isArray(raw.ragProviders) ? raw.ragProviders : []
-  const ragProviders: RagProviderConf[] = ragRaw.map((p) => {
-    const conf = { ...p, apiKey: '' } as RagProviderConf
-    if (vault && dek && vault.keys[conf.id]) {
-      // R31-28（三十一轮）：同 chat 侧——providerId 绑 AAD + legacy 重封迁移
-      const opened = openKey(dek, vault.keys[conf.id]!, conf.id)
-      conf.apiKey = opened.apiKey
-      if (opened.legacy) needsRewrite = true
-      if (p.apiKey) needsRewrite = true
-    } else if (p.apiKey) {
-      conf.apiKey = p.apiKey
-      needsRewrite = true
-    }
-    return conf
-  })
-  if (!vault && ragProviders.some((p) => p.apiKey)) {
+  const { confs: ragProviders, needsRewrite: ragMigrated } = decryptConfs<RagProviderConf>(ragRaw, vault, dek)
+  if (ragMigrated || (!vault && ragProviders.some((p) => p.apiKey))) {
     needsRewrite = true
   }
 
@@ -335,70 +337,28 @@ export function __seedProvidersWriteChainForTest(userDataPath: string, pending: 
 }
 
 export function saveProviders(userDataPath: string, store: ProviderStore): Promise<void> {
-  const prev = writeChains.get(userDataPath)
-  if (prev === undefined) {
-    // 空闲快路：无争用时同步原子完成（跨进程锁内——多进程同写 providers.json 不再交错
-    // 覆盖）；IO 异常照旧同步上抛（R29-2：throw 路径保持 throw，await 侧 try/catch 同样
-    // 接得住）。R30-3（三十轮）：锁被占时 saveWithCrossProcessLock 返回在途 promise
-    //（异步轮询等待）——此处临时入链让后续写排队其后（保调用序 = 落盘序），并原样
-    // 返回给 await 方（失败随 promise 上抛）；旁挂分支防在途 rejection 无人接时变
-    // unhandled rejection + warn 留痕（R29-2 口径）。
-    const inflight = saveWithCrossProcessLock(userDataPath, store)
-    if (inflight === undefined) return Promise.resolve()
-    writeChains.set(userDataPath, inflight)
-    const cleanupInflight = (): void => {
-      if (writeChains.get(userDataPath) === inflight) writeChains.delete(userDataPath)
-    }
-    void inflight.then(cleanupInflight, (e: unknown) => {
-      log.warn('providers', `providers.json 写入失败（本次写未落盘）：${e instanceof Error ? e.message : String(e)}`)
-      cleanupInflight()
-    })
-    return inflight
-  }
-  const next = prev.catch(() => {}).then(() => saveWithCrossProcessLock(userDataPath, store))
-  writeChains.set(userDataPath, next)
-  const cleanup = (): void => {
-    if (writeChains.get(userDataPath) === next) writeChains.delete(userDataPath)
-  }
-  // 旁挂分支只负责留痕 + 清链——不吞返回 promise 的拒绝（R29-2 前这里是唯一出口，
-  // 排队段失败对外表现为「成功」）
-  void next.then(cleanup, (e: unknown) => {
-    log.warn('providers', `排队 providers.json 写入失败（本轮写未落盘）：${e instanceof Error ? e.message : String(e)}`)
-    cleanup()
-  })
-  // R29-2（二十九轮）：排队段失败随返回的链式 promise 向上传播（await 方 catch → 500），
-  // 不再「log.warn 后吞」——写未落盘不得伪装成保存成功
-  return next
-}
-
-/** R30-3（三十轮）：跨进程锁获取——无争用快路同步持锁直行（tryAcquire 即得，写段为
- *  文件 IO 级毫秒，同步原子完成后返回 undefined；R29-2「快路 IO 异常同步上抛」与
- *  loadProviders 迁移写回的 R71-18 紧邻读回校验所依赖的「存完即读」逐位不变）；
- *  锁被占时改用 acquireCrossProcessLockAsync 异步轮询等待（setTimeout 微睡、事件循环
- *  不阻塞）——生成收尾路径与设置页保存在 CLI+桌面双进程争用时不再冻结承载 SSE/全部
- *  接口的服务进程至超时。超时语义不变：5s 封顶、超时上抛（rejection 随 saveProviders
- *  返回的 promise 上抛 / 排队段旁挂 warn 留痕）。 */
-function saveWithCrossProcessLock(userDataPath: string, store: ProviderStore): void | Promise<void> {
+  // 复审-0914-优化修复批（C1）：快/慢双路、在途入链、cleanup 身份比对、旁挂 warn 防
+  // unhandled rejection 收编 ai/calls.ts serializedLockedWrite 单源（记账侧 serializedWrite
+  // 同构薄壳）。R73-2 串行队列 + R30-3 锁异步化 + R29-2 排队段失败随 promise 上抛语义
+  // 逐位不变：returnInflight=true（在途/排队 promise 原样返回给 await 方）；快路同步完成
+  // 返回 undefined，此处转 Promise.resolve()（R29-2：IO 异常照旧同步上抛，await 侧
+  // try/catch 同样接得住）。
   const lockPath = join(userDataPath, `${FILE}.lock`)
-  const fast = tryAcquireCrossProcessLock(lockPath)
-  if (fast) {
-    try {
-      saveProvidersLocked(userDataPath, store)
-      return
-    } finally {
-      fast()
-    }
-  }
-  return acquireCrossProcessLockAsync(lockPath, PROVIDERS_WRITE_LOCK_TIMEOUT_MS).then((release) => {
-    if (!release) {
-      throw new Error(`providers.json 跨进程锁获取超时（${lockPath}）——本次写入未落盘，避免与其他进程交错覆盖`)
-    }
-    try {
-      saveProvidersLocked(userDataPath, store)
-    } finally {
-      release()
-    }
-  })
+  const r = serializedLockedWrite(
+    writeChains,
+    userDataPath,
+    lockPath,
+    () => saveProvidersLocked(userDataPath, store),
+    {
+      warnTag: 'providers',
+      fastWarn: (m) => `providers.json 写入失败（本次写未落盘）：${m}`,
+      queuedWarn: (m) => `排队 providers.json 写入失败（本轮写未落盘）：${m}`,
+      lockTimeoutMs: () => PROVIDERS_WRITE_LOCK_TIMEOUT_MS,
+      lockTimeoutMsg: `providers.json 跨进程锁获取超时（${lockPath}）——本次写入未落盘，避免与其他进程交错覆盖`,
+      returnInflight: true,
+    },
+  )
+  return r === undefined ? Promise.resolve() : r
 }
 
 /** 原 saveProviders 主体（R73-2 改名入锁；逻辑逐行不变） */

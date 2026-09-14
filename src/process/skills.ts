@@ -15,7 +15,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { readFile, parseFlat } from '../format/frontmatter.js'
 import { isMdFileName } from '../format/filename.js'
 import { bundledResource } from '../fs/resources.js'
-import { log } from '../log/index.js'
+import { log, errMsg } from '../log/index.js'
 
 // ── R46-26（四十六轮）：技巧包文件级 mtime 缓存 ────────────────────────
 // listSkills 此前三根全量 readFileSync+parse（chat 每轮组 system prompt 索引都扫），
@@ -91,7 +91,7 @@ function scanRoot(dir: string, source: SkillMeta['source']): SkillMeta[] {
     try {
       text = readFileSync(fp, 'utf-8')
     } catch (e) {
-      log.warn('skills', `技巧包读取失败，不入索引：${fp}（${e instanceof Error ? e.message : String(e)}）`)
+      log.warn('skills', `技巧包读取失败，不入索引：${fp}（${errMsg(e)}）`)
       continue
     }
     const r = readFile(fp, text)

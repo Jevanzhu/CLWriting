@@ -18,6 +18,7 @@
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { readdirSync } from 'node:fs'
+import type { ServerResponse } from 'node:http' // 复审-0914-优化修复批（P1-2）：包装面 res 形参
 import {
   tryAcquireCrossProcessLock,
   queryLockHeld,
@@ -28,6 +29,9 @@ import { isChatRunning } from '../../../ai/orchestrate/chat.js'
 import { hasBackgroundTasks } from '../../../ai/orchestrate/background.js'
 import { isSpawnRunning } from '../../../ai/orchestrate/spawn-registry.js'
 import { log } from '../../../log/index.js' // R37-21：锁根覆盖告警留痕
+import { replyError } from '../http.js' // 复审-0914-优化修复批（P1-2/D4）：包装面 409/错误信封统一出口
+import { getDriver, ensureSession } from '../../../driver/index.js' // 复审-0914-优化修复批（P1-2）：中断通道注册面收编
+import type { Session } from '../../../driver/types.js'
 
 const running = new Set<string>()
 
@@ -154,30 +158,45 @@ export function heldTaskGatesFor(bookName: string): string[] {
 
 /** R75-5：全库任务闸 action 注册表——锁文件名是 key（action+NUL+书名）的单向 sha256
  *  截断，查询侧无法从文件名反解出 action，只能对已知 action 正向枚举 hash 比对。
- *  新增 acquireTaskGate 调用点时须同步登记此处（漏登记只削弱跨进程 busyGate 查询的
- *  完备性——少报一个在途 action，不影响 acquire 侧互斥本身）。
+ *  新增闸占用点时须同步登记（漏登记只削弱跨进程 busyGate 查询的完备性——少报一个
+ *  在途 action，不影响 acquire 侧互斥本身）。
  *  R77-2（二十五轮批 E）：导出 + test/governance/known-actions-audit.test.ts 静态对账
- *  （扫全库调用点字面量 == 注册表）——漏登记从「注释自觉」变机器门。 */
+ *  （扫全库调用点字面量 == 注册表）——漏登记从「注释自觉」变机器门。
+ *  复审-0914-优化修复批（P1-2）：注册表按「闸获取入口」拆两半——
+ *  - KNOWN_ACTIONS：端点内**直接** acquireTaskGate 的调用点（governance 对账面只认
+ *    该形态字面量，集合必须与扫描面严格相等）；
+ *  - GATED_ACTIONS：经下方 runGatedGeneration 包装占闸的端点 action（闸获取收编进
+ *    本文件，扫描面看不到调用点字面量）——对账由 test/studio 镜像门
+ *    （r0914-gated-actions-audit.test.ts：包装调用点字面量 == GATED_ACTIONS）承担。
+ *  两表不相交；跨进程扫描枚举 ALL_TASK_GATE_ACTIONS 并集（R75-5 完备性口径不变，
+ *  拆表前后全集逐项一致）。 */
 export const KNOWN_ACTIONS: readonly string[] = [
-  'analyze',
-  'analyze-style',
-  'autotag',
-  'batch-finalize',
-  'export',
-  'infer-meta',
-  'learn',
-  'lead-updates',
-  'onboard-ai',
-  'onboard-save',
-  'outline',
-  'rag-build',
-  'relations-mine',
-  'review',
-  'rewrite',
+  'batch-finalize', // documents.ts 批量定稿（CC-P2-9）
+  'export', // io.ts 大书导出
+  'learn', // knowledge.ts 条目学习
+  'onboard-save', // onboard.ts 段2保存（无 AI 生成段不接包装；闸在 body 校验后占，入口闸会改 409/400 判序）
+  'rag-build', // rag.ts 整书索引构建
+  'review', // review.ts 三审
   'structure', // 阶段 24 章节结构操作（documents.ts structure-apply / merge-undo）——合并/拆分/撤销的编排闸
   'style-harvest', // R40-4（四十轮）：收割端点（style.ts POST /style/harvest）——整树扫描任务闸
   'versions-prune', // R26-67（二十六轮）：快照清理端点（snapshots.ts POST /versions/prune）
 ]
+
+/** 复审-0914-优化修复批（P1-2）：runGatedGeneration 包装面登记表（对账面见上注）。 */
+export const GATED_ACTIONS: readonly string[] = [
+  'analyze',
+  'analyze-style',
+  'autotag',
+  'infer-meta',
+  'lead-updates',
+  'onboard-ai',
+  'outline',
+  'relations-mine',
+  'rewrite',
+]
+
+/** 跨进程扫描全集：两表并集（去重防御；拆表前后与原 KNOWN_ACTIONS 全集逐项一致）。 */
+const ALL_TASK_GATE_ACTIONS: readonly string[] = [...new Set([...KNOWN_ACTIONS, ...GATED_ACTIONS])]
 
 /** R75-5：跨进程查询注入项（语义同 TaskGateOptions 对应字段）。 */
 interface CrossProcessQueryOptions {
@@ -210,7 +229,8 @@ export function crossProcessHeldTaskGatesFor(bookName: string, opts?: CrossProce
   }
   const isAlive = opts?.isProcessAlive ?? defaultIsProcessAlive
   const actions: string[] = []
-  for (const action of KNOWN_ACTIONS) {
+  // 复审-0914-优化修复批（P1-2）：枚举全集改两表并集（拆表后完备性口径不变，见 KNOWN_ACTIONS 头注）
+  for (const action of ALL_TASK_GATE_ACTIONS) {
     const fname = lockFileName(keyOf(bookName, action))
     if (!names.has(fname)) continue
     if (queryLockHeld(join(dir, fname), { isProcessAlive: isAlive })) actions.push(action)
@@ -236,4 +256,97 @@ export function orchestrationBusyFor(bookName: string): string | null {
   if (isSpawnRunning(bookName)) return `本书手动写稿进行中，等它完成后再生成（防写稿上下文被覆盖写混态）`
   if (hasBackgroundTasks(bookName)) return `本书有后台任务收尾中，稍后再生成`
   return null
+}
+
+// ── 复审-0914-优化修复批（P1-2/D4）：长任务门控 handler 高阶包装 ─────────────
+// 「orchestrationBusyFor → acquireTaskGate → getDriver → ensureSession → new
+// AbortController → driver.registerCtrl?.(session, ctrl, `action:${book}`) →
+// finally{unregisterCtrl+release}」十段此前在 9+ 个生成长任务端点逐字复制
+// （analysis ×4 / rewrite / outline / settings(relations-mine) / lead-updates /
+// onboard-ai；RB-SV-P2-2 立闸、R0912-P2-① 接中断通道、R67-13 接编排互斥——三批
+// 沿革各自复制成 ten-fold）。本包装收编为单源，端点改薄调用：
+//
+// 时序契约（与各端点原实现逐位一致）：
+//   ① orchestrationBusyFor 预检（R67-13）→ 409 BUSY（文案即闸返回的人话）；
+//   ② acquireTaskGate（RB-SV-P2-2）→ 占不上 409 BUSY busyText（各端点专用文案
+//     逐字保留）；
+//   ③ ensureSession → 新 ctrl → driver.registerCtrl（R0912-P2-①；owner 分槽
+//     `${action}:${book}`——同 action 重入已被任务闸 409 挡住，串行换新安全，
+//     跨书/跨端点互不误伤；onboard-ai 的历史字面量 'onboard:<书名>' 经
+//     ownerLabel 逐位保留）；
+//   ④ fn(ctrl) 执行端点主体（响应在 fn 内经 reply/replyError 发出）；
+//   ⑤ finally 统一 unregisterCtrl + release（成功/失败/中断三路必达；ensureSession
+//     失败未注册时跳过注销，cc X-P2-11 口径）。
+//
+// 跨进程登记口径：本包装内部的 acquireTaskGate 调用位于本文件（known-actions-audit
+// 扫描排除自身），action 字面量改经调用点 opts.action 传入——对账由 GATED_ACTIONS +
+// test/studio 镜像门承担（见 KNOWN_ACTIONS 头注；拆表前后跨进程扫描全集逐项一致）。
+
+interface GatedGenerationOptions {
+  /** 书名（闸键 / ensureSession / owner 标签）。 */
+  book: string
+  /** workDir（ensureSession 实参；调用方 handler 已 resolveBook 成功，非 null）。 */
+  workDir: string
+  /** 任务闸 action（GATED_ACTIONS 登记面；test/studio 镜像门静态对账）。 */
+  action: string
+  /** 闸被持时 409 BUSY 的人话文案（各端点原文逐字保留）。 */
+  busyText: string
+  /** driver ctrl owner 标签；缺省 `${action}:${book}`（onboard-ai 传 'onboard' 保历史字面量 'onboard:<书名>'）。 */
+  ownerLabel?: string
+}
+
+/**
+ * 生成长任务端点的门控包装（busy 预检 → 任务闸 → 中断通道注册 → fn → finally 注销释放）。
+ * fn 内完成端点主体（readJson/校验/AI 调用/落盘/响应），中断收口经 replyGenerationFailure。
+ */
+export async function runGatedGeneration(
+  res: ServerResponse,
+  opts: GatedGenerationOptions,
+  fn: (ctrl: AbortController) => Promise<void>,
+): Promise<void> {
+  // R67-13（十五轮）：编排互斥矩阵补角——写稿系编排在途（self-heal/对话/手动写稿/
+  // 后台收尾）时拒收生成长任务（细纲/账本是写稿上下文注入源，在途覆盖写 = 混合态上下文）
+  const busyOrch = orchestrationBusyFor(opts.book)
+  if (busyOrch) return replyError(res, 409, 'BUSY', busyOrch)
+  // RB-SV-P2-2：长任务并发闸（分钟级 AI 任务，重复点击=双倍费用）
+  const release = acquireTaskGate(opts.book, opts.action)
+  if (!release) return replyError(res, 409, 'BUSY', opts.busyText)
+  // R0912-P2-①（2026-09-11 重评-0911c 修复批）：接入中断通道——接法照抄 stream.ts
+  // spawn/self-heal 的 register/unregister 形态：编排段新建 ctrl → driver.registerCtrl
+  // → settle（外层 finally）统一注销。实现移位：复审-0914-优化修复批（P1-2）十段
+  // 复制收编本包装；owner 分槽语义与 ctrl 注册名逐位保留。
+  const driver = getDriver()
+  let registeredSession: Session | null = null
+  let registeredCtrl: AbortController | null = null
+  try {
+    const session = await ensureSession(opts.book, opts.workDir)
+    registeredSession = session
+    const ctrl = new AbortController()
+    driver.registerCtrl?.(session, ctrl, opts.ownerLabel ?? `${opts.action}:${opts.book}`)
+    registeredCtrl = ctrl
+    await fn(ctrl)
+  } finally {
+    // R0912-P2-①：settle（成功/失败/中断）统一注销——isRunning 归 false（cc X-P2-11 口径）；
+    // ensureSession 失败（未注册）时跳过
+    if (registeredCtrl && registeredSession) driver.unregisterCtrl?.(registeredSession, registeredCtrl)
+    release()
+  }
+}
+
+/**
+ * D4（复审-0914-优化修复批）：生成失败的状态映射单源——NO_* 族（NO_USERDATA/
+ * NO_PROVIDER/NO_MODEL 等配置缺失，客户端可处置）→ 400；ABORTED（用户中断，请求
+ * 被取消语义）→ 499；其余（GEN_FAIL/TIMEOUT_TOTAL/EMPTY_OUTPUT 等）→ 500。
+ * code/error 一律透传（R43-24 透传口径：错误文案不变，信封 {code,error} 形状不变）。
+ * analysis 族（runAnalyst/runOnboard 已把配置缺失坍缩 GEN_FAIL，无 NO_* 码面）与
+ * rewrite/outline（透传码）共用；settings relations-mine 的文案变体（ABORTED 固定
+ * 「已中断」、其余组装「AI 梳理失败:…」）经形状归一后仍走本单源映射。
+ */
+export function replyGenerationFailure(
+  res: ServerResponse,
+  fail: { ok: false; code: string; error: string },
+): void {
+  if (fail.code.startsWith('NO_')) return replyError(res, 400, fail.code, fail.error)
+  if (fail.code === 'ABORTED') return replyError(res, 499, fail.code, fail.error)
+  replyError(res, 500, fail.code, fail.error)
 }

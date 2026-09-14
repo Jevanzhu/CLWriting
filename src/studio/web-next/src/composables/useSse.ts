@@ -3,6 +3,7 @@ import { useWorkbenchStore } from '../stores/workbench'
 import { useChatStore } from '../stores/chat'
 import { useUiStore } from '../stores/ui'
 import { getToken, rebootstrap } from '../api/client'
+import { useStaleGuard } from './useStaleGuard'
 
 /**
  * SSE 订阅（细案 T3.1）：dev 直连 127.0.0.1:7878（vite proxy + 系统代理会 buffer 断流，旧版踩坑），
@@ -23,6 +24,13 @@ const DEV_AUTH_MISMATCH_STRIKES = 3
  *  直连本地 dev:api 端口。原为函数内硬编码 'http://127.0.0.1:7878'，提取为常量并支持
  *  VITE_DEV_API_BASE 覆盖（行为不变，仅可配置化）。生产同源相对路径（空串）。 */
 const DEV_API_BASE: string = (import.meta.env.VITE_DEV_API_BASE as string | undefined) ?? 'http://127.0.0.1:7878'
+
+/** 复审-0914-优化修复批（P3）：SSE 基址双写收敛单源——probeSseBusy 与 doConnect 原各写
+ *  一遍同款 `import.meta.env.DEV ? DEV_API_BASE : ''` 三元，只改一处漏另一处的漂移风险
+ *  由本 helper 消解。取值逻辑零变化。 */
+function sseBase(): string {
+  return import.meta.env.DEV ? DEV_API_BASE : ''
+}
 
 /** R34D-23（三十四轮）：换票超时档——同文件 probeSseBusy 8s / client boot 5s 的同族
  *  补位。服务端半死（接受连接不回包）时裸 fetch 永不 settle：doConnect 悬挂在
@@ -84,8 +92,9 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
   let backoffStep = 0
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   let currentName = ''
-  /** 连接代：disconnect/重连会推进——悬挂中的 doConnect（await re-bootstrap 期间被接管）据此放弃 */
-  let connectGen = 0
+  /** 连接代：disconnect/重连会推进——悬挂中的 doConnect（await re-bootstrap 期间被接管）据此放弃
+   *  E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard（观测点 current，disconnect invalidate）。 */
+  const connectGen = useStaleGuard()
   // R73-67：429 指引一次连接纪元只提示一次（onopen 成功/切书复位）——退避重连期间不反复打扰
   let busy429Notified = false
   let probing429 = false
@@ -120,8 +129,8 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
     probing429 = true
     // R0910-W：探测起始捕获连接代——探测在途期间切书/断开（disconnect 推代）后，
     // 迟到的状态码不得再按旧书写入（429 指引会指向用户已离开的语境）
-    const gen = connectGen
-    const base = import.meta.env.DEV ? DEV_API_BASE : ''
+    const gen = connectGen.current()
+    const base = sseBase()
     const ctrl = new AbortController()
     probeCtrl = ctrl
     // R26-78（二十六轮）：探测超时 8s——探测挂死（半开连接/对端不回包）时 probing429
@@ -139,7 +148,7 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
       ctrl.abort() // 拿到状态码即断（非 429 时服务端已建流——不留存活探测连接）
       // R0910-W：探测起始至今已被 disconnect 接管（切书/卸载/重连推代 + 中止在途探测）
       // ——迟到的状态码属旧语境，不落 429 指引、不计失配连记
-      if (gen !== connectGen) return
+      if (connectGen.stale(gen)) return
       // R1010c-FE2-P3-2（2026-09-10 全量独立复审修复批）：探测 401 同样触发 client 的
       // re-boot 通道（去重同源，见 fetchStreamTicket 同锚点注）——token 失效面在探测
       // 侧也直接自愈；403/429/404 不触发（re-boot 无解，同 apiFetch「token 未变不重放」）。
@@ -177,7 +186,7 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
   }
 
   async function doConnect(): Promise<void> {
-    const gen = connectGen
+    const gen = connectGen.current()
     // N-3（第五十四轮）：token null（boot 失败）时 SSE 连接不带 token 必 401 fail-closed，
     // 退避循环自身无法自愈（只能靠别的写请求触发 E-2）——连接前复用 client 的 re-bootstrap
     // 通道（promise 去重防风暴），settle 后再连；re-boot 失败 token 仍 null 则照常连接，
@@ -185,9 +194,9 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
     if (getToken() === null) {
       await rebootstrap()
       // 等待期间已被 disconnect/切书重连接管：不再开连（防悬挂旧连接）
-      if (gen !== connectGen) return
+      if (connectGen.stale(gen)) return
     }
-    const base = import.meta.env.DEV ? DEV_API_BASE : ''
+    const base = sseBase()
     const t = getToken()
     // 契约②：SSE 连接先换一次性 ticket（?ticket=）；ticket 端点未就绪（null）→
     // 回退 ?token= 旧通道（过渡期兼容，服务端上线后自动切到 ticket）。
@@ -196,7 +205,7 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
     if (t) {
       const ticket = await fetchStreamTicket(t, base)
       // 换 ticket 期间被 disconnect/切书重连接管：不再开连（防悬挂旧连接）
-      if (gen !== connectGen) return
+      if (connectGen.stale(gen)) return
       if (ticket) {
         query = `?ticket=${encodeURIComponent(ticket)}`
       } else {
@@ -301,7 +310,7 @@ export function useSse(bookName: WatchSource<string>): { resync: () => void } {
   }
 
   function disconnect(): void {
-    connectGen++ // 推代：悬挂中的 doConnect（await re-bootstrap 期间）放弃开连
+    connectGen.invalidate() // 推代：悬挂中的 doConnect（await re-bootstrap 期间）放弃开连
     // R0910-W：在途 429 探测随断开中止——切书/卸载后旧语境的探测不再 settle 后
     // 补发指引（代闸在 probeSseBusy 内另兜一道）
     probeCtrl?.abort()

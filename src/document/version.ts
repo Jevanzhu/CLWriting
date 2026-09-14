@@ -26,7 +26,7 @@ import { ulid, decodeUlidTime } from './stable-id.js'
 import { readFile, parseFlat, splitFrontMatter, stringifyValue } from '../format/frontmatter.js'
 import { isMdFileName } from '../format/filename.js'
 import type { Revision } from './revision.js'
-import { log } from '../log/index.js'
+import { log, errMsg } from '../log/index.js'
 
 /** 版本目录名（工作区/ 下，treeskip + 迁移用）。 */
 export const VERSIONS_DIR_NAME = '.版本'
@@ -762,7 +762,7 @@ export function migrateVersionsDir(bookRoot: string): boolean {
     // 恢复），按真实后果与处置指引告警。
     log.warn(
       'version',
-      `版本目录迁移失败（${legacy} → ${target}）：旧位置快照在版本历史中不可见（文件仍在盘上，可手工恢复），请排查后重试迁移——${e instanceof Error ? e.message : String(e)}`,
+      `版本目录迁移失败（${legacy} → ${target}）：旧位置快照在版本历史中不可见（文件仍在盘上，可手工恢复），请排查后重试迁移——${errMsg(e)}`,
     )
     return false
   }

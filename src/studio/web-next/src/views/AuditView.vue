@@ -7,6 +7,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { ScrollText, EyeOff, GitBranch, RefreshCw, AlertCircle } from 'lucide-vue-next'
 import { getAudit, clearAudit, type AuditConversationFE, type AuditEventFE, type GoalFE, type TodoFE } from '../api/audit'
 import { friendlyError } from '../shared/error'
+import { useStaleGuard } from '../composables/useStaleGuard'
 import AuditDiffPanel from '../components/audit/AuditDiffPanel.vue'
 import AuditGoalTodoPanel from '../components/audit/AuditGoalTodoPanel.vue'
 // R0911b-C2-P3-1：对话/工作流两段事件列表模板近复制（行 + 空态 + 分页/截断行），
@@ -62,10 +63,11 @@ onUnmounted(() => {
 // load() 清列表归零 offset，迟到续页此前按旧 offset push 进已重置列表且 offset 漂移
 //（原注释自称不失守恰恰失守：alive 只护卸载不护刷新）。续页开工时拍代数，回写前
 // 复核；load 开工递增代数使全部在途续页作废。
-let loadGen = 0
+// E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard（load begin，续页/清除观测点 current）。
+const loadGen = useStaleGuard()
 
 async function load(): Promise<void> {
-  const gen = ++loadGen
+  const gen = loadGen.begin()
   loading.value = true
   err.value = null
   conversation.value = null
@@ -83,7 +85,7 @@ async function load(): Promise<void> {
   // loadMore 原地 push——语义与原父侧 clear 等价），此处不再直清。
   try {
     const v = await getAudit(props.bookName, { limit: PAGE_LIMIT, offset: 0 })
-    if (!alive || gen !== loadGen) return // R36-25：卸载后迟到响应不回写；R48-23：被更新刷新作废
+    if (!alive || loadGen.stale(gen)) return // R36-25：卸载后迟到响应不回写；R48-23：被更新刷新作废
     conversation.value = v.conversation
     convoEvents.value = v.conversation?.events ?? []
     convoTotal.value = v.conversation?.eventsTotal ?? 0
@@ -94,10 +96,10 @@ async function load(): Promise<void> {
     goals.value = v.goals ?? []
     todos.value = v.todos ?? []
   } catch (e) {
-    if (!alive || gen !== loadGen) return // R36-25
+    if (!alive || loadGen.stale(gen)) return // R36-25
     err.value = friendlyError(e)
   } finally {
-    if (!alive || gen !== loadGen) return // R36-25：卸载后不再回写 loading
+    if (!alive || loadGen.stale(gen)) return // R36-25：卸载后不再回写 loading
     loading.value = false
   }
 }
@@ -105,13 +107,13 @@ async function load(): Promise<void> {
 /** 追加下一页对话事件（offset = 已载条数；seq 去重防 sync/重复请求混入） */
 async function loadMoreConvo(): Promise<void> {
   if (convoLoadingMore.value || !hasMoreConvo.value) return
-  const gen = loadGen // R48-23：拍代数——开工后发生刷新则本页作废
+  const gen = loadGen.current() // R48-23：拍代数——开工后发生刷新则本页作废
   convoLoadingMore.value = true
   err.value = null
   try {
     const v = await getAudit(props.bookName, { limit: PAGE_LIMIT, offset: convoOffset.value })
     if (!alive) return // R36-25：卸载后迟到续页不回写
-    if (gen !== loadGen) return // R48-23：刷新已重置列表，旧 offset 续页不得拼入
+    if (loadGen.stale(gen)) return // R48-23：刷新已重置列表，旧 offset 续页不得拼入
     if (conversation.value === null) conversation.value = v.conversation
     const seen = new Set(convoEvents.value.map((e) => e.seq))
     const fresh = (v.conversation?.events ?? []).filter((e) => !seen.has(e.seq))
@@ -124,7 +126,7 @@ async function loadMoreConvo(): Promise<void> {
     // R57-F-1（五十七轮）：catch 补上方成功路径同款代数复检——续页在途时点刷新，
     // load() 递增代数并清列表后，迟到失败此前仍会把错误态（err 回写）写到已被
     // 新刷新取代的视图上（新代成功数据顶着旧错误横幅）。
-    if (!alive || gen !== loadGen) return // R36-25：卸载后不回写；R48-23：被刷新作废的续页不得置错
+    if (!alive || loadGen.stale(gen)) return // R36-25：卸载后不回写；R48-23：被刷新作废的续页不得置错
     err.value = friendlyError(e)
   } finally {
     convoLoadingMore.value = false
@@ -134,13 +136,13 @@ async function loadMoreConvo(): Promise<void> {
 /** 追加下一页工作流事件（对称实现；长自愈批的链路事件也可能超 500） */
 async function loadMoreWorkflow(): Promise<void> {
   if (workflowLoadingMore.value || !hasMoreWorkflow.value) return
-  const gen = loadGen // R48-23：同 convo——开工后发生刷新则本页作废
+  const gen = loadGen.current() // R48-23：同 convo——开工后发生刷新则本页作废
   workflowLoadingMore.value = true
   err.value = null
   try {
     const v = await getAudit(props.bookName, { limit: PAGE_LIMIT, offset: workflowOffset.value })
     if (!alive) return // R36-25：卸载后迟到续页不回写
-    if (gen !== loadGen) return // R48-23：刷新已重置列表，旧 offset 续页不得拼入
+    if (loadGen.stale(gen)) return // R48-23：刷新已重置列表，旧 offset 续页不得拼入
     const seen = new Set(workflowEvents.value.map((e) => e.seq))
     const fresh = (v.workflowEvents ?? []).filter((e) => !seen.has(e.seq))
     // R62-50：同 convo——整页撞重复时 fresh 空、页非空，按返回条数强制推进防空转。
@@ -150,7 +152,7 @@ async function loadMoreWorkflow(): Promise<void> {
   } catch (e) {
     // R57-F-1（五十七轮）：同 loadMoreConvo——catch 补代数复检，被刷新作废的续页
     // 迟到失败不把错误态回写到新代视图。
-    if (!alive || gen !== loadGen) return // R36-25：卸载后不回写；R48-23：被刷新作废的续页不得置错
+    if (!alive || loadGen.stale(gen)) return // R36-25：卸载后不回写；R48-23：被刷新作废的续页不得置错
     err.value = friendlyError(e)
   } finally {
     workflowLoadingMore.value = false
@@ -179,7 +181,7 @@ async function doClear(): Promise<void> {
   if (clearing.value) return
   clearing.value = true
   err.value = null
-  const gen = loadGen // 重评2-P3-6：入口拍代数（loadMoreConvo R48-23 同款——开工后发生刷新则本操作作废）
+  const gen = loadGen.current() // 重评2-P3-6：入口拍代数（loadMoreConvo R48-23 同款——开工后发生刷新则本操作作废）
   try {
     await clearAudit(props.bookName)
     confirmClear.value = false
@@ -188,7 +190,7 @@ async function doClear(): Promise<void> {
     // 重评2-P3-6（2026-09-09 全量重评 GLM-5.3）：catch 补存活/代数复检（R57-F-1 先例同款）
     // ——清除在途时卸载/点刷新，迟到失败此前仍会把错误态写到已卸载实例或已被新刷新
     // 取代的新代视图上（旧错误横幅顶在新数据上）。
-    if (!alive || gen !== loadGen) return // R36-25：卸载后不回写；R48-23：被刷新作废的清除不得置错
+    if (!alive || loadGen.stale(gen)) return // R36-25：卸载后不回写；R48-23：被刷新作废的清除不得置错
     err.value = friendlyError(e)
   } finally {
     // 只守存活不守代数：clearing 仅由本操作持有，代数作废分支若不复位会把「确认清除」

@@ -10,7 +10,7 @@ import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
 import { useRewriteStore } from '../../stores/rewrite'
 import { updateChapterMetaDoc } from '../../api/documents'
-import { parseFmFields, formKindOf, isBodyKind } from '../../shared/words'
+import { parseFmFields, formKindOf, isBodyKind, CHAPTER_STATUS } from '../../shared/words'
 import { useAiAssist } from '../../composables/useAiAssist'
 import { friendlyError } from '../../shared/error'
 import { isImeComposing } from '../../shared/ime'
@@ -51,31 +51,19 @@ const crumbs = computed(() => {
 })
 
 // 章节正文状态（TreeNode.status → 中文标签）
-const STATUS_LABEL: Record<string, string> = {
-  idea: '构想', draft: '草稿', revision: '修订',
-  final: '定稿', published: '已发布', archived: '已归档',
-}
+// 复审-0914-优化修复批 P3：STATUS_LABEL/statusCls switch 本地表删除，委托 shared/words
+// CHAPTER_STATUS 单表（与 WritingInfoPanel/ChapterTreeItem 三处同源；未知态回落原 default 档）
 const chapterStatus = computed(() => {
   if (!props.docId) return null
   const node = tree.byDocId.get(props.docId)
   const s = node?.status
-  return s ? STATUS_LABEL[s] ?? null : null
+  return s ? CHAPTER_STATUS[s]?.label ?? null : null
 })
 // 状态色（和章节树六态对齐）：final·published 绿 / revision 红 / draft 黄 / 其余灰
 const statusCls = computed(() => {
   if (!props.docId) return ''
   const s = tree.byDocId.get(props.docId)?.status
-  switch (s) {
-    case 'final':
-    case 'published':
-      return 'st-good'
-    case 'revision':
-      return 'st-bad'
-    case 'draft':
-      return 'st-warn'
-    default:
-      return 'st-faint'
-  }
+  return CHAPTER_STATUS[s ?? '']?.st ?? 'st-faint'
 })
 
 const saveStatus = computed<{ text: string; cls: string }>(() => {

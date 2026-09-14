@@ -11,6 +11,8 @@ import { isAbsolute, join } from 'node:path'
 import { splitFrontMatter } from '../format/frontmatter.js'
 import { isMdFileName } from '../format/filename.js'
 import { resolveWithinRoot, platformCaseFold } from '../fs/safe-path.js'
+// 复审-0914-优化修复批（errMsg 收编）：错误摘要口径单源
+import { errMsg } from '../log/index.js'
 
 export const KNOWLEDGE_DIR = '知识层'
 export const KNOWLEDGE_MANIFEST = '知识层/_manifest.json'
@@ -168,7 +170,7 @@ function validateEntry(
       validateMarkdownMetadata(filePath, entry, issues)
     }
   } catch (e) {
-    issues.push({ path: entry.target, message: `文件读取失败，无法校验：${e instanceof Error ? e.message : String(e)}` })
+    issues.push({ path: entry.target, message: `文件读取失败，无法校验：${errMsg(e)}` })
   }
 }
 

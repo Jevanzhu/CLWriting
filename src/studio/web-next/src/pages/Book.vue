@@ -79,6 +79,63 @@ onUnmounted(() => offServerRestarted?.())
 let bookGen = 0
   // Z-8（第五十八轮）：上一本书名（冲突守卫取消时回退路由用）
   let lastBook = ''
+  // 复审-0914-优化修复批（P1-7a）：切书链三段「确认丢弃→取消则回滚」守卫（Z-8 冲突
+  // 预检 / F1 flush 失败 / R37-1 flush 后冲突复查）此前近乎逐字三连，收敛为参数化单源。
+  // 各段预检条件、弹窗文案、回滚时序（事件 store 清空 → 回退路由 → gen/书名复检 →
+  // resync + 补种历史）逐位不变；R 编号沿革注释随实现移位保留。
+  /** 清空事件驱动各 store（切书/脏路由/回退共用六件；workbench 清点由各段口径单独控制） */
+  function clearEventStores(): void {
+    check.clear()
+    review.clear()
+    learn.clear()
+    style.clear()
+    rewrite.clear()
+    chat.clear()
+  }
+  /** 守卫取消分支共用回滚：清污 → 回退路由 → 复检通过则 resync + 补种原书历史 */
+  async function revertToPrevBook(prevBook: string, gen: number, clearWorkbench: boolean): Promise<void> {
+    // clearWorkbench 仅 Z-8 段为真：其弹窗在 workbench.clear()（链首，第五轮口径）之前，
+    // 取消回退须补清；F1/R37-1 段弹窗前链首已清，不重复
+    if (clearWorkbench) workbench.clear()
+    clearEventStores()
+    // R33D-9：重挂路径 lastBook 为 ''，回退目标用权威源 prevBook
+    lastBook = prevBook
+    await router.replace(`/book/${encodeURIComponent(prevBook)}`)
+    if (gen === bookGen && bookName.value === prevBook) {
+      sse.resync()
+      void chat.seedHistory(prevBook)
+    }
+  }
+  /** 三段守卫共用决断弹窗 + 取消回滚。返回 'dropped' = 作者确认丢弃（调用方继续切换）；
+   *  'stale' = 弹窗 await 窗内轮回作废；'reverted' = 留在原书且回滚已完成——两者调用方直接 return */
+  async function askDropOrRevert(opts: {
+    gen: number
+    prevBook: string
+    title: string
+    message: string
+    clearWorkbench: boolean
+  }): Promise<'dropped' | 'stale' | 'reverted'> {
+    const drop = await ui.ask({
+      title: opts.title,
+      message: opts.message,
+      confirmText: '丢弃并切换',
+      cancelText: '留在本书',
+      danger: true,
+    })
+    if (opts.gen !== bookGen) return 'stale'
+    if (!drop) {
+      // 取消 = 留在原书，但弹窗 await 期间路由已是目标书 n——R32-8（三十二轮）：SSE 已
+      // 连上 n，其 sync/chat/text 事件已 dispatch 进仍展示原书的 store；回退路由重入
+      // n===lastBook 被 R26-18 短路，清污永不触发 → 污染残留至下次切书。此处等效清污：
+      // 按切书口径清事件驱动各 store（Z-8 段含 workbench——R28-24 的「原封」口径就此
+      // 让位：B 的 sync 在 await 窗已污染 running 态，原封会假显示目标书写稿中；回退后
+      // resync 由服务端权威快照重建），再回退路由 + chat 补种原书历史。R26-18/R33D-9：
+      // 恢复 lastBook = prevBook 维持「lastBook ⟺ 当前路由书」不变式，回退重入即被短路。
+      await revertToPrevBook(opts.prevBook, opts.gen, opts.clearWorkbench)
+      return 'reverted'
+    }
+    return 'dropped'
+  }
   watch(bookName, async (n) => {
     // 快速连切防乱序：flushDirty 挂起期间又切了书 → 本轮放弃（新轮回处理切换）
     const gen = ++bookGen
@@ -109,12 +166,8 @@ let bookGen = 0
       lastBook = ''
       doc.setBook('')
       ws.setBook('')
-      check.clear()
-      review.clear()
-      learn.clear()
-      style.clear()
-      rewrite.clear()
-      chat.clear()
+      // P1-7a：六件清空收敛 clearEventStores 单源（时序不变）
+      clearEventStores()
       return
     }
     // Z-8（第五十八轮）：未决冲突守卫——conflict && dirty 文档的本地修改从未落盘（autosave
@@ -133,37 +186,14 @@ let bookGen = 0
     if (prevBook !== '' && n !== prevBook) {
       const conflicted = doc.conflictedDirtyDocs()
       if (conflicted.length > 0) {
-        const drop = await ui.ask({
+        const verdict = await askDropOrRevert({
+          gen,
+          prevBook,
           title: `有 ${conflicted.length} 个文档存在未处理的修改冲突`,
           message: '这些文档的本地修改从未保存，切换书将永久丢弃。建议先在编辑器处理（重载/覆盖）。仍要切换吗？',
-          confirmText: '丢弃并切换',
-          cancelText: '留在本书',
-          danger: true,
+          clearWorkbench: true,
         })
-        if (gen !== bookGen) return
-        if (!drop) {
-          // R32-8（三十二轮）：取消 = 留在原书，但弹窗 await 期间路由已是目标书 n——
-          // SSE 已连上 n，其 sync/chat/text 事件已 dispatch 进仍展示原书的 store；回退
-          // 路由重入 n===lastBook 被 R26-18 短路，清污永不触发 → 污染残留至下次切书。
-          // 此处等效清污：按切书口径清事件驱动各 store（含 workbench——R28-24 的「原封」
-          // 口径就此让位：B 的 sync 在 await 窗已污染 running 态，原封会假显示目标书写稿中；
-          // 回退后 resync 由服务端权威快照重建），再回退路由 + chat 补种原书历史。
-          workbench.clear()
-          check.clear()
-          review.clear()
-          learn.clear()
-          style.clear()
-          rewrite.clear()
-          chat.clear()
-          // R33D-9：重挂路径 lastBook 为 ''，回退目标用权威源 prevBook
-          lastBook = prevBook
-          await router.replace(`/book/${encodeURIComponent(prevBook)}`)
-          if (gen === bookGen && bookName.value === prevBook) {
-            sse.resync()
-            void chat.seedHistory(prevBook)
-          }
-          return
-        }
+        if (verdict !== 'dropped') return
         // 确认丢弃：登记已决断——flush 后复查不再对这批 conflict 二次弹窗
         for (const id of conflicted) adjudicated.add(id)
       }
@@ -183,38 +213,16 @@ let bookGen = 0
     // 落盘，setBook 清缓存即不可恢复丢失，与 Z-8 冲突形态同类灾难；统一走确认弹窗
     // （文案区分），拒绝 → 回退路由留在原书重试保存
     if (failed.length > 0 && prevBook !== '') {
-      const drop = await ui.ask({
+      // P1-7a：决断弹窗 + 取消回滚收敛 askDropOrRevert 单源（clearWorkbench=false：
+      // workbench 已在链首 clear——第五轮口径，原取消分支注释随实现移入 helper）
+      const verdict = await askDropOrRevert({
+        gen,
+        prevBook,
         title: `有 ${failed.length} 个文档保存失败`,
         message: '这些文档的本地修改因网络/服务异常未能写入磁盘，切换书将永久丢弃。建议留在本书重试保存。仍要切换吗？',
-        confirmText: '丢弃并切换',
-        cancelText: '留在本书',
-        danger: true,
+        clearWorkbench: false,
       })
-      if (gen !== bookGen) return
-      if (!drop) {
-        // R26-18：此分支在 lastBook = n 之后取消——lastBook 已指向未切换成的目标书，
-        // 与实际路由（回退到 prevBook）不一致；不恢复则回退重入 n=prevBook !== lastBook
-        // 走不到上方短路，且此后选回 n 书会被短路误吞。恢复 lastBook = prevBook 维持
-        // 「lastBook ⟺ 当前路由书」不变式，回退重入即被短路（不重复清；R28-24：workbench
-        // 态已在本轮前段 workbench.clear() 清掉、不因此恢复——第五轮既有口径）。
-        // R33D-9：重挂路径 prev 为 ''，恢复目标用权威源 prevBook（维持 lastBook ⟺ 当前路由书不变式）
-        lastBook = prevBook
-        // R32-8：同 Z-8 取消分支——F1 await 窗（flushDirty + 确认弹窗）期间目标书 n 的
-        // 事件已入各 store；回退重入被 R26-18 短路，不在此清污则残留至下次切书。
-        // workbench 已在链首 clear（第五轮口径），此处清其余事件驱动 store。
-        check.clear()
-        review.clear()
-        learn.clear()
-        style.clear()
-        rewrite.clear()
-        chat.clear()
-        await router.replace(`/book/${encodeURIComponent(prevBook)}`)
-        if (gen === bookGen && bookName.value === prevBook) {
-          sse.resync()
-          void chat.seedHistory(prevBook)
-        }
-        return
-      }
+      if (verdict !== 'dropped') return
     }
     // R37-1（三十七轮批E）：flush 等待窗口内复查冲突——上方 Z-8 守卫在 flushDirty 之前
     // 查 conflictedDirtyDocs，等待期间在途保存可能落成 REVISION_CONFLICT（conflict=true、
@@ -223,42 +231,22 @@ let bookGen = 0
     // 预检已决断「丢弃」的批次（adjudicated）不二次弹窗。
     const conflictedAfterFlush = doc.conflictedDirtyDocs().filter((id) => !adjudicated.has(id))
     if (conflictedAfterFlush.length > 0 && prevBook !== '') {
-      const drop = await ui.ask({
+      // P1-7a：同款决断（文案/回退/清污口径与 Z-8/F1 一致，收敛 helper 单源；
+      // adjudicated 台账见上方预检——已决断批次不二次弹窗）
+      const verdict = await askDropOrRevert({
+        gen,
+        prevBook,
         title: `有 ${conflictedAfterFlush.length} 个文档存在未处理的修改冲突`,
         message: '这些文档的本地修改从未保存，切换书将永久丢弃。建议先在编辑器处理（重载/覆盖）。仍要切换吗？',
-        confirmText: '丢弃并切换',
-        cancelText: '留在本书',
-        danger: true,
+        clearWorkbench: false,
       })
-      if (gen !== bookGen) return
-      if (!drop) {
-        // 取消 = 留在原书（R26-18 不变式同上方 F1 取消分支：lastBook 已指 n，恢复为
-        // prevBook 维持「lastBook ⟺ 当前路由书」；R32-8 同款清污——await 窗内目标书
-        // 事件已入各 store，回退重入被短路，须等效清掉再由 resync/seedHistory 重建）
-        lastBook = prevBook
-        check.clear()
-        review.clear()
-        learn.clear()
-        style.clear()
-        rewrite.clear()
-        chat.clear()
-        await router.replace(`/book/${encodeURIComponent(prevBook)}`)
-        if (gen === bookGen && bookName.value === prevBook) {
-          sse.resync()
-          void chat.seedHistory(prevBook)
-        }
-        return
-      }
+      if (verdict !== 'dropped') return
     }
     doc.setBook(n)
     ws.setBook(n)
     // 清空各 store 旧书状态（chat 消息常驻 ChatDock，必须清；其余防残留上次操作结果）
-    check.clear()
-    review.clear()
-    learn.clear()
-    style.clear()
-    rewrite.clear()
-    chat.clear()
+    // P1-7a：六件清空收敛 clearEventStores 单源（时序不变）
+    clearEventStores()
     // Y-P2-5：切书/刷新后从事件库恢复对话历史（store 内自带空判/竞态守卫，失败静默）
     if (n) void chat.seedHistory(n)
     // 切书后刷新对话档位（防短暂显示旧书模型列表）

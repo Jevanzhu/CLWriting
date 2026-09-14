@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import { getAiStatus } from '../api/ai-status'
 import { usePrefsStore } from './prefs'
+import { rawErrorMessage } from '../shared/error'
 
 // UI 全局状态：命令面板 / 设置 / 导出弹窗可见性 + Toast 队列 + AI 可达性（G4 降级）。
 export interface ToastItem {
@@ -221,7 +222,8 @@ export const useUiStore = defineStore('ui', () => {
   function reportUnhandledError(err: unknown, info = ''): void {
     console.error('[Vue Error]', err, info)
     try {
-      const msg = err instanceof Error ? err.message : String(err)
+      // 复审-0914-优化修复批：三目收编 shared/error 的 rawErrorMessage 单源（原文透出语义不变）
+      const msg = rawErrorMessage(err)
       toast(`发生未处理错误：${msg}`, 'error')
     } catch {
       /* 兜底自身失败只能静默（toast 通道异常时不能再抛） */

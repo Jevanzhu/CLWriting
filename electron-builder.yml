@@ -6,10 +6,15 @@ directories:
 # asar 内容：主进程 + chunks + 前端 + 捆绑资源（CC-P1-7：resources/ 缺席时打包态
 # resourcesRoot() 必抛错——内置 prompt/技巧包全在 asar 根 resources/ 下，
 # 与 dist/desktop/main.js 的「上两级」推导正好对齐，Electron asar fs 补丁可直读）
+# 全库重评-0914（P3-10）：补 AppleDouble 否定模式——外置/网络构建卷上 macOS 会为每个
+# 文件生成 ._ 伴生文件（资源叉），白名单 `dist/**/*` 通配把它们一并打进 asar（体积
+# 膨胀 + 打包态读到垃圾伴生）；引号防 YAML 把开头 ! 当 tag 解析。排除项由
+# check-packaging.mjs 的 problemsForElectronBuilderAppleDouble 锚定（防回潮）。
 files:
   - dist/**/*
   - resources/**/*
   - package.json
+  - '!**/._*'
 asar: true
 # R0911-A-P2-1（2026-09-11 全量重评 GLM-5.3 修复批）：mac fontlist 原生二进制外置——
 # main 进程的自管枚举（font-cache.ts runFontListCommandWithKill）用 spawn，spawn 不认

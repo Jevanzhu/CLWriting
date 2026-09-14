@@ -7,7 +7,7 @@
  */
 import { existsSync, readFileSync, statSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { log } from '../log/index.js'
+import { errMsg, log } from '../log/index.js' // errMsg 收编（复审-0914-优化修复批）：错误文案三目单源
 // R73-15（二十一轮）：parseBannedWordsLine 移驻 style-entry（readBannedEntryWords 拆词
 // 复用同套清洗；本文件原已单向 import style-entry，反向会成环——函数随消费方迁移）
 import { readBannedEntryWords, parseBannedWordsLine } from './style-entry.js'
@@ -86,7 +86,7 @@ export function readIronRules(bookRoot: string): IronRules {
     try {
       text = readFileSync(p, 'utf-8')
     } catch (e) {
-      log.warn('iron-rules', `文风铁律读取失败，按空规则降级：${e instanceof Error ? e.message : String(e)}`)
+      log.warn('iron-rules', `文风铁律读取失败，按空规则降级：${errMsg(e)}`)
     }
   }
   const rules = text !== null ? parseIronRules(text) : {}
@@ -233,7 +233,15 @@ function extractSection(text: string, headingRe: RegExp): string {
   let inSection = false
   let sectionLevel = 0
   for (const line of lines) {
-    const m = /^(#{1,6})\s+/.exec(line)
+    // 全库重评-0914 P3-12：标题闸放行零空白紧凑标题（`##硬禁词`）——原 `(#{1,6})\s+`
+    // 强制空格，上方段锚定正则的 `\s*` 零空白容忍（ANTI_RECON_HEADING_RE/BANNED_LIST_HEADING_RE）
+    // 被闸拦截永不生效，紧凑标题段静默失明（段内条目被折入证据不进红闸）。
+    // 处方原拟 `(?:\s+|$)` 尾臂对 `##硬禁词` 仍不匹配（`##` 后是「硬」，既非空白也非
+    // 行尾），按处方意图就地适配为纯 `^(#{1,6})`：闸只测标题层级，是否开段由 headingRe
+    // 判定（紧凑标题经锚定正则的 `\s*` 容忍命中）；裸 `#` 行进标题分支无害（两锚定
+    // 正则均要求 `##` 前缀 + 关键词，不命中）。行为面：段内 `#`/`##` 起头行从此按
+    // 「段终/子标题」处理（此前被折入证据），与 markdown 标题语义及锚定意图一致。
+    const m = /^(#{1,6})/.exec(line)
     if (m) {
       const level = m[1]!.length
       if (inSection) {

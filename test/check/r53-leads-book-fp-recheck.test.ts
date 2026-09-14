@@ -8,8 +8,12 @@
  *
  * 修复后：写前复核 leadsFp 未变才落缓存；漂移 → 本轮不固化（返回值照常，下轮重算）。
  *
- * 手法：vi.mock tree-issues-cache 只覆 computeLeadsBookFp（默认委托真实实现），
- * 用 mockReturnValueOnce 精确控制「聚合头 / 写前复核」两次调用的返回值制造漂移。
+ * 手法：vi.mock tree-issues-cache 只覆 computeLeadsBookFpFromEpochFp（默认委托真实
+ * 实现），用 mockReturnValueOnce 精确控制「聚合头 / 写前复核」两次调用的返回值制造漂移。
+ * 复审-0914-优化修复批（F4）：mock 缝由 computeLeadsBookFp 迁至其基线拼装形态
+ * computeLeadsBookFpFromEpochFp——聚合头/写前复核两调自此走该缝（epochFp0 在座，
+ * run.ts 不再各自整调 computeTreeIssuesGlobalFp）；「漂移不落缓存 / 等值照常落缓存」
+ * 的 R53-E-1 断言逐字保留，防护语义不变。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { rmSync } from 'node:fs'
@@ -19,17 +23,22 @@ import { DatabaseSync } from 'node:sqlite'
 
 vi.mock('../../src/check/tree-issues-cache.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/check/tree-issues-cache.js')>()
-  return { ...actual, computeLeadsBookFp: vi.fn((...a: Parameters<typeof actual.computeLeadsBookFp>) => actual.computeLeadsBookFp(...a)) }
+  return {
+    ...actual,
+    computeLeadsBookFpFromEpochFp: vi.fn(
+      (...a: Parameters<typeof actual.computeLeadsBookFpFromEpochFp>) => actual.computeLeadsBookFpFromEpochFp(...a),
+    ),
+  }
 })
 
 import { collectTreeIssues } from '../../src/check/run.js'
-import { computeLeadsBookFp } from '../../src/check/tree-issues-cache.js'
+import { computeLeadsBookFpFromEpochFp } from '../../src/check/tree-issues-cache.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { readManifest, writeManifest, upsertEntry, type ManifestEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
 
-const fpMock = vi.mocked(computeLeadsBookFp)
+const fpMock = vi.mocked(computeLeadsBookFpFromEpochFp)
 
 beforeEach(() => {
   // 只清调用记录：Once 队列耗尽后回落默认委托（真实实现），不污染后续用例

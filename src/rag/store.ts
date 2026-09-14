@@ -216,8 +216,35 @@ export function openRagDb(bookRoot: string): DatabaseSync {
   // 测试 afterEach 清理皆死）；posix unlink 虽可带句柄删除，fd 泄漏同样是伤。
   try {
     // P2-2：WAL 模式 + 忙等 5s，防并发写入 SQLITE_BUSY
-    db.exec('PRAGMA journal_mode = WAL')
+    // P2-6（全库重评-0914）：N3 同款漏修（对照 events/store.ts firstOpenStore）——
+    // busy_timeout 必须先于 journal_mode=WAL 设置：WAL 切换在 journal_mode 处需拿写锁，
+    // 并发首开 delete 模式库时他进程持锁而 busy_timeout 未设，会立即抛 SQLITE_BUSY。
+    // 并移植 events 侧 N3 的 WAL 切换 8 次线性退避重试（对方事务必然短，数百 ms 内可得
+    // 手；Atomics.wait 微睡形态照搬——node:sqlite 全同步 API，不可异步化）；损坏是确定性
+    // 错误立即上抛（本文件既有 isRagDbCorruptionError 窄判定，同 events IR-2 旨：绝不把
+    // BUSY/IOERR 误判成损坏送删库链）；journal_mode 已是 wal 则成功短路（exec 撞 BUSY 但
+    // 他进程已完成切换的形态）。重试耗尽即抛（R73-48 同裁定：fail-closed 正确出口）。
     db.exec('PRAGMA busy_timeout = 5000')
+    {
+      let lastErr: unknown
+      for (let i = 0; i < 8; i++) {
+        try {
+          db.exec('PRAGMA journal_mode = WAL')
+          lastErr = null
+          break
+        } catch (err) {
+          if (isRagDbCorruptionError(err)) throw err
+          lastErr = err
+          const mode = (db.prepare('PRAGMA journal_mode').get() as { journal_mode?: string } | undefined)?.journal_mode
+          if (mode === 'wal') {
+            lastErr = null
+            break
+          }
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50 * (i + 1))
+        }
+      }
+      if (lastErr !== null) throw lastErr
+    }
     createRagTables(db)
     // A3（批 7）：norm 列惰性迁移 + 存量回填（幂等——列在/范数齐 → no-op）
     ensureNormColumn(db)

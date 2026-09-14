@@ -25,7 +25,7 @@ import { readForeshadows, scanForeshadowTrails } from '../document/foreshadow.js
 import { finalizedChapterSetOfBook } from '../document/manifest.js'
 import { isWithinRoot } from '../fs/safe-path.js'
 import { volumeSummaryProvablyStale, volumeSummaryPath, codePointLength } from './summary.js'
-import { log } from '../log/index.js'
+import { log, errMsg } from '../log/index.js'
 
 /**
  * W-P2-4：按章号在 写作/正文/ 找正文文件，只扫「根目录 + 直接卷子目录」两层，
@@ -256,7 +256,7 @@ function buildEndingsSections(
         if (!existsSync(r.path)) continue
         raw = readFileSync(r.path, 'utf-8').trim()
       } catch (e) {
-        log.warn('prepare', `近章结尾摘要读取失败（${relative(bookRoot, r.path)}，降级为无此文件）：${e instanceof Error ? e.message : String(e)}`)
+        log.warn('prepare', `近章结尾摘要读取失败（${relative(bookRoot, r.path)}，降级为无此文件）：${errMsg(e)}`)
         continue
       }
       const split = splitFrontMatter(raw)
@@ -337,7 +337,7 @@ function buildStyleSections(
       try {
         iron = readFileSync(ironPath, 'utf-8').trim()
       } catch (e) {
-        log.warn('prepare', `文风铁律读取失败（未迁移书降级无此段）：${e instanceof Error ? e.message : String(e)}`)
+        log.warn('prepare', `文风铁律读取失败（未迁移书降级无此段）：${errMsg(e)}`)
       }
       if (iron !== null) {
         sections.push({
@@ -458,7 +458,7 @@ function buildOutlookSections(
         try {
           raw = readFileSync(volSummaryPath, 'utf-8').trim()
         } catch (e) {
-          log.warn('prepare', `第 ${outlookVolume - 1} 卷摘要读取失败（降级无此段）：${e instanceof Error ? e.message : String(e)}`)
+          log.warn('prepare', `第 ${outlookVolume - 1} 卷摘要读取失败（降级无此段）：${errMsg(e)}`)
         }
         if (raw !== null) {
           const split = splitFrontMatter(raw)

@@ -43,8 +43,10 @@ export const DEFAULT_CONFIG: BookConfig = {
   growth: { realm_span_max: 2 },
 }
 
-/** budget 段已知键白名单（解析用；calls_per_chapter 已可选化，不能再用 `in 起步值` 判定） */
-const BUDGET_KEYS = new Set(['calls_per_chapter', 'input_per_chapter', 'summary_chapter_max', 'summary_volume_max', 'tokens_per_chapter', 'cost_per_chapter'])
+/** P1-5（复审-0914-优化修复批）：budget 段 parse 面键序——历史 BUDGET_KEYS 白名单序。
+ *  warn 输出顺序锁此旧序；与 stringify 落行序不同（见 SECTION_SPECS 表行序），如实
+ *  参数化不抹平（parseKeyOrder 覆写）。 */
+const BUDGET_PARSE_ORDER = ['calls_per_chapter', 'input_per_chapter', 'summary_chapter_max', 'summary_volume_max', 'tokens_per_chapter', 'cost_per_chapter'] as const
 
 /** R26-10（二十六轮）：短篇 budget 段输出判定——条件键三键（calls + 双口径 tokens/cost）
  *  任一已设即输出段；全未设整段省略（缺省语义，回落运行时合并层）。此前外层条件只认
@@ -166,9 +168,595 @@ function parseSections(text: string): RawSection[] {
  *  `endpoint: http://x#y` 的 # 前无空白 → 保留为字面值（与主流 YAML 同语义）。 */
 const stripComment = stripInlineComment
 
+// ── P1-5（复审-0914-优化修复批）：book.yaml 键 schema 表（三面单源）────────
+//
+// 同一份键清单此前三处各写一遍：sectionsToConfig（逐段 findChild+parse+warn 手写）、
+// stringifyBookConfig（逐键条件落行）、CONFIG_PATCH_LEAVES（补丁白名单登记表）——
+// 历史两次实证漏登事故（:1068 D3+C1+A3 双口径/开关/深度键、:1096 R52-E-2 机检阈值
+// 五键：parse/stringify 已收而补丁白名单漏登，PUT /config 改键静默不落盘）。现收敛
+// 为单一 schema 表：每键一行 {parse, emit, get}，三面全部从表派生，新增键只触一行。
+// 三面间微差如实参数化不抹平：
+// - budget 段 parse 键序（warn 顺序）≠ 落行序 → parseKeyOrder 覆写（BUDGET_PARSE_ORDER）；
+// - leads.thresholds 为动态账本类名映射 → parse 段内自管（重复 fail-loud）+ patch 特例
+//   块（patchBookConfigText 专用分支），无叶键 get、不入白名单；
+// - 顶层标量三键（spec_version/kind/host）协议级、各面只写一处（stringify 头部块 /
+//   patch setTopScalarKey），不入表。
+// 红线锚（test/format/yaml-schema-snapshot.test.ts）：parse→stringify 字节逐位不变、
+// warn 文案逐字不变、PATCH 白名单逐行等价。
+
+/** parse 面单键上下文：flat 段 bucket = cfg 子对象本体（写穿）；bucket 段 = 暂存桶
+ *  （段解析完非空才整段赋 cfg.section——style/summary/short/auto/checks/snapshots 语义） */
+interface ParseCtx {
+  cfg: BookConfig
+  bucket: Record<string, unknown>
+}
+
+interface ConfigKeySpec {
+  key: string
+  /** parse 面：键行存在时调用（容错语义 + warn 文案逐键抄录自原三面实现） */
+  parse?: (node: RawSection, ctx: ParseCtx) => void
+  /** stringify 面：产本键落行（空数组 = 不落行；行序 = 表行序 = 历史 stringify 序） */
+  emit?: (cfg: BookConfig) => string[]
+  /** patch 面：取有效值（undefined = 该键不落行——归一口径对齐 stringifyBookConfig）；
+   *  缺省 = 不入 PATCH 白名单 */
+  get?: (c: BookConfig) => unknown
+}
+
+interface ConfigSectionSpec {
+  name: string
+  /** parse 段归类：flat = 写穿 cfg 子对象（book/leads/budget/growth）；
+   *  bucket = 非空才整段赋（style/summary/short/auto/checks/snapshots）；
+   *  custom = 段级自管（rag 触发器/展开语义） */
+  parseKind: 'flat' | 'bucket' | 'custom'
+  keys: readonly ConfigKeySpec[]
+  /** parse 面键序覆写（仅 budget：warn 顺序锁历史 BUDGET_KEYS 序） */
+  parseKeyOrder?: readonly string[]
+  /** stringify 段门（false = 整段不落；body = 本段键行，「有行才落段」型段判定用） */
+  gate: (cfg: BookConfig, body: readonly string[]) => boolean
+  parseCustom?: (node: RawSection, cfg: BookConfig) => void
+}
+
+// ── 键行 parse 面工厂（语义与 warn 文案逐字抄录自原 sectionsToConfig 实现）──
+
+/** R76-15（二十四轮 B 域）正数语义键族（预算/阈值/批量）：空值/非正数拒收——`key:`
+ *  写空经 parseValue('')→Number('')=0 混过 isFinite 静默落 0（预算 0 = 每次调用都超限、
+ *  阈值 0 = 全量误报，语义荒谬但消费侧无从区分），与非正数一并拒收（undefined = 未设，
+ *  回落全局链），warn 留痕。 */
+const positiveNumParse =
+  (section: string, key: string) =>
+  (node: RawSection, ctx: ParseCtx): void => {
+    const v = parsePositiveNumber(node.value)
+    if (v !== undefined) ctx.bucket[key] = v
+    else log.warn('book.yaml', `${section}.${key} 值非正数（「${node.value.trim()}」），已忽略（按未设处理）`)
+  }
+
+/** R26-12（二十六轮）布尔语义键族：parseStrictBool 收口（yes/on/1/True 同义收——此前
+ *  只认字面 true/false，作者按 YAML 惯例写 yes 被反向关停）；非法值 warn + 按未设
+ *  （label 供 warnBadBool 定位键名）。 */
+const strictBoolParse =
+  (bucketKey: string, label: string) =>
+  (node: RawSection, ctx: ParseCtx): void => {
+    const v = parseStrictBool(node.value)
+    if (v !== undefined) ctx.bucket[bucketKey] = v
+    else warnBadBool(label, node.value)
+  }
+
+/** short 段画像池数组键族：parseValue 数组化 → 逐项 trim 去空串，全空不设键（未设语义）。 */
+const shortArrParse =
+  (key: string) =>
+  (node: RawSection, ctx: ParseCtx): void => {
+    const value = parseValue(node.value)
+    if (Array.isArray(value)) {
+      const items = value.map(String).map((v) => v.trim()).filter(Boolean)
+      if (items.length > 0) ctx.bucket[key] = items
+    }
+  }
+
+/** R29-B7（二十九轮）：short 段数值键族——坏值不再静默丢弃，warn 留痕（对齐 budget/
+ *  bool 键的 R76-15/R26-12 留痕模式——「配置写了但不生效」此前无迹可查）。
+ *  opening_env_chars 特殊语义：显式 0 = 关闭「开头零环境」检查（与「未设 = 默认 300」
+ *  区分，读侧 runner 据此跳过检查）；写空（`opening_env_chars:`）不是显式 0——
+ *  parseValue('')→Number('')=0 会冒充关检，按未设处理 + warn。 */
+const shortNumParse =
+  (key: string) =>
+  (node: RawSection, ctx: ParseCtx): void => {
+    const value = parseFiniteNumber(node.value, NaN)
+    const rawTrimmed = node.value.trim()
+    if (key === 'opening_env_chars' && value === 0 && rawTrimmed !== '') {
+      // 显式 0（含 '0'/'0.0' 引号形态）= 作者关检；写空（Number('')=0）不冒充关检
+      ctx.bucket[key] = 0
+    } else if (Number.isFinite(value) && value > 0) {
+      ctx.bucket[key] = value
+    } else {
+      log.warn('book.yaml', `short.${key} 值非法（「${rawTrimmed}」），已忽略（按未设处理，回落缺省）`)
+    }
+  }
+
+/** checks 段词表键族（#10 项 7/11 数据源接线）：显式空数组 = 关（不得归一为 undefined
+ *  ——它与「未设」语义不同：未设才回落内置种子表，显式空数组是作者明确关掉）；
+ *  项级 trim + 去空串与 short 段词表同口径（kk-P2-13：剔除留痕）。 */
+const checksWordListParse =
+  (key: string) =>
+  (node: RawSection, ctx: ParseCtx): void => {
+    const value = parseValue(node.value)
+    if (Array.isArray(value)) {
+      const items = value.map(String)
+      const kept = items.map((v) => v.trim()).filter(Boolean)
+      if (kept.length < items.length) {
+        log.warn('book.yaml', `checks.${key} 含空白词条已剔除（${items.length} 项 → ${kept.length} 项）`)
+      }
+      ctx.bucket[key] = kept
+    } else {
+      log.warn('book.yaml', `checks.${key} 值非数组（${node.value.trim()}），已忽略`)
+    }
+  }
+
+/** R37-11（三十七轮）：snapshots 保留策略数值键——坏值静默吞补 warn 留痕（真实文件
+ *  损坏 max_days: abc/0/-3 时用户无感知）。与 positiveNumParse 的微差如实保留：
+ *  判定走 parseFiniteNumber(value, 0) + v>0，warn 文案截 40 字（历史 slice(0,40) 形态）。 */
+const snapshotNumParse =
+  (key: string) =>
+  (node: RawSection, ctx: ParseCtx): void => {
+    const v = parseFiniteNumber(node.value, 0)
+    if (v > 0) ctx.bucket[key] = v
+    else log.warn('book.yaml', `snapshots.${key} 值非正数（「${node.value.trim().slice(0, 40)}」），已忽略（按未设处理）`)
+  }
+
+// ── 键行 stringify 面工厂 ──
+
+/** 叶键行 emit：undefined 不落行；值侧 renderScalar（字符串/数组走 stringifyValue 转义、
+ *  其余 String 化）——与历史逐键内联插值逐位同形（数字 `: 8`、布尔 `: true`、数组
+ *  stringifyValue）。 */
+const scalarLeafEmit =
+  (key: string, pick: (c: BookConfig) => unknown) =>
+  (cfg: BookConfig): string[] => {
+    const v = pick(cfg)
+    return v === undefined ? [] : [`  ${key}: ${renderScalar(v)}`]
+  }
+
+// ── schema 表本体（表行序 = 历史 stringifyBookConfig 落行序，字节红线；
+//    段 parse 触发顺序另见 PARSE_SECTION_ORDER）──
+const SECTION_SPECS: readonly ConfigSectionSpec[] = [
+  {
+    name: 'book',
+    parseKind: 'flat',
+    // book 段恒输出（title 必填）且紧随 host 无段间空行（stringify 头部块历史语义）
+    gate: () => true,
+    keys: [
+      {
+        key: 'title',
+        // 全库重评-0914 P3-16：空串归一对齐 genre 先例（`title: ''` 是空占位，与
+        // 「没写」同义，不写穿 bucket）——book 段起步值 DEFAULT_CONFIG.book.title 本为
+        // ''，parse 面归一零观察差；get 面归一（'' → undefined）对齐 patchBookConfigText
+        // 的 leafEquals 差分口径（显式清空 = 删行，与 genre 同语义；API 层对 PUT 空
+        // title 已有必填拒收，删除臂仅内部直调可达）。
+        parse: (node, ctx) => {
+          const title = String(parseValue(node.value))
+          if (title !== '') ctx.bucket.title = title
+        },
+        emit: (cfg) => [`  title: ${stringifyValue(cfg.book.title)}`],
+        get: (c) => (c.book.title === '' ? undefined : c.book.title),
+      },
+      {
+        key: 'genre',
+        // 全局托底：genre 空串归一 undefined（`genre: ''` 是旧 scaffold 烘焙的默认占位，
+        // 与「没写」同义）——否则空串永远盖住 global.json 的 defaultGenre
+        parse: (node, ctx) => {
+          const genre = String(parseValue(node.value))
+          if (genre !== '') ctx.bucket.genre = genre
+        },
+        emit: (cfg) =>
+          cfg.book.genre !== undefined && cfg.book.genre !== ''
+            ? [`  genre: ${stringifyValue(cfg.book.genre)}`]
+            : [],
+        get: (c) => (c.book.genre === '' ? undefined : c.book.genre),
+      },
+      {
+        key: 'volume_size',
+        parse: (node, ctx) => {
+          const volumeSize = parseFiniteNumber(node.value, NaN)
+          // R51-F-3（五十一轮）：坏值静默忽略补 warn（R37-11 kind/host 与 R76-15 阈值族
+          // 同文件留痕纪律——「配置写了但不生效」须有迹可查，否则字数规划静默失真）
+          if (Number.isSafeInteger(volumeSize) && volumeSize > 0) ctx.bucket.volume_size = volumeSize
+          else log.warn('book.yaml', `book.volume_size 值非法（「${node.value.trim().slice(0, 40)}」），已忽略（按未设处理）`)
+        },
+        emit: (cfg) => (cfg.book.volume_size !== undefined ? [`  volume_size: ${cfg.book.volume_size}`] : []),
+        get: (c) => c.book.volume_size,
+      },
+      {
+        key: 'target_words',
+        // R51-F-3：同 volume_size
+        parse: (node, ctx) => {
+          const targetWords = parseFiniteNumber(node.value, NaN)
+          if (Number.isFinite(targetWords) && targetWords > 0) ctx.bucket.target_words = targetWords
+          else log.warn('book.yaml', `book.target_words 值非法（「${node.value.trim().slice(0, 40)}」），已忽略（按未设处理）`)
+        },
+        emit: (cfg) => (cfg.book.target_words !== undefined ? [`  target_words: ${cfg.book.target_words}`] : []),
+        get: (c) => c.book.target_words,
+      },
+      {
+        key: 'chapter_target_words',
+        // R51-F-3：同 volume_size（空值经 parseFiniteNumber 落 0，同样进 warn 分支——
+        // 「写了空」与「没写」的语义差须留痕）
+        parse: (node, ctx) => {
+          const v = parseFiniteNumber(node.value, 0)
+          if (Number.isFinite(v) && v > 0) ctx.bucket.chapter_target_words = v
+          else log.warn('book.yaml', `book.chapter_target_words 值非法（「${node.value.trim().slice(0, 40)}」），已忽略（按未设处理）`)
+        },
+        emit: (cfg) => (cfg.book.chapter_target_words !== undefined ? [`  chapter_target_words: ${cfg.book.chapter_target_words}`] : []),
+        get: (c) => c.book.chapter_target_words,
+      },
+    ],
+  },
+  {
+    name: 'leads',
+    parseKind: 'flat',
+    // leads 段：长篇恒输出（账本类）；短篇无（账本降级单章章纲 #27）
+    gate: (cfg) => cfg.kind !== 'short',
+    keys: [
+      {
+        key: 'enabled',
+        parse: (node, ctx) => {
+          const v = parseValue(node.value)
+          if (Array.isArray(v)) {
+            // X-P3a：未知账本类过滤 + 留痕——此前静默收下错别字值，作者以为启用了
+            const valid = v.map(String).filter((s) => (LEAD_TYPES as readonly string[]).includes(s))
+            if (valid.length < v.length) {
+              log.warn('book.yaml', `leads.enabled 含未知账本类（合法值：${LEAD_TYPES.join('/')}），已忽略`)
+            }
+            ctx.bucket.enabled = valid
+          }
+        },
+        emit: (cfg) => [`  enabled: ${stringifyValue(cfg.leads.enabled)}`],
+        get: (c) => c.leads.enabled,
+      },
+      {
+        // R57-D-1（五十七轮）：thresholds 子键为动态账本类名（无法逐键预枚举 findChild），
+        // 就地镜像 findChild（R73-21）的重复判定——段内同名子键此前按遍历序后值静默
+        // 覆盖前值，现 fail-loud（dupChildError 同一文案，经 parseBookConfig 捕获转错误信封）。
+        // patch 面为特例块（patchBookConfigText thresholds 专用分支），无叶键 get。
+        key: 'thresholds',
+        parse: (node, ctx) => {
+          const thresholds: Record<string, number> = {}
+          const seen = new Set<string>()
+          for (const c of node.children) {
+            if (seen.has(c.key)) {
+              throw dupChildError(node, c.key)
+            }
+            seen.add(c.key)
+            // R76-15（二十四轮 B 域）：空值/非正数拒收——`复读率:` 写空经 parseValue('')→
+            // Number('')=0 混过 isFinite 静默落 0（阈值 0 = 全量误报），与「未设」语义
+            // 割裂。正数才收，否则 warn 留痕按未设（回落全局链）。
+            const num = parsePositiveNumber(c.value)
+            if (num !== undefined) thresholds[c.key] = num
+            else log.warn('book.yaml', `leads.thresholds.${c.key} 值非正数（「${c.value.trim()}」），已忽略（按未设处理）`)
+          }
+          if (Object.keys(thresholds).length > 0) ctx.bucket.thresholds = thresholds
+        },
+        emit: (cfg) =>
+          cfg.leads.thresholds
+            ? ['  thresholds:', ...Object.entries(cfg.leads.thresholds).map(([k, v]) => `    ${k}: ${v}`)]
+            : [],
+      },
+    ],
+  },
+  {
+    name: 'budget',
+    parseKind: 'flat',
+    // R26-10（二十六轮）：段门「!isShort || 条件键三键任一已设」——原外层条件只认
+    // calls_per_chapter，短篇仅设 tokens_per_chapter/cost_per_chapter 时整段丢失、
+    // 重存即丢配置；段内各键仍按自身 undefined 条件落行，未设键不烘焙。
+    // 全局托底：calls_per_chapter 条件行（未设不烘焙 8，回落交给运行时合并层）；
+    // input/summary 长程三键不进全局托底，短篇不落（无分层摘要）、长篇未设落历史缺省。
+    gate: (cfg) => cfg.kind !== 'short' || budgetHasAnyKey(cfg.budget),
+    // parse 面 warn 顺序锁历史 BUDGET_KEYS 白名单序（与落行序不同，如实参数化）
+    parseKeyOrder: [...BUDGET_PARSE_ORDER],
+    keys: [
+      {
+        key: 'calls_per_chapter',
+        parse: positiveNumParse('budget', 'calls_per_chapter'),
+        emit: scalarLeafEmit('calls_per_chapter', (c) => c.budget.calls_per_chapter),
+        get: (c) => c.budget.calls_per_chapter,
+      },
+      {
+        // D3（批 5）：双口径预算键——设了才输出（未设不烘焙，回落交运行时合并层）
+        key: 'tokens_per_chapter',
+        parse: positiveNumParse('budget', 'tokens_per_chapter'),
+        emit: scalarLeafEmit('tokens_per_chapter', (c) => c.budget.tokens_per_chapter),
+        get: (c) => c.budget.tokens_per_chapter,
+      },
+      {
+        key: 'cost_per_chapter',
+        parse: positiveNumParse('budget', 'cost_per_chapter'),
+        emit: scalarLeafEmit('cost_per_chapter', (c) => c.budget.cost_per_chapter),
+        get: (c) => c.budget.cost_per_chapter,
+      },
+      {
+        key: 'input_per_chapter',
+        parse: positiveNumParse('budget', 'input_per_chapter'),
+        emit: (cfg) => (cfg.kind !== 'short' ? [`  input_per_chapter: ${cfg.budget.input_per_chapter ?? 80000}`] : []),
+        get: (c) => c.budget.input_per_chapter,
+      },
+      {
+        key: 'summary_chapter_max',
+        parse: positiveNumParse('budget', 'summary_chapter_max'),
+        emit: (cfg) => (cfg.kind !== 'short' ? [`  summary_chapter_max: ${cfg.budget.summary_chapter_max ?? 200}`] : []),
+        get: (c) => c.budget.summary_chapter_max,
+      },
+      {
+        key: 'summary_volume_max',
+        parse: positiveNumParse('budget', 'summary_volume_max'),
+        emit: (cfg) => (cfg.kind !== 'short' ? [`  summary_volume_max: ${cfg.budget.summary_volume_max ?? 500}`] : []),
+        get: (c) => c.budget.summary_volume_max,
+      },
+    ],
+  },
+  {
+    name: 'style',
+    parseKind: 'bucket',
+    // 全局托底：style 段仅当 injection 有值才输出（写法照 snapshots 段的条件输出范式）
+    gate: (_cfg, body) => body.length > 0,
+    keys: [
+      {
+        key: 'injection',
+        parse: (node, ctx) => {
+          const v = String(parseValue(node.value))
+          if (v === 'light' || v === 'heavy') ctx.bucket.injection = v
+        },
+        emit: (cfg) => (cfg.style?.injection !== undefined ? [`  injection: ${cfg.style.injection}`] : []),
+        get: (c) => c.style?.injection,
+      },
+    ],
+  },
+  {
+    name: 'summary',
+    parseKind: 'bucket',
+    // C1（批 2）：summary 段仅当显式设过才输出（默认 auto=true 不烘焙，关掉的人写的 false 保真）
+    gate: (_cfg, body) => body.length > 0,
+    keys: [
+      {
+        // C1（批 2）：摘要金字塔开关——summary.auto: false 关闭生成钩子（回到手写约定
+        // 现状）。显式布尔落 cfg（写侧序列化保真，round-trip 不归一）。parseValue 不产出
+        // 布尔——R26-12（二十六轮）：收口 parseStrictBool（yes/on/1/True 同义收，非法值
+        // warn + 按未设 = 不设键回落全局链）
+        key: 'auto',
+        parse: strictBoolParse('auto', 'summary.auto'),
+        emit: (cfg) => (cfg.summary?.auto !== undefined ? [`  auto: ${cfg.summary.auto}`] : []),
+        get: (c) => c.summary?.auto,
+      },
+    ],
+  },
+  {
+    name: 'short',
+    parseKind: 'bucket',
+    // 短篇段：仅 kind: short 输出且段内至少一键（长篇缺省忽略，M8 #25）
+    gate: (cfg) => cfg.kind === 'short' && cfg.short != null && Object.keys(cfg.short).length > 0,
+    keys: [
+      {
+        key: 'profile',
+        parse: (node, ctx) => {
+          const value = String(parseValue(node.value)).trim()
+          if (value.length > 0) ctx.bucket.profile = value
+        },
+        emit: (cfg) => (cfg.short?.profile ? [`  profile: ${stringifyValue(cfg.short.profile)}`] : []),
+        get: (c) => c.short?.profile,
+      },
+      { key: 'target_emotions', parse: shortArrParse('target_emotions'), emit: scalarLeafEmit('target_emotions', (c) => c.short?.target_emotions), get: (c) => c.short?.target_emotions },
+      { key: 'target_reversal_types', parse: shortArrParse('target_reversal_types'), emit: scalarLeafEmit('target_reversal_types', (c) => c.short?.target_reversal_types), get: (c) => c.short?.target_reversal_types },
+      { key: 'target_ending_flavors', parse: shortArrParse('target_ending_flavors'), emit: scalarLeafEmit('target_ending_flavors', (c) => c.short?.target_ending_flavors), get: (c) => c.short?.target_ending_flavors },
+      { key: 'series_motifs', parse: shortArrParse('series_motifs'), emit: scalarLeafEmit('series_motifs', (c) => c.short?.series_motifs), get: (c) => c.short?.series_motifs },
+      {
+        // R26-12（二十六轮）：parseStrictBool 收口（原 `String() === 'true'` 把 strict: yes
+        // 解析成 false 反向开关）；非法值 warn + 按未设（回落 defaultShortStrict 托底链）。
+        // 全局托底：显式 false 也照写（roundtrip 零 diff 红线——此前只写 true，
+        // `strict: false` 旧文件重存会丢行；未设不输出）
+        key: 'strict',
+        parse: strictBoolParse('strict', 'short.strict'),
+        emit: (cfg) => (cfg.short?.strict !== undefined ? [`  strict: ${cfg.short.strict}`] : []),
+        get: (c) => c.short?.strict,
+      },
+      { key: 'word_min', parse: shortNumParse('word_min'), emit: scalarLeafEmit('word_min', (c) => c.short?.word_min), get: (c) => c.short?.word_min },
+      { key: 'word_max', parse: shortNumParse('word_max'), emit: scalarLeafEmit('word_max', (c) => c.short?.word_max), get: (c) => c.short?.word_max },
+      { key: 'body_part_threshold', parse: shortNumParse('body_part_threshold'), emit: scalarLeafEmit('body_part_threshold', (c) => c.short?.body_part_threshold), get: (c) => c.short?.body_part_threshold },
+      { key: 'simile_threshold', parse: shortNumParse('simile_threshold'), emit: scalarLeafEmit('simile_threshold', (c) => c.short?.simile_threshold), get: (c) => c.short?.simile_threshold },
+      { key: 'section_count', parse: shortNumParse('section_count'), emit: scalarLeafEmit('section_count', (c) => c.short?.section_count), get: (c) => c.short?.section_count },
+      { key: 'opening_env_chars', parse: shortNumParse('opening_env_chars'), emit: scalarLeafEmit('opening_env_chars', (c) => c.short?.opening_env_chars), get: (c) => c.short?.opening_env_chars },
+    ],
+  },
+  {
+    name: 'auto',
+    parseKind: 'bucket',
+    // 全局托底：auto 段只输出已定义键，全未定义省段（写法照 snapshots 段的条件输出范式）
+    gate: (_cfg, body) => body.length > 0,
+    keys: [
+      {
+        // R26-12（二十六轮）：parseStrictBool 收口 + 非法值 warn 按未设（回落全局链）
+        key: 'confirm_outline',
+        parse: strictBoolParse('confirm_outline', 'auto.confirm_outline'),
+        emit: (cfg) => (cfg.auto?.confirm_outline !== undefined ? [`  confirm_outline: ${cfg.auto.confirm_outline}`] : []),
+        get: (c) => c.auto?.confirm_outline,
+      },
+      {
+        // R76-15：空值/非正数拒收（写空落 0 = 连写批大小 0，语义荒谬）；warn 按未设。
+        key: 'batch_size',
+        parse: positiveNumParse('auto', 'batch_size'),
+        emit: scalarLeafEmit('batch_size', (c) => c.auto?.batch_size),
+        get: (c) => c.auto?.batch_size,
+      },
+      {
+        // RB-KN-P2-10：关系图自动梳理两键——前端 useRelationGraph 已消费，原先解析/序列化
+        // 均不支持（作者手写 book.yaml 永远解析成默认值，配置链路断裂）。
+        // R26-12（二十六轮）：parseStrictBool 收口 + 非法值 warn 按未设（回落全局链）
+        key: 'relation_auto_mine',
+        parse: strictBoolParse('relation_auto_mine', 'auto.relation_auto_mine'),
+        emit: (cfg) => (cfg.auto?.relation_auto_mine !== undefined ? [`  relation_auto_mine: ${cfg.auto.relation_auto_mine}`] : []),
+        get: (c) => c.auto?.relation_auto_mine,
+      },
+      {
+        // R76-15：同 batch_size——关系梳理阈值空值/非正数拒收，warn 按未设。
+        key: 'relation_mine_threshold',
+        parse: positiveNumParse('auto', 'relation_mine_threshold'),
+        emit: scalarLeafEmit('relation_mine_threshold', (c) => c.auto?.relation_mine_threshold),
+        get: (c) => c.auto?.relation_mine_threshold,
+      },
+    ],
+  },
+  {
+    name: 'growth',
+    parseKind: 'flat',
+    // growth 段：长篇输出（成长线/境界）；短篇无（无成长线）
+    gate: (cfg) => cfg.kind !== 'short',
+    keys: [
+      {
+        // R73-20（二十一轮）：无正值校验——`realm_span_max: 0`/负数此前原样落 cfg，
+        // checkGrowth 的跨度检查（idx-prevIdx > 0 恒真）会让一切正常晋阶报红；
+        // 非数字/非正数一律 fail-loud 产可读错误（parseBookConfig 捕获转错误信封，
+        // 对齐顶层段重复 R72-8 C-5 的 fail-loud 口径）
+        key: 'realm_span_max',
+        parse: (node, ctx) => {
+          const v = parseFiniteNumber(node.value, NaN)
+          if (!Number.isFinite(v) || v <= 0) {
+            throw new Error(`growth.realm_span_max 必须为正数（实际「${node.value.trim()}」），请修正 book.yaml 的 growth 段`)
+          }
+          ctx.bucket.realm_span_max = v
+        },
+        emit: (cfg) => [`  realm_span_max: ${cfg.growth.realm_span_max ?? 2}`],
+        get: (c) => c.growth.realm_span_max,
+      },
+    ],
+  },
+  {
+    name: 'checks',
+    parseKind: 'bucket',
+    // 机检段（长短篇皆可选：高频意象/信息差机检长短都跑）：键存在即输出——含显式空数组
+    // （round-trip 保真：显式空 = 关掉内置回落，与「未设」语义不同，重存不得丢）；
+    // 整段未设不落段（现有仓库零改动红线）。写法照 auto 段的条件输出范式
+    gate: (_cfg, body) => body.length > 0,
+    keys: [
+      { key: 'imagery_words', parse: checksWordListParse('imagery_words'), emit: scalarLeafEmit('imagery_words', (c) => c.checks?.imagery_words), get: (c) => c.checks?.imagery_words },
+      { key: 'leak_keywords', parse: checksWordListParse('leak_keywords'), emit: scalarLeafEmit('leak_keywords', (c) => c.checks?.leak_keywords), get: (c) => c.checks?.leak_keywords },
+      // R52-E-2（五十二轮）：机检阈值五键——此前解析面不认（作者手写被静默丢弃，按引擎
+      // 默认值执行，配置链路断裂）。正数校验 + 非法值 warn 按未设（R76-15 口径，回落
+      // 全局链/引擎默认即可，不 fail-loud：调参面写坏不阻断写作）
+      { key: 'repeat_threshold', parse: positiveNumParse('checks', 'repeat_threshold'), emit: scalarLeafEmit('repeat_threshold', (c) => c.checks?.repeat_threshold), get: (c) => c.checks?.repeat_threshold },
+      { key: 'repeat_chars_threshold', parse: positiveNumParse('checks', 'repeat_chars_threshold'), emit: scalarLeafEmit('repeat_chars_threshold', (c) => c.checks?.repeat_chars_threshold), get: (c) => c.checks?.repeat_chars_threshold },
+      { key: 'max_sentence_len', parse: positiveNumParse('checks', 'max_sentence_len'), emit: scalarLeafEmit('max_sentence_len', (c) => c.checks?.max_sentence_len), get: (c) => c.checks?.max_sentence_len },
+      { key: 'imagery_threshold', parse: positiveNumParse('checks', 'imagery_threshold'), emit: scalarLeafEmit('imagery_threshold', (c) => c.checks?.imagery_threshold), get: (c) => c.checks?.imagery_threshold },
+      { key: 'word_count_tolerance', parse: positiveNumParse('checks', 'word_count_tolerance'), emit: scalarLeafEmit('word_count_tolerance', (c) => c.checks?.word_count_tolerance), get: (c) => c.checks?.word_count_tolerance },
+    ],
+  },
+  {
+    name: 'rag',
+    parseKind: 'custom',
+    // RAG 可选段（#37，非密；key 绝不入此；长短皆可选）。parse 段级自管：段存在但缺
+    // enabled 键 → 不再整段静默丢弃（第六轮）——手写了 provider/endpoint 显然意在启用，
+    // enabled 缺省 true（显式写 false 才关）；触发条件补 embed_timeout_ms（R48-7，
+    // 与 depth 同口径：正整数才收）
+    gate: (cfg) => cfg.rag != null,
+    parseCustom: (node, cfg) => {
+      const en = findChild(node, 'enabled')
+      const pv = findChild(node, 'provider')
+      const ep = findChild(node, 'endpoint')
+      const md = findChild(node, 'model')
+      const cd = findChild(node, 'candidate_depth')
+      const depth = cd ? Number(parseValue(cd.value)) : NaN
+      const et = findChild(node, 'embed_timeout_ms')
+      const embedTimeout = et ? Number(parseValue(et.value)) : NaN
+      // R26-12（二十六轮）：enabled 收口 parseStrictBool（`enabled: yes/1` 此前被当
+      // false 反向关停）；非法值 warn + 按未设 = 段存在时的缺省 true
+      let ragEnabled = true
+      if (en) {
+        const v = parseStrictBool(en.value)
+        if (v !== undefined) ragEnabled = v
+        else warnBadBool('rag.enabled', en.value)
+      }
+      if (en || pv || ep || md || (Number.isInteger(depth) && depth > 0) || (Number.isInteger(embedTimeout) && embedTimeout > 0)) {
+        cfg.rag = {
+          enabled: ragEnabled,
+          ...(pv ? { provider: String(parseValue(pv.value)) } : {}),
+          ...(ep ? { endpoint: String(parseValue(ep.value)) } : {}),
+          ...(md ? { model: String(parseValue(md.value)) } : {}),
+          // A3（批 7）：候选深度可覆盖（正整数才收，缺省 20 走 recall 侧兜底）
+          ...(Number.isInteger(depth) && depth > 0 ? { candidate_depth: depth } : {}),
+          // R62-27：embedding 超时可覆盖（正整数才收，缺省 30s 走 embed.ts 兜底）
+          ...(Number.isInteger(embedTimeout) && embedTimeout > 0 ? { embed_timeout_ms: embedTimeout } : {}),
+        }
+      }
+    },
+    keys: [
+      { key: 'enabled', emit: (cfg) => (cfg.rag != null ? [`  enabled: ${cfg.rag.enabled}`] : []), get: (c) => c.rag?.enabled },
+      // 设了 provider（应用级服务商引用）时不再写 endpoint/model——旧内联字段在 UI 选服务商时已清
+      { key: 'provider', emit: (cfg) => (cfg.rag?.provider ? [`  provider: ${stringifyValue(cfg.rag.provider)}`] : []), get: (c) => c.rag?.provider },
+      { key: 'endpoint', emit: (cfg) => (cfg.rag != null && !cfg.rag.provider && cfg.rag.endpoint ? [`  endpoint: ${stringifyValue(cfg.rag.endpoint)}`] : []), get: (c) => (c.rag?.provider ? undefined : c.rag?.endpoint) },
+      { key: 'model', emit: (cfg) => (cfg.rag != null && !cfg.rag.provider && cfg.rag.model ? [`  model: ${stringifyValue(cfg.rag.model)}`] : []), get: (c) => (c.rag?.provider ? undefined : c.rag?.model) },
+      // candidate_depth（A3 批 7）随段输出——漏写则 PUT /config 解析失败回退分支走本函数全量
+      // 重生成时，已配的候选深度被静默抹掉（补丁白名单已认该键，两路口径须一致）
+      { key: 'candidate_depth', emit: scalarLeafEmit('candidate_depth', (c) => c.rag?.candidate_depth), get: (c) => c.rag?.candidate_depth },
+      { key: 'embed_timeout_ms', emit: scalarLeafEmit('embed_timeout_ms', (c) => c.rag?.embed_timeout_ms), get: (c) => c.rag?.embed_timeout_ms },
+    ],
+  },
+  {
+    name: 'snapshots',
+    parseKind: 'bucket',
+    // 快照保留策略（单章版本回滚）：缺省不写字段 → 用代码默认值；段门/键行照条件输出
+    // 范式（缺省不输出——现有仓库零改动红线）
+    gate: (cfg) => cfg.snapshots != null && (cfg.snapshots.max_days !== undefined || cfg.snapshots.max_count !== undefined),
+    keys: [
+      { key: 'max_days', parse: snapshotNumParse('max_days'), emit: scalarLeafEmit('max_days', (c) => c.snapshots?.max_days), get: (c) => c.snapshots?.max_days },
+      { key: 'max_count', parse: snapshotNumParse('max_count'), emit: scalarLeafEmit('max_count', (c) => c.snapshots?.max_count), get: (c) => c.snapshots?.max_count },
+    ],
+  },
+]
+
+const SECTION_BY_NAME: ReadonlyMap<string, ConfigSectionSpec> = new Map(SECTION_SPECS.map((s) => [s.name, s]))
+
+/** parse 面段序（历史 sectionsToConfig 处理序：snapshots 先于 rag——warn/报错触发顺序
+ *  锁旧序；stringify 段序 = 表序，rag 先于 snapshots）。 */
+const PARSE_SECTION_ORDER: readonly string[] = ['book', 'leads', 'budget', 'style', 'summary', 'short', 'auto', 'growth', 'checks', 'snapshots', 'rag']
+
+/** 段解析驱动（表派生）：逐键 findChild（段内重复 fail-loud）+ 键行 parse；
+ *  bucket 段非空才整段赋（style/summary/short/auto/checks/snapshots 语义）。 */
+function parseSectionSpec(spec: ConfigSectionSpec, sectionNode: RawSection, cfg: BookConfig): void {
+  if (spec.parseKind === 'custom') {
+    if (spec.parseCustom) spec.parseCustom(sectionNode, cfg)
+    return
+  }
+  const cfgBag = cfg as unknown as Record<string, unknown>
+  const bucket: Record<string, unknown> = spec.parseKind === 'flat' ? (cfgBag[spec.name] as Record<string, unknown>) : {}
+  for (const key of spec.parseKeyOrder ?? spec.keys.map((k) => k.key)) {
+    const row = spec.keys.find((k) => k.key === key)
+    if (row?.parse === undefined) continue
+    const child = findChild(sectionNode, key)
+    if (child !== undefined) row.parse(child, { cfg, bucket })
+  }
+  if (spec.parseKind === 'bucket' && Object.keys(bucket).length > 0) {
+    cfgBag[spec.name] = bucket
+  }
+}
+
+/** R73-21（二十一轮）/ R57-D-1（五十七轮）——原 sectionsToConfig 闭包上提模块级
+ *  （P1-5 表驱动三面共用，语义与文案逐字不变）：段内子键重复 fail-loud（顶层段重复
+ *  已 fail-loud〔R72-8 C-5〕，但段内同名子键 find 静默取首〔作者复制粘贴出两个
+ *  `genre:` 时后值无声丢失〕，同文件两种容错策略口径统一为「宁可红不可错」）；
+ *  报错文案收口 dupChildError 单源（budget / leads.thresholds 两段同口径复用同一
+ *  文案模板，不自创第三种报错形态）。 */
+function dupChildError(section: RawSection, key: string): Error {
+  return new Error(`顶层段「${section.key}」内子键「${key}」重复：同名子键只取首个会静默丢弃后值，请合并或删除重复键`)
+}
+
+function findChild(section: RawSection, key: string): RawSection | undefined {
+  const hits = section.children.filter((c) => c.key === key)
+  if (hits.length > 1) {
+    throw dupChildError(section, key)
+  }
+  return hits[0]
+}
+
 /** 段树 → BookConfig（#9 第 2 节）。
  *  全局托底改造：起步值不含 13 个可托底键——书文件没写就保持 undefined，
- *  「未设」语义存活到运行时合并层（applyGlobalDefaults）才回落。 */
+ *  「未设」语义存活到运行时合并层（applyGlobalDefaults）才回落。
+ *  P1-5（复审-0914-优化修复批）：段键解析整体改 schema 表驱动（SECTION_SPECS），
+ *  本函数只保留顶层标量三键与段循环骨架；逐键容错语义与 warn 文案随键行迁入表。 */
 function sectionsToConfig(roots: RawSection[]): BookConfig {
   // R72-8（二十轮 C-5）：同名重复顶层段报错——原 find 静默取首个，作者复制粘贴出两个
   // `style:` 段时后段整段无效无提示。fail-loud（parseBookConfig 的 catch 转错误信封）。
@@ -181,22 +769,6 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
   }
   const cfg: BookConfig = { ...DEFAULT_CONFIG, book: { ...DEFAULT_CONFIG.book }, leads: { ...DEFAULT_CONFIG.leads }, budget: { ...DEFAULT_CONFIG.budget }, growth: { ...DEFAULT_CONFIG.growth } }
   const find = (key: string) => roots.find((r) => r.key === key)
-
-  // R73-21（二十一轮）：段内子键重复同样 fail-loud——顶层段重复已 fail-loud（R72-8 C-5），
-  // 但段内同名子键 find 静默取首（作者复制粘贴出两个 `genre:` 时后值无声丢失），
-  // 同文件两种容错策略口径统一为「宁可红不可错」。
-  // R57-D-1（五十七轮）：报错文案收口 dupChildError 单源——budget / leads.thresholds
-  // 两段（原直接遍历 children 取值，段内重复子键后值静默覆盖前值）同口径复用同一文案
-  // 模板，不自创第三种报错形态。
-  const dupChildError = (section: RawSection, key: string): Error =>
-    new Error(`顶层段「${section.key}」内子键「${key}」重复：同名子键只取首个会静默丢弃后值，请合并或删除重复键`)
-  const findChild = (section: RawSection, key: string): RawSection | undefined => {
-    const hits = section.children.filter((c) => c.key === key)
-    if (hits.length > 1) {
-      throw dupChildError(section, key)
-    }
-    return hits[0]
-  }
 
   // R26-38（二十六轮）：spec_version 非法值 warn 留痕（维持回落 1）——此前
   // parseFiniteNumber 静默回落，版本号写错无迹可查
@@ -216,7 +788,7 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
     const k = String(parseValue(kindNode.value))
     if (k === 'short' || k === 'long') cfg.kind = k
     // R37-11（三十七轮）：坏值静默落默认补 warn 留痕——作者笔误（kind: shrt）时
-    // 短篇稿被静默路由长篇轨，无迹可查（对齐 :202 spec_version 的 warn 纪律）
+    // 短篇稿被静默路由长篇轨，无迹可查（对齐 spec_version 的 warn 纪律）
     else log.warn('book.yaml', `kind 值非法（「${kindNode.value.trim().slice(0, 40)}」），已按缺省 long 处理`)
   }
 
@@ -232,334 +804,12 @@ function sectionsToConfig(roots: RawSection[]): BookConfig {
   // workflow（W0 §2 已废弃删除）：存量 book.yaml 里的 workflow 行是未知字段，
   // 不解析、不赋值——下次存配置时 stringifyBookConfig 重建 yaml 自然丢弃该行。
 
-  const book = find('book')
-  if (book) {
-    const t = findChild(book, "title")
-    const g = findChild(book, "genre")
-    const vs = findChild(book, "volume_size")
-    const tw = findChild(book, "target_words")
-    if (t) cfg.book.title = String(parseValue(t.value))
-    // 全局托底：genre 空串归一 undefined（`genre: ''` 是旧 scaffold 烘焙的默认占位，
-    // 与「没写」同义）——否则空串永远盖住 global.json 的 defaultGenre
-    if (g) {
-      const genre = String(parseValue(g.value))
-      if (genre !== '') cfg.book.genre = genre
-    }
-    if (vs) {
-      const volumeSize = parseFiniteNumber(vs.value, NaN)
-      // R51-F-3（五十一轮）：坏值静默忽略补 warn（R37-11 kind/host 与 R76-15 阈值族
-      // 同文件留痕纪律——「配置写了但不生效」须有迹可查，否则字数规划静默失真）
-      if (Number.isSafeInteger(volumeSize) && volumeSize > 0) cfg.book.volume_size = volumeSize
-      else log.warn('book.yaml', `book.volume_size 值非法（「${vs.value.trim().slice(0, 40)}」），已忽略（按未设处理）`)
-    }
-    if (tw) {
-      const targetWords = parseFiniteNumber(tw.value, NaN)
-      // R51-F-3：同 volume_size
-      if (Number.isFinite(targetWords) && targetWords > 0) cfg.book.target_words = targetWords
-      else log.warn('book.yaml', `book.target_words 值非法（「${tw.value.trim().slice(0, 40)}」），已忽略（按未设处理）`)
-    }
-    const ctw = findChild(book, "chapter_target_words")
-    if (ctw) {
-      const v = parseFiniteNumber(ctw.value, 0)
-      // R51-F-3：同 volume_size（空值经 parseFiniteNumber 落 0，同样进 warn 分支——
-      // 「写了空」与「没写」的语义差须留痕）
-      if (Number.isFinite(v) && v > 0) cfg.book.chapter_target_words = v
-      else log.warn('book.yaml', `book.chapter_target_words 值非法（「${ctw.value.trim().slice(0, 40)}」），已忽略（按未设处理）`)
-    }
-  }
-
-  const leads = find('leads')
-  if (leads) {
-    const en = findChild(leads, "enabled")
-    if (en) {
-      const v = parseValue(en.value)
-      if (Array.isArray(v)) {
-        // X-P3a：未知账本类过滤 + 留痕——此前静默收下错别字值，作者以为启用了
-        const valid = v.map(String).filter((s) => (LEAD_TYPES as readonly string[]).includes(s))
-        if (valid.length < v.length) {
-          log.warn('book.yaml', `leads.enabled 含未知账本类（合法值：${LEAD_TYPES.join('/')}），已忽略`)
-        }
-        cfg.leads.enabled = valid
-      }
-    }
-    const th = findChild(leads, "thresholds")
-    if (th) {
-      const thresholds: Record<string, number> = {}
-      // R57-D-1（五十七轮）：thresholds 子键为动态账本类名（无法逐键预枚举 findChild），
-      // 就地镜像 findChild（R73-21）的重复判定——段内同名子键此前按遍历序后值静默
-      // 覆盖前值，现 fail-loud（dupChildError 同一文案，经 parseBookConfig 捕获转错误信封）。
-      const seen = new Set<string>()
-      for (const c of th.children) {
-        if (seen.has(c.key)) {
-          throw dupChildError(th, c.key)
-        }
-        seen.add(c.key)
-        // R76-15（二十四轮 B 域）：空值/非正数拒收——`复读率:` 写空经 parseValue('')→
-        // Number('')=0 混过 isFinite 静默落 0（阈值 0 = 全量误报），与「未设」语义
-        // 割裂。正数才收，否则 warn 留痕按未设（回落全局链）。
-        const num = parsePositiveNumber(c.value)
-        if (num !== undefined) thresholds[c.key] = num
-        else log.warn('book.yaml', `leads.thresholds.${c.key} 值非正数（「${c.value.trim()}」），已忽略（按未设处理）`)
-      }
-      if (Object.keys(thresholds).length > 0) cfg.leads.thresholds = thresholds
-    }
-  }
-
-  const budget = find('budget')
-  if (budget) {
-    // 全局托底：白名单键 + 坏值不设键（留 undefined 给合并层回落）。
-    // 此前 `c.key in cfg.budget` 靠起步值里预填的键当白名单——calls_per_chapter
-    // 摘出 DEFAULT_CONFIG 后 in 检查永远 false，旧行内值会被静默丢弃
-    // R57-D-1（五十七轮）：白名单逐键改走 findChild 取值（与 book/style 等段同口径）——
-    // 原先直接遍历 children，段内重复子键按遍历序后值静默覆盖前值；现重复即由
-    // findChild fail-loud（R73-21 / R72-8「宁可红不可错」，错误经 parseBookConfig
-    // 捕获转错误信封），白名单外未知键照旧静默跳过、面不扩大。
-    for (const key of BUDGET_KEYS) {
-      const c = findChild(budget, key)
-      if (!c) continue
-      // R76-15：预算键族空值/非正数拒收——`tokens_per_chapter:` 写空落 0 = 每次调用
-      // 都超限（预算 0 语义荒谬但消费侧无从区分）；warn 留痕按未设（回落全局链）。
-      const v = parsePositiveNumber(c.value)
-      if (v !== undefined) (cfg.budget as Record<string, number | undefined>)[key] = v
-      else log.warn('book.yaml', `budget.${key} 值非正数（「${c.value.trim()}」），已忽略（按未设处理）`)
-    }
-  }
-
-  // 全局托底：style 段从零构建——书里写了合法值才设，未写 = undefined（回落全局）
-  const style = find('style')
-  if (style) {
-    const inj = findChild(style, "injection")
-    if (inj) {
-      const v = String(parseValue(inj.value))
-      if (v === 'light' || v === 'heavy') cfg.style = { injection: v }
-    }
-  }
-
-  // C1（批 2）：摘要金字塔开关——summary.auto: false 关闭生成钩子（回到手写约定现状）。
-  // 显式布尔落 cfg（写侧序列化保真，round-trip 不归一）。
-  // parseValue 不产出布尔（无布尔字面量规则）——按 strict/confirm_outline 同款字符串
-  // 归一；R26-12（二十六轮）：收口 parseStrictBool（yes/on/1/True 同义收，非法值
-  // warn + 按未设 = 不设键回落全局链）
-  const summary = find('summary')
-  if (summary) {
-    const auto = findChild(summary, "auto")
-    if (auto) {
-      const v = parseStrictBool(auto.value)
-      if (v !== undefined) cfg.summary = { auto: v }
-      else warnBadBool('summary.auto', auto.value)
-    }
-  }
-
-  const short = find('short')
-  if (short) {
-    const shortConfig: NonNullable<BookConfig['short']> = {}
-    const profile = findChild(short, "profile")
-    if (profile) {
-      const value = String(parseValue(profile.value)).trim()
-      if (value.length > 0) shortConfig.profile = value
-    }
-    for (const key of [
-      'target_emotions',
-      'target_reversal_types',
-      'target_ending_flavors',
-      'series_motifs',
-    ] as const) {
-      const node = findChild(short, key)
-      if (!node) continue
-      const value = parseValue(node.value)
-      if (Array.isArray(value)) {
-        const items = value.map(String).map((v) => v.trim()).filter(Boolean)
-        if (items.length > 0) shortConfig[key] = items
-      }
-    }
-    const strict = findChild(short, "strict")
-    // R26-12（二十六轮）：parseStrictBool 收口（原 `String() === 'true'` 把 strict: yes
-    // 解析成 false 反向开关）；非法值 warn + 按未设（回落 defaultShortStrict 托底链）
-    if (strict) {
-      const v = parseStrictBool(strict.value)
-      if (v !== undefined) shortConfig.strict = v
-      else warnBadBool('short.strict', strict.value)
-    }
-    for (const key of [
-      'word_min',
-      'word_max',
-      'body_part_threshold',
-      'simile_threshold',
-      'section_count',
-      'opening_env_chars',
-    ] as const) {
-      const node = findChild(short, key)
-      if (!node) continue
-      // R29-B7（二十九轮）：坏值不再静默丢弃，warn 留痕（对齐 budget/bool 键的
-      // R76-15/R26-12 留痕模式——「配置写了但不生效」此前无迹可查）。
-      // opening_env_chars 特殊语义：显式 0 = 关闭「开头零环境」检查（与「未设 = 默认
-      // 300」区分，读侧 runner 据此跳过检查）；写空（`opening_env_chars:`）不是显式 0
-      // ——parseValue('')→Number('')=0 会冒充关检，按未设处理 + warn。
-      const value = parseFiniteNumber(node.value, NaN)
-      const rawTrimmed = node.value.trim()
-      if (key === 'opening_env_chars' && value === 0 && rawTrimmed !== '') {
-        // 显式 0（含 '0'/'0.0' 引号形态）= 作者关检；写空（Number('')=0）不冒充关检
-        shortConfig[key] = 0
-      } else if (Number.isFinite(value) && value > 0) {
-        shortConfig[key] = value
-      } else {
-        log.warn('book.yaml', `short.${key} 值非法（「${rawTrimmed}」），已忽略（按未设处理，回落缺省）`)
-      }
-    }
-    if (Object.keys(shortConfig).length > 0) cfg.short = shortConfig
-  }
-
-  // 全局托底：auto 段从零构建——有键才设（段内全没写 = 整段 undefined，回落全局链）
-  const auto = find('auto')
-  if (auto) {
-    const autoConfig: NonNullable<BookConfig['auto']> = {}
-    const co = findChild(auto, "confirm_outline")
-    // R26-12（二十六轮）：parseStrictBool 收口 + 非法值 warn 按未设（回落全局链）
-    if (co) {
-      const v = parseStrictBool(co.value)
-      if (v !== undefined) autoConfig.confirm_outline = v
-      else warnBadBool('auto.confirm_outline', co.value)
-    }
-    const bs = findChild(auto, "batch_size")
-    if (bs) {
-      // R76-15：空值/非正数拒收（写空落 0 = 连写批大小 0，语义荒谬）；warn 按未设。
-      const v = parsePositiveNumber(bs.value)
-      if (v !== undefined) autoConfig.batch_size = v
-      else log.warn('book.yaml', `auto.batch_size 值非正数（「${bs.value.trim()}」），已忽略（按未设处理）`)
-    }
-    // RB-KN-P2-10：关系图自动梳理两键——前端 useRelationGraph 已消费，原先解析/序列化
-    // 均不支持（作者手写 book.yaml 永远解析成默认值，配置链路断裂）
-    const ram = findChild(auto, "relation_auto_mine")
-    // R26-12（二十六轮）：parseStrictBool 收口 + 非法值 warn 按未设（回落全局链）
-    if (ram) {
-      const v = parseStrictBool(ram.value)
-      if (v !== undefined) autoConfig.relation_auto_mine = v
-      else warnBadBool('auto.relation_auto_mine', ram.value)
-    }
-    const rmt = findChild(auto, "relation_mine_threshold")
-    if (rmt) {
-      // R76-15：同 batch_size——关系梳理阈值空值/非正数拒收，warn 按未设。
-      const v = parsePositiveNumber(rmt.value)
-      if (v !== undefined) autoConfig.relation_mine_threshold = v
-      else log.warn('book.yaml', `auto.relation_mine_threshold 值非正数（「${rmt.value.trim()}」），已忽略（按未设处理）`)
-    }
-    if (Object.keys(autoConfig).length > 0) cfg.auto = autoConfig
-  }
-
-  const growth = find('growth')
-  if (growth) {
-    const rs = findChild(growth, 'realm_span_max')
-    if (rs) {
-      // R73-20（二十一轮）：无正值校验——`realm_span_max: 0`/负数此前原样落 cfg，
-      // checkGrowth 的跨度检查（idx-prevIdx > 0 恒真）会让一切正常晋阶报红；
-      // 非数字/非正数一律 fail-loud 产可读错误（parseBookConfig 捕获转错误信封，
-      // 对齐顶层段重复 R72-8 C-5 的 fail-loud 口径）
-      const v = parseFiniteNumber(rs.value, NaN)
-      if (!Number.isFinite(v) || v <= 0) {
-        throw new Error(`growth.realm_span_max 必须为正数（实际「${rs.value.trim()}」），请修正 book.yaml 的 growth 段`)
-      }
-      cfg.growth.realm_span_max = v
-    }
-  }
-
-  // checks 段（机检扩展词表，#10 项 7/11 数据源接线）：显式空数组 = 关（不得归一为
-  // undefined——它与「未设」语义不同：未设才回落内置种子表，显式空数组是作者明确
-  // 关掉）；段缺失 = 整段 undefined。项级 trim + 去空串与 short 段词表同口径
-  const checks = find('checks')
-  if (checks) {
-    const checksConfig: NonNullable<BookConfig['checks']> = {}
-    for (const key of ['imagery_words', 'leak_keywords'] as const) {
-      const node = findChild(checks, key)
-      if (!node) continue
-      const value = parseValue(node.value)
-      // Array.isArray 才收：显式 [] 原样保留（长度 0 也设键）；标量/坏值忽略
-      if (Array.isArray(value)) {
-        // kk-P2-13：空白词条剔除留痕——静默吞会让作者以为整份词表已按原样生效
-        const items = value.map(String)
-        const kept = items.map((v) => v.trim()).filter(Boolean)
-        if (kept.length < items.length) {
-          log.warn('book.yaml', `checks.${key} 含空白词条已剔除（${items.length} 项 → ${kept.length} 项）`)
-        }
-        checksConfig[key] = kept
-      } else {
-        log.warn('book.yaml', `checks.${key} 值非数组（${node.value.trim()}），已忽略`)
-      }
-    }
-    // R52-E-2（五十二轮）：机检阈值五键——此前解析面不认（作者手写被静默丢弃，按引擎
-    // 默认值执行，配置链路断裂）。正数校验 + 非法值 warn 按未设（R76-15 口径，回落
-    // 全局链/引擎默认即可，不 fail-loud：调参面写坏不阻断写作）
-    for (const key of [
-      'repeat_threshold',
-      'repeat_chars_threshold',
-      'max_sentence_len',
-      'imagery_threshold',
-      'word_count_tolerance',
-    ] as const) {
-      const node = findChild(checks, key)
-      if (!node) continue
-      const v = parsePositiveNumber(node.value)
-      if (v !== undefined) checksConfig[key] = v
-      else log.warn('book.yaml', `checks.${key} 值非正数（「${node.value.trim()}」），已忽略（按未设处理）`)
-    }
-    if (Object.keys(checksConfig).length > 0) cfg.checks = checksConfig
-  }
-
-  // 快照保留策略（单章版本回滚）：缺省不写字段 → 用代码默认值
-  const snapshots = find('snapshots')
-  if (snapshots) {
-    const snapshotsConfig: NonNullable<BookConfig['snapshots']> = {}
-    const md = findChild(snapshots, "max_days")
-    if (md) {
-      const v = parseFiniteNumber(md.value, 0)
-      if (v > 0) snapshotsConfig.max_days = v
-      // R37-11（三十七轮）：坏值静默吞补 warn 留痕——真实文件损坏（max_days: abc/0/-3）
-      // 时用户无感知（对齐 :292 budget 值非正数的 warn 文案口径）
-      else log.warn('book.yaml', `snapshots.max_days 值非正数（「${md.value.trim().slice(0, 40)}」），已忽略（按未设处理）`)
-    }
-    const mc = findChild(snapshots, "max_count")
-    if (mc) {
-      const v = parseFiniteNumber(mc.value, 0)
-      if (v > 0) snapshotsConfig.max_count = v
-      // R37-11：同 max_days
-      else log.warn('book.yaml', `snapshots.max_count 值非正数（「${mc.value.trim().slice(0, 40)}」），已忽略（按未设处理）`)
-    }
-    if (Object.keys(snapshotsConfig).length > 0) cfg.snapshots = snapshotsConfig
-  }
-
-  // RAG 可选段（#37，非密：enabled/provider/endpoint/model；api_key 不入此）
-  const rag = find('rag')
-  if (rag) {
-    const en = findChild(rag, "enabled")
-    const pv = findChild(rag, "provider")
-    const ep = findChild(rag, "endpoint")
-    const md = findChild(rag, "model")
-    const cd = findChild(rag, "candidate_depth")
-    const depth = cd ? Number(parseValue(cd.value)) : NaN
-    const et = findChild(rag, "embed_timeout_ms")
-    const embedTimeout = et ? Number(parseValue(et.value)) : NaN
-    // 低级项（第六轮）：rag 段存在但缺 enabled 键 → 不再整段静默丢弃——
-    // 手写了 provider/endpoint 显然意在启用，enabled 缺省 true（显式写 false 才关）。
-    // R26-12（二十六轮）：enabled 收口 parseStrictBool（`enabled: yes/1` 此前被当
-    // false 反向关停）；非法值 warn + 按未设 = 段存在时的缺省 true
-    let ragEnabled = true
-    if (en) {
-      const v = parseStrictBool(en.value)
-      if (v !== undefined) ragEnabled = v
-      else warnBadBool('rag.enabled', en.value)
-    }
-    // R48-7（四十八轮）：触发条件补 embed_timeout_ms——手写 rag 段仅含该键时此前
-    // 整段不建、超时静默丢失回落 embed.ts 缺省，作者写了的配置无声失效（与 depth
-    // 同口径：正整数才收）
-    if (en || pv || ep || md || (Number.isInteger(depth) && depth > 0) || (Number.isInteger(embedTimeout) && embedTimeout > 0)) cfg.rag = {
-      enabled: ragEnabled,
-      ...(pv ? { provider: String(parseValue(pv.value)) } : {}),
-      ...(ep ? { endpoint: String(parseValue(ep.value)) } : {}),
-      ...(md ? { model: String(parseValue(md.value)) } : {}),
-      // A3（批 7）：候选深度可覆盖（正整数才收，缺省 20 走 recall 侧兜底）
-      ...(Number.isInteger(depth) && depth > 0 ? { candidate_depth: depth } : {}),
-      // R62-27：embedding 超时可覆盖（正整数才收，缺省 30s 走 embed.ts 兜底）
-      ...(Number.isInteger(embedTimeout) && embedTimeout > 0 ? { embed_timeout_ms: embedTimeout } : {}),
-    }
+  // 段键：schema 表驱动（P1-5）——段序锁历史处理序（PARSE_SECTION_ORDER）
+  for (const name of PARSE_SECTION_ORDER) {
+    const spec = SECTION_BY_NAME.get(name)
+    const sectionNode = find(name)
+    if (!spec || !sectionNode) continue
+    parseSectionSpec(spec, sectionNode, cfg)
   }
 
   return cfg
@@ -653,7 +903,10 @@ export function parseBookConfig(
   }
 }
 
-/** BookConfig → YAML 文本（#9 第 2 节格式；短篇集走精简字段，M8 #25） */
+/** BookConfig → YAML 文本（#9 第 2 节格式；短篇集走精简字段，M8 #25）。
+ *  P1-5（复审-0914-优化修复批）：逐键条件落行改 schema 表驱动——段体 = 表行 emit
+ *  拼接（行序 = 表序 = 历史落行序），段门 gate / 段间空行 / 头部三行保持历史语义；
+ *  新增键只触表一行。字节红线由 yaml-schema-snapshot 快照钉住。 */
 export function stringifyBookConfig(cfg: BookConfig): string {
   const isShort = cfg.kind === 'short'
   const lines: string[] = [
@@ -661,162 +914,14 @@ export function stringifyBookConfig(cfg: BookConfig): string {
     // kind 只在 short 时输出（长篇缺省不写，现有仓库零改动红线，M8 #25）
     ...(isShort ? ['kind: short', ''] : ['']),
     `host: ${cfg.host ?? 'cc'}`,
-    'book:',
-    `  title: ${stringifyValue(cfg.book.title)}`,
   ]
-  // 全局托底：genre 未设（含空串）不落行——空行 = 旧默认占位，写了就盖住全局默认
-  if (cfg.book.genre !== undefined && cfg.book.genre !== '') {
-    lines.push(`  genre: ${stringifyValue(cfg.book.genre)}`)
-  }
-  if (cfg.book.volume_size !== undefined) {
-    lines.push(`  volume_size: ${cfg.book.volume_size}`)
-  }
-  if (cfg.book.target_words !== undefined) {
-    lines.push(`  target_words: ${cfg.book.target_words}`)
-  }
-  if (cfg.book.chapter_target_words !== undefined) {
-    lines.push(`  chapter_target_words: ${cfg.book.chapter_target_words}`)
-  }
-
-  // leads 段：长篇恒输出（账本类）；短篇无（账本降级单章章纲 #27）
-  if (!isShort) {
-    lines.push('', 'leads:', `  enabled: ${stringifyValue(cfg.leads.enabled)}`)
-    if (cfg.leads.thresholds) {
-      lines.push('  thresholds:')
-      for (const [k, v] of Object.entries(cfg.leads.thresholds)) {
-        lines.push(`    ${k}: ${v}`)
-      }
-    }
-  }
-
-  // budget 段：长短共用 calls_per_chapter；长篇额外含 summary 长程项（短篇无分层摘要）。
-  // 全局托底：calls_per_chapter 条件行（未设不烘焙 8，回落交给运行时合并层）；短篇段内
-  // 只剩这一键，未设时整段不输出；长篇 summary 三键照旧恒写（不进全局托底）。
-  // R26-10（二十六轮）：外层条件扩为「!isShort || 条件键三键任一已设」——原条件只认
-  // calls_per_chapter，短篇仅设 tokens_per_chapter/cost_per_chapter 时整段丢失、重存即
-  // 丢配置；段内各键仍按自身 undefined 条件落行，未设键不烘焙。
-  if (!isShort || budgetHasAnyKey(cfg.budget)) {
-    lines.push('', 'budget:')
-    if (cfg.budget.calls_per_chapter !== undefined) {
-      lines.push(`  calls_per_chapter: ${cfg.budget.calls_per_chapter}`)
-    }
-    // D3（批 5）：双口径预算键——设了才输出（未设不烘焙，回落交运行时合并层）
-    if (cfg.budget.tokens_per_chapter !== undefined) {
-      lines.push(`  tokens_per_chapter: ${cfg.budget.tokens_per_chapter}`)
-    }
-    if (cfg.budget.cost_per_chapter !== undefined) {
-      lines.push(`  cost_per_chapter: ${cfg.budget.cost_per_chapter}`)
-    }
-    if (!isShort) {
-      lines.push(
-        `  input_per_chapter: ${cfg.budget.input_per_chapter ?? 80000}`,
-        `  summary_chapter_max: ${cfg.budget.summary_chapter_max ?? 200}`,
-        `  summary_volume_max: ${cfg.budget.summary_volume_max ?? 500}`,
-      )
-    }
-  }
-
-  // 全局托底：style 段仅当 injection 有值才输出（写法照 snapshots 段的条件输出范式）
-  if (cfg.style?.injection !== undefined) {
-    lines.push('', 'style:', `  injection: ${cfg.style.injection}`)
-  }
-
-  // C1（批 2）：summary 段仅当显式设过才输出（默认 auto=true 不烘焙，关掉的人写的 false 保真）
-  if (cfg.summary?.auto !== undefined) {
-    lines.push('', 'summary:', `  auto: ${cfg.summary.auto}`)
-  }
-
-  if (isShort && cfg.short && Object.keys(cfg.short).length > 0) {
-    lines.push('', 'short:')
-    if (cfg.short.profile) lines.push(`  profile: ${stringifyValue(cfg.short.profile)}`)
-    if (cfg.short.target_emotions) lines.push(`  target_emotions: ${stringifyValue(cfg.short.target_emotions)}`)
-    if (cfg.short.target_reversal_types) lines.push(`  target_reversal_types: ${stringifyValue(cfg.short.target_reversal_types)}`)
-    if (cfg.short.target_ending_flavors) lines.push(`  target_ending_flavors: ${stringifyValue(cfg.short.target_ending_flavors)}`)
-    if (cfg.short.series_motifs) lines.push(`  series_motifs: ${stringifyValue(cfg.short.series_motifs)}`)
-    // 全局托底：显式 false 也照写（roundtrip 零 diff 红线——此前只写 true，
-    // `strict: false` 旧文件重存会丢行；未设不输出）
-    if (cfg.short.strict !== undefined) lines.push(`  strict: ${cfg.short.strict}`)
-    for (const key of [
-      'word_min',
-      'word_max',
-      'body_part_threshold',
-      'simile_threshold',
-      'section_count',
-      'opening_env_chars',
-    ] as const) {
-      const value = cfg.short[key]
-      if (value !== undefined) lines.push(`  ${key}: ${value}`)
-    }
-  }
-
-  // 全局托底：auto 段只输出已定义键，全未定义省段（写法照 snapshots 段的条件输出范式）
-  const autoLines: string[] = [
-    ...(cfg.auto?.confirm_outline !== undefined ? [`  confirm_outline: ${cfg.auto.confirm_outline}`] : []),
-    ...(cfg.auto?.batch_size !== undefined ? [`  batch_size: ${cfg.auto.batch_size}`] : []),
-    // RB-KN-P2-10：显式配置过的关系图两键随写回（缺省不输出——现有仓库零改动红线）
-    ...(cfg.auto?.relation_auto_mine !== undefined ? [`  relation_auto_mine: ${cfg.auto.relation_auto_mine}`] : []),
-    ...(cfg.auto?.relation_mine_threshold !== undefined ? [`  relation_mine_threshold: ${cfg.auto.relation_mine_threshold}`] : []),
-  ]
-  if (autoLines.length > 0) lines.push('', 'auto:', ...autoLines)
-
-  // growth 段：长篇输出（成长线/境界）；短篇无（无成长线）
-  if (!isShort) {
-    lines.push('', 'growth:', `  realm_span_max: ${cfg.growth.realm_span_max ?? 2}`)
-  }
-
-  // checks 段（机检扩展词表）：键存在即输出——含显式空数组（round-trip 保真：显式空
-  // = 关掉内置回落，与「未设」语义不同，重存不得丢）；整段未设不落段（现有仓库零改动红线）。
-  // 长短篇皆可选（高频意象/信息差机检长短都跑）。写法照 auto 段的条件输出范式
-  const checksLines: string[] = [
-    ...(cfg.checks?.imagery_words !== undefined
-      ? [`  imagery_words: ${stringifyValue(cfg.checks.imagery_words)}`]
-      : []),
-    ...(cfg.checks?.leak_keywords !== undefined
-      ? [`  leak_keywords: ${stringifyValue(cfg.checks.leak_keywords)}`]
-      : []),
-    // R52-E-2：机检阈值五键随段输出（键存在即输出，与词表同范式；未设不落行）
-    ...(cfg.checks?.repeat_threshold !== undefined
-      ? [`  repeat_threshold: ${cfg.checks.repeat_threshold}`]
-      : []),
-    ...(cfg.checks?.repeat_chars_threshold !== undefined
-      ? [`  repeat_chars_threshold: ${cfg.checks.repeat_chars_threshold}`]
-      : []),
-    ...(cfg.checks?.max_sentence_len !== undefined
-      ? [`  max_sentence_len: ${cfg.checks.max_sentence_len}`]
-      : []),
-    ...(cfg.checks?.imagery_threshold !== undefined
-      ? [`  imagery_threshold: ${cfg.checks.imagery_threshold}`]
-      : []),
-    ...(cfg.checks?.word_count_tolerance !== undefined
-      ? [`  word_count_tolerance: ${cfg.checks.word_count_tolerance}`]
-      : []),
-  ]
-  if (checksLines.length > 0) lines.push('', 'checks:', ...checksLines)
-
-  // RAG 可选段（#37，非密；key 绝不入此；长短皆可选）。
-  // 设了 provider（应用级服务商引用）时不再写 endpoint/model——旧内联字段在 UI 选服务商时已清。
-  // candidate_depth（A3 批 7）随段输出——漏写则 PUT /config 解析失败回退分支走本函数全量
-  // 重生成时，已配的候选深度被静默抹掉（补丁白名单已认该键，两路口径须一致）
-  if (cfg.rag) {
-    lines.push(
-      '',
-      'rag:',
-      `  enabled: ${cfg.rag.enabled}`,
-      ...(cfg.rag.provider ? [`  provider: ${stringifyValue(cfg.rag.provider)}`] : []),
-      ...(!cfg.rag.provider && cfg.rag.endpoint ? [`  endpoint: ${stringifyValue(cfg.rag.endpoint)}`] : []),
-      ...(!cfg.rag.provider && cfg.rag.model ? [`  model: ${stringifyValue(cfg.rag.model)}`] : []),
-      ...(cfg.rag.candidate_depth !== undefined ? [`  candidate_depth: ${cfg.rag.candidate_depth}`] : []),
-      ...(cfg.rag.embed_timeout_ms !== undefined ? [`  embed_timeout_ms: ${cfg.rag.embed_timeout_ms}`] : []),
-    )
-  }
-  // 快照保留策略（缺省不输出——现有仓库零改动红线）
-  if (cfg.snapshots && (cfg.snapshots.max_days !== undefined || cfg.snapshots.max_count !== undefined)) {
-    lines.push(
-      '',
-      'snapshots:',
-      ...(cfg.snapshots.max_days !== undefined ? [`  max_days: ${cfg.snapshots.max_days}`] : []),
-      ...(cfg.snapshots.max_count !== undefined ? [`  max_count: ${cfg.snapshots.max_count}`] : []),
-    )
+  for (const spec of SECTION_SPECS) {
+    // 段体 = 该段全部键行（emit 空数组键不落行；「有行才落段」型段由 gate 判 body）
+    const body = spec.keys.flatMap((k) => (k.emit ? k.emit(cfg) : []))
+    if (!spec.gate(cfg, body)) continue
+    // book 段紧随 host 无段间空行；其余段前置空行分隔（历史段间风格）
+    if (spec.name !== 'book') lines.push('')
+    lines.push(`${spec.name}:`, ...body)
   }
   return lines.join('\n') + '\n'
 }
@@ -854,18 +959,31 @@ function matchesKeyLine(line: string, key: string): boolean {
   return bare === `${key}:` || bare.startsWith(`${key}: `)
 }
 
-export function patchTopSection(raw: string, section: string, body: string): string {
-  // 平台规范化批（2026-09-03）：输出规范形（LF）——MP2-4 的「新行随原文行尾」语义
-  // 随规范形拍板翻转；未触碰行原样保留（含注释），其 CRLF 残尾随整输出归一剥除。
-  const lines = raw.split('\n')
+/**
+ * P1-6（复审-0914-优化修复批）：补丁族段定位单源——此前 patchTopSection /
+ * setTopSectionKey / setSectionKeyBlock（yaml.ts 三处）与 migrate-defaults
+ * （matchesKeyLineCRLF + topSectionSpan + 段内最小缩进循环）四处逐字重复
+ * 「段头扫描 + 段尾扫描 + 段体最小缩进」骨架；现收编本函数，四处改薄壳/委托。
+ *
+ * 定位边界语义逐位保留（含 R71-4 / Z-7 修复语义）：
+ * - 段头：matchesKeyLine——剥行首 BOM（只一次，R37-10/R2W-6）与行尾 \r（Z-7 CRLF
+ *   容忍）后全等 `key:` 或前缀 `key: `；
+ * - end = 下一个顶层 key（非缩进、非注释、非空行）之前；段到文件尾 = lines.length；
+ * - childIndent = 段体内容行（非空、非注释）最小缩进；段体无内容行 = -1。
+ *   （migrate-defaults 侧 matchesKeyLineCRLF 原无 BOM 剥除——其头注自记「同
+ *   yaml.ts matchesKeyLine 口径」，本地复制漏 BOM 属口径漂移，单源后按注释意图
+ *   对齐为含 BOM 剥除形态；该差异面仅及「BOM 文件首段定位失败走 no-op」一隅，
+ *   修后 BOM 存量书迁移恢复生效。）
+ */
+export interface TopSectionSpan {
+  start: number
+  end: number
+  childIndent: number
+}
+
+export function locateTopSection(lines: readonly string[], section: string): TopSectionSpan | null {
   const start = lines.findIndex((l) => matchesKeyLine(l, section))
-  if (start === -1) {
-    // 追加：空文件直接写；有内容则补齐结尾换行 + 空行分隔（对齐 stringify 的段间风格）。
-    const sectionLines = [`${section}:`, ...body.split('\n')]
-    if (raw === '') return `${sectionLines.join('\n')}\n`
-    const prefix = raw.endsWith('\n') ? raw : `${raw}\n`
-    return canonicalizeText(`${prefix}\n${sectionLines.join('\n')}\n`)
-  }
+  if (start === -1) return null
   // 段区间末尾 = 下一个顶层 key（非缩进、非注释、非空行）之前
   let end = lines.length
   for (let i = start + 1; i < lines.length; i++) {
@@ -875,6 +993,30 @@ export function patchTopSection(raw: string, section: string, body: string): str
       break
     }
   }
+  // 直接子键缩进 = 段体内容行最小缩进（嵌套更深的行不是本段的直接子键）
+  let childIndent = -1
+  for (let i = start + 1; i < end; i++) {
+    const l = lines[i]!
+    if (l.trim() === '' || l.trimStart().startsWith('#')) continue
+    const ind = l.length - l.trimStart().length
+    if (childIndent === -1 || ind < childIndent) childIndent = ind
+  }
+  return { start, end, childIndent }
+}
+
+export function patchTopSection(raw: string, section: string, body: string): string {
+  // 平台规范化批（2026-09-03）：输出规范形（LF）——MP2-4 的「新行随原文行尾」语义
+  // 随规范形拍板翻转；未触碰行原样保留（含注释），其 CRLF 残尾随整输出归一剥除。
+  const lines = raw.split('\n')
+  const span = locateTopSection(lines, section) // P1-6：段定位委托单源
+  if (!span) {
+    // 追加：空文件直接写；有内容则补齐结尾换行 + 空行分隔（对齐 stringify 的段间风格）。
+    const sectionLines = [`${section}:`, ...body.split('\n')]
+    if (raw === '') return `${sectionLines.join('\n')}\n`
+    const prefix = raw.endsWith('\n') ? raw : `${raw}\n`
+    return canonicalizeText(`${prefix}\n${sectionLines.join('\n')}\n`)
+  }
+  const { start, end } = span
   // 保留旧段尾部的空行 run（段间分隔）——替换体本身无尾空行，不补会与下一段粘连
   let blanks = 0
   for (let i = end - 1; i > start; i--) {
@@ -907,30 +1049,15 @@ export function patchTopSection(raw: string, section: string, body: string): str
 export function setTopSectionKey(raw: string, section: string, key: string, value: string): string {
   // 平台规范化批：输出规范形（LF）——MP2-4 行尾保真语义翻转（patchTopSection 同款）
   const lines = raw.split('\n')
-  const start = lines.findIndex((l) => matchesKeyLine(l, section))
+  const span = locateTopSection(lines, section) // P1-6：段定位委托单源
   const keyLine = (indent: number): string => ' '.repeat(indent) + `${key}: ${value}`
-  if (start === -1) {
+  if (!span) {
     const sectionLines = [`${section}:`, keyLine(2)]
     if (raw === '') return `${sectionLines.join('\n')}\n`
     const prefix = raw.endsWith('\n') ? raw : `${raw}\n`
     return canonicalizeText(`${prefix}\n${sectionLines.join('\n')}\n`)
   }
-  let end = lines.length
-  for (let i = start + 1; i < lines.length; i++) {
-    const l = lines[i]!
-    if (l.trim() !== '' && !l.trimStart().startsWith('#') && !/^\s/.test(l)) {
-      end = i
-      break
-    }
-  }
-  // 直接子键缩进 = 段体内容行最小缩进（与 migrate-defaults 的 deleteSectionKey 同判定）
-  let childIndent = -1
-  for (let i = start + 1; i < end; i++) {
-    const l = lines[i]!
-    if (l.trim() === '' || l.trimStart().startsWith('#')) continue
-    const ind = l.length - l.trimStart().length
-    if (childIndent === -1 || ind < childIndent) childIndent = ind
-  }
+  const { start, end, childIndent } = span
   if (childIndent === -1) {
     // 段体无内容行 → 键插在段头后
     lines.splice(start + 1, 0, keyLine(2))
@@ -976,29 +1103,15 @@ export function setSectionKeyBlock(
 ): string {
   // 平台规范化批：输出规范形（LF）——MP2-4 同族连带语义翻转（patchTopSection 同款）
   const lines = raw.split('\n')
-  const start = lines.findIndex((l) => matchesKeyLine(l, section))
-  if (start === -1) {
+  const span = locateTopSection(lines, section) // P1-6：段定位委托单源
+  if (!span) {
     if (keyLine === null) return raw
     const body = [`  ${keyLine}`, ...blockLines.map((l) => `    ${l}`)]
     if (raw === '') return `${section}:\n${body.join('\n')}\n`
     const prefix = raw.endsWith('\n') ? raw : `${raw}\n`
     return canonicalizeText(`${prefix}\n${section}:\n${body.join('\n')}\n`)
   }
-  let end = lines.length
-  for (let i = start + 1; i < lines.length; i++) {
-    const l = lines[i]!
-    if (l.trim() !== '' && !l.trimStart().startsWith('#') && !/^\s/.test(l)) {
-      end = i
-      break
-    }
-  }
-  let childIndent = -1
-  for (let i = start + 1; i < end; i++) {
-    const l = lines[i]!
-    if (l.trim() === '' || l.trimStart().startsWith('#')) continue
-    const ind = l.length - l.trimStart().length
-    if (childIndent === -1 || ind < childIndent) childIndent = ind
-  }
+  const { start, end, childIndent } = span
   const pad = ' '.repeat(childIndent === -1 ? 2 : childIndent)
   if (childIndent !== -1) {
     // R71-4：键行匹配剥 \r（上方 matchesKeyLine 同口径，Z-7 同族）——CRLF book.yaml 的
@@ -1055,60 +1168,17 @@ interface ConfigPatchLeaf {
   get: (c: BookConfig) => unknown
 }
 
-// genre 空串 ≡ 未设（解析侧同归一）；rag 设 provider 时 endpoint/model 不落行
-// （stringify 同规则——旧内联字段切服务商后即删）
-const CONFIG_PATCH_LEAVES: readonly ConfigPatchLeaf[] = [
-  { section: 'book', key: 'title', get: (c) => c.book.title },
-  { section: 'book', key: 'genre', get: (c) => (c.book.genre === '' ? undefined : c.book.genre) },
-  { section: 'book', key: 'volume_size', get: (c) => c.book.volume_size },
-  { section: 'book', key: 'target_words', get: (c) => c.book.target_words },
-  { section: 'book', key: 'chapter_target_words', get: (c) => c.book.chapter_target_words },
-  { section: 'leads', key: 'enabled', get: (c) => c.leads.enabled },
-  { section: 'budget', key: 'calls_per_chapter', get: (c) => c.budget.calls_per_chapter },
-  // D3（批 5）双口径 + C1（批 2）开关 + A3（批 7）候选深度——此前漏登白名单，
-  // PUT /config 改这些键会静默不落盘（BUDGET_KEYS 与 stringify 侧均已认这些键）
-  { section: 'budget', key: 'tokens_per_chapter', get: (c) => c.budget.tokens_per_chapter },
-  { section: 'budget', key: 'cost_per_chapter', get: (c) => c.budget.cost_per_chapter },
-  { section: 'budget', key: 'input_per_chapter', get: (c) => c.budget.input_per_chapter },
-  { section: 'budget', key: 'summary_chapter_max', get: (c) => c.budget.summary_chapter_max },
-  { section: 'budget', key: 'summary_volume_max', get: (c) => c.budget.summary_volume_max },
-  { section: 'style', key: 'injection', get: (c) => c.style?.injection },
-  { section: 'summary', key: 'auto', get: (c) => c.summary?.auto },
-  { section: 'short', key: 'profile', get: (c) => c.short?.profile },
-  { section: 'short', key: 'target_emotions', get: (c) => c.short?.target_emotions },
-  { section: 'short', key: 'target_reversal_types', get: (c) => c.short?.target_reversal_types },
-  { section: 'short', key: 'target_ending_flavors', get: (c) => c.short?.target_ending_flavors },
-  { section: 'short', key: 'series_motifs', get: (c) => c.short?.series_motifs },
-  { section: 'short', key: 'strict', get: (c) => c.short?.strict },
-  { section: 'short', key: 'word_min', get: (c) => c.short?.word_min },
-  { section: 'short', key: 'word_max', get: (c) => c.short?.word_max },
-  { section: 'short', key: 'body_part_threshold', get: (c) => c.short?.body_part_threshold },
-  { section: 'short', key: 'simile_threshold', get: (c) => c.short?.simile_threshold },
-  { section: 'short', key: 'section_count', get: (c) => c.short?.section_count },
-  { section: 'short', key: 'opening_env_chars', get: (c) => c.short?.opening_env_chars },
-  { section: 'auto', key: 'confirm_outline', get: (c) => c.auto?.confirm_outline },
-  { section: 'auto', key: 'batch_size', get: (c) => c.auto?.batch_size },
-  { section: 'auto', key: 'relation_auto_mine', get: (c) => c.auto?.relation_auto_mine },
-  { section: 'auto', key: 'relation_mine_threshold', get: (c) => c.auto?.relation_mine_threshold },
-  { section: 'growth', key: 'realm_span_max', get: (c) => c.growth.realm_span_max },
-  { section: 'checks', key: 'imagery_words', get: (c) => c.checks?.imagery_words },
-  { section: 'checks', key: 'leak_keywords', get: (c) => c.checks?.leak_keywords },
-  // R52-E-2：机检阈值五键——此前漏登白名单，PUT /config 改这些键会静默不落盘
-  //（parse/stringify 两侧均已认这些键，补丁白名单同轮对齐）
-  { section: 'checks', key: 'repeat_threshold', get: (c) => c.checks?.repeat_threshold },
-  { section: 'checks', key: 'repeat_chars_threshold', get: (c) => c.checks?.repeat_chars_threshold },
-  { section: 'checks', key: 'max_sentence_len', get: (c) => c.checks?.max_sentence_len },
-  { section: 'checks', key: 'imagery_threshold', get: (c) => c.checks?.imagery_threshold },
-  { section: 'checks', key: 'word_count_tolerance', get: (c) => c.checks?.word_count_tolerance },
-  { section: 'rag', key: 'enabled', get: (c) => c.rag?.enabled },
-  { section: 'rag', key: 'provider', get: (c) => c.rag?.provider },
-  { section: 'rag', key: 'endpoint', get: (c) => (c.rag?.provider ? undefined : c.rag?.endpoint) },
-  { section: 'rag', key: 'model', get: (c) => (c.rag?.provider ? undefined : c.rag?.model) },
-  { section: 'rag', key: 'candidate_depth', get: (c) => c.rag?.candidate_depth },
-  { section: 'rag', key: 'embed_timeout_ms', get: (c) => c.rag?.embed_timeout_ms },
-  { section: 'snapshots', key: 'max_days', get: (c) => c.snapshots?.max_days },
-  { section: 'snapshots', key: 'max_count', get: (c) => c.snapshots?.max_count },
-]
+// P1-5（复审-0914-优化修复批）：补丁白名单改 schema 表派生（有 get 的键行即补丁叶，
+// 派生序 = 表序 = 历史 stringifyBookConfig 落行序）。历史两次漏登事故（D3+C1+A3
+// 双口径/开关/深度键、R52-E-2 机检阈值五键：parse/stringify 已收而白名单漏登，
+// PUT /config 改这些键会静默不落盘）自此结构性杜绝——parse 收的键表里必有行。
+// leads.thresholds 动态映射无叶键 get（patchBookConfigText 特例块处理）。
+// 派生结果与历史手写登记表逐行等价（无新增/删减），yaml-schema-snapshot 快照锁。
+const CONFIG_PATCH_LEAVES: readonly ConfigPatchLeaf[] = SECTION_SPECS.flatMap((spec) =>
+  spec.keys
+    .filter((k): k is ConfigKeySpec & { get: (c: BookConfig) => unknown } => k.get !== undefined)
+    .map((k) => ({ section: spec.name, key: k.key, get: k.get })),
+)
 
 function renderScalar(v: unknown): string {
   return typeof v === 'string' || Array.isArray(v) ? stringifyValue(v) : String(v)

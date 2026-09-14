@@ -35,7 +35,7 @@ vi.mock('../../../src/studio/web-next/src/api/chat', () => ({
   confirmTool: mocks.confirmTool,
   clearChatHistory: mocks.clearChatHistory,
 }))
-vi.mock('../../../src/studio/web-next/src/api/stream', () => ({
+vi.mock('../../../src/studio/web-next/src/api/workbench', () => ({
   interrupt: mocks.interrupt,
 }))
 

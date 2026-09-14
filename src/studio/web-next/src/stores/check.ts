@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { runCheck, markFalsePositive, type CheckReport, type CheckItem } from '../api/check'
 import { friendlyError } from '../shared/error'
+import { useStaleGuard } from '../composables/useStaleGuard'
 
 /**
  * 机检 store（M12 块3）：当前文档的机检报告。
@@ -64,16 +65,17 @@ export const useCheckStore = defineStore('check', () => {
     }
   }
 
-  /** 操作代（X-P2-15，与 review store 同款）：run/clear 共用——切文档后旧请求结果不落 */
-  let opGen = 0
+  /** 操作代（X-P2-15，与 review store 同款）：run/clear 共用——切文档后旧请求结果不落。
+   *  E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard。 */
+  const opGen = useStaleGuard()
 
   async function run(name: string, docId: string): Promise<void> {
-    const gen = ++opGen
+    const gen = opGen.begin()
     loading.value = true
     error.value = null
     try {
       const r = await runCheck(name, docId)
-      if (gen !== opGen) return // 机检数秒：期间切文档/清空，旧结果不落（防张冠李戴）
+      if (opGen.stale(gen)) return // 机检数秒：期间切文档/清空，旧结果不落（防张冠李戴）
       report.value = r.report
       hasRed.value = r.hasRed
       // R71-5（七十一轮）：新报告落位即在途标记态复位——flag 在途时 run 推代（flag 只
@@ -84,17 +86,17 @@ export const useCheckStore = defineStore('check', () => {
       flagged.value = loadFlagged(name, docId)
       flagError.value = null
     } catch (e) {
-      if (gen !== opGen) return
+      if (opGen.stale(gen)) return
       error.value = friendlyError(e)
       report.value = null
       hasRed.value = false
     } finally {
-      if (gen === opGen) loading.value = false
+      if (opGen.fresh(gen)) loading.value = false
     }
   }
 
   function clear(): void {
-    opGen++
+    opGen.invalidate()
     // R-1（第十六轮）：clear 推代后在途 run 的 finally 查代不过 → loading 永久卡 true；
     // 此处直接复位，按钮可再触发（迟到回填仍被查代挡住，不落数据）
     loading.value = false
@@ -116,16 +118,16 @@ export const useCheckStore = defineStore('check', () => {
     if (flagging.value || flagged.value.has(checkId)) return
     // 只快照不推进：flag 不废在途的 run（run 结果仍应落地）；clear/新 run 会推进 opGen，
     // 迟到回填由此被挡
-    const gen = opGen
+    const gen = opGen.current()
     flagging.value = checkId
     flagError.value = null
     try {
       await markFalsePositive(name, docId, checkId)
-      if (gen !== opGen) return // 在途期间已 clear/切文档：结果不落新文档
+      if (opGen.stale(gen)) return // 在途期间已 clear/切文档：结果不落新文档
       flagged.value = new Set([...flagged.value, checkId])
       saveFlagged(name, docId) // M-1：刷新后灰显态可回填
     } catch (e) {
-      if (gen !== opGen) return
+      if (opGen.stale(gen)) return
       flagError.value = friendlyError(e)
     } finally {
       // R71-5（七十一轮）：归属制清除（不依赖代数）——查代制在「flag 在途 + run 推代」

@@ -13,12 +13,14 @@
 interface BootstrapRunnerDeps {
   /** 「重试前关旧 server」的清理对象。S-4（阶段 22 批 U1）拆分后语义换轨：main 接线
    *  传 server-manager 的停旧 child 适配器（close() = kill + 等退出，下一次 start 先等
-   *  旧 child 退出再 fork）；server 生命周期归 manager 自持，setStudioServer 不再
-   *  落 main 状态量（接线传 no-op）。接口形状保持 { close } 以兼容既有测试口径。
+   *  旧 child 退出再 fork）；server 生命周期归 manager 自持。
    *  P3（打包修复批）：close 允许返回 Promise——runner 会等其落定再开跑新 bootstrap，
-   *  消除原 fire-and-forget（关旧未收口即 fork 新 child 的竞态缝）。 */
+   *  消除原 fire-and-forget（关旧未收口即 fork 新 child 的竞态缝）。
+   *  P3（复审-0914-优化修复批）：setStudioServer 成员删除——child 生命周期归
+   *  serverManager 自持后该成员生产恒 no-op（main 恒传 `() => undefined`，runner 旧
+   *  实现 close 后调 `deps.setStudioServer(null)` 写 nowhere），属死接口面；随调用点
+   *  一并移除（行为零变化——no-op 调用本无副作用）。 */
   getStudioServer: () => { close: () => void | Promise<void> } | null
-  setStudioServer: (server: { close: () => void | Promise<void> } | null) => void
 }
 
 interface BootstrapRunner {
@@ -52,10 +54,10 @@ export function createBootstrapRunner(
           // P3（打包修复批）：close() 同步先调（兼容旧口径），若返回 Promise 则等其
           // 落定再开跑——原 fire-and-forget 会在旧 server 未收口（端口/连接未清）时就
           // fork 新 child，重开「重试前关旧」要堵的正是这个缝
+          // P3（复审-0914-优化修复批）：原 `deps.setStudioServer(null)` 随死接口面删除
           const old = deps.getStudioServer()
           if (old !== null) {
             const closing = old.close()
-            deps.setStudioServer(null)
             if (closing) await closing
           }
           await bootstrap()

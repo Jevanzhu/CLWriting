@@ -30,10 +30,11 @@ import { readChapterDir } from '../../../format/chapters.js'
 import type { ChapterMeta } from '../../../format/types.js'
 import { finalizedPathSet } from '../../../document/manifest.js'
 import { docJoinKey } from '../../../fs/safe-path.js'
-import { localDayKey, log } from '../../../log/index.js'
+import { localDayKey, log, errMsg } from '../../../log/index.js'
 import { detectState, STATE_NAMES, type DetectedState } from '../../../state/state.js'
 import { trackInFlightWork } from './in-flight-work.js' // R0910-W：rebuild Worker 退出收尾登记
 import { computeProgressAsync, yieldToEventLoop, SCAN_YIELD_EVERY } from './progress.js'
+import { createTtlProbeCache } from '../ttl-cache.js' // D1（复审-0914-优化修复批）：TTL+探针+FIFO 缓存壳单源
 import { sigStatFor } from './rhythm.js' // 精简批（SRV 域）：size:mtimeMs 签名单源（原本地同构副本收敛）
 import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
 
@@ -49,7 +50,6 @@ interface OverviewCtx {
 // R37-19（三十七轮）：只有成功路径落缓存——此前 catch 降级态（state:0 + error）同样
 // 落缓存，TTL 内数据已修复的后续请求也被假空态挡住（缓存了「失败」而非「结果」）。
 type StateOutput = { state: number; name: string; detail: DetectedState | { error: string } }
-const stateCache = new Map<string, { result: StateOutput; ts: number }>()
 
 // ── R47-7（四十七轮）：概览整包短缓存 ──────────────────────────────────────────
 // 同族端点（search/tree-issues/analysis-overview/version-stats/rhythm/foreshadows）
@@ -70,16 +70,14 @@ let overviewTtlMs: number | null = null
 export function __setOverviewCacheTtlForTest(ms: number | null): void {
   overviewTtlMs = ms
 }
-const overviewCache = new Map<string, { result: unknown; ts: number; sig: string }>()
 /** R47-7 回归观测钩子（先例同 __rhythmScanCountForTest）：MISS → 三路重算计数。
  *  R0912-ds41（重评-deepseek-v4.1-flash P3-2）补门收编：MISS 计数断言面 =
  *  test/studio/r0912-ds41-ttl-gates.test.ts（原评审登记的「只写不读」至此消除）。 */
-let overviewScanCount = 0
 export function __overviewScanCountForTest(): number {
-  return overviewScanCount
+  return overviewCache.scanCountForTest()
 }
 export function __resetOverviewScanCountForTest(): void {
-  overviewScanCount = 0
+  overviewCache.resetScanCountForTest()
 }
 
 /** 概览读面指纹：book.yaml（kind/target）+ 写作/正文（timeline/progress/recentDoc）+
@@ -96,11 +94,44 @@ function overviewSignature(bookRoot: string): string {
 /** R67-15（十五轮）：删书/改名失效挂点（同 health.ts forgetStyleScanCache 口径）。
  *  R47-7：整包缓存同挂本函数（books.ts forgetBookKeyedCaches 家族零新挂点）。 */
 export function forgetOverviewCache(bookRoot: string): void {
-  stateCache.delete(bookRoot)
-  overviewCache.delete(bookRoot)
+  overviewStateCache.forget(bookRoot)
+  overviewCache.forget(bookRoot)
 }
 const STATE_CACHE_TTL = 5000
 const STATE_CACHE_MAX = 32
+
+/** 整包缓存值包装：stateOk（state 段成功与否）承载「成功态才落缓存」（R37-19 口径
+ *  经 storeIf 表达）；missingYamlPath 承载 book.yaml 缺失的显式 500 出口（R51-RED-2，
+ *  不落缓存）。 */
+interface OverviewCompute {
+  payload: Record<string, unknown>
+  stateOk: boolean
+  missingYamlPath?: string
+}
+
+/** D1（复审-0914-优化修复批）：缓存壳收编 ttl-cache.ts 通用件（原本地 Map + FIFO +
+ *  R47-18 过期逐出本地壳删除；命中/失效时序/逐出序逐位不变——单级探针 + FIFO 32，
+ *  见 ttl-cache.ts 头部收敛映射表；计算体闭包 ctx/entry，经 get(key, compute) 逐调用
+ *  传入；state 段降级/book.yaml 缺失不落缓存由 storeIf 承担）。 */
+const overviewCache = createTtlProbeCache<string, OverviewCompute>({
+  name: 'overview',
+  keyOf: (k) => k,
+  max: OVERVIEW_CACHE_MAX,
+  ttl: () => overviewTtlMs ?? OVERVIEW_CACHE_TTL_MS,
+  probe: overviewSignature,
+  storeIf: (v) => v.stateOk && !v.missingYamlPath,
+})
+
+/** G3：state 判定结果短时缓存（detectState 内部全量 rebuild index.db）。R37-19：只有
+ *  成功路径落缓存——由「计算体抛错即不落缓存」承担；原无 R47-18 过期逐出行，
+ *  特记 evictExpiredOnMiss:false（逐条核对后按原样保留）。 */
+const overviewStateCache = createTtlProbeCache<string, StateOutput>({
+  name: 'overview-state',
+  keyOf: (k) => k,
+  max: STATE_CACHE_MAX,
+  ttl: () => STATE_CACHE_TTL,
+  evictExpiredOnMiss: false,
+})
 
 export function registerOverviewRoutes(ctx: OverviewCtx): void {
   defineRoute('books.overview', {
@@ -112,112 +143,91 @@ export function registerOverviewRoutes(ctx: OverviewCtx): void {
     const entry = r.entry
 
     const bookRoot = r.bookRoot
-    // R47-7（四十七轮）：整包指纹+TTL 缓存——命中直接回包跳过三路全书扫描（缓存壳
-    // 注释见上）；过期条目顺手逐出（R47-18 同款）
-    const sig = overviewSignature(bookRoot)
-    const cachedOv = overviewCache.get(bookRoot)
-    const ovTtl = overviewTtlMs ?? OVERVIEW_CACHE_TTL_MS
-    if (cachedOv && cachedOv.sig === sig && Date.now() - cachedOv.ts < ovTtl) {
-      return reply(res, 200, cachedOv.result)
-    }
-    if (cachedOv && Date.now() - cachedOv.ts >= ovTtl) overviewCache.delete(bookRoot)
-    overviewScanCount += 1
-    // 总览喂运行时（genre 回显 / target_words 完成度 / volume_size 经状态机）：
-    // readBookConfig 结果统一过 applyGlobalDefaults——书级未设回落 global.json → 硬编码
-    // R50-C-2（五十轮）：book.yaml 损坏静默降级留痕（对齐 state.ts P3-2 口径）——
-    // 错误分支带 DEFAULT_CONFIG 骨架，未判 ok 直接用 .config 会无声回落默认身份
-    // R51-RED-2（五十一轮）：recover 合并失同步收口——R48-79 正本契约与 R50-C-2
-    // 既有契约按失败模式分流：book.yaml **缺失**（books.jsonl 在册而档案缺位，书
-    // 档案不完整）显式 500 拒绝以默认身份代答——静默代答会把假 kind/genre 渲染成
-    // 真书档案；**损坏**（存在但解析失败）保持 R50-C-2 口径 200 降级 + warn 留痕
-    //（r50-c2 回归钉），作者可见诊断、书不因局部损坏整体不可用。
-    const bookYamlPath = join(bookRoot, 'book.yaml')
-    const cfgResult = readBookConfig(bookYamlPath)
-    if (!cfgResult.ok) {
-      if (!existsSync(bookYamlPath)) {
-        return replyError(
-          res,
-          500,
-          'IO_ERROR',
-          `book.yaml 缺失：${bookYamlPath}（书档案不完整，拒绝以默认配置代答）`,
-        )
-      }
-      log.warn('overview', `book.yaml 解析降级: ${cfgResult.error.message}`)
-    }
-    const config = applyGlobalDefaults(cfgResult.config, ctx.userDataPath)
-    const kind = config.kind === 'short' ? 'short' : 'long'
-
-    // 状态机（自包含；失败降级 state:0）。G3：命中短时缓存则跳过全量 rebuild
-    const now = Date.now()
-    let state: StateOutput
-    // R47-7：state 成功路径标记——降级态（catch state:0）不落整包缓存（R37-19
-    //「不缓存失败」口径对整包内的 state 段同样适用）
-    let stateOk = false
-    const cachedState = stateCache.get(bookRoot)
-    if (cachedState && now - cachedState.ts < STATE_CACHE_TTL) {
-      state = cachedState.result
-      stateOk = true
-    } else {
-      try {
-        // R35-5：detectState 异步化——healMovePending 自愈链的锁等待不再阻塞事件循环
-        // R55-B-N（五十五轮）：rebuild 走 worker 通道（同 /api/state 接线）——大书
-        // 首进门全量重建卸线程，事件循环不再秒级冻结（SSE 心跳/保存停摆面）
-        const detected = await trackInFlightWork(detectState(bookRoot, config, undefined, { rebuildChannel: 'worker' }))
-        state = { state: detected.state, name: STATE_NAMES[detected.state], detail: detected }
-        stateOk = true
-        // R37-19（三十七轮）：写缓存收进 try 成功路径——catch 降级态（state:0 + error）
-        // 此前同样落缓存，TTL 内数据已修复的后续请求仍拿假空态
-        // 简单 FIFO 淘汰（Map 保插入序）：超上限丢最旧条目，防长期运行的书库累积
-        if (stateCache.size >= STATE_CACHE_MAX) {
-          const oldest = stateCache.keys().next().value
-          if (oldest !== undefined) stateCache.delete(oldest)
+    // R47-7（四十七轮）：整包指纹+TTL 缓存——命中直接回包跳过三路全书扫描；过期条目
+    // 顺手逐出（R47-18 同款）。D1（复审-0914-优化修复批）：壳体收编 ttl-cache.ts
+    // 通用件（探针/命中判定/逐出/「成功态才落缓存」由通用件 + storeIf 承担，时序逐位
+    // 不变；计算体闭包 ctx/entry，经 get(key, compute) 逐调用传入）
+    const computed = await overviewCache.get(bookRoot, async (root): Promise<OverviewCompute> => {
+      // 总览喂运行时（genre 回显 / target_words 完成度 / volume_size 经状态机）：
+      // readBookConfig 结果统一过 applyGlobalDefaults——书级未设回落 global.json → 硬编码
+      // R50-C-2（五十轮）：book.yaml 损坏静默降级留痕（对齐 state.ts P3-2 口径）——
+      // 错误分支带 DEFAULT_CONFIG 骨架，未判 ok 直接用 .config 会无声回落默认身份
+      // R51-RED-2（五十一轮）：recover 合并失同步收口——R48-79 正本契约与 R50-C-2
+      // 既有契约按失败模式分流：book.yaml **缺失**（books.jsonl 在册而档案缺位，书
+      // 档案不完整）显式 500 拒绝以默认身份代答——静默代答会把假 kind/genre 渲染成
+      // 真书档案；**损坏**（存在但解析失败）保持 R50-C-2 口径 200 降级 + warn 留痕
+      //（r50-c2 回归钉），作者可见诊断、书不因局部损坏整体不可用。
+      const bookYamlPath = join(root, 'book.yaml')
+      const cfgResult = readBookConfig(bookYamlPath)
+      if (!cfgResult.ok) {
+        if (!existsSync(bookYamlPath)) {
+          return { payload: {}, stateOk: false, missingYamlPath: bookYamlPath }
         }
-        stateCache.set(bookRoot, { result: state, ts: Date.now() }) // R0912-B-P2-1：ts 取写入当刻（原计算前时刻被秒级计算吃掉有效缓存窗）
+        log.warn('overview', `book.yaml 解析降级: ${cfgResult.error.message}`)
+      }
+      const config = applyGlobalDefaults(cfgResult.config, ctx.userDataPath)
+      const kind = config.kind === 'short' ? 'short' : 'long'
+
+      // 状态机（自包含；失败降级 state:0）。G3：命中短时缓存则跳过全量 rebuild。
+      // R47-7：state 成功路径标记——降级态（catch state:0）不落整包缓存（R37-19
+      //「不缓存失败」口径对整包内的 state 段同样适用）
+      let state: StateOutput
+      let stateOk = false
+      try {
+        state = await overviewStateCache.get(root, async (stateRoot): Promise<StateOutput> => {
+          // R35-5：detectState 异步化——healMovePending 自愈链的锁等待不再阻塞事件循环
+          // R55-B-N（五十五轮）：rebuild 走 worker 通道（同 /api/state 接线）——大书
+          // 首进门全量重建卸线程，事件循环不再秒级冻结（SSE 心跳/保存停摆面）
+          const detected = await trackInFlightWork(detectState(stateRoot, config, undefined, { rebuildChannel: 'worker' }))
+          return { state: detected.state, name: STATE_NAMES[detected.state], detail: detected }
+        })
+        stateOk = true
       } catch (e) {
         // R37-19：失败态不落缓存——下一请求立即重试（而非被 TTL 挡住拿假空数据）
         state = {
           state: 0,
           name: '状态机判定失败',
           // P2-4：API 错误脱敏
-          detail: { error: redactSecret(e instanceof Error ? e.message : String(e)) },
+          detail: { error: redactSecret(errMsg(e)) },
         }
       }
-    }
 
-    // R46-1（四十六轮）：本 handler 的三个全书投影（timeline / progress / recentDoc）
-    // 此前各自 readChapterDir 扫一遍章目录（三连全扫，2000 章书每次打开总览 = 3 次目录
-    // 遍历 + 2000+ statSync）——改单趟扫描结果三处复用；timeline 的逐章 statSync 让出
-    // 纪律不变。投影缓存（R37-16 登记）仍不引入（指纹壳的成本/一致性权衡未拍板）。
-    const { chapters: bodyChapters } = readChapterDir(join(bookRoot, '写作', '正文'))
-    const timeline = await computeTimeline(bookRoot, bodyChapters)
-    const shortProfile = kind === 'short' ? extractShortProfile(config) : undefined
-    const payload = {
-      identity: {
-        name: entry.name,
-        kind: entry.kind,
-        path: entry.path,
-        ...(entry.created_at ? { created_at: entry.created_at } : {}),
-        title: config.book.title,
-        genre: config.book.genre,
-        host: entry.host ?? 'cc',
-      },
-      progress: withTarget(await computeProgressAsync(bookRoot, bodyChapters), config.book.target_words),
-      state,
-      volumes: listVolumes(bookRoot),
-      timeline,
-      recentDoc: getRecentDoc(bookRoot, bodyChapters),
-      streak: computeStreak(timeline),
-      ...(shortProfile ? { shortProfile } : {}),
-    }
-    // R47-7：成功态落整包缓存（state 降级不落——R37-19 口径）；FIFO 淘汰同 stateCache
-    if (stateOk) {
-      if (overviewCache.size >= OVERVIEW_CACHE_MAX) {
-        const oldest = overviewCache.keys().next().value
-        if (oldest !== undefined) overviewCache.delete(oldest)
+      // R46-1（四十六轮）：本 handler 的三个全书投影（timeline / progress / recentDoc）
+      // 此前各自 readChapterDir 扫一遍章目录（三连全扫，2000 章书每次打开总览 = 3 次目录
+      // 遍历 + 2000+ statSync）——改单趟扫描结果三处复用；timeline 的逐章 statSync 让出
+      // 纪律不变。投影缓存（R37-16 登记）仍不引入（指纹壳的成本/一致性权衡未拍板）。
+      const { chapters: bodyChapters } = readChapterDir(join(root, '写作', '正文'))
+      const timeline = await computeTimeline(root, bodyChapters)
+      const shortProfile = kind === 'short' ? extractShortProfile(config) : undefined
+      const payload: Record<string, unknown> = {
+        identity: {
+          name: entry.name,
+          kind: entry.kind,
+          path: entry.path,
+          ...(entry.created_at ? { created_at: entry.created_at } : {}),
+          title: config.book.title,
+          genre: config.book.genre,
+          host: entry.host ?? 'cc',
+        },
+        progress: withTarget(await computeProgressAsync(root, bodyChapters), config.book.target_words),
+        state,
+        volumes: listVolumes(root),
+        timeline,
+        recentDoc: getRecentDoc(root, bodyChapters),
+        streak: computeStreak(timeline),
+        ...(shortProfile ? { shortProfile } : {}),
       }
-      overviewCache.set(bookRoot, { result: payload, ts: Date.now(), sig })
+      return { payload, stateOk }
+    })
+    if (computed.missingYamlPath) {
+      return replyError(
+        res,
+        500,
+        'IO_ERROR',
+        `book.yaml 缺失：${computed.missingYamlPath}（书档案不完整，拒绝以默认配置代答）`,
+      )
     }
-    reply(res, 200, payload)
+    reply(res, 200, computed.payload)
   },
   })
 }

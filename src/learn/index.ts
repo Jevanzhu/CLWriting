@@ -31,6 +31,8 @@ import { readIronRules } from '../metrics/style.js'
 import { log } from '../log/index.js' // R43-22（四十三轮）：候选目录清理失败留痕
 import type { IronRules } from '../format/iron-rules.js'
 import { yieldToEventLoop } from '../async.js'
+// 复审-0914-优化修复批（errMsg 收编）：错误摘要口径单源
+import { errMsg } from '../log/index.js'
 
 /** 样章候选 */
 export interface SampleCandidate {
@@ -143,17 +145,14 @@ const bySampleScore = (a: SampleCandidate, b: SampleCandidate): number => b.打�
 /** 金句终排序键：章号倒序（A5 口径，稳定 → 同章保 push 序）。 */
 const byQuoteChapter = (a: QuoteCandidate, b: QuoteCandidate): number => b.章号 - a.章号
 
-// R0912-2 P3（2026-09-12 全量重评修复批）：码点计数单源（for-of 迭代码点，零分配）——
-// String.length 是 UTF-16 码元，含增补平面字符（emoji/生僻字）的文本 length 偏大
-//（代理对一符双计）被长度上限误杀。算法与 process/summary.ts 的 codePointLength
-// 同构（代理对合 1 计）；后者依赖链拖入 AI 编排栈、不引入（learn 头注「纯脚本」
-// 边界，R0912-7 同判）。样章块长与金句句长（R0912-7 的内联形态在本批收敛至此）
-// 两处共用本函数，口径单源、漂移风险由本注钉住。
-function codePointLength(s: string): number {
-  let n = 0
-  for (const _cp of s) n++
-  return n
-}
+// R0912-2 P3（2026-09-12 全量重评修复批）：码点计数单源——String.length 是 UTF-16
+// 码元，含增补平面字符（emoji/生僻字）的文本 length 偏大（代理对一符双计）被长度
+// 上限误杀。原按 R0912-7 判「不引 process/summary 依赖链」本地实现；复审-0914-优化
+// A2（2026-09-14 修复批）单源下沉零依赖的 src/shared/text.ts 后依赖顾虑消除，本处
+// 收编（learn「纯脚本」边界不破——shared/text.ts 零内部依赖）。样章块长与金句句长
+// 两处共用，口径单源。
+import { codePointLength } from '../shared/text.js'
+
 
 export async function learnFromBook(bookRoot: string): Promise<LearnResult> {
   // 1. 扫描定稿正文
@@ -348,7 +347,7 @@ async function learnFromBookLocked(bookRoot: string, bodyDir: string): Promise<L
   try {
     rmSync(candidateRoot, { recursive: true, force: true })
   } catch (e) {
-    log.warn('learn', `候选目录未清空，可能含上轮残留（${e instanceof Error ? e.message : String(e)}）`)
+    log.warn('learn', `候选目录未清空，可能含上轮残留（${errMsg(e)}）`)
   }
   mkdirSync(candidateRoot, { recursive: true })
 

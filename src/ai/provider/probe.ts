@@ -15,6 +15,8 @@ import { redactSecret } from './redact.js'
 // createProvider 迁至 registry.ts（批次 D2：声明式注册表 + settings hash 实例缓存）；
 // import + re-export（纯 `export {} from` 不建本地绑定，probeCapabilities 引用会 ReferenceError）
 import { createProvider } from './registry.js'
+// 复审-0914-优化修复批（errMsg 收编）：错误摘要口径单源
+import { errMsg } from '../../log/index.js'
 export { createProvider }
 
 /**
@@ -54,7 +56,7 @@ export async function probeCapabilities(conf: ProviderConf, userDataPath?: strin
     caps.connected = true
     details.push('连通 + 认证通过')
   } catch (e) {
-    details.push(`连通失败：${redactSecret(e instanceof Error ? e.message : String(e))}`)
+    details.push(`连通失败：${redactSecret(errMsg(e))}`)
     return { caps, details }
   }
   if (!conf.model && !models.length) {
@@ -95,7 +97,7 @@ export async function probeCapabilities(conf: ProviderConf, userDataPath?: strin
     details.push(gotDelta ? '流式产出正常' : '非流式产出（UI 无逐字显示）')
   } catch (e) {
     // 不阻塞——connected=true 已说明服务可用，流式失败可能只是探测模型不支持 chat
-    details.push(`流式探测失败：${redactSecret(e instanceof Error ? e.message : String(e))}`)
+    details.push(`流式探测失败：${redactSecret(errMsg(e))}`)
   }
 
   // Responses 线提示（启用批 R4 缺口 17）：参数语义差异提前告知作者

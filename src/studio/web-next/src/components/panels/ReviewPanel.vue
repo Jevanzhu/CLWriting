@@ -9,6 +9,7 @@ import { useWorkspaceStore } from '../../stores/workspace'
 import { useTreeStore } from '../../stores/tree'
 import { useUiStore } from '../../stores/ui'
 import { isBodyKind } from '../../shared/words'
+import { capView } from '../../shared/render-cap'
 import { friendlyError } from '../../shared/error'
 import { contentStableKeys, reviewIssueKeyBase } from '../../shared/issue-keys'
 import BetaBadge from '../ui/BetaBadge.vue'
@@ -51,12 +52,11 @@ const warningKeys = computed(() => contentStableKeys(warnings.value.map(reviewIs
 // v-for 挂 DOM（max-height 只裁视觉不减节点），对齐域内 RENDER_CAP=100 惯例（先例
 // RewritePanel/AuditDiffPanel R-P3-16）：只裁渲染面前 100 条 + 尾部省略提示行；
 // 数据面不动——分组头计数（阻断项/警告项 N）仍面向全量，键表按全量构造（切片与键
-// 按下标仍对齐）
+// 按下标仍对齐）。复审-0914-优化修复批 P3：切片/计数样板收敛 shared/render-cap 单源
+//（capView）。
 const RENDER_CAP = 100
-const blockersView = computed(() => blockers.value.slice(0, RENDER_CAP))
-const warningsView = computed(() => warnings.value.slice(0, RENDER_CAP))
-const blockersOmitted = computed(() => Math.max(0, blockers.value.length - RENDER_CAP))
-const warningsOmitted = computed(() => Math.max(0, warnings.value.length - RENDER_CAP))
+const blockersCap = computed(() => capView(blockers.value, RENDER_CAP))
+const warningsCap = computed(() => capView(warnings.value, RENDER_CAP))
 // R63-4（十一轮）：passed 必须查采集是否成立——此前只看 normalized.passed（空判据），
 // 采集失败（stale/缺视角/坏条目）被渲染成「三审通过，无阻断/警告」，作者按假通过
 // 放行从未真正审校的内容（刷新/重启依旧，已随信封持久化）。后端已同步注入阻断级
@@ -76,13 +76,13 @@ const passed = computed(
 const issueGroups = computed(() => [
   {
     key: 'blockers', label: '阻断项', icon: markRaw(AlertCircle), tone: 'red',
-    count: blockers.value.length, view: blockersView.value,
-    keys: blockerKeys.value, keyPrefix: 'b', omitted: blockersOmitted.value,
+    count: blockers.value.length, view: blockersCap.value.view,
+    keys: blockerKeys.value, keyPrefix: 'b', omitted: blockersCap.value.omitted,
   },
   {
     key: 'warnings', label: '警告项', icon: markRaw(AlertTriangle), tone: 'yellow',
-    count: warnings.value.length, view: warningsView.value,
-    keys: warningKeys.value, keyPrefix: 'w', omitted: warningsOmitted.value,
+    count: warnings.value.length, view: warningsCap.value.view,
+    keys: warningKeys.value, keyPrefix: 'w', omitted: warningsCap.value.omitted,
   },
 ])
 

@@ -14,11 +14,14 @@ import { LAST_BOOK_KEY } from '../../../src/studio/web-next/src/shared/storage-k
 
 const SRC_ROOT = path.resolve(__dirname, '../../../src/studio/web-next/src')
 
-// 三消费方（R60-D-4 评审快照定位的直写/直读点，grep 实际命中为准）
+// 三消费方（R60-D-4 评审快照定位的直写/直读点，grep 实际命中为准）。
+// 复审-0914-优化修复批 P1-7b（降级单源）：「选书记入」自 Shelf.vue/ShelfModal.vue 两份
+// 手写收敛 composables/useShelf.ts openBook 单一写入口——消费点从两壳移位到 composable，
+// 单源契约本身不变（ShelfModal 保留删当前书清扫的直读点）
 const CONSUMERS: ReadonlyArray<{ label: string; rel: string }> = [
   { label: 'App.vue：启动恢复读取', rel: 'App.vue' },
-  { label: 'Shelf.vue：全屏页选书记入', rel: 'pages/Shelf.vue' },
-  { label: 'ShelfModal.vue：浮层选书记入 + 删当前书清扫', rel: 'components/ui/ShelfModal.vue' },
+  { label: 'useShelf.openBook：选书记入单源（全屏页/浮层共用）', rel: 'composables/useShelf.ts' },
+  { label: 'ShelfModal.vue：删当前书清扫直读', rel: 'components/ui/ShelfModal.vue' },
 ]
 
 async function walk(dir: string): Promise<string[]> {
@@ -51,7 +54,10 @@ describe('R60-D-4: LAST_BOOK_KEY 单源契约', () => {
   it('三消费方均 import LAST_BOOK_KEY 且至少一处实际消费（读/写/清扫四方同源）', async () => {
     for (const c of CONSUMERS) {
       const text = await fsp.readFile(path.join(SRC_ROOT, c.rel), 'utf8')
-      expect(text, c.label).toContain(`import { LAST_BOOK_KEY } from '`)
+      // 复审-0914-优化修复批 P1-7b：useShelf.openBook 侧为合并 import 形态（与
+      // treeFirstOpenKey 等同行），断言放宽为「import 子句含 LAST_BOOK_KEY」——
+      // 契约意图（显式从 storage-keys 单源引入）不变
+      expect(text, c.label).toMatch(/import\s*\{[^}]*\bLAST_BOOK_KEY\b[^}]*\}\s*from\s*'/)
       // import 行自身占 1 次，实际消费须再至少 1 次（getItem/setItem/removeItem）
       expect((text.match(/\bLAST_BOOK_KEY\b/g) ?? []).length, c.label).toBeGreaterThanOrEqual(2)
     }

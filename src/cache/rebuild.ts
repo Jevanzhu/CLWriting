@@ -27,7 +27,7 @@ import { readChapter } from '../format/chapters.js'
 import { isMdFileName } from '../format/filename.js' // R42-38（四十二轮）：.md 判定大小写不敏感单一真相源
 import type { ParseError } from '../format/types.js'
 import { walkMdEach } from '../fs/walk-md.js'
-import { log } from '../log/index.js'
+import { log, errMsg } from '../log/index.js'
 // 重评-P2-3（2026-09-09 全量代码重评）：基础两类单源自 install/data.ts（该模块仅
 // type-only import format/types，无环），与 check/runner enabledLeadTypes 共用同一符号
 import { BASE_LEAD_TYPES } from '../install/data.js'
@@ -428,7 +428,7 @@ export function rebuild(
     } catch (walErr) {
       log.warn(
         'rebuild',
-        `index.db WAL 切换失败（并发锁窗），回退默认日志模式重建：${walErr instanceof Error ? walErr.message : String(walErr)}`,
+        `index.db WAL 切换失败（并发锁窗），回退默认日志模式重建：${errMsg(walErr)}`,
       )
     }
     db.exec('BEGIN') // 原子重建

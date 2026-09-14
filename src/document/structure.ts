@@ -40,7 +40,7 @@ import { readChapterUpdatesForChapter, leadEvidenceMatchesBody } from '../check/
 import { openSessionStoreAsync, bookHash, type NewEvent, type SessionStore } from '../events/store.js'
 import { structureMergeEvent, structureSplitEvent, structureMergeUndoEvent } from '../events/chain-bridge.js'
 import type { StructureMergeData, StructureMergeUndoData } from '../events/types.js'
-import { log } from '../log/index.js'
+import { log, errMsg } from '../log/index.js'
 
 // ── 公共形状 ─────────────────────────────────────────────────────────
 
@@ -184,7 +184,7 @@ async function readChapterState(
   try {
     bytes = readFileSync(abs)
   } catch (e) {
-    return fail('WRITE_ERROR', `读 ${path} 失败：${e instanceof Error ? e.message : String(e)}`)
+    return fail('WRITE_ERROR', `读 ${path} 失败：${errMsg(e)}`)
   }
   const rev = `sha256:${sha256Hex(bytes)}` as `sha256:${string}`
   const text = bytes.toString('utf-8')
@@ -254,7 +254,7 @@ async function recordStructureEvents(userDataPath: string | null, bookRoot: stri
       store.close()
     }
   } catch (e) {
-    log.warn('structure', `结构操作事件副录失败（${events.map((e2) => e2.type).join(',')}，审计链缺段；盘上状态不受影响）：${e instanceof Error ? e.message : String(e)}`)
+    log.warn('structure', `结构操作事件副录失败（${events.map((e2) => e2.type).join(',')}，审计链缺段；盘上状态不受影响）：${errMsg(e)}`)
   }
 }
 
@@ -394,6 +394,29 @@ export async function planChapterMerge(
 
 // ── 合并：执行 ───────────────────────────────────────────────────────
 
+/** P3（复审-0914-优化修复批）：applyChapterMerge 幂等续跑两形态（①后/②后）的同构
+ *  resumed 字面量收敛单源——原两处 12 行内联字面量逐字段相同，差异只在
+ *  sourceChapterNo/mergedInto/rollbackSnapshotId 三个实参；产出逐字段一致。 */
+function resumedMergeApplyResult(
+  input: { targetDocId: string; sourceDocId: string; planHash: string },
+  t: { 章号: number; 并入: number[] },
+  sourceChapterNo: number,
+  mergedInto: number[],
+  rollbackSnapshotId: string | undefined,
+): Extract<MergeApplyResult, { ok: true }> {
+  return {
+    ok: true,
+    targetDocId: input.targetDocId,
+    sourceDocId: input.sourceDocId,
+    targetChapterNo: t.章号,
+    sourceChapterNo,
+    mergedInto,
+    trashEntryId: input.sourceDocId,
+    ...(rollbackSnapshotId !== undefined ? { rollbackSnapshotId } : {}),
+    planHash: input.planHash,
+  }
+}
+
 export async function applyChapterMerge(
   bookRoot: string,
   svc: DocumentService,
@@ -416,17 +439,7 @@ export async function applyChapterMerge(
       return fail('NOT_MERGE_STATE', `回收站条目与目标章 fm 并入 不对应（章号 ${no ?? '无法解析'}，并入 = ${t.并入.join(',') || '空'}）——疑似人工处置过，请先「撤销合并」或手工核对盘面`)
     }
     const rollbackSnapshotId = newestVersionWithoutSource(bookRoot, input.targetDocId, no) ?? undefined
-    const resumed: MergeApplyResult = {
-      ok: true,
-      targetDocId: input.targetDocId,
-      sourceDocId: input.sourceDocId,
-      targetChapterNo: t.章号,
-      sourceChapterNo: no,
-      mergedInto: t.并入,
-      trashEntryId: input.sourceDocId,
-      ...(rollbackSnapshotId !== undefined ? { rollbackSnapshotId } : {}),
-      planHash: input.planHash,
-    }
+    const resumed = resumedMergeApplyResult(input, t, no, t.并入, rollbackSnapshotId)
     return finishMerge(bookRoot, svc, userDataPath, null, resumed, rag)
   }
   const s = await readChapterState(svc, bookRoot, input.sourceDocId)
@@ -445,17 +458,7 @@ export async function applyChapterMerge(
       return fail('NOT_MERGE_STATE', `目标章 fm 并入 已含第${s.章号}章，但源章既不在正文也不在回收站（半成态疑似已被人工处置）——请先「撤销合并」清理 fm，或手工修正 并入 登记`)
     }
     const rollbackSnapshotId = newestVersionWithoutSource(bookRoot, input.targetDocId, s.章号) ?? undefined
-    const resumed: MergeApplyResult = {
-      ok: true,
-      targetDocId: input.targetDocId,
-      sourceDocId: input.sourceDocId,
-      targetChapterNo: t.章号,
-      sourceChapterNo: s.章号,
-      mergedInto,
-      trashEntryId: input.sourceDocId,
-      ...(rollbackSnapshotId !== undefined ? { rollbackSnapshotId } : {}),
-      planHash: input.planHash,
-    }
+    const resumed = resumedMergeApplyResult(input, t, s.章号, mergedInto, rollbackSnapshotId)
     return finishMerge(bookRoot, svc, userDataPath, s, resumed, rag)
   }
 

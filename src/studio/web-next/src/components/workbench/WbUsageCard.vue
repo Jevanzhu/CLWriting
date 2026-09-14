@@ -6,6 +6,7 @@ import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { Gauge } from 'lucide-vue-next'
 import { getCostStats, type CostStats } from '../../api/cost-stats'
 import { useTraceStatsStore } from '../../stores/trace-stats'
+import { useStaleGuard } from '../../composables/useStaleGuard'
 
 const props = defineProps<{ bookName: string }>()
 
@@ -42,8 +43,9 @@ async function loadCost(book: string): Promise<CostStats | 'failed'> {
   }
 }
 
-// 切书竞态代数（同 stores/ 的 opGen 模式）：旧书慢响应不回填新书数据
-let loadGen = 0
+// 切书竞态代数（同 stores/ 的 opGen 模式）：旧书慢响应不回填新书数据。
+// E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard。
+const loadGen = useStaleGuard()
 
 // R1010b-FTC-P3-2（2026-09-10 内存专项重审修复批）：卸载 armed 单门——loadGen 代只挡
 // 在途切书（实例复用），挡不住「请求在途实例卸载」（切路由整树销毁）：迟到的取数续体
@@ -56,14 +58,14 @@ onBeforeUnmount(() => {
 })
 
 async function load(): Promise<void> {
-  const gen = ++loadGen
+  const gen = loadGen.begin()
   loaded.value = false
   try {
     const [trace, costR] = await Promise.all([
       traceStats.getStats(props.bookName),
       loadCost(props.bookName),
     ])
-    if (gen !== loadGen) return
+    if (loadGen.stale(gen)) return
     if (!armed) return // R1010b-FTC-P3-2：卸载后不写回死实例
     byTask.value = (trace.byTask ?? {}) as Record<string, TaskStat>
     total.value = trace.total ?? 0
@@ -73,14 +75,14 @@ async function load(): Promise<void> {
     // 离线/无数据：空态展示。失败也要清旧书数据（gen 匹配 = 本次请求属于当前书）——
     // 否则新书请求失败时 finally 置 loaded，旧书的调用量/金额挂在新书名下（敏感数据错位
     // 在失败路径复现，正是本卡要消灭的场景）
-    if (gen !== loadGen) return
+    if (loadGen.stale(gen)) return
     if (!armed) return // R1010b-FTC-P3-2：失败路径同门
     byTask.value = {}
     total.value = 0
     cost.value = null
     costFailed.value = false // R0912-3 #19：整卡失败走空态，不误报 cost 取数失败
   } finally {
-    if (gen === loadGen && armed) loaded.value = true
+    if (loadGen.fresh(gen) && armed) loaded.value = true
   }
 }
 

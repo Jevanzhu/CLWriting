@@ -10,6 +10,7 @@ import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
 import { usePrefsStore } from '../../stores/prefs'
 import { getConfig } from '../../api/books'
+import { useStaleGuard } from '../../composables/useStaleGuard'
 import { parseNumericInput } from '../../shared/numeric-input'
 import { SAVE_CONFIG_KEY } from './settings-context'
 import SettingToggle from './SettingToggle.vue'
@@ -56,14 +57,15 @@ const effSummary = computed(() => {
 
 // R64-4（十二轮）：配置加载代守卫（R63-3 只修了兄弟组件 SettingsBookAnalysis）——本组件
 // 在途旧响应迟到落地 B 书面板后，组开关（onOverrideToggle）以 stale 派生值 eff* 调
-// saveConfig(name=B) → A 的配置值持久写进 B 的 book.yaml（跨书配置污染，同款风险面）
-let loadGen = 0
+// saveConfig(name=B) → A 的配置值持久写进 B 的 book.yaml（跨书配置污染，同款风险面）。
+// E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard。
+const loadGen = useStaleGuard()
 
 watch(
   () => [ui.settingsOpen, ws.bookName] as const,
   async ([open, name]) => {
     if (!open) return
-    const gen = ++loadGen
+    const gen = loadGen.begin()
     // 无书打开：覆盖复位（父组件此时整页空态，本组不可见，复位只为切书不留旧值）
     if (!name) {
       bookKind.value = 'long'
@@ -75,7 +77,7 @@ watch(
     }
     try {
       const cfg = await getConfig(name)
-      if (gen !== loadGen || ws.bookName !== name) return // R64-4 双复检：代 + 书名
+      if (loadGen.stale(gen) || ws.bookName !== name) return // R64-4 双复检：代 + 书名
       bookKind.value = cfg.kind ?? 'long'
       // raw 形态契约：13 键未设时为 undefined（genre 空串=未设）——只认合法值，脏值按跟随全局展示
       bookGenre.value = cfg.book?.genre ?? ''

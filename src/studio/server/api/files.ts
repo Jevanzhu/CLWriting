@@ -8,9 +8,8 @@
  * 路径防穿越：resolve + relative 判定，必须落在 bookRoot 内。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { basename, sep, join } from 'node:path'
+import { basename, join } from 'node:path'
 import { readFile as readFileAsync } from 'node:fs/promises'
-import { realpathSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { resolveWithinRoot, platformCaseFold, normalizeWinSeparators } from '../../../fs/safe-path.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
@@ -24,7 +23,8 @@ import { resolveBook, bookMovedFailure } from '../book-context.js'
 import { invalidateTreeIndexForContent } from '../../../document/tree.js'
 // 重评-0912-4 P1-1：NonUtf8TargetError 类型化分诊（R66-1 确定性拒绝 ≠ 瞬态 IO，见 PUT 快照 catch 注）
 import { snapshotBeforeOverwrite, NonUtf8TargetError } from '../../../process/draft-pipeline.js' // R26-9（二十六轮）：覆盖留底单源复用（R71-9/R74-4 同款）
-import { log } from '../../../log/index.js'
+import { log, errMsg } from '../../../log/index.js'
+import { createSerialChainMap } from '../serial-chain.js' // P1-3（复审-0914-优化修复批）：per-key 串行链四胞胎通用件
 
 interface FileCtx {
   workDir: string | null
@@ -149,7 +149,7 @@ export function registerFileRoutes(ctx: FileCtx): void {
             return {
               status: 409,
               code: 'WRITE_ERROR',
-              error: `布线文件锁获取失败（未执行保存，可重试）：${e instanceof Error ? e.message : String(e)}`,
+              error: `布线文件锁获取失败（未执行保存，可重试）：${errMsg(e)}`,
             } as const
           }
           if (!wiringRelease) {
@@ -205,7 +205,7 @@ export function registerFileRoutes(ctx: FileCtx): void {
           return {
             status: 409,
             code: 'WRITE_ERROR',
-            error: `覆盖前快照留底失败，保存已取消（未写入，可重试）：${e instanceof Error ? e.message : String(e)}`,
+            error: `覆盖前快照留底失败，保存已取消（未写入，可重试）：${errMsg(e)}`,
           } as const
         }
         atomicWriteFile(safe, content)
@@ -231,20 +231,15 @@ type FilePutOutcome =
   | { readonly status: number; readonly code: string; readonly error: string }
   | { readonly revision: string }
 
-/** B-22：同文件 PUT 串行链（key = 绝对安全路径）。续链用 settled 副本吞错防断链，
- *  真实结果经返回的 task 传递（IO 异常照常上抛给路由层，与修复前口径一致）；
- *  链尾自清理防 Map 无界增长。 */
-const filePutChains = new Map<string, Promise<unknown>>()
+/** B-22：同文件 PUT 串行链（key = 绝对安全路径）。
+ *  P1-3（复审-0914-优化修复批）：enqueue/settled 吞错/链尾自清理四件套收编
+ *  serial-chain.ts createSerialChainMap 单源（本链原为该手法的首发实现点）；链键带
+ *  文件段（books.ts drain 只需书根前缀命中），drain 口径用 'prefix'（startsWith(root+sep)，
+ *  realpath 双口径前缀在通用件内同型保留）——语义逐位不变。 */
+const filePutChains = createSerialChainMap({ drainMatch: 'prefix' })
 
 function enqueueFilePut(safe: string, critical: () => Promise<FilePutOutcome>): Promise<FilePutOutcome> {
-  const prev = filePutChains.get(safe) ?? Promise.resolve()
-  const task = prev.then(critical, critical)
-  const settled = task.catch(() => { /* 续链副本吞错；真实异常经 task 上抛 */ })
-  filePutChains.set(safe, settled)
-  void settled.then(() => {
-    if (filePutChains.get(safe) === settled) filePutChains.delete(safe)
-  })
-  return task
+  return filePutChains.enqueue(safe, critical)
 }
 
 /** R69-25（十七轮）：等待某书根前缀下全部在途 PUT /file 串行链排空——改名/删书前
@@ -256,25 +251,17 @@ function enqueueFilePut(safe: string, critical: () => Promise<FilePutOutcome>): 
  *  R71-10（总七十一轮）：链键是 resolveWithinRoot 返回的口径——目标存在时为 realpath
  *  （safe-path.ts），目标不存在时为词法 resolve；调用方（books.ts）传入的书根是
  *  join(workDir, entry.path) 词法口径。workDir 含 symlink 组件（macOS /var→/private/var）
- *  时词法前缀永不匹配 realpath 键 → drain no-op、R69-25 守卫失效。此处对书根补
- *  realpath 前缀（失败回退词法），两前缀任一命中即 drain——不改 safe-path.ts 语义。 */
+ *  时词法前缀永不匹配 realpath 键 → drain no-op、R69-25 守卫失效。书根补 realpath
+ *  前缀（失败回退词法），两前缀任一命中即 drain——不改 safe-path.ts 语义。
+ *  P1-3（复审-0914-优化修复批）：匹配/等待实现在 serial-chain.ts drainUnder 单源。 */
 export async function drainFilePutChainsUnder(bookRoot: string): Promise<void> {
-  const prefixes = [bookRoot + sep]
-  try {
-    const real = realpathSync(bookRoot)
-    if (real !== bookRoot) prefixes.push(real + sep)
-  } catch {
-    /* 书根不存在（已删）等 → 只用词法前缀（与修复前口径一致） */
-  }
-  const pending = [...filePutChains.keys()].filter((k) => prefixes.some((p) => k.startsWith(p)))
-  if (pending.length === 0) return
-  await Promise.allSettled(pending.map((k) => filePutChains.get(k)))
+  await filePutChains.drainUnder(bookRoot)
 }
 
 /** R71-10：测试观测钩子（对齐 stream.ts __getSseConnections 风格）——当前在途 PUT 链
  *  键的只读快照（链键口径断言 + drain 等待性测试用；快照时点在途，settle 后自清理）。 */
 export function __filePutChainKeysForTest(): readonly string[] {
-  return [...filePutChains.keys()]
+  return filePutChains.keysForTest()
 }
 
 /** S4：写后回指纹——对写入内容直接哈希（盘上即该内容，语义与 hashFile 相同且免二次读盘）。 */

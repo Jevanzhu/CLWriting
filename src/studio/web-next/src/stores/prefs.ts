@@ -3,6 +3,7 @@ import { ref, computed, type Ref } from 'vue'
 import { getGlobalPrefs, putGlobalPrefs, type GlobalPrefs } from '../api/prefs'
 import { ApiError } from '../api/client'
 import { buildFontFamily, buildProseFontStack } from '../composables/useSystemFonts'
+import { useStaleGuard } from '../composables/useStaleGuard'
 import { useUiStore } from './ui'
 import type { ThemeId } from '../types/theme'
 
@@ -252,99 +253,126 @@ export const usePrefsStore = defineStore('prefs', () => {
     } catch { /* localStorage 不可用降级 */ }
   }
 
-  /** 将 API 读到的 prefs 应用到各 ref */
+  /** 将 API 读到的 prefs 应用到各 ref。
+   *  E2（复审-0914-优化修复批）：33 键手写 if 链收敛为 PREF_ROWS 表驱动逐键守卫——
+   *  typeof 守卫/边界（gt/gte/lte）/round/trim/枚举白名单逐键照抄原实现，行为等价。 */
   function applyPrefs(p: GlobalPrefs): void {
-    if (p.theme === 'dark' || p.theme === 'light') theme.value = p.theme
-    if (typeof p.proseSize === 'number' && p.proseSize > 0) proseSize.value = p.proseSize
-    if (typeof p.proseLh === 'number' && p.proseLh > 0) proseLh.value = p.proseLh
-    if (typeof p.uiFontCn === 'string') uiFontCn.value = p.uiFontCn
-    if (typeof p.uiFontEn === 'string') uiFontEn.value = p.uiFontEn
-    if (typeof p.uiFontSizeStep === 'number' && p.uiFontSizeStep >= -1 && p.uiFontSizeStep <= 2) {
-      uiFontSizeStep.value = p.uiFontSizeStep
-    }
-    if (typeof p.proseFontCn === 'string') proseFontCn.value = p.proseFontCn
-    if (typeof p.proseFontEn === 'string') proseFontEn.value = p.proseFontEn
-    if (typeof p.pageWidth === 'number' && p.pageWidth > 0) pageWidth.value = p.pageWidth
-    if (typeof p.autosaveInterval === 'number' && p.autosaveInterval > 0) autosaveInterval.value = p.autosaveInterval
-    if (p.shelfView === 'grid' || p.shelfView === 'list') shelfView.value = p.shelfView
-    if (typeof p.chatEnabled === 'boolean') chatEnabled.value = p.chatEnabled
-    if (typeof p.compact === 'boolean') compact.value = p.compact
-    if (typeof p.snapMaxDays === 'number' && p.snapMaxDays > 0) snapDays.value = p.snapMaxDays
-    if (typeof p.snapMaxCount === 'number' && p.snapMaxCount > 0) snapCount.value = p.snapMaxCount
-    // 书级设定全局托底 13 键：逐键类型/范围守卫（global.json 手改脏值不进 UI，保持回落）
-    if (typeof p.defaultGenre === 'string') defaultGenre.value = p.defaultGenre.trim()
-    if (typeof p.defaultVolumeSize === 'number' && p.defaultVolumeSize >= 5) defaultVolumeSize.value = Math.round(p.defaultVolumeSize)
-    // 目标字数/每章字数：JSON 层只存正整数（0 = 未设由 ref 初值表达），非法值回保持现值
-    if (typeof p.defaultTargetWords === 'number' && p.defaultTargetWords > 0) defaultTargetWords.value = Math.round(p.defaultTargetWords)
-    if (typeof p.defaultChapterTargetWords === 'number' && p.defaultChapterTargetWords > 0) defaultChapterTargetWords.value = Math.round(p.defaultChapterTargetWords)
-    if (typeof p.defaultShortStrict === 'boolean') defaultShortStrict.value = p.defaultShortStrict
-    if (p.styleInjection === 'light' || p.styleInjection === 'heavy') styleInjection.value = p.styleInjection
-    if (typeof p.autoConfirmOutline === 'boolean') autoConfirmOutline.value = p.autoConfirmOutline
-    if (typeof p.autoBatchSize === 'number' && p.autoBatchSize >= 1) aiBatchSize.value = Math.round(p.autoBatchSize)
-    if (typeof p.callsPerChapter === 'number' && p.callsPerChapter >= 1) callsPerChapter.value = Math.round(p.callsPerChapter)
-    if (typeof p.relationAutoMine === 'boolean') relationAutoMine.value = p.relationAutoMine
-    if (typeof p.relationMineThreshold === 'number' && p.relationMineThreshold >= 1) relationMineThreshold.value = Math.round(p.relationMineThreshold)
-    if (typeof p.ragEnabled === 'boolean') ragEnabled.value = p.ragEnabled
-    if (typeof p.ragProvider === 'string') ragProvider.value = p.ragProvider.trim()
-    // R52-E-2：机检阈值五键——占比守 (0,1]（>1 会把全书章节判复读），计数/容差守正数；
-    // 非法值保持现值（undefined = 未设 = 引擎默认）
-    if (typeof p.checkRepeatThreshold === 'number' && p.checkRepeatThreshold > 0 && p.checkRepeatThreshold <= 1) {
-      checkRepeatThreshold.value = p.checkRepeatThreshold
-    }
-    if (typeof p.checkRepeatCharsThreshold === 'number' && p.checkRepeatCharsThreshold > 0) {
-      checkRepeatCharsThreshold.value = Math.round(p.checkRepeatCharsThreshold)
-    }
-    if (typeof p.checkMaxSentenceLen === 'number' && p.checkMaxSentenceLen > 0) {
-      checkMaxSentenceLen.value = Math.round(p.checkMaxSentenceLen)
-    }
-    if (typeof p.checkImageryThreshold === 'number' && p.checkImageryThreshold > 0) {
-      checkImageryThreshold.value = Math.round(p.checkImageryThreshold)
-    }
-    if (typeof p.checkWordCountTolerance === 'number' && p.checkWordCountTolerance > 0) {
-      checkWordCountTolerance.value = p.checkWordCountTolerance
+    //（satisfies 保构造期逐键检查；值联合收敛回行类型供守卫循环统一读写）
+    for (const row of Object.values(PREF_ROWS) as PrefRow[]) {
+      const v = p[row.key]
+      if (row.kind === 'num') {
+        if (typeof v !== 'number') continue
+        // 下界二选一（照抄原键口径）：gt = 严格大于 / gte = 含等于；缺省不设界
+        if (row.gt !== undefined) {
+          if (!(v > row.gt)) continue
+        } else if (row.gte !== undefined) {
+          if (!(v >= row.gte)) continue
+        }
+        if (row.lte !== undefined && !(v <= row.lte)) continue
+        const r = row.r as Ref<number>
+        r.value = row.round ? Math.round(v) : v
+      } else if (row.kind === 'bool') {
+        if (typeof v === 'boolean') {
+          const r = row.r as Ref<boolean>
+          r.value = v
+        }
+      } else if (row.kind === 'str') {
+        if (typeof v === 'string') {
+          const r = row.r as Ref<string>
+          r.value = row.trim ? v.trim() : v
+        }
+      } else {
+        if (typeof v === 'string' && row.values?.includes(v)) {
+          const r = row.r as Ref<string>
+          r.value = v
+        }
+      }
     }
   }
 
-  /** 从当前全局 ref 构建 GlobalPrefs 对象（不含书级覆盖） */
+  // ── E2（复审-0914-优化修复批）：偏好键描述表（三面单源）──
+  // 一张表吃三面：applyPrefs 逐键守卫 / buildCache 全量组装 / setter clamp+副作用参数。
+  // 键序 = 原 buildCache 键序——JSON.stringify 按插入序序列化，PUT body 字节逐位不变
+  //（「整文件重写，漏键 = 丢配置」的全量不变式由表完整性承担：行即全键）。
+  // persist 键名（key）与 ref 名不同源两键：snapMaxDays→snapDays、autoBatchSize→aiBatchSize。
+  // 逐键行为等价是红线：守卫边界/round/trim/白名单/setter clamp/默认值全部照抄原手写，
+  // prefs 测试群（r0911-prefs-setter-table 等）回归兜底。
+  interface PrefRow {
+    /** global.json 持久化键名（buildCache 落 JSON 的键；applyPrefs 读信封的键） */
+    key: keyof GlobalPrefs
+    /** 承载 ref（名可与 key 不同源，见上注） */
+    r: Ref<unknown>
+    kind: 'num' | 'bool' | 'str' | 'enum'
+    /** apply 数字守卫下界：v > gt（严格大于）或 v >= gte（含等于），照抄原键口径 */
+    gt?: number
+    gte?: number
+    /** apply 数字守卫上界：v <= lte（uiFontSizeStep / checkRepeatThreshold 两键） */
+    lte?: number
+    /** apply 取整（Math.round；defaultVolumeSize/字数族/机检计数族） */
+    round?: boolean
+    /** apply/setter 首尾去空（defaultGenre/ragProvider） */
+    trim?: boolean
+    /** enum 白名单（theme/shelfView/styleInjection） */
+    values?: readonly string[]
+    /** setter 副作用族：写后 apply（排版 CSS 变量）/ applyTheme（主题+win 窗控）/
+     *  applyCompact（紧凑 class）。缺省 = 纯写 + persist */
+    side?: 'apply' | 'applyTheme' | 'applyCompact'
+    /** setter clamp：Math.min(max, Math.max(min, Math.round(v)))（原 numSetter 同款）；
+     *  缺省 = 原样赋值（setSize/setLh 字号族原口径，全部 bool/str/enum 键同） */
+    set?: { min: number; max?: number }
+  }
+
+  const PREF_ROWS = {
+    theme: { key: 'theme', r: theme, kind: 'enum', values: ['dark', 'light'], side: 'applyTheme' },
+    proseSize: { key: 'proseSize', r: proseSize, kind: 'num', gt: 0, side: 'apply' },
+    proseLh: { key: 'proseLh', r: proseLh, kind: 'num', gt: 0, side: 'apply' },
+    uiFontCn: { key: 'uiFontCn', r: uiFontCn, kind: 'str', side: 'apply' },
+    uiFontEn: { key: 'uiFontEn', r: uiFontEn, kind: 'str', side: 'apply' },
+    // UI 字号档（外观设置；-1 小 / 0 标准 / 1 大 / 2 特大）——整条字号刻度随
+    // --font-size-step 平移（apply 里写合计值）
+    uiFontSizeStep: { key: 'uiFontSizeStep', r: uiFontSizeStep, kind: 'num', gte: -1, lte: 2, side: 'apply', set: { min: -1, max: 2 } },
+    proseFontCn: { key: 'proseFontCn', r: proseFontCn, kind: 'str', side: 'apply' },
+    proseFontEn: { key: 'proseFontEn', r: proseFontEn, kind: 'str', side: 'apply' },
+    pageWidth: { key: 'pageWidth', r: pageWidth, kind: 'num', gt: 0, side: 'apply' }, // setter 手写（bookOnly 双分支）
+    autosaveInterval: { key: 'autosaveInterval', r: autosaveInterval, kind: 'num', gt: 0 }, // setter 手写（同上；无 apply）
+    shelfView: { key: 'shelfView', r: shelfView, kind: 'enum', values: ['grid', 'list'] },
+    chatEnabled: { key: 'chatEnabled', r: chatEnabled, kind: 'bool' },
+    compact: { key: 'compact', r: compact, kind: 'bool', side: 'applyCompact' },
+    // 版本保留全局默认（持久化为 snapMaxDays/snapMaxCount；clamp 见 set）
+    snapMaxDays: { key: 'snapMaxDays', r: snapDays, kind: 'num', gt: 0, set: { min: 1, max: 365 } },
+    snapMaxCount: { key: 'snapMaxCount', r: snapCount, kind: 'num', gt: 0, set: { min: 1, max: 200 } },
+    // ── 书级设定全局托底 13 键：逐键类型/范围守卫（global.json 手改脏值不进 UI，保持回落）──
+    defaultGenre: { key: 'defaultGenre', r: defaultGenre, kind: 'str', trim: true },
+    defaultVolumeSize: { key: 'defaultVolumeSize', r: defaultVolumeSize, kind: 'num', gte: 5, round: true, set: { min: 5, max: 500 } },
+    // 目标字数/每章字数：JSON 层只存正整数（0 = 未设由 ref 初值表达），非法值保持现值
+    defaultTargetWords: { key: 'defaultTargetWords', r: defaultTargetWords, kind: 'num', gt: 0, round: true, set: { min: 0 } },
+    defaultChapterTargetWords: { key: 'defaultChapterTargetWords', r: defaultChapterTargetWords, kind: 'num', gt: 0, round: true, set: { min: 0 } },
+    defaultShortStrict: { key: 'defaultShortStrict', r: defaultShortStrict, kind: 'bool' },
+    styleInjection: { key: 'styleInjection', r: styleInjection, kind: 'enum', values: ['light', 'heavy'] },
+    autoConfirmOutline: { key: 'autoConfirmOutline', r: autoConfirmOutline, kind: 'bool' },
+    // ref 名与 JSON 键 autoBatchSize 不同源（避免与语义混淆）
+    autoBatchSize: { key: 'autoBatchSize', r: aiBatchSize, kind: 'num', gte: 1, round: true, set: { min: 1, max: 20 } },
+    callsPerChapter: { key: 'callsPerChapter', r: callsPerChapter, kind: 'num', gte: 1, round: true, set: { min: 1, max: 50 } },
+    relationAutoMine: { key: 'relationAutoMine', r: relationAutoMine, kind: 'bool' },
+    relationMineThreshold: { key: 'relationMineThreshold', r: relationMineThreshold, kind: 'num', gte: 1, round: true, set: { min: 1, max: 20 } },
+    ragEnabled: { key: 'ragEnabled', r: ragEnabled, kind: 'bool' },
+    ragProvider: { key: 'ragProvider', r: ragProvider, kind: 'str', trim: true },
+    // ── R52-E-2：机检阈值五键（undefined = 未设 = 走引擎默认；apply 守卫非法值保持现值）──
+    // 复读占比守 (0,1]（>1 会把全书章节判复读）；setter 浮点两位截断异形手写（见 setCheckRepeatThreshold）
+    checkRepeatThreshold: { key: 'checkRepeatThreshold', r: checkRepeatThreshold, kind: 'num', gt: 0, lte: 1 },
+    checkRepeatCharsThreshold: { key: 'checkRepeatCharsThreshold', r: checkRepeatCharsThreshold, kind: 'num', gt: 0, round: true, set: { min: 2, max: 1000 } },
+    checkMaxSentenceLen: { key: 'checkMaxSentenceLen', r: checkMaxSentenceLen, kind: 'num', gt: 0, round: true, set: { min: 10, max: 500 } },
+    checkImageryThreshold: { key: 'checkImageryThreshold', r: checkImageryThreshold, kind: 'num', gt: 0, round: true, set: { min: 1, max: 100 } },
+    checkWordCountTolerance: { key: 'checkWordCountTolerance', r: checkWordCountTolerance, kind: 'num', gt: 0, set: { min: 1, max: 500 } },
+  } satisfies Record<string, PrefRow>
+
+  /** 从当前全局 ref 构建 GlobalPrefs 对象（不含书级覆盖）。
+   *  E2：表驱动全量组装——键序即 JSON 键序（PUT body 字节不变），undefined 序列化时被
+   *  JSON.stringify 丢弃 = 未设不覆盖盘上已有值（机检五键，与服务端合并写语义一致）。 */
   function buildCache(): GlobalPrefs {
-    return {
-      theme: theme.value,
-      proseSize: proseSize.value,
-      proseLh: proseLh.value,
-      uiFontCn: uiFontCn.value,
-      uiFontEn: uiFontEn.value,
-      uiFontSizeStep: uiFontSizeStep.value,
-      proseFontCn: proseFontCn.value,
-      proseFontEn: proseFontEn.value,
-      pageWidth: pageWidth.value,
-      autosaveInterval: autosaveInterval.value,
-      shelfView: shelfView.value,
-      chatEnabled: chatEnabled.value,
-      compact: compact.value,
-      snapMaxDays: snapDays.value,
-      snapMaxCount: snapCount.value,
-      // 书级设定全局托底 13 键全量带上（global.json 整文件重写，漏键 = 丢配置）
-      defaultGenre: defaultGenre.value,
-      defaultVolumeSize: defaultVolumeSize.value,
-      defaultTargetWords: defaultTargetWords.value,
-      defaultChapterTargetWords: defaultChapterTargetWords.value,
-      defaultShortStrict: defaultShortStrict.value,
-      styleInjection: styleInjection.value,
-      autoConfirmOutline: autoConfirmOutline.value,
-      autoBatchSize: aiBatchSize.value,
-      callsPerChapter: callsPerChapter.value,
-      relationAutoMine: relationAutoMine.value,
-      relationMineThreshold: relationMineThreshold.value,
-      ragEnabled: ragEnabled.value,
-      ragProvider: ragProvider.value,
-      // R52-E-2：机检阈值五键全量带上（undefined 序列化时被 JSON.stringify 丢弃 =
-      // 未设不覆盖盘上已有值，与服务端合并写语义一致）
-      checkRepeatThreshold: checkRepeatThreshold.value,
-      checkRepeatCharsThreshold: checkRepeatCharsThreshold.value,
-      checkMaxSentenceLen: checkMaxSentenceLen.value,
-      checkImageryThreshold: checkImageryThreshold.value,
-      checkWordCountTolerance: checkWordCountTolerance.value,
-    }
+    const out = {} as Record<keyof GlobalPrefs, unknown>
+    for (const row of Object.values(PREF_ROWS) as PrefRow[]) out[row.key] = row.r.value
+    return out as GlobalPrefs
   }
 
   /** R60-D-1（六十轮）：PUT 链占位单源——body 起跑即同步占位（R33D-24 单飞不变式：
@@ -360,6 +388,17 @@ export const usePrefsStore = defineStore('prefs', () => {
     return p
   }
 
+  /** P3（复审-0914-优化修复批）：revision 未知态写前对齐单源——R32-26 的重 GET 块原在
+   *  schedulePersist / flushPendingPersist 两处逐行双写，收敛本函数防漂移（语义零变化：
+   *  已知即跳过；GET 失败照旧发 PUT，走既有 409/静默口径自愈）。 */
+  async function ensureRevisionKnown(): Promise<void> {
+    if (revisionKnown) return
+    try {
+      revision = (await getGlobalPrefs()).revision
+      revisionKnown = true
+    } catch { /* 网络不可达：照旧 PUT */ }
+  }
+
   /** debounce 写回 global.json（500ms）。
    *  R32-27（三十二轮）：快照移入定时器回调（此前防抖注册即捕快照，PUT 晚 500ms 发出，
    *  与在途 PUT 交叠时旧快照后到可丢改动）+ 在途单飞（在途时重走防抖排队，完成后以
@@ -373,13 +412,8 @@ export const usePrefsStore = defineStore('prefs', () => {
       }
       runPutChain(async () => {
         // R32-26：revision 未知态（init 失败离线）首次 PUT 前重 GET 对齐——不再以 0
-        // 自伤 409；GET 不可达时照旧发 PUT，走既有 409/静默口径自愈
-        if (!revisionKnown) {
-          try {
-            revision = (await getGlobalPrefs()).revision
-            revisionKnown = true
-          } catch { /* 网络不可达：照旧 PUT */ }
-        }
+        // 自伤 409（ensureRevisionKnown 单源，P3 收敛）
+        await ensureRevisionKnown()
         await doPersistPut()
       })
     }, 500)
@@ -430,12 +464,8 @@ export const usePrefsStore = defineStore('prefs', () => {
       persistTimer = null
     }
     return runPutChain(async () => {
-      if (!revisionKnown) {
-        try {
-          revision = (await getGlobalPrefs()).revision
-          revisionKnown = true
-        } catch { /* 网络不可达：照旧 PUT */ }
-      }
+      // R32-26：同 schedulePersist——写前重 GET 对齐未知 revision（ensureRevisionKnown 单源）
+      await ensureRevisionKnown()
       await doPersistPut()
     })
   }
@@ -574,8 +604,9 @@ export const usePrefsStore = defineStore('prefs', () => {
   }
 
   /** R48-86（四十八轮）：theme-instant 压制代数——applyTheme 每次自增，rAF 回调据
-   *  此判最新性（快速连切防旧回调提前摘新回调的压制 class，详见 applyTheme 注）。 */
-  let themeInstantGen = 0
+   *  此判最新性（快速连切防旧回调提前摘新回调的压制 class，详见 applyTheme 注）。
+   *  E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard。 */
+  const themeInstantGen = useStaleGuard()
 
   function applyTheme(): void {
     document.documentElement.dataset.theme = theme.value
@@ -594,7 +625,7 @@ export const usePrefsStore = defineStore('prefs', () => {
       // 次刚挂上的 theme-instant 提前摘掉（第二拍 restyle 退回渐变、与窗控错位）。回调
       // 带序号守卫：非最新代不摘 class（摘除权归最新回调），只 syncOverlayNow 让窗控
       // 色即时跟随当前主题（幂等重发无害）
-      const gen = ++themeInstantGen
+      const gen = themeInstantGen.begin()
       // 窗控色延到页面新色扫描输出之后再落（双 rAF = 下一帧帧首，翻转帧已
       // present）：144Hz 帧预算 6.9ms，整页 restyle 必超预算——pre-flush 发送会让
       // 窗控恒定领先页面 1-2 帧（角落先变 = 「抢跑」，作者反馈「切换配色不同
@@ -604,7 +635,7 @@ export const usePrefsStore = defineStore('prefs', () => {
       // 同帧扫描输出，才是真同步。
       requestAnimationFrame(() =>
         requestAnimationFrame(() => {
-          if (gen !== themeInstantGen) {
+          if (themeInstantGen.stale(gen)) {
             syncOverlayNow()
             return
           }
@@ -623,77 +654,58 @@ export const usePrefsStore = defineStore('prefs', () => {
   }
 
   // ── setter ──
-  // 表驱动工厂（2026-09-11 专项精简批）：同构「写 ref → schedulePersist」setter 收拢为
-  // 工厂产出（const 挂公开名）——33 个名/签名零变化，消费面含函数引用传递不动，persist
-  // 语义逐字保留（哪个 setter 写哪个键不变）。异形不塞表、手写保留：applyTheme/apply/
-  // applyCompact 三副作用族、setUiFontSizeStep（clamp+apply 双职）、setPageWidth/
-  // setAutosaveInterval 两 bookOnly 双分支、setCheckRepeatThreshold（浮点两位截断）。
+  // 表驱动（E2，复审-0914-优化修复批）：「写 ref →（side 副作用）→ schedulePersist」
+  // 三段式收拢行工厂，clamp 参数（set）与副作用族（side）从 PREF_TABLE 行取——与
+  // applyPrefs 守卫、buildCache 组装三面单源。2026-09-11 专项精简批的 numSetter/
+  // boolSetter/strSetter/setter 四工厂由行版工厂接管（公开名/签名/边界逐键零变化，
+  // 消费面含函数引用传递不动）。
+  // 异形手写保留：setPageWidth / setAutosaveInterval（bookOnly 双分支双 ref 写，
+  // 双 ref 无法进单行表）、setCheckRepeatThreshold（浮点两位截断）。
 
-  /** 数值 setter：round 后 clamp [min, max]（max 缺省 = 无上界，退化为 max(min, round)）。
-   *  ref 形参联合宽型：机检四键为 Ref<number|undefined>（undefined = 未设），纯 number
-   *  ref 同传（Ref get/set 分写型下 Ref<number> 不可直接赋 Ref<number|undefined>）。 */
-  const numSetter = (r: Ref<number> | Ref<number | undefined>, min: number, max = Infinity) =>
-    (v: number): void => {
-      r.value = Math.min(max, Math.max(min, Math.round(v)))
-      schedulePersist()
-    }
-  /** 布尔 setter：纯赋值 */
-  const boolSetter = (r: Ref<boolean>) => (v: boolean): void => {
-    r.value = v
+  /** 行 setter 的收尾两段：按行 side 挂副作用 → schedulePersist 防抖落 global.json。 */
+  function finishRow(row: PrefRow): void {
+    if (row.side === 'apply') apply()
+    else if (row.side === 'applyTheme') applyTheme()
+    else if (row.side === 'applyCompact') applyCompact()
     schedulePersist()
   }
-  /** 字符串 setter：{ trim } 控制首尾去空 */
-  const strSetter = (r: Ref<string>, opts: { trim?: boolean } = {}) => (v: string): void => {
-    r.value = opts.trim ? v.trim() : v
-    schedulePersist()
+  /** 数值行 setter：行带 set 参数时 clamp [min, max] 取整（原 numSetter 同款公式），
+   *  否则原样赋值（原 setSize/setLh 字号族口径）。ref 形参联合宽型：机检四键为
+   *  Ref<number|undefined>（undefined = 未设），纯 number ref 同传。 */
+  const numRow = (row: PrefRow) => (v: number): void => {
+    const r = row.r as Ref<number>
+    r.value = row.set ? Math.min(row.set.max ?? Infinity, Math.max(row.set.min, Math.round(v))) : v
+    finishRow(row)
   }
-  /** 联合枚举 setter：纯赋值（'grid'|'list'、'light'|'heavy'） */
-  const setter = <T>(r: Ref<T>) => (v: T): void => {
+  /** 布尔行 setter：纯赋值 */
+  const boolRow = (row: PrefRow) => (v: boolean): void => {
+    const r = row.r as Ref<boolean>
     r.value = v
-    schedulePersist()
+    finishRow(row)
+  }
+  /** 字符串行 setter：行带 trim 时首尾去空（原 { trim } 口径——setDefaultGenre/
+   *  setRagProvider 写入即去空），否则纯赋值 */
+  const strRow = (row: PrefRow) => (v: string): void => {
+    const r = row.r as Ref<string>
+    r.value = row.trim ? v.trim() : v
+    finishRow(row)
+  }
+  /** 联合枚举行 setter：纯赋值（'grid'|'list'、'light'|'heavy'、ThemeId） */
+  const enumRow = <T extends string>(row: PrefRow) => (v: T): void => {
+    const r = row.r as Ref<T>
+    r.value = v
+    finishRow(row)
   }
 
-  function setThemeValue(id: ThemeId): void {
-    theme.value = id
-    applyTheme()
-    schedulePersist()
-  }
-  function setSize(v: number): void {
-    proseSize.value = v
-    apply()
-    schedulePersist()
-  }
-  function setLh(v: number): void {
-    proseLh.value = v
-    apply()
-    schedulePersist()
-  }
-  function setUiFontCn(v: string): void {
-    uiFontCn.value = v
-    apply()
-    schedulePersist()
-  }
+  const setThemeValue = enumRow<ThemeId>(PREF_ROWS.theme)
+  const setSize = numRow(PREF_ROWS.proseSize)
+  const setLh = numRow(PREF_ROWS.proseLh)
+  const setUiFontCn = strRow(PREF_ROWS.uiFontCn)
+  const setUiFontEn = strRow(PREF_ROWS.uiFontEn)
   /** UI 字号档（-1 小 / 0 标准 / 1 大 / 2 特大）：整条字号刻度随 --font-size-step 平移 */
-  function setUiFontSizeStep(v: number): void {
-    uiFontSizeStep.value = Math.min(2, Math.max(-1, Math.round(v)))
-    apply()
-    schedulePersist()
-  }
-  function setUiFontEn(v: string): void {
-    uiFontEn.value = v
-    apply()
-    schedulePersist()
-  }
-  function setProseFontCn(v: string): void {
-    proseFontCn.value = v
-    apply()
-    schedulePersist()
-  }
-  function setProseFontEn(v: string): void {
-    proseFontEn.value = v
-    apply()
-    schedulePersist()
-  }
+  const setUiFontSizeStep = numRow(PREF_ROWS.uiFontSizeStep)
+  const setProseFontCn = strRow(PREF_ROWS.proseFontCn)
+  const setProseFontEn = strRow(PREF_ROWS.proseFontEn)
   /** 纸张宽度：bookOnly=true 写书级覆盖，false 写全局默认（清除覆盖） */
   function setPageWidth(v: number, bookOnly = false): void {
     if (bookOnly) {
@@ -720,60 +732,56 @@ export const usePrefsStore = defineStore('prefs', () => {
     bookAutosaveInterval.value = null
     schedulePersist()
   }
-  const setShelfView = setter(shelfView)
-  const setChatEnabled = boolSetter(chatEnabled)
-  function setCompact(v: boolean): void {
-    compact.value = v
-    applyCompact()
-    schedulePersist()
-  }
+  const setShelfView = enumRow<'grid' | 'list'>(PREF_ROWS.shelfView)
+  const setChatEnabled = boolRow(PREF_ROWS.chatEnabled)
+  const setCompact = boolRow(PREF_ROWS.compact)
   /** 版本保留全局默认 · 保留天数（clamp 1-365；所有书统一） */
-  const setSnapDays = numSetter(snapDays, 1, 365)
+  const setSnapDays = numRow(PREF_ROWS.snapMaxDays)
   /** 版本保留全局默认 · 保留数量（clamp 1-200；所有书统一） */
-  const setSnapCount = numSetter(snapCount, 1, 200)
+  const setSnapCount = numRow(PREF_ROWS.snapMaxCount)
 
-  // ── 书级设定全局托底 setter（表驱动：clamp/trim/赋值后走 schedulePersist 防抖落 global.json）──
+  // ── 书级设定全局托底 setter（clamp/trim 参数在 PREF_TABLE 行上，E2 表驱动）──
 
-  /** 写作默认 · 题材（trim；'' = 未设） */
-  const setDefaultGenre = strSetter(defaultGenre, { trim: true })
+  /** 写作默认 · 题材（apply 守卫 trim；'' = 未设） */
+  const setDefaultGenre = strRow(PREF_ROWS.defaultGenre)
   /** 写作默认 · 每卷章数（clamp 5-500 取整；仅长篇使用） */
-  const setDefaultVolumeSize = numSetter(defaultVolumeSize, 5, 500)
+  const setDefaultVolumeSize = numRow(PREF_ROWS.defaultVolumeSize)
   /** 写作默认 · 目标字数（0 = 未设，否则正整数） */
-  const setDefaultTargetWords = numSetter(defaultTargetWords, 0)
+  const setDefaultTargetWords = numRow(PREF_ROWS.defaultTargetWords)
   /** 写作默认 · 每章字数（0 = 未设，否则正整数） */
-  const setDefaultChapterTargetWords = numSetter(defaultChapterTargetWords, 0)
+  const setDefaultChapterTargetWords = numRow(PREF_ROWS.defaultChapterTargetWords)
   /** AI 机检 · 短篇严格模式（仅短篇书生效） */
-  const setDefaultShortStrict = boolSetter(defaultShortStrict)
+  const setDefaultShortStrict = boolRow(PREF_ROWS.defaultShortStrict)
   /** AI 写作 · 文风注入强度 */
-  const setStyleInjection = setter(styleInjection)
+  const setStyleInjection = enumRow<'light' | 'heavy'>(PREF_ROWS.styleInjection)
   /** AI 写作 · 自动确认细纲 */
-  const setAutoConfirmOutline = boolSetter(autoConfirmOutline)
+  const setAutoConfirmOutline = boolRow(PREF_ROWS.autoConfirmOutline)
   /** AI 写作 · 批量写作章数（clamp 1-20 取整） */
-  const setAiBatchSize = numSetter(aiBatchSize, 1, 20)
+  const setAiBatchSize = numRow(PREF_ROWS.autoBatchSize)
   /** AI 写作 · 单章调用上限（clamp 1-50 取整） */
-  const setCallsPerChapter = numSetter(callsPerChapter, 1, 50)
+  const setCallsPerChapter = numRow(PREF_ROWS.callsPerChapter)
   /** 关系图 · 自动梳理 */
-  const setRelationAutoMine = boolSetter(relationAutoMine)
+  const setRelationAutoMine = boolRow(PREF_ROWS.relationAutoMine)
   /** 关系图 · 章节增量阈值（clamp 1-20 取整） */
-  const setRelationMineThreshold = numSetter(relationMineThreshold, 1, 20)
+  const setRelationMineThreshold = numRow(PREF_ROWS.relationMineThreshold)
   /** 知识检索 · 启用 */
-  const setRagEnabled = boolSetter(ragEnabled)
-  /** 知识检索 · 提供方（trim；'' = 未设） */
-  const setRagProvider = strSetter(ragProvider, { trim: true })
-  // ── R52-E-2：机检阈值五键 setter（clamp 后写 ref → schedulePersist 防抖落 global.json）──
+  const setRagEnabled = boolRow(PREF_ROWS.ragEnabled)
+  /** 知识检索 · 提供方（apply 守卫 trim；'' = 未设） */
+  const setRagProvider = strRow(PREF_ROWS.ragProvider)
+  // ── R52-E-2：机检阈值五键 setter（clamp 参数在行上 → schedulePersist 防抖落 global.json）──
   /** AI 机检 · 复读占比阈值（clamp (0,1]，两位小数截断防浮点尾差入盘）——浮点截断异形，手写不进表 */
   function setCheckRepeatThreshold(v: number): void {
     checkRepeatThreshold.value = Math.min(1, Math.max(0.01, Math.round(v * 100) / 100))
     schedulePersist()
   }
   /** AI 机检 · 复读最小连续字数（clamp 2-1000 取整） */
-  const setCheckRepeatCharsThreshold = numSetter(checkRepeatCharsThreshold, 2, 1000)
+  const setCheckRepeatCharsThreshold = numRow(PREF_ROWS.checkRepeatCharsThreshold)
   /** AI 机检 · 超长句判定长度（clamp 10-500 取整） */
-  const setCheckMaxSentenceLen = numSetter(checkMaxSentenceLen, 10, 500)
+  const setCheckMaxSentenceLen = numRow(PREF_ROWS.checkMaxSentenceLen)
   /** AI 机检 · 高频意象次数阈值（clamp 1-100 取整） */
-  const setCheckImageryThreshold = numSetter(checkImageryThreshold, 1, 100)
+  const setCheckImageryThreshold = numRow(PREF_ROWS.checkImageryThreshold)
   /** AI 机检 · 字数容差百分比（clamp 1-500 取整） */
-  const setCheckWordCountTolerance = numSetter(checkWordCountTolerance, 1, 500)
+  const setCheckWordCountTolerance = numRow(PREF_ROWS.checkWordCountTolerance)
 
   return {
     theme,

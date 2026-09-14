@@ -23,10 +23,9 @@ test('R0910-W：iterateEvents 与 listEvents 全量语义一致（全量 / type 
   try {
     const book = bookHash(root)
     const sid = store.workspaceSession(book)
-    store.appendEvent(sid, { type: 'step/start', data: { i: 1 } })
-    store.appendEvent(sid, { type: 'llm/call', data: { task: 'x' } })
-    store.appendEvent(sid, { type: 'step/end', data: { i: 2 } })
-
+    store.appendEvents(sid, [{ type: 'step/start', data: { i: 1 } }])
+    store.appendEvents(sid, [{ type: 'llm/call', data: { task: 'x' } }])
+    store.appendEvents(sid, [{ type: 'step/end', data: { i: 2 } }])
     // 全量（book 级）
     expect([...store.iterateEvents(book)]).toEqual(store.listEvents(book))
     // type 过滤

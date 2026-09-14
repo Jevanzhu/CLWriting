@@ -90,6 +90,27 @@ export function problemsForElectronBuilderFiles(files) {
   return found
 }
 
+// ── 全库重评-0914（P3-10）：AppleDouble 排除项锚定 ─────────────────────────
+// electron-builder.yml files 补否定模式 '!**/._*'——外置/网络构建卷上 macOS 为每个
+// 文件生成 ._ 伴生文件（资源叉），白名单 `dist/**/*` 通配把它们一并打进 asar。本门
+// 锁定排除项存在（防回潮）。独立函数而非并入 problemsForElectronBuilderFiles：后者
+// 既有直测夹具（dist/resources 成员资格形态）不含否定模式，并臂会打红存量锚定；
+// 主流程两门并跑。精确钉 '!**/._*'（parseBuilderFiles 已剥引号）——排除模式单一
+// 正本在本仓配置内，钉死形态即 fail-closed：模式被删/收窄（如 '!._*' 漏嵌套层）即红。
+// 断言 files 序列含 AppleDouble 否定模式 '!**/._*'（行注释书写——块注释内该字面量
+// 含 */ 会提前终止注释）。导出供直测锚定。
+export function problemsForElectronBuilderAppleDouble(files) {
+  const found = []
+  if (!Array.isArray(files) || files.length === 0) {
+    found.push('electron-builder.yml files 不可解析或为空——AppleDouble 排除项无法校验（全库重评-0914 P3-10）')
+    return found
+  }
+  if (!files.some((entry) => entry === '!**/._*')) {
+    found.push('electron-builder.yml files 缺 AppleDouble 否定模式（!**/._*）——外置卷 ._ 伴生文件会进 asar（全库重评-0914 P3-10 回潮）')
+  }
+  return found
+}
+
 /**
  * F-2（五十轮评审批）：TOCTOU 容错的目录列举——existsSync 判定后 readdir 前目录被
  * 并发移走（ENOENT）/被换成文件（ENOTDIR）时记 console.warn 返回空数组（跳过只损
@@ -218,6 +239,8 @@ function checkPackaging() {
   } else {
     const ebFiles = parseBuilderFiles(readFileSync(ebPath, 'utf8'))
     problems.push(...problemsForElectronBuilderFiles(ebFiles))
+    // 全库重评-0914（P3-10）：AppleDouble 排除项锚定门（与 dist/resources 成员门并跑）
+    problems.push(...problemsForElectronBuilderAppleDouble(ebFiles))
     // R0911-A-P2-1 第四层：fontlist asarUnpack 配置门（静态，全平台可查）
     problems.push(...problemsForElectronBuilderAsarUnpack(parseBuilderAsarUnpack(readFileSync(ebPath, 'utf8'))))
   }

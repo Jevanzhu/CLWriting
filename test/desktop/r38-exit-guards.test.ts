@@ -9,6 +9,10 @@
  * main.ts 的信号注册在模块加载期对 process.on 生效，测试进程内断言会与全量运行的
  * 其他用例串扰（信号是进程级单例），故按 r30-async-handler-guard 静态守卫先例以
  * 源码契约固化；行为面（hexColor 位数集）由 main.test.ts R74-21 用例扩展覆盖。
+ *
+ * 复审-0914-优化修复批（F1 拆分适配）：hexColor 随 titlebar-overlay IPC handler
+ * 迁 ipc.ts——R38-20 断言面随批改读 ipc.ts；信号注册仍留 main.ts 壳层，R38-19/
+ * R38-23 断言面不变。
  */
 import { test, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
@@ -17,6 +21,7 @@ import { fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const mainTs = readFileSync(join(root, 'src', 'desktop', 'main.ts'), 'utf-8')
+const ipcTs = readFileSync(join(root, 'src', 'desktop', 'ipc.ts'), 'utf-8')
 const builderYml = readFileSync(join(root, 'electron-builder.yml'), 'utf-8')
 
 test('R38-19: main.ts 退出兜底信号集含 SIGTERM（与 SIGINT/SIGBREAK 同款 app.quit）', () => {
@@ -34,7 +39,7 @@ test('R38-23: main.ts 有 unhandledRejection 最后防线（log-only，不退出
 })
 
 test('R38-20: titleBarOverlay hexColor 白名单为 CSS 合法位数集合（3/4/6/8，无 5/7 位漏放）', () => {
-  const m = mainTs.match(/const hexColor = (\/\^#\(\?:.*\)\$\/)/)
+  const m = ipcTs.match(/const hexColor = (\/\^#\(\?:.*\)\$\/)/)
   expect(m).not.toBeNull()
   const re = new RegExp(m![1]!.slice(1, -1))
   expect(re.test('#f6f')).toBe(true)

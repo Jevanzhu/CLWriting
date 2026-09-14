@@ -21,6 +21,7 @@ import { existsSync, readdirSync, mkdirSync, rmdirSync, statSync } from 'node:fs
 import { renameWithRetry } from '../fs/atomic.js'
 import { join, dirname } from 'node:path'
 import { readManifestStrict, writeManifest, withManifestLock } from '../document/manifest.js'
+import { errMsg } from '../log/index.js' // errMsg 收编（复审-0914-优化修复批）：错误文案三目单源
 
 /** 迁移到布线的 5 类线索（关系线为派生数据，保留原位）。 */
 const LEADS_TO_MOVE = ['悬念', '感情线', '布局线', '设定线', '成长线'] as const
@@ -252,8 +253,4 @@ function moveDrafts(bookRoot: string, errors: string[], moved: string[]): number
     errors.push(`工作区: 读目录失败 ${errMsg(e)}`)
   }
   return count
-}
-
-function errMsg(e: unknown): string {
-  return e instanceof Error ? e.message : String(e)
 }

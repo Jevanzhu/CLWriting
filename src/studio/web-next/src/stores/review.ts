@@ -9,6 +9,7 @@ import {
   type ReviewVerdict,
 } from '../api/review'
 import { friendlyError } from '../shared/error'
+import { useStaleGuard } from '../composables/useStaleGuard'
 
 /**
  * 三审 store（M12 块1 B1.1）：发起三审 + 存量信封展示。
@@ -25,8 +26,9 @@ export const useReviewStore = defineStore('review', () => {
   // R0912-C1-P3-2（2026-09-12 全量重评修复批）：原 lastDocId ref 删除——跨文档/跨书归属
   // 职能已由下方 lastLoadKey（`${书}::${docId}`）承担，书级维度亦在键内，裸 docId 死字段不再维护。
 
-  /** 操作代：run/loadEnvelope/clear 共用——任何切换都让在途旧结果失效 */
-  let opGen = 0
+  /** 操作代：run/loadEnvelope/clear 共用——任何切换都让在途旧结果失效。
+   *  E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard。 */
+  const opGen = useStaleGuard()
 
   // R1010b-FE-P2-1（2026-09-10 内存专项重审修复批）：collected 归属键（`${书}::${docId}`）。
   // 成因（跨文档串显）：collected 只在 run 成功 / loadEnvelope 回填时写入，切文档从不清
@@ -40,26 +42,26 @@ export const useReviewStore = defineStore('review', () => {
   let lastLoadKey: string | null = null
 
   async function run(name: string, docId: string): Promise<void> {
-    const gen = ++opGen
+    const gen = opGen.begin()
     loading.value = true
     error.value = null
     try {
       const r = await runReview(name, docId)
-      if (gen !== opGen) return // 三审最长 2 分钟：期间切文档/清空，旧结果不落
+      if (opGen.stale(gen)) return // 三审最长 2 分钟：期间切文档/清空，旧结果不落
       collected.value = r.collected
       // R1010b-FE-P2-1：同步推进归属键——否则紧随的同文档 loadEnvelope（ReviewPanel
       // watch / setVerdict 回读）按「键不同」误清新采集结果
       lastLoadKey = `${name}::${docId}`
       const env = await getReviewEnvelope(name, docId)
-      if (gen !== opGen) return
+      if (opGen.stale(gen)) return
       envelope.value = env?.envelope ?? null
       stale.value = env?.stale ?? false
     } catch (e) {
-      if (gen !== opGen) return
+      if (opGen.stale(gen)) return
       error.value = friendlyError(e)
       collected.value = null
     } finally {
-      if (gen === opGen) loading.value = false
+      if (opGen.fresh(gen)) loading.value = false
     }
   }
 
@@ -70,12 +72,12 @@ export const useReviewStore = defineStore('review', () => {
     //（setVerdict → loadEnvelope 回读链）键相同不清，刚落的采集结果豁免
     const loadKey = `${name}::${docId}`
     if (lastLoadKey !== loadKey) collected.value = null
-    const gen = ++opGen
+    const gen = opGen.begin()
     // dd-P2：getReviewEnvelope 现在只把 404 归 null、其余上抛——此处兜住进 error
     //（watch 调用方无 catch，不兜会变未处理拒绝）
     try {
       const env = await getReviewEnvelope(name, docId)
-      if (gen !== opGen) return
+      if (opGen.stale(gen)) return
       envelope.value = env?.envelope ?? null
       stale.value = env?.stale ?? false
       if (env && !collected.value) {
@@ -83,13 +85,13 @@ export const useReviewStore = defineStore('review', () => {
       }
       lastLoadKey = loadKey
     } catch (e) {
-      if (gen !== opGen) return
+      if (opGen.stale(gen)) return
       error.value = friendlyError(e)
     }
   }
 
   function clear(): void {
-    opGen++ // 在途 run/loadEnvelope 全部失效（切书清空后旧结果不得回流）
+    opGen.invalidate() // 在途 run/loadEnvelope 全部失效（切书清空后旧结果不得回流）
     // R-1（第十六轮）：clear 推代后在途 run 的 finally 查代不过 → loading 永久卡 true；
     // 此处直接复位，按钮可再触发（迟到回填仍被查代挡住，不落数据）
     loading.value = false
@@ -107,9 +109,9 @@ export const useReviewStore = defineStore('review', () => {
     // R71-27（七十一轮）：入口捕获 opGen——裁决在途切书（clear 推代 + 新文档
     // loadEnvelope 已回填）后，续体再 loadEnvelope(旧参) 会重新推代反超新书拉取，
     // 旧书信封串显；await 返回后查代不过直接弃（对齐同文件 run/loadEnvelope 守卫）
-    const gen = opGen
+    const gen = opGen.current()
     await runVerdictDoc(name, docId, approved)
-    if (gen !== opGen) return // 在途期间已切书/清空：不再以旧书参数拉信封
+    if (opGen.stale(gen)) return // 在途期间已切书/清空：不再以旧书参数拉信封
     await loadEnvelope(name, docId)
   }
 

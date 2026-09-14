@@ -7,6 +7,7 @@ import { Trash2 } from 'lucide-vue-next'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
 import { getVersionStats, pruneVersions, type VersionStats } from '../../api/snapshots'
+import { useStaleGuard } from '../../composables/useStaleGuard'
 import SettingItem from './SettingItem.vue'
 
 const ui = useUiStore()
@@ -43,17 +44,18 @@ function formatBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`
 }
 
-let statsGen = 0
+// E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard。
+const statsGen = useStaleGuard()
 async function loadVersionStats(): Promise<void> {
   const name = ws.bookName
   if (!name) return
   // L-F6（第八轮）：代守卫——慢响应在途切书后旧书版本统计覆盖 B 书「本书」页展示
-  const gen = ++statsGen
+  const gen = statsGen.begin()
   try {
     const r = await getVersionStats(name)
-    if (gen === statsGen) versionStats.value = r
+    if (statsGen.fresh(gen)) versionStats.value = r
   } catch {
-    if (gen === statsGen) versionStats.value = null
+    if (statsGen.fresh(gen)) versionStats.value = null
   }
 }
 

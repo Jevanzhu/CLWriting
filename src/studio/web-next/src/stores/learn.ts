@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { runLearn, runLearnCommit, type SampleCandidateFE, type QuoteCandidateFE } from '../api/learn'
 import { friendlyError } from '../shared/error'
+import { useStaleGuard } from '../composables/useStaleGuard'
 
 /**
  * 文风收割 store（M12 后置）：收割候选（规则打分不涉大模型）+ 作者勾选入库。
@@ -29,39 +30,40 @@ export const useLearnStore = defineStore('learn', () => {
   const lastHarvestRan = ref(false)
 
   /** 请求代守卫（M-3 二轮复审）：收割是全书扫描（大书数秒）——切书后 A 书在途 harvest
-   *  回填会让 B 书收割视图显示 A 书正文候选，作者勾选入库即跨书污染条目库。后调者胜 */
-  let reqGen = 0
+   *  回填会让 B 书收割视图显示 A 书正文候选，作者勾选入库即跨书污染条目库。后调者胜。
+   *  E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard。 */
+  const reqGen = useStaleGuard()
 
   /** R73-66：commit 独立请求代——原 commit 只快照 reqGen 不推代，同代双 commit（并发/
    *  重入）守卫互相穿透，且全靠 harvest 推代兜底；未来任何旁路清列表不复位 committing
    *  即穿透。commit 自己推代后：后一笔使前一笔迟到回填/finally 解锁全部作废（对齐
    *  words/learn reqGen 代守卫惯例） */
-  let commitGen = 0
+  const commitGen = useStaleGuard()
 
   /** 扫定稿正文收割候选（规则打分，不涉大模型） */
   async function harvest(name: string): Promise<void> {
     // R0912-3 #16：函数级在途锁——同帧双击只跑一次（harvest 是全书扫描，双发=双跑，
     // R35-34 家族；reqGen 代守卫只防串书回填，在途第二笔在此直接返回）
     if (loading.value) return
-    const gen = ++reqGen
+    const gen = reqGen.begin()
     loading.value = true
     error.value = null
     commitMessage.value = null
     try {
       const r = await runLearn(name)
-      if (gen !== reqGen) return
+      if (reqGen.stale(gen)) return
       samples.value = r.samples
       quotes.value = r.quotes
       pickedSamples.value = new Set()
       pickedQuotes.value = new Set()
       lastHarvestRan.value = true // R0912-3 P2-3：收割成功置位（随新收割刷新）
     } catch (e) {
-      if (gen !== reqGen) return
+      if (reqGen.stale(gen)) return
       error.value = friendlyError(e)
       samples.value = []
       quotes.value = []
     } finally {
-      if (gen === reqGen) loading.value = false
+      if (reqGen.fresh(gen)) loading.value = false
     }
   }
 
@@ -111,13 +113,13 @@ export const useLearnStore = defineStore('learn', () => {
     // R32-31：金句勾选按 出处+正文 身份取（同文不同出处各自独立勾选）
     const qPicks = quotes.value.filter((q) => pickedQuotes.value.has(quoteKey(q)))
     if (!sPicks.length && !qPicks.length) return
-    const gen = ++commitGen // R73-66：commit 自己推代（原 const gen = reqGen 不推代）
-    const harvestGen = reqGen
+    const gen = commitGen.begin() // R73-66：commit 自己推代（原 const gen = reqGen 不推代）
+    const harvestGen = reqGen.current()
     committing.value = true
     commitMessage.value = null
     try {
       const r = await runLearnCommit(name, { samples: sPicks, quotes: qPicks })
-      if (gen !== commitGen || harvestGen !== reqGen) return
+      if (commitGen.stale(gen) || reqGen.stale(harvestGen)) return
       commitMessage.value = `已收录 ${r.sampleFiles.length} 章样章、${r.quoteFiles.length} 条金句 → 文风/样章库。`
       // 入库项从候选列表移除（已落库，不再重复入库）
       const sSet = new Set(sPicks.map((s) => sampleKey(s)))
@@ -127,13 +129,13 @@ export const useLearnStore = defineStore('learn', () => {
       pickedSamples.value = new Set()
       pickedQuotes.value = new Set()
     } catch (e) {
-      if (gen !== commitGen || harvestGen !== reqGen) return
+      if (commitGen.stale(gen) || reqGen.stale(harvestGen)) return
       commitMessage.value = '收录失败：' + friendlyError(e)
     } finally {
       // Y-32（第五十七轮）：finally 查代——在途 commit 被作废后（R73-66 起查独立
       // commitGen），迟到的 finally 不得解锁新一笔 commit 的按钮（可重复提交同批勾选）；
       // clear() 复位缺项同补
-      if (gen === commitGen) committing.value = false
+      if (commitGen.fresh(gen)) committing.value = false
     }
   }
 
@@ -144,8 +146,8 @@ export const useLearnStore = defineStore('learn', () => {
   }
 
   function clear(): void {
-    reqGen++ // 旧书在途 harvest 全部作废
-    commitGen++ // R73-66：在途 commit 同作废（迟到回填不落、finally 不解锁新 commit）
+    reqGen.invalidate() // 旧书在途 harvest 全部作废
+    commitGen.invalidate() // R73-66：在途 commit 同作废（迟到回填不落、finally 不解锁新 commit）
     // R-1（第十六轮）：clear 推代后在途 harvest 的 finally 查代不过 → loading 永久卡 true；
     // 此处直接复位，按钮可再触发（迟到回填仍被查代挡住，不落数据）
     loading.value = false

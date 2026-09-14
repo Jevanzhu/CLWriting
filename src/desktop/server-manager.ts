@@ -27,7 +27,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { utilityProcess } from 'electron'
 import { atomicWriteFile } from '../fs/atomic.js'
-import { log } from '../log/index.js'
+import { errMsg, log } from '../log/index.js'
 
 /** fork options 可辨识名：getAppMetrics 单列（ProcessMetric.name），S-12 */
 export const STUDIO_SERVICE_NAME = 'studio-server'
@@ -453,6 +453,54 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
     restartTimer.unref()
   }
 
+  /**
+   * F3（复审-0914-优化修复批）：doRestart / restartPinned 的同构核心收敛——
+   * cancelPendingRestart →（调用方旗复位钩子）→ starting 通道占位 launch（钉住端口）
+   * → 成功 info + onRestarted 广播隔离 try/catch（重审-3：钩子抛错不得伪装成握手失败）
+   * → 失败 failLog → finally 清理通道/句柄。握手失败返回 null（调用方各自处置：
+   * doRestart 按退避续排 / restartPinned 契约返 null）。
+   * 红线核对：重启计数（本函数不触碰 restartCount——restartPinned 的清零经 beforeLaunch
+   * 钩子保持在原 launch 占位前的时序点）、钩子时序、warn 文案逐位不变。doRestart 侧
+   * 新增的 cancelPendingRestart 在原调用形态下恒 no-op（restartTimer 触发回调已先置
+   * null），与 restartPinned 原显式取消（R51-A-3）合一后语义不变。
+   */
+  async function launchPinned(
+    opts: StartStudioServerOptions,
+    port: number,
+    hooks: {
+      /** launch 占位前调用（restartPinned 的 shutdownStarted/restartCount 复位原序保留） */
+      beforeLaunch?: () => void
+      successLog: (port: number) => void
+      failLog: (e: unknown) => void
+    },
+  ): Promise<number | null> {
+    cancelPendingRestart()
+    hooks.beforeLaunch?.()
+    // X-3（第五十六轮）：重启全程复用 starting 互斥通道——占位后并发 start 同参数复用
+    // 在途重启轮（含钉住端口语义）、参数不一致沿用 E-9a fail-closed reject；finally
+    // 清空归还通道。
+    startingOpts = opts
+    starting = (async () => launch(opts, String(port)))()
+    try {
+      const got = await starting
+      hooks.successLog(got)
+      // 重审-3：广播钩子隔离——钩子抛错不得伪装成「握手失败」再排一轮重启（服务实际已在跑）
+      try {
+        onRestarted?.(got)
+      } catch (e) {
+        logger.warn('server-manager', 'onRestarted 广播钩子抛错（已忽略）', e)
+      }
+      return got
+    } catch (e) {
+      hooks.failLog(e)
+      return null
+    } finally {
+      starting = null
+      startingOpts = null
+      startingProc = null // R44-12：与 starting 通道同清
+    }
+  }
+
   async function doRestart(): Promise<void> {
     if (shutdownStarted) return // 等待窗口内被停机（S-5）
     // R1010b-DSK-P3-2（2026-09-10 内存专项重审修复批）：在途不覆写——R51-A-3 注释自认
@@ -468,31 +516,14 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
     const opts = lastOpts
     const port = pinnedPort
     if (!opts || port === null) return
-    // X-3（第五十六轮）：重启全程复用 starting 互斥通道——此前 doRestart 直连 launch
-    // 不置 starting，restartTimer 已触发且握手未完成的窗口内 start() 三守卫
-    // （starting/active/hasPendingRestart）皆空 → 再 fork 双 child，后完成者赢得
-    // active、先完成者孤儿无人杀。占位后并发 start 同参数复用在途重启轮（含钉住
-    // 端口语义）、参数不一致沿用 E-9a fail-closed reject；finally 清空归还通道。
-    startingOpts = opts
-    starting = (async () => launch(opts, String(port)))()
-    try {
-      const got = await starting
-      logger.info('server-manager', `studio server 已自动重启（端口 ${got} 钉住）`)
-      // 重审-3：广播钩子隔离——钩子抛错不得伪装成「握手失败」再排一轮重启（服务实际已在跑）
-      try {
-        onRestarted?.(got)
-      } catch (e) {
-        logger.warn('server-manager', 'onRestarted 广播钩子抛错（已忽略）', e)
-      }
-    } catch (e) {
-      // 重启期握手失败（EXIT/EADDRINUSE 残留端口等）按退避继续（§3.4 时序 3）
-      logger.error('server-manager', '自动重启握手失败，按退避序列继续', e)
-      scheduleRestart()
-    } finally {
-      starting = null
-      startingOpts = null
-      startingProc = null // R44-12：与 starting 通道同清
-    }
+    await launchPinned(opts, port, {
+      successLog: (got) => logger.info('server-manager', `studio server 已自动重启（端口 ${got} 钉住）`),
+      failLog: (e) => {
+        // 重启期握手失败（EXIT/EADDRINUSE 残留端口等）按退避继续（§3.4 时序 3）
+        logger.error('server-manager', '自动重启握手失败，按退避序列继续', e)
+        scheduleRestart()
+      },
+    })
   }
 
   /**
@@ -589,21 +620,26 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
       }
       startingOpts = opts
       starting = (async () => {
-        // S1（五十九轮）：停机门复位移到 IIFE 首行（首个 await 前同步执行）——原在
-        // stopActiveChild 的 await 之后复位，shutdown 恰落在该等待窗内会被静默清掉
-        // （launch 的 fork 后检查随之失守）。显式 start 开新生命周期在占通道瞬间生效。
-        shutdownStarted = false
         cancelPendingRestart() // 显式换轮作废挂起重启（与 stopChild 的取消面互补）
         // 重试/重启前清旧 child：等退出再 fork，避免端口/连接滞留（L-3 语义换轨，S-4）
         if (active) {
           logger.warn('server-manager', 'start 时旧 child 仍在——先停旧再 fork')
           await stopActiveChild()
         }
-        // 重评-P3-8（2026-09-09 全量代码重评）：换轮清停机门改条件式——并发 shutdown
-        // 恰落在 stopActiveChild 的 kill 等待窗（已置 shuttingDown + shutdownStarted）
-        // 时，无条件清零会拆掉 launch 的 fork 后检查防线，退出链上 fork 出孤儿 child。
-        // 停机流程在途（shuttingDown）保持门置位：fork 后检查即杀新 child 按启动失败
-        // 收口（S1 同款），「shutdown 开始后绝不 fork 出存活 child」在任何交织下成立。
+        // 停机门复位单点（复审-0914-优化修复批 P3：原 IIFE 首行无条件复位〔S1〕+
+        // 此处条件式复位〔重评-P3-8〕两点合一，明显冗余复位合并；三旗状态机不动）。
+        // 合并的时序安全性论证（两处原防线的等价覆盖面）：
+        // ① S1 防的「shutdown 恰落在 stopActiveChild 的 await 等待窗内、无条件复位把
+        //    门静默清掉（launch fork 后检查失守）」——条件式已覆盖：该交织下并发
+        //    shutdown() 同步置 shuttingDown + shutdownStarted，本行 `!shuttingDown`
+        //    判假保持门置位 → launch 的 fork 后检查即杀新 child 按启动失败收口
+        //    （「shutdown 开始后绝不 fork 出存活 child」在任何交织下成立）。
+        // ② S1 注的反向时序（shutdown 已置位停驻 kill/exit 等待点、starting===null 时
+        //    start 进入门被首行复位清掉）——B-7 入口 fail-closed 守卫已挡（shutdown
+        //    流程在途 ⇔ shuttingDown 已置位〔同步序〕，start 根本进不来）。
+        // ③ 占通道到本行之间无 shutdownStarted 读方（stopActiveChild 只置位不读；
+        //    并发 restartPinned/doRestart 走 starting 通道复用、shutdown 走 shuttingDown
+        //    门），复位时点从 IIFE 首行推迟到 launch 前一行无任何可观察差。
         if (!shuttingDown) shutdownStarted = false
         restartCount = 0 // 显式 start 开新周期（bootstrap 语义，非崩溃续期）
         return await launch(opts, '0')
@@ -787,36 +823,25 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
           return null
         })
       }
-      // R51-A-3（五十一轮）：作废挂起重启，与 start() 口径对称（start IIFE 首段
-      // cancelPendingRestart 同款）——不取消则崩溃退避 restartTimer 仍武装，本函数
-      // launch 在途时 doRestart 触发会复刻钉住端口再 fork（doRestart 不查 starting
-      // 直接覆写通道），双 child 竞逐 active、输者成孤儿。显式恢复即开新生命周期，
-      // 旧退避序列随之作废。
-      cancelPendingRestart()
-      // 显式新生命周期：复位主动 kill 标记 + 退避计数清零（与 start IIFE 同口径，
-      // 恢复不计入崩溃退避）——launch 前置位，防 fork 后检查即杀新 child
-      shutdownStarted = false
-      restartCount = 0
-      startingOpts = opts
-      starting = (async () => launch(opts, String(port)))()
-      try {
-        const got = await starting
-        logger.info('server-manager', `studio server 已恢复（session-end 观察窗自愈，端口 ${got} 钉住）`)
-        // 重审-3：与 doRestart 成功路径同款广播（钩子隔离同因——抛错不伪装握手失败）
-        try {
-          onRestarted?.(got)
-        } catch (e) {
-          logger.warn('server-manager', 'onRestarted 广播钩子抛错（已忽略）', e)
-        }
-        return got
-      } catch (e) {
-        logger.error('server-manager', 'session-end 自愈重启握手失败（API 不可用，建议重启应用）', e)
-        return null
-      } finally {
-        starting = null
-        startingOpts = null
-        startingProc = null // R44-12：与 starting 通道同清
-      }
+      // R51-A-3（五十一轮）：作废挂起重启，与 start() 口径对称——不取消则崩溃退避
+      // restartTimer 仍武装，launch 在途时 doRestart 触发会复刻钉住端口再 fork，双
+      // child 竞逐 active、输者成孤儿（F3 起 cancelPendingRestart 收编 launchPinned
+      // 首步，语义不变）。
+      // F3（复审-0914-优化修复批）：尾部「占位 launch → 成功 info + onRestarted 隔离
+      // → 失败留痕返 null → finally 清理」与 doRestart 同构，收敛 launchPinned；
+      // 「显式新生命周期复位主动 kill 标记 + 退避计数清零（恢复不计入崩溃退避）」经
+      // beforeLaunch 钩子保持原时序（launch 占位前）。红线：重启计数、钩子时序、
+      // warn 文案逐位不变。
+      return launchPinned(opts, port, {
+        beforeLaunch: () => {
+          // 显式新生命周期：复位主动 kill 标记 + 退避计数清零（与 start IIFE 同口径，
+          // 恢复不计入崩溃退避）——launch 前置位，防 fork 后检查即杀新 child
+          shutdownStarted = false
+          restartCount = 0
+        },
+        successLog: (got) => logger.info('server-manager', `studio server 已恢复（session-end 观察窗自愈，端口 ${got} 钉住）`),
+        failLog: (e) => logger.error('server-manager', 'session-end 自愈重启握手失败（API 不可用，建议重启应用）', e),
+      })
     },
     hasPendingRestart(): boolean {
       return restartTimer !== null
@@ -849,7 +874,7 @@ function forwardChildStdio(proc: UtilityProcessLike, logger: LogLike): void {
   // 管道错等）不可观测；附 err message（非 Error 形态按 String 兜底，同仓 git/ai-track
   // 重评-15 先例）。不上抛不重试：转发尽力而为语义不变，丢行不丢进程。
   const warnErrored = (side: 'stdout' | 'stderr') => (err: unknown) =>
-    logger.warn('server-manager', `child ${side} stdio 流异常，转发中止：${err instanceof Error ? err.message : String(err)}`)
+    logger.warn('server-manager', `child ${side} stdio 流异常，转发中止：${errMsg(err)}`)
   const stdoutSplitter = splitLines(
     proc.stdout,
     (line) => forwardLogLine(line, logger),
@@ -994,7 +1019,7 @@ async function killProcAwaitEscalating(
     process.kill(pid, 'SIGKILL')
     logger.warn('server-manager', `${context}：kill 后 ${killWaitMs}ms 仍未退出（SIGTERM 疑似被吞），已升级 SIGKILL 强杀（pid=${pid}）`)
   } catch (e) {
-    logger.warn('server-manager', `${context}：SIGKILL 升级失败（child 可能已自行退出）：${e instanceof Error ? e.message : String(e)}`)
+    logger.warn('server-manager', `${context}：SIGKILL 升级失败（child 可能已自行退出）：${errMsg(e)}`)
   }
   await Promise.race([exited, delay(killWaitMs)])
 }

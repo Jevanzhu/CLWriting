@@ -10,6 +10,8 @@ import { useTreeStore } from '../../stores/tree'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useUiStore } from '../../stores/ui'
 import { parseChapterFileName, isBodyKind } from '../../shared/words'
+import { capView } from '../../shared/render-cap'
+import { useStaleGuard } from '../../composables/useStaleGuard'
 import { friendlyError } from '../../shared/error'
 
 const props = defineProps<{ bookName: string }>()
@@ -56,33 +58,33 @@ const abandoned = computed(() => list.value.filter((f) => f.状态 === '已废�
 // R1010c-FE1-P3-2（2026-09-10 全量独立复审修复批）：未回收/已回收渲染上限——千条级
 // 伏笔全量 v-for 挂 DOM（max-height 只裁视觉不减节点），对齐域内 RENDER_CAP=100 惯例
 // （先例 RewritePanel/AuditDiffPanel R-P3-16）：只裁渲染面前 100 条 + 尾部省略提示行；
-// 数据面不动——统计行（未回收 N/已回收 N）与折叠开关仍面向全量
+// 数据面不动——统计行（未回收 N/已回收 N）与折叠开关仍面向全量。
+// 复审-0914-优化修复批 P3：切片/计数样板收敛 shared/render-cap 单源（capView）。
 const RENDER_CAP = 100
-const pendingView = computed(() => pending.value.slice(0, RENDER_CAP))
-const resolvedView = computed(() => resolved.value.slice(0, RENDER_CAP))
-const pendingOmitted = computed(() => Math.max(0, pending.value.length - RENDER_CAP))
-const resolvedOmitted = computed(() => Math.max(0, resolved.value.length - RENDER_CAP))
+const pendingCap = computed(() => capView(pending.value, RENDER_CAP))
+const resolvedCap = computed(() => capView(resolved.value, RENDER_CAP))
 
 /** 本章埋设的未回收伏笔（当前章节联动提醒） */
 const currentPlanted = computed(() => pending.value.filter((f) => f.埋设章号 === currentChapNo.value))
 
 // M-11：加载代守卫（words store reqGen 同款）——快速切书 A→B 时 A 的慢响应不覆盖
-// B 的伏笔列表（create 后的 load 同享守卫）
-let loadGen = 0
+// B 的伏笔列表（create 后的 load 同享守卫）。
+// E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard。
+const loadGen = useStaleGuard()
 async function load(): Promise<void> {
-  const gen = ++loadGen
+  const gen = loadGen.begin()
   if (!props.bookName) return
   loading.value = true
   error.value = null
   try {
     const r = await getForeshadows(props.bookName)
-    if (gen !== loadGen) return
+    if (loadGen.stale(gen)) return
     list.value = r
   } catch (e) {
-    if (gen !== loadGen) return
+    if (loadGen.stale(gen)) return
     error.value = friendlyError(e)
   } finally {
-    if (gen === loadGen) loading.value = false
+    if (loadGen.fresh(gen)) loading.value = false
   }
 }
 
@@ -172,7 +174,7 @@ watch(() => props.bookName, load, { immediate: true })
     <div v-else class="fs-list">
       <!-- 未回收 -->
       <div
-        v-for="f in pendingView"
+        v-for="f in pendingCap.view"
         :key="f.file"
         class="fs-item pending"
         :class="{ current: currentChapNo !== null && f.埋设章号 === currentChapNo }"
@@ -193,7 +195,7 @@ watch(() => props.bookName, load, { immediate: true })
         <span class="fs-pri" :class="'p-' + f.重要性">{{ f.重要性 }}</span>
       </div>
       <!-- R1010c-FE1-P3-2：RENDER_CAP 截断省略提示行（统计行仍面向全量） -->
-      <div v-if="pendingOmitted > 0" class="cap-hint">已省略 {{ pendingOmitted }} 项</div>
+      <div v-if="pendingCap.omitted > 0" class="cap-hint">已省略 {{ pendingCap.omitted }} 项</div>
 
       <!-- 已回收（折叠）。R1010-P3（G6-⑨）：toggle/行补键盘可达——对齐上方未回收行
            的 role=button + tabindex + Enter/Space 契约，鼠标可达即键盘可达 -->
@@ -212,7 +214,7 @@ watch(() => props.bookName, load, { immediate: true })
       </div>
       <template v-if="showResolved">
         <div
-          v-for="f in resolvedView"
+          v-for="f in resolvedCap.view"
           :key="f.file"
           class="fs-item resolved"
           role="button"
@@ -228,7 +230,7 @@ watch(() => props.bookName, load, { immediate: true })
           </span>
         </div>
         <!-- R1010c-FE1-P3-2：已回收节同款截断省略提示行 -->
-        <div v-if="resolvedOmitted > 0" class="cap-hint">已省略 {{ resolvedOmitted }} 项</div>
+        <div v-if="resolvedCap.omitted > 0" class="cap-hint">已省略 {{ resolvedCap.omitted }} 项</div>
       </template>
     </div>
 

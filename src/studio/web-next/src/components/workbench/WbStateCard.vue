@@ -5,7 +5,7 @@ import { computed } from 'vue'
 import { useWorkbenchStore } from '../../stores/workbench'
 // R0912-3 #17：建议按钮补 AI 可用性闸（主「生成」按钮有闸，此旁路此前无）
 import { useUiStore } from '../../stores/ui'
-import type { BookState } from '../../api/stream'
+import type { BookState } from '../../api/workbench'
 
 const props = defineProps<{ state: BookState | null }>()
 // R0912-FE-P2-3（2026-09-11 重评-0911b 修复批）：崩溃 pending「忽略此提醒」按钮上抛

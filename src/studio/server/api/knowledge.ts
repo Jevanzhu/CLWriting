@@ -10,6 +10,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
+import { createTtlProbeCache } from '../ttl-cache.js'
 import { resolveBook, bookMovedFailure } from '../book-context.js'
 import { learnFromBook } from '../../../learn/index.js'
 import { commitSamples, commitQuotes, defaultCommitYield, type CommitYield } from '../../../learn/commit.js'
@@ -48,10 +49,9 @@ export function __setLearnCommitYieldForTest(fn: CommitYield | null): void {
 // 纯 TTL 无写路径失效挂点（learn 候选只读落盘 工作区/learn候选，书内容变化最迟 5s 可见）。
 const LEARN_CACHE_TTL = 5000
 const LEARN_CACHE_MAX = 32
-const learnCache = new Map<string, { result: LearnResult; ts: number }>()
 /** R67-15（十五轮）：删书/改名失效挂点（同 health.ts forgetStyleScanCache 口径）。 */
 export function forgetLearnCache(bookRoot: string): void {
-  learnCache.delete(bookRoot)
+  learnCache.forget(bookRoot)
 }
 /** R66-28：TTL 测试注入口（先例同 health.ts __setStyleScanTtlForTest）——真实 5s 墙钟
  *  依赖会让「失效重扫」用例慢机假红，测试注入短档消除。仅测试用。 */
@@ -59,6 +59,19 @@ let learnTtlMs: number | null = null
 export function __setLearnTtlForTest(ms: number | null): void {
   learnTtlMs = ms
 }
+
+/** D1（复审-0914-优化修复批）：缓存壳收编 ttl-cache.ts 通用件（原本地 Map + FIFO +
+ *  R47-18 过期逐出本地壳删除；命中/失效时序/逐出序逐位不变——纯 TTL + FIFO 32；
+ *  「只缓存成功结果」收编 storeIf（R66-28 原口径：失败多为输入问题，重试应现算），
+ *  见 ttl-cache.ts 头部收敛映射表）。 */
+const learnCache = createTtlProbeCache<string, LearnResult>({
+  name: 'learn',
+  keyOf: (k) => k,
+  max: LEARN_CACHE_MAX,
+  ttl: () => learnTtlMs ?? LEARN_CACHE_TTL,
+  computeAsync: (bookRoot) => learnFromBook(bookRoot),
+  storeIf: (result) => result.ok,
+})
 
 /** 候选条目形状校验（防外部提交畸形数据经 as 断言绕过）——samples/quotes 共用：
  *  只复核两候选共同必需的 场景/正文/出处 三字符串字段（章号/打分等数值字段由
@@ -94,27 +107,12 @@ export function registerKnowledgeRoutes(ctx: KnowledgeCtx): void {
     const release = acquireTaskGate(params['name']!, 'learn')
     if (!release) return replyError(res, 409, 'BUSY', '本书正在收割文风候选，请等待完成后再试')
     try {
-      const now = Date.now()
-      const cached = learnCache.get(r.bookRoot)
-      let result: LearnResult
-      if (cached && now - cached.ts < (learnTtlMs ?? LEARN_CACHE_TTL)) {
-        result = cached.result // R66-28：TTL 命中跳过全书重扫
-      } else {
-        // R47-18（四十七轮）：过期条目顺手逐出——原只当 miss 用、条目驻留至 FIFO 触顶/
-        // 删书（forgetLearnCache）；重算路径本就必走，delete 零成本零语义变更（成功路径
-        // set 原键覆写；失败不落缓存，过期死条目不再占 FIFO 位）
-        if (cached) learnCache.delete(r.bookRoot)
-        result = await learnFromBook(r.bookRoot)
-        // 只缓存成功结果——失败（无定稿正文/解析失败）多为输入问题，重试应现算
-        if (result.ok) {
-          // 简单 FIFO 淘汰（Map 保插入序）：超上限丢最旧条目，防长期运行的书库累积
-          if (learnCache.size >= LEARN_CACHE_MAX) {
-            const oldest = learnCache.keys().next().value
-            if (oldest !== undefined) learnCache.delete(oldest)
-          }
-          learnCache.set(r.bookRoot, { result, ts: Date.now() }) // R0912-B-P2-1：ts 取写入当刻（原计算前时刻被秒级计算吃掉有效缓存窗）
-        }
-      }
+      // R66-28（十四轮）：全书扫描并发闸 + 缓存（重复点击双跑双扫）。R72-2（二十轮 A-1）：
+      // learnFromBook async 化后 handler 随之 async——await 期间事件循环可响应其他请求，
+      // 但同一本书的并发重入仍要闸住（双跑双扫+候选目录写竞争），release 在 finally。
+      // D1（复审-0914-优化修复批）：TTL 命中/R47-18 过期逐出/storeIf 只缓存成功由通用件
+      // 承担（壳体收编 ttl-cache.ts）
+      const result = await learnCache.get(r.bookRoot)
       if (!result.ok) return replyError(res, 400, 'BAD_INPUT', result.error ?? '学习产出候选失败')
       reply(res, 200, { samples: result.samples ?? [], quotes: result.quotes ?? [] })
     } finally {

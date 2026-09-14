@@ -8,6 +8,7 @@ import { computed, ref, watch } from 'vue'
 import { Check } from 'lucide-vue-next'
 import { useLearnStore } from '../../stores/learn'
 import { TIER_A, scoreTierStats, tierOf } from '../../shared/learn-tier'
+import { capView } from '../../shared/render-cap'
 import type { SampleCandidateFE } from '../../api/learn'
 
 const learn = useLearnStore()
@@ -66,7 +67,8 @@ const GROUP_RENDER_CAP = 50
 const expandedGroups = ref(new Set<string>())
 function visibleItems(g: { 场景: string; items: KeyedSample[] }): KeyedSample[] {
   if (expandedGroups.value.has(g.场景) || g.items.length <= GROUP_RENDER_CAP) return g.items
-  return g.items.slice(0, GROUP_RENDER_CAP)
+  // 复审-0914-优化修复批 P3：切片样板收敛 shared/render-cap 单源（capView）
+  return capView(g.items, GROUP_RENDER_CAP).view
 }
 function expandGroup(scene: string): void {
   expandedGroups.value.add(scene)

@@ -21,7 +21,7 @@ import { existsSync, readdirSync } from 'node:fs'
 import { rmWithRetry } from '../fs/atomic.js'
 import { join } from 'node:path'
 import { git, gitAsync } from './exec.js'
-import { log } from '../log/index.js'
+import { log, errMsg } from '../log/index.js'
 import { ulid } from '../document/stable-id.js'
 import {
   writeVersion,
@@ -321,7 +321,7 @@ export function deleteAiVersions(bookRoot: string, docId: string): number {
       // 后端对应分支整批失败至少返回 0 可察觉）。补 warn 留痕对齐；控制流不变（不上抛）
       // ——轨迹删除是旁路数据 best-effort 语义，绝不阻断调用方主流程；ENOENT（并发
       // 竞态已删）同走 warn，多一条诊断噪音可接受。
-      log.warn('git', `deleteAiVersions：版本档案删除失败（${v.ref}）：${e instanceof Error ? e.message : String(e)}`)
+      log.warn('git', `deleteAiVersions：版本档案删除失败（${v.ref}）：${errMsg(e)}`)
     }
   }
   return deleted

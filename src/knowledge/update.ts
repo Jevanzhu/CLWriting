@@ -33,7 +33,7 @@ import {
   type KnowledgeManifestReport,
 } from './manifest.js'
 import { splitFrontMatter, joinFrontMatter } from '../format/frontmatter.js'
-import { log } from '../log/index.js'
+import { log, errMsg } from '../log/index.js'
 
 /** 语料回归域单 checkId 的误报/命中汇总 */
 export interface FalsePositiveSummary {
@@ -73,7 +73,7 @@ export function summarizeFalsePositives(corpusDir: string): FalsePositiveSummary
   try {
     names = readdirSync(corpusDir).filter((n) => n.endsWith('.json'))
   } catch (e) {
-    log.warn('knowledge', `语料回归域目录读取失败，误报汇总跳过（产草稿非门禁）：${corpusDir}：${e instanceof Error ? e.message : String(e)}`)
+    log.warn('knowledge', `语料回归域目录读取失败，误报汇总跳过（产草稿非门禁）：${corpusDir}：${errMsg(e)}`)
     return []
   }
   const out: FalsePositiveSummary[] = []
@@ -243,7 +243,7 @@ function commitKnowledgeFileLocked(projectRoot: string, opts: CommitKnowledgeOpt
   } catch (e) {
     return {
       ok: false,
-      issues: [{ path: opts.target, message: `定稿文件读取失败（可能已被移动或删除）：${e instanceof Error ? e.message : String(e)}` }],
+      issues: [{ path: opts.target, message: `定稿文件读取失败（可能已被移动或删除）：${errMsg(e)}` }],
     }
   }
   // R57-H-1（五十七轮）：fm 注入写与注入后哈希读是同一写入链上 manifest 写之前的两个
@@ -258,7 +258,7 @@ function commitKnowledgeFileLocked(projectRoot: string, opts: CommitKnowledgeOpt
   } catch (e) {
     return {
       ok: false,
-      issues: [{ path: opts.target, message: `front matter 注入失败（两文件均保持原态，可重试）：${e instanceof Error ? e.message : String(e)}` }],
+      issues: [{ path: opts.target, message: `front matter 注入失败（两文件均保持原态，可重试）：${errMsg(e)}` }],
     }
   }
 
@@ -276,14 +276,14 @@ function commitKnowledgeFileLocked(projectRoot: string, opts: CommitKnowledgeOpt
         issues: [
           {
             path: opts.target,
-            message: `注入后哈希计算失败且 fm 注入回滚亦失败（文件残留注入的 source/license 两键、manifest 无条目，请手工还原后重试）：${e instanceof Error ? e.message : String(e)}；回滚错误：${e2 instanceof Error ? e2.message : String(e2)}`,
+            message: `注入后哈希计算失败且 fm 注入回滚亦失败（文件残留注入的 source/license 两键、manifest 无条目，请手工还原后重试）：${errMsg(e)}；回滚错误：${errMsg(e2)}`,
           },
         ],
       }
     }
     return {
       ok: false,
-      issues: [{ path: opts.target, message: `注入后哈希计算失败，已回滚 front matter 注入（两文件均保持原态，可重试）：${e instanceof Error ? e.message : String(e)}` }],
+      issues: [{ path: opts.target, message: `注入后哈希计算失败，已回滚 front matter 注入（两文件均保持原态，可重试）：${errMsg(e)}` }],
     }
   }
 
@@ -317,14 +317,14 @@ function commitKnowledgeFileLocked(projectRoot: string, opts: CommitKnowledgeOpt
         issues: [
           {
             path: opts.target,
-            message: `manifest 写入失败且 fm 注入回滚亦失败（文件残留注入的 source/license 两键，请手工还原后重试）：${e instanceof Error ? e.message : String(e)}；回滚错误：${e2 instanceof Error ? e2.message : String(e2)}`,
+            message: `manifest 写入失败且 fm 注入回滚亦失败（文件残留注入的 source/license 两键，请手工还原后重试）：${errMsg(e)}；回滚错误：${errMsg(e2)}`,
           },
         ],
       }
     }
     return {
       ok: false,
-      issues: [{ path: opts.target, message: `manifest 写入失败，已回滚 front matter 注入（两文件均保持原态，可重试）：${e instanceof Error ? e.message : String(e)}` }],
+      issues: [{ path: opts.target, message: `manifest 写入失败，已回滚 front matter 注入（两文件均保持原态，可重试）：${errMsg(e)}` }],
     }
   }
   return validateKnowledgeManifest(projectRoot)

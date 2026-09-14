@@ -38,7 +38,7 @@ import { SUMMARY_CHAPTER_SPEC, SUMMARY_VOLUME_SPEC } from '../ai/tasks/specs.js'
 import { applyGlobalDefaults } from '../format/global-defaults.js'
 import { readBookConfig } from '../format/yaml.js'
 import type { BookConfig } from '../format/types.js'
-import { log } from '../log/index.js'
+import { log, errMsg } from '../log/index.js'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { canonicalizeText } from '../fs/text-canonical.js'
 import { acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
@@ -62,22 +62,12 @@ export function clipByCodePoints(text: string, max: number): string {
   return Array.from(text).slice(0, max).join('')
 }
 
-/** N-14（第五十四轮）：码位计数——自增计数器逐码点数，替代 `[...text].length`
- *  全量展开数组只为取个数的写法（截断路径每次落盘都过这里）；口径严格不变：
- *  代理对（高低各一码元）算一个码位，孤立代理项各算一个，与展开结果一致。 */
-export function codePointLength(text: string): number {
-  let n = 0
-  for (let i = 0; i < text.length; i++) {
-    const c = text.charCodeAt(i)
-    // 高代理项后随低代理项 → 成对算一个码位，跳过低代理项
-    if (c >= 0xd800 && c <= 0xdbff && i + 1 < text.length) {
-      const d = text.charCodeAt(i + 1)
-      if (d >= 0xdc00 && d <= 0xdfff) i++
-    }
-    n++
-  }
-  return n
-}
+// 复审-0914-优化 A2（2026-09-14 修复批）：实现下沉 src/shared/text.ts 单源（六处
+// 同口径实现收敛）；本模块 re-export 保住既有消费方（ai/tools/rewrite、ai/rules/
+// style-remedy）import 面不变。
+export { codePointLength } from '../shared/text.js'
+import { codePointLength } from '../shared/text.js'
+
 
 /** 章摘要目录（相对书根）。R71-15（总七十一轮）：posix 字面量——join() 消费点
  *  （chapterSummaryPath/mkdirSync）会自动归一到平台分隔符，而相对路径消费点
@@ -112,7 +102,7 @@ export function chapterSummaryState(bookRoot: string, chapter: number, bodyAbsPa
   try {
     raw = readFileSync(fp, 'utf8')
   } catch (e) {
-    log.warn('summary', `章摘要读取失败（第 ${chapter} 章，按缺失降级）：${e instanceof Error ? e.message : String(e)}`)
+    log.warn('summary', `章摘要读取失败（第 ${chapter} 章，按缺失降级）：${errMsg(e)}`)
     return 'missing'
   }
   // Q-14（第十五轮）：改走 frontmatter-core 统一提取——手写正则不处理 BOM/CRLF，
@@ -129,7 +119,7 @@ export function chapterSummaryState(bookRoot: string, chapter: number, bodyAbsPa
   try {
     currentHash = computeRevision(bodyAbsPath)
   } catch (e) {
-    log.warn('summary', `章摘要状态判定失败（第 ${chapter} 章正文不可读，按缺失降级）：${e instanceof Error ? e.message : String(e)}`)
+    log.warn('summary', `章摘要状态判定失败（第 ${chapter} 章正文不可读，按缺失降级）：${errMsg(e)}`)
     return 'missing'
   }
   return hashMatch[1] === currentHash ? 'fresh' : 'stale'
@@ -144,7 +134,7 @@ export function readChapterSummaryBody(bookRoot: string, chapter: number): strin
   try {
     raw = readFileSync(fp, 'utf8')
   } catch (e) {
-    log.warn('summary', `章摘要读取失败（第 ${chapter} 章，按无摘要降级）：${e instanceof Error ? e.message : String(e)}`)
+    log.warn('summary', `章摘要读取失败（第 ${chapter} 章，按无摘要降级）：${errMsg(e)}`)
     return null
   }
   // Q-14：同上走 frontmatter-core（剥 fm 口径与全库一致，BOM/CRLF 不再漏进注入正文）
@@ -267,7 +257,7 @@ export async function generateChapterSummary(opts: GenerateChapterSummaryOpts): 
     try {
       raw = readFileSync(bodyAbsPath)
     } catch (e) {
-      return { ok: false, error: `读正文失败：${e instanceof Error ? e.message : String(e)}` }
+      return { ok: false, error: `读正文失败：${errMsg(e)}` }
     }
     // R72-7（二十轮 C-1）：非 UTF-8 正文拒绝生成摘要——GBK 等文件以 utf-8 解码出 U+FFFD
     // 后喂 AI 生成摘要再回写，摘要静默失真且被指纹绑定（过期判定认它为 fresh，永不再生）。
@@ -430,7 +420,7 @@ export function afterFinalizeGenerateSummary(
         runFinalizeSummaryOnce(bookRoot, userDataPath, docId, signal),
       )
     } catch (e) {
-      log.warn('summary', `定稿章摘要钩子异常（${docId}）：${e instanceof Error ? e.message : String(e)}`)
+      log.warn('summary', `定稿章摘要钩子异常（${docId}）：${errMsg(e)}`)
     }
   })()
   // M-2：整段 try-catch 自留痕（p 不 reject）——登记进 per-book 后台表供 settle 追赶
@@ -463,12 +453,12 @@ export function afterFinalizeGenerateSummaryBatch(
           try {
             await runFinalizeSummaryOnce(bookRoot, userDataPath, docId, signal)
           } catch (e) {
-            log.warn('summary', `定稿章摘要钩子异常（${docId}）：${e instanceof Error ? e.message : String(e)}`)
+            log.warn('summary', `定稿章摘要钩子异常（${docId}）：${errMsg(e)}`)
           }
         }
       })
     } catch (e) {
-      log.warn('summary', `批量定稿章摘要链异常（${docIds.length} 章）：${e instanceof Error ? e.message : String(e)}`)
+      log.warn('summary', `批量定稿章摘要链异常（${docIds.length} 章）：${errMsg(e)}`)
     }
   })()
   if (bookName) registerBackgroundTask(bookName, p)
@@ -529,7 +519,7 @@ export async function selfHealRecentChapterSummaries(
     try {
       await runRebuildAsync({ bookRoot, cachePath: join(bookRoot, '.cache', 'index.db') })
     } catch (e) {
-      log.warn('summary', `摘要 rebuild 失败（备料降级无近章结尾段）：${e instanceof Error ? e.message : String(e)}`)
+      log.warn('summary', `摘要 rebuild 失败（备料降级无近章结尾段）：${errMsg(e)}`)
     }
   }
   return generated
@@ -665,7 +655,7 @@ export async function generateVolumeSummary(opts: {
       try {
         volRaw = readFileSync(fp, 'utf8')
       } catch (e) {
-        log.warn('summary', `卷摘要读取失败（第 ${volume} 卷，按缺失降级重生成）：${e instanceof Error ? e.message : String(e)}`)
+        log.warn('summary', `卷摘要读取失败（第 ${volume} 卷，按缺失降级重生成）：${errMsg(e)}`)
       }
       // R42-36（四十二轮）：指纹只认 fm 段——正文行首 sourceHash 不再参与 skipped 判定
       const m = volRaw !== null ? volumeSourceHash(volRaw) : null
@@ -746,7 +736,7 @@ export async function selfHealVolumeSummary(
     try {
       volRaw = readFileSync(fp, 'utf8')
     } catch (e) {
-      log.warn('summary', `卷摘要读取失败（第 ${targetVolume} 卷，按手写产物跳过不动）：${e instanceof Error ? e.message : String(e)}`)
+      log.warn('summary', `卷摘要读取失败（第 ${targetVolume} 卷，按手写产物跳过不动）：${errMsg(e)}`)
     }
     // R42-36（四十二轮）：指纹只认 fm 段——正文行首 sourceHash 不再把无 fm 手写产物
     // 伪装成程序生成（M-7 作者优先甄别回归 fm 事实）

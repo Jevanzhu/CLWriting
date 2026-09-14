@@ -12,7 +12,7 @@ import { readFileSync, mkdirSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
-import { log } from '../log/index.js'
+import { log, errMsg } from '../log/index.js'
 import type { RuleViolation } from './rules/types.js'
 import { openSessionStore, openSessionStoreAsync, bookHash } from '../events/store.js'
 import { ruleHitEvent } from '../events/chain-bridge.js'
@@ -96,7 +96,7 @@ export async function recordRuleHits(bookRoot: string, violations: RuleViolation
       } catch (e) {
         // 统计是旁路，不影响主流程；但不再空吞——warn 留痕含病因（对齐
         // prompts/resource.ts 单文件失败 warn 留痕先例；复审-0913-mac适配 通用-3）
-        log.warn('rule-hits', `rule-hits 落盘失败，本轮文件统计未记（观测层降级；事件双写照常）：${e instanceof Error ? e.message : String(e)}`)
+        log.warn('rule-hits', `rule-hits 落盘失败，本轮文件统计未记（观测层降级；事件双写照常）：${errMsg(e)}`)
       }
     } finally {
       release()

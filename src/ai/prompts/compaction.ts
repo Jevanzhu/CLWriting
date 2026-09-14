@@ -60,20 +60,10 @@ export function planCompaction(messages: ChatMsg[], opts: { keepTurns: number })
   }
 }
 
-/** R0912-D-P3-1：码点计数零分配改写——热路径每轮全历史计量不再物化 N 元素数组，
- *  就地计数（代理对跨 surrogate 对算 1，孤立代理算 1）；口径不变（UTF-16 码点数）。 */
-function codePointLength(text: string): number {
-  let n = 0
-  for (let i = 0; i < text.length; i++) {
-    n++
-    const c = text.charCodeAt(i)
-    if (c >= 0xd800 && c <= 0xdbff && i + 1 < text.length) {
-      const d = text.charCodeAt(i + 1)
-      if (d >= 0xdc00 && d <= 0xdfff) i++
-    }
-  }
-  return n
-}
+// R0912-D-P3-1：码点计数零分配（热路径每轮全历史计量不物化数组）。
+// 复审-0914-优化 A2：实现收编 src/shared/text.ts 单源（原本地副本删）。
+import { codePointLength } from '../../shared/text.js'
+
 
 /** 计量消息占用的 code point 数（严格更小校验的口径；tool_use 入参按 64 粗估） */
 function measureMessages(msgs: ChatMsg[]): number {

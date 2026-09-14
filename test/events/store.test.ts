@@ -57,8 +57,8 @@ describe('F1-P1 store 存取', () => {
     const store = openSessionStore(ud, '/books/a')!;
     const s1 = store.createSession('书A')
     const s2 = store.createSession('书A')
-    store.appendEvent(s1, { type: 'user/message', data: { message: 'm1' }, surfaceOp: 'append' })
-    store.appendEvent(s2, { type: 'user/message', data: { message: 'm2' }, surfaceOp: 'append' })
+    store.appendEvents(s1, [{ type: 'user/message', data: { message: 'm1' }, surfaceOp: 'append' }])
+    store.appendEvents(s2, [{ type: 'user/message', data: { message: 'm2' }, surfaceOp: 'append' }])
     expect(store.listEvents('书A', s1).map((e) => e.data['message'])).toEqual(['m1'])
     expect(store.listEvents('书A').map((e) => e.data['message'])).toEqual(['m1', 'm2'])
     store.close()
@@ -114,7 +114,7 @@ describe('F1-P1 store 存取', () => {
     // 坏库清走后同路径可开可写——openStores 无残留登记/句柄阻塞
     rmSync(dbPath, { force: true })
     const store2 = openSessionStore(ud, '/books/a')!;
-    store2.appendEvent(store2.createSession('书A'), { type: 'session/start', data: {} })
+    store2.appendEvents(store2.createSession('书A'), [{ type: 'session/start', data: {} }])
     store2.close()
   })
 
@@ -122,7 +122,7 @@ describe('F1-P1 store 存取', () => {
     const ud = tmpRoot()
     const store = openSessionStore(ud, '/books/a')!;
     const sid = store.createSession('书A')
-    store.appendEvent(sid, { type: 'user/message', data: { message: 'x' }, surfaceOp: 'append' })
+    store.appendEvents(sid, [{ type: 'user/message', data: { message: 'x' }, surfaceOp: 'append' }])
     expect(store.lastSeq()).toBe(1)
     store.clearBook('书A')
     expect(store.listEvents('书A')).toHaveLength(0)
@@ -134,7 +134,7 @@ describe('F1-P1 store 存取', () => {
     const ud = tmpRoot()
     const store = openSessionStore(ud, '/books/a')!;
     const sid = store.createSession('书A')
-    store.appendEvent(sid, { type: 'user/message', data: { message: '审计数据' }, surfaceOp: 'append' })
+    store.appendEvents(sid, [{ type: 'user/message', data: { message: '审计数据' }, surfaceOp: 'append' }])
     // 用触发器让第二条 DELETE（sessions）必然失败——验证第一条（events）随之回滚
     const other = new DatabaseSync(store.dbPath)
     other.exec(
@@ -158,9 +158,9 @@ describe('F1-P1 store 存取', () => {
     const store = openSessionStore(ud, '/books/a')!;
     // 双钥匙两 book 键，各挂一条事件
     const s1 = store.createSession('书A')
-    store.appendEvent(s1, { type: 'user/message', data: { message: '对话侧' }, surfaceOp: 'append' })
+    store.appendEvents(s1, [{ type: 'user/message', data: { message: '对话侧' }, surfaceOp: 'append' }])
     const s2 = store.createSession('书A#hash')
-    store.appendEvent(s2, { type: 'user/message', data: { message: '工作流侧' }, surfaceOp: 'append' })
+    store.appendEvents(s2, [{ type: 'user/message', data: { message: '工作流侧' }, surfaceOp: 'append' }])
     // 触发器让 sessions 的 DELETE 必然失败——第一键已删、第二键炸 → 全回滚
     const other = new DatabaseSync(store.dbPath)
     other.exec(
@@ -212,8 +212,8 @@ describe('F1-P1 启动修复', () => {
     const ud = tmpRoot()
     const store = openSessionStore(ud, '/books/a')!;
     const sid = store.createSession('书A')
-    store.appendEvent(sid, { type: 'session/start', data: { book: '书A' } })
-    store.appendEvent(sid, { type: 'user/message', data: { message: 'crash' }, surfaceOp: 'append' })
+    store.appendEvents(sid, [{ type: 'session/start', data: { book: '书A' } }])
+    store.appendEvents(sid, [{ type: 'user/message', data: { message: 'crash' }, surfaceOp: 'append' }])
     store.close()
     backdateEvents(ud, '/books/a', 33 * 60 * 1000) // 超过 32 分钟宽限期（R65-19 对齐 AGENT_DEADLINE_MS）
     // 重开库（模拟崩溃后重启）
@@ -230,7 +230,7 @@ describe('F1-P1 启动修复', () => {
     const t0 = Date.now()
     const store = openSessionStore(ud, '/books/a')!;
     const sid = store.createSession('书A')
-    store.appendEvent(sid, { type: 'session/start', data: {} })
+    store.appendEvents(sid, [{ type: 'session/start', data: {} }])
     store.close()
     // 事件与 sessions 双双回拨：修复前 updated_at 停留在创建时刻（t0-11min）
     backdateEvents(ud, '/books/a', 33 * 60 * 1000)
@@ -254,7 +254,7 @@ describe('F1-P1 启动修复', () => {
     const ud = tmpRoot()
     const store = openSessionStore(ud, '/books/a')!;
     const sid = store.createSession('书A')
-    store.appendEvent(sid, { type: 'session/start', data: {} })
+    store.appendEvents(sid, [{ type: 'session/start', data: {} }])
     store.close()
     backdateEvents(ud, '/books/a', 33 * 60 * 1000)
     backdateSessions(ud, '/books/a', 33 * 60 * 1000)
@@ -283,8 +283,8 @@ describe('F1-P1 启动修复', () => {
     const ud = tmpRoot()
     const store = openSessionStore(ud, '/books/a')!;
     const sid = store.createSession('书A')
-    store.appendEvent(sid, { type: 'session/start', data: { book: '书A' } })
-    store.appendEvent(sid, { type: 'user/message', data: { message: '另一进程进行中' }, surfaceOp: 'append' })
+    store.appendEvents(sid, [{ type: 'session/start', data: { book: '书A' } }])
+    store.appendEvents(sid, [{ type: 'user/message', data: { message: '另一进程进行中' }, surfaceOp: 'append' }])
     store.close()
     // 不回拨：最后活动就在此刻（宽限期内）
     const store2 = openSessionStore(ud, '/books/a')!;
@@ -296,7 +296,7 @@ describe('F1-P1 启动修复', () => {
     const ud = tmpRoot()
     const store = openSessionStore(ud, '/books/a')!;
     const sid = store.createSession('书A')
-    store.appendEvent(sid, { type: 'session/start', data: {} })
+    store.appendEvents(sid, [{ type: 'session/start', data: {} }])
     store.close()
     backdateEvents(ud, '/books/a', 31 * 60 * 1000)
     const store2 = openSessionStore(ud, '/books/a')!;
@@ -308,8 +308,8 @@ describe('F1-P1 启动修复', () => {
     const ud = tmpRoot()
     const store = openSessionStore(ud, '/books/a')!;
     const sid = store.createSession('书A')
-    store.appendEvent(sid, { type: 'session/start', data: {} })
-    store.appendEvent(sid, { type: 'session/end', data: { reason: 'completed' } })
+    store.appendEvents(sid, [{ type: 'session/start', data: {} }])
+    store.appendEvents(sid, [{ type: 'session/end', data: { reason: 'completed' } }])
     store.close()
     backdateEvents(ud, '/books/a', 33 * 60 * 1000)
     const store2 = openSessionStore(ud, '/books/a')!;
@@ -327,7 +327,7 @@ describe('F1-P1 启动修复', () => {
     try {
       const store = openSessionStore(ud, '/books/a')!;
       const sid = store.createSession('书A')
-      store.appendEvent(sid, { type: 'session/start', data: {} })
+      store.appendEvents(sid, [{ type: 'session/start', data: {} }])
       store.close()
       // 重开：孤儿最后活动 = t0（宽限期内）→ 打开修复跳过
       const store2 = openSessionStore(ud, '/books/a')!;
@@ -356,8 +356,8 @@ describe('F1-P1 启动修复', () => {
       const store = openSessionStore(ud, '/books/a')!
       const sidA = store.createSession('书A')
       const sidB = store.createSession('书A')
-      store.appendEvent(sidA, { type: 'session/start', data: {} })
-      store.appendEvent(sidB, { type: 'session/start', data: {} })
+      store.appendEvents(sidA, [{ type: 'session/start', data: {} }])
+      store.appendEvents(sidB, [{ type: 'session/start', data: {} }])
       store.close()
       // 重开：两会话最后活动 = t0（宽限期内）→ 打开修复跳过；TTL 基线 = 重开时刻
       const store2 = openSessionStore(ud, '/books/a')!
@@ -366,7 +366,7 @@ describe('F1-P1 启动修复', () => {
         store2.listEvents('书A').filter((e) => e.type === 'session/end' && e.sessionId === sid)
       // 核心断言：向 sidB 追加事件（刷新 sidB 自身 last_at，不影响 sidA）——sidA 超
       // 宽限且不在活跃集，修复前此处会被顺手补 end；修复后 appendEvents 不触发修复
-      store2.appendEvent(sidB, { type: 'user/message', data: {}, surfaceOp: 'append' })
+      store2.appendEvents(sidB, [{ type: 'user/message', data: {}, surfaceOp: 'append' }])
       expect(endsOf(sidA)).toHaveLength(0)
       // 自愈对照：createSession 仍触发惰性修复 → sidA 补上 interrupted end；
       // sidB 刚被 append 刷新（last_at = now）仍在宽限期内不被补

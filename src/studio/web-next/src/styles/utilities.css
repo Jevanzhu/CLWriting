@@ -95,6 +95,28 @@
   background: var(--background-secondary);
   border: 1px solid var(--background-modifier-border);
 }
+/* 视图切换按钮（ShelfModal / Shelf；复审-0914-优化修复批 P1-7b 收敛，两处 scoped
+ * 规则体逐字相同、全库无同名异体——符合头注收纳口径 1/2/3） */
+.toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border: none;
+  border-radius: calc(var(--radius-s) - 1px);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.toggle-btn:hover {
+  color: var(--text-normal);
+}
+.toggle-btn.active {
+  background: var(--background-primary);
+  color: var(--text-normal);
+  box-shadow: var(--shadow-s);
+}
 .del-num {
   margin-left: 2px;
   opacity: 0.85;

@@ -96,10 +96,14 @@ function toAnthropicMessage(m: ChatMsg): Anthropic.MessageParam | null {
   if (typeof m.content === 'string') return { role: m.role, content: m.content }
   // block 数组 → Anthropic content block
   const blocks: Anthropic.ContentBlockParam[] = m.content.flatMap((b: ClwContentBlock): Anthropic.ContentBlockParam[] => {
-    if (b.type === 'text') return [{ type: 'text', text: b.text }]
+    // 全库重评-0914 P3-2：空串 text 块跳过——Anthropic API 对空 text 块 400，此前原样
+    // 透传，正确性隐式依赖上游 sanitizeHistory 防线（R72-12 记档的耦合）；防御内置后
+    // 该耦合解除。跳过后整消息无块 → 走下方 R30-10 空数组 → null 的剔除路径兜住
+    if (b.type === 'text') return b.text === '' ? [] : [{ type: 'text', text: b.text }]
     // reasoning 块（chat 侧 DeepSeek/Kimi 回传产物）→ 原生端点无此字段，静默丢弃（方案 §4.2）。
-    // R72-12（二十轮 A-11）记档：正确性依赖上游 sanitizeHistory 先剥离——若未来上游
-    // 防线移除，此处丢弃即最后一道（仅丢回传推理文本，不损对话内容，风险可接受）
+    // R72-12（二十轮 A-11）记档：正确性曾依赖上游 sanitizeHistory 先剥离——若未来上游
+    // 防线移除，此处丢弃即最后一道（仅丢回传推理文本，不损对话内容，风险可接受）；
+    // 全库重评-0914 P3-2：空 text 块防御已内置（见上），该隐式耦合解除
     if (b.type === 'reasoning') return []
     // R36-2（三十六轮）注：Anthropic 扩展思考块的完整回传（带签名 thinking 块）需要
     // 在 ContentBlock 增加 thinking/redacted_thinking 变体 + gen/turns 侧签名载道——

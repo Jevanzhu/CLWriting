@@ -9,6 +9,7 @@
  * hash 不匹配 → 面板标「已过期」，提示可重新分析。
  */
 import { existsSync, readFileSync } from 'node:fs'
+import { testableConst } from '../shared/testable.js'
 import { join } from 'node:path'
 import { atomicWriteFile, rmWithRetry } from '../fs/atomic.js'
 import { acquireCrossProcessLockWithTimeout, acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
@@ -122,15 +123,11 @@ export function readAnalysisKinds(
  *  双进程并发写不同 kind 时后写者以其旧 raw 落盘，先写者的 kind 静默丢失。
  *  锁文件 `${filePath}.lock`（journal/manifest 同款基建，X-5/N7 语义）；超时降级
  *  裸写 + warn 留痕（AI 派生数据可重跑，宁裸写不阻断主流程）。 */
-let ANALYSIS_LOCK_TIMEOUT_MS = 5_000
-
-/** 测试注入钩子（生产零调用）。 */
-export function __setAnalysisLockTimeoutForTest(ms: number): void {
-  ANALYSIS_LOCK_TIMEOUT_MS = ms
-}
+/** A4（复审-0914-优化修复批）：三件套换装 testableConst——生效值 getter（消费点显式调用）+ 测试注入 setter 元组第二位（原名原签名）。 */
+export const [getAnalysisLockTimeoutMs, __setAnalysisLockTimeoutForTest] = testableConst(5_000)
 
 function withAnalysisLock<T>(filePath: string, fn: () => T): T {
-  const release = acquireCrossProcessLockWithTimeout(`${filePath}.lock`, ANALYSIS_LOCK_TIMEOUT_MS)
+  const release = acquireCrossProcessLockWithTimeout(`${filePath}.lock`, getAnalysisLockTimeoutMs())
   if (!release) {
     log.warn('analysis', `分析锁超时，降级裸写（${filePath}）——并发合并写窗口回到无锁口径`)
     return fn()
@@ -174,7 +171,7 @@ export async function writeAnalysisAsync(
 ): Promise<void> {
   const fp = analysisPath(bookRoot, docId)
   if (!fp) return
-  const release = await acquireCrossProcessLockAsync(`${fp}.lock`, ANALYSIS_LOCK_TIMEOUT_MS)
+  const release = await acquireCrossProcessLockAsync(`${fp}.lock`, getAnalysisLockTimeoutMs())
   if (!release) {
     log.warn('analysis', `分析锁超时，降级裸写（${fp}）——并发合并写窗口回到无锁口径`)
     writeAnalysisLocked(fp, bookRoot, docId, kind, envelope)
@@ -190,47 +187,47 @@ export async function writeAnalysisAsync(
 /** R34D-19（三十四轮）：合并写 RMW 本体（锁由调用方在持）——writeAnalysis（同步壳）与
  *  writeAnalysisAsync（异步壳）共用，防两壳各持一份合并逻辑漂移。 */
 function writeAnalysisLocked(fp: string, bookRoot: string, docId: string, kind: AnalysisKind, envelope: Envelope): void {
-    const candidates = analysisPathCandidates(bookRoot, docId) ?? []
-    // overlay 合并基：按候选序依次叠加（后读的编码文件键覆盖字面旧键）
-    let raw: Record<string, unknown> = {}
-    // R48-49（四十八轮）：单候选常态（迁移收口后 candidates=[fp]）已在循环内读完，
-    // 下方不再整读+解析同一路径第二遍（fpConsumed 标记）；多候选/循环内读失败仍走
-    // 下方兜底读，语义不变。
-    let fpConsumed = false
-    for (const cp of candidates) {
-      if (cp === fp && candidates.length > 1) continue // 编码位在下方统一处理
-      if (!existsSync(cp)) continue
+  const candidates = analysisPathCandidates(bookRoot, docId) ?? []
+  // overlay 合并基：按候选序依次叠加（后读的编码文件键覆盖字面旧键）
+  let raw: Record<string, unknown> = {}
+  // R48-49（四十八轮）：单候选常态（迁移收口后 candidates=[fp]）已在循环内读完，
+  // 下方不再整读+解析同一路径第二遍（fpConsumed 标记）；多候选/循环内读失败仍走
+  // 下方兜底读，语义不变。
+  let fpConsumed = false
+  for (const cp of candidates) {
+    if (cp === fp && candidates.length > 1) continue // 编码位在下方统一处理
+    if (!existsSync(cp)) continue
+    try {
+      raw = { ...raw, ...(JSON.parse(readFileSync(cp, 'utf-8')) as Record<string, unknown>) }
+      if (cp === fp) fpConsumed = true
+    } catch {
+      // 本候选损坏 → 跳过（其他候选仍可作基；全损则重建）
+    }
+  }
+  if (!fpConsumed && existsSync(fp)) {
+    try {
+      raw = { ...raw, ...(JSON.parse(readFileSync(fp, 'utf-8')) as Record<string, unknown>) }
+    } catch {
+      // 编码文件损坏 → 以字面基重建（丢弃损坏载荷）
+    }
+  }
+  raw[kind] = envelope
+  atomicWriteFile(fp, JSON.stringify(raw, null, 2))
+  // 迁移收口：编码文件落盘成功后删字面旧源（锁内；失败不阻断——下次写重试删）
+  for (const cp of candidates) {
+    if (cp !== fp && existsSync(cp)) {
       try {
-        raw = { ...raw, ...(JSON.parse(readFileSync(cp, 'utf-8')) as Record<string, unknown>) }
-        if (cp === fp) fpConsumed = true
+        // R0911-E-P3-3（2026-09-11 全量重评 GLM-5.3 修复批）：删源收编 rmWithRetry
+        //（fs/atomic.ts R40-18「确实要删」原语，trash.ts/service.ts 等删源点同款）——
+        // 裸 rmSync 撞 win 杀软/索引器对相邻刚写文件的瞬时锁（EPERM/EBUSY）直败，
+        // 字面旧源滞留拖长双候选期；3×50ms 退避后仍失败保持既有收口（吞错不阻断，
+        // 下次写重试删）
+        rmWithRetry(cp)
       } catch {
-        // 本候选损坏 → 跳过（其他候选仍可作基；全损则重建）
+        // 删源失败：读侧仍双候选可读（编码优先级靠下方读序保证），下次写重试
       }
     }
-    if (!fpConsumed && existsSync(fp)) {
-      try {
-        raw = { ...raw, ...(JSON.parse(readFileSync(fp, 'utf-8')) as Record<string, unknown>) }
-      } catch {
-        // 编码文件损坏 → 以字面基重建（丢弃损坏载荷）
-      }
-    }
-    raw[kind] = envelope
-    atomicWriteFile(fp, JSON.stringify(raw, null, 2))
-    // 迁移收口：编码文件落盘成功后删字面旧源（锁内；失败不阻断——下次写重试删）
-    for (const cp of candidates) {
-      if (cp !== fp && existsSync(cp)) {
-        try {
-          // R0911-E-P3-3（2026-09-11 全量重评 GLM-5.3 修复批）：删源收编 rmWithRetry
-          //（fs/atomic.ts R40-18「确实要删」原语，trash.ts/service.ts 等删源点同款）——
-          // 裸 rmSync 撞 win 杀软/索引器对相邻刚写文件的瞬时锁（EPERM/EBUSY）直败，
-          // 字面旧源滞留拖长双候选期；3×50ms 退避后仍失败保持既有收口（吞错不阻断，
-          // 下次写重试删）
-          rmWithRetry(cp)
-        } catch {
-          // 删源失败：读侧仍双候选可读（编码优先级靠下方读序保证），下次写重试
-        }
-      }
-    }
+  }
 }
 
 /** R36-4（三十六轮）：withAnalysisLock 的异步孪生——锁等待走 acquireCrossProcessLockAsync
@@ -238,7 +235,7 @@ function writeAnalysisLocked(fp: string, bookRoot: string, docId: string, kind: 
  *  超时降级裸写 + warn 留痕口径与同步版逐位同源。同步版 withAnalysisLock 保留——随
  *  writeAnalysis（生产零调用）仅测试直调使用。 */
 async function withAnalysisLockAsync<T>(filePath: string, fn: () => T): Promise<T> {
-  const release = await acquireCrossProcessLockAsync(`${filePath}.lock`, ANALYSIS_LOCK_TIMEOUT_MS)
+  const release = await acquireCrossProcessLockAsync(`${filePath}.lock`, getAnalysisLockTimeoutMs())
   if (!release) {
     log.warn('analysis', `分析锁超时，降级裸写（${filePath}）——并发合并写窗口回到无锁口径`)
     return fn()

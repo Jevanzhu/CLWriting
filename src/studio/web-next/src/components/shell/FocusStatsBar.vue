@@ -11,6 +11,7 @@ import { useUiStore } from '../../stores/ui'
 import { usePrefsStore } from '../../stores/prefs'
 import { getConfig, type BookConfig } from '../../api/books'
 import { useDebouncedWordCount, useDebouncedFmFields } from '../../composables/useDebouncedWordCount'
+import { useStaleGuard } from '../../composables/useStaleGuard'
 
 const ws = useWorkspaceStore()
 const doc = useDocStore()
@@ -89,16 +90,17 @@ onBeforeUnmount(() => clearInterval(ticker))
 // ── 章目标（三级同语义，WritingInfoPanel 同链）──
 const config = ref<BookConfig>({})
 // R67-18（十五轮）：请求代守卫——快速切书时慢响应迟归会覆盖新书配置（A 书的
-// chapter_target_words 串进 B 书目标区显示）；代数不符的迟归结果弃用
-let configReqGen = 0
+// chapter_target_words 串进 B 书目标区显示）；代数不符的迟归结果弃用。
+// E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard。
+const configReqGen = useStaleGuard()
 watch(
   () => ws.bookName,
   async (n) => {
     if (!n) return
-    const gen = ++configReqGen
+    const gen = configReqGen.begin()
     try {
       const c = await getConfig(n)
-      if (gen === configReqGen) config.value = c
+      if (configReqGen.fresh(gen)) config.value = c
     } catch { /* 读不到配置：目标区退到 fm/全局默认解析 */ }
   },
   { immediate: true },

@@ -20,6 +20,7 @@ import { join } from 'node:path'
 import { readdirSync, statSync, lstatSync, existsSync } from 'node:fs'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
+import { createTtlProbeCache } from '../ttl-cache.js'
 import { resolveBook } from '../book-context.js'
 import { listVersionEntries, readVersion, readVersionRaw, pruneVersions, DEFAULT_VERSION_POLICY, readGlobalSnapshotPolicy } from '../../../document/version.js'
 import { readManifest } from '../../../document/manifest.js'
@@ -32,6 +33,7 @@ import { ulid } from '../../../fs/id.js'
 import { getOrCreateService } from './documents.js'
 import { acquireTaskGate, orchestrationBusyFor } from './task-gate.js' // R26-67：prune 书级任务闸；R0912-ds41：补编排互斥查询
 import { yieldToEventLoop, SCAN_YIELD_EVERY } from './progress.js' // R44-9：MISS 计算体逐块让出（R37-3 范式）
+import { sigStatFor } from './rhythm.js' // A3（复审-0914-优化修复批）：三处同体收编单源（先例位在本文件）
 import type { Revision } from '../../../document/revision.js'
 
 interface SnapshotCtx {
@@ -144,11 +146,6 @@ interface VersionStatsResult {
   pinnedCount: number
   finalizedDocs: number
 }
-/** R44-9：缓存条目加 probeTs——探针取值时刻（节流窗起点，见 getVersionStatsCached）。 */
-const versionStatsCache = new Map<
-  string,
-  { probe: string; probeTs: number; result: VersionStatsResult; sig: string; ts: number }
->()
 let versionStatsTtlMs: number | null = null
 /** R36-7：TTL 测试注入口（先例同 __setSearchCacheTtlForTest）。仅测试用。 */
 export function __setVersionStatsTtlForTest(ms: number | null): void {
@@ -156,16 +153,15 @@ export function __setVersionStatsTtlForTest(ms: number | null): void {
 }
 /** R36-7：写侧失效挂点——prune/restore 落盘后调用（本文件内写路径）。 */
 export function forgetVersionStatsCache(bookRoot: string): void {
-  versionStatsCache.delete(bookRoot)
+  versionStatsCache.forget(bookRoot)
 }
 /** R36-7 回归观测钩子（生产零调用；先例同 __searchScanCountForTest）：缓存 MISS →
  *  全量重算计数。 */
-let versionStatsScanCount = 0
 export function __versionStatsScanCountForTest(): number {
-  return versionStatsScanCount
+  return versionStatsCache.scanCountForTest()
 }
 export function __resetVersionStatsScanCountForTest(): void {
-  versionStatsScanCount = 0
+  versionStatsCache.resetScanCountForTest()
 }
 /** R44-9（四十四轮）回归观测钩子（生产零调用）：versionStatsProbe 实际执行计数——
  *  探针节流命中（TTL 窗内复用）时应不再增长。 */
@@ -186,16 +182,9 @@ export function __resetVersionStatsSigCountForTest(): void {
   versionStatsSigCount = 0
 }
 
-/** stat 的 size:mtimeMs 签名（缺失 → '-'；读失败按缺失处理）。
- *  mtimeMs 保留亚毫秒小数（同 search.ts dirSignature 口径），降低同毫秒重写漏探针概率。 */
-function sigStatFor(fp: string): string {
-  try {
-    const st = statSync(fp)
-    return `${st.size}:${st.mtimeMs}`
-  } catch {
-    return '-'
-  }
-}
+// A3（复审-0914-优化修复批）：sigStatFor 三处同体（rhythm/snapshots/analysis 原各持
+// 一份）收编 rhythm.ts 单源 export——本文件为原注释所引先例位之一，改 import；
+// size:mtimeMs 口径与 mtimeMs 亚毫秒保留逐位不变（statSync 其余使用点仍本地）。
 
 /** R36-7：version-stats 的盘面签名——manifest size:mtime + .版本 递归每条目
  *  name:size:mtime（读侧内容全部由签名覆盖：命中即跳过逐文件 fm 读 + manifest 整读）。
@@ -310,46 +299,27 @@ function versionStatsProbe(bookRoot: string): string {
  *  改写的既有兜底窗口一致；本文件写路径（prune/restore）仍走 forgetVersionStatsCache
  *  即时失效。②MISS 计算体异步分批让出（scanVersionsDirAsync），本函数与 handler
  *  相应 async 化（dispatch 兜底 try/catch → 500，Promise 不悬空）。 */
-export async function getVersionStatsCached(bookRoot: string): Promise<VersionStatsResult> {
-  const now = Date.now()
-  const ttl = versionStatsTtlMs ?? VERSION_STATS_TTL_MS
-  const cached = versionStatsCache.get(bookRoot)
-  // R44-9：探针节流——TTL 窗内复用上次探针值（probeTs ≤ ts，复用窗 ⊆ 缓存 TTL 窗，
-  // 不出现「探针仍新鲜而缓存已过期」的倒挂）；超窗现取（TTL 到了必须重新探）
-  let probe: string
-  if (cached && now - cached.probeTs < ttl) {
-    probe = cached.probe
-  } else {
-    probe = versionStatsProbe(bookRoot)
-    if (cached) cached.probeTs = now
-  }
-  // 第一级：便宜目录指纹未变（且 TTL 内）→ 直接复用，跳过全量递归签名 walk
-  if (cached && now - cached.ts < ttl && cached.probe === probe) {
-    return cached.result
-  }
-  // R47-18（四十七轮）：TTL 已过的条目两级判定均不可能再命中（两级均含 now-ts<ttl），
-  // 顺手逐出防驻留至 FIFO 触顶/写侧 forget——重算路径本就必走，零成本零语义变更
-  if (cached && now - cached.ts >= ttl) versionStatsCache.delete(bookRoot)
-  // 第二级：指纹变了才全量签名（R36-7 原口径）；签名一致 → 回填指纹、复用结果免重算
-  versionStatsSigCount += 1
-  const sig = versionStatsSignature(bookRoot)
-  if (cached && now - cached.ts < ttl && cached.sig === sig) {
-    cached.probe = probe
-    return cached.result
-  }
-  versionStatsScanCount += 1
-  const result = await computeVersionStatsAsync(bookRoot)
-  // 简单 FIFO 淘汰（Map 保插入序）：超上限丢最旧条目，防长期运行的书库累积
-  if (versionStatsCache.size >= VERSION_STATS_MAX) {
-    const oldest = versionStatsCache.keys().next().value
-    if (oldest !== undefined) versionStatsCache.delete(oldest)
-  }
-  // R44-9：ts 记 set 当刻 Date.now()（R42-16 口径——MISS 计算体含逐块让出，跨多个
-  // tick，「出生即折旧」会把 TTL 窗吃掉）；probeTs 记探针取值时刻 now（更早，节流
-  // 窗更保守——宁多探不少探）
-  versionStatsCache.set(bookRoot, { probe, probeTs: now, sig, result, ts: Date.now() })
-  return result
+export function getVersionStatsCached(bookRoot: string): Promise<VersionStatsResult> {
+  return versionStatsCache.get(bookRoot)
 }
+
+/** D1（复审-0914-优化修复批）：缓存壳收编 ttl-cache.ts 通用件（原本地 Map + FIFO +
+ *  R47-18 过期逐出本地壳删除；命中/失效时序/逐出序逐位不变——两级探针（probe 节流 +
+ *  probeTs/probe/sig 五字段条目 + L2 签名一致回填指纹复用）+ 异步计算 + FIFO 32，
+ *  转写注见 ttl-cache.ts judge；sigCount 计数随实现迁入 signature 包装，本文件为
+ *  两级探针形态正本位。见 ttl-cache.ts 头部收敛映射表）。 */
+const versionStatsCache = createTtlProbeCache<string, VersionStatsResult>({
+  name: 'version-stats',
+  keyOf: (k) => k,
+  max: VERSION_STATS_MAX,
+  ttl: () => versionStatsTtlMs ?? VERSION_STATS_TTL_MS,
+  probe: versionStatsProbe,
+  signature: (bookRoot) => {
+    versionStatsSigCount += 1
+    return versionStatsSignature(bookRoot)
+  },
+  computeAsync: computeVersionStatsAsync,
+})
 
 export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
   // 版本统计（改动 10b）：全书快照占用 / 总数 / 定稿章节数 / 定稿版本数

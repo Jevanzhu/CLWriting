@@ -9,8 +9,6 @@
  * 写端点的 Origin 白名单 + x-studio-token 校验由 server/index.ts 统一拦截（defense-in-depth）。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { realpathSync } from 'node:fs'
-import { sep } from 'node:path'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError, parseRequestUrl } from '../http.js'
 import { resolveBook, bookMovedFailure } from '../book-context.js'
@@ -54,7 +52,8 @@ import {
 import { cleanupRagAfterMerge, estimateRagChunkCount } from '../../../rag/index.js'
 import { openSessionStoreAsync, bookHash } from '../../../events/store.js'
 import { recordForeshadowChanges } from '../../../events/chain-bridge.js'
-import { log } from '../../../log/index.js' // R43-23（四十三轮）：伏笔观测层失败留痕
+import { log, errMsg } from '../../../log/index.js' // R43-23（四十三轮）：伏笔观测层失败留痕；复审-0914-优化修复批：errMsg 三目收编
+import { createSerialChainMap } from '../serial-chain.js' // P1-3（复审-0914-优化修复批）：per-book 串行链四胞胎通用件
 
 /** 阶段 24：structure 的 RAG 触点端口实例（干跑预估 + 合并/撤销/拆分后清理）。 */
 const structureRag: StructureRagPort = { cleanupRagAfterMerge, estimateRagChunkCount }
@@ -120,7 +119,7 @@ function foreshadowSnapshot(bookRoot: string, path: string | null, docId: string
   } catch (e) {
     // R43-23（四十三轮）：空 catch 补留痕——快照失败静默返回 null 时本轮变更不落
     // foreshadow/change 事件且无从排查（观测层缺一段差分）；带 docId 因果
-    log.warn('api', `伏笔快照读取失败（docId=${docId}），本轮变更不落 foreshadow/change 事件：${e instanceof Error ? e.message : String(e)}`)
+    log.warn('api', `伏笔快照读取失败（docId=${docId}），本轮变更不落 foreshadow/change 事件：${errMsg(e)}`)
     return null
   }
 }
@@ -151,7 +150,7 @@ async function recordForeshadowDelta(
     // 观测层：写失败不炸文档操作
     // R43-23（四十三轮）：空 catch 补留痕——差分落库失败静默时本轮伏笔事件缺失
     // 无从排查（文档操作本身已成功，事件链断在观测层）；带 docId 因果
-    log.warn('api', `伏笔差分落事件失败（docId=${docId}，本轮伏笔变更未记录）：${e instanceof Error ? e.message : String(e)}`)
+    log.warn('api', `伏笔差分落事件失败（docId=${docId}，本轮伏笔变更未记录）：${errMsg(e)}`)
   }
 }
 
@@ -172,21 +171,12 @@ async function recordForeshadowDelta(
 // SaveQueue（save）/chainDocMetaOp（meta/fm）/清单·回收站锁（create/copy/trash/
 // rename/move），均只被链单元单向 await、从不反等本链，外链→内链/锁单向无环；
 // drainDocumentSaves 只计 SaveQueue 在途，四处本就不入该计数，链化无顺序回归。
-const foreshadowSaveChains = new Map<string, Promise<unknown>>()
+const foreshadowSaveChains = createSerialChainMap()
+// P1-3（复审-0914-优化修复批）：链体机械段（prev.then(unit,unit) + settled 吞错 +
+// R1010b-SRV-P3-1 链尾身份校验自清理）收编 serial-chain.ts createSerialChainMap
+// 单源；本节保留编排语义头注（上方重评2-P3-① / 清偿-伏笔接线×4 沿革）。
 function runInForeshadowSaveChain<T>(bookRoot: string, unit: () => Promise<T>): Promise<T> {
-  const prev = foreshadowSaveChains.get(bookRoot) ?? Promise.resolve()
-  const next = prev.then(unit, unit) // 前驱成败都接续
-  // 链尾吞错防 unhandled rejection（单元错误由本单元 await 侧经 dispatch 兜底 500）
-  const settled = next.catch(() => {})
-  foreshadowSaveChains.set(bookRoot, settled)
-  // R1010b-SRV-P3-1（2026-09-10 内存专项重审修复批）：链尾自清理——原实现 settled
-  // 条目常驻 Map，进过伏笔操作的书每本留一条死 Promise 永不回收（服务进程长期驻留
-  // 的桌面场景纯内存死重）。照 files.ts enqueueFilePut 先例：settle 后身份校验
-  // delete（settle 窗口内该书新单元已 set 的新链尾不得误删）。
-  void settled.then(() => {
-    if (foreshadowSaveChains.get(bookRoot) === settled) foreshadowSaveChains.delete(bookRoot)
-  })
-  return next
+  return foreshadowSaveChains.enqueue(bookRoot, unit)
 }
 
 /** R1010b-SRV-P2-1（2026-09-10 内存专项重审修复批·面 B）：等该书伏笔串行链尾排空
@@ -197,24 +187,25 @@ function runInForeshadowSaveChain<T>(bookRoot: string, unit: () => Promise<T>): 
  *  时点的链尾，drain 窗口内新进单元不等——其安全由单元体内书注册重验（409
  *  BOOK_MOVED）兜底。死锁核查：链单元只单向 await SaveQueue / 清单·回收站锁 /
  *  save·布线锁，从不反等 books 侧任何锁，drain 置于 books.ts 既有两 drain 之后不
- *  引入环。无条目即立即 resolve。 */
+ *  引入环。无条目即立即 resolve。
+ *  P1-3（复审-0914-优化修复批）：实现收编 createSerialChainMap().drainExact
+ *  （恰等键排空 = 本链原口径）。 */
 export async function drainForeshadowSaveChains(bookRoot: string): Promise<void> {
-  const tail = foreshadowSaveChains.get(bookRoot)
-  if (!tail) return
-  await tail
+  return foreshadowSaveChains.drainExact(bookRoot)
 }
 
 /** R1010b-SRV-P3-1：删书/改名按书清理伏笔链 Map 条目（对齐 forgetService 等既有
- *  forgetBookKeyedCaches 挂点形态）——链尾自清理已覆盖常态，此处兜悬挂残条。 */
+ *  forgetBookKeyedCaches 挂点形态）——链尾自清理已覆盖常态，此处兜悬挂残条。
+ *  P1-3（复审-0914-优化修复批）：实现收编 createSerialChainMap().forget。 */
 export function forgetForeshadowSaveChain(bookRoot: string): void {
-  foreshadowSaveChains.delete(bookRoot)
+  foreshadowSaveChains.forget(bookRoot)
 }
 
 /** R1010b-SRV-P3-1：测试观测钩子（对齐 files.ts __filePutChainKeysForTest 风格）——
  *  当前在途伏笔链键的只读快照（自清理/forget 生效断言用；快照时点在途，settle 后
- *  自清理）。 */
+ *  自清理）。P1-3（复审-0914-优化修复批）：实现收编 createSerialChainMap().keysForTest。 */
 export function __foreshadowSaveChainKeysForTest(): readonly string[] {
-  return [...foreshadowSaveChains.keys()]
+  return foreshadowSaveChains.keysForTest()
 }
 
 // ── 阶段 24 章节结构操作：per-book structure 串行链（draftSaveChains 同款范式）──────
@@ -224,39 +215,26 @@ export function __foreshadowSaveChainKeysForTest(): readonly string[] {
 // 清理，从不反等 books 侧锁，drain 置于既有四 drain 之后不引入环。链内临界段首行
 // bookMovedFailure 单源重验（readJson await 窗口内书可被删/改名，重评-0912-4 P2-1
 // 同款幽灵目录防线）。
-const structureChains = new Map<string, Promise<unknown>>()
+// P1-3（复审-0914-优化修复批）：链体机械段收编 createSerialChainMap 单源
+//（drainMatch 'exact-or-prefix' = 本链原口径：链键恰为书根本体，无尾分隔符）。
+const structureChains = createSerialChainMap()
 
 function enqueueStructureOp<T>(bookRoot: string, critical: () => Promise<T>): Promise<T> {
-  const prev = structureChains.get(bookRoot) ?? Promise.resolve()
-  const task = prev.then(critical, critical)
-  const settled = task.catch(() => { /* 续链副本吞错；真实结果经 task 传递 */ })
-  structureChains.set(bookRoot, settled)
-  void settled.then(() => {
-    if (structureChains.get(bookRoot) === settled) structureChains.delete(bookRoot)
-  })
-  return task
+  return structureChains.enqueue(bookRoot, critical)
 }
 
 /** 阶段 24：等待某书在途 structure 串行链排空——books.ts 删书/改名排水段第 5 调用
  *  （drainDraftSaveChainsUnder 同型：恰等于书根 + realpath 双口径；快照式——drain
- *  窗口内新进链不等，由链内 bookMovedFailure 重验兜底拒绝）。 */
+ *  窗口内新进链不等，由链内 bookMovedFailure 重验兜底拒绝）。
+ *  P1-3（复审-0914-优化修复批）：实现收编 createSerialChainMap().drainUnder。 */
 export async function drainStructureChainsUnder(bookRoot: string): Promise<void> {
-  const roots = [bookRoot]
-  try {
-    const real = realpathSync(bookRoot)
-    if (real !== bookRoot) roots.push(real)
-  } catch {
-    /* 书根不存在（已删）等 → 只用词法口径 */
-  }
-  const matches = (k: string): boolean => roots.some((r) => k === r || k.startsWith(r + sep))
-  const pending = [...structureChains.keys()].filter(matches)
-  if (pending.length === 0) return
-  await Promise.allSettled(pending.map((k) => structureChains.get(k)))
+  return structureChains.drainUnder(bookRoot)
 }
 
-/** 阶段 24：测试观测钩子（__draftSaveChainKeysForTest 同款）——当前在途链键只读快照。 */
+/** 阶段 24：测试观测钩子（__draftSaveChainKeysForTest 同款）——当前在途链键只读快照。
+ *  P1-3（复审-0914-优化修复批）：实现收编 createSerialChainMap().keysForTest。 */
 export function __structureChainKeysForTest(): readonly string[] {
-  return [...structureChains.keys()]
+  return structureChains.keysForTest()
 }
 
 // ── R1010b-SRV-P2-1（2026-09-10 内存专项重审修复批·面 A）：书注册重验 ─────────

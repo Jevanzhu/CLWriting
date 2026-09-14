@@ -11,6 +11,7 @@ import { isBodyKind } from '../../shared/words' // R37-30（三十七轮批E）�
 import { useDebouncedFmFields } from '../../composables/useDebouncedWordCount'
 import { getAnalysisOverview, autotag, inferMeta, type AnalysisOverview } from '../../api/analysis'
 import { updateDocMeta } from '../../api/documents'
+import { useStaleGuard } from '../../composables/useStaleGuard'
 import { friendlyError } from '../../shared/error'
 
 const props = defineProps<{ bookName: string }>()
@@ -111,16 +112,17 @@ async function inferChapterMeta(): Promise<void> {
 
 // ── 全书速览（聚合 overview 摘要）──
 const overview = ref<AnalysisOverview | null>(null)
-// M-11：代守卫——快速切书 A→B 时 A 的慢响应不覆盖 B 的速览（含失败回填 null）
-let overviewGen = 0
+// M-11：代守卫——快速切书 A→B 时 A 的慢响应不覆盖 B 的速览（含失败回填 null）。
+// E6（复审-0914-优化修复批）：裸计数器换装 useStaleGuard。
+const overviewGen = useStaleGuard()
 async function loadOverview(): Promise<void> {
-  const gen = ++overviewGen
+  const gen = overviewGen.begin()
   try {
     const r = await getAnalysisOverview(props.bookName)
-    if (gen !== overviewGen) return
+    if (overviewGen.stale(gen)) return
     overview.value = r
   } catch {
-    if (gen !== overviewGen) return
+    if (overviewGen.stale(gen)) return
     overview.value = null
   }
 }

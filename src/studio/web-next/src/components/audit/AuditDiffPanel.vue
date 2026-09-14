@@ -6,6 +6,7 @@
 import { ref, computed } from 'vue'
 import { Eye, EyeOff, User, Bot } from 'lucide-vue-next'
 import type { AuditConversationFE, AuditNodeFE } from '../../api/audit'
+import { capView } from '../../shared/render-cap'
 
 const props = defineProps<{
   conversation: AuditConversationFE | null
@@ -29,9 +30,9 @@ const diffNodes = computed<AuditNodeFE[]>(() => {
 // 重评-P3-16（2026-09-09 全量代码重评）：节点列表渲染无上限——长会话全量挂 DOM。
 // 对齐 CommandPalette RENDER_CAP=100 域内惯例：数据面不动，只裁渲染面前 100 条 +
 // 尾部省略提示行（与 RewritePanel 同批同口径）。
+// 复审-0914-优化修复批 P3：切片/计数样板收敛 shared/render-cap 单源（capView）。
 const RENDER_CAP = 100
-const shownNodes = computed(() => diffNodes.value.slice(0, RENDER_CAP))
-const omittedNodes = computed(() => Math.max(0, diffNodes.value.length - RENDER_CAP))
+const nodeCap = computed(() => capView(diffNodes.value, RENDER_CAP))
 </script>
 
 <template>
@@ -49,7 +50,7 @@ const omittedNodes = computed(() => Math.max(0, diffNodes.value.length - RENDER_
     </h2>
     <div class="diff-list">
       <div
-        v-for="n in shownNodes"
+        v-for="n in nodeCap.view"
         :key="n.seq"
         class="diff-row"
         :class="{ shadowed: n.shadowed }"
@@ -64,7 +65,7 @@ const omittedNodes = computed(() => Math.max(0, diffNodes.value.length - RENDER_
         <span class="preview">{{ n.preview || '（空）' }}</span>
         <span v-if="n.shadowed" class="shadowed-mark"><EyeOff :size="12" /> 被遮蔽</span>
       </div>
-      <div v-if="omittedNodes > 0" class="cap-hint">已省略 {{ omittedNodes }} 条</div>
+      <div v-if="nodeCap.omitted > 0" class="cap-hint">已省略 {{ nodeCap.omitted }} 条</div>
       <div v-if="diffNodes.length === 0" class="empty">无可视消息</div>
     </div>
   </section>

@@ -31,7 +31,7 @@ import { appendWordsDelta, todayDate } from '../document/words-diary.js'
 import { computeRevision } from '../document/revision.js'
 import { hashBytes } from '../fs/hash.js'
 import { acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
-import { log } from '../log/index.js'
+import { log, errMsg } from '../log/index.js'
 
 /** 重评-0912-4 P1-1（2026-09-12 全量重评修复批）：R66-1 非 UTF-8 覆写拒绝的类型化错误。
  *  该拒绝是**确定性失败**（盘上旧文编码事实，重试不改结果），消费方（files.ts PUT /file
@@ -232,7 +232,7 @@ export async function saveDraft(
     } catch (e) {
       // 写盘/结算失败：journal 标 aborted（atomicWriteFile 失败已自清 tmp，未落盘）
       try {
-        await appendAborted(journalPath, opId, e instanceof Error ? e.message : String(e))
+        await appendAborted(journalPath, opId, errMsg(e))
       } catch {
         // journal 留痕失败忽略（best-effort）
       }
@@ -260,7 +260,7 @@ export async function saveDraft(
           writeManifest(manifestPath, m)
         })
       } catch (e) {
-        log.warn('draft-pipeline', `草稿落盘后清单登记失败（${relPath}，树扫描将自愈收编）：${e instanceof Error ? e.message : String(e)}`)
+        log.warn('draft-pipeline', `草稿落盘后清单登记失败（${relPath}，树扫描将自愈收编）：${errMsg(e)}`)
       }
     }
     // 清单检文件链（批 3）：短篇写稿后把 AI 章纲（工作区/细纲.md）同步到大纲/章纲/<正文basename>，

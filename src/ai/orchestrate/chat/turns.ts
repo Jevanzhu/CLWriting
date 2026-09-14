@@ -51,7 +51,7 @@ import {
   resolveChatSendBudget,
   CHAT_HISTORY_MIN_BUDGET_POINTS,
 } from '../../prompts/chat.js'
-import { log } from '../../../log/index.js'
+import { log, errMsg } from '../../../log/index.js'
 // A1（五十九轮）：read_chapter 剥 fm 与 prompts/chat.ts 同源（bodyOf 单源导出复用）
 import { bodyOf } from '../../../format/frontmatter-core.js'
 import type { SessionRecorder } from '../../../events/chat-bridge.js'
@@ -182,6 +182,20 @@ export async function executeChatTool(
     }
   }
   const input = call.input as Record<string, unknown>
+  // C6（复审-0914-优化修复批）：check_chapter / read_chapter 共享前置单源——章号解析
+  // 回落（X-P2-12：AI 常省略 chapter 入参，回落作者选定章，均缺才报错）→ forRead 只读
+  // 路径解析（R68-1：机检/取回定稿章合法，不吃「拒绝覆盖写」写防线）→ 存在性校验。
+  // error 分支 = 两处原样 {ok:false, summary} 文案。
+  const resolveChapterForRead = (
+    toolInput: Record<string, unknown>,
+  ): { error: string } | { chapter: number; draftRel: string; draftPath: string } => {
+    const chapter = Number(toolInput['chapter'] ?? opts.chapter)
+    if (!Number.isInteger(chapter) || chapter < 1) return { error: '章号需为正整数。' }
+    const draftRel = resolveDraftPath(opts.bookRoot, chapter, undefined, { forRead: true }).relPath
+    const draftPath = join(opts.bookRoot, draftRel)
+    if (!existsSync(draftPath)) return { error: `第${chapter}章草稿不存在。` }
+    return { chapter, draftRel, draftPath }
+  }
   try {
     // 工具面扩展：注册表分派（read_chapter/read_skill 等既有分支不走注册表）
     // R33D-13（三十三轮）：hasOwn 守卫——普通对象按模型给出的 name 直索引时，
@@ -270,34 +284,19 @@ export async function executeChatTool(
         }
       }
       case 'check_chapter': {
-        // X-P2-12：AI 常省略 chapter 入参——回落到作者选定章（均缺才报错；此前 NaN 直接被拒）
-        const chapter = Number(input['chapter'] ?? opts.chapter)
-        if (!Number.isInteger(chapter) || chapter < 1) {
-          return { ok: false, summary: '章号需为正整数。' }
-        }
-        // R68-1：forRead 只读口径——机检定稿章合法，不吃「拒绝覆盖写」写防线
-        const draftRel = resolveDraftPath(opts.bookRoot, chapter, undefined, { forRead: true }).relPath
-        const draftPath = join(opts.bookRoot, draftRel)
-        if (!existsSync(draftPath)) {
-          return { ok: false, summary: `第${chapter}章草稿不存在。` }
-        }
-        const outcome = runCheckForDocument(opts.bookRoot, draftPath, opts.userDataPath)
+        // 共享前置（章号回落 X-P2-12 / forRead R68-1 / 存在性）见 resolveChapterForRead
+        const pre = resolveChapterForRead(input)
+        if ('error' in pre) return { ok: false, summary: pre.error }
+        const outcome = runCheckForDocument(opts.bookRoot, pre.draftPath, opts.userDataPath)
         return formatCheckResult(outcome)
       }
       case 'read_chapter': {
         // B3 spill 取回通道：读完整正文回填（上下文里被外置省略的全文由此取回）。
         // 章号回落与 check_chapter 同口径（X-P2-12）；结果不再二次 spill（防 read→spill→read 环）
-        const chapter = Number(input['chapter'] ?? opts.chapter)
-        if (!Number.isInteger(chapter) || chapter < 1) {
-          return { ok: false, summary: '章号需为正整数。' }
-        }
-        // R68-1：forRead 只读口径——取回定稿章全文合法，不吃「拒绝覆盖写」写防线
-        const draftRel = resolveDraftPath(opts.bookRoot, chapter, undefined, { forRead: true }).relPath
-        const draftPath = join(opts.bookRoot, draftRel)
-        if (!existsSync(draftPath)) {
-          return { ok: false, summary: `第${chapter}章草稿不存在。` }
-        }
-        const raw = readFileSync(draftPath, 'utf-8')
+        const pre = resolveChapterForRead(input)
+        if ('error' in pre) return { ok: false, summary: pre.error }
+        const { chapter, draftRel } = pre
+        const raw = readFileSync(pre.draftPath, 'utf-8')
         // A1（五十九轮）：剥 front matter 与 prompts/chat.ts 同源走 bodyOf（P-6 口径）——
         // 旧宽松正则会把「无 fm 但正文含两处 --- 分隔线」的手写稿吞掉中段；且下方 spill
         // 哈希须与 buildChatContext 的 writeSpillFile（对 bodyOf(raw) 哈希）同源，fullAt 才能命中
@@ -365,7 +364,7 @@ export async function executeChatTool(
     // SSE 直达前端并回填模型上下文，上游异常 message 可能携带 URL query param / Bearer /
     // 裸 key 形态的凭据痕迹（与 :507 onRetry 的 R43-19 先例同款口径，全链最后一个
     // 未脱敏错误出口补齐）。
-    return { ok: false, summary: `执行失败：${redactSecret(e instanceof Error ? e.message : String(e))}` }
+    return { ok: false, summary: `执行失败：${redactSecret(errMsg(e))}` }
   }
 }
 
@@ -503,7 +502,7 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
       return true
     } catch (e) {
       finishTurn(opts, history, baseLen, recorder, {
-        error: `事件记录落库失败，本回合已回滚（检查磁盘/事件库后重发）：${e instanceof Error ? e.message : String(e)}`,
+        error: `事件记录落库失败，本回合已回滚（检查磁盘/事件库后重发）：${errMsg(e)}`,
       })
       return false
     }

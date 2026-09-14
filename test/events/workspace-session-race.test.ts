@@ -30,7 +30,7 @@ const store = openSessionStore(${JSON.stringify(userDataPath)}, ${JSON.stringify
 try {
   const book = bookHash(${JSON.stringify(bookRoot)})
   const ws = store.workspaceSession(book)
-  store.appendEvent(ws, { type: 'llm/call', data: { task: 'race', ok: true } })
+  store.appendEvents(ws, [{ type: 'llm/call', data: { task: 'race', ok: true } }])
   console.log(ws)
 } finally {
   store.close()

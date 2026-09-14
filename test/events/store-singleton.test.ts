@@ -35,10 +35,10 @@ describe('Y-P2-6 连接单例（引用计数）', () => {
     const ud = tmpRoot()
     const s1 = openSessionStore(ud, '/books/a')!
     const sid = s1.createSession('书A')
-    s1.appendEvent(sid, { type: 'user/message', data: { message: 'x' }, surfaceOp: 'append' })
+    s1.appendEvents(sid, [{ type: 'user/message', data: { message: 'x' }, surfaceOp: 'append' }])
     const s2 = openSessionStore(ud, '/books/a')!
     expect(s2.lastSeq()).toBe(1)
-    s2.appendEvent(sid, { type: 'user/message', data: { message: 'y' }, surfaceOp: 'append' })
+    s2.appendEvents(sid, [{ type: 'user/message', data: { message: 'y' }, surfaceOp: 'append' }])
     expect(s1.listEvents('书A')).toHaveLength(2)
     s1.close()
     s2.close()
@@ -51,7 +51,7 @@ describe('Y-P2-6 连接单例（引用计数）', () => {
     s1.close()
     // 模拟 steer 续链：旧引用已释放，新引用继续写
     const sid = s2.createSession('书A')
-    s2.appendEvent(sid, { type: 'session/start', data: {} })
+    s2.appendEvents(sid, [{ type: 'session/start', data: {} }])
     s2.close()
     backdateEvents(ud, '/books/a') // RB-IF-P2-2：越过宽限期才补 end
     const s3 = openSessionStore(ud, '/books/a')!
@@ -66,7 +66,7 @@ describe('Y-P2-6 连接单例（引用计数）', () => {
     s1.close()
     const s2 = openSessionStore(ud, '/books/a')!
     const sid = s2.createSession('书A')
-    s2.appendEvent(sid, { type: 'user/message', data: { message: 'z' }, surfaceOp: 'append' })
+    s2.appendEvents(sid, [{ type: 'user/message', data: { message: 'z' }, surfaceOp: 'append' }])
     s1.close()
     expect(s2.listEvents('书A')).toHaveLength(1)
     s2.close()
@@ -116,9 +116,9 @@ describe('Y-P2-7 clearChatHistory 双钥匙清库', () => {
     const bookRoot = '/books/a'
     const store = openSessionStore(ud, bookRoot)!
     const chatSid = store.createSession('书A')
-    store.appendEvent(chatSid, { type: 'user/message', data: { message: 'm' }, surfaceOp: 'append' })
+    store.appendEvents(chatSid, [{ type: 'user/message', data: { message: 'm' }, surfaceOp: 'append' }])
     const wsSid = store.workspaceSession(bookHash(bookRoot))
-    store.appendEvent(wsSid, { type: 'llm/call', data: { task: 'chat' } })
+    store.appendEvents(wsSid, [{ type: 'llm/call', data: { task: 'chat' } }])
     store.close()
     // R34D-19：clearChatHistory 转异步（清库走 openSessionStoreAsync 不阻塞事件循环）
     await clearChatHistory('书A', ud, bookRoot)

@@ -8,6 +8,7 @@
  * 精度限制（§5.4）：跨零点写作 / 一天多次多端打开时基线有偏差，基线方案可接受。
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
+import { testableConst } from '../shared/testable.js'
 import { join } from 'node:path'
 import { tryAcquireCrossProcessLock } from '../fs/cross-process-lock.js'
 import { atomicWriteFile } from '../fs/atomic.js'
@@ -167,12 +168,8 @@ export const WORDS_DIARY_COMPACT_BYTES = 1024 * 1024
 
 /** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改（journal R30-18 先例——
  *  export let 可被任一 import 方静默改写，改 const + 内部可变生效值，生产恒用常量）。 */
-let wordsDiaryCompactBytes = WORDS_DIARY_COMPACT_BYTES
-
-/** 测试注入钩子（生产零调用）。 */
-export function __setWordsDiaryCompactBytesForTest(bytes: number): void {
-  wordsDiaryCompactBytes = bytes
-}
+/** A4（复审-0914-优化修复批）：三件套换装 testableConst——生效值 getter（消费点显式调用）+ 测试注入 setter 元组第二位（原名原签名）。 */
+export const [getWordsDiaryCompactBytes, __setWordsDiaryCompactBytesForTest] = testableConst(WORDS_DIARY_COMPACT_BYTES)
 
 /** 历史日的归组累计。docId 已核实无任何读方依赖（readBaseline 只读 date/baseline、
  *  readTodayDelta 只读 date/delta，全仓仅 documents.ts 调这两个函数；docId 是
@@ -271,14 +268,14 @@ function maybeCompactWordsDiary(bookRoot: string, today: string): void {
   try {
     const fp = wordsDiaryPath(bookRoot)
     if (!existsSync(fp)) return
-    if (statSync(fp).size < wordsDiaryCompactBytes) return
+    if (statSync(fp).size < getWordsDiaryCompactBytes()) return
     // 非阻塞占锁（best-effort：拿不到直接弃本轮）
     const release = tryAcquireCrossProcessLock(`${fp}.lock`)
     if (!release) return
     try {
       // 锁内基线 stat（N4：等锁期间他进程的合法 append 不误判为压缩窗口内变化）
       const before = statSync(fp)
-      if (before.size < wordsDiaryCompactBytes) return
+      if (before.size < getWordsDiaryCompactBytes()) return
       const compacted = compactWordsDiaryText(readFileSync(fp, 'utf-8'), today)
       // rename 前重 stat 复核——读算期间若被他进程追加新行（size 变 = 有新行），
       // 放弃本轮压缩，新行随原文件完整保留
