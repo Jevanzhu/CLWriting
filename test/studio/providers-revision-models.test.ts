@@ -9,7 +9,7 @@
  * 形态保留本地，改绑 studio.baseUrl/studio.token。
  */
 import http from 'node:http'
-import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
@@ -212,6 +212,10 @@ describe('P9 模型行', () => {
     const s = JSON.parse(readFileSync(sPath, 'utf-8')) as { providers: { id: string; caps: unknown }[] }
     s.providers.find((p) => p.id === id)!.caps = { connected: true, streaming: true }
     writeFileSync(sPath, JSON.stringify(s))
+    // R0916-5d（mtime 垫片族顺带加固）：直写与前序服务端 saveProviders 落盘可同毫秒，
+    // loadProviders mtime 指纹不变即读旧态（caps 丢失）——显式前推 60s 与写入时刻解耦
+    //（陈旧窗为生产既有口径，store.ts 头注）
+    utimesSync(sPath, Date.now() / 1000 + 60, Date.now() / 1000 + 60)
 
     const upd = await req<{ provider: { models?: unknown[] } }>({
       method: 'PUT',
@@ -304,6 +308,7 @@ describe('P10 档位超时 timeoutMs', () => {
     const s = JSON.parse(readFileSync(sPath, 'utf-8')) as { providers: { id: string; caps: unknown }[] }
     s.providers.find((p) => p.id === id)!.caps = { connected: true, streaming: true }
     writeFileSync(sPath, JSON.stringify(s))
+    utimesSync(sPath, Date.now() / 1000 + 60, Date.now() / 1000 + 60) // R0916-5d 同上：直写与前序服务端落盘防同毫秒陈旧
 
     const put = await req<{ tiers: { creative: { timeoutMs?: number } } }>({
       method: 'PUT',

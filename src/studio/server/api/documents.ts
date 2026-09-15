@@ -7,6 +7,8 @@
  *
  * docId→path 从项目清单解析；DocumentService per-bookRoot 单例（跨请求共享串行队列）。
  * 写端点的 Origin 白名单 + x-studio-token 校验由 server/index.ts 统一拦截（defense-in-depth）。
+ * R0916-5a（2026-09-16）：五站写端点 runX 脚手架（书注册重验→伏笔快照→op→差分→
+ * 链决策）收编 runBookScopedOp 单源，五站闭包改薄；响应信封逐字节不变。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
@@ -260,6 +262,90 @@ function bookMovedFailureOk(ctx: DocumentCtx, name: string | undefined, captured
   return moved === null ? null : { ...moved, ok: false }
 }
 
+// ── R0916-5a（2026-09-16）：五站写端点不变链收编单源 ─────────────────────────
+// 原 runSave/runCreate/runPatch/runCopy/runTrash 五份脚手架拷贝（PUT content / 新建 /
+// PATCH / copy / 软删）共享同一不变序，收编为 runBookScopedOp，各站只存 op 业务体与
+// 站参数：
+//   ① 链单元首行书注册重验（R1010b-SRV-P2-1 面 A → 409 BOOK_MOVED；竞态时序见
+//     book-context.ts R0912-B-P3-2 头注）；
+//   ② 伏笔快照先于 op（Z-P2-6：差分需要变更前状态；快照读在链内——重评2-P3-① /
+//     清偿-伏笔接线×4：链内串行保证前继落库变更必在基线中，差分各归各窗）；
+//   ③ op 业务体（PATCH 形状校验 400 也留在单元内——BOOK_MOVED 409 先于 BAD_INPUT
+//     400 的现行错误优先序；返回 undefined = 响应已发，直通不落差分）；
+//   ④ op 成功才差分落事件（观测层，写失败静默）；
+//   ⑤ 伏笔域路径（fsPath 前缀判定；patch/trash 的 docPath null 守卫同形收编）整段
+//     入 per-book 伏笔串行链，非伏笔直调（快照直通 null、并行性不变）。
+// 响应信封不进本 helper——五站回复尾保持原样逐字节不变（save 成功体是投影非透传）。
+// deltaId 仅在 result.ok 时回调（R43-23 留痕口径：save/patch/trash 恒 docId；
+// create/copy 取 result.docId，回调的 else 支为类型完备的不可达兜底）。
+
+/** runBookScopedOp 站参数：bookName/bookRoot 供链单元首行重验；fsPath 兼任伏笔域
+ *  判定与快照路径（null 免读直通）；causeId/deltaId = R43-23 留痕因果。 */
+interface BookScopedOpSite<T extends { ok: boolean }> {
+  bookName: string | undefined
+  bookRoot: string
+  fsPath: string | null
+  causeId: string
+  deltaId: (result: T) => string
+  op: () => Promise<T | undefined>
+}
+
+// 重载分档：op 不发 undefined 的四站（save/create/copy/trash）取第一重载——返回
+// 类型不含 undefined，回复尾零类型噪音；PATCH 的 op 返回 MoveResult | undefined 落
+// 第二重载（第一重载的 T 约束对含 undefined 的推断不成立，落档由类型系统可证，
+// 非断言）。
+async function runBookScopedOp<T extends { ok: boolean }>(
+  ctx: DocumentCtx,
+  site: BookScopedOpSite<T> & { op: () => Promise<T> },
+): Promise<T | BookMovedFailure>
+async function runBookScopedOp<T extends { ok: boolean }>(
+  ctx: DocumentCtx,
+  site: BookScopedOpSite<T>,
+): Promise<T | BookMovedFailure | undefined>
+async function runBookScopedOp<T extends { ok: boolean }>(
+  ctx: DocumentCtx,
+  site: BookScopedOpSite<T>,
+): Promise<T | BookMovedFailure | undefined> {
+  const unit = async (): Promise<T | BookMovedFailure | undefined> => {
+    const moved = bookMovedFailureOk(ctx, site.bookName, site.bookRoot)
+    if (moved) return moved
+    const fsPrev = foreshadowSnapshot(site.bookRoot, site.fsPath, site.causeId)
+    const result = await site.op()
+    if (result !== undefined && result.ok) {
+      await recordForeshadowDelta(ctx.userDataPath, site.bookRoot, fsPrev, site.deltaId(result))
+    }
+    return result
+  }
+  return site.fsPath !== null && site.fsPath.startsWith('设定/伏笔/')
+    ? runInForeshadowSaveChain(site.bookRoot, unit)
+    : unit()
+}
+
+/** R0916-5a（2026-09-16）：structure-apply / merge-undo 两站重复的 busy 守卫四连
+ *  收编单源——次序 self-heal → spawn → orchestration → 三审与四条 409 文案逐字节
+ *  保留。返回 true = 已回写 409，调用方直接 return。'structure' 任务闸不在此列：
+ *  闸调用点保持各站原位原样（known-actions-audit 按真实调用点对账）。 */
+function structureBusyGuarded(name: string, res: ServerResponse): boolean {
+  if (isSelfHealRunning(name)) {
+    replyError(res, 409, 'BUSY', '本书正在全自动写章，先等它跑完或中断再做结构操作')
+    return true
+  }
+  if (isSpawnRunning(name)) {
+    replyError(res, 409, 'BUSY', '本书正在手动写稿，先等它跑完再做结构操作')
+    return true
+  }
+  const busy = orchestrationBusyFor(name)
+  if (busy) {
+    replyError(res, 409, 'BUSY', busy)
+    return true
+  }
+  if (isReviewRunningForBook(name)) {
+    replyError(res, 409, 'BUSY', '本书三审进行中，先等它完成再做结构操作')
+    return true
+  }
+  return false
+}
+
 export function registerDocumentRoutes(ctx: DocumentCtx): void {
   // ── W1：保存内容 ──────────────────────────────
   defineRoute('books.documents.content', {
@@ -288,24 +374,23 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       // 重评2-P3-①：伏笔域保存（快照读→save→差分落事件）整段入 per-book 串行链
       // ——并发保存交叠不再重复计窗；非伏笔路径不进链（快照直通 null、零差分，
       // 保存并行性不变）。
-      // R1010b-SRV-P2-1 面 A：重验在 runSave 内——非伏笔直调路径天然同覆盖，伏笔链
+      // R1010b-SRV-P2-1 面 A：重验在链单元首行——非伏笔直调路径天然同覆盖，伏笔链
       // 路径在链单元开跑时刻重验（竞态时序见 bookMovedFailure 头注）。
-      const runSave = async (): Promise<SaveOutcome | BookMovedFailure> => {
-        const moved = bookMovedFailureOk(ctx, params['name'], r.bookRoot)
-        if (moved) return moved
-        const fsPrev = foreshadowSnapshot(r.bookRoot, path, docId) // R43-23：docId 留痕因果
-        const o = await svc.save(docId, path, input)
-        if (o.ok) {
+      // R0916-5a：重验→快照→差分→链决策收编 runBookScopedOp 单源；V-P2-27 摘要
+      // 失效保留在本站 op 的 ok 分支且先于差分（原序）。
+      const outcome = await runBookScopedOp(ctx, {
+        bookName: params['name'],
+        bookRoot: r.bookRoot,
+        fsPath: path,
+        causeId: docId, // R43-23：docId 留痕因果
+        deltaId: () => docId, // R43-23：伏笔内容保存（fm 状态变更）→ foreshadow/change 事件
+        op: async (): Promise<SaveOutcome> => {
+          const o = await svc.save(docId, path, input)
           // V-P2-27：字数变了 → 书架摘要即时失效（不等 5s TTL）
-          invalidateBookSummary(r.bookRoot)
-          // Z-P2-6：伏笔内容保存（fm 状态变更）→ foreshadow/change 事件
-          await recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev, docId) // R43-23：docId 留痕因果
-        }
-        return o
-      }
-      const outcome = await (path.startsWith('设定/伏笔/')
-        ? runInForeshadowSaveChain(r.bookRoot, runSave)
-        : runSave())
+          if (o.ok) invalidateBookSummary(r.bookRoot)
+          return o
+        },
+      })
       if (outcome.ok) {
         reply(res, 200, { ok: true, revision: outcome.revision, superseded: outcome.superseded })
         return
@@ -497,23 +582,21 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       // 清偿-伏笔接线×4（2026-09-09 残留清偿批）②：新建——「快照读 → create → 差分」
       // 整段入 per-book 伏笔串行链（同 PUT 重评2-P3-① 口径）：并发交叠不再重复计窗；
       // 非伏笔域目标不进链。新建前无 docId，以 relPath 作留痕因果标注。
-      // R1010b-SRV-P2-1 面 A：单元体首行重验书注册（同 runSave 口径）
-      const runCreate = async (): Promise<CreateResult | BookMovedFailure> => {
-        const moved = bookMovedFailureOk(ctx, params['name'], r.bookRoot)
-        if (moved) return moved
-        // Z-P2-6：新建伏笔（create）前快照（差分需要变更前状态；新建改 docId 集合，
-        // 基线取本单元 create 前全域状态，链内前继落库变更必在基线中）
-        const fsPrev = foreshadowSnapshot(r.bookRoot, relPath, relPath) // R43-23：relPath 留痕因果
-        const result = await svc.createDocument({
-          relPath,
-          content: typeof body.content === 'string' ? body.content : undefined,
-        })
-        if (result.ok) await recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev, result.docId) // R43-23：docId 留痕因果
-        return result
-      }
-      const result = await (relPath.startsWith('设定/伏笔/')
-        ? runInForeshadowSaveChain(r.bookRoot, runCreate)
-        : runCreate())
+      // R1010b-SRV-P2-1 面 A：链单元首行重验书注册（同 PUT 口径）。
+      // R0916-5a：不变链收编 runBookScopedOp 单源；Z-P2-6：新建改 docId 集合，快照
+      // 基线仍取本单元 op 前全域状态（链内前继落库变更必在基线中）。
+      const result = await runBookScopedOp(ctx, {
+        bookName: params['name'],
+        bookRoot: r.bookRoot,
+        fsPath: relPath,
+        causeId: relPath, // R43-23：relPath 留痕因果
+        deltaId: (created) => (created.ok ? created.docId : relPath), // R43-23：新 docId（仅 ok 回调；else 支不可达兜底）
+        op: (): Promise<CreateResult> =>
+          svc.createDocument({
+            relPath,
+            content: typeof body.content === 'string' ? body.content : undefined,
+          }),
+      })
       // Q-7（第十五轮）：失败收编 replyError 统一信封（原裸 result——前端 toast 直显机器码，reason 人话永不见）
       if (result.ok) reply(res, 201, result)
       else replyError(res, structStatus(result.code), result.code, result.reason)
@@ -537,62 +620,64 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       // per-book 伏笔串行链（同 PUT 重评2-P3-① 口径），并发交叠不再重复计窗。op 形状
       // 校验失败在链单元内同步回复即出链（400 不产生差分、不长时间占链位；返回
       // undefined = 响应已发）。
-      // R1010b-SRV-P2-1 面 A：单元体首行重验书注册（同 runSave 口径；undefined 仍 =
-      // op 形状校验失败在单元内已回 400）
-      const runPatch = async (): Promise<MoveResult | undefined | BookMovedFailure> => {
-        const moved = bookMovedFailureOk(ctx, params['name'], r.bookRoot)
-        if (moved) return moved
-        // Z-P2-6：伏笔快照先于变更（rename/move/meta/fm 都可能改 设定/伏笔/ 状态）
-        const fsPrev = foreshadowSnapshot(r.bookRoot, docPath, docId) // R43-23：docId 留痕因果
-        let result: MoveResult | undefined
-        if (body.op === 'rename') {
-          if (typeof body.newName !== 'string') {
-            replyError(res, 400, 'BAD_INPUT', 'rename 需要 newName')
+      // R1010b-SRV-P2-1 面 A：链单元首行重验书注册（同 PUT 口径；409 BOOK_MOVED 先于
+      // 形状校验 400 的现行错误优先序由单元序保证）。
+      // Z-P2-6：伏笔快照先于变更（rename/move/meta/fm 都可能改 设定/伏笔/ 状态）。
+      // R0916-5a：快照/重验/差分/链决策收编 runBookScopedOp 单源，本站只存 op 业务体
+      //（形状校验留单元内，undefined 直通走第二重载档）。
+      const result = await runBookScopedOp(ctx, {
+        bookName: params['name'],
+        bookRoot: r.bookRoot,
+        fsPath: docPath,
+        causeId: docId, // R43-23：docId 留痕因果
+        deltaId: () => docId, // R43-23：docId 留痕因果
+        op: async (): Promise<MoveResult | undefined> => {
+          let result: MoveResult | undefined
+          if (body.op === 'rename') {
+            if (typeof body.newName !== 'string') {
+              replyError(res, 400, 'BAD_INPUT', 'rename 需要 newName')
+              return undefined
+            }
+            result = await svc.renameDocument({ docId, newName: body.newName })
+          } else if (body.op === 'move') {
+            if (typeof body.toDir !== 'string') {
+              replyError(res, 400, 'BAD_INPUT', 'move 需要 toDir')
+              return undefined
+            }
+            result = await svc.moveDocument({ docId, toDir: body.toDir })
+          } else if (body.op === 'meta') {
+            const 标题 = typeof body.标题 === 'string' ? body.标题 : undefined
+            // 章号：长篇/短篇统一用 章号
+            const numVal = typeof body.章号 === 'number' || typeof body.章号 === 'string' ? Number(body.章号) : NaN
+            // 低-3（第十轮）：章号 fail-closed 整数校验——3.5 这类小数旧口径放行后文件名落成
+            // 03.5-…（从章号特性脱落）；前端 ChapterMetaDialog 同口径拒收，服务端兜底 400，
+            // 也顺带堵住旧实现「章号非法被静默丢弃、只改标题」的半成功
+            if (body.章号 !== undefined && (!Number.isInteger(numVal) || numVal < 1)) {
+              replyError(res, 400, 'BAD_INPUT', '章号需为正整数')
+              return undefined
+            }
+            if (标题 === undefined && !Number.isFinite(numVal)) {
+              replyError(res, 400, 'BAD_INPUT', 'meta 需要 标题 或 章号')
+              return undefined
+            }
+            const metaUpdate: Record<string, unknown> = {}
+            if (标题 !== undefined) metaUpdate['标题'] = 标题
+            if (Number.isFinite(numVal)) metaUpdate['章号'] = numVal
+            result = await svc.updateChapterMeta(docId, metaUpdate) // R31-20：异步孪生
+          } else if (body.op === 'fm') {
+            const meta = body.meta
+            if (!meta || typeof meta !== 'object' || Array.isArray(meta)) {
+              replyError(res, 400, 'BAD_INPUT', 'fm 需要 meta 对象')
+              return undefined
+            }
+            result = await svc.updateDocMeta(docId, meta as Record<string, unknown>) // R31-20：异步孪生
+          } else {
+            replyError(res, 400, 'BAD_INPUT', '未知 op（rename/move/meta/fm）')
             return undefined
           }
-          result = await svc.renameDocument({ docId, newName: body.newName })
-        } else if (body.op === 'move') {
-          if (typeof body.toDir !== 'string') {
-            replyError(res, 400, 'BAD_INPUT', 'move 需要 toDir')
-            return undefined
-          }
-          result = await svc.moveDocument({ docId, toDir: body.toDir })
-        } else if (body.op === 'meta') {
-          const 标题 = typeof body.标题 === 'string' ? body.标题 : undefined
-          // 章号：长篇/短篇统一用 章号
-          const numVal = typeof body.章号 === 'number' || typeof body.章号 === 'string' ? Number(body.章号) : NaN
-          // 低-3（第十轮）：章号 fail-closed 整数校验——3.5 这类小数旧口径放行后文件名落成
-          // 03.5-…（从章号特性脱落）；前端 ChapterMetaDialog 同口径拒收，服务端兜底 400，
-          // 也顺带堵住旧实现「章号非法被静默丢弃、只改标题」的半成功
-          if (body.章号 !== undefined && (!Number.isInteger(numVal) || numVal < 1)) {
-            replyError(res, 400, 'BAD_INPUT', '章号需为正整数')
-            return undefined
-          }
-          if (标题 === undefined && !Number.isFinite(numVal)) {
-            replyError(res, 400, 'BAD_INPUT', 'meta 需要 标题 或 章号')
-            return undefined
-          }
-          const metaUpdate: Record<string, unknown> = {}
-          if (标题 !== undefined) metaUpdate['标题'] = 标题
-          if (Number.isFinite(numVal)) metaUpdate['章号'] = numVal
-          result = await svc.updateChapterMeta(docId, metaUpdate) // R31-20：异步孪生
-        } else if (body.op === 'fm') {
-          const meta = body.meta
-          if (!meta || typeof meta !== 'object' || Array.isArray(meta)) {
-            replyError(res, 400, 'BAD_INPUT', 'fm 需要 meta 对象')
-            return undefined
-          }
-          result = await svc.updateDocMeta(docId, meta as Record<string, unknown>) // R31-20：异步孪生
-        } else {
-          replyError(res, 400, 'BAD_INPUT', '未知 op（rename/move/meta/fm）')
-          return undefined
-        }
-        if (result.ok) await recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev, docId) // R43-23：docId 留痕因果
-        return result
-      }
-      const result = await (docPath !== null && docPath.startsWith('设定/伏笔/')
-        ? runInForeshadowSaveChain(r.bookRoot, runPatch)
-        : runPatch())
+          return result
+        },
+      })
       if (result === undefined) return // op 形状校验失败：链单元内已回 400
       // Q-7（第十五轮）：同上——失败走 replyError 统一信封
       if (result.ok) reply(res, 200, result)
@@ -618,21 +703,20 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       // 清偿-伏笔接线×4（2026-09-09 残留清偿批）④：copy——「快照读 → copy → 差分」
       // 整段入 per-book 伏笔串行链（同 PUT 重评2-P3-① 口径）：复制出的新条目 create
       // 事件各归各窗，非伏笔域目标不进链。
-      // R1010b-SRV-P2-1 面 A：单元体首行重验书注册（同 runSave 口径）
-      const runCopy = async (): Promise<CopyResult | BookMovedFailure> => {
-        const moved = bookMovedFailureOk(ctx, params['name'], r.bookRoot)
-        if (moved) return moved
-        // R-17（第十六轮）：copy 目标落在伏笔域（设定/伏笔/）时同 create/patch 接伏笔
-        // 差分事件——此前 copy 绕过 foreshadowSnapshot → recordForeshadowDelta，伏笔
-        // md 复制出的新条目不落 foreshadow/change{create}（观测层丢事件）
-        const fsPrev = foreshadowSnapshot(r.bookRoot, relPath, docId) // R43-23：源 docId 作留痕因果
-        const result = await svc.copyDocument({ docId, relPath })
-        if (result.ok) await recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev, result.docId) // R43-23：新 docId 留痕因果
-        return result
-      }
-      const result = await (relPath.startsWith('设定/伏笔/')
-        ? runInForeshadowSaveChain(r.bookRoot, runCopy)
-        : runCopy())
+      // R1010b-SRV-P2-1 面 A：链单元首行重验书注册（同 PUT 口径）。
+      // R-17（第十六轮）：copy 目标落在伏笔域（设定/伏笔/）时同 create/patch 接伏笔
+      // 差分事件——此前 copy 绕过 foreshadowSnapshot → recordForeshadowDelta，伏笔
+      // md 复制出的新条目不落 foreshadow/change{create}（观测层丢事件）。
+      // R0916-5a：不变链收编 runBookScopedOp 单源；快照因果取源 docId、差分因果取
+      // result.docId。
+      const result = await runBookScopedOp(ctx, {
+        bookName: params['name'],
+        bookRoot: r.bookRoot,
+        fsPath: relPath,
+        causeId: docId, // R43-23：源 docId 作留痕因果
+        deltaId: (copied) => (copied.ok ? copied.docId : docId), // R43-23：新 docId（仅 ok 回调；else 支不可达兜底）
+        op: (): Promise<CopyResult> => svc.copyDocument({ docId, relPath }),
+      })
       // Q-7（第十五轮）：失败走 replyError 统一信封（原裸 result 违反 schema.ts 信封约定）
       if (result.ok) {
         reply(res, 201, result)
@@ -656,19 +740,16 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
       // 且把文件移出 设定/伏笔/，快照仍取本单元 trash 前全域状态（条目在册）、差分读
       // 在 trashDocument 落定之后（条目已移出）→ clear 事件各归各窗；链内串行保证
       // 他单元的增删不混入本单元差分窗。
-      // R1010b-SRV-P2-1 面 A：单元体首行重验书注册（同 runSave 口径）
-      const runTrash = async (): Promise<TrashResult | BookMovedFailure> => {
-        const moved = bookMovedFailureOk(ctx, params['name'], r.bookRoot)
-        if (moved) return moved
-        // Z-P2-6：软删伏笔（clear 事件）前快照
-        const fsPrev = foreshadowSnapshot(r.bookRoot, docPath, docId) // R43-23：docId 留痕因果
-        const result = await svc.trashDocument({ docId })
-        if (result.ok) await recordForeshadowDelta(ctx.userDataPath, r.bookRoot, fsPrev, docId) // R43-23：docId 留痕因果
-        return result
-      }
-      const result = await (docPath !== null && docPath.startsWith('设定/伏笔/')
-        ? runInForeshadowSaveChain(r.bookRoot, runTrash)
-        : runTrash())
+      // R1010b-SRV-P2-1 面 A：链单元首行重验书注册（同 PUT 口径）。
+      // R0916-5a：不变链收编 runBookScopedOp 单源（Z-P2-6：软删伏笔 clear 事件前快照）。
+      const result = await runBookScopedOp(ctx, {
+        bookName: params['name'],
+        bookRoot: r.bookRoot,
+        fsPath: docPath,
+        causeId: docId, // R43-23：docId 留痕因果
+        deltaId: () => docId, // R43-23：docId 留痕因果
+        op: (): Promise<TrashResult> => svc.trashDocument({ docId }),
+      })
       // Q-7（第十五轮）：同上——失败走 replyError 统一信封
       if (result.ok) reply(res, 200, result)
       else replyError(res, structStatus(result.code), result.code, result.reason)
@@ -759,18 +840,9 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)
       if (!r) return
-      if (isSelfHealRunning(params['name']!)) {
-        return replyError(res, 409, 'BUSY', '本书正在全自动写章，先等它跑完或中断再做结构操作')
-      }
-      if (isSpawnRunning(params['name']!)) {
-        return replyError(res, 409, 'BUSY', '本书正在手动写稿，先等它跑完再做结构操作')
-      }
-      const busy = orchestrationBusyFor(params['name']!)
-      if (busy) return replyError(res, 409, 'BUSY', busy)
-      // 改写正文的结构操作与三审互斥（stream.ts spawn 先例同款面）
-      if (isReviewRunningForBook(params['name']!)) {
-        return replyError(res, 409, 'BUSY', '本书三审进行中，先等它完成再做结构操作')
-      }
+      // R0916-5a：busy 守卫四连收编 structureBusyGuarded 单源（次序与文案逐字节不变；
+      // 改写正文的结构操作与三审互斥——stream.ts spawn 先例同款面）
+      if (structureBusyGuarded(params['name']!, res)) return
       const release = acquireTaskGate(params['name']!, 'structure')
       if (!release) return replyError(res, 409, 'BUSY', '本书结构操作进行中，请等待完成后再试')
       try {
@@ -848,17 +920,8 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)
       if (!r) return
-      if (isSelfHealRunning(params['name']!)) {
-        return replyError(res, 409, 'BUSY', '本书正在全自动写章，先等它跑完或中断再做结构操作')
-      }
-      if (isSpawnRunning(params['name']!)) {
-        return replyError(res, 409, 'BUSY', '本书正在手动写稿，先等它跑完再做结构操作')
-      }
-      const busy = orchestrationBusyFor(params['name']!)
-      if (busy) return replyError(res, 409, 'BUSY', busy)
-      if (isReviewRunningForBook(params['name']!)) {
-        return replyError(res, 409, 'BUSY', '本书三审进行中，先等它完成再做结构操作')
-      }
+      // R0916-5a：busy 守卫四连收编 structureBusyGuarded 单源（次序与文案逐字节不变）
+      if (structureBusyGuarded(params['name']!, res)) return
       const release = acquireTaskGate(params['name']!, 'structure')
       if (!release) return replyError(res, 409, 'BUSY', '本书结构操作进行中，请等待完成后再试')
       try {

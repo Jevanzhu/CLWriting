@@ -11,7 +11,7 @@
  * 形态保留本地，改绑 studio.baseUrl/studio.token。
  */
 import http from 'node:http'
-import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect } from 'vitest'
@@ -120,6 +120,10 @@ describe('/api/providers（P0-1 修复后回归）', () => {
     s.providers.find((p) => p.id === pb.id)!.caps = { connected: true, streaming: true }
     s.providers.find((p) => p.id === pa.id)!.caps = { connected: true, streaming: true }
     writeFileSync(sPath, JSON.stringify(s))
+    // R0916-5d（mtime 垫片族顺带加固）：直写后显式前推 mtime 60s——本写与前置 POST 的
+    // 服务端 saveProviders 落盘可落同一毫秒，loadProviders mtime 指纹不变即读旧态
+    //（caps 丢失）→ 切换误判「未探测」400；陈旧窗为生产既有口径，此处与写入时刻解耦
+    utimesSync(sPath, Date.now() / 1000 + 60, Date.now() / 1000 + 60)
 
     // 关键断言：已探测后切换命中字面量路由而非 :id（P0-1 回归）
     const sw = await req<{ ok: boolean; currentId: string }>({

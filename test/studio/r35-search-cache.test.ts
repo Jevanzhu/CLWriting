@@ -12,7 +12,7 @@
  */
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
@@ -61,6 +61,10 @@ describe('R35-7 searchBookCached 缓存与去重', () => {
     expect(second).toEqual(first)
     // V-P2-25 契约：直写盘的新文件（目录 mtime 变化）下一次搜索立即可见
     writeFileSync(join(root, '写作', '正文', '0002-晨光.md'), '烛火熄了。\n', 'utf-8')
+    // R0916-5d（mtime 垫片族顺带加固）：探针比对目录 mtimeMs 原值——新文件落盘与上一
+    // 次搜索的目录 stat 落同一毫秒（win 实测可确定性复现）探针不见变化、不重扫假红；
+    // 显式前推目录 mtime 60s 与写入时刻解耦（探针粒度窗为生产既有口径）
+    utimesSync(join(root, '写作', '正文'), Date.now() / 1000 + 60, Date.now() / 1000 + 60)
     const third = await searchBookCached(root, '烛火')
     expect(__searchScanCountForTest()).toBe(2)
     expect(third.results.map((h) => h.path)).toContain('写作/正文/0002-晨光.md')

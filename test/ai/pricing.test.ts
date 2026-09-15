@@ -9,7 +9,7 @@
  * - budget 双口径键解析与序列化 round-trip + global 托底
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, readFileSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
@@ -191,6 +191,11 @@ describe('D2 pricing 解析与金额计算', () => {
     // 当前启用 B（数组靠后）→ 按 B 的 5 计价，不再按全局首归属 A 的 1
     expect(resolveModelPricing(ud, 'shared-model')).toEqual({ inputPerMTok: 5 })
     saveProviders(ud, mk('pa'))
+    // R0916-5d（mtime 垫片族顺带加固）：切回 A 不赌「写入时刻不同」——loadProviders
+    // mtime 缓存与 pricingMemo 指纹都是 mtimeMs 原值，同毫秒双写（win 实测可确定性复现）
+    // 双缓存同陈旧 → 仍按 B 计价假红；显式前推 60s 强制失效（陈旧窗是生产既有口径，
+    // saveProviders 落盘即 bump 的语义不变，本用例钉的是「外部 mtime 变必失效」）
+    utimesSync(join(ud, 'providers.json'), Date.now() / 1000 + 60, Date.now() / 1000 + 60)
     expect(resolveModelPricing(ud, 'shared-model')).toEqual({ inputPerMTok: 1 })
   })
 

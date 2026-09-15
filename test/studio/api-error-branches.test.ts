@@ -11,7 +11,7 @@
  */
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, afterAll, describe, it, expect, afterEach } from 'vitest'
@@ -81,6 +81,16 @@ function req(opts: ReqOpts): Promise<{ status: number; json: any }> {
 }
 function cliReq(opts: ReqOpts): Promise<{ status: number; json: any }> {
   return request(cliBaseUrl, cliToken, opts)
+}
+
+// R0916-5d（mtime 垫片族顺带加固）：providers.json 直写后显式前推 mtime 60s——
+// loadProviders mtime 缓存与 pricingMemo 指纹均为 mtimeMs 原值，探测梯相邻两写落进
+// 同一毫秒（HTTP 往返快过时钟粒度）即双缓存同陈旧、假红漂移到不同梯级；陈旧窗是
+// 生产既有口径（store.ts 头注），本文件钉的是降级梯各档，与写入时刻解耦。
+function writeProvidersFile(value: unknown): void {
+  const fp = join(userDataPath, 'providers.json')
+  writeFileSync(fp, JSON.stringify(value))
+  utimesSync(fp, Date.now() / 1000 + 60, Date.now() / 1000 + 60)
 }
 
 /** 建一本最小书（books.jsonl 登记 + book.yaml 可选内容） */
@@ -297,14 +307,11 @@ describe('kk-P2-15：ai-status 探测分支（非 mock 驱动）', () => {
   })
 
   it('当前供应商 caps:null → available:false 尚未测试连接', async () => {
-    writeFileSync(
-      join(userDataPath, 'providers.json'),
-      JSON.stringify({
-        currentId: 'p1',
-        currentModel: 'm1',
-        providers: [{ id: 'p1', name: '我的中转', protocol: 'anthropic', auth: 'bearer', baseUrl: 'http://x', apiKey: 'k', caps: null }],
-      }),
-    )
+    writeProvidersFile({
+      currentId: 'p1',
+      currentModel: 'm1',
+      providers: [{ id: 'p1', name: '我的中转', protocol: 'anthropic', auth: 'bearer', baseUrl: 'http://x', apiKey: 'k', caps: null }],
+    })
     const r = await req({ method: 'GET', path: '/api/ai-status' })
     expect(r.json.available).toBe(false)
     expect(r.json.driver).toBe('我的中转')
@@ -312,28 +319,22 @@ describe('kk-P2-15：ai-status 探测分支（非 mock 驱动）', () => {
   })
 
   it('caps 已探测但无模型档位 → available:false 尚未配置模型档位', async () => {
-    writeFileSync(
-      join(userDataPath, 'providers.json'),
-      JSON.stringify({
-        currentId: 'p1',
-        currentModel: '',
-        providers: [{ id: 'p1', name: '我的中转', protocol: 'anthropic', auth: 'bearer', baseUrl: 'http://x', apiKey: 'k', caps: { connected: true, streaming: true } }],
-      }),
-    )
+    writeProvidersFile({
+      currentId: 'p1',
+      currentModel: '',
+      providers: [{ id: 'p1', name: '我的中转', protocol: 'anthropic', auth: 'bearer', baseUrl: 'http://x', apiKey: 'k', caps: { connected: true, streaming: true } }],
+    })
     const r = await req({ method: 'GET', path: '/api/ai-status' })
     expect(r.json.available).toBe(false)
     expect(r.json.reason).toContain('尚未配置模型档位')
   })
 
   it('供应商+caps+currentModel 齐 → available:true（正向对照）', async () => {
-    writeFileSync(
-      join(userDataPath, 'providers.json'),
-      JSON.stringify({
-        currentId: 'p1',
-        currentModel: 'm1',
-        providers: [{ id: 'p1', name: '我的中转', protocol: 'anthropic', auth: 'bearer', baseUrl: 'http://x', apiKey: 'k', caps: { connected: true, streaming: true } }],
-      }),
-    )
+    writeProvidersFile({
+      currentId: 'p1',
+      currentModel: 'm1',
+      providers: [{ id: 'p1', name: '我的中转', protocol: 'anthropic', auth: 'bearer', baseUrl: 'http://x', apiKey: 'k', caps: { connected: true, streaming: true } }],
+    })
     const r = await req({ method: 'GET', path: '/api/ai-status' })
     expect(r.json.available).toBe(true)
     expect(r.json.driver).toBe('我的中转')

@@ -175,7 +175,12 @@ describe('PM-11 resolveModelPricing memo', () => {
     expect(first?.inputPerMTok).toBe(1)
     expect(resolveModelPricing(user, 'gpt-x')).toEqual(first) // 命中 memo
 
-    writeProviders(user, 5) // 新价 + mtime 必变（内容不同 → 写入时刻不同）
+    writeProviders(user, 5)
+    // R0916-5d（mtime 垫片族顺带加固）：bump 不再赌「写入时刻不同」——sig 是 mtimeMs
+    // 原值字符串，同毫秒双写（写入延迟降进时钟粒度内，win 实测可确定性复现）指纹不变
+    // → memo 不失效假红；显式前推 60s 远离粒度窗。陈旧窗本身是生产既有口径
+    //（pricing.ts PM-11 头注），本用例钉的是「mtime 变必失效」语义，非粒度窗大小。
+    utimesSync(join(user, 'providers.json'), Date.now() / 1000 + 60, Date.now() / 1000 + 60)
     const second = resolveModelPricing(user, 'gpt-x')
     expect(second?.inputPerMTok).toBe(5)
 
