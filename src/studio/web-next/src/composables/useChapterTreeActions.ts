@@ -64,6 +64,10 @@ type Creating = {
   renderDir: string
   fsDir: string
   seed: string
+  /** 拍板快断批（2026-09-15·阶段 24 批 B 登记项）：新建种子的数字前缀（chapter/
+   *  chapter-outline 在 startCreate 时捕获）——作者清掉 seed 前缀只填标题时，提交侧
+   *  拼回此前缀，堵「文件名无章号 → 取号扫描失明 → fm 章号连号重号」。 */
+  seedPrefix: string
 } | null
 
 /** 新建类 key → 标准落盘目录（空白处 / 找不到右键目录时用）。正文/卷原地建不在此表（依赖右键目标或正文区惯例）。 */
@@ -328,14 +332,18 @@ export function useChapterTreeActions(deps: {
       deps.openError.value = '当前书库无该区域，无法在此新建'
       return
     }
+    const seedPrefix =
+      kind === 'chapter' || kind === 'chapter-outline'
+        ? chapterFilePrefix(nextChapterNo(), bodyPadKind())
+        : ''
     const seed =
       kind === 'chapter' || kind === 'chapter-outline'
         // R34D-26：种子补零走 chapterFilePrefix 单源（按本书宽度口径）——原完全不补零
-        ? `${chapterFilePrefix(nextChapterNo(), bodyPadKind())}未命名`
+        ? `${seedPrefix}未命名`
         : kind === 'volume-outline'
           ? `卷纲_第${volumeCount() + 1}卷`
           : ''
-    creating.value = { kind, renderDir, fsDir, seed }
+    creating.value = { kind, renderDir, fsDir, seed, seedPrefix }
     const next = new Set(ws.treeExpanded)
     next.add(renderDir)
     if (ancestors) for (const a of ancestors) next.add(a)
@@ -345,13 +353,20 @@ export function useChapterTreeActions(deps: {
   async function onCreateCommit(value: string): Promise<void> {
     const c = creating.value
     if (!c) return
-    const name = sanitizeName(value)
+    let name = sanitizeName(value)
     if (!name) {
       // R71-30（七十一轮）：文案补 Windows 保留名拒收项（sanitizeName 新增校验段）
       deps.openError.value = '名称不能为空，或含 / \\ 或以 . 开头/结尾，或以空格结尾，或是 Windows 保留名（CON/NUL/COM1 等）'
       return
     }
     creating.value = null
+    // 拍板快断批（2026-09-15，作者指令「按建议顺序开工」取前端拼回档）：作者清掉种子
+    // 前缀只填标题时拼回 seedPrefix——无章号文件名对 nextChapterNo 取号扫描/读侧
+    // parseChapterFileName 双失明（连建多章 fm 章号重号、跨卷重号章被结构合并 400 拒收）；
+    // 作者自填章号形态（「0007-…」/「第7章…」）不覆盖
+    if ((c.kind === 'chapter' || c.kind === 'chapter-outline') && c.seedPrefix !== '' && extractChapterNo(name) === null) {
+      name = `${c.seedPrefix}${name}`
+    }
     const relPath =
       c.kind === 'volume'
         // R34D-26：卷内首章文件名补零走单源（原完全不补零）。卷名目录段 ${name}/ 不可丢

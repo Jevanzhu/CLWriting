@@ -56,7 +56,6 @@ export {
   type SealedKey,
 } from './vault.js'
 export { probeCapabilities } from './probe.js'
-export { MODEL_CATALOG, MODEL_CATALOG_VERSION } from './catalog.gen.js'
 export {
   createProvider,
   resolveAdapter,

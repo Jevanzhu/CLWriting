@@ -106,6 +106,14 @@ describe('readForeshadows', () => {
     const list = readForeshadows(root)
     expect(list[0]!.关联词).toEqual(['佩剑', '玉佩'])
   })
+
+  // 拍板快断批（2026-09-15，作者指令「按建议顺序开工」取读收口档）：字符串关联词
+  // 整串回显含逗号的标题 → 整词保留不劈分（与数组项/标题回落口径对称收口）
+  test('拍板快断批: 字符串关联词整串等于含逗号标题 → 整词保留', () => {
+    writeForeshadow('悬疑,推理', { 关联词: '悬疑,推理', 埋设章号: '1' })
+    const list = readForeshadows(root)
+    expect(list[0]!.关联词).toEqual(['悬疑,推理'])
+  })
 })
 
 describe('scanForeshadowTrails', () => {

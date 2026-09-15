@@ -20,7 +20,6 @@
     "prepack": "npm run build:all",
     "dev": "tsup --watch src",
     "dev:api": "npx tsx scripts/dev-api.ts",
-    "generate:catalog": "tsx scripts/generate-model-catalog.ts",
     "dev:app": "cross-env CLW_DEV_UI=1 node node_modules/electron/cli.js .",
     "dev:web": "npm --prefix src/studio/web-next run dev",
     "typecheck:web-next": "npm --prefix src/studio/web-next run typecheck",

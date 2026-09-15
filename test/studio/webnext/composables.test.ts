@@ -463,7 +463,7 @@ describe('useChapterTreeActions · 切书守卫（N-8/N-9/N-13）', () => {
     actions.onMenuSelect('meta', metaNode('doc_p01'))
     actions.renamePath.value = '写作/正文/0001-开篇.md'
     actions.draggedPath.value = '写作/正文/0001-开篇.md'
-    actions.creating.value = { kind: 'doc', renderDir: '设定', fsDir: '设定', seed: '' }
+    actions.creating.value = { kind: 'doc', renderDir: '设定', fsDir: '设定', seed: '', seedPrefix: '' }
     expect(actions.metaEditing.value).not.toBeNull()
     actions.resetInlineState()
     expect(actions.metaEditing.value).toBeNull()

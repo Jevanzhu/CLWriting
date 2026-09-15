@@ -403,6 +403,10 @@ export function exportBook(options: ExportOptions): ExportResult {
   // S2（阶段 24）D7 分流：已发布章固定本地章号，其后未发布段从「已发布最大章号+1」
   // 按 sortKey 序位连续编。全无已发布章时（旧书常态）从 1 连续编——无 `序` 且章号
   // 连续的旧书 displayNum ≡ num，零漂移；章号空洞（合并留洞）在分章前缀上闭合。
+  // 拍板快断批（2026-09-15，作者指令「按建议顺序开工」）：displayNum 语义拍板维持
+  // D7——已发布章号不可变优先于显示序单调（发布号是读者侧锚点）；已发布章不居
+  // sortKey 序前时显示序非单调（[6,7,8,9,5,10] 形态，复审-0913-源码 ⑰）系该语义的
+  // 自然结论，接受不改。
   {
     const maxPublished = filtered.reduce((m, u) => (u.published ? Math.max(m, u.num) : m), 0)
     let next = maxPublished + 1

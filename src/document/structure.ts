@@ -34,7 +34,7 @@ import { layoutOf } from './layout.js'
 import { readManifestStrict } from './manifest.js'
 import { invalidateTreeIndex } from './tree.js'
 import { readVersion, readVersionRaw, listVersions } from './version.js'
-import { restoreTrash, listTrash } from './trash.js'
+import { restoreTrash, listTrash, type TrashEntry } from './trash.js'
 import { isUtf8Bytes, type DocumentService } from './service.js'
 import { readChapterUpdatesForChapter, leadEvidenceMatchesBody } from '../check/lead-updates.js'
 import { openSessionStoreAsync, bookHash, type NewEvent, type SessionStore } from '../events/store.js'
@@ -621,12 +621,17 @@ async function locateLatestMergeEvent(
 function locateMergeByDisk(bookRoot: string, mergedInto: number[]): MergeUndoLocator | null {
   if (mergedInto.length === 0) return null
   const sourceChapterNo = Math.max(...mergedInto)
+  // 拍板快断批（2026-09-15，作者指令「按建议顺序开工」取「择最新」档）：同章号多条
+  // 回收站条目（删章→同号重建→再合并→再撤销链）按 trashedAt 取最新——原「第一条」
+  // 会误认领历史软删旧条目（阶段 24 批 C e2e 实抓：残留 0005/0006 ×2 被误认领、
+  // 源章未还原）。trashedAt 同值时维持清单序首条（稳定）。
+  let best: TrashEntry | null = null
   for (const e of listTrash(bookRoot)) {
-    if (chapterNoFromName(basename(e.originalPath)) === sourceChapterNo) {
-      return { sourceDocId: e.id, sourceChapterNo, trashEntryId: e.id, planHash: '' }
-    }
+    if (chapterNoFromName(basename(e.originalPath)) !== sourceChapterNo) continue
+    if (best === null || e.trashedAt > best.trashedAt) best = e
   }
-  return null
+  if (best === null) return null
+  return { sourceDocId: best.id, sourceChapterNo, trashEntryId: best.id, planHash: '' }
 }
 
 /** S5 正文盘面定位（①后崩溃形态专用）：merge 事件（收尾段才记）与回收站条目（② 才

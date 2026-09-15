@@ -93,8 +93,10 @@ function isKimiK3(model: string): boolean {
 /**
  * Responses 线（/v1/responses）格式档——家族表内嵌子表（Responses 启用批 R2a）。
  *
- * 必须保持**纯数据**（无函数维度）：catalog.ts 探测白名单不含本子表，
- * 塞函数会迫使目录维度扩列 + 重新生成 catalog.gen.ts（catalog-sync 双向校验红线）。
+ * 必须保持**纯数据**（无函数维度）：catalog 三件套（catalog.ts / catalog.gen.ts /
+ * generate-model-catalog.ts / catalog-sync.test.ts）已随 2026-09-15 拍板快断批删除
+ * （Z-P2-4 销账——运行时零消费、脚本全可再生、git 历史可考），原「catalog-sync
+ * 双向校验红线」随之退役；纯数据约束保留（可序列化 / 可快照测试面不变）。
  * 设计定型「格式级 profile × 家族覆盖」（cherry reasoningProfiles 同构），出处见
  * 《Responses格式适配》设计第六节。
  */

@@ -4,7 +4,8 @@
  * 原实现只截「≤5 条」（slice(0, 5)），单条超 32 字节原样发出。修复后逐条按 UTF-8
  * 字节口径安全截断（先按 32 字节截断，再回退尾部续字节/被劈序列首字节，不劈多字节
  * 序列产生乱码半字）。目录探针样本（'一''二''三'，各 3 字节）输出不变，
- * catalog.gen.ts 快照不受影响。
+ * catalog.gen.ts 快照不受影响（该快照面已随 2026-09-15 拍板快断批随 catalog
+ * 三件套删除，此处仅存历史口径）。
  */
 import { describe, expect, it } from 'vitest'
 import { quirksFor } from '../../../src/ai/provider/model-quirks.js'

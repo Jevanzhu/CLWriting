@@ -191,20 +191,28 @@ export function readForeshadows(bookRoot: string): ForeshadowEntry[] {
     }
     const r = readFile(fp)
     const map = r.ok ? parseFlat(r.fmRaw) : new Map<string, unknown>()
+    // R48-45（四十八轮）：剥尾判定单源 isMdFileName（大小写不敏感）——.MD 文件名
+    // 此前展示带尾巴（与 tree.ts stripMd 同族，判定侧 R34D-11 早已收编）
+    const 标题v = String(map.get('标题') ?? (isMdFileName(f) ? f.slice(0, -3) : f))
     // 重评-P3-20（2026-09-09 全量代码重评）：数组值逐项直采（String+trim+去空）不劈分——
     // 旧 String(值) 拼接后再按逗号劈，含逗号项（["悬疑,推理"]）被拆碎；标量维持劈分：
     // parseFlat 已剥引号，旧迁移批（R70-20）写入的引号标量与表单逗号输入（patchFlatFm
     // → stringifyValue 对含 , 标量同样加引号落盘）读侧同形不可辨，不能借引号免劈。
     const 关联词val = map.get('关联词')
+    const 关联词trim = String(关联词val ?? '').trim()
     const 关联词list = Array.isArray(关联词val)
       ? 关联词val.map((s) => String(s).trim()).filter(Boolean)
-      // X-P2-19：中文逗号也切——只切英文逗号时 `佩剑，玉佩` 整串成一个词，足迹扫描永不命中
-      : String(关联词val ?? '').split(/[,，]/).map((s) => s.trim()).filter(Boolean)
+      // P3-20 收口·拍板快断批（2026-09-15，作者指令「按建议顺序开工」）：旧迁移存量
+      // 「关联词 = 标题整词且标题含逗号」读侧不劈分、整词单项——与数组承载及「无关联词
+      // 回落标题」的整词口径对称，收回数组化写侧落地前的存量；表单逗号输入 ≠ 标题
+      // 整词时维持词表劈分不受影响
+      : 关联词trim !== '' && 关联词trim === 标题v.trim() && /[,，]/.test(标题v)
+        ? [关联词trim]
+        // X-P2-19：中文逗号也切——只切英文逗号时 `佩剑，玉佩` 整串成一个词，足迹扫描永不命中
+        : String(关联词val ?? '').split(/[,，]/).map((s) => s.trim()).filter(Boolean)
     items.push({
       file: `设定/伏笔/${f}`,
-      // R48-45（四十八轮）：剥尾判定单源 isMdFileName（大小写不敏感）——.MD 文件名
-      // 此前展示带尾巴（与 tree.ts stripMd 同族，判定侧 R34D-11 早已收编）
-      标题: String(map.get('标题') ?? (isMdFileName(f) ? f.slice(0, -3) : f)),
+      标题: 标题v,
       状态: String(map.get('状态') ?? '未回收'),
       埋设章号: parsePositiveInt(map.get('埋设章号')),
       回收章号: parsePositiveInt(map.get('回收章号')),

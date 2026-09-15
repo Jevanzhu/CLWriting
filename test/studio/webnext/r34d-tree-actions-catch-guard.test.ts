@@ -135,7 +135,7 @@ describe('R34D-21: 七动作 catch 补切书守卫（A 书报错不落 B 书界�
   })
   it('onCreateCommit：新建失败 + 切书 → openError 不落 B 书', async () => {
     await runCase((a) => {
-      a.creating.value = { kind: 'chapter', renderDir: '写作', fsDir: '写作/正文', seed: '0002-未命名' }
+      a.creating.value = { kind: 'chapter', renderDir: '写作', fsDir: '写作/正文', seed: '0002-未命名', seedPrefix: '0002-' }
       return a.onCreateCommit('0002-风起')
     }, createMock)
   })
@@ -190,7 +190,7 @@ describe('R34D-26: 补零口径统一 chapterFilePrefix 单源（长篇 4 位 / 
     treeMock.grouped = [bodyFile('写作/正文/0002-雪.md')]
     createMock.mockResolvedValue({ ok: true, path: '写作/正文/0003-未命名.md' })
     const actions = useChapterTreeActions({ bookName: () => currentBook, openError })
-    actions.creating.value = { kind: 'volume', renderDir: '写作', fsDir: '写作/正文', seed: '' }
+    actions.creating.value = { kind: 'volume', renderDir: '写作', fsDir: '写作/正文', seed: '', seedPrefix: '' }
     await actions.onCreateCommit('第一卷')
     const relPath = createMock.mock.calls[0]![1] as { relPath: string }
     // 修复点：卷内首章补零 0003-（修复前 3-未命名.md 不补零）+ 卷名目录段保持 HEAD
