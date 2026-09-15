@@ -28,6 +28,11 @@
  * healMovePending（与真恢复面行为分叉的假象覆盖），已删；测试改直测 findUnsettled。
  *
  * docId 是稳定 ID（队列/日志/清单 key），relPath 是落盘路径。
+ *
+ * R0916-5e（2026-09-16，⑤④产品巨件拆分波1）：缝 A/B 纯移动拆分——非 UTF-8 守卫与
+ *   四组锁档常量/testableConst getters 迁 service-guards.ts（本文件逐名 re-export，
+ *   消费方 import 面不变）；尾部 8 个自由函数（trashBaselineOf 等）迁
+ *   service-helpers.ts（原模块私有，本文件内部 import）。零行为变化。
  */
 import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
@@ -35,92 +40,42 @@ import { safeDocId, resolveWithinRoot, docJoinKey, platformCaseFold, normalizeWi
 import { atomicWriteFile, createFileExclusive, linkOrRenameExclusive, renameWithRetry, rmWithRetry } from '../fs/atomic.js'
 import { canonicalizeText, bufferNeedsCanonical, toNfcName } from '../fs/text-canonical.js'
 import { computeRevision, computeRevisionBytes, type Revision } from './revision.js'
-import { layoutOf, roleOf, isInternalBookPath } from './layout.js'
+import { layoutOf, isInternalBookPath } from './layout.js'
 import { appendAborted, appendMovePending, appendPending, appendSettled } from './journal.js'
 import { writeVersion, DEFAULT_VERSION_POLICY, readGlobalSnapshotPolicy, encodeDocDirName, type VersionPolicy } from './version.js'
 import { readManifestStrict, writeManifest, upsertEntry, withManifestLockAsync, type Manifest, type ManifestEntry } from './manifest.js'
 import { SaveQueue } from './queue.js'
 import { generateDocId, legacyId } from './stable-id.js'
-import { invalidateTreeIndex, invalidateTreeIndexForContent, scanBookTree, type TreeNode } from './tree.js'
+import { invalidateTreeIndex, invalidateTreeIndexForContent, scanBookTree } from './tree.js'
 import { readFile as readDoc, parseFlat, patchFlatFm, splitFrontMatter, joinFrontMatter, bodyOf } from '../format/frontmatter.js'
 // R42-7（四十二轮）：Z-6 守卫读改 strict——readTrashManifest 容错版只供只读展示面
 // （X-P3a：读失败按「无回收站」处理），本文件不再使用容错版。
 import { appendTrashEntryAsync, readTrashManifestStrict, removeTrashEntryAsync } from './trash.js'
 import { errMsg, log } from '../log/index.js'
-import { testableConst } from '../shared/testable.js'
+import { isUtf8Bytes, NON_UTF8_REJECT, NON_UTF8_SAVE_REJECT, getMetaSaveLockTimeoutMs, getStructSaveLockTimeoutMs, getWiringSaveLockTimeoutMs, saveLockTimeoutMs } from './service-guards.js'
+import { trashBaselineOf, isSamePhysicalFile, sanitizeCreateSegment, isSanitizedCreatePath, isPieceBody, normalizeChapterNo, chapterTitleSegment, findByLegacyId } from './service-helpers.js'
 import { appendWordsDelta, todayDate } from './words-diary.js'
 import { countWords, chapterFilePrefix } from '../format/words.js'
 // R26-55（二十六轮）：createDocument 的 relPath 逐段消毒同源（sanitizeChapterTitle 是
 // 同函数的章标题别名）
 import { sanitizeChapterTitle, sanitizeFileNamePart, sanitizeFullFileName, chapterNoFromName } from '../format/filename.js'
 import { acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js' // R31-20：meta 链全异步化，同步等待原语已无使用方
-import { readBookConfig } from '../format/yaml.js'
 
-/** 第五轮：非 UTF-8（GBK 等）文件的元数据写回统一拒绝——utf-8 读入产生 U+FFFD 替换
- *  符，元数据路径会把乱码正文原子覆盖回原文件（原始字节永久丢失，且无快照留底，
- *  用户没碰正文却被「盲改」）。检出即拒，先转码再改。 */
-const NON_UTF8_REJECT = {
-  ok: false as const,
-  code: 'WRITE_ERROR' as const,
-  reason: '检测到非 UTF-8 编码（正文含 U+FFFD 替换字符）：为防写回损坏原文，请先将该文件转为 UTF-8 再修改元数据',
-}
-
-/** M-5（第六轮）：save 主路径同款防线（含 autosave）——编辑器打开 GBK 文件显示乱码后
- *  autosave 存回，乱码正文同样原子覆盖原文件；且设定/大纲等非 chapter 文档无快照
- *  兜底（maybeSnapshot 只留底章文档），一旦覆盖原始字节无版本可恢复。
- *  判据用「盘上字节是否合法 UTF-8」（fatal 解码探测）而非「盘上是否已含 U+FFFD」：
- *  GBK 文件以 utf-8 读入本就产生 U+FFFD，后者会把最该拦的场景判成放行。盘上为合法
- *  UTF-8（含作者真实键入的 � 字符）时不受影响——那是普通编辑，无字节可毁。 */
-export function isUtf8Bytes(buf: Buffer): boolean {
-  try {
-    new TextDecoder('utf-8', { fatal: true }).decode(buf)
-    return true
-  } catch {
-    return false
-  }
-}
-
-const NON_UTF8_SAVE_REJECT = {
-  ok: false as const,
-  code: 'WRITE_ERROR' as const,
-  reason: '目标文件不是合法 UTF-8（可能是编辑器以错误编码打开本文件，或外部工具写入了 GBK 等编码）：为防原始内容被乱码覆盖后不可恢复，已拒绝保存——请先将文件转为 UTF-8 再编辑',
-}
-
-/** R76-1（二十四轮）：元数据 PATCH 双路径（updateChapterMeta/updateDocMeta）的跨进程
- *  保存锁等待（毫秒）——与 executeSave 的 5s 同档；测试注入缩短保快（生产零调用），
- *  同 draft-pipeline DRAFT_SAVE_LOCK_TIMEOUT_MS 惯例。
- *  R30-18（三十轮）：常量化——export let 可被任一 import 方静默改写（同 events/store.ts
- *  R26-105 的收口认定），改 const + 内部可变生效值；测试只能经注入钩子改档，生产恒用常量。 */
-export const META_SAVE_LOCK_TIMEOUT_MS = 5_000
-
-/** 复审-0914-优化修复批 A4（2026-09-14 修复批）：三件套换装 testableConst——生效值 getter +
- *  注入钩子由工厂单源产出（钩子名/签名不变，测试面零感知；生产消费点改调 getter）。 */
-export const [getMetaSaveLockTimeoutMs, __setMetaSaveLockTimeoutForTest] = testableConst(META_SAVE_LOCK_TIMEOUT_MS)
-
-/** R0912-2（2026-09-11 重评-0911c 修复批）：结构性操作（doMoveOrRename/doTrash）落位段
- *  的 per-doc save 锁等待档（毫秒）——与 executeSave 的 5s 同档；测试注入缩短保快
- *  （生产零调用），同 META_SAVE_LOCK_TIMEOUT_MS 惯例。
- *  A4 换装（同 META 注）：档位常量为本模块私有（无导出消费方），def 值就地字面化。 */
-export const [getStructSaveLockTimeoutMs, __setStructSaveLockTimeoutForTest] = testableConst(5_000)
-
-/** R29-7（二十九轮）：布线文件写路径的第二道跨进程锁（`<布线文件绝对路径>.lock`，
- *  与 lead-finalize.ts applyLeadUpdates 同名锁）等待档（毫秒）——与 save 锁的 5s
- *  同档（测试注入缩短保快，生产零调用）。
- *  R30-18（三十轮）：常量化——同 META_SAVE_LOCK_TIMEOUT_MS 的收口口径。 */
-export const WIRING_SAVE_LOCK_TIMEOUT_MS = 5_000
-
-/** A4 换装（同 META 注）。 */
-export const [getWiringSaveLockTimeoutMs, __setWiringSaveLockTimeoutForTest] = testableConst(WIRING_SAVE_LOCK_TIMEOUT_MS)
-
-/** 复审-0913-源码 P3-③：executeSave 主体保存锁（`<journalPath>.save.lock`）等待档
- *  （毫秒）——原裸写 5_000 与 META/STRUCT/WIRING 三档惯例脱钩（R30-18 收口口径漏网
- *  单点）；测试注入缩短保快（生产零调用），同 META_SAVE_LOCK_TIMEOUT_MS 惯例。 */
-export const SAVE_LOCK_TIMEOUT_MS = 5_000
-
-/** 生效值（模块内可变）：初值 = 常量；测试如需注入走模块内替换（复审-0914-优化修复批
- *  B4：原 __setSaveLockTimeoutForTest 钩子全库零调用方，2026-09-14 修复批删）。
- *  本批注：钩子删后本值再无改写通道（恒等常量），随 eslint prefer-const 降 const。 */
-const saveLockTimeoutMs = SAVE_LOCK_TIMEOUT_MS
+// R0916-5e（2026-09-16，⑤④产品巨件拆分波1）缝 A 拆分桥：守卫与锁档常量正本迁
+// service-guards.ts，此处逐名 re-export——全库消费方（src/test 一律 import 自本文件）
+// 零改动；缝 B 尾部 8 函数原为模块私有，无外部消费方，不入桥（仅上方内部 import）。
+export {
+  isUtf8Bytes,
+  META_SAVE_LOCK_TIMEOUT_MS,
+  getMetaSaveLockTimeoutMs,
+  __setMetaSaveLockTimeoutForTest,
+  getStructSaveLockTimeoutMs,
+  __setStructSaveLockTimeoutForTest,
+  WIRING_SAVE_LOCK_TIMEOUT_MS,
+  getWiringSaveLockTimeoutMs,
+  __setWiringSaveLockTimeoutForTest,
+  SAVE_LOCK_TIMEOUT_MS,
+} from './service-guards.js'
 
 /** 保存输入（W0-1 §5.1）。
  *  R34D-18（三十四轮）：content 扩为 string | Buffer——Buffer 仅恢复端点字节档分支
@@ -2152,92 +2107,4 @@ export class DocumentService {
       },
     })
   }
-}
-
-/** R0912-3（2026-09-12 全量重评 P2-2）：清单条目 → TrashEntry 基线投影单源（W-P2-1
- *  基线 + R27-47 tags/order，status 可派生故不带）——doTrash 的无锁快照与删除 RMW
- *  锁内新鲜读两处共用同一字段集与键序（键序固定是 JSON.stringify 逐位比对的判据）。 */
-function trashBaselineOf(e: ManifestEntry): { finalizedRevision?: string; finalizedAt?: string; tags?: string[]; order?: number } {
-  return {
-    ...(e.finalizedRevision ? { finalizedRevision: e.finalizedRevision, finalizedAt: e.finalizedAt } : {}),
-    ...(e.tags && e.tags.length > 0 ? { tags: e.tags } : {}),
-    ...(typeof e.order === 'number' ? { order: e.order } : {}),
-  }
-}
-
-/** R2W-1：同物理文件判定（win NTFS/mac APFS 大小写不敏感 FS 的纯大小写改名识别）——
- *  dev+ino 口径对齐 api/books.ts R71-8。stat 失败（EACCES 等）按「非同文件」保守处理，
- *  走既有冲突收口。 */
-function isSamePhysicalFile(a: string, b: string): boolean {
-  try {
-    const sa = statSync(a)
-    const sb = statSync(b)
-    return sa.dev === sb.dev && sa.ino === sb.ino
-  } catch {
-    return false
-  }
-}
-
-/** R26-55（二十六轮）：createDocument 的单段消毒——文件段带 .md 扩展名时只消毒标题段
- *  再原样拼回扩展名（大小写保留），目录段/无扩展名段整体消毒。sanitizeFileNamePart
- *  对空段兜底「未命名」，故 `/.md` 形态落为 `未命名.md`，不产生空段。 */
-function sanitizeCreateSegment(seg: string): string {
-  if (seg.toLowerCase().endsWith('.md')) {
-    return sanitizeFileNamePart(seg.slice(0, -3)) + seg.slice(-3)
-  }
-  return sanitizeFileNamePart(seg)
-}
-
-/** R40-24（四十轮）：save 新建路径的消毒闸判定——任一**非空**段经 sanitizeCreateSegment
- *  （R26-55 单源）会改写即不合规（保留设备名/尾点/尾空格/控制字符/非法字符段）。
- *  空段跳过（'a//b.md' 类冗余分隔符由 resolve 词法折叠，铸名无害，不误拒）；两种
- *  分隔符都切（win 反斜杠 relPath 变体与 posix 口径同判）。 */
-function isSanitizedCreatePath(relPath: string): boolean {
-  return relPath
-    .split(/[\\/]/)
-    .every((seg) => seg === '' || sanitizeCreateSegment(seg) === seg)
-}
-
-/** 短篇正文（写作/正文/ + 书级 kind=short）——标题编辑联动文件名 rename + 清单同步。 */
-function isPieceBody(relPath: string, bookRoot: string): boolean {
-  if (roleOf(relPath) !== 'chapter') return false
-  const cfg = readBookConfig(join(bookRoot, 'book.yaml'))
-  return cfg.ok ? (cfg.config.kind ?? 'long') === 'short' : false
-}
-
-/** N-11（第十二轮）：fm 章号归一——引号包裹的纯数字串（作者手写/外部工具写回的
- *  `章号: "12"`）与数字同等参与文件名派生；此前 typeof === 'number' 判不过就回落
- *  basename 前缀提取，改标题后章号段静默劣化。非数字（含小数/空/杂串）→ null 走
- *  原回落；仅用于文件名派生，fm 原值不回写（M-2 字节级忠实口径）。 */
-function normalizeChapterNo(v: unknown): number | null {
-  if (typeof v === 'number' && Number.isInteger(v)) return v
-  if (typeof v === 'string' && /^\d+$/.test(v.trim())) return Number(v.trim())
-  return null
-}
-
-/** 全库重评-0914 P3-11：章文件名标题段剥离（章号识别收编 chapterNoFromName 单源，
- *  format/filename 宽集：`-`/`—`/空白/裸尾均认）——原窄正则 `/^(?:\d+-)?(.+)\.md$/`
- *  只认 `-` 分隔，`5—标题.md`/`5 标题.md` 的章号前缀剥不净（整名连章号落标题）。
- *  命中判定走 chapterNoFromName；剥段 = 首个分隔符（`-`/`—`/空白，与单源分隔集一致）
- *  之后余下部分（前缀是纯数字，首个分隔符即单源正则消费的那一个）。裸章号名（`0001.md`，
- *  单源 `$` 臂命中）无标题段 → 空串，消费侧 sanitize || '未命名' 兜底；非 .md 名
- *  维持原窄正则口径返回空串。 */
-function chapterTitleSegment(fileName: string): string {
-  if (!fileName.endsWith('.md')) return ''
-  const base = fileName.slice(0, -'.md'.length)
-  if (chapterNoFromName(base) === null) return base
-  const sepIdx = base.search(/[-—\s]/)
-  return sepIdx === -1 ? '' : base.slice(sepIdx + 1)
-}
-
-/** 深度优先找 legacyId(path) === docId 的叶子，返回其 relPath；无匹配 null。 */
-function findByLegacyId(nodes: TreeNode[], docId: string): string | null {
-  for (const n of nodes) {
-    if (!n.isDirectory && legacyId(n.path) === docId) return n.path
-    if (n.children.length) {
-      const hit = findByLegacyId(n.children, docId)
-      if (hit) return hit
-    }
-  }
-  return null
 }
