@@ -9,7 +9,7 @@
  *   少量超大文档驻留膨胀；同步/异步孪生共享同一计账。断言：超预算逐出最旧、
  *   最新条目恒保留、覆写同键不双计、delete 扣账、字节观测钩子一致。
  */
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -113,6 +113,10 @@ describe('PM-1 伏笔扫描异步孪生', () => {
     __resetForeshadowScanCountForTest()
     // 增一章 → 写作/正文 目录 mtime 变 → sig 失配
     writeFileSync(join(root, '写作', '正文', '0031-新章.md'), '---\n章号: 31\n标题: 新章\n---\n\n铜锁再现。\n', 'utf-8')
+    // R0916-5i（mtime 垫片族第 8 站顺带加固，同族先例 R0916-5d 七站）：目录 sig 读 mtimeMs，
+    // 写入与后续 stat 落同一毫秒时指纹不变 → 重扫不触发（负载期假红）——显式前推 60s
+    // 与写入时刻解耦，生产陈旧窗既有口径不动。
+    utimesSync(join(root, '写作', '正文'), Date.now() / 1000 + 60, Date.now() / 1000 + 60)
     await sleep(5)
     await getForeshadowsCachedAsync(root)
     expect(__foreshadowScanCountForTest()).toBe(1)
