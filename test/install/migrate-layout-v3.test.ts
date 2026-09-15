@@ -153,6 +153,17 @@ test('无草稿目录：no-op', () => {
   expect(r.errors).toEqual([])
 })
 
+test('P3-12: 草稿路径被普通文件占用（readdir ENOTDIR）→ 错误进 errors 契约，不抛出', () => {
+  // 修复前：裸 readdirSync 异常以原始 Error 穿出——迁移跑在启动链路，throw 会阻断
+  // server 启动且每次启动重演；修复后与文件内其余失败形态同口径收进 errors
+  write('写作/草稿') // 同名普通文件（existsSync 为 true → 前置 no-op 守卫放行 → readdir ENOTDIR）
+  const r = migrateLayoutV3(tmp)
+  expect(r.migrated).toBe(0)
+  expect(r.errors).toHaveLength(1)
+  expect(r.errors[0]).toContain('读取草稿目录失败')
+  expect(r.errors[0]).toContain('ENOTDIR')
+})
+
 // ── R27-133（二十七轮）：trash 分支清除主清单旧路径条目 ───────────
 // 独立夹具（mkdtempTracked 兜底回收；不复用文件级 tmp）。
 

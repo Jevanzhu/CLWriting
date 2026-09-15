@@ -479,6 +479,26 @@ describe('R66-1: snapshotBeforeOverwrite 非 UTF-8 覆写防线', () => {
     expect(readFileSync(join(verDir, docDir!, `${snap}.md`), 'utf-8')).toContain('旧内容')
   })
 
+  // R0915-P3-7（四轮处置批）：saveDraft 三路单读共用的穿参契约
+  it('existingRaw 契约：null → 无需留底早退；预读 Buffer → 同自读结果且不读盘；GBK Buffer → 防线同形态上抛', () => {
+    const rel = '工作区/草稿/0007-预读.md'
+    mkdirSync(join(dir, '工作区', '草稿'), { recursive: true })
+    writeFileSync(join(dir, rel), '旧内容', 'utf-8')
+    // null = 调用方锁内断言文件不存在 → 与自读 miss 同态早退
+    expect(snapshotBeforeOverwrite(dir, rel, '新内容', undefined, undefined, null, null)).toBeNull()
+    const pre = readFileSync(join(dir, rel))
+    const snap = snapshotBeforeOverwrite(dir, rel, '新内容', undefined, undefined, null, pre)
+    expect(snap).toBeTruthy()
+    // 删盘上文件后喂「内容不同的预读 Buffer」再调 → 仍留底成功（若读盘则 existsSync
+    // miss 早退 null；预读路径落新版本必 truthy——writeVersion 同内容快照会去重
+    // 返回 null，故探针须换旧内容以区分两臂）
+    rmSync(join(dir, rel))
+    const snap2 = snapshotBeforeOverwrite(dir, rel, '又新内容', undefined, undefined, null, Buffer.from('另一段旧内容', 'utf-8'))
+    expect(snap2).toBeTruthy()
+    // 预读 GBK Buffer → R66-1 防线与自读形态一致上抛
+    expect(() => snapshotBeforeOverwrite(dir, rel, 'x', undefined, undefined, null, Buffer.from([0xb7, 0xe7]))).toThrow('不是 UTF-8')
+  })
+
   it('saveDraft 集成：case2 文件名相撞的 GBK 旧文件 → 拒绝落盘且字节不变（撤防线本用例红）', async () => {
     // 触发链定谳（R66-1）：GBK 文件 fm 解析失败不进 readChapterDir → resolveDraftPath case1
     // 找不到它；真实覆写路径 = case2 按新稿标题生成的文件名与既有 GBK 文件同名相撞

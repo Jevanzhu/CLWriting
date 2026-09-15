@@ -21,7 +21,7 @@
  * context-menu）真实跑（server-manager 的 fork 经 electron mock 的 utilityProcess
  * 假件注入）；electron/日志为假件。
  */
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -446,6 +446,27 @@ const prevInitialEnv = process.env['CLWRITING_INITIAL_BOOK']
 // 覆盖（fake timers + 小值注入）。
 const prevRecoveryEnv = process.env['CLW_SESSION_END_RECOVERY_MS']
 
+// R0915-P2（四轮重评处置批）：文件级 process 监听器治理——本文件 39 处
+// `vi.resetModules() + await import` 每次都在真实 process 上注册 6 个监听器
+// （main.ts 的 SIGINT/SIGBREAK/SIGTERM/uncaughtException/unhandledRejection +
+// app-instance-guard.ts 的 exit），闭包把整张旧模块图钉死不可 GC；负载下全量并发时
+// 堆耗尽（四轮报告 §三：4/4 worker OOM、空载可过 = 累积底噪失稳而非慢漏）。处置 =
+// 包装 process.on/once 透传注册并记账（注册行为逐字节不变，不吞不换），afterEach
+// 拆除本用例窗口内的注册——监听器寿命收敛到单用例、旧模块图随用例脱钉；禁
+// removeAllListeners（会误伤 vitest/工夹具自有监听器）。与两处 vi.spyOn(process,'on')
+// 竞态用例共存：spy 期间注册走 spy 不进记账（也未真注册），mockRestore 还原本包装。
+const prevProcessOn = process.on.bind(process)
+const prevProcessOnce = process.once.bind(process)
+const trackedProcessListeners: Array<{ name: string | symbol; fn: (...args: unknown[]) => void }> = []
+process.on = ((name: string | symbol, fn: (...args: unknown[]) => void) => {
+  trackedProcessListeners.push({ name, fn })
+  return prevProcessOn(name as never, fn as never)
+}) as typeof process.on
+process.once = ((name: string | symbol, fn: (...args: unknown[]) => void) => {
+  trackedProcessListeners.push({ name, fn })
+  return prevProcessOnce(name as never, fn as never)
+}) as typeof process.once
+
 beforeAll(async () => {
   delete process.env['CLWRITING_INITIAL_BOOK']
   process.env['CLW_SESSION_END_RECOVERY_MS'] = '3600000'
@@ -463,11 +484,25 @@ beforeAll(async () => {
 })
 
 afterAll(() => {
+  // R0915-P2：末用例异步尾（重导入 whenReady 链迟到注册）兜底拆除 + 还原包装方法，
+  // 零残留出文件（同 worker 后续测试文件不受影响）。
+  for (const { name, fn } of trackedProcessListeners) process.removeListener(name, fn)
+  trackedProcessListeners.length = 0
+  process.on = prevProcessOn as unknown as typeof process.on
+  process.once = prevProcessOnce as unknown as typeof process.once
   if (prevInitialEnv === undefined) delete process.env['CLWRITING_INITIAL_BOOK']
   else process.env['CLWRITING_INITIAL_BOOK'] = prevInitialEnv
   if (prevRecoveryEnv === undefined) delete process.env['CLW_SESSION_END_RECOVERY_MS']
   else process.env['CLW_SESSION_END_RECOVERY_MS'] = prevRecoveryEnv
   for (const d of tmpDirs) rmSync(d, { recursive: true, force: true })
+})
+
+afterEach(() => {
+  // R0915-P2：拆除本用例窗口内经包装注册的 process 监听器（含重导入 main.js 的
+  // 六件套）——已 once 触发或调用方自拆的形态 removeListener 幂等无害；记账清空
+  // 防单调增长。
+  for (const { name, fn } of trackedProcessListeners) process.removeListener(name, fn)
+  trackedProcessListeners.length = 0
 })
 
 function mainWin(): Record<string, any> {
@@ -1278,18 +1313,23 @@ describe('kk-P2-8：退出与边界分支', () => {
 
   it('时序 2（批 U1）：boot-error（EADDRINUSE）→ 原生错误对话框 + 退出，不开窗不 fork 增量外动作', async () => {
     M.forkBehavior = 'boot-error'
-    const windows0 = M.windows.length
-    const quit0 = M.quitCalls
-    vi.resetModules()
-    await import('../../src/desktop/main.js')
-    await new Promise((r) => setImmediate(r))
-    await new Promise((r) => setImmediate(r))
-    expect(M.errorBox.length).toBe(1)
-    expect(M.errorBox[0]![0]).toContain('启动失败')
-    expect(M.errorBox[0]![1]).toContain('EADDRINUSE')
-    expect(M.windows.length).toBe(windows0) // 启动失败不开窗
-    expect(M.quitCalls).toBeGreaterThan(quit0) // onError → app.quit
-    M.forkBehavior = 'ready'
+    // nano-12（四轮处置批）：裸还原改 finally——断言中途抛错时共享桩滞留 'boot-error'
+    // 会连锁毒化后续所有重导入用例（fresh module 全走 EADDRINUSE 形态假红）。
+    try {
+      const windows0 = M.windows.length
+      const quit0 = M.quitCalls
+      vi.resetModules()
+      await import('../../src/desktop/main.js')
+      await new Promise((r) => setImmediate(r))
+      await new Promise((r) => setImmediate(r))
+      expect(M.errorBox.length).toBe(1)
+      expect(M.errorBox[0]![0]).toContain('启动失败')
+      expect(M.errorBox[0]![1]).toContain('EADDRINUSE')
+      expect(M.windows.length).toBe(windows0) // 启动失败不开窗
+      expect(M.quitCalls).toBeGreaterThan(quit0) // onError → app.quit
+    } finally {
+      M.forkBehavior = 'ready'
+    }
   })
 
   // X-26（第五十六轮）：裸 reload 无退避——崩溃风暴下无限 reload 打转（每次 reload 起
@@ -2090,6 +2130,10 @@ describe('R44-15/R44-17: 子窗工作区钳制 + uncaughtException 停机兜底'
       await vi.waitFor(() => expect(child2.killed).toBeGreaterThanOrEqual(1), { timeout: 1_500, interval: 20 })
       expect(exitSpy).toHaveBeenCalledWith(1)
       expect(Date.now() - t0).toBeLessThan(1_900)
+      // P3-21（四轮处置批）：断言后 drain 一拍——stopChild settle 链与迟到的
+      // setTimeout(0) 退出回调（exit 已 mock）在本用例窗口内冲刷完毕，不再漏进
+      // 后续用例执行中途（child 已 kill，drain 无副作用）。
+      await new Promise((r) => setImmediate(r))
     } finally {
       M.forkBehavior = 'ready' // 还原共享桩，不污染后续用例
       exitSpy.mockRestore()

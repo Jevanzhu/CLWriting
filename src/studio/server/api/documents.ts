@@ -345,33 +345,46 @@ export function registerDocumentRoutes(ctx: DocumentCtx): void {
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)
       if (!r) return
-      // R30-6（三十轮，批 C 移交收尾）：切异步孪生——锁等待（布线锁/清单锁）走事件
-      // 循环轮询原语，不再阻塞 SSE/心跳；语义（超时档/fail-closed/锁序）与同步孪生逐位一致
-      const outcome = await finalizeRevisionAsync(r.bookRoot, params['docId'] ?? '')
-      if (!outcome.ok) {
-        // ee-P1-3：LEAD_GATE → 409（可修复的账实状态冲突，语义与 structStatus 的
-        // REVISION_CONFLICT/OCCUPIED 冲突族一致）；ee-P1-4：LEAD_WRITE_ERROR → 500
-        // （服务端 IO 故障，作者修复环境后重试）。error 人话原样透传给前端 toast。
-        const status =
-          outcome.code === 'NOT_FOUND' ? 404
-          : outcome.code === 'LEAD_GATE' ? 409
-          : outcome.code === 'LEAD_WRITE_ERROR' ? 500
-          : 400
-        // N-2（第十二轮）：收编 replyError 单一出口（去掉 ok:false 冗余位）
-        return replyError(res, status, outcome.code, outcome.error)
+      // R0915-P3-2（四轮处置批）：单件定稿补任务闸——batch-finalize 早已持 'batch-finalize'
+      // 闸而单件端点裸跑，两路在途交错时单件可插进批量串行循环的章间隙（同章双 commit/
+      // 双 manifest 写的 CC-P2-9 动机面）。同族操作同闸名互斥、拒而非排队（闸窗毫秒级，
+      // 前端重试即过；对齐 batch-finalize 与 rewrite/outline 闸口径）；books.ts busyGate
+      // 随之把单件定稿的 git commit 窗也纳入删书/改名拦截面。
+      const release = acquireTaskGate(params['name']!, 'batch-finalize')
+      if (!release) {
+        return replyError(res, 409, 'BUSY', '本书定稿操作进行中，请等待完成后再试')
       }
-      // C1（批 2）定稿即生成章摘要：best-effort fire-and-forget（钩子在 API 层——
-      // document/ 禁 import AI 层，依赖方向治理测试守门）；skipped（幂等重定稿）不触发；
-      // M-2：带书名登记进后台表，删书/改名/退出的 settle 能追上其落盘
-      // R0912：driver 会话惰性取得后再挂钩子——ensureSession 窗口内任务尚未启动
-      // （零 AI 调用/零落盘），M-2 登记稍迟无逃逸面；session 失败 → 不登记（修复前等价）
-      if (!outcome.skipped) {
-        void (async (): Promise<void> => {
-          const session = await ensureSession(params['name']!, ctx.workDir!).catch((): undefined => undefined)
-          afterFinalizeGenerateSummary(r.bookRoot, ctx.userDataPath ?? null, params['docId'] ?? '', params['name'], getDriver(), session)
-        })()
+      try {
+        // R30-6（三十轮，批 C 移交收尾）：切异步孪生——锁等待（布线锁/清单锁）走事件
+        // 循环轮询原语，不再阻塞 SSE/心跳；语义（超时档/fail-closed/锁序）与同步孪生逐位一致
+        const outcome = await finalizeRevisionAsync(r.bookRoot, params['docId'] ?? '')
+        if (!outcome.ok) {
+          // ee-P1-3：LEAD_GATE → 409（可修复的账实状态冲突，语义与 structStatus 的
+          // REVISION_CONFLICT/OCCUPIED 冲突族一致）；ee-P1-4：LEAD_WRITE_ERROR → 500
+          // （服务端 IO 故障，作者修复环境后重试）。error 人话原样透传给前端 toast。
+          const status =
+            outcome.code === 'NOT_FOUND' ? 404
+            : outcome.code === 'LEAD_GATE' ? 409
+            : outcome.code === 'LEAD_WRITE_ERROR' ? 500
+            : 400
+          // N-2（第十二轮）：收编 replyError 单一出口（去掉 ok:false 冗余位）
+          return replyError(res, status, outcome.code, outcome.error)
+        }
+        // C1（批 2）定稿即生成章摘要：best-effort fire-and-forget（钩子在 API 层——
+        // document/ 禁 import AI 层，依赖方向治理测试守门）；skipped（幂等重定稿）不触发；
+        // M-2：带书名登记进后台表，删书/改名/退出的 settle 能追上其落盘
+        // R0912：driver 会话惰性取得后再挂钩子——ensureSession 窗口内任务尚未启动
+        // （零 AI 调用/零落盘），M-2 登记稍迟无逃逸面；session 失败 → 不登记（修复前等价）
+        if (!outcome.skipped) {
+          void (async (): Promise<void> => {
+            const session = await ensureSession(params['name']!, ctx.workDir!).catch((): undefined => undefined)
+            afterFinalizeGenerateSummary(r.bookRoot, ctx.userDataPath ?? null, params['docId'] ?? '', params['name'], getDriver(), session)
+          })()
+        }
+        reply(res, 200, { ok: true, status: outcome.status, skipped: outcome.skipped })
+      } finally {
+        release()
       }
-      reply(res, 200, { ok: true, status: outcome.status, skipped: outcome.skipped })
     },
   })
 

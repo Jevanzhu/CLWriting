@@ -168,5 +168,9 @@ describe('T2-1 chat 链路事件登记（端到端）', () => {
     const meta = (call.data as { promptMeta?: { files: string[] } }).promptMeta
     expect(meta).toBeDefined()
     expect(meta!.files).toEqual([])
+    // P3-10（四轮处置批）：未选章 → 无正文指纹可指涉，revision/ref 事件本就不落
+    // （原 `?? 0` 只在 revisionDigest 在时执行；「digest 在而章缺」的载荷契约 =
+    // 章号缺省不伪装 0，见 chain-bridge.test.ts 构造器用例）
+    expect(readChatEvents(ud, 'trace-c').find((e) => e.type === 'revision/ref')).toBeUndefined()
   })
 })

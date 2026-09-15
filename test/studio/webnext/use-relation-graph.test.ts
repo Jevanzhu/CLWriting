@@ -22,6 +22,9 @@ const mocks = vi.hoisted(() => ({
   // routeState.params.name 同为可变活源，mid-flight 改名验守卫
   docState: { bookName: '测试书' },
   routeState: { params: { name: '测试书' } },
+  // 四轮重评 P3-18：aiAvailable 三态可变活源（true/false/null=探测中）——自动梳理门
+  // 用例改此值验「探测中不放行」；默认 true 与原静态 mock 等价（既有用例不受影响）
+  uiState: { aiAvailable: true as boolean | null },
 }))
 
 vi.mock('../../../src/studio/web-next/src/api/settings', () => ({
@@ -45,7 +48,8 @@ vi.mock('../../../src/studio/web-next/src/stores/tree', () => ({
   useTreeStore: vi.fn(() => ({ byPath: new Map() })),
 }))
 vi.mock('../../../src/studio/web-next/src/stores/ui', () => ({
-  useUiStore: vi.fn(() => ({ toast: mocks.toast, aiAvailable: true })),
+  // P3-18：getter 保活源（改 mocks.uiState.aiAvailable 即时可见）
+  useUiStore: vi.fn(() => ({ toast: mocks.toast, get aiAvailable() { return mocks.uiState.aiAvailable } })),
 }))
 vi.mock('../../../src/studio/web-next/src/stores/prefs', () => ({
   usePrefsStore: vi.fn(() => ({ relationAutoMine: false, relationMineThreshold: 20 })),
@@ -83,6 +87,7 @@ beforeEach(() => {
   mocks.getConfig.mockResolvedValue({})
   mocks.docState.bookName = '测试书' // R75-E-P3c：守卫用例改过后复位
   mocks.routeState.params.name = '测试书' // R76-34：路由参数守卫源复位
+  mocks.uiState.aiAvailable = true // P3-18：探测态用例改过后复位
 })
 
 describe('useRelationGraph: 建图契约', () => {
@@ -219,6 +224,40 @@ describe('useRelationGraph: AI 梳理', () => {
     resolveMine({ ok: true, relations: [{ from: 'A', to: 'B', type: '同门' }] })
     await p1
     expect(g.mining.value).toBe(false)
+  })
+})
+
+describe('useRelationGraph: 自动梳理门（四轮重评 P3-18）', () => {
+  /** 自动梳理全条件满足的 settings 载荷（relationCache 增量 5 ≥ 阈值 1，书级开关开） */
+  function autoFixture(): SettingsResult {
+    return { ...fixture(), relationCache: { chapterCount: 0, currentChapters: 5 } }
+  }
+
+  it('探测中（null）不放行：增量/开关均满足也不取 config、不起梳理（原 === false 判定放行 null）', async () => {
+    mocks.uiState.aiAvailable = null
+    mocks.getSettings.mockResolvedValueOnce(autoFixture())
+    const g = useRelationGraph('测试书')
+    await g.load()
+    await new Promise((r) => setTimeout(r, 0)) // maybeAutoMine 是 fire-and-forget，冲掉微任务链
+    expect(mocks.getConfig).not.toHaveBeenCalled() // 守卫在 config 拉取前短路
+    expect(mocks.mineRelations).not.toHaveBeenCalled()
+  })
+
+  it('不可达（false）不放行；明确可用（true）才自动起梳理', async () => {
+    mocks.uiState.aiAvailable = false
+    mocks.getSettings.mockResolvedValueOnce(autoFixture())
+    const g = useRelationGraph('测试书')
+    await g.load()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(mocks.mineRelations).not.toHaveBeenCalled()
+
+    mocks.uiState.aiAvailable = true
+    mocks.getSettings.mockResolvedValueOnce(autoFixture())
+    mocks.getConfig.mockResolvedValueOnce({ auto: { relation_auto_mine: true, relation_mine_threshold: 1 } })
+    mocks.mineRelations.mockResolvedValueOnce({ ok: true, cached: false, relations: [{ from: 'A', to: 'B', type: '同门' }] })
+    await g.load()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(mocks.mineRelations).toHaveBeenCalledTimes(1)
   })
 })
 

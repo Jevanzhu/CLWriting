@@ -3,10 +3,27 @@
  * 文风收割 · 金句候选区（hh §八-16 自 LearnView.vue 拆出，纯搬家）。
  * 网格卡片点击即勾选（候选制红线：品味归人）——勾选态直接读写 learn store。
  */
+import { computed, ref, watch } from 'vue'
 import { Check } from 'lucide-vue-next'
 import { useLearnStore } from '../../stores/learn'
+import { capView } from '../../shared/render-cap'
 
 const learn = useLearnStore()
+
+// ── 金句区渲染上限（四轮重评 P3-19，样板 = SampleCandidateList R47-16 的 capView 手法）──
+// 金句量不受前端控制，整区 v-for 全量渲染时 DOM 随量线性爆炸；默认渲染前 100 张，
+// 超出「显示剩余 N 条」按需展开（计数/勾选仍面向全量 learn.quotes，仅渲染面截断）。
+const QUOTE_RENDER_CAP = 100
+const expanded = ref(false)
+const visibleQuotes = computed(() => {
+  if (expanded.value || learn.quotes.length <= QUOTE_RENDER_CAP) return learn.quotes
+  return capView(learn.quotes, QUOTE_RENDER_CAP).view
+})
+// 展开态跨收割重置（R0912-3 #23 同款）：收割跑完（loading 落 false）即清，
+// 新一轮数据回到 100 张上限；commit 后列表收缩不推 loading，展开态保留
+watch(() => learn.loading, (v, old) => {
+  if (old && !v) expanded.value = false
+})
 </script>
 
 <template>
@@ -17,7 +34,7 @@ const learn = useLearnStore()
            R32-31（三十二轮）：key 与勾选身份改 出处+正文（同文不同出处此前 duplicate key
            + 勾选联动）——身份计算在 learn store（quoteKey），模板传整对象 -->
       <div
-        v-for="q in learn.quotes"
+        v-for="q in visibleQuotes"
         :key="`${q.出处}\u0000${q.正文}`"
         class="quote-card"
         :class="{ picked: learn.isQuotePicked(q) }"
@@ -34,6 +51,14 @@ const learn = useLearnStore()
         </div>
       </div>
     </div>
+    <!-- 渲染上限的展开钮（计数/勾选仍面向全量 learn.quotes） -->
+    <button
+      v-if="learn.quotes.length > QUOTE_RENDER_CAP && !expanded"
+      class="text-btn expand-more"
+      @click="expanded = true"
+    >
+      显示剩余 {{ learn.quotes.length - QUOTE_RENDER_CAP }} 条
+    </button>
   </section>
 </template>
 
@@ -98,6 +123,21 @@ const learn = useLearnStore()
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+/* 展开钮（样式与 SampleCandidateList 的 text-btn 同式） */
+.text-btn {
+  padding: 3px 8px;
+  border: none;
+  background: none;
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-s);
+  transition: all var(--dur-fast) var(--ease-out);
+}
+.text-btn:hover {
+  color: var(--text-accent);
+  background: var(--background-modifier-hover);
 }
 .picked-mark {
   color: var(--text-accent);

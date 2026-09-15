@@ -67,7 +67,17 @@ export function migrateLayoutV3(bookRoot: string): { migrated: number; errors: s
   // R27-133（二十七轮）：旧稿入回收站的旧 path 集合——主清单同路径旧条目待清
   const trashPaths = new Set<string>()
 
-  for (const name of readdirSync(draftDir)) {
+  // P3-12（四轮重评）：裸 readdirSync 异常（草稿路径被普通文件占用 ENOTDIR、EACCES
+  // 等）曾以原始 Error 穿出——本函数契约是 errors 结构化返回（迁移跑在启动链路，
+  // throw 会阻断 server 启动且每次启动重演），收进 errors 与其余失败形态同口径。
+  let draftNames: string[]
+  try {
+    draftNames = readdirSync(draftDir)
+  } catch (e) {
+    errors.push(`读取草稿目录失败: ${errMsg(e)}`)
+    return { migrated, errors }
+  }
+  for (const name of draftNames) {
     const srcAbs = join(draftDir, name)
     if (name === '细纲.md' || name === '本章写作材料.md') {
       // 临时产物 → 工作区/

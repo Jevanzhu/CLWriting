@@ -310,6 +310,11 @@ describe('F1-P3 血缘事件构造器', () => {
       type: 'revision/ref',
       data: { chapter: 3, revision: 'r9', path: '写作/正文/3.md' },
     })
+    // R0915-P3-10（四轮处置批）：未选章形态——章号可选，载荷不含伪 0
+    expect(revisionRefEvent({ revision: 'r9', path: '写作/正文/3.md' })).toEqual({
+      type: 'revision/ref',
+      data: { revision: 'r9', path: '写作/正文/3.md' },
+    })
     expect(settingsSnapshotEvent({ scope: 'settings', digest: 'd1' })).toEqual({
       type: 'settings/snapshot',
       data: { scope: 'settings', digest: 'd1' },

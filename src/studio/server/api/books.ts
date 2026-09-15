@@ -766,10 +766,18 @@ export function registerBookRoutes(ctx: BookCtx): void {
           try {
             const books = readBooksStrict(ctx.workDir)
             if (books !== null) {
-              const idx = books.findIndex((b) => b.name === oldName)
-              if (idx >= 0) {
-                books[idx] = { ...books[idx], name: newName, path: newPath, kind: books[idx]!.kind }
-                writeBooks(ctx.workDir, books)
+              // R0915-P3-3（四轮处置批）：锁内重名重查——上方 L-S5 复查到本 RMW 之间隔着
+              // clearChatHistory/migrateBookSession 两个 await，跨进程并发建同名书可在此
+              // 窗口入表；锁内命中则跳过本登记更新（与锁超时分支同款降级：目录已搬、登记
+              // 暂指旧名，repairBooks 按 book.yaml 重关联兜底），防 books.jsonl 同名双登记。
+              if (books.some((b) => b.name === newName && b.name !== oldName)) {
+                log.warn('api', `rename: 锁内重查发现并发同名登记（${newName}），跳过登记更新——自愈将重关联兜底`)
+              } else {
+                const idx = books.findIndex((b) => b.name === oldName)
+                if (idx >= 0) {
+                  books[idx] = { ...books[idx], name: newName, path: newPath, kind: books[idx]!.kind }
+                  writeBooks(ctx.workDir, books)
+                }
               }
             }
           } finally {

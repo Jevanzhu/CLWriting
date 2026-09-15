@@ -10,7 +10,7 @@
  * warn+回落：与该文件既有非法值契约同通道、改动面最小，且不静默替换显式设置。
  * 桌面端 resolveEnvPort（R39-9）允许 0 的口径不受影响（彼处无固定代理前提）。
  */
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import {
   DEV_API_PORT_ENV,
   DEV_API_DEFAULT_PORT,
@@ -30,21 +30,23 @@ describe('R55-E-3：CLW_DEV_API_PORT=0 拒绝（dev 链路防静默失联）', (
 
   it("'0' 走生产通道时同样拒绝（console.error + exit 2，不透传 0）", () => {
     // 未注入 fatal 时内部 console.error + process.exit(2)——stub 以抛错模拟进程
-    // 终止（真 exit 不返回；若 stub 平返回，函数会穿透到 `return n` 失真）
+    // 终止（真 exit 不返回；若 stub 平返回，函数会穿透到 `return n` 失真）。
+    // nano-13（四轮处置批）：直写赋值改 vi.spyOn——直写绕开 vitest 桩管理，恢复
+    // 依赖手工对称还原；spy 的 mockRestore 单点收口（断言中途抛错也走 finally）。
     const exits: Array<number | string | undefined> = []
-    const errSpy = console.error
-    const exitSpy = process.exit
-    console.error = () => {}
-    process.exit = ((code?: number | string | undefined) => {
-      exits.push(code)
-      throw new Error('EXIT_SENTINEL')
-    }) as typeof process.exit
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const exitSpy = vi
+      .spyOn(process, 'exit')
+      .mockImplementation(((code?: number | string | undefined) => {
+        exits.push(code)
+        throw new Error('EXIT_SENTINEL')
+      }) as never)
     try {
       expect(() => resolveDevApiPort({ [DEV_API_PORT_ENV]: '0' })).toThrow('EXIT_SENTINEL')
       expect(exits).toEqual([2])
     } finally {
-      console.error = errSpy
-      process.exit = exitSpy
+      exitSpy.mockRestore()
+      errSpy.mockRestore()
     }
   })
 

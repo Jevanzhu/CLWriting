@@ -678,11 +678,15 @@ function repairBooksLocked(workDir: string, purgeConfirmedMissing: boolean): Rep
       continue
     }
 
-    const existingIndex = rebuilt.findIndex((b) => b.name === bookName)
-    if (existingIndex >= 0) {
-      const entry = rebuilt[existingIndex]!
-      const oldPath = entry.path
-      if (oldPath !== relPath && !existsSync(join(workDir, oldPath))) {
+      const existingIndex = rebuilt.findIndex((b) => b.name === bookName)
+      if (existingIndex >= 0) {
+        const entry = rebuilt[existingIndex]!
+        const oldPath = entry.path
+        // P3-13（四轮重评）：重关联判定改 isDirConfirmedMissing（stat ENOENT-only）——
+        // 原 !existsSync 把 EACCES 等一切 stat 失败（existsSync 恒返 false）误当
+        // 「旧目录确不存在」走 relink，与 R35-28 幽灵清除同口径：瞬态不可读不重关联，
+        // 登记保留（落下方 R74-10 同名书跳过留痕分支）
+        if (oldPath !== relPath && isDirConfirmedMissing(join(workDir, oldPath))) {
         rebuilt[existingIndex] = {
           ...entry,
           path: relPath,

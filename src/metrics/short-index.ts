@@ -17,6 +17,7 @@ import { classifyReversal } from '../format/reversal-types.js'
 import { readChapterBody } from './style.js'
 import { log } from '../log/index.js' // R51-B-3：跳章 warn 留痕
 import { SHORT_DEFAULTS } from '../shared/short-defaults.js'
+import { codePointLength } from '../shared/text.js'
 import type { BookConfig, PieceList, SetupPoint } from '../format/types.js'
 interface ShortPieceIndexEntry {
   num: number
@@ -578,11 +579,15 @@ function extractObject(text: string): string {
     .replace(/^(开头|中段|尾声|结尾|反转|铺垫|升级)/, '')
     .replace(/[，。！？、；：:]/g, ' ')
     .trim()
-  const quoted = cleaned.match(/「([^」]{1,12})」/)
+  // P3-9（2026-09-15 四轮重评处置批）：量词与截断对齐码位口径——u 标志使 {1,12} 按
+  // 码点计、Array.from 按码点截，增补平面字符（emoji/扩展汉字）恰落第 12 码元边界时
+  // 不再劈出孤立代理对；截断体不引 process/summary 的 clipByCodePoints（metrics→process
+  // 成环边界，见 shared/text.ts 头注），计数走单源 codePointLength。
+  const quoted = cleaned.match(/「([^」]{1,12})」/u)
   if (quoted) return quoted[1]!.trim()
   const compact = cleaned.replace(/\s+/g, '')
-  if (compact.length <= 12) return compact
-  return compact.slice(0, 12)
+  if (codePointLength(compact) <= 12) return compact
+  return Array.from(compact).slice(0, 12).join('')
 }
 
 function firstReal(...values: (string | undefined)[]): string {

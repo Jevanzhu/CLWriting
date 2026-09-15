@@ -67,6 +67,37 @@ function postBatchDelayed(docIds: unknown, bodyDelayMs: number): Promise<{ statu
   })
 }
 
+/** 单件定稿端点直发（端点不读 body，R0915-P3-2 用例） */
+function postFinalize(docId: string): Promise<{ status: number; json: unknown }> {
+  return new Promise((resolve, reject) => {
+    const u = new URL(baseUrl)
+    const req = http.request(
+      {
+        host: u.hostname,
+        port: u.port,
+        path: `/api/books/${encodeURIComponent(BOOK)}/documents/${encodeURIComponent(docId)}/finalize`,
+        method: 'POST',
+        headers: { 'x-studio-token': token },
+      },
+      (res) => {
+        let data = ''
+        res.on('data', (c) => (data += c.toString('utf8')))
+        res.on('end', () => {
+          let json: unknown = null
+          try {
+            json = JSON.parse(data)
+          } catch {
+            /* 非 JSON */
+          }
+          resolve({ status: res.statusCode ?? 0, json })
+        })
+      },
+    )
+    req.on('error', reject)
+    req.end()
+  })
+}
+
 beforeAll(async () => {
   workDir = mkdtempSync(join(tmpdir(), 'clwriting-batchfin-'))
   mkdirSync(join(workDir, '.clwriting'), { recursive: true })
@@ -207,6 +238,29 @@ describe('POST /documents/batch-finalize（P2-PROD-2）', () => {
     expect(busy).toBe(true)
     const r1 = await p1
     expect(r1.status).toBe(200)
+  })
+
+  // R0915-P3-2（四轮处置批）：单件定稿补 'batch-finalize' 任务闸——修复前单件端点
+  // 裸跑，批量在途（持闸悬在 readJson）时单件可并发插进同章定稿。修复后单件与批量
+  // 同闸互斥：批量在途窗口内单件 → 409 BUSY；批量落定后单件 → 200 skipped（幂等
+  // 重定稿，顺带钉闸随请求落定释放）。
+  it('R0915-P3-2：批量定稿在途 → 单件 finalize 409 BUSY；落定后单件 200 skipped', async () => {
+    // 改脏 3 章供定稿
+    writeFileSync(
+      join(bookRoot, '写作', '正文', '0003-高潮.md'),
+      '---\n章号: 3\n标题: 高潮\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n玉佩灵光击退妖兽，双闸互斥。\n',
+      'utf8',
+    )
+    const p1 = postBatchDelayed([ch3DocId], 250)
+    // R64-41 同款轮询防时序假红（poll 若先于批量占闸达闸且真定稿了 3 章，后续断言
+    // 链仍闭合：批量该条 skipped ok、r2 同为 skipped——口径不赌时序）
+    const busy = await pollUntil(async () => (await postFinalize(ch3DocId)).status === 409, 2000)
+    expect(busy).toBe(true)
+    const r1 = await p1
+    expect(r1.status).toBe(200)
+    const r2 = await postFinalize(ch3DocId)
+    expect(r2.status).toBe(200)
+    expect((r2.json as { skipped?: boolean }).skipped).toBe(true)
   })
 })
 

@@ -542,8 +542,10 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
     }
     lineageIdx.push(addLineage(settingsSnapshotEvent({ scope: 'settings', digest: settingsDigest })))
     if (revisionDigest !== undefined) {
-      // T2-1：path 记章正文实际注入源（spill locator 或草稿路径），此前恒空串断链
-      lineageIdx.push(addLineage(revisionRefEvent({ chapter: opts.chapter ?? 0, revision: revisionDigest, path: deps.revisionPath ?? '' })))
+      // T2-1：path 记章正文实际注入源（spill locator 或草稿路径），此前恒空串断链。
+      // P3-10（四轮处置批）：未选章不再 `?? 0` 伪装成无效章号——章号缺省即「无章」
+      // 显式语义（构造器已放宽可选，消费方只读 revision）。
+      lineageIdx.push(addLineage(revisionRefEvent({ ...(opts.chapter !== undefined ? { chapter: opts.chapter } : {}), revision: revisionDigest, path: deps.revisionPath ?? '' })))
     }
     // G2-2：技巧包索引注入（DSH-18）补登记——skillsIndex 非空才注入，同条件才登记
     if (skillsDigest !== undefined) {

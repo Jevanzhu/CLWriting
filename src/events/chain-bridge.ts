@@ -87,8 +87,12 @@ export function checkReportEvent(data: { chapter: number; reds: string[]; yellow
 
 // ── P3 血缘+检索事件构造器 ───────────────────────────
 
+// R0915-P3-10（四轮处置批）：章号转可选——未选章形态（revisionDigest 在而章号缺，
+// 如工作台未选章直接对话）此前被 `?? 0` 伪装成 0；章号 1 起算，0 属无效值，血缘
+// 载荷里出现伪 0 易被误读为真章号。缺省即「无章」语义；消费方（lineage
+// registeredRecords）只读 revision 不读章号，契约放宽零影响。
 export function revisionRefEvent(data: {
-  chapter: number
+  chapter?: number
   revision: string
   path: string
 }): NewEvent {

@@ -9,12 +9,28 @@
  *   条目——瞬态不可读（EACCES，网络盘离线等）不误清；逐条留日志；
  * - 可重关联（目录被移动到可扫位置）的条目走 relink，绝不进清除面。
  */
-import { mkdtempSync, rmSync, mkdirSync, chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, chmodSync, existsSync, readFileSync, writeFileSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { repairBooks, readBooks, writeBooks, type BookEntry } from '../../src/install/books.js'
 import { log } from '../../src/log/index.js'
+
+// P3-13（四轮重评）：旧登记路径注入 stat EACCES（win32 chmod 近 no-op 造不出真
+// EACCES，按 r0912-guard-strict-read 的 node:fs mock 透传手法，默认关闭不影响他例）
+const FAIL = vi.hoisted(() => ({ oldPathStat: '' }))
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>()
+  return {
+    ...actual,
+    statSync: ((p, ...rest) => {
+      if (FAIL.oldPathStat && typeof p === 'string' && p === FAIL.oldPathStat) {
+        throw Object.assign(new Error('EACCES: 权限拒绝（模拟网络盘离线/权限故障）'), { code: 'EACCES' })
+      }
+      return (actual.statSync as typeof statSync)(p, ...rest)
+    }) as typeof statSync,
+  }
+})
 
 const isRoot = typeof process.getuid === 'function' && process.getuid() === 0
 const permsReliable = process.platform !== 'win32' && !isRoot // win chmod 近似 no-op；root 越权不触发 EACCES
@@ -32,6 +48,7 @@ function registry(): BookEntry[] {
 
 afterEach(() => {
   vi.restoreAllMocks()
+  FAIL.oldPathStat = ''
   if (workDir) rmSync(workDir, { recursive: true, force: true })
   workDir = ''
 })
@@ -90,6 +107,25 @@ describe('R35-28 repairBooks 幽灵条目', () => {
     expect(r.relinked).toEqual([{ name: '搬家书', from: '长篇/搬家书', to: '长篇/新家' }])
     expect(r.purged).toBeUndefined()
     expect(r.missing).toHaveLength(0)
+  })
+
+  it('P3-13: 旧路径瞬态不可读（stat EACCES）不误 relink——非确认缺失跳过重关联、登记保留', () => {
+    makeWorkDir()
+    writeBooks(workDir, [{ name: '搬家书', path: '长篇/搬家书', kind: 'long' }])
+    // 同上一例的重关联场景（旧路径磁盘无目录、新位置可扫且同名）；差异仅在 stat(旧路径)
+    // 抛 EACCES——修复前 relink 判定用 !existsSync（一切 stat 失败恒返 false）会把
+    // EACCES 误当「旧目录确不存在」重写登记 path；修复后 ENOENT-only 同 R35-28 口径
+    mkdirSync(join(workDir, '长篇', '新家'), { recursive: true })
+    writeFileSync(join(workDir, '长篇', '新家', 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 搬家书\nhost: cc\n', 'utf-8')
+    FAIL.oldPathStat = join(workDir, '长篇', '搬家书')
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
+    const r = repairBooks(workDir, { purgeConfirmedMissing: true })
+    expect(r.relinked).toEqual([])
+    // 登记原样保留：path 不被重写、也不误清（EACCES 非确认缺失，purge 同口径放过）
+    expect(r.rebuilt.find((b) => b.name === '搬家书')?.path).toBe('长篇/搬家书')
+    expect(r.purged).toBeUndefined()
+    // 落 R74-10 同名书跳过留痕分支（作者可从日志发现，而非静默）
+    expect(warn).toHaveBeenCalledWith('books', expect.stringContaining('跳过不重复登记'))
   })
 
   it('登记完好时显式清除参数不产生任何副作用（无 hint、无 purged、changed=false）', () => {

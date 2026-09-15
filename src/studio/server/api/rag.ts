@@ -237,7 +237,8 @@ export function registerRagRoutes(ctx: RagCtx): void {
     // 生效提供方回显（provider 缺失 → null + legacy 标记，前端据此引导重选）。
     // 全局托底：读生效配置（enabled/provider 书级未设回落 global.json）
     const ragConfig = readRagConfig(bookRoot, ctx.userDataPath)
-    const resolved = resolveRag(ragConfig, ragProvidersOf(ctx.userDataPath), ctx.workDir!)
+    // R0915-P3-5：r.workDir 替代 ctx.workDir! 裸断言（resolveBook 成功臂已证非 null）
+    const resolved = resolveRag(ragConfig, ragProvidersOf(ctx.userDataPath), r.workDir)
     // R26-16（二十六轮）：失配透出——已建索引的 embedding 模型与当前生效配置模型不一致
     // 时标 true（从未建过索引 model=null 不算失配），消费方据此引导走 POST /rag/rebuild；
     // 维度失配（模型同名但向量维度变过）配置侧无从比对，仍由 buildIndex 错误信封透出。
@@ -264,7 +265,7 @@ export function registerRagRoutes(ctx: RagCtx): void {
     const r = resolveBookOrReply(ctx.workDir, params['name'], res)
     if (!r) return
     const bookRoot = r.bookRoot
-    const start = startRagBuild(params['name']!, bookRoot, ctx.workDir!, ctx.userDataPath)
+    const start = startRagBuild(params['name']!, bookRoot, r.workDir, ctx.userDataPath)
     if (!start.ok) {
       // 运行中 → 409 BUSY（与 /spawn、batch-finalize 闸同口径）；配置/缺 key → 400 BAD_INPUT。
       // 低级项（第六轮）：状态码由结构化 code 判定——原按文案子串 includes('运行中') 判，
@@ -289,7 +290,7 @@ export function registerRagRoutes(ctx: RagCtx): void {
     // 精确形态，409 code/error 与同族端点逐字节一致），防在途编排写索引行被清库打断。
     const busyOrch = orchestrationBusyFor(params['name']!)
     if (busyOrch) return replyError(res, 409, 'BUSY', busyOrch)
-    const start = startRagBuild(params['name']!, r.bookRoot, ctx.workDir!, ctx.userDataPath, { resetIndexFirst: true })
+    const start = startRagBuild(params['name']!, r.bookRoot, r.workDir, ctx.userDataPath, { resetIndexFirst: true })
     if (!start.ok) return replyError(res, start.code === 'BUSY' ? 409 : 400, start.code, start.reason)
     reply(res, 200, { started: true, reset: true })
   },

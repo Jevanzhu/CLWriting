@@ -19,16 +19,19 @@ import { replyError } from './http.js'
 export { readKind } from '../../format/kind.js'
 
 /** 解析书：找 entry → bookRoot；workDir 缺 / 书不存在 → error 联合。
- *  hh §八-12：error 分支带机器码（调用方直送 replyError，信封统一 {code,error}）。 */
+ *  hh §八-12：error 分支带机器码（调用方直送 replyError，信封统一 {code,error}）。
+ *  R0915-P3-5（四轮处置批）：成功臂携带 workDir——resolveBook 对 null workDir 恒
+ *  error，成功即证明 workDir 非 null；此前调用点（rag.ts 三处）只能 `ctx.workDir!`
+ *  裸断言表达该不变量，现随成功臂类型可证（加性字段，既有解构消费零影响）。 */
 export function resolveBook(
   workDir: string | null,
   name: string | undefined,
-): { bookRoot: string; entry: BookEntry } | { error: string; status: number; code: string } {
+): { bookRoot: string; entry: BookEntry; workDir: string } | { error: string; status: number; code: string } {
   if (!workDir) return { error: '未定位到工作目录', status: 400, code: 'NO_WORKDIR' }
   if (!name) return { error: '缺少书名', status: 400, code: 'BAD_INPUT' }
   const entry = readBooks(workDir).find((b) => b.name === name)
   if (!entry) return { error: `没有这本书：${name}`, status: 404, code: 'NOT_FOUND' }
-  return { bookRoot: join(workDir, entry.path), entry }
+  return { bookRoot: join(workDir, entry.path), entry, workDir }
 }
 
 /** resolveBook 双行样板单源（SRV-N8·专项精简优化 §五，2026-09-15 机械批收编路由入口
@@ -39,7 +42,7 @@ export function resolveBookOrReply(
   workDir: string | null,
   name: string | undefined,
   res: ServerResponse,
-): { bookRoot: string; entry: BookEntry } | null {
+): { bookRoot: string; entry: BookEntry; workDir: string } | null {
   const r = resolveBook(workDir, name)
   if ('error' in r) {
     replyError(res, r.status, r.code, r.error)

@@ -65,6 +65,9 @@ export function __setDraftSaveLockTimeoutForTest(ms: number): void {
  * 此前降级 return null 后 saveDraft 照常覆写，M1「作者手改不静默丢失」在 IO 抖动
  * （跨进程 rename 撞窗 / win AV 短暂锁）下失守。null 仅保留「无需留底」两态：
  * 文件不存在 / 内容相同。
+ * R0915-P3-7（四轮处置批）：existingRaw = 调用方在保存锁内预读的盘上字节（文件不
+ * 存在传 null），提供时不再读盘——saveDraft 三路（保形/留底/revision）单读共用；
+ * 缺省 undefined = 自读（files/outline/onboard/lead-updates 等其余调用方原样）。
  */
 export function snapshotBeforeOverwrite(
   bookRoot: string,
@@ -73,14 +76,21 @@ export function snapshotBeforeOverwrite(
   origin = 'draft-overwrite',
   manifest?: Manifest,
   userDataPath?: string | null,
+  existingRaw?: Buffer | null,
 ): string | null {
   const absPath = join(bookRoot, relPath)
-  if (!existsSync(absPath)) return null
+  let raw: Buffer
+  if (existingRaw === undefined) {
+    if (!existsSync(absPath)) return null
+    raw = readFileSync(absPath)
+  } else {
+    if (existingRaw === null) return null
+    raw = existingRaw
+  }
   // R66-1（十四轮）：非 UTF-8 覆写防线（M-5 同族，lead-finalize 同款无条件口径）——
   // 旧文件为 GBK 等非 UTF-8 编码时，utf8 读入留底的是含 U+FFFD 的失真快照，覆写后原字节
   // 任何形式不可恢复（编辑器保存路径 M-5 只拦「乱码回写」，AI 写章链覆写旧文件此前静默
   // 放行）。fail-closed 上抛拒绝覆写（Y-3 同款语义），提示先转码。
-  const raw = readFileSync(absPath)
   if (!isUtf8Bytes(raw)) {
     // 重评-0912-4 P1-1：改抛类型化 NonUtf8TargetError——消费方按类型分诊（files.ts PUT
     // 快照 catch 此前与瞬态 IO 一并 fail-open 吞掉，GBK 存量覆盖丢原稿，见该处修复注）
@@ -195,19 +205,24 @@ export async function saveDraft(
         throw new Error(`草稿保存目标已被占用（清单中他文档 ${e.id} 已认领 ${relPath}，等待保存锁期间发生移动/并入）——请刷新后重试`)
       }
     }
+    // R0915-P3-7（四轮处置批）：锁内单读派生收口——此前保形/留底/revision 三路各自
+    // 整读同一文件（R33D-18 的「单读」只覆盖 revision/UTF-8/字数三路派生），大稿三读
+    // 纯 I/O 浪费。保存锁内状态权威，一次读盘三路共用：保形吃 Buffer.toString
+    //（GBK 容错口径与原 utf-8 读同款）、留底吃同一 Buffer（isUtf8Bytes 判定与 Y-3
+    // 上抛语义不变；读失败上抛时机随读点上提，语义同为 fail-closed）。
+    const existing = existsSync(absPath)
+    const diskBytes = existing ? readFileSync(absPath) : null
     // 阶段 24 结构键保形回补（S3）：saveDraft 是「AI 产出强覆盖」通道，组装方
     // （self-heal/rewrite/spawn writer）可能不带 序/并入——锁内写盘前对盘上既有键
     // 回补，防结构键在强覆盖时丢失（self-heal 组装侧另有显式透传，两道共保；回补
     // 先于 journal pending 与留底，快照与落盘同带结构键）。incoming 已显式含键则不覆写。
-    content = preserveStructureFmIn(absPath, content)
+    content = preserveStructureFmIn(absPath, content, diskBytes)
     // M1 覆写留底：已有文件且内容不同 → force 快照（作者手改不静默丢失；Y-3 IO 失败上抛）
-    const snapshotId = snapshotBeforeOverwrite(bookRoot, relPath, content, opts?.snapshotOrigin, manifest, opts?.userDataPath)
+    const snapshotId = snapshotBeforeOverwrite(bookRoot, relPath, content, opts?.snapshotOrigin, manifest, opts?.userDataPath, diskBytes)
     // 步骤 4（对齐 executeSave）：journal pending 先于写盘（含全文快照，防丢字）——
     // pending 记不上就不能继续写（RB-KN-P2-2 同口径，fail-closed 上抛，调用方已统一 catch）
-    // R33D-18（三十三轮）：盘上内容单读派生（revision 哈希 / UTF-8 判定 / 字数 delta
-    // 三路同源，消除此前的重复整读与读间 TOCTOU；R27-45/R72-5 先例）。
-    const existing = existsSync(absPath)
-    const diskBytes = existing ? readFileSync(absPath) : null
+    // R33D-18（三十三轮）：revision 哈希 / UTF-8 判定 / 字数 delta 三路同源自 diskBytes
+    //（消除读间 TOCTOU；R27-45/R72-5 先例；P3-7 起读点上提为三路共用）。
     const currentRev = diskBytes ? (hashBytes(diskBytes) as `sha256:${string}`) : null
     const opId = await appendPending(journalPath, finalDocId, currentRev, content)
     let words: number

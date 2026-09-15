@@ -89,16 +89,24 @@ export function chapterTextByNumber(bookRoot: string, chapter: number): string |
 /** 把盘上既有章 fm 的 序/并入 透传进即将强覆盖的内容（saveDraft 锁内回补单源）。
  *  键级保形：incoming fm 已显式含该键则不覆写（显式产出优先）；盘上无键 / 文件不
  *  存在 / incoming 无 fm（裸 md）→ 原样返回。读失败原样返回（保形是防丢键兜底，
- *  不因它拒绝写盘——写侧防线在保存链自身）。 */
-export function preserveStructureFmIn(absPath: string, content: string): string {
-  if (!existsSync(absPath)) return content
+ *  不因它拒绝写盘——写侧防线在保存链自身）。
+ *  R0915-P3-7（四轮处置批）：existingRaw = 调用方在保存锁内预读的盘上字节（文件
+ *  不存在传 null），提供时不再读盘——saveDraft 三路（保形/留底/revision）单读共用；
+ *  缺省 undefined = 自读（preserveStructureFmForChapter 等其余调用方原样）。 */
+export function preserveStructureFmIn(absPath: string, content: string, existingRaw?: Buffer | null): string {
+  if (existingRaw === null) return content // 调用方锁内预读断言「文件不存在」→ 无键可保形
+  if (existingRaw === undefined && !existsSync(absPath)) return content
   const split = splitFrontMatter(content)
   if (split === null) return content
   let raw: string
-  try {
-    raw = readFileSync(absPath, 'utf-8')
-  } catch {
-    return content
+  if (existingRaw !== undefined) {
+    raw = existingRaw.toString('utf-8')
+  } else {
+    try {
+      raw = readFileSync(absPath, 'utf-8')
+    } catch {
+      return content
+    }
   }
   const disk = splitFrontMatter(raw)
   if (disk === null) return content

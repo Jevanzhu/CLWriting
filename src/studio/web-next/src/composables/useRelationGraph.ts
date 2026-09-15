@@ -306,10 +306,12 @@ export function useRelationGraph(bookName: string): RelationGraph {
     }
   }
 
-  /** 自动梳理：打开关系图时，若章节增量达阈值则触发。AI 不可用时不触发（避免失败 toast）。 */
+  /** 自动梳理：打开关系图时，若章节增量达阈值则触发。仅探测明确可用才自动（避免失败 toast）。 */
   async function maybeAutoMine(cache?: { chapterCount: number | null; currentChapters: number }): Promise<void> {
     if (mining.value || !cache) return
-    if (ui.aiAvailable === false) return
+    // 四轮重评 P3-18：自动路径仅明确可用（true）才放行——原 === false 判定让探测中
+    //（null）也起跑，后端实际不可达时自动梳理变成自动失败 toast；手动 onMine 不受影响
+    if (ui.aiAvailable !== true) return
     try {
       const cfg = await getConfig(bookName)
       // 自动梳理默认关闭（方案③：手动按钮控成本）；作者开启（书级 ?? 全局默认）后才自动

@@ -462,38 +462,39 @@ export function repairOrphanSessions(db: DatabaseSync, skip: ReadonlySet<string>
     if (orphans.length === 0) break
     lastSessionId = orphans[orphans.length - 1]!.session_id
     for (const o of orphans) {
-    if (o.starts > o.ends && !skip.has(o.session_id)) {
-      // 新近活跃（可能是另一进程进行中的会话）或时间不可得 → 不补虚假 end
-      if (o.last_at === null || now - o.last_at < ORPHAN_GRACE_MS) continue
-      attempted++
-      // N-5（第五十四轮）：INSERT（补 end）与 UPDATE（touch updated_at）两步同事务——
-      // 此前裸跑两语句，中途失败留「补了 end 但 updated_at 未刷」半态。同
-      // migrateBookSession 的 BEGIN/COMMIT + 失败回滚用法；事务内单会话两语句，
-      // 失败回滚不影响已成功补齐的其他孤儿。
-      // R31-22（三十一轮）：BEGIN 挪进 try——BEGIN IMMEDIATE 在 busy_timeout 耗尽时
-      // 抛错，此前会冲出本循环经 maybeRepairOrphans（挂 createSession 头部；R53-B-3
-      // 起不再挂 appendEvents 热路径）让无关的正常写入直接抛错；挪入后按单会话错误
-      // 收集继续。
-      try {
-        db.exec('BEGIN IMMEDIATE')
-        const fresh = recheck.get(o.session_id) as { starts: number | null; ends: number | null } | undefined
-        if (fresh && (fresh.starts ?? 0) > (fresh.ends ?? 0)) {
-          ins.run(o.session_id, JSON.stringify({ reason: 'interrupted' }), now)
-          touch.run(o.last_at, o.session_id) // R64-9：真实 last_at（上方头注）
-        }
-        db.exec('COMMIT')
-      } catch (err) {
-        // R61-10（第六十一轮）：C4 同款加固——裸 ROLLBACK 在事务已自动回亡时抛
-        // "no transaction is active"，会冲出本循环使本轮其余孤儿不被修复
+      // nano-7（四轮处置批）：内层循环体缩进归位（原整块少一层，纯格式零行为）
+      if (o.starts > o.ends && !skip.has(o.session_id)) {
+        // 新近活跃（可能是另一进程进行中的会话）或时间不可得 → 不补虚假 end
+        if (o.last_at === null || now - o.last_at < ORPHAN_GRACE_MS) continue
+        attempted++
+        // N-5（第五十四轮）：INSERT（补 end）与 UPDATE（touch updated_at）两步同事务——
+        // 此前裸跑两语句，中途失败留「补了 end 但 updated_at 未刷」半态。同
+        // migrateBookSession 的 BEGIN/COMMIT + 失败回滚用法；事务内单会话两语句，
+        // 失败回滚不影响已成功补齐的其他孤儿。
+        // R31-22（三十一轮）：BEGIN 挪进 try——BEGIN IMMEDIATE 在 busy_timeout 耗尽时
+        // 抛错，此前会冲出本循环经 maybeRepairOrphans（挂 createSession 头部；R53-B-3
+        // 起不再挂 appendEvents 热路径）让无关的正常写入直接抛错；挪入后按单会话错误
+        // 收集继续。
         try {
-          db.exec('ROLLBACK')
-        } catch {
-          /* 已自动回亡 */
+          db.exec('BEGIN IMMEDIATE')
+          const fresh = recheck.get(o.session_id) as { starts: number | null; ends: number | null } | undefined
+          if (fresh && (fresh.starts ?? 0) > (fresh.ends ?? 0)) {
+            ins.run(o.session_id, JSON.stringify({ reason: 'interrupted' }), now)
+            touch.run(o.last_at, o.session_id) // R64-9：真实 last_at（上方头注）
+          }
+          db.exec('COMMIT')
+        } catch (err) {
+          // R61-10（第六十一轮）：C4 同款加固——裸 ROLLBACK 在事务已自动回亡时抛
+          // "no transaction is active"，会冲出本循环使本轮其余孤儿不被修复
+          try {
+            db.exec('ROLLBACK')
+          } catch {
+            /* 已自动回亡 */
+          }
+          // P3：收集后继续修其余孤儿——单会话故障不中断整轮修复
+          errors.push({ session_id: o.session_id, err })
         }
-        // P3：收集后继续修其余孤儿——单会话故障不中断整轮修复
-        errors.push({ session_id: o.session_id, err })
       }
-    }
     }
     if (orphans.length < BATCH_SIZE) break
   }

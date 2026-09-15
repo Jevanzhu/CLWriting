@@ -74,7 +74,15 @@ export async function fetchChatHistory(bookName: string, branchId?: string): Pro
   // encodeURIComponent 后再进 toString 会被二次编码（% → %25），服务端解一层后拿到
   // 残缺分支号（'br 1' → 'br%201'），分支查询静默落空
   if (branchId) params.set('branch', branchId)
-  return apiJson(`/api/books/${encodeURIComponent(bookName)}/chat/history?${params.toString()}`, undefined, CHAT_TIMEOUT_MS)
+  // 四轮重评 P3-16：messages 运行时归一单源——类型虽必选，后端异常形态（字段缺省的
+  // 2xx 坏体）可达 undefined；chat store 两处消费（seedHistory 判空 / regenerate
+  // 反向扫描）是族内唯一裸取点，此处兜底后返回类型「非空」名实相符，不散补丁到 store
+  const r = await apiJson<ChatHistoryResult>(
+    `/api/books/${encodeURIComponent(bookName)}/chat/history?${params.toString()}`,
+    undefined,
+    CHAT_TIMEOUT_MS,
+  )
+  return { ...r, messages: r.messages ?? [] }
 }
 
 /** POST /chat/confirm {callId, ok} —— 工具确认/取消 */

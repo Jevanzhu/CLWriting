@@ -186,7 +186,7 @@ export function checkLeadsBookItems(
           items.push({
             checkId: 'lead-evidence-unverifiable',
             level: 'yellow',
-            message: `${id} 履历声称第${entry.章号}章有证据「${evidenceCore ?? entry.证据.slice(0, 20)}」，但找不到该章正文文件——证据无法核验（章被删或改名？）`,
+            message: `${id} 履历声称第${entry.章号}章有证据「${evidenceCore}」，但找不到该章正文文件——证据无法核验（章被删或改名？）`,
             leadId: id,
             chapter: entry.章号,
           })

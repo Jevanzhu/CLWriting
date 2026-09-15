@@ -17,7 +17,9 @@ export async function listSnapshots(name: string, docId: string): Promise<Snapsh
   const r = await apiJson<{ entries: SnapshotEntry[] }>(
     `/api/books/${encodeURIComponent(name)}/documents/${encodeURIComponent(docId)}/snapshots`,
   )
-  return r.entries
+  // 四轮重评 P3-17：防御性兜底——类型必选，但 2xx 坏体（字段缺省形态）可达 undefined，
+  // 裸取会让「版本列表非数组」在调用方炸出（空列表 = 安全降级）
+  return r.entries ?? []
 }
 
 // GET /documents/:docId/snapshots/:id → 单个版本内容（预览）

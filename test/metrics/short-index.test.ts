@@ -81,6 +81,37 @@ test('scanShortCollection: 扫正文与清单生成短篇集索引', () => {
   }
 })
 
+// P3-9（2026-09-15 四轮重评处置批）：11 个 ASCII + 双码元 emoji——13 码元/12 码点，
+// 第 12 码元边界恰在代理对中间；旧口径（{1,12} 与 slice 均按码元计）引号串不命中
+// 转落裸串截断、裸串直接截，两条路都会劈出孤立代理对。
+test('scanShortCollection: 12 码点边界含代理对时不劈开（引号串与裸串两路）', () => {
+  const root = mkdtempTracked(join(tmpdir(), 'short-index-surrogate-'))
+  try {
+    makePiece(root, 1, '雪夜', {
+      emotion: '惊悚',
+      reversal: '来客就是死者',
+      object: 'ABCDEFGHIJK😀',
+      ending: '后怕',
+    })
+    makePiece(root, 2, '断桥', {
+      emotion: '惊悚',
+      reversal: '桥下就是死者',
+      object: '「ABCDEFGHIJK😀」',
+      ending: '后怕',
+    })
+    const entries = scanShortCollection(root)
+    const objectsOf = (num: number) => entries.find((e) => e.num === num)!.structureObjects
+    // 裸串路径：≤12 码点原样保留、>12（「再次出现/意义变化」后缀串）按码点截——两都不劈对
+    expect(objectsOf(1)).toEqual(['ABCDEFGHIJK😀'])
+    // 引号路径：引号内恰 12 码点（13 码元）全额命中，不落裸串截断
+    expect(objectsOf(2)).toEqual(['ABCDEFGHIJK😀'])
+    // 预算口径仍是 12 码点（码元口径为 13；劈对残串为 12 码元但含孤立代理项）
+    expect(Array.from(objectsOf(1)[0]!).length).toBe(12)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('analyzeShortCollection: 最近重复与全书重复会出风险', () => {
   const root = mkdtempTracked(join(tmpdir(), 'short-index-'))
   try {

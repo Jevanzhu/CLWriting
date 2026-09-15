@@ -92,6 +92,16 @@ describe('S3 preserveStructureFmIn：盘上 序/并入 键级保形', () => {
     writeFileSync(abs, content)
     expect(preserveStructureFmIn(abs, content)).toBe(content)
   })
+
+  // R0915-P3-7（四轮处置批）：saveDraft 三路单读共用的穿参契约
+  it('existingRaw 提供 → 不读盘（路径不存在仍按 Buffer 回补）；null → 无键可保形原样返回', () => {
+    const ghost = join(root, '不存在的目录', '0009-幽灵.md')
+    const incoming = '---\n章号: 9\n标题: 新稿\n---\n新稿正文。\n'
+    const pre = Buffer.from('---\n章号: 2\n标题: 目标\n序: 7\n并入: [5]\n---\n旧正文。\n', 'utf-8')
+    const out = preserveStructureFmIn(ghost, incoming, pre)
+    expect(out).toBe('---\n章号: 9\n标题: 新稿\n序: 7\n并入: [5]\n---\n新稿正文。\n')
+    expect(preserveStructureFmIn(ghost, incoming, null)).toBe(incoming)
+  })
 })
 
 describe('S3 preserveStructureFmForChapter：按章号定位转调', () => {

@@ -243,6 +243,12 @@ describe('api 版本与机检 · snapshots/check', () => {
     expect(lastCall().url).toBe('/api/books/%E4%B9%A6%20A/documents/doc%201/snapshots/v%201')
   })
 
+  it('四轮重评 P3-17：listSnapshots 2xx 坏体缺 entries → 归一 []（非 undefined，空列表安全降级）', async () => {
+    stubFetch(() => ok({}))
+    const list = await listSnapshots('书 A', 'doc1')
+    expect(list).toEqual([])
+  })
+
   it('restoreSnapshot：POST expectedRevision 负载', async () => {
     stubFetch(() => ok({ revision: 'r2', content: '旧文' }))
     const r = await restoreSnapshot('书 A', 'doc1', 'v1', 'sha256:x')

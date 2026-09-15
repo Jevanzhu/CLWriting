@@ -22,7 +22,7 @@ import { acquireTaskGate, orchestrationBusyFor, crossProcessHeldTaskGatesFor } f
 import { readJson, reply, replyError } from '../http.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { safeManifestPath, safeDocId } from '../../../fs/safe-path.js'
-import { resolveBookOrReply, resolveDocEntry, resolveDocFile, readDraftTextGuarded } from '../book-context.js'
+import { resolveBookOrReply, resolveDocEntry, resolveDocFile, readDraftTextGuarded, bookMovedFailure } from '../book-context.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { getDriver, ensureSession } from '../../../driver/index.js'
@@ -251,6 +251,11 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
             const collected = collectReviewIssues({ packet: built.packet })
             // P2-7：信封 model 记实际供应商/模型名（不再写死 'cc'）
             const prov = process.env['CLWRITING_DRIVER'] === 'mock' ? null : (ctx.userDataPath ? currentProvider(ctx.userDataPath) : null)
+            // R0915-P3-1（四轮处置批）：写临界段重验书注册——lens 循环分钟级让出窗内
+            // 删书/改名可搬走 bookRoot，照写会在旧路径 mkdir recursive 重建孤儿分析目录
+            //（时序与防线形态见 bookMovedFailure 头注；对齐 documents/config 家族接线）。
+            const moved = bookMovedFailure(ctx.workDir, params['name'], bookRoot)
+            if (moved) return replyError(res, 409, moved.code, moved.reason)
             // R34D-19（三十四轮）：写信封走异步孪生（锁等待不阻塞服务事件循环）
             await writeAnalysisAsync(bookRoot, docId, 'review', {
               generatedAt: new Date().toISOString(),
@@ -288,6 +293,11 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)
       if (!r) return
       const reqBody = await readJson(req)
+      // R0915-P3-1（四轮处置批）：readJson 窗口后重验书注册——窗口内删书/改名时旧路径
+      // resolveDocEntry 会以误导性 404「文档ID未登记」回信（书不在了而非文档不在），
+      // 对齐家族 409 BOOK_MOVED 人话信封（时序见 bookMovedFailure 头注）。
+      const moved = bookMovedFailure(ctx.workDir, params['name'], r.bookRoot)
+      if (moved) return replyError(res, 409, moved.code, moved.reason)
       const approved = reqBody['approved'] === true
 
       const bookRoot = r.bookRoot

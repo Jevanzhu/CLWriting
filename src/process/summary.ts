@@ -644,8 +644,10 @@ export async function generateVolumeSummary(opts: {
   try {
     const { chain, missing } = volumeChainState(bookRoot, volume, volumeSize)
     if (!chain || chain.size === 0) {
-      log.warn('summary', `第 ${volume} 卷章摘要链不全（缺 ${missing.join('、') || '全部'}），卷摘要不强行生成`)
-      return { ok: false, error: `第 ${volume} 卷章摘要链不全（缺第 ${missing.join('、') || '全部'} 章摘要），先补章摘要` }
+      // nano-4（2026-09-15 四轮重评处置批）：warn/error 两文案消费同一缺章串——单次拼接单源
+      const missingDesc = missing.join('、') || '全部'
+      log.warn('summary', `第 ${volume} 卷章摘要链不全（缺 ${missingDesc}），卷摘要不强行生成`)
+      return { ok: false, error: `第 ${volume} 卷章摘要链不全（缺第 ${missingDesc} 章摘要），先补章摘要` }
     }
     const fingerprint = volumeChainFingerprint(chain)
     // 已有且链未变 → skipped（R65-31：sourceHash 重读包 try/catch——读失败（权限/TOCTOU）
