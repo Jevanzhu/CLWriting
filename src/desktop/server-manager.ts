@@ -27,15 +27,28 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { utilityProcess } from 'electron'
 import { atomicWriteFile } from '../fs/atomic.js'
-import { errMsg, log } from '../log/index.js'
+import { log } from '../log/index.js'
+import {
+  ServerBootError,
+  KILL_WAIT_TIMEOUT_MS,
+  delay,
+  handshake,
+  killProcAwaitEscalating,
+  type LogLike,
+  type UtilityProcessLike,
+} from './server-proc.js'
+import { forwardChildStdio } from './server-log.js'
+
+// R0916-5g 拆分桥接：迁出公开导出逐名 re-export，全库 import 面零改动。
+// 缝 1（desktop/server-proc.ts，进程管理族）：启动失败错误类 + 日志通道契约。
+export { ServerBootError } from './server-proc.js'
+export type { LogLike } from './server-proc.js'
+// 缝 2（desktop/server-log.ts，服务端日志转发族）：stdio 单写者转发族。
+export { MAX_LINE_CHARS, forwardLogLine, splitLines } from './server-log.js'
 
 /** fork options 可辨识名：getAppMetrics 单列（ProcessMetric.name），S-12 */
 export const STUDIO_SERVICE_NAME = 'studio-server'
 
-/** 握手超时上限：child 挂起（模块加载卡死等）时兜底走启动失败路径，防 main 永久无窗 */
-const HANDSHAKE_TIMEOUT_MS = 30_000
-/** stopChild 等 child 退出的上限：kill 后仍不退（SIGTERM 被吞）则放行，防退出链挂死 */
-const KILL_WAIT_TIMEOUT_MS = 2_000
 /**
  * shutdown 总超时：不等 shutdown-done 回执的兜底（与拆分前 before-quit 2s 同量级，§3.4 时序 4）。
  * E-1（第五十三轮）：child 侧 graceful-shutdown 最坏预算 = close 1.5s + settle 1.5s 串行
@@ -72,47 +85,10 @@ const STABILITY_RESET_MS = 5 * 60_000
  */
 const RESTART_SHUTDOWN_WAIT_MS = 5_000
 
-/** 启动失败（boot-error 信封 / 握手超时 / 启动途中退出）——main 首启弹对话框口径 */
-export class ServerBootError extends Error {
-  constructor(
-    public readonly code: string,
-    message: string,
-  ) {
-    super(message)
-    this.name = 'ServerBootError'
-  }
-}
-
-/** utilityProcess.fork 返回面的最小契约（测试假件同构） */
-export interface UtilityProcessLike {
-  on(event: 'message', listener: (message: unknown) => void): unknown
-  once(event: 'message', listener: (message: unknown) => void): unknown
-  once(event: 'exit', listener: (code: number) => void): unknown
-  /** R0911-A-P3-2（2026-09-11 全量重评 GLM-5.3 修复批）：Electron 在「进程无法
-   *  spawn」「被异常终止（V8 FatalError/OOM 等）」时经 'error' 事件抛诊断（三参：
-   *  type（如 "FatalError"）/location/完整 V8 崩溃报告文本）——EventEmitter 语义下
-   *  无监听即 uncaughtException 崩主进程，本接口此前漏此事件面（且 V8 级根因丢失）。 */
-  on(event: 'error', listener: (type: string, location: string, report: string) => void): unknown
-  postMessage(message: unknown): void
-  kill(): boolean
-  pid?: number
-  /** stdio:'pipe' 时的子进程 stdout（转发日志行）；缺省 inherit 形态为 null */
-  stdout?: NodeJS.ReadableStream | null
-  /** stdio:'pipe' 时的子进程 stderr（Node 警告/V8 诊断整行进档） */
-  stderr?: NodeJS.ReadableStream | null
-}
-
 interface ForkOptionsLike {
   serviceName?: string
   stdio?: 'pipe' | 'inherit'
   env?: Record<string, string | undefined>
-}
-
-/** 日志通道最小契约（缺省 src/log；测试注入捕获件） */
-export interface LogLike {
-  error(tag: string, msg: string, err?: unknown): void
-  warn(tag: string, msg: string, err?: unknown): void
-  info(tag: string, msg: string): void
 }
 
 export interface ServerManagerDeps {
@@ -862,266 +838,4 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
       return restartTimer !== null
     },
   }
-}
-
-/** 可 unref 的延时（不拖进程退出；vitest 下也不挂 worker） */
-function delay(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms).unref())
-}
-
-/**
- * child stdout/stderr → main logger 转发（§3.5 单写者的 main 侧半边）。
- * stdout 行 = src/log stdout-only 输出的 JSON 行（与落盘行同构），按 level 重发；
- * err 字段重建 Error（F-3：name/message/stack 透传，重发再序列化形状不变）；
- * 非 JSON 行 / 字段不完整：原文整行兜底进档（不吞 boot 报错等裸输出）。
- * stderr（Node 警告/V8 诊断）无 JSON 语义，整行按 warn 进档——崩溃取证主线索。
- */
-/** 内存闸（2026-08-24 审计 D1）：单行缓冲上限（1MB，utf8 解码后按字符计——与字节
- *  同量级）——child 持续输出无换行内容（日志巨行 / \r 型进度条）时 buf 不再无界
- *  线性增长；超限强制截断出行（余量留在 buf 继续累积，下一换行/下一轮超限收口） */
-export const MAX_LINE_CHARS = 1 << 20
-
-function forwardChildStdio(proc: UtilityProcessLike, logger: LogLike): void {
-  // 内存闸（2026-08-24 审计 D1）：单行超限强制截断的计数告警（stdout/stderr 同口径）
-  const warnForced = (side: 'stdout' | 'stderr') => (count: number) =>
-    logger.warn('server-manager', `child ${side} 单行超 ${MAX_LINE_CHARS >> 20}MB 无换行，已强制截断出行（累计 ${count} 次）`)
-  // R55-A-2（五十五轮）：流错误留痕——原先空回调零痕迹，child 日志链路断裂（流销毁/
-  // 管道错等）不可观测；附 err message（非 Error 形态按 String 兜底，同仓 git/ai-track
-  // 重评-15 先例）。不上抛不重试：转发尽力而为语义不变，丢行不丢进程。
-  const warnErrored = (side: 'stdout' | 'stderr') => (err: unknown) =>
-    logger.warn('server-manager', `child ${side} stdio 流异常，转发中止：${errMsg(err)}`)
-  const stdoutSplitter = splitLines(
-    proc.stdout,
-    (line) => forwardLogLine(line, logger),
-    warnForced('stdout'),
-    warnErrored('stdout'),
-  )
-  const stderrSplitter = splitLines(
-    proc.stderr,
-    (line) => logger.warn('server-proc', line),
-    warnForced('stderr'),
-    warnErrored('stderr'),
-  )
-  // R50-A-4（五十轮）：子进程退出时强制冲刷两路切分缓冲的残留半行——崩溃尾行常无
-  // 换行（stderr 崩溃堆栈恰是最关键取证线索），原先随进程死亡丢弃。exit 后流不再有
-  // data，冲一次即弃（flush 幂等；kill/崩溃/自然退出三路 exit 均经此收口）。
-  proc.once('exit', () => {
-    stdoutSplitter.flush()
-    stderrSplitter.flush()
-  })
-}
-
-/** （导出供测试直测解析口径）child 输出 → 行切分。
- *  onWarn：每次强制截断出行时回调（入参为累计次数），缺省不告警。
- *  onError：流 'error' 事件回调（R55-A-2（五十五轮）——原先空回调静默吞零留痕），
- *  缺省维持静默吞（不反噬调用方，转发尽力而为语义不变）。
- *  R50-A-4（五十轮）：返回切分器句柄——exit 冲刷接口见 flush()，接线见 forwardChildStdio。 */
-interface LineSplitter {
-  /** 强制冲刷残留缓冲的半行（无换行尾行）：子进程 exit 路径调用一次，弃缓冲。
-   *  幂等（缓冲已空再调无产出）；冲刷后残余 data 到达照常累积（极窄竞态窗，尽力而为）。 */
-  flush(): void
-}
-
-export function splitLines(
-  out: NodeJS.ReadableStream | null | undefined,
-  onLine: (line: string) => void,
-  onWarn?: (forcedCount: number) => void,
-  onError?: (err: unknown) => void,
-): LineSplitter {
-  // R50-A-4：空流无可冲刷缓冲，返回空句柄保调用方接线统一
-  if (!out) return { flush: () => {} }
-  try {
-    out.setEncoding?.('utf8')
-  } catch {
-    /* 假件可能未实现：按原 chunk 处理 */
-  }
-  let buf = ''
-  let forced = 0
-  out.on('data', (chunk: unknown) => {
-    buf += String(chunk)
-    let nl = buf.indexOf('\n')
-    while (nl !== -1) {
-      const line = buf.slice(0, nl).trim()
-      buf = buf.slice(nl + 1)
-      if (line) onLine(line)
-      nl = buf.indexOf('\n')
-    }
-    // 内存闸（2026-08-24 审计 D1）：无换行残余超单行上限——强制截断出行 + 计数告警。
-    // 只作用于无换行残余：带换行的正常行（哪怕超长）行为不变（瞬时大行不无界累积）
-    if (buf.length > MAX_LINE_CHARS) {
-      const line = buf.slice(0, MAX_LINE_CHARS).trim()
-      buf = buf.slice(MAX_LINE_CHARS)
-      forced++
-      onWarn?.(forced)
-      if (line) onLine(line)
-    }
-  })
-  out.on('error', (err: unknown) => {
-    // 流异常不反噬 main：转发尽力而为，丢行不丢进程。
-    // R55-A-2（五十五轮）：空吞改留痕——child 日志链路断裂原先零痕迹不可观测；
-    // 经 onError（forwardChildStdio 接 logger.warn）补一条，仍不上抛、行为不变
-    if (onError) onError(err)
-  })
-  // R50-A-4（五十轮）：崩溃取证——子进程异常退出时尾行常无换行（最后一条诊断/堆栈
-  // 恰卡半行），只挂 'data' 的切分缓冲随进程死亡丢弃。返回 flush 供 exit 处理路径
-  // 强制冲一次残留半行再弃（trim 后非空才出行，与正常行口径一致）。
-  return {
-    flush() {
-      const line = buf.trim()
-      buf = ''
-      if (line) onLine(line)
-    },
-  }
-}
-
-/** 单行转发（导出供测试直测解析口径）；level 不可辨识与解析失败同走原文兜底。 */
-export function forwardLogLine(line: string, logger: LogLike): void {
-  let parsed: { level?: unknown; tag?: unknown; msg?: unknown; err?: unknown }
-  try {
-    parsed = JSON.parse(line) as typeof parsed
-  } catch {
-    logger.info('server-proc', line)
-    return
-  }
-  const level = parsed.level
-  if (level !== 'error' && level !== 'warn' && level !== 'info') {
-    logger.info('server-proc', line)
-    return
-  }
-  const tag = typeof parsed.tag === 'string' ? parsed.tag : 'server-proc'
-  const msg = typeof parsed.msg === 'string' ? parsed.msg : line
-  if (level === 'info') logger.info(tag, msg)
-  else if (level === 'warn') logger.warn(tag, msg, reconstructErr(parsed.err))
-  else logger.error(tag, msg, reconstructErr(parsed.err))
-}
-
-/** child 行 err 字段 {name,message,stack?} → Error 重建（F-3 透传；缺字段按无 err 处理） */
-function reconstructErr(raw: unknown): Error | undefined {
-  if (!raw || typeof raw !== 'object') return undefined
-  const r = raw as { name?: unknown; message?: unknown; stack?: unknown }
-  if (typeof r.message !== 'string') return undefined
-  const e = new Error(r.message)
-  if (typeof r.name === 'string') e.name = r.name
-  if (typeof r.stack === 'string') e.stack = r.stack
-  return e
-}
-
-/**
- * proc 级 kill+等退出+SIGKILL 升级（R27-90（二十七轮）自 killAwaitEscalating 抽出为模块级：
- * 握手超时路径同用）。exit promise 由调用方供给——当值 child 用 ActiveChild.exited；
- * 握手超时的未就绪 child 现挂 once('exit')。时序：kill 后等 killWaitMs，仍活且 pid 在手
- * 升级 SIGKILL，再等一轮 killWaitMs 作最终兜底。签名带 killWaitMs/logger：模块级函数
- * 不进工厂闭包，两处调用方各传自己的注入值。
- */
-async function killProcAwaitEscalating(
-  proc: UtilityProcessLike,
-  exited: Promise<void>,
-  context: string,
-  killWaitMs: number,
-  logger: LogLike,
-): Promise<void> {
-  const didExit = await Promise.race([exited.then(() => true), delay(killWaitMs).then(() => false)])
-  if (didExit) return
-  // R28-21（二十八轮）：升级 SIGKILL 前才读 pid（原在入口快照）——killWaitMs（2s）窗内
-  // 子进程可能已死亡且 pid 被系统复用，按入口旧 pid 盲杀会误伤无关进程（极窄理论窗）。
-  // Electron 语义：UtilityProcess 退出后 pid 置 undefined（R26-87 注引 electron.d.ts：
-  // spawn 前/exit 后为 undefined），重读 undefined = 已退出而 exit 事件竞态迟到 → 不升级，
-  // 维持「超时放行」最终兜底；仍为在册 pid 才强杀。残余窗口如实记档：重读到 process.kill
-  // 之间仍有微秒级缝隙，彻底闭合需句柄级 kill（utilityProcess 面未暴露），超本修法范畴。
-  const pid = proc.pid
-  if (pid === undefined) return // 无 pid（未 spawn 成功/窗口内已退出）：维持原「超时放行」口径
-  try {
-    process.kill(pid, 'SIGKILL')
-    logger.warn('server-manager', `${context}：kill 后 ${killWaitMs}ms 仍未退出（SIGTERM 疑似被吞），已升级 SIGKILL 强杀（pid=${pid}）`)
-  } catch (e) {
-    logger.warn('server-manager', `${context}：SIGKILL 升级失败（child 可能已自行退出）：${errMsg(e)}`)
-  }
-  await Promise.race([exited, delay(killWaitMs)])
-}
-
-/**
- * 每 fork 一轮握手（S-5：退避重启的新 child 各发各的 ready，不假设全局一次性）。
- * ready → resolve 端口；boot-error 信封 → ServerBootError；启动途中 exit → 同类错误；
- * 30s 超时兜底（child 挂起）→ kill+等退出+SIGKILL 升级后按启动失败收口。settle 后残余
- * 监听挂在 child 对象上随其消亡，无跨 child 泄漏（exit persistent 版本由 start 成功路径另挂）。
- * R51-A-6（五十一轮）：kill 等待改经 killWaitMs 参数注入（缺省 = 模块常量，生产行为
- * 不变）——超时 kill 链此前直用 KILL_WAIT_TIMEOUT_MS 字面量，测试注入 deps.killWaitMs
- * 缩短等待的口径在握手超时路径不完备（kill 升级段仍按 2s 常量等，注入口径名存实亡）。
- * launch 由工厂闭包调本函数，注入值随闭包 killWaitMs 透传。
- */
-function handshake(
-  proc: UtilityProcessLike,
-  logger: LogLike,
-  killWaitMs: number = KILL_WAIT_TIMEOUT_MS,
-): Promise<number> {
-  return new Promise<number>((resolveRaw, rejectRaw) => {
-    let settled = false
-    const settle = (finish: () => void): void => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      finish()
-    }
-    const timer = setTimeout(
-      () =>
-        settle(() => {
-          proc.kill()
-          // R27-90（二十七轮）：kill 不再 fire-and-forget——R26-87 已实证 SIGTERM 可被吞，
-          // 唯此第三条 kill 路径漏应用同族纪律，卡死 child 会占住端口喂重启 EADDRINUSE
-          // 循环/首启 quit 后成孤儿。等退出+升级完成后再按启动失败收口，重启链拿到的是
-          // 无端口残留的干净现场。
-          const exited = new Promise<void>((resolveExit) => {
-            proc.once('exit', () => resolveExit())
-          })
-          void killProcAwaitEscalating(
-            proc,
-            exited,
-            'studio server 握手超时',
-            killWaitMs,
-            logger,
-          ).finally(() =>
-            rejectRaw(new ServerBootError('HANDSHAKE_TIMEOUT', 'studio server 子进程启动握手超时（30s 无 ready）')),
-          )
-        }),
-      HANDSHAKE_TIMEOUT_MS,
-    )
-    timer.unref()
-    proc.on('message', (message: unknown) => {
-      const m = message as { type?: string; port?: unknown; code?: unknown; message?: unknown }
-      if (m?.type === 'ready' && typeof m.port === 'number') {
-        settle(() => resolveRaw(m.port as number))
-      } else if (m?.type === 'boot-error') {
-        settle(() =>
-          rejectRaw(new ServerBootError(String(m.code ?? 'UNKNOWN'), String(m.message ?? 'server 启动失败'))),
-        )
-        // R4-P2-2（2026-09-09 修复批）：boot-error 分支此前 settle 即 reject、无 kill 兜底——
-        // child 发完 boot-error 预期自退，但自退挂住（exit 被吞/清理逻辑没兜住）时无人
-        // 接管，滞留占端口/成孤儿直至 app 退出（超时分支 R27-90 同族纪律本节漏网）。
-        // 对齐超时分支：boot-error 后等退出（短窗），未退则 kill + SIGKILL 升级收口；
-        // 正常自退路径 exited 立即 resolve，kill 链零打扰。killWaitMs 随注入透传（与
-        // 超时分支同口径，测试可缩短等待）。
-        const exited = new Promise<void>((resolveExit) => proc.once('exit', () => resolveExit()))
-        void killProcAwaitEscalating(proc, exited, 'studio server boot-error 后未自退', killWaitMs, logger).catch(
-          () => {},
-        )
-      }
-    })
-    proc.once('exit', (code: number) =>
-      settle(() => rejectRaw(new ServerBootError('EXIT', `studio server 子进程启动途中退出（exit code ${code}）`))),
-    )
-    // R0911-A-P3-2：fork/spawn 失败或异常终止（V8 FatalError）经 'error' 事件到达——
-    // 此前 handshake 只认 message/exit/超时三路，error 形态要么挂满 30s 超时收场、要么
-    // （无任何监听时）直接崩主进程。此处快失败（report 进 reject 文案），诊断由
-    // startProc 的持久监听全文留痕。
-    proc.on('error', (type: string, location: string, report: string) =>
-      settle(() =>
-        rejectRaw(
-          new ServerBootError(
-            'FORK_ERROR',
-            `studio server utilityProcess 异常（error 事件：${type}${location ? ` @ ${location}` : ''}）：${report.slice(0, 400)}`,
-          ),
-        ),
-      ),
-    )
-  })
 }

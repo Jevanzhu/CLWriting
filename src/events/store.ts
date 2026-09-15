@@ -8,102 +8,40 @@
  * closers；WAL + busy_timeout 防并发写 SQLITE_BUSY。
  *
  * 同步 API（node:sqlite DatabaseSync，同 rag/store.ts 模式）。
+ *
+ * 拆分沿革（R0916-5g，2026-09-16 ⑤④产品巨件拆分波3）：本单件（1355 行）三缝
+ * 纯移动拆分——跨进程开口标记 + 迁移墓碑族 → store-open-markers.ts（缝 A）；
+ * 行读取族（SessionRow/Row/rowToEvent/safeRowToEvent）→ store-rows.ts（缝 B）；
+ * 书 hash 定位族 + 迁移锁族 → store-migrate.ts（缝 C）。本残核保留：开库门面
+ * （openSessionStore/Async、SessionStore/NewEvent）、R46-42 prepared 语句缓存族
+ * （closeEventsDb 函数本体被 test/events/r0911-g-p3-4-close-cache.test.ts 结构
+ * 契约钉在本文件源文本）、孤儿修复、连接单例族、开口标记续期 let 与其注入
+ * setter（R26-105 禁 export let，唯一读点在 firstOpenStore 故留残核）、
+ * migrateBookSession（其墓碑预写调用点被 test/events/r41-tombstone-intact.test.ts
+ * 写侧静态扫描钉在本文件源文本，且消费 openStores/closeEventsDb，移出必造环回引）
+ * 与 firstOpenStore（巨型对象字面量——重设计立案件，登记台账 §三 E 域，本批
+ * 零触碰）。迁出公开名 bookHash/sessionMigrateLockPath/getSessionMigrateLockTimeoutMs/
+ * __setSessionMigrateLockTimeoutForTest 与类型 SessionRow 经下方逐名 re-export 桥
+ * 接，全库消费方 import 面零改动。运行时依赖单向：本文件 → store-open-markers/
+ * store-rows/store-migrate，三新文件均不回引本模块，无环。本头注上方原文全部
+ * 历史记载原样保留。
  */
 import { DatabaseSync, type StatementSync } from 'node:sqlite'
-import { createHash } from 'node:crypto'
-import { mkdirSync, existsSync, readdirSync, readFileSync, rmSync, writeFileSync, statSync, utimesSync } from 'node:fs'
-import { join, resolve, basename } from 'node:path'
+import { mkdirSync, existsSync, readFileSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
 import { ulid } from '../document/stable-id.js'
-import type { ChatEvent, EventType, SurfaceOp } from './types.js'
+import type { ChatEvent, EventType } from './types.js'
 import { SURFACE_EVENT_TYPES } from './types.js'
 import { log, errMsg } from '../log/index.js'
-import { testableConst } from '../shared/testable.js'
-import { acquireCrossProcessLockWithTimeout, acquireCrossProcessLockAsync, isProcessAlive, processBootTime } from '../fs/cross-process-lock.js'
+import { acquireCrossProcessLockWithTimeout, acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 import { renameWithRetry, atomicWriteFile } from '../fs/atomic.js'
+import { safeRowToEvent, type Row, type SessionRow } from './store-rows.js'
+import { MIGRATED_EXT, sweepOpenMarkers, registerOpenMarker, touchOpenMarker, releaseOpenMarker } from './store-open-markers.js'
+import { bookHash, sessionMigrateLockPath, getSessionMigrateLockTimeoutMs, acquireMigrateLockPairAsync } from './store-migrate.js'
 
-/** 书 hash：sha256(bookRoot) 前 16 hex——稳定，不落原文路径。
- *  B-18（第六十轮补修）：哈希前 resolve 归一化——尾分隔符 / '.'/'..' 段变体不再
- *  同书分裂两库（原先 sha256 原样入参，路径形态敏感）。存量安全：调用点路径源于
- *  books.json 单源的绝对无尾斜杠形态，resolve 对其恒等 → 存量库键不变、无孤儿化。
- *  R40-14（四十轮）：win32 上大小写漂移收口——书路径大小写漂移（盘符大小写/手工改名
- *  残留/注册时序不同）此前可开出第二个事件库文件（对话史/审计视图「丢史」假象）。
- *  归一手段是**逐段 readdirSync 大小写不敏感匹配盘上真名**（trueCasePath，memo 化）：
- *  初版用 fs.realpathSync，但 Node 在 win32 的 realpath 实测**不改写大小写**
- *  （返回入参形态，四十轮修复批当机复验），对漂移变体是无效修复——readdir 逐段匹配
- *  才拿得到盘上真实形态。正确大小写的存量路径逐段命中自身 → 键不变（不迁移）；
- *  漂移变体归一到真名后与正库同键合流。仅 win32 生效——mac/Linux 维持 B-18 既有
- *  口径（Linux 大小写变体是不同路径；mac 折叠语义与卷敏感性脱钩属 R40-23 登记，
- *  且 blanket 启用会重键存量库）。段消失/不可读（规划中的新建书等）→ 回落 resolve
- *  词法形态，语义同旧；UNC（\\\\server\\share）首层无盘符可依，同样回落。 */
-export function bookHash(bookRoot: string): string {
-  let root = resolve(bookRoot)
-  if (process.platform === 'win32') {
-    root = trueCasePath(root)
-  }
-  return createHash('sha256').update(root).digest('hex').slice(0, 16)
-}
-
-/** R40-14：win32 盘上真实大小写归一（逐段 readdir 匹配 + memo）。
- *  R0913-win P3-12（备注级维持，2026-09-13 全库源码重评 win 适配修复批）：书库在
- *  失联网络卷时逐段 readdirSync 会同步冻结 server 子进程——同步 IO 无超时手段可挡，
- *  彻底闭合需 bookHash 全链异步化（牵动全部调用面，超出维持项范畴）。现实防线 =
- *  memo 512 条（每路径仅首次真探）+ 主进程 probeDirReachable 预探覆盖 GUI 全部入口；
- *  且失联卷上同链路的其他同步读（books.jsonl 等）会先于本函数暴露同一冻结面，
- *  边际风险不构成单点。 */
-const trueCaseCache = new Map<string, string>()
-const TRUE_CASE_CACHE_MAX = 512
-
-function trueCasePath(abs: string): string {
-  const lower = abs.toLowerCase()
-  const hit = trueCaseCache.get(lower)
-  if (hit !== undefined) return hit
-  const segs = abs.split(/[\\/]/).filter((s) => s !== '')
-  let cur = ''
-  let ok = true
-  for (let i = 0; i < segs.length && ok; i++) {
-    const seg = segs[i]!
-    if (cur === '') {
-      // 首段：盘符统一大写并带根（'c:' → 'C:\'，readdirSync('C:') 是驱动器相对路径
-      // 不可用）；UNC 首段为主机名（'\\server\share\…' → '\\\\server'，可 readdir 列共享）
-      cur = seg.endsWith(':') ? seg.toUpperCase() + '\\' : '\\\\' + seg
-      continue
-    }
-    let next: string | null = null
-    try {
-      for (const entry of readdirSync(cur)) {
-        if (entry.toLowerCase() === seg.toLowerCase()) {
-          next = entry
-          break
-        }
-      }
-    } catch {
-      ok = false
-      break
-    }
-    if (next === null) {
-      ok = false
-      break
-    }
-    cur = cur.endsWith('\\') ? cur + next : `${cur}\\${next}`
-  }
-  if (!ok || cur === '') cur = abs // 段消失/不可读/空路径：回落词法形态（语义同旧）
-  // FIFO 淘汰（书数量级小，上限为防御性口径，对齐库内缓存族惯例）
-  if (trueCaseCache.size >= TRUE_CASE_CACHE_MAX) {
-    const oldest = trueCaseCache.keys().next().value
-    if (oldest !== undefined) trueCaseCache.delete(oldest)
-  }
-  trueCaseCache.set(lower, cur)
-  return cur
-}
-
-export interface SessionRow {
-  session_id: string
-  format_version: number
-  book: string
-  header: string
-  created_at: number
-  updated_at: number
-}
+// R0916-5g 桥：迁出缝的公开名逐名再导出（类型走 export type），消费方 import 面零改动
+export { bookHash, sessionMigrateLockPath, getSessionMigrateLockTimeoutMs, __setSessionMigrateLockTimeoutForTest } from './store-migrate.js'
+export type { SessionRow } from './store-rows.js'
 
 // R26-20（二十六轮）：sourceSeqs 同名双语义拆分——NewEvent 额外提供 sourceIdxs
 // （批内 0-based 索引，仅供 appendEventsResolveLineage 消费）；sourceSeqs 收窄为
@@ -163,45 +101,6 @@ export interface SessionStore {
   close(): void
 }
 
-interface Row {
-  seq: number; session_id: string; turn: number | null; step: number | null;
-  type: string; data: string; surface_op: string | null;
-  shadow_start: number | null; shadow_end: number | null;
-  source_seqs: string | null; replace_generation: number; created_at: number;
-}
-
-function rowToEvent(r: Row): ChatEvent {
-  return {
-    seq: r.seq,
-    sessionId: r.session_id,
-    turn: r.turn ?? undefined,
-    step: r.step ?? undefined,
-    type: r.type as ChatEvent['type'],
-    data: JSON.parse(r.data) as Record<string, unknown>,
-    surfaceOp: (r.surface_op as SurfaceOp | null) ?? undefined,
-    shadowStart: r.shadow_start ?? undefined,
-    shadowEnd: r.shadow_end ?? undefined,
-    sourceSeqs: r.source_seqs ? (JSON.parse(r.source_seqs) as number[]) : undefined,
-    replaceGeneration: r.replace_generation,
-    createdAt: r.created_at,
-  }
-}
-
-/**
- * R65-20（十三轮）坏行降级共用（R0910-W 从 listEvents 内联闭包提取，供迭代读同享）：
- * 单行 data/source_seqs JSON 损坏时 rowToEvent 抛错，直穿会炸整个读路径；逐行
- * try/catch 跳过坏行 + warn 留行 seq 与病因（log.warn 未 init 时即镜像 console.warn），
- * 好行完整返回。label 只影响 warn 文案（便于定位读侧入口）。
- */
-function safeRowToEvent(r: Row, label: string): ChatEvent | null {
-  try {
-    return rowToEvent(r)
-  } catch (e) {
-    log.warn('events', `${label} 跳过坏行 seq=${r.seq}（${errMsg(e)}）`)
-    return null
-  }
-}
-
 // ── R46-42（四十六轮）：连接级 prepared 语句缓存 ─────────────────────────
 // node:sqlite 的 StatementSync 与连接实例绑定，但 db.prepare 每次调用都重新编译同一
 // 条 SQL——热路径（appendEvents 每批 2 条、listEvents 每读、workspaceSession 每链路
@@ -248,163 +147,13 @@ function closeEventsDb(db: DatabaseSync): void {
  *  不 import 该常量（chat.ts 反向依赖本文件，提常量会成环），改由注释锚定对齐依据。 */
 const ORPHAN_GRACE_MS = 32 * 60 * 1000
 
-/** R66-12（十四轮）：session 目录级跨进程锁超时（毫秒）——迁移段与首开段互斥用，
- *  对齐 books.lock 的 5s（争用为文件 IO 级毫秒，极保守）。
- *  R26-105（二十六轮）：停止裸导出——`export let` 使模块态可被任何导入方静默改写，
- *  且「读侧直读 + 写侧 setter」两条通道并存。全仓 grep 生产与测试均无外部直读直写
- *  （仅本模块四处消费 + ForTest setter），收口为模块内可变生效值 + 仅供测试的
- *  ForTest setter（同款惯例见 summary.ts R26-19 / lead-update-draft.ts R73-46）。
- *  A4（复审-0914-优化修复批）：三件套换装 testableConst——生效值 getter 逐消费点
- *  显式调用，测试注入走元组第二位（原名 __setSessionMigrateLockTimeoutForTest
- *  签名不变）。 */
-export const [getSessionMigrateLockTimeoutMs, __setSessionMigrateLockTimeoutForTest] = testableConst(5_000)
-
-/** R66-12：首开/迁移段跨进程锁（导出供回归测试模拟「另一进程持锁」；同进程嵌套获取
- *  同一锁会自锁——本模块持锁段对同一 bookHash 的锁互不嵌套）。
- *  R73-38（二十一轮）：锁名掺 bookHash——原先全局单把 migrate.lock 把所有书的首开段
- *  串成全局队头（多书库场景下开书 B 被无关书 A 的迁移/首开阻塞 5s 即失败）。改按书
- *  一把 `migrate-<bookHash>.lock`：开书/迁移只与**同一本书**（新旧路径两个 hash）互斥。
- *  迁移段须同持新旧两把（bookHash 排序获取防 ABBA 死锁）——openSessionStore(newRoot)
- *  与迁移 rename 窗口的互斥由此保持（Global 锁的唯一实质保护面），跨书并发不再互拽。 */
-export function sessionMigrateLockPath(userDataPath: string, bookRoot: string): string {
-  return join(userDataPath, 'clwriting', 'session', `migrate-${bookHash(bookRoot)}.lock`)
-}
-
-/** 迁移段按 bookHash 排序拿新旧两把锁；第二把拿不到 → 释放第一把返回 null（调用方按
- *  超时语义放弃迁移，源库原地完整）。排序获取保证任意迁移对之间无环路死锁。
- *  R34D-19（三十四轮）：锁等待异步化（acquireCrossProcessLockAsync，setTimeout 轮询）——
- *  改名端点（books.ts）在服务进程事件循环上调用 migrateBookSession，同步 Atomics.wait
- *  会在双进程争用窗内把事件循环停 2×5s；同步对版随之退役（唯一调用方已随迁）。 */
-async function acquireMigrateLockPairAsync(
-  userDataPath: string,
-  oldRoot: string,
-  newRoot: string,
-): Promise<(() => void) | null> {
-  const [first, second] =
-    bookHash(oldRoot) <= bookHash(newRoot)
-      ? [sessionMigrateLockPath(userDataPath, oldRoot), sessionMigrateLockPath(userDataPath, newRoot)]
-      : [sessionMigrateLockPath(userDataPath, newRoot), sessionMigrateLockPath(userDataPath, oldRoot)]
-  const releaseFirst = await acquireCrossProcessLockAsync(first, getSessionMigrateLockTimeoutMs())
-  if (!releaseFirst) return null
-  const releaseSecond = await acquireCrossProcessLockAsync(second, getSessionMigrateLockTimeoutMs())
-  if (!releaseSecond) {
-    releaseFirst()
-    return null
-  }
-  return () => {
-    releaseSecond()
-    releaseFirst()
-  }
-}
-
-// ── R67-2（十五轮）：跨进程「已持有句柄」标记 + 迁移墓碑 ──
-// R66-12 的目录级锁只挡他进程**首开段**；迁移开始前就已打开的句柄（空闲态不持任何
-// SQLite 锁，checkpoint busy=0 照样放行）成了残余窗口：rename 后他进程句柄的后续写入
-// 打到已搬走的 inode，或下次重开旧路径时 DatabaseSync 重建空库——事件流就此分裂。
-// 两个互补守卫：
-// 1) 开口标记 <db>.open-<pid>：openSessionStore 首开登记（在目录锁内）、close() 归零
-//    注销、进程崩溃残留由 pid 探测在扫描时 GC；migrateBookSession 持目录锁扫描——
-//    有活标记即放弃迁移（false，源库原地完整可重试），把「先收口再迁」契约扩到跨进程。
-// 2) 迁移墓碑 <db>.migrated：迁移成功后在旧位落指路标（内容 = 新库绝对路径）；
-//    迁移完成后他进程才首开旧路径时，openSessionStore 据此 fail-closed 拒建空库
-//    （走调用方既有 catch 降级 null），而不是开出第二只空库。墓碑指向的新库也已
-//    不存在（再迁移/已删除）→ 墓碑过期，清掉放行新建（同路径重新建书场景）。
-
-/** 句柄标记文件后缀（<dbPath>.open-<pid>）。 */
-const OPEN_MARKER_SUFFIX = '.open-'
-/** 迁移墓碑文件后缀（<dbPath>.migrated）。 */
-const MIGRATED_EXT = '.migrated'
-
-function openMarkerPath(dbPath: string): string {
-  return dbPath + OPEN_MARKER_SUFFIX + process.pid
-}
-
 /** R71-24（十九轮）：开口标记续期周期——活句柄定期 utimes 刷标记 mtime，让「标记年龄」
  *  成为可靠的存活旁证（缺省 30s，测试可注入）。 */
 let OPEN_MARKER_RENEW_MS = 30_000
-/** R71-24（十九轮）：活 pid 但标记超龄的判死门槛（毫秒）——对齐 Z-19 锁超龄口径。
- *  正常活进程由续期定时器保持 mtime 恒新；超龄只可能是持有进程已死、pid 被系统复用
- *  给长命进程（跨进程 bootTime 无查询 API，年龄是可用判据）。残余风险如实记档：
- *  被长时间 SIGSTOP/深度 App Nap 挂起超门槛的活进程会被误判死——与 Z-19 对锁的
- *  同款取舍，门槛取保守的 10 分钟。 */
-const OPEN_MARKER_STALE_MS = 10 * 60_000
 
 /** 测试注入续期周期（生产勿调）。 */
 export function configureOpenMarkerRenewMs(ms: number): void {
   OPEN_MARKER_RENEW_MS = ms
-}
-
-/** 扫描某库的全部开口标记：死 pid 残留与超龄残留顺手 GC（best-effort），返回活标记
- *  路径列表。只在持 session 目录锁的段内调用（登记/迁移互斥由锁保证）。
- *  R71-24：pid 存活但标记 mtime 超龄 → 视同死残留 GC——持有进程死后 pid 被复用时，
- *  单纯 pid 探测会永远误判活，该书迁移（改名）被无限期误拒。 */
-function sweepOpenMarkers(dir: string, dbPath: string): string[] {
-  const prefix = basename(dbPath) + OPEN_MARKER_SUFFIX
-  let names: string[]
-  try {
-    names = readdirSync(dir)
-  } catch {
-    return [] // 目录不存在：无任何标记
-  }
-  const live: string[] = []
-  for (const name of names) {
-    if (!name.startsWith(prefix)) continue
-    const pid = Number.parseInt(name.slice(prefix.length), 10)
-    if (Number.isInteger(pid) && pid > 0 && isProcessAlive(pid)) {
-      // R71-24：活 pid + 超龄 mtime（续期早已停止）→ pid 复用残留，按死处理
-      try {
-        const age = Date.now() - Math.floor(statSync(join(dir, name)).mtimeMs)
-        if (age <= OPEN_MARKER_STALE_MS) {
-          live.push(join(dir, name))
-          continue
-        }
-      } catch {
-        // R72-6（二十轮 B-4）：stat 失败不再落删除路径——活 pid 的在位标记被 EACCES/
-        // 竞态误 GC 会造成「迁移看不见我」的隐形句柄（registerOpenMarker fail-closed
-        // 正是防它）。保守视为活：误判活的代价只是迁移被拒（安全方向），下次扫描再判
-        live.push(join(dir, name))
-        continue
-      }
-    }
-    try {
-      rmSync(join(dir, name), { force: true })
-    } catch {
-      /* GC 失败不阻断：下次扫描再试 */
-    }
-  }
-  return live
-}
-
-/** 首开登记：GC 死残留 + 落本进程标记（fail-closed——登记失败时句柄不可信，抛错走
- *  调用方降级，不能带着「迁移看不见我」的隐形句柄继续写库）。
- *  R71-24：内容补 bootTime（诊断字段；同款语义见 cross-process-lock 锁文件）。 */
-function registerOpenMarker(dir: string, dbPath: string): void {
-  sweepOpenMarkers(dir, dbPath)
-  writeFileSync(openMarkerPath(dbPath), JSON.stringify({ pid: process.pid, bootTime: processBootTime() }), 'utf-8')
-}
-
-/** R71-24：开口标记续期定时器的 tick——刷 mtime；标记文件被误 GC（他进程按超龄误判）
- *  时重写自愈（内容不变，重写即重新声明在位）。失败静默：下一 tick 再试。 */
-function touchOpenMarker(dbPath: string): void {
-  const p = openMarkerPath(dbPath)
-  try {
-    utimesSync(p, new Date(), new Date())
-  } catch {
-    try {
-      writeFileSync(p, JSON.stringify({ pid: process.pid, bootTime: processBootTime() }), 'utf-8')
-    } catch {
-      /* best-effort：磁盘异常时静默，句柄仍由 pid 探测兜底 */
-    }
-  }
-}
-
-/** 归零注销（best-effort：文件系统异常时残留由下次扫描的 pid 探测 GC 收口）。 */
-function releaseOpenMarker(dbPath: string): void {
-  try {
-    rmSync(openMarkerPath(dbPath), { force: true })
-  } catch {
-    /* best-effort */
-  }
 }
 
 /** 启动修复：孤儿 session（有 session/start 无 session/end）补 closers。

@@ -42,20 +42,29 @@ import { runRegisteredBgTask } from '../../process/summary.js'
 // R0912-2（2026-09-11 修复批）：重写稿 front matter 章号防线——与机检同源解析器
 import { readDraft } from '../../format/draft.js'
 import { buildRewritePrompt } from '../../process/rewrite-prompt.js'
-import { assembleChapter } from '../contract/index.js'
-import { runSpec } from '../tasks/spec.js'
-import { selfHealSpec } from '../tasks/specs.js'
 import { redactSecret } from '../provider/redact.js' // R43-19（四十三轮）：SSE 错误事件脱敏第二层
 import { checkAiCallBudget } from '../calls.js'
-import { resolveModelPricing, computeCallCost } from '../pricing.js'
 import { collectRuleViolations } from '../rules/index.js'
 import { recordRuleHits } from '../rule-hits.js'
 import { recordAuthorSignal } from '../author-signal.js'
 import { recordAiVersionAsync } from '../../git/ai-track.js'
 import { writeBatchPause, clearBatchPause } from '../../state/batch-pause.js'
-import { preserveStructureFmForChapter } from '../../format/chapter-lookup.js'
 import { log, errMsg } from '../../log/index.js'
-import type { TokenUsage } from '../provider/types.js'
+// R0916-5g（2026-09-16，⑤④产品巨件拆分波3）：缝 A/B 拆出件回引——运行登记族的
+// running/settling 顶层求值常量单源登记件，直接 import（不经桥、不环回）；生成族回引。
+import { running, settling, type RunState } from './self-heal-registry.js'
+import { runGenerate, emit } from './self-heal-generate.js'
+
+// R0916-5g 拆分桥接：迁出公开导出逐名 re-export，全库 import 面零改动。
+// 缝 A（orchestrate/self-heal-registry.ts）：运行登记/并发锁族。
+export {
+  isSelfHealRunning,
+  isChatEmbeddedSelfHealRunning,
+  forceReleaseSelfHealRunning,
+  __setSelfHealRunningForTest,
+  waitSelfHealSettled,
+  abortSelfHeal,
+} from './self-heal-registry.js'
 
 
 /** 重写通用指令（红项明细走 reviewIssues 槽位逐条编号；[必须]=硬性红项，[建议]=文风黄项） */
@@ -103,73 +112,6 @@ export type SelfHealOutcome =
   | { outcome: 'escalate'; chapter: number; reds: string[]; docId: string; path: string; attempts: number }
   | { outcome: 'aborted' }
   | { outcome: 'failed'; error: string }
-
-/** 运行中的编排（book 级并发锁 + 中断句柄） */
-interface RunState {
-  ctrl: AbortController
-  /** R76-12：chat 对话嵌套写章标记（SelfHealOpts.embedded 透传） */
-  embedded?: boolean
-  /** 本次运行 AI 消耗累计（done 事件上报，W-P2-7；genFn 单测替身无 usage 不入账）。
-   *  cost 按次现算累计（写稿模型四档分计，未配价不入账）——与 stream.ts /spawn 同口径。
-   *  低级项（第六轮）：删掉无人读取的 calls/inputTokens 累计（emitResult 只读
-   *  cost/outputTokens，单次明细已在事件库 llm/call 行）
-   *  R73-10：estimated——任一 attempt 为估计入账（R73-1）时置位，done 事件透出
-   *  usageEstimated（前端可区分实测/估计口径） */
-  usage: { outputTokens: number; cost: number; estimated?: boolean }
-}
-const running = new Map<string, RunState>()
-
-/** 本书是否正在全自动写章 */
-export function isSelfHealRunning(bookName: string): boolean {
-  return running.has(bookName)
-}
-
-/** R76-12（二十四轮 A 域）：在途自愈是否为 chat 对话嵌套写章（write_chapter 工具驱动）
- *  ——chat 入口闸（stream.ts）据此区分独立写稿（409 拒新对话）与对话嵌套写稿（放行
- *  交 sendChatMessage 入队 steer，当前轮结束自动续链）。 */
-export function isChatEmbeddedSelfHealRunning(bookName: string): boolean {
-  return running.get(bookName)?.embedded === true
-}
-
-/**
- * R1010c-SRV-P3-1（2026-09-10 全量独立复审修复批）：运行登记强删除（生产命名导出）——
- * stream.ts 静默挂死 watchdog 二段强释放的登记清理入口。语义 = running.delete(bookName)，
- * 幂等（不在册/重复调用均安全；被强释放的编排若日后 settle，其 finally 的同键删除天然互容）。
- * 此前该生产清理点直调测试命名导出 __setSelfHealRunningForTest，测试专用 API 进了生产路径。
- */
-export function forceReleaseSelfHealRunning(bookName: string): void {
-  running.delete(bookName)
-}
-
-/** R67-13 回归注入（先例同 api/review.ts __setReviewRunning）——orchestrationBusyFor
- *  互斥矩阵测试需制造「self-heal 在途」态，真实跑完整闭环过重。生产零调用；off 分支
- *  转调 forceReleaseSelfHealRunning（R1010c-SRV-P3-1 起本函数是它的测试别名）。 */
-export function __setSelfHealRunningForTest(bookName: string, on: boolean): void {
-  if (on) running.set(bookName, { ctrl: new AbortController(), usage: { outputTokens: 0, cost: 0 } })
-  else forceReleaseSelfHealRunning(bookName)
-}
-
-/** #7：在途 runSelfHeal 的收尾 Promise（改名/删书/退出等待用；含 emitResult 后的完整收尾） */
-const settling = new Map<string, Promise<unknown>>()
-
-/** #7：等本书在途自愈收尾（无在途立即返回）。与 chat.ts waitChatSettled 同款——
- * abort 是异步信号，straggler 的链路事件 flush 在关库/搬路径后恢复会丢/抛。
- * M-3：循环等到表项清空（防表项被替换后等待方拿旧 resolve 提前返回——与 chat 侧同构） */
-export async function waitSelfHealSettled(bookName: string): Promise<void> {
-  for (;;) {
-    const p = settling.get(bookName)
-    if (!p) return
-    await p.catch(() => undefined)
-  }
-}
-
-/** 中断本书的全自动写章 */
-export function abortSelfHeal(bookName: string): boolean {
-  const st = running.get(bookName)
-  if (!st) return false
-  st.ctrl.abort()
-  return true
-}
 
 /**
  * 跑完整自愈闭环。端点 fire-and-forget 调用（不 await），进度全程经主 session SSE 回流。
@@ -884,160 +826,6 @@ async function runChapter(
   }
 }
 
-type SpawnResult =
-  | { status: 'ok'; text: string }
-  | { status: 'aborted' }
-  | { status: 'error'; error: string }
-
-/**
- * 生成入口：优先用注入的 genFn（单测），否则用 provider + tool_use。
- * text 逐字转发主 session（前端实时见产出）。
- */
-async function runGenerate(
-  opts: SelfHealOpts,
-  state: RunState,
-  kind: 'long' | 'short',
-  userPrompt: string,
-  chapter = opts.chapter, // P2-3：批量时传当前章（单章缺省 = opts.chapter 不变）
-  promptFiles: string[] = [], // C1（批 2）：prompt 引用材料 → promptMeta.files 登记
-): Promise<SpawnResult> {
-  if (state.ctrl.signal.aborted) return { status: 'aborted' }
-
-  // 注入的生成函数（单测替身）
-  if (opts.genFn) {
-    try {
-      const text = await opts.genFn(userPrompt, kind, state.ctrl.signal, (delta) =>
-        emit(opts, { type: 'text', text: delta }),
-      )
-      if (state.ctrl.signal.aborted) return { status: 'aborted' }
-      if (!text.trim()) return { status: 'error', error: 'AI 产出为空' }
-      return { status: 'ok', text }
-    } catch (e) {
-      if (state.ctrl.signal.aborted) return { status: 'aborted' }
-      return { status: 'error', error: errMsg(e) }
-    }
-  }
-
-  // A2（五十九轮）：mock 快路撤销本地短路，改走下方 runSpec——runTask 的 mockTool 快路
-  //（selfHealSpec 已声明 mock.toolName）与真实链路同口径补链路事件（step/start + llm/call
-  //  + step/end，P3-6），mock 回合不再是审计黑洞。流式预览改由成功产出后补发（见
-  //  emitMockPreview），前端观感口径不变（kk-P2 按码位切片）
-
-  // 真实 provider + tool_use —— 走 runSpec（统一编排：mock/provider/中断/错误文案）
-  const out = await runSpec(selfHealSpec(kind), {
-    userDataPath: opts.userDataPath,
-    bookRoot: opts.bookRoot,
-    chapter,
-    userPrompt,
-    promptFiles,
-    ctrl: state.ctrl,
-    // Z-P2-5：登记 ctrl → driver（/auto-write 路径传入）——生成期 isRunning() 真值（SSE
-    // sync 快照不再假空闲），/interrupt 的 driver.interrupt() 也能直接 abort 在途请求
-    //（与 abortSelfHeal 内存闸双保险）。同 ctrl 多轮重复登记，cc 侧幂等跳过
-    register: opts.register,
-    onReset: () => emit(opts, { type: 'self_heal_reset' }),
-    onText: (delta) => emit(opts, { type: 'text', text: delta }),
-    // Bug C：provider 重试（429/5xx）时推 warning——前端可见「响应异常，重试中」，不再静默卡死
-    // R43-19（四十三轮）：error 拼接前过 redactSecret（与 stream.ts:216 R26-8 同款）——
-    // provider 异常 message 可带 endpoint/Authorization 痕迹，SSE 直发前端即脱敏
-    onRetry: (attempt, error) =>
-      emit(opts, {
-        type: 'warning',
-        message: `AI 响应异常（${redactSecret(error)}），第 ${attempt + 1} 次重试中…`,
-      }),
-  })
-
-  // C3（复审-0914-优化修复批）：失败/成功两路的 usage 计价块单源——outputTokens 累计 →
-  // estimated 粘性置位（A-6 口径）→ 计价 → cost 累计，数值路径与置位时机逐位不变。
-  // Y-15（第五十七轮）：计价用请求时刻的模型（TaskOk/TaskErr.model = resolve 时快照的
-  // tier.model），不再二次 resolveTier 取当下档位——生成期间作者换档/改价时 done 事件与
-  // ai-calls 账本（runTask 同口径）计价漂移；model 为空（mock 快路）→ 查价跳过
-  //（与 usage 为空同后果，未配价不入账）。
-  const accountUsage = (u: TokenUsage | null | undefined, model: string | null | undefined): void => {
-    if (!u) return
-    state.usage.outputTokens += u.outputTokens
-    if (u.estimated) state.usage.estimated = true
-    const pricing = model ? resolveModelPricing(opts.userDataPath, model) : null
-    if (pricing) {
-      state.usage.cost +=
-        computeCallCost(pricing, {
-          inputTokens: u.inputTokens,
-          outputTokens: u.outputTokens,
-          ...(u.cacheReadTokens !== undefined ? { cacheReadTokens: u.cacheReadTokens } : {}),
-          ...(u.cacheWriteTokens !== undefined ? { cacheWriteTokens: u.cacheWriteTokens } : {}),
-        }) ?? 0
-    }
-  }
-
-  if (!out.ok) {
-    // R35-17：abort/终态失败 attempt 的真实消耗已由 runner recordUsageSafe 按次入账
-    // ai-calls；R37-7（三十七轮）收口：TaskErr 封套已携 attemptsUsage/model，失败前
-    // 已消耗的 token/成本随 done 事件并入（此前纯展示面与账本口径分叉——封套取不到
-    // 失败调用的用量，预算/成本统计漏记），并入写法与下方成功路径同源（C3 起字面同源）
-    accountUsage(out.attemptsUsage ?? null, out.model ?? null)
-    if (out.code === 'ABORTED' || state.ctrl.signal.aborted) return { status: 'aborted' }
-    return { status: 'error', error: out.error }
-  }
-  if (state.ctrl.signal.aborted) return { status: 'aborted' }
-
-  // 真实消耗入账（W-P2-7：done 事件不再恒 0；runSpec 已带回 usage）。
-  // 金额按次现算累计（D2 同 stream.ts /spawn：写稿模型查价格表四档分计，未配价省略——
-  // done 事件不再恒发 cost:0，前端成本口径与 spawn 路径一致）。
-  // R73-10（二十一轮 A-10）：done 用量改取全 attempt 累计（attemptsUsage——重试/中断
-  // attempt 的可得 usage 一并计入），与 ai-calls.json 按次入账口径一致；修复前只取
-  // 末次成功 attempt，重试链的前置消耗在前端成本显示中缺失。runTask 未带该字段
-  // （旧调用方/单测桩）时回退 out.usage（原口径）。含估计入账 attempt（R73-1）时
-  // estimated 随之置位（C3 单源闭包内）。
-  accountUsage(out.attemptsUsage ?? out.usage, out.model)
-
-  // C-2：记账已下沉到 runTask（chapter + task 块自动记，避免双记）
-
-  // B-3：max_tokens 截断 → 警告（落盘保留，但让作者知道原因）
-  const { input, text, stopReason } = out.data
-  if (stopReason === 'max_tokens') {
-    emit(opts, { type: 'warning', message: '产出达到长度上限被截断，建议调高单次输出上限' })
-  }
-
-  // tool_use 结构化产出 → 拼装 front matter + 正文
-  const assembled = assembleChapter(input, chapter)
-  if (assembled.ok) {
-    // A2（五十九轮）：mock 快路（out.model === null）经 runTask 短路返回，onText 未流式——
-    // 成功产出后按码位切片补发预览（与原本地 mock 快路口径一致），前端/测试能见推进
-    if (out.model === null) emitMockPreview(opts, assembled.content)
-    // 阶段 24 结构键保形（S3）：assembleChapter 从零组 fm（不知 序/并入），重写既有章
-    // 前读盘上 fm 透传结构键——否则全自动写章强覆盖会静默丢掉合并去向与显示序登记
-    // （saveDraft 锁内另有 preserveStructureFmIn 兜底，两道共保）。
-    return { status: 'ok', text: preserveStructureFmForChapter(opts.bookRoot, chapter, assembled.content) }
-  }
-
-  // 降级：tool_use 未命中（AI 产出自由文本）→ 直接用 text
-  if (text.trim()) {
-    if (out.model === null) emitMockPreview(opts, text.trim())
-    return { status: 'ok', text: text.trim() }
-  }
-  return { status: 'error', error: 'AI 产出为空' }
-}
-
-/** A2（五十九轮）：mock 快路的流式预览补发——12 码位/段逐段 emit。
- *  kk-P2：按码位切片——String.slice 按 UTF-16 code unit 会把 emoji/
- *  扩展区字符劈成两半，前端逐字渲染出现瞬时不合法字符（turns.ts read_chapter 同做法）
- *  R58-B-5（五十八轮）：改码点流式分片——for…of 按码点迭代累积，不再 Array.from
- *  全量物化数组（输出逐段等价：每 12 码位一段，尾段不足 12 也照发） */
-function emitMockPreview(opts: SelfHealOpts, body: string): void {
-  let chunk = ''
-  let n = 0
-  for (const ch of body) {
-    chunk += ch
-    n++
-    if (n === 12) {
-      emit(opts, { type: 'text', text: chunk })
-      chunk = ''
-      n = 0
-    }
-  }
-  if (chunk) emit(opts, { type: 'text', text: chunk })
-}
-
 function redMessages(outcome: CheckOutcome & { ok: true }): string[] {
   return getRedItems(outcome.report).map((i) => i.message)
 }
@@ -1045,10 +833,6 @@ function redMessages(outcome: CheckOutcome & { ok: true }): string[] {
 /** 终局黄项复查：对终稿跑规则 → 违规 message 列表（W1 收敛可见性；含 fm——plot 一致规则要比对章纲，正文型规则各自剥） */
 function ruleYellows(content: string, bookRoot: string, chapter: number): string[] {
   return collectRuleViolations(content, 'self-heal', bookRoot, chapter).map((v) => v.message)
-}
-
-function emit(opts: SelfHealOpts, ev: DriverEvent): void {
-  opts.driver.emit?.(opts.mainSession, ev)
 }
 
 function emitResult(opts: SelfHealOpts, result: SelfHealOutcome, usage: RunState['usage']): void {
