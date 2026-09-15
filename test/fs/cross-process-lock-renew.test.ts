@@ -9,7 +9,7 @@
 import { mkdtempSync, rmSync, writeFileSync, statSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, it, expect, afterAll } from 'vitest'
+import { describe, it, expect, afterAll, vi } from 'vitest'
 import { tryAcquireCrossProcessLock } from '../../src/fs/cross-process-lock.js'
 import { sleep } from '../helpers/wait-for.js'
 
@@ -26,9 +26,9 @@ describe('N6 锁续期', () => {
     expect(release).not.toBeNull()
     try {
       const m0 = Math.floor(statSync(p).mtimeMs)
-      await sleep(80) // 跨 ≥3 个续期周期
-      const m1 = Math.floor(statSync(p).mtimeMs)
-      expect(m1).toBeGreaterThan(m0) // mtime 被 touch 抬新
+      // R0915-4d（台账行 259 择收）：续期周期性抬新是必然终态——固定 80ms 窗改轮询至
+      // mtime 抬新（慢机不假红；mtime 被 touch 抬新）
+      await vi.waitFor(() => expect(statSync(p).mtimeMs).toBeGreaterThan(m0), { timeout: 2_000 })
     } finally {
       release()
     }

@@ -151,7 +151,11 @@ function judgeStaleLock(
       return 'gone' // 刚被释放/删除——上层重试创建，不在这里删
     }
     // mtimeMs 带亚毫秒小数且时钟源独立——floor 对齐后计龄，避免同毫秒内出现负年龄
-    if (Number.isFinite(mtime) && Date.now() - Math.floor(mtime) < graceMs) return 'held'
+    // R0915-4d（中件组批）：win 时钟粒度下刚落盘文件的 mtime 可整体超前 Date.now()
+    // 读数（负年龄，负载重时内核 tick 粗粒化更频）——钳 0 防「年轻空锁」把
+    // staleGraceMs:0 的接管面误判 held（陈锁接管测试因此抖假红）；grace>0 语义不变
+    //（未来 mtime 视同 age 0，仍在宽限内判 held）
+    if (Number.isFinite(mtime) && Math.max(0, Date.now() - Math.floor(mtime)) < graceMs) return 'held'
   }
   return 'stale'
 }

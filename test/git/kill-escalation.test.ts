@@ -4,7 +4,7 @@
  * 升级；对已退出进程（kill 抛 ESRCH 形态）不炸。生产接线（超时/abort 两路）见
  * gitAsync 本体，其 settle 有界语义由 R36-5 既有用例锁定、不受本项影响。
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { killWithEscalation } from '../../src/git/exec.js'
 import { sleep } from '../helpers/wait-for.js'
 
@@ -30,8 +30,9 @@ describe('IR-3 killWithEscalation（SIGTERM→SIGKILL 升级）', () => {
     const child = fakeChild()
     const cancel = killWithEscalation(child, 30)
     expect(child.signals).toEqual(['SIGTERM'])
-    await sleep(80)
-    expect(child.signals).toEqual(['SIGTERM', 'SIGKILL'])
+    // R0915-4d（台账行 259 择收）：升级到达是必然终态——sleep(80) 固定窗改轮询终态断言，
+    // 慢机抖动不再假红（SIGKILL 必到，只等它到）
+    await vi.waitFor(() => expect(child.signals).toEqual(['SIGTERM', 'SIGKILL']), { timeout: 2_000 })
     cancel()
   })
 

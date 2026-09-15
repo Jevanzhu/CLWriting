@@ -86,11 +86,10 @@ describe('R27-105: 摘要锁续期接线', () => {
       const lockPath = join(root, '工作区', '.摘要锁-章1.lock') // R28-14：锁名补 .lock 后缀
       await waitForLock(lockPath)
       const m0 = Math.floor(statSync(lockPath).mtimeMs)
-      await sleep(90) // 跨 ≥4 个续期周期（注入 20ms）
-      const m1 = Math.floor(statSync(lockPath).mtimeMs)
-      // 修复前：未传 renewIntervalMs → mtime 恒为创建时刻（m1 === m0），长调用一超
-      // 10min 超龄线即被他进程接管双持锁；修复后续期把 mtime 抬新
-      expect(m1).toBeGreaterThan(m0)
+      // R0915-4d（台账行 259 择收）：续期周期性抬新是必然终态——固定 90ms 窗改轮询至
+      // mtime 抬新（慢机不假红）。修复前：未传 renewIntervalMs → mtime 恒为创建时刻，
+      // 长调用一超 10min 超龄线即被他进程接管双持锁；修复后续期把 mtime 抬新
+      await vi.waitFor(() => expect(statSync(lockPath).mtimeMs).toBeGreaterThan(m0), { timeout: 2_000 })
       state.releaseChapter!()
       expect((await p).ok).toBe(true)
       expect(existsSync(lockPath)).toBe(false) // release 停表 + 删锁（续期定时器不残留）
@@ -131,9 +130,8 @@ describe('R27-105: 摘要锁续期接线', () => {
       const lockPath = join(root, '工作区', '.摘要锁-卷1.lock') // R28-14：锁名补 .lock 后缀
       await waitForLock(lockPath)
       const m0 = Math.floor(statSync(lockPath).mtimeMs)
-      await sleep(90)
-      const m1 = Math.floor(statSync(lockPath).mtimeMs)
-      expect(m1).toBeGreaterThan(m0) // 修复前 mtime 恒旧 → 超龄被接管双生成双计费
+      // R0915-4d：同上——固定窗改轮询终态（修复前 mtime 恒旧 → 超龄被接管双生成双计费）
+      await vi.waitFor(() => expect(statSync(lockPath).mtimeMs).toBeGreaterThan(m0), { timeout: 2_000 })
       state.releaseVolume!()
       expect((await p).ok).toBe(true)
       expect(existsSync(lockPath)).toBe(false)

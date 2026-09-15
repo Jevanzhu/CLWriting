@@ -255,7 +255,7 @@ jobs:
         run: |
           npm run soak | tee /tmp/soak-output.log
           OK_N=$(grep -c '\[soak\] OK' /tmp/soak-output.log || true)
-          [ "$OK_N" -eq 2 ] || { echo "::error::soak 门 OK 行数=${OK_N}（应为 2 = 段1 有界往返 + 段2 RAG 召回；段失败/SKIP/退出码非零均不得步绿；补段须同步改此断言）——内存门假绿拦截"; exit 1; }
+          [ "$OK_N" -eq 5 ] || { echo "::error::soak 门 OK 行数=${OK_N}（应为 5 = 段1 有界往返 + 段2 RAG 召回 + 段3 清单重写 + 段4 事件库长会话 + 段5 service save 链〔R0915-4a 补段〕；段失败/SKIP/退出码非零均不得步绿；补段须同步改此断言）——内存门假绿拦截"; exit 1; }
 
       - name: 上传 trace（失败时）
         if: failure()

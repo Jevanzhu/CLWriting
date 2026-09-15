@@ -24,18 +24,24 @@
  * 干净 SKIP（exit 0，打印 SKIP 标记）——绝不给假结果。
  *
  * 跑：npm run soak（= node --expose-gc … tsx …）。可调：CLW_SOAK_ITER、CLW_SOAK_BOUND_MB、
- * CLW_SOAK_RAG_ITER（缺省 20000）、CLW_SOAK_RAG_BOUND_MB（缺省 24）。
+ * CLW_SOAK_RAG_ITER（缺省 20000）、CLW_SOAK_RAG_BOUND_MB（缺省 24）、CLW_SOAK_MANIFEST_ITER
+ * （缺省 3000）、CLW_SOAK_MANIFEST_BOUND_MB、CLW_SOAK_EV_ITER（缺省 2000 批×10）、
+ * CLW_SOAK_EV_BOUND_MB、CLW_SOAK_SVC_ITER（缺省 600）、CLW_SOAK_SVC_BOUND_MB（均缺省 24）。
  */
 import { parsePieceListBody, stringifyPieceList } from '../../src/format/piece-list-core.js'
 import type { PieceList } from '../../src/format/types.js'
 // R0911-G-P3-4：RAG 召回段的装置面（桩 embed 不联网；writeChapter 是测试造章助手）
-import { mkdirSync, rmSync } from 'node:fs'
+// R0915-4a：补段三～五的装置面（清单 jsonl 重写 / 事件库长会话 / service save 链）
+import { mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { buildIndex, recall } from '../../src/rag/index.js'
 import { writeChapter } from '../helpers/chapter.js'
 import type { ChapterMeta } from '../../src/format/types.js'
 import type { EmbedResult } from '../../src/rag/embed.js'
+import { readManifestStrict, upsertEntry, writeManifest, type Manifest } from '../../src/document/manifest.js'
+import { openSessionStore, type NewEvent } from '../../src/events/store.js'
+import { DocumentService } from '../../src/document/service.js'
 
 /** 固定小fixture（真实章纲三段式形态）：纯字符串常量，解析/回写零外部依赖。 */
 const FIXTURE = [
@@ -189,3 +195,175 @@ if (ragFinal - ragBaseline > RAG_BOUND_MB * 1024 * 1024) {
   process.exit(1)
 }
 console.log('[soak] OK：RAG 召回循环无显著内存增长。')
+
+// ── R0915-4a（2026-09-15 中件组批，台账行 260 soak 面窄处置）：补段三～五 ──────────
+// 行 260 登记三处无内存断言面：文档清单 jsonl 重写放大 / 事件库长会话增长 / service
+// 索引累积。三段同前两段纪律：固定输入固定次数、无 wall-clock sleep、无并发、功能
+// 性底座防空转假绿、失败路径 rmSync 后 FAIL。段 5 走 DocumentService.save 真链
+// （journal pending + 留底去重 + 清单 RMW + 字数 delta），顺序单写无锁竞争——
+// 锁等待 setTimeout 轮询不触发，事件循环干净，跑完即退。
+
+// 段 3：文档清单 jsonl 重写放大——每次重写全量序列化 M 条（O(M) 字符串构建），
+// 内存应随迭代有界（写必 bump mtime + writeManifest 主动清缓存双保险在此面）。
+const MANIFEST_ROWS = 200
+const MANIFEST_ITER = numEnv('CLW_SOAK_MANIFEST_ITER', 3_000)
+const MANIFEST_BOUND_MB = numEnv('CLW_SOAK_MANIFEST_BOUND_MB', 24)
+
+const manifestDir = join(tmpdir(), `clw-soak-manifest-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+mkdirSync(manifestDir, { recursive: true })
+const manifestPath = join(manifestDir, '文档清单.jsonl')
+const seedManifest: Manifest = { version: 1, entries: new Map() }
+for (let i = 0; i < MANIFEST_ROWS; i++) {
+  upsertEntry(seedManifest, {
+    id: `d${i}`, nodeType: 'document',
+    path: `写作/正文/${String(i + 1).padStart(4, '0')}-章.md`, parentId: null,
+  })
+}
+writeManifest(manifestPath, seedManifest)
+if (readManifestStrict(manifestPath).entries.size !== MANIFEST_ROWS) {
+  console.error('[soak] FAIL：清单装置读回条数不符——soak 输入本身失效。')
+  rmSync(manifestDir, { recursive: true, force: true })
+  process.exit(1)
+}
+function manifestRewriteOnce(i: number): void {
+  const m = readManifestStrict(manifestPath)
+  upsertEntry(m, {
+    id: 'd0', nodeType: 'document',
+    path: `写作/正文/0001-章-v${i % 97}.md`, parentId: null,
+  })
+  writeManifest(manifestPath, m)
+}
+for (let i = 0; i < Math.min(300, MANIFEST_ITER); i++) manifestRewriteOnce(i)
+const manifestBaseline = settledHeapUsed()
+for (let i = 0; i < MANIFEST_ITER; i++) manifestRewriteOnce(i)
+const manifestFinal = settledHeapUsed()
+rmSync(manifestDir, { recursive: true, force: true })
+
+const manifestGrowthMb = (manifestFinal - manifestBaseline) / (1024 * 1024)
+console.log(
+  `[soak] 清单重写迭代 ${MANIFEST_ITER} 次（${MANIFEST_ROWS} 条）· 基线 ${(manifestBaseline / 1048576).toFixed(2)}MB · ` +
+    `终值 ${(manifestFinal / 1048576).toFixed(2)}MB · 增长 ${manifestGrowthMb.toFixed(2)}MB · 上界 ${MANIFEST_BOUND_MB}MB`,
+)
+if (manifestFinal - manifestBaseline > MANIFEST_BOUND_MB * 1024 * 1024) {
+  console.error(
+    `[soak] FAIL：清单重写 heapUsed 增长 ${manifestGrowthMb.toFixed(2)}MB 超上界 ${MANIFEST_BOUND_MB}MB——疑似线性泄漏（重写放大面）。`,
+  )
+  process.exit(1)
+}
+console.log('[soak] OK：文档清单重写循环无显著内存增长。')
+
+// 段 4：事件库长会话增长——单会话持续追加（批接口真链），行数落盘 SQLite、堆不应
+// 随会话长度线性涨（listEvents 全量投影是 O(N) 读面，循环内不做全量读防 O(N²)，
+// 终态以 lastSeq 钉行数）。
+const EV_BATCH = 10
+const EV_ITER = numEnv('CLW_SOAK_EV_ITER', 2_000)
+const EV_BOUND_MB = numEnv('CLW_SOAK_EV_BOUND_MB', 24)
+
+const evDir = join(tmpdir(), `clw-soak-ev-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+const evRoot = join(evDir, 'book')
+mkdirSync(evRoot, { recursive: true })
+const evStore = openSessionStore(evDir, evRoot)
+if (!evStore) {
+  console.error('[soak] FAIL：事件库装置 openSessionStore 返回 null——soak 输入本身失效。')
+  rmSync(evDir, { recursive: true, force: true })
+  process.exit(1)
+}
+const evSession = evStore.createSession('soak')
+function evBatch(i: number): NewEvent[] {
+  return Array.from({ length: EV_BATCH }, (_, k) => ({
+    type: 'llm/call',
+    data: {
+      runId: `r${i}-${k}`, task: 'soak', tierKind: 'creative', model: 'model-soak', attempt: 0,
+      stopReason: 'end', durationMs: 1, ok: true,
+    },
+  }))
+}
+evStore.appendEvents(evSession, evBatch(0))
+if (evStore.listEvents('soak', evSession).length !== EV_BATCH) {
+  console.error('[soak] FAIL：事件库装置读回批数不符——soak 输入本身失效。')
+  evStore.close()
+  rmSync(evDir, { recursive: true, force: true })
+  process.exit(1)
+}
+for (let i = 1; i < Math.min(200, EV_ITER); i++) evStore.appendEvents(evSession, evBatch(i))
+const evBaseline = settledHeapUsed()
+for (let i = 200; i < EV_ITER; i++) evStore.appendEvents(evSession, evBatch(i))
+const evFinal = settledHeapUsed()
+if (evStore.lastSeq() !== EV_ITER * EV_BATCH) {
+  console.error('[soak] FAIL：事件库终态 lastSeq 与追加批数不符——soak 输入本身失效。')
+  evStore.close()
+  rmSync(evDir, { recursive: true, force: true })
+  process.exit(1)
+}
+evStore.close()
+rmSync(evDir, { recursive: true, force: true })
+
+const evGrowthMb = (evFinal - evBaseline) / (1024 * 1024)
+console.log(
+  `[soak] 事件库长会话追加 ${EV_ITER} 批 × ${EV_BATCH} 事件 · 基线 ${(evBaseline / 1048576).toFixed(2)}MB · ` +
+    `终值 ${(evFinal / 1048576).toFixed(2)}MB · 增长 ${evGrowthMb.toFixed(2)}MB · 上界 ${EV_BOUND_MB}MB`,
+)
+if (evFinal - evBaseline > EV_BOUND_MB * 1024 * 1024) {
+  console.error(
+    `[soak] FAIL：事件库 heapUsed 增长 ${evGrowthMb.toFixed(2)}MB 超上界 ${EV_BOUND_MB}MB——疑似随会话长度线性泄漏。`,
+  )
+  process.exit(1)
+}
+console.log('[soak] OK：事件库长会话循环无显著内存增长。')
+
+// 段 5：service save 链累积——DocumentService.save 真链（journal pending + 留底
+// dedupe + 清单 RMW + 字数 delta + revision 链），内容逐次变化使留底不 hit 去重
+// 短路；顺序单写无锁竞争。快照/日志文件落盘，堆有界即「索引/映射不随保存次数涨」。
+const SVC_ITER = numEnv('CLW_SOAK_SVC_ITER', 600)
+const SVC_BOUND_MB = numEnv('CLW_SOAK_SVC_BOUND_MB', 24)
+
+const svcDir = join(tmpdir(), `clw-soak-svc-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+const svcRoot = join(svcDir, 'soakbook')
+mkdirSync(join(svcRoot, '设定'), { recursive: true })
+const svc = new DocumentService({ bookRoot: svcRoot })
+const svcRel = '设定/soak.md'
+const svcCreated = await svc.createDocument({ relPath: svcRel, content: '---\n名称: soak\n---\n初稿' })
+if (!svcCreated.ok) {
+  console.error(`[soak] FAIL：service 装置 createDocument 失败（${svcCreated.code}）——soak 输入本身失效。`)
+  rmSync(svcDir, { recursive: true, force: true })
+  process.exit(1)
+}
+const svcDocId = svcCreated.docId
+let svcRev = svcCreated.revision
+async function svcSaveOnce(i: number): Promise<void> {
+  const s = await svc.save(svcDocId, svcRel, {
+    content: `---\n名称: soak\n---\n\n第 ${i} 次保存：正文段落若干，字数口径稳定不塌缩。\n`.repeat(3),
+    expectedRevision: svcRev,
+    operationId: `soak-${i}`,
+    origin: 'manual',
+  })
+  if (!s.ok) {
+    console.error(`[soak] FAIL：service 装置 save 失败（${s.code}：${s.reason}）——soak 输入本身失效。`)
+    rmSync(svcDir, { recursive: true, force: true })
+    process.exit(1)
+  }
+  svcRev = s.revision
+}
+for (let i = 0; i < Math.min(30, SVC_ITER); i++) await svcSaveOnce(i)
+const svcBaseline = settledHeapUsed()
+for (let i = 30; i < SVC_ITER; i++) await svcSaveOnce(i)
+const svcFinal = settledHeapUsed()
+if (!readFileSync(join(svcRoot, ...svcRel.split('/')), 'utf-8').includes(`第 ${SVC_ITER - 1} 次保存`)) {
+  console.error('[soak] FAIL：service 终态盘面与最后保存不符——soak 输入本身失效。')
+  rmSync(svcDir, { recursive: true, force: true })
+  process.exit(1)
+}
+rmSync(svcDir, { recursive: true, force: true })
+
+const svcGrowthMb = (svcFinal - svcBaseline) / (1024 * 1024)
+console.log(
+  `[soak] service save 链迭代 ${SVC_ITER} 次 · 基线 ${(svcBaseline / 1048576).toFixed(2)}MB · ` +
+    `终值 ${(svcFinal / 1048576).toFixed(2)}MB · 增长 ${svcGrowthMb.toFixed(2)}MB · 上界 ${SVC_BOUND_MB}MB`,
+)
+if (svcFinal - svcBaseline > SVC_BOUND_MB * 1024 * 1024) {
+  console.error(
+    `[soak] FAIL：service save 链 heapUsed 增长 ${svcGrowthMb.toFixed(2)}MB 超上界 ${SVC_BOUND_MB}MB——疑似索引/日志累积线性泄漏。`,
+  )
+  process.exit(1)
+}
+console.log('[soak] OK：service save 链循环无显著内存增长。')
