@@ -6,9 +6,10 @@
  * fs/cross-process-lock 既有测试覆盖，本件不重复。
  */
 import { describe, it, expect, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, existsSync } from 'node:fs'
+import { rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { acquireAppInstanceGuard, APP_INSTANCE_LOCK_FILE } from '../../src/desktop/app-instance-guard.js'
 
 let dir: string | null = null
@@ -21,7 +22,7 @@ afterEach(() => {
 
 describe('R0913-win P3-13：app-instance-guard', () => {
   it('空闲 userData 上获取成功（持锁），释放幂等且锁文件随释放消失', () => {
-    dir = mkdtempSync(join(tmpdir(), 'r0913-guard-'))
+    dir = mkdtempTracked(join(tmpdir(), 'r0913-guard-'))
     const g = acquireAppInstanceGuard(dir)
     expect(g.acquired).toBe(true)
     expect(existsSync(join(dir, APP_INSTANCE_LOCK_FILE))).toBe(true)
@@ -31,7 +32,7 @@ describe('R0913-win P3-13：app-instance-guard', () => {
   })
 
   it('同进程重复获取 = 同一实例放行（持有 pid 为自身；模块重载形态），release no-op 不自删锁面', () => {
-    dir = mkdtempSync(join(tmpdir(), 'r0913-guard-'))
+    dir = mkdtempTracked(join(tmpdir(), 'r0913-guard-'))
     const first = acquireAppInstanceGuard(dir)
     expect(first.acquired).toBe(true)
     const second = acquireAppInstanceGuard(dir)
@@ -44,7 +45,7 @@ describe('R0913-win P3-13：app-instance-guard', () => {
   })
 
   it('释放后再次获取放行（重启场景：上一实例已退）', () => {
-    dir = mkdtempSync(join(tmpdir(), 'r0913-guard-'))
+    dir = mkdtempTracked(join(tmpdir(), 'r0913-guard-'))
     const first = acquireAppInstanceGuard(dir)
     expect(first.acquired).toBe(true)
     first.release()

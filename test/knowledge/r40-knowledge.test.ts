@@ -8,16 +8,17 @@
  *   BOM 宿主不再静默丢 BOM（joinFrontMatter R39-10 + BOM 记账补回）。
  */
 import { describe, expect, it, afterEach, vi } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs'
+import { rmSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { commitKnowledgeFile } from '../../src/knowledge/update.js'
 import { KNOWLEDGE_MANIFEST } from '../../src/knowledge/manifest.js'
 import { log } from '../../src/log/index.js'
 
 const dirs: string[] = []
 function tempProject(): string {
-  const d = mkdtempSync(join(tmpdir(), 'clw-r40-knowledge-'))
+  const d = mkdtempTracked(join(tmpdir(), 'clw-r40-knowledge-'))
   dirs.push(d)
   mkdirSync(join(d, '知识层'), { recursive: true })
   return d

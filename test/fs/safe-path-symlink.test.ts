@@ -7,16 +7,17 @@
  * 顺带锁定：书内 symlink 重定向（合法形态）解析到真实路径放行。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, symlinkSync } from 'node:fs'
+import { rmSync, mkdirSync, symlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { resolveWithinRoot } from '../../src/fs/safe-path.js'
 
 let root: string
 let outside: string
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'clw-y5-'))
-  outside = mkdtempSync(join(tmpdir(), 'clw-y5-out-'))
+  root = mkdtempTracked(join(tmpdir(), 'clw-y5-'))
+  outside = mkdtempTracked(join(tmpdir(), 'clw-y5-out-'))
 })
 afterEach(() => {
   rmSync(root, { recursive: true, force: true })

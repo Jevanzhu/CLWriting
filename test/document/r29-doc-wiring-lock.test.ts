@@ -13,9 +13,10 @@
  * 模拟另一进程（回写侧）在临界段内——保存方拿不到锁即证明其在探测**同名**键。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { DocumentService, __setWiringSaveLockTimeoutForTest } from '../../src/document/service.js'
 import { processBootTime } from '../../src/fs/cross-process-lock.js'
 import { writeManifest, upsertEntry, type Manifest } from '../../src/document/manifest.js'
@@ -29,7 +30,7 @@ let bookRoot: string
 let svc: DocumentService
 
 beforeEach(() => {
-  bookRoot = mkdtempSync(join(tmpdir(), 'r29-wiring-lock-'))
+  bookRoot = mkdtempTracked(join(tmpdir(), 'r29-wiring-lock-'))
   mkdirSync(join(bookRoot, '工作区'), { recursive: true })
   svc = new DocumentService({ bookRoot })
   // 锁探针等待档缩到 80ms 保快（生产 5s，afterEach 还原）

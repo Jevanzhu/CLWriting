@@ -7,9 +7,10 @@
  * 通过即用密文内容覆写一次 bak（0600+fsync）。
  */
 import { test, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { rmSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../../helpers/temp-dir.js'
 import { loadProviders } from '../../../src/ai/provider/store.js'
 import type { ProviderConf, RagProviderConf } from '../../../src/ai/provider/types.js'
 
@@ -32,7 +33,7 @@ function makeConf(): ProviderConf {
 let dir: string
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'vault-bak-71-'))
+  dir = mkdtempTracked(join(tmpdir(), 'vault-bak-71-'))
 })
 
 afterEach(() => {

@@ -14,11 +14,12 @@
  *    第三方以 0ms 档抢布线锁必须失败）再等清单锁，P1 释放后 P2 完成，全程有界。
  */
 import { describe, it, expect, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawn } from 'node:child_process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { armWatchdog } from '../helpers/spawn-node.js'
 import { finalizeRevision, finalizeRevisionAsync } from '../../src/document/finalize.js'
 import { readManifest, writeManifest, upsertEntry, __setManifestLockTimeoutForTest, type Manifest } from '../../src/document/manifest.js'
@@ -33,7 +34,7 @@ const LEAD_REL = join('布线', '悬念', '悬念-001-玉佩.md')
 
 let roots: string[] = []
 function makeWiredBook(): { root: string; docId: string; leadAbs: string; manifestPath: string } {
-  const root = mkdtempSync(join(tmpdir(), 'r30-lockorder-'))
+  const root = mkdtempTracked(join(tmpdir(), 'r30-lockorder-'))
   roots.push(root)
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   writeFileSync(

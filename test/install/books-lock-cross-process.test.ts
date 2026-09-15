@@ -16,6 +16,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { describe, it, expect, afterAll } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { spawnNodeEval } from '../helpers/spawn-node.js'
 import {
   readBooks,
@@ -69,7 +70,7 @@ describe('books.jsonl 跨进程互斥（R63-2 真锁）', () => {
   }, 120_000)
 
   it('锁超时降级：append 拒改写 ok:false、remove/repair 跳过留痕不整写；锁释放后写点恢复', () => {
-    const wd = mkdtempSync(join(tmpdir(), 'clwriting-books-degrade-'))
+    const wd = mkdtempTracked(join(tmpdir(), 'clwriting-books-degrade-'))
     const fp = join(wd, '.clwriting', 'books.jsonl')
     try {
       mkdirSync(join(wd, '.clwriting'), { recursive: true })

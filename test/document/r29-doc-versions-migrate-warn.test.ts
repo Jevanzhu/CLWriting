@@ -6,9 +6,10 @@
  * 不实——listVersions 只读 .版本/，迁移失败时旧位置快照在版本历史中不可见）。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, renameSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, existsSync, renameSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 // renameSync 定点失败注入：只对 .snapshots → .版本 的迁移 rename 抛错（不误伤夹具自身写入）
 const FAIL = vi.hoisted(() => ({ enabled: false }))
@@ -31,7 +32,7 @@ import { log } from '../../src/log/index.js'
 let root: string
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'clw-r29-vermig-'))
+  root = mkdtempTracked(join(tmpdir(), 'clw-r29-vermig-'))
   FAIL.enabled = false
 })
 

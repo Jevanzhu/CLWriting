@@ -1,5 +1,5 @@
 import { test, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -10,10 +10,11 @@ import {
 } from '../../src/process/style-harvest.js'
 import { recordAiVersion } from '../../src/git/ai-track.js'
 import { execFileSync } from 'node:child_process'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 let root = ''
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'clw-harvest-async-'))
+  root = mkdtempTracked(join(tmpdir(), 'clw-harvest-async-'))
 })
 afterEach(() => {
   rmSync(root, { recursive: true, force: true })

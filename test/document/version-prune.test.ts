@@ -5,7 +5,7 @@
  * 重评-14（全库代码重评审 2026-09-05）：逐版本删除收编退避删 rmWithRetry 的回归——
  * win 杀软/索引器瞬时锁（EPERM/EBUSY）下首删直败曾让旧版本滞留/伴生文件残留。
  */
-import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs'
+import { rmSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
@@ -30,6 +30,7 @@ vi.mock('node:fs', async (importOriginal) => {
 })
 
 import { unlinkSync as unlinkSyncMocked } from 'node:fs'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const errOf = (code: string): NodeJS.ErrnoException => Object.assign(new Error(`mock ${code}`), { code })
 
@@ -42,7 +43,7 @@ let dir: string
 const docId = 'doc_test'
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'clw-prune-'))
+  dir = mkdtempTracked(join(tmpdir(), 'clw-prune-'))
 })
 
 afterEach(() => {

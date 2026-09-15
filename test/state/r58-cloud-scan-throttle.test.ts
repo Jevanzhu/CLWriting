@@ -9,9 +9,10 @@
  * 第三次可见（与 r43-sweep-throttle.test.ts 同构）。
  */
 import { test, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { detectState, __resetSweepThrottleForTest } from '../../src/state/state.js'
 import { writeBookConfig, DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import type { BookConfig } from '../../src/format/types.js'
@@ -21,7 +22,7 @@ let root = ''
 
 beforeEach(() => {
   __resetSweepThrottleForTest()
-  root = mkdtempSync(join(tmpdir(), 'r58-cloud-'))
+  root = mkdtempTracked(join(tmpdir(), 'r58-cloud-'))
   writeBookConfig(join(root, 'book.yaml'), SHORT_CONFIG)
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '工作区'), { recursive: true })

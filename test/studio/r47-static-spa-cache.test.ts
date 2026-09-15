@@ -9,11 +9,12 @@
  */
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { rmSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { createStaticHandler } from '../../src/studio/server/static.js'
 
 // 透传式 spy（先例 static.test.ts M-P3-09）——只计数不改行为，断言 SPA fallback 命中缓存时不再读盘
@@ -55,7 +56,7 @@ function indexReads(): number {
 }
 
 test('R47-21: 首读落缓存 → TTL 内命中零读盘 → 盘上重建 ≤TTL 不可见 / TTL 过期重读可见', async () => {
-  root = mkdtempSync(join(tmpdir(), 'clwriting-r47-spa-'))
+  root = mkdtempTracked(join(tmpdir(), 'clwriting-r47-spa-'))
   const V1 = '<!doctype html><title>Studio-v1</title>'
   writeFileSync(join(root, 'index.html'), V1)
 
@@ -91,7 +92,7 @@ test('R47-21: 首读落缓存 → TTL 内命中零读盘 → 盘上重建 ≤TTL
 })
 
 test('R47-21: HEAD fallback 走缓存同口径——响应头逐字保持、不发 body', async () => {
-  root = mkdtempSync(join(tmpdir(), 'clwriting-r47-spa-'))
+  root = mkdtempTracked(join(tmpdir(), 'clwriting-r47-spa-'))
   const V = '<!doctype html><title>Studio-head</title>'
   writeFileSync(join(root, 'index.html'), V)
   await serve(root)
@@ -113,8 +114,8 @@ test('R47-21: HEAD fallback 走缓存同口径——响应头逐字保持、不�
 })
 
 test('R47-21: 槽按入口路径比对——不同 rootDir 实例不串页', async () => {
-  root = mkdtempSync(join(tmpdir(), 'clwriting-r47-spa-a'))
-  const rootB = mkdtempSync(join(tmpdir(), 'clwriting-r47-spa-b'))
+  root = mkdtempTracked(join(tmpdir(), 'clwriting-r47-spa-a'))
+  const rootB = mkdtempTracked(join(tmpdir(), 'clwriting-r47-spa-b'))
   try {
     writeFileSync(join(root, 'index.html'), '<!doctype html><title>A</title>')
     writeFileSync(join(rootB, 'index.html'), '<!doctype html><title>B</title>')
@@ -138,7 +139,7 @@ test('R47-21: 槽按入口路径比对——不同 rootDir 实例不串页', asy
 })
 
 test('R47-21: 入口页缺失 → 404 信封不变（读失败不回填缓存）', async () => {
-  root = mkdtempSync(join(tmpdir(), 'clwriting-r47-spa-empty'))
+  root = mkdtempTracked(join(tmpdir(), 'clwriting-r47-spa-empty'))
   await serve(root)
   const res = await fetch(`${baseUrl}/spa-route`)
   expect(res.status).toBe(404)

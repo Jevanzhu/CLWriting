@@ -9,9 +9,10 @@
  * - R0912-F-P3-2：checkNewNames 名册 Set 化——精确全等判重语义不变（长名不吞短名）。
  */
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { checkNewNames, computeStyleMetrics, checkStyleMetrics } from '../../src/check/count.js'
 import { parseIronRules } from '../../src/format/iron-rules.js'
 import { stripQuotedSpans } from '../../src/check/quotes.js'
@@ -81,7 +82,7 @@ test('R0912-F-P3-1: 同 body 连续两次调用返回同一引用（memo 命中�
 // ── R0912-F-P3-2：checkNewNames 名册 Set 化（语义锚） ─────────────────
 
 test('R0912-F-P3-2: 名册 Set 化后精确全等判重语义不变（长名不吞短名）', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'r0912-roster-set-'))
+  const dir = mkdtempTracked(join(tmpdir(), 'r0912-roster-set-'))
   try {
     const roster = join(dir, '名册.md')
     writeFileSync(roster, '# 名册\n- 已登记：林晚晴（女主）、赵无极、苏摩、云澈\n', 'utf-8')

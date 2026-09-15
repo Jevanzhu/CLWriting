@@ -10,9 +10,10 @@
  * 在大小写不敏感卷上本就同目录同 ino，mac/linux 宿主则否，mock 保证三平台腿一致）。
  */
 import { describe, it, expect, afterEach, vi } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 // statSync 拦截：按绝对路径注入假 Stats（dev/ino）或 'throw'（stat 失败形态），
 // 其余路径透明转发真 statSync——只控制占用判重探测面，不干扰锁/原子写等真实 IO。
@@ -47,7 +48,7 @@ afterEach(() => {
 
 /** 建带 Foo 登记的工作目录 + stat 注入（占用判重只看登记面与探测结果）。 */
 function mkWorkDirWithFoo(devFoo: number, inoFoo: number): string {
-  const wd = mkdtempSync(join(tmpdir(), 'clw-r44-ino-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'clw-r44-ino-'))
   mkdirSync(join(wd, '.clwriting'), { recursive: true })
   writeFileSync(
     join(wd, '.clwriting', 'books.jsonl'),
@@ -127,7 +128,7 @@ describe('R44-11：appendBook 占用判重 dev+ino 物理身份', () => {
 describe('R44-11：doInit 半成品放行分支的同款防线', () => {
   it('mac（darwin）：Foo 半成品在册再 init foo（同物理目录形态）→ 拒且不覆写他书 book.yaml', () => {
     Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
-    const wd = mkdtempSync(join(tmpdir(), 'clw-r44-init-ino-'))
+    const wd = mkdtempTracked(join(tmpdir(), 'clw-r44-init-ino-'))
     // Foo 已登记 + 半成品目录在盘（book.yaml 骨架签名、零正文）
     mkdirSync(join(wd, '.clwriting'), { recursive: true })
     writeFileSync(
@@ -157,7 +158,7 @@ describe('R44-11：doInit 半成品放行分支的同款防线', () => {
 
   it('mac（darwin）：dev+ino 不同（合法异名库）→ init foo 照常成功', () => {
     Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
-    const wd = mkdtempSync(join(tmpdir(), 'clw-r44-init-ino2-'))
+    const wd = mkdtempTracked(join(tmpdir(), 'clw-r44-init-ino2-'))
     mkdirSync(join(wd, '.clwriting'), { recursive: true })
     writeFileSync(
       join(wd, '.clwriting', 'books.jsonl'),

@@ -11,10 +11,11 @@
  * 「至少插队一次」+ globalThis.setImmediate spy 计让出下界（graceful-shutdown
  * setTimeout spy 同款先例）。
  */
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import {
   getAnalysisOverviewCached,
   __setAnalysisOverviewTtlForTest,
@@ -29,7 +30,7 @@ let roots: string[] = []
 
 /** 建书：manifest 登记 N 章正文档 + 每章一个 score 信封（MISS 读面逐 doc 展开）。 */
 function makeBook(docCount: number): string {
-  const root = mkdtempSync(join(tmpdir(), 'r44-ao-yield-'))
+  const root = mkdtempTracked(join(tmpdir(), 'r44-ao-yield-'))
   roots.push(root)
   mkdirSync(join(root, '项目', '分析'), { recursive: true })
   const manifestPath = join(root, '项目', '文档清单.jsonl')

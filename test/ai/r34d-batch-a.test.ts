@@ -9,7 +9,7 @@
  * - R34D-9：chat assistant 事件用单 attempt 的 out.usage，与 chat_done（R27-3）的
  *   attemptsUsage 合并口径不一致。修后统一合并口径（线缆级：截断带 usage → 重试成功）。
  */
-import { mkdirSync, mkdtempSync, rmSync, rmdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, rmdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
@@ -29,7 +29,7 @@ function tempUserData(): string {
   return mkdtempTracked(join(tmpdir(), 'clwriting-r34d-ud-'))
 }
 function tempBookRoot(): string {
-  const d = mkdtempSync(join(tmpdir(), 'clwriting-r34d-book-'))
+  const d = mkdtempTracked(join(tmpdir(), 'clwriting-r34d-book-'))
   dirs.push(d)
   return d
 }

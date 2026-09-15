@@ -10,13 +10,14 @@
  * 标题行被劈、前端展示/警告文案渗换行。修复后读取侧单行化（各行 trim 空格连接）。
  */
 import { describe, expect, it } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { readChapter, validateEnums } from '../../src/format/chapters.js'
 
 function writeFm(fm: string): string {
-  const dir = mkdtempSync(join(tmpdir(), 'r41-fm-'))
+  const dir = mkdtempTracked(join(tmpdir(), 'r41-fm-'))
   const fp = join(dir, '0001-测试.md')
   writeFileSync(fp, `---\n${fm}\n---\n正文一句。`, 'utf-8')
   return fp

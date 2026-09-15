@@ -8,16 +8,17 @@
  * 长路径开/关的本机都确定。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { DocumentService } from '../../src/document/service.js'
 
 let bookRoot: string
 let svc: DocumentService
 
 beforeEach(() => {
-  bookRoot = mkdtempSync(join(tmpdir(), 'r0913-longpath-'))
+  bookRoot = mkdtempTracked(join(tmpdir(), 'r0913-longpath-'))
   mkdirSync(join(bookRoot, '笔记'), { recursive: true })
   svc = new DocumentService({ bookRoot })
 })
@@ -28,7 +29,7 @@ afterEach(() => {
 
 /** 同深度运行时探测：宿主盘是否允许该深度落盘（长路径启用 → true）。 */
 function hostAllowsDeepPaths(): boolean {
-  const probe = mkdtempSync(join(tmpdir(), 'r0913-lp-probe-'))
+  const probe = mkdtempTracked(join(tmpdir(), 'r0913-lp-probe-'))
   try {
     const deep = join(probe, ...Array.from({ length: 40 }, (_, i) => `层级目录段${i}`), 'probe.md')
     mkdirSync(dirname(deep), { recursive: true })

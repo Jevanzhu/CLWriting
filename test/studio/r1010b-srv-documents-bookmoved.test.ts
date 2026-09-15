@@ -16,10 +16,11 @@
  * 对齐 r71-files-drain-realpath）。
  * P3-1：链尾 settle 后 Map 条目自清理（不留死 Promise）；forget 钩子按书清悬挂条目。
  */
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, renameSync, existsSync, readFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync, rmSync, renameSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { fakeReqRes, waitForBodyArmed } from '../helpers/fake-reqres.js'
 import { createRouteTable, withRouteTable } from '../../src/studio/server/router.js'
 import { getRouteSchema } from '../../src/studio/server/api/schema.js'
@@ -51,7 +52,7 @@ interface Rig {
  *  不落盘——PUT expectedRevision=null 走新建路径）。伏笔域路径让 PUT 进链、PATCH 判定
  *  伏笔域；create 用非伏笔 relPath 覆盖直调分支。 */
 function makeBook(name: string): Rig {
-  const workDir = mkdtempSync(join(tmpdir(), 'clwriting-r1010b-'))
+  const workDir = mkdtempTracked(join(tmpdir(), 'clwriting-r1010b-'))
   mkdirSync(join(workDir, '.clwriting'), { recursive: true })
   writeFileSync(
     join(workDir, '.clwriting', 'books.jsonl'),

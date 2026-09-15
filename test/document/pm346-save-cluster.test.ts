@@ -15,9 +15,10 @@
  *   （countWords 兜底不触发）；存量无字数版本回落全量读兜底（口径不变）。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs'
+import { rmSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { DocumentService } from '../../src/document/service.js'
 import { findUnsettled, appendPending, JOURNAL_PENDING_SNAPSHOT_MAX_BYTES } from '../../src/document/journal.js'
 import { listVersionEntries, writeVersion, VERSIONS_DIR_NAME } from '../../src/document/version.js'
@@ -37,7 +38,7 @@ describe('PM-3/4/6 保存链回归', () => {
   const v1 = '---\n标题: 开篇\n章号: 1\n---\n' + '他推开门，屋里静得能听见灰尘落地的声音。'.repeat(10)
 
   beforeEach(async () => {
-    bookRoot = mkdtempSync(join(tmpdir(), 'pm346-cluster-'))
+    bookRoot = mkdtempTracked(join(tmpdir(), 'pm346-cluster-'))
     svc = new DocumentService({ bookRoot })
     const c = await svc.createDocument({ relPath, content: v1 })
     if (!c.ok) throw new Error('prereq create 失败')

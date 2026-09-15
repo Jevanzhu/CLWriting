@@ -7,7 +7,7 @@
  * 包装 linkSync/renameSync 注入错误脚本；真实链路用默认接线冒烟兜底。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+import { rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -24,13 +24,14 @@ vi.mock('node:fs', async (importOriginal) => {
 })
 
 import { linkSync, renameSync } from 'node:fs'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { linkOrRenameExclusive } from '../../src/fs/atomic.js'
 
 const errOf = (code: string): NodeJS.ErrnoException => Object.assign(new Error(`mock ${code}`), { code })
 
 let dir = ''
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'clw-r35-27-'))
+  dir = mkdtempTracked(join(tmpdir(), 'clw-r35-27-'))
   vi.mocked(linkSync).mockImplementation((...args: Parameters<typeof linkSync>) => actualFs.linkSync(...args))
   vi.mocked(renameSync).mockImplementation((...args: Parameters<typeof renameSync>) => actualFs.renameSync(...args))
 })

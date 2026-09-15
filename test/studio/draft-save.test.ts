@@ -6,9 +6,10 @@
  * 范式同 kind-branches：临时目录 fixture，不调大模型。
  */
 import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { snapshotBeforeOverwrite } from '../../src/studio/server/api/draft.js'
 import { bootStudio, type StudioHarness } from '../helpers/studio-server.js'
 import { legacyId, generateDocId } from '../../src/document/stable-id.js'
@@ -19,7 +20,7 @@ let root = ''
 const REL = '写作/正文/0042-测试章.md'
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'clwriting-draft-m1-'))
+  root = mkdtempTracked(join(tmpdir(), 'clwriting-draft-m1-'))
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
 })
 

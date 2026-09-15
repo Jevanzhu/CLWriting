@@ -12,9 +12,10 @@
  * 在途 promise 触达（生产零调用测试钩子）。
  */
 import { test, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, readFileSync, existsSync } from 'node:fs'
+import { rmSync, mkdirSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import {
   loadProviders,
   saveProviders,
@@ -49,7 +50,7 @@ function storeOf(id: string): ProviderStore {
 let dir: string
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'r29-store-'))
+  dir = mkdtempTracked(join(tmpdir(), 'r29-store-'))
 })
 
 afterEach(() => {

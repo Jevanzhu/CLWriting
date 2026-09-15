@@ -15,9 +15,10 @@
  *   ```md 开闭不回归。
  */
 import { test, expect } from 'vitest'
-import { rmSync, mkdtempSync } from 'node:fs'
+import { rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { checkSectionCount, computeStyleMetrics } from '../../src/check/count.js'
 import { runAllChecks } from '../../src/check/runner.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
@@ -86,7 +87,7 @@ const fiveSections = [
 ].join('\n')
 
 test('R28-2: 短篇 strict 链路——含 ### 子标题的五段稿不产 section-count 红项', () => {
-  const tmp = mkdtempSync(join(tmpdir(), 'r28-strict-'))
+  const tmp = mkdtempTracked(join(tmpdir(), 'r28-strict-'))
   try {
     const r = runAllChecks({
       bookRoot: tmp,
@@ -107,7 +108,7 @@ test('R28-2: 短篇 strict 链路——含 ### 子标题的五段稿不产 secti
 })
 
 test('R28-2: strict 链路正负对照——真实 6 节仍提红（闸未被拆）', () => {
-  const tmp = mkdtempSync(join(tmpdir(), 'r28-strict-'))
+  const tmp = mkdtempTracked(join(tmpdir(), 'r28-strict-'))
   try {
     // 五段之外多一个真 ## 节 → 6≠5 黄 → strict 提红，证明链路闸仍在
     const six = fiveSections + '\n\n## 尾声\n又一段。'

@@ -6,9 +6,10 @@
  *（'wx' 排他建文件），EEXIST → 序号 +1 重试。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, readFileSync, readdirSync } from 'node:fs'
+import { rmSync, mkdirSync, readFileSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { migrateStyleLibrary } from '../../src/format/style-migrate.js'
 import { writeEntryExclusive, readEntry, ENTRIES_DIR } from '../../src/format/style-entry.js'
 import { writeSample } from '../../src/format/style.js'
@@ -17,7 +18,7 @@ import type { StyleEntry } from '../../src/format/types.js'
 let root = ''
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'clw-r66-20-'))
+  root = mkdtempTracked(join(tmpdir(), 'clw-r66-20-'))
   mkdirSync(join(root, '文风'), { recursive: true })
 })
 

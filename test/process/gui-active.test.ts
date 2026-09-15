@@ -1,13 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs'
+import { mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { writeGuiActive, readGuiActive, clearGuiActive } from '../../src/process/gui-active.js'
 
 describe('GUI 活跃标记（#1.5）', () => {
   let bookRoot: string
   beforeEach(() => {
-    bookRoot = mkdtempSync(join(tmpdir(), 'clwriting-gui-'))
+    bookRoot = mkdtempTracked(join(tmpdir(), 'clwriting-gui-'))
     mkdirSync(join(bookRoot, '工作区'), { recursive: true })
   })
   afterEach(() => rmSync(bookRoot, { recursive: true, force: true }))

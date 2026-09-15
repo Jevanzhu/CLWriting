@@ -11,10 +11,11 @@
  * 断言伏笔 entry 拿到基线；同时以旧顺序（finalize 先跑）锚定缺陷形态（基线永久缺）。
  */
 import { test, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs'
+import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { migrateLayoutV2 } from '../../src/install/migrate-layout-v2.js'
 import { migrateFinalizedRevisions } from '../../src/install/migrate-finalized-revision.js'
 import { migrateLegacyForeshadows } from '../../src/document/foreshadow.js'
@@ -23,7 +24,7 @@ import { computeRevision } from '../../src/document/revision.js'
 
 let tmp: string
 beforeEach(() => {
-  tmp = mkdtempSync(join(tmpdir(), 'clw-r71-foreshadow-'))
+  tmp = mkdtempTracked(join(tmpdir(), 'clw-r71-foreshadow-'))
 })
 afterEach(() => {
   rmSync(tmp, { recursive: true, force: true })

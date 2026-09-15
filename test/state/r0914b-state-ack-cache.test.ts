@@ -10,10 +10,11 @@
  * 装置（手搭书脚手架 + 假 req/res 直调 handler）照抄 r0912-acknowledge-endpoint.test.ts；
  * 测试期把 TTL 拉大（60s），无本修复时第二次 GET 必然命中陈旧缓存，用例确定性。
  */
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, renameSync } from 'node:fs'
+import { mkdirSync, writeFileSync, rmSync, renameSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { fakeReqRes } from '../helpers/fake-reqres.js'
 import { createRouteTable, withRouteTable } from '../../src/studio/server/router.js'
 import { getRouteSchema } from '../../src/studio/server/api/schema.js'
@@ -39,7 +40,7 @@ function makeBook(name: string): {
   ack: NonNullable<ReturnType<typeof getRouteSchema>>
   cleanup: () => void
 } {
-  const workDir = mkdtempSync(join(tmpdir(), 'clwriting-r0914b-ack-cache-'))
+  const workDir = mkdtempTracked(join(tmpdir(), 'clwriting-r0914b-ack-cache-'))
   mkdirSync(join(workDir, '.clwriting'), { recursive: true })
   writeFileSync(
     join(workDir, '.clwriting', 'books.jsonl'),

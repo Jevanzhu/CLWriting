@@ -5,9 +5,10 @@
  * 明文迁移、半迁移收敛、删除清理、损坏不覆盖、版本守卫。
  */
 import { test, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync, statSync } from 'node:fs'
+import { rmSync, readFileSync, writeFileSync, existsSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../../helpers/temp-dir.js'
 import {
   loadProviders,
   saveProviders,
@@ -36,7 +37,7 @@ function makeConf(overrides: Partial<ProviderConf> = {}): ProviderConf {
 let dir: string
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'vault-store-'))
+  dir = mkdtempTracked(join(tmpdir(), 'vault-store-'))
 })
 
 afterEach(() => {

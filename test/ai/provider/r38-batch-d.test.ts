@@ -10,10 +10,11 @@
  *   R36-14 口径——R36-14 注释宣称三线一致，实测另两线漏配）。
  */
 import { describe, expect, it } from 'vitest'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { mkdtempTracked } from '../../helpers/temp-dir.js'
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 import { createAnthropicProvider } from '../../../src/ai/provider/anthropic-adapter.js'
@@ -143,7 +144,7 @@ describe('R38-6: canonicalize 剥 BOM（BOM overlay 判定与消费两态修复�
       // 版本表：V1（历史）→ V2（当前），时间序
       versions: () => ({ 'writer.md': [promptHash(BUILTIN_V1), promptHash(BUILTIN_V2)] }),
     }
-    const ud = mkdtempSync(join(tmpdir(), 'r38-bom-'))
+    const ud = mkdtempTracked(join(tmpdir(), 'r38-bom-'))
     try {
       // win 记事本保存形态：BOM 前缀 + 尾换行（内容 = 未改动的 V1 内置拷贝）
       mkdirSync(join(ud, 'prompts'), { recursive: true })

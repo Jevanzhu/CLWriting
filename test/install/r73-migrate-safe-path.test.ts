@@ -7,10 +7,11 @@
  * 不合法条目跳过不设基线，合法 clean 条目照常设基线。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, basename } from 'node:path'
 import { execSync } from 'node:child_process'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { migrateFinalizedRevisions } from '../../src/install/migrate-finalized-revision.js'
 import { readManifest, writeManifest, upsertEntry, type Manifest } from '../../src/document/manifest.js'
 
@@ -20,7 +21,7 @@ describe('R73-36 / 定稿基线迁移 safe-path 校验', () => {
 
   beforeEach(() => {
     // 书根自带 .git（迁移前置检查 join(bookRoot,'.git')）；越界目标放书根外的临时目录
-    root = mkdtempSync(join(tmpdir(), 'r73-mig-'))
+    root = mkdtempTracked(join(tmpdir(), 'r73-mig-'))
     outsideFile = join(root, '..', `外部机密-${basename(root)}.md`)
     writeFileSync(outsideFile, '书仓库外的文件内容', 'utf-8')
     // 合法 clean 章节文件 + git 仓库（已提交 → porcelain 空 → 不在脏集）

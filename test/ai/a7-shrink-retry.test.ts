@@ -19,10 +19,11 @@
  * budgetTailCut 保尾切点真正移动、且不触发发送前预切（总量在首发预算内、因估计误差
  * 超窗）的形态；非超窗 400 的 openai 适配器 400 降级链（剥 tools 重试）由 ③ 锁定。
  */
-import { rmSync, mkdtempSync } from 'node:fs'
+import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { createFakeProvider, type FakeProvider } from './fake-provider.js'
 import { makeFakeDriver } from './fake-driver.js'
 import { tempUserData, withFakeProvider } from '../studio/fixtures.js'
@@ -87,7 +88,7 @@ function setup(history: ChatMsg[], script: Parameters<FakeProvider['setScript']>
   const ud = tempUserData()
   dirs.push(ud)
   withFakeProvider(ud, fake.url) // 无模型行 → 窗口未知 → sendBudget 显式回落 96k
-  const bookRoot = mkdtempSync(join(tmpdir(), 'a7-shrink-book-'))
+  const bookRoot = mkdtempTracked(join(tmpdir(), 'a7-shrink-book-'))
   dirs.push(bookRoot)
   const emitted: DriverEvent[] = []
   // 库承载 recorder（留痕断言需要真库；与 chat.ts 同构：createSession + SessionRecorder）

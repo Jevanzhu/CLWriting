@@ -8,9 +8,10 @@
  *   恒 false → emotion-curve-peak-low 漏判；修后计算前过滤非有限值。
  */
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { checkNewNames } from '../../src/check/count.js'
 import { checkPieceListForm } from '../../src/check/manifest-check.js'
 import type { PieceList } from '../../src/format/types.js'
@@ -18,7 +19,7 @@ import type { PieceList } from '../../src/format/types.js'
 // ── R30-2：名册精确判重 ──────────────────────────────────────────
 
 test('R30-2: 名册含「林晚晴」时候选「林晚」仍报新专名（长名不再吞短名）', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'clw-r30-roster-'))
+  const dir = mkdtempTracked(join(tmpdir(), 'clw-r30-roster-'))
   try {
     const roster = join(dir, '名册.md')
     // 名册格式兼容仓内既有形态：标题行 + 列表行 + 顿号分隔 + 括注
@@ -31,7 +32,7 @@ test('R30-2: 名册含「林晚晴」时候选「林晚」仍报新专名（长�
 })
 
 test('R30-2: 「林晚晴」本身已登记不报；括注不污染精确名', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'clw-r30-roster-'))
+  const dir = mkdtempTracked(join(tmpdir(), 'clw-r30-roster-'))
   try {
     const roster = join(dir, '名册.md')
     writeFileSync(roster, '# 名册\n- 已登记：林晚晴（女主）\n', 'utf-8')

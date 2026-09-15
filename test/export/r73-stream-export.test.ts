@@ -8,14 +8,15 @@
  * 3. 定稿过滤与空正文警告并存（skippedDrafts 与 writtenCount 互不污染）。
  */
 import { test, expect } from 'vitest'
-import { rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, mkdtempSync, readdirSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { exportBook } from '../../src/export/index.js'
 import { writeManifest, upsertEntry, type Manifest } from '../../src/document/manifest.js'
 
 function makeLongBook(title: string): string {
-  const root = mkdtempSync(join(tmpdir(), 'r73-export-'))
+  const root = mkdtempTracked(join(tmpdir(), 'r73-export-'))
   writeFileSync(
     join(root, 'book.yaml'),
     ['spec_version: 1', 'book:', `  title: ${title}`, '  genre: 玄幻'].join('\n'),

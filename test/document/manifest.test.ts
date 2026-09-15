@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs'
+import { rmSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { readManifest, readManifestStrict, writeManifest, upsertEntry, removeEntry, finalizedChapterSetOfBook, finalizedPathSet, finalizedChapterNumbers } from '../../src/document/manifest.js'
 import { denyRead } from '../helpers/fs-deny.js'
 
@@ -21,7 +22,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 describe('manifest', () => {
   let dir: string
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'manifest-'))
+    dir = mkdtempTracked(join(tmpdir(), 'manifest-'))
   })
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true })
@@ -111,7 +112,7 @@ describe('manifest', () => {
 describe('M-13（第八轮）：finalizedChapterSetOfBook 读失败 → undefined（全量兜底），不误判真 0 章', () => {
   // 重评-0914-三轮 P3-11：读失败注入改 fs-deny 平台分派（win 臂 spy 注入 EACCES），摘除 skipIf(win32)
   it('读失败（EACCES）→ undefined', () => {
-    const root = mkdtempSync(join(tmpdir(), 'manifest-sentinel-'))
+    const root = mkdtempTracked(join(tmpdir(), 'manifest-sentinel-'))
     const fp = join(root, '项目', '文档清单.jsonl')
     try {
       mkdirSync(join(root, '项目'), { recursive: true })
@@ -132,7 +133,7 @@ describe('M-13（第八轮）：finalizedChapterSetOfBook 读失败 → undefine
 
 describe('M-2（第十轮）：finalizedPathSet 哨兵对齐 M-13——读失败≠零定稿、在册零文档≠无清单', () => {
   it('无清单文件 → null（旧书全量兜底，历史行为不变）', () => {
-    const root = mkdtempSync(join(tmpdir(), 'manifest-m2-'))
+    const root = mkdtempTracked(join(tmpdir(), 'manifest-m2-'))
     try {
       expect(finalizedPathSet(root)).toBeNull()
     } finally {
@@ -142,7 +143,7 @@ describe('M-2（第十轮）：finalizedPathSet 哨兵对齐 M-13——读失败
 
   // 重评-0914-三轮 P3-11：fs-deny 平台分派注入，摘除 skipIf(win32)
   it('读失败（EACCES）→ null 全量兜底，不把「读不到」当「零定稿」放草稿进来', () => {
-    const root = mkdtempSync(join(tmpdir(), 'manifest-m2-'))
+    const root = mkdtempTracked(join(tmpdir(), 'manifest-m2-'))
     const fp = join(root, '项目', '文档清单.jsonl')
     try {
       mkdirSync(join(root, '项目'), { recursive: true })
@@ -161,7 +162,7 @@ describe('M-2（第十轮）：finalizedPathSet 哨兵对齐 M-13——读失败
   })
 
   it('清单在册可读但零文档条目 → 空集（判定成立：无一定稿，草稿不得混进导出/候选池）', () => {
-    const root = mkdtempSync(join(tmpdir(), 'manifest-m2-'))
+    const root = mkdtempTracked(join(tmpdir(), 'manifest-m2-'))
     const fp = join(root, '项目', '文档清单.jsonl')
     try {
       mkdirSync(join(root, '项目'), { recursive: true })
@@ -179,7 +180,7 @@ describe('M-2（第十轮）：finalizedPathSet 哨兵对齐 M-13——读失败
 describe('R27-40（二十七轮）P1：RMW 写路径 strict 读——读失败拒写，防空表重写吞登记', () => {
   // 重评-0914-三轮 P3-11：fs-deny 平台分派注入，摘除 skipIf(win32)
   it('readManifestStrict：EACCES 上抛（readManifest 仍 fail-open 空表，两版分立）', () => {
-    const root = mkdtempSync(join(tmpdir(), 'manifest-strict-'))
+    const root = mkdtempTracked(join(tmpdir(), 'manifest-strict-'))
     const fp = join(root, '项目', '文档清单.jsonl')
     try {
       mkdirSync(join(root, '项目'), { recursive: true })
@@ -203,7 +204,7 @@ describe('R27-40（二十七轮）P1：RMW 写路径 strict 读——读失败�
   // 重评-0914-三轮 P3-11：纯 ENOENT 语义无注入，win 本就可跑——摘除沿用的 skipIf(win32)
   it('readManifestStrict：ENOENT（existsSync 与 read 之间被删）= 合法空态，不上抛', () => {
     // 无文件 → 空（与 readManifest 同）；此用例锁「文件不存在不是错误」的语义分界
-    const root = mkdtempSync(join(tmpdir(), 'manifest-strict2-'))
+    const root = mkdtempTracked(join(tmpdir(), 'manifest-strict2-'))
     try {
       expect(readManifestStrict(join(root, '项目', '不存在.jsonl')).entries.size).toBe(0)
     } finally {

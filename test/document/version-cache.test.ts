@@ -8,10 +8,11 @@
  *   2. 命中时校验缓存指向的 id 仍在盘（外部删除 / 陈旧缓存兜底）。
  * 另验证「版本仍在盘」的正常去重仍生效（不回退 P3-14 优化）。
  */
-import { mkdtempSync, rmSync, unlinkSync } from 'node:fs'
+import { rmSync, unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import {
   writeVersion,
   pruneVersions,
@@ -24,7 +25,7 @@ let dir: string
 const docId = 'doc_cache'
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'clw-cache-'))
+  dir = mkdtempTracked(join(tmpdir(), 'clw-cache-'))
 })
 
 afterEach(() => {

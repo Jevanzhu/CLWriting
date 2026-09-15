@@ -21,10 +21,11 @@
  * 既有兜底窗口一致（记档见 api/analysis.ts 重评2-P3-④ 注）；forgetAnalysisOverviewCache
  * 显式失效不受节流影响。下方「直写盘重写/新增信封/style 落盘」三用例按节流语义更新。
  */
-import { mkdtempSync, rmSync } from 'node:fs'
+import { rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import {
   getAnalysisOverviewCached,
   forgetAnalysisOverviewCache,
@@ -45,7 +46,7 @@ let roots: string[] = []
 
 /** 建书：manifest 登记 2 章（0001/0002 正文章）+ 每章 score 分析信封。 */
 function makeBook(): { root: string; docId1: string; docId2: string } {
-  const root = mkdtempSync(join(tmpdir(), 'r36-ov-cache-'))
+  const root = mkdtempTracked(join(tmpdir(), 'r36-ov-cache-'))
   roots.push(root)
   const manifestPath = join(root, '项目', '文档清单.jsonl')
   const m = readManifest(manifestPath)
@@ -156,7 +157,7 @@ describe('R36-7 analysis-overview 缓存', () => {
 
 describe('R43-13: 失真章号（非安全整数）不入 allChapters / 三类趋势', () => {
   it('17 位数字名章不入 allChapters 与 score 趋势；正常章照常入列', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'r43-ana-guard-'))
+    const root = mkdtempTracked(join(tmpdir(), 'r43-ana-guard-'))
     roots.push(root)
     const manifestPath = join(root, '项目', '文档清单.jsonl')
     const m = readManifest(manifestPath)

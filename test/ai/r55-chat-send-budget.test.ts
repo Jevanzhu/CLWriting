@@ -15,7 +15,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { mkdtempSync } from 'node:fs'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { createFakeProvider, type FakeProvider } from './fake-provider.js'
 import { makeFakeDriver } from './fake-driver.js'
 import { tempUserData, withFakeProvider } from '../studio/fixtures.js'
@@ -70,7 +70,7 @@ function makeDeps(ud: string, bookRoot: string, history: ChatMsg[]) {
 
 function makeBookRoot(): string {
   // bookRoot 仅作 trace/记账定位（不读写书籍数据），空目录即可
-  const d = mkdtempSync(join(tmpdir(), 'r55-c1-book-'))
+  const d = mkdtempTracked(join(tmpdir(), 'r55-c1-book-'))
   dirs.push(d)
   return d
 }

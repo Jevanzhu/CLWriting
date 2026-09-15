@@ -9,9 +9,10 @@
  * 被睡住、定时器不可能先行触发）；随后移除探针锁模拟对方释放，保存须照常完成。
  */
 import { test, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import {
   DocumentService,
   __setWiringSaveLockTimeoutForTest,
@@ -26,7 +27,7 @@ let bookRoot: string
 let svc: DocumentService
 
 beforeEach(() => {
-  bookRoot = mkdtempSync(join(tmpdir(), 'r30-async-'))
+  bookRoot = mkdtempTracked(join(tmpdir(), 'r30-async-'))
   mkdirSync(join(bookRoot, '工作区'), { recursive: true })
   svc = new DocumentService({ bookRoot })
 })

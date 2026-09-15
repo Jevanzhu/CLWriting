@@ -6,9 +6,10 @@
  */
 
 import { test, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, existsSync, readdirSync, readFileSync } from 'node:fs'
+import { rmSync, existsSync, readdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { doInit } from '../../src/install/init.js'
 import { readBooks } from '../../src/install/books.js'
 import { readBookConfig } from '../../src/format/yaml.js'
@@ -19,7 +20,7 @@ beforeEach(() => { process.chdir(ORIG_CWD) })
 afterEach(() => { process.chdir(ORIG_CWD) })
 
 test('init short: 建短篇集布局（写作/正文/ + 大纲/章纲/ + 设定/ + 共享文风 + 工作区），不建长程载重', () => {
-  const wd = mkdtempSync(join(tmpdir(), 'init-short-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'init-short-'))
   try {
     const r = doInit({ workDir: wd, name: '夜语集', genre: '悬疑', kind: 'short' })
     expect(r.ok).toBe(true)
@@ -66,7 +67,7 @@ test('init short: 建短篇集布局（写作/正文/ + 大纲/章纲/ + 设定/
 })
 
 test('init short: book.yaml 含 kind: short、无 leads/growth 段', () => {
-  const wd = mkdtempSync(join(tmpdir(), 'init-short-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'init-short-'))
   try {
     const r = doInit({ workDir: wd, name: '夜语集', genre: '悬疑', kind: 'short' })
     expect(r.ok).toBe(true)
@@ -91,7 +92,7 @@ test('init short: book.yaml 含 kind: short、无 leads/growth 段', () => {
 })
 
 test('init short: 按题材写入短篇机检推荐阈值', () => {
-  const wd = mkdtempSync(join(tmpdir(), 'init-short-calibration-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'init-short-calibration-'))
   try {
     const r = doInit({ workDir: wd, name: '夜语集', genre: '悬疑怪谈', kind: 'short' })
     expect(r.ok).toBe(true)
@@ -123,7 +124,7 @@ test('init short: 按题材写入短篇机检推荐阈值', () => {
 })
 
 test('init short: books.jsonl 登记 kind=short', () => {
-  const wd = mkdtempSync(join(tmpdir(), 'init-short-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'init-short-'))
   try {
     const r = doInit({ workDir: wd, name: '夜语集', genre: '悬疑', kind: 'short' })
     expect(r.ok).toBe(true)

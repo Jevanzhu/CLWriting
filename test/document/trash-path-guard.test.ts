@@ -10,16 +10,17 @@
  * 只补删旧源。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { restoreTrash, purgeTrash, appendTrashEntry } from '../../src/document/trash.js'
 import { migrateLegacyForeshadows } from '../../src/document/foreshadow.js'
 import * as logMod from '../../src/log/index.js'
 
 let root: string
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'clw-y17-'))
+  root = mkdtempTracked(join(tmpdir(), 'clw-y17-'))
 })
 afterEach(() => {
   rmSync(root, { recursive: true, force: true })

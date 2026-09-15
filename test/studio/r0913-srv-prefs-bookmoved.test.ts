@@ -9,10 +9,11 @@
  * getRouteSchema 取 handler）+ 假 req/res；假 req 悬持 body 模拟「入口已过、
  * 临界段未跑」窗口，窗口内删书/改名再放行 body（确定性复现）。
  */
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, renameSync, existsSync, readFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync, rmSync, renameSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { fakeReqRes, waitForBodyArmed } from '../helpers/fake-reqres.js'
 import { createRouteTable, withRouteTable } from '../../src/studio/server/router.js'
 import { getRouteSchema } from '../../src/studio/server/api/schema.js'
@@ -27,7 +28,7 @@ interface Rig {
 
 /** 每用例独立临时书（workDir + 登记 + book.yaml）；prefs 路由注册。 */
 function makeBook(name: string): Rig {
-  const workDir = mkdtempSync(join(tmpdir(), 'clwriting-r0913-'))
+  const workDir = mkdtempTracked(join(tmpdir(), 'clwriting-r0913-'))
   mkdirSync(join(workDir, '.clwriting'), { recursive: true })
   writeFileSync(
     join(workDir, '.clwriting', 'books.jsonl'),

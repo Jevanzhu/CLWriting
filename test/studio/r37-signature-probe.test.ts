@@ -25,10 +25,11 @@
  * analysis 侧「re-analyze 即时可见」用例改节流语义：TTL 窗内命中旧值，TTL 到期重探
  * 后见新值；「就地直写」边界用例行为不变（探针本就不可见，TTL 兜底语义同前）。
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import {
   getVersionStatsCached,
   __setVersionStatsTtlForTest,
@@ -59,7 +60,7 @@ function envOf(payload: unknown): Envelope {
 
 /** 建书：manifest 登记 doc_1（定稿）+ .版本/doc_1 一个 pinned 快照。 */
 function makeSnapshotBook(): string {
-  const root = mkdtempSync(join(tmpdir(), 'r37-probe-vs-'))
+  const root = mkdtempTracked(join(tmpdir(), 'r37-probe-vs-'))
   roots.push(root)
   const vdir = join(root, '工作区', '.版本', 'doc_1')
   mkdirSync(vdir, { recursive: true })
@@ -74,7 +75,7 @@ function makeSnapshotBook(): string {
 
 /** 建书：manifest 登记 doc_1 + score 信封（口径同 r36-analysis-overview-cache）。 */
 function makeAnalysisBook(): string {
-  const root = mkdtempSync(join(tmpdir(), 'r37-probe-ao-'))
+  const root = mkdtempTracked(join(tmpdir(), 'r37-probe-ao-'))
   roots.push(root)
   const manifestPath = join(root, '项目', '文档清单.jsonl')
   const m = readManifest(manifestPath)

@@ -21,7 +21,7 @@ const canSymlink = (() => {
 
 let tmp: string
 beforeEach(() => {
-  tmp = mkdtempSync(join(tmpdir(), 'clw-migrate-v2-'))
+  tmp = mkdtempTracked(join(tmpdir(), 'clw-migrate-v2-'))
 })
 afterEach(() => {
   rmSync(tmp, { recursive: true, force: true })

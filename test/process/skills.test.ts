@@ -9,9 +9,10 @@
  * 覆盖序断言不依赖仓库内容）；用例间保存/还原 env。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { listSkills, loadSkill, formatSkillIndex, type SkillMeta } from '../../src/process/skills.js'
 
 let root: string
@@ -21,7 +22,7 @@ let bundledRoot: string
 let savedResDir: string | undefined
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'clwriting-skills-'))
+  root = mkdtempTracked(join(tmpdir(), 'clwriting-skills-'))
   bookRoot = join(root, 'book')
   userDataPath = join(root, 'user')
   bundledRoot = join(root, 'bundled')

@@ -16,10 +16,11 @@
  * 互斥成立（修前两键相异则第二把锁直接得手，本用例红）。
  */
 import { afterEach, describe, expect, it } from 'vitest'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { DocumentService } from '../../src/document/service.js'
 import { wiringFileLockKeyOf } from '../../src/document/lead-finalize.js'
 import { acquireCrossProcessLockWithTimeout } from '../../src/fs/cross-process-lock.js'
@@ -42,7 +43,7 @@ const NFD_REL = NFC_REL.normalize('NFD')
 expect(NFD_REL).not.toBe(NFC_REL)
 
 function withTempRoot(prefix: string, run: (root: string, svc: SvcWithWiringKey) => void): void {
-  const root = mkdtempSync(join(tmpdir(), prefix))
+  const root = mkdtempTracked(join(tmpdir(), prefix))
   try {
     const svc = new DocumentService({ bookRoot: root }) as unknown as SvcWithWiringKey
     run(root, svc)

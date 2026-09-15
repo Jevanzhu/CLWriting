@@ -22,7 +22,7 @@ import { sanitizeHistory } from '../../src/ai/prompts/chat.js'
 import { SessionRecorder } from '../../src/events/chat-bridge.js'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
 import type { ChatMsg } from '../../src/ai/provider/types.js'
-import { mkdtempSync } from 'node:fs'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 let fake: FakeProvider
 const dirs: string[] = []
@@ -63,7 +63,7 @@ function makeDeps(ud: string, bookRoot: string, history: ChatMsg[]) {
 
 function makeBookRoot(): string {
   // bookRoot 仅作 trace/记账定位（不读写书籍数据），空目录即可
-  const d = mkdtempSync(join(tmpdir(), 'r54-c1-book-'))
+  const d = mkdtempTracked(join(tmpdir(), 'r54-c1-book-'))
   dirs.push(d)
   return d
 }

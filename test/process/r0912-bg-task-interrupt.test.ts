@@ -19,7 +19,7 @@
  *    per-book 后台表清空。
  */
 import { test, expect } from 'vitest'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -32,7 +32,7 @@ import type { DriverEvent, Session, StudioDriver } from '../../src/driver/index.
 import { hasBackgroundTasks, waitBackgroundTasks } from '../../src/ai/orchestrate/background.js'
 import { runSelfHeal, type SelfHealOpts } from '../../src/ai/orchestrate/self-heal.js'
 import { makeDualTrackWorkdir, tempUserData, LONG_BOOK } from '../studio/fixtures.js'
-import { trackTempDir } from '../helpers/temp-dir.js'
+import { mkdtempTracked, trackTempDir } from '../helpers/temp-dir.js'
 import { waitFor } from '../helpers/wait-for.js'
 import type { CheckOutcome } from '../../src/studio/server/api/check.js'
 import type { ChapterMeta } from '../../src/format/types.js'
@@ -137,7 +137,7 @@ test('R0912-1: 定稿摘要钩子（单发/批量）以 bg-summary:<book> 独立
   const session: Session = { id: 'r0912-bg-d', cwd: '/tmp', closed: false }
   // 空 bookRoot（无 book.yaml）→ runFinalizeSummaryOnce 抛错走既有留痕口径后 settle——
   // 本测试只锁登记/注销接线，不锁摘要生成
-  const bookRoot = mkdtempSync(join(tmpdir(), 'clw-r0912-hook-'))
+  const bookRoot = mkdtempTracked(join(tmpdir(), 'clw-r0912-hook-'))
   const book = '摘要钩子书'
   try {
     afterFinalizeGenerateSummary(bookRoot, null, 'doc-1', book, driver, session)

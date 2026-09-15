@@ -1,14 +1,15 @@
 import { test, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { migrateFinalizedRevisions } from '../../src/install/migrate-finalized-revision.js'
 import { readManifest, writeManifest } from '../../src/document/manifest.js'
 
 let tmp: string
 beforeEach(() => {
-  tmp = mkdtempSync(join(tmpdir(), 'clw-migrate-fin-'))
+  tmp = mkdtempTracked(join(tmpdir(), 'clw-migrate-fin-'))
 })
 afterEach(() => {
   rmSync(tmp, { recursive: true, force: true })

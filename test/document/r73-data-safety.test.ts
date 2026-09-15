@@ -12,9 +12,10 @@
  * R73-40：updateDocMeta 对盘上字节单次读（UTF-8 判据与写回同源；正常/GBK 两态不回归）。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { withManifestLock, readManifest, writeManifest, upsertEntry, __setManifestLockTimeoutForTest, type Manifest } from '../../src/document/manifest.js'
 import { DocumentService } from '../../src/document/service.js'
 import { writeVersion, encodeDocDirName } from '../../src/document/version.js'
@@ -32,7 +33,7 @@ describe('R73-33 / withManifestLock 超时拒绝不降级', () => {
   let root: string
   let manifestPath: string
   beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), 'r73-mlock-'))
+    root = mkdtempTracked(join(tmpdir(), 'r73-mlock-'))
     manifestPath = join(root, '项目', '文档清单.jsonl')
     const m: Manifest = { version: 1, entries: new Map() }
     upsertEntry(m, { id: 'doc_1', nodeType: 'document', path: '写作/正文/0001-a.md', parentId: null })
@@ -73,7 +74,7 @@ describe('R73-34 / doTrash 残留同名 .trash 不覆盖', () => {
   let root: string
   let svc: DocumentService
   beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), 'r73-trash-'))
+    root = mkdtempTracked(join(tmpdir(), 'r73-trash-'))
     svc = new DocumentService({ bookRoot: root })
   })
   afterEach(() => rmSync(root, { recursive: true, force: true }))
@@ -116,7 +117,7 @@ describe('R73-35 / 版本去重对损坏头部 fail-open 落写', () => {
   let root: string
   let versionsDir: string
   beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), 'r73-ver-'))
+    root = mkdtempTracked(join(tmpdir(), 'r73-ver-'))
     versionsDir = join(root, '工作区', '.版本')
   })
   afterEach(() => rmSync(root, { recursive: true, force: true }))
@@ -154,7 +155,7 @@ describe('R73-35 / 版本去重对损坏头部 fail-open 落写', () => {
 describe('R73-39 / 伏笔迁移 TOCTOU 收口', () => {
   let root: string
   beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), 'r73-fsh-'))
+    root = mkdtempTracked(join(tmpdir(), 'r73-fsh-'))
   })
   afterEach(() => rmSync(root, { recursive: true, force: true }))
 
@@ -201,7 +202,7 @@ describe('R73-40 / updateDocMeta 单次读（UTF-8 判据与写回同源）', ()
   let root: string
   let svc: DocumentService
   beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), 'r73-docmeta-'))
+    root = mkdtempTracked(join(tmpdir(), 'r73-docmeta-'))
     svc = new DocumentService({ bookRoot: root })
   })
   afterEach(() => rmSync(root, { recursive: true, force: true }))

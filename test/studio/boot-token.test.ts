@@ -13,6 +13,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, it, expect } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { startServerSafe } from '../helpers/safe-port.js'
 import { setInitialBook } from '../../src/studio/server/api/books.js'
 
@@ -184,7 +185,7 @@ describe('RB-SV-P2-4 boot 回传 initialBook', () => {
 
 describe('R64-30（十二轮）：initialBook 生命周期随 server close 复位（无跨实例残留）', () => {
   it('实例1 set → boot 回传；close 后实例2（未 set）→ boot initialBook 空', async () => {
-    const workDir2 = mkdtempSync(join(tmpdir(), 'clwriting-r64-30-'))
+    const workDir2 = mkdtempTracked(join(tmpdir(), 'clwriting-r64-30-'))
     mkdirSync(join(workDir2, '.clwriting'), { recursive: true })
     writeFileSync(
       join(workDir2, '.clwriting', 'books.jsonl'),

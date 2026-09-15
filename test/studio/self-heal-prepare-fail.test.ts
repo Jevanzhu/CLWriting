@@ -13,8 +13,9 @@
  */
 import { test, expect, vi, beforeEach } from 'vitest'
 import { join } from 'node:path'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { makeDualTrackWorkdir, LONG_BOOK } from './fixtures.js'
 import { runSelfHeal, type SelfHealOpts } from '../../src/ai/orchestrate/self-heal.js'
 import { prepareMaterials } from '../../src/process/materials.js'
@@ -60,7 +61,7 @@ function setup(): { opts: SelfHealOpts; workDir: string; bookRoot: string } {
   const opts: SelfHealOpts = {
     driver: makeEmitDriver(emitted),
     mainSession: { id: 'main', cwd: workDir, closed: false },
-    userDataPath: mkdtempSync(join(tmpdir(), 'clw-r4-appdata-')),
+    userDataPath: mkdtempTracked(join(tmpdir(), 'clw-r4-appdata-')),
     cwd: workDir,
     bookRoot,
     bookName: LONG_BOOK,

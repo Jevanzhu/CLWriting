@@ -15,6 +15,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { styleConsistencyRule } from '../../src/ai/rules/style-rule.js'
 import { computeFullStats, readIronRules, type FullStyleStats } from '../../src/metrics/style.js'
 import { extractRepeatPhrases, extractLongSentences, extractSummaryEnding } from '../../src/ai/rules/style-remedy.js'
@@ -56,7 +57,7 @@ function zeroStats(sentenceLenVariance = 0): FullStyleStats {
 describe('A3 风格一致规则', () => {
   describe('无基线', () => {
     it('toPrompt 返回 null（临时目录无 文风/基线.json）', () => {
-      const root = mkdtempSync(join(tmpdir(), 'clwriting-style-nobase-'))
+      const root = mkdtempTracked(join(tmpdir(), 'clwriting-style-nobase-'))
       try {
         expect(styleConsistencyRule.toPrompt({ bookRoot: root })).toBeNull()
       } finally {
@@ -65,7 +66,7 @@ describe('A3 风格一致规则', () => {
     })
 
     it('check 返回空数组', () => {
-      const root = mkdtempSync(join(tmpdir(), 'clwriting-style-nobase-'))
+      const root = mkdtempTracked(join(tmpdir(), 'clwriting-style-nobase-'))
       try {
         expect(styleConsistencyRule.check('一段普通正文', { bookRoot: root })).toEqual([])
       } finally {
@@ -148,7 +149,7 @@ describe('A3 风格一致规则', () => {
   describe('R75-1 计数维量纲（拼接语料基线 vs 单章）', () => {
     /** 造独立书根 + 计数维铁律（形容词堆叠≥3 单元计数、排比连续数启用） */
     function mkCountBook(): string {
-      const root = mkdtempSync(join(tmpdir(), 'clwriting-style-r75-'))
+      const root = mkdtempTracked(join(tmpdir(), 'clwriting-style-r75-'))
       mkdirSync(join(root, '文风'), { recursive: true })
       writeFileSync(join(root, '文风', '文风铁律.md'), '# 文风铁律\n\n形容词连续堆叠上限: 2\n排比连续数: 3\n', 'utf-8')
       return root

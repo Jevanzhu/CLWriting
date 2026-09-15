@@ -7,16 +7,17 @@
  * 口径对齐 normalizeMoveToDir 的 `..`/`.` 双拒。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, existsSync } from 'node:fs'
+import { mkdirSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { DocumentService } from '../../src/document/service.js'
 
 describe('r0914b P2-2: doCopy 目录段 `.` 前置拒绝', () => {
   let bookRoot: string
   let svc: DocumentService
   beforeEach(() => {
-    bookRoot = mkdtempSync(join(tmpdir(), 'r0914b-copy-dot-'))
+    bookRoot = mkdtempTracked(join(tmpdir(), 'r0914b-copy-dot-'))
     mkdirSync(join(bookRoot, '工作区'), { recursive: true })
     svc = new DocumentService({ bookRoot })
   })

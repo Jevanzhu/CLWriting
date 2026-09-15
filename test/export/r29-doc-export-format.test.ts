@@ -7,15 +7,16 @@
  * {merged,split,both}，非法值显式参数错误返回，不做任何盘上操作。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { exportBook, type ExportFormat } from '../../src/export/index.js'
 
 let root: string
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'clw-r29-expfmt-'))
+  root = mkdtempTracked(join(tmpdir(), 'clw-r29-expfmt-'))
 })
 
 afterEach(() => rmSync(root, { recursive: true, force: true }))

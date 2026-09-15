@@ -9,15 +9,16 @@
  */
 import { describe, it, expect } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { readBooksStrict, appendBookAsync } from '../../src/install/books.js'
 import type { BookEntry } from '../../src/install/books.js'
 
 describe('R0912：books.jsonl 指纹缓存隔离与 appendBookAsync 永不 reject 契约', () => {
   it('缓存边界浅拷贝：就地 mutate 返回数组不污染缓存', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'clw-books-cache-'))
+    const dir = mkdtempTracked(join(tmpdir(), 'clw-books-cache-'))
     try {
       mkdirSync(join(dir, '.clwriting'))
       writeFileSync(join(dir, '.clwriting', 'books.jsonl'), `${JSON.stringify({ name: '甲', path: '甲', kind: 'long' })}\n`)
@@ -34,7 +35,7 @@ describe('R0912：books.jsonl 指纹缓存隔离与 appendBookAsync 永不 rejec
 
   it('appendBookAsync 写段失败 → {ok:false, reason 含写入失败}，不 reject（darwin chflags 装置）', async () => {
     if (process.platform !== 'darwin') return // 其余平台无精确只锁写的装置（锁文件同目录）
-    const dir = mkdtempSync(join(tmpdir(), 'clw-books-wfail-'))
+    const dir = mkdtempTracked(join(tmpdir(), 'clw-books-wfail-'))
     const locked = join(dir, '.clwriting', 'books.jsonl')
     try {
       mkdirSync(join(dir, '.clwriting'))

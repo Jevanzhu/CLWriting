@@ -12,10 +12,11 @@
  * - 书改名/删除 → 409 BOOK_MOVED（documents.ts bookMovedFailure 同款重验）；
  * - 循环健康报文消解链路：报红 → acknowledge → 复查不报红。
  */
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, renameSync } from 'node:fs'
+import { mkdirSync, writeFileSync, rmSync, renameSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, afterAll } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { fakeReqRes } from '../helpers/fake-reqres.js'
 import { createRouteTable, withRouteTable } from '../../src/studio/server/router.js'
 import { getRouteSchema } from '../../src/studio/server/api/schema.js'
@@ -43,7 +44,7 @@ function makeBook(name: string): {
   ack: NonNullable<ReturnType<typeof getRouteSchema>>
   cleanup: () => void
 } {
-  const workDir = mkdtempSync(join(tmpdir(), 'clwriting-r0912-ack-'))
+  const workDir = mkdtempTracked(join(tmpdir(), 'clwriting-r0912-ack-'))
   mkdirSync(join(workDir, '.clwriting'), { recursive: true })
   writeFileSync(
     join(workDir, '.clwriting', 'books.jsonl'),

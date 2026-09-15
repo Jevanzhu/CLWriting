@@ -8,9 +8,10 @@
  * tmp 文件在节流窗内第二次 detectState 后仍在、reset 后被清」锚定节流行为。
  */
 import { test, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, utimesSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, existsSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { detectState, __resetSweepThrottleForTest } from '../../src/state/state.js'
 import { writeBookConfig, DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import type { BookConfig } from '../../src/format/types.js'
@@ -27,7 +28,7 @@ beforeEach(() => {
   // r47-rebuild-probe-ttl 的 advanceTimersByTime 同族）。断言语义不变。
   vi.useFakeTimers({ toFake: ['Date'] })
   __resetSweepThrottleForTest()
-  root = mkdtempSync(join(tmpdir(), 'r43-sweep-'))
+  root = mkdtempTracked(join(tmpdir(), 'r43-sweep-'))
   writeBookConfig(join(root, 'book.yaml'), SHORT_CONFIG)
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '工作区'), { recursive: true })

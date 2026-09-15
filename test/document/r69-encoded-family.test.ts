@@ -12,9 +12,10 @@
  * - 孤儿 journal 归档（move 类证实无主）vs save 类保守报红（R69-4）
  */
 import { test, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readdirSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, existsSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { decodeDocDirName, encodeDocDirName, writeVersion, VERSIONS_DIR_NAME } from '../../src/document/version.js'
 import {
   analysisPathCandidates,
@@ -31,7 +32,7 @@ import { makeGitBook } from '../helpers/book.js'
 
 let root = ''
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'clw-r69-enc-'))
+  root = mkdtempTracked(join(tmpdir(), 'clw-r69-enc-'))
 })
 afterEach(() => {
   if (root) rmSync(root, { recursive: true, force: true })

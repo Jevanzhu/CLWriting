@@ -7,14 +7,15 @@
  * （字节保真优先，随源字节派生）。
  */
 import { test, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, readFileSync } from 'node:fs'
+import { mkdirSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { DocumentService } from '../../src/document/service.js'
 
 let bookRoot: string
 beforeEach(() => {
-  bookRoot = mkdtempSync(join(tmpdir(), 'clw-canonical-save-'))
+  bookRoot = mkdtempTracked(join(tmpdir(), 'clw-canonical-save-'))
   mkdirSync(join(bookRoot, '工作区'), { recursive: true })
 })
 afterEach(() => {

@@ -6,7 +6,7 @@
  * 读失败（权限）返 null 不抛、异步孪生与同步版共享指纹表、FIFO 上限淘汰。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync, utimesSync, chmodSync } from 'node:fs'
+import { rmSync, writeFileSync, utimesSync, chmodSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -21,6 +21,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 
 import { readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { readMdTextCached, readMdTextCachedAsync, __mdTextCacheTestHooks } from '../../src/fs/md-text-cache.js'
 
 const readMock = vi.mocked(readFileSync)
@@ -30,7 +31,7 @@ describe('R47-27：md 文本指纹缓存（fs/md-text-cache.ts）', () => {
   let dir: string
   let fp: string
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'r47-mdcache-'))
+    dir = mkdtempTracked(join(tmpdir(), 'r47-mdcache-'))
     fp = join(dir, '001-章.md')
     writeFileSync(fp, '---\n章号: 1\n---\n\n正文内容甲')
     __mdTextCacheTestHooks.clear()

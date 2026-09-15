@@ -12,10 +12,11 @@
  * 断言用观测口（__versionStatsProbeCountForTest / SigCount / ScanCount），确定性
  * 不依赖墙钟 5s（先例 r36/r37）。
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import {
   getVersionStatsCached,
   __setVersionStatsTtlForTest,
@@ -33,7 +34,7 @@ let roots: string[] = []
 
 /** 建书：1 个 pinned 定稿快照 + manifest 登记 doc_1 且 finalizedRevision 非空。 */
 function makeBook(docCount = 1): string {
-  const root = mkdtempSync(join(tmpdir(), 'r44-vs-probe-'))
+  const root = mkdtempTracked(join(tmpdir(), 'r44-vs-probe-'))
   roots.push(root)
   const manifestPath = join(root, '项目', '文档清单.jsonl')
   const m = readManifest(manifestPath)

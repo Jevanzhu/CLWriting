@@ -9,9 +9,10 @@
  * - R30-12：max_tokens 协议兜底值钉在 16384（与 MAX_TOKENS/注释同步，防再漂移）。
  */
 import { describe, it, expect, afterEach, vi } from 'vitest'
-import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { rmSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import Anthropic from '@anthropic-ai/sdk'
 import { recordAiCall, __setAiCallsLockTimeoutForTest } from '../../src/ai/calls.js'
 import { saveProviders, loadProviders, emptySettings, type ProviderStore } from '../../src/ai/provider/store.js'
@@ -23,7 +24,7 @@ import { sleep } from '../helpers/wait-for.js'
 
 const workDirs: string[] = []
 function tempDir(prefix: string): string {
-  const d = mkdtempSync(join(tmpdir(), prefix))
+  const d = mkdtempTracked(join(tmpdir(), prefix))
   workDirs.push(d)
   return d
 }

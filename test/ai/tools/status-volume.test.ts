@@ -6,11 +6,12 @@
  * 断链旧行为（第三参硬编码 50）= ceil(10/50)=1 卷。工具上下文 userDataPath
  * 与生产同形（chat 编排 executeChatTool 构造 ToolContext 时下发）。
  */
-import { mkdtempSync, rmSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { rmSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { mkdtempTracked } from '../../helpers/temp-dir.js'
 import { makeDualTrackWorkdir, LONG_BOOK } from '../../studio/fixtures.js'
 import { createAllTables } from '../../../src/cache/schema.js'
 import { syncChapter } from '../../../src/cache/sync.js'
@@ -53,7 +54,7 @@ beforeEach(() => {
   }
   writeManifest(manifestPath, manifest)
   // 书库级 global.json：defaultVolumeSize=5（下界；10 % 5 === 0 → 卷号跳变最锐利）
-  userDataPath = mkdtempSync(join(tmpdir(), 'clwriting-gg26tool-'))
+  userDataPath = mkdtempTracked(join(tmpdir(), 'clwriting-gg26tool-'))
   writeFileSync(
     join(userDataPath, 'global.json'),
     JSON.stringify({ defaultVolumeSize: 5 }),

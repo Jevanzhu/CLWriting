@@ -6,9 +6,10 @@
  *   此前 String(v) 压成 "a,b" 单串，回写 stringifyValue 按标量引号化后项内逗号错位。
  */
 import { describe, it, expect } from 'vitest'
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { slimIronRules } from '../../src/format/style-migrate.js'
 import { readChapter } from '../../src/format/chapters.js'
 import { stringifyValue } from '../../src/format/frontmatter.js'
@@ -45,7 +46,7 @@ describe('R51-F-5: slimIronRules 压缩空行条件化', () => {
 
 describe('R51-F-6: 章 _raw 数组型未知字段原样承载', () => {
   it('数组型未知字段 → _raw 收 string[]（不落 "a,b" 单串）；标量行为不变', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'r51-f6-'))
+    const dir = mkdtempTracked(join(tmpdir(), 'r51-f6-'))
     try {
       const fp = join(dir, '0001-测试.md')
       writeFileSync(fp, [

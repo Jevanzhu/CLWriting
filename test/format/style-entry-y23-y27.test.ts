@@ -7,15 +7,16 @@
  * Y-27：addEntry 场景字段走 sanitizeChapterTitle（超长场景 ENAMETOOLONG 防护）。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readdirSync, existsSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, readdirSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { migrateStyleLibrary } from '../../src/format/style-migrate.js'
 import { readBannedEntryWords, addEntry, ENTRIES_DIR } from '../../src/format/style-entry.js'
 
 let root: string
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'clw-y7-'))
+  root = mkdtempTracked(join(tmpdir(), 'clw-y7-'))
 })
 afterEach(() => {
   rmSync(root, { recursive: true, force: true })

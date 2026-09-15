@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, it, expect } from 'vitest'
 import type { ServerResponse } from 'node:http'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { replyError } from '../../src/studio/server/http.js'
 import { resolveDocEntry } from '../../src/studio/server/book-context.js'
 import { startServerSafe } from '../helpers/safe-port.js'
@@ -44,7 +45,7 @@ describe('replyError 统一信封单元', () => {
 
 describe('resolveDocEntry（hh §八-12 docId 样板公共化）', () => {
   it('已登记 → 返回条目；未登记 → null', () => {
-    const bookRoot = mkdtempSync(join(tmpdir(), 'clwriting-envelope-'))
+    const bookRoot = mkdtempTracked(join(tmpdir(), 'clwriting-envelope-'))
     try {
       mkdirSync(join(bookRoot, '项目'), { recursive: true })
       const docId = generateDocId()

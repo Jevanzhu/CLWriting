@@ -15,9 +15,10 @@
  * 不改行为。
  */
 import { test, expect, beforeEach, afterEach, vi } from 'vitest'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 vi.mock('../../src/document/tree.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/document/tree.js')>()
@@ -42,7 +43,7 @@ let seq = 0
 beforeEach(() => {
   invalidateMock.mockClear()
   invalidateContentMock.mockClear()
-  bookRoot = mkdtempSync(join(tmpdir(), 'clw-backlog-g1-'))
+  bookRoot = mkdtempTracked(join(tmpdir(), 'clw-backlog-g1-'))
   mkdirSync(join(bookRoot, '笔记'), { recursive: true })
   svc = new DocumentService({ bookRoot })
 })

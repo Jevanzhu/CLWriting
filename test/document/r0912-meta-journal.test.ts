@@ -12,9 +12,10 @@
  *   （mock atomicWriteFile ENOSPC 构造）。
  */
 import { test, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, readFileSync, existsSync } from 'node:fs'
+import { rmSync, mkdirSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const ATOMIC = vi.hoisted(() => ({ failWrite: false }))
 vi.mock('../../src/fs/atomic.js', async (importOriginal) => {
@@ -36,7 +37,7 @@ let bookRoot = ''
 let svc: DocumentService
 
 beforeEach(() => {
-  bookRoot = mkdtempSync(join(tmpdir(), 'clw-r0912-meta-'))
+  bookRoot = mkdtempTracked(join(tmpdir(), 'clw-r0912-meta-'))
   mkdirSync(join(bookRoot, '设定'), { recursive: true })
   mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
   mkdirSync(join(bookRoot, '项目'), { recursive: true })

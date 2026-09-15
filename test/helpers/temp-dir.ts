@@ -9,13 +9,12 @@
  * 首个测试后提前删共享目录），此类（如 resolve-book-root 的 isoTmp）保持手工
  * beforeAll/afterAll 对。
  *
- * 双体系现状与收编口径（重评-0914-三轮 nano R7-2 记档）：test 树并存两套临时目录
- * 卫生体系——本文件 mkdtempTracked（登记 + afterEach 兜底）251 文件在用（另 11 文件
- * 双轨并用）；散布全树的 ad-hoc 形态（裸 mkdtempSync + 测试体尾行/afterEach 手工
- * rmSync）307 文件。两体系清理语义等价（成功路径尾行清理、失败路径兜底回收），
- * 差异只在失败用例是否留残留；收编须逐文件核对 beforeAll 共享目录等登记例外，
- * 300+ 文件迁移成本超单批边界——如实记档维持现状，不设强迁时限；新增测试默认
- * 走 mkdtempTracked，改动所及的 ad-hoc 文件顺手收编。
+ * 双体系现状与收编口径（重评-0914-三轮 nano R7-2 记档；2026-09-15 临时目录收敛批
+ * 机械换装后更新）：test 树并存两套临时目录卫生体系——本文件 mkdtempTracked（登记 +
+ * afterEach 兜底）为测试面默认；裸 mkdtempSync（手工 rmSync 配对）残留 ~167 处/138 文件，
+ * 全部系「不得登记」的形态：beforeAll/module 顶层共享目录（登记会被 afterEach 在首用例
+ * 后提前删共享目录）、e2e（Playwright 无 vitest 钩子）、跨用例寿命混合的助手函数。
+ * 新增测试默认走 mkdtempTracked；beforeAll 共享目录保持手工 beforeAll/afterAll 对。
  */
 import { mkdtempSync, rmSync } from 'node:fs'
 import { afterEach } from 'vitest'

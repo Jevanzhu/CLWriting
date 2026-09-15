@@ -14,10 +14,11 @@
  * 行为面锚定（r35-manifest-lock-async 先例：重入键即 manifestLockKey 归一结果）。
  */
 import { expect, afterEach, describe, it, vi } from 'vitest'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { DocumentService } from '../../src/document/service.js'
 import {
   withManifestLock,
@@ -58,7 +59,7 @@ type SvcWithWiringKey = { wiringFileLockKey(rel: string): string | null }
 describe('R45-2: 三侧布线锁同键（win32 钉定）', () => {
   it('同一 rel 下 service / lead-finalize 产出同一锁文件名（字节逐位一致）', () => {
     Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
-    const root = mkdtempSync(join(tmpdir(), 'r45-fold-'))
+    const root = mkdtempTracked(join(tmpdir(), 'r45-fold-'))
     try {
       const svc = new DocumentService({ bookRoot: root }) as unknown as SvcWithWiringKey
       const rel = '布线/悬念/0001-线索.md'
@@ -102,7 +103,7 @@ describe('R45-2: 三侧布线锁同键（win32 钉定）', () => {
 describe('R45-2: manifestLockKey win32 折叠（行为面，r35 重入键先例）', () => {
   it('win32：case 变体重入命中同键——内层不发起第二次物理取锁（折叠生效）', () => {
     Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
-    const root = mkdtempSync(join(tmpdir(), 'r45-mlock-'))
+    const root = mkdtempTracked(join(tmpdir(), 'r45-mlock-'))
     __setManifestLockTimeoutForTest(50)
     try {
       mkdirSync(join(root, '项目'), { recursive: true })
@@ -124,7 +125,7 @@ describe('R45-2: manifestLockKey win32 折叠（行为面，r35 重入键先例�
 
   it('posix 对照：不折叠 → case 变体是不同键，内层按「他锁」发起二次物理取锁', () => {
     Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
-    const root = mkdtempSync(join(tmpdir(), 'r45-mlock-p-'))
+    const root = mkdtempTracked(join(tmpdir(), 'r45-mlock-p-'))
     __setManifestLockTimeoutForTest(50)
     try {
       mkdirSync(join(root, '项目'), { recursive: true })

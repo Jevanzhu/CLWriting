@@ -14,9 +14,10 @@
  * 2. 异章号警告：重写稿 fm 章号 999 ≠ 编排章号 1 → warn 留痕、编排照常 pass。
  */
 import { test, expect, vi } from 'vitest'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../../helpers/temp-dir.js'
 import { runSelfHeal, type SelfHealOpts } from '../../../src/ai/orchestrate/self-heal.js'
 import { log } from '../../../src/log/index.js'
 import { SHORT_BOOK } from '../../studio/fixtures.js'
@@ -64,8 +65,8 @@ function makeSaveStub(): { save: typeof saveDraft; relPaths: string[] } {
 }
 
 function makeBookRoot(): { workDir: string; ud: string; bookRoot: string } {
-  const workDir = mkdtempSync(join(tmpdir(), 'clw-r0912-rewrite-'))
-  const ud = mkdtempSync(join(tmpdir(), 'clw-r0912-rewrite-ud-'))
+  const workDir = mkdtempTracked(join(tmpdir(), 'clw-r0912-rewrite-'))
+  const ud = mkdtempTracked(join(tmpdir(), 'clw-r0912-rewrite-ud-'))
   return { workDir, ud, bookRoot: join(workDir, '短篇', SHORT_BOOK) }
 }
 

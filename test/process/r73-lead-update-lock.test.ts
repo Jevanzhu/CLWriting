@@ -13,9 +13,9 @@
  */
 import { test, expect, afterEach, vi } from 'vitest'
 import { mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
-import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { generateLeadUpdateDraft, __setLeadUpdateLockTimeoutForTest } from '../../src/process/lead-update-draft.js'
 import { log } from '../../src/log/index.js'
 import { processBootTime } from '../../src/fs/cross-process-lock.js'
@@ -23,7 +23,7 @@ import { processBootTime } from '../../src/fs/cross-process-lock.js'
 const LOCK_REL = join('工作区', '账本推进.md.lock')
 
 function makeBook(): string {
-  const root = mkdtempSync(join(tmpdir(), 'r73-leadlock-'))
+  const root = mkdtempTracked(join(tmpdir(), 'r73-leadlock-'))
   writeFileSync(
     join(root, 'book.yaml'),
     'spec_version: 1\nkind: long\nbook:\n  title: 锁测书\nhost: cc\nleads:\n  enabled: []\n',

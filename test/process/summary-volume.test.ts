@@ -5,9 +5,10 @@
  * - C4 token 系数（查表/前缀匹配/兜底）+ 拟合函数与报告快照
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import {
   generateChapterSummary,
   generateVolumeSummary,
@@ -53,7 +54,7 @@ afterEach(() => {
 
 /** 造书：volumeSize=2（卷 1 = 章 1/2，卷 2 = 章 3/4……便于小规模测卷边界）；finalizedN 章落定稿基线 */
 function makeBook(chapters: number, finalizedN: number, volumeSize = 2): string {
-  const root = mkdtempSync(join(tmpdir(), 'clw-volumesum-'))
+  const root = mkdtempTracked(join(tmpdir(), 'clw-volumesum-'))
   dirs.push(root)
   mkdirSync(join(root, '布线', '悬念'), { recursive: true })
   mkdirSync(join(root, '写作', '正文'), { recursive: true })

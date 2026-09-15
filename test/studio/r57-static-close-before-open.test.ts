@@ -13,11 +13,12 @@
  */
 import http from 'node:http'
 import type { ReadStream } from 'node:fs'
-import { createReadStream, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { createReadStream, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { EventEmitter, PassThrough } from 'node:stream'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { createStaticHandler } from '../../src/studio/server/static.js'
 
 // R57-C-1：createReadStream 透传 spy（默认行为不变），用例内 mockImplementationOnce
@@ -47,7 +48,7 @@ class FakeSource extends EventEmitter {
 let root = ''
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'clwriting-r57-static-'))
+  root = mkdtempTracked(join(tmpdir(), 'clwriting-r57-static-'))
   writeFileSync(join(root, 'index.html'), '<!doctype html><title>Studio</title>')
 })
 

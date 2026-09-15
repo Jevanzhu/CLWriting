@@ -13,7 +13,7 @@
  */
 import { test, expect, beforeEach, afterEach } from 'vitest'
 import {
-  mkdtempSync,
+ 
   rmSync,
   mkdirSync,
   writeFileSync,
@@ -25,6 +25,7 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { DocumentService, __setMetaSaveLockTimeoutForTest } from '../../src/document/service.js'
 import { acquireCrossProcessLockWithTimeout } from '../../src/fs/cross-process-lock.js'
 import { snapshotBeforeOverwrite } from '../../src/process/draft-pipeline.js'
@@ -40,7 +41,7 @@ import type { DocumentRole } from '../../src/document/layout.js'
 
 let bookRoot = ''
 beforeEach(() => {
-  bookRoot = mkdtempSync(join(tmpdir(), 'clw-r76-a-'))
+  bookRoot = mkdtempTracked(join(tmpdir(), 'clw-r76-a-'))
 })
 afterEach(() => {
   if (bookRoot) rmSync(bookRoot, { recursive: true, force: true })
@@ -143,7 +144,7 @@ test('R76-25: crashedWrite 健康报文以清单路径为首要标识（不再�
 // ── R76-26：覆写留底走全局保留策略 ───────────────────────────────
 
 test('R76-26: snapshotBeforeOverwrite 按 global.json snapMaxCount 修剪；缺省回落默认 30', () => {
-  const userData = mkdtempSync(join(tmpdir(), 'clw-r76-ud-'))
+  const userData = mkdtempTracked(join(tmpdir(), 'clw-r76-ud-'))
   writeFileSync(join(userData, 'global.json'), JSON.stringify({ snapMaxCount: 1, snapMaxDays: 14 }))
   const rel = '工作区/细纲.md'
   mkdirSync(join(bookRoot, '工作区'), { recursive: true })
@@ -158,7 +159,7 @@ test('R76-26: snapshotBeforeOverwrite 按 global.json snapMaxCount 修剪；缺�
   expect(listVersions(versionsDir, docDirs[0]!).length).toBe(1) // snapMaxCount=1：旧版被 prune
   rmSync(userData, { recursive: true, force: true })
   // 对照：无 userDataPath → 默认策略（30 版）→ 两版都在
-  const book2 = mkdtempSync(join(tmpdir(), 'clw-r76-b2-'))
+  const book2 = mkdtempTracked(join(tmpdir(), 'clw-r76-b2-'))
   try {
     const rel2 = '工作区/细纲.md'
     mkdirSync(join(book2, '工作区'), { recursive: true })

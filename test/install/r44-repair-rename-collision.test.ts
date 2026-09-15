@@ -7,9 +7,10 @@
  * 原条目保留、books.jsonl 落盘不变、日志留痕。
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { repairBooks, writeBooks, readBooks } from '../../src/install/books.js'
 
 const warns: Array<[string, string]> = []
@@ -30,7 +31,7 @@ let wd: string
 
 beforeEach(() => {
   warns.length = 0
-  wd = mkdtempSync(join(tmpdir(), 'clw-r44-rename-'))
+  wd = mkdtempTracked(join(tmpdir(), 'clw-r44-rename-'))
   mkdirSync(join(wd, '.clwriting'), { recursive: true })
 })
 

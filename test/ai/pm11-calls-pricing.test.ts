@@ -10,10 +10,11 @@
  * - resolveModelPricing memo：同 (userDataPath, model) 且 providers.json mtime 未变
  *   → 命中缓存；文件改写（mtime bump）→ 失效重解析出新价。
  */
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, utimesSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, writeFileSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 // 真实落盘计数：包裹 atomicWriteFile（行为透传 actual，只计数）——合并记账的核心
 // 断言是「同一笔 usage 只落一次盘」，直接观测写原语而非文件形态。
@@ -35,7 +36,7 @@ import type { TokenUsage } from '../../src/ai/provider/index.js'
 
 const dirs: string[] = []
 function tempBook(): string {
-  const d = mkdtempSync(join(tmpdir(), 'pm11-calls-'))
+  const d = mkdtempTracked(join(tmpdir(), 'pm11-calls-'))
   dirs.push(d)
   return d
 }
@@ -140,7 +141,7 @@ describe('PM-11 recordUsageBoth 合并记账（合并批自 stash recordUsageCom
 describe('PM-11 resolveModelPricing memo', () => {
   // USER 目录每用例自建（模块级创建会被前一个 describe 的 afterEach splice+rmSync 误删）
   function makeUser(): string {
-    const d = mkdtempSync(join(tmpdir(), 'pm11-pricing-'))
+    const d = mkdtempTracked(join(tmpdir(), 'pm11-pricing-'))
     dirs.push(d)
     return d
   }

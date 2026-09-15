@@ -16,6 +16,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { startServerSafe } from '../helpers/safe-port.js'
 import {
   searchBookCached,
@@ -28,7 +29,7 @@ import {
 let root = ''
 
 function makeTree(): string {
-  root = mkdtempSync(join(tmpdir(), 'r35-search-cache-'))
+  root = mkdtempTracked(join(tmpdir(), 'r35-search-cache-'))
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   writeFileSync(join(root, '写作', '正文', '0001-雨夜.md'), '烛火摇曳。\n', 'utf-8')
   return root

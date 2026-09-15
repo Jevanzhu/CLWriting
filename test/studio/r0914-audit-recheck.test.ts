@@ -10,10 +10,11 @@
  * 六闸第二闸），放行锁后复查命中 → 409；入口时点无闸，本次拒绝只能来自复查臂。
  * 手法：withRouteTable 直调 books.audit.delete handler（r1010b 先例）+ 假 req/res。
  */
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { fakeReqRes } from '../helpers/fake-reqres.js'
 import { createRouteTable, withRouteTable } from '../../src/studio/server/router.js'
 import { getRouteSchema } from '../../src/studio/server/api/schema.js'
@@ -35,8 +36,8 @@ interface Rig {
 
 /** 每用例独立临时书（workDir + 登记 + book.yaml）+ 独立 userData（事件库）。 */
 function makeRig(): Rig {
-  const workDir = mkdtempSync(join(tmpdir(), 'clwriting-audit-recheck-'))
-  const userDataPath = mkdtempSync(join(tmpdir(), 'clwriting-audit-recheck-ud-'))
+  const workDir = mkdtempTracked(join(tmpdir(), 'clwriting-audit-recheck-'))
+  const userDataPath = mkdtempTracked(join(tmpdir(), 'clwriting-audit-recheck-ud-'))
   mkdirSync(join(workDir, '.clwriting'), { recursive: true })
   writeFileSync(
     join(workDir, '.clwriting', 'books.jsonl'),

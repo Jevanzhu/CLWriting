@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import {
   writeVersion,
   readVersion,
@@ -42,7 +43,7 @@ function seedSnapshot(dir: string, docId: string, ms: number, content = 'x', seq
 describe('snapshot', () => {
   let dir: string
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'snap-'))
+    dir = mkdtempTracked(join(tmpdir(), 'snap-'))
   })
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true })
@@ -86,7 +87,7 @@ describe('snapshot', () => {
 describe('snapshot · 去重与节流', () => {
   let dir: string
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'snap-'))
+    dir = mkdtempTracked(join(tmpdir(), 'snap-'))
   })
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true })
@@ -162,7 +163,7 @@ describe('snapshot · 去重与节流', () => {
 describe('snapshot · readVersion', () => {
   let dir: string
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'snap-'))
+    dir = mkdtempTracked(join(tmpdir(), 'snap-'))
   })
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true })
@@ -212,7 +213,7 @@ describe('snapshot · 分层保留清理', () => {
   let dir: string
   const now = Date.UTC(2026, 6, 29, 12, 0, 0) // 固定"现在"，避免跨时段抖动
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'snap-'))
+    dir = mkdtempTracked(join(tmpdir(), 'snap-'))
   })
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true })

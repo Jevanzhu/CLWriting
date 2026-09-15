@@ -14,9 +14,10 @@
  * - TTL 过期 → 重读；forgetSettingCache → 立即失效；不同书库互不串
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import {
   settingConsistencyRule,
   __setSettingCacheTtlForTest,
@@ -28,7 +29,7 @@ import { sleep } from '../helpers/wait-for.js'
 
 /** 造设定目录：角色卡(姓名 林远) + 名册.md(A 版内容)。返回 bookRoot。 */
 function makeSettingBook(): string {
-  const root = mkdtempSync(join(tmpdir(), 'clwriting-r36-12-setting-'))
+  const root = mkdtempTracked(join(tmpdir(), 'clwriting-r36-12-setting-'))
   const roleDir = join(root, '设定', '角色')
   mkdirSync(roleDir, { recursive: true })
   writeFileSync(join(roleDir, '角色-001.md'), '---\n姓名: 林远\n---\n角色正文', 'utf-8')

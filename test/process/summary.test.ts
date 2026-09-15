@@ -7,9 +7,10 @@
  * 失败路径走「无 provider 且非 mock」的真实解析错误。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync, appendFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, existsSync, readFileSync, appendFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import {
   generateChapterSummary,
   chapterSummaryState,
@@ -61,7 +62,7 @@ afterEach(() => {
 
 /** 造书：N 章（每章有 fm 正文）+ 布线 + 清单登记；finalized=true 时给前 n 章落定稿基线 */
 function makeBook(chapters: number, finalized = 0): string {
-  const root = mkdtempSync(join(tmpdir(), 'clw-summary-'))
+  const root = mkdtempTracked(join(tmpdir(), 'clw-summary-'))
   dirs.push(root)
   mkdirSync(join(root, '布线', '悬念'), { recursive: true })
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
@@ -413,7 +414,7 @@ describe('prepare 注入登记（模型可见 ⟺ 已记录，C1 红线）', () 
 describe('R65-31: 摘要读失败降级', () => {
   // 重评-0914-三轮 P3-11：读失败注入改 fs-deny 平台分派（win 臂 spy 注入 EACCES），摘除 skipIf(win32)
   it('章摘要不可读（EACCES）→ chapterSummaryState 按 missing、body 按 null，均不抛', () => {
-    const root = mkdtempSync(join(tmpdir(), 'clw-r65-31-'))
+    const root = mkdtempTracked(join(tmpdir(), 'clw-r65-31-'))
     dirs.push(root)
     try {
       const bodyAbs = join(root, '写作', '正文', '1-第一章.md')

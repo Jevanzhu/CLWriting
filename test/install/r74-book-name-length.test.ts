@@ -8,14 +8,15 @@
  * - scaffold 阶段文件系统错误（ENOTDIR）→ 收编 {ok:false} 不裸抛
  */
 import { describe, it, expect } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { doInit } from '../../src/install/init.js'
 import { isInvalidBookName, BOOK_NAME_MAX_BYTES } from '../../src/install/books.js'
 
 function mkWorkDir(): string {
-  return mkdtempSync(join(tmpdir(), 'clw-r74-name-'))
+  return mkdtempTracked(join(tmpdir(), 'clw-r74-name-'))
 }
 
 describe('R74-11：书名 UTF-8 字节上限', () => {

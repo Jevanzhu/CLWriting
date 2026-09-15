@@ -13,6 +13,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { mkdtempSync, rmSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import {
   aiClicheRule,
   rulesToPrompt,
@@ -132,7 +133,7 @@ describe('A2 WritingRule 规则层', () => {
 
     it('无 AI味标签词时 toPrompt 返回 null', () => {
       // 空条目库 → 无 AI味标签词 → 空壳规则
-      const emptyRoot = mkdtempSync(join(tmpdir(), 'clwriting-rules-empty-'))
+      const emptyRoot = mkdtempTracked(join(tmpdir(), 'clwriting-rules-empty-'))
       try {
         const rule = loadAiFlavorRule(emptyRoot)
         expect(rule.toPrompt({ bookRoot: emptyRoot })).toBeNull()

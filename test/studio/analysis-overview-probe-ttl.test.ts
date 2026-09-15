@@ -12,10 +12,11 @@
  * 断言用观测口（__analysisOverviewProbeCountForTest / SigCount / ScanCount），
  * 确定性不依赖墙钟 5s（先例 r44-versionstats-probe-ttl 同款）。
  */
-import { mkdtempSync, rmSync } from 'node:fs'
+import { rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import {
   getAnalysisOverviewCached,
   __setAnalysisOverviewTtlForTest,
@@ -39,7 +40,7 @@ function envOf(payload: unknown): Envelope {
 
 /** 建书：manifest 登记 doc_1 + score 信封（口径同 r37-signature-probe makeAnalysisBook）。 */
 function makeAnalysisBook(): { root: string; docId1: string } {
-  const root = mkdtempSync(join(tmpdir(), 're2-ao-probe-'))
+  const root = mkdtempTracked(join(tmpdir(), 're2-ao-probe-'))
   roots.push(root)
   const manifestPath = join(root, '项目', '文档清单.jsonl')
   const m = readManifest(manifestPath)

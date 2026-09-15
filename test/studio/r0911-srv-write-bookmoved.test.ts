@@ -14,10 +14,11 @@
  * 用例：注入 yield 桩（__setLearnCommitYieldForTest）在首个让出点改名，锚定让出后
  * 重验中止剩余条目。
  */
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, renameSync, existsSync, readdirSync } from 'node:fs'
+import { mkdirSync, writeFileSync, rmSync, renameSync, existsSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { createRouteTable, withRouteTable } from '../../src/studio/server/router.js'
 import { getRouteSchema } from '../../src/studio/server/api/schema.js'
 import { registerKnowledgeRoutes, __setLearnCommitYieldForTest } from '../../src/studio/server/api/knowledge.js'
@@ -41,7 +42,7 @@ interface Rig {
 
 /** 每用例独立临时书（workDir + 登记 + book.yaml）；三个被修文件的路由一并注册。 */
 function makeBook(name: string): Rig {
-  const workDir = mkdtempSync(join(tmpdir(), 'clwriting-r0911-'))
+  const workDir = mkdtempTracked(join(tmpdir(), 'clwriting-r0911-'))
   mkdirSync(join(workDir, '.clwriting'), { recursive: true })
   writeFileSync(
     join(workDir, '.clwriting', 'books.jsonl'),

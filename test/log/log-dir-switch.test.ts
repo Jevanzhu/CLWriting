@@ -6,10 +6,11 @@
  * 「日志同步落痕」全量偶红的根因；旧「泵首 mkdir」只做一次且目标是旧目录，兜不住
  * 此形态）。修复：泵内逐行盯目录，目标目录与上次落盘目录不符即幂等 mkdir。
  */
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import { readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { flushLogsForTest, debugLogQueueForTest, initLogging, log, resetLoggingForTest } from '../../src/log/index.js'
 
 const dirs: string[] = []
@@ -31,8 +32,8 @@ describe('IR-9 日志泵换目录不丢行', () => {
   it('在途泵排空跨 init 换目录：零丢行，换目录后的行落新目录（旧实现 ENOENT 降级丢行）', async () => {
     // logsDir 本身不预建（真实形态：userData/logs 由 initLogging/pump 的 mkdir 链惰性
     // 创建）——预建目录会让旧实现的 ENOENT 丢行路径永不触发，测不到病灶
-    const parentA = mkdtempSync(join(tmpdir(), 'clw-log-a-'))
-    const parentB = mkdtempSync(join(tmpdir(), 'clw-log-b-'))
+    const parentA = mkdtempTracked(join(tmpdir(), 'clw-log-a-'))
+    const parentB = mkdtempTracked(join(tmpdir(), 'clw-log-b-'))
     const dirA = join(parentA, 'logs')
     const dirB = join(parentB, 'logs')
     dirs.push(parentA, parentB)
@@ -61,8 +62,8 @@ describe('IR-9 日志泵换目录不丢行', () => {
   })
 
   it('同一 tick 内连续多次换目录：零丢行（积压行按最后一次 init 目标目录落盘）', async () => {
-    const dirA = mkdtempSync(join(tmpdir(), 'clw-log-c-'))
-    const dirB = mkdtempSync(join(tmpdir(), 'clw-log-d-'))
+    const dirA = mkdtempTracked(join(tmpdir(), 'clw-log-c-'))
+    const dirB = mkdtempTracked(join(tmpdir(), 'clw-log-d-'))
     dirs.push(dirA, dirB)
 
     // 三个 emit 与两次换目录在同一同步 tick 内完成——泵恢复排空时 state.logsDir 已是

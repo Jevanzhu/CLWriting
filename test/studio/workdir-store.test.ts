@@ -6,9 +6,10 @@
  * （R1010-P2-1：同步版改异步预算版）。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import {
   parseStore,
   setCurrent,
@@ -113,7 +114,7 @@ describe('workdir-store setCurrent（切换 + 最近列表）', () => {
 describe('workdir-store filterValidRecentBudgeted（失效清理）', () => {
   let alive = ''
   beforeEach(() => {
-    alive = mkdtempSync(join(tmpdir(), 'clwriting-wd-'))
+    alive = mkdtempTracked(join(tmpdir(), 'clwriting-wd-'))
   })
   afterEach(() => {
     if (alive) rmSync(alive, { recursive: true, force: true })

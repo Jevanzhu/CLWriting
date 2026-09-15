@@ -4,10 +4,11 @@
  * 本文件锚定异步孪生（resolvePathAsync → lookupPathByDocIdAdoptAsync →
  * upsertManifestEntryAsync）的收编语义与 executeSave 前段 await 迁移后的保存链。
  */
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { DocumentService } from '../../src/document/service.js'
 import { legacyId } from '../../src/document/stable-id.js'
 import { readManifestStrict } from '../../src/document/manifest.js'
@@ -21,7 +22,7 @@ let bookRoot = ''
 let svc: DocumentService
 
 beforeEach(() => {
-  bookRoot = mkdtempSync(join(tmpdir(), 'r34d-res-'))
+  bookRoot = mkdtempTracked(join(tmpdir(), 'r34d-res-'))
   mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
   writeFileSync(join(bookRoot, LEGACY_CHAPTER), '---\n章号: 99\n标题: 旧章\n---\n正文。')
   svc = new DocumentService({ bookRoot })

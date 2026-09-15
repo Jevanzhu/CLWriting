@@ -11,12 +11,13 @@
  * r36-leads-crlf 契约演进断言）。
  */
 import { describe, expect, it } from 'vitest'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync, utimesSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, readFileSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createHash } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { readIronRules } from '../../src/format/iron-rules.js'
 import { parseSampleFileName } from '../../src/format/style.js'
 import { readLead, writeLead } from '../../src/format/leads.js'
@@ -29,7 +30,7 @@ import { generateDocId } from '../../src/document/stable-id.js'
 
 describe('R38-9: .MD 扩展名家族（指纹侧缓存陈旧闭合）', () => {
   it('禁词条目 .MD 变更内容 → readIronRules 缓存失效重读（修复前指纹漏认 .MD 恒命中旧值）', () => {
-    const root = mkdtempSync(join(tmpdir(), 'r38-mdfp-'))
+    const root = mkdtempTracked(join(tmpdir(), 'r38-mdfp-'))
     try {
       const dir = join(root, '文风', '条目', '禁词')
       mkdirSync(dir, { recursive: true })
@@ -83,7 +84,7 @@ describe('R38-9: .MD 扩展名家族（指纹侧缓存陈旧闭合）', () => {
 // ── R38-10：空字符串证据 fail-noisy ───────────────
 
 function makeEmptyStringEvidenceBook(): string {
-  const root = mkdtempSync(join(tmpdir(), 'r38-empty-ev-'))
+  const root = mkdtempTracked(join(tmpdir(), 'r38-empty-ev-'))
   mkdirSync(join(root, '布线', '悬念'), { recursive: true })
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '项目'), { recursive: true })
@@ -145,7 +146,7 @@ describe('R38-10: 空字符串证据 → unverifiable 黄项（不再整条跳�
 
 describe('R38-11: writeLead 主导行尾（LF 锚）', () => {
   it('LF 账本读改写回：无 \r 引入（存量 LF 文件字节口径不变）', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'r38-lf-lead-'))
+    const dir = mkdtempTracked(join(tmpdir(), 'r38-lf-lead-'))
     try {
       const fp = join(dir, '大纲', '悬念.md')
       mkdirSync(dirname(fp), { recursive: true })

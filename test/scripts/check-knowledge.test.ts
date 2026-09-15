@@ -10,17 +10,18 @@
  * （check-knowledge.ts 已加直跑守卫，import 无校验/exit 副作用。）
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { scanUnregisteredKnowledgeAssets } from '../../scripts/check-knowledge.js'
 import type { KnowledgeManifest } from '../../src/knowledge/manifest.js'
 
 let dir: string
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'clw-know-'))
+  dir = mkdtempTracked(join(tmpdir(), 'clw-know-'))
 })
 
 afterEach(() => {

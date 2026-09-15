@@ -10,10 +10,11 @@
  * 编码目录（win 可建）不变；prune 按 listVersions 的 s.path 删除，自动覆盖两目录。
  * 字面目录场景仅 mac/Linux 可造（win 上 `:` 目录非法），按仓库惯例 skipIf(win32)。
  */
-import { mkdirSync, existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, existsSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import {
   DEFAULT_VERSION_POLICY,
   encodeDocDirName,
@@ -31,7 +32,7 @@ const DOC_ID = 'legacy:0123456789abcdef'
 const OLD_ID = '01ARZ3NDEKTSV4RRFFQ69G5FAV' // 2018 年时间戳的合法 ULID（超 maxDays 14 天期）
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'clw-verdir-'))
+  root = mkdtempTracked(join(tmpdir(), 'clw-verdir-'))
   versionsDir = join(root, '工作区', '.版本')
 })
 

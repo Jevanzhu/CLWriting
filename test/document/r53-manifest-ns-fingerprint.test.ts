@@ -12,9 +12,10 @@
  * 外部改写走裸 writeFileSync（不经 writeManifest——外部编辑器不会替我们清缓存）。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 type StatFrame = { size: bigint; mtimeMs: bigint; mtimeNs: bigint }
 const statQueue: StatFrame[] = []
@@ -39,7 +40,7 @@ let dir: string
 const fp = (): string => join(dir, '项目', '文档清单.jsonl')
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'r53-d1-'))
+  dir = mkdtempTracked(join(tmpdir(), 'r53-d1-'))
   __manifestCacheTestHooks.clear()
 })
 

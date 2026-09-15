@@ -9,10 +9,11 @@
  */
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { mkdtempSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { createStaticHandler } from '../../src/studio/server/static.js'
 
 let root = ''
@@ -21,8 +22,8 @@ let server: http.Server | undefined
 let baseUrl = ''
 
 beforeEach(async () => {
-  root = mkdtempSync(join(tmpdir(), 'clw-r50-c4-static-'))
-  outside = mkdtempSync(join(tmpdir(), 'clw-r50-c4-out-'))
+  root = mkdtempTracked(join(tmpdir(), 'clw-r50-c4-static-'))
+  outside = mkdtempTracked(join(tmpdir(), 'clw-r50-c4-out-'))
   writeFileSync(join(root, 'index.html'), '<!doctype html><title>Studio</title>')
   server = http.createServer(createStaticHandler(root))
   await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))

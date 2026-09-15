@@ -8,9 +8,10 @@
  * （Windows 上对目录 readFileSync 同样抛错）。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { migrateStyleLibrary } from '../../src/format/style-migrate.js'
 import { readEntries, ENTRIES_DIR } from '../../src/format/style-entry.js'
 import { writeSample } from '../../src/format/style.js'
@@ -18,7 +19,7 @@ import { writeSample } from '../../src/format/style.js'
 let root = ''
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'clwriting-style-migrate-r71-'))
+  root = mkdtempTracked(join(tmpdir(), 'clwriting-style-migrate-r71-'))
   mkdirSync(join(root, '文风'), { recursive: true })
 })
 

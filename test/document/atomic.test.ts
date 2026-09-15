@@ -1,13 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { rmSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { atomicWriteFile } from '../../src/fs/atomic.js'
 
 describe('atomicWriteFile', () => {
   let dir: string
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'atomic-'))
+    dir = mkdtempTracked(join(tmpdir(), 'atomic-'))
   })
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true })

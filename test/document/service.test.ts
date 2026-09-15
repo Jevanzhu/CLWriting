@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 // R0912-3 收口（2026-09-11 重评-0911c 修复批）注：R75-4 原用例以「清单路径是目录」
 // 制造读清单抛——该手法在 lookup 命中读 strict 化后会被保存**前段守卫**拦截（读失败
@@ -60,7 +61,7 @@ describe('DocumentService / 保存协议主路径', () => {
   let bookRoot: string
   let svc: DocumentService
   beforeEach(() => {
-    bookRoot = mkdtempSync(join(tmpdir(), 'svc-'))
+    bookRoot = mkdtempTracked(join(tmpdir(), 'svc-'))
     mkdirSync(join(bookRoot, '工作区'), { recursive: true })
     svc = new DocumentService({ bookRoot })
   })
@@ -393,7 +394,7 @@ describe('DocumentService / journal 与崩溃恢复', () => {
   let bookRoot: string
   let svc: DocumentService
   beforeEach(() => {
-    bookRoot = mkdtempSync(join(tmpdir(), 'svcj-'))
+    bookRoot = mkdtempTracked(join(tmpdir(), 'svcj-'))
     mkdirSync(join(bookRoot, '工作区', '.journal'), { recursive: true })
     svc = new DocumentService({ bookRoot })
   })
@@ -428,7 +429,7 @@ describe('DocumentService / 串行', () => {
   let bookRoot: string
   let svc: DocumentService
   beforeEach(() => {
-    bookRoot = mkdtempSync(join(tmpdir(), 'svcf-'))
+    bookRoot = mkdtempTracked(join(tmpdir(), 'svcf-'))
     mkdirSync(join(bookRoot, '工作区'), { recursive: true })
     svc = new DocumentService({ bookRoot })
   })
@@ -473,7 +474,7 @@ describe('DocumentService / snapshot 触发', () => {
   let bookRoot: string
   let svc: DocumentService
   beforeEach(() => {
-    bookRoot = mkdtempSync(join(tmpdir(), 'svcs-'))
+    bookRoot = mkdtempTracked(join(tmpdir(), 'svcs-'))
     mkdirSync(join(bookRoot, '工作区'), { recursive: true })
     svc = new DocumentService({ bookRoot })
   })
@@ -509,7 +510,7 @@ describe('DocumentService / V-P2-1 迟到 save 不复活旧路径', () => {
   let bookRoot: string
   let svc: DocumentService
   beforeEach(() => {
-    bookRoot = mkdtempSync(join(tmpdir(), 'svc-race-'))
+    bookRoot = mkdtempTracked(join(tmpdir(), 'svc-race-'))
     mkdirSync(join(bookRoot, '工作区'), { recursive: true })
     svc = new DocumentService({ bookRoot })
   })

@@ -7,10 +7,11 @@
  */
 import { describe, it, expect } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 // @ts-expect-error —— .mjs 直跑脚本无类型声明（不为其维护 d.ts；断言口径靠用例锚定）
 import { problemsForPackageFiles, parseBuilderFiles, problemsForElectronBuilderFiles, parseBuilderAsarUnpack, problemsForElectronBuilderAsarUnpack, problemsForDistFontList } from '../../scripts/check-packaging.mjs'
 
@@ -136,7 +137,7 @@ describe('R0911-A-P2-1：problemsForDistFontList（darwin dist 实存门，注�
     expect(problemsForDistFontList(join(tmpdir(), 'clw-no-such-dist-' + Date.now()), 'darwin')).toEqual([])
   })
   it('darwin dist 已构建（有 main.js）缺 fontlist → 必红（tsup onSuccess 拷贝失效回潮）', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'clw-pkg-gate-'))
+    const dir = mkdtempTracked(join(tmpdir(), 'clw-pkg-gate-'))
     writeFileSync(join(dir, 'main.js'), '// built')
     const problems = problemsForDistFontList(dir, 'darwin')
     expect(problems).toHaveLength(1)

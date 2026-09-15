@@ -25,6 +25,7 @@ import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 /** mock 状态与捕获面（vi.hoisted 保证 vi.mock 工厂可见） */
 const M = vi.hoisted(() => ({
@@ -2185,7 +2186,7 @@ describe('R0910-W: 窗口关闭（销毁态 webContents）不炸穿 closed 清�
 // 命中原生错误框反馈并留在选择循环。
 describe('R44-14: pickLibrary「在此新建」的 git-ancestor 防线', () => {
   it('git 仓库内的目录 → 原生错误框拒绝，不落库不重启（选择循环内重选）', async () => {
-    const gitRepo = mkdtempSync(join(tmpdir(), 'clw-gitlib-'))
+    const gitRepo = mkdtempTracked(join(tmpdir(), 'clw-gitlib-'))
     mkdirSync(join(gitRepo, '.git'))
     writeFileSync(join(gitRepo, '.git', 'HEAD'), 'ref: refs/heads/main\n') // isGitMarker 判定面
     const inner = join(gitRepo, '待建书库')

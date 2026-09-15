@@ -8,10 +8,11 @@
  * 删旧必经 rmWithRetry（回退为裸 rmSync 则 spy 零调用即红）；自愈收口语义不变
  * （删旧 → 清单对齐新路径 → settled，不报 crashedWrite）。
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, linkSync, existsSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, linkSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const rmSpyState = vi.hoisted(() => ({ calls: [] as string[] }))
 vi.mock('../../src/fs/atomic.js', async (importOriginal) => {
@@ -61,7 +62,7 @@ async function makeHardlinkPendingBook(): Promise<void> {
 }
 
 beforeEach(async () => {
-  bookRoot = mkdtempSync(join(tmpdir(), 'clw-r49-15-heal-'))
+  bookRoot = mkdtempTracked(join(tmpdir(), 'clw-r49-15-heal-'))
   await makeHardlinkPendingBook()
 })
 

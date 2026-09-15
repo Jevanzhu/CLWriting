@@ -6,15 +6,16 @@
  * 排除目录/scope 过滤不漂移。
  */
 import { afterEach, describe, expect, it } from 'vitest'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { searchBook, searchBookAsync } from '../../src/process/book-search.js'
 
 let root = ''
 
 function makeTree(): string {
-  root = mkdtempSync(join(tmpdir(), 'r35-search-async-'))
+  root = mkdtempTracked(join(tmpdir(), 'r35-search-async-'))
   mkdirSync(join(root, '写作', '正文', '第一卷'), { recursive: true })
   mkdirSync(join(root, '设定', '伏笔'), { recursive: true })
   mkdirSync(join(root, '大纲'), { recursive: true })

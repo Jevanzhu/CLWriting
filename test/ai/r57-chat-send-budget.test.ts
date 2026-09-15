@@ -18,9 +18,10 @@
  *   （shrink-prompt 消费者接线属 A7 单独立项，本批明确不做）。
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { rmSync, mkdtempSync } from 'node:fs'
+import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { createFakeProvider, type FakeProvider } from './fake-provider.js'
 import { makeFakeDriver } from './fake-driver.js'
 import { tempUserData, withFakeProvider } from '../studio/fixtures.js'
@@ -80,7 +81,7 @@ function makeDeps(ud: string, bookRoot: string, history: ChatMsg[], sys: string)
 
 function makeBookRoot(): string {
   // bookRoot 仅作 trace/记账定位（不读写书籍数据），空目录即可
-  const d = mkdtempSync(join(tmpdir(), 'r57-budget-book-'))
+  const d = mkdtempTracked(join(tmpdir(), 'r57-budget-book-'))
   dirs.push(d)
   return d
 }

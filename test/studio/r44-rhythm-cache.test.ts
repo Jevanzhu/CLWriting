@@ -9,10 +9,11 @@
  * 断言用「全量重算计数」观测口（__rhythmScanCountForTest），确定性不依赖墙钟 5s
  *（先例 r35-search-cache / r36-version-stats-cache）。
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import {
   getRhythmCached,
   getRhythmCachedAsync,
@@ -27,7 +28,7 @@ let roots: string[] = []
 
 /** 建书：长篇（book.yaml + 写作/正文 2 章 + 大纲/章纲 3 章含字数目标）。 */
 function makeLongBook(): string {
-  const root = mkdtempSync(join(tmpdir(), 'r44-rhythm-cache-'))
+  const root = mkdtempTracked(join(tmpdir(), 'r44-rhythm-cache-'))
   roots.push(root)
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '大纲', '章纲'), { recursive: true })

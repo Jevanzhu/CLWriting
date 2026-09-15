@@ -1,13 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { computeRevision } from '../../src/document/revision.js'
 
 describe('computeRevision', () => {
   let dir: string
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'rev-'))
+    dir = mkdtempTracked(join(tmpdir(), 'rev-'))
   })
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true })

@@ -16,9 +16,10 @@
  *    生效值、导出常量只是默认档」的分层成立。
  */
 import { describe, it, expect } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import * as serviceMod from '../../src/document/service.js'
 import * as journalMod from '../../src/document/journal.js'
 import * as manifestMod from '../../src/document/manifest.js'
@@ -49,7 +50,7 @@ describe('R30-18 / 锁超时档常量化', () => {
   })
 
   it('注入钩子仍生效：清单锁在持时按注入档快速 fail-closed（远小于 5s 默认档）', () => {
-    const root = mkdtempSync(join(tmpdir(), 'r30-consts-'))
+    const root = mkdtempTracked(join(tmpdir(), 'r30-consts-'))
     try {
       const manifestPath = join(root, '项目', '文档清单.jsonl')
       mkdirSync(dirname(manifestPath), { recursive: true })

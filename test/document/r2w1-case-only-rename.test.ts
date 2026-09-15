@@ -4,14 +4,15 @@
  * win 上修复前 existsSync(newSafe) 恒真 → 恒 409；posix 上走常规落位路径（回归保护）。
  */
 import { describe, expect, it } from 'vitest'
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { DocumentService } from '../../src/document/service.js'
 import { legacyId } from '../../src/document/stable-id.js'
 
 function makeSvc(): { root: string; svc: DocumentService } {
-  const root = mkdtempSync(join(tmpdir(), 'clw-r2w1-case-'))
+  const root = mkdtempTracked(join(tmpdir(), 'clw-r2w1-case-'))
   return { root, svc: new DocumentService({ bookRoot: root }) }
 }
 

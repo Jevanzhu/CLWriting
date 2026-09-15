@@ -11,10 +11,11 @@
  *   2. 无争用时异步自愈路径的悬置 pending 清理仍正确（补清单 + settled，不报
  *      crashedWrite）。
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { detectState } from '../../src/state/state.js'
 import { __setManifestLockTimeoutForTest, MANIFEST_LOCK_TIMEOUT_MS, readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { appendMovePending, findUnsettled } from '../../src/document/journal.js'
@@ -48,7 +49,7 @@ async function makePendingBook(): Promise<void> {
 }
 
 beforeEach(async () => {
-  bookRoot = mkdtempSync(join(tmpdir(), 'clw-r35-5-'))
+  bookRoot = mkdtempTracked(join(tmpdir(), 'clw-r35-5-'))
   await makePendingBook()
 })
 

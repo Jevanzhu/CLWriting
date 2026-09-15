@@ -6,9 +6,10 @@
  * （该文档永久 REVISION_CONFLICT + finalizedPathSet 失配）。前导 `/` 与空目录拒绝。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, existsSync } from 'node:fs'
+import { mkdirSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { DocumentService } from '../../src/document/service.js'
 import { readManifest } from '../../src/document/manifest.js'
 import { computeRevision } from '../../src/document/revision.js'
@@ -18,7 +19,7 @@ let svc: DocumentService
 let seq = 0
 
 beforeEach(() => {
-  bookRoot = mkdtempSync(join(tmpdir(), 'clw-r66-5-'))
+  bookRoot = mkdtempTracked(join(tmpdir(), 'clw-r66-5-'))
   mkdirSync(join(bookRoot, '工作区'), { recursive: true })
   svc = new DocumentService({ bookRoot })
 })

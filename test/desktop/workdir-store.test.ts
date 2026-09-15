@@ -7,9 +7,10 @@
  * 另补「stat 挂起（失联网络卷）超时保留展示」回归臂（注入永不 settle 的 stat）。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import {
   filterValidRecentBudgeted,
   emptyStore,
@@ -23,7 +24,7 @@ let fileImpostor: string
 let missing: string
 
 beforeEach(() => {
-  tmp = mkdtempSync(join(tmpdir(), 'clw-workdir-store-'))
+  tmp = mkdtempTracked(join(tmpdir(), 'clw-workdir-store-'))
   realDir = join(tmp, '真书库')
   mkdirSync(realDir)
   // 同名「文件」顶替书库目录的形态（R26-93 核心场景）

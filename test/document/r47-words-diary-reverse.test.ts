@@ -6,7 +6,7 @@
  * 测试内正序参考实现对照求值等价，另覆盖坏行容错与截断尾行。
  */
 import { test, expect } from 'vitest'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readTodayDelta, wordsDiaryPath } from '../../src/document/words-diary.js'
@@ -135,7 +135,7 @@ test('R47-25: 大历史前置 + 当日尾部——当日求值不受历史长度
 
 // 直接 mkdtemp 的兜底清理（mkdtempTracked 之外确保无残留——与同目录测试同款 try/finally 习惯）
 test('R47-25: 无日记文件 → null（原语义保持）', () => {
-  const root = mkdtempSync(join(tmpdir(), 'w-diary-r47-empty-'))
+  const root = mkdtempTracked(join(tmpdir(), 'w-diary-r47-empty-'))
   try {
     expect(readTodayDelta(root, '2026-09-05')).toBeNull()
   } finally {

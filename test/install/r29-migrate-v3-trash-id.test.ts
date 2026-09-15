@@ -10,9 +10,10 @@
  * 口径兜底）。
  */
 import { test, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { migrateLayoutV3 } from '../../src/install/migrate-layout-v3.js'
 import { listTrash, type TrashEntry } from '../../src/document/trash.js'
 import { legacyId } from '../../src/document/stable-id.js'
@@ -27,7 +28,7 @@ const MANIFEST_FINALIZED = [
 let root: string
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'clw-r29-trash-id-'))
+  root = mkdtempTracked(join(tmpdir(), 'clw-r29-trash-id-'))
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '写作', '草稿'), { recursive: true })
   writeFileSync(join(root, FINALIZED_REL), FINALIZED_FM, 'utf-8')
@@ -73,7 +74,7 @@ test('id 确定性：两本同构书迁移产物同 id（迁移幂等 / 还原�
   expect(r1.migrated).toBe(1)
   const id1 = trashEntryOf(root).id
 
-  const root2 = mkdtempSync(join(tmpdir(), 'clw-r29-trash-id-2-'))
+  const root2 = mkdtempTracked(join(tmpdir(), 'clw-r29-trash-id-2-'))
   try {
     mkdirSync(join(root2, '写作', '正文'), { recursive: true })
     mkdirSync(join(root2, '写作', '草稿'), { recursive: true })

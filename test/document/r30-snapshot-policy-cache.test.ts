@@ -12,9 +12,10 @@
  * 版本量通过 restore origin 的强制留底堆叠（force 跳过节流，内容逐次不同不被去重）。
  */
 import { test, expect } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, statSync, utimesSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, statSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { DocumentService } from '../../src/document/service.js'
 import { listVersions, VERSIONS_DIR_NAME } from '../../src/document/version.js'
 import { computeRevision } from '../../src/document/revision.js'
@@ -29,8 +30,8 @@ interface Ctx {
 }
 
 function setup(): Ctx {
-  const root = mkdtempSync(join(tmpdir(), 'r30-policy-book-'))
-  const userData = mkdtempSync(join(tmpdir(), 'r30-policy-ud-'))
+  const root = mkdtempTracked(join(tmpdir(), 'r30-policy-book-'))
+  const userData = mkdtempTracked(join(tmpdir(), 'r30-policy-ud-'))
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   writeFileSync(join(root, '写作', '正文', '0001-开篇.md'), '---\n章号: 1\n标题: 开篇\n---\n\n第一版\n', 'utf-8')
   const globalJson = join(userData, 'global.json')

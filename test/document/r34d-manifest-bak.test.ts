@@ -7,15 +7,16 @@
  * 总有上一份好内容可恢复。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { readManifest, writeManifest, upsertEntry, type Manifest } from '../../src/document/manifest.js'
 
 describe('writeManifest .bak 影子（R34D-4）', () => {
   let dir: string
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'r34d-bak-'))
+    dir = mkdtempTracked(join(tmpdir(), 'r34d-bak-'))
   })
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true })

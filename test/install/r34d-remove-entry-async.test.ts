@@ -3,10 +3,11 @@
  * 语义与同步版逐位对齐：锁内 RMW 过滤、活动书指针清理、超时跳过留痕（登记不动）。
  * 锁超时注入走 __setBooksLockTimeoutForTest（生产零调用钩子）。
  */
-import { mkdtempSync, rmSync } from 'node:fs'
+import { rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, afterEach, describe, expect, it } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import {
   readBooks,
   writeBooks,
@@ -20,7 +21,7 @@ import {
 let workDir = ''
 
 beforeEach(() => {
-  workDir = mkdtempSync(join(tmpdir(), 'r34d-rem-'))
+  workDir = mkdtempTracked(join(tmpdir(), 'r34d-rem-'))
   writeBooks(workDir, [
     { name: '书A', path: '好/书A', kind: 'short' },
     { name: '书B', path: '好/书B', kind: 'short' },

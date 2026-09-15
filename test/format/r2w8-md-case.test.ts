@@ -8,15 +8,16 @@
  * 由存量 prepare 套件回归保护。
  */
 import { describe, expect, it } from 'vitest'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { readEntries } from '../../src/format/style-entry.js'
 import { readCandidates } from '../../src/format/style-candidate.js'
 
 describe('.md 过滤大小写不敏感（R2W-8）', () => {
   it('.MD 文件进入 readEntries 扫描面（errors 可见即证明被扫到）', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'clw-r2w8-mdcase-'))
+    const dir = mkdtempTracked(join(tmpdir(), 'clw-r2w8-mdcase-'))
     try {
       const kindDir = join(dir, '样章')
       mkdirSync(kindDir, { recursive: true })
@@ -35,7 +36,7 @@ describe('.md 过滤大小写不敏感（R2W-8）', () => {
 
 describe('.md 过滤大小写不敏感（R41-16：候选箱）', () => {
   it('.MD 候选进入 readCandidates 扫描面（errors 可见即证明被扫到）', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'clw-r41-mdcase-'))
+    const dir = mkdtempTracked(join(tmpdir(), 'clw-r41-mdcase-'))
     try {
       const candDir = join(dir, '候选')
       mkdirSync(candDir, { recursive: true })

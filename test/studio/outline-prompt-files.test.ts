@@ -11,9 +11,10 @@
  * （用「卷摘要路径是目录」稳定复现 EISDIR）应降级为整段省略，不裸穿 500。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import {
   buildOutlinePromptWithFiles,
   volumeProgressOf,
@@ -27,7 +28,7 @@ function makeChapter(dir: string, fileName: string, fm: string, body = '正文�
 }
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'clwriting-r66-7-'))
+  root = mkdtempTracked(join(tmpdir(), 'clwriting-r66-7-'))
 })
 
 afterEach(() => {

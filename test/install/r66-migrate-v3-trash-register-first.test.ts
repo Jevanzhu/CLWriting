@@ -6,9 +6,10 @@
  * 纪律：登记成功后才移文件；反向残留（登记在而文件未动）为无害孤儿条目。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, renameSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, existsSync, renameSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 // renameSync 定点失败注入：只对「移入 .trash 的目标路径」抛错（精确匹配目标文件，
 // 不误伤 atomicWriteFile 的临时文件 rename 与 trash 清单自身写入）
@@ -35,7 +36,7 @@ const LANDING = '写作/正文/0001-占位.md'
 let root: string
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'clw-r66-21-'))
+  root = mkdtempTracked(join(tmpdir(), 'clw-r66-21-'))
   // 正文区已有同章号章（章号 1）→ 草稿-1 目标冲突 → 走 trashDraft 回收站路径
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   writeFileSync(

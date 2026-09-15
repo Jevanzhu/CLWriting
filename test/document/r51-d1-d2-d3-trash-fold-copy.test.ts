@@ -15,9 +15,10 @@
  *   原始 relPath PATH_ESCAPE 前置同口径）。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { scaffoldBook } from '../helpers/book.js'
 import { restoreTrash, purgeTrash, appendTrashEntry } from '../../src/document/trash.js'
 import { DocumentService } from '../../src/document/service.js'
@@ -145,7 +146,7 @@ describe('R51-D-2: 折叠面扩至 darwin（platformCaseFold / samePath / 清单
 
   it('darwin：清单锁 case 变体重入命中同键——不发起第二次物理取锁（r45-2 win32 孪生）', () => {
     Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
-    const root = mkdtempSync(join(tmpdir(), 'clw-r51-d2-mlock-'))
+    const root = mkdtempTracked(join(tmpdir(), 'clw-r51-d2-mlock-'))
     __setManifestLockTimeoutForTest(50)
     try {
       mkdirSync(join(root, '项目'), { recursive: true })

@@ -1,13 +1,14 @@
 import { test, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs'
+import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { harvestStyleCandidates } from '../../src/process/style-harvest.js'
 import { readCandidates, CANDIDATES_DIR } from '../../src/format/style-candidate.js'
 
 let root = ''
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'clw-harvest-'))
+  root = mkdtempTracked(join(tmpdir(), 'clw-harvest-'))
 })
 afterEach(() => {
   rmSync(root, { recursive: true, force: true })

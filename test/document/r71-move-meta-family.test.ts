@@ -12,9 +12,10 @@
  *   按 R33-9 段消毒单字段落 `_`（不再拆层、不再拒伪 UNC），两臂分别钉定。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, existsSync, writeFileSync, linkSync, readFileSync } from 'node:fs'
+import { mkdirSync, rmSync, existsSync, writeFileSync, linkSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { DocumentService } from '../../src/document/service.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { appendMovePending } from '../../src/document/journal.js'
@@ -26,7 +27,7 @@ let svc: DocumentService
 let seq = 0
 
 beforeEach(() => {
-  bookRoot = mkdtempSync(join(tmpdir(), 'clw-r71-doc-'))
+  bookRoot = mkdtempTracked(join(tmpdir(), 'clw-r71-doc-'))
   mkdirSync(join(bookRoot, '工作区'), { recursive: true })
   svc = new DocumentService({ bookRoot })
 })

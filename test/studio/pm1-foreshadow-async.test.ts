@@ -9,10 +9,11 @@
  *   少量超大文档驻留膨胀；同步/异步孪生共享同一计账。断言：超预算逐出最旧、
  *   最新条目恒保留、覆写同键不双计、delete 扣账、字节观测钩子一致。
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import {
   getForeshadowsCached,
   getForeshadowsCachedAsync,
@@ -32,7 +33,7 @@ let roots: string[] = []
 
 /** 建书：2 条伏笔 + 30 章正文（跨 >25 章触发异步索引至少一次让出切片）。 */
 function makeTree(chapters = 30): string {
-  const root = mkdtempSync(join(tmpdir(), 'pm1-foreshadow-'))
+  const root = mkdtempTracked(join(tmpdir(), 'pm1-foreshadow-'))
   roots.push(root)
   mkdirSync(join(root, '设定', '伏笔'), { recursive: true })
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
@@ -122,7 +123,7 @@ describe('PM-8 md-text-cache 字节预算', () => {
   it('超预算逐出最旧条目，最新条目恒保留，字节计账归预算内', () => {
     __mdTextCacheTestHooks.clear()
     __mdTextCacheTestHooks.setMaxBytesForTest(1024)
-    const dir = mkdtempSync(join(tmpdir(), 'pm8-bytes-'))
+    const dir = mkdtempTracked(join(tmpdir(), 'pm8-bytes-'))
     roots.push(dir)
     // 3 × ~600B 文件：预算 1KB 只容最新 1-2 条
     for (const name of ['a.md', 'b.md', 'c.md']) {
@@ -140,7 +141,7 @@ describe('PM-8 md-text-cache 字节预算', () => {
   it('覆写同键不双计字节；条目删除扣账', async () => {
     __mdTextCacheTestHooks.clear()
     __mdTextCacheTestHooks.setMaxBytesForTest(64 * 1024 * 1024)
-    const dir = mkdtempSync(join(tmpdir(), 'pm8-overwrite-'))
+    const dir = mkdtempTracked(join(tmpdir(), 'pm8-overwrite-'))
     roots.push(dir)
     const fp = join(dir, 'x.md')
     writeFileSync(fp, '旧'.repeat(100), 'utf-8')

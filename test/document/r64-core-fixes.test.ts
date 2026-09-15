@@ -8,9 +8,10 @@
  * R64-25（global-defaults 缓存）在同目录 r64-defaults-cache.test.ts 单独成文（需 mock node:fs）。
  */
 import { test, describe, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync, statSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, existsSync, readFileSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 import { writeVersion, readVersionMeta, VERSIONS_DIR_NAME } from '../../src/document/version.js'
 import { purgeTrash, restoreTrash } from '../../src/document/trash.js'
@@ -28,7 +29,7 @@ import { log } from '../../src/log/index.js'
 
 let root: string
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'clw-r64-core-'))
+  root = mkdtempTracked(join(tmpdir(), 'clw-r64-core-'))
 })
 afterEach(() => {
   rmSync(root, { recursive: true, force: true })
@@ -107,7 +108,7 @@ describe('R64-16：rename newName 含路径分隔符 → PATH_ESCAPE', () => {
   let bookRoot: string
   let svc: DocumentService
   beforeEach(() => {
-    bookRoot = mkdtempSync(join(tmpdir(), 'clw-r64-svc-'))
+    bookRoot = mkdtempTracked(join(tmpdir(), 'clw-r64-svc-'))
     mkdirSync(join(bookRoot, '工作区'), { recursive: true })
     svc = new DocumentService({ bookRoot: bookRoot })
   })

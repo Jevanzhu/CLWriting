@@ -7,9 +7,10 @@
  * 不一致）。修复后两路径与 create 同源口径静默消毒；路径分隔符仍显式拒绝。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { DocumentService } from '../../src/document/service.js'
 import { listTrash } from '../../src/document/trash.js'
 import { writeManifest } from '../../src/document/manifest.js'
@@ -18,7 +19,7 @@ let bookRoot: string
 let svc: DocumentService
 
 beforeEach(() => {
-  bookRoot = mkdtempSync(join(tmpdir(), 'r29-sanitize-'))
+  bookRoot = mkdtempTracked(join(tmpdir(), 'r29-sanitize-'))
   mkdirSync(join(bookRoot, '工作区'), { recursive: true })
   svc = new DocumentService({ bookRoot })
 })

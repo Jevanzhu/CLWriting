@@ -13,9 +13,10 @@
  *   压低 warnThreshold 触发截断——两条合法命中都在（修复前盲 pop 只剩一条）。
  */
 import { describe, it, expect, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync } from 'node:fs'
+import { rmSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { openRagDb, storeChunk, streamChunkScores } from '../../src/rag/store.js'
 import { buildIndex, recallDetailed } from '../../src/rag/index.js'
 import { writeChapter } from '../helpers/chapter.js'
@@ -44,7 +45,7 @@ describe('R49-20 store 层：streamChunkScores 探针行标记', () => {
   })
 
   it('探针行（第 maxRows 个产出行）为不匹配行时：只计数不入 rows，lastProducedWasMatch=false', () => {
-    bookRoot = mkdtempSync(join(tmpdir(), 'rag-r49-store-'))
+    bookRoot = mkdtempTracked(join(tmpdir(), 'rag-r49-store-'))
     const db = openRagDb(bookRoot)
     try {
       // 行序 = 插入序（rowid 扫表序）：A1, A2, B1(mismatch), A3
@@ -63,7 +64,7 @@ describe('R49-20 store 层：streamChunkScores 探针行标记', () => {
   })
 
   it('探针行为匹配行时：lastProducedWasMatch=true（调用方照旧剔除，旧语义不回退）', () => {
-    bookRoot = mkdtempSync(join(tmpdir(), 'rag-r49-store-'))
+    bookRoot = mkdtempTracked(join(tmpdir(), 'rag-r49-store-'))
     const db = openRagDb(bookRoot)
     try {
       storeChunk(db, { 章号: 1, start_offset: 0, end_offset: 10, embedding: Float32Array.from([1, 0, 0]), model: 'm-a' })
@@ -88,7 +89,7 @@ describe('R49-20 recallDetailed 层：截断边界不多删合法命中', () => 
   })
 
   it('混 model 库截断：探针行不匹配时不删第 N 条合法命中', async () => {
-    bookRoot = mkdtempSync(join(tmpdir(), 'rag-r49-recall-'))
+    bookRoot = mkdtempTracked(join(tmpdir(), 'rag-r49-recall-'))
     mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
     const meta: ChapterMeta = {
       章号: 1, 标题: '第1章', 钩子类型: '悬念钩', 钩子强弱: '中', 情绪定位: '铺垫',

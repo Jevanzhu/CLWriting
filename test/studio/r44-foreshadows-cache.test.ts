@@ -10,10 +10,11 @@
  * 断言用「全量重扫计数」观测口（__foreshadowScanCountForTest），确定性不依赖墙钟 5s
  *（先例 r35-search-cache / r36-version-stats-cache）。
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import {
   getForeshadowsCached,
   forgetForeshadowCache,
@@ -28,7 +29,7 @@ let roots: string[] = []
 
 /** 建书：2 条伏笔（铜锁 未回收 / 断剑 已回收）+ 2 章正文（1 章含铜锁、2 章含玉佩）。 */
 function makeTree(): string {
-  const root = mkdtempSync(join(tmpdir(), 'r44-fs-cache-'))
+  const root = mkdtempTracked(join(tmpdir(), 'r44-fs-cache-'))
   roots.push(root)
   mkdirSync(join(root, '设定', '伏笔'), { recursive: true })
   mkdirSync(join(root, '写作', '正文'), { recursive: true })

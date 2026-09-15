@@ -7,15 +7,16 @@
  *   崩溃态）→ 中止上抛；路径不存在的「删后重写」放行（旧内容在回收站，故意重写不受阻）。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { saveDraft } from '../../src/process/draft-pipeline.js'
 import { appendTrashEntry } from '../../src/document/trash.js'
 
 let root: string
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'clw-y3-'))
+  root = mkdtempTracked(join(tmpdir(), 'clw-y3-'))
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
 })
 afterEach(() => {

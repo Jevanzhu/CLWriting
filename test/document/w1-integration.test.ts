@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import {
-  mkdtempSync,
+ 
   mkdirSync,
   rmSync,
   writeFileSync,
@@ -17,6 +17,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { DocumentService } from '../../src/document/service.js'
 import { hashFile } from '../../src/fs/hash.js'
 
@@ -24,7 +25,7 @@ describe('W1 / 原子性与路径安全', () => {
   let bookRoot: string
   let svc: DocumentService
   beforeEach(() => {
-    bookRoot = mkdtempSync(join(tmpdir(), 'w1-'))
+    bookRoot = mkdtempTracked(join(tmpdir(), 'w1-'))
     mkdirSync(join(bookRoot, '工作区'), { recursive: true })
     svc = new DocumentService({ bookRoot })
   })
@@ -67,7 +68,7 @@ describe('W1 / 清单与快照策略', () => {
   let bookRoot: string
   let svc: DocumentService
   beforeEach(() => {
-    bookRoot = mkdtempSync(join(tmpdir(), 'w1m-'))
+    bookRoot = mkdtempTracked(join(tmpdir(), 'w1m-'))
     mkdirSync(join(bookRoot, '工作区'), { recursive: true })
     svc = new DocumentService({ bookRoot })
   })
@@ -101,7 +102,7 @@ describe('W1 / superseded 传播', () => {
   let bookRoot: string
   let svc: DocumentService
   beforeEach(() => {
-    bookRoot = mkdtempSync(join(tmpdir(), 'w1s-'))
+    bookRoot = mkdtempTracked(join(tmpdir(), 'w1s-'))
     mkdirSync(join(bookRoot, '工作区'), { recursive: true })
     svc = new DocumentService({ bookRoot })
   })

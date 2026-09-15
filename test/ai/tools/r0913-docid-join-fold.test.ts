@@ -9,9 +9,10 @@
  * 折叠面 = win32+darwin）按平台分支（R45-2 钉值测试同族：linux 为不折叠臂）。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
+import { mkdtempTracked } from '../../helpers/temp-dir.js'
 import { chapterToDocId } from '../../../src/ai/tools/shared.js'
 import { legacyId } from '../../../src/document/stable-id.js'
 import { writeManifest } from '../../../src/document/manifest.js'
@@ -19,7 +20,7 @@ import { writeManifest } from '../../../src/document/manifest.js'
 let bookRoot: string
 
 beforeEach(() => {
-  bookRoot = mkdtempSync(join(tmpdir(), 'r0913-docid-'))
+  bookRoot = mkdtempTracked(join(tmpdir(), 'r0913-docid-'))
 })
 
 afterEach(() => {

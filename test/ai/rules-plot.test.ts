@@ -15,6 +15,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { plotConsistencyRule } from '../../src/ai/rules/plot-rule.js'
 import { collectRuleViolations } from '../../src/ai/rules/index.js'
 
@@ -44,7 +45,7 @@ describe('A3 plotConsistencyRule（情节一致规则）', () => {
 
   it('无章纲目录 → check 返回空数组', () => {
     // 空临时目录（无 大纲/章纲 结构）
-    const emptyRoot = mkdtempSync(join(tmpdir(), 'clwriting-plot-empty-'))
+    const emptyRoot = mkdtempTracked(join(tmpdir(), 'clwriting-plot-empty-'))
     try {
       const violations = plotConsistencyRule.check('---\n章号: 1\n---\n正文\n', {
         bookRoot: emptyRoot,

@@ -11,9 +11,10 @@
  * 另含 R44-7 的 init.ts 计数点用例（countMarkdownFiles 的 .MD 大写扩展名计数）。
  */
 import { describe, it, expect, afterEach, vi } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 // 注入开关：默认全透传（不影响真实 IO），用例内按需置位
 const MOCK = vi.hoisted(() => ({ writeActiveThrows: false, mkdirThrows: false }))
@@ -74,7 +75,7 @@ afterEach(() => {
 describe('R44-18①：writeActive 失败不再裸穿 reject（登记在、active 未写 → 可行动 reason）', () => {
   it('doInitAsync：mock writeActive 抛 EACCES → 不 reject，reason 明示登记成功 + 手动启用；登记已落盘', async () => {
     MOCK.writeActiveThrows = true
-    const wd = mkdtempSync(join(tmpdir(), 'clw-r44-contract-'))
+    const wd = mkdtempTracked(join(tmpdir(), 'clw-r44-contract-'))
     try {
       let thrown: unknown = null
       let r: Awaited<ReturnType<typeof doInitAsync>> | null = null
@@ -99,7 +100,7 @@ describe('R44-18①：writeActive 失败不再裸穿 reject（登记在、active
 
   it('doInit（同步孪生调用点）同源收口：不 throw、同 reason 语义', () => {
     MOCK.writeActiveThrows = true
-    const wd = mkdtempSync(join(tmpdir(), 'clw-r44-contract-sync-'))
+    const wd = mkdtempTracked(join(tmpdir(), 'clw-r44-contract-sync-'))
     try {
       let thrown: unknown = null
       let r: ReturnType<typeof doInit> | null = null
@@ -121,7 +122,7 @@ describe('R44-18①：writeActive 失败不再裸穿 reject（登记在、active
 
 describe('R44-18②：tryBooksLock(Async) 的 mkdirSync 抛错收编为获取锁失败语义', () => {
   it('mock mkdirSync 抛 EACCES → tryBooksLock 返回 null 不抛，warn 留痕', () => {
-    const wd = mkdtempSync(join(tmpdir(), 'clw-r44-lock-'))
+    const wd = mkdtempTracked(join(tmpdir(), 'clw-r44-lock-'))
     try {
       MOCK.mkdirThrows = true
       let thrown: unknown = null
@@ -141,7 +142,7 @@ describe('R44-18②：tryBooksLock(Async) 的 mkdirSync 抛错收编为获取锁
   })
 
   it('异步孪生 tryBooksLockAsync 同堵：返回 null 不抛', async () => {
-    const wd = mkdtempSync(join(tmpdir(), 'clw-r44-lock-async-'))
+    const wd = mkdtempTracked(join(tmpdir(), 'clw-r44-lock-async-'))
     try {
       MOCK.mkdirThrows = true
       let thrown: unknown = null
@@ -160,7 +161,7 @@ describe('R44-18②：tryBooksLock(Async) 的 mkdirSync 抛错收编为获取锁
   })
 
   it('调用方面：appendBookAsync 在锁获取失败（EACCES 形态）下返回 {ok:false} 不裸抛', async () => {
-    const wd = mkdtempSync(join(tmpdir(), 'clw-r44-lock-append-'))
+    const wd = mkdtempTracked(join(tmpdir(), 'clw-r44-lock-append-'))
     try {
       MOCK.mkdirThrows = true
       const r = await appendBookAsync(wd, { name: '被挡书', path: '长篇/被挡书', kind: 'long' })
@@ -176,7 +177,7 @@ describe('R44-18②：tryBooksLock(Async) 的 mkdirSync 抛错收编为获取锁
 
 describe('R44-7：init 半成品判定的 .MD 计数（countMarkdownFiles）', () => {
   it('骨架签名 + 写作/正文 仅 .MD 大写正文 → 不再判为可复跑半成品，拒绝而非覆写', () => {
-    const wd = mkdtempSync(join(tmpdir(), 'clw-r44-md-count-'))
+    const wd = mkdtempTracked(join(tmpdir(), 'clw-r44-md-count-'))
     try {
       const bookRoot = join(wd, '长篇', '半成品书')
       mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
@@ -186,7 +187,7 @@ describe('R44-7：init 半成品判定的 .MD 计数（countMarkdownFiles）', (
       expect(r.ok).toBe(false)
       expect((r as { ok: false; reason: string }).reason).toContain('已存在且非空')
       // 正文零文件（仅骨架）仍走幂等复跑分支——计数点收紧不误伤原语义的对照断言
-      const wd2 = mkdtempSync(join(tmpdir(), 'clw-r44-md-count2-'))
+      const wd2 = mkdtempTracked(join(tmpdir(), 'clw-r44-md-count2-'))
       try {
         const bookRoot2 = join(wd2, '长篇', '空壳书')
         mkdirSync(join(bookRoot2, '写作', '正文'), { recursive: true })

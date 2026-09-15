@@ -8,9 +8,10 @@
  * 正文文件为装置真实性照常落盘）。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { volumeChainState } from '../../src/process/summary.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 import { generateDocId } from '../../src/document/stable-id.js'
@@ -29,7 +30,7 @@ afterEach(() => {
 
 /** 造书（volumeSize=3）：specs 逐章给宽容命名 + 是否放章摘要；定稿基线走 manifest */
 function makeBookWideNamed(specs: Array<{ no: number; name: string; withSummary: boolean }>): string {
-  const root = mkdtempSync(join(tmpdir(), 'clw-r1010b-volchain-'))
+  const root = mkdtempTracked(join(tmpdir(), 'clw-r1010b-volchain-'))
   dirs.push(root)
   mkdirSync(join(root, '布线', '悬念'), { recursive: true })
   mkdirSync(join(root, '写作', '正文'), { recursive: true })

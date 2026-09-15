@@ -11,9 +11,10 @@
  * 有 stat 指纹缓存，mock 故障必须在任何缓存预热前启用）。
  */
 import { test, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const FAIL = vi.hoisted(() => ({ manifestRead: false }))
 vi.mock('node:fs', async (importOriginal) => {
@@ -39,7 +40,7 @@ let bookRoot = ''
 let svc: DocumentService
 
 beforeEach(() => {
-  bookRoot = mkdtempSync(join(tmpdir(), 'clw-r0912-strict-'))
+  bookRoot = mkdtempTracked(join(tmpdir(), 'clw-r0912-strict-'))
   mkdirSync(join(bookRoot, '设定'), { recursive: true })
   mkdirSync(join(bookRoot, '项目'), { recursive: true })
   mkdirSync(join(bookRoot, '工作区'), { recursive: true })

@@ -9,10 +9,11 @@
  * - R35-16：ai-calls.json chapter 块 token 字段坏值静默归 0，与 tasks 块判 corrupt
  *   的读校验不对称——对齐后坏值保守阻断。
  */
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
 import { resetDegradedChannels } from '../../src/ai/provider/store.js'
 import { createFakeProvider, type FakeProvider } from './fake-provider.js'
@@ -179,7 +180,7 @@ describe('R35-16：chapter 块 token 字段坏值判 corrupt（与 tasks 块读�
   }
 
   it('inputTokens 非数字 → 保守阻断（修复前静默归 0 放行，烂账不可见）', () => {
-    const root = mkdtempSync(join(tmpdir(), 'clwriting-r35-calls-'))
+    const root = mkdtempTracked(join(tmpdir(), 'clwriting-r35-calls-'))
     dirs.push(root)
     writeLedger(root, { chapter: { num: 1, used: 2, inputTokens: '100', outputTokens: 50 }, tasks: {} })
     const b = checkAiCallBudget(root, 1, CONFIG)
@@ -188,7 +189,7 @@ describe('R35-16：chapter 块 token 字段坏值判 corrupt（与 tasks 块读�
   })
 
   it('缺 outputTokens 字段 → 同判 corrupt（tasks 块同款口径）', () => {
-    const root = mkdtempSync(join(tmpdir(), 'clwriting-r35-calls-'))
+    const root = mkdtempTracked(join(tmpdir(), 'clwriting-r35-calls-'))
     dirs.push(root)
     writeLedger(root, { chapter: { num: 1, used: 1, inputTokens: 10 }, tasks: {} })
     const b = checkAiCallBudget(root, 1, CONFIG)
@@ -196,7 +197,7 @@ describe('R35-16：chapter 块 token 字段坏值判 corrupt（与 tasks 块读�
   })
 
   it('对照：合法记录（无 cache/cost 可选字段）读入不损坏', () => {
-    const root = mkdtempSync(join(tmpdir(), 'clwriting-r35-calls-'))
+    const root = mkdtempTracked(join(tmpdir(), 'clwriting-r35-calls-'))
     dirs.push(root)
     writeLedger(root, { chapter: { num: 1, used: 1, inputTokens: 10, outputTokens: 20 }, tasks: {} })
     const b = checkAiCallBudget(root, 1, CONFIG)

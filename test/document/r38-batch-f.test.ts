@@ -10,10 +10,11 @@
  * 站点扫描，扩展 test/fs/mp2-3-rename-retry-sites 先例）。
  */
 import { describe, expect, it, vi, afterEach } from 'vitest'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const failState = vi.hoisted(() => ({
   /** 命中即抛一次 EPERM 后放行（瞬时锁形态）。 */
@@ -44,7 +45,7 @@ afterEach(() => {
 
 describe('R38-13: migrateVersionsDir 穿透 win 瞬时锁', () => {
   it('整目录 rename 撞一次 EPERM → 退避后迁移成功（.snapshots → .版本）', () => {
-    const root = mkdtempSync(join(tmpdir(), 'r38-vmig-'))
+    const root = mkdtempTracked(join(tmpdir(), 'r38-vmig-'))
     try {
       const legacy = join(root, '工作区', '.snapshots')
       const target = join(root, '工作区', '.版本')

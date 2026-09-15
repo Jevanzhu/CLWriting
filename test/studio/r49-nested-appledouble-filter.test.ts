@@ -10,9 +10,10 @@
  * （countChapters 直接消费 listMdRecursive）。每用例独立 tmpdir 书根，缓存键不串。
  */
 import { describe, it, expect, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { getSettingsCached } from '../../src/studio/server/api/settings.js'
 
 let root = ''
@@ -30,7 +31,7 @@ function currentChapters(bookRoot: string): number {
 
 describe('R49-7: listMdRecursive 嵌套 AppleDouble（._）过滤', () => {
   it('嵌套子目录内的 ._ 文件不再计入正文章节数', () => {
-    root = mkdtempSync(join(tmpdir(), 'clwriting-r49-7-'))
+    root = mkdtempTracked(join(tmpdir(), 'clwriting-r49-7-'))
     const prose = join(root, '写作', '正文')
     mkdirSync(join(prose, '卷一'), { recursive: true })
     writeFileSync(join(prose, '001-第一章.md'), '---\n章号: 1\n标题: 第一章\n---\n正文')
@@ -42,7 +43,7 @@ describe('R49-7: listMdRecursive 嵌套 AppleDouble（._）过滤', () => {
   })
 
   it('顶层 ._ 文件照旧过滤（行为不变）', () => {
-    root = mkdtempSync(join(tmpdir(), 'clwriting-r49-7-'))
+    root = mkdtempTracked(join(tmpdir(), 'clwriting-r49-7-'))
     const prose = join(root, '写作', '正文')
     mkdirSync(prose, { recursive: true })
     writeFileSync(join(prose, '001-第一章.md'), '---\n章号: 1\n标题: 第一章\n---\n正文')
@@ -51,7 +52,7 @@ describe('R49-7: listMdRecursive 嵌套 AppleDouble（._）过滤', () => {
   })
 
   it('路径段（目录段）以 ._ 开头的嵌套文件也过滤', () => {
-    root = mkdtempSync(join(tmpdir(), 'clwriting-r49-7-'))
+    root = mkdtempTracked(join(tmpdir(), 'clwriting-r49-7-'))
     const prose = join(root, '写作', '正文')
     mkdirSync(join(prose, '._卷一'), { recursive: true })
     writeFileSync(join(prose, '001-第一章.md'), '---\n章号: 1\n标题: 第一章\n---\n正文')

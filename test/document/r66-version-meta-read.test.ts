@@ -6,9 +6,10 @@
  * origin 版本零整读、同 origin 内容比对整读一次、prune 判 pinned 零整读。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, rmSync, readFileSync } from 'node:fs'
+import { rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 // 计数 mock：只统计版本目录内文件的 readFileSync 整读（readVersionMeta 走
 // openSync/readSync 头部读，不经 readFileSync——计数值即「全文整读次数」）
@@ -37,7 +38,7 @@ let dir: string
 const docId = 'doc_r66_19'
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'clw-r66-19-'))
+  dir = mkdtempTracked(join(tmpdir(), 'clw-r66-19-'))
   READS.dir = dir
   READS.count = 0
 })

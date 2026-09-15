@@ -6,14 +6,15 @@
  * 主文件让位；同章标签仍不归档（覆盖语义保持）。
  */
 import { describe, expect, it } from 'vitest'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { archivePendingLeadUpdates } from '../../src/process/lead-update-draft.js'
 import { LEAD_UPDATES_FILE, LEAD_UPDATES_ARCHIVE_DIR } from '../../src/check/lead-updates.js'
 
 function makeRoot(): string {
-  const root = mkdtempSync(join(tmpdir(), 'clw-r2w2-bom-'))
+  const root = mkdtempTracked(join(tmpdir(), 'clw-r2w2-bom-'))
   mkdirSync(join(root, '工作区'), { recursive: true })
   return root
 }

@@ -1,5 +1,5 @@
 import { test, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { migrateLayoutV3 } from '../../src/install/migrate-layout-v3.js'
@@ -8,7 +8,7 @@ import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 let tmp: string
 beforeEach(() => {
-  tmp = mkdtempSync(join(tmpdir(), 'clw-migrate-v3-'))
+  tmp = mkdtempTracked(join(tmpdir(), 'clw-migrate-v3-'))
 })
 afterEach(() => {
   rmSync(tmp, { recursive: true, force: true })

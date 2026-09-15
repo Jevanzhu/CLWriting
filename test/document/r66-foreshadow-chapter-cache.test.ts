@@ -7,9 +7,10 @@
  * 变更章指纹失配自动重读并更新足迹。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 // 计数 mock：透明转发 + 按绝对路径计数（只数章正文文件的读取）
 const READS = vi.hoisted(() => new Map<string, number>())
@@ -31,7 +32,7 @@ let p1: string
 let p2: string
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'clw-r66-6-'))
+  root = mkdtempTracked(join(tmpdir(), 'clw-r66-6-'))
   const vol = join(root, '写作', '正文', '第一卷')
   mkdirSync(vol, { recursive: true })
   mkdirSync(join(root, '设定', '伏笔'), { recursive: true })

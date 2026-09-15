@@ -12,9 +12,10 @@
  * 3. 死进程 stale 接管——崩溃残留锁被接管，保存照常成功（锁基建语义在 save 链生效）。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { DocumentService } from '../../src/document/service.js'
 import { processBootTime } from '../../src/fs/cross-process-lock.js'
 
@@ -25,7 +26,7 @@ describe('R72-1 / 保存临界段跨进程锁', () => {
   let lockPath: string
 
   beforeEach(() => {
-    bookRoot = mkdtempSync(join(tmpdir(), 'r72-lock-'))
+    bookRoot = mkdtempTracked(join(tmpdir(), 'r72-lock-'))
     mkdirSync(join(bookRoot, '工作区'), { recursive: true })
     svc = new DocumentService({ bookRoot })
     journalPath = join(bookRoot, '工作区', '.journal', 'doc_1.jsonl')

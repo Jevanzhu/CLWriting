@@ -9,10 +9,11 @@
  * rebuild 链——行为与 md-text-cache forget 逐位同构，由本件 md 分支 + diff 复核覆盖。
  */
 import { describe, it, expect, afterEach, vi } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { syncChapter } from '../../src/cache/sync.js'
 import { createAllTables } from '../../src/cache/schema.js'
 import {
@@ -44,7 +45,7 @@ function caseVariant(root: string): string {
 
 describe('R0913-win P3：折叠键族', () => {
   it('syncChapter 重复章号告警：case 变体路径不误报（折叠面），异路径仍报（真重复不丢）', () => {
-    dir = mkdtempSync(join(tmpdir(), 'r0913-cache-'))
+    dir = mkdtempTracked(join(tmpdir(), 'r0913-cache-'))
     mkdirSync(join(dir, '写作', '正文'), { recursive: true })
     const db = new DatabaseSync(':memory:')
     createAllTables(db)
@@ -60,7 +61,7 @@ describe('R0913-win P3：折叠键族', () => {
   })
 
   it('forgetMdTextCacheForBook case 变体寻址：折叠面全清，不折叠面按字面前缀', () => {
-    dir = mkdtempSync(join(tmpdir(), 'r0913-mdcache-'))
+    dir = mkdtempTracked(join(tmpdir(), 'r0913-mdcache-'))
     mkdirSync(join(dir, '写作', '正文'), { recursive: true })
     const f = join(dir, '写作', '正文', '0001-a.md')
     writeFileSync(f, '---\n章号: 1\n---\n正文', 'utf-8')
@@ -72,7 +73,7 @@ describe('R0913-win P3：折叠键族', () => {
   })
 
   it('md-text-cache 正常 forget 不回归：原寻址单书清除计数准确', () => {
-    dir = mkdtempSync(join(tmpdir(), 'r0913-mdcache2-'))
+    dir = mkdtempTracked(join(tmpdir(), 'r0913-mdcache2-'))
     mkdirSync(join(dir, '写作', '正文'), { recursive: true })
     const f = join(dir, '写作', '正文', '0001-a.md')
     writeFileSync(f, 'x', 'utf-8')

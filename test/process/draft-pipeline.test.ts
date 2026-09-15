@@ -12,9 +12,10 @@
  * → ③ 细纲「## 场景声明」段（带章号门：细纲 fm 章号 === 被检章号才可信）→ 全空回落「通用」。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { buildDraftPrompt, SETTINGS_BUDGET_CHARS, snapshotBeforeOverwrite, saveDraft } from '../../src/process/draft-pipeline.js'
 
 /** Q-5（第十五轮）：buildDraftPrompt 返回 {prompt, files}——既有断言全部针对 prompt 文本；
@@ -37,7 +38,7 @@ function cfg(over: { chapterTarget?: number; injection?: 'light' | 'heavy' }): B
 let dir: string
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'clw-draft-'))
+  dir = mkdtempTracked(join(tmpdir(), 'clw-draft-'))
 })
 
 afterEach(() => {

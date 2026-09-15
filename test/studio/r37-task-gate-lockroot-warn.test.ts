@@ -5,10 +5,11 @@
  * 已持有的锁文件从此查询/续期失联）。修复后：覆盖非空旧值（且值实际变化）时
  * log.warn 带旧/新路径留痕；覆盖本身仍是合法操作（单进程单锁根契约，注释如实记）。
  */
-import { mkdtempSync, readdirSync, rmSync } from 'node:fs'
+import { readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import {
   configureTaskGateLockRoot,
   acquireTaskGate,
@@ -19,7 +20,7 @@ import { log } from '../../src/log/index.js'
 let dirs: string[] = []
 
 function tmpLockDir(): string {
-  const d = mkdtempSync(join(tmpdir(), 'r37-tg-lock-'))
+  const d = mkdtempTracked(join(tmpdir(), 'r37-tg-lock-'))
   dirs.push(d)
   return d
 }

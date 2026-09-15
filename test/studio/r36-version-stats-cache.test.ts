@@ -18,10 +18,11 @@
  * api/snapshots.ts R44-9 头注）；forgetVersionStatsCache 显式失效不受节流影响。
  * getVersionStatsCached 同步转 async（MISS 计算体分批让出），调用点补 await。
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import {
   getVersionStatsCached,
   forgetVersionStatsCache,
@@ -36,7 +37,7 @@ let roots: string[] = []
 
 /** 建书：1 个 pinned 定稿快照 + manifest 登记 doc_1 且 finalizedRevision 非空。 */
 function makeBook(): string {
-  const root = mkdtempSync(join(tmpdir(), 'r36-vs-cache-'))
+  const root = mkdtempTracked(join(tmpdir(), 'r36-vs-cache-'))
   roots.push(root)
   const vdir = join(root, '工作区', '.版本', 'doc_1')
   mkdirSync(vdir, { recursive: true })

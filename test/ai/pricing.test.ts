@@ -9,9 +9,10 @@
  * - budget 双口径键解析与序列化 round-trip + global 托底
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { pricingForProvider, computeCallCost, resolveModelPricing } from '../../src/ai/pricing.js'
 import { checkAiCallBudget, effectiveRemainingCalls, recordAiCall } from '../../src/ai/calls.js'
 import { aggregateCost } from '../../src/ai/cost-stats.js'
@@ -25,7 +26,7 @@ import type { BookConfig } from '../../src/format/types.js'
 const dirs: string[] = []
 
 function tmpDir(prefix: string): string {
-  const d = mkdtempSync(join(tmpdir(), prefix))
+  const d = mkdtempTracked(join(tmpdir(), prefix))
   dirs.push(d)
   return d
 }

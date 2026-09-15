@@ -7,10 +7,11 @@
  * 恢复）。修复后 byteRestore 路径传原始字节（同 doMoveOrRename / doTrash 原字节
  * 直存口径），版本快照与被覆盖文件逐字节一致。
  */
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { DocumentService } from '../../src/document/service.js'
 import { generateDocId } from '../../src/document/stable-id.js'
 import { listVersions, readVersionRaw, VERSIONS_DIR_NAME } from '../../src/document/version.js'
@@ -18,7 +19,7 @@ import { computeRevision } from '../../src/document/revision.js'
 
 let bookRoot = ''
 beforeEach(() => {
-  bookRoot = mkdtempSync(join(tmpdir(), 'clw-r35-4-'))
+  bookRoot = mkdtempTracked(join(tmpdir(), 'clw-r35-4-'))
 })
 afterEach(() => {
   if (bookRoot) rmSync(bookRoot, { recursive: true, force: true })

@@ -5,15 +5,16 @@
  * buildSettingsContext:角色 + 境界体系 → RAG 上下文注入。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { readCharacterCards, buildSettingsContext } from '../../src/process/settings-context.js'
 
 let root = ''
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'clwriting-char-'))
+  root = mkdtempTracked(join(tmpdir(), 'clwriting-char-'))
   mkdirSync(join(root, '设定', '角色'), { recursive: true })
 })
 

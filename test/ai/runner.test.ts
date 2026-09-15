@@ -5,7 +5,7 @@
  * mock/真实 decode 一致、resolveProvider 独立行为。
  * （GEN_FAIL / ABORTED 需真实 provider 网络路径，不在这层单测，由 e2e 覆盖。）
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync, statSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createServer } from 'node:http'
@@ -263,7 +263,7 @@ describe('runTask B-1 指数退避重试', () => {
   it('W-P2-8：内部重试也入账——429 一次 + 成功一次 → chapter used=2（预算闸不可被重试超限）', async () => {
     const ud = tempUserData()
     writeProviders(ud)
-    const bookRoot = mkdtempSync(join(tmpdir(), 'clwriting-runner-retry-'))
+    const bookRoot = mkdtempTracked(join(tmpdir(), 'clwriting-runner-retry-'))
     try {
       let calls = 0
       const out = await runTask<string>({
@@ -290,7 +290,7 @@ describe('runTask B-1 指数退避重试', () => {
   it('X-P2-10：不可重试失败入账——GEN_FAIL 后 chapter used=1', async () => {
     const ud = tempUserData()
     writeProviders(ud)
-    const bookRoot = mkdtempSync(join(tmpdir(), 'clwriting-runner-fail-'))
+    const bookRoot = mkdtempTracked(join(tmpdir(), 'clwriting-runner-fail-'))
     try {
       const out = await runTask<string>({
         userDataPath: ud,
@@ -314,7 +314,7 @@ describe('runTask B-1 指数退避重试', () => {
   it('X-P2-10：中断入账——ABORTED 后 chapter used=1（中断重跑不绕预算闸）', async () => {
     const ud = tempUserData()
     writeProviders(ud)
-    const bookRoot = mkdtempSync(join(tmpdir(), 'clwriting-runner-abort-'))
+    const bookRoot = mkdtempTracked(join(tmpdir(), 'clwriting-runner-abort-'))
     try {
       const ctrl = new AbortController()
       const out = await runTask<string>({
@@ -376,7 +376,7 @@ describe('runTask B-1 指数退避重试', () => {
   it('R42-20：退避 sleep 中 abort → llm/call 事件该 attempt 只有一条', async () => {
     const ud = tempUserData()
     writeProviders(ud)
-    const bookRoot = mkdtempSync(join(tmpdir(), 'clwriting-runner-r42ab-'))
+    const bookRoot = mkdtempTracked(join(tmpdir(), 'clwriting-runner-r42ab-'))
     try {
       const ctrl = new AbortController()
       // Retry-After 60ms 给出确定性退避时长；20ms 中断落在 sleep 窗口内
@@ -686,7 +686,7 @@ describe('R42-24（四十二轮）：探测实例降级记忆按目标库路由'
  */
 describe('R0912-3：usage 值类型守卫（错型走兜底，行为与缺失一致）', () => {
   function tempBookRoot(): string {
-    const d = mkdtempSync(join(tmpdir(), 'clwriting-runner-book-'))
+    const d = mkdtempTracked(join(tmpdir(), 'clwriting-runner-book-'))
     workDirs.push(d)
     mkdirSync(join(d, '.cache'), { recursive: true })
     return d

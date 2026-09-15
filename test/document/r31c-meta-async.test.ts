@@ -12,9 +12,10 @@
  *   （命中返回路径 + 补登记），等待期不阻塞事件循环。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, unlinkSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, existsSync, unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { DocumentService, __setMetaSaveLockTimeoutForTest, __setWiringSaveLockTimeoutForTest } from '../../src/document/service.js'
 import { __setManifestLockTimeoutForTest } from '../../src/document/manifest.js'
 import { processBootTime } from '../../src/fs/cross-process-lock.js'
@@ -26,7 +27,7 @@ let bookRoot: string
 let svc: DocumentService
 
 beforeEach(() => {
-  bookRoot = mkdtempSync(join(tmpdir(), 'r31c-meta-async-'))
+  bookRoot = mkdtempTracked(join(tmpdir(), 'r31c-meta-async-'))
   mkdirSync(join(bookRoot, '工作区'), { recursive: true })
   svc = new DocumentService({ bookRoot })
   // 锁等待档缩到 300ms 保快（生产 5s，afterEach 还原）

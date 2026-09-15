@@ -4,15 +4,16 @@
  * mkdir EINVAL 裸 500；既有目录段身份不动。
  */
 import { describe, expect, it } from 'vitest'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { DocumentService } from '../../src/document/service.js'
 import { legacyId } from '../../src/document/stable-id.js'
 
 describe('doCopy 目录段净化（R2W-5）', () => {
   it('保留设备名目录段（CON.）→ 净化为 _CON 落位，不裸 500', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'clw-r2w5-copy-'))
+    const root = mkdtempTracked(join(tmpdir(), 'clw-r2w5-copy-'))
     try {
       const bodyDir = join(root, '写作', '正文')
       mkdirSync(bodyDir, { recursive: true })
@@ -32,7 +33,7 @@ describe('doCopy 目录段净化（R2W-5）', () => {
   })
 
   it('既有目录段身份不动（净化不重写已存在的合法段）', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'clw-r2w5-copy2-'))
+    const root = mkdtempTracked(join(tmpdir(), 'clw-r2w5-copy2-'))
     try {
       const bodyDir = join(root, '写作', '正文')
       mkdirSync(bodyDir, { recursive: true })

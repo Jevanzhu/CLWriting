@@ -11,6 +11,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { mkdtempSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { recordRuleHits, readRuleHits, topRuleHits } from '../../src/ai/rule-hits.js'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
 import { rulesToPrompt } from '../../src/ai/rules/index.js'
@@ -85,7 +86,7 @@ describe('B4 反馈前置（rulesToPrompt 预防指令）', () => {
   })
 
   it('无命中时 rulesToPrompt 不含预防指令（行为同现状）', () => {
-    const emptyRoot = mkdtempSync(join(tmpdir(), 'clwriting-prevention-empty-'))
+    const emptyRoot = mkdtempTracked(join(tmpdir(), 'clwriting-prevention-empty-'))
     try {
       const text = rulesToPrompt('self-heal', emptyRoot)
       expect(text).not.toContain('本书近期常见问题')
@@ -104,9 +105,9 @@ describe('B4 反馈前置（rulesToPrompt 预防指令）', () => {
 
 describe('F1-P3 rule/hit 事件化（可选 userDataPath 双写）', () => {
   it('带 userDataPath → workspace 会话写 rule/hit 事件；缺省不写', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'clwriting-rule-hits-ev-'))
+    const root = mkdtempTracked(join(tmpdir(), 'clwriting-rule-hits-ev-'))
     try {
-      const ud = mkdtempSync(join(tmpdir(), 'clwriting-rule-hits-ud-'))
+      const ud = mkdtempTracked(join(tmpdir(), 'clwriting-rule-hits-ud-'))
       try {
         const v: RuleViolation = { ruleId: 'ai-cliche', level: 'yellow', message: 'AI高频词' }
         // 缺省（无 userDataPath）：不写事件
@@ -137,7 +138,7 @@ describe('F1-P3 rule/hit 事件化（可选 userDataPath 双写）', () => {
   })
 
   it('json 读路径不受影响（双写兼容）', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'clwriting-rule-hits-json-'))
+    const root = mkdtempTracked(join(tmpdir(), 'clwriting-rule-hits-json-'))
     try {
       const v: RuleViolation = { ruleId: 'banned-word', level: 'red', message: '命中禁词' }
       await recordRuleHits(root, [v], undefined)

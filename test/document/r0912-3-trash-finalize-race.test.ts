@@ -19,9 +19,10 @@
  * 可控闸门同款手法）。
  */
 import { afterEach, expect, it } from 'vitest'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { DocumentService } from '../../src/document/service.js'
 import { finalizeRevisionAsync } from '../../src/document/finalize.js'
 import { listTrash, restoreTrash } from '../../src/document/trash.js'
@@ -37,7 +38,7 @@ afterEach(() => {
 
 /** 造书：写作/正文/第一卷/0001 + 清单登记 doc_ch01（无基线；基线由用例自写/经 finalize 写）。 */
 function makeBook(prefix: string): { svc: DocumentService; manifestPath: string } {
-  bookRoot = mkdtempSync(join(tmpdir(), prefix))
+  bookRoot = mkdtempTracked(join(tmpdir(), prefix))
   mkdirSync(join(bookRoot, '写作', '正文', '第一卷'), { recursive: true })
   mkdirSync(join(bookRoot, '工作区'), { recursive: true })
   mkdirSync(join(bookRoot, '项目'), { recursive: true })

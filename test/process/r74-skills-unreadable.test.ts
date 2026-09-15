@@ -7,9 +7,10 @@
  * - 可读的裸 md（无 front matter）照旧降级收录（回归：读失败与无 fm 两种形态已分离）
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, chmodSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, chmodSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { listSkills, loadSkill } from '../../src/process/skills.js'
 
 const isRoot = typeof process.getuid === 'function' && process.getuid() === 0
@@ -21,7 +22,7 @@ let bundledRoot: string
 let savedResDir: string | undefined
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'clw-r74-skills-'))
+  root = mkdtempTracked(join(tmpdir(), 'clw-r74-skills-'))
   userDataPath = join(root, 'user')
   bundledRoot = join(root, 'bundled')
   mkdirSync(join(userDataPath, 'skills'), { recursive: true })

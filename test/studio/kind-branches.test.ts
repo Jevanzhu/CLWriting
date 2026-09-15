@@ -6,9 +6,10 @@
  * buildDraftPrompt/buildOutlinePrompt 读 bookRoot 文件,用临时 fixture(不调大模型/CLI)。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { buildDraftPrompt } from '../../src/studio/server/api/draft.js'
 
 /** Q-5（第十五轮）：buildDraftPrompt 返回 {prompt, files}——本文件断言全针对 prompt 文本 */
@@ -24,7 +25,7 @@ const buildOutlinePrompt = (...args: Parameters<typeof buildOutlinePromptWithFil
 let root = ''
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'clwriting-kind-'))
+  root = mkdtempTracked(join(tmpdir(), 'clwriting-kind-'))
   mkdirSync(join(root, '大纲'), { recursive: true })
   writeFileSync(join(root, '大纲', '总纲.md'), '# 总纲\n仙侠:林远/清虚门/玉佩/旧案反转')
   mkdirSync(join(root, '大纲', '章纲'), { recursive: true })

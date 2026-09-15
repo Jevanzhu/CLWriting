@@ -12,10 +12,11 @@
  * run 端点写点深居 lens 循环之后（需 driver/生成链，单测不可达），其重验与 verdict
  * 同源同 idiom（bookMovedFailure 单源行），由 verdict 两臂钉信封契约。
  */
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, renameSync, existsSync } from 'node:fs'
+import { mkdirSync, writeFileSync, rmSync, renameSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { fakeReqRes, waitForBodyArmed } from '../helpers/fake-reqres.js'
 import { createRouteTable, withRouteTable } from '../../src/studio/server/router.js'
 import { getRouteSchema } from '../../src/studio/server/api/schema.js'
@@ -32,7 +33,7 @@ interface Rig {
 /** 每用例独立临时书（workDir + 登记 + book.yaml + 清单登记 doc_v1）。verdict 重验在
  *  readJson 窗口后即触发，正文文件无需落盘；清单登记照建以贴近真实形态。 */
 function makeBook(name: string): Rig {
-  const workDir = mkdtempSync(join(tmpdir(), 'clwriting-r0915rev-'))
+  const workDir = mkdtempTracked(join(tmpdir(), 'clwriting-r0915rev-'))
   mkdirSync(join(workDir, '.clwriting'), { recursive: true })
   writeFileSync(
     join(workDir, '.clwriting', 'books.jsonl'),

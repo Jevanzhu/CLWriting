@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { describe, it, expect, afterAll } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { readRuleHits, recordRuleHits, __setRuleHitsLockTimeoutForTest } from '../../src/ai/rule-hits.js'
 import { acquireCrossProcessLockWithTimeout } from '../../src/fs/cross-process-lock.js'
 import { spawnNodeEval } from '../helpers/spawn-node.js'
@@ -53,7 +54,7 @@ describe('rule-hits 跨进程互斥（R63-6 真锁）', () => {
   }, 120_000)
 
   it('锁超时降级：跳过文件统计不抛错（观测层口径），释放后恢复记录', async () => {
-    const bookRoot = mkdtempSync(join(tmpdir(), 'clwriting-rule-hits-degrade-'))
+    const bookRoot = mkdtempTracked(join(tmpdir(), 'clwriting-rule-hits-degrade-'))
     try {
       // 本进程持锁（pid 活 → 判 held）+ 注入 0ms 超时 → recordRuleHits 恒拿不到锁
       const release = acquireCrossProcessLockWithTimeout(join(bookRoot, '.cache', 'rule-hits.json.lock'), 5_000)

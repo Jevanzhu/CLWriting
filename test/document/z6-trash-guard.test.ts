@@ -12,9 +12,10 @@
  * Z-22：Windows 保留设备名书名拒绝。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, utimesSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync, existsSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { appendTrashEntry, restoreTrash } from '../../src/document/trash.js'
 import { DocumentService } from '../../src/document/service.js'
 import { computeRevision } from '../../src/document/revision.js'
@@ -28,7 +29,7 @@ import { inferVolumeDir } from '../../src/format/draft.js'
 
 let root: string
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'clw-z2-'))
+  root = mkdtempTracked(join(tmpdir(), 'clw-z2-'))
 })
 afterEach(() => {
   rmSync(root, { recursive: true, force: true })

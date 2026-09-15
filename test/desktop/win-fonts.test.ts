@@ -7,10 +7,11 @@
  * 平台/spawn 均注入，不依赖真 win 环境（win 实机闪窗形态复验挂账，报告 §九）。
  */
 import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { listWindowsFonts, parseRegFontsQueryOutput, decodeRegOutput, type FontSpawn, type FontSpawnChild } from '../../src/desktop/win-fonts.js'
 import { __resetFontListBreakerForTest } from '../../src/desktop/font-cache.js'
 
@@ -108,7 +109,7 @@ describe('MP2-1：win 字体枚举 spawn 纪径（windowsHide + 数组参数直�
   })
 
   it('R38-21: SystemRoot 绝对路径兜底——System32/WindowsPowerShell/v1.0/powershell.exe 存在即用之（PATH 裁剪环境不再 ENOENT 空表）', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'psroot-'))
+    const root = mkdtempTracked(join(tmpdir(), 'psroot-'))
     const psDir = join(root, 'System32', 'WindowsPowerShell', 'v1.0')
     mkdirSync(psDir, { recursive: true })
     writeFileSync(join(psDir, 'powershell.exe'), '')

@@ -6,9 +6,10 @@
  * 修复后单次读 Buffer 同源派生 body 与哈希；fm.sourceHash 必须等于该次字节快照。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 // 计数 mock：只统计正文文件的读取次数
 const READS = vi.hoisted(() => ({ path: '', count: 0 }))
@@ -31,7 +32,7 @@ let bodyAbs: string
 
 beforeEach(() => {
   process.env['CLWRITING_DRIVER'] = 'mock'
-  root = mkdtempSync(join(tmpdir(), 'clw-r66-18-'))
+  root = mkdtempTracked(join(tmpdir(), 'clw-r66-18-'))
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   bodyAbs = join(root, '写作', '正文', '001-第1章.md')
   writeFileSync(

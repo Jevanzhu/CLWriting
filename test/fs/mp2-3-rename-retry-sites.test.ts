@@ -8,9 +8,10 @@
  * 路径条件注入一次性 EPERM（真实重试链穿透 atomic.ts → renameWithRetry）。
  */
 import { describe, expect, it, vi } from 'vitest'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const failState = vi.hoisted(() => ({
   /** 命中即抛一次 EPERM 后放行（null = 全放行）。 */
@@ -36,7 +37,7 @@ import { archivePendingLeadUpdates } from '../../src/process/lead-update-draft.j
 import { LEAD_UPDATES_FILE, LEAD_UPDATES_ARCHIVE_DIR } from '../../src/check/lead-updates.js'
 
 function mkRoot(tag: string): string {
-  return mkdtempSync(join(tmpdir(), `clw-mp2-3-${tag}-`))
+  return mkdtempTracked(join(tmpdir(), `clw-mp2-3-${tag}-`))
 }
 
 describe('MP2-3：归档/还原 rename 穿透 win 瞬时锁（EPERM 一次后成功）', () => {

@@ -13,9 +13,10 @@
  *   两读之间被换档时会留错档；本测试锁定「留底 = 被覆盖内容」这一行为契约）。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs'
+import { rmSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { DocumentService } from '../../src/document/service.js'
 import { findUnsettled } from '../../src/document/journal.js'
 import { listVersions, readVersion, VERSIONS_DIR_NAME } from '../../src/document/version.js'
@@ -32,7 +33,7 @@ describe('R28 保存链契约', () => {
   const contentV2 = '---\n标题: 开篇\n章号: 1\n---\n新正文'
 
   beforeEach(async () => {
-    bookRoot = mkdtempSync(join(tmpdir(), 'r28-envelope-'))
+    bookRoot = mkdtempTracked(join(tmpdir(), 'r28-envelope-'))
     svc = new DocumentService({ bookRoot })
     const c = await svc.createDocument({ relPath, content: contentV1 })
     if (!c.ok) throw new Error('prereq create 失败')

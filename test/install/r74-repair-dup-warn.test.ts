@@ -4,9 +4,10 @@
  * 书架对第二处失明且无痕迹可查。去重语义不变（仍只登记一条），仅补 warn。
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { repairBooks, writeBooks } from '../../src/install/books.js'
 
 const warns: Array<[string, string]> = []
@@ -27,7 +28,7 @@ let wd: string
 
 beforeEach(() => {
   warns.length = 0
-  wd = mkdtempSync(join(tmpdir(), 'clw-r74-dup-'))
+  wd = mkdtempTracked(join(tmpdir(), 'clw-r74-dup-'))
   mkdirSync(join(wd, '.clwriting'), { recursive: true })
 })
 

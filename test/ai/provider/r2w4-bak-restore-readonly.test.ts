@@ -6,14 +6,15 @@
  * + atomicWriteFile 落盘 → 自愈成功、bak 保留、主文件恢复可解析。
  */
 import { describe, expect, it } from 'vitest'
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../../helpers/temp-dir.js'
 import { loadProviders, saveProviders, emptySettings } from '../../../src/ai/provider/store.js'
 
 describe('providers bak 自愈对只读主文件（R2W-4）', () => {
   it('主文件损坏且只读 → loadProviders 自愈成功（bak 字节落位、bak 保留）', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'clw-r2w4-bak-'))
+    const dir = mkdtempTracked(join(tmpdir(), 'clw-r2w4-bak-'))
     try {
       // 两笔 save：主文件在位 + 写前备份生成 providers.bak.json
       saveProviders(dir, emptySettings())

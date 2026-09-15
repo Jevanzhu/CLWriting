@@ -10,10 +10,11 @@
  */
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, test } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { createStaticHandler } from '../../src/studio/server/static.js'
 
 let root = ''
@@ -21,7 +22,7 @@ let server: http.Server | undefined
 let baseUrl = ''
 
 async function start(): Promise<string> {
-  root = mkdtempSync(join(tmpdir(), 'clwriting-backlog-mime-'))
+  root = mkdtempTracked(join(tmpdir(), 'clwriting-backlog-mime-'))
   mkdirSync(join(root, 'assets'), { recursive: true })
   writeFileSync(join(root, '说明.txt'), '纯文本说明', 'utf-8')
   writeFileSync(join(root, 'assets', 'pic.webp'), 'webp-bytes')

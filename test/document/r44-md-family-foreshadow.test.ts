@@ -10,9 +10,10 @@
  * （init.ts countMarkdownFiles 计数点在 test/install/r44-init-contract.test.ts 覆盖。）
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs'
+import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { migrateLegacyForeshadows, readForeshadows } from '../../src/document/foreshadow.js'
 import { readCharacterCards, clearCharacterCardCache } from '../../src/process/settings-context.js'
 import { listSkills } from '../../src/process/skills.js'
@@ -21,7 +22,7 @@ let root: string
 let savedResDir: string | undefined
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'clw-r44-md-family-'))
+  root = mkdtempTracked(join(tmpdir(), 'clw-r44-md-family-'))
   // 隔离捆绑技巧包根（listSkills 恒扫捆绑根——空目录断言不受仓库内容影响）
   savedResDir = process.env['CLWRITING_RESOURCES_DIR']
   process.env['CLWRITING_RESOURCES_DIR'] = join(root, 'bundled-empty')

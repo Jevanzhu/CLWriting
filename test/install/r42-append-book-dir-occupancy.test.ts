@@ -7,9 +7,10 @@
  * samePath 目录占用判重（win32 双侧折叠比较；posix 全等不误伤）。
  */
 import { describe, it, expect, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { appendBook, appendBookAsync, readBooks } from '../../src/install/books.js'
 
 const ORIG_PLATFORM = process.platform
@@ -19,7 +20,7 @@ afterEach(() => {
 
 /** 建带 Foo 登记的工作目录（不落书目录——appendBook 只管登记面）。 */
 function mkWorkDirWithFoo(): string {
-  const wd = mkdtempSync(join(tmpdir(), 'clw-r42-append-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'clw-r42-append-'))
   mkdirSync(join(wd, '.clwriting'), { recursive: true })
   writeFileSync(
     join(wd, '.clwriting', 'books.jsonl'),

@@ -16,9 +16,10 @@
  * （其 truncated 断言已随本批改 false）。
  */
 import { describe, it, expect, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync } from 'node:fs'
+import { rmSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { buildIndex, recallDetailed } from '../../src/rag/index.js'
 import { openRagDb, storeChunk } from '../../src/rag/store.js'
 import { writeChapter } from '../helpers/chapter.js'
@@ -45,7 +46,7 @@ const META: ChapterMeta = {
 
 /** 建临时书并写入三段正文（每段一块，共 3 块）后建索引 */
 function setupBook(paragraphs: number): string {
-  const bookRoot = mkdtempSync(join(tmpdir(), 'rag-re2-trunc-'))
+  const bookRoot = mkdtempTracked(join(tmpdir(), 'rag-re2-trunc-'))
   mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
   const body = Array.from(
     { length: paragraphs },

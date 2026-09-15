@@ -5,16 +5,17 @@
  * 损坏）。消费方（预算闸/报表）只读数值字段，加性安全。
  */
 import { test, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, readFileSync } from 'node:fs'
+import { mkdirSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { recordAiCall, recordTaskUsage } from '../../src/ai/calls.js'
 import type { TokenUsage } from '../../src/ai/provider/types.js'
 
 let bookRoot: string
 
 beforeEach(() => {
-  bookRoot = mkdtempSync(join(tmpdir(), 'r29-calls-'))
+  bookRoot = mkdtempTracked(join(tmpdir(), 'r29-calls-'))
   mkdirSync(join(bookRoot, '.cache'), { recursive: true })
 })
 

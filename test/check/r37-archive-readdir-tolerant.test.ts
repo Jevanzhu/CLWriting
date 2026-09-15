@@ -13,9 +13,10 @@
  * 修复前直穿炸链路，修复后降级不抛。
  */
 import { test, expect } from 'vitest'
-import { rmSync, mkdirSync, writeFileSync, mkdtempSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { collectTreeIssues } from '../../src/check/run.js'
 import { runAllChecks } from '../../src/check/runner.js'
 import { inferVolumeDir } from '../../src/format/draft.js'
@@ -26,7 +27,7 @@ import type { ChapterMeta, BookConfig } from '../../src/format/types.js'
 
 /** 造一本 1 章正文的最小书（无布线 → collectTreeIssues 走无 db 路径，隔离单变量） */
 function makeBook(): string {
-  const root = mkdtempSync(join(tmpdir(), 'r37-readdir-'))
+  const root = mkdtempTracked(join(tmpdir(), 'r37-readdir-'))
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '项目'), { recursive: true })
   // 禁词红源（tree-issues-scan-count 同款）：该章机检必红 → issues 必非空，
@@ -66,7 +67,7 @@ test('R37-9: run.ts 归档暂存被文件占用（ENOTDIR）不炸树红点聚�
 })
 
 test('R37-9: runner.ts 章纲目录被文件占用（ENOTDIR）机检不炸，降级走章纲缺失黄项', () => {
-  const root = mkdtempSync(join(tmpdir(), 'r37-runner-'))
+  const root = mkdtempTracked(join(tmpdir(), 'r37-runner-'))
   try {
     mkdirSync(join(root, '大纲'))
     writeFileSync(join(root, '大纲', '章纲'), 'not a dir', 'utf-8') // 同名文件占位
@@ -97,7 +98,7 @@ test('R37-9: runner.ts 章纲目录被文件占用（ENOTDIR）机检不炸，�
 })
 
 test('R37-9: draft.ts 正文目录被文件占用（ENOTDIR）卷推断不炸，回落第一卷', () => {
-  const root = mkdtempSync(join(tmpdir(), 'r37-vol-'))
+  const root = mkdtempTracked(join(tmpdir(), 'r37-vol-'))
   try {
     mkdirSync(join(root, '写作'))
     writeFileSync(join(root, '写作', '正文'), 'not a dir', 'utf-8') // 同名文件占位
@@ -110,7 +111,7 @@ test('R37-9: draft.ts 正文目录被文件占用（ENOTDIR）卷推断不炸，
 })
 
 test('R37-9: 正文目录不存在与正常卷目录两形态不回归（既有行为对照）', () => {
-  const root = mkdtempSync(join(tmpdir(), 'r37-vol-ok-'))
+  const root = mkdtempTracked(join(tmpdir(), 'r37-vol-ok-'))
   try {
     // 目录整个不存在：existsSync 挡在 if 外（既有行为），照旧回落第一卷
     expect(inferVolumeDir(root, 1)).toBe('第一卷')

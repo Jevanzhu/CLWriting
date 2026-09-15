@@ -12,9 +12,10 @@
  * 4. 崩溃残留锁（死 pid）→ stale 接管照常成功。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { saveDraft, __setDraftSaveLockTimeoutForTest } from '../../src/process/draft-pipeline.js'
 import { readManifest } from '../../src/document/manifest.js'
 import { findUnsettled } from '../../src/document/journal.js'
@@ -31,7 +32,7 @@ const NEW = '---\n章号: 5\n标题: 新稿\n---\n\n新正文内容六个字。'
 describe('R73-32 / saveDraft 保存协议纪律', () => {
   let root: string
   beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), 'r73-draft-'))
+    root = mkdtempTracked(join(tmpdir(), 'r73-draft-'))
     mkdirSync(join(root, '写作', '正文'), { recursive: true })
     __setDraftSaveLockTimeoutForTest(120) // 缩短锁等待保测试快
   })

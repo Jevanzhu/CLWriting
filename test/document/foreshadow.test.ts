@@ -7,12 +7,13 @@ import { describe, test, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, symlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { readForeshadows, scanForeshadowTrails, migrateLegacyForeshadows, searchForeshadowTrails } from '../../src/document/foreshadow.js'
 
 let root: string
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'clw-fs-'))
+  root = mkdtempTracked(join(tmpdir(), 'clw-fs-'))
 })
 
 afterEach(() => {

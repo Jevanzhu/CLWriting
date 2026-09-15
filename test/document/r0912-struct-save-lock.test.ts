@@ -13,9 +13,10 @@
  * 自锁（R76-1 既有形态 + rename 路径仍成功）。
  */
 import { test, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, existsSync, mkdirSync } from 'node:fs'
+import { rmSync, existsSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import {
   DocumentService,
   __setStructSaveLockTimeoutForTest,
@@ -25,7 +26,7 @@ import { readManifest, writeManifest, upsertEntry } from '../../src/document/man
 
 let bookRoot = ''
 beforeEach(() => {
-  bookRoot = mkdtempSync(join(tmpdir(), 'clw-r0912-lock-'))
+  bookRoot = mkdtempTracked(join(tmpdir(), 'clw-r0912-lock-'))
   mkdirSync(join(bookRoot, '项目'), { recursive: true })
   mkdirSync(join(bookRoot, '工作区'), { recursive: true })
 })

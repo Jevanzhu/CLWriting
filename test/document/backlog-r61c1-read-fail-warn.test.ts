@@ -6,10 +6,11 @@
  * 修复：catch 内补 log.warn（对齐同链路 state.ts R54-B-1 循环级 warn 口径），
  * 降级语义不变（仍返回 []，不阻断进门），但失败必留痕（含路径与错误信息）。
  */
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it, expect, afterEach, vi } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 // ── mock node:fs：注入开启且路径命中时 readFileSync 抛 EACCES（journal 在盘但不可读）──
 // 组织方式对齐 journal.test.ts 的 RACE 注入惯例（vi.hoisted + importOriginal 透传）。
@@ -40,7 +41,7 @@ describe('R61-C-1：journal 文件级读失败 warn 留痕', () => {
   })
 
   it('journal 在盘但读取失败 → log.warn 留痕（含 journalPath 与错误信息）且仍降级返回 []', () => {
-    dir = mkdtempSync(join(tmpdir(), 'journal-r61c1-'))
+    dir = mkdtempTracked(join(tmpdir(), 'journal-r61c1-'))
     const jp = join(dir, 'doc_1.jsonl')
     writeFileSync(jp, '{"status":"pending","opId":"x"}\n', 'utf-8') // 在盘（existsSync 探测通过）
     const warnSpy = vi.spyOn(log, 'warn')
@@ -58,7 +59,7 @@ describe('R61-C-1：journal 文件级读失败 warn 留痕', () => {
   })
 
   it('读成功路径不发 warn（守卫不误伤正常扫描）', () => {
-    dir = mkdtempSync(join(tmpdir(), 'journal-r61c1-ok-'))
+    dir = mkdtempTracked(join(tmpdir(), 'journal-r61c1-ok-'))
     const jp = join(dir, 'doc_1.jsonl')
     writeFileSync(
       jp,

@@ -11,12 +11,13 @@
  * - R76-21：headingEndsSection 连续标题链（## 分组+### 详注+条目）不再误判节终。
  */
 import { test, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 import { checkNewNames } from '../../src/check/count.js'
 import { parseBannedWordsLine } from '../../src/format/style-entry.js'
@@ -29,7 +30,7 @@ import { generateDocId } from '../../src/document/stable-id.js'
 
 let dir = ''
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'clw-r76-b-'))
+  dir = mkdtempTracked(join(tmpdir(), 'clw-r76-b-'))
 })
 afterEach(() => {
   if (dir) rmSync(dir, { recursive: true, force: true })
@@ -93,7 +94,7 @@ test('R76-15: budget/thresholds/batch_size 空值键按未设（不再静默落 
 
 /** 复刻 tree-issues-leads-book.test 的最小造书（证据为空引号对「」）。 */
 function makeEmptyEvidenceBook(): string {
-  const root = mkdtempSync(join(tmpdir(), 'clw-r76-empty-ev-'))
+  const root = mkdtempTracked(join(tmpdir(), 'clw-r76-empty-ev-'))
   mkdirSync(join(root, '布线', '悬念'), { recursive: true })
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '项目'), { recursive: true })

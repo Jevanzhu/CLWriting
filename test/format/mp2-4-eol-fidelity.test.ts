@@ -10,9 +10,10 @@
  * 读侧容忍（BOM/CRLF 照常解析）不变，见 r2w6-yaml-bom / r37-yaml-bom-keyline。
  */
 import { describe, expect, it } from 'vitest'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { patchTopSection, setTopSectionKey, setSectionKeyBlock } from '../../src/format/yaml.js'
 import { patchFlatFm } from '../../src/format/frontmatter.js'
 import { exportBook } from '../../src/export/index.js'
@@ -105,7 +106,7 @@ describe('MP2-4→批一：setSectionKeyBlock 行尾规范形（同族连带）'
 
 describe('MP2-4→批一：导出规范形（purifyBody 截断 + payload 收口）', () => {
   it('CRLF 正文导出全本：归一 LF 无 \\r 残留（源规范后输出自然规范）', () => {
-    const root = mkdtempSync(join(tmpdir(), 'clw-mp2-4-export-'))
+    const root = mkdtempTracked(join(tmpdir(), 'clw-mp2-4-export-'))
     try {
       writeFileSync(
         join(root, 'book.yaml'),

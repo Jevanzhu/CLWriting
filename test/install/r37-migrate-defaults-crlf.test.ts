@@ -12,14 +12,15 @@
  * 剥除，与 yaml.ts 补丁族对齐）；本文件 CRLF 保真断言随翻（见各用例「归一 LF」注）。
  */
 import { test, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from 'node:fs'
+import { mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { migrateBookDefaults } from '../../src/install/migrate-defaults.js'
 
 let tmp: string
 beforeEach(() => {
-  tmp = mkdtempSync(join(tmpdir(), 'clw-r37-migrate-crlf-'))
+  tmp = mkdtempTracked(join(tmpdir(), 'clw-r37-migrate-crlf-'))
 })
 afterEach(() => {
   rmSync(tmp, { recursive: true, force: true })

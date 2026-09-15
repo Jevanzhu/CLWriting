@@ -1,8 +1,9 @@
 import { test, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readdirSync, readFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, existsSync, readdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execSync } from 'node:child_process'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { repairBooks, readBooks, writeBooks, type BookEntry } from '../../src/install/books.js'
 import { doInit } from '../../src/install/init.js'
 
@@ -26,7 +27,7 @@ function gitInitBook(root: string, name: string): void {
 }
 
 test('repairBooks: books.jsonl 缺失 → 扫描重建登记', () => {
-  const wd = mkdtempSync(join(tmpdir(), 'rep-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'rep-'))
   mkdirSync(join(wd, '.clwriting'), { recursive: true })
   // 手建两本书（不登记到 books.jsonl）
   const bookA = join(wd, '书A')
@@ -51,7 +52,7 @@ test('repairBooks: books.jsonl 缺失 → 扫描重建登记', () => {
 })
 
 test('repairBooks: books.jsonl 缺失 → 扫描长篇/短篇分组目录重建登记', () => {
-  const wd = mkdtempSync(join(tmpdir(), 'rep-kind-dirs-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'rep-kind-dirs-'))
   mkdirSync(join(wd, '.clwriting'), { recursive: true })
   const longBook = join(wd, '长篇', '长书')
   const shortBook = join(wd, '短篇', '短集')
@@ -73,7 +74,7 @@ test('repairBooks: books.jsonl 缺失 → 扫描长篇/短篇分组目录重建�
 })
 
 test('repairBooks: 已有有效登记无变动 → changed=false', () => {
-  const wd = mkdtempSync(join(tmpdir(), 'rep2-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'rep2-'))
   doInit({ workDir: wd, name: '已有书', genre: '玄幻' })
   // init 已登记一本书，repairBooks 应无变动（登记有效）
   const result = repairBooks(wd)
@@ -83,7 +84,7 @@ test('repairBooks: 已有有效登记无变动 → changed=false', () => {
 })
 
 test('repairBooks: 书目录丢失且无法重关联 → 标 missing 并保留登记', () => {
-  const wd = mkdtempSync(join(tmpdir(), 'rep3-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'rep3-'))
   mkdirSync(join(wd, '.clwriting'), { recursive: true })
   // 登记一本指向「书X」的书，但磁盘上没有这个目录
   const fakeEntry: BookEntry = { name: '书X', path: '书X', kind: 'long' }
@@ -103,7 +104,7 @@ test('repairBooks: 书目录丢失且无法重关联 → 标 missing 并保留�
 })
 
 test('writeBooks: books.jsonl 原子写入且不残留临时文件', () => {
-  const wd = mkdtempSync(join(tmpdir(), 'rep-atomic-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'rep-atomic-'))
   const entry: BookEntry = { name: '书A', path: '书A', kind: 'long' }
 
   writeBooks(wd, [entry])
@@ -116,7 +117,7 @@ test('writeBooks: books.jsonl 原子写入且不残留临时文件', () => {
 })
 
 test('repairBooks: 书目录移动/改名 → 按 book.yaml 书名自动重关联 path', () => {
-  const wd = mkdtempSync(join(tmpdir(), 'rep3b-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'rep3b-'))
   mkdirSync(join(wd, '.clwriting'), { recursive: true })
   writeBooks(wd, [{ name: '书X', path: '书X', kind: 'long' }])
 
@@ -135,7 +136,7 @@ test('repairBooks: 书目录移动/改名 → 按 book.yaml 书名自动重关�
 })
 
 test('repairBooks: book.yaml title 改名但目录未动 → 更新原登记，不重复登记', () => {
-  const wd = mkdtempSync(join(tmpdir(), 'rep3c-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'rep3c-'))
   mkdirSync(join(wd, '.clwriting'), { recursive: true })
   writeBooks(wd, [{ name: '旧书名', path: '书X', kind: 'long' }])
 
@@ -154,7 +155,7 @@ test('repairBooks: book.yaml title 改名但目录未动 → 更新原登记，�
 })
 
 test('repairBooks: 非书仓库目录不误纳（无 book.yaml/.git）', () => {
-  const wd = mkdtempSync(join(tmpdir(), 'rep4-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'rep4-'))
   mkdirSync(join(wd, '.clwriting'), { recursive: true })
   // 普通目录（无 git/book.yaml）不应被当书
   mkdirSync(join(wd, '普通目录'), { recursive: true })
@@ -167,7 +168,7 @@ test('repairBooks: 非书仓库目录不误纳（无 book.yaml/.git）', () => {
 })
 
 test('repairBooks: kind 读取（short 书正确识别）', () => {
-  const wd = mkdtempSync(join(tmpdir(), 'rep5-'))
+  const wd = mkdtempTracked(join(tmpdir(), 'rep5-'))
   mkdirSync(join(wd, '.clwriting'), { recursive: true })
   const book = join(wd, '短篇集')
   mkdirSync(book, { recursive: true })

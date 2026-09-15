@@ -5,14 +5,15 @@
  * 值===旧默认才删（作者改过的值保留）、幂等（二跑无 diff）、损坏 yaml 跳过不崩。
  */
 import { test, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from 'node:fs'
+import { mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { migrateBookDefaults } from '../../src/install/migrate-defaults.js'
 
 let tmp: string
 beforeEach(() => {
-  tmp = mkdtempSync(join(tmpdir(), 'clw-migrate-defaults-'))
+  tmp = mkdtempTracked(join(tmpdir(), 'clw-migrate-defaults-'))
 })
 afterEach(() => {
   rmSync(tmp, { recursive: true, force: true })

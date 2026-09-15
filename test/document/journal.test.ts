@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { appendFileSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { appendFileSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { statSync } from 'node:fs'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 // ── KN-H-1（2026-08-23）：compact 跨进程竞态确定性复现 ──
 // mock node:fs 的 readFileSync：findUnsettled 读 journal 时（flag 开且路径命中），
@@ -44,7 +45,7 @@ describe('journal', () => {
   let dir: string
   let j: string
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'journal-'))
+    dir = mkdtempTracked(join(tmpdir(), 'journal-'))
     j = join(dir, 'doc_1.jsonl')
   })
   afterEach(() => {
@@ -98,7 +99,7 @@ describe('journal compact（U-P2-9）', () => {
   let dir: string
   let j: string
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'journal-compact-'))
+    dir = mkdtempTracked(join(tmpdir(), 'journal-compact-'))
     j = join(dir, 'doc_1.jsonl')
     // PM-3 批（性能与内存专项·2026-09-05）：pending 快照超 256KB 即降级（content:''），
     // MB 级全文撑破 2MB 阈值的旧建仓路径不复存在——compact 用例改走注入低阈值 + 小
@@ -197,7 +198,7 @@ describe('journal move pending（P3-10）', () => {
   let dir: string
   let j: string
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'journal-move-'))
+    dir = mkdtempTracked(join(tmpdir(), 'journal-move-'))
     j = join(dir, 'doc_1.jsonl')
   })
   afterEach(() => {

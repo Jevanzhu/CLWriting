@@ -3,10 +3,11 @@
  * 指引），不再裸抛 SQLite 英文码；原始错误挂 cause 保诊断链。事件是对话史/审计
  * 产品数据——不做静默删库自愈（备份/移除动作留给作者显式执行）。
  */
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { bookHash, openSessionStoreAsync } from '../../src/events/store.js'
 
 const dirs: string[] = []
@@ -17,8 +18,8 @@ afterEach(() => {
 
 describe('IR-2 事件库损坏 → 可行动错误', () => {
   it('垃圾字节库文件：openSessionStoreAsync 抛含路径与恢复指引的人话错误（cause 保原始 SQLite 错误）', async () => {
-    const userData = mkdtempSync(join(tmpdir(), 'clw-ev-corrupt-ud-'))
-    const bookRoot = mkdtempSync(join(tmpdir(), 'clw-ev-corrupt-book-'))
+    const userData = mkdtempTracked(join(tmpdir(), 'clw-ev-corrupt-ud-'))
+    const bookRoot = mkdtempTracked(join(tmpdir(), 'clw-ev-corrupt-book-'))
     dirs.push(userData, bookRoot)
     const dbPath = join(userData, 'clwriting', 'session', bookHash(bookRoot) + '.db')
     mkdirSync(join(userData, 'clwriting', 'session'), { recursive: true })
@@ -41,8 +42,8 @@ describe('IR-2 事件库损坏 → 可行动错误', () => {
   })
 
   it('正常路径不受影响：干净目录首开仍成功建库', async () => {
-    const userData = mkdtempSync(join(tmpdir(), 'clw-ev-corrupt-ok-ud-'))
-    const bookRoot = mkdtempSync(join(tmpdir(), 'clw-ev-corrupt-ok-book-'))
+    const userData = mkdtempTracked(join(tmpdir(), 'clw-ev-corrupt-ok-ud-'))
+    const bookRoot = mkdtempTracked(join(tmpdir(), 'clw-ev-corrupt-ok-book-'))
     dirs.push(userData, bookRoot)
     const store = await openSessionStoreAsync(userData, bookRoot)
     expect(store).not.toBeNull()

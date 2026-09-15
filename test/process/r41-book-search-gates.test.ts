@@ -7,9 +7,10 @@
  * 全书搜索双出处命中且其一指向内部缓存路径。
  */
 import { describe, it, expect, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { searchBook, searchBookAsync } from '../../src/process/book-search.js'
 
 let root: string
@@ -19,7 +20,7 @@ afterEach(() => {
 })
 
 function makeBook(): string {
-  root = mkdtempSync(join(tmpdir(), 'r41-srch-'))
+  root = mkdtempTracked(join(tmpdir(), 'r41-srch-'))
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   return root
 }

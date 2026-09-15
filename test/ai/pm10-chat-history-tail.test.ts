@@ -14,11 +14,12 @@
  * 分支视图、空库。未来 store 层若落地真尾窗（seq 降序取尾 + 窗口翻倍前扩、不足退
  * 化为全量），本护栏必须保持全绿——任何一条红即尾窗破坏了逐位等价。
  */
-import { mkdtempSync, rmSync } from 'node:fs'
+import { rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { afterAll, describe, expect, it, vi } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { bookHash, openSessionStore, type NewEvent, type SessionStore } from '../../src/events/store.js'
 import {
   assistantMessageEvent,
@@ -58,7 +59,7 @@ function referenceView(store: SessionStore, bookName: string, branchId?: string,
 /** 每用例独立 tmp userData + 独立 bookHash（互不串库） */
 const uds: string[] = []
 function makeStore(bookKey: string): { store: SessionStore; sid: string; ud: string } {
-  const ud = mkdtempSync(join(tmpdir(), 'pm10-tail-'))
+  const ud = mkdtempTracked(join(tmpdir(), 'pm10-tail-'))
   uds.push(ud)
   const store = openSessionStore(ud, '/pm10/' + bookKey)!
   return { store, sid: store.createSession(bookKey, { book: bookKey }), ud }

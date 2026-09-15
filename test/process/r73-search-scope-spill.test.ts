@@ -7,9 +7,10 @@
  * 只剩通知行（模型侧失去任何正文线索）。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { searchBook } from '../../src/process/book-search.js'
 import { spillIfLarge } from '../../src/process/spill.js'
 import { readManifest, writeManifest, upsertEntry, type Manifest } from '../../src/document/manifest.js'
@@ -36,7 +37,7 @@ function writeManifestEntry(root: string, id: string, path: string, finalized: b
 describe('R73-42 / book-search 定稿 scope 按清单过滤', () => {
   let root: string
   beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), 'r73-search-'))
+    root = mkdtempTracked(join(tmpdir(), 'r73-search-'))
     mkdirSync(join(root, '写作', '正文'), { recursive: true })
     // 第 1 章已定稿、第 2 章是在写草稿，两章都含检索词「烛火」
     writeFileSync(join(root, '写作', '正文', '0001-雨夜.md'), '---\n章号: 1\n标题: 雨夜\n---\n\n烛火摇曳。\n', 'utf-8')

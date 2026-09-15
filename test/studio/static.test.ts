@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import type { MockInstance } from 'vitest'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { createStaticHandler } from '../../src/studio/server/static.js'
 import { denyRead } from '../helpers/fs-deny.js'
 
@@ -39,7 +40,7 @@ let server: http.Server | undefined
 let baseUrl = ''
 
 beforeEach(async () => {
-  root = mkdtempSync(join(tmpdir(), 'clwriting-studio-static-'))
+  root = mkdtempTracked(join(tmpdir(), 'clwriting-studio-static-'))
   writeFileSync(join(root, 'index.html'), '<!doctype html><title>Studio</title>')
   server = http.createServer(createStaticHandler(root))
   await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))

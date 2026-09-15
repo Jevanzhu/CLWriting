@@ -7,9 +7,10 @@
  * 修复：反向命中同口径上抛拒绝（世界已变，fail-closed）。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, existsSync } from 'node:fs'
+import { mkdirSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { saveDraft } from '../../src/process/draft-pipeline.js'
 import { resolveDraftPath } from '../../src/format/draft.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
@@ -18,7 +19,7 @@ let root = ''
 let manifestPath: string
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'r51-b2-'))
+  root = mkdtempTracked(join(tmpdir(), 'r51-b2-'))
   mkdirSync(join(root, '写作', '正文'), { recursive: true })
   mkdirSync(join(root, '项目'), { recursive: true })
   manifestPath = join(root, '项目', '文档清单.jsonl')

@@ -5,16 +5,17 @@
  * splitFrontMatter 失败 → 整版本被静默跳过（列版本缺条/去重/prune 失明）。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { writeVersion, listVersions, readVersionMeta } from '../../src/document/version.js'
 
 let dir: string
 const docId = 'doc_r67_12'
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'clw-r67-12-'))
+  dir = mkdtempTracked(join(tmpdir(), 'clw-r67-12-'))
 })
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true })

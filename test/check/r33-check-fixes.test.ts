@@ -15,9 +15,10 @@
  *   码点口径（astral 字符不再缩短窗口）。
  */
 import { test, expect } from 'vitest'
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { checkSectionCount, checkOpeningNoEnv, checkFrontMatter, checkSimile } from '../../src/check/count.js'
 import { parseLeadUpdateLines, readChapterUpdatesForChapterChecked } from '../../src/check/lead-updates.js'
 import type { ChapterMeta } from '../../src/format/types.js'
@@ -47,7 +48,7 @@ test('R33-1: CRLF 带信息串开栏 ```js\\r 与 \\r 闭栏行照常识别', ()
 // ── R33-5：兑现侧三态读 ─────────────────────────────────────
 
 test('R33-5: 读失败（EISDIR 瞬态占用模拟）→ unreadable:true；无文件 → 已读空推进', () => {
-  const root = mkdtempSync(join(tmpdir(), 'r33-lead-'))
+  const root = mkdtempTracked(join(tmpdir(), 'r33-lead-'))
   try {
     // 无任何文件：已读、无推进（已知态，不跳过闭合）
     expect(readChapterUpdatesForChapterChecked(root, 3)).toEqual({ updates: [], unreadable: false })

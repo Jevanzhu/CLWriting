@@ -5,9 +5,10 @@
  * 覆盖：命中累加 / 无删改不记录 / 非套话不记录 / 无上一版静默。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { recordAiVersion } from '../../src/git/ai-track.js'
 import { git } from '../../src/git/exec.js'
 import { recordAuthorSignal } from '../../src/ai/author-signal.js'
@@ -17,7 +18,7 @@ import { rmWithRetryQuiet } from '../../src/fs/cross-process-lock.js'
 let root = ''
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'clwriting-author-signal-'))
+  root = mkdtempTracked(join(tmpdir(), 'clwriting-author-signal-'))
   git(['init'], root)
   git(['config', 'user.email', 'test@test.com'], root)
   git(['config', 'user.name', 'test'], root)
