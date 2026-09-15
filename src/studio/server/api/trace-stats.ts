@@ -7,8 +7,8 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
-import { reply, replyError } from '../http.js'
-import { resolveBook } from '../book-context.js'
+import { reply } from '../http.js'
+import { resolveBookOrReply } from '../book-context.js'
 import { aggregateTrace } from '../../../ai/trace-stats.js'
 import { readRuleHits } from '../../../ai/rule-hits.js'
 
@@ -24,8 +24,8 @@ export function registerTraceStatsRoutes(ctx: TraceStatsCtx): void {
     path: '/api/books/:name/trace-stats',
     // R34D-19（三十四轮）：aggregateTrace 转异步（事件库开库异步孪生），handler 随迁
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBook(ctx.workDir, params['name'])
-    if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+    if (!r) return
 
     const bookRoot = r.bookRoot
     // P2：从事件库 llm/call 派生（接口不变；userDataPath 缺失 → total=0）

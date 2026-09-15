@@ -21,7 +21,7 @@ import { join, relative } from 'node:path'
 import { readdirSync, existsSync, statSync } from 'node:fs'
 import { defineRoute } from './schema.js'
 import { reply, replyError } from '../http.js'
-import { resolveBook } from '../book-context.js'
+import { resolveBookOrReply } from '../book-context.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { isMdFileName } from '../../../format/filename.js'
@@ -138,8 +138,8 @@ export function registerOverviewRoutes(ctx: OverviewCtx): void {
     method: 'GET',
     path: '/api/books/:name/overview',
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBook(ctx.workDir, params['name'])
-    if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+    if (!r) return
     const entry = r.entry
 
     const bookRoot = r.bookRoot

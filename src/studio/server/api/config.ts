@@ -21,7 +21,7 @@ import { createHash } from 'node:crypto'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
-import { resolveBook, bookMovedFailure } from '../book-context.js'
+import { bookMovedFailure, resolveBookOrReply } from '../book-context.js'
 import { readBookConfig, parseBookConfig, patchBookConfigText, stringifyBookConfig } from '../../../format/yaml.js'
 import type { BookConfig } from '../../../format/types.js'
 import { revisionError } from './revision-guard.js'
@@ -51,8 +51,8 @@ export function registerConfigRoutes(ctx: ConfigCtx): void {
     method: 'GET',
     path: '/api/books/:name/config',
     handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBook(ctx.workDir, params['name'])
-    if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+    if (!r) return
     const cfgResult = readBookConfig(join(r.bookRoot, 'book.yaml'))
     // 低-2（第十轮）：error 是 ParseError {file,line,message} 对象——直接插值会串成
     // 「[object Object]」，取 .message 展示真实解析错误（与 books.ts 同场景口径）
@@ -66,8 +66,8 @@ export function registerConfigRoutes(ctx: ConfigCtx): void {
     method: 'PUT',
     path: '/api/books/:name/config',
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBook(ctx.workDir, params['name'])
-    if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+    if (!r) return
     const body = await readJson(req)
     const config = body['config'] as BookConfig | undefined
     if (!config || typeof config !== 'object') return replyError(res, 400, 'BAD_INPUT', 'config 必填')

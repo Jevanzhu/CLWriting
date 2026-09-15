@@ -8,11 +8,13 @@
  * 消除 readManifest(join(...,'文档清单.jsonl')).entries.get(docId) 样板）。
  */
 import { join } from 'node:path'
+import type { ServerResponse } from 'node:http'
 import { existsSync, readFileSync } from 'node:fs'
 import { readBooks, type BookEntry } from '../../install/books.js'
 import { readManifest, type ManifestEntry } from '../../document/manifest.js'
 import { safeManifestPath } from '../../fs/safe-path.js'
 import { readDraft } from '../../format/draft.js'
+import { replyError } from './http.js'
 
 export { readKind } from '../../format/kind.js'
 
@@ -27,6 +29,23 @@ export function resolveBook(
   const entry = readBooks(workDir).find((b) => b.name === name)
   if (!entry) return { error: `没有这本书：${name}`, status: 404, code: 'NOT_FOUND' }
   return { bookRoot: join(workDir, entry.path), entry }
+}
+
+/** resolveBook 双行样板单源（SRV-N8·专项精简优化 §五，2026-09-15 机械批收编路由入口
+ *  72 处「resolveBook + error 分支 replyError」两行样板）。失败时已回写错误响应
+ *  （code/error 信封与原样板逐字节同源——直送 replyError），返回 null 供调用方
+ *  early-return；成功返回原联合成功臂（bookRoot + entry，三处 r.entry 消费点保持）。 */
+export function resolveBookOrReply(
+  workDir: string | null,
+  name: string | undefined,
+  res: ServerResponse,
+): { bookRoot: string; entry: BookEntry } | null {
+  const r = resolveBook(workDir, name)
+  if ('error' in r) {
+    replyError(res, r.status, r.code, r.error)
+    return null
+  }
+  return r
 }
 
 /** docId → 文档清单条目；未登记 / 清单缺失 → null（调用方按 NOT_FOUND 语义回复）。 */

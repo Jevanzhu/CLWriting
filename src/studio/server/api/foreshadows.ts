@@ -13,7 +13,7 @@ import { join } from 'node:path'
 import { defineRoute } from './schema.js'
 import { reply, replyError, parseRequestUrl } from '../http.js'
 import { createTtlProbeCache } from '../ttl-cache.js'
-import { resolveBook } from '../book-context.js'
+import { resolveBookOrReply } from '../book-context.js'
 import {
   readForeshadows,
   scanForeshadowTrails,
@@ -132,8 +132,8 @@ export function registerForeshadowRoutes(ctx: ForeshadowCtx): void {
     // R49-8（评审 R49）：本 handler 实际消费请求 URL（parseRequestUrl）——参数名去
     // `_` 前缀（本仓约定 `_` 前缀 = 未使用参数）；按位置传参，注册点无关，纯改名零行为。
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBook(ctx.workDir, params['name'])
-    if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+    if (!r) return
     const bookRoot = r.bookRoot
     // F1-P3：?q= 走伏笔足迹 FTS 检索（标题/关联词/命中片段）；缺省全量 + 足迹
     // R-19（第十六轮）：parseRequestUrl 统一解析（Q-1/N-3 口径）——畸形 URL → 400 BAD_INPUT

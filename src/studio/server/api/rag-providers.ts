@@ -88,25 +88,29 @@ export function registerRagProviderRoutes(ctx: RagProvidersCtx): void {
   })
 
   // 新增（apiKey 必填——编辑才允许留空保留）
+  // SRV-N8 机械批 2026-09-15：body 校验移入 parse（失败同 400 BAD_INPUT 同文案，
+  // 响应字节不变）；handler 拿类型化 input
   defineRoute('rag-providers.post', {
     method: 'POST',
     path: '/api/rag-providers',
-    handler: async (_, req: IncomingMessage, res: ServerResponse) => {
+    parse: (raw) => {
+      const body = (raw ?? {}) as Record<string, unknown>
+      const parsed = parseRagInput(body)
+      if (!parsed.ok) throw new Error(parsed.error)
+      if (!parsed.apiKey) throw new Error('apiKey 必填')
+      return { ...parsed, expectedRevision: body['expectedRevision'] }
+    },
+    handler: async ({ input }, _req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
-    const body = await readJson(req)
-    const parsed = parseRagInput(body)
-    if (!parsed.ok) return replyError(res, 400, 'BAD_INPUT', parsed.error)
-    if (!parsed.apiKey) return replyError(res, 400, 'BAD_INPUT', 'apiKey 必填')
-
     const s = loadProviders(ctx.userDataPath)
-    const revErr = revisionError(body['expectedRevision'], s.revision)
+    const revErr = revisionError(input.expectedRevision, s.revision)
     if (revErr) return replyError(res, 409, 'REVISION_CONFLICT', revErr)
     const conf: RagProviderConf = {
       id: newRagProviderId(),
-      name: parsed.name,
-      endpoint: parsed.endpoint,
-      model: parsed.model,
-      apiKey: parsed.apiKey,
+      name: input.name,
+      endpoint: input.endpoint,
+      model: input.model,
+      apiKey: input.apiKey,
       caps: null,
       // dd-P3：max+1 防撞号（同 chat providers 口径）
       sortIndex: s.ragProviders.reduce((m, p) => Math.max(m, p.sortIndex ?? 0), -1) + 1,
@@ -118,27 +122,33 @@ export function registerRagProviderRoutes(ctx: RagProvidersCtx): void {
   })
 
   // 编辑：apiKey 留空 = 保留原 key；endpoint/model 变更 → caps 清空要求重测（同 chat 提供方语义）
+  // SRV-N8 机械批：parseRagInput 移入 parse——body 校验先于 409/404 前置门发生（defineRoute
+  // 先读 body 后进 handler），既有测试未钉旧优先级（404 用例带合法 body），校验文案逐字保留
   defineRoute('rag-providers.put', {
     method: 'PUT',
     path: '/api/rag-providers/:id',
-    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
+    parse: (raw) => {
+      const body = (raw ?? {}) as Record<string, unknown>
+      const parsed = parseRagInput(body)
+      if (!parsed.ok) throw new Error(parsed.error)
+      return { ...parsed, expectedRevision: body['expectedRevision'] }
+    },
+    handler: async ({ params, input }, _req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
-    // dd-P2：body 先读——load→mutate→save 三段同步无 await（单事件循环内原子），防并发丢更新
-    const body = await readJson(req)
-    const parsed = parseRagInput(body)
+    // dd-P2：body 读取/校验已在 parse 段（更先于 loadProviders）——load→mutate→save
+    // 三段同步无 await（单事件循环内原子），防并发丢更新
     const s = loadProviders(ctx.userDataPath)
-    const revErr = revisionError(body['expectedRevision'], s.revision)
+    const revErr = revisionError(input.expectedRevision, s.revision)
     if (revErr) return replyError(res, 409, 'REVISION_CONFLICT', revErr)
     const target = s.ragProviders.find((p) => p.id === params['id'])
     if (!target) return replyError(res, 404, 'NOT_FOUND', 'RAG 提供方不存在')
-    if (!parsed.ok) return replyError(res, 400, 'BAD_INPUT', parsed.error)
 
-    const endpointChanged = parsed.endpoint !== target.endpoint
-    const modelChanged = parsed.model !== target.model
-    target.name = parsed.name
-    target.endpoint = parsed.endpoint
-    target.model = parsed.model
-    if (parsed.apiKey) target.apiKey = parsed.apiKey
+    const endpointChanged = input.endpoint !== target.endpoint
+    const modelChanged = input.model !== target.model
+    target.name = input.name
+    target.endpoint = input.endpoint
+    target.model = input.model
+    if (input.apiKey) target.apiKey = input.apiKey
     if (endpointChanged || modelChanged) {
       target.caps = null
       target.capsProbedAt = undefined
@@ -149,6 +159,9 @@ export function registerRagProviderRoutes(ctx: RagProvidersCtx): void {
   })
 
   // 删除：不级联改书——引用它的书解析为「未配置」（UI 显示提供方不存在），无静默换端点
+  // defineRoute parse 迁移跳过（SRV-N8 机械批）：本端点 body 读取是容错语义（P4 无 body
+  // 放行；readJson 非 HttpError 失败兜底 undefined 继续），defineRoute 的 readJson 失败
+  // 先于 parse 短路统一回 400——「按空 body 兜底继续」的既有语义在 parse 化后不可表达
   defineRoute('rag-providers.delete', {
     method: 'DELETE',
     path: '/api/rag-providers/:id',

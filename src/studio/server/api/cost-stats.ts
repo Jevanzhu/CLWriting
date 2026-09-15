@@ -7,8 +7,8 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
-import { reply, replyError } from '../http.js'
-import { resolveBook } from '../book-context.js'
+import { reply } from '../http.js'
+import { resolveBookOrReply } from '../book-context.js'
 import { aggregateCost } from '../../../ai/cost-stats.js'
 
 interface CostStatsCtx {
@@ -22,8 +22,8 @@ export function registerCostStatsRoutes(ctx: CostStatsCtx): void {
     path: '/api/books/:name/cost-stats',
     // R34D-19（三十四轮）：aggregateCost 转异步（事件库开库异步孪生），handler 随迁
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-      const r = resolveBook(ctx.workDir, params['name'])
-      if ('error' in r) return replyError(res, r.status, r.code, r.error)
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
       reply(res, 200, await aggregateCost(ctx.userDataPath, r.bookRoot))
     },
   })

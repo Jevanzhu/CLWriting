@@ -21,7 +21,7 @@ import { readdirSync, statSync, lstatSync, existsSync } from 'node:fs'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
 import { createTtlProbeCache } from '../ttl-cache.js'
-import { resolveBook, bookMovedFailure } from '../book-context.js'
+import { resolveBook, bookMovedFailure, resolveBookOrReply } from '../book-context.js'
 import { listVersionEntries, readVersion, readVersionRaw, pruneVersions, DEFAULT_VERSION_POLICY, readGlobalSnapshotPolicy } from '../../../document/version.js'
 import { readManifest } from '../../../document/manifest.js'
 import { safeDocId } from '../../../fs/safe-path.js' // P3-1：docId 白名单校验共享（不内联手写）
@@ -334,8 +334,8 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
     method: 'GET',
     path: '/api/books/:name/version-stats',
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-      const r = resolveBook(ctx.workDir, params['name'])
-      if ('error' in r) return replyError(res, r.status, r.code, r.error)
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
       // R36-7：递归 mtime 探针 + 5s TTL 缓存壳（命中即跳过 .版本 逐文件 fm 读 +
       // manifest 整读；计算体见 computeVersionStatsAsync，行为与改前逐位一致）
       // R44-9：MISS 计算体异步分批让出，handler 相应 async（同文件 restore 等
@@ -360,8 +360,8 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
     // reply 在全部 prune 完成后才发出（dispatch await handler，同文件 version-stats
     // 等 async handler 同款，dispatch try/catch 兜底 → 500）
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-      const r = resolveBook(ctx.workDir, params['name'])
-      if ('error' in r) return replyError(res, r.status, r.code, r.error)
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
       // R0912-ds41（重评-deepseek-v4.1-flash P3-9）：编排互斥矩阵补向——prune 批量删
       // .版本 快照，写稿系编排（self-heal/对话/手动写稿/后台收尾）的收尾正会写快照，
       // 在途放行 prune = 清理与收尾快照并发互踩；此前 R26-67 闸只挡同 action 重入，

@@ -22,7 +22,7 @@ import { acquireTaskGate, orchestrationBusyFor, crossProcessHeldTaskGatesFor } f
 import { readJson, reply, replyError } from '../http.js'
 import { atomicWriteFile } from '../../../fs/atomic.js'
 import { safeManifestPath, safeDocId } from '../../../fs/safe-path.js'
-import { resolveBook, resolveDocEntry, resolveDocFile, readDraftTextGuarded } from '../book-context.js'
+import { resolveBookOrReply, resolveDocEntry, resolveDocFile, readDraftTextGuarded } from '../book-context.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { getDriver, ensureSession } from '../../../driver/index.js'
@@ -99,8 +99,8 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
     method: 'POST',
     path: '/api/books/:name/documents/:docId/review',
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-      const r = resolveBook(ctx.workDir, params['name'])
-      if ('error' in r) return replyError(res, r.status, r.code, r.error)
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
       // R74-20（七十四轮批 D）：写手在途预检——三审端点自身此前不查编排互斥
       //（outline/analysis/onboard 等生成端点均已接 orchestrationBusyFor）：写稿中
       //（self-heal/chat/后台收尾）发起三审，分钟级窗口内草稿持续推进，draft_hash
@@ -285,8 +285,8 @@ export function registerReviewRoutes(ctx: ReviewCtx): void {
     method: 'POST',
     path: '/api/books/:name/documents/:docId/review-verdict',
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
-      const r = resolveBook(ctx.workDir, params['name'])
-      if ('error' in r) return replyError(res, r.status, r.code, r.error)
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
       const reqBody = await readJson(req)
       const approved = reqBody['approved'] === true
 

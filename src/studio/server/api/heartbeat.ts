@@ -8,8 +8,8 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
-import { reply, replyError } from '../http.js'
-import { resolveBook } from '../book-context.js'
+import { reply } from '../http.js'
+import { resolveBookOrReply } from '../book-context.js'
 import { writeGuiActive, clearGuiActive } from '../../../process/gui-active.js'
 
 interface HeartbeatCtx {
@@ -21,8 +21,8 @@ export function registerHeartbeatRoutes(ctx: HeartbeatCtx): void {
     method: 'POST',
     path: '/api/books/:name/heartbeat',
     handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBook(ctx.workDir, params['name'])
-    if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+    if (!r) return
     writeGuiActive(r.bookRoot)
     reply(res, 200, { ok: true })
   },
@@ -32,8 +32,8 @@ export function registerHeartbeatRoutes(ctx: HeartbeatCtx): void {
     method: 'DELETE',
     path: '/api/books/:name/heartbeat',
     handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBook(ctx.workDir, params['name'])
-    if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+    if (!r) return
     clearGuiActive(r.bookRoot)
     reply(res, 200, { ok: true })
   },

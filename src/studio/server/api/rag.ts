@@ -20,13 +20,13 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { DatabaseSync } from 'node:sqlite'
 import { defineRoute } from './schema.js'
 import { reply, replyError } from '../http.js'
-import { resolveBook } from '../book-context.js'
+import { resolveBook, resolveBookOrReply } from '../book-context.js'
 import { readRagConfig } from '../../../rag/config.js'
 import { resolveRag, type RagProviderRef } from '../../../rag/resolve.js'
 import { loadProviders } from '../../../ai/provider/index.js'
 import { buildIndex, resetRagIndex, RAG_RESET_MARKER_KEY, type BuildIndexResult } from '../../../rag/index.js'
 import { openRagDb, closeRagDb, getRagMeta, ragDbExists, isRagDbCorruptionError } from '../../../rag/store.js'
-import { acquireTaskGate } from './task-gate.js'
+import { acquireTaskGate, orchestrationBusyFor } from './task-gate.js'
 // D-2（二十九轮）：建索引失败信息与 replyError 同源的脱敏单源（http.ts 同款 import）——
 // embed 上游报错 message 可能夹带完整 URL（key 在 query）/ Authorization 痕迹
 import { redactSecret } from '../../../ai/provider/redact.js'
@@ -180,8 +180,8 @@ export function registerRagRoutes(ctx: RagCtx): void {
     method: 'GET',
     path: '/api/books/:name/rag/status',
     handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBook(ctx.workDir, params['name'])
-    if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+    if (!r) return
     const bookRoot = r.bookRoot
     const task = ragBuildTasks.get(params['name']!)
     const running = task?.running ?? false
@@ -261,8 +261,8 @@ export function registerRagRoutes(ctx: RagCtx): void {
     method: 'POST',
     path: '/api/books/:name/rag/build',
     handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBook(ctx.workDir, params['name'])
-    if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+    if (!r) return
     const bookRoot = r.bookRoot
     const start = startRagBuild(params['name']!, bookRoot, ctx.workDir!, ctx.userDataPath)
     if (!start.ok) {
@@ -282,8 +282,13 @@ export function registerRagRoutes(ctx: RagCtx): void {
     method: 'POST',
     path: '/api/books/:name/rag/rebuild',
     handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBook(ctx.workDir, params['name'])
-    if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+    if (!r) return
+    // 复审-0913-合并批 P3-5（登记备查 → 2026-09-15 机械批处置）：rebuild 清库面对齐
+    // prune 端点形态——先查编排互斥再占自身 'rag-build' 闸（照抄 snapshots.ts prune
+    // 精确形态，409 code/error 与同族端点逐字节一致），防在途编排写索引行被清库打断。
+    const busyOrch = orchestrationBusyFor(params['name']!)
+    if (busyOrch) return replyError(res, 409, 'BUSY', busyOrch)
     const start = startRagBuild(params['name']!, r.bookRoot, ctx.workDir!, ctx.userDataPath, { resetIndexFirst: true })
     if (!start.ok) return replyError(res, start.code === 'BUSY' ? 409 : 400, start.code, start.reason)
     reply(res, 200, { started: true, reset: true })

@@ -12,7 +12,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError, parseRequestUrl, urlPathOnly } from '../http.js'
 import { log, errMsg } from '../../../log/index.js'
-import { resolveBook } from '../book-context.js'
+import { resolveBookOrReply } from '../book-context.js'
 import { ensureSession, getDriver, getSession } from '../../../driver/index.js'
 import type { DriverEvent, Session, StudioDriver } from '../../../driver/index.js'
 // R1010c-SRV-P3-1（2026-09-10 全量独立复审修复批）：watchdog 二段强释放改用生产命名导出
@@ -455,11 +455,9 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
       return
     }
-    const bookR = resolveBook(ctx.workDir, params['name'])
-    if ('error' in bookR) {
-      replyError(res, bookR.status, bookR.code, bookR.error)
-      return
-    }
+    // SRV-N8（专项精简优化 §五，2026-09-15 机械批）：resolveBook 双行样板收编单源
+    const bookR = resolveBookOrReply(ctx.workDir, params['name'], res)
+    if (!bookR) return
     // R65-43（总六十五轮）：全部书域校验（429 连接数 / workDir / resolveBook 404）
     // 通过后才消费一次性 ticket、建流——429/404 不再烧票。鉴权顺序语义不变：
     // 先凭据预检（上方闸）、后书域判定、最后消费；token 过闸者无需 ticket。
@@ -591,8 +589,8 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     // resolveBook 成功 = workDir 非空（null 已在其 error 分支 NO_WORKDIR 覆盖）——
     // 本文件后续 ctx.workDir! 断言据此成立（ensureSession 的 session.cwd 用 workDir 而非 bookRoot）
-    const r = resolveBook(ctx.workDir, params['name'])
-    if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+    if (!r) return
 
     // RB-SV-P2-1：并发闸——同步占位（无 TOCTOU），未实际启动的路径 finally 释放防泄漏
     const bookName = params['name']!
@@ -631,6 +629,8 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     holdSpawnGate(bookName)
     let launched = false
     try {
+      // defineRoute parse 迁移跳过（SRV-N8 机械批）：校验顺序依赖前置门，parse 化会翻转错误优先级
+      //（五道 409 闸 + holdSpawnGate 在 readJson 前同步占位覆盖 body 在途窗口——RB-SV-P2-1/CC-P2-9 防线时序）
       const body = await readJson(req)
       // R33-68（三十三轮）：role 白名单——此前任意字符串直进 streamSpec（未知 role
       // 静默落 error 事件路径）；现客户端仅用 'writer'（WorkbenchView 唯一调用点），
@@ -687,8 +687,8 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     method: 'POST',
     path: '/api/books/:name/interrupt',
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBook(ctx.workDir, params['name'])
-    if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+    if (!r) return
     const bookName = params['name']!
     // 先停自愈编排 + 对话编排（幂等：未运行时为 no-op）
     abortSelfHeal(bookName)
@@ -730,8 +730,8 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
     method: 'POST',
     path: '/api/books/:name/auto-write',
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBook(ctx.workDir, params['name'])
-    if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+    if (!r) return
     const bookName = params['name']!
     if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到用户数据目录')
     // 并发保护（防御双闸之一，Z-P2-5 起与 driver.isRunning 并存）：本闸是编排级内存锁，
@@ -765,6 +765,8 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
       }
     }
 
+    // defineRoute parse 迁移跳过（SRV-N8 机械批）：校验顺序依赖前置门，parse 化会翻转错误优先级
+    //（r0912-cross-process-write-gates 钉「首检即拦，不进 chapter 校验」：跨进程闸在持 + 空 body → 409 非 400）
     const body = await readJson(req)
     const chapter = Number(body['chapter'])
     if (!Number.isInteger(chapter) || chapter < 1) {

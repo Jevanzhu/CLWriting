@@ -94,6 +94,8 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     const r = prefsPath(params['name']!)
     if (!r.ok) return replyError(res, r.code, r.errCode, r.error)
+    // defineRoute parse 迁移跳过（SRV-N8 机械批）：校验顺序依赖前置门，parse 化会翻转错误优先级
+    //（r0913-srv-prefs-bookmoved 直调 handler 悬持 body 于 readJson——入口快照→窗口→bookMoved 409 判序被钉）
     const body = await readJson(req)
     const prefs = body['prefs']
     if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs)) return replyError(res, 400, 'BAD_INPUT', 'prefs 必填且须为对象')
@@ -166,17 +168,23 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
   },
   })
 
+  // M-5（SRV-N8 机械批，2026-09-15）：body 形状校验迁 parse——400 BAD_INPUT 信封与
+  // 原内联路径逐字节同源；唯一前置 globalPath（NO_USERDATA）无测试钉先后序（cliReq
+  // 用例 body 合法仍落 NO_USERDATA），照 chat.send 先例迁移
   defineRoute('library.prefs.put', {
     method: 'PUT',
     path: '/api/library/prefs',
-    handler: async (_, req: IncomingMessage, res: ServerResponse) => {
+    parse: (raw) => {
+      const body = (raw ?? {}) as Record<string, unknown>
+      const prefs = body['prefs']
+      if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs)) throw new Error('prefs 必填且须为对象')
+      return { prefs: prefs as Record<string, unknown>, expectedRevision: body['expectedRevision'] }
+    },
+    handler: async ({ input }, _req, res) => {
     const r = globalPath()
     if (!r.ok) return replyError(res, r.code, r.errCode, r.error)
-    // GG-P2-7（照 providers dd-P2 口径）：body 先读——读盘/比对/写盘三段必须同步无 await，
-    // 单事件循环内原子，否则并发 PUT 交错仍会后写覆盖先写
-    const body = await readJson(req)
-    const prefs = body['prefs']
-    if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs)) return replyError(res, 400, 'BAD_INPUT', 'prefs 必填且须为对象')
+    // GG-P2-7（照 providers dd-P2 口径）：body 已由 parse 先行读毕——读盘/比对/写盘
+    // 三段必须同步无 await，单事件循环内原子，否则并发 PUT 交错仍会后写覆盖先写
     try {
       let disk: Record<string, unknown> = {}
       if (existsSync(r.path)) {
@@ -188,7 +196,7 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
         } catch { /* 文件损坏视作空：revision 0，本次整体重写（与原直写行为一致） */ }
       }
       const current = typeof disk.revision === 'number' ? disk.revision : 0
-      const revErr = revisionError(body['expectedRevision'], current, '全局偏好')
+      const revErr = revisionError(input.expectedRevision, current, '全局偏好')
       if (revErr) return replyError(res, 409, 'REVISION_CONFLICT', revErr)
       const next = current + 1
       mkdirSync(dirname(r.path), { recursive: true })
@@ -197,7 +205,7 @@ export function registerPrefsRoutes(ctx: PrefsCtx): void {
       // 写入的 tokensPerChapter/costPerChapter 预算键等）。整体覆写会让任何一次面板
       // 保存（500ms debounce）静默清掉这些键、预算闸随之失效。盘上键 ← 客户端键覆盖；
       // 客户端无法经此端点显式删键是可接受代价（前端已知键全量回传，无删键场景）。
-      atomicWriteFile(r.path, JSON.stringify({ ...disk, ...prefs, revision: next }, null, 2) + '\n')
+      atomicWriteFile(r.path, JSON.stringify({ ...disk, ...input.prefs, revision: next }, null, 2) + '\n')
       reply(res, 200, { ok: true, revision: next })
     } catch (e) {
       log.error('api', '写全局偏好失败', e)

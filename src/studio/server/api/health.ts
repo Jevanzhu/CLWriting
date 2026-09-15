@@ -7,9 +7,9 @@
  * 空书（count=0）照常返对象，前端渲染空态。
  */
 import { defineRoute } from './schema.js'
-import { reply, replyError } from '../http.js'
+import { reply } from '../http.js'
 import { createTtlProbeCache } from '../ttl-cache.js'
-import { readKind, resolveBook } from '../book-context.js'
+import { readKind, resolveBookOrReply } from '../book-context.js'
 import { scanChaptersAsync, aggregateStyleTrend, readBaseline, type ChapterSample } from '../../../metrics/style.js'
 
 interface HealthCtx {
@@ -60,8 +60,9 @@ export function registerHealthRoutes(ctx: HealthCtx): void {
     method: 'GET',
     path: '/api/books/:name/health/style',
     handler: async ({ params }, _req, res) => {
-    const r = resolveBook(ctx.workDir, params['name'])
-    if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    // SRV-N8（专项精简优化 §五，2026-09-15 机械批）：resolveBook 双行样板收编单源
+    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+    if (!r) return
     const kind = readKind(r.bookRoot)
     // D3：命中短时缓存则跳过全书扫描（samples 为纯数据可复用；聚合与基线读取廉价，每次现算）
     // R40-4（四十轮）：miss 扫描切异步孪生——同步 scanChapters 在 200 万字大书上

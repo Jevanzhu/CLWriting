@@ -11,7 +11,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
-import { resolveBook } from '../book-context.js'
+import { resolveBookOrReply } from '../book-context.js'
 import { ensureSession, getDriver } from '../../../driver/index.js'
 import { isSelfHealRunning, isChatEmbeddedSelfHealRunning } from '../../../ai/orchestrate/self-heal.js'
 import { resolveChatConfirm, clearChatHistory, sendChatMessage } from '../../../ai/orchestrate/chat.js'
@@ -90,8 +90,9 @@ export function registerChatRoutes(ctx: ChatCtx): void {
       return { message, chapter }
     },
     handler: async ({ params, input }, _req, res) => {
-      const r = resolveBook(ctx.workDir, params['name'])
-      if ('error' in r) return replyError(res, r.status, r.code, r.error)
+      // SRV-N8（专项精简优化 §五，2026-09-15 机械批）：resolveBook 双行样板收编单源
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
       const bookName = params['name']!
       if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到用户数据目录')
       // R-9（第十六轮）：chat 入口补 spawn/self-heal 反向互斥（闸组语义详见
@@ -122,25 +123,30 @@ export function registerChatRoutes(ctx: ChatCtx): void {
   })
 
   // 工具确认：作者点了确认/取消
+  // M-5（SRV-N8 机械批，2026-09-15）：body 形状校验迁 parse——400 BAD_INPUT 信封与
+  // 原内联路径逐字节同源；前置（NO_WORKDIR / resolveBook 404）无测试钉先后序，照 chat.send 先例迁移
   defineRoute('books.chat.confirm', {
     method: 'POST',
     path: '/api/books/:name/chat/confirm',
-    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
+    parse: (raw) => {
+      const body = (raw ?? {}) as Record<string, unknown>
+      const callId = String(body['callId'] ?? '')
+      // R26-60（二十六轮）：确认旗标严格判定——原 Boolean() 强转把字符串 'false' / 0 以外
+      // 的任意真值（如 'false'、'0'）都判成作者确认，前端序列化偏差即误放行工具调用
+      const ok = body['ok'] === true
+      if (!callId) throw new Error('callId 必填')
+      return { callId, ok }
+    },
+    handler: async ({ params, input }, _req, res) => {
     if (!ctx.workDir) return replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
     const bookName = params['name']!
     // R27-64（二十七轮）：补 resolveBook——chat 族（send/regenerate）都有书存在性
     // 校验，唯本端点漏挂：书名打错/书已删时落到下方 404「未找到待确认的工具调用」，
     // 语义误导排障（书不存在 ≠ 调用不存在）
-    const r = resolveBook(ctx.workDir, bookName)
-    if ('error' in r) return replyError(res, r.status, r.code, r.error)
-    const body = await readJson(req)
-    const callId = String(body['callId'] ?? '')
-    // R26-60（二十六轮）：确认旗标严格判定——原 Boolean() 强转把字符串 'false' / 0 以外
-    // 的任意真值（如 'false'、'0'）都判成作者确认，前端序列化偏差即误放行工具调用
-    const ok = body['ok'] === true
-    if (!callId) return replyError(res, 400, 'BAD_INPUT', 'callId 必填')
+    const r = resolveBookOrReply(ctx.workDir, bookName, res)
+    if (!r) return
 
-    const found = resolveChatConfirm(bookName, callId, ok)
+    const found = resolveChatConfirm(bookName, input.callId, input.ok)
     if (!found) return replyError(res, 404, 'NOT_FOUND', '未找到待确认的工具调用（已超时或已取消）')
     reply(res, 200, { ok: true })
   },
@@ -151,8 +157,8 @@ export function registerChatRoutes(ctx: ChatCtx): void {
     method: 'POST',
     path: '/api/books/:name/chat/regenerate',
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBook(ctx.workDir, params['name'])
-    if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+    if (!r) return
     const bookName = params['name']!
     if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到用户数据目录')
     // R-9（第十六轮）：regenerate 同款 spawn/self-heal 反向互斥（与 chat.send 口径一致）
@@ -162,6 +168,8 @@ export function registerChatRoutes(ctx: ChatCtx): void {
     // R0912-P3-⑤：闸组抽 helper 单点化（与 chat.send 同源，语义详见 chatEntryGateError 注释）。
     const gateErr = chatEntryGateError(bookName)
     if (gateErr) return replyError(res, 409, 'BUSY', gateErr)
+    // defineRoute parse 迁移跳过（SRV-N8 机械批）：校验顺序依赖前置门，parse 化会翻转错误优先级
+    //（orchestrator-mutex-gates 钉「闸先于 body 校验」：self-heal 在途 + 空 body → 409 非 400）
     const body = await readJson(req)
     const rawParentSeq = Number(body['parentSeq'])
     if (!Number.isInteger(rawParentSeq) || rawParentSeq < 1) return replyError(res, 400, 'BAD_INPUT', 'parentSeq 需为正整数')
@@ -212,8 +220,8 @@ export function registerChatRoutes(ctx: ChatCtx): void {
     if (gate) return replyError(res, 409, 'BUSY', gate)
     // 二轮复审（低级）：resolveBook 统一解析——旧 readBooks().find() 对不存在的书
     // 静默落「只清内存」假成功（200），事件库原样残留；现与全文件其余路由同 404 口径
-    const r = resolveBook(ctx.workDir, bookName)
-    if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    const r = resolveBookOrReply(ctx.workDir, bookName, res)
+    if (!r) return
     // F1-P1：清内存 + 清事件库
     // R34D-19（三十四轮）：clearChatHistory 转异步（事件库开库异步孪生）
     // 重评二轮-P3-2：传闸回调——开库让出窗口内新起任务时在 clearBooks 之前复查拒清，

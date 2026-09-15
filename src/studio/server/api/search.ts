@@ -13,7 +13,7 @@ import { join } from 'node:path'
 import { defineRoute } from './schema.js'
 import { reply, replyError, parseRequestUrl } from '../http.js'
 import { createTtlProbeCache } from '../ttl-cache.js'
-import { resolveBook } from '../book-context.js'
+import { resolveBookOrReply } from '../book-context.js'
 import { searchBookAsync, SEARCH_ALL_DIRS, type SearchOutcome } from '../../../process/book-search.js'
 
 interface SearchCtx {
@@ -87,8 +87,8 @@ export function registerSearchRoutes(ctx: SearchCtx): void {
     method: 'GET',
     path: '/api/books/:name/search',
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBook(ctx.workDir, params['name'])
-    if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+    if (!r) return
 
     // Y-10（第五十七轮）：R-19 parseRequestUrl 收编漏网点——畸形请求行 400 BAD_INPUT
     //（此前 api 层唯一残留的裸 new URL，属口径漂移死分叉）

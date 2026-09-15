@@ -15,7 +15,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
-import { resolveBook, resolveDocFile } from '../book-context.js' // D2（复审-0914-优化修复批）：docId→正文解析链单源（本端点只走到存在性，读稿无守卫为既有语义）
+import { resolveBookOrReply, resolveDocFile } from '../book-context.js' // D2（复审-0914-优化修复批）：docId→正文解析链单源（本端点只走到存在性，读稿无守卫为既有语义）
 import { readKind } from '../../../format/kind.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
 import { REWRITE_SPEC } from '../../../ai/tasks/specs.js'
@@ -75,8 +75,8 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
     method: 'POST',
     path: '/api/books/:name/documents/:docId/rewrite',
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBook(ctx.workDir, params['name'])
-    if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+    if (!r) return
     // R66-2（十四轮）：反向互斥面——端点持 'rewrite' 闸但此前不查 self-heal 运行标记，
     // 全自动写章在途时编辑器整章改写可并发起跑（双份费用 + 过期基线改写产出）。chat 侧
     // write_chapter 已同持此闸（turns.ts），本检查补齐 self-heal ↔ 端点互斥
@@ -173,8 +173,8 @@ export function registerRewriteRoutes(ctx: RewriteCtx): void {
     method: 'POST',
     path: '/api/books/:name/documents/:docId/ai-version',
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBook(ctx.workDir, params['name'])
-    if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+    if (!r) return
     const reqBody = await readJson(req)
     const content = typeof reqBody['content'] === 'string' ? (reqBody['content'] as string) : ''
     if (!content.trim()) return replyError(res, 400, 'BAD_INPUT', 'content 为空')

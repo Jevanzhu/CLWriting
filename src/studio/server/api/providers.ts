@@ -83,29 +83,32 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
   },
   })
 
-  // 新增
+  // 新增（M-5 / SRV-N8 机械批 2026-09-15：body 校验移入 parse，失败同 400 BAD_INPUT
+  // 同文案，响应字节不变；handler 拿类型化 input）
   defineRoute('providers.post', {
     method: 'POST',
     path: '/api/providers',
-    handler: async (_, req: IncomingMessage, res: ServerResponse) => {
+    parse: (raw) => {
+      const body = (raw ?? {}) as Record<string, unknown>
+      const parsed = parseProviderInput(body)
+      if (!parsed.ok) throw new Error(parsed.error)
+      // D10：新增时 apiKey 必填（编辑时留空 = 保留原 key）
+      if (!parsed.apiKey) throw new Error('apiKey 必填')
+      return { ...parsed, expectedRevision: body['expectedRevision'] }
+    },
+    handler: async ({ input }, _req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
-    const body = await readJson(req)
-    const parsed = parseProviderInput(body)
-    if (!parsed.ok) return replyError(res, 400, 'BAD_INPUT', parsed.error)
-    // D10：新增时 apiKey 必填（编辑时留空 = 保留原 key）
-    if (!parsed.apiKey) return replyError(res, 400, 'BAD_INPUT', 'apiKey 必填')
-
     const s = loadProviders(ctx.userDataPath)
-    const revErr = revisionError(body['expectedRevision'], s.revision)
+    const revErr = revisionError(input.expectedRevision, s.revision)
     if (revErr) return replyError(res, 409, 'REVISION_CONFLICT', revErr)
     const conf: ProviderConf = {
       id: newProviderId(),
-      name: parsed.name,
-      protocol: parsed.protocol,
-      auth: parsed.auth,
-      baseUrl: parsed.baseUrl,
-      apiKey: parsed.apiKey,
-      ...(parsed.models !== undefined ? { models: parsed.models } : {}),
+      name: input.name,
+      protocol: input.protocol,
+      auth: input.auth,
+      baseUrl: input.baseUrl,
+      apiKey: input.apiKey,
+      ...(input.models !== undefined ? { models: input.models } : {}),
       caps: null,
       // dd-P3：max+1 防撞号——s.providers.length 在删过中间项后与存量 sortIndex 重复，排序不稳
       sortIndex: nextSortIndex(s.providers.map((p) => p.sortIndex)),
@@ -124,15 +127,19 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
   })
 
   // 设为当前启用（必须先于 /:id 注册——router 按注册顺序匹配，被 :id 遮蔽则 current 永不命中，P0-1）
+  // SRV-N8 机械批：body 读取/抽取移入 parse（本端点无形状校验，纯抽取零错误翻转）
   defineRoute('providers.current', {
     method: 'PUT',
     path: '/api/providers/current',
-    handler: async (_, req: IncomingMessage, res: ServerResponse) => {
+    parse: (raw) => {
+      const body = (raw ?? {}) as Record<string, unknown>
+      return { id: String(body['id'] ?? ''), expectedRevision: body['expectedRevision'] }
+    },
+    handler: async ({ input }, _req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
-    const body = await readJson(req)
-    const id = String(body['id'] ?? '')
+    const id = input.id
     const s = loadProviders(ctx.userDataPath)
-    const revErr = revisionError(body['expectedRevision'], s.revision)
+    const revErr = revisionError(input.expectedRevision, s.revision)
     if (revErr) return replyError(res, 409, 'REVISION_CONFLICT', revErr)
     const target = id ? s.providers.find((p) => p.id === id) : undefined
     if (id && !target) {
@@ -150,36 +157,39 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
   })
 
   // D 档：任务档位配置（创作档/助手档）——模型 + 推理深度 + 单次输出上限
+  // SRV-N8 机械批：creative/assistant 档位校验移入 parse（失败同 400 BAD_INPUT 同文案）
   defineRoute('tiers', {
     method: 'PUT',
     path: '/api/tiers',
-    handler: async (_, req: IncomingMessage, res: ServerResponse) => {
-    if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
-    const body = await readJson(req)
-    const creativeRaw = body['creative']
-    if (typeof creativeRaw !== 'object' || creativeRaw === null) {
-      return replyError(res, 400, 'BAD_INPUT', 'creative 档位必填')
-    }
-    const creative = parseTierSlot(creativeRaw as Record<string, unknown>)
-    if (!creative.ok) return replyError(res, 400, 'BAD_INPUT', creative.error)
-
-    let assistant: TierSlot | null = null
-    const assistantRaw = body['assistant']
-    if (assistantRaw !== null && assistantRaw !== undefined) {
-      if (typeof assistantRaw !== 'object') {
-        return replyError(res, 400, 'BAD_INPUT', 'assistant 档位需为对象或 null')
+    parse: (raw) => {
+      const body = (raw ?? {}) as Record<string, unknown>
+      const creativeRaw = body['creative']
+      if (typeof creativeRaw !== 'object' || creativeRaw === null) {
+        throw new Error('creative 档位必填')
       }
-      const a = parseTierSlot(assistantRaw as Record<string, unknown>)
-      if (!a.ok) return replyError(res, 400, 'BAD_INPUT', a.error)
-      assistant = a.slot
-    }
+      const creative = parseTierSlot(creativeRaw as Record<string, unknown>)
+      if (!creative.ok) throw new Error(creative.error)
 
+      let assistant: TierSlot | null = null
+      const assistantRaw = body['assistant']
+      if (assistantRaw !== null && assistantRaw !== undefined) {
+        if (typeof assistantRaw !== 'object') {
+          throw new Error('assistant 档位需为对象或 null')
+        }
+        const a = parseTierSlot(assistantRaw as Record<string, unknown>)
+        if (!a.ok) throw new Error(a.error)
+        assistant = a.slot
+      }
+      return { creative: creative.slot, assistant, expectedRevision: body['expectedRevision'] }
+    },
+    handler: async ({ input }, _req: IncomingMessage, res: ServerResponse) => {
+    if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
     const s = loadProviders(ctx.userDataPath)
-    const revErr = revisionError(body['expectedRevision'], s.revision)
+    const revErr = revisionError(input.expectedRevision, s.revision)
     if (revErr) return replyError(res, 409, 'REVISION_CONFLICT', revErr)
-    s.tiers = { creative: creative.slot, assistant, chat: s.tiers.chat }
+    s.tiers = { creative: input.creative, assistant: input.assistant, chat: s.tiers.chat }
     // 同步 currentModel（兼容 resolveTier 回落逻辑）
-    s.currentModel = creative.slot.model || null
+    s.currentModel = input.creative.model || null
     if (!(await saveProvidersOr500(res, ctx.userDataPath, s))) return
 
     // 表驱动重构（§6.3）：不再触发模型级探测——能力由静态表判定
@@ -189,38 +199,35 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
 
   // chat 单档端点——对话框内随手换模型，不碰 creative/assistant/currentModel
   // caps 探测改异步不阻塞（结果经后续 GET /providers 刷新）
+  // SRV-N8 机械批：清档/档位两分支判别与校验移入 parse（失败同 400 BAD_INPUT 同文案；
+  // 两分支回复形状一致，handler 合并后仍逐字节同参 reply）
   defineRoute('tiers.chat', {
     method: 'PUT',
     path: '/api/tiers/chat',
-    handler: async (_, req: IncomingMessage, res: ServerResponse) => {
+    parse: (raw) => {
+      // {clear:true} / 空 {} = 清除 chat 档（回落 creative）——对象形态可携带 expectedRevision。
+      // 第九轮 L-2：readJson 已把字面 null 归一为 {}（http.ts `JSON.parse ?? {}`），旧注释的
+      // 「null /」形态实际不可达；空对象即等价清档口径，死分支删除
+      // 低-1（第十轮）：清档/解析两分支都以「body 是 JSON 对象」为前提——readJson 只归一
+      // 字面 null，数字/布尔/数组/字符串等原语原样透出，`Object.keys(原语).length === 0`
+      // 会把 5/true/[]/"" 误判成空对象静默清档（revision 还 bump）。原语一律 400 拒绝
+      const body = (raw ?? {}) as Record<string, unknown>
+      if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+        throw new Error('body 需为 JSON 对象')
+      }
+      if (body['clear'] === true || Object.keys(body).length === 0) {
+        return { clear: true as const, slot: null, expectedRevision: body['expectedRevision'] }
+      }
+      const parsed = parseTierSlot(body)
+      if (!parsed.ok) throw new Error(parsed.error)
+      return { clear: false as const, slot: parsed.slot, expectedRevision: body['expectedRevision'] }
+    },
+    handler: async ({ input }, _req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
-    const body = await readJson(req)
-
-    // {clear:true} / 空 {} = 清除 chat 档（回落 creative）——对象形态可携带 expectedRevision。
-    // 第九轮 L-2：readJson 已把字面 null 归一为 {}（http.ts `JSON.parse ?? {}`），旧注释的
-    // 「null /」形态实际不可达；空对象即等价清档口径，死分支删除
-    // 低-1（第十轮）：清档/解析两分支都以「body 是 JSON 对象」为前提——readJson 只归一
-    // 字面 null，数字/布尔/数组/字符串等原语原样透出，`Object.keys(原语).length === 0`
-    // 会把 5/true/[]/"" 误判成空对象静默清档（revision 还 bump）。原语一律 400 拒绝
-    if (typeof body !== 'object' || body === null || Array.isArray(body)) {
-      return replyError(res, 400, 'BAD_INPUT', 'body 需为 JSON 对象')
-    }
-    if (body['clear'] === true || Object.keys(body).length === 0) {
-      const s = loadProviders(ctx.userDataPath)
-      const revErr = revisionError(body?.['expectedRevision'], s.revision)
-      if (revErr) return replyError(res, 409, 'REVISION_CONFLICT', revErr)
-      s.tiers = { ...s.tiers, chat: null }
-      if (!(await saveProvidersOr500(res, ctx.userDataPath, s))) return
-      return reply(res, 200, { ok: true, tiers: s.tiers, revision: s.revision })
-    }
-
-    const parsed = parseTierSlot(body as Record<string, unknown>)
-    if (!parsed.ok) return replyError(res, 400, 'BAD_INPUT', parsed.error)
-
     const s = loadProviders(ctx.userDataPath)
-    const revErr = revisionError(body['expectedRevision'], s.revision)
+    const revErr = revisionError(input.expectedRevision, s.revision)
     if (revErr) return replyError(res, 409, 'REVISION_CONFLICT', revErr)
-    s.tiers = { ...s.tiers, chat: parsed.slot }
+    s.tiers = { ...s.tiers, chat: input.clear ? null : input.slot }
     if (!(await saveProvidersOr500(res, ctx.userDataPath, s))) return
 
     // 表驱动重构（§6.3）：不再异步探测 caps——能力由静态表判定
@@ -228,44 +235,47 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
   },
   })
 
-  // 编辑
+  // 编辑（SRV-N8 机械批：parseProviderInput 移入 parse——body 校验先于 409/404 前置门
+  // 发生（defineRoute 先读 body 后进 handler），既有测试未钉旧优先级，校验文案逐字保留）
   defineRoute('providers.put', {
     method: 'PUT',
     path: '/api/providers/:id',
-    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
+    parse: (raw) => {
+      const body = (raw ?? {}) as Record<string, unknown>
+      const parsed = parseProviderInput(body)
+      if (!parsed.ok) throw new Error(parsed.error)
+      return { ...parsed, expectedRevision: body['expectedRevision'] }
+    },
+    handler: async ({ params, input }, _req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
     const id = params['id'] ?? ''
-    // dd-P2：读 body 先于 loadProviders——load→mutate→save 三段必须同步无 await
-    //（单事件循环内原子），此前 load 与 save 间隔着 await readJson，并发编辑丢更新
-    const body = await readJson(req)
+    // dd-P2：body 读取/校验已在 parse 段完成（更先于 loadProviders）——load→mutate→save
+    // 三段必须同步无 await（单事件循环内原子），此前 load 与 save 间隔着 await readJson，并发编辑丢更新
     const s = loadProviders(ctx.userDataPath)
-    const revErr = revisionError(body['expectedRevision'], s.revision)
+    const revErr = revisionError(input.expectedRevision, s.revision)
     if (revErr) return replyError(res, 409, 'REVISION_CONFLICT', revErr)
     const idx = s.providers.findIndex((p) => p.id === id)
     if (idx < 0) return replyError(res, 404, 'NOT_FOUND', '供应商不存在')
 
-    const parsed = parseProviderInput(body)
-    if (!parsed.ok) return replyError(res, 400, 'BAD_INPUT', parsed.error)
-
     const existing = s.providers[idx]!
     // apiKey 为空 = 不改（保留原 key）
-    const newKey = parsed.apiKey || existing.apiKey
+    const newKey = input.apiKey || existing.apiKey
     // 编辑后 caps 可能不再准确（baseUrl/key/model 变了）→ 清空要求重新探测
     const fieldsChanged =
-      existing.baseUrl !== parsed.baseUrl ||
+      existing.baseUrl !== input.baseUrl ||
       existing.apiKey !== newKey ||
-      existing.protocol !== parsed.protocol ||
-      existing.auth !== parsed.auth
+      existing.protocol !== input.protocol ||
+      existing.auth !== input.auth
 
     s.providers[idx] = {
       ...existing,
-      name: parsed.name,
-      protocol: parsed.protocol,
-      auth: parsed.auth,
-      baseUrl: parsed.baseUrl,
+      name: input.name,
+      protocol: input.protocol,
+      auth: input.auth,
+      baseUrl: input.baseUrl,
       apiKey: newKey,
       // P9：models 未传 = 保留原模型行；传 [] = 清空
-      models: parsed.models !== undefined ? parsed.models : existing.models,
+      models: input.models !== undefined ? input.models : existing.models,
       caps: fieldsChanged ? null : existing.caps,
       capsProbedAt: fieldsChanged ? undefined : existing.capsProbedAt,
     }
@@ -283,48 +293,59 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
 
   // D2（批 5）：provider 级价格表——独立端点而非并入编辑主链路（价格不影响连通性，
   // 不该连带 caps 重置/重新探测；解析也独立：四档单价均为正数或省略，null = 清除）
+  // SRV-N8 机械批：pricing 解析移入 parse（null/缺省 = 清除是合法形态非错误，照旧透传；
+  // 校验失败同 400 BAD_INPUT 同文案，先于 409/404 前置门发生——本端点无既有测试钉旧优先级）
   defineRoute('providers.pricing', {
     method: 'PUT',
     path: '/api/providers/:id/pricing',
-    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
+    parse: (raw) => {
+      const body = (raw ?? {}) as Record<string, unknown>
+      const rawPricing = body['pricing']
+      if (rawPricing === null || rawPricing === undefined) {
+        return { expectedRevision: body['expectedRevision'], pricing: null }
+      }
+      if (typeof rawPricing !== 'object' || Array.isArray(rawPricing)) {
+        throw new Error('pricing 需为对象或 null')
+      }
+      const p = rawPricing as Record<string, unknown>
+      const pos = (v: unknown): number | undefined | 'bad' =>
+        v === undefined || v === null || v === '' ? undefined : typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : 'bad'
+      const pricing: NonNullable<import('../../../ai/provider/types.js').ProviderConf['pricing']> = {}
+      for (const key of ['inputPerMTok', 'outputPerMTok', 'cacheReadPerMTok', 'cacheWritePerMTok'] as const) {
+        const v = pos(p[key])
+        if (v === 'bad') throw new Error(`pricing.${key} 需为非负数字`)
+        if (v !== undefined) pricing[key] = v
+      }
+      if (typeof p['currency'] === 'string' && p['currency'].trim()) pricing.currency = p['currency'].trim()
+      if (Object.keys(pricing).length === 0) {
+        throw new Error('pricing 至少需要一个单价键（inputPerMTok/outputPerMTok/cacheReadPerMTok/cacheWritePerMTok，单位：每百万 token）')
+      }
+      return { expectedRevision: body['expectedRevision'], pricing }
+    },
+    handler: async ({ params, input }, _req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
     const id = params['id'] ?? ''
-    const body = await readJson(req)
     const s = loadProviders(ctx.userDataPath)
-    const revErr = revisionError(body['expectedRevision'], s.revision)
+    const revErr = revisionError(input.expectedRevision, s.revision)
     if (revErr) return replyError(res, 409, 'REVISION_CONFLICT', revErr)
     const idx = s.providers.findIndex((p) => p.id === id)
     if (idx < 0) return replyError(res, 404, 'NOT_FOUND', '供应商不存在')
 
-    const raw = body['pricing']
-    if (raw === null || raw === undefined) {
+    if (input.pricing === null) {
       s.providers[idx] = { ...s.providers[idx]!, pricing: undefined }
       if (!(await saveProvidersOr500(res, ctx.userDataPath, s))) return
       return reply(res, 200, { ok: true, pricing: null, revision: s.revision })
     }
-    if (typeof raw !== 'object' || Array.isArray(raw)) {
-      return replyError(res, 400, 'BAD_INPUT', 'pricing 需为对象或 null')
-    }
-    const p = raw as Record<string, unknown>
-    const pos = (v: unknown): number | undefined | 'bad' =>
-      v === undefined || v === null || v === '' ? undefined : typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : 'bad'
-    const pricing: NonNullable<import('../../../ai/provider/types.js').ProviderConf['pricing']> = {}
-    for (const key of ['inputPerMTok', 'outputPerMTok', 'cacheReadPerMTok', 'cacheWritePerMTok'] as const) {
-      const v = pos(p[key])
-      if (v === 'bad') return replyError(res, 400, 'BAD_INPUT', `pricing.${key} 需为非负数字`)
-      if (v !== undefined) pricing[key] = v
-    }
-    if (typeof p['currency'] === 'string' && p['currency'].trim()) pricing.currency = p['currency'].trim()
-    if (Object.keys(pricing).length === 0) {
-      return replyError(res, 400, 'BAD_INPUT', 'pricing 至少需要一个单价键（inputPerMTok/outputPerMTok/cacheReadPerMTok/cacheWritePerMTok，单位：每百万 token）')
-    }
-    s.providers[idx] = { ...s.providers[idx]!, pricing }
+    s.providers[idx] = { ...s.providers[idx]!, pricing: input.pricing }
     if (!(await saveProvidersOr500(res, ctx.userDataPath, s))) return
-    reply(res, 200, { ok: true, pricing, revision: s.revision })
+    reply(res, 200, { ok: true, pricing: input.pricing, revision: s.revision })
   },
   })
 
   // 删除
+  // defineRoute parse 迁移跳过（SRV-N8 机械批）：本端点 body 读取是容错语义（P4 无 body
+  // 放行；readJson 非 HttpError 失败兜底 undefined 继续），defineRoute 的 readJson 失败
+  // 先于 parse 短路统一回 400——「按空 body 兜底继续」的既有语义在 parse 化后不可表达
   defineRoute('providers.delete', {
     method: 'DELETE',
     path: '/api/providers/:id',
@@ -356,34 +377,47 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
 
   // 测试连接（探测能力）——只发无意义 prompt，绝不含书稿内容
   // 获取模型列表（新建传 protocol+baseUrl+apiKey；编辑传 id 用已存储凭据）
+  // SRV-N8 机械批：手输分支的形状抽取/校验移入 parse（id 分支不校验其余字段——沿用
+  // 旧路径不误伤，凭据仍由 handler 从 store 取）；「必填」检查留在 handler（两分支
+  // 合流后判定，与旧序一致）
   defineRoute('providers.models', {
     method: 'POST',
     path: '/api/providers/models',
-    handler: async (_, req: IncomingMessage, res: ServerResponse) => {
+    parse: (raw) => {
+      const body = (raw ?? {}) as Record<string, unknown>
+      if (typeof body['id'] === 'string' && body['id']) return { id: body['id'] }
+      const protocol = (typeof body['protocol'] === 'string' ? body['protocol'] : 'openai') as Protocol
+      // I6（dsh 口径）：手输 key 同过传输不变量——就地解释拒绝优于上游 opaque 401
+      const typed = normalizeApiKey(typeof body['apiKey'] === 'string' ? body['apiKey'] : '')
+      if (!typed.ok && typed.reason === 'illegalCharacters') {
+        throw new Error(apiKeyRefusal('illegalCharacters'))
+      }
+      return {
+        protocol,
+        baseUrl: typeof body['baseUrl'] === 'string' ? body['baseUrl'] : '',
+        apiKey: typed.ok ? typed.value : '',
+        auth: (typeof body['auth'] === 'string' ? body['auth'] : protocol === 'anthropic' ? 'anthropic' : 'bearer') as AuthStrategy,
+      }
+    },
+    handler: async ({ input }, _req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
-    const body = await readJson(req)
     let protocol: Protocol
     let baseUrl: string
     let apiKey: string
     let auth: AuthStrategy
-    if (typeof body['id'] === 'string' && body['id']) {
+    if ('id' in input) {
       const s = loadProviders(ctx.userDataPath)
-      const p = s.providers.find((x) => x.id === body['id'])
+      const p = s.providers.find((x) => x.id === input.id)
       if (!p) return replyError(res, 404, 'NOT_FOUND', '供应商不存在')
       protocol = p.protocol
       baseUrl = p.baseUrl
       apiKey = p.apiKey
       auth = p.auth
     } else {
-      protocol = (typeof body['protocol'] === 'string' ? body['protocol'] : 'openai') as Protocol
-      baseUrl = typeof body['baseUrl'] === 'string' ? body['baseUrl'] : ''
-      // I6（dsh 口径）：手输 key 同过传输不变量——就地解释拒绝优于上游 opaque 401
-      const typed = normalizeApiKey(typeof body['apiKey'] === 'string' ? body['apiKey'] : '')
-      if (!typed.ok && typed.reason === 'illegalCharacters') {
-        return replyError(res, 400, 'BAD_INPUT', apiKeyRefusal('illegalCharacters'))
-      }
-      apiKey = typed.ok ? typed.value : ''
-      auth = (typeof body['auth'] === 'string' ? body['auth'] : protocol === 'anthropic' ? 'anthropic' : 'bearer') as AuthStrategy
+      protocol = input.protocol
+      baseUrl = input.baseUrl
+      apiKey = input.apiKey
+      auth = input.auth
     }
     if (!baseUrl || !apiKey) return replyError(res, 400, 'BAD_INPUT', 'API 地址和 Key 必填')
     try {
@@ -396,6 +430,9 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
   },
   })
 
+  // defineRoute parse 迁移跳过（SRV-N8 机械批）：本端点 body 读取是容错语义（R26-63——
+  // readJson 非 HttpError 失败按空 body 兜底继续探测），defineRoute 的 readJson 失败先于
+  // parse 短路统一回 400，容错路径不可表达，改之即变语义
   defineRoute('providers.test', {
     method: 'POST',
     path: '/api/providers/:id/test',

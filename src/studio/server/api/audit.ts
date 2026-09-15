@@ -19,7 +19,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
 import { reply, replyError, parseRequestUrl } from '../http.js'
-import { resolveBook } from '../book-context.js'
+import { resolveBookOrReply } from '../book-context.js'
 import { openSessionStoreAsync, bookHash, type SessionStore } from '../../../events/store.js'
 import { foldSurface } from '../../../events/projection.js'
 import { foldGoals, foldTodos } from '../../../events/goal-state.js'
@@ -222,8 +222,8 @@ export function registerAuditRoutes(ctx: AuditCtx): void {
     method: 'GET',
     path: '/api/books/:name/audit',
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBook(ctx.workDir, params['name'])
-    if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+    if (!r) return
     const bookName = params['name']!
     const bookRoot = r.bookRoot
     if (!ctx.userDataPath) {
@@ -272,8 +272,8 @@ export function registerAuditRoutes(ctx: AuditCtx): void {
     method: 'DELETE',
     path: '/api/books/:name/audit',
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBook(ctx.workDir, params['name'])
-    if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+    if (!r) return
     // 重评二轮-P3-2：六闸收编 chatClearGateReason 单源（沿革注释见其头注——dd-P3 /
     // hh-P1 / 第九轮 M-1 / 第五轮 / R29-9），入口首查 + 开库让出后复查（见下）两用
     const gate = chatClearGateReason(params['name']!, '清除事件史')

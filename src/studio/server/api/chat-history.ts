@@ -16,7 +16,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
 import { reply, replyError, parseRequestUrl } from '../http.js'
-import { resolveBook } from '../book-context.js'
+import { resolveBookOrReply } from '../book-context.js'
 import { openSessionStoreAsync, type SessionStore } from '../../../events/store.js'
 import { loadHistoryWithSeqs } from '../../../events/chat-bridge.js'
 import { buildBranchTree, defaultBranchId, selectBranch } from '../../../events/branch-tree.js'
@@ -95,8 +95,8 @@ export function registerChatHistoryRoutes(ctx: ChatHistoryCtx): void {
     method: 'GET',
     path: '/api/books/:name/chat/history',
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
-      const r = resolveBook(ctx.workDir, params['name'])
-      if ('error' in r) return replyError(res, r.status, r.code, r.error)
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
       const bookName = params['name']!
       const bookRoot = r.bookRoot
       // userData 为空（无事件库）→ 空 messages，不报错（对话区留白可正常发起新对话）

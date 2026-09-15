@@ -19,7 +19,7 @@ import { isMdFileName } from '../../../format/filename.js'
 import { isUtf8Bytes } from '../../../document/service.js'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError, parseRequestUrl } from '../http.js'
-import { resolveBook, bookMovedFailure } from '../book-context.js'
+import { bookMovedFailure, resolveBookOrReply } from '../book-context.js'
 import { invalidateTreeIndexForContent } from '../../../document/tree.js'
 // 重评-0912-4 P1-1：NonUtf8TargetError 类型化分诊（R66-1 确定性拒绝 ≠ 瞬态 IO，见 PUT 快照 catch 注）
 import { snapshotBeforeOverwrite, NonUtf8TargetError } from '../../../process/draft-pipeline.js' // R26-9（二十六轮）：覆盖留底单源复用（R71-9/R74-4 同款）
@@ -79,8 +79,8 @@ export function registerFileRoutes(ctx: FileCtx): void {
     method: 'GET',
     path: '/api/books/:name/file',
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
-      const r = resolveBook(ctx.workDir, params['name'])
-      if ('error' in r) return replyError(res, r.status, r.code, r.error)
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
       // R-19（第十六轮）：畸形 URL → 400 BAD_INPUT（Q-1/N-3 口径）
       const q = queryParams(req)
       if (!q) return replyError(res, 400, 'BAD_INPUT', 'bad request')
@@ -108,8 +108,8 @@ export function registerFileRoutes(ctx: FileCtx): void {
     method: 'PUT',
     path: '/api/books/:name/file',
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
-      const r = resolveBook(ctx.workDir, params['name'])
-      if ('error' in r) return replyError(res, r.status, r.code, r.error)
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
       // R-19（第十六轮）：畸形 URL → 400 BAD_INPUT（Q-1/N-3 口径）
       const q = queryParams(req)
       if (!q) return replyError(res, 400, 'BAD_INPUT', 'bad request')

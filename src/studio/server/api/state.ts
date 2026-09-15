@@ -16,7 +16,7 @@ import { join } from 'node:path'
 import { defineRoute } from './schema.js'
 import { reply, replyError } from '../http.js'
 import { createTtlProbeCache } from '../ttl-cache.js'
-import { resolveBook, bookMovedFailure } from '../book-context.js'
+import { bookMovedFailure, resolveBookOrReply } from '../book-context.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { readManifest } from '../../../document/manifest.js'
@@ -71,8 +71,8 @@ export function registerStateRoutes(ctx: StateCtx): void {
     method: 'GET',
     path: '/api/books/:name/state',
     handler: async ({ params }, _req, res) => {
-    const r = resolveBook(ctx.workDir, params['name'])
-    if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+    if (!r) return
 
     const bookRoot = r.bookRoot
     // R75-D-P3b：命中短时缓存则跳过全量判态重建（payload 为纯数据可复用）；R47-18
@@ -150,8 +150,8 @@ export function registerStateRoutes(ctx: StateCtx): void {
     method: 'POST',
     path: '/api/books/:name/journal/:opId/acknowledge',
     handler: async ({ params }, _req, res) => {
-      const r = resolveBook(ctx.workDir, params['name'])
-      if ('error' in r) return replyError(res, r.status, r.code, r.error)
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
       const opId = params['opId'] ?? ''
       if (!opId) return replyError(res, 400, 'BAD_INPUT', '缺少 opId')
       // 扫 工作区/.journal/*.jsonl 定位持该 opId 未结算 pending 的 journal 文件

@@ -41,7 +41,7 @@ import {
 } from '../../../format/style-candidate.js'
 import { migrateStyleLibrary } from '../../../format/style-migrate.js'
 import { harvestStyleCandidatesAsync } from '../../../process/style-harvest.js'
-import { readKind, resolveBook, bookMovedFailure } from '../book-context.js'
+import { readKind, bookMovedFailure, resolveBookOrReply } from '../book-context.js'
 import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
 import { localDayKey, log, errMsg } from '../../../log/index.js'
 import type { EntryKind, EntrySource, StyleEntry } from '../../../format/types.js'
@@ -97,16 +97,13 @@ function insideDir(rel: string, dir: string): boolean {
 
 export function registerStyleRoutes(ctx: StyleCtx): void {
   // 找书走公共 resolveBook（hh §八-12：信封统一 replyError）——原局部复制的 workDir 判空 + find + 404 样板
+  //（SRV-N8·2026-09-15 机械批：双行样板随收编下沉 resolveBookOrReply 单源）
   const resolveStyleBook = (
     res: ServerResponse,
     params: Record<string, string | undefined>,
   ): string | null => {
-    const r = resolveBook(ctx.workDir, params['name'])
-    if ('error' in r) {
-      replyError(res, r.status, r.code, r.error)
-      return null
-    }
-    return r.bookRoot
+    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+    return r ? r.bookRoot : null
   }
 
   // 条目列表（老书首读自动迁移——幂等，常态 no-op；迁移发生时附结果供 toast）

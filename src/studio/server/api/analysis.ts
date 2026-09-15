@@ -15,7 +15,7 @@ import { join, relative } from 'node:path'
 import { existsSync, readdirSync } from 'node:fs'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
-import { resolveBook, resolveDocEntry, resolveDraftByDocId } from '../book-context.js' // D2（复审-0914-优化修复批）：docId→正文解析链单源
+import { resolveBookOrReply, resolveDocEntry, resolveDraftByDocId } from '../book-context.js' // D2（复审-0914-优化修复批）：docId→正文解析链单源
 import { readManifest } from '../../../document/manifest.js' // analysis-overview 全量遍历（非 docId 单查）
 import { readDraft } from '../../../format/draft.js'
 import { readChapterDir } from '../../../format/chapters.js'
@@ -360,8 +360,8 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
     method: 'GET',
     path: '/api/books/:name/documents/:docId/analysis/:kind',
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-      const r = resolveBook(ctx.workDir, params['name'])
-      if ('error' in r) return replyError(res, r.status, r.code, r.error)
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
       const bookRoot = r.bookRoot
       const docId = params['docId'] ?? ''
       // R0911b-B-P3-1：kind 显式白名单（原 as 断言直通；垃圾 kind 同款 404 NO_ENVELOPE，
@@ -397,8 +397,8 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
     method: 'POST',
     path: '/api/books/:name/documents/:docId/analyze',
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
-      const r = resolveBook(ctx.workDir, params['name'])
-      if ('error' in r) return replyError(res, r.status, r.code, r.error)
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
       // R67-13（十五轮）编排互斥预检 + RB-SV-P2-2 任务闸（409 文案逐位保留）+
       // R0912-P2-①（2026-09-11 重评-0911c 修复批）中断通道接线——十段复制收编
       // runGatedGeneration 单源（复审-0914-优化修复批 P1-2；ctrl 注册名
@@ -460,8 +460,8 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
     method: 'POST',
     path: '/api/books/:name/documents/:docId/autotag',
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-      const r = resolveBook(ctx.workDir, params['name'])
-      if ('error' in r) return replyError(res, r.status, r.code, r.error)
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
       // R67-13 + RB-SV-P2-2（409 文案逐位保留）+ R0912-P2-①（register/unregister 形态
       // 与 analyze 子端点同款；owner 按 action 分槽='autotag:<书名>'）——十段复制收编
       // runGatedGeneration 单源（复审-0914-优化修复批 P1-2，接法头注见 analyze 处）。
@@ -522,8 +522,8 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
     method: 'POST',
     path: '/api/books/:name/documents/:docId/infer-meta',
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-      const r = resolveBook(ctx.workDir, params['name'])
-      if ('error' in r) return replyError(res, r.status, r.code, r.error)
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
       // R67-13 + RB-SV-P2-2（409 文案逐位保留）+ R0912-P2-①（owner='infer-meta:<书名>'）——
       // 十段复制收编 runGatedGeneration 单源（复审-0914-优化修复批 P1-2，接法头注见 analyze 处）。
       return runGatedGeneration(res, {
@@ -574,8 +574,8 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
     method: 'GET',
     path: '/api/books/:name/analysis-overview',
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-      const r = resolveBook(ctx.workDir, params['name'])
-      if ('error' in r) return replyError(res, r.status, r.code, r.error)
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
       // R36-7：mtime 探针 + 5s TTL 缓存壳（命中即跳过 manifest 整读 + 信封全读；
       // 计算体见 computeAnalysisOverviewAsync，行为与改前逐位一致）
       // R44-10：MISS 计算体异步分批让出，handler 相应 async（同文件 analyze 等
@@ -597,8 +597,8 @@ export function registerAnalysisRoutes(ctx: AnalysisCtx): void {
     method: 'POST',
     path: '/api/books/:name/analyze-style',
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-      const r = resolveBook(ctx.workDir, params['name'])
-      if ('error' in r) return replyError(res, r.status, r.code, r.error)
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
       // R67-13 + RB-SV-P2-2（409 文案逐位保留）+ R0912-P2-①（owner='analyze-style:<书名>'）——
       // 十段复制收编 runGatedGeneration 单源（复审-0914-优化修复批 P1-2，接法头注见 analyze 处）。
       return runGatedGeneration(res, {

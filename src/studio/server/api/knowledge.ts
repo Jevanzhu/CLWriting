@@ -11,7 +11,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
 import { createTtlProbeCache } from '../ttl-cache.js'
-import { resolveBook, bookMovedFailure } from '../book-context.js'
+import { bookMovedFailure, resolveBookOrReply } from '../book-context.js'
 import { learnFromBook } from '../../../learn/index.js'
 import { commitSamples, commitQuotes, defaultCommitYield, type CommitYield } from '../../../learn/commit.js'
 import type { LearnResult, SampleCandidate, QuoteCandidate } from '../../../learn/index.js'
@@ -99,8 +99,8 @@ export function registerKnowledgeRoutes(ctx: KnowledgeCtx): void {
     if (!ctx.workDir) return replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
     // R1010-P3（2026-09-10 全量重评 GLM-5.3 修复批）：handler 内冗余 token 复核删除——
     // 写闸（index.ts isWrite safeTokenCompare）在路由分派前已拦一切 POST（learn-commit 同）
-    const r = resolveBook(ctx.workDir, params['name'])
-    if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+    if (!r) return
     // R66-28（十四轮）：全书扫描并发闸 + 缓存（重复点击双跑双扫）。R72-2（二十轮 A-1）：
     // learnFromBook async 化后 handler 随之 async——await 期间事件循环可响应其他请求，
     // 但同一本书的并发重入仍要闸住（双跑双扫+候选目录写竞争），release 在 finally。
@@ -128,8 +128,8 @@ export function registerKnowledgeRoutes(ctx: KnowledgeCtx): void {
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.workDir) return replyError(res, 400, 'NO_WORKDIR', '未定位到工作目录')
     // R1010-P3：冗余 token 复核删除（写闸在路由前已拦，learn 同注）
-    const r = resolveBook(ctx.workDir, params['name'])
-    if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+    if (!r) return
     const body = await readJson(req)
     // 重评2-P3-⑤a：逐项条目数上限（过滤前原始长度判定，超限早拒——不进逐条 commit）
     const rawSamples = Array.isArray(body['samples']) ? (body['samples'] as unknown[]) : []

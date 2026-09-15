@@ -17,7 +17,7 @@ import { atomicWriteFile } from '../../../fs/atomic.js'
 import { canonicalizeText } from '../../../fs/text-canonical.js'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
-import { resolveBook } from '../book-context.js'
+import { resolveBookOrReply } from '../book-context.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { applyGlobalDefaults } from '../../../format/global-defaults.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
@@ -83,8 +83,9 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
     method: 'POST',
     path: '/api/books/:name/onboard-ai',
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBook(ctx.workDir, params['name'])
-    if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    // SRV-N8（专项精简优化 §五，2026-09-15 机械批）：resolveBook 双行样板收编单源
+    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+    if (!r) return
     // R67-13（十五轮）编排互斥预检 + RB-SV-P2-2 任务闸（409 文案逐位保留）+
     // R0912-P2-①（2026-09-11 重评-0911c 修复批）中断通道——十段复制收编
     // runGatedGeneration 单源（复审-0914-优化修复批 P1-2，接法头注见 task-gate.ts；
@@ -97,6 +98,8 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
       busyText: '本书已有 AI 设定任务在跑，请等待完成后再试',
       ownerLabel: 'onboard',
     }, async (ctrl) => {
+      // defineRoute parse 迁移跳过（SRV-N8 机械批）：校验顺序依赖前置门，parse 化会翻转错误优先级
+      //（readJson 在 runGatedGeneration 闸内回调——双闸 + ensureSession 先于 body 校验，且占闸覆盖 body 在途窗口）
       const reqBody = await readJson(req)
       const step = String(reqBody['step'] ?? '') as OnboardStep
       /** 既有讨论（对话式整理到步时传入，prompt 据此整理防臆造） */
@@ -175,23 +178,27 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
   })
 
   // 保存编辑（作者预览后改内容再落盘，5.2 交互「改 + 确认落盘」）
+  // M-5（SRV-N8 机械批，2026-09-15）：body 形状校验迁 parse——400 BAD_INPUT 信封与
+  // 原内联路径逐字节同源；step 白名单先于 content 判序保留，闸仍在 body 校验后占
+  //（R69-26 口径不变）；前置 resolveBook 404 无测试钉先后序，照 chat.send 先例迁移
   defineRoute('books.onboard-save', {
     method: 'POST',
     path: '/api/books/:name/onboard-save',
-    handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBook(ctx.workDir, params['name'])
-    if ('error' in r) return replyError(res, r.status, r.code, r.error)
-    const body = await readJson(req)
-    const step = String(body['step'] ?? '') as OnboardStep
-    if (!Object.hasOwn(STEP_PATH, step)) return replyError(res, 400, 'BAD_INPUT', `step 不支持:${step}`)
-    // 重评2-P3-⑤b（2026-09-09 全量重评 GLM-5.3）：下两行原多缩一层（R48-20 随批引入的
-    // 纯格式异常）——收回与相邻语句对齐，零行为变更。
-    // R48-20（四十八轮）：空 content 校验——content 缺失/空串此前静默清空设定文件并
-    // 返回 200 假成功；对齐 draft.ts 保存端点先例（400 BAD_INPUT）
-    const content = canonicalizeText(typeof body['content'] === 'string' ? body['content'] : '')
-    if (!content.trim()) return replyError(res, 400, 'BAD_INPUT', 'content 为空')
+    parse: (raw) => {
+      const body = (raw ?? {}) as Record<string, unknown>
+      const step = String(body['step'] ?? '') as OnboardStep
+      if (!Object.hasOwn(STEP_PATH, step)) throw new Error(`step 不支持:${step}`)
+      // R48-20（四十八轮）：空 content 校验——content 缺失/空串此前静默清空设定文件并
+      // 返回 200 假成功；对齐 draft.ts 保存端点先例（400 BAD_INPUT）
+      const content = canonicalizeText(typeof body['content'] === 'string' ? body['content'] : '')
+      if (!content.trim()) throw new Error('content 为空')
+      return { step, content }
+    },
+    handler: async ({ params, input }, _req, res) => {
+    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+    if (!r) return
     const bookRoot = r.bookRoot
-    const relPath = STEP_PATH[step]
+    const relPath = STEP_PATH[input.step]
     // R69-26（十七轮）：并发闸——与 onboard-ai（:85）互斥面缺失：双窗口同 step 保存
     // 后写静默覆盖先写（双方均 200）；作者驱动、产物可重存，故 409 提示而非乐观锁
     const release = acquireTaskGate(params['name']!, 'onboard-save')
@@ -203,18 +210,18 @@ export function registerOnboardRoutes(ctx: OnboardCtx): void {
       // （log 留痕不阻断保存），成功经响应 snapshotted 字段留痕
       let snapshotted = false
       try {
-        snapshotted = snapshotBeforeOverwrite(bookRoot, relPath, content, 'onboard-save-overwrite', undefined, ctx.userDataPath) !== null
+        snapshotted = snapshotBeforeOverwrite(bookRoot, relPath, input.content, 'onboard-save-overwrite', undefined, ctx.userDataPath) !== null
       } catch (e) {
-        log.warn('api', `onboard-save 覆盖前快照失败（${step}，fail-open 继续落盘）`, e)
+        log.warn('api', `onboard-save 覆盖前快照失败（${input.step}，fail-open 继续落盘）`, e)
       }
       try {
         mkdirSync(dirname(join(bookRoot, relPath)), { recursive: true })
-        atomicWriteFile(join(bookRoot, relPath), content)
+        atomicWriteFile(join(bookRoot, relPath), input.content)
       } catch (e) {
-        log.error('api', `onboard-save 落盘失败（${step}）`, e)
+        log.error('api', `onboard-save 落盘失败（${input.step}）`, e)
         return replyError(res, 500, 'IO_ERROR', '落盘失败')
       }
-      reply(res, 200, { ok: true, step, path: relPath, words: countWords(bodyOf(content)), ...(snapshotted ? { snapshotted: true } : {}) })
+      reply(res, 200, { ok: true, step: input.step, path: relPath, words: countWords(bodyOf(input.content)), ...(snapshotted ? { snapshotted: true } : {}) })
     } finally {
       release()
     }

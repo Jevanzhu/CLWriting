@@ -13,7 +13,7 @@ import { readFileSync, readdirSync, existsSync, mkdirSync, statSync } from 'node
 import { readdir } from 'node:fs/promises'
 import { defineRoute } from './schema.js'
 import { reply, readJson, HttpError, replyError } from '../http.js'
-import { resolveBook, bookMovedFailure } from '../book-context.js'
+import { bookMovedFailure, resolveBookOrReply } from '../book-context.js'
 import { readRealmDoc } from '../../../format/realms.js'
 import { readLeadDir } from '../../../format/leads.js'
 import { parseFlat, readFileFmOnly } from '../../../format/frontmatter.js'
@@ -218,8 +218,8 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
     method: 'GET',
     path: '/api/books/:name/settings',
     handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBook(ctx.workDir, params['name'])
-    if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+    if (!r) return
 
     const bookRoot = r.bookRoot
     // R46-16：全书扫描走缓存壳（命中即跳过 settingsLong 的全量重算）
@@ -235,8 +235,8 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
     method: 'GET',
     path: '/api/books/:name/completion-names',
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBook(ctx.workDir, params['name'])
-    if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+    if (!r) return
     reply(res, 200, await getCompletionNamesCached(r.bookRoot))
   },
   })
@@ -246,8 +246,8 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
     method: 'POST',
     path: '/api/books/:name/relations/mine',
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBook(ctx.workDir, params['name'])
-    if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+    if (!r) return
     // R75-D-P3a（批 D）编排互斥预检 + RB-SV-P2-2 任务闸（409 文案逐位保留）+
     // R0912-P2-①（2026-09-11 重评-0911c 修复批）中断通道（owner='relations-mine:<书名>'）
     // ——十段复制收编 runGatedGeneration 单源（复审-0914-优化修复批 P1-2，接法头注见

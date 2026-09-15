@@ -10,7 +10,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
-import { resolveBook } from '../book-context.js'
+import { resolveBookOrReply } from '../book-context.js'
 import { generateLeadUpdateDraft } from '../../../process/lead-update-draft.js'
 import { runGatedGeneration } from './task-gate.js' // P1-2（复审-0914-优化修复批）：长任务门控包装
 
@@ -26,8 +26,8 @@ export function registerLeadUpdateRoutes(ctx: LeadUpdateCtx): void {
     // R49-8（评审 R49）：本 handler 实际消费请求体（readJson）——参数名去 `_` 前缀
     //（本仓约定 `_` 前缀 = 未使用参数）；按位置传参，注册点无关，纯改名零行为。
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBook(ctx.workDir, params['name'])
-    if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+    if (!r) return
     // R67-13（十五轮）编排互斥预检 + RB-SV-P2-2 任务闸（409 文案逐位保留）+
     // R0912-P2-①（2026-09-11 重评-0911c 修复批）中断通道（owner='lead-updates:<书名>'，
     // ctrl.signal 沿 process 层既有形参 Z-P1-1 透传）——十段复制收编 runGatedGeneration

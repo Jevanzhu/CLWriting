@@ -14,7 +14,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
 import { reply, replyError } from '../http.js'
 import { createTtlProbeCache } from '../ttl-cache.js'
-import { resolveBook, resolveDocFile, bookMovedFailure } from '../book-context.js'
+import { resolveBookOrReply, resolveDocFile, bookMovedFailure } from '../book-context.js'
 import { readAnalysis } from '../../../document/analysis.js'
 import { openSessionStoreAsync, bookHash } from '../../../events/store.js'
 import { QUOTE_OPEN, QUOTE_CLOSE } from '../../../check/quotes.js'
@@ -78,8 +78,8 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
     method: 'POST',
     path: '/api/books/:name/documents/:docId/check',
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-      const r = resolveBook(ctx.workDir, params['name'])
-      if ('error' in r) return replyError(res, r.status, r.code, r.error)
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
 
       const bookRoot = r.bookRoot
       const docId = params['docId'] ?? ''
@@ -120,8 +120,8 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
       return { checkId }
     },
     handler: async ({ params, input }, _req: IncomingMessage, res: ServerResponse) => {
-      const r = resolveBook(ctx.workDir, params['name'])
-      if ('error' in r) return replyError(res, r.status, r.code, r.error)
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
       const bookRoot = r.bookRoot
       const docId = params['docId'] ?? ''
       // D2（复审-0914-优化修复批）：同上收编 resolveDocFile——本端点 NOT_FOUND 文案
@@ -177,8 +177,8 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
     method: 'GET',
     path: '/api/books/:name/tree-issues',
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-      const r = resolveBook(ctx.workDir, params['name'])
-      if ('error' in r) return replyError(res, r.status, r.code, r.error)
+      const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+      if (!r) return
 
       const bookRoot = r.bookRoot
       // R75-D-P3b：命中短时缓存则跳过全书同步重扫（payload 为纯数据可复用）；R47-18

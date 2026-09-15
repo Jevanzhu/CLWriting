@@ -30,7 +30,7 @@ import {
   BOOK_NAME_INVALID_REASON,
   tryBooksLockAsync,
 } from '../../../install/books.js'
-import { resolveBook } from '../book-context.js'
+import { resolveBookOrReply } from '../book-context.js'
 // R1010b-SRV-P2-1/P3-1（2026-09-10 内存专项重审修复批）：伏笔保存串行链 drain + 按书 forget
 import { forgetService, drainDocumentSaves, drainForeshadowSaveChains, forgetForeshadowSaveChain, drainStructureChainsUnder } from './documents.js'
 import { drainFilePutChainsUnder } from './files.js'
@@ -431,11 +431,9 @@ export function registerBookRoutes(ctx: BookCtx): void {
       return
     }
     const name = params['name'] ?? ''
-    const r = resolveBook(ctx.workDir, name)
-    if ('error' in r) {
-      replyError(res, r.status, r.code, r.error)
-      return
-    }
+    // SRV-N8（专项精简优化 §五，2026-09-15 机械批）：resolveBook 双行样板收编单源
+    const r = resolveBookOrReply(ctx.workDir, name, res)
+    if (!r) return
     const entry = r.entry
     // ee-P2-11 / hh-P1 / dd-P2：三闸联合检查（busyGate 集中各闸口径）
     // R32-6（三十二轮）：闸检查前置（对齐 rename 路径 R26-58 序）——此前先 abort 后过闸，
@@ -589,11 +587,8 @@ export function registerBookRoutes(ctx: BookCtx): void {
         return
       }
       const oldName = params['name'] ?? ''
-      const r = resolveBook(ctx.workDir, oldName)
-      if ('error' in r) {
-        replyError(res, r.status, r.code, r.error)
-        return
-      }
+      const r = resolveBookOrReply(ctx.workDir, oldName, res)
+      if (!r) return
       const entry = r.entry
       const newName = input.name
       const oldRoot = join(ctx.workDir, entry.path)

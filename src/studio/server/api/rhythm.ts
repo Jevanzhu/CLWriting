@@ -10,10 +10,10 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { statSync } from 'node:fs'
 import { join } from 'node:path'
 import { defineRoute } from './schema.js'
-import { reply, replyError } from '../http.js'
+import { reply } from '../http.js'
 import { createTtlProbeCache } from '../ttl-cache.js'
 import { yieldToEventLoop } from '../../../async.js' // 重评-0914-三轮 P3-2：扫描段让出原语（progress.ts R37-3 同源）
-import { resolveBook } from '../book-context.js'
+import { resolveBookOrReply } from '../book-context.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { readChapterDir } from '../../../format/chapters.js'
 import type { HookType, HookLevel, Emotion, SceneType, ChapterMeta, BookConfig } from '../../../format/types.js'
@@ -157,8 +157,8 @@ export function registerRhythmRoutes(ctx: RhythmCtx): void {
     // 「PM-1 交付时 handler 未随迁」的同型教训在此随批收口；router dispatch 对
     // async handler 已有 catch 兜底）
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBook(ctx.workDir, params['name'])
-    if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+    if (!r) return
 
     // R44-8：全书扫描走缓存壳（命中即跳过 readBookConfig + 双 readChapterDir）
     // 重评-0914-三轮 P3-2：改走 async 孪生（扫描段让出 + in-flight 去重），

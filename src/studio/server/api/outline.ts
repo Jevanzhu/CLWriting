@@ -13,7 +13,7 @@ import { atomicWriteFile } from '../../../fs/atomic.js'
 import { canonicalizeText } from '../../../fs/text-canonical.js'
 import { defineRoute } from './schema.js'
 import { readJson, reply, replyError } from '../http.js'
-import { resolveBook } from '../book-context.js'
+import { resolveBookOrReply } from '../book-context.js'
 import { readChapterDir } from '../../../format/chapters.js'
 import { readKind } from '../../../format/kind.js'
 import { runSpec } from '../../../ai/tasks/spec.js'
@@ -60,8 +60,8 @@ export function registerOutlineRoutes(ctx: OutlineCtx): void {
     // R49-8（评审 R49）：本 handler 实际消费请求体（readJson）——参数名去 `_` 前缀
     //（本仓约定 `_` 前缀 = 未使用参数）；按位置传参，注册点无关，纯改名零行为。
     handler: async ({ params }, req: IncomingMessage, res: ServerResponse) => {
-    const r = resolveBook(ctx.workDir, params['name'])
-    if ('error' in r) return replyError(res, r.status, r.code, r.error)
+    const r = resolveBookOrReply(ctx.workDir, params['name'], res)
+    if (!r) return
     // R67-13（十五轮）编排互斥预检 + RB-SV-P2-2 任务闸（409 文案逐位保留）+
     // R0912-P2-①（2026-09-11 重评-0911c 修复批）中断通道（owner='outline:<书名>'，
     // 中断收口经 runTask ABORTED → 下方 replyGenerationFailure 分支即活）——十段复制
