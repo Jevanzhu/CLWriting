@@ -1,0 +1,178 @@
+/**
+ * 章节结构操作——拆分编排（S4：干跑 plan / 光标校验 / 执行 apply）。
+ *
+ * R0916-5f（2026-09-16，⑤④产品巨件拆分波2）：自 structure.ts 三缝一体纯移动拆分而来
+ * （纯移动——代码与注释原样随迁，零行为变化）。设计口径正本 = structure.ts 头注
+ * （《章节结构操作-设计方案-2026-08-30》v3：取号跳定稿/序中值/external-merge 截断
+ * 留底）。公共底座（读态派生/plan 指纹/取号/事件副录）在 structure-core.ts，本文件
+ * 单向依赖之（core←split，无环）；RAG 触点经 StructureRagPort 端口由组合根注入
+ * （G5 依赖反转，零 rag import）。
+ */
+import { dirname, join } from 'node:path'
+import { ulid } from '../fs/id.js'
+import { canonicalizeText } from '../fs/text-canonical.js'
+import { stringifyValue } from '../format/frontmatter.js'
+import { isPublishedValue } from '../format/chapters.js'
+import { sanitizeFileNamePart } from '../format/filename.js'
+import { chapterFilePrefix, countWords } from '../format/words.js'
+import { isUtf8Bytes, type DocumentService } from './service.js'
+import { invalidateTreeIndex } from './tree.js'
+import { structureSplitEvent } from '../events/chain-bridge.js'
+import {
+  fail,
+  readChapterState,
+  splitPlanHash,
+  bodyStartOffset,
+  maxUsedChapter,
+  finalizedChapterNumbers,
+  skipFinalized,
+  splitOrderMid,
+  recordStructureEvents,
+  type ChapterDiskState,
+  type StructureFailure,
+  type StructureRagPort,
+} from './structure-core.js'
+
+// ── 公共形状 ─────────────────────────────────────────────────────────
+
+/** 拆分干跑视图。 */
+export interface SplitPlanView {
+  ok: true
+  op: 'split'
+  docId: string
+  path: string
+  chapterNo: number
+  title: string
+  /** 新章号 = 全书 max+1 再跳已定稿章号（CC-P1-6 篇号永不复用） */
+  newChapterNo: number
+  /** 新章显示序 = 拆分点两侧有效序中值 */
+  order: number
+  /** 光标前保留字数 / 光标后迁出字数（正文口径，不含 fm） */
+  headWords: number
+  tailWords: number
+  tailPreview: string
+  /** 原章 fm 已发布 → 提示「平台连载无插入机制」，不硬拦（作者即唯一用户原则） */
+  publishedWarning: boolean
+  planHash: string
+}
+
+export type SplitApplyResult =
+  | {
+      ok: true
+      docId: string
+      newDocId: string
+      originChapterNo: number
+      newChapterNo: number
+      order: number
+      title: string
+    }
+  | StructureFailure
+
+// ── 拆分：干跑 + 执行 ────────────────────────────────────────────────
+
+export async function planChapterSplit(
+  bookRoot: string,
+  svc: DocumentService,
+  docId: string,
+  cursorOffset: number,
+): Promise<SplitPlanView | StructureFailure> {
+  const o = await readChapterState(svc, bookRoot, docId)
+  if (!('章号' in o)) return o
+  const v = validateSplitCursor(o, cursorOffset)
+  if (v !== null) return v
+  const newChapterNo = skipFinalized(maxUsedChapter(bookRoot) + 1, finalizedChapterNumbers(bookRoot))
+  const order = splitOrderMid(bookRoot, o)
+  const fmEnd = bodyStartOffset(o.text)
+  const tail = o.text.slice(cursorOffset)
+  return {
+    ok: true,
+    op: 'split',
+    docId,
+    path: o.path,
+    chapterNo: o.章号,
+    title: o.标题,
+    newChapterNo,
+    order,
+    headWords: countWords(o.text.slice(fmEnd, cursorOffset)),
+    tailWords: countWords(tail),
+    tailPreview: canonicalizeText(tail).trim().replace(/\n+/g, ' ').slice(0, 60),
+    publishedWarning: isPublishedValue(o.map.get('已发布')),
+    planHash: splitPlanHash(o, cursorOffset, newChapterNo, order),
+  }
+}
+
+/** 拆分点校验：须落在正文内且迁出段非空（光标在 fm 内/文末/尾随空白处 → BAD_INPUT）。 */
+function validateSplitCursor(o: ChapterDiskState, cursorOffset: number): StructureFailure | null {
+  const fmEnd = bodyStartOffset(o.text)
+  if (!Number.isInteger(cursorOffset) || cursorOffset <= fmEnd || cursorOffset >= o.text.length) {
+    return fail('BAD_INPUT', `拆分点须落在正文内（第 ${fmEnd + 1} 字符之后且不在文末）`)
+  }
+  if (o.text.slice(cursorOffset).trim().length === 0) {
+    return fail('BAD_INPUT', '拆分点之后没有正文内容（光标在章尾空白处）')
+  }
+  return null
+}
+
+export async function applyChapterSplit(
+  bookRoot: string,
+  svc: DocumentService,
+  userDataPath: string | null,
+  input: { docId: string; title: string; cursorOffset: number; planHash: string },
+  rag: StructureRagPort,
+): Promise<SplitApplyResult> {
+  const title = input.title.trim()
+  if (!title) return fail('BAD_INPUT', '新章标题必填')
+  const o = await readChapterState(svc, bookRoot, input.docId)
+  if (!('章号' in o)) return o
+  const v = validateSplitCursor(o, input.cursorOffset)
+  if (v !== null) return v
+  const newChapterNo = skipFinalized(maxUsedChapter(bookRoot) + 1, finalizedChapterNumbers(bookRoot))
+  const order = splitOrderMid(bookRoot, o)
+  const planHash = splitPlanHash(o, input.cursorOffset, newChapterNo, order)
+  if (planHash !== input.planHash) {
+    return fail('PLAN_STALE', '干跑后正文或章号基线已变化，请重新预览确认后再执行')
+  }
+  if (!isUtf8Bytes(o.bytes)) {
+    return fail('NOT_UTF8_TARGET', '该章是非 UTF-8 编码的存量文件（GBK 等旧档），拆分会失真——请先在编辑器外转码为 UTF-8 再操作')
+  }
+  // ① 原章截断（external-merge 强制留底 = 截断前全文，反悔可回）
+  const head = `${o.text.slice(0, input.cursorOffset).trimEnd()}\n`
+  const tail = canonicalizeText(o.text.slice(input.cursorOffset)).trimStart()
+  const saved = await svc.save(input.docId, o.path, {
+    content: head,
+    expectedRevision: o.rev,
+    operationId: ulid(),
+    origin: 'external-merge',
+    reason: `拆分第${o.章号}章：光标后内容迁出为第${newChapterNo}章`,
+  })
+  if (!saved.ok) return fail(saved.code, saved.reason)
+  // ② 新章落位（与原章同目录——卷归属随原章；文件名 sanitizeFileNamePart +
+  // chapterFilePrefix 单源；fm 序 = 两侧有效序中值）。win 合并批（2026-09-13）：
+  // 仓库 relPath 正斜杠为规范形——win 的 path.join 产出反斜杠，会把整条路径带进
+  // doCreate 的单段消毒被洗成畸形文件名落书根（apply 200 但预期路径无文件）；
+  // 规范化与下方 detectStructureViolations 的 replaceAll 同款（macOS 上恒 no-op）。
+  const relPath = join(dirname(o.path), `${chapterFilePrefix(newChapterNo, 'chapter')}${sanitizeFileNamePart(title)}.md`).replaceAll('\\', '/')
+  const newContent = `---\n章号: ${newChapterNo}\n标题: ${stringifyValue(title)}\n序: ${order}\n---\n${tail}${tail.endsWith('\n') ? '' : '\n'}`
+  const created = await svc.createDocument({ relPath, content: newContent })
+  if (!created.ok) {
+    return fail(
+      created.code,
+      `原章已截断（截断前全文已留底为版本），但新章创建失败：${created.reason}——可重试拆分或从版本面板恢复原章`,
+    )
+  }
+  // ③ 事件 + ④ RAG 指纹失效（原章内容已变，下轮 buildIndex 重嵌两章）+ ⑤ 缓存失效
+  await recordStructureEvents(userDataPath, bookRoot, [
+    structureSplitEvent({
+      op: 'split',
+      docId: input.docId,
+      newDocId: created.docId,
+      originChapterNo: o.章号,
+      newChapterNo,
+      order,
+      title,
+    }),
+  ])
+  rag.cleanupRagAfterMerge(bookRoot, [], o.章号)
+  invalidateTreeIndex(bookRoot, true)
+  return { ok: true, docId: input.docId, newDocId: created.docId, originChapterNo: o.章号, newChapterNo, order, title }
+}
