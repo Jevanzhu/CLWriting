@@ -106,8 +106,9 @@ function numInput(min: number, max: number, setter: (v: number) => void, e: Even
     </SettingItem>
     <SettingItem v-if="hasDesktop" name="正文字体" desc="编辑区、开书对话、草稿卡等所有正文编辑框">
       <div class="font-pair">
-        <FontPicker class="font-select" :value="prefs.proseFontCn" :fonts="chineseFonts" :default-font="defaultProseFontCn" placeholder="中文 · 默认" :display="fontDisplayName" @change="prefs.setProseFontCn($event)" />
-        <FontPicker class="font-select" :value="prefs.proseFontEn" :fonts="englishFonts" :default-font="defaultProseFontEn" placeholder="英文 · 默认" :display="fontDisplayName" @change="prefs.setProseFontEn($event)" />
+        <!-- 重评-0914-三轮 P3-10：字体下拉补可访问名称（win 自绘按钮/原生 select 均无内在名） -->
+        <FontPicker class="font-select" ariaLabel="正文中文字体" :value="prefs.proseFontCn" :fonts="chineseFonts" :default-font="defaultProseFontCn" placeholder="中文 · 默认" :display="fontDisplayName" @change="prefs.setProseFontCn($event)" />
+        <FontPicker class="font-select" ariaLabel="正文英文字体" :value="prefs.proseFontEn" :fonts="englishFonts" :default-font="defaultProseFontEn" placeholder="英文 · 默认" :display="fontDisplayName" @change="prefs.setProseFontEn($event)" />
       </div>
     </SettingItem>
   </section>

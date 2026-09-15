@@ -7,10 +7,24 @@
  * - ③ in-band 声明计入预算：被丢/被截都留声明行，且总量恒 ≤ 预算。
  * 层序保持传入序，不按 specificity 重排。
  */
-import { test, expect } from 'vitest'
+import { test, expect, vi } from 'vitest'
 import { assembleSettingsInjection, type SettingsLayer } from '../../src/process/settings-injection.js'
 import { PRUNE_MARKER } from '../../src/process/prune.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { denyRead } from '../helpers/fs-deny.js'
+
+// win 臂 EACCES 注入的模块包装（posix 臂走 chmod 不依赖）——见 helpers/fs-deny.ts 头注
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>()
+  const { armFsNamespace } = await import('../helpers/fs-deny.js')
+  return armFsNamespace('fs', actual)
+})
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  const { armFsNamespace } = await import('../helpers/fs-deny.js')
+  return armFsNamespace('fsp', actual)
+})
+
 
 /** 造指定 code point 长度的中文文本（带锚点字符，断言层去留用） */
 function cn(anchor: string, len: number): string {
@@ -277,26 +291,27 @@ test('cardCache 删除自愈：删卡后再读，缓存条目被清扫；他目�
 
 // ── R65-32（第六十五轮）：降级分支二次裸读容错——单卡读失败跳过，其余卡正常 ──────
 
-test.skipIf(process.platform === 'win32')( // Windows 无 POSIX 权限位（chmod 不阻读），该守卫语义由 mac/linux 腿覆盖
-  'readCharacterCards：无 fm 卡读盘失败（EACCES）→ 跳过该卡，其余卡正常返回（不再直穿抛出）',
-  async () => {
+// 重评-0914-三轮 P3-11：读失败注入改 fs-deny 平台分派（win 臂 spy 注入 EACCES，readFile/readFileSync
+// 双覆盖），摘除 skipIf(win32)
+test('readCharacterCards：无 fm 卡读盘失败（EACCES）→ 跳过该卡，其余卡正常返回（不再直穿抛出）', async () => {
   const { readCharacterCards, clearCharacterCardCache } = await import('../../src/process/settings-context.js')
-  const { rmSync, writeFileSync, chmodSync } = await import('node:fs')
+  const { rmSync, writeFileSync } = await import('node:fs')
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
   const dir = mkdtempTracked(join(tmpdir(), 'cards-eacces-'))
+  const badCard = join(dir, '坏卡.md')
+  // 一张正常无 fm 卡（走降级分支：姓名=文件名，正文=全文）+ 一张不可读卡（无 fm 也无读权）
+  writeFileSync(join(dir, '林远.md'), '冷面剑修，旧自由 MD 无 front matter。\n')
+  writeFileSync(badCard, '读不出来的内容\n')
+  const deny = denyRead(badCard) // 自然故障：readFile 失败 → 降级分支裸 readFileSync 再抛 EACCES（win 臂 spy / posix 臂 chmod）
   try {
-    // 一张正常无 fm 卡（走降级分支：姓名=文件名，正文=全文）+ 一张不可读卡（无 fm 也无读权）
-    writeFileSync(join(dir, '林远.md'), '冷面剑修，旧自由 MD 无 front matter。\n')
-    writeFileSync(join(dir, '坏卡.md'), '读不出来的内容\n')
-    chmodSync(join(dir, '坏卡.md'), 0o000) // 自然故障：readFile 失败 → 降级分支裸 readFileSync 再抛 EACCES
     // 修复前：此处直穿抛 EACCES（无 fm 与读盘失败混在同一 else）；修复后跳过坏卡
     const cards = readCharacterCards(dir, dir)
     expect(cards).toHaveLength(1)
     expect(cards[0]!.姓名).toBe('林远')
     expect(cards[0]!.正文).toContain('冷面剑修')
   } finally {
-    chmodSync(join(dir, '坏卡.md'), 0o644) // 还原权限供清理
+    deny.restore() // 还原供清理
     rmSync(dir, { recursive: true, force: true })
     clearCharacterCardCache()
   }

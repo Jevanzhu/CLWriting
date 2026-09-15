@@ -12,8 +12,8 @@
  * - R31-15：章号安全守卫（负数/超安全整数 fail-loud）。
  * - R31-18：ngram 滑窗 astral 字符走码点路径（纯 BMP 快路径行为不变）。
  */
-import { test, expect } from 'vitest'
-import { rmSync, mkdirSync, writeFileSync, chmodSync } from 'node:fs'
+import { test, expect, vi } from 'vitest'
+import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readChapter } from '../../src/format/chapters.js'
@@ -24,6 +24,20 @@ import { evidenceNeedles } from '../../src/check/leads.js'
 import { runCheckForDocument } from '../../src/check/run.js'
 import { getRedItems } from '../../src/check/runner.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { denyRead } from '../helpers/fs-deny.js'
+
+// win 臂 EACCES 注入的模块包装（posix 臂走 chmod 不依赖）——见 helpers/fs-deny.ts 头注
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>()
+  const { armFsNamespace } = await import('../helpers/fs-deny.js')
+  return armFsNamespace('fs', actual)
+})
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  const { armFsNamespace } = await import('../helpers/fs-deny.js')
+  return armFsNamespace('fsp', actual)
+})
+
 
 // ── R31-2：全角冒号键行 ──────────────────────────────────────────────
 
@@ -99,7 +113,8 @@ function makeWiringBook(): string {
   return root
 }
 
-test.skipIf(process.platform === 'win32')('R31-3: 账本推进读失败 → 黄项降级，不产 declared-not-done 红', () => {
+// 重评-0914-三轮 P3-11：读失败注入改 fs-deny 平台分派（win 臂 spy 注入 EACCES），摘除 skipIf(win32)
+test('R31-3: 账本推进读失败 → 黄项降级，不产 declared-not-done 红', () => {
   const root = makeWiringBook()
   try {
     // 细纲声明 悬念-001（若兑现侧可读且无推进 → 本应红 lead-declared-not-done）
@@ -107,7 +122,7 @@ test.skipIf(process.platform === 'win32')('R31-3: 账本推进读失败 → 黄�
     // 账本推进.md 在但不可读（chmod 000 模拟权限/瞬态占用；存在≠无推进）
     const ledger = join(root, '工作区', '账本推进.md')
     writeFileSync(ledger, '# 第1章 账本推进\n- 悬念-001 推进：钟声三响\n', 'utf-8')
-    chmodSync(ledger, 0o000)
+    const deny = denyRead(ledger) // 账本推进.md 在但不可读（win 臂 spy / posix 臂 chmod 0o000）
     try {
       const outcome = runCheckForDocument(root, join(root, '写作', '正文', '001-夜访.md'))
       expect(outcome.ok).toBe(true)
@@ -118,7 +133,7 @@ test.skipIf(process.platform === 'win32')('R31-3: 账本推进读失败 → 黄�
       const yellows = outcome.report.sections.flatMap((s) => s.items).filter((i) => i.level === 'yellow')
       expect(yellows.some((i) => i.checkId === 'lead-updates-unreadable')).toBe(true)
     } finally {
-      chmodSync(ledger, 0o644)
+      deny.restore()
     }
   } finally {
     rmSync(root, { recursive: true, force: true })

@@ -310,7 +310,10 @@ onBeforeUnmount(() => {
   border-radius: var(--radius-s, 4px);
   background: var(--background-secondary);
   color: var(--text-muted);
-  font-size: var(--font-size-sm, 12px);
+  /* 重评-0914-三轮 P3-9：--font-size-sm 系不存在的 token 名（字号刻度实名 --font-size-s），
+   * 原写法恒走 12px fallback——字号档不随全局缩放（外观「字号」的 --font-size-step 失效）。
+   * 改引实名并删自定义 fallback。 */
+  font-size: var(--font-size-s);
   cursor: pointer;
   opacity: 0.35;
   transition: opacity var(--dur-norm) var(--ease-out);

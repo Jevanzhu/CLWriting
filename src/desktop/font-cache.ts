@@ -294,10 +294,17 @@ export function bareFontName(rawLine: string): string {
 
 /**
  * R48-72（四十八轮）：font-list core.getFonts 的排序口径单源（剥前导引号后大小写
- * 不敏感；比较器恒 -1/1 同款）——win-fonts.ts 的内联比较器随批收编为消费本导出。
+ * 不敏感；主序比较器形态同上游）——win-fonts.ts 的内联比较器随批收编为消费本导出。
+ * nano R2-2（重评-0914-三轮）：原恒 -1/1——等价名（剥引号+小写后相等）也返回 1，
+ * 非严格弱序（等价类内不对称），Array.sort 下等价名内部次序随输入序漂移不稳定。
+ * 等价时按原字符串比较作 tie-break（仍等则 0），成严格弱序；行为面仅内部次序
+ * 确定化，登记/输出集合与主序（大小写不敏感）不变。
  */
 export function compareFontNames(a: string, b: string): number {
-  return a.replace(/^['"]+/, '').toLocaleLowerCase() < b.replace(/^['"]+/, '').toLocaleLowerCase() ? -1 : 1
+  const na = a.replace(/^['"]+/, '').toLocaleLowerCase()
+  const nb = b.replace(/^['"]+/, '').toLocaleLowerCase()
+  if (na === nb) return a < b ? -1 : a > b ? 1 : 0 // nano R2-2：等价名按原串 tie-break
+  return na < nb ? -1 : 1
 }
 
 /** 自管命令 stdout → 字体名数组（逐字对齐 font-list 上游各平台分支的行处理）。 */

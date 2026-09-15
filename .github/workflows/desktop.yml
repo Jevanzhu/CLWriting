@@ -245,3 +245,23 @@ jobs:
           }
           Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
           Write-Output "冒烟通过：打包态 Electron 启动标记已捕获，无渲染崩溃标记"
+      # 重评-0914-三轮 P3-5：win 腿补关窗链冒烟——mac 腿（复审-0913-mac适配 P3-11）已以
+      # CLW_SMOKE_APP_BIN 注入打包态二进制跑 scripts/electron-smoke.mjs 的 window-cycle
+      # 驱动，脚本的 win 支持（taskkill /T 杀树 + 打包态直起二进制分支）早已在位但从未
+      # 接线，win 打包态「真实建窗→关窗→白名单摘除」链此前无任何 CI 兜底。形态复刻 mac
+      # 腿两行（定位产物 + 可执行体守卫 + env 注入）；win 产物无 mac 的 arch 可变段
+      #（win-unpacked/ 固定，与上方启动冒烟腿同一路径口径），Get-Item 落空返回 $null。
+      # 守卫必须保留：appBin 为空串时脚本对空 CLW_SMOKE_APP_BIN 会静默降级 dev 态形态
+      # （假绿，同 mac 腿 test -x 的防假绿语义）。放工件上传后（同 mac 口径：冒烟红
+      # 仍留 exe 工件供排查）。
+      - name: Electron 关窗链冒烟（打包态 exe，window-cycle）
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $exe = (Get-Item "dist-electron/win-unpacked/CLWriting.exe" -ErrorAction SilentlyContinue).FullName
+          if (-not $exe) {
+            Write-Output "::error::未找到打包态可执行体：dist-electron/win-unpacked/CLWriting.exe"
+            exit 1
+          }
+          $env:CLW_SMOKE_APP_BIN = $exe
+          npm run smoke:electron

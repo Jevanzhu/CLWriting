@@ -7,7 +7,7 @@
  * 失败路径走「无 provider 且非 mock」的真实解析错误。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync, appendFileSync, chmodSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync, appendFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -23,6 +23,20 @@ import {
   SUMMARY_VOLUME_MAX_FALLBACK,
 } from '../../src/process/summary.js'
 import { SUMMARY_CHAPTER_SPEC } from '../../src/ai/tasks/specs.js'
+import { denyRead } from '../helpers/fs-deny.js'
+
+// win 臂 EACCES 注入的模块包装（posix 臂走 chmod 不依赖）——见 helpers/fs-deny.ts 头注
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>()
+  const { armFsNamespace } = await import('../helpers/fs-deny.js')
+  return armFsNamespace('fs', actual)
+})
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  const { armFsNamespace } = await import('../helpers/fs-deny.js')
+  return armFsNamespace('fsp', actual)
+})
+
 import { waitBackgroundTasks, hasBackgroundTasks } from '../../src/ai/orchestrate/background.js'
 import { computeRevision } from '../../src/document/revision.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
@@ -397,7 +411,8 @@ describe('prepare 注入登记（模型可见 ⟺ 已记录，C1 红线）', () 
 // ── R65-31（第六十五轮）：摘要文件读失败降级（权限/TOCTOU 不直穿自愈链）────────
 
 describe('R65-31: 摘要读失败降级', () => {
-  it.skipIf(process.platform === 'win32')('章摘要不可读（chmod 000 → EACCES）→ chapterSummaryState 按 missing、body 按 null，均不抛', () => {
+  // 重评-0914-三轮 P3-11：读失败注入改 fs-deny 平台分派（win 臂 spy 注入 EACCES），摘除 skipIf(win32)
+  it('章摘要不可读（EACCES）→ chapterSummaryState 按 missing、body 按 null，均不抛', () => {
     const root = mkdtempSync(join(tmpdir(), 'clw-r65-31-'))
     dirs.push(root)
     try {
@@ -407,13 +422,13 @@ describe('R65-31: 摘要读失败降级', () => {
       const fp = chapterSummaryPath(root, 1)
       mkdirSync(join(root, '定稿', '摘要', '章摘要'), { recursive: true })
       writeFileSync(fp, '---\nchapter: 1\nsourceHash: sha256:x\n---\n\n情节推进。\n', 'utf-8')
-      chmodSync(fp, 0o000) // 自然故障注入（非 mock）：读盘 EACCES
+      const deny = denyRead(fp) // 自然故障注入（非 mock）：读盘 EACCES（win 臂 spy / posix 臂 chmod）
       try {
         // 修复前：existsSync 通过后裸 readFileSync 直穿抛 EACCES
         expect(chapterSummaryState(root, 1, bodyAbs)).toBe('missing')
         expect(readChapterSummaryBody(root, 1)).toBeNull()
       } finally {
-        chmodSync(fp, 0o644) // 还原权限供 afterEach 清理
+        deny.restore() // 还原供 afterEach 清理
       }
     } finally {
       // dirs 清理由 afterEach 统一做

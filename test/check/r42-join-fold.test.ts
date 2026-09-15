@@ -108,16 +108,23 @@ test('R42-5: win32 钉平台——case-only 改名定稿章后 maxWritten 基准
   }
 })
 
-test('R42-5: posix 钉平台——不折叠（口径维持）：失配仍在，基准低估形态可观测', () => {
-  pinPlatform('linux')
-  const { root, docIds } = makeCheckBook()
-  try {
-    const r = collectTreeIssues(root, () => undefined)
-    expect(r.issues[docIds[3]!]?.hasRed).toBe(true) // 基准=1 → lead-chapter-future 假红（posix 保大小写）
-  } finally {
-    rmSync(root, { recursive: true, force: true })
-  }
-})
+// 重评-0914-三轮 P2-1（2026-09-14）：本腿钉 platform='linux' 后依赖「relative() 产正斜杠」
+// 的宿主行为——复审-0913-mac适配 P3-2 将 normalizeWinSeparators 收窄 win32-only 后，
+// win 宿主上钉 linux 得到「linux 平台标志 + win 反斜杠路径」的现实不存在组合：盘侧键
+// 与清单键全量失配、基准走 R69-17 回退抬高，断言恒败。posix 折叠语义由 CI ubuntu/macos
+// 腿真实宿主覆盖；同文件其余 posix 腿不经过 relative()+归一化链，不受此失真影响。
+test.skipIf(process.platform === 'win32')(
+  'R42-5: posix 钉平台——不折叠（口径维持）：失配仍在，基准低估形态可观测', () => {
+    pinPlatform('linux')
+    const { root, docIds } = makeCheckBook()
+    try {
+      const r = collectTreeIssues(root, () => undefined)
+      expect(r.issues[docIds[3]!]?.hasRed).toBe(true) // 基准=1 → lead-chapter-future 假红（posix 保大小写）
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  },
+)
 
 // ── R42-6：learn（learnFromBook 公共入口）──
 

@@ -27,6 +27,12 @@ const props = defineProps<{
   display: (f: string) => string
   /** 本槽位默认字体的具体名（useSystemFonts 按已安装列表解析；空 = 无可显默认回落 placeholder） */
   defaultFont?: string
+  /**
+   * 重评-0914-三轮 P3-10：可访问名称。win 自绘按钮的可见内容只是当前字体名（无槽位
+   * 语境）、非 win 原生 select 无 label 关联——两者此前均无可访问名称（域内同列
+   * select 均带 aria-label 口径）。由使用点传有意义的中文名；缺省不输出该属性。
+   */
+  ariaLabel?: string
 }>()
 const emit = defineEmits<{ (e: 'change', v: string): void }>()
 
@@ -207,6 +213,7 @@ onBeforeUnmount(() => {
 
 <template>
   <!-- win：自绘浮层 -->
+  <!-- P3-10（重评-0914-三轮）：aria-label 可访问名称（记因见 props.ariaLabel 注） -->
   <template v-if="isWin">
     <button
       ref="btn"
@@ -215,6 +222,7 @@ onBeforeUnmount(() => {
       v-bind="$attrs"
       :class="{ open }"
       :style="{ fontFamily: value || defaultFont || 'inherit' }"
+      :aria-label="ariaLabel"
       :aria-haspopup="'listbox'"
       :aria-expanded="open"
       :aria-activedescendant="open ? optId(activeIdx) : undefined"
@@ -266,10 +274,12 @@ onBeforeUnmount(() => {
       </div>
     </Teleport>
   </template>
-  <!-- 非 win：原生 select（原样；默认项同步带默认字体名，闭合态即显示「默认 · X」） -->
+  <!-- 非 win：原生 select（原样；默认项同步带默认字体名，闭合态即显示「默认 · X」）；
+       aria-label 与 win 路径同源（P3-10，重评-0914-三轮：原生 select 无 label 关联） -->
   <select
     v-else
     v-bind="$attrs"
+    :aria-label="ariaLabel"
     :value="value"
     :style="{ fontFamily: value || defaultFont || 'inherit' }"
     @change="emit('change', (($event.target) as HTMLSelectElement).value)"

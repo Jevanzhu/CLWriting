@@ -8,6 +8,18 @@
  */
 import { EventEmitter } from 'node:events'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { waitFor } from './wait-for.js'
+
+/**
+ * readJson 挂持就绪探针（重评-0914-三轮 P3-12）：data 监听已挂上 = handler 已悬在
+ * readJson（src/studio/server/http.ts readJson 进函数即 `req.on('data', …)`）——
+ * 此时入口快照（resolveBook）必已过、body 未到，正是「入口已过、单元未跑」窗口。
+ * 取代 `await sleep(50)` 定时假定：假 req 事件无缓冲，慢 CI 下早放 body 会丢失，
+ * 轮询到就绪信号再放行（r1010b 面 B 观测钩子轮询同型手法，waitFor 单源）。
+ */
+export async function waitForBodyArmed(req: IncomingMessage, timeoutMs = 3000): Promise<void> {
+  await waitFor(() => req.listenerCount('data') > 0, timeoutMs, 5, 'readJson 挂持（假 req data 监听未武装）')
+}
 
 export function fakeReqRes(): {
   req: IncomingMessage

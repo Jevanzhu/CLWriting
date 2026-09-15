@@ -15,7 +15,7 @@
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { atomicWriteFile } from '../fs/atomic.js'
+import { atomicWriteFile, rmQuietly } from '../fs/atomic.js'
 import { isWithinRoot } from '../fs/safe-path.js'
 import { log } from '../log/index.js' // R0912-3：写失败节流 warn 留痕
 import { codePointLength } from './summary.js' // R26-96：非分配码位计数单源复用
@@ -70,6 +70,8 @@ function warnSpillWriteFailed(bookRoot: string, e: unknown): void {
 }
 
 export function writeSpillFile(bookRoot: string, text: string, meta?: SpillMeta): string | null {
+  // 重评-0914-三轮 P3-7：记录正文已写成的路径——meta sidecar 失败时 best-effort 清理用
+  let bodyWritten: string | undefined
   try {
     // A6（五十九轮）：locator 哈希并入 meta（章号+基线 sha）——改写 spill 原纯内容寻址，
     // 两次改写产出相同正文（如同一基线重复改写命中缓存/模型复读）时第二次会顶替同名
@@ -82,7 +84,9 @@ export function writeSpillFile(bookRoot: string, text: string, meta?: SpillMeta)
     const digest = hash.digest('hex').slice(0, 16)
     const dir = join(bookRoot, '工作区', 'spills')
     // kk-P2-5：原子写（临时文件 + rename）——中断不留半截 spill 文件，取回侧读不到截断内容
-    atomicWriteFile(join(dir, `${digest}.md`), text)
+    const bodyPath = join(dir, `${digest}.md`)
+    atomicWriteFile(bodyPath, text)
+    bodyWritten = bodyPath
     if (meta) atomicWriteFile(join(dir, `${digest}.meta.json`), JSON.stringify(meta))
     // L-P8（第八轮）：顺带清理 30 天前的旧 spill——内容寻址幂等但此前无 GC，长跑书库
     // 无限增长；清理失败不影响本次写入（best-effort）
@@ -92,6 +96,11 @@ export function writeSpillFile(bookRoot: string, text: string, meta?: SpillMeta)
     sweepOldSpillsThrottled(bookRoot)
     return `工作区/spills/${digest}.md`
   } catch (e) {
+    // 重评-0914-三轮 P3-7：正文写成功而 meta sidecar 失败时，本次降级返 null，正文却成
+    // 「无 sidecar 孤儿」（apply 侧一律拒绝、模型侧无 locator 不可达），原先仅靠 TTL GC
+    // 收口——此处 best-effort 删刚写的正文收窄窗口。内容寻址幂等：同内容下次成功写入
+    // 会原样重建；删失败静默（win 杀软瞬时锁走 rmQuietly，残留仍交 TTL GC 兜底）。
+    if (bodyWritten !== undefined) rmQuietly(bodyWritten)
     warnSpillWriteFailed(bookRoot, e) // R0912-3：降级为全文内联前节流留痕（恰一次/窗）
     return null
   }

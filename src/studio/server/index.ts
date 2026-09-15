@@ -349,8 +349,10 @@ export function startServer(opts: StudioServerOptions): http.Server {
     // GET 端点无 Origin 头可校验——攻击页把域名二次解析到 127.0.0.1 后，同源 GET
     // 即可全量读取书稿/配置；Host 校验切断该路径（写路径已有 Origin+token 双闸）
     {
-      const host = req.headers.host
-      if (listeningPort === 0 || (host !== `127.0.0.1:${listeningPort}` && host !== `localhost:${listeningPort}` && host !== `[::1]:${listeningPort}`)) {
+      // 重评-0914-三轮 nano R1-1：reqHost 改名消除跨作用域遮蔽——原名与外层监听
+      // host（上方 CC-P2-13 回环校验用，:315）同名异义，读改时易混
+      const reqHost = req.headers.host
+      if (listeningPort === 0 || (reqHost !== `127.0.0.1:${listeningPort}` && reqHost !== `localhost:${listeningPort}` && reqHost !== `[::1]:${listeningPort}`)) {
         replyError(res, 403, 'FORBIDDEN', 'forbidden host')
         return
       }

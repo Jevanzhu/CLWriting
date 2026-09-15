@@ -23,7 +23,7 @@
  * 回退（红线）：表缺席 / 读写失败 → 抛出由调用方吞掉、跳过缓存走现行全量路径
  * （语义无损降级，只有性能回到从前）。
  */
-import { DatabaseSync } from 'node:sqlite'
+import { DatabaseSync, type StatementSync } from 'node:sqlite'
 import { existsSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { ensureTreeIssuesTables } from '../cache/schema.js'
@@ -36,6 +36,31 @@ import { isMdFileName } from '../format/filename.js'
  *  a1-v2（2026-08-21 H-1）：章级行不再含账本全书性条目（改独立缓存 leads_book_*），
  *  旧代行语义不同（hasRed 含跨章红项），整代失效防新旧混存。 */
 const CHECKER_GENERATION = 'a1-v2'
+
+// 重评-0914-三轮 nano R3-3：连接级 prepared 语句缓存（rag/store.ts R46-45 同款
+// WeakMap<db, Map<sql, stmt>> 形态，prepared 缓存先例自此收编 check 域）——树聚合
+// 每轮只开一次库（run.ts collectTreeIssuesCore：开库 → 章循环逐章
+// readTreeIssuesCache → finally db.close），循环内数百次对同一固定 SQL 重编译白付。
+// 语句按连接对象身份键控，绝不跨连接复用：每轮短连接形态下（close 后新轮开新
+// DatabaseSync 对象）不存在 close-after-use 竞态；陈旧条目随连接对象不可达后一并
+// GC，无累积。配对关库纪律（rag/store.ts closeRagDb 口径的 close 注销）待 check 域
+// 出现长寿命/池化连接时再补，当前形态不引入生命周期改动。
+const preparedByDb = new WeakMap<DatabaseSync, Map<string, StatementSync>>()
+
+/** 按 (db, sql) 取缓存的 prepared 语句；未见过则编译一次入缓存（sql 须为固定串）。 */
+function prepared(db: DatabaseSync, sql: string): StatementSync {
+  let bySql = preparedByDb.get(db)
+  if (!bySql) {
+    bySql = new Map()
+    preparedByDb.set(db, bySql)
+  }
+  let stmt = bySql.get(sql)
+  if (!stmt) {
+    stmt = db.prepare(sql)
+    bySql.set(sql, stmt)
+  }
+  return stmt
+}
 
 interface TreeIssueEntry {
   hasRed: boolean
@@ -268,18 +293,17 @@ export function readTreeIssuesCache(
   if (epochFp === null) return null
   try {
     // mtime_ms 列实存 µs（R49-23，量纲见函数注释；列名不动防存量库静默失效）
+    // nano R3-3：章循环热路径 SELECT 走连接级 prepared 缓存（原每章重编译）
     const row = (
       verdictFp === null
-        ? db
-            .prepare(
-              'SELECT report_json FROM tree_issues_cache WHERE rel_path = ? AND mtime_ms = ? AND size = ? AND verdict_fp IS NULL AND epoch_fp = ?',
-            )
-            .get(relPath, mtimeUs, size, epochFp)
-        : db
-            .prepare(
-              'SELECT report_json FROM tree_issues_cache WHERE rel_path = ? AND mtime_ms = ? AND size = ? AND verdict_fp = ? AND epoch_fp = ?',
-            )
-            .get(relPath, mtimeUs, size, verdictFp, epochFp)
+        ? prepared(
+            db,
+            'SELECT report_json FROM tree_issues_cache WHERE rel_path = ? AND mtime_ms = ? AND size = ? AND verdict_fp IS NULL AND epoch_fp = ?',
+          ).get(relPath, mtimeUs, size, epochFp)
+        : prepared(
+            db,
+            'SELECT report_json FROM tree_issues_cache WHERE rel_path = ? AND mtime_ms = ? AND size = ? AND verdict_fp = ? AND epoch_fp = ?',
+          ).get(relPath, mtimeUs, size, verdictFp, epochFp)
     ) as { report_json: string } | undefined
     if (!row) return null
     const parsed = JSON.parse(row.report_json) as TreeIssueEntry
@@ -304,7 +328,9 @@ export function writeTreeIssuesCache(
 ): void {
   try {
     // mtime_ms 列实存 µs（R49-23，量纲见函数注释；列名不动防存量库静默失效）
-    db.prepare(
+    // nano R3-3：INSERT 走连接级 prepared 缓存（批量落盘回退逐行路径逐行调用不再重编译）
+    prepared(
+      db,
       'INSERT OR REPLACE INTO tree_issues_cache (rel_path, mtime_ms, size, verdict_fp, report_json, epoch_fp) VALUES (?, ?, ?, ?, ?, ?)',
     ).run(relPath, mtimeUs, size, verdictFp, JSON.stringify(entry), epochFp)
   } catch {

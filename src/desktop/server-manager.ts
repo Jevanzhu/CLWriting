@@ -742,10 +742,25 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
           await Promise.race([current.exited, delay(killWaitMs)])
         }
         // 停机结果留痕（运维口径：批 U3 崩溃重启归因同样依赖 graceful/强杀区分）
+        // nano R2-1（重评-0914-三轮）：settle.by 三态（done/exit/timeout）原并轨成两句
+        // 固定文案，归因失真——'exit'（未回执但已自行退出）被误标「超时…已强杀」（实际
+        // 无超时，下方 kill 只是幂等兜底）；'exit'/'timeout' 但子进程已被替换/先行收口
+        //（active?.proc !== current.proc）被误标「shutdown 指令链路」（回执从未到达）。
+        // 分支结构不变，仅按实际 settle 原因拆文案恢复区分度。
         if (settle.by === 'done' || active?.proc !== current.proc) {
-          logger.info('server-manager', 'studio server 子进程已停机（shutdown 指令链路）')
+          logger.info(
+            'server-manager',
+            settle.by === 'done'
+              ? 'studio server 子进程已停机（shutdown 指令链路）'
+              : `studio server 子进程已停机（非 shutdown 回执路径：回执未达，收口时子进程已自行退出/被替换，settle=${settle.by}）`,
+          )
         } else {
-          logger.warn('server-manager', 'shutdown 超时未回执，已强杀兜底')
+          logger.warn(
+            'server-manager',
+            settle.by === 'exit'
+              ? 'shutdown 未回执但子进程已自行退出（协议未回执非超时态，下方 kill 为幂等兜底）'
+              : 'shutdown 超时未回执，已强杀兜底',
+          )
         }
         if (active?.proc === current.proc) {
           // 超时未退 / 回执后滞留：强杀兜底（E-1：总超时已覆盖 child 最坏预算，此处才是真强杀）

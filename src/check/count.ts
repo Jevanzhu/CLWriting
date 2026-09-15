@@ -265,7 +265,10 @@ function countOccurrences(haystack: string, needle: string): number {
  * 叙述动词（看/走/举…）不在表内，叙述行不会被误判为对白。
  */
 const ATTRIBUTION_CHARS = '他她它我你您们的地得了着说问道喊叫答叹笑骂吼喝斥言语音低轻冷沉淡急缓一三四五六七八九十百两声句又再便就都连只才正竟自'
-const ATTRIBUTION_RE = new RegExp(`^[${ATTRIBUTION_CHARS}]+$`)
+// 重评-0914-三轮 P3-3（2026-09-14）：以下守卫族导出——setting-rule.ts 的「只读参照」
+// 抄本纪律已被两次证明失效（R48-3 抄定后 R0912-3 只修 check 侧未同步 ai 域，P2-3 即
+// 现行实例），自本批起 ai 域删抄本改直接 import（ai→check 单向，quotes.ts/self-heal 先例）。
+export const ATTRIBUTION_RE = new RegExp(`^[${ATTRIBUTION_CHARS}]+$`)
 
 /** 引号外只剩提示语（或为空）→ 对白行。 */
 function isAttributionOnly(outside: string): boolean {
@@ -287,8 +290,9 @@ const SPEECH_VERBS = '说|道|问|喊|叫|答|叹|笑|骂|吼|喝|斥|呼|唤|�
  *  网文最高频对白行式按结构匹配豁免，否则引号内对白被当专名每章批量误报。
  *  R62-29：汉字段改 ${HANZI} 插值（与全文件口径同源）——此前字面 \u4e00-\u9fa5
  *  漏基本区顶与扩展 A 区，生僻字人名的归属行不匹配、对白被当专名误报。
- *  R28-8：动词段收 SPEECH_VERBS 单源（动词集语义不变，见上）。 */
-const SPEECH_ATTRIBUTION_RE =
+ *  R28-8：动词段收 SPEECH_VERBS 单源（动词集语义不变，见上）。
+ *  重评-0914-三轮 P3-3：导出（setting-rule 抄本收编，见 ATTRIBUTION_RE 处注）。 */
+export const SPEECH_ATTRIBUTION_RE =
   new RegExp(`^[${HANZI}]{1,4}(?:${SPEECH_VERBS})(?:了|着|道)?$`)
 
 /**
@@ -299,8 +303,9 @@ const SPEECH_ATTRIBUTION_RE =
  * 真候选杀掉），双字词（吩咐/嘀咕/嘟囔/喃喃/低语）按 2 字符窗口整词收尾才认。
  * 已知残余面（漏报向安全，黄项启发式不追全）：「频道/知道/频道」等以「道」收尾的
  * 普通词紧邻引号时同样豁免——与 R76-3 同款取舍。
+ * 重评-0914-三轮 P3-3：导出（setting-rule 抄本收编，见 ATTRIBUTION_RE 处注）。
  */
-const DIALOGUE_GUIDE_RE = /(?:说|道|问|骂|喊|答|吼|喝|吩咐|嘀咕|嘟囔|喃喃|低语)[：:，,]?\s*$/
+export const DIALOGUE_GUIDE_RE = /(?:说|道|问|骂|喊|答|吼|喝|吩咐|嘀咕|嘟囔|喃喃|低语)[：:，,]?\s*$/
 
 /**
  * R26-11（二十六轮）：对话标签提示语结构锚定（computeStyleMetrics 对话标签占比用）。
@@ -327,8 +332,11 @@ export const DIALOGUE_TAG_RE = new RegExp(
  *  （基本区+扩展 A），Ext-B/C 生僻字姓名（如 𪀀）在名册侧恒被盲拒 → 已登记判重
  *  永不命中（真名伪报新专名候选）。u 标志使字符类内 astral 字面按码点计（不碎成
  *  代理对半区）；刻意不动 HANZI 常量本体——它被无 u 标志正则（HANZI_CHAR_RE/
- *  SPEECH_ATTRIBUTION_RE 等）消费，掺入 astral 区段会碎成代理对半区破坏语义。 */
-const ROSTER_NAME_RE = new RegExp(`^[${HANZI}\u{20000}-\u{2FA1F}\u{30000}-\u{323AF}]{2,4}$`, 'u')
+ *  SPEECH_ATTRIBUTION_RE 等）消费，掺入 astral 区段会碎成代理对半区破坏语义。
+ *  重评-0914-三轮 P2-3/P3-3：导出——setting-rule 抄本（PURE_HANZI_RE，BMP-only）
+ *  未随本处 R0912-3 补增补平面同步，Ext-B 名两检两结论（P2-3 主诉）；自本批起
+ *  ai 域直接 import 本单源，抄本删除。 */
+export const ROSTER_NAME_RE = new RegExp(`^[${HANZI}\u{20000}-\u{2FA1F}\u{30000}-\u{323AF}]{2,4}$`, 'u')
 
 /**
  * R46-10（四十六轮）：名册解析结果的 (mtimeNs,size) 指纹缓存——runAllChecks 每章调
@@ -348,13 +356,14 @@ const rosterNamesCache = new Map<string, { mtimeNs: bigint; size: bigint; names:
  * 故按名册格式（行/顿号分隔，兼容 `已登记：A、B`、`- 已登记：A、B`、`### A` 等仓内
  * 既有形态）在本文件局部实现本解析，作为 check 域名册判重单源（R48-3（四十八轮）
  * 起 setting-rule 名册面按「只读参照」抄定本解析为 parseRosterNamesLocal，双域同
- * 口径，对白守卫族同步对齐）。
+ * 口径，对白守卫族同步对齐；重评-0914-三轮 P3-3：抄本纪律失效，setting-rule 改
+ * 直接 import 本函数——见 ATTRIBUTION_RE 处注）。
  *
  * 逐行剥 ATX 标题/列表前缀/括注（「云澈（主角）」→「云澈」），再按顿号/逗号/分号/
  * 冒号/斜杠/空白劈分；只收 2-4 字纯汉字 token（与候选抽取窗一致，说明性词汇
  * 「身份/动机」等字段名即便混入也只是多登记而无害——精确全等比对不会吞掉他名）。
  */
-function parseRosterNames(roster: string): string[] {
+export function parseRosterNames(roster: string): string[] {
   const names: string[] = []
   for (const rawLine of roster.split(/\r?\n/)) {
     const cleaned = rawLine

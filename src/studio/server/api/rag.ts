@@ -31,6 +31,9 @@ import { acquireTaskGate } from './task-gate.js'
 // embed 上游报错 message 可能夹带完整 URL（key 在 query）/ Authorization 痕迹
 import { redactSecret } from '../../../ai/provider/redact.js'
 import { log, errMsg } from '../../../log/index.js'
+// 重评-0914-三轮 P3-1：后台建索引在途登记（io.ts:146 export / overview detectState /
+// style-scan 同族最后一处漏接线）
+import { trackInFlightWork } from './in-flight-work.js'
 
 interface RagCtx {
   workDir: string | null
@@ -137,7 +140,12 @@ function startRagBuild(
     }, RAG_BUILD_WATCHDOG_MS)
     watchdog.unref?.()
     // R62-27：embed_timeout_ms 从书级 ragConfig 透传（此前字面量漏带，书里配了超时恒不生效）
-    void buildIndex(bookRoot, { enabled: true, endpoint: resolved.endpoint, model: resolved.model, embed_timeout_ms: config.embed_timeout_ms }, resolved.apiKey)
+    // 重评-0914-三轮 P3-1：buildIndex 包 trackInFlightWork 登记 in-flight 表——原
+    // fire-and-forget 不受 server 生命周期约束，close 收尾不等它 settle，调用方
+    // close 后立刻 rmSync 在 Windows 撞建索引仍持 .rag.db 句柄的 ENOTEMPTY 面
+    //（io.ts/style-scan/detectState 同族均已接线，此处补齐）。登记不改变
+    // fire-and-forget 语义：promise 原样返回，下方 then/catch/finally 链原样挂接。
+    void trackInFlightWork(buildIndex(bookRoot, { enabled: true, endpoint: resolved.endpoint, model: resolved.model, embed_timeout_ms: config.embed_timeout_ms }, resolved.apiKey))
       .then((result) => {
         // R26-61：书已删/改名出注册表 → 不复活任务条目（见上方 bookAlive 注释）
         if (bookAlive()) ragBuildTasks.set(bookName, { running: false, startedAt: '', lastResult: result })

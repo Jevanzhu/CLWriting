@@ -27,6 +27,12 @@ import { yieldToEventLoop } from '../async.js'
 import { log } from '../log/index.js' // 复审-0913-源码 P2：基线损坏 warn 留痕（对齐同目录 short-index R51-B-3）
 // 复审-0914-优化修复批（errMsg 收编）：错误摘要口径单源
 import { errMsg } from '../log/index.js'
+// 重评-0914-三轮 nano R4-1：import 移入头部 import 区（原先落在文件中部函数间，排版
+// 违规；import 提升语义本就等价，纯移动零语义变化）。
+// R75-1（批 A）：码点计数（代理对合 1 计）——原按「metrics→process→ai 成环」判
+// 本地同款；复审-0914-优化 A2（2026-09-14 修复批）单源下沉零依赖的
+// src/shared/text.ts 后成环顾虑消除，本处委托单源（P-7/R73-19 家族收编）。
+import { codePointLength as charCountOf } from '../shared/text.js'
 
 /** 含句长方差/复读率的完整文风指纹（StyleStats + 两个聚合用维度） */
 export interface FullStyleStats extends StyleStats {
@@ -140,12 +146,6 @@ export function computeSentenceLenVariance(body: string): number {
 export function computeRepeatRate(body: string): number {
   return ngramRepeatRate(body).rate
 }
-
-/** R75-1（批 A）：码点计数（代理对合 1 计）——原按「metrics→process→ai 成环」判
- *  本地同款；复审-0914-优化 A2（2026-09-14 修复批）单源下沉零依赖的
- *  src/shared/text.ts 后成环顾虑消除，本处委托单源（P-7/R73-19 家族收编）。 */
-import { codePointLength as charCountOf } from '../shared/text.js'
-
 
 /** 对一段正文算完整文风指纹（StyleStats 5 维 + 句长方差 + 复读率）。
  *  R75-1：附带 charCount 归一化因子（新冻结的基线随之持久化该字段）。 */

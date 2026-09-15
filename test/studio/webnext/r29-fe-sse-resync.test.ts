@@ -37,14 +37,15 @@ vi.mock('../../../src/studio/web-next/src/api/chat', () => ({
   fetchChatBranches: vi.fn(async () => ({ branches: [], activeBranchId: null })),
   regenerateChat: vi.fn(),
 }))
-vi.mock('../../../src/studio/web-next/src/api/client', () => ({
-  ApiError: class ApiError extends Error {
-    status = 0
-    code?: string
-  },
-  getToken: vi.fn(() => 'test-token'),
-  rebootstrap: vi.fn(async () => {}),
-}))
+// 重评-0914-三轮 nano R7-1：ApiError 本地复刻收编——工厂改 importOriginal 展开，真类单源 src/studio/web-next/src/api/client.ts
+vi.mock('../../../src/studio/web-next/src/api/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/studio/web-next/src/api/client')>()
+  return {
+    ...actual,
+    getToken: vi.fn(() => 'test-token'),
+    rebootstrap: vi.fn(async () => {}),
+  }
+})
 
 // 子视图全部 stub（只测切书 watch 与 SSE 编排）
 const stub = vi.hoisted(() => ({ template: '<div />' }))

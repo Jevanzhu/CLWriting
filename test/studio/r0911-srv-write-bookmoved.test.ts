@@ -18,13 +18,12 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, renameSync, existsSync, 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { fakeReqRes } from '../helpers/fake-reqres.js'
 import { createRouteTable, withRouteTable } from '../../src/studio/server/router.js'
 import { getRouteSchema } from '../../src/studio/server/api/schema.js'
 import { registerKnowledgeRoutes, __setLearnCommitYieldForTest } from '../../src/studio/server/api/knowledge.js'
 import { registerStyleRoutes } from '../../src/studio/server/api/style.js'
 import { registerConfigRoutes } from '../../src/studio/server/api/config.js'
-import { sleep } from '../helpers/wait-for.js'
+import { fakeReqRes, waitForBodyArmed } from '../helpers/fake-reqres.js'
 
 // 假 req/res 已收编 helpers/fake-reqres.ts 单源（测试精简批 2026-09-12）。
 
@@ -113,7 +112,7 @@ describe('R0911-B-P3-4: knowledge learn-commit 临界段书注册重验', () => 
     try {
       const { req, res, send, captured } = fakeReqRes()
       const done = rig.learnCommit.handler({ params: { name: '重验learn书' }, input: undefined }, req, res)
-      await sleep(50) // 悬在 readJson（入口快照已过——正是被修的窗口）
+      await waitForBodyArmed(req) // 悬在 readJson（入口快照已过）——就绪探针取代 sleep(50)（重评-0914-三轮 P3-12）
       deleteBookReg(rig.workDir, rig.bookRoot)
       send({ samples: samples(2), quotes: [] })
       await done
@@ -140,7 +139,7 @@ describe('R0911-B-P3-4: knowledge learn-commit 临界段书注册重验', () => 
     try {
       const { req, res, send, captured } = fakeReqRes()
       const done = rig.learnCommit.handler({ params: { name: '重验让出书' }, input: undefined }, req, res)
-      await sleep(50)
+      await waitForBodyArmed(req) // 就绪探针取代 sleep(50)：轮询到 readJson 挂持再放行（重评-0914-三轮 P3-12）
       send({ samples: samples(250), quotes: [] })
       await done
       expect(captured.status).toBe(409)
@@ -164,7 +163,7 @@ describe('R0911-B-P3-4: style 写端点临界段书注册重验', () => {
     try {
       const { req, res, send, captured } = fakeReqRes()
       const done = rig.stylePost.handler({ params: { name: '重验条目书' }, input: undefined }, req, res)
-      await sleep(50)
+      await waitForBodyArmed(req) // 就绪探针取代 sleep(50)：轮询到 readJson 挂持再放行（重评-0914-三轮 P3-12）
       deleteBookReg(rig.workDir, rig.bookRoot)
       send({ 类型: '样章', 正文: '窗口期正文' })
       await done
@@ -182,7 +181,7 @@ describe('R0911-B-P3-4: style 写端点临界段书注册重验', () => {
     try {
       const { req, res, send, captured } = fakeReqRes()
       const done = rig.styleDelete.handler({ params: { name: '重验删条书' }, input: undefined }, req, res)
-      await sleep(50)
+      await waitForBodyArmed(req) // 就绪探针取代 sleep(50)：轮询到 readJson 挂持再放行（重评-0914-三轮 P3-12）
       renameBookReg(rig.workDir, '重验删条书', '重验删条书乙')
       send({ path: '文风/条目/样章/对话-001.md' })
       await done
@@ -200,7 +199,7 @@ describe('R0911-B-P3-4: style 写端点临界段书注册重验', () => {
     try {
       const { req, res, send, captured } = fakeReqRes()
       const done = rig.styleConfirm.handler({ params: { name: '重验确认书' }, input: undefined }, req, res)
-      await sleep(50)
+      await waitForBodyArmed(req) // 就绪探针取代 sleep(50)：轮询到 readJson 挂持再放行（重评-0914-三轮 P3-12）
       renameBookReg(rig.workDir, '重验确认书', '重验确认书乙')
       send({ path: '文风/候选/对话-001.md' })
       await done
@@ -218,7 +217,7 @@ describe('R0911-B-P3-4: style 写端点临界段书注册重验', () => {
     try {
       const { req, res, send, captured } = fakeReqRes()
       const done = rig.styleIgnore.handler({ params: { name: '重验忽略书' }, input: undefined }, req, res)
-      await sleep(50)
+      await waitForBodyArmed(req) // 就绪探针取代 sleep(50)：轮询到 readJson 挂持再放行（重评-0914-三轮 P3-12）
       deleteBookReg(rig.workDir, rig.bookRoot)
       send({ path: '文风/候选/对话-001.md' })
       await done
@@ -237,7 +236,7 @@ describe('R0911-B-P3-4: config PUT 临界段书注册重验', () => {
     try {
       const { req, res, send, captured } = fakeReqRes()
       const done = rig.configPut.handler({ params: { name: '重验配置书' }, input: undefined }, req, res)
-      await sleep(50)
+      await waitForBodyArmed(req) // 就绪探针取代 sleep(50)：轮询到 readJson 挂持再放行（重评-0914-三轮 P3-12）
       renameBookReg(rig.workDir, '重验配置书', '重验配置书乙')
       send({ config: { book: { title: '窗口期新题' } } })
       await done

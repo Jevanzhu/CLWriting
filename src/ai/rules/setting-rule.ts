@@ -11,7 +11,9 @@
  * 规则层只做确定性字面匹配（不调 AI）——引号内 2-4 字纯汉字片段不在已知名称集合
  * 或名册解析名中即报黄；R48-3（四十八轮）起守卫族与名册判重对齐 check/count.ts
  * checkNewNames 口径（句读守卫/引导词豁免/整行对白豁免/精确全等），同一段文本两种
- * 机检不再两种结论。语义判断（别名/化名/代称）留给审稿 AI。
+ * 机检不再两种结论；重评-0914-三轮 P2-3/P3-3（2026-09-14）起守卫族抄本删除、改
+ * 直接 import check/count.ts 导出单源（「只读参照」抄本两次失同步，见文内块注）。
+ * 语义判断（别名/化名/代称）留给审稿 AI。
  */
 import { readdirSync, existsSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
@@ -118,60 +120,31 @@ const QUOTED_NAME_RE = new RegExp(
   'g',
 )
 
-// ── R48-3（四十八轮）：check 域口径对齐（read-only 参照 check/count.ts checkNewNames）
-// 原实现与 check/count.ts 同源双实现严重漂移：不限中文、无任何对白守卫（check 侧六轮
-// 守卫一个没有），「快走」类对白报「疑似未登记专名」假阳，经 self-heal 重写反馈 +
-// 作者信号学习自我放大。以下守卫族逐一移植 check 域既有口径（常量字面 copy + 出处
-// 注记；不改 check/count.ts——评审批注「只读参照」）：
+// 重评-0914-三轮 P2-3/P3-3：check/count.ts 守卫族单源直引（抄本删除，沿革见上方块注）。
+// R0912-3 在 check 侧补的增补平面区段 + u 标志随 parseRosterNames 单源自动生效——
+// Ext-B 生僻字名册名自本批起进入 registered 集合，两检不再两结论。
+import {
+  ATTRIBUTION_RE,
+  SPEECH_ATTRIBUTION_RE,
+  DIALOGUE_GUIDE_RE,
+  parseRosterNames,
+} from '../../check/count.js'
+// R0912-3 同款：候选名长度窗按码点计（代理对合 1 计）——UTF-16 .length 对 astral
+// 字一符计 2。check 侧 :472 同口径单源（shared/text.ts）。
+import { codePointLength } from '../../shared/text.js'
 
-/** 纯汉字候选守卫（区间同源 check/count.ts HANZI：基本区 + 扩展 A 区；字面声明先例
- *  同 format/realms.ts——避免为区间常量拉入整个 count 模块） */
-const PURE_HANZI_RE = /^[一-鿿㐀-䶿]{2,4}$/
-
-/** 句读守卫字符集（同源 check/quotes.ts SPAN_PUNCT 单源） */
+/** 句读守卫字符集（同源 check/quotes.ts SPAN_PUNCT 单源组装） */
 const SPAN_PUNCT_RE = new RegExp(`[${SPAN_PUNCT}]`)
 
-/** span 内部开引号探测（嵌套截断守卫用；同源 check/count.ts innerOpenRe） */
+/** span 内部开引号探测（嵌套截断守卫用） */
 const INNER_OPEN_RE = new RegExp(`[${QUOTE_OPEN}]`)
 
-/** 引号外残留标点剥除（同源 check/count.ts punctRe——span 已整体移除后，行内残留的
- *  孤引号/括号/句读不参与「提示语成分」整行豁免判定） */
+/** 引号外残留标点剥除（span 已整体移除后，行内残留的孤引号/括号/句读不参与
+ *  「提示语成分」整行豁免判定） */
 const OUTSIDE_PUNCT_RE = new RegExp(
   `[${QUOTE_OPEN}${QUOTE_CLOSE_LENIENT}${SPAN_PUNCT}「」『』]`,
   'gu',
 )
-
-/** 对白引导词收尾判定（逐字移植 check/count.ts DIALOGUE_GUIDE_RE，R29-B12 口径——
- *  span 开引号紧前以说话动词收尾 = 「引导词 + 引语」对白引用而非专名提及；单字集
- *  剔除叫/回/应等构词语素高发字防「名叫『萧策』」误豁免，词表收窄理由见其原注） */
-const DIALOGUE_GUIDE_RE = /(?:说|道|问|骂|喊|答|吼|喝|吩咐|嘀咕|嘟囔|喃喃|低语)[：:，,]?\s*$/
-
-/** 提示语成分字符表（逐字移植 check/count.ts ATTRIBUTION_CHARS，V-P2-13 口径）——
- *  引号外文本全由这些成分组成 = 整行对白，引号内是对白内容而非专名 */
-const ATTRIBUTION_RE = /^[他她它我你您们的地得了着说问道喊叫答叹笑骂吼喝斥言语音低轻冷沉淡急缓一三四五六七八九十百两声句又再便就都连只才正竟自]+$/
-
-/** 对白归属行结构（逐字移植 check/count.ts SPEECH_ATTRIBUTION_RE，X-P2-9/R62-29 口径）——
- *  1-4 汉字人名/称谓 + 说话动词 + 可选尾缀 */
-const SPEECH_ATTRIBUTION_RE =
-  /^[一-鿿㐀-䶿]{1,4}(?:说|道|问|喊|叫|答|叹|笑|骂|吼|喝|斥|呼|唤|念|回|应|嘀咕|嘟囔|喃喃|低语)(?:了|着|道)?$/
-
-/** 名册文本 → 已登记名字数组（逐字移植 check/count.ts parseRosterNames，R30-2 口径；
- *  其为 check 域内私有未导出，本域按「只读参照」抄定形态）。逐行剥 ATX 标题/列表
- *  前缀/括注，按顿号/逗号/分号/冒号/斜杠/空白劈分，只收 2-4 字纯汉字 token。 */
-function parseRosterNamesLocal(roster: string): string[] {
-  const names: string[] = []
-  for (const rawLine of roster.split(/\r?\n/)) {
-    const cleaned = rawLine
-      .replace(/^#{1,6}[ \t]*/, '') // ATX 标题
-      .replace(/^[-*+]\s*/, '') // 无序列表
-      .replace(/^\d+[.)、]\s*/, '') // 有序列表
-      .replace(/[（(][^）)]*[）)]/g, '') // 括注
-    for (const token of cleaned.split(/[、，,;；:：/／\s]+/)) {
-      if (token && PURE_HANZI_RE.test(token)) names.push(token)
-    }
-  }
-  return names
-}
 
 /** 书库设定数据：离散名称 + 名册全文 */
 interface SettingData {
@@ -260,7 +233,7 @@ export const settingConsistencyRule: WritingRule = {
     // 全等口径；名册按 parseRosterNamesLocal 解析（2-4 字纯汉字 token）
     const registered = new Set(data.names)
     if (data.rosterText !== null) {
-      for (const n of parseRosterNamesLocal(data.rosterText)) registered.add(n)
+      for (const n of parseRosterNames(data.rosterText)) registered.add(n)
     }
 
     const violations: RuleViolation[] = []
@@ -296,7 +269,10 @@ export const settingConsistencyRule: WritingRule = {
         // 以说话动词收尾 = 「引导词+引语」对白引用而非专名提及；词表外引导词仍照报
         if (DIALOGUE_GUIDE_RE.test(line.slice(0, span.index ?? 0).trimEnd())) continue
         const name = span[1]!.trim()
-        if (name.length < 2 || name.length > 4) continue
+        // 重评-0914-三轮 P2-3：长度窗改码点计（原 UTF-16 .length 对 astral 字一符计 2，
+        // 与 check 侧 :472 codePointLength 口径分裂；单源见上方 import 注）
+        const nameLen = codePointLength(name)
+        if (nameLen < 2 || nameLen > 4) continue
         if (seen.has(name)) continue // 同名去重
         if (registered.has(name)) continue // R48-3：精确全等判重（原 includes 粗匹配吞短名）
         seen.add(name)

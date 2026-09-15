@@ -25,7 +25,14 @@ const SUMMARY_TRUNCATE = 40
  * 从正文提取重复出现的 2-4 字中文词组（出现 ≥2 次，top 5）。
  *
  * 滑窗提取连续中文片段的所有 2-4 字子串，统计频次，
- * 去除被更长高频词组包含的短词组（避免「他走」「走进」被「他走进」覆盖），返回 top 5。
+ * 去重规则（重评-0914-三轮 nano R3-4 注释对齐——代码不变，原注释「去除被更长
+ * 高频词组包含的短词组」未说破**单向且限等频**的语义，读改易误判为漏了反向）：
+ * 仅当「已入选的更长词组包含候选」时去重。该向恰是唯一需要去的方向——排序为
+ * 频次降序（同频长度降序），而被包含词组的出现次数必 ≥ 包含它的更长词组（长词组
+ * 每次出现都贡献一次短词组出现），故「更长词组先于短词组入选」⟺ 两者等频 ⟺ 短
+ * 词组是长词组的纯子串伪影（如「他走」只随「他走进」出现），去掉不丢信息；反之
+ * 短词组频次更高时必含独立出现位（「他走」另有他处），与长词组并存保留是对的，
+ * 不做反向去包含。
  */
 export function extractRepeatPhrases(body: string): string[] {
   const counts = new Map<string, number>()
@@ -44,7 +51,7 @@ export function extractRepeatPhrases(body: string): string[] {
   const sorted = [...counts.entries()]
     .filter(([, c]) => c >= 2)
     .sort((a, b) => b[1] - a[1] || b[0].length - a[0].length)
-  // 去除被已选更长词组包含的短词组
+  // 去除被已选更长词组包含的短词组（单向限等频——语义论证见函数头注 nano R3-4）
   const result: string[] = []
   for (const [phrase] of sorted) {
     if (result.some((r) => r.includes(phrase) && r !== phrase)) continue

@@ -51,8 +51,9 @@ function onPageWidthInput(v: number): void {
     <!-- 字体区：依赖桌面桥取系统字体列表，浏览器/dev 无桥时整区隐藏 -->
     <template v-if="hasDesktop">
       <div class="ffb-sep" />
-      <FontPicker class="ffb-select" :value="prefs.proseFontCn" :fonts="chineseFonts" :default-font="defaultProseFontCn" placeholder="中文 · 默认" :display="fontDisplayName" @change="prefs.setProseFontCn($event)" />
-      <FontPicker class="ffb-select" :value="prefs.proseFontEn" :fonts="englishFonts" :default-font="defaultProseFontEn" placeholder="英文 · 默认" :display="fontDisplayName" @change="prefs.setProseFontEn($event)" />
+      <!-- 重评-0914-三轮 P3-10：字体下拉补可访问名称（win 自绘按钮/原生 select 均无内在名） -->
+      <FontPicker class="ffb-select" ariaLabel="正文中文字体" :value="prefs.proseFontCn" :fonts="chineseFonts" :default-font="defaultProseFontCn" placeholder="中文 · 默认" :display="fontDisplayName" @change="prefs.setProseFontCn($event)" />
+      <FontPicker class="ffb-select" ariaLabel="正文英文字体" :value="prefs.proseFontEn" :fonts="englishFonts" :default-font="defaultProseFontEn" placeholder="英文 · 默认" :display="fontDisplayName" @change="prefs.setProseFontEn($event)" />
     </template>
   </aside>
 </template>

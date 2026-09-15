@@ -13,12 +13,10 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, renameSync, existsSync, 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { fakeReqRes } from '../helpers/fake-reqres.js'
+import { fakeReqRes, waitForBodyArmed } from '../helpers/fake-reqres.js'
 import { createRouteTable, withRouteTable } from '../../src/studio/server/router.js'
 import { getRouteSchema } from '../../src/studio/server/api/schema.js'
 import { registerPrefsRoutes } from '../../src/studio/server/api/prefs.js'
-
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
 interface Rig {
   workDir: string
@@ -68,7 +66,7 @@ describe('R0913-B-P2: books.prefs.put 临界段书注册重验', () => {
     try {
       const { req, res, send, captured } = fakeReqRes()
       const done = rig.prefsPut.handler({ params: { name: '重验偏好书' }, input: undefined }, req, res)
-      await sleep(50) // 悬在 readJson（入口快照已过——正是被修的窗口）
+      await waitForBodyArmed(req) // 就绪探针取代 sleep(50)：轮询到 readJson 挂持再放行（重评-0914-三轮 P3-12） // 悬在 readJson（入口快照已过——正是被修的窗口）
       deleteBookReg(rig.workDir, rig.bookRoot)
       send({ prefs: { pageWidth: 900 } })
       await done
@@ -88,7 +86,7 @@ describe('R0913-B-P2: books.prefs.put 临界段书注册重验', () => {
     try {
       const { req, res, send, captured } = fakeReqRes()
       const done = rig.prefsPut.handler({ params: { name: '重验改名书' }, input: undefined }, req, res)
-      await sleep(50)
+      await waitForBodyArmed(req) // 就绪探针取代 sleep(50)：轮询到 readJson 挂持再放行（重评-0914-三轮 P3-12）
       renameBookReg(rig.workDir, '重验改名书', '重验改名书乙')
       send({ prefs: { pageWidth: 900 } })
       await done

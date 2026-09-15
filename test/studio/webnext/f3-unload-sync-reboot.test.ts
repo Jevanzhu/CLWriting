@@ -24,10 +24,14 @@ vi.mock('../../../src/studio/web-next/src/api/documents', () => {
   }
 })
 const tokenMock = vi.fn<() => string | null>(() => 'test-token')
-vi.mock('../../../src/studio/web-next/src/api/client', () => ({
-  ApiError: class ApiError extends Error {},
-  getToken: () => tokenMock(),
-}))
+// 重评-0914-三轮 nano R7-1：ApiError 本地复刻收编——工厂改 importOriginal 展开，真类单源 src/studio/web-next/src/api/client.ts
+vi.mock('../../../src/studio/web-next/src/api/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/studio/web-next/src/api/client')>()
+  return {
+    ...actual,
+    getToken: () => tokenMock(),
+  }
+})
 vi.mock('../../../src/studio/web-next/src/stores/ui', () => ({
   useUiStore: () => ({ toast: vi.fn() }),
 }))

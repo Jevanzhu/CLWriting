@@ -36,13 +36,14 @@ vi.mock('../../../src/studio/web-next/src/api/books', () => ({
   getConfig: mocks.getConfig,
   getTree: vi.fn(),
 }))
-vi.mock('../../../src/studio/web-next/src/api/client', () => ({
-  ApiError: class ApiError extends Error {
-    status = 0
-    code?: string
-  },
-  getToken: vi.fn(() => null),
-}))
+// 重评-0914-三轮 nano R7-1：ApiError 本地复刻收编——工厂改 importOriginal 展开，真类单源 src/studio/web-next/src/api/client.ts
+vi.mock('../../../src/studio/web-next/src/api/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/studio/web-next/src/api/client')>()
+  return {
+    ...actual,
+    getToken: vi.fn(() => null),
+  }
+})
 // CodeMirror 在 happy-dom 里起不来，且本测试不碰编辑器交互——stub 掉。
 // 复审-0913-mac适配 P3-7：stub 按 CmHostExposed 契约 expose openSearch spy，
 // 供「全局查找入口 → cmHost.openSearch」接线用例断言（模板 ref 透传 expose）。

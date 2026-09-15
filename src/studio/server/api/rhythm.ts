@@ -12,6 +12,7 @@ import { join } from 'node:path'
 import { defineRoute } from './schema.js'
 import { reply, replyError } from '../http.js'
 import { createTtlProbeCache } from '../ttl-cache.js'
+import { yieldToEventLoop } from '../../../async.js' // 重评-0914-三轮 P3-2：扫描段让出原语（progress.ts R37-3 同源）
 import { resolveBook } from '../book-context.js'
 import { readBookConfig } from '../../../format/yaml.js'
 import { readChapterDir } from '../../../format/chapters.js'
@@ -59,7 +60,10 @@ export function __resetRhythmScanCountForTest(): void {
 
 /** D1（复审-0914-优化修复批）：缓存壳收编 ttl-cache.ts 通用件（原本地 Map + FIFO +
  *  R47-18 过期逐出本地壳删除；命中/失效时序/逐出序逐位不变——单级探针 + 同步计算 +
- *  FIFO 32，见 ttl-cache.ts 头部收敛映射表）。 */
+ *  FIFO 32，见 ttl-cache.ts 头部收敛映射表）。
+ *  重评-0914-三轮 P3-2：补 async 主路 + 在途去重（foreshadows.ts PM-1 双轨收口同款
+ *  共壳形态：同步孪生保留为回归测试直测面，生产路由挂 async 孪生）——rhythm 是
+ *  server 域最后一个 MISS 冷路径无让出的全书扫描端点。 */
 const rhythmCache = createTtlProbeCache<string, unknown>({
   name: 'rhythm',
   keyOf: (k) => k,
@@ -67,6 +71,8 @@ const rhythmCache = createTtlProbeCache<string, unknown>({
   ttl: () => rhythmTtlMs ?? RHYTHM_CACHE_TTL_MS,
   probe: rhythmSignature,
   computeSync: rhythmCompute,
+  computeAsync: rhythmComputeAsync,
+  inFlight: true,
 })
 
 /** stat 的 size:mtimeMs 签名（缺失 → '-'；先例同 snapshots.ts sigStatFor）。
@@ -109,6 +115,13 @@ export function getRhythmCached(bookRoot: string): unknown {
   return rhythmCache.getSync(bookRoot)
 }
 
+/** 重评-0914-三轮 P3-2：缓存壳的异步孪生（端点生产路径）。命中语义与同步版逐位一致
+ *  （同壳共 Map 同 TTL 同签名），MISS 时经 getRhythmCachedAsync 走 rhythmComputeAsync
+ *  让出 + in-flight 去重（并发 MISS 只算一次）。导出供回归测试直测。 */
+export function getRhythmCachedAsync(bookRoot: string): Promise<unknown> {
+  return rhythmCache.get(bookRoot)
+}
+
 /** MISS 计算体（原内联逻辑原样下沉通用件 computeSync；book.yaml 损坏降级留痕等
  *  行为逐位不变）。 */
 function rhythmCompute(bookRoot: string): unknown {
@@ -123,16 +136,34 @@ function rhythmCompute(bookRoot: string): unknown {
   return config.kind === 'short' ? rhythmShort(bookRoot, config) : rhythmLong(bookRoot)
 }
 
+/** 重评-0914-三轮 P3-2：async 孪生 MISS 计算体（生产路径）。让出范式同 progress.ts
+ *  R37-3（computeBookSummaryUncachedAsync 同款前后包夹）：扫描段前后各让出一次
+ *  （setImmediate 级）。边界如实记：内核 readChapterDir 双目录整读仍是单段同步块
+ * （chapters.ts 不在本批允许清单无法内部切分；热路径有 CC-P1-3 stat 级元数据缓存
+ *  兜底），本孪生保证端点 handler 不再是「无让出的整段同步链」+ 并发 MISS 经
+ *  in-flight 去重只扫一次。结果与同步版逐位一致（复用同一 computeSync 体）。 */
+async function rhythmComputeAsync(bookRoot: string): Promise<unknown> {
+  await yieldToEventLoop()
+  const value = rhythmCompute(bookRoot)
+  await yieldToEventLoop()
+  return value
+}
+
 export function registerRhythmRoutes(ctx: RhythmCtx): void {
   defineRoute('books.rhythm', {
     method: 'GET',
     path: '/api/books/:name/rhythm',
-    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
+    // 重评-0914-三轮 P3-2：handler 挂 async 走 async 主路（foreshadows.ts R48-19
+    // 「PM-1 交付时 handler 未随迁」的同型教训在此随批收口；router dispatch 对
+    // async handler 已有 catch 兜底）
+    handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBook(ctx.workDir, params['name'])
     if ('error' in r) return replyError(res, r.status, r.code, r.error)
 
     // R44-8：全书扫描走缓存壳（命中即跳过 readBookConfig + 双 readChapterDir）
-    reply(res, 200, getRhythmCached(r.bookRoot))
+    // 重评-0914-三轮 P3-2：改走 async 孪生（扫描段让出 + in-flight 去重），
+    // 同步版 getRhythmCached 保留为回归测试直测面；响应 schema 逐位不变
+    reply(res, 200, await getRhythmCachedAsync(r.bookRoot))
   },
   })
 }

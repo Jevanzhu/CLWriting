@@ -30,13 +30,14 @@ vi.mock('../../../src/studio/web-next/src/api/documents', () => ({
   finalizeDoc: mocks.finalizeDoc,
   updateChapterMetaDoc: mocks.updateChapterMetaDoc,
 }))
-vi.mock('../../../src/studio/web-next/src/api/client', () => ({
-  ApiError: class ApiError extends Error {
-    status = 0
-    code?: string
-  },
-  getToken: vi.fn(() => null),
-}))
+// 重评-0914-三轮 nano R7-1：ApiError 本地复刻收编——工厂改 importOriginal 展开，真类单源 src/studio/web-next/src/api/client.ts
+vi.mock('../../../src/studio/web-next/src/api/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/studio/web-next/src/api/client')>()
+  return {
+    ...actual,
+    getToken: vi.fn(() => null),
+  }
+})
 
 import EditorDocHead from '../../../src/studio/web-next/src/components/editor/EditorDocHead.vue'
 import { useDocStore } from '../../../src/studio/web-next/src/stores/doc'

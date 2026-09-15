@@ -409,12 +409,15 @@ async function orchestrateBatch(
     if (run.outcome === 'escalate') {
       emit(opts, { type: 'self_heal_batch_progress', done: i, total, stoppedAt: ch })
       recordPause(ch, 'escalate', (run.reds ?? []).join('；'))
+      // 重评-0914-三轮 nano R3-1：删 ?? '' 死防御——ChapterRun 契约 docId/path 为必填
+      // string（见上方类型定义；单章路径 :295/:303 本就直传同款），?? '' 恒不生效，
+      // 反而暗示「可能缺字段」误导读改方（下方 pass 分支同款一并删）
       return {
         outcome: 'escalate',
         chapter: ch,
         reds: run.reds ?? [],
-        docId: run.docId ?? '',
-        path: run.path ?? '',
+        docId: run.docId,
+        path: run.path,
         attempts: run.attempts,
       }
     }
@@ -423,8 +426,8 @@ async function orchestrateBatch(
       return {
         outcome: 'pass',
         chapter: ch,
-        docId: run.docId ?? '',
-        path: run.path ?? '',
+        docId: run.docId,
+        path: run.path,
         attempts: run.attempts,
         ...(run.yellows ? { yellows: run.yellows } : {}),
       }

@@ -32,19 +32,15 @@ vi.mock('../../../src/studio/web-next/src/stores/shelf', () => ({
 vi.mock('../../../src/studio/web-next/src/stores/prefs', () => ({
   usePrefsStore: vi.fn(() => ({ shelfView: 'grid', setShelfView: vi.fn() })),
 }))
-vi.mock('../../../src/studio/web-next/src/api/client', () => ({
-  apiJson: vi.fn(),
-  getToken: vi.fn(() => 'test-token'),
-  ApiError: class ApiError extends Error {
-    status?: number
-    code?: string
-    constructor(message: string, status: number, code?: string) {
-      super(message)
-      this.status = status
-      this.code = code
-    }
-  },
-}))
+// 重评-0914-三轮 nano R7-1：ApiError 本地复刻收编——工厂改 importOriginal 展开，真类单源 src/studio/web-next/src/api/client.ts
+vi.mock('../../../src/studio/web-next/src/api/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/studio/web-next/src/api/client')>()
+  return {
+    ...actual,
+    apiJson: vi.fn(),
+    getToken: vi.fn(() => 'test-token'),
+  }
+})
 
 import { useChatStore } from '../../../src/studio/web-next/src/stores/chat'
 import { useShelf } from '../../../src/studio/web-next/src/composables/useShelf'

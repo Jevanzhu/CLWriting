@@ -15,6 +15,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   getRhythmCached,
+  getRhythmCachedAsync,
   forgetRhythmCache,
   __setRhythmCacheTtlForTest,
   __rhythmScanCountForTest,
@@ -113,5 +114,31 @@ describe('R44-8 rhythm 缓存壳', () => {
     __setRhythmCacheTtlForTest(0) // 即刻过期
     getRhythmCached(root)
     expect(__rhythmScanCountForTest()).toBe(3)
+  })
+})
+
+// 重评-0914-三轮 P3-2：rhythm 端点异步化（PM-1 双轨收口）——async 主路 + in-flight
+// 去重回归锚（先例 foreshadows PM-1 / r37-scan-async-twins）。响应 schema 由
+// rhythm-api.test.ts（HTTP 集成）守护，此处锚双轨壳行为。
+describe('P3-2 rhythm async 孪生（双轨）', () => {
+  it('async 主路 MISS 计数入同壳，结果与同步版逐位一致；同步版命中 async 已算结果', async () => {
+    const root = makeLongBook()
+    __setRhythmCacheTtlForTest(60_000)
+    const a = (await getRhythmCachedAsync(root)) as { kind: string; written: { count: number }; planned: { count: number } }
+    expect(__rhythmScanCountForTest()).toBe(1)
+    expect(a.kind).toBe('long')
+    expect(a.written.count).toBe(2)
+    expect(a.planned.count).toBe(3)
+    const s = getRhythmCached(root) as unknown
+    expect(__rhythmScanCountForTest()).toBe(1) // 同壳共 Map：同步版直接命中，不重扫
+    expect(s).toEqual(a)
+  })
+
+  it('并发 MISS in-flight 去重：同键并发只算一次', async () => {
+    const root = makeLongBook()
+    __setRhythmCacheTtlForTest(60_000)
+    const [x, y] = await Promise.all([getRhythmCachedAsync(root), getRhythmCachedAsync(root)])
+    expect(__rhythmScanCountForTest()).toBe(1)
+    expect(x).toEqual(y)
   })
 })

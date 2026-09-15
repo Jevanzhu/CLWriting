@@ -1,8 +1,22 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, chmodSync, readFileSync } from 'node:fs'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readManifest, readManifestStrict, writeManifest, upsertEntry, removeEntry, finalizedChapterSetOfBook, finalizedPathSet, finalizedChapterNumbers } from '../../src/document/manifest.js'
+import { denyRead } from '../helpers/fs-deny.js'
+
+// win 臂 EACCES 注入的模块包装（posix 臂走 chmod 不依赖）——见 helpers/fs-deny.ts 头注
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>()
+  const { armFsNamespace } = await import('../helpers/fs-deny.js')
+  return armFsNamespace('fs', actual)
+})
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  const { armFsNamespace } = await import('../helpers/fs-deny.js')
+  return armFsNamespace('fsp', actual)
+})
+
 
 describe('manifest', () => {
   let dir: string
@@ -95,20 +109,22 @@ describe('manifest', () => {
 })
 
 describe('M-13（第八轮）：finalizedChapterSetOfBook 读失败 → undefined（全量兜底），不误判真 0 章', () => {
-  // Windows 无 POSIX 权限位（chmod 为 no-op/仅映射只读位），该守卫语义由 macOS/Linux CI 腿覆盖
-  it.skipIf(process.platform === 'win32')('读失败（EACCES）→ undefined', () => {
+  // 重评-0914-三轮 P3-11：读失败注入改 fs-deny 平台分派（win 臂 spy 注入 EACCES），摘除 skipIf(win32)
+  it('读失败（EACCES）→ undefined', () => {
     const root = mkdtempSync(join(tmpdir(), 'manifest-sentinel-'))
     const fp = join(root, '项目', '文档清单.jsonl')
     try {
       mkdirSync(join(root, '项目'), { recursive: true })
       writeFileSync(fp, '{"id":"doc_1","nodeType":"document","path":"写作/正文/001-开篇.md","parentId":null,"finalizedRevision":"r1"}\n')
-      chmodSync(fp, 0o000)
-      expect(finalizedChapterSetOfBook(root)).toBeUndefined()
-      chmodSync(fp, 0o644)
+      const deny = denyRead(fp) // 挡读（win 臂 spy / posix 臂 chmod 0o000）
+      try {
+        expect(finalizedChapterSetOfBook(root)).toBeUndefined()
+      } finally {
+        deny.restore()
+      }
       // 恢复可读 → 真集合（清单在册，定稿章 1）
       expect(finalizedChapterSetOfBook(root)).toEqual(new Set([1]))
     } finally {
-      chmodSync(fp, 0o644)
       rmSync(root, { recursive: true, force: true })
     }
   })
@@ -124,20 +140,22 @@ describe('M-2（第十轮）：finalizedPathSet 哨兵对齐 M-13——读失败
     }
   })
 
-  // Windows 无 POSIX 权限位（chmod 为 no-op/仅映射只读位），该守卫语义由 macOS/Linux CI 腿覆盖
-  it.skipIf(process.platform === 'win32')('读失败（EACCES）→ null 全量兜底，不把「读不到」当「零定稿」放草稿进来', () => {
+  // 重评-0914-三轮 P3-11：fs-deny 平台分派注入，摘除 skipIf(win32)
+  it('读失败（EACCES）→ null 全量兜底，不把「读不到」当「零定稿」放草稿进来', () => {
     const root = mkdtempSync(join(tmpdir(), 'manifest-m2-'))
     const fp = join(root, '项目', '文档清单.jsonl')
     try {
       mkdirSync(join(root, '项目'), { recursive: true })
       writeFileSync(fp, '{"id":"doc_1","nodeType":"document","path":"写作/正文/001-开篇.md","parentId":null,"finalizedRevision":"r1"}\n')
-      chmodSync(fp, 0o000)
-      expect(finalizedPathSet(root)).toBeNull()
-      chmodSync(fp, 0o644)
+      const deny = denyRead(fp) // 挡读（win 臂 spy / posix 臂 chmod 0o000）
+      try {
+        expect(finalizedPathSet(root)).toBeNull()
+      } finally {
+        deny.restore()
+      }
       // 恢复可读 → 真集合（在册定稿 1 章）
       expect(finalizedPathSet(root)).toEqual(new Set(['写作/正文/001-开篇.md']))
     } finally {
-      chmodSync(fp, 0o644)
       rmSync(root, { recursive: true, force: true })
     }
   })
@@ -159,28 +177,31 @@ describe('M-2（第十轮）：finalizedPathSet 哨兵对齐 M-13——读失败
 })
 
 describe('R27-40（二十七轮）P1：RMW 写路径 strict 读——读失败拒写，防空表重写吞登记', () => {
-  // Windows 无 POSIX 权限位（chmod 为 no-op/仅映射只读位），该守卫语义由 macOS/Linux CI 腿覆盖
-  it.skipIf(process.platform === 'win32')('readManifestStrict：EACCES 上抛（readManifest 仍 fail-open 空表，两版分立）', () => {
+  // 重评-0914-三轮 P3-11：fs-deny 平台分派注入，摘除 skipIf(win32)
+  it('readManifestStrict：EACCES 上抛（readManifest 仍 fail-open 空表，两版分立）', () => {
     const root = mkdtempSync(join(tmpdir(), 'manifest-strict-'))
     const fp = join(root, '项目', '文档清单.jsonl')
     try {
       mkdirSync(join(root, '项目'), { recursive: true })
       writeFileSync(fp, '{"id":"doc_1","nodeType":"document","path":"写作/正文/001-开篇.md","parentId":null}\n')
       const before = readFileSync(fp, 'utf-8')
-      chmodSync(fp, 0o000)
-      // 读侧容错版：空表（M-13 口径不变）
-      expect(readManifest(fp).entries.size).toBe(0)
-      // RMW strict 版：上抛——调用方 catch 后拒写，保住全书登记
-      expect(() => readManifestStrict(fp)).toThrow('文档清单读取失败')
-      chmodSync(fp, 0o644)
+      const deny = denyRead(fp) // 挡读（win 臂 spy / posix 臂 chmod 0o000）
+      try {
+        // 读侧容错版：空表（M-13 口径不变）
+        expect(readManifest(fp).entries.size).toBe(0)
+        // RMW strict 版：上抛——调用方 catch 后拒写，保住全书登记
+        expect(() => readManifestStrict(fp)).toThrow('文档清单读取失败')
+      } finally {
+        deny.restore()
+      }
       expect(readFileSync(fp, 'utf-8')).toBe(before) // 文件字节原样未动
     } finally {
-      chmodSync(fp, 0o644) // 恢复权限便于 rmSync
       rmSync(root, { recursive: true, force: true })
     }
   })
 
-  it.skipIf(process.platform === 'win32')('readManifestStrict：ENOENT（existsSync 与 read 之间被删）= 合法空态，不上抛', () => {
+  // 重评-0914-三轮 P3-11：纯 ENOENT 语义无注入，win 本就可跑——摘除沿用的 skipIf(win32)
+  it('readManifestStrict：ENOENT（existsSync 与 read 之间被删）= 合法空态，不上抛', () => {
     // 无文件 → 空（与 readManifest 同）；此用例锁「文件不存在不是错误」的语义分界
     const root = mkdtempSync(join(tmpdir(), 'manifest-strict2-'))
     try {

@@ -34,13 +34,14 @@ vi.mock('../../../src/studio/web-next/src/api/books', () => ({
   getConfig: vi.fn(async () => ({ kind: 'long' })),
   getTree: vi.fn(),
 }))
-vi.mock('../../../src/studio/web-next/src/api/client', () => ({
-  ApiError: class ApiError extends Error {
-    status = 0
-    code?: string
-  },
-  getToken: vi.fn(() => null),
-}))
+// 重评-0914-三轮 nano R7-1：ApiError 本地复刻收编——工厂改 importOriginal 展开，真类单源 src/studio/web-next/src/api/client.ts
+vi.mock('../../../src/studio/web-next/src/api/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/studio/web-next/src/api/client')>()
+  return {
+    ...actual,
+    getToken: vi.fn(() => null),
+  }
+})
 // CM6 与标题链路无关，stub 掉保持测试轻量
 vi.mock('../../../src/studio/web-next/src/editor/CmHost.vue', () => ({
   default: { name: 'CmHost', template: '<div class="cm-host-stub" />' },

@@ -15,13 +15,14 @@ const mocks = vi.hoisted(() => ({
 }))
 vi.mock('../../../src/studio/web-next/src/api/books', () => ({ createBook: mocks.createBook }))
 // 裸调漏网侦测面：若 createBook 退回裸 apiJson（归置回退），下方「apiJson 不被调」断言即红
-vi.mock('../../../src/studio/web-next/src/api/client', () => ({
-  apiJson: mocks.apiJson,
-  ApiError: class ApiError extends Error {
-    status?: number
-    code?: string
-  },
-}))
+// 重评-0914-三轮 nano R7-1：ApiError 本地复刻收编——工厂改 importOriginal 展开，真类单源 src/studio/web-next/src/api/client.ts
+vi.mock('../../../src/studio/web-next/src/api/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/studio/web-next/src/api/client')>()
+  return {
+    ...actual,
+    apiJson: mocks.apiJson,
+  }
+})
 vi.mock('../../../src/studio/web-next/src/api/shelf', () => ({ deleteBook: vi.fn() }))
 vi.mock('../../../src/studio/web-next/src/stores/shelf', () => ({
   useShelfStore: vi.fn(() => ({ books: [], load: mocks.shelfLoad })),

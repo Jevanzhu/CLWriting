@@ -25,16 +25,17 @@ const mocks = vi.hoisted(() => ({
   finalizeDoc: vi.fn(),
   fetchChatHistory: vi.fn(),
 }))
-vi.mock('../../../src/studio/web-next/src/api/client', () => ({
-  apiFetch: mocks.apiFetch,
-  getToken: mocks.getToken,
-  rebootstrap: mocks.rebootstrap,
-  ApiError: class ApiError extends Error {
-    status = 0
-    code?: string
-  },
-  apiJson: vi.fn(),
-}))
+// 重评-0914-三轮 nano R7-1：ApiError 本地复刻收编——工厂改 importOriginal 展开，真类单源 src/studio/web-next/src/api/client.ts
+vi.mock('../../../src/studio/web-next/src/api/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/studio/web-next/src/api/client')>()
+  return {
+    ...actual,
+    apiFetch: mocks.apiFetch,
+    getToken: mocks.getToken,
+    rebootstrap: mocks.rebootstrap,
+    apiJson: vi.fn(),
+  }
+})
 vi.mock('../../../src/studio/web-next/src/api/documents', () => ({
   getContent: mocks.getContent,
   saveContent: mocks.saveContent,

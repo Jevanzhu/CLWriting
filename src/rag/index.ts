@@ -498,7 +498,11 @@ export async function buildIndex(
     // 指纹循环与 toIndex 收集段各读一次全文，现至多读一次。指纹循环与收集段之间全同步
     // IO 无 await，缓存 body 与现读逐字节一致。指纹计算口径不变（readChapterFingerprint
     // 同式：readFile → hashChapterBody，查询侧 ：206 原函数保留不动）。
+    // 重评-0914-三轮 nano R3-2：顺手缓存指纹循环已算出的 body 哈希（staleHashes）——
+    // C5 缓存 body 后收集段又对同一字节串 hashChapterBody 重算是白付；缓存命中章收集
+    // 段直接复用，仅现读章（新章/指纹循环读失败章）现算。
     const staleBodies = new Map<number, string>()
+    const staleHashes = new Map<number, string>()
     // R31-37（三十一轮）成本口径备案：指纹核对需逐章全文读+SHA-256（200 万字书每轮
     // build ≈8MB 读，秒级）——readChapterDir 的 (mtimeNs,size) 缓存只覆盖 meta 不覆盖
     // 指纹；引入 mtime 快路径会开「同 mtime 改内容」的漏检窗，有意不设，成本口径见此。
@@ -514,11 +518,13 @@ export async function buildIndex(
       if (!indexedHash) {
         missingFingerprint.add(ch.章号)
         staleBodies.set(ch.章号, r.body)
+        staleHashes.set(ch.章号, currentHash) // nano R3-2：哈希随 body 顺手缓存
         continue
       }
       if (indexedHash !== currentHash) {
         staleFingerprint.add(ch.章号)
         staleBodies.set(ch.章号, r.body)
+        staleHashes.set(ch.章号, currentHash) // nano R3-2：哈希随 body 顺手缓存
       }
     }
 
@@ -545,7 +551,10 @@ export async function buildIndex(
         readFailAt = ch.章号
         break
       }
-      chapterHashes.set(ch.章号, hashChapterBody(r.body))
+      // nano R3-2：缓存命中章复用指纹循环已算哈希（同一字节串不再 SHA-256 重算）；
+      // `??` 分支只落在现读章（新章/指纹循环读失败章——彼时未入 staleHashes）
+      const cachedHash = staleHashes.get(ch.章号)
+      chapterHashes.set(ch.章号, cachedHash ?? hashChapterBody(r.body))
       for (const chunk of chunkBody(r.body)) {
         allChunks.push({ 章号: ch.章号, chunk })
       }

@@ -30,8 +30,18 @@ import process from 'node:process'
 const PORT = resolveDevApiPort(process.env)
 
 // --dir 参数
-const dirIdx = process.argv.indexOf('--dir')
-const explicitDir = dirIdx !== -1 && dirIdx + 1 < process.argv.length ? process.argv[dirIdx + 1] : null
+// nano R2-3（重评-0914-三轮）：原宽松取参——`--dir --flag` 会把下一个 flag 名吞作
+// 目录值（后续 findWorkDir/existsSync 静默回落，错因不可见）。对齐
+// scripts/verify-responses-relay.ts argValue 的严格口径基准（R0912-3 #49 判式）：
+// 值缺失/空串/以 `--` 开头一律按未传处理（null），回落 cwd 向上找 / 桌面端持久化书库。
+function argValue(flag: string): string | null {
+  const i = process.argv.indexOf(flag)
+  if (i === -1 || i + 1 >= process.argv.length) return null
+  const v = process.argv[i + 1]
+  if (v === undefined || v === '' || v.startsWith('--')) return null
+  return v
+}
+const explicitDir = argValue('--dir')
 
 const userDataPath = defaultUserDataPath()
 

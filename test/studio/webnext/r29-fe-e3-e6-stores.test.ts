@@ -37,14 +37,15 @@ vi.mock('../../../src/studio/web-next/src/api/prefs', () => ({
   getBookPrefs: mocks.getBookPrefs,
   putBookPrefs: mocks.putBookPrefs,
 }))
-vi.mock('../../../src/studio/web-next/src/api/client', () => ({
-  ApiError: class ApiError extends Error {
-    status = 0
-    code?: string
-  },
-  getToken: vi.fn(() => 'test-token'),
-  rebootstrap: vi.fn(async () => {}),
-}))
+// 重评-0914-三轮 nano R7-1：ApiError 本地复刻收编——工厂改 importOriginal 展开，真类单源 src/studio/web-next/src/api/client.ts
+vi.mock('../../../src/studio/web-next/src/api/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/studio/web-next/src/api/client')>()
+  return {
+    ...actual,
+    getToken: vi.fn(() => 'test-token'),
+    rebootstrap: vi.fn(async () => {}),
+  }
+})
 // prefs store 的 apply() 触碰 document（node 环境无 DOM）——stub 掉，本文件不测 CSS 注入
 vi.mock('../../../src/studio/web-next/src/stores/prefs', () => ({
   usePrefsStore: () => ({

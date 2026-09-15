@@ -84,18 +84,14 @@ vi.mock('../../../src/studio/web-next/src/stores/shelf', () => ({
 vi.mock('../../../src/studio/web-next/src/stores/prefs', () => ({
   usePrefsStore: vi.fn(() => ({ shelfView: 'grid', setShelfView: vi.fn() })),
 }))
-vi.mock('../../../src/studio/web-next/src/api/client', () => ({
-  apiJson: vi.fn(),
-  ApiError: class ApiError extends Error {
-    status?: number
-    code?: string
-    constructor(message: string, status: number, code?: string) {
-      super(message)
-      this.status = status
-      this.code = code
-    }
-  },
-}))
+// 重评-0914-三轮 nano R7-1：ApiError 本地复刻收编——工厂改 importOriginal 展开，真类单源 src/studio/web-next/src/api/client.ts
+vi.mock('../../../src/studio/web-next/src/api/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/studio/web-next/src/api/client')>()
+  return {
+    ...actual,
+    apiJson: vi.fn(),
+  }
+})
 
 // happy-dom localStorage 在 vitest 集成下缺 clear()，Map-backed 替身（照 prefs-store 范型）
 function createLocalStorage() {

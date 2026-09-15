@@ -9,8 +9,8 @@
  * E-N2：strict 短篇升红集补 unreadable/degraded 族——严格承诺「机检全绿才过定稿闸」，
  *   「检查没跑成」（章纲/名册/布线读不出）不得以黄项绿灯过闸。
  */
-import { describe, test, expect, beforeEach, afterEach } from 'vitest'
-import { mkdirSync, rmSync, writeFileSync, chmodSync } from 'node:fs'
+import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { rebuild } from '../../src/cache/rebuild.js'
@@ -19,6 +19,20 @@ import { runAllChecks, hasRed } from '../../src/check/runner.js'
 import { writeBookConfig, DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import type { ChapterMeta, BookConfig } from '../../src/format/types.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { denyRead } from '../helpers/fs-deny.js'
+
+// win 臂 EACCES 注入的模块包装（posix 臂走 chmod 不依赖）——见 helpers/fs-deny.ts 头注
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>()
+  const { armFsNamespace } = await import('../helpers/fs-deny.js')
+  return armFsNamespace('fs', actual)
+})
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  const { armFsNamespace } = await import('../helpers/fs-deny.js')
+  return armFsNamespace('fsp', actual)
+})
+
 
 let root = ''
 
@@ -162,12 +176,13 @@ function makeWiringBookWithShort(kind: 'long' | 'short'): string {
   return root
 }
 
-test.skipIf(process.platform === 'win32')('重评-P2-4: 长篇误写 short.strict + 账本推进读失败 → unreadable 黄项不升红', () => {
+// 重评-0914-三轮 P3-11：读失败注入改 fs-deny 平台分派（win 臂 spy 注入 EACCES），摘除 skipIf(win32)
+test('重评-P2-4: 长篇误写 short.strict + 账本推进读失败 → unreadable 黄项不升红', () => {
   const root = makeWiringBookWithShort('long')
   try {
     const ledger = join(root, '工作区', '账本推进.md')
     writeFileSync(ledger, '# 第1章 账本推进\n- 悬念-001 推进：钟声三响\n', 'utf-8')
-    chmodSync(ledger, 0o000)
+    const deny = denyRead(ledger) // 账本推进.md 不可读（win 臂 spy / posix 臂 chmod 0o000）
     try {
       const outcome = runCheckForDocument(root, join(root, '写作', '正文', '001-夜访.md'))
       expect(outcome.ok).toBe(true)
@@ -176,19 +191,20 @@ test.skipIf(process.platform === 'win32')('重评-P2-4: 长篇误写 short.stric
       expect(item?.level).toBe('yellow') // 修复前 config.short?.strict === true 误升红——回归红
       expect(String(item?.message).startsWith('短篇严格模式：')).toBe(false)
     } finally {
-      chmodSync(ledger, 0o644)
+      deny.restore()
     }
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
 })
 
-test.skipIf(process.platform === 'win32')('重评-P2-4: 短篇 short.strict + 账本推进读失败 → unreadable 黄项照旧升红', () => {
+// 重评-0914-三轮 P3-11：fs-deny 平台分派注入，摘除 skipIf(win32)
+test('重评-P2-4: 短篇 short.strict + 账本推进读失败 → unreadable 黄项照旧升红', () => {
   const root = makeWiringBookWithShort('short')
   try {
     const ledger = join(root, '工作区', '账本推进.md')
     writeFileSync(ledger, '# 第1章 账本推进\n- 悬念-001 推进：钟声三响\n', 'utf-8')
-    chmodSync(ledger, 0o000)
+    const deny = denyRead(ledger) // 账本推进.md 不可读（win 臂 spy / posix 臂 chmod 0o000）
     try {
       const outcome = runCheckForDocument(root, join(root, '写作', '正文', '001-夜访.md'))
       expect(outcome.ok).toBe(true)
@@ -197,7 +213,7 @@ test.skipIf(process.platform === 'win32')('重评-P2-4: 短篇 short.strict + �
       expect(item?.level).toBe('red')
       expect(String(item?.message).startsWith('短篇严格模式：')).toBe(true)
     } finally {
-      chmodSync(ledger, 0o644)
+      deny.restore()
     }
   } finally {
     rmSync(root, { recursive: true, force: true })

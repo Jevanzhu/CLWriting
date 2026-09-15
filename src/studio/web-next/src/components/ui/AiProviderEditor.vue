@@ -45,7 +45,14 @@ const form = ref(
 /** 模型行草稿（ModelListEditor 双向；挂载由 initial?.models 回填） */
 const modelDrafts = ref<ModelRowDraft[]>(dtoToModelDrafts(props.initial?.models))
 
-const keyError = computed(() => apiKeyFailure(form.value.apiKey))
+// nano R6-1（重评-0914-三轮）：编辑卡非法 key 此前无就地反馈——模板 `keyError && !initial`
+// 把提示整体挡在编辑卡外。对齐 RagProviderEditor 同场景口径：编辑留空 = 保留原 Key（合法
+// 不报错），填了非法值（请求头/环境行、非可打印 ASCII 等）就地提示；父层 AiServicePanel.save
+// 的校验与写入职责不变，此处纯补前端反馈面（行为闭环）。
+const keyError = computed(() => {
+  if (props.initial && !form.value.apiKey) return null
+  return apiKeyFailure(form.value.apiKey)
+})
 // R37-30（三十七轮批E）：删 detailsOpen / keyRequiredError 死变量——声明后零消费（校验职责已由 validate 链承接）
 
 /** 选协议类型——自动定认证策略（anthropic→anthropic 头，openai/openai-responses→bearer） */
@@ -167,7 +174,9 @@ async function savePricing(clear = false): Promise<void> {
         :placeholder="initial ? '不改则保留原 Key' : '粘贴你的 API Key'"
         class="text-input"
       />
-      <span v-if="keyError && !initial" class="key-error">{{ keyError }}</span>
+      <!-- nano R6-1（重评-0914-三轮）：去掉 !initial 门——编辑卡非法 key 就地反馈
+           （留空仍合法，由 keyError computed 守卫），形态对齐 RagProviderEditor -->
+      <span v-if="keyError" class="key-error">{{ keyError }}</span>
       <span v-if="initial?.hasKey && !form.apiKey" class="key-stored">已存 Key（vault 加密，留空即保留）</span>
     </div>
 

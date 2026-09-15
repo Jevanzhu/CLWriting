@@ -4,8 +4,8 @@
  * - C3 细纲 prompt「当前卷进展」段（有卷摘要注入 / 缺失整段省略 / 第 1 卷无段）
  * - C4 token 系数（查表/前缀匹配/兜底）+ 拟合函数与报告快照
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync, chmodSync } from 'node:fs'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -24,6 +24,20 @@ import { volumeProgressOf, buildOutlinePromptWithFiles } from '../../src/studio/
 import { estimateTokens, TOKEN_COEFFICIENTS, DEFAULT_TOKEN_COEFF } from '../../src/process/prepare.js'
 import { fitCoefficients, renderCalibrationReport, type CalibrationSample } from '../../src/ai/token-calibration.js'
 import { DEFAULT_CONFIG } from '../../src/format/yaml.js'
+import { denyRead } from '../helpers/fs-deny.js'
+
+// win 臂 EACCES 注入的模块包装（posix 臂走 chmod 不依赖）——见 helpers/fs-deny.ts 头注
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>()
+  const { armFsNamespace } = await import('../helpers/fs-deny.js')
+  return armFsNamespace('fs', actual)
+})
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  const { armFsNamespace } = await import('../helpers/fs-deny.js')
+  return armFsNamespace('fsp', actual)
+})
+
 import type { BookConfig } from '../../src/format/types.js'
 
 const dirs: string[] = []
@@ -228,37 +242,39 @@ describe('C4 token 系数', () => {
 // ── R65-31（第六十五轮）：卷摘要 sourceHash 重读失败降级（不直穿自愈链）────────
 
 describe('R65-31: 卷摘要读失败降级', () => {
-  it.skipIf(process.platform === 'win32')('selfHealVolumeSummary：卷摘要文件不可读（EACCES）→ 按手写产物跳过（null）且不覆盖不抛', async () => {
+  // 重评-0914-三轮 P3-11：读失败注入改 fs-deny 平台分派（win 臂 spy 注入 EACCES），摘除 skipIf(win32)
+  it('selfHealVolumeSummary：卷摘要文件不可读（EACCES）→ 按手写产物跳过（null）且不覆盖不抛', async () => {
     const root = makeBook(2, 2)
     const config = effectiveConfig(root, null)
     await genChapterSummaries(root, config, [1, 2])
     await generateVolumeSummary({ bookRoot: root, userDataPath: null, config, volume: 1 })
     const fp = volumeSummaryPath(root, 1)
     const before = readFileSync(fp, 'utf8')
-    chmodSync(fp, 0o000) // 自然故障注入：sourceHash 重读 EACCES
+    const deny = denyRead(fp) // 自然故障注入：sourceHash 重读 EACCES（win 臂 spy / posix 臂 chmod）
     try {
       // 修复前：裸 readFileSync 直穿抛 EACCES；修复后按手写产物降级（宁不动不可见文件）
       expect(await selfHealVolumeSummary(root, null, config, 3)).toBeNull()
     } finally {
-      chmodSync(fp, 0o644)
+      deny.restore()
     }
     // 文件内容原样未被覆盖
     expect(readFileSync(fp, 'utf8')).toBe(before)
   })
 
-  it.skipIf(process.platform === 'win32')('generateVolumeSummary：卷摘要文件不可读（EACCES）→ 按缺失降级重生成（skipped 判定不再直穿）', async () => {
+  // 重评-0914-三轮 P3-11：fs-deny 平台分派注入，摘除 skipIf(win32)
+  it('generateVolumeSummary：卷摘要文件不可读（EACCES）→ 按缺失降级重生成（skipped 判定不再直穿）', async () => {
     const root = makeBook(2, 2)
     const config = effectiveConfig(root, null)
     await genChapterSummaries(root, config, [1, 2])
     await generateVolumeSummary({ bookRoot: root, userDataPath: null, config, volume: 1 })
     const fp = volumeSummaryPath(root, 1)
-    chmodSync(fp, 0o000)
+    const deny = denyRead(fp) // 挡读（win 臂 spy / posix 臂 chmod）
     try {
       // 修复前：existsSync 通过后裸 readFileSync 抛 EACCES；修复后按指纹不匹配降级走重生成
       const r = await generateVolumeSummary({ bookRoot: root, userDataPath: null, config, volume: 1 })
       expect(r.ok).toBe(true)
     } finally {
-      chmodSync(fp, 0o644)
+      deny.restore()
     }
   })
 })

@@ -18,7 +18,7 @@ import {
   __getInFlightWorkCount,
 } from '../../src/studio/server/api/in-flight-work.js'
 import { __getSseConnections } from '../../src/studio/server/api/stream.js'
-import { sleep } from '../helpers/wait-for.js'
+import { sleep, waitFor } from '../helpers/wait-for.js'
 
 const BOOK = '退出收尾书'
 let workDir = ''
@@ -93,7 +93,9 @@ describe('R0910-W：server.close 自包含化', () => {
     )
     expect(r.status).toBe(200)
     void r.body?.getReader().read().catch(() => { /* abort 后忽略 */ })
-    await sleep(50)
+    // 重评-0914-三轮 P3-12：连接登记到达假定改就绪探针轮询（固定 sleep(50) 在慢机上
+    // 可能早于服务端登记完成 → 假红；waitFor 单源语义见 helpers/wait-for.ts）
+    await waitFor(() => __getSseConnections().get(BOOK) === 1, 3000, 5, 'SSE 连接登记')
     expect(__getSseConnections().get(BOOK)).toBe(1)
     const t0 = Date.now()
     await new Promise<void>((res) => server.close(() => res()))

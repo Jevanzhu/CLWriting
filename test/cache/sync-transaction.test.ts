@@ -82,3 +82,22 @@ test('履历 DELETE+INSERT 中途失败 → SAVEPOINT 回滚，旧履历保留',
   db.close()
   rmSync(dir, { recursive: true, force: true })
 })
+
+// 重评-0914-三轮 P3-4 回归：leads 主表 INSERT 已挪进 SAVEPOINT——履历段失败时整段
+// 回滚，leads 不留半写（独立调用无 rebuild 整体事务兜底，半不一致此前只在独立调用暴露）。
+test('履历段失败 → leads 主表不留半写行（新 lead 无残留）', () => {
+  const { db, dir } = makeDb()
+  db.exec(
+    `CREATE TRIGGER fail_history BEFORE INSERT ON lead_history
+     WHEN NEW.evidence = 'boom' BEGIN SELECT RAISE(ABORT, 'boom'); END`,
+  )
+  // 新 lead（leads 无既有行）：首条履历即触发 ABORT → 整段 SAVEPOINT 回滚，
+  // leads 表不得残留「有主表行、无履历」的半写态
+  expect(() =>
+    syncLead(db, leadOf([{ 章号: 1, 动词: '埋下', 证据: 'boom' }])),
+  ).toThrow('boom')
+  expect(loadLeadFromCache(db, '悬念-001')).toBeNull()
+  expect(db.prepare('SELECT COUNT(*) AS n FROM lead_history').get()).toEqual({ n: 0 })
+  db.close()
+  rmSync(dir, { recursive: true, force: true })
+})

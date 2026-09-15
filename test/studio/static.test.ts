@@ -1,7 +1,7 @@
 import http from 'node:http'
 import net from 'node:net'
 import type { AddressInfo } from 'node:net'
-import { chmodSync, createReadStream, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { createReadStream, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -9,11 +9,18 @@ import { PassThrough } from 'node:stream'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import type { MockInstance } from 'vitest'
 import { createStaticHandler } from '../../src/studio/server/static.js'
+import { denyRead } from '../helpers/fs-deny.js'
 
 // M-P3-09（内存核查 2026-08-25）：透传式 spy——只计数不改行为，断言 HEAD 分支不再 readFile 整读
+// 重评-0914-三轮 P3-11：两层叠加——fs-deny 的 armFsNamespace 先包（win 臂 EACCES 注入
+// 经登记表；posix 臂零行为直通），本文件的 vi.fn 透传 spy 再叠在外层（计数/受控注入
+// 语义不变；win 臂 createReadStream 同步抛经产品外层 catch :211 回同一 500 IO 信封
+// ——与 posix chmod 的流式异步 error（:201）信封一致，两平台同判）。
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>()
-  return { ...actual, readFile: vi.fn(actual.readFile) }
+  const { armFsNamespace } = await import('../helpers/fs-deny.js')
+  const armed = armFsNamespace('fsp', actual) as typeof actual
+  return { ...armed, readFile: vi.fn(armed.readFile) }
 })
 const readFileMock = vi.mocked(readFile)
 
@@ -21,7 +28,9 @@ const readFileMock = vi.mocked(readFile)
 // 一致（既有用例零感知），仅供断连 destroy 用例注入受控实现观测源流销毁
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>()
-  return { ...actual, createReadStream: vi.fn(actual.createReadStream) }
+  const { armFsNamespace } = await import('../helpers/fs-deny.js')
+  const armed = armFsNamespace('fs', actual) as typeof actual
+  return { ...armed, createReadStream: vi.fn(armed.createReadStream) }
 })
 const createReadStreamMock = vi.mocked(createReadStream)
 
@@ -191,10 +200,12 @@ test.skipIf(process.platform === 'win32')('M-9: root 内部 symlink（合法用�
 })
 
 // N-3（第十二轮）：errno 分流——存在文件读失败（EACCES 等 IO 错误）不再混叠成 SPA 200
-// Windows 无 POSIX 权限位（chmod 为 no-op/仅映射只读位），该守卫语义由 macOS/Linux CI 腿覆盖
-test.skipIf(process.platform === 'win32')('N-3: 存在的文件读失败（EACCES）→ 500 IO 信封（R33-62：err.code 不出网）；不存在路由仍 SPA fallback 200', async () => {
+// 重评-0914-三轮 P3-11：读失败注入改 fs-deny 平台分派（win 臂经登记表对 createReadStream
+// 同步抛 EACCES → 产品外层 catch :211 回 500 IO；posix 臂 chmod 流式异步 error → :201
+// 同一信封），摘除 skipIf(win32)——win 生产高发形态（杀毒/索引器/句柄占用）本机可测
+test('N-3: 存在的文件读失败（EACCES）→ 500 IO 信封（R33-62：err.code 不出网）；不存在路由仍 SPA fallback 200', async () => {
   writeFileSync(join(root, 'blocked.js'), 'console.log(1)')
-  chmodSync(join(root, 'blocked.js'), 0o000) // stat 过、readFile 拒——模拟权限/IO 故障
+  const deny = denyRead(join(root, 'blocked.js'), { ops: ['fs:createReadStream'] }) // stat 过、开流拒——模拟权限/IO 故障
 
   const res = await fetch(`${baseUrl}/blocked.js`)
   expect(res.status).toBe(500)
@@ -206,6 +217,7 @@ test.skipIf(process.platform === 'win32')('N-3: 存在的文件读失败（EACCE
   const spa = await fetch(`${baseUrl}/no/such/route`)
   expect(spa.status).toBe(200)
   expect(await spa.text()).toContain('<title>Studio</title>')
+  deny.restore() // 虽然每用例独立 tmpdir 路径不复现，仍守登记表卫生
 })
 
 // B-21（第六十轮）：HEAD 响应补 content-length 且不发 body——此前与 GET 同分支

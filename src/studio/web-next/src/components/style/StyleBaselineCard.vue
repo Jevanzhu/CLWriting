@@ -313,7 +313,10 @@ async function saveRules(): Promise<void> {
   width: 100%;
   resize: vertical;
   padding: 10px 12px;
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  /* 重评-0914-三轮 P3-9：--font-mono 系不存在的 token 名（实名 --font-monospace 族，
+   * win 档 Consolas 打头，见 styles/tokens.css），原写法恒走自定义 fallback——win
+   * Consolas 档失守。改引实名并删自定义 fallback。 */
+  font-family: var(--font-monospace);
   font-size: var(--font-size-xs);
   line-height: 1.6;
   color: var(--text-normal);

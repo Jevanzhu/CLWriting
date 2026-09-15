@@ -496,36 +496,37 @@ export function exportBook(options: ExportOptions): ExportResult {
   // 晚于声明执行」侥幸不触发 TDZ）——结构脆弱：后续在声明执行前新增任何 writeSplit
   // 调用即 ReferenceError；声明上移到闭包定义之前，消除对调用时序的隐式依赖（行为不变）。
   const splitUsed = new Set<string>() // R62-15：分章产物文件名占用集（撞名序号判定）
+  // 重评-0914-三轮 nano R4-2：本闭包整体重排缩进（此前 body 少一层、层级错乱）——纯排版，零语义变化。
   const writeSplit = (unit: { num: number; title: string; path: string; displayNum?: number }, body: string): void => {
-   try {
-    // S2（阶段 24）：分章前缀走 displayNum（D7 分流）+ chapterFilePrefix 单源收编
-    //（原内联 padStart(4) 未走写侧单源，CC-P2-21 家族）；文案章号引用维持本地章号。
-    const display = unit.displayNum ?? unit.num
-    const prefix = chapterFilePrefix(display, 'chapter')
-    const baseName = sanitizeFileName(unit.title, FILENAME_MAX_BYTES - Buffer.byteLength(prefix) - Buffer.byteLength('.md'))
-    // R62-15：同章号+同标题（手工复制备份 / 网盘同步副本「xxx 2.md」形态）撞名——
-    // 此前 atomicWriteFile 直写同路径幂等替换，chapterCount 与 files 却计两次，两章只
-    // 留一章且无提示；改为追加序号后缀保双份并计入 warnings，作者可手动取舍。
-    const fileName = `${prefix}${baseName}.md`
-    // 平台规范化批：导出产物规范形写（正文源自库内章，CRLF 存量可携 \r 残尾——归一后
-    // 两台机器的导出产物字节一致，作者侧 diff/比对有基准）
-    const payloadOf = (title: string, body: string): string => canonicalizeText(`# ${title}\n\n${body}`)
-    // P3（复审-0914-优化修复批）：撞名/非撞名两分支重复的 atomicWriteFile+files.push
-    // 合并单点写——名单先算定（finalName），写盘与登记只写一份
-    let finalName = fileName
-    if (splitUsed.has(fileName)) {
-      let n = 2
-      while (splitUsed.has(`${prefix}${baseName}-${n}.md`)) n++
-      finalName = `${prefix}${baseName}-${n}.md`
-      warnings.push(`分章 ${unit.num}「${unit.title}」与已导出产物撞名，已另存为 ${finalName}——若为同名重复章请手动核对/清理`)
+    try {
+      // S2（阶段 24）：分章前缀走 displayNum（D7 分流）+ chapterFilePrefix 单源收编
+      //（原内联 padStart(4) 未走写侧单源，CC-P2-21 家族）；文案章号引用维持本地章号。
+      const display = unit.displayNum ?? unit.num
+      const prefix = chapterFilePrefix(display, 'chapter')
+      const baseName = sanitizeFileName(unit.title, FILENAME_MAX_BYTES - Buffer.byteLength(prefix) - Buffer.byteLength('.md'))
+      // R62-15：同章号+同标题（手工复制备份 / 网盘同步副本「xxx 2.md」形态）撞名——
+      // 此前 atomicWriteFile 直写同路径幂等替换，chapterCount 与 files 却计两次，两章只
+      // 留一章且无提示；改为追加序号后缀保双份并计入 warnings，作者可手动取舍。
+      const fileName = `${prefix}${baseName}.md`
+      // 平台规范化批：导出产物规范形写（正文源自库内章，CRLF 存量可携 \r 残尾——归一后
+      // 两台机器的导出产物字节一致，作者侧 diff/比对有基准）
+      const payloadOf = (title: string, body: string): string => canonicalizeText(`# ${title}\n\n${body}`)
+      // P3（复审-0914-优化修复批）：撞名/非撞名两分支重复的 atomicWriteFile+files.push
+      // 合并单点写——名单先算定（finalName），写盘与登记只写一份
+      let finalName = fileName
+      if (splitUsed.has(fileName)) {
+        let n = 2
+        while (splitUsed.has(`${prefix}${baseName}-${n}.md`)) n++
+        finalName = `${prefix}${baseName}-${n}.md`
+        warnings.push(`分章 ${unit.num}「${unit.title}」与已导出产物撞名，已另存为 ${finalName}——若为同名重复章请手动核对/清理`)
+      }
+      splitUsed.add(finalName)
+      atomicWriteFile(join(exportDir, splitTargetDirName, finalName), payloadOf(unit.title, body))
+      files.push(`工作区/导出/${splitTargetDirName}/${finalName}`)
+    } catch (e) {
+      // R67-10（十五轮）：分章单章写入失败带上章上下文重抛——外层收编为 {ok:false}
+      throw new Error(`分章 ${unit.num}「${unit.title}」写入失败：${errMsg(e)}`)
     }
-    splitUsed.add(finalName)
-    atomicWriteFile(join(exportDir, splitTargetDirName, finalName), payloadOf(unit.title, body))
-    files.push(`工作区/导出/${splitTargetDirName}/${finalName}`)
-   } catch (e) {
-    // R67-10（十五轮）：分章单章写入失败带上章上下文重抛——外层收编为 {ok:false}
-    throw new Error(`分章 ${unit.num}「${unit.title}」写入失败：${errMsg(e)}`)
-   }
   }
 
   // R67-10（十五轮）：写入期异常（writeSplit 经 merged 流式回调或 split 循环抛出、

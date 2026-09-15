@@ -14,31 +14,34 @@ import { samePath } from '../fs/user-data-path.js'
 
 /** 写入一个 Lead 到 leads 表 + lead_history 表
  *  P3：写语句 .all() 改 .run()（node:sqlite 语义：写语句不该用查询接口）；
- *  履历 DELETE+INSERT 包 SAVEPOINT 自包原子——不依赖外层 rebuild 事务
- *  （rebuild 挂了 BEGIN 时嵌套 BEGIN 会抛错；SAVEPOINT 可嵌套，独立调用本函数
- *  或在外层事务内调用均成立，中途失败回滚不留半截履历）。 */
+ *  重评-0914-三轮 P3-4：leads 主表写并入履历段同一 SAVEPOINT 自包原子——不依赖
+ *  外层 rebuild 事务（rebuild 挂了 BEGIN 时嵌套 BEGIN 会抛错；SAVEPOINT 可嵌套，
+ *  独立调用本函数或在外层事务内调用均成立，中途失败回滚不留半截主表行/履历）。 */
 export function syncLead(db: DatabaseSync, lead: Lead): void {
-  db.prepare(
-    `INSERT OR REPLACE INTO leads
-      (id, type, title, status, opened_at, cur_realm, parent_id, debtor, creditor, path)
-     VALUES (@id, @type, @title, @status, @opened_at, @cur_realm, @parent_id, @debtor, @creditor, @path)`,
-  ).run({
-    // 中英映射（#4 第 6 节）
-    id: lead.编号,
-    type: lead.类型,
-    title: lead.标题,
-    status: lead.状态,
-    opened_at: lead.开启章,
-    cur_realm: lead.当前境界 ?? null,
-    parent_id: lead.父布局线 ?? null,
-    debtor: lead.欠方 ?? null,
-    creditor: lead.债主 ?? null,
-    path: lead._path ?? '',
-  })
-
-  // 履历：先删旧的再插（幂等）——SAVEPOINT 自包事务
+  // 重评-0914-三轮 P3-4：leads 主表 INSERT 挪进 SAVEPOINT 内——原先在保存点之外，
+  // 独立调用（无 rebuild 整体事务兜底）且履历段失败时 leads 已写、lead_history 回滚，
+  // 主表与履历半不一致；现主表+履历整段失败全回（保存点名沿用 sync_lead_history 不改）。
   db.exec('SAVEPOINT sync_lead_history')
   try {
+    db.prepare(
+      `INSERT OR REPLACE INTO leads
+        (id, type, title, status, opened_at, cur_realm, parent_id, debtor, creditor, path)
+       VALUES (@id, @type, @title, @status, @opened_at, @cur_realm, @parent_id, @debtor, @creditor, @path)`,
+    ).run({
+      // 中英映射（#4 第 6 节）
+      id: lead.编号,
+      type: lead.类型,
+      title: lead.标题,
+      status: lead.状态,
+      opened_at: lead.开启章,
+      cur_realm: lead.当前境界 ?? null,
+      parent_id: lead.父布局线 ?? null,
+      debtor: lead.欠方 ?? null,
+      creditor: lead.债主 ?? null,
+      path: lead._path ?? '',
+    })
+
+    // 履历：先删旧的再插（幂等）
     db.prepare('DELETE FROM lead_history WHERE lead_id = ?').run(lead.编号)
     const insertHistory = db.prepare(
       `INSERT INTO lead_history (lead_id, seq, chapter, verb, evidence, backfill)

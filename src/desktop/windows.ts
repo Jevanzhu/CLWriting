@@ -242,7 +242,19 @@ function isTrustedSender(e: IpcMainInvokeEvent | IpcMainEvent | null): boolean {
 // 漂移风险，收敛到此。尺寸/标题/位置由 opts 传入，win 专属生命周期监听由调用方自挂。
 // 导出：main.ts bootstrap 主窗 loadURL 前 await 同一记账 promise（P3 复审-0914 收敛，
 // 省一次 session setProxy 往返）。
-export let devProxyApplied: Promise<void> = Promise.resolve()
+// nano R2-4（重评-0914-三轮）：原 export let 模块级可变导出（值随 createSecureWindow
+// 运行期改写，可变绑定语义外溢到导入方）——收窄为函数访问器：写点唯一（工厂 dev 分支
+// 单点 setDevProxyApplied）、读方经 getDevProxyApplied；调用点（本文件工厂/子窗骨架、
+// main.ts bootstrap）随批收编，读写语义逐位不变。
+let devProxyApplied: Promise<void> = Promise.resolve()
+/** dev 代理记账 promise 读取器（R72-10：各窗 loadURL 前 await，原 let 直读改函数访问）。 */
+export function getDevProxyApplied(): Promise<void> {
+  return devProxyApplied
+}
+/** dev 代理记账 promise 写入器（仅 createSecureWindow 工厂 dev 分支调用）。 */
+export function setDevProxyApplied(p: Promise<void>): void {
+  devProxyApplied = p
+}
 
 export { createSecureWindow }
 
@@ -318,11 +330,14 @@ function createSecureWindow(opts: BrowserWindowConstructorOptions): BrowserWindo
     // R74-16（七十四轮批 D）：setProxy 返回 promise 此前无人 catch——设置失败成
     // unhandledRejection 丢诊断（且 await 方拿到 rejected promise 会二次炸穿书架/
     // 书库窗口加载链）；接日志吞错降级（按系统代理继续，SSE 断流风险留日志可查）
-    devProxyApplied = win.webContents.session
-      .setProxy({ proxyRules: 'direct://' })
-      .catch((e) => {
-        log.error('desktop', `dev 代理 direct:// 设置失败（${opts.title ?? '窗口'}），按系统代理继续加载`, e)
-      })
+    // nano R2-4（重评-0914-三轮）：let 导出改访问器后经 setter 写入（写点唯一）
+    setDevProxyApplied(
+      win.webContents.session
+        .setProxy({ proxyRules: 'direct://' })
+        .catch((e) => {
+          log.error('desktop', `dev 代理 direct:// 设置失败（${opts.title ?? '窗口'}），按系统代理继续加载`, e)
+        }),
+    )
   }
   return win
 }
@@ -376,7 +391,7 @@ export { loadWinState, saveWinState }
  * 原两份逐行双写（appUrl 就绪守卫/单例聚焦/workArea 尺寸/closed 置空/devProxyApplied
  * 复验/loadURL 接日志）收敛单源，差异以 spec 参数注入。时序与文案逐位不变：
  * 守卫留痕 → 单例聚焦 → workArea 读取与尺寸/位置计算 → 建窗 → 引用登记 → closed
- * 监听（仍指向本窗才置 null，R48-16 局部引用口径）→ await devProxyApplied（R72-10）→
+ * 监听（仍指向本窗才置 null，R48-16 局部引用口径）→ await getDevProxyApplied()（R72-10）→
  * 存活复验 → loadURL 接日志（R74-16）。
  */
 interface SingletonWindowSpec {
@@ -438,7 +453,7 @@ async function openSingletonWindow(spec: SingletonWindowSpec): Promise<void> {
       if (spec.ref() === win) spec.setRef(null)
     })
   })
-  await devProxyApplied // R72-10（二十轮 D-7）：代理生效后再加载
+  await getDevProxyApplied() // R72-10（二十轮 D-7）：代理生效后再加载（nano R2-4：改函数访问器）
   // R74-16（七十四轮批 D）：loadURL promise 无人 catch——server 恰在此刻崩溃/端口失效
   // 时 rejection 成 unhandledRejection 丢诊断；接日志留痕（窗口崩溃另有 R67-16 自愈）
   if (win.isDestroyed()) return

@@ -1582,7 +1582,13 @@ export class DocumentService {
       // 「create 同源整段预算」口径冲突——同标题 create/rename 落名不一致属身份漂移，
       // 合并取本侧；copy 路径目标名镜像盘上既有名（预算已在原创建时付过），仍用
       // sanitizeFullFileName 扩展名感知变体。）
-      newPath = `${dirname(oldPath)}/${sanitizeCreateSegment(op.newName)}`
+      // 重评-0914-三轮 P2-2（2026-09-14）：根级文档（如脚手架必落的 简介.md）dirname
+      // 为 '.'——直拼产出 './新名.md' 清单键，而 docJoinKey/树扫描/保存守卫均不剥 './'
+      // → 登记与盘面分裂：docId 退化 legacyId（.版本/.journal 关联断裂）+ 前端按树
+      // 路径保存恒 REVISION_CONFLICT。move（normalizeMoveToDir 拒 '.'/'..'）与 copy
+      // （doCopy 双拒 '.'/'..'）同族均已修，唯 rename 的 dirname()==='.' 形态漏网。
+      const dir = dirname(oldPath)
+      newPath = dir === '.' ? sanitizeCreateSegment(op.newName) : `${dir}/${sanitizeCreateSegment(op.newName)}`
     }
     if (newPath === oldPath) return { ok: true, docId, path: newPath } // 无变化，幂等
 

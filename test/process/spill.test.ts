@@ -7,7 +7,7 @@
  * - readSpillFile（GG-P2-2 读侧）：locator 形状白名单 + isWithinRoot 双保险，按路径取回全文
  */
 import { describe, it, expect, vi } from 'vitest'
-import { rmSync, readFileSync, existsSync, writeFileSync, utimesSync } from 'node:fs'
+import { rmSync, readFileSync, existsSync, writeFileSync, utimesSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
@@ -109,6 +109,32 @@ describe('writeSpillFile', () => {
       } finally {
         rmSync(root2, { recursive: true, force: true })
       }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  // 重评-0914-三轮 P3-7 回归：正文写成功而 meta sidecar 失败 → 返 null 前先 best-effort
+  // 删刚写的正文，不留「无 sidecar 孤儿」（apply 侧一律拒绝、模型侧不可达，原先仅靠
+  // TTL GC 收口）。
+  it('sidecar 写失败：正文不留孤儿（整体降级返 null）', () => {
+    const root = mkdtempTracked(join(tmpdir(), 'clwriting-spill-orphan-'))
+    try {
+      const meta = { kind: 'rewrite' as const, chapter: 7, baseSha: 'c'.repeat(64) }
+      const text = '孤儿正文' + 'w'.repeat(600)
+      // 复算 writeSpillFile 的 locator 哈希（正文 + meta 并入段，A6 口径）
+      const digest = createHash('sha256')
+        .update(text, 'utf8')
+        .update(`\n---spill-meta---\n${meta.chapter}\n${meta.baseSha}`, 'utf8')
+        .digest('hex')
+        .slice(0, 16)
+      const dir = join(root, '工作区', 'spills')
+      // sidecar 落点预置为目录 → rename 落位必败（win EPERM 退避后仍败 / posix EISDIR），
+      // 而正文已先行写成功——复现「正文成、sidecar 败」分支
+      mkdirSync(join(dir, `${digest}.meta.json`), { recursive: true })
+      expect(writeSpillFile(root, text, meta)).toBeNull()
+      // 正文无孤儿：刚写的 <digest>.md 已被 best-effort 清理
+      expect(existsSync(join(dir, `${digest}.md`))).toBe(false)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

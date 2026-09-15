@@ -14,7 +14,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { defineRoute } from './schema.js'
 import { reply, replyError } from '../http.js'
 import { createTtlProbeCache } from '../ttl-cache.js'
-import { resolveBook, resolveDocFile } from '../book-context.js'
+import { resolveBook, resolveDocFile, bookMovedFailure } from '../book-context.js'
 import { readAnalysis } from '../../../document/analysis.js'
 import { openSessionStoreAsync, bookHash } from '../../../events/store.js'
 import { QUOTE_OPEN, QUOTE_CLOSE } from '../../../check/quotes.js'
@@ -148,6 +148,14 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
             // M-6：close 收进 finally——workspaceSession/appendEvents 抛错时旧实现
             // 跳过 close，引用计数单例的本次打开滞留到进程结束
             try {
+              // 重评-0914-三轮 nano R1-2：观测层孤儿事件防线——上方 await 开库（首开锁
+              // 可等）是删书/改名 drain 可跨的让出窗，append 前按 bookMovedFailure 家族
+              // 口径重验书注册（时序见 book-context.ts R0912-B-P3-2 头注），书已搬走即
+              // 409 不再对旧捕获路径落 check/false-positive 孤儿事件（本事件现无读取方，
+              // 落错书的语料将来也无从回收；family 先例 documents.ts words-diary /
+              // knowledge.ts learn 写前重验同款）
+              const moved = bookMovedFailure(ctx.workDir, params['name'], bookRoot)
+              if (moved) return replyError(res, 409, moved.code, moved.reason)
               const sessionId = store.workspaceSession(bookHash(bookRoot))
               store.appendEvents(sessionId, [checkFalsePositiveEvent({ checkId, chapter: outcome.chapter.章号, excerpt, docId })])
             } finally {

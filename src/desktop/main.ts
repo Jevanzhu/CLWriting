@@ -56,7 +56,7 @@ import {
   openShelfWindow,
   wins,
   __testHooks,
-  devProxyApplied,
+  getDevProxyApplied, // nano R2-4（重评-0914-三轮）：原 let 导出 devProxyApplied 改函数访问器
 } from './windows.js' // 复审-0914-优化修复批 F1：窗口工厂/三窗引用拆出
 import {
   BOOTSTRAP_PROBE_TIMEOUT_MS,
@@ -127,6 +127,18 @@ if (!gotSingleInstanceLock || !appInstanceGuard.acquired) {
       void (async () => {
         if ((await probeDirReachable(workDir)) === 'unreachable') {
           log.warn('main', `second-instance 带 --book=${ref}，但书库目录暂不可达（可能是网络卷无响应或已断开）——已忽略直达`)
+          return
+        }
+        // 全库重评-0914（三轮 P3-6）：目录预探通过 ≠ 同步扫描安全——resolveInitialBook
+        // 内 readBooks 是同步 readFileSync（<workDir>/.clwriting/books.jsonl，常量未导出，
+        // 路径与 src/install/books.ts BOOKS_FILE 同串勿漂移），网络卷「可达但慢/预探后
+        // 瞬断」窗下同步读照样冻主进程秒级，而同步 IO 无法直接超时。按同族 R54-A-2 防线
+        // 口径对真实读面补一道有界预探：文件 stat 挂死（'unreachable'）即降级忽略直达并
+        // 留痕；快速失败（'invalid'，如首启缺 books.jsonl 的 ENOENT）不拦——readBooks 对
+        // 缺文件本就降级空表，交由既有「无此登记书」留痕路径收口。预探后瞬断的 TOCTOU
+        // 残窗仍在（同族防线既定取舍：冻结面从恒现路径收窄为预探后瞬断窗）。
+        if ((await probeDirReachable(join(workDir, '.clwriting', 'books.jsonl'))) === 'unreachable') {
+          log.warn('main', `second-instance 带 --book=${ref}，但书库登记文件暂不可读（可能是网络卷无响应或已断开）——已忽略直达`)
           return
         }
         const name = resolveInitialBook(workDir, ref)
@@ -414,12 +426,13 @@ async function bootstrap(): Promise<void> {
   // 主窗首载前代理确定生效（工厂内是 fire-and-forget，此处 loadURL 前须确定）
   if (devUi) {
     // P3（复审-0914-优化修复批）：主窗 dev 态二次 setProxy（R32-24/R33-65 形态）删除
-    // ——改 await 工厂侧记账 promise devProxyApplied（createSecureWindow 对主窗以同
+    // ——改 await 工厂侧记账 promise getDevProxyApplied()（nano R2-4 起为函数访问器；
+    // createSecureWindow 对主窗以同
     // 一 devUi 条件 fire-and-forget setProxy direct:// 并记账，同值幂等）。省一次
     // session setProxy 往返；失败面同序降级（工厂侧 R74-16 catch 记 error 后按系统
     // 代理继续首载，不再炸启动），Promise 形态 = setProxy().catch(...) 恒 resolve 的
     // Promise<void>，await 不抛。
-    await devProxyApplied
+    await getDevProxyApplied()
   }
   // R60-B-1（六十轮）：主窗 loadURL 本地留痕——ready 回传后、首载落定前 server 崩溃
   //（退避重启窗）的窄竞 rejection 此前直穿 bootstrap reject，onError 只见「启动失败」

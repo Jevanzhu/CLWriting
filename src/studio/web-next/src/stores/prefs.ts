@@ -456,6 +456,13 @@ export const usePrefsStore = defineStore('prefs', () => {
    *  按届时最新快照补一笔直发；整链作为返回 Promise 交主进程预算内等待
    *  （flushRendererWithBudget 的 FLUSH_BUDGET_TIMEOUT 兜底，超时同权放行关窗）。 */
   async function flushPendingPersist(): Promise<void> {
+    // 重评-0914-三轮 P3-8：无待写不空写守卫（对齐 workspace.flushPendingBookPrefs 的
+    // `if (!debounceTimer) return` 口径，待写标志即本 store 的 persistTimer）——书架/
+    // 书库等独立窗关窗此前也无条件同值 PUT，服务端 revision 空 bump → 存活窗陈旧
+    // revision 伪 409 +「已在其他窗口被修改」误导 toast。persistTimer 为空 = 本窗从未
+    // 排过防抖写（定时器只在冲刷内清空，清后复改会重排），直返回不发 PUT；此时若仍有
+    // 在途链（先前冲刷所发），其返回 Promise 已交主进程 await，此处不重复等待。
+    if (!persistTimer) return
     if (putInFlight) {
       await putInFlight.catch(() => { /* 在途失败已消化，此处不重试 */ })
     }

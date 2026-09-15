@@ -20,7 +20,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, renameSync, existsSync, 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
-import { fakeReqRes } from '../helpers/fake-reqres.js'
+import { fakeReqRes, waitForBodyArmed } from '../helpers/fake-reqres.js'
 import { createRouteTable, withRouteTable } from '../../src/studio/server/router.js'
 import { getRouteSchema } from '../../src/studio/server/api/schema.js'
 import {
@@ -113,7 +113,7 @@ describe('R1010b-SRV-P2-1 面 A：链内写单元书注册重验', () => {
       const { req, res, send, captured } = fakeReqRes()
       const done = rig.content.handler({ params: { name: '重验改名书', docId: 'doc_f1' }, input: undefined }, req, res)
       // 悬在 readJson（resolveBook/resolvePathAsync 已过——正是被修的入口快照窗）
-      await sleep(50)
+      await waitForBodyArmed(req) // 就绪探针取代 sleep(50)：轮询到 readJson 挂持再放行（重评-0914-三轮 P3-12）
       renameBookReg(rig.workDir, '重验改名书', '重验改名书乙')
       // 放行 body → 伏笔链单元开跑 → 首行重验命中改名
       send({ content: '窗口期正文', expectedRevision: null, operationId: 'op-r1010b-a1', origin: 'manual' })
@@ -137,7 +137,7 @@ describe('R1010b-SRV-P2-1 面 A：链内写单元书注册重验', () => {
     try {
       const { req, res, send, captured } = fakeReqRes()
       const done = rig.create.handler({ params: { name: '重验删书' }, input: undefined }, req, res)
-      await sleep(50)
+      await waitForBodyArmed(req) // 就绪探针取代 sleep(50)：轮询到 readJson 挂持再放行（重评-0914-三轮 P3-12）
       // 窗口内删书（登记移除 + 目录入墓地 = books.ts 删除完成态模拟）
       writeFileSync(join(rig.workDir, '.clwriting', 'books.jsonl'), '', 'utf-8')
       rmSync(rig.bookRoot, { recursive: true, force: true })
@@ -156,7 +156,7 @@ describe('R1010b-SRV-P2-1 面 A：链内写单元书注册重验', () => {
     try {
       const { req, res, send, captured } = fakeReqRes()
       const done = rig.patch.handler({ params: { name: '重验patch书', docId: 'doc_f1' }, input: undefined }, req, res)
-      await sleep(50)
+      await waitForBodyArmed(req) // 就绪探针取代 sleep(50)：轮询到 readJson 挂持再放行（重评-0914-三轮 P3-12）
       renameBookReg(rig.workDir, '重验patch书', '重验patch书乙')
       send({ op: 'fm', meta: { 状态: '进行中' } })
       await done
@@ -173,7 +173,7 @@ describe('R1010b-SRV-P2-1 面 A：链内写单元书注册重验', () => {
     try {
       const { req, res, send, captured } = fakeReqRes()
       const done = rig.wordsDiary.handler({ params: { name: '重验字数书' }, input: undefined }, req, res)
-      await sleep(50)
+      await waitForBodyArmed(req) // 就绪探针取代 sleep(50)：轮询到 readJson 挂持再放行（重评-0914-三轮 P3-12）
       writeFileSync(join(rig.workDir, '.clwriting', 'books.jsonl'), '', 'utf-8')
       rmSync(rig.bookRoot, { recursive: true, force: true })
       send({ baseline: 1000 })
@@ -199,7 +199,7 @@ describe('R1010b-SRV-P2-1 面 B：drainForeshadowSaveChains', () => {
       const done = rig.content.handler({ params: { name: 'drain等待书', docId: 'doc_f1' }, input: undefined }, req, res)
       // 先等 handler 悬在 readJson（假 req 事件无缓冲，早喂即丢），再放行完整 body
       // ——单元开跑、svc.save 悬在保存锁上
-      await sleep(50)
+      await waitForBodyArmed(req) // 就绪探针取代 sleep(50)：轮询到 readJson 挂持再放行（重评-0914-三轮 P3-12）
       send({ content: 'drain 窗正文', expectedRevision: null, operationId: 'op-r1010b-b1', origin: 'manual' })
       // 轮询观测钩子等链键出现（单元已开跑、svc.save 悬在保存锁上）——r71 同手法
       let seen = false
@@ -246,7 +246,7 @@ describe('R1010b-SRV-P3-1：链尾自清理与 forget 挂点', () => {
       const { req, res, send, captured } = fakeReqRes()
       const done = rig.content.handler({ params: { name: 'forget书', docId: 'doc_f1' }, input: undefined }, req, res)
       // 同面 B：先等 handler 悬在 readJson 再放行 body
-      await sleep(50)
+      await waitForBodyArmed(req) // 就绪探针取代 sleep(50)：轮询到 readJson 挂持再放行（重评-0914-三轮 P3-12）
       send({ content: 'forget 窗正文', expectedRevision: null, operationId: 'op-r1010b-c1', origin: 'manual' })
       let seen = false
       for (let i = 0; i < 2000 && !seen; i++) {

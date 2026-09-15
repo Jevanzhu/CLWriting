@@ -148,3 +148,25 @@ describe('重评2-P3-1: setting-rule 移植物 × check/count 对拍（同一输
     expect(r.check.size).toBe(0)
   })
 })
+
+// ── 重评-0914-三轮 P2-3/P3-3（2026-09-14）：Ext-B 生僻字名册名两检同判 ──
+// 本批起 setting-rule 守卫族抄本删除、改直接 import check/count.ts 单源
+// （「只读参照」纪律两度失同步：R0912-3 只修 check 侧 ROSTER_NAME_RE 补增补平面
+// + 码点窗，ai 侧 PURE_HANZI_RE BMP-only + UTF-16 窗维持旧口径 → Ext-B 名
+// check 判「已登记」、ai 判「疑似未登记专名」两检两结论）。本组断言锁单源后行为：
+// 两端对 Ext-B 名同判，且候选抽取/判重路径对 astral 名双向不吞。
+describe('重评-0914-三轮 P2-3: Ext-B 生僻字名册名两检同判（抄本收编后单源）', () => {
+  const EXT_B = '\u{20000}\u{20000}' // 𠀀𠀀：SIP 扩展 B 区两字名
+
+  it('名册已登记 Ext-B 名 → 两端都不报（修复前 AI 侧伪报「疑似未登记专名」）', () => {
+    const r = runBoth(`已登记：云澈、凤舞、${EXT_B}`, `殿顶铭文里，「${EXT_B}」二字泛着微光。`)
+    expect(r.ai.size).toBe(0)
+    expect(r.check.size).toBe(0)
+  })
+
+  it('名册未登记 Ext-B 名 → 两端都报（码点窗不吞 astral 名，豁免未扩面）', () => {
+    const r = runBoth('已登记：云澈、凤舞', `殿顶铭文里，「${EXT_B}」二字泛着微光。`)
+    expect(r.ai.has(EXT_B)).toBe(true)
+    expect(r.check.has(EXT_B)).toBe(true)
+  })
+})

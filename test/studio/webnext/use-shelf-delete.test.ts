@@ -19,21 +19,14 @@ vi.mock('../../../src/studio/web-next/src/stores/shelf', () => ({
 vi.mock('../../../src/studio/web-next/src/stores/prefs', () => ({
   usePrefsStore: vi.fn(() => ({ shelfView: 'grid', setShelfView: vi.fn() })),
 }))
-vi.mock('../../../src/studio/web-next/src/api/client', () => ({
-  apiJson: vi.fn(),
-  // R27-79 起 404 语义分支用到（useShelf catch 里 e instanceof ApiError）。
-  // R28-1（二十八轮）：构造器镜像真实签名 (message, status, code?)（client.ts:14
-  // 由构造器赋值 status/code）——替身语义对齐后，用例不再手工补赋值
-  ApiError: class ApiError extends Error {
-    status?: number
-    code?: string
-    constructor(message: string, status: number, code?: string) {
-      super(message)
-      this.status = status
-      this.code = code
-    }
-  },
-}))
+// 重评-0914-三轮 nano R7-1：ApiError 本地复刻收编——工厂改 importOriginal 展开，真类单源 src/studio/web-next/src/api/client.ts
+vi.mock('../../../src/studio/web-next/src/api/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/studio/web-next/src/api/client')>()
+  return {
+    ...actual,
+    apiJson: vi.fn(),
+  }
+})
 
 import { ApiError } from '../../../src/studio/web-next/src/api/client'
 import { useShelf } from '../../../src/studio/web-next/src/composables/useShelf'

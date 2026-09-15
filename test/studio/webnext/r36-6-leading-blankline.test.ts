@@ -40,13 +40,14 @@ vi.mock('../../../src/studio/web-next/src/api/books', () => ({
   getConfig: mocks.getConfig,
   getTree: vi.fn(),
 }))
-vi.mock('../../../src/studio/web-next/src/api/client', () => ({
-  ApiError: class ApiError extends Error {
-    status = 0
-    code?: string
-  },
-  getToken: vi.fn(() => null),
-}))
+// 重评-0914-三轮 nano R7-1：ApiError 本地复刻收编——工厂改 importOriginal 展开，真类单源 src/studio/web-next/src/api/client.ts
+vi.mock('../../../src/studio/web-next/src/api/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/studio/web-next/src/api/client')>()
+  return {
+    ...actual,
+    getToken: vi.fn(() => null),
+  }
+})
 
 // CmHost stub：宿主（测试体）可通过 holder.emitNext 驱动 update:modelValue 派发，
 // 等价真实 CM6 的 doc 变更 emit；props.modelValue 即 EditorView 当前展示的 body。
