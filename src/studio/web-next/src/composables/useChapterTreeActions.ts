@@ -4,71 +4,48 @@
  * 覆盖：inline 新建（八类模板）/ 重命名 / 删除 / 移动（菜单+拖拽共用）/ 复制 /
  * 章节·篇章信息 / 单章与批量定稿 / 右键菜单动作分发。共享惯例：成功后刷树、
  * 需要时打开新 tab；失败统一走 openError / ui.toast。
+ *
+ * 拆分沿革（R0916-5h，2026-09-16 ⑤④产品巨件拆分波4）：本单件（901 行）缝
+ * structure + create 纯移动拆分——章节结构操作族（并入上一章/撤销并入/光标拆分
+ * + 共用尽力落盘 flushUnsaved）→ useChapterTreeStructure.ts；新建族（inline 新建
+ * 八类模板/单例新建/TabBar 分派/种子与模板组装，含 2026-09-15 seed 章号前缀链路；
+ * CreatingKind/Creating 类型随族迁此）→ useChapterTreeCreate.ts。本残核保留主
+ * composable 门面与状态装配：状态 refs、切书守卫（stillIn/failScoped）、树取值
+ * 辅助（bodyPadKind/nextChapterNo/volumeCount/lastVolumePath/pendingChaptersUpTo）、
+ * 菜单分发/重命名/删除/移动/复制/篇章信息/批量定稿，并接线两子 composable
+ * （refs 与回调经 deps 原样传入，响应式接线不变）。全库唯一外部消费名
+ * useChapterTreeActions 仍在本模块定义导出，消费方 import 面零改动。运行时依赖
+ * 单向（残核 → 两子件，子件不回引）；模块顶层求值常量（NEW_DEFAULT_DIRS/
+ * NEW_KIND_BY_KEY 仅 onMenuSelect 消费）留残核单源。本头注上方原文全部历史
+ * 记载原样保留。
  */
 import { ref, type Ref } from 'vue'
 import { useTreeStore } from '../stores/tree'
 import { useDocStore } from '../stores/doc'
-import { useWorkspaceStore, type CreateKind } from '../stores/workspace'
+import { useWorkspaceStore } from '../stores/workspace'
 import { useUiStore } from '../stores/ui'
 import { clearFalsePositiveMarksForDoc } from '../stores/check'
 import type { TreeNode } from '../types/tree'
 import {
-  createDoc,
   renameDoc,
   moveDoc,
   copyDoc,
   deleteDoc,
   updateChapterMetaDoc,
   batchFinalizeDocs,
-  structurePlan,
-  structureApply,
-  structureMergeUndo,
-  type MergePlanView,
   type SplitPlanView,
 } from '../api/documents'
-import { parseChapterFileName, chapterFilePrefix, splitFrontmatter } from '../shared/words'
-import {
-  chapterTemplate,
-  chapterOutlineTemplate,
-  volumeOutlineTemplate,
-  synopsisTemplate,
-  worldviewTemplate,
-  characterTemplate,
-  itemTemplate,
-  foreshadowTemplate,
-} from '../shared/templates'
+import { parseChapterFileName, chapterFilePrefix } from '../shared/words'
 import { friendlyError } from '../shared/error'
 import {
   sanitizeName,
-  extractChapterNo,
-  collectAncestors,
   lastVolumePathIn,
   volumeCountIn,
   nextChapterNoIn,
   pendingChaptersUpToIn,
-  prevBodyChapterInDisplayOrder,
 } from '../shared/chapter-tree'
-
-type CreatingKind =
-  | 'chapter'
-  | 'chapter-outline'
-  | 'volume-outline'
-  | 'character'
-  | 'item'
-  | 'foreshadow'
-  | 'volume'
-  | 'doc'
-
-type Creating = {
-  kind: CreatingKind
-  renderDir: string
-  fsDir: string
-  seed: string
-  /** 拍板快断批（2026-09-15·阶段 24 批 B 登记项）：新建种子的数字前缀（chapter/
-   *  chapter-outline 在 startCreate 时捕获）——作者清掉 seed 前缀只填标题时，提交侧
-   *  拼回此前缀，堵「文件名无章号 → 取号扫描失明 → fm 章号连号重号」。 */
-  seedPrefix: string
-} | null
+import { useChapterTreeCreate, type Creating } from './useChapterTreeCreate'
+import { useChapterTreeStructure } from './useChapterTreeStructure'
 
 /** 新建类 key → 标准落盘目录（空白处 / 找不到右键目录时用）。正文/卷原地建不在此表（依赖右键目标或正文区惯例）。 */
 const NEW_DEFAULT_DIRS: Record<string, { renderDir: string; fsDir: string }> = {
@@ -272,161 +249,6 @@ export function useChapterTreeActions(deps: {
     }
   }
 
-  // --- 新建 ---
-  function onNewChapter(): void {
-    const vol = lastVolumePath()
-    startCreate('chapter', vol ?? '写作', vol ?? '写作/正文')
-  }
-  /** 单文件类型（总纲/世界观）：固定路径，检测存在性，不走 inline 命名。 */
-  async function createSingleton(relPath: string, label: string): Promise<void> {
-    const bookName = deps.bookName()
-    const existing = tree.byPath.get(relPath)
-    if (existing?.docId) {
-      await doc.open(existing)
-      ws.openTab(existing.docId)
-      ui.toast(`${label}已存在，已为你打开`, 'info')
-      return
-    }
-    try {
-      // M-8（第十一轮）：单例新建补初始模板——骨架模板删除后 createDoc 不传 content
-      // 落全空文件，新书总纲/世界观无处供给骨架（既有缺口，非删除批回归）
-      const template =
-        relPath === '大纲/总纲.md' ? synopsisTemplate() : relPath === '设定/世界观.md' ? worldviewTemplate() : undefined
-      await createDoc(bookName, { relPath, ...(template !== undefined ? { content: template } : {}) })
-      if (!stillIn(bookName)) return // N-9（第十二轮）：已切书——文件已落 A 书，不动 B 界面
-      await tree.load(bookName)
-      const fresh = tree.byPath.get(relPath)
-      if (fresh?.docId) {
-        await doc.open(fresh)
-        ws.openTab(fresh.docId)
-      }
-    } catch (e) {
-      // R34D-21：catch 补切书守卫（对齐 R71-28）——切书后旧书报错不写新书界面
-      failScoped(bookName, e)
-    }
-  }
-  /** TabBar 新建信号分派（按 createKind 路由到 startCreate / createSingleton）。 */
-  function dispatchCreate(kind: CreateKind): void {
-    switch (kind) {
-      case 'chapter':
-        return onNewChapter()
-      case 'chapter-outline':
-        return startCreate('chapter-outline', '大纲', '大纲/章纲')
-      case 'volume-outline':
-        return startCreate('volume-outline', '大纲', '大纲/卷纲')
-      case 'character':
-        return startCreate('character', '设定', '设定/角色')
-      case 'item':
-        return startCreate('item', '设定', '设定/物品')
-      case 'foreshadow':
-        return startCreate('foreshadow', '设定', '设定/伏笔')
-      case 'synopsis':
-        return void createSingleton('大纲/总纲.md', '总纲')
-      case 'worldview':
-        return void createSingleton('设定/世界观.md', '世界观')
-    }
-  }
-  function startCreate(kind: CreatingKind, renderDir: string, fsDir: string): void {
-    const ancestors = collectAncestors(tree.grouped, renderDir)
-    if (!ancestors && !tree.grouped.some((n) => n.path === renderDir)) {
-      deps.openError.value = '当前书库无该区域，无法在此新建'
-      return
-    }
-    const seedPrefix =
-      kind === 'chapter' || kind === 'chapter-outline'
-        ? chapterFilePrefix(nextChapterNo(), bodyPadKind())
-        : ''
-    const seed =
-      kind === 'chapter' || kind === 'chapter-outline'
-        // R34D-26：种子补零走 chapterFilePrefix 单源（按本书宽度口径）——原完全不补零
-        ? `${seedPrefix}未命名`
-        : kind === 'volume-outline'
-          ? `卷纲_第${volumeCount() + 1}卷`
-          : ''
-    creating.value = { kind, renderDir, fsDir, seed, seedPrefix }
-    const next = new Set(ws.treeExpanded)
-    next.add(renderDir)
-    if (ancestors) for (const a of ancestors) next.add(a)
-    // E-3（二十九轮）：新建自动展开随用户动作置「已操作」位（挡迟到 prefs 回填覆盖）
-    ws.setTreeExpanded([...next])
-  }
-  async function onCreateCommit(value: string): Promise<void> {
-    const c = creating.value
-    if (!c) return
-    let name = sanitizeName(value)
-    if (!name) {
-      // R71-30（七十一轮）：文案补 Windows 保留名拒收项（sanitizeName 新增校验段）
-      deps.openError.value = '名称不能为空，或含 / \\ 或以 . 开头/结尾，或以空格结尾，或是 Windows 保留名（CON/NUL/COM1 等）'
-      return
-    }
-    creating.value = null
-    // 拍板快断批（2026-09-15，作者指令「按建议顺序开工」取前端拼回档）：作者清掉种子
-    // 前缀只填标题时拼回 seedPrefix——无章号文件名对 nextChapterNo 取号扫描/读侧
-    // parseChapterFileName 双失明（连建多章 fm 章号重号、跨卷重号章被结构合并 400 拒收）；
-    // 作者自填章号形态（「0007-…」/「第7章…」）不覆盖
-    if ((c.kind === 'chapter' || c.kind === 'chapter-outline') && c.seedPrefix !== '' && extractChapterNo(name) === null) {
-      name = `${c.seedPrefix}${name}`
-    }
-    const relPath =
-      c.kind === 'volume'
-        // R34D-26：卷内首章文件名补零走单源（原完全不补零）。卷名目录段 ${name}/ 不可丢
-        //（e2e tree-ops 实证：丢段后首章落正文根、卷节点永不出现——树按目录派生卷）
-        ? `${c.fsDir}/${name}/${chapterFilePrefix(nextChapterNo(), bodyPadKind())}未命名.md`
-        : `${c.fsDir}/${name}.md`
-    // 按类型给初始模板（C5，降低空白页阻力）；volume=建卷即建首章，首章空正文即可
-    const content = buildCreateContent(c.kind, name, c.seed)
-    // L-F2（第八轮）：await 前捕获书名——创建在途切书后 openTab 会在 B 书树命中同路径
-    const book = deps.bookName()
-    try {
-      const r = await createDoc(book, { relPath, ...(content ? { content } : {}) })
-      if (!stillIn(book)) return // 已切书：文档已落 A 书，不动 B 界面
-      await tree.load(book)
-      // R48-24（四十八轮）：tree.load（大书秒级）的 await 窗口切书 A→B 后，byPath 已是
-      // B 书树——按 A 书路径查找可能命中 B 书同名文件顶开其正开的活动文档。byPath.get
-      // 前补书名复检（doCopy 同步补）
-      if (!stillIn(book)) return
-      const fresh = tree.byPath.get(r.path)
-      if (fresh?.docId) {
-        await doc.open(fresh)
-        ws.openTab(fresh.docId)
-      }
-    } catch (e) {
-      // R34D-21：catch 补切书守卫（对齐 R71-28）——切书后旧书报错不写新书界面
-      failScoped(book, e)
-    }
-  }
-
-  /** 按新建类型组装初始模板内容（无模板类型返回 undefined → 后端默认空 front matter）。 */
-  function buildCreateContent(kind: CreatingKind, name: string, seed: string): string | undefined {
-    switch (kind) {
-      case 'chapter': {
-        const no = extractChapterNo(`${nextChapterNo()}-${name}`) ?? extractChapterNo(seed) ?? 1
-        return chapterTemplate(no, name)
-      }
-      case 'chapter-outline': {
-        const no = extractChapterNo(seed) ?? 1
-        return chapterOutlineTemplate(no, name)
-      }
-      case 'volume-outline': {
-        const m = seed.match(/第(\d+)卷/)
-        const vol = m ? Number(m[1]) : volumeCount() + 1
-        return volumeOutlineTemplate(vol)
-      }
-      case 'character':
-        return characterTemplate(name)
-      case 'item':
-        return itemTemplate(name)
-      case 'foreshadow':
-        return foreshadowTemplate(nextChapterNo())
-      // volume / doc：建卷自带首章（空正文）；通用文档无模板
-      default:
-        return undefined
-    }
-  }
-  function onCreateCancel(): void {
-    creating.value = null
-  }
-
   // --- 重命名 ---
   async function onRenameCommit(path: string, value: string): Promise<void> {
     // 守卫：Enter 提交后设 renamePath=null → input 卸载触发 blur 二次 emit，此时跳过防重复 renameDoc API
@@ -537,206 +359,6 @@ export function useChapterTreeActions(deps: {
     } catch (e) {
       // R34D-21：catch 补切书守卫（对齐 R71-28）——切书后旧书报错不写新书界面
       failScoped(book, e)
-    }
-  }
-
-  // --- 章节结构操作（阶段 24 S3+S4：并入上一章 / 撤销并入 / 光标拆分）---
-  // 服务端为唯一真相（结构键/回收站/事件），动作前照 doDelete 范式先落盘脏内容——
-  // 结构操作以盘上内容为准，脏内容不落盘就动结构会「合并了半章」。
-
-  /** 尽力落盘单章未保存内容（waitInflightSave 落定在途保存 → dirty 则静默 autosave，
-   *  origin 用 autosave 同 R48-88：内部步骤非作者动作，不弹「已保存」toast）。
-   *  false = 冲突未决或保存失败，调用方中止并提示。 */
-  async function flushUnsaved(docId: string): Promise<boolean> {
-    await doc.waitInflightSave(docId)
-    const cur = doc.get(docId)
-    if (!cur) return true
-    if (cur.conflict) return false
-    if (cur.dirty) {
-      const saved = await doc.save(docId, 'autosave')
-      if (!saved && (doc.get(docId)?.dirty ?? false)) return false
-    }
-    return true
-  }
-
-  /** 并入上一章：显示序前一章为目标（prevBodyChapterInDisplayOrder，非章号−1）→
-   *  干跑 → ui.ask 确认（.cp-modal 动线，引文预演/RAG 预估入 message）→ 携指纹执行。 */
-  async function doMergeIntoPrev(node: TreeNode): Promise<void> {
-    if (!node.docId) return
-    // FE-1 同族：书名入口捕获——确认弹窗滞留期间切书后，docId 属旧书（错书结构操作）
-    const book = deps.bookName()
-    const prev = prevBodyChapterInDisplayOrder(node, tree.grouped)
-    if (!prev?.docId) return
-    // 两章都可能开着脏内容（源章 = 右键目标、目标章 = 前一章可能在别的 tab）——都先落盘
-    for (const id of [prev.docId, node.docId]) {
-      if (!(await flushUnsaved(id))) {
-        ui.toast('有章节未保存的修改无法自动落盘（保存失败或版本冲突），请先处理后再并入', 'error')
-        return
-      }
-    }
-    let plan: MergePlanView
-    try {
-      const r = await structurePlan(book, prev.docId, { op: 'merge', sourceDocId: node.docId })
-      plan = r.plan as MergePlanView
-    } catch (e) {
-      failScoped(book, e) // R34D-21：切书后旧书报错不写新书界面
-      return
-    }
-    if (plan.op !== 'merge') return
-    // 干跑即拦（apply 侧同款 400，提前到确认框前——不让作者确认后才被拒）
-    if (plan.encodingSuspect) {
-      deps.openError.value =
-        '任一章是非 UTF-8 编码的存量文件（GBK 等旧档），并入会失真——请先在编辑器外转码为 UTF-8 再操作'
-      return
-    }
-    const missCount = plan.leadPreviews.filter((x) => !x.willMatch).length
-    const lines = [
-      `将「${plan.sourceTitle}」（第 ${plan.sourceChapterNo} 章，约 ${plan.sourceWords} 字）并入「${plan.targetTitle}」？`,
-      '',
-      `· 源章移入回收站，可随时右键「撤销并入」还原`,
-      `· 目标章 并入 记录：第 ${plan.mergedInto.join('、')} 章`,
-    ]
-    if (plan.leadPreviews.length) {
-      lines.push(`· 履历引文预演：${plan.leadPreviews.length} 条中 ${missCount} 条合并后将失配（体检红）`)
-    }
-    if (plan.ragChunksToClear > 0) {
-      lines.push(`· RAG 向量清理：约 ${plan.ragChunksToClear} 块（下轮索引重建）`)
-    }
-    if (plan.sourcePreview) lines.push(`· 拼接预览：「${plan.sourcePreview}」`)
-    const ok = await ui.ask({
-      title: '并入上一章',
-      message: lines.join('\n'),
-      confirmText: '并入',
-    })
-    if (!ok) return
-    if (!stillIn(book)) return
-    try {
-      await structureApply(book, prev.docId, {
-        op: 'merge',
-        sourceDocId: node.docId,
-        planHash: plan.planHash,
-      })
-      if (!stillIn(book)) return
-      // 源章已软删：弃编辑器缓存条目 + 清误报灰显键（对齐 doDelete E-10/R33-13 口径）
-      clearFalsePositiveMarksForDoc(book, node.docId)
-      doc.discard(node.docId)
-      await tree.load(book)
-      if (!stillIn(book)) return
-      // 目标章正文已变——打开中的编辑器重对齐基线（对齐 onSaveMeta Y-8，防下次保存
-      // REVISION_CONFLICT：重载丢编辑 / 覆盖静默回退）
-      if (doc.get(prev.docId)) await doc.refresh(prev.docId)
-      ui.toast(`已并入「${plan.targetTitle}」（源章在回收站，可撤销并入）`, 'success')
-    } catch (e) {
-      failScoped(book, e) // R34D-21
-    }
-  }
-
-  /** 撤销并入：目标章回滚到合并前版本 + 源章从回收站还原（服务端三级定位，恒发 {}）。 */
-  async function doMergeUndo(node: TreeNode): Promise<void> {
-    if (!node.docId) return
-    const book = deps.bookName()
-    const ok = await ui.ask({
-      title: '撤销并入',
-      message: [
-        `确认撤销「${node.name}」最近一次并入？`,
-        '',
-        '· 目标章将回滚到合并前版本（合并后的新改动会丢失）',
-        '· 源章从回收站还原为独立章节',
-      ].join('\n'),
-      confirmText: '撤销并入',
-    })
-    if (!ok) return
-    if (!stillIn(book)) return
-    // 复审-0913-源码 P1：undo 前置落盘（同节自留纪律——doMergeIntoPrev/doSplitHere
-    // 均先 flushUnsaved）——dirty 目标章直接 undo，随后的 doc.refresh 走 dirty 分支
-    // 保住本地合并后正文并与回滚基线对齐，下次保存零冲突把合并后内容写回；而源章已
-    // 还原 → 两章内容重复且无提示
-    if (!(await flushUnsaved(node.docId))) {
-      ui.toast('该章未保存的修改无法自动落盘（保存失败或版本冲突），请先处理后再撤销并入', 'error')
-      return
-    }
-    try {
-      const r = await structureMergeUndo(book, node.docId)
-      if (!stillIn(book)) return
-      await tree.load(book)
-      if (!stillIn(book)) return
-      // 目标章已回滚——打开中的编辑器重对齐基线（Y-8 口径）
-      if (doc.get(node.docId)) await doc.refresh(node.docId)
-      ui.toast(`已还原第 ${r.sourceChapterNo} 章（目标章已回滚到合并前版本）`, 'success')
-    } catch (e) {
-      failScoped(book, e) // R34D-21
-    }
-  }
-
-  /** 光标处拆分（只对当前打开章开放）：落盘脏内容 → 读编辑器光标（正文坐标 → 全文
-   *  偏移）→ 干跑 → SplitChapterDialog 输入标题 → onSplitCommit 执行。 */
-  async function doSplitHere(node: TreeNode): Promise<void> {
-    if (!node.docId) return
-    const book = deps.bookName()
-    // 菜单已按 activeDocId 过滤，此处兜底复检（快捷路径/竞态窗口）
-    if (ws.activeDocId !== node.docId) {
-      ui.toast('仅对当前打开的章节可拆分（拆分点取编辑器光标）', 'info')
-      return
-    }
-    if (!(await flushUnsaved(node.docId))) {
-      ui.toast('该章未保存的修改无法自动落盘（保存失败或版本冲突），请先处理后再拆分', 'error')
-      return
-    }
-    const readOffset = ws.editorGetCursorOffset
-    const editorOffset = readOffset ? readOffset() : null
-    if (editorOffset === null) {
-      ui.toast('未获取到编辑器光标，请先打开该章再拆分', 'error')
-      return
-    }
-    // 编辑器正文坐标 → 全文偏移（服务端拆分按含 fm 全文切片）：fm 段长 + 编辑器剥掉的
-    // 分隔换行——EditorView body computed = splitFrontmatter(c).body 去首个 \n，此处
-    // 同源换算（splitFrontmatter 单源，两端口径一致）
-    const content = doc.get(node.docId)?.content ?? ''
-    const split = splitFrontmatter(content)
-    const bodyStart = split
-      ? content.length - split.body.length + (split.body.startsWith('\n') ? 1 : 0)
-      : 0
-    const cursorOffset = bodyStart + editorOffset
-    let plan: SplitPlanView
-    try {
-      const r = await structurePlan(book, node.docId, { op: 'split', cursorOffset })
-      plan = r.plan as SplitPlanView
-    } catch (e) {
-      failScoped(book, e) // R34D-21
-      return
-    }
-    if (plan.op !== 'split') return
-    splitEditing.value = { docId: node.docId, bookName: book, cursorOffset, plan }
-  }
-
-  /** 拆分弹窗确认（标题必填已在弹窗侧校验）→ 携干跑指纹执行；成功后原章截断重对齐
-   *  + 新章开 tab。 */
-  async function onSplitCommit(title: string): Promise<void> {
-    const s = splitEditing.value
-    if (!s) return
-    splitEditing.value = null
-    const book = s.bookName
-    try {
-      const r = await structureApply(book, s.docId, {
-        op: 'split',
-        title,
-        cursorOffset: s.cursorOffset,
-        planHash: s.plan.planHash,
-      })
-      if (!stillIn(book)) return
-      if (!('newDocId' in r)) return // 结构上不可达（split 请求只回 SplitApplyOk）
-      // 原章已截断——打开中的编辑器（拆分前提即打开）重对齐基线，防下次保存 REVISION_CONFLICT
-      if (doc.get(s.docId)) await doc.refresh(s.docId)
-      await tree.load(book)
-      if (!stillIn(book)) return
-      const fresh = tree.byDocId.get(r.newDocId)
-      if (fresh?.docId) {
-        await doc.open(fresh)
-        ws.openTab(fresh.docId)
-      }
-      ui.toast(`已拆分：新章 第 ${r.newChapterNo} 章「${title}」`, 'success')
-    } catch (e) {
-      failScoped(book, e) // R34D-21
     }
   }
 
@@ -866,6 +488,41 @@ export function useChapterTreeActions(deps: {
     draggedPath.value = null
     splitEditing.value = null
   }
+
+  // ── R0916-5h 拆分接线：新建/结构子 composable（refs 与守卫经 deps 原样传入）──
+  const {
+    onNewChapter,
+    createSingleton,
+    dispatchCreate,
+    startCreate,
+    onCreateCommit,
+    onCreateCancel,
+  } = useChapterTreeCreate({
+    bookName: deps.bookName,
+    openError: deps.openError,
+    tree,
+    doc,
+    ws,
+    ui,
+    stillIn,
+    failScoped,
+    creating,
+    lastVolumePath,
+    nextChapterNo,
+    volumeCount,
+    bodyPadKind,
+  })
+  const { doMergeIntoPrev, doMergeUndo, doSplitHere, onSplitCommit } = useChapterTreeStructure({
+    bookName: deps.bookName,
+    openError: deps.openError,
+    tree,
+    doc,
+    ws,
+    ui,
+    stillIn,
+    failScoped,
+    splitEditing,
+  })
 
   return {
     // 状态（模板绑定）
