@@ -71,6 +71,6 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",
     "font-list": "^2.1.0",
-    "openai": "^7.3.0"
+    "openai": "^7.15.0"
   }
 }
