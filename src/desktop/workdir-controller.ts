@@ -1,16 +1,6 @@
 /**
  * 工作目录（书库）控制器（复审-0914-优化修复批 F1 自 main.ts 拆出——纯移动零逻辑变化）。
  *
- * 收编面（原 main.ts :404-767 对应节）：
- * - workdir.json 持久化（storePath/readStore/writeStore/saveCurrent 族 + 切库回滚基线）；
- * - bootstrap 实际 workDir 记账（currentWorkDir 统一取值面，M-3）；
- * - 切库守卫与可达性预探（isLibraryDir/canSwitchLibraryDir/probeDirReachable）；
- * - 原生目录选择器与切库入口（pickLibrary/warnIfCaseSensitive/openLibraryAction）；
- * - relaunch 意图与不可回头点武装（pendingRelaunch/armPendingRelaunchIfAny，R51-A-1）；
- * - F2 同批样板收敛：resolveReachableWorkDir（三 IPC 入口内联的「workDir 判空 +
- *   probeDirReachable unreachable 错误框」×3 单源）与 findBookEntry（readBooks().find ×2
- *   单源）、msgBox/openDirDialog（dialog 双参/单参三元 ×3 单源）。
- *
  * 纯数据变换在 workdir-store.ts（零 Electron 依赖可单测）；本文件是 Electron 绑定层
  * （app.getPath/dialog）+ 守卫/选择器编排，对齐「Electron 绑定层留在需要处」纪律。
  * 模块级零副作用：app.getPath 只在函数内惰性调用（storePath）——本文件随 main.ts 的
@@ -257,11 +247,6 @@ async function probeDirReachable(dir: string, timeoutMs: number = SWITCH_LIBRARY
 
 // ── 目录选择 + 切换 ────────────────────────────────────
 
-/**
- * P3（复审-0914-优化修复批）：dialog 双参/单参三元 ×3（warnIfCaseSensitive 的
- * showMessageBox、pickLibrary 的 showOpenDialog + showMessageBox）收敛单源——
- * parent 缺省时走无 parent 重载，行为逐位不变。
- */
 function msgBox(parent: BrowserWindow | undefined, opts: MessageBoxOptions) {
   return parent ? dialog.showMessageBox(parent, opts) : dialog.showMessageBox(opts)
 }
@@ -394,10 +379,6 @@ async function resolveReachableWorkDir(): Promise<string | null> {
   return workDir
 }
 
-/**
- * F2（复审-0914-优化修复批）：show-in-folder / open-book-dir 内联的
- * `readBooks(workDir).find((b) => b.name === name)` ×2 收敛单源（语义逐位不变）。
- */
 function findBookEntry(workDir: string, name: string): ReturnType<typeof readBooks>[number] | undefined {
   return readBooks(workDir).find((b) => b.name === name)
 }
@@ -468,7 +449,6 @@ export function overwriteRecentInCache(fallbackStore: WorkDirStore, recent: Work
 }
 
 // ── 跨模块导出面（main.ts / ipc.ts / lifecycle.ts 消费）──
-// 全部为原 main.ts 内联符号的纯移动（handler 语义与文案逐位不变）。
 export { currentWorkDir }
 export { isLibraryDir, canSwitchLibraryDir }
 export { probeDirReachable }

@@ -2,7 +2,6 @@
  * 工作区续跑（态 4 中断点判定）测试。
  *
  * 工单施工序 3-4 验证点：态 4 续跑判定（#13 第 5 节中断点：pre-finalize 续写）。
- * （git 人话层小节已随 exec.ts 死代码清理移除。）
  */
 
 import { test, expect } from 'vitest'

@@ -69,8 +69,6 @@ export function parseServerArgs(
   }
   const portRaw = argValue(argv, '--port')
   // R26-94（二十六轮）：--port 携带空串/非数值时显式报错退出（人话文案），不再静默
-  // 落缺省——原口径 Number(portRaw) 收 NaN/''.（Number('') === 0）分别落 portDefault
-  // 或随机端口：外部脚本拼错参数时服务起在意外端口上，无人知晓也无从排查。
   // R28-19（二十八轮）：补整数 + 0–65535 界域判定——-1/65536/78.5 均 Number.isFinite，
   // 旧校验放行后落 server.listen() 同步抛 RangeError，绕开 boot-error 信封（utilityProcess
   // 子进程里成无因由退出，main 侧只见 EXIT 看不到因由）。非法一律走既有 fatal 人话通道。

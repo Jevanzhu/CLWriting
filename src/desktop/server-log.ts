@@ -107,8 +107,6 @@ export function splitLines(
   })
   out.on('error', (err: unknown) => {
     // 流异常不反噬 main：转发尽力而为，丢行不丢进程。
-    // R55-A-2（五十五轮）：空吞改留痕——child 日志链路断裂原先零痕迹不可观测；
-    // 经 onError（forwardChildStdio 接 logger.warn）补一条，仍不上抛、行为不变
     if (onError) onError(err)
   })
   // R50-A-4（五十轮）：崩溃取证——子进程异常退出时尾行常无换行（最后一条诊断/堆栈

@@ -98,10 +98,6 @@ export async function doInitAsync(opts: InitOptions): Promise<InitResult> {
     created_at: new Date().toISOString(),
   })
   if (!appendRes.ok) return appendRes
-  // R44-18（四十四轮）：writeActive 调用点收编——appendBookAsync 成功（登记已落盘）
-  // 后写 active 指针此前无 try/catch：mkdirSync/atomicWriteFile 抛 EACCES 等直接
-  // reject，建书端点 500，且作者重试同名会撞「已有一本叫…」误导性拒绝。收编按登记
-  // 面真实状态给 reason（见 writeActiveGuarded 头注），契约「永不 reject」闭合。
   const activeFail = writeActiveGuarded(step.workDir, step.bookName)
   if (activeFail) return activeFail
   return { ok: true, workDir: step.workDir, bookRoot: step.bookRoot, bookName: step.bookName, bookPath: step.bookPath }

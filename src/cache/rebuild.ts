@@ -367,9 +367,6 @@ export function rebuild(
   opts?: { throttleSourceProbe?: boolean },
 ): RebuildResult {
   // W-P2-4 增量：进门/机检高频路径，源树未变则跳过全量重建（stat 级检测，语义等价）
-  // R48-14（四十八轮）：增量探测未命中时复用其已扫源树 stats——原路径 tryIncrementalRebuild
-  // 内 walkSourceStats 全树 stat 一遍、miss 后此处再扫一遍，SMB/网盘卷成本翻倍；
-  // 探测在扫描前即退出（库打不开/旧基准缺失）时 holder 为空，照旧实扫
   const scannedStats: { stats?: SourceStats } = {}
   const incremental = tryIncrementalRebuild(bookRoot, cachePath, opts, scannedStats)
   if (incremental) return incremental

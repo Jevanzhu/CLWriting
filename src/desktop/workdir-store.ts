@@ -1,9 +1,6 @@
 /**
  * 工作目录（书库）持久化存储 —— 纯数据变换，零 Electron 依赖（可单测）。
  *
- * Electron 绑定层（app.getPath + 文件读写）在 main.ts 内联调用本模块纯函数，
- * 避免把 'electron' 运行时依赖引入测试。
- *
  * 持久化文件 userData/workdir.json：
  *   { current: "/abs/path" | null, recent: [{ path, label }, ...] }
  *

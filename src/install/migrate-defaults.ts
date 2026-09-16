@@ -111,12 +111,6 @@ function migrateBookYamlText(raw: string): string {
 
 // ── 文本操作（照 yaml.ts patchTopSection 的段区间口径）────────
 
-/** P1-6（复审-0914-优化修复批）：段定位单源化——本地第四份复制（matchesKeyLineCRLF +
- *  topSectionSpan + 段内最小缩进循环）删，改委托 yaml.ts locateTopSection（含 BOM 剥除
- *  形态，与本函数头注「同 yaml.ts matchesKeyLine 口径」的意图对齐；历史本地复制漏 BOM
- *  属口径漂移，单源后按注释意图收齐）。边界语义（含 CRLF 形态、空行/注释归属）逐位不变，
- *  由 test/install/migrate-defaults.test.ts + r37-migrate-defaults-crlf.test.ts 锁定。 */
-
 /** 行是否为段内直接子键 `key:`（恰好 childIndent 缩进 + key + 冒号；行尾可带值/注释） */
 /** R37-23（三十七轮）：剥行尾 \r 再判（同 matchesKeyLineCRLF 的 Z-7 口径）——CRLF 文件
  *  split('\n') 残留 \r 尾，裸子键行（`  genre:\r`）的 === 比对失配、判定落空 → 删除

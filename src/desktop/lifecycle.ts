@@ -1,19 +1,6 @@
 /**
  * 主窗退出链与生命周期监听（复审-0914-优化修复批 F1 自 main.ts 拆出——纯移动零逻辑变化）。
  *
- * 收编面（原 main.ts 对应节）：
- * - close 链（原 :1316-1408，挂 bootstrap 内主窗 'close'）——关窗拦截 + 渲染层兜底
- *   flush（预算竞速）+ 冲突/保存失败原生确认 + destroy 收口 + quit 汇入（R49-5）；
- * - session-end 链（原 :1413-1472）——win OS 关机/注销：置旗直关 + 并行尽力 flush +
- *   停机指令 + 观察窗自愈（R1W-9/R53-A-1/R50-A-1）；
- * - quit 链（原 :2124-2248 before-quit）——退出先行 flush + 确认可取消（R44-19）+
- *   不可回头点武装切库意图（R51-A-1）+ beginShutdown/shutdown + destroy 全窗收口；
- * - 主窗其余生命周期监听（focus 关书库窗 / closed → app.quit / 全屏反向同步）随主窗
- *   装配迁入（原 :1473-1498）；
- * - F2 同批样板收敛：runFlushConfirm——close/quit 两链的「flushRendererWithBudget →
- *   超时/无钩子留痕 → conflict/failed 原生确认 → 取消复位」流程双写单源（差异以参数
- *   注入：文案/预算/skipConfirms/onCancel；确认框语义、文案、取消旗复位时机逐位不变）。
- *
  * 跨模块状态：sessionEnding/appTearingDown（isAppTearingDown 供 serverManager 退出
  * 探测接线）；窗口引用经 wins（windows.ts）；切库回滚/relaunch 意图经 workdir-controller。
  */

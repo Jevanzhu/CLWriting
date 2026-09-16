@@ -375,8 +375,6 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
     })
     const port = await handshake(proc, logger, killWaitMs)
     // 稳定窗口计时（unref 不拖退出）：到点仍是他为 active 才清零
-    // R58-B-1（五十八轮）：句柄留存 + exit 路径清除——此前不成对，child 提前退出后
-    // 定时器仍滞留 stabilityResetMs（5 分钟），闭包持死 proc 引用并空跑一次回调
     const stabilityTimer = setTimeout(() => {
       if (active?.proc === proc) restartCount = 0
     }, stabilityResetMs)
@@ -684,11 +682,6 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
         cancelPendingRestart() // 退避等待期退出：挂起重启作废（不 fork 孤儿）
         const current = active
         if (!current) {
-          // R44-12（四十四轮）：预算耗尽且握手未收口——在途 fork 不再等 30s 握手超时，
-          // 就地 kill + 等退出收口（killProcAwaitEscalating 纪律原样复用：killWaitMs
-          // 等待 + SIGKILL 升级，本段不新增等待语义）。settled=true 的空 active 属
-          // 握手已失败/child 已退形态，其自身路径已收口，此处无需动作。
-          // R0912-A-P3-2：同构块收拢为 killStartingProc（行为零变化）。
           if (!settled && startingProc) {
             await killStartingProc('shutdown 在途 fork 收口')
           }
@@ -718,11 +711,6 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
           await Promise.race([current.exited, delay(killWaitMs)])
         }
         // 停机结果留痕（运维口径：批 U3 崩溃重启归因同样依赖 graceful/强杀区分）
-        // nano R2-1（重评-0914-三轮）：settle.by 三态（done/exit/timeout）原并轨成两句
-        // 固定文案，归因失真——'exit'（未回执但已自行退出）被误标「超时…已强杀」（实际
-        // 无超时，下方 kill 只是幂等兜底）；'exit'/'timeout' 但子进程已被替换/先行收口
-        //（active?.proc !== current.proc）被误标「shutdown 指令链路」（回执从未到达）。
-        // 分支结构不变，仅按实际 settle 原因拆文案恢复区分度。
         if (settle.by === 'done' || active?.proc !== current.proc) {
           logger.info(
             'server-manager',
@@ -761,13 +749,6 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
       const opts = lastOpts
       const port = pinnedPort
       if (!opts || port === null) return null // 从未成功 start 过：无钉住面可复刻
-      // R55-A-1（五十五轮）：shuttingDown 态不再立即拒自愈——观察窗（main 侧缺省 5s）
-      // 与停机链最坏预算失配（settle 2s + 总超时 3.5s + kill 2s×2，慢而正常收尾 ~5.5s /
-      // child 挂死 ~9.5-11.5s），OS 关机被取消 + child 收尾偏慢的复合场景下窗口到点时
-      // 停机仍在途，原「立即返 null」令用户面对 API 不可用手动恢复。改有界等待停机
-      // 收口（事件驱动：shutdown finally 复位 shuttingDown 时唤醒，不轮询），上限见
-      // RESTART_SHUTDOWN_WAIT_MS（可注入）；复位后重试一次原路径（下方流程原样）；
-      // 超时仍走原 null 返回（调用方既有「恢复失败」留痕不变）。
       if (isProcessExiting()) {
         logger.warn('server-manager', 'session-end 自愈：本进程已进入退出链，放弃恢复')
         return null

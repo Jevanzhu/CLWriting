@@ -1,16 +1,6 @@
 /**
  * IPC 注册面（复审-0914-优化修复批 F1 自 main.ts 拆出——纯移动零逻辑变化）。
  *
- * 收编面（原 main.ts :1544-1850「── IPC ──」节，channel 名/handler 语义/文案逐位不变）：
- * - desktop:open-library / switch-library / get-recent / get-current / show-in-folder /
- *   open-book-dir / get-system-fonts / open-shelf / open-book / open-library-window /
- *   open-library-dir / set-fullscreen / set-titlebar-overlay（ipcMain.handle ×13）
- *   + desktop:context-menu（ipcMain.on ×1）；
- * - F2 同批样板收敛：handleTrusted/onTrusted 守卫包装（原 14 处手工
- *   `if (!isTrustedSender(e)) return` 单点化——白名单判定本体 isTrustedSender 仍在
- *   windows.ts，此处只做接线形态收敛，拒绝语义=静默 undefined 逐位不变）。
- *
- * 字体枚举/右键菜单/全屏/窗控 overlay 的实现细节注释随实现迁走（R 编号沿革原样保留）。
  */
 import {
   BrowserWindow,

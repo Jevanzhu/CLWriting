@@ -23,8 +23,6 @@
  * 杀软拦截）时 Promise 永不结算且失败不入缓存（font-cache），每次重开字体下拉再
  * spawn 一个 powershell，句柄累积；超时 kill + reject。
  *
- * R48-72（四十八轮）：bareFontName/排序比较器与 font-cache.ts 逐字双实现收编——
- * 删本地副本改消费 font-cache 导出（单源），口径零变化。
  * R48-74（四十八轮）：枚举整体套 fontListProbeWithBreaker（进程级会话熔断）——PS
  * 挂死时连败达阈值后本进程秒降级，不再每次重开下拉等满 10s（与 mac/linux 熔断面
  * 对齐）；R39-5 自身超时 kill 不动。

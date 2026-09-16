@@ -358,8 +358,6 @@ export function exportBook(options: ExportOptions): ExportResult {
   })
   // X-P2-4：正文为空/读取失败的单章在写循环内现读时判定（R73-37 起正文不预读），
   // 记警告跳过，不再整本失败；零可写章在下方按 writtenCount 收口
-  // R0912-E-P3-6（2026-09-12 独立重评修复批）：`const exportable: ExportUnit[] =
-  // filtered` 纯别名删除——后续全用 filtered 本名（类型标注本就来自 filtered 声明处）。
   /** R73-37：逐章现读正文（frontmatter.readFile 单源，剥 fm 取 body）。
    *  返回 null = 读取失败/正文为空（已记 warnings，调用方跳过该章）。 */
   const readUnitBody = (u: ExportUnit): string | null => {
@@ -500,7 +498,6 @@ export function exportBook(options: ExportOptions): ExportResult {
   // 晚于声明执行」侥幸不触发 TDZ）——结构脆弱：后续在声明执行前新增任何 writeSplit
   // 调用即 ReferenceError；声明上移到闭包定义之前，消除对调用时序的隐式依赖（行为不变）。
   const splitUsed = new Set<string>() // R62-15：分章产物文件名占用集（撞名序号判定）
-  // 重评-0914-三轮 nano R4-2：本闭包整体重排缩进（此前 body 少一层、层级错乱）——纯排版，零语义变化。
   const writeSplit = (unit: { num: number; title: string; path: string; displayNum?: number }, body: string): void => {
     try {
       // S2（阶段 24）：分章前缀走 displayNum（D7 分流）+ chapterFilePrefix 单源收编
@@ -638,7 +635,6 @@ export function exportBook(options: ExportOptions): ExportResult {
       archiveOldExport(exportDir, old, warnings)
     }
     // V-P2-2：投稿视图同口径滤未定稿（entries 按 R73-37 实际产出章号对齐）
-    // P3（复审-0914-优化修复批）：exportableNums 纯别名删——消费点直用 writtenNums
     const entries = scanShortCollection(bookRoot).filter((e) => writtenNums.has(e.num))
     // R38-2（三十八轮）：同名投稿视图先归档再覆盖（与 merged 同族修法，R65-27 哲学补齐）
     if (existsSync(join(exportDir, submissionName))) {

@@ -1,14 +1,6 @@
 /**
  * 窗口工厂与三窗引用单源（复审-0914-优化修复批 F1 自 main.ts 拆出——纯移动零逻辑变化）。
  *
- * 收编面（原 main.ts 对应节，行号以拆分前 2259 行版为基准）：
- * - createSecureWindow 安全五件套工厂 + 纵深防御 + IPC 白名单登记（trackWindow）+
- *   渲染崩溃/加载失败自愈（attachRendererCrashSelfHeal）+ dev 代理记账（devProxyApplied）
- *  （原 :65-910）；
- * - openShelfWindow / openLibraryWindow 单例子窗（原 :912-1010；F2 同批把两函数骨架
- *   双写收敛为 openSingletonWindow——appUrl 守卫/单例聚焦/workArea 尺寸/closed 置空/
- *   devProxyApplied 复验全套单源，文案与时序逐位不变）；
- * - 主窗 bounds 持久化（window-state.json 读/存，原 :367-402）；
  * - 三窗引用 holder（wins）——main/lifecycle/ipc/workdir-controller 跨模块共享可变
  *   窗口引用（原 main.ts 模块级 let，ESM live-binding 不可跨模块赋值，故显式对象承载，
  *   读写语义逐位等价）。

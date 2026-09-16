@@ -115,8 +115,6 @@ if (!gotSingleInstanceLock || !appInstanceGuard.acquired) {
     // RB-SV-P2-4：第二实例带 --book → 主窗口直达该书（与 desktop:open-book 同通路）
     // R27-97（二十七轮）：只认本次 argv——回落 env 读到的是首实例的
     // CLWRITING_INITIAL_BOOK，普通二次拉起（无参双开）被误导航到首实例初书
-    // R0912-A-P3-1（2026-09-12 独立重评修复批）：initialBookArgvOnly 与本函数
-    // allowEnvFallback:false 分支逐位等价，删等价函数改传参收编（语义零变化）
     const workDir = currentWorkDir() // M-3（第八轮）：bootstrap 实际值优先
     const ref = initialBookArg(argv, { allowEnvFallback: false })
     if (workDir && ref && wins.mainWindow && !wins.mainWindow.isDestroyed()) {
@@ -165,8 +163,6 @@ if (!gotSingleInstanceLock || !appInstanceGuard.acquired) {
     }
   })
 }
-
-/** 前端静态目录已随 server 拆分下沉 child（server-boot deriveStaticDir，批 U1）。 */
 
 /** 阶段 22 批 U1-U3：studio server 已拆至 utilityProcess 子进程（dev HMR 态不起）；
  *  批 U3 起崩溃退避自动重启，3 次自动重启耗尽转原生对话框（U-2：重启服务/退出） */
@@ -416,12 +412,6 @@ async function bootstrap(): Promise<void> {
     serverManager,
     isServerStarted: () => serverStarted,
   })
-  // R1010-P3（G7-③）：preload-error 监听移入 createSecureWindow 工厂（三窗同享，
-  // 带窗口名）——原主窗专属块随此删除。
-  // R67-16（十五轮）：渲染崩溃自愈已随 createSecureWindow 工厂挂载（原主窗专属块
-  // 删除——attachRendererCrashSelfHeal 原样承接 dd-P3/X-26 退避 + S6 稳定复位），
-  // 书架/书库子窗口同享。R1010-P3（G7-③）：preload-error 监听亦随工厂挂载（下方
-  // 原主窗专属块删除），三窗同享。
   // 纵深防御监听与 dev 代理已由 createSecureWindow 统一挂载；此处 await 一次保证
   // 主窗首载前代理确定生效（工厂内是 fire-and-forget，此处 loadURL 前须确定）
   if (devUi) {
@@ -640,21 +630,14 @@ if (gotSingleInstanceLock && appInstanceGuard.acquired) {
   // Y-P2-7：bootstrap 并发重入防护——macOS 启动慢时点 dock 图标，activate 只判
   // mainWindow === null 会并发二次 bootstrap（双主窗口 + 双 server child）；
   // 只挡「进行中」，完成/失败后仍可重试（保 activate 重建窗口语义）。
-  // O-4（第十三轮）：三段守卫语义抽 createBootstrapRunner 可测（Y-P2-7 重入挡 +
-  // 第九轮 L-3 重试关旧 server + 低-8 退出竞态直通），销第十轮 M-6 留账
   // S-4（批 U1）：deps 换轨——「重试前关旧 server」经 legacyStopHandle 停旧 child
   const bootstrapRunner = createBootstrapRunner(
     {
-      // R48-75（四十八轮）：getMainWindow 死接线删除——R-14 后 runner 判据为「存在旧
-      // server 即关」，窗口引用不再被读取（接口谎称有用的残留随批清理）
       // P3（打包修复批）：child 已崩但退避重启在途时 isRunning() 为 false——原判据
       // 会漏取 legacyStopHandle，既不关旧也不取消挂起重启（S-5 语义旁路）；补
       // hasPendingRestart() 使「重试前关旧」覆盖重启在途窗口
       getStudioServer: () =>
         serverManager.isRunning() || serverManager.hasPendingRestart() ? legacyStopHandle : null,
-      // P3（复审-0914-优化修复批）：setStudioServer 成员删除——child 生命周期归
-      // serverManager 自持后生产恒传 no-op（原 main.ts `setStudioServer: () => undefined`），
-      // runner 内 `deps.setStudioServer(null)` 同步移除，接口面与行为同时收窄
     },
     () => bootstrap(),
   )
@@ -692,12 +675,6 @@ if (gotSingleInstanceLock && appInstanceGuard.acquired) {
     // 时 utilityProcess 子进程不被连带收尸（win 上成孤儿继续持端口/会话锁，原全靠
     // 事件库 10min 孤儿宽限兜底）。stopChild 幂等且 child 已死形态安全，失败不影响
     // 退出语义（账面级缺口由 10min 宽限与 .版本 快照兜底，正文无损）。
-    // R0910-W（2026-09-10 修复批）：原实现 stopChild fire-and-forget 后固定 200ms 裸退
-    // ——stopChild 内含停机 settle 竞速（预算 2s），200ms 到点常早于 kill 下发/收口，
-    // best-effort 停机被自身截断；清理链来源的异常（窗口 closed 监听等）同经此路，
-    // 裸退还会打断在途优雅停机收尾。改为「停机落定即退、到点兜底强退」：stopChild
-    // 落定后延迟一拍（让日志泵落盘）再 process.exit，未落定则由既有 200ms 兜底硬退。
-    // 留痕 / 不吞 / 半坏状态不续跑的退出语义不变。
     // R0912-3（重评-0912 P3 #35）：200ms 到点 stopChild 可能仍在 settle 竞速窗内
     // （预算 2s，kill 尚未发出）——裸 process.exit 会把 child 留成孤儿。到点先经
     // killNow 对在途 child/在途 fork 同步发出 kill 信号（fire-and-forget，不等待
