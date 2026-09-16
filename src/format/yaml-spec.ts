@@ -103,14 +103,18 @@ const positiveNumParse =
 /** R0916-6-P3-3：budget.chat_max_calls 专用 fail-closed parse——非法值不得按「未设」放行
  *  （该键缺省 = 不限，坏值静默归未设会把配置错误放大成无界调用），warn 留痕后落 0：
  *  闸侧 0 = 「一次都不许调」（R40-8 显式 0 同语义），宁拦勿放。显式写 0 与坏值在此
- *  同归 0（warn 文案已说明阻断后果），闸侧无需区分两种来源。 */
+ *  同归 0（warn 文案已说明阻断后果），闸侧无需区分两种来源。
+ *  随批评审夹紧（2026-09-16 五轮处置批评审 nano-2，作者指令「修掉」）：次数口径键
+ *  只收正整数——正小数（0.5 等）此前直穿（parsePositiveNumber 只验 >0），实效
+ *  ⌈0.5⌉=1 次系安全方向怪形；与姊妹键 repeat_chars_threshold 消费点夹紧（本批评审
+ *  前批 R0916-6-nano-1）同族收口，非正整数同走 fail-closed 落 0。 */
 const failClosedNumParse =
   (section: string, key: string) =>
   (node: RawSection, ctx: ParseCtx): void => {
     const v = parsePositiveNumber(node.value)
-    if (v !== undefined) ctx.bucket[key] = v
+    if (v !== undefined && Number.isInteger(v)) ctx.bucket[key] = v
     else {
-      log.warn('book.yaml', `${section}.${key} 值非正数（「${node.value.trim()}」），已按 fail-closed 落 0（chat AI 调用全部阻断），请修正为正数或删除该键`)
+      log.warn('book.yaml', `${section}.${key} 值非正整数（「${node.value.trim()}」），已按 fail-closed 落 0（chat AI 调用全部阻断），请修正为正整数或删除该键`)
       ctx.bucket[key] = 0
     }
   }

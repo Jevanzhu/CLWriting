@@ -149,12 +149,28 @@ describe('chat 按书预算闸（budget.chat_max_calls）', () => {
     const root = tempBook('spec_version: 1\n\nhost: cc\n\nbook:\n  title: X\n\nbudget:\n  chat_max_calls: abc\n')
     const ud = tempUserData()
     writeProviders(ud)
-    vi.spyOn(log, 'warn').mockImplementation(() => {})
+    const warnSpy = vi.spyOn(log, 'warn').mockImplementation(() => {})
     // parse 面哨兵：坏值落 0（闸侧 0 = 一次都不许调，R40-8 同语义）；走 readBookConfig
     // 与 runner 闸检同一取值路径
     const parsed = readBookConfig(join(root, 'book.yaml'))
     expect(parsed.ok).toBe(true)
     if (parsed.ok) expect(parsed.config.budget.chat_max_calls).toBe(0)
+    // 随批评审夹紧（2026-09-16 nano-2）：正小数同走 fail-closed 落 0——次数口径键
+    // 只收正整数（0.5 此前直穿、实效 ≈1 次，安全方向怪形），warn 文案同步非正整数
+    const warns: string[] = []
+    warnSpy.mockImplementation((_ch: string, msg: string) => {
+      warns.push(String(msg))
+    })
+    const fracRoot = tempBook('spec_version: 1\n\nhost: cc\n\nbook:\n  title: X\n\nbudget:\n  chat_max_calls: 0.5\n')
+    const frac = readBookConfig(join(fracRoot, 'book.yaml'))
+    expect(frac.ok).toBe(true)
+    if (frac.ok) expect(frac.config.budget.chat_max_calls).toBe(0)
+    expect(warns.some((w) => w.includes('值非正整数'))).toBe(true)
+    // 合法正整数不受夹紧影响
+    const okRoot = tempBook('spec_version: 1\n\nhost: cc\n\nbook:\n  title: X\n\nbudget:\n  chat_max_calls: 3\n')
+    const okc = readBookConfig(join(okRoot, 'book.yaml'))
+    expect(okc.ok).toBe(true)
+    if (okc.ok) expect(okc.config.budget.chat_max_calls).toBe(3)
     let calls = 0
     const out = await runTask<{ text: string }>({
       userDataPath: ud,
