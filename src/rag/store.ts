@@ -344,13 +344,18 @@ export function l2Norm(vec: Float32Array): number {
  *（无 NULL 时只读不开写事务，不再多扫一遍 COUNT）；回填事务改 BEGIN IMMEDIATE
  *（与 commitIndexBatch 口径一致——deferred BEGIN 到首个 UPDATE 才升写锁，并发开库
  * 仍有 SQLITE_BUSY 窗口；IMMEDIATE 在 busy_timeout 内排队拿写锁）。
- * R46-51（四十六轮）：NULL 行集改 stmt.iterate() 游标逐行（readAllChunks R37-38/
- * 内存闸同款降峰先例）——原 .all() 先把全部待回填行（含 embedding BLOB，200 万字
- * 书 3.5 万块 × 6KB ≈ 200MB 级）整表物化后才开写，迁移窗内峰值驻留白付；逐行读
- * 每行 BLOB 用完即可回收。游标内 UPDATE 已过行不回访：表按 rowid 序扫，UPDATE 保
- * rowid 原位、被改行已落在游标身后（再访也被 WHERE norm IS NULL 滤掉）；行级 UPDATE
- * 语句并入 R46-45 prepared 缓存（固定 SQL，循环外取一次）。
+ * R46-51（四十六轮）：NULL 行集改游标逐行读（readAllChunks R37-38/内存闸同款降峰
+ * 先例）——原 .all() 先把全部待回填行（含 embedding BLOB，200 万字书 3.5 万块 ×
+ * 6KB ≈ 200MB 级）整表物化后才开写，迁移窗内峰值驻留白付。
+ * R0916-P3-6（四轮处置批）：游标内 UPDATE 改 id 分页批物化——同连接「SELECT 游标
+ * 开着 + 循环内 UPDATE 同表」在 SQLite 语义里属未定义面（行可见性无保证，原注的
+ * rowid 序论证是实态归纳非契约）；现每批按 `id > 尾行` 取一批物化（查询完成后游标
+ * 已关，再开写事务），R46-51 降峰语义不变（每批 ≤ NORM_BACKFILL_BATCH 行 ≈ 3MB
+ * 峰值，远低于 200MB 整表物化）。幂等不变：WHERE norm IS NULL 天然跳过已回填行。
  */
+/** R0916-P3-6：norm 回填分页批大小——每批物化 ≤512 行（embedding ≈3MB 峰值），UPDATE 时无游标在飞 */
+const NORM_BACKFILL_BATCH = 512
+
 export function ensureNormColumn(db: DatabaseSync): void {
   const cols = db.prepare('PRAGMA table_info(chunks)').all() as Array<{ name: string }>
   if (!cols.some((c) => c.name === 'norm')) {
@@ -362,19 +367,27 @@ export function ensureNormColumn(db: DatabaseSync): void {
       if (!isDuplicateColumnError(e)) throw e
     }
   }
-  const rows = prepared(db, 'SELECT id, embedding FROM chunks WHERE norm IS NULL')
-    .iterate() as unknown as Iterable<{ id: number; embedding: Uint8Array }>
+  // R0916-P3-6：分页批物化（头注 R0916-P3-6 段）——每批一条已完成查询，UPDATE 时无游标在飞
+  const select = prepared(db, 'SELECT id, embedding FROM chunks WHERE norm IS NULL AND id > ? ORDER BY id LIMIT ?')
   const update = prepared(db, 'UPDATE chunks SET norm = ? WHERE id = ?')
-  // R65-13：首行才开写事务（无 NULL 行 → 只读不开 BEGIN IMMEDIATE）；R46-51：for...of
-  // 游标逐行（break/异常路径自动收口迭代器，readAllChunks 同款）
+  // R65-13：首行才开写事务（无 NULL 行 → 只读不开 BEGIN IMMEDIATE）
   let began = false
+  let lastId = -1
   try {
-    for (const r of rows) {
+    for (;;) {
+      const batch = select.all(lastId, NORM_BACKFILL_BATCH) as unknown as Array<{
+        id: number
+        embedding: Uint8Array
+      }>
+      if (batch.length === 0) break
       if (!began) {
         db.exec('BEGIN IMMEDIATE')
         began = true
       }
-      update.run(l2Norm(bufferToFloat32(r.embedding)), r.id)
+      for (const r of batch) {
+        update.run(l2Norm(bufferToFloat32(r.embedding)), r.id)
+      }
+      lastId = batch[batch.length - 1]!.id
     }
     if (began) db.exec('COMMIT')
   } catch (e) {

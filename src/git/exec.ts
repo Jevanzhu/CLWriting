@@ -109,7 +109,12 @@ export function git(args: string[], cwd: string, opts?: { encoding?: 'utf-8'; in
   if (r.status === 0) return { ok: true, stdout: String(r.stdout ?? '') }
 
   const errCode = (r.error as { code?: string } | undefined)?.code
-  const timedOut = errCode === 'ETIMEDOUT' || r.signal === 'SIGTERM'
+  // R0916-nano-6（四轮处置批）：SIGTERM 单独分诊——spawnSync 自家超时必带 ETIMEDOUT
+  // 错误码（win 实证：error.code=ETIMEDOUT + signal=SIGTERM 并存），原
+  // `|| r.signal === 'SIGTERM'` 把外部终止（任务管理器/脚本 kill git 进程）也误归
+  // 「超时」文案误导排障方向
+  const timedOut = errCode === 'ETIMEDOUT'
+  const externallyTerminated = !timedOut && r.signal === 'SIGTERM'
   const stderr = String(r.stderr || r.error?.message || '')
   // R77-3（二十五轮批 B）：ENOENT（找不到 git 可执行）特判——win 未装 Git for Windows
   // 的典型形态，此前落穿 generic 分支把 spawn 的英文报错翻面直出；特判成人话引导装 Git。
@@ -124,11 +129,13 @@ export function git(args: string[], cwd: string, opts?: { encoding?: 'utf-8'; in
     ok: false,
     humanMsg: timedOut
       ? `git 操作超时（${args.join(' ')}）：git 进程无响应，已中止`
-      : errCode === 'ENOBUFS'
-        ? `git 输出超限（${args.join(' ')}）：仓库改动量过大，输出超出缓冲上限，请分批处理或清理仓库`
-        : errCode === 'ENOENT'
-          ? gitMissingHint() // 复审-0913-mac适配 P3-5：按平台分支（单源）
-          : `git 操作失败（${args.join(' ')}）：${humanizeGitError(args, stderr)}`,
+      : externallyTerminated
+        ? `git 进程被终止（${args.join(' ')}）：收到外部 SIGTERM 信号（非超时）`
+        : errCode === 'ENOBUFS'
+          ? `git 输出超限（${args.join(' ')}）：仓库改动量过大，输出超出缓冲上限，请分批处理或清理仓库`
+          : errCode === 'ENOENT'
+            ? gitMissingHint() // 复审-0913-mac适配 P3-5：按平台分支（单源）
+            : `git 操作失败（${args.join(' ')}）：${humanizeGitError(args, stderr)}`,
     stderr,
   }
 }

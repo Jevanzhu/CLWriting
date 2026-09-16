@@ -186,9 +186,11 @@ const {
   color: var(--text-normal);
   outline: none;
 }
-/* ③ dock 档输入框加高（70 含内边距，保证 dock 整体 ≤130px） */
+/* ③ dock 档输入框加高（值单源 ChatDock 的 --composer-min-h——含内边距约束
+   dock 整体 ≤ --composer-h:130px；fallback 70px 保独立挂载/测试无 dock 祖先时
+   形态不变。R0916-nano-11） */
 .chat-composer.glass .chat-input {
-  min-height: 70px;
+  min-height: var(--composer-min-h, 70px);
   box-sizing: border-box;
 }
 .chat-input::placeholder {

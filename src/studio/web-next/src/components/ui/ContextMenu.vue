@@ -115,6 +115,27 @@ function accelLabel(accel?: string): string {
     .replace(/Alt\+/g, isMac ? '⌥' : 'Alt+')
 }
 
+/** 视口溢出翻转测量（开启拍与 resize 跟随共用单源；调用前须已复位 flip 并过一拍渲染） */
+function measureFlip(): void {
+  const el = menuEl.value
+  if (!el || !props.visible) return
+  const r = el.getBoundingClientRect()
+  if (props.x + r.width > window.innerWidth - 8) flipX.value = true
+  if (props.y + r.height > window.innerHeight - 8) flipY.value = true
+}
+
+/** R0916-nano-10（四轮处置批）：窗口 resize 跟随重算——原只在开启一刻快照判 flip，
+ *  此后视口缩小时溢出态不重判（菜单探出屏幕外）；关闭态 no-op。复位→过拍→测量
+ *  与开启拍同序（watch 内联保持原时序不抽函数——async 函数包装会多一跳微任务，
+ *  把 activeIdx 赋值推出调用方的 nextTick 预算，re2-roving 用例实证）。 */
+async function recomputeFlip(): Promise<void> {
+  if (!props.visible) return
+  flipX.value = false
+  flipY.value = false
+  await nextTick()
+  measureFlip()
+}
+
 watch(
   () => props.visible,
   async (v) => {
@@ -135,11 +156,7 @@ watch(
     flipX.value = false
     flipY.value = false
     await nextTick()
-    const el = menuEl.value
-    if (!el) return
-    const r = el.getBoundingClientRect()
-    if (props.x + r.width > window.innerWidth - 8) flipX.value = true
-    if (props.y + r.height > window.innerHeight - 8) flipY.value = true
+    measureFlip()
     // 重评2-P3-2：开启即把键盘焦点移入首项（roving tabindex；与 flip 复位同一拍完成）
     activeIdx.value = navItems.value.length > 0 ? 0 : -1
     focusActive()
@@ -182,8 +199,14 @@ function onKey(e: KeyboardEvent): void {
     emit('close')
   }
 }
-onMounted(() => window.addEventListener('keydown', onKey))
-onUnmounted(() => window.removeEventListener('keydown', onKey))
+onMounted(() => {
+  window.addEventListener('keydown', onKey)
+  window.addEventListener('resize', recomputeFlip, { passive: true }) // R0916-nano-10
+})
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKey)
+  window.removeEventListener('resize', recomputeFlip)
+})
 
 function onSelect(key: string): void {
   emit('select', key)

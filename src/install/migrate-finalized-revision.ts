@@ -39,34 +39,38 @@ export function migrateFinalizedRevisions(bookRoot: string): number {
 
   // X-P1-1：仅对有 .git 的 git 时代书库执行（无 git = 从未经历 git 时代 → 无状态可映射）。
   if (!existsSync(join(bookRoot, '.git'))) return 0
-  // 一次 porcelain 拿 clean/dirty 全集（untrackedAll 展开目录）
-  const porcelain = statusPorcelain(bookRoot, true)
-  if (porcelain === null) {
-    // RB-IF-P1-1：git 状态不可读（git 缺失/执行失败）时 clean/dirty 无从判定——按本文件
-    // 红线（误判 final 断写）跳过本次迁移不写 finalizedRevision，留待下次加载重试
-    log.warn('migrate-finalized-revision', `git 状态不可读，跳过定稿基线迁移：${bookRoot}`)
-    return 0
-  }
-  // 低级项（第六轮）：porcelain 路径归一后再入脏集——git 对含空格/非 ASCII 的路径加
-  // C 风格引号转义（`"a b/c.md"`），rename 行是 `old -> new` 形；manifest 路径是正斜杠
-  // 无引号，原先直接 has 比对会整段失配（脏文件漏判 clean → 误标 final 断写，本文件红线）
-  const dirty = new Set(
-    porcelain
-      .split('\n')
-      .filter(Boolean)
-      .map((l) => normalizePorcelainPath(l.slice(3), l.slice(0, 2).includes('R'))),
-  )
-
   let updated = 0
   const nowIso = new Date().toISOString()
   // R64-23（十二轮）：清单 RMW 持锁（Y-4/X-5 纪律）——此前读改写无锁，双开窗口内
   // 与 service/其他迁移并发时后写者整文件覆盖先写者（finalizedRevision 丢行）。
-  // 锁内重读复查幂等闸：并发迁移者可能已写入。git 状态在锁外取（与清单无依赖）。
+  // 锁内重读复查幂等闸：并发迁移者可能已写入。
+  // R0916-P3-15（四轮处置批）：git 状态（porcelain 脏集）改锁内取——原锁外 status →
+  // 锁内写盘的窗口里他进程改稿/回滚会让脏集失真：锁内时刻已 dirty 的文件被旧快照
+  // 判 clean 误标 final（本文件红线：误判 final 断写）。R64-23「git 状态在锁外取
+  //（与清单无依赖）」就此记正：无依赖不等于无新鲜度要求。代价 = 清单锁持有期含
+  // 一次 git status（毫秒级；启动一次性迁移，可接受）。
   updated = withManifestLock(manifestPath, () => {
     const m = readManifestStrict(manifestPath) // R27-40：RMW strict 读（读失败上抛走逐书 try 收口）
     for (const e of m.entries.values()) {
       if (e.nodeType === 'document' && e.finalizedRevision) return 0
     }
+    // 一次 porcelain 拿 clean/dirty 全集（untrackedAll 展开目录）——R0916-P3-15 锁内取
+    const porcelain = statusPorcelain(bookRoot, true)
+    if (porcelain === null) {
+      // RB-IF-P1-1：git 状态不可读（git 缺失/执行失败）时 clean/dirty 无从判定——按本文件
+      // 红线（误判 final 断写）跳过本次迁移不写 finalizedRevision，留待下次加载重试
+      log.warn('migrate-finalized-revision', `git 状态不可读，跳过定稿基线迁移：${bookRoot}`)
+      return 0
+    }
+    // 低级项（第六轮）：porcelain 路径归一后再入脏集——git 对含空格/非 ASCII 的路径加
+    // C 风格引号转义（`"a b/c.md"`），rename 行是 `old -> new` 形；manifest 路径是正斜杠
+    // 无引号，原先直接 has 比对会整段失配（脏文件漏判 clean → 误标 final 断写，本文件红线）
+    const dirty = new Set(
+      porcelain
+        .split('\n')
+        .filter(Boolean)
+        .map((l) => normalizePorcelainPath(l.slice(3), l.slice(0, 2).includes('R'))),
+    )
     let n = 0
     for (const e of m.entries.values()) {
       if (e.nodeType !== 'document') continue

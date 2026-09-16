@@ -32,18 +32,23 @@ const caretRef = ref<HTMLElement | null>(null)
 const hasSynopsis = computed(() => !!tree.byPath.get('大纲/总纲.md'))
 const hasWorldview = computed(() => !!tree.byPath.get('设定/世界观.md'))
 
+// R0916-nano-10（四轮处置批）：下拉浮层坐标跟随窗口 resize 重定位——原只在开启一刻
+// 快照 caret 的 getBoundingClientRect，此后窗口缩放/分栏变化浮层悬空错位；开启期间
+// 监听 resize（passive）重取锚点，关闭态 no-op。
+function syncDropPos(): void {
+  const el = caretRef.value
+  if (!el || !dropdownOpen.value) return
+  const r = el.getBoundingClientRect()
+  dropX.value = r.left
+  dropY.value = r.bottom + 4
+}
 function toggleDropdown(): void {
   if (dropdownOpen.value) {
     dropdownOpen.value = false
     return
   }
-  const el = caretRef.value
-  if (el) {
-    const r = el.getBoundingClientRect()
-    dropX.value = r.left
-    dropY.value = r.bottom + 4
-  }
   dropdownOpen.value = true
+  syncDropPos()
 }
 function pick(kind: CreateKind): void {
   dropdownOpen.value = false
@@ -68,10 +73,12 @@ function onDocKeydown(e: KeyboardEvent): void {
 onMounted(() => {
   document.addEventListener('click', onDocClick)
   document.addEventListener('keydown', onDocKeydown)
+  window.addEventListener('resize', syncDropPos, { passive: true })
 })
 onUnmounted(() => {
   document.removeEventListener('click', onDocClick)
   document.removeEventListener('keydown', onDocKeydown)
+  window.removeEventListener('resize', syncDropPos)
 })
 </script>
 

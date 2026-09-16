@@ -55,6 +55,24 @@ describe('resolveDraftPath 标题净化', () => {
   })
 })
 
+describe('resolveDraftPath posix 字面反斜杠（R0916-P3-8）', () => {
+  // win 上反斜杠是分隔符（归一为 / 是既有正确行为）；文件名含字面 \ 在 win 文件系统
+  // 无法创建，本组用例只在 posix 跑（r42-join-fold P2-1 的 skipIf(win32) 同款先例）。
+  // 修复前：slashRelative 无条件 `.replace(/\\/g, '/')` 把 posix 合法字面反斜杠易帜成
+  // 目录段（0001-题\目.md → 0001-题/目.md），覆盖写定位/卷段推断双双错位。
+  it.skipIf(process.platform === 'win32')('posix：既有章文件名含字面反斜杠 → relPath 保字面（身份不再易帜）', () => {
+    mkdirSync(join(bookRoot, '写作', '正文'), { recursive: true })
+    writeFileSync(
+      join(bookRoot, '写作', '正文', '001-题\\目.md'),
+      '---\n章号: 1\n标题: 题\\目\n钩子类型: 悬念钩\n钩子强弱: 中\n情绪定位: 铺垫\n---\n\n正文。',
+      'utf-8',
+    )
+    const { relPath, existed } = resolveDraftPath(bookRoot, 1, undefined, { forRead: true })
+    expect(existed).toBe(true)
+    expect(relPath).toBe('写作/正文/001-题\\目.md')
+  })
+})
+
 describe('resolveDraftPath V-P1-3 定稿防护', () => {
   function writeChapter(root: string, num: number, title: string): string {
     mkdirSync(join(root, '写作', '正文'), { recursive: true })

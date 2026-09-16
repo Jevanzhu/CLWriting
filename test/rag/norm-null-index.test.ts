@@ -11,7 +11,7 @@ import { mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
-import { openRagDb, storeChunk } from '../../src/rag/store.js'
+import { openRagDb, storeChunk, ensureNormColumn } from '../../src/rag/store.js'
 
 test('R0910-W：norm IS NULL 探测命中部分索引（不回退全表扫）', () => {
   const root = mkdtempTracked(join(tmpdir(), 'rag-norm-idx-'))
@@ -33,6 +33,31 @@ test('R0910-W：norm IS NULL 探测命中部分索引（不回退全表扫）', 
       .all() as Array<{ detail: string }>
     const text = plan.map((r) => r.detail).join(' ')
     expect(text).toContain('idx_chunks_norm_null')
+  } finally {
+    db.close()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('R0916-P3-6：norm 回填分页跨批——1200 NULL 行全数回填且值正确（UPDATE 时无游标在飞）', () => {
+  const root = mkdtempTracked(join(tmpdir(), 'rag-norm-page-'))
+  mkdirSync(root, { recursive: true })
+  const db = openRagDb(root)
+  try {
+    // 造旧版形态 NULL 行（norm 列后加、INSERT 不含 norm）；1200 > 批大小 512，
+    // 覆盖「批边界跨越 + 尾批不满」两态。embedding 4 字节 = 1.0f → l2Norm = 1
+    const ins = db.prepare(
+      "INSERT INTO chunks (章号, start_offset, end_offset, embedding, model, indexed_at) VALUES (?, 0, 4, x'0000803F', 'm', '2026-01-01T00:00:00.000Z')",
+    )
+    for (let i = 0; i < 1200; i++) ins.run(i + 1)
+    ensureNormColumn(db)
+    const stats = db
+      .prepare('SELECT COUNT(*) AS total, SUM(norm IS NULL) AS nulls, MIN(norm) AS lo, MAX(norm) AS hi FROM chunks')
+      .get() as { total: number; nulls: number | null; lo: number | null; hi: number | null }
+    expect(stats.total).toBe(1200)
+    expect(stats.nulls).toBe(0) // 跨批全数回填，无漏行
+    expect(stats.lo).toBeCloseTo(1, 10)
+    expect(stats.hi).toBeCloseTo(1, 10)
   } finally {
     db.close()
     rmSync(root, { recursive: true, force: true })

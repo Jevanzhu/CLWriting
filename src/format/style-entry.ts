@@ -344,8 +344,9 @@ export function parseBannedWordsLine(rawLine: string): string[] {
   // （说明性引文/长禁句），全部超长时返回 [] 交 readBannedEntryWords 的 unparsed 黄项。
   const quoted = [...line.matchAll(/[「『“"]([^」』”"]{1,})[」』”"]/g)].map((m) => m[1]!)
   if (quoted.length > 0) {
-    const words = quoted.filter((w) => w.length <= 24)
-    return words.length > 0 ? words : []
+    // R0916-nano-3（四轮处置批）：`words.length > 0 ? words : []` 冗余三元删——filter
+    // 产物本就是数组，空态两者无 observable 差异，直接返回
+    return quoted.filter((w) => w.length <= 24)
   }
 
   let cleaned = line

@@ -72,4 +72,17 @@ describe('workbench textOut 前端内存封顶（R0911-C1-P3-1）', () => {
     expect(wb.textOut).toBe('新版正文')
     expect(wb.textOut.length).toBeLessThan(MAX_TEXT_OUT)
   })
+
+  it('R0916-nano-5：截断点劈开代理对 → 丢孤儿低位代理（不把替换符半体留给 UI）', () => {
+    const wb = useWorkbenchStore()
+    // 构造截断点恰落在 emoji 两码元中间：3 甲 + 😀（2 码元）+ (MAX-1) 填充
+    // 总长 = MAX+4，截断保留末 MAX 码元 → 首码元 = 😀 的低位代理（其高位在丢弃段）
+    const emoji = '😀' // U+1F600 = D83D + DE00
+    const payload = '甲甲甲' + emoji + 'x'.repeat(MAX_TEXT_OUT - 1)
+    wb.dispatch({ type: 'text', text: payload })
+    // 修复前：裸 slice 留下孤立低位代理（渲染成替换符）；修复后丢掉它
+    expect(wb.textOut).toBe('x'.repeat(MAX_TEXT_OUT - 1))
+    const first = wb.textOut.charCodeAt(0)
+    expect(first >= 0xd800 && first <= 0xdfff).toBe(false) // 首字符绝非孤儿代理
+  })
 })

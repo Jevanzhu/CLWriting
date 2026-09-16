@@ -94,9 +94,14 @@ function onExpandChat(): void {
   /* 框宽/框高共享变量：两框同宽同轴，按钮对齐用 */
   --chat-w: calc(min(1020px, calc(100% - 96px)) - 284px);
   --chat-h: min(55vh, 520px);
-  /* 输入框距底 + 输入框固定高度：对话框/按钮定位偏移基准 */
+  /* 输入框距底 + 输入框固定高度：对话框/按钮定位偏移基准
+     R0916-nano-11（四轮处置批）：--composer-min-h 单源本处（dock 布局所有者）——
+     ChatComposer.glass 档的输入框 min-height 原在彼文件写死 70px，与 --composer-h
+     130px 构成跨文件魔法数对（「70 含内边距保证整体 ≤130」只活在彼处注释里）；
+     现经 CSS 变量继承下发，约束关系钉在同一处 */
   --composer-foot: 45px;
   --composer-h: 130px;
+  --composer-min-h: 70px;
   /* 输入框↔对话框↔按钮 统一间距 */
   --chat-gap: 12px;
 }

@@ -29,7 +29,9 @@
 import { DatabaseSync, type StatementSync } from 'node:sqlite'
 import { mkdirSync, existsSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { ulid } from '../document/stable-id.js'
+// R0916-nano-9（四轮处置批）：ulid 改直连 fs/id.ts 单源（events→document 跨层边消除；
+// document/stable-id.js 的 re-export 垫片保留给 document 域既有调用方，勿再扩散）
+import { ulid } from '../fs/id.js'
 import type { ChatEvent, EventType } from './types.js'
 import { SURFACE_EVENT_TYPES } from './types.js'
 import { log, errMsg } from '../log/index.js'
@@ -552,10 +554,14 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
       if (type !== undefined) args.push(type)
       if (cap !== undefined) args.push(cap)
       // R46-42：读热路径固定/有界变体 SQL 走 prepared 缓存（变体以 SQL 串为键独立缓存）
-      const rows = prepared(
-        db,
-        `SELECT * FROM events WHERE session_id = ? ${type !== undefined ? 'AND type = ?' : ''} ORDER BY seq ASC${cap !== undefined ? ' LIMIT ?' : ''}`
-      ).iterate(...args) as unknown as Iterable<Row>
+      // R0916-P3-11（四轮处置批）：iterateEvents 长生命周期生成器改每次新编译语句——
+      // 此前共用缓存语句，重入（外层迭代未完时再开同 SQL 迭代）会令外层迭代器被
+      // node:sqlite 判失效（ERR_INVALID_STATE，实证见 test/events r0916 用例）；
+      // listEvents 在表达式内同步排干生成器、语句生命周期不越出单次调用，保留缓存收益。
+      // streaming 路径的编译成本（µs 级）相对全表扫描可忽略（readAllChunks 同款先例）。
+      const sql = `SELECT * FROM events WHERE session_id = ? ${type !== undefined ? 'AND type = ?' : ''} ORDER BY seq ASC${cap !== undefined ? ' LIMIT ?' : ''}`
+      const rows = (label === 'iterateEvents' ? db.prepare(sql) : prepared(db, sql))
+        .iterate(...args) as unknown as Iterable<Row>
       for (const r of rows) {
         const ev = safeRowToEvent(r, label)
         if (ev) yield ev
@@ -565,12 +571,12 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
     const args: Array<string | number> = [book]
     if (type !== undefined) args.push(type)
     if (cap !== undefined) args.push(cap)
-    const rows = prepared(
-      db,
-      `SELECT * FROM events
+    // R0916-P3-11：同上——iterateEvents 新编译、listEvents 走缓存（SQL 单源本处一份）
+    const sql = `SELECT * FROM events
        WHERE session_id IN (SELECT session_id FROM sessions WHERE book = ?) ${type !== undefined ? 'AND type = ?' : ''}
        ORDER BY seq ASC${cap !== undefined ? ' LIMIT ?' : ''}`
-    ).iterate(...args) as unknown as Iterable<Row>
+    const rows = (label === 'iterateEvents' ? db.prepare(sql) : prepared(db, sql))
+      .iterate(...args) as unknown as Iterable<Row>
     for (const r of rows) {
       const ev = safeRowToEvent(r, label)
       if (ev) yield ev

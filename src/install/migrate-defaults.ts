@@ -30,9 +30,15 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { canonicalizeText } from '../fs/text-canonical.js'
+import { acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
+import { testableConst } from '../shared/testable.js'
 import { readBooks } from './books.js'
 import { locateTopSection, parseBookConfig } from '../format/yaml.js'
 import { log } from '../log/index.js'
+
+/** R0916-P3-14（四轮处置批）：book.yaml 迁移锁等待档（ms，测试注入缩短以断言
+ *  锁占用 fail-closed 跳过语义）——A4 testableConst 工厂形态（新符号约定）。 */
+export const [getBookYamlLockTimeoutMs, __setBookYamlLockTimeoutForTest] = testableConst(5_000)
 
 /** 迁移汇总（供测试断言 + 启动日志） */
 interface MigrateBookDefaultsResult {
@@ -53,13 +59,28 @@ export function migrateBookDefaults(workDir: string): MigrateBookDefaultsResult 
     try {
       const yamlPath = join(workDir, book.path, 'book.yaml')
       if (!existsSync(yamlPath)) continue // 无 book.yaml 的书（登记残留）跳过不报错
-      const before = readFileSync(yamlPath, 'utf8')
-      const after = migrateBookYamlText(before)
-      // 幂等闸：文本无变化不写盘（也避免无谓的 mtime 抖动触发外部同步）
-      if (after !== before) {
-        atomicWriteFile(yamlPath, after)
-        changed++
-        log.warn('migrate-defaults', `${book.name}: 已改写 book.yaml（键清理/行尾归一，全局托底生效）`)
+      // R0916-P3-14（四轮处置批）：RMW 持 `<yamlPath>.lock` 跨进程锁——此前读改写无锁，
+      // 双开窗口两端启动迁移并发跑同一本书时后写者整文件覆盖先写者（丢更新面）。
+      // 读移进锁内（锁外无先读）；拿不到锁按单本失败收口（fail-closed 不降级裸写，
+      // 迁移幂等下次启动重试）。互斥面 = 迁移对迁移（启动双开）；与 settings 等
+      // 其他 book.yaml 写方无既定锁约定（各方自身原子写，不撕裂）。
+      const release = acquireCrossProcessLockWithTimeout(`${yamlPath}.lock`, getBookYamlLockTimeoutMs())
+      if (!release) {
+        failed++
+        log.warn('migrate-defaults', `${book.name}: book.yaml 锁获取超时（他进程持有），跳过本书本次迁移（幂等，下次启动重试）`)
+        continue
+      }
+      try {
+        const before = readFileSync(yamlPath, 'utf8')
+        const after = migrateBookYamlText(before)
+        // 幂等闸：文本无变化不写盘（也避免无谓的 mtime 抖动触发外部同步）
+        if (after !== before) {
+          atomicWriteFile(yamlPath, after)
+          changed++
+          log.warn('migrate-defaults', `${book.name}: 已改写 book.yaml（键清理/行尾归一，全局托底生效）`)
+        }
+      } finally {
+        release()
       }
     } catch (e) {
       // 单本失败不阻断：迁移是「锦上添花」的清理，宁可留着旧默认也不能挡启动

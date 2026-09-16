@@ -9,7 +9,8 @@ import { mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from 'node
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
-import { migrateBookDefaults } from '../../src/install/migrate-defaults.js'
+import { migrateBookDefaults, __setBookYamlLockTimeoutForTest } from '../../src/install/migrate-defaults.js'
+import { acquireCrossProcessLockWithTimeout } from '../../src/fs/cross-process-lock.js'
 
 let tmp: string
 beforeEach(() => {
@@ -253,4 +254,31 @@ test('迁移：整段删除后段间空行归整（无双空行、结尾不堆�
   expect(after).not.toMatch(/\n\n\n/) // 无三连换行（双空行）
   expect(after.endsWith('\n')).toBe(true)
   expect(after).toContain('realm_span_max: 2')
+})
+
+test('R0916-P3-14：book.yaml RMW 持跨进程锁——锁被他进程持有时 fail-closed 跳过本书，释放后正常迁移', () => {
+  const fp = makeBook('锁书', '长篇/锁书', LEGACY_LONG)
+  // 缩短等待档：锁被占时快速失败（默认 5s 等待会拖慢用例）
+  __setBookYamlLockTimeoutForTest(150)
+  try {
+    // 预持锁（等价「另一窗口的迁移正在 RMW」）——迁移须跳过本书且不写盘
+    const release = acquireCrossProcessLockWithTimeout(`${fp}.lock`, 50)
+    expect(release).not.toBeNull()
+    try {
+      const before = read(fp)
+      const r = migrateBookDefaults(tmp)
+      expect(r).toEqual({ books: 1, changed: 0, failed: 1 })
+      expect(read(fp)).toBe(before) // 未动
+    } finally {
+      release!()
+    }
+    // 释放后重跑：正常迁移
+    const r2 = migrateBookDefaults(tmp)
+    expect(r2).toEqual({ books: 1, changed: 1, failed: 0 })
+    expect(read(fp)).not.toContain('calls_per_chapter')
+    // 幂等：三跑无 diff
+    expect(migrateBookDefaults(tmp)).toEqual({ books: 1, changed: 0, failed: 0 })
+  } finally {
+    __setBookYamlLockTimeoutForTest(5000)
+  }
 })

@@ -356,7 +356,9 @@ export function aggregateReviewIssues(issues: ReviewIssue[]): ReviewIssue[] {
     }
     existing.blocking = Boolean(existing.blocking || issue.blocking)
     existing.evidence = uniq([...existing.evidence, ...issue.evidence].map((item) => item.trim()).filter(Boolean))
-    if (existing.issue.trim() === '' && issue.issue.trim() !== '') existing.issue = issue.issue
+    // R0916-nano-2（四轮处置批）：issue 补填行删除——去重键已含 issue.trim()（R73-25），
+    // 合并双方 issue 文本恒相等，「existing 空且新条非空」恒不可达（死条件）；
+    // fix 不在键内，一空一实可达，补填保留。
     if (existing.fix.trim() === '' && issue.fix.trim() !== '') existing.fix = issue.fix
   }
 

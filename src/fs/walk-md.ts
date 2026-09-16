@@ -64,12 +64,19 @@ function* mdFileEntries(
   } catch {
     return
   }
-  const walk = function* (dir: string): Generator<{ real: string; abs: string; name: string }, void, void> {
+  // R0916-nano-8（四轮处置批）：walk 签名加 dirReal 可选参——起点直传上方已解析的
+  // realRoot，省掉对 startDir 的第二次 realpathSync 系统调用（原 :63 根解析与首帧
+  // 重复解析同一路径）；子目录递归不传，行为不变
+  const walk = function* (dir: string, dirReal?: string): Generator<{ real: string; abs: string; name: string }, void, void> {
     let real: string
-    try {
-      real = realpathSync(dir)
-    } catch {
-      return // 断链/不可读 → 跳过
+    if (dirReal !== undefined) {
+      real = dirReal
+    } else {
+      try {
+        real = realpathSync(dir)
+      } catch {
+        return // 断链/不可读 → 跳过
+      }
     }
     if (visited.has(real)) return // 环剪枝
     visited.add(real)
@@ -95,5 +102,5 @@ function* mdFileEntries(
       }
     }
   }
-  yield* walk(startDir)
+  yield* walk(startDir, realRoot)
 }

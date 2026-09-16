@@ -16,7 +16,8 @@ import { describe, expect, it } from 'vitest'
 const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'src')
 
 /** 在锚值：守卫落地批（重评-0914-三轮 P3-14）src 全树实测 71。确属测试必需的新钩子
- *  须有意上调本值并留因，勿无意识增长。 */
+ *  须有意上调本值并留因，勿无意识增长（R0916-P3-14 新增 __setBookYamlLockTimeoutForTest
+ *  走 A4 testableConst 工厂解构导出形态，不进本守卫计数口径，锚不动）。 */
 const FOR_TEST_HOOK_CEILING = 71
 
 const HOOK_RE = /^export (?:async )?(?:function|const) __[A-Za-z0-9_]+ForTest\b/gm

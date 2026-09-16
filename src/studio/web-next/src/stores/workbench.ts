@@ -191,7 +191,11 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       textOut.value += e.text
       // R0911-C1-P3-1：超限截断保留最新段（锚定来源与取舍见 MAX_TEXT_OUT 头注）
       if (textOut.value.length > MAX_TEXT_OUT) {
-        textOut.value = textOut.value.slice(textOut.value.length - MAX_TEXT_OUT)
+        // R0916-nano-5（四轮处置批）：截断点落在代理对中间时丢掉孤儿低位代理
+        //（其高位配对在丢弃段；裸 slice 会把它留给 UI 渲染成替换符）。
+        // 判据 = 低位代理区 DC00-DFFF：截在高位之前则整对都在保留段，无需处理。
+        const tail = textOut.value.slice(textOut.value.length - MAX_TEXT_OUT)
+        textOut.value = (tail.charCodeAt(0) & 0xfc00) === 0xdc00 ? tail.slice(1) : tail
       }
     }
     // 整章重写 / 流式重试前清正文缓冲，不清会把多轮正文首尾拼接

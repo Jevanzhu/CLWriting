@@ -11,6 +11,7 @@ import { readChapter, readChapterDir } from './chapters.js'
 import { chapterFilePrefix } from './words.js'
 import { sanitizeChapterTitle, isMdFileName } from './filename.js'
 import { readManifest } from '../document/manifest.js'
+import { normalizeWinSeparators } from '../fs/safe-path.js'
 import type { ChapterMeta } from './types.js'
 // R37-9：正文目录卷扫描 readdirSync 容错降级留痕（同 run.ts/runner.ts 口径）
 import { errMsg, log } from '../log/index.js' // errMsg 收编（复审-0914-优化修复批）：错误文案三目单源
@@ -225,7 +226,10 @@ function cnVolumeNum(s: string): number | null {
   return tens * 10 + ones
 }
 
-/** 绝对路径 → 正斜杠相对路径（跨平台）。 */
+/** 绝对路径 → 正斜杠相对路径（win 分隔符归一走 normalizeWinSeparators 单源——win32-only）。
+ *  R0916-P3-8（四轮处置批）：原无条件 `.replace(/\\/g, '/')` 在 posix 上把文件名里的
+ *  字面反斜杠（posix 合法文件名字符）易帜成目录段（0001-题\目.md → 0001-题/目.md），
+ *  覆盖写定位/卷段推断双双错位；收编反斜杠归一族单源后 posix 保字面、win 行为不变。 */
 function slashRelative(base: string, absPath: string): string {
-  return relative(base, absPath).replace(/\\/g, '/')
+  return normalizeWinSeparators(relative(base, absPath))
 }

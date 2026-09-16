@@ -6,6 +6,9 @@
  *
  * ULID 实现已下沉到 fs/id.ts（format 层等叶子层可直接 import，不向上依赖 document/）。
  * 此处 re-export 保持既有 import 路径兼容。
+ * R0916-nano-9（四轮处置批）：垫片消费面收敛为 document 域（events/store.ts 已改
+ * 直连 fs/id.ts，消除 events→document 跨层边）——新调用点一律直连 fs/id.ts，
+ * 勿再经本垫片扩散。
  */
 import { createHash } from 'node:crypto'
 import { ulid } from '../fs/id.js'
