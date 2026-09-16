@@ -22,7 +22,7 @@ import {
   readLead,
   writeLead,
 } from '../../src/format/leads.js'
-import { resolveDraftPath } from '../../src/format/draft.js'
+import { resolveDraftPath } from '../../src/document/draft-path.js'
 
 let tmp = ''
 afterEach(() => {

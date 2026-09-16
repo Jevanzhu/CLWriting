@@ -197,7 +197,7 @@ test('W-P2-1：软删已定稿章 → 回收站条目带基线；恢复后清单
   expect(m.entries.get('doc_ch01')?.finalizedRevision).toBe('sha256:baseline-1')
 
   // 链路级断言：定稿防线（V-P1-3 + W-P2-2）对恢复章重新生效——续写第 1 章应被拒绝
-  const { resolveDraftPath } = await import('../../src/format/draft.js')
+  const { resolveDraftPath } = await import('../../src/document/draft-path.js')
   expect(() => resolveDraftPath(root, 1)).toThrow(/已定稿/)
   rmSync(root, { recursive: true, force: true })
 })

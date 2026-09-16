@@ -27,7 +27,7 @@ import { TOOL_EXECUTORS, type ToolContext } from '../../tools/index.js'
 import { isSelfHealRunning, runSelfHeal, abortSelfHeal, type SelfHealOutcome } from '../self-heal.js'
 import { isSpawnRunning } from '../spawn-registry.js'
 import { runCheckForDocument, type CheckOutcome } from '../../../check/run.js'
-import { resolveDraftPath } from '../../../format/draft.js'
+import { resolveDraftPath } from '../../../document/draft-path.js'
 // 低-2（第十轮）：chat 侧改写与 /rewrite 端点共用同一把 task-gate——闸表在
 // studio/server/api/task-gate.ts（纯内存模块、零依赖），从 ai 层引它是共用同一
 // 闸表的最小改（闸表搬层需动 src/studio 多文件，本轮禁区）

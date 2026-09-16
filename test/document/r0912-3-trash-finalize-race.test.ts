@@ -28,7 +28,7 @@ import { finalizeRevisionAsync } from '../../src/document/finalize.js'
 import { listTrash, restoreTrash } from '../../src/document/trash.js'
 import { readManifest } from '../../src/document/manifest.js'
 import { acquireCrossProcessLockWithTimeout } from '../../src/fs/cross-process-lock.js'
-import { resolveDraftPath } from '../../src/format/draft.js'
+import { resolveDraftPath } from '../../src/document/draft-path.js'
 
 let bookRoot: string
 

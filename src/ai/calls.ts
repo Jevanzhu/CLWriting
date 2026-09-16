@@ -642,6 +642,51 @@ function applyCall(rec: CallRecord, usage: TokenUsage | null, costUsd?: number):
 }
 
 /**
+ * R0916-6-P3-3：任务维度预算闸（chat 按书次数闸用，runner runTask 入口调）。
+ *
+ * 判定优先序与 checkAiCallBudget 逐条镜像：
+ * - limit undefined = 未配（无闸，直接放行——缺省零行为变化，连账本都不读）；
+ * - 账本损坏 → 保守阻断（V-P2-10 同款文案）；
+ * - limit ≤ 0 → 「一次都不许调」（R40-8 同语义；parse 面 fail-closed 落 0 也走此臂）；
+ * - tasks 块 used ≥ limit → 拦截（次数口径读 tasks[task].used——runTask 每 attempt
+ *   均按次入账〔W-P2-8/X-P2-10〕，重试/失败调用不漏）。
+ *
+ * cost 口径不设：tasks 块历史不累计金额（cost 仅 chapter 块记），无现成机制可复用，
+ * 按「不强造」口径本闸只做次数上限。
+ */
+export function checkAiTaskCallBudget(
+  bookRoot: string,
+  task: string,
+  limit: number | undefined,
+): { ok: true; used: number } | { ok: false; used: number; reason: string } {
+  if (limit === undefined) return { ok: true, used: 0 }
+  const { rec, corrupt } = readRecord(bookRoot)
+  if (corrupt) {
+    return {
+      ok: false,
+      used: 0,
+      reason: 'AI 调用记账文件 .cache/ai-calls.json 损坏，已保守阻断。可删除该文件重试（计数从零开始），但请先确认磁盘健康。',
+    }
+  }
+  const used = rec?.tasks[task]?.used ?? 0
+  if (limit <= 0) {
+    return {
+      ok: false,
+      used,
+      reason: `chat 调用上限为 ${limit}（budget.chat_max_calls），按「一次都不许调」拦截。如需恢复对话请把 book.yaml 的 budget.chat_max_calls 调回正数`,
+    }
+  }
+  if (used >= limit) {
+    return {
+      ok: false,
+      used,
+      reason: `本书对话已调用 ${used} 次（上限 ${limit}，budget.chat_max_calls）。可临时提高 book.yaml 的 budget.chat_max_calls，或降低对话/压缩频率`,
+    }
+  }
+  return { ok: true, used }
+}
+
+/**
  * 记一次 task 维度 AI 调用（全端点覆盖；不重置）。
  *
  * 由 runTask 末尾自动调用（有 bookRoot + task 时）。

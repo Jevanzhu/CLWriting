@@ -64,7 +64,8 @@ test('runAllChecks short: 含禁词/复读/句式 + 短篇专属项', () => {
     chapter: ch,
     body: '正文内容',
     fileName: '001-雪夜.md',
-    bannedWords: ['禁词x'],
+    // R0916-6-P3-8：input.bannedWords 死参数已删（禁词恒出自铁律侧）——禁词 section
+    // 恒在（checkBannedWords 无词表也出 section），命中面由下方铁律侧用例覆盖
   })
   const names = r.sections.map((s) => s.name)
   expect(names).toContain('禁词')

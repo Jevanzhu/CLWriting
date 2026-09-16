@@ -265,7 +265,14 @@ async function appendLineAsync(
   degradedLine?: string | (() => string),
 ): Promise<void> {
   mkdirSync(dirname(filePath), { recursive: true })
-  const release = await acquireCrossProcessLockAsync(`${filePath}.lock`, getJournalLockTimeoutMs())
+  // R0916-6-P3-16：锁超时先重试一档再降级——超时多为对端 append 突发 / compact 尾窗
+  // 的瞬时争用（50ms 退避后常已让出），而降级裸写 = 与 compact 的互斥失守窗（两条
+  // 降级行交错可损行，findUnsettled 容错跳过即丢挂账），能压回小概率就压。
+  let release = await acquireCrossProcessLockAsync(`${filePath}.lock`, getJournalLockTimeoutMs())
+  if (!release) {
+    await new Promise<void>((resolve) => setTimeout(resolve, 50))
+    release = await acquireCrossProcessLockAsync(`${filePath}.lock`, getJournalLockTimeoutMs())
+  }
   if (release) {
     try {
       appendFileSync(filePath, line + '\n', 'utf-8')

@@ -49,6 +49,15 @@ jobs:
       # 复评P1：build:all 会 npm --prefix 进 web-next（独立 package.json + lockfile）跑 Vite 构建，
       # 干净 runner 缺此步骤则 build:desktop 必挂（主 CI ci.yml 已有同款步骤）
       - run: npm --prefix src/studio/web-next ci
+      # R0916-6-P2-3（2026-09-16 全库源码重评五轮修复批）：tag 名 ↔ package.json version
+      # 一致性门——工作流以 tags: ['v*'] 触发，此前出包前无任何步骤校验两者一致：打 tag
+      # v1.0.0 忘 bump version 时，electron-builder 产物名写旧版本（package.json 的
+      # version）且工作流照绿，产物与 tag/Release 名错位无门可拦。node -e 内联比对
+      # （仓库 scripts 均走 node，win 兼容；GITHUB_REF_NAME 去前导 v 后严格相等）。
+      # workflow_dispatch 腿（ref_type=branch，ref_name 是分支名）不适用此门，显式豁免。
+      - name: tag 与 package.json version 一致性门
+        if: github.ref_type == 'tag'
+        run: node -e "const v=require('./package.json').version;const ref=process.env.GITHUB_REF_NAME||'';const t=ref.replace(/^v/,'');if(v!==t){console.error('[tag-version] 不一致：tag='+ref+' 但 package.json version='+v+'（去前导 v 应为 '+t+'）——bump version 或修正 tag 后重跑');process.exit(1)}console.log('[tag-version] 一致：tag '+ref+' == package.json version '+v)"
       # M-3（第十一轮）：tag 发布门补 typecheck+test 前置——此前 tag v* 直接产 DMG，工作流
       # 内无任何验证步（ci.yml 只监听分支 push），tag 若指未测提交即产出未验证发布物；
       # rc.1 实操是先门禁绿再打 tag（流程弥补），此处把门焊进工作流本体
@@ -124,21 +133,35 @@ jobs:
       # --publish never：electron-builder 26 在 tag 提交上会隐式尝试发 GitHub Release（缺
       # GH_TOKEN 即红，v1.0.0-rc.1 首跑实录）；本工作流产物走下方 upload-artifact，不发布
       - run: npm run build:desktop
+      # R0916-6-P3-9（2026-09-16 全库源码重评五轮修复批）：发布产物 sha256 清单——
+      # unsigned 分发恰是最需要完整性校验和的一类，此前 artifact 只含 dmg/exe 裸包，
+      # 下载方无任何完整性锚。node crypto 内联（跨平台单脚本，mac/win 双腿同跑）对
+      # dist-electron 下 *.dmg/*.exe 生成 SHA256SUMS.txt（`<hash>␣␣<filename>` 标准两
+      # 空格格式，sha256sum -c 可验），与产物一并上传（下方两腿 artifact path 已并入）。
+      # 零产物即红：electron-builder 静默不出包时在此 fail-closed，不上传空壳工件。
+      - name: 生成发布产物 SHA256 清单
+        run: node -e "const fs=require('fs'),crypto=require('crypto');const dir='dist-electron';const files=fs.readdirSync(dir).filter(f=>f.endsWith('.dmg')||f.endsWith('.exe')).sort();if(files.length===0){console.error('[checksum] dist-electron 下无 .dmg/.exe 产物——electron-builder 出包异常');process.exit(1)}const lines=files.map(f=>crypto.createHash('sha256').update(fs.readFileSync(dir+'/'+f)).digest('hex')+'  '+f);fs.writeFileSync(dir+'/SHA256SUMS.txt',lines.join('\n')+'\n');console.log(lines.join('\n'))"
       - uses: actions/upload-artifact@v4
         if: always() && runner.os == 'macOS'
         with:
           name: clwriting-desktop-${{ matrix.os }}
           # R72-15（二十轮 H-8）：工件只留 dmg——mac*/ 整目录（.app 解包态）与 dmg 内容
           # 重复、上传体积双倍；Electron 冒烟步用本地 dist-electron 路径，不依赖本工件
-          path: dist-electron/*.dmg
+          # R0916-6-P3-9：SHA256SUMS.txt 随产物一并上传（生成步见 build:desktop 后）
+          path: |
+            dist-electron/*.dmg
+            dist-electron/SHA256SUMS.txt
           if-no-files-found: error
       # J0：win 腿工件只留 NSIS 单文件 exe（win-unpacked/ 解包态不上传，同 H-8 体积口径；
       # blockmap 等伴生文件不在 *.exe 通配内自然排除）
+      # R0916-6-P3-9：SHA256SUMS.txt 随产物一并上传（生成步见 build:desktop 后）
       - uses: actions/upload-artifact@v4
         if: always() && runner.os == 'Windows'
         with:
           name: clwriting-desktop-${{ matrix.os }}
-          path: dist-electron/*.exe
+          path: |
+            dist-electron/*.exe
+            dist-electron/SHA256SUMS.txt
           if-no-files-found: error
       # R67-4（十五轮）：Electron 壳真实启动冒烟——release-smoke 只 spawn 编译产物
       # server-main.js（node 进程，不启动 Electron 壳），BrowserWindow/preload/IPC 在

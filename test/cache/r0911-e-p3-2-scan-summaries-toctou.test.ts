@@ -2,7 +2,7 @@
  * R0911-E-P3-2（2026-09-11 全量重评 GLM-5.3 修复批）回归：scanSummaries 的
  * readdirSync TOCTOU 守卫。
  *
- * 同域 readdir 容错家族（format/draft.ts R37-9、check/run.ts、check/runner.ts）
+ * 同域 readdir 容错家族（document/draft-path.ts R37-9（原 format/draft.ts，R0916-6-P2-2 上移）、check/run.ts、check/runner.ts）
  * 早已把「existsSync 过后的列举间隙目录消失/路径被同名文件占用」降级为空列表 +
  * warn 留痕，唯独 scanSummaries 裸 readdirSync：瞬时竞态直穿炸穿整个 rebuild
  * 事务（fail-loud 把一次列举间隙误报成源损坏）。两分支分别锁：

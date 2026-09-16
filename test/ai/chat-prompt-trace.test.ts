@@ -15,7 +15,7 @@ import { makeFakeDriver } from './fake-driver.js'
 import { withFakeProvider, tempUserData, makeDualTrackWorkdir } from '../studio/fixtures.js'
 import { runChat, clearChatHistory } from '../../src/ai/orchestrate/chat.js'
 import { buildChatContext } from '../../src/ai/prompts/chat.js'
-import { resolveDraftPath } from '../../src/format/draft.js'
+import { resolveDraftPath } from '../../src/document/draft-path.js'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
 
 let fake: FakeProvider

@@ -24,10 +24,38 @@ import { fileURLToPath } from 'node:url'
 // R62-58 同款：仓库根按 import.meta.url 解析——非根目录跑不误判
 const root = fileURLToPath(new URL('../../', import.meta.url))
 
-/** src/ai/** 不得出现 studio import（import/export-from 同捕，G5 同口径）。 */
-const STUDIO_RE = /from\s+['"][^'"]*\/studio\//
-/** src/studio/** 的 ai import 匹配（任意相对深度）。 */
-const AI_RE = /from\s+['"](?:\.\.\/)+ai\//
+/**
+ * R0916-6-P3-11（2026-09-16 全库源码重评五轮修复批）：扫描口径加固——原 AI_RE/STUDIO_RE
+ * 逐行（或整文）只测静态 `from` 单正则，有两处逃逸面：①多行 import（from 与路径被
+ * 换行空白错开时，逐行窗口失配）②动态 `import()`（无 from 关键字，正则天然不捕）。
+ * 修法：整文读 → 空白归一（/\s+/g → 单空格，跨行与同行等价）→ 静态同族正则 + 动态
+ * import 正则联测。动态正则口径与静态逐字同族：AI 侧保持 `(?:\.\.\/)+ai\/` 相对限定
+ * （放宽为 `[^'"]*ai\/` 会误捕 openai/ 等含 ai 段的 bare 包名）；STUDIO 侧保持
+ * `[^'"]*\/studio\/` 任意路径含段即捕（与原口径一致）。
+ * 已知残余面（与原口径相同、不因归一扩大）：注释/字符串字面量里恰好写有 import 字样
+ * 会误报——原形状锁本就对整文 test，此面非本批新增；src 现状零命中（门绿），如出现
+ * 再引入 scripts/check-counts.mjs 的 stripComments 剥离口径。
+ */
+const STUDIO_RES = [
+  /from\s+['"][^'"]*\/studio\//, // 静态 import / export-from（原口径）
+  /import\(\s*['"][^'"]*\/studio\//, // 动态 import()（P3-11 增补）
+]
+/** src/studio/** 的 ai import 匹配（任意相对深度；静态 + 动态，见 P3-11 注）。 */
+const AI_RES = [
+  /from\s+['"](?:\.\.\/)+ai\//,
+  /import\(\s*['"](?:\.\.\/)+ai\//,
+]
+
+/** P3-11：整文空白归一后跑正则组，返回命中的匹配片段（供违规行输出定位）。 */
+function hitsAny(content: string, res: RegExp[]): string[] {
+  const flat = content.replace(/\s+/g, ' ')
+  const out: string[] = []
+  for (const re of res) {
+    const m = flat.match(re)
+    if (m) out.push(m[0])
+  }
+  return out
+}
 
 /** 组合根白名单面：studio→ai 只准落在这些文件/目录前缀（相对仓库根，正斜杠）。 */
 const COMB_ROOT_FILES = ['src/studio/server/index.ts', 'src/studio/server/http.ts']
@@ -52,12 +80,12 @@ function listTs(dir: string): string[] {
 }
 
 describe('R0916-5c ai↔studio 依赖方向守护', () => {
-  it('方向锁：src/ai/** 无 studio import（模块级全量）', () => {
+  it('方向锁：src/ai/** 无 studio import（模块级全量，静态 + 动态 import()）', () => {
     const violations: string[] = []
     for (const file of listTs(join(root, 'src', 'ai'))) {
       const rel = relative(root, file).replaceAll('\\', '/')
-      for (const line of readFileSync(file, 'utf-8').split('\n')) {
-        if (STUDIO_RE.test(line)) violations.push(`${rel}  ←  ${line.trim()}`)
+      for (const hit of hitsAny(readFileSync(file, 'utf-8'), STUDIO_RES)) {
+        violations.push(`${rel}  ←  ${hit}`)
       }
     }
     expect(
@@ -73,7 +101,7 @@ describe('R0916-5c ai↔studio 依赖方向守护', () => {
     const violations: string[] = []
     for (const file of listTs(join(root, 'src', 'studio'))) {
       const rel = relative(root, file).replaceAll('\\', '/')
-      if (!AI_RE.test(readFileSync(file, 'utf-8'))) continue
+      if (hitsAny(readFileSync(file, 'utf-8'), AI_RES).length === 0) continue
       if (COMB_ROOT_FILES.includes(rel) || COMB_ROOT_PREFIXES.some((p) => rel.startsWith(p))) continue
       if (SHAPE_KNOWN.has(rel)) continue
       violations.push(rel)
@@ -94,7 +122,7 @@ describe('R0916-5c ai↔studio 依赖方向守护', () => {
         stale.push(`${rel}  ← 文件已不存在`)
         continue
       }
-      if (!AI_RE.test(readFileSync(fp, 'utf-8'))) {
+      if (hitsAny(readFileSync(fp, 'utf-8'), AI_RES).length === 0) {
         stale.push(`${rel}  ← ai import 已消失，可从白名单移除（视为已治理）`)
       }
     }

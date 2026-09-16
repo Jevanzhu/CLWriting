@@ -508,6 +508,8 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
         emit(opts, { type: 'chat_tool_result', callId: call.id, summary: `未知工具 ${call.name}`, ok: false })
         continue
       }
+      // R0916-6-nano-2：防御兜底——上方 hasOwn 守卫后此行运行时恒命中、?? 分支不可达，
+      // 仅为 noUncheckedIndexedAccess 下的索引类型收窄保留（表收缩时不误弹写卡，从严口径）
       const risk = TOOL_RISK[call.name] ?? 'write'
       if (risk === 'write') {
         emit(opts, { type: 'chat_tool_pending', callId: call.id, name: call.name, input: call.input })

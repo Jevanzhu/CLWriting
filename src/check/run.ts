@@ -22,6 +22,7 @@ import { readBookConfig } from '../format/yaml.js'
 import { applyGlobalDefaults } from '../format/global-defaults.js'
 import { readDraft } from '../format/draft.js'
 import { rebuild } from '../cache/rebuild.js'
+import { closeTreeIssuesDb } from './tree-issues-cache.js'
 import { runAllChecks, hasRed, effectiveShort, promoteStrictShort } from './runner.js'
 import { outlineDeclarationForChapter, type OutlineDeclaration } from './outline-leads.js'
 import {
@@ -34,7 +35,7 @@ import {
   LEAD_UPDATES_ARCHIVE_DIR,
 } from './lead-updates.js'
 import { readChapterDir } from '../format/chapters.js'
-import { readManifest, type ManifestEntry } from '../document/manifest.js'
+import { readManifestDegraded, type ManifestEntry } from '../document/manifest.js'
 import { docJoinKey, normalizeWinSeparators } from '../fs/safe-path.js'
 import type { CheckReport, CheckItem } from './types.js'
 import type { ChapterMeta, BookConfig } from '../format/types.js'
@@ -122,7 +123,7 @@ export function openCheckDb(
       db.exec('PRAGMA busy_timeout = 5000')
       return { db, rebuildFailed: false }
     } catch (e) {
-      db.close() // 审计 C4：PRAGMA 抛错（库损坏/锁超时）不留已开句柄
+      closeTreeIssuesDb(db) // 审计 C4：PRAGMA 抛错（库损坏/锁超时）不留已开句柄；R0916-6 改道 closeTreeIssuesDb（prepared 调用面连接断 ephemeron 链再关，同 rag closeRagDb 口径）
       return opts.failMode === 'envelope'
         ? { db: null, rebuildFailed: false, fail: { error: `缓存库不可用：${errMsg(e)}` } }
         : failOpen(`树红点聚合降级（rebuild/开库失败，只算 verdict）：${errMsg(e)}`)
@@ -205,7 +206,7 @@ export function runCheckForDocument(
     }
     return outcome
   } finally {
-    if (db) db.close()
+    if (db) closeTreeIssuesDb(db) // R0916-6：裸 close 改道（prepared ephemeron 断链）
   }
 }
 
@@ -228,7 +229,16 @@ export function maxWrittenChapterOf(
   // P3（复审-0914-优化修复批）：树聚合侧接受已读 entries（collectTreeIssuesCore 聚合头
   // 已 readManifest 整读）——原实现此处内部再整读同一清单 = 单请求双读；单章路径不传
   // 照旧自读（语义等价）。
-  const entries = manifestEntries ?? readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries
+  let entries: Map<string, ManifestEntry>
+  if (manifestEntries) {
+    entries = manifestEntries
+  } else {
+    // R0916-6-P2-1：单章路径自读清单——读失败降级留痕（行为不变：仍按空表继续，
+    // 定稿基线缺失仅本轮 maxWritten 低估；树聚合侧同源降级已有旗标透出端点层）
+    const r = readManifestDegraded(join(bookRoot, '项目', '文档清单.jsonl'))
+    if (r.degraded) log.warn('check', `文档清单读取失败（${r.degraded.code}），已定稿基准降级为空（maxWritten 可能低估）`)
+    entries = r.manifest.entries
+  }
   const finalized = new Set<string>()
   for (const e of entries.values()) {
     // R42-5（四十二轮）：join 键折叠（platformCaseFold 单源：win32/darwin 折叠 + NFC；

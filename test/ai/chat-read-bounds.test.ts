@@ -15,7 +15,7 @@ import { withFakeProvider, tempUserData, makeDualTrackWorkdir } from '../studio/
 import { runChat } from '../../src/ai/orchestrate/chat.js'
 import { chatTools } from '../../src/ai/contract/chat.js'
 import { writeSpillFile } from '../../src/process/spill.js'
-import { resolveDraftPath } from '../../src/format/draft.js'
+import { resolveDraftPath } from '../../src/document/draft-path.js'
 import type { DriverEvent } from '../../src/driver/types.js'
 
 let fake: FakeProvider

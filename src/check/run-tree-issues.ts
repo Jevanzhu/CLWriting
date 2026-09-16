@@ -19,7 +19,7 @@ import { join, relative } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { existsSync, statSync } from 'node:fs'
 import { readChapterDir } from '../format/chapters.js'
-import { readManifest, type ManifestEntry } from '../document/manifest.js'
+import { readManifestDegraded, type ManifestEntry } from '../document/manifest.js'
 import { deriveStatus } from '../document/status.js'
 import { probeCachedRevision, probeCachedPublished } from '../document/tree.js'
 import { existingAnalysisPath } from '../document/analysis.js'
@@ -35,6 +35,7 @@ import {
   readLeadsBookRed,
   writeLeadsBookRed,
   computeTreeIssuesGlobalFp,
+  closeTreeIssuesDb,
 } from './tree-issues-cache.js'
 import { checkLeadsBookItems } from './leads.js'
 import {
@@ -87,6 +88,10 @@ interface TreeIssuesResult {
   chaptersDegraded: number
   /** R35-24：正文目录解析失败章计数（章号损坏章对树红点隐形，>0 = 本轮树不完整） */
   chaptersParseDegraded: number
+  /** R0916-6-P2-1：清单读取失败降级旗标（读失败此前与「无清单」同归空表静默——
+   *  章-账本红点整轮失明零透出，唯一数据正确性面的静默降级）。true = 本轮红点
+   *  不完整，端点层转 warnings 透出（api/check.ts，与 rebuildFailed 同口径）。 */
+  manifestDegraded: boolean
 }
 
 /**
@@ -171,7 +176,15 @@ function* collectTreeIssuesCore(
   try {
     // P3（复审-0914-优化修复批）：此处整读的 entries 直传 maxWrittenChapterOf
     //（原其内部再 readManifest 同一清单 = 单请求双读）
-    const manifest = readManifest(join(bookRoot, '项目', '文档清单.jsonl')).entries
+    // R0916-6-P2-1：读失败（EACCES/EBUSY/EIO 瞬态）此前与「无清单」同为空表静默
+    // ——整轮章-账本红点失明零透出。改走 readManifestDegraded 分离「不存在=合法空」
+    // 与「读失败=降级」：降级 warn 留痕 + manifestDegraded 旗标随返回透出。
+    const manifestRead = readManifestDegraded(join(bookRoot, '项目', '文档清单.jsonl'))
+    if (manifestRead.degraded) {
+      log.warn('check', `文档清单读取失败（${manifestRead.degraded.code}），本轮章-账本红点聚合降级（红点可能缺失）`)
+    }
+    const manifestDegraded = manifestRead.degraded !== null
+    const manifest = manifestRead.manifest.entries
     const pathToDocId = new Map<string, string>()
     // R42-5（四十二轮）：join 键折叠（win32 大小写 + NFC）——盘上扫描路径与清单登记
     // 路径仅大小写/组合形异时 docId 仍可追溯（下方 .get 侧同键）
@@ -437,8 +450,8 @@ function* collectTreeIssuesCore(
         }
       }
     }
-    return { issues, rebuildFailed, leadsBookDegraded, chaptersDegraded, chaptersParseDegraded }
+    return { issues, rebuildFailed, leadsBookDegraded, chaptersDegraded, chaptersParseDegraded, manifestDegraded }
   } finally {
-    if (db) db.close()
+    if (db) closeTreeIssuesDb(db) // R0916-6：裸 close 改道（prepared ephemeron 断链，closeTreeIssuesDb 单源）
   }
 }

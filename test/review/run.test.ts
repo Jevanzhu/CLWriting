@@ -425,3 +425,44 @@ test('R65-18（批 B）：evidence:[{}] 对象壳穿透判格式不符；字符�
     rmSync(workDir, { recursive: true, force: true })
   }
 })
+
+test('R0916-6-P3-7：空 issue 描述 + 非空 evidence → 格式不符丢弃（不再成无内容 S1/S2 blocker）；合法条目不受影响', () => {
+  const workDir = mkdtempTracked(join(tmpdir(), 'review-run-'))
+  try {
+    const packet = makeFullPacket(workDir)
+    mkdirSync(packet.out_dir, { recursive: true })
+    // continuity：一条空白描述（修复前借非空 evidence 成立为 S1 blocker）、一条合法条目
+    writeFileSync(
+      join(packet.out_dir, lensIssuesFileName('continuity')),
+      JSON.stringify([
+        {
+          lens: 'continuity', severity: 'S1', category: 'logic', location: '第12章',
+          evidence: ['前文无铺垫的突击反转'], issue: '   ', fix: '补铺垫',
+        },
+        {
+          lens: 'continuity', severity: 'S3', category: 'logic', location: '第12章',
+          evidence: ['前文无铺垫的突击反转'], issue: '正常描述', fix: '补铺垫',
+        },
+      ]),
+      'utf-8',
+    )
+    writeFileSync(join(packet.out_dir, lensIssuesFileName('reader')), '[]', 'utf-8')
+    writeFileSync(join(packet.out_dir, lensIssuesFileName('editor')), '[]', 'utf-8')
+
+    const collected = collectReviewIssues({ packet })
+    // 空描述条 → extractIssues 既有「issue 格式不符」bad_entries 路径（留痕非静默）
+    expect(collected.bad_entries.some((b) => b.reason.startsWith('issue 格式不符'))).toBe(true)
+    // 空描述条不得进任何归一化桶；bad_entries 非空 → 审稿单不成立（R63-4 契约），
+    // blockers 里唯一条目是注入的「三审未完成」阻断条，非空描述条本身
+    expect(collected.ok).toBe(false)
+    expect(collected.normalized.blockers.map((i) => i.issue)).toEqual([
+      '三审未完成：审稿单不成立，本次「通过」不可采信',
+    ])
+    expect(collected.normalized.warnings.map((i) => i.issue)).toEqual(['正常描述'])
+    // 合法条目不受影响：raw_issues 只含合法条（空描述条在 coerceIssue 即被拒）
+    expect(collected.raw_issues.map((i) => i.issue)).toEqual(['正常描述'])
+    expect(collected.missing_lenses).toHaveLength(0)
+  } finally {
+    rmSync(workDir, { recursive: true, force: true })
+  }
+})

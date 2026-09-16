@@ -9,7 +9,7 @@ import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { walkMdFind, walkMdEach } from '../../src/fs/walk-md.js'
-import { resolveDraftPath } from '../../src/format/draft.js'
+import { resolveDraftPath } from '../../src/document/draft-path.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 test('R34D-11: walkMdFind/walkMdEach 发现 .MD/.Md 大写扩展名文件', () => {

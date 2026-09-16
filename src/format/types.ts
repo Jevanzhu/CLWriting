@@ -270,6 +270,10 @@ export interface BookConfig {
     /** D3（批 5）：单章金额预算上限（需配价格表才生效——未配价时静默不生效，
      *  与信息差未配置静默跳过同语义；未设 = 不拦） */
     cost_per_chapter?: number
+    /** R0916-6-P3-3：chat 任务按书调用上限（可选；未设 = 不限，零行为变化）。
+     *  次数口径读 ai-calls.json tasks.chat 块（每 attempt 按次入账，同 chapter 块口径）；
+     *  parse 面非法值 fail-closed 落 0 = chat AI 调用全部阻断（宁拦勿放）。 */
+    chat_max_calls?: number
   }
   /** 文风注入强度。整段可选：书级未设 injection = global.json styleInjection → 硬编码 'light' */
   style?: {

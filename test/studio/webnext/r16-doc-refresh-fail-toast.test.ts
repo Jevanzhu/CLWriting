@@ -9,9 +9,6 @@
  * 天然防刷屏；返回值语义不变）。
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { createPinia, setActivePinia } from 'pinia'
-
-const toastSpy = vi.fn()
 
 const getContent = vi.hoisted(() => vi.fn())
 vi.mock('../../../src/studio/web-next/src/api/documents', () => {
@@ -31,12 +28,11 @@ vi.mock('../../../src/studio/web-next/src/api/client', async (importOriginal) =>
     getToken: vi.fn(() => 'test-token'),
   }
 })
-vi.mock('../../../src/studio/web-next/src/stores/ui', () => ({
-  useUiStore: () => ({ toast: toastSpy }),
-}))
+// R0916-6-P2-5：ui store 不再 mock——真件 + toast 动作 spy（helpers/real-stores 纪律）
 
 import { useDocStore } from '../../../src/studio/web-next/src/stores/doc'
 import type { TreeNode } from '../../../src/studio/web-next/src/types/tree'
+import { setupRealStores, recordToasts } from './helpers/real-stores'
 
 const BOOK = 'test-book'
 const FAIL_MSG = '文档信息刷新失败，显示内容可能已过期'
@@ -60,10 +56,12 @@ async function openDoc(docId: string, path: string, content: string) {
   return doc
 }
 
+let toastSpy: ReturnType<typeof recordToasts>
+
 beforeEach(() => {
-  setActivePinia(createPinia())
   vi.clearAllMocks()
-  toastSpy.mockClear()
+  // 真 pinia + 真 store（toast 用 spy 录制，调用照常生效）
+  toastSpy = recordToasts(setupRealStores().ui)
 })
 
 describe('重审-16 · refresh 失败的 UI 面', () => {

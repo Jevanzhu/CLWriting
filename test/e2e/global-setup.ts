@@ -10,6 +10,7 @@
  */
 import http from 'node:http'
 import { join } from 'node:path'
+import { existsSync, readdirSync, statSync } from 'node:fs'
 import { startServer } from '../../src/studio/server/index.js'
 import { makeDualTrackWorkdir } from '../studio/fixtures.js'
 import { E2E_PORT_BASE } from './e2e-ports.js'
@@ -18,7 +19,49 @@ import { rmTempDirRetry } from './tmp-cleanup.js'
 
 let server: http.Server | undefined
 
+// R0916-6-nano-1（2026-09-16 全库源码重评五轮修复批）：直跑陈旧产物守卫——
+// `npx playwright test` 绕过 `npm run test:e2e` 的 build:web 前置时会静默托管陈旧
+// dist/web（spec 红因与实际产物代码错位，排障指向失真）。globalSetup 处廉价 fail-closed：
+// ① 存在性：dist/web/index.html 缺失 → 红并指引导 build:web；
+// ② 新鲜度：index.html mtime 早于 web-next src 树最新 mtime → 源改过未重建 → 红并
+//    指引重建。假红评估：npm run test:e2e = build:web && playwright test，vite build
+//    全量重写产物，index.html mtime 恒 ≥ build 时刻全部 src mtime（CI checkout→build→
+//    test 与本地均单调，不假红）；1s 容差吃文件系统时间粒度。递归扫 web-next/src
+//    （~200 文件，ms 级），仅此一处运行时成本。
+function newestMtime(dir: string): number {
+  let newest = 0
+  for (const name of readdirSync(dir)) {
+    if (name.startsWith('._')) continue // macOS AppleDouble 元数据（vitest.config 同款排除）
+    const fp = join(dir, name)
+    const st = statSync(fp)
+    newest = Math.max(newest, st.isDirectory() ? newestMtime(fp) : st.mtimeMs)
+  }
+  return newest
+}
+
+function assertFreshWebDist(): void {
+  const webSrc = join(process.cwd(), 'src', 'studio', 'web-next', 'src')
+  const indexHtml = join(process.cwd(), 'dist', 'web', 'index.html')
+  if (!existsSync(indexHtml)) {
+    throw new Error(
+      '[e2e global-setup] dist/web/index.html 不存在——先跑 `npm run build:web` 产出前端静态产物' +
+        '（或直接用 `npm run test:e2e`，自带 build:web 前置），再跑 playwright。',
+    )
+  }
+  const newestSrc = newestMtime(webSrc)
+  const builtAt = statSync(indexHtml).mtimeMs
+  if (builtAt + 1000 < newestSrc) {
+    throw new Error(
+      '[e2e global-setup] dist/web 产物陈旧：index.html（' + new Date(builtAt).toISOString() +
+        '）早于 src/studio/web-next/src 树最新改动（' + new Date(newestSrc).toISOString() +
+        '）——源码在构建后有改动，跑 `npm run build:web` 重建后再试（`npm run test:e2e` 自带此前置）。',
+    )
+  }
+}
+
 export default async function globalSetup(): Promise<() => Promise<void>> {
+  // fail-closed 前置：产物缺失/陈旧在起 server 前即红（R0916-6-nano-1）
+  assertFreshWebDist()
   process.env['CLWRITING_DRIVER'] = 'mock'
   const workDir = makeDualTrackWorkdir()
   // 暴露给 spec：T1.3 冲突测需外部直接改磁盘文件触发 REVISION_CONFLICT

@@ -188,7 +188,7 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
         // 聚合逻辑已下沉内核（P1-8）：扫正文 + 机检 + verdict 驳回，返回只有 issue 的 docId
         // R37-3（三十七轮）：改走 async 孪生——大书全书同步聚合此前单请求秒级冻结事件循环
         //（Electron 内嵌单进程服务 = 桌面整体卡死），现章循环每 25 章让出一次
-        const { issues, rebuildFailed, leadsBookDegraded, chaptersDegraded } = await collectTreeIssuesAsync(root, (docId) => {
+        const { issues, rebuildFailed, leadsBookDegraded, chaptersDegraded, manifestDegraded } = await collectTreeIssuesAsync(root, (docId) => {
           const reviewEnv = readAnalysis(root, docId, 'review')
           const v = (reviewEnv?.payload as { verdict?: { approved: boolean } } | undefined)?.verdict
           return v ?? undefined
@@ -204,6 +204,9 @@ export function registerCheckRoutes(ctx: CheckCtx): void {
         if (leadsBookDegraded) warnings.push('账本全书性红项本轮计算失败，账本红点可能缺失')
         // R65-5（十三轮）：单章机检失败（第三种降级形态，此前零提示）
         if (chaptersDegraded > 0) warnings.push(`${chaptersDegraded} 个章节本轮机检失败，对应红点可能缺失`)
+        // R0916-6-P2-1：清单读失败透出（第四种降级形态——此前读失败静默空表，章-账本
+        // 红点整轮失明不可见；与 rebuildFailed/leadsBookDegraded 同口径）
+        if (manifestDegraded) warnings.push('文档清单读取失败，章-账本红点本轮可能缺失')
         return {
           ok: true,
           issues,

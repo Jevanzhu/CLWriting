@@ -456,6 +456,13 @@ function coerceIssue(raw: unknown, fallbackLens: ReviewLens): ReviewIssue | null
   const severity = String(o['severity'] ?? '')
   const category = String(o['category'] ?? '')
   if (!isReviewSeverity(severity) || !isReviewCategory(category)) return null
+  // R0916-6-P3-7（2026-09-16 评审修复批）：issue 描述 trim 后为空判格式不符（对齐
+  // severity/category 既有闸风格）——「空描述 + 非空 evidence」此前可成立为 S1/S2
+  // blocker（evidence 硬闸在 normalizeReviewResult 只拦空证据、不拦空描述），审稿单
+  // 会出现无内容的阻断条。空描述走 extractIssues 既有「issue 格式不符」bad_entries
+  // 路径丢弃留痕，不静默。
+  const issueText = String(o['issue'] ?? '')
+  if (issueText.trim() === '') return null
   const location = String(o['location'] ?? '').trim()
   // R65-18（十三轮）：evidence 数组项仅接受 string/number（按原语义 String() 收敛）——
   // 宿主回写 evidence:[{}] 时 String({}) 得非空 "[object Object]"，对象壳穿透
@@ -479,7 +486,7 @@ function coerceIssue(raw: unknown, fallbackLens: ReviewLens): ReviewIssue | null
     category,
     location,
     evidence,
-    issue: String(o['issue'] ?? ''),
+    issue: issueText,
     fix: String(o['fix'] ?? ''),
     ...(o['blocking'] === true ? { blocking: true } : {}),
   }

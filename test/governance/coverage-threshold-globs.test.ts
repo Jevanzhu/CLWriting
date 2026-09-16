@@ -24,6 +24,11 @@ const EXPECTED_GLOBS = [
   'src/ai/**',
   'src/events/**',
   'src/studio/server/**',
+  // R0916-6-P3-12（2026-09-16 全库源码重评五轮修复批）：metrics/driver/review 三小域
+  // 域级子桶（主池化桶稀释收口；阈值取保守防回退档的缘由见 vitest.config.ts 同锚注）
+  'src/metrics/**',
+  'src/driver/**',
+  'src/review/**',
   'src/studio/web-next/src/api/**',
   // 重评-2（全库代码重评审 2026-09-05）：聚合桶扩面收编 components/types 下仅有的
   // 非 SFC 纯 TS 运行时文件（settings-context.ts / theme.ts），沿 R62-23 阈值不变先例

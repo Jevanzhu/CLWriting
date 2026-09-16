@@ -23,16 +23,18 @@ import { log } from '../log/index.js'
 /** P1-5（复审-0914-优化修复批）：budget 段 parse 面键序——历史 BUDGET_KEYS 白名单序。
  *  warn 输出顺序锁此旧序；与 stringify 落行序不同（见 SECTION_SPECS 表行序），如实
  *  参数化不抹平（parseKeyOrder 覆写）。 */
-const BUDGET_PARSE_ORDER = ['calls_per_chapter', 'input_per_chapter', 'summary_chapter_max', 'summary_volume_max', 'tokens_per_chapter', 'cost_per_chapter'] as const
+const BUDGET_PARSE_ORDER = ['calls_per_chapter', 'input_per_chapter', 'summary_chapter_max', 'summary_volume_max', 'tokens_per_chapter', 'cost_per_chapter', 'chat_max_calls'] as const
 
 /** R26-10（二十六轮）：短篇 budget 段输出判定——条件键三键（calls + 双口径 tokens/cost）
  *  任一已设即输出段；全未设整段省略（缺省语义，回落运行时合并层）。此前外层条件只认
- *  calls_per_chapter，短篇仅设 tokens/cost_per_chapter（D3 批 5 起合法）时整段丢失。 */
+ *  calls_per_chapter，短篇仅设 tokens/cost_per_chapter（D3 批 5 起合法）时整段丢失。
+ *  R0916-6-P3-3：chat_max_calls 并入判定（短篇只设该键时同样不得整段丢失）。 */
 function budgetHasAnyKey(budget: BookConfig['budget']): boolean {
   return (
     budget.calls_per_chapter !== undefined ||
     budget.tokens_per_chapter !== undefined ||
-    budget.cost_per_chapter !== undefined
+    budget.cost_per_chapter !== undefined ||
+    budget.chat_max_calls !== undefined
   )
 }
 
@@ -96,6 +98,21 @@ const positiveNumParse =
     const v = parsePositiveNumber(node.value)
     if (v !== undefined) ctx.bucket[key] = v
     else log.warn('book.yaml', `${section}.${key} 值非正数（「${node.value.trim()}」），已忽略（按未设处理）`)
+  }
+
+/** R0916-6-P3-3：budget.chat_max_calls 专用 fail-closed parse——非法值不得按「未设」放行
+ *  （该键缺省 = 不限，坏值静默归未设会把配置错误放大成无界调用），warn 留痕后落 0：
+ *  闸侧 0 = 「一次都不许调」（R40-8 显式 0 同语义），宁拦勿放。显式写 0 与坏值在此
+ *  同归 0（warn 文案已说明阻断后果），闸侧无需区分两种来源。 */
+const failClosedNumParse =
+  (section: string, key: string) =>
+  (node: RawSection, ctx: ParseCtx): void => {
+    const v = parsePositiveNumber(node.value)
+    if (v !== undefined) ctx.bucket[key] = v
+    else {
+      log.warn('book.yaml', `${section}.${key} 值非正数（「${node.value.trim()}」），已按 fail-closed 落 0（chat AI 调用全部阻断），请修正为正数或删除该键`)
+      ctx.bucket[key] = 0
+    }
   }
 
 /** R26-12（二十六轮）布尔语义键族：parseStrictBool 收口（yes/on/1/True 同义收——此前
@@ -356,6 +373,13 @@ export const SECTION_SPECS: readonly ConfigSectionSpec[] = [
         parse: positiveNumParse('budget', 'summary_volume_max'),
         emit: (cfg) => (cfg.kind !== 'short' ? [`  summary_volume_max: ${cfg.budget.summary_volume_max ?? 500}`] : []),
         get: (c) => c.budget.summary_volume_max,
+      },
+      {
+        // R0916-6-P3-3：chat 任务按书预算键——设了才输出；无 get 面（不入 PATCH 白名单，
+        // 手编 book.yaml 面；入白名单须同步 yaml-schema-snapshot 清单锁，本批最小触达不动）
+        key: 'chat_max_calls',
+        parse: failClosedNumParse('budget', 'chat_max_calls'),
+        emit: scalarLeafEmit('chat_max_calls', (c) => c.budget.chat_max_calls),
       },
     ],
   },

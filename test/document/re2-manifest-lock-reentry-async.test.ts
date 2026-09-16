@@ -18,7 +18,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { join } from 'node:path'
 import { acquireCrossProcessLockAsync } from '../../src/fs/cross-process-lock.js'
 import { withManifestLock, withManifestLockAsync } from '../../src/document/manifest.js'
-import { sleep } from '../helpers/wait-for.js'
+import { sleep, waitFor } from '../helpers/wait-for.js'
 
 let dir = ''
 let manifestPath = ''
@@ -45,8 +45,10 @@ describe('重评2-P2-2①：重入 async fn 同进程排队串行化', () => {
     })
     // 修复前 B 在 A 的 await 间隙立即执行（events 已含 B-start）；修复后排队未启动
     expect(events).toEqual(['A-start'])
-    // ~120ms：A 已完（80ms）、B 在途（~80→160ms）——排空期跨进程锁不释放
-    await sleep(100)
+    // 排空期跨进程锁不释放。R0916-6：探测点改事件协调（等 B 真正开跑再探测）——
+    // 原 sleep(100) 定点探测在机器负载下可漂过 B 的执行窗（本文件系注册在案的
+    // 负载敏感族：2026-09-15 四轮处置批前三跑 1/2/3 败均在此族），确定性加固。
+    await waitFor(() => events.includes('B-start'))
     const probeDuringB = await acquireCrossProcessLockAsync(`${manifestPath}.lock`, 30)
     expect(probeDuringB).toBeNull()
     const [va, vb] = await Promise.all([a, b])

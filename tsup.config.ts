@@ -1,4 +1,5 @@
 import { copyFileSync, rmSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'tsup'
 
 // P-13（第十四轮）：只清 dist/desktop 子目录——本目录唯一写者是 tsup（两 config 均落此），
@@ -9,8 +10,14 @@ import { defineConfig } from 'tsup'
 // restart 会重新加载本文件，此处的 rmSync 会把 dev 循环正在使用的 dist/desktop 产物连根
 // 删掉；dev 态不清 stale chunk 无碍（残留只损发布物体积，发布走 build:desktop 全新构建，
 // 不含 --watch，守卫不生效）。
+// R0916-6-P3-10（2026-09-16 全库源码重评五轮修复批）：清理路径 cwd 相对 → import.meta.url
+// 绝对化（scripts/check-counts.mjs 同款口径，含 ^ 等特殊字符时 pathname 百分号编码由
+// fileURLToPath 解码）——原 rmSync('dist/desktop') 依赖 cwd=项目根，从子目录直跑
+// `npx tsup`（向上寻得本配置）时按 cwd 解析会删错位置。项目根正常路径下与原写法同义
+//（零行为）。outDir 保持相对（tsup 自身按配置所在 cwd 解析，构建入口固定根目录）。
+const desktopOutDir = fileURLToPath(new URL('./dist/desktop', import.meta.url))
 if (!process.argv.includes('--watch')) {
-  rmSync('dist/desktop', { recursive: true, force: true })
+  rmSync(desktopOutDir, { recursive: true, force: true })
 }
 
 export default defineConfig([

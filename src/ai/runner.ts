@@ -15,7 +15,11 @@ import { tryMockTool, MOCK_USAGE } from './mock-tool.js'
 import { GenError, resolveFirstByteTimeoutMs } from './gen.js'
 import { MODEL_QUIRKS_VERSION } from './provider/model-quirks.js'
 import { newRunId, promptMeta, toTraceUsage } from './trace.js'
-import { recordUsageBoth } from './calls.js'
+import { recordUsageBoth, checkAiTaskCallBudget } from './calls.js'
+// R0916-6-P3-3：chat 任务按书预算闸的键值来源（self-heal 同款 format 层直读先例；
+// 无缓存——每次 chat 发送重读，作者改 book.yaml 下一次发送即生效，单文件毫秒级）
+import { readBookConfig } from '../format/yaml.js'
+import { join } from 'node:path'
 import { resolveModelPricing, computeCallCost } from './pricing.js'
 // 复审-0914-优化修复批（P3）：openSessionStoreAsync/bookHash 随 mkChain 底层段收编
 // open-chain.ts 单源移除（唯一消费点）
@@ -492,6 +496,29 @@ export async function runTask<T>(opts: {
     finishMock()
     // R0912-3：同上——ctrl 返回外部传入的 opts.ctrl（缺省新建），与真实路径契约对称
     return { ok: true, data: opts.mockText, ctrl: opts.ctrl ?? new AbortController(), usage: MOCK_USAGE, attemptsUsage: MOCK_USAGE, runId, model: null }
+  }
+
+  // R0916-6-P3-3（评审修复批）：chat 任务按书预算闸——book.yaml budget.chat_max_calls
+  // 可选键，未设 = 不限（零行为变化，连账本都不读）；配了则按写稿链同款「次数口径」
+  // 在 runTask 入口闸检。写稿链的闸在 self-heal 编排层（checkAiCallBudget 前置两道），
+  // chat 无编排层宿主，闸检落 runTask 单点；轮循环每次发送与收尾压缩（finish.ts 同
+  // task:'chat'）都过此处，账本 tasks.chat 块本就由两处共用同键累计，闸与账同口径。
+  // a7 收缩重试是第二次 runTask，账已记入，重查自然趋紧——与写稿链「重写前重查」同构。
+  // 失败出口形态对齐下方 resolveProvider 失败分支（trace + step/end 'error' + 日志留痕
+  // + GEN_FAIL 人话文案），不进重试循环。
+  if (task === 'chat' && bookRoot !== undefined) {
+    const gate = checkAiTaskCallBudget(bookRoot, task, readBookConfig(join(bookRoot, 'book.yaml')).config.budget.chat_max_calls)
+    if (!gate.ok) {
+      trace({ model: `tier:${tierKind}`, attempt: 0, stopReason: 'error', usage: null, ok: false, errCode: 'BUDGET_EXCEEDED' })
+      stepReason = 'error'
+      if (chain) {
+        chain.add(stepEndEvent(task!, layerForTask(task!), 'error'))
+        chain.close()
+        chain = null
+      }
+      log.warn('runner', JSON.stringify({ msg: 'chat 任务预算闸拦截（终态）', task, bookRoot, code: 'BUDGET_EXCEEDED', used: gate.used, reason: gate.reason }))
+      return { ok: false, code: 'GEN_FAIL', error: gate.reason }
+    }
   }
 
   const r = resolveProvider(opts.userDataPath, tierKind)

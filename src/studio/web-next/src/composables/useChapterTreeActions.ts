@@ -183,7 +183,16 @@ export function useChapterTreeActions(deps: {
       const skipped = r.results.filter((x) => x.ok && x.skipped).length
       const failed = r.results.filter((x) => !x.ok).length
       const total = r.results.length
-      ui.toast(`已定稿 ${done}/${total} 章${skipped ? `（${skipped} 章已定稿）` : ''}${failed ? `，${failed} 章失败` : ''}`, failed ? 'error' : 'success')
+      // R0916-6-P3-1（评审修复批）：服务端逐条 error（防吃书闸/LEAD_GATE 人话红项）此前
+      // 整段丢弃，被闸拦下只能逐章单章定稿排查——failed>0 时追加快照首条原因（多项加
+      // 「等 N 项」），保持单行 toast；完整明细仍以服务端响应为准，此处仅透出首因。
+      const firstFail = failed ? r.results.find((x) => !x.ok) : undefined
+      ui.toast(
+        `已定稿 ${done}/${total} 章${skipped ? `（${skipped} 章已定稿）` : ''}${
+          failed ? `，${failed} 章失败：${firstFail?.error ?? '原因未知'}${failed > 1 ? `（等 ${failed} 项）` : ''}` : ''
+        }`,
+        failed ? 'error' : 'success',
+      )
       void tree.load(bookName, true)
     } catch (err) {
       // R71-28（七十一轮）：catch 补切书复检（对齐 success 分支 R64-2 写法）——批量

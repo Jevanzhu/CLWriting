@@ -386,7 +386,7 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
                   ...(cacheWrite !== undefined ? { cacheWriteTokens: cacheWrite } : {}),
                 }
               }
-              break;
+              break
             }
           }
         }

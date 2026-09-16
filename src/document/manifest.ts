@@ -6,6 +6,7 @@
  * - 写：原子重写整文件（追加 + 重写，atomicWriteFile）。
  * - order：章由文件名编号派生顺序，**省略 order 字段**；自由区文档与文件夹才有 order。
  */
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
@@ -94,23 +95,38 @@ export const __manifestCacheTestHooks = {
   },
 }
 
-/** 读清单（W0-1 §4.2）——读侧容错版（树扫描/查询/哨兵等只读消费面用）。
- *  - 文件不存在 → 空清单（version 默认 1）。
- *  - 非法 JSON 行 / 缺关键字段的行跳过（损坏降级，不阻断）。
- *  - 读失败（EACCES/EBUSY/EIO 瞬态）→ 空清单（M-13：读侧哨兵/全量兜底承接）。
- *  R47-8：stat 指纹缓存命中零读零解析（返回副本）。 */
-export function readManifest(filePath: string): Manifest {
+/** R0916-6-P2-1：读清单 + 降级显式化——readManifest 的「读失败→空清单」静默降级
+ *  对树红点聚合是数据正确性面（清单撞 EACCES/EBUSY/EIO 瞬态读失败时与「无清单」
+ *  同归空表：finalized 基线读不到 → 定稿判定/账本红点整轮失明，且零透出）。本版把
+ *  「文件不存在（合法空）」与「读了但失败（降级）」分离：前者 degraded:null，后者
+ *  随空清单附 degraded 码，供调用方 warn 留痕 / 端点层转 warnings 透出。缓存口径与
+ *  readManifest 逐位一致（ok 且 sig 在才落缓存；读失败不落缓存防毒化 strict 版）。
+ *  解析级损坏（坏行跳过）不属 degraded——那是内容问题，维持既有降级口径。 */
+export function readManifestDegraded(filePath: string): { manifest: Manifest; degraded: { code: string } | null } {
   const sig = manifestStatSig(filePath)
   if (sig !== null) {
     const hit = manifestCache.get(filePath)
-    if (hit && hit.sig === sig) return copyManifest(hit.manifest)
+    if (hit && hit.sig === sig) return { manifest: copyManifest(hit.manifest), degraded: null }
   }
   const r = readManifestCore(filePath)
   // 读失败（ok:false）不落缓存——防毒化 strict 版（见 readManifestCore 注）
   if (r.ok && sig !== null) manifestCacheSet(filePath, sig, r.manifest)
-  return r.ok
-    ? copyManifest(r.manifest)
-    : { version: DEFAULT_VERSION, entries: new Map<string, ManifestEntry>() }
+  if (r.ok) return { manifest: copyManifest(r.manifest), degraded: null }
+  return {
+    manifest: { version: DEFAULT_VERSION, entries: new Map<string, ManifestEntry>() },
+    degraded: { code: r.code ?? '未知错误' },
+  }
+}
+
+/** 读清单（W0-1 §4.2）——读侧容错版（树扫描/查询/哨兵等只读消费面用）。
+ *  - 文件不存在 → 空清单（version 默认 1）。
+ *  - 非法 JSON 行 / 缺关键字段的行跳过（损坏降级，不阻断）。
+ *  - 读失败（EACCES/EBUSY/EIO 瞬态）→ 空清单（M-13：读侧哨兵/全量兜底承接）。
+ *  R47-8：stat 指纹缓存命中零读零解析（返回副本）。
+ *  R0916-6-P2-1：需区分「合法空」与「读失败降级」的调用方（树红点聚合/单章定稿
+ *  基准）改走 readManifestDegraded——本函数语义不变，纯委托。 */
+export function readManifest(filePath: string): Manifest {
+  return readManifestDegraded(filePath).manifest
 }
 
 /** R47-8：读核心（容错/strict 共用）——ok:false = 读失败（非 ENOENT），两版分立处理
@@ -324,6 +340,10 @@ export const [getManifestLockTimeoutMs, __setManifestLockTimeoutForTest] = testa
  *  withManifestLock 的临界段全同步、无排队语义，登记恒 tail:null（异步重入撞上时
  *  惰性建空链——该形态属声明边界，不获锁覆盖）。 */
 const heldManifestLocks = new Map<string, { depth: number; release: () => void; tail: Promise<void> | null }>()
+// R0916-6-P3-15：异步重入自等死锁防御——withManifestLockAsync 的持锁执行体（fresh
+// 持锁与排队轮次）在执行期把 lockKey 放进 ALS 上下文；同 key 的 async 重入调用据此
+// 在排队前识别「排队自等」死锁形态并 fail-loud（见 withManifestLockAsync 头注）。
+const manifestLockReentryAls = new AsyncLocalStorage<string>()
 
 /** 重评2-P2-2（2026-09-09 全量重评 GLM-5.3）：async fn 形态判定（不调用 fn）——
  *  Object.prototype.toString 对 async 关键字函数（声明/箭头/方法/bind 产物）给
@@ -443,6 +463,12 @@ export function withManifestLock<T>(manifestPath: string, fn: () => T): T {
  * finalize/draft-pipeline）经 grep 全为同步 fn、无递归形态（trash 主清单/回收站锁
  * 先后串联不嵌套，R34D-19）；**真递归调用方须维持同步 fn 形态**（同步快道立即执行
  * 不排队，天然无此死锁；回归钉死见 test/document/re2-manifest-lock-reentry-async.test.ts）。
+ * R0916-6-P3-15：上述死锁形态已机制化 fail-loud——AsyncLocalStorage 携带「当前持锁
+ * 执行体的 key」（fresh 持锁与排队轮次的 fn 执行期均置入），async fn 在同 key 持锁
+ * 执行体内再次重入（含 await 后续体、含 fire-and-forget 形态）在排队前即抛错，不再
+ * 无限挂死；fire-and-forget 同拒的理由：该形态靠释放前排水窗才获跨进程锁覆盖，纪律
+ * 既已禁止嵌套派生 async 重入，一并机制化收口。同步 fn 重入快道不受影响（sanctioned
+ * 真递归通道）。
  * 同版 withManifestLock 持锁段内发起的异步孪生调用（同步段内无法 await，必为
  * fire-and-forget）不获排队保护：惰性空链上的排队轮次在同步临界段结束后才执行
  * （彼时锁已释放，修复前该形态同样无保护）——同步持锁段内不得派生 async 重入。
@@ -458,9 +484,19 @@ export async function withManifestLockAsync<T>(manifestPath: string, fn: () => T
     // 声明边界（排队轮次在同步临界段后执行，不获锁覆盖）。
     if (!held.tail) held.tail = Promise.resolve()
     if (isAsyncFunction(fn)) {
+      // R0916-6-P3-15：async 同 key 重入 = 排队自等死锁（本调用会挂到含自身调用方
+      // 执行体的链尾，await 它永不 resolve）——ALS 携带的持锁 key 命中即在排队前
+      // 抛错（fail-loud，修复前为无限挂死）。外部并发调用（非嵌套）无此上下文，
+      // 照常排队（回归①不受影响）；同步 fn 快道不查此防御。
+      if (manifestLockReentryAls.getStore() === lockKey) {
+        throw new Error(
+          `清单锁异步重入自等死锁（${manifestPath}）：同一次持锁执行体内重入同 key 的 async 调用会排队等自己，已拒绝执行——真递归调用方请维持同步 fn 形态（R0916-6-P3-15）`,
+        )
+      }
       const invoke = fn as () => Promise<T>
-      // 调用本身挂链尾轮次（不能先调用再排队：同步前缀一旦先行执行，延迟即失效）
-      const turn = held.tail.then(() => invoke())
+      // 调用本身挂链尾轮次（不能先调用再排队：同步前缀一旦先行执行，延迟即失效）；
+      // 轮次在 ALS 上下文内执行——排队 fn 自身的嵌套 async 重入同受防御
+      const turn = held.tail.then(() => manifestLockReentryAls.run(lockKey, invoke))
       // 链尾吞前序异常：本排队者失败不阻断后序排队者与持锁释放，错误只递给本调用方
       held.tail = turn.then(() => {}, () => {})
       return await turn
@@ -490,7 +526,9 @@ export async function withManifestLockAsync<T>(manifestPath: string, fn: () => T
       // 重评2-P2-2：临界段首节——fn 的执行 promise 即重入排队链（tail）的头节；
       // async IIFE 保持 fn 调用时机与旧实现逐位一致（同步前缀立即执行；fn 同步前缀
       // 内发起的 fire-and-forget 异步重入属声明边界，见函数头注）。
-      const run = (async () => fn())()
+      // R0916-6-P3-15：fn 执行期携带持锁 key 上下文——其体内（含 await 后续体）嵌套
+      // 的 async 同 key 重入在重入分支被 fail-loud 拦截。
+      const run = (async () => manifestLockReentryAls.run(lockKey, fn))()
       held.tail = run.then(() => {}, () => {})
       try {
         return await run

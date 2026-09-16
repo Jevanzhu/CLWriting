@@ -57,7 +57,6 @@ interface CheckInput {
   body: string // 正文
   fileName: string // 正文文件名
   targetWords?: number // 细纲目标字数
-  bannedWords?: string[] // 禁词表
   declaredLeadIds?: string[] // 本章细纲声明推进的账本编号（两端闭合，#10 项 1）
   actualLeadIds?: string[] // 本章实际写入履历的账本编号（两端闭合对照侧）
   /** 高频意象表（#10 项 7）。三级供给的顶级：入参显式 > book.yaml checks.imagery_words
@@ -174,7 +173,11 @@ export function runAllChecks(input: CheckInput): CheckReport {
 
   // #10 项 4 禁词（红）—— R73-15：条目库里解析不出任何词的禁词条目产黄项提示
   //（此前静默失明：整段说明性正文作 includes 永不命中，作者无从知晓红闸失效）
-  const bannedSection = checkBannedWords(body, mergeBannedWords(input.bannedWords, ironRules.bannedWords))
+  // R0916-6-P3-8（2026-09-16 评审修复批）：input.bannedWords 零消费参数删除（R66-14
+  // 死代码纪律）——生产唯一调用方（run.ts runCheckForDocument）从不传参，禁词恒出自
+  // 铁律侧（readIronRules 合并源，S5 迁移后含条目库禁词）；mergeBannedWords 保留作
+  // 禁词表归一单点（去重/滤空），合并死支随参数一并消失。
+  const bannedSection = checkBannedWords(body, mergeBannedWords(ironRules.bannedWords))
   for (const scene of ironRules.unparsedBannedEntries ?? []) {
     bannedSection.items.push({
       checkId: 'banned-entry-unparsed',

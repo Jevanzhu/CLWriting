@@ -15,7 +15,7 @@ import { writeSpillFile, readSpillFile, readSpillMeta } from '../../process/spil
 import { chapterInput } from './shared.js'
 import { createHash } from 'node:crypto'
 import { saveDraft } from '../../process/draft-pipeline.js'
-import { resolveDraftPath } from '../../format/draft.js'
+import { resolveDraftPath } from '../../document/draft-path.js'
 import { clipByCodePoints, codePointLength } from '../../process/summary.js' // R64-6：预览/字数码点口径单源
 import { readFile, joinFrontMatter } from '../../format/frontmatter.js'
 import { join } from 'node:path'

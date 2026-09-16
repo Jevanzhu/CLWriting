@@ -32,7 +32,10 @@ export const SOURCE_RANK: Record<EntrySource, number> = {
   导入: 4,
 }
 
-/** 极性由类型推导：样章/手法=正面示范，反例/禁词=负面清单 */
+/** 极性由类型推导：样章/手法=正面示范，反例/禁词=负面清单。
+ *  R0916-6-nano：现生产零消费（语义已由 EntryKind 直分支承担），唯一消费面 =
+ *  style-entry.test.ts 类型钉——留作极性判定单源候选，前端消费接入时启用；
+ *  删除须先迁移该测试（自记待清理，同 latestSession 口径）。 */
 export function entryPolarity(kind: EntryKind): '正' | '负' {
   return kind === '样章' || kind === '手法' ? '正' : '负'
 }

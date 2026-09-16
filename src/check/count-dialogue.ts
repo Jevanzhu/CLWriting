@@ -17,7 +17,7 @@ import { QUOTED_SPAN_RE, stripQuotedSpans, QUOTE_OPEN, QUOTE_CLOSE, SPAN_PUNCT }
 // 复审-0914-优化 A2：实现收编 src/shared/text.ts 单源（原本地副本删）。
 import { codePointLength } from '../shared/text.js'
 // 复审-0914-优化修复批：unknown → message 三目收编 log.errMsg 单源（同批 run.ts 同款）
-import { errMsg } from '../log/index.js'
+import { errMsg, log } from '../log/index.js'
 
 /**
  * 汉字字符范围（基本区 + 扩展 A 区）。
@@ -142,6 +142,17 @@ export function checkRepeat(
   repeatCharThreshold = REPEAT_CHARS_THRESHOLD,
 ): CheckSectionResult {
   const items: CheckItem[] = []
+  // R0916-6-nano-1（2026-09-16 评审修复批）：repeat_chars_threshold 是正整数语义
+  // （绝对重复字数口径）——yaml 解析层只验 >0（R52 口径），手写 0.5 直穿后
+  // repeatChars > 0.5 近乎恒真 = 绝对字数口径形同恒报黄，违反「配置不生效必留痕」
+  // 纪律。镜像姊妹键 repeat_threshold 的 R0912-3 消费点夹紧先例：非正整数（含小数
+  // /≤0，NaN 同判）warn 留痕 + 回落默认值，不静默改口径；在本消费点夹紧可同护
+  // learn 侧 scoreByChecks 等其余调用方。
+  let charThreshold = repeatCharThreshold
+  if (!Number.isInteger(charThreshold) || charThreshold <= 0) {
+    log.warn('check', `checks.repeat_chars_threshold ${charThreshold} 非正整数（绝对重复字数阈值口径），已回落默认值 ${REPEAT_CHARS_THRESHOLD}`)
+    charThreshold = REPEAT_CHARS_THRESHOLD
+  }
   // M-12（第八轮）：滑窗口径收口到 format/sentences.ngramRepeatRate（与文风重扫共用）
   const { rate, total, repeatInstances, repeatChars } = ngramRepeatRate(body, REPEAT_N_GRAM)
   if (total > 0) {
@@ -153,11 +164,11 @@ export function checkRepeat(
         level: 'yellow',
         message: `复读率 ${(rate * 100).toFixed(1)}% 超阈值 ${threshold * 100}%（重复 ${repeatInstances} 处）`,
       })
-    } else if (repeatChars > repeatCharThreshold) {
+    } else if (repeatChars > charThreshold) {
       items.push({
         checkId: 'repeat',
         level: 'yellow',
-        message: `重复字符量 ${repeatChars} 字超绝对阈值 ${repeatCharThreshold} 字（复读率 ${(rate * 100).toFixed(1)}% 未超，大章集中复读）`,
+        message: `重复字符量 ${repeatChars} 字超绝对阈值 ${charThreshold} 字（复读率 ${(rate * 100).toFixed(1)}% 未超，大章集中复读）`,
       })
     }
   }
@@ -174,6 +185,12 @@ export function checkSentenceLength(
 ): CheckSectionResult {
   const items: CheckItem[] = []
   const sentences = splitSentences(body)
+  // R0916-6-nano-3（2026-09-16 评审修复批）：分号句读口径注记——splitSentences 全库
+  // 单源默认不按「；」切（includeColon 供对话/排比场景显式开启，format/sentences.ts），
+  // 分号串联的长串在此计为单句：分号确有句读功能，超长句占比可因此虚高。定性：
+  // 误报向、advisory（黄项不驱动红闸，只提示不计闸）；维持不切的取舍是分句单源口径
+  // 为复读/文风统计面共用，单独为本检改切会连带全库统计口径，如需分号细分应走
+  // includeColon 专属口径另立项。
   // R73-19（二十一轮）：句长统一码点口径（与 countWords 一致）——UTF-16 .length 对
   // astral 字符（emoji/生僻扩展区）一符计 2，句长虚高。codePointLength 见顶部 import。
   const overlong = sentences.filter((s) => codePointLength(s) > maxLen)

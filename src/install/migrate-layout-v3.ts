@@ -10,7 +10,7 @@
 import { existsSync, readdirSync, rmdirSync, readFileSync, mkdirSync } from 'node:fs'
 import { renameWithRetry } from '../fs/atomic.js'
 import { join, dirname } from 'node:path'
-import { resolveDraftPath } from '../format/draft.js'
+import { resolveDraftPath } from '../document/draft-path.js'
 import { isMdFileName } from '../format/filename.js'
 import { readManifestStrict, writeManifest, withManifestLock, removeEntry } from '../document/manifest.js'
 import { appendTrashEntry } from '../document/trash.js'

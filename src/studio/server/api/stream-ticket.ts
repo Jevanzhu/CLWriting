@@ -99,6 +99,13 @@ export function registerStreamTicketRoutes(tickets: StreamTicketStore): void {
     path: '/api/stream-ticket',
     handler: (_ctx, req: IncomingMessage, res: ServerResponse) => {
       // 前端无 body 直发 POST——排空请求流（不消费会拖垮 keep-alive 连接复用）
+      // R0916-6-nano：排空加 1MB 上限——此前无限吞，异常超大 body（误用/探测）可拖住
+      // 连接；计数超限即毁连接（fail-closed，正常前端零 body 永不触）
+      let drained = 0
+      req.on('data', (chunk: Buffer) => {
+        drained += chunk.length
+        if (drained > 1024 * 1024) req.destroy()
+      })
       req.resume()
       reply(res, 200, tickets.issue())
     },

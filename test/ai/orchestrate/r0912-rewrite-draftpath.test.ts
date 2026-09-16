@@ -2,7 +2,7 @@
  * R0912-2（2026-09-11 修复批）回归：重写循环 draftPath 与最新稿同步 + 异章号防线。
  *
  * 背景：loop.draftPath 仅首稿设定、重写落盘后不回写——tool_use 未命中降级自由文本
- * 且 AI 自带异章号 front matter 时，resolveDraftPath（format/draft.ts 只读接口）按
+ * 且 AI 自带异章号 front matter 时，resolveDraftPath（document/draft-path.ts 只读接口；R0916-6-P2-2 自 format/draft.ts 上移）按
  * 章号失配新建孤儿文件，而机检恒打首稿路径（ctx.check(loop.draftPath)），红项永不
  * 收敛。修复：rewriteOnce 落盘后以 saveDraft 返回的真实 relPath 刷新 loop.draftPath
  *（与首稿路径取自 save 返回值同口径）；另在落盘处加防线——内容章号 ≠ 编排章号时

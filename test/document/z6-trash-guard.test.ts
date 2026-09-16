@@ -25,7 +25,7 @@ import { readChapterDir } from '../../src/format/chapters.js'
 import { tryAcquireCrossProcessLock, acquireCrossProcessLockWithTimeout } from '../../src/fs/cross-process-lock.js'
 import { parseFlat } from '../../src/format/frontmatter.js'
 import { isInvalidBookName } from '../../src/install/books.js'
-import { inferVolumeDir } from '../../src/format/draft.js'
+import { inferVolumeDir } from '../../src/document/draft-path.js'
 
 let root: string
 beforeEach(() => {

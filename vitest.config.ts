@@ -125,6 +125,17 @@ export default defineConfig({
         // 全量 coverage 实测 statements 89.53 / branches 78.53 / functions 94.33 /
         // lines 89.53 → −2pp 向下取整 87 / 76 / 92 / 87（functions 恰持平不动）
         'src/studio/server/**': { statements: 87, branches: 76, functions: 92, lines: 87 },
+        // R0916-6-P3-12（2026-09-16 全库源码重评五轮修复批）：metrics/driver/review 三小域
+        // 单列子桶——三域此前落主池化桶（聚合均值 ~89%），域内单文件腰斩对门不可见
+        //（stores/composables 拆桶同款论证）；与主桶并存 = 域级基线门 + 聚合防回退门叠加。
+        // 阈值取保守防回退档（本批未跑全量 coverage 无实测基线，宁低勿红）：主桶现行门
+        // lines 89 / branches 83 对三域已全绿，故 60-65 档必然显著低于现状，只保证
+        // 「域级腰斩可见」不追高——metrics/review 直测厚（test 下 7/5 个直测文件对 2 个
+        // 源文件）取 65/55，driver 直测薄（cc/SSE 大文件主要经 studio 面集成行使）取最
+        // 保守 60/50。后续随全量 coverage-summary 实测基线再按 −2pp 规则收紧。
+        'src/metrics/**': { lines: 65, branches: 55 },
+        'src/driver/**': { lines: 60, branches: 50 },
+        'src/review/**': { lines: 65, branches: 55 },
         // M-7（第十轮）：api 层单列覆盖桶——此前十余 api 文件落进聚合桶被 stores 高覆盖
         // 均值掩盖（单文件回退对阈值门不可见，参数/响应映射逻辑零守护）；阈值 = 实测基线
         // −2pp 向下取整，只防回退不追高。X-6（第五十六轮批 D）：批 A 补 api 直测后

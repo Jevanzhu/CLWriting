@@ -5,7 +5,8 @@ import { join, relative, sep } from 'node:path'
 import { readChapterDir } from '../../format/chapters.js'
 import { readManifest } from '../../document/manifest.js'
 import { legacyId } from '../../document/stable-id.js'
-import { resolveDraftPath, readDraft } from '../../format/draft.js'
+import { readDraft } from '../../format/draft.js'
+import { resolveDraftPath } from '../../document/draft-path.js'
 import { docJoinKey } from '../../fs/safe-path.js'
 
 const MANIFEST_FILE = join('项目', '文档清单.jsonl')

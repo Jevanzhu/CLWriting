@@ -8,19 +8,12 @@
  * （R64-4 设置组件代守卫见 settings-book.test.ts / settings-book-writing.test.ts；
  *   R64-32 treeExpanded 复位见 prefs-store.test.ts。）
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, vi, type MockInstance } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { ref } from 'vue'
 
-// ---------- R64-2：useChapterTreeActions 桩（对齐 chapter-tree-actions-y8-y29 惯例） ----------
-const treeMock = {
-  byPath: new Map<string, { docId: string }>(),
-  byDocId: new Map<string, { path: string }>(),
-  load: vi.fn(async () => {}),
-  updateWordCount: vi.fn(),
-}
-const toastMock = vi.fn()
+// ---------- R64-2：api 层桩（对齐 chapter-tree-actions-y8-y29 惯例；store 全真件，R0916-6-P2-5） ----------
 const getContent = vi.hoisted(() => vi.fn(async () => '内容'))
 vi.mock('../../../src/studio/web-next/src/api/documents', () => {
   const getContent = vi.fn(async () => '内容')
@@ -32,6 +25,9 @@ vi.mock('../../../src/studio/web-next/src/api/documents', () => {
     deleteDoc: vi.fn(),
     updateChapterMetaDoc: vi.fn(),
     batchFinalizeDocs: vi.fn(),
+    structurePlan: vi.fn(),
+    structureApply: vi.fn(),
+    structureMergeUndo: vi.fn(),
     getContent,
     // 重评-0912-4 P1-1:doOpen 改走完整载荷——委托默认包装既有 getContent mock(suspect 分支默认不触发)
     getContentPayload: vi.fn(async (...a: Parameters<typeof getContent>) => ({ content: await getContent(...a) })),
@@ -48,24 +44,26 @@ vi.mock('../../../src/studio/web-next/src/api/client', async (importOriginal) =>
   }
 })
 vi.mock('../../../src/studio/web-next/src/api/books', () => ({
+  getTree: vi.fn(async () => ({ nodes: [], revision: '' })),
   getConfig: vi.fn(async () => ({ kind: 'long' })),
   renameBook: vi.fn(),
 }))
-vi.mock('../../../src/studio/web-next/src/stores/ui', () => ({
-  useUiStore: vi.fn(() => ({ toast: toastMock, ask: vi.fn(async () => true) })),
-}))
-vi.mock('../../../src/studio/web-next/src/stores/workspace', () => ({
-  useWorkspaceStore: vi.fn(() => ({ openTab: vi.fn(), activeDocId: ref(null) })),
-}))
-vi.mock('../../../src/studio/web-next/src/stores/tree', () => ({
-  useTreeStore: vi.fn(() => treeMock),
+// 真 tree store 的 load 红点拉取（fire-and-forget）——不 mock 会对 127.0.0.1:3000 发真 fetch
+vi.mock('../../../src/studio/web-next/src/api/tree-issues', () => ({
+  getTreeIssues: vi.fn(async () => ({ issues: {} })),
 }))
 
 import { batchFinalizeDocs, finalizeDoc } from '../../../src/studio/web-next/src/api/documents';
 import { useChapterTreeActions } from '../../../src/studio/web-next/src/composables/useChapterTreeActions'
+import { setupRealStores, recordToasts } from './helpers/real-stores'
+import type { RealStores } from './helpers/real-stores'
 
 const batchMock = batchFinalizeDocs as ReturnType<typeof vi.fn>
 const finalizeMock = finalizeDoc as ReturnType<typeof vi.fn>
+
+let stores: RealStores
+let toasts: ReturnType<typeof recordToasts>
+let treeLoad: MockInstance
 
 let currentBook = '书A'
 
@@ -73,6 +71,10 @@ beforeEach(() => {
   setActivePinia(createPinia())
   vi.clearAllMocks()
   currentBook = '书A'
+  // 真 store：toast/load 用动作 spy 录制（R0916-6-P2-5 装法，替代整 store mock）
+  stores = setupRealStores()
+  toasts = recordToasts(stores.ui)
+  treeLoad = vi.spyOn(stores.tree, 'load')
 })
 
 describe('R64-2: doBatchFinalize 在途切书不刷新书树', () => {
@@ -91,24 +93,23 @@ describe('R64-2: doBatchFinalize 在途切书不刷新书树', () => {
     await p
     await flushPromises()
     // 修复前：迟到的 load(书A) 后发后至覆盖 B 书树 + toast 落 B 书界面
-    expect(treeMock.load).not.toHaveBeenCalled()
-    expect(toastMock).not.toHaveBeenCalled()
+    expect(treeLoad).not.toHaveBeenCalled()
+    expect(toasts).not.toHaveBeenCalled()
   })
 
   it('未切书（对照）→ 正常 toast + load(书A)', async () => {
     batchMock.mockResolvedValue({ results: [{ ok: true, skipped: false }] })
     const actions = useChapterTreeActions({ bookName: () => currentBook, openError: ref(null) })
     await actions.doBatchFinalize(['doc_1'])
-    expect(treeMock.load).toHaveBeenCalledWith('书A', true)
-    expect(toastMock).toHaveBeenCalled()
+    expect(treeLoad).toHaveBeenCalledWith('书A', true)
+    expect(toasts).toHaveBeenCalled()
   })
 })
 
 describe('R64-3: doc.finalize 在途切书不刷新书树', () => {
   it('定稿在途切书 → 不 load 旧书、不 toast（返回 true 保持成功语义）', async () => {
-    // 真 doc store：mock stores 已在上面统一替换（tree/ui 均 mock）
-    const { useDocStore } = await import('../../../src/studio/web-next/src/stores/doc')
-    const doc = useDocStore()
+    // 真 doc store（R0916-6-P2-5 起 store 全真件，不再动态 import 绕 mock）
+    const doc = stores.doc
     doc.setBook('书A')
     let resolveFin!: (r: unknown) => void
     finalizeMock.mockImplementation(
@@ -122,15 +123,14 @@ describe('R64-3: doc.finalize 在途切书不刷新书树', () => {
     resolveFin({ ok: true })
     expect(await p).toBe(true)
     await flushPromises()
-    expect(treeMock.load).not.toHaveBeenCalled()
-    expect(toastMock).not.toHaveBeenCalled()
+    expect(treeLoad).not.toHaveBeenCalled()
+    expect(toasts).not.toHaveBeenCalled()
   })
 })
 
 describe('R64-31: doc 缓存命中重排（evictLRU 真 LRU）', () => {
   it('重开在缓存中的文档 → 移到最新位；后续驱逐淘汰的是真实最久未用', async () => {
-    const { useDocStore } = await import('../../../src/studio/web-next/src/stores/doc')
-    const doc = useDocStore()
+    const doc = stores.doc
     doc.setBook('test-book')
     vi.mocked(getContent).mockResolvedValue('内容')
     const node = (id: string) =>

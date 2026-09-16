@@ -913,7 +913,9 @@ export class DocumentService {
       // B-6（第六十轮）：tmp + linkSync 独占创建——上方 existsSync 与落盘之间无跨进程
       // 互斥，双进程同 relPath 并发新建时 atomicWriteFile 的 rename 静默覆盖后到者
       // 内容且双方返回成功（两个 docId 先后 upsert 成同路径双认领态）；link 遇
-      // EEXIST → ALREADY_EXISTS，双方各自明确
+      // EEXIST → ALREADY_EXISTS，双方各自明确。R0916-6-P3-14 无锁论证：create 目标
+      // 的 docId 尚不存在（无既有身份可挂 save 锁），并发同路径新建的互斥正由本独占
+      // 探测承担——无锁可取，亦无需取。
       const created = createFileExclusive(safe, content, { fsync: true })
       if (created === 'exists') return { ok: false, code: 'ALREADY_EXISTS', reason: '文件已存在' }
     } catch (e) {
@@ -1314,102 +1316,122 @@ export class DocumentService {
 
   /** 复制文档（读源内容 → 落到 relPath → 分配新 docId + 清单登记 + invalidate）。
    *  R34D-19（三十四轮）：doCopy 转异步——清单登记锁等待走 withManifestLockAsync；
-   *  对外 Promise 契约不变。 */
+   *  对外 Promise 契约不变。R0916-6-P3-14：全程持源 docId save 锁（与 move/rename/
+   *  trash 同族——对端保存/结构操作进行中时等待，而非 ENOENT 误报）。 */
   async copyDocument(input: CopyDocumentInput): Promise<CopyResult> {
     return this.doCopy(input)
   }
 
   private async doCopy(input: CopyDocumentInput): Promise<CopyResult> {
-    // R0912-3：lookup strict 读失败收口 WRITE_ERROR（未执行复制、可重试），不裸穿
-    let srcPath: string | null
-    try {
-      srcPath = await this.lookupPathByDocIdAdoptAsync(input.docId)
-    } catch (e) {
-      return { ok: false, code: 'WRITE_ERROR', reason: `复制前清单查询失败（未执行复制，可重试）：${errMsg(e)}` }
-    }
-    if (!srcPath) return { ok: false, code: 'NOT_FOUND', reason: `源文档 ${input.docId} 未在清单登记` }
-    // R33-9（三十三轮）：目标文件段过 sanitizeFileNamePart（补单源纪律缺口——目录段
-    // 既有身份不动，只净化本次创建的文件名；win 尾点/尾空格/保留设备名同族收口）
-    // R2W-5（win 平台专项复审 R2）：目录段补 R33-9 同族纪律——仅对「当前不存在（本次
-    // mkdir 将创建）」的段过 sanitizeFileNamePart（既有段保持身份不动，与 move 侧
-    // 1146 行口径一致），防 win 非法字符/尾点尾空格/保留设备名目录段 mkdir EINVAL 裸 500。
-    const relSegs = input.relPath.split('/')
-    // R51-D-3（五十一轮）：`..` 目录段前置拒绝——下方目录段「已存在则原样保留」分支对
-    // `a/..` 恒命中（existsSync(join(root,'a','..')) 即 root 本身），`..` 原文进入
-    // copyRelPath 且原文登记清单（doCreate 侧有原始 relPath 的 PATH_ESCAPE 前置 +
-    // sanitizeCreateSegment 洗段，copy 侧两道皆无），物理落位（resolveSafePath 归一）
-    // 与清单登记（原文）路径不一致 → docId 身份分裂、保存恒 REVISION_CONFLICT。
-    // 口径对齐 doCreate 主评审核销注：位置合法化不放宽，复制无合法用例需要 `..` 段。
-    // 全库重评-0914 P2-2：`.` 段一并拒绝——同「已存在则原样保留」分支对 `a/./b.md`
-    // 恒命中（existsSync(join(root,'a','.')) 即 `a` 本身），`.` 原文进 copyRelPath 登记
-    // 而物理落位经 resolveSafePath 词法折叠在 `a/b.md`，登记与盘上路径分裂 → docId
-    // 身份分裂（R51-D-3 同族终点）；口径对齐 normalizeMoveToDir 的 `..`/`.` 双拒。
-    if (relSegs.includes('..') || relSegs.includes('.')) {
-      return { ok: false, code: 'PATH_ESCAPE', reason: '路径段非法：不允许 . 或 .. 目录段' }
-    }
-    const safeDirSegs = relSegs.slice(0, -1).map((seg, idx) =>
-      existsSync(join(this.bookRoot, ...relSegs.slice(0, idx + 1))) ? seg : sanitizeFileNamePart(seg),
-    )
-    const copyRelPath = [...safeDirSegs, sanitizeFullFileName(relSegs[relSegs.length - 1]!)].join('/')
-    // 能力：源 copy + 目标 write。R37-15（三十七轮）注释如实化：旧括注「与 create
-    // 同步实现，靠单线程微任务不交错」失实——create/copy 均已异步（R34D-19），本方法
-    // 前段即有 await（lookupPathByDocIdAdoptAsync 的清单锁等待）。能力闸交错安全的
-    // 真实依据：layoutOf 是纯路径→布局查表（无 IO、无共享可变状态），前段 await 让出
-    // 事件循环不改变其判定；后续落位并发由 createFileExclusive 独占探测兜底（:1394）。
-    if (!layoutOf(srcPath).capabilities.copy) {
-      return { ok: false, code: 'CAPABILITY_DENIED', reason: '该文档不可复制' }
-    }
-    if (!layoutOf(copyRelPath).capabilities.write) {
-      return { ok: false, code: 'CAPABILITY_DENIED', reason: '目标位置只读' }
-    }
-    const srcSafe = this.resolveSafePath(srcPath)
-    const dstSafe = this.resolveSafePath(copyRelPath)
-    if (!srcSafe || !dstSafe) return { ok: false, code: 'PATH_ESCAPE', reason: '路径越出书仓库' }
-    if (!existsSync(srcSafe)) return { ok: false, code: 'NOT_FOUND', reason: '源文件不存在' }
-    // R61-11（第六十一轮）：existsSync 预检与 atomicWriteFile 落盘之间无互斥（TOCTOU），
-    // rename 静默覆盖并发建到的目标；改 createFileExclusive（link 不覆盖，EEXIST →
-    // ALREADY_EXISTS，同 doCreate B-6 口径）——预检保留仅作快路
-    if (existsSync(dstSafe)) return { ok: false, code: 'ALREADY_EXISTS', reason: '目标已存在' }
+    // R0916-6-P3-14：源 save 锁——copy 此前无锁直读源清单/源文件，与并发结构操作
+    // （move/rename/trash 皆持源 save 锁，R0912-2 全程持锁）交错时：lookup 命中旧
+    // path → 对端改名/软删落位 → readFileSync 旧路径 ENOENT 落「复制失败：ENOENT」
+    // 误导信封（作者无从知晓系并发结构操作）。取锁后与结构操作互斥：要么复制完成，
+    // 要么等对方完成后再 lookup（读到新身份/按 NOT_FOUND 人话拒绝）。锁序 save → 清单
+    // 与全仓单向嵌套一致（body 内 lookup/upsert 皆清单锁）。journal 路径含 docId，
+    // 入口 safeDocId 校验同 doMoveOrRename（manifest 属可篡改数据面，防穿越同口径）。
+    if (!safeDocId(input.docId)) return { ok: false, code: 'PATH_ESCAPE', reason: '文档 ID 非法' }
+    const journalPath = join(this.journalDir, `${encodeDocDirName(input.docId)}.jsonl`) // R68-3：同 executeSave 编码口径
+    // 取锁/释放编排单源 withSaveLocks（结构操作族同款 5s 结构锁超时口径）。复制无
+    // 布线文件，不传 wiring。
+    return this.withSaveLocks<CopyResult>({
+      journalPath,
+      saveTimeoutMs: getStructSaveLockTimeoutMs(),
+      onSaveLockThrown: (e) => ({ ok: false, code: 'WRITE_ERROR', reason: `复制保存锁获取失败（未执行复制，可重试）：${errMsg(e)}` }),
+      onSaveLockTimeout: () => ({ ok: false, code: 'WRITE_ERROR', reason: '复制等待超时：另一进程正在保存或移动此文档（5 秒未让出），请重试' }),
+      body: async () => {
+        // R0912-3：lookup strict 读失败收口 WRITE_ERROR（未执行复制、可重试），不裸穿
+        let srcPath: string | null
+        try {
+          srcPath = await this.lookupPathByDocIdAdoptAsync(input.docId)
+        } catch (e) {
+          return { ok: false, code: 'WRITE_ERROR', reason: `复制前清单查询失败（未执行复制，可重试）：${errMsg(e)}` }
+        }
+        if (!srcPath) return { ok: false, code: 'NOT_FOUND', reason: `源文档 ${input.docId} 未在清单登记` }
+        // R33-9（三十三轮）：目标文件段过 sanitizeFileNamePart（补单源纪律缺口——目录段
+        // 既有身份不动，只净化本次创建的文件名；win 尾点/尾空格/保留设备名同族收口）
+        // R2W-5（win 平台专项复审 R2）：目录段补 R33-9 同族纪律——仅对「当前不存在（本次
+        // mkdir 将创建）」的段过 sanitizeFileNamePart（既有段保持身份不动，与 move 侧
+        // 1146 行口径一致），防 win 非法字符/尾点尾空格/保留设备名目录段 mkdir EINVAL 裸 500。
+        const relSegs = input.relPath.split('/')
+        // R51-D-3（五十一轮）：`..` 目录段前置拒绝——下方目录段「已存在则原样保留」分支对
+        // `a/..` 恒命中（existsSync(join(root,'a','..')) 即 root 本身），`..` 原文进入
+        // copyRelPath 且原文登记清单（doCreate 侧有原始 relPath 的 PATH_ESCAPE 前置 +
+        // sanitizeCreateSegment 洗段，copy 侧两道皆无），物理落位（resolveSafePath 归一）
+        // 与清单登记（原文）路径不一致 → docId 身份分裂、保存恒 REVISION_CONFLICT。
+        // 口径对齐 doCreate 主评审核销注：位置合法化不放宽，复制无合法用例需要 `..` 段。
+        // 全库重评-0914 P2-2：`.` 段一并拒绝——同「已存在则原样保留」分支对 `a/./b.md`
+        // 恒命中（existsSync(join(root,'a','.')) 即 `a` 本身），`.` 原文进 copyRelPath 登记
+        // 而物理落位经 resolveSafePath 词法折叠在 `a/b.md`，登记与盘上路径分裂 → docId
+        // 身份分裂（R51-D-3 同族终点）；口径对齐 normalizeMoveToDir 的 `..`/`.` 双拒。
+        if (relSegs.includes('..') || relSegs.includes('.')) {
+          return { ok: false, code: 'PATH_ESCAPE', reason: '路径段非法：不允许 . 或 .. 目录段' }
+        }
+        const safeDirSegs = relSegs.slice(0, -1).map((seg, idx) =>
+          existsSync(join(this.bookRoot, ...relSegs.slice(0, idx + 1))) ? seg : sanitizeFileNamePart(seg),
+        )
+        const copyRelPath = [...safeDirSegs, sanitizeFullFileName(relSegs[relSegs.length - 1]!)].join('/')
+        // 能力：源 copy + 目标 write。R37-15（三十七轮）注释如实化：旧括注「与 create
+        // 同步实现，靠单线程微任务不交错」失实——create/copy 均已异步（R34D-19），本方法
+        // 前段即有 await（lookupPathByDocIdAdoptAsync 的清单锁等待）。能力闸交错安全的
+        // 真实依据：layoutOf 是纯路径→布局查表（无 IO、无共享可变状态），前段 await 让出
+        // 事件循环不改变其判定；后续落位并发由 createFileExclusive 独占探测兜底（:1394）。
+        if (!layoutOf(srcPath).capabilities.copy) {
+          return { ok: false, code: 'CAPABILITY_DENIED', reason: '该文档不可复制' }
+        }
+        if (!layoutOf(copyRelPath).capabilities.write) {
+          return { ok: false, code: 'CAPABILITY_DENIED', reason: '目标位置只读' }
+        }
+        const srcSafe = this.resolveSafePath(srcPath)
+        const dstSafe = this.resolveSafePath(copyRelPath)
+        if (!srcSafe || !dstSafe) return { ok: false, code: 'PATH_ESCAPE', reason: '路径越出书仓库' }
+        if (!existsSync(srcSafe)) return { ok: false, code: 'NOT_FOUND', reason: '源文件不存在' }
+        // R61-11（第六十一轮）：existsSync 预检与 atomicWriteFile 落盘之间无互斥（TOCTOU），
+        // rename 静默覆盖并发建到的目标；改 createFileExclusive（link 不覆盖，EEXIST →
+        // ALREADY_EXISTS，同 doCreate B-6 口径）——预检保留仅作快路
+        if (existsSync(dstSafe)) return { ok: false, code: 'ALREADY_EXISTS', reason: '目标已存在' }
 
-    // R47-32：落盘字节引用（try 内赋值；成功路径恒有值）
-    let payloadBytes: Buffer | undefined
-    try {
-      // P5-数据层（第七轮）：按原始字节复制——原 utf-8 文本读写在非 UTF-8 源上会产出
-      // 乱码副本（M-5 同族防线未覆盖复制路径；原件无损但副本即损坏）
-      // 平台规范化批：合法 UTF-8 源按规范形复制（CRLF/BOM 归一——副本是新建文件，
-      // 生而规范）；非 UTF-8 源维持字节级复制（P5 防线不动）
-      const raw = readFileSync(srcSafe)
-      const payload = isUtf8Bytes(raw) && bufferNeedsCanonical(raw) ? canonicalizeText(raw.toString('utf-8')) : raw
-      // R47-32（四十七轮）：落盘字节留引用——返回 revision 单写派生（R40-20 同族），
-      // 不再落盘后重读全文（canonicalizeText 的 string 经 createFileExclusive utf-8 落盘）
-      payloadBytes = typeof payload === 'string' ? Buffer.from(payload, 'utf-8') : payload
-      const created = createFileExclusive(dstSafe, payload, { fsync: true })
-      if (created === 'exists') return { ok: false, code: 'ALREADY_EXISTS', reason: '目标已存在' }
-    } catch (e) {
-      return { ok: false, code: 'WRITE_ERROR', reason: `复制失败：${errMsg(e)}` }
-    }
-    // 新 docId + 清单登记（结构性操作触发建清单，W0-1 §4.2）
-    const newDocId = generateDocId()
-    // R70-17（十八轮）：登记收编（同 doCreate——半成品由树扫描自愈，不误报完全失败）
-    // R31-24（三十一轮）：登记失败降级返回 legacyId(rel)（同 doCreate，身份连续）
-    let registeredDocId = newDocId
-    try {
-      //（合并注：登记/回退/返回统一用净化后 copyRelPath——落盘的是 dstSafe（其源即
-      // copyRelPath），登记 input.relPath 会复现 R33-9 的「清单 ≠ 盘上名」缺陷；
-      // 异步登记 + legacy 降级取 dev 线 R31-24/R34D-19 口径。）
-      await this.upsertManifestEntryAsync(newDocId, copyRelPath)
-    } catch (e) {
-      registeredDocId = legacyId(copyRelPath)
-      log.warn('document', `复制后清单登记失败（${copyRelPath}，降级返回 legacy id 与树扫描自愈同源）：${errMsg(e)}`)
-    }
-    invalidateTreeIndex(this.bookRoot, true)
-    // R47-32（四十七轮）：单写派生（payloadBytes 即刚写入字节；防御回落盘读）
-    return {
-      ok: true,
-      docId: registeredDocId,
-      path: copyRelPath,
-      revision: payloadBytes ? computeRevisionBytes(payloadBytes) : computeRevision(dstSafe),
-    }
+        // R47-32：落盘字节引用（try 内赋值；成功路径恒有值）
+        let payloadBytes: Buffer | undefined
+        try {
+          // P5-数据层（第七轮）：按原始字节复制——原 utf-8 文本读写在非 UTF-8 源上会产出
+          // 乱码副本（M-5 同族防线未覆盖复制路径；原件无损但副本即损坏）
+          // 平台规范化批：合法 UTF-8 源按规范形复制（CRLF/BOM 归一——副本是新建文件，
+          // 生而规范）；非 UTF-8 源维持字节级复制（P5 防线不动）
+          const raw = readFileSync(srcSafe)
+          const payload = isUtf8Bytes(raw) && bufferNeedsCanonical(raw) ? canonicalizeText(raw.toString('utf-8')) : raw
+          // R47-32（四十七轮）：落盘字节留引用——返回 revision 单写派生（R40-20 同族），
+          // 不再落盘后重读全文（canonicalizeText 的 string 经 createFileExclusive utf-8 落盘）
+          payloadBytes = typeof payload === 'string' ? Buffer.from(payload, 'utf-8') : payload
+          const created = createFileExclusive(dstSafe, payload, { fsync: true })
+          if (created === 'exists') return { ok: false, code: 'ALREADY_EXISTS', reason: '目标已存在' }
+        } catch (e) {
+          return { ok: false, code: 'WRITE_ERROR', reason: `复制失败：${errMsg(e)}` }
+        }
+        // 新 docId + 清单登记（结构性操作触发建清单，W0-1 §4.2）
+        const newDocId = generateDocId()
+        // R70-17（十八轮）：登记收编（同 doCreate——半成品由树扫描自愈，不误报完全失败）
+        // R31-24（三十一轮）：登记失败降级返回 legacyId(rel)（同 doCreate，身份连续）
+        let registeredDocId = newDocId
+        try {
+          //（合并注：登记/回退/返回统一用净化后 copyRelPath——落盘的是 dstSafe（其源即
+          // copyRelPath），登记 input.relPath 会复现 R33-9 的「清单 ≠ 盘上名」缺陷；
+          // 异步登记 + legacy 降级取 dev 线 R31-24/R34D-19 口径。）
+          await this.upsertManifestEntryAsync(newDocId, copyRelPath)
+        } catch (e) {
+          registeredDocId = legacyId(copyRelPath)
+          log.warn('document', `复制后清单登记失败（${copyRelPath}，降级返回 legacy id 与树扫描自愈同源）：${errMsg(e)}`)
+        }
+        invalidateTreeIndex(this.bookRoot, true)
+        // R47-32（四十七轮）：单写派生（payloadBytes 即刚写入字节；防御回落盘读）
+        return {
+          ok: true,
+          docId: registeredDocId,
+          path: copyRelPath,
+          revision: payloadBytes ? computeRevisionBytes(payloadBytes) : computeRevision(dstSafe),
+        }
+      },
+    })
   }
 
   /** 软删文档（snapshot + 回收站登记 + 移 .trash + 清单 removeEntry + invalidate；
@@ -1638,6 +1660,9 @@ export class DocumentService {
             const fresh = m.entries.get(docId)
             if (fresh) {
               const freshBaseline = trashBaselineOf(fresh)
+              // R0916-6-nano：stringify 全串比较在此成立——两侧皆 trashBaselineOf 同源
+              // 投影（键集与插入序恒同，非任意对象字面量），串不同 = 内容真异；误判
+              // 不同也只多一次幂等基线回填，无引入逐字段比较的维护面。
               if (JSON.stringify(freshBaseline) !== JSON.stringify(priorFinalized)) {
                 priorFinalized = freshBaseline
                 await appendTrashEntryAsync(this.bookRoot, { ...entryBase, ...priorFinalized, trashedPath: finalTrashRel })

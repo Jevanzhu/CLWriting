@@ -6,23 +6,14 @@
  * 「未保存的修改将一并丢失」（内容其实正在落盘）。修复：判式前先 await 在途保存
  * （doc.waitInflightSave，同 flushDirty 的台账等待形态）再按最新 entry 态判定。
  *
- * 桩结构对齐 r44-delete-presave-dirty 惯例（documents/client/ui/workspace/tree 全
- * mock，doc store 走真实 pinia + documents mock）。
+ * 桩结构对齐 r44-delete-presave-dirty 惯例（documents/client/books/tree-issues api 层
+ * mock；doc/ui/tree/workspace store 全真件——R0916-6-P2-5：ui.ask 用动作 spy 自动确认、
+ * toast/load 断言用动作 spy，兄弟 store 不再整件 mock，见 helpers/real-stores 纪律）。
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { ref } from 'vue'
 
-const treeMock = {
-  byPath: new Map<string, { docId: string }>(),
-  byDocId: new Map<string, { path: string }>(),
-  grouped: [] as unknown[],
-  raw: [] as unknown[],
-  load: vi.fn(async () => {}),
-  updateWordCount: vi.fn(),
-}
-const askMock = vi.fn(async () => true)
-const toastMock = vi.fn()
 vi.mock('../../../src/studio/web-next/src/api/documents', () => {
   const getContent = vi.fn(async () => '旧正文')
   return {
@@ -33,6 +24,9 @@ vi.mock('../../../src/studio/web-next/src/api/documents', () => {
     deleteDoc: vi.fn(),
     updateChapterMetaDoc: vi.fn(),
     batchFinalizeDocs: vi.fn(),
+    structurePlan: vi.fn(),
+    structureApply: vi.fn(),
+    structureMergeUndo: vi.fn(),
     getContent,
     // 重评-0912-4 P1-1:doOpen 改走完整载荷——委托默认包装既有 getContent mock(suspect 分支默认不触发)
     getContentPayload: vi.fn(
@@ -51,31 +45,25 @@ vi.mock('../../../src/studio/web-next/src/api/client', async (importOriginal) =>
   }
 })
 vi.mock('../../../src/studio/web-next/src/api/books', () => ({
+  getTree: vi.fn(async () => ({ nodes: [], revision: '' })),
   getConfig: vi.fn(async () => ({ kind: 'long' })),
   renameBook: vi.fn(),
 }))
-vi.mock('../../../src/studio/web-next/src/stores/ui', () => ({
-  useUiStore: vi.fn(() => ({ toast: toastMock, ask: askMock })),
-}))
-vi.mock('../../../src/studio/web-next/src/stores/workspace', () => ({
-  useWorkspaceStore: vi.fn(() => ({
-    openTab: vi.fn(),
-    activeDocId: ref(null),
-    treeExpanded: [] as string[],
-    setTreeExpanded: vi.fn(),
-  })),
-}))
-vi.mock('../../../src/studio/web-next/src/stores/tree', () => ({
-  useTreeStore: vi.fn(() => treeMock),
+// 真 tree store 的 load 红点拉取（fire-and-forget）——不 mock 会对 127.0.0.1:3000 发真 fetch
+vi.mock('../../../src/studio/web-next/src/api/tree-issues', () => ({
+  getTreeIssues: vi.fn(async () => ({ issues: {} })),
 }))
 
 import { deleteDoc, saveContent } from '../../../src/studio/web-next/src/api/documents'
 import { useChapterTreeActions } from '../../../src/studio/web-next/src/composables/useChapterTreeActions'
 import { useDocStore } from '../../../src/studio/web-next/src/stores/doc'
 import type { TreeNode } from '../../../src/studio/web-next/src/types/tree'
+import { setupRealStores, autoConfirm } from './helpers/real-stores'
 
 const deleteMock = deleteDoc as ReturnType<typeof vi.fn>
 const saveMock = saveContent as ReturnType<typeof vi.fn>
+
+let askSpy: ReturnType<typeof autoConfirm>
 
 let currentBook = '书A'
 const openError = ref<string | null>(null)
@@ -94,7 +82,7 @@ async function openDirtyDoc(docId: string): Promise<void> {
 }
 
 function askMessage(): string {
-  return ((askMock.mock.calls as unknown[][])[0]![0] as { message: string }).message
+  return ((askSpy.mock.calls as unknown[][])[0]![0] as { message: string }).message
 }
 
 /** 造在途保存：saveContent 挂起到外部放行，返回放行器。 */
@@ -112,6 +100,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   currentBook = '书A'
   deleteMock.mockResolvedValue({ ok: true })
+  // 真 ui store：ask 动作 spy 自动确认（等价旧 mock 的 ask: async () => true）
+  askSpy = autoConfirm(setupRealStores().ui)
 })
 
 describe('R59 清偿批（R55-F-6）: doDelete 在途保存窗口预判', () => {

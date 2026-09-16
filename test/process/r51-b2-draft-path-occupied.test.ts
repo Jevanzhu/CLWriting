@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { saveDraft } from '../../src/process/draft-pipeline.js'
-import { resolveDraftPath } from '../../src/format/draft.js'
+import { resolveDraftPath } from '../../src/document/draft-path.js'
 import { readManifest, writeManifest, upsertEntry } from '../../src/document/manifest.js'
 
 let root = ''

@@ -1,20 +1,15 @@
 /**
  * R71-28（七十一轮）回归：doBatchFinalize catch 分支缺书名复检——批量定稿请求失败
  * 时若已切书，A 书的失败 toast 落到 B 书界面（success 分支 R64-2 已有守卫，catch 漏配）。
+ * 装法（R0916-6-P2-5 起）：store 全真件（ui/tree/workspace），toast 用动作 spy 断言；
+ * api 层仍 mock（documents/client/books），纪律见 helpers/real-stores。
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { ref } from 'vue'
 
-// ---------- 桩（对齐 r64-switch-guards / chapter-tree-actions-y8-y29 惯例） ----------
-const treeMock = {
-  byPath: new Map<string, { docId: string }>(),
-  byDocId: new Map<string, { path: string }>(),
-  load: vi.fn(async () => {}),
-  updateWordCount: vi.fn(),
-}
-const toastMock = vi.fn()
+// ---------- api 层桩（对齐 r64-switch-guards / chapter-tree-actions-y8-y29 惯例） ----------
 vi.mock('../../../src/studio/web-next/src/api/documents', () => ({
   createDoc: vi.fn(),
   renameDoc: vi.fn(),
@@ -23,7 +18,11 @@ vi.mock('../../../src/studio/web-next/src/api/documents', () => ({
   deleteDoc: vi.fn(),
   updateChapterMetaDoc: vi.fn(),
   batchFinalizeDocs: vi.fn(),
+  structurePlan: vi.fn(),
+  structureApply: vi.fn(),
+  structureMergeUndo: vi.fn(),
   getContent: vi.fn(async () => '内容'),
+  getContentPayload: vi.fn(async () => ({ content: '内容' })),
   saveContent: vi.fn(),
   finalizeDoc: vi.fn(),
 }))
@@ -39,27 +38,21 @@ vi.mock('../../../src/studio/web-next/src/api/books', () => ({
   getConfig: vi.fn(async () => ({ kind: 'long' })),
   renameBook: vi.fn(),
 }))
-vi.mock('../../../src/studio/web-next/src/stores/ui', () => ({
-  useUiStore: vi.fn(() => ({ toast: toastMock, ask: vi.fn(async () => true) })),
-}))
-vi.mock('../../../src/studio/web-next/src/stores/workspace', () => ({
-  useWorkspaceStore: vi.fn(() => ({ openTab: vi.fn(), activeDocId: ref(null) })),
-}))
-vi.mock('../../../src/studio/web-next/src/stores/tree', () => ({
-  useTreeStore: vi.fn(() => treeMock),
-}))
 
 import { batchFinalizeDocs } from '../../../src/studio/web-next/src/api/documents'
 import { useChapterTreeActions } from '../../../src/studio/web-next/src/composables/useChapterTreeActions'
+import { setupRealStores, recordToasts } from './helpers/real-stores'
 
 const batchMock = batchFinalizeDocs as ReturnType<typeof vi.fn>
 
+let toasts: ReturnType<typeof recordToasts>
 let currentBook = '书A'
 
 beforeEach(() => {
   setActivePinia(createPinia())
   vi.clearAllMocks()
   currentBook = '书A'
+  toasts = recordToasts(setupRealStores().ui)
 })
 
 describe('R71-28: doBatchFinalize catch 补切书复检', () => {
@@ -78,14 +71,14 @@ describe('R71-28: doBatchFinalize catch 补切书复检', () => {
     rejectBatch(new Error('批量定稿服务异常'))
     await p
     await flushPromises()
-    expect(toastMock).not.toHaveBeenCalled() // 修复点：catch 复检已切书 → 不 toast（修复前弹在 B 书）
+    expect(toasts).not.toHaveBeenCalled() // 修复点：catch 复检已切书 → 不 toast（修复前弹在 B 书）
   })
 
   it('失败仍在原书 → error toast（对照组，守卫不误伤）', async () => {
     batchMock.mockRejectedValue(new Error('批量定稿服务异常'))
     const actions = useChapterTreeActions({ bookName: () => currentBook, openError: ref(null) })
     await actions.doBatchFinalize(['doc_1'])
-    expect(toastMock).toHaveBeenCalledTimes(1)
-    expect(toastMock).toHaveBeenCalledWith(expect.stringContaining('批量定稿'), 'error')
+    expect(toasts).toHaveBeenCalledTimes(1)
+    expect(toasts).toHaveBeenCalledWith(expect.stringContaining('批量定稿'), 'error')
   })
 })

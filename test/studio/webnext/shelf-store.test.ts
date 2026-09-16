@@ -9,23 +9,20 @@
  * globalThis.localStorage 桩显式断言缓存语义。
  */
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
-import { createPinia, setActivePinia } from 'pinia'
-
-const toastSpy = vi.fn()
 
 vi.mock('../../../src/studio/web-next/src/api/shelf', () => ({
   listBooks: vi.fn(),
 }))
 // 清偿-shelf缓存失效提示（2026-09-09 残留清偿批）：load 有快照且刷新失败 → toast warning
-// 可见化（对齐 r16-doc-refresh-fail-toast 的 ui store mock 口径）
-vi.mock('../../../src/studio/web-next/src/stores/ui', () => ({
-  useUiStore: () => ({ toast: toastSpy }),
-}))
+// 可见化（R0916-6-P2-5 起 ui store 用真件 + toast 动作 spy，见 helpers/real-stores 纪律）
 
 import { listBooks } from '../../../src/studio/web-next/src/api/shelf'
 import { useShelfStore } from '../../../src/studio/web-next/src/stores/shelf'
+import { setupRealStores, recordToasts } from './helpers/real-stores'
 
 const listMock = listBooks as ReturnType<typeof vi.fn>
+
+let toastSpy: ReturnType<typeof recordToasts>
 
 const CACHE_KEY = 'clw.shelf.cache.v1'
 
@@ -43,8 +40,9 @@ function stubLocalStorage(initial: Record<string, string> = {}): { storage: Map<
 }
 
 beforeEach(() => {
-  setActivePinia(createPinia())
   vi.clearAllMocks()
+  // 真 pinia + 真 ui store，toast 用动作 spy 录制（R0916-6-P2-5 装法）
+  toastSpy = recordToasts(setupRealStores().ui)
   // happy-dom 提供真实的、跨测试文件内持久化的全局 localStorage——测试 #1 成功拉取会
   // 把快照写入它，污染后续「无快照」用例（读到残留缓存）。每例起始清空，消除上下文泄漏。
   if (typeof localStorage !== 'undefined') {
