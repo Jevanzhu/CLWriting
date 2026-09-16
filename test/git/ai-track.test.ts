@@ -1,6 +1,6 @@
 /**
  * 改稿轨迹旁路 ref 单测（文风系统重整 S2）。
- * 写读列删、legacy docId 编码、时间序、reset --hard 免疫、非 git 目录容错。
+ * 写读列、legacy docId 编码、时间序、reset --hard 免疫、非 git 目录容错。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { rmSync, writeFileSync } from 'node:fs'
@@ -10,7 +10,6 @@ import {
   recordAiVersion,
   listAiVersions,
   readAiVersion,
-  deleteAiVersions,
   encodeRefSegment,
   decodeRefSegment,
   listTrackedDocs,
@@ -86,7 +85,7 @@ describe('recordAiVersion / listAiVersions / readAiVersion', () => {
 // ── X-P2-3：无 git 书库（v3 新书）双后端 → 工作区/.版本（origin 'ai'） ────────
 
 describe('X-P2-3 版本档案后端（无 .git 书库）', () => {
-  it('recordAiVersion → 落 工作区/.版本；list/read/listTrackedDocs/delete 全链可用', () => {
+  it('recordAiVersion → 落 工作区/.版本；list/read/listTrackedDocs 全链可用', () => {
     const plain = mkdtempTracked(join(tmpdir(), 'clwriting-not-git-'))
     try {
       // 修复前：无 git 静默返回 null（自愈/改写轨迹全丢）；现在落版本档案
@@ -103,10 +102,6 @@ describe('X-P2-3 版本档案后端（无 .git 书库）', () => {
 
       expect(listTrackedDocs(plain)).toContain('doc_A')
       expect(listTrackedDocs(plain)).toContain('doc_B')
-
-      expect(deleteAiVersions(plain, 'doc_A')).toBe(2)
-      expect(listAiVersions(plain, 'doc_A')).toHaveLength(0)
-      expect(listAiVersions(plain, 'doc_B')).toHaveLength(1)
     } finally {
       rmSync(plain, { recursive: true, force: true })
     }
@@ -150,15 +145,6 @@ describe('旁路语义', () => {
     const log = git(['log', '--all', '--oneline'], root)
     expect(log.ok).toBe(true)
     expect(log.ok ? log.stdout : '').not.toContain('clwriting')
-  })
-
-  it('deleteAiVersions：删净某文档轨迹，别的文档不动', () => {
-    recordAiVersion(root, 'doc_A', '一')
-    recordAiVersion(root, 'doc_A', '二')
-    recordAiVersion(root, 'doc_B', '三')
-    expect(deleteAiVersions(root, 'doc_A')).toBe(2)
-    expect(listAiVersions(root, 'doc_A')).toHaveLength(0)
-    expect(listAiVersions(root, 'doc_B')).toHaveLength(1)
   })
 
   it('listTrackedDocs：列全书轨迹文档，legacy docId 反解还原冒号', () => {

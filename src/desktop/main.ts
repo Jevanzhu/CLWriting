@@ -90,7 +90,15 @@ const CLW_CSP = [
 // 侥幸同目录，Linux 上会分裂成两个目录导致配置不互通。见 src/fs/user-data-path.ts。
 // 必须在 app.getPath('userData') 首次调用（如下方 initLogging 与拆分后各模块的
 // stateFile/storePath 惰性求值）之前执行。
-app.setPath('userData', defaultUserDataPath())
+// CLW_SMOKE_USER_DATA（打包态冒烟 env 钩子，先例对齐 CLW_SMOKE_WINDOW_CYCLE 的
+// 严格 opt-in 口径）：e2e 打包态冒烟（test/e2e/packaged-app-smoke.spec.ts）注入临时
+// 目录隔离真实用户库（~/Library/Application Support/CLWriting）；env 未设时走缺省
+// 路径，生产零行为差异。
+if (process.env['CLW_SMOKE_USER_DATA']) {
+  app.setPath('userData', process.env['CLW_SMOKE_USER_DATA'])
+} else {
+  app.setPath('userData', defaultUserDataPath())
+}
 // A4（批 0）：结构化日志——打包态 console 无人看见，尽早切到 JSONL 落盘
 // （userData/logs/app-YYYYMMDD.jsonl）；dev 态保留 console 镜像。后续 startServer
 // 会再 init 一次（幂等，参数一致）。

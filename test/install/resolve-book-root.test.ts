@@ -2,12 +2,10 @@ import { test, expect, beforeEach, afterEach, beforeAll, afterAll } from 'vitest
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { execSync } from 'node:child_process'
 import {
-  resolveBookRoot,
   readBooks,
-  writeBooks,
   appendBook,
   readActive,
   writeActive,
@@ -16,7 +14,7 @@ import {
   type BookEntry,
 } from '../../src/install/books.js'
 
-// resolveBookRoot 依赖 process.cwd()，测试用 chdir 隔离
+// 用例间 chdir 复位：临时目录清理（rmSync）前先离开，避免 cwd 悬空
 const ORIG_CWD = process.cwd()
 
 // 套件级 TMPDIR 隔离：findWorkDir 向上找 .clwriting/，若共享 /tmp 被污染
@@ -91,126 +89,6 @@ test('isBookRepo: 有 book.yaml + .git 才是书仓库', () => {
   expect(isBookRepo(wd)).toBe(false)
   rmSync(root, { recursive: true, force: true })
   cleanupTempDir(wd)
-})
-
-test('resolveBookRoot 优先级: 显式参数 > 活动书（工作目录内）', () => {
-  const wd = mkdtempTracked(join(tmpdir(), 'wd3-'))
-  makeWorkDir(wd)
-  const bookA = join(wd, '书A')
-  const bookB = join(wd, '书B')
-  mkdirSync(bookA, { recursive: true })
-  makeBookRepo(bookA)
-  mkdirSync(bookB, { recursive: true })
-  makeBookRepo(bookB)
-  // 设活动书为 B
-  writeBooks(wd, [
-    { name: '书A', path: '书A', kind: 'long' },
-    { name: '书B', path: '书B', kind: 'long' },
-  ])
-  writeActive(wd, '书B')
-  process.chdir(wd)
-
-  // 显式参数 A 覆盖活动书 B
-  const r1 = resolveBookRoot(['书A'])
-  expect(r1.ok).toBe(true)
-  if (r1.ok) expect(r1.bookRoot).toBe(resolve(bookA))
-
-  // 无显式参数 → 活动书 B
-  const r2 = resolveBookRoot([])
-  expect(r2.ok).toBe(true)
-  if (r2.ok) expect(r2.bookRoot).toBe(bookB)
-
-  cleanupTempDir(wd)
-})
-
-test('resolveBookRoot 优先级: cwd 是书仓库时优先于 active', () => {
-  const wd = mkdtempTracked(join(tmpdir(), 'wd3b-'))
-  makeWorkDir(wd)
-  const bookA = join(wd, '书A')
-  const bookB = join(wd, '书B')
-  mkdirSync(bookA, { recursive: true })
-  makeBookRepo(bookA)
-  mkdirSync(bookB, { recursive: true })
-  makeBookRepo(bookB)
-  writeBooks(wd, [
-    { name: '书A', path: '书A', kind: 'long' },
-    { name: '书B', path: '书B', kind: 'long' },
-  ])
-  writeActive(wd, '书B')
-  process.chdir(bookA)
-
-  const r = resolveBookRoot([])
-  expect(r.ok).toBe(true)
-  if (r.ok) expect(r.bookRoot).toBe(bookA)
-
-  cleanupTempDir(wd)
-})
-
-test('resolveBookRoot 优先级 3: cwd 是书仓库时直接用（兼容书仓库内跑）', () => {
-  const book = mkdtempTracked(join(tmpdir(), 'bk-'))
-  makeBookRepo(book)
-  process.chdir(book)
-
-  // cwd 是书仓库，无工作目录/活动书 → 直接用 cwd
-  const r = resolveBookRoot([])
-  expect(r.ok).toBe(true)
-  if (r.ok) expect(r.bookRoot).toBe(book)
-
-  cleanupTempDir(book)
-})
-
-test('resolveBookRoot 优先级 4: 都不是 → 人话报错', () => {
-  const empty = mkdtempTracked(join(tmpdir(), 'em-'))
-  process.chdir(empty) // 既非工作目录也非书仓库
-  const r = resolveBookRoot([])
-  expect(r.ok).toBe(false)
-  if (!r.ok) {
-    expect(r.reason).toContain('选书')
-    expect(r.reason).toContain('新建')
-  }
-  cleanupTempDir(empty)
-})
-
-test('resolveBookRoot: 草稿位置参(.md)不误判为书目录', () => {
-  const book = mkdtempTracked(join(tmpdir(), 'bk2-'))
-  makeBookRepo(book)
-  process.chdir(book)
-  // args 含 .md 草稿文件，不应被当书目录解析（应回落 cwd）
-  const r = resolveBookRoot(['草稿-1.md'])
-  expect(r.ok).toBe(true)
-  if (r.ok) expect(r.bookRoot).toBe(book)
-  cleanupTempDir(book)
-})
-
-test('resolveBookRoot: 纯数字位置参不误判为书目录', () => {
-  const book = mkdtempTracked(join(tmpdir(), 'bk-num-'))
-  makeBookRepo(book)
-  process.chdir(book)
-  // 纯数字通常是章号/篇号/批量数量，应回落 cwd 书仓库。
-  const r = resolveBookRoot(['2'])
-  expect(r.ok).toBe(true)
-  if (r.ok) expect(r.bookRoot).toBe(book)
-  cleanupTempDir(book)
-})
-
-test('RB-IF-P2-7: 自由文本位置参不误判为书目录（回落 cwd 书仓库）', () => {
-  const book = mkdtempTracked(join(tmpdir(), 'bk-free-'))
-  makeBookRepo(book)
-  process.chdir(book)
-  // 题材名/报告名类自由文本不是书仓库（无 book.yaml）→ 不得被 resolve 当书根返回
-  const r = resolveBookRoot(['悬疑反转'])
-  expect(r.ok).toBe(true)
-  if (r.ok) expect(r.bookRoot).toBe(book)
-  cleanupTempDir(book)
-})
-
-test('resolveBookRoot: explicitBookRoot 参数优先', () => {
-  const book = mkdtempTracked(join(tmpdir(), 'bk3-'))
-  makeBookRepo(book)
-  const r = resolveBookRoot(undefined, book)
-  expect(r.ok).toBe(true)
-  if (r.ok) expect(r.bookRoot).toBe(book)
-  rmSync(book, { recursive: true, force: true })
 })
 
 // ── books.jsonl 读写 ──────────────────────────────

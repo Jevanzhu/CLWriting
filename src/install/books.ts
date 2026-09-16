@@ -1,19 +1,12 @@
 /**
- * books.jsonl 登记 + 活动书 + resolveBookRoot —— 依据 M5 #32。
+ * books.jsonl 登记 + 活动书 —— 依据 M5 #32。
  *
  * M0–M4 既有命令从「单书 cwd」走向「工作目录多书」的核心接缝：
- * - resolveBookRoot 是所有写章/状态命令解析「当前对哪本书」的统一入口（#32 第 4 节）
  * - books.jsonl 登记有哪些书；.clwriting/active 指当前哪本（指针，换书只改它）
  *
- * 解析链优先级（#32 第 4 节）：
- *   1. 显式 [书目录] 参数（最高，覆盖一切；保留既有用法）
- *   2. cwd 是书仓库（有 book.yaml）→ cwd（兼容书仓库内直接跑）
- *   3. .clwriting/active → 读活动书 → 查 books.jsonl 取 path → 工作目录/path
- *   4. 都不是 → 人话报错「还没选书，请在书库入口启用或新建一本」
- *
  * R0916-5e（2026-09-16，⑤④产品拆分波1）：本文件纯移动拆分——缝 B（工作目录定位/
- * 书仓库判定/resolveBookRoot 解析链）→ books-resolve.ts，缝 A（books.jsonl 自愈
- * repairBooks 族）→ books-repair.ts；残核 = books.jsonl 登记读写 + 锁 + 活动书指针 +
+ * 书仓库判定）→ books-resolve.ts，缝 A（books.jsonl 自愈 repairBooks 族）→
+ * books-repair.ts；残核 = books.jsonl 登记读写 + 锁 + 活动书指针 +
  * 书名校验（BOOK_NAME_* / isInvalidBookName）。两新模块的既有导出经文件尾逐名
  * re-export 桥接，全库 import 面不动；零行为变化。
  */
@@ -465,10 +458,9 @@ export function writeActive(workDir: string, name: string): void {
 }
 
 // ── R0916-5e（2026-09-16，⑤④产品拆分波1）缝 B 拆出桥接 ──
-// 工作目录定位（findWorkDir）/ 书仓库判定（isBookRepo）/ resolveBookRoot 解析链
-// （ResolveResult/resolveBookRoot/findPositionalBookRoot）纯移动至 books-resolve.ts
+// 工作目录定位（findWorkDir）/ 书仓库判定（isBookRepo）纯移动至 books-resolve.ts
 // （注释随代码走）；逐名 re-export 保住既有导出面，消费方 import 不动。
-export { findWorkDir, isBookRepo, resolveBookRoot, type ResolveResult } from './books-resolve.js'
+export { findWorkDir, isBookRepo } from './books-resolve.js'
 
 // ── R0916-5e（2026-09-16，⑤④产品拆分波1）缝 A 拆出桥接 ──
 // books.jsonl 自愈族（RepairResult/repairBooks/isDirConfirmedMissing/repairBooksLocked/

@@ -18,10 +18,8 @@
  */
 
 import { existsSync, readdirSync } from 'node:fs'
-import { rmWithRetry } from '../fs/atomic.js'
 import { join } from 'node:path'
 import { git, gitAsync } from './exec.js'
-import { log, errMsg } from '../log/index.js'
 import { ulid } from '../document/stable-id.js'
 import {
   writeVersion,
@@ -287,42 +285,4 @@ export async function readAiVersionAsync(bookRoot: string, docId: string, sha: s
   return r.ok ? r.stdout : null
 }
 
-/**
- * 删某文档全部轨迹（作者知情权：轨迹可查可删）。
- * @returns 删掉的版本数
- */
-export function deleteAiVersions(bookRoot: string, docId: string): number {
-  const versions = listAiVersions(bookRoot, docId)
-  let deleted = 0
-  if (hasGitBackend(bookRoot)) {
-    // R46-49（四十六轮）：循环内每版本一次 git(['update-ref','-d',...]) 进程（百版
-    // 轨迹 = 百次 spawn，win 每进程 30-80ms 白付）→ 改 update-ref --stdin 单进程批删：
-    // delete 命令逐行拼 stdin——ref 段为 [A-Za-z0-9_-]（encodeRefSegment）+ ULID，
-    // 无空格/换行/引号，行协议安全零转义；git() 的 opts.input 是既有能力（hash-object
-    // --stdin 先例），exec.ts 零改动。ref 集来自刚列的 for-each-ref，delete 对已消失
-    // ref 与命令行 -d 同口径（成功 no-op）；整批失败（git 不可用等）按 0 报，中途
-    // 部分应用无法逐条计数的边角以「删除后复验列表」兜底（消费方均为测试口径）。
-    // 写侧 recordAiVersion 每保存 2 进程维持不动（R36-5 已登记取舍）。
-    if (versions.length === 0) return 0
-    const r = git(['update-ref', '--stdin'], bookRoot, {
-      input: versions.map((v) => `delete ${v.ref}`).join('\n') + '\n',
-    })
-    return r.ok ? versions.length : 0
-  }
-  for (const v of versions) {
-    // R48-68（四十八轮）：裸 unlinkSync 换 rmWithRetry——trash.ts 同批文件删除已收编
-    // 退避（win 杀软瞬时锁此处漏网）；确定性错误仍上抛交调用方既有 catch
-    try {
-      rmWithRetry(v.ref)
-      deleted++
-    } catch (e) {
-      // 重评-15（全库代码重评审 2026-09-05）：此前 catch 空吞零留痕——单版 unlink 失败
-      //（权限/占用等）时调用方只拿到偏小的 deleted 计数，部分失败不可观测（对照：git
-      // 后端对应分支整批失败至少返回 0 可察觉）。补 warn 留痕对齐；控制流不变（不上抛）
-      // ——轨迹删除是旁路数据 best-effort 语义，绝不阻断调用方主流程；ENOENT（并发
-      // 竞态已删）同走 warn，多一条诊断噪音可接受。
-      log.warn('git', `deleteAiVersions：版本档案删除失败（${v.ref}）：${errMsg(e)}`)
-    }
-  }
-  return deleted
-}
+
