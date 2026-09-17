@@ -33,11 +33,15 @@ afterAll(() => {
 
 /** 起 server-main 子进程，收集 stdout/stderr（累积到可变对象，避免字符串快照失效）。
  *  R32-37：每 child 挂 60s lifetime 看门狗（挂死 SIGKILL）——afterAll 清扫之外的
- *  兜底，防单测试卡死后子进程随 vitest 进程退出成为孤儿。 */
+ *  兜底，防单测试卡死后子进程随 vitest 进程退出成为孤儿。
+ *  单立清账批（2026-09-17）：子进程 env 剥掉 VITEST——入口顶层有 vitest 探针
+ *  （先例 server-utility.ts；import 态跳过接线防杀测试 worker），本测试跑的是
+ *  真实入口形态，探针不得被 vitest 宿主环境泄漏触发。 */
 function spawnServerMain(args: string[]): { child: ChildProcess; out: { stdout: string; stderr: string } } {
+  const { VITEST: _vitestProbeLeak, ...cleanEnv } = process.env
   const child = spawn(process.execPath, [tsxCli, serverMainTs, ...args], {
     cwd: repoRoot,
-    env: { ...process.env, CLWRITING_DRIVER: 'mock' },
+    env: { ...cleanEnv, CLWRITING_DRIVER: 'mock' },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   armWatchdog(child, 60_000)

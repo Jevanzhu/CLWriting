@@ -111,6 +111,28 @@ export function problemsForElectronBuilderAppleDouble(files) {
   return found
 }
 
+// ── 单立清账批（2026-09-17）：node_modules 全排除项锚定 ─────────────────────
+// 0917清库修复批给 electron-builder.yml files 增补 '!node_modules/**'——tsup 全量
+// bundle（external 仅 electron）后运行时零裸包解析，3 个生产依赖（@anthropic-ai/sdk、
+// font-list、openai）已内联进 chunk、fontlist 二进制走 dist/desktop/fontlist +
+// asarUnpack，收集器再装 node_modules 纯属冗余（旧 asar 98.5% 条目是 node_modules，
+// 排除后装机体 −27M）。该排除行此前无任何静态门——被误删只有 packaged-app-smoke/
+// CI 冒烟能拦（迟面），本门静态锁存在。精确钉 '!node_modules/**'（parseBuilderFiles
+// 已剥引号）——排除模式单一正本在配置内，钉死形态即 fail-closed：被删/收窄（如
+// '!node_modules' 漏子层）即红。独立函数不并入 problemsForElectronBuilderFiles
+// （同 AppleDouble 先例：并臂会打红存量直测夹具）。导出供直测锚定。
+export function problemsForElectronBuilderNodeModulesExclusion(files) {
+  const found = []
+  if (!Array.isArray(files) || files.length === 0) {
+    found.push('electron-builder.yml files 不可解析或为空——node_modules 排除项无法校验（单立清账批 2026-09-17）')
+    return found
+  }
+  if (!files.some((entry) => entry === '!node_modules/**')) {
+    found.push('electron-builder.yml files 缺 node_modules 全排除模式（!node_modules/**）——冗余依赖整树回装 asar、装机体回涨（0917清库修复批回潮）')
+  }
+  return found
+}
+
 /**
  * F-2（五十轮评审批）：TOCTOU 容错的目录列举——existsSync 判定后 readdir 前目录被
  * 并发移走（ENOENT）/被换成文件（ENOTDIR）时记 console.warn 返回空数组（跳过只损
@@ -241,6 +263,8 @@ function checkPackaging() {
     problems.push(...problemsForElectronBuilderFiles(ebFiles))
     // 全库重评-0914（P3-10）：AppleDouble 排除项锚定门（与 dist/resources 成员门并跑）
     problems.push(...problemsForElectronBuilderAppleDouble(ebFiles))
+    // 单立清账批（2026-09-17）：node_modules 全排除项锚定门（与 AppleDouble 门并跑）
+    problems.push(...problemsForElectronBuilderNodeModulesExclusion(ebFiles))
     // R0911-A-P2-1 第四层：fontlist asarUnpack 配置门（静态，全平台可查）
     problems.push(...problemsForElectronBuilderAsarUnpack(parseBuilderAsarUnpack(readFileSync(ebPath, 'utf8'))))
   }

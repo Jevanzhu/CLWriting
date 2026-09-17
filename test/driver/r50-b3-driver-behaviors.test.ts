@@ -7,12 +7,14 @@
  * 两个用例）——本轮不重复建设，如实报告。
  *
  * 本文件补：
- * - b) E1b execRing 迟到回放：执行中迟到的消费者（pre 已被接管）回放最近
- *   MAX_EXEC_RING(200) 条协议单元（cap 裁剪 + 保序）；EXEC_START 清空重开；
- *   执行结束（execActive=false）后接入不回放——现状语义锁定。AA-P3-3 的「终态先入
- *   ring」在当前回放条件（execActive=true 才回放）下无黑盒观测面：终态 emit 同步
- *   置 false，此后接入的消费者走不到 ring 回放分支，终态锚行为以源码注释为准
- *   （防未来回放面扩展时误删终态入 ring 逻辑，见 cc.ts AA-P3-3 注）。
+ * - b) E1b execRing 迟到回放（execRing 分桶批 2026-09-17 后按腿）：执行中迟到的
+ *   消费者（pre 已被接管）回放本腿最近 MAX_EXEC_RING(200) 条协议单元（cap 裁剪 +
+ *   保序）；本腿 EXEC_START 清空重开；本腿结束（active=false）后接入不回放；跨腿
+ *   （chat 内嵌写章）不再互相清环/熄灭——写手腿终态后 chat 腿仍回放（分桶批拍板
+ *   语义，翻转本文件旧「单环现状锁定」口径）。AA-P3-3 的「终态先入 ring」在回放
+ *   条件（本腿 active 才回放）下无黑盒观测面：终态 emit 同步置 false，此后接入的
+ *   消费者走不到本腿 ring 回放分支，终态锚行为以源码注释为准（防未来回放面扩展时
+ *   误删终态入 ring 逻辑，见 cc.ts AA-P3-3 注）。
  * - c) M-1 owner 分槽 ctrl：P2-6 同 owner 换新先 abort 旧 / 同一 ctrl 重复登记幂等 /
  *   跨 owner（chat × self-heal）并存不互掐 / X-P2-11 终态注销只抹自己 / interrupt 全停。
  *
@@ -40,16 +42,18 @@ async function takePreThenLeave(session: Awaited<ReturnType<typeof ccDriver.star
 }
 
 describe('R50-B-3 b) E1b execRing 迟到回放（cc 专属）', () => {
-  it('执行中迟到消费者：回放 ring 最近 200 条（cap 裁剪丢最旧、保序），不回放 pre', async () => {
+  it('执行中迟到消费者：回放本腿 ring 最近 200 条（cap 裁剪丢最旧、保序），不回放 pre', async () => {
     const session = await ccDriver.startSession(tmpdir())
     try {
       await takePreThenLeave(session)
-      ccDriver.emit?.(session, { type: 'chat_start' }) // EXEC_START：ring 清空重开 + active=true
+      // 写手腿 EXEC_START：本腿 ring 清空重开 + active=true（分桶批 2026-09-17：
+      // chat_start 归 chat 腿、text 归写手腿——cap 语义按腿各测，本用例钉写手腿）
+      ccDriver.emit?.(session, { type: 'role_spawn', role: 'writer', parentToolUseId: 'tu-1' })
       const total = MAX_EXEC_RING + 50
       for (let i = 0; i < total; i++) {
-        ccDriver.emit?.(session, { type: 'text', text: `ev-${i}` }) // 无消费者：广播丢弃，仅入 ring
+        ccDriver.emit?.(session, { type: 'text', text: `ev-${i}` }) // 无消费者：广播丢弃，仅入写手腿 ring
       }
-      // ring 曾装 chat_start + ev-0..ev-249（251 条）→ cap 200 → 恰好 [ev-50..ev-249]
+      // 写手腿 ring 曾装 role_spawn + ev-0..ev-249（251 条）→ cap 200 → 恰好 [ev-50..ev-249]
       const late = ccDriver.stream(session) as AsyncGenerator<DriverEvent>
       // R-P1-1：回放（裁剪后）以 text 起头且无锚 → 前导合成 text_reset
       const head = await late.next()
@@ -58,10 +62,10 @@ describe('R50-B-3 b) E1b execRing 迟到回放（cc 专属）', () => {
       for (let i = 0; i < MAX_EXEC_RING; i++) {
         const r = await late.next()
         expect(r.done).toBe(false)
-        expect(r.value.type).toBe('text') // 回放的是 ring 快照，不含 chat_start（已被裁出）
+        expect(r.value.type).toBe('text') // 回放的是本腿 ring 快照，不含 role_spawn（已被裁出）
         got.push((r.value as { text: string }).text)
       }
-      expect(got[0]).toBe(`ev-${total - MAX_EXEC_RING}`) // 最旧的 51 条（含 chat_start）被裁
+      expect(got[0]).toBe(`ev-${total - MAX_EXEC_RING}`) // 最旧的 51 条（含 role_spawn）被裁
       expect(got[MAX_EXEC_RING - 1]).toBe(`ev-${total - 1}`) // 最新照常在
       const idx = got.map((t) => Number(t.slice('ev-'.length)))
       expect([...idx].sort((a, b) => a - b)).toEqual(idx) // 保序（丢的是队头连续一段）
@@ -71,53 +75,79 @@ describe('R50-B-3 b) E1b execRing 迟到回放（cc 专属）', () => {
     }
   })
 
-  it('EXEC_START 清空重开：第二轮执行回放不含第一轮残留（含第一轮终态）', async () => {
+  it('本腿 EXEC_START 清空重开：第二轮执行回放不含第一轮残留（含第一轮终态）', async () => {
     const session = await ccDriver.startSession(tmpdir())
     try {
       await takePreThenLeave(session)
-      // 第一轮：5 过程事件 + 终态（AA-P3-3 终态先入 ring 再关 active，同步无回放窗口）
-      ccDriver.emit?.(session, { type: 'chat_start' })
+      // 第一轮（写手腿）：5 过程事件 + 终态（AA-P3-3 终态先入 ring 再关 active，同步无回放窗口）
+      ccDriver.emit?.(session, { type: 'role_spawn', role: 'writer', parentToolUseId: 'tu-1' })
       for (const t of ['a1', 'a2', 'a3', 'a4', 'a5']) ccDriver.emit?.(session, { type: 'text', text: t })
-      ccDriver.emit?.(session, { type: 'chat_done' })
-      // 第二轮：EXEC_START 清空 ring 重开
-      ccDriver.emit?.(session, { type: 'chat_start' })
+      ccDriver.emit?.(session, { type: 'done', usage: 0, reason: 'success' })
+      // 第二轮：本腿 EXEC_START 清空 ring 重开
+      ccDriver.emit?.(session, { type: 'role_spawn', role: 'writer', parentToolUseId: 'tu-2' })
       for (const t of ['b1', 'b2', 'b3']) ccDriver.emit?.(session, { type: 'text', text: t })
       const late = ccDriver.stream(session) as AsyncGenerator<DriverEvent>
       const got: DriverEvent[] = []
-      for (let i = 0; i < 5; i++) {
+      for (let i = 0; i < 4; i++) {
         const r = await late.next()
         expect(r.done).toBe(false)
         got.push(r.value)
       }
-      // R-P1-1：回放以 text 起头（chat_start 非 workbench 清屏锚——chat_* 不进
-      // workbench.dispatch）→ 前导合成 text_reset，其后只见第二轮
+      // role_spawn 本身是 workbench 清屏锚 → 无需合成 text_reset，其后只见第二轮
       const types = got.map((e) => e.type)
-      expect(types).toEqual(['text_reset', 'chat_start', 'text', 'text', 'text'])
+      expect(types).toEqual(['role_spawn', 'text', 'text', 'text'])
       expect(got.filter((e) => e.type === 'text').map((e) => (e as { text: string }).text)).toEqual(['b1', 'b2', 'b3'])
-      expect(types).not.toContain('chat_done') // 第一轮终态已随 ring 清空丢弃
+      expect(types).not.toContain('done') // 第一轮终态已随本腿 ring 清空丢弃
       await late.return(undefined)
     } finally {
       ccDriver.dispose(session)
     }
   })
 
-  it('执行结束（execActive=false）后接入：不回放 ring——现状语义锁定（AA-P3-3 终态锚无黑盒观测面，见文件头注）', async () => {
+  it('本腿执行结束（active=false）后接入：不回放本腿 ring——语义锁定（AA-P3-3 终态锚无黑盒观测面，见文件头注）', async () => {
     const session = await ccDriver.startSession(tmpdir())
     try {
       await takePreThenLeave(session)
       ccDriver.emit?.(session, { type: 'chat_start' })
-      for (const t of ['x1', 'x2', 'x3']) ccDriver.emit?.(session, { type: 'text', text: t })
-      ccDriver.emit?.(session, { type: 'chat_done' }) // EXEC_END：终态入 ring 后 active=false
+      for (const t of ['x1', 'x2', 'x3']) ccDriver.emit?.(session, { type: 'chat_text', text: t })
+      ccDriver.emit?.(session, { type: 'chat_done' }) // EXEC_END：终态入本腿 ring 后 active=false
       const late = ccDriver.stream(session) as AsyncGenerator<DriverEvent>
       const r = await Promise.race([
         late.next().then((n) => ({ kind: 'next' as const, n })),
         sleep(150).then(() => ({ kind: 'parked' as const })),
       ])
-      // 执行已结束：迟到消费者不回放（SSE 侧 sync 快照兜底是既定口径）——park 零产出
+      // 本腿执行已结束：迟到消费者不回放（SSE 侧 sync 快照兜底是既定口径）——park 零产出
       expect(r.kind).toBe('parked')
       // 悬置 next() 会挡住 return()（async generator 请求按序排队）——先 cancelStream
       // 唤醒 park 中的生成器令其自行 return（B-19 设计场景），再 return 收尾不挂
       ccDriver.cancelStream?.(late)
+      await late.return(undefined)
+    } finally {
+      ccDriver.dispose(session)
+    }
+  })
+
+  it('跨腿（execRing 分桶批 2026-09-17）：写手腿终态不灭 chat 腿——chat 仍活跃时迟到消费者回放 chat 段', async () => {
+    const session = await ccDriver.startSession(tmpdir())
+    try {
+      await takePreThenLeave(session)
+      // chat 内嵌 write_chapter 形态：外层 chat 活跃期间写手腿开跑并先行结束。
+      // 分桶前单环形态此景 = role_spawn 清环 + done 熄灭 execActive → 迟到者零回放（丢段）；
+      // 分桶后 = chat 段照常回放（写手段按「本腿结束不回放」锁定语义不入回放——上例同文件）
+      ccDriver.emit?.(session, { type: 'chat_start' })
+      ccDriver.emit?.(session, { type: 'chat_text', text: '问' })
+      ccDriver.emit?.(session, { type: 'role_spawn', role: 'writer', parentToolUseId: 'self-heal' })
+      ccDriver.emit?.(session, { type: 'text', text: '章内容' })
+      ccDriver.emit?.(session, { type: 'done', usage: 0, reason: 'success' }) // 写手腿 EXEC_END：只关写手腿
+      const late = ccDriver.stream(session) as AsyncGenerator<DriverEvent>
+      const got: DriverEvent[] = []
+      for (let i = 0; i < 2; i++) {
+        const r = await late.next()
+        expect(r.done).toBe(false)
+        got.push(r.value)
+      }
+      expect(got.map((e) => e.type)).toEqual(['chat_start', 'chat_text'])
+      // chat_* 非锚也非 text → 无需合成 text_reset
       await late.return(undefined)
     } finally {
       ccDriver.dispose(session)

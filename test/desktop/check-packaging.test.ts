@@ -13,7 +13,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 // @ts-expect-error —— .mjs 直跑脚本无类型声明（不为其维护 d.ts；断言口径靠用例锚定）
-import { problemsForPackageFiles, parseBuilderFiles, problemsForElectronBuilderFiles, parseBuilderAsarUnpack, problemsForElectronBuilderAsarUnpack, problemsForDistFontList } from '../../scripts/check-packaging.mjs'
+import { problemsForPackageFiles, parseBuilderFiles, problemsForElectronBuilderFiles, parseBuilderAsarUnpack, problemsForElectronBuilderAsarUnpack, problemsForElectronBuilderNodeModulesExclusion, problemsForDistFontList } from '../../scripts/check-packaging.mjs'
 
 const scriptPath = fileURLToPath(new URL('../../scripts/check-packaging.mjs', import.meta.url))
 const root = fileURLToPath(new URL('../../', import.meta.url))
@@ -142,5 +142,26 @@ describe('R0911-A-P2-1：problemsForDistFontList（darwin dist 实存门，注�
     const problems = problemsForDistFontList(dir, 'darwin')
     expect(problems).toHaveLength(1)
     expect(String(problems[0])).toContain('fontlist')
+  })
+})
+
+// ── 单立清账批（2026-09-17）：node_modules 全排除项锚定门直测 ──
+// 0917清库修复批的排除行此前无静态门（误删只能靠 packaged-app-smoke/CI 冒烟迟面拦截），
+// 本门锁 files 含 '!node_modules/**'（精确钉形态：收窄形态漏子层即红）。
+describe('单立清账批：electron-builder.yml node_modules 全排除项断言', () => {
+  it('含 !node_modules/** → 无问题（多余成员/其他否定模式不误报）', () => {
+    expect(problemsForElectronBuilderNodeModulesExclusion(['dist/**/*', 'resources/**/*', '!**/._*', '!node_modules/**'])).toEqual([])
+  })
+  it('排除项缺失 / 被收窄（漏子层形态）→ 必红（0917清库修复批回潮）', () => {
+    expect(problemsForElectronBuilderNodeModulesExclusion(['dist/**/*', 'resources/**/*'])).toHaveLength(1)
+    expect(problemsForElectronBuilderNodeModulesExclusion(['dist/**/*', '!node_modules'])).toHaveLength(1)
+  })
+  it('files 缺失/空 → 必红（视为配置缺失）', () => {
+    expect(problemsForElectronBuilderNodeModulesExclusion(null)).toHaveLength(1)
+    expect(problemsForElectronBuilderNodeModulesExclusion([])).toHaveLength(1)
+  })
+  it('真实 electron-builder.yml 经 parseBuilderFiles 后断言绿（引号已剥）', () => {
+    const yml = readFileSync(join(root, 'electron-builder.yml'), 'utf8')
+    expect(problemsForElectronBuilderNodeModulesExclusion(parseBuilderFiles(yml))).toEqual([])
   })
 })

@@ -8,6 +8,7 @@
 import { test, expect } from 'vitest'
 import { ccDriver, MAX_EXEC_RING } from '../../src/driver/cc.js'
 import type { DriverEvent } from '../../src/driver/types.js'
+import { sleep } from '../helpers/wait-for.js'
 
 async function firstEvent(gen: AsyncGenerator<DriverEvent>): Promise<DriverEvent> {
   const r = await gen.next()
@@ -130,6 +131,91 @@ test('AA-P3-3: 执行终态事件先入 ring 再关 active——活跃执行期�
   const a3 = await genA.next()
   expect((a3.value as { type: string }).type).toBe('chat_done')
   await genA.return!({ type: 'notice', message: '' } as never)
+  ccDriver.dispose(session)
+})
+
+// ---- execRing 分桶批（2026-09-17 单立清账）：chat 腿 / 写手腿各持独立 ring + active ----
+
+test('execRing 分桶: chat 内嵌写章——写手腿并行不清 chat 腿、写手腿结束不灭 chat 腿', async () => {
+  const session = await ccDriver.startSession('/tmp')
+  const genA = ccDriver.stream(session) as AsyncGenerator<DriverEvent>
+  const pendingA = genA.next()
+  ccDriver.emit!(session, { type: 'chat_start' })
+  ccDriver.emit!(session, { type: 'chat_text', text: '问' })
+  // 内嵌 write_chapter 进行中重连：写手腿 EXEC_START（分桶前单环形态会清掉 chat 已积累段——丢段机理一）
+  ccDriver.emit!(session, { type: 'role_spawn', role: 'writer', parentToolUseId: 'self-heal' })
+  ccDriver.emit!(session, { type: 'text', text: '章内容' })
+  // 迟到消费者 B1（两腿俱活跃）：回放 = chat 段 + 写手段拼接（桶间拼接序安全：前端按族分流）
+  const genB1 = ccDriver.stream(session) as AsyncGenerator<DriverEvent>
+  const got1: DriverEvent[] = []
+  for (let i = 0; i < 4; i++) {
+    const r = await genB1.next()
+    if (r.done) throw new Error('回放不完整')
+    got1.push(r.value)
+  }
+  expect(got1.map((e) => e.type)).toEqual(['chat_start', 'chat_text', 'role_spawn', 'text'])
+  await genB1.return(undefined)
+  // 写手腿 EXEC_END（分桶前会置 execActive=false → 外层 chat 零回放——丢段机理二）
+  ccDriver.emit!(session, { type: 'done', usage: 0, reason: 'success' })
+  ccDriver.emit!(session, { type: 'chat_text', text: '答' })
+  // 迟到消费者 B2（写手腿已结束、chat 腿仍活跃）：chat 段照常回放（含 done 后续增量）；
+  // 写手段按「本腿结束不回放」锁定语义（r50-b3 b 组）不入回放
+  const genB2 = ccDriver.stream(session) as AsyncGenerator<DriverEvent>
+  const got2: DriverEvent[] = []
+  for (let i = 0; i < 3; i++) {
+    const r = await genB2.next()
+    if (r.done) throw new Error('回放不完整')
+    got2.push(r.value)
+  }
+  expect(got2.map((e) => e.type)).toEqual(['chat_start', 'chat_text', 'chat_text'])
+  expect((got2[1] as { text: string }).text).toBe('问')
+  expect((got2[2] as { text: string }).text).toBe('答')
+  await pendingA
+  ccDriver.dispose(session)
+})
+
+test('execRing 分桶: 双桶 cap 独立——写手腿溢出裁剪不挤占 chat 腿（丢段机理三销案）', async () => {
+  const session = await ccDriver.startSession('/tmp')
+  const genA = ccDriver.stream(session) as AsyncGenerator<DriverEvent>
+  const pendingA = genA.next()
+  ccDriver.emit!(session, { type: 'chat_start' })
+  ccDriver.emit!(session, { type: 'chat_text', text: 'c0' }) // chat 腿仅 2 条
+  ccDriver.emit!(session, { type: 'role_spawn', role: 'writer', parentToolUseId: 'tu-1' })
+  for (let i = 0; i < MAX_EXEC_RING + 10; i++) {
+    ccDriver.emit!(session, { type: 'text', text: '段' + i }) // 写手腿 211 条 → 本腿 cap 200
+  }
+  const genB = ccDriver.stream(session) as AsyncGenerator<DriverEvent>
+  // 回放 = chat 段完整（chat_start + c0）+ 写手段裁到最近 200（role_spawn 被挤出、段10 起）；
+  // 拼接序列首 text 前无锚（chat_* 非锚、role_spawn 已被裁出）→ 前导合成 text_reset
+  const e1 = await firstEvent(genB)
+  expect(e1.type).toBe('text_reset')
+  const e2 = await genB.next()
+  expect(e2.value.type).toBe('chat_start')
+  const e3 = await genB.next()
+  expect((e3.value as { text: string }).text).toBe('c0')
+  const e4 = await genB.next()
+  expect((e4.value as { text: string }).text).toBe('段10')
+  await pendingA
+  ccDriver.dispose(session)
+})
+
+test('execRing 分桶: interrupted 全停——两腿齐关，迟到消费者零回放', async () => {
+  const session = await ccDriver.startSession('/tmp')
+  const genA = ccDriver.stream(session) as AsyncGenerator<DriverEvent>
+  const pendingA = genA.next()
+  ccDriver.emit!(session, { type: 'chat_start' })
+  ccDriver.emit!(session, { type: 'role_spawn', role: 'writer', parentToolUseId: 'tu-1' })
+  // 用户中断 = 全停语义（与 abortAllCtrls 同口径）：终态锚入所有活跃腿后关全部
+  ccDriver.emit!(session, { type: 'interrupted', reason: 'user_cancel' })
+  const genB = ccDriver.stream(session) as AsyncGenerator<DriverEvent>
+  const r = await Promise.race([
+    genB.next().then((n) => ({ kind: 'next' as const, n })),
+    sleep(150).then(() => ({ kind: 'parked' as const })),
+  ])
+  expect(r.kind).toBe('parked')
+  ccDriver.cancelStream?.(genB)
+  await genB.return(undefined)
+  await pendingA
   ccDriver.dispose(session)
 })
 
