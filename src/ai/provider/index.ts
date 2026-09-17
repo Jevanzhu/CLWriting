@@ -42,6 +42,7 @@ export {
   registerDegradedLookup,
   lookupDegraded,
   resetDegradedChannels,
+  ProviderRevisionConflictError, // 0918独立重评修复批（D002）：写前基线复验冲突错误（API 层 409 映射用）
   type ProviderStore,
 } from './store.js'
 export {

@@ -10,8 +10,8 @@
  * |------------------------------------------------------|--------------------------|------|
  * | search.ts · searchCache（R35-7）                      | 单级探针 + 异步 + inFlight| R47-18 顺手逐出 |
  * | rhythm.ts · rhythmCache（R44-8）                      | 单级探针 + 同步          | R47-18 |
- * | settings.ts · settingsCache（R46-16）                 | 单级探针 + 同步          | 无逐出（特记 evictExpiredOnMiss:false） |
- * | settings.ts · completionNamesCache（R0912-ds41）      | 单级探针 + 异步          | 同上；TTL 链 = 本壳注入口 → settings 注入口 → 常量 |
+ * | settings.ts · settingsCache（R46-16）                 | 单级探针 + 同步/异步孪生 + inFlight | 无逐出（特记 evictExpiredOnMiss:false）；0918独立重评修复批 D001 补 inFlight |
+ * | settings.ts · completionNamesCache（R0912-ds41）      | 单级探针 + 异步 + inFlight | 同上；TTL 链 = 本壳注入口 → settings 注入口 → 常量；D001 补 inFlight |
  * | foreshadows.ts · foreshadowCache 同步孪生（R44-8）    | 单级探针 + 同步          | R47-18 |
  * | foreshadows.ts · foreshadowCache 异步孪生（PM-1）     | 单级探针 + 异步 + inFlight| 与同步孪生共壳共 Map |
  * | health.ts · styleScanCache（D3/R62-21）               | 纯 TTL + 异步            | R47-18 / R0912-B-P2-1 ts 取写入当刻 |

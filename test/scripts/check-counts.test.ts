@@ -6,9 +6,12 @@
  * e2e 用例计数口径（含 R62-56 补的 test.fail/test.fixme）、R63-12 新增的
  * 无条件 .skip 拒绝与条件式 skip 白名单豁免（对照 check-packaging 直测先例）。
  */
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, sep } from 'node:path'
 // @ts-expect-error —— .mjs 直跑脚本无类型声明（不为其维护 d.ts；断言口径靠用例锚定）
-import { stripComments, stripStrings, countE2eCases, findOnlyOrSkipViolations, sanitizeForCount, posixRelPath, findAssertionFreeTestFiles, missingPageErrorWiring, sharedRuntimeVersionDrift, parseWinPlatformDelta, parseLinuxPlatformDelta, problemsForWinUnitTestsClaim } from '../../scripts/check-counts.mjs'
+import { stripComments, stripStrings, countE2eCases, findOnlyOrSkipViolations, sanitizeForCount, posixRelPath, findAssertionFreeTestFiles, missingPageErrorWiring, sharedRuntimeVersionDrift, parseWinPlatformDelta, parseLinuxPlatformDelta, problemsForWinUnitTestsClaim, walk } from '../../scripts/check-counts.mjs'
 
 describe('J0（win 适配）：posixRelPath 分隔符归一化', () => {
   it('Windows 反斜杠绝对路径归一为 posix 相对路径——R66-37 快照守卫 win 假红根因', () => {
@@ -361,5 +364,70 @@ describe('R0911-G-P3-1：win 单测数反推失配判定（期望 win = 声称 �
     // win 默认（不传 platform）消息保持既有口径，不回归
     const winProblems = problemsForWinUnitTestsClaim(6725, 75, 6640, '徽章单测数')
     expect(winProblems[0]).toContain('期望 win 6650')
+  })
+})
+
+// ── 0918独立重评修复批（D005）：walk symlink 防护 ──────────────────────────────
+// 此前 walk 以 statSync 跟随 symlink + isDirectory 递归：目录环 symlink（a→b→a）令
+// statSync 跟随撞内核 symlink 解析上限裸抛 ELOOP（mac 实测；非 walk 容错码 → 门脚本
+// 整轮崩），未成环的 symlink 也被跟随下钻/收集（计数扩面）。修法 = lstatSync 判型
+// 不跟随 + symlink 一律跳过（对齐 check-knowledge R71-39「环路/越界不可判」fail-safe
+// 口径；本侧计数门选跳过不选拒绝——对账面只认实体树，vitest/coverage 收集同样不循
+// symlink 扩面）。对照盲区钉样式：r50-f2 TOCTOU 容错同族（walk 的既有跳过面）。
+describe('0918独立重评修复批 D005：check-counts walk symlink 防护（lstat 判型不跟随）', () => {
+  let dirs: string[] = []
+  function tmpDir(): string {
+    const d = mkdtempSync(join(tmpdir(), 'clw-d005-walk-'))
+    dirs.push(d)
+    return d
+  }
+  afterEach(() => {
+    vi.restoreAllMocks()
+    for (const d of dirs) rmSync(d, { recursive: true, force: true })
+    dirs = []
+  })
+
+  // Windows 无 symlink 常规权限（需开发者模式，symlinkSync 直建 EPERM），macOS/Linux CI 腿覆盖
+  it.skipIf(process.platform === 'win32')('目录环 symlink：walk 不炸门（ELOOP 不再触达）、symlink 跳过、实体文件照常收集', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const d = tmpDir()
+    const a = join(d, 'a')
+    const b = join(d, 'b')
+    mkdirSync(a)
+    mkdirSync(b)
+    writeFileSync(join(a, 'real.test.ts'), 'x')
+    writeFileSync(join(b, 'plain.md'), 'y')
+    // 环：a/loop → b，b/loop → a（修复前 walk(a) → statSync 跟随 loop → 撞内核 symlink
+    // 上限裸抛 ELOOP 炸门，mac 实测）
+    symlinkSync(b, join(a, 'loop'))
+    symlinkSync(a, join(b, 'loop'))
+
+    const out = walk(d, (n: string) => n.endsWith('.test.ts')).map((p: string) => p.split(sep).pop())
+    expect(out).toEqual(['real.test.ts']) // 实体文件收齐，环未跟随、门不炸
+  })
+
+  it.skipIf(process.platform === 'win32')('断链 symlink 与指向文件/自指 symlink：一律跳过并 warn 留痕，其余条目不受影响', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const d = tmpDir()
+    writeFileSync(join(d, 'keep.test.ts'), 'x')
+    symlinkSync(join(d, 'gone-target'), join(d, 'broken.test.ts')) // 断链（目标不存在）
+    symlinkSync(join(d, 'keep.test.ts'), join(d, 'file-link.test.ts')) // 指向文件（修复前会被收集，虚增计数）
+    symlinkSync(d, join(d, 'self-loop')) // 自指目录环
+
+    const out = walk(d, (n: string) => n.endsWith('.test.ts')).map((p: string) => p.split(sep).pop())
+    expect(out).toEqual(['keep.test.ts']) // 三个 symlink 全跳过：断链不炸、文件链接不虚增、自指不下钻
+    expect(warnSpy.mock.calls.some((c) => String(c[0]).includes('symlink'))).toBe(true)
+  })
+
+  it.skipIf(process.platform === 'win32')('指向目录的 symlink 不下钻：目标子树实体文件不重复收集', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const d = tmpDir()
+    const sub = join(d, 'sub')
+    mkdirSync(sub)
+    writeFileSync(join(sub, 'inner.test.ts'), 'x')
+    symlinkSync(sub, join(d, 'alias')) // alias → sub（修复前 alias 下钻把 inner 收两次）
+
+    const out = walk(d, (n: string) => n.endsWith('.test.ts')).map((p: string) => p.split(sep).pop())
+    expect(out).toEqual(['inner.test.ts']) // 仅实体路径一份，alias 不扩面
   })
 })

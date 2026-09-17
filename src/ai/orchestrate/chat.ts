@@ -25,8 +25,12 @@ import type { SessionRecorder } from '../../events/chat-bridge.js'
 import { emit, type ChatRunState, AGENT_DEADLINE_MS } from './chat/state.js'
 import { prepareChatRun } from './chat/restore.js'
 import { runAgentTurns } from './chat/turns.js'
+// 0918独立重评修复批（A002）：未预期异常的失败收尾走 finishTurn 单一出口（finish.ts
+// 只 type-import ChatOpts，运行时无环）
+import { finishTurn } from './chat/finish.js'
 // 复审-0914-优化修复批（errMsg 收编）：错误摘要口径单源
-import { errMsg } from '../../log/index.js'
+// 0918独立重评修复批（A002）：catch 内 warn 留痕需 log
+import { errMsg, log } from '../../log/index.js'
 
 // hh §八-16：子件符号经本件再导出——外部（server API / 测试）import 路径全部不变
 export { getHistory, clearChatHistory } from './chat/state.js'
@@ -261,11 +265,14 @@ async function runChatInner(opts: ChatOpts): Promise<void> {
   }
   // Y-P1-1：recorder 提前声明——异常路径 finally 兜底 dispose（注销活跃登记，防孤儿修复误伤）
   let recorder: SessionRecorder | undefined
+  // 0918独立重评修复批（A002）：提升到 try 外——catch 需持 history/baseLen/recorder 判定
+  // 收尾形态（null = 准备期抛，run 未产出）
+  let prepared: ReturnType<typeof prepareChatRun> | null = null
 
   try {
     // 相位 b+c：历史恢复与谱系 / 会话与上下文（recorder 创建当口经 onRecorder 回填，
     // 保证 finally 兜底 dispose 覆盖 buildChatContext 等后续步骤的异常路径）
-    const run = prepareChatRun(opts, store, (r) => {
+    prepared = prepareChatRun(opts, store, (r) => {
       recorder = r
     })
     // 相位 d：agent 轮循环（内含六失败出口与轮数触顶收尾）；markCompleted 在 chat_done
@@ -274,20 +281,47 @@ async function runChatInner(opts: ChatOpts): Promise<void> {
       opts,
       state,
       confirmTimeout,
-      history: run.history,
-      baseLen: run.baseLen,
-      recorder: run.recorder,
-      sys: run.sys,
-      turnBranch: run.turnBranch,
-      digests: run.digests,
+      history: prepared.history,
+      baseLen: prepared.baseLen,
+      recorder: prepared.recorder,
+      sys: prepared.sys,
+      turnBranch: prepared.turnBranch,
+      digests: prepared.digests,
       // T2-1：注入文件清单与章正文路径 → llm/call promptMeta.files / revision/ref.path
-      promptFiles: run.promptFiles,
-      revisionPath: run.revisionPath,
-      seqs: run.seqs,
+      promptFiles: prepared.promptFiles,
+      revisionPath: prepared.revisionPath,
+      seqs: prepared.seqs,
       markCompleted: () => {
         completedOk = true
       },
     })
+  } catch (e) {
+    // 0918独立重评修复批（A002）：未预期异常补失败收尾——此前 try/finally 无 catch，
+    // restore 相位 createSession SQLITE_BUSY 等穿透时 history 悬挂、事件库无终态、无
+    // chat_error（history 内存留驻半截 user，模型可见而事件不可回溯）。防双收尾守卫 =
+    // completedOk（markCompleted 在 chat_done 当口先行置位）+ prepared 是否产出：
+    // - prepared 在手且 !completedOk → 轮循环中途未预期抛，按 {error} 口径走 finishTurn
+    //   单一出口（回滚 + 全会话遮蔽 + chat_error）。finishTurn 后再抛的窗口不存在：
+    //   runAgentTurns 六失败出口调 finishTurn 后同步 return（M-1 收编后 finishTurn 自身
+    //   不再抛），故此分支只命中「finishTurn 未调过」的路径，无二次收尾面；
+    // - prepared 为 null → 准备期抛（restore 相位），run 未产出无可回滚，best-effort
+    //   补 chat_error（对齐 finishTurn 的发出形态：redactSecret 后经 driver.emit）；
+    // - completedOk 为 true → 正常完成后的收尾段异常（如 finalizeHistory 逃逸）——
+    //   chat_done 已发、历史已提交，不回滚不遮蔽不二次收尾（再收 chat_error 即 R69-10
+    //   同型「成功后又报错」），只 warn 留痕。
+    // 末尾 rethrow：对外契约不变（异常照旧穿透，sendChatMessage 外层 catch 发 driver error）。
+    if (prepared !== null && !completedOk) {
+      finishTurn(opts, prepared.history, prepared.baseLen, prepared.recorder, { error: errMsg(e) })
+    } else if (prepared === null) {
+      try {
+        emit(opts, { type: 'chat_error', error: redactSecret(errMsg(e)) })
+      } catch (emitErr) {
+        log.warn('chat', `chat_error 补发失败（对话启动期异常）：${errMsg(emitErr)}`)
+      }
+    } else {
+      log.warn('chat', `对话正常完成后的收尾段异常（chat_done 已发，不回滚不二次收尾）：${errMsg(e)}`)
+    }
+    throw e
   } finally {
     clearTimeout(deadlineTimer)
     running.delete(opts.bookName)

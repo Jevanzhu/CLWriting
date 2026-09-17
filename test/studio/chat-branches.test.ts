@@ -217,9 +217,9 @@ describe('G1 无 userDataPath（无事件库）→ 无分支，不报错', () =>
     expect(r.json).toEqual({ branches: [], activeBranchId: null })
   })
 
-  it('history → 200 + 空视图', async () => {
+  it('history → 200 + 空视图（0918独立重评修复批 C004：早退形态五字段齐全）', async () => {
     const r = await get(bareBaseUrl, `/api/books/${encodeURIComponent(BRANCH_BOOK)}/chat/history`)
     expect(r.status).toBe(200)
-    expect(r.json).toEqual({ messages: [], seqs: [], branchId: null })
+    expect(r.json).toEqual({ messages: [], seqs: [], branchId: null, truncated: false, total: 0 })
   })
 })

@@ -609,6 +609,9 @@ describe('W-P2-9：降级记忆去重（同一 key 只落盘一次）', () => {
     // 第一次 persist：写入 modelCaps
     persistDegraded(key)
     const mtimeAfterFirst = statSync(fp).mtimeMs
+    // 0918独立重评修复批（G009）：mtime 相等系弱预言（同粒度重写可同值），补字节级
+    // 指纹——二次 persist 后全文逐字节不变才是「未写盘」的强断言
+    const bytesAfterFirst = readFileSync(fp, 'utf8')
 
     // 第二次 persist（同 key）：去重命中 → 不写盘
     persistDegraded(key)
@@ -617,6 +620,7 @@ describe('W-P2-9：降级记忆去重（同一 key 只落盘一次）', () => {
     // 第一次写入会改 mtime（文件确实被写）；第二次应完全不动
     expect(mtimeAfterFirst).toBeGreaterThanOrEqual(mtimeBefore)
     expect(mtimeAfterSecond).toBe(mtimeAfterFirst)
+    expect(readFileSync(fp, 'utf8')).toBe(bytesAfterFirst)
 
     // 落盘内容含 modelCaps 记忆
     const raw = JSON.parse(readFileSync(fp, 'utf8'))

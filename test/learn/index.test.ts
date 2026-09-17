@@ -2,11 +2,12 @@
  * H-1（二轮复审）回归：learn 收割只认定稿章——草稿/在写章混入候选池会污染文风基准。
  * 判定与导出 V-P2-2 同一函数（manifest.finalizedPathSet）；旧书无清单 → 全量（降级一致）。
  */
-import { test, expect } from 'vitest'
+import { test, expect, vi } from 'vitest'
 import { rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { learnFromBook } from '../../src/learn/index.js'
+import { log } from '../../src/log/index.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 const QUALIFYING_BODY =
@@ -40,6 +41,29 @@ test('H-1: 无清单（旧书降级）→ 全量收割（草稿也收，与导�
       expect(r.skippedDrafts).toBe(0)
     }
   } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+// 0918独立重评修复批（A007）：坏 frontmatter 章跳过 + 逐章 warn 留痕（带文件路径），
+// 其余章照常收割——此前单章解析失败令整轮收割不可用（对齐 rag/build.ts 坏文件口径）。
+test('A007: 单章 frontmatter 损坏 → 本章跳过 warn 留痕，好章照常收割', async () => {
+  const root = makeBook()
+  const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
+  try {
+    writeFileSync(
+      join(root, '写作', '正文', '0003-坏章.md'),
+      '---\n章号: 3\n标题: 坏章\n正文（frontmatter 未闭合，解析必败）',
+      'utf-8',
+    )
+    const r = await learnFromBook(root)
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.sampleCount).toBeGreaterThan(0)
+    const hit = warn.mock.calls.find((c) => String(c[1]).includes('0003-坏章.md'))
+    expect(hit).toBeTruthy()
+    expect(String(hit![1])).toContain('本章跳过')
+  } finally {
+    warn.mockRestore()
     rmSync(root, { recursive: true, force: true })
   }
 })

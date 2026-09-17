@@ -42,7 +42,14 @@ export function fsBackoffSleep(ms: number): void {
 }
 
 /** R48-70：参数化退避核心。onExhausted 缺省上抛（throwing 壳语义）；传入则按消费
- *  语义收口（Quiet 壳 warn 后吞，返回值不使用）。 */
+ *  语义收口（Quiet 壳 warn 后吞，返回值不使用）。
+ *  0918独立重评修复批（B009）：退避留痕——同步 Atomics.wait 静默睡对作者零感知，
+ *  单次操作累计退避 ≥ BACKOFF_TRACE_MIN_MS（即默认档进入第 2 档 50+100ms）时按
+ *  trace 上下文 log.warn 一次（操作名/目标路径/累计耗时；路径口径与本文件既有
+ *  fs warn 一致不额外脱敏）。只加留痕，退避本身逐位不变；不传 trace 零变化
+ *  （cross-process-lock 的 Quiet 壳维持仅耗尽告警口径）。 */
+const BACKOFF_TRACE_MIN_MS = 100
+
 export function retryOnTransientFsError<T>(
   op: () => T,
   opts: {
@@ -50,9 +57,13 @@ export function retryOnTransientFsError<T>(
     retries: number
     baseDelayMs: number
     onExhausted?: (e: unknown) => void
+    /** B009：留痕上下文（操作名 + 目标路径）。缺省不留痕。 */
+    trace?: { op: string; target: string }
   },
 ): T {
   let attempt = 0
+  let sleptMs = 0
+  let traced = false
   for (;;) {
     try {
       return op()
@@ -65,7 +76,16 @@ export function retryOnTransientFsError<T>(
         }
         throw e
       }
-      opts.sleep(opts.baseDelayMs * 2 ** attempt)
+      const delay = opts.baseDelayMs * 2 ** attempt
+      opts.sleep(delay)
+      sleptMs += delay
+      if (opts.trace && !traced && sleptMs >= BACKOFF_TRACE_MIN_MS) {
+        traced = true // 单次操作只留痕一次（退避仍继续到耗尽）
+        log.warn(
+          'fs',
+          `${opts.trace.op} 遭瞬时占用（EPERM/EBUSY）退避重试 ${attempt + 1} 次、累计 ${sleptMs}ms 仍未让出：${opts.trace.target}——频繁出现请检查杀软/同步盘/索引器占用`,
+        )
+      }
       attempt++
     }
   }
@@ -115,21 +135,24 @@ export function rmWithRetry(
     opts?.rm ??
     ((p: string) => rmSync(p, opts?.recursive ? { force: true, recursive: true } : { force: true }))
   // R48-70：退避循环收编 retryOnTransientFsError 单实现（口径不变：3×50ms 指数，
-  // 仅 EPERM/EBUSY 重试，其余上抛）
+  // 仅 EPERM/EBUSY 重试，其余上抛）；B009：带留痕上下文
   retryOnTransientFsError(() => doRm(path), {
     sleep: opts?.sleep ?? fsBackoffSleep,
     retries: opts?.retries ?? 3,
     baseDelayMs: opts?.baseDelayMs ?? 50,
+    trace: { op: 'rm', target: path },
   })
 }
 
 export function renameWithRetry(from: string, to: string, opts?: RenameRetryOptions): void {
   const doRename = opts?.rename ?? ((src: string, dst: string) => renameSync(src, dst))
-  // R48-70：退避循环收编 retryOnTransientFsError 单实现（同 rmWithRetry 注）
+  // R48-70：退避循环收编 retryOnTransientFsError 单实现（同 rmWithRetry 注）；
+  // B009：带留痕上下文
   retryOnTransientFsError(() => doRename(from, to), {
     sleep: opts?.sleep ?? fsBackoffSleep,
     retries: opts?.retries ?? 3,
     baseDelayMs: opts?.baseDelayMs ?? 50,
+    trace: { op: 'rename', target: `${from} → ${to}` },
   })
 }
 

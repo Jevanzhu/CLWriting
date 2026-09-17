@@ -14,6 +14,9 @@ import type { DatabaseSync } from 'node:sqlite'
 import {
   readStaleLeads,
 } from '../format/read.js'
+// 0918独立重评修复批（C003）：本文件四处裸 db.prepare 收编 prepared() 连接级缓存
+// （SQL 文本固定；check/runner.ts R0917-6-P3-8 同款，单源 shared/sqlite-prepared.ts）
+import { prepared } from '../shared/sqlite-prepared.js'
 import type { BookConfig, LeadType } from '../format/types.js'
 
 /** 账本阈值默认表（母本第 2.2 节，#9 可覆盖） */
@@ -93,13 +96,13 @@ export function assembleStatus(
   // 已定稿最新章号
   let maxNum: number | null
   if (finalized === undefined) {
-    maxNum = (db.prepare('SELECT MAX(number) AS maxNum FROM chapters').get() as { maxNum: number | null }).maxNum
+    maxNum = (prepared(db, 'SELECT MAX(number) AS maxNum FROM chapters').get() as { maxNum: number | null }).maxNum
   } else {
     // R65-34（第六十五轮）：原先 IN 子句按定稿集展开占位符——极端章数（>999）触发
     // SQLite 编译版变量上限直接抛错；改全量读 number 后 JS 侧按定稿集过滤。语义与
     // 原实现逐一恒等：只数 chapters 表内且章号在定稿集的行（空集 → null，与 PL-2
     // 「清单在册零定稿 = currentChapter 0」口径一致；定稿集内不在表中的章号同不计）。
-    const rows = db.prepare('SELECT number FROM chapters').all() as { number: number }[]
+    const rows = prepared(db, 'SELECT number FROM chapters').all() as { number: number }[]
     maxNum = null
     for (const r of rows) {
       if (finalized.has(r.number) && (maxNum === null || r.number > maxNum)) maxNum = r.number
@@ -121,7 +124,8 @@ export function assembleStatus(
   // 进行中的账本
   // R0912-6：行按 opened_at 升序（现有排序）——超 cap 取尾部（最近开启的线），省略数
   // 随快照透出；保序切片（升序不变，formatStatus 展示序与旧口径一致）
-  const openRows = db.prepare(
+  const openRows = prepared(
+    db,
     `SELECT id, type, title, opened_at FROM leads WHERE status = '进行中' ORDER BY opened_at`,
   ).all() as Record<string, unknown>[]
   const openLeadsAll = openRows.map((r) => ({
@@ -147,7 +151,8 @@ export function assembleStatus(
   // 近 3 章钩子/情绪。P5-管线（第七轮）：按定稿线过滤（number <= currentChapter）——
   // chapters 表含在写草稿的钩子行，原先直接取最大 3 章会把未定稿草稿的钩子当
   // 「已定稿近章节奏」复述给模型（与 currentChapter 口径分裂）
-  const recentRows = db.prepare(
+  const recentRows = prepared(
+    db,
     `SELECT number, title, hook_type, emotion FROM chapters
      WHERE number <= ? ORDER BY number DESC LIMIT 3`,
   ).all(currentChapter) as Record<string, unknown>[]

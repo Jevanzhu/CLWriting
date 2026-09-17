@@ -50,10 +50,11 @@ export type { SplitPlanView, SplitApplyResult } from './structure-split.js'
 
 // ── S5 崩溃不变量判定（detectState 书内检查挂点，设计方案 §5.5）─────────
 
-/** 结构半成态条目（healthCheck 报文素材；只读判定零副作用）。 */
+/** 结构半成态条目（healthCheck 报文素材；只读判定零副作用）。
+ *  0918独立重评修复批（B007）：原 targetDocId 字段恒 null（检测走盘面扫描拿不到清单
+ *  id，注释宣称的「清单 id」从未布线）——死字段连 health 消费侧死臂一并删除，报文
+ *  统一用 targetPath 定位。 */
 export interface StructureViolation {
-  /** 目标章清单 id（无布线/未登记书形态回落 null，报文用 path 定位） */
-  targetDocId: string | null
   targetPath: string
   targetChapterNo: number
   targetTitle: string
@@ -95,8 +96,9 @@ export function detectStructureViolations(bookRoot: string): StructureViolation[
   for (const r of registered) {
     for (const src of r.mergedInto) {
       if (nos.has(src)) {
+        // 0918独立重评修复批（B007）：targetDocId 恒 null 死字段删除——盘面扫描拿不到
+        // 清单 id，报文定位统一走 targetPath
         violations.push({
-          targetDocId: null,
           targetPath: r.path,
           targetChapterNo: r.no,
           targetTitle: r.title,

@@ -24,14 +24,17 @@ test('E1b: 活跃执行中新消费者 B 加入 → 顺序回放 execRing', asyn
   ccDriver.emit!(session, { type: 'chat_start' })
   ccDriver.emit!(session, { type: 'chat_text', text: '第一段' })
   ccDriver.emit!(session, { type: 'chat_text', text: '第二段' })
-  // 消费者 B 迟到加入 → 回放 execRing（含 chat_start + 两段 text）
+  // 消费者 B 迟到加入 → 回放 execRing（0918独立重评修复批 E001：chat 腿活跃回放最前
+  // 补一枚 chat_replay_begin 锚，其后 chat_start + 两段 text）
   const genB = ccDriver.stream(session) as AsyncGenerator<DriverEvent>
   const e1 = await firstEvent(genB)
-  expect(e1.type).toBe('chat_start')
+  expect(e1.type).toBe('chat_replay_begin')
   const e2 = await genB.next()
-  expect((e2.value as { text: string }).text).toBe('第一段')
+  expect(e2.value.type).toBe('chat_start')
   const e3 = await genB.next()
-  expect((e3.value as { text: string }).text).toBe('第二段')
+  expect((e3.value as { text: string }).text).toBe('第一段')
+  const e4 = await genB.next()
+  expect((e4.value as { text: string }).text).toBe('第二段')
   await pendingA
   ccDriver.dispose(session)
 })
@@ -63,10 +66,13 @@ test('E1b: 新执行开始清空 ring，只回放最新执行', async () => {
   ccDriver.emit!(session, { type: 'chat_start' })
   ccDriver.emit!(session, { type: 'chat_text', text: '第二轮新' })
   const genB = ccDriver.stream(session) as AsyncGenerator<DriverEvent>
+  // E001：chat 腿活跃回放最前补 chat_replay_begin 锚
   const e1 = await firstEvent(genB)
-  expect(e1.type).toBe('chat_start')
+  expect(e1.type).toBe('chat_replay_begin')
   const e2 = await genB.next()
-  expect((e2.value as { text: string }).text).toBe('第二轮新')
+  expect(e2.value.type).toBe('chat_start')
+  const e3 = await genB.next()
+  expect((e3.value as { text: string }).text).toBe('第二轮新')
   await pendingA
   ccDriver.dispose(session)
 })
@@ -80,9 +86,12 @@ test('E1b: ring cap 协议单元——超限只保留最近 N 个', async () => 
     ccDriver.emit!(session, { type: 'chat_text', text: '段' + i })
   }
   const genB = ccDriver.stream(session) as AsyncGenerator<DriverEvent>
-  // cap=200 协议单元：chat_start + 210 text = 211，挤出前 11 个 → 回放从 段10 开始（chat_start 也被挤出）
+  // cap=200 协议单元：chat_start + 210 text = 211，挤出前 11 个 → 回放从 段10 开始（chat_start 也被挤出）；
+  // E001：chat 腿活跃回放最前补 chat_replay_begin 锚
   const e1 = await firstEvent(genB)
-  expect((e1 as { text: string }).text).toBe('段10')
+  expect(e1.type).toBe('chat_replay_begin')
+  const e2 = await genB.next()
+  expect((e2.value as { text: string }).text).toBe('段10')
   const texts: string[] = []
   for (let i = 0; i < MAX_EXEC_RING - 1; i++) {
     const r = await genB.next()
@@ -145,15 +154,16 @@ test('execRing 分桶: chat 内嵌写章——写手腿并行不清 chat 腿、�
   // 内嵌 write_chapter 进行中重连：写手腿 EXEC_START（分桶前单环形态会清掉 chat 已积累段——丢段机理一）
   ccDriver.emit!(session, { type: 'role_spawn', role: 'writer', parentToolUseId: 'self-heal' })
   ccDriver.emit!(session, { type: 'text', text: '章内容' })
-  // 迟到消费者 B1（两腿俱活跃）：回放 = chat 段 + 写手段拼接（桶间拼接序安全：前端按族分流）
+  // 迟到消费者 B1（两腿俱活跃）：回放 = chat_replay_begin 锚（E001）+ chat 段 + 写手段拼接
+  // （桶间拼接序安全：前端按族分流）
   const genB1 = ccDriver.stream(session) as AsyncGenerator<DriverEvent>
   const got1: DriverEvent[] = []
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 5; i++) {
     const r = await genB1.next()
     if (r.done) throw new Error('回放不完整')
     got1.push(r.value)
   }
-  expect(got1.map((e) => e.type)).toEqual(['chat_start', 'chat_text', 'role_spawn', 'text'])
+  expect(got1.map((e) => e.type)).toEqual(['chat_replay_begin', 'chat_start', 'chat_text', 'role_spawn', 'text'])
   await genB1.return(undefined)
   // 写手腿 EXEC_END（分桶前会置 execActive=false → 外层 chat 零回放——丢段机理二）
   ccDriver.emit!(session, { type: 'done', usage: 0, reason: 'success' })
@@ -162,14 +172,14 @@ test('execRing 分桶: chat 内嵌写章——写手腿并行不清 chat 腿、�
   // 写手段按「本腿结束不回放」锁定语义（r50-b3 b 组）不入回放
   const genB2 = ccDriver.stream(session) as AsyncGenerator<DriverEvent>
   const got2: DriverEvent[] = []
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 4; i++) {
     const r = await genB2.next()
     if (r.done) throw new Error('回放不完整')
     got2.push(r.value)
   }
-  expect(got2.map((e) => e.type)).toEqual(['chat_start', 'chat_text', 'chat_text'])
-  expect((got2[1] as { text: string }).text).toBe('问')
-  expect((got2[2] as { text: string }).text).toBe('答')
+  expect(got2.map((e) => e.type)).toEqual(['chat_replay_begin', 'chat_start', 'chat_text', 'chat_text'])
+  expect((got2[2] as { text: string }).text).toBe('问')
+  expect((got2[3] as { text: string }).text).toBe('答')
   await pendingA
   ccDriver.dispose(session)
 })
@@ -186,15 +196,18 @@ test('execRing 分桶: 双桶 cap 独立——写手腿溢出裁剪不挤占 cha
   }
   const genB = ccDriver.stream(session) as AsyncGenerator<DriverEvent>
   // 回放 = chat 段完整（chat_start + c0）+ 写手段裁到最近 200（role_spawn 被挤出、段10 起）；
-  // 拼接序列首 text 前无锚（chat_* 非锚、role_spawn 已被裁出）→ 前导合成 text_reset
+  // 拼接序列首 text 前无锚（chat_* 非锚、role_spawn 已被裁出）→ 前导合成 text_reset，
+  // E001 锚在其后（chat 腿活跃回放最前插 chat_replay_begin）
   const e1 = await firstEvent(genB)
   expect(e1.type).toBe('text_reset')
   const e2 = await genB.next()
-  expect(e2.value.type).toBe('chat_start')
+  expect(e2.value.type).toBe('chat_replay_begin')
   const e3 = await genB.next()
-  expect((e3.value as { text: string }).text).toBe('c0')
+  expect(e3.value.type).toBe('chat_start')
   const e4 = await genB.next()
-  expect((e4.value as { text: string }).text).toBe('段10')
+  expect((e4.value as { text: string }).text).toBe('c0')
+  const e5 = await genB.next()
+  expect((e5.value as { text: string }).text).toBe('段10')
   await pendingA
   ccDriver.dispose(session)
 })

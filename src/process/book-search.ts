@@ -19,7 +19,7 @@
  * 排除规则）两侧与改前完全一致。
  */
 import { join, relative } from 'node:path'
-import { readdirSync, existsSync, statSync, realpathSync } from 'node:fs'
+import { readdirSync, statSync, realpathSync } from 'node:fs'
 import { readdir, stat, realpath } from 'node:fs/promises'
 import { isWithinRoot, docJoinKey, normalizeWinSeparators } from '../fs/safe-path.js'
 import { readMdTextCached, readMdTextCachedAsync } from '../fs/md-text-cache.js'
@@ -125,7 +125,9 @@ function buildSearchPlan(bookRoot: string, q: string, scope?: string): SearchPla
  *  （walkMd/readMdTextCached 直返），异步侧为 fs.promises 孪生；生成器核心对两侧
  *  一视同仁（yield 交驱动取值/等待），匹配/过滤/截断逻辑单源不再双侧复写。
  *  R47-5（四十七轮）口径随实现保留：文件读取走 fs/md-text-cache.ts stat 指纹缓存
- *  （读失败返回 null 按无命中降级），异步孪生与同步版共享同一指纹表。 */
+ *  （读失败返回 null 按无命中降级），异步孪生与同步版共享同一指纹表。
+ *  0918独立重评修复批（C005）：listMd 契约本就覆盖目录缺失——两驱动侧 walk 对不存在
+ *  起点 realpath 失败空返，核心内目录存在性预判（原 existsSync）随批删除。 */
 interface SearchFileIo {
   /** 列目录下全部 .md（排除/排序/symlink 纪律内聚在 walker，见 walkMd 注） */
   listMd(dir: string): string[] | Promise<string[]>
@@ -140,7 +142,10 @@ function* searchBookCore(plan: SearchPlan, io: SearchFileIo): Generator<unknown,
   const results: SearchHit[] = []
   for (const dir of dirs) {
     const abs = join(root, dir)
-    if (!existsSync(abs)) continue
+    // 0918独立重评修复批（C005）：目录存在性预判删——existsSync 是双驱动核心内最后的
+    // 同步 IO 残留（异步侧「全链 fs.promises」宣称自此逐字成立）。语义由注入的
+    // SearchFileIo 天然覆盖：listMd 两驱动侧 walk 对不存在/不可解析起点 realpath 失败
+    // 即空返（见 walkMd/walkMdAsync），空列表 → 该 scope 零命中，与原 continue 等价。
     const files = (yield io.listMd(abs)) as string[]
     for (const fp of files) {
       const text = (yield io.readText(fp)) as string | null
@@ -202,6 +207,8 @@ export function searchBook(bookRoot: string, q: string, scope?: string): SearchO
  * 同进程全部书的 SSE/保存）：全链 fs.promises（readdir/readFile/stat/realpath，realpath
  * 语义逐位保留），扫描期间事件循环可响应 SSE 心跳/保存等其他请求。匹配/排序/截断/排除
  * 目录/symlink 纪律与同步版逐位同源（P3-30 起经 searchBookCore 单源，不再靠双侧对齐）。
+ * 「全链 fs.promises」宣称 0918独立重评修复批（C005）起逐字成立：生成器核心内最后的
+ * 同步残留 existsSync 目录预判随批删除（listMd 对不存在目录空返天然覆盖，见 SearchFileIo 注）。
  * 同步版 searchBook 现仅测试面/CLI 面消费，生产读路径一律走本异步版（R46-3 口径更正：
  * 旧注「同步版保留给 AI book_search 工具（子进程面）」是 spawn CLI 时代的过时口径）。
  */

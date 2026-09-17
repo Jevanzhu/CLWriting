@@ -374,6 +374,11 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
         },
       })
     let out = await sendTurn(toSend, lastMessageFingerprint(toSend))
+    // 0918独立重评修复批（A001）：换网重发实发载荷——A7 收缩重发实际执行处同步收窄，
+    // 「首发超窗 → A7 收缩重发 → 重发又回 AUTH 族 → 换网重发」组合链不再误用首发
+    // 未收缩载荷（修复前 :422 恒发 toSend，重放超窗形态）。本块之后 toSend 无其余
+    // 读点（终态出口/成功路径均不触达），收窄面仅换网重发一处。
+    let effectiveToSend = toSend
     if (!out.ok && ctxOverflow) {
       ctxOverflow = false
       const retryBudget = Math.floor(historyBudget / 2)
@@ -387,6 +392,8 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
         recorder.add({ ...llmRetryEvent({ attempt: 1, delayMs: 0, errCode: 'CONTEXT_WINDOW_EXCEEDED' }), turn })
         emit(opts, { type: 'chat_reset' })
         emit(opts, { type: 'warning', message: `上下文超限，已自动收缩对话历史（约 ${sentPoints} → ${retryPoints} 码点）后重试。` })
+        // 0918独立重评修复批（A001）：收缩重发实际执行处同步 effectiveToSend（换网重发取此值）
+        effectiveToSend = retryToSend
         out = await sendTurn(retryToSend, lastMessageFingerprint(retryToSend))
         if (!out.ok && ctxOverflow) {
           log.warn('chat', `chat 发送收缩重试后仍超窗（A7 最小版）：重试发送 ${retryToSend.length} 条约 ${retryPoints} 码点仍回 CONTEXT_WINDOW_EXCEEDED，按现行终态路径收口（错误面不变）`)
@@ -400,26 +407,44 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
     // 首发命中换网族（决策表 action='switch-provider'）且存在异于当前的供应商配置时，
     // 取第一个备用 id 换网重发恰一次（A7 shrink 同款最小范型：一次性、不级联）；仍失败
     // 或无备用 → 落回现行终态路径（下方 !out.ok 出口与错误面零变更）。重发走 sendTurn
-    // 全链（trace/记账/指纹与首发同构，载荷不变——换的是网不是输入）；provider 实例由
-    // runTask 按 providerId 解析，两次 llm/call 各自记录实际生效供应商。self-heal/spawn/
-    // rewrite 等非 chat 路径照旧终态（runner 内该动作仍同归 author，范围与 shrink 消费者同界）。
+    // 全链（trace/记账/指纹与首发同构；0918独立重评修复批 A001/A004 起：载荷取收缩后
+    // 的 effectiveToSend、备用须过 chat 档可用性预检——换的是网，输入与首发/收缩实发
+    // 一致）；provider 实例由 runTask 按 providerId 解析，两次 llm/call 各自记录实际
+    // 生效供应商。self-heal/spawn/rewrite 等非 chat 路径照旧终态（runner 内该动作仍同
+    // 归 author，范围与 shrink 消费者同界）。
     if (!out.ok && switchCode !== undefined && failureAction({ code: switchCode }) === 'switch-provider') {
       const failedCode: GenError['code'] = switchCode
       switchCode = undefined
       let fallbackId: string | undefined
       let fromId: string | null = null
+      // 0918独立重评修复批（A004）：备用供应商逐个校验 chat 档可用性——复用 runner
+      // resolveProvider 同款解析路径（换网重发 runTask 按 providerId 走的正是这条：
+      // conf 按 id 取 + tierFromStore('chat') + createProvider），选第一个可解析的异
+      // id 供应商；此前 find(p => p.id !== currentId) 不校验，选中无 chat 档/坏协议的
+      // 备用只会白烧一次必败发送。全部不可用时按成因区分 warn 文案（无备用供应商 vs
+      // 备用均无可用 chat 档），均落现行终态路径（错误面零变更）。
+      let hasCandidate = false
       try {
         const s = loadProviders(opts.userDataPath)
         fromId = s.currentId
-        fallbackId = s.providers.find((p) => p.id !== s.currentId)?.id
+        const candidates = s.providers.filter((p) => p.id !== s.currentId)
+        hasCandidate = candidates.length > 0
+        fallbackId = candidates.find((p) => resolveProvider(opts.userDataPath, 'chat', p.id).ok)?.id
       } catch {
         fallbackId = undefined
       }
       if (fallbackId) {
         log.warn('chat', `chat 发送换网重试（0917清库修复批）：供应商${fromId ? ` ${fromId}` : ''} 回 ${failedCode}，切换备用 ${fallbackId} 重发一次`)
         recorder.add({ ...llmRetryEvent({ attempt: 1, delayMs: 0, errCode: failedCode }), turn })
+        // 0918独立重评修复批（A003）：重发前清前端对话缓冲——换网重发是独立的第二次完整
+        // 发送，防异常形态下 chat_text 重复拼接（对齐上方 A7 分支同款防御；正常为 no-op）
+        emit(opts, { type: 'chat_reset' })
         emit(opts, { type: 'warning', message: `AI 供应商请求失败（${redactSecret(failedCode)}），已切换备用供应商重试。` })
-        out = await sendTurn(toSend, lastMessageFingerprint(toSend), fallbackId)
+        // 0918独立重评修复批（A001）：实发取 effectiveToSend（无收缩链路 = toSend 本身
+        // 行为不变；A7 收缩后换网组合 = 收缩后载荷），指纹同步按实发重算
+        out = await sendTurn(effectiveToSend, lastMessageFingerprint(effectiveToSend), fallbackId)
+      } else if (hasCandidate) {
+        log.warn('chat', `chat 发送回 ${failedCode} 且备用供应商均无可用 chat 档（0918独立重评修复批 A004），按现行终态路径收口`)
       } else {
         log.warn('chat', `chat 发送回 ${failedCode} 且无备用供应商可切换（0917清库修复批），按现行终态路径收口`)
       }

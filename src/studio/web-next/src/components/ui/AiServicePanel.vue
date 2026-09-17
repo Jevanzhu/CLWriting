@@ -157,12 +157,16 @@ async function save(f: {
     }
   }
   const input = { name: f.name.trim(), protocol: f.protocol, auth: f.auth, baseUrl: f.baseUrl.trim(), apiKey: f.apiKey, models: f.models }
+  // 0918独立重评修复批（F001）：首个 await 前钉定「新增 vs 编辑」分支与编辑目标——原实现
+  // 两行各读一次 editedId.value，add 在途窗口内用户点行「编辑」改写 editedId 后，:163 重新
+  // 求值走 update 分支，把新增草稿（含 apiKey）写进他行。saveRag（:289 单表达式）同构参照。
+  const editTarget = editedId.value
   saving.value = true
   try {
-    const addId = editedId.value ? null : await store.add(input)
-    const ok = editedId.value ? await store.update(editedId.value, input) : !!addId
+    const addId = editTarget ? null : await store.add(input)
+    const ok = editTarget ? await store.update(editTarget, input) : !!addId
     if (!ok) return
-    const pid = editedId.value ?? addId
+    const pid = editTarget ?? addId
     closeEdit()
     addOpen.value = false
     // P0-2：提供方表已变 → 刷新 AI 可达性

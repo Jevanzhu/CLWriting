@@ -21,6 +21,7 @@ import {
   maskKey,
   normalizeApiKey,
   apiKeyRefusal,
+  ProviderRevisionConflictError, // 0918独立重评修复批（D002）：写前基线复验冲突 → 409 映射
   type RagProviderConf,
   type ProviderStore,
 } from '../../../ai/provider/index.js'
@@ -37,11 +38,18 @@ interface RagProvidersCtx {
 // 捕住回 500 WRITE_ERROR 信封（同 /api/providers 的 saveProvidersOr500，两文件各自持有
 // 本地副本避免路由模块互相 import）。当前 void 返回下 await/try-catch 合法且零行为差异。
 // 返回 false = 已回错误响应，调用方直接 return 不再 reply 200。
+// 0918独立重评修复批（D002）：写前基线复验冲突（ProviderRevisionConflictError）单列
+// 映射既有 409 REVISION_CONFLICT 信封——与 /api/providers 同款（前置 revisionError 闸
+// 同形态同文案）；排队写窗口内基线漂移时回「刷新重读」语义而非 500。
 async function saveProvidersOr500(res: ServerResponse, userDataPath: string, s: ProviderStore): Promise<boolean> {
   try {
     await saveProviders(userDataPath, s)
     return true
-  } catch {
+  } catch (e) {
+    if (e instanceof ProviderRevisionConflictError) {
+      replyError(res, 409, 'REVISION_CONFLICT', e.message)
+      return false
+    }
     replyError(res, 500, 'WRITE_ERROR', '配置写入失败，请重试')
     return false
   }

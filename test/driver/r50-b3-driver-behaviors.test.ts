@@ -141,13 +141,14 @@ describe('R50-B-3 b) E1b execRing 迟到回放（cc 专属）', () => {
       ccDriver.emit?.(session, { type: 'done', usage: 0, reason: 'success' }) // 写手腿 EXEC_END：只关写手腿
       const late = ccDriver.stream(session) as AsyncGenerator<DriverEvent>
       const got: DriverEvent[] = []
-      for (let i = 0; i < 2; i++) {
+      for (let i = 0; i < 3; i++) {
         const r = await late.next()
         expect(r.done).toBe(false)
         got.push(r.value)
       }
-      expect(got.map((e) => e.type)).toEqual(['chat_start', 'chat_text'])
-      // chat_* 非锚也非 text → 无需合成 text_reset
+      // 0918独立重评修复批（E001）：chat 腿活跃回放最前补 chat_replay_begin 锚
+      expect(got.map((e) => e.type)).toEqual(['chat_replay_begin', 'chat_start', 'chat_text'])
+      // chat_* 与新锚均非 text 也非清屏锚 → 无需合成 text_reset
       await late.return(undefined)
     } finally {
       ccDriver.dispose(session)

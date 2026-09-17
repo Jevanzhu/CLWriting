@@ -64,6 +64,11 @@ export type DriverEvent =
   | { type: 'chat_reset' }
   | { type: 'chat_done'; inputTokens?: number; outputTokens?: number }
   | { type: 'chat_error'; error: string }
+  // 0918独立重评修复批（E001）：迟到回放的对话腿锚（无载荷）——cc driver execRing 重放
+  // 在 chat 腿活跃且 ring 非空时于回放最前插入一次；前端据此把后续 chat_* 事件识别为
+  // 重放（不在在途气泡上重复建泡）。仅写手腿回放（chat 腿不活跃）不插。合成事件只进
+  // 消费者队列（stream 回放路径），不经 driver.emit/push，不入 ring。
+  | { type: 'chat_replay_begin' }
 
 /** driver 接口(SSE 基础设施,窄化) */
 export interface StudioDriver {
@@ -81,6 +86,11 @@ export interface StudioDriver {
   interrupt?(session: Session): void
   /** 当前是否有存活的生成(SSE 新连接补发运行态快照用)。可选,mock 可不实现 */
   isRunning?(session: Session): boolean
+  /** 0918独立重评修复批（E002）：当前是否有存活的「写手腿」生成——sync 快照收窄口径：
+   *  排除 `chat:` 前缀 owner 槽位（对话腿 ctrl 全程在册至 finish 注销，isRunning 会被
+   *  其置真且 chat 终态不达 workbench.running，快照永不复位）。可选；未实现时消费方
+   *  回落 false（与 isRunning 缺省同型）。 */
+  isWriterRunning?(session: Session): boolean
   /** 登记生成任务的中断控制器——interrupt() 据此 abort 真实请求、isRunning() 据此判在途（P1-2）。
    *  M-1（第八轮）：owner 标识编排归属（'chat:<book>'/'spawn'/'self-heal'）——同 owner 换新保持
    *  「先 abort 旧」（P2-6），跨 owner 并存不互相 abort（chat 问答 × 写稿编排的既定并发）。

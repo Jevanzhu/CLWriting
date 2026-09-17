@@ -51,6 +51,13 @@ function onInsert(text: string): void {
     ui.toast('没有打开中的文档——先点开一章或设定文件，再插入', 'info')
     return
   }
+  // 0918独立重评修复批（F002）：非编辑器视图时 EditorView 未挂载（Book.vue
+  // v-if="activeView === 'editor'"），pendingInsert 入槽无人即时消费且点击零反馈。
+  // 照常 requestInsert 入槽：EditorView 挂载时 onMounted 补消费（:272）+ doc 落位后
+  // nextTick 补消费（:249）会补插；补挂起反馈让点击不再像坏了
+  if (ws.activeView !== 'editor') {
+    ui.toast('已挂起：回到编辑器视图后自动插入', 'info')
+  }
   ws.requestInsert(text)
 }
 </script>

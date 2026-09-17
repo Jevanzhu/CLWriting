@@ -14,8 +14,9 @@
 
 import type { DatabaseSync } from 'node:sqlite'
 import { existsSync } from 'node:fs'
+import { readFile as fsReadFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import { walkMdEach } from '../fs/walk-md.js'
+import { walkMdEachAsync } from '../fs/walk-md.js'
 import { readFile } from '../format/frontmatter.js'
 import { chapterNamePrefixes } from '../format/chapters.js'
 import { mergedIntoMap } from '../format/chapter-lookup.js'
@@ -36,12 +37,16 @@ import type { BookConfig } from '../format/types.js'
  * 账本不走这里——召回只补正文（#37 红线）。
  * R0910-W（2026-09-10 修复批）：先收集去重章号、一次遍历解析全部命中章正文——
  * 原对每个命中调 readChapterBodyByNumber（各自一次全树 walk，topK=5 即最多 5 次
- * 全树扫描）；改为单次 walkMdEach 命中任一候选前缀即读正文。结果等价：同章号取
+ * 全树扫描）；改为单次遍历命中任一候选前缀即读正文。结果等价：同章号取
  * 遍历中最先匹配到的可读文件（与逐个 walkMdFind 的首个命中同序），正文切片口径不变。
+ * 0918独立重评修复批（C001）：正文读取随批转异步（对齐 book-search R46-3 同族修法）——
+ * 本函数在 studio 服务进程事件循环内被 await，全树扫描 + 逐文件整读同步执行会冻结
+ * 同进程全部书的 SSE/保存；现 walk 与文件读全链 fs.promises，扫描期间事件循环可响应
+ * 其他请求。
  */
-function renderRecallHits(bookRoot: string, hits: RecallHit[]): string {
+async function renderRecallHits(bookRoot: string, hits: RecallHit[]): Promise<string> {
   if (hits.length === 0) return ''
-  const bodies = readChapterBodiesByNumbers(bookRoot, [...new Set(hits.map((h) => h.章号))])
+  const bodies = await readChapterBodiesByNumbersAsync(bookRoot, [...new Set(hits.map((h) => h.章号))])
   const lines: string[] = []
   for (const hit of hits) {
     // 命中位置：第 X 章 offset[a,b]
@@ -56,40 +61,70 @@ function renderRecallHits(bookRoot: string, hits: RecallHit[]): string {
 }
 
 /**
- * 按章号集合单次遍历定稿正文目录解析正文（R0910-W）。
+ * 正文整读的异步孪生（0918独立重评修复批 C001）：fs/promises 读全文后经 readFile 的
+ * content 传参（R63-7 入参）复用同一解析与错误塑形单源——读失败时回落 readFile(fp)
+ * 自读（readFileSync 兜底读同样失败 → 同构错误对象），调用方只看 .ok/.body 面不变。
+ */
+async function readFileBodyAsync(fp: string): Promise<ReturnType<typeof readFile>> {
+  let text: string
+  try {
+    text = await fsReadFile(fp, 'utf-8')
+  } catch {
+    return readFile(fp) // 读失败 → readFile 自读同路径失败，错误塑形单源
+  }
+  return readFile(fp, text)
+}
+
+/**
+ * 按章号集合单次遍历定稿正文目录解析正文（R0910-W；0918独立重评修复批 C001 起异步版）。
  * 前缀口径走 chapterNamePrefixes 单一真相源（CC-P2-21）：无补零 / 3 位 / 4 位补零全试——
  * 草稿新建是 3 位补零，此前只试「无补零 + 4 位」导致这些章 RAG 召回静默返回 null。
  * 递归扫描含卷子目录（v2 后章节可在 写作/正文/<卷>/ 子目录，非递归会漏，D1）；
- * 环剪枝 + 根界走共享 walkMdEach（L-P1 第八轮；替换手写递归）。
+ * 环剪枝 + 根界走共享 walkMdEachAsync（与同步 walkMdEach 同纪律：Dirent 判型/
+ * realpath 剪枝/根界/`._` 排除，IO 面 fs/promises）。
+ *
+ * 同步版处置（C001）：全仓唯一消费链是 renderRecallHits → prepareMaterials（已 async），
+ * 无其他调用方 → 同步版随批删除不保留。并入源回退分支的 mergedIntoMap 保留同步调用：
+ * meta-only 全扫且 (mtimeNs,size) stat 指纹缓存吸收重复成本（chapter-lookup.ts 成本口径），
+ * 其异步孪生须异步化 readChapterDir 的 stat 级缓存核心（大面搅动），按最小正确面原则
+ * 不随批双驱——回退仅在按名 miss 的合并窗口触发，首调一次性同步段有界（登记残留点）。
  */
-function readChapterBodiesByNumbers(bookRoot: string, chapterNumbers: number[]): Map<number, string> {
+export async function readChapterBodiesByNumbersAsync(
+  bookRoot: string,
+  chapterNumbers: number[],
+): Promise<Map<number, string>> {
   const out = new Map<number, string>()
   if (chapterNumbers.length === 0) return out
   const bodyDir = join(bookRoot, '写作', '正文')
-  if (!existsSync(bodyDir)) return out
+  // C001：原 existsSync 同步探测异步化（stat 探测）——目录缺失返回空 Map 语义不变
+  try {
+    await stat(bodyDir)
+  } catch {
+    return out
+  }
   // 文件名前缀 → 章号（同章号多前缀；跨章号前缀互斥，见 chapterNamePrefixes）
   const wanted = new Map<string, number>()
   for (const n of chapterNumbers) {
     for (const p of chapterNamePrefixes(n)) wanted.set(p, n)
   }
-  walkMdEach(bodyDir, (abs, name) => {
+  await walkMdEachAsync(bodyDir, async (abs, name) => {
     for (const [prefix, n] of wanted) {
       if (out.has(n) || !name.startsWith(prefix)) continue
-      const r = readFile(abs)
+      const r = await readFileBodyAsync(abs)
       if (r.ok) out.set(n, r.body)
     }
   })
   // S2（阶段 24，D3 留洞制）：并入源章回退——RAG chunk 按章号整型键控，合并后到
   // buildIndex 清理前的窗口内召回仍可能带源章号；按名 miss 经 mergedIntoMap 取目标章
-  // 正文（正文命中优先；回退口径单源 chapter-lookup.ts；Map 只建一次——readChapterDir
-  // 的 stat 缓存吸收重复扫描，但按章号循环内重建仍是无谓支付）
+  // 正文（正文命中优先；回退口径单源 chapter-lookup.ts；Map 只建一次）。C001：目标章
+  // 正文读随批转异步（readFileBodyAsync）；mergedIntoMap 保留同步（处置见函数头注）。
   if (out.size < chapterNumbers.length) {
     const merged = mergedIntoMap(bookRoot)
     for (const n of chapterNumbers) {
       if (out.has(n)) continue
       const target = merged.get(n)
       if (target === undefined) continue
-      const r = readFile(target)
+      const r = await readFileBodyAsync(target)
       if (r.ok) out.set(n, r.body)
     }
   }
@@ -282,8 +317,8 @@ export async function prepareMaterials(
     }
   }
 
-  // 命中 → 取原文片段 → 喂给 prepare 的 ragRecallText
-  const ragRecallText = renderRecallHits(bookRoot, hits)
+  // 命中 → 取原文片段 → 喂给 prepare 的 ragRecallText（C001：正文读取已异步化）
+  const ragRecallText = await renderRecallHits(bookRoot, hits)
   const base = prepare(db, config, bookRoot, chapterLeadIds, ragRecallText, sampleScene, writeModel, opts.chapter)
   return {
     ...base,

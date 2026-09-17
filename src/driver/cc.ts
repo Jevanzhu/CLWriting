@@ -130,6 +130,23 @@ function ringAppend(ring: DriverEvent[], ev: DriverEvent): void {
   if (ring.length > MAX_EXEC_RING) ring.shift()
 }
 
+// 0918独立重评修复批（E001）：execRing 回放拼装——chat 腿活跃且其 ring 非空时，在回放
+// 数组最前（chat ring 段之前）插一枚 chat_replay_begin 锚（前端据此把后续 chat_* 重放
+// 识别为回放，不在在途气泡上重复建泡——重放使前端在已有在途气泡上再收 chat_turn 会产生
+// 重复气泡）；仅写手腿回放（chat 腿不活跃）不插。导出纯函数供锚单测：「chat 活跃且 ring
+// 空」经公共 emit 面不可达（EXEC_START 必随 chat_start 入环，cap 只裁不清），黑盒无此态。
+// 对 replayNeedsResetAnchor 无影响：锚事件既非 text 也非清屏锚（TEXTOUT_ANCHORS），扫描
+// 逐事件判定语义不变（锚单判逻辑只认 text 事件形态，chat_replay_begin 无 text）。
+export function buildRingReplay(
+  chat: { ring: DriverEvent[]; active: boolean },
+  writer: { ring: DriverEvent[]; active: boolean },
+): DriverEvent[] {
+  const replay: DriverEvent[] = []
+  if (chat.active && chat.ring.length > 0) replay.push({ type: 'chat_replay_begin' })
+  replay.push(...(chat.active ? chat.ring : []), ...(writer.active ? writer.ring : []))
+  return replay
+}
+
 function push(id: string, ev: DriverEvent): void {
   // 低级项（第六轮）：dispose 后的迟到 emit/interrupt 不复活已删除的 channel——
   // 原先 channel(id) 懒建会把 Map 条目重新造出来且无人再清（微量资源残留）
@@ -229,10 +246,10 @@ export const ccDriver: StudioDriver = {
         // 桶间拼接序对两 store 各自视图保序安全（前端按族分流）；清屏锚对拼接序列
         // 整体判一次（chat_* 无 text 事件、锚语义只涉 workbench textOut，与分桶前
         // 单环单检等价）
-        const replay = [
-          ...(ch.chat.active ? ch.chat.ring : []),
-          ...(ch.writer.active ? ch.writer.ring : []),
-        ]
+        // 0918独立重评修复批（E001）：chat 腿活跃且 ring 非空时回放最前插 chat_replay_begin
+        // 锚（见 buildRingReplay 注）——锚只进本消费者队列（不经 push），不入 ring、
+        // 不污染 EXEC_START/END 与两腿桶状态
+        const replay = buildRingReplay(ch.chat, ch.writer)
         if (replay.length > 0) {
           if (replayNeedsResetAnchor(replay)) consumer.queue.push(REPLAY_RESET)
           consumer.queue.push(...replay)
@@ -344,6 +361,21 @@ export const ccDriver: StudioDriver = {
     // X-P2-11：aborted 的 ctrl 不算在途（编排层直接 abort 自身 ctrl 而非走 interrupt 的路径兜底）
     for (const slot of byOwner.values()) {
       if (!slot.ctrl.signal.aborted) return !session.closed
+    }
+    return false
+  },
+
+  // 0918独立重评修复批（E002）：写手腿在途判定——sync 快照收窄口径。isRunning 覆盖全部
+  // owner 槽位（/interrupt 的全停语义需要），但 chat 腿 ctrl 以 `chat:<book>` owner 全程
+  // 在册至 finish 注销，对话期间 sync 快照 running 被置真且永不复位（chat_done/chat_error
+  // 走 chat 族不达 workbench）。本判定只排除 `chat:` 前缀槽位，其余 owner（spawn/
+  // self-heal/review:<书>/task-gate 的 action:<书>/bg-summary:<书>/缺省 ''）照旧算写手腿
+  // （全仓 owner 字面量核查见本批报告）；aborted 与 session.closed 口径同 isRunning。
+  isWriterRunning(session: Session): boolean {
+    const byOwner = sessionCtrls.get(session.id)
+    if (!byOwner) return false
+    for (const slot of byOwner.values()) {
+      if (!slot.ctrl.signal.aborted && !slot.owner.startsWith('chat:')) return !session.closed
     }
     return false
   },

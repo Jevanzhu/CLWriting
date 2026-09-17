@@ -33,7 +33,9 @@ import { decodeDocDirName } from '../document/version.js'
 import { readTrashManifest } from '../document/trash.js'
 import { readBookConfig } from '../format/yaml.js'
 import { splitFrontMatter, parseFlat } from '../format/frontmatter.js'
-import { parseChapterFileName } from '../format/words.js'
+// 0918独立重评修复批（B005）：maxFileNameChapter 取号下限切 chapterNoFromName 单源
+//（原窄正则 parseChapterFileName 对裸数字名失明）；isMdFileName = 扩展剥离单源
+import { chapterNoFromName, isMdFileName } from '../format/filename.js'
 import { readManifest, readManifestStrict, writeManifest, withManifestLockAsync, type Manifest } from '../document/manifest.js'
 import { computeRevision } from '../document/revision.js'
 import { probeCachedRevision } from '../document/tree.js'
@@ -336,7 +338,9 @@ export async function healthCheck(bookRoot: string, manifest: Manifest): Promise
         kind: 'structurePending',
         humanMsg: `合并中断：第${v.targetChapterNo}章「${v.targetTitle}」已登记并入第 ${v.sourceChapterNo} 章，但源章仍在正文（内容暂重复）。`,
         fix: '在章节树对目标章重新执行「并入上一章」即可幂等完成；或执行「撤销并入」整体回退。',
-        files: v.targetDocId ? [v.targetDocId] : [v.targetPath],
+        // 0918独立重评修复批（B007）：targetDocId 死字段已删（恒 null、真臂永不走）——
+        // 报文定位统一 targetPath，原三目死臂回归
+        files: [v.targetPath],
       })
     }
   } catch (e) {
@@ -776,14 +780,23 @@ export function unfinishedPieceNames(bookRoot: string, manifest: Manifest): Set<
 
 // 已定稿章数 = readChapterDir 章数 − 未定稿文件数（排除草稿后再计"已写"，见态 7 分支与 readRecapSnapshot）
 
-/** 正文区文件名里的最大章号（含 fm 解析失败的文件；无匹配 → 0）。V-P1-3：nextChapter 下限。 */
+/** 正文区文件名里的最大章号（含 fm 解析失败的文件；无匹配 → 0）。V-P1-3：nextChapter 下限。
+ *  0918独立重评修复批（B005）：取号下限面（state.ts nextChapter / recap currentChapter /
+ *  本文件 manifestEmpty 哨兵三类消费点全是「已用章号下限/章文件存在性」语义）从窄正则
+ *  parseChapterFileName（须 `数字-标题`）切到 chapterNoFromName 单源（tree 宽容集：
+ *  `5—标题.md`/`5 标题.md` 兼收）+ 剥 .md 扩展——裸数字名（0012.md）此前失明，
+ *  nextChapter 回指已用号（章号复用）。命名违规检测类消费面不经本函数（各持窄口径），
+ *  无两类共用面、不拆函数。 */
 export function maxFileNameChapter(bodyDir: string): number {
   if (!existsSync(bodyDir)) return 0
   let max = 0
   // N2（五十九轮）：同 findUnfinishedChapter——改走 walk-md 共享口径
   walkMdEach(bodyDir, (_fp, name) => {
-    const parsed = parseChapterFileName(name)
-    if (parsed && parsed.章号 > max) max = parsed.章号
+    // 剥 .md 扩展（大小写不敏感，isMdFileName 单源）后再判——chapterNoFromName 的
+    // 宽容集以分隔符/串尾收口，「0012.md」带扩展直判会因尾点失配
+    const stem = isMdFileName(name) ? name.slice(0, -3) : name
+    const n = chapterNoFromName(stem)
+    if (n !== null && n > max) max = n
   })
   return max
 }

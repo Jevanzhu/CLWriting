@@ -77,12 +77,16 @@ describe('W3: chat store 事件分派', () => {
     expect(chat.messages[0]!.done).toBe(true)
   })
 
-  it('chat_error → running=false + error 有值', () => {
+  it('chat_error → running=false + error 有值 + notice 清空（E005）', () => {
     const chat = useChatStore()
     chat.dispatch({ type: 'chat_start' })
+    chat.dispatch({ type: 'notice', message: '已加入队列——当前对话结束后会自动处理这条消息。' })
+    expect(chat.notice).not.toBeNull()
     chat.dispatch({ type: 'chat_error', error: '出错了' })
     expect(chat.running).toBe(false)
     expect(chat.error).toBe('出错了')
+    // 0918独立重评修复批（E005）：对齐 chat_start 双清口径——错误态旁不残留旧 notice
+    expect(chat.notice).toBeNull()
   })
 
   // R-7（第十六轮）：chat_error 收尾在途气泡（对齐 chat_done 口径）——末气泡 done + currentIdx 复位
@@ -715,38 +719,51 @@ describe('G1: seqs 透传与分支态', () => {
   })
 })
 
-// Q-8（第十五轮）：切书窗口内 B 书在途回合——气泡先建后被 clear() 抹掉，seedHistory
-// 被 running 守卫直接放弃（修复前）→ 该回合 UI 全程失明。修复：running 中登记
-// pendingReseed，回合收尾（running 翻 false）自动补种。
-describe('Q-8：clear 后遇 running 登记 pending，回合收尾自动补种', () => {
-  it('chat_done（running 翻 false）后自动从服务端补种历史', async () => {
+// Q-8（第十五轮）+ 0918独立重评修复批（E006）：在途回合窗口的补种语义。
+// E006 起 clear() 复位 running——clear 后的 seedHistory 不再被 running 守卫拦成
+// pendingReseed，直接从服务端拉取补种；「running 中（未 clear）登记 pending、回合
+// 收尾自动补种」的原 Q-8 通道保留（E001 重连回放重建同样依赖它）。
+describe('Q-8/E006：clear 复位 running 与在途回合补种', () => {
+  it('E006: clear 后 running=false，seedHistory 不再被 running 守卫拦截（直接拉取补种）', async () => {
     const chat = useChatStore()
     chat.dispatch({ type: 'chat_start' })
     chat.dispatch({ type: 'chat_turn', turn: 0 })
     chat.dispatch({ type: 'chat_text', text: '在途回合的流式内容' })
     expect(chat.messages).toHaveLength(1)
+    expect(chat.running).toBe(true)
 
-    // 切书流程：clear() 抹掉在途气泡 → seedHistory 在 running 中（修复前直接 return 丢掉）
+    // 切书流程：clear() 抹掉在途气泡 + 复位 running（修复前残留 true）
     chat.clear()
     expect(chat.messages).toHaveLength(0)
+    expect(chat.running).toBe(false) // 修复点：running 一并复位（workbench.clear 的 M-12 同口径）
+
+    // clear 后 seedHistory 直接拉取（修复前被 running 守卫拦成 pendingReseed、无人收尾时永不补种）
+    fetchMock.mockResolvedValueOnce(HISTORY)
+    await chat.seedHistory('书B')
+    expect(fetchMock).toHaveBeenCalledWith('书B')
+    expect(chat.messages.length).toBeGreaterThan(0)
+  })
+
+  it('Q-8 通道保留：running 中（未 clear）seedHistory 登记 pending，回合收尾自动补种', async () => {
+    const chat = useChatStore()
+    chat.dispatch({ type: 'chat_start' })
+    chat.dispatch({ type: 'chat_turn', turn: 0 })
     fetchMock.mockResolvedValueOnce(HISTORY)
     await chat.seedHistory('书B')
     expect(fetchMock).not.toHaveBeenCalled() // running 中不发请求，只登记 pending
 
     // 回合收尾 → watch 自动补种
     chat.dispatch({ type: 'chat_done' })
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith('书B'))
     await vi.waitFor(() => expect(chat.messages.length).toBeGreaterThan(0))
-    expect(fetchMock).toHaveBeenCalledWith('书B')
-    expect(chat.running).toBe(false)
   })
 
-  it('对照：clear() 重置 pending——补种不跨书误种', async () => {
+  it('对照：clear() 重置 pending——补种不跨书误种（E006 起 clear 连带复位 running）', async () => {
     const chat = useChatStore()
     chat.dispatch({ type: 'chat_start' })
-    chat.clear()
-    fetchMock.mockResolvedValueOnce(HISTORY)
-    await chat.seedHistory('书B') // 登记 pending=书B
-    chat.clear() // 再切书：pending 作废
+    await chat.seedHistory('书B') // running 中 → 登记 pending=书B（不发请求）
+    expect(fetchMock).not.toHaveBeenCalled()
+    chat.clear() // 切书：pending 作废（E006 起同时复位 running）
     chat.dispatch({ type: 'chat_done' })
     await new Promise((r) => setTimeout(r, 10))
     expect(fetchMock).not.toHaveBeenCalled() // 不再自动种书B

@@ -171,7 +171,7 @@ jobs:
     # studio server、release-smoke 起编译产物 server-main.js，均不启动 Electron 壳），
     # 「Electron 面须 mac」的理由不成立；macos runner 计费 10× 于 linux，纯惯例性浪费。
     runs-on: ubuntu-latest
-    # R66-39（十四轮）：与 build-test 同款放宽——build:all + 29 spec 串行（workers:1）+
+    # R66-39（十四轮）：与 build-test 同款放宽——build:all + 33 spec 串行（workers:1）+
     # release-smoke 二次构建，10 分钟慢机易触顶。20 为过渡值，待实跑数据校准。
     # R0910-W（2026-09-10）：20→25——本轮补 Electron 集成冒烟（apt 装系统依赖 + xvfb 起
     # 真壳）与 soak 步，release-smoke 的 build:all 之上再叠 ~1-2 分钟，取 25 留余量。
@@ -195,13 +195,20 @@ jobs:
 
       # --with-deps：ubuntu 上确保 chromium 系统库齐备（runner 镜像通常预装，此处幂等兜底）
       # R0911-G-P3-5（2026-09-11 全量重评 GLM-5.3 修复批）：浏览器层缓存——每跑重下
-      # chromium ~130MB，按根 lockfile 哈希键控（@playwright/test 版本变更自动失效重下；
-      # --with-deps 的 apt 侧幂等，命中缓存时 install 秒级 no-op）
+      # chromium ~130MB；--with-deps 的 apt 侧幂等，命中缓存时 install 秒级 no-op。
+      # 0918独立重评修复批（D003）：键由 hashFiles(lockfile) 改 OS+workflow+playwright
+      # 版本写死（1.61.1 对照根 package.json @playwright/test ^1.61.1，升版须同步改）
+      # + restore-keys 前缀兜底，键式对齐 desktop.yml（R0916-6 修的锁文件哈希键缺陷：
+      # 任意锁文件改动都会换键致 ~130MB 整包重下，与 playwright 是否升级无关；前缀兜底
+      # 换版时恢复旧缓存只补差量浏览器）。键含 github.workflow 体现本工作流身份，
+      # 与 desktop.yml（Desktop Build）缓存互不串用。
       - name: 缓存 playwright chromium
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          key: playwright-${{ runner.os }}-${{ github.workflow }}-1.61.1
+          restore-keys: |
+            playwright-${{ runner.os }}-${{ github.workflow }}-
       - name: 装 playwright chromium
         run: npx playwright install --with-deps chromium
 
@@ -212,6 +219,33 @@ jobs:
       # （此前仅本地手跑，CI 从不验发布形态；打包资源门只查文件存在不验可启动）
       - name: 发布冒烟（release-smoke，build:all + 编译产物起服）
         run: npm run test:e2e:release
+
+      # 0918独立重评修复批（D004）：PR 级真 asar 打包冒烟——check-packaging.mjs 只做静态
+      # 配置面校验（files 清单/资源对账/排除项锚定），真打包校验此前靠发布前手动
+      # build:desktop:dir（check-packaging.mjs 头注自认）。本步复用上一「发布冒烟」步的
+      # build:all 产物（electron-builder --dir 只做打包段不重复构建；首跑 electron zip
+      # ~100MB 下载，runner 级无缓存与 desktop.yml 同口径），对 ubuntu 解包态产物做最小
+      # 断言：linux-unpacked 在位 + resources/app.asar 在位 + asar 清单抽查（main 入口在、
+      # resources/prompts/ 在、node_modules 不在——仓内无 packaged-app-smoke 通用脚本，
+      # 断言用 npx asar list 内联；断言面本地 mac 已实跑核验：asar list 行形态
+      # `/dist/desktop/main.js` 等，见 2026-09-18 修复批记录）。CI ubuntu 无签名障碍
+      #（electron-builder.yml mac.identity 仅 darwin 腿消费）。
+      - name: asar 打包冒烟（electron-builder --dir + 清单断言）
+        run: |
+          set -eu
+          npx electron-builder --dir --publish never
+          APP_DIR=dist-electron/linux-unpacked
+          test -d "$APP_DIR" || { echo "::error::--dir 未产出 $APP_DIR——打包段失败"; exit 1; }
+          ASAR="$APP_DIR/resources/app.asar"
+          test -f "$ASAR" || { echo "::error::缺 $ASAR——asar 打包关闭/失败，打包态主进程不可载"; exit 1; }
+          npx asar list "$ASAR" > /tmp/asar-list.txt
+          grep -qx "/dist/desktop/main.js" /tmp/asar-list.txt || { echo "::error::asar 缺 main 入口 /dist/desktop/main.js——打包态无法启动"; exit 1; }
+          grep -q "^/resources/prompts/" /tmp/asar-list.txt || { echo "::error::asar 缺 resources/prompts/——打包态内置 prompt/技巧包全不可读（CC-P1-7）"; exit 1; }
+          if grep -q "^/node_modules" /tmp/asar-list.txt; then
+            echo "::error::node_modules 混入 asar——0917清库修复批排除项（'!node_modules/**'）失效，装机体回涨"
+            exit 1
+          fi
+          echo "asar 冒烟通过：linux-unpacked + app.asar 在位；main 入口与 resources/prompts/ 在包内；node_modules 未混入（asar 共 $(wc -l < /tmp/asar-list.txt) 条目）"
 
       # R0910-W（2026-09-10）：Electron 集成冒烟接入 PR/push 门——此前本 job 全链只碰
       # chromium + Node HTTP（mock driver），从不启动 Electron 壳；唯一 Electron 覆盖

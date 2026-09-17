@@ -139,9 +139,8 @@ const wordLineD = computed(() => {
 <style scoped>
 /* .panel 基础走全局 style-shared.css（R0912-C2 收敛批装载；重评-0912-2 P3 删「与 OverviewView 同式」重复块，声明逐字相同零视觉差） */
 
-.empty { font-size: var(--font-size-s); color: var(--text-faint); padding: var(--size-4-2) 0; }
-
 /* ══ 字数曲线 SVG（面积图）══ */
+/* 0918独立重评修复批（F004）：删 .empty 死规则——R72-11 删内层空态分支后模板零命中 */
 .chart-svg { width: 100%; height: auto; display: block; }
 .grid-line { stroke: var(--background-modifier-border); stroke-width: 1; }
 .axis-baseline { stroke: var(--background-modifier-border); stroke-width: 1; }

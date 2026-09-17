@@ -186,11 +186,24 @@ export async function learnFromBook(bookRoot: string): Promise<LearnResult> {
 /** R0912-5：锁内收割主体（扫描 → 候选 → 落盘；与锁前移前逻辑逐位一致，仅入口收窄形参） */
 async function learnFromBookLocked(bookRoot: string, bodyDir: string): Promise<LearnResult> {
   const { chapters, errors } = readChapterDir(bodyDir)
-  if (errors.length > 0) {
-    return { ok: false, sampleCount: 0, quoteCount: 0, candidateDir: '', error: `章节解析失败：${errors[0]!.message}` }
+  // 0918独立重评修复批（A007）：坏章节跳过 + 逐章 warn 留痕（对齐 rag/build.ts 坏文件
+  // 口径）——此前单章解析失败令整轮收割不可用（learn 全家失效），且错误文案只透
+  // errors[0].message 不带文件路径无法定位；现在坏章逐条 warn（file+message），其余
+  // 章照常收割，全坏才失败（error 注明章数与留痕位置）。
+  for (const e of errors) {
+    log.warn('learn', `章节解析失败，本章跳过：${e.file}（${e.message}）`)
   }
   if (chapters.length === 0) {
-    return { ok: false, sampleCount: 0, quoteCount: 0, candidateDir: '', error: '没有定稿正文可收割。' }
+    return {
+      ok: false,
+      sampleCount: 0,
+      quoteCount: 0,
+      candidateDir: '',
+      error:
+        errors.length > 0
+          ? `章节解析失败（${errors.length} 章，无有效正文；逐章留痕见日志）。`
+          : '没有定稿正文可收割。',
+    }
   }
   chapters.sort((a, b) => a.章号 - b.章号)
 

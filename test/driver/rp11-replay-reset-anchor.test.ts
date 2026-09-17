@@ -74,10 +74,14 @@ test('R-P1-1: 回放无 text 型事件（chat_* 等）→ 不补发（chat 域�
   ccDriver.emit!(session, { type: 'chat_start' })
   ccDriver.emit!(session, { type: 'chat_text', text: '对话增量' })
   const genB = ccDriver.stream(session) as AsyncGenerator<DriverEvent>
+  // 0918独立重评修复批（E001）：chat 腿活跃回放最前为 chat_replay_begin 锚——该锚既非
+  // text 也非清屏锚，锚单判扫描继续，其后的 chat_start 照旧（不补发语义不变）
   const e1 = await firstEvent(genB)
-  expect(e1.type).toBe('chat_start')
+  expect(e1.type).toBe('chat_replay_begin')
   const e2 = await genB.next()
-  expect((e2.value as { text: string }).text).toBe('对话增量')
+  expect(e2.value.type).toBe('chat_start')
+  const e3 = await genB.next()
+  expect((e3.value as { text: string }).text).toBe('对话增量')
   await pendingA
   ccDriver.dispose(session)
 })

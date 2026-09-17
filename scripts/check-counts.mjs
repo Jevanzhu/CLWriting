@@ -28,7 +28,7 @@
  * 用法：npm run check:counts（退出码 1 = 失配，并列出实测值供修 README）
  */
 import { execFileSync } from 'node:child_process'
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { lstatSync, readdirSync, readFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import ts from 'typescript'
@@ -278,14 +278,28 @@ export function walk(dir, pred, out = []) {
     const fp = join(dir, name)
     let st
     try {
-      st = statSync(fp)
+      // 0918独立重评修复批（D005）：lstatSync 判型不跟随 symlink——此前 statSync 跟随 +
+      // isDirectory 递归：目录环 symlink（a→b→a）令跟随撞内核 symlink 解析上限裸抛
+      // ELOOP（mac 实测；非本段容错码 → 炸门），未成环的目录/文件 symlink 也被跟随
+      // 下钻/收集（计数扩面）。对齐 check-knowledge R71-39 的「symlink 环路/越界不可判」
+      // fail-safe 口径（彼处 fail-closed 抛错，本侧计数门语义选跳过：对账面只认实体树，
+      // vitest/coverage 收集同样不循 symlink 扩面，跳过不虚增不漏计实体文件）。
+      st = lstatSync(fp)
     } catch (e) {
-      // F-2（五十轮评审批）：readdir 后条目被并发移走/路径段被换（断链 symlink 同形态）
+      // F-2（五十轮评审批）：TOCTOU 容错保持——readdir 后条目被并发移走/路径段被换
+      // （ENOENT/ENOTDIR）照旧 warn 跳过；断链 symlink 此前经 statSync 跟随得 ENOENT，
+      // 现 lstat 对链接本体仍成功 → 归入下方 symlink 跳过分支（warn 留痕同款）
       if (e.code === 'ENOENT' || e.code === 'ENOTDIR') {
         console.warn(`check:counts walk 跳过消失条目（${e.code}）：${fp}`)
         continue
       }
       throw e
+    }
+    // 0918独立重评修复批（D005）：symlink 一律跳过（不跟随；含断链/指向文件/指向目录/
+    // 环）——warn 留痕同 F-2 跳过样式，真实树（无 symlink）计数与改前逐位一致
+    if (st.isSymbolicLink()) {
+      console.warn(`check:counts walk 跳过 symlink（不跟随）：${fp}`)
+      continue
     }
     if (st.isDirectory()) walk(fp, pred, out)
     else if (pred(name)) out.push(fp)

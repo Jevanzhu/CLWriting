@@ -128,7 +128,9 @@ export function registerChatHistoryRoutes(ctx: ChatHistoryCtx): void {
       const bookName = params['name']!
       const bookRoot = r.bookRoot
       // userData 为空（无事件库）→ 空 messages，不报错（对话区留白可正常发起新对话）
-      if (!ctx.userDataPath) return reply(res, 200, { messages: [], seqs: [], branchId: null })
+      // 0918独立重评修复批（C004）：早退形态补齐五字段契约（与 buildChatHistoryView
+      // 正常路径一致）——原缺 truncated/total，前端消费 undefined 误判加载态
+      if (!ctx.userDataPath) return reply(res, 200, { messages: [], seqs: [], branchId: null, truncated: false, total: 0 })
 
       // GET query 自行解析（defineRoute 纪律：GET 无 body）；?branch= 缺省/空白 → 默认分支
       // R-19（第十六轮）：parseRequestUrl 统一解析（Q-1/N-3 口径）——畸形 URL → 400 BAD_INPUT

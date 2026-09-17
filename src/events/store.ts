@@ -741,13 +741,14 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
     },
     firstBranchMetaSeq(book: string): number | null {
       // LIKE 键匹配（键恒带引号序列化，无漏报）；正文巧含关键字的误报只令窗口多取
-      const row = db
-        .prepare(
-          `SELECT MIN(seq) AS s FROM events
-           WHERE session_id IN (SELECT session_id FROM sessions WHERE book = ?)
-             AND (data LIKE '%"branchId"%' OR data LIKE '%"parentSeq"%')`,
-        )
-        .get(book) as { s: number | null }
+      // 0918独立重评修复批（C002）：裸 db.prepare 收编 prepared() 连接级缓存（SQL 文本
+      // 固定；R0911b-E-P3-1 同款，latestSession 先例）
+      const row = prepared(
+        db,
+        `SELECT MIN(seq) AS s FROM events
+         WHERE session_id IN (SELECT session_id FROM sessions WHERE book = ?)
+           AND (data LIKE '%"branchId"%' OR data LIKE '%"parentSeq"%')`,
+      ).get(book) as { s: number | null }
       return row.s ?? null
     },
     *iterateEvents(book: string, sessionId?: string, type?: EventType): IterableIterator<ChatEvent> {
@@ -828,31 +829,36 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
       // 成本敏感面，见 N3 五十九轮并发首开注），而本查询仅在 close 写 compaction 前执行
       // 一次（低频诊断面，毫秒级一次性窗）——性能收益不抵迁移风险，登记不修；后续若
       // close 链实测成瓶颈再单立迁移项评估。
+      // 0918独立重评修复批（C002）：两条固定 SQL 收编 prepared()（第二条的 IN 占位符
+      // 拼自 SURFACE_EVENT_TYPES 常量集——变体数恒 1，符合「变体数须有界」入缓契约）
       const intervals = (
-        db
-          .prepare(
-            `SELECT shadow_start AS start, shadow_end AS end FROM events
-             WHERE surface_op = 'replace' AND shadow_start IS NOT NULL AND shadow_end IS NOT NULL
-               AND shadow_start <= ? AND shadow_end >= ?`,
-          )
+        prepared(
+          db,
+          `SELECT shadow_start AS start, shadow_end AS end FROM events
+           WHERE surface_op = 'replace' AND shadow_start IS NOT NULL AND shadow_end IS NOT NULL
+             AND shadow_start <= ? AND shadow_end >= ?`,
+        )
           .all(to, from) as Array<{ start: number; end: number }>
       ).map((r) => ({ start: r.start, end: r.end }))
       const surfaceTypes = [...SURFACE_EVENT_TYPES]
       const ph = surfaceTypes.map(() => '?').join(',')
-      const rows = db
-        .prepare(`SELECT seq, type, data FROM events WHERE seq >= ? AND seq <= ? AND type IN (${ph}) ORDER BY seq`)
-        .all(from, to, ...surfaceTypes) as Array<{ seq: number; type: string; data: string }>
+      const rows = prepared(
+        db,
+        `SELECT seq, type, data FROM events WHERE seq >= ? AND seq <= ? AND type IN (${ph}) ORDER BY seq`,
+      ).all(from, to, ...surfaceTypes) as Array<{ seq: number; type: string; data: string }>
       return { intervals, rows }
     },
     clearBook(book: string): void {
       // RB-IF-P2-1：两条 DELETE 同事务（对齐同文件其他写路径）——中途失败/崩溃
       // 不留「events 已删、sessions 残留」的孤儿（孤儿 events 永久查不到，审计丢失）
+      // 0918独立重评修复批（C002）：两条固定 DELETE 收编 prepared() 连接级缓存
       db.exec('BEGIN')
       try {
-        db.prepare(
+        prepared(
+          db,
           `DELETE FROM events WHERE session_id IN (SELECT session_id FROM sessions WHERE book = ?)`
-        ).run(book);
-        db.prepare('DELETE FROM sessions WHERE book = ?').run(book)
+        ).run(book)
+        prepared(db, 'DELETE FROM sessions WHERE book = ?').run(book)
         db.exec('COMMIT')
       } catch (err) {
         // R61-10（第六十一轮）：C4 同款加固（见 cache/rebuild.ts）——SQLite 部分
@@ -872,11 +878,16 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
       // 两侧一半清一半留。单 BEGIN 内循环两键的 DELETE，要么全清要么全不动
       db.exec('BEGIN')
       try {
+        // 0918独立重评修复批（C002）：循环内裸 db.prepare 收编——语句提循环外经
+        // prepared() 取缓存（原每 book 每轮重编译两条固定 DELETE）
+        const delEvents = prepared(
+          db,
+          `DELETE FROM events WHERE session_id IN (SELECT session_id FROM sessions WHERE book = ?)`
+        )
+        const delSessions = prepared(db, 'DELETE FROM sessions WHERE book = ?')
         for (const book of books) {
-          db.prepare(
-            `DELETE FROM events WHERE session_id IN (SELECT session_id FROM sessions WHERE book = ?)`
-          ).run(book);
-          db.prepare('DELETE FROM sessions WHERE book = ?').run(book)
+          delEvents.run(book)
+          delSessions.run(book)
         }
         db.exec('COMMIT')
       } catch (err) {
@@ -986,8 +997,10 @@ export async function migrateBookSession(
     try {
       db.exec('PRAGMA busy_timeout = 5000')
       db.exec('BEGIN')
-      db.prepare('UPDATE sessions SET book = ? WHERE book = ?').run(newName, oldName)
-      db.prepare('UPDATE sessions SET book = ? WHERE book = ?').run(bookHash(newRoot), bookHash(oldRoot))
+      // 0918独立重评修复批（C002）：裸 db.prepare 收编 prepared()（一次性迁移连接亦统一
+      // 走 helper——连接关库走 closeEventsDb，缓存条目随配对注销，无滞留面）
+      prepared(db, 'UPDATE sessions SET book = ? WHERE book = ?').run(newName, oldName)
+      prepared(db, 'UPDATE sessions SET book = ? WHERE book = ?').run(bookHash(newRoot), bookHash(oldRoot))
       db.exec('COMMIT')
     } finally {
       // 未 COMMIT 的事务随连接关闭回滚（先关干净再让异常冒泡去回滚文件搬移）

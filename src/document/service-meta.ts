@@ -55,7 +55,7 @@ import { appendAborted, appendPending, appendSettled } from './journal.js'
 import { encodeDocDirName, writeVersion, type VersionPolicy } from './version.js'
 import { readManifestStrict, type Manifest } from './manifest.js'
 import { invalidateTreeIndex, invalidateTreeIndexForContent } from './tree.js'
-import { readFile as readDoc, parseFlat, patchFlatFm, splitFrontMatter, joinFrontMatter, bodyOf } from '../format/frontmatter.js'
+import { readFile as readDoc, parseFlat, patchFlatFm, splitFrontMatter, joinFrontMatter, bodyOf, isFmWritableValue } from '../format/frontmatter.js'
 import { countWords, chapterFilePrefix } from '../format/words.js'
 import { sanitizeChapterTitle, chapterNoFromName } from '../format/filename.js'
 import { isUtf8Bytes, NON_UTF8_REJECT, getMetaSaveLockTimeoutMs, getWiringSaveLockTimeoutMs } from './service-guards.js'
@@ -442,6 +442,20 @@ async function syncRenamePieceList(svc: MetaHost, oldBodyRel: string, newName: s
 }
 
 export async function updateDocMetaLocked(svc: MetaHost, docId: string, meta: Record<string, unknown>): Promise<MoveResult> {
+  // 0918独立重评修复批（B010）：fm 值类型闸——对象/null 等非标量此前经 stringifyValue
+  // 的 String(val) 兜底落成 "[object Object]"/"null" 伪值写坏 fm；入口 fail-loud 拒收
+  //（BAD_INPUT 走本 API 既有错误信封，未执行任何修改）。undefined 与既有 fmUpdates
+  // 组装同口径跳过（= 不改该键）。
+  for (const [k, v] of Object.entries(meta)) {
+    if (v === undefined) continue
+    if (!isFmWritableValue(v)) {
+      return {
+        ok: false,
+        code: 'BAD_INPUT',
+        reason: `元数据字段「${k}」的值类型不支持（仅接受字符串/有限数字/布尔/标量数组），已拒绝写入`,
+      }
+    }
+  }
   // R0912-3：lookup strict 读失败收口 WRITE_ERROR（未执行修改、可重试），不裸穿
   let path: string | null
   try {

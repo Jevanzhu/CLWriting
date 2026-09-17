@@ -31,9 +31,10 @@ import {
 import { tags as t } from '@lezer/highlight'
 
 const props = defineProps<{ modelValue: string; mode: 'text' | 'md'; readonly?: boolean; typewriter?: boolean; historyKey?: string }>()
+// 0918独立重评修复批（F003）：删 selectionChange 死契约——声明 + emit 全 src 零消费者
+//（grep 含模板 @selection-change 形态核实），声明只留 update:modelValue
 const emit = defineEmits<{
   'update:modelValue': [string]
-  'selectionChange': []
 }>()
 const el = ref<HTMLElement>()
 let view: EditorView | null = null
@@ -196,7 +197,6 @@ onMounted(() => {
           // 丢弃（compositionend 消费挂起后 emit 恢复常态）。
           if (pendingDocSwitch === null) emit('update:modelValue', lastLocalEmit)
         }
-        if (u.selectionSet || u.focusChanged) emit('selectionChange')
       }),
       // F5（五十九轮）：组合态标记 + 组合结束后（延迟一拍让 CM6 先冲排组合文本插入）
       // 应用挂起的外部全量替换（挂起只作「有外部变更待应用」的标记，应用时取最新值——B-1）

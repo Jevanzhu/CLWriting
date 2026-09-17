@@ -17,8 +17,12 @@ describe('providers bak 自愈对只读主文件（R2W-4）', () => {
     const dir = mkdtempTracked(join(tmpdir(), 'clw-r2w4-bak-'))
     try {
       // 两笔 save：主文件在位 + 写前备份生成 providers.bak.json
-      saveProviders(dir, emptySettings())
-      saveProviders(dir, emptySettings())
+      // 0918独立重评修复批（D002）：saveProvidersLocked 写前有 revision 基线复验——
+      // 第二笔改用同一 store 实例（首写后 store.revision 已同步 +1，基线与盘一致）；
+      // 此前两笔各自 emptySettings()（基线恒 0）在新闸下会判基线漂移被拒
+      const seed = emptySettings()
+      saveProviders(dir, seed)
+      saveProviders(dir, seed)
       const fp = join(dir, 'providers.json')
       const bakFp = join(dir, 'providers.bak.json')
       expect(existsSync(bakFp)).toBe(true)

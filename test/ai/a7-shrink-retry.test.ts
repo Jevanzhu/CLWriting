@@ -33,6 +33,7 @@ import { chatTools } from '../../src/ai/contract/chat.js'
 import { promptMeta } from '../../src/ai/trace.js'
 import { SessionRecorder } from '../../src/events/chat-bridge.js'
 import { openSessionStore, bookHash } from '../../src/events/store.js'
+import { saveProviders, type ProviderStore } from '../../src/ai/provider/store.js'
 import { log } from '../../src/log/index.js'
 import type { ChatMsg } from '../../src/ai/provider/types.js'
 import type { DriverEvent, Session } from '../../src/driver/types.js'
@@ -83,11 +84,26 @@ interface Setup {
   close: () => void
 }
 
-function setup(history: ChatMsg[], script: Parameters<FakeProvider['setScript']>[number]): Setup {
+function setup(history: ChatMsg[], script: Parameters<FakeProvider['setScript']>[number], providers?: ProviderStore['providers']): Setup {
   fake.setScript(script)
   const ud = tempUserData()
   dirs.push(ud)
-  withFakeProvider(ud, fake.url) // 无模型行 → 窗口未知 → sendBudget 显式回落 96k
+  if (providers) {
+    // 0918独立重评修复批（A001 组合链用）：显式多供应商配置（换网重试需备用 id 可解析）
+    saveProviders(ud, {
+      providers,
+      currentId: providers[0]!.id,
+      currentModel: 'fake-model',
+      modelCaps: {},
+      ragProviders: [],
+      tiers: { creative: { model: 'fake-model', effort: 'medium' }, assistant: null, chat: null },
+      revision: 0,
+      vault: null,
+      dek: null,
+    })
+  } else {
+    withFakeProvider(ud, fake.url) // 无模型行 → 窗口未知 → sendBudget 显式回落 96k
+  }
   const bookRoot = mkdtempTracked(join(tmpdir(), 'a7-shrink-book-'))
   dirs.push(bookRoot)
   const emitted: DriverEvent[] = []
@@ -249,6 +265,71 @@ describe('A7 最小版：chat 编排层 shrink-prompt 收缩重试', () => {
       expect(calls.length).toBe(1)
       expect(calls[0]!.data.errCode).toBe('BAD_REQUEST')
     } finally {
+      s.close()
+    }
+  })
+
+  // 0918独立重评修复批（A001+A003）：组合链「首发超窗 → A7 收缩重发 → 重发回 AUTH 族
+  // → 换网重发」——修复前 :422 换网重发误用首发未收缩载荷（toSend），且重发前无
+  // chat_reset 清前端缓冲。锚注：本用例为该组合链的行为命名回归。
+  it('④ 首发超窗 → 收缩重发回 AUTH → 换网重发：实发载荷 = 收缩后、重发前有 chat_reset', async () => {
+    const warnSpy = vi.spyOn(log, 'warn').mockImplementation(() => {})
+    const history = inflightFatHistory()
+    const fingerprintBeforeRun = lastMessageFingerprint(history)
+    // 双供应商（fake-a 现用 + fake-b 备用，同指 fake stub——换网语义只看 id 不同）
+    const providers: ProviderStore['providers'] = ['fake-a', 'fake-b'].map((id) => ({
+      id,
+      name: id,
+      protocol: 'openai',
+      auth: 'bearer',
+      baseUrl: fake.url,
+      model: 'fake-model',
+      apiKey: `sk-${id}`,
+      caps: { connected: true, streaming: true },
+      capsProbedAt: Date.now(),
+    }))
+    const s = setup(history, [
+      { type: 'error', status: 400, message: OVER_MSG }, // 首发：超窗（收缩信号）
+      { type: 'error', status: 401, message: 'Invalid API key' }, // 收缩重发：AUTH 族（换网信号）
+      { type: 'text', content: '换网后回复。', usage: { input: 100, output: 50 } }, // 换网重发：成功
+    ], providers)
+    try {
+      const ok = await runAgentTurns(s.deps)
+      expect(ok).toBe(true)
+
+      // 恰 3 个 HTTP 请求：首发超窗 1 + 收缩重发 401 共 1 + 换网重发 1
+      expect(fake.requestCount()).toBe(3)
+      // A001 核心：换网重发（第 3 请求）载荷 = 收缩后 5 条（u1 起），非首发全量 9 条
+      const body = fake.lastBody() as { messages?: Array<{ role: string; content?: unknown }> }
+      const convo = (body.messages ?? []).slice(1) // 去掉 system
+      expect(convo.length).toBe(5)
+      expect(convo[0]).toEqual({ role: 'user', content: 'u1' })
+
+      // 留痕：两次重试各一条 llm/retry（超窗 + AUTH）；三次发送各自成对落 llm/call，
+      // 末次成功且指纹与收缩实发对齐（保尾切点下末条消息不变 → 指纹同值是正确形态）
+      const retryEvs = readChatEvents(s.ud, s.bookRoot).filter((e) => e.type === 'llm/retry')
+      expect(retryEvs.map((e) => (e.data as { errCode?: string }).errCode)).toEqual([
+        'CONTEXT_WINDOW_EXCEEDED',
+        'AUTH',
+      ])
+      const calls = readChainEvents(s.ud, s.bookRoot).filter((e) => e.type === 'llm/call')
+      expect(calls.length).toBe(3)
+      const tools = chatTools.map((t) => t.name)
+      const expectedHash = promptMeta('SYS', fingerprintBeforeRun, [], tools).hash
+      expect(calls[2]!.data.ok).toBe(true)
+      expect((calls[2]!.data.promptMeta as { hash: string }).hash).toBe(expectedHash)
+
+      // A003：收缩 warning 与换网 warning 之间存在一枚 chat_reset（换网重发前清前端缓冲）
+      const idxOf = (pred: (e: DriverEvent) => boolean): number => s.emitted.findIndex(pred)
+      const shrinkWarnIdx = idxOf((e) => e.type === 'warning' && String((e as { message?: string }).message ?? '').includes('收缩'))
+      const switchWarnIdx = idxOf((e) => e.type === 'warning' && String((e as { message?: string }).message ?? '').includes('已切换备用供应商'))
+      const resetIdxs = s.emitted.map((e, i) => (e.type === 'chat_reset' ? i : -1)).filter((i) => i >= 0)
+      expect(shrinkWarnIdx).toBeGreaterThanOrEqual(0)
+      expect(switchWarnIdx).toBeGreaterThan(shrinkWarnIdx)
+      expect(resetIdxs.length).toBeGreaterThanOrEqual(2)
+      expect(resetIdxs.some((i) => i > shrinkWarnIdx && i < switchWarnIdx)).toBe(true)
+    } finally {
+      warnSpy.mockRestore()
       s.close()
     }
   })

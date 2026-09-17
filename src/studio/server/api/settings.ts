@@ -145,7 +145,13 @@ const settingsCache = createTtlProbeCache<string, unknown>({
   // 请求会卡住同刻的 SSE/IPC 心跳。让出范式与 rhythmComputeAsync（重评-0914-三轮 P3-2）
   // 逐位同款：扫描段前后各让出一次，结果复用同一 computeSync 体（逐位一致），并发 MISS
   // 经 in-flight 去重只扫一次。
+  // 0918独立重评修复批（D001）：上句宣称此前不成立——创建 options 缺 inFlight，去重在
+  // ttl-cache.ts 只走 opts.inFlight 分支（同族 search.ts/rhythm.ts/foreshadows.ts 均有），
+  // 并发 MISS 各起一个 job 全量重扫。补 inFlight:true 后与宣称逐位一致：同键并发 MISS
+  // 合并为同一 Promise（判定段已先行走完命中判定/过期处理，evictExpiredOnMiss:false
+  // 组合下无逐出副作用）；不同键各算各的；getSync 同步孪生无在途窗口不受影响。
   computeAsync: settingsLongAsync,
+  inFlight: true,
   evictExpiredOnMiss: false,
 })
 
@@ -207,7 +213,10 @@ function completionNamesSignature(bookRoot: string): string {
 /** D1（复审-0914-优化修复批）：缓存壳收编 ttl-cache.ts 通用件（原本地 Map + FIFO
  *  本地壳删除；命中/失效时序/逐出序逐位不变——单级探针 + 异步计算 + FIFO 32；
  *  特记 evictExpiredOnMiss:false（原无 R47-18 逐出行）+ TTL 链「本壳注入口 → settings
- *  壳注入口 → 常量」以闭包原样表达，见 ttl-cache.ts 头部收敛映射表）。 */
+ *  壳注入口 → 常量」以闭包原样表达，见 ttl-cache.ts 头部收敛映射表）。
+ *  0918独立重评修复批（D001）：补 inFlight:true——本壳计算体全异步（readFmNames
+ *  readdir/fm 读），并发 MISS（切书 + 编辑器 @ 补拉同刻触发）此前各扫一遍全目录；
+ *  补后同键并发合并为一次扫描（settings 壳同款语义，见上方 D001 注）。 */
 const completionNamesCache = createTtlProbeCache<string, unknown>({
   name: 'completion-names',
   keyOf: (k) => k,
@@ -222,6 +231,7 @@ const completionNamesCache = createTtlProbeCache<string, unknown>({
     ])
     return { characters, items }
   },
+  inFlight: true,
   evictExpiredOnMiss: false,
 })
 

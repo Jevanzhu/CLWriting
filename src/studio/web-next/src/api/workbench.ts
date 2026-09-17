@@ -49,9 +49,16 @@ export async function spawnRole(
   }, 120_000) // 角色生成超时 2 分钟
 }
 
-// POST /interrupt —— 中断当前生成（同时停自愈编排循环）
-export async function interrupt(name: string): Promise<void> {
-  await apiJson(`/api/books/${encodeURIComponent(name)}/interrupt`, { method: 'POST' }, INTERRUPT_TIMEOUT_MS)
+// POST /interrupt —— 中断当前生成（同时停自愈编排循环）。
+// 0918独立重评修复批（E004）：服务端实际返回 {ok, interrupted}（interrupted=false = 当前
+// 没有在途生成）——原签名丢弃返回体，消费点无法区分「已中断」与「本来就没在跑」，
+// 后者此前误导性提示「已中断」。
+export async function interrupt(name: string): Promise<{ ok: boolean; interrupted: boolean }> {
+  return apiJson<{ ok: boolean; interrupted: boolean }>(
+    `/api/books/${encodeURIComponent(name)}/interrupt`,
+    { method: 'POST' },
+    INTERRUPT_TIMEOUT_MS,
+  )
 }
 
 // POST /auto-write {chapter, batchSize?} —— 全自动写章：写稿→机检→红则自动重写→全绿或触顶交作者。

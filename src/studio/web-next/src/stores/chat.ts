@@ -210,8 +210,10 @@ export const useChatStore = defineStore('chat', () => {
           regenPending = false
           regenBook = null
         }
-        // P2-9：重连时后端只补发 chatRunning，不重发 chat_turn——若旧 currentIdx 已随回合结束失效，
-        // 找到最后一个未 done 的 assistant 气泡重建索引（否则 chat_text 追加到错误气泡或被静默丢弃）
+        // P2-9：重连时 sync 只补发 chatRunning（0918独立重评修复批 E001 起：chat 腿活跃时
+        // 服务端另发 chat_replay_begin + ring 回放重建在途回合，见该分支）——若旧 currentIdx
+        // 已随回合结束失效，找到最后一个未 done 的 assistant 气泡重建索引（否则 chat_text
+        // 追加到错误气泡或被静默丢弃）
         if (running.value && (currentIdx < 0 || messages.value[currentIdx]?.done)) {
           // 反向找最后一个未 done 的 assistant 气泡（lib=ES2022 无 findLastIndex，手写循环）
           let lastUndone = -1
@@ -229,6 +231,29 @@ export const useChatStore = defineStore('chat', () => {
           // 回合收尾补种（事件库无损，此处纯展示缺口的自愈）
           if (lastUndone === -1 && wsBookName()) pendingReseed = wsBookName()
         }
+        break
+      }
+      case 'chat_replay_begin': {
+        // 0918独立重评修复批（E001）：SSE 重连回放序列头锚（无载荷）——服务端仅在 chat 腿
+        // 活跃且 ring 非空时、于回放数组最前发一次（每个新消费者各得一次），随后重放 chat 腿
+        // ring（chat_start/chat_turn/chat_text/... 可能从头重建整回合）。此前 chat_turn 无条件
+        // push 新气泡：重连回放会在断连前已存在的在途气泡之后再 push 一条 → 气泡重复；ring
+        // 截断（cap 溢出）时孤儿气泡永久滞留。rebuild 模式：移除未 done 的 assistant 在途
+        // 气泡（不动 done 历史与 user 消息）+ 复位 currentIdx + 登记 pendingReseed（复用
+        // R70-30/Q-8 既有自愈通道——回合收尾 chat_done/chat_error 后 running 翻 false 触发
+        // seedHistory(replace:true) 从事件库重播种；ring 截断导致的回合展示不全由此自愈，
+        // 与刷新路径同口径）。设计意图：重连后视图状态 = 等价新连接（历史保留，在途回合
+        // 由回放重建）。
+        for (let i = messages.value.length - 1; i >= 0; i--) {
+          const m = messages.value[i]!
+          if (m.role === 'assistant' && !m.done) {
+            messages.value.splice(i, 1)
+            break // P2-9 不变式「未完成气泡只属于在途回合」：至多一条，命中即止
+          }
+        }
+        currentIdx = -1
+        const replayBook = wsBookName()
+        if (replayBook) pendingReseed = replayBook
         break
       }
       case 'chat_start': {
@@ -299,8 +324,8 @@ export const useChatStore = defineStore('chat', () => {
         if (currentIdx >= 0) {
           messages.value[currentIdx]!.done = true
         }
-        // P2-9：回合结束即失效 currentIdx——SSE 断线重连后 sync 不会重发 chat_turn，
-        // 旧索引指向已 done 气泡会让后续 chat_text 追加错误位置
+        // P2-9：回合结束即失效 currentIdx——旧索引指向已 done 气泡会让后续 chat_text
+        //（含重连回放重建的新回合）追加错误位置
         currentIdx = -1
         trimMessages()
         // G1：重新生成的回合结束 → 复位进行中标志 + best-effort 刷新分支列表（变体计数更新）
@@ -315,6 +340,11 @@ export const useChatStore = defineStore('chat', () => {
       case 'chat_error': {
         running.value = false
         error.value = str(ev['error']) ?? '未知错误'
+        // 0918独立重评修复批（E005）：对齐 chat_start「error+notice 双清」口径——回合异常
+        // 中断时旧 notice（如「已入队」）随之失效，不得残挂在错误态旁。chat_done 不清：
+        // 正常收尾下 notice 可能是刚提示的「已入队，当前对话结束后处理」，清掉会让它在
+        // done → 下一回合 chat_start 的间隙提前消失（chat_start 开跑时自清）
+        notice.value = null
         // R-7（第十六轮）：收尾在途气泡（对齐 chat_done 口径）——异常中断时 currentIdx
         // 指向的未完成 assistant 气泡置 done + 复位索引，防永久「生成中」+ 后续文本错位
         if (currentIdx >= 0) {
@@ -654,6 +684,11 @@ export const useChatStore = defineStore('chat', () => {
     currentIdx = -1
     seedGen.invalidate() // Y-P2-5：在途种子化响应作废（切书/清空后旧历史不得再种入）
     pendingReseed = null // Q-8：待补种随清空作废（每次切换由随后的 seedHistory 重新登记，防跨书误种）
+    // 0918独立重评修复批（E006）：running 一并复位——旧实现残留 true 会让 clear 后的
+    // seedHistory 被 running 守卫拦成 pendingReseed（无人收尾时永不补种）。新书真实运行态
+    // 由重连 sync 权威校正（workbench.clear 的 M-12 同口径）。须在 pendingReseed 清空之后
+    // 置位：true→false 会触发补种 watch，先清登记防其抢跑复活刚作废的补种
+    running.value = false
     // G1：重置分支态 + 复位重新生成进行中标志（清空后旧分支/在途操作不得残留）
     activeBranchId.value = null
     branches.value = []

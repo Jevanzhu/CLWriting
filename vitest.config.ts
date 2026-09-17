@@ -84,7 +84,10 @@ export default defineConfig({
       reportOnFailure: true,
       // 重评-P3-24②（2026-09-09 全量代码重评）：include 不含 scripts/*.ts 属有意取舍——
       // scripts 面由 tsc/eslint/直测（test/scripts/）覆盖，coverage 盲区为接受项，勿当遗漏补
-      include: ['src/**/*.ts'],
+      // 0918独立重评修复批（G003）：include 扩入 web-next SFC——'src/studio/web-next/src/**/*.vue'
+      // 精确限定 web-next src 子树（全仓 110 个 .vue 均在此，根 src 与别处无 .vue，不会扫入）；
+      // SFC script 块经 plugin-vue 转换后 v8 可产数（见本批实验记录），组件层入核算。
+      include: ['src/**/*.ts', 'src/studio/web-next/src/**/*.vue'],
       // 二轮复审（批 5）：web-next/src 顶层 main.ts/router.ts 显式排除——纯应用
       // 引导/路由装配（createApp/use/plug），单测不可达；此前它们不落任何阈值桶
       // 却进报告，分区口径留有「桶外文件」暗区
@@ -133,9 +136,41 @@ export default defineConfig({
         // 「域级腰斩可见」不追高——metrics/review 直测厚（test 下 7/5 个直测文件对 2 个
         // 源文件）取 65/55，driver 直测薄（cc/SSE 大文件主要经 studio 面集成行使）取最
         // 保守 60/50。后续随全量 coverage-summary 实测基线再按 −2pp 规则收紧。
-        'src/metrics/**': { lines: 65, branches: 55 },
-        'src/driver/**': { lines: 60, branches: 50 },
-        'src/review/**': { lines: 65, branches: 55 },
+        // 0918独立重评修复批（G001）：兑现上注「随实测收紧」——2026-09-18 全量
+        // coverage-summary 实测补 statements/functions（−2pp 向下取整）：metrics
+        // 98.89/100 → 96/98 · driver 78.12/97.22 → 76/95 · review 95.06/100 → 93/98；
+        // lines/branches 维持既有防回退档不动（三域观测 L 98.89/78.12/95.06 ·
+        // B 85.26/96.67/88.83 均高于现档，未触发重定）。
+        'src/metrics/**': { statements: 96, branches: 55, functions: 98, lines: 65 },
+        'src/driver/**': { statements: 76, branches: 50, functions: 95, lines: 60 },
+        'src/review/**': { statements: 93, branches: 55, functions: 98, lines: 65 },
+        // 0918独立重评修复批（G001）：15 个后端域补域级子桶——此前无域门，仅落主池化桶
+        // ~89% 均值（metrics/driver/review 同款论证：域内单文件腰斩被聚合均值稀释、对门
+        // 不可见）；与主桶并存 = 域级基线门 + 聚合防回退门叠加（ai/events 先例）。
+        // 阈值 = 2026-09-18 全量 coverage-summary 实测 −2pp 向下取整（观测 → 地板）：
+        // cache 92.09/88.18/96.43/92.09 · check 95.57/90.32/100/95.57 ·
+        // desktop 92.33/87.44/94.17/92.33 · document 92.78/85.21/96.56/92.78 ·
+        // export 87.80/91.85/95.00/87.80 · format 88.93/94.53/99.34/88.93 ·
+        // fs 95.10/90.95/100/95.10 · git 91.82/83.02/95.83/91.82 ·
+        // install 94.79/90.73/100/94.79 · knowledge 87.39/87.23/100/87.39 ·
+        // learn 96.53/80.00/100/96.53 · log 97.80/92.22/100/97.80 ·
+        // process 94.51/87.56/99.24/94.51 · rag 93.85/90.65/100/93.85 ·
+        // state 93.39/87.11/100/93.39（序同桶键 S/B/F/L）。只防回退不追高。
+        'src/cache/**': { statements: 90, branches: 86, functions: 94, lines: 90 },
+        'src/check/**': { statements: 93, branches: 88, functions: 98, lines: 93 },
+        'src/desktop/**': { statements: 90, branches: 85, functions: 92, lines: 90 },
+        'src/document/**': { statements: 90, branches: 83, functions: 94, lines: 90 },
+        'src/export/**': { statements: 85, branches: 89, functions: 93, lines: 85 },
+        'src/format/**': { statements: 86, branches: 92, functions: 97, lines: 86 },
+        'src/fs/**': { statements: 93, branches: 88, functions: 98, lines: 93 },
+        'src/git/**': { statements: 89, branches: 81, functions: 93, lines: 89 },
+        'src/install/**': { statements: 92, branches: 88, functions: 98, lines: 92 },
+        'src/knowledge/**': { statements: 85, branches: 85, functions: 98, lines: 85 },
+        'src/learn/**': { statements: 94, branches: 78, functions: 98, lines: 94 },
+        'src/log/**': { statements: 95, branches: 90, functions: 98, lines: 95 },
+        'src/process/**': { statements: 92, branches: 85, functions: 97, lines: 92 },
+        'src/rag/**': { statements: 91, branches: 88, functions: 98, lines: 91 },
+        'src/state/**': { statements: 91, branches: 85, functions: 98, lines: 91 },
         // M-7（第十轮）：api 层单列覆盖桶——此前十余 api 文件落进聚合桶被 stores 高覆盖
         // 均值掩盖（单文件回退对阈值门不可见，参数/响应映射逻辑零守护）；阈值 = 实测基线
         // −2pp 向下取整，只防回退不追高。X-6（第五十六轮批 D）：批 A 补 api 直测后
@@ -153,7 +188,16 @@ export default defineConfig({
         // 文件（components/ui/settings-context.ts、types/theme.ts）回到报告与门禁；.vue
         // 不在 coverage include（src/**/*.ts）内，此 glob 实际命中的只是两目录下 .ts；
         // 纯类型声明 types/tree.ts 已在 exclude 点名（零运行时语句，无覆盖语义）
-        'src/studio/web-next/src/{components,composables,editor,shared,stores,types}/**': { lines: 43, branches: 81 },
+        // 0918独立重评修复批（G003）：include 扩入 .vue 后再收暗区——views/pages/根
+        // App.vue 的 SFC 随 include 扩面入核算却不落任何桶（views/pages 无 .ts），
+        // 并入聚合桶纳管（glob 扩 pages,views + 新增根层 *.vue 键），沿 R62-23
+        // 「收暗区、阈值不变」先例；聚合桶阈值维持 43/81——.vue 计入后扩面口径新观测
+        // L 81.42 / B 83.81 未低于现地板，未触发重定条件（观测明细见本批评审记录）。
+        // 根层 *.vue 键现只命中 App.vue 单文件，桶内池化观测 L 98.33 / B 64.29
+        // （branches 低因启动分支多被 mock），不能套聚合桶 43/81（branches 必红），
+        // 按 −2pp 规则自定地板 96/62。
+        'src/studio/web-next/src/{components,composables,editor,pages,shared,stores,types,views}/**': { lines: 43, branches: 81 },
+        'src/studio/web-next/src/*.vue': { lines: 96, branches: 62 },
         // R29-12（二十九轮批 F）：stores 单列子桶——stores（纯逻辑层，实测最厚）此前与
         // composables（实测 lines 76.70）同池，域内回退被聚合均值稀释、对门不可见；
         // 阈值 = 2026-08-30 全量 coverage-summary 实测基线（lines 91.82 / branches

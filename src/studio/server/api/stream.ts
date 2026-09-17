@@ -356,8 +356,13 @@ export function registerStreamRoutes(ctx: StreamCtx): void {
 
     // 连接建立即补发运行态快照:刷新/新标签会错过 init 事件(channel 消费即弃),
     // 无快照则前端 running 假空闲 → 生成中误显「可生成」可再触发 spawn
+    // 0918独立重评修复批（E002）：running 收窄为写手腿（isWriterRunning）——chat 腿
+    // ctrl 以 `chat:<book>` owner 全程在册至 finish 注销，isRunning 对话期间恒真且
+    // chat 终态（chat_done/chat_error 走 chat 族）不达 workbench.running，前端永不
+    // 复位；对话态由 chatRunning 单独承载。driver 未实现新接口（旧桩）时回落 false，
+    // 与 isRunning 缺省同型。/interrupt 的 isRunning 消费点（全停语义）不动。
     safeWrite(
-      `data: ${JSON.stringify({ type: 'sync', running: driver.isRunning?.(session) ?? false, chatRunning: isChatRunning(params['name']!) })}\n\n`,
+      `data: ${JSON.stringify({ type: 'sync', running: driver.isWriterRunning?.(session) ?? false, chatRunning: isChatRunning(params['name']!) })}\n\n`,
     )
 
     // driver.stream 实现为 async generator（mock / cc 均从 channel 推事件）

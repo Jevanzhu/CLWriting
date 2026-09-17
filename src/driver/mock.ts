@@ -199,6 +199,13 @@ export const mockDriver: StudioDriver = {
   unregisterCtrl(): void {
     // 同 registerCtrl：mock 无登记，注销亦 noop
   },
+
+  // 0918独立重评修复批（E002）：与 cc 实现接口齐平（StudioDriver 可选方法两实现都提供）——
+  // mock 无 ctrl 登记（registerCtrl noop），恒无在途，恒 false。注意 E001 的 chat_replay_begin
+  // 回放锚不在此实现：mock 无 execRing 回放语义（R62-40 行为分叉点已文档化），无锚可插。
+  isWriterRunning(): boolean {
+    return false
+  },
 }
 
 /** 测试钩子：活跃 channel / session 条目数（验证 dispose 后迟到 emit 不复活 Map 残留） */

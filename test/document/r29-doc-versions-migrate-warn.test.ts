@@ -71,8 +71,12 @@ describe('C-6 / migrateVersionsDir 失败留痕', () => {
     try {
       FAIL.enabled = true
       expect(migrateVersionsDir(root)).toBe(false)
-      expect(warn).toHaveBeenCalledTimes(1)
-      const msg = String(warn.mock.calls[0]![1])
+      // 0918独立重评修复批（B009）：renameWithRetry 瞬时占用退避 ≥100ms 现于失败留痕前
+      // 先发一条 [fs] 留痕 warn（恰一次），本域失败 warn 随其后——总条数 2，R30-19 文案
+      // 断言按内容定位（calls[1]）。
+      expect(warn).toHaveBeenCalledTimes(2)
+      expect(String(warn.mock.calls[0]![1])).toContain('瞬时占用')
+      const msg = String(warn.mock.calls[1]![1])
       expect(msg).toContain('在版本历史中不可见')
       expect(msg).toContain('可手工恢复')
       expect(msg).toContain('重试迁移')

@@ -29,10 +29,32 @@ const EXPECTED_GLOBS = [
   'src/metrics/**',
   'src/driver/**',
   'src/review/**',
+  // 0918独立重评修复批（G001）：15 个后端域域级子桶（此前仅落主池化桶 ~89% 均值；
+  // 阈值 = 2026-09-18 全量 coverage-summary 实测 −2pp，观测明细见 vitest.config.ts 同锚注）
+  'src/cache/**',
+  'src/check/**',
+  'src/desktop/**',
+  'src/document/**',
+  'src/export/**',
+  'src/format/**',
+  'src/fs/**',
+  'src/git/**',
+  'src/install/**',
+  'src/knowledge/**',
+  'src/learn/**',
+  'src/log/**',
+  'src/process/**',
+  'src/rag/**',
+  'src/state/**',
   'src/studio/web-next/src/api/**',
   // 重评-2（全库代码重评审 2026-09-05）：聚合桶扩面收编 components/types 下仅有的
   // 非 SFC 纯 TS 运行时文件（settings-context.ts / theme.ts），沿 R62-23 阈值不变先例
-  'src/studio/web-next/src/{components,composables,editor,shared,stores,types}/**',
+  // 0918独立重评修复批（G003）：include 扩入 .vue 后再收暗区——views/pages/根 App.vue
+  // 的 SFC 并入聚合桶（glob 扩 pages,views + 根层 *.vue 键单列自定地板 96/62；
+  // 聚合桶阈值维持 43/81，.vue 计入后扩面口径新观测 L 81.42 / B 83.81 未低于现地板
+  // 未触发重定，缘由见 vitest.config.ts 同锚注）
+  'src/studio/web-next/src/{components,composables,editor,pages,shared,stores,types,views}/**',
+  'src/studio/web-next/src/*.vue',
   // R29-12（二十九轮批 F）：stores 单列域级子桶（基线 −2pp → 89/88，与聚合桶并存叠加）
   'src/studio/web-next/src/stores/**',
   // R0910-W（2026-09-10）：composables 单列域级子桶——聚合桶 lines 门仅 43，远低于本域
@@ -40,7 +62,9 @@ const EXPECTED_GLOBS = [
   'src/studio/web-next/src/composables/**',
 ]
 /** 各桶排除时留下注释标记便于人读；include/exclude 口径抄自 vitest.config.ts */
-const INCLUDE = ['src/**/*.ts']
+// 0918独立重评修复批（G003）：INCLUDE 抄本同步扩 'src/studio/web-next/src/**/*.vue'
+//（配置侧 include 扩 SFC 入核算，抄本保持口径一致；下方收集函数随动收 .vue）
+const INCLUDE = ['src/**/*.ts', 'src/studio/web-next/src/**/*.vue']
 // R43-27（四十三轮）：EXCLUDE 抄本补 'src/studio/web-next/vite.config.ts'——与
 // vitest.config.ts coverage.exclude（R33D-36 入列）对齐，消除抄本与配置的口径漂移
 // 重评-2（全库代码重评审 2026-09-05）：原 '{components,types}/**' 整目录抄本收窄为
@@ -58,14 +82,15 @@ const EXCLUDE = [
   'src/studio/web-next/src/{main,router}.ts',
 ]
 
-/** 递归收集 src 下 .ts 文件（.vue 不入口径——coverage include 仅收 .ts） */
-function listSrcTs(dir: string): string[] {
+/** 递归收集 src 下 coverage 入口文件——0918独立重评修复批（G003）：include 扩入
+ * .vue 后收集面随动（.ts + .vue），空桶/反向外守卫两测试据此覆盖 SFC 入口集 */
+function listCoverageEntries(dir: string): string[] {
   let out: string[] = []
   for (const name of readdirSync(dir)) {
     if (name.startsWith('._')) continue
     const fp = join(dir, name)
-    if (statSync(fp).isDirectory()) out = out.concat(listSrcTs(fp))
-    else if (name.endsWith('.ts')) out.push(fp)
+    if (statSync(fp).isDirectory()) out = out.concat(listCoverageEntries(fp))
+    else if (name.endsWith('.ts') || name.endsWith('.vue')) out.push(fp)
   }
   return out
 }
@@ -108,7 +133,7 @@ describe('coverage 阈值桶 glob 守护（R65-58）', () => {
   it('每个阈值桶 glob 至少命中 1 个入口文件（空桶 = 阈值门静默失效）', () => {
     const includeMatcher = picomatch(INCLUDE)
     const excludeMatcher = picomatch(EXCLUDE)
-    const files = listSrcTs(join(root, 'src'))
+    const files = listCoverageEntries(join(root, 'src'))
       .map((fp) => relative(root, fp).replaceAll('\\', '/'))
       .filter((rel) => includeMatcher(rel) && !excludeMatcher(rel))
     expect(files.length, 'coverage 入口集为空——include glob 或目录结构漂移').toBeGreaterThan(0)
@@ -132,7 +157,7 @@ describe('coverage 阈值桶 glob 守护（R65-58）', () => {
   it('R0911-G-P2-2：include∩¬exclude 的每个文件至少命中一个阈值桶（桶外文件 = 零守护点名）', () => {
     const includeMatcher = picomatch(INCLUDE)
     const excludeMatcher = picomatch(EXCLUDE)
-    const files = listSrcTs(join(root, 'src'))
+    const files = listCoverageEntries(join(root, 'src'))
       .map((fp) => relative(root, fp).replaceAll('\\', '/'))
       .filter((rel) => includeMatcher(rel) && !excludeMatcher(rel))
     expect(files.length, 'coverage 入口集为空——include glob 或目录结构漂移').toBeGreaterThan(0)

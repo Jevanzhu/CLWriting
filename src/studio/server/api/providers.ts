@@ -21,6 +21,7 @@ import {
   maskKey,
   normalizeApiKey,
   apiKeyRefusal,
+  ProviderRevisionConflictError, // 0918独立重评修复批（D002）：写前基线复验冲突 → 409 映射
   type ProviderConf,
   type ModelConf,
   type Protocol,
@@ -54,11 +55,19 @@ interface ProvidersCtx {
 // 端点侧保存点统一 try/await 捕住回 500 WRITE_ERROR 信封（磁盘满/权限/锁超时故障下，
 // 此前 200 假成功让作者以为已保存）。当前 void 返回下 await/try-catch 合法且零行为差异，
 // B 落地后语义自动激活。返回 false = 已回错误响应，调用方直接 return 不再 reply 200。
+// 0918独立重评修复批（D002）：saveProvidersLocked 锁内写前 revision 复验失败的
+// ProviderRevisionConflictError 单列映射既有 409 REVISION_CONFLICT 信封（与前置
+// revisionError 闸同形态同文案，复用不新增错误码）——排队写窗口内基线漂移时前端拿
+// 到的是「刷新重读」语义而非「写入失败请重试」（重试只会再撞复验闸）。
 async function saveProvidersOr500(res: ServerResponse, userDataPath: string, s: ProviderStore): Promise<boolean> {
   try {
     await saveProviders(userDataPath, s)
     return true
-  } catch {
+  } catch (e) {
+    if (e instanceof ProviderRevisionConflictError) {
+      replyError(res, 409, 'REVISION_CONFLICT', e.message)
+      return false
+    }
     replyError(res, 500, 'WRITE_ERROR', '配置写入失败，请重试')
     return false
   }
@@ -248,8 +257,11 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
     handler: async ({ params, input }, _req: IncomingMessage, res: ServerResponse) => {
     if (!ctx.userDataPath) return replyError(res, 400, 'NO_USERDATA', '未定位到应用数据目录')
     const id = params['id'] ?? ''
-    // dd-P2：body 读取/校验已在 parse 段完成（更先于 loadProviders）——load→mutate→save
-    // 三段必须同步无 await（单事件循环内原子），此前 load 与 save 间隔着 await readJson，并发编辑丢更新
+    // dd-P2：body 读取/校验已在 parse 段完成（更先于 loadProviders）——load 与 save 间
+    // 隔着 await readJson 时并发编辑丢更新（前置闸 0918独立重评修复批 D002 收口注：本
+    // handler 的 load→mutate→save 全同步无 await，同刻并发由写链串行 + 跨进程锁互斥；
+    // 排队写窗口内基线漂移由 saveProvidersLocked 锁内写前 revision 复验兜底——漂移即
+    // 拒绝落盘，经 saveProvidersOr500 映射 409 REVISION_CONFLICT，前端刷新重读重放）
     const s = loadProviders(ctx.userDataPath)
     const revErr = revisionError(input.expectedRevision, s.revision)
     if (revErr) return replyError(res, 409, 'REVISION_CONFLICT', revErr)

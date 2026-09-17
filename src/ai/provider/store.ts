@@ -36,6 +36,40 @@ import {
 const FILE = 'providers.json'
 
 /**
+ * 0918独立重评修复批（D002）：写前基线复验失败——盘上 revision 已 ≠ 本操作基于的
+ * revision（他进程/他写方在本操作 load 之后、落盘之前已写入；跨进程锁争用时快路转
+ * 异步排队，排队段执行时盘上已是别的写方的结果，按旧快照整态覆盖即丢更新）。
+ *
+ * 上抛给 API 层映射既有 409 REVISION_CONFLICT 信封（providers.ts/rag-providers.ts 的
+ * saveProvidersOr500 消费；文案对齐 revision-guard.ts revisionError 的人话口径，不新增
+ * 错误码）。diskRevision/baseRevision 留作程序化诊断面，不进用户可见文案。
+ */
+export class ProviderRevisionConflictError extends Error {
+  constructor(
+    /** 复验时读到的盘上 revision */
+    readonly diskRevision: number,
+    /** 本操作基于的 revision（store 落盘快照的 revision） */
+    readonly baseRevision: number,
+  ) {
+    super('配置已在其他窗口被修改，请刷新')
+    this.name = 'ProviderRevisionConflictError'
+  }
+}
+
+/** 0918独立重评修复批（D002）：读盘上当前 revision。文件缺失 → 0（与 loadProviders
+ *  「无该键视为 0」同口径）；读失败/解析失败 → null（调用方跳过复验——文件损坏时
+ *  无有意义的基线可护，保持既有 bak 自愈/覆盖写通道，不因复验挡死自愈）。 */
+function readDiskRevisionLocked(fp: string): number | null {
+  if (!existsSync(fp)) return 0
+  try {
+    const raw = JSON.parse(readFileSync(fp, 'utf8')) as { revision?: number }
+    return raw.revision ?? 0
+  } catch {
+    return null
+  }
+}
+
+/**
  * mtime 缓存——避免每次 AI 生成重复 readFileSync + AES-256-GCM 解密。
  * saveProviders 写后失效；外部改动经 mtime 检测自动失效。
  */
@@ -315,12 +349,17 @@ export function loadProviders(userDataPath: string): ProviderStore {
  * 设置页保存 API 已按成功返回而配置未落盘）。端点侧（批 D）约定按
  * `try { await saveProviders(...) } catch → 500` 消费。
  *
- * 残余窗口（登记）：读路径 loadProviders 不参与互斥——排队写未落地的微任务窗口内
- * 并发 load 读到旧快照、改动后再 save 会按调用序排在后面（后写覆盖前写）。
- * 设置页写端点已有 P4 expectedRevision 校验（陈旧快照 409 重读）兜住主路径；
- * 降级持久化等无 revision 校验的路径残余窗口 = 该微任务窗，写频每 key 一次
- * （AA-P3-5 去重），风险可接受。跨进程窗口由文件锁互斥（写段不交错），锁内
- * 不重读合并（与 calls.ts 同口径，读合并在锁外做收益为零）。
+ * 残余窗口（登记，0918独立重评修复批 D002 收口）：读路径 loadProviders 不参与互斥——
+ * 排队写未落地的窗口内并发 load 读到旧快照、改动后再 save 会按调用序排在后面；原口径
+ * 「后写覆盖前写」丢更新由 saveProvidersLocked 的锁内写前 revision 复验收口（基线漂移
+ * 即拒绝落盘、上抛 ProviderRevisionConflictError，API 层映射 409 REVISION_CONFLICT）。
+ * 设置页写端点的 P4 expectedRevision 校验（陈旧快照 409 重读）管「请求发起时刻」，
+ * 本复验管「落盘执行时刻」，两闸互补；降级持久化等无 revision 校验的路径同样被本
+ * 复验兜住（漂移即拒 + 旁挂 warn 留痕，下次 persistDegraded 自然重试）。跨进程窗口
+ * 由文件锁互斥（写段不交错），锁内不重读合并（与 calls.ts 同口径，读合并在锁外做
+ * 收益为零）。残余洞（如实记）：盘上文件读失败/解析失败时复验跳过（保 bak 自愈
+ * 通道）＋双方基线同为缺失文件（revision 0 的双建竞态）不设防——前者自愈语义优先，
+ * 后者仅在「首次配置双端同刻创建」窄窗，可接受。
  *
  * R33-17（三十三轮）现状校正：J7 之后锁获取为**同步阻塞**（Atomics.wait 轮询，
  * fs/cross-process-lock.ts），空闲快路同步完成、控制流不归还——上方「排队为微任务/
@@ -379,6 +418,28 @@ function saveProvidersLocked(userDataPath: string, store: ProviderStore): void {
   // 通用-2（复审-0913-mac适配）：路径拼接统一走 join()（与下方 bak 写同款），posix 下
   // 与手拼 '/' 逐字节等价，零行为变化
   const fp = join(userDataPath, FILE)
+
+  // 0918独立重评修复批（D002）：锁内写前基线复验——读盘得当前 revision，与本操作基于
+  // 的 revision（store 快照的 revision；全部生产调用方均为 loadProviders 派生，端点
+  // mutate 不动 revision，save 成功才写后 +1）比对，不等即拒绝对本操作落盘并上抛
+  // ProviderRevisionConflictError（API 层映射 409 REVISION_CONFLICT，前端刷新重读）。
+  // 修复窗口：跨进程锁争用时快路转异步排队（serializedLockedWrite 保调用序 = 落盘序），
+  // 后到请求在先者落盘前 loadProviders 读到旧 revision、双方 expectedRevision 各自过闸，
+  // 队列序落盘后到者按旧快照整态覆盖先者（丢更新）——快路同刻 race 由 R73-2 串行链与
+  // 跨进程锁兜住，本复验补的是「排队段执行时刻基线已漂移」的窗口。盘上读失败/解析失败
+  // → null 跳过复验（损坏文件走既有 bak 自愈通道，见 readDiskRevisionLocked 注）。
+  // 复验在 vault 重建/密文改写之前——拒绝路径不留下任何半改写状态，store.revision 不
+  // 被 bump（调用方刷新重读后重放）。
+  const diskRevision = readDiskRevisionLocked(fp)
+  const baseRevision = store.revision ?? 0
+  if (diskRevision !== null && diskRevision !== baseRevision) {
+    log.warn(
+      'providers',
+      `providers.json 写入拒绝：盘上 revision=${diskRevision} ≠ 本操作基于的 ${baseRevision}（他写方已先行落盘），要求调用方刷新重读`,
+    )
+    throw new ProviderRevisionConflictError(diskRevision, baseRevision)
+  }
+
   mkdirSync(dirname(fp), { recursive: true })
 
   // 确保 vault + DEK（首次创建或迁移时新建）

@@ -140,6 +140,26 @@ export function stringifyValue(val: unknown): string {
   return s
 }
 
+/** 0918独立重评修复批（B010）：fm 平铺值的类型闸——stringifyValue 能忠实往返的形态
+ *  白名单：string / number（须有限——NaN/Infinity 序列化成字面串读不回原值）/
+ *  boolean / 仅含这三种标量的数组。其余形态（null / 对象 / 嵌套数组）经 stringifyValue
+ *  会落成 "[object Object]"、"null"、嵌套括号等伪值写坏 fm——写侧入口（updateDocMeta
+ *  等 patch 面）须先经本闸 fail-loud 拒收。 */
+export function isFmWritableValue(val: unknown): boolean {
+  if (typeof val === 'string') return true
+  if (typeof val === 'number') return Number.isFinite(val)
+  if (typeof val === 'boolean') return true
+  if (Array.isArray(val)) {
+    return val.every(
+      (v) =>
+        typeof v === 'string' ||
+        (typeof v === 'number' && Number.isFinite(v)) ||
+        typeof v === 'boolean',
+    )
+  }
+  return false
+}
+
 // ── front matter 提取/包裹 ──────────────────────
 // splitFrontMatter 定义已移至 frontmatter-core.ts，文件顶部 re-export
 

@@ -16,7 +16,14 @@ import { mkdtempTracked } from '../helpers/temp-dir.js'
 import { pricingForProvider, computeCallCost, resolveModelPricing } from '../../src/ai/pricing.js'
 import { checkAiCallBudget, effectiveRemainingCalls, recordAiCall } from '../../src/ai/calls.js'
 import { aggregateCost } from '../../src/ai/cost-stats.js'
-import { saveProviders, type ProviderStore } from '../../src/ai/provider/store.js'
+import { saveProviders, loadProviders, type ProviderStore } from '../../src/ai/provider/store.js'
+
+// 0918独立重评修复批（D002）：saveProviders 锁内写前 revision 复验上线后，同目录二次
+// save 的基线须取盘上实况（首次 save 落盘即 bump；测试字面量 revision:0 会被正确拒绝）。
+const withDiskRev = (ud: string, store: ProviderStore): ProviderStore => ({
+  ...store,
+  revision: loadProviders(ud).revision,
+})
 import { openSessionStore, bookHash } from '../../src/events/store.js'
 import { writeBookConfig, parseBookConfig } from '../../src/format/yaml.js'
 import { applyGlobalDefaults } from '../../src/format/global-defaults.js'
@@ -159,7 +166,7 @@ describe('D2 pricing 解析与金额计算', () => {
     saveProviders(ud, mk('p1'))
     expect(resolveModelPricing(ud, 'model-c')).toBeNull()
     // currentId 指向已删除的 provider；model-x 无归属行 → null，不得拿第一家 p1 兜底
-    saveProviders(ud, mk('gone'))
+    saveProviders(ud, withDiskRev(ud, mk('gone')))
     expect(resolveModelPricing(ud, 'model-x')).toBeNull()
   })
 
@@ -190,7 +197,7 @@ describe('D2 pricing 解析与金额计算', () => {
     saveProviders(ud, mk('pb'))
     // 当前启用 B（数组靠后）→ 按 B 的 5 计价，不再按全局首归属 A 的 1
     expect(resolveModelPricing(ud, 'shared-model')).toEqual({ inputPerMTok: 5 })
-    saveProviders(ud, mk('pa'))
+    saveProviders(ud, withDiskRev(ud, mk('pa')))
     // R0916-5d（mtime 垫片族顺带加固）：切回 A 不赌「写入时刻不同」——loadProviders
     // mtime 缓存与 pricingMemo 指纹都是 mtimeMs 原值，同毫秒双写（win 实测可确定性复现）
     // 双缓存同陈旧 → 仍按 B 计价假红；显式前推 60s 强制失效（陈旧窗是生产既有口径，
@@ -473,7 +480,7 @@ describe('D2 cost-stats 聚合', () => {
     // 显式 currency 优先（缺省不覆盖）
     const ud2 = tmpDir('clw-cost-r42b-')
     const root2 = tmpDir('clw-cost-r42b-book-')
-    saveProviders(ud2, { ...store, providers: [{ ...store.providers[0]!, pricing: { inputPerMTok: 3, currency: 'EUR' } }] })
+    saveProviders(ud2, withDiskRev(ud2, { ...store, providers: [{ ...store.providers[0]!, pricing: { inputPerMTok: 3, currency: 'EUR' } }] }))
     const es2 = openSessionStore(ud2, root2)!
     try {
       const sessionId = es2.createSession(bookHash(root2))

@@ -20,7 +20,8 @@ import { safeManifestPath } from '../fs/safe-path.js'
 import { splitFrontMatter, parseFlat } from '../format/frontmatter.js'
 import { parseMergedInto, parseOrderOf } from '../format/chapters.js'
 import { mergedIntoMap } from '../format/chapter-lookup.js'
-import { chapterNoFromName } from '../format/filename.js'
+// 0918独立重评修复批（B005 尾项）：isMdFileName = 定稿条目章号提取剥 .md 茎单源
+import { chapterNoFromName, isMdFileName } from '../format/filename.js'
 import { layoutOf } from './layout.js'
 import { readManifestStrict } from './manifest.js'
 import { readVersion, listVersions } from './version.js'
@@ -185,7 +186,11 @@ export function maxUsedChapter(bookRoot: string): number {
 
 /** 已定稿章号集合（manifest finalizedRevision 条目，路径章号派生；state.ts
  *  skipFinalizedChapters 同语义）。strict 读失败上抛——取号错比拒绝执行更贵
- *  （fail-closed，调用方收 WRITE_ERROR 信封）。 */
+ *  （fail-closed，调用方收 WRITE_ERROR 信封）。
+ *  0918独立重评修复批（B005 尾项）：章号提取剥 .md 茎后判定（isMdFileName 单源 +
+ *  chapterNoFromName）——裸数字定稿条目（0012.md）此前带扩展直判失明，skipFinalized
+ *  漏跳 → 拆分取号可撞定稿章号；补 isSafeInteger 守卫与 manifest.ts 同名函数对齐
+ *  （R43-13 口径：失真大数不入集合）。 */
 export function finalizedChapterNumbers(bookRoot: string): Set<number> {
   const out = new Set<number>()
   const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
@@ -193,8 +198,9 @@ export function finalizedChapterNumbers(bookRoot: string): Set<number> {
   const m = readManifestStrict(manifestPath)
   for (const e of m.entries.values()) {
     if (e.nodeType !== 'document' || !e.finalizedRevision) continue
-    const n = chapterNoFromName(basename(e.path))
-    if (n !== null) out.add(n)
+    const base = basename(e.path)
+    const n = chapterNoFromName(isMdFileName(base) ? base.slice(0, -3) : base)
+    if (n !== null && Number.isSafeInteger(n)) out.add(n)
   }
   return out
 }

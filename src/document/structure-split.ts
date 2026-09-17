@@ -7,6 +7,12 @@
  * 留底）。公共底座（读态派生/plan 指纹/取号/事件副录）在 structure-core.ts，本文件
  * 单向依赖之（core←split，无环）；RAG 触点经 StructureRagPort 端口由组合根注入
  * （G5 依赖反转，零 rag import）。
+ *
+ * 0918独立重评修复批（B001）：applyChapterSplit 的取号段（状态重读→取号→planHash
+ * 复核→截断→新章落位）原无跨请求互斥——两个拆分 apply 并发重叠时各算得同一章号、
+ * 目标文件名不同，createDocument 双双成功 → 章号复用。修法 = per-bookRoot 进程内
+ * 串行互斥（自实现最小件，链语义对齐 studio/server/serial-chain.ts——document 层
+ * 不得 import studio 层）；planChapterSplit（干跑只读）不加锁。
  */
 import { dirname, join } from 'node:path'
 import { ulid } from '../fs/id.js'
@@ -70,6 +76,34 @@ export type SplitApplyResult =
 
 // ── 拆分：干跑 + 执行 ────────────────────────────────────────────────
 
+// 0918独立重评修复批（B001）：per-bookRoot 拆分 apply 串行链（进程内互斥最小件，
+// 链语义对齐 studio/server/serial-chain.ts 的收编形态——前驱成败都接续、链尾吞错
+// 防 unhandled rejection、settle 后身份校验自清理；document 层不 import studio 层）。
+// 只串取号临界区，不含 plan 干跑；svc.save/createDocument 的跨进程锁在互斥**内**
+// 获取——互斥是进程本地最外层（任何路径都不会持跨进程锁再进入本互斥），与既有
+// 三级锁序（save → 布线 → 清单/journal）无环、无倒置。
+const splitApplyChains = new Map<string, Promise<unknown>>()
+
+function enqueueSplitApply<T>(bookRoot: string, unit: () => Promise<T>): Promise<T> {
+  const prev = splitApplyChains.get(bookRoot) ?? Promise.resolve()
+  const task = prev.then(unit, unit) // 前驱成败都接续（串行不因单元失败断链）
+  const settled = task.catch(() => {}) // 链尾吞错副本防 unhandled rejection
+  splitApplyChains.set(bookRoot, settled)
+  // 链尾自清理：settle 后身份校验 delete（settle 窗口内同 key 新单元的新链尾不误删）
+  void settled.then(() => {
+    if (splitApplyChains.get(bookRoot) === settled) splitApplyChains.delete(bookRoot)
+  })
+  return task
+}
+
+/** 拆分临界区成功载荷（互斥内产出，互斥外补记事件/清缓存）。 */
+interface SplitAppliedCore {
+  originChapterNo: number
+  newDocId: string
+  newChapterNo: number
+  order: number
+}
+
 export async function planChapterSplit(
   bookRoot: string,
   svc: DocumentService,
@@ -122,57 +156,79 @@ export async function applyChapterSplit(
 ): Promise<SplitApplyResult> {
   const title = input.title.trim()
   if (!title) return fail('BAD_INPUT', '新章标题必填')
-  const o = await readChapterState(svc, bookRoot, input.docId)
-  if (!('章号' in o)) return o
-  const v = validateSplitCursor(o, input.cursorOffset)
-  if (v !== null) return v
-  const newChapterNo = skipFinalized(maxUsedChapter(bookRoot) + 1, finalizedChapterNumbers(bookRoot))
-  const order = splitOrderMid(bookRoot, o)
-  const planHash = splitPlanHash(o, input.cursorOffset, newChapterNo, order)
-  if (planHash !== input.planHash) {
-    return fail('PLAN_STALE', '干跑后正文或章号基线已变化，请重新预览确认后再执行')
-  }
-  if (!isUtf8Bytes(o.bytes)) {
-    return fail('NOT_UTF8_TARGET', '该章是非 UTF-8 编码的存量文件（GBK 等旧档），拆分会失真——请先在编辑器外转码为 UTF-8 再操作')
-  }
-  // ① 原章截断（external-merge 强制留底 = 截断前全文，反悔可回）
-  const head = `${o.text.slice(0, input.cursorOffset).trimEnd()}\n`
-  const tail = canonicalizeText(o.text.slice(input.cursorOffset)).trimStart()
-  const saved = await svc.save(input.docId, o.path, {
-    content: head,
-    expectedRevision: o.rev,
-    operationId: ulid(),
-    origin: 'external-merge',
-    reason: `拆分第${o.章号}章：光标后内容迁出为第${newChapterNo}章`,
-  })
-  if (!saved.ok) return fail(saved.code, saved.reason)
-  // ② 新章落位（与原章同目录——卷归属随原章；文件名 sanitizeFileNamePart +
-  // chapterFilePrefix 单源；fm 序 = 两侧有效序中值）。win 合并批（2026-09-13）：
-  // 仓库 relPath 正斜杠为规范形——win 的 path.join 产出反斜杠，会把整条路径带进
-  // doCreate 的单段消毒被洗成畸形文件名落书根（apply 200 但预期路径无文件）；
-  // 规范化与下方 detectStructureViolations 的 replaceAll 同款（macOS 上恒 no-op）。
-  const relPath = join(dirname(o.path), `${chapterFilePrefix(newChapterNo, 'chapter')}${sanitizeFileNamePart(title)}.md`).replaceAll('\\', '/')
-  const newContent = `---\n章号: ${newChapterNo}\n标题: ${stringifyValue(title)}\n序: ${order}\n---\n${tail}${tail.endsWith('\n') ? '' : '\n'}`
-  const created = await svc.createDocument({ relPath, content: newContent })
-  if (!created.ok) {
-    return fail(
-      created.code,
-      `原章已截断（截断前全文已留底为版本），但新章创建失败：${created.reason}——可重试拆分或从版本面板恢复原章`,
-    )
-  }
+  // 0918独立重评修复批（B001）：取号临界区（状态重读 → validateSplitCursor → 取号 →
+  // planHash 复核 → svc.save 截断 → createDocument）整段置于 per-bookRoot 串行互斥内
+  // ——并发第二个 apply 在锁内重读取号得新号 → hash 失配 → PLAN_STALE fail-loud
+  //（这正是期望行为），章号永不复用。锁作用域内只 await 盘面读写与 svc 既有有界锁
+  // 操作；事件副录（recordStructureEvents 内部自取事件库跨进程 open 锁）留在锁外，
+  // 满足「互斥内不再获取其他跨进程锁」的锁序纪律。
+  const core = await enqueueSplitApply(
+    bookRoot,
+    async (): Promise<SplitAppliedCore | StructureFailure> => {
+      const o = await readChapterState(svc, bookRoot, input.docId)
+      if (!('章号' in o)) return o
+      const v = validateSplitCursor(o, input.cursorOffset)
+      if (v !== null) return v
+      const newChapterNo = skipFinalized(maxUsedChapter(bookRoot) + 1, finalizedChapterNumbers(bookRoot))
+      const order = splitOrderMid(bookRoot, o)
+      const planHash = splitPlanHash(o, input.cursorOffset, newChapterNo, order)
+      if (planHash !== input.planHash) {
+        return fail('PLAN_STALE', '干跑后正文或章号基线已变化，请重新预览确认后再执行')
+      }
+      if (!isUtf8Bytes(o.bytes)) {
+        return fail('NOT_UTF8_TARGET', '该章是非 UTF-8 编码的存量文件（GBK 等旧档），拆分会失真——请先在编辑器外转码为 UTF-8 再操作')
+      }
+      // ① 原章截断（external-merge 强制留底 = 截断前全文，反悔可回）
+      const head = `${o.text.slice(0, input.cursorOffset).trimEnd()}\n`
+      const tail = canonicalizeText(o.text.slice(input.cursorOffset)).trimStart()
+      const saved = await svc.save(input.docId, o.path, {
+        content: head,
+        expectedRevision: o.rev,
+        operationId: ulid(),
+        origin: 'external-merge',
+        reason: `拆分第${o.章号}章：光标后内容迁出为第${newChapterNo}章`,
+      })
+      if (!saved.ok) return fail(saved.code, saved.reason)
+      // ② 新章落位（与原章同目录——卷归属随原章；文件名 sanitizeFileNamePart +
+      // chapterFilePrefix 单源；fm 序 = 两侧有效序中值）。win 合并批（2026-09-13）：
+      // 仓库 relPath 正斜杠为规范形——win 的 path.join 产出反斜杠，会把整条路径带进
+      // doCreate 的单段消毒被洗成畸形文件名落书根（apply 200 但预期路径无文件）；
+      // 规范化与下方 detectStructureViolations 的 replaceAll 同款（macOS 上恒 no-op）。
+      const relPath = join(dirname(o.path), `${chapterFilePrefix(newChapterNo, 'chapter')}${sanitizeFileNamePart(title)}.md`).replaceAll('\\', '/')
+      const newContent = `---\n章号: ${newChapterNo}\n标题: ${stringifyValue(title)}\n序: ${order}\n---\n${tail}${tail.endsWith('\n') ? '' : '\n'}`
+      const created = await svc.createDocument({ relPath, content: newContent })
+      if (!created.ok) {
+        return fail(
+          created.code,
+          `原章已截断（截断前全文已留底为版本），但新章创建失败：${created.reason}——可重试拆分或从版本面板恢复原章`,
+        )
+      }
+      return { originChapterNo: o.章号, newDocId: created.docId, newChapterNo, order }
+    },
+  )
+  if (!('originChapterNo' in core)) return core
   // ③ 事件 + ④ RAG 指纹失效（原章内容已变，下轮 buildIndex 重嵌两章）+ ⑤ 缓存失效
+  //（B001：互斥外——事件副录自取事件库跨进程锁，不进取号互斥作用域）
   await recordStructureEvents(userDataPath, bookRoot, [
     structureSplitEvent({
       op: 'split',
       docId: input.docId,
-      newDocId: created.docId,
-      originChapterNo: o.章号,
-      newChapterNo,
-      order,
+      newDocId: core.newDocId,
+      originChapterNo: core.originChapterNo,
+      newChapterNo: core.newChapterNo,
+      order: core.order,
       title,
     }),
   ])
-  rag.cleanupRagAfterMerge(bookRoot, [], o.章号)
+  rag.cleanupRagAfterMerge(bookRoot, [], core.originChapterNo)
   invalidateTreeIndex(bookRoot, true)
-  return { ok: true, docId: input.docId, newDocId: created.docId, originChapterNo: o.章号, newChapterNo, order, title }
+  return {
+    ok: true,
+    docId: input.docId,
+    newDocId: core.newDocId,
+    originChapterNo: core.originChapterNo,
+    newChapterNo: core.newChapterNo,
+    order: core.order,
+    title,
+  }
 }

@@ -51,20 +51,26 @@ describe('R50-F-2：check-counts walk TOCTOU 容错（ENOENT/ENOTDIR warn 跳过
   })
 
   // Windows 无 POSIX 权限位/需开发者模式，symlinkSync 直建 EPERM，由 macOS/Linux CI 腿覆盖
-  it.skipIf(process.platform === 'win32')('条目扫描间隙被移走（statSync ENOENT，断链 symlink 同码路径）→ 跳过该条，其余条目照常收集', () => {
+  // 0918独立重评修复批（D005）改判注：walk 改 lstatSync 判型不跟随 symlink 后，断链
+  // symlink 对 lstat 本体仍成功 → 归入 symlink 跳过分支（warn 含 symlink），不再经
+  // statSync 跟随得 ENOENT——本用例从「条目级 ENOENT 同码路径」改锚 symlink 跳过语义
+  // （目录环/断链/指向文件的完整 symlink 面 = check-counts.test.ts D005 块）；条目级
+  // ENOENT/ENOTDIR 分支保留为 TOCTOU 防御（真实并发移走无确定性触发，恒真触发器已随
+  // lstat 化消失，上两用例钉目录级同码路径）
+  it.skipIf(process.platform === 'win32')('断链 symlink → lstat 本体成功归 symlink 跳过分支（warn 留痕），其余条目照常收集', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const d = tmpDir()
     const sub = join(d, 'sub')
     mkdirSync(sub)
     writeFileSync(join(sub, 'a.test.ts'), 'x')
     writeFileSync(join(sub, 'b.test.ts'), 'y')
-    // 断链 symlink：readdir 可见，statSync 跟随链接 → ENOENT（与条目被并发删除同错误码）
+    // 断链 symlink：lstat 对链接本体成功 → isSymbolicLink → 跳过（不跟随、不炸）
     symlinkSync(join(d, 'moved-away'), join(sub, 'ghost.test.ts'))
 
     // walk 自 .mjs 导出无类型——参数显式标注（.mjs 直跑脚本不维护 d.ts 的既有口径）
     const out = walk(d, (n: string) => n.endsWith('.test.ts')).map((p: string) => p.split(sep).pop())
     expect(out.sort()).toEqual(['a.test.ts', 'b.test.ts']) // ghost 被跳过，不炸整轮
-    expect(warnSpy.mock.calls.some((c) => String(c[0]).includes('ENOENT'))).toBe(true)
+    expect(warnSpy.mock.calls.some((c) => String(c[0]).includes('symlink'))).toBe(true)
   })
 
   it('正常递归收集不受影响（子目录下钻 + pred 过滤 + dotfile/node_modules 跳过）', () => {

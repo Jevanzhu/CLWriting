@@ -236,9 +236,11 @@ async function onInterrupt(): Promise<void> {
   // err 落 B 书工作台且无清除路径（err 只在下一次本窗动作时覆写）
   const book = props.bookName
   try {
-    await interrupt(book)
+    const r = await interrupt(book)
     if (props.bookName !== book) return // 切书后：成功 toast 也不落新书界面
-    ui.toast('已中断', 'info')
+    // 0918独立重评修复批（E004）：interrupted=false = 当前没有在途生成——不再误导性
+    // 「已中断」。r 缺省（异常形态/旧 mock）维持原「已中断」口径
+    ui.toast(r && r.interrupted === false ? '当前没有正在进行的生成' : '已中断', 'info')
   } catch (e) {
     if (props.bookName !== book) return
     err.value = friendlyError(e)

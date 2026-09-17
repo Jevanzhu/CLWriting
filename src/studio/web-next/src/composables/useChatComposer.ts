@@ -204,7 +204,12 @@ export function useChatComposer(
 
   async function stopChat(): Promise<void> {
     if (!enabled) return
-    try { await interrupt(bookName()) } catch { /* 忽略 */ }
+    try {
+      const r = await interrupt(bookName())
+      // 0918独立重评修复批（E004）：interrupted=false = 当前没有在途生成（对话可能恰已
+      // 收尾）——给反馈，不再静默。r 缺省（异常形态/旧 mock）不误报
+      if (r && r.interrupted === false) useUiStore().toast('当前没有正在进行的生成', 'info')
+    } catch { /* 忽略 */ }
   }
 
   async function handleClear(): Promise<void> {

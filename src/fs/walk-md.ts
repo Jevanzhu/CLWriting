@@ -14,6 +14,7 @@
  * 状态机 / cache rebuild 的正文区目录遍历统一接入此口径，消除四处自带 walk。
  */
 import { readdirSync, realpathSync, type Dirent } from 'node:fs'
+import { readdir, realpath } from 'node:fs/promises'
 import { join, relative, isAbsolute } from 'node:path'
 
 const ESCAPE_SEGMENT_RE = /^\.\.([\\/]|$)/
@@ -51,6 +52,60 @@ export function walkMdEach(
   for (const hit of mdFileEntries(startDir, visited)) {
     onFile(hit.abs, hit.name)
   }
+}
+
+/**
+ * walkMdEach 异步孪生（0918独立重评修复批 C001）：遍历纪律与同步版逐位同源——
+ * Dirent 判型（不跟随 symlink）、realpath 去重环剪枝、根界 = startDir 自身、
+ * `._` 资源分叉噪声排除、产出路径重挂回调用方 startDir 命名空间；IO 面（realpath/
+ * readdir）走 fs/promises，studio 服务进程事件循环内调用不再冻结。onFile 可返回
+ * Promise（顺序 await，遍历序与同步版一致：DFS + readdir 序）。
+ */
+export async function walkMdEachAsync(
+  startDir: string,
+  onFile: (abs: string, name: string) => void | Promise<void>,
+  visited: Set<string> = new Set<string>(),
+): Promise<void> {
+  let realRoot: string
+  try {
+    realRoot = await realpath(startDir)
+  } catch {
+    return // 起点（含目录缺失）不可解析 → 空遍历（与同步版一致）
+  }
+  const walk = async (dir: string, dirReal?: string): Promise<void> => {
+    let real: string
+    if (dirReal !== undefined) {
+      real = dirReal
+    } else {
+      try {
+        real = await realpath(dir)
+      } catch {
+        return // 断链/不可读 → 跳过
+      }
+    }
+    if (visited.has(real)) return // 环剪枝
+    visited.add(real)
+    const rel = relative(realRoot, real)
+    if (rel !== '' && (ESCAPE_SEGMENT_RE.test(rel) || isAbsolute(rel))) return // 越出起遍目录 → 拒
+    let entries: Dirent[]
+    try {
+      entries = await readdir(real, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const e of entries) {
+      if (e.name.startsWith('._')) continue // macOS 资源分叉噪声
+      const fp = join(real, e.name)
+      if (e.isDirectory()) {
+        await walk(fp)
+      } else if (e.isFile() && e.name.slice(-3).toLowerCase() === '.md') {
+        // R34D-11：扩展名匹配大小写不敏感（与同步版同口径）
+        // abs = 重挂回调用方 startDir 命名空间的路径（realpath 展开语义同同步版注）
+        await onFile(join(startDir, relative(realRoot, fp)), e.name)
+      }
+    }
+  }
+  await walk(startDir, realRoot)
 }
 
 /** 共享遍历核心：产出 startDir 之下全部 .md 文件（生成器，短路友好）。 */

@@ -40,10 +40,11 @@ function makeConf(overrides: Partial<ProviderConf> = {}): ProviderConf {
   }
 }
 
-function storeOf(id: string): ProviderStore {
+function storeOf(id: string, rev = 0): ProviderStore {
   const s = emptySettings()
   s.providers = [makeConf({ id, apiKey: `sk-${id}-secret` })]
   s.currentId = id
+  s.revision = rev // 0918独立重评修复批（D002）：可注基线 revision（排队链后写须基于前写落盘后的盘上 revision）
   return s
 }
 
@@ -94,8 +95,11 @@ test('R29-2④ 排队成功链：按调用序落盘，末写为准', async () =>
     release = r
   })
   __seedProvidersWriteChainForTest(dir, gate)
-  const p1 = saveProviders(dir, storeOf('prov-1')) // 排队段 1
-  const p2 = saveProviders(dir, storeOf('prov-2')) // 排队段 2（链在 p1 后）
+  const p1 = saveProviders(dir, storeOf('prov-1')) // 排队段 1（文件缺失 → 基线 0）
+  // 0918独立重评修复批（D002）：saveProvidersLocked 写前有 revision 基线复验——p2 须
+  // 基于 p1 落盘后的盘上 revision 1（模拟 load→save 链），基线 0 的独立全量写在 p1 落盘
+  // 后会判漂移被拒；本用例锁的是「排队序 = 落盘序」机制，基线对齐不改断言面
+  const p2 = saveProviders(dir, storeOf('prov-2', 1)) // 排队段 2（链在 p1 后）
   release()
   await expect(p1).resolves.toBeUndefined()
   await expect(p2).resolves.toBeUndefined()
@@ -115,7 +119,9 @@ test('R29-2⑤ 链清空后恢复快路：写后立即可读（无 await 同步�
   await queued // 落定 → 链清理
 
   // 快路同步直行：不 await 即落盘可读（若链未清会排队，此刻不可见）
-  saveProviders(dir, storeOf('prov-sync'))
+  // 0918独立重评修复批（D002）：写前基线复验——上笔排队写已落盘 revision 1，本笔基线
+  // 须对齐（模拟 load→save），恒 0 的独立全量写会判漂移被拒
+  saveProviders(dir, storeOf('prov-sync', 1))
   const raw = JSON.parse(readFileSync(FP(), 'utf8'))
   expect(raw.providers.map((p: { id: string }) => p.id)).toEqual(['prov-sync'])
 })

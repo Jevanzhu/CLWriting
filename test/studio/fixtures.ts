@@ -161,21 +161,29 @@ function makeShortBook(root: string): void {
  *
  * 表驱动重构（§6.3）：模型级 caps 退役——modelCaps 槽仅作 400 降级记忆（structured 不支持）。
  *
+ * 0918独立重评修复批（G002）：可选第 4 参 opts.protocol——'anthropic' 时 conf 走
+ * anthropic 协议（auth 默认官方 x-api-key 档；baseUrl 仍指向 stub，适配器剥尾 /v1
+ * 后 SDK 自拼 /v1/messages，见 fake-provider.ts 的 createFakeAnthropicProvider）；
+ * 缺省 'openai'，既有调用点行为零改动。
+ *
  * @param userDataPath 临时应用数据目录
  * @param fakeUrl      stub server 的 baseUrl（如 http://127.0.0.1:PORT/v1）
  * @param structuredOk 预置「structured 不支持」降级记忆（缺省 = 无记忆）
+ * @param opts         协议开关（G002）：protocol 缺省 'openai'
  */
 export function withFakeProvider(
   userDataPath: string,
   fakeUrl: string,
   structuredOk?: boolean,
+  opts?: { protocol?: 'openai' | 'anthropic' },
 ): void {
+  const protocol = opts?.protocol ?? 'openai'
   const store: ProviderStore = {
     providers: [{
       id: 'fake-prov',
       name: 'fake',
-      protocol: 'openai',
-      auth: 'bearer',
+      protocol,
+      auth: protocol === 'anthropic' ? 'anthropic' : 'bearer',
       baseUrl: fakeUrl,
       model: 'fake-model',
       apiKey: 'sk-fake-key',
