@@ -67,6 +67,7 @@ export function clipByCodePoints(text: string, max: number): string {
 // style-remedy）import 面不变。
 export { codePointLength } from '../shared/text.js'
 import { codePointLength } from '../shared/text.js'
+import { testableConst } from '../shared/testable.js'
 
 
 /** 章摘要目录（相对书根）。R71-15（总七十一轮）：posix 字面量——join() 消费点
@@ -194,12 +195,10 @@ const inFlight = new Set<string>()
 // 对 skipped 的消费语义本就是「他人正在生成/已完成，非失败」，跳过一轮无害、自愈兜底
 // 照旧。0 档不影响陈锁接管：tryAcquire 内部的死 pid 判 stale + jitter + 重建不受等待档
 // 约束，崩溃残留不永锁的语义保留。
-/** R26-19 锁等待档（毫秒；R28-15 起生产固定 0 = 纯 try-acquire）——模块内 let + ForTest 注入钩子（R26-105 收口惯例：不裸导出变量本体）。 */
-let SUMMARY_GENERATE_LOCK_TIMEOUT_MS = 0
-/** 测试注入钩子（生产零调用）。 */
-export function __setSummaryGenerateLockTimeoutForTest(ms: number): void {
-  SUMMARY_GENERATE_LOCK_TIMEOUT_MS = ms
-}
+/** R26-19 锁等待档（毫秒；R28-15 起生产固定 0 = 纯 try-acquire）。三件套换装
+ *  testableConst 工厂：生效值 getter（消费点显式调用）+ 测试注入 setter 元组第二位
+ *  （原名原签名，测试面零感知）。 */
+export const [getSummaryGenerateLockTimeoutMs, __setSummaryGenerateLockTimeoutForTest] = testableConst(0)
 
 /**
  * R27-105（二十七轮）：锁续期周期（毫秒）——锁盖「状态判定 + AI 调用 + 落盘」全临界段
@@ -207,14 +206,11 @@ export function __setSummaryGenerateLockTimeoutForTest(ms: number): void {
  * 调用不传 renewIntervalMs 时锁文件 mtime 恒为创建时刻，AI 调用一超 10min（慢派发/限流
  * 重试），第二进程按「活 pid 超龄且无续期」接管成双持锁 → 同一章/卷双生成双计费，
  * 跨进程互斥被静默击穿。接线锁原语既有续期能力（N6；task-gate R71-3 同款）：30s 刷一次
- * mtime 远低于超龄门槛，活锁不再被误接管。模块内 let + ForTest 注入钩子（R26-105 惯例）
- * 保测试可缩周期。
+ * mtime 远低于超龄门槛，活锁不再被误接管。保测试可缩周期。
+ * 三件套换装 testableConst 工厂（R26-105 惯例）：getter 消费点显式调用 + setter
+ * 元组第二位原名原签名（测试面零感知）。
  */
-let SUMMARY_LOCK_RENEW_MS = 30_000
-/** 测试注入钩子（生产零调用）。 */
-export function __setSummaryLockRenewMsForTest(ms: number): void {
-  SUMMARY_LOCK_RENEW_MS = ms
-}
+export const [getSummaryLockRenewMs, __setSummaryLockRenewMsForTest] = testableConst(30_000)
 
 /**
  * 生成（或按 sourceHash 过期重生成）一章摘要。fresh → skipped 不调 AI。
@@ -238,8 +234,8 @@ export async function generateChapterSummary(opts: GenerateChapterSummaryOpts): 
     // 身份判定语义之外的任何事（锁身份 = 全路径，改名对新旧锁互不相认——旧残留由
     // sweep/超龄接管收口，不存在兼容问题）。
     join(bookRoot, '工作区', `.摘要锁-章${chapter}.lock`),
-    SUMMARY_GENERATE_LOCK_TIMEOUT_MS,
-    { renewIntervalMs: SUMMARY_LOCK_RENEW_MS },
+    getSummaryGenerateLockTimeoutMs(),
+    { renewIntervalMs: getSummaryLockRenewMs() },
   )
   // 拿不到锁 = 他进程正在生成/已完成：skipped（非失败），漏生由自愈兜底
   if (!releaseLock) return { ok: true, path: fp, skipped: true }
@@ -636,8 +632,8 @@ export async function generateVolumeSummary(opts: {
   const releaseLock = acquireCrossProcessLockWithTimeout(
     // R28-14（二十八轮）：锁名补 .lock 后缀（同章摘要锁——sweep 陈锁清扫分支只认 *.lock）
     join(bookRoot, '工作区', `.摘要锁-卷${volume}.lock`),
-    SUMMARY_GENERATE_LOCK_TIMEOUT_MS,
-    { renewIntervalMs: SUMMARY_LOCK_RENEW_MS },
+    getSummaryGenerateLockTimeoutMs(),
+    { renewIntervalMs: getSummaryLockRenewMs() },
   )
   if (!releaseLock) return { ok: true, path: fp, skipped: true }
   inFlight.add(volKey)

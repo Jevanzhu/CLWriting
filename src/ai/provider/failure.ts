@@ -5,7 +5,9 @@
  * （retry-policy.shouldRetryError 消费 'retry' 族——Z-P2-2 单口径化后的唯一事实源），
  * 不再对 message 字符串做模式匹配。shrink-prompt 已由 chat 编排层最小接线（A7 最小版，
  * 2026-09-09 清偿批：超窗 400 后收缩历史重试恰一次，见 orchestrate/chat/turns.ts 主模型
- * 发送处）；switch-provider 仍无消费者，留给自愈分流（A7+）。
+ * 发送处）；switch-provider 亦已接线（0917清库修复批，2026-09-17：chat 编排层主发送
+ * 处首发命中换网族且有备用供应商配置时换网重发恰一次，同 turns.ts；R66-11「无消费者」
+ * 自认随之销案；self-heal/spawn/rewrite 等非 chat 路径照旧终态）。
  */
 
 import type { GenErrorCode } from './types.js'
@@ -95,6 +97,10 @@ export function failureAction(e: { code?: GenErrorCode; retryable?: boolean }): 
     // A7 最小版（2026-09-09 清偿批）：shrink-prompt 已在 chat 编排层接线（最小版，仅
     // 收缩重试恰一次——orchestrate/chat/turns.ts 主模型发送处）；self-heal/spawn/rewrite
     // 等非 chat 路径仍无消费者，runner 内该动作照旧同归终态（author）。
+    // 0917清库修复批（2026-09-17）：上注「switch-provider 无消费者」销案——chat 编排层
+    // 主发送处已接线（首发命中换网族且有备用供应商配置 → 换网重发恰一次，A7 同款最小
+    // 范型；见 turns.ts switch 块与 test/ai/chat-switch-provider.test.ts）。非 chat 路径
+    // 照旧终态（runner 内该动作仍同归 author，范围与 shrink 消费者同界）。
     case 'AUTH':
     case 'NOT_FOUND':
     case 'UNSUPPORTED':

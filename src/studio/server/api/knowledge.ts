@@ -16,6 +16,7 @@ import { learnFromBook } from '../../../learn/index.js'
 import { commitSamples, commitQuotes, defaultCommitYield, type CommitYield } from '../../../learn/commit.js'
 import type { LearnResult, SampleCandidate, QuoteCandidate } from '../../../learn/index.js'
 import { acquireTaskGate } from './task-gate.js' // RB-SV-P2-2：长任务并发闸
+import { testableConst } from '../../../shared/testable.js'
 // R0911b-B-P3-2（2026-09-11 全量重评修复批）：token 死字段删除——写闸（index.ts isWrite
 // safeTokenCompare）在路由分派前已拦一切 POST，R1010-P3 删 handler 内冗余复核后本 ctx
 // 的 token 注入后零读取，随批删除
@@ -37,10 +38,9 @@ class BookMovedSignal extends Error {}
 /** R0911-B-P3-3：learn-commit 让出原语测试注入口（先例 __setLearnTtlForTest）——生产
  *  缺省真让出（setImmediate）；测试注入受控桩在让出点做确定性动作（计数/并发移书）。
  *  让出后的书注册重验在 handler 的包装层（不随桩替换），始终生效。 */
-let learnCommitYieldPrimitive: CommitYield = defaultCommitYield
-export function __setLearnCommitYieldForTest(fn: CommitYield | null): void {
-  learnCommitYieldPrimitive = fn ?? defaultCommitYield
-}
+/** 三件套换装 testableConst 工厂（2026-09-17 清库修复批）：让出原语覆盖档 getter
+ *  （null 回退 defaultCommitYield），setter 元组第二位原名原签名（测试面零感知）。 */
+export const [getLearnCommitYield, __setLearnCommitYieldForTest] = testableConst<CommitYield | null>(null)
 
 // ── R66-28（十四轮）：/learn 全书扫描的并发闸 + TTL 缓存 ──────────────────────
 // learnFromBook 整读全书定稿正文（秒级 IO+CPU 段；R72-2 已 async 化，不再阻塞请求
@@ -55,10 +55,8 @@ export function forgetLearnCache(bookRoot: string): void {
 }
 /** R66-28：TTL 测试注入口（先例同 health.ts __setStyleScanTtlForTest）——真实 5s 墙钟
  *  依赖会让「失效重扫」用例慢机假红，测试注入短档消除。仅测试用。 */
-let learnTtlMs: number | null = null
-export function __setLearnTtlForTest(ms: number | null): void {
-  learnTtlMs = ms
-}
+/** 三件套换装 testableConst 工厂（TTL 覆盖档，null = 无覆盖、消费点回退常量；setter 元组第二位原名原签名，测试面零感知）。 */
+export const [getLearnTtlMs, __setLearnTtlForTest] = testableConst<number | null>(null)
 
 /** D1（复审-0914-优化修复批）：缓存壳收编 ttl-cache.ts 通用件（原本地 Map + FIFO +
  *  R47-18 过期逐出本地壳删除；命中/失效时序/逐出序逐位不变——纯 TTL + FIFO 32；
@@ -68,7 +66,7 @@ const learnCache = createTtlProbeCache<string, LearnResult>({
   name: 'learn',
   keyOf: (k) => k,
   max: LEARN_CACHE_MAX,
-  ttl: () => learnTtlMs ?? LEARN_CACHE_TTL,
+  ttl: () => getLearnTtlMs() ?? LEARN_CACHE_TTL,
   computeAsync: (bookRoot) => learnFromBook(bookRoot),
   storeIf: (result) => result.ok,
 })
@@ -155,7 +153,7 @@ export function registerKnowledgeRoutes(ctx: KnowledgeCtx): void {
     // 让出点复合 B-P3-4 重验：周期让出是新的 await 窗，让出后书已搬走即抛信号中止
     // 剩余条目（已落条目不回滚，documents.ts 链单元同口径），409 提示重开书重提交。
     const commitYield = async (): Promise<void> => {
-      await learnCommitYieldPrimitive()
+      await (getLearnCommitYield() ?? defaultCommitYield)()
       const movedNow = bookMovedFailure(ctx.workDir, params['name'], bookRoot)
       if (movedNow) throw new BookMovedSignal(movedNow.reason)
     }

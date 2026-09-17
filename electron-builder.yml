@@ -15,6 +15,12 @@ files:
   - resources/**/*
   - package.json
   - '!**/._*'
+  # 0917清库修复批：排 electron-builder 自动收编的生产依赖 node_modules——本仓 tsup
+  # 全量 bundle（external 仅 electron），运行时零裸包解析（dist 产物只 import node:*），
+  # @anthropic-ai/sdk / openai / font-list 三依赖已内联进 chunk、fontlist 二进制走
+  # dist/desktop/fontlist + asarUnpack；node_modules 照收只会白占 asar 体积。
+  # 排除经 files 否定模式透传 node_modules 收集器（app-builder-lib 只取 files 的 ! 项）。
+  - '!node_modules/**'
 asar: true
 # R0911-A-P2-1（2026-09-11 全量重评 GLM-5.3 修复批）：mac fontlist 原生二进制外置——
 # main 进程的自管枚举（font-cache.ts runFontListCommandWithKill）用 spawn，spawn 不认

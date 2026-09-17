@@ -14,6 +14,7 @@ import { defineRoute } from './schema.js'
 import { reply, replyError, parseRequestUrl } from '../http.js'
 import { createTtlProbeCache } from '../ttl-cache.js'
 import { resolveBookOrReply } from '../book-context.js'
+import { testableConst } from '../../../shared/testable.js'
 import {
   readForeshadows,
   scanForeshadowTrails,
@@ -51,11 +52,9 @@ interface ForeshadowSnapshot {
   entries: ForeshadowEntry[]
   trails: Map<string, ForeshadowTrail>
 }
-let foreshadowTtlMs: number | null = null
-/** R44-8：TTL 测试注入口（先例同 __setSearchCacheTtlForTest）。仅测试用。 */
-export function __setForeshadowCacheTtlForTest(ms: number | null): void {
-  foreshadowTtlMs = ms
-}
+/** R44-8：TTL 测试注入口（先例同 __setSearchCacheTtlForTest）。仅测试用。
+ *  三件套换装 testableConst 工厂（TTL 覆盖档，null = 无覆盖、消费点回退常量；setter 元组第二位原名原签名，测试面零感知）。 */
+export const [getForeshadowTtlMs, __setForeshadowCacheTtlForTest] = testableConst<number | null>(null)
 /** R44-8：删书/改名失效挂点（books.ts forgetBookKeyedCaches 家族同款）。 */
 export function forgetForeshadowCache(bookRoot: string): void {
   foreshadowCache.forget(bookRoot)
@@ -77,7 +76,7 @@ const foreshadowCache = createTtlProbeCache<string, ForeshadowSnapshot>({
   name: 'foreshadows',
   keyOf: (k) => k,
   max: FORESHADOW_CACHE_MAX,
-  ttl: () => foreshadowTtlMs ?? FORESHADOW_CACHE_TTL_MS,
+  ttl: () => getForeshadowTtlMs() ?? FORESHADOW_CACHE_TTL_MS,
   probe: foreshadowDirSignature,
   computeSync: foreshadowComputeSync,
   computeAsync: foreshadowComputeAsync,

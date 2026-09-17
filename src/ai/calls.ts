@@ -23,6 +23,7 @@ import type { BookConfig } from '../format/types.js'
 import { GLOBAL_FALLBACK_DEFAULTS } from '../format/global-defaults.js'
 import type { TokenUsage } from './provider/types.js'
 import { errMsg, log } from '../log/index.js'
+import { testableConst } from '../shared/testable.js'
 
 /** chapter 块（预算闸专用） */
 interface ChapterUsage {
@@ -287,7 +288,7 @@ function serializedWrite(bookRoot: string, doWrite: () => void): void | Promise<
     warnTag: 'ai-calls',
     fastWarn: (m) => `记账写段等待跨进程锁后失败（本轮账目缺失）：${m}`,
     queuedWarn: (m) => `排队记账写段失败（本轮账目缺失）：${m}`,
-    lockTimeoutMs: () => aiCallsLockTimeoutMs,
+    lockTimeoutMs: () => getAiCallsLockTimeoutMs(),
     lockTimeoutMsg: `ai-calls 跨进程锁获取超时（${lockPath}）——本轮账目未记，避免与其他进程交错覆盖丢账`,
     segmentFlag: (on) => {
       inWriteSegment = on
@@ -304,13 +305,8 @@ function serializedWrite(bookRoot: string, doWrite: () => void): void | Promise<
  */
 export const AI_CALLS_LOCK_TIMEOUT_MS = 5_000
 
-/** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改。 */
-let aiCallsLockTimeoutMs = AI_CALLS_LOCK_TIMEOUT_MS
-
-/** 测试注入钩子（生产零调用）。 */
-export function __setAiCallsLockTimeoutForTest(ms: number): void {
-  aiCallsLockTimeoutMs = ms
-}
+/** 三件套换装 testableConst 工厂：生效值 getter（消费点显式调用）+ 测试注入 setter 元组第二位（原名原签名，测试面零感知）。 */
+export const [getAiCallsLockTimeoutMs, __setAiCallsLockTimeoutForTest] = testableConst(AI_CALLS_LOCK_TIMEOUT_MS)
 
 /** 复审-0914-优化修复批（C1）：写链队列机制单源——本文件 serializedWrite 与
  *  provider/store.ts saveProviders 的同构「writeChains Map → 快路锁内直行 → 在途

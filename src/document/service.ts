@@ -52,7 +52,7 @@ import { bodyOf } from '../format/frontmatter.js'
 // （X-P3a：读失败按「无回收站」处理），本文件不再使用容错版。
 import { appendTrashEntryAsync, readTrashManifestStrict, removeTrashEntryAsync } from './trash.js'
 import { errMsg, log } from '../log/index.js'
-import { isUtf8Bytes, NON_UTF8_SAVE_REJECT, getStructSaveLockTimeoutMs, getWiringSaveLockTimeoutMs, saveLockTimeoutMs } from './service-guards.js'
+import { isUtf8Bytes, NON_UTF8_SAVE_REJECT, getStructSaveLockTimeoutMs, getWiringSaveLockTimeoutMs, saveLockTimeoutMs, bookMovedGuardFailure, BOOK_MOVED_REASON } from './service-guards.js'
 import { trashBaselineOf, isSamePhysicalFile, sanitizeCreateSegment, isSanitizedCreatePath, findByLegacyId } from './service-helpers.js'
 // R0916-5j（2026-09-16，⑤④收官补批）缝 C：meta 族四件正本迁 service-meta.ts（宿主
 // 参数化非纯移动改写，逐处账本见该文件头注）；公开入口残核原位接线，消费面零改动。
@@ -98,7 +98,10 @@ export type SaveResult =
   | { ok: true; revision: `sha256:${string}` }
   | {
       ok: false
-      code: 'REVISION_CONFLICT' | 'PATH_ESCAPE' | 'CAPABILITY_DENIED' | 'WRITE_ERROR'
+      // 0917清库修复批（件1）：新增 BOOK_MOVED——executeSave 落盘前书注册重验失败
+      // （rename 微任务残窗二道防线，见 executeSave 内守卫处注）。studio 侧 structStatus
+      // 既有 BOOK_MOVED → 409 档，信封与链单元首行重验逐字节一致。
+      code: 'REVISION_CONFLICT' | 'PATH_ESCAPE' | 'CAPABILITY_DENIED' | 'WRITE_ERROR' | 'BOOK_MOVED'
       reason: string
     }
 
@@ -464,6 +467,19 @@ export class DocumentService {
           code: 'REVISION_CONFLICT',
           reason: '文档已删除（在回收站中），拒绝在原路径复活文件；如需恢复请从回收站还原',
         }
+      }
+      // 0917清库修复批（件1）：rename 微任务残窗二道防线——书注册落盘前重验。单元首行
+      // 书注册重验（R1010b-SRV-P2-1 面 A，studio 层 bookMovedFailure）通过到本方法落盘
+      // 之间隔着排队/保存锁/清单锁等多个让出点，窗内书被改名/删书（books.ts 五连 drain
+      // 快照式，重验后新进单元不被等待）时，appendPending/atomicWriteFile 的 mkdir
+      // recursive 会对旧捕获 bookRoot 重建孤儿目录树；且清单随书搬走后 lookupPathByDocId
+      // 按「未登记」放行新建语义，上方 strict 读防线被旁路——正是本守卫的缺口面。置于
+      // 锁内复核之后、首笔写入（appendPending）之前 = 可达的最后时刻（残窗收窄到
+      // 「复核→写盘」毫秒级，对齐 R76-22 既有口径；登记语境缺失/登记读失败放行档见
+      // bookMovedGuardFailure 头注）。失败即拒绝不落盘，文案单源 BOOK_MOVED_REASON
+      //（与 studio 首行重验同文；入口校验保留为一线快速失败，本守卫为二道防线）。
+      if (bookMovedGuardFailure(this.bookRoot) !== null) {
+        return { ok: false, code: 'BOOK_MOVED', reason: BOOK_MOVED_REASON }
       }
       // 步骤 2：revision 校验（串行内执行，保证并发一致）
       // R39-11（三十九轮）：单读派生——对齐 R73-40/R27-45 手法，锁内一次整读 Buffer，

@@ -19,6 +19,7 @@ import { trackInFlightWork } from './in-flight-work.js' // R0910-W：导出 Work
 import type { ExportFormat, ExportPlatform } from '../../../export/index.js'
 import { SUBMISSION_PLATFORMS } from '../../../metrics/short-index.js'
 import { acquireTaskGate } from './task-gate.js' // S3（五十九轮）：export 并发闸
+import { testableConst } from '../../../shared/testable.js'
 
 interface IoCtx {
   workDir: string | null
@@ -38,11 +39,10 @@ const MAX_EXPORT_WORKERS = 2
 // 雪崩；单 waiter 超时给滞留者明确出口（导出是分钟级任务，10min 足够宽）。超限/
 // 超时回 503 BUSY（可重试语义），与单书 task-gate 409 口径区分。
 const MAX_EXPORT_WAITERS = 8
-let exportWaitTimeoutMs = 10 * 60_000
-/** R27-62 测试钩子：注入等待超时（毫秒），回归测超时出口用。 */
-export function __setExportWaitTimeoutForTest(ms: number): void {
-  exportWaitTimeoutMs = ms
-}
+/** R27-62 测试钩子：注入等待超时（毫秒），回归测超时出口用。三件套换装
+ *  testableConst 工厂：生效值 getter（消费点显式调用）+ 测试注入 setter 元组第二位
+ *  （原名原签名，测试面零感知）。 */
+export const [getExportWaitTimeoutMs, __setExportWaitTimeoutForTest] = testableConst(10 * 60_000)
 export class ExportSlotWaitError extends Error {
   constructor(msg: string) {
     super(msg)
@@ -88,8 +88,8 @@ export async function acquireExportSlot(): Promise<() => void> {
         settled = true
         const idx = exportWaiters.indexOf(wrapped)
         if (idx !== -1) exportWaiters.splice(idx, 1)
-        reject(new ExportSlotWaitError(`导出排队等待超时（${Math.round(exportWaitTimeoutMs / 60_000)} 分钟），请稍后重试`))
-      }, exportWaitTimeoutMs)
+        reject(new ExportSlotWaitError(`导出排队等待超时（${Math.round(getExportWaitTimeoutMs() / 60_000)} 分钟），请稍后重试`))
+      }, getExportWaitTimeoutMs())
       const wrapped = () => {
         if (settled) return
         settled = true
@@ -157,6 +157,9 @@ export function registerIoRoutes(ctx: IoCtx): void {
         // 清偿-导出未过滤提示（2026-09-09 残留清偿批）：透传定稿过滤标记——
         // 清单缺失兜底导出（含未定稿章）时前端据此明示
         finalizedFilter: result.finalizedFilter,
+        // 0917清库修复批：透传被滤草稿章计数——内核 ExportResult 早已携带（V-P2-2）
+        // 但信封漏发，前端无法提示「已跳过 N 个草稿章」
+        skippedDrafts: result.skippedDrafts,
       })
     } catch (e) {
       // R27-62（二十七轮）：排队超限/超时给 503 信封（可重试），不再直穿 500 兜底

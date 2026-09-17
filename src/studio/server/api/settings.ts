@@ -68,6 +68,7 @@ async function readFmNames(dir: string, field: string): Promise<string[]> {
 /** 角色卡读取 + 设定上下文注入已下沉 src/process/settings-context.ts（P1-8 架构治理） */
 import { readCharacterCards } from '../../../process/settings-context.js'
 import { log } from '../../../log/index.js'
+import { testableConst } from '../../../shared/testable.js'
 
 export type { CharacterCard } from '../../../process/settings-context.js'
 
@@ -82,15 +83,14 @@ export type { CharacterCard } from '../../../process/settings-context.js'
 // TTL 与先例同值）。计算是同步单段（无在途并发窗口），缓存壳取先例同款同步形态。
 const SETTINGS_CACHE_TTL_MS = 5000
 const SETTINGS_CACHE_MAX = 32
-let settingsTtlMs: number | null = null
 /** R46-16：TTL 测试注入口（先例同 __setRhythmCacheTtlForTest）。仅测试用。
  *  R0912-ds41（重评-deepseek-v4.1-flash P3-2）补门收编：消费方 = test/studio/
  *  r0912-ds41-ttl-gates.test.ts（TTL 命中/过期/指纹失效三态门），不再零引用。
  *  重评-0912-4 批并修 deepseek-P2-2 起**同控两壳**：本注入口同时作为 completion-names
- *  壳 TTL 生效值的回落档（该壳自有注入口优先，见下方同族块）。 */
-export function __setSettingsCacheTtlForTest(ms: number | null): void {
-  settingsTtlMs = ms
-}
+ *  壳 TTL 生效值的回落档（该壳自有注入口优先，见下方同族块）。
+ *  三件套换装 testableConst 工厂（TTL 覆盖档，null = 无覆盖、消费点回退常量；
+ *  setter 元组第二位原名原签名，测试面零感知）。 */
+export const [getSettingsTtlMs, __setSettingsCacheTtlForTest] = testableConst<number | null>(null)
 /** R46-16：删书/改名失效挂点（books.ts forgetBookKeyedCaches 家族同款）。
  *  重评-0912-4 批并修 deepseek-P2-2 起**同清两壳**（completion-names 见下方同族块）。 */
 export function forgetSettingsCache(bookRoot: string): void {
@@ -135,7 +135,7 @@ const settingsCache = createTtlProbeCache<string, unknown>({
   name: 'settings',
   keyOf: (k) => k,
   max: SETTINGS_CACHE_MAX,
-  ttl: () => settingsTtlMs ?? SETTINGS_CACHE_TTL_MS,
+  ttl: () => getSettingsTtlMs() ?? SETTINGS_CACHE_TTL_MS,
   probe: settingsSignature,
   computeSync: (bookRoot) => settingsLong(bookRoot),
   // R0917-6-P3-1（2026-09-17 全库源码重评六轮修复批）：async 孪生——本端点此前是全域
@@ -177,12 +177,11 @@ export function getSettingsCachedAsync(bookRoot: string): Promise<unknown> {
 // 壳注入口（同控回落档）→ 常量。
 const COMPLETION_NAMES_CACHE_TTL_MS = 5000
 const COMPLETION_NAMES_CACHE_MAX = 32
-let completionNamesTtlMs: number | null = null
 /** R0912-ds41：TTL 测试注入口（命名对齐 __setSettingsCacheTtlForTest 先例）。仅测试用。
- *  注 null 回落 settings 壳注入口，再回落常量（win 合并批合成口径）。 */
-export function __setCompletionNamesCacheTtlForTest(ms: number | null): void {
-  completionNamesTtlMs = ms
-}
+ *  注 null 回落 settings 壳注入口，再回落常量（win 合并批合成口径）。
+ *  三件套换装 testableConst 工厂（TTL 覆盖档，null = 无覆盖；setter 元组第二位
+ *  原名原签名，测试面零感知）。 */
+export const [getCompletionNamesTtlMs, __setCompletionNamesCacheTtlForTest] = testableConst<number | null>(null)
 /** R0912-ds41 回归观测钩子（生产零调用；先例同 __settingsScanCountForTest）：缓存
  *  MISS → 全量重扫计数。消费方 = test/studio/r0912-ds41-completion-names-cache.test.ts
  *  与 test/studio/r0912-4-completion-names-cache.test.ts（两树同题回归，win 合并批并存）。 */
@@ -213,7 +212,7 @@ const completionNamesCache = createTtlProbeCache<string, unknown>({
   name: 'completion-names',
   keyOf: (k) => k,
   max: COMPLETION_NAMES_CACHE_MAX,
-  ttl: () => completionNamesTtlMs ?? settingsTtlMs ?? COMPLETION_NAMES_CACHE_TTL_MS,
+  ttl: () => getCompletionNamesTtlMs() ?? getSettingsTtlMs() ?? COMPLETION_NAMES_CACHE_TTL_MS,
   probe: completionNamesSignature,
   computeAsync: async (bookRoot) => {
     const setDir = join(bookRoot, '设定')

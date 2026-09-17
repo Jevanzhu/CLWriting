@@ -1,5 +1,11 @@
 // Electron 桌面版 preload 注入的全局 API（src/desktop/preload.ts）。
 // 浏览器版无此脚本 → window.clwritingDesktop 不存在 → 用前判空降级。
+// 0917清库修复批（isTrustedSender 拒绝路径 undefined 类型契约对账）：handleTrusted
+// （src/desktop/ipc.ts）对 untrusted sender 静默返回 undefined——该拒绝态正常形态
+// 不可达（三窗白名单恒过），本文件刻意不做全量 `| undefined` widen（牵连前端判空
+// 面）。无值成功路径如实标 void 即天然吸收该 undefined（setTitleBarOverlay 先例）；
+// 带值 channel（openLibrary/switchLibrary/getRecentLibraries/getCurrentLibrary/
+// getSystemFonts）逐 channel 对照 ipc.ts handler 收窄为精确 union，勿再加宽。
 export {}
 
 declare global {

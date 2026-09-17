@@ -20,6 +20,7 @@ import { runExportBookAsync } from '../../src/export/run-async.js'
 
 const BOOK_OK = '导出worker测试书'
 const BOOK_EMPTY = '导出空书'
+const BOOK_DRAFT = '导出含草稿书'
 let workDir = ''
 let server: http.Server | undefined
 let baseUrl = ''
@@ -49,7 +50,7 @@ beforeAll(async () => {
   mkdirSync(join(workDir, '.clwriting'), { recursive: true })
   writeFileSync(
     join(workDir, '.clwriting', 'books.jsonl'),
-    [BOOK_OK, BOOK_EMPTY].map((n) => JSON.stringify({ name: n, path: n, kind: 'long' })).join('\n') + '\n',
+    [BOOK_OK, BOOK_EMPTY, BOOK_DRAFT].map((n) => JSON.stringify({ name: n, path: n, kind: 'long' })).join('\n') + '\n',
   )
   const okRoot = join(workDir, BOOK_OK)
   mkdirSync(join(okRoot, '写作', '正文'), { recursive: true })
@@ -59,6 +60,23 @@ beforeAll(async () => {
   const emptyRoot = join(workDir, BOOK_EMPTY)
   mkdirSync(emptyRoot, { recursive: true })
   writeFileSync(join(emptyRoot, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 导出空书\n  genre: 玄幻\nhost: cc\n')
+  // 含草稿书：两章正文、清单只登记第 1 章定稿 → 服务端信封应透传 skippedDrafts=1
+  //（0917清库修复批：skippedDrafts 透传前端回归夹具；清单直写 jsonl——worker 线程
+  // 独立进程态，不受本进程清单指纹缓存影响）
+  const draftRoot = join(workDir, BOOK_DRAFT)
+  mkdirSync(join(draftRoot, '写作', '正文'), { recursive: true })
+  writeFileSync(join(draftRoot, 'book.yaml'), 'spec_version: 1\nkind: long\nbook:\n  title: 导出含草稿书\n  genre: 玄幻\nhost: cc\n')
+  writeFileSync(join(draftRoot, '写作', '正文', '1-已定稿章.md'), '---\n章号: 1\n标题: 已定稿章\n---\n定稿内容。')
+  writeFileSync(join(draftRoot, '写作', '正文', '2-未定稿章.md'), '---\n章号: 2\n标题: 未定稿章\n---\n还在写的半成品。')
+  mkdirSync(join(draftRoot, '项目'), { recursive: true })
+  writeFileSync(
+    join(draftRoot, '项目', '文档清单.jsonl'),
+    [
+      JSON.stringify({ type: 'header', version: 1 }),
+      JSON.stringify({ id: 'doc_1', nodeType: 'document', path: '写作/正文/1-已定稿章.md', parentId: null, finalizedRevision: 'sha256:fin-1' }),
+      JSON.stringify({ id: 'doc_2', nodeType: 'document', path: '写作/正文/2-未定稿章.md', parentId: null }),
+    ].join('\n') + '\n',
+  )
   server = await startServerSafe({ port: 0, workDir })
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const r = await fetch(`${baseUrl}/api/boot`)
@@ -89,6 +107,18 @@ describe('B-24: /export 经 worker 线程执行（真实 worker 往返）', () =
     const body = r.json as { code: string; error: string }
     expect(body.code).toBe('EXPORT_FAILED')
     expect(body.error).toBe('没有定稿正文可导出。')
+  })
+
+  it('有未定稿章被滤除 → 200 信封透传 skippedDrafts 计数（前端跳过可见性）', async () => {
+    const r = await req('POST', `/api/books/${encodeURIComponent(BOOK_DRAFT)}/export`, { format: 'merged' })
+    expect(r.status).toBe(200)
+    const body = r.json as { ok: boolean; chapterCount?: number; skippedDrafts?: number; finalizedFilter?: string }
+    expect(body.ok).toBe(true)
+    expect(body.chapterCount).toBe(1)
+    // 0917清库修复批：服务端信封带 skippedDrafts（内核 ExportResult 早有此字段，
+    // 此前漏发致前端无法提示「已跳过 N 个草稿章」）
+    expect(body.skippedDrafts).toBe(1)
+    expect(body.finalizedFilter).toBe('applied')
   })
 })
 

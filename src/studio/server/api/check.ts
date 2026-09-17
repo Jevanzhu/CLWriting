@@ -20,6 +20,7 @@ import { openSessionStoreAsync, bookHash } from '../../../events/store.js'
 import { QUOTE_OPEN, QUOTE_CLOSE } from '../../../check/quotes.js'
 import { HANZI } from '../../../check/count.js' // R64-11：堆砌锚点汉字段单源（与 count.ts 口径一致）
 import { checkFalsePositiveEvent } from '../../../events/chain-bridge.js'
+import { testableConst } from '../../../shared/testable.js'
 import {
   runCheckForDocument,
   collectTreeIssuesAsync,
@@ -54,11 +55,9 @@ export function __treeIssuesCacheHasForTest(bookRoot: string): boolean {
   return treeIssuesCache.has(bookRoot)
 }
 /** R75-D-P3b：TTL 测试注入口（先例同 health.ts __setStyleScanTtlForTest）——传 null
- *  恢复默认。仅测试用，勿在生产路径调用。 */
-let treeIssuesTtlMs: number | null = null
-export function __setTreeIssuesTtlForTest(ms: number | null): void {
-  treeIssuesTtlMs = ms
-}
+ *  恢复默认。仅测试用，勿在生产路径调用。三件套换装 testableConst 工厂（TTL 覆盖档，
+ *  null = 无覆盖、消费点回退常量；setter 元组第二位原名原签名，测试面零感知）。 */
+export const [getTreeIssuesTtlMs, __setTreeIssuesTtlForTest] = testableConst<number | null>(null)
 const TREE_ISSUES_TTL = 5000
 const TREE_ISSUES_CACHE_MAX = 32
 
@@ -70,7 +69,7 @@ const treeIssuesCache = createTtlProbeCache<string, Record<string, unknown>>({
   name: 'tree-issues',
   keyOf: (k) => k,
   max: TREE_ISSUES_CACHE_MAX,
-  ttl: () => treeIssuesTtlMs ?? TREE_ISSUES_TTL,
+  ttl: () => getTreeIssuesTtlMs() ?? TREE_ISSUES_TTL,
 })
 
 export function registerCheckRoutes(ctx: CheckCtx): void {

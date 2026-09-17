@@ -81,6 +81,23 @@ export interface SessionStore {
    *  成本/轨迹聚合）边读边聚合，避免把整段过滤集堆进数组；坏行降级与 listEvents 同
    *  （R65-20）。调用方负责 close；投影折叠等需要完整数组的调用方继续走 listEvents。 */
   iterateEvents(book: string, sessionId?: string, type?: EventType): IterableIterator<ChatEvent>
+  // ── 0917清库修复批（台账「事件读链 O(N)」待拍板项转实施）：真尾窗三原语 ──
+  // 消费者唯一 = chat-history 真尾窗（src/studio/server/api/chat-history.ts）；三件
+  // 成套供给（尾取 / 骨架计数 / 安全边界），缺一即破坏窗口投影与全量投影的逐位
+  // 等价论证，他处勿零散复制口径。
+  /** seq 降序取尾 N 条、反转升序返回（坏行降级与 listEvents 同源 safeRowToEvent）。
+   *  chat/history 真尾窗消费——前端种子只需尾部窗口，不再全量投影出网。 */
+  listEventsTail(book: string, tail: number): ChatEvent[]
+  /** 骨架计数通道：SQL COUNT 行数（含无法解析行，不 JSON.parse）。截断态 total 的
+   *  O(1) 口径——全量投影消息数需全量 parse，截断态改记事件行数（契约注释见
+   *  buildChatHistoryView）。 */
+  countEvents(book: string): number
+  /** 最早携带分支元数据（data 含 branchId/parentSeq 键）的事件 seq（无 → null）——
+   *  尾窗安全边界：窗口起点 ≤ 本值 ⟺ 窗口内投影与全量投影逐位等价（顶替槽重建与
+   *  默认分支判定所需的全部键载体都在窗内；parentSeq 指向窗外线性锚不受影响——
+   *  槽区间按 seq 值判定，锚不必在窗内）。SQL LIKE 键匹配：正文巧含关键字的误报
+   *  只令窗口多取，不损正确性（漏报不可能——键恒带引号序列化）。 */
+  firstBranchMetaSeq(book: string): number | null
   /** P2：每书一个 workspace 会话（ws- 前缀）承载非对话链路事件（step/llm/retry/check）；惰性创建复用 */
   workspaceSession(book: string): string
   /** R66-13（十四轮）：最新对话会话查询——生产零调用（对话恢复经内存 histories/restore
@@ -695,6 +712,43 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
       // cap 解析 + 物化数组（R65-20 坏行降级见 safeRowToEvent）。
       const cap = typeof limit === 'number' && Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : undefined
       return [...queryEventRows(book, sessionId, cap, type, 'listEvents')]
+    },
+    // ── 0917清库修复批：真尾窗三原语实现（接口处注释为设计正本）──
+    listEventsTail(book: string, tail: number): ChatEvent[] {
+      const cap = typeof tail === 'number' && Number.isFinite(tail) && tail > 0 ? Math.floor(tail) : 0
+      if (cap === 0) return []
+      // 降序取尾 + 反转升序；R0916-P3-11 同款：表达式内同步排干生成器，走 prepared 缓存
+      const rows = prepared(
+        db,
+        `SELECT * FROM events
+         WHERE session_id IN (SELECT session_id FROM sessions WHERE book = ?)
+         ORDER BY seq DESC LIMIT ?`,
+      ).iterate(book, cap) as unknown as Iterable<Row>
+      const out: ChatEvent[] = []
+      for (const r of rows) {
+        const ev = safeRowToEvent(r, 'listEventsTail')
+        if (ev) out.push(ev)
+      }
+      return out.reverse()
+    },
+    countEvents(book: string): number {
+      const row = prepared(
+        db,
+        `SELECT COUNT(*) AS n FROM events
+         WHERE session_id IN (SELECT session_id FROM sessions WHERE book = ?)`,
+      ).get(book) as { n: number }
+      return row.n
+    },
+    firstBranchMetaSeq(book: string): number | null {
+      // LIKE 键匹配（键恒带引号序列化，无漏报）；正文巧含关键字的误报只令窗口多取
+      const row = db
+        .prepare(
+          `SELECT MIN(seq) AS s FROM events
+           WHERE session_id IN (SELECT session_id FROM sessions WHERE book = ?)
+             AND (data LIKE '%"branchId"%' OR data LIKE '%"parentSeq"%')`,
+        )
+        .get(book) as { s: number | null }
+      return row.s ?? null
     },
     *iterateEvents(book: string, sessionId?: string, type?: EventType): IterableIterator<ChatEvent> {
       // R0910-W（2026-09-10 修复批）：流式读（不物化）——llm/call 分析读侧（cost/trace

@@ -45,46 +45,74 @@ export interface ChatHistoryMessage {
  *  修 SV-2 前同病）。前端 messages 只做展示种子（模型上下文由服务端 restore 从事件库
  *  重建，不经此端点），尾部窗口即可；truncated 标记 + total 供前端提示。
  *
- *  PM-10（2026-09-05 性能与内存专项）核查：审查项记的「JSONL 事件日志 readFileSync
- *  全量读 + split + 逐行 JSON.parse 后才 slice(-limit) 截尾」是 F1 SQLite 化之前的旧
- *  形态——事件库现为 node:sqlite 每书一库，listEvents 走 SQL 游标流式 iterate + 逐行
- *  坏行降级（store.ts 内存闸 B1 / R65-20），statSync/末尾 64KB 窗/半行丢弃式字节尾读
- *  已无附着对象。带 limit 请求维持全量投影是响应契约的语义必需：total = 全量投影消息
- *  数、truncated = 截断标记，两者依赖全量事件的遮蔽/空壳跳过/连续 tool-result 合成语义
- *  （foldSurface），无法从尾部窗口便宜得出；且截尾只能发生在消息合成之后（事件级尾窗
- *  会把合成消息的 tool_result blocks 拆破）。真尾窗（seq 降序取尾 + 窗口翻倍前扩、不足
- *  退化全量）须 store 层先提供尾取 + 全量骨架计数通道，属后续独立改造，不在本函数内
- *  以复刻投影口径的方式实现（投影语义必须单源）。逐位等价性由
- *  test/ai/pm10-chat-history-tail.test.ts 以内嵌全量参照钉住。 */
+ *  PM-10（2026-09-05 性能与内存专项）核查史：审查项记的「JSONL 全量读后才截尾」系
+ *  SQLite 化前旧形态；彼时 listEvents 已是游标流式，但带 limit 请求仍维持全量投影——
+ *  total/truncated 依赖全量语义、真尾窗须 store 层先供通道，判为「后续独立改造」。
+ *
+ *  0917清库修复批（台账「事件读链 O(N)」待拍板项转实施）：该独立改造随批落地——
+ *  limit 截断态改走 store 真尾窗（listEventsTail seq 降序取尾 → 投影 → 不足/不安全
+ *  则翻倍前扩 → tail 达全库行数退化为全量路径），不再全量投影后 slice。窗口投影与
+ *  全量投影逐位等价的充分条件 = firstBranchMetaSeq 安全边界：窗口起点 ≤ 最早分支
+ *  元数据 seq（或全书无分支元数据）⟺ 默认分支判定与顶替槽重建所需的全部键载体都在
+ *  窗内（parentSeq 指向的窗外线性锚不受影响——槽区间按 seq 值判定，锚不必在窗内）。
+ *
+ *  total 契约分流（本批修订，前端提示语义）：未截断 = 全量投影消息数（原口径不变）；
+ *  截断态 = store.countEvents 骨架事件行数（含无法解析行，O(1) SQL 计数）——全量
+ *  投影消息数需全量 parse，与真尾窗 O(尾窗) 相抵，截断提示「共约多少条」由事件行数
+ *  承担。messages/seqs/branchId/truncated 的逐位等价仍由
+ *  test/ai/pm10-chat-history-tail.test.ts 以内嵌全量参照钉住，total 分流口径同件守护。 */
 export function buildChatHistoryView(
   store: SessionStore,
   bookName: string,
   branchId?: string,
   limit?: number,
 ): { messages: ChatHistoryMessage[]; seqs: number[][]; branchId: string | null; truncated: boolean; total: number } {
-  // PM-10（2026-09-05）核查：全量取数非「JSONL 全量读」残留——listEvents 已是流式游标；
-  // 全量是 total/truncated 契约与分支树定位（defaultBranchId 需全量组结构）的语义必需
-  const all = store.listEvents(bookName)
-  // 实际采用的分支 id：给定 branchId ?? 默认分支；无分支元数据（线性书/空库）→ null
-  const active = branchId ?? defaultBranchId(buildBranchTree(all))
-  // 先过分支筛选再投影：?branch= 指定组 + 祖先链；缺省 = 默认分支（最新变体组）；
-  // 线性书无分支元数据 → selectBranch 原样全量返回（旧书不丢消息）
-  const events = selectBranch(all, branchId)
-  // loadHistoryWithSeqs 已做遮蔽过滤 + 连续 tool-result 合成，输出即前端消息形状；
-  // seqsPerMsg 与 msgs 平行透出（合成消息是多 seq 数组，分支 UI 锚点用）
-  const { msgs, seqsPerMsg } = loadHistoryWithSeqs(events)
-  if (limit === undefined || !Number.isFinite(limit) || limit < 1 || msgs.length <= limit) {
+  const totalEvents = store.countEvents(bookName)
+  if (totalEvents === 0) return { messages: [], seqs: [], branchId: null, truncated: false, total: 0 }
+  if (limit === undefined || !Number.isFinite(limit) || limit < 1) {
+    // 全量路径（契约不变）：total = 全量投影消息数；分支树定位需全量组结构
+    const all = store.listEvents(bookName)
+    const active = branchId ?? defaultBranchId(buildBranchTree(all))
+    const { msgs, seqsPerMsg } = loadHistoryWithSeqs(selectBranch(all, branchId))
     return { messages: msgs, seqs: seqsPerMsg, branchId: active, truncated: false, total: msgs.length }
   }
-  // PM-10：截尾收口在消息合成之后——slice 作用于合成完的 msgs（连续 tool-result 已合成
-  // 一条 user，blocks 不可拆），事件级截尾会拆破合成消息；与「全量投影 + slice」参照的
-  // 逐位一致性（含恰 limit/不足 limit/坏行/分支视图边界）由 test/ai/pm10-chat-history-tail.test.ts 守护
-  return {
-    messages: msgs.slice(-limit),
-    seqs: seqsPerMsg.slice(-limit),
-    branchId: active,
-    truncated: true,
-    total: msgs.length,
+  // 真尾窗（0917清库修复批）：初始窗口 ≈ limit×4 事件（每回合 2-4 事件的经验比，下限
+  // 32）；投影消息不足 limit 或安全边界未满足则翻倍前扩，tail 达全库行数即触底退化
+  // 全量路径（小库/触底时与旧实现逐位一致，含 total 原契约）。
+  const branchFloor = store.firstBranchMetaSeq(bookName)
+  let tail = Math.min(Math.max(limit * 4, 32), totalEvents)
+  for (;;) {
+    const events = store.listEventsTail(bookName, tail)
+    const covered = tail >= totalEvents || events.length < tail
+    const active = branchId ?? defaultBranchId(buildBranchTree(events))
+    const { msgs, seqsPerMsg } = loadHistoryWithSeqs(selectBranch(events, branchId))
+    if (covered) {
+      // 触底退化：事件全量在手，messages/seqs/branchId 与旧「全量投影 + slice」逐位一致；
+      // 截断态 total 同样走骨架行数（契约单义：截断 ⟺ total = 骨架事件行数，不分路径）
+      if (msgs.length <= limit) {
+        return { messages: msgs, seqs: seqsPerMsg, branchId: active, truncated: false, total: msgs.length }
+      }
+      return {
+        messages: msgs.slice(-limit),
+        seqs: seqsPerMsg.slice(-limit),
+        branchId: active,
+        truncated: true,
+        total: totalEvents,
+      }
+    }
+    // 安全边界：窗口起点 ≤ 最早分支元数据（或全书无分支元数据）→ 窗内投影 ≡ 全量投影 ∩ 窗口
+    const safe = branchFloor === null || (events[0] !== undefined && events[0]!.seq <= branchFloor)
+    if (safe && msgs.length >= limit) {
+      // 截断态 total = 骨架事件行数（契约修订，见头注）
+      return {
+        messages: msgs.slice(-limit),
+        seqs: seqsPerMsg.slice(-limit),
+        branchId: active,
+        truncated: true,
+        total: totalEvents,
+      }
+    }
+    tail = Math.min(tail * 2, totalEvents)
   }
 }
 

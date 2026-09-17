@@ -37,6 +37,7 @@ import { computeProgressAsync, yieldToEventLoop, SCAN_YIELD_EVERY } from './prog
 import { createTtlProbeCache } from '../ttl-cache.js' // D1（复审-0914-优化修复批）：TTL+探针+FIFO 缓存壳单源
 import { sigStatFor } from './rhythm.js' // 精简批（SRV 域）：size:mtimeMs 签名单源（原本地同构副本收敛）
 import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
+import { testableConst } from '../../../shared/testable.js'
 
 interface OverviewCtx {
   workDir: string | null
@@ -62,14 +63,12 @@ type StateOutput = { state: number; name: string; detail: DetectedState | { erro
 // stateCache 的「概览页 stale 5s 可接受」一致。
 const OVERVIEW_CACHE_TTL_MS = 5000
 const OVERVIEW_CACHE_MAX = 32
-let overviewTtlMs: number | null = null
 /** R47-7：TTL 测试注入口（先例同 __setRhythmCacheTtlForTest）。仅测试用。
  *  R0912-ds41（重评-deepseek-v4.1-flash P3-2）补门收编：消费方 = test/studio/
  *  r0912-ttl-write-clock.test.ts（既有）+ test/studio/r0912-ds41-ttl-gates.test.ts
- * （TTL 命中/过期/指纹失效三态门，本批评门新增）。 */
-export function __setOverviewCacheTtlForTest(ms: number | null): void {
-  overviewTtlMs = ms
-}
+ * （TTL 命中/过期/指纹失效三态门，本批评门新增）。三件套换装 testableConst 工厂
+ * （TTL 覆盖档，null = 无覆盖、消费点回退常量；setter 元组第二位原名原签名，测试面零感知）。 */
+export const [getOverviewTtlMs, __setOverviewCacheTtlForTest] = testableConst<number | null>(null)
 /** R47-7 回归观测钩子（先例同 __rhythmScanCountForTest）：MISS → 三路重算计数。
  *  R0912-ds41（重评-deepseek-v4.1-flash P3-2）补门收编：MISS 计数断言面 =
  *  test/studio/r0912-ds41-ttl-gates.test.ts（原评审登记的「只写不读」至此消除）。 */
@@ -117,7 +116,7 @@ const overviewCache = createTtlProbeCache<string, OverviewCompute>({
   name: 'overview',
   keyOf: (k) => k,
   max: OVERVIEW_CACHE_MAX,
-  ttl: () => overviewTtlMs ?? OVERVIEW_CACHE_TTL_MS,
+  ttl: () => getOverviewTtlMs() ?? OVERVIEW_CACHE_TTL_MS,
   probe: overviewSignature,
   storeIf: (v) => v.stateOk && !v.missingYamlPath,
 })

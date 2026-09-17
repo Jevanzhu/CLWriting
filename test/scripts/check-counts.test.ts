@@ -120,6 +120,20 @@ describe('R63-12：.only / 无条件 .skip 拒绝门', () => {
     expect(findOnlyOrSkipViolations('test.skip.each(cases)').uncondSkip).toBe(0)
   })
 
+  // 0917清库修复批 AST 化：skip 门禁改 TypeScript AST 扫描——正则近似族的嵌套括号
+  // 盲区（R0912-3 一层平衡括号近似，嵌套 ≥2 层 `)` 漏检向）随实现替换封死；对账
+  // 口径与改前正则逐位一致（全树新旧实现逐文件 A/B 零差异），本用例钉死漏检形态
+  // 与不扩大的射程边界。
+  it('0917清库修复批 AST 化: skip.each/only.each 参数嵌套 ≥2 层括号不再漏检，射程不扩', () => {
+    expect(
+      findOnlyOrSkipViolations("it.skip.each(deep(build(1, (x) => x)))('深层参数化 %d', (n) => {})").uncondSkip,
+    ).toBe(1)
+    expect(findOnlyOrSkipViolations('test.only.each(gen(pairs(1, [2, (v) => v])))').only).toBe(1)
+    // 射程与改前正则对齐：可选链形态、skipIf 平台门均不在射程
+    expect(findOnlyOrSkipViolations("test?.skip('可选链形态不收', () => {})").uncondSkip).toBe(0)
+    expect(findOnlyOrSkipViolations("test.skipIf(true, '平台门豁免口径不变')").uncondSkip).toBe(0)
+  })
+
   it('R27-134: 零参形态 test.skip() 同样检出——连条件都没有的无条件跳过，比标题串更赤裸', () => {
     expect(findOnlyOrSkipViolations('test.skip()')).toEqual({ only: 0, uncondSkip: 1 })
     expect(findOnlyOrSkipViolations('it.skip( )')).toEqual({ only: 0, uncondSkip: 1 })

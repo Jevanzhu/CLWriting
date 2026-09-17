@@ -35,7 +35,7 @@ interface PreparedChatRun {
   /** Z-P1-2：本回合分支元数据（regenerate=变体根 / 延续活跃分支 / 线性 undefined） */
   turnBranch: { parentSeq?: number; branchId?: string } | undefined
   /** P3 血缘：注入快照指纹（「模型可见 ⟺ 已记录」的登记依据） */
-  digests: { settings: string; revision?: string; skills?: string }
+  digests: { settings: string; revision?: string; skills?: string; knowledge?: string }
   /** T2-1：prompt 注入引用的文件清单（buildChatContext 产出）——turn 循环传 runTask
    *  promptFiles，进 llm/call promptMeta.files（与写稿链 self-heal 同口径：记 hash+chars，
    *  不落全文） */
@@ -155,6 +155,9 @@ export function prepareChatRun(
   const settingsDigest = digest16(ctx.settings)
   const revisionDigest = ctx.currentChapter ? digest16(ctx.currentChapter) : undefined
   const skillsDigest = ctx.skillsIndex ? digest16(ctx.skillsIndex) : undefined
+  // 0917清库修复批：知识层方法论注入指纹——chatSystem 拼进 prompt 的同一 ctx 字段做
+  // digest16（与 settings/skills 同源口径），非空才在轮首登记 knowledge 档血缘
+  const knowledgeDigest = ctx.knowledge ? digest16(ctx.knowledge) : undefined
   // #3b 根修：push 必须在 buildChatContext 之后——buildChatContext 读文件可能耗时，
   // 期间若作者发起新对话（并发），旧历史 push 会与新消息错位（交替 user 被打乱）。
   // 先读文件后 push，保证 history 修改点紧邻 generate，window 最小。
@@ -186,5 +189,5 @@ export function prepareChatRun(
   }
 
   emit(opts, { type: 'chat_start' })
-  return { history, sys, recorder, baseLen, turnBranch, digests: { settings: settingsDigest, revision: revisionDigest, skills: skillsDigest }, promptFiles: ctx.files, revisionPath: ctx.chapterFile, seqs }
+  return { history, sys, recorder, baseLen, turnBranch, digests: { settings: settingsDigest, revision: revisionDigest, skills: skillsDigest, knowledge: knowledgeDigest }, promptFiles: ctx.files, revisionPath: ctx.chapterFile, seqs }
 }

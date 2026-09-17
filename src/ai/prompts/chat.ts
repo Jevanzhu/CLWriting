@@ -18,6 +18,9 @@ import { bodyOf } from '../../format/frontmatter-core.js'
 // G2-2 链路侧接线：可见注入收集器用 events 层的指纹/类型（lineage 只依赖 node:crypto
 // 与自身 types，无环；ai 层引 events 与 orchestrate/chat.ts 既有方向一致）
 import { digest16, type VisibleInjection } from '../../events/lineage.js'
+// 0917清库修复批：知识层方法论注入——manifest 读取与书根内路径安全解析单源复用
+import { readKnowledgeManifest } from '../../knowledge/manifest.js'
+import { resolveWithinRoot } from '../../fs/safe-path.js'
 // R53-C-1（五十三轮）：trimHistory 回合金盲区回落的 warn 留痕
 import { log } from '../../log/index.js'
 
@@ -29,6 +32,10 @@ export interface ChatContext {
   currentChapter?: string
   /** 写作技巧包索引（DSH-18：一行一包的元信息目录；空库为 undefined 不注入） */
   skillsIndex?: string
+  /** 0917清库修复批：知识层方法论注入（manifest category='方法论' 条目正文，预算帽内；
+   *  无知识层/无方法论条目为 undefined 不注入）。登记通道 = llm/call systemPrompt hash +
+   *  promptMeta.files + settings/snapshot(knowledge 档) 血缘事件 */
+  knowledge?: string
   /** T2-1：本次注入实际引用的文件清单（相对书根，spill 外置时为其 locator）——
    *  经 runChat → runTask promptFiles 进 llm/call promptMeta.files，文件级「模型可见
    *  ⟺ 已记录」的登记来源；无文件注入（未选章/章文件不存在）为空数组 */
@@ -47,6 +54,7 @@ ${ctx.settings}
 
 ${ctx.currentChapter ? `## 作者指定讨论的章节\n${ctx.currentChapter}` : ''}
 ${ctx.skillsIndex ? `\n${ctx.skillsIndex}\n` : ''}
+${ctx.knowledge ? `\n${ctx.knowledge}\n` : ''}
 ## 你的职责
 - 讨论剧情走向、角色动机、伏笔布局
 - 分析节奏与结构问题
@@ -140,7 +148,47 @@ export function buildChatContext(
   // DSH-18 技巧包索引：只注入元信息目录（预算 800 code points），正文由 read_skill 按名取
   const skillsIndex = formatSkillIndex(listSkills({ bookRoot, userDataPath: opts?.userDataPath }))
 
-  return { settings, currentChapter, skillsIndex: skillsIndex || undefined, files, chapterFile }
+  // 0917清库修复批：知识层方法论注入（登记项「知识层方法论注入未接线」收口）——只取
+  // category='方法论' 条目；manifest 缺失/损坏/无方法论条目 → 零注入（知识层可选，静默降级）
+  const knowledge = buildKnowledgeContext(bookRoot, files)
+
+  return { settings, currentChapter, skillsIndex: skillsIndex || undefined, knowledge, files, chapterFile }
+}
+
+/** 知识层方法论注入预算帽（0917清库修复批）：篇数 / 单篇码点 / 合计码点，超限保头截断并标注。 */
+const KNOWLEDGE_MAX_FILES = 4
+const KNOWLEDGE_FILE_CAP = 2000
+const KNOWLEDGE_TOTAL_CAP = 6000
+
+/** 知识层方法论段装配（0917清库修复批）。读取或组装失败一律 undefined（可选增强，不阻断对话）。 */
+function buildKnowledgeContext(bookRoot: string, files: string[]): string | undefined {
+  let report: ReturnType<typeof readKnowledgeManifest>
+  try {
+    report = readKnowledgeManifest(bookRoot)
+  } catch {
+    return undefined
+  }
+  if (!report.ok || !report.manifest) return undefined
+  const picks = report.manifest.entries.filter((e) => e.category === '方法论').slice(0, KNOWLEDGE_MAX_FILES)
+  const parts: string[] = ['## 本书知识层方法论（写作纪律参考，与本书设定冲突时以设定为准）']
+  let total = 0
+  for (const entry of picks) {
+    // manifest.target 是登记面输入，过 resolveWithinRoot 防越界（fail-closed：越出/null 跳过）
+    const resolved = resolveWithinRoot(bookRoot, entry.target)
+    if (!resolved || !existsSync(resolved.abs)) continue
+    try {
+      let body = bodyOf(readFileSync(resolved.abs, 'utf-8'))
+      if (body.length > KNOWLEDGE_FILE_CAP) body = `${body.slice(0, KNOWLEDGE_FILE_CAP)}\n…（超长截断）`
+      if (total + body.length > KNOWLEDGE_TOTAL_CAP) break
+      total += body.length
+      parts.push(`### ${entry.target}\n${body}`)
+      files.push(entry.target)
+    } catch {
+      continue
+    }
+  }
+  if (parts.length === 1) return undefined
+  return parts.join('\n\n')
 }
 
 /**

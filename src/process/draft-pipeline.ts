@@ -32,6 +32,7 @@ import { computeRevision } from '../document/revision.js'
 import { hashBytes } from '../fs/hash.js'
 import { acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 import { log, errMsg } from '../log/index.js'
+import { testableConst } from '../shared/testable.js'
 
 /** 重评-0912-4 P1-1（2026-09-12 全量重评修复批）：R66-1 非 UTF-8 覆写拒绝的类型化错误。
  *  该拒绝是**确定性失败**（盘上旧文编码事实，重试不改结果），消费方（files.ts PUT /file
@@ -51,13 +52,8 @@ export class NonUtf8TargetError extends Error {
  *  import 方静默改写，改 const + 内部可变生效值；测试只能经注入钩子改档。 */
 export const DRAFT_SAVE_LOCK_TIMEOUT_MS = 5_000
 
-/** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改。 */
-let draftSaveLockTimeoutMs = DRAFT_SAVE_LOCK_TIMEOUT_MS
-
-/** 测试注入钩子（生产零调用）。 */
-export function __setDraftSaveLockTimeoutForTest(ms: number): void {
-  draftSaveLockTimeoutMs = ms
-}
+/** 三件套换装 testableConst 工厂：生效值 getter（消费点显式调用）+ 测试注入 setter 元组第二位（原名原签名，测试面零感知）。 */
+export const [getDraftSaveLockTimeoutMs, __setDraftSaveLockTimeoutForTest] = testableConst(DRAFT_SAVE_LOCK_TIMEOUT_MS)
 
 /**
  * 覆写留底：已有文件且内容不同 → force 快照（作者手改不静默丢失）。
@@ -197,7 +193,7 @@ export async function saveDraft(
   // R32-5（三十二轮）：锁等待异步化（acquireCrossProcessLockAsync + withManifestLockAsync，
   // executeSave/meta/finalize 的 R30-3 全仓纪律补齐本漏网点）——同步 Atomics.wait 微睡
   // 在双进程争用时冻结服务事件循环（SSE/HTTP 最坏停 ≈15s）；保存协议各步原样平移。
-  const docSaveLock = await acquireCrossProcessLockAsync(`${journalPath}.save.lock`, draftSaveLockTimeoutMs)
+  const docSaveLock = await acquireCrossProcessLockAsync(`${journalPath}.save.lock`, getDraftSaveLockTimeoutMs())
   if (!docSaveLock) {
     throw new Error(`草稿保存等待超时：另一进程正在保存此文档（5 秒未让出），请重试`)
   }

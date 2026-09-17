@@ -129,7 +129,9 @@ export const useChatStore = defineStore('chat', () => {
    * regenerate 的历史拉取只取 parentSeq 定位、不重建视图，不更新截断态。
    */
   const historyTruncated = ref(false)
-  /** 重评-0912-2 P3：投影前该分支消息总数（与 truncated 同源对齐；未知 = null） */
+  /** 重评-0912-2 P3：历史规模指标（与 truncated 同源对齐；未知 = null）。
+   *  0917清库修复批口径分流：未截断 = 投影消息数；截断态 = 服务端骨架事件行数
+   *  （chat/history 真尾窗改造，全量投影消息数需全量 parse 不再随截断态出网）。 */
   const historyTotal = ref<number | null>(null)
   /** G1：重新生成进行中（防重入；POST 成功后保持 true 直到 chat_done/chat_error 复位） */
   let regenPending = false

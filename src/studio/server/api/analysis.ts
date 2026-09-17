@@ -35,6 +35,7 @@ import { createTtlProbeCache } from '../ttl-cache.js' // D1（复审-0914-优化
 import { runGatedGeneration, replyGenerationFailure } from './task-gate.js' // P1-2/D4（复审-0914-优化修复批）：长任务门控包装 + 生成失败状态映射单源
 import { yieldToEventLoop, SCAN_YIELD_EVERY } from './progress.js' // R39-15：MISS 读循环逐块让出（R37-3 范式；R46-2 起主路径下沉 worker，此为回落面）
 import { runStyleScanAsync, type StyleScanJob } from './style-scan-async.js' // R46-2：全书扫描 worker 卸载
+import { testableConst } from '../../../shared/testable.js'
 
 interface AnalysisCtx {
   workDir: string | null
@@ -57,10 +58,8 @@ const STYLE_CORPUS_TTL = 5000
 /** R62-21：与 health.ts __setStyleScanTtlForTest 同族注入点——analyze-style 走独立
  *  styleCorpusCache，d3-style-ttl 测试两处 TTL 都要压到短档，否则 analyze-style 的
  *  5s 缓存仍会让「失效」用例真实等待。仅测试用。 */
-let styleCorpusTtlMs: number | null = null
-export function __setStyleCorpusTtlForTest(ms: number | null): void {
-  styleCorpusTtlMs = ms
-}
+/** 三件套换装 testableConst 工厂（TTL 覆盖档，null = 无覆盖、消费点回退常量；setter 元组第二位原名原签名，测试面零感知）。 */
+export const [getStyleCorpusTtlMs, __setStyleCorpusTtlForTest] = testableConst<number | null>(null)
 const STYLE_CORPUS_MAX = 32
 
 /** D1（复审-0914-优化修复批）：缓存壳收编 ttl-cache.ts 通用件（原本地 Map + FIFO +
@@ -71,7 +70,7 @@ const styleCorpusCache = createTtlProbeCache<string, StyleCorpusResult>({
   name: 'style-corpus',
   keyOf: (k) => k,
   max: STYLE_CORPUS_MAX,
-  ttl: () => styleCorpusTtlMs ?? STYLE_CORPUS_TTL,
+  ttl: () => getStyleCorpusTtlMs() ?? STYLE_CORPUS_TTL,
   sweepExpiredOnWrite: true,
 })
 
@@ -101,11 +100,9 @@ interface AnalysisOverviewResult {
  *  （节流窗起点，见 getAnalysisOverviewCached；先例 snapshots.ts R44-9 同款）。
  *  D1（复审-0914-优化修复批）：条目五字段（probe/probeTs/sig/ts/value）形态随壳体
  *  收编 ttl-cache.ts 通用件（原本地 Map 删除，转写注见该件 judge）。 */
-let analysisOverviewTtlMs: number | null = null
-/** R36-7：TTL 测试注入口（先例同 __setStyleCorpusTtlForTest）。仅测试用。 */
-export function __setAnalysisOverviewTtlForTest(ms: number | null): void {
-  analysisOverviewTtlMs = ms
-}
+/** R36-7：TTL 测试注入口（先例同 __setStyleCorpusTtlForTest）。仅测试用。
+ *  三件套换装 testableConst 工厂（TTL 覆盖档，null = 无覆盖、消费点回退常量；setter 元组第二位原名原签名，测试面零感知）。 */
+export const [getAnalysisOverviewTtlMs, __setAnalysisOverviewTtlForTest] = testableConst<number | null>(null)
 /** R36-7：写侧失效挂点——analyze/analyze-style 信封落盘后调用（本文件内写路径）。 */
 export function forgetAnalysisOverviewCache(bookRoot: string): void {
   analysisOverviewCache.forget(bookRoot)
@@ -203,7 +200,7 @@ const analysisOverviewCache = createTtlProbeCache<string, AnalysisOverviewResult
   name: 'analysis-overview',
   keyOf: (k) => k,
   max: ANALYSIS_OVERVIEW_MAX,
-  ttl: () => analysisOverviewTtlMs ?? ANALYSIS_OVERVIEW_TTL_MS,
+  ttl: () => getAnalysisOverviewTtlMs() ?? ANALYSIS_OVERVIEW_TTL_MS,
   probe: analysisOverviewProbe,
   signature: (bookRoot) => {
     analysisOverviewSigCount += 1

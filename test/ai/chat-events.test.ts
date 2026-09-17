@@ -340,14 +340,14 @@ describe('F1-P4 regenerate 回合分支元数据（G1 接线修复回归）', ()
       userSeq = evs.find((e) => e.type === 'user/message')!.seq
     }
 
-    // 5 个工具响应打满 MAX_AGENT_TURNS(5) → 走轮数触顶收尾路径（补固定文案）
-    fake.setScript([
-      { type: 'tool', name: 'book_search', input: { query: '林远' } },
-      { type: 'tool', name: 'book_search', input: { query: '玉佩' } },
-      { type: 'tool', name: 'book_search', input: { query: '宗门' } },
-      { type: 'tool', name: 'book_search', input: { query: '长老' } },
-      { type: 'tool', name: 'book_search', input: { query: '妖兽' } },
-    ])
+    // 20 个工具响应打满 MAX_AGENT_TURNS(20)（0917清库修复批 5→20）→ 走轮数触顶收尾路径（补固定文案）
+    fake.setScript(
+      Array.from({ length: 20 }, (_, i) => ({
+        type: 'tool' as const,
+        name: 'book_search',
+        input: { query: `线索-${i + 1}` },
+      })),
+    )
     await runOne(ud, 'evt-max', undefined, { regenerate: { parentSeq: userSeq, branchId: 'b1' } })
 
     const store = openSessionStore(ud, bookRoot)!
@@ -362,9 +362,9 @@ describe('F1-P4 regenerate 回合分支元数据（G1 接线修复回归）', ()
     expect(closing!.data['branchId']).toBe('b1')
     expect(closing!.data['parentSeq']).toBe(userSeq)
 
-    // 分支视图：5 轮工具往返（5 条 tool_result 合成消息）+ 收尾 assistant 全部在组内
+    // 分支视图：20 轮工具往返（20 条 tool_result 合成消息）+ 收尾 assistant 全部在组内
     const { msgs } = loadHistoryWithSeqs(selectBranch(evs, 'b1'))
-    expect(msgs.filter((m) => m.role === 'user' && Array.isArray(m.content))).toHaveLength(5)
+    expect(msgs.filter((m) => m.role === 'user' && Array.isArray(m.content))).toHaveLength(20)
     expect(msgs[msgs.length - 1]).toEqual({
       role: 'assistant',
       content: '已达到单次对话的工具调用上限，先到这里——你可以基于以上结果继续提问。',

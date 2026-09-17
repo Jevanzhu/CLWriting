@@ -17,6 +17,7 @@ import { atomicWriteFile } from '../fs/atomic.js'
 import { samePhysicalPath } from '../fs/user-data-path.js' // R42-35/R44-11：登记目录占用判重（dev+ino 物理身份，stat 失败回退 samePath）
 import { acquireCrossProcessLockWithTimeout, acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 import { errMsg, log } from '../log/index.js' // errMsg 收编（复审-0914-优化修复批）：错误文案三目单源
+import { testableConst } from '../shared/testable.js'
 
 // ── books.jsonl 登记格式（#32 第 2 节）──────────────
 
@@ -238,13 +239,8 @@ export function writeBooks(workDir: string, books: BookEntry[]): void {
  *  server/index.ts 登记注）/ 测试，均不在请求处理窗口内。 */
 export const BOOKS_LOCK_TIMEOUT_MS = 5_000
 
-/** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改。 */
-let booksLockTimeoutMs = BOOKS_LOCK_TIMEOUT_MS
-
-/** 测试注入钩子（生产零调用）。 */
-export function __setBooksLockTimeoutForTest(ms: number): void {
-  booksLockTimeoutMs = ms
-}
+/** 三件套换装 testableConst 工厂：生效值 getter（消费点显式调用）+ 测试注入 setter 元组第二位（原名原签名，测试面零感知）。 */
+export const [getBooksLockTimeoutMs, __setBooksLockTimeoutForTest] = testableConst(BOOKS_LOCK_TIMEOUT_MS)
 
 /**
  * R63-2（十一轮）：books.jsonl 读改写段的跨进程互斥——锁文件 .clwriting/books.lock
@@ -265,7 +261,7 @@ export function tryBooksLock(workDir: string): (() => void) | null {
   // 锁失败语义（返回 null，公共签名/降级口径不变），EACCES 类留 warn 供诊断。
   try {
     mkdirSync(join(workDir, CLWRITING_DIR), { recursive: true })
-    return acquireCrossProcessLockWithTimeout(join(workDir, CLWRITING_DIR, 'books.lock'), booksLockTimeoutMs)
+    return acquireCrossProcessLockWithTimeout(join(workDir, CLWRITING_DIR, 'books.lock'), getBooksLockTimeoutMs())
   } catch (e) {
     log.warn('books', `books.jsonl 登记锁获取失败（${e instanceof Error ? e.message : String(e)}），本轮跳过改写`)
     return null
@@ -283,7 +279,7 @@ export async function tryBooksLockAsync(workDir: string): Promise<(() => void) |
   // 可抛面与调用方 null 降级口径同源（GUI 建书/删书/改名端点都在请求事件循环上）
   try {
     mkdirSync(join(workDir, CLWRITING_DIR), { recursive: true })
-    return await acquireCrossProcessLockAsync(join(workDir, CLWRITING_DIR, 'books.lock'), booksLockTimeoutMs)
+    return await acquireCrossProcessLockAsync(join(workDir, CLWRITING_DIR, 'books.lock'), getBooksLockTimeoutMs())
   } catch (e) {
     log.warn('books', `books.jsonl 登记锁获取失败（${e instanceof Error ? e.message : String(e)}），本轮跳过改写`)
     return null

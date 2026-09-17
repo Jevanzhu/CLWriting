@@ -15,6 +15,7 @@
  */
 import { spawn } from 'node:child_process'
 import { join, sep } from 'node:path'
+import { testableConst } from '../shared/testable.js'
 
 interface SystemFontCacheOptions {
   /** 缓存存活期；缺省 60s（字体安装属低频事件，60s 内的陈旧可接受）。 */
@@ -62,13 +63,8 @@ export function createSystemFontCache(
  *  （win 走 listWindowsFonts 自带超时 + kill，不经本包裹）。 */
 export const FONT_LIST_TIMEOUT_MS = 10_000
 
-/** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改（rule-hits R63-6 同口径）。 */
-let fontListTimeoutMs = FONT_LIST_TIMEOUT_MS
-
-/** 测试注入钩子（生产零调用）。 */
-export function __setFontListTimeoutForTest(ms: number): void {
-  fontListTimeoutMs = ms
-}
+/** 三件套换装 testableConst 工厂：生效值 getter（消费点显式调用）+ 测试注入 setter 元组第二位（原名原签名，测试面零感知）。 */
+export const [getFontListTimeoutMs, __setFontListTimeoutForTest] = testableConst(FONT_LIST_TIMEOUT_MS)
 
 // ── PM-12（性能与内存专项审查 2026-09-05）：探测熔断 + 超时必杀 ─────────────
 
@@ -80,21 +76,16 @@ export function __setFontListTimeoutForTest(ms: number): void {
  */
 const FONT_PROBE_BREAKER_THRESHOLD = 2
 
-/** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改，生产恒用常量档。 */
-let fontProbeBreakerThreshold = FONT_PROBE_BREAKER_THRESHOLD
+/** 三件套换装 testableConst 工厂：生效值 getter（消费点显式调用）+ 测试注入 setter 元组第二位（原名原签名，测试面零感知），生产恒用常量档。 */
+export const [getFontProbeBreakerThreshold, __setFontProbeBreakerThresholdForTest] = testableConst(FONT_PROBE_BREAKER_THRESHOLD)
 
 /** 连续失败计数（模块级 = 进程级：会话内系统字体环境只有一份，跨 cache 实例共享）。 */
 let fontProbeConsecutiveFailures = 0
 
-/** 测试注入钩子（生产零调用）：改熔断阈值档位。 */
-export function __setFontProbeBreakerThresholdForTest(n: number): void {
-  fontProbeBreakerThreshold = n
-}
-
 /** 测试注入钩子（生产零调用）：清零失败计数并还原阈值常量档（用例间隔离）。 */
 export function __resetFontListBreakerForTest(): void {
   fontProbeConsecutiveFailures = 0
-  fontProbeBreakerThreshold = FONT_PROBE_BREAKER_THRESHOLD
+  __setFontProbeBreakerThresholdForTest(FONT_PROBE_BREAKER_THRESHOLD)
 }
 
 /** PM-12：熔断为什么是进程级——系统字体列表在一次会话内不会自愈：osascript/字体
@@ -107,7 +98,7 @@ export function __resetFontListBreakerForTest(): void {
  *  （R48-74 起 listWindowsFonts 内部亦套用本熔断——PS 挂死连败达阈值后同样秒降级，
  *  不再每次重开下拉等满 10s），熔断面覆盖三平台探测。 */
 export async function fontListProbeWithBreaker(run: () => Promise<string[]>): Promise<string[]> {
-  if (fontProbeConsecutiveFailures >= fontProbeBreakerThreshold) {
+  if (fontProbeConsecutiveFailures >= getFontProbeBreakerThreshold()) {
     throw new Error(`系统字体探测连续失败 ${fontProbeConsecutiveFailures} 次，本进程已熔断跳过重探（重启应用后重试）`)
   }
   try {
@@ -267,7 +258,7 @@ export function spawnCollectKillFonts(command: string, args: string[], p: SpawnC
  * 剩 font-list 侧参数（启动面标记 + darwin/linux 行口径解析回调）。
  */
 function runFontListCommandWithKill(command: string, args: string[], deps: FontListWithTimeoutDeps): Promise<string[]> {
-  const timeoutMs = deps.timeoutMs ?? fontListTimeoutMs
+  const timeoutMs = deps.timeoutMs ?? getFontListTimeoutMs()
   const platform = deps.platform ?? process.platform
   const doSpawn: FontListSpawn = deps.spawnImpl ?? ((cmd, a, opts) => spawn(cmd, a, opts))
   return spawnCollectKillFonts(command, args, {
@@ -347,8 +338,8 @@ export function darwinFontListCommand(bundleDir: string): { command: string; arg
 function fontListLoadWithTimeout(load: () => Promise<string[]>): Promise<string[]> {
   return new Promise<string[]>((resolve, reject) => {
     const timer = setTimeout(() => {
-      reject(new Error(`font-list 字体枚举超过 ${fontListTimeoutMs}ms 未返回，已放弃等待`))
-    }, fontListTimeoutMs)
+      reject(new Error(`font-list 字体枚举超过 ${getFontListTimeoutMs()}ms 未返回，已放弃等待`))
+    }, getFontListTimeoutMs())
     load().then(
       (fonts) => {
         clearTimeout(timer)

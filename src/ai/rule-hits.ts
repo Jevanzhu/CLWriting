@@ -16,6 +16,7 @@ import { log, errMsg } from '../log/index.js'
 import type { RuleViolation } from './rules/types.js'
 import { openSessionStore, openSessionStoreAsync, bookHash } from '../events/store.js'
 import { ruleHitEvent } from '../events/chain-bridge.js'
+import { testableConst } from '../shared/testable.js'
 
 const FILE = 'rule-hits.json'
 /** 每条规则保留最近命中 message 数（B4 前置注入参考） */
@@ -55,13 +56,8 @@ function readHits(bookRoot: string): RuleHitsMap {
  *  import 方静默改写，改 const + 内部可变生效值；测试只能经注入钩子改档。 */
 const RULE_HITS_LOCK_TIMEOUT_MS = 5_000
 
-/** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改。 */
-let ruleHitsLockTimeoutMs = RULE_HITS_LOCK_TIMEOUT_MS
-
-/** 测试注入钩子（生产零调用）。 */
-export function __setRuleHitsLockTimeoutForTest(ms: number): void {
-  ruleHitsLockTimeoutMs = ms
-}
+/** 三件套换装 testableConst 工厂：生效值 getter（消费点显式调用）+ 测试注入 setter 元组第二位（原名原签名，测试面零感知）。 */
+export const [getRuleHitsLockTimeoutMs, __setRuleHitsLockTimeoutForTest] = testableConst(RULE_HITS_LOCK_TIMEOUT_MS)
 
 /** 记录一次规则违规命中（多条违规 → 多条统计）。落盘失败不炸流程（观测层）。
  *  R48-29（四十八轮）：task 形参化（默认 'check' 保底）——本函数三类调用方（机检/
@@ -76,7 +72,7 @@ export function __setRuleHitsLockTimeoutForTest(ms: number): void {
  *  进程争用时冻结服务事件循环（SSE/HTTP 最坏停 5s）；锁内写段仍同步（文件 IO 级毫秒）。 */
 export async function recordRuleHits(bookRoot: string, violations: RuleViolation[], userDataPath?: string, task: string = 'check'): Promise<void> {
   if (!violations.length) return
-  const release = await acquireCrossProcessLockAsync(`${hitsPath(bookRoot)}.lock`, ruleHitsLockTimeoutMs)
+  const release = await acquireCrossProcessLockAsync(`${hitsPath(bookRoot)}.lock`, getRuleHitsLockTimeoutMs())
   if (!release) {
     log.warn('rule-hits', `rule-hits 跨进程锁获取超时，本轮命中统计未记（观测层降级；事件库照常）`)
   } else {

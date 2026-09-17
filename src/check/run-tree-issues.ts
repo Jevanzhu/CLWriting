@@ -48,6 +48,7 @@ import {
 } from './run.js'
 import { log, errMsg } from '../log/index.js'
 import { yieldToEventLoop } from '../async.js'
+import { testableConst } from '../shared/testable.js'
 
 // ── R37-3（三十七轮）：树红点聚合 async 孪生的逐块让出 ──────────────────────
 // 服务是 Electron 主进程内嵌的单进程 HTTP 服务，collectTreeIssues 同步遍历全书
@@ -67,18 +68,14 @@ import { yieldToEventLoop } from '../async.js'
 const TREE_ISSUES_YIELD_EVERY = 25
 
 /** R62-7 测试注入：强制账本全书性红项计算抛错——验证 leadsBookDegraded 透出路径
- *  （真实损坏多被 readLeadsBookRed 自愈吞掉,难确定性触发）。生产恒 false。 */
-let __leadsBookDegradeForTest = false
-export function __setLeadsBookDegradeForTest(v: boolean): void {
-  __leadsBookDegradeForTest = v
-}
+ *  （真实损坏多被 readLeadsBookRed 自愈吞掉,难确定性触发）。生产恒 false。
+ *  三件套换装 testableConst 工厂：getter 消费点显式调用，setter 元组第二位原名原签名。 */
+export const [getLeadsBookDegradeForTest, __setLeadsBookDegradeForTest] = testableConst(false)
 
 /** R65-5（十三轮）测试注入：强制章级机检失败——验证 chaptersDegraded 透出路径
- *  （真实失败多为瞬态竞态/名册 ENOENT，难确定性触发）。生产恒 false。 */
-let __chapterCheckDegradeForTest = false
-export function __setChapterCheckDegradeForTest(v: boolean): void {
-  __chapterCheckDegradeForTest = v
-}
+ *  （真实失败多为瞬态竞态/名册 ENOENT，难确定性触发）。生产恒 false。
+ *  三件套换装 testableConst 工厂：getter 消费点显式调用，setter 元组第二位原名原签名。 */
+export const [getChapterCheckDegradeForTest, __setChapterCheckDegradeForTest] = testableConst(false)
 
 /** R37-3（三十七轮）：树红点聚合结果形状（同步/async 孪生共用）。 */
 interface TreeIssuesResult {
@@ -242,7 +239,7 @@ function* collectTreeIssuesCore(
     let leadsBookDegraded = false
     if (db && !rebuildFailed) {
       try {
-        if (__leadsBookDegradeForTest) throw new Error('R62-7 注入：账本全书性红项读取失败')
+        if (getLeadsBookDegradeForTest()) throw new Error('R62-7 注入：账本全书性红项读取失败')
         // F4（复审-0914-优化修复批）：epochFp0（轮基线，rebuild 前算得）在座时 leadsBook
         // 指纹按 `${epochFp0}|${dirFp(正文)}` 拼装（computeLeadsBookFpFromEpochFp，与
         // computeLeadsBookFp 输出逐字节同构、值域同空间）——不再整调
@@ -406,7 +403,7 @@ function* collectTreeIssuesCore(
         if (!rebuildFailed) {
           // H-1：树红点聚合的章级检查跳过账本全书性条目（独立缓存见上），章级行因此
           // 只依赖「本章 stat + 纪元」，跨章陈旧窗口消除
-          const outcome = __chapterCheckDegradeForTest
+          const outcome = getChapterCheckDegradeForTest()
             ? ({ ok: false } as const)
             : checkWithDb(bookRoot, ch._path, db, config, batch, { skipLeadsBookChecks: true })
           if (outcome.ok) hasRed = outcome.hasRed

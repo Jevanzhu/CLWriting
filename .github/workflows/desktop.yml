@@ -102,13 +102,19 @@ jobs:
         run: npm run check:knowledge
       # R0912-3（重评-0912-3 #45）：mac 腿补 playwright chromium 缓存——此前仅 ci.yml
       # e2e job（ubuntu）有缓存，mac 腿每次 ~130MB 重下。路径按 macOS 实际缓存位
-      #（~/Library/Caches/ms-playwright，非 linux 的 ~/.cache），键控同 ci.yml。
+      #（~/Library/Caches/ms-playwright，非 linux 的 ~/.cache）。
+      # 0917清库修复批：键由 hashFiles(lockfile) 改 OS+workflow+playwright 版本写死
+      #（1.61.1 对照根 package.json @playwright/test ^1.61.1，升版须同步改）——任意
+      # 锁文件改动都会换键致 ~130MB 整包重下，与 playwright 是否升级无关；
+      # restore-keys 前缀兜底换版时恢复旧缓存只补差量浏览器。
       - name: 缓存 playwright chromium
         if: runner.os == 'macOS'
         uses: actions/cache@v4
         with:
           path: ~/Library/Caches/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          key: playwright-${{ runner.os }}-${{ github.workflow }}-1.61.1
+          restore-keys: |
+            playwright-${{ runner.os }}-${{ github.workflow }}-
       - name: 装 playwright chromium
         if: runner.os == 'macOS'  # D5：e2e 仍 mac，win 腿不装不跑
         run: npx playwright install chromium

@@ -25,6 +25,7 @@ import { appendAborted, findUnsettled } from '../../../document/journal.js'
 import { trackInFlightWork } from './in-flight-work.js' // R0910-W：rebuild Worker 退出收尾登记
 import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
 import { log, errMsg } from '../../../log/index.js'
+import { testableConst } from '../../../shared/testable.js'
 
 interface StateCtx {
   workDir: string | null
@@ -47,11 +48,9 @@ export function __stateCacheHasForTest(bookRoot: string): boolean {
   return stateCache.has(bookRoot)
 }
 /** R75-D-P3b：TTL 测试注入口（先例同 health.ts __setStyleScanTtlForTest）——传 null
- *  恢复默认。仅测试用，勿在生产路径调用。 */
-let stateTtlMs: number | null = null
-export function __setStateTtlForTest(ms: number | null): void {
-  stateTtlMs = ms
-}
+ *  恢复默认。仅测试用，勿在生产路径调用。三件套换装 testableConst 工厂（TTL 覆盖档，
+ *  null = 无覆盖、消费点回退常量；setter 元组第二位原名原签名，测试面零感知）。 */
+export const [getStateTtlMs, __setStateTtlForTest] = testableConst<number | null>(null)
 const STATE_TTL = 5000
 const STATE_CACHE_MAX = 32
 
@@ -63,7 +62,7 @@ const stateCache = createTtlProbeCache<string, Record<string, unknown>>({
   name: 'state',
   keyOf: (k) => k,
   max: STATE_CACHE_MAX,
-  ttl: () => stateTtlMs ?? STATE_TTL,
+  ttl: () => getStateTtlMs() ?? STATE_TTL,
 })
 
 export function registerStateRoutes(ctx: StateCtx): void {

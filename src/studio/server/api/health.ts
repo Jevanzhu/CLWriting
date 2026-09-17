@@ -11,6 +11,7 @@ import { reply } from '../http.js'
 import { createTtlProbeCache } from '../ttl-cache.js'
 import { readKind, resolveBookOrReply } from '../book-context.js'
 import { scanChaptersAsync, aggregateStyleTrend, readBaseline, type ChapterSample } from '../../../metrics/style.js'
+import { testableConst } from '../../../shared/testable.js'
 
 interface HealthCtx {
   workDir: string | null
@@ -36,10 +37,8 @@ export const STYLE_SCAN_TTL = 5000
 /** R62-21：TTL 测试注入口（先例同 __setReviewRunning）——d3-style-ttl 此前硬睡
  *  STYLE_SCAN_TTL+300 依赖真实 5.3s 墙钟，慢机假红；测试注入 300ms 档消除墙钟。
  *  传 null 恢复默认。仅测试用，勿在生产路径调用。 */
-let styleScanTtlMs: number | null = null
-export function __setStyleScanTtlForTest(ms: number | null): void {
-  styleScanTtlMs = ms
-}
+/** 三件套换装 testableConst 工厂（TTL 覆盖档，null = 无覆盖、消费点回退常量；setter 元组第二位原名原签名，测试面零感知）。 */
+export const [getStyleScanTtlMs, __setStyleScanTtlForTest] = testableConst<number | null>(null)
 const STYLE_SCAN_MAX = 32
 
 /** D1（复审-0914-优化修复批）：缓存壳收编 ttl-cache.ts 通用件（原本地 Map + FIFO +
@@ -49,7 +48,7 @@ const styleScanCache = createTtlProbeCache<string, ChapterSample[]>({
   name: 'health-style-scan',
   keyOf: (k) => k,
   max: STYLE_SCAN_MAX,
-  ttl: () => styleScanTtlMs ?? STYLE_SCAN_TTL,
+  ttl: () => getStyleScanTtlMs() ?? STYLE_SCAN_TTL,
   computeAsync: (bookRoot) => scanChaptersAsync(bookRoot),
 })
 

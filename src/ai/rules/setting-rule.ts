@@ -24,6 +24,7 @@ import { isMdFileName } from '../../format/filename.js'
 import { QUOTE_OPEN, QUOTE_OPEN_LENIENT, QUOTE_CLOSE_LENIENT, SPAN_PUNCT } from '../../check/quotes.js'
 import type { WritingRule, RuleViolation } from './types.js'
 import { ruleStripFm } from './types.js'
+import { testableConst } from '../../shared/testable.js'
 
 /** 设定子目录/文件相对路径 */
 const SETTING_DIR = '设定'
@@ -51,11 +52,8 @@ interface SettingCacheEntry {
 
 const settingCache = new Map<string, SettingCacheEntry>()
 
-let settingTtlMs: number | null = null
-/** TTL 测试注入口（null 还原默认；先例同 search.ts __setSearchCacheTtlForTest）。 */
-export function __setSettingCacheTtlForTest(ms: number | null): void {
-  settingTtlMs = ms
-}
+/** 三件套换装 testableConst 工厂（TTL 覆盖档，null = 无覆盖、消费点回退常量；测试注入 setter 元组第二位原名原签名，测试面零感知）。 */
+export const [getSettingTtlMs, __setSettingCacheTtlForTest] = testableConst<number | null>(null)
 
 let settingLoadCountForTest = 0
 /** 底层实际读目录计数观察口（验证缓存命中/失效；生产零调用）。 */
@@ -97,7 +95,7 @@ function settingDirSignature(bookRoot: string): string {
 function loadSettingDataCached(bookRoot: string): SettingData {
   const sig = settingDirSignature(bookRoot)
   const cached = settingCache.get(bookRoot)
-  if (cached && cached.sig === sig && Date.now() - cached.ts < (settingTtlMs ?? SETTING_CACHE_TTL_MS)) {
+  if (cached && cached.sig === sig && Date.now() - cached.ts < (getSettingTtlMs() ?? SETTING_CACHE_TTL_MS)) {
     return cached.data
   }
   settingLoadCountForTest += 1

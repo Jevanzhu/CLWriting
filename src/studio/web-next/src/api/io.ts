@@ -35,6 +35,9 @@ interface ExportResponse {
    *  'skipped-no-manifest' = 定稿清单缺失，本次导出未按定稿过滤（结果含未定稿章），
    *  ExportDialog 据此补 warning toast；'applied' = 已按定稿清单过滤（前端免提示） */
   finalizedFilter?: 'applied' | 'skipped-no-manifest'
+  /** 0917清库修复批：被滤草稿章计数（服务端信封透传）——>0 时 ExportDialog 补提示，
+   *  作者可知本次导出实际未含全部在写章 */
+  skippedDrafts?: number
 }
 
 export async function exportBook(

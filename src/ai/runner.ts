@@ -265,7 +265,10 @@ function registerDegradedCallbacks(userDataPath: string): void {
 export function resolveProvider(
   userDataPath: string | null,
   tierKind: 'creative' | 'assistant' | 'chat' = 'creative',
-): { ok: true; provider: ModelProvider; tier: TierSlot } | { ok: false; code: 'NO_USERDATA' | 'NO_PROVIDER' | 'NO_MODEL'; error: string; modelHint?: string } {
+  // 0917清库修复批：switch-provider 换网重试按显式 provider id 取用（仅 chat 主模型发送
+  // 消费）；缺省 undefined 恒走 currentId 原路径行为不变。ok 臂新增 providerId。
+  providerId?: string,
+): { ok: true; provider: ModelProvider; tier: TierSlot; providerId: string } | { ok: false; code: 'NO_USERDATA' | 'NO_PROVIDER' | 'NO_MODEL'; error: string; modelHint?: string } {
   if (!userDataPath) return { ok: false, code: 'NO_USERDATA', error: NO_USERDATA_MSG }
   // 注册降级记忆落盘回调（适配器只改内存 clone，落盘经 store 模块转发）。
   // O-6（第十三轮）：注册幂等化——同 userDataPath 只注册一次（此前每次 resolveProvider
@@ -289,9 +292,14 @@ export function resolveProvider(
   } catch (e) {
     return { ok: false, code: 'NO_PROVIDER', error: `供应商配置读取失败：${errMsg(e)}` }
   }
-  const conf = s.currentId ? (s.providers.find((p) => p.id === s.currentId) ?? null) : null
+  // 0917清库修复批：providerId 覆盖优先，缺省维持 currentId 原路径
+  const conf = providerId
+    ? s.providers.find((p) => p.id === providerId) ?? null
+    : s.currentId
+      ? (s.providers.find((p) => p.id === s.currentId) ?? null)
+      : null
   // R75-A-P3a：currentId 已知但条目缺失（指向已删供应商）→ 身份仍带上（可定位配置错在哪）
-  if (!conf) return { ok: false, code: 'NO_PROVIDER', error: NO_PROVIDER_MSG, ...(s.currentId ? { modelHint: `provider:${s.currentId}` } : {}) }
+  if (!conf) return { ok: false, code: 'NO_PROVIDER', error: NO_PROVIDER_MSG, ...((providerId ?? s.currentId) ? { modelHint: `provider:${providerId ?? s.currentId}` } : {}) }
   // D 档：模型从任务档位取（creative/assistant），档位未配模型时回落 currentModel
   const tier = tierFromStore(s, tierKind)
   // R75-A-P3a：NO_MODEL 时供应商已解析到——modelHint 带 provider id（tier.model 为空是失败本身）
@@ -306,7 +314,7 @@ export function resolveProvider(
   // 原生 throw 会绕过 {ok:false} 封套、在 runTask 里留下孤儿 step/start
   // 且异常穿透到 API 层变成裸 500；此处收进封套（错误文案保留迁移指引）
   try {
-    return { ok: true, provider: createProvider({ ...conf, model: tier.model }, s, userDataPath), tier }
+    return { ok: true, provider: createProvider({ ...conf, model: tier.model }, s, userDataPath), tier, providerId: conf.id }
   } catch (e) {
     return { ok: false, code: 'NO_PROVIDER', error: e instanceof Error ? e.message : '供应商初始化失败' }
   }
@@ -362,6 +370,8 @@ export async function runTask<T>(opts: {
   mockText?: T
   /** 任务档位（决定取用哪个模型）；缺省 creative */
   tierKind?: 'creative' | 'assistant' | 'chat'
+  /** 0917清库修复批：显式 provider id 覆盖（switch-provider 换网重试用）；缺省按 currentId 解析 */
+  providerId?: string
   /** 外部传入的 ctrl（如 self-heal 的编排级 AbortController）；缺省新建 */
   ctrl?: AbortController
   register?: (ctrl: AbortController) => void
@@ -521,7 +531,7 @@ export async function runTask<T>(opts: {
     }
   }
 
-  const r = resolveProvider(opts.userDataPath, tierKind)
+  const r = resolveProvider(opts.userDataPath, tierKind, opts.providerId)
   if (!r.ok) {
     // R75-A-P3a（批 A）：失败路径 trace 不再记空 model——trace-stats/cost-stats 按 model
     // 聚合，'' 落空桶。model 拿不到时至少带可得身份：resolveProvider 已解析到供应商 →

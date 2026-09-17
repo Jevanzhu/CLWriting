@@ -42,6 +42,11 @@ async function run(): Promise<void> {
     if (r.finalizedFilter === 'skipped-no-manifest') {
       ui.toast('定稿清单缺失，本次导出未按定稿过滤（含未定稿章）', 'warning')
     }
+    // 0917清库修复批：服务端透传草稿跳过计数——有跳过时明示，否则作者不知本次
+    // 导出漏了未定稿章（复用上方 warning toast 形态）
+    if ((r.skippedDrafts ?? 0) > 0) {
+      ui.toast(`已跳过 ${r.skippedDrafts} 个草稿章`, 'warning')
+    }
     ui.closeExport()
   } catch (e) {
     // R26-68（二十六轮）：catch 补切书复检——成功路径（上方）有门，catch 漏配：

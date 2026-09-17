@@ -1,18 +1,21 @@
 /**
- * PM-10（2026-09-05 性能与内存专项）：GET /chat/history limit 尾窗等价性护栏。
+ * PM-10（2026-09-05 性能与内存专项）→ 0917清库修复批落地：GET /chat/history limit
+ * 尾窗等价性护栏（台账「事件读链 O(N)」改造的验收面）。
  *
- * 审查项原记「JSONL 事件日志 readFileSync 全量读 + split + 逐行 JSON.parse 后才
- * slice(-limit) 截尾」——事件库 F1 起已是 node:sqlite（每书一库），listEvents 走
- * SQL 游标流式 iterate + 逐行坏行降级（store.ts 内存闸 B1 / R65-20），字节级文件
- * 尾读（statSync / 末尾 64KB 窗 / 半行丢弃）无附着对象；且响应契约 total/truncated
- * 是「全量投影消息数 / 截断标记」，截尾只能发生在消息合成之后（连续 tool-result
- * 合成消息的 blocks 不可拆）——详见 buildChatHistoryView 头注释。
+ * 沿革：审查项原记「JSONL 全量读后才截尾」系 SQLite 化前旧形态；F1 后 listEvents 已
+ * 是 SQL 游标流式，但带 limit 请求仍「全量投影 + slice(-limit)」（PM-10 判真尾窗须
+ * store 层先供通道，属后续独立改造）。0917清库修复批落地该改造：store 层三原语
+ * （listEventsTail 尾取 / countEvents 骨架计数 / firstBranchMetaSeq 安全边界）+
+ * buildChatHistoryView 真尾窗（seq 降序取尾 → 投影 → 不足/不安全翻倍前扩 → 触底退化
+ * 全量）。
  *
- * 本文件把「全量取数 → selectBranch → loadHistoryWithSeqs → slice(-limit)」内嵌为
- * 参照实现，逐位（toStrictEqual）断言 buildChatHistoryView 在各库形态 / limit 边界
- * 下与参照一致：小库=全量、远超 64KB 大库取尾、坏行容错、恰 limit / 不足 limit、
- * 分支视图、空库。未来 store 层若落地真尾窗（seq 降序取尾 + 窗口翻倍前扩、不足退
- * 化为全量），本护栏必须保持全绿——任何一条红即尾窗破坏了逐位等价。
+ * 本文件守两面：
+ * 1. 逐位等价——messages/seqs/branchId/truncated 与内嵌「全量投影 + slice」参照在
+ *    各库形态 / limit 边界下逐位一致（小库全形态、大库取尾、坏行容错、恰/不足 limit、
+ *    分支视图、空库、分支元数据窗内安全截断、分支元数据窗外自动前扩）；
+ * 2. total 分流契约（本批修订）——未截断 = 全量投影消息数（原口径）；截断态 =
+ *    store.countEvents 骨架事件行数（含无法解析行；全量投影消息数需全量 parse，与
+ *    真尾窗 O(尾窗) 相抵，前端「共约多少条」提示由事件行数承担）。
  */
 import { rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -30,7 +33,7 @@ import {
 import { buildBranchTree, defaultBranchId, selectBranch } from '../../src/events/branch-tree.js'
 import { buildChatHistoryView } from '../../src/studio/server/api/chat-history.js'
 
-/** 参照实现（内嵌）：与 buildChatHistoryView 现行全量链逐步同构——
+/** 参照实现（内嵌）：「全量投影 + slice」口径——
  *  全量 listEvents → 分支树定位 → selectBranch 筛选 → 投影合成 → slice 截尾。 */
 interface ViewShape {
   messages: Array<{ role: 'user' | 'assistant'; content: unknown }>
@@ -54,6 +57,26 @@ function referenceView(store: SessionStore, bookName: string, branchId?: string,
     truncated: true,
     total: msgs.length,
   }
+}
+
+/** 逐位等价断言 + total 分流契约（0917清库修复批）：messages/seqs/branchId/truncated
+ *  与参照逐位一致；total 未截断 = 参照消息数、截断态 = 骨架事件行数（≥ 投影消息数）。 */
+function expectMatchesReference(store: SessionStore, bookName: string, branchId?: string, limit?: number): void {
+  const view = buildChatHistoryView(store, bookName, branchId, limit)
+  const ref = referenceView(store, bookName, branchId, limit)
+  expect({
+    messages: view.messages,
+    seqs: view.seqs,
+    branchId: view.branchId,
+    truncated: view.truncated,
+  }).toStrictEqual({
+    messages: ref.messages,
+    seqs: ref.seqs,
+    branchId: ref.branchId,
+    truncated: ref.truncated,
+  })
+  expect(view.total).toBe(ref.truncated ? store.countEvents(bookName) : ref.total)
+  if (ref.truncated) expect(view.total).toBeGreaterThanOrEqual(ref.total)
 }
 
 /** 每用例独立 tmp userData + 独立 bookHash（互不串库） */
@@ -95,10 +118,9 @@ describe('PM-10：chat/history limit 尾窗与「全量投影 + slice」参照�
         ],
       })
       // 各 limit（含 undefined / 1 / 恰全量 4 / 超 99）→ 与参照逐位一致
+      //（limit 1/3 截断：total = 骨架事件行数 6，非投影消息数 4——分流契约）
       for (const limit of [undefined, 1, 2, 3, 4, 99]) {
-        expect(buildChatHistoryView(store, '小库书', undefined, limit)).toStrictEqual(
-          referenceView(store, '小库书', undefined, limit),
-        )
+        expectMatchesReference(store, '小库书', undefined, limit)
       }
       // 语义直断：limit=1 取尾一条（收尾 assistant）；limit=2 首条是完整合成消息（blocks 不因截尾拆破）
       expect(buildChatHistoryView(store, '小库书', undefined, 1).messages[0]).toEqual({
@@ -116,7 +138,7 @@ describe('PM-10：chat/history limit 尾窗与「全量投影 + slice」参照�
     }
   })
 
-  it('大库（约 1MB 正文，远超旧尾读 64KB 窗）：limit=10 取尾正确 + total/truncated 正确 + 与参照逐位一致', () => {
+  it('大库（约 1MB 正文，远超旧尾读 64KB 窗）：limit=10 真尾窗取尾正确 + total=骨架事件行数 + 与参照逐位一致', () => {
     const { store, sid } = makeStore('大库书')
     try {
       const pad = 'x'.repeat(2048) // 每条消息 ~2KB 正文，480 条 ≈ 1MB > 64KB
@@ -131,6 +153,8 @@ describe('PM-10：chat/history limit 尾窗与「全量投影 + slice」参照�
       if (batch.length > 0) store.appendEvents(sid, batch)
 
       const view = buildChatHistoryView(store, '大库书', undefined, 10)
+      // 截断态 total = 骨架事件行数（480 行 = 240 对）——与投影消息数（480）数值巧合同
+      //（线性书 1 事件 1 消息），语义口径已分流
       expect(view.total).toBe(480)
       expect(view.truncated).toBe(true)
       expect(view.messages).toHaveLength(10)
@@ -141,9 +165,7 @@ describe('PM-10：chat/history limit 尾窗与「全量投影 + slice」参照�
       expect(view.messages[9]).toEqual({ role: 'assistant', content: `a-240 ${pad}` })
       expect(view.messages[8]).toEqual({ role: 'user', content: `u-240 ${pad}` })
       // 平行 seqs 与参照逐位一致
-      expect(buildChatHistoryView(store, '大库书', undefined, 10)).toStrictEqual(
-        referenceView(store, '大库书', undefined, 10),
-      )
+      expectMatchesReference(store, '大库书', undefined, 10)
     } finally {
       store.close()
     }
@@ -172,15 +194,14 @@ describe('PM-10：chat/history limit 尾窗与「全量投影 + slice」参照�
       expect(cut.messages).toHaveLength(9)
       expect(cut.messages[0]).toEqual({ role: 'assistant', content: 'a-1' }) // 丢首条 u-1，余 9 条
       expect(cut.messages[8]).toEqual({ role: 'assistant', content: 'a-5' })
+      // 小库触底退化全量路径：total 走原契约（投影消息数 10，恰与事件行数同值）
 
       expect(buildChatHistoryView(store, '边界书', undefined, 1).messages[0]).toEqual({
         role: 'assistant',
         content: 'a-5',
       })
       for (const limit of [1, 5, 9, 10, 11, 1000]) {
-        expect(buildChatHistoryView(store, '边界书', undefined, limit)).toStrictEqual(
-          referenceView(store, '边界书', undefined, limit),
-        )
+        expectMatchesReference(store, '边界书', undefined, limit)
       }
     } finally {
       store.close()
@@ -214,13 +235,11 @@ describe('PM-10：chat/history limit 尾窗与「全量投影 + slice」参照�
         expect(view.messages).toHaveLength(2)
         expect(JSON.stringify(view.messages)).not.toContain('会坏')
         expect(view.truncated).toBe(true)
-        // 坏行使全量消息数 6→5，total 与参照同口径；尾窗/全量两种 limit 都逐位一致
-        expect(buildChatHistoryView(storeA2, '坏行书A', undefined, 2)).toStrictEqual(
-          referenceView(storeA2, '坏行书A', undefined, 2),
-        )
-        expect(buildChatHistoryView(storeA2, '坏行书A', undefined, 99)).toStrictEqual(
-          referenceView(storeA2, '坏行书A', undefined, 99),
-        )
+        // 截断态 total = 骨架事件行数（含无法解析行 6）——投影消息数（5）口径已分流
+        expect(view.total).toBe(6)
+        // 尾窗/全量两种 limit 都逐位一致（total 分流见 expectMatchesReference）
+        expectMatchesReference(storeA2, '坏行书A', undefined, 2)
+        expectMatchesReference(storeA2, '坏行书A', undefined, 99)
       } finally {
         storeA2.close()
       }
@@ -247,12 +266,10 @@ describe('PM-10：chat/history limit 尾窗与「全量投影 + slice」参照�
         const view = buildChatHistoryView(storeB2, '坏行书B', undefined, 2)
         expect(view.messages).toHaveLength(2)
         expect(view.messages[1]).toEqual({ role: 'user', content: 'u-2' })
-        expect(view.total).toBe(3)
+        expect(view.total).toBe(4) // 骨架事件行数（含坏行）
         expect(view.truncated).toBe(true)
         expect(JSON.stringify(view.messages)).not.toContain('会坏')
-        expect(buildChatHistoryView(storeB2, '坏行书B', undefined, 2)).toStrictEqual(
-          referenceView(storeB2, '坏行书B', undefined, 2),
-        )
+        expectMatchesReference(storeB2, '坏行书B', undefined, 2)
       } finally {
         storeB2.close()
       }
@@ -291,13 +308,77 @@ describe('PM-10：chat/history limit 尾窗与「全量投影 + slice」参照�
         'a-3',
       ])
       // 缺省与显式 branchId 两条路都与参照逐位一致
-      expect(buildChatHistoryView(store, '分支书', undefined, 4)).toStrictEqual(
-        referenceView(store, '分支书', undefined, 4),
-      )
-      expect(buildChatHistoryView(store, '分支书', 'reg-1', 4)).toStrictEqual(
-        referenceView(store, '分支书', 'reg-1', 4),
-      )
-      expect(buildChatHistoryView(store, '分支书', 'reg-1')).toStrictEqual(referenceView(store, '分支书', 'reg-1'))
+      expectMatchesReference(store, '分支书', undefined, 4)
+      expectMatchesReference(store, '分支书', 'reg-1', 4)
+      expectMatchesReference(store, '分支书', 'reg-1')
+    } finally {
+      store.close()
+    }
+  })
+
+  it('分支元数据在安全窗内：长线性尾 + 末段变体组——真尾窗安全截断，total=骨架事件行数且与参照逐位一致', () => {
+    const { store, sid } = makeStore('安全窗书')
+    try {
+      // 101 对线性（202 事件），对 u-101 regenerate 出变体组 reg-1——
+      // 分支键载体（变体根，seq=203）在事件流末尾 = 安全边界在尾部：
+      // limit=10 初始窗 40 事件（seq 164..203）起点 164 ≤ 边界 203 → 安全窗截断
+      let u101Seq: number | undefined
+      for (let i = 1; i <= 101; i++) {
+        const seqs = store.appendEvents(sid, [userMessageEvent(`u-${i}`), assistantMessageEvent(`a-${i}`)])
+        if (i === 101) u101Seq = seqs[0]
+      }
+      store.appendEvents(sid, [
+        assistantMessageEvent('a-101 v2 新答案', undefined, undefined, undefined, {
+          parentSeq: u101Seq!,
+          branchId: 'reg-1',
+        }),
+      ])
+
+      const view = buildChatHistoryView(store, '安全窗书', undefined, 10)
+      expect(view.truncated).toBe(true)
+      expect(view.branchId).toBe('reg-1') // 默认分支判定：窗内最新组
+      expect(view.total).toBe(store.countEvents('安全窗书')) // 骨架事件行数契约（203）
+      // 顶替槽 (u-101, 变体根) 在窗内 → 原答案 a-101 正确剔除（带引号精确匹配，防「a-101 v2」误伤）
+      expect(JSON.stringify(view.messages)).not.toContain('"a-101"')
+      expect(JSON.stringify(view.messages)).toContain('a-101 v2 新答案')
+      expect(view.messages[9]).toEqual({ role: 'assistant', content: 'a-101 v2 新答案' })
+      expectMatchesReference(store, '安全窗书', undefined, 10)
+      expectMatchesReference(store, '安全窗书', 'reg-1', 10)
+    } finally {
+      store.close()
+    }
+  })
+
+  it('分支元数据在窗外：窗口自动前扩至安全边界（触底退化全量），投影与参照逐位一致', () => {
+    const { store, sid } = makeStore('前扩书')
+    try {
+      // 变体组在开头（分支键载体 seq=5），后接 120 对线性（240 事件）——
+      // limit=10 初始窗 40 事件不含分支键载体 → 不安全 → 翻倍前扩直至触底退化全量
+      const r2 = store.appendEvents(sid, [userMessageEvent('u-1'), assistantMessageEvent('a-1 被顶替')])
+      store.appendEvents(sid, [
+        assistantMessageEvent('a-1 v2 新答案', undefined, undefined, undefined, {
+          parentSeq: r2[0],
+          branchId: 'reg-1',
+        }),
+      ])
+      const batch: NewEvent[] = []
+      for (let i = 2; i <= 121; i++) {
+        batch.push(userMessageEvent(`u-${i}`), assistantMessageEvent(`a-${i}`))
+        if (batch.length >= 40) {
+          store.appendEvents(sid, batch)
+          batch.length = 0
+        }
+      }
+      if (batch.length > 0) store.appendEvents(sid, batch)
+
+      const view = buildChatHistoryView(store, '前扩书', undefined, 10)
+      expect(view.truncated).toBe(true)
+      expect(view.branchId).toBe('reg-1')
+      // 前扩触底 → 全量路径；截断态 total 仍走骨架事件行数（契约单义，不分路径）
+      expect(view.total).toBe(store.countEvents('前扩书'))
+      expect(JSON.stringify(view.messages)).not.toContain('被顶替')
+      expect(view.messages[9]).toEqual({ role: 'assistant', content: 'a-121' })
+      expectMatchesReference(store, '前扩书', undefined, 10)
     } finally {
       store.close()
     }
@@ -314,9 +395,7 @@ describe('PM-10：chat/history limit 尾窗与「全量投影 + slice」参照�
           truncated: false,
           total: 0,
         })
-        expect(buildChatHistoryView(store, '空库书', undefined, limit)).toStrictEqual(
-          referenceView(store, '空库书', undefined, limit),
-        )
+        expectMatchesReference(store, '空库书', undefined, limit)
       }
     } finally {
       store.close()

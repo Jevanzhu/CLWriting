@@ -20,12 +20,18 @@
  * R66-37（十四轮）：e2e spec 顺序快照守卫——README「勿改动 spec 顺序」从注释
  * 契约升级为机器门：spec 名单/字典序位漂移即红（详见 E2E_SPEC_ORDER_SNAPSHOT）。
  *
+ * 0917清库修复批 AST 化：skip 门禁形态枚举（.only / 无条件 .skip / .skip.each）
+ * 自正则改 TypeScript 编译器 API 轻量 AST 扫描（findOnlyOrSkipViolations），封死
+ * 正则近似族盲区（R0912-3 skip.each 一层平衡括号近似——嵌套 ≥2 层 `)` 漏检向）；
+ * 对账口径与改前正则逐位一致（只换枚举机制，不加检测面），README 声称值不动。
+ *
  * 用法：npm run check:counts（退出码 1 = 失配，并列出实测值供修 README）
  */
 import { execFileSync } from 'node:child_process'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import ts from 'typescript'
 
 // fileURLToPath 解码百分号编码（工作区路径含 ^ 时 pathname 会带 %5E，scandir 直接 ENOENT）
 const root = fileURLToPath(new URL('..', import.meta.url))
@@ -155,27 +161,64 @@ export function countE2eCases(src) {
  * - .skip 只拒「无条件式」——首参为标题字符串（剥字符串后 `(` 紧跟 `"`）是调试
  *   遗留/长期弃置；条件式（首参布尔表达式，如 test.skip(!process.env.X) 环境门）
  *   `(` 后非 `"`，白名单豁免（release-smoke.spec.ts 的发布门先例）。
+ *
+ * 0917清库修复批 AST 化：only/skip 形态枚举自正则改 TypeScript 编译器 API 轻量
+ * AST 扫描（createSourceFile 解析 sanitized 文本，无类型检查），封死正则近似族
+ * 盲区（R31-35 正则字面量 / R0912-3 skip.each 一层平衡括号近似——嵌套 ≥2 层
+ * 括号漏检向）。对账口径逐位对齐改前正则，只换枚举机制不加检测面：
+ * - only：`it|test|describe` 根标识符 + 成员链恰为 `.only` / `.only.each` 的调用
+ *   （原 `\s*[({[]` = 调用本身；`test?.only` 可选链、`each.only` 反序不在射程）。
+ * - skip 平铺：成员链恰为 `.skip`，且零参 / 首参字符串字面量（sanitized 占位 `""`）
+ *   / 首参 `true` 字面量（R54-E-3）；`(true)` 括号包裹与 `truthy` 标识符同旧正则
+ *   不命中（不解包括号、按 kind 精确判定）。
+ * - skip.each 两段调用：外层调用首参字符串字面量才计（each 表格参数有无条件不做
+ *   判定，同旧正则）；`.skipIf(` 与 `skipIf(true)` 均不在射程（平台门豁免口径不变）。
+ * sanitized 文本个别病态形态（未闭合串原样保留，R73-78）解析失败时 TS 容错恢复，
+ * 该等文件本就无法过 vitest 收集，检测方向不受影响。
  */
 export function findOnlyOrSkipViolations(src) {
   const clean = sanitizeForCount(src)
-  // R64-38（十二轮）：only 门正则补 `.each` 组合——`it.only.each([...])('t', fn)` 形态
-  // 此前不被 `\s*\(` 匹配（only 后面是 .each），漏放行整个参数化组（其余用例静默跳过）。
-  const only = clean.match(/(^|[^.\w])(?:it|test|describe)\.only(?:\.each)?\s*[({[]/g)
-  // R65-59（F-3）：无条件 skip 同补 `.each` 组合——`it.skip.each([...])('t', fn)` 同样
-  // 静默跳过整组；条件式豁免口径不变（plain 形态首参须标题串，each 形态第二调用首参须标题串）
-  // R27-134（二十七轮）：plain 形态补零参——`test.skip()`（连条件都没有的无条件整用例
-  // 跳过，比标题串形态更赤裸）此前 `\(\s*"` 只认标题串首参，零参漏放行；剥串后判定
-  // `(` 紧跟 `"`（标题串）或 `)`（零参）均算无条件，其余首参（环境门表达式）照旧豁免
-  // R54-E-3（五十四轮）：常量真值形态补拒——`test.skip(true)` 语法上是条件式（首参
-  // 非 `"`/`)`），语义上恒跳过（比零参更隐蔽的门禁假绿面）；`skip(false)` 恒跑无门禁
-  // 风险不收，环境门表达式（`!process.env.X` 等）不受影响
-  const skipPlain = clean.match(/(^|[^.\w])(?:it|test|describe)\.skip\s*\(\s*(?:"|\)|true\b)/g)
-  // R0912-3（2026-09-12 全量重评 #48）：each 参数改一层平衡括号近似——原 `\([^)]*\)`
-  // 遇参数内 `)`（如 each(buildPairs(1, 2))）提前收口，后随 `\s*\(\s*"` 失配 → 整组
-  // 无条件 skip 漏检（R31-35 正则盲区同族，漏检向；匹配面只对 `.skip.each` 字面量放宽，
-  // 无误检向变化）
-  const skipEach = clean.match(/(^|[^.\w])(?:it|test|describe)\.skip\.each\s*\((?:[^()]|\([^()]*\))*\)\s*\(\s*"/g)
-  return { only: only ? only.length : 0, uncondSkip: (skipPlain?.length ?? 0) + (skipEach?.length ?? 0) }
+  const sf = ts.createSourceFile('check-counts-gate.ts', clean, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS)
+  let only = 0
+  let uncondSkip = 0
+  const GATE_ROOTS = new Set(['it', 'test', 'describe'])
+  /** 成员访问链解包（只认字面 `.`，可选链 `?.` 即出射程）；非 it/test/describe 根返回 null。 */
+  const gateChain = (expr) => {
+    const props = []
+    let cur = expr
+    while (ts.isPropertyAccessExpression(cur)) {
+      if (cur.questionDotToken !== undefined) return null
+      props.unshift(cur.name.text)
+      cur = cur.expression
+    }
+    if (!ts.isIdentifier(cur) || !GATE_ROOTS.has(cur.text)) return null
+    return { root: cur.text, props }
+  }
+  const visit = (node) => {
+    if (ts.isCallExpression(node)) {
+      const chain = gateChain(node.expression)
+      if (chain) {
+        const p = chain.props
+        if ((p.length === 1 && p[0] === 'only') || (p.length === 2 && p[0] === 'only' && p[1] === 'each')) {
+          only++
+        } else if (p.length === 1 && p[0] === 'skip') {
+          const a0 = node.arguments[0]
+          if (node.arguments.length === 0 || ts.isStringLiteral(a0) || a0?.kind === ts.SyntaxKind.TrueKeyword) {
+            uncondSkip++
+          }
+        }
+      } else if (ts.isCallExpression(node.expression)) {
+        // it.skip.each(cases)("标题", fn) 两段调用——外层首参为标题串才计（R65-59 口径）
+        const inner = gateChain(node.expression.expression)
+        if (inner && inner.props.length === 2 && inner.props[0] === 'skip' && inner.props[1] === 'each') {
+          if (ts.isStringLiteral(node.arguments[0])) uncondSkip++
+        }
+      }
+    }
+    node.forEachChild(visit)
+  }
+  sf.forEachChild(visit)
+  return { only, uncondSkip }
 }
 
 /**

@@ -15,6 +15,7 @@ import { reply, replyError, parseRequestUrl } from '../http.js'
 import { createTtlProbeCache } from '../ttl-cache.js'
 import { resolveBookOrReply } from '../book-context.js'
 import { searchBookAsync, SEARCH_ALL_DIRS, type SearchOutcome } from '../../../process/book-search.js'
+import { testableConst } from '../../../shared/testable.js'
 
 interface SearchCtx {
   workDir: string | null
@@ -29,11 +30,8 @@ interface SearchCtx {
 // 结构变化即时失效缓存，TTL 5s 只兜内容改写（不触碰目录 mtime）的最坏可见窗。
 const SEARCH_CACHE_TTL_MS = 5000
 const SEARCH_CACHE_MAX = 32
-let searchTtlMs: number | null = null
-/** TTL 测试注入口（null 还原默认；先例同 knowledge.ts __setLearnTtlForTest）。 */
-export function __setSearchCacheTtlForTest(ms: number | null): void {
-  searchTtlMs = ms
-}
+/** 三件套换装 testableConst 工厂（TTL 覆盖档，null = 无覆盖、消费点回退常量；测试注入 setter 元组第二位原名原签名，测试面零感知）。 */
+export const [getSearchTtlMs, __setSearchCacheTtlForTest] = testableConst<number | null>(null)
 
 /** R35-7：删书/改名失效挂点（同 forgetLearnCache 口径；在途扫描不取消，结果照常落缓存）。 */
 export function forgetSearchCache(bookRoot: string): void {
@@ -55,7 +53,7 @@ const searchCache = createTtlProbeCache<{ bookRoot: string; query: string; scope
   name: 'search',
   keyOf: (k) => `${k.bookRoot}\u0000${k.scope ?? ''}\u0000${k.query}`,
   max: SEARCH_CACHE_MAX,
-  ttl: () => searchTtlMs ?? SEARCH_CACHE_TTL_MS,
+  ttl: () => getSearchTtlMs() ?? SEARCH_CACHE_TTL_MS,
   probe: (k) => dirSignature(k.bookRoot),
   inFlight: true,
   computeAsync: (k) => searchBookAsync(k.bookRoot, k.query, k.scope),

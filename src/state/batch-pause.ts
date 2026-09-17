@@ -11,6 +11,7 @@ import { join } from 'node:path'
 import { atomicWriteFile } from '../fs/atomic.js'
 import { acquireCrossProcessLockAsync } from '../fs/cross-process-lock.js'
 import { log } from '../log/index.js'
+import { testableConst } from '../shared/testable.js'
 
 /** 暂停记录：atChapter=停在第几章，reason=停法（escalate/failed/aborted），detail=人话细节 */
 interface BatchPause {
@@ -28,13 +29,8 @@ function pausePath(bookRoot: string): string {
  *  R26-105 的收口认定），改 const + 内部可变生效值；测试只能经注入钩子改档，生产恒用常量。 */
 export const PAUSE_LOCK_TIMEOUT_MS = 2_000
 
-/** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改。 */
-let pauseLockTimeoutMs = PAUSE_LOCK_TIMEOUT_MS
-
-/** 测试注入钩子（生产零调用）。 */
-export function __setBatchPauseLockTimeoutForTest(ms: number): void {
-  pauseLockTimeoutMs = ms
-}
+/** 三件套换装 testableConst 工厂：生效值 getter（消费点显式调用）+ 测试注入 setter 元组第二位（原名原签名，测试面零感知）。 */
+export const [getPauseLockTimeoutMs, __setBatchPauseLockTimeoutForTest] = testableConst(PAUSE_LOCK_TIMEOUT_MS)
 
 /**
  * R73-41（二十一轮）：.auto-batch.json 的读改写（write/clear 两路都是「读全量 → 改键 →
@@ -49,7 +45,7 @@ export function __setBatchPauseLockTimeoutForTest(ms: number): void {
  */
 async function withPauseLock<T>(bookRoot: string, fn: () => T): Promise<T> {
   const lockPath = pausePath(bookRoot) + '.lock'
-  const release = await acquireCrossProcessLockAsync(lockPath, pauseLockTimeoutMs)
+  const release = await acquireCrossProcessLockAsync(lockPath, getPauseLockTimeoutMs())
   if (!release) {
     log.warn('batch-pause', `.auto-batch 锁超时，降级无锁读改写（${lockPath}）——并发窗口回到后写胜口径`)
     return fn()

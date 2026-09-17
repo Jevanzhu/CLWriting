@@ -26,6 +26,7 @@ import { LEAD_VERBS } from '../format/leads.js'
 import { readOpenLeads } from './open-leads.js'
 import { pruneTextMiddle } from './prune.js'
 import { log, errMsg } from '../log/index.js'
+import { testableConst } from '../shared/testable.js'
 
 // ff-P1-1 常量归一：路径唯一出处 check/lead-updates.ts（闸/回写/草拟三方共用），此处再导出兼容既有导入方
 export { LEAD_UPDATES_FILE, LEAD_UPDATES_ARCHIVE_DIR }
@@ -46,17 +47,12 @@ const leadUpdateQueues = new Map<string, Promise<unknown>>()
  *  generateLeadUpdateDraft 本就 async，Atomics.wait 微睡不再冻结事件循环）。 */
 const LEAD_UPDATE_LOCK_TIMEOUT_MS = 5_000
 
-/** 生效值（模块内可变）：初值 = 常量；仅注入钩子可改。 */
-let leadUpdateLockTimeoutMs = LEAD_UPDATE_LOCK_TIMEOUT_MS
-
-/** 测试注入钩子（生产零调用）。 */
-export function __setLeadUpdateLockTimeoutForTest(ms: number): void {
-  leadUpdateLockTimeoutMs = ms
-}
+/** 三件套换装 testableConst 工厂：生效值 getter（消费点显式调用）+ 测试注入 setter 元组第二位（原名原签名，测试面零感知）。 */
+export const [getLeadUpdateLockTimeoutMs, __setLeadUpdateLockTimeoutForTest] = testableConst(LEAD_UPDATE_LOCK_TIMEOUT_MS)
 
 async function withLeadUpdateLock<T>(bookRoot: string, fn: () => T): Promise<T> {
   const lockPath = join(bookRoot, LEAD_UPDATES_FILE + '.lock')
-  const release = await acquireCrossProcessLockAsync(lockPath, leadUpdateLockTimeoutMs)
+  const release = await acquireCrossProcessLockAsync(lockPath, getLeadUpdateLockTimeoutMs())
   if (!release) {
     log.warn('lead-update-draft', `账本推进锁超时，降级无锁归档+落盘（${lockPath}）——跨进程互斥窗口回到队列口径`)
     return fn()

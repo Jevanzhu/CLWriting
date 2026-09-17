@@ -86,6 +86,7 @@ import { forgetIronRulesCache } from '../../../format/iron-rules.js'
 // 删书重建同名书后旧标记会让旧格式迁移在本进程内永不重试
 import { forgetMigratedRoots } from '../../../ai/calls.js'
 import { log } from '../../../log/index.js'
+import { testableConst } from '../../../shared/testable.js'
 import type { BookCtx } from './books.js'
 
 /** R67-15：删书/改名共用的书键缓存清理（书键 TTL 结果缓存族——内存卫生，防删书后
@@ -190,14 +191,13 @@ const DELETE_GRAVEYARD_DIR = '.删书墓地'
 // rm 走 fs.promises 后台执行；失败仅留痕（数据在墓地可手工恢复，删除语义不变）。
 // 本仓无墓地自动清扫兜底（启动/healthCheck 均不扫 .删书墓地），残留靠错误日志发现。
 const defaultGraveyardCleanup = (graveAbs: string): Promise<void> => rm(graveAbs, { recursive: true, force: true })
-let graveyardCleanup = defaultGraveyardCleanup
 /** R35-6：在途墓地清理句柄——handler 同步注册、响应先行不等 rm；测试等待钩子据此收口。 */
 const pendingGraveyardCleanups = new Set<Promise<void>>()
 
-/** R35-6：测试注入口（null 还原默认；生产零调用）——注入受控清理以断言端点不被 rm 阻塞。 */
-export function __setGraveyardCleanupForTest(fn: ((graveAbs: string) => Promise<void>) | null): void {
-  graveyardCleanup = fn ?? defaultGraveyardCleanup
-}
+/** R35-6：测试注入口——注入受控清理以断言端点不被 rm 阻塞。三件套换装
+ *  testableConst 工厂（2026-09-17 清库修复批）：清理函数覆盖档 getter（null 回退
+ *  defaultGraveyardCleanup），setter 元组第二位原名原签名（测试面零感知）。 */
+export const [getGraveyardCleanup, __setGraveyardCleanupForTest] = testableConst<((graveAbs: string) => Promise<void>) | null>(null)
 
 /** R35-6：等待全部在途墓地后台清理收尾（含失败）——测试确定性断言用，生产零调用。 */
 export function __waitForGraveyardCleanupForTest(): Promise<void> {
@@ -364,7 +364,7 @@ export function registerBookLifecycleRoutes(ctx: BookCtx): void {
       }
       // R35-6：墓地清理后台执行（不 await——响应不被递归 rm 阻塞）；在途句柄先注册再挂
       // finally（防等待钩子读到已删集合漏等），失败仅留痕
-      const cleanupDone = graveyardCleanup(graveAbs).catch((e) => {
+      const cleanupDone = (getGraveyardCleanup() ?? defaultGraveyardCleanup)(graveAbs).catch((e) => {
         log.error('api', `删书墓地后台清理失败（${name}，留档待手工处理：${graveAbs}）`, e)
       })
       pendingGraveyardCleanups.add(cleanupDone)

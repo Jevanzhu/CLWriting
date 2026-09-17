@@ -18,6 +18,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, readdirSync, type Dirent } from 'node:fs'
 import { join } from 'node:path'
 import { log } from '../log/index.js'
+import { testableConst } from '../shared/testable.js'
 
 // ── 统一 git 执行器（#16 第 3 节）──────────────────
 
@@ -34,14 +35,10 @@ type GitResult =
  */
 const GIT_TIMEOUT_MS = 15_000
 
-/** R36-5：异步路径超时档生效值（模块内可变，仅测试注入口可改；先例同
- *  search.ts __setSearchCacheTtlForTest / books.ts __setBooksLockTimeoutForTest）。 */
-let gitAsyncTimeoutMs = GIT_TIMEOUT_MS
-
-/** R36-5：测试注入口（null/缺省恢复默认；生产零调用）。 */
-export function __setGitAsyncTimeoutForTest(ms: number | null): void {
-  gitAsyncTimeoutMs = ms ?? GIT_TIMEOUT_MS
-}
+/** 三件套换装 testableConst 工厂（2026-09-17 清库修复批）：R36-5 异步路径超时覆盖档——
+ *  getter 消费点显式调用（null 回退常量档），setter 元组第二位原名原签名
+ *  （传 null 即还原默认档，测试面零感知）。 */
+export const [getGitAsyncTimeoutMs, __setGitAsyncTimeoutForTest] = testableConst<number | null>(null)
 
 /**
  * IR-3（独立重评 2026-09-02）：SIGTERM → SIGKILL 升级 kill。SIGTERM 是 best-effort
@@ -198,7 +195,7 @@ export function gitAsync(
         humanMsg: `git 操作超时（${args.join(' ')}）：git 进程无响应，已中止`,
         stderr: stderrParts.join(''),
       })
-    }, gitAsyncTimeoutMs)
+    }, getGitAsyncTimeoutMs() ?? GIT_TIMEOUT_MS)
     // 子进程自身持事件循环上界，兜底定时器不拖延进程退出
     timer.unref()
 

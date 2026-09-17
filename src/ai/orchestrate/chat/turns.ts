@@ -22,7 +22,9 @@ import { generate, GenError } from '../../gen.js'
 import { resolveProvider, runTask } from '../../runner.js'
 // R57-B-2（五十七轮）：models 行 contextWindow 读取（与 finish.ts:124
 // clampCheckpointOutputTokens(modelConfOf(provider.conf)?.contextWindow) 同款先例）
-import { modelConfOf } from '../../provider/store.js'
+// 0917清库修复批：loadProviders 供换网重试挑备用供应商；failureAction 供换网族判定读决策表
+import { loadProviders, modelConfOf } from '../../provider/store.js'
+import { failureAction } from '../../provider/failure.js'
 import { redactSecret } from '../../provider/redact.js' // R43-19（四十三轮）：SSE 错误事件脱敏第二层
 import { chatTools, TOOL_RISK } from '../../contract/chat.js'
 // R0916-5g（⑤④产品巨件拆分波3）：工具执行族/可见性诊断族纯移动拆至
@@ -57,7 +59,11 @@ import type { ChatSeqLedger } from './restore.js'
 export { waitConfirm, executeChatTool } from './turns-tools.js'
 export { verifyVisibleSampled } from './turns-visibility.js'
 
-const MAX_AGENT_TURNS = 5
+// 0917清库修复批：5 → 20——原保守值使多工具任务（多章检查/批量整理等）第 5 轮即触顶收尾，
+// 工具任务完成率受损。护栏不依赖本上限：deadline 总时长闸（轮首检查）、写风险工具确认闸、
+// book.yaml budget.chat_max_calls 次数预算闸（runner checkAiTaskCallBudget，未配不设）
+// 各自独立兜底，轮数上限只作最后防线。
+const MAX_AGENT_TURNS = 20
 
 /** R0912-D-P3-2：工具名清单模块级常量化——chatTools 表模块级不可变，promptTools 登记
  *  （铁律②「模型可见 ⟺ 已记录」工具面）每轮循环不必重算 map。（finish.ts 收尾压缩
@@ -87,8 +93,8 @@ interface TurnDeps {
   sys: string
   /** Z-P1-2：本回合分支元数据（来自 restore 相位） */
   turnBranch: { parentSeq?: number; branchId?: string } | undefined
-  /** P3 血缘：注入快照指纹（来自 restore 相位） */
-  digests: { settings: string; revision?: string; skills?: string }
+  /** P3 血缘：注入快照指纹（来自 restore 相位）；0917清库修复批增 knowledge（方法论注入） */
+  digests: { settings: string; revision?: string; skills?: string; knowledge?: string }
   /** T2-1：prompt 注入文件清单（来自 restore 相位）——llm/call promptMeta.files 登记 */
   promptFiles: string[]
   /** T2-1：章正文注入路径（来自 restore 相位）——revision/ref 的 path 字段 */
@@ -103,7 +109,7 @@ interface TurnDeps {
 /** 相位 d：轮循环 + 轮数触顶收尾。返回 completedOk（E1a 续链口径：正常完成才 true）。 */
 export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
   const { opts, state, confirmTimeout, history, baseLen, recorder, sys, turnBranch, seqs } = deps
-  const { settings: settingsDigest, revision: revisionDigest, skills: skillsDigest } = deps.digests
+  const { settings: settingsDigest, revision: revisionDigest, skills: skillsDigest, knowledge: knowledgeDigest } = deps.digests
 
 
   /** M-1（第十一轮）：回合 commit 点 flush 异常收编 finishTurn——磁盘满/血缘校验越界时
@@ -166,6 +172,11 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
     // G2-2：技巧包索引注入（DSH-18）补登记——skillsIndex 非空才注入，同条件才登记
     if (skillsDigest !== undefined) {
       lineageIdx.push(addLineage(skillsSnapshotEvent({ digest: skillsDigest })))
+    }
+    // 0917清库修复批：知识层方法论注入补登记——同「非空才注入/才登记」条件；scope 复用
+    // settings/snapshot 事件（knowledge 档），digest 与 ctx.knowledge 同源（restore 相位算好）
+    if (knowledgeDigest !== undefined) {
+      lineageIdx.push(addLineage(settingsSnapshotEvent({ scope: 'knowledge', digest: knowledgeDigest })))
     }
     emit(opts, { type: 'chat_turn', turn })
 
@@ -264,7 +275,11 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
     // chat_reset 清前端缓冲（超窗 400 属建连期失败、零增量，正常为 no-op——防御流中
     // 异常形态下重复文本）。
     let ctxOverflow = false
-    const sendTurn = (send: ChatMsg[], promptText: string) =>
+    // 0917清库修复批：switch-provider 消费者（决策表 AUTH/NOT_FOUND/UNSUPPORTED → 换网重试，
+    // 此前无消费者、终态等同 author——failure.ts R66-11 自认）。code 捕获通道与 ctxOverflow
+    // 同款：run 回调边界就地置码；换网判定读 failureAction 决策表，不在此处写死错误码清单
+    let switchCode: GenError['code'] | undefined
+    const sendTurn = (send: ChatMsg[], promptText: string, providerId?: string) =>
       runTask<{
         text: string
         toolCalls: { id: string; name: string; input: unknown }[]
@@ -282,6 +297,8 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
         reasoningItemId?: string
       }>({
         userDataPath: opts.userDataPath,
+        // 0917清库修复批：换网重试传显式 provider id（缺省 undefined 原路径）
+        providerId,
         tierKind: 'chat',
         task: 'chat',
         bookRoot: opts.bookRoot,
@@ -351,6 +368,7 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
             }
           } catch (e) {
             if (e instanceof GenError && e.code === 'CONTEXT_WINDOW_EXCEEDED') ctxOverflow = true
+            if (e instanceof GenError && e.code) switchCode = e.code
             throw e
           }
         },
@@ -375,6 +393,35 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
         }
       } else {
         log.warn('chat', `chat 发送超窗且无法收缩重试（A7 最小版）：首发 ${toSend.length} 条约 ${sentPoints} 码点回 CONTEXT_WINDOW_EXCEEDED，重试预算 ${retryBudget} 下${retryCut === null ? '无纯文本 user 边界可对齐、无法安全重切' : `重切后约 ${retryPoints} 码点不严格小于首发`}，直接按终态路径收口`)
+      }
+    }
+
+    // ── 0917清库修复批：switch-provider 消费者（chat 编排层主模型发送处）──
+    // 首发命中换网族（决策表 action='switch-provider'）且存在异于当前的供应商配置时，
+    // 取第一个备用 id 换网重发恰一次（A7 shrink 同款最小范型：一次性、不级联）；仍失败
+    // 或无备用 → 落回现行终态路径（下方 !out.ok 出口与错误面零变更）。重发走 sendTurn
+    // 全链（trace/记账/指纹与首发同构，载荷不变——换的是网不是输入）；provider 实例由
+    // runTask 按 providerId 解析，两次 llm/call 各自记录实际生效供应商。self-heal/spawn/
+    // rewrite 等非 chat 路径照旧终态（runner 内该动作仍同归 author，范围与 shrink 消费者同界）。
+    if (!out.ok && switchCode !== undefined && failureAction({ code: switchCode }) === 'switch-provider') {
+      const failedCode: GenError['code'] = switchCode
+      switchCode = undefined
+      let fallbackId: string | undefined
+      let fromId: string | null = null
+      try {
+        const s = loadProviders(opts.userDataPath)
+        fromId = s.currentId
+        fallbackId = s.providers.find((p) => p.id !== s.currentId)?.id
+      } catch {
+        fallbackId = undefined
+      }
+      if (fallbackId) {
+        log.warn('chat', `chat 发送换网重试（0917清库修复批）：供应商${fromId ? ` ${fromId}` : ''} 回 ${failedCode}，切换备用 ${fallbackId} 重发一次`)
+        recorder.add({ ...llmRetryEvent({ attempt: 1, delayMs: 0, errCode: failedCode }), turn })
+        emit(opts, { type: 'warning', message: `AI 供应商请求失败（${redactSecret(failedCode)}），已切换备用供应商重试。` })
+        out = await sendTurn(toSend, lastMessageFingerprint(toSend), fallbackId)
+      } else {
+        log.warn('chat', `chat 发送回 ${failedCode} 且无备用供应商可切换（0917清库修复批），按现行终态路径收口`)
       }
     }
 

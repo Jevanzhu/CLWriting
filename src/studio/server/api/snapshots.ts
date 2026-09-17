@@ -35,6 +35,7 @@ import { acquireTaskGate, orchestrationBusyFor } from './task-gate.js' // R26-67
 import { yieldToEventLoop, SCAN_YIELD_EVERY } from './progress.js' // R44-9：MISS 计算体逐块让出（R37-3 范式）
 import { sigStatFor } from './rhythm.js' // A3（复审-0914-优化修复批）：三处同体收编单源（先例位在本文件）
 import type { Revision } from '../../../document/revision.js'
+import { testableConst } from '../../../shared/testable.js'
 
 interface SnapshotCtx {
   workDir: string | null
@@ -146,18 +147,14 @@ interface VersionStatsResult {
   pinnedCount: number
   finalizedDocs: number
 }
-let versionStatsTtlMs: number | null = null
-/** R36-7：TTL 测试注入口（先例同 __setSearchCacheTtlForTest）。仅测试用。 */
-export function __setVersionStatsTtlForTest(ms: number | null): void {
-  versionStatsTtlMs = ms
-}
+/** R36-7：TTL 测试注入口（先例同 __setSearchCacheTtlForTest）。仅测试用。
+ *  三件套换装 testableConst 工厂（TTL 覆盖档，null = 无覆盖、消费点回退常量；setter 元组第二位原名原签名，测试面零感知）。 */
+export const [getVersionStatsTtlMs, __setVersionStatsTtlForTest] = testableConst<number | null>(null)
 /** 复审-0914-修复批 P3-R3-3：restore 处理器读体前让出注入口——测试用其在
  *  readJson 窗口内确定性改盘（改名/删书），替代真实 40ms 竞态 timer（先例同
  *  __setLearnCommitYieldForTest）。生产 null 零行为差异。仅测试用。 */
-let snapshotsRestoreYieldForTest: (() => Promise<void>) | null = null
-export function __setSnapshotsRestoreYieldForTest(fn: (() => Promise<void>) | null): void {
-  snapshotsRestoreYieldForTest = fn
-}
+/** 三件套换装 testableConst 工厂（让出桩覆盖档，null = 无桩；setter 元组第二位原名原签名，测试面零感知）。 */
+export const [getSnapshotsRestoreYield, __setSnapshotsRestoreYieldForTest] = testableConst<(() => Promise<void>) | null>(null)
 /** R36-7：写侧失效挂点——prune/restore 落盘后调用（本文件内写路径）。 */
 export function forgetVersionStatsCache(bookRoot: string): void {
   versionStatsCache.forget(bookRoot)
@@ -319,7 +316,7 @@ const versionStatsCache = createTtlProbeCache<string, VersionStatsResult>({
   name: 'version-stats',
   keyOf: (k) => k,
   max: VERSION_STATS_MAX,
-  ttl: () => versionStatsTtlMs ?? VERSION_STATS_TTL_MS,
+  ttl: () => getVersionStatsTtlMs() ?? VERSION_STATS_TTL_MS,
   probe: versionStatsProbe,
   signature: (bookRoot) => {
     versionStatsSigCount += 1
@@ -478,7 +475,8 @@ export function registerSnapshotRoutes(ctx: SnapshotCtx): void {
         ? snap.content.toString('utf-8')
         : snap.content
 
-      if (snapshotsRestoreYieldForTest) await snapshotsRestoreYieldForTest()
+      const yieldFn = getSnapshotsRestoreYield()
+      if (yieldFn) await yieldFn()
       const body = (await readJson(req)) as { expectedRevision?: unknown }
       const expectedRevision =
         typeof body.expectedRevision === 'string' ? (body.expectedRevision as Revision) : null

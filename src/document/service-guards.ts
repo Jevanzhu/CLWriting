@@ -8,6 +8,12 @@
  * （全库消费方 import 面不变）；原模块私有项（NON_UTF8_*、saveLockTimeoutMs）迁入后
  * 加 export 供 service.ts 内部 import，不对外新增导出面。
  */
+import { existsSync } from 'node:fs'
+import { join, resolve } from 'node:path'
+import { CLWRITING_DIR, readBooksStrict } from '../install/books.js'
+// 0917清库修复批（件1）：书注册落盘前重验需上溯定位 workDir（DocumentService 只持
+// bookRoot）——install/books-resolve 与 install/books 均无 document 侧回边，无环。
+import { findWorkDir } from '../install/books-resolve.js'
 import { testableConst } from '../shared/testable.js'
 
 /** 第五轮：非 UTF-8（GBK 等）文件的元数据写回统一拒绝——utf-8 读入产生 U+FFFD 替换
@@ -75,3 +81,39 @@ export const SAVE_LOCK_TIMEOUT_MS = 5_000
  *  B4：原 __setSaveLockTimeoutForTest 钩子全库零调用方，2026-09-14 修复批删）。
  *  本批注：钩子删后本值再无改写通道（恒等常量），随 eslint prefer-const 降 const。 */
 export const saveLockTimeoutMs = SAVE_LOCK_TIMEOUT_MS
+
+// ── 0917清库修复批（件1）：rename 微任务残窗——书注册落盘前重验（二道防线）────────
+// 登记原文「rename 微任务残窗：单元首行重验后微任务窗残留（files.ts R70-6 架构同源，
+// 彻底闭合 = 重验下沉 DocumentService.executeSave）」。单元首行书注册重验
+//（R1010b-SRV-P2-1 面 A，studio 层 book-context.ts bookMovedFailure 单源）通过到
+// executeSave 落盘之间隔着排队/保存锁/清单锁等多个让出点，窗内书被改名/删书（books.ts
+// 五连 drain 快照式，重验后新进单元不被等待）时，appendPending/atomicWriteFile 的
+// mkdir recursive 会对旧捕获 bookRoot 重建孤儿目录树；且清单随书搬走后 lookupPathByDocId
+// 按「未登记」放行新建语义，既有 strict 读防线被旁路——正是本守卫的缺口面。
+
+/** 书注册重验失败人话文案单源——与 studio 层 book-context.ts bookMovedFailure 的
+ *  reason 逐字同文（该侧经 409 BOOK_MOVED 信封出，本侧经 SaveResult.code='BOOK_MOVED'
+ *  出、structStatus 既有 409 档映射，两端信封逐字节一致）。文案正本落本常量，studio
+ *  侧消费随其触达批改引（本批 src/studio/ 冻结不动）。 */
+export const BOOK_MOVED_REASON = '书已改名或已删除，本次操作已取消——请重新打开本书后再试'
+
+/** 0917清库修复批（件1）：落盘前书注册复核——books.jsonl 登记中仍存在解析到 bookRoot
+ *  的条目 → null（放行）；否则返回 BOOK_MOVED_REASON（调用方拒绝落盘）。判定口径与
+ *  bookMovedFailure 同族（登记解析 ⟂ 捕获书根：登记缺条目 = 该侧 NOT_FOUND 臂），差异
+ *  仅在取用形态：本函数只有 bookRoot 可用（DocumentService 不持 workDir/书名），经
+ *  findWorkDir 上溯定位登记。放行档（读路径容错口径，首行重验仍是主防线，本守卫只
+ *  收窄残窗不改其语义）：无登记语境（.clwriting/books.jsonl 不在盘——测试夹具/裸目录）
+ *  与登记读失败（readBooksStrict null——对齐 readBooks 读降级，不因登记瞬态读失败阻断
+ *  保存）；登记文件在盘但无匹配条目（含空表 = 末书已删/改签完成态）照 BOOK_MOVED 拒。 */
+export function bookMovedGuardFailure(bookRoot: string): string | null {
+  const workDir = findWorkDir(bookRoot)
+  if (workDir === null) return null
+  // books.jsonl 字面量与 install/books.ts BOOKS_FILE（模块私有）同源；此处只判「登记
+  // 语境在不在盘」，不动读（读全走 readBooksStrict 单源）。
+  const registered = existsSync(join(workDir, CLWRITING_DIR, 'books.jsonl'))
+  const books = readBooksStrict(workDir)
+  if (books === null) return null
+  if (books.length === 0 && !registered) return null
+  const rootAbs = resolve(bookRoot)
+  return books.some((b) => resolve(join(workDir, b.path)) === rootAbs) ? null : BOOK_MOVED_REASON
+}

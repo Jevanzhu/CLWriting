@@ -3,8 +3,12 @@
  *
  * 拆分来源：test/ai/chat.test.ts（原「W2 对话助手 agent 编排器测试」，原头注沿革
  * 见残核 chat.test.ts）——本件承接「轮数触顶」describe 域整块搬移零改动（连吐
- * tool 第 5 轮停补收尾文案 / CC-P2-1 触顶收尾 turn 终态 / CC-P2-2 deadline 到点
+ * tool 触顶停补收尾文案 / CC-P2-1 触顶收尾 turn 终态 / CC-P2-2 deadline 到点
  * 在确认闸等待期强制中止并回滚历史）。
+ *
+ * 0917清库修复批（2026-09-17）：MAX_AGENT_TURNS 5→20（原值过低，长任务链半途而废；
+ * 护栏不靠轮数——deadline 闸、确认闸、budget.chat_max_calls 预算闸三道独立在位），
+ * 触顶用例脚本 6→21 连吐、终态序 0..4+5 → 0..19+20 同步改写。
  */
 import { rmSync } from 'node:fs'
 import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it } from 'vitest'
@@ -50,16 +54,11 @@ function setup(): string {
 // ─── 轮数触顶 ────────────────────────────────────
 
 describe('W2: 轮数触顶', () => {
-  it('连吐 6 个 tool → 第 5 轮后停，补收尾文案', async () => {
-    // 6 个 tool 响应（超出 MAX_AGENT_TURNS=5）
-    fake.setScript([
-      { type: 'tool', name: 'check_chapter', input: { chapter: 1 } },
-      { type: 'tool', name: 'check_chapter', input: { chapter: 2 } },
-      { type: 'tool', name: 'check_chapter', input: { chapter: 3 } },
-      { type: 'tool', name: 'check_chapter', input: { chapter: 4 } },
-      { type: 'tool', name: 'check_chapter', input: { chapter: 5 } },
-      { type: 'tool', name: 'check_chapter', input: { chapter: 6 } },
-    ])
+  it('连吐 21 个 tool → 第 20 轮后停，补收尾文案', async () => {
+    // 21 个 tool 响应（超出 MAX_AGENT_TURNS=20）
+    fake.setScript(
+      Array.from({ length: 21 }, (_, i) => ({ type: 'tool' as const, name: 'check_chapter', input: { chapter: i + 1 } })),
+    )
     const events: DriverEvent[] = []
     const driver = makeFakeDriver({ emitted: events })
     const ud = setup()
@@ -76,19 +75,14 @@ describe('W2: 轮数触顶', () => {
     // 触顶文案
     expect(chatTexts(events).join('')).toContain('工具调用上限')
     expect(hasChatDone(events)).toBe(true)
-    // 不超过 5 轮请求
-    expect(fake.requestCount()).toBeLessThanOrEqual(5)
+    // 不超过 20 轮请求
+    expect(fake.requestCount()).toBeLessThanOrEqual(20)
   })
 
-  it('CC-P2-1: 触顶收尾记 turn 5 终态——最后一轮（turn 4）不再被重复收尾', async () => {
-    fake.setScript([
-      { type: 'tool', name: 'check_chapter', input: { chapter: 1 } },
-      { type: 'tool', name: 'check_chapter', input: { chapter: 2 } },
-      { type: 'tool', name: 'check_chapter', input: { chapter: 3 } },
-      { type: 'tool', name: 'check_chapter', input: { chapter: 4 } },
-      { type: 'tool', name: 'check_chapter', input: { chapter: 5 } },
-      { type: 'tool', name: 'check_chapter', input: { chapter: 6 } },
-    ])
+  it('CC-P2-1: 触顶收尾记 turn 20 终态——最后一轮（turn 19）不再被重复收尾', async () => {
+    fake.setScript(
+      Array.from({ length: 21 }, (_, i) => ({ type: 'tool' as const, name: 'check_chapter', input: { chapter: i + 1 } })),
+    )
     const events: DriverEvent[] = []
     const driver = makeFakeDriver({ emitted: events })
     const ud = setup()
@@ -108,14 +102,10 @@ describe('W2: 轮数触顶', () => {
     const turnEnds = evs
       .filter((e) => e.type === 'turn/end')
       .map((e) => ({ turn: e.turn ?? -1, reason: (e.data as { reason: string }).reason }))
-    // 5 轮各一个 completed 终态 + 触顶收尾一个 turn 5 max-turns——同轮双终态消除
+    // 20 轮各一个 completed 终态 + 触顶收尾一个 turn 20 max-turns——同轮双终态消除
     expect(turnEnds).toEqual([
-      { turn: 0, reason: 'completed' },
-      { turn: 1, reason: 'completed' },
-      { turn: 2, reason: 'completed' },
-      { turn: 3, reason: 'completed' },
-      { turn: 4, reason: 'completed' },
-      { turn: 5, reason: 'max-turns' },
+      ...Array.from({ length: 20 }, (_, i) => ({ turn: i, reason: 'completed' })),
+      { turn: 20, reason: 'max-turns' },
     ])
   })
 

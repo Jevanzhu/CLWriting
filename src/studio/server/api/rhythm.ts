@@ -19,6 +19,7 @@ import { readChapterDir } from '../../../format/chapters.js'
 import type { HookType, HookLevel, Emotion, SceneType, ChapterMeta, BookConfig } from '../../../format/types.js'
 import { classifyReversal } from '../../../format/reversal-types.js'
 import { log } from '../../../log/index.js'
+import { testableConst } from '../../../shared/testable.js'
 
 interface RhythmCtx {
   workDir: string | null
@@ -40,11 +41,9 @@ const SCENE_TYPES: readonly SceneType[] = ['战斗', '对话', '抒情', '叙事
 // 计算是同步单段（无在途并发窗口），缓存壳取 getVersionStatsCached 同款同步形态。
 const RHYTHM_CACHE_TTL_MS = 5000
 const RHYTHM_CACHE_MAX = 32
-let rhythmTtlMs: number | null = null
-/** R44-8：TTL 测试注入口（先例同 __setSearchCacheTtlForTest）。仅测试用。 */
-export function __setRhythmCacheTtlForTest(ms: number | null): void {
-  rhythmTtlMs = ms
-}
+/** R44-8：TTL 测试注入口（先例同 __setSearchCacheTtlForTest）。仅测试用。
+ *  三件套换装 testableConst 工厂（TTL 覆盖档，null = 无覆盖、消费点回退常量；setter 元组第二位原名原签名，测试面零感知）。 */
+export const [getRhythmTtlMs, __setRhythmCacheTtlForTest] = testableConst<number | null>(null)
 /** R44-8：删书/改名失效挂点（books.ts forgetBookKeyedCaches 家族同款）。 */
 export function forgetRhythmCache(bookRoot: string): void {
   rhythmCache.forget(bookRoot)
@@ -68,7 +67,7 @@ const rhythmCache = createTtlProbeCache<string, unknown>({
   name: 'rhythm',
   keyOf: (k) => k,
   max: RHYTHM_CACHE_MAX,
-  ttl: () => rhythmTtlMs ?? RHYTHM_CACHE_TTL_MS,
+  ttl: () => getRhythmTtlMs() ?? RHYTHM_CACHE_TTL_MS,
   probe: rhythmSignature,
   computeSync: rhythmCompute,
   computeAsync: rhythmComputeAsync,

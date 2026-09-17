@@ -35,16 +35,15 @@ import { listModels } from '../../../ai/provider/models.js'
 import { probeCapabilities as realProbeCapabilities } from '../../../ai/provider/probe.js'
 import { redactSecret } from '../../../ai/provider/redact.js' // P2-4：API 错误脱敏
 import { log, errMsg } from '../../../log/index.js'
+import { testableConst } from '../../../shared/testable.js'
 
 // R75-D-P3c（批 D）：探测函数替换口（默认真探测）——回归测试注入受控延迟/结果的
 // 探测函数，复现「探测 10s+ 窗口内配置被改」竞态（mock driver 的快路探测瞬时完成，
 // 无法天然开出竞态窗）。仅测试用，勿在生产路径调用。
 // R42-24（四十二轮）：签名补第二参 userDataPath（探测目标库）——真探测透传给探测
 // 实例做降级记忆路由；注入函数少参可赋（TS 逆变兼容，存量 mock 不受影响）
-let __probeForTest: ((conf: ProviderConf, userDataPath?: string | null) => Promise<ProbeResult>) | null = null
-export function __setProbeCapabilitiesForTest(fn: ((conf: ProviderConf, userDataPath?: string | null) => Promise<ProbeResult>) | null): void {
-  __probeForTest = fn
-}
+/** 三件套换装 testableConst 工厂（探测函数覆盖档，null = 走真探测；setter 元组第二位原名原签名，测试面零感知）。 */
+export const [getProbeForTest, __setProbeCapabilitiesForTest] = testableConst<((conf: ProviderConf, userDataPath?: string | null) => Promise<ProbeResult>) | null>(null)
 
 interface ProvidersCtx {
   userDataPath: string | null
@@ -462,7 +461,7 @@ export function registerProvidersRoutes(ctx: ProvidersCtx): void {
       // 的 caps 校验随之形同虚设）。指纹取 caps 有效性相关四字段（与 PUT 的 fieldsChanged
       // 同源；name/models 改动不影响服务级 caps，不误伤）。
       const probeFp = probeFingerprint(conf)
-      const probe = __probeForTest ?? realProbeCapabilities
+      const probe = getProbeForTest() ?? realProbeCapabilities
       // R42-24（四十二轮）：透传探测目标库 userDataPath——探测实例降级记忆落目标库
       // providers.json，不再回落「活跃库」（双库时写错库）
       const { caps, details } = await probe({ ...conf, model: probeModel }, ctx.userDataPath)
