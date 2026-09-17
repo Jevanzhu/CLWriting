@@ -104,7 +104,10 @@ describe('F2: 标题编辑期间 content 变化不回写 titleModel', () => {
 
     doc.patch('d1', '---\n标题: 更新的标题\n---\n\n正文')
     await flushPromises()
-    await vi.waitFor(() => expect(w.find('.page-title').text()).toBe('更新的标题')) // 守卫已解除，回写恢复 // R46-5（四十六轮）契约演进：标题 fm 解析 150ms 防抖，回写断言改 waitFor
+    // R46-5（四十六轮）契约演进：标题 fm 解析 150ms 防抖，回写断言改 waitFor——
+    // 2026-09-17 CI 复验批显式放宽到 5s（默认 1s 在 CI win 慢机上不够防抖+宏任务链走完，
+    // 实测红在 107 行）；waitFor 轮询语义不变，只是更慢时才放弃
+    await vi.waitFor(() => expect(w.find('.page-title').text()).toBe('更新的标题'), { timeout: 5000 }) // 守卫已解除，回写恢复
     w.unmount()
   })
 

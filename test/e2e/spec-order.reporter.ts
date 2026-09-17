@@ -59,6 +59,21 @@ export function specOrderDriftLines(actual: string[], baseline: string[]): strin
 }
 
 /**
+ * 定向跑判定（2026-09-17 CI 复验批补丁）：argv 带 spec 路径/裸词/grep 过滤词时本轮
+ * 只跑子集，计划序天然是快照真子集——顺序契约只对全量轮可判。CI 的 test:e2e:release
+ * 定向跑 release-smoke 单 spec，探针首跑（2026-09-16 main CI，快照 33 vs 计划 1）被
+ * 误伤整轮改判失败；本地 `playwright test <spec>` 定向调试同款。命令字（'test'）是
+ * argv 首个位置参数、不算过滤；旗标值裸词形态（--reporter dot）会误判成定向——本仓
+ * reporter 经 config 内联挂载、CLI 不传旗标值，该形态不涉，且误判方向是跳过比对，
+ * 全量轮（CI test:e2e / 本地 npm run test:e2e）零过滤词恒比对，fail-closed 不破。
+ */
+export function isTargetedRunArgv(argv: string[]): boolean {
+  const rest = argv.slice(2)
+  const tokens = rest[0] === 'test' ? rest.slice(1) : rest
+  return tokens.some((a) => a === '-g' || a === '--grep' || a.startsWith('--grep=') || !a.startsWith('-'))
+}
+
+/**
  * 动机：vitest 侧守卫（spec-order.guard.test.ts）用 localeCompare 镜像 Playwright
  * 内部收集序，镜像假设此前无任何运行期验证——Playwright 升级改排序实现即静默分叉，
  * 守卫照绿而真实执行序已变。本 reporter 在每轮真实 e2e 里拿 Playwright 自排的计划
@@ -74,6 +89,20 @@ export default class SpecOrderReporter implements ReporterLike {
   }
 
   onEnd(): { status: 'failed' } | void {
+    return this.finish(process.argv)
+  }
+
+  /** @internal 比对内核（vitest 侧直测传定值 argv——runner 的 argv 命令字随调用方漂移
+   *  （playwright 是 'test'、vitest 是 'run'），直测不得经 process.argv 免误判定向） */
+  finish(argv: string[]): { status: 'failed' } | void {
+    if (isTargetedRunArgv(argv)) {
+      // 定向跑：计划序是快照真子集，顺序比对无意义——磁盘名单 ↔ 快照的漂移仍由
+      // vitest 侧守卫（check:counts 的 R66-37 静态门）兜住，此处只留痕跳过
+      console.log(
+        '[spec-order-reporter] 定向跑（argv 含过滤词）——计划序为快照子集，跳过顺序比对（全量轮才比对；R0911-G-P3-3 定向豁免）',
+      )
+      return
+    }
     let baseline: string[] | null = null
     try {
       baseline = readFileSync(SNAPSHOT_PATH, 'utf8')

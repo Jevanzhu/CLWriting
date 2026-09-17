@@ -105,19 +105,28 @@ async function assertExit(
 
 describe('hh §八-16 出口走查：finishTurn 单一出口', () => {
   it('④ timeout：deadline 在 generate 在途时触发 → aborted 终态 + 超时文案 + 遮蔽 + 回滚', { timeout: 10_000 }, async () => {
-    fake.setScript([{ type: 'text', content: '慢响应', delayMs: 800 }])
+    // 2026-09-17 CI 复验批裕量放宽（原 40ms/800ms）：deadline 必须在 generate 起跑之后
+    // 在途时触发——慢机（CI win runner 全套 24 分钟）上 40ms 可能在 generate 起跑前
+    // 到期走错出口；1s/5s 保持同一形态（deadline ≪ 响应延迟），文案换算 Math.round
+    // (1000/60000)=0 分钟不变，断言语义零漂移
+    fake.setScript([{ type: 'text', content: '慢响应', delayMs: 5000 }])
     const ud = setup()
     await assertExit(
       'exit-timeout-gen',
       ud,
-      // R1010b-AI-P3-3：文案按实际生效 deadline 换算（本测注入 deadlineMs: 40 → 0 分钟）
+      // R1010b-AI-P3-3：文案按实际生效 deadline 换算（本测注入 deadlineMs: 1000 → 0 分钟）
       (msg) => expect(msg).toBe('对话超时（超过 0 分钟），已停止'),
       'aborted',
-      { deadlineMs: 40 },
+      { deadlineMs: 1000 },
     )
   })
 
   it('① timeout：deadline 在确认闸等待期间触发（轮首中止 + timedOut）→ 同 timeout 口径', { timeout: 10_000 }, async () => {
+    // 2026-09-17 CI 复验批裕量放宽（原 deadlineMs: 120）：deadline 必须在工具调用挂上
+    // 确认闸**之后**触发，工具才有 tool/result 可归因「确认超时」——CI win runner 上
+    // 120ms 在确认闸挂起前到期 → 轮首中止时工具未执行、tool/result 缺失（实测
+    // undefined 红）。2s ≪ confirmTimeoutMs 8000 维持「deadline 先赢」形态，慢机到达
+    // 确认闸的实测裕量 ~4×；文案换算 Math.round(2000/60000)=0 分钟不变
     fake.setScript([{ type: 'tool', name: 'move_chapter', input: { chapter: 1, to: 2 } }])
     const ud = setup()
     const events: DriverEvent[] = []
@@ -129,10 +138,10 @@ describe('hh §八-16 出口走查：finishTurn 单一出口', () => {
       bookName: 'exit-timeout-confirm',
       message: '出口走查',
       confirmTimeoutMs: 8000,
-      deadlineMs: 120,
+      deadlineMs: 2000,
     })
     const err = events.find((e) => e.type === 'chat_error') as { error: string } | undefined
-    // R1010b-AI-P3-3：文案按实际生效 deadline 换算（本测注入 deadlineMs: 120 → 0 分钟）
+    // R1010b-AI-P3-3：文案按实际生效 deadline 换算（本测注入 deadlineMs: 2000 → 0 分钟）
     expect(err?.error).toBe('对话超时（超过 0 分钟），已停止')
     const store = openSessionStore(ud, bookRoot)!
     try {

@@ -12,6 +12,7 @@ import { mkdirSync, rmSync, writeFileSync, existsSync, utimesSync } from 'node:f
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
+import { deadPid } from '../helpers/dead-pid.js'
 import { detectState, __resetSweepThrottleForTest } from '../../src/state/state.js'
 import { writeBookConfig, DEFAULT_CONFIG } from '../../src/format/yaml.js'
 import type { BookConfig } from '../../src/format/types.js'
@@ -49,11 +50,15 @@ function plantStaleTmp(name: string): string {
 }
 
 test('R43-2: TTL 窗内第二次 detectState 不再全树扫——过期 tmp 保留；reset 后第三次被清', async () => {
-  const tmp1 = plantStaleTmp('.stale-a.md.123.aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.tmp')
+  // pid 段用 deadPid()：清扫器（R65-37）对 pid 段仍存活的 tmp 按他进程在途写拒清，
+  // 原硬编码 123 在 GitHub macOS runner 上撞活进程 → 首扫断言 CI 必红而本机恒绿
+  // （2026-09-17 CI 复验批；atomic-sweep R65-37 同家族先例）
+  const pid = deadPid()
+  const tmp1 = plantStaleTmp(`.stale-a.md.${pid}.aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.tmp`)
   await detectState(root, SHORT_CONFIG)
   expect(existsSync(tmp1)).toBe(false) // 首扫（节流表空）清扫
 
-  const tmp2 = plantStaleTmp('.stale-b.md.123.aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.tmp')
+  const tmp2 = plantStaleTmp(`.stale-b.md.${pid}.aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.tmp`)
   await detectState(root, SHORT_CONFIG)
   expect(existsSync(tmp2)).toBe(true) // 节流窗内：不再扫，tmp 保留
 

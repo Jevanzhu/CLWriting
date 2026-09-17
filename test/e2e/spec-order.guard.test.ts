@@ -31,7 +31,11 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
 // R0911-G-P3-3：运行期探针 reporter 的纯函数直测（reporter 模块零 playwright 运行时
 // 依赖——类型自持，vitest 侧可直 import；onBegin/onEnd 只在真实 e2e 由 config 挂载跑）
-import SpecOrderReporter, { plannedSpecOrderFromSuite, specOrderDriftLines } from './spec-order.reporter.js'
+import SpecOrderReporter, {
+  isTargetedRunArgv,
+  plannedSpecOrderFromSuite,
+  specOrderDriftLines,
+} from './spec-order.reporter.js'
 
 const e2eDir = dirname(fileURLToPath(import.meta.url))
 const SNAPSHOT_PATH = join(e2eDir, 'spec-order.snapshot.txt')
@@ -253,7 +257,10 @@ describe('R0911-G-P3-3：spec-order reporter 门行为（防回退成抛错/单�
       if (snapshot === null) return
       const r = new SpecOrderReporter()
       r.onBegin({ workers: 1 }, { allTests: () => mkTests(snapshot) })
-      expect(r.onEnd()).toBeUndefined()
+      // 2026-09-17 CI 复验批：onEnd 改经 finish(process.argv)，直测须传全量轮 argv
+      // （'test' 命令字 + 零过滤词）——vitest 自身 argv 是 'run' 命令字形态，会被
+      // isTargetedRunArgv 误判定向，不再能裸调 onEnd()
+      expect(r.finish(['/node', '/playwright', 'test'])).toBeUndefined()
     },
   )
 
@@ -269,11 +276,39 @@ describe('R0911-G-P3-3：spec-order reporter 门行为（防回退成抛错/单�
           base.length > 1 ? [...base.slice(1), base[0]!] : [...base, 'zz-extra-drift.spec.ts']
         const r = new SpecOrderReporter()
         r.onBegin({}, { allTests: () => mkTests(drifted) })
-        expect(r.onEnd()).toEqual({ status: 'failed' })
+        // 同上：全量轮 argv 直入 finish（漂移臂在定向豁免之后，豁免不得吞真漂移）
+        expect(r.finish(['/node', '/playwright', 'test'])).toEqual({ status: 'failed' })
         expect(errSpy).toHaveBeenCalled()
       } finally {
         errSpy.mockRestore()
       }
     },
   )
+
+  // ── 2026-09-17 CI 复验批：定向跑豁免直测（CI test:e2e:release 定向单 spec 首跑被
+  // 探针误伤红——快照 33 vs 计划 1 必失配；豁免只认 argv 过滤词，全量轮 fail-closed）──
+  it('isTargetedRunArgv：spec 路径/裸词/-g/--grep= → true；命令字与旗标不算过滤词', () => {
+    expect(isTargetedRunArgv(['/n', '/pwt', 'test', 'test/e2e/release-smoke.spec.ts'])).toBe(true)
+    expect(isTargetedRunArgv(['/n', '/pwt', 'test', 'a.spec.ts', 'b.spec.ts'])).toBe(true)
+    expect(isTargetedRunArgv(['/n', '/pwt', 'test', '-g', '冒烟'])).toBe(true)
+    expect(isTargetedRunArgv(['/n', '/pwt', 'test', '--grep=smoke'])).toBe(true)
+    expect(isTargetedRunArgv(['/n', '/pwt', 'test'])).toBe(false)
+    expect(isTargetedRunArgv(['/n', '/pwt', 'test', '--headed', '--reporter=list'])).toBe(false)
+    expect(isTargetedRunArgv(['/n', '/pwt'])).toBe(false)
+  })
+
+  it('finish 定向 argv → 不判失败（undefined）且 console.log 留痕跳过——豁免不得吞比对内核的漂移红（上一用例钉）', () => {
+    const r = new SpecOrderReporter()
+    r.onBegin({}, { allTests: () => mkTests(['only-one.spec.ts']) })
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    try {
+      expect(
+        r.finish(['/n', '/pwt', 'test', 'test/e2e/release-smoke.spec.ts']),
+      ).toBeUndefined()
+      expect(logSpy).toHaveBeenCalledTimes(1)
+      expect(logSpy.mock.calls[0]![0]).toContain('跳过顺序比对')
+    } finally {
+      logSpy.mockRestore()
+    }
+  })
 })

@@ -12,19 +12,15 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { rmSync, mkdirSync, writeFileSync, utimesSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { spawn, spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { sweepAbandonedTmpFiles } from '../../src/fs/atomic.js'
 import { extractEvidenceCore, evidenceNeedles } from '../../src/check/leads.js'
 import { leadEvidenceMatchesBody } from '../../src/check/lead-updates.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
-/** R65-37：确定性死 pid——起一个立即退出的子进程取其 pid（原先硬编码 12345 在
- *  pid 恰被占用的机器上会被存活探测判「在途」导致用例随机红）。 */
-function deadPid(): number {
-  const r = spawnSync(process.execPath, ['-e', 'process.exit(0)'])
-  const pid = r.pid ?? 0
-  return pid > 0 ? pid : 999_999 // spawn 失败兜底：极高位 pid 几乎必死
-}
+// R65-37 死 pid 夹具 2026-09-17 CI 复验批抽 test/helpers/dead-pid.ts 单源（r43 夹具
+// 硬编码 123 在 GitHub macOS runner 撞活进程致 CI 必红——同家族第二消费点）
+import { deadPid } from '../helpers/dead-pid.js'
 
 /** R46-48：确定性**他进程活 pid**——起一个存活的子进程取其 pid。R65-37 的「pid 存活
  *  永不清」保护面是**他进程**在途写；此前用 process.pid 冒充「存活 pid」，R46-48 起
