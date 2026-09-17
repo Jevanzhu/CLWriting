@@ -653,11 +653,28 @@ function applyCall(rec: CallRecord, usage: TokenUsage | null, costUsd?: number):
  *
  * cost 口径不设：tasks 块历史不累计金额（cost 仅 chapter 块记），无现成机制可复用，
  * 按「不强造」口径本闸只做次数上限。
+ *
+ * R0917-6-P3-5（2026-09-17 全库源码重评六轮修复批）：文案参数化——本闸签名通用（任意
+ * task），但两条 reason 原写死「chat 调用上限 / 本书对话 / 降低对话/压缩频率 /
+ * budget.chat_max_calls」；当前唯一调用方（runner.ts:510）恒传 'chat' 故无实害，第二类
+ * 任务复用本闸时文案会指错配置键、误导作者去改无关的 book.yaml 项。
+ * 三个文案参均带**缺省值**，缺省调用输出字符串与原实现逐字节相同（免动调用点、免动既有
+ * 测试钉值）：
+ *  - `taskLabel`（'chat'）——句首任务名（「chat 调用上限为 …」）；
+ *  - `taskNoun`（'对话'）——中文名词位（「如需恢复对话」「本书对话已调用」）；
+ *  - `rateHint`（'对话/压缩'）——末句降频提示位（「或降低对话/压缩频率」）。
+ *  批内自纠如实记：初版只加 taskLabel/configKey 两参且直接改写句尾（「或降低调用频率」），
+ *  缺省输出与原文不逐字节相同（漏空格 + 句尾改字）——缺省契约是「零行为变化」，故补第三参
+ *  并把措辞回退到原文，回归用例钉死两条缺省 reason 的完整字符串。
  */
 export function checkAiTaskCallBudget(
   bookRoot: string,
   task: string,
   limit: number | undefined,
+  taskLabel = 'chat',
+  configKey = 'budget.chat_max_calls',
+  taskNoun = '对话',
+  rateHint = '对话/压缩',
 ): { ok: true; used: number } | { ok: false; used: number; reason: string } {
   if (limit === undefined) return { ok: true, used: 0 }
   const { rec, corrupt } = readRecord(bookRoot)
@@ -673,14 +690,14 @@ export function checkAiTaskCallBudget(
     return {
       ok: false,
       used,
-      reason: `chat 调用上限为 ${limit}（budget.chat_max_calls），按「一次都不许调」拦截。如需恢复对话请把 book.yaml 的 budget.chat_max_calls 调回正数`,
+      reason: `${taskLabel} 调用上限为 ${limit}（${configKey}），按「一次都不许调」拦截。如需恢复${taskNoun}请把 book.yaml 的 ${configKey} 调回正数`,
     }
   }
   if (used >= limit) {
     return {
       ok: false,
       used,
-      reason: `本书对话已调用 ${used} 次（上限 ${limit}，budget.chat_max_calls）。可临时提高 book.yaml 的 budget.chat_max_calls，或降低对话/压缩频率`,
+      reason: `本书${taskNoun}已调用 ${used} 次（上限 ${limit}，${configKey}）。可临时提高 book.yaml 的 ${configKey}，或降低${rateHint}频率`,
     }
   }
   return { ok: true, used }

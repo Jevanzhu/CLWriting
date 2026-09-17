@@ -11,7 +11,7 @@
  * status → code 的决策表在 failure.ts（httpStatusToCode / headerErrorFields），
  * 本模块是适配器侧的组合层，不重复决策逻辑。
  */
-import type { GenEvent, GenRequest, ProviderConf } from './types.js'
+import type { GenEvent, GenRequest, ProviderConf, TokenUsage } from './types.js'
 import type { ProviderStore } from './store.js'
 import { persistDegraded, lookupDegraded } from './store.js'
 import { redactSecret } from './redact.js'
@@ -40,6 +40,14 @@ type SdkErrorCtor = abstract new (...args: never[]) => SdkApiError
  * 五分支次序不可调换：APIUserAbortError / APIConnectionError 都是 APIError 的子类
  * （status undefined），必须在通用 APIError 分支前判定，否则用户中断被误报
  * 「<label> undefined: Request was aborted」、连接失败被归 UNKNOWN。
+ *
+ * R0917-6-P3-4（2026-09-17 全库源码重评六轮修复批）：第二参 usage 可选透传——此前
+ * B-12/R31-1「usage 随错上抛」只覆盖适配器**主动 yield** 的 error 事件（截断/refusal/
+ * content_filter 均带），流消费中 SDK 直接 throw（如 mid-stream 连接重置）走本工厂时
+ * 无载荷通道：message_start 已实测的 input/cache、latestUsage 闭包值全部丢弃，runner
+ * 终态失败路径按 0 入账（真实消耗漏记）。三适配器 catch 分支现把「异常时点可得的最小
+ * 估计」折算后传入；字段形态与既有截断 error 事件逐字段一致（estimated 标记估计口径），
+ * runner 的入账逻辑零改动。缺省 undefined 时输出与改前逐字节一致。
  */
 export function makeToErrorEvent(ctors: {
   APIError: SdkErrorCtor
@@ -47,10 +55,13 @@ export function makeToErrorEvent(ctors: {
   APIConnectionError: SdkErrorCtor
   /** 错误 message 前缀（'Anthropic API' / 'OpenAI API'），保持各线原有文案 */
   label: string
-}): (e: unknown) => GenEvent {
+}): (e: unknown, usage?: TokenUsage) => GenEvent {
   const { APIError, APIUserAbortError, APIConnectionError, label } = ctors
-  return (e: unknown): GenEvent => {
+  return (e: unknown, usage?: TokenUsage): GenEvent => {
+    // 事件内已有 code/message 决策，usage 只做加性载荷（有值才挂，缺省键不出现）
+    const withUsage = <T extends GenEvent>(ev: T): T => (usage ? ({ ...ev, usage } as T) : ev)
     if (e instanceof APIUserAbortError) {
+      // 中断不挂 usage：入账口径按「已中断」处理（与既有截断/refusal 上抛面不同族）
       return { type: 'error', message: '已中断', retryable: false, code: 'ABORTED' }
     }
     // 连接层失败（含 APIConnectionTimeoutError）单列——status undefined 的 APIError（A5）
@@ -58,11 +69,11 @@ export function makeToErrorEvent(ctors: {
     // 此前 false 全靠 code 决策表兜住实际重试，若落到布尔兜底分支（mode:'always'）
     // 连接类错误的可重试性会静默翻转
     if (e instanceof APIConnectionError) {
-      return { type: 'error', message: redactSecret(e.message), retryable: true, code: 'NETWORK' }
+      return withUsage({ type: 'error', message: redactSecret(e.message), retryable: true, code: 'NETWORK' })
     }
     if (e instanceof APIError) {
       const retryable = e.status === 429 || (e.status ?? 0) >= 500
-      return {
+      return withUsage({
         type: 'error',
         message: redactSecret(`${label} ${e.status}: ${e.message}`),
         retryable,
@@ -70,14 +81,14 @@ export function makeToErrorEvent(ctors: {
         ...(e.status !== undefined ? { status: e.status } : {}),
         ...headerErrorFields(e.headers),
         ...(e.requestID ? { requestId: e.requestID } : {}),
-      }
+      })
     }
     // SDK 外层抛的 DOM AbortError（signal 触发时 fetch 侧的形态，非 SDK 包装）
     if (e instanceof Error && e.name === 'AbortError') {
       return { type: 'error', message: '已中断', retryable: false, code: 'ABORTED' }
     }
     const msg = errMsg(e)
-    return { type: 'error', message: redactSecret(msg), retryable: false, code: 'PROTOCOL' }
+    return withUsage({ type: 'error', message: redactSecret(msg), retryable: false, code: 'PROTOCOL' })
   }
 }
 

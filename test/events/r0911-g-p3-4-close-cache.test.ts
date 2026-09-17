@@ -11,11 +11,20 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const storeSrc = readFileSync(join(import.meta.dirname, '../../src/events/store.ts'), 'utf8')
+// R0917-6-P3-7（2026-09-17 全库源码重评六轮修复批）：断链序本体收编
+// shared/sqlite-prepared.ts 单源，本文件契约随之改为「单源本体断链序 + 本域薄封装
+// 确实委托单源且不裸关」两条——原三域各钉一份同构实现，改一处即三处测试同改。
+const sharedSrc = readFileSync(join(import.meta.dirname, '../../src/shared/sqlite-prepared.ts'), 'utf8')
 
 describe('R0911-G-P3-4: events prepared 缓存滞留——结构契约', () => {
-  it('closeEventsDb 本体：先 preparedByDb.delete 再 db.close（断链序不得倒置）', () => {
-    const m = /function closeEventsDb\(db: DatabaseSync\): void \{\s*preparedByDb\.delete\(db\)\s*db\.close\(\)\s*\}/.exec(storeSrc)
-    expect(m, 'closeEventsDb 必须先摘缓存再关库').not.toBeNull()
+  it('单源本体：先 preparedByDb.delete 再 db.close（断链序不得倒置）', () => {
+    const m = /export function closeWithPrepared\(db: DatabaseSync\): void \{\s*preparedByDb\.delete\(db\)\s*db\.close\(\)\s*\}/.exec(sharedSrc)
+    expect(m, 'closeWithPrepared 必须先摘缓存再关库').not.toBeNull()
+  })
+
+  it('closeEventsDb 委托单源且不裸关（本域不得自持断链序流通路）', () => {
+    const m = /function closeEventsDb\(db: DatabaseSync\): void \{\s*closeWithPrepared\(db\)\s*\}/.exec(storeSrc)
+    expect(m, 'closeEventsDb 必须委托 closeWithPrepared').not.toBeNull()
   })
 
   it('events/store.ts 事件库句柄不得裸 db.close()（注释提及不算；checkpoint 连接 cp 不入缓存不查）', () => {

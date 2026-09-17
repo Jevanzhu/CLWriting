@@ -25,10 +25,19 @@ import { openRagDb, closeRagDb } from '../../src/rag/store.js'
 const here = join(import.meta.dirname, '../../src')
 
 describe('R0911-G-P3-4: RAG prepared 缓存滞留——结构契约', () => {
-  it('closeRagDb 本体：先 preparedByDb.delete 再 db.close（断链序不得倒置）', () => {
+  // R0917-6-P3-7（2026-09-17 全库源码重评六轮修复批）：断链序本体收编
+  // shared/sqlite-prepared.ts 单源，本域契约随之改为「单源本体断链序 + 本域薄封装
+  // 确实委托单源」两条（三域同构三份测试的重复锚点合一的落点之一）。
+  it('单源本体：先 preparedByDb.delete 再 db.close（断链序不得倒置）', () => {
+    const src = readFileSync(join(here, 'shared/sqlite-prepared.ts'), 'utf8')
+    const m = /export function closeWithPrepared\(db: DatabaseSync\): void \{\s*preparedByDb\.delete\(db\)\s*db\.close\(\)\s*\}/.exec(src)
+    expect(m, 'closeWithPrepared 必须先摘缓存再关库').not.toBeNull()
+  })
+
+  it('closeRagDb 委托单源且不裸关（本域不得自持断链序流通路）', () => {
     const src = readFileSync(join(here, 'rag/store.ts'), 'utf8')
-    const m = /export function closeRagDb\(db: DatabaseSync\): void \{\s*preparedByDb\.delete\(db\)\s*db\.close\(\)\s*\}/.exec(src)
-    expect(m, 'closeRagDb 必须先摘缓存再关库').not.toBeNull()
+    const m = /export function closeRagDb\(db: DatabaseSync\): void \{\s*closeWithPrepared\(db\)\s*\}/.exec(src)
+    expect(m, 'closeRagDb 必须委托 closeWithPrepared').not.toBeNull()
   })
 
   it('rag/index.ts 不得出现裸 db.close()（RAG 句柄 close 一律 closeRagDb）', () => {

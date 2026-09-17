@@ -405,15 +405,35 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
       // （对话框链异常等）此前无接手即成 unhandledRejection；catch 记错误日志后走兜底
       // 'quit' 语义（本模块的 quit 缺省 = 不再自动重启，真退出由 main 侧执行，deps 无
       // quit 钩子可调——保持进程现状不重启即该语义的兜底形态）。
-      void Promise.resolve(deps.onRestartExhausted?.() ?? 'quit')
+      // R0917-6-nano（2026-09-17 全库源码重评六轮修复批）：缺省 'quit' 臂补显式 error
+      // 留痕——本模块 deps 无 quit 钩子可调（真退出由 main 侧执行），「quit 语义」的实际
+      // 形态 = 保持进程现状、不再自动重启；生产 main.ts 已接线 onRestartExhausted，此臂
+      // 只在接线缺失/异常时到场，届时进程停在「无 server、无提示」态。此前该降级态只由
+      // 上面那条「连续崩溃 3 次」日志间接指示，作者无从区分「正在重启」与「已放弃」。
+      // 现两条路径（无钩子 / 决断为 quit）各补一条终态 error，与决策表口径「API 永久不可用」
+      // 显式对齐（评审 P3-9 的取法：语义不变，只让降级态可感知）。
+      const quitFallback = (why: string): void => {
+        logger.error(
+          'server-manager',
+          `studio server 已放弃自动重启（${why}）：进程保持运行但本地 API 永久不可用，请重启应用。`,
+        )
+      }
+      if (!deps.onRestartExhausted) {
+        quitFallback('无崩溃封顶决断钩子')
+        return
+      }
+      void Promise.resolve(deps.onRestartExhausted())
         .then((choice) => {
           if (choice === 'restart') {
             restartCount = 0 // 人工重启计一次全新周期
             scheduleRestart()
+            return
           }
+          quitFallback('作者决断 quit')
         })
         .catch((e) => {
           logger.error('server-manager', '崩溃封顶决断回调失败，按兜底 quit 语义收口（不再自动重启）', e)
+          quitFallback('决断回调异常')
         })
       return
     }

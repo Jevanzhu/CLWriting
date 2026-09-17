@@ -224,6 +224,13 @@ export function createOpenAIResponsesProvider(
     async *stream(req: GenRequest, signal: AbortSignal): AsyncIterable<GenEvent> {
       let doneEmitted = false
       let degraded = false // Z-12：成功建流是否用了降级参数面（emitDone 闭包读）
+      // R0917-6-P3-4（2026-09-17 全库源码重评六轮修复批）：异常时点用量估计器——toolAccum /
+      // outText / outToolText / terminal 均声明在 attempt 循环内，外层 catch 取不到；由循环内
+      // 逐 attempt 绑定（每次 attempt 起始重置，防上一 attempt 的半截累计泄入）
+      let errorUsageOf: (() => TokenUsage) | undefined
+      // R0917-6-P3-4：流级「是否曾开始消费」——外层 catch 的 usage 上抛门（循环内同名
+      // per-attempt 变量每轮重置判降级续跑，本变量只置位不复位）
+      let streamConsumedAny = false
       // Q-13（第十五轮）：resolve 后终值随 done 透出（与 toParams 的 tokenCap 同链：
       // 调用方 cap → 模型行；无兜底不发 → undefined）
       const resolvedMaxTokens = req.maxTokens ?? modelConfOf(conf)?.maxTokens
@@ -309,6 +316,10 @@ export function createOpenAIResponsesProvider(
             // 网关偏差挂点（缺口 18）：响应侧缺字段时在此入口加 per-family normalize。
             let terminal: 'completed' | 'incomplete' | 'failed' | 'none' = 'none'
             let toolYielded = false
+            // R0917-6-P3-4（2026-09-17 全库源码重评六轮修复批）：本 attempt 的异常用量估计器
+            // 绑定（见流级声明处注释）——流中 SDK 直接 throw 时异常事件无 usage 载荷，走
+            // estimateDoneUsage 折算（与 :525 流中 error 事件分支同源口径，标 estimated）
+            errorUsageOf = () => estimateDoneUsage()
             // 重评-0912-2 P2-2（2026-09-12 全量重评修复批）：text 分支实际产出标记——
             // R35-18 伪流回填门与 R74-1 计费口径分家。此前两处共用 outText 判「已有正文
             // delta」，但 reasoning delta 也 push 进 outText（R74-1 计费面，保留不动），
@@ -319,6 +330,7 @@ export function createOpenAIResponsesProvider(
             let textYielded = false
             for await (const event of stream) {
               consumedAny = true
+              streamConsumedAny = true // R0917-6-P3-4：跨 attempt 置位不复位
               switch (event.type) {
                 case 'response.output_text.delta': {
                   if (event.delta) {
@@ -560,7 +572,10 @@ export function createOpenAIResponsesProvider(
         }
         throw lastErr ?? new Error('openai-responses stream: 无可用参数面')
       } catch (e) {
-        yield toErrorEvent(e)
+        // R0917-6-P3-4（2026-09-17 全库源码重评六轮修复批）：流中 SDK 直接 throw（mid-stream
+        // 连接重置等）此前恒裸传——消费中累计的产出随异常蒸发，runner 终态失败按 0 入账。
+        // 已消费过流才折算估计上抛（未消费 = 建连期异常无消耗不虚报；与 ii-1 同源判据）。
+        yield toErrorEvent(e, streamConsumedAny ? errorUsageOf?.() : undefined)
       }
     },
   }

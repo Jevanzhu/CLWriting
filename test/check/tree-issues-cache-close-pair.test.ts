@@ -20,10 +20,19 @@ import { ensureTreeIssuesTables } from '../../src/cache/schema.js'
 const here = join(import.meta.dirname, '../../src')
 
 describe('R0916-6-P3-5: tree-issues prepared 缓存配对 close——结构契约', () => {
-  it('closeTreeIssuesDb 本体：先 preparedByDb.delete 再 db.close（断链序不得倒置）', () => {
+  // R0917-6-P3-7（2026-09-17 全库源码重评六轮修复批）：断链序本体收编
+  // shared/sqlite-prepared.ts 单源，本域契约随之改为「单源本体断链序 + 本域薄封装
+  // 确实委托单源」两条（三域同构三份测试的重复锚点合一的落点之一）。
+  it('单源本体：先 preparedByDb.delete 再 db.close（断链序不得倒置）', () => {
+    const src = readFileSync(join(here, 'shared/sqlite-prepared.ts'), 'utf8')
+    const m = /export function closeWithPrepared\(db: DatabaseSync\): void \{\s*preparedByDb\.delete\(db\)\s*db\.close\(\)\s*\}/.exec(src)
+    expect(m, 'closeWithPrepared 必须先摘缓存再关库').not.toBeNull()
+  })
+
+  it('closeTreeIssuesDb 委托单源且不裸关（本域不得自持断链序流通路）', () => {
     const src = readFileSync(join(here, 'check/tree-issues-cache.ts'), 'utf8')
-    const m = /export function closeTreeIssuesDb\(db: DatabaseSync\): void \{\s*preparedByDb\.delete\(db\)\s*db\.close\(\)\s*\}/.exec(src)
-    expect(m, 'closeTreeIssuesDb 必须先摘缓存再关库').not.toBeNull()
+    const m = /export function closeTreeIssuesDb\(db: DatabaseSync\): void \{\s*closeWithPrepared\(db\)\s*\}/.exec(src)
+    expect(m, 'closeTreeIssuesDb 必须委托 closeWithPrepared').not.toBeNull()
   })
 
   it('除 closeTreeIssuesDb 本体外不得出现裸关库点（close 一律走配对 helper）', () => {

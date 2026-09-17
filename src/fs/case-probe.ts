@@ -11,12 +11,24 @@
  * 探测法：目标目录写一个小写探针文件，检查其大写形是否存在（不敏感卷 lookup 恒
  * 命中）。win 的按目录大小写敏感标记（fsutil file setcasesensitiveinfo）也被本探测
  * 正确覆盖——探测的就是目标目录本身。
+ * R0917-6-nano（2026-09-17 全库源码重评六轮修复批）：探针文件名改按 atomic 崩溃残留
+ * 命名模式生成（见 probePair），残留可被 sweepAbandonedTmpFiles 回收。
  */
 import { existsSync, rmSync, writeFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 
-const PROBE_LOWER = '.clw-case-probe.tmp'
-const PROBE_UPPER = '.CLW-CASE-PROBE.TMP'
+// R0917-6-nano（2026-09-17 全库源码重评六轮修复批）：探针文件名对齐崩溃残留清扫模式
+// （atomic.ts ABANDONED_TMP_RE = `.<name>.<pid>.<uuid>.tmp`）——原固定名 `.clw-case-probe.tmp`
+// 不匹配该模式（缺 pid/uuid 两段），进程恰在写探针与 finally 清理之间崩溃（硬杀/断电）
+// 时残留文件永不被 sweepAbandonedTmpFiles 扫掉，随每次「选书库»探测累积。现按同款命名
+// 生成：pid 段令 R65-37 的活进程守卫对该探针恒判「写者在途」（探测是毫秒级、清理在
+// finally，残留只在崩溃时出现——崩溃后 pid 已死，年龄门 5 分钟后即可清扫）。
+// 大写形 = 小写形整串大写（不敏感卷 lookup 命中同一文件，敏感卷首字符被改名区分）。
+function probePair(): { lower: string; upper: string } {
+  const lower = `.clw-case-probe.${process.pid}.${randomUUID()}.tmp`
+  return { lower, upper: lower.toUpperCase() }
+}
 
 /** 探测依赖（测试注入用；生产走 node:fs）。 */
 export interface CaseProbeDeps {
@@ -37,8 +49,9 @@ const NODE_DEPS: CaseProbeDeps = {
  *          按「不警告」fail-open 处理——探测本身不应挡住书库选择主流程）
  */
 export function probeCaseSensitive(dir: string, deps: CaseProbeDeps = NODE_DEPS): boolean | null {
-  const lower = join(dir, PROBE_LOWER)
-  const upper = join(dir, PROBE_UPPER)
+  const { lower: lowerName, upper: upperName } = probePair()
+  const lower = join(dir, lowerName)
+  const upper = join(dir, upperName)
   try {
     deps.writeFile(lower, 'probe')
     // 大写形可见 = 大小写不敏感（同一文件的两个名）；不可见 = 敏感

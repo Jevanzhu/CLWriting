@@ -26,7 +26,7 @@
  * store-rows/store-migrate，三新文件均不回引本模块，无环。本头注上方原文全部
  * 历史记载原样保留。
  */
-import { DatabaseSync, type StatementSync } from 'node:sqlite'
+import { DatabaseSync } from 'node:sqlite'
 import { mkdirSync, existsSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 // R0916-nano-9（四轮处置批）：ulid 改直连 fs/id.ts 单源（events→document 跨层边消除；
@@ -40,6 +40,7 @@ import { renameWithRetry, atomicWriteFile } from '../fs/atomic.js'
 import { safeRowToEvent, type Row, type SessionRow } from './store-rows.js'
 import { MIGRATED_EXT, sweepOpenMarkers, registerOpenMarker, touchOpenMarker, releaseOpenMarker } from './store-open-markers.js'
 import { bookHash, sessionMigrateLockPath, getSessionMigrateLockTimeoutMs, acquireMigrateLockPairAsync } from './store-migrate.js'
+import { prepared, closeWithPrepared } from '../shared/sqlite-prepared.js'
 
 // R0916-5g 桥：迁出缝的公开名逐名再导出（类型走 export type），消费方 import 面零改动
 export { bookHash, sessionMigrateLockPath, getSessionMigrateLockTimeoutMs, __setSessionMigrateLockTimeoutForTest } from './store-migrate.js'
@@ -117,28 +118,16 @@ export interface SessionStore {
 // 入缓存即滞留）。事件库是每会话一开的长连接（引用计数制），泄漏量级远小于 RAG
 //（每次召回两开两关的重灾区，另见 rag/store.ts closeRagDb），但根因同一——本文件
 // db 的 close 一律走下方 closeEventsDb（先 preparedByDb.delete 再 close，断链后实测归零）。
-const preparedByDb = new WeakMap<DatabaseSync, Map<string, StatementSync>>()
-
-/** R46-42：按 (db, sql) 取缓存的 prepared 语句；未见过则编译一次入缓存。 */
-function prepared(db: DatabaseSync, sql: string): StatementSync {
-  let bySql = preparedByDb.get(db)
-  if (bySql === undefined) {
-    bySql = new Map()
-    preparedByDb.set(db, bySql)
-  }
-  let stmt = bySql.get(sql)
-  if (stmt === undefined) {
-    stmt = db.prepare(sql)
-    bySql.set(sql, stmt)
-  }
-  return stmt
-}
-
+// R0917-6-P3-7（2026-09-17 全库源码重评六轮修复批）：prepared 缓存与配对关库收编
+// shared/sqlite-prepared.ts 单源——原三域各持一份逐字同构实现（R46-42 本文件 /
+// R46-45 rag / 重评-0914 nano R3-3 check），R0911-G-P3-4 族根因已需分头各修一遍；
+// 断链序与用法契约单点见单源文件头注。本文件 import 直用其 `prepared`（下方各调用点
+// 名不变），close 侧只留 closeEventsDb 薄封装——原件「先 delete 再 close」的断链序
+// 已移入单源，此处不再复述。
 /** R0911-G-P3-4：带缓存注销的关库——本文件事件库句柄的 close 统一出口（勿裸 db.close）。
- *  根因与量级见上方 R46-42 注释块修账记。 */
+ *  根因与量级见上方 R46-42 注释块修账记；断链序单点在 shared/sqlite-prepared.ts。 */
 function closeEventsDb(db: DatabaseSync): void {
-  preparedByDb.delete(db)
-  db.close()
+  closeWithPrepared(db)
 }
 
 /** 孤儿会话补 end 的宽限期：最后活动距今不足该值视为「可能仍在进行」，不补（RB-IF-P2-2）。

@@ -232,6 +232,34 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
       let latestUsage: TokenUsage | null = null // R27-2：流内逐 delta 覆盖，流末统一 emit（末见 wins）
       let pendingStopReason: string | null = null // N6：缓存 stop_reason，防与 usage 耦合丢失
       let degraded = false // Z-12：成功建流是否用了降级参数面（emitDone 闭包读）
+      // R0917-6-P3-4（2026-09-17 全库源码重评六轮修复批）：流是否已开始消费——外层 catch
+      // 据此决定 usage 随错上抛与否（建连期异常无任何消耗，不得按估计值虚报入账）
+      let consumedAny = false
+      // R0917-6-P3-4：产出累计与 tool 拼装缓存上移流级作用域——原声明在 try 块内的流消费段，
+      // 外层 catch（流中 SDK 直接 throw）取不到，异常时点的估计用量算不出。声明点仍是每次
+      // stream() 调用新建一次（语义不变），unused-before-assign 由消费分支保证
+      // tool_use input 增量拼装：content_block_start 记 tool name，
+      // input_json_delta 增量拼 JSON 字符串，content_block_stop 时整体解析
+      const toolBlocks = new Map<number, { id: string; name: string; jsonBuf: string }>()
+      // R73-1：产出累计（text_delta 串联 + tool jsonBuf）——网关吞 usage 时按此折算
+      // 估计用量（usage-estimate.ts 同源系数），不再按 0 输出入账
+      const outText: string[] = []
+      const outToolText: string[] = []
+      // R0917-6-P3-4：异常时点的可得用量——① 已实测（inputTokensFromStart / cache 两档 /
+      // latestUsage 末见值）优先，② 缺失才按累计产出折算（与截断分支同源公式），estimated
+      // 标记估计口径；供外层 catch 交 toErrorEvent 随错上抛（B-12 通道，runner 终态失败入账）
+      const errorUsage = (): TokenUsage => {
+        if (latestUsage) return latestUsage
+        for (const [, tb] of toolBlocks) outToolText.push(tb.name + tb.jsonBuf)
+        return {
+          inputTokens:
+            inputTokensFromStart > 0 ? inputTokensFromStart : estimateInputTokens(req, conf.model ?? undefined),
+          outputTokens: estimateOutputTokens(outText.join('') + outToolText.join(''), conf.model ?? undefined),
+          ...(cacheReadFromStart !== undefined ? { cacheReadTokens: cacheReadFromStart } : {}),
+          ...(cacheWriteFromStart !== undefined ? { cacheWriteTokens: cacheWriteFromStart } : {}),
+          estimated: true,
+        }
+      }
       // Q-13（第十五轮）：resolve 后终值随 done 透出（降级链 attempt 不改 maxTokens，
       // 按原始 req 计算与各 attempt toParams 上线值一致）
       const resolvedMaxTokens = resolveMaxTokens(conf, req)
@@ -271,20 +299,15 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
         }
         if (!stream) throw lastErr
 
-        // tool_use input 增量拼装：content_block_start 记 tool name，
-        // input_json_delta 增量拼 JSON 字符串，content_block_stop 时整体解析
-        const toolBlocks = new Map<number, { id: string; name: string; jsonBuf: string }>()
         // R50-B-1（五十轮）：R36-2 的 thinkingBlocks 流内缓存已移除——六处引用全在
         // 声明与累积内（start set / delta get 后累加文本与签名），零后续消费：thinking
         // 文本已单独以 reasoning 事件透出（下见 thinking_delta 分支），签名无回传链路
         // 纯滞留（toParams 的 claude+effort 显式禁思考是防 400 主防线）。签名回传待
         // 跨批需求落地时按需重建。
-        // R73-1：产出累计（text_delta 串联 + tool jsonBuf）——网关吞 usage 时按此折算
-        // 估计用量（usage-estimate.ts 同源系数），不再按 0 输出入账
-        const outText: string[] = []
-        const outToolText: string[] = []
+        // （toolBlocks / outText / outToolText 三件的声明已上移流级作用域，见 :235-262 注释）
 
         for await (const event of stream) {
+          consumedAny = true // R0917-6-P3-4：进流即算已消费（catch 侧 usage 上抛门）
           switch (event.type) {
             case 'message_start': {
               // input_tokens 在 message_start（message_delta 一般不含，P2-3）；
@@ -479,7 +502,11 @@ export function createAnthropicProvider(conf: ProviderConf, client?: Anthropic, 
           }
         }
       } catch (e) {
-        yield toErrorEvent(e)
+        // R0917-6-P3-4（2026-09-17 全库源码重评六轮修复批）：流中 SDK 直接 throw（mid-stream
+        // 连接重置等）此前恒裸传——message_start 已实测的 input/cache 与流内产出随异常蒸发，
+        // runner 终态失败按 0 入账。已消费过流才折算估计用量随错上抛（未消费 = 建连期异常，
+        // 无消耗，不得虚报；与「400 降级续跑只在未消费流时安全」的 ii-1 判据同源）。
+        yield toErrorEvent(e, consumedAny ? errorUsage() : undefined)
       }
     },
   }

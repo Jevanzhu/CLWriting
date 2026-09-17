@@ -25,7 +25,10 @@
  * 可调：CLW_SMOKE_TIMEOUT_MS（默认 60000）；CLW_SMOKE_APP_BIN（R0911-G-P3-2，
  * 2026-09-11 全量重评 GLM-5.3 修复批：注入打包态可执行体——desktop.yml tag 门的
  * mac .app 二进制 / win win-unpacked exe——缺省维持「node electron/cli.js .」开发态
- * 形态，行为零变化；打包态跳过 package.json main 前置门，由下方可执行性检查兜）。
+ * 形态，行为零变化；打包态跳过 package.json main 前置门，由下方存在性/可访问性检查
+ * 兜——R0917-6-nano（2026-09-17 六轮重评修复批）：本处只验存在与 stat 可达，**不查
+ * mode 可执行位**；位检查由 workflow 侧 `test -x "$APP_BIN"`（desktop.yml mac/win 两
+ * 腿各一处）补位，脚本单跑时以 spawn 失败为准）。
  */
 import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, statSync } from 'node:fs'

@@ -68,9 +68,16 @@ export default defineConfig([
     // 可执行位（libuv uv_fs_copyfile 保 mode）；源缺失（依赖安装不完整）ENOENT 裸抛
     // 红构建，不静默跳过（静默跳过 = A-P2-1 原样回潮）。watch 模式每次重建后重拷，
     // 幂等。
+    // R0917-6-P3-12（2026-09-17 全库源码重评六轮修复批）：两端路径 import.meta.url
+    // 绝对化——上批 P-13 只绝对化了文件头 rmSync，本处 copyFileSync 仍是 cwd 相对
+    // （Node 原生调用按 process.cwd() 解析），同场景（子目录直跑 `npx tsup`）会 ENOENT
+    // 红构建或拷错位置；项目根正常路径下与原写法同义（零行为）。
     onSuccess: async () => {
       if (process.platform !== 'darwin') return
-      copyFileSync('node_modules/font-list/libs/darwin/fontlist', 'dist/desktop/fontlist')
+      copyFileSync(
+        fileURLToPath(new URL('./node_modules/font-list/libs/darwin/fontlist', import.meta.url)),
+        fileURLToPath(new URL('./dist/desktop/fontlist', import.meta.url)),
+      )
     },
   },
   {

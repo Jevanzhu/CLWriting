@@ -68,6 +68,20 @@ export function __setDraftSaveLockTimeoutForTest(ms: number): void {
  * R0915-P3-7（四轮处置批）：existingRaw = 调用方在保存锁内预读的盘上字节（文件不
  * 存在传 null），提供时不再读盘——saveDraft 三路（保形/留底/revision）单读共用；
  * 缺省 undefined = 自读（files/outline/onboard/lead-updates 等其余调用方原样）。
+ *
+ * R0917-6-nano（2026-09-17 全库源码重评六轮修复批）：**消费方分诊口径单源汇总**——
+ * 此前散在 files.ts:189-196 / onboard.ts:209-213 / 本文件 Y-3 三处头注各记一半，评审
+ * 建议集中记档（口径本身三处一致，非分歧，故不达 P3）。本函数抛出的失败，各调用方的
+ * 处置是**有意分叉**的，判据只有一条：**被覆盖内容的唯一性**。
+ *  - AI 产物覆写面（saveDraft → self-heal/rewrite/spawn writer）→ **fail-closed 上抛**：
+ *    AI 产出可重生成，覆写掉作者手改不可逆；留底失败即拒绝覆写。
+ *  - 作者手改覆写面（files.ts PUT /file）→ **fail-closed 拒保存**（R0912-4 P1-1 定：
+ *    NonUtf8TargetError → 400 + 转码指引，其余 IO → 409 WRITE_ERROR 可重试）——原稿与
+ *    编辑器内容都在，拒绝保存零损失。
+ *  - 结构化表单覆写面（onboard-save、outline、lead-updates）→ **fail-open 留痕继续**
+ *    （log.warn + 响应/日志 snapshotted:false）：写的是表单值或派生内容而非自由正文，
+ *    丢的手改面窄且作者可重填，阻断保存的代价大于保留旧版本的收益。
+ *  新增调用方按本判据自选，勿照抄邻近端点。
  */
 export function snapshotBeforeOverwrite(
   bookRoot: string,

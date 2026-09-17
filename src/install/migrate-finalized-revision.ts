@@ -55,6 +55,12 @@ export function migrateFinalizedRevisions(bookRoot: string): number {
       if (e.nodeType === 'document' && e.finalizedRevision) return 0
     }
     // 一次 porcelain 拿 clean/dirty 全集（untrackedAll 展开目录）——R0916-P3-15 锁内取
+    // R0917-6-nano（2026-09-17 全库源码重评六轮修复批）：最坏档位如实记——git 单次调用
+    // 超时 GIT_TIMEOUT_MS=15s（git/exec.ts），而清单锁等待档 MANIFEST_LOCK_TIMEOUT_MS=5s
+    // 且有界重试 1 次（共 2 轮）⇒ 他方最多等 10s。极端情形（挂载盘无响应的 git status 被
+    // 超时 kill）下他方两轮等不满即 fail-closed 抛错拒绝写（R73-33 口径：宁拒绝不覆盖），
+    // 本次迁移自身随后按 porcelain===null 跳过。取值取舍已记档（不为此放大他方等待档：
+    // 放大到 15s+ 会让正常路径的争用等待变钝，而此形态只出现在坏盘上、后果仅「重试」）。
     const porcelain = statusPorcelain(bookRoot, true)
     if (porcelain === null) {
       // RB-IF-P1-1：git 状态不可读（git 缺失/执行失败）时 clean/dirty 无从判定——按本文件

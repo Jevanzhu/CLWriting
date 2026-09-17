@@ -5,11 +5,12 @@
  * 纯 node:sqlite + 纯 JS 余弦（零依赖，不引向量索引库）。
  */
 
-import { DatabaseSync, type StatementSync } from 'node:sqlite'
+import { DatabaseSync } from 'node:sqlite'
 import { existsSync, mkdirSync, renameSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { createRagTables } from './schema.js'
 import { log } from '../log/index.js'
+import { prepared, closeWithPrepared } from '../shared/sqlite-prepared.js'
 
 /** 一个向量块（召回返回位置 + 向量，原文交精准读取从定稿取） */
 export interface RagChunk {
@@ -269,47 +270,22 @@ export function openRagDb(bookRoot: string): DatabaseSync {
   return db
 }
 
-// ── R46-45（四十六轮）：连接级 prepared 语句缓存 ─────────────────────────
-// 与 events/store.ts R46-42 同手法（模块独立性优先，本文件内自持一份小帮手）：
-// node:sqlite 的 db.prepare 每次重编译同一条 SQL——全书重建索引 3.5 万次 storeChunk
-// 即 3.5 万次编译同一 INSERT，纯白付。按 db 实例（WeakMap 键）+ SQL 串双键缓存编译
-// 产物。建库/迁移/探测类一次性语句（DDL、PRAGMA、checkpoint、存在性探测）不走本帮手。
-// R0912-G1-P3-1（2026-09-12 独立重评修复批）：头注修账——原句「连接 close 后条目随
-// GC 消失，无悬挂执行面」失实：node:sqlite 的 StatementSync 强引用其 DatabaseSync，
-// 本缓存 WeakMap<db, Map<sql, stmt>> 的值侧 Map → stmt → db 与弱键构成 ephemeron 环，
-// close 并不解除该强引用、条目不随 GC 消失（R0911-G-P3-4 实测：裸 .mjs 40k 次
-// open/close 每次滞留 ~0.35KB，30k 次线性增长）。必须经 closeRagDb 先 delete 断链
-// 再 close——故本帮手与 closeRagDb 是配对纪律：凡有 prepared 调用面的连接，关库
-// 一律走 closeRagDb，不得裸 db.close()。
-const preparedByDb = new WeakMap<DatabaseSync, Map<string, StatementSync>>()
-
-/** R46-45：按 (db, sql) 取缓存的 prepared 语句；未见过则编译一次入缓存。 */
-function prepared(db: DatabaseSync, sql: string): StatementSync {
-  let bySql = preparedByDb.get(db)
-  if (bySql === undefined) {
-    bySql = new Map()
-    preparedByDb.set(db, bySql)
-  }
-  let stmt = bySql.get(sql)
-  if (stmt === undefined) {
-    stmt = db.prepare(sql)
-    bySql.set(sql, stmt)
-  }
-  return stmt
-}
+// R0917-6-P3-7（2026-09-17 全库源码重评六轮修复批）：prepared 缓存与配对关库收编
+// shared/sqlite-prepared.ts 单源——R46-45 原取舍「与 events/store.ts R46-42 同手法
+//（模块独立性优先，本文件内自持一份小帮手）」本批改判：三域同构已各自踩过同一根因
+//（R0911-G-P3-4 ephemeron 环），独立性收益小于「修一漏二」风险。断链序与用法契约
+//（只缓存恒定高频 SQL / 关库一律走配对 helper 不得裸 db.close）单点见单源文件头注；
+// 本文件下方各调用点名与行为逐位不变（RAG 召回每次开库两回，是滞留量级最大的重灾区，
+// 故功能实测留本域，见 test/rag/r0911-g-p3-4-close-cache.test.ts）。
 
 /**
  * R0911-G-P3-4（2026-09-11 重评修复批）：带缓存注销的关库——RAG 库的 close 一律走本
- * helper，不得裸 `db.close()`。根因（裸 .mjs 40k 次 open/close 复现定位）：node:sqlite
- * 的 StatementSync 强引用其 DatabaseSync，R46-45 的 preparedByDb（WeakMap<db, Map<sql,
- * stmt>>）值侧 Map → stmt → db 与弱键构成 ephemeron 环，db 关闭后条目不随 GC 消失——
- * 每次开/关滞留一份 Map+语句包装（实测 ~0.35KB；语句是否执行过无关，仅入缓存即滞留）。
- * RAG 召回每次开库两回（探测+读），长会话下线性堆积；close 前显式 delete 断链后实测
- * 归零（30k 次开/关增长 0.00MB）。WAL/busy_timeout/table_info/部分索引均经 bisect 排除。
+ * helper，不得裸 `db.close()`。根因与实测数据（裸 .mjs 40k 次 open/close 每次 ~0.35KB
+ * 线性滞留；close 前显式 delete 断链后 30k 次开/关归零；WAL/busy_timeout/table_info/
+ * 部分索引均经 bisect 排除）见共享单源文件头注。
  */
 export function closeRagDb(db: DatabaseSync): void {
-  preparedByDb.delete(db)
-  db.close()
+  closeWithPrepared(db)
 }
 
 /**

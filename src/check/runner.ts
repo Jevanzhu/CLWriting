@@ -33,6 +33,8 @@ import {
 // RB-KN-P1-1：改用合并版 readIronRules（铁律 + 条目库禁词）——S5 迁移把禁词知识
 // 搬进条目库并瘦身铁律，私有版只读铁律会让迁移书的禁词红项恒空。
 import { readIronRules } from '../format/iron-rules.js'
+// R0917-6-P3-8：机检热路径固定 SQL 走连接级 prepared 缓存单源
+import { prepared } from '../shared/sqlite-prepared.js'
 import { isMdFileName } from '../format/filename.js'
 import { deriveLeakKeywords } from './leak-derive.js'
 import { checkPieceListForm } from './manifest-check.js'
@@ -158,7 +160,11 @@ export function runAllChecks(input: CheckInput): CheckReport {
         const r = readRealmDoc(realmPath)
         if (r.ok) realmDoc = r.doc
       }
-      const growthIds = (db.prepare(
+      // R0917-6-P3-8（2026-09-17 全库源码重评六轮修复批）：本 SQL 恒定不变且每章
+      // runAllChecks 都走一次（树红点聚合数百章即数百次重编译），transcription 走
+      // shared/sqlite-prepared.ts 连接级缓存；同批另一处 lead_history JOIN 同改。
+      const growthIds = (prepared(
+        db,
         `SELECT id FROM leads WHERE type = '成长线'`,
       ).all() as { id: string }[]).map((r) => r.id)
       sections.push(checkGrowth(db, realmDoc, growthIds, config.growth.realm_span_max ?? 2))
@@ -366,7 +372,10 @@ function collectByproducts(
 
   // 本章账本变动清单（被检章已入库的履历，按已启用类）
   const placeholders = enabledTypes.map(() => '?').join(',')
-  const rows = db.prepare(
+  // R0917-6-P3-8：同款改走 prepared 缓存——变体维度只有 enabledTypes 组合（有界），
+  // 以拼出的 SQL 串为缓存键各自独立缓存。
+  const rows = prepared(
+    db,
     `SELECT lh.lead_id AS leadId, lh.chapter AS chapter, lh.verb AS verb, lh.evidence AS evidence
      FROM lead_history lh JOIN leads l ON l.id = lh.lead_id
      WHERE lh.chapter = ? AND l.type IN (${placeholders})

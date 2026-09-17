@@ -238,6 +238,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
    * 钩子口径（App.vue __clwFlushPrefs 先例）：清掉挂起计时器后直发一次写穿，整链
    * Promise 交 Book.vue __clwFlushBeforeClose await（主进程关窗预算内等待）。防抖
    * 语义不变——平时照旧 500ms 合并写；无待写项（计时器空）不空写。
+   *  R0917-6-P3-3（2026-09-17 全库源码重评六轮修复批）：配合防抖 fire 分支置空句柄，
+   *  本守卫才真正兑现（此前 fire 后句柄恒非 null，保存过一次的书每次关窗仍空写）。
+   *  已知边界（维持现状，与 R0911-C1-P3-3 原口径一致）：刚 fire 出去的那笔写不在本函数
+   *  等待范围内——本 store 无在途句柄追踪（prefs.ts 的 putInFlight 是全局偏好侧的面，
+   *  书级侧未建），关窗钩子只保证「待写项交给直发链」。要收口需另建在途面，与本批
+   *  缺口正交，登记待作者拍板。
    */
   function flushPendingBookPrefs(): Promise<void> {
     if (!debounceTimer) return Promise.resolve()
@@ -261,6 +267,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         const gen = bookGen.current()
         const name = bookName.value
         debounceTimer = setTimeout(() => {
+          // R0917-6-P3-3（2026-09-17 全库源码重评六轮修复批）：fire 即置空句柄——此前
+          // 回调执行完不清空，句柄停在旧定时器上恒非 null，而 flushPendingBookPrefs 以
+          // `!debounceTimer` 作「无待写」判据（R0911-C1-P3-3 立的守卫），于是保存过一次
+          // 的书每次关窗都同值空写 prefs.json（与 prefs.ts persistTimer 同型缺口，两处
+          // 同批收口）；服务端侧表现同为 revision 空 bump + 其他窗伪 409。
+          debounceTimer = null
           void writeBookPrefs(gen, name)
         }, 500)
       },

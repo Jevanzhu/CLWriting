@@ -315,6 +315,12 @@ export async function runGatedGeneration(
   // spawn/self-heal 的 register/unregister 形态：编排段新建 ctrl → driver.registerCtrl
   // → settle（外层 finally）统一注销。实现移位：复审-0914-优化修复批（P1-2）十段
   // 复制收编本包装；owner 分槽语义与 ctrl 注册名逐位保留。
+  // R0917-6-nano（2026-09-17 全库源码重评六轮修复批）：中断通道**有意 fail-open** 记档
+  // ——registerCtrl/unregisterCtrl 在 StudioDriver 上是可选方法（types.ts:89/91），驱动
+  // 不实现时注册链整体静默跳过（mock 驱动即此类：mock.ts 的实现是 noop）。口径：注册
+  // 失败只影响「任务进行中能否被 /interrupt 中断」，不影响闸与执行的正确性（任务照常
+  // 跑完、闸照常释放），故不为此设 fail-closed——真驱动（cc.ts）实现齐全，缺实现只出现
+  // 在测试替身上，对作者不可见。新增驱动若需中断能力须显式实现这两法（无编译期强制）。
   const driver = getDriver()
   let registeredSession: Session | null = null
   let registeredCtrl: AbortController | null = null

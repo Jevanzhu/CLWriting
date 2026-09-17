@@ -264,6 +264,13 @@ export function registerRagRoutes(ctx: RagCtx): void {
     handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBookOrReply(ctx.workDir, params['name'], res)
     if (!r) return
+    // R0917-6-P3-2（2026-09-17 全库源码重评六轮修复批）：编排互斥预检——本端点原只占
+    // 自身 'rag-build' 闸，缺同族 rebuild / prune 的 orchestrationBusyFor 前置查询（互斥
+    // 矩阵缺一角）。build 对索引库只增行、现行无实害，但补齐后「AI 编排在途 → 409」在
+    // rag 三端点（build/rebuild/prune）口径一致，后续 build 增改写面时不留雷。文案/码
+    // 与 rebuild 逐字节一致（同源 orchestrationBusyFor 返回值直出）。
+    const busyOrch = orchestrationBusyFor(params['name']!)
+    if (busyOrch) return replyError(res, 409, 'BUSY', busyOrch)
     const bookRoot = r.bookRoot
     const start = startRagBuild(params['name']!, bookRoot, r.workDir, ctx.userDataPath)
     if (!start.ok) {

@@ -25,7 +25,7 @@
 import { join } from 'node:path'
 import { existsSync, readFileSync } from 'node:fs'
 import { readChapter } from '../format/chapters.js'
-import { readManifest, readManifestStrict, writeManifest, withManifestLock, withManifestLockAsync } from './manifest.js'
+import { readManifestDegraded, readManifestStrict, writeManifest, withManifestLock, withManifestLockAsync } from './manifest.js'
 import { invalidateTreeIndex } from './tree.js'
 import { computeRevision } from './revision.js'
 import { writeVersion, VERSIONS_DIR_NAME } from './version.js'
@@ -90,7 +90,17 @@ function prepareFinalize(bookRoot: string, docId: string): FinalizePrepared | Ex
   if (!safeDocId(docId)) return { ok: false, code: 'NOT_FOUND', error: '文档 ID 非法' }
   // docId → relPath（清单解析；未登记返回 NOT_FOUND）
   const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
-  const relPath = lookupRelPath(docId, manifestPath)
+  const lookup = lookupRelPath(docId, manifestPath)
+  // R0917-6-P3-6（2026-09-17 全库源码重评六轮修复批）：清单读失败与「未登记」分家——
+  // lookupRelPath 前身走 readManifest 容错版，EACCES/EBUSY/EIO 瞬态读失败与「文档不存在」
+  // 同归 null，作者看到「未在文档清单中找到该文档」这一失实归因（真实原因是清单读不到），
+  // 且不会重试；锁内 readManifestStrict 的 WRITE_ERROR 信封（:158）反证本域已知该风险面。
+  // 现改 readManifestDegraded：degraded（读了但失败）转 WRITE_ERROR 可重试；degraded 为
+  // null 时才是真·未登记/文件不存在 → NOT_FOUND 原语义逐位保留。
+  if (lookup.degraded) {
+    return { ok: false, code: 'WRITE_ERROR', error: `定稿前清单读取失败（已拒绝，可重试）：${lookup.degraded.code}` }
+  }
+  const relPath = lookup.relPath
   if (!relPath) return { ok: false, code: 'NOT_FOUND', error: '未在文档清单中找到该文档' }
 
   // 路径校验（防 manifest 篡改穿越——与其他 4 个 API 端点一致）
@@ -363,14 +373,15 @@ function finalGateBlockers(bookRoot: string, absPath: string, chapterNo: number)
   }
 }
 
-/** 清单 docId → relPath（容错：缺文件/未登记 → null）。 */
-function lookupRelPath(docId: string, manifestPath: string): string | null {
-  try {
-    const m = readManifest(manifestPath)
-    return m.entries.get(docId)?.path ?? null
-  } catch {
-    return null
-  }
+/** 清单 docId → relPath（R0917-6-P3-6：读失败与「未登记」分离——degraded 非 null =
+ *  清单读了但失败〔EACCES/EBUSY/EIO 瞬态〕，调用方转 WRITE_ERROR 可重试，不再与
+ *  「文档不在清单里」混同；degraded null 时才由 relPath 判定真·未登记）。 */
+function lookupRelPath(
+  docId: string,
+  manifestPath: string,
+): { relPath: string | null; degraded: { code: string } | null } {
+  const { manifest, degraded } = readManifestDegraded(manifestPath)
+  return { relPath: manifest.entries.get(docId)?.path ?? null, degraded }
 }
 
 /** 从文件名推断章号（`0001-开篇.md` → 1；解析失败 → 0）。

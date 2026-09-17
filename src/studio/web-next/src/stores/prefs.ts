@@ -402,10 +402,18 @@ export const usePrefsStore = defineStore('prefs', () => {
   /** debounce 写回 global.json（500ms）。
    *  R32-27（三十二轮）：快照移入定时器回调（此前防抖注册即捕快照，PUT 晚 500ms 发出，
    *  与在途 PUT 交叠时旧快照后到可丢改动）+ 在途单飞（在途时重走防抖排队，完成后以
-   *  届时最新快照发出）。 */
+   *  届时最新快照发出）。
+   *  R0917-6-P3-3（2026-09-17 全库源码重评六轮修复批）：fire 分支起始置空 persistTimer——
+   *  此前回调执行完不置空，句柄停在「已 fire 的旧定时器」上恒非 null，而
+   *  flushPendingPersist 以 `!persistTimer` 作「无待写」判据（R0914-三轮 P3-8 立的守卫），
+   *  于是**保存过一次**的窗每次关窗都同值空写 PUT → 服务端无条件 bump revision → 其他
+   *  存活窗下次保存伪 409 +「已在其他窗口被修改」误导 toast。定时器已 fire 即无待写，
+   *  置空后守卫恢复原意（原注释「定时器只在冲刷内清空」正是缺口自述）。R60-D-1 的返回
+   *  真链 Promise 不变式不受影响（在途分支重排 schedulePersist 会重新武装句柄）。 */
   function schedulePersist(): void {
     if (persistTimer) clearTimeout(persistTimer)
     persistTimer = setTimeout(() => {
+      persistTimer = null // R0917-6-P3-3：本定时器已 fire，无待写（在途分支下方重排会重新武装）
       if (putInFlight) {
         schedulePersist() // 在途挂起排队：完成后重拍 500ms，快照届时重取
         return
@@ -459,10 +467,18 @@ export const usePrefsStore = defineStore('prefs', () => {
     // 重评-0914-三轮 P3-8：无待写不空写守卫（对齐 workspace.flushPendingBookPrefs 的
     // `if (!debounceTimer) return` 口径，待写标志即本 store 的 persistTimer）——书架/
     // 书库等独立窗关窗此前也无条件同值 PUT，服务端 revision 空 bump → 存活窗陈旧
-    // revision 伪 409 +「已在其他窗口被修改」误导 toast。persistTimer 为空 = 本窗从未
-    // 排过防抖写（定时器只在冲刷内清空，清后复改会重排），直返回不发 PUT；此时若仍有
-    // 在途链（先前冲刷所发），其返回 Promise 已交主进程 await，此处不重复等待。
-    if (!persistTimer) return
+    // revision 伪 409 +「已在其他窗口被修改」误导 toast。
+    // R0917-6-P3-3（2026-09-17 全库源码重评六轮修复批）：本守卫在原 schedulePersist
+    // 下只兑现了一半——fire 后句柄不清空，「保存过一次」的窗恒判为有待写，仍每次关窗
+    // 空写（原注释「定时器只在冲刷内清空，清后复改会重排」正是缺口自述；现已由 fire
+    // 分支置空收口）。persistTimer 为空 = 确认无待写：本窗从未排过防抖写，或排过的
+    // 定时器已 fire / 已被先前冲刷消费。此时不补发 PUT，但**仍等在途链落定**——刚
+    // fire 出去的那笔 PUT 可能仍在途，主进程 await 本函数的语义是「冲刷完成才销毁
+    // 窗口」，跳过等待会让已发出的写随窗口销毁而夭折（R60-D-1 同源风险面）。
+    if (!persistTimer) {
+      if (putInFlight) await putInFlight.catch(() => { /* 在途失败已消化，此处不重试 */ })
+      return
+    }
     if (putInFlight) {
       await putInFlight.catch(() => { /* 在途失败已消化，此处不重试 */ })
     }

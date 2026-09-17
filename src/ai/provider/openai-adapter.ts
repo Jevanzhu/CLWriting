@@ -289,6 +289,14 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
       let degraded = false // Z-12：成功建流是否用了降级参数面（emitDone 闭包读）
       let pendingStopReason = 'stop' // finish_reason 先到但 usage 在后续 chunk → 延迟发 done
       let sawFinishReason = false // 流结束兜底区分：见过=完成但网关不发 usage；没见过=传输截断
+      // R0917-6-P3-4（2026-09-17 全库源码重评六轮修复批）：异常时点用量估计器——toolAccum /
+      // latestUsage / outText 三件均声明在 attempt 循环内，外层 catch 取不到；由循环内逐
+      // attempt 绑定（每次 attempt 起始重置，防上一 attempt 的半截累计泄入），catch 侧按
+      // consumedAny 决定是否消费（未消费 = 建连期异常无消耗，不得估计虚报）
+      let errorUsageOf: (() => TokenUsage) | undefined
+      // R0917-6-P3-4：流级「是否曾开始消费」——外层 catch 的 usage 上抛门（循环内
+      // 同名 per-attempt 变量每轮重置判降级续跑，本变量只置位不复位）
+      let streamConsumedAny = false
       // Q-13（第十五轮）：resolve 后终值随 done 透出（降级链 attempt 不改 maxTokens；
       // openai 线无兜底不发 → undefined，与 toParams 上线值同源）
       const resolvedMaxTokens = req.maxTokens ?? modelConfOf(conf)?.maxTokens
@@ -335,8 +343,21 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
             // R33-22（三十三轮）：兜底 id 流级计数——原每段 finish_reason 从 0 重计，
             // 同流多 finish_reason 段（非标网关）时 call_N 重号撞历史已有 id
             let fallbackToolSeq = 0
+            // R0917-6-P3-4：本 attempt 的异常用量估计器绑定（见流级声明处注释）——末见
+            // usage 优先（网关实测值），否则按累计产出折算；与截断分支（R51-C-1）同源公式
+            errorUsageOf = () => {
+              if (latestUsage) return toUsage(latestUsage)
+              let estText = outText.join('')
+              for (const [, acc] of toolAccum) estText += acc.name + acc.argsBuf
+              return {
+                inputTokens: estimateInputTokens(req, conf.model ?? undefined),
+                outputTokens: estimateOutputTokens(estText, conf.model ?? undefined),
+                estimated: true,
+              }
+            }
             for await (const chunk of stream) {
               consumedAny = true
+              streamConsumedAny = true // R0917-6-P3-4：跨 attempt 置位不复位
               const usage = chunk.usage
               // usage 双兜底：Kimi 文档自相矛盾（usage 可能在 choices[0]，§4.4）；
               // SDK 的 Choice 类型未含该字段（非官方），运行时由厂商端点下发
@@ -546,7 +567,11 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
         }
         throw lastErr ?? new Error('openai stream: 无可用参数面')
       } catch (e) {
-        yield toErrorEvent(e)
+        // R0917-6-P3-4（2026-09-17 全库源码重评六轮修复批）：流中 SDK 直接 throw（mid-stream
+        // 连接重置等）此前恒裸传——消费中已见的 usage chunk 与累计产出随异常蒸发，runner
+        // 终态失败按 0 入账（真实计费漏记）。已消费过流才上抛估计（未消费 = 建连期异常，
+        // 无消耗不虚报；与 ii-1「消费后不重跑」同源判据）。
+        yield toErrorEvent(e, streamConsumedAny ? errorUsageOf?.() : undefined)
       }
     },
   }

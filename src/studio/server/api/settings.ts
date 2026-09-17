@@ -23,6 +23,7 @@ import { runSpec } from '../../../ai/tasks/spec.js'
 import { RELATION_MINE_SPEC } from '../../../ai/tasks/specs.js'
 import { runGatedGeneration, replyGenerationFailure } from './task-gate.js' // P1-2/D4（复审-0914-优化修复批）：长任务门控包装 + 生成失败状态映射单源
 import { createTtlProbeCache } from '../ttl-cache.js'
+import { yieldToEventLoop } from '../../../async.js' // R0917-6-P3-1：扫描段让出原语（rhythm/progress 同源）
 import { sigStatFor } from './rhythm.js' // 精简批（SRV 域）：size:mtimeMs 签名单源（原本地同构副本收敛）
 import type { RealmSystem } from '../../../format/types.js'
 
@@ -137,12 +138,31 @@ const settingsCache = createTtlProbeCache<string, unknown>({
   ttl: () => settingsTtlMs ?? SETTINGS_CACHE_TTL_MS,
   probe: settingsSignature,
   computeSync: (bookRoot) => settingsLong(bookRoot),
+  // R0917-6-P3-1（2026-09-17 全库源码重评六轮修复批）：async 孪生——本端点此前是全域
+  // 唯一「MISS 同步全书扫描」的书键端点（同域 search/foreshadows/rhythm/progress/
+  // overview 均已落 async 孪生）。MISS 时同步链（境界体系 + 角色卡整目录 + 时间线目录 +
+  // 关系线 + 正文目录计数）整段无让出，本地 HTTP 服务端与桌面主进程同事件循环，大书首
+  // 请求会卡住同刻的 SSE/IPC 心跳。让出范式与 rhythmComputeAsync（重评-0914-三轮 P3-2）
+  // 逐位同款：扫描段前后各让出一次，结果复用同一 computeSync 体（逐位一致），并发 MISS
+  // 经 in-flight 去重只扫一次。
+  computeAsync: settingsLongAsync,
   evictExpiredOnMiss: false,
 })
 
-/** R46-16：settings 聚合查询（目录指纹 + TTL 缓存壳）。导出供回归测试直测。 */
+/** R46-16：settings 聚合查询（目录指纹 + TTL 缓存壳）。导出供回归测试直测。
+ *  R0917-6-P3-1：生产路径已改走 async 孪生（下方 getSettingsCachedAsync）；同步版
+ *  保留原样作回归测试直测面（rhythm 域 getRhythmCached 同款处置）。 */
 export function getSettingsCached(bookRoot: string): unknown {
   return settingsCache.getSync(bookRoot)
+}
+
+/** R0917-6-P3-1：缓存壳的异步孪生（端点生产路径）。命中语义与同步版逐位一致（同壳
+ *  共 Map 同 TTL 同签名），MISS 时走 settingsLongAsync 让出 + in-flight 去重。
+ *  导出供回归测试直测。边界如实记：扫描体内核（readCharacterCards / readChapterDir 等）
+ *  仍是单段同步读——本孪生只保证端点 handler 链上不再是「无让出的整段同步链」，
+ *  不宣称内核已可中断。 */
+export function getSettingsCachedAsync(bookRoot: string): Promise<unknown> {
+  return settingsCache.get(bookRoot)
 }
 
 // ── R0912-ds41（重评-deepseek-v4.1-flash P2-2）：completion-names「目录指纹 + TTL」缓存壳 ──
@@ -217,13 +237,17 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
   defineRoute('books.settings', {
     method: 'GET',
     path: '/api/books/:name/settings',
-    handler: ({ params }, _req: IncomingMessage, res: ServerResponse) => {
+    // R0917-6-P3-1：handler 挂 async 走 async 主路（router dispatch 对 async handler
+    // 已有 catch 兜底，rhythm 域同款）
+    handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
     const r = resolveBookOrReply(ctx.workDir, params['name'], res)
     if (!r) return
 
     const bookRoot = r.bookRoot
     // R46-16：全书扫描走缓存壳（命中即跳过 settingsLong 的全量重算）
-    reply(res, 200, getSettingsCached(bookRoot))
+    // R0917-6-P3-1：改走 async 孪生（扫描段让出 + in-flight 去重），同步版保留为
+    // 回归测试直测面；响应 schema 逐位不变
+    reply(res, 200, await getSettingsCachedAsync(bookRoot))
   },
   })
 
@@ -312,6 +336,15 @@ export function registerSettingsRoutes(ctx: SettingsCtx): void {
     })
   },
   })
+}
+
+/** R0917-6-P3-1：async 孪生 MISS 计算体（生产路径）。让出范式同 rhythmComputeAsync /
+ *  progress.ts R37-3（扫描段前后各一次），数值与 settingsLong 逐位一致（复用同一体）。 */
+async function settingsLongAsync(bookRoot: string): Promise<unknown> {
+  await yieldToEventLoop()
+  const value = settingsLong(bookRoot)
+  await yieldToEventLoop()
+  return value
 }
 
 function settingsLong(bookRoot: string): unknown {

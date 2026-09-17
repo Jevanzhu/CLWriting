@@ -77,7 +77,12 @@ export function checkBannedWords(
   const prose = stripQuotedSpans(body)
   for (const word of bannedWords) {
     if (!word) continue
-    if (word.length === 1) {
+    // R0917-6-nano（2026-09-17 全库源码重评六轮修复批）：单字判定由 UTF-16 长度改
+    // codePointLength——增补平面字（如 𠮷）在 UTF-16 下 length===2 被当多字词走红项
+    // 边界命中分支，而「单字误报面大降黄」的取舍本意按**字符数**而非码元数成立。
+    // 消费面同时经 isMdFileName 同源口径；hasBoundedHit 的索引步进是码元级（不改），
+    // 增补平面词在其中的降黄/红项分诊按本行字符数判定，两处量纲各自正确。
+    if (codePointLength(word) === 1) {
       // R29-1③：单字禁词降黄（不再驱动打回）
       if (prose.includes(word)) {
         items.push({

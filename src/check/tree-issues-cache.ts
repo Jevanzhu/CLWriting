@@ -23,7 +23,7 @@
  * 回退（红线）：表缺席 / 读写失败 → 抛出由调用方吞掉、跳过缓存走现行全量路径
  * （语义无损降级，只有性能回到从前）。
  */
-import { DatabaseSync, type StatementSync } from 'node:sqlite'
+import { DatabaseSync } from 'node:sqlite'
 import { existsSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { ensureTreeIssuesTables } from '../cache/schema.js'
@@ -31,53 +31,30 @@ import { LEAD_UPDATES_ARCHIVE_DIR } from './lead-updates.js'
 // R51-E-N4（五十一轮）：.md 判定走单一真相源（R38-9 大小写不敏感口径，leak-derive/
 // iron-rules 消费侧同源）——.MD 大写扩展名同样是机检输入，不得因收窄误伤
 import { isMdFileName } from '../format/filename.js'
+import { prepared, closeWithPrepared } from '../shared/sqlite-prepared.js'
 
 /** 机检器代次：词表 / 阈值 / 规则语义演进时 bump（旧缓存整代表失效）。
  *  a1-v2（2026-08-21 H-1）：章级行不再含账本全书性条目（改独立缓存 leads_book_*），
  *  旧代行语义不同（hasRed 含跨章红项），整代失效防新旧混存。 */
 const CHECKER_GENERATION = 'a1-v2'
 
-// 重评-0914-三轮 nano R3-3：连接级 prepared 语句缓存（rag/store.ts R46-45 同款
+// 重评-0914-三轮 nano R3-3：连接级 prepared 语句缓存（原 rag/store.ts R46-45 同款
 // WeakMap<db, Map<sql, stmt>> 形态，prepared 缓存先例自此收编 check 域）——树聚合
-// 每轮只开一次库（run.ts collectTreeIssuesCore：开库 → 章循环逐章
-// readTreeIssuesCache → finally db.close），循环内数百次对同一固定 SQL 重编译白付。
-// 语句按连接对象身份键控，绝不跨连接复用：每轮短连接形态下（close 后新轮开新
-// DatabaseSync 对象）不存在 close-after-use 竞态。
-// R0916-6-P3-5（2026-09-16 评审修复批）：原注「陈旧条目随连接对象不可达后一并 GC、
-// 配对关库待长寿命连接再补」失实——rag 域 R0911-G-P3-4 裸 .mjs 实测定谳：node:sqlite
-// 的 StatementSync 强引用其 DatabaseSync，本缓存值侧 Map → stmt → db 与弱键构成
-// ephemeron 环，裸 close 后条目不随 GC 消失（每次开/关滞留 ~0.35KB，线性堆积）。
-// 移植 rag closeRagDb 的配对关库纪律（见 closeTreeIssuesDb）：凡有 prepared 调用面
-// 的连接一律经它关库，不得裸关。run.ts / run-tree-issues.ts 既有裸 close 点的改道
-// 属主审在改文件（本批禁改），留待其批次收口。
-const preparedByDb = new WeakMap<DatabaseSync, Map<string, StatementSync>>()
-
-/** 按 (db, sql) 取缓存的 prepared 语句；未见过则编译一次入缓存（sql 须为固定串）。 */
-function prepared(db: DatabaseSync, sql: string): StatementSync {
-  let bySql = preparedByDb.get(db)
-  if (!bySql) {
-    bySql = new Map()
-    preparedByDb.set(db, bySql)
-  }
-  let stmt = bySql.get(sql)
-  if (!stmt) {
-    stmt = db.prepare(sql)
-    bySql.set(sql, stmt)
-  }
-  return stmt
-}
+// 每轮只开一次库、循环内数百次对同一固定 SQL 重编译白付。
+// R0917-6-P3-7（2026-09-17 全库源码重评六轮修复批）：实现收编 shared/sqlite-prepared.ts
+// 单源（原注「模块独立性优先，本文件内自持一份小帮手」的取舍改判——三域同构已各自
+// 踩过 R0911-G-P3-4 ephemeron 环同一根因）。断链序与用法契约单点见单源文件头注；
+// check/runner.ts 的两处裸 db.prepare 本批一并改走 prepared()（同批 P3-8）。
 
 /**
  * R0916-6-P3-5（2026-09-16 评审修复批）：带缓存注销的关库——机检缓存库（index.db）
  * 凡有 prepared 调用面的连接一律走本 helper 关库，不得裸关。根因与实测数据同
- * rag/store.ts closeRagDb（R0911-G-P3-4）：preparedByDb 值侧 Map → stmt → db 与弱键
- * 构成 ephemeron 环，close 后条目不随 GC 消失；close 前显式 delete 断链即归零。
- * 形态逐字对齐 rag 侧不合并不源——两域 prepared 缓存各自模块私有，沿用 rag R46-45
- * 「模块独立性优先，本文件内自持一份小帮手」的取舍。
+ * rag/store.ts closeRagDb（R0911-G-P3-4，现收编共享单源）：preparedByDb 值侧 Map →
+ * stmt → db 与弱键构成 ephemeron 环，close 后条目不随 GC 消失；close 前显式 delete
+ * 断链即归零。R0917-6-P3-7 起本文件与 events/rag 两域共用同一份缓存与断链序。
  */
 export function closeTreeIssuesDb(db: DatabaseSync): void {
-  preparedByDb.delete(db)
-  db.close()
+  closeWithPrepared(db)
 }
 
 interface TreeIssueEntry {
