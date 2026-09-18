@@ -103,8 +103,13 @@ async function loadFs(gen: number): Promise<void> {
     if (loadGen.stale(gen)) return
     foreshadows.value = r
   } catch (e) {
+    if (loadGen.stale(gen)) return // 旧请求的失败不清新书的数据（同成功路径口径）
     // 降级留痕（复审-0913-源码 P3）——面板空态可重试，不打扰 UI
+    // 五轮重评修复批（F102）：对齐 loadRhythm/loadAnalysis——失败置空。原 catch 只留痕
+    // 不置空，注释「面板保持空态」失实：同书先前成功过一次后重试失败，面板继续展示
+    // 旧红/黄/绿统计（陈旧数据假健康）。
     console.warn('[overview] 伏笔健康度加载失败（面板保持空态）', e)
+    foreshadows.value = []
   }
 }
 async function loadRhythm(gen: number): Promise<void> {

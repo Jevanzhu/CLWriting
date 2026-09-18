@@ -92,4 +92,40 @@ describe('OverviewView 主请求失败即止（R0912-FE-P3-9）', () => {
     expect(mocks.getForeshadows).toHaveBeenCalledWith('测试书')
     w.unmount()
   })
+
+  // 五轮重评修复批（F102）：loadFs 失败口径对齐 loadRhythm/loadAnalysis——失败置空。
+  // 原 catch 只留痕不置空，重试失败后面板继续展示旧红/黄/绿统计（陈旧数据假健康）。
+  // 路径注记：重试按钮仅存于错误态，单 mount 内「成功 → 再失败」二连发 UI 不可达
+  //（成功态无任何 reload 触达）——「上一轮成功」的残留面用仓库先例 setupState 直植
+  //（r1010b 同款 vm.$ 取法），触达的 catch 与真实链路同一处，判别面不受影响：
+  // 修复前残留 2 条 → 面板照渲染；修复后置空 → 面板消失。
+  it('F102：伏笔子请求失败 → 伏笔健康度面板置空（不残留上一轮旧统计）', async () => {
+    const overview = {
+      identity: { kind: 'long', name: '书', title: '书', genre: '', created_at: '' },
+      progress: { chapters: 1, words: 100, percent: 1, targetWords: null },
+      timeline: [],
+      streak: 0,
+      recentDoc: null,
+    }
+    // 首轮：主请求失败 → 整页错误态（失败即止，fs 不发；重试按钮在位）
+    mocks.getOverview.mockRejectedValueOnce(new Error('总览失败'))
+    mocks.getForeshadows.mockRejectedValue(new Error('伏笔失败'))
+    const w = mountView()
+    await flushPromises()
+    expect(w.text()).toContain('总览载入失败')
+    expect(mocks.getForeshadows).not.toHaveBeenCalled()
+
+    // 植入「上一轮成功」的残留统计（setupState proxyRefs 解包，赋值落 ref.value）
+    const st = (w.vm.$ as unknown as { setupState: Record<string, unknown> }).setupState
+    st.foreshadows = [{ 状态: '未回收', 足迹: { risk: '红' } }, { 状态: '已回收' }]
+
+    // 重试：主请求成功 + 伏笔子请求失败 → 面板置空（原实态：残留旧红/绿统计照渲染）
+    mocks.getOverview.mockResolvedValue(overview)
+    await w.findAll('button').find((b) => b.text().includes('重试'))!.trigger('click')
+    await flushPromises()
+    expect(mocks.getForeshadows).toHaveBeenCalledTimes(1)
+    expect(w.find('.fs-n').exists(), '失败置空，不得残留旧统计').toBe(false)
+    expect(st.foreshadows).toEqual([]) // 组件态同一判别面
+    w.unmount()
+  })
 })

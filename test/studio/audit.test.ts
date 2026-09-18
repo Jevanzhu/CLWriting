@@ -1,6 +1,8 @@
 /**
  * F1-P5 审计 buildAuditView 单测：事件重放 + 遮蔽差异（模型可见 vs 人类可见）+
  * 血缘 sourceSeqs + 工作流事件分组。
+ * 五轮重评修复批（B101）：buildAuditView 改 async（两路全量迭代逐块让出，消长书
+ * 单 tick 冻结事件循环）——本套件直喂调用点随改 await，断言面零变化。
  */
 import { describe, expect, it } from 'vitest'
 import { rmSync } from 'node:fs'
@@ -12,12 +14,12 @@ import { stepStartEvent, llmCallEvent, goalChangeEvent, todoWriteEvent } from '.
 import { buildAuditView, parseAuditPaging } from '../../src/studio/server/api/audit.js'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
-function withStore<T>(fn: (store: NonNullable<ReturnType<typeof openSessionStore>>, bookRoot: string) => T): T {
+async function withStore<T>(fn: (store: NonNullable<ReturnType<typeof openSessionStore>>, bookRoot: string) => T | Promise<T>): Promise<T> {
   const userData = mkdtempTracked(join(tmpdir(), 'audit-'))
   const bookRoot = join(userData, 'books', 'x')
   const store = openSessionStore(userData, bookRoot)!
   try {
-    return fn(store, bookRoot)
+    return await fn(store, bookRoot)
   } finally {
     store.close()
     rmSync(userData, { recursive: true, force: true })
@@ -25,14 +27,14 @@ function withStore<T>(fn: (store: NonNullable<ReturnType<typeof openSessionStore
 }
 
 describe('F1-P5 buildAuditView', () => {
-  it('对话：无遮蔽 → modelVisible = humanVisible，遮蔽数 0', () => {
-    withStore((store) => {
+  it('对话：无遮蔽 → modelVisible = humanVisible，遮蔽数 0', async () => {
+    await withStore(async (store) => {
       const sid = store.createSession('conv', { book: 'conv' })
       store.appendEvents(sid, [
         userMessageEvent('你好'),
         assistantMessageEvent('你好呀'),
       ])
-      const { conversation } = buildAuditView(store, 'conv', '/tmp/nonexistent')
+      const { conversation } = await buildAuditView(store, 'conv', '/tmp/nonexistent')
       expect(conversation).not.toBeNull()
       expect(conversation!.shadowedCount).toBe(0)
       expect(conversation!.modelVisible).toHaveLength(2)
@@ -41,8 +43,8 @@ describe('F1-P5 buildAuditView', () => {
     })
   })
 
-  it('对话：replace 遮蔽 → modelVisible 不含被遮蔽节点，humanVisible 含（shadowed 标记）', () => {
-    withStore((store) => {
+  it('对话：replace 遮蔽 → modelVisible 不含被遮蔽节点，humanVisible 含（shadowed 标记）', async () => {
+    await withStore(async (store) => {
       const sid = store.createSession('conv', { book: 'conv' })
       store.appendEvents(sid, [
         userMessageEvent('怎么写开头？'),
@@ -51,7 +53,7 @@ describe('F1-P5 buildAuditView', () => {
         { type: 'compaction/end', data: { summary: '压缩' }, shadowStart: 2, shadowEnd: 2 },
         assistantMessageEvent('新版回复：谈判。'),
       ])
-      const { conversation } = buildAuditView(store, 'conv', '/tmp/nonexistent')
+      const { conversation } = await buildAuditView(store, 'conv', '/tmp/nonexistent')
       expect(conversation).not.toBeNull()
       expect(conversation!.shadowedCount).toBe(1)
       expect(conversation!.modelVisible.map((n) => n.seq)).toEqual([1, 4])
@@ -64,8 +66,8 @@ describe('F1-P5 buildAuditView', () => {
     })
   })
 
-  it('对话：assistant sourceSeqs 血缘透出（可回溯）', () => {
-    withStore((store) => {
+  it('对话：assistant sourceSeqs 血缘透出（可回溯）', async () => {
+    await withStore(async (store) => {
       const sid = store.createSession('conv', { book: 'conv' })
       const rec = new SessionRecorder(store, sid)
       rec.add(sessionStartEvent('conv'))
@@ -74,7 +76,7 @@ describe('F1-P5 buildAuditView', () => {
       rec.add(assistantMessageEvent('埋笔要早。', undefined, undefined, [snapIdx]))
       rec.flush()
 
-      const { conversation } = buildAuditView(store, 'conv', '/tmp/nonexistent')
+      const { conversation } = await buildAuditView(store, 'conv', '/tmp/nonexistent')
       const asst = conversation!.events.find((e) => e.type === 'assistant/message')!
       expect(asst.sourceSeqs).toBeDefined()
       expect(asst.sourceSeqs!.length).toBeGreaterThan(0)
@@ -84,8 +86,8 @@ describe('F1-P5 buildAuditView', () => {
     })
   })
 
-  it('工作流：ws 会话 step/llm-call 事件归入 workflowEvents', () => {
-    withStore((store, bookRoot) => {
+  it('工作流：ws 会话 step/llm-call 事件归入 workflowEvents', async () => {
+    await withStore(async (store, bookRoot) => {
       const sid = store.workspaceSession(bookHash(bookRoot))
       store.appendEvents(sid, [
         stepStartEvent('自愈', 'review'),
@@ -100,14 +102,14 @@ describe('F1-P5 buildAuditView', () => {
           ok: true,
         }),
       ])
-      const { conversation, workflowEvents } = buildAuditView(store, 'conv', bookRoot)
+      const { conversation, workflowEvents } = await buildAuditView(store, 'conv', bookRoot)
       expect(conversation).toBeNull()
       expect(workflowEvents.map((e) => e.type)).toEqual(['step/start', 'llm/call'])
     })
   })
 
-  it('F5：goal/todo 事件重放为当前态快照（goals + todos 字段）', () => {
-    withStore((store, bookRoot) => {
+  it('F5：goal/todo 事件重放为当前态快照（goals + todos 字段）', async () => {
+    await withStore(async (store, bookRoot) => {
       const sid = store.workspaceSession(bookHash(bookRoot))
       store.appendEvents(sid, [
         goalChangeEvent({
@@ -133,7 +135,7 @@ describe('F1-P5 buildAuditView', () => {
           ],
         }),
       ])
-      const { goals, todos } = buildAuditView(store, 'conv', bookRoot)
+      const { goals, todos } = await buildAuditView(store, 'conv', bookRoot)
       expect(goals).toHaveLength(1)
       expect(goals[0]!.id).toBe('self-heal:ch1')
       expect(goals[0]!.state).toBe('complete')
@@ -142,11 +144,11 @@ describe('F1-P5 buildAuditView', () => {
     })
   })
 
-  it('F5：无 goal/todo 事件 → goals/todos 为空数组（不炸端点）', () => {
-    withStore((store, bookRoot) => {
+  it('F5：无 goal/todo 事件 → goals/todos 为空数组（不炸端点）', async () => {
+    await withStore(async (store, bookRoot) => {
       const sid = store.workspaceSession(bookHash(bookRoot))
       store.appendEvents(sid, [stepStartEvent('自愈', 'review')])
-      const { goals, todos } = buildAuditView(store, 'conv', bookRoot)
+      const { goals, todos } = await buildAuditView(store, 'conv', bookRoot)
       expect(goals).toEqual([])
       expect(todos).toEqual([])
     })
@@ -165,10 +167,10 @@ describe('AA-P2-1/AA-P2-2: audit 分页', () => {
     store.appendEvents(sid, evs)
   }
 
-  it('默认 limit=500 截断 + eventsTotal 全量（长书 >500 不一次全量进响应）', () => {
-    withStore((store) => {
+  it('默认 limit=500 截断 + eventsTotal 全量（长书 >500 不一次全量进响应）', async () => {
+    await withStore(async (store) => {
       seedConvo(store, 400) // 800 条事件 > 默认 500
-      const { conversation } = buildAuditView(store, 'conv', '/tmp/nonexistent')
+      const { conversation } = await buildAuditView(store, 'conv', '/tmp/nonexistent')
       expect(conversation).not.toBeNull()
       expect(conversation!.eventsTotal).toBe(800)
       expect(conversation!.events).toHaveLength(500) // 默认页截断
@@ -178,16 +180,16 @@ describe('AA-P2-1/AA-P2-2: audit 分页', () => {
     })
   })
 
-  it('分页参数透传：offset 推进 → 后页切片（total 恒全量，切片不重叠）', () => {
-    withStore((store) => {
+  it('分页参数透传：offset 推进 → 后页切片（total 恒全量，切片不重叠）', async () => {
+    await withStore(async (store) => {
       seedConvo(store, 10) // 20 条
-      const page1 = buildAuditView(store, 'conv', '/tmp/nonexistent', { limit: 8, offset: 0 })
+      const page1 = await buildAuditView(store, 'conv', '/tmp/nonexistent', { limit: 8, offset: 0 })
       expect(page1.conversation!.events).toHaveLength(8)
       expect(page1.conversation!.eventsTotal).toBe(20)
       expect(page1.conversation!.events.map((e) => e.seq)).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
-      const page2 = buildAuditView(store, 'conv', '/tmp/nonexistent', { limit: 8, offset: 8 })
+      const page2 = await buildAuditView(store, 'conv', '/tmp/nonexistent', { limit: 8, offset: 8 })
       expect(page2.conversation!.events.map((e) => e.seq)).toEqual([9, 10, 11, 12, 13, 14, 15, 16])
-      const page3 = buildAuditView(store, 'conv', '/tmp/nonexistent', { limit: 8, offset: 16 })
+      const page3 = await buildAuditView(store, 'conv', '/tmp/nonexistent', { limit: 8, offset: 16 })
       expect(page3.conversation!.events.map((e) => e.seq)).toEqual([17, 18, 19, 20])
       // 切片拼接 = 全量（无重叠无遗漏）
       const all = [...page1.conversation!.events, ...page2.conversation!.events, ...page3.conversation!.events]
@@ -195,13 +197,13 @@ describe('AA-P2-1/AA-P2-2: audit 分页', () => {
     })
   })
 
-  it('SV-2（第七轮）：visible 双投影只随首屏（offset=0）下发——「加载更多」后续页不再全量出网', () => {
-    withStore((store) => {
+  it('SV-2（第七轮）：visible 双投影只随首屏（offset=0）下发——「加载更多」后续页不再全量出网', async () => {
+    await withStore(async (store) => {
       seedConvo(store, 10) // 20 条
-      const page1 = buildAuditView(store, 'conv', '/tmp/nonexistent', { limit: 8, offset: 0 })
+      const page1 = await buildAuditView(store, 'conv', '/tmp/nonexistent', { limit: 8, offset: 0 })
       expect(page1.conversation!.modelVisible.length).toBeGreaterThan(0)
       expect(page1.conversation!.humanVisible.length).toBeGreaterThan(0)
-      const page2 = buildAuditView(store, 'conv', '/tmp/nonexistent', { limit: 8, offset: 8 })
+      const page2 = await buildAuditView(store, 'conv', '/tmp/nonexistent', { limit: 8, offset: 8 })
       expect(page2.conversation!.modelVisible).toEqual([]) // 后续页省略（前端只追加 events、丢弃 conversation）
       expect(page2.conversation!.humanVisible).toEqual([])
       expect(page2.conversation!.events).toHaveLength(8) // events 切片照常
@@ -209,22 +211,22 @@ describe('AA-P2-1/AA-P2-2: audit 分页', () => {
     })
   })
 
-  it('offset 出界 → 自然空页（total 仍全量，不炸）', () => {
-    withStore((store) => {
+  it('offset 出界 → 自然空页（total 仍全量，不炸）', async () => {
+    await withStore(async (store) => {
       seedConvo(store, 2) // 4 条
-      const { conversation } = buildAuditView(store, 'conv', '/tmp/nonexistent', { limit: 500, offset: 999 })
+      const { conversation } = await buildAuditView(store, 'conv', '/tmp/nonexistent', { limit: 500, offset: 999 })
       expect(conversation!.events).toHaveLength(0)
       expect(conversation!.eventsTotal).toBe(4)
     })
   })
 
-  it('workflowTotal 透出：工作流事件同样按页截断 + 总数', () => {
-    withStore((store, bookRoot) => {
+  it('workflowTotal 透出：工作流事件同样按页截断 + 总数', async () => {
+    await withStore(async (store, bookRoot) => {
       const sid = store.workspaceSession(bookHash(bookRoot))
       const evs: Parameters<typeof store.appendEvents>[1] = []
       for (let i = 0; i < 12; i++) evs.push(stepStartEvent(`步骤${i}`, 'review'))
       store.appendEvents(sid, evs)
-      const { workflowEvents, workflowTotal } = buildAuditView(store, 'conv', bookRoot, { limit: 5, offset: 0 })
+      const { workflowEvents, workflowTotal } = await buildAuditView(store, 'conv', bookRoot, { limit: 5, offset: 0 })
       expect(workflowTotal).toBe(12)
       expect(workflowEvents).toHaveLength(5)
     })

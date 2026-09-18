@@ -441,6 +441,32 @@ export function createOpenAIResponsesProvider(
                       yield { type: 'text', delta: full }
                     }
                   }
+                  // 五轮重评修复批（C103）：伪流回填对称扩展 function_call 项——伪流网关
+                  // completed.output 只含 function_call（无 output_item.done 流出）时原实现
+                  // 无 tool 事件，hasOutput 因 function_call 在场判 true → 正常 emitDone，
+                  // 工具型调用方拿 input:null 报「产出为空或非对象」。字段形状/兜底与上方
+                  // output_item.done 臂同款（call_id 缺失序号 id、arguments 完整串优先、
+                  // 合法 JSON 非对象/畸形 JSON 同落 {_raw}），R74-1 计费累计同口径；
+                  // 正常流已 yield 过 tool（toolYielded）时不回填（防重复）。
+                  if (!toolYielded) {
+                    for (const it of r.output ?? []) {
+                      if (it.type !== 'function_call') continue
+                      const args = it.arguments || ''
+                      outToolText.push(it.name + args) // R74-1：tool 参数计入产出累计
+                      let input: unknown
+                      try {
+                        const parsed = args ? JSON.parse(args) : {}
+                        input =
+                          typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+                            ? parsed
+                            : { _raw: args }
+                      } catch {
+                        input = { _raw: args }
+                      }
+                      toolYielded = true
+                      yield { type: 'tool', id: it.call_id ?? `call_${fallbackToolSeq++}`, name: it.name, input }
+                    }
+                  }
                   // R1 判空（EMPTY_RESPONSE 语义，学 dsh）：completed 但无 message/function_call
                   // 产出且未 yield 过 tool → 退化完成判错不判成功。判据限定 output item 类型，
                   // probe（「回复OK」）与结构化产出（message item）不受影响。

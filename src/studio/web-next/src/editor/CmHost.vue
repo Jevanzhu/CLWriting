@@ -429,7 +429,15 @@ watch(
         ...r.characters.map((n) => ({ label: n, detail: '角色' })),
         ...r.items.map((n) => ({ label: n, detail: '物品' })),
       ]
-    } catch { /* 无设定数据 */ }
+    } catch {
+      // 五轮重评修复批（F103）：失败清空（若本请求仍是最新）——原 catch 静默吞掉后
+      // completionEntries 残留上一本书的名单：A 书成功拉过 → 切 B 书恰逢请求失败
+      //（服务瞬时异常窗），B 书编辑器 @ 弹 A 书角色/物品名，且 completionFetchedAt
+      // 只在成功路径计龄，TTL 补拉闸使陈旧窗最长 5 分钟。名单按书作用域（readonly/
+      // falsy 分支同样清空），失败清空同口径——空优于错书；下次 @ 触发即重试
+      //（completionFetchedAt 未计龄，G6-④ 语义不变）。
+      if (myId === compReqId) completionEntries.value = []
+    }
   },
   { immediate: true },
 )

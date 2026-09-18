@@ -16,6 +16,7 @@ import { useTreeStore } from '../../../src/studio/web-next/src/stores/tree'
 import { useProviderStore } from '../../../src/studio/web-next/src/stores/provider'
 import { useUiStore } from '../../../src/studio/web-next/src/stores/ui'
 import { useDocStore } from '../../../src/studio/web-next/src/stores/doc'
+import { useWorkspaceStore } from '../../../src/studio/web-next/src/stores/workspace'
 
 // 网络层全 mock（组件只关心编排次序，不关心真实 IO）
 const streamMocks = vi.hoisted(() => ({
@@ -117,6 +118,61 @@ describe('低-2（第十轮）：存草稿在途切书 → B 书工作台不残�
     const badge = wrapper.findComponent(WbDraftCard).find('.draft-actions .muted')
     expect(badge.exists()).toBe(true)
     expect(badge.text()).toContain('5 字已存')
+  })
+
+  // 五轮重评修复批（F101）：第二 await 窗守卫——tree.load 在途切书后 openTab/toast
+  // 不得落 B 书。原守卫只堵 saveDraft POST 一窗，tree.load（大书树 GET 秒级）在途切书时
+  // openTab 会把 A 书草稿 docId 劫持进 B 书工作区（activeView/activeDocId 强切 + 持久化
+  // watch 把 A 书 docId 写进 B 书 prefs.json），成功 toast 落错书。
+  it('F101：tree.load 在途切书 A→B → 守卫中止，openTab 与成功 toast 不执行', async () => {
+    const wb = useWorkbenchStore()
+    const ui = useUiStore()
+    const ws = useWorkspaceStore()
+    const openTabSpy = vi.spyOn(ws, 'openTab').mockImplementation(() => {})
+    wb.textOut = '正文若干字'
+    streamMocks.saveDraft.mockResolvedValue({ ok: true, path: '写作/正文/0003-x.md', words: 5, docId: 'doc_9', snapshotted: false })
+    const treeReq = pending<void>()
+    vi.spyOn(useTreeStore(), 'load').mockImplementation(() => treeReq.promise)
+
+    const wrapper = mount(WorkbenchView, {
+      props: { bookName: '书A' },
+      global: {
+        stubs: { ChatPanel: true, WbStateCard: true, WbAdvanced: true, WbHealCard: true, WbUsageCard: true },
+      },
+    })
+    await flushPromises()
+    await wrapper.findComponent(WbDraftCard).find('button').trigger('click')
+    await flushPromises() // saveDraft 落定 → tree.load 在途（pending）
+    expect(useTreeStore().load).toHaveBeenCalledWith('书A')
+
+    await wrapper.setProps({ bookName: '书B' }) // tree.load 在途窗口内切书
+    treeReq.resolve()
+    await flushPromises()
+
+    expect(openTabSpy, 'B 书工作区不得被劫持到 A 书草稿 docId').not.toHaveBeenCalled()
+    expect(ui.toasts.some((t) => t.msg.includes('草稿已存'))).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('F101 未切书对照：tree.load 落定后 openTab 照常执行（守卫不误伤）', async () => {
+    const wb = useWorkbenchStore()
+    const ws = useWorkspaceStore()
+    const openTabSpy = vi.spyOn(ws, 'openTab').mockImplementation(() => {})
+    wb.textOut = '正文若干字'
+    streamMocks.saveDraft.mockResolvedValue({ ok: true, path: '写作/正文/0003-x.md', words: 5, docId: 'doc_9', snapshotted: false })
+
+    const wrapper = mount(WorkbenchView, {
+      props: { bookName: '书A' },
+      global: {
+        stubs: { ChatPanel: true, WbStateCard: true, WbAdvanced: true, WbHealCard: true, WbUsageCard: true },
+      },
+    })
+    await flushPromises()
+    await wrapper.findComponent(WbDraftCard).find('button').trigger('click')
+    await flushPromises()
+
+    expect(openTabSpy).toHaveBeenCalledWith('doc_9')
+    wrapper.unmount()
   })
 })
 

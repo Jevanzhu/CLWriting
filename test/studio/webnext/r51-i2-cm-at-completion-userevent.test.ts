@@ -130,3 +130,45 @@ describe('重评-P3-14: @ 补全 CJK 区间升全 Han 脚本（扩展平面可�
     w.unmount()
   })
 })
+
+// 五轮重评修复批（F103）：切书拉取失败不清旧名单——A 书成功加载过的 entries 残留
+// B 书编辑器（@ 弹 A 书角色/物品名，且 completionFetchedAt 只在成功路径计龄，TTL 窗
+// 内不重试，陈旧窗最长 5 分钟）。修复：失败且本请求仍是最新 → 清空（空优于错书）。
+describe('F103: 切书补全名单拉取失败 → 清空（不残留上一本书名单）', () => {
+  it('书A 成功加载名单 → 切书B 恰逢请求失败 → @ 不再弹 A 书候选', async () => {
+    const w = mountHost()
+    await settle() // 书A immediate watch 成功（entries = [张三]）
+    vi.mocked(getCompletionNames).mockRejectedValueOnce(new Error('服务瞬时异常'))
+    useWorkspaceStore().bookName = '书B' // 切书 → watch 拉取失败 → 修复点：清空
+    await settle()
+    const view = viewOf(w)
+    view.dispatch({
+      changes: { from: 2, to: 2, insert: '@' },
+      selection: { anchor: 3 },
+      annotations: Transaction.userEvent.of('input.type'),
+    })
+    await settle()
+    // 修复点：失败已清空名单 → '@' 无候选可配（不进 active 展示态）；原实态残留
+    // 「张三」→ source 有结果 → active。空名单下 CM6 保持 pending 待续打（激活但不展示）
+    expect(completionStatus(view.state)).not.toBe('active')
+    expect(w.element.querySelector('.cm-tooltip-autocomplete')).toBeNull()
+    w.unmount()
+  })
+
+  it('对照：切书拉取成功 → 新书名单照常生效（清空守卫不误伤成功路径）', async () => {
+    const w = mountHost()
+    await settle() // 书A 成功（张三）
+    vi.mocked(getCompletionNames).mockResolvedValueOnce({ characters: ['李四'], items: [] })
+    useWorkspaceStore().bookName = '书B' // 切书 → 成功拉到李四
+    await settle()
+    const view = viewOf(w)
+    view.dispatch({
+      changes: { from: 2, to: 2, insert: '@' },
+      selection: { anchor: 3 },
+      annotations: Transaction.userEvent.of('input.type'),
+    })
+    await settle()
+    expect(completionStatus(view.state)).not.toBeNull() // 新名单在位：照常激活
+    w.unmount()
+  })
+})

@@ -31,7 +31,7 @@ import { readChapterUpdatesForChapter, leadEvidenceMatchesBody } from '../check/
 import { openSessionStoreAsync, bookHash, type SessionStore } from '../events/store.js'
 import { structureMergeEvent, structureMergeUndoEvent } from '../events/chain-bridge.js'
 // 0918独立重评修复批（B003）：strict 读失败 reason 组装（errMsg 三目单源，log/index.js）
-import { errMsg } from '../log/index.js'
+import { log, errMsg } from '../log/index.js'
 import type { StructureMergeData, StructureMergeUndoData } from '../events/types.js'
 import {
   fail,
@@ -400,6 +400,17 @@ async function locateLatestMergeEvent(
       }
     }
     return found
+  } catch (e) {
+    // 五轮重评修复批（A102）：迭代段补 catch——open 失败有降级（上方 catch → null 落回
+    // body/disk 定位链），但 iterateEvents 中途抛错（SQLITE_IOERR/库损坏延迟故障）原样
+    // 上抛，穿透 enqueueStructureOp 串行链与路由兜底压成无诊断信息的 500，击穿「undo
+    // 三级定位的第一级」（B404 定位）。第一级故障不应击穿整条链：warn 留痕 + null 降级，
+    // undo 经降级定位仍可完成（无数据损坏——此际 undo 未开始执行）。
+    log.warn(
+      'document',
+      `merge-undo 事件定位迭代失败，落回正文盘面/回收站降级定位（${bookRoot} / ${targetDocId}）：${errMsg(e)}`,
+    )
+    return null
   } finally {
     store.close()
   }

@@ -14,6 +14,9 @@
  * 0918四轮修复批（C404）：①上述失败路径全部 warn 留痕（带路径+病因，不再静默）；
  * ②损坏自愈仅在 providers.json 无 v2 vault 时重建（v2 凭据以本 IKM 封装，重建即
  * 永久不可解——绝不重建，warn 指引），见 loadOrGenerateOsKek/v2VaultPresent 锚注。
+ * 五轮重评修复批（D101）：③丢失形态同判——文件**缺失**且 providers.json 持 v2 vault
+ * 同样不重建（原直达生成路径静默顶替，跨机迁移场景误导用户重配 key 致可恢复凭据
+ * 永久丢失；对称面收口）。
  */
 import { safeStorage } from 'electron'
 import { randomBytes } from 'node:crypto'
@@ -62,6 +65,21 @@ export function loadOrGenerateOsKek(userDataPath: string): Buffer | null {
       // 无 v2 凭据（providers.json 不存在 / vault v1 内置通道）→ 旧 IKM 零消费者，重建
       // 无损：不手删旧文件，直接走下方生成路径原子写顶替
       log.warn('desktop', `os-kek.json 损坏不可解（${sealed.cause}）：${fp}，且 providers.json 无 v2 凭据（重建无损）——已重建 os-kek.json`)
+    } else if (v2VaultPresent(userDataPath)) {
+      // 五轮重评修复批（D101）：**丢失**形态同判（C404② 对称面）——os-kek.json 缺失
+      //（清理工具误删 / 跨机迁移只拷了 providers.json）且 providers.json 持 v2 凭据时，
+      // 原实现直达生成路径：新 IKM 静默落盘顶替、零留痕。旧 IKM 已不在盘，v2 凭据在
+      // 丢失瞬间已不可解（重建与否对数据结局等价，故非「代码导致凭据丢失」），但静默
+      // 重建的增量伤害实存：①下游 vault 报「密文认证失败」误导用户指向 providers.json
+      // 损坏/重装；②跨机迁移场景（原机 os-kek.json 完好、本可恢复）用户被误导重配 key
+      // → saveProviders 覆盖 providers.json，可恢复凭据演化为永久丢失；③「绝不重建」
+      // 防线只护损坏形态，口径不对称。现对齐损坏分诊：不重建，回落内置通道（server 侧
+      // openVault 抛 VaultOsKeyMissingError 引导从桌面应用启动，与损坏形态可区分）。
+      log.warn(
+        'desktop',
+        `os-kek.json 缺失：${fp}，且 providers.json 持有系统钥匙串保护的 vault v2 凭据——不重建（重建 = v2 凭据永久不可解），OS 凭据通道回落内置通道。请从桌面应用启动以恢复 OS 凭据通道（跨机迁移场景须从原机拷贝 os-kek.json）；确需重建须先备份并删除 providers.json。`,
+      )
+      return null
     }
     const hex = randomBytes(32).toString('hex')
     // encryptString 返回 Buffer——JSON 落盘统一 base64（读侧同式解回 Buffer）

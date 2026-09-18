@@ -188,6 +188,38 @@ describe('KEK v2：loadOrGenerateOsKek 装置', () => {
     }
   })
 
+  it('文件缺失 + providers.json 持 v2 vault → null 回落且不落新文件（绝不重建，五轮重评修复批 D101 对称面）', () => {
+    const ud = setup()
+    writeFileSync(
+      join(ud, 'providers.json'),
+      JSON.stringify({ vault: { v: 2, salt: 's', dek: { byOs: { iv: 'i', ct: 'c', tag: 't' } }, keys: {} } }),
+      'utf8',
+    )
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      expect(loadOrGenerateOsKek(ud)).toBeNull()
+      // 原缺陷：缺失形态直达生成路径，新 IKM 静默落盘顶替（跨机迁移场景误导用户重配
+      // key → saveProviders 覆盖 providers.json，可恢复凭据演化为永久丢失）
+      expect(existsSync(join(ud, 'os-kek.json')), '缺失形态不得静默重建落新 IKM').toBe(false)
+      expect(warnSpy.mock.calls.some(([line]) => String(line).includes('不重建'))).toBe(true)
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('文件缺失 + providers.json v1 vault（os IKM 零消费）→ 首启新建语义不变（D101 不误伤零消费者）', () => {
+    const ud = setup()
+    writeFileSync(
+      join(ud, 'providers.json'),
+      JSON.stringify({ vault: { v: 1, salt: 's', dek: { byApp: { iv: 'i', ct: 'c', tag: 't' } }, keys: {} } }),
+      'utf8',
+    )
+    const kek = loadOrGenerateOsKek(ud)
+    expect(kek).not.toBeNull()
+    expect(kek!.length).toBe(32)
+    expect(existsSync(join(ud, 'os-kek.json'))).toBe(true)
+  })
+
   it('可用性翻转 false（已有文件）→ null；恢复 true → 材料不变', () => {
     const ud = setup()
     const first = loadOrGenerateOsKek(ud)!

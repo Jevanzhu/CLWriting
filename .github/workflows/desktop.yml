@@ -61,6 +61,21 @@ jobs:
       - name: 依赖漏洞扫描（npm audit ≥high，web-next 子包）
         continue-on-error: true # 非阻塞起步：基线观察期，连续绿后翻 blocker（四轮-G401）
         run: npm --prefix src/studio/web-next audit --audit-level=high
+      # 五轮重评修复批（H103）：观察档到期硬锚——本文件 audit 双门 + win 腿 e2e/release-smoke
+      # 双观察档（下方 G403 步）+ ci.yml audit 双门的「连续绿后翻 blocker/连续 3 次绿翻阻断」
+      # 承诺此前只存在于注释 prose，无任何机器兑现面（遗忘即无限期不阻断）。过期仍挂观察
+      # 即红（fail-closed 强制复盘：翻正撤 continue-on-error 后本步随锚一并删除，或有意
+      # 延期则修订锚日并批注缘由）。
+      - name: 观察档到期断言（过期未翻阻断即红）
+        shell: bash
+        run: |
+          EXPIRY=2026-10-31
+          TODAY=$(date +%Y-%m-%d)
+          if [[ "$TODAY" > "$EXPIRY" ]]; then
+            echo "::error::观察档已到期（锚日 ${EXPIRY}）：npm audit 双门 / win 腿 e2e·release-smoke 观察档仍挂 continue-on-error 未翻阻断——先复盘翻正（或修订锚日并批注缘由）再重跑"
+            exit 1
+          fi
+          echo "观察档未到期（${TODAY} ≤ ${EXPIRY}）"
       # R0916-6-P2-3（2026-09-16 全库源码重评五轮修复批）：tag 名 ↔ package.json version
       # 一致性门——工作流以 tags: ['v*'] 触发，此前出包前无任何步骤校验两者一致：打 tag
       # v1.0.0 忘 bump version 时，electron-builder 产物名写旧版本（package.json 的
@@ -293,6 +308,21 @@ jobs:
           APP_BIN=$(ls -d dist-electron/mac*/CLWriting.app/Contents/MacOS/CLWriting | head -n1)
           test -x "$APP_BIN" || { echo "::error::未找到打包态可执行体：$APP_BIN"; exit 1; }
           CLW_SMOKE_APP_BIN="$APP_BIN" npm run smoke:electron
+      # 五轮重评修复批（H101）：packaged-app-smoke 接线——此前是零调用方死 spec：env 门
+      # CLWRITING_E2E_RELEASE 只有 test:e2e:release 脚本设且 playwright 只点名 release-smoke
+      # 单文件（本 spec 不在收集集），全仓零执行方，打包态「fontlist 外置二进制 → spawn →
+      # IPC → UI 字体下拉」整链自动化覆盖为零（仅 2026-09-17 mac 实机人工验证在案）。
+      # 此处 build:desktop 产物在位后真跑（打包态 UI 动线冒烟本就该在打包后执行；spec
+      # 自带产物缺失 fail-closed 断言 + CLWRITING_E2E_APP_BIN 覆盖二进制定位）。同上方
+      # 两步口径：放工件上传后，冒烟红仍留 DMG 供排查；APP_BIN 同款 glob（勿硬编码
+      # arch 段）+ test -x 防假绿守卫。
+      - name: 打包态应用冒烟（packaged-app-smoke，UI 动线 · 字体链）
+        if: runner.os == 'macOS'
+        run: |
+          set -eu
+          APP_BIN=$(ls -d dist-electron/mac*/CLWriting.app/Contents/MacOS/CLWriting | head -n1)
+          test -x "$APP_BIN" || { echo "::error::未找到打包态可执行体：$APP_BIN"; exit 1; }
+          CLWRITING_E2E_RELEASE=1 CLWRITING_E2E_APP_BIN="$APP_BIN" npx playwright test test/e2e/packaged-app-smoke.spec.ts
       # J0：win 腿同款启动冒烟——NSIS 产物不解包，拉起 win-unpacked/ 内可执行体（与 .app
       # 同一次 electron-builder 产物、解包态同口径，非安装器复验）。
       # R74-6（二十二轮）：判定对齐 mac 腿三重判（R73-53 口径——进程存活≠启动链走完）：

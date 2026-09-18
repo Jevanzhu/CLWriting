@@ -32,6 +32,8 @@ import { isReviewRunningForBook } from './review.js'
 import type { ChatEvent, EventType, GoalSnapshot, SurfaceOp, Todo } from '../../../events/types.js'
 import { SURFACE_EVENT_TYPES } from '../../../events/types.js'
 import { errMsg } from '../../../log/index.js' // errMsg 收编（复审-0914-优化修复批）：错误文案三目单源
+// B101（五轮重评修复批）：让出原语 + 让出粒度（域内纪律单源——check/snapshots 同款）
+import { yieldToEventLoop, SCAN_YIELD_EVERY } from './progress.js'
 
 interface AuditCtx {
   workDir: string | null
@@ -96,13 +98,17 @@ interface AuditPaging {
 
 const DEFAULT_PAGE_LIMIT = 500
 
-/** 审计视图（对话 + 工作流 + goal/todo 当前态），纯函数——route 薄接线 + 单测直喂 store */
-export function buildAuditView(
+/** 审计视图（对话 + 工作流 + goal/todo 当前态），纯函数——route 薄接线 + 单测直喂 store。
+ *  五轮重评修复批（B101）：改 async——两路全量迭代为同步单 tick 段（iterateEvents 系
+ *  同步生成器逐行 JSON.parse），长书每次打开/翻页审计页都全量重放，期间同进程 SSE 心跳/
+ *  保存/其它请求停摆（Electron 内嵌单进程 = 桌面整体卡顿）。对齐同域逐块让出纪律
+ *  （check.ts R37-3 / snapshots.ts SCAN_YIELD_EVERY），每 25 事件让出一次。 */
+export async function buildAuditView(
   store: SessionStore,
   bookName: string,
   bookRoot: string,
   paging: AuditPaging = { limit: DEFAULT_PAGE_LIMIT, offset: 0 },
-): { conversation: AuditConversation | null; workflowEvents: AuditEvent[]; workflowTotal: number; goals: GoalSnapshot[]; todos: Todo[] } {
+): Promise<{ conversation: AuditConversation | null; workflowEvents: AuditEvent[]; workflowTotal: number; goals: GoalSnapshot[]; todos: Todo[] }> {
   // ── 0918四轮修复批（B402）：全量物化改流式 iterateEvents ──
   // 原两次 store.listEvents 全量物化（含大载荷 llm/call 的 workflow 流逐行 JSON.parse
   // 成对象数组后只取一页）。改单趟流式：只持有①页窗口内条目（≤ limit）与②折叠实需
@@ -123,7 +129,8 @@ export function buildAuditView(
   for (const ev of store.iterateEvents(bookName)) {
     if (inPage(convoTotal)) convoPage.push(ev)
     if (FOLD_INPUT_TYPES.has(ev.type)) convoFold.push(ev)
-    convoTotal++
+    // B101（五轮重评修复批）：同步迭代段按域内纪律逐块让出，长书不再单 tick 冻结事件循环
+    if (++convoTotal % SCAN_YIELD_EVERY === 0) await yieldToEventLoop()
   }
   let conversation: AuditConversation | null = null
   if (convoTotal > 0) {
@@ -168,7 +175,8 @@ export function buildAuditView(
   for (const ev of store.iterateEvents(bookHash(bookRoot))) {
     if (inPage(wsTotal)) wsPage.push(ev)
     if (ev.type === 'goal/change' || ev.type === 'todo/write') wsFold.push(ev)
-    wsTotal++
+    // B101：同上——workflow 流含 llm/call 大载荷行，长书全量重放同款让出
+    if (++wsTotal % SCAN_YIELD_EVERY === 0) await yieldToEventLoop()
   }
   const workflowEvents: AuditEvent[] = wsPage.map((e) => ({
     seq: e.seq,
@@ -281,7 +289,7 @@ export function registerAuditRoutes(ctx: AuditCtx): void {
     }
     if (!store) return replyError(res, 500, 'STORE_UNAVAILABLE', '事件库不可用（无法打开会话存储）')
     try {
-      reply(res, 200, buildAuditView(store, bookName, bookRoot, paging))
+      reply(res, 200, await buildAuditView(store, bookName, bookRoot, paging))
     } finally {
       store.close()
     }

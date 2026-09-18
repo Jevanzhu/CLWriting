@@ -119,3 +119,22 @@ test('R62-4：HTTP 失败 log.warn 留痕 + 同端点 60s 去抖（两次失败�
   expect(warn).toHaveBeenCalledTimes(1) // 第二次落在 60s 去抖窗内，不刷屏
   expect(warn.mock.calls[0]![1]).toContain('HTTP 500')
 })
+
+// ── 五轮重评修复批（C104）：非 2xx 路径显式取消响应体（body 未消费前 undici 连接不回池， ──
+// ── 失败请求原实现钉住 socket 至 body 超时——出站点资源卫生孤例）──
+
+test('C104：HTTP 失败路径取消响应体（连接回池）', async () => {
+  const cancel = vi.fn(async () => {})
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 503, body: { cancel } }) as unknown as Response))
+  await expect(embed('https://fail-cancel.example/embeddings', 'm', 'k', ['正文'])).resolves.toBeNull()
+  expect(cancel).toHaveBeenCalledTimes(1)
+})
+
+test('C104：cancel 拒绝不阻断失败返回（best-effort 兜底）', async () => {
+  const cancel = vi.fn(async () => {
+    throw new Error('stream already cancelled')
+  })
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 429, body: { cancel } }) as unknown as Response))
+  await expect(embed('https://fail-cancel-reject.example/embeddings', 'm', 'k', ['正文'])).resolves.toBeNull()
+  expect(cancel).toHaveBeenCalledTimes(1)
+})

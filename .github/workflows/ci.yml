@@ -80,6 +80,22 @@ jobs:
         continue-on-error: true # 非阻塞起步：基线观察期，连续绿后翻 blocker（四轮-G401）
         run: npm --prefix src/studio/web-next audit --audit-level=high
 
+      # 五轮重评修复批（H103）：观察档到期硬锚——本文件 audit 双门 + desktop.yml audit
+      # 双门 / win 腿 e2e·release-smoke 双观察档的「连续绿后翻 blocker/连续 3 次绿翻阻断」
+      # 承诺此前只存在于注释 prose，无任何机器兑现面（遗忘即无限期不阻断）。过期仍挂
+      # 观察即红（fail-closed 强制复盘：翻正撤 continue-on-error 后本步随锚一并删除，
+      # 或有意延期则修订锚日并批注缘由）。
+      - name: 观察档到期断言（过期未翻阻断即红）
+        shell: bash
+        run: |
+          EXPIRY=2026-10-31
+          TODAY=$(date +%Y-%m-%d)
+          if [[ "$TODAY" > "$EXPIRY" ]]; then
+            echo "::error::观察档已到期（锚日 ${EXPIRY}）：npm audit 双门 / win 腿 e2e·release-smoke 观察档仍挂 continue-on-error 未翻阻断——先复盘翻正（或修订锚日并批注缘由）再重跑"
+            exit 1
+          fi
+          echo "观察档未到期（${TODAY} ≤ ${EXPIRY}）"
+
       - name: 类型检查（tsc --noEmit 零错）
         run: npm run typecheck
 
@@ -311,7 +327,7 @@ jobs:
           [ -n "$SOAK_N" ] || { echo "::error::soak --plan 未输出计划数（应含 plan: N 行）——计数提取失败，按 fail-closed 处理"; exit 1; }
           npm run soak | tee /tmp/soak-output.log
           OK_N=$(grep -c '\[soak\] OK' /tmp/soak-output.log || true)
-          [ "$OK_N" -eq "$SOAK_N" ] || { echo "::error::soak 门 OK 行数=${OK_N} ≠ 计划段数=${SOAK_N}（应为 5 = 段1 有界往返 + 段2 RAG 召回 + 段3 清单重写 + 段4 事件库长会话 + 段5 service save 链〔R0915-4a 补段〕；段失败/SKIP/退出码非零均不得步绿；计数源 = soak.ts --plan，补段只改 soak.ts PLAN_SEGMENTS）——内存门假绿拦截"; exit 1; }
+          [ "$OK_N" -eq "$SOAK_N" ] || { echo "::error::soak 门 OK 行数=${OK_N} ≠ 计划段数=${SOAK_N}（段清单以 soak.ts PLAN_SEGMENTS 为准，勿在本文案枚举段数——五轮重评修复批 H102：原硬编码「应为 5」与 G408 动态计数源脱钩，补段后成假信息，desktop.yml 同款门已是不枚举口径；段失败/SKIP/退出码非零均不得步绿；计数源 = soak.ts --plan，补段只改 soak.ts PLAN_SEGMENTS）——内存门假绿拦截"; exit 1; }
 
       - name: 上传 trace（失败时）
         if: failure()

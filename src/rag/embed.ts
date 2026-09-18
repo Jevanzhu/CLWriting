@@ -99,6 +99,14 @@ export async function embed(
 
     if (!resp.ok) {
       warnEmbedFailure(endpoint, `HTTP ${resp.status}`)
+      // 五轮重评修复批（C104）：非 2xx 响应体未消费前连接不回池（undici 需等 bodyTimeout
+      // 或 GC 兜底才释放）——显式取消，防失败请求钉住 socket。AI 侧两适配器错误路径由
+      // SDK 读 body 构造 APIError，本文件是出站点孤例；cancel 拒绝兜 catch（best-effort）。
+      try {
+        await resp.body?.cancel()
+      } catch {
+        // best-effort：body 已断/已尽等形态不阻断失败返回
+      }
       return null
     }
 

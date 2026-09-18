@@ -193,22 +193,22 @@ export async function appendAborted(journalPath: string, opId: string, reason: s
   maybeCompactJournal(journalPath)
 }
 
-/** 扫 journal，找 pending 但无 settled/aborted 的条目（崩溃恢复用）。非法行跳过。 */
-export function findUnsettled(journalPath: string): JournalAnyPending[] {
-  if (!existsSync(journalPath)) return []
+/**
+ * 内部核（五轮重评修复批 A101）：读 + 解析 journal 未结算条目，读失败返回**可辨信号**
+ * 而非降级空集——两个消费方语义分岔：崩溃恢复扫描（findUnsettled）按 R61-C-1 降级 []
+ * （跳过一轮检查，无害）；compact（maybeCompactJournal）拿到的是「保留集」，空集 =
+ * 清空 journal，见读失败必须整轮放弃（POSIX rename 只需目录写权，可独立于文件读权
+ * 存在）。非法行跳过。
+ */
+function scanUnsettled(
+  journalPath: string,
+): { ok: true; items: JournalAnyPending[] } | { ok: false; cause: string } {
+  if (!existsSync(journalPath)) return { ok: true, items: [] }
   let text: string
   try {
     text = readFileSync(journalPath, 'utf-8')
   } catch (e) {
-    // R61-C-1（六十一轮）：降级不阻断（返回 [] 语义不变——文件级读失败视同本轮恢复
-    // 检查跳过），但必须留痕——原空体 catch 使 journal 在盘却不可读（EACCES/EBUSY 等）
-    // 时崩溃恢复扫描静默归零，作者对丢字风险零感知且无诊断线索；对齐同链路 state.ts
-    // R54-B-1 循环级 warn 口径。
-    log.warn(
-      'journal',
-      `journal 读取失败，本轮崩溃恢复扫描降级跳过（${journalPath}）：${errMsg(e)}`,
-    )
-    return []
+    return { ok: false, cause: errMsg(e) }
   }
   const pending = new Map<string, JournalAnyPending>()
   for (const raw of text.split('\n')) {
@@ -245,7 +245,26 @@ export function findUnsettled(journalPath: string): JournalAnyPending[] {
       pending.delete(obj.opId)
     }
   }
-  return [...pending.values()]
+  return { ok: true, items: [...pending.values()] }
+}
+
+/** 扫 journal，找 pending 但无 settled/aborted 的条目（崩溃恢复用）。非法行跳过。
+ *  R61-C-1（六十一轮）：读失败降级不阻断（返回 [] ——文件级读失败视同本轮恢复检查
+ *  跳过），但必须留痕——原空体 catch 使 journal 在盘却不可读（EACCES/EBUSY 等）时
+ *  崩溃恢复扫描静默归零，作者对丢字风险零感知且无诊断线索；对齐同链路 state.ts
+ *  R54-B-1 循环级 warn 口径。
+ *  A101（五轮重评修复批）：降级 [] 语义**仅限本消费方**——compact 侧走 scanUnsettled
+ *  可辨信号（读失败弃压缩，不得拿空集当保留集清空 journal）。 */
+export function findUnsettled(journalPath: string): JournalAnyPending[] {
+  const scan = scanUnsettled(journalPath)
+  if (!scan.ok) {
+    log.warn(
+      'journal',
+      `journal 读取失败，本轮崩溃恢复扫描降级跳过（${journalPath}）：${scan.cause}`,
+    )
+    return []
+  }
+  return scan.items
 }
 
 /**
@@ -372,7 +391,17 @@ function maybeCompactJournal(journalPath: string): void {
       // N4：锁内基线 stat（行数以 size 折算——任何 append 必改 size，等价且免二次全读）
       const before = statSync(journalPath)
       if (before.size < getJournalCompactBytes()) return
-      const unsettled = findUnsettled(journalPath)
+      // A101（五轮重评修复批）：读失败弃本轮压缩——原复用 findUnsettled 的 [] 降级，
+      // 读失败（EACCES/EBUSY 等，rename 只需目录写权）时 before/after stat 全等、N4
+      // 复核不触发，atomicWriteFile('') 把在档全部未结算 pending（崩溃恢复唯一依据，
+      // 含全文快照）清空、半截正文损坏自此静默存活。现走 scanUnsettled 可辨信号，与
+      // N4「有变即弃」同款 best-effort（下次 settle 再试）。
+      const scan = scanUnsettled(journalPath)
+      if (!scan.ok) {
+        log.warn('journal', `journal 读取失败，本轮压缩放弃（保留原文件不动，${journalPath}）：${scan.cause}`)
+        return
+      }
+      const unsettled = scan.items
       // N4：rename 前重 stat 复核——读算期间若被他进程（锁超时降级裸写的 append 路径）
       // 追加新行（size 变 = 有新行），放弃本轮压缩，新行随原文件完整保留
       const after = statSync(journalPath)

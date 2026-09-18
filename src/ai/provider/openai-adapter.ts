@@ -363,12 +363,16 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
               // SDK 的 Choice 类型未含该字段（非官方），运行时由厂商端点下发
               const choiceUsage = (chunk.choices?.[0] as { usage?: WireUsage } | undefined)?.usage
               const effectiveUsage = usage ?? choiceUsage
+              // 五轮重评修复批（C101）：usage 逐 chunk 统一落账（末见 wins，isRealUsage 闸
+              // 防空对象覆盖不变）——原只在 usage-only chunk 与 finish_reason chunk 两点
+              // 写 latestUsage，「choice 在、finish_reason 不在」的先行 usage chunk（非标
+              // 网关把 usage 放首个 content chunk、末 chunk 只带 finish_reason 不重复携带）
+              // 被静默丢弃，流末落估计入账（estimated:true），预算闸/成本报表精度受损。
+              // R26-3：不即席 emit——记入 latestUsage，流末统一取最新值 emit（口径不变）
+              if (isRealUsage(effectiveUsage)) latestUsage = effectiveUsage
               const choice = chunk.choices?.[0]
               if (!choice) {
-                // usage-only chunk（最后一个 chunk 只含 usage）
-                // R26-3：不再此处即席 emit——usage 记入 latestUsage，流末统一取最新值 emit
-                // R36-14：空 usage 对象不覆盖真实计量（isRealUsage 闸，见其注）
-                if (isRealUsage(effectiveUsage)) latestUsage = effectiveUsage
+                // usage-only chunk（最后一个 chunk 只含 usage）——落账已在上方统一完成
                 continue
               }
 
@@ -445,10 +449,8 @@ export function createOpenAIProviderChat(conf: ProviderConf, client?: OpenAI, st
                   : choice.finish_reason === 'length' ? 'max_tokens'
                   : choice.finish_reason
                 sawFinishReason = true
-                // finish_reason chunk 自带 usage（非 include_usage 模式）→ 记入 latestUsage
-                //（R26-3：done 延后到流末统一 emit，见循环后注）
-                // R36-14：空 usage 对象不覆盖真实计量（isRealUsage 闸，见其注）
-                if (isRealUsage(effectiveUsage)) latestUsage = effectiveUsage
+                // finish_reason chunk 自带 usage（非 include_usage 模式）→ 已在循环头
+                // 统一落账（C101，末见 wins）——此处无需重复写 latestUsage
                 // 无 usage → 等 usage-only chunk；若不来由 stream 结束兜底
               }
             }

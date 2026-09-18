@@ -15,6 +15,9 @@ import { listSkills, formatSkillIndex } from '../../process/skills.js'
 // P-6（第十四轮）：章正文剥 fm 与 format 层同源——此前手写宽松正则
 // /^---[\s\S]*?---\n?/ 会把「无 fm 但正文含两处 --- 分隔线」的手写稿吞掉中段
 import { bodyOf } from '../../format/frontmatter-core.js'
+// 五轮重评修复批（C102）：码点口径单源（clipByCodePoints 截断 / codePointLength 计量）
+import { clipByCodePoints } from '../../process/summary.js'
+import { codePointLength } from '../../shared/text.js'
 // G2-2 链路侧接线：可见注入收集器用 events 层的指纹/类型（lineage 只依赖 node:crypto
 // 与自身 types，无环；ai 层引 events 与 orchestrate/chat.ts 既有方向一致）
 import { digest16, type VisibleInjection } from '../../events/lineage.js'
@@ -183,9 +186,14 @@ function buildKnowledgeContext(bookRoot: string, files: string[]): string | unde
     if (!resolved || !existsSync(resolved.abs)) continue
     try {
       let body = bodyOf(readFileSync(resolved.abs, 'utf-8'))
-      if (body.length > KNOWLEDGE_FILE_CAP) body = `${body.slice(0, KNOWLEDGE_FILE_CAP)}\n…（超长截断）`
-      if (total + body.length > KNOWLEDGE_TOTAL_CAP) break
-      total += body.length
+      // 五轮重评修复批（C102）：码点口径（与上方预算帽注释「单篇码点/合计码点」一致）
+      // ——原 body.length/slice 按 UTF-16 码元计，截断点恰落代理对（emoji/扩展区汉字）
+      // 中间产出孤立代理进 system prompt，且合计帽提前误触发；仓内同族截断
+      // （clipByCodePoints/codePointLength）均已收码点口径，此处单源接入。
+      if (codePointLength(body) > KNOWLEDGE_FILE_CAP) body = `${clipByCodePoints(body, KNOWLEDGE_FILE_CAP)}\n…（超长截断）`
+      const bodyLen = codePointLength(body)
+      if (total + bodyLen > KNOWLEDGE_TOTAL_CAP) break
+      total += bodyLen
       parts.push(`### ${entry.target}\n${body}`)
       files.push(entry.target)
     } catch {

@@ -119,6 +119,47 @@ describe('Responses 适配器（R1-R4）', () => {
     expect(evs.some((e) => e.type === 'done')).toBe(false)
   })
 
+  // 五轮重评修复批（C103）：伪流 + 工具产出形态——completed.output 只含 function_call
+  //（无 output_item.done 流出）→ 回填 tool 事件 + done(tool_use)。原实现回填只处理
+  // message 项，此形态无 tool 事件且 hasOutput 判 true 正常 emitDone，工具型调用方拿
+  // input:null 报「产出为空或非对象」。
+  it('C103 伪流 completed 只含 function_call → 回填 tool 事件 + done(tool_use)', async () => {
+    const { client } = fakeResponsesClient(() => [
+      {
+        type: 'response.completed',
+        response: {
+          output: [{ type: 'function_call', call_id: 'call_x', name: 'submit_chapter', arguments: '{"标题":"x"}' }],
+          usage: { input_tokens: 1, output_tokens: 1 },
+        },
+      },
+    ])
+    const evs = await collect(createOpenAIResponsesProvider(RCONF, client), REQ)
+    expect(evs.find((e) => e.type === 'tool')).toMatchObject({
+      type: 'tool',
+      id: 'call_x',
+      name: 'submit_chapter',
+      input: { 标题: 'x' },
+    })
+    expect(evs.find((e) => e.type === 'done')).toMatchObject({ type: 'done', stopReason: 'tool_use' })
+  })
+
+  // C103 对照组：正常流已 yield 过 tool（output_item.done 臂）→ completed 回填不重复
+  it('C103 正常流 tool 已产出 → completed 不重复回填', async () => {
+    const { client } = fakeResponsesClient(() => [
+      { type: 'response.output_item.done', item: { type: 'function_call', call_id: 'call_y', name: 'toolA', arguments: '{"a":1}' } },
+      {
+        type: 'response.completed',
+        response: {
+          output: [{ type: 'function_call', call_id: 'call_y', name: 'toolA', arguments: '{"a":1}' }],
+          usage: { input_tokens: 1, output_tokens: 1 },
+        },
+      },
+    ])
+    const evs = await collect(createOpenAIResponsesProvider(RCONF, client), REQ)
+    expect(evs.filter((e) => e.type === 'tool')).toHaveLength(1)
+    expect(evs.find((e) => e.type === 'done')).toMatchObject({ type: 'done', stopReason: 'tool_use' })
+  })
+
   // T4 incomplete 且 reason 非 max_output_tokens → error 含该 reason，不发 done
   it('T4 incomplete content_filter → error 含 content_filter，无 done', async () => {
     const { client } = fakeResponsesClient(() => [

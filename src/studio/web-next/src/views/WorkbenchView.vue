@@ -362,6 +362,12 @@ async function onSaveDraft(): Promise<void> {
     draftSaved.value = { words: countWords(wb.textOut) } // R64-33：与草稿卡同源口径
     // 树重拉后新草稿在「写作」组；openTab 切编辑器视图 + 激活文档
     await tree.load(book)
+    // 五轮重评修复批（F101）：第二 await 窗补守卫（对齐 useChapterTreeStructure
+    // onSplitCommit 的 stillIn 口径）——L-F1 锚注点名的 tree.load/openTab/toast 三件，
+    // 原守卫只堵 saveDraft POST 一窗；tree.load 在途（大书树 GET 秒级）切书后，
+    // openTab 会把 A 书草稿 docId 劫持进 B 书工作区（activeView/activeDocId 强切 +
+    // 500ms 后 writeBookPrefs 把 A 书 docId 落进 B 书 prefs.json），成功 toast 落错书。
+    if (props.bookName !== book) return // 已切书：同上，不再动 B 界面
     refreshCachedDoc(doc, r.docId) // R26-17：同 healResult——缓存命中（clean）时先异步重拉再开
     ws.openTab(r.docId)
     ui.toast(`第 ${chap} 章草稿已存，转到编辑`, 'success')

@@ -163,6 +163,26 @@ describe('OpenAI 适配器', () => {
     expect(evs.find((e) => e.type === 'done')).toMatchObject({ type: 'done', usage: { inputTokens: 8, outputTokens: 4 } })
   })
 
+  // 五轮重评修复批（C101）：usage 随先行 content chunk 到（choice 在、finish_reason 不在）、
+  // 末 chunk 只带 finish_reason 不重复携带 → 实测 usage 不得被静默丢弃（原实现只在
+  // usage-only 与 finish_reason 两 chunk 落账，此形态降级估计入账 estimated:true）
+  it('usage 先行挂 content chunk、finish chunk 不重复携带 → done 带实测 usage（C101）', async () => {
+    const client = {
+      chat: {
+        completions: {
+          create: fakeSend([
+            { choices: [{ delta: { content: 'x' }, finish_reason: null }], usage: { prompt_tokens: 7, completion_tokens: 3 } },
+            { choices: [{ delta: {}, finish_reason: 'stop' }] },
+          ]),
+        },
+      },
+    } as unknown as OpenAI
+    const evs = await collect(createOpenAIProvider(CONF, client), REQ)
+    const done = evs.find((e) => e.type === 'done')
+    expect(done).toMatchObject({ type: 'done', usage: { inputTokens: 7, outputTokens: 3 } })
+    expect((done as { usage: { estimated?: boolean } }).usage.estimated, '实测计量不得降级估计口径').toBeUndefined()
+  })
+
   it('APIError 5xx → error 事件 retryable=true；message 带脱敏状态码', async () => {
     const err = new OpenAI.APIError(500, { type: 'error', message: 'server meltdown' }, 'server meltdown', undefined)
     const client = { chat: { completions: { create: () => Promise.reject(err) } } } as unknown as OpenAI

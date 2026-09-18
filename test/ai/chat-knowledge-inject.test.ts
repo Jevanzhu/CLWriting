@@ -107,8 +107,23 @@ describe('知识层方法论注入（buildChatContext）', () => {
     expect(ctx.files).toHaveLength(3)
   })
 
-  it('防越界 fail-closed：target 越出书根跳过，不注入也不崩', () => {
+  // 五轮重评修复批（C102）：截断口径收码点——原 body.length/slice 按 UTF-16 码元，
+  // 截断点恰落代理对中间产出孤立代理进 system prompt，且合计帽按码元提前误触发
+  it('C102：截断点恰落代理对中间 → 码点口径截断，astral 字符完整、孤立代理不进 prompt', () => {
     const root = makeBook()
+    // 1999 BMP 码点 + astral 𝄞（U+1D11E，UTF-16 占 2 码元）+ 1 BMP：
+    // 码元口径 slice(0,2000) 恰把 𝄞 劈半产出孤立高代理；码点口径截断保头 2000 码点含完整 𝄞
+    const long = '好'.repeat(1999) + '\u{1D11E}' + '尾'
+    seedKnowledge(root, { '知识层/方法论/含表情.md': long }, [{ target: '知识层/方法论/含表情.md', category: '方法论' }])
+    const ctx = buildChatContext(root)
+    expect(ctx.knowledge).toBeDefined()
+    expect(ctx.knowledge).toContain('…（超长截断）')
+    expect(ctx.knowledge!, '码点口径：截断保头 2000 码点，astral 字符完整保留').toContain('\u{1D11E}')
+    const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
+    expect(lone.test(ctx.knowledge!), '不得有孤立代理项').toBe(false)
+  })
+
+  it('防越界 fail-closed：target 越出书根跳过，不注入也不崩', () => {    const root = makeBook()
     seedKnowledge(
       root,
       { '知识层/方法论/合法.md': '合法资产。' },
