@@ -467,6 +467,93 @@ function locateMergeByBody(bookRoot: string, mergedInto: number[]): MergeUndoLoc
   return { sourceDocId: hit.id, sourceChapterNo: hit.no, trashEntryId: '', planHash: '' }
 }
 
+/** 0918独立重评二轮修复批（B105）：撤销半完成态定位（并入 已空形态的 undo 续跑）——
+ *  单次合并 undo 走到「①目标已回滚（fm 并入 随内容整体消失）+ ②还原源章失败
+ *  （OCCUPIED 等）」中间态：目标 fm 无 并入 + 源章仍在回收站。三重核对后才认领
+ *  （任何一环对不上 = 不可识别态，维持 NOT_MERGE_STATE fail-closed 交作者）：
+ *  1. 事件副录：最近一条未被 merge-undo 撤销的 structure.merge（完整撤销后
+ *     merge-undo 事件在档 → null，天然防「已完整撤销后再次 undo」误续跑）；
+ *  2. 回收站：条目仍在盘且章号与事件源章号对齐（人工已还原/条目被处置 → null）；
+ *  3. 版本指纹：目标盘面字节 == 回滚版本内容（rollbackSnapshotId 缺失走版本推演
+ *     兜底）——防「作者手工摘 并入 键但目标仍是合并后内容」形态误续跑（该形态还原
+ *     源章会让正文双份）。
+ *  与 B002 定位链协同：body/disk 两定位均以 并入 非空为前提（并入 已空进不来），
+ *  本定位是并入已空形态的独立入口，不改写它们的择最新语义。 */
+async function locateUndoHalfDone(
+  userDataPath: string | null,
+  bookRoot: string,
+  targetDocId: string,
+  t: ChapterDiskState,
+): Promise<MergeUndoLocator | null> {
+  const loc = await locateLatestMergeEvent(userDataPath, bookRoot, targetDocId)
+  if (loc === null) return null
+  let entries: TrashEntry[]
+  try {
+    entries = readTrashManifestStrict(bookRoot)
+  } catch {
+    // strict 读失败（瞬态占用）：不可判 = 不可续跑（B003 口径——fail-closed 不做修改）
+    return null
+  }
+  const entry = entries.find((e) => e.id === loc.trashEntryId)
+  if (entry === undefined) return null
+  if (chapterNoFromEntryPath(entry.originalPath) !== loc.sourceChapterNo) return null
+  const versionsDir = join(bookRoot, VERSIONS_DIR_REL)
+  let rollbackId = loc.rollbackSnapshotId
+  if (rollbackId === undefined || readVersionRaw(versionsDir, targetDocId, rollbackId) === null) {
+    rollbackId = newestVersionWithoutSource(bookRoot, targetDocId, loc.sourceChapterNo) ?? undefined
+  }
+  if (rollbackId === undefined) return null
+  const snap = readVersionRaw(versionsDir, targetDocId, rollbackId)
+  if (snap === null) return null
+  if (!snap.content.equals(t.bytes)) return null
+  return { ...loc, rollbackSnapshotId: rollbackId }
+}
+
+/** 0918独立重评二轮修复批（B105）：undo 收尾段（②还原源章 + ③事件 + ④RAG 指纹
+ *  失效 + ⑤缓存失效）——常规路径（回滚后）与半完成态续跑（并入 已空、回滚已在前次
+ *  完成）共用；rollbackId 为本次撤销实际采用的回滚版本（事件载荷留档）。 */
+async function finishUndo(
+  bookRoot: string,
+  userDataPath: string | null,
+  targetDocId: string,
+  targetChapterNo: number,
+  loc: MergeUndoLocator,
+  rollbackId: string | undefined,
+  rag: StructureRagPort,
+): Promise<MergeUndoResult> {
+  // ② 还原源章：S5 ①后崩溃形态（正文盘面定位，trashEntryId 空）源章存活正文无需
+  // 还原；常规形态 restoreTrash（OCCUPIED 等失败透传——目标已回滚，重试直接进本
+  // 分支续跑；restoreTrash 自带 R65-36 字节一致幂等续跑）
+  if (loc.trashEntryId !== '') {
+    const restored = await restoreTrash(bookRoot, loc.trashEntryId)
+    if (!restored.ok) {
+      return fail(restored.code, `目标章已回滚（并入 已摘），但源章还原失败：${restored.reason}——重试将自动续跑收尾`)
+    }
+  }
+  // ③ 事件 + ④ RAG 指纹失效（目标章内容已变；源章下轮 buildIndex 按 missingFingerprint
+  // 重嵌）+ ⑤ 缓存失效
+  const undoData: StructureMergeUndoData = {
+    op: 'merge-undo',
+    targetDocId,
+    sourceDocId: loc.sourceDocId,
+    sourceChapterNo: loc.sourceChapterNo,
+    trashEntryId: loc.trashEntryId,
+    ...(rollbackId !== undefined ? { rollbackSnapshotId: rollbackId } : {}),
+    planHash: loc.planHash,
+  }
+  await recordStructureEvents(userDataPath, bookRoot, [structureMergeUndoEvent(undoData)])
+  rag.cleanupRagAfterMerge(bookRoot, [], targetChapterNo)
+  invalidateTreeIndex(bookRoot, true)
+  return {
+    ok: true,
+    targetDocId,
+    sourceDocId: loc.sourceDocId,
+    sourceChapterNo: loc.sourceChapterNo,
+    trashEntryId: loc.trashEntryId,
+    planHash: loc.planHash,
+  }
+}
+
 export async function undoChapterMerge(
   bookRoot: string,
   svc: DocumentService,
@@ -478,7 +565,18 @@ export async function undoChapterMerge(
   const t = await readChapterState(svc, bookRoot, targetDocId)
   if (!('章号' in t)) return t
   if (t.并入.length === 0) {
-    return fail('NOT_MERGE_STATE', '该章 fm 无 并入 登记（不是合并目标或已撤销）')
+    // 0918独立重评二轮修复批（B105）：并入 已空不再直接 fail——单次合并 undo 走到
+    // 「目标已回滚、源章还原失败（OCCUPIED 等）」半完成态后，重试从函数头进来此前
+    // 必死本门报「已撤销」，收尾段「重试将自动续跑收尾」的承诺不可达（源章滞留回收
+    // 站只能手工发现）。先识别半完成态（locateUndoHalfDone 三重核对），命中则跳过
+    // 回滚步（目标已是回滚后内容——版本指纹已核对）直接续 restoreTrash 段；识别不出
+    // 维持原 NOT_MERGE_STATE 文案。链式合并（回滚版本仍含前次 并入，过得了下方门）
+    // 与 B002 定位链（body/disk 均以 并入 非空为前提）语义不受影响。
+    const half = await locateUndoHalfDone(userDataPath, bookRoot, targetDocId, t)
+    if (half === null) {
+      return fail('NOT_MERGE_STATE', '该章 fm 无 并入 登记（不是合并目标或已撤销）')
+    }
+    return finishUndo(bookRoot, userDataPath, targetDocId, t.章号, half, half.rollbackSnapshotId, rag)
   }
   let loc: MergeUndoLocator | null = null
   if (
@@ -522,6 +620,8 @@ export async function undoChapterMerge(
   // ① 目标章版本回滚：origin 'restore' 强制留底——「合并后作者新修改」先留底成版本
   // 不丢；fm 随内容整体回滚，并入 键自然消失（patchFlatFm 无删键缺口就此消解）。
   // 中途态不变量：此刻源章仍在回收站，「并入 所指章不存活」未违反。
+  // 0918独立重评二轮修复批（B105）：回滚后若还原失败，目标处于「并入 已空 + 已回滚」
+  // 半完成态——重试经并入门内 locateUndoHalfDone 识别续跑（本段不再重复执行）。
   if (!existsSync(t.abs)) return fail('NOT_FOUND', `目标章文件不存在：${t.path}`)
   const rolled = await svc.save(targetDocId, t.path, {
     content,
@@ -533,35 +633,6 @@ export async function undoChapterMerge(
     reason: `撤销合并：回滚第${loc.sourceChapterNo}章并入前版本`,
   })
   if (!rolled.ok) return fail(rolled.code, rolled.reason)
-  // ② 还原源章：S5 ①后崩溃形态（正文盘面定位，trashEntryId 空）源章存活正文无需
-  // 还原；常规形态 restoreTrash（OCCUPIED 等失败透传——目标已回滚，重试直接进本
-  // 分支续跑；restoreTrash 自带 R65-36 字节一致幂等续跑）
-  if (loc.trashEntryId !== '') {
-    const restored = await restoreTrash(bookRoot, loc.trashEntryId)
-    if (!restored.ok) {
-      return fail(restored.code, `目标章已回滚（并入 已摘），但源章还原失败：${restored.reason}——重试将自动续跑收尾`)
-    }
-  }
-  // ③ 事件 + ④ RAG 指纹失效（目标章内容已变；源章下轮 buildIndex 按 missingFingerprint
-  // 重嵌）+ ⑤ 缓存失效
-  const undoData: StructureMergeUndoData = {
-    op: 'merge-undo',
-    targetDocId,
-    sourceDocId: loc.sourceDocId,
-    sourceChapterNo: loc.sourceChapterNo,
-    trashEntryId: loc.trashEntryId,
-    ...(rollbackId !== undefined ? { rollbackSnapshotId: rollbackId } : {}),
-    planHash: loc.planHash,
-  }
-  await recordStructureEvents(userDataPath, bookRoot, [structureMergeUndoEvent(undoData)])
-  rag.cleanupRagAfterMerge(bookRoot, [], t.章号)
-  invalidateTreeIndex(bookRoot, true)
-  return {
-    ok: true,
-    targetDocId,
-    sourceDocId: loc.sourceDocId,
-    sourceChapterNo: loc.sourceChapterNo,
-    trashEntryId: loc.trashEntryId,
-    planHash: loc.planHash,
-  }
+  // ②③④⑤ 收尾段（B105：提取 finishUndo 与半完成态续跑共用）
+  return finishUndo(bookRoot, userDataPath, targetDocId, t.章号, loc, rollbackId, rag)
 }

@@ -286,7 +286,14 @@ export async function tryBooksLockAsync(workDir: string): Promise<(() => void) |
   }
 }
 
-/** 追加一本书到 books.jsonl（不改 active）。同名已存在则报冲突。 */
+/** 追加一本书到 books.jsonl（同名/目录占用则报冲突）。
+ *  0918二轮修复批（G104）：active 指针随登记在**同一 books.lock 临界段**内写——
+ *  此前 appendBook 只登记、writeActive 由调用方（doInit/doInitAsync）在锁外裸写，
+ *  双进程并发建书时两个「登记→切指针」段交错，active 被先释放锁的一方事后覆盖
+ *  （最后写者胜，指针指向非最后完成的书）。生产调用面（doInit/doInitAsync 两孪生）
+ *  全部是「建书即切活动书」语义（grep 核实无「只登记不切 active」调用点），故
+ *  无条件写入不加选项参数。active 写失败按 R44-18 口径报「已建成并登记成功，但
+ *  设置当前活动书失败」（登记在盘，从书架手动启用即可）。 */
 export function appendBook(
   workDir: string,
   entry: BookEntry,
@@ -329,7 +336,9 @@ export async function appendBookAsync(
   }
 }
 
-/** 持锁后的追加主体（R63-2 拆出——同步/异步获取者共用，结果语义单源）。 */
+/** 持锁后的追加主体（R63-2 拆出——同步/异步获取者共用，结果语义单源）。
+ *  0918二轮修复批（G104）：登记写 + active 指针写合为本持锁段内的两步原子面
+ *  （writeActive 此前在调用方锁外裸写，见 appendBook 头注）。 */
 function appendBookLocked(workDir: string, entry: BookEntry): { ok: true } | { ok: false; reason: string } {
   // DA-3（第七轮）：读失败（null）拒绝重写——降级空表会让 writeBooks 只写进新书一行，
   // 其余登记全被清掉（repairBooks 扫盘可重建兜底，但期间书架丢书）
@@ -362,7 +371,20 @@ function appendBookLocked(workDir: string, entry: BookEntry): { ok: true } | { o
   try {
     writeBooks(workDir, next)
   } catch (e) {
-    return { ok: false, reason: `books.jsonl 写入失败（权限或磁盘故障），登记未落盘——请检查磁盘空间/权限后重试：${e instanceof Error ? e.message : String(e)}` }
+    // 0918二轮修复批（G104）顺手收编：错误文案三目改 errMsg 单源（复审-0914 口径）
+    return { ok: false, reason: `books.jsonl 写入失败（权限或磁盘故障），登记未落盘——请检查磁盘空间/权限后重试：${errMsg(e)}` }
+  }
+  // 0918二轮修复批（G104）：active 指针写收进本临界段（此前由 doInit/doInitAsync
+  // 在锁外调 writeActive——双进程并发建书最后写者胜）。失败语义沿 R44-18
+  // writeActiveGuarded 原口径（该包装随收编拆除，文案单源迁此）：登记已落盘，
+  // 按「登记在、active 未写」给可行动 reason，防作者重试撞「已有一本叫…」误导。
+  try {
+    writeActive(workDir, entry.name)
+  } catch (e) {
+    return {
+      ok: false,
+      reason: `书「${entry.name}」已建成并登记成功，但设置当前活动书失败（${errMsg(e)}）——书已在书架中，从书架启用该书即可，无需重建（重跑同名建书会提示已存在）`,
+    }
   }
   return { ok: true }
 }

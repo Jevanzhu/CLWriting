@@ -57,7 +57,10 @@ function stripMd(fileName: string): string {
   return last.toLowerCase().endsWith('.md') ? last.slice(0, -3) : last
 }
 
-/** 从文件名提取章号（写作/正文/152-北境的雪.md → {章号:152, 标题:'北境的雪'}）。 */
+/** 从文件名提取章号（写作/正文/152-北境的雪.md → {章号:152, 标题:'北境的雪'}）。
+ *  0918独立重评二轮修复批（B102）：守卫语义与 filename.ts chapterNoFromName 单源
+ *  对齐（单源同批下沉同款 isSafeInteger 守卫）；正则维持分立不强并——本版须
+ *  `数字-标题` 严格形（连带产出标题段）且本文件零 Node 依赖供浏览器 import。 */
 export function parseChapterFileName(
   fileName: string,
 ): { 章号: number; 标题: string } | null {

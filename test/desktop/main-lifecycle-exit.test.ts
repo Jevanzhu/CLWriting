@@ -190,6 +190,53 @@ describe('kk-P2-8：退出与边界分支', () => {
     expect(child['posted']).toContainEqual({ type: 'shutdown' })
   })
 
+  // 0918二轮修复批（C107）：重复信号硬退出口——SIGINT/SIGBREAK/SIGTERM 注册后 Node
+  // 默认退出取消，重复信号被 quit 链幂等门（quitViaShutdown/beginShutdown）吸收，
+  // 优雅链最坏 ~10s 内二次 Ctrl+C 无效。修复 = 信号响应逻辑抽 signal-hard-exit.ts
+  //（单元测试见 test/desktop/repeated-signal-hard-exit.test.ts），main.ts 三行接线；
+  // 同型第二次直接 killNow + exit(1)（「先 kill 再硬退」对齐 uncaughtException 处理器
+  // R0912-3 #35 口径，防 utilityProcess 孤儿）。process.on spy 捕获直驱 + process.exit
+  // mock（真退会杀 worker），先例 R44-17（main-window-resilience.test.ts）。
+  it('C107（0918二轮修复批）：同型信号第二次 → killNow + exit(1) 硬退；首次仍走 app.quit 优雅链', async () => {
+    const registered: Record<string, Array<(...a: unknown[]) => void>> = {}
+    const onSpy = vi
+      .spyOn(process, 'on')
+      .mockImplementation(((evt: string | symbol, fn: (...a: unknown[]) => void) => {
+        ;(registered[String(evt)] ??= []).push(fn)
+        return process
+      }) as never)
+    // 真 exit 会杀死 vitest worker——mock 掉只断言调用（R44-17 手法）
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never)
+    try {
+      vi.resetModules()
+      await import('../../src/desktop/main.js')
+      await new Promise((r) => setImmediate(r))
+      await new Promise((r) => setImmediate(r))
+      const handlers = registered['SIGINT'] ?? []
+      // main.ts 接线形态 `() => onExitSignal('SIGINT')`——零参箭头；uncaughtException
+      // 等处理器带参，按 fn.length 分流锁定信号处理器
+      const h = handlers.find((f) => f.length === 0)
+      expect(h, 'main.ts 应注册零参 SIGINT 处理器').toBeTruthy()
+      const child = M.forkChildren.at(-1)!
+      const quit0 = M.quitCalls
+      const killed0 = child['killed'] as number
+      const err0 = M.logErrors.length
+      h!()
+      expect(M.quitCalls).toBe(quit0 + 1) // 首次：优雅退出链（单次语义不变）
+      expect(exitSpy).not.toHaveBeenCalled()
+      expect(child['killed']).toBe(killed0) // 优雅链不强杀 child
+      h!() // 第二次同型：硬退出口
+      expect(child['killed']).toBeGreaterThan(killed0) // killNow 先行（在途 child 同步 kill）
+      expect(exitSpy).toHaveBeenCalledWith(1)
+      expect(
+        M.logErrors.slice(err0).some((l) => String((l as unknown[])[1]).includes('SIGINT')),
+      ).toBe(true) // 硬退留痕
+    } finally {
+      exitSpy.mockRestore()
+      onSpy.mockRestore()
+    }
+  })
+
   // 批 U3：崩溃风暴接线——manager 退避（默认 0/5s/15s，fake timers 快进）+ main 的
   // 封顶对话框（onRestartExhausted →「重启服务/退出应用」；R1010-P3 G7-② 改走异步
   // showMessageBox——同步版泵原生嵌套消息循环冻结主进程，断言面随之换 msgBox）

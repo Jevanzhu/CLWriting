@@ -338,3 +338,41 @@ describe('R51-A-4: saveCurrent 抛错不再绕过 {ok,reason} 契约', () => {
     vi.resetModules()
   })
 })
+
+// ── 0918二轮修复批（C102）：switch-library 相对路径拒收 ──────────────────────
+// handler 原只验 typeof string——'./foo' 类相对路径恰存在于主进程 cwd 时可过
+// probeDirReachable/canSwitchLibraryDir 守卫（statSync/findWorkDir 均按 cwd 解析）并
+// 原样落库 workdir.json，下次经不同 cwd 启动书库定位漂移。入口加 path.isAbsolute
+// 校验，BAD_INPUT 人话错误。
+describe('switch-library 相对路径拒收（C102）', () => {
+  it('./foo 相对路径 → {ok:false} 绝对路径人话错误；不落库不重启', async () => {
+    vi.resetModules()
+    await import('../../src/desktop/main.js')
+    await new Promise((r) => setImmediate(r))
+    await new Promise((r) => setImmediate(r))
+    const rel0 = M.relaunchCalls
+    const raw0 = readFileSync(join(M.userData, 'workdir.json'), 'utf-8')
+    const r = (await M.ipcHandle['desktop:switch-library']!(trustedEvent(), './foo')) as {
+      ok: boolean
+      reason?: string
+    }
+    expect(r.ok).toBe(false)
+    expect(String(r.reason)).toContain('必须是绝对路径') // 人话错误（修复前：'目录无效…'守卫文案）
+    expect(M.relaunchCalls).toBe(rel0) // 未触重启链
+    expect(readFileSync(join(M.userData, 'workdir.json'), 'utf-8')).toBe(raw0) // workdir.json 未被改写
+  })
+
+  it('绝对路径照常走可达性/守卫链（不被新校验误伤）', async () => {
+    vi.resetModules()
+    await import('../../src/desktop/main.js')
+    await new Promise((r) => setImmediate(r))
+    await new Promise((r) => setImmediate(r))
+    const r = (await M.ipcHandle['desktop:switch-library']!(
+      trustedEvent(),
+      join(M.userData, 'c102-abs-not-exist'),
+    )) as { ok: boolean; reason?: string }
+    expect(r.ok).toBe(false)
+    // 走的是既有守卫文案（目录无效/暂不可达），非新校验的「绝对路径」错误
+    expect(String(r.reason)).not.toContain('必须是绝对路径')
+  })
+})

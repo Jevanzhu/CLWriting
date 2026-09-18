@@ -278,7 +278,11 @@ export function resolveChatSendBudget(contextWindow?: number): number {
 /** R57-B-1（五十七轮）：发送预算扣除 system prompt 后「历史可用码点」的具名下限——
  *  sys 超大（重设定书场景）把差额挤负时 clamp 到此值（与 TRIM_TAIL_BUDGET_POINTS 同
  *  量级，约保一个回合），宁可切后总量仍超、走切后复查 warn（fail-open 语义），也不把
- *  历史压成空手发送。 */
+ *  历史压成空手发送。
+ *  0918二轮修复批（A101）：消费侧（turns.ts）取下限时先与 sendBudget 取 min——
+ *  contextWindow < 40k 的小窗模型 sendBudget 本身低于此下限，恒 clamp 到 20k 会高于
+ *  发送预算本身（发送防线对 [sendBudget, 20k] 区间失效、A7 收缩重试预算仍超窗）；
+ *  下限随预算收缩后 historyBudget 恒 ≤ sendBudget。 */
 export const CHAT_HISTORY_MIN_BUDGET_POINTS = 20_000
 
 /** R57-B-1（五十七轮）：纯文本码点计量——measurePoints 同族口径（中文 ≈1 码点/token

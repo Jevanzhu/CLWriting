@@ -276,6 +276,10 @@ vi.mock('electron', () => {
         fromWebContents: (wc: unknown) =>
           M_hoisted.windows.find((w) => (w._wc ?? w.webContents) === wc) ?? null,
         getFocusedWindow: () => M_hoisted.focusedWin,
+        // 0918二轮修复批（C105）：getAllWindows 假件（对齐真实 API 面，返回未销毁窗；
+        // action() 首窗回退在 C105 修复前是唯一消费点——修复后生产零调用，仅供回归
+        // 用例复刻「修复前回退首窗」的对照形态）。
+        getAllWindows: () => M_hoisted.windows.filter((w) => !w.closed),
       },
     ),
     session: {

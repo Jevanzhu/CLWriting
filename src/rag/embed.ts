@@ -7,6 +7,7 @@
  * 此前全静默，作者只见「召回为空」无从定位）。
  */
 
+import process from 'node:process'
 import { log } from '../log/index.js'
 
 /** embedding 调用结果（null = 失败/降级） */
@@ -22,6 +23,26 @@ export interface EmbedOptions {
 
 /** 每端点失败留痕去抖（60s 窗口内同端点只留痕一次——分批索引失败不刷屏） */
 const lastWarnAt = new Map<string, number>()
+
+// ── 0918二轮修复批（G102）：出站代理环境变量一次性检测 warn（真修缓办留痕） ──
+// 背景：Node 内置 fetch（bundled undici）不读 HTTPS_PROXY 系环境变量，全库出站点
+// （本函数内置 fetch、AI SDK 实例化）配了系统/环境代理也直连。真修需挂
+// EnvHttpProxyAgent/ProxyAgent——Node 全局面不暴露 dispatcher 符号（v26 实证：
+// globalThis 无 Agent/Dispatcher 类、node:http 无 ProxyAgent），只能新增运行时依赖
+// npm undici 并改用其自带 fetch（npm 版 setGlobalDispatcher 管不到内置 global
+// fetch）；本仓生产依赖仅 3 个、tsup 全 bundle + asar 排除 node_modules 的打包
+// 形态会被新依赖波及，且配置面（设置页显式代理项 vs 纯环境变量）属产品决策——
+// 按缓办处置，先留痕让作者可从日志定位「配了代理为何还网络异常」。warn 不带
+// 代理地址值（user:pass@host 形态含凭据，连 host 都不回显）。
+let proxyEnvWarned = false
+function warnProxyEnvOnce(): void {
+  if (proxyEnvWarned) return
+  const hasProxyEnv =
+    !!(process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy)
+  if (!hasProxyEnv) return
+  proxyEnvWarned = true
+  log.warn('rag', '检测到代理环境变量（HTTPS_PROXY/HTTP_PROXY 系），但当前版本出站请求不支持经代理——中转端点可直连，官方端点需网络可达（代理支持待后续版本）')
+}
 
 function warnEmbedFailure(endpoint: string, reason: string): void {
   const now = Date.now()
@@ -54,6 +75,10 @@ export async function embed(
   options: EmbedOptions = {},
 ): Promise<EmbedResult> {
   if (texts.length === 0) return []
+
+  // 0918二轮修复批（G102）：首次真正出站前检测代理环境变量（一次性；空 texts 无
+  // 出站不触发）
+  warnProxyEnvOnce()
 
   const timeoutMs = options.timeoutMs ?? 30_000
   const controller = timeoutMs > 0 ? new AbortController() : null

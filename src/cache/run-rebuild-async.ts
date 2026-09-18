@@ -25,10 +25,32 @@ export interface RebuildJob {
   opts?: { throttleSourceProbe?: boolean }
 }
 
-/** 测试注入口（生产不传）：timeoutMs 直测超时拒绝；workerUrl 指向慢 worker 测竞态 */
+/** 测试注入口（生产不传，缺省走 env 逃生口解析档）：timeoutMs 直测超时拒绝；
+ *  workerUrl 指向慢 worker 测竞态 */
 export interface RebuildRunnerOptions extends WorkerJobOptions {}
 
-const DEFAULT_TIMEOUT_MS = 120_000
+/** 0918二轮修复批（D104）：超时档缺省 120s 的启动期逃生口——大书（200 万字级）首次
+ *  全量 rebuild 在慢盘/网盘卷可能触顶 120s 被 terminate（下次进门自愈重试，但每次都
+ *  顶）。不做书级配置面，仅环境变量 CLWRITING_REBUILD_TIMEOUT_MS（与 CLWRITING_PORT
+ *  等既有 env 同风格：模块加载读一次、未设/非法忽略回默认、不 fatal——逃生口配错不
+ *  阻断启动，回默认档照跑）。慢盘/网盘场景按需调大：如
+ *  `CLWRITING_REBUILD_TIMEOUT_MS=600000 npm start`。 */
+export const DEFAULT_REBUILD_TIMEOUT_MS = 120_000
+
+/** 0918二轮修复批（D104）：env 解析单源（导出供直测）：未设/空白/非有限数/非正数一律
+ *  回缺省档。生产调用方（state.ts detectState、process/summary.ts 摘要自愈）均不传
+ *  opts——本缺省档即 env 到生产链的贯穿点。 */
+export function resolveRebuildTimeoutMs(
+  env: Record<string, string | undefined> = process.env,
+): number {
+  const raw = env['CLWRITING_REBUILD_TIMEOUT_MS']
+  if (raw === undefined || raw.trim() === '') return DEFAULT_REBUILD_TIMEOUT_MS
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_REBUILD_TIMEOUT_MS
+  return Math.floor(n)
+}
+
+const DEFAULT_TIMEOUT_MS = resolveRebuildTimeoutMs()
 
 /**
  * R57-A-1（五十七轮）：同 cachePath 进程内 in-flight 合并。同步时代 rebuild() 阻塞

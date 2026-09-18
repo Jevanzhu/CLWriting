@@ -10,7 +10,7 @@
 import { existsSync, mkdirSync, readdirSync, statSync, type Dirent } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { matchGenreLeads, sanitizeLeadsEnabled } from './data.js'
-import { appendBook, appendBookAsync, writeActive, readBooks, bookStoragePath, isInvalidBookName, BOOK_NAME_MAX_BYTES, BOOK_NAME_INVALID_REASON } from './books.js'
+import { appendBook, appendBookAsync, readBooks, bookStoragePath, isInvalidBookName, BOOK_NAME_MAX_BYTES, BOOK_NAME_INVALID_REASON } from './books.js'
 import { scaffoldBookRepo, findGitAncestor } from './scaffold.js'
 import { isMdFileName } from '../format/filename.js'
 import { samePhysicalPath } from '../fs/user-data-path.js'
@@ -73,10 +73,9 @@ export function doInit(opts: InitOptions): InitResult {
     created_at: new Date().toISOString(),
   })
   if (!appendRes.ok) return appendRes
-  // R44-18（四十四轮）：writeActive 调用点收编（孪生同步面，与 doInitAsync 同堵）——
-  // 见 writeActiveGuarded 头注
-  const activeFail = writeActiveGuarded(step.workDir, step.bookName)
-  if (activeFail) return activeFail
+  // 0918二轮修复批（G104）：writeActive 收编进 appendBookLocked 同临界段（books.ts）
+  // ——此前此处锁外裸写 writeActiveGuarded（R44-18 的受控包装随收编拆除），双进程
+  // 并发建书最后写者胜；active 写失败的 reason 文案单源迁 books.ts，语义不变。
   return { ok: true, workDir: step.workDir, bookRoot: step.bookRoot, bookName: step.bookName, bookPath: step.bookPath }
 }
 
@@ -98,27 +97,8 @@ export async function doInitAsync(opts: InitOptions): Promise<InitResult> {
     created_at: new Date().toISOString(),
   })
   if (!appendRes.ok) return appendRes
-  const activeFail = writeActiveGuarded(step.workDir, step.bookName)
-  if (activeFail) return activeFail
+  // 0918二轮修复批（G104）：active 指针写随 appendBookAsync 持锁完成（见 doInit 同注）
   return { ok: true, workDir: step.workDir, bookRoot: step.bookRoot, bookName: step.bookName, bookPath: step.bookPath }
-}
-
-/**
- * R44-18（四十四轮）：writeActive 的受控包装——失败时按「登记在、active 未写」的
- * 真实状态给可行动 reason。appendBookLocked 对已登记名恒拒（「已有一本叫…」），
- * 此形态下重试建书无用且误导；reason 明示书已建成登记、只需从书架手动启用。
- * 返回 null = 写入成功；调用方（doInit/doInitAsync 两个孪生调用点）非 null 即短路。
- */
-function writeActiveGuarded(workDir: string, bookName: string): { ok: false; reason: string } | null {
-  try {
-    writeActive(workDir, bookName)
-    return null
-  } catch (e) {
-    return {
-      ok: false,
-      reason: `书「${bookName}」已建成并登记成功，但设置当前活动书失败（${errMsg(e)}）——书已在书架中，从书架启用该书即可，无需重建（重跑同名建书会提示已存在）`,
-    }
-  }
 }
 
 /** doInit/doInitAsync 共用的登记前主流程（校验/幂等/骨架/scaffold；同步瞬时段）。 */

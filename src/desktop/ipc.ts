@@ -13,7 +13,7 @@ import {
   type MenuItemConstructorOptions,
   type WebContents,
 } from 'electron'
-import { dirname, resolve } from 'node:path'
+import { dirname, isAbsolute, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { existsSync, realpathSync } from 'node:fs'
 import { errMsg, log } from '../log/index.js'
@@ -60,6 +60,45 @@ const CONTEXT_MENU_CANCEL_DELAY_MS = 100
  *  P3（复审-0914-优化修复批）：类型引用统一为已 import 的 WebContents（原
  *  Electron.WebContents 全限定形态）。 */
 const contextMenuCancelTimers = new Map<WebContents, ReturnType<typeof setTimeout>>()
+/**
+ * 0918二轮修复批（C106）：取消补发条目的销毁摘除——原条目仅在重排/触发时清理，窗口
+ * 正常销毁（closed）不摘除：Map 强引用 WebContents 滞留至进程尾（上界 = 窗口数，个
+ * 位数）。取「destroyed 监听摘除」方案（WeakMap 化对 timer 可清理性无增益——值仍需
+ * 可 clearTimeout，键 WeakRef 化复杂度高）；登记面 WeakSet 不持强引用且防重复挂监听
+ * （每次 popup 都挂会叠监听）。
+ */
+const contextMenuCancelWired = new WeakSet<WebContents>()
+
+/**
+ * 0918二轮修复批（C106）：取消补发 timer 的武装单点——排新清旧 + unref 原语义
+ * （R1010b-DSK-P3-6/R0912，见 contextMenuCancelTimers 声明处）+ 首次写入时给该
+ * webContents 挂 'destroyed' 摘除（清 timer + 删条目，强引用随销毁释放）。
+ */
+function armContextMenuCancelTimer(wc: WebContents, fire: () => void): void {
+  const prev = contextMenuCancelTimers.get(wc)
+  if (prev) clearTimeout(prev)
+  const timer = setTimeout(() => {
+    contextMenuCancelTimers.delete(wc)
+    fire()
+  }, CONTEXT_MENU_CANCEL_DELAY_MS)
+  timer.unref?.()
+  contextMenuCancelTimers.set(wc, timer)
+  if (!contextMenuCancelWired.has(wc)) {
+    contextMenuCancelWired.add(wc)
+    wc.on('destroyed', () => {
+      const t = contextMenuCancelTimers.get(wc)
+      if (t) clearTimeout(t)
+      contextMenuCancelTimers.delete(wc)
+    })
+  }
+}
+
+/** 0918二轮修复批（C106）：测试钩子（生产零调用，先例同 windows.ts __testHooks）——
+ *  供回归用例断言窗口销毁后取消补发条目已摘除。 */
+export const __testHooks = {
+  cancelTimerCount: (): number => contextMenuCancelTimers.size,
+  hasCancelTimer: (wc: WebContents): boolean => contextMenuCancelTimers.has(wc),
+}
 
 /**
  * F2（复审-0914-优化修复批）：可信 sender 守卫接线单点——原 14 个 handler 各自首行
@@ -94,6 +133,14 @@ export function registerIpc(): void {
     // probeDirReachable 注）；超时态契约化拒切，确定性失败交回同步守卫走原契约文案
     if (typeof path !== 'string') {
       return { ok: false as const, reason: '目录无效或是另一书库的子目录' }
+    }
+    // 0918二轮修复批（C102）：相对路径拒收——handler 原只验 typeof string，'./foo' 类
+    // 相对路径在恰存在于主进程 cwd 时可过 probeDirReachable/canSwitchLibraryDir 守卫
+    //（statSync/findWorkDir 均按 cwd 解析）并原样落库 workdir.json，下次经不同 cwd
+    // 启动书库定位漂移。入口加 isAbsolute 校验，BAD_INPUT 人话错误（先于预探——
+    // 相对路径的可达性判定本身就在错误的 cwd 基准上）。
+    if (!isAbsolute(path)) {
+      return { ok: false as const, reason: '书库路径必须是绝对路径' }
     }
     if ((await probeDirReachable(path)) === 'unreachable') {
       return { ok: false as const, reason: '目录暂不可达（可能是网络卷无响应或已断开），请稍后重试' }
@@ -296,14 +343,9 @@ export function registerIpc(): void {
       callback: () => {
         // R1010b-DSK-P3-6：排新清旧 + unref（句柄纪律见 contextMenuCancelTimers 声明处）
         // R0912：per-sender 分槽（单槽跨窗互清缺陷见声明处）——本窗重排只清本窗旧句柄
-        const prev = contextMenuCancelTimers.get(event.sender)
-        if (prev) clearTimeout(prev)
-        const timer = setTimeout(() => {
-          contextMenuCancelTimers.delete(event.sender)
-          sendOnce(null)
-        }, CONTEXT_MENU_CANCEL_DELAY_MS)
-        timer.unref?.()
-        contextMenuCancelTimers.set(event.sender, timer)
+        // 0918二轮修复批（C106）：排程体收编 armContextMenuCancelTimer——写入点单点
+        // 接线 webContents destroyed 摘除（强引用滞留收口，见其声明处）
+        armContextMenuCancelTimer(event.sender, () => sendOnce(null))
       },
     })
   })

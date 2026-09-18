@@ -24,10 +24,15 @@ const mainTs = readFileSync(join(root, 'src', 'desktop', 'main.ts'), 'utf-8')
 const ipcTs = readFileSync(join(root, 'src', 'desktop', 'ipc.ts'), 'utf-8')
 const builderYml = readFileSync(join(root, 'electron-builder.yml'), 'utf-8')
 
-test('R38-19: main.ts 退出兜底信号集含 SIGTERM（与 SIGINT/SIGBREAK 同款 app.quit）', () => {
-  expect(mainTs).toContain("process.on('SIGINT', () => app.quit())")
-  expect(mainTs).toContain("process.on('SIGBREAK', () => app.quit())")
-  expect(mainTs).toContain("process.on('SIGTERM', () => app.quit())")
+test('R38-19: main.ts 退出兜底信号集含 SIGTERM（与 SIGINT/SIGBREAK 同款优雅退出）', () => {
+  // 0918二轮修复批（C107）：三行注册改经 createRepeatedSignalExit 工厂——首次到达仍走
+  // 既有优雅链（app.quit()），同型第二次直接硬退。断言面随契约更新：三信号注册齐备 +
+  // 工厂的首次语义 = app.quit（R38-19 动机面「不硬杀跳过优雅停机链」不变）。
+  expect(mainTs).toContain('const onExitSignal = createRepeatedSignalExit(')
+  expect(mainTs).toContain("requestGracefulQuit: () => app.quit()")
+  expect(mainTs).toContain("process.on('SIGINT', () => onExitSignal('SIGINT'))")
+  expect(mainTs).toContain("process.on('SIGBREAK', () => onExitSignal('SIGBREAK'))")
+  expect(mainTs).toContain("process.on('SIGTERM', () => onExitSignal('SIGTERM'))")
 })
 
 test('R38-23: main.ts 有 unhandledRejection 最后防线（log-only，不退出）', () => {

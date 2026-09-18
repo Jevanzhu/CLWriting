@@ -42,6 +42,23 @@ const MIME: Record<string, string> = {
 const SPA_INDEX_TTL_MS = 5000
 let spaIndexCache: { path: string; data: Buffer; ts: number } | null = null
 
+// 0918二轮修复批（D105）：SPA fallback 404 文案按运行形态分叉——原 404 文案恒为
+// 「请先运行 npm --prefix src/studio/web-next run build」，打包态用户遇 dist 丢失时
+// 看到开发者视角指引（无操作性）且泄漏内部路径。形态判据对齐 worker-async.ts 的
+// src/打包双形态口径（pathname 以 .ts 结尾 = tsx dev / vitest 以源码运行；tsup 打包
+// 后本模块内联为 .js）：src 形态保留 npm 指引（dist 未构建时的真实修复动作，r47/r50
+// 既有钉值测试面不回退）；打包态给通用文案。不用 CLW_DEV_UI 判 dev：宿主 shell 残留
+// env 在打包态不得再生效（R62-45/T43-26 同因），源文件形态判据天然免疫。参数导出供
+// 两形态各自断言（readJson 注入口先例）。
+const DEV_SOURCE_FORM = new URL(import.meta.url).pathname.endsWith('.ts')
+
+/** SPA 入口缺失时的 404 error 文案（单源；devForm 注入仅测试用，缺省取本模块形态） */
+export function spaMissingUiMessage(devForm: boolean = DEV_SOURCE_FORM): string {
+  return devForm
+    ? '前端尚未构建。请先运行：npm --prefix src/studio/web-next run build'
+    : '前端资源缺失，请重新安装应用'
+}
+
 /** 创建静态托管 handler：rootDir 为前端 dist 绝对路径 */
 export function createStaticHandler(rootDir: string) {
   const root = normalize(rootDir)
@@ -246,7 +263,8 @@ export function createStaticHandler(rootDir: string) {
         if (req.method === 'HEAD') res.end()
         else res.end(data)
       } catch {
-        replyError(res, 404, 'NOT_FOUND', '前端尚未构建。请先运行：npm --prefix src/studio/web-next run build')
+        // 0918二轮修复批（D105）：文案按运行形态分叉（见 spaMissingUiMessage 头注）
+        replyError(res, 404, 'NOT_FOUND', spaMissingUiMessage())
       }
     }
   }

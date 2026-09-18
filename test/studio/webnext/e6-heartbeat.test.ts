@@ -47,7 +47,9 @@ afterEach(() => {
 describe('E-6a · serverOnline 退书复位', () => {
   it('进书 beat 失败置离线 → 退书（bookName→null）后复位为在线初始态', async () => {
     const book = ref<string | null>('b1')
-    fetchMock.mockResolvedValue(new Response('', { status: 500 }))
+    // 0918二轮修复批（E104）：离线信号只认传输层失败——原 500 响应形态改为网络异常
+    //（用例意图不变：beat 失败置离线后，退书复位；500 现属「有响应=在线」）
+    fetchMock.mockRejectedValue(new TypeError('network down'))
     mountHeartbeat(book)
     await vi.waitUntil(() => serverOnline.value === false)
     book.value = null // 退书：watch 停止心跳

@@ -95,6 +95,9 @@ export function rebootstrap(): Promise<void> {
  *  （dev 重启 dev:api 换 token）同走此通道，不再只覆盖 null 形态。re-boot 失败、
  *  token 未变或重放仍 401/403 则原样透传错误。注意：init.body 须可重放（字符串/
  *  undefined；现有调用方均如此）。
+ *  0918二轮修复批（E106）：重放收敛幂等面——GET/HEAD 与带 operationId 的 PUT 之外
+ *  （POST/DELETE/PUT 无幂等键）re-boot 后不自动重发，401/403 原样透传（判定见
+ *  isReplayable 注；re-boot 照常执行，新 token 供后续请求使用）。
  *  SSE 走 getToken() 拼 URL（stream.ts），不经此路径，不受影响。 */
 /** R42-15（四十二轮）：apiJson 超时计时的暂停/重启句柄——401/403 → rebootstrap 等待期
  *  （boot 自带 5s×3 次重试退避，最长可 ~16s）不计入本次超时预算；等待结束重启满额
@@ -103,6 +106,25 @@ export function rebootstrap(): Promise<void> {
 interface TimeoutGauge {
   pause: () => void
   resume: () => void
+}
+
+/** 0918二轮修复批（E106）：401/403 自动重放的幂等面判定——GET/HEAD 天然幂等直过；
+ *  PUT 带 operationId 幂等键（文档保存：body 为 apiJson 物化后的 JSON 字符串，键由
+ *  shared/revision.ts 的 newOperationId 注入、服务端按 operationId 判重去重）同样可
+ *  安全重放；其余（POST / DELETE / PUT 无幂等键）不自动重放——re-boot 等待窗后的
+ *  盲目重发即双发（sendChat 双投递、删除类双删等）。re-boot 本身照常执行，非幂等面
+ *  的 401/403 响应原样透传调用方（新 token 已就位，用户重试/下一动作自然带上）。 */
+function isReplayable(method: string, body: BodyInit | null | undefined): boolean {
+  if (method === 'GET' || method === 'HEAD') return true
+  if (method === 'PUT' && typeof body === 'string') {
+    try {
+      const parsed = JSON.parse(body) as { operationId?: unknown }
+      return typeof parsed.operationId === 'string' && parsed.operationId.length > 0
+    } catch {
+      return false // 非 JSON 体（理论面）：无从验幂等键，不重放
+    }
+  }
+  return false
 }
 
 export async function apiFetch(
@@ -132,6 +154,10 @@ export async function apiFetch(
     await rebootstrap()
     _gauge?.resume() // R42-15（四十二轮）：等待结束重启满额计时（重放 fetch/读体同受保护）
     if (token !== null && token !== used) {
+      // 0918二轮修复批（E106）：重放仅限幂等面（判定见 isReplayable 注）——非幂等
+      // 请求（POST/DELETE/PUT 无 operationId）re-boot 后不重发，401/403 响应原样
+      // 透传（响应体完整留给调用方读信封，对齐 R28-4「不重放不 cancel」口径）
+      if (!isReplayable(method, init.body)) return r
       // R26-81（二十六轮）：重放前取消首个响应的未读流——重放后旧响应体不再被消费，
       // 不 cancel 会占住连接直到 GC（浏览器每 host 连接数有限，re-boot 窗口内并发请求
       // 可能挤占连接池）；cancel 拒绝（已锁定的流等）静默吞掉。
@@ -293,7 +319,11 @@ export async function apiJson<T>(
     // 裸字面量（true/数字/字符串）并非「可被 typeof 消费」而无害——信封字段消费
     // （body.error 等）对一切非对象都静默 undefined，与 null 失效同族，属理论面维持
     // 穿透。对齐 204 之外的坏体口径上抛 MALFORMED_RESPONSE，不静默放行。
-    if (body === null) {
+    // 0918二轮修复批（E102）：上述「理论面维持穿透」收口——守卫从 null 扩到一切非
+    // 对象裸字面量（true/数字/字符串；数组 typeof 'object' 照常放行）。全量 apiJson
+    // 调用方复核（25 个 api/ 模块、63 处调用）：T 全为对象/数组形状，无合法返回
+    // string/number/boolean 的端点，收紧零误伤。
+    if (body === null || (typeof body !== 'object' && typeof body !== 'undefined')) {
       throw new ApiError('服务端返回了无法解析的响应体', r.status, 'MALFORMED_RESPONSE')
     }
     return body

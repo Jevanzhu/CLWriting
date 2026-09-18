@@ -20,3 +20,12 @@ export interface CappedView<T> {
 export function capView<T>(arr: readonly T[], cap: number): CappedView<T> {
   return { view: arr.slice(0, cap), omitted: Math.max(0, arr.length - cap) }
 }
+
+/**
+ * 书架渲染帽单源（0918二轮修复批 F102）：浮层书架（ShelfModal）与整页书架
+ * （pages/Shelf）两壳共用的每组渲染上限——原值只写在 ShelfModal 局部，整页不传
+ * （「不传 = 不裁」）致两壳口径不一：数百书时整页全量挂载 + 入场动画，与浮层的
+ * 同族性能论证（R-P3-4）相悖。收敛此处单一常量，两壳 import 同源，勿在壳内
+ * 复制字面量（漂移即两帽口径分叉）。
+ */
+export const SHELF_RENDER_CAP = 100

@@ -4,7 +4,7 @@
  * 形状校验（非数组 → null、无 label 跳过）与 accelerator 白名单——
  * 非法 accelerator 会在 Electron Menu.buildFromTemplate 抛错崩主进程，须在此剥掉。
  */
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { parseContextMenuSpecs } from '../../src/desktop/context-menu.js'
 
 describe('parseContextMenuSpecs', () => {
@@ -95,5 +95,55 @@ describe('R27-95（二十七轮）：跨层扁平项预算', () => {
     let total = 0
     for (const item of top!) total += 1 + flat(item as { submenu?: unknown[] })
     expect(total).toBeLessThanOrEqual(200)
+  })
+})
+
+// ── 0918二轮修复批（C103）：载荷限项数不限字节——超长 label/key 直达原生构建， ──
+// 200 条 × 每条超长串照样阻塞主进程。修复 = 单条字节上限（超限剥除该项 + warn 留痕，
+// 保可用性）+ 总载荷字节上限（超限整体拒收，对齐 L-S3 fail-closed）。
+describe('菜单载荷字节上限（C103）', () => {
+  it('超长 label 项被剥除 + warn 留痕，正常项不受影响（含 submenu 深层同款）', () => {
+    // log.warn 未 initLogging 时镜像 console.warn（真实日志通道，先例见 log/index.ts 头注）
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      const r = parseContextMenuSpecs([
+        { label: 'x'.repeat(201), key: 'long' }, // 201B > 200B 单条上限 → 剥除该项
+        { label: '正常项', key: 'ok' },
+        { label: '父级', submenu: [{ label: 'y'.repeat(201) }] }, // 深层超长剥除（父项保留、submenu 剥掉，SV-1 口径）
+      ])
+      expect(r).toEqual([
+        { label: '正常项', key: 'ok', disabled: false },
+        { label: '父级', disabled: false }, // 子项全被剥 → submenu 不装（空数组同不装）
+      ])
+      expect(warnSpy.mock.calls.some((c) => String(c[0]).includes('label'))).toBe(true) // 留痕
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('超长 key 项被剥除；恰好 200B 的 label/key 放行（边界不误伤）', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      const r = parseContextMenuSpecs([
+        { label: '正常', key: 'k'.repeat(201) }, // key 201B → 剥除该项
+        { label: 'a'.repeat(200) }, // 恰 200B → 放行（> 才剥）
+        { label: '正常2', key: 'k'.repeat(200) }, // key 恰 200B → 放行
+      ])
+      expect(r).toEqual([
+        { label: 'a'.repeat(200), disabled: false },
+        { label: '正常2', key: 'k'.repeat(200), disabled: false },
+      ])
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('总载荷超 20000B → 整体拒收 null（fail-closed，对齐 L-S3；单条均合规）', () => {
+    // 150 项 × 150B label = 22500B > 20000B，单条均未超 200B——项数与单条上限都拦不住
+    const items = Array.from({ length: 150 }, () => ({ label: 'x'.repeat(150) }))
+    expect(parseContextMenuSpecs(items)).toBeNull()
+    // 未超总预算（150 × 133B ≈ 19950B）→ 正常净化
+    const ok = parseContextMenuSpecs(Array.from({ length: 150 }, () => ({ label: 'x'.repeat(133) })))
+    expect(ok).toHaveLength(150)
   })
 })

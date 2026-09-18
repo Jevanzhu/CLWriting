@@ -55,7 +55,7 @@ describe('r0912-2 P2-5: manifest 条目字段类型守卫', () => {
     expect(report.issues.some((i) => i.message.includes('必须为字符串'))).toBe(true)
   })
 
-  it('r0912-2: commit 链含坏字段行 → 不抛、manifest 照常落盘（新条目+坏行保留）、报告 ok:false', () => {
+  it('r0912-2: commit 链含坏字段行 → 不抛、manifest 照常落盘（新条目+坏行保留）；0918二轮修复批（G105）起存量坏行不再打回 ok:false', () => {
     const root = tempProject()
     writeManifest(root, [{ target: 123, sha256: 456 }])
     const finalRel = '知识层/定稿.md'
@@ -63,8 +63,10 @@ describe('r0912-2 P2-5: manifest 条目字段类型守卫', () => {
     const warnSpy = vi.spyOn(log, 'warn').mockImplementation(() => {})
 
     // 修复前：登记已落盘，尾部 validateKnowledgeManifest 在坏字段上 TypeError——CLI 报栈但 manifest 实已写入
+    // 0918二轮修复批（G105）：存量坏行与新 entry 无关 → ok:true + issues 附带（登记实成功，
+    // 重试不再撞「不得重复登记」；此前 ok:false 与盘面矛盾）
     const report = commitKnowledgeFile(root, { target: finalRel, source: 's', license: 'l' })
-    expect(report.ok).toBe(false)
+    expect(report.ok).toBe(true)
     expect(report.issues.some((i) => i.message.includes('必须为字符串'))).toBe(true)
 
     // manifest 照常落盘：坏行原样保留（写入侧不静默增删改）、新条目登记在位

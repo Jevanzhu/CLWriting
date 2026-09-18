@@ -64,6 +64,18 @@ const RENDERER_CRASH_NOTICE_HTML =
   '<h2>页面连续崩溃，自动恢复已停止</h2>' +
   '<p>渲染进程短时间内多次异常退出，已停止自动重载。</p>' +
   '<p>请重启 CLWriting；未保存的内容在重启后仍可从自动保存找回。</p></body>'
+/**
+ * 0918二轮修复批（C101）：加载失败封顶后的白屏提示页——同 RENDERER_CRASH_NOTICE_HTML
+ * 形态（data URL 自包含，本地 server 不可信时仍可展示），文案区分「页面加载失败
+ * （可能服务未就绪）」。此前封顶分支只 log.error + return，对照 render-process-gone
+ * 封顶载提示页不对称：触发形态（server 退避重启窗内 5 次加载失败，≥44s 全失败）后
+ * 白屏滞留无任何可见提示（生产态菜单无 reload，无人工出口）。
+ */
+const LOADFAIL_NOTICE_HTML =
+  '<!doctype html><meta charset="utf-8"><body style="font-family:system-ui;padding:40px;line-height:1.8;color:#333">' +
+  '<h2>页面加载失败，自动重试已停止</h2>' +
+  '<p>页面连续多次加载失败（可能服务未就绪或已退出），已停止自动重试。</p>' +
+  '<p>请重启 CLWriting；未保存的内容在重启后仍可从自动保存找回。</p></body>'
 
 /** 三窗引用 holder（原 main.ts 模块级 let/state，读写语义逐位等价——拆分说明见文件头注）。 */
 export const wins = {
@@ -142,7 +154,16 @@ function attachRendererCrashSelfHeal(win: BrowserWindow, label: string): void {
     }
     loadFails++
     if (loadFails > RENDERER_LOADFAIL_MAX_RETRIES) {
-      log.error('desktop', `主框架加载连续失败 ${RENDERER_LOADFAIL_MAX_RETRIES} 次重试后仍失败（${label}，code=${errorCode}），停止自动重试——等待人工处理`)
+      log.error('desktop', `主框架加载连续失败 ${RENDERER_LOADFAIL_MAX_RETRIES} 次重试后仍失败（${label}，code=${errorCode}），停止自动重试——载提示页等待人工处理`)
+      // 0918二轮修复批（C101）：封顶不再白屏滞留——对齐 render-process-gone 封顶口径
+      // （R74-16 同款：loadURL promise 接日志防丢诊断）
+      if (!win.isDestroyed()) {
+        void win.webContents
+          .loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(LOADFAIL_NOTICE_HTML)}`)
+          .catch((e) => {
+            log.error('desktop', `加载失败提示页加载失败（${label}）`, e)
+          })
+      }
       return
     }
     const delay = Math.min(RENDERER_LOADFAIL_BACKOFF_BASE_MS * 2 ** (loadFails - 1), RENDERER_LOADFAIL_BACKOFF_CAP_MS)

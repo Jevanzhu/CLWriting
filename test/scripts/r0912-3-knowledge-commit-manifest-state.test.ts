@@ -5,6 +5,9 @@
  * 「manifest 未写入有效状态」——作者按提示重试只会撞「已在 manifest」自相矛盾。
  * 修后两态区分：判重拒绝/manifest 查无本 target ⇒ 维持原文案；登记已落盘 ⇒ 改报
  * 「登记已写入…预存坏行、请先修 manifest」。退出码恒 1 不变。
+ * 0918二轮修复批（G105）：两态分叉点自 scripts/ 下沉进提交层（update.ts 两栏信封）——
+ * 「登记已落盘 + 存量坏行」现返回 ok:true + issues，脚本按 ok 出口分流，作者可见文案
+ * 与退出码 1 逐字不变（本用例断言面零改动，仅分叉实现位置变化）。
  * 手法：scripts/knowledge-commit.ts 的 root 取 import.meta.url 父目录（硬接线仓库根），
  * 无法对 tmp 根直跑——本文件建沙箱（拷脚本 + symlink src → 仓库 src；win 无 symlink
  * 权限按 r71 先例 skipIf，语义由 mac/linux CI 腿覆盖）使 root 指向沙箱，两态 + 干净

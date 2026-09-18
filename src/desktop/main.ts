@@ -43,6 +43,7 @@ import { initialBookArg, resolveInitialBook } from './initial-book.js' // RB-SV-
 import { createStudioServerManager, ServerBootError } from './server-manager.js' // 阶段 22：server 拆分 utilityProcess
 import { createBootstrapRunner } from './bootstrap-runner.js' // O-4：生命周期 runner 可测
 import { registerIpc } from './ipc.js' // 复审-0914-优化修复批 F1：IPC 注册面拆出
+import { createRepeatedSignalExit } from './signal-hard-exit.js' // 0918二轮修复批（C107）：重复信号硬退出口
 import { acquireAppInstanceGuard } from './app-instance-guard.js' // R0913-win P3-13：提权差异双开文件锁防线（win线并树随行）
 import {
   attachMainWindowLifecycle,
@@ -82,6 +83,10 @@ const CLW_CSP = [
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
   "connect-src 'self'", // 只连本地 server（SSE + fetch）
+  // 0918二轮修复批（C104）：frame-ancestors 显式 'none'——frame-ancestors 不回落
+  // default-src（CSP 规范独立指令），缺省即本地端口可被任意页面嵌 iframe（点击劫持
+  // /DNS rebinding 纵深；API 侧有 token 兜底，此为页面层防线）
+  "frame-ancestors 'none'",
 ].join('; ')
 
 // userData 强制统一到定值（大写 CLWriting）。
@@ -468,12 +473,19 @@ function buildMenu(): void {
    *  全局可点）action 发进子窗口静默丢失（子窗口无 useAppActions 接线）。固定发
    *  mainWindow + isDestroyed 判（退出/崩溃窗口期菜单仍可点）。
    *（win 线 R33-66 的「无聚焦窗口回退」场景已由 mainWindow ?? 首窗回退覆盖——
-   *  不回退 getFocusedWindow，否则子窗口聚焦时重引入 R32-22 已修的静默丢失。） */
+   *  不回退 getFocusedWindow，否则子窗口聚焦时重引入 R32-22 已修的静默丢失。）
+   *  0918二轮修复批（C105）：`?? getAllWindows()[0]` 首窗回退删除——主窗销毁窗口期
+   *  （close 拦截 flush/退出链在途）首窗可能是无 useAppActions 接线的子窗，动作发进
+   *  子窗即静默丢失；回退限主窗存在才发送，主窗不存在 log.warn 留痕（动作丢弃可见）。 */
   function action(key: string): Pick<MenuItemConstructorOptions, 'click'> {
     return {
       click: () => {
-        const target = wins.mainWindow ?? BrowserWindow.getAllWindows()[0]
-        if (target && !target.isDestroyed()) target.webContents.send('desktop:menu-action', key)
+        const target = wins.mainWindow
+        if (!target || target.isDestroyed()) {
+          log.warn('desktop', `菜单动作 ${key} 无主窗可发（主窗不存在或已销毁）——本次已丢弃`)
+          return
+        }
+        target.webContents.send('desktop:menu-action', key)
       },
     }
   }
@@ -667,9 +679,17 @@ if (gotSingleInstanceLock && appInstanceGuard.acquired) {
   // TerminateProcess 不进 JS handler），本行实际仅 POSIX 生效；win 的硬杀面已由
   // SIGBREAK（Ctrl+Break）与 uncaughtException backstop 兜底。保留本行为三平台
   // 对齐与跨平台宿主（如 win 下经 POSIX 兼容层运行）预留，非缺陷。
-  process.on('SIGINT', () => app.quit())
-  process.on('SIGBREAK', () => app.quit())
-  process.on('SIGTERM', () => app.quit())
+  // 0918二轮修复批（C107）：三行注册改经 createRepeatedSignalExit——同型信号第二次
+  // 到达直接 killNow + exit(1) 硬退（逻辑正本与动机见 signal-hard-exit.ts 头注）；
+  // 首次语义不变（app.quit() 单次优雅链，unref 语义不受影响）。
+  const onExitSignal = createRepeatedSignalExit({
+    requestGracefulQuit: () => app.quit(),
+    killNow: () => serverManager.killNow(),
+    exit: (code) => process.exit(code),
+  })
+  process.on('SIGINT', () => onExitSignal('SIGINT'))
+  process.on('SIGBREAK', () => onExitSignal('SIGBREAK'))
+  process.on('SIGTERM', () => onExitSignal('SIGTERM'))
   // 主进程未捕获异常：打包态 GUI 的 stderr 无人可见——先留痕 JSONL 日志（延迟一拍
   // 让日志泵落盘），再保持与默认崩溃等价的退出语义（不吞、不续跑半坏状态）。
   process.on('uncaughtException', (err) => {

@@ -119,15 +119,18 @@ watch(
     err.value = null
     state.value = null
     void refreshState()
+    // 0918二轮修复批（F104）：切书重载规则命中并入本 watch（Y-P2-3 原第二个
+    // bookName watch 分裂注册，违背「切书清理单点」纪律）。时序钉准：本 watch 带
+    // immediate——初载在 setup 期即触发（原 Y-P2-3 的 onMounted 初载随并删除，避免
+    // 双调；loadRuleHits 纯 API 请求落 ref，无挂载依赖，前移到挂载前语义不变，
+    // 恰一次）；切书时与上方清残留同链触发。
+    void loadRuleHits()
   },
   { immediate: true },
 )
-// Y-P2-3：切书重载规则命中（原仅 onMounted 拉一次，切书后残留旧书统计；初载仍走 onMounted）
-watch(() => props.bookName, () => void loadRuleHits())
 onMounted(() => {
   // 档位走统一 store（静默——档位显示不阻断主流程；设置页/ChatDock 已拉过则零请求）
   void pstore.refresh()
-  void loadRuleHits()
 })
 // 生成结束（running false 跳变）刷新状态卡
 watch(

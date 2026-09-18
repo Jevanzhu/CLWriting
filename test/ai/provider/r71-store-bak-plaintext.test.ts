@@ -11,7 +11,7 @@ import { rmSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempTracked } from '../../helpers/temp-dir.js'
-import { loadProviders } from '../../../src/ai/provider/store.js'
+import { loadProviders, __seedProvidersWriteChainForTest } from '../../../src/ai/provider/store.js'
 import type { ProviderConf, RagProviderConf } from '../../../src/ai/provider/types.js'
 
 const PLAIN_KEY = 'sk-legacy-plaintext-key-71'
@@ -93,4 +93,37 @@ test('迁移后的 bak 是可用恢复通道：主文件损坏 → 从 bak 恢�
   const restored = loadProviders(dir)
   expect(restored.providers).toHaveLength(1)
   expect(restored.providers[0]!.apiKey).toBe(PLAIN_KEY)
+})
+
+// 0918二轮修复批（A103）：迁移 bak 覆写时序窗回归——存在在途写时迁移写转异步排队，
+// 修复前 loadProviders 在 saveProviders 调用后同步 readFileSync 直读主文件做 roundtrip
+// 校验，排队窗口内直读拿到的是迁移前旧明文文件（无 vault）→ 校验必失败/跳过 → 明文
+// bak 残留到下次任意 save。修复后 bak 覆写挂到「本次迁移写入落盘成功之后」（快路同步
+// 不变，排队路径挂 promise then 段）。经 __seedProvidersWriteChainForTest 注入在途段
+// 触达排队路径（生产零调用测试钩子，r29-ai-store-save 同款）。
+test('在途写排队窗口下的迁移 → 落盘后 bak 仍被密文覆写（不残留明文 Key）', async () => {
+  let release!: () => void
+  const gate = new Promise<void>((r) => {
+    release = r
+  })
+  __seedProvidersWriteChainForTest(dir, gate) // 迁移写排队在 gate 之后
+  const conf = makeConf()
+  writeFileSync(FP(), JSON.stringify({ providers: [{ ...conf }], currentId: conf.id }, null, 2), 'utf8')
+
+  const loaded = loadProviders(dir) // 迁移写排队（gate 未放行）
+  expect(loaded.providers[0]!.apiKey).toBe(PLAIN_KEY) // 迁移不丢 Key
+  // 时序窗复现：排队段未执行，主文件此刻仍是明文——修复前 bak 覆写校验在此直读旧文件
+  expect(readFileSync(FP(), 'utf8')).toContain(PLAIN_KEY)
+
+  release()
+  await new Promise((r) => setTimeout(r, 50)) // 排队段执行（D7 先把明文拷进 bak → 主文件落密文）+ then 段 bak 覆写
+
+  const main = readFileSync(FP(), 'utf8')
+  expect(main).not.toContain(PLAIN_KEY)
+  expect(JSON.parse(main).vault).toBeTypeOf('object')
+  // 修复前：bak 停留 D7 拷入的明文旧文件（直到下次任意 save）；修复后为迁移落盘后的密文内容
+  expect(existsSync(BAK())).toBe(true)
+  const bak = readFileSync(BAK(), 'utf8')
+  expect(bak).not.toContain(PLAIN_KEY)
+  expect(JSON.parse(bak).vault).toBeTypeOf('object')
 })

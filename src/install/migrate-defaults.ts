@@ -32,7 +32,7 @@ import { atomicWriteFile } from '../fs/atomic.js'
 import { canonicalizeText } from '../fs/text-canonical.js'
 import { acquireCrossProcessLockWithTimeout } from '../fs/cross-process-lock.js'
 import { testableConst } from '../shared/testable.js'
-import { readBooks } from './books.js'
+import { readBooksStrict } from './books.js'
 import { locateTopSection, parseBookConfig } from '../format/yaml.js'
 import { log } from '../log/index.js'
 
@@ -52,7 +52,15 @@ interface MigrateBookDefaultsResult {
 
 /** 枚举工作目录全部书，逐本清理旧默认值键。启动期调用（studio/server/index.ts）。 */
 export function migrateBookDefaults(workDir: string): MigrateBookDefaultsResult {
-  const books = readBooks(workDir)
+  // 0918二轮修复批（G106）：读失败与真 0 本分岔——此前 readBooks 容错降级空表，
+  // books.jsonl 读失败（EACCES 等）整轮静默跳过无任何痕迹（幂等下次重试没错，但
+  // 可观测性为零）。改 readBooksStrict：null 时 warn 留痕后本轮返回（迁移不误判
+  // 「0 本书」跑空轮）；真 0 本（缺文件/空表）照常静默走正常路径。
+  const books = readBooksStrict(workDir)
+  if (books === null) {
+    log.warn('migrate-defaults', 'books.jsonl 读取失败（权限或磁盘故障），全局托底清理本轮跳过（下次启动重试）')
+    return { books: 0, changed: 0, failed: 0 }
+  }
   let changed = 0
   let failed = 0
   for (const book of books) {

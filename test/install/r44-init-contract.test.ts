@@ -17,7 +17,10 @@ import { join } from 'node:path'
 import { mkdtempTracked } from '../helpers/temp-dir.js'
 
 // 注入开关：默认全透传（不影响真实 IO），用例内按需置位
-const MOCK = vi.hoisted(() => ({ writeActiveThrows: false, mkdirThrows: false }))
+// 0918二轮修复批（G104）：writeActive 收编进 appendBookLocked 临界段（books.ts）后，
+// 其内部词法调用不再经过导出面——原「mock books.js 的 writeActive 导出」注入口失效，
+// 失败注入面下移到 atomicWriteFile（对 .clwriting/active 路径抛 EACCES）；断言面不变。
+const MOCK = vi.hoisted(() => ({ activeWriteThrows: false, mkdirThrows: false }))
 const warns: Array<[string, string]> = vi.hoisted(() => [])
 
 vi.mock('node:fs', async (importOriginal) => {
@@ -35,18 +38,18 @@ vi.mock('node:fs', async (importOriginal) => {
   }
 })
 
-vi.mock('../../src/install/books.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/install/books.js')>()
+vi.mock('../../src/fs/atomic.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/fs/atomic.js')>()
   return {
     ...actual,
-    writeActive: (workDir: string, name: string): void => {
-      if (MOCK.writeActiveThrows) {
+    atomicWriteFile: ((filePath: string, data: string | Uint8Array, ...rest: unknown[]) => {
+      if (MOCK.activeWriteThrows && String(filePath).endsWith('active')) {
         const e = new Error('EACCES: permission denied, open active') as NodeJS.ErrnoException
         e.code = 'EACCES'
         throw e
       }
-      return actual.writeActive(workDir, name)
-    },
+      return (actual.atomicWriteFile as (...a: unknown[]) => void)(filePath, data, ...rest)
+    }) as unknown as typeof import('../../src/fs/atomic.js')['atomicWriteFile'],
   }
 })
 
@@ -67,14 +70,14 @@ import { doInit, doInitAsync } from '../../src/install/init.js'
 import { tryBooksLock, tryBooksLockAsync, appendBookAsync, readBooks, readActive } from '../../src/install/books.js'
 
 afterEach(() => {
-  MOCK.writeActiveThrows = false
+  MOCK.activeWriteThrows = false
   MOCK.mkdirThrows = false
   warns.length = 0
 })
 
 describe('R44-18①：writeActive 失败不再裸穿 reject（登记在、active 未写 → 可行动 reason）', () => {
-  it('doInitAsync：mock writeActive 抛 EACCES → 不 reject，reason 明示登记成功 + 手动启用；登记已落盘', async () => {
-    MOCK.writeActiveThrows = true
+  it('doInitAsync：active 落盘抛 EACCES（atomic 注入）→ 不 reject，reason 明示登记成功 + 手动启用；登记已落盘', async () => {
+    MOCK.activeWriteThrows = true
     const wd = mkdtempTracked(join(tmpdir(), 'clw-r44-contract-'))
     try {
       let thrown: unknown = null
@@ -99,7 +102,7 @@ describe('R44-18①：writeActive 失败不再裸穿 reject（登记在、active
   })
 
   it('doInit（同步孪生调用点）同源收口：不 throw、同 reason 语义', () => {
-    MOCK.writeActiveThrows = true
+    MOCK.activeWriteThrows = true
     const wd = mkdtempTracked(join(tmpdir(), 'clw-r44-contract-sync-'))
     try {
       let thrown: unknown = null

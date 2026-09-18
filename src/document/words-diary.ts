@@ -12,6 +12,9 @@ import { testableConst } from '../shared/testable.js'
 import { join } from 'node:path'
 import { tryAcquireCrossProcessLock } from '../fs/cross-process-lock.js'
 import { atomicWriteFile } from '../fs/atomic.js'
+// 0918独立重评二轮修复批（B104）：追加后 best-effort fsync 复用 journal 同款助手
+// （单源，勿复制实现）；同 document 层内引用，无跨层依赖
+import { fsyncFile } from './journal.js'
 
 /** 字数日记路径：`项目/字数日记.jsonl`。 */
 export function wordsDiaryPath(bookRoot: string): string {
@@ -57,7 +60,12 @@ export function readBaseline(bookRoot: string, date: string): number | null {
 /** 记某日基线（append 一行；mkdir 防 `项目/` 不存在）。 */
 export function appendBaseline(bookRoot: string, date: string, baseline: number): void {
   mkdirSync(join(bookRoot, '项目'), { recursive: true })
-  appendFileSync(wordsDiaryPath(bookRoot), JSON.stringify({ date, baseline }) + '\n', 'utf-8')
+  const fp = wordsDiaryPath(bookRoot)
+  appendFileSync(fp, JSON.stringify({ date, baseline }) + '\n', 'utf-8')
+  // 0918独立重评二轮修复批（B104）：追加后 best-effort fsync——对照同为 append-only 的
+  // journal appendLineAsync 的耐久纪律（journal.ts fsyncFile 单源复用，吞错同口径）；
+  // 掉电只丢尾部行的自愈口径（读侧逐行容错）保留，此为压缩损失面上限的加固。
+  fsyncFile(fp)
   // PM-5（性能与内存专项）：每日首次写基线是天然低频时机——顺带检查跨日压缩
   //（append 在前：基线先落盘，压缩 best-effort 失败不反噬本行）。
   maybeCompactWordsDiary(bookRoot, date)
@@ -102,7 +110,11 @@ export function appendWordsDelta(
   mkdirSync(join(bookRoot, '项目'), { recursive: true })
   const entry: WordsDeltaEntry = { date, delta, ts: new Date().toISOString() }
   if (docId) entry.docId = docId
-  appendFileSync(wordsDiaryPath(bookRoot), JSON.stringify(entry) + '\n', 'utf-8')
+  const fp = wordsDiaryPath(bookRoot)
+  appendFileSync(fp, JSON.stringify(entry) + '\n', 'utf-8')
+  // 0918独立重评二轮修复批（B104）：同 appendBaseline——追加后 best-effort fsync
+  //（journal 同款助手，失败吞错不阻断保存链）。
+  fsyncFile(fp)
 }
 
 /**

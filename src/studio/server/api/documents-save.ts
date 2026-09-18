@@ -190,7 +190,14 @@ export function registerDocumentsSaveRoutes(ctx: DocumentCtx): void {
             afterFinalizeGenerateSummary(r.bookRoot, ctx.userDataPath ?? null, params['docId'] ?? '', params['name'], getDriver(), session)
           })()
         }
-        reply(res, 200, { ok: true, status: outcome.status, skipped: outcome.skipped })
+        // B103（0918独立重评二轮修复批）：防吃书闸降级短语随信封透传（非空 = 闸门
+        // fail-open 放行的事实，前端弹 warning toast；服务端不改写内容）
+        reply(res, 200, {
+          ok: true,
+          status: outcome.status,
+          skipped: outcome.skipped,
+          ...(outcome.gateDegraded && outcome.gateDegraded.length > 0 ? { gateDegraded: outcome.gateDegraded } : {}),
+        })
       } finally {
         release()
       }
@@ -228,7 +235,7 @@ export function registerDocumentsSaveRoutes(ctx: DocumentCtx): void {
           return replyError(res, 400, 'BAD_INPUT', `批量定稿一次最多 ${BATCH_FINALIZE_MAX_DOCS} 章（本次 ${docIds.length} 章），请分批提交`)
         }
         const summarized: string[] = []
-        const results: Array<{ docId: string; ok: boolean; status?: string; skipped?: boolean; error?: string }> = []
+        const results: Array<{ docId: string; ok: boolean; status?: string; skipped?: boolean; error?: string; gateDegraded?: string[] }> = []
         // R30-6（三十轮，批 C 移交收尾）：切异步孪生 finalizeRevisionAsync——逐条 await
         // 串行保持既有「串行天然无 SQLite 写锁冲突」语义，锁等待不再阻塞事件循环。
         // （原同步 map 循环：finalizeRevision 逐条全量读改写 manifest）
@@ -239,7 +246,15 @@ export function registerDocumentsSaveRoutes(ctx: DocumentCtx): void {
           // C1（批 2）：批量定稿同样触发章摘要（best-effort；fire-and-forget 不阻塞批量循环；
           // M-2：书名登记进后台表——批量连发多任务也能被 settle 逐个追上）
           if (o.ok && !o.skipped) summarized.push(docId)
-          results.push({ docId, ok: o.ok, status: o.ok ? o.status : undefined, skipped: o.ok ? o.skipped : undefined, error: o.ok ? undefined : o.error })
+          // B103：单条降级短语随批量结果透传（前端逐条汇总面可显）
+          results.push({
+            docId,
+            ok: o.ok,
+            status: o.ok ? o.status : undefined,
+            skipped: o.ok ? o.skipped : undefined,
+            error: o.ok ? undefined : o.error,
+            ...(o.ok && o.gateDegraded && o.gateDegraded.length > 0 ? { gateDegraded: o.gateDegraded } : {}),
+          })
         }
         // 第五轮：批量摘要走串行链——逐章 fire-and-forget 会让一键定稿 N 章 = N 路
         // 摘要 AI 并发（provider 限流整批失败）；整链单条登记，settle 在链首即追上全部

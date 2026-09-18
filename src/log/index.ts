@@ -26,7 +26,7 @@
  *   console 输出到无人看见的地方，关镜像只落文件。
  */
 import { appendFile, mkdir, readdir, unlink } from 'node:fs/promises'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 
 export type LogLevel = 'error' | 'warn' | 'info'
 
@@ -129,9 +129,34 @@ async function cleanupOldLogs(logsDir: string): Promise<void> {
   }
 }
 
+/** 0918二轮修复批（D101）：运行期清理节流窗——跨日切换至多每小时真清一次。形态对齐
+ *  src/process/spill.ts 的 sweepOldSpillsThrottled（Map 记上次清理时刻，窗内直接跳过；
+ *  自然跨日切换每天至多一次，1h 窗只吞时钟回拨/换目录等假切换）。 */
+const LOG_SWEEP_THROTTLE_MS = 60 * 60 * 1000
+const logSweepLastAt = new Map<string, number>()
+
+/** 0918二轮修复批（D101）：上次实际落盘的日文件名（app-YYYYMMDD.jsonl）——泵内据此
+ *  检测跨日切换；记名不记全路径：换目录不误报（init 换目录自带一次清理）。 */
+let lastDayName: string | null = null
+
+/** 0918二轮修复批（D101）：7 天保留不再只在启动期执行——cleanupOldLogs 原先仅被
+ *  initLogging 排队一次，长跑进程跨天新建的日志文件超期不清理（运行期目录无界增长）。
+ *  改为泵内检测 dayFile 跨日切换时节流触发清理；fire-and-forget（清理只 readdir+
+ *  unlink 解析出日期且超期的旧文件，与泵在写的今日文件无交集，不占泵串行队列——
+ *  日志主链不为清理让路）。吞错语义不变：cleanupOldLogs 自身全量 try/catch，外层
+ *  再兜一层防御，清理失败绝不影响日志主链。 */
+function cleanupOldLogsThrottled(logsDir: string): void {
+  const now = Date.now()
+  const last = logSweepLastAt.get(logsDir)
+  if (last !== undefined && now - last < LOG_SWEEP_THROTTLE_MS) return
+  logSweepLastAt.set(logsDir, now)
+  void cleanupOldLogs(logsDir).catch(() => {})
+}
+
 /**
  * 初始化日志落盘。幂等：可重复调用（desktop main 早期 init 一次、startServer 再对齐一次）。
- * logsDir 传 null = 显式只镜像不落盘。轮转清理由本调用触发（启动期一次，不在写路径上做）。
+ * logsDir 传 null = 显式只镜像不落盘。轮转清理由本调用触发（启动期一次，不在写路径上做；
+ * 0918二轮修复批 D101 后运行期由日志泵跨日切换节流补清，长跑进程目录不再无界增长）。
  * stdout-only（CLW_LOG_STDOUT=1）：本层短路——opts 全部忽略，不设 logsDir/不 mkdir/
  * 不 cleanup（child 每次 fork 不再有文件系统副作用、不与 main 双清同一 logs 目录），
  * 后续 emit 直写 stdout。
@@ -346,7 +371,14 @@ function enqueueWrite(line: string): void {
             }
             // 第九轮 L-6：日期文件在 flush 时重取——入队时取会在跨本地零点排队时把
             // 日志行写进前一天的文件（轮转边界错位）
-            await appendFile(dayFile(targetDir), pending + '\n', 'utf8')
+            const file = dayFile(targetDir)
+            // 0918二轮修复批（D101）：跨日切换检测——日文件名变化即触发节流清理
+            //（见 cleanupOldLogsThrottled 头注）。首写不触发（initLogging 启动期已排
+            // 过一次清理）；同日重复落盘零开销（名字比对）。
+            const dayName = basename(file)
+            if (lastDayName !== null && dayName !== lastDayName) cleanupOldLogsThrottled(targetDir)
+            lastDayName = dayName
+            await appendFile(file, pending + '\n', 'utf8')
           } catch (e) {
             // fail-open：落盘失败（磁盘满/目录被删）降级 console 保这条留痕可见；
             // 泵继续（catch 已吞），后续写入照常尝试。错误码随行带出（丢行可归因）。
@@ -376,7 +408,8 @@ export const log = {
   },
 }
 
-/** 测试钩子：重置为未初始化态（vitest 模块隔离下按需使用）。 */
+/** 测试钩子：重置为未初始化态（vitest 模块隔离下按需使用）。
+ *  0918二轮修复批（D101）：同步重置跨日检测与清理节流态（跨测试污染防线）。 */
 export function resetLoggingForTest(): void {
   state = {
     logsDir: null,
@@ -388,6 +421,8 @@ export function resetLoggingForTest(): void {
     droppedCount: 0,
     lastDropWarnAt: 0,
   }
+  lastDayName = null
+  logSweepLastAt.clear()
 }
 
 /** 测试钩子：等待串行队列排空（断言文件内容前调用）。 */

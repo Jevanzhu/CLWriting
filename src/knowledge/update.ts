@@ -166,7 +166,10 @@ interface CommitKnowledgeOpts {
 /**
  * 登记定稿文件进 manifest：append 单条 entry + generated_at 更新 + 全量重写。
  * 拒绝：target 已在 manifest（重复登记）/ target 不在 知识层/ 内（路径安全）/
- * manifest 读取失败 / 定稿文件不在盘。返回登记后的对账结果（caller 应要求 ok）。
+ * manifest 读取失败 / 定稿文件不在盘 / source·license 空（新 entry 自身先验）。
+ * 返回登记后的对账结果（caller 应要求 ok）。0918二轮修复批（G105）：写入后对账
+ * 区分两栏——issue 仅指向存量坏行（与新 entry 无关）时 ok:true + issues 附带
+ * （登记实已成功，重试不再撞「不得重复登记」）；issue 波及新 entry 才 ok:false。
  */
 export function commitKnowledgeFile(projectRoot: string, opts: CommitKnowledgeOpts): KnowledgeManifestReport {
   // R33-92（三十三轮）：登记整段（读 manifest → 注入 fm → 重写 manifest → 对账）跨进程互斥——
@@ -228,6 +231,14 @@ function commitKnowledgeFileLocked(projectRoot: string, opts: CommitKnowledgeOpt
 
   const source = opts.source ?? '语料回归域'
   const license = opts.license ?? '内部'
+  // 0918二轮修复批（G105）：新 entry 自身先验（写入前）——target 路径安全/判重/
+  // 文件在盘/sha256 实算均已在上方逐项收口，source/license 是仅剩的构造面自由输入
+  //（opts 传空串可穿透 ?? 缺省）；不先验会在写入后由全量对账以「source 与 license
+  // 必填」打回 ok:false，与「不得重复登记」互相矛盾（重试永死）。坏则不写（fm 注入
+  // 与 manifest 重写均未发生，盘面零变化）。
+  if (!source || !license) {
+    return { ok: false, issues: [{ path: opts.target, message: 'source 与 license 必填（新条目自身形状校验，未写入）' }] }
+  }
   // front matter 一致性：validateMarkdownMetadata 要求 md 顶层 fm 的 source/license 与
   // manifest 一致——commit 时自动注入/改写这两键（其余 fm 键与正文原样保留），随登记
   // 一体落盘，两边由构造一致；sha256 在注入后实算。
@@ -327,7 +338,24 @@ function commitKnowledgeFileLocked(projectRoot: string, opts: CommitKnowledgeOpt
       issues: [{ path: opts.target, message: `manifest 写入失败，已回滚 front matter 注入（两文件均保持原态，可重试）：${errMsg(e)}` }],
     }
   }
-  return validateKnowledgeManifest(projectRoot)
+  // 0918二轮修复批（G105）：写入后对账分两栏——issue 只指向**存量坏行**（与新 entry
+  // 无关：坏形状/缺文件/哈希失配的旧条目、version≠1 等 manifest 级旧伤）时，本次登记
+  // 实已成功，返回 ok:true + issues 附带（调用方可继续，坏行另行修复）；此前一律
+  // ok:false，与写入成功的盘面实态矛盾，且重试撞「不得重复登记」两报错互斥。issue
+  // 路径折叠等值判定归属新 entry（判重已排除同键存量，命中即本次登记自身问题）→
+  // 维持 ok:false 如实报失败。ok:true + issues 形态补 warn 留痕（scripts/
+  // knowledge-commit.ts 按 ok 出口，成功面不展 issues——本批不动 scripts/，留痕兜底）。
+  const report = validateKnowledgeManifest(projectRoot)
+  if (report.ok) return report
+  const newKey = caseFoldKey(opts.target)
+  if (report.issues.some((i) => caseFoldKey(i.path) === newKey)) {
+    return { ok: false, manifest: report.manifest, issues: report.issues }
+  }
+  log.warn(
+    'knowledge',
+    `本次登记已落盘成功，但 manifest 存量坏行 ${report.issues.length} 条（与新登记无关）：${report.issues.map((i) => `${i.path}: ${i.message}`).join('；')}——请择期修复 manifest`,
+  )
+  return { ok: true, manifest: report.manifest, issues: report.issues }
 }
 
 /** md 顶层 front matter 注入/改写标量键（值原样写行尾；无 fm 则新建块；既有其余键与正文不动）。

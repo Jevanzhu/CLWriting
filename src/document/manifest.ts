@@ -245,18 +245,16 @@ export function finalizedPathSet(bookRoot: string): Set<string> | null {
  *  补零均命中，与 state.ts skipFinalizedChapters 同一口径）。
  *  0918独立重评修复批（B005 尾项）：章号提取收编 chapterNoFromName 单源 + 剥 .md 茎
  *  （isMdFileName）——原窄正则 `/^(\d+)-/` 对裸数字定稿条目（0012.md）/破折号名失明，
- *  nextChapter/assembleStatus 的 skip 口径与 structure-core 同名函数漂移；R43-13
- *  isSafeInteger 守卫保留（chapterNoFromName 无此守卫，失真大数不入集合）。 */
+ *  nextChapter/assembleStatus 的 skip 口径与 structure-core 同名函数漂移。
+ *  0918独立重评二轮修复批（B102）：R43-13 isSafeInteger 手工守卫删除——守卫已下沉
+ *  chapterNoFromName 单源（16+ 位失真大数恒 null），此处不再补丁。 */
 export function finalizedChapterNumbers(m: Manifest): Set<number> {
   const out = new Set<number>()
   for (const e of m.entries.values()) {
     if (e.nodeType !== 'document' || !e.finalizedRevision) continue
     const base = e.path.split('/').pop() ?? ''
     const no = chapterNoFromName(isMdFileName(base) ? base.slice(0, -3) : base)
-    // R43-13（四十三轮）：16+ 位数字名 Number() 解析成超 2^53 的失真值（1e20 级
-    // 浮点）不入定稿章号集合——Number.isSafeInteger 守卫，对齐 format/words.ts
-    // parseChapterFileName 的 R64-20 口径
-    if (no !== null && Number.isSafeInteger(no)) out.add(no)
+    if (no !== null) out.add(no)
   }
   return out
 }

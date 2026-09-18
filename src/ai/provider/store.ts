@@ -211,6 +211,9 @@ export function loadProviders(userDataPath: string): ProviderStore {
   // mtime 缓存命中——跳过 readFileSync + vault 解密（高频 AI 生成场景核心优化）
   // P2-SEC-4：返回副本而非同一引用——调用方（API 端点）会直接 mutate store 后 saveProviders，
   // 若缓存返回原引用，未 save 的中间态会泄漏给后续 loadProviders 调用方
+  // 0918二轮修复批（A105 登记）：mtimeMs 为失效判据存在同毫秒粒度窗——外部工具在
+  // 同一毫秒内改写 providers.json 时 mtime 不变、命中陈旧缓存（读侧一次调用影响；
+  // 写侧已有 D002 锁内 revision 复验兜底，读侧单次陈旧下次重读自愈，不另修）。
   try {
     const mtime = statSync(fp).mtimeMs
     if (_cache && _cache.path === fp && _cache.mtime === mtime) return cloneStore(_cache.store)
@@ -292,31 +295,20 @@ export function loadProviders(userDataPath: string): ProviderStore {
   if (needsRewrite) {
     // R29-2（二十九轮）：saveProviders 现返回 promise——迁移写是 load 的内联副作用：
     // 快路同步异常照旧向上抛（本行表达式同步求值，语义不变）；排队段（存在在途写时）
-    // 的拒绝在此收口（saveProviders 内部已 log.warn 留痕），不再成为未处理 rejection
-    saveProviders(userDataPath, store).catch(() => { /* 排队段失败已留痕，迁移写不向 load 异步上抛 */ })
-    // R71-18：迁移后收敛 bak 明文残留——saveProviders 的 D7 写前备份会把迁移前的明文
-    // 主文件原样拷进 providers.bak.json，用户此后不改配置则明文 Key 在 bak 永久残留
-    // （直到下次 save 才被密文覆盖）。此处迁移写入后重新读回校验（openVault 重开 +
-    // openKey 逐条解密比对明文），通过才用刚落盘的密文内容覆写一次 bak
-    // （atomicWriteFile 与 D7/ee-P2-1 同款 0600+fsync）；校验失败保持 bak 现状
-    // （明文 bak 是恢复通道，下次 saveProviders 自然覆盖）。
-    try {
-      const savedRaw = readFileSync(fp, 'utf8')
-      const saved = JSON.parse(savedRaw) as DiskFormat
-      const savedVault = saved.vault
-      if (savedVault) {
-        const savedDek = openVault(savedVault, builtinKeyMaterial())
-        const roundtripOk = [...providers, ...ragProviders].every((p) => {
-          if (!p.apiKey) return true // 空 key 无密文可校
-          const sealed = savedVault.keys[p.id]
-          return !!sealed && openKey(savedDek, sealed, p.id).apiKey === p.apiKey
-        })
-        if (roundtripOk) {
-          atomicWriteFile(bakFp, savedRaw, { fsync: true, mode: 0o600 })
-        }
-      }
-    } catch {
-      /* 读回/解密校验失败：bak 保持现状（恢复通道），不向调用方传播 */
+    // 的拒绝在此收口（saveProviders 内部已 log.warn 留痕），不再成为未处理 rejection。
+    // 0918二轮修复批（A103）：走 saveProvidersRaw（透传 serializedLockedWrite 快路
+    // undefined 信号）——bak 覆写挂到「本次迁移写入落盘成功之后」：快路（写已同步完成）
+    // 同步执行，排队路径挂 promise then 段。修复前迁移后同步 readFileSync 直读校验：
+    // 排队窗口内直读拿到的是迁移前旧文件（明文无 vault）→ 校验必失败/跳过 → 明文 bak
+    // 残留到下次任意 save。
+    const r = saveProvidersRaw(userDataPath, store)
+    if (r === undefined) {
+      overwriteBakIfCiphertextRoundtrip(fp, bakFp, providers, ragProviders)
+    } else {
+      r.then(
+        () => overwriteBakIfCiphertextRoundtrip(fp, bakFp, providers, ragProviders),
+        () => { /* 排队段失败已留痕（serializedLockedWrite 旁挂 warn），迁移写不向 load 异步上抛；bak 保持现状 */ },
+      )
     }
   }
 
@@ -386,17 +378,65 @@ export function __seedProvidersWriteChainForTest(userDataPath: string, pending: 
   writeChains.set(writeChainKey(userDataPath), pending)
 }
 
+/**
+ * R71-18：迁移后收敛 bak 明文残留——saveProviders 的 D7 写前备份会把迁移前的明文
+ * 主文件原样拷进 providers.bak.json，用户此后不改配置则明文 Key 在 bak 永久残留
+ * （直到下次 save 才被密文覆盖）。迁移写入落盘后重新读回校验（openVault 重开 +
+ * openKey 逐条解密比对明文），通过才用刚落盘的密文内容覆写一次 bak
+ * （atomicWriteFile 与 D7/ee-P2-1 同款 0600+fsync）；校验失败保持 bak 现状
+ * （明文 bak 是恢复通道，下次 saveProviders 自然覆盖）。
+ *
+ * 0918二轮修复批（A103）：自 loadProviders 迁移分支内联段提取为单源 helper，且执行
+ * 时机由「load 内同步直读」改为「本次迁移写入落盘成功之后」（快路同步 / 排队路径
+ * promise then 段，见迁移分支注）——修复前排队窗口内同步直读拿到迁移前旧明文文件，
+ * roundtrip 校验必失败/跳过，明文 bak 残留到下次任意 save。
+ */
+function overwriteBakIfCiphertextRoundtrip(
+  fp: string,
+  bakFp: string,
+  providers: ProviderConf[],
+  ragProviders: RagProviderConf[],
+): void {
+  try {
+    const savedRaw = readFileSync(fp, 'utf8')
+    const saved = JSON.parse(savedRaw) as DiskFormat
+    const savedVault = saved.vault
+    if (savedVault) {
+      const savedDek = openVault(savedVault, builtinKeyMaterial())
+      const roundtripOk = [...providers, ...ragProviders].every((p) => {
+        if (!p.apiKey) return true // 空 key 无密文可校
+        const sealed = savedVault.keys[p.id]
+        return !!sealed && openKey(savedDek, sealed, p.id).apiKey === p.apiKey
+      })
+      if (roundtripOk) {
+        atomicWriteFile(bakFp, savedRaw, { fsync: true, mode: 0o600 })
+      }
+    }
+  } catch {
+    /* 读回/解密校验失败：bak 保持现状（恢复通道），不向调用方传播 */
+  }
+}
+
 export function saveProviders(userDataPath: string, store: ProviderStore): Promise<void> {
+  const r = saveProvidersRaw(userDataPath, store)
+  return r === undefined ? Promise.resolve() : r
+}
+
+/** 0918二轮修复批（A103）：内部变体——透传 serializedLockedWrite 的快路 undefined
+ *  信号（快路 = 写已同步落盘；Promise = 在途/排队段），供 loadProviders 迁移分支把
+ *  bak 覆写挂到「本次写入落盘成功之后」（快路同步执行保持 R71-18 既有同步语义，
+ *  排队路径挂 promise then 段）。对外 saveProviders 恒 Promise（R29-2 语义不变）。 */
+function saveProvidersRaw(userDataPath: string, store: ProviderStore): void | Promise<void> {
   // 复审-0914-优化修复批（C1）：快/慢双路、在途入链、cleanup 身份比对、旁挂 warn 防
   // unhandled rejection 收编 ai/calls.ts serializedLockedWrite 单源（记账侧 serializedWrite
   // 同构薄壳）。R73-2 串行队列 + R30-3 锁异步化 + R29-2 排队段失败随 promise 上抛语义
   // 逐位不变：returnInflight=true（在途/排队 promise 原样返回给 await 方）；快路同步完成
-  // 返回 undefined，此处转 Promise.resolve()（R29-2：IO 异常照旧同步上抛，await 侧
+  // 返回 undefined，saveProviders 转 Promise.resolve()（R29-2：IO 异常照旧同步上抛，await 侧
   // try/catch 同样接得住）。
   // W-重评P3 并合注：链键走 writeChainKey 折叠（case-only/NFD 路径同链排队，win 侧
   // 修复与 C1 收编单源的接合点；__seedProvidersWriteChainForTest 同键口径）。
   const lockPath = join(userDataPath, `${FILE}.lock`)
-  const r = serializedLockedWrite(
+  return serializedLockedWrite(
     writeChains,
     writeChainKey(userDataPath),
     lockPath,
@@ -410,7 +450,6 @@ export function saveProviders(userDataPath: string, store: ProviderStore): Promi
       returnInflight: true,
     },
   )
-  return r === undefined ? Promise.resolve() : r
 }
 
 /** 原 saveProviders 主体（R73-2 改名入锁；逻辑逐行不变） */

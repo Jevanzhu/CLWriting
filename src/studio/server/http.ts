@@ -1,4 +1,4 @@
-import { timingSafeEqual } from 'node:crypto'
+import { createHash, timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { redactSecret } from '../../ai/provider/redact.js'
 
@@ -82,12 +82,17 @@ export function replyHttpError(res: ServerResponse, e: HttpError): void {
   replyError(res, e.status, e.code, e.message)
 }
 
-/** 常量时间 token 比较，防 timing attack（长度不同直接返回 false）。 */
+/** 常量时间 token 比较，防 timing attack。
+ *  0918二轮修复批（D102，独立重评二轮 P3 高价值硬化）：原实现长度不等提前 return
+ *  false——比较耗时与期望值长度相关，向攻击者泄露 secret 长度时序信号（当前 token
+ *  恒 UUID 定长无实害，但本原语被 index.ts 写闸与 stream.ts SSE 凭据闸三处复用，按
+ *  原语级硬化）。现两侧各先 SHA-256 摘要成 32 字节定长再 timingSafeEqual：长度信道
+ *  消除（比较输入恒定长、耗时与 secret 长度脱钩），语义不变（不等仍 false、非字符串
+ *  仍 false）；消费点均只消费布尔结果，全 grep 无长度依赖假设。 */
 export function safeTokenCompare(received: string | string[] | undefined, expected: string): boolean {
   if (typeof received !== 'string') return false
-  const a = Buffer.from(received)
-  const b = Buffer.from(expected)
-  if (a.length !== b.length) return false
+  const a = createHash('sha256').update(received).digest()
+  const b = createHash('sha256').update(expected).digest()
   return timingSafeEqual(a, b)
 }
 

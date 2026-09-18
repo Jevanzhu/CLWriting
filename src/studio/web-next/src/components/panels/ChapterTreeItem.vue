@@ -175,8 +175,17 @@ function onTreeKeyDown(e: KeyboardEvent): void {
 }
 
 // 进入新建/重命名态：初始化值 + 聚焦
+// 0918二轮修复批（F103）：watch 源由 [creatingDirPath, renamePath]（全树共享 props，
+// 任一变更在每个已渲染实例扇出回调、非目标项各自空跑判据比较）改成本实例「命中态」
+// 布尔——非目标项布尔恒 false 值不变、回调不触发，只有编辑态进出本项的实例触发
+//（旧目标退出 + 新目标进入，O(2)），消 O(已渲染节点) 回调扇出（RENDER_CAP 逐层
+// 100 下数百实例常态）。getter 求值仍随依赖变更跑遍全实例（响应式依赖追踪天性，
+// 两次引用比较与原回调早退同量级，不另收敛）；isCreatingHere/isRenaming 判据、
+// DOM 结构与交互行为逐字保留。附带收窄：目标目录折叠/展开也翻转命中态正确驱动
+// 初始化（原源不盯 expanded；startCreate 同 tick 先置 creating 再展开，实际窗口
+// 为零，语义无差）。
 watch(
-  () => [props.creatingDirPath, props.renamePath],
+  [isCreatingHere, isRenaming],
   async () => {
     if (isCreatingHere()) {
       inputVal.value = props.creatingSeed

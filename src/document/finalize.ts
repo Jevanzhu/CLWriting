@@ -48,7 +48,15 @@ import { chapterNoFromName } from '../format/filename.js'
 import { log, errMsg } from '../log/index.js'
 
 type FinalizeOutcome =
-  | { ok: true; status: 'final'; skipped: boolean }
+  | {
+      ok: true
+      status: 'final'
+      skipped: boolean
+      /** 0918独立重评二轮修复批（B103）：防吃书闸降级短语（非空 = 闸门 fail-open 放行
+       *  的事实透出到定稿结果信封——对齐机检侧 check/run.ts pushDegradedYellow 黄项
+       *  口径，前端弹 warning toast；fail-open 哲学本身不变）。 */
+      gateDegraded?: string[]
+    }
   | { ok: false; code: 'NOT_FOUND' | 'WRITE_ERROR' | 'LEAD_GATE' | 'LEAD_WRITE_ERROR'; error: string }
 
 /**
@@ -178,10 +186,13 @@ function finalizeLockedCore(pre: FinalizePrepared): FinalizeOutcome {
   // （声明了没做 / 做了没声明），非空则阻断定稿。此前红项只在 AI 自愈循环（retry）拦截，
   // 作者手工定稿主路径失守（README「账实不符阻断定稿」失效）。只拦这两条：复读/文风/
   // 禁词等其余红项不拦定稿，定稿前树红点/机检面板仍可见。
+  // B103：闸门降级短语（fail-open 放行事实）随信封透出，末尾 ok 返回携带。
+  let gateDegraded: string[] = []
   if (isWiredChapter) {
-    const blockers = finalGateBlockers(bookRoot, absPath, chapterNo)
-    if (blockers.length > 0) {
-      return { ok: false, code: 'LEAD_GATE', error: blockers.join('\n') }
+    const gate = finalGateBlockers(bookRoot, absPath, chapterNo)
+    gateDegraded = gate.degraded
+    if (gate.blockers.length > 0) {
+      return { ok: false, code: 'LEAD_GATE', error: gate.blockers.join('\n') }
     }
   }
 
@@ -248,7 +259,13 @@ function finalizeLockedCore(pre: FinalizePrepared): FinalizeOutcome {
   }
 
   invalidateTreeIndex(bookRoot)
-  return { ok: true, status: 'final', skipped: false }
+  // B103：非空 = 防吃书闸本轮降级放行（人话短语），前端据此弹 warning toast
+  return {
+    ok: true,
+    status: 'final',
+    skipped: false,
+    ...(gateDegraded.length > 0 ? { gateDegraded } : {}),
+  }
 }
 
 /**
@@ -340,36 +357,48 @@ export async function finalizeRevisionAsync(bookRoot: string, docId: string): Pr
  *
  * 整体 try/catch fail-open：闸门自身故障（读盘异常等）返回 [] 不阻断定稿——闸门是防
  * 吃书增强而非定稿的必要条件，与 X-P2-5 降级哲学一致（观测/防护层故障不应锁死作者）。
+ * 0918独立重评二轮修复批（B103）：fail-open 保留，但降级事实不再零可见——返回体加
+ * degraded 字段（兑现侧清单不可读 / 闸门自身异常时置人话短语），由定稿结果信封
+ * gateDegraded 透出（服务端 API 层透传、前端弹 warning toast），与机检侧
+ * pushDegradedYellow（check/run.ts R31-3/R33D-14）口径对称。
  */
-function finalGateBlockers(bookRoot: string, absPath: string, chapterNo: number): string[] {
+function finalGateBlockers(bookRoot: string, absPath: string, chapterNo: number): { blockers: string[]; degraded: string[] } {
   try {
     const declaration = outlineDeclarationForChapter(bookRoot, chapterNo)
-    if (!declaration.known) return [] // 声明未知：闭合比对不可判定，跳过（R69-2）
+    if (!declaration.known) return { blockers: [], degraded: [] } // 声明未知：闭合比对不可判定，跳过（R69-2）
     const draft = readDraft(absPath)
-    if (!draft.ok) return []
+    if (!draft.ok) return { blockers: [], degraded: [] }
     // R32-3（三十二轮）：兑现侧改 Checked 读——主文件/归档「存在但读失败」时 updates
     // 不完整，按其比对会把「清单未知」当「已声明未兑现」产 lead-declared-not-done 假红
     // 硬阻断定稿（R31-3 只闭合了机检侧）。unreadable → 跳过闭合比对 + warn 留痕
     // （闸门降级放行，对齐 X-P2-5/R29-8 口径——观测得到但不锁死作者）。
     //（win 线 R33-5 同因独立修复，合并取本侧 unreadable 形状 + warn 留痕。）
+    // B103：降级短语随返回体透出（信封 gateDegraded）。
     const fulfilled = readChapterUpdatesForChapterChecked(bookRoot, chapterNo)
     if (fulfilled.unreadable) {
       log.warn('finalize', `第${chapterNo}章 防吃书闸兑现侧清单不可读（主文件/归档在位但读失败），闭合比对降级跳过`)
-      return []
+      return {
+        blockers: [],
+        degraded: [`第${chapterNo}章账本推进文件读取失败，防吃书闭合比对本轮跳过（已放行定稿）`],
+      }
     }
     const actual = fulfilled.updates
       .filter((u) => leadEvidenceMatchesBody(draft.body, u.证据))
       .map((u) => u.leadId)
-    return leadClosureItems(declaration.leads, actual, chapterNo).map((i) => i.message)
+    return { blockers: leadClosureItems(declaration.leads, actual, chapterNo).map((i) => i.message), degraded: [] }
   } catch (e) {
     // R29-8（二十九轮）：fail-open 留痕——闸门自身故障此前静默返回 [] 放行，「闸门
     // 降级」零痕迹（与 R29-8② state.ts 布线缺失健康项同族：静默失效面至少可观测）。
     // 只加观测，不改变放行语义（闸门是防吃书增强而非定稿必要条件，X-P2-5 哲学不变）。
+    // B103：降级事实再随信封透出（不止日志）。
     log.warn(
       'finalize',
       `第${chapterNo}章 防吃书闸执行失败，闸门降级放行：${errMsg(e)}`,
     )
-    return []
+    return {
+      blockers: [],
+      degraded: [`第${chapterNo}章防吃书检查执行异常（${errMsg(e)}），已放行定稿`],
+    }
   }
 }
 
@@ -387,7 +416,10 @@ function lookupRelPath(
 /** 从文件名推断章号（`0001-开篇.md` → 1；解析失败 → 0）。
  *  全库重评-0914 P3-11：窄正则 `^(\d+-)` 收编 chapterNoFromName 单源（format/filename
  *  宽集：`-`/`—`/空白/裸尾均认）——`5—标题.md`/`5 标题.md` 此前落 0，防吃书闸兑现侧
- *  清单按章号定位 miss。行为变化面：仅此前解析失败（章号 0）的文件名现在正确解析。 */
+ *  清单按章号定位 miss。行为变化面：仅此前解析失败（章号 0）的文件名现在正确解析。
+ *  0918独立重评二轮修复批（B102）：16+ 位失真大数前缀经单源 SafeInteger 守卫落
+ *  null → 0（isWiredChapter 要求 chapterNo > 0）——fm 坏 + 天文数字文件名形态按
+ *  「无章号」降级跳过防吃书闸定位，不再向闸内派发 1.23e20 级章号。 */
 function inferChapterFromName(relPath: string): number {
   const base = relPath.split('/').pop() ?? ''
   return chapterNoFromName(base) ?? 0

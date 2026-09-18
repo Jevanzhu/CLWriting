@@ -144,6 +144,15 @@ function validateSplitCursor(o: ChapterDiskState, cursorOffset: number): Structu
   if (o.text.slice(cursorOffset).trim().length === 0) {
     return fail('BAD_INPUT', '拆分点之后没有正文内容（光标在章尾空白处）')
   }
+  // 0918独立重评二轮修复批（B101）：UTF-16 代理对边界判定——光标落在高低位代理之间
+  //（CJK 扩展 B 生僻字、emoji 等 astral 字符内部）时，apply 的 slice 切分会把一个
+  // 字符劈成两个孤立代理，落盘各编码为 U+FFFD（原章尾 + 新章头同时永久损坏一字，
+  // 且恢复重放经同一光标复现损坏）。前端编辑器光标通常在码点边界，此处是后端防线。
+  const prev = o.text.charCodeAt(cursorOffset - 1)
+  const cur = o.text.charCodeAt(cursorOffset)
+  if (prev >= 0xd800 && prev <= 0xdbff && cur >= 0xdc00 && cur <= 0xdfff) {
+    return fail('BAD_INPUT', '光标落在字符内部（代理对中间），请移动到字符边界后重试')
+  }
   return null
 }
 

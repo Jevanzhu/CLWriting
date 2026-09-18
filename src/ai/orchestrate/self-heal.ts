@@ -196,8 +196,9 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
       emit(opts, { type: 'self_heal_phase', phase: 'chapter_start', chapter: chapters![0], done: 0, total: chapters!.length })
     }
 
-    // P3-6：book.yaml 只解析一次——批量连写每章共用（此前 runChapter 每章各读一次，
-    // 写 8 章重复解析 8 次同一文件）。
+    // P3-6：book.yaml 批头解析一次——批量连写每章共用（此前 runChapter 每章各读一次，
+    // 写 8 章重复解析 8 次同一文件）；0918二轮修复批（A102）起批量循环内章边界重读
+    //（见 orchestrateBatch），批头这份是首章前的初值。
     // 全局托底：orchestrate 内自读 config 喂 budget 检查——统一过 applyGlobalDefaults
     // （书级未设 calls_per_chapter 等回落 global.json → 硬编码，喂 checkAiCallBudget 的
     // 是有效值而非 undefined）
@@ -213,10 +214,21 @@ async function orchestrate(opts: SelfHealOpts, state: RunState): Promise<SelfHea
     // busy_timeout 与 rebuild/机检端点同款——自愈与树红点聚合可并发，等锁而非 SQLITE_BUSY
     db = hasWiring ? new DatabaseSync(join(bookRoot, '.cache', 'index.db')) : null
     if (db) db.exec('PRAGMA busy_timeout = 5000')
-    const check = opts.check ?? ((p: string) => checkWithDb(bookRoot, p, db, config))
 
-    // F2：单章/批量共享同一套 ctx（消除双路径重复）
-    const ctx: ChapterCtx = { bookRoot, maxAttempts, save, kind, check, db, chain, config }
+    // F2：单章/批量共享同一套 ctx（消除双路径重复）。
+    // 0918二轮修复批（A102）：default check 读 ctx.config（非批头 config 快照）——
+    // 章边界重读刷新 ctx.config 后，机检随本章新配置走，与预算闸/字数（draftFirstChapter/
+    // rewriteOnce 均读 ctx.config）同源；opts.check 注入替身路径不受影响。
+    const ctx: ChapterCtx = {
+      bookRoot,
+      maxAttempts,
+      save,
+      kind,
+      check: opts.check ?? ((p: string) => checkWithDb(bookRoot, p, db, ctx.config)),
+      db,
+      chain,
+      config,
+    }
 
     // P2-3：批量连写——循环各章走同一套单章闭环，章间 emit chapter_done/start 进度。
     // 每章独立开算 budget；中途 escalate/预算超限 → 停后续章 + 报 batch_progress。
@@ -261,7 +273,9 @@ interface ChapterCtx {
   check: (p: string) => CheckOutcome
   db: DatabaseSync | null
   chain: ChainRecorder | null
-  /** P3-6：book.yaml 解析一次，循环共用（预算闸/check 同源） */
+  /** P3-6：book.yaml 解析一次，循环共用（预算闸/check 同源）；0918二轮修复批（A102）
+   *  起批量循环章边界重读刷新——预算闸/备料/字数/default check（机检）均读本字段，
+   *  作者批中改配置下一章生效 */
   config: BookConfig
 }
 
@@ -333,6 +347,14 @@ async function orchestrateBatch(
       recordPause(ch, 'aborted', '用户中止连写')
       return { outcome: 'aborted' }
     }
+
+    // 0918二轮修复批（A102）：章边界重读 book config——批头解析一次贯穿全批使作者
+    // 批中改 budget/字数对本批不生效（与 chat 侧 runner.ts 每次 runTask 重读 book.yaml
+    // 的「下次发送即生效」口径不一）。每章开始时按同一表达式重建（readBookConfig 信封
+    // 语义不变：读失败/缺文件回落默认配置 + applyGlobalDefaults 合并），本章的预算闸/
+    // 备料/字数/机检（default check 读 ctx.config）随新值；单章路径无章边界，维持批头
+    // 一读（单章时长即单章闭环，与 chat 侧口径差异只在批内多章窗口）。
+    ctx.config = applyGlobalDefaults(readBookConfig(join(ctx.bookRoot, 'book.yaml')).config, opts.userDataPath)
 
     const run = await runChapter(opts, state, ctx, ch)
     if (run.outcome === 'aborted') {

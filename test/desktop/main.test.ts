@@ -153,6 +153,19 @@ describe('kk-P2-8：主进程启动链（安全配置 / CSP / 内嵌 server）',
     expect(csp).toContain("connect-src 'self'")
   })
 
+  // 0918二轮修复批（C104）：CSP 补 frame-ancestors 'none'——frame-ancestors 不回落
+  // default-src（CSP 规范独立指令），缺省即本地端口可被任意页面嵌 iframe（点击劫持
+  // /DNS rebinding 纵深；API 侧 token 兜底之外补页面层防线）。
+  it('C104（0918二轮修复批）：CSP 含 frame-ancestors \'none\'（防本地端口被嵌 iframe）', () => {
+    expect(M.headersCb, 'whenReady 应注册 CSP 回调').toBeTruthy()
+    let cbArg: unknown
+    M.headersCb!({ responseHeaders: { 'content-type': ['text/html'] } }, (r) => (cbArg = r))
+    const csp = (cbArg as { responseHeaders: Record<string, string[]> }).responseHeaders[
+      'Content-Security-Policy'
+    ]![0]!
+    expect(csp).toContain("frame-ancestors 'none'")
+  })
+
   it('utility fork 参数与主窗加载（批 U1）：--dir/--user-data/--port 0/token 经 env（E-9b）+ serviceName → loadURL', () => {
     expect(M.forkCalls.length).toBe(1)
     const call = M.forkCalls[0]!
@@ -477,6 +490,39 @@ describe('kk-P2-8：IPC 面（校验 / 穿越守卫 / 导航转发）', () => {
       vi.useRealTimers()
     }
   })
+
+  // 0918二轮修复批（C106）：contextMenuCancelTimers 强引用滞留——Map 持 WebContents，
+  // 窗口正常销毁（closed）不摘除条目滞留至进程尾。修复 = 武装单点 armContextMenuCancelTimer
+  // 首次写入时挂 webContents 'destroyed' 摘除（清 timer + 删条目）。
+  it('C106（0918二轮修复批）：窗口销毁 → 取消补发条目随 destroyed 摘除、timer 已清', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.resetModules()
+      await import('../../src/desktop/main.js')
+      // 与 fresh main.js 同模块图的 ipc.js 实例（contextMenuCancelTimers 正本）——
+      // __testHooks 先例同 windows.ts（生产零调用）
+      const ipcMod = (await import('../../src/desktop/ipc.js')) as unknown as {
+        __testHooks: { hasCancelTimer: (wc: unknown) => boolean; cancelTimerCount: () => number }
+      }
+      await vi.advanceTimersByTimeAsync(0) // bootstrap + 首窗创建落定
+      await M.ipcHandle['desktop:open-library-window']!(trustedEvent())
+      await vi.advanceTimersByTimeAsync(0) // 子窗 openSingletonWindow 微任务链（loadURL 前）
+      const libWin = [...M.windows].reverse().find((w) => w.opts.title === '书库')!
+      const wc = libWin.webContents as unknown as Record<string, any>
+      M.ipcOn['desktop:context-menu']!(trustedEvent(wc), [{ label: '删除', key: 'delete' }])
+      M.popupCb?.() // 菜单关闭 → 取消补发武装（100ms timer 入 per-sender 槽）
+      expect(ipcMod.__testHooks.hasCancelTimer(wc)).toBe(true) // 武装在册
+      const sent0 = wc.sent.length
+      // 窗口销毁：webContents 'destroyed' emit（真实 Electron 随窗销毁派发）
+      for (const fn of wc.handlers['destroyed'] ?? []) fn()
+      expect(ipcMod.__testHooks.hasCancelTimer(wc)).toBe(false) // 条目已摘除（修复前滞留至进程尾）
+      await vi.advanceTimersByTimeAsync(200) // 越过原 100ms 补发窗——timer 已清，无迟到补发
+      expect(wc.sent.length).toBe(sent0)
+      libWin.close() // 清理（书库窗单例让位；closed 链对已摘除条目幂等）
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
 
 describe('kk-P2-8：原生菜单与 second-instance', () => {
@@ -590,5 +636,37 @@ describe('kk-P2-8：原生菜单与 second-instance', () => {
       expect(M.appFocus.length).toBe(focus0) // 非 darwin 平台不调 app.focus
     }
     expect(win.focused).toBe(f0 + 1) // 主窗聚焦不受影响（应用内置前）
+  })
+
+  // 0918二轮修复批（C105）：菜单 action 回退 `?? getAllWindows()[0]` 删除——主窗销毁
+  // 窗口期（close 拦截 flush/退出链在途，菜单仍可点）首窗可能是无 useAppActions 接线
+  // 的子窗，动作发进子窗即静默丢失；修复后回退限主窗存在才发送，主窗不存在 log.warn
+  // 留痕（动作丢弃可见），不向任何窗口外发。
+  it('C105（0918二轮修复批）：主窗销毁窗口期菜单 action 不回退首窗——丢弃留痕不外发', async () => {
+    const windows0 = M.windows.length
+    vi.resetModules()
+    await import('../../src/desktop/main.js')
+    await new Promise((r) => setImmediate(r))
+    await new Promise((r) => setImmediate(r))
+    // 书架子窗在位 = 修复前 getAllWindows()[0] 的「首窗候选」（无 useAppActions 接线）
+    await M.ipcHandle['desktop:open-shelf']!(trustedEvent())
+    await new Promise((r) => setImmediate(r))
+    const shelf = [...M.windows].reverse().find((w) => w.opts.title === '书架')!
+    const sentCounts = M.windows.map((w) => w.webContents.sent.length)
+    const main = M.windows[windows0]! // 本轮 fresh 主窗（不碰首实例 windows[0]）
+    main.close() // FakeWin.close → 'closed' → wins.mainWindow=null（菜单模板仍可点）
+    const warns0 = M.logWarns.length
+    const template = M.menuHistory!.at(-1)!
+    const file = template.find((m) => (m as { label?: string }).label === '文件') as {
+      submenu: Array<Record<string, any>>
+    }
+    const newBook = file.submenu.find((i) => i.label === '新建书…')!
+    expect(() => newBook.click!()).not.toThrow() // 修复前：回退首窗发送（动作丢失且无痕）
+    expect(M.logWarns.length).toBeGreaterThan(warns0) // 丢弃留痕可见
+    expect(String((M.logWarns.at(-1) as unknown[])[1])).toContain('new-book') // 留痕含动作 key
+    M.windows.forEach((w, i) => {
+      expect(w.webContents.sent.length, `窗口 ${i} 不得收到 menu-action`).toBe(sentCounts[i]!)
+    })
+    shelf.close() // 清理：书架子窗让位后续用例
   })
 })

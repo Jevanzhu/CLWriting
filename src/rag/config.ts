@@ -82,11 +82,20 @@ export function readRagConfig(bookRoot: string, userDataPath?: string | null): R
   }
 }
 
+/** 0918二轮修复批（G101）：rag.secret 弃用 warn 的进程内一次性标志（见 readApiKey 头注） */
+let ragSecretDeprecationWarned = false
+
 /**
  * 读 api_key（优先级：环境变量 > .clwriting/rag.secret）。
  * 两者皆无 → null（调用方据此降级，不阻断）。
  *
  * 红线 H1：绝不从 book.yaml / 书仓库任何文件读 key。
+ *
+ * 0918二轮修复批（G101）：旧版明文通道弃用提示——rag.secret 是服务商标应用级
+ * （providers.json + vault 加密）之前的存量落点，与新链路保护等级不一（工作目录
+ * 在同步盘时明文 key 随之上云）。检测到该文件存在且 key 被实际取用（env 未覆盖、
+ * 文件非空）时打一次性 deprecation warn 引导迁移；读取行为不变（存量用户不破坏，
+ * env 覆盖时文件未被读用故不 warn）。
  */
 export function readApiKey(workDir: string): string | null {
   // 优先级 1：环境变量
@@ -97,6 +106,10 @@ export function readApiKey(workDir: string): string | null {
   const secretPath = join(workDir, '.clwriting', RAG_SECRET_FILE)
   if (existsSync(secretPath)) {
     const key = readFileSync(secretPath, 'utf8').trim()
+    if (key && !ragSecretDeprecationWarned) {
+      ragSecretDeprecationWarned = true
+      log.warn('rag', '检测到旧版明文 embedding 密钥文件 .clwriting/rag.secret，建议迁移到供应商配置（密钥已加密存储）；该通道后续版本将移除')
+    }
     return key || null
   }
   return null

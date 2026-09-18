@@ -23,7 +23,9 @@ import { resolveProvider, runTask } from '../../runner.js'
 // R57-B-2（五十七轮）：models 行 contextWindow 读取（与 finish.ts:124
 // clampCheckpointOutputTokens(modelConfOf(provider.conf)?.contextWindow) 同款先例）
 // 0917清库修复批：loadProviders 供换网重试挑备用供应商；failureAction 供换网族判定读决策表
-import { loadProviders, modelConfOf } from '../../provider/store.js'
+// 0918二轮修复批（A104）：tierFromStore/resolveAdapter 供换网候选轻量形状校验
+import { loadProviders, modelConfOf, tierFromStore } from '../../provider/store.js'
+import { resolveAdapter } from '../../provider/registry.js'
 import { failureAction } from '../../provider/failure.js'
 import { redactSecret } from '../../provider/redact.js' // R43-19（四十三轮）：SSE 错误事件脱敏第二层
 import { chatTools, TOOL_RISK } from '../../contract/chat.js'
@@ -209,11 +211,18 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
     // llm/call（runner trace 侧）拿不到切点时机，评审建议的「落 llm/call」在现有结构
     // 下不可行，故偏离报告建议并在此声明。
     // R57-B-1（五十七轮）：system prompt 计入发送预算——历史可用 = resolved 预算 − sys
-    // 点数（同族码点口径 measureTextPoints）；sys 超大（重设定书场景）把差额挤负时
+    // 点数（同族码点口径 measureTextPoints）；sys 超大（重设定书场景）把差额挤到下限以下时
     // clamp 到具名下限 CHAT_HISTORY_MIN_BUDGET_POINTS（约保一个回合），宁可切后总量
     // 仍超走下方复查 warn（fail-open），不把历史压成空手发送。
+    // 0918二轮修复批（A101）：下限补「随预算收缩」——R57-B-1 只论证了 sys 挤负 clamp 形态，
+    // 未覆盖 sendBudget 本身低于下限的形态：contextWindow < 40k 的小窗模型行
+    // sendBudget = min(96k, ⌊窗/2⌋) < 20k，恒 clamp 到 20k 反而高于发送预算本身——
+    // 预防线 `sendPoints > historyBudget` 对 [sendBudget, 20k] 区间永不触发，实发必超窗
+    // 400；A7 收缩重试预算 ⌊20k/2⌋ = 10k 仍可高于真实窗口预算 → 二次 400 会话死路。
+    // 现下限先与 sendBudget 取 min，historyBudget 恒 ≤ sendBudget；sys 超大挤到
+    //（收缩后的）下限时 fail-open warn 语义不变。
     const sysPoints = measureTextPoints(sys)
-    const historyBudget = Math.max(CHAT_HISTORY_MIN_BUDGET_POINTS, sendBudget - sysPoints)
+    const historyBudget = Math.max(Math.min(CHAT_HISTORY_MIN_BUDGET_POINTS, sendBudget), sendBudget - sysPoints)
     let toSend = sanitized
     const sendPoints = measureHistoryPoints(sanitized)
     if (sendPoints > historyBudget) {
@@ -417,19 +426,26 @@ export async function runAgentTurns(deps: TurnDeps): Promise<boolean> {
       switchCode = undefined
       let fallbackId: string | undefined
       let fromId: string | null = null
-      // 0918独立重评修复批（A004）：备用供应商逐个校验 chat 档可用性——复用 runner
-      // resolveProvider 同款解析路径（换网重发 runTask 按 providerId 走的正是这条：
-      // conf 按 id 取 + tierFromStore('chat') + createProvider），选第一个可解析的异
+      // 0918独立重评修复批（A004）：备用供应商逐个校验 chat 档可用性，选第一个可解析的异
       // id 供应商；此前 find(p => p.id !== currentId) 不校验，选中无 chat 档/坏协议的
       // 备用只会白烧一次必败发送。全部不可用时按成因区分 warn 文案（无备用供应商 vs
       // 备用均无可用 chat 档），均落现行终态路径（错误面零变更）。
+      // 0918二轮修复批（A104）：校验从「resolveProvider 同款解析路径」改为轻量形状校验
+      // ——修复前对每个候选 resolveProvider（每次 loadProviders 整 store 克隆 + vault
+      // 解密、createProvider 实例入 LRU 挤占容量 8），失败路径的过滤探针代价与实例驻留
+      // 面不成比例。现读一次 providers 配置做形状判定：协议在册（resolveAdapter，与
+      // createProvider 未知协议拒绝同源）+ chat 档模型可解析（tierFromStore 与
+      // resolveProvider 的 tier 解析同源，模型缺失对全体候选一致 = 均无 chat 档）；
+      // 不实例化 provider、不进 LRU，真正实例化只发生在选定后的重发路径（runTask →
+      // resolveProvider(providerId) 全量校验兜底）。A004 预检文案语义不变。
       let hasCandidate = false
       try {
         const s = loadProviders(opts.userDataPath)
         fromId = s.currentId
         const candidates = s.providers.filter((p) => p.id !== s.currentId)
         hasCandidate = candidates.length > 0
-        fallbackId = candidates.find((p) => resolveProvider(opts.userDataPath, 'chat', p.id).ok)?.id
+        const chatModelOk = tierFromStore(s, 'chat').model !== ''
+        fallbackId = candidates.find((p) => chatModelOk && resolveAdapter(p.protocol) !== null)?.id
       } catch {
         fallbackId = undefined
       }

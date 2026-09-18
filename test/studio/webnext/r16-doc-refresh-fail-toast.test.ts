@@ -31,6 +31,7 @@ vi.mock('../../../src/studio/web-next/src/api/client', async (importOriginal) =>
 // R0916-6-P2-5：ui store 不再 mock——真件 + toast 动作 spy（helpers/real-stores 纪律）
 
 import { useDocStore } from '../../../src/studio/web-next/src/stores/doc'
+import { useTreeStore } from '../../../src/studio/web-next/src/stores/tree'
 import type { TreeNode } from '../../../src/studio/web-next/src/types/tree'
 import { setupRealStores, recordToasts } from './helpers/real-stores'
 
@@ -83,18 +84,26 @@ describe('重审-16 · refresh 失败的 UI 面', () => {
 })
 
 describe('重审-16 · syncCleanWithTree 失败的 UI 面', () => {
+  // 0918二轮修复批（E107）：syncCleanWithTree 回写前复检 tree.revision === curRev——
+  // 直接调用须对齐真实时序（tree.doLoad 落定 revision 后以同值发起本批），否则迟到
+  // 复检按「树已前进」弃写。
+  function syncAtRev(doc: ReturnType<typeof useDocStore>, rev: string): Promise<void> {
+    useTreeStore().revision = rev
+    return doc.syncCleanWithTree(BOOK, rev)
+  }
+
   it('树刷新后 clean 缓存重拉失败 → toast warning（修复前 catch 静默）', async () => {
     const doc = await openDoc('d1', '写作/正文/0001-开篇.md', '正文')
     vi.mocked(getContent).mockRejectedValueOnce(new Error('fetch failed'))
     // curRev 与打开时记录的 treeRev 不同 → 判 stale 触发重拉
-    await doc.syncCleanWithTree(BOOK, 'tree-rev-2')
+    await syncAtRev(doc, 'tree-rev-2')
     expect(toastSpy).toHaveBeenCalledWith(FAIL_MSG, 'warning')
   })
 
   it('对照：重拉成功 → 不 toast；条目对齐后 treeRev 推进', async () => {
     const doc = await openDoc('d1', '写作/正文/0001-开篇.md', '旧正文')
     vi.mocked(getContent).mockResolvedValueOnce('新正文（外部改动）')
-    await doc.syncCleanWithTree(BOOK, 'tree-rev-2')
+    await syncAtRev(doc, 'tree-rev-2')
     expect(doc.get('d1')!.content).toBe('新正文（外部改动）')
     expect(doc.get('d1')!.treeRev).toBe('tree-rev-2')
     expect(toastSpy).not.toHaveBeenCalled()
@@ -108,7 +117,7 @@ describe('重审-16 · syncCleanWithTree 失败的 UI 面', () => {
         rejectGet = rej
       }),
     )
-    const p = doc.syncCleanWithTree(BOOK, 'tree-rev-2')
+    const p = syncAtRev(doc, 'tree-rev-2')
     doc.setBook('另一本书') // 在途切书
     rejectGet(new Error('fetch failed'))
     await p

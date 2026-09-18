@@ -101,7 +101,18 @@ function repairBooksLocked(workDir: string, purgeConfirmedMissing: boolean): Rep
     if (!isBookRepo(dir)) continue
     // F6（复审-0914-优化修复批）：每书一次 readBookConfig——此前 detectBookName 与
     // detectBookKind 各整读+整解析同一文件（2× IO + 2× 解析）；读结果传参两 detect
+    // 0918二轮修复批（G103）：book.yaml 读失败（EACCES 等瞬态锁定/权限，解析失败
+    // 同路）跳过该书本轮对账——此前 detectBookKind 对 !ok 回落 'long'、detectBookName
+    // 回落目录名，杀软/同步盘短暂锁住 book.yaml 的那次启动会把 name/kind 改写成回落
+    // 值（下轮翻回，books.jsonl mtime 随抖动）。对齐同函数 isDirConfirmedMissing 的
+    // ENOENT-only 瞬态纪律：读失败时登记保留原值、不重关联、不新登记（新发现的书
+    // 无法定名定 kind，留待下轮），只对解析成功的结果做对账；目录确认缺失的
+    // missing/purge/relink 判定不受影响（该面在下方独立运行）。
     const cfgRead = readBookConfig(join(dir, 'book.yaml'))
+    if (!cfgRead.ok) {
+      log.warn('books', `扫盘读取「${relPath}」的 book.yaml 失败（${cfgRead.error.message}），跳过该书本轮登记对账（登记保留原值，下次启动重试）`)
+      continue
+    }
     const bookName = detectBookName(cfgRead, basename(relPath))
     const kind = detectBookKind(cfgRead)
     const createdAt = detectBookCreatedAt(dir)

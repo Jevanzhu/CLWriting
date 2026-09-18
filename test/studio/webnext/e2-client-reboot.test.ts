@@ -5,6 +5,10 @@
  * 401/403 只能刷新页面——修复后 apiFetch 在 401/403 且 token null 时触发一次防抖
  * 去重的 re-boot，成功则重放原请求（单请求最多一次），失败原样透传。
  *
+ * 0918二轮修复批（E106）：重放收敛幂等面（GET/HEAD/带 operationId 的 PUT）——
+ * 本文件重放面用例的请求方法统一改 GET（POST/PUT 无幂等键现属不重放面，另见
+ * client-401-replay-idempotency.test.ts）；re-boot 通道语义不变。
+ *
  * token 为 client 模块级变量：每例 vi.resetModules + 动态 import 取干净实例。
  */
 import { describe, it, expect, afterEach, vi } from 'vitest'
@@ -34,7 +38,7 @@ afterEach(() => {
 })
 
 describe('E-2 · apiFetch 401/403 恢复通道', () => {
-  it('boot 失败 token null → 写请求 401 触发 re-boot 成功 → 重放原请求并带新 token', async () => {
+  it('boot 失败 token null → 请求 401 触发 re-boot 成功 → 重放原请求并带新 token', async () => {
     const c = await freshClient()
     let bootOk = false
     let bootCalls = 0
@@ -58,7 +62,9 @@ describe('E-2 · apiFetch 401/403 恢复通道', () => {
     expect(bootCalls).toBe(BOOT_ATTEMPTS)
 
     bootOk = true // API 慢就绪：此后 boot 可成功
-    const r = await c.apiFetch('/api/books/x/heartbeat', { method: 'POST' })
+    // 0918二轮修复批（E106）：重放收敛幂等面——重放面用例统一 GET（原 POST 心跳
+    // 现属非幂等不重放面，见 client-401-replay-idempotency.test.ts）
+    const r = await c.apiFetch('/api/books/x/state')
     expect(r.status).toBe(200)
     expect(bootCalls).toBe(BOOT_ATTEMPTS + 1) // 恰好一次 re-boot
     expect(pathCalls).toEqual([null, 'T1']) // 首次无 token → 重放带新 token
@@ -107,7 +113,8 @@ describe('E-2 · apiFetch 401/403 恢复通道', () => {
       }),
     )
     await c.boot()
-    const r = await c.apiFetch('/api/books/x/heartbeat', { method: 'POST' })
+    // 0918二轮修复批（E106）：重放面用例统一 GET（原 POST 现属非幂等不重放面）
+    const r = await c.apiFetch('/api/books/x/state')
     expect(r.status).toBe(403)
     expect(pathCalls).toBe(2) // 原请求 + 恰一次重试
     expect(bootCalls).toBe(BOOT_ATTEMPTS + 1) // re-boot 首次尝试即拿到 token
@@ -134,7 +141,8 @@ describe('E-2 · apiFetch 401/403 恢复通道', () => {
       }),
     )
     await c.boot()
-    const reqs = [1, 2, 3].map(() => c.apiFetch('/api/prefs/b', { method: 'PUT', body: '{}' }))
+    // 0918二轮修复批（E106）：重放面用例统一 GET（原 PUT 无幂等键现属不重放面）
+    const reqs = [1, 2, 3].map(() => c.apiFetch('/api/prefs/b'))
     await new Promise((r) => setTimeout(r, 10)) // 让三个请求都打到 401 分支并挂起等 re-boot
     releaseBoot!()
     const rs = await Promise.all(reqs)
@@ -168,6 +176,7 @@ describe('E-2 · apiFetch 401/403 恢复通道', () => {
 
   it('R26-81/R28-4：仅确定重放时 cancel 首响应体；不重放路径响应体完整留给调用方', async () => {
     // 场景 A：re-boot 拿回新枚 → 确定重放 → 旧响应体不再需要，重放前 cancel 一次
+    //（0918二轮修复批（E106）：重放面用例统一 GET——原 POST 现属非幂等不重放面）
     const c = await freshClient()
     const cancel = vi.fn(() => Promise.resolve())
     let bootCalls = 0
@@ -183,7 +192,7 @@ describe('E-2 · apiFetch 401/403 恢复通道', () => {
       }),
     )
     await c.boot()
-    await c.apiFetch('/api/books/x/heartbeat', { method: 'POST' })
+    await c.apiFetch('/api/books/x/state')
     expect(cancel).toHaveBeenCalledTimes(1) // 重放分支：未读旧流释放，不占连接池
 
     // 场景 B：token 未变 → 不重放 → 不 cancel——响应体须完整返回调用方
@@ -198,7 +207,7 @@ describe('E-2 · apiFetch 401/403 恢复通道', () => {
       }),
     )
     await c2.boot()
-    const r2 = await c2.apiFetch('/api/books/x/heartbeat', { method: 'POST' })
+    const r2 = await c2.apiFetch('/api/books/x/state')
     expect(cancel2).not.toHaveBeenCalled() // 不重放：调用方仍要读信封
     expect(r2.status).toBe(401) // token 未变（T9 同枚）→ 不重放，原样透传
   })

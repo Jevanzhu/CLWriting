@@ -239,17 +239,28 @@ export const useDocStore = defineStore('doc', () => {
 
   /** 保存：走乐观锁 PUT。origin 区分手动/自动。
    *  F8（五十九轮）：manual 遇在途保存不再静默 no-op——await 在途 promise 后若仍有
-   *  dirty（在途快照之后的新输入）则链式再存一次；autosave 维持原 no-op（节拍自会重扫）。 */
-  async function save(docId: string, origin: 'manual' | 'autosave' = 'manual'): Promise<boolean> {
+   *  dirty（在途快照之后的新输入）则链式再存一次；autosave 维持原 no-op（节拍自会重扫）。
+   *  0918二轮修复批（E105）：排队链等待轮次上限（_waitRounds，同 flushDirty 的
+   *  FLUSH_WAIT_INFLIGHT_MAX_ROUNDS 防活锁口径）——在途落定后又立刻出现新在途且条目
+   *  持续置脏的极端交叠下，尾递归原无界；超限仍 saving → return false 交 autosaveTick
+   *  兜底（dirty 保持，下一节拍重扫）。 */
+  async function save(
+    docId: string,
+    origin: 'manual' | 'autosave' = 'manual',
+    _waitRounds = 0,
+  ): Promise<boolean> {
     const e = docs.value.get(docId)
     if (!e) return false
     if (e.saving) {
       if (origin !== 'manual') return false
+      // 0918二轮修复批（E105）：轮次上限（防活锁，口径见函数头注）——超限不等待直接
+      // false，编辑不丢（dirty 保持，autosaveTick 兜底重扫）
+      if (_waitRounds >= FLUSH_WAIT_INFLIGHT_MAX_ROUNDS) return false
       const inflight = inflightSaves.get(docId)
       if (inflight) await inflight.catch(() => {})
       const cur = docs.value.get(docId)
       if (!cur || !cur.dirty) return false
-      return save(docId, origin)
+      return save(docId, origin, _waitRounds + 1)
     }
     if (!e.dirty) return false
     // 冲突未决时 autosave 必再冲突，跳过重试（也避免每 30s 一条错误提示），等用户选重载/覆盖
@@ -316,7 +327,9 @@ export const useDocStore = defineStore('doc', () => {
         // R33-13（三十三轮）：文档已删除（软删后 404）→ 移除缓存条目——dirty 僵尸
         // entry 此前驻留 Map：autosaveTick 每 30s 对已删 docId 无限重试（404 后 dirty
         // 不清）、LRU 永不驱逐、切书 flushDirty 计入 failed 触发「保存失败将永久丢弃」
-        // 假警报。discard 同时清 inflightSaves（本 promise 正在 settle 链上，条件删兜底）。
+        // 假警报。同轮 phantom 残窗（删除条目后 save 返 false，同轮 flushDirty 仍收进
+        // failed）由 flushDirty 侧条目身份复检收口——0918二轮修复批（E101）。
+        // discard 同时清 inflightSaves（本 promise 正在 settle 链上，条件删兜底）。
         docs.value.delete(docId)
         // 本 promise 的在途登记由 save 的 finally 条件删收口（get === p）
         mirror.clearDirtyMirror(book, docId) // R55-F-3：文档已删，镜像一并清（复活无主）
@@ -518,6 +531,11 @@ export const useDocStore = defineStore('doc', () => {
           if (bookName.value !== book) return
           const cur = docs.value.get(e.docId)
           if (cur !== e || e.dirty || e.conflict || e.saving) return
+          // 0918二轮修复批（E107）：树版本复检——批在途期间树又刷新（重扫/结构性
+          // mutation 推进 revision）时本批 curRev 已过期：迟到回写会把 e.treeRev 盖回
+          // 旧版（下一轮 sync 整批重复重拉）并可能写入过期内容。放弃回写，交下一轮
+          // syncCleanWithTree 按新 revision 对账。
+          if (tree.revision !== curRev) return
           e.content = content
           e.baselineRevision = rev
           e.treeRev = curRev
@@ -553,6 +571,14 @@ export const useDocStore = defineStore('doc', () => {
         const e = docs.value.get(docId)
         if (e) e.savedAt = Date.now()
         useUiStore().toast(r.skipped ? '已是定稿' : '已定稿', 'success')
+        // 0918独立重评二轮修复批（B103）：防吃书闸降级透出——服务端 fail-open 放行的
+        // 事实（兑现侧清单不可读/闸门自身异常）弹 warning toast（对齐机检侧
+        // pushDegradedYellow 黄项口径，作者只看面板即知本轮闭合比对被跳过）。
+        // 字段面在 api/documents.ts FinalizeOk（web-next 改动收敛本文件，本地窄化读取）。
+        const degraded = (r as { gateDegraded?: string[] }).gateDegraded
+        if (degraded && degraded.length > 0) {
+          useUiStore().toast(`防吃书检查降级：${degraded.join('；')}（已放行定稿）`, 'warning')
+        }
         return true
       }
       return false
@@ -596,6 +622,9 @@ export const useDocStore = defineStore('doc', () => {
    *  仍 dirty）的文档本轮不再重试防死循环；冲突文档留作者决断。
    *  F1（五十九轮）：返回未落盘（保存失败仍 dirty）的 docId 列表——调用方（Book.vue
    *  切书守卫 / 卸载留痕）据此决断，不再静默丢编辑。
+   *  0918二轮修复批（E101）：「仍 dirty」按条目身份判定——NOT_FOUND 等已把条目移出
+   *  缓存的失败形态不算（文档已不存在，无「未落盘编辑」可丢），不计入返回列表，切书
+   *  守卫不对其弹保存失败假警报。
    *  R37-1（三十七轮批E）：先落定在途保存——原过滤条件 !e.saving 把「saving 中的脏
    *  条目」直接排除出扫描（本轮跳过、failed 也不含它），调用方（切书守卫）以为已落盘
    *  即 setBook 清缓存，在途保存与其后链式重存（F8 manual 等待链）覆盖的编辑被静默
@@ -626,7 +655,10 @@ export const useDocStore = defineStore('doc', () => {
           const ok = await save(e.docId, 'autosave')
           // 保存未成（仍 dirty 且失败）→ 标记跳过；保存成功后再次置脏（窗口内新键入）
           // 不标记——下轮重扫会再存，正是要救的编辑
-          if (!ok) failed.add(e.docId)
+          // 0918二轮修复批（E101）：条目身份复检——NOT_FOUND 分支已把条目移出 Map
+          //（不再 dirty，无编辑可丢），同轮 phantom 不得计入 failed（切书守卫假警报）；
+          // 条目仍在且仍是同一实例（未被 discard / LRU 驱逐重建）才是「保存失败仍 dirty」
+          if (!ok && docs.value.get(e.docId) === e) failed.add(e.docId)
         }),
       )
     }

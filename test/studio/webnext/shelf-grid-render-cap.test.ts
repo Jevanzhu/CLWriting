@@ -7,8 +7,11 @@
  * RENDER_CAP 先例）。数据面不动：分组头「N 部」计数、批量全选、头部总数仍面向全量。
  *
  * 本文件锚定：ShelfGrid 裁剪 + 提示行如实计数 + 分组计数不虚减（grid/list 双视图、
- * 多组各自独立裁剪）；不传 renderCap 时全量渲染零提示（整页书架 Shelf.vue 行为不变）；
- * ShelfModal 接线用源码文本断言（j5-overlay-dim 先例，浮层挂载依赖重、文本锚定足够）。
+ * 多组各自独立裁剪）；不传 renderCap 时全量渲染零提示（组件层缺省契约——「不传 =
+ * 不裁」保留；0918二轮修复批 F102 起两壳均传 shared 单源帽，整页书架不再走缺省）；
+ * ShelfModal/Shelf 接线用源码文本断言（j5-overlay-dim 先例，浮层/整页挂载依赖重、
+ * 文本锚定足够——整页挂载链的行为面另见 shelf-page-render-cap.test.ts）。
+ * 原 rp3-4-shelf-render-cap.test.ts（2026-09-18 F102 域触达渐进改行为名）。
  */
 import { describe, it, expect, beforeEach } from 'vitest'
 import { readFileSync } from 'node:fs'
@@ -67,7 +70,7 @@ describe('R-P3-4：ShelfGrid 渲染上限（renderCap 裁剪 + 尾部提示行�
     wrapper.unmount()
   })
 
-  it('不超上限 / 不传 renderCap：全量渲染零提示（整页书架 Shelf.vue 行为不变）', () => {
+  it('不超上限 / 不传 renderCap：全量渲染零提示（组件缺省契约「不传 = 不裁」保留）', () => {
     const books = Array.from({ length: 3 }, (_, i) => book(`书${i}`))
     const underCap = mountGrid([{ title: '长篇', books }], 100)
     expect(underCap.findAll('.book-card')).toHaveLength(3)
@@ -96,19 +99,26 @@ describe('R-P3-4：ShelfGrid 渲染上限（renderCap 裁剪 + 尾部提示行�
   })
 })
 
-describe('R-P3-4：ShelfModal 接线（源码文本锚定，j5-overlay-dim 先例）', () => {
-  const src = readFileSync(
-    resolve(__dirname, '../../../src/studio/web-next/src/components/ui/ShelfModal.vue'),
-    'utf-8',
-  )
-  it('浮层壳定义 RENDER_CAP=100 并经 :render-cap 传入 ShelfGrid', () => {
-    expect(src).toContain('const SHELF_RENDER_CAP = 100')
+describe('R-P3-4 / 0918二轮修复批 F102：两壳接线（源码文本锚定，j5-overlay-dim 先例）', () => {
+  const read = (rel: string): string =>
+    readFileSync(resolve(__dirname, '../../../src/studio/web-next/src', rel), 'utf-8')
+  it('浮层壳经 shared 单源常量传入 ShelfGrid（0918二轮 F102 起帽值收敛 shared/render-cap）', () => {
+    const src = read('components/ui/ShelfModal.vue')
+    expect(src).toContain("import { SHELF_RENDER_CAP } from '../../shared/render-cap'")
+    expect(src).toContain(':render-cap="SHELF_RENDER_CAP"')
+    expect(src).not.toContain('const SHELF_RENDER_CAP') // 局部字面量已删，勿双源再立
+  })
+  it('F102：整页书架同传同一帽（原「不传 = 全量挂载」口径不一随批收口）', () => {
+    const src = read('pages/Shelf.vue')
+    expect(src).toContain("import { SHELF_RENDER_CAP } from '../shared/render-cap'")
     expect(src).toContain(':render-cap="SHELF_RENDER_CAP"')
   })
   it('数据面不动：分组/批量全选/头部计数仍来自 useShelf 全量 groups', () => {
-    expect(src).toContain(':groups="groups"')
+    expect(read('components/ui/ShelfModal.vue')).toContain(':groups="groups"')
+    expect(read('pages/Shelf.vue')).toContain(':groups="groups"')
   })
   it('R8B-P2-5：全选覆盖渲染上限之外时如实提示（所见 ≠ 所选全集认知差）', () => {
+    const src = read('components/ui/ShelfModal.vue')
     expect(src).toContain('selected.size === shelf.books.length && shelf.books.length > SHELF_RENDER_CAP')
     expect(src).toContain('含列表显示上限之外')
   })

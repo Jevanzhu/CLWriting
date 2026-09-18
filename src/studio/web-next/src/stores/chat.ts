@@ -266,6 +266,11 @@ export const useChatStore = defineStore('chat', () => {
         // 新回合 = 新 assistant 气泡
         messages.value.push({ id: `m${_msgSeq++}`, role: 'assistant', content: '', done: false, tools: [] })
         currentIdx = messages.value.length - 1
+        // 0918二轮修复批（E103）：推新气泡即修剪——原 trimMessages 只挂在 chat_done /
+        // pushUser / seedFromHistory 三处收尾，单次长跑（多回合工具链连转）超上限要等
+        // 整跑结束才裁剪，期间消息条数无界膨胀。trimMessages 只裁头部并同步偏移
+        // currentIdx，刚 push 的在途回合气泡恒在尾部不受影响（上限 ≥1 时裁剪永远够不到）。
+        trimMessages()
         break
       }
       case 'chat_text': {

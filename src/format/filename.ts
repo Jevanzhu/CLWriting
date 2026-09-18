@@ -133,8 +133,17 @@ export function isMdFileName(name: string): boolean {
  *  此前四处各持正则漂移（tree 容忍 -/—/空白/裸尾，leads/foreshadow/summary 仅认 -）：
  *  「树按章号排序认得的章文件」在伏笔足迹/线索核验/摘要自愈三处静默不可见
  *  （如 `5—标题.md`/`5 标题.md`：排序在位、足迹缺章）。统一取 tree 宽容集；
- *  补零宽度无关（0001-x 与 1-x 同判 1）；非数字前缀返回 null。 */
+ *  补零宽度无关（0001-x 与 1-x 同判 1）；非数字前缀返回 null。
+ *  0918独立重评二轮修复批（B102）：Number.isSafeInteger 守卫下沉本单源——16+ 位纯
+ *  数字前缀 Number() 解析成超 2^53 失真浮点（1e20 级），此前单源无守卫而两处消费点
+ *  （manifest.ts / structure-core.ts finalizedChapterNumbers）各自手工补丁、另两处
+ *  （finalize 防吃书闸定位 / service-meta 文件名前缀回落）未补，口径分裂；守卫入单源
+ *  后失真大数一律按「无章号」（null）降级（R64-20 words.ts parseChapterFileName
+ *  同口径，语义对齐、正则分立维持——words 版须 `-标题` 严格形且零 Node 依赖供浏览器
+ *  import，不并）。 */
 export function chapterNoFromName(name: string): number | null {
   const m = /^(\d+)(?:[-—]|\s|$)/.exec(name)
-  return m ? Number(m[1]) : null
+  if (!m) return null
+  const no = Number(m[1])
+  return Number.isSafeInteger(no) ? no : null
 }

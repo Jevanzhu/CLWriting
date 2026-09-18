@@ -17,7 +17,8 @@ const props = defineProps<{
   viewMode: 'grid' | 'list'
   batchMode: boolean
   selected: Set<string>
-  /** R-P3-4：每组渲染上限；不传 = 不裁（整页书架 Shelf.vue 维持全量渲染） */
+  /** R-P3-4：每组渲染上限；不传 = 不裁（组件层契约保留）。两壳现均传
+   *  shared/render-cap 的 SHELF_RENDER_CAP 单源（0918二轮修复批 F102 整页补传） */
   renderCap?: number
 }>()
 
@@ -34,9 +35,10 @@ const hasDesktop = typeof window !== 'undefined' && !!window.clwritingDesktop
 // R-P3-4：大书架渲染上限——书卡树一次性全量挂载，数百书拖慢浮层挂载。对齐
 // CommandPalette RENDER_CAP=100 先例：数据面不动（props.groups 的搜索/排序/批量全选/
 // 分组计数仍面向全量），只裁渲染面——renderCap 传入时每组只渲染前 N 张书卡 + 尾部
-// 「已省略 N 部」提示行（上限数值由壳定，ShelfModal 传 100；不传即不裁，Shelf.vue
-// 行为不变）。搜索过滤后的命中 >上限时同样截断且提示行如实计数，缩小搜索词即可见
-// 全部命中。复审-0914-优化修复批 P3：切片/计数样板收敛 shared/render-cap 单源。
+// 「已省略 N 部」提示行（上限数值单源 shared/render-cap SHELF_RENDER_CAP，浮层/整页
+// 两壳同传；不传即不裁的缺省契约保留给组件层）。搜索过滤后的命中 >上限时同样截断
+// 且提示行如实计数，缩小搜索词即可见全部命中。复审-0914-优化修复批 P3：切片/计数
+// 样板收敛 shared/render-cap 单源。
 function shownBooks(grp: { books: BookEntry[] }): BookEntry[] {
   if (props.renderCap === undefined) return grp.books
   return capView(grp.books, props.renderCap).view

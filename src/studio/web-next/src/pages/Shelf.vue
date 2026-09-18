@@ -9,6 +9,7 @@ import { useShelf, formatWords, formatRelative } from '../composables/useShelf'
 import { useTheme } from '../composables/useTheme'
 import { usePlatform } from '../composables/usePlatform'
 import { isImeComposing } from '../shared/ime'
+import { SHELF_RENDER_CAP } from '../shared/render-cap'
 import ShelfGrid from '../components/ui/ShelfGrid.vue'
 import ShelfHeroCard from '../components/shelf/ShelfHeroCard.vue'
 import EmptyState from '../components/ui/EmptyState.vue'
@@ -180,8 +181,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
           :view-mode="viewMode"
           @open="openBook"
         />
+        <!-- 0918二轮修复批（F102）：整页书架补渲染帽——与浮层 ShelfModal 同传
+             shared/render-cap SHELF_RENDER_CAP=100（原整页不传 = 全量挂载，数百书
+             拖慢挂载 + 入场动画，与浮层 R-P3-4 同族性能论证口径不一）。只裁渲染面：
+             搜索/排序/批量全选/头部计数/空态判定（!shelf.books.length）仍面向全量。 -->
         <ShelfGrid
           :groups="groups"
+          :render-cap="SHELF_RENDER_CAP"
           :view-mode="viewMode"
           :batch-mode="batchMode"
           :selected="selected"

@@ -189,8 +189,9 @@ export function maxUsedChapter(bookRoot: string): number {
  *  （fail-closed，调用方收 WRITE_ERROR 信封）。
  *  0918独立重评修复批（B005 尾项）：章号提取剥 .md 茎后判定（isMdFileName 单源 +
  *  chapterNoFromName）——裸数字定稿条目（0012.md）此前带扩展直判失明，skipFinalized
- *  漏跳 → 拆分取号可撞定稿章号；补 isSafeInteger 守卫与 manifest.ts 同名函数对齐
- *  （R43-13 口径：失真大数不入集合）。 */
+ *  漏跳 → 拆分取号可撞定稿章号。
+ *  0918独立重评二轮修复批（B102）：isSafeInteger 手工守卫删除——守卫已下沉
+ *  chapterNoFromName 单源（16+ 位失真大数恒 null），与 manifest.ts 同名函数对齐。 */
 export function finalizedChapterNumbers(bookRoot: string): Set<number> {
   const out = new Set<number>()
   const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
@@ -200,7 +201,7 @@ export function finalizedChapterNumbers(bookRoot: string): Set<number> {
     if (e.nodeType !== 'document' || !e.finalizedRevision) continue
     const base = basename(e.path)
     const n = chapterNoFromName(isMdFileName(base) ? base.slice(0, -3) : base)
-    if (n !== null && Number.isSafeInteger(n)) out.add(n)
+    if (n !== null) out.add(n)
   }
   return out
 }

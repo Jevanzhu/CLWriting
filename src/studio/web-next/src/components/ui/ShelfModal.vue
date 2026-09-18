@@ -11,6 +11,7 @@ import { useTheme } from '../../composables/useTheme'
 import { isImeComposing } from '../../shared/ime'
 import { afterPaint } from '../../shared/after-paint'
 import { LAST_BOOK_KEY } from '../../shared/storage-keys'
+import { SHELF_RENDER_CAP } from '../../shared/render-cap'
 import { useFocusTrap } from '../../composables/useFocusTrap'
 import ShelfGrid from './ShelfGrid.vue'
 import ShelfModalHero from '../shelf/ShelfModalHero.vue'
@@ -35,12 +36,17 @@ const {
   // R65-54（E-6）：浮层内删掉当前打开的书 → 离开死路由（留在 /book/:name 上后续
   // API 全 404），并清最近打开书键（下次启动不再落进已删书；R60-D-4 键收敛单源）
   onDeleted: (names) => {
+    // 0918二轮修复批（F101）：vue-router 4 的 route.params 已解码一次——直取 current
+    // 比对，勿再 decodeURIComponent。原二次解码对书名含 %（服务端书名校验不拒 %，
+    // 「50%胜率」可正常建书）抛 URIError，异常落 useShelf.confirmDelete 的 catch →
+    // 书已删成却报「删除失败」且下方收尾链整链跳过；含法 %XX 形态（书名原样含
+    // %25）则双解后与原名不等，静默跳过收尾。names 是 useShelf 未编码书名原值，
+    // 与 params 同为解码形态，直接 includes。
     const current = router.currentRoute.value.params.name
     if (typeof current !== 'string') return
-    const currentName = decodeURIComponent(current)
-    if (!names.includes(currentName)) return
+    if (!names.includes(current)) return
     try {
-      if (localStorage.getItem(LAST_BOOK_KEY) === currentName) localStorage.removeItem(LAST_BOOK_KEY)
+      if (localStorage.getItem(LAST_BOOK_KEY) === current) localStorage.removeItem(LAST_BOOK_KEY)
     } catch { /* 忽略 */ }
     ui.closeShelf()
     router.replace('/shelf')
@@ -58,9 +64,10 @@ useFocusTrap(modalRef)
 // （J5 分帧只拆遮罩/面板两帧，不防千书级面板本身超帧预算）。对齐 CommandPalette
 // RENDER_CAP=100 先例：数据面不动（useShelf groups 的搜索/排序/批量全选/头部总数仍
 // 面向全量），只裁渲染面——每组渲染前 100 张书卡 + 尾部「已省略 N 部」提示行（裁剪
-// 与提示行在 ShelfGrid 内实现，经 render-cap 传入；整页书架 Shelf.vue 不传即维持
-// 全量）。搜索过滤后命中 >100 同样截断且提示行如实计数，缩小搜索词即可见全部命中。
-const SHELF_RENDER_CAP = 100
+// 与提示行在 ShelfGrid 内实现，经 render-cap 传入）。搜索过滤后命中 >100 同样截断
+// 且提示行如实计数，缩小搜索词即可见全部命中。
+// 0918二轮修复批（F102）：帽值收敛 shared/render-cap SHELF_RENDER_CAP 单源——整页
+// 书架 Shelf.vue 同传该帽（原「整页不传即维持全量」的两壳口径不一随批收口）。
 
 // J5 win 同步拍（2026-09-04）：书架面板整树挂载 ~14ms，144Hz 帧预算仅 6.9ms——与
 // 遮罩同帧挂载必然把遮罩拖出单帧预算、落后窗控 1-2 帧（作者感知「书架延迟」；进程

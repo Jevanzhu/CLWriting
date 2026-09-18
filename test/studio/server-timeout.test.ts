@@ -19,4 +19,15 @@ describe('startServer keep-alive 治理（防 EPIPE）', () => {
     expect(server.headersTimeout).toBeGreaterThan(server.keepAliveTimeout!)
     server.close()
   })
+
+  // 0918二轮修复批（D103）：requestTimeout 原依赖 Node 缺省（当前恰 300s）——408 闲置
+  // 超时设计（readJson 占闸上限语义）与前端 ~300s 自愈假设以此为前提，显式钉住防默认值
+  // 跨版本漂移；三超时齐设一并断言。
+  it('requestTimeout 显式钉 300s（三超时齐设，不依赖 Node 默认值）', async () => {
+    const server = await startServerSafe({ port: 0 })
+    expect(server.requestTimeout).toBe(300_000)
+    expect(server.keepAliveTimeout).toBe(30_000)
+    expect(server.headersTimeout).toBe(35_000)
+    server.close()
+  })
 })

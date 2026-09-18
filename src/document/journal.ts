@@ -288,8 +288,10 @@ async function appendLineAsync(
   fsyncFile(filePath)
 }
 
-/** fsync 已存在文件（追加后同步数据落盘）。best-effort。 */
-function fsyncFile(filePath: string): void {
+/** fsync 已存在文件（追加后同步数据落盘）。best-effort。
+ *  0918独立重评二轮修复批（B104）：导出供 words-diary 同族 append-only jsonl 追加后
+ *  复用（耐久纪律单源，勿在他处复制实现）。 */
+export function fsyncFile(filePath: string): void {
   let fd: number | undefined
   try {
     // R33-7（三十三轮）：'r' → 'r+'——win FlushFileBuffers 要求句柄具写访问权，只读

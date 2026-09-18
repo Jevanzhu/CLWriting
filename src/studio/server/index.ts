@@ -491,6 +491,11 @@ export function startServer(opts: StudioServerOptions): http.Server {
   // 拉长到 30s 覆盖 AI 生成间隔;headersTimeout 必须 > keepAliveTimeout(Node v19+ 硬约束)。
   server.keepAliveTimeout = 30_000
   server.headersTimeout = 35_000
+  // 0918二轮修复批（D103）：requestTimeout 显式钉 300s——原只显式设 keepAlive/headers
+  // 两项，requestTimeout 依赖 Node 缺省（当前恰 300s，无锚可依、跨版本漂移即翻车）。
+  // 408 闲置超时设计（readJson BODY_IDLE_TIMEOUT_MS=30s 的占闸上限语义）与前端 ~300s
+  // 自愈假设均以 300s 为前提（见 http.ts R51-G-2 注），显式钉住防默认值漂移。
+  server.requestTimeout = 300_000
   server.listen(opts.port, host)
   // listening 后补实际端口(port 0 随机端口)
   server.on('listening', () => {

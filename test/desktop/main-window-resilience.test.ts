@@ -102,6 +102,34 @@ describe('R51-A-2: did-fail-load 自愈', () => {
     }
   })
 
+  // 0918二轮修复批（C101）：封顶分支原只 log.error + return——对照 render-process-gone
+  // 封顶载自包含提示页不对称，触发形态（server 退避重启窗内 5 次加载失败）后白屏滞留
+  // 无终态页。修复 = 封顶补同款 data: URL 提示页（LOADFAIL_NOTICE_HTML，文案区分
+  // 「页面加载失败（可能服务未就绪）」），loadURL 同样接日志留痕。
+  it('C101（0918二轮修复批）：封顶后不再白屏滞留——载自包含加载失败提示页', async () => {
+    vi.useFakeTimers()
+    try {
+      const win = await freshModuleFake()
+      const h = win.webContents.handlers['did-fail-load']!.at(-1)! as FailH
+      const r0 = win.webContents.reloaded
+      for (const d of [2_000, 4_000, 8_000, 15_000, 15_000]) {
+        h({}, -2, 'ERR_FAILED', 'http://x', true)
+        await vi.advanceTimersByTimeAsync(d)
+      }
+      expect(win.webContents.reloaded).toBe(r0 + 5)
+      const loaded0 = win.loaded.length
+      h({}, -2, 'ERR_FAILED', 'http://x', true) // 第 6 次：预算耗尽 → 提示页
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(win.webContents.reloaded).toBe(r0 + 5) // 仍不重试
+      const notice = win.loaded.slice(loaded0).find((u: string) => u.startsWith('data:'))
+      expect(notice, '封顶分支应载 data: 提示页').toBeTruthy()
+      expect(notice).toContain(encodeURIComponent('页面加载失败')) // 文案区分加载失败（非崩溃页）
+      expect(notice).toContain(encodeURIComponent('请重启 CLWriting')) // 重启指引
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('成功载入 + 稳定窗活满 → 计数复位（预算耗尽后可再获整段预算）', async () => {
     vi.useFakeTimers()
     try {
