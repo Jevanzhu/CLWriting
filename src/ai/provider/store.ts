@@ -24,12 +24,15 @@ import { platformCaseFold } from '../../fs/safe-path.js'
 import { dirname, join } from 'node:path'
 import type { ProviderConf, ModelConf, TierSlot, TierConfig, RagProviderConf } from './types.js'
 import { builtinKeyMaterial } from './vault-key.js'
+// 0918三拍板批（KEK v2）：OS 凭据通道 IKM（env CLW_OS_KEK 解析，主进程 safeStorage 产出）
+import { osKeyMaterial } from './os-kek.js'
 import { errMsg, log } from '../../log/index.js'
 import {
   createVault,
   openVault,
   sealKey,
   openKey,
+  migrateVaultToOsChannel,
   type Vault,
 } from './vault.js'
 
@@ -270,8 +273,10 @@ export function loadProviders(userDataPath: string): ProviderStore {
   let dek: Buffer | null = null
 
   if (vault) {
-    // 版本守卫 + HKDF 派生 KEK + 解封 DEK（可能抛 VaultVersionError / VaultDecryptError）
-    dek = openVault(vault, builtinKeyMaterial())
+    // 版本守卫 + HKDF 派生 KEK + 解封 DEK（可能抛 VaultVersionError / VaultDecryptError /
+    // VaultOsKeyMissingError）——0918三拍板批（KEK v2）：os 通道可用时传入，v2 vault
+    // 由此解锁；v1 vault 走内置通道（语义不变）。
+    dek = openVault(vault, builtinKeyMaterial(), osKeyMaterial())
   }
 
   // 逐条提取明文 apiKey，按 §五半迁移规则收敛（复审-0914-优化修复批 C7：两列循环
@@ -286,6 +291,15 @@ export function loadProviders(userDataPath: string): ProviderStore {
   const ragRaw = Array.isArray(raw.ragProviders) ? raw.ragProviders : []
   const { confs: ragProviders, needsRewrite: ragMigrated } = decryptConfs<RagProviderConf>(ragRaw, vault, dek)
   if (ragMigrated || (!vault && ragProviders.some((p) => p.apiKey))) {
+    needsRewrite = true
+  }
+
+  // 0918三拍板批（KEK v2）：OS 通道迁移——os key 可用且盘上 vault 仍 v1（内置混淆级
+  // 通道）→ 同一 DEK 重封 byOs、摘除 byApp（各 API Key 密文零重加密），needsRewrite
+  // 触发内联迁移写（§五同款）。迁移落盘后旧构建按 VaultVersionError 拒读（§4.4 防降级
+  // 毁配置，既有守卫语义）；os key 不可用（纯 node / env 未注入）→ 保持 v1 零行为变化。
+  const osKey = osKeyMaterial()
+  if (vault && dek && osKey && migrateVaultToOsChannel(vault, dek, osKey)) {
     needsRewrite = true
   }
 
@@ -402,7 +416,8 @@ function overwriteBakIfCiphertextRoundtrip(
     const saved = JSON.parse(savedRaw) as DiskFormat
     const savedVault = saved.vault
     if (savedVault) {
-      const savedDek = openVault(savedVault, builtinKeyMaterial())
+      // 0918三拍板批（KEK v2）：v2 vault 须有 os key 才能重开（v1 通道已摘）
+      const savedDek = openVault(savedVault, builtinKeyMaterial(), osKeyMaterial())
       const roundtripOk = [...providers, ...ragProviders].every((p) => {
         if (!p.apiKey) return true // 空 key 无密文可校
         const sealed = savedVault.keys[p.id]
@@ -482,14 +497,19 @@ function saveProvidersLocked(userDataPath: string, store: ProviderStore): void {
   mkdirSync(dirname(fp), { recursive: true })
 
   // 确保 vault + DEK（首次创建或迁移时新建）
+  // 0918三拍板批（KEK v2）：os key 可用 → 新建即 v2（仅 byOs，OS 凭据承载）；存量
+  // v1 vault（旁路构造的 store 快照直存，load 迁移已覆盖常规链）就地迁移随本写落盘。
   let vault = store.vault
   let dek = store.dek
   if (!vault || !dek) {
-    const created = createVault(builtinKeyMaterial())
+    const created = createVault(builtinKeyMaterial(), osKeyMaterial())
     vault = created.vault
     dek = created.dek
     store.vault = vault
     store.dek = dek
+  } else {
+    const osKey = osKeyMaterial()
+    if (osKey) migrateVaultToOsChannel(vault, dek, osKey)
   }
 
   // 以 providers + ragProviders 为准重建 vault.keys——加密每个 apiKey。

@@ -77,6 +77,9 @@ async function assertExit(
   const err = events.find((e) => e.type === 'chat_error') as { error: string } | undefined
   expect(err).toBeDefined()
   expectError(err!.error)
+  // 0918三拍板批（A006 轻量档）：非 regenerate 失败出口随 chat_error 回显作者原文
+  //（本走查恒走 message 路径）——回滚/遮蔽四件套语义不变，原文仅存于事件供复制重发
+  expect((err as { echo?: string }).echo).toBe('出口走查')
 
   const store = openSessionStore(ud, bookRoot)!
   try {

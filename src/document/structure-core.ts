@@ -12,7 +12,7 @@
  */
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
-import { basename, join } from 'node:path'
+import { basename, join, relative } from 'node:path'
 import { canonicalizeText } from '../fs/text-canonical.js'
 import { readMdTextCached } from '../fs/md-text-cache.js'
 import { walkMdEach } from '../fs/walk-md.js'
@@ -182,6 +182,71 @@ export function maxUsedChapter(bookRoot: string): number {
     if (src > max) max = src
   }
   return max
+}
+
+// ── B004（0918三拍板批）：章号双轨一致性闸 ─────────────────────────────
+
+/** 章号失配条目：文件名前缀号（正轨）vs fm 章号。fmNo=null = fm 章号缺失/非法/不可读。 */
+export interface ChapterNoMismatch {
+  path: string
+  nameNo: number
+  fmNo: number | null
+}
+
+/** B004：全书 fm 章号 ≡ 文件名前缀章号 对账。背景：两轨口径混用——取号
+ *  （maxUsedChapter）/违规检测（detectStructureViolations）/定稿集合
+ *  （finalizedChapterNumbers）全按文件名号派生，fm 号只服务被操作章
+ *  （readChapterState）——作者外部改名后两轨失配，并入 登记/违规检测/取号互相
+ *  矛盾（静默重号/错定位）。只扫具名章号的 .md（无号名另有命名规范检测面）；
+ *  fm 缺失/非法也计失配（fail-closed：带着未知盘面取号比拒绝执行更贵）。读侧
+ *  走 readMdTextCached 指纹缓存（与 splitOrderMid 同款）；读失败（null）计失配。 */
+export function chapterNumberMismatches(bookRoot: string): ChapterNoMismatch[] {
+  const out: ChapterNoMismatch[] = []
+  const bodyDir = join(bookRoot, BODY_PREFIX)
+  if (!existsSync(bodyDir)) return out
+  walkMdEach(bodyDir, (fp, name) => {
+    const nameNo = chapterNoFromName(name)
+    if (nameNo === null) return
+    const rel = relative(bookRoot, fp).replaceAll('\\', '/')
+    const raw = readMdTextCached(fp)
+    if (raw === null) {
+      out.push({ path: rel, nameNo, fmNo: null })
+      return
+    }
+    const sp = splitFrontMatter(raw)
+    if (!sp) {
+      out.push({ path: rel, nameNo, fmNo: null })
+      return
+    }
+    const no = Number(parseFlat(sp.fmRaw).get('章号'))
+    if (!Number.isInteger(no) || no < 1 || no !== nameNo) {
+      out.push({ path: rel, nameNo, fmNo: Number.isInteger(no) && no >= 1 ? no : null })
+    }
+  })
+  return out
+}
+
+/** B004：结构操作入口一致性闸——失配 fail-loud（CHAPTER_NO_MISMATCH → HTTP 409）。
+ *  结构操作（拆分/合并/撤销）带着失配盘面执行会放大重号/错定位，先拒后做；报文
+ *  指明修复方向：文件名号为正，改 fm 对齐（或把文件名改回）。最多列 5 处 + 总数。
+ *  拍板注：fail-loud 会拦存量失配书的一切结构操作（须先修书）——作者拍板接受
+ *  （真开放待拍板 2 之 B004，2026-09-18）。
+ *  只拦「fm 存在且 ≠ 文件名号」的真失配；fm 缺失/无 frontmatter 不拦——三个取号
+ *  消费者全按文件名号派生（fm 缺失文件照常占号，保守无险），被操作章自身有
+ *  readChapterState 的 BAD_INPUT 兜底，且杂散占位文件（B105 还原失败半完成态的
+ *  典型盘面）不得堵死「重试自动续跑收尾」恢复路径。 */
+export function chapterNoMismatchFailure(bookRoot: string): StructureFailure | null {
+  const mismatches = chapterNumberMismatches(bookRoot).filter((m) => m.fmNo !== null)
+  if (mismatches.length === 0) return null
+  const shown = mismatches
+    .slice(0, 5)
+    .map((m) => `《${m.path}》文件名 ${m.nameNo} / fm ${m.fmNo}`)
+    .join('；')
+  const more = mismatches.length > 5 ? `等共 ${mismatches.length} 处` : ''
+  return fail(
+    'CHAPTER_NO_MISMATCH',
+    `章号失配：${shown}${more}。文件名号为正（取号/并入登记/违规检测均按文件名前缀），请把 fm「章号」改为与文件名一致（或把文件名改回）后重试。`,
+  )
 }
 
 /** 已定稿章号集合（manifest finalizedRevision 条目，路径章号派生；state.ts

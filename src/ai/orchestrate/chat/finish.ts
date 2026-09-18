@@ -77,7 +77,13 @@ export function finishTurn(
   // R43-19（四十三轮）：chat_error 文案过 redactSecret（与 stream.ts:216 R26-8 同款）——
   // {error} 分支的 message 源自 out.error（provider 异常），可含凭据痕迹；固定文案
   //（超时/中断/截断）不匹配凭据模式，幂等无变化
-  emit(opts, { type: 'chat_error', error: redactSecret(spec.message) })
+  // 0918三拍板批（A006 轻量档）：非 regenerate 回合随 chat_error 回显作者原文——回滚/
+  // 遮蔽语义分毫不动（P1-S4/R1a + F1-P1 原样），回滚后原文仅存于本事件供前端「复制重发」，
+  // 免瞬态失败（429 耗尽/断网）后整段重打。echo 原样往返不过 redactSecret（脱敏即破坏
+  // 复制重发可用性；原文本就已随 user/message 事件落库，不新增落库面）。regenerate 回合
+  // 复用恢复出的旧 user 消息（在 baseLen 之前、不随回滚消失），无需回显。
+  const echo = !opts.regenerate && (opts.message ?? '') !== '' ? opts.message : undefined
+  emit(opts, { type: 'chat_error', error: redactSecret(spec.message), echo })
 }
 
 // ── 收尾压缩（B1+B2 升级 F1-P1 的 trim 遮蔽点） ──────

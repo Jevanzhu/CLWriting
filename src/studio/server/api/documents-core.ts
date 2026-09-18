@@ -354,6 +354,10 @@ export function structStatus(code: string): number {
     // 的 409 WRITE_ERROR 拒写可重试口径对齐（原 500 档让重试语义失真）
     case 'WRITE_ERROR':
       return 409
+    // B004（0918三拍板批）：全书 fm ≡ 文件名号失配——盘面账实状态冲突（修书后可
+    // 重试），与 PLAN_STALE 冲突族同 409 档
+    case 'CHAPTER_NO_MISMATCH':
+      return 409
     default:
       return 500
   }

@@ -137,6 +137,8 @@ describe('runChatInner 未预期异常的失败收尾（A002）', () => {
     await expect(p).rejects.toThrow('SQLITE_BUSY')
     // 准备期异常（run 未产出）→ best-effort 补 chat_error 终态
     expect(chatError(events)).toContain('SQLITE_BUSY')
+    // 0918三拍板批（A006 轻量档）：准备期异常同款回显作者原文（对齐 finishTurn 出口）
+    expect((events.find((e) => e.type === 'chat_error') as { echo?: string } | undefined)?.echo).toBe('你好')
     // running 并发锁清理（finally 兜底）
     expect(isChatRunning('ue-prepare')).toBe(false)
   })
@@ -158,6 +160,8 @@ describe('runChatInner 未预期异常的失败收尾（A002）', () => {
     ).rejects.toThrow('未预期')
     // {error} 口径：finishTurn 发 chat_error（文案 = errMsg，无凭据模式脱敏为恒等）
     expect(chatError(events)).toContain('轮循环中途未预期异常')
+    // 0918三拍板批（A006 轻量档）：回显作者原文（回滚后原文仅存于事件）
+    expect((events.find((e) => e.type === 'chat_error') as { echo?: string } | undefined)?.echo).toBe('记一下')
     // history 回滚到 baseLen（prepareChatRun 的 user push 已被回滚）
     expect(getHistory('ue-turns').length).toBe(0)
     // 事件库有终态：session/end reason=error（closeMaskingAll 遮蔽收尾）

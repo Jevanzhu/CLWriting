@@ -89,6 +89,25 @@ describe('W3: chat store 事件分派', () => {
     expect(chat.notice).toBeNull()
   })
 
+  // 0918三拍板批（A006 轻量档）：chat_error 随带 echo 字段回显作者原文（服务端已回滚
+  // 该消息，原文仅存于此供「复制重发」）；chat_start / clear 双清口径
+  it('A006: chat_error 带 echo → errorEcho 置值；chat_start / clear 清空；无 echo 字段为 null', () => {
+    const chat = useChatStore()
+    chat.dispatch({ type: 'chat_start' })
+    chat.dispatch({ type: 'chat_error', error: '供应商 429', echo: '请把第三章伏笔收掉' })
+    expect(chat.errorEcho).toBe('请把第三章伏笔收掉')
+    // 下一回合开跑即失效（原文只服务上一次失败的复制重发）
+    chat.dispatch({ type: 'chat_start' })
+    expect(chat.errorEcho).toBeNull()
+    // 无 echo 字段（regenerate 回合失败等）→ null 不误挂
+    chat.dispatch({ type: 'chat_error', error: 'again' })
+    expect(chat.errorEcho).toBeNull()
+    // clear 兜底清空
+    chat.dispatch({ type: 'chat_error', error: 'x', echo: 'y' })
+    chat.clear()
+    expect(chat.errorEcho).toBeNull()
+  })
+
   // R-7（第十六轮）：chat_error 收尾在途气泡（对齐 chat_done 口径）——末气泡 done + currentIdx 复位
   it('R-7: chat_start → chat_turn → chat_error → 末气泡 done 且后续文本不错位追加', () => {
     const chat = useChatStore()

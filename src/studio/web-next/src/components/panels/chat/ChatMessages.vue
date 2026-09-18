@@ -62,6 +62,31 @@ watch(
 // 发送后滚底由 ChatPanel 经 ref 调用（useChatComposer 的 onPushed 回调）
 defineExpose({ scrollToBottom })
 
+// ── A006 轻量档：失败回合作者原文复制重发 ──────────
+
+const echoCopied = ref(false)
+let echoCopiedTimer = 0
+/** 复制失败回合作者原文（chat_error echo 字段）——原文须原样往返（服务端不过
+ *  redactSecret，复制即重发可用）；2s 后按钮文案复位。 */
+async function copyEcho(): Promise<void> {
+  const text = chat.errorEcho
+  if (!text) return
+  try {
+    await navigator.clipboard.writeText(text)
+    echoCopied.value = true
+    if (echoCopiedTimer) window.clearTimeout(echoCopiedTimer)
+    echoCopiedTimer = window.setTimeout(() => {
+      echoCopied.value = false
+      echoCopiedTimer = 0
+    }, 2000)
+  } catch {
+    // 剪贴板不可用（权限/焦点缺失）——原文仍可手动框选复制（.echo-text 可选中）
+  }
+}
+onBeforeUnmount(() => {
+  if (echoCopiedTimer) window.clearTimeout(echoCopiedTimer)
+})
+
 // ── 工具确认 ────────────────────────────────────
 
 // R73-64：确认在途按 callId 记集合（Vue 3 对 Set.add/delete 本身就有响应式插桩，
@@ -306,6 +331,16 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
       <span>{{ chat.error }}</span>
     </div>
 
+    <!-- 0918三拍板批（A006 轻量档）：失败回合作者原文回显——服务端已回滚/遮蔽该消息
+         （防连续 user 400 语义不变），原文仅随 chat_error 的 echo 字段存在（不落事件库），
+         此处提供「复制重发」，免瞬态失败（429 耗尽/断网）后整段重打。 -->
+    <div v-if="chat.error && chat.errorEcho" class="chat-error-echo">
+      <div class="echo-text">{{ chat.errorEcho }}</div>
+      <button type="button" class="echo-copy-btn" @click="copyEcho">
+        {{ echoCopied ? '已复制' : '复制原文' }}
+      </button>
+    </div>
+
     <!-- R32-9（三十二轮）：非错误提示（E1a steer 入队确认 / AA-P3-1 队列超容丢弃等
          chat.notice）——此前全前端无渲染点：发送即清空输入框、运行中追加零反馈，
          作者无法得知「已入队」。消息流内联展示（对齐 error 区样式，中性色）。 -->
@@ -487,6 +522,45 @@ function switchVariant(msg: ChatMessage, dir: -1 | 1): void {
   padding: var(--size-4-2);
   border-radius: var(--radius-s);
   background: color-mix(in srgb, var(--dv-bad) 8%, transparent);
+}
+
+/* ── 0918三拍板批（A006 轻量档）：失败回合作者原文回显（跟随错误横幅，中性弱化） ── */
+.chat-error-echo {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--size-4-2);
+  padding: var(--size-4-2);
+  border-radius: var(--radius-s);
+  background: color-mix(in srgb, var(--text-faint) 8%, transparent);
+}
+.chat-error-echo .echo-text {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-size-s);
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 96px;
+  overflow-y: auto;
+  user-select: text;
+}
+.echo-copy-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
+}
+.echo-copy-btn:hover {
+  color: var(--text-normal);
+  border-color: var(--text-faint);
 }
 
 /* ── R32-9：非错误提示（notice，中性色对齐 error 区布局） ── */

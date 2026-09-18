@@ -50,9 +50,11 @@ export {
   openVault,
   sealKey,
   openKey,
+  migrateVaultToOsChannel,
   VAULT_VERSION,
   VaultVersionError,
   VaultDecryptError,
+  VaultOsKeyMissingError,
   type Vault,
   type SealedKey,
 } from './vault.js'

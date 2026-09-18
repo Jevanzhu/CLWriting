@@ -38,6 +38,8 @@ import {
   type UtilityProcessLike,
 } from './server-proc.js'
 import { forwardChildStdio } from './server-log.js'
+// 0918三拍板批（KEK v2）：OS 凭据通道 IKM 装置（主进程 safeStorage；deps 可注入测试假件）
+import { loadOrGenerateOsKek } from './os-kek.js'
 
 // R0916-5g 拆分桥接：迁出公开导出逐名 re-export，全库 import 面零改动。
 // 缝 1（desktop/server-proc.ts，进程管理族）：启动失败错误类 + 日志通道契约。
@@ -128,6 +130,9 @@ export interface ServerManagerDeps {
    *  广播 desktop:server-restarted（渲染层 sse.resync() 主动重连续用同源）。
    *  缺省无操作——无接线不广播（测试/降级态安全缺省）。 */
   onRestarted?: (port: number) => void
+  /** 0918三拍板批（KEK v2）：OS 凭据通道 IKM 装置——缺省真件（safeStorage + 
+   *  os-kek.json），测试注入假件（fixtures 无 vi.mock 纪律，同 fork 注入款）。 */
+  loadOsKek?: (userDataPath: string) => Buffer | null
 }
 
 interface StartStudioServerOptions {
@@ -235,6 +240,8 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
   const isProcessExiting = deps.isProcessExiting ?? (() => false)
   // 重审-3（2026-09-07 全量代码重审 §四.3）：重启成功广播钩子（缺省无操作）
   const onRestarted = deps.onRestarted
+  // 0918三拍板批（KEK v2）：OS 凭据通道 IKM 装置（缺省真件；不可用面在装置内回落 null）
+  const loadOsKek = deps.loadOsKek ?? loadOrGenerateOsKek
   let active: ActiveChild | null = null
   let starting: Promise<number> | null = null
   // E-9a（第五十三轮）：在途 start 的关键 opts 快照——并发 start 复用同一轮前校验
@@ -319,6 +326,8 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
     // 不可达，fork 前剥除 = child 回落模块相对推导 asar 内资源）。合法 dev 链路不经本
     // manager 携带这些变量（devUi 态 main 不 fork server；dev:api 是独立进程自带 env），
     // 剥除无旁损。
+    // 0918三拍板批（KEK v2）：清除面再补 CLW_OS_KEK——宿主残留会绕过下方受控注入
+    //（旧 IKM 穿透 = v2 vault 解锁失败或错通道），同款逐键清洗后注入。
     for (const k of Object.keys(childEnv)) {
       const ku = k.toUpperCase()
       if (
@@ -326,13 +335,18 @@ export function createStudioServerManager(deps: ServerManagerDeps = {}): StudioS
         ku === 'CLW_LOG_STDOUT' ||
         ku === 'CLW_DEV_UI' ||
         ku === 'CLW_DEV_CORS' ||
-        ku === 'CLWRITING_RESOURCES_DIR'
+        ku === 'CLWRITING_RESOURCES_DIR' ||
+        ku === 'CLW_OS_KEK'
       ) {
         delete childEnv[k]
       }
     }
     childEnv['CLW_STUDIO_TOKEN'] = tokenInMemory
     childEnv['CLW_LOG_STDOUT'] = '1'
+    // 0918三拍板批（KEK v2）：OS 通道 IKM 经 env 注入（safeStorage 只在主进程可用，
+    // 子进程按 hex 接收；null = 无 OS 通道，子进程回落 v1 内置通道语义）
+    const osKek = loadOsKek(opts.userDataPath)
+    if (osKek) childEnv['CLW_OS_KEK'] = osKek.toString('hex')
     const proc = forkImpl(entryModulePath(), args, {
       serviceName: STUDIO_SERVICE_NAME,
       stdio: 'pipe',

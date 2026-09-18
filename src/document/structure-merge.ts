@@ -41,6 +41,7 @@ import {
   concatChapterBody,
   recordStructureEvents,
   newestVersionWithoutSource,
+  chapterNoMismatchFailure,
   VERSIONS_DIR_REL,
   type ChapterDiskState,
   type StructureFailure,
@@ -104,6 +105,10 @@ export async function planChapterMerge(
   rag: StructureRagPort,
 ): Promise<MergePlanView | StructureFailure> {
   if (targetDocId === sourceDocId) return fail('BAD_INPUT', '目标章与源章不能是同一章')
+  // B004（0918三拍板批）：入口一致性闸——全书 fm ≡ 文件名号失配即拒（含 undo 半完成
+  // 态续跑在内的结构操作都带失配盘面执行会放大重号/错定位，先拒后做）
+  const gate = chapterNoMismatchFailure(bookRoot)
+  if (gate) return gate
   const t = await readChapterState(svc, bookRoot, targetDocId)
   if (!('章号' in t)) return t
   const s = await readChapterState(svc, bookRoot, sourceDocId)
@@ -171,6 +176,10 @@ export async function applyChapterMerge(
   rag: StructureRagPort,
 ): Promise<MergeApplyResult> {
   if (input.targetDocId === input.sourceDocId) return fail('BAD_INPUT', '目标章与源章不能是同一章')
+  // B004（0918三拍板批）：入口一致性闸（同 planChapterMerge；apply 尤须——带失配盘面
+  // 写 并入 登记会落错误章号）
+  const gate = chapterNoMismatchFailure(bookRoot)
+  if (gate) return gate
   const t = await readChapterState(svc, bookRoot, input.targetDocId)
   if (!('章号' in t)) return t
   // S5 崩溃形态分流前移（设计方案 §5.5 repair 判定式）：fm `并入` 已含源章号 = ① 已
@@ -562,6 +571,10 @@ export async function undoChapterMerge(
   rag: StructureRagPort,
   hints?: MergeUndoHints,
 ): Promise<MergeUndoResult> {
+  // B004（0918三拍板批）：入口一致性闸——undo 恢复路径绕过 planHash 复核（源章号三
+  // 来源全是路径派生号、目标章号是 fm 号，两轨失配时定位链互相矛盾），入口先拒
+  const gate = chapterNoMismatchFailure(bookRoot)
+  if (gate) return gate
   const t = await readChapterState(svc, bookRoot, targetDocId)
   if (!('章号' in t)) return t
   if (t.并入.length === 0) {

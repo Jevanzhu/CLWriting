@@ -34,6 +34,7 @@ import {
   skipFinalized,
   splitOrderMid,
   recordStructureEvents,
+  chapterNoMismatchFailure,
   type ChapterDiskState,
   type StructureFailure,
   type StructureRagPort,
@@ -110,6 +111,10 @@ export async function planChapterSplit(
   docId: string,
   cursorOffset: number,
 ): Promise<SplitPlanView | StructureFailure> {
+  // B004（0918三拍板批）：入口一致性闸——全书 fm ≡ 文件名号失配即拒（取号下限
+  // maxUsedChapter 按文件名号派生，失配盘面上取的号与 fm 语义互相矛盾）
+  const gate = chapterNoMismatchFailure(bookRoot)
+  if (gate) return gate
   const o = await readChapterState(svc, bookRoot, docId)
   if (!('章号' in o)) return o
   const v = validateSplitCursor(o, cursorOffset)
@@ -165,6 +170,10 @@ export async function applyChapterSplit(
 ): Promise<SplitApplyResult> {
   const title = input.title.trim()
   if (!title) return fail('BAD_INPUT', '新章标题必填')
+  // B004（0918三拍板批）：入口一致性闸（闸在 B001 互斥外——一致性是全书盘面前提，
+  // 先于取号临界段拒绝，不带脏盘面进锁）
+  const gate = chapterNoMismatchFailure(bookRoot)
+  if (gate) return gate
   // 0918独立重评修复批（B001）：取号临界区（状态重读 → validateSplitCursor → 取号 →
   // planHash 复核 → svc.save 截断 → createDocument）整段置于 per-bookRoot 串行互斥内
   // ——并发第二个 apply 在锁内重读取号得新号 → hash 失配 → PLAN_STALE fail-loud

@@ -63,7 +63,11 @@ export type DriverEvent =
   | { type: 'chat_tool_result'; callId: string; summary: string; ok: boolean }
   | { type: 'chat_reset' }
   | { type: 'chat_done'; inputTokens?: number; outputTokens?: number }
-  | { type: 'chat_error'; error: string }
+  // 0918三拍板批（A006 轻量档）：echo = 本回合作者原文回显（非 regenerate 回合且
+  // 失败时携带）——只走 SSE 内存链，不落事件库（DriverEvent 与落库 EventType 两套
+  // 字典，chat_error 无 recorder.add 路径），供前端「复制重发」；原文须原样往返，
+  // 不过 redactSecret（脱敏会破坏复制重发的可用性）
+  | { type: 'chat_error'; error: string; echo?: string }
   // 0918独立重评修复批（E001）：迟到回放的对话腿锚（无载荷）——cc driver execRing 重放
   // 在 chat 腿活跃且 ring 非空时于回放最前插入一次；前端据此把后续 chat_* 事件识别为
   // 重放（不在在途气泡上重复建泡）。仅写手腿回放（chat 腿不活跃）不插。合成事件只进

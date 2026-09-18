@@ -314,7 +314,10 @@ async function runChatInner(opts: ChatOpts): Promise<void> {
       finishTurn(opts, prepared.history, prepared.baseLen, prepared.recorder, { error: errMsg(e) })
     } else if (prepared === null) {
       try {
-        emit(opts, { type: 'chat_error', error: redactSecret(errMsg(e)) })
+        // 0918三拍板批（A006 轻量档）：准备期异常同款回显作者原文（对齐 finishTurn 出口
+        // 口径；echo 不落事件库、原样往返不过 redactSecret，理由见 finish.ts）
+        const echo = !opts.regenerate && (opts.message ?? '') !== '' ? opts.message : undefined
+        emit(opts, { type: 'chat_error', error: redactSecret(errMsg(e)), echo })
       } catch (emitErr) {
         log.warn('chat', `chat_error 补发失败（对话启动期异常）：${errMsg(emitErr)}`)
       }

@@ -98,6 +98,9 @@ export const useChatStore = defineStore('chat', () => {
   const running = ref(false)
   /** 最近一次错误 */
   const error = ref<string | null>(null)
+  /** 0918三拍板批（A006 轻量档）：最近一次失败回合作者原文（chat_error echo 字段）——
+   *  服务端已回滚/遮蔽该回合，原文仅存于此供「复制重发」；随 chat_start / clear 失效 */
+  const errorEcho = ref<string | null>(null)
   /** E1a（steer）：非错误提示（如「消息已入队，当前对话结束后处理」） */
   const notice = ref<string | null>(null)
   /** 当前正在填充的 assistant 气泡索引（chat_text 追加目标） */
@@ -259,6 +262,7 @@ export const useChatStore = defineStore('chat', () => {
       case 'chat_start': {
         running.value = true
         error.value = null
+        errorEcho.value = null
         notice.value = null
         break
       }
@@ -345,6 +349,9 @@ export const useChatStore = defineStore('chat', () => {
       case 'chat_error': {
         running.value = false
         error.value = str(ev['error']) ?? '未知错误'
+        // 0918三拍板批（A006 轻量档）：回显作者原文（服务端回滚后仅存于此，供复制重发；
+        // regenerate 回合无 echo 字段——原文本就在历史尾气泡里）
+        errorEcho.value = str(ev['echo']) || null
         // 0918独立重评修复批（E005）：对齐 chat_start「error+notice 双清」口径——回合异常
         // 中断时旧 notice（如「已入队」）随之失效，不得残挂在错误态旁。chat_done 不清：
         // 正常收尾下 notice 可能是刚提示的「已入队，当前对话结束后处理」，清掉会让它在
@@ -685,6 +692,7 @@ export const useChatStore = defineStore('chat', () => {
   function clear(): void {
     messages.value = []
     error.value = null
+    errorEcho.value = null
     notice.value = null
     currentIdx = -1
     seedGen.invalidate() // Y-P2-5：在途种子化响应作废（切书/清空后旧历史不得再种入）
@@ -725,6 +733,7 @@ export const useChatStore = defineStore('chat', () => {
     messages,
     running,
     error,
+    errorEcho,
     notice,
     hasMessages,
     activeBranchId,
