@@ -354,8 +354,12 @@ function parseLeadModel(
   const lead: Lead = {
     编号,
     标题: String(map.get('标题') ?? ''),
-    类型: (map.get('类型') as LeadType) ?? '悬念',
-    状态: (map.get('状态') as Lead['状态']) ?? '进行中',
+    // B202（0918三轮修复批）：改 `||`——手写「类型:」「状态:」（空值）经 parseValue
+    // 落成 ''，非 nullish，`??` 接不住 → 枚举字段空串穿透（UI 分档/状态闭合比较恒
+    // 落空），与上方校验的豁免意图（:322-328「空视同缺省回落」）相悖。R41-14 同型
+    // 先例（chapters.ts 钩子类型）：枚举合法值均非空串，`||` 语义面精确。
+    类型: (map.get('类型') as LeadType) || '悬念',
+    状态: (map.get('状态') as Lead['状态']) || '进行中',
     开启章: 开启章合法 ? 开启章Num : 0,
     履历: hist.entries,
     _bodyBeforeHistory: bodyBeforeHistory(body),

@@ -12,6 +12,8 @@
 import { existsSync } from 'node:fs'
 import { join, basename } from 'node:path'
 import { readChapterDir, countWords } from '../format/chapters.js'
+// G203（0918三轮修复批）：`##` 段落标题识别单源（collectBodyAnchors 收编，见其注）
+import { extractSectionHeadings } from '../format/section-heading.js'
 import { readPieceList } from '../format/manifest.js'
 import { classifyReversal } from '../format/reversal-types.js'
 import { readChapterBody } from './style.js'
@@ -357,15 +359,14 @@ function scoreReversalQuality(coreReversal: string, list: PieceList | null, body
   }
 }
 
-/** R36-1 同族（三十六轮，第四处）：CRLF 行尾容忍——body 按 '\n' split 后行尾残留 \r，
- *  `$` 锚定正则无 m 标志不认 \r 前行尾，CRLF 章文件的 `##` 锚点被静默全量丢弃
- *  （anchoredSetupCount 虚报 0 + 「铺垫正文锚点回指不足」假 issue，评分/报告误判）。
- *  `\r?` 显式容忍（对齐 check/count.ts:916 R33-1 口径）。导出供 CRLF 回归直测。 */
+/** 锚点集 = 正文 `##` 段落标题文字集。G203（0918三轮修复批）：识别收编
+ *  format/section-heading 单源（剥围栏 + `^##(?!#)[ \t\u3000]*\S` 口径）——原第二套
+ *  识别器（`^##\s+`、无围栏剔除）与 check/count.ts 口径分裂：紧排 `##标题` 全量漏识
+ *  → anchors 空 → 弱校验分支假 issue「正文缺少 ## 段落锚点」、anchoredSetupCount 记
+ *  0；反向围栏代码块内 `## 示例` 被照收 → 假锚点虚增。CRLF 容忍（R36-1 本处第四处）
+ *  由单源的 `\r` 剥除保持。导出供 CRLF 回归直测。 */
 export function collectBodyAnchors(body: string): string[] {
-  return body
-    .split('\n')
-    .map((line) => line.match(/^##\s+(.+)\r?$/)?.[1]?.trim() ?? '')
-    .filter(Boolean)
+  return extractSectionHeadings(body)
 }
 
 function setupHasAnchor(position: string, anchors: string[]): boolean {

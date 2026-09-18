@@ -167,6 +167,19 @@ function repairBooksLocked(workDir: string, purgeConfirmedMissing: boolean): Rep
       continue
     }
 
+    // G201（0918三轮修复批）：新发现分支补「本轮已扫」同名判重——上方两道防线
+    // （R44-6 改名分支 / R74-10 重关联分支）都只查 rebuilt（已登记集），同一轮循环
+    // 先前迭代 push 进 scanned 的同名条目对此处不可见（scanned 循环外才并入）：
+    // 两本均未登记的同名书（典型 = 手工复制书目录做备份，book.yaml title 随拷贝
+    // 不变）会双双入账 → resolveBook 首匹配遮蔽其一、removeBookEntry 按名过滤连删
+    // 两条（删一书另一张同名卡登记也被清，第二本成无登记幽灵），且后续 repair 两
+    // 条 path 都在盘上走 path 命中分支永不判重（不可自愈）。判重命中按 R74-10 同款
+    // 口径 warn 跳过留痕，交作者手动消歧。
+    if (scanned.some((s) => s.name === bookName)) {
+      log.warn('books', `扫盘发现同名书「${bookName}」在 ${relPath}（本轮已发现另一处同名书目录），跳过不重复登记——请手动确认两处书目录哪个是要保留的`)
+      continue
+    }
+
     scanned.push({
       name: bookName,
       path: relPath,

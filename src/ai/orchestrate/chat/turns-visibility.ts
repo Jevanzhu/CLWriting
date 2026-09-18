@@ -27,17 +27,21 @@ import { log } from '../../../log/index.js'
  *  log.warn 统一日志通道——与 rag recall 三降级出口同口径，诊断输出落 app-*.jsonl
  *  可回溯）；flag 关闭首行即返回，零开销。 */
 export function verifyVisibleSampled(
-  digests: { settings: string; revision?: string; skills?: string },
+  digests: { settings: string; revision?: string; skills?: string; knowledge?: string },
   recorded: NewEvent[],
 ): void {
   if (process.env['CLW_VERIFY_VISIBLE'] !== '1') return
   try {
     // R66-9（十四轮）：可见清单改由 visibleInjectionsFromDigests 单源组装（此前手工
     // 镜像 visibleInjections 形状——两侧改拼接源即失配，恰是本开关要抓的漂移）
+    // A201（0918三轮修复批）：签名补 knowledge 透传——0917 扩登记面（knowledge 血缘
+    // 事件）时本校验面未同步，TS 结构化类型对多余属性不报错，knowledge 在此静默蒸发、
+    // 抽样校验对该通道永远 silent-pass
     const visible: VisibleInjection[] = visibleInjectionsFromDigests({
       settings: digests.settings,
       ...(digests.revision !== undefined ? { chapter: digests.revision } : {}),
       ...(digests.skills !== undefined ? { skills: digests.skills } : {}),
+      ...(digests.knowledge !== undefined ? { knowledge: digests.knowledge } : {}),
     })
     // 校验器只读 type/data——NewEvent 补齐 ChatEvent 必填字段（seq 用批内序号占位）
     const events: ChatEvent[] = recorded.map((ev, i) => ({

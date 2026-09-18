@@ -137,6 +137,33 @@ test('readLead: 未知字段容错保留', () => {
   rmSync(dir, { recursive: true, force: true })
 })
 
+test('B202（0918三轮修复批）：手写空值「类型:」「状态:」回落默认（`??` 接不住空串的同型漏网）', () => {
+  const dir = makeTmpBook()
+  const fp = join(dir, '悬念-032-空值账本.md')
+  // 手写 fm：枚举字段键在、值为空——校验段豁免空串（空视同缺省回落），实现须对齐
+  writeFileSync(fp, [
+    '---',
+    '编号: 悬念-032',
+    '标题: 空值账本',
+    '类型:',
+    '状态:',
+    '开启章: 3',
+    '---',
+    '',
+    '## 履历',
+    '',
+    '- 第003章 埋下：焦痕',
+  ].join('\n'), 'utf-8')
+
+  const r = readLead(fp)
+  expect(r.ok).toBe(true)
+  if (r.ok) {
+    expect(r.lead.类型).toBe('悬念')
+    expect(r.lead.状态).toBe('进行中')
+  }
+  rmSync(dir, { recursive: true, force: true })
+})
+
 test('writeLead: 保留履历前的人工说明正文', () => {
   const dir = makeTmpBook()
   const fp = join(dir, '设定线-001-噬灵玉.md')

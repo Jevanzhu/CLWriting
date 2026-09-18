@@ -33,6 +33,28 @@ test('低级项（第六轮）：上次 init 半途崩出的半成品（未登�
   }
 })
 
+test('G202（0918三轮修复批）：半成品 book.yaml 书名与本次书名不一致 → 拒绝并指向原名（防 case 变体重建撕裂盘面/登记）', () => {
+  const wd = mkdtempTracked(join(tmpdir(), 'init-g202-'))
+  try {
+    // 平台无关形态：半成品（未登记 + book.yaml 骨架 + 正文零 .md）但 yaml title 与
+    // 本次书名不同。原始场景 = 大小写不敏感卷上 case 变体书名重试（mac 独有机理，
+    // 无法在大小写敏感 CI 腿复现），本例以「同目录名 + 异 title」直接驱动同一对账闸
+    const bookRoot = join(wd, '长篇', '北境')
+    mkdirSync(bookRoot, { recursive: true })
+    writeFileSync(join(bookRoot, 'book.yaml'), 'book:\n  title: 北境随笔\n', 'utf-8')
+
+    const r = doInit({ workDir: wd, name: '北境' })
+    expect(r.ok).toBe(false)
+    if (r.ok) return
+    expect(r.reason).toContain('北境随笔')
+    expect(r.reason).toContain('未完成登记')
+    // 拒绝面零落账：登记零新增、盘面原样
+    expect(readBooks(wd).some((b) => b.name === '北境')).toBe(false)
+  } finally {
+    rmSync(wd, { recursive: true, force: true })
+  }
+})
+
 test('低级项（第六轮）：目录存在且正文已有 .md（非半成品）→ 仍拒绝覆盖，用户内容不动', () => {
   const wd = mkdtempTracked(join(tmpdir(), 'init-user-'))
   try {

@@ -11,13 +11,21 @@
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import process from 'node:process'
+// D201（0918三轮修复批）：缺省语料目录解析单源——脚本与测试同源（本文件顶层即执行，
+// 不可被测试 import，解析逻辑抽 scripts/corpus-paths.ts 供直测）
+import { resolveCorpusDir } from './corpus-paths.js'
 // R73-50（二十一轮）：语料 JSON 落盘走原子写原语（同目录 tmp + rename）——写中途被杀
 // 不得留半截文件（checkId.json 是 CI 回归门 corpus.test.ts 的输入，截断即门挂）
 import { atomicWriteFile } from '../src/fs/atomic.js'
 
 const bookRoot = process.argv[2] ?? '.'
-// 第二可选参：语料输出目录（缺省仓库 test/corpus/checks；测试传 tmp 隔离）
-const corpusDir = process.argv[3] ?? join('test', 'corpus', 'checks')
+// 第二可选参：语料输出目录（缺省仓库 test/corpus/checks；测试传 tmp 隔离）。
+// D201：缺省改 import.meta.url 锚定仓库根（对齐 check-counts/check-packaging/
+// knowledge-update 同目录脚本口径）——原 `join('test','corpus','checks')` 按 cwd
+// 相对解析，从子目录直跑 `npx tsx scripts/corpus-commit.ts <bookRoot>` 时语料落
+// <cwd>/test/corpus/checks/（仓外），脚本打印「N 条入库」看似成功而 CI 回归门读真仓
+// 目录零新增、静默。
+const corpusDir = resolveCorpusDir(process.argv[3])
 
 interface Entry {
   excerpt: string

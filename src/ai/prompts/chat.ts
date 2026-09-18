@@ -75,18 +75,21 @@ ${ctx.knowledge ? `\n${ctx.knowledge}\n` : ''}
  * 「模型可见」注入收集器（G2-2 链路侧接线）：把 ctx 中实际进 system prompt 的
  * 段落折成 {scope, digest} 清单——verifyVisibleRecorded 的 visible 入参唯一生产来源。
  *
- * 口径与 chatSystem 的注入条件一一镜像：settings 恒注入；currentChapter / skillsIndex
- * 非空才注入（chatSystem 的两个三元分支），非空才产出注入项。digest 直接取注入原文
- * （chatSystem 拼进 prompt 的同一 ctx 字段），不二次拼接；登记侧（runChat）必须对
- * 同一字段做同源 digest16，任一侧改拼接源即破坏「模型可见 ⟺ 已记录」。
+ * 口径与 chatSystem 的注入条件一一镜像：settings 恒注入；currentChapter / skillsIndex /
+ * knowledge 非空才注入（chatSystem 的三个三元分支），非空才产出注入项。digest 直接取
+ * 注入原文（chatSystem 拼进 prompt 的同一 ctx 字段），不二次拼接；登记侧（runChat）
+ * 必须对同一字段做同源 digest16，任一侧改拼接源即破坏「模型可见 ⟺ 已记录」。
  */
 export function visibleInjections(ctx: ChatContext): VisibleInjection[] {
   // R66-9（十四轮）：{scope,digest} 组装下沉到 FromDigests 单源——CLW_VERIFY_VISIBLE
   // 诊断开关与治理测试共用同一形状逻辑，诊断侧不再手工镜像（镜像漂移恰是该开关要抓的）
+  // A201（0918三轮修复批）：补 knowledge 档——0917 扩登记面时校验面三处未同步
+  //（本处 / FromDigests / verifyVisibleSampled 签名），抽样校验对 knowledge 通道失明
   return visibleInjectionsFromDigests({
     settings: digest16(ctx.settings),
     ...(ctx.currentChapter ? { chapter: digest16(ctx.currentChapter) } : {}),
     ...(ctx.skillsIndex ? { skills: digest16(ctx.skillsIndex) } : {}),
+    ...(ctx.knowledge ? { knowledge: digest16(ctx.knowledge) } : {}),
   })
 }
 
@@ -96,10 +99,12 @@ export function visibleInjectionsFromDigests(d: {
   settings: string
   chapter?: string
   skills?: string
+  knowledge?: string
 }): VisibleInjection[] {
   const out: VisibleInjection[] = [{ scope: 'settings', digest: d.settings }]
   if (d.chapter !== undefined) out.push({ scope: 'chapter', digest: d.chapter })
   if (d.skills !== undefined) out.push({ scope: 'skills', digest: d.skills })
+  if (d.knowledge !== undefined) out.push({ scope: 'knowledge', digest: d.knowledge })
   return out
 }
 

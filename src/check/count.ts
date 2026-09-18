@@ -23,8 +23,10 @@ import type { ChapterMeta } from '../format/types.js'
 import { validateEnums } from '../format/chapters.js'
 // R0912-3（2026-09-12 全量重评修复批）：章号前缀解析单源（fm-chapter-mismatch 收编，见 checkFrontMatter）
 import { chapterNoFromName } from '../format/filename.js'
-// R49-2：围栏行识别单源（与导出 purifyBody 共享「识别」一步，开/闭栏语义各自保留）
-import { matchFenceLine, type FenceLineMatch } from '../format/fence.js'
+// G203（0918三轮修复批）：`##` 段落标题识别单源（剥围栏 + 标题行正则整体收编
+// format/section-heading——此前本处与 metrics/collectBodyAnchors 两套识别器口径分裂；
+// 围栏行识别原经 format/fence 的 matchFenceLine，随段整体收编后本文件不再直用）
+import { extractSectionHeadings } from '../format/section-heading.js'
 import { stripQuotedSpans } from './quotes.js'
 
 // R0916-5e 拆分桥接：迁出导出逐名 re-export，全库 import 面零改动。
@@ -320,52 +322,12 @@ export function checkSectionCount(
   const items: CheckItem[] = []
   // 有 ## 标题才按标题计五段；无标题时不把自然段空行误判为“节”。
   // 用 match 数标题行（split 会把首个 ## 之前的前导内容多计一节）。
-  // R26-43（二十六轮）：`##` 后空白可选（`##标题` 紧排形态此前漏计 → 全部落
-  // 「未使用 ## 标注」误导文案）；`##` 后须仍有内容（`.+`），裸 `##` 行不计。
-  // R27-25（二十七轮）：计数先剥代码围栏（``` / ~~~）内的行——设定/知识块里
-  // 引用示例的 `## xxx` 此前被当节标题计入，节数守恒虚高误绿
-  // R28-9（二十八轮·先证伪后修）：评审上报「孤立闭合 ``` 翻真吞掉其后全部 ## 标题」
-  // 经 CommonMark 对照**证伪**——非围栏态遇 ``` 行本就是「开栏」（围栏可无信息串），
-  // 无配对时围栏延伸到文末、其内 ## 不计恰是 spec 正确行为，该项转维持登记。
-  // 但推演发现真实 spec 偏离并做最小修复：CommonMark 要闭栏行与开栏**同字符、长度
-  // 不小于开栏、其后只允许空白**；原 `(```|~~~)` 一视同仁互翻 → ① ~~~ 开的栏被 ```
-  // 提前闭合（反之亦然）；② 围栏内的 ~~~/``` 内容行被误当闭栏；③ 带信息串的闭栏行
-  // （如 ```js）在围栏内应属内容却被当闭栏。改记开栏字符+长度，闭栏行须三者皆符；
-  // 开栏语义不变（非围栏态 ``` / ~~~ 行照旧开栏，信息串允许）。
-  let fence: { ch: FenceLineMatch['ch']; len: number } | null = null
-  const stripped = body
-    .split('\n')
-    .filter((ln) => {
-      // R33-1（三十三轮）：尾部 `\r?` 容忍（CRLF 文件按 \n 切行后行尾残留 \r 不破
-      // 匹配，围栏内 ## 才不整体反转计入节数）——该容忍随围栏正则 R49-2 收编
-      // format/fence 单源（此前本处手写正则与导出 purifyBody 各自为政、口径漂移）；
-      // ch/len/info 即原 m[1][0]/m[1].length/m[2]，本函数开/闭栏语义不变。
-      const m = matchFenceLine(ln)
-      if (fence === null) {
-        // 非围栏态：```/~~~ 行（信息串可选）= 开栏（R27-25 语义不变），开栏行剥除
-        if (m) fence = { ch: m.ch, len: m.len }
-        return !m
-      }
-      // 围栏态：仅同类同长且其后只有空白的行 = 闭栏；其余（异类/更短/带信息串）
-      // 是围栏内容，照旧剥除不计
-      if (m && m.ch === fence.ch && m.len >= fence.len && m.info.trim() === '') {
-        fence = null
-      }
-      return false
-    })
-    .join('\n')
-  // R28-2（二十八轮）：R26-43 把 `\s` 放宽为 `\s*`（支持 `##标题` 紧排）后未排除更深
-  // `#` 前缀——`^##\s*.+` 对「### 手记」以 `##` + 空 + `# 手记」误命中，`###`/`####`
-  // 子标题被当节标题计入 → 节数虚高 → section-count 假黄 → 短篇 strict 提红拦定稿。
-  // 改 `^##(?!#)`：lookahead 排除 `###`/`####`，紧排 `##标题` 照旧命中、裸 `##` 行
-  // 照旧不计（R26-43 语义不变）。
-  // R37-8（三十七轮）：`\s*` 收窄为 `[ \t\u3000]*` + `\S` 门卫——`\s` 含 `\n`（m 标志
-  // 只约束 ^/$，不约束字符类），裸 `##`（或 `## \t ` 纯空白收尾）后随换行被跨行吞并、
-  // 下一行正文顶上 `.+`，「裸 ## 行不计」在「裸 ## + 后继正文行」形态整体失效（节数
-  // 虚高假绿→短篇 strict 假拦反向漏拦均可能）。行内空白集保留全角空格（中文输入法
-  // 分隔形态），`\S` 强制须有可见标题文字（纯空白行不再借位命中）。同族先例：R33-1
-  // （围栏 CRLF）、R36-1（leads CRLF）。紧排 `##标题` 照旧命中（R26-43 语义不变）。
-  const headings = stripped.match(/^##(?!#)[ \t\u3000]*\S.*$/gm) ?? []
+  // G203（0918三轮修复批）：剥围栏 + 标题行识别整段收编 format/section-heading 单源
+  //（R26-43/R27-25/R28-2/R28-9/R37-8/R33-1 语义沿革注释随迁彼处文件头注）——此前
+  // 本处手写围栏状态机 + 正则与 metrics/collectBodyAnchors 的第二套识别器口径分裂
+  //（紧排 `##标题` 漏识 / 围栏内 `##` 误收），两处消费同源后消除漂移面。节数口径
+  // 逐位不变（本函数只用标题数，不用标题文字）。
+  const headings = extractSectionHeadings(body)
   let sections: number
   if (headings.length >= 2) {
     // 有 ## 标题：按标题数

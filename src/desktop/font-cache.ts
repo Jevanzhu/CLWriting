@@ -152,8 +152,14 @@ interface SpawnCollectChild {
   stderr?: { on(event: 'data', cb: (d: Buffer) => void): unknown } | null
   on(event: 'error', cb: (err: Error) => void): unknown
   on(event: 'close', cb: (code: number | null) => void): unknown
+  /** C201：SIGKILL 升级链的撤销挂点（生产 ChildProcess 原生有；测试假件可不实现）。 */
+  once?(event: 'close', cb: () => void): unknown
   kill?(signal?: NodeJS.Signals): boolean | undefined
 }
+
+/** C201（0918三轮修复批）：SIGTERM → SIGKILL 升级窗（毫秒）——对齐 server-proc
+ *  killProcAwaitEscalating 的 2s 有界窗；窗内 close 未到即二次收口。 */
+const FONT_KILL_ESCALATION_MS = 2_000
 
 /**
  * R0912-A-P3-3（2026-09-12 独立重评修复批）：windowsHide spawn → Buffer[] 收集 →
@@ -217,6 +223,21 @@ export function spawnCollectKillFonts(command: string, args: string[], p: SpawnC
       } catch {
         /* ESRCH：进程已退出 */
       }
+      // C201（0918三轮修复批）：SIGKILL 升级链——SIGTERM 单发对装了 TERM handler 或
+      // 陷入不可中断态的子进程不成杀（孤儿存续到父进程退出），与本仓 server-proc 的
+      // killProcAwaitEscalating（TERM → 2s → KILL）纪律对齐：有界窗内 close 未到即
+      // 二次收口 SIGKILL（KILL 不可被用户态拦截）。close 的结算监听在下方，此处 once
+      // 仅负责撤销升级定时器（假件无 once 时跳过撤销——定时器后触发打已死进程，ESRCH
+      // 由 try/catch 吞掉，无副作用）；窗内子进程正常退出则升级不发生。
+      const escalate = setTimeout(() => {
+        try {
+          child.kill?.('SIGKILL')
+        } catch {
+          /* ESRCH：进程已退出 */
+        }
+      }, FONT_KILL_ESCALATION_MS)
+      escalate.unref()
+      child.once?.('close', () => clearTimeout(escalate))
       reject(new Error(p.timeoutMessage))
     }, p.timeoutMs)
     // PM-12：error 必监听——超时 kill 打在已退出进程上会异步抛 ESRCH（往已关流写则
@@ -334,6 +355,22 @@ export function darwinFontListCommand(bundleDir: string): { command: string; arg
   return { command, args: [] }
 }
 
+/**
+ * C201（0918三轮修复批）：linux 自管 fc-list 命令形态——把 darwin 已接线的超时必杀
+ * 自管 spawn 骨架推广到 linux（此前 linux 维持 load 路径：font-list 不暴露子进程
+ * 句柄，fc-list 挂死时超时只放弃等待、子进程成孤儿，连 SIGTERM 都没有）。
+ * 命令与参数对 font-list libs/linux 上游逐字对齐（`fc-list -f "%{family[0]}\n"`——
+ * 上游经 exec shell 剥引号，fc-list 实参 = `%{family[0]}\n` 字面反斜杠 n；spawn
+ * 数组参数不经 shell，args 直接给同一字面量）；stdout 行口径解析复用
+ * parseFontListStdout(raw, 'linux')（R0912-A-P3-3 已逐字对齐上游 split/filter/去重
+ * + standardize disableQuoting + 排序）。fc-list 缺失（ENOENT 启动面）→
+ * fontListSetupFailure → fontListWithTimeout 回落 load——上游的 `whereis fc-list /
+ * fc-list2` 兜底探测链由回落保持可达。纯函数（常量进出），直测钉形态。
+ */
+export function linuxFontListCommand(): { command: string; args: string[] } {
+  return { command: 'fc-list', args: ['-f', '%{family[0]}\\n'] }
+}
+
 /** R40-28 原实现抽提（load 路径：font-list 不暴露子进程句柄，超时只放弃等待），文案与语义零变化。 */
 function fontListLoadWithTimeout(load: () => Promise<string[]>): Promise<string[]> {
   return new Promise<string[]>((resolve, reject) => {
@@ -373,7 +410,10 @@ function fontListLoadWithTimeout(load: () => Promise<string[]>): Promise<string[
  * 路径生产不可达，接线待台账 PM-12 拍板。**R0911-A-P2-1/A-P3-4（2026-09-11 全量重评
  * GLM-5.3 修复批）已接线收口**：mac 侧 main.ts 注入 darwinFontListCommand(here)（随包
  * 二进制 + asarUnpack 外置见 tsup.config.ts / electron-builder.yml），超时必杀生产
- * 生效、启动面失败回落 load；linux 维持 load（系统命令无随包二进制）。会话级熔断
+ * 生效、启动面失败回落 load；**C201（0918三轮修复批）：linux 亦改注入
+ * linuxFontListCommand()**（fc-list 挂死时 load 路径不暴露子进程句柄、子进程成孤儿
+ * ——自管 spawn 超时 TERM→2s→KILL 升级链收口，ENOENT 自动回落 load），接线点在
+ * ipc.ts loadFontList。会话级熔断
  * （fontListProbeWithBreaker）生产持续生效（缺省路径即包裹），R48-74 起 win 侧
  * listWindowsFonts 亦套用。打包态实测复验登记台账（build:desktop:dir + DMG 手验）。
  */

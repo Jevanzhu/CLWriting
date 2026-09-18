@@ -163,7 +163,13 @@ function finish(code, reason, extra) {
     console.error(`[electron-smoke] ---- 应用输出尾部（最近 ${tail.length} 字符）----`)
     console.error(tail || '(无输出)')
   }
-  process.exit(code)
+  // D203（0918三轮修复批）：改 exitCode + 自然排空——Node 对管道的 console 写是异步
+  // 的，紧随其后的同步 process.exit 可在刷盘前终止进程：CI（输出即管道）失败时恰是
+  // 最需要日志尾的场景被截断，与头注「失败/超时即带日志尾失败」承诺相悖。设
+  // exitCode 后让事件循环排空自然退出（killTree 后子进程句柄随即关闭，可排空）；
+  // 3s 兜底硬退（unref——排空正常则不触发）防残留句柄钉住循环把 CI 拖到超时。
+  process.exitCode = code
+  setTimeout(() => process.exit(process.exitCode ?? code), 3000).unref()
 }
 
 const timer = setTimeout(() => {

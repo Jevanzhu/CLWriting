@@ -43,6 +43,11 @@ import type {
   ProviderConf,
   TokenUsage,
 } from '../src/ai/provider/index.js'
+// D202（0918三轮修复批）：ErrInfo/errBrief/trunc 单源 scripts/relay-error-brief.ts
+// ——errBrief 的 message 出口统一过 redactSecret（中转网关 4xx 报错常回显含 key 的
+// 请求 URL，直出可把凭据打进终端/CI 日志，与头注「输出永不回显完整 key」承诺相悖）；
+// 抽离同时让脱敏行为可被测试直测（本文件顶层即执行不可 import）。
+import { errBrief, trunc, type ErrInfo } from './relay-error-brief.js'
 
 const TIMEOUT_MS = 90_000
 const DEFAULT_MODEL = 'gpt-5'
@@ -86,11 +91,6 @@ function maskKey(k: string): string {
   return k.length <= 6 ? `***（${k.length} 位）` : `${k.slice(0, 3)}***（${k.length} 位）`
 }
 
-function trunc(s: string, n: number): string {
-  const t = s.replace(/\s+/g, ' ').trim()
-  return t.length <= n ? t : `${t.slice(0, n)}…`
-}
-
 function safeJson(v: unknown): string {
   try {
     return JSON.stringify(v) ?? String(v)
@@ -99,12 +99,10 @@ function safeJson(v: unknown): string {
   }
 }
 
-interface ErrInfo {
-  message: string
-  retryable: boolean
-  code?: string
-  status?: number
-}
+// D202（0918三轮修复批）：ErrInfo/errBrief/trunc 单源移至 scripts/relay-error-brief.ts
+//（顶部 import）——errBrief 的 message 出口统一过 redactSecret（中转网关 4xx 报错常
+// 回显含 key 的请求 URL，直出可把凭据打进终端/CI 日志，与头注「输出永不回显完整 key」
+// 承诺相悖）；抽离同时让脱敏行为可被测试直测（本文件顶层即执行不可 import）。
 
 /** 一轮流式调用的全部观测（encrypted 只留长度与载荷引用，永不打印内容） */
 interface RoundOutcome {
@@ -192,10 +190,7 @@ async function runRound(provider: ModelProvider, req: GenRequest): Promise<Round
   return out
 }
 
-function errBrief(e: ErrInfo): string {
-  const head = e.code ?? (e.status !== undefined ? `HTTP ${e.status}` : 'ERROR')
-  return `[${head}] ${trunc(e.message, 120)}（retryable=${e.retryable}）`
-}
+// errBrief 已随 D202 抽至 scripts/relay-error-brief.ts（顶部 import；message 过脱敏）
 
 function fmtCounts(c: Record<string, number>): string {
   const order = ['text', 'reasoning', 'reasoning_item', 'tool', 'done', 'error']

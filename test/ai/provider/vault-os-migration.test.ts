@@ -93,7 +93,9 @@ describe('KEK v2：providers.json OS 通道迁移链', () => {
     const ud = setup()
     const store = emptySettings()
     store.providers = [prov('p1', 'sk-chat'), prov('p2', 'sk-chat2')]
-    store.ragProviders = [{ id: 'r1', name: 'r1', protocol: 'openai', auth: 'bearer', baseUrl: 'https://example.invalid/v1', model: 'embed-x', apiKey: 'sk-embed' }]
+    // 连带修（0918三轮修复批）：原字面量误用 chat 形态字段（protocol/auth/baseUrl），
+    // RagProviderConf 无此三键 → tsc TS2353；改合法形状（endpoint/caps），断言面零变
+    store.ragProviders = [{ id: 'r1', name: 'r1', endpoint: 'https://example.invalid/v1/embeddings', model: 'embed-x', apiKey: 'sk-embed', caps: null }]
     saveProviders(ud, store)
 
     process.env['CLW_OS_KEK'] = OS_KEK_HEX

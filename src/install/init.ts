@@ -12,6 +12,7 @@ import { join, resolve } from 'node:path'
 import { matchGenreLeads, sanitizeLeadsEnabled } from './data.js'
 import { appendBook, appendBookAsync, readBooks, bookStoragePath, isInvalidBookName, BOOK_NAME_MAX_BYTES, BOOK_NAME_INVALID_REASON } from './books.js'
 import { scaffoldBookRepo, findGitAncestor } from './scaffold.js'
+import { readBookConfig } from '../format/yaml.js'
 import { isMdFileName } from '../format/filename.js'
 import { samePhysicalPath } from '../fs/user-data-path.js'
 import type { LeadType } from '../format/types.js'
@@ -179,6 +180,17 @@ function doInitSteps(opts: InitOptions): InitStepOutcome {
   if (existingEntries.length > 0) {
     if (registered || !isResumableHalfScaffold(bookRoot)) {
       return { ok: false, reason: `目录「${bookName}」已存在且非空，换个书名或先清空它` }
+    }
+    // G202（0918三轮修复批）：半成品恢复前对账 book.yaml 书名——R44-11 占用判重只查
+    // 已登记书，半成品（未登记）在大小写不敏感卷上以 case 变体书名重试会复跑幂等
+    // scaffold 并按**新名**登记，而盘上目录保持**首试**大小写 → repair 扫盘取盘上
+    // 真名/真路径，与登记的 name/path 两处大小写敏感比对全都不匹配 → 新发现分支
+    // 再登记一次 = 同一物理书双登记（两张书架卡，且不可自愈）。title 与本次书名
+    // 不一致（NFC 口径）即拒绝：用原书名重试可正常续建，或清空目录重来。
+    const cfgRead = readBookConfig(join(bookRoot, 'book.yaml'))
+    const yamlTitle = cfgRead.config.book.title.trim().normalize('NFC')
+    if (yamlTitle !== '' && yamlTitle !== bookName.normalize('NFC')) {
+      return { ok: false, reason: `目录「${bookPath}」已是一本叫「${yamlTitle}」的未完成书（上次初始化未完成登记）——用书名「${yamlTitle}」重试可续建，或先清空该目录` }
     }
     // 半成品 → 落到下方 scaffold 复跑（幂等覆盖自身占位，正文零文件无用户内容可损失）
   }

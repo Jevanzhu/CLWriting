@@ -11,6 +11,11 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
+    // D204（0918三轮修复批）：noImplicitReturns 启用（改动面 1 处显式收尾，ipc.ts
+    // set-titlebar-overlay 混合返回形态）；exactOptionalPropertyTypes 实测全树 127 处
+    // 错（{...(c ? {k:v} : {})} 精确写法与 {k: undefined} 赋值两类形态遍布 src+test，
+    // 批内全修 = 大搅动面 + 高回归风险），按 G102 缓办先例留痕待独立批评估。
+    "noImplicitReturns": true,
     "verbatimModuleSyntax": true,
     "isolatedModules": true,
     "skipLibCheck": true,

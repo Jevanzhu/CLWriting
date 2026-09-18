@@ -20,7 +20,7 @@ import { errMsg, log } from '../log/index.js'
 import { getFonts as getSystemFontList } from 'font-list'
 import { resolveWithinRoot } from '../fs/safe-path.js'
 import { parseContextMenuSpecs, type ContextMenuSpec } from './context-menu.js' // RB-SV-P2-5：IPC 载荷净化
-import { createSystemFontCache, fontListWithTimeout, darwinFontListCommand } from './font-cache.js' // R77-1（二十五轮批 A）：系统字体 IPC 缓存；R40-28：font-list 超时包裹；R0911-A-P2-1：darwin 自管 spawn 二进制解析
+import { createSystemFontCache, fontListWithTimeout, darwinFontListCommand, linuxFontListCommand } from './font-cache.js' // R77-1（二十五轮批 A）：系统字体 IPC 缓存；R40-28：font-list 超时包裹；R0911-A-P2-1：darwin 自管 spawn 二进制解析；C201：linux fc-list 自管 spawn
 import { listWindowsFonts } from './win-fonts.js' // MP2-1（专项重评二轮）：win 自绘枚举（windowsHide，不经 cmd）
 import { isTrustedSender, openLibraryWindow, openShelfWindow, wins } from './windows.js'
 import {
@@ -234,15 +234,23 @@ export function registerIpc(): void {
   // ②PM-12 kill 接线（台账待拍板项随作者「全部修复」指令落地，原「打包态路径不可解」
   // 拍板理由随①失效）：mac 注入 deps.command 走自管 spawn——超时必杀（孤儿进程残留
   // 收口），启动面失败（二进制缺失/不可执行）自动回落 load（font-list 自带
-  // system_profiler 回落链保持可达，与纯 font-list 行为一致）；linux 维持 load 路径
-  //（fc-list 是系统命令非随包二进制，无此孤儿面差）。win 不变（win-fonts 自带超时
-  // kill）。打包态实测复验仍留台账（build:desktop:dir + 手装 DMG 验字体下拉）。
+  // system_profiler 回落链保持可达，与纯 font-list 行为一致）；win 不变（win-fonts
+  // 自带超时 kill）。C201（0918三轮修复批）：linux 由「维持 load」改注入
+  // linuxFontListCommand()——fc-list 挂死时 load 路径（font-list 不暴露子进程句柄）
+  // 只能放弃等待、子进程成孤儿；自管 spawn 超时 TERM→2s→KILL 升级链收口，命令与
+  // 行口径解析逐字对齐 font-list libs/linux 上游，fc-list 缺失（ENOENT）自动回落
+  // load（上游 whereis fc-list/fc-list2 兜底探测链保持可达）。打包态实测复验仍留
+  // 台账（build:desktop:dir + 手装 DMG 验字体下拉）。
   const loadFontList = () =>
     process.platform === 'win32'
       ? listWindowsFonts()
       : fontListWithTimeout(
           () => getSystemFontList({ disableQuoting: true }),
-          process.platform === 'darwin' ? darwinFontListCommand(here) : undefined,
+          process.platform === 'darwin'
+            ? darwinFontListCommand(here)
+            : process.platform === 'linux'
+              ? linuxFontListCommand()
+              : undefined,
         )
   const loadSystemFonts = createSystemFontCache(loadFontList)
   handleTrusted('desktop:get-system-fonts', async () => {
@@ -399,6 +407,7 @@ export function registerIpc(): void {
         // WCO 未启用（如 opts 覆盖掉 overlay）时 setTitleBarOverlay 抛错——忽略，
         // 窗控仍按创建时颜色渲染，属可降级外观项
       }
+      return // D204（0918三轮修复批）：显式收尾——本 handler 混合返回 {ok:false} 与 void，noImplicitReturns 要求全路径显式
     },
   )
 }
