@@ -52,7 +52,8 @@ function setup(): string {
 }
 
 describe('KEK v2：loadOrGenerateOsKek 装置', () => {
-  it('无文件 → 生成：32 字节 IKM + os-kek.json 落盘（v1 形态 + 0600）', () => {
+  // Windows 无 POSIX 权限位（chmod/mode 为 no-op），仅 POSIX 断言 mode，守卫语义由 macOS/Linux CI 腿覆盖（CC-P2-3 先例 test/ai/calls.test.ts）
+  it.skipIf(process.platform === 'win32')('无文件 → 生成：32 字节 IKM + os-kek.json 落盘（v1 形态 + 0600）', () => {
     const ud = setup()
     const kek = loadOrGenerateOsKek(ud)
     expect(kek).not.toBeNull()
