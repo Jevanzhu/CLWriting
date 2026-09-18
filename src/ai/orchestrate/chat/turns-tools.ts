@@ -230,6 +230,16 @@ export async function executeChatTool(
         // chat 中断时同步中断 self-heal（abortChat 只 abort chat ctrl，self-heal 独立 ctrl 须显式桥接）
         const onAbort = (): void => { abortSelfHeal(opts.bookName) }
         ctrl.addEventListener('abort', onAbort)
+        // 四轮-A402（2026-09-18 全量源码独立重评四轮修复批）：嵌入式写章以独立 owner
+        // （`self-heal:<书名>`，非 `chat:` 前缀）登记编排级 ctrl——修复前不传 register
+        //（Z-P2-5 单槽登记时代的顾虑：再登记触发 P2-6「同槽换新先 abort 旧」误伤外层
+        // 对话；M-1 owner 分槽后跨 owner 互不 abort，顾虑不再成立），E002 收窄口径下
+        // （cc.isWriterRunning 只排除 `chat:` 前缀槽）SSE sync 快照在写章全程假空闲。
+        // 与 /auto-write 端点（stream.ts）同型：settle 后 finally 注销（X-P2-11——不注销
+        // 则快照写手腿在途不复位）；编排级 ctrl 全程同一个，逐轮生成重复登记经 cc 幂等
+        // 跳过；/interrupt 的 abortAllCtrls 全停语义不变（多一本在册账，直接 abort 本编排
+        // ctrl，与 abortChat→abortSelfHeal 桥接殊途同归）。
+        let registered: AbortController | null = null
         try {
           const r: SelfHealOutcome = await runSelfHeal({
             driver: opts.driver,
@@ -242,6 +252,11 @@ export async function executeChatTool(
             // R76-12：标记对话嵌套写章——chat 入口闸（stream.ts）据此放行 steer 入队
             //（当前轮 = 本工具执行期，作者追加的话在写章结束后续链），不再误 409。
             embedded: true,
+            // 四轮-A402：owner 登记（owner 字串对齐 review:<书>/bg-summary:<书> 的 <书名> 后缀形）
+            register: (c) => {
+              registered = c
+              opts.driver.registerCtrl?.(opts.mainSession, c, `self-heal:${opts.bookName}`)
+            },
           })
           return {
             // B-P1-6：escalate 时章已生成落盘，不应标记 isError（ok=false 会让 AI 误判失败重复写章）
@@ -251,6 +266,8 @@ export async function executeChatTool(
         } finally {
           releaseWrite()
           ctrl.removeEventListener('abort', onAbort)
+          // 四轮-A402：settle 注销（registered 为 null = 编排未触达生成期即失败，无从注销）
+          if (registered) opts.driver.unregisterCtrl?.(opts.mainSession, registered)
         }
       }
       case 'check_chapter': {

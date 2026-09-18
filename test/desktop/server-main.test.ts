@@ -181,6 +181,28 @@ describe('installSignalFallback：信号兜底（M-8/R-20/R1010b-DSK-P3-7）', (
     }
   })
 
+  it('0918四轮修复批（C403）: close 回调带 err → log 留痕 + exit(1)，幂等不重复退', () => {
+    const { captured, onSpy } = captureSignalHandlers()
+    try {
+      const closeErr = new Error('close 中断（假件）')
+      const close = vi.fn((cb?: (err?: Error | null) => void) => {
+        if (cb) cb(closeErr)
+      })
+      installSignalFallback({ close })
+      captured['SIGINT']!()
+      expect(exitSpy).toHaveBeenCalledTimes(1)
+      expect(exitSpy).toHaveBeenCalledWith(1)
+      captured['SIGTERM']!() // 双信号连发：exiting 幂等不二次退
+      expect(exitSpy).toHaveBeenCalledTimes(1)
+      // log 留痕（log 未 init 时 console 镜像，beforeEach 已静音并捕获）
+      expect(
+        errSpy.mock.calls.some((line) => String(line).includes('server close 失败')),
+      ).toBe(true)
+    } finally {
+      onSpy.mockRestore()
+    }
+  })
+
   it('close 悬置（SSE/keep-alive 残留连接形态）→ 2s 兜底 timer exit(0)，句柄 unref（R-20）', () => {
     const { captured, onSpy } = captureSignalHandlers()
     const { handles, spy: timerSpy } = fakeTimerHandles()

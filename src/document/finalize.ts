@@ -427,5 +427,7 @@ function inferChapterFromName(relPath: string): number {
 
 function basenameNoExt(relPath: string): string {
   const base = relPath.split('/').pop() ?? ''
-  return base.replace(/\.md$/, '')
+  // 四轮-D404：剥扩展名大小写不敏感（/\.md$/i）——全库 isMdFileName 均大小写不敏感
+  //（version.ts R42-39 先例），win 资源管理器改 `.MD` 后回退标题带尾巴
+  return base.replace(/\.md$/i, '')
 }

@@ -60,6 +60,15 @@ function storePath(): string {
  *  （文件尚未创建的首次启动常态）在 catch 内静默按「无存储」降级（与原分支逐位等价，
  *  省一次前置 stat 系统调用），其余读失败维持 R61-B-2 的 warn 留痕降级。 */
 let storeCache: WorkDirStore | null = null
+/**
+ * 0918四轮修复批（C401）：readStore 非 ENOENT 读失败防覆写闸标志——读失败按无存储降级
+ * （R61-B-2 原语义不变）后，缓存 emptyStore 与盘上真内容脱钩；标志置位期间任何写盘前
+ * 必经 writeStore 的写前重读对账（重读成功→以盘上内容为基底重放本次变更；仍失败→拒绝
+ * 覆写），语义目标：任何情况下不因「读失败的空 store」覆盖磁盘真内容。与 install/books.ts
+ * readBooksStrict 的 DA-3「读失败拒绝重写」纪律对齐（workdir 域补齐同款不对称）。
+ * ENOENT 不置位——首启无文件是合法常态（R61-B-2 静默分支），照常首启建写。
+ */
+let workdirReadFailed = false
 function readStore(): WorkDirStore {
   if (storeCache) return storeCache
   const fp = storePath()
@@ -79,6 +88,9 @@ function readStore(): WorkDirStore {
       return storeCache
     }
     log.warn('desktop', `workdir.json 读取失败（按无存储降级）：${fp} —— ${errMsg(e)}`)
+    // 0918四轮修复批（C401）：降级同时置防覆写闸（见 workdirReadFailed 声明处锚注）——
+    // 空缓存只许读不许写，写前强制重读对账
+    workdirReadFailed = true
     storeCache = emptyStore()
     return storeCache
   }
@@ -88,10 +100,44 @@ function readStore(): WorkDirStore {
   return storeCache
 }
 
-/** 原子写 store。R47-9：写后同步刷新缓存（写后即读一致）。 */
+/**
+ * 原子写 store。R47-9：写后同步刷新缓存（写后即读一致）。
+ * 0918四轮修复批（C401）：读失败防覆写闸——workdirReadFailed 置位期间（readStore 曾
+ * 非 ENOENT 读失败，内存视图 = 与盘面脱钩的空 store）任何写盘前先清缓存重读一次盘上
+ * 真身：
+ * ① 重读成功 → 以盘上内容为基底重放本次变更（store.current 非空 = setCurrent 语义：
+ *   盘上旧 current 移入 recent 头部再写新 current，recent 历史全保留）——瞬时读失败
+ *  （杀毒/同步盘瞬时锁，R61-B-2 同族病因）恢复后的切库不再丢库指针与 recent；
+ * ② 重读仍失败 → **拒绝覆写**并抛错（saveCurrentSafe 契约面 → {ok:false,reason} /
+ *  菜单链原生错误框呈现）——绝不以「读失败的空 store」覆盖盘上真内容；
+ * ENOENT 重读 = 文件已被外部删除（无历史可保护）→ 按首启放行（与读路径静默分支口径
+ * 一致）。待写形态为「清空」（rollback 的无 current 基线）而盘上有真内容时同归②拒绝
+ * （防御分支：快照面已按 C401 置 null，此处兜底防未来新增写方）。
+ */
 function writeStore(store: WorkDirStore): void {
+  if (workdirReadFailed) {
+    storeCache = null // 绕开「失败空 store」缓存，直读盘上真身
+    const fp = storePath()
+    let disk: WorkDirStore
+    try {
+      disk = parseStore(readFileSync(fp, 'utf-8'))
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
+        log.error('desktop', `workdir.json 写前重读仍失败，已拒绝写入以保护盘上历史记录：${fp} —— ${errMsg(e)}`)
+        throw new Error('工作目录记录读取失败，已阻止写入以保护历史记录，请重启应用')
+      }
+      disk = emptyStore()
+    }
+    if (typeof store.current === 'string') {
+      store = setCurrent(disk, store.current)
+    } else if (disk.current !== null || disk.recent.length > 0) {
+      log.error('desktop', `workdir.json 写前重读成功但待写内容为清空形态，已拒绝写入以保护盘上历史记录：${fp}`)
+      throw new Error('工作目录记录读取失败，已阻止写入以保护历史记录，请重启应用')
+    }
+  }
   atomicWriteFile(storePath(), serializeStore(store))
   storeCache = store
+  workdirReadFailed = false // 写成功后闸复位（写失败保持置位，下次写前再对账）
 }
 
 /** 设新 current（旧入 recent）+ 持久化。 */
@@ -137,7 +183,10 @@ let switchRollbackStore: WorkDirStore | null = null
 function saveCurrentArmingRollback(dir: string): string | null {
   let prev: WorkDirStore | null = null
   try {
-    prev = readStore()
+    // 0918四轮修复批（C401）：读失败期（workdirReadFailed）的 readStore 快照是「失败空
+    // store」，不得作回滚基线——落库成功后取消退出经 rollbackCancelledSwitch 回写它，
+    // 会把写前对账合并出的真历史覆盖回空。置 null = 无基线（R59「无基线不回写」既有语义）。
+    prev = workdirReadFailed ? null : readStore()
   } catch {
     prev = null
   }

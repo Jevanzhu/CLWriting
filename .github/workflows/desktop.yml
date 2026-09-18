@@ -37,8 +37,11 @@ jobs:
         # exe 上传 + 打包态启动冒烟。H-2 的 mac arch 注记不变（arm64 单腿）。
         os: [macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      # G406（0918四轮修复批）：第三方 action 全量改 commit SHA 钉版（尾注 # v4 保留主版本
+      # 可读性；SHAs 与 ci.yml 同批实取、git ref 与 commit 端点双源核验）——浮动 major
+      # tag 指向可被上游移动的供应链面，见 ci.yml 同注。
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: npm # dd-P3（E-P3-2）：npm 缓存（两条 lockfile 入键）
@@ -49,6 +52,15 @@ jobs:
       # 复评P1：build:all 会 npm --prefix 进 web-next（独立 package.json + lockfile）跑 Vite 构建，
       # 干净 runner 缺此步骤则 build:desktop 必挂（主 CI ci.yml 已有同款步骤）
       - run: npm --prefix src/studio/web-next ci
+      # G401（0918四轮修复批）：依赖漏洞扫描门——根包与 web-next 子包各扫一次
+      #（--audit-level=high 只拦高危以上）。首期 continue-on-error 非阻塞起步：
+      # 存量告警基线未知，先观察门输出（基线观察期），连续绿后翻 blocker（四轮-G401）。
+      - name: 依赖漏洞扫描（npm audit ≥high，根包）
+        continue-on-error: true # 非阻塞起步：基线观察期，连续绿后翻 blocker（四轮-G401）
+        run: npm audit --audit-level=high
+      - name: 依赖漏洞扫描（npm audit ≥high，web-next 子包）
+        continue-on-error: true # 非阻塞起步：基线观察期，连续绿后翻 blocker（四轮-G401）
+        run: npm --prefix src/studio/web-next audit --audit-level=high
       # R0916-6-P2-3（2026-09-16 全库源码重评五轮修复批）：tag 名 ↔ package.json version
       # 一致性门——工作流以 tags: ['v*'] 触发，此前出包前无任何步骤校验两者一致：打 tag
       # v1.0.0 忘 bump version 时，electron-builder 产物名写旧版本（package.json 的
@@ -78,15 +90,12 @@ jobs:
         run: npm test
       - name: 单元测试（win 腿，R0912-G2-P3-5 收尾竞态重跑一次兜底，同 R0911-G-P1-1d）
         if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          npm test
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "::warning title=R0912-G2-P3-5::win 腿测试首跑非零退出（tinypool teardown ERR_IPC_CHANNEL_CLOSED 收尾竞态嫌疑）——同命令重跑一次区分收尾竞态与真失败"
-            npm test
-            if ($LASTEXITCODE -ne 0) { exit 1 }
-          }
-          exit 0
+        # G402（0918四轮修复批）：pwsh 重跑逻辑抽本地 composite action（.github/actions/
+        # win-vitest-retry，ci.yml 同批接线）——两段逐行复制品单源化；语义与日志文案
+        # 逐字保持（批次号经 warning-title 传参），重跑兜底语义不变。
+        uses: ./.github/actions/win-vitest-retry
+        with:
+          warning-title: R0912-G2-P3-5
       # N-1（第十二轮）：M-3 修得不完整——tag 门只补了 typecheck+test，check:packaging
       # （打包资源完整性门）与 release-smoke（编译产物真实起服验证）仍只在 ci.yml 分支
       # push 跑；tag 若指 ci.yml 跳过/失败的提交（CC-P1-7 场景），DMG 仍可产出未验发布
@@ -100,6 +109,21 @@ jobs:
         run: npm run check:counts
       - name: 知识层门（check:knowledge）
         run: npm run check:knowledge
+      # G404（0918四轮修复批）：tag 发布门补 soak 内存门——此前 soak 只在 ci.yml e2e job
+      # 跑（tag 触发不经分支 CI），泄漏回归可随未测提交的 DMG/exe 出包无门可拦；此处焊进
+      # 发布工作流本体，blocking（不设 continue-on-error）。取 mac 腿单腿背书（纯 Node
+      # 脚本零系统依赖，win 腿亦可跑，但 win 腿预算已被 J0 吃紧不叠加）。断言两段式
+      #（G408）：先 soak.ts --plan 提计划数，再真跑比对 OK 行数——计数源与 ci.yml soak
+      # 门同源（补段只改 soak.ts PLAN_SEGMENTS 一处）；先例逐字对齐 ci.yml soak 门。
+      - name: 有界内存/soak 门（--expose-gc，tag 发布腿）
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          SOAK_N=$(node --import tsx test/soak/soak.ts --plan | sed -n 's/^plan: \([0-9]\{1,\}\)$/\1/p')
+          [ -n "$SOAK_N" ] || { echo "::error::soak --plan 未输出计划数（应含 plan: N 行）——计数提取失败，按 fail-closed 处理"; exit 1; }
+          npm run soak | tee /tmp/soak-output.log
+          OK_N=$(grep -c '\[soak\] OK' /tmp/soak-output.log || true)
+          [ "$OK_N" -eq "$SOAK_N" ] || { echo "::error::soak 门 OK 行数=${OK_N} ≠ 计划段数=${SOAK_N}（段失败/SKIP/退出码非零均不得步绿；计数源 = soak.ts --plan，补段只改 soak.ts PLAN_SEGMENTS）——内存门假绿拦截"; exit 1; }
       # R0912-3（重评-0912-3 #45）：mac 腿补 playwright chromium 缓存——此前仅 ci.yml
       # e2e job（ubuntu）有缓存，mac 腿每次 ~130MB 重下。路径按 macOS 实际缓存位
       #（~/Library/Caches/ms-playwright，非 linux 的 ~/.cache）。
@@ -107,30 +131,72 @@ jobs:
       #（1.61.1 对照根 package.json @playwright/test ^1.61.1，升版须同步改）——任意
       # 锁文件改动都会换键致 ~130MB 整包重下，与 playwright 是否升级无关；
       # restore-keys 前缀兜底换版时恢复旧缓存只补差量浏览器。
+      # G407（0918四轮修复批）：键内版本改从根 lock 动态提取进 step output（下方 pwver
+      # 步；shell: bash 显式——win 默认 pwsh 的 >> 重定向编码与 GITHUB_OUTPUT 不兼容）
+      # ——「写死 1.61.1 对照 ^1.61.1、升版须同步改」双真相源销账；键式 pw-<ver>-<os>
+      # -<workflow>（workflow 身份保留，两工作流缓存互不串用）；web-next 子包 lock 无
+      # @playwright/test，playwright 由根 lock 统一管理（实态已核）。
+      - name: 取 playwright 版本（根 lock 单一真相源）
+        id: pwver
+        shell: bash
+        run: echo "v=$(node -e "console.log(require('./package-lock.json').packages['node_modules/@playwright/test'].version)")" >> "$GITHUB_OUTPUT"
       - name: 缓存 playwright chromium
         if: runner.os == 'macOS'
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/Library/Caches/ms-playwright
-          key: playwright-${{ runner.os }}-${{ github.workflow }}-1.61.1
+          key: pw-${{ steps.pwver.outputs.v }}-${{ runner.os }}-${{ github.workflow }}
           restore-keys: |
-            playwright-${{ runner.os }}-${{ github.workflow }}-
+            pw-${{ runner.os }}-${{ github.workflow }}-
+      # G403/G407（0918四轮修复批）：win 腿同款缓存——G403 给 win 腿接 e2e/release-smoke
+      # 后每跑重下 chromium ~130MB 同病；路径 ~\AppData\Local\ms-playwright（actions/cache
+      # README 明示 Windows 环境变量 %LOCALAPPDATA% 不被展开、荐 ~ 式做 HOME 展开；
+      # 键含 runner.os 与 mac 腿互不串用）。
+      - name: 缓存 playwright chromium（win 腿）
+        if: runner.os == 'Windows'
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~\AppData\Local\ms-playwright
+          key: pw-${{ steps.pwver.outputs.v }}-${{ runner.os }}-${{ github.workflow }}
+          restore-keys: |
+            pw-${{ runner.os }}-${{ github.workflow }}-
       - name: 装 playwright chromium
-        if: runner.os == 'macOS'  # D5：e2e 仍 mac，win 腿不装不跑
+        # G403：win 腿接 e2e 后双腿同装（chromium 在 win 免系统依赖步，无需 --with-deps）
         run: npx playwright install chromium
       # R69-32（十七轮）：tag 门补常规 e2e（29 spec 前端动线）——此前 tag 门只有
       # release-smoke（2 用例）+ Electron 启动冒烟兜底核心面，前端交互回归可随 DMG
       # 出包；复用上方已装 chromium（test:e2e 自带 build:web 前置）。coverage 阈值门
       # 仍留分支 CI（阈值门管代码演化趋势，非发布物属性，注释记档口径）。
       - name: 常规 e2e（build:web + playwright test）
-        if: runner.os == 'macOS'  # D5：e2e 仍 mac（J0 注记，同上）
+        if: runner.os == 'macOS'  # G403 后 mac 腿照旧（D5/J0 注记沿革，win 腿见下方观察档步）
         run: npm run test:e2e
       - name: 发布冒烟（release-smoke，build:all + 编译产物起服）
-        if: runner.os == 'macOS'  # D5：e2e 仍 mac（J0 注记，同上）
+        if: runner.os == 'macOS'  # G403 后 mac 腿照旧（D5/J0 注记沿革，win 腿见下方观察档步）
+        run: npm run test:e2e:release
+      # G403（0918四轮修复批）：出货平台 Windows 的 e2e/release-smoke CI 覆盖——此前 win
+      # 腿只跑门禁步 + build:desktop + 打包态冒烟，test:e2e / test:e2e:release 双零覆盖
+      #（D5「e2e 仍 mac」口径未随 win 出货反转）。镜像 mac 腿式样：复用上方已装 chromium；
+      # test:e2e 自带 build:web 前置、release-smoke 自带 build:all 前置，零额外环境变量
+      #（两链纯 Node + chromium 无 mac 专属面；playwright.config/global-setup 平台中立，
+      # global-setup 自带 win32 分支）。timeout 预算核对：job 总额 50min，win 腿现跑段
+      #（双 npm ci + 门禁步 + build:desktop + 冒烟）估 ~30min，叠 e2e（build:web + 33
+      # spec 串行）+ release-smoke（build:all + 2 用例）≈ +8min，预算内；首跑若触顶再校准
+      #（参照 ci.yml e2e job 同链 25min 预算）。
+      # 首期 continue-on-error 观察档：win runner 上 e2e 稳定性未知（首次接线，win 腿
+      # npm test 收尾竞态族在先），红只留痕不阻断出包；连续 3 次绿后撤标志翻阻断
+      #（四轮-G403）。trace 工件本期不接（failure() 在 continue-on-error 步红下不触发，
+      # 排障走步日志；翻阻断时随标志撤销一并补）。
+      - name: 常规 e2e（win 腿，build:web + playwright test）
+        if: runner.os == 'Windows'
+        continue-on-error: true # 首期观察档：win runner 上 e2e 稳定性待观察，连续 3 次绿后撤标志翻阻断（四轮-G403）
+        run: npm run test:e2e
+      - name: 发布冒烟（win 腿，release-smoke，build:all + 编译产物起服）
+        if: runner.os == 'Windows'
+        continue-on-error: true # 首期观察档：win runner 上 e2e 稳定性待观察，连续 3 次绿后撤标志翻阻断（四轮-G403）
         run: npm run test:e2e:release
       - name: 上传 playwright trace（失败时）
         if: failure() && runner.os == 'macOS'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: playwright-trace-desktop
           path: test-results/
@@ -147,7 +213,7 @@ jobs:
       # 零产物即红：electron-builder 静默不出包时在此 fail-closed，不上传空壳工件。
       - name: 生成发布产物 SHA256 清单
         run: node -e "const fs=require('fs'),crypto=require('crypto');const dir='dist-electron';const files=fs.readdirSync(dir).filter(f=>f.endsWith('.dmg')||f.endsWith('.exe')).sort();if(files.length===0){console.error('[checksum] dist-electron 下无 .dmg/.exe 产物——electron-builder 出包异常');process.exit(1)}const lines=files.map(f=>crypto.createHash('sha256').update(fs.readFileSync(dir+'/'+f)).digest('hex')+'  '+f);fs.writeFileSync(dir+'/SHA256SUMS.txt',lines.join('\n')+'\n');console.log(lines.join('\n'))"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always() && runner.os == 'macOS'
         with:
           name: clwriting-desktop-${{ matrix.os }}
@@ -161,7 +227,7 @@ jobs:
       # J0：win 腿工件只留 NSIS 单文件 exe（win-unpacked/ 解包态不上传，同 H-8 体积口径；
       # blockmap 等伴生文件不在 *.exe 通配内自然排除）
       # R0916-6-P3-9：SHA256SUMS.txt 随产物一并上传（生成步见 build:desktop 后）
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always() && runner.os == 'Windows'
         with:
           name: clwriting-desktop-${{ matrix.os }}

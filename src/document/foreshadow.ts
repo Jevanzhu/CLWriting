@@ -260,6 +260,11 @@ const RISK_THRESHOLDS: Record<string, number> = {
 /** 命中片段上下文半径（前后各 N 字） */
 const SNIPPET_RADIUS = 15
 
+// 四轮-D401：UTF-16 码元代理对判定（高代理 0xD800-0xDBFF / 低代理 0xDC00-0xDFFF）——
+// 命中片段切片边界按码点回退时用（下方 aggregateTrails）
+const isHighSurrogate = (c: number): boolean => c >= 0xd800 && c <= 0xdbff
+const isLowSurrogate = (c: number): boolean => c >= 0xdc00 && c <= 0xdfff
+
 /** 风险严重度排序（数值大者更坏），同标题合并时取最坏（fail-closed） */
 const RISK_ORDER: Record<ForeshadowTrail['risk'], number> = { 绿: 0, 黄: 1, 红: 2 }
 
@@ -346,10 +351,23 @@ function aggregateTrails(
       const byChapter = index.get(kw)
       if (!byChapter) continue
       for (const [章号, positions] of byChapter) {
+        const text = chapters.get(章号)!
         for (const idx of positions) {
-          const start = Math.max(0, idx - SNIPPET_RADIUS)
-          const end = Math.min(chapters.get(章号)!.length, idx + kw.length + SNIPPET_RADIUS)
-          hits.push({ 章号, 命中词: kw, 命中片段: chapters.get(章号)!.slice(start, end) })
+          let start = Math.max(0, idx - SNIPPET_RADIUS)
+          let end = Math.min(text.length, idx + kw.length + SNIPPET_RADIUS)
+          // 四轮-D401：切片边界回退到码点边界——start 落在代理对低半（其高半在
+          // start-1）则 start--；end 前一码位是高代理（其低半在 end 处）则 end--。
+          // 防 ±SNIPPET_RADIUS 码元边界劈开代理对（emoji/扩展区汉字），片段边缘产
+          // 孤立代理对（乱码）且参与 searchForeshadowTrails 命中片段检索。先例：
+          // journal.ts truncateSnapshotHeadTail 切点回退手法；半径语义随之 ±1 码元
+          // 浮动，可接受。
+          if (start > 0 && isLowSurrogate(text.charCodeAt(start))) start--
+          if (
+            end < text.length &&
+            isHighSurrogate(text.charCodeAt(end - 1)) &&
+            isLowSurrogate(text.charCodeAt(end))
+          ) end--
+          hits.push({ 章号, 命中词: kw, 命中片段: text.slice(start, end) })
         }
       }
     }

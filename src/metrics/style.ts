@@ -237,8 +237,10 @@ export function aggregateStyleTrend(
   // 短篇小样本不做趋势判定
   if (count >= SHORT_TREND_MIN) {
     // 对话标签占比：连续 N 章超 0.5（或基线对照值）报漂移
+    // 四轮-D402：基线对照值外包 0.99 上界——高基线书（基线 ≥0.77 → ×1.3 ≥1.0）时
+    // 阈值不可达（严格 > 永不触发），漂移项被静默禁用；clamp 后恒有可达空间。
     const tagThreshold = baseline?.overall.dialogueTagRatio
-      ? Math.max(baseline.overall.dialogueTagRatio * 1.3, 0.5)
+      ? Math.min(Math.max(baseline.overall.dialogueTagRatio * 1.3, 0.5), 0.99)
       : 0.5
     drifts.push(...detectConsecutiveOver(
       dialogueTagSeries, samples.map((s) => s.num), tagThreshold, window,

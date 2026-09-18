@@ -17,7 +17,7 @@ import { getCompletionNames } from '../api/settings'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useUiStore } from '../stores/ui'
 import { typewriterExt, centerCursorLine } from './typewriter'
-import { Compartment, EditorSelection, EditorState, Transaction, type Extension } from '@codemirror/state'
+import { Annotation, Compartment, EditorSelection, EditorState, Transaction, type Extension } from '@codemirror/state'
 import {
   EditorView,
   crosshairCursor,
@@ -191,11 +191,22 @@ onMounted(() => {
         // doc.toString() 再一次，每击键 2× 全文拷贝（超大单文件可感）
         if (u.docChanged) {
           lastLocalEmit = u.state.doc.toString()
-          // R51-I-6（五十一轮）：切文档挂起窗口内不回写——父层 onBodyChange 按当前
-          // entry（已切到新章 docId）patch，挂起期间组合续打的旧章文本若照常 emit
-          // 会整段写进新章（跨章污染）。挂起窗口的输入只留在本视图，随切文档替换
-          // 丢弃（compositionend 消费挂起后 emit 恢复常态）。
-          if (pendingDocSwitch === null) emit('update:modelValue', lastLocalEmit)
+          // 四轮-E402：程序化全量替换（applyDocSwitch 切文档 / applyExternalReplace 外部
+          // 同步，替换事务带下方 programmaticReplace 注解）不回发 emit——回发值经父层
+          // onBodyChange 的 mergeFm 规范形往返重组，对非规范 fm 存量文件（fence 尾随
+          // 空格/BOM/CRLF，解析侧容忍）merged !== content 即 doc.patch 置脏 → autosave
+          // 30s 内作者零输入重写并规范化文件。新值已同步进 lastLocalEmit（上行），watch
+          // 的「同文档外部同步判据」语义不变（R39-20）；真实用户输入/undo/redo 事务无
+          // 此注解，照常 emit。抑制按事务注解逐笔判定、只压本笔：不用「置布尔位等下次
+          // docChanged 消费」的形态——空串→空串切档等空 ChangeSet 事务 docChanged=false，
+          // 布尔位消费不到而粘滞，会吞掉其后首次真实键入的回写。
+          if (!u.transactions.some((tr) => tr.annotation(programmaticReplace) === true)) {
+            // R51-I-6（五十一轮）：切文档挂起窗口内不回写——父层 onBodyChange 按当前
+            // entry（已切到新章 docId）patch，挂起期间组合续打的旧章文本若照常 emit
+            // 会整段写进新章（跨章污染）。挂起窗口的输入只留在本视图，随切文档替换
+            // 丢弃（compositionend 消费挂起后 emit 恢复常态）。
+            if (pendingDocSwitch === null) emit('update:modelValue', lastLocalEmit)
+          }
         }
       }),
       // F5（五十九轮）：组合态标记 + 组合结束后（延迟一拍让 CM6 先冲排组合文本插入）
@@ -295,6 +306,11 @@ let pendingExternal: string | null = null
 // 原子对（props 一次 watch 回调同时到达；historyKey 可选 prop 故 key 含 undefined）；
 // 后续触发刷新槽值（取最新，B-1 同款口径）。
 let pendingDocSwitch: { v: string; key: string | undefined } | null = null
+// 四轮-E402：程序化全量替换事务的标记注解——applyDocSwitch / applyExternalReplace 的
+// 替换事务携带，mount 侧 updateListener 见注解即跳过本次回发（动机与其处注释同源）。
+// 注解随事务走，天然「只抑制本笔」，无跨事务粘滞面；对空 ChangeSet 事务（docChanged
+// =false）本就不产生回发，注解空挂无副作用。
+const programmaticReplace = Annotation.define<boolean>()
 /** 同文档外部全量替换的执行体（composing 守卫解耦出）。 */
 function applyExternalReplace(v: string): void {
   if (!view) return
@@ -325,7 +341,9 @@ function applyExternalReplace(v: string): void {
     effects: historyConf.reconfigure(history()),
     changes: { from: 0, to: view.state.doc.length, insert: v },
     selection: EditorSelection.create(ranges, prev.mainIndex),
-    annotations: [Transaction.addToHistory.of(false), isolateHistory.of('full')],
+    // 四轮-E402：替换事务带程序化替换注解不回发——SSE sync/refresh 落在非规范 fm
+    // 存量文件时，回发经父层 mergeFm 往返即「无输入置脏」（见 updateListener 处注释）
+    annotations: [Transaction.addToHistory.of(false), isolateHistory.of('full'), programmaticReplace.of(true)],
   })
 }
 /** 切文档执行体（R51-I-6 抽出：组合期挂起后由 compositionend 消费同一路径）。
@@ -348,7 +366,11 @@ function applyDocSwitch(v: string): void {
     // R62-18/R50-D1-3 归位/保留）；切文档内容整体换血、旧位置无可归位，章首即自然
     // 阅读起点。
     selection: EditorSelection.cursor(0),
-    annotations: [Transaction.addToHistory.of(false), isolateHistory.of('full')],
+    // 四轮-E402：切文档替换事务同带程序化替换注解不回发——切档回发值经父层
+    // mergeFm 往返，对非规范 fm 新章「零输入即置脏」（autosave 静默改写）；新章
+    // 内容本就来自 store，回发纯冗余。两步真重置历史（X-1/R8B-P1-1）与 R51-I-3
+    // 章首锚定语义不受影响（注解只作用于回发抑制）。
+    annotations: [Transaction.addToHistory.of(false), isolateHistory.of('full'), programmaticReplace.of(true)],
   })
 }
 watch(

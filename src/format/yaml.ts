@@ -81,6 +81,8 @@ function parseSections(text: string): RawSection[] {
   let lastNode: RawSection | undefined
   // R26-37（二十六轮）：tab 缩进 warn 留痕开关（首个 tab 一次，不刷屏）
   let tabWarned = false
+  // 四轮-D403：全角空格（U+3000）缩进 warn 留痕开关（同 tab 口径：每 parse 一次）
+  let wideSpaceWarned = false
   for (const [lineNo, line] of text.split('\n').entries()) {
     if (line.trim() === '' || line.trim().startsWith('#')) continue
     const indent = line.length - line.trimStart().length
@@ -90,6 +92,13 @@ function parseSections(text: string): RawSection[] {
     if (!tabWarned && line.slice(0, indent).includes('\t')) {
       tabWarned = true
       log.warn('book.yaml', `book.yaml 第 ${lineNo + 1} 行缩进含 tab（本协议为 2 空格缩进），已按字符数解析；建议改用空格`)
+    }
+    // 四轮-D403：缩进含全角空格（U+3000）时 warn 一次——R26-37 tab 同款口径：
+    // U+3000 同为 trimStart 认可的空白，按字符数凑合可解析（计数维持现状，与 tab
+    // 同待遇），但作者无从知晓文件混入了全角空格、段挂靠类问题难排查；留痕不中断。
+    if (!wideSpaceWarned && line.slice(0, indent).includes('\u3000')) {
+      wideSpaceWarned = true
+      log.warn('book.yaml', `book.yaml 第 ${lineNo + 1} 行缩进含全角空格 U+3000（本协议为 2 空格缩进），已按字符数解析；建议改用半角空格`)
     }
     const content = line.trim()
     // ii 批（ff P2-2）：有值键（`key: v`）不能有缩进子行——真 YAML 里这是语法错误，

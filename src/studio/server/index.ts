@@ -154,8 +154,11 @@ function buildRoutes(
  * R0912-P3-⑥：SSE 豁免项改引 stream.ts 导出的 SSE_STREAM_PATH_PATTERN（单源）——
  * 此处不再手写等价正则（原两处正则字符串耦合，路由路径改动时豁免表会静默失配）；
  * /api/boot 项本文件自持（bootstrap 端点注册面不在 stream.ts）。
+ * 四轮-F402（2026-09-18 全量源码独立重评四轮修复批）：加导出——test 侧 fetch 包装的
+ * 豁免抄本同步守卫（test/governance/studio-token-exempt-sync.test.ts）读本正本比对；
+ * 纯导出零行为，闸消费点仅下方 GET/HEAD token 闸一处。
  */
-const GET_TOKEN_EXEMPT_PATHS: readonly RegExp[] = [/^\/api\/boot$/, SSE_STREAM_PATH_PATTERN]
+export const GET_TOKEN_EXEMPT_PATHS: readonly RegExp[] = [/^\/api\/boot$/, SSE_STREAM_PATH_PATTERN]
 
 /** R0910-W：close 收尾等「在途外部工作」（重建/导出/扫描 Worker 线程）settle 的
  *  有界预算——超时放行，与 graceful-shutdown 的 settle/close 超时同口径（close 只

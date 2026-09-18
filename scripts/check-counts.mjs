@@ -391,7 +391,10 @@ export function posixRelPath(root, fp) {
 // 两副本漂移时「测试运行时 ≠ 发布构建运行时」且无门会红（R1010c 前已实际漂移：
 // vue 3.5.38 ↔ 3.5.40，plugin-vue 6.0.7 ↔ 6.0.8）。vue-router 刻意只存于子包
 //（vitest alias 直钉 web-next 副本），故只比对两侧齐备的项、不要求在位。
-export function sharedRuntimeVersionDrift(rootLockPackages, webLockPackages, pkgs = ['vue', 'pinia', '@vitejs/plugin-vue', 'vue-router']) {
+// 0918四轮修复批（G411）：清单补 typescript——根 devDependencies ^5.5.0 与子包
+// ^5.6.0 声明范围漂移无门可拦（两把 lock 实装版本失配时 tsc 门与 vite 构建消费
+// 不同编译器副本，同「测试/构建运行时分裂」族面）；两 lock 实装一致时门绿不扰。
+export function sharedRuntimeVersionDrift(rootLockPackages, webLockPackages, pkgs = ['vue', 'pinia', '@vitejs/plugin-vue', 'vue-router', 'typescript']) {
   const drift = []
   for (const p of pkgs) {
     const a = rootLockPackages[`node_modules/${p}`]?.version

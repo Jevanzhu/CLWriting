@@ -29,9 +29,28 @@ test.beforeAll(() => {
   orig2 = readFileSync(CHAPTER_2(), 'utf-8')
 })
 
+// 四轮-F401（2026-09-18 全量源码独立重评四轮修复批）：恢复防御对齐 edit-save.spec.ts
+// 同款（R0911-G-P3-3 先例）——原裸 writeFileSync 两连写无守卫：第二步抛错会中断后续
+// 恢复且零留痕，共享单一 workDir 的串行契约下「前序 spec 该恢复的状态没恢复」会让
+// 下游 spec 无因红。每步恢复各自 try/catch + [e2e-restore] 结构化标记（CI 日志可
+// grep 定位），失败不阻断后续恢复步骤。
+function reportRestoreFailure(step: string, e: unknown): void {
+  console.error(
+    `[e2e-restore] conflict afterAll「${step}」恢复失败：${e instanceof Error ? e.message : String(e)}（不阻断；下游 spec 可能受影响）`,
+  )
+}
+
 test.afterAll(() => {
-  writeFileSync(CHAPTER_1(), orig1, 'utf-8')
-  writeFileSync(CHAPTER_2(), orig2, 'utf-8')
+  try {
+    writeFileSync(CHAPTER_1(), orig1, 'utf-8')
+  } catch (e) {
+    reportRestoreFailure('0001-初入宗门 原文恢复', e)
+  }
+  try {
+    writeFileSync(CHAPTER_2(), orig2, 'utf-8')
+  } catch (e) {
+    reportRestoreFailure('0002-玉佩之秘 原文恢复', e)
+  }
 })
 
 async function openChapter(page: import('@playwright/test').Page, name: string): Promise<void> {

@@ -99,9 +99,12 @@ export interface SelfHealOpts {
   genFn?: (userPrompt: string, kind: 'long' | 'short', signal: AbortSignal, onText: (delta: string) => void) => Promise<string>
   /**
    * Z-P2-5：ctrl 登记 driver（/interrupt 的 driver.interrupt() 与 isRunning() 据此对生成期生效）。
-   * 仅 /auto-write 端点传；chat 内嵌写章（write_chapter 工具）不传——彼时 chat 自身 ctrl
-   * 已在同一 session 在册，再登记会触发 cc registerCtrl 的 P2-6 语义（换新先 abort 旧）
-   * 误伤外层对话，且经 chat.ts 的 abort 桥接反过来把本次写章一并中断。
+   * 四轮-A402（2026-09-18 全量源码独立重评四轮修复批）起 /auto-write 端点（owner
+   * 'self-heal'）与 chat 内嵌写章（turns-tools write_chapter，owner `self-heal:<书名>`）
+   * 两路都传——原「内嵌不传」是 cc 单槽登记时代的顾虑（再登记触发 P2-6「同槽换新先
+   * abort 旧」误伤外层对话）；M-1 owner 分槽后跨 owner 互不 abort，不登记反而使 sync
+   * 快照（isWriterRunning，E002）在写章全程假空闲。两 owner 均非 `chat:` 前缀，E002
+   * 「对话期假忙」的排除口径不受影响。
    */
   register?: (ctrl: AbortController) => void
 }

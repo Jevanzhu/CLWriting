@@ -216,14 +216,30 @@ export class SessionRecorder {
       if (this.pending.length > SESSION_PENDING_MAX) {
         const dropped = this.pending.length - SESSION_PENDING_MAX
         const droppedEvs = this.pending.slice(0, dropped)
-        this.pending = this.pending
-          .slice(dropped)
-          .map((ev) =>
+        // B406（0918四轮修复批）：丢弃时补断链标记事件入流——被丢事件已永久丢失
+        // （「已记录」凭据出现缺口），此前只有日志留痕，事件流本身无声不连续（压缩
+        // 遮蔽区间/血缘回放跨缺口时无据可查）。在保留事件之前垫一条 chat_gap 标记
+        // （data.dropped = 本次丢弃条数），随恢复后的下一次成功 flush 一并落库，
+        // 审计/投影侧可见断链凭据。非 surface、无 surfaceOp：foldSurface 对未知类型
+        // 直落忽略、validateEventStream 无专项校验、前端对话种子化只消费投影消息——
+        // 全链安全忽略（对齐边界类/meta 类先例）。
+        const gapMarker: NewEvent = { type: 'chat_gap', data: { dropped } }
+        // 标记垫在保留段批首 → 存活事件的批内序号整体 +1：sourceIdxs/pendingSurfaceIdx
+        // 先按旧口径平移（-dropped，滤掉指向已蒸发前驱的引用），再 +1 让出标记批首位。
+        // 次序不可反——先 +1 会把「恰指向最后一个被丢事件」的引用（i = dropped-1）误留
+        // 成 0，血缘错链到 gap 标记上。
+        this.pending = [
+          gapMarker,
+          ...this.pending.slice(dropped).map((ev) =>
             ev.sourceIdxs
-              ? { ...ev, sourceIdxs: ev.sourceIdxs.map((i) => i - dropped).filter((i) => i >= 0) }
+              ? { ...ev, sourceIdxs: ev.sourceIdxs.map((i) => i - dropped).filter((i) => i >= 0).map((i) => i + 1) }
               : ev,
-          )
-        this.pendingSurfaceIdx = this.pendingSurfaceIdx.map((i) => i - dropped).filter((i) => i >= 0)
+          ),
+        ]
+        this.pendingSurfaceIdx = this.pendingSurfaceIdx
+          .map((i) => i - dropped)
+          .filter((i) => i >= 0)
+          .map((i) => i + 1)
         const droppedTurns = [
           ...new Set(droppedEvs.map((ev) => ev.turn).filter((t): t is number => t !== undefined)),
         ].sort((a, b) => a - b)
@@ -233,7 +249,7 @@ export class SessionRecorder {
             (droppedTurns.length > 0
               ? `（涉及 turn ${droppedTurns[0]!}–${droppedTurns[droppedTurns.length - 1]!}）`
               : '') +
-            '，保留最新事件待重试（保最新对话语义）——丢事件必留痕（ChainRecorder 同口径）',
+            '，已垫 chat_gap 断链标记随恢复后落库，保留最新事件待重试（保最新对话语义）——丢事件必留痕（ChainRecorder 同口径）',
         )
       }
       throw e

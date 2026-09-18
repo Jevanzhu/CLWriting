@@ -296,6 +296,20 @@ describe('R1010c-TL-P2-2: sharedRuntimeVersionDrift 双包共享运行时对账'
     expect(sharedRuntimeVersionDrift({}, {})).toEqual([])
     expect(sharedRuntimeVersionDrift({ 'node_modules/vue': {} }, { 'node_modules/vue': {} })).toEqual([])
   })
+
+  // 0918四轮修复批（G411）：漂移门默认清单扩 typescript——根 ^5.5.0 vs 子包 ^5.6.0
+  // 声明范围漂移此前无门（两把 lock 实装失配时 tsc 门与 vite 构建消费不同编译器副本）。
+  // 用默认清单跑（不传 pkgs）：typescript 不在清单时红例会返回 []，本用例即失败——
+  // 清单回退与漂移检出同钉。
+  it('G411: typescript 纳入默认对账——两 lock 同版绿 / 异版红（漂移消息含两侧版本）', () => {
+    const lockWith = (v: string) => ({ 'node_modules/typescript': { version: v } })
+    expect(sharedRuntimeVersionDrift(lockWith('5.9.3'), lockWith('5.9.3'))).toEqual([])
+    expect(sharedRuntimeVersionDrift(lockWith('5.5.4'), lockWith('5.6.3'))).toEqual([
+      'typescript: 根 5.5.4 ↔ web-next 5.6.3',
+    ])
+    // 射程不变：单侧缺失（如根不装 typescript 的形态）不报，与 vue-router 同口径
+    expect(sharedRuntimeVersionDrift({}, lockWith('5.6.3'))).toEqual([])
+  })
 })
 
 // ── R0911-G-P3-1（2026-09-11 全量重评 GLM-5.3 修复批）：win 腿单测数对账分支直测 ──

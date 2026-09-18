@@ -43,6 +43,23 @@ const here = dirname(fileURLToPath(import.meta.url)) // dist/desktop/
 // 经验值（原两处裸魔数收编单源），改小前先在慢机实测。
 const RELAUNCH_DELAY_MS = 100
 
+/** 0918四轮修复批（C405）：relaunch 延迟 timer 句柄单槽登记——原 open-library /
+ *  switch-library 两处裸排 `setTimeout(relaunch, …)` 不留句柄：不可清、不可 unref，
+ *  违本文件 timer 纪律（R46-19 闭包持引用滞留 / R54-A-5 卫生；对齐
+ *  contextMenuCancelTimers 声明处 R1010b-DSK-P3-6 的句柄登记口径）。单槽收口：
+ *  响应回程窗（RELAUNCH_DELAY_MS）内重复触发 = 前次响应已废，排新清旧不叠加；
+ *  触发后自清；unref 不拖退出。 */
+let relaunchDelayTimer: ReturnType<typeof setTimeout> | null = null
+function armRelaunchDelayTimer(): void {
+  if (relaunchDelayTimer) clearTimeout(relaunchDelayTimer)
+  const timer = setTimeout(() => {
+    relaunchDelayTimer = null
+    relaunch()
+  }, RELAUNCH_DELAY_MS)
+  timer.unref?.()
+  relaunchDelayTimer = timer
+}
+
 /** R50-A-2（五十轮）：context-menu 取消补发延迟——macOS NSMenu 先关菜单再派发
  *  action，click 可能晚于 popup 关闭回调不止一个宏任务拍（原 setTimeout(0) 的单拍
  *  竞窗里 null 取消常先到，渲染层 once 只认第一条 → 菜单动作被吞）。放宽到 100ms
@@ -124,7 +141,8 @@ export function registerIpc(): void {
     // R59 清偿批（R55-A-3）：改切库链专用包装——快照武装回滚基线（取消退出可回写）
     const saveErr = saveCurrentArmingRollback(picked)
     if (saveErr) return { ok: false as const, reason: saveErr }
-    setTimeout(relaunch, RELAUNCH_DELAY_MS) // 延迟重启，让响应先回渲染进程
+    // 0918四轮修复批（C405）：延迟重启改单槽句柄排程（C405 锚注见 armRelaunchDelayTimer）
+    armRelaunchDelayTimer()
     return { ok: true as const }
   })
   // 切换到最近列表中的书库
@@ -158,7 +176,8 @@ export function registerIpc(): void {
     // R59 清偿批（R55-A-3）：改切库链专用包装——快照武装回滚基线（取消退出可回写）
     const saveErr = saveCurrentArmingRollback(path)
     if (saveErr) return { ok: false as const, reason: saveErr }
-    setTimeout(relaunch, RELAUNCH_DELAY_MS)
+    // 0918四轮修复批（C405）：延迟重启改单槽句柄排程（原裸 setTimeout 违 timer 纪律）
+    armRelaunchDelayTimer()
     return { ok: true as const }
   })
   // R48-73（四十八轮）：recent 缓存首读过滤后运行期不复验（取舍备案见 workdir-controller

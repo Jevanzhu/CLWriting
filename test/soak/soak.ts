@@ -75,6 +75,19 @@ const ITER = numEnv('CLW_SOAK_ITER', 100_000)
 /** 增长上界：100k 次迭代给 24MB 余量（≈240B/次），远高于噪声、远低于典型线性泄漏。 */
 const BOUND_MB = numEnv('CLW_SOAK_BOUND_MB', 24)
 
+// ── 0918四轮修复批（G408）：--plan 旗标 ────────────────────────────────────────
+// 此前 CI 侧（ci.yml / desktop.yml）soak 断言各自硬编码「OK 行数 -eq 5」——段数真相源
+// 分裂三处（两把 yml + 本脚本实态），补段漏改任一 yml 即假绿/假红双风险。修法：本脚本
+// 出 --plan（打印 `plan: N` 即退出 0，不跑段、不要求 --expose-gc——故必须置于下方 gc
+// 门之前），CI 改两段式：先 --plan 提计划数，再真跑比对 OK 行数。PLAN_SEGMENTS 为段数
+// 唯一真相源，补段须同步改此值：漏改时真跑 OK 行数 ≠ 计划数，CI 断言红（fail-closed
+// 与旧硬编码同向，且改一处即全量生效）。
+const PLAN_SEGMENTS = 5
+if (process.argv.includes('--plan')) {
+  console.log(`plan: ${PLAN_SEGMENTS}`)
+  process.exit(0)
+}
+
 if (typeof gc !== 'function') {
   console.log('[soak] SKIP：未检测到 globalThis.gc（需以 node --expose-gc 运行）；跳过内存断言，不给假结果。')
   process.exit(0)

@@ -29,13 +29,19 @@ import { hasBackgroundTasks } from '../../../ai/orchestrate/background.js'
 import { isSpawnRunning } from './stream.js'
 import { heldTaskGatesFor, crossProcessHeldTaskGatesFor } from './task-gate.js'
 import { isReviewRunningForBook } from './review.js'
-import type { EventType, GoalSnapshot, SurfaceOp, Todo } from '../../../events/types.js'
+import type { ChatEvent, EventType, GoalSnapshot, SurfaceOp, Todo } from '../../../events/types.js'
+import { SURFACE_EVENT_TYPES } from '../../../events/types.js'
 import { errMsg } from '../../../log/index.js' // errMsg 收编（复审-0914-优化修复批）：错误文案三目单源
 
 interface AuditCtx {
   workDir: string | null
   userDataPath: string | null
 }
+
+/** B402（0918四轮修复批）：foldSurface 实际消费的事件类型集——surface 三类 + replace
+ *  载体 compaction/end（projection.ts foldSurface 对其余类型直落忽略）。流式读侧据此
+ *  截留折叠输入，其余类型不再物化持有。 */
+const FOLD_INPUT_TYPES: ReadonlySet<EventType> = new Set<EventType>([...SURFACE_EVENT_TYPES, 'compaction/end'])
 
 /** 审计事件（带投影遮蔽标记 + 血缘引用） */
 export interface AuditEvent {
@@ -90,11 +96,6 @@ interface AuditPaging {
 
 const DEFAULT_PAGE_LIMIT = 500
 
-function pageSlice<T>(arr: T[], paging: AuditPaging): T[] {
-  const { limit, offset } = paging
-  return arr.slice(offset, offset + limit)
-}
-
 /** 审计视图（对话 + 工作流 + goal/todo 当前态），纯函数——route 薄接线 + 单测直喂 store */
 export function buildAuditView(
   store: SessionStore,
@@ -102,26 +103,42 @@ export function buildAuditView(
   bookRoot: string,
   paging: AuditPaging = { limit: DEFAULT_PAGE_LIMIT, offset: 0 },
 ): { conversation: AuditConversation | null; workflowEvents: AuditEvent[]; workflowTotal: number; goals: GoalSnapshot[]; todos: Todo[] } {
+  // ── 0918四轮修复批（B402）：全量物化改流式 iterateEvents ──
+  // 原两次 store.listEvents 全量物化（含大载荷 llm/call 的 workflow 流逐行 JSON.parse
+  // 成对象数组后只取一页）。改单趟流式：只持有①页窗口内条目（≤ limit）与②折叠实需
+  // 的类型子集；响应形状逐字段不变（eventsTotal/workflowTotal 沿「可解析事件数」旧口径
+  // 随流计数——不用 countEvents：骨架计数含坏行，坏行库上会偏离原值，流式计数零成本
+  // 且逐位保真）。响应形状逐字段不变，既有 audit 测试全绿为验收面。
+  const offset = paging.offset ?? 0
+  const limit = paging.limit
+  const inPage = (index: number): boolean => index >= offset && index < offset + limit
   // 对话会话（book = bookName）：surface 投影 + 遮蔽差异
-  // PM-10（2026-09-05 性能专项）核查：审计视图全量语义必需——eventsTotal/shadowedCount/
-  // 首屏 modelVisible/humanVisible 全量对照（SV-2）都依赖完整事件流；出网侧已由 P3-13
-  // 分页切片收口，不走尾读
-  const convoEvents = store.listEvents(bookName)
+  // 全量折叠语义必需（shadowedCount/首屏 visible 双投影/逐事件 shadowed 标记都依赖完整
+  // 事件流重放，SV-2 口径不变）——流中只截留 foldSurface 实际消费的四类（SURFACE 三类 +
+  // replace 载体 compaction/end），其余类型（session/turn 边界、tool/call 大载荷等）过站
+  // 即弃不再持有。
+  let convoTotal = 0
+  const convoPage: ChatEvent[] = []
+  const convoFold: ChatEvent[] = []
+  for (const ev of store.iterateEvents(bookName)) {
+    if (inPage(convoTotal)) convoPage.push(ev)
+    if (FOLD_INPUT_TYPES.has(ev.type)) convoFold.push(ev)
+    convoTotal++
+  }
   let conversation: AuditConversation | null = null
-  if (convoEvents.length > 0) {
-    const nodes = foldSurface(convoEvents)
+  if (convoTotal > 0) {
+    const nodes = foldSurface(convoFold)
     // M1（二轮复审）：shadowed 查表一次建 Set——此前每事件线性扫全部 nodes（O(events×nodes)，
     // 长书几万事件一次请求数十亿次比较，同步阻塞事件循环）；节点 seq 唯一，语义严格等价
     const shadowedSeqs = new Set<number>()
     for (const n of nodes) if (n.shadowed) shadowedSeqs.add(n.seq)
     // P3-13：events 全量载荷按页截断（长书几万事件不再一次全量进 HTTP 响应）；total 供分页。
-    // 低级项（第六轮）：先切片再投影——原 map 全量造投影对象后丢弃大半，长书每请求白造几万对象。
     // SV-2（第七轮）：modelVisible/humanVisible 是「遮蔽差异」面板的全量对照数据（首屏需要
     // 完整列表），但「加载更多」的每页响应都在重发同一份全量投影（前端只追加 events、丢弃
     // conversation 字段）——后续页省略投影只带 events 切片，长书翻页不再全量出网。
-    const firstPage = (paging.offset ?? 0) === 0
+    const firstPage = offset === 0
     conversation = {
-      events: pageSlice(convoEvents, paging).map((e) => ({
+      events: convoPage.map((e) => ({
         seq: e.seq,
         sessionId: e.sessionId,
         type: e.type,
@@ -130,7 +147,7 @@ export function buildAuditView(
         ...(e.sourceSeqs ? { sourceSeqs: e.sourceSeqs } : {}),
         data: e.data,
       })),
-      eventsTotal: convoEvents.length,
+      eventsTotal: convoTotal,
       modelVisible: firstPage
         ? nodes
             .filter((n) => !n.shadowed)
@@ -143,11 +160,17 @@ export function buildAuditView(
     }
   }
 
-  // 写作工作流（book = bookHash）：step/llm-call 链路事件（同上：先切片再投影）
-  // PM-10（2026-09-05 性能专项）核查：workflowTotal（分页总数）需全部链路行，全量语义
-  // 必需；出网已按页切片，不走尾读
-  const wsEvents = store.listEvents(bookHash(bookRoot))
-  const workflowEvents: AuditEvent[] = pageSlice(wsEvents, paging).map((e) => ({
+  // 写作工作流（book = bookHash）：step/llm-call 链路事件（同上：只留页窗口条目；
+  // goal/todo 折叠实需类型子集另路截留，foldGoals/foldTodos 内部本就按类型过滤）
+  let wsTotal = 0
+  const wsPage: ChatEvent[] = []
+  const wsFold: ChatEvent[] = []
+  for (const ev of store.iterateEvents(bookHash(bookRoot))) {
+    if (inPage(wsTotal)) wsPage.push(ev)
+    if (ev.type === 'goal/change' || ev.type === 'todo/write') wsFold.push(ev)
+    wsTotal++
+  }
+  const workflowEvents: AuditEvent[] = wsPage.map((e) => ({
     seq: e.seq,
     sessionId: e.sessionId,
     type: e.type,
@@ -158,7 +181,7 @@ export function buildAuditView(
   }))
 
   // F5：goal/todo 当前态（goal/todo 事件随 self-heal 落工作流会话，重放即得）
-  return { conversation, workflowEvents, workflowTotal: wsEvents.length, goals: foldGoals(wsEvents), todos: foldTodos(wsEvents) }
+  return { conversation, workflowEvents, workflowTotal: wsTotal, goals: foldGoals(wsFold), todos: foldTodos(wsFold) }
 }
 
 /** 解析 limit：整型且 1..DEFAULT_PAGE_LIMIT（非法/0/负/超大 → 缺省 500）。

@@ -24,7 +24,7 @@ import process from 'node:process'
 import type http from 'node:http'
 import { parseServerArgs, bootServerFromArgs, describeBootError, deriveStaticDir, resolveEnvPort } from './server-boot.js'
 import { defaultUserDataPath } from '../fs/user-data-path.js'
-import { log } from '../log/index.js'
+import { errMsg, log } from '../log/index.js'
 
 /**
  * node 直跑形态胶水（独立导出以便测试；行为与解耦前逐字一致）。
@@ -72,9 +72,18 @@ export function installSignalFallback(server: ClosableServer): () => void {
   // server 入口此前无兜底，e2e 残留连接时进程挂在信号上杀不掉。2s 超时强制退出
   //（与 Electron 态 before-quit 的总超时同量级；幂等防双信号双触发）
   let exiting = false
-  const exitNow = (): void => {
+  // 0918四轮修复批（C403）：close 回调 err 分流——原 exitNow 恒 exit(0)，server.close(err)
+  //（close 途中连接/监听器异常等真实故障）被吞成成功退出，发布 smoke 对非零关闭零感知。
+  // 带 err → log 留痕 + exit(1)；无 err → exit(0) 原语义（2s 兜底 timer 经 setTimeout 零参
+  // 触发本函数，同落 exit(0) 档）。幂等（exiting）不变：close 先到与兜底到点只退一次。
+  const exitNow = (err?: Error | null): void => {
     if (exiting) return
     exiting = true
+    if (err) {
+      log.error('server-main', `server close 失败（以非零码退出）：${errMsg(err)}`, err)
+      process.exit(1)
+      return
+    }
     process.exit(0)
   }
   // R1010b-DSK-P3-7（2026-09-10 内存专项重审修复批）：兜底超时句柄单槽——原每个

@@ -8,6 +8,16 @@
  * x-studio-token 头（已有该头或 query token 的请求不动）。显式测 token 闸本身的用例
  * （api-token.test.ts）走 node:http 原生请求，不受本包装影响。
  */
+// R72-20（二十轮 G-6）：与服务端 GET token 豁免路径表（src/studio/server/index.ts
+// GET_TOKEN_EXEMPT_PATHS，唯一事实源）保持同步——stream 端点走自身 ticket/query
+// token 双凭据闸、不读本头，注入属无害空转；显式跳过后，未来「豁免路径上断言
+// 403」类用例不被包装器的注入行为误导排障。
+// 四轮-F402（2026-09-18 全量源码独立重评四轮修复批）：「保持同步」约定此前无机器门，
+// 现由 test/governance/studio-token-exempt-sync.test.ts 双向集合守卫——正本改路时本表
+// 必须随动（抄本同步纪律）。抄本不换 import 正本：本文件是 vitest setupFiles（挂全部
+// 测试 worker），直连 server/index 会把整个 studio server 模块图拉进每个 worker，不成
+// 比例。提升到模块层导出仅为守卫件可 import 比对，包装逻辑零行为变化。
+export const GET_TOKEN_EXEMPT: readonly RegExp[] = [/^\/api\/boot$/, /^\/api\/books\/[^/]+\/stream$/]
 ;(() => {
   const origFetch = globalThis.fetch.bind(globalThis)
   /** origin → token（空串 = boot 未返回 token，短路不再重复探） */
@@ -58,11 +68,7 @@
 
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const u = resolveUrl(input)
-    // R72-20（二十轮 G-6）：与服务端 GET token 豁免路径表（src/studio/server/index.ts
-    // GET_TOKEN_EXEMPT_PATHS，唯一事实源）保持同步——stream 端点走自身 ticket/query
-    // token 双凭据闸、不读本头，注入属无害空转；显式跳过后，未来「豁免路径上断言
-    // 403」类用例不被包装器的注入行为误导排障。
-    const GET_TOKEN_EXEMPT = [/^\/api\/boot$/, /^\/api\/books\/[^/]+\/stream$/]
+    // GET_TOKEN_EXEMPT 抄本已提升到模块层导出（上方锚注），此处直引
     const shouldInject =
       u !== null &&
       u.pathname.startsWith('/api/') &&

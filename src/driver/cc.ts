@@ -369,7 +369,8 @@ export const ccDriver: StudioDriver = {
   // owner 槽位（/interrupt 的全停语义需要），但 chat 腿 ctrl 以 `chat:<book>` owner 全程
   // 在册至 finish 注销，对话期间 sync 快照 running 被置真且永不复位（chat_done/chat_error
   // 走 chat 族不达 workbench）。本判定只排除 `chat:` 前缀槽位，其余 owner（spawn/
-  // self-heal/review:<书>/task-gate 的 action:<书>/bg-summary:<书>/缺省 ''）照旧算写手腿
+  // self-heal/self-heal:<书>（四轮-A402 起 chat 内嵌写章同款登记）/review:<书>/task-gate
+  // 的 action:<书>/bg-summary:<书>/缺省 ''）照旧算写手腿
   // （全仓 owner 字面量核查见本批报告）；aborted 与 session.closed 口径同 isRunning。
   isWriterRunning(session: Session): boolean {
     const byOwner = sessionCtrls.get(session.id)

@@ -373,22 +373,29 @@ async function locateLatestMergeEvent(
     return null
   }
   try {
+    // 0918四轮修复批（B404）：type 过滤下推 iterateEvents 第三参——原无过滤单趟走完整
+    // 书事件流（含全部 step/llm/call 大载荷逐行 JSON.parse，长书 workspace 会话数万行）。
+    // 改两趟 structure 族小流：先收全 merge-undo 的 planHash 撤销集，再在 merge 流里择
+    // 最近未被撤销者。undo 恒后于其撤销的 merge 落库（append-only），撤销集先行收集与
+    // 旧单趟「走到才记」在常规形态（每 merge 至多一 undo、undo 后于 merge、planHash 唯
+    // 一）逐位一致；差异仅在「merge→undo→同 planHash 重并」病态形态——旧单趟会把手为
+    // 已撤销者的 found 残留值（更早那次同 hash merge）误当可撤销，两趟补全撤销集后拒得
+    // 更干净（null 落回 body/disk 定位链），方向安全。
     const undone = new Set<string>()
+    for (const ev of store.iterateEvents(bookHash(bookRoot), undefined, 'structure.merge-undo')) {
+      const ph = (ev.data as Record<string, unknown>)['planHash']
+      if (typeof ph === 'string') undone.add(ph)
+    }
     let found: MergeUndoLocator | null = null
-    for (const ev of store.iterateEvents(bookHash(bookRoot), undefined, undefined)) {
-      if (ev.type === 'structure.merge-undo') {
-        const ph = (ev.data as Record<string, unknown>)['planHash']
-        if (typeof ph === 'string') undone.add(ph)
-      } else if (ev.type === 'structure.merge') {
-        const d = ev.data as unknown as StructureMergeData
-        if (d.targetDocId === targetDocId && !undone.has(d.planHash)) {
-          found = {
-            sourceDocId: d.sourceDocId,
-            sourceChapterNo: d.sourceChapterNo,
-            trashEntryId: d.trashEntryId,
-            ...(d.rollbackSnapshotId !== undefined ? { rollbackSnapshotId: d.rollbackSnapshotId } : {}),
-            planHash: d.planHash,
-          }
+    for (const ev of store.iterateEvents(bookHash(bookRoot), undefined, 'structure.merge')) {
+      const d = ev.data as unknown as StructureMergeData
+      if (d.targetDocId === targetDocId && !undone.has(d.planHash)) {
+        found = {
+          sourceDocId: d.sourceDocId,
+          sourceChapterNo: d.sourceChapterNo,
+          trashEntryId: d.trashEntryId,
+          ...(d.rollbackSnapshotId !== undefined ? { rollbackSnapshotId: d.rollbackSnapshotId } : {}),
+          planHash: d.planHash,
         }
       }
     }

@@ -25,6 +25,11 @@ export type EventType =
   | 'tool/result'
   | 'compaction/start'
   | 'compaction/end'
+  // 0918四轮修复批（B406）：SessionRecorder pending 溢出断链标记（对话会话承载）——
+  // 落库持续失败超限丢最旧事件时补入流的中断标记（data.dropped = 本次丢弃条数），
+  // 让「丢事件必留痕」从日志层落进事件流。非 surface（不进 SURFACE_EVENT_TYPES）、
+  // 无 surfaceOp：折叠/投影/校验链/前端种子化安全忽略（对齐边界类与 meta 类先例）
+  | 'chat_gap'
   // P2 五层链路事件化（F1 方案 §二 v1）
   | 'llm/call'
   | 'llm/retry'

@@ -472,7 +472,11 @@ function distribution<T extends { num: number }>(items: T[], valueOf: (item: T) 
       pieces: [...new Set(group.map((item) => item.num))],
     }))
     .filter((item) => item.value !== '未知')
-    .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value, 'zh-Hans'))
+    // 四轮-D405：并列 count 的次级排序 localeCompare → 码元序比较——分布值是自由文本
+    // 标签（中英混排），localeCompare 的排序规则随运行环境 ICU/locale 漂移，同 count
+    // 并列时相对序不稳定（先例：version.ts R0912-5 同款改法）；码元序使并列排序
+    // 稳定且与 locale 无关。
+    .sort((a, b) => b.count - a.count || (a.value < b.value ? -1 : a.value > b.value ? 1 : 0))
     .slice(0, 5)
 }
 

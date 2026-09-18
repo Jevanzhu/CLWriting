@@ -82,9 +82,16 @@ describe('R51-I-6: 切文档分支的组合期守卫', () => {
     contentEl(w).dispatchEvent(new Event('compositionend', { bubbles: true }))
     await new Promise((r) => setTimeout(r, 0))
     expect(docText(w)).toBe('新章内容') // 挂起的切文档生效
+    // 四轮-E402：挂起消费（applyDocSwitch）的程序化替换事务不再回发 emit——原断言
+    //「消费即回发 '新章内容'」在 E402 后移除：回发经父层 mergeFm 规范形往返，对非规范
+    // fm 文件零输入置脏（autosave 静默改写）
+    expect(w.emitted('update:modelValue')).toBeUndefined()
+    // 原断言意图保留：消费通道的抑制不粘滞，随后的真实输入照常 emit（emit 恢复常态）
+    view.dispatch({ changes: { from: view.state.doc.length, to: view.state.doc.length, insert: '续' } })
+    await new Promise((r) => setTimeout(r, 0))
     const emits = w.emitted('update:modelValue') ?? []
-    expect(emits.length).toBeGreaterThanOrEqual(1) // 消费后 emit 恢复常态
-    expect(emits[emits.length - 1]![0]).toBe('新章内容')
+    expect(emits.length).toBe(1)
+    expect(emits[0]![0]).toBe('新章内容续')
     w.unmount()
   })
 

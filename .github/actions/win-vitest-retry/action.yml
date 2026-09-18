@@ -1,0 +1,29 @@
+# 0918四轮修复批（G402）：win 腿 vitest「收尾竞态重跑一次」兜底抽成本地 composite action——
+# 此前 ci.yml 与 desktop.yml 各持一段逐行复制的 pwsh 步（R0911-G-P1-1d 与 R0912-G2-P3-5
+# 双份漂移隐患），单源收编后两工作流改 uses 本 action。
+# 语义（与改前逐字一致，成因/副作用记档见 ci.yml「测试（win 腿…）」步注释）：
+# 首跑绿 = 零额外成本；首跑红 → 同命令重跑一次——重跑绿 = vitest×tinypool forks 池
+# teardown ERR_IPC_CHANNEL_CLOSED 收尾竞态洗白（win 用例本身全绿的既证形态）；
+# 重跑仍红 = exit 1 步红，真失败不吞只延后一轮。上游根治后（vitest/tinypool 升级）
+# 本兜底两处接线一并可撤。
+name: 'win 腿 vitest 收尾竞态重跑一次兜底'
+description: 'win 腿 npm test 首跑非零退出时同命令重跑一次，区分 tinypool 收尾竞态与真失败（R0911-G-P1-1d）'
+inputs:
+  # 两工作流保留各自既有批次号文案（ci.yml=R0911-G-P1-1d / desktop.yml=R0912-G2-P3-5），
+  # 日志与告警文案逐字不漂移；仅重跑兜底逻辑单源化，告警标识随调用方传参。
+  warning-title:
+    description: '重跑告警 ::warning title= 的批次号标识（各工作流保留既有文案）'
+    required: false
+    default: 'R0911-G-P1-1d'
+runs:
+  using: 'composite'
+  steps:
+    - shell: pwsh
+      run: |
+        npm test
+        if ($LASTEXITCODE -ne 0) {
+          Write-Host "::warning title=${{ inputs.warning-title }}::win 腿测试首跑非零退出（tinypool teardown ERR_IPC_CHANNEL_CLOSED 收尾竞态嫌疑）——同命令重跑一次区分收尾竞态与真失败"
+          npm test
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+        }
+        exit 0

@@ -15,8 +15,11 @@
   ],
   "scripts": {
     "build": "tsup",
+    "prebuild:web": "node -e \"if(!require('fs').existsSync('src/studio/web-next/node_modules')){console.error('[prebuild:web] 缺 src/studio/web-next/node_modules——前端子包依赖未装（根目录 npm install 不会带下来），先运行 npm run setup 一键装齐双包依赖再重试');process.exit(1)}\"",
     "build:web": "npm --prefix src/studio/web-next run build",
+    "prebuild:all": "node -e \"if(!require('fs').existsSync('src/studio/web-next/node_modules')){console.error('[prebuild:all] 缺 src/studio/web-next/node_modules——前端子包依赖未装（根目录 npm install 不会带下来），先运行 npm run setup 一键装齐双包依赖再重试');process.exit(1)}\"",
     "build:all": "tsup && npm --prefix src/studio/web-next run build",
+    "setup": "npm install && npm --prefix src/studio/web-next install",
     "prepack": "npm run build:all",
     "dev": "tsup --watch src",
     "dev:api": "npx tsx scripts/dev-api.ts",

@@ -83,7 +83,13 @@ export function buildChatHistoryView(
   let tail = Math.min(Math.max(limit * 4, 32), totalEvents)
   for (;;) {
     const events = store.listEventsTail(bookName, tail)
-    const covered = tail >= totalEvents || events.length < tail
+    // B403（0918四轮修复批）：触底判定只看 `tail >= totalEvents`——listEventsTail 的
+    // SQL LIMIT 消费的是原始行（坏行也占窗口名额，解析时才被 safeRowToEvent 丢弃），
+    // totalEvents ≥ tail 时窗口必达表头。原 `events.length < tail` 副判据在窗内含坏行
+    // 时恒真，把「窗口内坏行」误判成「已触底」→ 跳过翻倍前扩直接按尾窗截断（更早的
+    // 旧史被无声隐藏，truncated 还误报 false）。解析丢弃不影响终止性：covered=false 时
+    // 下方 tail=min(tail×2, totalEvents) 严格递增，必达 totalEvents。
+    const covered = tail >= totalEvents
     const active = branchId ?? defaultBranchId(buildBranchTree(events))
     const { msgs, seqsPerMsg } = loadHistoryWithSeqs(selectBranch(events, branchId))
     if (covered) {

@@ -95,8 +95,10 @@ export interface SessionStore {
   /** 最早携带分支元数据（data 含 branchId/parentSeq 键）的事件 seq（无 → null）——
    *  尾窗安全边界：窗口起点 ≤ 本值 ⟺ 窗口内投影与全量投影逐位等价（顶替槽重建与
    *  默认分支判定所需的全部键载体都在窗内；parentSeq 指向窗外线性锚不受影响——
-   *  槽区间按 seq 值判定，锚不必在窗内）。SQL LIKE 键匹配：正文巧含关键字的误报
-   *  只令窗口多取，不损正确性（漏报不可能——键恒带引号序列化）。 */
+   *  槽区间按 seq 值判定，锚不必在窗内）。0918四轮修复批（B401）：键匹配由 LIKE 全表
+   *  扫改走 has_branch_meta 生成列 + 部分索引 idx_events_branch_meta（见首开 DDL 注）：
+   *  instr 与 LIKE 对实际数据逐位等价——键恒由 JSON.stringify 带引号精确大小写序列化
+   *  （漏报不可能），正文巧含关键字的误报两形态同样命中，只令窗口多取不损正确性。 */
   firstBranchMetaSeq(book: string): number | null
   /** P2：每书一个 workspace 会话（ws- 前缀）承载非对话链路事件（step/llm/retry/check）；惰性创建复用 */
   workspaceSession(book: string): string
@@ -478,6 +480,28 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
         )`
       );
       db.exec('CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id, seq)')
+      // ── 0918四轮修复批（B401）：分支元数据检索列 + 部分索引 ──
+      // firstBranchMetaSeq 原 `data LIKE '%"branchId"%' OR LIKE '%"parentSeq"%'` 谓词无
+      // 可用索引，chat-history 真尾窗每次请求全表扫描（node:sqlite 同步 API 直接停在
+      // 事件循环上，翻倍前扩循环里最坏反复全扫）。改 VIRTUAL 生成列（instr 确定性函数，
+      // 读时零存储按行求值）+ 部分索引（只收录携带分支元数据的行，体量 = 分支事件数级，
+      // 与全表行数解耦）。存量库惰性迁移：PRAGMA table_info 判列后 ALTER 补列（幂等，
+      // 首开一次 ALTER O(1) 元操作 + 建索引一次全行扫描），新库建表（上方，无此列）同样
+      // 走到本处补齐——单点单路径防新旧两态 schema 漂移。ALTER 生成列须 SQLite ≥3.31
+      // （node:sqlite 内建版远高于此，见分支 meta 索引回归用例的实证断言）；若未来
+      // node:sqlite 拒绝 ALTER 加生成列，回退方案 = 独立 branch_meta 影子表（本批未采）。
+      {
+        // 判列必须走 table_xinfo——生成列是 hidden 列（hidden=2），table_info 不列出
+        //（误判缺列会让每次重开库都重跑 ALTER 撞 duplicate column）
+        const cols = db.prepare('PRAGMA table_xinfo(events)').all() as Array<{ name: string }>
+        if (!cols.some((c) => c.name === 'has_branch_meta')) {
+          db.exec(
+            `ALTER TABLE events ADD COLUMN has_branch_meta INTEGER GENERATED ALWAYS AS
+             (instr(data, '"branchId"') > 0 OR instr(data, '"parentSeq"') > 0) VIRTUAL`,
+          )
+        }
+      }
+      db.exec('CREATE INDEX IF NOT EXISTS idx_events_branch_meta ON events(session_id, seq) WHERE has_branch_meta = 1')
       db.exec(
         `CREATE TABLE IF NOT EXISTS sessions (
           session_id TEXT PRIMARY KEY,
@@ -740,14 +764,16 @@ function firstOpenStore(bookRoot: string, dir: string, dbPath: string): SessionS
       return row.n
     },
     firstBranchMetaSeq(book: string): number | null {
-      // LIKE 键匹配（键恒带引号序列化，无漏报）；正文巧含关键字的误报只令窗口多取
+      // 0918四轮修复批（B401）：`data LIKE … OR LIKE …` 谓词改走 has_branch_meta 生成列
+      // ——EXPLAIN QUERY PLAN 实证 SEARCH events USING INDEX idx_events_branch_meta
+      // （部分索引只含分支元数据行，不再全表扫；契约不变：min seq 或 null，误报方向安全）。
       // 0918独立重评修复批（C002）：裸 db.prepare 收编 prepared() 连接级缓存（SQL 文本
       // 固定；R0911b-E-P3-1 同款，latestSession 先例）
       const row = prepared(
         db,
         `SELECT MIN(seq) AS s FROM events
          WHERE session_id IN (SELECT session_id FROM sessions WHERE book = ?)
-           AND (data LIKE '%"branchId"%' OR data LIKE '%"parentSeq"%')`,
+           AND has_branch_meta = 1`,
       ).get(book) as { s: number | null }
       return row.s ?? null
     },

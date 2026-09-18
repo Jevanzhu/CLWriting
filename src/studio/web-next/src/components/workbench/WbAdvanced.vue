@@ -50,7 +50,9 @@ function evLabel(ev: { type: string; [k: string]: unknown }): string {
     case 'self_heal_progress':
       return `第 ${ev.attempt}/${ev.maxAttempts} 次重写，剩余 ${(ev.remaining as string[] | undefined)?.length ?? 0} 条待修`
     case 'self_heal_result': {
-      const m: Record<string, string> = { pass: '通过', escalate: '需人工确认', aborted: '已中断' }
+      // 四轮-E403：补 failed 分支——outcome 白名单（sse-guards isHealResultEvent）含
+      // failed，标签表漏配时落英文原文
+      const m: Record<string, string> = { pass: '通过', escalate: '需人工确认', aborted: '已中断', failed: '失败' }
       return `自检结果：${m[ev.outcome as string] ?? ev.outcome}`
     }
     case 'done':

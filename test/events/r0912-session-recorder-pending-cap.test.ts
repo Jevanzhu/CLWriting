@@ -63,9 +63,11 @@ describe('R0912-2: SessionRecorder.flush 失败路径 pending 有界', () => {
     }
     const inner = rec as unknown as { pending: NewEvent[] }
     expect(inner.pending.length).toBe(301)
-    // 第一次 flush 失败：pending 保留待重试（R62-10 语义不变）但封顶 256（丢最旧 45）
+    // 第一次 flush 失败：pending 保留待重试（R62-10 语义不变）但封顶 256（丢最旧 45）。
+    // B406（0918四轮修复批）：丢弃时批首垫一条 chat_gap 断链标记（随恢复后落库）——
+    // 封顶口径不变（真实事件保留 256 条），标记在其之外 +1 元素
     expect(() => rec.flush()).toThrow('模拟 SQLITE_BUSY')
-    expect(inner.pending.length).toBe(256)
+    expect(inner.pending.length).toBe(257)
     const dropWarns = warn.mock.calls
       .map((c) => String(c[1]))
       .filter((m) => m.includes('SessionRecorder') && m.includes('丢弃最旧'))
@@ -73,20 +75,21 @@ describe('R0912-2: SessionRecorder.flush 失败路径 pending 有界', () => {
     expect(dropWarns[0]).toContain('45') // 丢弃条数（301 - 256）
     expect(dropWarns[0]).toContain('turn 0–4') // 涉及回合（u0–u43 → turn 0–4；session/start 无 turn 不计）
     expect(inner.pending.at(-1)!.data['message']).toBe('u299') // 最新事件仍在（保最新对话语义）
-    // 继续累积 + 第二次失败：仍封顶（不随失败次数无界增长）
+    // 继续累积 + 第二次失败：仍封顶（不随失败次数无界增长；上一轮标记被一并丢出，
+    // 由新标记接替——库中至多 pend 一条未落库标记）
     for (let i = 300; i < 330; i++) {
       rec.add({ ...userMessageEvent(`u${i}`), turn: Math.floor(i / 10) })
     }
-    expect(inner.pending.length).toBe(286)
+    expect(inner.pending.length).toBe(287)
     expect(() => rec.flush()).toThrow('模拟 SQLITE_BUSY')
-    expect(inner.pending.length).toBe(256)
+    expect(inner.pending.length).toBe(257)
     expect(inner.pending.at(-1)!.data['message']).toBe('u329')
     // 恢复：故障解除 → 新事件照常入批，整批一次落库
     fail.n = 0
     rec.add(userMessageEvent('恢复后的新事件'))
     const range = rec.flush()!
-    expect(range.seqs).toHaveLength(257)
-    expect(rec.allSessionSeqs()).toHaveLength(257) // pendingSurfaceIdx 平移后无错位（surface 全量拿到真实 seq）
+    expect(range.seqs).toHaveLength(258)
+    expect(rec.allSessionSeqs()).toHaveLength(258) // pendingSurfaceIdx 平移后无错位（surface 全量拿到真实 seq）
     const evs = store.listEvents('书A')
     expect(evs.some((e) => e.data['message'] === 'u0')).toBe(false) // 被丢最旧不落库
     expect(evs.some((e) => e.data['message'] === 'u299')).toBe(true) // 保留的最新事件落库
@@ -105,17 +108,18 @@ describe('R0912-2: SessionRecorder.flush 失败路径 pending 有界', () => {
     rec.add({ type: 'settings/snapshot', data: { scope: 'settings', digest: 'd' } }) // idx 260
     rec.add(userMessageEvent('u')) // idx 261
     rec.add(assistantMessageEvent('a', undefined, undefined, [260, 261])) // idx 262：血缘引用快照+user
-    // 263 条 > 256：失败 flush 丢最旧 7 → 快照/user/assistant 平移为批内 253/254/255
+    // 263 条 > 256：失败 flush 丢最旧 7 → 快照/user/assistant 平移为批内 254/255/256
+    //（B406：批首垫 chat_gap 标记，幸存事件序号再 +1）
     expect(() => rec.flush()).toThrow('模拟 SQLITE_BUSY')
     const inner = rec as unknown as { pending: NewEvent[] }
-    expect(inner.pending.length).toBe(256)
-    expect(inner.pending.at(-1)!.sourceIdxs).toEqual([253, 254]) // 血缘引用随丢弃平移——原 [260,261] 越界必炸恢复 flush
+    expect(inner.pending.length).toBe(257)
+    expect(inner.pending.at(-1)!.sourceIdxs).toEqual([254, 255]) // 血缘引用随丢弃平移+标记让位——原 [260,261] 越界必炸恢复 flush
     // 恢复：真库批内索引校验 + 血缘回写全通过
     fail.n = 0
     const range = rec.flush()!
     const evs = store.listEvents('书A')
     const asstRow = evs.find((e) => e.type === 'assistant/message')!
-    expect(asstRow.seq).toBe(range.seqs[255]!) // assistant 平移后落在批尾
+    expect(asstRow.seq).toBe(range.seqs[256]!) // assistant 平移后落在批尾
     expect(asstRow.sourceSeqs).toEqual([
       evs.find((e) => e.type === 'settings/snapshot')!.seq,
       evs.find((e) => e.type === 'user/message')!.seq,

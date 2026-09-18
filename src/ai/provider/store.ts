@@ -75,8 +75,53 @@ function readDiskRevisionLocked(fp: string): number | null {
 /**
  * mtime 缓存——避免每次 AI 生成重复 readFileSync + AES-256-GCM 解密。
  * saveProviders 写后失效；外部改动经 mtime 检测自动失效。
+ *
+ * 四轮-A404（2026-09-18 全量源码独立重评四轮修复批）：单槽 `_cache` 改小 LRU——原单槽
+ * （path 不匹配即弃用）在双书库（双 userDataPath）交错生成时反复互相击穿，每次
+ * loadProviders 都重付全量 readFileSync + AES 解密。键 = join 后绝对路径，值含 mtime
+ * 做命中校验（mtime 不同即 miss 的既有语义逐位保持；A105 登记的同毫秒粒度窗原样保留）。
+ * 容量 8 对齐 registry.ts CACHE_CAPACITY 先例。写侧/恢复侧/文件缺失三个失效点由
+ * `_cache = null` 全量清除改按键清除：单文件操作不涉他路径条目（他路径命中仍受 mtime
+ * 校验兜底，内容语义零变化），全量清除正是多库交错场景的击穿源。
  */
-let _cache: { path: string; store: ProviderStore; mtime: number } | null = null
+
+/** LRU 上限（registry.ts CACHE_CAPACITY=8 同量级——同进程同时活跃的书库很少） */
+const CACHE_CAPACITY = 8
+
+const _cache = new Map<string, { store: ProviderStore; mtime: number }>()
+
+/** 读时提升（Map 迭代序 = 插入序，get 后重插即 LRU；registry.ts cacheGet 同构） */
+function cacheGet(fp: string): { store: ProviderStore; mtime: number } | undefined {
+  const hit = _cache.get(fp)
+  if (hit) {
+    _cache.delete(fp)
+    _cache.set(fp, hit)
+  }
+  return hit
+}
+
+function cachePut(fp: string, store: ProviderStore, mtime: number): void {
+  _cache.delete(fp)
+  _cache.set(fp, { store, mtime })
+  while (_cache.size > CACHE_CAPACITY) {
+    const oldest = _cache.keys().next().value as string
+    _cache.delete(oldest)
+  }
+}
+
+/** 按键失效（写后/备份恢复后/文件缺失——四轮-A404 起不再全表清除，见上注） */
+function cacheDelete(fp: string): void {
+  _cache.delete(fp)
+}
+
+/** 测试辅助（registry.ts clearProviderCache/providerCacheSize 先例；生产零调用）：
+ *  清空 mtime LRU，防跨用例残留；占用量供 LRU 容量/逐出断言。 */
+export function __clearProvidersCacheForTest(): void {
+  _cache.clear()
+}
+export function __providersCacheSizeForTest(): number {
+  return _cache.size
+}
 
 /** 深拷贝 store——structuredClone 将 Buffer 降级为 Uint8Array，dek 须恢复（P2-AI-1） */
 function cloneStore(store: ProviderStore): ProviderStore {
@@ -158,7 +203,7 @@ function tryRestoreFromBak(fp: string, bakFp: string): string | null {
   try {
     rmQuietly(fp)
     atomicWriteFile(fp, readFileSync(bakFp), { mode: 0o600 })
-    _cache = null // 恢复后强制重读
+    cacheDelete(fp) // 恢复后强制重读（四轮-A404：按键失效，原 _cache = null）
     return null
   } catch (e) {
     return errMsg(e)
@@ -207,7 +252,7 @@ export function loadProviders(userDataPath: string): ProviderStore {
   // 通用-2（复审-0913-mac适配）：路径拼接统一 join()（posix 下与手拼 '/' 逐字节等价）
   const fp = join(userDataPath, FILE)
   if (!existsSync(fp)) {
-    _cache = null
+    cacheDelete(fp) // 四轮-A404：按键失效（原 _cache = null）
     return emptySettings()
   }
 
@@ -219,9 +264,12 @@ export function loadProviders(userDataPath: string): ProviderStore {
   // 写侧已有 D002 锁内 revision 复验兜底，读侧单次陈旧下次重读自愈，不另修）。
   try {
     const mtime = statSync(fp).mtimeMs
-    if (_cache && _cache.path === fp && _cache.mtime === mtime) return cloneStore(_cache.store)
+    // 四轮-A404：键 = fp（path 等价性由键查找承载，原 `_cache.path === fp` 判定收编）；
+    // mtime 不同即 miss 的语义逐位保持
+    const hit = cacheGet(fp)
+    if (hit && hit.mtime === mtime) return cloneStore(hit.store)
   } catch {
-    _cache = null
+    cacheDelete(fp)
   }
 
   let raw: DiskFormat
@@ -326,9 +374,9 @@ export function loadProviders(userDataPath: string): ProviderStore {
     }
   }
 
-  // 更新 mtime 缓存
+  // 更新 mtime 缓存（四轮-A404：cachePut 入 LRU，原 `_cache = { path, store, mtime }`）
   try {
-    _cache = { path: fp, store, mtime: statSync(fp).mtimeMs }
+    cachePut(fp, store, statSync(fp).mtimeMs)
   } catch { /* 迁移写后 stat 失败忽略，下次 loadProviders 自然 miss */ }
 
   // P2-AI-3：缓存未命中也返回 clone（与缓存命中路径 structuredClone 一致）——
@@ -548,8 +596,9 @@ function saveProvidersLocked(userDataPath: string, store: ProviderStore): void {
   // 后者存在 umask 窗口（默认 0644 短暂全局可读），与 CC-P2-3（src/ai/calls.ts 记账文件）同款修法。
   atomicWriteFile(fp, json, { fsync: true, mode: 0o600 })
 
-  // 写后失效缓存（下次 loadProviders 自动重读 + 更新缓存）
-  _cache = null
+  // 写后失效缓存（下次 loadProviders 自动重读 + 更新缓存；四轮-A404：按键失效，
+  // 原 `_cache = null`——本次写只落本路径文件，不再全表清除击穿他库缓存）
+  cacheDelete(fp)
 }
 
 /**

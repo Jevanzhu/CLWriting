@@ -50,9 +50,12 @@ jobs:
           - os: windows-latest
             node: 26
     steps:
-      - uses: actions/checkout@v4
+      # G406（0918四轮修复批）：第三方 action 全量改 commit SHA 钉版（尾注 # v4 保留主版本
+      # 可读性）——浮动 major tag 指向可被上游移动，门逻辑可被静默换血（供应链面）；SHA
+      # 为 2026-09-18 各 repo releases/tags/v4 实取，git ref 与 commit 端点双源核验。
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ matrix.node }}
           # dd-P3（E-P3-2）：npm 缓存——两条 lockfile 都入键，web-next 单独升级依赖也能正确失效
@@ -66,6 +69,16 @@ jobs:
 
       - name: 装前端依赖（web-next node_modules）
         run: npm --prefix src/studio/web-next ci
+
+      # G401（0918四轮修复批）：CI 无依赖漏洞扫描门——根包与 web-next 子包各扫一次
+      # （--audit-level=high 只拦高危以上，low/moderate 噪声不进门）。首期 continue-on-error
+      # 非阻塞起步：存量告警基线未知，先观察门输出（基线观察期），连续绿后翻 blocker。
+      - name: 依赖漏洞扫描（npm audit ≥high，根包）
+        continue-on-error: true # 非阻塞起步：基线观察期，连续绿后翻 blocker（四轮-G401）
+        run: npm audit --audit-level=high
+      - name: 依赖漏洞扫描（npm audit ≥high，web-next 子包）
+        continue-on-error: true # 非阻塞起步：基线观察期，连续绿后翻 blocker（四轮-G401）
+        run: npm --prefix src/studio/web-next audit --audit-level=high
 
       - name: 类型检查（tsc --noEmit 零错）
         run: npm run typecheck
@@ -125,15 +138,12 @@ jobs:
       # 待上游根治后（vitest/tinypool 升级，见台账登记项）本兜底可撤。
       - name: 测试（win 腿，R0911-G-P1-1d 收尾竞态重跑一次兜底）
         if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          npm test
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "::warning title=R0911-G-P1-1d::win 腿测试首跑非零退出（tinypool teardown ERR_IPC_CHANNEL_CLOSED 收尾竞态嫌疑）——同命令重跑一次区分收尾竞态与真失败"
-            npm test
-            if ($LASTEXITCODE -ne 0) { exit 1 }
-          }
-          exit 0
+        # G402（0918四轮修复批）：pwsh 重跑逻辑抽本地 composite action（.github/actions/
+        # win-vitest-retry）——与 desktop.yml 同款兜底此前逐行双份复制、漂移隐患；语义与
+        # 日志文案逐字保持（批次号经 warning-title 传参），重跑兜底语义不变。
+        uses: ./.github/actions/win-vitest-retry
+        with:
+          warning-title: R0911-G-P1-1d
       - name: 测试 + 覆盖率阈值门（ubuntu·24 腿）
         run: npm run test:coverage
         if: matrix.os == 'ubuntu-latest' && matrix.node == 24
@@ -146,7 +156,7 @@ jobs:
       #（用例红形态下 coverage/ 目录也要产出，见 R44-4 注记）。
       - name: 上传覆盖率报告（ubuntu·24 腿）
         if: ${{ always() && matrix.os == 'ubuntu-latest' && matrix.node == 24 }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: coverage-report
           path: coverage/
@@ -177,9 +187,9 @@ jobs:
     # 真壳）与 soak 步，release-smoke 的 build:all 之上再叠 ~1-2 分钟，取 25 留余量。
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: npm
@@ -202,13 +212,20 @@ jobs:
       # 任意锁文件改动都会换键致 ~130MB 整包重下，与 playwright 是否升级无关；前缀兜底
       # 换版时恢复旧缓存只补差量浏览器）。键含 github.workflow 体现本工作流身份，
       # 与 desktop.yml（Desktop Build）缓存互不串用。
+      # G407（0918四轮修复批）：键内版本改从根 lock 动态提取进 step output（下方 pwver
+      # 步）——「写死 1.61.1 对照 ^1.61.1、升版须同步改」的双真相源缺陷就此销账；键式
+      # 改 pw-<ver>-<os>-<workflow>（workflow 身份保留），web-next 子包 lock 无
+      # @playwright/test，playwright 由根 lock 统一管理（实态已核）。
+      - name: 取 playwright 版本（根 lock 单一真相源）
+        id: pwver
+        run: echo "v=$(node -e "console.log(require('./package-lock.json').packages['node_modules/@playwright/test'].version)")" >> "$GITHUB_OUTPUT"
       - name: 缓存 playwright chromium
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ github.workflow }}-1.61.1
+          key: pw-${{ steps.pwver.outputs.v }}-${{ runner.os }}-${{ github.workflow }}
           restore-keys: |
-            playwright-${{ runner.os }}-${{ github.workflow }}-
+            pw-${{ runner.os }}-${{ github.workflow }}-
       - name: 装 playwright chromium
         run: npx playwright install --with-deps chromium
 
@@ -284,16 +301,21 @@ jobs:
       # 失败仍步绿（假绿洞）；且步未设 shell，默认 bash -e 无 pipefail，soak 非零退出
       # 被 tee 吞。修法 = 显式 shell: bash（GH Actions 即 -eo pipefail，teed 退出码
       # 不再被吞）+ OK 行数恰等于段数断言（补段须同步改此断言，fail-closed）。
+      # G408（0918四轮修复批）：段数不再本文件硬编码——改两段式，先 soak.ts --plan
+      # 提计划数（单一真相源，与 desktop.yml soak 门同源），再真跑比对 OK 行数；
+      # 补段只改 soak.ts PLAN_SEGMENTS 一处，两把 yml 免同步（断言 fail-closed 不变）。
       - name: 有界内存/soak 门（--expose-gc）
         shell: bash
         run: |
+          SOAK_N=$(node --import tsx test/soak/soak.ts --plan | sed -n 's/^plan: \([0-9]\{1,\}\)$/\1/p')
+          [ -n "$SOAK_N" ] || { echo "::error::soak --plan 未输出计划数（应含 plan: N 行）——计数提取失败，按 fail-closed 处理"; exit 1; }
           npm run soak | tee /tmp/soak-output.log
           OK_N=$(grep -c '\[soak\] OK' /tmp/soak-output.log || true)
-          [ "$OK_N" -eq 5 ] || { echo "::error::soak 门 OK 行数=${OK_N}（应为 5 = 段1 有界往返 + 段2 RAG 召回 + 段3 清单重写 + 段4 事件库长会话 + 段5 service save 链〔R0915-4a 补段〕；段失败/SKIP/退出码非零均不得步绿；补段须同步改此断言）——内存门假绿拦截"; exit 1; }
+          [ "$OK_N" -eq "$SOAK_N" ] || { echo "::error::soak 门 OK 行数=${OK_N} ≠ 计划段数=${SOAK_N}（应为 5 = 段1 有界往返 + 段2 RAG 召回 + 段3 清单重写 + 段4 事件库长会话 + 段5 service save 链〔R0915-4a 补段〕；段失败/SKIP/退出码非零均不得步绿；计数源 = soak.ts --plan，补段只改 soak.ts PLAN_SEGMENTS）——内存门假绿拦截"; exit 1; }
 
       - name: 上传 trace（失败时）
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: playwright-trace
           path: test-results/
