@@ -158,7 +158,7 @@ jobs:
         run: echo "v=$(node -e "console.log(require('./package-lock.json').packages['node_modules/@playwright/test'].version)")" >> "$GITHUB_OUTPUT"
       - name: 缓存 playwright chromium
         if: runner.os == 'macOS'
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/Library/Caches/ms-playwright
           key: pw-${{ steps.pwver.outputs.v }}-${{ runner.os }}-${{ github.workflow }}
@@ -170,7 +170,7 @@ jobs:
       # 键含 runner.os 与 mac 腿互不串用）。
       - name: 缓存 playwright chromium（win 腿）
         if: runner.os == 'Windows'
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~\AppData\Local\ms-playwright
           key: pw-${{ steps.pwver.outputs.v }}-${{ runner.os }}-${{ github.workflow }}
