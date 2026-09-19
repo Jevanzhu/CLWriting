@@ -21,6 +21,11 @@
 import { reactive, watch } from 'vue'
 import { ChevronRight, ChevronDown, EyeOff, GitBranch, MoreHorizontal } from 'lucide-vue-next'
 import type { AuditEventFE } from '../../api/audit'
+// 七轮重评-5（2026-09-19 源码独立重评七轮修复批）：摘要截断改码位（clipByCodePoints
+// shared 单源，stores/chat.ts codePointLength 同源先例）——码元 slice 劈代理对尾字符乱码
+// H503（七轮修复复核批）：JSON 详情的截断/阈值/计数三处统一码位口径——此前只换 clip
+// 一处，触发阈值与「已截断」计数仍按码元，4097 码元/4096 码位形态一字未删却宣称已截断
+import { clipByCodePoints, codePointLength } from '../../../../../shared/text'
 
 const props = defineProps<{
   /** 累积事件（跨页追加，父按 seq 去重） */
@@ -60,14 +65,14 @@ function typeLabel(t: string): string {
 /** data 摘要（取几个常见字段，避免大对象撑爆列表） */
 function dataSummary(e: AuditEventFE): string {
   const d = e.data
-  if (typeof d['message'] === 'string') return String(d['message']).slice(0, 60)
+  if (typeof d['message'] === 'string') return clipByCodePoints(String(d['message']), 60)
   if (typeof d['task'] === 'string') return String(d['task'])
   if (typeof d['callId'] === 'string') return String(d['callId'])
   if (typeof d['chapter'] === 'number') return 'chapter ' + String(d['chapter'])
   // F5：goal/change（动词 + 标题 + 状态）+ todo/write（完成数/总数）
   if (typeof d['operation'] === 'string' && d['goal'] && typeof d['goal'] === 'object') {
     const g = d['goal'] as { title?: unknown; state?: unknown }
-    return [d['operation'], typeof g.title === 'string' ? g.title : '', typeof g.state === 'string' ? '[' + g.state + ']' : ''].join(' ').trim().slice(0, 60)
+    return clipByCodePoints([d['operation'], typeof g.title === 'string' ? g.title : '', typeof g.state === 'string' ? '[' + g.state + ']' : ''].join(' ').trim(), 60)
   }
   if (Array.isArray(d['todos'])) {
     const ts = d['todos'] as { state?: unknown }[]
@@ -113,12 +118,18 @@ function eventDetailJson(e: AuditEventFE): string {
 /** 展开态渲染文本：超长且未放行全量时只出截断摘要（DOM 面恒有界）。 */
 function detailText(e: AuditEventFE): string {
   const s = eventDetailJson(e)
-  if (showFullJson.has(e.data) || s.length <= JSON_DETAIL_LIMIT) return s
-  return s.slice(0, JSON_DETAIL_LIMIT) + `\n…（已截断，完整 JSON 共 ${s.length} 字符）`
+  if (showFullJson.has(e.data) || withinDetailLimit(s)) return s
+  return clipByCodePoints(s, JSON_DETAIL_LIMIT) + `\n…（已截断，完整 JSON 共 ${codePointLength(s)} 字符）`
 }
 
 function detailTruncated(e: AuditEventFE): boolean {
-  return !showFullJson.has(e.data) && eventDetailJson(e).length > JSON_DETAIL_LIMIT
+  return !showFullJson.has(e.data) && !withinDetailLimit(eventDetailJson(e))
+}
+
+/** H503：码位口径上限判定——码元 length ≤ 上限是码位 ≤ 上限的充分条件，BMP 常规
+ *  负载走 O(1) 快路径；仅码元超限（可能靠 astral 压回码位内）才付一次全量码点计数。 */
+function withinDetailLimit(s: string): boolean {
+  return s.length <= JSON_DETAIL_LIMIT || codePointLength(s) <= JSON_DETAIL_LIMIT
 }
 </script>
 

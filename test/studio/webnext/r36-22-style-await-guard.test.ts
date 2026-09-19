@@ -154,6 +154,35 @@ describe('R36-22：StyleEntryPanel await 后书名复检', () => {
     expect(ui.toasts.some((t) => t.msg.includes('已删除'))).toBe(true)
     wrapper.unmount()
   })
+
+  it('七轮重评-5: 删除确认预览按码位截断——增补平面字符在第 24 码元边界不劈半', async () => {
+    const style = useStyleStore()
+    const ui = useUiStore()
+    style.bookName = '书A'
+    // 23 个 BMP 字符 + 𠮷（两码元）+ 尾字：旧 slice(0,24) 劈出孤立高代理且「…」判据差一
+    const text = '甲'.repeat(23) + '𠮷' + '乙'
+    style.entries = [{ _path: '样章/zzz.md', 类型: '样章', 场景: '', 说明: '', 正文: text, 来源: '作者标注' }]
+    let askedMessage = ''
+    vi.spyOn(ui, 'ask').mockImplementation(async (q) => {
+      askedMessage = (q as { message: string }).message
+      return false // 取消删除，聚焦弹窗文案断言
+    })
+
+    const wrapper = mount(StyleEntryPanel)
+    await flushPromises()
+    await wrapper.find('.entry-card .ec-del').trigger('click')
+    await flushPromises()
+
+    expect(askedMessage).toContain('𠮷')
+    for (let i = 0; i < askedMessage.length; i++) {
+      const c = askedMessage.charCodeAt(i)
+      if (c >= 0xd800 && c <= 0xdbff) {
+        const d = i + 1 < askedMessage.length ? askedMessage.charCodeAt(i + 1) : 0
+        expect(d >= 0xdc00 && d <= 0xdfff).toBe(true)
+      }
+    }
+    wrapper.unmount()
+  })
 })
 
 // ── StyleBaselineCard：toggleRulesEdit await 后 armed+bookName 双门 ──

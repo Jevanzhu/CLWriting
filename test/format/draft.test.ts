@@ -212,6 +212,32 @@ describe('resolveDraftPath W-P2-2 改名旁路防护', () => {
     const r = resolveDraftPath(bookRoot, 6)
     expect(r.existed).toBe(true)
   })
+
+  it('七轮重评-4: 宽容命名定稿（em-dash/空白）+ 定稿后再改名 → 章号分支仍拦截（chapterNoFromName 单源宽集）', () => {
+    // 触发形态：定稿发生在宽命名态（清单挂 em-dash/空白 path），其磁盘文件又被再改名
+    // ——精确 path 分支脱靶；窄正则 `^(\d+)-` 对宽命名 base（'005—定稿名.md'）此前
+    // 不命中 → 双分支同失守、覆盖写放行。收编 chapterNoFromName（`-`/`—`/空白/裸尾
+    // 宽集）后章号分支兜住。裸数字 `0012.md` 形态维持 R1010c-EN-P2-1 在案口径不扩集。
+    writeChapter(bookRoot, 5, '第五章')
+    const wideRel = '写作/正文/005—定稿名.md'
+    renameSync(join(bookRoot, '写作/正文/005-第五章.md'), join(bookRoot, wideRel))
+    markFinalized(bookRoot, wideRel)
+    renameSync(join(bookRoot, wideRel), join(bookRoot, '写作/正文/005-再改名.md')) // 定稿后磁盘再改名
+    expect(() => resolveDraftPath(bookRoot, 5)).toThrow(/已定稿/)
+
+    const rel6 = writeChapter(bookRoot, 6, '第六章')
+    const wide6 = '写作/正文/006 定稿名.md'
+    renameSync(join(bookRoot, rel6), join(bookRoot, wide6))
+    markFinalized(bookRoot, wide6)
+    renameSync(join(bookRoot, wide6), join(bookRoot, '写作/正文/006-再改名.md'))
+    expect(() => resolveDraftPath(bookRoot, 6)).toThrow(/已定稿/)
+
+    // 不误伤：未定稿章照常覆盖
+    const rel7 = writeChapter(bookRoot, 7, '第七章')
+    const r = resolveDraftPath(bookRoot, 7)
+    expect(r.existed).toBe(true)
+    expect(r.relPath).toBe(rel7)
+  })
 })
 
 // ── R-10（第十六轮）：写章文件名净化上限 ──────────────────────────

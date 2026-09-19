@@ -270,6 +270,22 @@ export function listTrash(bookRoot: string): TrashEntry[] {
   return readTrashManifest(bookRoot)
 }
 
+/** H502（七轮修复复核批）：回收站清单在位复评——restore/purge 的清单写回段隔着跨进程
+ *  清单锁 await，书可在此窗内被删/移走（端点入口守卫只覆盖调用入口）。死书写回面有
+ *  两道放大器：①锁原语取锁自建 mkdirSync(dirname(lockPath), recursive) 会把 bookRoot
+ *  祖先链（root/项目、root/工作区/.trash）整个复活；②「文件缺失按合法空」的读口径
+ *  （readTrashManifestStrict 缺失返 [] / 主清单读走 existsSync 空清单分支）——复活树
+ *  上两条写回都会「成功」（实证：锁回调在死书残骸上写出孤儿文档清单 + 0b 空回收站清单）。
+ *  判据 = 回收站清单文件**此刻在位**（零误伤锚）：本函数的 entry 源自入口成功读取
+ *  （清单必在），而合法 RMW 对空清单是 0b 重写、从不删除文件——「入口在、写回时不在」
+ *  只可能是书被整删/移走或 .trash 被外部清空，两者都应弃写回（best-effort / silent
+ *  catch 接住留痕），不在死书残骸上重建登记。 */
+function throwIfTrashManifestGone(bookRoot: string): void {
+  if (!existsSync(trashManifestPath(bookRoot))) {
+    throw new Error(`回收站清单已不在（${trashManifestPath(bookRoot)}）——书可能已被删除或移走，放弃清单写回，不在死书残骸上重建登记`)
+  }
+}
+
 /**
  * 恢复：移回 originalPath + 清单恢复 entry + 移除 trash 条目 + invalidate。
  * 原位占用 → OCCUPIED（不自动重命名，§17 决策④）；trash 文件丢失 → NOT_FOUND。
@@ -404,6 +420,9 @@ async function finishRestoreBookkeeping(bookRoot: string, entry: TrashEntry): Pr
     const manifestPath = join(bookRoot, '项目', '文档清单.jsonl')
     // X-5：RMW 持清单锁（跨进程互斥，与 service/finalize 同锁）
     await withManifestLockAsync(manifestPath, () => {
+      // H502：锁等待窗内书可能已被删/移走——写回前回收站清单在位复评（判据与理由见
+      // throwIfTrashManifestGone 头注），死书弃写回上抛（本函数 best-effort catch 留痕）
+      throwIfTrashManifestGone(bookRoot)
       const m = existsSync(manifestPath)
         ? readManifestStrict(manifestPath) // R27-40：RMW strict 读（读失败走本 best-effort catch，warn 保旧清单）
         : { version: 1, entries: new Map<string, ManifestEntry>() }
@@ -441,6 +460,9 @@ async function finishRestoreBookkeeping(bookRoot: string, entry: TrashEntry): Pr
     try {
       // Z-5（第五十八轮）：RMW 持锁（同 appendTrashEntry；与上方主清单锁先后串联、不嵌套）
       await withManifestLockAsync(trashManifestPath(bookRoot), () => {
+        // H502：同上——条目移除写回前回收站清单在位复评，死书不重建 .trash 清单（0b 空清单
+        // 也是重建）；上抛走下方 silent catch（死书面条目残留即随残骸，无害）
+        throwIfTrashManifestGone(bookRoot)
         writeTrashManifest(bookRoot, readTrashManifestStrict(bookRoot).filter((e) => e.id !== id)) // R27-40：RMW strict 读
       })
     } catch { /* trash manifest 写失败：条目残留，下次恢复报 NOT_FOUND，无害 */
@@ -534,6 +556,9 @@ export async function purgeTrash(bookRoot: string, id: string): Promise<PurgeRes
   try {
     // Z-5：RMW 持锁（同上）
     await withManifestLockAsync(trashManifestPath(bookRoot), () => {
+      // H502：锁等待窗内书可能已被删/移走——缺失按合法空读口径 + 取锁 mkdir 复活祖先链，
+      // 死书面会「成功」写出 0b 空清单；写回前在位复评弃写
+      throwIfTrashManifestGone(bookRoot)
       writeTrashManifest(bookRoot, readTrashManifestStrict(bookRoot).filter((e) => e.id !== id)) // R27-40：RMW strict 读
     })
   } catch { /* 条目残留：下次对该 id 操作报 NOT_FOUND，自愈 */ }

@@ -112,3 +112,103 @@ describe('R0911b-C2-P3-1：AuditEventList 抽件等价性契约', () => {
     expect(w.emitted('load-more')).toHaveLength(1)
   })
 })
+
+// ── 七轮重评-5（2026-09-19 源码独立重评七轮修复批）：摘要截断改码位 ──
+// 码元 slice 在截断点恰为代理对（emoji/扩展平面字符）时劈出孤立代理项，摘要尾字符
+// 渲染乱码。三处消费点：message 摘要 / goal 摘要 / JSON 详情预览，均收编
+// clipByCodePoints（shared/text 单源）。
+
+function expectNoLoneSurrogate(s: string): void {
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i)
+    if (c >= 0xd800 && c <= 0xdbff) {
+      const d = i + 1 < s.length ? s.charCodeAt(i + 1) : 0
+      expect(d >= 0xdc00 && d <= 0xdfff).toBe(true)
+    }
+  }
+}
+
+describe('七轮重评-5：摘要码位截断不劈代理对', () => {
+  it('message 摘要：增补平面字符在第 60 码元边界完整保留', () => {
+    // 59 个 BMP 字符 + 𠮷（两码元）+ 尾字：旧 slice(0,60) 劈出孤立高代理
+    const w = mount(AuditEventList, {
+      props: {
+        events: [ev({ data: { message: '甲'.repeat(59) + '𠮷' + '乙' } })],
+        total: 1,
+        loadingMore: false,
+        hasMore: false,
+        capHit: false,
+        renderCap: 2000,
+        expanded: new Set<number>(),
+        emptyText: '暂无事件',
+      },
+    })
+    const summary = w.find('.ev-summary').text()
+    expect(summary).toContain('𠮷')
+    expectNoLoneSurrogate(summary)
+  })
+
+  it('goal 摘要：拼接后截断点落代理对不劈半', () => {
+    // '动词 '(3 码元) + 56 BMP = 59 码元，𠮷 恰跨第 60/61 码元——旧 slice 劈半
+    const w = mount(AuditEventList, {
+      props: {
+        events: [ev({ type: 'goal/change', data: { operation: '动词', goal: { title: '甲'.repeat(56) + '𠮷' + '乙', state: 'open' } } })],
+        total: 1,
+        loadingMore: false,
+        hasMore: false,
+        capHit: false,
+        renderCap: 2000,
+        expanded: new Set<number>(),
+        emptyText: '暂无事件',
+      },
+    })
+    const summary = w.find('.ev-summary').text()
+    expect(summary).toContain('𠮷')
+    expectNoLoneSurrogate(summary)
+  })
+
+  it('JSON 详情预览：4KB 截断点落代理对不劈半', () => {
+    // stringify(indent 2) 前缀 '{\\n  "k": "' 10 码元 + 4085 BMP = 4095 码元，
+    // 𠮷 恰跨第 4096/4097 码元——旧 slice(0,4096) 劈半
+    const w = mount(AuditEventList, {
+      props: {
+        events: [ev({ data: { k: '甲'.repeat(4085) + '𠮷' } })],
+        total: 1,
+        loadingMore: false,
+        hasMore: false,
+        capHit: false,
+        renderCap: 2000,
+        expanded: new Set([1]),
+        emptyText: '暂无事件',
+      },
+    })
+    const detail = w.find('.ev-detail pre').text()
+    expect(detail).toContain('𠮷')
+    expectNoLoneSurrogate(detail)
+  })
+})
+
+// ── H503（七轮修复复核批）：JSON 详情截断/阈值/计数三处统一码位口径 ──
+// 修复批只换 clip 一处为码位，触发阈值与「已截断」计数仍按码元——4097 码元/4096
+// 码位形态（10 前缀 + 4082 BMP + 𠮷 + 3 收尾）clip 一字未删却宣称「已截断」。
+// 修复后阈值判定走码位（withinDetailLimit），该形态原样完整渲染、无截断尾注。
+describe('H503：JSON 详情量纲统一码位口径', () => {
+  it('4097 码元/4096 码位形态：不截断、无「已截断」尾注', () => {
+    const w = mount(AuditEventList, {
+      props: {
+        events: [ev({ data: { k: '甲'.repeat(4082) + '𠮷' } })],
+        total: 1,
+        loadingMore: false,
+        hasMore: false,
+        capHit: false,
+        renderCap: 2000,
+        expanded: new Set([1]),
+        emptyText: '暂无事件',
+      },
+    })
+    const detail = w.find('.ev-detail pre').text()
+    expect(detail).toContain('𠮷')
+    expect(detail).not.toContain('已截断')
+    expectNoLoneSurrogate(detail)
+  })
+})

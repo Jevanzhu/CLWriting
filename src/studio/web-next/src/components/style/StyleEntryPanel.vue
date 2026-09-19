@@ -6,6 +6,9 @@ import { useStyleStore } from '../../stores/style'
 import { useUiStore } from '../../stores/ui'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { friendlyError } from '../../shared/error'
+// 七轮重评-5（2026-09-19 源码独立重评七轮修复批）：删除确认预览改码位截断
+// （clipByCodePoints shared 单源）——码元 slice 劈代理对且「…」判据随劈半差一
+import { clipByCodePoints } from '../../../../../shared/text'
 import EmptyState from '../ui/EmptyState.vue'
 // R0912-C2-P3-3（2026-09-12 独立重评修复批）：.panel/.btn-*/.kind-badge 逐字重复块
 // 收敛至 style-shared.css——接入机制照 settings-shared.css 先例（全局装载非 scoped，
@@ -78,9 +81,10 @@ async function onRemove(path: string, text: string): Promise<void> {
   // FE-3（第七轮）：书名入口捕获（M-8 类收敛）——store.remove 在调用时刻取书名，
   // 弹窗滞留切书后旧书条目路径会发到新书（条目路径两书可同名），或 clear() 后空书名裸抛
   const book = style.bookName
+  const clipped = clipByCodePoints(text, 24)
   const ok = await ui.ask({
     title: '删除条目',
-    message: `删除「${text.slice(0, 24)}${text.length > 24 ? '…' : ''}」？此操作不可撤销。`,
+    message: `删除「${clipped}${clipped === text ? '' : '…'}」？此操作不可撤销。`,
     confirmText: '删除',
     danger: true,
   })
