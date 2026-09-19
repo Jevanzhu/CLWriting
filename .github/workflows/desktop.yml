@@ -262,6 +262,10 @@ jobs:
       # 安全裕度；标记到即走，快机不再白等、慢机上限更宽）。判定语义不弱化：下方
       # 「进程存活 + ready 标记 + 无 renderer-crash」三重判定原样保留——轮询超时（标记
       # 未现）落「未捕获标记」失败路径、进程已死落「退出」失败路径，两路均输出尾部日志。
+      # 阶段 42：GNU timeout 改纯 bash 计数轮询——mac runner 镜像无 timeout 命令
+      # （2026-09-19 首跑实录 line 6: timeout: command not found），等待循环整条未跑、
+      # 启动后毫秒级即 grep 必红；计数轮询语义等价（上限秒数不变、1s 间隔不变），
+      # bash 内建自足免外部依赖。下步 TERM 收口轮询同款替换。
       - name: Electron 启动冒烟（打包态 .app 拉起）
         if: runner.os == 'macOS'
         run: |
@@ -270,7 +274,12 @@ jobs:
           test -x "$APP_BIN" || { echo "::error::未找到打包态可执行体：$APP_BIN"; exit 1; }
           ELECTRON_ENABLE_LOGGING=1 "$APP_BIN" >/tmp/clw-electron-smoke.log 2>&1 &
           PID=$!
-          timeout 60 bash -c 'until grep -q "\[CLW_SMOKE\] ready" /tmp/clw-electron-smoke.log 2>/dev/null; do sleep 1; done' || true
+          i=0
+          until grep -q "\[CLW_SMOKE\] ready" /tmp/clw-electron-smoke.log 2>/dev/null; do
+            sleep 1
+            i=$((i + 1))
+            [ "$i" -ge 60 ] && break
+          done
           if ! kill -0 "$PID" 2>/dev/null; then
             echo "::error::Electron 打包应用在启动标记轮询窗（60s）内退出（启动失败）"
             tail -80 /tmp/clw-electron-smoke.log || true
@@ -289,7 +298,13 @@ jobs:
           kill "$PID" 2>/dev/null || true
           # 复审-0914-优化修复批 P3：TERM 后固定 sleep 3 改轮询进程退出早退（上限 3s
           # 不短于原裕度，提前退出即提前收口）；仍滞留时 KILL 兜底保持不变。
-          timeout 3 bash -c 'until ! kill -0 '"$PID"' 2>/dev/null; do sleep 1; done' || true
+          # 阶段 42：同上步，timeout 3 改纯 bash 计数轮询（mac 镜像无 timeout 命令）。
+          i=0
+          while kill -0 "$PID" 2>/dev/null; do
+            sleep 1
+            i=$((i + 1))
+            [ "$i" -ge 3 ] && break
+          done
           kill -9 "$PID" 2>/dev/null || true
           echo "冒烟通过：打包态 Electron 启动标记已捕获、无渲染崩溃标记，TERM 后进程已收口"
       # 复审-0913-mac适配 P3-11：window-cycle（建窗→关窗→退出链）此前只有 ubuntu dev 态
