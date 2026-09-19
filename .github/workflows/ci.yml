@@ -31,7 +31,11 @@ jobs:
     # 放宽到 20（≈2× 余量）作过渡值，待 CI 实跑时长数据回填后再校准。
     # F-7（二十九轮批 F）：20→30——job 级超时为全矩阵共享，win 腿（npm ci ×2 +
     # build:all + 全量单测）在 20 分钟预算上易触顶假红，取最慢腿背书放宽。
-    timeout-minutes: 30
+    # 阶段 44：30→45——vitest 5 后 CI win 腿（2 核 · maxWorkers 2）全量单跑实测
+    # ~14min（Desktop 首轮实录 837s）+ checkout/npm ci ~5min；win 腿自带「首跑红
+    # 同命令重跑一次」兜底（R0911-G-P1-1d），重跑形态需双跑预算 28min+5min > 30——
+    # 首轮 dispatch win 腿 28.3min 撞顶取消实证。45 覆盖双跑形态。
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:

@@ -7,8 +7,11 @@
  * 文件永留旧格式（每次记账重复卡顿）；排队路径另有迁移写覆盖记账的姊妹窗口。
  *
  * 修复：锁内迁移直接内联 writeRecord（先迁移、记账叠加其上）。
- * 本文件用注入短锁超时（300ms）让缺陷形态快速显形：修复前本用例首查即
- * 卡 ≥300ms 且账目丢失；修复后瞬时完成 + 迁移 + 记账全落。
+ * 本文件用注入短锁超时让缺陷形态快速显形：修复前本用例首查即卡 ≥ 注入超时且
+ * 账目丢失；修复后瞬时完成 + 迁移 + 记账全落。
+ * 阶段 44：注入超时 300→3000、界 250→2500——CI win 慢 runner（2 核）文件 IO 实测
+ * 345ms 已穿原 250 界（判别窗 [IO, 300] 塌缩为空，修复形态被误红）；窗随超时同比
+ * 放大后判别距 ~2.6s，慢机不误红、自锁形态（≥3000）仍必红。
  */
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -22,7 +25,7 @@ import {
 
 const root = mkdtempSync(join(tmpdir(), 'clwriting-calls-selflock-'))
 beforeAll(() => {
-  __setAiCallsLockTimeoutForTest(300)
+  __setAiCallsLockTimeoutForTest(3000)
 })
 afterAll(() => {
   rmSync(root, { recursive: true, force: true })
@@ -47,8 +50,8 @@ describe('ai-calls 旧格式迁移自锁（Y-1）', () => {
     const t0 = Date.now()
     recordTaskUsage(bookRoot, 'chat', { inputTokens: 11, outputTokens: 22 })
     const elapsed = Date.now() - t0
-    // 自锁形态（修复前）：同步阻塞 ≥ 注入超时 300ms 后丢账。修复后为文件 IO 级毫秒。
-    expect(elapsed).toBeLessThan(250)
+    // 自锁形态（修复前）：同步阻塞 ≥ 注入超时 3000ms 后丢账。修复后为文件 IO 级（慢 runner 实测 ~345ms）。
+    expect(elapsed).toBeLessThan(2500)
     const rec = readLedger(bookRoot) as {
       chapter: { num: number; used: number; inputTokens: number; outputTokens: number }
       tasks: Record<string, { used: number; inputTokens: number; outputTokens: number }>
@@ -85,7 +88,7 @@ describe('ai-calls 旧格式迁移自锁（Y-1）', () => {
     writeOldFormat(bookRoot)
     const t0 = Date.now()
     recordAiCall(bookRoot, 5, { inputTokens: 10, outputTokens: 20 })
-    expect(Date.now() - t0).toBeLessThan(250)
+    expect(Date.now() - t0).toBeLessThan(2500)
     const rec = readLedger(bookRoot) as {
       chapter: { num: number; used: number; inputTokens: number }
     }
