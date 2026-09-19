@@ -42,8 +42,19 @@ asarUnpack:
   - dist/desktop/fontlist
 mac:
   category: public.app-category.productivity
+  # 阶段 49（发行平台覆盖批，随作者指令「mac 需要兼容之前的 mac 硬件」）：双 arch 出包
+  # ——arm64（Apple Silicon M 系）+ x64（Intel）各一 dmg，H-2「发行架构属发行决策不代拍」
+  # 的记档至此由作者拍板落定。交叉出包（arm64 runner 上产 x64）为 electron-builder 标准
+  # 路径（另拉 x64 Electron 发行件重打）；ad-hoc identity "-" 对两 arch 均走密封路径。
+  # fontlist 原生二进制为 FAT universal（x64+arm64 双切片同文件，tsup 拷入不变），双 arch
+  # 包共用无碍——Intel mac 字体快路径照常可达。系统下限随 Electron 42（Chromium 148）=
+  # macOS 13 Ventura（Intel 侧即 2017 年及以后机型），更旧硬件受 Chromium 支持策略限制
+  # 不可运行（根 README macOS 须知披露）。
   target:
-    - dmg
+    - target: dmg
+      arch:
+        - arm64
+        - x64
   # MP2-5 + R38-3（三十八轮修复批）：mac 侧 `identity: "-"` = 真 ad-hoc 签名——上游
   # app-builder-lib 语义：`identity: null` 走 handleNullIdentity() **完全跳过签名**
   #（MP2-5 原注释「null = ad-hoc」系误读，三十八轮经上游源码 + 实包 codesign 核实：
@@ -56,8 +67,8 @@ mac:
   # （「笔+书」中文风，作者实物验收制）；ico/icns 由 electron-builder（app-builder）从 png
   # 自动派生，icns 不必手做。二十轮 H-1「仓内零图标/不代选」口径随之废止。
   icon: build/icon.png
-  # 复审-0913-mac适配 P3-9：产物命名与 win 同式对齐（显式钉死——未来 H-2 注记的双 arch
-  # 恢复时，arm64/x64 两产物靠 ${arch} 段区分，不同名相撞）。
+  # 复审-0913-mac适配 P3-9：产物命名与 win 同式对齐（显式钉死——双 arch 两产物靠 ${arch}
+  # 段区分，不同名相撞；阶段 49 双 arch 落地后即 arm64/x64 两 dmg 各此形态）。
   artifactName: ${productName}-${version}-${arch}.${ext}
 # win 已启用（阶段 21 J0，2026-08-28；D1 仅 NSIS / D3 x64 先行 / 首版 unsigned 披露见 D4）；
 # linux 仍暂缓（2026-06-30 决策不变，恢复时取消注释）

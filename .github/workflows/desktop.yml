@@ -29,13 +29,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # H-2（二十轮 P2）：未配 arch——macos-latest 为 arm64 runner，产物仅 arm64 DMG；
-        # Intel mac 无可用产物。发行架构（+x64 / universal / win/linux 恢复）属发行决策，
-        # 暂记档不代拍；需要双 arch 时改 electron-builder.yml mac.target 为
-        # [{target: dmg, arch: [arm64, x64]}]（或 universal）并跑一次 tag 门验证。
+        # H-2（二十轮 P2）记档「发行架构属发行决策不代拍」——阶段 49（发行平台覆盖批）
+        # 作者拍板落定：mac 双 arch（arm64 + x64 各一 dmg，electron-builder.yml 已配），
+        # Intel mac 恢复可用产物；win 维持 x64 单 arch（作者口径 Win10/11 64 位，Electron 42
+        # 系统下限即 Win10，x64 已全覆盖）。macos-latest 仍 arm64 runner——x64 包交叉出 +
+        # 冒烟经 Rosetta 2（GitHub Apple Silicon runner 预装，x64 二进制可直接拉起）。
         # J0（阶段 21，2026-08-28）：加 windows-latest 腿产 exe——e2e/release-smoke/Electron
         # 冒烟按 D5（win 仅 typecheck+build+单测）仍留 mac，win 腿跑门禁步 + build:desktop +
-        # exe 上传 + 打包态启动冒烟。H-2 的 mac arch 注记不变（arm64 单腿）。
+        # 便携 zip 上传 + 打包态启动冒烟（win 产物形态随阶段 47 改 zip）。
         os: [macos-latest, windows-latest]
     steps:
       # G406（0918四轮修复批）：第三方 action 全量改 commit SHA 钉版（尾注 # v4 保留主版本
@@ -270,47 +271,54 @@ jobs:
       # （2026-09-19 首跑实录 line 6: timeout: command not found），等待循环整条未跑、
       # 启动后毫秒级即 grep 必红；计数轮询语义等价（上限秒数不变、1s 间隔不变），
       # bash 内建自足免外部依赖。下步 TERM 收口轮询同款替换。
-      - name: Electron 启动冒烟（打包态 .app 拉起）
+      # 阶段 49（发行平台覆盖批）：mac 双 arch（arm64+x64 各一 dmg）后，三步 mac 打包态
+      # 冒烟改逐包循环——glob mac*/ 全命中（双 arch 时 electron-builder 分目录落
+      # mac-arm64//mac-x64 或 mac//mac-x64，glob 通吃且零命中时循环变量为字面串、
+      # test -x 必红，fail-closed 保留）；x64 包在 arm64 runner 上经 Rosetta 2 运行
+      #（GitHub Apple Silicon runner 预装）；任一包红即步红，两包全过才绿。
+      - name: Electron 启动冒烟（打包态 .app 拉起，双 arch 逐包）
         if: runner.os == 'macOS'
         run: |
           set -eu
-          APP_BIN=$(ls -d dist-electron/mac*/CLWriting.app/Contents/MacOS/CLWriting | head -n1)
-          test -x "$APP_BIN" || { echo "::error::未找到打包态可执行体：$APP_BIN"; exit 1; }
-          ELECTRON_ENABLE_LOGGING=1 "$APP_BIN" >/tmp/clw-electron-smoke.log 2>&1 &
-          PID=$!
-          i=0
-          until grep -q "\[CLW_SMOKE\] ready" /tmp/clw-electron-smoke.log 2>/dev/null; do
-            sleep 1
-            i=$((i + 1))
-            [ "$i" -ge 60 ] && break
+          for APP_BIN in dist-electron/mac*/CLWriting.app/Contents/MacOS/CLWriting; do
+            test -x "$APP_BIN" || { echo "::error::未找到打包态可执行体：$APP_BIN"; exit 1; }
+            echo "== 冒烟包：$APP_BIN（x64 包经 Rosetta 2 运行）=="
+            ELECTRON_ENABLE_LOGGING=1 "$APP_BIN" >/tmp/clw-electron-smoke.log 2>&1 &
+            PID=$!
+            i=0
+            until grep -q "\[CLW_SMOKE\] ready" /tmp/clw-electron-smoke.log 2>/dev/null; do
+              sleep 1
+              i=$((i + 1))
+              [ "$i" -ge 60 ] && break
+            done
+            if ! kill -0 "$PID" 2>/dev/null; then
+              echo "::error::Electron 打包应用在启动标记轮询窗（60s）内退出（启动失败）：$APP_BIN"
+              tail -80 /tmp/clw-electron-smoke.log || true
+              exit 1
+            fi
+            if ! grep -q "\[CLW_SMOKE\] ready" /tmp/clw-electron-smoke.log; then
+              echo "::error::冒烟未捕获启动完成标记（[CLW_SMOKE] ready）——进程存活但启动链未走完：$APP_BIN"
+              tail -80 /tmp/clw-electron-smoke.log || true
+              exit 1
+            fi
+            if grep -q "\[CLW_SMOKE\] renderer-crash" /tmp/clw-electron-smoke.log; then
+              echo "::error::冒烟期内触发渲染进程崩溃：$APP_BIN"
+              tail -80 /tmp/clw-electron-smoke.log || true
+              exit 1
+            fi
+            kill "$PID" 2>/dev/null || true
+            # 复审-0914-优化修复批 P3：TERM 后固定 sleep 3 改轮询进程退出早退（上限 3s
+            # 不短于原裕度，提前退出即提前收口）；仍滞留时 KILL 兜底保持不变。
+            # 阶段 42：同上步，timeout 3 改纯 bash 计数轮询（mac 镜像无 timeout 命令）。
+            i=0
+            while kill -0 "$PID" 2>/dev/null; do
+              sleep 1
+              i=$((i + 1))
+              [ "$i" -ge 3 ] && break
+            done
+            kill -9 "$PID" 2>/dev/null || true
+            echo "冒烟通过：$APP_BIN 启动标记已捕获、无渲染崩溃标记，TERM 后进程已收口"
           done
-          if ! kill -0 "$PID" 2>/dev/null; then
-            echo "::error::Electron 打包应用在启动标记轮询窗（60s）内退出（启动失败）"
-            tail -80 /tmp/clw-electron-smoke.log || true
-            exit 1
-          fi
-          if ! grep -q "\[CLW_SMOKE\] ready" /tmp/clw-electron-smoke.log; then
-            echo "::error::冒烟未捕获启动完成标记（[CLW_SMOKE] ready）——进程存活但启动链未走完"
-            tail -80 /tmp/clw-electron-smoke.log || true
-            exit 1
-          fi
-          if grep -q "\[CLW_SMOKE\] renderer-crash" /tmp/clw-electron-smoke.log; then
-            echo "::error::冒烟期内触发渲染进程崩溃"
-            tail -80 /tmp/clw-electron-smoke.log || true
-            exit 1
-          fi
-          kill "$PID" 2>/dev/null || true
-          # 复审-0914-优化修复批 P3：TERM 后固定 sleep 3 改轮询进程退出早退（上限 3s
-          # 不短于原裕度，提前退出即提前收口）；仍滞留时 KILL 兜底保持不变。
-          # 阶段 42：同上步，timeout 3 改纯 bash 计数轮询（mac 镜像无 timeout 命令）。
-          i=0
-          while kill -0 "$PID" 2>/dev/null; do
-            sleep 1
-            i=$((i + 1))
-            [ "$i" -ge 3 ] && break
-          done
-          kill -9 "$PID" 2>/dev/null || true
-          echo "冒烟通过：打包态 Electron 启动标记已捕获、无渲染崩溃标记，TERM 后进程已收口"
       # 复审-0913-mac适配 P3-11：window-cycle（建窗→关窗→退出链）此前只有 ubuntu dev 态
       # 覆盖（scripts/electron-smoke.mjs 缺省 node electron/cli.js 形态），打包态链无 CI
       # 接线。此处以 CLW_SMOKE_APP_BIN 注入实包二进制跑同款驱动——脚本契约（scripts/
@@ -320,13 +328,15 @@ jobs:
       # 退出均非零。路径与上步同源 glob（mac*/ 容 arch 目录命名差异，勿硬编码 mac-arm64）；
       # test -x 必须保留：glob 落空时 APP_BIN 为空串，脚本对空 CLW_SMOKE_APP_BIN 会静默
       # 降级 dev 态形态（假绿）。放工件上传后（同上步口径：冒烟红仍留 DMG 供排查）。
-      - name: Electron 关窗链冒烟（打包态 .app，window-cycle）
+      - name: Electron 关窗链冒烟（打包态 .app，window-cycle，双 arch 逐包）
         if: runner.os == 'macOS'
         run: |
           set -eu
-          APP_BIN=$(ls -d dist-electron/mac*/CLWriting.app/Contents/MacOS/CLWriting | head -n1)
-          test -x "$APP_BIN" || { echo "::error::未找到打包态可执行体：$APP_BIN"; exit 1; }
-          CLW_SMOKE_APP_BIN="$APP_BIN" npm run smoke:electron
+          for APP_BIN in dist-electron/mac*/CLWriting.app/Contents/MacOS/CLWriting; do
+            test -x "$APP_BIN" || { echo "::error::未找到打包态可执行体：$APP_BIN"; exit 1; }
+            echo "== window-cycle 冒烟包：$APP_BIN（x64 包经 Rosetta 2 运行）=="
+            CLW_SMOKE_APP_BIN="$APP_BIN" npm run smoke:electron
+          done
       # 五轮重评修复批（H101）：packaged-app-smoke 接线——此前是零调用方死 spec：env 门
       # CLWRITING_E2E_RELEASE 只有 test:e2e:release 脚本设且 playwright 只点名 release-smoke
       # 单文件（本 spec 不在收集集），全仓零执行方，打包态「fontlist 外置二进制 → spawn →
@@ -335,13 +345,15 @@ jobs:
       # 自带产物缺失 fail-closed 断言 + CLWRITING_E2E_APP_BIN 覆盖二进制定位）。同上方
       # 两步口径：放工件上传后，冒烟红仍留 DMG 供排查；APP_BIN 同款 glob（勿硬编码
       # arch 段）+ test -x 防假绿守卫。
-      - name: 打包态应用冒烟（packaged-app-smoke，UI 动线 · 字体链）
+      - name: 打包态应用冒烟（packaged-app-smoke，UI 动线 · 字体链，双 arch 逐包）
         if: runner.os == 'macOS'
         run: |
           set -eu
-          APP_BIN=$(ls -d dist-electron/mac*/CLWriting.app/Contents/MacOS/CLWriting | head -n1)
-          test -x "$APP_BIN" || { echo "::error::未找到打包态可执行体：$APP_BIN"; exit 1; }
-          CLWRITING_E2E_RELEASE=1 CLWRITING_E2E_APP_BIN="$APP_BIN" npx playwright test test/e2e/packaged-app-smoke.spec.ts
+          for APP_BIN in dist-electron/mac*/CLWriting.app/Contents/MacOS/CLWriting; do
+            test -x "$APP_BIN" || { echo "::error::未找到打包态可执行体：$APP_BIN"; exit 1; }
+            echo "== packaged-app-smoke 包：$APP_BIN（x64 包经 Rosetta 2 运行）=="
+            CLWRITING_E2E_RELEASE=1 CLWRITING_E2E_APP_BIN="$APP_BIN" npx playwright test test/e2e/packaged-app-smoke.spec.ts
+          done
       # J0：win 腿同款启动冒烟——便携 zip 产物不解包，拉起 win-unpacked/ 内可执行体（与 .app
       # 同一次 electron-builder 产物、解包态同口径，非安装器复验）。
       # R74-6（二十二轮）：判定对齐 mac 腿三重判（R73-53 口径——进程存活≠启动链走完）：
@@ -460,7 +472,7 @@ jobs:
           printf '%s\n' \
             "${GITHUB_REF_NAME} 产物：" \
             "- Windows（x64 便携版，免安装）：下载 zip 解压到任意目录，运行目录内 CLWriting.exe；使用须知见仓库 README「Windows 版使用须知」。" \
-            "- macOS（Apple Silicon）：dmg 内应用拖入「应用程序」；使用须知见「macOS 版使用须知」。" \
+            "- macOS：按机型选 dmg（Apple Silicon = arm64 / Intel = x64），dmg 内应用拖入「应用程序」；使用须知见「macOS 版使用须知」。" \
             "- 完整性校验：sha256sum -c SHA256SUMS.txt（Windows 可用 certutil -hashfile 文件名 SHA256 比对）。" \
             "- 安装包未做正式代码签名，首次运行的系统提示与处理见 README 使用须知。" \
             > release-notes.md
