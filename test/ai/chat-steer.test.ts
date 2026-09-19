@@ -139,6 +139,42 @@ describe('E1a: steer 入队与续链', () => {
     await waitFor(() => !isChatRunning(bookName), 15_000)
     expect(events.filter((e) => e.type === 'chat_done').length).toBe(11)
   }, 25_000)
+
+  it('七轮重评-3: 队列超容丢弃预览按码位截断——被丢消息含增补平面字符不劈代理对', async () => {
+    // 被丢消息（队头）在第 40/41 码元边界放代理对：39 个 BMP 字符 + 𠮷（U+20BB7，两码元）
+    // + 尾巴——旧实现 slice(0,40) 劈出孤立高代理（通知尾字符乱码）；修复后码位截断保整字。
+    const dropped = '甲'.repeat(39) + '𠮷' + '乙'.repeat(5)
+    fake.setScript([{ type: 'text', content: '第一轮回复。', delayMs: 2000 }])
+    const events: DriverEvent[] = []
+    const driver = makeFakeDriver({ emitted: events })
+    const ud = setup()
+    const bookName = 'steer-overflow-surrogate'
+
+    expect(sendMsg(ud, bookName, '第一条', driver)).toBe('started')
+    await waitFor(() => isChatRunning(bookName))
+    // 第 1 条排队消息 = 被丢对象；连发 11 条触发丢最旧
+    const messages = [dropped, ...Array.from({ length: 10 }, (_, i) => `排队消息${i}`)]
+    for (const m of messages) {
+      expect(sendMsg(ud, bookName, m, driver)).toBe('queued')
+    }
+    const notices = events.filter((e) => e.type === 'notice') as Array<{ message: string }>
+    expect(notices).toHaveLength(1)
+    const msg = notices[0]!.message
+    expect(msg).toContain('已丢弃最旧的排队消息')
+    // 增补平面字符完整保留（修复前 slice(0,40) 在第 40 码元劈开 𠮷 → toContain('𠮷') 失败）
+    expect(msg).toContain('𠮷')
+    // 全串无孤立代理项（高代理后必随低代理）
+    for (let i = 0; i < msg.length; i++) {
+      const c = msg.charCodeAt(i)
+      if (c >= 0xd800 && c <= 0xdbff) {
+        const d = i + 1 < msg.length ? msg.charCodeAt(i + 1) : 0
+        expect(d >= 0xdc00 && d <= 0xdfff).toBe(true)
+      }
+    }
+    // 断言即收口：abort 丢弃队列，不等 11 轮续链（本题只钉通知文案）
+    abortChat(bookName)
+    await waitFor(() => !isChatRunning(bookName))
+  }, 15_000)
 })
 
 // ── RB-AI-P2-1：续链逐条字段不继承 base（regenerate/chapter 语义保真）──

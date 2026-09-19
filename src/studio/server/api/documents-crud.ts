@@ -271,6 +271,13 @@ export function registerDocumentsCrudRoutes(ctx: DocumentCtx): void {
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)
       if (!r) return
+      // 七轮重评-1（2026-09-19 源码独立重评七轮修复批）：写端点书注册重验补配——同文件
+      // words-diary.post（:59 先例）六族写端点均有，唯 trash 两端点漏配；restoreTrash
+      // 内部多 await（清单锁/簿记）后对 originalPath mkdir recursive，窗口内书被删/改名
+      // 即对旧捕获路径重建孤儿目录树（无 book.yaml，repairBooks 不认领）。trash 不持任务
+      // 闸、不进串行链，本重验是该请求唯一防线。
+      const moved = bookMovedFailure(ctx.workDir, params['name'], r.bookRoot)
+      if (moved) return replyError(res, structStatus(moved.code), moved.code, moved.reason)
       const id = params['id'] ?? ''
       const result = await restoreTrash(r.bookRoot, id)
       // Q-7（第十五轮）：失败走 replyError 统一信封（原裸 result 违反 schema.ts 信封约定）
@@ -285,6 +292,9 @@ export function registerDocumentsCrudRoutes(ctx: DocumentCtx): void {
     handler: async ({ params }, _req: IncomingMessage, res: ServerResponse) => {
       const r = resolveBookOrReply(ctx.workDir, params['name'], res)
       if (!r) return
+      // 七轮重评-1：同 restore——purgeTrash 恢复清单 RMW 段同样对 bookRoot 下路径落盘
+      const moved = bookMovedFailure(ctx.workDir, params['name'], r.bookRoot)
+      if (moved) return replyError(res, structStatus(moved.code), moved.code, moved.reason)
       const id = params['id'] ?? ''
       const result = await purgeTrash(r.bookRoot, id)
       // Q-7（第十五轮）：失败走 replyError 统一信封（原裸 result 违反 schema.ts 信封约定）

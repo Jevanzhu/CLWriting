@@ -31,6 +31,9 @@ import { finishTurn } from './chat/finish.js'
 // 复审-0914-优化修复批（errMsg 收编）：错误摘要口径单源
 // 0918独立重评修复批（A002）：catch 内 warn 留痕需 log
 import { errMsg, log } from '../../log/index.js'
+// 七轮重评-3（2026-09-19 源码独立重评七轮修复批）：队列丢弃预览改码位截断（六轮 C101
+// clipByCodePoints shared 单源同族收口）
+import { clipByCodePoints } from '../../shared/text.js'
 
 // hh §八-16：子件符号经本件再导出——外部（server API / 测试）import 路径全部不变
 export { getHistory, clearChatHistory } from './chat/state.js'
@@ -135,7 +138,11 @@ export function sendChatMessage(opts: ChatOpts): 'started' | 'queued' | 'rejecte
       // RB-AI-P2-1：regenerate 项无 message，预览降级显示「(重新生成)」而非误报空消息
       // R26-28（二十六轮）：省略号只在真的截断时加——短预览恒带「…」是文案噪音
       const fullPreview = dropped.message || (dropped.regenerate ? '(重新生成)' : '(空消息)')
-      const preview = fullPreview.length > 40 ? `${fullPreview.slice(0, 40)}…` : fullPreview
+      // 七轮重评-3：截断改码位——码元 slice(0,40) 在第 40/41 码元恰为代理对（emoji/
+      // 扩展平面字符）时劈出孤立代理项，丢弃通知尾字符渲染乱码；省略号判据随码位口径
+      // （与截断同源比较，短预览不加「…」的 R26-28 语义不变）
+      const clipped = clipByCodePoints(fullPreview, 40)
+      const preview = clipped === fullPreview ? fullPreview : `${clipped}…`
       emit(opts, {
         type: 'notice',
         message: `对话队列已满：已丢弃最旧的排队消息「${preview}」——你刚发送的这条会顶替它。`,

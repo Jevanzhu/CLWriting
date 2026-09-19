@@ -17,7 +17,7 @@ import { join, relative } from 'node:path'
 import { splitFrontMatter, parseFlat } from '../format/frontmatter.js'
 import { readChapterDir } from '../format/chapters.js'
 import { chapterFilePrefix } from '../format/words.js'
-import { sanitizeChapterTitle, isMdFileName } from '../format/filename.js'
+import { sanitizeChapterTitle, isMdFileName, chapterNoFromName } from '../format/filename.js'
 import { normalizeWinSeparators } from '../fs/safe-path.js'
 import { readManifest } from './manifest.js'
 // R37-9：正文目录卷扫描 readdirSync 容错降级留痕（同 run.ts/runner.ts 口径）
@@ -122,9 +122,14 @@ function ensureChapterNotFinalized(bookRoot: string, relPath: string, chapter?: 
       // 全量误拦「已定稿」。精确 path 分支（上方）不设限：对既定目标路径的覆盖拦截
       // 与文档类型无关。清单 path 为 slash 形 rel（与上方 relPath 构造同源）。
       if (!e.path.startsWith('写作/正文/')) continue
-      const base = e.path.split('/').pop() ?? ''
-      const m = base.match(/^(\d+)-/)
-      if (m && Number(m[1]) === chapter) {
+      // 七轮重评-4（2026-09-19 源码独立重评七轮修复批）：内联窄正则 `^(\d+)-` 收编
+      // chapterNoFromName 单源（finalize.ts inferChapterFromName / summary.ts 同款
+      // callshape：带全名含 .md 直传；宽集 `-`/`—`/空白/裸尾均认）——定稿章被外部
+      // 工具改名成 `5—标题.md`/`5 标题.md` 后本分支此前不命中，与精确 path 分支
+      // （清单挂旧 path 同样不中）双双失守，覆盖写放行。裸数字 `0012.md` 形态维持
+      // R1010c-EN-P2-1 在案口径不扩集（三处消费方同不识别，扩集系台账待拍板项）。
+      const no = chapterNoFromName(e.path.split('/').pop() ?? '')
+      if (no !== null && no === chapter) {
         throw new Error(`第 ${chapter} 章已定稿（${e.path}），拒绝覆盖写；如需重写请先回滚该章定稿或另立章号`)
       }
     }

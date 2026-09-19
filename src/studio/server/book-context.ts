@@ -9,7 +9,7 @@
  */
 import { join } from 'node:path'
 import type { ServerResponse } from 'node:http'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { readBooks, type BookEntry } from '../../install/books.js'
 import { readManifest, type ManifestEntry } from '../../document/manifest.js'
 import { safeManifestPath } from '../../fs/safe-path.js'
@@ -85,6 +85,27 @@ export function bookMovedFailure(
 ): { code: 'BOOK_MOVED'; reason: string } | null {
   const rNow = resolveBook(workDir, name)
   if ('error' in rNow || rNow.bookRoot !== capturedRoot) {
+    return { code: 'BOOK_MOVED', reason: '书已改名或已删除，本次操作已取消——请重新打开本书后再试' }
+  }
+  // 七轮重评-2（2026-09-19 源码独立重评七轮修复批）：注册未变但盘上书目录已不在——
+  // 删书/改名端点「renameWithRetry/rmSync 搬盘先行、books.jsonl 登记改写隔多个 await
+  // （清史/事件库迁移/books 锁 RMW）」的陈旧注册窗内，上方注册比对被旧条目骗过（窗口
+  // 时序见 books-rename.ts 搬盘→清史→迁移→锁内改登记序列）。盘面校验兜底 fail-closed：
+  // 注册存在 ⟹ 书目录应存在（建书/改名均先落盘后登记），目录缺失只可能是窗口期
+  // 或盘面外力删除——两者都不得对旧路径 mkdir recursive 重建孤儿目录树（正是 R0912-B-P3-2
+  // 头注要挡的落地面），人话文案与注册比对分支同文（reason 人话各端点一致的单一不变量）。
+  // H501（七轮修复复核批）：盘面判定改 statSync **ENOENT-only**（install/books-repair.ts
+  // isDirConfirmedMissing R35-28/P3-13 同口径）——existsSync 对 EACCES/EIO 等一切 stat
+  // 错误都返 false，网络盘离线/杀软/同步盘瞬时不可读会把「书还在」误判成已删，22 个
+  // 写端点齐误 409；仅 ENOENT（真不存在）才判 BOOK_MOVED，瞬态错误放行走后续真实写
+  // 路径由具体操作如实报错。
+  let rootMissing = false
+  try {
+    statSync(capturedRoot)
+  } catch (e) {
+    rootMissing = (e as NodeJS.ErrnoException).code === 'ENOENT'
+  }
+  if (rootMissing) {
     return { code: 'BOOK_MOVED', reason: '书已改名或已删除，本次操作已取消——请重新打开本书后再试' }
   }
   return null
