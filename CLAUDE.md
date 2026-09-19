@@ -30,7 +30,7 @@
 
 - **L0 零测试面**：纯文档/注释/运行时用户数据/纯类型面——不跑测试，回复中声明改动面。
 - **L1 相关面（日常默认）**：`npm run test:related -- <改动文件>` + `npm run typecheck`（注意：路径写错 vitest 会静默空跑退出 0）；动前端加 `npm run typecheck:web-next`；纯测试改动只跑被改文件 + typecheck。
-- **L2 终门（收口/提交前跑一次，这次不省——L1 拦不住的平台差异、跨文件并合冲突由它兜底）**：vitest 全量 + tsc/vue-tsc + eslint + 四 check + e2e；coverage 由 CI 阈值门兜底（CI 实挂单腿）；收口记写实测数字。
+- **L2 终门（收口/提交前必跑一次）**：vitest 全量 + tsc/vue-tsc + eslint + 四 check + e2e；coverage 由 CI 阈值门兜底（CI 单腿）；收口记写实测数字。
 - **测试命名**：新测试文件按被测行为命名，批次号只留文件头注释与源码锚注。
 
 ## AI 链路开发守则
