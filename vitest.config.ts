@@ -47,12 +47,15 @@ export default defineConfig({
     include: ['test/**/*.test.ts'],
     // 内存闸（2026-08-24）：默认按 CPU 数 fork（本机 8-10 worker）× 大负载测试
     // （rag/scale、check/scale 各自 GB 级峰值）叠加出过 19GB 总占用（机器 16GB 爆内存）；
-    // forks 池限到 4 并发压峰值（CPU 核多时不再全开）。
+    // 限到 4 并发压峰值（CPU 核多时不再全开）。
     // R67-21（十五轮）：CI 再压到 2——GitHub runner（ubuntu/macos 均 ~7GB）比本机
     // 16GB 更紧，4 fork × GB 级 scale 峰值在 CI 侧无实测背书、OOM 风险单向；2 并发
     // 峰值减半换时长（20 分钟预算内），本地维持 4。
+    // vitest 5 升级批（阶段 39）：poolOptions.* 整体移除——并发上限改顶层 maxWorkers；
+    // minForks 无对应键（v5 自管最小并发）。旧 poolOptions 键在 v5 只发 DEPRECATED
+    // 警告并静默失效（内存闸失守一轮实测在案），勿回填。
     pool: 'forks',
-    poolOptions: { forks: { maxForks: process.env.CI ? 2 : 4, minForks: 1 } },
+    maxWorkers: process.env.CI ? 2 : 4,
     // 排除 macOS 外置卷自动生成的 ._ AppleDouble 元数据文件
     exclude: ['**/node_modules/**', '**/._*'],
     environment: 'node',
@@ -110,6 +113,12 @@ export default defineConfig({
       // 以 0% 进分桶拉低阈值。正常检出零命中（仓库在内置盘），故 governance 反向守卫
       // 的 EXCLUDE 抄本无需随动（其文件集扫描不涉 ._ 文件，口径不受影响）。
       exclude: ['src/**/*.d.ts', '**/node_modules/**', '**/._*', 'src/studio/web-next/vite.config.ts', 'src/studio/web-next/src/types/tree.ts', 'src/studio/web-next/src/{main,router}.ts'],
+      // vitest 5 升级批（阶段 39）：coverage-v8 v5 计数语义变化——同测试集同源码下全桶
+      // 系统性下移（分支最重 1-16pp、函数次之、行/语句轻微；SFC 模板分支归因弱化 +
+      // 函数/分支计数全集扩大，判测量系统变化非覆盖回退）。过线桶值按 win 全量实测
+      // −2pp 宁低勿红重定（R0916-6-P3-12 先例；win 为 ubuntu 下界——ubuntu 测试集 ⊇
+      // win，桶覆盖对测试集单调），待 CI ubuntu 首跑实测后按 −2pp 规则收紧（登记）。
+      // 未动桶 = 本轮 win 实测未跌破。行尾「v5 重定（实测 N）」= 该值随本批改定。
       thresholds: {
         // 主代码单桶（brace+extglob 组合 = 除 web-next 外的全部，池化口径与旧全局门一致；
         // R36-17（三十六轮）：阈值随实测重算——区段注释口径曾停在 2026-08-20
@@ -127,7 +136,7 @@ export default defineConfig({
         // R1010c-COV（2026-09-10 全量独立复审修复批）：onboard/config/draft/io 补测后
         // 全量 coverage 实测 statements 89.53 / branches 78.53 / functions 94.33 /
         // lines 89.53 → −2pp 向下取整 87 / 76 / 92 / 87（functions 恰持平不动）
-        'src/studio/server/**': { statements: 87, branches: 76, functions: 92, lines: 87 },
+        'src/studio/server/**': { statements: 87, branches: 73, functions: 92, lines: 87 }, // v5 重定（B 75.08）
         // R0916-6-P3-12（2026-09-16 全库源码重评五轮修复批）：metrics/driver/review 三小域
         // 单列子桶——三域此前落主池化桶（聚合均值 ~89%），域内单文件腰斩对门不可见
         //（stores/composables 拆桶同款论证）；与主桶并存 = 域级基线门 + 聚合防回退门叠加。
@@ -141,7 +150,7 @@ export default defineConfig({
         // 98.89/100 → 96/98 · driver 78.12/97.22 → 76/95 · review 95.06/100 → 93/98；
         // lines/branches 维持既有防回退档不动（三域观测 L 98.89/78.12/95.06 ·
         // B 85.26/96.67/88.83 均高于现档，未触发重定）。
-        'src/metrics/**': { statements: 96, branches: 55, functions: 98, lines: 65 },
+        'src/metrics/**': { statements: 91, branches: 55, functions: 95, lines: 65 }, // v5 重定（S 93.8 / F 97.29）
         'src/driver/**': { statements: 76, branches: 50, functions: 95, lines: 60 },
         'src/review/**': { statements: 93, branches: 55, functions: 98, lines: 65 },
         // 0918独立重评修复批（G001）：15 个后端域补域级子桶——此前无域门，仅落主池化桶
@@ -156,21 +165,21 @@ export default defineConfig({
         // learn 96.53/80.00/100/96.53 · log 97.80/92.22/100/97.80 ·
         // process 94.51/87.56/99.24/94.51 · rag 93.85/90.65/100/93.85 ·
         // state 93.39/87.11/100/93.39（序同桶键 S/B/F/L）。只防回退不追高。
-        'src/cache/**': { statements: 90, branches: 86, functions: 94, lines: 90 },
+        'src/cache/**': { statements: 90, branches: 82, functions: 94, lines: 90 }, // v5 重定（B 84.53）
         'src/check/**': { statements: 93, branches: 88, functions: 98, lines: 93 },
-        'src/desktop/**': { statements: 90, branches: 85, functions: 92, lines: 90 },
+        'src/desktop/**': { statements: 90, branches: 79, functions: 87, lines: 90 }, // v5 重定（B 81.73 / F 89.3）
         'src/document/**': { statements: 90, branches: 83, functions: 94, lines: 90 },
         'src/export/**': { statements: 85, branches: 89, functions: 93, lines: 85 },
         'src/format/**': { statements: 86, branches: 92, functions: 97, lines: 86 },
         'src/fs/**': { statements: 93, branches: 88, functions: 98, lines: 93 },
-        'src/git/**': { statements: 89, branches: 81, functions: 93, lines: 89 },
-        'src/install/**': { statements: 92, branches: 88, functions: 98, lines: 92 },
+        'src/git/**': { statements: 89, branches: 78, functions: 93, lines: 89 }, // v5 重定（branches 实测 80）
+        'src/install/**': { statements: 88, branches: 83, functions: 98, lines: 92 }, // v5 重定（S 90.59 / B 85.5）
         'src/knowledge/**': { statements: 85, branches: 85, functions: 98, lines: 85 },
-        'src/learn/**': { statements: 94, branches: 78, functions: 98, lines: 94 },
-        'src/log/**': { statements: 95, branches: 90, functions: 98, lines: 95 },
-        'src/process/**': { statements: 92, branches: 85, functions: 97, lines: 92 },
-        'src/rag/**': { statements: 91, branches: 88, functions: 98, lines: 91 },
-        'src/state/**': { statements: 91, branches: 85, functions: 98, lines: 91 },
+        'src/learn/**': { statements: 94, branches: 71, functions: 93, lines: 94 }, // v5 重定（B 73.07 / F 95.23）
+        'src/log/**': { statements: 95, branches: 90, functions: 88, lines: 95 }, // v5 重定（F 90.9）
+        'src/process/**': { statements: 88, branches: 81, functions: 97, lines: 92 }, // v5 重定（S 90.3 / B 83.57）
+        'src/rag/**': { statements: 91, branches: 88, functions: 94, lines: 91 }, // v5 重定（F 96.7）
+        'src/state/**': { statements: 91, branches: 85, functions: 95, lines: 91 }, // v5 重定（F 97.95）
         // M-7（第十轮）：api 层单列覆盖桶——此前十余 api 文件落进聚合桶被 stores 高覆盖
         // 均值掩盖（单文件回退对阈值门不可见，参数/响应映射逻辑零守护）；阈值 = 实测基线
         // −2pp 向下取整，只防回退不追高。X-6（第五十六轮批 D）：批 A 补 api 直测后
@@ -180,7 +189,7 @@ export default defineConfig({
         // G-2（二十轮）：api-endpoints-a/b 两文件补 16 域行为级直测（37 用例：URL 编码/
         // method/body 负载/响应解包/404 兜底），2026-08-28 实测 lines 89.32 / branches
         // 95.83，门提到 87 / 93（同 −2pp 规则）
-        'src/studio/web-next/src/api/**': { lines: 87, branches: 93 },
+        'src/studio/web-next/src/api/**': { lines: 87, branches: 88 }, // v5 重定（B 90.66）
         // R62-23：editor/ 并入——typewriter.ts（运行时逻辑 19 行）此前不落任何桶，
         // 进报告却是「桶外暗区」；并入三桶后纳入门禁（阈值不变）
         // 重评-2（全库代码重评审 2026-09-05）：components/types 并入聚合桶（沿 R62-23
@@ -196,7 +205,7 @@ export default defineConfig({
         // 根层 *.vue 键现只命中 App.vue 单文件，桶内池化观测 L 98.33 / B 64.29
         // （branches 低因启动分支多被 mock），不能套聚合桶 43/81（branches 必红），
         // 按 −2pp 规则自定地板 96/62。
-        'src/studio/web-next/src/{components,composables,editor,pages,shared,stores,types,views}/**': { lines: 43, branches: 81 },
+        'src/studio/web-next/src/{components,composables,editor,pages,shared,stores,types,views}/**': { lines: 43, branches: 66 }, // v5 重定（B 68.75——SFC 模板分支归因弱化最重桶）
         'src/studio/web-next/src/*.vue': { lines: 96, branches: 62 },
         // R29-12（二十九轮批 F）：stores 单列子桶——stores（纯逻辑层，实测最厚）此前与
         // composables（实测 lines 76.70）同池，域内回退被聚合均值稀释、对门不可见；
@@ -204,7 +213,7 @@ export default defineConfig({
         // 90.20）−2pp 向下取整 → 89 / 88，远高于 43% 总门 → 拆桶条件成立（评估结论见
         // 总览 R29-12）。原聚合桶 glob/阈值维持不动，沿用「匹配多桶的文件须过所有桶」
         // 语义：stores 文件同过域级基线门 + 聚合防回退门，两不误。
-        'src/studio/web-next/src/stores/**': { lines: 89, branches: 88 },
+        'src/studio/web-next/src/stores/**': { lines: 89, branches: 83 }, // v5 重定（B 85.36）
         // R0910-W（2026-09-10）：composables 单列子桶——聚合桶 lines 门仅 43，远低于
         // 本域实测 84.13，composables 整体腰斩在聚合均值里对门不可见（既有 useChapterTreeActions
         // 72.31 / useRelationGraph 73.52 / useShelf 79.32 三处低覆盖被 43% 门放过）。
@@ -212,7 +221,7 @@ export default defineConfig({
         // 阈值 = coverage/coverage-summary.json 全量实测基线 −2pp 向下取整（同仓内规则）：
         // 2026-09-10 实测 lines 1823/2167 = 84.13 · branches 662/791 = 83.69
         // → lines 82 / branches 81。只防回退不追高；聚合桶 glob/阈值维持不动（无风险）。
-        'src/studio/web-next/src/composables/**': { lines: 82, branches: 81 },
+        'src/studio/web-next/src/composables/**': { lines: 79, branches: 63 }, // v5 重定（L 81.81 / B 65.21）
       },
     },
   },

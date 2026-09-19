@@ -53,7 +53,7 @@
     "@playwright/test": "^1.61.1",
     "@types/node": "^24.0.0",
     "@vitejs/plugin-vue": "^6.0.8",
-    "@vitest/coverage-v8": "^3.2.7",
+    "@vitest/coverage-v8": "^5.0.1",
     "@vue/test-utils": "^2.4.11",
     "cross-env": "^10.1.0",
     "electron": "^42.5.0",
@@ -65,7 +65,7 @@
     "tsx": "^4.22.4",
     "typescript": "^5.5.0",
     "typescript-eslint": "^8.68.0",
-    "vitest": "^3.0.0",
+    "vitest": "^5.0.1",
     "vue": "^3.5.42"
   },
   "//overrides": "esbuild 钉版因由：54e0eaa（2026-06-23）清依赖安全告警——esbuild 旧版 dev server 有跨站读取泄漏面（GHSA-67mh-4wv8-2f99，修复线 0.25.0），强制本仓 esbuild 消费链统一越过受影响版本；放开钉版前需回归 electron 构建链（tsup 构建 + dev:app + build:desktop 出包）。R0917-6-nano（2026-09-17 六轮重评修复批）：原表述称覆盖「tsup/tsx/vite」三链，实况是 vite 只剩根 devDependencies 的 7.3.5（供 vitest/@vitejs/plugin-vue，仍带 esbuild 依赖，在钉版射程内），前端子包 web-next 的 vite 8.1.5 已改 rolldown 构建、无 esbuild 依赖，钉版对其不适用——表述按实况收紧，钉版本身与覆盖面无变化。",

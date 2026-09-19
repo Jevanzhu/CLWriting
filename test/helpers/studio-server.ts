@@ -79,7 +79,16 @@ export async function bootStudio(opts: BootStudioOptions): Promise<StudioHarness
     if (v === undefined) delete process.env[k]
     else process.env[k] = v
   }
-  const server = await startServerSafe({ port: 0, workDir, userDataPath: opts.userDataPath })
+  // vitest 5 升级批（阶段 39）：关 console 镜像——bootStudio 族的服务器到收尾期仍有
+  // PIPEWRAP 存活，迟到的 stdout 镜像落在 v5 worker 收尾窗口触发
+  // EnvironmentTeardownError（上游 vitest#11153，归因文件随机、全量随机红）；测试
+  // 断言不依赖服务器 console 输出，镜像关闭零损失（探路批两连跑 EXIT=0 实证）。
+  const server = await startServerSafe({
+    port: 0,
+    workDir,
+    userDataPath: opts.userDataPath,
+    mirrorConsoleLog: false,
+  })
   const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   const bootRes = await fetch(`${baseUrl}/api/boot`)
   const token = ((await bootRes.json()) as { token: string }).token

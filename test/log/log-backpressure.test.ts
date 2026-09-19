@@ -75,7 +75,9 @@ afterEach(() => {
 
 describe('log 落盘队列背压（D2 内存闸 2026-08-24）', () => {
   it('慢盘（appendFile 永挂起）连续写超上限：队列封顶、最旧被丢、出现告警计数', async () => {
-    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    // 告警走 process.stderr.write 直写（vitest 5 收尾窗竞态 vitest#11153，不走
+    // console API——见 src/log/index.ts 头注）
+    const errSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
     dir = mkdtempTracked(join(tmpdir(), 'clw-log-bp-'))
     hangWrites()
     initLogging({ logsDir: dir, mirrorConsole: false })
@@ -101,7 +103,7 @@ describe('log 落盘队列背压（D2 内存闸 2026-08-24）', () => {
   })
 
   it('正常盘（不挂起）：串行顺序保持、无丢弃无告警（泵化不改既有语义）', async () => {
-    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const errSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
     dir = mkdtempTracked(join(tmpdir(), 'clw-log-bp2-'))
     initLogging({ logsDir: dir, mirrorConsole: false })
     for (let i = 0; i < 50; i++) log.info('seq', `line-${i}`)

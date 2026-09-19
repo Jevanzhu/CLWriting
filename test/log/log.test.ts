@@ -117,20 +117,28 @@ describe('log 模块（A4 批 0）', () => {
     expect(existsSync(join(dir, 'not-a-log.txt'))).toBe(true) // 非日志文件不碰
   })
 
-  it('fail-open：落盘失败（目录被换成名同文件）降级 console，不抛出、队列不断', async () => {
+  it('fail-open：落盘失败（目录被换成名同文件）降级 stderr 直写，不抛出、队列不断', async () => {
     const real = mkdtempTracked(join(tmpdir(), 'clw-log-real-'))
     dir = real
     // 占坑：把目录名先占住的是普通文件——appendFile 到 <file>/x 报 ENOTDIR
     const blocked = mkdtempTracked(join(tmpdir(), 'clw-log-block-'))
     rmSync(blocked, { recursive: true, force: true })
     writeFileSync(blocked, 'not a dir')
-    vi.spyOn(console, 'error').mockImplementation(() => {})
+    // 降级走 process.stderr.write 直写（不走 console API——vitest 5 收尾窗竞态
+    // vitest#11153，见 src/log 头注）；钉「含错误码与原行」的降级面
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
     initLogging({ logsDir: blocked, mirrorConsole: false })
     expect(() => log.error('io', 'first')).not.toThrow()
     await flushLogsForTest()
+    const degraded = stderrSpy.mock.calls.map((c) => String(c[0])).filter((s) => s.includes('降级 stderr'))
+    expect(degraded).toHaveLength(1)
+    // 错误码随平台/形态（win 实测 ENOENT、posix ENOTDIR）——钉「带码 + 原行完整」
+    expect(degraded[0]).toMatch(/落盘失败（[A-Z]+）/)
+    expect(degraded[0]).toContain('"tag":"io"')
     // 第二条仍安全（队列未断、未熔断）
     expect(() => log.error('io', 'second')).not.toThrow()
     await flushLogsForTest()
+    expect(stderrSpy.mock.calls.map((c) => String(c[0])).filter((s) => s.includes('降级 stderr'))).toHaveLength(2)
     rmSync(blocked, { force: true })
   })
 

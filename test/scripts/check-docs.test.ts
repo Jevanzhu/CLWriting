@@ -51,8 +51,10 @@ describe('forbiddenPhrasesIn：实录链签名捕获', () => {
     expect(hits[0].why).toContain('git 历史')
   })
 
-  it('稳定口径句「过数实测差 68 恒定」放行（check-counts:418 依赖串）', () => {
+  it('退役口径句「过数实测差 68 恒定」不触禁表（静态口径批后仅沿革扩展形态禁）', () => {
     expect(forbiddenPhrasesIn('win 实测 = 声称值 − 差值，**过数实测差 68 恒定**；')).toHaveLength(0)
+    // 沿革扩展形态（重锚明细语料）照旧即红
+    expect(forbiddenPhrasesIn('过数实测差 68 恒定〔73 既有 + …〕')).toHaveLength(1)
   })
 })
 

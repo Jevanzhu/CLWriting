@@ -17,8 +17,12 @@
  *   fork 时经 options.env 注入，main 以 stdio:pipe 收行解析重发落盘——单写者，双进程
  *   不再同写同一 logs 目录/双清同一轮转）；短路必须在本函数（startServer 内部会再
  *   init 一次，入口层挡不住）；
- * - fail-open：单条落盘失败（磁盘满/目录被删）只降级 console.error 该条，不抛出、
- *   不熔断后续写入——诊断通道不允许成为新故障源；
+ * - fail-open：单条落盘失败（磁盘满/目录被删）只降级 stderr 直写该条，不抛出、
+ *   不熔断后续写入——诊断通道不允许成为新故障源；vitest 5 升级批（阶段 39）起
+ *   降级/背压告警改 process.stderr.write 直写（不走 console API）——测试进程里
+ *   迟到的兜底输出经 vitest console 拦截（onUserConsoleLog RPC）落进 worker
+ *   收尾窗即 EnvironmentTeardownError（上游 vitest#11153，归因文件随机）；
+ *   dev/CLI 终端 stderr 照见（可见性不变），Electron 打包态与原 console 同样无人看；
  * - 内存闸（2026-08-24 审计 D2）：落盘队列背压上限——磁盘挂起（appendFile 长期
  *   pending）时待写行不再无界累积（原 tail 链每条日志链一个闭包，慢盘下闭包线性
  *   增长）；超限丢最旧 + 周期性 warn 计数（慢盘场景内存有界优先于日志完备）；
@@ -318,12 +322,12 @@ function enqueueWrite(line: string): void {
     // 丢最旧腾位（pending 只含未落盘行，队头即最旧待写）
     state.pending.shift()
     state.droppedCount++
-    // 周期性 warn 计数：直接 console.error（不经 emit——那会回灌本队列）；与
-    // fail-open 降级同口径，不镜像开关不挡运维可见性
+    // 周期性 warn 计数：直写 stderr（不经 emit——那会回灌本队列；不走 console API
+    // ——收尾窗竞态见文件头注，vitest#11153）；与 fail-open 降级同口径
     if (Date.now() - state.lastDropWarnAt >= BACKPRESSURE_WARN_INTERVAL_MS) {
       state.lastDropWarnAt = Date.now()
-      console.error(
-        `[log] 待写队列超限（${MAX_PENDING_WRITES} 条）：磁盘写入挂起或过慢，已丢弃最旧待写行（累计 ${state.droppedCount} 条）——内存有界优先于日志完备`,
+      process.stderr.write(
+        `[log] 待写队列超限（${MAX_PENDING_WRITES} 条）：磁盘写入挂起或过慢，已丢弃最旧待写行（累计 ${state.droppedCount} 条）——内存有界优先于日志完备\n`,
       )
     }
   }
@@ -380,9 +384,10 @@ function enqueueWrite(line: string): void {
             lastDayName = dayName
             await appendFile(file, pending + '\n', 'utf8')
           } catch (e) {
-            // fail-open：落盘失败（磁盘满/目录被删）降级 console 保这条留痕可见；
+            // fail-open：落盘失败（磁盘满/目录被删）降级 stderr 直写保这条留痕可见；
             // 泵继续（catch 已吞），后续写入照常尝试。错误码随行带出（丢行可归因）。
-            console.error(`[log] 落盘失败（${e instanceof Error ? (e as NodeJS.ErrnoException).code ?? e.message : String(e)}），降级 console：${pending}`)
+            // 直写不走 console API——测试收尾窗竞态见文件头注（vitest#11153）。
+            process.stderr.write(`[log] 落盘失败（${e instanceof Error ? (e as NodeJS.ErrnoException).code ?? e.message : String(e)}），降级 stderr：${pending}\n`)
           }
         }
       } finally {

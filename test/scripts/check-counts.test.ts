@@ -11,7 +11,7 @@ import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 // @ts-expect-error —— .mjs 直跑脚本无类型声明（不为其维护 d.ts；断言口径靠用例锚定）
-import { stripComments, stripStrings, countE2eCases, findOnlyOrSkipViolations, sanitizeForCount, posixRelPath, findAssertionFreeTestFiles, missingPageErrorWiring, sharedRuntimeVersionDrift, parseWinPlatformDelta, parseLinuxPlatformDelta, problemsForWinUnitTestsClaim, walk } from '../../scripts/check-counts.mjs'
+import { stripComments, stripStrings, countE2eCases, findOnlyOrSkipViolations, sanitizeForCount, posixRelPath, findAssertionFreeTestFiles, missingPageErrorWiring, sharedRuntimeVersionDrift, walk } from '../../scripts/check-counts.mjs'
 
 describe('J0（win 适配）：posixRelPath 分隔符归一化', () => {
   it('Windows 反斜杠绝对路径归一为 posix 相对路径——R66-37 快照守卫 win 假红根因', () => {
@@ -312,74 +312,10 @@ describe('R1010c-TL-P2-2: sharedRuntimeVersionDrift 双包共享运行时对账'
   })
 })
 
-// ── R0911-G-P3-1（2026-09-11 全量重评 GLM-5.3 修复批）：win 腿单测数对账分支直测 ──
-// parseWinPlatformDelta（README「过数实测差 N 恒定」原文解析）与 win 反推失配判定
-// 此前只活在 main() 闭包里，win 腿红绿是唯一暴露通道（本地 mac 从不经过）。
-// 2026-09-17 拍板快断批：win 正则收紧「过数」前缀 + linux 分账臂（parseLinuxPlatformDelta
-// + problemsForWinUnitTestsClaim platform 参数）直测——两短语各自自证、不依赖 README 顺序。
-describe('R0911-G-P3-1：win 平台门跳过量解析（README 唯一真相源的就地解析）', () => {
-  it('标准表述 → 解析出数字', () => {
-    expect(parseWinPlatformDelta('…win 实跑口径：… 过数实测差 75 恒定〔73 既有 + …〕')).toBe(75)
-    expect(parseWinPlatformDelta('过数实测差 1 恒定')).toBe(1)
-  })
-  it('空白容忍（多空格）照解析；无该口径 / 非数字 → null（调用方 fail-closed 报红）', () => {
-    expect(parseWinPlatformDelta('过数实测差  42  恒定')).toBe(42)
-    expect(parseWinPlatformDelta('README 里没有这个口径')).toBe(null)
-    expect(parseWinPlatformDelta('过数实测差 恒定')).toBe(null)
-    expect(parseWinPlatformDelta('')).toBe(null)
-  })
-  it('裸「实测差 N 恒定」与 linux 短语均不含「过数」前缀 → null（2026-09-17 收紧消歧）', () => {
-    expect(parseWinPlatformDelta('实测差 75 恒定')).toBe(null)
-    expect(parseWinPlatformDelta('linux 实测差 4 恒定')).toBe(null)
-  })
-})
-
-describe('2026-09-17 拍板快断批：linux 平台门跳过量解析（镜像 win 臂，台账 §三 G 销案）', () => {
-  it('标准表述 → 解析出数字；空白容忍', () => {
-    expect(parseLinuxPlatformDelta('…linux 实测差 4 恒定〔darwin 门 1 + linux 门 3〕')).toBe(4)
-    expect(parseLinuxPlatformDelta('linux 实测差  7  恒定')).toBe(7)
-  })
-  it('win 短语不误命中；无该口径 / 非数字 → null（fail-closed）', () => {
-    expect(parseLinuxPlatformDelta('过数实测差 64 恒定')).toBe(null)
-    expect(parseLinuxPlatformDelta('README 里没有这个口径')).toBe(null)
-    expect(parseLinuxPlatformDelta('linux 实测差 恒定')).toBe(null)
-    expect(parseLinuxPlatformDelta('')).toBe(null)
-  })
-})
-
-describe('R0911-G-P3-1：win 单测数反推失配判定（期望 win = 声称 − 平台门差）', () => {
-  it('实测恰等于反推期望 → 无失配', () => {
-    expect(problemsForWinUnitTestsClaim(6725, 75, 6650, '徽章单测数')).toEqual([])
-  })
-  it('win 实测偏少（收集丢失方向）→ 一条人话失配，含期望值与修账指引', () => {
-    const problems = problemsForWinUnitTestsClaim(6725, 75, 6640, '徽章单测数')
-    expect(problems).toHaveLength(1)
-    expect(problems[0]).toContain('期望 win 6650')
-    expect(problems[0]).toContain('实测 win 6640')
-    expect(problems[0]).toContain('实测差 N 恒定')
-  })
-  it('win 实测偏多（README 漂移方向，如新增 skipIf 用例未修账）→ 同样红', () => {
-    const problems = problemsForWinUnitTestsClaim(6725, 75, 6660, 'npm test 单测数')
-    expect(problems).toHaveLength(1)
-    expect(problems[0]).toContain('README 漂移或 win 侧收集丢失')
-  })
-  it('delta=0（无平台门差）退化为严格相等判定', () => {
-    expect(problemsForWinUnitTestsClaim(100, 0, 100, 'x')).toEqual([])
-    expect(problemsForWinUnitTestsClaim(100, 0, 99, 'x')).toHaveLength(1)
-  })
-  it('2026-09-17 拍板快断批：platform 参 linux 臂——换腿不换形，win 默认消息不变', () => {
-    expect(problemsForWinUnitTestsClaim(7408, 4, 7404, '徽章单测数', 'linux')).toEqual([])
-    const problems = problemsForWinUnitTestsClaim(7408, 4, 7399, '徽章单测数', 'linux')
-    expect(problems).toHaveLength(1)
-    expect(problems[0]).toContain('期望 linux 7404')
-    expect(problems[0]).toContain('实测 linux 7399')
-    expect(problems[0]).toContain('mac 口径')
-    expect(problems[0]).toContain('linux 实测差 N 恒定')
-    // win 默认（不传 platform）消息保持既有口径，不回归
-    const winProblems = problemsForWinUnitTestsClaim(6725, 75, 6640, '徽章单测数')
-    expect(winProblems[0]).toContain('期望 win 6650')
-  })
-})
+// vitest 5 升级批（阶段 39）：win/linux 平台门差值解析与分账反推判定直测组
+//（parseWinPlatformDelta / parseLinuxPlatformDelta / problemsForWinUnitTestsClaim，
+// 原 R0911-G-P3-1 + 2026-09-17 拍板快断批共 10 例）随静态口径废除一并移除——
+// v5 list 静态抽取全平台同数，README 单测数回归四腿同一直读对账，无分账面可测。
 
 // ── 0918独立重评修复批（D005）：walk symlink 防护 ──────────────────────────────
 // 此前 walk 以 statSync 跟随 symlink + isDirectory 递归：目录环 symlink（a→b→a）令

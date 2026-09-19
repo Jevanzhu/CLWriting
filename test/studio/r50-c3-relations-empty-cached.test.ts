@@ -109,7 +109,7 @@ describe('R50-C-3：/relations/mine 空产出 → cached:false（非缓存命中
     const hit = await post(`/api/books/${encodeURIComponent(BOOK)}/relations/mine`, {})
     expect(hit.status).toBe(200)
     expect((hit.json as { cached: boolean }).cached).toBe(true)
-    // 累计两次（本测 force 梳理一次）——缓存命中未再跑 AI
-    expect(runSpecMock).toHaveBeenCalledTimes(2)
+    // 本用例内一次（vitest 5 用例间重置 mock 调用计数，不再跨用例累计）——缓存命中未再跑 AI
+    expect(runSpecMock).toHaveBeenCalledTimes(1)
   })
 })

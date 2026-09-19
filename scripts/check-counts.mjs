@@ -8,7 +8,10 @@
  *
  * 统计口径：
  * - 单测文件：test 目录下全部 *.test.ts（不含 e2e 的 *.spec.ts）
- * - 单测用例：`vitest list --json` 全量枚举（不执行，秒级）
+ * - 单测用例：`vitest list --json` 全量静态枚举（不执行，秒级）——vitest 5 起为静态
+ *   抽取：数声明不数执行（模板标题不求值、循环产用例按调用点计 1），平台门用例
+ *   全计，win/mac/linux 三腿同一数对账（作者拍板静态口径；此前 v3 list 为运行时收集、
+ *   各平台计数不同，须以「win = mac − N」差值锚分账反推——该机制随 v5 静态化废除）
  * - e2e spec：test/e2e 目录下 *.spec.ts 文件数
  * - e2e 用例：spec 文件内 `test(`/`test.serial(`/`test.describe(` 顶层调用静态计数
  *   （playwright 无 list --json，静态计数足够当门禁——漂移即失配）
@@ -404,53 +407,11 @@ export function sharedRuntimeVersionDrift(rootLockPackages, webLockPackages, pkg
   return drift
 }
 
-/**
- * R0910-W（2026-09-10）：从 README「开发」节解析 win 实跑口径相对 mac/linux 口径的
- * 平台门跳过量。该节表述形如「…win 实跑口径：… 过数实测差 75 恒定〔73 既有 + …〕」——
- * win 上 skipIf(win32) 平台门用例不进 vitest list 收集，win 实测值 = mac/linux 声称值
- * − 该差值。README 是该口径的唯一真相源，故就地从原文解析，不在脚本另立硬编码常量
- * （消除双真相源分叉）。解析失败返回 null，调用方 fail-closed（不静默退回旧「跳过」）。
- * 2026-09-17 拍板快断批：正则收紧为「过数实测差」前缀——与新增 linux 分账短语
- * 「linux 实测差 N 恒定」（parseLinuxPlatformDelta）消歧，两短语各自自证、不依赖
- * README 出现顺序；裸「实测差 N 恒定」不再命中（直测负例钉死）。
- */
-export function parseWinPlatformDelta(readme) {
-  const m = readme.match(/过数实测差\s*(\d+)\s*恒定/)
-  return m ? Number(m[1]) : null
-}
-
-/**
- * 2026-09-17 拍板快断批（台账 §三 G「单数徽章 mac/linux 两腿口径矛盾」销案）：linux
- * 腿分账差量解析——镜像 win 臂机制，README 短语「linux 实测差 4 恒定」。差量构成 =
- * darwin 门 1 例（books-guard #37，skipIf(!darwin) 仅 darwin 收集）+ linux 门 3 例
- * （r41-join-keys ×1 + r42-join-fold ×2，skipIf(linux) 在 linux 不收集），四处均经
- * mac 侧 vitest list 逐一在册实证；linux 实测值 = mac 基准声称值 − 该差值。解析失败
- * 返回 null，调用方 fail-closed（与 win 臂同款，不静默跳过）。
- */
-export function parseLinuxPlatformDelta(readme) {
-  const m = readme.match(/linux 实测差\s*(\d+)\s*恒定/)
-  return m ? Number(m[1]) : null
-}
-
-/**
- * R0911-G-P3-1（2026-09-11 全量重评 GLM-5.3 修复批）：win 腿单测数对账的失配判定
- * 纯函数化——原逻辑内联在 main() 的 claimUnitTests 闭包里（README 声称值 − 平台门
- * 跳过量反推期望 win 实测），win 分支此前零直测、基线零实跑背书（win CI 腿红绿是
- * 唯一暴露通道）。语义零变化：期望 win = claimed − delta，不等即一条人话失配
- *（含 README 漂移与 win 侧收集丢失两个方向 + 修账指引）；相等返回空。
- */
-export function problemsForWinUnitTestsClaim(claimed, delta, actualWin, label, platform = 'win') {
-  const expected = claimed - delta
-  if (expected === actualWin) return []
-  return [
-    `${label}（${platform} 口径）：README 声称 ${claimed}（${platform === 'win' ? 'mac/linux' : 'mac'} 口径），平台门差 ${delta} → ` +
-      `期望 ${platform} ${expected}，实测 ${platform} ${actualWin}（README 漂移或 ${platform} 侧收集丢失）。` +
-      `请按实测修 README（若为新增/移除 skipIf 平台门用例，同步修「开发」节的「${platform === 'win' ? '过数' : 'linux '}实测差 N 恒定」）。`,
-  ]
-}
-
 // 门禁主体收进 main() + 直跑守卫：node 直跑本文件（npm run check:counts）时执行；
 // 被测试 import（R63-12 直测纯函数）时不触发 vitest list / process.exit 副作用
+// vitest 5 升级批（阶段 39）：win/linux 平台门差值解析（parseWinPlatformDelta /
+// parseLinuxPlatformDelta）与单测数分账反推判定（problemsForWinUnitTestsClaim）
+// 随静态口径废除整体删除——v5 list 静态抽取全平台同数，单测数退化为直读对账。
 function main() {
   const unitFiles = walk(join(root, 'test'), (n) => n.endsWith('.test.ts'))
   const e2eSpecs = walk(join(root, 'test', 'e2e'), (n) => n.endsWith('.spec.ts'))
@@ -564,55 +525,11 @@ function main() {
   // 斜杠/逗号的一种精确排印，README 排版微调即模式失配→假红（fail-closed 方向没错，
   // 但把排版差异当数字失真红太脆）；语义锚（短语 + 数字位置）不变，真失配/真缺行仍红。
   const PH = (inner) => `[（(]${inner}[)）]`
-  // J0（win 适配，2026-08-28 本机实测）：README 单测数为 macOS/Linux 口径——win 上 J3
-  // 的 skipIf(win32) 平台门用例不进 vitest list 收集（实测 4066→4010，差属预期非丢失）。
-  // R0910-W（2026-09-10）：此前 win 腿整段跳过单测数对账 → README 头号数字（6525）在
-  // 出货平台 Windows 上从未被验证。现 win 腿从「跳过」升级为「按 README 声称值 − 平台门
-  // 跳过量反推核对」：delta 就地解析 README「实测差 N 恒定」原文（README = 唯一真相源），
-  // win 实测 + delta 必须等于 README 声称值，否则红（README 漂移 / win 侧真丢收集都拦）；
-  // 文件数与 e2e spec/用例数照旧为平台不变量、两腿同对账。
-  // fail-closed：README 未记载 delta / 解析失败时，win 腿报人话并红——绝不退回「静默跳过」。
-  // 2026-09-17 拍板快断批（台账 §三 G「单数徽章 mac/linux 两腿口径矛盾」销案）：linux
-  // 腿从与 mac 共用单数断言改为镜像 win 的分账反推——树内 darwin 门 1 例 + linux 门
-  // 3 例使 linux 收集口径 = mac 声称 − 4，此前 mac/linux 共断言时 linux 腿必红 4
-  // （ci.yml 仅 main 触发、三线分支零实跑故未暴露）。mac/darwin 腿仍精确断言不变。
-  const isWin = process.platform === 'win32'
-  const isLinux = process.platform === 'linux'
-  const platform = isWin ? 'win' : isLinux ? 'linux' : ''
-  const platformDelta = isWin
-    ? parseWinPlatformDelta(readme)
-    : isLinux
-      ? parseLinuxPlatformDelta(readme)
-      : 0
-  let platformDeltaMissingReported = false
-  const claimUnitTests = (pattern, label) => {
-    if (!platform) {
-      claim(pattern, actual.unitTests, label)
-      return
-    }
-    if (platformDelta === null) {
-      if (!platformDeltaMissingReported) {
-        platformDeltaMissingReported = true
-        mismatch.push(
-          `README 缺少 ${platform} 平台门跳过量（模式 ` +
-            (isWin ? '/过数实测差\\s*(\\d+)\\s*恒定/' : '/linux 实测差\\s*(\\d+)\\s*恒定/') +
-            ' 未命中 README「开发」节）——' +
-            `${platform} 腿无法反推单测数期望值（${platform} 实测 ${actual.unitTests}）。` +
-            `请在「开发」节补「${isWin ? '过数' : 'linux '}实测差 N 恒定」口径。`,
-        )
-      }
-      return
-    }
-    const m = readme.match(pattern)
-    if (!m) {
-      mismatch.push(`README 缺少「${label}」声称值（模式失配：${pattern}）——${platform} 实测 ${actual.unitTests}`)
-      return
-    }
-    // 平台腿期望 = README 声称（mac/linux 基准口径）− 平台门跳过量（R0911-G-P3-1 抽出
-    // 直测；2026-09-17 拍板快断批 platform 参数化覆盖 linux 臂，win 消息逐字节不变）
-    const claimed = Number(m[1])
-    mismatch.push(...problemsForWinUnitTestsClaim(claimed, platformDelta, actual.unitTests, label, platform))
-  }
+  // vitest 5 升级批（阶段 39）：单测数对账回归四腿同一直读断言——v5 list 静态抽取
+  // 全平台同数，win/linux 差值分账臂（J0 win 适配 → R0910-W 分账反推 → 2026-09-17
+  // 拍板快断批 linux 分账的三段演变）随静态口径终局废除；README「开发」节相应
+  // 改写为静态口径（「过数/linux 实测差 N 恒定」句删除）。仅剩参数序适配。
+  const claimUnitTests = (pattern, label) => claim(pattern, actual.unitTests, label)
   // 徽章：tests-2937%20all%20green（示例为 2026-08-23 当前值，实际以 README 为准）
   claimUnitTests(/badge\/tests-(\d+)%20all%20green/, '徽章单测数')
   // 「npm test                   # 2937 单测」
