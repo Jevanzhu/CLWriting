@@ -40,7 +40,7 @@ jobs:
       # G406（0918四轮修复批）：第三方 action 全量改 commit SHA 钉版（尾注 # v4 保留主版本
       # 可读性；SHAs 与 ci.yml 同批实取、git ref 与 commit 端点双源核验）——浮动 major
       # tag 指向可被上游移动的供应链面，见 ci.yml 同注。
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
