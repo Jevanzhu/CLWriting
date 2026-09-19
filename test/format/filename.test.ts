@@ -139,9 +139,10 @@ describe('chapterNoFromName 章号提取（单一真相源）', () => {
     expect(chapterNoFromName('1-标题.md')).toBe(1)
     expect(chapterNoFromName('5—标题.md')).toBe(5)
     expect(chapterNoFromName('5 标题.md')).toBe(5)
-    // `$` 备选只对裸数字名（无扩展名）成立；`5.md` 数字后是 `.` 非分隔符 → null
-    //（tree 原口径一致——正文文件恒带 .md，裸数字名现实不存在，防误读钉住该边界）
-    expect(chapterNoFromName('5.md')).toBeNull()
+    // 阶段 36 单源扩集（R1010c-EN-P2-1 拍板 B 档）：.md 扩展名单源内剥——裸数字名
+    // 与 tree stripMd / 取号下限 / 定稿章号集三族自带剥的消费方拉齐；大写 .MD 同剥
+    expect(chapterNoFromName('5.md')).toBe(5)
+    expect(chapterNoFromName('5.MD')).toBe(5)
     expect(chapterNoFromName('5')).toBe(5)
   })
 
@@ -149,5 +150,8 @@ describe('chapterNoFromName 章号提取（单一真相源）', () => {
     expect(chapterNoFromName('副本-001.md')).toBeNull()
     expect(chapterNoFromName('设定-x.md')).toBeNull()
     expect(chapterNoFromName('2023年度盘点-备份.md')).toBeNull() // 数字后直接接汉字非分隔符
+    // 仅剥尾部 .md：多点形态与非 md 尾缀不剥（剥后数字后非分隔符 → null）
+    expect(chapterNoFromName('005.tar.md')).toBeNull()
+    expect(chapterNoFromName('5.md.bak')).toBeNull()
   })
 })

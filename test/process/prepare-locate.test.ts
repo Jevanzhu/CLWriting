@@ -76,10 +76,12 @@ test('S2 反向锚定：连字符 `150-前章.md` 既有行为不变', () => {
   rmSync(root, { recursive: true, force: true })
 })
 
-test('S2 反向锚定：裸数字 `150.md` 维持不识别（chapterNoFromName 既有契约）', () => {
+test('S2 正向锚定：裸数字 `150.md` 扩集后同收（阶段 36 单源扩集，原反向锚定随拍板翻向）', () => {
   const { root, db } = makeBook()
   writeCh150(root, '150.md')
-  expect(sectionOf(root, db)).toBeUndefined()
+  const sec = sectionOf(root, db)
+  expect(sec).toBeDefined()
+  expect(sec!.content).toContain('【第150章正文结尾】')
   db.close()
   rmSync(root, { recursive: true, force: true })
 })

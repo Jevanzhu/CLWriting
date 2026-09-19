@@ -174,6 +174,18 @@ describe('resolveDraftPath W-P2-2 改名旁路防护', () => {
     expect(() => resolveDraftPath(bookRoot, 3)).toThrow(/已定稿/)
   })
 
+  it('清单挂裸数字定稿名（003.md，文件不在盘）→ 扩集后按章号拦截覆盖写', () => {
+    // 阶段 36 单源扩集收口面：定稿条目 path 为裸数字名（定稿章经并入/回收后文件已
+    // 不在盘——对齐 split-finalized-bare-name-skip 用例造态），盘面另有同章号新稿。
+    // 守卫只在「盘面已有同章号」分支触发，走精确 path 分支不中（条目 path ≠ 写入
+    // path）；扩集前章号分支 chapterNoFromName('003.md') = null 失明 → 覆盖放行；
+    // 扩集后剥 .md 认 3 → 拦截（篇号复用防线对裸数字定稿名同样收口）
+    writeChapter(bookRoot, 3, '重写中') // 盘面同章号新稿（未定稿，fm 章号 3）
+    markFinalized(bookRoot, '写作/正文/003.md') // 定稿条目挂裸数字名，文件不在盘
+
+    expect(() => resolveDraftPath(bookRoot, 3)).toThrow(/已定稿/)
+  })
+
   it('邻近章号定稿不受牵连：005 定稿不影响写 006', () => {
     const five = writeChapter(bookRoot, 5, '第五章')
     markFinalized(bookRoot, five)

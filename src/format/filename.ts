@@ -142,7 +142,16 @@ export function isMdFileName(name: string): boolean {
  *  同口径，语义对齐、正则分立维持——words 版须 `-标题` 严格形且零 Node 依赖供浏览器
  *  import，不并）。 */
 export function chapterNoFromName(name: string): number | null {
-  const m = /^(\d+)(?:[-—]|\s|$)/.exec(name)
+  // 阶段 36（R1010c-EN-P2-1 拍板落地，B 档单源扩集）：先剥 .md 扩展再匹配。裸数字名
+  // （0012.md）此前仅三族消费方自带剥扩展认得（tree stripMd / health 取号下限 /
+  // finalizedChapterNumbers 双实现，B005 批），带全名直传的 summary·leads·foreshadow·
+  // finalize·draft-path 五处失明，同一文件名口径分裂（对表 test/process/
+  // chapter-no-callshape.test.ts）。剥扩展入单源后全消费方拉齐；三族自带剥成幂等
+  // 冗余保留不动（零行为面）；words.ts parseChapterFileName 严格形分立维持（浏览器
+  // 侧零 Node 依赖，R64-20 同口径）。仅剥尾部 .md（isMdFileName 大小写不敏感）——
+  // 多点形态（005.tar.md 剥后 005.tar → null）与非 md 扩展（5.md.bak → null）不认。
+  const stem = isMdFileName(name) ? name.slice(0, -3) : name
+  const m = /^(\d+)(?:[-—]|\s|$)/.exec(stem)
   if (!m) return null
   const no = Number(m[1])
   return Number.isSafeInteger(no) ? no : null
