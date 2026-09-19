@@ -170,12 +170,18 @@ export function denyFs(targets: string | readonly string[], opts: FsDenyOptions 
     }
   }
   const realFs = createRequire(import.meta.url)('node:fs') as typeof import('node:fs')
-  const saved = list.map((t) => ({ t, mode: realFs.statSync(t).mode & 0o777 }))
+  // 嵌套目标（父目录+子路径同时拒绝，如 H501 拒 bookRoot 及其父）时 chmod 的路径遍历
+  // 依赖祖先 +x：deny 须深先（chmod 子路径时父尚未锁），restore 须浅先（解锁任何路径
+  // 前其祖先须已还原）——按路径深度定序，与传入顺序解耦；平坦目标集排序为恒等。
+  const depth = (p: string): number => p.split(sep).length
+  const saved = list
+    .map((t) => ({ t, mode: realFs.statSync(t).mode & 0o777 }))
+    .sort((a, b) => depth(b.t) - depth(a.t))
   const denyMode = opts.posixMode ?? 0o000
   for (const s of saved) realFs.chmodSync(s.t, denyMode)
   return {
     restore() {
-      for (const s of saved) realFs.chmodSync(s.t, s.mode)
+      for (const s of [...saved].reverse()) realFs.chmodSync(s.t, s.mode)
     },
   }
 }

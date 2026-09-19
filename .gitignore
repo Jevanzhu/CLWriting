@@ -45,6 +45,6 @@ Dev/参考项目
 /src/studio/web-next/test-results/
 
 # 项目级私有备忘
-CLAUDE.md
-AGENTS.md
+#CLAUDE.md
+#AGENTS.md
 CHANGELOG.md
