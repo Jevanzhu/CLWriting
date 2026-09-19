@@ -58,7 +58,7 @@
     "electron": "^42.5.0",
     "electron-builder": "^26.15.3",
     "eslint": "^10.9.1",
-    "happy-dom": "^20.10.6",
+    "happy-dom": "^20.14.5",
     "pinia": "^3.0.4",
     "tsup": "^8.0.0",
     "tsx": "^4.22.4",
