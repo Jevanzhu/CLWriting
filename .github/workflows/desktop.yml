@@ -276,13 +276,17 @@ jobs:
       # mac-arm64//mac-x64 或 mac//mac-x64，glob 通吃且零命中时循环变量为字面串、
       # test -x 必红，fail-closed 保留）；x64 包在 arm64 runner 上经 Rosetta 2 运行
       #（GitHub Apple Silicon runner 预装）；任一包红即步红，两包全过才绿。
+      # 阶段 49 附批（bash 3.2 定界约束）：macOS runner 缺省 /bin/bash 为 3.2（无多字节
+      # locale 支持），`$VAR` 后紧跟多字节字符（如全角括号）时高字节会被并入变量名扫描、
+      # set -u 下按未定义变量中止（tag v1.0.0-rc.0 首跑实录）——冒烟步内 `$VAR` 后接
+      # 多字节字符一律花括号定界（既有 `$APP_BIN"` 引号定界形态不受影响）。
       - name: Electron 启动冒烟（打包态 .app 拉起，双 arch 逐包）
         if: runner.os == 'macOS'
         run: |
           set -eu
           for APP_BIN in dist-electron/mac*/CLWriting.app/Contents/MacOS/CLWriting; do
             test -x "$APP_BIN" || { echo "::error::未找到打包态可执行体：$APP_BIN"; exit 1; }
-            echo "== 冒烟包：$APP_BIN（x64 包经 Rosetta 2 运行）=="
+            echo "== 冒烟包：${APP_BIN}（x64 包经 Rosetta 2 运行）=="
             ELECTRON_ENABLE_LOGGING=1 "$APP_BIN" >/tmp/clw-electron-smoke.log 2>&1 &
             PID=$!
             i=0
@@ -334,7 +338,7 @@ jobs:
           set -eu
           for APP_BIN in dist-electron/mac*/CLWriting.app/Contents/MacOS/CLWriting; do
             test -x "$APP_BIN" || { echo "::error::未找到打包态可执行体：$APP_BIN"; exit 1; }
-            echo "== window-cycle 冒烟包：$APP_BIN（x64 包经 Rosetta 2 运行）=="
+            echo "== window-cycle 冒烟包：${APP_BIN}（x64 包经 Rosetta 2 运行）=="
             CLW_SMOKE_APP_BIN="$APP_BIN" npm run smoke:electron
           done
       # 五轮重评修复批（H101）：packaged-app-smoke 接线——此前是零调用方死 spec：env 门
@@ -351,7 +355,7 @@ jobs:
           set -eu
           for APP_BIN in dist-electron/mac*/CLWriting.app/Contents/MacOS/CLWriting; do
             test -x "$APP_BIN" || { echo "::error::未找到打包态可执行体：$APP_BIN"; exit 1; }
-            echo "== packaged-app-smoke 包：$APP_BIN（x64 包经 Rosetta 2 运行）=="
+            echo "== packaged-app-smoke 包：${APP_BIN}（x64 包经 Rosetta 2 运行）=="
             CLWRITING_E2E_RELEASE=1 CLWRITING_E2E_APP_BIN="$APP_BIN" npx playwright test test/e2e/packaged-app-smoke.spec.ts
           done
       # J0：win 腿同款启动冒烟——便携 zip 产物不解包，拉起 win-unpacked/ 内可执行体（与 .app
