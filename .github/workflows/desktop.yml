@@ -60,21 +60,6 @@ jobs:
         run: npm audit --audit-level=high
       - name: 依赖漏洞扫描（npm audit ≥high，web-next 子包）
         run: npm --prefix src/studio/web-next audit --audit-level=high
-      # 五轮重评修复批（H103）：观察档到期硬锚——原守本文件 + ci.yml audit 四门与下方
-      # G403 win 腿 e2e/release-smoke 双观察档的「连续绿后翻 blocker/连续 3 次绿翻阻断」
-      # 承诺；audit 四门已随清链批翻正，本锚现守 G403 双观察档。过期仍挂观察即红
-      #（fail-closed 强制复盘：翻正撤 continue-on-error 后本步随锚一并删除，或有意
-      # 延期则修订锚日并批注缘由）。
-      - name: 观察档到期断言（过期未翻阻断即红）
-        shell: bash
-        run: |
-          EXPIRY=2026-10-31
-          TODAY=$(date +%Y-%m-%d)
-          if [[ "$TODAY" > "$EXPIRY" ]]; then
-            echo "::error::观察档已到期（锚日 ${EXPIRY}）：win 腿 e2e·release-smoke 观察档仍挂 continue-on-error 未翻阻断（audit 四门已翻正不在守面）——先复盘翻正（或修订锚日并批注缘由）再重跑"
-            exit 1
-          fi
-          echo "观察档未到期（${TODAY} ≤ ${EXPIRY}）"
       # R0916-6-P2-3（2026-09-16 全库源码重评五轮修复批）：tag 名 ↔ package.json version
       # 一致性门——工作流以 tags: ['v*'] 触发，此前出包前无任何步骤校验两者一致：打 tag
       # v1.0.0 忘 bump version 时，electron-builder 产物名写旧版本（package.json 的
@@ -183,10 +168,10 @@ jobs:
       # 出包；复用上方已装 chromium（test:e2e 自带 build:web 前置）。coverage 阈值门
       # 仍留分支 CI（阈值门管代码演化趋势，非发布物属性，注释记档口径）。
       - name: 常规 e2e（build:web + playwright test）
-        if: runner.os == 'macOS'  # G403 后 mac 腿照旧（D5/J0 注记沿革，win 腿见下方观察档步）
+        if: runner.os == 'macOS'  # G403 后 mac 腿照旧（D5/J0 注记沿革；win 腿同款两步见下方，阶段 46 已翻阻断）
         run: npm run test:e2e
       - name: 发布冒烟（release-smoke，build:all + 编译产物起服）
-        if: runner.os == 'macOS'  # G403 后 mac 腿照旧（D5/J0 注记沿革，win 腿见下方观察档步）
+        if: runner.os == 'macOS'  # G403 后 mac 腿照旧（D5/J0 注记沿革；win 腿同款两步见下方，阶段 46 已翻阻断）
         run: npm run test:e2e:release
       # G403（0918四轮修复批）：出货平台 Windows 的 e2e/release-smoke CI 覆盖——此前 win
       # 腿只跑门禁步 + build:desktop + 打包态冒烟，test:e2e / test:e2e:release 双零覆盖
@@ -197,20 +182,19 @@ jobs:
       #（双 npm ci + 门禁步 + build:desktop + 冒烟）估 ~30min，叠 e2e（build:web + 33
       # spec 串行）+ release-smoke（build:all + 2 用例）≈ +8min，预算内；首跑若触顶再校准
       #（参照 ci.yml e2e job 同链 25min 预算）。
-      # 首期 continue-on-error 观察档：win runner 上 e2e 稳定性未知（首次接线，win 腿
-      # npm test 收尾竞态族在先），红只留痕不阻断出包；连续 3 次绿后撤标志翻阻断
-      #（四轮-G403）。trace 工件本期不接（failure() 在 continue-on-error 步红下不触发，
-      # 排障走步日志；翻阻断时随标志撤销一并补）。
+      # G403 观察档收口（阶段 46 翻正批）：首期 continue-on-error 观察档撤除翻阻断——
+      # win runner 上 e2e·release-smoke 连续 3 次绿达成（Desktop dispatch 二/五/六轮
+      # 实录：run 35455818028·35458683520·35460424950，win 腿两步逐轮双绿），承诺兑现。
+      # 途中两修单：42（mac 冒烟 timeout 可移植性）/ 45（win exe 冒烟终检 Select-String
+      # 管道语义 + 窗 120s）。trace 工件随标志撤销一并接 win 腿（failure() 对阻断步生效）。
       - name: 常规 e2e（win 腿，build:web + playwright test）
         if: runner.os == 'Windows'
-        continue-on-error: true # 首期观察档：win runner 上 e2e 稳定性待观察，连续 3 次绿后撤标志翻阻断（四轮-G403）
         run: npm run test:e2e
       - name: 发布冒烟（win 腿，release-smoke，build:all + 编译产物起服）
         if: runner.os == 'Windows'
-        continue-on-error: true # 首期观察档：win runner 上 e2e 稳定性待观察，连续 3 次绿后撤标志翻阻断（四轮-G403）
         run: npm run test:e2e:release
       - name: 上传 playwright trace（失败时）
-        if: failure() && runner.os == 'macOS'
+        if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: playwright-trace-desktop
