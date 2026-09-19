@@ -20,14 +20,23 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
-// 可控开关（vi.mock 工厂提升作用域——vi.hoisted 共享可变槽位）
-const safeState = vi.hoisted(() => ({ available: true, failDecrypt: false }))
+// 可控开关（vi.mock 工厂提升作用域——vi.hoisted 共享可变槽位）；
+// calls 计数（v1.0.0-rc.0 发布修复批）：守卫用例断言「翻译态早退不触任何 safeStorage
+// 调用」——三个入口（isEncryptionAvailable/encryptString/decryptString）各计一槽
+const safeState = vi.hoisted(() => ({ available: true, failDecrypt: false, calls: { avail: 0, enc: 0, dec: 0 } }))
 
 vi.mock('electron', () => ({
   safeStorage: {
-    isEncryptionAvailable: () => safeState.available,
-    encryptString: (plainText: string) => Buffer.from(`enc:${plainText}`, 'utf8').toString('base64'),
+    isEncryptionAvailable: () => {
+      safeState.calls.avail += 1
+      return safeState.available
+    },
+    encryptString: (plainText: string) => {
+      safeState.calls.enc += 1
+      return Buffer.from(`enc:${plainText}`, 'utf8').toString('base64')
+    },
     decryptString: (encrypted: Buffer) => {
+      safeState.calls.dec += 1
       if (safeState.failDecrypt) throw new Error('Keychain 访问被拒绝（假件）')
       const raw = encrypted.toString('utf8')
       if (!raw.startsWith('enc:')) throw new Error('bad ciphertext（假件形态）')
@@ -36,13 +45,14 @@ vi.mock('electron', () => ({
   },
 }))
 
-import { loadOrGenerateOsKek } from '../../src/desktop/os-kek.js'
+import { isRosettaTranslated, loadOrGenerateOsKek } from '../../src/desktop/os-kek.js'
 
 const dirs: string[] = []
 
 beforeEach(() => {
   safeState.available = true
   safeState.failDecrypt = false
+  safeState.calls = { avail: 0, enc: 0, dec: 0 }
 })
 
 afterAll(() => {
@@ -227,5 +237,52 @@ describe('KEK v2：loadOrGenerateOsKek 装置', () => {
     expect(loadOrGenerateOsKek(ud)).toBeNull()
     safeState.available = true
     expect(Buffer.compare(loadOrGenerateOsKek(ud)!, first)).toBe(0)
+  })
+})
+
+describe('Rosetta 翻译态守卫（v1.0.0-rc.0 发布修复批）', () => {
+  it('isRosettaTranslated 判据表：x64+任一 arm64 机型目录 → true；x64+Intel（无目录）→ false；arm64 原生（目录在）→ false', () => {
+    // x64 进程 + /System/…/Rosetta 在（arm64 机型标志）→ 翻译态
+    expect(
+      isRosettaTranslated({
+        arch: () => 'x64',
+        exists: (p) => p === '/System/Library/CoreServices/Rosetta',
+      }),
+    ).toBe(true)
+    // x64 进程 + 仅 /Library/Apple/usr/share/rosetta 在（备用路径同判）→ 翻译态
+    expect(
+      isRosettaTranslated({
+        arch: () => 'x64',
+        exists: (p) => p === '/Library/Apple/usr/share/rosetta',
+      }),
+    ).toBe(true)
+    // x64 进程 + 两路径皆无 → Intel 机型原生运行，不拦（Keychain 通道保持）
+    expect(isRosettaTranslated({ arch: () => 'x64', exists: () => false })).toBe(false)
+    // arm64 进程 + 目录在（arm64 Mac 常态）→ 原生进程，不拦
+    expect(isRosettaTranslated({ arch: () => 'arm64', exists: () => true })).toBe(false)
+  })
+
+  it('翻译态 → null 回落、不落文件、不触任何 safeStorage 调用（守卫须先于死锁点）+ warn 留痕', () => {
+    const ud = setup()
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      expect(loadOrGenerateOsKek(ud, { isRosetta: () => true })).toBeNull()
+      expect(existsSync(join(ud, 'os-kek.json'))).toBe(false)
+      // 死锁点证明：isEncryptionAvailable/encryptString/decryptString 任一被调即可能挂
+      //（实证栈是 SecItemAdd 写路径，但三入口同经 Security 框架，全零才是安全断言）
+      expect(safeState.calls).toEqual({ avail: 0, enc: 0, dec: 0 })
+      expect(warnSpy.mock.calls.some(([line]) => String(line).includes('Rosetta'))).toBe(true)
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('非翻译态（isRosetta false）→ 正常生成通道不变（守卫不误伤）', () => {
+    const ud = setup()
+    const kek = loadOrGenerateOsKek(ud, { isRosetta: () => false })
+    expect(kek).not.toBeNull()
+    expect(kek!.length).toBe(32)
+    expect(existsSync(join(ud, 'os-kek.json'))).toBe(true)
+    expect(safeState.calls.avail + safeState.calls.enc).toBeGreaterThan(0)
   })
 })

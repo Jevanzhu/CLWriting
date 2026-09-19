@@ -17,6 +17,9 @@
  * 五轮重评修复批（D101）：③丢失形态同判——文件**缺失**且 providers.json 持 v2 vault
  * 同样不重建（原直达生成路径静默顶替，跨机迁移场景误导用户重配 key 致可恢复凭据
  * 永久丢失；对称面收口）。
+ * v1.0.0-rc.0 发布修复批（Rosetta 死锁）：④翻译态守卫——x64 包在 arm64 机型经
+ * Rosetta 运行时 safeStorage 首访（SecItemAdd 写 Keychain）在 securityd 授权 UI
+ * 路径上同步死锁（无 UI 会话永不回，主进程阻塞于启动链），整面提前回落 null。
  */
 import { safeStorage } from 'electron'
 import { randomBytes } from 'node:crypto'
@@ -33,6 +36,39 @@ interface OsKekDisk {
   sealed: string
 }
 
+/** 翻译态探针依赖（可注入测试假件；缺省真件 = process.arch + existsSync） */
+export interface RosettaProbeDeps {
+  arch: () => string
+  exists: (p: string) => boolean
+}
+
+/**
+ * Rosetta 翻译态判定（v1.0.0-rc.0 发布修复批）：x64 进程跑在 arm64 机型上。
+ *
+ * 死锁机理（x64 dmg 在 arm64 Mac/CI 冒烟实证，sample 主线程栈）：
+ * `-[NSApplication run]` → source0（启动任务）→ … → `SecItemAdd` →
+ * `StorageManager::makeLoginAuthUI` → `AuthorizationCopyRights` → 同步 xpc
+ * `mach_msg` 永不回——safeStorage 首访要写的 Keychain 项在翻译进程（adhoc 身份）
+ * 下被 securityd 走授权 UI 路径，无 UI 会话环境（CI 无头冒烟）即死等；arm64
+ * 原生进程静默放行，故双架构不对称（arm64 冒烟 4.6s 过 / x64 永挂，CPU 0%）。
+ * 真 Intel Mac 原生运行不走本路径，Keychain 通道不受影响。
+ *
+ * 判据（纯 existsSync——本判定必须先于死锁点可用，不 spawn 子进程、不触 Keychain）：
+ * x64 进程 + 机型持 Rosetta 组件目录。可靠性：x64 代码无法在 arm64 芯片原生执行，
+ * 进程活着即必经 Rosetta；两条路径（/System/Library/CoreServices/Rosetta、
+ * /Library/Apple/usr/share/rosetta）均为 arm64 macOS 专属，Intel 机型不存在——
+ * 误报形态「Intel 机持 arm64 专属目录」不成立。linux/win 无此路径恒 false。
+ */
+export function isRosettaTranslated(deps: RosettaProbeDeps = { arch: () => process.arch, exists: existsSync }): boolean {
+  if (deps.arch() !== 'x64') return false
+  return deps.exists('/System/Library/CoreServices/Rosetta') || deps.exists('/Library/Apple/usr/share/rosetta')
+}
+
+/** 翻译态判定可注入（测试假件）；缺省真件 isRosettaTranslated */
+export interface OsKekDeps {
+  isRosetta?: () => boolean
+}
+
 /**
  * 取 OS 通道 IKM：无文件则生成并落盘，有则解锁；不可用面 → null（回落 v1 语义）。
  * 0918四轮修复批（C404）：
@@ -43,8 +79,18 @@ interface OsKekDisk {
  *   永久不可解，绝不删除重建，warn 指引（文案口径对齐 VaultOsKeyMissingError「请从
  *   桌面应用启动」）。
  */
-export function loadOrGenerateOsKek(userDataPath: string): Buffer | null {
+export function loadOrGenerateOsKek(userDataPath: string, deps: OsKekDeps = {}): Buffer | null {
   try {
+    // v1.0.0-rc.0 发布修复批④：翻译态整面提前回落——safeStorage 任一调用
+    //（isEncryptionAvailable/encryptString/decryptString）都可能是死锁点
+    //（见 isRosettaTranslated 注），守卫必须置于全部调用之前
+    if ((deps.isRosetta ?? isRosettaTranslated)()) {
+      log.warn(
+        'desktop',
+        `Rosetta 翻译进程（x64 包跑在 arm64 机型）——Keychain 授权在无 UI 会话环境同步死锁（安全面见 isRosettaTranslated 注）——OS 凭据通道回落内置通道（${join(userDataPath, OS_KEK_FILE)} 不受影响）；arm64 机型请改用 arm64 安装包，Intel 机型原生运行不受影响`,
+      )
+      return null
+    }
     if (!safeStorage.isEncryptionAvailable()) {
       // C404①：linux 无钥匙串等环境常态也留痕——「v2 vault 为何回落内置通道」可诊断
       log.warn('desktop', `safeStorage 加密通道不可用（无钥匙串/未受支持后端）——OS 凭据通道回落内置通道（${join(userDataPath, OS_KEK_FILE)} 不受影响）`)
